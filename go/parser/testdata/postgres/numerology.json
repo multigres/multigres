@@ -1,0 +1,416 @@
+[
+  {
+    "comment": "numerology - Statement 1",
+    "query": "SELECT 0b100101",
+    "expected": "SELECT 37"
+  },
+  {
+    "comment": "numerology - Statement 2",
+    "query": "SELECT 0o273",
+    "expected": "SELECT 187"
+  },
+  {
+    "comment": "numerology - Statement 3",
+    "query": "SELECT 0x42F",
+    "expected": "SELECT 1071"
+  },
+  {
+    "comment": "numerology - Statement 4",
+    "query": "SELECT 0b1111111111111111111111111111111",
+    "expected": "SELECT 2147483647"
+  },
+  {
+    "comment": "numerology - Statement 5",
+    "query": "SELECT 0b10000000000000000000000000000000"
+  },
+  {
+    "comment": "numerology - Statement 6",
+    "query": "SELECT 0o17777777777",
+    "expected": "SELECT 2147483647"
+  },
+  {
+    "comment": "numerology - Statement 7",
+    "query": "SELECT 0o20000000000"
+  },
+  {
+    "comment": "numerology - Statement 8",
+    "query": "SELECT 0x7FFFFFFF",
+    "expected": "SELECT 2147483647"
+  },
+  {
+    "comment": "numerology - Statement 9",
+    "query": "SELECT 0x80000000"
+  },
+  {
+    "comment": "numerology - Statement 10",
+    "query": "SELECT -0b10000000000000000000000000000000"
+  },
+  {
+    "comment": "numerology - Statement 11",
+    "query": "SELECT -0b10000000000000000000000000000001"
+  },
+  {
+    "comment": "numerology - Statement 12",
+    "query": "SELECT -0o20000000000"
+  },
+  {
+    "comment": "numerology - Statement 13",
+    "query": "SELECT -0o20000000001"
+  },
+  {
+    "comment": "numerology - Statement 14",
+    "query": "SELECT -0x80000000"
+  },
+  {
+    "comment": "numerology - Statement 15",
+    "query": "SELECT -0x80000001"
+  },
+  {
+    "comment": "numerology - Statement 16",
+    "query": "SELECT 0b111111111111111111111111111111111111111111111111111111111111111"
+  },
+  {
+    "comment": "numerology - Statement 17",
+    "query": "SELECT 0b1000000000000000000000000000000000000000000000000000000000000000"
+  },
+  {
+    "comment": "numerology - Statement 18",
+    "query": "SELECT 0o777777777777777777777"
+  },
+  {
+    "comment": "numerology - Statement 19",
+    "query": "SELECT 0o1000000000000000000000"
+  },
+  {
+    "comment": "numerology - Statement 20",
+    "query": "SELECT 0x7FFFFFFFFFFFFFFF"
+  },
+  {
+    "comment": "numerology - Statement 21",
+    "query": "SELECT 0x8000000000000000"
+  },
+  {
+    "comment": "numerology - Statement 22",
+    "query": "SELECT -0b1000000000000000000000000000000000000000000000000000000000000000"
+  },
+  {
+    "comment": "numerology - Statement 23",
+    "query": "SELECT -0b1000000000000000000000000000000000000000000000000000000000000001"
+  },
+  {
+    "comment": "numerology - Statement 24",
+    "query": "SELECT -0o1000000000000000000000"
+  },
+  {
+    "comment": "numerology - Statement 25",
+    "query": "SELECT -0o1000000000000000000001"
+  },
+  {
+    "comment": "numerology - Statement 26",
+    "query": "SELECT -0x8000000000000000"
+  },
+  {
+    "comment": "numerology - Statement 27",
+    "query": "SELECT -0x8000000000000001"
+  },
+  {
+    "comment": "numerology - Statement 28",
+    "query": "SELECT 123abc",
+    "error": "trailing junk after numeric literal"
+  },
+  {
+    "comment": "numerology - Statement 29",
+    "query": "SELECT 0x0o",
+    "expected": "SELECT 0 AS o"
+  },
+  {
+    "comment": "numerology - Statement 30",
+    "query": "SELECT 0.a",
+    "error": "trailing junk after numeric literal"
+  },
+  {
+    "comment": "numerology - Statement 31",
+    "query": "SELECT 0.0a",
+    "error": "trailing junk after numeric literal"
+  },
+  {
+    "comment": "numerology - Statement 32",
+    "query": "SELECT .0a",
+    "error": "trailing junk after numeric literal"
+  },
+  {
+    "comment": "numerology - Statement 33",
+    "query": "SELECT 0.0e1a",
+    "error": "trailing junk after numeric literal"
+  },
+  {
+    "comment": "numerology - Statement 34",
+    "query": "SELECT 0.0e",
+    "error": "trailing junk after numeric literal"
+  },
+  {
+    "comment": "numerology - Statement 35",
+    "query": "SELECT 0.0e+a",
+    "error": "trailing junk after numeric literal"
+  },
+  {
+    "comment": "numerology - Statement 36",
+    "query": "PREPARE p1 AS SELECT $1a",
+    "error": "trailing junk after parameter"
+  },
+  {
+    "comment": "numerology - Statement 37",
+    "query": "SELECT 0b",
+    "error": "invalid binary integer"
+  },
+  {
+    "comment": "numerology - Statement 38",
+    "query": "SELECT 1b",
+    "error": "trailing junk after numeric literal"
+  },
+  {
+    "comment": "numerology - Statement 39",
+    "query": "SELECT 0b0x",
+    "expected": "SELECT 0 AS x"
+  },
+  {
+    "comment": "numerology - Statement 40",
+    "query": "SELECT 0o",
+    "error": "invalid octal integer"
+  },
+  {
+    "comment": "numerology - Statement 41",
+    "query": "SELECT 1o",
+    "error": "trailing junk after numeric literal"
+  },
+  {
+    "comment": "numerology - Statement 42",
+    "query": "SELECT 0o0x",
+    "expected": "SELECT 0 AS x"
+  },
+  {
+    "comment": "numerology - Statement 43",
+    "query": "SELECT 0x",
+    "error": "invalid hexadecimal integer"
+  },
+  {
+    "comment": "numerology - Statement 44",
+    "query": "SELECT 1x",
+    "error": "trailing junk after numeric literal"
+  },
+  {
+    "comment": "numerology - Statement 45",
+    "query": "SELECT 0x0y",
+    "expected": "SELECT 0 AS y"
+  },
+  {
+    "comment": "numerology - Statement 46",
+    "query": "SELECT 1_000_000",
+    "expected": "SELECT 1000000"
+  },
+  {
+    "comment": "numerology - Statement 47",
+    "query": "SELECT 1_2_3",
+    "expected": "SELECT 123"
+  },
+  {
+    "comment": "numerology - Statement 48",
+    "query": "SELECT 0x1EEE_FFFF",
+    "expected": "SELECT 518979583"
+  },
+  {
+    "comment": "numerology - Statement 49",
+    "query": "SELECT 0o2_73",
+    "expected": "SELECT 187"
+  },
+  {
+    "comment": "numerology - Statement 50",
+    "query": "SELECT 0b_10_0101",
+    "expected": "SELECT 37"
+  },
+  {
+    "comment": "numerology - Statement 51",
+    "query": "SELECT 1_000.000_005"
+  },
+  {
+    "comment": "numerology - Statement 52",
+    "query": "SELECT 1_000."
+  },
+  {
+    "comment": "numerology - Statement 53",
+    "query": "SELECT .000_005"
+  },
+  {
+    "comment": "numerology - Statement 54",
+    "query": "SELECT 1_000.5e0_1"
+  },
+  {
+    "comment": "numerology - Statement 55",
+    "query": "DO $$ DECLARE   i int; BEGIN   FOR i IN 1_001..1_003 LOOP     RAISE NOTICE 'i = %', i;   END LOOP; END $$;",
+    "expected": "DO ' DECLARE   i int; BEGIN   FOR i IN 1_001..1_003 LOOP     RAISE NOTICE ''i = %'', i;   END LOOP; END '"
+  },
+  {
+    "comment": "numerology - Statement 59",
+    "query": "SELECT _100"
+  },
+  {
+    "comment": "numerology - Statement 60",
+    "query": "SELECT 100_",
+    "error": "trailing junk after numeric literal"
+  },
+  {
+    "comment": "numerology - Statement 61",
+    "query": "SELECT 100__000",
+    "error": "trailing junk after numeric literal"
+  },
+  {
+    "comment": "numerology - Statement 62",
+    "query": "SELECT _1_000.5",
+    "error": "parse error at position 15: syntax error"
+  },
+  {
+    "comment": "numerology - Statement 63",
+    "query": "SELECT 1_000_.5",
+    "error": "trailing junk after numeric literal"
+  },
+  {
+    "comment": "numerology - Statement 64",
+    "query": "SELECT 1_000._5",
+    "error": "trailing junk after numeric literal"
+  },
+  {
+    "comment": "numerology - Statement 65",
+    "query": "SELECT 1_000.5_",
+    "error": "trailing junk after numeric literal"
+  },
+  {
+    "comment": "numerology - Statement 66",
+    "query": "SELECT 1_000.5e_1",
+    "error": "trailing junk after numeric literal"
+  },
+  {
+    "comment": "numerology - Statement 67",
+    "query": "PREPARE p1 AS SELECT $0_1",
+    "error": "trailing junk after parameter"
+  },
+  {
+    "comment": "numerology - Statement 68",
+    "query": "CREATE TABLE TEMP_FLOAT (f1 FLOAT8)",
+    "expected": "CREATE TABLE temp_float (f1 FLOAT8)"
+  },
+  {
+    "comment": "numerology - Statement 69",
+    "query": "INSERT INTO TEMP_FLOAT (f1) SELECT float8(f1) FROM INT4_TBL",
+    "expected": "INSERT INTO temp_float (f1) SELECT float8(f1) FROM int4_tbl"
+  },
+  {
+    "comment": "numerology - Statement 70",
+    "query": "INSERT INTO TEMP_FLOAT (f1) SELECT float8(f1) FROM INT2_TBL",
+    "expected": "INSERT INTO temp_float (f1) SELECT float8(f1) FROM int2_tbl"
+  },
+  {
+    "comment": "numerology - Statement 71",
+    "query": "SELECT f1 FROM TEMP_FLOAT ORDER BY f1",
+    "expected": "SELECT f1 FROM temp_float ORDER BY f1"
+  },
+  {
+    "comment": "numerology - Statement 72",
+    "query": "CREATE TABLE TEMP_INT4 (f1 INT4)",
+    "expected": "CREATE TABLE temp_int4 (f1 INT)"
+  },
+  {
+    "comment": "numerology - Statement 73",
+    "query": "INSERT INTO TEMP_INT4 (f1) SELECT int4(f1) FROM FLOAT8_TBL WHERE (f1 \u003e -2147483647) AND (f1 \u003c 2147483647)",
+    "expected": "INSERT INTO temp_int4 (f1) (SELECT int4(f1) FROM float8_tbl WHERE (f1 \u003e -2147483647) AND (f1 \u003c 2147483647))"
+  },
+  {
+    "comment": "numerology - Statement 74",
+    "query": "INSERT INTO TEMP_INT4 (f1) SELECT int4(f1) FROM INT2_TBL",
+    "expected": "INSERT INTO temp_int4 (f1) SELECT int4(f1) FROM int2_tbl"
+  },
+  {
+    "comment": "numerology - Statement 75",
+    "query": "SELECT f1 FROM TEMP_INT4 ORDER BY f1",
+    "expected": "SELECT f1 FROM temp_int4 ORDER BY f1"
+  },
+  {
+    "comment": "numerology - Statement 76",
+    "query": "CREATE TABLE TEMP_INT2 (f1 INT2)",
+    "expected": "CREATE TABLE temp_int2 (f1 SMALLINT)"
+  },
+  {
+    "comment": "numerology - Statement 77",
+    "query": "INSERT INTO TEMP_INT2 (f1) SELECT int2(f1) FROM FLOAT8_TBL WHERE (f1 \u003e= -32767) AND (f1 \u003c= 32767)",
+    "expected": "INSERT INTO temp_int2 (f1) (SELECT int2(f1) FROM float8_tbl WHERE (f1 \u003e= -32767) AND (f1 \u003c= 32767))"
+  },
+  {
+    "comment": "numerology - Statement 78",
+    "query": "INSERT INTO TEMP_INT2 (f1) SELECT int2(f1) FROM INT4_TBL WHERE (f1 \u003e= -32767) AND (f1 \u003c= 32767)",
+    "expected": "INSERT INTO temp_int2 (f1) (SELECT int2(f1) FROM int4_tbl WHERE (f1 \u003e= -32767) AND (f1 \u003c= 32767))"
+  },
+  {
+    "comment": "numerology - Statement 79",
+    "query": "SELECT f1 FROM TEMP_INT2 ORDER BY f1",
+    "expected": "SELECT f1 FROM temp_int2 ORDER BY f1"
+  },
+  {
+    "comment": "numerology - Statement 80",
+    "query": "CREATE TABLE TEMP_GROUP (f1 INT4, f2 INT4, f3 FLOAT8)",
+    "expected": "CREATE TABLE temp_group (f1 INT, f2 INT, f3 FLOAT8)"
+  },
+  {
+    "comment": "numerology - Statement 81",
+    "query": "INSERT INTO TEMP_GROUP SELECT 1, (- i.f1), (- f.f1) FROM INT4_TBL i, FLOAT8_TBL f",
+    "expected": "INSERT INTO temp_group SELECT 1, (-i.f1), (-f.f1) FROM int4_tbl AS i, float8_tbl AS f"
+  },
+  {
+    "comment": "numerology - Statement 82",
+    "query": "INSERT INTO TEMP_GROUP SELECT 2, i.f1, f.f1 FROM INT4_TBL i, FLOAT8_TBL f",
+    "expected": "INSERT INTO temp_group SELECT 2, i.f1, f.f1 FROM int4_tbl AS i, float8_tbl AS f"
+  },
+  {
+    "comment": "numerology - Statement 83",
+    "query": "SELECT DISTINCT f1 AS two FROM TEMP_GROUP ORDER BY 1",
+    "expected": "SELECT DISTINCT f1 AS two FROM temp_group ORDER BY 1"
+  },
+  {
+    "comment": "numerology - Statement 84",
+    "query": "SELECT f1 AS two, max(f3) AS max_float, min(f3) as min_float FROM TEMP_GROUP GROUP BY f1 ORDER BY two, max_float, min_float",
+    "expected": "SELECT f1 AS two, MAX(f3) AS max_float, MIN(f3) AS min_float FROM temp_group GROUP BY f1 ORDER BY two, max_float, min_float"
+  },
+  {
+    "comment": "numerology - Statement 85",
+    "query": "SELECT f1 AS two, max(f3) AS max_float, min(f3) AS min_float FROM TEMP_GROUP GROUP BY two ORDER BY two, max_float, min_float",
+    "expected": "SELECT f1 AS two, MAX(f3) AS max_float, MIN(f3) AS min_float FROM temp_group GROUP BY two ORDER BY two, max_float, min_float"
+  },
+  {
+    "comment": "numerology - Statement 86",
+    "query": "SELECT f1 AS two, (max(f3) + 1) AS max_plus_1, (min(f3) - 1) AS min_minus_1 FROM TEMP_GROUP GROUP BY f1 ORDER BY two, min_minus_1",
+    "expected": "SELECT f1 AS two, (MAX(f3) + 1) AS max_plus_1, (MIN(f3) - 1) AS min_minus_1 FROM temp_group GROUP BY f1 ORDER BY two, min_minus_1"
+  },
+  {
+    "comment": "numerology - Statement 87",
+    "query": "SELECT f1 AS two, max(f2) + min(f2) AS max_plus_min, min(f3) - 1 AS min_minus_1 FROM TEMP_GROUP GROUP BY f1 ORDER BY two, min_minus_1",
+    "expected": "SELECT f1 AS two, MAX(f2) + MIN(f2) AS max_plus_min, MIN(f3) - 1 AS min_minus_1 FROM temp_group GROUP BY f1 ORDER BY two, min_minus_1"
+  },
+  {
+    "comment": "numerology - Statement 88",
+    "query": "DROP TABLE TEMP_INT2",
+    "expected": "DROP TABLE temp_int2"
+  },
+  {
+    "comment": "numerology - Statement 89",
+    "query": "DROP TABLE TEMP_INT4",
+    "expected": "DROP TABLE temp_int4"
+  },
+  {
+    "comment": "numerology - Statement 90",
+    "query": "DROP TABLE TEMP_FLOAT",
+    "expected": "DROP TABLE temp_float"
+  },
+  {
+    "comment": "numerology - Statement 91",
+    "query": "DROP TABLE TEMP_GROUP",
+    "expected": "DROP TABLE temp_group"
+  }
+]

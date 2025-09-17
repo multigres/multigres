@@ -59,3 +59,13 @@ multigres_local/
 
 # Local linter output directory
 super-linter-output/
+.mypy_cache/
+
+# Claude Code settings
+.claude/
+
+# expected results of a test
+go/parser/testdata/expected
+
+# y.output file
+y.output

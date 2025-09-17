@@ -1,0 +1,372 @@
+[
+  {
+    "comment": "copy - Statement 1",
+    "query": "insert into copytest values('DOS',E'abc\\r\\ndef',1)",
+    "expected": "INSERT INTO copytest VALUES ('DOS', 'abc\r\ndef', 1)"
+  },
+  {
+    "comment": "copy - Statement 2",
+    "query": "insert into copytest values('Unix',E'abc\\ndef',2)",
+    "expected": "INSERT INTO copytest VALUES ('Unix', 'abc\ndef', 2)"
+  },
+  {
+    "comment": "copy - Statement 3",
+    "query": "insert into copytest values('Mac',E'abc\\rdef',3)",
+    "expected": "INSERT INTO copytest VALUES ('Mac', 'abc\rdef', 3)"
+  },
+  {
+    "comment": "copy - Statement 4",
+    "query": "insert into copytest values(E'esc\\\\ape',E'a\\\\r\\\\\\r\\\\\\n\\\\nb',4)",
+    "expected": "INSERT INTO copytest VALUES ('esc\\ape', 'a\\r\\\r\\\n\\nb', 4)"
+  },
+  {
+    "comment": "copy - Statement 5",
+    "query": "create temp table copytest2 (like copytest)",
+    "expected": "CREATE TEMPORARY TABLE copytest2 (LIKE copytest)"
+  },
+  {
+    "comment": "copy - Statement 6",
+    "query": "copy copytest2 from 'filename' csv",
+    "expected": "COPY copytest2 FROM 'filename' (format 'csv')"
+  },
+  {
+    "comment": "copy - Statement 7",
+    "query": "select * from copytest except select * from copytest2",
+    "expected": "SELECT * FROM copytest EXCEPT SELECT * FROM copytest2"
+  },
+  {
+    "comment": "copy - Statement 8",
+    "query": "truncate copytest2",
+    "expected": "TRUNCATE TABLE copytest2 CONTINUE IDENTITY RESTRICT"
+  },
+  {
+    "comment": "copy - Statement 9",
+    "query": "copy copytest to 'filename' csv quote '''' escape E'\\\\'",
+    "expected": "COPY copytest TO 'filename' (format 'csv', quote '''', escape '\\')"
+  },
+  {
+    "comment": "copy - Statement 10",
+    "query": "copy copytest2 from 'filename' csv quote '''' escape E'\\\\'",
+    "expected": "COPY copytest2 FROM 'filename' (format 'csv', quote '''', escape '\\')"
+  },
+  {
+    "comment": "copy - Statement 11",
+    "query": "create temp table copytest3 ( c1 int, \"col with , comma\" text, \"col with \"\" quote\"  int)",
+    "expected": "CREATE TEMPORARY TABLE copytest3 (c1 INT, \"col with , comma\" TEXT, \"col with \"\" quote\" INT)"
+  },
+  {
+    "comment": "copy - Statement 12",
+    "query": "copy copytest3 from stdin csv header",
+    "expected": "COPY copytest3 FROM STDIN (format 'csv', header true)"
+  },
+  {
+    "comment": "copy - Statement 13",
+    "query": "this is just a line full of junk that would error out if parsed 1,a,1 2,b,2 \\. copy copytest3 to stdout csv header",
+    "error": "parse error at position 4: syntax error"
+  },
+  {
+    "comment": "copy - Statement 14",
+    "query": "create temp table copytest4 ( c1 int, \"colname with tab: \t\" text)",
+    "expected": "CREATE TEMPORARY TABLE copytest4 (c1 INT, \"colname with tab: \t\" TEXT)"
+  },
+  {
+    "comment": "copy - Statement 15",
+    "query": "copy copytest4 from stdin (header)",
+    "expected": "COPY copytest4 FROM STDIN (header)"
+  },
+  {
+    "comment": "copy - Statement 16",
+    "query": "this is just a line full of junk that would error out if parsed 1\ta 2\tb \\. copy copytest4 to stdout (header)",
+    "error": "parse error at position 4: syntax error"
+  },
+  {
+    "comment": "copy - Statement 17",
+    "query": "create table parted_copytest ( a int, b int, c text ) partition by list (b)",
+    "expected": "CREATE TABLE parted_copytest (a INT, b INT, c TEXT) PARTITION BY list (b)"
+  },
+  {
+    "comment": "copy - Statement 18",
+    "query": "create table parted_copytest_a1 (c text, b int, a int)",
+    "expected": "CREATE TABLE parted_copytest_a1 (c TEXT, b INT, a INT)"
+  },
+  {
+    "comment": "copy - Statement 19",
+    "query": "create table parted_copytest_a2 (a int, c text, b int)",
+    "expected": "CREATE TABLE parted_copytest_a2 (a INT, c TEXT, b INT)"
+  },
+  {
+    "comment": "copy - Statement 20",
+    "query": "alter table parted_copytest attach partition parted_copytest_a1 for values in(1)",
+    "expected": "ALTER TABLE parted_copytest ATTACH PARTITION parted_copytest_a1 FOR VALUES IN (1)"
+  },
+  {
+    "comment": "copy - Statement 21",
+    "query": "alter table parted_copytest attach partition parted_copytest_a2 for values in(2)",
+    "expected": "ALTER TABLE parted_copytest ATTACH PARTITION parted_copytest_a2 FOR VALUES IN (2)"
+  },
+  {
+    "comment": "copy - Statement 22",
+    "query": "insert into parted_copytest select x,1,'One' from generate_series(1,1000) x",
+    "expected": "INSERT INTO parted_copytest SELECT x, 1, 'One' FROM generate_series(1, 1000) AS x"
+  },
+  {
+    "comment": "copy - Statement 23",
+    "query": "insert into parted_copytest select x,2,'Two' from generate_series(1001,1010) x",
+    "expected": "INSERT INTO parted_copytest SELECT x, 2, 'Two' FROM generate_series(1001, 1010) AS x"
+  },
+  {
+    "comment": "copy - Statement 24",
+    "query": "insert into parted_copytest select x,1,'One' from generate_series(1011,1020) x",
+    "expected": "INSERT INTO parted_copytest SELECT x, 1, 'One' FROM generate_series(1011, 1020) AS x"
+  },
+  {
+    "comment": "copy - Statement 25",
+    "query": "truncate parted_copytest",
+    "expected": "TRUNCATE TABLE parted_copytest CONTINUE IDENTITY RESTRICT"
+  },
+  {
+    "comment": "copy - Statement 26",
+    "query": "copy parted_copytest from 'filename'",
+    "expected": "COPY parted_copytest FROM 'filename'"
+  },
+  {
+    "comment": "copy - Statement 27",
+    "query": "begin",
+    "expected": "BEGIN"
+  },
+  {
+    "comment": "copy - Statement 28",
+    "query": "copy parted_copytest from 'filename' (freeze)",
+    "expected": "COPY parted_copytest FROM 'filename' (freeze)"
+  },
+  {
+    "comment": "copy - Statement 29",
+    "query": "rollback",
+    "expected": "ROLLBACK"
+  },
+  {
+    "comment": "copy - Statement 30",
+    "query": "select tableoid::regclass,count(*),sum(a) from parted_copytest group by tableoid order by tableoid::regclass::name",
+    "expected": "SELECT CAST(tableoid AS regclass), COUNT(*), SUM(a) FROM parted_copytest GROUP BY tableoid ORDER BY CAST(CAST(tableoid AS regclass) AS name)"
+  },
+  {
+    "comment": "copy - Statement 31",
+    "query": "create function part_ins_func() returns trigger language plpgsql as $$ begin return new end $$",
+    "expected": "CREATE FUNCTION part_ins_func () RETURNS trigger LANGUAGE plpgsql AS $$ begin return new end $$"
+  },
+  {
+    "comment": "copy - Statement 34",
+    "query": "create trigger part_ins_trig before insert on parted_copytest_a2 for each row execute procedure part_ins_func()",
+    "expected": "CREATE TRIGGER part_ins_trig BEFORE INSERT ON parted_copytest_a2 FOR EACH ROW EXECUTE FUNCTION part_ins_func()"
+  },
+  {
+    "comment": "copy - Statement 35",
+    "query": "truncate table parted_copytest",
+    "expected": "TRUNCATE TABLE parted_copytest CONTINUE IDENTITY RESTRICT"
+  },
+  {
+    "comment": "copy - Statement 36",
+    "query": "create index on parted_copytest (b)",
+    "expected": "CREATE INDEX ON parted_copytest USING btree ( b )"
+  },
+  {
+    "comment": "copy - Statement 37",
+    "query": "drop trigger part_ins_trig on parted_copytest_a2",
+    "expected": "DROP TRIGGER part_ins_trig ON parted_copytest_a2"
+  },
+  {
+    "comment": "copy - Statement 38",
+    "query": "copy parted_copytest from stdin",
+    "expected": "COPY parted_copytest FROM STDIN"
+  },
+  {
+    "comment": "copy - Statement 39",
+    "query": "select * from parted_copytest where b = 1",
+    "expected": "SELECT * FROM parted_copytest WHERE b = 1"
+  },
+  {
+    "comment": "copy - Statement 40",
+    "query": "select * from parted_copytest where b = 2",
+    "expected": "SELECT * FROM parted_copytest WHERE b = 2"
+  },
+  {
+    "comment": "copy - Statement 41",
+    "query": "drop table parted_copytest",
+    "expected": "DROP TABLE parted_copytest"
+  },
+  {
+    "comment": "copy - Statement 42",
+    "query": "create table tab_progress_reporting ( name text, age int4, location point, salary int4, manager name )",
+    "expected": "CREATE TABLE tab_progress_reporting (name TEXT, age INT, location point, salary INT, manager name)"
+  },
+  {
+    "comment": "copy - Statement 43",
+    "query": "create function notice_after_tab_progress_reporting() returns trigger AS $$ declare report record begin with progress_data as ( select relid::regclass::text as relname, command, type, bytes_processed \u003e 0 as has_bytes_processed, bytes_total \u003e 0 as has_bytes_total, tuples_processed, tuples_excluded from pg_stat_progress_copy where pid = pg_backend_pid()) select into report (to_jsonb(r)) as value from progress_data r raise info 'progress: %', report.value::text return new $$ language plpgsql",
+    "expected": "CREATE FUNCTION notice_after_tab_progress_reporting () RETURNS trigger AS $$ declare report record begin with progress_data as ( select relid::regclass::text as relname, command, type, bytes_processed \u003e 0 as has_bytes_processed, bytes_total \u003e 0 as has_bytes_total, tuples_processed, tuples_excluded from pg_stat_progress_copy where pid = pg_backend_pid()) select into report (to_jsonb(r)) as value from progress_data r raise info 'progress: %', report.value::text return new $$ LANGUAGE plpgsql"
+  },
+  {
+    "comment": "copy - Statement 48",
+    "query": "create trigger check_after_tab_progress_reporting after insert on tab_progress_reporting for each statement execute function notice_after_tab_progress_reporting()",
+    "expected": "CREATE TRIGGER check_after_tab_progress_reporting AFTER INSERT ON tab_progress_reporting EXECUTE FUNCTION notice_after_tab_progress_reporting()"
+  },
+  {
+    "comment": "copy - Statement 49",
+    "query": "copy tab_progress_reporting from stdin",
+    "expected": "COPY tab_progress_reporting FROM STDIN"
+  },
+  {
+    "comment": "copy - Statement 50",
+    "query": "truncate tab_progress_reporting",
+    "expected": "TRUNCATE TABLE tab_progress_reporting CONTINUE IDENTITY RESTRICT"
+  },
+  {
+    "comment": "copy - Statement 51",
+    "query": "drop trigger check_after_tab_progress_reporting on tab_progress_reporting",
+    "expected": "DROP TRIGGER check_after_tab_progress_reporting ON tab_progress_reporting"
+  },
+  {
+    "comment": "copy - Statement 52",
+    "query": "drop function notice_after_tab_progress_reporting()",
+    "expected": "DROP FUNCTION notice_after_tab_progress_reporting()"
+  },
+  {
+    "comment": "copy - Statement 53",
+    "query": "drop table tab_progress_reporting",
+    "expected": "DROP TABLE tab_progress_reporting"
+  },
+  {
+    "comment": "copy - Statement 54",
+    "query": "create table header_copytest ( a int, b int, c text )",
+    "expected": "CREATE TABLE header_copytest (a INT, b INT, c TEXT)"
+  },
+  {
+    "comment": "copy - Statement 55",
+    "query": "alter table header_copytest drop column c",
+    "expected": "ALTER TABLE header_copytest DROP COLUMN c"
+  },
+  {
+    "comment": "copy - Statement 56",
+    "query": "alter table header_copytest add column c text",
+    "expected": "ALTER TABLE header_copytest ADD COLUMN c TEXT"
+  },
+  {
+    "comment": "copy - Statement 57",
+    "query": "copy header_copytest to stdout with (header match)",
+    "expected": "COPY header_copytest TO STDOUT (header 'match')"
+  },
+  {
+    "comment": "copy - Statement 58",
+    "query": "copy header_copytest from stdin with (header wrong_choice)",
+    "expected": "COPY header_copytest FROM STDIN (header 'wrong_choice')"
+  },
+  {
+    "comment": "copy - Statement 59",
+    "query": "copy header_copytest from stdin with (header match)",
+    "expected": "COPY header_copytest FROM STDIN (header 'match')"
+  },
+  {
+    "comment": "copy - Statement 60",
+    "query": "copy header_copytest (c, a, b) from stdin with (header match)",
+    "expected": "COPY header_copytest (c, a, b) FROM STDIN (header 'match')"
+  },
+  {
+    "comment": "copy - Statement 61",
+    "query": "copy header_copytest from stdin with (header match, format csv)",
+    "expected": "COPY header_copytest FROM STDIN (header 'match', format 'csv')"
+  },
+  {
+    "comment": "copy - Statement 62",
+    "query": "copy header_copytest (c, b, a) from stdin with (header match)",
+    "expected": "COPY header_copytest (c, b, a) FROM STDIN (header 'match')"
+  },
+  {
+    "comment": "copy - Statement 63",
+    "query": "copy header_copytest from stdin with (header match)",
+    "expected": "COPY header_copytest FROM STDIN (header 'match')"
+  },
+  {
+    "comment": "copy - Statement 64",
+    "query": "copy header_copytest from stdin with (header match)",
+    "expected": "COPY header_copytest FROM STDIN (header 'match')"
+  },
+  {
+    "comment": "copy - Statement 65",
+    "query": "copy header_copytest from stdin with (header match)",
+    "expected": "COPY header_copytest FROM STDIN (header 'match')"
+  },
+  {
+    "comment": "copy - Statement 66",
+    "query": "copy header_copytest from stdin with (header match)",
+    "expected": "COPY header_copytest FROM STDIN (header 'match')"
+  },
+  {
+    "comment": "copy - Statement 67",
+    "query": "SELECT * FROM header_copytest ORDER BY a"
+  },
+  {
+    "comment": "copy - Statement 68",
+    "query": "alter table header_copytest drop column b",
+    "expected": "ALTER TABLE header_copytest DROP COLUMN b"
+  },
+  {
+    "comment": "copy - Statement 69",
+    "query": "copy header_copytest (c, a) from stdin with (header match)",
+    "expected": "COPY header_copytest (c, a) FROM STDIN (header 'match')"
+  },
+  {
+    "comment": "copy - Statement 70",
+    "query": "copy header_copytest (a, c) from stdin with (header match)",
+    "expected": "COPY header_copytest (a, c) FROM STDIN (header 'match')"
+  },
+  {
+    "comment": "copy - Statement 71",
+    "query": "copy header_copytest from stdin with (header match)",
+    "expected": "COPY header_copytest FROM STDIN (header 'match')"
+  },
+  {
+    "comment": "copy - Statement 72",
+    "query": "copy header_copytest (a, c) from stdin with (header match)",
+    "expected": "COPY header_copytest (a, c) FROM STDIN (header 'match')"
+  },
+  {
+    "comment": "copy - Statement 73",
+    "query": "SELECT * FROM header_copytest ORDER BY a"
+  },
+  {
+    "comment": "copy - Statement 74",
+    "query": "drop table header_copytest",
+    "expected": "DROP TABLE header_copytest"
+  },
+  {
+    "comment": "copy - Statement 75",
+    "query": "create temp table oversized_column_default ( col1 varchar(5) DEFAULT 'more than 5 chars', col2 varchar(5))",
+    "expected": "CREATE TEMPORARY TABLE oversized_column_default (col1 VARCHAR(5) DEFAULT 'more than 5 chars', col2 VARCHAR(5))"
+  },
+  {
+    "comment": "copy - Statement 76",
+    "query": "copy oversized_column_default from stdin",
+    "expected": "COPY oversized_column_default FROM STDIN"
+  },
+  {
+    "comment": "copy - Statement 77",
+    "query": "CREATE TABLE parted_si ( id int not null, data text not null, rand float8 not null default random() ) PARTITION BY LIST((id % 2))",
+    "expected": "CREATE TABLE parted_si (id INT NOT NULL, data TEXT NOT NULL, rand FLOAT8 NOT NULL DEFAULT random()) PARTITION BY list ((id % 2))"
+  },
+  {
+    "comment": "copy - Statement 78",
+    "query": "CREATE TABLE parted_si_p_even PARTITION OF parted_si FOR VALUES IN (0)"
+  },
+  {
+    "comment": "copy - Statement 79",
+    "query": "CREATE TABLE parted_si_p_odd PARTITION OF parted_si FOR VALUES IN (1)"
+  },
+  {
+    "comment": "copy - Statement 80",
+    "query": "SELECT tableoid::regclass, id % 2 = 0 is_even, count(*) from parted_si GROUP BY 1, 2 ORDER BY 1",
+    "expected": "SELECT CAST(tableoid AS regclass), id % 2 = 0 AS is_even, COUNT(*) FROM parted_si GROUP BY 1, 2 ORDER BY 1"
+  },
+  {
+    "comment": "copy - Statement 81",
+    "query": "DROP TABLE parted_si"
+  }
+]

@@ -1,0 +1,426 @@
+[
+  {
+    "comment": "create_procedure - Statement 1",
+    "query": "CALL nonexistent()"
+  },
+  {
+    "comment": "create_procedure - Statement 2",
+    "query": "CALL random()"
+  },
+  {
+    "comment": "create_procedure - Statement 3",
+    "query": "CREATE FUNCTION cp_testfunc1(a int) RETURNS int LANGUAGE SQL AS $$ SELECT a $$",
+    "expected": "CREATE FUNCTION cp_testfunc1 (a INT) RETURNS INT LANGUAGE sql AS $$ SELECT a $$"
+  },
+  {
+    "comment": "create_procedure - Statement 4",
+    "query": "CREATE TABLE cp_test (a int, b text)",
+    "expected": "CREATE TABLE cp_test (a INT, b TEXT)"
+  },
+  {
+    "comment": "create_procedure - Statement 5",
+    "query": "CREATE PROCEDURE ptest1(x text) LANGUAGE SQL AS $$ INSERT INTO cp_test VALUES (1, x); $$;",
+    "expected": "CREATE PROCEDURE ptest1 (x TEXT) LANGUAGE sql AS $$ INSERT INTO cp_test VALUES (1, x); $$"
+  },
+  {
+    "comment": "create_procedure - Statement 7",
+    "query": "CALL ptest1('a')"
+  },
+  {
+    "comment": "create_procedure - Statement 8",
+    "query": "CALL ptest1('xy' || 'zzy')"
+  },
+  {
+    "comment": "create_procedure - Statement 9",
+    "query": "CALL ptest1(substring(random()::numeric(20,15)::text, 1, 1))",
+    "expected": "CALL ptest1(substring(CAST(CAST(random() AS NUMERIC(20, 15)) AS TEXT), 1, 1))"
+  },
+  {
+    "comment": "create_procedure - Statement 10",
+    "query": "SELECT * FROM cp_test ORDER BY b COLLATE \"C\""
+  },
+  {
+    "comment": "create_procedure - Statement 11",
+    "query": "CREATE PROCEDURE ptest1s(x text) LANGUAGE SQL BEGIN ATOMIC INSERT INTO cp_test VALUES (1, x); END",
+    "expected": "CREATE PROCEDURE ptest1s (x TEXT) LANGUAGE sql BEGIN ATOMIC INSERT INTO cp_test VALUES (1, x); END"
+  },
+  {
+    "comment": "create_procedure - Statement 13",
+    "query": "CALL ptest1s('b')"
+  },
+  {
+    "comment": "create_procedure - Statement 14",
+    "query": "CREATE PROCEDURE ptestx() LANGUAGE SQL BEGIN ATOMIC CREATE TABLE x (a int); END;",
+    "expected": "CREATE PROCEDURE ptestx () LANGUAGE sql BEGIN ATOMIC CREATE TABLE x (a INT); END"
+  },
+  {
+    "comment": "create_procedure - Statement 15",
+    "query": "CREATE PROCEDURE ptest2() LANGUAGE SQL AS $$ SELECT 5; $$;",
+    "expected": "CREATE PROCEDURE ptest2 () LANGUAGE sql AS $$ SELECT 5; $$"
+  },
+  {
+    "comment": "create_procedure - Statement 16",
+    "query": "CALL ptest2()"
+  },
+  {
+    "comment": "create_procedure - Statement 17",
+    "query": "TRUNCATE cp_test",
+    "expected": "TRUNCATE TABLE cp_test CONTINUE IDENTITY RESTRICT"
+  },
+  {
+    "comment": "create_procedure - Statement 18",
+    "query": "CREATE PROCEDURE ptest3(y text) LANGUAGE SQL AS $$ CALL ptest1(y); CALL ptest1($1); $$;",
+    "expected": "CREATE PROCEDURE ptest3 (y TEXT) LANGUAGE sql AS $$ CALL ptest1(y); CALL ptest1($1); $$"
+  },
+  {
+    "comment": "create_procedure - Statement 20",
+    "query": "CALL ptest3('b')"
+  },
+  {
+    "comment": "create_procedure - Statement 21",
+    "query": "SELECT * FROM cp_test"
+  },
+  {
+    "comment": "create_procedure - Statement 22",
+    "query": "CREATE PROCEDURE ptest4a(INOUT a int, INOUT b int) LANGUAGE SQL AS $$ SELECT 1, 2; $$;",
+    "expected": "CREATE PROCEDURE ptest4a (INOUT a INT, INOUT b INT) LANGUAGE sql AS $$ SELECT 1, 2; $$"
+  },
+  {
+    "comment": "create_procedure - Statement 23",
+    "query": "CALL ptest4a(NULL, NULL)"
+  },
+  {
+    "comment": "create_procedure - Statement 24",
+    "query": "CREATE PROCEDURE ptest4b(INOUT b int, INOUT a int) LANGUAGE SQL AS $$ CALL ptest4a(a, b); $$;",
+    "expected": "CREATE PROCEDURE ptest4b (INOUT b INT, INOUT a INT) LANGUAGE sql AS $$ CALL ptest4a(a, b); $$"
+  },
+  {
+    "comment": "create_procedure - Statement 25",
+    "query": "CREATE PROCEDURE ptest4c(INOUT comp int8_tbl) LANGUAGE SQL AS $$ SELECT ROW(1, 2); $$;",
+    "expected": "CREATE PROCEDURE ptest4c (INOUT comp int8_tbl) LANGUAGE sql AS $$ SELECT ROW(1, 2); $$"
+  },
+  {
+    "comment": "create_procedure - Statement 26",
+    "query": "CALL ptest4c(NULL)"
+  },
+  {
+    "comment": "create_procedure - Statement 27",
+    "query": "DROP PROCEDURE ptest4a, ptest4c"
+  },
+  {
+    "comment": "create_procedure - Statement 28",
+    "query": "CREATE OR REPLACE PROCEDURE ptest5(a int, b text, c int default 100) LANGUAGE SQL AS $$ INSERT INTO cp_test VALUES(a, b); INSERT INTO cp_test VALUES(c, b); $$;",
+    "expected": "CREATE OR REPLACE PROCEDURE ptest5 (a INT, b TEXT, c INT DEFAULT 100) LANGUAGE sql AS $$ INSERT INTO cp_test VALUES(a, b); INSERT INTO cp_test VALUES(c, b); $$"
+  },
+  {
+    "comment": "create_procedure - Statement 30",
+    "query": "CALL ptest5(10, 'Hello', 20)"
+  },
+  {
+    "comment": "create_procedure - Statement 31",
+    "query": "CALL ptest5(10, 'Hello')"
+  },
+  {
+    "comment": "create_procedure - Statement 32",
+    "query": "CALL ptest5(10, b =\u003e 'Hello')"
+  },
+  {
+    "comment": "create_procedure - Statement 33",
+    "query": "CALL ptest5(b =\u003e 'Hello', a =\u003e 10)"
+  },
+  {
+    "comment": "create_procedure - Statement 34",
+    "query": "CREATE PROCEDURE ptest6(a int, b anyelement) LANGUAGE SQL AS $$ SELECT NULL::int; $$;",
+    "expected": "CREATE PROCEDURE ptest6 (a INT, b anyelement) LANGUAGE sql AS $$ SELECT NULL::int; $$"
+  },
+  {
+    "comment": "create_procedure - Statement 35",
+    "query": "CALL ptest6(1, 2)"
+  },
+  {
+    "comment": "create_procedure - Statement 36",
+    "query": "CREATE PROCEDURE ptest6a(inout a anyelement, out b anyelement) LANGUAGE SQL AS $$ SELECT $1, $1; $$;",
+    "expected": "CREATE PROCEDURE ptest6a (INOUT a anyelement, OUT b anyelement) LANGUAGE sql AS $$ SELECT $1, $1; $$"
+  },
+  {
+    "comment": "create_procedure - Statement 37",
+    "query": "CALL ptest6a(1, null)",
+    "expected": "CALL ptest6a(1, NULL)"
+  },
+  {
+    "comment": "create_procedure - Statement 38",
+    "query": "CALL ptest6a(1.1, null)",
+    "expected": "CALL ptest6a(1.1, NULL)"
+  },
+  {
+    "comment": "create_procedure - Statement 39",
+    "query": "CREATE PROCEDURE ptest6b(a anyelement, out b anyelement, out c anyarray) LANGUAGE SQL AS $$ SELECT $1, array[$1]; $$;",
+    "expected": "CREATE PROCEDURE ptest6b (a anyelement, OUT b anyelement, OUT c anyarray) LANGUAGE sql AS $$ SELECT $1, array[$1]; $$"
+  },
+  {
+    "comment": "create_procedure - Statement 40",
+    "query": "CALL ptest6b(1, null, null)",
+    "expected": "CALL ptest6b(1, NULL, NULL)"
+  },
+  {
+    "comment": "create_procedure - Statement 41",
+    "query": "CALL ptest6b(1.1, null, null)",
+    "expected": "CALL ptest6b(1.1, NULL, NULL)"
+  },
+  {
+    "comment": "create_procedure - Statement 42",
+    "query": "CREATE PROCEDURE ptest6c(inout a anyelement, inout b anyelement) LANGUAGE SQL AS $$ SELECT $1, 1; $$;",
+    "expected": "CREATE PROCEDURE ptest6c (INOUT a anyelement, INOUT b anyelement) LANGUAGE sql AS $$ SELECT $1, 1; $$"
+  },
+  {
+    "comment": "create_procedure - Statement 43",
+    "query": "CALL ptest6c(1, null)",
+    "expected": "CALL ptest6c(1, NULL)"
+  },
+  {
+    "comment": "create_procedure - Statement 44",
+    "query": "CALL ptest6c(1.1, null)",
+    "expected": "CALL ptest6c(1.1, NULL)"
+  },
+  {
+    "comment": "create_procedure - Statement 45",
+    "query": "CREATE PROCEDURE ptest7(a text, b text) LANGUAGE SQL AS $$ SELECT a = b; $$;",
+    "expected": "CREATE PROCEDURE ptest7 (a TEXT, b TEXT) LANGUAGE sql AS $$ SELECT a = b; $$"
+  },
+  {
+    "comment": "create_procedure - Statement 46",
+    "query": "CALL ptest7(least('a', 'b'), 'a')",
+    "expected": "CALL ptest7(LEAST('a', 'b'), 'a')"
+  },
+  {
+    "comment": "create_procedure - Statement 47",
+    "query": "CREATE PROCEDURE ptest8(x text) BEGIN ATOMIC END",
+    "expected": "CREATE PROCEDURE ptest8 (x TEXT) LANGUAGE sql BEGIN ATOMIC ; END"
+  },
+  {
+    "comment": "create_procedure - Statement 48",
+    "query": "CALL ptest8('')"
+  },
+  {
+    "comment": "create_procedure - Statement 49",
+    "query": "CREATE PROCEDURE ptest9(OUT a int) LANGUAGE SQL AS $$ INSERT INTO cp_test VALUES (1, 'a'); SELECT 1; $$;",
+    "expected": "CREATE PROCEDURE ptest9 (OUT a INT) LANGUAGE sql AS $$ INSERT INTO cp_test VALUES (1, 'a'); SELECT 1; $$"
+  },
+  {
+    "comment": "create_procedure - Statement 51",
+    "query": "CALL ptest9(NULL)"
+  },
+  {
+    "comment": "create_procedure - Statement 52",
+    "query": "CALL ptest9(1/0)",
+    "expected": "CALL ptest9(1 / 0)"
+  },
+  {
+    "comment": "create_procedure - Statement 53",
+    "query": "CALL ptest9(1./0.)",
+    "expected": "CALL ptest9(1. / 0.)"
+  },
+  {
+    "comment": "create_procedure - Statement 54",
+    "query": "CREATE PROCEDURE ptest10(OUT a int, IN b int, IN c int) LANGUAGE SQL AS $$ SELECT b - c $$",
+    "expected": "CREATE PROCEDURE ptest10 (OUT a INT, b INT, c INT) LANGUAGE sql AS $$ SELECT b - c $$"
+  },
+  {
+    "comment": "create_procedure - Statement 55",
+    "query": "CALL ptest10(null, 7, 4)",
+    "expected": "CALL ptest10(NULL, 7, 4)"
+  },
+  {
+    "comment": "create_procedure - Statement 56",
+    "query": "CALL ptest10(a =\u003e null, b =\u003e 8, c =\u003e 2)",
+    "expected": "CALL ptest10(a =\u003e NULL, b =\u003e 8, c =\u003e 2)"
+  },
+  {
+    "comment": "create_procedure - Statement 57",
+    "query": "CALL ptest10(null, 7, c =\u003e 2)",
+    "expected": "CALL ptest10(NULL, 7, c =\u003e 2)"
+  },
+  {
+    "comment": "create_procedure - Statement 58",
+    "query": "CALL ptest10(null, c =\u003e 4, b =\u003e 11)",
+    "expected": "CALL ptest10(NULL, c =\u003e 4, b =\u003e 11)"
+  },
+  {
+    "comment": "create_procedure - Statement 59",
+    "query": "CALL ptest10(b =\u003e 8, c =\u003e 2, a =\u003e 0)"
+  },
+  {
+    "comment": "create_procedure - Statement 60",
+    "query": "CREATE PROCEDURE ptest11(a OUT int, VARIADIC b int[]) LANGUAGE SQL AS $$ SELECT b[1] + b[2] $$",
+    "expected": "CREATE PROCEDURE ptest11 (OUT a INT, VARIADIC b INT[]) LANGUAGE sql AS $$ SELECT b[1] + b[2] $$"
+  },
+  {
+    "comment": "create_procedure - Statement 61",
+    "query": "CALL ptest11(null, 11, 12, 13)",
+    "expected": "CALL ptest11(NULL, 11, 12, 13)"
+  },
+  {
+    "comment": "create_procedure - Statement 62",
+    "query": "CREATE PROCEDURE ptest10(IN a int, IN b int, IN c int) LANGUAGE SQL AS $$ SELECT a + b - c $$",
+    "expected": "CREATE PROCEDURE ptest10 (a INT, b INT, c INT) LANGUAGE sql AS $$ SELECT a + b - c $$"
+  },
+  {
+    "comment": "create_procedure - Statement 63",
+    "query": "drop procedure ptest10(int, int, int)",
+    "expected": "DROP PROCEDURE ptest10(INT, INT, INT)"
+  },
+  {
+    "comment": "create_procedure - Statement 64",
+    "query": "begin",
+    "expected": "BEGIN"
+  },
+  {
+    "comment": "create_procedure - Statement 65",
+    "query": "drop procedure ptest10(out int, int, int)",
+    "expected": "DROP PROCEDURE ptest10(OUT INT, INT, INT)"
+  },
+  {
+    "comment": "create_procedure - Statement 66",
+    "query": "rollback",
+    "expected": "ROLLBACK"
+  },
+  {
+    "comment": "create_procedure - Statement 67",
+    "query": "drop procedure ptest10(in int, int, int)",
+    "expected": "DROP PROCEDURE ptest10(INT, INT, INT)"
+  },
+  {
+    "comment": "create_procedure - Statement 68",
+    "query": "CALL version()"
+  },
+  {
+    "comment": "create_procedure - Statement 69",
+    "query": "CALL sum(1)",
+    "expected": "CALL SUM(1)"
+  },
+  {
+    "comment": "create_procedure - Statement 70",
+    "query": "CREATE PROCEDURE ptestx() LANGUAGE SQL WINDOW AS $$ INSERT INTO cp_test VALUES (1, 'a') $$",
+    "expected": "CREATE PROCEDURE ptestx () LANGUAGE sql WINDOW AS $$ INSERT INTO cp_test VALUES (1, 'a') $$"
+  },
+  {
+    "comment": "create_procedure - Statement 71",
+    "query": "CREATE PROCEDURE ptestx() LANGUAGE SQL STRICT AS $$ INSERT INTO cp_test VALUES (1, 'a') $$",
+    "expected": "CREATE PROCEDURE ptestx () LANGUAGE sql STRICT AS $$ INSERT INTO cp_test VALUES (1, 'a') $$"
+  },
+  {
+    "comment": "create_procedure - Statement 72",
+    "query": "CREATE PROCEDURE ptestx(a VARIADIC int[], b OUT int) LANGUAGE SQL AS $$ SELECT a[1] $$",
+    "expected": "CREATE PROCEDURE ptestx (VARIADIC a INT[], OUT b INT) LANGUAGE sql AS $$ SELECT a[1] $$"
+  },
+  {
+    "comment": "create_procedure - Statement 73",
+    "query": "CREATE PROCEDURE ptestx(a int DEFAULT 42, b OUT int) LANGUAGE SQL AS $$ SELECT a $$",
+    "expected": "CREATE PROCEDURE ptestx (a INT DEFAULT 42, OUT b INT) LANGUAGE sql AS $$ SELECT a $$"
+  },
+  {
+    "comment": "create_procedure - Statement 74",
+    "query": "ALTER PROCEDURE ptest1(text) STRICT",
+    "expected": "ALTER PROCEDURE ptest1(TEXT) STRICT"
+  },
+  {
+    "comment": "create_procedure - Statement 75",
+    "query": "ALTER FUNCTION ptest1(text) VOLATILE",
+    "expected": "ALTER FUNCTION ptest1(TEXT) VOLATILE"
+  },
+  {
+    "comment": "create_procedure - Statement 76",
+    "query": "ALTER PROCEDURE cp_testfunc1(int) VOLATILE",
+    "expected": "ALTER PROCEDURE cp_testfunc1(INT) VOLATILE"
+  },
+  {
+    "comment": "create_procedure - Statement 77",
+    "query": "ALTER PROCEDURE nonexistent() VOLATILE"
+  },
+  {
+    "comment": "create_procedure - Statement 78",
+    "query": "DROP FUNCTION ptest1(text)",
+    "expected": "DROP FUNCTION ptest1(TEXT)"
+  },
+  {
+    "comment": "create_procedure - Statement 79",
+    "query": "DROP PROCEDURE cp_testfunc1(int)",
+    "expected": "DROP PROCEDURE cp_testfunc1(INT)"
+  },
+  {
+    "comment": "create_procedure - Statement 80",
+    "query": "DROP PROCEDURE nonexistent()"
+  },
+  {
+    "comment": "create_procedure - Statement 81",
+    "query": "CREATE USER regress_cp_user1"
+  },
+  {
+    "comment": "create_procedure - Statement 82",
+    "query": "GRANT INSERT ON cp_test TO regress_cp_user1"
+  },
+  {
+    "comment": "create_procedure - Statement 83",
+    "query": "REVOKE EXECUTE ON PROCEDURE ptest1(text) FROM PUBLIC",
+    "expected": "REVOKE EXECUTE ON PROCEDURE ptest1(TEXT) FROM PUBLIC"
+  },
+  {
+    "comment": "create_procedure - Statement 84",
+    "query": "SET ROLE regress_cp_user1",
+    "expected": "SET ROLE 'regress_cp_user1'"
+  },
+  {
+    "comment": "create_procedure - Statement 85",
+    "query": "RESET ROLE",
+    "expected": "RESET role"
+  },
+  {
+    "comment": "create_procedure - Statement 86",
+    "query": "GRANT EXECUTE ON PROCEDURE ptest1(text) TO regress_cp_user1",
+    "expected": "GRANT EXECUTE ON PROCEDURE ptest1(TEXT) TO regress_cp_user1"
+  },
+  {
+    "comment": "create_procedure - Statement 87",
+    "query": "ALTER ROUTINE cp_testfunc1(int) RENAME TO cp_testfunc1a",
+    "expected": "ALTER ROUTINE cp_testfunc1(INT) RENAME TO cp_testfunc1a"
+  },
+  {
+    "comment": "create_procedure - Statement 88",
+    "query": "ALTER ROUTINE cp_testfunc1a RENAME TO cp_testfunc1"
+  },
+  {
+    "comment": "create_procedure - Statement 89",
+    "query": "ALTER ROUTINE ptest1(text) RENAME TO ptest1a",
+    "expected": "ALTER ROUTINE ptest1(TEXT) RENAME TO ptest1a"
+  },
+  {
+    "comment": "create_procedure - Statement 90",
+    "query": "ALTER ROUTINE ptest1a RENAME TO ptest1"
+  },
+  {
+    "comment": "create_procedure - Statement 91",
+    "query": "DROP ROUTINE cp_testfunc1(int)",
+    "expected": "DROP ROUTINE cp_testfunc1(INT)"
+  },
+  {
+    "comment": "create_procedure - Statement 92",
+    "query": "DROP PROCEDURE ptest1"
+  },
+  {
+    "comment": "create_procedure - Statement 93",
+    "query": "DROP PROCEDURE ptest1s"
+  },
+  {
+    "comment": "create_procedure - Statement 94",
+    "query": "DROP PROCEDURE ptest2"
+  },
+  {
+    "comment": "create_procedure - Statement 95",
+    "query": "DROP TABLE cp_test"
+  },
+  {
+    "comment": "create_procedure - Statement 96",
+    "query": "DROP USER regress_cp_user1",
+    "expected": "DROP ROLE regress_cp_user1"
+  }
+]

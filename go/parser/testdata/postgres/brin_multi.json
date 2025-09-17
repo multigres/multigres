@@ -1,0 +1,534 @@
+[
+  {
+    "comment": "brin_multi - Statement 1",
+    "query": "CREATE TABLE brintest_multi ( int8col bigint, int2col smallint, int4col integer, oidcol oid, tidcol tid, float4col real, float8col double precision, macaddrcol macaddr, macaddr8col macaddr8, inetcol inet, cidrcol cidr, datecol date, timecol time without time zone, timestampcol timestamp without time zone, timestamptzcol timestamp with time zone, intervalcol interval, timetzcol time with time zone, numericcol numeric, uuidcol uuid, lsncol pg_lsn ) WITH (fillfactor=10)",
+    "expected": "CREATE TABLE brintest_multi (int8col BIGINT, int2col SMALLINT, int4col INT, oidcol oid, tidcol tid, float4col REAL, float8col FLOAT8, macaddrcol macaddr, macaddr8col macaddr8, inetcol inet, cidrcol cidr, datecol DATE, timecol TIME, timestampcol TIMESTAMP, timestamptzcol TIMESTAMPTZ, intervalcol INTERVAL, timetzcol TIMETZ, numericcol NUMERIC, uuidcol UUID, lsncol pg_lsn) WITH (fillfactor = 10)"
+  },
+  {
+    "comment": "brin_multi - Statement 2",
+    "query": "INSERT INTO brintest_multi SELECT 142857 * tenthous, thousand, twothousand, unique1::oid, format('(%s,%s)', tenthous, twenty)::tid, (four + 1.0)/(hundred+1), odd::float8 / (tenthous + 1), format('%s:00:%s:00:%s:00', to_hex(odd), to_hex(even), to_hex(hundred))::macaddr, substr(fipshash(unique1::text), 1, 16)::macaddr8, inet '10.2.3.4/24' + tenthous, cidr '10.2.3/24' + tenthous, date '1995-08-15' + tenthous, time '01:20:30' + thousand * interval '18.5 second', timestamp '1942-07-23 03:05:09' + tenthous * interval '36.38 hours', timestamptz '1972-10-10 03:00' + thousand * interval '1 hour', justify_days(justify_hours(tenthous * interval '12 minutes')), timetz '01:30:20+02' + hundred * interval '15 seconds', tenthous::numeric(36,30) * fivethous * even / (hundred + 1), format('%s%s-%s-%s-%s-%s%s%s', to_char(tenthous, 'FM0000'), to_char(tenthous, 'FM0000'), to_char(tenthous, 'FM0000'), to_char(tenthous, 'FM0000'), to_char(tenthous, 'FM0000'), to_char(tenthous, 'FM0000'), to_char(tenthous, 'FM0000'), to_char(tenthous, 'FM0000'))::uuid, format('%s/%s%s', odd, even, tenthous)::pg_lsn FROM tenk1 ORDER BY unique2 LIMIT 100",
+    "expected": "INSERT INTO brintest_multi (SELECT 142857 * tenthous, thousand, twothousand, CAST(unique1 AS oid), CAST(format('(%s,%s)', tenthous, twenty) AS tid), (four + 1.0) / (hundred + 1), CAST(odd AS FLOAT8) / (tenthous + 1), CAST(format('%s:00:%s:00:%s:00', to_hex(odd), to_hex(even), to_hex(hundred)) AS macaddr), CAST(substr(fipshash(CAST(unique1 AS TEXT)), 1, 16) AS macaddr8), CAST('10.2.3.4/24' AS inet) + tenthous, CAST('10.2.3/24' AS cidr) + tenthous, CAST('1995-08-15' AS DATE) + tenthous, CAST('01:20:30' AS TIME) + thousand * CAST('18.5 second' AS INTERVAL), CAST('1942-07-23 03:05:09' AS TIMESTAMP) + tenthous * CAST('36.38 hours' AS INTERVAL), CAST('1972-10-10 03:00' AS TIMESTAMPTZ) + thousand * CAST('1 hour' AS INTERVAL), justify_days(justify_hours(tenthous * CAST('12 minutes' AS INTERVAL))), CAST('01:30:20+02' AS TIMETZ) + hundred * CAST('15 seconds' AS INTERVAL), CAST(tenthous AS NUMERIC(36, 30)) * fivethous * even / (hundred + 1), CAST(format('%s%s-%s-%s-%s-%s%s%s', to_char(tenthous, 'FM0000'), to_char(tenthous, 'FM0000'), to_char(tenthous, 'FM0000'), to_char(tenthous, 'FM0000'), to_char(tenthous, 'FM0000'), to_char(tenthous, 'FM0000'), to_char(tenthous, 'FM0000'), to_char(tenthous, 'FM0000')) AS UUID), CAST(format('%s/%s%s', odd, even, tenthous) AS pg_lsn) FROM tenk1 ORDER BY unique2 LIMIT 100)"
+  },
+  {
+    "comment": "brin_multi - Statement 3",
+    "query": "INSERT INTO brintest_multi (inetcol, cidrcol) SELECT inet 'fe80::6e40:8ff:fea9:8c46' + tenthous, cidr 'fe80::6e40:8ff:fea9:8c46' + tenthous FROM tenk1 ORDER BY thousand, tenthous LIMIT 25",
+    "expected": "INSERT INTO brintest_multi (inetcol, cidrcol) (SELECT CAST('fe80::6e40:8ff:fea9:8c46' AS inet) + tenthous, CAST('fe80::6e40:8ff:fea9:8c46' AS cidr) + tenthous FROM tenk1 ORDER BY thousand, tenthous LIMIT 25)"
+  },
+  {
+    "comment": "brin_multi - Statement 4",
+    "query": "CREATE INDEX brinidx_multi ON brintest_multi USING brin ( int8col int8_minmax_multi_ops(values_per_range = 7) )"
+  },
+  {
+    "comment": "brin_multi - Statement 5",
+    "query": "CREATE INDEX brinidx_multi ON brintest_multi USING brin ( int8col int8_minmax_multi_ops(values_per_range = 257) )"
+  },
+  {
+    "comment": "brin_multi - Statement 6",
+    "query": "CREATE INDEX brinidx_multi ON brintest_multi USING brin ( int8col int8_minmax_multi_ops, int2col int2_minmax_multi_ops, int4col int4_minmax_multi_ops, oidcol oid_minmax_multi_ops, tidcol tid_minmax_multi_ops, float4col float4_minmax_multi_ops, float8col float8_minmax_multi_ops, macaddrcol macaddr_minmax_multi_ops, macaddr8col macaddr8_minmax_multi_ops, inetcol inet_minmax_multi_ops, cidrcol inet_minmax_multi_ops, datecol date_minmax_multi_ops, timecol time_minmax_multi_ops, timestampcol timestamp_minmax_multi_ops, timestamptzcol timestamptz_minmax_multi_ops, intervalcol interval_minmax_multi_ops, timetzcol timetz_minmax_multi_ops, numericcol numeric_minmax_multi_ops, uuidcol uuid_minmax_multi_ops, lsncol pg_lsn_minmax_multi_ops )"
+  },
+  {
+    "comment": "brin_multi - Statement 7",
+    "query": "DROP INDEX brinidx_multi"
+  },
+  {
+    "comment": "brin_multi - Statement 8",
+    "query": "CREATE INDEX brinidx_multi ON brintest_multi USING brin ( int8col int8_minmax_multi_ops, int2col int2_minmax_multi_ops, int4col int4_minmax_multi_ops, oidcol oid_minmax_multi_ops, tidcol tid_minmax_multi_ops, float4col float4_minmax_multi_ops, float8col float8_minmax_multi_ops, macaddrcol macaddr_minmax_multi_ops, macaddr8col macaddr8_minmax_multi_ops, inetcol inet_minmax_multi_ops, cidrcol inet_minmax_multi_ops, datecol date_minmax_multi_ops, timecol time_minmax_multi_ops, timestampcol timestamp_minmax_multi_ops, timestamptzcol timestamptz_minmax_multi_ops, intervalcol interval_minmax_multi_ops, timetzcol timetz_minmax_multi_ops, numericcol numeric_minmax_multi_ops, uuidcol uuid_minmax_multi_ops, lsncol pg_lsn_minmax_multi_ops ) with (pages_per_range = 1)",
+    "expected": "CREATE INDEX brinidx_multi ON brintest_multi USING brin ( int8col int8_minmax_multi_ops, int2col int2_minmax_multi_ops, int4col int4_minmax_multi_ops, oidcol oid_minmax_multi_ops, tidcol tid_minmax_multi_ops, float4col float4_minmax_multi_ops, float8col float8_minmax_multi_ops, macaddrcol macaddr_minmax_multi_ops, macaddr8col macaddr8_minmax_multi_ops, inetcol inet_minmax_multi_ops, cidrcol inet_minmax_multi_ops, datecol date_minmax_multi_ops, timecol time_minmax_multi_ops, timestampcol timestamp_minmax_multi_ops, timestamptzcol timestamptz_minmax_multi_ops, intervalcol interval_minmax_multi_ops, timetzcol timetz_minmax_multi_ops, numericcol numeric_minmax_multi_ops, uuidcol uuid_minmax_multi_ops, lsncol pg_lsn_minmax_multi_ops ) WITH (pages_per_range = 1)"
+  },
+  {
+    "comment": "brin_multi - Statement 9",
+    "query": "CREATE TABLE brinopers_multi (colname name, typ text, op text[], value text[], matches int[], check (cardinality(op) = cardinality(value)), check (cardinality(op) = cardinality(matches)))",
+    "expected": "CREATE TABLE brinopers_multi (colname name, typ TEXT, op TEXT[], value TEXT[], matches INT[], CHECK (cardinality(op) = cardinality(value)), CHECK (cardinality(op) = cardinality(matches)))"
+  },
+  {
+    "comment": "brin_multi - Statement 10",
+    "query": "INSERT INTO brinopers_multi VALUES ('int2col', 'int2', '{\u003e, \u003e=, =, \u003c=, \u003c}', '{0, 0, 800, 999, 999}', '{100, 100, 1, 100, 100}'), ('int2col', 'int4', '{\u003e, \u003e=, =, \u003c=, \u003c}', '{0, 0, 800, 999, 1999}', '{100, 100, 1, 100, 100}'), ('int2col', 'int8', '{\u003e, \u003e=, =, \u003c=, \u003c}', '{0, 0, 800, 999, 1428427143}', '{100, 100, 1, 100, 100}'), ('int4col', 'int2', '{\u003e, \u003e=, =, \u003c=, \u003c}', '{0, 0, 800, 1999, 1999}', '{100, 100, 1, 100, 100}'), ('int4col', 'int4', '{\u003e, \u003e=, =, \u003c=, \u003c}', '{0, 0, 800, 1999, 1999}', '{100, 100, 1, 100, 100}'), ('int4col', 'int8', '{\u003e, \u003e=, =, \u003c=, \u003c}', '{0, 0, 800, 1999, 1428427143}', '{100, 100, 1, 100, 100}'), ('int8col', 'int2', '{\u003e, \u003e=}', '{0, 0}', '{100, 100}'), ('int8col', 'int4', '{\u003e, \u003e=}', '{0, 0}', '{100, 100}'), ('int8col', 'int8', '{\u003e, \u003e=, =, \u003c=, \u003c}', '{0, 0, 1257141600, 1428427143, 1428427143}', '{100, 100, 1, 100, 100}'), ('oidcol', 'oid', '{\u003e, \u003e=, =, \u003c=, \u003c}', '{0, 0, 8800, 9999, 9999}', '{100, 100, 1, 100, 100}'), ('tidcol', 'tid', '{\u003e, \u003e=, =, \u003c=, \u003c}', '{\"(0,0)\", \"(0,0)\", \"(8800,0)\", \"(9999,19)\", \"(9999,19)\"}', '{100, 100, 1, 100, 100}'), ('float4col', 'float4', '{\u003e, \u003e=, =, \u003c=, \u003c}', '{0.0103093, 0.0103093, 1, 1, 1}', '{100, 100, 4, 100, 96}'), ('float4col', 'float8', '{\u003e, \u003e=, =, \u003c=, \u003c}', '{0.0103093, 0.0103093, 1, 1, 1}', '{100, 100, 4, 100, 96}'), ('float8col', 'float4', '{\u003e, \u003e=, =, \u003c=, \u003c}', '{0, 0, 0, 1.98, 1.98}', '{99, 100, 1, 100, 100}'), ('float8col', 'float8', '{\u003e, \u003e=, =, \u003c=, \u003c}', '{0, 0, 0, 1.98, 1.98}', '{99, 100, 1, 100, 100}'), ('macaddrcol', 'macaddr', '{\u003e, \u003e=, =, \u003c=, \u003c}', '{00:00:01:00:00:00, 00:00:01:00:00:00, 2c:00:2d:00:16:00, ff:fe:00:00:00:00, ff:fe:00:00:00:00}', '{99, 100, 2, 100, 100}'), ('macaddr8col', 'macaddr8', '{\u003e, \u003e=, =, \u003c=, \u003c}', '{b1:d1:0e:7b:af:a4:42:12, d9:35:91:bd:f7:86:0e:1e, 72:8f:20:6c:2a:01:bf:57, 23:e8:46:63:86:07:ad:cb, 13:16:8e:6a:2e:6c:84:b4}', '{31, 17, 1, 11, 4}'), ('inetcol', 'inet', '{=, \u003c, \u003c=, \u003e, \u003e=}', '{10.2.14.231/24, 255.255.255.255, 255.255.255.255, 0.0.0.0, 0.0.0.0}', '{1, 100, 100, 125, 125}'), ('inetcol', 'cidr', '{\u003c, \u003c=, \u003e, \u003e=}', '{255.255.255.255, 255.255.255.255, 0.0.0.0, 0.0.0.0}', '{100, 100, 125, 125}'), ('cidrcol', 'inet', '{=, \u003c, \u003c=, \u003e, \u003e=}', '{10.2.14/24, 255.255.255.255, 255.255.255.255, 0.0.0.0, 0.0.0.0}', '{2, 100, 100, 125, 125}'), ('cidrcol', 'cidr', '{=, \u003c, \u003c=, \u003e, \u003e=}', '{10.2.14/24, 255.255.255.255, 255.255.255.255, 0.0.0.0, 0.0.0.0}', '{2, 100, 100, 125, 125}'), ('datecol', 'date', '{\u003e, \u003e=, =, \u003c=, \u003c}', '{1995-08-15, 1995-08-15, 2009-12-01, 2022-12-30, 2022-12-30}', '{100, 100, 1, 100, 100}'), ('timecol', 'time', '{\u003e, \u003e=, =, \u003c=, \u003c}', '{01:20:30, 01:20:30, 02:28:57, 06:28:31.5, 06:28:31.5}', '{100, 100, 1, 100, 100}'), ('timestampcol', 'timestamp', '{\u003e, \u003e=, =, \u003c=, \u003c}', '{1942-07-23 03:05:09, 1942-07-23 03:05:09, 1964-03-24 19:26:45, 1984-01-20 22:42:21, 1984-01-20 22:42:21}', '{100, 100, 1, 100, 100}'), ('timestampcol', 'timestamptz', '{\u003e, \u003e=, =, \u003c=, \u003c}', '{1942-07-23 03:05:09, 1942-07-23 03:05:09, 1964-03-24 19:26:45, 1984-01-20 22:42:21, 1984-01-20 22:42:21}', '{100, 100, 1, 100, 100}'), ('timestamptzcol', 'timestamptz', '{\u003e, \u003e=, =, \u003c=, \u003c}', '{1972-10-10 03:00:00-04, 1972-10-10 03:00:00-04, 1972-10-19 09:00:00-07, 1972-11-20 19:00:00-03, 1972-11-20 19:00:00-03}', '{100, 100, 1, 100, 100}'), ('intervalcol', 'interval', '{\u003e, \u003e=, =, \u003c=, \u003c}', '{00:00:00, 00:00:00, 1 mons 13 days 12:24, 2 mons 23 days 07:48:00, 1 year}', '{100, 100, 1, 100, 100}'), ('timetzcol', 'timetz', '{\u003e, \u003e=, =, \u003c=, \u003c}', '{01:30:20+02, 01:30:20+02, 01:35:50+02, 23:55:05+02, 23:55:05+02}', '{99, 100, 2, 100, 100}'), ('numericcol', 'numeric', '{\u003e, \u003e=, =, \u003c=, \u003c}', '{0.00, 0.01, 2268164.347826086956521739130434782609, 99470151.9, 99470151.9}', '{100, 100, 1, 100, 100}'), ('uuidcol', 'uuid', '{\u003e, \u003e=, =, \u003c=, \u003c}', '{00040004-0004-0004-0004-000400040004, 00040004-0004-0004-0004-000400040004, 52225222-5222-5222-5222-522252225222, 99989998-9998-9998-9998-999899989998, 99989998-9998-9998-9998-999899989998}', '{100, 100, 1, 100, 100}'), ('lsncol', 'pg_lsn', '{\u003e, \u003e=, =, \u003c=, \u003c, IS, IS NOT}', '{0/1200, 0/1200, 44/455222, 198/1999799, 198/1999799, NULL, NULL}', '{100, 100, 1, 100, 100, 25, 100}')"
+  },
+  {
+    "comment": "brin_multi - Statement 11",
+    "query": "DO $x$\nDECLARE r record;\n r2 record;\n cond text;\n idx_ctids tid[];\n ss_ctids tid[];\n count int;\n plan_ok bool;\n plan_line text;\nBEGIN\n FOR r IN SELECT colname, oper, typ, value[ordinality], matches[ordinality] FROM brinopers_multi, unnest(op) WITH ORDINALITY AS oper LOOP\n IF r.value IS NULL THEN\ncond := format('%I %s %L', r.colname, r.oper, r.value);\n ELSE\ncond := format('%I %s %L::%s', r.colname, r.oper, r.value, r.typ);\n END IF;\n\n SET enable_seqscan = 0;\n SET enable_bitmapscan = 1;\n\n plan_ok := false;\n FOR plan_line IN EXECUTE format($y$EXPLAIN SELECT array_agg(ctid) FROM brintest_multi WHERE %s $y$, cond) LOOP\nIF plan_line LIKE '%Bitmap Heap Scan on brintest_multi%' THEN\n plan_ok := true;\n\nEND IF;\n END LOOP;\n IF NOT plan_ok THEN\nRAISE WARNING 'did not get bitmap indexscan plan for %', r;\n END IF;\n\n EXECUTE format($y$SELECT array_agg(ctid) FROM brintest_multi WHERE %s $y$, cond)\n\nINTO idx_ctids;\n\n SET enable_seqscan = 1;\n SET enable_bitmapscan = 0;\n\n plan_ok := false;\n FOR plan_line IN EXECUTE format($y$EXPLAIN SELECT array_agg(ctid) FROM brintest_multi WHERE %s $y$, cond) LOOP\nIF plan_line LIKE '%Seq Scan on brintest_multi%' THEN\n plan_ok := true;\n\nEND IF;\n END LOOP;\n IF NOT plan_ok THEN\nRAISE WARNING 'did not get seqscan plan for %', r;\n END IF;\n\n EXECUTE format($y$SELECT array_agg(ctid) FROM brintest_multi WHERE %s $y$, cond)\n\nINTO ss_ctids;\n\n count := array_length(idx_ctids, 1);\n\n IF NOT (count = array_length(ss_ctids, 1) AND\n idx_ctids @\u003e ss_ctids AND\n idx_ctids \u003c@ ss_ctids) THEN\nRAISE WARNING 'something not right in %: count %', r, count;\n\nSET enable_seqscan = 1;\n\nSET enable_bitmapscan = 0;\n\nFOR r2 IN EXECUTE 'SELECT ' || r.colname || ' FROM brintest_multi WHERE ' || cond LOOP\n RAISE NOTICE 'seqscan: %', r2;\n\nEND LOOP;\n\n\nSET enable_seqscan = 0;\n\nSET enable_bitmapscan = 1;\n\nFOR r2 IN EXECUTE 'SELECT ' || r.colname || ' FROM brintest_multi WHERE ' || cond LOOP\n RAISE NOTICE 'bitmapscan: %', r2;\n  END LOOP;\n END IF;\n\n IF count != r.matches THEN RAISE WARNING 'unexpected number of results % for %', count, r; END IF;\n END LOOP;END;\n$x$;",
+    "expected": "DO '\nDECLARE r record;\n r2 record;\n cond text;\n idx_ctids tid[];\n ss_ctids tid[];\n count int;\n plan_ok bool;\n plan_line text;\nBEGIN\n FOR r IN SELECT colname, oper, typ, value[ordinality], matches[ordinality] FROM brinopers_multi, unnest(op) WITH ORDINALITY AS oper LOOP\n IF r.value IS NULL THEN\ncond := format(''%I %s %L'', r.colname, r.oper, r.value);\n ELSE\ncond := format(''%I %s %L::%s'', r.colname, r.oper, r.value, r.typ);\n END IF;\n\n SET enable_seqscan = 0;\n SET enable_bitmapscan = 1;\n\n plan_ok := false;\n FOR plan_line IN EXECUTE format($y$EXPLAIN SELECT array_agg(ctid) FROM brintest_multi WHERE %s $y$, cond) LOOP\nIF plan_line LIKE ''%Bitmap Heap Scan on brintest_multi%'' THEN\n plan_ok := true;\n\nEND IF;\n END LOOP;\n IF NOT plan_ok THEN\nRAISE WARNING ''did not get bitmap indexscan plan for %'', r;\n END IF;\n\n EXECUTE format($y$SELECT array_agg(ctid) FROM brintest_multi WHERE %s $y$, cond)\n\nINTO idx_ctids;\n\n SET enable_seqscan = 1;\n SET enable_bitmapscan = 0;\n\n plan_ok := false;\n FOR plan_line IN EXECUTE format($y$EXPLAIN SELECT array_agg(ctid) FROM brintest_multi WHERE %s $y$, cond) LOOP\nIF plan_line LIKE ''%Seq Scan on brintest_multi%'' THEN\n plan_ok := true;\n\nEND IF;\n END LOOP;\n IF NOT plan_ok THEN\nRAISE WARNING ''did not get seqscan plan for %'', r;\n END IF;\n\n EXECUTE format($y$SELECT array_agg(ctid) FROM brintest_multi WHERE %s $y$, cond)\n\nINTO ss_ctids;\n\n count := array_length(idx_ctids, 1);\n\n IF NOT (count = array_length(ss_ctids, 1) AND\n idx_ctids @\u003e ss_ctids AND\n idx_ctids \u003c@ ss_ctids) THEN\nRAISE WARNING ''something not right in %: count %'', r, count;\n\nSET enable_seqscan = 1;\n\nSET enable_bitmapscan = 0;\n\nFOR r2 IN EXECUTE ''SELECT '' || r.colname || '' FROM brintest_multi WHERE '' || cond LOOP\n RAISE NOTICE ''seqscan: %'', r2;\n\nEND LOOP;\n\n\nSET enable_seqscan = 0;\n\nSET enable_bitmapscan = 1;\n\nFOR r2 IN EXECUTE ''SELECT '' || r.colname || '' FROM brintest_multi WHERE '' || cond LOOP\n RAISE NOTICE ''bitmapscan: %'', r2;\n  END LOOP;\n END IF;\n\n IF count != r.matches THEN RAISE WARNING ''unexpected number of results % for %'', count, r; END IF;\n END LOOP;END;\n'"
+  },
+  {
+    "comment": "brin_multi - Statement 41",
+    "query": "RESET enable_seqscan"
+  },
+  {
+    "comment": "brin_multi - Statement 42",
+    "query": "RESET enable_bitmapscan"
+  },
+  {
+    "comment": "brin_multi - Statement 43",
+    "query": "INSERT INTO brintest_multi SELECT 142857 * tenthous, thousand, twothousand, unique1::oid, format('(%s,%s)', tenthous, twenty)::tid, (four + 1.0)/(hundred+1), odd::float8 / (tenthous + 1), format('%s:00:%s:00:%s:00', to_hex(odd), to_hex(even), to_hex(hundred))::macaddr, substr(fipshash(unique1::text), 1, 16)::macaddr8, inet '10.2.3.4' + tenthous, cidr '10.2.3/24' + tenthous, date '1995-08-15' + tenthous, time '01:20:30' + thousand * interval '18.5 second', timestamp '1942-07-23 03:05:09' + tenthous * interval '36.38 hours', timestamptz '1972-10-10 03:00' + thousand * interval '1 hour', justify_days(justify_hours(tenthous * interval '12 minutes')), timetz '01:30:20' + hundred * interval '15 seconds', tenthous::numeric(36,30) * fivethous * even / (hundred + 1), format('%s%s-%s-%s-%s-%s%s%s', to_char(tenthous, 'FM0000'), to_char(tenthous, 'FM0000'), to_char(tenthous, 'FM0000'), to_char(tenthous, 'FM0000'), to_char(tenthous, 'FM0000'), to_char(tenthous, 'FM0000'), to_char(tenthous, 'FM0000'), to_char(tenthous, 'FM0000'))::uuid, format('%s/%s%s', odd, even, tenthous)::pg_lsn FROM tenk1 ORDER BY unique2 LIMIT 5 OFFSET 5",
+    "expected": "INSERT INTO brintest_multi (SELECT 142857 * tenthous, thousand, twothousand, CAST(unique1 AS oid), CAST(format('(%s,%s)', tenthous, twenty) AS tid), (four + 1.0) / (hundred + 1), CAST(odd AS FLOAT8) / (tenthous + 1), CAST(format('%s:00:%s:00:%s:00', to_hex(odd), to_hex(even), to_hex(hundred)) AS macaddr), CAST(substr(fipshash(CAST(unique1 AS TEXT)), 1, 16) AS macaddr8), CAST('10.2.3.4' AS inet) + tenthous, CAST('10.2.3/24' AS cidr) + tenthous, CAST('1995-08-15' AS DATE) + tenthous, CAST('01:20:30' AS TIME) + thousand * CAST('18.5 second' AS INTERVAL), CAST('1942-07-23 03:05:09' AS TIMESTAMP) + tenthous * CAST('36.38 hours' AS INTERVAL), CAST('1972-10-10 03:00' AS TIMESTAMPTZ) + thousand * CAST('1 hour' AS INTERVAL), justify_days(justify_hours(tenthous * CAST('12 minutes' AS INTERVAL))), CAST('01:30:20' AS TIMETZ) + hundred * CAST('15 seconds' AS INTERVAL), CAST(tenthous AS NUMERIC(36, 30)) * fivethous * even / (hundred + 1), CAST(format('%s%s-%s-%s-%s-%s%s%s', to_char(tenthous, 'FM0000'), to_char(tenthous, 'FM0000'), to_char(tenthous, 'FM0000'), to_char(tenthous, 'FM0000'), to_char(tenthous, 'FM0000'), to_char(tenthous, 'FM0000'), to_char(tenthous, 'FM0000'), to_char(tenthous, 'FM0000')) AS UUID), CAST(format('%s/%s%s', odd, even, tenthous) AS pg_lsn) FROM tenk1 ORDER BY unique2 LIMIT 5 OFFSET 5)"
+  },
+  {
+    "comment": "brin_multi - Statement 44",
+    "query": "SELECT brin_desummarize_range('brinidx_multi', 0)"
+  },
+  {
+    "comment": "brin_multi - Statement 45",
+    "query": "VACUUM brintest_multi"
+  },
+  {
+    "comment": "brin_multi - Statement 46",
+    "query": "insert into public.brintest_multi (float4col) values (real 'nan')",
+    "expected": "INSERT INTO public.brintest_multi (float4col) VALUES (CAST('nan' AS REAL))"
+  },
+  {
+    "comment": "brin_multi - Statement 47",
+    "query": "insert into public.brintest_multi (float8col) values (real 'nan')",
+    "expected": "INSERT INTO public.brintest_multi (float8col) VALUES (CAST('nan' AS REAL))"
+  },
+  {
+    "comment": "brin_multi - Statement 48",
+    "query": "UPDATE brintest_multi SET int8col = int8col * int4col"
+  },
+  {
+    "comment": "brin_multi - Statement 49",
+    "query": "CREATE TABLE brin_test_inet (a inet)"
+  },
+  {
+    "comment": "brin_multi - Statement 50",
+    "query": "CREATE INDEX ON brin_test_inet USING brin (a inet_minmax_multi_ops)",
+    "expected": "CREATE INDEX ON brin_test_inet USING brin ( a inet_minmax_multi_ops )"
+  },
+  {
+    "comment": "brin_multi - Statement 51",
+    "query": "INSERT INTO brin_test_inet VALUES ('127.0.0.1/0')"
+  },
+  {
+    "comment": "brin_multi - Statement 52",
+    "query": "INSERT INTO brin_test_inet VALUES ('0.0.0.0/12')"
+  },
+  {
+    "comment": "brin_multi - Statement 53",
+    "query": "DROP TABLE brin_test_inet"
+  },
+  {
+    "comment": "brin_multi - Statement 54",
+    "query": "SELECT brin_summarize_new_values('brintest_multi')"
+  },
+  {
+    "comment": "brin_multi - Statement 55",
+    "query": "SELECT brin_summarize_new_values('tenk1_unique1')"
+  },
+  {
+    "comment": "brin_multi - Statement 56",
+    "query": "SELECT brin_summarize_new_values('brinidx_multi')"
+  },
+  {
+    "comment": "brin_multi - Statement 57",
+    "query": "SELECT brin_desummarize_range('brinidx_multi', -1)"
+  },
+  {
+    "comment": "brin_multi - Statement 58",
+    "query": "SELECT brin_desummarize_range('brinidx_multi', 100000000)"
+  },
+  {
+    "comment": "brin_multi - Statement 59",
+    "query": "CREATE TABLE brin_large_range (a int4)",
+    "expected": "CREATE TABLE brin_large_range (a INT)"
+  },
+  {
+    "comment": "brin_multi - Statement 60",
+    "query": "INSERT INTO brin_large_range SELECT i FROM generate_series(1,10000) s(i)",
+    "expected": "INSERT INTO brin_large_range SELECT i FROM generate_series(1, 10000) AS s(i)"
+  },
+  {
+    "comment": "brin_multi - Statement 61",
+    "query": "CREATE INDEX brin_large_range_idx ON brin_large_range USING brin (a int4_minmax_multi_ops)",
+    "expected": "CREATE INDEX brin_large_range_idx ON brin_large_range USING brin ( a int4_minmax_multi_ops )"
+  },
+  {
+    "comment": "brin_multi - Statement 62",
+    "query": "DROP TABLE brin_large_range"
+  },
+  {
+    "comment": "brin_multi - Statement 63",
+    "query": "CREATE TABLE brin_summarize_multi ( value int ) WITH (fillfactor=10, autovacuum_enabled=false)",
+    "expected": "CREATE TABLE brin_summarize_multi (value INT) WITH (fillfactor = 10, autovacuum_enabled = 'false')"
+  },
+  {
+    "comment": "brin_multi - Statement 64",
+    "query": "CREATE INDEX brin_summarize_multi_idx ON brin_summarize_multi USING brin (value) WITH (pages_per_range=2)",
+    "expected": "CREATE INDEX brin_summarize_multi_idx ON brin_summarize_multi USING brin ( value ) WITH (pages_per_range = 2)"
+  },
+  {
+    "comment": "brin_multi - Statement 65",
+    "query": "DO $$\nDECLARE curtid tid; BEGIN LOOP INSERT INTO brin_summarize_multi VALUES (1) RETURNING ctid INTO curtid;\n    EXIT WHEN curtid \u003e tid '(2, 0)';\n  END LOOP; END; $$;",
+    "expected": "DO '\nDECLARE curtid tid; BEGIN LOOP INSERT INTO brin_summarize_multi VALUES (1) RETURNING ctid INTO curtid;\n    EXIT WHEN curtid \u003e tid ''(2, 0)'';\n  END LOOP; END; '"
+  },
+  {
+    "comment": "brin_multi - Statement 69",
+    "query": "SELECT brin_summarize_range('brin_summarize_multi_idx', 0)"
+  },
+  {
+    "comment": "brin_multi - Statement 70",
+    "query": "SELECT brin_summarize_range('brin_summarize_multi_idx', 1)"
+  },
+  {
+    "comment": "brin_multi - Statement 71",
+    "query": "SELECT brin_summarize_range('brin_summarize_multi_idx', 2)"
+  },
+  {
+    "comment": "brin_multi - Statement 72",
+    "query": "SELECT brin_summarize_range('brin_summarize_multi_idx', 4294967295)"
+  },
+  {
+    "comment": "brin_multi - Statement 73",
+    "query": "SELECT brin_summarize_range('brin_summarize_multi_idx', -1)"
+  },
+  {
+    "comment": "brin_multi - Statement 74",
+    "query": "SELECT brin_summarize_range('brin_summarize_multi_idx', 4294967296)"
+  },
+  {
+    "comment": "brin_multi - Statement 75",
+    "query": "CREATE TABLE brin_test_multi (a INT, b INT)"
+  },
+  {
+    "comment": "brin_multi - Statement 76",
+    "query": "INSERT INTO brin_test_multi SELECT x/100,x%100 FROM generate_series(1,10000) x(x)",
+    "expected": "INSERT INTO brin_test_multi SELECT x / 100, x % 100 FROM generate_series(1, 10000) AS x(x)"
+  },
+  {
+    "comment": "brin_multi - Statement 77",
+    "query": "CREATE INDEX brin_test_multi_a_idx ON brin_test_multi USING brin (a) WITH (pages_per_range = 2)",
+    "expected": "CREATE INDEX brin_test_multi_a_idx ON brin_test_multi USING brin ( a ) WITH (pages_per_range = 2)"
+  },
+  {
+    "comment": "brin_multi - Statement 78",
+    "query": "CREATE INDEX brin_test_multi_b_idx ON brin_test_multi USING brin (b) WITH (pages_per_range = 2)",
+    "expected": "CREATE INDEX brin_test_multi_b_idx ON brin_test_multi USING brin ( b ) WITH (pages_per_range = 2)"
+  },
+  {
+    "comment": "brin_multi - Statement 79",
+    "query": "VACUUM ANALYZE brin_test_multi",
+    "expected": "VACUUM (ANALYZE) brin_test_multi"
+  },
+  {
+    "comment": "brin_multi - Statement 80",
+    "query": "EXPLAIN (COSTS OFF) SELECT * FROM brin_test_multi WHERE a = 1",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM brin_test_multi WHERE a = 1"
+  },
+  {
+    "comment": "brin_multi - Statement 81",
+    "query": "EXPLAIN (COSTS OFF) SELECT * FROM brin_test_multi WHERE b = 1",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM brin_test_multi WHERE b = 1"
+  },
+  {
+    "comment": "brin_multi - Statement 82",
+    "query": "CREATE TABLE brin_test_multi_1 (a INT, b BIGINT) WITH (fillfactor=10)",
+    "expected": "CREATE TABLE brin_test_multi_1 (a INT, b BIGINT) WITH (fillfactor = 10)"
+  },
+  {
+    "comment": "brin_multi - Statement 83",
+    "query": "INSERT INTO brin_test_multi_1 SELECT i/5 + mod(911 * i + 483, 25), i/10 + mod(751 * i + 221, 41) FROM generate_series(1,1000) s(i)",
+    "expected": "INSERT INTO brin_test_multi_1 SELECT i / 5 + mod(911 * i + 483, 25), i / 10 + mod(751 * i + 221, 41) FROM generate_series(1, 1000) AS s(i)"
+  },
+  {
+    "comment": "brin_multi - Statement 84",
+    "query": "CREATE INDEX brin_test_multi_1_idx_1 ON brin_test_multi_1 USING brin (a int4_minmax_multi_ops) WITH (pages_per_range=5)",
+    "expected": "CREATE INDEX brin_test_multi_1_idx_1 ON brin_test_multi_1 USING brin ( a int4_minmax_multi_ops ) WITH (pages_per_range = 5)"
+  },
+  {
+    "comment": "brin_multi - Statement 85",
+    "query": "CREATE INDEX brin_test_multi_1_idx_2 ON brin_test_multi_1 USING brin (b int8_minmax_multi_ops) WITH (pages_per_range=5)",
+    "expected": "CREATE INDEX brin_test_multi_1_idx_2 ON brin_test_multi_1 USING brin ( b int8_minmax_multi_ops ) WITH (pages_per_range = 5)"
+  },
+  {
+    "comment": "brin_multi - Statement 86",
+    "query": "SET enable_seqscan=off",
+    "expected": "SET enable_seqscan = off"
+  },
+  {
+    "comment": "brin_multi - Statement 87",
+    "query": "SELECT COUNT(*) FROM brin_test_multi_1 WHERE a \u003c 37"
+  },
+  {
+    "comment": "brin_multi - Statement 88",
+    "query": "SELECT COUNT(*) FROM brin_test_multi_1 WHERE a \u003c 113"
+  },
+  {
+    "comment": "brin_multi - Statement 89",
+    "query": "SELECT COUNT(*) FROM brin_test_multi_1 WHERE a \u003c= 177"
+  },
+  {
+    "comment": "brin_multi - Statement 90",
+    "query": "SELECT COUNT(*) FROM brin_test_multi_1 WHERE a \u003c= 25"
+  },
+  {
+    "comment": "brin_multi - Statement 91",
+    "query": "SELECT COUNT(*) FROM brin_test_multi_1 WHERE a \u003e 120"
+  },
+  {
+    "comment": "brin_multi - Statement 92",
+    "query": "SELECT COUNT(*) FROM brin_test_multi_1 WHERE a \u003e= 180"
+  },
+  {
+    "comment": "brin_multi - Statement 93",
+    "query": "SELECT COUNT(*) FROM brin_test_multi_1 WHERE a \u003e 71"
+  },
+  {
+    "comment": "brin_multi - Statement 94",
+    "query": "SELECT COUNT(*) FROM brin_test_multi_1 WHERE a \u003e= 63"
+  },
+  {
+    "comment": "brin_multi - Statement 95",
+    "query": "SELECT COUNT(*) FROM brin_test_multi_1 WHERE a = 207"
+  },
+  {
+    "comment": "brin_multi - Statement 96",
+    "query": "SELECT COUNT(*) FROM brin_test_multi_1 WHERE a = 177"
+  },
+  {
+    "comment": "brin_multi - Statement 97",
+    "query": "SELECT COUNT(*) FROM brin_test_multi_1 WHERE b \u003c 73"
+  },
+  {
+    "comment": "brin_multi - Statement 98",
+    "query": "SELECT COUNT(*) FROM brin_test_multi_1 WHERE b \u003c= 47"
+  },
+  {
+    "comment": "brin_multi - Statement 99",
+    "query": "SELECT COUNT(*) FROM brin_test_multi_1 WHERE b \u003c 199"
+  },
+  {
+    "comment": "brin_multi - Statement 100",
+    "query": "SELECT COUNT(*) FROM brin_test_multi_1 WHERE b \u003c= 150"
+  },
+  {
+    "comment": "brin_multi - Statement 101",
+    "query": "SELECT COUNT(*) FROM brin_test_multi_1 WHERE b \u003e 93"
+  },
+  {
+    "comment": "brin_multi - Statement 102",
+    "query": "SELECT COUNT(*) FROM brin_test_multi_1 WHERE b \u003e 37"
+  },
+  {
+    "comment": "brin_multi - Statement 103",
+    "query": "SELECT COUNT(*) FROM brin_test_multi_1 WHERE b \u003e= 215"
+  },
+  {
+    "comment": "brin_multi - Statement 104",
+    "query": "SELECT COUNT(*) FROM brin_test_multi_1 WHERE b \u003e 201"
+  },
+  {
+    "comment": "brin_multi - Statement 105",
+    "query": "SELECT COUNT(*) FROM brin_test_multi_1 WHERE b = 88"
+  },
+  {
+    "comment": "brin_multi - Statement 106",
+    "query": "SELECT COUNT(*) FROM brin_test_multi_1 WHERE b = 103"
+  },
+  {
+    "comment": "brin_multi - Statement 107",
+    "query": "TRUNCATE brin_test_multi_1",
+    "expected": "TRUNCATE TABLE brin_test_multi_1 CONTINUE IDENTITY RESTRICT"
+  },
+  {
+    "comment": "brin_multi - Statement 108",
+    "query": "DROP TABLE brin_test_multi_1"
+  },
+  {
+    "comment": "brin_multi - Statement 109",
+    "query": "CREATE TABLE brin_test_multi_2 (a UUID) WITH (fillfactor=10)",
+    "expected": "CREATE TABLE brin_test_multi_2 (a UUID) WITH (fillfactor = 10)"
+  },
+  {
+    "comment": "brin_multi - Statement 110",
+    "query": "INSERT INTO brin_test_multi_2 SELECT v::uuid FROM (SELECT row_number() OVER (ORDER BY v) c, v FROM (SELECT fipshash((i/13)::text) AS v FROM generate_series(1,1000) s(i)) foo) bar ORDER BY c + 25 * random()",
+    "expected": "INSERT INTO brin_test_multi_2 (SELECT CAST(v AS UUID) FROM (SELECT ROW_NUMBER() OVER (ORDER BY v) AS c, v FROM (SELECT fipshash(CAST((i / 13) AS TEXT)) AS v FROM generate_series(1, 1000) AS s(i)) AS foo) AS bar ORDER BY c + 25 * random())"
+  },
+  {
+    "comment": "brin_multi - Statement 111",
+    "query": "CREATE INDEX brin_test_multi_2_idx ON brin_test_multi_2 USING brin (a uuid_minmax_multi_ops) WITH (pages_per_range=5)",
+    "expected": "CREATE INDEX brin_test_multi_2_idx ON brin_test_multi_2 USING brin ( a uuid_minmax_multi_ops ) WITH (pages_per_range = 5)"
+  },
+  {
+    "comment": "brin_multi - Statement 112",
+    "query": "SELECT COUNT(*) FROM brin_test_multi_2 WHERE a \u003c '3d914f93-48c9-cc0f-f8a7-9716700b9fcd'"
+  },
+  {
+    "comment": "brin_multi - Statement 113",
+    "query": "SELECT COUNT(*) FROM brin_test_multi_2 WHERE a \u003e '3d914f93-48c9-cc0f-f8a7-9716700b9fcd'"
+  },
+  {
+    "comment": "brin_multi - Statement 114",
+    "query": "SELECT COUNT(*) FROM brin_test_multi_2 WHERE a \u003c= 'f369cb89-fc62-7e66-8987-007d121ed1ea'"
+  },
+  {
+    "comment": "brin_multi - Statement 115",
+    "query": "SELECT COUNT(*) FROM brin_test_multi_2 WHERE a \u003e= 'aea92132-c4cb-eb26-3e6a-c2bf6c183b5d'"
+  },
+  {
+    "comment": "brin_multi - Statement 116",
+    "query": "SELECT COUNT(*) FROM brin_test_multi_2 WHERE a = '5feceb66-ffc8-6f38-d952-786c6d696c79'"
+  },
+  {
+    "comment": "brin_multi - Statement 117",
+    "query": "SELECT COUNT(*) FROM brin_test_multi_2 WHERE a = '86e50149-6586-6131-2a9e-0b35558d84f6'"
+  },
+  {
+    "comment": "brin_multi - Statement 118",
+    "query": "TRUNCATE brin_test_multi_2",
+    "expected": "TRUNCATE TABLE brin_test_multi_2 CONTINUE IDENTITY RESTRICT"
+  },
+  {
+    "comment": "brin_multi - Statement 119",
+    "query": "DROP TABLE brin_test_multi_2"
+  },
+  {
+    "comment": "brin_multi - Statement 120",
+    "query": "CREATE TABLE brin_timestamp_test(a TIMESTAMPTZ)",
+    "expected": "CREATE TABLE brin_timestamp_test (a TIMESTAMPTZ)"
+  },
+  {
+    "comment": "brin_multi - Statement 121",
+    "query": "SET datestyle TO iso",
+    "expected": "SET datestyle = 'iso'"
+  },
+  {
+    "comment": "brin_multi - Statement 122",
+    "query": "INSERT INTO brin_timestamp_test SELECT '4713-01-01 00:00:01 BC'::timestamptz + (i || ' seconds')::interval FROM generate_series(1,30) s(i)",
+    "expected": "INSERT INTO brin_timestamp_test SELECT CAST(CAST('4713-01-01 00:00:01 BC' AS TIMESTAMPTZ) + (i || ' seconds') AS INTERVAL) FROM generate_series(1, 30) AS s(i)"
+  },
+  {
+    "comment": "brin_multi - Statement 123",
+    "query": "INSERT INTO brin_timestamp_test SELECT '294276-12-01 00:00:01'::timestamptz + (i || ' seconds')::interval FROM generate_series(1,30) s(i)",
+    "expected": "INSERT INTO brin_timestamp_test SELECT CAST(CAST('294276-12-01 00:00:01' AS TIMESTAMPTZ) + (i || ' seconds') AS INTERVAL) FROM generate_series(1, 30) AS s(i)"
+  },
+  {
+    "comment": "brin_multi - Statement 124",
+    "query": "CREATE INDEX ON brin_timestamp_test USING brin (a timestamptz_minmax_multi_ops) WITH (pages_per_range=1)",
+    "expected": "CREATE INDEX ON brin_timestamp_test USING brin ( a timestamptz_minmax_multi_ops ) WITH (pages_per_range = 1)"
+  },
+  {
+    "comment": "brin_multi - Statement 125",
+    "query": "DROP TABLE brin_timestamp_test"
+  },
+  {
+    "comment": "brin_multi - Statement 126",
+    "query": "CREATE TABLE brin_date_test(a DATE)",
+    "expected": "CREATE TABLE brin_date_test (a DATE)"
+  },
+  {
+    "comment": "brin_multi - Statement 127",
+    "query": "INSERT INTO brin_date_test SELECT '4713-01-01 BC'::date + i FROM generate_series(1, 30) s(i)",
+    "expected": "INSERT INTO brin_date_test SELECT CAST('4713-01-01 BC' AS DATE) + i FROM generate_series(1, 30) AS s(i)"
+  },
+  {
+    "comment": "brin_multi - Statement 128",
+    "query": "INSERT INTO brin_date_test SELECT '5874897-12-01'::date + i FROM generate_series(1, 30) s(i)",
+    "expected": "INSERT INTO brin_date_test SELECT CAST('5874897-12-01' AS DATE) + i FROM generate_series(1, 30) AS s(i)"
+  },
+  {
+    "comment": "brin_multi - Statement 129",
+    "query": "CREATE INDEX ON brin_date_test USING brin (a date_minmax_multi_ops) WITH (pages_per_range=1)",
+    "expected": "CREATE INDEX ON brin_date_test USING brin ( a date_minmax_multi_ops ) WITH (pages_per_range = 1)"
+  },
+  {
+    "comment": "brin_multi - Statement 130",
+    "query": "SET enable_seqscan = off"
+  },
+  {
+    "comment": "brin_multi - Statement 131",
+    "query": "EXPLAIN (ANALYZE, TIMING OFF, COSTS OFF, SUMMARY OFF) SELECT * FROM brin_date_test WHERE a = '2023-01-01'::date",
+    "expected": "EXPLAIN (ANALYZE true, TIMING false, COSTS false, SUMMARY false) SELECT * FROM brin_date_test WHERE a = CAST('2023-01-01' AS DATE)"
+  },
+  {
+    "comment": "brin_multi - Statement 132",
+    "query": "DROP TABLE brin_date_test"
+  },
+  {
+    "comment": "brin_multi - Statement 133",
+    "query": "CREATE TABLE brin_timestamp_test(a TIMESTAMP)",
+    "expected": "CREATE TABLE brin_timestamp_test (a TIMESTAMP)"
+  },
+  {
+    "comment": "brin_multi - Statement 134",
+    "query": "INSERT INTO brin_timestamp_test VALUES ('-infinity'), ('infinity')"
+  },
+  {
+    "comment": "brin_multi - Statement 135",
+    "query": "INSERT INTO brin_timestamp_test SELECT i FROM generate_series('2000-01-01'::timestamp, '2000-02-09'::timestamp, '1 day'::interval) s(i)",
+    "expected": "INSERT INTO brin_timestamp_test SELECT i FROM generate_series(CAST('2000-01-01' AS TIMESTAMP), CAST('2000-02-09' AS TIMESTAMP), CAST('1 day' AS INTERVAL)) AS s(i)"
+  },
+  {
+    "comment": "brin_multi - Statement 136",
+    "query": "CREATE INDEX ON brin_timestamp_test USING brin (a timestamp_minmax_multi_ops) WITH (pages_per_range=1)",
+    "expected": "CREATE INDEX ON brin_timestamp_test USING brin ( a timestamp_minmax_multi_ops ) WITH (pages_per_range = 1)"
+  },
+  {
+    "comment": "brin_multi - Statement 137",
+    "query": "EXPLAIN (ANALYZE, TIMING OFF, COSTS OFF, SUMMARY OFF) SELECT * FROM brin_timestamp_test WHERE a = '2023-01-01'::timestamp",
+    "expected": "EXPLAIN (ANALYZE true, TIMING false, COSTS false, SUMMARY false) SELECT * FROM brin_timestamp_test WHERE a = CAST('2023-01-01' AS TIMESTAMP)"
+  },
+  {
+    "comment": "brin_multi - Statement 138",
+    "query": "EXPLAIN (ANALYZE, TIMING OFF, COSTS OFF, SUMMARY OFF) SELECT * FROM brin_timestamp_test WHERE a = '1900-01-01'::timestamp",
+    "expected": "EXPLAIN (ANALYZE true, TIMING false, COSTS false, SUMMARY false) SELECT * FROM brin_timestamp_test WHERE a = CAST('1900-01-01' AS TIMESTAMP)"
+  },
+  {
+    "comment": "brin_multi - Statement 139",
+    "query": "INSERT INTO brin_date_test VALUES ('-infinity'), ('infinity')"
+  },
+  {
+    "comment": "brin_multi - Statement 140",
+    "query": "INSERT INTO brin_date_test SELECT '2000-01-01'::date + i FROM generate_series(1, 40) s(i)",
+    "expected": "INSERT INTO brin_date_test SELECT CAST('2000-01-01' AS DATE) + i FROM generate_series(1, 40) AS s(i)"
+  },
+  {
+    "comment": "brin_multi - Statement 141",
+    "query": "EXPLAIN (ANALYZE, TIMING OFF, COSTS OFF, SUMMARY OFF) SELECT * FROM brin_date_test WHERE a = '1900-01-01'::date",
+    "expected": "EXPLAIN (ANALYZE true, TIMING false, COSTS false, SUMMARY false) SELECT * FROM brin_date_test WHERE a = CAST('1900-01-01' AS DATE)"
+  },
+  {
+    "comment": "brin_multi - Statement 142",
+    "query": "RESET datestyle"
+  },
+  {
+    "comment": "brin_multi - Statement 143",
+    "query": "CREATE TABLE brin_interval_test(a INTERVAL)",
+    "expected": "CREATE TABLE brin_interval_test (a INTERVAL)"
+  },
+  {
+    "comment": "brin_multi - Statement 144",
+    "query": "INSERT INTO brin_interval_test SELECT (i || ' years')::interval FROM generate_series(-178000000, -177999980) s(i)",
+    "expected": "INSERT INTO brin_interval_test SELECT CAST((i || ' years') AS INTERVAL) FROM generate_series(-178000000, -177999980) AS s(i)"
+  },
+  {
+    "comment": "brin_multi - Statement 145",
+    "query": "INSERT INTO brin_interval_test SELECT (i || ' years')::interval FROM generate_series( 177999980,  178000000) s(i)",
+    "expected": "INSERT INTO brin_interval_test SELECT CAST((i || ' years') AS INTERVAL) FROM generate_series(177999980, 178000000) AS s(i)"
+  },
+  {
+    "comment": "brin_multi - Statement 146",
+    "query": "CREATE INDEX ON brin_interval_test USING brin (a interval_minmax_multi_ops) WITH (pages_per_range=1)",
+    "expected": "CREATE INDEX ON brin_interval_test USING brin ( a interval_minmax_multi_ops ) WITH (pages_per_range = 1)"
+  },
+  {
+    "comment": "brin_multi - Statement 147",
+    "query": "EXPLAIN (ANALYZE, TIMING OFF, COSTS OFF, SUMMARY OFF) SELECT * FROM brin_interval_test WHERE a = '-30 years'::interval",
+    "expected": "EXPLAIN (ANALYZE true, TIMING false, COSTS false, SUMMARY false) SELECT * FROM brin_interval_test WHERE a = CAST('-30 years' AS INTERVAL)"
+  },
+  {
+    "comment": "brin_multi - Statement 148",
+    "query": "EXPLAIN (ANALYZE, TIMING OFF, COSTS OFF, SUMMARY OFF) SELECT * FROM brin_interval_test WHERE a = '30 years'::interval",
+    "expected": "EXPLAIN (ANALYZE true, TIMING false, COSTS false, SUMMARY false) SELECT * FROM brin_interval_test WHERE a = CAST('30 years' AS INTERVAL)"
+  },
+  {
+    "comment": "brin_multi - Statement 149",
+    "query": "DROP TABLE brin_interval_test"
+  },
+  {
+    "comment": "brin_multi - Statement 150",
+    "query": "INSERT INTO brin_interval_test VALUES ('-infinity'), ('infinity')"
+  },
+  {
+    "comment": "brin_multi - Statement 151",
+    "query": "INSERT INTO brin_interval_test SELECT (i || ' days')::interval FROM generate_series(100, 140) s(i)",
+    "expected": "INSERT INTO brin_interval_test SELECT CAST((i || ' days') AS INTERVAL) FROM generate_series(100, 140) AS s(i)"
+  }
+]

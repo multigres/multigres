@@ -1,0 +1,242 @@
+[
+  {
+    "comment": "explain - Statement 1",
+    "query": "create function explain_filter(text) returns setof text language plpgsql as $$ declare     ln text; begin     for ln in execute $1     loop         ln := regexp_replace(ln, '-?\\m\\d+\\M', 'N', 'g');         ln := regexp_replace(ln, '\\m\\d+kB', 'NkB', 'g');         CONTINUE WHEN (ln ~ ' +Buffers: .*');         CONTINUE WHEN (ln = 'Planning:');         return next ln;     end loop; end; $$;",
+    "expected": "CREATE FUNCTION explain_filter (TEXT) RETURNS SETOF TEXT LANGUAGE plpgsql AS $$ declare     ln text; begin     for ln in execute $1     loop         ln := regexp_replace(ln, '-?\\m\\d+\\M', 'N', 'g');         ln := regexp_replace(ln, '\\m\\d+kB', 'NkB', 'g');         CONTINUE WHEN (ln ~ ' +Buffers: .*');         CONTINUE WHEN (ln = 'Planning:');         return next ln;     end loop; end; $$"
+  },
+  {
+    "comment": "explain - Statement 10",
+    "query": "create function explain_filter_to_json(text) returns jsonb language plpgsql as $$ declare     data text := '';     ln text; begin     for ln in execute $1     loop         ln := regexp_replace(ln, '\\m\\d+\\M', '0', 'g');         data := data || ln;     end loop;     return data::jsonb; end; $$;",
+    "expected": "CREATE FUNCTION explain_filter_to_json (TEXT) RETURNS JSONB LANGUAGE plpgsql AS $$ declare     data text := '';     ln text; begin     for ln in execute $1     loop         ln := regexp_replace(ln, '\\m\\d+\\M', '0', 'g');         data := data || ln;     end loop;     return data::jsonb; end; $$"
+  },
+  {
+    "comment": "explain - Statement 15",
+    "query": "set jit = off",
+    "expected": "SET jit = off"
+  },
+  {
+    "comment": "explain - Statement 16",
+    "query": "set track_io_timing = off",
+    "expected": "SET track_io_timing = off"
+  },
+  {
+    "comment": "explain - Statement 17",
+    "query": "select explain_filter('explain select * from int8_tbl i8')",
+    "expected": "SELECT explain_filter('explain select * from int8_tbl i8')"
+  },
+  {
+    "comment": "explain - Statement 18",
+    "query": "select explain_filter('explain (analyze) select * from int8_tbl i8')",
+    "expected": "SELECT explain_filter('explain (analyze) select * from int8_tbl i8')"
+  },
+  {
+    "comment": "explain - Statement 19",
+    "query": "select explain_filter('explain (analyze, verbose) select * from int8_tbl i8')",
+    "expected": "SELECT explain_filter('explain (analyze, verbose) select * from int8_tbl i8')"
+  },
+  {
+    "comment": "explain - Statement 20",
+    "query": "select explain_filter('explain (analyze, buffers, format text) select * from int8_tbl i8')",
+    "expected": "SELECT explain_filter('explain (analyze, buffers, format text) select * from int8_tbl i8')"
+  },
+  {
+    "comment": "explain - Statement 21",
+    "query": "select explain_filter('explain (analyze, buffers, format xml) select * from int8_tbl i8')",
+    "expected": "SELECT explain_filter('explain (analyze, buffers, format xml) select * from int8_tbl i8')"
+  },
+  {
+    "comment": "explain - Statement 22",
+    "query": "select explain_filter('explain (analyze, serialize, buffers, format yaml) select * from int8_tbl i8')",
+    "expected": "SELECT explain_filter('explain (analyze, serialize, buffers, format yaml) select * from int8_tbl i8')"
+  },
+  {
+    "comment": "explain - Statement 23",
+    "query": "select explain_filter('explain (buffers, format text) select * from int8_tbl i8')",
+    "expected": "SELECT explain_filter('explain (buffers, format text) select * from int8_tbl i8')"
+  },
+  {
+    "comment": "explain - Statement 24",
+    "query": "select explain_filter('explain (buffers, format json) select * from int8_tbl i8')",
+    "expected": "SELECT explain_filter('explain (buffers, format json) select * from int8_tbl i8')"
+  },
+  {
+    "comment": "explain - Statement 25",
+    "query": "set track_io_timing = on",
+    "expected": "SET track_io_timing = on"
+  },
+  {
+    "comment": "explain - Statement 26",
+    "query": "select explain_filter('explain (analyze, buffers, format json) select * from int8_tbl i8')",
+    "expected": "SELECT explain_filter('explain (analyze, buffers, format json) select * from int8_tbl i8')"
+  },
+  {
+    "comment": "explain - Statement 27",
+    "query": "begin",
+    "expected": "BEGIN"
+  },
+  {
+    "comment": "explain - Statement 28",
+    "query": "set local plan_cache_mode = force_generic_plan",
+    "expected": "SET LOCAL plan_cache_mode = 'force_generic_plan'"
+  },
+  {
+    "comment": "explain - Statement 29",
+    "query": "select true as \"OK\" from explain_filter('explain (settings) select * from int8_tbl i8') ln where ln ~ '^ *Settings: .*plan_cache_mode = ''force_generic_plan'''",
+    "expected": "SELECT TRUE AS \"OK\" FROM explain_filter('explain (settings) select * from int8_tbl i8') AS ln WHERE ln ~ '^ *Settings: .*plan_cache_mode = ''force_generic_plan'''"
+  },
+  {
+    "comment": "explain - Statement 30",
+    "query": "select explain_filter_to_json('explain (settings, format json) select * from int8_tbl i8') #\u003e '{0,Settings,plan_cache_mode}'",
+    "expected": "SELECT explain_filter_to_json('explain (settings, format json) select * from int8_tbl i8') #\u003e '{0,Settings,plan_cache_mode}'"
+  },
+  {
+    "comment": "explain - Statement 31",
+    "query": "rollback",
+    "expected": "ROLLBACK"
+  },
+  {
+    "comment": "explain - Statement 32",
+    "query": "select explain_filter('explain (generic_plan) select unique1 from tenk1 where thousand = $1')",
+    "expected": "SELECT explain_filter('explain (generic_plan) select unique1 from tenk1 where thousand = $1')"
+  },
+  {
+    "comment": "explain - Statement 33",
+    "query": "select explain_filter('explain (analyze, generic_plan) select unique1 from tenk1 where thousand = $1')",
+    "expected": "SELECT explain_filter('explain (analyze, generic_plan) select unique1 from tenk1 where thousand = $1')"
+  },
+  {
+    "comment": "explain - Statement 34",
+    "query": "select explain_filter('explain (memory) select * from int8_tbl i8')",
+    "expected": "SELECT explain_filter('explain (memory) select * from int8_tbl i8')"
+  },
+  {
+    "comment": "explain - Statement 35",
+    "query": "select explain_filter('explain (memory, analyze) select * from int8_tbl i8')",
+    "expected": "SELECT explain_filter('explain (memory, analyze) select * from int8_tbl i8')"
+  },
+  {
+    "comment": "explain - Statement 36",
+    "query": "select explain_filter('explain (memory, summary, format yaml) select * from int8_tbl i8')",
+    "expected": "SELECT explain_filter('explain (memory, summary, format yaml) select * from int8_tbl i8')"
+  },
+  {
+    "comment": "explain - Statement 37",
+    "query": "select explain_filter('explain (memory, analyze, format json) select * from int8_tbl i8')",
+    "expected": "SELECT explain_filter('explain (memory, analyze, format json) select * from int8_tbl i8')"
+  },
+  {
+    "comment": "explain - Statement 38",
+    "query": "prepare int8_query as select * from int8_tbl i8",
+    "expected": "PREPARE int8_query AS SELECT * FROM int8_tbl AS i8"
+  },
+  {
+    "comment": "explain - Statement 39",
+    "query": "select explain_filter('explain (memory) execute int8_query')",
+    "expected": "SELECT explain_filter('explain (memory) execute int8_query')"
+  },
+  {
+    "comment": "explain - Statement 40",
+    "query": "create table gen_part ( key1 integer not null, key2 integer not null ) partition by list (key1)",
+    "expected": "CREATE TABLE gen_part (key1 INT NOT NULL, key2 INT NOT NULL) PARTITION BY list (key1)"
+  },
+  {
+    "comment": "explain - Statement 41",
+    "query": "create table gen_part_1 partition of gen_part for values in (1) partition by range (key2)",
+    "expected": "CREATE TABLE gen_part_1 PARTITION OF gen_part FOR VALUES IN (1) PARTITION BY range (key2)"
+  },
+  {
+    "comment": "explain - Statement 42",
+    "query": "create table gen_part_1_1 partition of gen_part_1 for values from (1) to (2)",
+    "expected": "CREATE TABLE gen_part_1_1 PARTITION OF gen_part_1 FOR VALUES FROM (1) TO (2)"
+  },
+  {
+    "comment": "explain - Statement 43",
+    "query": "create table gen_part_1_2 partition of gen_part_1 for values from (2) to (3)",
+    "expected": "CREATE TABLE gen_part_1_2 PARTITION OF gen_part_1 FOR VALUES FROM (2) TO (3)"
+  },
+  {
+    "comment": "explain - Statement 44",
+    "query": "create table gen_part_2 partition of gen_part for values in (2)",
+    "expected": "CREATE TABLE gen_part_2 PARTITION OF gen_part FOR VALUES IN (2)"
+  },
+  {
+    "comment": "explain - Statement 45",
+    "query": "select explain_filter('explain (generic_plan) select key1, key2 from gen_part where key1 = 1 and key2 = $1')",
+    "expected": "SELECT explain_filter('explain (generic_plan) select key1, key2 from gen_part where key1 = 1 and key2 = $1')"
+  },
+  {
+    "comment": "explain - Statement 46",
+    "query": "drop table gen_part",
+    "expected": "DROP TABLE gen_part"
+  },
+  {
+    "comment": "explain - Statement 47",
+    "query": "set parallel_setup_cost=0",
+    "expected": "SET parallel_setup_cost = 0"
+  },
+  {
+    "comment": "explain - Statement 48",
+    "query": "set parallel_tuple_cost=0",
+    "expected": "SET parallel_tuple_cost = 0"
+  },
+  {
+    "comment": "explain - Statement 49",
+    "query": "set min_parallel_table_scan_size=0",
+    "expected": "SET min_parallel_table_scan_size = 0"
+  },
+  {
+    "comment": "explain - Statement 50",
+    "query": "set max_parallel_workers_per_gather=4",
+    "expected": "SET max_parallel_workers_per_gather = 4"
+  },
+  {
+    "comment": "explain - Statement 51",
+    "query": "select jsonb_pretty( explain_filter_to_json('explain (analyze, verbose, buffers, format json) select * from tenk1 order by tenthous') #- '{0,Plan,Plans,0,Plans,0,Workers}' #- '{0,Plan,Plans,0,Workers}' #- '{0,Plan,Plans,0,Sort Method}' #- '{0,Plan,Plans,0,Sort Space Type}' )",
+    "expected": "SELECT jsonb_pretty(explain_filter_to_json('explain (analyze, verbose, buffers, format json) select * from tenk1 order by tenthous') #- '{0,Plan,Plans,0,Plans,0,Workers}' #- '{0,Plan,Plans,0,Workers}' #- '{0,Plan,Plans,0,Sort Method}' #- '{0,Plan,Plans,0,Sort Space Type}')"
+  },
+  {
+    "comment": "explain - Statement 52",
+    "query": "create temp table t1(f1 float8)",
+    "expected": "CREATE TEMPORARY TABLE t1 (f1 FLOAT8)"
+  },
+  {
+    "comment": "explain - Statement 53",
+    "query": "create function pg_temp.mysin(float8) returns float8 language plpgsql as 'begin return sin($1); end'",
+    "expected": "CREATE FUNCTION pg_temp.mysin (FLOAT8) RETURNS FLOAT8 LANGUAGE plpgsql AS $$begin return sin($1); end$$"
+  },
+  {
+    "comment": "explain - Statement 54",
+    "query": "select explain_filter('explain (verbose) select * from t1 where pg_temp.mysin(f1) \u003c 0.5')",
+    "expected": "SELECT explain_filter('explain (verbose) select * from t1 where pg_temp.mysin(f1) \u003c 0.5')"
+  },
+  {
+    "comment": "explain - Statement 55",
+    "query": "set compute_query_id = on",
+    "expected": "SET compute_query_id = on"
+  },
+  {
+    "comment": "explain - Statement 56",
+    "query": "select explain_filter('explain (verbose) select * from int8_tbl i8')",
+    "expected": "SELECT explain_filter('explain (verbose) select * from int8_tbl i8')"
+  },
+  {
+    "comment": "explain - Statement 57",
+    "query": "select explain_filter('explain (analyze,serialize) select * from int8_tbl i8')",
+    "expected": "SELECT explain_filter('explain (analyze,serialize) select * from int8_tbl i8')"
+  },
+  {
+    "comment": "explain - Statement 58",
+    "query": "select explain_filter('explain (analyze,serialize text,buffers,timing off) select * from int8_tbl i8')",
+    "expected": "SELECT explain_filter('explain (analyze,serialize text,buffers,timing off) select * from int8_tbl i8')"
+  },
+  {
+    "comment": "explain - Statement 59",
+    "query": "select explain_filter('explain (analyze,serialize binary,buffers,timing) select * from int8_tbl i8')",
+    "expected": "SELECT explain_filter('explain (analyze,serialize binary,buffers,timing) select * from int8_tbl i8')"
+  },
+  {
+    "comment": "explain - Statement 60",
+    "query": "select explain_filter('explain (analyze,serialize) create temp table explain_temp as select * from int8_tbl i8')",
+    "expected": "SELECT explain_filter('explain (analyze,serialize) create temp table explain_temp as select * from int8_tbl i8')"
+  }
+]

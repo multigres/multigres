@@ -1,0 +1,438 @@
+[
+  {
+    "comment": "temp - Statement 1",
+    "query": "CREATE TABLE temptest(col int)",
+    "expected": "CREATE TABLE temptest (col INT)"
+  },
+  {
+    "comment": "temp - Statement 2",
+    "query": "CREATE INDEX i_temptest ON temptest(col)",
+    "expected": "CREATE INDEX i_temptest ON temptest USING btree ( col )"
+  },
+  {
+    "comment": "temp - Statement 3",
+    "query": "CREATE TEMP TABLE temptest(tcol int)",
+    "expected": "CREATE TEMPORARY TABLE temptest (tcol INT)"
+  },
+  {
+    "comment": "temp - Statement 4",
+    "query": "CREATE INDEX i_temptest ON temptest(tcol)",
+    "expected": "CREATE INDEX i_temptest ON temptest USING btree ( tcol )"
+  },
+  {
+    "comment": "temp - Statement 5",
+    "query": "SELECT * FROM temptest"
+  },
+  {
+    "comment": "temp - Statement 6",
+    "query": "DROP INDEX i_temptest"
+  },
+  {
+    "comment": "temp - Statement 7",
+    "query": "DROP TABLE temptest"
+  },
+  {
+    "comment": "temp - Statement 8",
+    "query": "INSERT INTO temptest VALUES (1)"
+  },
+  {
+    "comment": "temp - Statement 9",
+    "query": "CREATE TEMP TABLE temptest(tcol float)",
+    "expected": "CREATE TEMPORARY TABLE temptest (tcol FLOAT8)"
+  },
+  {
+    "comment": "temp - Statement 10",
+    "query": "INSERT INTO temptest VALUES (2.1)"
+  },
+  {
+    "comment": "temp - Statement 11",
+    "query": "CREATE TEMP TABLE temptest(col int)",
+    "expected": "CREATE TEMPORARY TABLE temptest (col INT)"
+  },
+  {
+    "comment": "temp - Statement 12",
+    "query": "CREATE TEMP TABLE temptest(col int) ON COMMIT DELETE ROWS",
+    "expected": "CREATE TEMPORARY TABLE temptest (col INT) ON COMMIT DELETE ROWS"
+  },
+  {
+    "comment": "temp - Statement 13",
+    "query": "CREATE INDEX ON temptest(bit_length(''))",
+    "expected": "CREATE INDEX ON temptest USING btree ( (bit_length('')) )"
+  },
+  {
+    "comment": "temp - Statement 14",
+    "query": "BEGIN"
+  },
+  {
+    "comment": "temp - Statement 15",
+    "query": "INSERT INTO temptest VALUES (2)"
+  },
+  {
+    "comment": "temp - Statement 16",
+    "query": "COMMIT"
+  },
+  {
+    "comment": "temp - Statement 17",
+    "query": "CREATE TEMP TABLE temptest(col) ON COMMIT DELETE ROWS AS SELECT 1",
+    "expected": "CREATE TEMP TABLE temptest (col) AS SELECT 1"
+  },
+  {
+    "comment": "temp - Statement 18",
+    "query": "CREATE TEMP TABLE temptest(col int) ON COMMIT DROP",
+    "expected": "CREATE TEMPORARY TABLE temptest (col INT) ON COMMIT DROP"
+  },
+  {
+    "comment": "temp - Statement 19",
+    "query": "CREATE TEMP TABLE temptest(col) ON COMMIT DROP AS SELECT 1",
+    "expected": "CREATE TEMP TABLE temptest (col) AS SELECT 1"
+  },
+  {
+    "comment": "temp - Statement 20",
+    "query": "do $$ begin execute format($cmd$ CREATE TEMP TABLE temptest (col text CHECK (col \u003c %L)) ON COMMIT DROP $cmd$, (SELECT string_agg(g.i::text || ':' || random()::text, '|') FROM generate_series(1, 100) g(i))); end$$",
+    "expected": "DO ' begin execute format($cmd$ CREATE TEMP TABLE temptest (col text CHECK (col \u003c %L)) ON COMMIT DROP $cmd$, (SELECT string_agg(g.i::text || '':'' || random()::text, ''|'') FROM generate_series(1, 100) g(i))); end'"
+  },
+  {
+    "comment": "temp - Statement 21",
+    "query": "CREATE TABLE temptest(col int) ON COMMIT DELETE ROWS",
+    "expected": "CREATE TABLE temptest (col INT) ON COMMIT DELETE ROWS"
+  },
+  {
+    "comment": "temp - Statement 22",
+    "query": "CREATE TABLE temptest(col) ON COMMIT DELETE ROWS AS SELECT 1",
+    "expected": "CREATE TABLE temptest (col) AS SELECT 1"
+  },
+  {
+    "comment": "temp - Statement 23",
+    "query": "CREATE TEMP TABLE temptest1(col int PRIMARY KEY)",
+    "expected": "CREATE TEMPORARY TABLE temptest1 (col INT PRIMARY KEY)"
+  },
+  {
+    "comment": "temp - Statement 24",
+    "query": "CREATE TEMP TABLE temptest2(col int REFERENCES temptest1) ON COMMIT DELETE ROWS",
+    "expected": "CREATE TEMPORARY TABLE temptest2 (col INT REFERENCES temptest1) ON COMMIT DELETE ROWS"
+  },
+  {
+    "comment": "temp - Statement 25",
+    "query": "INSERT INTO temptest1 VALUES (1)"
+  },
+  {
+    "comment": "temp - Statement 26",
+    "query": "INSERT INTO temptest2 VALUES (1)"
+  },
+  {
+    "comment": "temp - Statement 27",
+    "query": "SELECT * FROM temptest1"
+  },
+  {
+    "comment": "temp - Statement 28",
+    "query": "SELECT * FROM temptest2"
+  },
+  {
+    "comment": "temp - Statement 29",
+    "query": "CREATE TEMP TABLE temptest3(col int PRIMARY KEY) ON COMMIT DELETE ROWS",
+    "expected": "CREATE TEMPORARY TABLE temptest3 (col INT PRIMARY KEY) ON COMMIT DELETE ROWS"
+  },
+  {
+    "comment": "temp - Statement 30",
+    "query": "CREATE TEMP TABLE temptest4(col int REFERENCES temptest3)",
+    "expected": "CREATE TEMPORARY TABLE temptest4 (col INT REFERENCES temptest3)"
+  },
+  {
+    "comment": "temp - Statement 31",
+    "query": "create table public.whereami (f1 text)",
+    "expected": "CREATE TABLE public.whereami (f1 TEXT)"
+  },
+  {
+    "comment": "temp - Statement 32",
+    "query": "insert into public.whereami values ('public')",
+    "expected": "INSERT INTO public.whereami VALUES ('public')"
+  },
+  {
+    "comment": "temp - Statement 33",
+    "query": "create temp table whereami (f1 text)",
+    "expected": "CREATE TEMPORARY TABLE whereami (f1 TEXT)"
+  },
+  {
+    "comment": "temp - Statement 34",
+    "query": "insert into whereami values ('temp')",
+    "expected": "INSERT INTO whereami VALUES ('temp')"
+  },
+  {
+    "comment": "temp - Statement 35",
+    "query": "create function public.whoami() returns text as $$select 'public'::text$$ language sql",
+    "expected": "CREATE FUNCTION public.whoami () RETURNS TEXT AS $$select 'public'::text$$ LANGUAGE sql"
+  },
+  {
+    "comment": "temp - Statement 36",
+    "query": "create function pg_temp.whoami() returns text as $$select 'temp'::text$$ language sql",
+    "expected": "CREATE FUNCTION pg_temp.whoami () RETURNS TEXT AS $$select 'temp'::text$$ LANGUAGE sql"
+  },
+  {
+    "comment": "temp - Statement 37",
+    "query": "select * from whereami",
+    "expected": "SELECT * FROM whereami"
+  },
+  {
+    "comment": "temp - Statement 38",
+    "query": "select whoami()",
+    "expected": "SELECT whoami()"
+  },
+  {
+    "comment": "temp - Statement 39",
+    "query": "set search_path = pg_temp, public",
+    "expected": "SET search_path = 'pg_temp', 'public'"
+  },
+  {
+    "comment": "temp - Statement 40",
+    "query": "set search_path = public, pg_temp",
+    "expected": "SET search_path = 'public', 'pg_temp'"
+  },
+  {
+    "comment": "temp - Statement 41",
+    "query": "select pg_temp.whoami()",
+    "expected": "SELECT pg_temp.whoami()"
+  },
+  {
+    "comment": "temp - Statement 42",
+    "query": "drop table public.whereami",
+    "expected": "DROP TABLE public.whereami"
+  },
+  {
+    "comment": "temp - Statement 43",
+    "query": "create domain pg_temp.nonempty as text check (value \u003c\u003e '')",
+    "expected": "CREATE DOMAIN pg_temp.nonempty AS TEXT CHECK (value \u003c\u003e '')"
+  },
+  {
+    "comment": "temp - Statement 44",
+    "query": "select nonempty('')",
+    "expected": "SELECT nonempty('')"
+  },
+  {
+    "comment": "temp - Statement 45",
+    "query": "select pg_temp.nonempty('')",
+    "expected": "SELECT pg_temp.nonempty('')"
+  },
+  {
+    "comment": "temp - Statement 46",
+    "query": "select ''::nonempty",
+    "expected": "SELECT CAST('' AS nonempty)"
+  },
+  {
+    "comment": "temp - Statement 47",
+    "query": "reset search_path",
+    "expected": "RESET search_path"
+  },
+  {
+    "comment": "temp - Statement 48",
+    "query": "create temp table temp_parted_oncommit (a int) partition by list (a) on commit delete rows",
+    "expected": "CREATE TEMPORARY TABLE temp_parted_oncommit (a INT) PARTITION BY list (a) ON COMMIT DELETE ROWS"
+  },
+  {
+    "comment": "temp - Statement 49",
+    "query": "create temp table temp_parted_oncommit_1 partition of temp_parted_oncommit for values in (1) on commit delete rows",
+    "expected": "CREATE TEMPORARY TABLE temp_parted_oncommit_1 PARTITION OF temp_parted_oncommit FOR VALUES IN (1) ON COMMIT DELETE ROWS"
+  },
+  {
+    "comment": "temp - Statement 50",
+    "query": "insert into temp_parted_oncommit values (1)",
+    "expected": "INSERT INTO temp_parted_oncommit VALUES (1)"
+  },
+  {
+    "comment": "temp - Statement 51",
+    "query": "select * from temp_parted_oncommit",
+    "expected": "SELECT * FROM temp_parted_oncommit"
+  },
+  {
+    "comment": "temp - Statement 52",
+    "query": "drop table temp_parted_oncommit",
+    "expected": "DROP TABLE temp_parted_oncommit"
+  },
+  {
+    "comment": "temp - Statement 53",
+    "query": "create temp table temp_parted_oncommit_test (a int) partition by list (a) on commit drop",
+    "expected": "CREATE TEMPORARY TABLE temp_parted_oncommit_test (a INT) PARTITION BY list (a) ON COMMIT DROP"
+  },
+  {
+    "comment": "temp - Statement 54",
+    "query": "create temp table temp_parted_oncommit_test1 partition of temp_parted_oncommit_test for values in (1) on commit delete rows",
+    "expected": "CREATE TEMPORARY TABLE temp_parted_oncommit_test1 PARTITION OF temp_parted_oncommit_test FOR VALUES IN (1) ON COMMIT DELETE ROWS"
+  },
+  {
+    "comment": "temp - Statement 55",
+    "query": "create temp table temp_parted_oncommit_test2 partition of temp_parted_oncommit_test for values in (2) on commit drop",
+    "expected": "CREATE TEMPORARY TABLE temp_parted_oncommit_test2 PARTITION OF temp_parted_oncommit_test FOR VALUES IN (2) ON COMMIT DROP"
+  },
+  {
+    "comment": "temp - Statement 56",
+    "query": "insert into temp_parted_oncommit_test values (1), (2)",
+    "expected": "INSERT INTO temp_parted_oncommit_test VALUES (1), (2)"
+  },
+  {
+    "comment": "temp - Statement 57",
+    "query": "select relname from pg_class where relname ~ '^temp_parted_oncommit_test'",
+    "expected": "SELECT relname FROM pg_class WHERE relname ~ '^temp_parted_oncommit_test'"
+  },
+  {
+    "comment": "temp - Statement 58",
+    "query": "create temp table temp_parted_oncommit_test (a int) partition by list (a) on commit delete rows",
+    "expected": "CREATE TEMPORARY TABLE temp_parted_oncommit_test (a INT) PARTITION BY list (a) ON COMMIT DELETE ROWS"
+  },
+  {
+    "comment": "temp - Statement 59",
+    "query": "create temp table temp_parted_oncommit_test1 partition of temp_parted_oncommit_test for values in (1) on commit preserve rows",
+    "expected": "CREATE TEMPORARY TABLE temp_parted_oncommit_test1 PARTITION OF temp_parted_oncommit_test FOR VALUES IN (1) ON COMMIT PRESERVE ROWS"
+  },
+  {
+    "comment": "temp - Statement 60",
+    "query": "select * from temp_parted_oncommit_test",
+    "expected": "SELECT * FROM temp_parted_oncommit_test"
+  },
+  {
+    "comment": "temp - Statement 61",
+    "query": "select relname from pg_class where relname ~ '^temp_parted_oncommit_test' order by relname",
+    "expected": "SELECT relname FROM pg_class WHERE relname ~ '^temp_parted_oncommit_test' ORDER BY relname"
+  },
+  {
+    "comment": "temp - Statement 62",
+    "query": "drop table temp_parted_oncommit_test",
+    "expected": "DROP TABLE temp_parted_oncommit_test"
+  },
+  {
+    "comment": "temp - Statement 63",
+    "query": "create temp table temp_inh_oncommit_test (a int) on commit drop",
+    "expected": "CREATE TEMPORARY TABLE temp_inh_oncommit_test (a INT) ON COMMIT DROP"
+  },
+  {
+    "comment": "temp - Statement 64",
+    "query": "create temp table temp_inh_oncommit_test1 () inherits(temp_inh_oncommit_test) on commit delete rows",
+    "expected": "CREATE TEMPORARY TABLE temp_inh_oncommit_test1 () INHERITS (temp_inh_oncommit_test) ON COMMIT DELETE ROWS"
+  },
+  {
+    "comment": "temp - Statement 65",
+    "query": "insert into temp_inh_oncommit_test1 values (1)",
+    "expected": "INSERT INTO temp_inh_oncommit_test1 VALUES (1)"
+  },
+  {
+    "comment": "temp - Statement 66",
+    "query": "select relname from pg_class where relname ~ '^temp_inh_oncommit_test'",
+    "expected": "SELECT relname FROM pg_class WHERE relname ~ '^temp_inh_oncommit_test'"
+  },
+  {
+    "comment": "temp - Statement 67",
+    "query": "create temp table temp_inh_oncommit_test (a int) on commit delete rows",
+    "expected": "CREATE TEMPORARY TABLE temp_inh_oncommit_test (a INT) ON COMMIT DELETE ROWS"
+  },
+  {
+    "comment": "temp - Statement 68",
+    "query": "create temp table temp_inh_oncommit_test1 () inherits(temp_inh_oncommit_test) on commit drop",
+    "expected": "CREATE TEMPORARY TABLE temp_inh_oncommit_test1 () INHERITS (temp_inh_oncommit_test) ON COMMIT DROP"
+  },
+  {
+    "comment": "temp - Statement 69",
+    "query": "insert into temp_inh_oncommit_test values (1)",
+    "expected": "INSERT INTO temp_inh_oncommit_test VALUES (1)"
+  },
+  {
+    "comment": "temp - Statement 70",
+    "query": "select * from temp_inh_oncommit_test",
+    "expected": "SELECT * FROM temp_inh_oncommit_test"
+  },
+  {
+    "comment": "temp - Statement 71",
+    "query": "drop table temp_inh_oncommit_test",
+    "expected": "DROP TABLE temp_inh_oncommit_test"
+  },
+  {
+    "comment": "temp - Statement 72",
+    "query": "create function pg_temp.twophase_func() returns void as $$ select '2pc_func'::text $$ language sql",
+    "expected": "CREATE FUNCTION pg_temp.twophase_func () RETURNS void AS $$ select '2pc_func'::text $$ LANGUAGE sql"
+  },
+  {
+    "comment": "temp - Statement 73",
+    "query": "prepare transaction 'twophase_func'",
+    "expected": "PREPARE TRANSACTION 'twophase_func'"
+  },
+  {
+    "comment": "temp - Statement 74",
+    "query": "drop function pg_temp.twophase_func()",
+    "expected": "DROP FUNCTION pg_temp.twophase_func()"
+  },
+  {
+    "comment": "temp - Statement 75",
+    "query": "create operator pg_temp.@@ (leftarg = int4, rightarg = int4, procedure = int4mi)",
+    "expected": "CREATE OPERATOR pg_temp.@@ (leftarg = INT, rightarg = INT, procedure = int4mi)"
+  },
+  {
+    "comment": "temp - Statement 76",
+    "query": "prepare transaction 'twophase_operator'",
+    "expected": "PREPARE TRANSACTION 'twophase_operator'"
+  },
+  {
+    "comment": "temp - Statement 77",
+    "query": "create type pg_temp.twophase_type as (a int)",
+    "expected": "CREATE TYPE pg_temp.twophase_type AS (a INT)"
+  },
+  {
+    "comment": "temp - Statement 78",
+    "query": "prepare transaction 'twophase_type'",
+    "expected": "PREPARE TRANSACTION 'twophase_type'"
+  },
+  {
+    "comment": "temp - Statement 79",
+    "query": "create view pg_temp.twophase_view as select 1",
+    "expected": "CREATE VIEW pg_temp.twophase_view AS SELECT 1"
+  },
+  {
+    "comment": "temp - Statement 80",
+    "query": "prepare transaction 'twophase_view'",
+    "expected": "PREPARE TRANSACTION 'twophase_view'"
+  },
+  {
+    "comment": "temp - Statement 81",
+    "query": "create sequence pg_temp.twophase_seq",
+    "expected": "CREATE SEQUENCE pg_temp.twophase_seq"
+  },
+  {
+    "comment": "temp - Statement 82",
+    "query": "prepare transaction 'twophase_sequence'",
+    "expected": "PREPARE TRANSACTION 'twophase_sequence'"
+  },
+  {
+    "comment": "temp - Statement 83",
+    "query": "create temp table twophase_tab (a int)",
+    "expected": "CREATE TEMPORARY TABLE twophase_tab (a INT)"
+  },
+  {
+    "comment": "temp - Statement 84",
+    "query": "select a from twophase_tab",
+    "expected": "SELECT a FROM twophase_tab"
+  },
+  {
+    "comment": "temp - Statement 85",
+    "query": "prepare transaction 'twophase_tab'",
+    "expected": "PREPARE TRANSACTION 'twophase_tab'"
+  },
+  {
+    "comment": "temp - Statement 86",
+    "query": "insert into twophase_tab values (1)",
+    "expected": "INSERT INTO twophase_tab VALUES (1)"
+  },
+  {
+    "comment": "temp - Statement 87",
+    "query": "lock twophase_tab in access exclusive mode",
+    "expected": "LOCK TABLE twophase_tab IN ACCESS EXCLUSIVE MODE"
+  },
+  {
+    "comment": "temp - Statement 88",
+    "query": "drop table twophase_tab",
+    "expected": "DROP TABLE twophase_tab"
+  },
+  {
+    "comment": "temp - Statement 89",
+    "query": "SELECT current_schema() ~ 'pg_temp' AS is_temp_schema"
+  },
+  {
+    "comment": "temp - Statement 90",
+    "query": "PREPARE TRANSACTION 'twophase_search'"
+  }
+]

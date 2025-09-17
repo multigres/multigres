@@ -1,0 +1,343 @@
+[
+  {
+    "comment": "create_operator - Statement 1",
+    "query": "CREATE OPERATOR ## ( leftarg = path, rightarg = path, function = path_inter, commutator = ## )",
+    "expected": "CREATE OPERATOR ## (leftarg = path, rightarg = path, function = path_inter, commutator = '##')"
+  },
+  {
+    "comment": "create_operator - Statement 2",
+    "query": "CREATE OPERATOR @#@ ( rightarg = int8, procedure = factorial )",
+    "expected": "CREATE OPERATOR @#@ (rightarg = BIGINT, procedure = factorial)"
+  },
+  {
+    "comment": "create_operator - Statement 3",
+    "query": "CREATE OPERATOR #%# ( leftarg = int8, procedure = factorial )",
+    "expected": "CREATE OPERATOR #%# (leftarg = BIGINT, procedure = factorial)"
+  },
+  {
+    "comment": "create_operator - Statement 4",
+    "query": "SELECT @#@ 24",
+    "expected": "SELECT @#@24"
+  },
+  {
+    "comment": "create_operator - Statement 5",
+    "query": "COMMENT ON OPERATOR ###### (NONE, int4) IS 'bad prefix'",
+    "expected": "COMMENT ON OPERATOR ######(NONE, INT) IS 'bad prefix'"
+  },
+  {
+    "comment": "create_operator - Statement 6",
+    "query": "COMMENT ON OPERATOR ###### (int4, NONE) IS 'bad postfix'",
+    "expected": "COMMENT ON OPERATOR ######(INT, NONE) IS 'bad postfix'"
+  },
+  {
+    "comment": "create_operator - Statement 7",
+    "query": "COMMENT ON OPERATOR ###### (int4, int8) IS 'bad infix'",
+    "expected": "COMMENT ON OPERATOR ######(INT, BIGINT) IS 'bad infix'"
+  },
+  {
+    "comment": "create_operator - Statement 8",
+    "query": "DROP OPERATOR ###### (NONE, int4)",
+    "expected": "DROP OPERATOR ######(NONE, INT)"
+  },
+  {
+    "comment": "create_operator - Statement 9",
+    "query": "DROP OPERATOR ###### (int4, NONE)",
+    "expected": "DROP OPERATOR ######(INT, NONE)"
+  },
+  {
+    "comment": "create_operator - Statement 10",
+    "query": "DROP OPERATOR ###### (int4, int8)",
+    "expected": "DROP OPERATOR ######(INT, BIGINT)"
+  },
+  {
+    "comment": "create_operator - Statement 11",
+    "query": "CREATE OPERATOR =\u003e ( rightarg = int8, procedure = factorial )",
+    "error": "parse error at position 18: syntax error"
+  },
+  {
+    "comment": "create_operator - Statement 12",
+    "query": "CREATE OPERATOR !=- ( rightarg = int8, procedure = factorial )",
+    "expected": "CREATE OPERATOR !=- (rightarg = BIGINT, procedure = factorial)"
+  },
+  {
+    "comment": "create_operator - Statement 13",
+    "query": "SELECT !=- 10",
+    "expected": "SELECT !=-10"
+  },
+  {
+    "comment": "create_operator - Statement 14",
+    "query": "SELECT 10 !=-",
+    "error": "parse error at position 13: syntax error"
+  },
+  {
+    "comment": "create_operator - Statement 15",
+    "query": "SELECT 2 !=/**/ 1, 2 !=/**/ 2",
+    "expected": "SELECT 2 \u003c\u003e 1, 2 \u003c\u003e 2"
+  },
+  {
+    "comment": "create_operator - Statement 16",
+    "query": "SELECT 2 != 1",
+    "expected": "SELECT 2 \u003c\u003e 1"
+  },
+  {
+    "comment": "create_operator - Statement 17",
+    "query": "DO $$ declare r boolean; begin execute $e$ select 2 != 1 $e$ into r; raise info 'r = %', r; end;$$;",
+    "expected": "DO ' declare r boolean; begin execute $e$ select 2 != 1 $e$ into r; raise info ''r = %'', r; end;'"
+  },
+  {
+    "comment": "create_operator - Statement 22",
+    "query": "SELECT true\u003c\u003e-1 BETWEEN 1 AND 1",
+    "expected": "SELECT TRUE \u003c\u003e- 1 BETWEEN 1 AND 1"
+  },
+  {
+    "comment": "create_operator - Statement 23",
+    "query": "SELECT false\u003c\u003e/**/1 BETWEEN 1 AND 1",
+    "expected": "SELECT FALSE \u003c\u003e 1 BETWEEN 1 AND 1"
+  },
+  {
+    "comment": "create_operator - Statement 24",
+    "query": "SELECT false\u003c=-1 BETWEEN 1 AND 1",
+    "expected": "SELECT FALSE \u003c=- 1 BETWEEN 1 AND 1"
+  },
+  {
+    "comment": "create_operator - Statement 25",
+    "query": "SELECT false\u003e=-1 BETWEEN 1 AND 1",
+    "expected": "SELECT FALSE \u003e=- 1 BETWEEN 1 AND 1"
+  },
+  {
+    "comment": "create_operator - Statement 26",
+    "query": "SELECT 2\u003c=/**/3, 3\u003e=/**/2, 2\u003c\u003e/**/3",
+    "expected": "SELECT 2 \u003c= 3, 3 \u003e= 2, 2 \u003c\u003e 3"
+  },
+  {
+    "comment": "create_operator - Statement 27",
+    "query": "SELECT 3\u003c=/**/2, 2\u003e=/**/3, 2\u003c\u003e/**/2",
+    "expected": "SELECT 3 \u003c= 2, 2 \u003e= 3, 2 \u003c\u003e 2"
+  },
+  {
+    "comment": "create_operator - Statement 28",
+    "query": "BEGIN TRANSACTION",
+    "expected": "BEGIN"
+  },
+  {
+    "comment": "create_operator - Statement 29",
+    "query": "CREATE ROLE regress_rol_op1"
+  },
+  {
+    "comment": "create_operator - Statement 30",
+    "query": "CREATE SCHEMA schema_op1"
+  },
+  {
+    "comment": "create_operator - Statement 31",
+    "query": "GRANT USAGE ON SCHEMA schema_op1 TO PUBLIC"
+  },
+  {
+    "comment": "create_operator - Statement 32",
+    "query": "REVOKE USAGE ON SCHEMA schema_op1 FROM regress_rol_op1"
+  },
+  {
+    "comment": "create_operator - Statement 33",
+    "query": "SET ROLE regress_rol_op1",
+    "expected": "SET ROLE 'regress_rol_op1'"
+  },
+  {
+    "comment": "create_operator - Statement 34",
+    "query": "CREATE OPERATOR schema_op1.#*# ( rightarg = int8, procedure = factorial )",
+    "expected": "CREATE OPERATOR schema_op1.#*# (rightarg = BIGINT, procedure = factorial)"
+  },
+  {
+    "comment": "create_operator - Statement 35",
+    "query": "ROLLBACK"
+  },
+  {
+    "comment": "create_operator - Statement 36",
+    "query": "CREATE OPERATOR #*# ( leftarg = SETOF int8, procedure = factorial )",
+    "expected": "CREATE OPERATOR #*# (leftarg = SETOF BIGINT, procedure = factorial)"
+  },
+  {
+    "comment": "create_operator - Statement 37",
+    "query": "CREATE OPERATOR #*# ( rightarg = SETOF int8, procedure = factorial )",
+    "expected": "CREATE OPERATOR #*# (rightarg = SETOF BIGINT, procedure = factorial)"
+  },
+  {
+    "comment": "create_operator - Statement 38",
+    "query": "CREATE OR REPLACE FUNCTION fn_op2(boolean, boolean) RETURNS boolean AS $$ SELECT NULL::BOOLEAN $$ LANGUAGE sql IMMUTABLE",
+    "expected": "CREATE OR REPLACE FUNCTION fn_op2 (BOOLEAN, BOOLEAN) RETURNS BOOLEAN AS $$ SELECT NULL::BOOLEAN $$ LANGUAGE sql IMMUTABLE"
+  },
+  {
+    "comment": "create_operator - Statement 40",
+    "query": "CREATE OPERATOR === ( LEFTARG = boolean, RIGHTARG = boolean, PROCEDURE = fn_op2, COMMUTATOR = ===, NEGATOR = !==, RESTRICT = contsel, JOIN = contjoinsel, SORT1, SORT2, LTCMP, GTCMP, HASHES, MERGES )",
+    "expected": "CREATE OPERATOR === (leftarg = BOOLEAN, rightarg = BOOLEAN, procedure = fn_op2, commutator = '===', negator = '!==', restrict = contsel, \"join\" = contjoinsel, sort1, sort2, ltcmp, gtcmp, hashes, merges)"
+  },
+  {
+    "comment": "create_operator - Statement 41",
+    "query": "CREATE OPERATOR #@%# ( rightarg = int8, procedure = factorial, invalid_att = int8 )",
+    "expected": "CREATE OPERATOR #@%# (rightarg = BIGINT, procedure = factorial, invalid_att = BIGINT)"
+  },
+  {
+    "comment": "create_operator - Statement 42",
+    "query": "CREATE OPERATOR #@%# ( procedure = factorial )",
+    "expected": "CREATE OPERATOR #@%# (procedure = factorial)"
+  },
+  {
+    "comment": "create_operator - Statement 43",
+    "query": "CREATE OPERATOR #@%# ( rightarg = int8 )",
+    "expected": "CREATE OPERATOR #@%# (rightarg = BIGINT)"
+  },
+  {
+    "comment": "create_operator - Statement 44",
+    "query": "CREATE ROLE regress_rol_op3"
+  },
+  {
+    "comment": "create_operator - Statement 45",
+    "query": "CREATE TYPE type_op3 AS ENUM ('new', 'open', 'closed')"
+  },
+  {
+    "comment": "create_operator - Statement 46",
+    "query": "CREATE FUNCTION fn_op3(type_op3, int8) RETURNS int8 AS $$ SELECT NULL::int8 $$",
+    "expected": "CREATE FUNCTION fn_op3 (type_op3, BIGINT) RETURNS BIGINT AS $$ SELECT NULL::int8 $$"
+  },
+  {
+    "comment": "create_operator - Statement 47",
+    "query": "REVOKE USAGE ON TYPE type_op3 FROM regress_rol_op3"
+  },
+  {
+    "comment": "create_operator - Statement 48",
+    "query": "REVOKE USAGE ON TYPE type_op3 FROM PUBLIC"
+  },
+  {
+    "comment": "create_operator - Statement 49",
+    "query": "SET ROLE regress_rol_op3",
+    "expected": "SET ROLE 'regress_rol_op3'"
+  },
+  {
+    "comment": "create_operator - Statement 50",
+    "query": "CREATE OPERATOR #*# ( leftarg = type_op3, rightarg = int8, procedure = fn_op3 )",
+    "expected": "CREATE OPERATOR #*# (leftarg = type_op3, rightarg = BIGINT, procedure = fn_op3)"
+  },
+  {
+    "comment": "create_operator - Statement 51",
+    "query": "CREATE ROLE regress_rol_op4"
+  },
+  {
+    "comment": "create_operator - Statement 52",
+    "query": "CREATE TYPE type_op4 AS ENUM ('new', 'open', 'closed')"
+  },
+  {
+    "comment": "create_operator - Statement 53",
+    "query": "CREATE FUNCTION fn_op4(int8, type_op4) RETURNS int8 AS $$ SELECT NULL::int8 $$",
+    "expected": "CREATE FUNCTION fn_op4 (BIGINT, type_op4) RETURNS BIGINT AS $$ SELECT NULL::int8 $$"
+  },
+  {
+    "comment": "create_operator - Statement 54",
+    "query": "REVOKE USAGE ON TYPE type_op4 FROM regress_rol_op4"
+  },
+  {
+    "comment": "create_operator - Statement 55",
+    "query": "REVOKE USAGE ON TYPE type_op4 FROM PUBLIC"
+  },
+  {
+    "comment": "create_operator - Statement 56",
+    "query": "SET ROLE regress_rol_op4",
+    "expected": "SET ROLE 'regress_rol_op4'"
+  },
+  {
+    "comment": "create_operator - Statement 57",
+    "query": "CREATE OPERATOR #*# ( leftarg = int8, rightarg = type_op4, procedure = fn_op4 )",
+    "expected": "CREATE OPERATOR #*# (leftarg = BIGINT, rightarg = type_op4, procedure = fn_op4)"
+  },
+  {
+    "comment": "create_operator - Statement 58",
+    "query": "CREATE ROLE regress_rol_op5"
+  },
+  {
+    "comment": "create_operator - Statement 59",
+    "query": "CREATE TYPE type_op5 AS ENUM ('new', 'open', 'closed')"
+  },
+  {
+    "comment": "create_operator - Statement 60",
+    "query": "CREATE FUNCTION fn_op5(int8, int8) RETURNS int8 AS $$ SELECT NULL::int8 $$",
+    "expected": "CREATE FUNCTION fn_op5 (BIGINT, BIGINT) RETURNS BIGINT AS $$ SELECT NULL::int8 $$"
+  },
+  {
+    "comment": "create_operator - Statement 61",
+    "query": "REVOKE EXECUTE ON FUNCTION fn_op5(int8, int8) FROM regress_rol_op5",
+    "expected": "REVOKE EXECUTE ON FUNCTION fn_op5(BIGINT, BIGINT) FROM regress_rol_op5"
+  },
+  {
+    "comment": "create_operator - Statement 62",
+    "query": "REVOKE EXECUTE ON FUNCTION fn_op5(int8, int8) FROM PUBLIC",
+    "expected": "REVOKE EXECUTE ON FUNCTION fn_op5(BIGINT, BIGINT) FROM PUBLIC"
+  },
+  {
+    "comment": "create_operator - Statement 63",
+    "query": "SET ROLE regress_rol_op5",
+    "expected": "SET ROLE 'regress_rol_op5'"
+  },
+  {
+    "comment": "create_operator - Statement 64",
+    "query": "CREATE OPERATOR #*# ( leftarg = int8, rightarg = int8, procedure = fn_op5 )",
+    "expected": "CREATE OPERATOR #*# (leftarg = BIGINT, rightarg = BIGINT, procedure = fn_op5)"
+  },
+  {
+    "comment": "create_operator - Statement 65",
+    "query": "CREATE ROLE regress_rol_op6"
+  },
+  {
+    "comment": "create_operator - Statement 66",
+    "query": "CREATE TYPE type_op6 AS ENUM ('new', 'open', 'closed')"
+  },
+  {
+    "comment": "create_operator - Statement 67",
+    "query": "CREATE FUNCTION fn_op6(int8, int8) RETURNS type_op6 AS $$ SELECT NULL::type_op6 $$",
+    "expected": "CREATE FUNCTION fn_op6 (BIGINT, BIGINT) RETURNS type_op6 AS $$ SELECT NULL::type_op6 $$"
+  },
+  {
+    "comment": "create_operator - Statement 68",
+    "query": "REVOKE USAGE ON TYPE type_op6 FROM regress_rol_op6"
+  },
+  {
+    "comment": "create_operator - Statement 69",
+    "query": "REVOKE USAGE ON TYPE type_op6 FROM PUBLIC"
+  },
+  {
+    "comment": "create_operator - Statement 70",
+    "query": "SET ROLE regress_rol_op6",
+    "expected": "SET ROLE 'regress_rol_op6'"
+  },
+  {
+    "comment": "create_operator - Statement 71",
+    "query": "CREATE OPERATOR #*# ( leftarg = int8, rightarg = int8, procedure = fn_op6 )",
+    "expected": "CREATE OPERATOR #*# (leftarg = BIGINT, rightarg = BIGINT, procedure = fn_op6)"
+  },
+  {
+    "comment": "create_operator - Statement 72",
+    "query": "CREATE OPERATOR === ( leftarg = integer, rightarg = integer, procedure = int4eq, negator = === )",
+    "expected": "CREATE OPERATOR === (leftarg = INT, rightarg = INT, procedure = int4eq, negator = '===')"
+  },
+  {
+    "comment": "create_operator - Statement 73",
+    "query": "CREATE OPERATOR === ( leftarg = integer, rightarg = integer, procedure = int4eq, commutator = ===!!! )",
+    "expected": "CREATE OPERATOR === (leftarg = INT, rightarg = INT, procedure = int4eq, commutator = '===!!!')"
+  },
+  {
+    "comment": "create_operator - Statement 74",
+    "query": "CREATE OPERATOR ===!!! ( leftarg = integer, rightarg = integer, procedure = int4ne, negator = ===!!! )",
+    "expected": "CREATE OPERATOR ===!!! (leftarg = INT, rightarg = INT, procedure = int4ne, negator = '===!!!')"
+  },
+  {
+    "comment": "create_operator - Statement 75",
+    "query": "CREATE OPERATOR === ( leftarg = integer, rightarg = integer, procedure = int4eq, commutator = = )",
+    "expected": "CREATE OPERATOR === (leftarg = INT, rightarg = INT, procedure = int4eq, commutator = '=')"
+  },
+  {
+    "comment": "create_operator - Statement 76",
+    "query": "CREATE OPERATOR === ( leftarg = integer, rightarg = integer, procedure = int4eq, negator = \u003c\u003e )",
+    "expected": "CREATE OPERATOR === (leftarg = INT, rightarg = INT, procedure = int4eq, negator = '\u003c\u003e')"
+  },
+  {
+    "comment": "create_operator - Statement 77",
+    "query": "CREATE OPERATOR === ( \"Leftarg\" = box, \"Rightarg\" = box, \"Procedure\" = area_equal_function, \"Commutator\" = ===, \"Negator\" = !==, \"Restrict\" = area_restriction_function, \"Join\" = area_join_function, \"Hashes\", \"Merges\" )",
+    "expected": "CREATE OPERATOR === (\"Leftarg\" = box, \"Rightarg\" = box, \"Procedure\" = area_equal_function, \"Commutator\" = '===', \"Negator\" = '!==', \"Restrict\" = area_restriction_function, \"Join\" = area_join_function, \"Hashes\", \"Merges\")"
+  }
+]

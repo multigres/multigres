@@ -1,0 +1,180 @@
+[
+  {
+    "comment": "portals_p2 - Statement 1",
+    "query": "BEGIN"
+  },
+  {
+    "comment": "portals_p2 - Statement 2",
+    "query": "DECLARE foo13 CURSOR FOR SELECT * FROM onek WHERE unique1 = 50"
+  },
+  {
+    "comment": "portals_p2 - Statement 3",
+    "query": "DECLARE foo14 CURSOR FOR SELECT * FROM onek WHERE unique1 = 51"
+  },
+  {
+    "comment": "portals_p2 - Statement 4",
+    "query": "DECLARE foo15 CURSOR FOR SELECT * FROM onek WHERE unique1 = 52"
+  },
+  {
+    "comment": "portals_p2 - Statement 5",
+    "query": "DECLARE foo16 CURSOR FOR SELECT * FROM onek WHERE unique1 = 53"
+  },
+  {
+    "comment": "portals_p2 - Statement 6",
+    "query": "DECLARE foo17 CURSOR FOR SELECT * FROM onek WHERE unique1 = 54"
+  },
+  {
+    "comment": "portals_p2 - Statement 7",
+    "query": "DECLARE foo18 CURSOR FOR SELECT * FROM onek WHERE unique1 = 55"
+  },
+  {
+    "comment": "portals_p2 - Statement 8",
+    "query": "DECLARE foo19 CURSOR FOR SELECT * FROM onek WHERE unique1 = 56"
+  },
+  {
+    "comment": "portals_p2 - Statement 9",
+    "query": "DECLARE foo20 CURSOR FOR SELECT * FROM onek WHERE unique1 = 57"
+  },
+  {
+    "comment": "portals_p2 - Statement 10",
+    "query": "DECLARE foo21 CURSOR FOR SELECT * FROM onek WHERE unique1 = 58"
+  },
+  {
+    "comment": "portals_p2 - Statement 11",
+    "query": "DECLARE foo22 CURSOR FOR SELECT * FROM onek WHERE unique1 = 59"
+  },
+  {
+    "comment": "portals_p2 - Statement 12",
+    "query": "DECLARE foo23 CURSOR FOR SELECT * FROM onek WHERE unique1 = 60"
+  },
+  {
+    "comment": "portals_p2 - Statement 13",
+    "query": "DECLARE foo24 CURSOR FOR SELECT * FROM onek2 WHERE unique1 = 50"
+  },
+  {
+    "comment": "portals_p2 - Statement 14",
+    "query": "DECLARE foo25 CURSOR FOR SELECT * FROM onek2 WHERE unique1 = 60"
+  },
+  {
+    "comment": "portals_p2 - Statement 15",
+    "query": "FETCH all in foo13",
+    "expected": "FETCH ALL FROM foo13"
+  },
+  {
+    "comment": "portals_p2 - Statement 16",
+    "query": "FETCH all in foo14",
+    "expected": "FETCH ALL FROM foo14"
+  },
+  {
+    "comment": "portals_p2 - Statement 17",
+    "query": "FETCH all in foo15",
+    "expected": "FETCH ALL FROM foo15"
+  },
+  {
+    "comment": "portals_p2 - Statement 18",
+    "query": "FETCH all in foo16",
+    "expected": "FETCH ALL FROM foo16"
+  },
+  {
+    "comment": "portals_p2 - Statement 19",
+    "query": "FETCH all in foo17",
+    "expected": "FETCH ALL FROM foo17"
+  },
+  {
+    "comment": "portals_p2 - Statement 20",
+    "query": "FETCH all in foo18",
+    "expected": "FETCH ALL FROM foo18"
+  },
+  {
+    "comment": "portals_p2 - Statement 21",
+    "query": "FETCH all in foo19",
+    "expected": "FETCH ALL FROM foo19"
+  },
+  {
+    "comment": "portals_p2 - Statement 22",
+    "query": "FETCH all in foo20",
+    "expected": "FETCH ALL FROM foo20"
+  },
+  {
+    "comment": "portals_p2 - Statement 23",
+    "query": "FETCH all in foo21",
+    "expected": "FETCH ALL FROM foo21"
+  },
+  {
+    "comment": "portals_p2 - Statement 24",
+    "query": "FETCH all in foo22",
+    "expected": "FETCH ALL FROM foo22"
+  },
+  {
+    "comment": "portals_p2 - Statement 25",
+    "query": "FETCH all in foo23",
+    "expected": "FETCH ALL FROM foo23"
+  },
+  {
+    "comment": "portals_p2 - Statement 26",
+    "query": "FETCH all in foo24",
+    "expected": "FETCH ALL FROM foo24"
+  },
+  {
+    "comment": "portals_p2 - Statement 27",
+    "query": "FETCH all in foo25",
+    "expected": "FETCH ALL FROM foo25"
+  },
+  {
+    "comment": "portals_p2 - Statement 28",
+    "query": "CLOSE foo13"
+  },
+  {
+    "comment": "portals_p2 - Statement 29",
+    "query": "CLOSE foo14"
+  },
+  {
+    "comment": "portals_p2 - Statement 30",
+    "query": "CLOSE foo15"
+  },
+  {
+    "comment": "portals_p2 - Statement 31",
+    "query": "CLOSE foo16"
+  },
+  {
+    "comment": "portals_p2 - Statement 32",
+    "query": "CLOSE foo17"
+  },
+  {
+    "comment": "portals_p2 - Statement 33",
+    "query": "CLOSE foo18"
+  },
+  {
+    "comment": "portals_p2 - Statement 34",
+    "query": "CLOSE foo19"
+  },
+  {
+    "comment": "portals_p2 - Statement 35",
+    "query": "CLOSE foo20"
+  },
+  {
+    "comment": "portals_p2 - Statement 36",
+    "query": "CLOSE foo21"
+  },
+  {
+    "comment": "portals_p2 - Statement 37",
+    "query": "CLOSE foo22"
+  },
+  {
+    "comment": "portals_p2 - Statement 38",
+    "query": "CLOSE foo23"
+  },
+  {
+    "comment": "portals_p2 - Statement 39",
+    "query": "CLOSE foo24"
+  },
+  {
+    "comment": "portals_p2 - Statement 40",
+    "query": "CLOSE foo25"
+  },
+  {
+    "comment": "portals_p2 - Statement 41",
+    "query": "END",
+    "expected": "COMMIT"
+  }
+]

@@ -14,7 +14,7 @@
 
 SHELL := /bin/bash
 
-.PHONY: all build build-all clean install test proto tools clean_build_dep
+.PHONY: all build build-all clean install test proto tools parser
 
 # Default target
 all: build
@@ -27,6 +27,7 @@ PROTO_GO_OUTS = pb
 tools:
 	echo $$(date): Installing build tools
 	./tools/setup_build_tools.sh
+	go install golang.org/x/tools/cmd/goyacc@latest
 
 # Generate protobuf files
 proto: tools $(PROTO_GO_OUTS)
@@ -40,6 +41,13 @@ pb: $(PROTO_SRCS)
 	cp -Rf github.com/multigres/multigres/go/pb/* go/pb/ && \
 	rm -rf github.com/
 
+# Generate parser from grammar files
+# Ported from vitess/Makefile:174-175 sqlparser generation
+parser:
+	@echo "$$(date): Generating PostgreSQL parser from grammar"
+	go generate ./go/parser/...
+	@echo "Parser generation completed"
+
 # Build Go binaries only
 build:
 	mkdir -p bin/
@@ -50,8 +58,8 @@ build:
 	go build -o bin/multigres ./go/cmd/multigres
 	go build -o bin/multiadmin ./go/cmd/multiadmin
 
-# Build everything (proto + binaries)
-build-all: proto build
+# Build everything (proto + parser + binaries)
+build-all: proto parser build
 
 # Clean build artifacts
 clean:

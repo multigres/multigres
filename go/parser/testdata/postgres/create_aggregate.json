@@ -1,0 +1,272 @@
+[
+  {
+    "comment": "create_aggregate - Statement 1",
+    "query": "CREATE AGGREGATE newavg ( sfunc = int4_avg_accum, basetype = int4, stype = _int8, finalfunc = int8_avg, initcond1 = '{0,0}' )",
+    "expected": "CREATE AGGREGATE newavg (sfunc = int4_avg_accum, basetype = INT, stype = _int8, finalfunc = int8_avg, initcond1 = '{0,0}')"
+  },
+  {
+    "comment": "create_aggregate - Statement 2",
+    "query": "COMMENT ON AGGREGATE newavg_wrong (int4) IS 'an agg comment'",
+    "expected": "COMMENT ON AGGREGATE newavg_wrong(INT) IS 'an agg comment'"
+  },
+  {
+    "comment": "create_aggregate - Statement 3",
+    "query": "COMMENT ON AGGREGATE newavg (int4) IS 'an agg comment'",
+    "expected": "COMMENT ON AGGREGATE newavg(INT) IS 'an agg comment'"
+  },
+  {
+    "comment": "create_aggregate - Statement 4",
+    "query": "COMMENT ON AGGREGATE newavg (int4) IS NULL",
+    "expected": "COMMENT ON AGGREGATE newavg(INT) IS NULL"
+  },
+  {
+    "comment": "create_aggregate - Statement 5",
+    "query": "CREATE AGGREGATE newsum ( sfunc1 = int4pl, basetype = int4, stype1 = int4, initcond1 = '0' )",
+    "expected": "CREATE AGGREGATE newsum (sfunc1 = int4pl, basetype = INT, stype1 = INT, initcond1 = '0')"
+  },
+  {
+    "comment": "create_aggregate - Statement 6",
+    "query": "CREATE AGGREGATE newcnt (*) ( sfunc = int8inc, stype = int8, initcond = '0', parallel = safe )",
+    "expected": "CREATE AGGREGATE newcnt (*) (sfunc = int8inc, stype = BIGINT, initcond = '0', parallel = safe)"
+  },
+  {
+    "comment": "create_aggregate - Statement 7",
+    "query": "CREATE AGGREGATE oldcnt ( sfunc = int8inc, basetype = 'ANY', stype = int8, initcond = '0' )",
+    "expected": "CREATE AGGREGATE oldcnt (sfunc = int8inc, basetype = 'ANY', stype = BIGINT, initcond = '0')"
+  },
+  {
+    "comment": "create_aggregate - Statement 8",
+    "query": "CREATE AGGREGATE newcnt (\"any\") ( sfunc = int8inc_any, stype = int8, initcond = '0' )",
+    "expected": "CREATE AGGREGATE newcnt (\"any\") (sfunc = int8inc_any, stype = BIGINT, initcond = '0')"
+  },
+  {
+    "comment": "create_aggregate - Statement 9",
+    "query": "COMMENT ON AGGREGATE nosuchagg (*) IS 'should fail'",
+    "expected": "COMMENT ON AGGREGATE nosuchagg(*) IS 'should fail'"
+  },
+  {
+    "comment": "create_aggregate - Statement 10",
+    "query": "COMMENT ON AGGREGATE newcnt (*) IS 'an agg(*) comment'",
+    "expected": "COMMENT ON AGGREGATE newcnt(*) IS 'an agg(*) comment'"
+  },
+  {
+    "comment": "create_aggregate - Statement 11",
+    "query": "COMMENT ON AGGREGATE newcnt (\"any\") IS 'an agg(any) comment'",
+    "expected": "COMMENT ON AGGREGATE newcnt(\"any\") IS 'an agg(any) comment'"
+  },
+  {
+    "comment": "create_aggregate - Statement 12",
+    "query": "create function sum3(int8,int8,int8) returns int8 as 'select $1 + $2 + $3' language sql strict immutable",
+    "expected": "CREATE FUNCTION sum3 (BIGINT, BIGINT, BIGINT) RETURNS BIGINT AS $$select $1 + $2 + $3$$ LANGUAGE sql STRICT IMMUTABLE"
+  },
+  {
+    "comment": "create_aggregate - Statement 13",
+    "query": "create aggregate sum2(int8,int8) ( sfunc = sum3, stype = int8, initcond = '0' )",
+    "expected": "CREATE AGGREGATE sum2 (BIGINT, BIGINT) (sfunc = sum3, stype = BIGINT, initcond = '0')"
+  },
+  {
+    "comment": "create_aggregate - Statement 14",
+    "query": "create type aggtype as (a integer, b integer, c text)",
+    "expected": "CREATE TYPE aggtype AS (a INT, b INT, c TEXT)"
+  },
+  {
+    "comment": "create_aggregate - Statement 15",
+    "query": "create function aggf_trans(aggtype[],integer,integer,text) returns aggtype[] as 'select array_append($1,ROW($2,$3,$4)::aggtype)' language sql strict immutable",
+    "expected": "CREATE FUNCTION aggf_trans (aggtype[], INT, INT, TEXT) RETURNS aggtype[] AS $$select array_append($1,ROW($2,$3,$4)::aggtype)$$ LANGUAGE sql STRICT IMMUTABLE"
+  },
+  {
+    "comment": "create_aggregate - Statement 16",
+    "query": "create function aggfns_trans(aggtype[],integer,integer,text) returns aggtype[] as 'select array_append($1,ROW($2,$3,$4)::aggtype)' language sql immutable",
+    "expected": "CREATE FUNCTION aggfns_trans (aggtype[], INT, INT, TEXT) RETURNS aggtype[] AS $$select array_append($1,ROW($2,$3,$4)::aggtype)$$ LANGUAGE sql IMMUTABLE"
+  },
+  {
+    "comment": "create_aggregate - Statement 17",
+    "query": "create aggregate aggfstr(integer,integer,text) ( sfunc = aggf_trans, stype = aggtype[], initcond = '{}' )",
+    "expected": "CREATE AGGREGATE aggfstr (INT, INT, TEXT) (sfunc = aggf_trans, stype = aggtype[], initcond = '{}')"
+  },
+  {
+    "comment": "create_aggregate - Statement 18",
+    "query": "create aggregate aggfns(integer,integer,text) ( sfunc = aggfns_trans, stype = aggtype[], sspace = 10000, initcond = '{}' )",
+    "expected": "CREATE AGGREGATE aggfns (INT, INT, TEXT) (sfunc = aggfns_trans, stype = aggtype[], sspace = 10000, initcond = '{}')"
+  },
+  {
+    "comment": "create_aggregate - Statement 19",
+    "query": "create function least_accum(int8, int8) returns int8 language sql as 'select least($1, $2)'",
+    "expected": "CREATE FUNCTION least_accum (BIGINT, BIGINT) RETURNS BIGINT LANGUAGE sql AS $$select least($1, $2)$$"
+  },
+  {
+    "comment": "create_aggregate - Statement 20",
+    "query": "create aggregate least_agg(int4) ( stype = int8, sfunc = least_accum )",
+    "expected": "CREATE AGGREGATE least_agg (INT) (stype = BIGINT, sfunc = least_accum)"
+  },
+  {
+    "comment": "create_aggregate - Statement 21",
+    "query": "drop function least_accum(int8, int8)",
+    "expected": "DROP FUNCTION least_accum(BIGINT, BIGINT)"
+  },
+  {
+    "comment": "create_aggregate - Statement 22",
+    "query": "create function least_accum(anycompatible, anycompatible) returns anycompatible language sql as 'select least($1, $2)'",
+    "expected": "CREATE FUNCTION least_accum (anycompatible, anycompatible) RETURNS anycompatible LANGUAGE sql AS $$select least($1, $2)$$"
+  },
+  {
+    "comment": "create_aggregate - Statement 23",
+    "query": "create aggregate least_agg(int8) ( stype = int8, sfunc = least_accum )",
+    "expected": "CREATE AGGREGATE least_agg (BIGINT) (stype = BIGINT, sfunc = least_accum)"
+  },
+  {
+    "comment": "create_aggregate - Statement 24",
+    "query": "drop function least_accum(anycompatible, anycompatible) cascade",
+    "expected": "DROP FUNCTION least_accum(anycompatible, anycompatible) CASCADE"
+  },
+  {
+    "comment": "create_aggregate - Statement 25",
+    "query": "create function least_accum(anyelement, variadic anyarray) returns anyelement language sql as 'select least($1, min($2[i])) from generate_subscripts($2,1) g(i)'",
+    "expected": "CREATE FUNCTION least_accum (anyelement, VARIADIC anyarray) RETURNS anyelement LANGUAGE sql AS $$select least($1, min($2[i])) from generate_subscripts($2,1) g(i)$$"
+  },
+  {
+    "comment": "create_aggregate - Statement 26",
+    "query": "create aggregate least_agg(variadic items anyarray) ( stype = anyelement, sfunc = least_accum )",
+    "expected": "CREATE AGGREGATE least_agg (VARIADIC items anyarray) (stype = anyelement, sfunc = least_accum)"
+  },
+  {
+    "comment": "create_aggregate - Statement 27",
+    "query": "create function cleast_accum(anycompatible, variadic anycompatiblearray) returns anycompatible language sql as 'select least($1, min($2[i])) from generate_subscripts($2,1) g(i)'",
+    "expected": "CREATE FUNCTION cleast_accum (anycompatible, VARIADIC anycompatiblearray) RETURNS anycompatible LANGUAGE sql AS $$select least($1, min($2[i])) from generate_subscripts($2,1) g(i)$$"
+  },
+  {
+    "comment": "create_aggregate - Statement 28",
+    "query": "create aggregate cleast_agg(variadic items anycompatiblearray) ( stype = anycompatible, sfunc = cleast_accum )",
+    "expected": "CREATE AGGREGATE cleast_agg (VARIADIC items anycompatiblearray) (stype = anycompatible, sfunc = cleast_accum)"
+  },
+  {
+    "comment": "create_aggregate - Statement 29",
+    "query": "create aggregate my_percentile_disc(float8 ORDER BY anyelement) ( stype = internal, sfunc = ordered_set_transition, finalfunc = percentile_disc_final, finalfunc_extra = true, finalfunc_modify = read_write )",
+    "expected": "CREATE AGGREGATE my_percentile_disc (FLOAT8 ORDER BY anyelement) (stype = internal, sfunc = ordered_set_transition, finalfunc = percentile_disc_final, finalfunc_extra = 'true', finalfunc_modify = read_write)"
+  },
+  {
+    "comment": "create_aggregate - Statement 30",
+    "query": "create aggregate my_rank(VARIADIC \"any\" ORDER BY VARIADIC \"any\") ( stype = internal, sfunc = ordered_set_transition_multi, finalfunc = rank_final, finalfunc_extra = true, hypothetical )",
+    "expected": "CREATE AGGREGATE my_rank (VARIADIC \"any\") (stype = internal, sfunc = ordered_set_transition_multi, finalfunc = rank_final, finalfunc_extra = 'true', hypothetical)"
+  },
+  {
+    "comment": "create_aggregate - Statement 31",
+    "query": "alter aggregate my_percentile_disc(float8 ORDER BY anyelement) rename to test_percentile_disc",
+    "expected": "ALTER AGGREGATE my_percentile_disc(FLOAT8, anyelement) RENAME TO test_percentile_disc"
+  },
+  {
+    "comment": "create_aggregate - Statement 32",
+    "query": "alter aggregate my_rank(VARIADIC \"any\" ORDER BY VARIADIC \"any\") rename to test_rank",
+    "expected": "ALTER AGGREGATE my_rank(VARIADIC \"any\") RENAME TO test_rank"
+  },
+  {
+    "comment": "create_aggregate - Statement 33",
+    "query": "CREATE AGGREGATE myavg (numeric) ( stype = internal, sfunc = numeric_avg_accum, serialfunc = numeric_avg_serialize )",
+    "expected": "CREATE AGGREGATE myavg (NUMERIC) (stype = internal, sfunc = numeric_avg_accum, serialfunc = numeric_avg_serialize)"
+  },
+  {
+    "comment": "create_aggregate - Statement 34",
+    "query": "CREATE AGGREGATE myavg (numeric) ( stype = internal, sfunc = numeric_avg_accum, serialfunc = numeric_avg_deserialize, deserialfunc = numeric_avg_deserialize )",
+    "expected": "CREATE AGGREGATE myavg (NUMERIC) (stype = internal, sfunc = numeric_avg_accum, serialfunc = numeric_avg_deserialize, deserialfunc = numeric_avg_deserialize)"
+  },
+  {
+    "comment": "create_aggregate - Statement 35",
+    "query": "CREATE AGGREGATE myavg (numeric) ( stype = internal, sfunc = numeric_avg_accum, serialfunc = numeric_avg_serialize, deserialfunc = numeric_avg_serialize )",
+    "expected": "CREATE AGGREGATE myavg (NUMERIC) (stype = internal, sfunc = numeric_avg_accum, serialfunc = numeric_avg_serialize, deserialfunc = numeric_avg_serialize)"
+  },
+  {
+    "comment": "create_aggregate - Statement 36",
+    "query": "CREATE AGGREGATE myavg (numeric) ( stype = internal, sfunc = numeric_avg_accum, serialfunc = numeric_avg_serialize, deserialfunc = numeric_avg_deserialize, combinefunc = int4larger )",
+    "expected": "CREATE AGGREGATE myavg (NUMERIC) (stype = internal, sfunc = numeric_avg_accum, serialfunc = numeric_avg_serialize, deserialfunc = numeric_avg_deserialize, combinefunc = int4larger)"
+  },
+  {
+    "comment": "create_aggregate - Statement 37",
+    "query": "CREATE AGGREGATE myavg (numeric) ( stype = internal, sfunc = numeric_avg_accum, finalfunc = numeric_avg, serialfunc = numeric_avg_serialize, deserialfunc = numeric_avg_deserialize, combinefunc = numeric_avg_combine, finalfunc_modify = shareable )",
+    "expected": "CREATE AGGREGATE myavg (NUMERIC) (stype = internal, sfunc = numeric_avg_accum, finalfunc = numeric_avg, serialfunc = numeric_avg_serialize, deserialfunc = numeric_avg_deserialize, combinefunc = numeric_avg_combine, finalfunc_modify = shareable)"
+  },
+  {
+    "comment": "create_aggregate - Statement 38",
+    "query": "SELECT aggfnoid, aggtransfn, aggcombinefn, aggtranstype::regtype, aggserialfn, aggdeserialfn, aggfinalmodify FROM pg_aggregate WHERE aggfnoid = 'myavg'::REGPROC",
+    "expected": "SELECT aggfnoid, aggtransfn, aggcombinefn, CAST(aggtranstype AS regtype), aggserialfn, aggdeserialfn, aggfinalmodify FROM pg_aggregate WHERE aggfnoid = CAST('myavg' AS regproc)"
+  },
+  {
+    "comment": "create_aggregate - Statement 39",
+    "query": "DROP AGGREGATE myavg (numeric)",
+    "expected": "DROP AGGREGATE myavg(NUMERIC)"
+  },
+  {
+    "comment": "create_aggregate - Statement 40",
+    "query": "CREATE AGGREGATE myavg (numeric) ( stype = internal, sfunc = numeric_avg_accum, finalfunc = numeric_avg )",
+    "expected": "CREATE AGGREGATE myavg (NUMERIC) (stype = internal, sfunc = numeric_avg_accum, finalfunc = numeric_avg)"
+  },
+  {
+    "comment": "create_aggregate - Statement 41",
+    "query": "CREATE OR REPLACE AGGREGATE myavg (numeric) ( stype = internal, sfunc = numeric_avg_accum, finalfunc = numeric_avg, serialfunc = numeric_avg_serialize, deserialfunc = numeric_avg_deserialize, combinefunc = numeric_avg_combine, finalfunc_modify = shareable )",
+    "expected": "CREATE OR REPLACE AGGREGATE myavg (NUMERIC) (stype = internal, sfunc = numeric_avg_accum, finalfunc = numeric_avg, serialfunc = numeric_avg_serialize, deserialfunc = numeric_avg_deserialize, combinefunc = numeric_avg_combine, finalfunc_modify = shareable)"
+  },
+  {
+    "comment": "create_aggregate - Statement 42",
+    "query": "CREATE OR REPLACE AGGREGATE myavg (numeric) ( stype = numeric, sfunc = numeric_add )",
+    "expected": "CREATE OR REPLACE AGGREGATE myavg (NUMERIC) (stype = NUMERIC, sfunc = numeric_add)"
+  },
+  {
+    "comment": "create_aggregate - Statement 43",
+    "query": "CREATE OR REPLACE AGGREGATE myavg (numeric) ( stype = numeric, sfunc = numeric_add, finalfunc = numeric_out )",
+    "expected": "CREATE OR REPLACE AGGREGATE myavg (NUMERIC) (stype = NUMERIC, sfunc = numeric_add, finalfunc = numeric_out)"
+  },
+  {
+    "comment": "create_aggregate - Statement 44",
+    "query": "CREATE OR REPLACE AGGREGATE myavg (order by numeric) ( stype = numeric, sfunc = numeric_add )",
+    "expected": "CREATE OR REPLACE AGGREGATE myavg (ORDER BY NUMERIC) (stype = NUMERIC, sfunc = numeric_add)"
+  },
+  {
+    "comment": "create_aggregate - Statement 45",
+    "query": "create function sum4(int8,int8,int8,int8) returns int8 as 'select $1 + $2 + $3 + $4' language sql strict immutable",
+    "expected": "CREATE FUNCTION sum4 (BIGINT, BIGINT, BIGINT, BIGINT) RETURNS BIGINT AS $$select $1 + $2 + $3 + $4$$ LANGUAGE sql STRICT IMMUTABLE"
+  },
+  {
+    "comment": "create_aggregate - Statement 46",
+    "query": "CREATE OR REPLACE AGGREGATE sum3 (int8,int8,int8) ( stype = int8, sfunc = sum4 )",
+    "expected": "CREATE OR REPLACE AGGREGATE sum3 (BIGINT, BIGINT, BIGINT) (stype = BIGINT, sfunc = sum4)"
+  },
+  {
+    "comment": "create_aggregate - Statement 47",
+    "query": "drop function sum4(int8,int8,int8,int8)",
+    "expected": "DROP FUNCTION sum4(BIGINT, BIGINT, BIGINT, BIGINT)"
+  },
+  {
+    "comment": "create_aggregate - Statement 48",
+    "query": "CREATE AGGREGATE mysum (int) ( stype = int, sfunc = int4pl, parallel = pear )",
+    "expected": "CREATE AGGREGATE mysum (INT) (stype = INT, sfunc = int4pl, parallel = pear)"
+  },
+  {
+    "comment": "create_aggregate - Statement 49",
+    "query": "CREATE FUNCTION float8mi_n(float8, float8) RETURNS float8 AS $$ SELECT $1 - $2; $$ LANGUAGE SQL",
+    "expected": "CREATE FUNCTION float8mi_n (FLOAT8, FLOAT8) RETURNS FLOAT8 AS $$ SELECT $1 - $2; $$ LANGUAGE sql"
+  },
+  {
+    "comment": "create_aggregate - Statement 50",
+    "query": "CREATE AGGREGATE invalidsumdouble (float8) ( stype = float8, sfunc = float8pl, mstype = float8, msfunc = float8pl, minvfunc = float8mi_n )",
+    "expected": "CREATE AGGREGATE invalidsumdouble (FLOAT8) (stype = FLOAT8, sfunc = float8pl, mstype = FLOAT8, msfunc = float8pl, minvfunc = float8mi_n)"
+  },
+  {
+    "comment": "create_aggregate - Statement 51",
+    "query": "CREATE FUNCTION float8mi_int(float8, float8) RETURNS int AS $$ SELECT CAST($1 - $2 AS INT); $$ LANGUAGE SQL",
+    "expected": "CREATE FUNCTION float8mi_int (FLOAT8, FLOAT8) RETURNS INT AS $$ SELECT CAST($1 - $2 AS INT); $$ LANGUAGE sql"
+  },
+  {
+    "comment": "create_aggregate - Statement 52",
+    "query": "CREATE AGGREGATE wrongreturntype (float8) ( stype = float8, sfunc = float8pl, mstype = float8, msfunc = float8pl, minvfunc = float8mi_int )",
+    "expected": "CREATE AGGREGATE wrongreturntype (FLOAT8) (stype = FLOAT8, sfunc = float8pl, mstype = FLOAT8, msfunc = float8pl, minvfunc = float8mi_int)"
+  },
+  {
+    "comment": "create_aggregate - Statement 53",
+    "query": "CREATE AGGREGATE case_agg ( \"Sfunc1\" = int4pl, \"Basetype\" = int4, \"Stype1\" = int4, \"Initcond1\" = '0', \"Parallel\" = safe )",
+    "expected": "CREATE AGGREGATE case_agg (\"Sfunc1\" = int4pl, \"Basetype\" = INT, \"Stype1\" = INT, \"Initcond1\" = '0', \"Parallel\" = safe)"
+  },
+  {
+    "comment": "create_aggregate - Statement 54",
+    "query": "CREATE AGGREGATE case_agg(float8) ( \"stype\" = internal, \"sfunc\" = ordered_set_transition, \"finalfunc\" = percentile_disc_final, \"finalfunc_extra\" = true, \"finalfunc_modify\" = read_write, \"parallel\" = safe )",
+    "expected": "CREATE AGGREGATE case_agg (FLOAT8) (stype = internal, sfunc = ordered_set_transition, finalfunc = percentile_disc_final, finalfunc_extra = 'true', finalfunc_modify = read_write, parallel = safe)"
+  }
+]

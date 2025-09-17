@@ -1,0 +1,375 @@
+[
+  {
+    "comment": "int2 - Statement 1",
+    "query": "INSERT INTO INT2_TBL(f1) VALUES ('34.5')",
+    "expected": "INSERT INTO int2_tbl (f1) VALUES ('34.5')"
+  },
+  {
+    "comment": "int2 - Statement 2",
+    "query": "INSERT INTO INT2_TBL(f1) VALUES ('100000')",
+    "expected": "INSERT INTO int2_tbl (f1) VALUES ('100000')"
+  },
+  {
+    "comment": "int2 - Statement 3",
+    "query": "INSERT INTO INT2_TBL(f1) VALUES ('asdf')",
+    "expected": "INSERT INTO int2_tbl (f1) VALUES ('asdf')"
+  },
+  {
+    "comment": "int2 - Statement 4",
+    "query": "INSERT INTO INT2_TBL(f1) VALUES ('    ')",
+    "expected": "INSERT INTO int2_tbl (f1) VALUES ('    ')"
+  },
+  {
+    "comment": "int2 - Statement 5",
+    "query": "INSERT INTO INT2_TBL(f1) VALUES ('- 1234')",
+    "expected": "INSERT INTO int2_tbl (f1) VALUES ('- 1234')"
+  },
+  {
+    "comment": "int2 - Statement 6",
+    "query": "INSERT INTO INT2_TBL(f1) VALUES ('4 444')",
+    "expected": "INSERT INTO int2_tbl (f1) VALUES ('4 444')"
+  },
+  {
+    "comment": "int2 - Statement 7",
+    "query": "INSERT INTO INT2_TBL(f1) VALUES ('123 dt')",
+    "expected": "INSERT INTO int2_tbl (f1) VALUES ('123 dt')"
+  },
+  {
+    "comment": "int2 - Statement 8",
+    "query": "INSERT INTO INT2_TBL(f1) VALUES ('')",
+    "expected": "INSERT INTO int2_tbl (f1) VALUES ('')"
+  },
+  {
+    "comment": "int2 - Statement 9",
+    "query": "SELECT * FROM INT2_TBL",
+    "expected": "SELECT * FROM int2_tbl"
+  },
+  {
+    "comment": "int2 - Statement 10",
+    "query": "SELECT pg_input_is_valid('34', 'int2')"
+  },
+  {
+    "comment": "int2 - Statement 11",
+    "query": "SELECT pg_input_is_valid('asdf', 'int2')"
+  },
+  {
+    "comment": "int2 - Statement 12",
+    "query": "SELECT pg_input_is_valid('50000', 'int2')"
+  },
+  {
+    "comment": "int2 - Statement 13",
+    "query": "SELECT * FROM pg_input_error_info('50000', 'int2')"
+  },
+  {
+    "comment": "int2 - Statement 14",
+    "query": "SELECT pg_input_is_valid(' 1 3  5 ', 'int2vector')"
+  },
+  {
+    "comment": "int2 - Statement 15",
+    "query": "SELECT * FROM pg_input_error_info('1 asdf', 'int2vector')"
+  },
+  {
+    "comment": "int2 - Statement 16",
+    "query": "SELECT * FROM pg_input_error_info('50000', 'int2vector')"
+  },
+  {
+    "comment": "int2 - Statement 17",
+    "query": "SELECT * FROM INT2_TBL AS f(a, b)",
+    "expected": "SELECT * FROM int2_tbl AS f(a, b)"
+  },
+  {
+    "comment": "int2 - Statement 18",
+    "query": "SELECT * FROM (TABLE int2_tbl) AS s (a, b)",
+    "expected": "SELECT * FROM (SELECT * FROM int2_tbl) AS s(a, b)"
+  },
+  {
+    "comment": "int2 - Statement 19",
+    "query": "SELECT i.* FROM INT2_TBL i WHERE i.f1 \u003c\u003e int2 '0'",
+    "expected": "SELECT i.* FROM int2_tbl AS i WHERE i.f1 \u003c\u003e CAST('0' AS SMALLINT)"
+  },
+  {
+    "comment": "int2 - Statement 20",
+    "query": "SELECT i.* FROM INT2_TBL i WHERE i.f1 \u003c\u003e int4 '0'",
+    "expected": "SELECT i.* FROM int2_tbl AS i WHERE i.f1 \u003c\u003e CAST('0' AS INT)"
+  },
+  {
+    "comment": "int2 - Statement 21",
+    "query": "SELECT i.* FROM INT2_TBL i WHERE i.f1 = int2 '0'",
+    "expected": "SELECT i.* FROM int2_tbl AS i WHERE i.f1 = CAST('0' AS SMALLINT)"
+  },
+  {
+    "comment": "int2 - Statement 22",
+    "query": "SELECT i.* FROM INT2_TBL i WHERE i.f1 = int4 '0'",
+    "expected": "SELECT i.* FROM int2_tbl AS i WHERE i.f1 = CAST('0' AS INT)"
+  },
+  {
+    "comment": "int2 - Statement 23",
+    "query": "SELECT i.* FROM INT2_TBL i WHERE i.f1 \u003c int2 '0'",
+    "expected": "SELECT i.* FROM int2_tbl AS i WHERE i.f1 \u003c CAST('0' AS SMALLINT)"
+  },
+  {
+    "comment": "int2 - Statement 24",
+    "query": "SELECT i.* FROM INT2_TBL i WHERE i.f1 \u003c int4 '0'",
+    "expected": "SELECT i.* FROM int2_tbl AS i WHERE i.f1 \u003c CAST('0' AS INT)"
+  },
+  {
+    "comment": "int2 - Statement 25",
+    "query": "SELECT i.* FROM INT2_TBL i WHERE i.f1 \u003c= int2 '0'",
+    "expected": "SELECT i.* FROM int2_tbl AS i WHERE i.f1 \u003c= CAST('0' AS SMALLINT)"
+  },
+  {
+    "comment": "int2 - Statement 26",
+    "query": "SELECT i.* FROM INT2_TBL i WHERE i.f1 \u003c= int4 '0'",
+    "expected": "SELECT i.* FROM int2_tbl AS i WHERE i.f1 \u003c= CAST('0' AS INT)"
+  },
+  {
+    "comment": "int2 - Statement 27",
+    "query": "SELECT i.* FROM INT2_TBL i WHERE i.f1 \u003e int2 '0'",
+    "expected": "SELECT i.* FROM int2_tbl AS i WHERE i.f1 \u003e CAST('0' AS SMALLINT)"
+  },
+  {
+    "comment": "int2 - Statement 28",
+    "query": "SELECT i.* FROM INT2_TBL i WHERE i.f1 \u003e int4 '0'",
+    "expected": "SELECT i.* FROM int2_tbl AS i WHERE i.f1 \u003e CAST('0' AS INT)"
+  },
+  {
+    "comment": "int2 - Statement 29",
+    "query": "SELECT i.* FROM INT2_TBL i WHERE i.f1 \u003e= int2 '0'",
+    "expected": "SELECT i.* FROM int2_tbl AS i WHERE i.f1 \u003e= CAST('0' AS SMALLINT)"
+  },
+  {
+    "comment": "int2 - Statement 30",
+    "query": "SELECT i.* FROM INT2_TBL i WHERE i.f1 \u003e= int4 '0'",
+    "expected": "SELECT i.* FROM int2_tbl AS i WHERE i.f1 \u003e= CAST('0' AS INT)"
+  },
+  {
+    "comment": "int2 - Statement 31",
+    "query": "SELECT i.* FROM INT2_TBL i WHERE (i.f1 % int2 '2') = int2 '1'",
+    "expected": "SELECT i.* FROM int2_tbl AS i WHERE (i.f1 % CAST('2' AS SMALLINT)) = CAST('1' AS SMALLINT)"
+  },
+  {
+    "comment": "int2 - Statement 32",
+    "query": "SELECT i.* FROM INT2_TBL i WHERE (i.f1 % int4 '2') = int2 '0'",
+    "expected": "SELECT i.* FROM int2_tbl AS i WHERE (i.f1 % CAST('2' AS INT)) = CAST('0' AS SMALLINT)"
+  },
+  {
+    "comment": "int2 - Statement 33",
+    "query": "SELECT i.f1, i.f1 * int2 '2' AS x FROM INT2_TBL i",
+    "expected": "SELECT i.f1, i.f1 * CAST('2' AS SMALLINT) AS x FROM int2_tbl AS i"
+  },
+  {
+    "comment": "int2 - Statement 34",
+    "query": "SELECT i.f1, i.f1 * int2 '2' AS x FROM INT2_TBL i WHERE abs(f1) \u003c 16384",
+    "expected": "SELECT i.f1, i.f1 * CAST('2' AS SMALLINT) AS x FROM int2_tbl AS i WHERE abs(f1) \u003c 16384"
+  },
+  {
+    "comment": "int2 - Statement 35",
+    "query": "SELECT i.f1, i.f1 * int4 '2' AS x FROM INT2_TBL i",
+    "expected": "SELECT i.f1, i.f1 * CAST('2' AS INT) AS x FROM int2_tbl AS i"
+  },
+  {
+    "comment": "int2 - Statement 36",
+    "query": "SELECT i.f1, i.f1 + int2 '2' AS x FROM INT2_TBL i",
+    "expected": "SELECT i.f1, i.f1 + CAST('2' AS SMALLINT) AS x FROM int2_tbl AS i"
+  },
+  {
+    "comment": "int2 - Statement 37",
+    "query": "SELECT i.f1, i.f1 + int2 '2' AS x FROM INT2_TBL i WHERE f1 \u003c 32766",
+    "expected": "SELECT i.f1, i.f1 + CAST('2' AS SMALLINT) AS x FROM int2_tbl AS i WHERE f1 \u003c 32766"
+  },
+  {
+    "comment": "int2 - Statement 38",
+    "query": "SELECT i.f1, i.f1 + int4 '2' AS x FROM INT2_TBL i",
+    "expected": "SELECT i.f1, i.f1 + CAST('2' AS INT) AS x FROM int2_tbl AS i"
+  },
+  {
+    "comment": "int2 - Statement 39",
+    "query": "SELECT i.f1, i.f1 - int2 '2' AS x FROM INT2_TBL i",
+    "expected": "SELECT i.f1, i.f1 - CAST('2' AS SMALLINT) AS x FROM int2_tbl AS i"
+  },
+  {
+    "comment": "int2 - Statement 40",
+    "query": "SELECT i.f1, i.f1 - int2 '2' AS x FROM INT2_TBL i WHERE f1 \u003e -32767",
+    "expected": "SELECT i.f1, i.f1 - CAST('2' AS SMALLINT) AS x FROM int2_tbl AS i WHERE f1 \u003e -32767"
+  },
+  {
+    "comment": "int2 - Statement 41",
+    "query": "SELECT i.f1, i.f1 - int4 '2' AS x FROM INT2_TBL i",
+    "expected": "SELECT i.f1, i.f1 - CAST('2' AS INT) AS x FROM int2_tbl AS i"
+  },
+  {
+    "comment": "int2 - Statement 42",
+    "query": "SELECT i.f1, i.f1 / int2 '2' AS x FROM INT2_TBL i",
+    "expected": "SELECT i.f1, i.f1 / CAST('2' AS SMALLINT) AS x FROM int2_tbl AS i"
+  },
+  {
+    "comment": "int2 - Statement 43",
+    "query": "SELECT i.f1, i.f1 / int4 '2' AS x FROM INT2_TBL i",
+    "expected": "SELECT i.f1, i.f1 / CAST('2' AS INT) AS x FROM int2_tbl AS i"
+  },
+  {
+    "comment": "int2 - Statement 44",
+    "query": "SELECT (-1::int2\u003c\u003c15)::text",
+    "expected": "SELECT CAST((-CAST(1 AS SMALLINT) \u003c\u003c 15) AS TEXT)"
+  },
+  {
+    "comment": "int2 - Statement 45",
+    "query": "SELECT ((-1::int2\u003c\u003c15)+1::int2)::text",
+    "expected": "SELECT CAST((CAST((-CAST(1 AS SMALLINT) \u003c\u003c 15) + 1 AS SMALLINT)) AS TEXT)"
+  },
+  {
+    "comment": "int2 - Statement 46",
+    "query": "SELECT (-32768)::int2 * (-1)::int2",
+    "expected": "SELECT CAST(CAST((-32768) AS SMALLINT) * (-1) AS SMALLINT)"
+  },
+  {
+    "comment": "int2 - Statement 47",
+    "query": "SELECT (-32768)::int2 / (-1)::int2",
+    "expected": "SELECT CAST(CAST((-32768) AS SMALLINT) / (-1) AS SMALLINT)"
+  },
+  {
+    "comment": "int2 - Statement 48",
+    "query": "SELECT (-32768)::int2 % (-1)::int2",
+    "expected": "SELECT CAST(CAST((-32768) AS SMALLINT) % (-1) AS SMALLINT)"
+  },
+  {
+    "comment": "int2 - Statement 49",
+    "query": "SELECT x, x::int2 AS int2_value FROM (VALUES (-2.5::float8), (-1.5::float8), (-0.5::float8), (0.0::float8), (0.5::float8), (1.5::float8), (2.5::float8)) t(x)",
+    "expected": "SELECT x, CAST(x AS SMALLINT) AS int2_value FROM (VALUES (-CAST(2.5 AS FLOAT8)), (-CAST(1.5 AS FLOAT8)), (-CAST(0.5 AS FLOAT8)), (CAST(0.0 AS FLOAT8)), (CAST(0.5 AS FLOAT8)), (CAST(1.5 AS FLOAT8)), (CAST(2.5 AS FLOAT8))) AS t(x)"
+  },
+  {
+    "comment": "int2 - Statement 50",
+    "query": "SELECT x, x::int2 AS int2_value FROM (VALUES (-2.5::numeric), (-1.5::numeric), (-0.5::numeric), (0.0::numeric), (0.5::numeric), (1.5::numeric), (2.5::numeric)) t(x)",
+    "expected": "SELECT x, CAST(x AS SMALLINT) AS int2_value FROM (VALUES (-CAST(2.5 AS NUMERIC)), (-CAST(1.5 AS NUMERIC)), (-CAST(0.5 AS NUMERIC)), (CAST(0.0 AS NUMERIC)), (CAST(0.5 AS NUMERIC)), (CAST(1.5 AS NUMERIC)), (CAST(2.5 AS NUMERIC))) AS t(x)"
+  },
+  {
+    "comment": "int2 - Statement 51",
+    "query": "SELECT int2 '0b100101'",
+    "expected": "SELECT CAST('0b100101' AS SMALLINT)"
+  },
+  {
+    "comment": "int2 - Statement 52",
+    "query": "SELECT int2 '0o273'",
+    "expected": "SELECT CAST('0o273' AS SMALLINT)"
+  },
+  {
+    "comment": "int2 - Statement 53",
+    "query": "SELECT int2 '0x42F'",
+    "expected": "SELECT CAST('0x42F' AS SMALLINT)"
+  },
+  {
+    "comment": "int2 - Statement 54",
+    "query": "SELECT int2 '0b'",
+    "expected": "SELECT CAST('0b' AS SMALLINT)"
+  },
+  {
+    "comment": "int2 - Statement 55",
+    "query": "SELECT int2 '0o'",
+    "expected": "SELECT CAST('0o' AS SMALLINT)"
+  },
+  {
+    "comment": "int2 - Statement 56",
+    "query": "SELECT int2 '0x'",
+    "expected": "SELECT CAST('0x' AS SMALLINT)"
+  },
+  {
+    "comment": "int2 - Statement 57",
+    "query": "SELECT int2 '0b111111111111111'",
+    "expected": "SELECT CAST('0b111111111111111' AS SMALLINT)"
+  },
+  {
+    "comment": "int2 - Statement 58",
+    "query": "SELECT int2 '0b1000000000000000'",
+    "expected": "SELECT CAST('0b1000000000000000' AS SMALLINT)"
+  },
+  {
+    "comment": "int2 - Statement 59",
+    "query": "SELECT int2 '0o77777'",
+    "expected": "SELECT CAST('0o77777' AS SMALLINT)"
+  },
+  {
+    "comment": "int2 - Statement 60",
+    "query": "SELECT int2 '0o100000'",
+    "expected": "SELECT CAST('0o100000' AS SMALLINT)"
+  },
+  {
+    "comment": "int2 - Statement 61",
+    "query": "SELECT int2 '0x7FFF'",
+    "expected": "SELECT CAST('0x7FFF' AS SMALLINT)"
+  },
+  {
+    "comment": "int2 - Statement 62",
+    "query": "SELECT int2 '0x8000'",
+    "expected": "SELECT CAST('0x8000' AS SMALLINT)"
+  },
+  {
+    "comment": "int2 - Statement 63",
+    "query": "SELECT int2 '-0b1000000000000000'",
+    "expected": "SELECT CAST('-0b1000000000000000' AS SMALLINT)"
+  },
+  {
+    "comment": "int2 - Statement 64",
+    "query": "SELECT int2 '-0b1000000000000001'",
+    "expected": "SELECT CAST('-0b1000000000000001' AS SMALLINT)"
+  },
+  {
+    "comment": "int2 - Statement 65",
+    "query": "SELECT int2 '-0o100000'",
+    "expected": "SELECT CAST('-0o100000' AS SMALLINT)"
+  },
+  {
+    "comment": "int2 - Statement 66",
+    "query": "SELECT int2 '-0o100001'",
+    "expected": "SELECT CAST('-0o100001' AS SMALLINT)"
+  },
+  {
+    "comment": "int2 - Statement 67",
+    "query": "SELECT int2 '-0x8000'",
+    "expected": "SELECT CAST('-0x8000' AS SMALLINT)"
+  },
+  {
+    "comment": "int2 - Statement 68",
+    "query": "SELECT int2 '-0x8001'",
+    "expected": "SELECT CAST('-0x8001' AS SMALLINT)"
+  },
+  {
+    "comment": "int2 - Statement 69",
+    "query": "SELECT int2 '1_000'",
+    "expected": "SELECT CAST('1_000' AS SMALLINT)"
+  },
+  {
+    "comment": "int2 - Statement 70",
+    "query": "SELECT int2 '1_2_3'",
+    "expected": "SELECT CAST('1_2_3' AS SMALLINT)"
+  },
+  {
+    "comment": "int2 - Statement 71",
+    "query": "SELECT int2 '0xE_FF'",
+    "expected": "SELECT CAST('0xE_FF' AS SMALLINT)"
+  },
+  {
+    "comment": "int2 - Statement 72",
+    "query": "SELECT int2 '0o2_73'",
+    "expected": "SELECT CAST('0o2_73' AS SMALLINT)"
+  },
+  {
+    "comment": "int2 - Statement 73",
+    "query": "SELECT int2 '0b_10_0101'",
+    "expected": "SELECT CAST('0b_10_0101' AS SMALLINT)"
+  },
+  {
+    "comment": "int2 - Statement 74",
+    "query": "SELECT int2 '_100'",
+    "expected": "SELECT CAST('_100' AS SMALLINT)"
+  },
+  {
+    "comment": "int2 - Statement 75",
+    "query": "SELECT int2 '100_'",
+    "expected": "SELECT CAST('100_' AS SMALLINT)"
+  },
+  {
+    "comment": "int2 - Statement 76",
+    "query": "SELECT int2 '10__000'",
+    "expected": "SELECT CAST('10__000' AS SMALLINT)"
+  }
+]

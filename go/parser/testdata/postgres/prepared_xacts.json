@@ -1,0 +1,198 @@
+[
+  {
+    "comment": "prepared_xacts - Statement 1",
+    "query": "CREATE TABLE pxtest1 (foobar VARCHAR(10))"
+  },
+  {
+    "comment": "prepared_xacts - Statement 2",
+    "query": "INSERT INTO pxtest1 VALUES ('aaa')"
+  },
+  {
+    "comment": "prepared_xacts - Statement 3",
+    "query": "BEGIN TRANSACTION ISOLATION LEVEL SERIALIZABLE",
+    "expected": "BEGIN ISOLATION LEVEL SERIALIZABLE"
+  },
+  {
+    "comment": "prepared_xacts - Statement 4",
+    "query": "UPDATE pxtest1 SET foobar = 'bbb' WHERE foobar = 'aaa'"
+  },
+  {
+    "comment": "prepared_xacts - Statement 5",
+    "query": "SELECT * FROM pxtest1"
+  },
+  {
+    "comment": "prepared_xacts - Statement 6",
+    "query": "PREPARE TRANSACTION 'regress_foo1'"
+  },
+  {
+    "comment": "prepared_xacts - Statement 7",
+    "query": "SELECT gid FROM pg_prepared_xacts WHERE gid ~ '^regress_' ORDER BY gid"
+  },
+  {
+    "comment": "prepared_xacts - Statement 8",
+    "query": "ROLLBACK PREPARED 'regress_foo1'"
+  },
+  {
+    "comment": "prepared_xacts - Statement 9",
+    "query": "INSERT INTO pxtest1 VALUES ('ddd')"
+  },
+  {
+    "comment": "prepared_xacts - Statement 10",
+    "query": "PREPARE TRANSACTION 'regress_foo2'"
+  },
+  {
+    "comment": "prepared_xacts - Statement 11",
+    "query": "COMMIT PREPARED 'regress_foo2'"
+  },
+  {
+    "comment": "prepared_xacts - Statement 12",
+    "query": "UPDATE pxtest1 SET foobar = 'eee' WHERE foobar = 'ddd'"
+  },
+  {
+    "comment": "prepared_xacts - Statement 13",
+    "query": "PREPARE TRANSACTION 'regress_foo3'"
+  },
+  {
+    "comment": "prepared_xacts - Statement 14",
+    "query": "INSERT INTO pxtest1 VALUES ('fff')"
+  },
+  {
+    "comment": "prepared_xacts - Statement 15",
+    "query": "ROLLBACK PREPARED 'regress_foo3'"
+  },
+  {
+    "comment": "prepared_xacts - Statement 16",
+    "query": "PREPARE TRANSACTION 'regress_foo4'"
+  },
+  {
+    "comment": "prepared_xacts - Statement 17",
+    "query": "PREPARE TRANSACTION 'regress_foo5'"
+  },
+  {
+    "comment": "prepared_xacts - Statement 18",
+    "query": "ROLLBACK PREPARED 'regress_foo4'"
+  },
+  {
+    "comment": "prepared_xacts - Statement 19",
+    "query": "DROP TABLE pxtest1"
+  },
+  {
+    "comment": "prepared_xacts - Statement 20",
+    "query": "BEGIN"
+  },
+  {
+    "comment": "prepared_xacts - Statement 21",
+    "query": "SELECT pg_advisory_lock(1)"
+  },
+  {
+    "comment": "prepared_xacts - Statement 22",
+    "query": "SELECT pg_advisory_xact_lock_shared(1)"
+  },
+  {
+    "comment": "prepared_xacts - Statement 23",
+    "query": "PREPARE TRANSACTION 'regress_foo6'"
+  },
+  {
+    "comment": "prepared_xacts - Statement 24",
+    "query": "CREATE TABLE pxtest2 (a int)",
+    "expected": "CREATE TABLE pxtest2 (a INT)"
+  },
+  {
+    "comment": "prepared_xacts - Statement 25",
+    "query": "INSERT INTO pxtest2 VALUES (1)"
+  },
+  {
+    "comment": "prepared_xacts - Statement 26",
+    "query": "SAVEPOINT a"
+  },
+  {
+    "comment": "prepared_xacts - Statement 27",
+    "query": "INSERT INTO pxtest2 VALUES (2)"
+  },
+  {
+    "comment": "prepared_xacts - Statement 28",
+    "query": "ROLLBACK TO a",
+    "expected": "ROLLBACK TO SAVEPOINT a"
+  },
+  {
+    "comment": "prepared_xacts - Statement 29",
+    "query": "SAVEPOINT b"
+  },
+  {
+    "comment": "prepared_xacts - Statement 30",
+    "query": "INSERT INTO pxtest2 VALUES (3)"
+  },
+  {
+    "comment": "prepared_xacts - Statement 31",
+    "query": "PREPARE TRANSACTION 'regress_sub1'"
+  },
+  {
+    "comment": "prepared_xacts - Statement 32",
+    "query": "CREATE TABLE pxtest3(fff int)",
+    "expected": "CREATE TABLE pxtest3 (fff INT)"
+  },
+  {
+    "comment": "prepared_xacts - Statement 33",
+    "query": "DROP TABLE pxtest3"
+  },
+  {
+    "comment": "prepared_xacts - Statement 34",
+    "query": "CREATE TABLE pxtest4 (a int)",
+    "expected": "CREATE TABLE pxtest4 (a INT)"
+  },
+  {
+    "comment": "prepared_xacts - Statement 35",
+    "query": "INSERT INTO pxtest4 VALUES (1)"
+  },
+  {
+    "comment": "prepared_xacts - Statement 36",
+    "query": "INSERT INTO pxtest4 VALUES (2)"
+  },
+  {
+    "comment": "prepared_xacts - Statement 37",
+    "query": "DECLARE foo CURSOR FOR SELECT * FROM pxtest4"
+  },
+  {
+    "comment": "prepared_xacts - Statement 38",
+    "query": "FETCH 1 FROM foo",
+    "expected": "FETCH FROM foo"
+  },
+  {
+    "comment": "prepared_xacts - Statement 39",
+    "query": "PREPARE TRANSACTION 'regress_sub2'"
+  },
+  {
+    "comment": "prepared_xacts - Statement 40",
+    "query": "SELECT * FROM pxtest2"
+  },
+  {
+    "comment": "prepared_xacts - Statement 41",
+    "query": "lock table pxtest3 in access share mode nowait",
+    "expected": "LOCK TABLE pxtest3 IN ACCESS SHARE MODE NOWAIT"
+  },
+  {
+    "comment": "prepared_xacts - Statement 42",
+    "query": "rollback",
+    "expected": "ROLLBACK"
+  },
+  {
+    "comment": "prepared_xacts - Statement 43",
+    "query": "COMMIT PREPARED 'regress_sub1'"
+  },
+  {
+    "comment": "prepared_xacts - Statement 44",
+    "query": "COMMIT PREPARED 'regress_sub2'"
+  },
+  {
+    "comment": "prepared_xacts - Statement 45",
+    "query": "SELECT * FROM pxtest3"
+  },
+  {
+    "comment": "prepared_xacts - Statement 46",
+    "query": "DROP TABLE pxtest2"
+  },
+  {
+    "comment": "prepared_xacts - Statement 47",
+    "query": "DROP TABLE pxtest4"
+  }
+]

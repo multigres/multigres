@@ -1,0 +1,138 @@
+[
+  {
+    "comment": "hash_part - Statement 1",
+    "query": "CREATE TABLE mchash (a int, b text, c jsonb) PARTITION BY HASH (a part_test_int4_ops, b part_test_text_ops)",
+    "expected": "CREATE TABLE mchash (a INT, b TEXT, c JSONB) PARTITION BY hash (a part_test_int4_ops, b part_test_text_ops)"
+  },
+  {
+    "comment": "hash_part - Statement 2",
+    "query": "CREATE TABLE mchash1 PARTITION OF mchash FOR VALUES WITH (MODULUS 4, REMAINDER 0)",
+    "expected": "CREATE TABLE mchash1 PARTITION OF mchash FOR VALUES WITH (modulus 4, remainder 0)"
+  },
+  {
+    "comment": "hash_part - Statement 3",
+    "query": "SELECT satisfies_hash_partition(0, 4, 0, NULL)"
+  },
+  {
+    "comment": "hash_part - Statement 4",
+    "query": "SELECT satisfies_hash_partition('tenk1'::regclass, 4, 0, NULL)",
+    "expected": "SELECT satisfies_hash_partition(CAST('tenk1' AS regclass), 4, 0, NULL)"
+  },
+  {
+    "comment": "hash_part - Statement 5",
+    "query": "SELECT satisfies_hash_partition('mchash1'::regclass, 4, 0, NULL)",
+    "expected": "SELECT satisfies_hash_partition(CAST('mchash1' AS regclass), 4, 0, NULL)"
+  },
+  {
+    "comment": "hash_part - Statement 6",
+    "query": "SELECT satisfies_hash_partition('mchash'::regclass, 0, 0, NULL)",
+    "expected": "SELECT satisfies_hash_partition(CAST('mchash' AS regclass), 0, 0, NULL)"
+  },
+  {
+    "comment": "hash_part - Statement 7",
+    "query": "SELECT satisfies_hash_partition('mchash'::regclass, 1, -1, NULL)",
+    "expected": "SELECT satisfies_hash_partition(CAST('mchash' AS regclass), 1, -1, NULL)"
+  },
+  {
+    "comment": "hash_part - Statement 8",
+    "query": "SELECT satisfies_hash_partition('mchash'::regclass, 1, 1, NULL)",
+    "expected": "SELECT satisfies_hash_partition(CAST('mchash' AS regclass), 1, 1, NULL)"
+  },
+  {
+    "comment": "hash_part - Statement 9",
+    "query": "SELECT satisfies_hash_partition('mchash'::regclass, NULL, 0, NULL)",
+    "expected": "SELECT satisfies_hash_partition(CAST('mchash' AS regclass), NULL, 0, NULL)"
+  },
+  {
+    "comment": "hash_part - Statement 10",
+    "query": "SELECT satisfies_hash_partition('mchash'::regclass, 4, NULL, NULL)",
+    "expected": "SELECT satisfies_hash_partition(CAST('mchash' AS regclass), 4, NULL, NULL)"
+  },
+  {
+    "comment": "hash_part - Statement 11",
+    "query": "SELECT satisfies_hash_partition('mchash'::regclass, 4, 0, NULL::int, NULL::text, NULL::json)",
+    "expected": "SELECT satisfies_hash_partition(CAST('mchash' AS regclass), 4, 0, CAST(NULL AS INT), CAST(NULL AS TEXT), CAST(NULL AS JSON))"
+  },
+  {
+    "comment": "hash_part - Statement 12",
+    "query": "SELECT satisfies_hash_partition('mchash'::regclass, 3, 1, NULL::int)",
+    "expected": "SELECT satisfies_hash_partition(CAST('mchash' AS regclass), 3, 1, CAST(NULL AS INT))"
+  },
+  {
+    "comment": "hash_part - Statement 13",
+    "query": "SELECT satisfies_hash_partition('mchash'::regclass, 2, 1, NULL::int, NULL::int)",
+    "expected": "SELECT satisfies_hash_partition(CAST('mchash' AS regclass), 2, 1, CAST(NULL AS INT), CAST(NULL AS INT))"
+  },
+  {
+    "comment": "hash_part - Statement 14",
+    "query": "SELECT satisfies_hash_partition('mchash'::regclass, 4, 0, 0, ''::text)",
+    "expected": "SELECT satisfies_hash_partition(CAST('mchash' AS regclass), 4, 0, 0, CAST('' AS TEXT))"
+  },
+  {
+    "comment": "hash_part - Statement 15",
+    "query": "SELECT satisfies_hash_partition('mchash'::regclass, 4, 0, 2, ''::text)",
+    "expected": "SELECT satisfies_hash_partition(CAST('mchash' AS regclass), 4, 0, 2, CAST('' AS TEXT))"
+  },
+  {
+    "comment": "hash_part - Statement 16",
+    "query": "SELECT satisfies_hash_partition('mchash'::regclass, 2, 1, variadic array[1,2]::int[])",
+    "expected": "SELECT satisfies_hash_partition(CAST('mchash' AS regclass), 2, 1, VARIADIC CAST(ARRAY[1,2] AS INT[]))"
+  },
+  {
+    "comment": "hash_part - Statement 17",
+    "query": "CREATE TABLE mcinthash (a int, b int, c jsonb) PARTITION BY HASH (a part_test_int4_ops, b part_test_int4_ops)",
+    "expected": "CREATE TABLE mcinthash (a INT, b INT, c JSONB) PARTITION BY hash (a part_test_int4_ops, b part_test_int4_ops)"
+  },
+  {
+    "comment": "hash_part - Statement 18",
+    "query": "SELECT satisfies_hash_partition('mcinthash'::regclass, 4, 0, variadic array[0, 0])",
+    "expected": "SELECT satisfies_hash_partition(CAST('mcinthash' AS regclass), 4, 0, VARIADIC ARRAY[0,0])"
+  },
+  {
+    "comment": "hash_part - Statement 19",
+    "query": "SELECT satisfies_hash_partition('mcinthash'::regclass, 4, 0, variadic array[0, 1])",
+    "expected": "SELECT satisfies_hash_partition(CAST('mcinthash' AS regclass), 4, 0, VARIADIC ARRAY[0,1])"
+  },
+  {
+    "comment": "hash_part - Statement 20",
+    "query": "SELECT satisfies_hash_partition('mcinthash'::regclass, 4, 0, variadic array[]::int[])",
+    "expected": "SELECT satisfies_hash_partition(CAST('mcinthash' AS regclass), 4, 0, VARIADIC CAST(ARRAY[] AS INT[]))"
+  },
+  {
+    "comment": "hash_part - Statement 21",
+    "query": "SELECT satisfies_hash_partition('mcinthash'::regclass, 4, 0, variadic array[now(), now()])",
+    "expected": "SELECT satisfies_hash_partition(CAST('mcinthash' AS regclass), 4, 0, VARIADIC ARRAY[NOW(),NOW()])"
+  },
+  {
+    "comment": "hash_part - Statement 22",
+    "query": "create table text_hashp (a text) partition by hash (a)",
+    "expected": "CREATE TABLE text_hashp (a TEXT) PARTITION BY hash (a)"
+  },
+  {
+    "comment": "hash_part - Statement 23",
+    "query": "create table text_hashp0 partition of text_hashp for values with (modulus 2, remainder 0)",
+    "expected": "CREATE TABLE text_hashp0 PARTITION OF text_hashp FOR VALUES WITH (modulus 2, remainder 0)"
+  },
+  {
+    "comment": "hash_part - Statement 24",
+    "query": "create table text_hashp1 partition of text_hashp for values with (modulus 2, remainder 1)",
+    "expected": "CREATE TABLE text_hashp1 PARTITION OF text_hashp FOR VALUES WITH (modulus 2, remainder 1)"
+  },
+  {
+    "comment": "hash_part - Statement 25",
+    "query": "select satisfies_hash_partition('text_hashp'::regclass, 2, 0, 'xxx'::text) OR satisfies_hash_partition('text_hashp'::regclass, 2, 1, 'xxx'::text) AS satisfies",
+    "expected": "SELECT satisfies_hash_partition(CAST('text_hashp' AS regclass), 2, 0, CAST('xxx' AS TEXT)) OR satisfies_hash_partition(CAST('text_hashp' AS regclass), 2, 1, CAST('xxx' AS TEXT)) AS satisfies"
+  },
+  {
+    "comment": "hash_part - Statement 26",
+    "query": "DROP TABLE mchash"
+  },
+  {
+    "comment": "hash_part - Statement 27",
+    "query": "DROP TABLE mcinthash"
+  },
+  {
+    "comment": "hash_part - Statement 28",
+    "query": "DROP TABLE text_hashp"
+  }
+]

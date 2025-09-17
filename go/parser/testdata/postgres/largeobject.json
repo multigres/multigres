@@ -1,0 +1,283 @@
+[
+  {
+    "comment": "largeobject - Statement 1",
+    "query": "CREATE ROLE regress_lo_user"
+  },
+  {
+    "comment": "largeobject - Statement 2",
+    "query": "SELECT lo_create(42)"
+  },
+  {
+    "comment": "largeobject - Statement 3",
+    "query": "ALTER LARGE OBJECT 42 OWNER TO regress_lo_user"
+  },
+  {
+    "comment": "largeobject - Statement 4",
+    "query": "SET SESSION AUTHORIZATION regress_lo_user",
+    "expected": "SET SESSION AUTHORIZATION 'regress_lo_user'"
+  },
+  {
+    "comment": "largeobject - Statement 5",
+    "query": "GRANT SELECT ON LARGE OBJECT 42 TO public",
+    "expected": "GRANT SELECT ON LARGE OBJECT 42 TO PUBLIC"
+  },
+  {
+    "comment": "largeobject - Statement 6",
+    "query": "COMMENT ON LARGE OBJECT 42 IS 'the ultimate answer'"
+  },
+  {
+    "comment": "largeobject - Statement 7",
+    "query": "RESET SESSION AUTHORIZATION",
+    "expected": "RESET session_authorization"
+  },
+  {
+    "comment": "largeobject - Statement 8",
+    "query": "INSERT INTO lotest_stash_values (loid) SELECT lo_creat(42)"
+  },
+  {
+    "comment": "largeobject - Statement 9",
+    "query": "BEGIN"
+  },
+  {
+    "comment": "largeobject - Statement 10",
+    "query": "UPDATE lotest_stash_values SET fd = lo_open(loid, CAST(x'20000' | x'40000' AS integer))",
+    "expected": "UPDATE lotest_stash_values SET fd = lo_open(loid, CAST(X'20000' | X'40000' AS INT))"
+  },
+  {
+    "comment": "largeobject - Statement 11",
+    "query": "SELECT lowrite(fd, ' I wandered lonely as a cloud That floats on high o''er vales and hills, When all at once I saw a crowd, A host, of golden daffodils;Beside the lake, beneath the trees, Fluttering and dancing in the breeze. Continuous as the stars that shine And twinkle on the milky way, They stretched in never-ending line Along the margin of a bay: Ten thousand saw I at a glance, Tossing their heads in sprightly dance. The waves beside them danced; but they Out-did the sparkling waves in glee: A poet could not but be gay, In such a jocund company: I gazed What wealth the show to me had brought: For oft, when on my couch I lie In vacant or in pensive mood, They flash upon that inward eye Which is the bliss of solitude; And then my heart with pleasure fills, And dances with the daffodils. ') FROM lotest_stash_values"
+  },
+  {
+    "comment": "largeobject - Statement 14",
+    "query": "SELECT lo_close(fd) FROM lotest_stash_values"
+  },
+  {
+    "comment": "largeobject - Statement 15",
+    "query": "END",
+    "expected": "COMMIT"
+  },
+  {
+    "comment": "largeobject - Statement 16",
+    "query": "SELECT lo_from_bytea(0, lo_get(loid)) AS newloid FROM lotest_stash_values"
+  },
+  {
+    "comment": "largeobject - Statement 17",
+    "query": "COMMENT ON LARGE OBJECT 12345 IS 'I Wandered Lonely as a Cloud'"
+  },
+  {
+    "comment": "largeobject - Statement 18",
+    "query": "UPDATE lotest_stash_values SET fd=lo_open(loid, CAST(x'20000' | x'40000' AS integer))",
+    "expected": "UPDATE lotest_stash_values SET fd = lo_open(loid, CAST(X'20000' | X'40000' AS INT))"
+  },
+  {
+    "comment": "largeobject - Statement 19",
+    "query": "SELECT lo_lseek(fd, 104, 0) FROM lotest_stash_values"
+  },
+  {
+    "comment": "largeobject - Statement 20",
+    "query": "SELECT loread(fd, 28) FROM lotest_stash_values"
+  },
+  {
+    "comment": "largeobject - Statement 21",
+    "query": "SELECT lo_lseek(fd, -19, 1) FROM lotest_stash_values"
+  },
+  {
+    "comment": "largeobject - Statement 22",
+    "query": "SELECT lowrite(fd, 'n') FROM lotest_stash_values"
+  },
+  {
+    "comment": "largeobject - Statement 23",
+    "query": "SELECT lo_tell(fd) FROM lotest_stash_values"
+  },
+  {
+    "comment": "largeobject - Statement 24",
+    "query": "SELECT lo_lseek(fd, -744, 2) FROM lotest_stash_values"
+  },
+  {
+    "comment": "largeobject - Statement 25",
+    "query": "SELECT lo_open(loid, x'40000'::int) from lotest_stash_values",
+    "expected": "SELECT lo_open(loid, CAST(X'40000' AS INT)) FROM lotest_stash_values"
+  },
+  {
+    "comment": "largeobject - Statement 26",
+    "query": "ABORT",
+    "expected": "ROLLBACK"
+  },
+  {
+    "comment": "largeobject - Statement 27",
+    "query": "SELECT lo_truncate(fd, 11) FROM lotest_stash_values"
+  },
+  {
+    "comment": "largeobject - Statement 28",
+    "query": "SELECT loread(fd, 15) FROM lotest_stash_values"
+  },
+  {
+    "comment": "largeobject - Statement 29",
+    "query": "SELECT lo_truncate(fd, 10000) FROM lotest_stash_values"
+  },
+  {
+    "comment": "largeobject - Statement 30",
+    "query": "SELECT loread(fd, 10) FROM lotest_stash_values"
+  },
+  {
+    "comment": "largeobject - Statement 31",
+    "query": "SELECT lo_lseek(fd, 0, 2) FROM lotest_stash_values"
+  },
+  {
+    "comment": "largeobject - Statement 32",
+    "query": "SELECT lo_truncate(fd, 5000) FROM lotest_stash_values"
+  },
+  {
+    "comment": "largeobject - Statement 33",
+    "query": "SELECT lo_lseek64(fd, 4294967296, 0) FROM lotest_stash_values"
+  },
+  {
+    "comment": "largeobject - Statement 34",
+    "query": "SELECT lowrite(fd, 'offset:4GB') FROM lotest_stash_values"
+  },
+  {
+    "comment": "largeobject - Statement 35",
+    "query": "SELECT lo_tell64(fd) FROM lotest_stash_values"
+  },
+  {
+    "comment": "largeobject - Statement 36",
+    "query": "SELECT lo_lseek64(fd, -10, 1) FROM lotest_stash_values"
+  },
+  {
+    "comment": "largeobject - Statement 37",
+    "query": "SELECT lo_truncate64(fd, 5000000000) FROM lotest_stash_values"
+  },
+  {
+    "comment": "largeobject - Statement 38",
+    "query": "SELECT lo_lseek64(fd, 0, 2) FROM lotest_stash_values"
+  },
+  {
+    "comment": "largeobject - Statement 39",
+    "query": "SELECT lo_truncate64(fd, 3000000000) FROM lotest_stash_values"
+  },
+  {
+    "comment": "largeobject - Statement 40",
+    "query": "SELECT lo_unlink(loid) from lotest_stash_values",
+    "expected": "SELECT lo_unlink(loid) FROM lotest_stash_values"
+  },
+  {
+    "comment": "largeobject - Statement 41",
+    "query": "TRUNCATE lotest_stash_values",
+    "expected": "TRUNCATE TABLE lotest_stash_values CONTINUE IDENTITY RESTRICT"
+  },
+  {
+    "comment": "largeobject - Statement 42",
+    "query": "SELECT lo_lseek(fd, 2030, 0) FROM lotest_stash_values"
+  },
+  {
+    "comment": "largeobject - Statement 43",
+    "query": "SELECT loread(fd, 36) FROM lotest_stash_values"
+  },
+  {
+    "comment": "largeobject - Statement 44",
+    "query": "SELECT lo_lseek(fd, -26, 1) FROM lotest_stash_values"
+  },
+  {
+    "comment": "largeobject - Statement 45",
+    "query": "SELECT lowrite(fd, 'abcdefghijklmnop') FROM lotest_stash_values"
+  },
+  {
+    "comment": "largeobject - Statement 46",
+    "query": "SELECT fipshash(lo_get(12345)) = fipshash(lo_get(12345))"
+  },
+  {
+    "comment": "largeobject - Statement 47",
+    "query": "SELECT lo_get(12345, 0, 20)"
+  },
+  {
+    "comment": "largeobject - Statement 48",
+    "query": "SELECT lo_get(12345, 10, 20)"
+  },
+  {
+    "comment": "largeobject - Statement 49",
+    "query": "SELECT lo_put(12345, 5, decode('afafafaf', 'hex'))"
+  },
+  {
+    "comment": "largeobject - Statement 50",
+    "query": "SELECT lo_put(12345, 4294967310, 'foo')"
+  },
+  {
+    "comment": "largeobject - Statement 51",
+    "query": "SELECT lo_get(12345)"
+  },
+  {
+    "comment": "largeobject - Statement 52",
+    "query": "SELECT lo_get(12345, 4294967294, 100)"
+  },
+  {
+    "comment": "largeobject - Statement 53",
+    "query": "SET bytea_output TO hex",
+    "expected": "SET bytea_output = 'hex'"
+  },
+  {
+    "comment": "largeobject - Statement 54",
+    "query": "SELECT lo_create(2121)"
+  },
+  {
+    "comment": "largeobject - Statement 55",
+    "query": "COMMENT ON LARGE OBJECT 2121 IS 'testing comments'"
+  },
+  {
+    "comment": "largeobject - Statement 56",
+    "query": "START TRANSACTION READ ONLY"
+  },
+  {
+    "comment": "largeobject - Statement 57",
+    "query": "SELECT lo_open(2121, x'40000'::int)",
+    "expected": "SELECT lo_open(2121, CAST(X'40000' AS INT))"
+  },
+  {
+    "comment": "largeobject - Statement 58",
+    "query": "SELECT lo_open(2121, x'20000'::int)",
+    "expected": "SELECT lo_open(2121, CAST(X'20000' AS INT))"
+  },
+  {
+    "comment": "largeobject - Statement 59",
+    "query": "ROLLBACK"
+  },
+  {
+    "comment": "largeobject - Statement 60",
+    "query": "SELECT lo_creat(42)"
+  },
+  {
+    "comment": "largeobject - Statement 61",
+    "query": "SELECT lo_unlink(42)"
+  },
+  {
+    "comment": "largeobject - Statement 62",
+    "query": "SELECT lowrite(42, 'x')"
+  },
+  {
+    "comment": "largeobject - Statement 63",
+    "query": "SELECT lo_import('filename')"
+  },
+  {
+    "comment": "largeobject - Statement 64",
+    "query": "SELECT lo_truncate(42, 0)"
+  },
+  {
+    "comment": "largeobject - Statement 65",
+    "query": "SELECT lo_truncate64(42, 0)"
+  },
+  {
+    "comment": "largeobject - Statement 66",
+    "query": "SELECT lo_from_bytea(0, 'x')"
+  },
+  {
+    "comment": "largeobject - Statement 67",
+    "query": "SELECT lo_put(42, 0, 'x')"
+  },
+  {
+    "comment": "largeobject - Statement 68",
+    "query": "DROP TABLE lotest_stash_values"
+  },
+  {
+    "comment": "largeobject - Statement 69",
+    "query": "DROP ROLE regress_lo_user"
+  }
+]

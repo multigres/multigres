@@ -1,0 +1,432 @@
+[
+  {
+    "comment": "index_including - Statement 1",
+    "query": "/* * 1.test CREATE INDEX * * Deliberately avoid dropping objects in this section, to get some pg_dump * coverage. */ CREATE TABLE tbl_include_reg (c1 int, c2 int, c3 int, c4 box)",
+    "expected": "CREATE TABLE tbl_include_reg (c1 INT, c2 INT, c3 INT, c4 box)"
+  },
+  {
+    "comment": "index_including - Statement 2",
+    "query": "INSERT INTO tbl_include_reg SELECT x, 2*x, 3*x, box('4,4,4,4') FROM generate_series(1,10) AS x",
+    "expected": "INSERT INTO tbl_include_reg SELECT x, 2 * x, 3 * x, box('4,4,4,4') FROM generate_series(1, 10) AS x"
+  },
+  {
+    "comment": "index_including - Statement 3",
+    "query": "CREATE INDEX tbl_include_reg_idx ON tbl_include_reg (c1, c2) INCLUDE (c3, c4)",
+    "expected": "CREATE INDEX tbl_include_reg_idx ON tbl_include_reg USING btree ( c1, c2 ) INCLUDE (c3, c4)"
+  },
+  {
+    "comment": "index_including - Statement 4",
+    "query": "CREATE INDEX ON tbl_include_reg (c1, c2) INCLUDE (c1, c3)",
+    "expected": "CREATE INDEX ON tbl_include_reg USING btree ( c1, c2 ) INCLUDE (c1, c3)"
+  },
+  {
+    "comment": "index_including - Statement 5",
+    "query": "SELECT pg_get_indexdef(i.indexrelid) FROM pg_index i JOIN pg_class c ON i.indexrelid = c.oid WHERE i.indrelid = 'tbl_include_reg'::regclass ORDER BY c.relname",
+    "expected": "SELECT pg_get_indexdef(i.indexrelid) FROM pg_index AS i INNER JOIN pg_class AS c ON i.indexrelid = c.oid WHERE i.indrelid = CAST('tbl_include_reg' AS regclass) ORDER BY c.relname"
+  },
+  {
+    "comment": "index_including - Statement 6",
+    "query": "INSERT INTO tbl_include_unique1 SELECT x, 2*x, 3*x, box('4,4,4,4') FROM generate_series(1,10) AS x",
+    "expected": "INSERT INTO tbl_include_unique1 SELECT x, 2 * x, 3 * x, box('4,4,4,4') FROM generate_series(1, 10) AS x"
+  },
+  {
+    "comment": "index_including - Statement 7",
+    "query": "CREATE UNIQUE INDEX tbl_include_unique1_idx_unique ON tbl_include_unique1 using btree (c1, c2) INCLUDE (c3, c4)",
+    "expected": "CREATE UNIQUE INDEX tbl_include_unique1_idx_unique ON tbl_include_unique1 USING btree ( c1, c2 ) INCLUDE (c3, c4)"
+  },
+  {
+    "comment": "index_including - Statement 8",
+    "query": "ALTER TABLE tbl_include_unique1 add UNIQUE USING INDEX tbl_include_unique1_idx_unique",
+    "expected": "ALTER TABLE tbl_include_unique1 ADD UNIQUE USING INDEX tbl_include_unique1_idx_unique"
+  },
+  {
+    "comment": "index_including - Statement 9",
+    "query": "ALTER TABLE tbl_include_unique1 add UNIQUE (c1, c2) INCLUDE (c3, c4)",
+    "expected": "ALTER TABLE tbl_include_unique1 ADD UNIQUE (c1, c2)"
+  },
+  {
+    "comment": "index_including - Statement 10",
+    "query": "SELECT pg_get_indexdef(i.indexrelid) FROM pg_index i JOIN pg_class c ON i.indexrelid = c.oid WHERE i.indrelid = 'tbl_include_unique1'::regclass ORDER BY c.relname",
+    "expected": "SELECT pg_get_indexdef(i.indexrelid) FROM pg_index AS i INNER JOIN pg_class AS c ON i.indexrelid = c.oid WHERE i.indrelid = CAST('tbl_include_unique1' AS regclass) ORDER BY c.relname"
+  },
+  {
+    "comment": "index_including - Statement 11",
+    "query": "CREATE TABLE tbl_include_unique2 (c1 int, c2 int, c3 int, c4 box)",
+    "expected": "CREATE TABLE tbl_include_unique2 (c1 INT, c2 INT, c3 INT, c4 box)"
+  },
+  {
+    "comment": "index_including - Statement 12",
+    "query": "INSERT INTO tbl_include_unique2 SELECT 1, 2, 3*x, box('4,4,4,4') FROM generate_series(1,10) AS x",
+    "expected": "INSERT INTO tbl_include_unique2 SELECT 1, 2, 3 * x, box('4,4,4,4') FROM generate_series(1, 10) AS x"
+  },
+  {
+    "comment": "index_including - Statement 13",
+    "query": "CREATE UNIQUE INDEX tbl_include_unique2_idx_unique ON tbl_include_unique2 using btree (c1, c2) INCLUDE (c3, c4)",
+    "expected": "CREATE UNIQUE INDEX tbl_include_unique2_idx_unique ON tbl_include_unique2 USING btree ( c1, c2 ) INCLUDE (c3, c4)"
+  },
+  {
+    "comment": "index_including - Statement 14",
+    "query": "ALTER TABLE tbl_include_unique2 add UNIQUE (c1, c2) INCLUDE (c3, c4)",
+    "expected": "ALTER TABLE tbl_include_unique2 ADD UNIQUE (c1, c2)"
+  },
+  {
+    "comment": "index_including - Statement 15",
+    "query": "CREATE TABLE tbl_include_pk (c1 int, c2 int, c3 int, c4 box)",
+    "expected": "CREATE TABLE tbl_include_pk (c1 INT, c2 INT, c3 INT, c4 box)"
+  },
+  {
+    "comment": "index_including - Statement 16",
+    "query": "INSERT INTO tbl_include_pk SELECT 1, 2*x, 3*x, box('4,4,4,4') FROM generate_series(1,10) AS x",
+    "expected": "INSERT INTO tbl_include_pk SELECT 1, 2 * x, 3 * x, box('4,4,4,4') FROM generate_series(1, 10) AS x"
+  },
+  {
+    "comment": "index_including - Statement 17",
+    "query": "ALTER TABLE tbl_include_pk add PRIMARY KEY (c1, c2) INCLUDE (c3, c4)",
+    "expected": "ALTER TABLE tbl_include_pk ADD PRIMARY KEY (c1, c2)"
+  },
+  {
+    "comment": "index_including - Statement 18",
+    "query": "SELECT pg_get_indexdef(i.indexrelid) FROM pg_index i JOIN pg_class c ON i.indexrelid = c.oid WHERE i.indrelid = 'tbl_include_pk'::regclass ORDER BY c.relname",
+    "expected": "SELECT pg_get_indexdef(i.indexrelid) FROM pg_index AS i INNER JOIN pg_class AS c ON i.indexrelid = c.oid WHERE i.indrelid = CAST('tbl_include_pk' AS regclass) ORDER BY c.relname"
+  },
+  {
+    "comment": "index_including - Statement 19",
+    "query": "CREATE TABLE tbl_include_box (c1 int, c2 int, c3 int, c4 box)",
+    "expected": "CREATE TABLE tbl_include_box (c1 INT, c2 INT, c3 INT, c4 box)"
+  },
+  {
+    "comment": "index_including - Statement 20",
+    "query": "INSERT INTO tbl_include_box SELECT 1, 2*x, 3*x, box('4,4,4,4') FROM generate_series(1,10) AS x",
+    "expected": "INSERT INTO tbl_include_box SELECT 1, 2 * x, 3 * x, box('4,4,4,4') FROM generate_series(1, 10) AS x"
+  },
+  {
+    "comment": "index_including - Statement 21",
+    "query": "CREATE UNIQUE INDEX tbl_include_box_idx_unique ON tbl_include_box using btree (c1, c2) INCLUDE (c3, c4)",
+    "expected": "CREATE UNIQUE INDEX tbl_include_box_idx_unique ON tbl_include_box USING btree ( c1, c2 ) INCLUDE (c3, c4)"
+  },
+  {
+    "comment": "index_including - Statement 22",
+    "query": "ALTER TABLE tbl_include_box add PRIMARY KEY USING INDEX tbl_include_box_idx_unique",
+    "expected": "ALTER TABLE tbl_include_box ADD PRIMARY KEY USING INDEX tbl_include_box_idx_unique"
+  },
+  {
+    "comment": "index_including - Statement 23",
+    "query": "SELECT pg_get_indexdef(i.indexrelid) FROM pg_index i JOIN pg_class c ON i.indexrelid = c.oid WHERE i.indrelid = 'tbl_include_box'::regclass ORDER BY c.relname",
+    "expected": "SELECT pg_get_indexdef(i.indexrelid) FROM pg_index AS i INNER JOIN pg_class AS c ON i.indexrelid = c.oid WHERE i.indrelid = CAST('tbl_include_box' AS regclass) ORDER BY c.relname"
+  },
+  {
+    "comment": "index_including - Statement 24",
+    "query": "CREATE TABLE tbl_include_box_pk (c1 int, c2 int, c3 int, c4 box)",
+    "expected": "CREATE TABLE tbl_include_box_pk (c1 INT, c2 INT, c3 INT, c4 box)"
+  },
+  {
+    "comment": "index_including - Statement 25",
+    "query": "INSERT INTO tbl_include_box_pk SELECT 1, 2, 3*x, box('4,4,4,4') FROM generate_series(1,10) AS x",
+    "expected": "INSERT INTO tbl_include_box_pk SELECT 1, 2, 3 * x, box('4,4,4,4') FROM generate_series(1, 10) AS x"
+  },
+  {
+    "comment": "index_including - Statement 26",
+    "query": "ALTER TABLE tbl_include_box_pk add PRIMARY KEY (c1, c2) INCLUDE (c3, c4)",
+    "expected": "ALTER TABLE tbl_include_box_pk ADD PRIMARY KEY (c1, c2)"
+  },
+  {
+    "comment": "index_including - Statement 27",
+    "query": "/* * 2. Test CREATE TABLE with constraint */ CREATE TABLE tbl (c1 int,c2 int, c3 int, c4 box, CONSTRAINT covering UNIQUE(c1,c2) INCLUDE(c3,c4))",
+    "expected": "CREATE TABLE tbl (c1 INT, c2 INT, c3 INT, c4 box, CONSTRAINT covering UNIQUE (c1, c2))"
+  },
+  {
+    "comment": "index_including - Statement 28",
+    "query": "SELECT indexrelid::regclass, indnatts, indnkeyatts, indisunique, indisprimary, indkey, indclass FROM pg_index WHERE indrelid = 'tbl'::regclass::oid",
+    "expected": "SELECT CAST(indexrelid AS regclass), indnatts, indnkeyatts, indisunique, indisprimary, indkey, indclass FROM pg_index WHERE indrelid = CAST(CAST('tbl' AS regclass) AS oid)"
+  },
+  {
+    "comment": "index_including - Statement 29",
+    "query": "SELECT pg_get_constraintdef(oid), conname, conkey FROM pg_constraint WHERE conrelid = 'tbl'::regclass::oid",
+    "expected": "SELECT pg_get_constraintdef(oid), conname, conkey FROM pg_constraint WHERE conrelid = CAST(CAST('tbl' AS regclass) AS oid)"
+  },
+  {
+    "comment": "index_including - Statement 30",
+    "query": "INSERT INTO tbl SELECT 1, 2, 3*x, box('4,4,4,4') FROM generate_series(1,10) AS x",
+    "expected": "INSERT INTO tbl SELECT 1, 2, 3 * x, box('4,4,4,4') FROM generate_series(1, 10) AS x"
+  },
+  {
+    "comment": "index_including - Statement 31",
+    "query": "DROP TABLE tbl"
+  },
+  {
+    "comment": "index_including - Statement 32",
+    "query": "CREATE TABLE tbl (c1 int,c2 int, c3 int, c4 box, CONSTRAINT covering PRIMARY KEY(c1,c2) INCLUDE(c3,c4))",
+    "expected": "CREATE TABLE tbl (c1 INT, c2 INT, c3 INT, c4 box, CONSTRAINT covering PRIMARY KEY (c1, c2))"
+  },
+  {
+    "comment": "index_including - Statement 33",
+    "query": "INSERT INTO tbl SELECT 1, NULL, 3*x, box('4,4,4,4') FROM generate_series(1,10) AS x",
+    "expected": "INSERT INTO tbl SELECT 1, NULL, 3 * x, box('4,4,4,4') FROM generate_series(1, 10) AS x"
+  },
+  {
+    "comment": "index_including - Statement 34",
+    "query": "INSERT INTO tbl SELECT x, 2*x, NULL, NULL FROM generate_series(1,300) AS x",
+    "expected": "INSERT INTO tbl SELECT x, 2 * x, NULL, NULL FROM generate_series(1, 300) AS x"
+  },
+  {
+    "comment": "index_including - Statement 35",
+    "query": "explain (costs off) select * from tbl where (c1,c2,c3) \u003c (2,5,1)",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM tbl WHERE (c1, c2, c3) \u003c (2, 5, 1)"
+  },
+  {
+    "comment": "index_including - Statement 36",
+    "query": "select * from tbl where (c1,c2,c3) \u003c (2,5,1)",
+    "expected": "SELECT * FROM tbl WHERE (c1, c2, c3) \u003c (2, 5, 1)"
+  },
+  {
+    "comment": "index_including - Statement 37",
+    "query": "SET enable_seqscan = off"
+  },
+  {
+    "comment": "index_including - Statement 38",
+    "query": "explain (costs off) select * from tbl where (c1,c2,c3) \u003c (262,1,1) limit 1",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM tbl WHERE (c1, c2, c3) \u003c (262, 1, 1) LIMIT 1"
+  },
+  {
+    "comment": "index_including - Statement 39",
+    "query": "select * from tbl where (c1,c2,c3) \u003c (262,1,1) limit 1",
+    "expected": "SELECT * FROM tbl WHERE (c1, c2, c3) \u003c (262, 1, 1) LIMIT 1"
+  },
+  {
+    "comment": "index_including - Statement 40",
+    "query": "RESET enable_seqscan"
+  },
+  {
+    "comment": "index_including - Statement 41",
+    "query": "CREATE TABLE tbl (c1 int,c2 int, c3 int, c4 box, UNIQUE(c1,c2) INCLUDE(c3,c4))",
+    "expected": "CREATE TABLE tbl (c1 INT, c2 INT, c3 INT, c4 box, UNIQUE (c1, c2))"
+  },
+  {
+    "comment": "index_including - Statement 42",
+    "query": "CREATE TABLE tbl (c1 int,c2 int, c3 int, c4 box, PRIMARY KEY(c1,c2) INCLUDE(c3,c4))",
+    "expected": "CREATE TABLE tbl (c1 INT, c2 INT, c3 INT, c4 box, PRIMARY KEY (c1, c2))"
+  },
+  {
+    "comment": "index_including - Statement 43",
+    "query": "INSERT INTO tbl SELECT x, 2*x, NULL, NULL FROM generate_series(1,10) AS x",
+    "expected": "INSERT INTO tbl SELECT x, 2 * x, NULL, NULL FROM generate_series(1, 10) AS x"
+  },
+  {
+    "comment": "index_including - Statement 44",
+    "query": "CREATE TABLE tbl (c1 int,c2 int, c3 int, c4 box, EXCLUDE USING btree (c1 WITH =) INCLUDE(c3,c4))",
+    "expected": "CREATE TABLE tbl (c1 INT, c2 INT, c3 INT, c4 box, EXCLUDE USING btree (c1 WITH =))"
+  },
+  {
+    "comment": "index_including - Statement 45",
+    "query": "/* * 3.0 Test ALTER TABLE DROP COLUMN. * Any column deletion leads to index deletion. */ CREATE TABLE tbl (c1 int,c2 int, c3 int, c4 int)",
+    "expected": "CREATE TABLE tbl (c1 INT, c2 INT, c3 INT, c4 INT)"
+  },
+  {
+    "comment": "index_including - Statement 46",
+    "query": "CREATE UNIQUE INDEX tbl_idx ON tbl using btree(c1, c2, c3, c4)",
+    "expected": "CREATE UNIQUE INDEX tbl_idx ON tbl USING btree ( c1, c2, c3, c4 )"
+  },
+  {
+    "comment": "index_including - Statement 47",
+    "query": "SELECT indexdef FROM pg_indexes WHERE tablename = 'tbl' ORDER BY indexname"
+  },
+  {
+    "comment": "index_including - Statement 48",
+    "query": "ALTER TABLE tbl DROP COLUMN c3"
+  },
+  {
+    "comment": "index_including - Statement 49",
+    "query": "/* * 3.1 Test ALTER TABLE DROP COLUMN. * Included column deletion leads to the index deletion, * AS well AS key columns deletion. It's explained in documentation. */ CREATE TABLE tbl (c1 int,c2 int, c3 int, c4 box)",
+    "expected": "CREATE TABLE tbl (c1 INT, c2 INT, c3 INT, c4 box)"
+  },
+  {
+    "comment": "index_including - Statement 50",
+    "query": "CREATE UNIQUE INDEX tbl_idx ON tbl using btree(c1, c2) INCLUDE(c3,c4)",
+    "expected": "CREATE UNIQUE INDEX tbl_idx ON tbl USING btree ( c1, c2 ) INCLUDE (c3, c4)"
+  },
+  {
+    "comment": "index_including - Statement 51",
+    "query": "/* * 3.2 Test ALTER TABLE DROP COLUMN. * Included column deletion leads to the index deletion. * AS well AS key columns deletion. It's explained in documentation. */ CREATE TABLE tbl (c1 int,c2 int, c3 int, c4 box, UNIQUE(c1, c2) INCLUDE(c3,c4))",
+    "expected": "CREATE TABLE tbl (c1 INT, c2 INT, c3 INT, c4 box, UNIQUE (c1, c2))"
+  },
+  {
+    "comment": "index_including - Statement 52",
+    "query": "ALTER TABLE tbl DROP COLUMN c1"
+  },
+  {
+    "comment": "index_including - Statement 53",
+    "query": "/* * 3.3 Test ALTER TABLE SET STATISTICS */ CREATE TABLE tbl (c1 int, c2 int)",
+    "expected": "CREATE TABLE tbl (c1 INT, c2 INT)"
+  },
+  {
+    "comment": "index_including - Statement 54",
+    "query": "CREATE INDEX tbl_idx ON tbl (c1, (c1+0)) INCLUDE (c2)",
+    "expected": "CREATE INDEX tbl_idx ON tbl USING btree ( c1, (c1 + 0) ) INCLUDE (c2)"
+  },
+  {
+    "comment": "index_including - Statement 55",
+    "query": "ALTER INDEX tbl_idx ALTER COLUMN 1 SET STATISTICS 1000"
+  },
+  {
+    "comment": "index_including - Statement 56",
+    "query": "ALTER INDEX tbl_idx ALTER COLUMN 2 SET STATISTICS 1000"
+  },
+  {
+    "comment": "index_including - Statement 57",
+    "query": "ALTER INDEX tbl_idx ALTER COLUMN 3 SET STATISTICS 1000"
+  },
+  {
+    "comment": "index_including - Statement 58",
+    "query": "ALTER INDEX tbl_idx ALTER COLUMN 4 SET STATISTICS 1000"
+  },
+  {
+    "comment": "index_including - Statement 59",
+    "query": "/* * 4. CREATE INDEX CONCURRENTLY */ CREATE TABLE tbl (c1 int,c2 int, c3 int, c4 box, UNIQUE(c1, c2) INCLUDE(c3,c4))",
+    "expected": "CREATE TABLE tbl (c1 INT, c2 INT, c3 INT, c4 box, UNIQUE (c1, c2))"
+  },
+  {
+    "comment": "index_including - Statement 60",
+    "query": "INSERT INTO tbl SELECT x, 2*x, 3*x, box('4,4,4,4') FROM generate_series(1,1000) AS x",
+    "expected": "INSERT INTO tbl SELECT x, 2 * x, 3 * x, box('4,4,4,4') FROM generate_series(1, 1000) AS x"
+  },
+  {
+    "comment": "index_including - Statement 61",
+    "query": "CREATE UNIQUE INDEX CONCURRENTLY on tbl (c1, c2) INCLUDE (c3, c4)",
+    "expected": "CREATE UNIQUE INDEX CONCURRENTLY ON tbl USING btree ( c1, c2 ) INCLUDE (c3, c4)"
+  },
+  {
+    "comment": "index_including - Statement 62",
+    "query": "/* * 5. REINDEX */ CREATE TABLE tbl (c1 int,c2 int, c3 int, c4 box, UNIQUE(c1, c2) INCLUDE(c3,c4))",
+    "expected": "CREATE TABLE tbl (c1 INT, c2 INT, c3 INT, c4 box, UNIQUE (c1, c2))"
+  },
+  {
+    "comment": "index_including - Statement 63",
+    "query": "REINDEX INDEX tbl_c1_c2_c3_c4_key"
+  },
+  {
+    "comment": "index_including - Statement 64",
+    "query": "/* * 7. Check various AMs. All but btree, gist and spgist must fail. */ CREATE TABLE tbl (c1 int,c2 int, c3 box, c4 box)",
+    "expected": "CREATE TABLE tbl (c1 INT, c2 INT, c3 box, c4 box)"
+  },
+  {
+    "comment": "index_including - Statement 65",
+    "query": "CREATE INDEX on tbl USING brin(c1, c2) INCLUDE (c3, c4)",
+    "expected": "CREATE INDEX ON tbl USING brin ( c1, c2 ) INCLUDE (c3, c4)"
+  },
+  {
+    "comment": "index_including - Statement 66",
+    "query": "CREATE INDEX on tbl USING gist(c3) INCLUDE (c1, c4)",
+    "expected": "CREATE INDEX ON tbl USING gist ( c3 ) INCLUDE (c1, c4)"
+  },
+  {
+    "comment": "index_including - Statement 67",
+    "query": "CREATE INDEX on tbl USING spgist(c3) INCLUDE (c4)",
+    "expected": "CREATE INDEX ON tbl USING spgist ( c3 ) INCLUDE (c4)"
+  },
+  {
+    "comment": "index_including - Statement 68",
+    "query": "CREATE INDEX on tbl USING gin(c1, c2) INCLUDE (c3, c4)",
+    "expected": "CREATE INDEX ON tbl USING gin ( c1, c2 ) INCLUDE (c3, c4)"
+  },
+  {
+    "comment": "index_including - Statement 69",
+    "query": "CREATE INDEX on tbl USING hash(c1, c2) INCLUDE (c3, c4)",
+    "expected": "CREATE INDEX ON tbl USING hash ( c1, c2 ) INCLUDE (c3, c4)"
+  },
+  {
+    "comment": "index_including - Statement 70",
+    "query": "CREATE INDEX on tbl USING rtree(c3) INCLUDE (c1, c4)",
+    "expected": "CREATE INDEX ON tbl USING rtree ( c3 ) INCLUDE (c1, c4)"
+  },
+  {
+    "comment": "index_including - Statement 71",
+    "query": "CREATE INDEX on tbl USING btree(c1, c2) INCLUDE (c3, c4)",
+    "expected": "CREATE INDEX ON tbl USING btree ( c1, c2 ) INCLUDE (c3, c4)"
+  },
+  {
+    "comment": "index_including - Statement 72",
+    "query": "/* * 8. Update, delete values in indexed table. */ CREATE TABLE tbl (c1 int, c2 int, c3 int, c4 box)",
+    "expected": "CREATE TABLE tbl (c1 INT, c2 INT, c3 INT, c4 box)"
+  },
+  {
+    "comment": "index_including - Statement 73",
+    "query": "INSERT INTO tbl SELECT x, 2*x, 3*x, box('4,4,4,4') FROM generate_series(1,10) AS x",
+    "expected": "INSERT INTO tbl SELECT x, 2 * x, 3 * x, box('4,4,4,4') FROM generate_series(1, 10) AS x"
+  },
+  {
+    "comment": "index_including - Statement 74",
+    "query": "CREATE UNIQUE INDEX tbl_idx_unique ON tbl using btree(c1, c2) INCLUDE (c3,c4)",
+    "expected": "CREATE UNIQUE INDEX tbl_idx_unique ON tbl USING btree ( c1, c2 ) INCLUDE (c3, c4)"
+  },
+  {
+    "comment": "index_including - Statement 75",
+    "query": "UPDATE tbl SET c1 = 100 WHERE c1 = 2"
+  },
+  {
+    "comment": "index_including - Statement 76",
+    "query": "UPDATE tbl SET c1 = 1 WHERE c1 = 3"
+  },
+  {
+    "comment": "index_including - Statement 77",
+    "query": "UPDATE tbl SET c2 = 2 WHERE c1 = 1"
+  },
+  {
+    "comment": "index_including - Statement 78",
+    "query": "UPDATE tbl SET c3 = 1"
+  },
+  {
+    "comment": "index_including - Statement 79",
+    "query": "DELETE FROM tbl WHERE c1 = 5 OR c3 = 12"
+  },
+  {
+    "comment": "index_including - Statement 80",
+    "query": "/* * 9. Alter column type. */ CREATE TABLE tbl (c1 int,c2 int, c3 int, c4 box, UNIQUE(c1, c2) INCLUDE(c3,c4))",
+    "expected": "CREATE TABLE tbl (c1 INT, c2 INT, c3 INT, c4 box, UNIQUE (c1, c2))"
+  },
+  {
+    "comment": "index_including - Statement 81",
+    "query": "ALTER TABLE tbl ALTER c1 TYPE bigint",
+    "expected": "ALTER TABLE tbl ALTER COLUMN c1 TYPE BIGINT"
+  },
+  {
+    "comment": "index_including - Statement 82",
+    "query": "ALTER TABLE tbl ALTER c3 TYPE bigint",
+    "expected": "ALTER TABLE tbl ALTER COLUMN c3 TYPE BIGINT"
+  },
+  {
+    "comment": "index_including - Statement 83",
+    "query": "/* * 10. Test coverage for names stored as cstrings in indexes */ CREATE TABLE nametbl (c1 int, c2 name, c3 float)",
+    "expected": "CREATE TABLE nametbl (c1 INT, c2 name, c3 FLOAT8)"
+  },
+  {
+    "comment": "index_including - Statement 84",
+    "query": "CREATE INDEX nametbl_c1_c2_idx ON nametbl (c2, c1) INCLUDE (c3)",
+    "expected": "CREATE INDEX nametbl_c1_c2_idx ON nametbl USING btree ( c2, c1 ) INCLUDE (c3)"
+  },
+  {
+    "comment": "index_including - Statement 85",
+    "query": "INSERT INTO nametbl VALUES(1, 'two', 3.0)",
+    "expected": "INSERT INTO nametbl VALUES (1, 'two', 3.0)"
+  },
+  {
+    "comment": "index_including - Statement 86",
+    "query": "VACUUM nametbl"
+  },
+  {
+    "comment": "index_including - Statement 87",
+    "query": "SET enable_seqscan = 0"
+  },
+  {
+    "comment": "index_including - Statement 88",
+    "query": "EXPLAIN (COSTS OFF) SELECT c2, c1, c3 FROM nametbl WHERE c2 = 'two' AND c1 = 1",
+    "expected": "EXPLAIN (COSTS false) SELECT c2, c1, c3 FROM nametbl WHERE c2 = 'two' AND c1 = 1"
+  },
+  {
+    "comment": "index_including - Statement 89",
+    "query": "SELECT c2, c1, c3 FROM nametbl WHERE c2 = 'two' AND c1 = 1"
+  },
+  {
+    "comment": "index_including - Statement 90",
+    "query": "DROP TABLE nametbl"
+  }
+]

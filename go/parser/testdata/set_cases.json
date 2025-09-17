@@ -1,0 +1,174 @@
+[
+  {
+    "comment": "SET variable equals value",
+    "query": "SET my_var = 'test_value'"
+  },
+  {
+    "comment": "SET variable TO value",
+    "query": "SET my_var TO 'test_value'",
+    "expected": "SET my_var = 'test_value'"
+  },
+  {
+    "comment": "SET variable equals DEFAULT",
+    "query": "SET my_var = DEFAULT"
+  },
+  {
+    "comment": "SET variable TO DEFAULT",
+    "query": "SET my_var TO DEFAULT",
+    "expected": "SET my_var = DEFAULT"
+  },
+  {
+    "comment": "SET variable FROM CURRENT",
+    "query": "SET my_var FROM CURRENT"
+  },
+  {
+    "comment": "SET TIME ZONE string",
+    "query": "SET TIME ZONE 'UTC'"
+  },
+  {
+    "comment": "SET TIME ZONE identifier",
+    "query": "SET TIME ZONE utc",
+    "expected": "SET TIME ZONE 'utc'"
+  },
+  {
+    "comment": "SET TIME ZONE numeric positive",
+    "query": "SET TIME ZONE 5"
+  },
+  {
+    "comment": "SET TIME ZONE numeric negative",
+    "query": "SET TIME ZONE -8"
+  },
+  {
+    "comment": "SET TIME ZONE DEFAULT",
+    "query": "SET TIME ZONE DEFAULT",
+    "expected": "SET TIME ZONE default"
+  },
+  {
+    "comment": "SET TIME ZONE LOCAL",
+    "query": "SET TIME ZONE LOCAL",
+    "expected": "SET TIME ZONE 'local'"
+  },
+  {
+    "comment": "SET TIME ZONE INTERVAL hour",
+    "query": "SET TIME ZONE INTERVAL '1' HOUR"
+  },
+  {
+    "comment": "SET TIME ZONE INTERVAL minute",
+    "query": "SET TIME ZONE INTERVAL '30' MINUTE"
+  },
+  {
+    "comment": "SET TIME ZONE INTERVAL with precision",
+    "query": "SET TIME ZONE INTERVAL(2) '1'"
+  },
+  {
+    "comment": "SET CATALOG",
+    "query": "SET CATALOG 'mydb'"
+  },
+  {
+    "comment": "SET SCHEMA",
+    "query": "SET SCHEMA 'public'"
+  },
+  {
+    "comment": "SET NAMES with encoding",
+    "query": "SET NAMES 'UTF8'"
+  },
+  {
+    "comment": "SET NAMES without encoding",
+    "query": "SET NAMES"
+  },
+  {
+    "comment": "SET ROLE",
+    "query": "SET ROLE 'admin_role'"
+  },
+  {
+    "comment": "SET SESSION AUTHORIZATION user",
+    "query": "SET SESSION AUTHORIZATION 'username'"
+  },
+  {
+    "comment": "SET SESSION AUTHORIZATION DEFAULT",
+    "query": "SET SESSION AUTHORIZATION DEFAULT"
+  },
+  {
+    "comment": "SET XML OPTION DOCUMENT",
+    "query": "SET XML OPTION DOCUMENT"
+  },
+  {
+    "comment": "SET XML OPTION CONTENT",
+    "query": "SET XML OPTION CONTENT"
+  },
+  {
+    "comment": "SET TRANSACTION SNAPSHOT",
+    "query": "SET TRANSACTION SNAPSHOT 'snapshot_id_123'"
+  },
+  {
+    "comment": "SET LOCAL variable",
+    "query": "SET LOCAL my_var = 'local_value'"
+  },
+  {
+    "comment": "SET LOCAL TIME ZONE",
+    "query": "SET LOCAL TIME ZONE 'PST'"
+  },
+  {
+    "comment": "SET LOCAL ROLE",
+    "query": "SET LOCAL ROLE 'temp_role'"
+  },
+  {
+    "comment": "SET SESSION variable",
+    "query": "SET SESSION my_var = 'session_value'",
+    "expected": "SET my_var = 'session_value'"
+  },
+  {
+    "comment": "SET SESSION TIME ZONE",
+    "query": "SET SESSION TIME ZONE 'EST'",
+    "expected": "SET TIME ZONE 'EST'"
+  },
+  {
+    "comment": "SET SESSION ROLE",
+    "query": "SET SESSION ROLE 'session_role'",
+    "expected": "SET ROLE 'session_role'"
+  },
+  {
+    "comment": "SET qualified variable name",
+    "query": "SET application.setting = 'value'"
+  },
+  {
+    "comment": "SET multiple word variable",
+    "query": "SET log_statement = 'all'"
+  },
+  {
+    "comment": "SET numeric value",
+    "query": "SET work_mem = 1024"
+  },
+  {
+    "comment": "SET boolean value true",
+    "query": "SET enable_seqscan = true"
+  },
+  {
+    "comment": "SET boolean value false",
+    "query": "SET enable_hashjoin = false"
+  },
+  {
+    "comment": "SET variable to ON",
+    "query": "SET autocommit = on"
+  },
+  {
+    "comment": "SET multiple values",
+    "query": "SET search_path = 'schema1', 'schema2', 'public'"
+  },
+  {
+    "comment": "SET CONSTRAINTS ALL DEFERRED",
+    "query": "SET CONSTRAINTS ALL DEFERRED"
+  },
+  {
+    "comment": "SET CONSTRAINTS ALL IMMEDIATE",
+    "query": "SET CONSTRAINTS ALL IMMEDIATE"
+  },
+  {
+    "comment": "SET CONSTRAINTS single",
+    "query": "SET CONSTRAINTS constraint1 DEFERRED"
+  },
+  {
+    "comment": "SET CONSTRAINTS multiple",
+    "query": "SET CONSTRAINTS constraint1, constraint2 IMMEDIATE"
+  }
+]

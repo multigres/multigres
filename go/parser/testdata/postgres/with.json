@@ -1,0 +1,1228 @@
+[
+  {
+    "comment": "with - Statement 1",
+    "query": "WITH q1(x,y) AS (SELECT 1,2) SELECT * FROM q1, q1 AS q2",
+    "expected": "WITH q1(x, y) AS (SELECT 1, 2) SELECT * FROM q1, q1 AS q2"
+  },
+  {
+    "comment": "with - Statement 2",
+    "query": "SELECT count(*) FROM ( WITH q1(x) AS (SELECT random() FROM generate_series(1, 5)) SELECT * FROM q1 UNION SELECT * FROM q1 ) ss",
+    "expected": "SELECT COUNT(*) FROM (SELECT * FROM q1 UNION SELECT * FROM q1) AS ss"
+  },
+  {
+    "comment": "with - Statement 3",
+    "query": "WITH RECURSIVE t(n) AS ( VALUES (1) UNION ALL SELECT n+1 FROM t WHERE n \u003c 100 ) SELECT sum(n) FROM t",
+    "expected": "WITH RECURSIVE t(n) AS (VALUES (1) UNION ALL (SELECT n + 1 FROM t WHERE n \u003c 100)) SELECT SUM(n) FROM t"
+  },
+  {
+    "comment": "with - Statement 4",
+    "query": "WITH RECURSIVE t(n) AS ( SELECT (VALUES(1)) UNION ALL SELECT n+1 FROM t WHERE n \u003c 5 ) SELECT * FROM t",
+    "expected": "WITH RECURSIVE t(n) AS (SELECT (VALUES (1)) UNION ALL (SELECT n + 1 FROM t WHERE n \u003c 5)) SELECT * FROM t"
+  },
+  {
+    "comment": "with - Statement 5",
+    "query": "WITH RECURSIVE t(n) AS ( VALUES ('01'::varbit) UNION SELECT n || '10'::varbit FROM t WHERE n \u003c '100'::varbit ) SELECT n FROM t",
+    "expected": "WITH RECURSIVE t(n) AS (VALUES (CAST('01' AS varbit)) UNION (SELECT n || CAST('10' AS varbit) FROM t WHERE n \u003c CAST('100' AS varbit))) SELECT n FROM t"
+  },
+  {
+    "comment": "with - Statement 6",
+    "query": "CREATE RECURSIVE VIEW nums (n) AS VALUES (1) UNION ALL SELECT n+1 FROM nums WHERE n \u003c 5",
+    "expected": "CREATE VIEW nums (n) AS VALUES (1) UNION ALL (SELECT n + 1 FROM nums WHERE n \u003c 5)"
+  },
+  {
+    "comment": "with - Statement 7",
+    "query": "SELECT * FROM nums"
+  },
+  {
+    "comment": "with - Statement 8",
+    "query": "CREATE OR REPLACE RECURSIVE VIEW nums (n) AS VALUES (1) UNION ALL SELECT n+1 FROM nums WHERE n \u003c 6",
+    "expected": "CREATE OR REPLACE VIEW nums (n) AS VALUES (1) UNION ALL (SELECT n + 1 FROM nums WHERE n \u003c 6)"
+  },
+  {
+    "comment": "with - Statement 9",
+    "query": "WITH RECURSIVE t(n) AS ( SELECT 1 UNION SELECT 10-n FROM t) SELECT * FROM t",
+    "expected": "WITH RECURSIVE t(n) AS (SELECT 1 UNION SELECT 10 - n FROM t) SELECT * FROM t"
+  },
+  {
+    "comment": "with - Statement 10",
+    "query": "WITH RECURSIVE t(n) AS ( VALUES (1) UNION ALL SELECT n+1 FROM t) SELECT * FROM t LIMIT 10",
+    "expected": "WITH RECURSIVE t(n) AS (VALUES (1) UNION ALL SELECT n + 1 FROM t) SELECT * FROM t LIMIT 10"
+  },
+  {
+    "comment": "with - Statement 11",
+    "query": "WITH RECURSIVE t(n) AS ( SELECT 1 UNION SELECT n+1 FROM t) SELECT * FROM t LIMIT 10",
+    "expected": "WITH RECURSIVE t(n) AS (SELECT 1 UNION SELECT n + 1 FROM t) SELECT * FROM t LIMIT 10"
+  },
+  {
+    "comment": "with - Statement 12",
+    "query": "WITH q AS (SELECT 'foo' AS x) SELECT x, pg_typeof(x) FROM q"
+  },
+  {
+    "comment": "with - Statement 13",
+    "query": "WITH RECURSIVE t(n) AS ( SELECT 'foo' UNION ALL SELECT n || ' bar' FROM t WHERE length(n) \u003c 20 ) SELECT n, pg_typeof(n) FROM t",
+    "expected": "WITH RECURSIVE t(n) AS (SELECT 'foo' UNION ALL (SELECT n || ' bar' FROM t WHERE length(n) \u003c 20)) SELECT n, pg_typeof(n) FROM t"
+  },
+  {
+    "comment": "with - Statement 14",
+    "query": "WITH RECURSIVE t(n) AS ( SELECT '7' UNION ALL SELECT n+1 FROM t WHERE n \u003c 10 ) SELECT n, pg_typeof(n) FROM t",
+    "expected": "WITH RECURSIVE t(n) AS (SELECT '7' UNION ALL (SELECT n + 1 FROM t WHERE n \u003c 10)) SELECT n, pg_typeof(n) FROM t"
+  },
+  {
+    "comment": "with - Statement 15",
+    "query": "WITH RECURSIVE w1(c1) AS (WITH w2(c2) AS (WITH w3(c3) AS (WITH w4(c4) AS (WITH w5(c5) AS (WITH RECURSIVE w6(c6) AS (WITH w6(c6) AS (WITH w8(c8) AS (SELECT 1) SELECT * FROM w8) SELECT * FROM w6) SELECT * FROM w6) SELECT * FROM w5) SELECT * FROM w4) SELECT * FROM w3) SELECT * FROM w2) SELECT * FROM w1"
+  },
+  {
+    "comment": "with - Statement 16",
+    "query": "WITH RECURSIVE outermost(x) AS ( SELECT 1 UNION (WITH innermost1 AS ( SELECT 2 UNION (WITH innermost2 AS ( SELECT 3 UNION (WITH innermost3 AS ( SELECT 4 UNION (WITH innermost4 AS ( SELECT 5 UNION (WITH innermost5 AS ( SELECT 6 UNION (WITH innermost6 AS (SELECT 7) SELECT * FROM innermost6)) SELECT * FROM innermost5)) SELECT * FROM innermost4)) SELECT * FROM innermost3)) SELECT * FROM innermost2)) SELECT * FROM outermost UNION SELECT * FROM innermost1) ) SELECT * FROM outermost ORDER BY 1",
+    "expected": "WITH RECURSIVE outermost(x) AS (SELECT 1 UNION (SELECT * FROM outermost UNION SELECT * FROM innermost1)) SELECT * FROM outermost ORDER BY 1"
+  },
+  {
+    "comment": "with - Statement 17",
+    "query": "CREATE TEMP TABLE department ( id INTEGER PRIMARY KEY, parent_department INTEGER REFERENCES department, name TEXT )",
+    "expected": "CREATE TEMPORARY TABLE department (id INT PRIMARY KEY, parent_department INT REFERENCES department, name TEXT)"
+  },
+  {
+    "comment": "with - Statement 18",
+    "query": "INSERT INTO department VALUES (0, NULL, 'ROOT')"
+  },
+  {
+    "comment": "with - Statement 19",
+    "query": "INSERT INTO department VALUES (1, 0, 'A')"
+  },
+  {
+    "comment": "with - Statement 20",
+    "query": "INSERT INTO department VALUES (2, 1, 'B')"
+  },
+  {
+    "comment": "with - Statement 21",
+    "query": "INSERT INTO department VALUES (3, 2, 'C')"
+  },
+  {
+    "comment": "with - Statement 22",
+    "query": "INSERT INTO department VALUES (4, 2, 'D')"
+  },
+  {
+    "comment": "with - Statement 23",
+    "query": "INSERT INTO department VALUES (5, 0, 'E')"
+  },
+  {
+    "comment": "with - Statement 24",
+    "query": "INSERT INTO department VALUES (6, 4, 'F')"
+  },
+  {
+    "comment": "with - Statement 25",
+    "query": "INSERT INTO department VALUES (7, 5, 'G')"
+  },
+  {
+    "comment": "with - Statement 26",
+    "query": "WITH RECURSIVE subdepartment AS ( SELECT name as root_name, * FROM department WHERE name = 'A' UNION ALL SELECT sd.root_name, d.* FROM department AS d, subdepartment AS sd WHERE d.parent_department = sd.id ) SELECT * FROM subdepartment ORDER BY name",
+    "expected": "WITH RECURSIVE subdepartment AS ((SELECT name AS root_name, * FROM department WHERE name = 'A') UNION ALL (SELECT sd.root_name, d.* FROM department AS d, subdepartment AS sd WHERE d.parent_department = sd.id)) SELECT * FROM subdepartment ORDER BY name"
+  },
+  {
+    "comment": "with - Statement 27",
+    "query": "WITH RECURSIVE subdepartment(level, id, parent_department, name) AS ( SELECT 1, * FROM department WHERE name = 'A' UNION ALL SELECT sd.level + 1, d.* FROM department AS d, subdepartment AS sd WHERE d.parent_department = sd.id ) SELECT * FROM subdepartment ORDER BY name",
+    "expected": "WITH RECURSIVE subdepartment(level, id, parent_department, name) AS ((SELECT 1, * FROM department WHERE name = 'A') UNION ALL (SELECT sd.level + 1, d.* FROM department AS d, subdepartment AS sd WHERE d.parent_department = sd.id)) SELECT * FROM subdepartment ORDER BY name"
+  },
+  {
+    "comment": "with - Statement 28",
+    "query": "WITH RECURSIVE subdepartment(level, id, parent_department, name) AS ( SELECT 1, * FROM department WHERE name = 'A' UNION ALL SELECT sd.level + 1, d.* FROM department AS d, subdepartment AS sd WHERE d.parent_department = sd.id ) SELECT * FROM subdepartment WHERE level \u003e= 2 ORDER BY name",
+    "expected": "WITH RECURSIVE subdepartment(level, id, parent_department, name) AS ((SELECT 1, * FROM department WHERE name = 'A') UNION ALL (SELECT sd.level + 1, d.* FROM department AS d, subdepartment AS sd WHERE d.parent_department = sd.id)) SELECT * FROM subdepartment WHERE level \u003e= 2 ORDER BY name"
+  },
+  {
+    "comment": "with - Statement 29",
+    "query": "WITH RECURSIVE subdepartment AS ( SELECT * FROM department WHERE name = 'A' ) SELECT * FROM subdepartment ORDER BY name",
+    "expected": "WITH RECURSIVE subdepartment AS (SELECT * FROM department WHERE name = 'A') SELECT * FROM subdepartment ORDER BY name"
+  },
+  {
+    "comment": "with - Statement 30",
+    "query": "SELECT count(*) FROM ( WITH RECURSIVE t(n) AS ( SELECT 1 UNION ALL SELECT n + 1 FROM t WHERE n \u003c 500 ) SELECT * FROM t) AS t WHERE n \u003c ( SELECT count(*) FROM ( WITH RECURSIVE t(n) AS ( SELECT 1 UNION ALL SELECT n + 1 FROM t WHERE n \u003c 100 ) SELECT * FROM t WHERE n \u003c 50000 ) AS t WHERE n \u003c 100)",
+    "expected": "SELECT COUNT(*) FROM (WITH RECURSIVE t(n) AS (SELECT 1 UNION ALL (SELECT n + 1 FROM t WHERE n \u003c 500)) SELECT * FROM t) AS t WHERE n \u003c (SELECT COUNT(*) FROM (WITH RECURSIVE t(n) AS (SELECT 1 UNION ALL (SELECT n + 1 FROM t WHERE n \u003c 100)) SELECT * FROM t WHERE n \u003c 50000) AS t WHERE n \u003c 100)"
+  },
+  {
+    "comment": "with - Statement 31",
+    "query": "WITH q1(x,y) AS ( SELECT hundred, sum(ten) FROM tenk1 GROUP BY hundred ) SELECT count(*) FROM q1 WHERE y \u003e (SELECT sum(y)/100 FROM q1 qsub)",
+    "expected": "WITH q1(x, y) AS (SELECT hundred, SUM(ten) FROM tenk1 GROUP BY hundred) SELECT COUNT(*) FROM q1 WHERE y \u003e (SELECT SUM(y) / 100 FROM q1 AS qsub)"
+  },
+  {
+    "comment": "with - Statement 32",
+    "query": "CREATE TEMPORARY VIEW vsubdepartment AS WITH RECURSIVE subdepartment AS ( SELECT * FROM department WHERE name = 'A' UNION ALL SELECT d.* FROM department AS d, subdepartment AS sd WHERE d.parent_department = sd.id ) SELECT * FROM subdepartment",
+    "expected": "CREATE TEMPORARY VIEW vsubdepartment AS WITH RECURSIVE subdepartment AS ((SELECT * FROM department WHERE name = 'A') UNION ALL (SELECT d.* FROM department AS d, subdepartment AS sd WHERE d.parent_department = sd.id)) SELECT * FROM subdepartment"
+  },
+  {
+    "comment": "with - Statement 33",
+    "query": "SELECT * FROM vsubdepartment ORDER BY name"
+  },
+  {
+    "comment": "with - Statement 34",
+    "query": "SELECT pg_get_viewdef('vsubdepartment'::regclass)",
+    "expected": "SELECT pg_get_viewdef(CAST('vsubdepartment' AS regclass))"
+  },
+  {
+    "comment": "with - Statement 35",
+    "query": "SELECT pg_get_viewdef('vsubdepartment'::regclass, true)",
+    "expected": "SELECT pg_get_viewdef(CAST('vsubdepartment' AS regclass), TRUE)"
+  },
+  {
+    "comment": "with - Statement 36",
+    "query": "CREATE VIEW sums_1_100 AS WITH RECURSIVE t(n) AS ( VALUES (1) UNION ALL SELECT n+1 FROM t WHERE n \u003c 100 ) SELECT sum(n) FROM t",
+    "expected": "CREATE VIEW sums_1_100 AS WITH RECURSIVE t(n) AS (VALUES (1) UNION ALL (SELECT n + 1 FROM t WHERE n \u003c 100)) SELECT SUM(n) FROM t"
+  },
+  {
+    "comment": "with - Statement 37",
+    "query": "with recursive q as ( select * from department union all (with recursive x as ( select * from department union all (select * from q union all select * from x) ) select * from x) ) select * from q limit 32",
+    "expected": "WITH RECURSIVE q AS (SELECT * FROM department UNION ALL (WITH RECURSIVE x AS (SELECT * FROM department UNION ALL (SELECT * FROM q UNION ALL SELECT * FROM x)) SELECT * FROM x)) SELECT * FROM q LIMIT 32"
+  },
+  {
+    "comment": "with - Statement 38",
+    "query": "WITH RECURSIVE t(i,j) AS ( VALUES (1,2) UNION ALL SELECT t2.i, t.j+1 FROM (SELECT 2 AS i UNION ALL SELECT 3 AS i) AS t2 JOIN t ON (t2.i = t.i+1)) SELECT * FROM t",
+    "expected": "WITH RECURSIVE t(i, j) AS (VALUES (1, 2) UNION ALL SELECT t2.i, t.j + 1 FROM (SELECT 2 AS i UNION ALL SELECT 3 AS i) AS t2 INNER JOIN t ON (t2.i = t.i + 1)) SELECT * FROM t"
+  },
+  {
+    "comment": "with - Statement 39",
+    "query": "CREATE TEMPORARY TABLE tree( id INTEGER PRIMARY KEY, parent_id INTEGER REFERENCES tree(id) )",
+    "expected": "CREATE TEMPORARY TABLE tree (id INT PRIMARY KEY, parent_id INT REFERENCES tree(id))"
+  },
+  {
+    "comment": "with - Statement 40",
+    "query": "INSERT INTO tree VALUES (1, NULL), (2, 1), (3,1), (4,2), (5,2), (6,2), (7,3), (8,3), (9,4), (10,4), (11,7), (12,7), (13,7), (14, 9), (15,11), (16,11)",
+    "expected": "INSERT INTO tree VALUES (1, NULL), (2, 1), (3, 1), (4, 2), (5, 2), (6, 2), (7, 3), (8, 3), (9, 4), (10, 4), (11, 7), (12, 7), (13, 7), (14, 9), (15, 11), (16, 11)"
+  },
+  {
+    "comment": "with - Statement 41",
+    "query": "WITH RECURSIVE t(id, path) AS ( VALUES(1,ARRAY[]::integer[]) UNION ALL SELECT tree.id, t.path || tree.id FROM tree JOIN t ON (tree.parent_id = t.id) ) SELECT t1.*, t2.* FROM t AS t1 JOIN t AS t2 ON (t1.path[1] = t2.path[1] AND array_upper(t1.path,1) = 1 AND array_upper(t2.path,1) \u003e 1) ORDER BY t1.id, t2.id",
+    "expected": "WITH RECURSIVE t(id, path) AS (VALUES (1, CAST(ARRAY[] AS INT[])) UNION ALL SELECT tree.id, t.path || tree.id FROM tree INNER JOIN t ON (tree.parent_id = t.id)) SELECT t1.*, t2.* FROM t AS t1 INNER JOIN t AS t2 ON (t1.path[1] = t2.path[1] AND array_upper(t1.path, 1) = 1 AND array_upper(t2.path, 1) \u003e 1) ORDER BY t1.id, t2.id"
+  },
+  {
+    "comment": "with - Statement 42",
+    "query": "WITH RECURSIVE t(id, path) AS ( VALUES(1,ARRAY[]::integer[]) UNION ALL SELECT tree.id, t.path || tree.id FROM tree JOIN t ON (tree.parent_id = t.id) ) SELECT t1.id, count(t2.*) FROM t AS t1 JOIN t AS t2 ON (t1.path[1] = t2.path[1] AND array_upper(t1.path,1) = 1 AND array_upper(t2.path,1) \u003e 1) GROUP BY t1.id ORDER BY t1.id",
+    "expected": "WITH RECURSIVE t(id, path) AS (VALUES (1, CAST(ARRAY[] AS INT[])) UNION ALL SELECT tree.id, t.path || tree.id FROM tree INNER JOIN t ON (tree.parent_id = t.id)) SELECT t1.id, COUNT(t2.*) FROM t AS t1 INNER JOIN t AS t2 ON (t1.path[1] = t2.path[1] AND array_upper(t1.path, 1) = 1 AND array_upper(t2.path, 1) \u003e 1) GROUP BY t1.id ORDER BY t1.id"
+  },
+  {
+    "comment": "with - Statement 43",
+    "query": "WITH RECURSIVE t(id, path) AS ( VALUES(1,ARRAY[]::integer[]) UNION ALL SELECT tree.id, t.path || tree.id FROM tree JOIN t ON (tree.parent_id = t.id) ) SELECT t1.id, t2.path, t2 FROM t AS t1 JOIN t AS t2 ON (t1.id=t2.id)",
+    "expected": "WITH RECURSIVE t(id, path) AS (VALUES (1, CAST(ARRAY[] AS INT[])) UNION ALL SELECT tree.id, t.path || tree.id FROM tree INNER JOIN t ON (tree.parent_id = t.id)) SELECT t1.id, t2.path, t2 FROM t AS t1 INNER JOIN t AS t2 ON (t1.id = t2.id)"
+  },
+  {
+    "comment": "with - Statement 44",
+    "query": "CREATE TEMP TABLE duplicates (a INT NOT NULL)",
+    "expected": "CREATE TEMPORARY TABLE duplicates (a INT NOT NULL)"
+  },
+  {
+    "comment": "with - Statement 45",
+    "query": "INSERT INTO duplicates VALUES(1), (1)",
+    "expected": "INSERT INTO duplicates VALUES (1), (1)"
+  },
+  {
+    "comment": "with - Statement 46",
+    "query": "WITH RECURSIVE cte (a) as ( SELECT a FROM duplicates UNION SELECT a FROM cte ) SELECT a FROM cte",
+    "expected": "WITH RECURSIVE cte(a) AS (SELECT a FROM duplicates UNION SELECT a FROM cte) SELECT a FROM cte"
+  },
+  {
+    "comment": "with - Statement 47",
+    "query": "explain (costs off) with x as materialized (select unique1 from tenk1 b) select count(*) from tenk1 a where unique1 in (select * from x)",
+    "expected": "EXPLAIN (COSTS false) WITH x AS MATERIALIZED (SELECT unique1 FROM tenk1 AS b) SELECT COUNT(*) FROM tenk1 AS a WHERE unique1 IN (SELECT * FROM x)"
+  },
+  {
+    "comment": "with - Statement 48",
+    "query": "explain (costs off) with x as materialized (insert into tenk1 default values returning unique1) select count(*) from tenk1 a where unique1 in (select * from x)",
+    "expected": "EXPLAIN (COSTS false) WITH x AS MATERIALIZED (INSERT INTO tenk1 DEFAULT VALUES RETURNING unique1) SELECT COUNT(*) FROM tenk1 AS a WHERE unique1 IN (SELECT * FROM x)"
+  },
+  {
+    "comment": "with - Statement 49",
+    "query": "explain (costs off) with x as materialized (select unique1 from tenk1 b order by unique1) select count(*) from tenk1 a where unique1 in (select * from x)",
+    "expected": "EXPLAIN (COSTS false) WITH x AS MATERIALIZED (SELECT unique1 FROM tenk1 AS b ORDER BY unique1) SELECT COUNT(*) FROM tenk1 AS a WHERE unique1 IN (SELECT * FROM x)"
+  },
+  {
+    "comment": "with - Statement 50",
+    "query": "create temp table graph0( f int, t int, label text )",
+    "expected": "CREATE TEMPORARY TABLE graph0 (f INT, t INT, label TEXT)"
+  },
+  {
+    "comment": "with - Statement 51",
+    "query": "insert into graph0 values (1, 2, 'arc 1 -\u003e 2'), (1, 3, 'arc 1 -\u003e 3'), (2, 3, 'arc 2 -\u003e 3'), (1, 4, 'arc 1 -\u003e 4'), (4, 5, 'arc 4 -\u003e 5')",
+    "expected": "INSERT INTO graph0 VALUES (1, 2, 'arc 1 -\u003e 2'), (1, 3, 'arc 1 -\u003e 3'), (2, 3, 'arc 2 -\u003e 3'), (1, 4, 'arc 1 -\u003e 4'), (4, 5, 'arc 4 -\u003e 5')"
+  },
+  {
+    "comment": "with - Statement 52",
+    "query": "explain (verbose, costs off) with recursive search_graph(f, t, label) as ( select * from graph0 g union all select g.* from graph0 g, search_graph sg where g.f = sg.t ) search depth first by f, t set seq select * from search_graph order by seq",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) WITH RECURSIVE search_graph(f, t, label) AS (SELECT * FROM graph0 AS g UNION ALL (SELECT g.* FROM graph0 AS g, search_graph AS sg WHERE g.f = sg.t)) SEARCH DEPTH FIRST BY f, t SET seq SELECT * FROM search_graph ORDER BY seq"
+  },
+  {
+    "comment": "with - Statement 53",
+    "query": "with recursive search_graph(f, t, label) as ( select * from graph0 g union all select g.* from graph0 g, search_graph sg where g.f = sg.t ) search depth first by f, t set seq select * from search_graph order by seq",
+    "expected": "WITH RECURSIVE search_graph(f, t, label) AS (SELECT * FROM graph0 AS g UNION ALL (SELECT g.* FROM graph0 AS g, search_graph AS sg WHERE g.f = sg.t)) SEARCH DEPTH FIRST BY f, t SET seq SELECT * FROM search_graph ORDER BY seq"
+  },
+  {
+    "comment": "with - Statement 54",
+    "query": "with recursive search_graph(f, t, label) as ( select * from graph0 g union distinct select g.* from graph0 g, search_graph sg where g.f = sg.t ) search depth first by f, t set seq select * from search_graph order by seq",
+    "expected": "WITH RECURSIVE search_graph(f, t, label) AS (SELECT * FROM graph0 AS g UNION (SELECT g.* FROM graph0 AS g, search_graph AS sg WHERE g.f = sg.t)) SEARCH DEPTH FIRST BY f, t SET seq SELECT * FROM search_graph ORDER BY seq"
+  },
+  {
+    "comment": "with - Statement 55",
+    "query": "explain (verbose, costs off) with recursive search_graph(f, t, label) as ( select * from graph0 g union all select g.* from graph0 g, search_graph sg where g.f = sg.t ) search breadth first by f, t set seq select * from search_graph order by seq",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) WITH RECURSIVE search_graph(f, t, label) AS (SELECT * FROM graph0 AS g UNION ALL (SELECT g.* FROM graph0 AS g, search_graph AS sg WHERE g.f = sg.t)) SEARCH BREADTH FIRST BY f, t SET seq SELECT * FROM search_graph ORDER BY seq"
+  },
+  {
+    "comment": "with - Statement 56",
+    "query": "with recursive search_graph(f, t, label) as ( select * from graph0 g union all select g.* from graph0 g, search_graph sg where g.f = sg.t ) search breadth first by f, t set seq select * from search_graph order by seq",
+    "expected": "WITH RECURSIVE search_graph(f, t, label) AS (SELECT * FROM graph0 AS g UNION ALL (SELECT g.* FROM graph0 AS g, search_graph AS sg WHERE g.f = sg.t)) SEARCH BREADTH FIRST BY f, t SET seq SELECT * FROM search_graph ORDER BY seq"
+  },
+  {
+    "comment": "with - Statement 57",
+    "query": "with recursive search_graph(f, t, label) as ( select * from graph0 g union distinct select g.* from graph0 g, search_graph sg where g.f = sg.t ) search breadth first by f, t set seq select * from search_graph order by seq",
+    "expected": "WITH RECURSIVE search_graph(f, t, label) AS (SELECT * FROM graph0 AS g UNION (SELECT g.* FROM graph0 AS g, search_graph AS sg WHERE g.f = sg.t)) SEARCH BREADTH FIRST BY f, t SET seq SELECT * FROM search_graph ORDER BY seq"
+  },
+  {
+    "comment": "with - Statement 58",
+    "query": "explain (verbose, costs off) with recursive test as ( select 1 as x union all select x + 1 from test ) search depth first by x set y select * from test limit 5",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) WITH RECURSIVE test AS (SELECT 1 AS x UNION ALL SELECT x + 1 FROM test) SEARCH DEPTH FIRST BY x SET y SELECT * FROM test LIMIT 5"
+  },
+  {
+    "comment": "with - Statement 59",
+    "query": "with recursive test as ( select 1 as x union all select x + 1 from test ) search depth first by x set y select * from test limit 5",
+    "expected": "WITH RECURSIVE test AS (SELECT 1 AS x UNION ALL SELECT x + 1 FROM test) SEARCH DEPTH FIRST BY x SET y SELECT * FROM test LIMIT 5"
+  },
+  {
+    "comment": "with - Statement 60",
+    "query": "explain (verbose, costs off) with recursive test as ( select 1 as x union all select x + 1 from test ) search breadth first by x set y select * from test limit 5",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) WITH RECURSIVE test AS (SELECT 1 AS x UNION ALL SELECT x + 1 FROM test) SEARCH BREADTH FIRST BY x SET y SELECT * FROM test LIMIT 5"
+  },
+  {
+    "comment": "with - Statement 61",
+    "query": "with recursive test as ( select 1 as x union all select x + 1 from test ) search breadth first by x set y select * from test limit 5",
+    "expected": "WITH RECURSIVE test AS (SELECT 1 AS x UNION ALL SELECT x + 1 FROM test) SEARCH BREADTH FIRST BY x SET y SELECT * FROM test LIMIT 5"
+  },
+  {
+    "comment": "with - Statement 62",
+    "query": "with recursive search_graph(f, t, label) as ( select * from graph0 g union all select g.* from graph0 g, search_graph sg where g.f = sg.t ) search depth first by foo, tar set seq select * from search_graph",
+    "expected": "WITH RECURSIVE search_graph(f, t, label) AS (SELECT * FROM graph0 AS g UNION ALL (SELECT g.* FROM graph0 AS g, search_graph AS sg WHERE g.f = sg.t)) SEARCH DEPTH FIRST BY foo, tar SET seq SELECT * FROM search_graph"
+  },
+  {
+    "comment": "with - Statement 63",
+    "query": "with recursive search_graph(f, t, label) as ( select * from graph0 g union all select g.* from graph0 g, search_graph sg where g.f = sg.t ) search depth first by f, t set label select * from search_graph",
+    "expected": "WITH RECURSIVE search_graph(f, t, label) AS (SELECT * FROM graph0 AS g UNION ALL (SELECT g.* FROM graph0 AS g, search_graph AS sg WHERE g.f = sg.t)) SEARCH DEPTH FIRST BY f, t SET label SELECT * FROM search_graph"
+  },
+  {
+    "comment": "with - Statement 64",
+    "query": "with recursive search_graph(f, t, label) as ( select * from graph0 g union all select g.* from graph0 g, search_graph sg where g.f = sg.t ) search depth first by f, t, f set seq select * from search_graph",
+    "expected": "WITH RECURSIVE search_graph(f, t, label) AS (SELECT * FROM graph0 AS g UNION ALL (SELECT g.* FROM graph0 AS g, search_graph AS sg WHERE g.f = sg.t)) SEARCH DEPTH FIRST BY f, t, f SET seq SELECT * FROM search_graph"
+  },
+  {
+    "comment": "with - Statement 65",
+    "query": "with recursive search_graph(f, t, label) as ( select * from graph0 g union all select * from graph0 g union all select g.* from graph0 g, search_graph sg where g.f = sg.t ) search depth first by f, t set seq select * from search_graph order by seq",
+    "expected": "WITH RECURSIVE search_graph(f, t, label) AS ((SELECT * FROM graph0 AS g UNION ALL SELECT * FROM graph0 AS g) UNION ALL (SELECT g.* FROM graph0 AS g, search_graph AS sg WHERE g.f = sg.t)) SEARCH DEPTH FIRST BY f, t SET seq SELECT * FROM search_graph ORDER BY seq"
+  },
+  {
+    "comment": "with - Statement 66",
+    "query": "with recursive search_graph(f, t, label) as ( select * from graph0 g union all (select * from graph0 g union all select g.* from graph0 g, search_graph sg where g.f = sg.t) ) search depth first by f, t set seq select * from search_graph order by seq",
+    "expected": "WITH RECURSIVE search_graph(f, t, label) AS (SELECT * FROM graph0 AS g UNION ALL (SELECT * FROM graph0 AS g UNION ALL (SELECT g.* FROM graph0 AS g, search_graph AS sg WHERE g.f = sg.t))) SEARCH DEPTH FIRST BY f, t SET seq SELECT * FROM search_graph ORDER BY seq"
+  },
+  {
+    "comment": "with - Statement 67",
+    "query": "with recursive x(col) as ( select 1 union (with x as (select * from x) select * from x) ) search depth first by col set seq select * from x",
+    "expected": "WITH RECURSIVE x(col) AS (SELECT 1 UNION (WITH x AS (SELECT * FROM x) SELECT * FROM x)) SEARCH DEPTH FIRST BY col SET seq SELECT * FROM x"
+  },
+  {
+    "comment": "with - Statement 68",
+    "query": "create temp view v_search as with recursive search_graph(f, t, label) as ( select * from graph0 g union all select g.* from graph0 g, search_graph sg where g.f = sg.t ) search depth first by f, t set seq select f, t, label from search_graph",
+    "expected": "CREATE TEMPORARY VIEW v_search AS WITH RECURSIVE search_graph(f, t, label) AS (SELECT * FROM graph0 AS g UNION ALL (SELECT g.* FROM graph0 AS g, search_graph AS sg WHERE g.f = sg.t)) SEARCH DEPTH FIRST BY f, t SET seq SELECT f, t, label FROM search_graph"
+  },
+  {
+    "comment": "with - Statement 69",
+    "query": "select pg_get_viewdef('v_search')",
+    "expected": "SELECT pg_get_viewdef('v_search')"
+  },
+  {
+    "comment": "with - Statement 70",
+    "query": "select * from v_search",
+    "expected": "SELECT * FROM v_search"
+  },
+  {
+    "comment": "with - Statement 71",
+    "query": "create temp table graph( f int, t int, label text )",
+    "expected": "CREATE TEMPORARY TABLE graph (f INT, t INT, label TEXT)"
+  },
+  {
+    "comment": "with - Statement 72",
+    "query": "insert into graph values (1, 2, 'arc 1 -\u003e 2'), (1, 3, 'arc 1 -\u003e 3'), (2, 3, 'arc 2 -\u003e 3'), (1, 4, 'arc 1 -\u003e 4'), (4, 5, 'arc 4 -\u003e 5'), (5, 1, 'arc 5 -\u003e 1')",
+    "expected": "INSERT INTO graph VALUES (1, 2, 'arc 1 -\u003e 2'), (1, 3, 'arc 1 -\u003e 3'), (2, 3, 'arc 2 -\u003e 3'), (1, 4, 'arc 1 -\u003e 4'), (4, 5, 'arc 4 -\u003e 5'), (5, 1, 'arc 5 -\u003e 1')"
+  },
+  {
+    "comment": "with - Statement 73",
+    "query": "with recursive search_graph(f, t, label, is_cycle, path) as ( select *, false, array[row(g.f, g.t)] from graph g union all select g.*, row(g.f, g.t) = any(path), path || row(g.f, g.t) from graph g, search_graph sg where g.f = sg.t and not is_cycle ) select * from search_graph",
+    "expected": "WITH RECURSIVE search_graph(f, t, label, is_cycle, path) AS (SELECT *, FALSE, ARRAY[ROW(g.f, g.t)] FROM graph AS g UNION ALL (SELECT g.*, ROW(g.f, g.t) = ANY (path), path || ROW(g.f, g.t) FROM graph AS g, search_graph AS sg WHERE g.f = sg.t AND NOT is_cycle)) SELECT * FROM search_graph"
+  },
+  {
+    "comment": "with - Statement 74",
+    "query": "with recursive search_graph(f, t, label, is_cycle, path) as ( select *, false, array[row(g.f, g.t)] from graph g union distinct select g.*, row(g.f, g.t) = any(path), path || row(g.f, g.t) from graph g, search_graph sg where g.f = sg.t and not is_cycle ) select * from search_graph",
+    "expected": "WITH RECURSIVE search_graph(f, t, label, is_cycle, path) AS (SELECT *, FALSE, ARRAY[ROW(g.f, g.t)] FROM graph AS g UNION (SELECT g.*, ROW(g.f, g.t) = ANY (path), path || ROW(g.f, g.t) FROM graph AS g, search_graph AS sg WHERE g.f = sg.t AND NOT is_cycle)) SELECT * FROM search_graph"
+  },
+  {
+    "comment": "with - Statement 75",
+    "query": "with recursive search_graph(f, t, label, is_cycle, path) as ( select *, false, array[row(g.f, g.t)] from graph g union all select g.*, row(g.f, g.t) = any(path), path || row(g.f, g.t) from graph g, search_graph sg where g.f = sg.t and not is_cycle ) select * from search_graph order by path",
+    "expected": "WITH RECURSIVE search_graph(f, t, label, is_cycle, path) AS (SELECT *, FALSE, ARRAY[ROW(g.f, g.t)] FROM graph AS g UNION ALL (SELECT g.*, ROW(g.f, g.t) = ANY (path), path || ROW(g.f, g.t) FROM graph AS g, search_graph AS sg WHERE g.f = sg.t AND NOT is_cycle)) SELECT * FROM search_graph ORDER BY path"
+  },
+  {
+    "comment": "with - Statement 76",
+    "query": "explain (verbose, costs off) with recursive search_graph(f, t, label) as ( select * from graph g union all select g.* from graph g, search_graph sg where g.f = sg.t ) cycle f, t set is_cycle using path select * from search_graph",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) WITH RECURSIVE search_graph(f, t, label) AS (SELECT * FROM graph AS g UNION ALL (SELECT g.* FROM graph AS g, search_graph AS sg WHERE g.f = sg.t)) CYCLE f, t SET is_cycle USING path SELECT * FROM search_graph"
+  },
+  {
+    "comment": "with - Statement 77",
+    "query": "with recursive search_graph(f, t, label) as ( select * from graph g union all select g.* from graph g, search_graph sg where g.f = sg.t ) cycle f, t set is_cycle using path select * from search_graph",
+    "expected": "WITH RECURSIVE search_graph(f, t, label) AS (SELECT * FROM graph AS g UNION ALL (SELECT g.* FROM graph AS g, search_graph AS sg WHERE g.f = sg.t)) CYCLE f, t SET is_cycle USING path SELECT * FROM search_graph"
+  },
+  {
+    "comment": "with - Statement 78",
+    "query": "with recursive search_graph(f, t, label) as ( select * from graph g union distinct select g.* from graph g, search_graph sg where g.f = sg.t ) cycle f, t set is_cycle to 'Y' default 'N' using path select * from search_graph",
+    "expected": "WITH RECURSIVE search_graph(f, t, label) AS (SELECT * FROM graph AS g UNION (SELECT g.* FROM graph AS g, search_graph AS sg WHERE g.f = sg.t)) CYCLE f, t SET is_cycle TO 'Y' DEFAULT 'N' USING path SELECT * FROM search_graph"
+  },
+  {
+    "comment": "with - Statement 79",
+    "query": "explain (verbose, costs off) with recursive test as ( select 0 as x union all select (x + 1) % 10 from test ) cycle x set is_cycle using path select * from test",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) WITH RECURSIVE test AS (SELECT 0 AS x UNION ALL SELECT (x + 1) % 10 FROM test) CYCLE x SET is_cycle USING path SELECT * FROM test"
+  },
+  {
+    "comment": "with - Statement 80",
+    "query": "with recursive test as ( select 0 as x union all select (x + 1) % 10 from test ) cycle x set is_cycle using path select * from test",
+    "expected": "WITH RECURSIVE test AS (SELECT 0 AS x UNION ALL SELECT (x + 1) % 10 FROM test) CYCLE x SET is_cycle USING path SELECT * FROM test"
+  },
+  {
+    "comment": "with - Statement 81",
+    "query": "with recursive test as ( select 0 as x union all select (x + 1) % 10 from test where not is_cycle ) cycle x set is_cycle using path select * from test",
+    "expected": "WITH RECURSIVE test AS (SELECT 0 AS x UNION ALL (SELECT (x + 1) % 10 FROM test WHERE NOT is_cycle)) CYCLE x SET is_cycle USING path SELECT * FROM test"
+  },
+  {
+    "comment": "with - Statement 82",
+    "query": "with recursive graph(f, t, label) as ( values (1, 2, 'arc 1 -\u003e 2'), (1, 3, 'arc 1 -\u003e 3'), (2, 3, 'arc 2 -\u003e 3'), (1, 4, 'arc 1 -\u003e 4'), (4, 5, 'arc 4 -\u003e 5'), (5, 1, 'arc 5 -\u003e 1') ), search_graph(f, t, label) as ( select * from graph g union all select g.* from graph g, search_graph sg where g.f = sg.t ) cycle f, t set is_cycle to true default false using path select f, t, label from search_graph",
+    "expected": "WITH RECURSIVE graph(f, t, label) AS (VALUES (1, 2, 'arc 1 -\u003e 2'), (1, 3, 'arc 1 -\u003e 3'), (2, 3, 'arc 2 -\u003e 3'), (1, 4, 'arc 1 -\u003e 4'), (4, 5, 'arc 4 -\u003e 5'), (5, 1, 'arc 5 -\u003e 1')), search_graph(f, t, label) AS (SELECT * FROM graph AS g UNION ALL (SELECT g.* FROM graph AS g, search_graph AS sg WHERE g.f = sg.t)) CYCLE f, t SET is_cycle TO TRUE DEFAULT FALSE USING path SELECT f, t, label FROM search_graph"
+  },
+  {
+    "comment": "with - Statement 83",
+    "query": "with recursive a as ( select 1 as b union all select * from a ) cycle b set c using p select * from a",
+    "expected": "WITH RECURSIVE a AS (SELECT 1 AS b UNION ALL SELECT * FROM a) CYCLE b SET c USING p SELECT * FROM a"
+  },
+  {
+    "comment": "with - Statement 84",
+    "query": "with recursive search_graph(f, t, label) as ( select * from graph g union all select g.* from graph g, search_graph sg where g.f = sg.t ) search depth first by f, t set seq cycle f, t set is_cycle using path select * from search_graph",
+    "expected": "WITH RECURSIVE search_graph(f, t, label) AS (SELECT * FROM graph AS g UNION ALL (SELECT g.* FROM graph AS g, search_graph AS sg WHERE g.f = sg.t)) SEARCH DEPTH FIRST BY f, t SET seq CYCLE f, t SET is_cycle USING path SELECT * FROM search_graph"
+  },
+  {
+    "comment": "with - Statement 85",
+    "query": "with recursive search_graph(f, t, label) as ( select * from graph g union all select g.* from graph g, search_graph sg where g.f = sg.t ) search breadth first by f, t set seq cycle f, t set is_cycle using path select * from search_graph",
+    "expected": "WITH RECURSIVE search_graph(f, t, label) AS (SELECT * FROM graph AS g UNION ALL (SELECT g.* FROM graph AS g, search_graph AS sg WHERE g.f = sg.t)) SEARCH BREADTH FIRST BY f, t SET seq CYCLE f, t SET is_cycle USING path SELECT * FROM search_graph"
+  },
+  {
+    "comment": "with - Statement 86",
+    "query": "with recursive search_graph(f, t, label) as ( select * from graph g union all select g.* from graph g, search_graph sg where g.f = sg.t ) cycle foo, tar set is_cycle using path select * from search_graph",
+    "expected": "WITH RECURSIVE search_graph(f, t, label) AS (SELECT * FROM graph AS g UNION ALL (SELECT g.* FROM graph AS g, search_graph AS sg WHERE g.f = sg.t)) CYCLE foo, tar SET is_cycle USING path SELECT * FROM search_graph"
+  },
+  {
+    "comment": "with - Statement 87",
+    "query": "with recursive search_graph(f, t, label) as ( select * from graph g union all select g.* from graph g, search_graph sg where g.f = sg.t ) cycle f, t set is_cycle to true default 55 using path select * from search_graph",
+    "expected": "WITH RECURSIVE search_graph(f, t, label) AS (SELECT * FROM graph AS g UNION ALL (SELECT g.* FROM graph AS g, search_graph AS sg WHERE g.f = sg.t)) CYCLE f, t SET is_cycle TO TRUE DEFAULT 55 USING path SELECT * FROM search_graph"
+  },
+  {
+    "comment": "with - Statement 88",
+    "query": "with recursive search_graph(f, t, label) as ( select * from graph g union all select g.* from graph g, search_graph sg where g.f = sg.t ) cycle f, t set is_cycle to point '(1,1)' default point '(0,0)' using path select * from search_graph",
+    "expected": "WITH RECURSIVE search_graph(f, t, label) AS (SELECT * FROM graph AS g UNION ALL (SELECT g.* FROM graph AS g, search_graph AS sg WHERE g.f = sg.t)) CYCLE f, t SET is_cycle TO point '(1,1)' DEFAULT point '(0,0)' USING path SELECT * FROM search_graph"
+  },
+  {
+    "comment": "with - Statement 89",
+    "query": "with recursive search_graph(f, t, label) as ( select * from graph g union all select g.* from graph g, search_graph sg where g.f = sg.t ) cycle f, t set label to true default false using path select * from search_graph",
+    "expected": "WITH RECURSIVE search_graph(f, t, label) AS (SELECT * FROM graph AS g UNION ALL (SELECT g.* FROM graph AS g, search_graph AS sg WHERE g.f = sg.t)) CYCLE f, t SET label TO TRUE DEFAULT FALSE USING path SELECT * FROM search_graph"
+  },
+  {
+    "comment": "with - Statement 90",
+    "query": "with recursive search_graph(f, t, label) as ( select * from graph g union all select g.* from graph g, search_graph sg where g.f = sg.t ) cycle f, t set is_cycle to true default false using label select * from search_graph",
+    "expected": "WITH RECURSIVE search_graph(f, t, label) AS (SELECT * FROM graph AS g UNION ALL (SELECT g.* FROM graph AS g, search_graph AS sg WHERE g.f = sg.t)) CYCLE f, t SET is_cycle TO TRUE DEFAULT FALSE USING label SELECT * FROM search_graph"
+  },
+  {
+    "comment": "with - Statement 91",
+    "query": "with recursive search_graph(f, t, label) as ( select * from graph g union all select g.* from graph g, search_graph sg where g.f = sg.t ) cycle f, t set foo to true default false using foo select * from search_graph",
+    "expected": "WITH RECURSIVE search_graph(f, t, label) AS (SELECT * FROM graph AS g UNION ALL (SELECT g.* FROM graph AS g, search_graph AS sg WHERE g.f = sg.t)) CYCLE f, t SET foo TO TRUE DEFAULT FALSE USING foo SELECT * FROM search_graph"
+  },
+  {
+    "comment": "with - Statement 92",
+    "query": "with recursive search_graph(f, t, label) as ( select * from graph g union all select g.* from graph g, search_graph sg where g.f = sg.t ) cycle f, t, f set is_cycle to true default false using path select * from search_graph",
+    "expected": "WITH RECURSIVE search_graph(f, t, label) AS (SELECT * FROM graph AS g UNION ALL (SELECT g.* FROM graph AS g, search_graph AS sg WHERE g.f = sg.t)) CYCLE f, t, f SET is_cycle TO TRUE DEFAULT FALSE USING path SELECT * FROM search_graph"
+  },
+  {
+    "comment": "with - Statement 93",
+    "query": "with recursive search_graph(f, t, label) as ( select * from graph g union all select g.* from graph g, search_graph sg where g.f = sg.t ) search depth first by f, t set foo cycle f, t set foo to true default false using path select * from search_graph",
+    "expected": "WITH RECURSIVE search_graph(f, t, label) AS (SELECT * FROM graph AS g UNION ALL (SELECT g.* FROM graph AS g, search_graph AS sg WHERE g.f = sg.t)) SEARCH DEPTH FIRST BY f, t SET foo CYCLE f, t SET foo TO TRUE DEFAULT FALSE USING path SELECT * FROM search_graph"
+  },
+  {
+    "comment": "with - Statement 94",
+    "query": "with recursive search_graph(f, t, label) as ( select * from graph g union all select g.* from graph g, search_graph sg where g.f = sg.t ) search depth first by f, t set foo cycle f, t set is_cycle to true default false using foo select * from search_graph",
+    "expected": "WITH RECURSIVE search_graph(f, t, label) AS (SELECT * FROM graph AS g UNION ALL (SELECT g.* FROM graph AS g, search_graph AS sg WHERE g.f = sg.t)) SEARCH DEPTH FIRST BY f, t SET foo CYCLE f, t SET is_cycle TO TRUE DEFAULT FALSE USING foo SELECT * FROM search_graph"
+  },
+  {
+    "comment": "with - Statement 95",
+    "query": "create temp view v_cycle1 as with recursive search_graph(f, t, label) as ( select * from graph g union all select g.* from graph g, search_graph sg where g.f = sg.t ) cycle f, t set is_cycle using path select f, t, label from search_graph",
+    "expected": "CREATE TEMPORARY VIEW v_cycle1 AS WITH RECURSIVE search_graph(f, t, label) AS (SELECT * FROM graph AS g UNION ALL (SELECT g.* FROM graph AS g, search_graph AS sg WHERE g.f = sg.t)) CYCLE f, t SET is_cycle USING path SELECT f, t, label FROM search_graph"
+  },
+  {
+    "comment": "with - Statement 96",
+    "query": "create temp view v_cycle2 as with recursive search_graph(f, t, label) as ( select * from graph g union all select g.* from graph g, search_graph sg where g.f = sg.t ) cycle f, t set is_cycle to 'Y' default 'N' using path select f, t, label from search_graph",
+    "expected": "CREATE TEMPORARY VIEW v_cycle2 AS WITH RECURSIVE search_graph(f, t, label) AS (SELECT * FROM graph AS g UNION ALL (SELECT g.* FROM graph AS g, search_graph AS sg WHERE g.f = sg.t)) CYCLE f, t SET is_cycle TO 'Y' DEFAULT 'N' USING path SELECT f, t, label FROM search_graph"
+  },
+  {
+    "comment": "with - Statement 97",
+    "query": "select pg_get_viewdef('v_cycle1')",
+    "expected": "SELECT pg_get_viewdef('v_cycle1')"
+  },
+  {
+    "comment": "with - Statement 98",
+    "query": "select pg_get_viewdef('v_cycle2')",
+    "expected": "SELECT pg_get_viewdef('v_cycle2')"
+  },
+  {
+    "comment": "with - Statement 99",
+    "query": "select * from v_cycle1",
+    "expected": "SELECT * FROM v_cycle1"
+  },
+  {
+    "comment": "with - Statement 100",
+    "query": "select * from v_cycle2",
+    "expected": "SELECT * FROM v_cycle2"
+  },
+  {
+    "comment": "with - Statement 101",
+    "query": "WITH RECURSIVE y (id) AS (VALUES (1)), x (id) AS (SELECT * FROM y UNION ALL SELECT id+1 FROM x WHERE id \u003c 5) SELECT * FROM x",
+    "expected": "WITH RECURSIVE y(id) AS (VALUES (1)), x(id) AS (SELECT * FROM y UNION ALL (SELECT id + 1 FROM x WHERE id \u003c 5)) SELECT * FROM x"
+  },
+  {
+    "comment": "with - Statement 102",
+    "query": "WITH RECURSIVE x(id) AS (SELECT * FROM y UNION ALL SELECT id+1 FROM x WHERE id \u003c 5), y(id) AS (values (1)) SELECT * FROM x",
+    "expected": "WITH RECURSIVE x(id) AS (SELECT * FROM y UNION ALL (SELECT id + 1 FROM x WHERE id \u003c 5)), y(id) AS (VALUES (1)) SELECT * FROM x"
+  },
+  {
+    "comment": "with - Statement 103",
+    "query": "WITH RECURSIVE x(id) AS (VALUES (1) UNION ALL SELECT id+1 FROM x WHERE id \u003c 5), y(id) AS (VALUES (1) UNION ALL SELECT id+1 FROM y WHERE id \u003c 10) SELECT y.*, x.* FROM y LEFT JOIN x USING (id)",
+    "expected": "WITH RECURSIVE x(id) AS (VALUES (1) UNION ALL (SELECT id + 1 FROM x WHERE id \u003c 5)), y(id) AS (VALUES (1) UNION ALL (SELECT id + 1 FROM y WHERE id \u003c 10)) SELECT y.*, x.* FROM y LEFT OUTER JOIN x USING (id)"
+  },
+  {
+    "comment": "with - Statement 104",
+    "query": "WITH RECURSIVE x(id) AS (VALUES (1) UNION ALL SELECT id+1 FROM x WHERE id \u003c 5), y(id) AS (VALUES (1) UNION ALL SELECT id+1 FROM x WHERE id \u003c 10) SELECT y.*, x.* FROM y LEFT JOIN x USING (id)",
+    "expected": "WITH RECURSIVE x(id) AS (VALUES (1) UNION ALL (SELECT id + 1 FROM x WHERE id \u003c 5)), y(id) AS (VALUES (1) UNION ALL (SELECT id + 1 FROM x WHERE id \u003c 10)) SELECT y.*, x.* FROM y LEFT OUTER JOIN x USING (id)"
+  },
+  {
+    "comment": "with - Statement 105",
+    "query": "WITH RECURSIVE x(id) AS (SELECT 1 UNION ALL SELECT id+1 FROM x WHERE id \u003c 3 ), y(id) AS (SELECT * FROM x UNION ALL SELECT * FROM x), z(id) AS (SELECT * FROM x UNION ALL SELECT id+1 FROM z WHERE id \u003c 10) SELECT * FROM z",
+    "expected": "WITH RECURSIVE x(id) AS (SELECT 1 UNION ALL (SELECT id + 1 FROM x WHERE id \u003c 3)), y(id) AS (SELECT * FROM x UNION ALL SELECT * FROM x), z(id) AS (SELECT * FROM x UNION ALL (SELECT id + 1 FROM z WHERE id \u003c 10)) SELECT * FROM z"
+  },
+  {
+    "comment": "with - Statement 106",
+    "query": "WITH RECURSIVE x(id) AS (SELECT 1 UNION ALL SELECT id+1 FROM x WHERE id \u003c 3 ), y(id) AS (SELECT * FROM x UNION ALL SELECT * FROM x), z(id) AS (SELECT * FROM y UNION ALL SELECT id+1 FROM z WHERE id \u003c 10) SELECT * FROM z",
+    "expected": "WITH RECURSIVE x(id) AS (SELECT 1 UNION ALL (SELECT id + 1 FROM x WHERE id \u003c 3)), y(id) AS (SELECT * FROM x UNION ALL SELECT * FROM x), z(id) AS (SELECT * FROM y UNION ALL (SELECT id + 1 FROM z WHERE id \u003c 10)) SELECT * FROM z"
+  },
+  {
+    "comment": "with - Statement 107",
+    "query": "CREATE TEMPORARY TABLE y (a INTEGER)",
+    "expected": "CREATE TEMPORARY TABLE y (a INT)"
+  },
+  {
+    "comment": "with - Statement 108",
+    "query": "INSERT INTO y SELECT generate_series(1, 10)"
+  },
+  {
+    "comment": "with - Statement 109",
+    "query": "WITH t AS ( SELECT a FROM y ) INSERT INTO y SELECT a+20 FROM t RETURNING *",
+    "expected": "WITH t AS (SELECT a FROM y) INSERT INTO y SELECT a + 20 FROM t RETURNING *"
+  },
+  {
+    "comment": "with - Statement 110",
+    "query": "SELECT * FROM y"
+  },
+  {
+    "comment": "with - Statement 111",
+    "query": "WITH t AS ( SELECT a FROM y ) UPDATE y SET a = y.a-10 FROM t WHERE y.a \u003e 20 AND t.a = y.a RETURNING y.a",
+    "expected": "WITH t AS (SELECT a FROM y) UPDATE y SET a = y.a - 10 FROM t WHERE y.a \u003e 20 AND t.a = y.a RETURNING y.a"
+  },
+  {
+    "comment": "with - Statement 112",
+    "query": "WITH RECURSIVE t(a) AS ( SELECT 11 UNION ALL SELECT a+1 FROM t WHERE a \u003c 50 ) DELETE FROM y USING t WHERE t.a = y.a RETURNING y.a",
+    "expected": "WITH RECURSIVE t(a) AS (SELECT 11 UNION ALL (SELECT a + 1 FROM t WHERE a \u003c 50)) DELETE FROM y USING t WHERE t.a = y.a RETURNING y.a"
+  },
+  {
+    "comment": "with - Statement 113",
+    "query": "DROP TABLE y"
+  },
+  {
+    "comment": "with - Statement 114",
+    "query": "WITH x(n, b) AS (SELECT 1) SELECT * FROM x"
+  },
+  {
+    "comment": "with - Statement 115",
+    "query": "WITH RECURSIVE x(n) AS (SELECT 1 INTERSECT SELECT n+1 FROM x) SELECT * FROM x",
+    "expected": "WITH RECURSIVE x(n) AS (SELECT 1 INTERSECT SELECT n + 1 FROM x) SELECT * FROM x"
+  },
+  {
+    "comment": "with - Statement 116",
+    "query": "WITH RECURSIVE x(n) AS (SELECT 1 INTERSECT ALL SELECT n+1 FROM x) SELECT * FROM x",
+    "expected": "WITH RECURSIVE x(n) AS (SELECT 1 INTERSECT ALL SELECT n + 1 FROM x) SELECT * FROM x"
+  },
+  {
+    "comment": "with - Statement 117",
+    "query": "WITH RECURSIVE x(n) AS (SELECT 1 EXCEPT SELECT n+1 FROM x) SELECT * FROM x",
+    "expected": "WITH RECURSIVE x(n) AS (SELECT 1 EXCEPT SELECT n + 1 FROM x) SELECT * FROM x"
+  },
+  {
+    "comment": "with - Statement 118",
+    "query": "WITH RECURSIVE x(n) AS (SELECT 1 EXCEPT ALL SELECT n+1 FROM x) SELECT * FROM x",
+    "expected": "WITH RECURSIVE x(n) AS (SELECT 1 EXCEPT ALL SELECT n + 1 FROM x) SELECT * FROM x"
+  },
+  {
+    "comment": "with - Statement 119",
+    "query": "WITH RECURSIVE x(n) AS (SELECT n FROM x) SELECT * FROM x"
+  },
+  {
+    "comment": "with - Statement 120",
+    "query": "WITH RECURSIVE x(n) AS (SELECT n FROM x UNION ALL SELECT 1) SELECT * FROM x"
+  },
+  {
+    "comment": "with - Statement 121",
+    "query": "WITH RECURSIVE x(n) AS ( WITH x1 AS (SELECT 1 AS n) SELECT 0 UNION SELECT * FROM x1) SELECT * FROM x",
+    "expected": "WITH RECURSIVE x(n) AS (SELECT 0 UNION SELECT * FROM x1) SELECT * FROM x"
+  },
+  {
+    "comment": "with - Statement 122",
+    "query": "WITH RECURSIVE x(n) AS ( WITH x1 AS (SELECT 1 FROM x) SELECT 0 UNION SELECT * FROM x1) SELECT * FROM x",
+    "expected": "WITH RECURSIVE x(n) AS (SELECT 0 UNION SELECT * FROM x1) SELECT * FROM x"
+  },
+  {
+    "comment": "with - Statement 123",
+    "query": "WITH RECURSIVE x(n) AS ( (WITH x1 AS (SELECT 1 FROM x) SELECT * FROM x1) UNION SELECT 0) SELECT * FROM x",
+    "expected": "WITH RECURSIVE x(n) AS ((WITH x1 AS (SELECT 1 FROM x) SELECT * FROM x1) UNION SELECT 0) SELECT * FROM x"
+  },
+  {
+    "comment": "with - Statement 124",
+    "query": "WITH RECURSIVE x(n) AS ( SELECT 0 UNION SELECT 1 ORDER BY (SELECT n FROM x)) SELECT * FROM x",
+    "expected": "WITH RECURSIVE x(n) AS (SELECT 0 UNION SELECT 1 ORDER BY (SELECT n FROM x)) SELECT * FROM x"
+  },
+  {
+    "comment": "with - Statement 125",
+    "query": "WITH RECURSIVE x(n) AS ( WITH sub_cte AS (SELECT * FROM x) DELETE FROM graph RETURNING f) SELECT * FROM x",
+    "expected": "WITH RECURSIVE x(n) AS (WITH sub_cte AS (SELECT * FROM x) DELETE FROM graph RETURNING f) SELECT * FROM x"
+  },
+  {
+    "comment": "with - Statement 126",
+    "query": "WITH RECURSIVE x(n) AS (SELECT a FROM y WHERE a = 1 UNION ALL SELECT x.n+1 FROM y LEFT JOIN x ON x.n = y.a WHERE n \u003c 10) SELECT * FROM x",
+    "expected": "WITH RECURSIVE x(n) AS ((SELECT a FROM y WHERE a = 1) UNION ALL (SELECT x.n + 1 FROM y LEFT OUTER JOIN x ON x.n = y.a WHERE n \u003c 10)) SELECT * FROM x"
+  },
+  {
+    "comment": "with - Statement 127",
+    "query": "WITH RECURSIVE x(n) AS (SELECT a FROM y WHERE a = 1 UNION ALL SELECT x.n+1 FROM x RIGHT JOIN y ON x.n = y.a WHERE n \u003c 10) SELECT * FROM x",
+    "expected": "WITH RECURSIVE x(n) AS ((SELECT a FROM y WHERE a = 1) UNION ALL (SELECT x.n + 1 FROM x RIGHT OUTER JOIN y ON x.n = y.a WHERE n \u003c 10)) SELECT * FROM x"
+  },
+  {
+    "comment": "with - Statement 128",
+    "query": "WITH RECURSIVE x(n) AS (SELECT a FROM y WHERE a = 1 UNION ALL SELECT x.n+1 FROM x FULL JOIN y ON x.n = y.a WHERE n \u003c 10) SELECT * FROM x",
+    "expected": "WITH RECURSIVE x(n) AS ((SELECT a FROM y WHERE a = 1) UNION ALL (SELECT x.n + 1 FROM x FULL OUTER JOIN y ON x.n = y.a WHERE n \u003c 10)) SELECT * FROM x"
+  },
+  {
+    "comment": "with - Statement 129",
+    "query": "WITH RECURSIVE x(n) AS (SELECT 1 UNION ALL SELECT n+1 FROM x WHERE n IN (SELECT * FROM x)) SELECT * FROM x",
+    "expected": "WITH RECURSIVE x(n) AS (SELECT 1 UNION ALL (SELECT n + 1 FROM x WHERE n IN (SELECT * FROM x))) SELECT * FROM x"
+  },
+  {
+    "comment": "with - Statement 130",
+    "query": "WITH RECURSIVE x(n) AS (SELECT 1 UNION ALL SELECT count(*) FROM x) SELECT * FROM x",
+    "expected": "WITH RECURSIVE x(n) AS (SELECT 1 UNION ALL SELECT COUNT(*) FROM x) SELECT * FROM x"
+  },
+  {
+    "comment": "with - Statement 131",
+    "query": "WITH RECURSIVE x(n) AS (SELECT 1 UNION ALL SELECT sum(n) FROM x) SELECT * FROM x",
+    "expected": "WITH RECURSIVE x(n) AS (SELECT 1 UNION ALL SELECT SUM(n) FROM x) SELECT * FROM x"
+  },
+  {
+    "comment": "with - Statement 132",
+    "query": "WITH RECURSIVE x(n) AS (SELECT 1 UNION ALL SELECT n+1 FROM x ORDER BY 1) SELECT * FROM x",
+    "expected": "WITH RECURSIVE x(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM x ORDER BY 1) SELECT * FROM x"
+  },
+  {
+    "comment": "with - Statement 133",
+    "query": "WITH RECURSIVE x(n) AS (SELECT 1 UNION ALL SELECT n+1 FROM x LIMIT 10 OFFSET 1) SELECT * FROM x",
+    "expected": "WITH RECURSIVE x(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM x LIMIT 10 OFFSET 1) SELECT * FROM x"
+  },
+  {
+    "comment": "with - Statement 134",
+    "query": "WITH RECURSIVE x(n) AS (SELECT 1 UNION ALL SELECT n+1 FROM x FOR UPDATE) SELECT * FROM x",
+    "expected": "WITH RECURSIVE x(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM x) SELECT * FROM x"
+  },
+  {
+    "comment": "with - Statement 135",
+    "query": "WITH RECURSIVE x(id) AS (values (1) UNION ALL SELECT (SELECT * FROM x) FROM x WHERE id \u003c 5 ) SELECT * FROM x",
+    "expected": "WITH RECURSIVE x(id) AS (VALUES (1) UNION ALL (SELECT (SELECT * FROM x) FROM x WHERE id \u003c 5)) SELECT * FROM x"
+  },
+  {
+    "comment": "with - Statement 136",
+    "query": "WITH RECURSIVE x (id) AS (SELECT 1 UNION ALL SELECT id+1 FROM y WHERE id \u003c 5), y (id) AS (SELECT 1 UNION ALL SELECT id+1 FROM x WHERE id \u003c 5) SELECT * FROM x",
+    "expected": "WITH RECURSIVE x(id) AS (SELECT 1 UNION ALL (SELECT id + 1 FROM y WHERE id \u003c 5)), y(id) AS (SELECT 1 UNION ALL (SELECT id + 1 FROM x WHERE id \u003c 5)) SELECT * FROM x"
+  },
+  {
+    "comment": "with - Statement 137",
+    "query": "WITH RECURSIVE foo(i) AS (values (1) UNION ALL (SELECT i+1 FROM foo WHERE i \u003c 10 UNION ALL SELECT i+1 FROM foo WHERE i \u003c 5) ) SELECT * FROM foo",
+    "expected": "WITH RECURSIVE foo(i) AS (VALUES (1) UNION ALL ((SELECT i + 1 FROM foo WHERE i \u003c 10) UNION ALL (SELECT i + 1 FROM foo WHERE i \u003c 5))) SELECT * FROM foo"
+  },
+  {
+    "comment": "with - Statement 138",
+    "query": "WITH RECURSIVE foo(i) AS (values (1) UNION ALL SELECT * FROM (SELECT i+1 FROM foo WHERE i \u003c 10 UNION ALL SELECT i+1 FROM foo WHERE i \u003c 5) AS t ) SELECT * FROM foo",
+    "expected": "WITH RECURSIVE foo(i) AS (VALUES (1) UNION ALL SELECT * FROM ((SELECT i + 1 FROM foo WHERE i \u003c 10) UNION ALL (SELECT i + 1 FROM foo WHERE i \u003c 5)) AS t) SELECT * FROM foo"
+  },
+  {
+    "comment": "with - Statement 139",
+    "query": "WITH RECURSIVE foo(i) AS (values (1) UNION ALL (SELECT i+1 FROM foo WHERE i \u003c 10 EXCEPT SELECT i+1 FROM foo WHERE i \u003c 5) ) SELECT * FROM foo",
+    "expected": "WITH RECURSIVE foo(i) AS (VALUES (1) UNION ALL ((SELECT i + 1 FROM foo WHERE i \u003c 10) EXCEPT (SELECT i + 1 FROM foo WHERE i \u003c 5))) SELECT * FROM foo"
+  },
+  {
+    "comment": "with - Statement 140",
+    "query": "WITH RECURSIVE foo(i) AS (values (1) UNION ALL (SELECT i+1 FROM foo WHERE i \u003c 10 INTERSECT SELECT i+1 FROM foo WHERE i \u003c 5) ) SELECT * FROM foo",
+    "expected": "WITH RECURSIVE foo(i) AS (VALUES (1) UNION ALL ((SELECT i + 1 FROM foo WHERE i \u003c 10) INTERSECT (SELECT i + 1 FROM foo WHERE i \u003c 5))) SELECT * FROM foo"
+  },
+  {
+    "comment": "with - Statement 141",
+    "query": "WITH RECURSIVE foo(i) AS (SELECT i FROM (VALUES(1),(2)) t(i) UNION ALL SELECT (i+1)::numeric(10,0) FROM foo WHERE i \u003c 10) SELECT * FROM foo",
+    "expected": "WITH RECURSIVE foo(i) AS (SELECT i FROM (VALUES (1), (2)) AS t(i) UNION ALL (SELECT CAST((i + 1) AS NUMERIC(10, 0)) FROM foo WHERE i \u003c 10)) SELECT * FROM foo"
+  },
+  {
+    "comment": "with - Statement 142",
+    "query": "WITH RECURSIVE foo(i) AS (SELECT i::numeric(3,0) FROM (VALUES(1),(2)) t(i) UNION ALL SELECT (i+1)::numeric(10,0) FROM foo WHERE i \u003c 10) SELECT * FROM foo",
+    "expected": "WITH RECURSIVE foo(i) AS (SELECT CAST(i AS NUMERIC(3, 0)) FROM (VALUES (1), (2)) AS t(i) UNION ALL (SELECT CAST((i + 1) AS NUMERIC(10, 0)) FROM foo WHERE i \u003c 10)) SELECT * FROM foo"
+  },
+  {
+    "comment": "with - Statement 143",
+    "query": "CREATE TEMPORARY TABLE x (n integer)",
+    "expected": "CREATE TEMPORARY TABLE x (n INT)"
+  },
+  {
+    "comment": "with - Statement 144",
+    "query": "CREATE RULE r2 AS ON UPDATE TO x DO INSTEAD WITH t AS (SELECT OLD.*) UPDATE y SET a = t.n FROM t",
+    "expected": "CREATE RULE r2 AS ON UPDATE TO x DO INSTEAD WITH t AS (SELECT old.*) UPDATE y SET a = t.n FROM t"
+  },
+  {
+    "comment": "with - Statement 145",
+    "query": "with cte(foo) as ( values(42) ) values((select foo from cte))",
+    "expected": "VALUES ((SELECT foo FROM cte))"
+  },
+  {
+    "comment": "with - Statement 146",
+    "query": "with cte(foo) as ( select 42 ) select * from ((select foo from cte)) q",
+    "expected": "WITH cte(foo) AS (SELECT 42) SELECT * FROM (SELECT foo FROM cte) AS q"
+  },
+  {
+    "comment": "with - Statement 147",
+    "query": "select ( with cte(foo) as ( values(f1) ) select (select foo from cte) ) from int4_tbl",
+    "expected": "SELECT (WITH cte(foo) AS (VALUES (f1)) SELECT (SELECT foo FROM cte)) FROM int4_tbl"
+  },
+  {
+    "comment": "with - Statement 148",
+    "query": "select ( with cte(foo) as ( values(f1) ) values((select foo from cte)) ) from int4_tbl",
+    "expected": "SELECT (VALUES ((SELECT foo FROM cte))) FROM int4_tbl"
+  },
+  {
+    "comment": "with - Statement 149",
+    "query": "WITH RECURSIVE t(j) AS ( WITH RECURSIVE s(i) AS ( VALUES (1) UNION ALL SELECT i+1 FROM s WHERE i \u003c 10 ) SELECT i FROM s UNION ALL SELECT j+1 FROM t WHERE j \u003c 10 ) SELECT * FROM t",
+    "expected": "WITH RECURSIVE t(j) AS (SELECT i FROM s UNION ALL (SELECT j + 1 FROM t WHERE j \u003c 10)) SELECT * FROM t"
+  },
+  {
+    "comment": "with - Statement 150",
+    "query": "WITH outermost(x) AS ( SELECT 1 UNION (WITH innermost as (SELECT 2) SELECT * FROM innermost UNION SELECT 3) ) SELECT * FROM outermost ORDER BY 1",
+    "expected": "WITH outermost(x) AS (SELECT 1 UNION (SELECT * FROM innermost UNION SELECT 3)) SELECT * FROM outermost ORDER BY 1"
+  },
+  {
+    "comment": "with - Statement 151",
+    "query": "WITH outermost(x) AS ( SELECT 1 UNION (WITH innermost as (SELECT 2) SELECT * FROM outermost UNION SELECT * FROM innermost) ) SELECT * FROM outermost ORDER BY 1",
+    "expected": "WITH outermost(x) AS (SELECT 1 UNION (SELECT * FROM outermost UNION SELECT * FROM innermost)) SELECT * FROM outermost ORDER BY 1"
+  },
+  {
+    "comment": "with - Statement 152",
+    "query": "WITH RECURSIVE outermost(x) AS ( SELECT 1 UNION (WITH innermost as (SELECT 2) SELECT * FROM outermost UNION SELECT * FROM innermost) ) SELECT * FROM outermost ORDER BY 1",
+    "expected": "WITH RECURSIVE outermost(x) AS (SELECT 1 UNION (SELECT * FROM outermost UNION SELECT * FROM innermost)) SELECT * FROM outermost ORDER BY 1"
+  },
+  {
+    "comment": "with - Statement 153",
+    "query": "WITH RECURSIVE outermost(x) AS ( WITH innermost as (SELECT 2 FROM outermost) SELECT * FROM innermost UNION SELECT * from outermost ) SELECT * FROM outermost ORDER BY 1",
+    "expected": "WITH RECURSIVE outermost(x) AS (SELECT * FROM innermost UNION SELECT * FROM outermost) SELECT * FROM outermost ORDER BY 1"
+  },
+  {
+    "comment": "with - Statement 154",
+    "query": "with A as ( select q2 as id, (select q1) as x from int8_tbl ), B as ( select id, row_number() over (partition by id) as r from A ), C as ( select A.id, array(select B.id from B where B.id = A.id) from A ) select * from C",
+    "expected": "WITH a AS (SELECT q2 AS id, (SELECT q1) AS x FROM int8_tbl), b AS (SELECT id, ROW_NUMBER() OVER (PARTITION BY id) AS r FROM a), c AS (SELECT a.id, ARRAY(SELECT b.id FROM b WHERE b.id = a.id) FROM a) SELECT * FROM c"
+  },
+  {
+    "comment": "with - Statement 155",
+    "query": "WITH RECURSIVE tab(id_key,link) AS (VALUES (1,17), (2,17), (3,17), (4,17), (6,17), (5,17)), iter (id_key, row_type, link) AS ( SELECT 0, 'base', 17 UNION ALL ( WITH remaining(id_key, row_type, link, min) AS ( SELECT tab.id_key, 'true'::text, iter.link, MIN(tab.id_key) OVER () FROM tab INNER JOIN iter USING (link) WHERE tab.id_key \u003e iter.id_key ), first_remaining AS ( SELECT id_key, row_type, link FROM remaining WHERE id_key=min ), effect AS ( SELECT tab.id_key, 'new'::text, tab.link FROM first_remaining e INNER JOIN tab ON e.id_key=tab.id_key WHERE e.row_type = 'false' ) SELECT * FROM first_remaining UNION ALL SELECT * FROM effect ) ) SELECT * FROM iter",
+    "expected": "WITH RECURSIVE tab(id_key, link) AS (VALUES (1, 17), (2, 17), (3, 17), (4, 17), (6, 17), (5, 17)), iter(id_key, row_type, link) AS (SELECT 0, 'base', 17 UNION ALL (SELECT * FROM first_remaining UNION ALL SELECT * FROM effect)) SELECT * FROM iter"
+  },
+  {
+    "comment": "with - Statement 156",
+    "query": "WITH RECURSIVE tab(id_key,link) AS (VALUES (1,17), (2,17), (3,17), (4,17), (6,17), (5,17)), iter (id_key, row_type, link) AS ( SELECT 0, 'base', 17 UNION ( WITH remaining(id_key, row_type, link, min) AS ( SELECT tab.id_key, 'true'::text, iter.link, MIN(tab.id_key) OVER () FROM tab INNER JOIN iter USING (link) WHERE tab.id_key \u003e iter.id_key ), first_remaining AS ( SELECT id_key, row_type, link FROM remaining WHERE id_key=min ), effect AS ( SELECT tab.id_key, 'new'::text, tab.link FROM first_remaining e INNER JOIN tab ON e.id_key=tab.id_key WHERE e.row_type = 'false' ) SELECT * FROM first_remaining UNION ALL SELECT * FROM effect ) ) SELECT * FROM iter",
+    "expected": "WITH RECURSIVE tab(id_key, link) AS (VALUES (1, 17), (2, 17), (3, 17), (4, 17), (6, 17), (5, 17)), iter(id_key, row_type, link) AS (SELECT 0, 'base', 17 UNION (SELECT * FROM first_remaining UNION ALL SELECT * FROM effect)) SELECT * FROM iter"
+  },
+  {
+    "comment": "with - Statement 157",
+    "query": "WITH t AS ( INSERT INTO y VALUES (11), (12), (13), (14), (15), (16), (17), (18), (19), (20) RETURNING * ) SELECT * FROM t",
+    "expected": "WITH t AS (INSERT INTO y VALUES (11), (12), (13), (14), (15), (16), (17), (18), (19), (20) RETURNING *) SELECT * FROM t"
+  },
+  {
+    "comment": "with - Statement 158",
+    "query": "WITH t AS ( UPDATE y SET a=a+1 RETURNING * ) SELECT * FROM t",
+    "expected": "WITH t AS (UPDATE y SET a = a + 1 RETURNING *) SELECT * FROM t"
+  },
+  {
+    "comment": "with - Statement 159",
+    "query": "WITH t AS ( DELETE FROM y WHERE a \u003c= 10 RETURNING * ) SELECT * FROM t",
+    "expected": "WITH t AS (DELETE FROM y WHERE a \u003c= 10 RETURNING *) SELECT * FROM t"
+  },
+  {
+    "comment": "with - Statement 160",
+    "query": "WITH RECURSIVE t AS ( INSERT INTO y SELECT a+5 FROM t2 WHERE a \u003e 5 RETURNING * ), t2 AS ( UPDATE y SET a=a-11 RETURNING * ) SELECT * FROM t UNION ALL SELECT * FROM t2",
+    "expected": "SELECT * FROM t UNION ALL SELECT * FROM t2"
+  },
+  {
+    "comment": "with - Statement 161",
+    "query": "CREATE RULE y_rule AS ON DELETE TO y DO INSTEAD INSERT INTO y VALUES(42) RETURNING *",
+    "expected": "CREATE RULE y_rule AS ON DELETE TO y DO INSTEAD INSERT INTO y VALUES (42) RETURNING *"
+  },
+  {
+    "comment": "with - Statement 162",
+    "query": "WITH t AS ( DELETE FROM y RETURNING * ) SELECT * FROM t",
+    "expected": "WITH t AS (DELETE FROM y RETURNING *) SELECT * FROM t"
+  },
+  {
+    "comment": "with - Statement 163",
+    "query": "DROP RULE y_rule ON y"
+  },
+  {
+    "comment": "with - Statement 164",
+    "query": "CREATE TEMP TABLE bug6051 AS select i from generate_series(1,3) as t(i)",
+    "expected": "CREATE TEMP TABLE bug6051 AS SELECT i FROM generate_series(1, 3) AS t(i)"
+  },
+  {
+    "comment": "with - Statement 165",
+    "query": "SELECT * FROM bug6051"
+  },
+  {
+    "comment": "with - Statement 166",
+    "query": "WITH t1 AS ( DELETE FROM bug6051 RETURNING * ) INSERT INTO bug6051 SELECT * FROM t1",
+    "expected": "WITH t1 AS (DELETE FROM bug6051 RETURNING *) INSERT INTO bug6051 SELECT * FROM t1"
+  },
+  {
+    "comment": "with - Statement 167",
+    "query": "CREATE TEMP TABLE bug6051_2 (i int)",
+    "expected": "CREATE TEMPORARY TABLE bug6051_2 (i INT)"
+  },
+  {
+    "comment": "with - Statement 168",
+    "query": "CREATE RULE bug6051_ins AS ON INSERT TO bug6051 DO INSTEAD INSERT INTO bug6051_2 VALUES(NEW.i)",
+    "expected": "CREATE RULE bug6051_ins AS ON INSERT TO bug6051 DO INSTEAD INSERT INTO bug6051_2 VALUES (new.i)"
+  },
+  {
+    "comment": "with - Statement 169",
+    "query": "SELECT * FROM bug6051_2"
+  },
+  {
+    "comment": "with - Statement 170",
+    "query": "CREATE OR REPLACE RULE bug6051_ins AS ON INSERT TO bug6051 DO INSTEAD INSERT INTO bug6051_2 SELECT NEW.i",
+    "expected": "CREATE OR REPLACE RULE bug6051_ins AS ON INSERT TO bug6051 DO INSTEAD INSERT INTO bug6051_2 SELECT new.i"
+  },
+  {
+    "comment": "with - Statement 171",
+    "query": "CREATE TEMP TABLE bug6051_3 AS SELECT a FROM generate_series(11,13) AS a",
+    "expected": "CREATE TEMP TABLE bug6051_3 AS SELECT a FROM generate_series(11, 13) AS a"
+  },
+  {
+    "comment": "with - Statement 172",
+    "query": "CREATE RULE bug6051_3_ins AS ON INSERT TO bug6051_3 DO INSTEAD SELECT i FROM bug6051_2"
+  },
+  {
+    "comment": "with - Statement 173",
+    "query": "BEGIN; SET LOCAL debug_parallel_query = on"
+  },
+  {
+    "comment": "with - Statement 174",
+    "query": "WITH t1 AS ( DELETE FROM bug6051_3 RETURNING * ) INSERT INTO bug6051_3 SELECT * FROM t1",
+    "expected": "WITH t1 AS (DELETE FROM bug6051_3 RETURNING *) INSERT INTO bug6051_3 SELECT * FROM t1"
+  },
+  {
+    "comment": "with - Statement 175",
+    "query": "COMMIT"
+  },
+  {
+    "comment": "with - Statement 176",
+    "query": "SELECT * FROM bug6051_3"
+  },
+  {
+    "comment": "with - Statement 177",
+    "query": "EXPLAIN (VERBOSE, COSTS OFF) SELECT q1 FROM ( WITH t_cte AS (SELECT * FROM int8_tbl t) SELECT q1, (SELECT q2 FROM t_cte WHERE t_cte.q1 = i8.q1) AS t_sub FROM int8_tbl i8 ) ss",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) SELECT q1 FROM (WITH t_cte AS (SELECT * FROM int8_tbl AS t) SELECT q1, (SELECT q2 FROM t_cte WHERE t_cte.q1 = i8.q1) AS t_sub FROM int8_tbl AS i8) AS ss"
+  },
+  {
+    "comment": "with - Statement 178",
+    "query": "SELECT q1 FROM ( WITH t_cte AS (SELECT * FROM int8_tbl t) SELECT q1, (SELECT q2 FROM t_cte WHERE t_cte.q1 = i8.q1) AS t_sub FROM int8_tbl i8 ) ss",
+    "expected": "SELECT q1 FROM (WITH t_cte AS (SELECT * FROM int8_tbl AS t) SELECT q1, (SELECT q2 FROM t_cte WHERE t_cte.q1 = i8.q1) AS t_sub FROM int8_tbl AS i8) AS ss"
+  },
+  {
+    "comment": "with - Statement 179",
+    "query": "EXPLAIN (VERBOSE, COSTS OFF) SELECT q1 FROM ( WITH t_cte AS MATERIALIZED (SELECT * FROM int8_tbl t) SELECT q1, (SELECT q2 FROM t_cte WHERE t_cte.q1 = i8.q1) AS t_sub FROM int8_tbl i8 ) ss",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) SELECT q1 FROM (WITH t_cte AS MATERIALIZED (SELECT * FROM int8_tbl AS t) SELECT q1, (SELECT q2 FROM t_cte WHERE t_cte.q1 = i8.q1) AS t_sub FROM int8_tbl AS i8) AS ss"
+  },
+  {
+    "comment": "with - Statement 180",
+    "query": "SELECT q1 FROM ( WITH t_cte AS MATERIALIZED (SELECT * FROM int8_tbl t) SELECT q1, (SELECT q2 FROM t_cte WHERE t_cte.q1 = i8.q1) AS t_sub FROM int8_tbl i8 ) ss",
+    "expected": "SELECT q1 FROM (WITH t_cte AS MATERIALIZED (SELECT * FROM int8_tbl AS t) SELECT q1, (SELECT q2 FROM t_cte WHERE t_cte.q1 = i8.q1) AS t_sub FROM int8_tbl AS i8) AS ss"
+  },
+  {
+    "comment": "with - Statement 181",
+    "query": "WITH RECURSIVE t(a) AS ( SELECT 0 UNION ALL SELECT a+1 FROM t WHERE a+1 \u003c 5 ), t2 as ( INSERT INTO y SELECT * FROM t RETURNING * ) SELECT * FROM t2 JOIN y USING (a) ORDER BY a",
+    "expected": "WITH RECURSIVE t(a) AS (SELECT 0 UNION ALL (SELECT a + 1 FROM t WHERE a + 1 \u003c 5)), t2 AS (INSERT INTO y SELECT * FROM t RETURNING *) SELECT * FROM t2 INNER JOIN y USING (a) ORDER BY a"
+  },
+  {
+    "comment": "with - Statement 182",
+    "query": "WITH t AS ( DELETE FROM y WHERE a \u003c= 10 RETURNING * ) INSERT INTO y SELECT -a FROM t RETURNING *",
+    "expected": "WITH t AS (DELETE FROM y WHERE a \u003c= 10 RETURNING *) INSERT INTO y SELECT -a FROM t RETURNING *"
+  },
+  {
+    "comment": "with - Statement 183",
+    "query": "WITH t AS ( UPDATE y SET a = a * 100 RETURNING * ) SELECT * FROM t LIMIT 10",
+    "expected": "WITH t AS (UPDATE y SET a = a * 100 RETURNING *) SELECT * FROM t LIMIT 10"
+  },
+  {
+    "comment": "with - Statement 184",
+    "query": "CREATE TABLE withz AS SELECT i AS k, (i || ' v')::text v FROM generate_series(1, 16, 3) i",
+    "expected": "CREATE TABLE withz AS SELECT i AS k, CAST((i || ' v') AS TEXT) AS v FROM generate_series(1, 16, 3) AS i"
+  },
+  {
+    "comment": "with - Statement 185",
+    "query": "ALTER TABLE withz ADD UNIQUE (k)"
+  },
+  {
+    "comment": "with - Statement 186",
+    "query": "WITH t AS ( INSERT INTO withz SELECT i, 'insert' FROM generate_series(0, 16) i ON CONFLICT (k) DO UPDATE SET v = withz.v || ', now update' RETURNING * ) SELECT * FROM t JOIN y ON t.k = y.a ORDER BY a, k",
+    "expected": "WITH t AS (INSERT INTO withz SELECT i, 'insert' FROM generate_series(0, 16) AS i ON CONFLICT (k) DO UPDATE SET v = withz.v || ', now update' RETURNING *) SELECT * FROM t INNER JOIN y ON t.k = y.a ORDER BY a, k"
+  },
+  {
+    "comment": "with - Statement 187",
+    "query": "WITH aa AS ( INSERT INTO withz VALUES(1, 5) ON CONFLICT (k) DO UPDATE SET v = EXCLUDED.v WHERE withz.k != EXCLUDED.k RETURNING * ) SELECT * FROM aa",
+    "expected": "WITH aa AS (INSERT INTO withz VALUES (1, 5) ON CONFLICT (k) DO UPDATE SET v = excluded.v WHERE withz.k \u003c\u003e excluded.k RETURNING *) SELECT * FROM aa"
+  },
+  {
+    "comment": "with - Statement 188",
+    "query": "SELECT * FROM withz ORDER BY k"
+  },
+  {
+    "comment": "with - Statement 189",
+    "query": "WITH aa AS (SELECT 1 a, 2 b) INSERT INTO withz VALUES(1, 'insert') ON CONFLICT (k) DO UPDATE SET v = (SELECT b || ' update' FROM aa WHERE a = 1 LIMIT 1)",
+    "expected": "WITH aa AS (SELECT 1 AS a, 2 AS b) INSERT INTO withz VALUES (1, 'insert') ON CONFLICT (k) DO UPDATE SET v = (SELECT b || ' update' FROM aa WHERE a = 1 LIMIT 1)"
+  },
+  {
+    "comment": "with - Statement 190",
+    "query": "WITH aa AS (SELECT 1 a, 2 b) INSERT INTO withz VALUES(1, 'insert') ON CONFLICT (k) DO UPDATE SET v = ' update' WHERE withz.k = (SELECT a FROM aa)",
+    "expected": "WITH aa AS (SELECT 1 AS a, 2 AS b) INSERT INTO withz VALUES (1, 'insert') ON CONFLICT (k) DO UPDATE SET v = ' update' WHERE withz.k = (SELECT a FROM aa)"
+  },
+  {
+    "comment": "with - Statement 191",
+    "query": "WITH aa AS (SELECT 'a' a, 'b' b UNION ALL SELECT 'a' a, 'b' b) INSERT INTO withz VALUES(1, 'insert') ON CONFLICT (k) DO UPDATE SET v = (SELECT b || ' update' FROM aa WHERE a = 'a' LIMIT 1)",
+    "expected": "WITH aa AS (SELECT 'a' AS a, 'b' AS b UNION ALL SELECT 'a' AS a, 'b' AS b) INSERT INTO withz VALUES (1, 'insert') ON CONFLICT (k) DO UPDATE SET v = (SELECT b || ' update' FROM aa WHERE a = 'a' LIMIT 1)"
+  },
+  {
+    "comment": "with - Statement 192",
+    "query": "WITH aa AS (SELECT 1 a, 2 b) INSERT INTO withz VALUES(1, (SELECT b || ' insert' FROM aa WHERE a = 1 )) ON CONFLICT (k) DO UPDATE SET v = (SELECT b || ' update' FROM aa WHERE a = 1 LIMIT 1)",
+    "expected": "WITH aa AS (SELECT 1 AS a, 2 AS b) INSERT INTO withz VALUES (1, (SELECT b || ' insert' FROM aa WHERE a = 1)) ON CONFLICT (k) DO UPDATE SET v = (SELECT b || ' update' FROM aa WHERE a = 1 LIMIT 1)"
+  },
+  {
+    "comment": "with - Statement 193",
+    "query": "WITH simpletup AS ( SELECT 2 k, 'Green' v), upsert_cte AS ( INSERT INTO withz VALUES(2, 'Blue') ON CONFLICT (k) DO UPDATE SET (k, v) = (SELECT k, v FROM simpletup WHERE simpletup.k = withz.k) RETURNING k, v) INSERT INTO withz VALUES(2, 'Red') ON CONFLICT (k) DO UPDATE SET (k, v) = (SELECT k, v FROM upsert_cte WHERE upsert_cte.k = withz.k) RETURNING k, v",
+    "expected": "WITH simpletup AS (SELECT 2 AS k, 'Green' AS v), upsert_cte AS (INSERT INTO withz VALUES (2, 'Blue') ON CONFLICT (k) DO UPDATE SET k = (SELECT k, v FROM simpletup WHERE simpletup.k = withz.k), v = (SELECT k, v FROM simpletup WHERE simpletup.k = withz.k) RETURNING k, v) INSERT INTO withz VALUES (2, 'Red') ON CONFLICT (k) DO UPDATE SET k = (SELECT k, v FROM upsert_cte WHERE upsert_cte.k = withz.k), v = (SELECT k, v FROM upsert_cte WHERE upsert_cte.k = withz.k) RETURNING k, v"
+  },
+  {
+    "comment": "with - Statement 194",
+    "query": "DROP TABLE withz"
+  },
+  {
+    "comment": "with - Statement 195",
+    "query": "CREATE TABLE m AS SELECT i AS k, (i || ' v')::text v FROM generate_series(1, 16, 3) i",
+    "expected": "CREATE TABLE m AS SELECT i AS k, CAST((i || ' v') AS TEXT) AS v FROM generate_series(1, 16, 3) AS i"
+  },
+  {
+    "comment": "with - Statement 196",
+    "query": "ALTER TABLE m ADD UNIQUE (k)"
+  },
+  {
+    "comment": "with - Statement 197",
+    "query": "WITH RECURSIVE cte_basic AS (SELECT 1 a, 'cte_basic val' b) MERGE INTO m USING (select 0 k, 'merge source SubPlan' v) o ON m.k=o.k WHEN MATCHED THEN UPDATE SET v = (SELECT b || ' merge update' FROM cte_basic WHERE cte_basic.a = m.k LIMIT 1) WHEN NOT MATCHED THEN INSERT VALUES(o.k, o.v)",
+    "expected": "WITH RECURSIVE cte_basic AS (SELECT 1 AS a, 'cte_basic val' AS b) MERGE INTO m USING (SELECT 0 AS k, 'merge source SubPlan' AS v) AS o ON m.k = o.k WHEN MATCHED THEN UPDATE SET v = (SELECT b || ' merge update' FROM cte_basic WHERE cte_basic.a = m.k LIMIT 1) WHEN NOT MATCHED THEN INSERT VALUES (o.k, o.v)"
+  },
+  {
+    "comment": "with - Statement 198",
+    "query": "WITH cte_basic AS MATERIALIZED (SELECT 1 a, 'cte_basic val' b) MERGE INTO m USING (select 0 k, 'merge source SubPlan' v offset 0) o ON m.k=o.k WHEN MATCHED THEN UPDATE SET v = (SELECT b || ' merge update' FROM cte_basic WHERE cte_basic.a = m.k LIMIT 1) WHEN NOT MATCHED THEN INSERT VALUES(o.k, o.v)",
+    "expected": "WITH cte_basic AS MATERIALIZED (SELECT 1 AS a, 'cte_basic val' AS b) MERGE INTO m USING (SELECT 0 AS k, 'merge source SubPlan' AS v OFFSET 0) AS o ON m.k = o.k WHEN MATCHED THEN UPDATE SET v = (SELECT b || ' merge update' FROM cte_basic WHERE cte_basic.a = m.k LIMIT 1) WHEN NOT MATCHED THEN INSERT VALUES (o.k, o.v)"
+  },
+  {
+    "comment": "with - Statement 199",
+    "query": "SELECT * FROM m where k = 0",
+    "expected": "SELECT * FROM m WHERE k = 0"
+  },
+  {
+    "comment": "with - Statement 200",
+    "query": "EXPLAIN (VERBOSE, COSTS OFF) WITH cte_basic AS MATERIALIZED (SELECT 1 a, 'cte_basic val' b) MERGE INTO m USING (select 0 k, 'merge source SubPlan' v offset 0) o ON m.k=o.k WHEN MATCHED THEN UPDATE SET v = (SELECT b || ' merge update' FROM cte_basic WHERE cte_basic.a = m.k LIMIT 1) WHEN NOT MATCHED THEN INSERT VALUES(o.k, o.v)",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) WITH cte_basic AS MATERIALIZED (SELECT 1 AS a, 'cte_basic val' AS b) MERGE INTO m USING (SELECT 0 AS k, 'merge source SubPlan' AS v OFFSET 0) AS o ON m.k = o.k WHEN MATCHED THEN UPDATE SET v = (SELECT b || ' merge update' FROM cte_basic WHERE cte_basic.a = m.k LIMIT 1) WHEN NOT MATCHED THEN INSERT VALUES (o.k, o.v)"
+  },
+  {
+    "comment": "with - Statement 201",
+    "query": "WITH cte_init AS MATERIALIZED (SELECT 1 a, 'cte_init val' b) MERGE INTO m USING (select 1 k, 'merge source InitPlan' v offset 0) o ON m.k=o.k WHEN MATCHED THEN UPDATE SET v = (SELECT b || ' merge update' FROM cte_init WHERE a = 1 LIMIT 1) WHEN NOT MATCHED THEN INSERT VALUES(o.k, o.v)",
+    "expected": "WITH cte_init AS MATERIALIZED (SELECT 1 AS a, 'cte_init val' AS b) MERGE INTO m USING (SELECT 1 AS k, 'merge source InitPlan' AS v OFFSET 0) AS o ON m.k = o.k WHEN MATCHED THEN UPDATE SET v = (SELECT b || ' merge update' FROM cte_init WHERE a = 1 LIMIT 1) WHEN NOT MATCHED THEN INSERT VALUES (o.k, o.v)"
+  },
+  {
+    "comment": "with - Statement 202",
+    "query": "SELECT * FROM m where k = 1",
+    "expected": "SELECT * FROM m WHERE k = 1"
+  },
+  {
+    "comment": "with - Statement 203",
+    "query": "EXPLAIN (VERBOSE, COSTS OFF) WITH cte_init AS MATERIALIZED (SELECT 1 a, 'cte_init val' b) MERGE INTO m USING (select 1 k, 'merge source InitPlan' v offset 0) o ON m.k=o.k WHEN MATCHED THEN UPDATE SET v = (SELECT b || ' merge update' FROM cte_init WHERE a = 1 LIMIT 1) WHEN NOT MATCHED THEN INSERT VALUES(o.k, o.v)",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) WITH cte_init AS MATERIALIZED (SELECT 1 AS a, 'cte_init val' AS b) MERGE INTO m USING (SELECT 1 AS k, 'merge source InitPlan' AS v OFFSET 0) AS o ON m.k = o.k WHEN MATCHED THEN UPDATE SET v = (SELECT b || ' merge update' FROM cte_init WHERE a = 1 LIMIT 1) WHEN NOT MATCHED THEN INSERT VALUES (o.k, o.v)"
+  },
+  {
+    "comment": "with - Statement 204",
+    "query": "WITH merge_source_cte AS MATERIALIZED (SELECT 15 a, 'merge_source_cte val' b) MERGE INTO m USING (select * from merge_source_cte) o ON m.k=o.a WHEN MATCHED THEN UPDATE SET v = (SELECT b || merge_source_cte.*::text || ' merge update' FROM merge_source_cte WHERE a = 15) WHEN NOT MATCHED THEN INSERT VALUES(o.a, o.b || (SELECT merge_source_cte.*::text || ' merge insert' FROM merge_source_cte))",
+    "expected": "WITH merge_source_cte AS MATERIALIZED (SELECT 15 AS a, 'merge_source_cte val' AS b) MERGE INTO m USING (SELECT * FROM merge_source_cte) AS o ON m.k = o.a WHEN MATCHED THEN UPDATE SET v = (SELECT b || CAST(merge_source_cte.* AS TEXT) || ' merge update' FROM merge_source_cte WHERE a = 15) WHEN NOT MATCHED THEN INSERT VALUES (o.a, o.b || (SELECT CAST(merge_source_cte.* AS TEXT) || ' merge insert' FROM merge_source_cte))"
+  },
+  {
+    "comment": "with - Statement 205",
+    "query": "SELECT * FROM m where k = 15",
+    "expected": "SELECT * FROM m WHERE k = 15"
+  },
+  {
+    "comment": "with - Statement 206",
+    "query": "EXPLAIN (VERBOSE, COSTS OFF) WITH merge_source_cte AS MATERIALIZED (SELECT 15 a, 'merge_source_cte val' b) MERGE INTO m USING (select * from merge_source_cte) o ON m.k=o.a WHEN MATCHED THEN UPDATE SET v = (SELECT b || merge_source_cte.*::text || ' merge update' FROM merge_source_cte WHERE a = 15) WHEN NOT MATCHED THEN INSERT VALUES(o.a, o.b || (SELECT merge_source_cte.*::text || ' merge insert' FROM merge_source_cte))",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) WITH merge_source_cte AS MATERIALIZED (SELECT 15 AS a, 'merge_source_cte val' AS b) MERGE INTO m USING (SELECT * FROM merge_source_cte) AS o ON m.k = o.a WHEN MATCHED THEN UPDATE SET v = (SELECT b || CAST(merge_source_cte.* AS TEXT) || ' merge update' FROM merge_source_cte WHERE a = 15) WHEN NOT MATCHED THEN INSERT VALUES (o.a, o.b || (SELECT CAST(merge_source_cte.* AS TEXT) || ' merge insert' FROM merge_source_cte))"
+  },
+  {
+    "comment": "with - Statement 207",
+    "query": "DROP TABLE m"
+  },
+  {
+    "comment": "with - Statement 208",
+    "query": "TRUNCATE TABLE y",
+    "expected": "TRUNCATE TABLE y CONTINUE IDENTITY RESTRICT"
+  },
+  {
+    "comment": "with - Statement 209",
+    "query": "INSERT INTO y SELECT generate_series(1, 3)"
+  },
+  {
+    "comment": "with - Statement 210",
+    "query": "CREATE TEMPORARY TABLE yy (a INTEGER)",
+    "expected": "CREATE TEMPORARY TABLE yy (a INT)"
+  },
+  {
+    "comment": "with - Statement 211",
+    "query": "WITH RECURSIVE t1 AS ( INSERT INTO y SELECT * FROM y RETURNING * ), t2 AS ( INSERT INTO yy SELECT * FROM t1 RETURNING * ) SELECT 1",
+    "expected": "WITH RECURSIVE t1 AS (INSERT INTO y SELECT * FROM y RETURNING *), t2 AS (INSERT INTO yy SELECT * FROM t1 RETURNING *) SELECT 1"
+  },
+  {
+    "comment": "with - Statement 212",
+    "query": "SELECT * FROM yy"
+  },
+  {
+    "comment": "with - Statement 213",
+    "query": "WITH RECURSIVE t1 AS ( INSERT INTO yy SELECT * FROM t2 RETURNING * ), t2 AS ( INSERT INTO y SELECT * FROM y RETURNING * ) SELECT 1",
+    "expected": "WITH RECURSIVE t1 AS (INSERT INTO yy SELECT * FROM t2 RETURNING *), t2 AS (INSERT INTO y SELECT * FROM y RETURNING *) SELECT 1"
+  },
+  {
+    "comment": "with - Statement 214",
+    "query": "CREATE FUNCTION y_trigger() RETURNS trigger AS $$ begin raise notice 'y_trigger: a = %', new.a; return new; end; $$ LANGUAGE plpgsql",
+    "expected": "CREATE FUNCTION y_trigger () RETURNS trigger AS $$ begin raise notice 'y_trigger: a = %', new.a; return new; end; $$ LANGUAGE plpgsql"
+  },
+  {
+    "comment": "with - Statement 215",
+    "query": "CREATE TRIGGER y_trig BEFORE INSERT ON y FOR EACH ROW EXECUTE PROCEDURE y_trigger()",
+    "expected": "CREATE TRIGGER y_trig BEFORE INSERT ON y FOR EACH ROW EXECUTE FUNCTION y_trigger()"
+  },
+  {
+    "comment": "with - Statement 216",
+    "query": "WITH t AS ( INSERT INTO y VALUES (21), (22), (23) RETURNING * ) SELECT * FROM t",
+    "expected": "WITH t AS (INSERT INTO y VALUES (21), (22), (23) RETURNING *) SELECT * FROM t"
+  },
+  {
+    "comment": "with - Statement 217",
+    "query": "DROP TRIGGER y_trig ON y"
+  },
+  {
+    "comment": "with - Statement 218",
+    "query": "CREATE TRIGGER y_trig AFTER INSERT ON y FOR EACH ROW EXECUTE PROCEDURE y_trigger()",
+    "expected": "CREATE TRIGGER y_trig AFTER INSERT ON y FOR EACH ROW EXECUTE FUNCTION y_trigger()"
+  },
+  {
+    "comment": "with - Statement 219",
+    "query": "WITH t AS ( INSERT INTO y VALUES (31), (32), (33) RETURNING * ) SELECT * FROM t LIMIT 1",
+    "expected": "WITH t AS (INSERT INTO y VALUES (31), (32), (33) RETURNING *) SELECT * FROM t LIMIT 1"
+  },
+  {
+    "comment": "with - Statement 220",
+    "query": "CREATE OR REPLACE FUNCTION y_trigger() RETURNS trigger AS $$ begin raise notice 'y_trigger'; return null; end; $$ LANGUAGE plpgsql",
+    "expected": "CREATE OR REPLACE FUNCTION y_trigger () RETURNS trigger AS $$ begin raise notice 'y_trigger'; return null; end; $$ LANGUAGE plpgsql"
+  },
+  {
+    "comment": "with - Statement 221",
+    "query": "CREATE TRIGGER y_trig AFTER INSERT ON y FOR EACH STATEMENT EXECUTE PROCEDURE y_trigger()",
+    "expected": "CREATE TRIGGER y_trig AFTER INSERT ON y EXECUTE FUNCTION y_trigger()"
+  },
+  {
+    "comment": "with - Statement 222",
+    "query": "WITH t AS ( INSERT INTO y VALUES (41), (42), (43) RETURNING * ) SELECT * FROM t",
+    "expected": "WITH t AS (INSERT INTO y VALUES (41), (42), (43) RETURNING *) SELECT * FROM t"
+  },
+  {
+    "comment": "with - Statement 223",
+    "query": "DROP FUNCTION y_trigger()"
+  },
+  {
+    "comment": "with - Statement 224",
+    "query": "CREATE TEMP TABLE parent ( id int, val text )",
+    "expected": "CREATE TEMPORARY TABLE parent (id INT, val TEXT)"
+  },
+  {
+    "comment": "with - Statement 225",
+    "query": "CREATE TEMP TABLE child1 ( ) INHERITS ( parent )",
+    "expected": "CREATE TEMPORARY TABLE child1 () INHERITS (parent)"
+  },
+  {
+    "comment": "with - Statement 226",
+    "query": "CREATE TEMP TABLE child2 ( ) INHERITS ( parent )",
+    "expected": "CREATE TEMPORARY TABLE child2 () INHERITS (parent)"
+  },
+  {
+    "comment": "with - Statement 227",
+    "query": "INSERT INTO parent VALUES ( 1, 'p1' )",
+    "expected": "INSERT INTO parent VALUES (1, 'p1')"
+  },
+  {
+    "comment": "with - Statement 228",
+    "query": "INSERT INTO child1 VALUES ( 11, 'c11' ),( 12, 'c12' )",
+    "expected": "INSERT INTO child1 VALUES (11, 'c11'), (12, 'c12')"
+  },
+  {
+    "comment": "with - Statement 229",
+    "query": "INSERT INTO child2 VALUES ( 23, 'c21' ),( 24, 'c22' )",
+    "expected": "INSERT INTO child2 VALUES (23, 'c21'), (24, 'c22')"
+  },
+  {
+    "comment": "with - Statement 230",
+    "query": "WITH rcte AS ( SELECT sum(id) AS totalid FROM parent ) UPDATE parent SET id = id + totalid FROM rcte",
+    "expected": "WITH rcte AS (SELECT SUM(id) AS totalid FROM parent) UPDATE parent SET id = id + totalid FROM rcte"
+  },
+  {
+    "comment": "with - Statement 231",
+    "query": "SELECT * FROM parent"
+  },
+  {
+    "comment": "with - Statement 232",
+    "query": "WITH wcte AS ( INSERT INTO child1 VALUES ( 42, 'new' ) RETURNING id AS newid ) UPDATE parent SET id = id + newid FROM wcte",
+    "expected": "WITH wcte AS (INSERT INTO child1 VALUES (42, 'new') RETURNING id AS newid) UPDATE parent SET id = id + newid FROM wcte"
+  },
+  {
+    "comment": "with - Statement 233",
+    "query": "WITH rcte AS ( SELECT max(id) AS maxid FROM parent ) DELETE FROM parent USING rcte WHERE id = maxid",
+    "expected": "WITH rcte AS (SELECT MAX(id) AS maxid FROM parent) DELETE FROM parent USING rcte WHERE id = maxid"
+  },
+  {
+    "comment": "with - Statement 234",
+    "query": "WITH wcte AS ( INSERT INTO child2 VALUES ( 42, 'new2' ) RETURNING id AS newid ) DELETE FROM parent USING wcte WHERE id = newid",
+    "expected": "WITH wcte AS (INSERT INTO child2 VALUES (42, 'new2') RETURNING id AS newid) DELETE FROM parent USING wcte WHERE id = newid"
+  },
+  {
+    "comment": "with - Statement 235",
+    "query": "EXPLAIN (VERBOSE, COSTS OFF) WITH wcte AS ( INSERT INTO int8_tbl VALUES ( 42, 47 ) RETURNING q2 ) DELETE FROM a_star USING wcte WHERE aa = q2",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) WITH wcte AS (INSERT INTO int8_tbl VALUES (42, 47) RETURNING q2) DELETE FROM a_star USING wcte WHERE aa = q2"
+  },
+  {
+    "comment": "with - Statement 236",
+    "query": "WITH RECURSIVE t AS ( INSERT INTO y SELECT * FROM t ) VALUES(FALSE)",
+    "expected": "VALUES (FALSE)"
+  },
+  {
+    "comment": "with - Statement 237",
+    "query": "WITH t AS ( INSERT INTO y VALUES(0) ) SELECT * FROM t",
+    "expected": "WITH t AS (INSERT INTO y VALUES (0)) SELECT * FROM t"
+  },
+  {
+    "comment": "with - Statement 238",
+    "query": "WITH RECURSIVE t(action, a) AS ( MERGE INTO y USING (VALUES (11)) v(a) ON y.a = v.a WHEN NOT MATCHED THEN INSERT VALUES (v.a) RETURNING merge_action(), (SELECT a FROM t) ) SELECT * FROM t",
+    "expected": "WITH RECURSIVE t(action, a) AS (MERGE INTO y USING (VALUES (11)) AS v(a) ON y.a = v.a WHEN NOT MATCHED THEN INSERT VALUES (v.a) RETURNING MERGE_ACTION(), (SELECT a FROM t)) SELECT * FROM t"
+  },
+  {
+    "comment": "with - Statement 239",
+    "query": "SELECT * FROM ( WITH t AS (UPDATE y SET a=a+1 RETURNING *) SELECT * FROM t ) ss",
+    "expected": "SELECT * FROM (WITH t AS (UPDATE y SET a = a + 1 RETURNING *) SELECT * FROM t) AS ss"
+  },
+  {
+    "comment": "with - Statement 240",
+    "query": "CREATE RULE y_rule AS ON INSERT TO y WHERE a=0 DO INSTEAD DELETE FROM y",
+    "expected": "CREATE RULE y_rule AS ON INSERT TO y WHERE a = 0 DO INSTEAD DELETE FROM y"
+  },
+  {
+    "comment": "with - Statement 241",
+    "query": "WITH t AS ( INSERT INTO y VALUES(0) ) VALUES(FALSE)",
+    "expected": "VALUES (FALSE)"
+  },
+  {
+    "comment": "with - Statement 242",
+    "query": "CREATE OR REPLACE RULE y_rule AS ON INSERT TO y DO INSTEAD NOTHING"
+  },
+  {
+    "comment": "with - Statement 243",
+    "query": "CREATE OR REPLACE RULE y_rule AS ON INSERT TO y DO INSTEAD NOTIFY foo"
+  },
+  {
+    "comment": "with - Statement 244",
+    "query": "CREATE OR REPLACE RULE y_rule AS ON INSERT TO y DO ALSO NOTIFY foo",
+    "expected": "CREATE OR REPLACE RULE y_rule AS ON INSERT TO y DO NOTIFY foo"
+  },
+  {
+    "comment": "with - Statement 245",
+    "query": "CREATE OR REPLACE RULE y_rule AS ON INSERT TO y DO INSTEAD (NOTIFY foo; NOTIFY bar)"
+  },
+  {
+    "comment": "with - Statement 246",
+    "query": "create table foo (with baz)",
+    "error": "parse error at position 22: syntax error"
+  },
+  {
+    "comment": "with - Statement 247",
+    "query": "create table foo (with ordinality)",
+    "error": "parse error at position 22: syntax error"
+  },
+  {
+    "comment": "with - Statement 248",
+    "query": "with ordinality as (select 1 as x) select * from ordinality",
+    "expected": "WITH ordinality AS (SELECT 1 AS x) SELECT * FROM ordinality"
+  },
+  {
+    "comment": "with - Statement 249",
+    "query": "WITH with_test AS (SELECT 42) INSERT INTO with_test VALUES (1)"
+  },
+  {
+    "comment": "with - Statement 250",
+    "query": "create temp table with_test (i int)",
+    "expected": "CREATE TEMPORARY TABLE with_test (i INT)"
+  },
+  {
+    "comment": "with - Statement 251",
+    "query": "with with_test as (select 42) insert into with_test select * from with_test",
+    "expected": "WITH with_test AS (SELECT 42) INSERT INTO with_test SELECT * FROM with_test"
+  },
+  {
+    "comment": "with - Statement 252",
+    "query": "select * from with_test",
+    "expected": "SELECT * FROM with_test"
+  },
+  {
+    "comment": "with - Statement 253",
+    "query": "drop table with_test",
+    "expected": "DROP TABLE with_test"
+  }
+]

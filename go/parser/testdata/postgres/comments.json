@@ -1,0 +1,34 @@
+[
+  {
+    "comment": "comments - Statement 1",
+    "query": "SELECT 'trailing' AS first"
+  },
+  {
+    "comment": "comments - Statement 2",
+    "query": "SELECT /* embedded single line */ 'embedded' AS second",
+    "expected": "SELECT 'embedded' AS second"
+  },
+  {
+    "comment": "comments - Statement 3",
+    "query": "SELECT /* both embedded and trailing single line */ 'both' AS third",
+    "expected": "SELECT 'both' AS third"
+  },
+  {
+    "comment": "comments - Statement 4",
+    "query": "SELECT 'before multi-line' AS fourth"
+  },
+  {
+    "comment": "comments - Statement 5",
+    "query": "/* This is an example of SQL which should not execute: * select 'multi-line'",
+    "error": "unterminated /* comment"
+  },
+  {
+    "comment": "comments - Statement 6",
+    "query": "SELECT 'after multi-line' AS fifth"
+  },
+  {
+    "comment": "comments - Statement 7",
+    "query": "/* SELECT 'trailing' as x1 */",
+    "error": "no ASTs generated"
+  }
+]

@@ -1,0 +1,42 @@
+[
+  {
+    "comment": "select_distinct_on - Statement 1",
+    "query": "SELECT DISTINCT ON (string4) string4, two, ten FROM onek ORDER BY string4 using \u003c, two using \u003e, ten using \u003c",
+    "expected": "SELECT DISTINCT ON (string4) string4, two, ten FROM onek ORDER BY string4 USING \u003c, two USING \u003e, ten USING \u003c"
+  },
+  {
+    "comment": "select_distinct_on - Statement 2",
+    "query": "SELECT DISTINCT ON (string4, ten) string4, two, ten FROM onek ORDER BY string4 using \u003c, two using \u003c, ten using \u003c",
+    "expected": "SELECT DISTINCT ON (string4, ten) string4, two, ten FROM onek ORDER BY string4 USING \u003c, two USING \u003c, ten USING \u003c"
+  },
+  {
+    "comment": "select_distinct_on - Statement 3",
+    "query": "SELECT DISTINCT ON (string4, ten) string4, ten, two FROM onek ORDER BY string4 using \u003c, ten using \u003e, two using \u003c",
+    "expected": "SELECT DISTINCT ON (string4, ten) string4, ten, two FROM onek ORDER BY string4 USING \u003c, ten USING \u003e, two USING \u003c"
+  },
+  {
+    "comment": "select_distinct_on - Statement 4",
+    "query": "select distinct on (1) floor(random()) as r, f1 from int4_tbl order by 1,2",
+    "expected": "SELECT DISTINCT ON (1) floor(random()) AS r, f1 FROM int4_tbl ORDER BY 1, 2"
+  },
+  {
+    "comment": "select_distinct_on - Statement 5",
+    "query": "EXPLAIN (COSTS OFF) SELECT DISTINCT ON (four) four,two FROM tenk1 WHERE four = 0 ORDER BY 1",
+    "expected": "EXPLAIN (COSTS false) SELECT DISTINCT ON (four) four, two FROM tenk1 WHERE four = 0 ORDER BY 1"
+  },
+  {
+    "comment": "select_distinct_on - Statement 6",
+    "query": "SELECT DISTINCT ON (four) four,two FROM tenk1 WHERE four = 0 ORDER BY 1",
+    "expected": "SELECT DISTINCT ON (four) four, two FROM tenk1 WHERE four = 0 ORDER BY 1"
+  },
+  {
+    "comment": "select_distinct_on - Statement 7",
+    "query": "EXPLAIN (COSTS OFF) SELECT DISTINCT ON (four) four,two FROM tenk1 WHERE four = 0 ORDER BY 1,2",
+    "expected": "EXPLAIN (COSTS false) SELECT DISTINCT ON (four) four, two FROM tenk1 WHERE four = 0 ORDER BY 1, 2"
+  },
+  {
+    "comment": "select_distinct_on - Statement 8",
+    "query": "EXPLAIN (COSTS OFF) SELECT DISTINCT ON (four) four,hundred FROM tenk1 WHERE four = 0 ORDER BY 1,2",
+    "expected": "EXPLAIN (COSTS false) SELECT DISTINCT ON (four) four, hundred FROM tenk1 WHERE four = 0 ORDER BY 1, 2"
+  }
+]

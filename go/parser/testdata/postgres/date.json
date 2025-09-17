@@ -1,0 +1,891 @@
+[
+  {
+    "comment": "date - Statement 1",
+    "query": "CREATE TABLE DATE_TBL (f1 date)",
+    "expected": "CREATE TABLE date_tbl (f1 DATE)"
+  },
+  {
+    "comment": "date - Statement 2",
+    "query": "INSERT INTO DATE_TBL VALUES ('1957-04-09')",
+    "expected": "INSERT INTO date_tbl VALUES ('1957-04-09')"
+  },
+  {
+    "comment": "date - Statement 3",
+    "query": "INSERT INTO DATE_TBL VALUES ('1957-06-13')",
+    "expected": "INSERT INTO date_tbl VALUES ('1957-06-13')"
+  },
+  {
+    "comment": "date - Statement 4",
+    "query": "INSERT INTO DATE_TBL VALUES ('1996-02-28')",
+    "expected": "INSERT INTO date_tbl VALUES ('1996-02-28')"
+  },
+  {
+    "comment": "date - Statement 5",
+    "query": "INSERT INTO DATE_TBL VALUES ('1996-02-29')",
+    "expected": "INSERT INTO date_tbl VALUES ('1996-02-29')"
+  },
+  {
+    "comment": "date - Statement 6",
+    "query": "INSERT INTO DATE_TBL VALUES ('1996-03-01')",
+    "expected": "INSERT INTO date_tbl VALUES ('1996-03-01')"
+  },
+  {
+    "comment": "date - Statement 7",
+    "query": "INSERT INTO DATE_TBL VALUES ('1996-03-02')",
+    "expected": "INSERT INTO date_tbl VALUES ('1996-03-02')"
+  },
+  {
+    "comment": "date - Statement 8",
+    "query": "INSERT INTO DATE_TBL VALUES ('1997-02-28')",
+    "expected": "INSERT INTO date_tbl VALUES ('1997-02-28')"
+  },
+  {
+    "comment": "date - Statement 9",
+    "query": "INSERT INTO DATE_TBL VALUES ('1997-02-29')",
+    "expected": "INSERT INTO date_tbl VALUES ('1997-02-29')"
+  },
+  {
+    "comment": "date - Statement 10",
+    "query": "INSERT INTO DATE_TBL VALUES ('1997-03-01')",
+    "expected": "INSERT INTO date_tbl VALUES ('1997-03-01')"
+  },
+  {
+    "comment": "date - Statement 11",
+    "query": "INSERT INTO DATE_TBL VALUES ('1997-03-02')",
+    "expected": "INSERT INTO date_tbl VALUES ('1997-03-02')"
+  },
+  {
+    "comment": "date - Statement 12",
+    "query": "INSERT INTO DATE_TBL VALUES ('2000-04-01')",
+    "expected": "INSERT INTO date_tbl VALUES ('2000-04-01')"
+  },
+  {
+    "comment": "date - Statement 13",
+    "query": "INSERT INTO DATE_TBL VALUES ('2000-04-02')",
+    "expected": "INSERT INTO date_tbl VALUES ('2000-04-02')"
+  },
+  {
+    "comment": "date - Statement 14",
+    "query": "INSERT INTO DATE_TBL VALUES ('2000-04-03')",
+    "expected": "INSERT INTO date_tbl VALUES ('2000-04-03')"
+  },
+  {
+    "comment": "date - Statement 15",
+    "query": "INSERT INTO DATE_TBL VALUES ('2038-04-08')",
+    "expected": "INSERT INTO date_tbl VALUES ('2038-04-08')"
+  },
+  {
+    "comment": "date - Statement 16",
+    "query": "INSERT INTO DATE_TBL VALUES ('2039-04-09')",
+    "expected": "INSERT INTO date_tbl VALUES ('2039-04-09')"
+  },
+  {
+    "comment": "date - Statement 17",
+    "query": "INSERT INTO DATE_TBL VALUES ('2040-04-10')",
+    "expected": "INSERT INTO date_tbl VALUES ('2040-04-10')"
+  },
+  {
+    "comment": "date - Statement 18",
+    "query": "INSERT INTO DATE_TBL VALUES ('2040-04-10 BC')",
+    "expected": "INSERT INTO date_tbl VALUES ('2040-04-10 BC')"
+  },
+  {
+    "comment": "date - Statement 19",
+    "query": "SELECT f1 FROM DATE_TBL",
+    "expected": "SELECT f1 FROM date_tbl"
+  },
+  {
+    "comment": "date - Statement 20",
+    "query": "SELECT f1 FROM DATE_TBL WHERE f1 \u003c '2000-01-01'",
+    "expected": "SELECT f1 FROM date_tbl WHERE f1 \u003c '2000-01-01'"
+  },
+  {
+    "comment": "date - Statement 21",
+    "query": "SELECT f1 FROM DATE_TBL WHERE f1 BETWEEN '2000-01-01' AND '2001-01-01'",
+    "expected": "SELECT f1 FROM date_tbl WHERE f1 BETWEEN '2000-01-01' AND '2001-01-01'"
+  },
+  {
+    "comment": "date - Statement 22",
+    "query": "SET datestyle TO iso",
+    "expected": "SET datestyle = 'iso'"
+  },
+  {
+    "comment": "date - Statement 23",
+    "query": "SET datestyle TO ymd",
+    "expected": "SET datestyle = 'ymd'"
+  },
+  {
+    "comment": "date - Statement 24",
+    "query": "SELECT date 'January 8, 1999'",
+    "expected": "SELECT CAST('January 8, 1999' AS DATE)"
+  },
+  {
+    "comment": "date - Statement 25",
+    "query": "SELECT date '1999-01-08'",
+    "expected": "SELECT CAST('1999-01-08' AS DATE)"
+  },
+  {
+    "comment": "date - Statement 26",
+    "query": "SELECT date '1999-01-18'",
+    "expected": "SELECT CAST('1999-01-18' AS DATE)"
+  },
+  {
+    "comment": "date - Statement 27",
+    "query": "SELECT date '1/8/1999'",
+    "expected": "SELECT CAST('1/8/1999' AS DATE)"
+  },
+  {
+    "comment": "date - Statement 28",
+    "query": "SELECT date '1/18/1999'",
+    "expected": "SELECT CAST('1/18/1999' AS DATE)"
+  },
+  {
+    "comment": "date - Statement 29",
+    "query": "SELECT date '18/1/1999'",
+    "expected": "SELECT CAST('18/1/1999' AS DATE)"
+  },
+  {
+    "comment": "date - Statement 30",
+    "query": "SELECT date '01/02/03'",
+    "expected": "SELECT CAST('01/02/03' AS DATE)"
+  },
+  {
+    "comment": "date - Statement 31",
+    "query": "SELECT date '19990108'",
+    "expected": "SELECT CAST('19990108' AS DATE)"
+  },
+  {
+    "comment": "date - Statement 32",
+    "query": "SELECT date '990108'",
+    "expected": "SELECT CAST('990108' AS DATE)"
+  },
+  {
+    "comment": "date - Statement 33",
+    "query": "SELECT date '1999.008'",
+    "expected": "SELECT CAST('1999.008' AS DATE)"
+  },
+  {
+    "comment": "date - Statement 34",
+    "query": "SELECT date 'J2451187'",
+    "expected": "SELECT CAST('J2451187' AS DATE)"
+  },
+  {
+    "comment": "date - Statement 35",
+    "query": "SELECT date 'January 8, 99 BC'",
+    "expected": "SELECT CAST('January 8, 99 BC' AS DATE)"
+  },
+  {
+    "comment": "date - Statement 36",
+    "query": "SELECT date '99-Jan-08'",
+    "expected": "SELECT CAST('99-Jan-08' AS DATE)"
+  },
+  {
+    "comment": "date - Statement 37",
+    "query": "SELECT date '1999-Jan-08'",
+    "expected": "SELECT CAST('1999-Jan-08' AS DATE)"
+  },
+  {
+    "comment": "date - Statement 38",
+    "query": "SELECT date '08-Jan-99'",
+    "expected": "SELECT CAST('08-Jan-99' AS DATE)"
+  },
+  {
+    "comment": "date - Statement 39",
+    "query": "SELECT date '08-Jan-1999'",
+    "expected": "SELECT CAST('08-Jan-1999' AS DATE)"
+  },
+  {
+    "comment": "date - Statement 40",
+    "query": "SELECT date 'Jan-08-99'",
+    "expected": "SELECT CAST('Jan-08-99' AS DATE)"
+  },
+  {
+    "comment": "date - Statement 41",
+    "query": "SELECT date 'Jan-08-1999'",
+    "expected": "SELECT CAST('Jan-08-1999' AS DATE)"
+  },
+  {
+    "comment": "date - Statement 42",
+    "query": "SELECT date '99-08-Jan'",
+    "expected": "SELECT CAST('99-08-Jan' AS DATE)"
+  },
+  {
+    "comment": "date - Statement 43",
+    "query": "SELECT date '1999-08-Jan'",
+    "expected": "SELECT CAST('1999-08-Jan' AS DATE)"
+  },
+  {
+    "comment": "date - Statement 44",
+    "query": "SELECT date '99 Jan 08'",
+    "expected": "SELECT CAST('99 Jan 08' AS DATE)"
+  },
+  {
+    "comment": "date - Statement 45",
+    "query": "SELECT date '1999 Jan 08'",
+    "expected": "SELECT CAST('1999 Jan 08' AS DATE)"
+  },
+  {
+    "comment": "date - Statement 46",
+    "query": "SELECT date '08 Jan 99'",
+    "expected": "SELECT CAST('08 Jan 99' AS DATE)"
+  },
+  {
+    "comment": "date - Statement 47",
+    "query": "SELECT date '08 Jan 1999'",
+    "expected": "SELECT CAST('08 Jan 1999' AS DATE)"
+  },
+  {
+    "comment": "date - Statement 48",
+    "query": "SELECT date 'Jan 08 99'",
+    "expected": "SELECT CAST('Jan 08 99' AS DATE)"
+  },
+  {
+    "comment": "date - Statement 49",
+    "query": "SELECT date 'Jan 08 1999'",
+    "expected": "SELECT CAST('Jan 08 1999' AS DATE)"
+  },
+  {
+    "comment": "date - Statement 50",
+    "query": "SELECT date '99 08 Jan'",
+    "expected": "SELECT CAST('99 08 Jan' AS DATE)"
+  },
+  {
+    "comment": "date - Statement 51",
+    "query": "SELECT date '1999 08 Jan'",
+    "expected": "SELECT CAST('1999 08 Jan' AS DATE)"
+  },
+  {
+    "comment": "date - Statement 52",
+    "query": "SELECT date '99-01-08'",
+    "expected": "SELECT CAST('99-01-08' AS DATE)"
+  },
+  {
+    "comment": "date - Statement 53",
+    "query": "SELECT date '08-01-99'",
+    "expected": "SELECT CAST('08-01-99' AS DATE)"
+  },
+  {
+    "comment": "date - Statement 54",
+    "query": "SELECT date '08-01-1999'",
+    "expected": "SELECT CAST('08-01-1999' AS DATE)"
+  },
+  {
+    "comment": "date - Statement 55",
+    "query": "SELECT date '01-08-99'",
+    "expected": "SELECT CAST('01-08-99' AS DATE)"
+  },
+  {
+    "comment": "date - Statement 56",
+    "query": "SELECT date '01-08-1999'",
+    "expected": "SELECT CAST('01-08-1999' AS DATE)"
+  },
+  {
+    "comment": "date - Statement 57",
+    "query": "SELECT date '99-08-01'",
+    "expected": "SELECT CAST('99-08-01' AS DATE)"
+  },
+  {
+    "comment": "date - Statement 58",
+    "query": "SELECT date '1999-08-01'",
+    "expected": "SELECT CAST('1999-08-01' AS DATE)"
+  },
+  {
+    "comment": "date - Statement 59",
+    "query": "SELECT date '99 01 08'",
+    "expected": "SELECT CAST('99 01 08' AS DATE)"
+  },
+  {
+    "comment": "date - Statement 60",
+    "query": "SELECT date '1999 01 08'",
+    "expected": "SELECT CAST('1999 01 08' AS DATE)"
+  },
+  {
+    "comment": "date - Statement 61",
+    "query": "SELECT date '08 01 99'",
+    "expected": "SELECT CAST('08 01 99' AS DATE)"
+  },
+  {
+    "comment": "date - Statement 62",
+    "query": "SELECT date '08 01 1999'",
+    "expected": "SELECT CAST('08 01 1999' AS DATE)"
+  },
+  {
+    "comment": "date - Statement 63",
+    "query": "SELECT date '01 08 99'",
+    "expected": "SELECT CAST('01 08 99' AS DATE)"
+  },
+  {
+    "comment": "date - Statement 64",
+    "query": "SELECT date '01 08 1999'",
+    "expected": "SELECT CAST('01 08 1999' AS DATE)"
+  },
+  {
+    "comment": "date - Statement 65",
+    "query": "SELECT date '99 08 01'",
+    "expected": "SELECT CAST('99 08 01' AS DATE)"
+  },
+  {
+    "comment": "date - Statement 66",
+    "query": "SELECT date '1999 08 01'",
+    "expected": "SELECT CAST('1999 08 01' AS DATE)"
+  },
+  {
+    "comment": "date - Statement 67",
+    "query": "SET datestyle TO dmy",
+    "expected": "SET datestyle = 'dmy'"
+  },
+  {
+    "comment": "date - Statement 68",
+    "query": "SET datestyle TO mdy",
+    "expected": "SET datestyle = 'mdy'"
+  },
+  {
+    "comment": "date - Statement 69",
+    "query": "SELECT date '4714-11-24 BC'",
+    "expected": "SELECT CAST('4714-11-24 BC' AS DATE)"
+  },
+  {
+    "comment": "date - Statement 70",
+    "query": "SELECT date '4714-11-23 BC'",
+    "expected": "SELECT CAST('4714-11-23 BC' AS DATE)"
+  },
+  {
+    "comment": "date - Statement 71",
+    "query": "SELECT date '5874897-12-31'",
+    "expected": "SELECT CAST('5874897-12-31' AS DATE)"
+  },
+  {
+    "comment": "date - Statement 72",
+    "query": "SELECT date '5874898-01-01'",
+    "expected": "SELECT CAST('5874898-01-01' AS DATE)"
+  },
+  {
+    "comment": "date - Statement 73",
+    "query": "SELECT pg_input_is_valid('now', 'date')"
+  },
+  {
+    "comment": "date - Statement 74",
+    "query": "SELECT pg_input_is_valid('garbage', 'date')"
+  },
+  {
+    "comment": "date - Statement 75",
+    "query": "SELECT pg_input_is_valid('6874898-01-01', 'date')"
+  },
+  {
+    "comment": "date - Statement 76",
+    "query": "SELECT * FROM pg_input_error_info('garbage', 'date')"
+  },
+  {
+    "comment": "date - Statement 77",
+    "query": "SELECT * FROM pg_input_error_info('6874898-01-01', 'date')"
+  },
+  {
+    "comment": "date - Statement 78",
+    "query": "RESET datestyle"
+  },
+  {
+    "comment": "date - Statement 79",
+    "query": "SELECT f1 - date '2000-01-01' AS \"Days From 2K\" FROM DATE_TBL",
+    "expected": "SELECT f1 - CAST('2000-01-01' AS DATE) AS \"Days From 2K\" FROM date_tbl"
+  },
+  {
+    "comment": "date - Statement 80",
+    "query": "SELECT f1 - date 'epoch' AS \"Days From Epoch\" FROM DATE_TBL",
+    "expected": "SELECT f1 - CAST('epoch' AS DATE) AS \"Days From Epoch\" FROM date_tbl"
+  },
+  {
+    "comment": "date - Statement 81",
+    "query": "SELECT date 'yesterday' - date 'today' AS \"One day\"",
+    "expected": "SELECT CAST('yesterday' AS DATE) - CAST('today' AS DATE) AS \"One day\""
+  },
+  {
+    "comment": "date - Statement 82",
+    "query": "SELECT date 'today' - date 'tomorrow' AS \"One day\"",
+    "expected": "SELECT CAST('today' AS DATE) - CAST('tomorrow' AS DATE) AS \"One day\""
+  },
+  {
+    "comment": "date - Statement 83",
+    "query": "SELECT date 'yesterday' - date 'tomorrow' AS \"Two days\"",
+    "expected": "SELECT CAST('yesterday' AS DATE) - CAST('tomorrow' AS DATE) AS \"Two days\""
+  },
+  {
+    "comment": "date - Statement 84",
+    "query": "SELECT date 'tomorrow' - date 'today' AS \"One day\"",
+    "expected": "SELECT CAST('tomorrow' AS DATE) - CAST('today' AS DATE) AS \"One day\""
+  },
+  {
+    "comment": "date - Statement 85",
+    "query": "SELECT date 'today' - date 'yesterday' AS \"One day\"",
+    "expected": "SELECT CAST('today' AS DATE) - CAST('yesterday' AS DATE) AS \"One day\""
+  },
+  {
+    "comment": "date - Statement 86",
+    "query": "SELECT date 'tomorrow' - date 'yesterday' AS \"Two days\"",
+    "expected": "SELECT CAST('tomorrow' AS DATE) - CAST('yesterday' AS DATE) AS \"Two days\""
+  },
+  {
+    "comment": "date - Statement 87",
+    "query": "SELECT f1 as \"date\", date_part('year', f1) AS year, date_part('month', f1) AS month, date_part('day', f1) AS day, date_part('quarter', f1) AS quarter, date_part('decade', f1) AS decade, date_part('century', f1) AS century, date_part('millennium', f1) AS millennium, date_part('isoyear', f1) AS isoyear, date_part('week', f1) AS week, date_part('dow', f1) AS dow, date_part('isodow', f1) AS isodow, date_part('doy', f1) AS doy, date_part('julian', f1) AS julian, date_part('epoch', f1) AS epoch FROM date_tbl",
+    "expected": "SELECT f1 AS date, date_part('year', f1) AS year, date_part('month', f1) AS month, date_part('day', f1) AS day, date_part('quarter', f1) AS quarter, date_part('decade', f1) AS decade, date_part('century', f1) AS century, date_part('millennium', f1) AS millennium, date_part('isoyear', f1) AS isoyear, date_part('week', f1) AS week, date_part('dow', f1) AS dow, date_part('isodow', f1) AS isodow, date_part('doy', f1) AS doy, date_part('julian', f1) AS julian, date_part('epoch', f1) AS epoch FROM date_tbl"
+  },
+  {
+    "comment": "date - Statement 88",
+    "query": "SELECT EXTRACT(EPOCH FROM DATE        '1970-01-01')",
+    "expected": "SELECT extract(epoch FROM CAST('1970-01-01' AS DATE))"
+  },
+  {
+    "comment": "date - Statement 89",
+    "query": "SELECT EXTRACT(CENTURY FROM DATE '0101-12-31 BC')",
+    "expected": "SELECT extract(century FROM CAST('0101-12-31 BC' AS DATE))"
+  },
+  {
+    "comment": "date - Statement 90",
+    "query": "SELECT EXTRACT(CENTURY FROM DATE '0100-12-31 BC')",
+    "expected": "SELECT extract(century FROM CAST('0100-12-31 BC' AS DATE))"
+  },
+  {
+    "comment": "date - Statement 91",
+    "query": "SELECT EXTRACT(CENTURY FROM DATE '0001-12-31 BC')",
+    "expected": "SELECT extract(century FROM CAST('0001-12-31 BC' AS DATE))"
+  },
+  {
+    "comment": "date - Statement 92",
+    "query": "SELECT EXTRACT(CENTURY FROM DATE '0001-01-01')",
+    "expected": "SELECT extract(century FROM CAST('0001-01-01' AS DATE))"
+  },
+  {
+    "comment": "date - Statement 93",
+    "query": "SELECT EXTRACT(CENTURY FROM DATE '0001-01-01 AD')",
+    "expected": "SELECT extract(century FROM CAST('0001-01-01 AD' AS DATE))"
+  },
+  {
+    "comment": "date - Statement 94",
+    "query": "SELECT EXTRACT(CENTURY FROM DATE '1900-12-31')",
+    "expected": "SELECT extract(century FROM CAST('1900-12-31' AS DATE))"
+  },
+  {
+    "comment": "date - Statement 95",
+    "query": "SELECT EXTRACT(CENTURY FROM DATE '1901-01-01')",
+    "expected": "SELECT extract(century FROM CAST('1901-01-01' AS DATE))"
+  },
+  {
+    "comment": "date - Statement 96",
+    "query": "SELECT EXTRACT(CENTURY FROM DATE '2000-12-31')",
+    "expected": "SELECT extract(century FROM CAST('2000-12-31' AS DATE))"
+  },
+  {
+    "comment": "date - Statement 97",
+    "query": "SELECT EXTRACT(CENTURY FROM DATE '2001-01-01')",
+    "expected": "SELECT extract(century FROM CAST('2001-01-01' AS DATE))"
+  },
+  {
+    "comment": "date - Statement 98",
+    "query": "SELECT EXTRACT(CENTURY FROM CURRENT_DATE)\u003e=21 AS True",
+    "expected": "SELECT extract(century FROM CURRENT_DATE) \u003e= 21 AS \"true\""
+  },
+  {
+    "comment": "date - Statement 99",
+    "query": "SELECT EXTRACT(MILLENNIUM FROM DATE '0001-12-31 BC')",
+    "expected": "SELECT extract(millennium FROM CAST('0001-12-31 BC' AS DATE))"
+  },
+  {
+    "comment": "date - Statement 100",
+    "query": "SELECT EXTRACT(MILLENNIUM FROM DATE '0001-01-01 AD')",
+    "expected": "SELECT extract(millennium FROM CAST('0001-01-01 AD' AS DATE))"
+  },
+  {
+    "comment": "date - Statement 101",
+    "query": "SELECT EXTRACT(MILLENNIUM FROM DATE '1000-12-31')",
+    "expected": "SELECT extract(millennium FROM CAST('1000-12-31' AS DATE))"
+  },
+  {
+    "comment": "date - Statement 102",
+    "query": "SELECT EXTRACT(MILLENNIUM FROM DATE '1001-01-01')",
+    "expected": "SELECT extract(millennium FROM CAST('1001-01-01' AS DATE))"
+  },
+  {
+    "comment": "date - Statement 103",
+    "query": "SELECT EXTRACT(MILLENNIUM FROM DATE '2000-12-31')",
+    "expected": "SELECT extract(millennium FROM CAST('2000-12-31' AS DATE))"
+  },
+  {
+    "comment": "date - Statement 104",
+    "query": "SELECT EXTRACT(MILLENNIUM FROM DATE '2001-01-01')",
+    "expected": "SELECT extract(millennium FROM CAST('2001-01-01' AS DATE))"
+  },
+  {
+    "comment": "date - Statement 105",
+    "query": "SELECT EXTRACT(MILLENNIUM FROM CURRENT_DATE)",
+    "expected": "SELECT extract(millennium FROM CURRENT_DATE)"
+  },
+  {
+    "comment": "date - Statement 106",
+    "query": "SELECT EXTRACT(DECADE FROM DATE '1994-12-25')",
+    "expected": "SELECT extract(decade FROM CAST('1994-12-25' AS DATE))"
+  },
+  {
+    "comment": "date - Statement 107",
+    "query": "SELECT EXTRACT(DECADE FROM DATE '0010-01-01')",
+    "expected": "SELECT extract(decade FROM CAST('0010-01-01' AS DATE))"
+  },
+  {
+    "comment": "date - Statement 108",
+    "query": "SELECT EXTRACT(DECADE FROM DATE '0009-12-31')",
+    "expected": "SELECT extract(decade FROM CAST('0009-12-31' AS DATE))"
+  },
+  {
+    "comment": "date - Statement 109",
+    "query": "SELECT EXTRACT(DECADE FROM DATE '0001-01-01 BC')",
+    "expected": "SELECT extract(decade FROM CAST('0001-01-01 BC' AS DATE))"
+  },
+  {
+    "comment": "date - Statement 110",
+    "query": "SELECT EXTRACT(DECADE FROM DATE '0002-12-31 BC')",
+    "expected": "SELECT extract(decade FROM CAST('0002-12-31 BC' AS DATE))"
+  },
+  {
+    "comment": "date - Statement 111",
+    "query": "SELECT EXTRACT(DECADE FROM DATE '0011-01-01 BC')",
+    "expected": "SELECT extract(decade FROM CAST('0011-01-01 BC' AS DATE))"
+  },
+  {
+    "comment": "date - Statement 112",
+    "query": "SELECT EXTRACT(DECADE FROM DATE '0012-12-31 BC')",
+    "expected": "SELECT extract(decade FROM CAST('0012-12-31 BC' AS DATE))"
+  },
+  {
+    "comment": "date - Statement 113",
+    "query": "SELECT EXTRACT(MICROSECONDS  FROM DATE '2020-08-11')",
+    "expected": "SELECT extract(microseconds FROM CAST('2020-08-11' AS DATE))"
+  },
+  {
+    "comment": "date - Statement 114",
+    "query": "SELECT EXTRACT(MILLISECONDS  FROM DATE '2020-08-11')",
+    "expected": "SELECT extract(milliseconds FROM CAST('2020-08-11' AS DATE))"
+  },
+  {
+    "comment": "date - Statement 115",
+    "query": "SELECT EXTRACT(SECOND        FROM DATE '2020-08-11')",
+    "expected": "SELECT extract(second FROM CAST('2020-08-11' AS DATE))"
+  },
+  {
+    "comment": "date - Statement 116",
+    "query": "SELECT EXTRACT(MINUTE        FROM DATE '2020-08-11')",
+    "expected": "SELECT extract(minute FROM CAST('2020-08-11' AS DATE))"
+  },
+  {
+    "comment": "date - Statement 117",
+    "query": "SELECT EXTRACT(HOUR          FROM DATE '2020-08-11')",
+    "expected": "SELECT extract(hour FROM CAST('2020-08-11' AS DATE))"
+  },
+  {
+    "comment": "date - Statement 118",
+    "query": "SELECT EXTRACT(DAY           FROM DATE '2020-08-11')",
+    "expected": "SELECT extract(day FROM CAST('2020-08-11' AS DATE))"
+  },
+  {
+    "comment": "date - Statement 119",
+    "query": "SELECT EXTRACT(MONTH         FROM DATE '2020-08-11')",
+    "expected": "SELECT extract(month FROM CAST('2020-08-11' AS DATE))"
+  },
+  {
+    "comment": "date - Statement 120",
+    "query": "SELECT EXTRACT(YEAR          FROM DATE '2020-08-11')",
+    "expected": "SELECT extract(year FROM CAST('2020-08-11' AS DATE))"
+  },
+  {
+    "comment": "date - Statement 121",
+    "query": "SELECT EXTRACT(YEAR          FROM DATE '2020-08-11 BC')",
+    "expected": "SELECT extract(year FROM CAST('2020-08-11 BC' AS DATE))"
+  },
+  {
+    "comment": "date - Statement 122",
+    "query": "SELECT EXTRACT(DECADE        FROM DATE '2020-08-11')",
+    "expected": "SELECT extract(decade FROM CAST('2020-08-11' AS DATE))"
+  },
+  {
+    "comment": "date - Statement 123",
+    "query": "SELECT EXTRACT(CENTURY       FROM DATE '2020-08-11')",
+    "expected": "SELECT extract(century FROM CAST('2020-08-11' AS DATE))"
+  },
+  {
+    "comment": "date - Statement 124",
+    "query": "SELECT EXTRACT(MILLENNIUM    FROM DATE '2020-08-11')",
+    "expected": "SELECT extract(millennium FROM CAST('2020-08-11' AS DATE))"
+  },
+  {
+    "comment": "date - Statement 125",
+    "query": "SELECT EXTRACT(ISOYEAR       FROM DATE '2020-08-11')",
+    "expected": "SELECT extract(isoyear FROM CAST('2020-08-11' AS DATE))"
+  },
+  {
+    "comment": "date - Statement 126",
+    "query": "SELECT EXTRACT(ISOYEAR       FROM DATE '2020-08-11 BC')",
+    "expected": "SELECT extract(isoyear FROM CAST('2020-08-11 BC' AS DATE))"
+  },
+  {
+    "comment": "date - Statement 127",
+    "query": "SELECT EXTRACT(QUARTER       FROM DATE '2020-08-11')",
+    "expected": "SELECT extract(quarter FROM CAST('2020-08-11' AS DATE))"
+  },
+  {
+    "comment": "date - Statement 128",
+    "query": "SELECT EXTRACT(WEEK          FROM DATE '2020-08-11')",
+    "expected": "SELECT extract(week FROM CAST('2020-08-11' AS DATE))"
+  },
+  {
+    "comment": "date - Statement 129",
+    "query": "SELECT EXTRACT(DOW           FROM DATE '2020-08-11')",
+    "expected": "SELECT extract(dow FROM CAST('2020-08-11' AS DATE))"
+  },
+  {
+    "comment": "date - Statement 130",
+    "query": "SELECT EXTRACT(DOW           FROM DATE '2020-08-16')",
+    "expected": "SELECT extract(dow FROM CAST('2020-08-16' AS DATE))"
+  },
+  {
+    "comment": "date - Statement 131",
+    "query": "SELECT EXTRACT(ISODOW        FROM DATE '2020-08-11')",
+    "expected": "SELECT extract(isodow FROM CAST('2020-08-11' AS DATE))"
+  },
+  {
+    "comment": "date - Statement 132",
+    "query": "SELECT EXTRACT(ISODOW        FROM DATE '2020-08-16')",
+    "expected": "SELECT extract(isodow FROM CAST('2020-08-16' AS DATE))"
+  },
+  {
+    "comment": "date - Statement 133",
+    "query": "SELECT EXTRACT(DOY           FROM DATE '2020-08-11')",
+    "expected": "SELECT extract(doy FROM CAST('2020-08-11' AS DATE))"
+  },
+  {
+    "comment": "date - Statement 134",
+    "query": "SELECT EXTRACT(TIMEZONE      FROM DATE '2020-08-11')",
+    "expected": "SELECT extract(timezone FROM CAST('2020-08-11' AS DATE))"
+  },
+  {
+    "comment": "date - Statement 135",
+    "query": "SELECT EXTRACT(TIMEZONE_M    FROM DATE '2020-08-11')",
+    "expected": "SELECT extract(timezone_m FROM CAST('2020-08-11' AS DATE))"
+  },
+  {
+    "comment": "date - Statement 136",
+    "query": "SELECT EXTRACT(TIMEZONE_H    FROM DATE '2020-08-11')",
+    "expected": "SELECT extract(timezone_h FROM CAST('2020-08-11' AS DATE))"
+  },
+  {
+    "comment": "date - Statement 137",
+    "query": "SELECT EXTRACT(EPOCH         FROM DATE '2020-08-11')",
+    "expected": "SELECT extract(epoch FROM CAST('2020-08-11' AS DATE))"
+  },
+  {
+    "comment": "date - Statement 138",
+    "query": "SELECT EXTRACT(JULIAN        FROM DATE '2020-08-11')",
+    "expected": "SELECT extract(julian FROM CAST('2020-08-11' AS DATE))"
+  },
+  {
+    "comment": "date - Statement 139",
+    "query": "SELECT DATE_TRUNC('MILLENNIUM', TIMESTAMP '1970-03-20 04:30:00.00000')",
+    "expected": "SELECT date_trunc('MILLENNIUM', CAST('1970-03-20 04:30:00.00000' AS TIMESTAMP))"
+  },
+  {
+    "comment": "date - Statement 140",
+    "query": "SELECT DATE_TRUNC('MILLENNIUM', DATE '1970-03-20')",
+    "expected": "SELECT date_trunc('MILLENNIUM', CAST('1970-03-20' AS DATE))"
+  },
+  {
+    "comment": "date - Statement 141",
+    "query": "SELECT DATE_TRUNC('CENTURY', TIMESTAMP '1970-03-20 04:30:00.00000')",
+    "expected": "SELECT date_trunc('CENTURY', CAST('1970-03-20 04:30:00.00000' AS TIMESTAMP))"
+  },
+  {
+    "comment": "date - Statement 142",
+    "query": "SELECT DATE_TRUNC('CENTURY', DATE '1970-03-20')",
+    "expected": "SELECT date_trunc('CENTURY', CAST('1970-03-20' AS DATE))"
+  },
+  {
+    "comment": "date - Statement 143",
+    "query": "SELECT DATE_TRUNC('CENTURY', DATE '2004-08-10')",
+    "expected": "SELECT date_trunc('CENTURY', CAST('2004-08-10' AS DATE))"
+  },
+  {
+    "comment": "date - Statement 144",
+    "query": "SELECT DATE_TRUNC('CENTURY', DATE '0002-02-04')",
+    "expected": "SELECT date_trunc('CENTURY', CAST('0002-02-04' AS DATE))"
+  },
+  {
+    "comment": "date - Statement 145",
+    "query": "SELECT DATE_TRUNC('CENTURY', DATE '0055-08-10 BC')",
+    "expected": "SELECT date_trunc('CENTURY', CAST('0055-08-10 BC' AS DATE))"
+  },
+  {
+    "comment": "date - Statement 146",
+    "query": "SELECT DATE_TRUNC('DECADE', DATE '1993-12-25')",
+    "expected": "SELECT date_trunc('DECADE', CAST('1993-12-25' AS DATE))"
+  },
+  {
+    "comment": "date - Statement 147",
+    "query": "SELECT DATE_TRUNC('DECADE', DATE '0004-12-25')",
+    "expected": "SELECT date_trunc('DECADE', CAST('0004-12-25' AS DATE))"
+  },
+  {
+    "comment": "date - Statement 148",
+    "query": "SELECT DATE_TRUNC('DECADE', DATE '0002-12-31 BC')",
+    "expected": "SELECT date_trunc('DECADE', CAST('0002-12-31 BC' AS DATE))"
+  },
+  {
+    "comment": "date - Statement 149",
+    "query": "select 'infinity'::date, '-infinity'::date",
+    "expected": "SELECT CAST('infinity' AS DATE), CAST('-infinity' AS DATE)"
+  },
+  {
+    "comment": "date - Statement 150",
+    "query": "select 'infinity'::date \u003e 'today'::date as t",
+    "expected": "SELECT CAST('infinity' AS DATE) \u003e CAST('today' AS DATE) AS t"
+  },
+  {
+    "comment": "date - Statement 151",
+    "query": "select '-infinity'::date \u003c 'today'::date as t",
+    "expected": "SELECT CAST('-infinity' AS DATE) \u003c CAST('today' AS DATE) AS t"
+  },
+  {
+    "comment": "date - Statement 152",
+    "query": "select isfinite('infinity'::date), isfinite('-infinity'::date), isfinite('today'::date)",
+    "expected": "SELECT isfinite(CAST('infinity' AS DATE)), isfinite(CAST('-infinity' AS DATE)), isfinite(CAST('today' AS DATE))"
+  },
+  {
+    "comment": "date - Statement 153",
+    "query": "select 'infinity'::date = '+infinity'::date as t",
+    "expected": "SELECT CAST('infinity' AS DATE) = CAST('+infinity' AS DATE) AS t"
+  },
+  {
+    "comment": "date - Statement 154",
+    "query": "SELECT EXTRACT(DAY FROM DATE 'infinity')",
+    "expected": "SELECT extract(day FROM CAST('infinity' AS DATE))"
+  },
+  {
+    "comment": "date - Statement 155",
+    "query": "SELECT EXTRACT(DAY FROM DATE '-infinity')",
+    "expected": "SELECT extract(day FROM CAST('-infinity' AS DATE))"
+  },
+  {
+    "comment": "date - Statement 156",
+    "query": "SELECT EXTRACT(MONTH         FROM DATE 'infinity')",
+    "expected": "SELECT extract(month FROM CAST('infinity' AS DATE))"
+  },
+  {
+    "comment": "date - Statement 157",
+    "query": "SELECT EXTRACT(QUARTER       FROM DATE 'infinity')",
+    "expected": "SELECT extract(quarter FROM CAST('infinity' AS DATE))"
+  },
+  {
+    "comment": "date - Statement 158",
+    "query": "SELECT EXTRACT(WEEK          FROM DATE 'infinity')",
+    "expected": "SELECT extract(week FROM CAST('infinity' AS DATE))"
+  },
+  {
+    "comment": "date - Statement 159",
+    "query": "SELECT EXTRACT(DOW           FROM DATE 'infinity')",
+    "expected": "SELECT extract(dow FROM CAST('infinity' AS DATE))"
+  },
+  {
+    "comment": "date - Statement 160",
+    "query": "SELECT EXTRACT(ISODOW        FROM DATE 'infinity')",
+    "expected": "SELECT extract(isodow FROM CAST('infinity' AS DATE))"
+  },
+  {
+    "comment": "date - Statement 161",
+    "query": "SELECT EXTRACT(DOY           FROM DATE 'infinity')",
+    "expected": "SELECT extract(doy FROM CAST('infinity' AS DATE))"
+  },
+  {
+    "comment": "date - Statement 162",
+    "query": "SELECT EXTRACT(EPOCH FROM DATE 'infinity')",
+    "expected": "SELECT extract(epoch FROM CAST('infinity' AS DATE))"
+  },
+  {
+    "comment": "date - Statement 163",
+    "query": "SELECT EXTRACT(EPOCH FROM DATE '-infinity')",
+    "expected": "SELECT extract(epoch FROM CAST('-infinity' AS DATE))"
+  },
+  {
+    "comment": "date - Statement 164",
+    "query": "SELECT EXTRACT(YEAR       FROM DATE 'infinity')",
+    "expected": "SELECT extract(year FROM CAST('infinity' AS DATE))"
+  },
+  {
+    "comment": "date - Statement 165",
+    "query": "SELECT EXTRACT(DECADE     FROM DATE 'infinity')",
+    "expected": "SELECT extract(decade FROM CAST('infinity' AS DATE))"
+  },
+  {
+    "comment": "date - Statement 166",
+    "query": "SELECT EXTRACT(CENTURY    FROM DATE 'infinity')",
+    "expected": "SELECT extract(century FROM CAST('infinity' AS DATE))"
+  },
+  {
+    "comment": "date - Statement 167",
+    "query": "SELECT EXTRACT(MILLENNIUM FROM DATE 'infinity')",
+    "expected": "SELECT extract(millennium FROM CAST('infinity' AS DATE))"
+  },
+  {
+    "comment": "date - Statement 168",
+    "query": "SELECT EXTRACT(JULIAN     FROM DATE 'infinity')",
+    "expected": "SELECT extract(julian FROM CAST('infinity' AS DATE))"
+  },
+  {
+    "comment": "date - Statement 169",
+    "query": "SELECT EXTRACT(ISOYEAR    FROM DATE 'infinity')",
+    "expected": "SELECT extract(isoyear FROM CAST('infinity' AS DATE))"
+  },
+  {
+    "comment": "date - Statement 170",
+    "query": "SELECT EXTRACT(MICROSEC  FROM DATE 'infinity')",
+    "expected": "SELECT extract(microsec FROM CAST('infinity' AS DATE))"
+  },
+  {
+    "comment": "date - Statement 171",
+    "query": "select make_date(2013, 7, 15)",
+    "expected": "SELECT make_date(2013, 7, 15)"
+  },
+  {
+    "comment": "date - Statement 172",
+    "query": "select make_date(-44, 3, 15)",
+    "expected": "SELECT make_date(-44, 3, 15)"
+  },
+  {
+    "comment": "date - Statement 173",
+    "query": "select make_time(8, 20, 0.0)",
+    "expected": "SELECT make_time(8, 20, 0.0)"
+  },
+  {
+    "comment": "date - Statement 174",
+    "query": "select make_date(0, 7, 15)",
+    "expected": "SELECT make_date(0, 7, 15)"
+  },
+  {
+    "comment": "date - Statement 175",
+    "query": "select make_date(2013, 2, 30)",
+    "expected": "SELECT make_date(2013, 2, 30)"
+  },
+  {
+    "comment": "date - Statement 176",
+    "query": "select make_date(2013, 13, 1)",
+    "expected": "SELECT make_date(2013, 13, 1)"
+  },
+  {
+    "comment": "date - Statement 177",
+    "query": "select make_date(2013, 11, -1)",
+    "expected": "SELECT make_date(2013, 11, -1)"
+  },
+  {
+    "comment": "date - Statement 178",
+    "query": "select make_time(10, 55, 100.1)",
+    "expected": "SELECT make_time(10, 55, 100.1)"
+  },
+  {
+    "comment": "date - Statement 179",
+    "query": "select make_time(24, 0, 2.1)",
+    "expected": "SELECT make_time(24, 0, 2.1)"
+  }
+]

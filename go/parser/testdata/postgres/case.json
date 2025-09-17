@@ -1,0 +1,280 @@
+[
+  {
+    "comment": "case - Statement 1",
+    "query": "CREATE TABLE CASE_TBL ( i integer, f double precision )",
+    "expected": "CREATE TABLE case_tbl (i INT, f FLOAT8)"
+  },
+  {
+    "comment": "case - Statement 2",
+    "query": "CREATE TABLE CASE2_TBL ( i integer, j integer )",
+    "expected": "CREATE TABLE case2_tbl (i INT, j INT)"
+  },
+  {
+    "comment": "case - Statement 3",
+    "query": "INSERT INTO CASE_TBL VALUES (1, 10.1)",
+    "expected": "INSERT INTO case_tbl VALUES (1, 10.1)"
+  },
+  {
+    "comment": "case - Statement 4",
+    "query": "INSERT INTO CASE_TBL VALUES (2, 20.2)",
+    "expected": "INSERT INTO case_tbl VALUES (2, 20.2)"
+  },
+  {
+    "comment": "case - Statement 5",
+    "query": "INSERT INTO CASE_TBL VALUES (3, -30.3)",
+    "expected": "INSERT INTO case_tbl VALUES (3, -30.3)"
+  },
+  {
+    "comment": "case - Statement 6",
+    "query": "INSERT INTO CASE_TBL VALUES (4, NULL)",
+    "expected": "INSERT INTO case_tbl VALUES (4, NULL)"
+  },
+  {
+    "comment": "case - Statement 7",
+    "query": "INSERT INTO CASE2_TBL VALUES (1, -1)",
+    "expected": "INSERT INTO case2_tbl VALUES (1, -1)"
+  },
+  {
+    "comment": "case - Statement 8",
+    "query": "INSERT INTO CASE2_TBL VALUES (2, -2)",
+    "expected": "INSERT INTO case2_tbl VALUES (2, -2)"
+  },
+  {
+    "comment": "case - Statement 9",
+    "query": "INSERT INTO CASE2_TBL VALUES (3, -3)",
+    "expected": "INSERT INTO case2_tbl VALUES (3, -3)"
+  },
+  {
+    "comment": "case - Statement 10",
+    "query": "INSERT INTO CASE2_TBL VALUES (2, -4)",
+    "expected": "INSERT INTO case2_tbl VALUES (2, -4)"
+  },
+  {
+    "comment": "case - Statement 11",
+    "query": "INSERT INTO CASE2_TBL VALUES (1, NULL)",
+    "expected": "INSERT INTO case2_tbl VALUES (1, NULL)"
+  },
+  {
+    "comment": "case - Statement 12",
+    "query": "INSERT INTO CASE2_TBL VALUES (NULL, -6)",
+    "expected": "INSERT INTO case2_tbl VALUES (NULL, -6)"
+  },
+  {
+    "comment": "case - Statement 13",
+    "query": "SELECT '3' AS \"One\", CASE WHEN 1 \u003c 2 THEN 3 END AS \"Simple WHEN\""
+  },
+  {
+    "comment": "case - Statement 14",
+    "query": "SELECT '\u003cNULL\u003e' AS \"One\", CASE WHEN 1 \u003e 2 THEN 3 END AS \"Simple default\""
+  },
+  {
+    "comment": "case - Statement 15",
+    "query": "SELECT '3' AS \"One\", CASE WHEN 1 \u003c 2 THEN 3 ELSE 4 END AS \"Simple ELSE\""
+  },
+  {
+    "comment": "case - Statement 16",
+    "query": "SELECT '4' AS \"One\", CASE WHEN 1 \u003e 2 THEN 3 ELSE 4 END AS \"ELSE default\""
+  },
+  {
+    "comment": "case - Statement 17",
+    "query": "SELECT '6' AS \"One\", CASE WHEN 1 \u003e 2 THEN 3 WHEN 4 \u003c 5 THEN 6 ELSE 7 END AS \"Two WHEN with default\""
+  },
+  {
+    "comment": "case - Statement 18",
+    "query": "SELECT '7' AS \"None\", CASE WHEN random() \u003c 0 THEN 1 END AS \"NULL on no matches\""
+  },
+  {
+    "comment": "case - Statement 19",
+    "query": "SELECT CASE WHEN 1=0 THEN 1/0 WHEN 1=1 THEN 1 ELSE 2/0 END",
+    "expected": "SELECT CASE WHEN 1 = 0 THEN 1 / 0 WHEN 1 = 1 THEN 1 ELSE 2 / 0 END"
+  },
+  {
+    "comment": "case - Statement 20",
+    "query": "SELECT CASE 1 WHEN 0 THEN 1/0 WHEN 1 THEN 1 ELSE 2/0 END",
+    "expected": "SELECT CASE 1 WHEN 0 THEN 1 / 0 WHEN 1 THEN 1 ELSE 2 / 0 END"
+  },
+  {
+    "comment": "case - Statement 21",
+    "query": "SELECT CASE WHEN i \u003e 100 THEN 1/0 ELSE 0 END FROM case_tbl",
+    "expected": "SELECT CASE WHEN i \u003e 100 THEN 1 / 0 ELSE 0 END FROM case_tbl"
+  },
+  {
+    "comment": "case - Statement 22",
+    "query": "SELECT CASE 'a' WHEN 'a' THEN 1 ELSE 2 END"
+  },
+  {
+    "comment": "case - Statement 23",
+    "query": "SELECT CASE WHEN i \u003e= 3 THEN i END AS \"\u003e= 3 or Null\" FROM CASE_TBL",
+    "expected": "SELECT CASE WHEN i \u003e= 3 THEN i END AS \"\u003e= 3 or Null\" FROM case_tbl"
+  },
+  {
+    "comment": "case - Statement 24",
+    "query": "SELECT CASE WHEN i \u003e= 3 THEN (i + i) ELSE i END AS \"Simplest Math\" FROM CASE_TBL",
+    "expected": "SELECT CASE WHEN i \u003e= 3 THEN (i + i) ELSE i END AS \"Simplest Math\" FROM case_tbl"
+  },
+  {
+    "comment": "case - Statement 25",
+    "query": "SELECT i AS \"Value\", CASE WHEN (i \u003c 0) THEN 'small' WHEN (i = 0) THEN 'zero' WHEN (i = 1) THEN 'one' WHEN (i = 2) THEN 'two' ELSE 'big' END AS \"Category\" FROM CASE_TBL",
+    "expected": "SELECT i AS \"Value\", CASE WHEN (i \u003c 0) THEN 'small' WHEN (i = 0) THEN 'zero' WHEN (i = 1) THEN 'one' WHEN (i = 2) THEN 'two' ELSE 'big' END AS \"Category\" FROM case_tbl"
+  },
+  {
+    "comment": "case - Statement 26",
+    "query": "SELECT CASE WHEN ((i \u003c 0) or (i \u003c 0)) THEN 'small' WHEN ((i = 0) or (i = 0)) THEN 'zero' WHEN ((i = 1) or (i = 1)) THEN 'one' WHEN ((i = 2) or (i = 2)) THEN 'two' ELSE 'big' END AS \"Category\" FROM CASE_TBL",
+    "expected": "SELECT CASE WHEN ((i \u003c 0) OR (i \u003c 0)) THEN 'small' WHEN ((i = 0) OR (i = 0)) THEN 'zero' WHEN ((i = 1) OR (i = 1)) THEN 'one' WHEN ((i = 2) OR (i = 2)) THEN 'two' ELSE 'big' END AS \"Category\" FROM case_tbl"
+  },
+  {
+    "comment": "case - Statement 27",
+    "query": "SELECT * FROM CASE_TBL WHERE COALESCE(f,i) = 4",
+    "expected": "SELECT * FROM case_tbl WHERE COALESCE(f, i) = 4"
+  },
+  {
+    "comment": "case - Statement 28",
+    "query": "SELECT * FROM CASE_TBL WHERE NULLIF(f,i) = 2",
+    "expected": "SELECT * FROM case_tbl WHERE nullif(f, i) = 2"
+  },
+  {
+    "comment": "case - Statement 29",
+    "query": "SELECT COALESCE(a.f, b.i, b.j) FROM CASE_TBL a, CASE2_TBL b",
+    "expected": "SELECT COALESCE(a.f, b.i, b.j) FROM case_tbl AS a, case2_tbl AS b"
+  },
+  {
+    "comment": "case - Statement 30",
+    "query": "SELECT * FROM CASE_TBL a, CASE2_TBL b WHERE COALESCE(a.f, b.i, b.j) = 2",
+    "expected": "SELECT * FROM case_tbl AS a, case2_tbl AS b WHERE COALESCE(a.f, b.i, b.j) = 2"
+  },
+  {
+    "comment": "case - Statement 31",
+    "query": "SELECT NULLIF(a.i,b.i) AS \"NULLIF(a.i,b.i)\", NULLIF(b.i, 4) AS \"NULLIF(b.i,4)\" FROM CASE_TBL a, CASE2_TBL b",
+    "expected": "SELECT nullif(a.i, b.i) AS \"NULLIF(a.i,b.i)\", nullif(b.i, 4) AS \"NULLIF(b.i,4)\" FROM case_tbl AS a, case2_tbl AS b"
+  },
+  {
+    "comment": "case - Statement 32",
+    "query": "SELECT * FROM CASE_TBL a, CASE2_TBL b WHERE COALESCE(f,b.i) = 2",
+    "expected": "SELECT * FROM case_tbl AS a, case2_tbl AS b WHERE COALESCE(f, b.i) = 2"
+  },
+  {
+    "comment": "case - Statement 33",
+    "query": "explain (costs off) SELECT * FROM CASE_TBL WHERE NULLIF(1, 2) = 2",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM case_tbl WHERE nullif(1, 2) = 2"
+  },
+  {
+    "comment": "case - Statement 34",
+    "query": "explain (costs off) SELECT * FROM CASE_TBL WHERE NULLIF(1, 1) IS NOT NULL",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM case_tbl WHERE nullif(1, 1) IS NOT NULL"
+  },
+  {
+    "comment": "case - Statement 35",
+    "query": "explain (costs off) SELECT * FROM CASE_TBL WHERE NULLIF(1, null) = 2",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM case_tbl WHERE nullif(1, NULL) = 2"
+  },
+  {
+    "comment": "case - Statement 36",
+    "query": "UPDATE CASE_TBL SET i = CASE WHEN i \u003e= 3 THEN (- i) ELSE (2 * i) END",
+    "expected": "UPDATE case_tbl SET i = CASE WHEN i \u003e= 3 THEN (-i) ELSE (2 * i) END"
+  },
+  {
+    "comment": "case - Statement 37",
+    "query": "SELECT * FROM CASE_TBL",
+    "expected": "SELECT * FROM case_tbl"
+  },
+  {
+    "comment": "case - Statement 38",
+    "query": "UPDATE CASE_TBL SET i = CASE WHEN i \u003e= 2 THEN (2 * i) ELSE (3 * i) END",
+    "expected": "UPDATE case_tbl SET i = CASE WHEN i \u003e= 2 THEN (2 * i) ELSE (3 * i) END"
+  },
+  {
+    "comment": "case - Statement 39",
+    "query": "UPDATE CASE_TBL SET i = CASE WHEN b.i \u003e= 2 THEN (2 * j) ELSE (3 * j) END FROM CASE2_TBL b WHERE j = -CASE_TBL.i",
+    "expected": "UPDATE case_tbl SET i = CASE WHEN b.i \u003e= 2 THEN (2 * j) ELSE (3 * j) END FROM case2_tbl AS b WHERE j = -case_tbl.i"
+  },
+  {
+    "comment": "case - Statement 40",
+    "query": "BEGIN"
+  },
+  {
+    "comment": "case - Statement 41",
+    "query": "CREATE FUNCTION vol(text) returns text as 'begin return $1; end' language plpgsql volatile",
+    "expected": "CREATE FUNCTION vol (TEXT) RETURNS TEXT AS $$begin return $1; end$$ LANGUAGE plpgsql VOLATILE"
+  },
+  {
+    "comment": "case - Statement 42",
+    "query": "SELECT CASE (CASE vol('bar') WHEN 'foo' THEN 'it was foo!' WHEN vol(null) THEN 'null input' WHEN 'bar' THEN 'it was bar!' END ) WHEN 'it was foo!' THEN 'foo recognized' WHEN 'it was bar!' THEN 'bar recognized' ELSE 'unrecognized' END",
+    "expected": "SELECT CASE (CASE vol('bar') WHEN 'foo' THEN 'it was foo!' WHEN vol(NULL) THEN 'null input' WHEN 'bar' THEN 'it was bar!' END) WHEN 'it was foo!' THEN 'foo recognized' WHEN 'it was bar!' THEN 'bar recognized' ELSE 'unrecognized' END"
+  },
+  {
+    "comment": "case - Statement 43",
+    "query": "CREATE DOMAIN foodomain AS text",
+    "expected": "CREATE DOMAIN foodomain AS TEXT"
+  },
+  {
+    "comment": "case - Statement 44",
+    "query": "CREATE FUNCTION volfoo(text) returns foodomain as 'begin return $1::foodomain; end' language plpgsql volatile",
+    "expected": "CREATE FUNCTION volfoo (TEXT) RETURNS foodomain AS $$begin return $1::foodomain; end$$ LANGUAGE plpgsql VOLATILE"
+  },
+  {
+    "comment": "case - Statement 45",
+    "query": "CREATE FUNCTION inline_eq(foodomain, foodomain) returns boolean as 'SELECT CASE $2::text WHEN $1::text THEN true ELSE false END' language sql",
+    "expected": "CREATE FUNCTION inline_eq (foodomain, foodomain) RETURNS BOOLEAN AS $$SELECT CASE $2::text WHEN $1::text THEN true ELSE false END$$ LANGUAGE sql"
+  },
+  {
+    "comment": "case - Statement 46",
+    "query": "CREATE OPERATOR = (procedure = inline_eq, leftarg = foodomain, rightarg = foodomain)"
+  },
+  {
+    "comment": "case - Statement 47",
+    "query": "SELECT CASE volfoo('bar') WHEN 'foo'::foodomain THEN 'is foo' ELSE 'is not foo' END",
+    "expected": "SELECT CASE volfoo('bar') WHEN CAST('foo' AS foodomain) THEN 'is foo' ELSE 'is not foo' END"
+  },
+  {
+    "comment": "case - Statement 48",
+    "query": "ROLLBACK"
+  },
+  {
+    "comment": "case - Statement 49",
+    "query": "CREATE DOMAIN arrdomain AS int[]",
+    "expected": "CREATE DOMAIN arrdomain AS INT[]"
+  },
+  {
+    "comment": "case - Statement 50",
+    "query": "CREATE FUNCTION make_ad(int,int) returns arrdomain as 'declare x arrdomain; begin x := array[$1,$2]; return x; end' language plpgsql volatile;",
+    "expected": "CREATE FUNCTION make_ad (INT, INT) RETURNS arrdomain AS $$declare x arrdomain; begin x := array[$1,$2]; return x; end$$ LANGUAGE plpgsql VOLATILE"
+  },
+  {
+    "comment": "case - Statement 54",
+    "query": "CREATE FUNCTION ad_eq(arrdomain, arrdomain) returns boolean as 'begin return array_eq($1, $2); end' language plpgsql",
+    "expected": "CREATE FUNCTION ad_eq (arrdomain, arrdomain) RETURNS BOOLEAN AS $$begin return array_eq($1, $2); end$$ LANGUAGE plpgsql"
+  },
+  {
+    "comment": "case - Statement 55",
+    "query": "CREATE OPERATOR = (procedure = ad_eq, leftarg = arrdomain, rightarg = arrdomain)"
+  },
+  {
+    "comment": "case - Statement 56",
+    "query": "SELECT CASE make_ad(1,2) WHEN array[2,4]::arrdomain THEN 'wrong' WHEN array[2,5]::arrdomain THEN 'still wrong' WHEN array[1,2]::arrdomain THEN 'right' END",
+    "expected": "SELECT CASE make_ad(1, 2) WHEN CAST(ARRAY[2,4] AS arrdomain) THEN 'wrong' WHEN CAST(ARRAY[2,5] AS arrdomain) THEN 'still wrong' WHEN CAST(ARRAY[1,2] AS arrdomain) THEN 'right' END"
+  },
+  {
+    "comment": "case - Statement 57",
+    "query": "SELECT NULLIF(make_ad(1,2), array[2,3]::arrdomain)",
+    "expected": "SELECT nullif(make_ad(1, 2), CAST(ARRAY[2,3] AS arrdomain))"
+  },
+  {
+    "comment": "case - Statement 58",
+    "query": "CREATE TYPE casetestenum AS ENUM ('e', 'f', 'g')"
+  },
+  {
+    "comment": "case - Statement 59",
+    "query": "SELECT CASE 'foo'::text WHEN 'foo' THEN ARRAY['a', 'b', 'c', 'd'] || enum_range(NULL::casetestenum)::text[] ELSE ARRAY['x', 'y'] END",
+    "expected": "SELECT CASE CAST('foo' AS TEXT) WHEN 'foo' THEN ARRAY['a','b','c','d'] || CAST(enum_range(CAST(NULL AS casetestenum)) AS TEXT[]) ELSE ARRAY['x','y'] END"
+  },
+  {
+    "comment": "case - Statement 60",
+    "query": "DROP TABLE CASE_TBL",
+    "expected": "DROP TABLE case_tbl"
+  },
+  {
+    "comment": "case - Statement 61",
+    "query": "DROP TABLE CASE2_TBL",
+    "expected": "DROP TABLE case2_tbl"
+  }
+]

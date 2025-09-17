@@ -1,0 +1,170 @@
+[
+  {
+    "comment": "tidscan - Statement 1",
+    "query": "CREATE TABLE tidscan(id integer)",
+    "expected": "CREATE TABLE tidscan (id INT)"
+  },
+  {
+    "comment": "tidscan - Statement 2",
+    "query": "INSERT INTO tidscan VALUES (1), (2), (3)"
+  },
+  {
+    "comment": "tidscan - Statement 3",
+    "query": "SELECT ctid, * FROM tidscan"
+  },
+  {
+    "comment": "tidscan - Statement 4",
+    "query": "EXPLAIN (COSTS OFF) SELECT ctid, * FROM tidscan WHERE ctid = '(0,1)'",
+    "expected": "EXPLAIN (COSTS false) SELECT ctid, * FROM tidscan WHERE ctid = '(0,1)'"
+  },
+  {
+    "comment": "tidscan - Statement 5",
+    "query": "SELECT ctid, * FROM tidscan WHERE ctid = '(0,1)'"
+  },
+  {
+    "comment": "tidscan - Statement 6",
+    "query": "EXPLAIN (COSTS OFF) SELECT ctid, * FROM tidscan WHERE '(0,1)' = ctid",
+    "expected": "EXPLAIN (COSTS false) SELECT ctid, * FROM tidscan WHERE '(0,1)' = ctid"
+  },
+  {
+    "comment": "tidscan - Statement 7",
+    "query": "SELECT ctid, * FROM tidscan WHERE '(0,1)' = ctid"
+  },
+  {
+    "comment": "tidscan - Statement 8",
+    "query": "EXPLAIN (COSTS OFF) SELECT ctid, * FROM tidscan WHERE ctid = '(0,2)' OR '(0,1)' = ctid",
+    "expected": "EXPLAIN (COSTS false) SELECT ctid, * FROM tidscan WHERE ctid = '(0,2)' OR '(0,1)' = ctid"
+  },
+  {
+    "comment": "tidscan - Statement 9",
+    "query": "SELECT ctid, * FROM tidscan WHERE ctid = '(0,2)' OR '(0,1)' = ctid"
+  },
+  {
+    "comment": "tidscan - Statement 10",
+    "query": "EXPLAIN (COSTS OFF) SELECT ctid, * FROM tidscan WHERE ctid = ANY(ARRAY['(0,1)', '(0,2)']::tid[])",
+    "expected": "EXPLAIN (COSTS false) SELECT ctid, * FROM tidscan WHERE ctid = ANY (CAST(ARRAY['(0,1)','(0,2)'] AS tid[]))"
+  },
+  {
+    "comment": "tidscan - Statement 11",
+    "query": "SELECT ctid, * FROM tidscan WHERE ctid = ANY(ARRAY['(0,1)', '(0,2)']::tid[])",
+    "expected": "SELECT ctid, * FROM tidscan WHERE ctid = ANY (CAST(ARRAY['(0,1)','(0,2)'] AS tid[]))"
+  },
+  {
+    "comment": "tidscan - Statement 12",
+    "query": "EXPLAIN (COSTS OFF) SELECT ctid, * FROM tidscan WHERE ctid != ANY(ARRAY['(0,1)', '(0,2)']::tid[])",
+    "expected": "EXPLAIN (COSTS false) SELECT ctid, * FROM tidscan WHERE ctid \u003c\u003e ANY (CAST(ARRAY['(0,1)','(0,2)'] AS tid[]))"
+  },
+  {
+    "comment": "tidscan - Statement 13",
+    "query": "SELECT ctid, * FROM tidscan WHERE ctid != ANY(ARRAY['(0,1)', '(0,2)']::tid[])",
+    "expected": "SELECT ctid, * FROM tidscan WHERE ctid \u003c\u003e ANY (CAST(ARRAY['(0,1)','(0,2)'] AS tid[]))"
+  },
+  {
+    "comment": "tidscan - Statement 14",
+    "query": "EXPLAIN (COSTS OFF) SELECT ctid, * FROM tidscan WHERE (id = 3 AND ctid IN ('(0,2)', '(0,3)')) OR (ctid = '(0,1)' AND id = 1)",
+    "expected": "EXPLAIN (COSTS false) SELECT ctid, * FROM tidscan WHERE (id = 3 AND ctid IN ('(0,2)', '(0,3)')) OR (ctid = '(0,1)' AND id = 1)"
+  },
+  {
+    "comment": "tidscan - Statement 15",
+    "query": "SELECT ctid, * FROM tidscan WHERE (id = 3 AND ctid IN ('(0,2)', '(0,3)')) OR (ctid = '(0,1)' AND id = 1)"
+  },
+  {
+    "comment": "tidscan - Statement 16",
+    "query": "SET enable_hashjoin TO off",
+    "expected": "SET enable_hashjoin = off"
+  },
+  {
+    "comment": "tidscan - Statement 17",
+    "query": "EXPLAIN (COSTS OFF) SELECT t1.ctid, t1.*, t2.ctid, t2.* FROM tidscan t1 JOIN tidscan t2 ON t1.ctid = t2.ctid WHERE t1.id = 1",
+    "expected": "EXPLAIN (COSTS false) SELECT t1.ctid, t1.*, t2.ctid, t2.* FROM tidscan AS t1 INNER JOIN tidscan AS t2 ON t1.ctid = t2.ctid WHERE t1.id = 1"
+  },
+  {
+    "comment": "tidscan - Statement 18",
+    "query": "SELECT t1.ctid, t1.*, t2.ctid, t2.* FROM tidscan t1 JOIN tidscan t2 ON t1.ctid = t2.ctid WHERE t1.id = 1",
+    "expected": "SELECT t1.ctid, t1.*, t2.ctid, t2.* FROM tidscan AS t1 INNER JOIN tidscan AS t2 ON t1.ctid = t2.ctid WHERE t1.id = 1"
+  },
+  {
+    "comment": "tidscan - Statement 19",
+    "query": "EXPLAIN (COSTS OFF) SELECT t1.ctid, t1.*, t2.ctid, t2.* FROM tidscan t1 LEFT JOIN tidscan t2 ON t1.ctid = t2.ctid WHERE t1.id = 1",
+    "expected": "EXPLAIN (COSTS false) SELECT t1.ctid, t1.*, t2.ctid, t2.* FROM tidscan AS t1 LEFT OUTER JOIN tidscan AS t2 ON t1.ctid = t2.ctid WHERE t1.id = 1"
+  },
+  {
+    "comment": "tidscan - Statement 20",
+    "query": "SELECT t1.ctid, t1.*, t2.ctid, t2.* FROM tidscan t1 LEFT JOIN tidscan t2 ON t1.ctid = t2.ctid WHERE t1.id = 1",
+    "expected": "SELECT t1.ctid, t1.*, t2.ctid, t2.* FROM tidscan AS t1 LEFT OUTER JOIN tidscan AS t2 ON t1.ctid = t2.ctid WHERE t1.id = 1"
+  },
+  {
+    "comment": "tidscan - Statement 21",
+    "query": "RESET enable_hashjoin"
+  },
+  {
+    "comment": "tidscan - Statement 22",
+    "query": "BEGIN"
+  },
+  {
+    "comment": "tidscan - Statement 23",
+    "query": "DECLARE c CURSOR FOR SELECT ctid, * FROM tidscan WHERE ctid = ANY(ARRAY['(0,1)', '(0,2)']::tid[])",
+    "expected": "DECLARE c CURSOR FOR SELECT ctid, * FROM tidscan WHERE ctid = ANY (CAST(ARRAY['(0,1)','(0,2)'] AS tid[]))"
+  },
+  {
+    "comment": "tidscan - Statement 24",
+    "query": "FETCH ALL FROM c"
+  },
+  {
+    "comment": "tidscan - Statement 25",
+    "query": "FETCH BACKWARD 1 FROM c",
+    "expected": "FETCH BACKWARD FROM c"
+  },
+  {
+    "comment": "tidscan - Statement 26",
+    "query": "FETCH FIRST FROM c"
+  },
+  {
+    "comment": "tidscan - Statement 27",
+    "query": "ROLLBACK"
+  },
+  {
+    "comment": "tidscan - Statement 28",
+    "query": "DECLARE c CURSOR FOR SELECT ctid, * FROM tidscan"
+  },
+  {
+    "comment": "tidscan - Statement 29",
+    "query": "FETCH NEXT FROM c",
+    "expected": "FETCH FROM c"
+  },
+  {
+    "comment": "tidscan - Statement 30",
+    "query": "EXPLAIN (ANALYZE, COSTS OFF, SUMMARY OFF, TIMING OFF) UPDATE tidscan SET id = -id WHERE CURRENT OF c RETURNING *",
+    "expected": "EXPLAIN (ANALYZE true, COSTS false, SUMMARY false, TIMING false) UPDATE tidscan SET id = -id WHERE CURRENT OF c RETURNING *"
+  },
+  {
+    "comment": "tidscan - Statement 31",
+    "query": "SELECT * FROM tidscan"
+  },
+  {
+    "comment": "tidscan - Statement 32",
+    "query": "EXPLAIN (COSTS OFF) SELECT count(*) FROM tenk1 t1 JOIN tenk1 t2 ON t1.ctid = t2.ctid",
+    "expected": "EXPLAIN (COSTS false) SELECT COUNT(*) FROM tenk1 AS t1 INNER JOIN tenk1 AS t2 ON t1.ctid = t2.ctid"
+  },
+  {
+    "comment": "tidscan - Statement 33",
+    "query": "SELECT count(*) FROM tenk1 t1 JOIN tenk1 t2 ON t1.ctid = t2.ctid",
+    "expected": "SELECT COUNT(*) FROM tenk1 AS t1 INNER JOIN tenk1 AS t2 ON t1.ctid = t2.ctid"
+  },
+  {
+    "comment": "tidscan - Statement 34",
+    "query": "BEGIN ISOLATION LEVEL SERIALIZABLE"
+  },
+  {
+    "comment": "tidscan - Statement 35",
+    "query": "SELECT * FROM tidscan WHERE ctid = '(0,1)'"
+  },
+  {
+    "comment": "tidscan - Statement 36",
+    "query": "SELECT locktype, mode FROM pg_locks WHERE pid = pg_backend_pid() AND mode = 'SIReadLock'"
+  },
+  {
+    "comment": "tidscan - Statement 37",
+    "query": "DROP TABLE tidscan"
+  }
+]

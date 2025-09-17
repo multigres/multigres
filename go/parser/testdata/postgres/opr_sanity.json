@@ -1,0 +1,630 @@
+[
+  {
+    "comment": "opr_sanity - Statement 1",
+    "query": "SELECT p1.oid, p1.proname FROM pg_proc as p1 WHERE p1.prolang = 0 OR p1.prorettype = 0 OR p1.pronargs \u003c 0 OR p1.pronargdefaults \u003c 0 OR p1.pronargdefaults \u003e p1.pronargs OR array_lower(p1.proargtypes, 1) != 0 OR array_upper(p1.proargtypes, 1) != p1.pronargs-1 OR 0::oid = ANY (p1.proargtypes) OR procost \u003c= 0 OR CASE WHEN proretset THEN prorows \u003c= 0 ELSE prorows != 0 END OR prokind NOT IN ('f', 'a', 'w', 'p') OR provolatile NOT IN ('i', 's', 'v') OR proparallel NOT IN ('s', 'r', 'u')",
+    "expected": "SELECT p1.oid, p1.proname FROM pg_proc AS p1 WHERE p1.prolang = 0 OR p1.prorettype = 0 OR p1.pronargs \u003c 0 OR p1.pronargdefaults \u003c 0 OR p1.pronargdefaults \u003e p1.pronargs OR array_lower(p1.proargtypes, 1) \u003c\u003e 0 OR array_upper(p1.proargtypes, 1) \u003c\u003e p1.pronargs - 1 OR CAST(0 AS oid) = ANY (p1.proargtypes) OR procost \u003c= 0 OR CASE WHEN proretset THEN prorows \u003c= 0 ELSE prorows \u003c\u003e 0 END OR prokind NOT IN ('f', 'a', 'w', 'p') OR provolatile NOT IN ('i', 's', 'v') OR proparallel NOT IN ('s', 'r', 'u')"
+  },
+  {
+    "comment": "opr_sanity - Statement 2",
+    "query": "SELECT p1.oid, p1.proname FROM pg_proc as p1 WHERE prosrc IS NULL",
+    "expected": "SELECT p1.oid, p1.proname FROM pg_proc AS p1 WHERE prosrc IS NULL"
+  },
+  {
+    "comment": "opr_sanity - Statement 3",
+    "query": "SELECT p1.oid, p1.proname FROM pg_proc as p1 WHERE (prosrc = '' OR prosrc = '-') AND prosqlbody IS NULL",
+    "expected": "SELECT p1.oid, p1.proname FROM pg_proc AS p1 WHERE (prosrc = '' OR prosrc = '-') AND prosqlbody IS NULL"
+  },
+  {
+    "comment": "opr_sanity - Statement 4",
+    "query": "SELECT p1.oid, p1.proname FROM pg_proc AS p1 WHERE proretset AND prokind != 'f'",
+    "expected": "SELECT p1.oid, p1.proname FROM pg_proc AS p1 WHERE proretset AND prokind \u003c\u003e 'f'"
+  },
+  {
+    "comment": "opr_sanity - Statement 5",
+    "query": "SELECT p1.oid, p1.proname FROM pg_proc AS p1 WHERE prosecdef ORDER BY 1"
+  },
+  {
+    "comment": "opr_sanity - Statement 6",
+    "query": "SELECT p1.oid, p1.proname FROM pg_proc AS p1 WHERE (pronargdefaults \u003c\u003e 0) != (proargdefaults IS NOT NULL)",
+    "expected": "SELECT p1.oid, p1.proname FROM pg_proc AS p1 WHERE (pronargdefaults \u003c\u003e 0) \u003c\u003e (proargdefaults IS NOT NULL)"
+  },
+  {
+    "comment": "opr_sanity - Statement 7",
+    "query": "SELECT p1.oid, p1.proname FROM pg_proc as p1 WHERE prolang = 13 AND (probin IS NULL OR probin = '' OR probin = '-')",
+    "expected": "SELECT p1.oid, p1.proname FROM pg_proc AS p1 WHERE prolang = 13 AND (probin IS NULL OR probin = '' OR probin = '-')"
+  },
+  {
+    "comment": "opr_sanity - Statement 8",
+    "query": "SELECT p1.oid, p1.proname FROM pg_proc as p1 WHERE prolang != 13 AND probin IS NOT NULL",
+    "expected": "SELECT p1.oid, p1.proname FROM pg_proc AS p1 WHERE prolang \u003c\u003e 13 AND probin IS NOT NULL"
+  },
+  {
+    "comment": "opr_sanity - Statement 9",
+    "query": "SELECT p1.oid, p1.proname, p2.oid, p2.proname FROM pg_proc AS p1, pg_proc AS p2 WHERE p1.oid != p2.oid AND p1.proname = p2.proname AND p1.pronargs = p2.pronargs AND p1.proargtypes = p2.proargtypes",
+    "expected": "SELECT p1.oid, p1.proname, p2.oid, p2.proname FROM pg_proc AS p1, pg_proc AS p2 WHERE p1.oid \u003c\u003e p2.oid AND p1.proname = p2.proname AND p1.pronargs = p2.pronargs AND p1.proargtypes = p2.proargtypes"
+  },
+  {
+    "comment": "opr_sanity - Statement 10",
+    "query": "SELECT p1.oid, p1.proname, p2.oid, p2.proname FROM pg_proc AS p1, pg_proc AS p2 WHERE p1.oid \u003c p2.oid AND p1.prosrc = p2.prosrc AND p1.prolang = 12 AND p2.prolang = 12 AND (p1.prokind != 'a' OR p2.prokind != 'a') AND (p1.prolang != p2.prolang OR p1.prokind != p2.prokind OR p1.prosecdef != p2.prosecdef OR p1.proleakproof != p2.proleakproof OR p1.proisstrict != p2.proisstrict OR p1.proretset != p2.proretset OR p1.provolatile != p2.provolatile OR p1.pronargs != p2.pronargs)",
+    "expected": "SELECT p1.oid, p1.proname, p2.oid, p2.proname FROM pg_proc AS p1, pg_proc AS p2 WHERE p1.oid \u003c p2.oid AND p1.prosrc = p2.prosrc AND p1.prolang = 12 AND p2.prolang = 12 AND (p1.prokind \u003c\u003e 'a' OR p2.prokind \u003c\u003e 'a') AND (p1.prolang \u003c\u003e p2.prolang OR p1.prokind \u003c\u003e p2.prokind OR p1.prosecdef \u003c\u003e p2.prosecdef OR p1.proleakproof \u003c\u003e p2.proleakproof OR p1.proisstrict \u003c\u003e p2.proisstrict OR p1.proretset \u003c\u003e p2.proretset OR p1.provolatile \u003c\u003e p2.provolatile OR p1.pronargs \u003c\u003e p2.pronargs)"
+  },
+  {
+    "comment": "opr_sanity - Statement 11",
+    "query": "SELECT DISTINCT p1.prorettype::regtype, p2.prorettype::regtype FROM pg_proc AS p1, pg_proc AS p2 WHERE p1.oid != p2.oid AND p1.prosrc = p2.prosrc AND p1.prolang = 12 AND p2.prolang = 12 AND p1.prokind != 'a' AND p2.prokind != 'a' AND p1.prosrc NOT LIKE E'range\\\\_constructor_' AND p2.prosrc NOT LIKE E'range\\\\_constructor_' AND p1.prosrc NOT LIKE E'multirange\\\\_constructor_' AND p2.prosrc NOT LIKE E'multirange\\\\_constructor_' AND (p1.prorettype \u003c p2.prorettype) ORDER BY 1, 2",
+    "expected": "SELECT DISTINCT CAST(p1.prorettype AS regtype), CAST(p2.prorettype AS regtype) FROM pg_proc AS p1, pg_proc AS p2 WHERE p1.oid \u003c\u003e p2.oid AND p1.prosrc = p2.prosrc AND p1.prolang = 12 AND p2.prolang = 12 AND p1.prokind \u003c\u003e 'a' AND p2.prokind \u003c\u003e 'a' AND p1.prosrc LIKE 'range\\_constructor_' AND p2.prosrc LIKE 'range\\_constructor_' AND p1.prosrc LIKE 'multirange\\_constructor_' AND p2.prosrc LIKE 'multirange\\_constructor_' AND (p1.prorettype \u003c p2.prorettype) ORDER BY 1, 2"
+  },
+  {
+    "comment": "opr_sanity - Statement 12",
+    "query": "SELECT DISTINCT p1.proargtypes[0]::regtype, p2.proargtypes[0]::regtype FROM pg_proc AS p1, pg_proc AS p2 WHERE p1.oid != p2.oid AND p1.prosrc = p2.prosrc AND p1.prolang = 12 AND p2.prolang = 12 AND p1.prokind != 'a' AND p2.prokind != 'a' AND p1.prosrc NOT LIKE E'range\\\\_constructor_' AND p2.prosrc NOT LIKE E'range\\\\_constructor_' AND p1.prosrc NOT LIKE E'multirange\\\\_constructor_' AND p2.prosrc NOT LIKE E'multirange\\\\_constructor_' AND (p1.proargtypes[0] \u003c p2.proargtypes[0]) ORDER BY 1, 2",
+    "expected": "SELECT DISTINCT CAST(p1.proargtypes[0] AS regtype), CAST(p2.proargtypes[0] AS regtype) FROM pg_proc AS p1, pg_proc AS p2 WHERE p1.oid \u003c\u003e p2.oid AND p1.prosrc = p2.prosrc AND p1.prolang = 12 AND p2.prolang = 12 AND p1.prokind \u003c\u003e 'a' AND p2.prokind \u003c\u003e 'a' AND p1.prosrc LIKE 'range\\_constructor_' AND p2.prosrc LIKE 'range\\_constructor_' AND p1.prosrc LIKE 'multirange\\_constructor_' AND p2.prosrc LIKE 'multirange\\_constructor_' AND (p1.proargtypes[0] \u003c p2.proargtypes[0]) ORDER BY 1, 2"
+  },
+  {
+    "comment": "opr_sanity - Statement 13",
+    "query": "SELECT DISTINCT p1.proargtypes[1]::regtype, p2.proargtypes[1]::regtype FROM pg_proc AS p1, pg_proc AS p2 WHERE p1.oid != p2.oid AND p1.prosrc = p2.prosrc AND p1.prolang = 12 AND p2.prolang = 12 AND p1.prokind != 'a' AND p2.prokind != 'a' AND p1.prosrc NOT LIKE E'range\\\\_constructor_' AND p2.prosrc NOT LIKE E'range\\\\_constructor_' AND p1.prosrc NOT LIKE E'multirange\\\\_constructor_' AND p2.prosrc NOT LIKE E'multirange\\\\_constructor_' AND (p1.proargtypes[1] \u003c p2.proargtypes[1]) ORDER BY 1, 2",
+    "expected": "SELECT DISTINCT CAST(p1.proargtypes[1] AS regtype), CAST(p2.proargtypes[1] AS regtype) FROM pg_proc AS p1, pg_proc AS p2 WHERE p1.oid \u003c\u003e p2.oid AND p1.prosrc = p2.prosrc AND p1.prolang = 12 AND p2.prolang = 12 AND p1.prokind \u003c\u003e 'a' AND p2.prokind \u003c\u003e 'a' AND p1.prosrc LIKE 'range\\_constructor_' AND p2.prosrc LIKE 'range\\_constructor_' AND p1.prosrc LIKE 'multirange\\_constructor_' AND p2.prosrc LIKE 'multirange\\_constructor_' AND (p1.proargtypes[1] \u003c p2.proargtypes[1]) ORDER BY 1, 2"
+  },
+  {
+    "comment": "opr_sanity - Statement 14",
+    "query": "SELECT DISTINCT p1.proargtypes[2]::regtype, p2.proargtypes[2]::regtype FROM pg_proc AS p1, pg_proc AS p2 WHERE p1.oid != p2.oid AND p1.prosrc = p2.prosrc AND p1.prolang = 12 AND p2.prolang = 12 AND p1.prokind != 'a' AND p2.prokind != 'a' AND (p1.proargtypes[2] \u003c p2.proargtypes[2]) ORDER BY 1, 2",
+    "expected": "SELECT DISTINCT CAST(p1.proargtypes[2] AS regtype), CAST(p2.proargtypes[2] AS regtype) FROM pg_proc AS p1, pg_proc AS p2 WHERE p1.oid \u003c\u003e p2.oid AND p1.prosrc = p2.prosrc AND p1.prolang = 12 AND p2.prolang = 12 AND p1.prokind \u003c\u003e 'a' AND p2.prokind \u003c\u003e 'a' AND (p1.proargtypes[2] \u003c p2.proargtypes[2]) ORDER BY 1, 2"
+  },
+  {
+    "comment": "opr_sanity - Statement 15",
+    "query": "SELECT DISTINCT p1.proargtypes[3]::regtype, p2.proargtypes[3]::regtype FROM pg_proc AS p1, pg_proc AS p2 WHERE p1.oid != p2.oid AND p1.prosrc = p2.prosrc AND p1.prolang = 12 AND p2.prolang = 12 AND p1.prokind != 'a' AND p2.prokind != 'a' AND (p1.proargtypes[3] \u003c p2.proargtypes[3]) ORDER BY 1, 2",
+    "expected": "SELECT DISTINCT CAST(p1.proargtypes[3] AS regtype), CAST(p2.proargtypes[3] AS regtype) FROM pg_proc AS p1, pg_proc AS p2 WHERE p1.oid \u003c\u003e p2.oid AND p1.prosrc = p2.prosrc AND p1.prolang = 12 AND p2.prolang = 12 AND p1.prokind \u003c\u003e 'a' AND p2.prokind \u003c\u003e 'a' AND (p1.proargtypes[3] \u003c p2.proargtypes[3]) ORDER BY 1, 2"
+  },
+  {
+    "comment": "opr_sanity - Statement 16",
+    "query": "SELECT DISTINCT p1.proargtypes[4]::regtype, p2.proargtypes[4]::regtype FROM pg_proc AS p1, pg_proc AS p2 WHERE p1.oid != p2.oid AND p1.prosrc = p2.prosrc AND p1.prolang = 12 AND p2.prolang = 12 AND p1.prokind != 'a' AND p2.prokind != 'a' AND (p1.proargtypes[4] \u003c p2.proargtypes[4]) ORDER BY 1, 2",
+    "expected": "SELECT DISTINCT CAST(p1.proargtypes[4] AS regtype), CAST(p2.proargtypes[4] AS regtype) FROM pg_proc AS p1, pg_proc AS p2 WHERE p1.oid \u003c\u003e p2.oid AND p1.prosrc = p2.prosrc AND p1.prolang = 12 AND p2.prolang = 12 AND p1.prokind \u003c\u003e 'a' AND p2.prokind \u003c\u003e 'a' AND (p1.proargtypes[4] \u003c p2.proargtypes[4]) ORDER BY 1, 2"
+  },
+  {
+    "comment": "opr_sanity - Statement 17",
+    "query": "SELECT DISTINCT p1.proargtypes[5]::regtype, p2.proargtypes[5]::regtype FROM pg_proc AS p1, pg_proc AS p2 WHERE p1.oid != p2.oid AND p1.prosrc = p2.prosrc AND p1.prolang = 12 AND p2.prolang = 12 AND p1.prokind != 'a' AND p2.prokind != 'a' AND (p1.proargtypes[5] \u003c p2.proargtypes[5]) ORDER BY 1, 2",
+    "expected": "SELECT DISTINCT CAST(p1.proargtypes[5] AS regtype), CAST(p2.proargtypes[5] AS regtype) FROM pg_proc AS p1, pg_proc AS p2 WHERE p1.oid \u003c\u003e p2.oid AND p1.prosrc = p2.prosrc AND p1.prolang = 12 AND p2.prolang = 12 AND p1.prokind \u003c\u003e 'a' AND p2.prokind \u003c\u003e 'a' AND (p1.proargtypes[5] \u003c p2.proargtypes[5]) ORDER BY 1, 2"
+  },
+  {
+    "comment": "opr_sanity - Statement 18",
+    "query": "SELECT DISTINCT p1.proargtypes[6]::regtype, p2.proargtypes[6]::regtype FROM pg_proc AS p1, pg_proc AS p2 WHERE p1.oid != p2.oid AND p1.prosrc = p2.prosrc AND p1.prolang = 12 AND p2.prolang = 12 AND p1.prokind != 'a' AND p2.prokind != 'a' AND (p1.proargtypes[6] \u003c p2.proargtypes[6]) ORDER BY 1, 2",
+    "expected": "SELECT DISTINCT CAST(p1.proargtypes[6] AS regtype), CAST(p2.proargtypes[6] AS regtype) FROM pg_proc AS p1, pg_proc AS p2 WHERE p1.oid \u003c\u003e p2.oid AND p1.prosrc = p2.prosrc AND p1.prolang = 12 AND p2.prolang = 12 AND p1.prokind \u003c\u003e 'a' AND p2.prokind \u003c\u003e 'a' AND (p1.proargtypes[6] \u003c p2.proargtypes[6]) ORDER BY 1, 2"
+  },
+  {
+    "comment": "opr_sanity - Statement 19",
+    "query": "SELECT DISTINCT p1.proargtypes[7]::regtype, p2.proargtypes[7]::regtype FROM pg_proc AS p1, pg_proc AS p2 WHERE p1.oid != p2.oid AND p1.prosrc = p2.prosrc AND p1.prolang = 12 AND p2.prolang = 12 AND p1.prokind != 'a' AND p2.prokind != 'a' AND (p1.proargtypes[7] \u003c p2.proargtypes[7]) ORDER BY 1, 2",
+    "expected": "SELECT DISTINCT CAST(p1.proargtypes[7] AS regtype), CAST(p2.proargtypes[7] AS regtype) FROM pg_proc AS p1, pg_proc AS p2 WHERE p1.oid \u003c\u003e p2.oid AND p1.prosrc = p2.prosrc AND p1.prolang = 12 AND p2.prolang = 12 AND p1.prokind \u003c\u003e 'a' AND p2.prokind \u003c\u003e 'a' AND (p1.proargtypes[7] \u003c p2.proargtypes[7]) ORDER BY 1, 2"
+  },
+  {
+    "comment": "opr_sanity - Statement 20",
+    "query": "SELECT p1.oid, p1.proname FROM pg_proc as p1 WHERE p1.prorettype = 'internal'::regtype AND NOT 'internal'::regtype = ANY (p1.proargtypes)",
+    "expected": "SELECT p1.oid, p1.proname FROM pg_proc AS p1 WHERE p1.prorettype = CAST('internal' AS regtype) AND NOT CAST('internal' AS regtype) = ANY (p1.proargtypes)"
+  },
+  {
+    "comment": "opr_sanity - Statement 21",
+    "query": "SELECT p1.oid, p1.proname FROM pg_proc as p1 WHERE p1.prorettype IN ('anyelement'::regtype, 'anyarray'::regtype, 'anynonarray'::regtype, 'anyenum'::regtype) AND NOT ('anyelement'::regtype = ANY (p1.proargtypes) OR 'anyarray'::regtype = ANY (p1.proargtypes) OR 'anynonarray'::regtype = ANY (p1.proargtypes) OR 'anyenum'::regtype = ANY (p1.proargtypes) OR 'anyrange'::regtype = ANY (p1.proargtypes) OR 'anymultirange'::regtype = ANY (p1.proargtypes)) ORDER BY 2",
+    "expected": "SELECT p1.oid, p1.proname FROM pg_proc AS p1 WHERE p1.prorettype IN (CAST('anyelement' AS regtype), CAST('anyarray' AS regtype), CAST('anynonarray' AS regtype), CAST('anyenum' AS regtype)) AND NOT (CAST('anyelement' AS regtype) = ANY (p1.proargtypes) OR CAST('anyarray' AS regtype) = ANY (p1.proargtypes) OR CAST('anynonarray' AS regtype) = ANY (p1.proargtypes) OR CAST('anyenum' AS regtype) = ANY (p1.proargtypes) OR CAST('anyrange' AS regtype) = ANY (p1.proargtypes) OR CAST('anymultirange' AS regtype) = ANY (p1.proargtypes)) ORDER BY 2"
+  },
+  {
+    "comment": "opr_sanity - Statement 22",
+    "query": "SELECT p1.oid, p1.proname FROM pg_proc as p1 WHERE p1.prorettype IN ('anyrange'::regtype, 'anymultirange'::regtype) AND NOT ('anyrange'::regtype = ANY (p1.proargtypes) OR 'anymultirange'::regtype = ANY (p1.proargtypes)) ORDER BY 2",
+    "expected": "SELECT p1.oid, p1.proname FROM pg_proc AS p1 WHERE p1.prorettype IN (CAST('anyrange' AS regtype), CAST('anymultirange' AS regtype)) AND NOT (CAST('anyrange' AS regtype) = ANY (p1.proargtypes) OR CAST('anymultirange' AS regtype) = ANY (p1.proargtypes)) ORDER BY 2"
+  },
+  {
+    "comment": "opr_sanity - Statement 23",
+    "query": "SELECT p1.oid, p1.proname FROM pg_proc as p1 WHERE p1.prorettype IN ('anycompatible'::regtype, 'anycompatiblearray'::regtype, 'anycompatiblenonarray'::regtype) AND NOT ('anycompatible'::regtype = ANY (p1.proargtypes) OR 'anycompatiblearray'::regtype = ANY (p1.proargtypes) OR 'anycompatiblenonarray'::regtype = ANY (p1.proargtypes) OR 'anycompatiblerange'::regtype = ANY (p1.proargtypes)) ORDER BY 2",
+    "expected": "SELECT p1.oid, p1.proname FROM pg_proc AS p1 WHERE p1.prorettype IN (CAST('anycompatible' AS regtype), CAST('anycompatiblearray' AS regtype), CAST('anycompatiblenonarray' AS regtype)) AND NOT (CAST('anycompatible' AS regtype) = ANY (p1.proargtypes) OR CAST('anycompatiblearray' AS regtype) = ANY (p1.proargtypes) OR CAST('anycompatiblenonarray' AS regtype) = ANY (p1.proargtypes) OR CAST('anycompatiblerange' AS regtype) = ANY (p1.proargtypes)) ORDER BY 2"
+  },
+  {
+    "comment": "opr_sanity - Statement 24",
+    "query": "SELECT p1.oid, p1.proname FROM pg_proc as p1 WHERE p1.prorettype = 'anycompatiblerange'::regtype AND NOT 'anycompatiblerange'::regtype = ANY (p1.proargtypes) ORDER BY 2",
+    "expected": "SELECT p1.oid, p1.proname FROM pg_proc AS p1 WHERE p1.prorettype = CAST('anycompatiblerange' AS regtype) AND NOT CAST('anycompatiblerange' AS regtype) = ANY (p1.proargtypes) ORDER BY 2"
+  },
+  {
+    "comment": "opr_sanity - Statement 25",
+    "query": "SELECT p1.oid, p1.proname FROM pg_proc as p1 WHERE 'cstring'::regtype = ANY (p1.proargtypes) AND NOT EXISTS(SELECT 1 FROM pg_type WHERE typinput = p1.oid) AND NOT EXISTS(SELECT 1 FROM pg_conversion WHERE conproc = p1.oid) AND p1.oid != 'shell_in(cstring)'::regprocedure ORDER BY 1",
+    "expected": "SELECT p1.oid, p1.proname FROM pg_proc AS p1 WHERE CAST('cstring' AS regtype) = ANY (p1.proargtypes) AND NOT EXISTS (SELECT 1 FROM pg_type WHERE typinput = p1.oid) AND NOT EXISTS (SELECT 1 FROM pg_conversion WHERE conproc = p1.oid) AND p1.oid \u003c\u003e CAST('shell_in(cstring)' AS regprocedure) ORDER BY 1"
+  },
+  {
+    "comment": "opr_sanity - Statement 26",
+    "query": "SELECT p1.oid, p1.proname FROM pg_proc as p1 WHERE  p1.prorettype = 'cstring'::regtype AND NOT EXISTS(SELECT 1 FROM pg_type WHERE typoutput = p1.oid) AND NOT EXISTS(SELECT 1 FROM pg_type WHERE typmodout = p1.oid) AND p1.oid != 'shell_out(void)'::regprocedure ORDER BY 1",
+    "expected": "SELECT p1.oid, p1.proname FROM pg_proc AS p1 WHERE p1.prorettype = CAST('cstring' AS regtype) AND NOT EXISTS (SELECT 1 FROM pg_type WHERE typoutput = p1.oid) AND NOT EXISTS (SELECT 1 FROM pg_type WHERE typmodout = p1.oid) AND p1.oid \u003c\u003e CAST('shell_out(void)' AS regprocedure) ORDER BY 1"
+  },
+  {
+    "comment": "opr_sanity - Statement 27",
+    "query": "SELECT p1.oid, p1.proname FROM pg_proc as p1 WHERE proallargtypes IS NOT NULL AND array_length(proallargtypes,1) \u003c array_length(proargtypes,1)",
+    "expected": "SELECT p1.oid, p1.proname FROM pg_proc AS p1 WHERE proallargtypes IS NOT NULL AND array_length(proallargtypes, 1) \u003c array_length(proargtypes, 1)"
+  },
+  {
+    "comment": "opr_sanity - Statement 28",
+    "query": "SELECT p1.oid, p1.proname FROM pg_proc as p1 WHERE proargmodes IS NOT NULL AND array_length(proargmodes,1) \u003c array_length(proargtypes,1)",
+    "expected": "SELECT p1.oid, p1.proname FROM pg_proc AS p1 WHERE proargmodes IS NOT NULL AND array_length(proargmodes, 1) \u003c array_length(proargtypes, 1)"
+  },
+  {
+    "comment": "opr_sanity - Statement 29",
+    "query": "SELECT p1.oid, p1.proname FROM pg_proc as p1 WHERE proargnames IS NOT NULL AND array_length(proargnames,1) \u003c array_length(proargtypes,1)",
+    "expected": "SELECT p1.oid, p1.proname FROM pg_proc AS p1 WHERE proargnames IS NOT NULL AND array_length(proargnames, 1) \u003c array_length(proargtypes, 1)"
+  },
+  {
+    "comment": "opr_sanity - Statement 30",
+    "query": "SELECT p1.oid, p1.proname FROM pg_proc as p1 WHERE proallargtypes IS NOT NULL AND proargmodes IS NOT NULL AND array_length(proallargtypes,1) \u003c\u003e array_length(proargmodes,1)",
+    "expected": "SELECT p1.oid, p1.proname FROM pg_proc AS p1 WHERE proallargtypes IS NOT NULL AND proargmodes IS NOT NULL AND array_length(proallargtypes, 1) \u003c\u003e array_length(proargmodes, 1)"
+  },
+  {
+    "comment": "opr_sanity - Statement 31",
+    "query": "SELECT p1.oid, p1.proname FROM pg_proc as p1 WHERE proallargtypes IS NOT NULL AND proargnames IS NOT NULL AND array_length(proallargtypes,1) \u003c\u003e array_length(proargnames,1)",
+    "expected": "SELECT p1.oid, p1.proname FROM pg_proc AS p1 WHERE proallargtypes IS NOT NULL AND proargnames IS NOT NULL AND array_length(proallargtypes, 1) \u003c\u003e array_length(proargnames, 1)"
+  },
+  {
+    "comment": "opr_sanity - Statement 32",
+    "query": "SELECT p1.oid, p1.proname FROM pg_proc as p1 WHERE proargmodes IS NOT NULL AND proargnames IS NOT NULL AND array_length(proargmodes,1) \u003c\u003e array_length(proargnames,1)",
+    "expected": "SELECT p1.oid, p1.proname FROM pg_proc AS p1 WHERE proargmodes IS NOT NULL AND proargnames IS NOT NULL AND array_length(proargmodes, 1) \u003c\u003e array_length(proargnames, 1)"
+  },
+  {
+    "comment": "opr_sanity - Statement 33",
+    "query": "SELECT p1.oid, p1.proname, p1.proargtypes, p1.proallargtypes, p1.proargmodes FROM pg_proc as p1 WHERE proallargtypes IS NOT NULL AND ARRAY(SELECT unnest(proargtypes)) \u003c\u003e ARRAY(SELECT proallargtypes[i] FROM generate_series(1, array_length(proallargtypes, 1)) g(i) WHERE proargmodes IS NULL OR proargmodes[i] IN ('i', 'b', 'v'))",
+    "expected": "SELECT p1.oid, p1.proname, p1.proargtypes, p1.proallargtypes, p1.proargmodes FROM pg_proc AS p1 WHERE proallargtypes IS NOT NULL AND ARRAY(SELECT unnest(proargtypes)) \u003c\u003e ARRAY(SELECT proallargtypes[i] FROM generate_series(1, array_length(proallargtypes, 1)) AS g(i) WHERE proargmodes IS NULL OR proargmodes[i] IN ('i', 'b', 'v'))"
+  },
+  {
+    "comment": "opr_sanity - Statement 34",
+    "query": "SELECT oid::regprocedure, provariadic::regtype, proargtypes::regtype[] FROM pg_proc WHERE provariadic != 0 AND case proargtypes[array_length(proargtypes, 1)-1] WHEN '\"any\"'::regtype THEN '\"any\"'::regtype WHEN 'anyarray'::regtype THEN 'anyelement'::regtype WHEN 'anycompatiblearray'::regtype THEN 'anycompatible'::regtype ELSE (SELECT t.oid FROM pg_type t WHERE t.typarray = proargtypes[array_length(proargtypes, 1)-1]) END  != provariadic",
+    "expected": "SELECT CAST(oid AS regprocedure), CAST(provariadic AS regtype), CAST(proargtypes AS regtype[]) FROM pg_proc WHERE provariadic \u003c\u003e 0 AND CASE proargtypes[array_length(proargtypes, 1) - 1] WHEN CAST('\"any\"' AS regtype) THEN CAST('\"any\"' AS regtype) WHEN CAST('anyarray' AS regtype) THEN CAST('anyelement' AS regtype) WHEN CAST('anycompatiblearray' AS regtype) THEN CAST('anycompatible' AS regtype) ELSE (SELECT t.oid FROM pg_type AS t WHERE t.typarray = proargtypes[array_length(proargtypes, 1) - 1]) END \u003c\u003e provariadic"
+  },
+  {
+    "comment": "opr_sanity - Statement 35",
+    "query": "SELECT oid::regprocedure, proargmodes, provariadic FROM pg_proc WHERE (proargmodes IS NOT NULL AND 'v' = any(proargmodes)) IS DISTINCT FROM (provariadic != 0)",
+    "expected": "SELECT CAST(oid AS regprocedure), proargmodes, provariadic FROM pg_proc WHERE (proargmodes IS NOT NULL AND 'v' = ANY (proargmodes)) IS DISTINCT FROM (provariadic \u003c\u003e 0)"
+  },
+  {
+    "comment": "opr_sanity - Statement 36",
+    "query": "SELECT p1.oid, p1.proname, p2.oid, p2.proname FROM pg_proc AS p1, pg_proc AS p2 WHERE p2.oid = p1.prosupport AND (p2.prorettype != 'internal'::regtype OR p2.proretset OR p2.pronargs != 1 OR p2.proargtypes[0] != 'internal'::regtype)",
+    "expected": "SELECT p1.oid, p1.proname, p2.oid, p2.proname FROM pg_proc AS p1, pg_proc AS p2 WHERE p2.oid = p1.prosupport AND (p2.prorettype \u003c\u003e CAST('internal' AS regtype) OR p2.proretset OR p2.pronargs \u003c\u003e 1 OR p2.proargtypes[0] \u003c\u003e CAST('internal' AS regtype))"
+  },
+  {
+    "comment": "opr_sanity - Statement 37",
+    "query": "SELECT p1.oid, p1.proname FROM pg_proc as p1 LEFT JOIN pg_description as d ON p1.tableoid = d.classoid and p1.oid = d.objoid and d.objsubid = 0 WHERE d.classoid IS NULL AND p1.oid \u003c= 9999",
+    "expected": "SELECT p1.oid, p1.proname FROM pg_proc AS p1 LEFT OUTER JOIN pg_description AS d ON p1.tableoid = d.classoid AND p1.oid = d.objoid AND d.objsubid = 0 WHERE d.classoid IS NULL AND p1.oid \u003c= 9999"
+  },
+  {
+    "comment": "opr_sanity - Statement 38",
+    "query": "SELECT p1.oid, p1.proname FROM pg_proc AS p1 WHERE provolatile = 'i' AND proparallel = 'u'"
+  },
+  {
+    "comment": "opr_sanity - Statement 39",
+    "query": "SELECT * FROM pg_cast c WHERE castsource = 0 OR casttarget = 0 OR castcontext NOT IN ('e', 'a', 'i') OR castmethod NOT IN ('f', 'b' ,'i')",
+    "expected": "SELECT * FROM pg_cast AS c WHERE castsource = 0 OR casttarget = 0 OR castcontext NOT IN ('e', 'a', 'i') OR castmethod NOT IN ('f', 'b', 'i')"
+  },
+  {
+    "comment": "opr_sanity - Statement 40",
+    "query": "SELECT * FROM pg_cast c WHERE (castmethod = 'f' AND castfunc = 0) OR (castmethod IN ('b', 'i') AND castfunc \u003c\u003e 0)",
+    "expected": "SELECT * FROM pg_cast AS c WHERE (castmethod = 'f' AND castfunc = 0) OR (castmethod IN ('b', 'i') AND castfunc \u003c\u003e 0)"
+  },
+  {
+    "comment": "opr_sanity - Statement 41",
+    "query": "SELECT * FROM pg_cast c WHERE castsource = casttarget AND castfunc = 0",
+    "expected": "SELECT * FROM pg_cast AS c WHERE castsource = casttarget AND castfunc = 0"
+  },
+  {
+    "comment": "opr_sanity - Statement 42",
+    "query": "SELECT c.* FROM pg_cast c, pg_proc p WHERE c.castfunc = p.oid AND p.pronargs \u003c 2 AND castsource = casttarget",
+    "expected": "SELECT c.* FROM pg_cast AS c, pg_proc AS p WHERE c.castfunc = p.oid AND p.pronargs \u003c 2 AND castsource = casttarget"
+  },
+  {
+    "comment": "opr_sanity - Statement 43",
+    "query": "SELECT c.* FROM pg_cast c, pg_proc p WHERE c.castfunc = p.oid AND (p.pronargs \u003c 1 OR p.pronargs \u003e 3 OR NOT (binary_coercible(c.castsource, p.proargtypes[0]) OR (c.castsource = 'character'::regtype AND p.proargtypes[0] = 'text'::regtype)) OR NOT binary_coercible(p.prorettype, c.casttarget))",
+    "expected": "SELECT c.* FROM pg_cast AS c, pg_proc AS p WHERE c.castfunc = p.oid AND (p.pronargs \u003c 1 OR p.pronargs \u003e 3 OR NOT (binary_coercible(c.castsource, p.proargtypes[0]) OR (c.castsource = CAST('character' AS regtype) AND p.proargtypes[0] = CAST('text' AS regtype))) OR NOT binary_coercible(p.prorettype, c.casttarget))"
+  },
+  {
+    "comment": "opr_sanity - Statement 44",
+    "query": "SELECT c.* FROM pg_cast c, pg_proc p WHERE c.castfunc = p.oid AND ((p.pronargs \u003e 1 AND p.proargtypes[1] != 'int4'::regtype) OR (p.pronargs \u003e 2 AND p.proargtypes[2] != 'bool'::regtype))",
+    "expected": "SELECT c.* FROM pg_cast AS c, pg_proc AS p WHERE c.castfunc = p.oid AND ((p.pronargs \u003e 1 AND p.proargtypes[1] \u003c\u003e CAST('int4' AS regtype)) OR (p.pronargs \u003e 2 AND p.proargtypes[2] \u003c\u003e CAST('bool' AS regtype)))"
+  },
+  {
+    "comment": "opr_sanity - Statement 45",
+    "query": "SELECT castsource::regtype, casttarget::regtype, castfunc, castcontext FROM pg_cast c WHERE c.castmethod = 'b' AND NOT EXISTS (SELECT 1 FROM pg_cast k WHERE k.castmethod = 'b' AND k.castsource = c.casttarget AND k.casttarget = c.castsource)",
+    "expected": "SELECT CAST(castsource AS regtype), CAST(casttarget AS regtype), castfunc, castcontext FROM pg_cast AS c WHERE c.castmethod = 'b' AND NOT EXISTS (SELECT 1 FROM pg_cast AS k WHERE k.castmethod = 'b' AND k.castsource = c.casttarget AND k.casttarget = c.castsource)"
+  },
+  {
+    "comment": "opr_sanity - Statement 46",
+    "query": "SELECT c.oid, c.conname FROM pg_conversion as c WHERE c.conproc = 0 OR pg_encoding_to_char(conforencoding) = '' OR pg_encoding_to_char(contoencoding) = ''",
+    "expected": "SELECT c.oid, c.conname FROM pg_conversion AS c WHERE c.conproc = 0 OR pg_encoding_to_char(conforencoding) = '' OR pg_encoding_to_char(contoencoding) = ''"
+  },
+  {
+    "comment": "opr_sanity - Statement 47",
+    "query": "SELECT p.oid, p.proname, c.oid, c.conname FROM pg_proc p, pg_conversion c WHERE p.oid = c.conproc AND (p.prorettype != 'int4'::regtype OR p.proretset OR p.pronargs != 6 OR p.proargtypes[0] != 'int4'::regtype OR p.proargtypes[1] != 'int4'::regtype OR p.proargtypes[2] != 'cstring'::regtype OR p.proargtypes[3] != 'internal'::regtype OR p.proargtypes[4] != 'int4'::regtype OR p.proargtypes[5] != 'bool'::regtype)",
+    "expected": "SELECT p.oid, p.proname, c.oid, c.conname FROM pg_proc AS p, pg_conversion AS c WHERE p.oid = c.conproc AND (p.prorettype \u003c\u003e CAST('int4' AS regtype) OR p.proretset OR p.pronargs \u003c\u003e 6 OR p.proargtypes[0] \u003c\u003e CAST('int4' AS regtype) OR p.proargtypes[1] \u003c\u003e CAST('int4' AS regtype) OR p.proargtypes[2] \u003c\u003e CAST('cstring' AS regtype) OR p.proargtypes[3] \u003c\u003e CAST('internal' AS regtype) OR p.proargtypes[4] \u003c\u003e CAST('int4' AS regtype) OR p.proargtypes[5] \u003c\u003e CAST('bool' AS regtype))"
+  },
+  {
+    "comment": "opr_sanity - Statement 48",
+    "query": "SELECT c.oid, c.conname FROM pg_conversion as c WHERE condefault AND convert('ABC'::bytea, pg_encoding_to_char(conforencoding), pg_encoding_to_char(contoencoding)) != 'ABC'",
+    "expected": "SELECT c.oid, c.conname FROM pg_conversion AS c WHERE condefault AND convert(CAST('ABC' AS BYTEA), pg_encoding_to_char(conforencoding), pg_encoding_to_char(contoencoding)) \u003c\u003e 'ABC'"
+  },
+  {
+    "comment": "opr_sanity - Statement 49",
+    "query": "SELECT o1.oid, o1.oprname FROM pg_operator as o1 WHERE (o1.oprkind != 'b' AND o1.oprkind != 'l') OR o1.oprresult = 0 OR o1.oprcode = 0",
+    "expected": "SELECT o1.oid, o1.oprname FROM pg_operator AS o1 WHERE (o1.oprkind \u003c\u003e 'b' AND o1.oprkind \u003c\u003e 'l') OR o1.oprresult = 0 OR o1.oprcode = 0"
+  },
+  {
+    "comment": "opr_sanity - Statement 50",
+    "query": "SELECT o1.oid, o1.oprname FROM pg_operator as o1 WHERE (o1.oprleft = 0 and o1.oprkind != 'l') OR (o1.oprleft != 0 and o1.oprkind = 'l') OR o1.oprright = 0",
+    "expected": "SELECT o1.oid, o1.oprname FROM pg_operator AS o1 WHERE (o1.oprleft = 0 AND o1.oprkind \u003c\u003e 'l') OR (o1.oprleft \u003c\u003e 0 AND o1.oprkind = 'l') OR o1.oprright = 0"
+  },
+  {
+    "comment": "opr_sanity - Statement 51",
+    "query": "SELECT o1.oid, o1.oprcode, o2.oid, o2.oprcode FROM pg_operator AS o1, pg_operator AS o2 WHERE o1.oid != o2.oid AND o1.oprname = o2.oprname AND o1.oprkind = o2.oprkind AND o1.oprleft = o2.oprleft AND o1.oprright = o2.oprright",
+    "expected": "SELECT o1.oid, o1.oprcode, o2.oid, o2.oprcode FROM pg_operator AS o1, pg_operator AS o2 WHERE o1.oid \u003c\u003e o2.oid AND o1.oprname = o2.oprname AND o1.oprkind = o2.oprkind AND o1.oprleft = o2.oprleft AND o1.oprright = o2.oprright"
+  },
+  {
+    "comment": "opr_sanity - Statement 52",
+    "query": "SELECT o1.oid, o1.oprcode, o2.oid, o2.oprcode FROM pg_operator AS o1, pg_operator AS o2 WHERE o1.oprcom = o2.oid AND (o1.oprkind != 'b' OR o1.oprleft != o2.oprright OR o1.oprright != o2.oprleft OR o1.oprresult != o2.oprresult OR o1.oid != o2.oprcom)",
+    "expected": "SELECT o1.oid, o1.oprcode, o2.oid, o2.oprcode FROM pg_operator AS o1, pg_operator AS o2 WHERE o1.oprcom = o2.oid AND (o1.oprkind \u003c\u003e 'b' OR o1.oprleft \u003c\u003e o2.oprright OR o1.oprright \u003c\u003e o2.oprleft OR o1.oprresult \u003c\u003e o2.oprresult OR o1.oid \u003c\u003e o2.oprcom)"
+  },
+  {
+    "comment": "opr_sanity - Statement 53",
+    "query": "SELECT o1.oid, o1.oprcode, o2.oid, o2.oprcode FROM pg_operator AS o1, pg_operator AS o2 WHERE o1.oprnegate = o2.oid AND (o1.oprkind != o2.oprkind OR o1.oprleft != o2.oprleft OR o1.oprright != o2.oprright OR o1.oprresult != 'bool'::regtype OR o2.oprresult != 'bool'::regtype OR o1.oid != o2.oprnegate OR o1.oid = o2.oid)",
+    "expected": "SELECT o1.oid, o1.oprcode, o2.oid, o2.oprcode FROM pg_operator AS o1, pg_operator AS o2 WHERE o1.oprnegate = o2.oid AND (o1.oprkind \u003c\u003e o2.oprkind OR o1.oprleft \u003c\u003e o2.oprleft OR o1.oprright \u003c\u003e o2.oprright OR o1.oprresult \u003c\u003e CAST('bool' AS regtype) OR o2.oprresult \u003c\u003e CAST('bool' AS regtype) OR o1.oid \u003c\u003e o2.oprnegate OR o1.oid = o2.oid)"
+  },
+  {
+    "comment": "opr_sanity - Statement 54",
+    "query": "SELECT DISTINCT o1.oprname AS op1, o2.oprname AS op2 FROM pg_operator o1, pg_operator o2 WHERE o1.oprcom = o2.oid AND o1.oprname \u003c= o2.oprname ORDER BY 1, 2",
+    "expected": "SELECT DISTINCT o1.oprname AS op1, o2.oprname AS op2 FROM pg_operator AS o1, pg_operator AS o2 WHERE o1.oprcom = o2.oid AND o1.oprname \u003c= o2.oprname ORDER BY 1, 2"
+  },
+  {
+    "comment": "opr_sanity - Statement 55",
+    "query": "SELECT DISTINCT o1.oprname AS op1, o2.oprname AS op2 FROM pg_operator o1, pg_operator o2 WHERE o1.oprnegate = o2.oid AND o1.oprname \u003c= o2.oprname ORDER BY 1, 2",
+    "expected": "SELECT DISTINCT o1.oprname AS op1, o2.oprname AS op2 FROM pg_operator AS o1, pg_operator AS o2 WHERE o1.oprnegate = o2.oid AND o1.oprname \u003c= o2.oprname ORDER BY 1, 2"
+  },
+  {
+    "comment": "opr_sanity - Statement 56",
+    "query": "SELECT o1.oid, o1.oprname FROM pg_operator AS o1 WHERE (o1.oprcanmerge OR o1.oprcanhash) AND NOT (o1.oprkind = 'b' AND o1.oprresult = 'bool'::regtype AND o1.oprcom != 0)",
+    "expected": "SELECT o1.oid, o1.oprname FROM pg_operator AS o1 WHERE (o1.oprcanmerge OR o1.oprcanhash) AND NOT (o1.oprkind = 'b' AND o1.oprresult = CAST('bool' AS regtype) AND o1.oprcom \u003c\u003e 0)"
+  },
+  {
+    "comment": "opr_sanity - Statement 57",
+    "query": "SELECT o1.oid, o1.oprname, o2.oid, o2.oprname FROM pg_operator AS o1, pg_operator AS o2 WHERE o1.oprcom = o2.oid AND (o1.oprcanmerge != o2.oprcanmerge OR o1.oprcanhash != o2.oprcanhash)",
+    "expected": "SELECT o1.oid, o1.oprname, o2.oid, o2.oprname FROM pg_operator AS o1, pg_operator AS o2 WHERE o1.oprcom = o2.oid AND (o1.oprcanmerge \u003c\u003e o2.oprcanmerge OR o1.oprcanhash \u003c\u003e o2.oprcanhash)"
+  },
+  {
+    "comment": "opr_sanity - Statement 58",
+    "query": "SELECT o1.oid, o1.oprname FROM pg_operator AS o1 WHERE o1.oprcanmerge AND NOT EXISTS (SELECT 1 FROM pg_amop WHERE amopmethod = (SELECT oid FROM pg_am WHERE amname = 'btree') AND amopopr = o1.oid AND amopstrategy = 3)"
+  },
+  {
+    "comment": "opr_sanity - Statement 59",
+    "query": "SELECT o1.oid, o1.oprname, p.amopfamily FROM pg_operator AS o1, pg_amop p WHERE amopopr = o1.oid AND amopmethod = (SELECT oid FROM pg_am WHERE amname = 'btree') AND amopstrategy = 3 AND NOT o1.oprcanmerge",
+    "expected": "SELECT o1.oid, o1.oprname, p.amopfamily FROM pg_operator AS o1, pg_amop AS p WHERE amopopr = o1.oid AND amopmethod = (SELECT oid FROM pg_am WHERE amname = 'btree') AND amopstrategy = 3 AND NOT o1.oprcanmerge"
+  },
+  {
+    "comment": "opr_sanity - Statement 60",
+    "query": "SELECT o1.oid, o1.oprname FROM pg_operator AS o1 WHERE o1.oprcanhash AND NOT EXISTS (SELECT 1 FROM pg_amop WHERE amopmethod = (SELECT oid FROM pg_am WHERE amname = 'hash') AND amopopr = o1.oid AND amopstrategy = 1)"
+  },
+  {
+    "comment": "opr_sanity - Statement 61",
+    "query": "SELECT o1.oid, o1.oprname, p.amopfamily FROM pg_operator AS o1, pg_amop p WHERE amopopr = o1.oid AND amopmethod = (SELECT oid FROM pg_am WHERE amname = 'hash') AND NOT o1.oprcanhash",
+    "expected": "SELECT o1.oid, o1.oprname, p.amopfamily FROM pg_operator AS o1, pg_amop AS p WHERE amopopr = o1.oid AND amopmethod = (SELECT oid FROM pg_am WHERE amname = 'hash') AND NOT o1.oprcanhash"
+  },
+  {
+    "comment": "opr_sanity - Statement 62",
+    "query": "SELECT o1.oid, o1.oprname, p1.oid, p1.proname FROM pg_operator AS o1, pg_proc AS p1 WHERE o1.oprcode = p1.oid AND o1.oprkind = 'b' AND (p1.pronargs != 2 OR NOT binary_coercible(p1.prorettype, o1.oprresult) OR NOT binary_coercible(o1.oprleft, p1.proargtypes[0]) OR NOT binary_coercible(o1.oprright, p1.proargtypes[1]))",
+    "expected": "SELECT o1.oid, o1.oprname, p1.oid, p1.proname FROM pg_operator AS o1, pg_proc AS p1 WHERE o1.oprcode = p1.oid AND o1.oprkind = 'b' AND (p1.pronargs \u003c\u003e 2 OR NOT binary_coercible(p1.prorettype, o1.oprresult) OR NOT binary_coercible(o1.oprleft, p1.proargtypes[0]) OR NOT binary_coercible(o1.oprright, p1.proargtypes[1]))"
+  },
+  {
+    "comment": "opr_sanity - Statement 63",
+    "query": "SELECT o1.oid, o1.oprname, p1.oid, p1.proname FROM pg_operator AS o1, pg_proc AS p1 WHERE o1.oprcode = p1.oid AND o1.oprkind = 'l' AND (p1.pronargs != 1 OR NOT binary_coercible(p1.prorettype, o1.oprresult) OR NOT binary_coercible(o1.oprright, p1.proargtypes[0]) OR o1.oprleft != 0)",
+    "expected": "SELECT o1.oid, o1.oprname, p1.oid, p1.proname FROM pg_operator AS o1, pg_proc AS p1 WHERE o1.oprcode = p1.oid AND o1.oprkind = 'l' AND (p1.pronargs \u003c\u003e 1 OR NOT binary_coercible(p1.prorettype, o1.oprresult) OR NOT binary_coercible(o1.oprright, p1.proargtypes[0]) OR o1.oprleft \u003c\u003e 0)"
+  },
+  {
+    "comment": "opr_sanity - Statement 64",
+    "query": "SELECT o1.oid, o1.oprname, p1.oid, p1.proname FROM pg_operator AS o1, pg_proc AS p1 WHERE o1.oprcode = p1.oid AND (o1.oprcanmerge OR o1.oprcanhash) AND p1.provolatile = 'v'"
+  },
+  {
+    "comment": "opr_sanity - Statement 65",
+    "query": "SELECT o1.oid, o1.oprname, p2.oid, p2.proname FROM pg_operator AS o1, pg_proc AS p2 WHERE o1.oprrest = p2.oid AND (o1.oprresult != 'bool'::regtype OR p2.prorettype != 'float8'::regtype OR p2.proretset OR p2.pronargs != 4 OR p2.proargtypes[0] != 'internal'::regtype OR p2.proargtypes[1] != 'oid'::regtype OR p2.proargtypes[2] != 'internal'::regtype OR p2.proargtypes[3] != 'int4'::regtype)",
+    "expected": "SELECT o1.oid, o1.oprname, p2.oid, p2.proname FROM pg_operator AS o1, pg_proc AS p2 WHERE o1.oprrest = p2.oid AND (o1.oprresult \u003c\u003e CAST('bool' AS regtype) OR p2.prorettype \u003c\u003e CAST('float8' AS regtype) OR p2.proretset OR p2.pronargs \u003c\u003e 4 OR p2.proargtypes[0] \u003c\u003e CAST('internal' AS regtype) OR p2.proargtypes[1] \u003c\u003e CAST('oid' AS regtype) OR p2.proargtypes[2] \u003c\u003e CAST('internal' AS regtype) OR p2.proargtypes[3] \u003c\u003e CAST('int4' AS regtype))"
+  },
+  {
+    "comment": "opr_sanity - Statement 66",
+    "query": "SELECT o1.oid, o1.oprname, p2.oid, p2.proname FROM pg_operator AS o1, pg_proc AS p2 WHERE o1.oprjoin = p2.oid AND (o1.oprkind != 'b' OR o1.oprresult != 'bool'::regtype OR p2.prorettype != 'float8'::regtype OR p2.proretset OR p2.pronargs != 5 OR p2.proargtypes[0] != 'internal'::regtype OR p2.proargtypes[1] != 'oid'::regtype OR p2.proargtypes[2] != 'internal'::regtype OR p2.proargtypes[3] != 'int2'::regtype OR p2.proargtypes[4] != 'internal'::regtype)",
+    "expected": "SELECT o1.oid, o1.oprname, p2.oid, p2.proname FROM pg_operator AS o1, pg_proc AS p2 WHERE o1.oprjoin = p2.oid AND (o1.oprkind \u003c\u003e 'b' OR o1.oprresult \u003c\u003e CAST('bool' AS regtype) OR p2.prorettype \u003c\u003e CAST('float8' AS regtype) OR p2.proretset OR p2.pronargs \u003c\u003e 5 OR p2.proargtypes[0] \u003c\u003e CAST('internal' AS regtype) OR p2.proargtypes[1] \u003c\u003e CAST('oid' AS regtype) OR p2.proargtypes[2] \u003c\u003e CAST('internal' AS regtype) OR p2.proargtypes[3] \u003c\u003e CAST('int2' AS regtype) OR p2.proargtypes[4] \u003c\u003e CAST('internal' AS regtype))"
+  },
+  {
+    "comment": "opr_sanity - Statement 67",
+    "query": "SELECT o1.oid, o1.oprname FROM pg_operator as o1 LEFT JOIN pg_description as d ON o1.tableoid = d.classoid and o1.oid = d.objoid and d.objsubid = 0 WHERE d.classoid IS NULL AND o1.oid \u003c= 9999",
+    "expected": "SELECT o1.oid, o1.oprname FROM pg_operator AS o1 LEFT OUTER JOIN pg_description AS d ON o1.tableoid = d.classoid AND o1.oid = d.objoid AND d.objsubid = 0 WHERE d.classoid IS NULL AND o1.oid \u003c= 9999"
+  },
+  {
+    "comment": "opr_sanity - Statement 68",
+    "query": "WITH funcdescs AS ( SELECT p.oid as p_oid, proname, o.oid as o_oid, pd.description as prodesc, 'implementation of ' || oprname || ' operator' as expecteddesc, od.description as oprdesc FROM pg_proc p JOIN pg_operator o ON oprcode = p.oid LEFT JOIN pg_description pd ON (pd.objoid = p.oid and pd.classoid = p.tableoid and pd.objsubid = 0) LEFT JOIN pg_description od ON (od.objoid = o.oid and od.classoid = o.tableoid and od.objsubid = 0) WHERE o.oid \u003c= 9999 ) SELECT * FROM funcdescs WHERE prodesc IS DISTINCT FROM expecteddesc AND oprdesc NOT LIKE 'deprecated%' AND prodesc IS DISTINCT FROM oprdesc",
+    "expected": "WITH funcdescs AS (SELECT p.oid AS p_oid, proname, o.oid AS o_oid, pd.description AS prodesc, 'implementation of ' || oprname || ' operator' AS expecteddesc, od.description AS oprdesc FROM pg_proc AS p INNER JOIN pg_operator AS o ON oprcode = p.oid LEFT OUTER JOIN pg_description AS pd ON (pd.objoid = p.oid AND pd.classoid = p.tableoid AND pd.objsubid = 0) LEFT OUTER JOIN pg_description AS od ON (od.objoid = o.oid AND od.classoid = o.tableoid AND od.objsubid = 0) WHERE o.oid \u003c= 9999) SELECT * FROM funcdescs WHERE prodesc IS DISTINCT FROM expecteddesc AND oprdesc LIKE 'deprecated%' AND prodesc IS DISTINCT FROM oprdesc"
+  },
+  {
+    "comment": "opr_sanity - Statement 69",
+    "query": "WITH funcdescs AS ( SELECT p.oid as p_oid, proname, o.oid as o_oid, pd.description as prodesc, 'implementation of ' || oprname || ' operator' as expecteddesc, od.description as oprdesc FROM pg_proc p JOIN pg_operator o ON oprcode = p.oid LEFT JOIN pg_description pd ON (pd.objoid = p.oid and pd.classoid = p.tableoid and pd.objsubid = 0) LEFT JOIN pg_description od ON (od.objoid = o.oid and od.classoid = o.tableoid and od.objsubid = 0) WHERE o.oid \u003c= 9999 ) SELECT p_oid, proname, prodesc FROM funcdescs WHERE prodesc IS DISTINCT FROM expecteddesc AND oprdesc NOT LIKE 'deprecated%' ORDER BY 1",
+    "expected": "WITH funcdescs AS (SELECT p.oid AS p_oid, proname, o.oid AS o_oid, pd.description AS prodesc, 'implementation of ' || oprname || ' operator' AS expecteddesc, od.description AS oprdesc FROM pg_proc AS p INNER JOIN pg_operator AS o ON oprcode = p.oid LEFT OUTER JOIN pg_description AS pd ON (pd.objoid = p.oid AND pd.classoid = p.tableoid AND pd.objsubid = 0) LEFT OUTER JOIN pg_description AS od ON (od.objoid = o.oid AND od.classoid = o.tableoid AND od.objsubid = 0) WHERE o.oid \u003c= 9999) SELECT p_oid, proname, prodesc FROM funcdescs WHERE prodesc IS DISTINCT FROM expecteddesc AND oprdesc LIKE 'deprecated%' ORDER BY 1"
+  },
+  {
+    "comment": "opr_sanity - Statement 70",
+    "query": "SELECT o1.oid, o1.oprcode, o2.oid, o2.oprcode FROM pg_operator AS o1, pg_operator AS o2, pg_proc AS p1, pg_proc AS p2 WHERE o1.oprcom = o2.oid AND p1.oid = o1.oprcode AND p2.oid = o2.oprcode AND (p1.provolatile != p2.provolatile OR p1.proleakproof != p2.proleakproof)",
+    "expected": "SELECT o1.oid, o1.oprcode, o2.oid, o2.oprcode FROM pg_operator AS o1, pg_operator AS o2, pg_proc AS p1, pg_proc AS p2 WHERE o1.oprcom = o2.oid AND p1.oid = o1.oprcode AND p2.oid = o2.oprcode AND (p1.provolatile \u003c\u003e p2.provolatile OR p1.proleakproof \u003c\u003e p2.proleakproof)"
+  },
+  {
+    "comment": "opr_sanity - Statement 71",
+    "query": "SELECT o1.oid, o1.oprcode, o2.oid, o2.oprcode FROM pg_operator AS o1, pg_operator AS o2, pg_proc AS p1, pg_proc AS p2 WHERE o1.oprnegate = o2.oid AND p1.oid = o1.oprcode AND p2.oid = o2.oprcode AND (p1.provolatile != p2.provolatile OR p1.proleakproof != p2.proleakproof)",
+    "expected": "SELECT o1.oid, o1.oprcode, o2.oid, o2.oprcode FROM pg_operator AS o1, pg_operator AS o2, pg_proc AS p1, pg_proc AS p2 WHERE o1.oprnegate = o2.oid AND p1.oid = o1.oprcode AND p2.oid = o2.oprcode AND (p1.provolatile \u003c\u003e p2.provolatile OR p1.proleakproof \u003c\u003e p2.proleakproof)"
+  },
+  {
+    "comment": "opr_sanity - Statement 72",
+    "query": "SELECT pp.oid::regprocedure as proc, pp.provolatile as vp, pp.proleakproof as lp, po.oid::regprocedure as opr, po.provolatile as vo, po.proleakproof as lo FROM pg_proc pp, pg_proc po, pg_operator o, pg_amproc ap, pg_amop ao WHERE pp.oid = ap.amproc AND po.oid = o.oprcode AND o.oid = ao.amopopr AND ao.amopmethod = (SELECT oid FROM pg_am WHERE amname = 'btree') AND ao.amopfamily = ap.amprocfamily AND ao.amoplefttype = ap.amproclefttype AND ao.amoprighttype = ap.amprocrighttype AND ap.amprocnum = 1 AND (pp.provolatile != po.provolatile OR pp.proleakproof != po.proleakproof) ORDER BY 1",
+    "expected": "SELECT CAST(pp.oid AS regprocedure) AS proc, pp.provolatile AS vp, pp.proleakproof AS lp, CAST(po.oid AS regprocedure) AS opr, po.provolatile AS vo, po.proleakproof AS lo FROM pg_proc AS pp, pg_proc AS po, pg_operator AS o, pg_amproc AS ap, pg_amop AS ao WHERE pp.oid = ap.amproc AND po.oid = o.oprcode AND o.oid = ao.amopopr AND ao.amopmethod = (SELECT oid FROM pg_am WHERE amname = 'btree') AND ao.amopfamily = ap.amprocfamily AND ao.amoplefttype = ap.amproclefttype AND ao.amoprighttype = ap.amprocrighttype AND ap.amprocnum = 1 AND (pp.provolatile \u003c\u003e po.provolatile OR pp.proleakproof \u003c\u003e po.proleakproof) ORDER BY 1"
+  },
+  {
+    "comment": "opr_sanity - Statement 73",
+    "query": "SELECT ctid, aggfnoid::oid FROM pg_aggregate as a WHERE aggfnoid = 0 OR aggtransfn = 0 OR aggkind NOT IN ('n', 'o', 'h') OR aggnumdirectargs \u003c 0 OR (aggkind = 'n' AND aggnumdirectargs \u003e 0) OR aggfinalmodify NOT IN ('r', 's', 'w') OR aggmfinalmodify NOT IN ('r', 's', 'w') OR aggtranstype = 0 OR aggtransspace \u003c 0 OR aggmtransspace \u003c 0",
+    "expected": "SELECT ctid, CAST(aggfnoid AS oid) FROM pg_aggregate AS a WHERE aggfnoid = 0 OR aggtransfn = 0 OR aggkind NOT IN ('n', 'o', 'h') OR aggnumdirectargs \u003c 0 OR (aggkind = 'n' AND aggnumdirectargs \u003e 0) OR aggfinalmodify NOT IN ('r', 's', 'w') OR aggmfinalmodify NOT IN ('r', 's', 'w') OR aggtranstype = 0 OR aggtransspace \u003c 0 OR aggmtransspace \u003c 0"
+  },
+  {
+    "comment": "opr_sanity - Statement 74",
+    "query": "SELECT a.aggfnoid::oid, p.proname FROM pg_aggregate as a, pg_proc as p WHERE a.aggfnoid = p.oid AND (p.prokind != 'a' OR p.proretset OR p.pronargs \u003c a.aggnumdirectargs)",
+    "expected": "SELECT CAST(a.aggfnoid AS oid), p.proname FROM pg_aggregate AS a, pg_proc AS p WHERE a.aggfnoid = p.oid AND (p.prokind \u003c\u003e 'a' OR p.proretset OR p.pronargs \u003c a.aggnumdirectargs)"
+  },
+  {
+    "comment": "opr_sanity - Statement 75",
+    "query": "SELECT oid, proname FROM pg_proc as p WHERE p.prokind = 'a' AND NOT EXISTS (SELECT 1 FROM pg_aggregate a WHERE a.aggfnoid = p.oid)",
+    "expected": "SELECT oid, proname FROM pg_proc AS p WHERE p.prokind = 'a' AND NOT EXISTS (SELECT 1 FROM pg_aggregate AS a WHERE a.aggfnoid = p.oid)"
+  },
+  {
+    "comment": "opr_sanity - Statement 76",
+    "query": "SELECT a.aggfnoid::oid, p.proname FROM pg_aggregate as a, pg_proc as p WHERE a.aggfnoid = p.oid AND a.aggfinalfn = 0 AND p.prorettype != a.aggtranstype",
+    "expected": "SELECT CAST(a.aggfnoid AS oid), p.proname FROM pg_aggregate AS a, pg_proc AS p WHERE a.aggfnoid = p.oid AND a.aggfinalfn = 0 AND p.prorettype \u003c\u003e a.aggtranstype"
+  },
+  {
+    "comment": "opr_sanity - Statement 77",
+    "query": "SELECT a.aggfnoid::oid, p.proname, ptr.oid, ptr.proname FROM pg_aggregate AS a, pg_proc AS p, pg_proc AS ptr WHERE a.aggfnoid = p.oid AND a.aggtransfn = ptr.oid AND (ptr.proretset OR NOT (ptr.pronargs = CASE WHEN a.aggkind = 'n' THEN p.pronargs + 1 ELSE greatest(p.pronargs - a.aggnumdirectargs, 1) + 1 END) OR NOT binary_coercible(ptr.prorettype, a.aggtranstype) OR NOT binary_coercible(a.aggtranstype, ptr.proargtypes[0]) OR (p.pronargs \u003e 0 AND NOT binary_coercible(p.proargtypes[0], ptr.proargtypes[1])) OR (p.pronargs \u003e 1 AND NOT binary_coercible(p.proargtypes[1], ptr.proargtypes[2])) OR (p.pronargs \u003e 2 AND NOT binary_coercible(p.proargtypes[2], ptr.proargtypes[3])) OR (p.pronargs \u003e 3 AND NOT binary_coercible(p.proargtypes[3], ptr.proargtypes[4])) OR (p.pronargs \u003e 4) )",
+    "expected": "SELECT CAST(a.aggfnoid AS oid), p.proname, ptr.oid, ptr.proname FROM pg_aggregate AS a, pg_proc AS p, pg_proc AS ptr WHERE a.aggfnoid = p.oid AND a.aggtransfn = ptr.oid AND (ptr.proretset OR NOT (ptr.pronargs = CASE WHEN a.aggkind = 'n' THEN p.pronargs + 1 ELSE GREATEST(p.pronargs - a.aggnumdirectargs, 1) + 1 END) OR NOT binary_coercible(ptr.prorettype, a.aggtranstype) OR NOT binary_coercible(a.aggtranstype, ptr.proargtypes[0]) OR (p.pronargs \u003e 0 AND NOT binary_coercible(p.proargtypes[0], ptr.proargtypes[1])) OR (p.pronargs \u003e 1 AND NOT binary_coercible(p.proargtypes[1], ptr.proargtypes[2])) OR (p.pronargs \u003e 2 AND NOT binary_coercible(p.proargtypes[2], ptr.proargtypes[3])) OR (p.pronargs \u003e 3 AND NOT binary_coercible(p.proargtypes[3], ptr.proargtypes[4])) OR (p.pronargs \u003e 4))"
+  },
+  {
+    "comment": "opr_sanity - Statement 78",
+    "query": "SELECT a.aggfnoid::oid, p.proname, pfn.oid, pfn.proname FROM pg_aggregate AS a, pg_proc AS p, pg_proc AS pfn WHERE a.aggfnoid = p.oid AND a.aggfinalfn = pfn.oid AND (pfn.proretset OR NOT binary_coercible(pfn.prorettype, p.prorettype) OR NOT binary_coercible(a.aggtranstype, pfn.proargtypes[0]) OR CASE WHEN a.aggfinalextra THEN pfn.pronargs != p.pronargs + 1 ELSE pfn.pronargs != a.aggnumdirectargs + 1 END OR (pfn.pronargs \u003e 1 AND NOT binary_coercible(p.proargtypes[0], pfn.proargtypes[1])) OR (pfn.pronargs \u003e 2 AND NOT binary_coercible(p.proargtypes[1], pfn.proargtypes[2])) OR (pfn.pronargs \u003e 3 AND NOT binary_coercible(p.proargtypes[2], pfn.proargtypes[3])) OR (pfn.pronargs \u003e 4) )",
+    "expected": "SELECT CAST(a.aggfnoid AS oid), p.proname, pfn.oid, pfn.proname FROM pg_aggregate AS a, pg_proc AS p, pg_proc AS pfn WHERE a.aggfnoid = p.oid AND a.aggfinalfn = pfn.oid AND (pfn.proretset OR NOT binary_coercible(pfn.prorettype, p.prorettype) OR NOT binary_coercible(a.aggtranstype, pfn.proargtypes[0]) OR CASE WHEN a.aggfinalextra THEN pfn.pronargs \u003c\u003e p.pronargs + 1 ELSE pfn.pronargs \u003c\u003e a.aggnumdirectargs + 1 END OR (pfn.pronargs \u003e 1 AND NOT binary_coercible(p.proargtypes[0], pfn.proargtypes[1])) OR (pfn.pronargs \u003e 2 AND NOT binary_coercible(p.proargtypes[1], pfn.proargtypes[2])) OR (pfn.pronargs \u003e 3 AND NOT binary_coercible(p.proargtypes[2], pfn.proargtypes[3])) OR (pfn.pronargs \u003e 4))"
+  },
+  {
+    "comment": "opr_sanity - Statement 79",
+    "query": "SELECT a.aggfnoid::oid, p.proname, ptr.oid, ptr.proname FROM pg_aggregate AS a, pg_proc AS p, pg_proc AS ptr WHERE a.aggfnoid = p.oid AND a.aggtransfn = ptr.oid AND ptr.proisstrict AND a.agginitval IS NULL AND NOT binary_coercible(p.proargtypes[0], a.aggtranstype)",
+    "expected": "SELECT CAST(a.aggfnoid AS oid), p.proname, ptr.oid, ptr.proname FROM pg_aggregate AS a, pg_proc AS p, pg_proc AS ptr WHERE a.aggfnoid = p.oid AND a.aggtransfn = ptr.oid AND ptr.proisstrict AND a.agginitval IS NULL AND NOT binary_coercible(p.proargtypes[0], a.aggtranstype)"
+  },
+  {
+    "comment": "opr_sanity - Statement 80",
+    "query": "SELECT ctid, aggfnoid::oid FROM pg_aggregate as a WHERE aggmtranstype != 0 AND (aggmtransfn = 0 OR aggminvtransfn = 0)",
+    "expected": "SELECT ctid, CAST(aggfnoid AS oid) FROM pg_aggregate AS a WHERE aggmtranstype \u003c\u003e 0 AND (aggmtransfn = 0 OR aggminvtransfn = 0)"
+  },
+  {
+    "comment": "opr_sanity - Statement 81",
+    "query": "SELECT ctid, aggfnoid::oid FROM pg_aggregate as a WHERE aggmtranstype = 0 AND (aggmtransfn != 0 OR aggminvtransfn != 0 OR aggmfinalfn != 0 OR aggmtransspace != 0 OR aggminitval IS NOT NULL)",
+    "expected": "SELECT ctid, CAST(aggfnoid AS oid) FROM pg_aggregate AS a WHERE aggmtranstype = 0 AND (aggmtransfn \u003c\u003e 0 OR aggminvtransfn \u003c\u003e 0 OR aggmfinalfn \u003c\u003e 0 OR aggmtransspace \u003c\u003e 0 OR aggminitval IS NOT NULL)"
+  },
+  {
+    "comment": "opr_sanity - Statement 82",
+    "query": "SELECT a.aggfnoid::oid, p.proname FROM pg_aggregate as a, pg_proc as p WHERE a.aggfnoid = p.oid AND a.aggmtransfn != 0 AND a.aggmfinalfn = 0 AND p.prorettype != a.aggmtranstype",
+    "expected": "SELECT CAST(a.aggfnoid AS oid), p.proname FROM pg_aggregate AS a, pg_proc AS p WHERE a.aggfnoid = p.oid AND a.aggmtransfn \u003c\u003e 0 AND a.aggmfinalfn = 0 AND p.prorettype \u003c\u003e a.aggmtranstype"
+  },
+  {
+    "comment": "opr_sanity - Statement 83",
+    "query": "SELECT a.aggfnoid::oid, p.proname, ptr.oid, ptr.proname FROM pg_aggregate AS a, pg_proc AS p, pg_proc AS ptr WHERE a.aggfnoid = p.oid AND a.aggmtransfn = ptr.oid AND (ptr.proretset OR NOT (ptr.pronargs = CASE WHEN a.aggkind = 'n' THEN p.pronargs + 1 ELSE greatest(p.pronargs - a.aggnumdirectargs, 1) + 1 END) OR NOT binary_coercible(ptr.prorettype, a.aggmtranstype) OR NOT binary_coercible(a.aggmtranstype, ptr.proargtypes[0]) OR (p.pronargs \u003e 0 AND NOT binary_coercible(p.proargtypes[0], ptr.proargtypes[1])) OR (p.pronargs \u003e 1 AND NOT binary_coercible(p.proargtypes[1], ptr.proargtypes[2])) OR (p.pronargs \u003e 2 AND NOT binary_coercible(p.proargtypes[2], ptr.proargtypes[3])) OR (p.pronargs \u003e 3) )",
+    "expected": "SELECT CAST(a.aggfnoid AS oid), p.proname, ptr.oid, ptr.proname FROM pg_aggregate AS a, pg_proc AS p, pg_proc AS ptr WHERE a.aggfnoid = p.oid AND a.aggmtransfn = ptr.oid AND (ptr.proretset OR NOT (ptr.pronargs = CASE WHEN a.aggkind = 'n' THEN p.pronargs + 1 ELSE GREATEST(p.pronargs - a.aggnumdirectargs, 1) + 1 END) OR NOT binary_coercible(ptr.prorettype, a.aggmtranstype) OR NOT binary_coercible(a.aggmtranstype, ptr.proargtypes[0]) OR (p.pronargs \u003e 0 AND NOT binary_coercible(p.proargtypes[0], ptr.proargtypes[1])) OR (p.pronargs \u003e 1 AND NOT binary_coercible(p.proargtypes[1], ptr.proargtypes[2])) OR (p.pronargs \u003e 2 AND NOT binary_coercible(p.proargtypes[2], ptr.proargtypes[3])) OR (p.pronargs \u003e 3))"
+  },
+  {
+    "comment": "opr_sanity - Statement 84",
+    "query": "SELECT a.aggfnoid::oid, p.proname, ptr.oid, ptr.proname FROM pg_aggregate AS a, pg_proc AS p, pg_proc AS ptr WHERE a.aggfnoid = p.oid AND a.aggminvtransfn = ptr.oid AND (ptr.proretset OR NOT (ptr.pronargs = CASE WHEN a.aggkind = 'n' THEN p.pronargs + 1 ELSE greatest(p.pronargs - a.aggnumdirectargs, 1) + 1 END) OR NOT binary_coercible(ptr.prorettype, a.aggmtranstype) OR NOT binary_coercible(a.aggmtranstype, ptr.proargtypes[0]) OR (p.pronargs \u003e 0 AND NOT binary_coercible(p.proargtypes[0], ptr.proargtypes[1])) OR (p.pronargs \u003e 1 AND NOT binary_coercible(p.proargtypes[1], ptr.proargtypes[2])) OR (p.pronargs \u003e 2 AND NOT binary_coercible(p.proargtypes[2], ptr.proargtypes[3])) OR (p.pronargs \u003e 3) )",
+    "expected": "SELECT CAST(a.aggfnoid AS oid), p.proname, ptr.oid, ptr.proname FROM pg_aggregate AS a, pg_proc AS p, pg_proc AS ptr WHERE a.aggfnoid = p.oid AND a.aggminvtransfn = ptr.oid AND (ptr.proretset OR NOT (ptr.pronargs = CASE WHEN a.aggkind = 'n' THEN p.pronargs + 1 ELSE GREATEST(p.pronargs - a.aggnumdirectargs, 1) + 1 END) OR NOT binary_coercible(ptr.prorettype, a.aggmtranstype) OR NOT binary_coercible(a.aggmtranstype, ptr.proargtypes[0]) OR (p.pronargs \u003e 0 AND NOT binary_coercible(p.proargtypes[0], ptr.proargtypes[1])) OR (p.pronargs \u003e 1 AND NOT binary_coercible(p.proargtypes[1], ptr.proargtypes[2])) OR (p.pronargs \u003e 2 AND NOT binary_coercible(p.proargtypes[2], ptr.proargtypes[3])) OR (p.pronargs \u003e 3))"
+  },
+  {
+    "comment": "opr_sanity - Statement 85",
+    "query": "SELECT a.aggfnoid::oid, p.proname, pfn.oid, pfn.proname FROM pg_aggregate AS a, pg_proc AS p, pg_proc AS pfn WHERE a.aggfnoid = p.oid AND a.aggmfinalfn = pfn.oid AND (pfn.proretset OR NOT binary_coercible(pfn.prorettype, p.prorettype) OR NOT binary_coercible(a.aggmtranstype, pfn.proargtypes[0]) OR CASE WHEN a.aggmfinalextra THEN pfn.pronargs != p.pronargs + 1 ELSE pfn.pronargs != a.aggnumdirectargs + 1 END OR (pfn.pronargs \u003e 1 AND NOT binary_coercible(p.proargtypes[0], pfn.proargtypes[1])) OR (pfn.pronargs \u003e 2 AND NOT binary_coercible(p.proargtypes[1], pfn.proargtypes[2])) OR (pfn.pronargs \u003e 3 AND NOT binary_coercible(p.proargtypes[2], pfn.proargtypes[3])) OR (pfn.pronargs \u003e 4) )",
+    "expected": "SELECT CAST(a.aggfnoid AS oid), p.proname, pfn.oid, pfn.proname FROM pg_aggregate AS a, pg_proc AS p, pg_proc AS pfn WHERE a.aggfnoid = p.oid AND a.aggmfinalfn = pfn.oid AND (pfn.proretset OR NOT binary_coercible(pfn.prorettype, p.prorettype) OR NOT binary_coercible(a.aggmtranstype, pfn.proargtypes[0]) OR CASE WHEN a.aggmfinalextra THEN pfn.pronargs \u003c\u003e p.pronargs + 1 ELSE pfn.pronargs \u003c\u003e a.aggnumdirectargs + 1 END OR (pfn.pronargs \u003e 1 AND NOT binary_coercible(p.proargtypes[0], pfn.proargtypes[1])) OR (pfn.pronargs \u003e 2 AND NOT binary_coercible(p.proargtypes[1], pfn.proargtypes[2])) OR (pfn.pronargs \u003e 3 AND NOT binary_coercible(p.proargtypes[2], pfn.proargtypes[3])) OR (pfn.pronargs \u003e 4))"
+  },
+  {
+    "comment": "opr_sanity - Statement 86",
+    "query": "SELECT a.aggfnoid::oid, p.proname, ptr.oid, ptr.proname FROM pg_aggregate AS a, pg_proc AS p, pg_proc AS ptr WHERE a.aggfnoid = p.oid AND a.aggmtransfn = ptr.oid AND ptr.proisstrict AND a.aggminitval IS NULL AND NOT binary_coercible(p.proargtypes[0], a.aggmtranstype)",
+    "expected": "SELECT CAST(a.aggfnoid AS oid), p.proname, ptr.oid, ptr.proname FROM pg_aggregate AS a, pg_proc AS p, pg_proc AS ptr WHERE a.aggfnoid = p.oid AND a.aggmtransfn = ptr.oid AND ptr.proisstrict AND a.aggminitval IS NULL AND NOT binary_coercible(p.proargtypes[0], a.aggmtranstype)"
+  },
+  {
+    "comment": "opr_sanity - Statement 87",
+    "query": "SELECT a.aggfnoid::oid, p.proname, ptr.oid, ptr.proname, iptr.oid, iptr.proname FROM pg_aggregate AS a, pg_proc AS p, pg_proc AS ptr, pg_proc AS iptr WHERE a.aggfnoid = p.oid AND a.aggmtransfn = ptr.oid AND a.aggminvtransfn = iptr.oid AND ptr.proisstrict != iptr.proisstrict",
+    "expected": "SELECT CAST(a.aggfnoid AS oid), p.proname, ptr.oid, ptr.proname, iptr.oid, iptr.proname FROM pg_aggregate AS a, pg_proc AS p, pg_proc AS ptr, pg_proc AS iptr WHERE a.aggfnoid = p.oid AND a.aggmtransfn = ptr.oid AND a.aggminvtransfn = iptr.oid AND ptr.proisstrict \u003c\u003e iptr.proisstrict"
+  },
+  {
+    "comment": "opr_sanity - Statement 88",
+    "query": "SELECT a.aggfnoid, p.proname FROM pg_aggregate as a, pg_proc as p WHERE a.aggcombinefn = p.oid AND (p.pronargs != 2 OR p.prorettype != p.proargtypes[0] OR p.prorettype != p.proargtypes[1] OR NOT binary_coercible(a.aggtranstype, p.proargtypes[0]))",
+    "expected": "SELECT a.aggfnoid, p.proname FROM pg_aggregate AS a, pg_proc AS p WHERE a.aggcombinefn = p.oid AND (p.pronargs \u003c\u003e 2 OR p.prorettype \u003c\u003e p.proargtypes[0] OR p.prorettype \u003c\u003e p.proargtypes[1] OR NOT binary_coercible(a.aggtranstype, p.proargtypes[0]))"
+  },
+  {
+    "comment": "opr_sanity - Statement 89",
+    "query": "SELECT a.aggfnoid, p.proname FROM pg_aggregate as a, pg_proc as p WHERE a.aggcombinefn = p.oid AND a.aggtranstype = 'internal'::regtype AND p.proisstrict",
+    "expected": "SELECT a.aggfnoid, p.proname FROM pg_aggregate AS a, pg_proc AS p WHERE a.aggcombinefn = p.oid AND a.aggtranstype = CAST('internal' AS regtype) AND p.proisstrict"
+  },
+  {
+    "comment": "opr_sanity - Statement 90",
+    "query": "SELECT aggfnoid, aggtranstype, aggserialfn, aggdeserialfn FROM pg_aggregate WHERE (aggserialfn != 0 OR aggdeserialfn != 0) AND (aggtranstype != 'internal'::regtype OR aggcombinefn = 0 OR aggserialfn = 0 OR aggdeserialfn = 0)",
+    "expected": "SELECT aggfnoid, aggtranstype, aggserialfn, aggdeserialfn FROM pg_aggregate WHERE (aggserialfn \u003c\u003e 0 OR aggdeserialfn \u003c\u003e 0) AND (aggtranstype \u003c\u003e CAST('internal' AS regtype) OR aggcombinefn = 0 OR aggserialfn = 0 OR aggdeserialfn = 0)"
+  },
+  {
+    "comment": "opr_sanity - Statement 91",
+    "query": "SELECT a.aggfnoid, p.proname FROM pg_aggregate as a, pg_proc as p WHERE a.aggserialfn = p.oid AND (p.prorettype != 'bytea'::regtype OR p.pronargs != 1 OR p.proargtypes[0] != 'internal'::regtype OR NOT p.proisstrict)",
+    "expected": "SELECT a.aggfnoid, p.proname FROM pg_aggregate AS a, pg_proc AS p WHERE a.aggserialfn = p.oid AND (p.prorettype \u003c\u003e CAST('bytea' AS regtype) OR p.pronargs \u003c\u003e 1 OR p.proargtypes[0] \u003c\u003e CAST('internal' AS regtype) OR NOT p.proisstrict)"
+  },
+  {
+    "comment": "opr_sanity - Statement 92",
+    "query": "SELECT a.aggfnoid, p.proname FROM pg_aggregate as a, pg_proc as p WHERE a.aggdeserialfn = p.oid AND (p.prorettype != 'internal'::regtype OR p.pronargs != 2 OR p.proargtypes[0] != 'bytea'::regtype OR p.proargtypes[1] != 'internal'::regtype OR NOT p.proisstrict)",
+    "expected": "SELECT a.aggfnoid, p.proname FROM pg_aggregate AS a, pg_proc AS p WHERE a.aggdeserialfn = p.oid AND (p.prorettype \u003c\u003e CAST('internal' AS regtype) OR p.pronargs \u003c\u003e 2 OR p.proargtypes[0] \u003c\u003e CAST('bytea' AS regtype) OR p.proargtypes[1] \u003c\u003e CAST('internal' AS regtype) OR NOT p.proisstrict)"
+  },
+  {
+    "comment": "opr_sanity - Statement 93",
+    "query": "SELECT a.aggfnoid, a.aggcombinefn, a.aggserialfn, a.aggdeserialfn, b.aggfnoid, b.aggcombinefn, b.aggserialfn, b.aggdeserialfn FROM pg_aggregate a, pg_aggregate b WHERE a.aggfnoid \u003c b.aggfnoid AND a.aggtransfn = b.aggtransfn AND (a.aggcombinefn != b.aggcombinefn OR a.aggserialfn != b.aggserialfn OR a.aggdeserialfn != b.aggdeserialfn)",
+    "expected": "SELECT a.aggfnoid, a.aggcombinefn, a.aggserialfn, a.aggdeserialfn, b.aggfnoid, b.aggcombinefn, b.aggserialfn, b.aggdeserialfn FROM pg_aggregate AS a, pg_aggregate AS b WHERE a.aggfnoid \u003c b.aggfnoid AND a.aggtransfn = b.aggtransfn AND (a.aggcombinefn \u003c\u003e b.aggcombinefn OR a.aggserialfn \u003c\u003e b.aggserialfn OR a.aggdeserialfn \u003c\u003e b.aggdeserialfn)"
+  },
+  {
+    "comment": "opr_sanity - Statement 94",
+    "query": "SELECT DISTINCT proname, oprname FROM pg_operator AS o, pg_aggregate AS a, pg_proc AS p WHERE a.aggfnoid = p.oid AND a.aggsortop = o.oid ORDER BY 1, 2"
+  },
+  {
+    "comment": "opr_sanity - Statement 95",
+    "query": "SELECT a.aggfnoid::oid, o.oid FROM pg_operator AS o, pg_aggregate AS a, pg_proc AS p WHERE a.aggfnoid = p.oid AND a.aggsortop = o.oid AND (oprkind != 'b' OR oprresult != 'boolean'::regtype OR oprleft != p.proargtypes[0] OR oprright != p.proargtypes[0])",
+    "expected": "SELECT CAST(a.aggfnoid AS oid), o.oid FROM pg_operator AS o, pg_aggregate AS a, pg_proc AS p WHERE a.aggfnoid = p.oid AND a.aggsortop = o.oid AND (oprkind \u003c\u003e 'b' OR oprresult \u003c\u003e CAST('boolean' AS regtype) OR oprleft \u003c\u003e p.proargtypes[0] OR oprright \u003c\u003e p.proargtypes[0])"
+  },
+  {
+    "comment": "opr_sanity - Statement 96",
+    "query": "SELECT a.aggfnoid::oid, o.oid FROM pg_operator AS o, pg_aggregate AS a, pg_proc AS p WHERE a.aggfnoid = p.oid AND a.aggsortop = o.oid AND NOT EXISTS(SELECT 1 FROM pg_amop WHERE amopmethod = (SELECT oid FROM pg_am WHERE amname = 'btree') AND amopopr = o.oid AND amoplefttype = o.oprleft AND amoprighttype = o.oprright)",
+    "expected": "SELECT CAST(a.aggfnoid AS oid), o.oid FROM pg_operator AS o, pg_aggregate AS a, pg_proc AS p WHERE a.aggfnoid = p.oid AND a.aggsortop = o.oid AND NOT EXISTS (SELECT 1 FROM pg_amop WHERE amopmethod = (SELECT oid FROM pg_am WHERE amname = 'btree') AND amopopr = o.oid AND amoplefttype = o.oprleft AND amoprighttype = o.oprright)"
+  },
+  {
+    "comment": "opr_sanity - Statement 97",
+    "query": "SELECT DISTINCT proname, oprname, amopstrategy FROM pg_operator AS o, pg_aggregate AS a, pg_proc AS p, pg_amop as ao WHERE a.aggfnoid = p.oid AND a.aggsortop = o.oid AND amopopr = o.oid AND amopmethod = (SELECT oid FROM pg_am WHERE amname = 'btree') ORDER BY 1, 2",
+    "expected": "SELECT DISTINCT proname, oprname, amopstrategy FROM pg_operator AS o, pg_aggregate AS a, pg_proc AS p, pg_amop AS ao WHERE a.aggfnoid = p.oid AND a.aggsortop = o.oid AND amopopr = o.oid AND amopmethod = (SELECT oid FROM pg_am WHERE amname = 'btree') ORDER BY 1, 2"
+  },
+  {
+    "comment": "opr_sanity - Statement 98",
+    "query": "SELECT p1.oid::regprocedure, p2.oid::regprocedure FROM pg_proc AS p1, pg_proc AS p2 WHERE p1.oid \u003c p2.oid AND p1.proname = p2.proname AND p1.prokind = 'a' AND p2.prokind = 'a' AND array_dims(p1.proargtypes) != array_dims(p2.proargtypes) ORDER BY 1",
+    "expected": "SELECT CAST(p1.oid AS regprocedure), CAST(p2.oid AS regprocedure) FROM pg_proc AS p1, pg_proc AS p2 WHERE p1.oid \u003c p2.oid AND p1.proname = p2.proname AND p1.prokind = 'a' AND p2.prokind = 'a' AND array_dims(p1.proargtypes) \u003c\u003e array_dims(p2.proargtypes) ORDER BY 1"
+  },
+  {
+    "comment": "opr_sanity - Statement 99",
+    "query": "SELECT oid, proname FROM pg_proc AS p WHERE prokind = 'a' AND proargdefaults IS NOT NULL"
+  },
+  {
+    "comment": "opr_sanity - Statement 100",
+    "query": "SELECT p.oid, proname FROM pg_proc AS p JOIN pg_aggregate AS a ON a.aggfnoid = p.oid WHERE prokind = 'a' AND provariadic != 0 AND a.aggkind = 'n'",
+    "expected": "SELECT p.oid, proname FROM pg_proc AS p INNER JOIN pg_aggregate AS a ON a.aggfnoid = p.oid WHERE prokind = 'a' AND provariadic \u003c\u003e 0 AND a.aggkind = 'n'"
+  },
+  {
+    "comment": "opr_sanity - Statement 101",
+    "query": "SELECT f.oid FROM pg_opfamily as f WHERE f.opfmethod = 0 OR f.opfnamespace = 0",
+    "expected": "SELECT f.oid FROM pg_opfamily AS f WHERE f.opfmethod = 0 OR f.opfnamespace = 0"
+  },
+  {
+    "comment": "opr_sanity - Statement 102",
+    "query": "SELECT oid, opfname FROM pg_opfamily f WHERE NOT EXISTS (SELECT 1 FROM pg_opclass WHERE opcfamily = f.oid)",
+    "expected": "SELECT oid, opfname FROM pg_opfamily AS f WHERE NOT EXISTS (SELECT 1 FROM pg_opclass WHERE opcfamily = f.oid)"
+  },
+  {
+    "comment": "opr_sanity - Statement 103",
+    "query": "SELECT c1.oid FROM pg_opclass AS c1 WHERE c1.opcmethod = 0 OR c1.opcnamespace = 0 OR c1.opcfamily = 0 OR c1.opcintype = 0"
+  },
+  {
+    "comment": "opr_sanity - Statement 104",
+    "query": "SELECT c1.oid, f1.oid FROM pg_opclass AS c1, pg_opfamily AS f1 WHERE c1.opcfamily = f1.oid AND c1.opcmethod != f1.opfmethod",
+    "expected": "SELECT c1.oid, f1.oid FROM pg_opclass AS c1, pg_opfamily AS f1 WHERE c1.opcfamily = f1.oid AND c1.opcmethod \u003c\u003e f1.opfmethod"
+  },
+  {
+    "comment": "opr_sanity - Statement 105",
+    "query": "SELECT c1.oid, c2.oid FROM pg_opclass AS c1, pg_opclass AS c2 WHERE c1.oid != c2.oid AND c1.opcmethod = c2.opcmethod AND c1.opcintype = c2.opcintype AND c1.opcdefault AND c2.opcdefault",
+    "expected": "SELECT c1.oid, c2.oid FROM pg_opclass AS c1, pg_opclass AS c2 WHERE c1.oid \u003c\u003e c2.oid AND c1.opcmethod = c2.opcmethod AND c1.opcintype = c2.opcintype AND c1.opcdefault AND c2.opcdefault"
+  },
+  {
+    "comment": "opr_sanity - Statement 106",
+    "query": "SELECT oid, opcname FROM pg_opclass WHERE NOT amvalidate(oid)"
+  },
+  {
+    "comment": "opr_sanity - Statement 107",
+    "query": "SELECT a1.oid, a1.amname FROM pg_am AS a1 WHERE a1.amhandler = 0"
+  },
+  {
+    "comment": "opr_sanity - Statement 108",
+    "query": "SELECT a1.oid, a1.amname, p1.oid, p1.proname FROM pg_am AS a1, pg_proc AS p1 WHERE p1.oid = a1.amhandler AND a1.amtype = 'i' AND (p1.prorettype != 'index_am_handler'::regtype OR p1.proretset OR p1.pronargs != 1 OR p1.proargtypes[0] != 'internal'::regtype)",
+    "expected": "SELECT a1.oid, a1.amname, p1.oid, p1.proname FROM pg_am AS a1, pg_proc AS p1 WHERE p1.oid = a1.amhandler AND a1.amtype = 'i' AND (p1.prorettype \u003c\u003e CAST('index_am_handler' AS regtype) OR p1.proretset OR p1.pronargs \u003c\u003e 1 OR p1.proargtypes[0] \u003c\u003e CAST('internal' AS regtype))"
+  },
+  {
+    "comment": "opr_sanity - Statement 109",
+    "query": "SELECT a1.oid, a1.amname, p1.oid, p1.proname FROM pg_am AS a1, pg_proc AS p1 WHERE p1.oid = a1.amhandler AND a1.amtype = 't' AND (p1.prorettype != 'table_am_handler'::regtype OR p1.proretset OR p1.pronargs != 1 OR p1.proargtypes[0] != 'internal'::regtype)",
+    "expected": "SELECT a1.oid, a1.amname, p1.oid, p1.proname FROM pg_am AS a1, pg_proc AS p1 WHERE p1.oid = a1.amhandler AND a1.amtype = 't' AND (p1.prorettype \u003c\u003e CAST('table_am_handler' AS regtype) OR p1.proretset OR p1.pronargs \u003c\u003e 1 OR p1.proargtypes[0] \u003c\u003e CAST('internal' AS regtype))"
+  },
+  {
+    "comment": "opr_sanity - Statement 110",
+    "query": "SELECT a1.amopfamily, a1.amopstrategy FROM pg_amop as a1 WHERE a1.amopfamily = 0 OR a1.amoplefttype = 0 OR a1.amoprighttype = 0 OR a1.amopopr = 0 OR a1.amopmethod = 0 OR a1.amopstrategy \u003c 1",
+    "expected": "SELECT a1.amopfamily, a1.amopstrategy FROM pg_amop AS a1 WHERE a1.amopfamily = 0 OR a1.amoplefttype = 0 OR a1.amoprighttype = 0 OR a1.amopopr = 0 OR a1.amopmethod = 0 OR a1.amopstrategy \u003c 1"
+  },
+  {
+    "comment": "opr_sanity - Statement 111",
+    "query": "SELECT a1.amopfamily, a1.amopstrategy FROM pg_amop as a1 WHERE NOT ((a1.amoppurpose = 's' AND a1.amopsortfamily = 0) OR (a1.amoppurpose = 'o' AND a1.amopsortfamily \u003c\u003e 0))",
+    "expected": "SELECT a1.amopfamily, a1.amopstrategy FROM pg_amop AS a1 WHERE NOT ((a1.amoppurpose = 's' AND a1.amopsortfamily = 0) OR (a1.amoppurpose = 'o' AND a1.amopsortfamily \u003c\u003e 0))"
+  },
+  {
+    "comment": "opr_sanity - Statement 112",
+    "query": "SELECT a1.oid, f1.oid FROM pg_amop AS a1, pg_opfamily AS f1 WHERE a1.amopfamily = f1.oid AND a1.amopmethod != f1.opfmethod",
+    "expected": "SELECT a1.oid, f1.oid FROM pg_amop AS a1, pg_opfamily AS f1 WHERE a1.amopfamily = f1.oid AND a1.amopmethod \u003c\u003e f1.opfmethod"
+  },
+  {
+    "comment": "opr_sanity - Statement 113",
+    "query": "SELECT DISTINCT amopmethod, amopstrategy, oprname FROM pg_amop a1 LEFT JOIN pg_operator o1 ON amopopr = o1.oid ORDER BY 1, 2, 3",
+    "expected": "SELECT DISTINCT amopmethod, amopstrategy, oprname FROM pg_amop AS a1 LEFT OUTER JOIN pg_operator AS o1 ON amopopr = o1.oid ORDER BY 1, 2, 3"
+  },
+  {
+    "comment": "opr_sanity - Statement 114",
+    "query": "SELECT a1.amopfamily, a1.amopopr, o1.oid, o1.oprname FROM pg_amop AS a1, pg_operator AS o1 WHERE a1.amopopr = o1.oid AND a1.amoppurpose = 's' AND (o1.oprrest = 0 OR o1.oprjoin = 0)"
+  },
+  {
+    "comment": "opr_sanity - Statement 115",
+    "query": "SELECT c1.opcname, c1.opcfamily FROM pg_opclass AS c1 WHERE NOT EXISTS(SELECT 1 FROM pg_amop AS a1 WHERE a1.amopfamily = c1.opcfamily AND binary_coercible(c1.opcintype, a1.amoplefttype))",
+    "expected": "SELECT c1.opcname, c1.opcfamily FROM pg_opclass AS c1 WHERE NOT EXISTS (SELECT 1 FROM pg_amop AS a1 WHERE a1.amopfamily = c1.opcfamily AND binary_coercible(c1.opcintype, a1.amoplefttype))"
+  },
+  {
+    "comment": "opr_sanity - Statement 116",
+    "query": "SELECT a1.amopfamily, a1.amopstrategy, a1.amopopr FROM pg_amop AS a1 WHERE NOT EXISTS(SELECT 1 FROM pg_opclass AS c1 WHERE c1.opcfamily = a1.amopfamily AND binary_coercible(c1.opcintype, a1.amoplefttype))",
+    "expected": "SELECT a1.amopfamily, a1.amopstrategy, a1.amopopr FROM pg_amop AS a1 WHERE NOT EXISTS (SELECT 1 FROM pg_opclass AS c1 WHERE c1.opcfamily = a1.amopfamily AND binary_coercible(c1.opcintype, a1.amoplefttype))"
+  },
+  {
+    "comment": "opr_sanity - Statement 117",
+    "query": "SELECT a1.amopfamily, a1.amopopr, o1.oprname, p1.prosrc FROM pg_amop AS a1, pg_operator AS o1, pg_proc AS p1 WHERE a1.amopopr = o1.oid AND o1.oprcode = p1.oid AND a1.amoplefttype = a1.amoprighttype AND p1.provolatile != 'i'",
+    "expected": "SELECT a1.amopfamily, a1.amopopr, o1.oprname, p1.prosrc FROM pg_amop AS a1, pg_operator AS o1, pg_proc AS p1 WHERE a1.amopopr = o1.oid AND o1.oprcode = p1.oid AND a1.amoplefttype = a1.amoprighttype AND p1.provolatile \u003c\u003e 'i'"
+  },
+  {
+    "comment": "opr_sanity - Statement 118",
+    "query": "SELECT a1.amopfamily, a1.amopopr, o1.oprname, p1.prosrc FROM pg_amop AS a1, pg_operator AS o1, pg_proc AS p1 WHERE a1.amopopr = o1.oid AND o1.oprcode = p1.oid AND a1.amoplefttype != a1.amoprighttype AND p1.provolatile = 'v'",
+    "expected": "SELECT a1.amopfamily, a1.amopopr, o1.oprname, p1.prosrc FROM pg_amop AS a1, pg_operator AS o1, pg_proc AS p1 WHERE a1.amopopr = o1.oid AND o1.oprcode = p1.oid AND a1.amoplefttype \u003c\u003e a1.amoprighttype AND p1.provolatile = 'v'"
+  },
+  {
+    "comment": "opr_sanity - Statement 119",
+    "query": "SELECT a1.amprocfamily, a1.amprocnum FROM pg_amproc as a1 WHERE a1.amprocfamily = 0 OR a1.amproclefttype = 0 OR a1.amprocrighttype = 0 OR a1.amprocnum \u003c 0 OR a1.amproc = 0",
+    "expected": "SELECT a1.amprocfamily, a1.amprocnum FROM pg_amproc AS a1 WHERE a1.amprocfamily = 0 OR a1.amproclefttype = 0 OR a1.amprocrighttype = 0 OR a1.amprocnum \u003c 0 OR a1.amproc = 0"
+  },
+  {
+    "comment": "opr_sanity - Statement 120",
+    "query": "SELECT a1.amprocfamily, a1.amproc, p1.prosrc FROM pg_amproc AS a1, pg_proc AS p1 WHERE a1.amproc = p1.oid AND a1.amproclefttype = a1.amprocrighttype AND p1.provolatile != 'i'",
+    "expected": "SELECT a1.amprocfamily, a1.amproc, p1.prosrc FROM pg_amproc AS a1, pg_proc AS p1 WHERE a1.amproc = p1.oid AND a1.amproclefttype = a1.amprocrighttype AND p1.provolatile \u003c\u003e 'i'"
+  },
+  {
+    "comment": "opr_sanity - Statement 121",
+    "query": "SELECT a1.amprocfamily, a1.amproc, p1.prosrc FROM pg_amproc AS a1, pg_proc AS p1 WHERE a1.amproc = p1.oid AND a1.amproclefttype != a1.amprocrighttype AND p1.provolatile = 'v'",
+    "expected": "SELECT a1.amprocfamily, a1.amproc, p1.prosrc FROM pg_amproc AS a1, pg_proc AS p1 WHERE a1.amproc = p1.oid AND a1.amproclefttype \u003c\u003e a1.amprocrighttype AND p1.provolatile = 'v'"
+  },
+  {
+    "comment": "opr_sanity - Statement 122",
+    "query": "SELECT amp.amproc::regproc AS proc, opf.opfname AS opfamily_name, opc.opcname AS opclass_name, opc.opcintype::regtype AS opcintype FROM pg_am AS am JOIN pg_opclass AS opc ON opc.opcmethod = am.oid JOIN pg_opfamily AS opf ON opc.opcfamily = opf.oid LEFT JOIN pg_amproc AS amp ON amp.amprocfamily = opf.oid AND amp.amproclefttype = opc.opcintype AND amp.amprocnum = 4 WHERE am.amname = 'btree' AND amp.amproc IS DISTINCT FROM 'btequalimage'::regproc ORDER BY 1, 2, 3",
+    "expected": "SELECT CAST(amp.amproc AS regproc) AS proc, opf.opfname AS opfamily_name, opc.opcname AS opclass_name, CAST(opc.opcintype AS regtype) AS opcintype FROM pg_am AS am INNER JOIN pg_opclass AS opc ON opc.opcmethod = am.oid INNER JOIN pg_opfamily AS opf ON opc.opcfamily = opf.oid LEFT OUTER JOIN pg_amproc AS amp ON amp.amprocfamily = opf.oid AND amp.amproclefttype = opc.opcintype AND amp.amprocnum = 4 WHERE am.amname = 'btree' AND amp.amproc IS DISTINCT FROM CAST('btequalimage' AS regproc) ORDER BY 1, 2, 3"
+  },
+  {
+    "comment": "opr_sanity - Statement 123",
+    "query": "SELECT indexrelid, indrelid FROM pg_index WHERE indexrelid = 0 OR indrelid = 0 OR indnatts \u003c= 0 OR indnatts \u003e 32"
+  },
+  {
+    "comment": "opr_sanity - Statement 124",
+    "query": "SELECT indexrelid, indrelid FROM pg_index WHERE array_lower(indkey, 1) != 0 OR array_upper(indkey, 1) != indnatts-1 OR array_lower(indclass, 1) != 0 OR array_upper(indclass, 1) != indnatts-1 OR array_lower(indcollation, 1) != 0 OR array_upper(indcollation, 1) != indnatts-1 OR array_lower(indoption, 1) != 0 OR array_upper(indoption, 1) != indnatts-1",
+    "expected": "SELECT indexrelid, indrelid FROM pg_index WHERE array_lower(indkey, 1) \u003c\u003e 0 OR array_upper(indkey, 1) \u003c\u003e indnatts - 1 OR array_lower(indclass, 1) \u003c\u003e 0 OR array_upper(indclass, 1) \u003c\u003e indnatts - 1 OR array_lower(indcollation, 1) \u003c\u003e 0 OR array_upper(indcollation, 1) \u003c\u003e indnatts - 1 OR array_lower(indoption, 1) \u003c\u003e 0 OR array_upper(indoption, 1) \u003c\u003e indnatts - 1"
+  },
+  {
+    "comment": "opr_sanity - Statement 125",
+    "query": "SELECT indexrelid::regclass, indrelid::regclass, attname, atttypid::regtype, opcname FROM (SELECT indexrelid, indrelid, unnest(indkey) as ikey, unnest(indclass) as iclass, unnest(indcollation) as icoll FROM pg_index) ss, pg_attribute a, pg_opclass opc WHERE a.attrelid = indrelid AND a.attnum = ikey AND opc.oid = iclass AND (NOT binary_coercible(atttypid, opcintype) OR icoll != attcollation)",
+    "expected": "SELECT CAST(indexrelid AS regclass), CAST(indrelid AS regclass), attname, CAST(atttypid AS regtype), opcname FROM (SELECT indexrelid, indrelid, unnest(indkey) AS ikey, unnest(indclass) AS iclass, unnest(indcollation) AS icoll FROM pg_index) AS ss, pg_attribute AS a, pg_opclass AS opc WHERE a.attrelid = indrelid AND a.attnum = ikey AND opc.oid = iclass AND (NOT binary_coercible(atttypid, opcintype) OR icoll \u003c\u003e attcollation)"
+  },
+  {
+    "comment": "opr_sanity - Statement 126",
+    "query": "SELECT indexrelid::regclass, indrelid::regclass, attname, atttypid::regtype, opcname FROM (SELECT indexrelid, indrelid, unnest(indkey) as ikey, unnest(indclass) as iclass, unnest(indcollation) as icoll FROM pg_index WHERE indrelid \u003c 16384) ss, pg_attribute a, pg_opclass opc WHERE a.attrelid = indrelid AND a.attnum = ikey AND opc.oid = iclass AND (opcintype != atttypid OR icoll != attcollation) ORDER BY 1",
+    "expected": "SELECT CAST(indexrelid AS regclass), CAST(indrelid AS regclass), attname, CAST(atttypid AS regtype), opcname FROM (SELECT indexrelid, indrelid, unnest(indkey) AS ikey, unnest(indclass) AS iclass, unnest(indcollation) AS icoll FROM pg_index WHERE indrelid \u003c 16384) AS ss, pg_attribute AS a, pg_opclass AS opc WHERE a.attrelid = indrelid AND a.attnum = ikey AND opc.oid = iclass AND (opcintype \u003c\u003e atttypid OR icoll \u003c\u003e attcollation) ORDER BY 1"
+  },
+  {
+    "comment": "opr_sanity - Statement 127",
+    "query": "SELECT relname, attname, attcollation FROM pg_class c, pg_attribute a WHERE c.oid = attrelid AND c.oid \u003c 16384 AND c.relkind != 'v' AND attcollation != 0 AND attcollation != (SELECT oid FROM pg_collation WHERE collname = 'C')",
+    "expected": "SELECT relname, attname, attcollation FROM pg_class AS c, pg_attribute AS a WHERE c.oid = attrelid AND c.oid \u003c 16384 AND c.relkind \u003c\u003e 'v' AND attcollation \u003c\u003e 0 AND attcollation \u003c\u003e (SELECT oid FROM pg_collation WHERE collname = 'C')"
+  },
+  {
+    "comment": "opr_sanity - Statement 128",
+    "query": "SELECT indexrelid::regclass, indrelid::regclass, iclass, icoll FROM (SELECT indexrelid, indrelid, unnest(indclass) as iclass, unnest(indcollation) as icoll FROM pg_index WHERE indrelid \u003c 16384) ss WHERE icoll != 0 AND icoll != (SELECT oid FROM pg_collation WHERE collname = 'C')",
+    "expected": "SELECT CAST(indexrelid AS regclass), CAST(indrelid AS regclass), iclass, icoll FROM (SELECT indexrelid, indrelid, unnest(indclass) AS iclass, unnest(indcollation) AS icoll FROM pg_index WHERE indrelid \u003c 16384) AS ss WHERE icoll \u003c\u003e 0 AND icoll \u003c\u003e (SELECT oid FROM pg_collation WHERE collname = 'C')"
+  }
+]

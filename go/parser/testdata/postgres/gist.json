@@ -1,0 +1,302 @@
+[
+  {
+    "comment": "gist - Statement 1",
+    "query": "create table gist_point_tbl(id int4, p point)",
+    "expected": "CREATE TABLE gist_point_tbl (id INT, p point)"
+  },
+  {
+    "comment": "gist - Statement 2",
+    "query": "create index gist_pointidx on gist_point_tbl using gist(p)",
+    "expected": "CREATE INDEX gist_pointidx ON gist_point_tbl USING gist ( p )"
+  },
+  {
+    "comment": "gist - Statement 3",
+    "query": "create index gist_pointidx2 on gist_point_tbl using gist(p) with (buffering = on, fillfactor=50)",
+    "expected": "CREATE INDEX gist_pointidx2 ON gist_point_tbl USING gist ( p ) WITH (buffering = 'on', fillfactor = 50)"
+  },
+  {
+    "comment": "gist - Statement 4",
+    "query": "create index gist_pointidx3 on gist_point_tbl using gist(p) with (buffering = off)",
+    "expected": "CREATE INDEX gist_pointidx3 ON gist_point_tbl USING gist ( p ) WITH (buffering = off)"
+  },
+  {
+    "comment": "gist - Statement 5",
+    "query": "create index gist_pointidx4 on gist_point_tbl using gist(p) with (buffering = auto)",
+    "expected": "CREATE INDEX gist_pointidx4 ON gist_point_tbl USING gist ( p ) WITH (buffering = auto)"
+  },
+  {
+    "comment": "gist - Statement 6",
+    "query": "drop index gist_pointidx2, gist_pointidx3, gist_pointidx4",
+    "expected": "DROP INDEX gist_pointidx2, gist_pointidx3, gist_pointidx4"
+  },
+  {
+    "comment": "gist - Statement 7",
+    "query": "create index gist_pointidx5 on gist_point_tbl using gist(p) with (buffering = invalid_value)",
+    "expected": "CREATE INDEX gist_pointidx5 ON gist_point_tbl USING gist ( p ) WITH (buffering = invalid_value)"
+  },
+  {
+    "comment": "gist - Statement 8",
+    "query": "create index gist_pointidx5 on gist_point_tbl using gist(p) with (fillfactor=9)",
+    "expected": "CREATE INDEX gist_pointidx5 ON gist_point_tbl USING gist ( p ) WITH (fillfactor = 9)"
+  },
+  {
+    "comment": "gist - Statement 9",
+    "query": "create index gist_pointidx5 on gist_point_tbl using gist(p) with (fillfactor=101)",
+    "expected": "CREATE INDEX gist_pointidx5 ON gist_point_tbl USING gist ( p ) WITH (fillfactor = 101)"
+  },
+  {
+    "comment": "gist - Statement 10",
+    "query": "insert into gist_point_tbl (id, p) select g,        point(g*10, g*10) from generate_series(1, 10000) g",
+    "expected": "INSERT INTO gist_point_tbl (id, p) SELECT g, point(g * 10, g * 10) FROM generate_series(1, 10000) AS g"
+  },
+  {
+    "comment": "gist - Statement 11",
+    "query": "insert into gist_point_tbl (id, p) select g+100000, point(g*10+1, g*10+1) from generate_series(1, 10000) g",
+    "expected": "INSERT INTO gist_point_tbl (id, p) SELECT g + 100000, point(g * 10 + 1, g * 10 + 1) FROM generate_series(1, 10000) AS g"
+  },
+  {
+    "comment": "gist - Statement 12",
+    "query": "delete from gist_point_tbl where id % 2 = 1",
+    "expected": "DELETE FROM gist_point_tbl WHERE id % 2 = 1"
+  },
+  {
+    "comment": "gist - Statement 13",
+    "query": "delete from gist_point_tbl where id \u003e 5000",
+    "expected": "DELETE FROM gist_point_tbl WHERE id \u003e 5000"
+  },
+  {
+    "comment": "gist - Statement 14",
+    "query": "vacuum analyze gist_point_tbl",
+    "expected": "VACUUM (ANALYZE) gist_point_tbl"
+  },
+  {
+    "comment": "gist - Statement 15",
+    "query": "alter index gist_pointidx SET (fillfactor = 40)",
+    "expected": "ALTER INDEX gist_pointidx SET (fillfactor = 40)"
+  },
+  {
+    "comment": "gist - Statement 16",
+    "query": "reindex index gist_pointidx",
+    "expected": "REINDEX INDEX gist_pointidx"
+  },
+  {
+    "comment": "gist - Statement 17",
+    "query": "create table gist_tbl (b box, p point, c circle)",
+    "expected": "CREATE TABLE gist_tbl (b box, p point, c circle)"
+  },
+  {
+    "comment": "gist - Statement 18",
+    "query": "insert into gist_tbl select box(point(0.05*i, 0.05*i), point(0.05*i, 0.05*i)), point(0.05*i, 0.05*i), circle(point(0.05*i, 0.05*i), 1.0) from generate_series(0,10000) as i",
+    "expected": "INSERT INTO gist_tbl SELECT box(point(0.05 * i, 0.05 * i), point(0.05 * i, 0.05 * i)), point(0.05 * i, 0.05 * i), circle(point(0.05 * i, 0.05 * i), 1.0) FROM generate_series(0, 10000) AS i"
+  },
+  {
+    "comment": "gist - Statement 19",
+    "query": "vacuum analyze gist_tbl",
+    "expected": "VACUUM (ANALYZE) gist_tbl"
+  },
+  {
+    "comment": "gist - Statement 20",
+    "query": "set enable_seqscan=off",
+    "expected": "SET enable_seqscan = off"
+  },
+  {
+    "comment": "gist - Statement 21",
+    "query": "set enable_bitmapscan=off",
+    "expected": "SET enable_bitmapscan = off"
+  },
+  {
+    "comment": "gist - Statement 22",
+    "query": "set enable_indexonlyscan=on",
+    "expected": "SET enable_indexonlyscan = on"
+  },
+  {
+    "comment": "gist - Statement 23",
+    "query": "create index gist_tbl_point_index on gist_tbl using gist (p)",
+    "expected": "CREATE INDEX gist_tbl_point_index ON gist_tbl USING gist ( p )"
+  },
+  {
+    "comment": "gist - Statement 24",
+    "query": "explain (costs off) select p from gist_tbl where p \u003c@ box(point(0,0), point(0.5, 0.5))",
+    "expected": "EXPLAIN (COSTS false) SELECT p FROM gist_tbl WHERE p \u003c@ box(point(0, 0), point(0.5, 0.5))"
+  },
+  {
+    "comment": "gist - Statement 25",
+    "query": "select p from gist_tbl where p \u003c@ box(point(0,0), point(0.5, 0.5))",
+    "expected": "SELECT p FROM gist_tbl WHERE p \u003c@ box(point(0, 0), point(0.5, 0.5))"
+  },
+  {
+    "comment": "gist - Statement 26",
+    "query": "explain (costs off) select p from gist_tbl where p \u003c@ box(point(0,0), point(0.5, 0.5)) order by p \u003c-\u003e point(0.201, 0.201)",
+    "expected": "EXPLAIN (COSTS false) SELECT p FROM gist_tbl WHERE p \u003c@ box(point(0, 0), point(0.5, 0.5)) ORDER BY p \u003c-\u003e point(0.201, 0.201)"
+  },
+  {
+    "comment": "gist - Statement 27",
+    "query": "select p from gist_tbl where p \u003c@ box(point(0,0), point(0.5, 0.5)) order by p \u003c-\u003e point(0.201, 0.201)",
+    "expected": "SELECT p FROM gist_tbl WHERE p \u003c@ box(point(0, 0), point(0.5, 0.5)) ORDER BY p \u003c-\u003e point(0.201, 0.201)"
+  },
+  {
+    "comment": "gist - Statement 28",
+    "query": "explain (costs off) select p from gist_tbl where p \u003c@ box(point(0,0), point(0.5, 0.5)) order by point(0.101, 0.101) \u003c-\u003e p",
+    "expected": "EXPLAIN (COSTS false) SELECT p FROM gist_tbl WHERE p \u003c@ box(point(0, 0), point(0.5, 0.5)) ORDER BY point(0.101, 0.101) \u003c-\u003e p"
+  },
+  {
+    "comment": "gist - Statement 29",
+    "query": "select p from gist_tbl where p \u003c@ box(point(0,0), point(0.5, 0.5)) order by point(0.101, 0.101) \u003c-\u003e p",
+    "expected": "SELECT p FROM gist_tbl WHERE p \u003c@ box(point(0, 0), point(0.5, 0.5)) ORDER BY point(0.101, 0.101) \u003c-\u003e p"
+  },
+  {
+    "comment": "gist - Statement 30",
+    "query": "explain (costs off) select p from (values (box(point(0,0), point(0.5,0.5))), (box(point(0.5,0.5), point(0.75,0.75))), (box(point(0.8,0.8), point(1.0,1.0)))) as v(bb) cross join lateral (select p from gist_tbl where p \u003c@ bb order by p \u003c-\u003e bb[0] limit 2) ss",
+    "expected": "EXPLAIN (COSTS false) SELECT p FROM (VALUES (box(point(0, 0), point(0.5, 0.5))), (box(point(0.5, 0.5), point(0.75, 0.75))), (box(point(0.8, 0.8), point(1.0, 1.0)))) AS v(bb) INNER JOIN LATERAL (SELECT p FROM gist_tbl WHERE p \u003c@ bb ORDER BY p \u003c-\u003e bb[0] LIMIT 2) AS ss ON TRUE"
+  },
+  {
+    "comment": "gist - Statement 31",
+    "query": "select p from (values (box(point(0,0), point(0.5,0.5))), (box(point(0.5,0.5), point(0.75,0.75))), (box(point(0.8,0.8), point(1.0,1.0)))) as v(bb) cross join lateral (select p from gist_tbl where p \u003c@ bb order by p \u003c-\u003e bb[0] limit 2) ss",
+    "expected": "SELECT p FROM (VALUES (box(point(0, 0), point(0.5, 0.5))), (box(point(0.5, 0.5), point(0.75, 0.75))), (box(point(0.8, 0.8), point(1.0, 1.0)))) AS v(bb) INNER JOIN LATERAL (SELECT p FROM gist_tbl WHERE p \u003c@ bb ORDER BY p \u003c-\u003e bb[0] LIMIT 2) AS ss ON TRUE"
+  },
+  {
+    "comment": "gist - Statement 32",
+    "query": "drop index gist_tbl_point_index",
+    "expected": "DROP INDEX gist_tbl_point_index"
+  },
+  {
+    "comment": "gist - Statement 33",
+    "query": "create index gist_tbl_box_index on gist_tbl using gist (b)",
+    "expected": "CREATE INDEX gist_tbl_box_index ON gist_tbl USING gist ( b )"
+  },
+  {
+    "comment": "gist - Statement 34",
+    "query": "explain (costs off) select b from gist_tbl where b \u003c@ box(point(5,5), point(6,6))",
+    "expected": "EXPLAIN (COSTS false) SELECT b FROM gist_tbl WHERE b \u003c@ box(point(5, 5), point(6, 6))"
+  },
+  {
+    "comment": "gist - Statement 35",
+    "query": "select b from gist_tbl where b \u003c@ box(point(5,5), point(6,6))",
+    "expected": "SELECT b FROM gist_tbl WHERE b \u003c@ box(point(5, 5), point(6, 6))"
+  },
+  {
+    "comment": "gist - Statement 36",
+    "query": "explain (costs off) select b from gist_tbl where b \u003c@ box(point(5,5), point(6,6)) order by b \u003c-\u003e point(5.2, 5.91)",
+    "expected": "EXPLAIN (COSTS false) SELECT b FROM gist_tbl WHERE b \u003c@ box(point(5, 5), point(6, 6)) ORDER BY b \u003c-\u003e point(5.2, 5.91)"
+  },
+  {
+    "comment": "gist - Statement 37",
+    "query": "select b from gist_tbl where b \u003c@ box(point(5,5), point(6,6)) order by b \u003c-\u003e point(5.2, 5.91)",
+    "expected": "SELECT b FROM gist_tbl WHERE b \u003c@ box(point(5, 5), point(6, 6)) ORDER BY b \u003c-\u003e point(5.2, 5.91)"
+  },
+  {
+    "comment": "gist - Statement 38",
+    "query": "explain (costs off) select b from gist_tbl where b \u003c@ box(point(5,5), point(6,6)) order by point(5.2, 5.91) \u003c-\u003e b",
+    "expected": "EXPLAIN (COSTS false) SELECT b FROM gist_tbl WHERE b \u003c@ box(point(5, 5), point(6, 6)) ORDER BY point(5.2, 5.91) \u003c-\u003e b"
+  },
+  {
+    "comment": "gist - Statement 39",
+    "query": "select b from gist_tbl where b \u003c@ box(point(5,5), point(6,6)) order by point(5.2, 5.91) \u003c-\u003e b",
+    "expected": "SELECT b FROM gist_tbl WHERE b \u003c@ box(point(5, 5), point(6, 6)) ORDER BY point(5.2, 5.91) \u003c-\u003e b"
+  },
+  {
+    "comment": "gist - Statement 40",
+    "query": "drop index gist_tbl_box_index",
+    "expected": "DROP INDEX gist_tbl_box_index"
+  },
+  {
+    "comment": "gist - Statement 41",
+    "query": "create index gist_tbl_multi_index on gist_tbl using gist (p, c)",
+    "expected": "CREATE INDEX gist_tbl_multi_index ON gist_tbl USING gist ( p, c )"
+  },
+  {
+    "comment": "gist - Statement 42",
+    "query": "explain (costs off) select p, c from gist_tbl where p \u003c@ box(point(5,5), point(6, 6))",
+    "expected": "EXPLAIN (COSTS false) SELECT p, c FROM gist_tbl WHERE p \u003c@ box(point(5, 5), point(6, 6))"
+  },
+  {
+    "comment": "gist - Statement 43",
+    "query": "select b, p from gist_tbl where b \u003c@ box(point(4.5, 4.5), point(5.5, 5.5)) and p \u003c@ box(point(5,5), point(6, 6))",
+    "expected": "SELECT b, p FROM gist_tbl WHERE b \u003c@ box(point(4.5, 4.5), point(5.5, 5.5)) AND p \u003c@ box(point(5, 5), point(6, 6))"
+  },
+  {
+    "comment": "gist - Statement 44",
+    "query": "drop index gist_tbl_multi_index",
+    "expected": "DROP INDEX gist_tbl_multi_index"
+  },
+  {
+    "comment": "gist - Statement 45",
+    "query": "create index gist_tbl_multi_index on gist_tbl using gist (circle(p,1), p)",
+    "expected": "CREATE INDEX gist_tbl_multi_index ON gist_tbl USING gist ( (circle(p, 1)), p )"
+  },
+  {
+    "comment": "gist - Statement 46",
+    "query": "explain (verbose, costs off) select circle(p,1) from gist_tbl where p \u003c@ box(point(5, 5), point(5.3, 5.3))",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) SELECT circle(p, 1) FROM gist_tbl WHERE p \u003c@ box(point(5, 5), point(5.3, 5.3))"
+  },
+  {
+    "comment": "gist - Statement 47",
+    "query": "select circle(p,1) from gist_tbl where p \u003c@ box(point(5, 5), point(5.3, 5.3))",
+    "expected": "SELECT circle(p, 1) FROM gist_tbl WHERE p \u003c@ box(point(5, 5), point(5.3, 5.3))"
+  },
+  {
+    "comment": "gist - Statement 48",
+    "query": "explain (verbose, costs off) select p from gist_tbl where circle(p,1) @\u003e circle(point(0,0),0.95)",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) SELECT p FROM gist_tbl WHERE circle(p, 1) @\u003e circle(point(0, 0), 0.95)"
+  },
+  {
+    "comment": "gist - Statement 49",
+    "query": "select p from gist_tbl where circle(p,1) @\u003e circle(point(0,0),0.95)",
+    "expected": "SELECT p FROM gist_tbl WHERE circle(p, 1) @\u003e circle(point(0, 0), 0.95)"
+  },
+  {
+    "comment": "gist - Statement 50",
+    "query": "explain (verbose, costs off) select count(*) from gist_tbl",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) SELECT COUNT(*) FROM gist_tbl"
+  },
+  {
+    "comment": "gist - Statement 51",
+    "query": "select count(*) from gist_tbl",
+    "expected": "SELECT COUNT(*) FROM gist_tbl"
+  },
+  {
+    "comment": "gist - Statement 52",
+    "query": "explain (verbose, costs off) select p from gist_tbl order by circle(p,1) \u003c-\u003e point(0,0) limit 1",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) SELECT p FROM gist_tbl ORDER BY circle(p, 1) \u003c-\u003e point(0, 0) LIMIT 1"
+  },
+  {
+    "comment": "gist - Statement 53",
+    "query": "select p from gist_tbl order by circle(p,1) \u003c-\u003e point(0,0) limit 1",
+    "expected": "SELECT p FROM gist_tbl ORDER BY circle(p, 1) \u003c-\u003e point(0, 0) LIMIT 1"
+  },
+  {
+    "comment": "gist - Statement 54",
+    "query": "create index gist_tbl_box_index_forcing_buffering on gist_tbl using gist (p) with (buffering=on, fillfactor=50)",
+    "expected": "CREATE INDEX gist_tbl_box_index_forcing_buffering ON gist_tbl USING gist ( p ) WITH (buffering = 'on', fillfactor = 50)"
+  },
+  {
+    "comment": "gist - Statement 55",
+    "query": "reset enable_seqscan",
+    "expected": "RESET enable_seqscan"
+  },
+  {
+    "comment": "gist - Statement 56",
+    "query": "reset enable_bitmapscan",
+    "expected": "RESET enable_bitmapscan"
+  },
+  {
+    "comment": "gist - Statement 57",
+    "query": "reset enable_indexonlyscan",
+    "expected": "RESET enable_indexonlyscan"
+  },
+  {
+    "comment": "gist - Statement 58",
+    "query": "drop table gist_tbl",
+    "expected": "DROP TABLE gist_tbl"
+  },
+  {
+    "comment": "gist - Statement 59",
+    "query": "create unlogged table gist_tbl (b box)",
+    "expected": "CREATE UNLOGGED TABLE gist_tbl (b box)"
+  },
+  {
+    "comment": "gist - Statement 60",
+    "query": "insert into gist_tbl select box(point(0.05*i, 0.05*i)) from generate_series(0,10) as i",
+    "expected": "INSERT INTO gist_tbl SELECT box(point(0.05 * i, 0.05 * i)) FROM generate_series(0, 10) AS i"
+  }
+]

@@ -1,0 +1,1152 @@
+[
+  {
+    "comment": "alter_generic - Statement 1",
+    "query": "SET client_min_messages TO 'warning'",
+    "expected": "SET client_min_messages = 'warning'"
+  },
+  {
+    "comment": "alter_generic - Statement 2",
+    "query": "DROP ROLE IF EXISTS regress_alter_generic_user1"
+  },
+  {
+    "comment": "alter_generic - Statement 3",
+    "query": "DROP ROLE IF EXISTS regress_alter_generic_user2"
+  },
+  {
+    "comment": "alter_generic - Statement 4",
+    "query": "DROP ROLE IF EXISTS regress_alter_generic_user3"
+  },
+  {
+    "comment": "alter_generic - Statement 5",
+    "query": "RESET client_min_messages"
+  },
+  {
+    "comment": "alter_generic - Statement 6",
+    "query": "CREATE USER regress_alter_generic_user3"
+  },
+  {
+    "comment": "alter_generic - Statement 7",
+    "query": "CREATE USER regress_alter_generic_user2"
+  },
+  {
+    "comment": "alter_generic - Statement 8",
+    "query": "CREATE USER regress_alter_generic_user1 IN ROLE regress_alter_generic_user3"
+  },
+  {
+    "comment": "alter_generic - Statement 9",
+    "query": "CREATE SCHEMA alt_nsp1"
+  },
+  {
+    "comment": "alter_generic - Statement 10",
+    "query": "CREATE SCHEMA alt_nsp2"
+  },
+  {
+    "comment": "alter_generic - Statement 11",
+    "query": "GRANT ALL ON SCHEMA alt_nsp1, alt_nsp2 TO public",
+    "expected": "GRANT ALL ON SCHEMA alt_nsp1, alt_nsp2 TO PUBLIC"
+  },
+  {
+    "comment": "alter_generic - Statement 12",
+    "query": "SET search_path = alt_nsp1, public",
+    "expected": "SET search_path = 'alt_nsp1', 'public'"
+  },
+  {
+    "comment": "alter_generic - Statement 13",
+    "query": "SET SESSION AUTHORIZATION regress_alter_generic_user1",
+    "expected": "SET SESSION AUTHORIZATION 'regress_alter_generic_user1'"
+  },
+  {
+    "comment": "alter_generic - Statement 14",
+    "query": "CREATE FUNCTION alt_func1(int) RETURNS int LANGUAGE sql AS 'SELECT $1 + 1'",
+    "expected": "CREATE FUNCTION alt_func1 (INT) RETURNS INT LANGUAGE sql AS $$SELECT $1 + 1$$"
+  },
+  {
+    "comment": "alter_generic - Statement 15",
+    "query": "CREATE FUNCTION alt_func2(int) RETURNS int LANGUAGE sql AS 'SELECT $1 - 1'",
+    "expected": "CREATE FUNCTION alt_func2 (INT) RETURNS INT LANGUAGE sql AS $$SELECT $1 - 1$$"
+  },
+  {
+    "comment": "alter_generic - Statement 16",
+    "query": "CREATE AGGREGATE alt_agg1 ( sfunc1 = int4pl, basetype = int4, stype1 = int4, initcond = 0 )",
+    "expected": "CREATE AGGREGATE alt_agg1 (sfunc1 = int4pl, basetype = INT, stype1 = INT, initcond = 0)"
+  },
+  {
+    "comment": "alter_generic - Statement 17",
+    "query": "CREATE AGGREGATE alt_agg2 ( sfunc1 = int4mi, basetype = int4, stype1 = int4, initcond = 0 )",
+    "expected": "CREATE AGGREGATE alt_agg2 (sfunc1 = int4mi, basetype = INT, stype1 = INT, initcond = 0)"
+  },
+  {
+    "comment": "alter_generic - Statement 18",
+    "query": "ALTER AGGREGATE alt_func1(int) RENAME TO alt_func3",
+    "expected": "ALTER AGGREGATE alt_func1(INT) RENAME TO alt_func3"
+  },
+  {
+    "comment": "alter_generic - Statement 19",
+    "query": "ALTER AGGREGATE alt_func1(int) OWNER TO regress_alter_generic_user3",
+    "expected": "ALTER AGGREGATE alt_func1(INT) OWNER TO regress_alter_generic_user3"
+  },
+  {
+    "comment": "alter_generic - Statement 20",
+    "query": "ALTER AGGREGATE alt_func1(int) SET SCHEMA alt_nsp2",
+    "expected": "ALTER AGGREGATE alt_func1(INT) SET SCHEMA alt_nsp2"
+  },
+  {
+    "comment": "alter_generic - Statement 21",
+    "query": "ALTER FUNCTION alt_func1(int) RENAME TO alt_func2",
+    "expected": "ALTER FUNCTION alt_func1(INT) RENAME TO alt_func2"
+  },
+  {
+    "comment": "alter_generic - Statement 22",
+    "query": "ALTER FUNCTION alt_func1(int) RENAME TO alt_func3",
+    "expected": "ALTER FUNCTION alt_func1(INT) RENAME TO alt_func3"
+  },
+  {
+    "comment": "alter_generic - Statement 23",
+    "query": "ALTER FUNCTION alt_func2(int) OWNER TO regress_alter_generic_user2",
+    "expected": "ALTER FUNCTION alt_func2(INT) OWNER TO regress_alter_generic_user2"
+  },
+  {
+    "comment": "alter_generic - Statement 24",
+    "query": "ALTER FUNCTION alt_func2(int) OWNER TO regress_alter_generic_user3",
+    "expected": "ALTER FUNCTION alt_func2(INT) OWNER TO regress_alter_generic_user3"
+  },
+  {
+    "comment": "alter_generic - Statement 25",
+    "query": "ALTER FUNCTION alt_func2(int) SET SCHEMA alt_nsp1",
+    "expected": "ALTER FUNCTION alt_func2(INT) SET SCHEMA alt_nsp1"
+  },
+  {
+    "comment": "alter_generic - Statement 26",
+    "query": "ALTER FUNCTION alt_func2(int) SET SCHEMA alt_nsp2",
+    "expected": "ALTER FUNCTION alt_func2(INT) SET SCHEMA alt_nsp2"
+  },
+  {
+    "comment": "alter_generic - Statement 27",
+    "query": "ALTER AGGREGATE alt_agg1(int) RENAME TO alt_agg2",
+    "expected": "ALTER AGGREGATE alt_agg1(INT) RENAME TO alt_agg2"
+  },
+  {
+    "comment": "alter_generic - Statement 28",
+    "query": "ALTER AGGREGATE alt_agg1(int) RENAME TO alt_agg3",
+    "expected": "ALTER AGGREGATE alt_agg1(INT) RENAME TO alt_agg3"
+  },
+  {
+    "comment": "alter_generic - Statement 29",
+    "query": "ALTER AGGREGATE alt_agg2(int) OWNER TO regress_alter_generic_user2",
+    "expected": "ALTER AGGREGATE alt_agg2(INT) OWNER TO regress_alter_generic_user2"
+  },
+  {
+    "comment": "alter_generic - Statement 30",
+    "query": "ALTER AGGREGATE alt_agg2(int) OWNER TO regress_alter_generic_user3",
+    "expected": "ALTER AGGREGATE alt_agg2(INT) OWNER TO regress_alter_generic_user3"
+  },
+  {
+    "comment": "alter_generic - Statement 31",
+    "query": "ALTER AGGREGATE alt_agg2(int) SET SCHEMA alt_nsp2",
+    "expected": "ALTER AGGREGATE alt_agg2(INT) SET SCHEMA alt_nsp2"
+  },
+  {
+    "comment": "alter_generic - Statement 32",
+    "query": "SET SESSION AUTHORIZATION regress_alter_generic_user2",
+    "expected": "SET SESSION AUTHORIZATION 'regress_alter_generic_user2'"
+  },
+  {
+    "comment": "alter_generic - Statement 33",
+    "query": "CREATE FUNCTION alt_func1(int) RETURNS int LANGUAGE sql AS 'SELECT $1 + 2'",
+    "expected": "CREATE FUNCTION alt_func1 (INT) RETURNS INT LANGUAGE sql AS $$SELECT $1 + 2$$"
+  },
+  {
+    "comment": "alter_generic - Statement 34",
+    "query": "CREATE FUNCTION alt_func2(int) RETURNS int LANGUAGE sql AS 'SELECT $1 - 2'",
+    "expected": "CREATE FUNCTION alt_func2 (INT) RETURNS INT LANGUAGE sql AS $$SELECT $1 - 2$$"
+  },
+  {
+    "comment": "alter_generic - Statement 35",
+    "query": "CREATE AGGREGATE alt_agg1 ( sfunc1 = int4pl, basetype = int4, stype1 = int4, initcond = 100 )",
+    "expected": "CREATE AGGREGATE alt_agg1 (sfunc1 = int4pl, basetype = INT, stype1 = INT, initcond = 100)"
+  },
+  {
+    "comment": "alter_generic - Statement 36",
+    "query": "CREATE AGGREGATE alt_agg2 ( sfunc1 = int4mi, basetype = int4, stype1 = int4, initcond = -100 )",
+    "expected": "CREATE AGGREGATE alt_agg2 (sfunc1 = int4mi, basetype = INT, stype1 = INT, initcond = -100)"
+  },
+  {
+    "comment": "alter_generic - Statement 37",
+    "query": "ALTER FUNCTION alt_func3(int) RENAME TO alt_func4",
+    "expected": "ALTER FUNCTION alt_func3(INT) RENAME TO alt_func4"
+  },
+  {
+    "comment": "alter_generic - Statement 38",
+    "query": "ALTER FUNCTION alt_func1(int) RENAME TO alt_func4",
+    "expected": "ALTER FUNCTION alt_func1(INT) RENAME TO alt_func4"
+  },
+  {
+    "comment": "alter_generic - Statement 39",
+    "query": "ALTER FUNCTION alt_func3(int) OWNER TO regress_alter_generic_user2",
+    "expected": "ALTER FUNCTION alt_func3(INT) OWNER TO regress_alter_generic_user2"
+  },
+  {
+    "comment": "alter_generic - Statement 40",
+    "query": "ALTER FUNCTION alt_func3(int) SET SCHEMA alt_nsp2",
+    "expected": "ALTER FUNCTION alt_func3(INT) SET SCHEMA alt_nsp2"
+  },
+  {
+    "comment": "alter_generic - Statement 41",
+    "query": "ALTER AGGREGATE alt_agg3(int) RENAME TO alt_agg4",
+    "expected": "ALTER AGGREGATE alt_agg3(INT) RENAME TO alt_agg4"
+  },
+  {
+    "comment": "alter_generic - Statement 42",
+    "query": "ALTER AGGREGATE alt_agg1(int) RENAME TO alt_agg4",
+    "expected": "ALTER AGGREGATE alt_agg1(INT) RENAME TO alt_agg4"
+  },
+  {
+    "comment": "alter_generic - Statement 43",
+    "query": "ALTER AGGREGATE alt_agg3(int) OWNER TO regress_alter_generic_user2",
+    "expected": "ALTER AGGREGATE alt_agg3(INT) OWNER TO regress_alter_generic_user2"
+  },
+  {
+    "comment": "alter_generic - Statement 44",
+    "query": "ALTER AGGREGATE alt_agg3(int) SET SCHEMA alt_nsp2",
+    "expected": "ALTER AGGREGATE alt_agg3(INT) SET SCHEMA alt_nsp2"
+  },
+  {
+    "comment": "alter_generic - Statement 45",
+    "query": "RESET SESSION AUTHORIZATION",
+    "expected": "RESET session_authorization"
+  },
+  {
+    "comment": "alter_generic - Statement 46",
+    "query": "SELECT n.nspname, proname, prorettype::regtype, prokind, a.rolname FROM pg_proc p, pg_namespace n, pg_authid a WHERE p.pronamespace = n.oid AND p.proowner = a.oid AND n.nspname IN ('alt_nsp1', 'alt_nsp2') ORDER BY nspname, proname",
+    "expected": "SELECT n.nspname, proname, CAST(prorettype AS regtype), prokind, a.rolname FROM pg_proc AS p, pg_namespace AS n, pg_authid AS a WHERE p.pronamespace = n.oid AND p.proowner = a.oid AND n.nspname IN ('alt_nsp1', 'alt_nsp2') ORDER BY nspname, proname"
+  },
+  {
+    "comment": "alter_generic - Statement 47",
+    "query": "CREATE CONVERSION alt_conv1 FOR 'LATIN1' TO 'UTF8' FROM iso8859_1_to_utf8"
+  },
+  {
+    "comment": "alter_generic - Statement 48",
+    "query": "CREATE CONVERSION alt_conv2 FOR 'LATIN1' TO 'UTF8' FROM iso8859_1_to_utf8"
+  },
+  {
+    "comment": "alter_generic - Statement 49",
+    "query": "ALTER CONVERSION alt_conv1 RENAME TO alt_conv2"
+  },
+  {
+    "comment": "alter_generic - Statement 50",
+    "query": "ALTER CONVERSION alt_conv1 RENAME TO alt_conv3"
+  },
+  {
+    "comment": "alter_generic - Statement 51",
+    "query": "ALTER CONVERSION alt_conv2 OWNER TO regress_alter_generic_user2"
+  },
+  {
+    "comment": "alter_generic - Statement 52",
+    "query": "ALTER CONVERSION alt_conv2 OWNER TO regress_alter_generic_user3"
+  },
+  {
+    "comment": "alter_generic - Statement 53",
+    "query": "ALTER CONVERSION alt_conv2 SET SCHEMA alt_nsp2"
+  },
+  {
+    "comment": "alter_generic - Statement 54",
+    "query": "ALTER CONVERSION alt_conv3 RENAME TO alt_conv4"
+  },
+  {
+    "comment": "alter_generic - Statement 55",
+    "query": "ALTER CONVERSION alt_conv1 RENAME TO alt_conv4"
+  },
+  {
+    "comment": "alter_generic - Statement 56",
+    "query": "ALTER CONVERSION alt_conv3 OWNER TO regress_alter_generic_user2"
+  },
+  {
+    "comment": "alter_generic - Statement 57",
+    "query": "ALTER CONVERSION alt_conv3 SET SCHEMA alt_nsp2"
+  },
+  {
+    "comment": "alter_generic - Statement 58",
+    "query": "SELECT n.nspname, c.conname, a.rolname FROM pg_conversion c, pg_namespace n, pg_authid a WHERE c.connamespace = n.oid AND c.conowner = a.oid AND n.nspname IN ('alt_nsp1', 'alt_nsp2') ORDER BY nspname, conname",
+    "expected": "SELECT n.nspname, c.conname, a.rolname FROM pg_conversion AS c, pg_namespace AS n, pg_authid AS a WHERE c.connamespace = n.oid AND c.conowner = a.oid AND n.nspname IN ('alt_nsp1', 'alt_nsp2') ORDER BY nspname, conname"
+  },
+  {
+    "comment": "alter_generic - Statement 59",
+    "query": "CREATE FOREIGN DATA WRAPPER alt_fdw1"
+  },
+  {
+    "comment": "alter_generic - Statement 60",
+    "query": "CREATE FOREIGN DATA WRAPPER alt_fdw2"
+  },
+  {
+    "comment": "alter_generic - Statement 61",
+    "query": "CREATE SERVER alt_fserv1 FOREIGN DATA WRAPPER alt_fdw1"
+  },
+  {
+    "comment": "alter_generic - Statement 62",
+    "query": "CREATE SERVER alt_fserv2 FOREIGN DATA WRAPPER alt_fdw2"
+  },
+  {
+    "comment": "alter_generic - Statement 63",
+    "query": "ALTER FOREIGN DATA WRAPPER alt_fdw1 RENAME TO alt_fdw2"
+  },
+  {
+    "comment": "alter_generic - Statement 64",
+    "query": "ALTER FOREIGN DATA WRAPPER alt_fdw1 RENAME TO alt_fdw3"
+  },
+  {
+    "comment": "alter_generic - Statement 65",
+    "query": "ALTER SERVER alt_fserv1 RENAME TO alt_fserv2"
+  },
+  {
+    "comment": "alter_generic - Statement 66",
+    "query": "ALTER SERVER alt_fserv1 RENAME TO alt_fserv3"
+  },
+  {
+    "comment": "alter_generic - Statement 67",
+    "query": "SELECT fdwname FROM pg_foreign_data_wrapper WHERE fdwname like 'alt_fdw%'",
+    "expected": "SELECT fdwname FROM pg_foreign_data_wrapper WHERE fdwname LIKE 'alt_fdw%'"
+  },
+  {
+    "comment": "alter_generic - Statement 68",
+    "query": "SELECT srvname FROM pg_foreign_server WHERE srvname like 'alt_fserv%'",
+    "expected": "SELECT srvname FROM pg_foreign_server WHERE srvname LIKE 'alt_fserv%'"
+  },
+  {
+    "comment": "alter_generic - Statement 69",
+    "query": "CREATE LANGUAGE alt_lang1 HANDLER plpgsql_call_handler"
+  },
+  {
+    "comment": "alter_generic - Statement 70",
+    "query": "CREATE LANGUAGE alt_lang2 HANDLER plpgsql_call_handler"
+  },
+  {
+    "comment": "alter_generic - Statement 71",
+    "query": "ALTER LANGUAGE alt_lang1 OWNER TO regress_alter_generic_user1"
+  },
+  {
+    "comment": "alter_generic - Statement 72",
+    "query": "ALTER LANGUAGE alt_lang2 OWNER TO regress_alter_generic_user2"
+  },
+  {
+    "comment": "alter_generic - Statement 73",
+    "query": "ALTER LANGUAGE alt_lang1 RENAME TO alt_lang2"
+  },
+  {
+    "comment": "alter_generic - Statement 74",
+    "query": "ALTER LANGUAGE alt_lang2 RENAME TO alt_lang3"
+  },
+  {
+    "comment": "alter_generic - Statement 75",
+    "query": "ALTER LANGUAGE alt_lang1 RENAME TO alt_lang3"
+  },
+  {
+    "comment": "alter_generic - Statement 76",
+    "query": "ALTER LANGUAGE alt_lang2 OWNER TO regress_alter_generic_user3"
+  },
+  {
+    "comment": "alter_generic - Statement 77",
+    "query": "ALTER LANGUAGE alt_lang3 OWNER TO regress_alter_generic_user2"
+  },
+  {
+    "comment": "alter_generic - Statement 78",
+    "query": "ALTER LANGUAGE alt_lang3 OWNER TO regress_alter_generic_user3"
+  },
+  {
+    "comment": "alter_generic - Statement 79",
+    "query": "SELECT lanname, a.rolname FROM pg_language l, pg_authid a WHERE l.lanowner = a.oid AND l.lanname like 'alt_lang%' ORDER BY lanname",
+    "expected": "SELECT lanname, a.rolname FROM pg_language AS l, pg_authid AS a WHERE l.lanowner = a.oid AND l.lanname LIKE 'alt_lang%' ORDER BY lanname"
+  },
+  {
+    "comment": "alter_generic - Statement 80",
+    "query": "CREATE OPERATOR @-@ ( leftarg = int4, rightarg = int4, procedure = int4mi )",
+    "expected": "CREATE OPERATOR @-@ (leftarg = INT, rightarg = INT, procedure = int4mi)"
+  },
+  {
+    "comment": "alter_generic - Statement 81",
+    "query": "CREATE OPERATOR @+@ ( leftarg = int4, rightarg = int4, procedure = int4pl )",
+    "expected": "CREATE OPERATOR @+@ (leftarg = INT, rightarg = INT, procedure = int4pl)"
+  },
+  {
+    "comment": "alter_generic - Statement 82",
+    "query": "ALTER OPERATOR @+@(int4, int4) OWNER TO regress_alter_generic_user2",
+    "expected": "ALTER OPERATOR @+@(INT, INT) OWNER TO regress_alter_generic_user2"
+  },
+  {
+    "comment": "alter_generic - Statement 83",
+    "query": "ALTER OPERATOR @+@(int4, int4) OWNER TO regress_alter_generic_user3",
+    "expected": "ALTER OPERATOR @+@(INT, INT) OWNER TO regress_alter_generic_user3"
+  },
+  {
+    "comment": "alter_generic - Statement 84",
+    "query": "ALTER OPERATOR @-@(int4, int4) SET SCHEMA alt_nsp2",
+    "expected": "ALTER OPERATOR @-@(INT, INT) SET SCHEMA alt_nsp2"
+  },
+  {
+    "comment": "alter_generic - Statement 85",
+    "query": "ALTER OPERATOR @-@(int4, int4) OWNER TO regress_alter_generic_user3",
+    "expected": "ALTER OPERATOR @-@(INT, INT) OWNER TO regress_alter_generic_user3"
+  },
+  {
+    "comment": "alter_generic - Statement 86",
+    "query": "ALTER OPERATOR @+@(int4, int4) SET SCHEMA alt_nsp2",
+    "expected": "ALTER OPERATOR @+@(INT, INT) SET SCHEMA alt_nsp2"
+  },
+  {
+    "comment": "alter_generic - Statement 87",
+    "query": "SELECT n.nspname, oprname, a.rolname, oprleft::regtype, oprright::regtype, oprcode::regproc FROM pg_operator o, pg_namespace n, pg_authid a WHERE o.oprnamespace = n.oid AND o.oprowner = a.oid AND n.nspname IN ('alt_nsp1', 'alt_nsp2') ORDER BY nspname, oprname",
+    "expected": "SELECT n.nspname, oprname, a.rolname, CAST(oprleft AS regtype), CAST(oprright AS regtype), CAST(oprcode AS regproc) FROM pg_operator AS o, pg_namespace AS n, pg_authid AS a WHERE o.oprnamespace = n.oid AND o.oprowner = a.oid AND n.nspname IN ('alt_nsp1', 'alt_nsp2') ORDER BY nspname, oprname"
+  },
+  {
+    "comment": "alter_generic - Statement 88",
+    "query": "CREATE OPERATOR FAMILY alt_opf1 USING hash"
+  },
+  {
+    "comment": "alter_generic - Statement 89",
+    "query": "CREATE OPERATOR FAMILY alt_opf2 USING hash"
+  },
+  {
+    "comment": "alter_generic - Statement 90",
+    "query": "ALTER OPERATOR FAMILY alt_opf1 USING hash OWNER TO regress_alter_generic_user1"
+  },
+  {
+    "comment": "alter_generic - Statement 91",
+    "query": "ALTER OPERATOR FAMILY alt_opf2 USING hash OWNER TO regress_alter_generic_user1"
+  },
+  {
+    "comment": "alter_generic - Statement 92",
+    "query": "CREATE OPERATOR CLASS alt_opc1 FOR TYPE uuid USING hash AS STORAGE uuid"
+  },
+  {
+    "comment": "alter_generic - Statement 93",
+    "query": "CREATE OPERATOR CLASS alt_opc2 FOR TYPE uuid USING hash AS STORAGE uuid"
+  },
+  {
+    "comment": "alter_generic - Statement 94",
+    "query": "ALTER OPERATOR CLASS alt_opc1 USING hash OWNER TO regress_alter_generic_user1"
+  },
+  {
+    "comment": "alter_generic - Statement 95",
+    "query": "ALTER OPERATOR CLASS alt_opc2 USING hash OWNER TO regress_alter_generic_user1"
+  },
+  {
+    "comment": "alter_generic - Statement 96",
+    "query": "ALTER OPERATOR FAMILY alt_opf1 USING hash RENAME TO alt_opf2"
+  },
+  {
+    "comment": "alter_generic - Statement 97",
+    "query": "ALTER OPERATOR FAMILY alt_opf1 USING hash RENAME TO alt_opf3"
+  },
+  {
+    "comment": "alter_generic - Statement 98",
+    "query": "ALTER OPERATOR FAMILY alt_opf2 USING hash OWNER TO regress_alter_generic_user2"
+  },
+  {
+    "comment": "alter_generic - Statement 99",
+    "query": "ALTER OPERATOR FAMILY alt_opf2 USING hash OWNER TO regress_alter_generic_user3"
+  },
+  {
+    "comment": "alter_generic - Statement 100",
+    "query": "ALTER OPERATOR FAMILY alt_opf2 USING hash SET SCHEMA alt_nsp2"
+  },
+  {
+    "comment": "alter_generic - Statement 101",
+    "query": "ALTER OPERATOR CLASS alt_opc1 USING hash RENAME TO alt_opc2"
+  },
+  {
+    "comment": "alter_generic - Statement 102",
+    "query": "ALTER OPERATOR CLASS alt_opc1 USING hash RENAME TO alt_opc3"
+  },
+  {
+    "comment": "alter_generic - Statement 103",
+    "query": "ALTER OPERATOR CLASS alt_opc2 USING hash OWNER TO regress_alter_generic_user2"
+  },
+  {
+    "comment": "alter_generic - Statement 104",
+    "query": "ALTER OPERATOR CLASS alt_opc2 USING hash OWNER TO regress_alter_generic_user3"
+  },
+  {
+    "comment": "alter_generic - Statement 105",
+    "query": "ALTER OPERATOR CLASS alt_opc2 USING hash SET SCHEMA alt_nsp2"
+  },
+  {
+    "comment": "alter_generic - Statement 106",
+    "query": "ALTER OPERATOR FAMILY alt_opf1 USING hash OWNER TO regress_alter_generic_user2"
+  },
+  {
+    "comment": "alter_generic - Statement 107",
+    "query": "CREATE OPERATOR CLASS alt_opc1 FOR TYPE macaddr USING hash AS STORAGE macaddr"
+  },
+  {
+    "comment": "alter_generic - Statement 108",
+    "query": "CREATE OPERATOR CLASS alt_opc2 FOR TYPE macaddr USING hash AS STORAGE macaddr"
+  },
+  {
+    "comment": "alter_generic - Statement 109",
+    "query": "ALTER OPERATOR CLASS alt_opc1 USING hash OWNER TO regress_alter_generic_user2"
+  },
+  {
+    "comment": "alter_generic - Statement 110",
+    "query": "ALTER OPERATOR FAMILY alt_opf3 USING hash RENAME TO alt_opf4"
+  },
+  {
+    "comment": "alter_generic - Statement 111",
+    "query": "ALTER OPERATOR FAMILY alt_opf1 USING hash RENAME TO alt_opf4"
+  },
+  {
+    "comment": "alter_generic - Statement 112",
+    "query": "ALTER OPERATOR FAMILY alt_opf3 USING hash OWNER TO regress_alter_generic_user2"
+  },
+  {
+    "comment": "alter_generic - Statement 113",
+    "query": "ALTER OPERATOR FAMILY alt_opf3 USING hash SET SCHEMA alt_nsp2"
+  },
+  {
+    "comment": "alter_generic - Statement 114",
+    "query": "ALTER OPERATOR CLASS alt_opc3 USING hash RENAME TO alt_opc4"
+  },
+  {
+    "comment": "alter_generic - Statement 115",
+    "query": "ALTER OPERATOR CLASS alt_opc1 USING hash RENAME TO alt_opc4"
+  },
+  {
+    "comment": "alter_generic - Statement 116",
+    "query": "ALTER OPERATOR CLASS alt_opc3 USING hash OWNER TO regress_alter_generic_user2"
+  },
+  {
+    "comment": "alter_generic - Statement 117",
+    "query": "ALTER OPERATOR CLASS alt_opc3 USING hash SET SCHEMA alt_nsp2"
+  },
+  {
+    "comment": "alter_generic - Statement 118",
+    "query": "SELECT nspname, opfname, amname, rolname FROM pg_opfamily o, pg_am m, pg_namespace n, pg_authid a WHERE o.opfmethod = m.oid AND o.opfnamespace = n.oid AND o.opfowner = a.oid AND n.nspname IN ('alt_nsp1', 'alt_nsp2') AND NOT opfname LIKE 'alt_opc%' ORDER BY nspname, opfname",
+    "expected": "SELECT nspname, opfname, amname, rolname FROM pg_opfamily AS o, pg_am AS m, pg_namespace AS n, pg_authid AS a WHERE o.opfmethod = m.oid AND o.opfnamespace = n.oid AND o.opfowner = a.oid AND n.nspname IN ('alt_nsp1', 'alt_nsp2') AND NOT opfname LIKE 'alt_opc%' ORDER BY nspname, opfname"
+  },
+  {
+    "comment": "alter_generic - Statement 119",
+    "query": "SELECT nspname, opcname, amname, rolname FROM pg_opclass o, pg_am m, pg_namespace n, pg_authid a WHERE o.opcmethod = m.oid AND o.opcnamespace = n.oid AND o.opcowner = a.oid AND n.nspname IN ('alt_nsp1', 'alt_nsp2') ORDER BY nspname, opcname",
+    "expected": "SELECT nspname, opcname, amname, rolname FROM pg_opclass AS o, pg_am AS m, pg_namespace AS n, pg_authid AS a WHERE o.opcmethod = m.oid AND o.opcnamespace = n.oid AND o.opcowner = a.oid AND n.nspname IN ('alt_nsp1', 'alt_nsp2') ORDER BY nspname, opcname"
+  },
+  {
+    "comment": "alter_generic - Statement 120",
+    "query": "BEGIN TRANSACTION",
+    "expected": "BEGIN"
+  },
+  {
+    "comment": "alter_generic - Statement 121",
+    "query": "CREATE OPERATOR FAMILY alt_opf4 USING btree"
+  },
+  {
+    "comment": "alter_generic - Statement 122",
+    "query": "ALTER OPERATOR FAMILY alt_opf4 USING btree ADD OPERATOR 1 \u003c (int4, int2) , OPERATOR 2 \u003c= (int4, int2) , OPERATOR 3 = (int4, int2) , OPERATOR 4 \u003e= (int4, int2) , OPERATOR 5 \u003e (int4, int2) , FUNCTION 1 btint42cmp(int4, int2)",
+    "expected": "ALTER OPERATOR FAMILY alt_opf4 USING btree ADD OPERATOR 1 \u003c (int4, int2), OPERATOR 2 \u003c= (int4, int2), OPERATOR 3 = (int4, int2), OPERATOR 4 \u003e= (int4, int2), OPERATOR 5 \u003e (int4, int2), FUNCTION 1 btint42cmp(int4, int2)"
+  },
+  {
+    "comment": "alter_generic - Statement 123",
+    "query": "ALTER OPERATOR FAMILY alt_opf4 USING btree DROP OPERATOR 1 (int4, int2) , OPERATOR 2 (int4, int2) , OPERATOR 3 (int4, int2) , OPERATOR 4 (int4, int2) , OPERATOR 5 (int4, int2) , FUNCTION 1 (int4, int2)",
+    "expected": "ALTER OPERATOR FAMILY alt_opf4 USING btree DROP OPERATOR 1  (int4, int2), OPERATOR 2  (int4, int2), OPERATOR 3  (int4, int2), OPERATOR 4  (int4, int2), OPERATOR 5  (int4, int2), FUNCTION 1 (int4, int2)"
+  },
+  {
+    "comment": "alter_generic - Statement 124",
+    "query": "DROP OPERATOR FAMILY alt_opf4 USING btree",
+    "expected": "DROP OPERATOR FAMILY alt_opf4 USING btree RESTRICT"
+  },
+  {
+    "comment": "alter_generic - Statement 125",
+    "query": "ROLLBACK"
+  },
+  {
+    "comment": "alter_generic - Statement 126",
+    "query": "ALTER OPERATOR FAMILY alt_opf4 USING invalid_index_method ADD  OPERATOR 1 \u003c (int4, int2)",
+    "expected": "ALTER OPERATOR FAMILY alt_opf4 USING invalid_index_method ADD OPERATOR 1 \u003c (int4, int2)"
+  },
+  {
+    "comment": "alter_generic - Statement 127",
+    "query": "ALTER OPERATOR FAMILY alt_opf4 USING btree ADD OPERATOR 6 \u003c (int4, int2)"
+  },
+  {
+    "comment": "alter_generic - Statement 128",
+    "query": "ALTER OPERATOR FAMILY alt_opf4 USING btree ADD OPERATOR 0 \u003c (int4, int2)"
+  },
+  {
+    "comment": "alter_generic - Statement 129",
+    "query": "ALTER OPERATOR FAMILY alt_opf4 USING btree ADD OPERATOR 1 \u003c"
+  },
+  {
+    "comment": "alter_generic - Statement 130",
+    "query": "ALTER OPERATOR FAMILY alt_opf4 USING btree ADD FUNCTION 0 btint42cmp(int4, int2)"
+  },
+  {
+    "comment": "alter_generic - Statement 131",
+    "query": "ALTER OPERATOR FAMILY alt_opf4 USING btree ADD FUNCTION 6 btint42cmp(int4, int2)"
+  },
+  {
+    "comment": "alter_generic - Statement 132",
+    "query": "ALTER OPERATOR FAMILY alt_opf4 USING btree ADD STORAGE invalid_storage"
+  },
+  {
+    "comment": "alter_generic - Statement 133",
+    "query": "CREATE ROLE regress_alter_generic_user5 NOSUPERUSER"
+  },
+  {
+    "comment": "alter_generic - Statement 134",
+    "query": "CREATE OPERATOR FAMILY alt_opf5 USING btree"
+  },
+  {
+    "comment": "alter_generic - Statement 135",
+    "query": "SET ROLE regress_alter_generic_user5",
+    "expected": "SET ROLE 'regress_alter_generic_user5'"
+  },
+  {
+    "comment": "alter_generic - Statement 136",
+    "query": "ALTER OPERATOR FAMILY alt_opf5 USING btree ADD OPERATOR 1 \u003c (int4, int2), FUNCTION 1 btint42cmp(int4, int2)"
+  },
+  {
+    "comment": "alter_generic - Statement 137",
+    "query": "RESET ROLE",
+    "expected": "RESET role"
+  },
+  {
+    "comment": "alter_generic - Statement 138",
+    "query": "DROP OPERATOR FAMILY alt_opf5 USING btree",
+    "expected": "DROP OPERATOR FAMILY alt_opf5 USING btree RESTRICT"
+  },
+  {
+    "comment": "alter_generic - Statement 139",
+    "query": "CREATE ROLE regress_alter_generic_user6"
+  },
+  {
+    "comment": "alter_generic - Statement 140",
+    "query": "CREATE SCHEMA alt_nsp6"
+  },
+  {
+    "comment": "alter_generic - Statement 141",
+    "query": "REVOKE ALL ON SCHEMA alt_nsp6 FROM regress_alter_generic_user6"
+  },
+  {
+    "comment": "alter_generic - Statement 142",
+    "query": "CREATE OPERATOR FAMILY alt_nsp6.alt_opf6 USING btree"
+  },
+  {
+    "comment": "alter_generic - Statement 143",
+    "query": "SET ROLE regress_alter_generic_user6",
+    "expected": "SET ROLE 'regress_alter_generic_user6'"
+  },
+  {
+    "comment": "alter_generic - Statement 144",
+    "query": "ALTER OPERATOR FAMILY alt_nsp6.alt_opf6 USING btree ADD OPERATOR 1 \u003c (int4, int2)"
+  },
+  {
+    "comment": "alter_generic - Statement 145",
+    "query": "CREATE OPERATOR FAMILY alt_opf7 USING btree"
+  },
+  {
+    "comment": "alter_generic - Statement 146",
+    "query": "ALTER OPERATOR FAMILY alt_opf7 USING btree ADD OPERATOR 1 \u003c (int4, int2)"
+  },
+  {
+    "comment": "alter_generic - Statement 147",
+    "query": "ALTER OPERATOR FAMILY alt_opf7 USING btree DROP OPERATOR 1 (int4, int2, int8)",
+    "expected": "ALTER OPERATOR FAMILY alt_opf7 USING btree DROP OPERATOR 1  (int4, int2, int8)"
+  },
+  {
+    "comment": "alter_generic - Statement 148",
+    "query": "DROP OPERATOR FAMILY alt_opf7 USING btree",
+    "expected": "DROP OPERATOR FAMILY alt_opf7 USING btree RESTRICT"
+  },
+  {
+    "comment": "alter_generic - Statement 149",
+    "query": "CREATE OPERATOR FAMILY alt_opf8 USING btree"
+  },
+  {
+    "comment": "alter_generic - Statement 150",
+    "query": "ALTER OPERATOR FAMILY alt_opf8 USING btree ADD OPERATOR 1 \u003c (int4, int4)"
+  },
+  {
+    "comment": "alter_generic - Statement 151",
+    "query": "DROP OPERATOR FAMILY alt_opf8 USING btree",
+    "expected": "DROP OPERATOR FAMILY alt_opf8 USING btree RESTRICT"
+  },
+  {
+    "comment": "alter_generic - Statement 152",
+    "query": "CREATE OPERATOR FAMILY alt_opf9 USING gist"
+  },
+  {
+    "comment": "alter_generic - Statement 153",
+    "query": "ALTER OPERATOR FAMILY alt_opf9 USING gist ADD OPERATOR 1 \u003c (int4, int4) FOR ORDER BY float_ops"
+  },
+  {
+    "comment": "alter_generic - Statement 154",
+    "query": "DROP OPERATOR FAMILY alt_opf9 USING gist",
+    "expected": "DROP OPERATOR FAMILY alt_opf9 USING gist RESTRICT"
+  },
+  {
+    "comment": "alter_generic - Statement 155",
+    "query": "CREATE OPERATOR FAMILY alt_opf10 USING btree"
+  },
+  {
+    "comment": "alter_generic - Statement 156",
+    "query": "ALTER OPERATOR FAMILY alt_opf10 USING btree ADD OPERATOR 1 \u003c (int4, int4) FOR ORDER BY float_ops"
+  },
+  {
+    "comment": "alter_generic - Statement 157",
+    "query": "DROP OPERATOR FAMILY alt_opf10 USING btree",
+    "expected": "DROP OPERATOR FAMILY alt_opf10 USING btree RESTRICT"
+  },
+  {
+    "comment": "alter_generic - Statement 158",
+    "query": "CREATE OPERATOR FAMILY alt_opf11 USING gist"
+  },
+  {
+    "comment": "alter_generic - Statement 159",
+    "query": "ALTER OPERATOR FAMILY alt_opf11 USING gist ADD OPERATOR 1 \u003c (int4, int4) FOR ORDER BY float_ops"
+  },
+  {
+    "comment": "alter_generic - Statement 160",
+    "query": "ALTER OPERATOR FAMILY alt_opf11 USING gist DROP OPERATOR 1 (int4, int4)",
+    "expected": "ALTER OPERATOR FAMILY alt_opf11 USING gist DROP OPERATOR 1  (int4, int4)"
+  },
+  {
+    "comment": "alter_generic - Statement 161",
+    "query": "DROP OPERATOR FAMILY alt_opf11 USING gist",
+    "expected": "DROP OPERATOR FAMILY alt_opf11 USING gist RESTRICT"
+  },
+  {
+    "comment": "alter_generic - Statement 162",
+    "query": "CREATE OPERATOR FAMILY alt_opf12 USING btree"
+  },
+  {
+    "comment": "alter_generic - Statement 163",
+    "query": "CREATE FUNCTION fn_opf12  (int4, int2) RETURNS BIGINT AS 'SELECT NULL::BIGINT;' LANGUAGE SQL",
+    "expected": "CREATE FUNCTION fn_opf12 (INT, SMALLINT) RETURNS BIGINT AS $$SELECT NULL::BIGINT;$$ LANGUAGE sql"
+  },
+  {
+    "comment": "alter_generic - Statement 164",
+    "query": "ALTER OPERATOR FAMILY alt_opf12 USING btree ADD FUNCTION 1 fn_opf12(int4, int2)"
+  },
+  {
+    "comment": "alter_generic - Statement 165",
+    "query": "DROP OPERATOR FAMILY alt_opf12 USING btree",
+    "expected": "DROP OPERATOR FAMILY alt_opf12 USING btree RESTRICT"
+  },
+  {
+    "comment": "alter_generic - Statement 166",
+    "query": "CREATE OPERATOR FAMILY alt_opf13 USING hash"
+  },
+  {
+    "comment": "alter_generic - Statement 167",
+    "query": "CREATE FUNCTION fn_opf13  (int4) RETURNS BIGINT AS 'SELECT NULL::BIGINT;' LANGUAGE SQL",
+    "expected": "CREATE FUNCTION fn_opf13 (INT) RETURNS BIGINT AS $$SELECT NULL::BIGINT;$$ LANGUAGE sql"
+  },
+  {
+    "comment": "alter_generic - Statement 168",
+    "query": "ALTER OPERATOR FAMILY alt_opf13 USING hash ADD FUNCTION 1 fn_opf13(int4)"
+  },
+  {
+    "comment": "alter_generic - Statement 169",
+    "query": "DROP OPERATOR FAMILY alt_opf13 USING hash",
+    "expected": "DROP OPERATOR FAMILY alt_opf13 USING hash RESTRICT"
+  },
+  {
+    "comment": "alter_generic - Statement 170",
+    "query": "CREATE OPERATOR FAMILY alt_opf14 USING btree"
+  },
+  {
+    "comment": "alter_generic - Statement 171",
+    "query": "CREATE FUNCTION fn_opf14 (int4) RETURNS BIGINT AS 'SELECT NULL::BIGINT;' LANGUAGE SQL",
+    "expected": "CREATE FUNCTION fn_opf14 (INT) RETURNS BIGINT AS $$SELECT NULL::BIGINT;$$ LANGUAGE sql"
+  },
+  {
+    "comment": "alter_generic - Statement 172",
+    "query": "ALTER OPERATOR FAMILY alt_opf14 USING btree ADD FUNCTION 1 fn_opf14(int4)"
+  },
+  {
+    "comment": "alter_generic - Statement 173",
+    "query": "DROP OPERATOR FAMILY alt_opf14 USING btree",
+    "expected": "DROP OPERATOR FAMILY alt_opf14 USING btree RESTRICT"
+  },
+  {
+    "comment": "alter_generic - Statement 174",
+    "query": "CREATE OPERATOR FAMILY alt_opf15 USING hash"
+  },
+  {
+    "comment": "alter_generic - Statement 175",
+    "query": "CREATE FUNCTION fn_opf15 (int4, int2) RETURNS BIGINT AS 'SELECT NULL::BIGINT;' LANGUAGE SQL",
+    "expected": "CREATE FUNCTION fn_opf15 (INT, SMALLINT) RETURNS BIGINT AS $$SELECT NULL::BIGINT;$$ LANGUAGE sql"
+  },
+  {
+    "comment": "alter_generic - Statement 176",
+    "query": "ALTER OPERATOR FAMILY alt_opf15 USING hash ADD FUNCTION 1 fn_opf15(int4, int2)"
+  },
+  {
+    "comment": "alter_generic - Statement 177",
+    "query": "DROP OPERATOR FAMILY alt_opf15 USING hash",
+    "expected": "DROP OPERATOR FAMILY alt_opf15 USING hash RESTRICT"
+  },
+  {
+    "comment": "alter_generic - Statement 178",
+    "query": "CREATE OPERATOR FAMILY alt_opf16 USING gist"
+  },
+  {
+    "comment": "alter_generic - Statement 179",
+    "query": "ALTER OPERATOR FAMILY alt_opf16 USING gist ADD FUNCTION 1 btint42cmp(int4, int2)"
+  },
+  {
+    "comment": "alter_generic - Statement 180",
+    "query": "DROP OPERATOR FAMILY alt_opf16 USING gist",
+    "expected": "DROP OPERATOR FAMILY alt_opf16 USING gist RESTRICT"
+  },
+  {
+    "comment": "alter_generic - Statement 181",
+    "query": "CREATE OPERATOR FAMILY alt_opf17 USING btree"
+  },
+  {
+    "comment": "alter_generic - Statement 182",
+    "query": "ALTER OPERATOR FAMILY alt_opf17 USING btree ADD OPERATOR 1 \u003c (int4, int4), OPERATOR 1 \u003c (int4, int4)"
+  },
+  {
+    "comment": "alter_generic - Statement 183",
+    "query": "ALTER OPERATOR FAMILY alt_opf17 USING btree ADD OPERATOR 1 \u003c (int4, int4)"
+  },
+  {
+    "comment": "alter_generic - Statement 184",
+    "query": "ALTER OPERATOR FAMILY alt_opf17 USING btree ADD OPERATOR 1 \u003c (int4, int2) , OPERATOR 2 \u003c= (int4, int2) , OPERATOR 3 = (int4, int2) , OPERATOR 4 \u003e= (int4, int2) , OPERATOR 5 \u003e (int4, int2) , FUNCTION 1 btint42cmp(int4, int2) , FUNCTION 1 btint42cmp(int4, int2)",
+    "expected": "ALTER OPERATOR FAMILY alt_opf17 USING btree ADD OPERATOR 1 \u003c (int4, int2), OPERATOR 2 \u003c= (int4, int2), OPERATOR 3 = (int4, int2), OPERATOR 4 \u003e= (int4, int2), OPERATOR 5 \u003e (int4, int2), FUNCTION 1 btint42cmp(int4, int2), FUNCTION 1 btint42cmp(int4, int2)"
+  },
+  {
+    "comment": "alter_generic - Statement 185",
+    "query": "ALTER OPERATOR FAMILY alt_opf17 USING btree ADD OPERATOR 1 \u003c (int4, int2) , OPERATOR 2 \u003c= (int4, int2) , OPERATOR 3 = (int4, int2) , OPERATOR 4 \u003e= (int4, int2) , OPERATOR 5 \u003e (int4, int2) , FUNCTION 1 btint42cmp(int4, int2)",
+    "expected": "ALTER OPERATOR FAMILY alt_opf17 USING btree ADD OPERATOR 1 \u003c (int4, int2), OPERATOR 2 \u003c= (int4, int2), OPERATOR 3 = (int4, int2), OPERATOR 4 \u003e= (int4, int2), OPERATOR 5 \u003e (int4, int2), FUNCTION 1 btint42cmp(int4, int2)"
+  },
+  {
+    "comment": "alter_generic - Statement 186",
+    "query": "DROP OPERATOR FAMILY alt_opf17 USING btree",
+    "expected": "DROP OPERATOR FAMILY alt_opf17 USING btree RESTRICT"
+  },
+  {
+    "comment": "alter_generic - Statement 187",
+    "query": "CREATE OPERATOR FAMILY alt_opf18 USING btree"
+  },
+  {
+    "comment": "alter_generic - Statement 188",
+    "query": "ALTER OPERATOR FAMILY alt_opf18 USING btree DROP OPERATOR 1 (int4, int4)",
+    "expected": "ALTER OPERATOR FAMILY alt_opf18 USING btree DROP OPERATOR 1  (int4, int4)"
+  },
+  {
+    "comment": "alter_generic - Statement 189",
+    "query": "ALTER OPERATOR FAMILY alt_opf18 USING btree ADD OPERATOR 1 \u003c (int4, int2) , OPERATOR 2 \u003c= (int4, int2) , OPERATOR 3 = (int4, int2) , OPERATOR 4 \u003e= (int4, int2) , OPERATOR 5 \u003e (int4, int2) , FUNCTION 1 btint42cmp(int4, int2)",
+    "expected": "ALTER OPERATOR FAMILY alt_opf18 USING btree ADD OPERATOR 1 \u003c (int4, int2), OPERATOR 2 \u003c= (int4, int2), OPERATOR 3 = (int4, int2), OPERATOR 4 \u003e= (int4, int2), OPERATOR 5 \u003e (int4, int2), FUNCTION 1 btint42cmp(int4, int2)"
+  },
+  {
+    "comment": "alter_generic - Statement 190",
+    "query": "ALTER OPERATOR FAMILY alt_opf18 USING btree ADD FUNCTION 4 (int4, int2) btequalimage(oid)"
+  },
+  {
+    "comment": "alter_generic - Statement 191",
+    "query": "ALTER OPERATOR FAMILY alt_opf18 USING btree DROP FUNCTION 2 (int4, int4)"
+  },
+  {
+    "comment": "alter_generic - Statement 192",
+    "query": "DROP OPERATOR FAMILY alt_opf18 USING btree",
+    "expected": "DROP OPERATOR FAMILY alt_opf18 USING btree RESTRICT"
+  },
+  {
+    "comment": "alter_generic - Statement 193",
+    "query": "CREATE OPERATOR FAMILY alt_opf19 USING btree"
+  },
+  {
+    "comment": "alter_generic - Statement 194",
+    "query": "ALTER OPERATOR FAMILY alt_opf19 USING btree ADD FUNCTION 5 test_opclass_options_func(internal, text[], bool)",
+    "expected": "ALTER OPERATOR FAMILY alt_opf19 USING btree ADD FUNCTION 5 test_opclass_options_func(internal, TEXT[], BOOLEAN)"
+  },
+  {
+    "comment": "alter_generic - Statement 195",
+    "query": "ALTER OPERATOR FAMILY alt_opf19 USING btree ADD FUNCTION 5 (int4) btint42cmp(int4, int2)"
+  },
+  {
+    "comment": "alter_generic - Statement 196",
+    "query": "ALTER OPERATOR FAMILY alt_opf19 USING btree ADD FUNCTION 5 (int4, int2) btint42cmp(int4, int2)"
+  },
+  {
+    "comment": "alter_generic - Statement 197",
+    "query": "ALTER OPERATOR FAMILY alt_opf19 USING btree ADD FUNCTION 5 (int4) test_opclass_options_func(internal)"
+  },
+  {
+    "comment": "alter_generic - Statement 198",
+    "query": "ALTER OPERATOR FAMILY alt_opf19 USING btree DROP FUNCTION 5 (int4, int4)"
+  },
+  {
+    "comment": "alter_generic - Statement 199",
+    "query": "DROP OPERATOR FAMILY alt_opf19 USING btree",
+    "expected": "DROP OPERATOR FAMILY alt_opf19 USING btree RESTRICT"
+  },
+  {
+    "comment": "alter_generic - Statement 200",
+    "query": "CREATE TABLE alt_regress_1 (a INTEGER, b INTEGER)",
+    "expected": "CREATE TABLE alt_regress_1 (a INT, b INT)"
+  },
+  {
+    "comment": "alter_generic - Statement 201",
+    "query": "CREATE STATISTICS alt_stat1 ON a, b FROM alt_regress_1"
+  },
+  {
+    "comment": "alter_generic - Statement 202",
+    "query": "CREATE STATISTICS alt_stat2 ON a, b FROM alt_regress_1"
+  },
+  {
+    "comment": "alter_generic - Statement 203",
+    "query": "ALTER STATISTICS alt_stat1 RENAME TO alt_stat2"
+  },
+  {
+    "comment": "alter_generic - Statement 204",
+    "query": "ALTER STATISTICS alt_stat1 RENAME TO alt_stat3"
+  },
+  {
+    "comment": "alter_generic - Statement 205",
+    "query": "ALTER STATISTICS alt_stat2 OWNER TO regress_alter_generic_user2"
+  },
+  {
+    "comment": "alter_generic - Statement 206",
+    "query": "ALTER STATISTICS alt_stat2 OWNER TO regress_alter_generic_user3"
+  },
+  {
+    "comment": "alter_generic - Statement 207",
+    "query": "ALTER STATISTICS alt_stat2 SET SCHEMA alt_nsp2"
+  },
+  {
+    "comment": "alter_generic - Statement 208",
+    "query": "CREATE TABLE alt_regress_2 (a INTEGER, b INTEGER)",
+    "expected": "CREATE TABLE alt_regress_2 (a INT, b INT)"
+  },
+  {
+    "comment": "alter_generic - Statement 209",
+    "query": "CREATE STATISTICS alt_stat1 ON a, b FROM alt_regress_2"
+  },
+  {
+    "comment": "alter_generic - Statement 210",
+    "query": "CREATE STATISTICS alt_stat2 ON a, b FROM alt_regress_2"
+  },
+  {
+    "comment": "alter_generic - Statement 211",
+    "query": "ALTER STATISTICS alt_stat3 RENAME TO alt_stat4"
+  },
+  {
+    "comment": "alter_generic - Statement 212",
+    "query": "ALTER STATISTICS alt_stat1 RENAME TO alt_stat4"
+  },
+  {
+    "comment": "alter_generic - Statement 213",
+    "query": "ALTER STATISTICS alt_stat3 OWNER TO regress_alter_generic_user2"
+  },
+  {
+    "comment": "alter_generic - Statement 214",
+    "query": "ALTER STATISTICS alt_stat3 SET SCHEMA alt_nsp2"
+  },
+  {
+    "comment": "alter_generic - Statement 215",
+    "query": "SELECT nspname, stxname, rolname FROM pg_statistic_ext s, pg_namespace n, pg_authid a WHERE s.stxnamespace = n.oid AND s.stxowner = a.oid AND n.nspname in ('alt_nsp1', 'alt_nsp2') ORDER BY nspname, stxname",
+    "expected": "SELECT nspname, stxname, rolname FROM pg_statistic_ext AS s, pg_namespace AS n, pg_authid AS a WHERE s.stxnamespace = n.oid AND s.stxowner = a.oid AND n.nspname IN ('alt_nsp1', 'alt_nsp2') ORDER BY nspname, stxname"
+  },
+  {
+    "comment": "alter_generic - Statement 216",
+    "query": "CREATE TEXT SEARCH DICTIONARY alt_ts_dict1 (template=simple)",
+    "expected": "CREATE TEXT SEARCH DICTIONARY alt_ts_dict1 (template = simple)"
+  },
+  {
+    "comment": "alter_generic - Statement 217",
+    "query": "CREATE TEXT SEARCH DICTIONARY alt_ts_dict2 (template=simple)",
+    "expected": "CREATE TEXT SEARCH DICTIONARY alt_ts_dict2 (template = simple)"
+  },
+  {
+    "comment": "alter_generic - Statement 218",
+    "query": "ALTER TEXT SEARCH DICTIONARY alt_ts_dict1 RENAME TO alt_ts_dict2"
+  },
+  {
+    "comment": "alter_generic - Statement 219",
+    "query": "ALTER TEXT SEARCH DICTIONARY alt_ts_dict1 RENAME TO alt_ts_dict3"
+  },
+  {
+    "comment": "alter_generic - Statement 220",
+    "query": "ALTER TEXT SEARCH DICTIONARY alt_ts_dict2 OWNER TO regress_alter_generic_user2"
+  },
+  {
+    "comment": "alter_generic - Statement 221",
+    "query": "ALTER TEXT SEARCH DICTIONARY alt_ts_dict2 OWNER TO regress_alter_generic_user3"
+  },
+  {
+    "comment": "alter_generic - Statement 222",
+    "query": "ALTER TEXT SEARCH DICTIONARY alt_ts_dict2 SET SCHEMA alt_nsp2"
+  },
+  {
+    "comment": "alter_generic - Statement 223",
+    "query": "ALTER TEXT SEARCH DICTIONARY alt_ts_dict3 RENAME TO alt_ts_dict4"
+  },
+  {
+    "comment": "alter_generic - Statement 224",
+    "query": "ALTER TEXT SEARCH DICTIONARY alt_ts_dict1 RENAME TO alt_ts_dict4"
+  },
+  {
+    "comment": "alter_generic - Statement 225",
+    "query": "ALTER TEXT SEARCH DICTIONARY alt_ts_dict3 OWNER TO regress_alter_generic_user2"
+  },
+  {
+    "comment": "alter_generic - Statement 226",
+    "query": "ALTER TEXT SEARCH DICTIONARY alt_ts_dict3 SET SCHEMA alt_nsp2"
+  },
+  {
+    "comment": "alter_generic - Statement 227",
+    "query": "SELECT nspname, dictname, rolname FROM pg_ts_dict t, pg_namespace n, pg_authid a WHERE t.dictnamespace = n.oid AND t.dictowner = a.oid AND n.nspname in ('alt_nsp1', 'alt_nsp2') ORDER BY nspname, dictname",
+    "expected": "SELECT nspname, dictname, rolname FROM pg_ts_dict AS t, pg_namespace AS n, pg_authid AS a WHERE t.dictnamespace = n.oid AND t.dictowner = a.oid AND n.nspname IN ('alt_nsp1', 'alt_nsp2') ORDER BY nspname, dictname"
+  },
+  {
+    "comment": "alter_generic - Statement 228",
+    "query": "CREATE TEXT SEARCH CONFIGURATION alt_ts_conf1 (copy=english)",
+    "expected": "CREATE TEXT SEARCH CONFIGURATION alt_ts_conf1 (copy = english)"
+  },
+  {
+    "comment": "alter_generic - Statement 229",
+    "query": "CREATE TEXT SEARCH CONFIGURATION alt_ts_conf2 (copy=english)",
+    "expected": "CREATE TEXT SEARCH CONFIGURATION alt_ts_conf2 (copy = english)"
+  },
+  {
+    "comment": "alter_generic - Statement 230",
+    "query": "ALTER TEXT SEARCH CONFIGURATION alt_ts_conf1 RENAME TO alt_ts_conf2"
+  },
+  {
+    "comment": "alter_generic - Statement 231",
+    "query": "ALTER TEXT SEARCH CONFIGURATION alt_ts_conf1 RENAME TO alt_ts_conf3"
+  },
+  {
+    "comment": "alter_generic - Statement 232",
+    "query": "ALTER TEXT SEARCH CONFIGURATION alt_ts_conf2 OWNER TO regress_alter_generic_user2"
+  },
+  {
+    "comment": "alter_generic - Statement 233",
+    "query": "ALTER TEXT SEARCH CONFIGURATION alt_ts_conf2 OWNER TO regress_alter_generic_user3"
+  },
+  {
+    "comment": "alter_generic - Statement 234",
+    "query": "ALTER TEXT SEARCH CONFIGURATION alt_ts_conf2 SET SCHEMA alt_nsp2"
+  },
+  {
+    "comment": "alter_generic - Statement 235",
+    "query": "ALTER TEXT SEARCH CONFIGURATION alt_ts_conf3 RENAME TO alt_ts_conf4"
+  },
+  {
+    "comment": "alter_generic - Statement 236",
+    "query": "ALTER TEXT SEARCH CONFIGURATION alt_ts_conf1 RENAME TO alt_ts_conf4"
+  },
+  {
+    "comment": "alter_generic - Statement 237",
+    "query": "ALTER TEXT SEARCH CONFIGURATION alt_ts_conf3 OWNER TO regress_alter_generic_user2"
+  },
+  {
+    "comment": "alter_generic - Statement 238",
+    "query": "ALTER TEXT SEARCH CONFIGURATION alt_ts_conf3 SET SCHEMA alt_nsp2"
+  },
+  {
+    "comment": "alter_generic - Statement 239",
+    "query": "SELECT nspname, cfgname, rolname FROM pg_ts_config t, pg_namespace n, pg_authid a WHERE t.cfgnamespace = n.oid AND t.cfgowner = a.oid AND n.nspname in ('alt_nsp1', 'alt_nsp2') ORDER BY nspname, cfgname",
+    "expected": "SELECT nspname, cfgname, rolname FROM pg_ts_config AS t, pg_namespace AS n, pg_authid AS a WHERE t.cfgnamespace = n.oid AND t.cfgowner = a.oid AND n.nspname IN ('alt_nsp1', 'alt_nsp2') ORDER BY nspname, cfgname"
+  },
+  {
+    "comment": "alter_generic - Statement 240",
+    "query": "CREATE TEXT SEARCH TEMPLATE alt_ts_temp1 (lexize=dsimple_lexize)",
+    "expected": "CREATE TEXT SEARCH TEMPLATE alt_ts_temp1 (lexize = dsimple_lexize)"
+  },
+  {
+    "comment": "alter_generic - Statement 241",
+    "query": "CREATE TEXT SEARCH TEMPLATE alt_ts_temp2 (lexize=dsimple_lexize)",
+    "expected": "CREATE TEXT SEARCH TEMPLATE alt_ts_temp2 (lexize = dsimple_lexize)"
+  },
+  {
+    "comment": "alter_generic - Statement 242",
+    "query": "ALTER TEXT SEARCH TEMPLATE alt_ts_temp1 RENAME TO alt_ts_temp2"
+  },
+  {
+    "comment": "alter_generic - Statement 243",
+    "query": "ALTER TEXT SEARCH TEMPLATE alt_ts_temp1 RENAME TO alt_ts_temp3"
+  },
+  {
+    "comment": "alter_generic - Statement 244",
+    "query": "ALTER TEXT SEARCH TEMPLATE alt_ts_temp2 SET SCHEMA alt_nsp2"
+  },
+  {
+    "comment": "alter_generic - Statement 245",
+    "query": "CREATE TEXT SEARCH TEMPLATE tstemp_case (init = init_function)"
+  },
+  {
+    "comment": "alter_generic - Statement 246",
+    "query": "SELECT nspname, tmplname FROM pg_ts_template t, pg_namespace n WHERE t.tmplnamespace = n.oid AND nspname like 'alt_nsp%' ORDER BY nspname, tmplname",
+    "expected": "SELECT nspname, tmplname FROM pg_ts_template AS t, pg_namespace AS n WHERE t.tmplnamespace = n.oid AND nspname LIKE 'alt_nsp%' ORDER BY nspname, tmplname"
+  },
+  {
+    "comment": "alter_generic - Statement 247",
+    "query": "CREATE TEXT SEARCH PARSER alt_ts_prs1 (start = prsd_start, gettoken = prsd_nexttoken, end = prsd_end, lextypes = prsd_lextype)",
+    "expected": "CREATE TEXT SEARCH PARSER alt_ts_prs1 (start = prsd_start, gettoken = prsd_nexttoken, \"end\" = prsd_end, lextypes = prsd_lextype)"
+  },
+  {
+    "comment": "alter_generic - Statement 248",
+    "query": "CREATE TEXT SEARCH PARSER alt_ts_prs2 (start = prsd_start, gettoken = prsd_nexttoken, end = prsd_end, lextypes = prsd_lextype)",
+    "expected": "CREATE TEXT SEARCH PARSER alt_ts_prs2 (start = prsd_start, gettoken = prsd_nexttoken, \"end\" = prsd_end, lextypes = prsd_lextype)"
+  },
+  {
+    "comment": "alter_generic - Statement 249",
+    "query": "ALTER TEXT SEARCH PARSER alt_ts_prs1 RENAME TO alt_ts_prs2"
+  },
+  {
+    "comment": "alter_generic - Statement 250",
+    "query": "ALTER TEXT SEARCH PARSER alt_ts_prs1 RENAME TO alt_ts_prs3"
+  },
+  {
+    "comment": "alter_generic - Statement 251",
+    "query": "ALTER TEXT SEARCH PARSER alt_ts_prs2 SET SCHEMA alt_nsp2"
+  },
+  {
+    "comment": "alter_generic - Statement 252",
+    "query": "CREATE TEXT SEARCH PARSER tspars_case (start = start_function)"
+  },
+  {
+    "comment": "alter_generic - Statement 253",
+    "query": "SELECT nspname, prsname FROM pg_ts_parser t, pg_namespace n WHERE t.prsnamespace = n.oid AND nspname like 'alt_nsp%' ORDER BY nspname, prsname",
+    "expected": "SELECT nspname, prsname FROM pg_ts_parser AS t, pg_namespace AS n WHERE t.prsnamespace = n.oid AND nspname LIKE 'alt_nsp%' ORDER BY nspname, prsname"
+  },
+  {
+    "comment": "alter_generic - Statement 254",
+    "query": "DROP FOREIGN DATA WRAPPER alt_fdw2 CASCADE"
+  },
+  {
+    "comment": "alter_generic - Statement 255",
+    "query": "DROP FOREIGN DATA WRAPPER alt_fdw3 CASCADE"
+  },
+  {
+    "comment": "alter_generic - Statement 256",
+    "query": "DROP LANGUAGE alt_lang2 CASCADE"
+  },
+  {
+    "comment": "alter_generic - Statement 257",
+    "query": "DROP LANGUAGE alt_lang3 CASCADE"
+  },
+  {
+    "comment": "alter_generic - Statement 258",
+    "query": "DROP SCHEMA alt_nsp1 CASCADE"
+  },
+  {
+    "comment": "alter_generic - Statement 259",
+    "query": "DROP SCHEMA alt_nsp2 CASCADE"
+  },
+  {
+    "comment": "alter_generic - Statement 260",
+    "query": "DROP USER regress_alter_generic_user1",
+    "expected": "DROP ROLE regress_alter_generic_user1"
+  },
+  {
+    "comment": "alter_generic - Statement 261",
+    "query": "DROP USER regress_alter_generic_user2",
+    "expected": "DROP ROLE regress_alter_generic_user2"
+  },
+  {
+    "comment": "alter_generic - Statement 262",
+    "query": "DROP USER regress_alter_generic_user3",
+    "expected": "DROP ROLE regress_alter_generic_user3"
+  }
+]

@@ -1,0 +1,1130 @@
+[
+  {
+    "comment": "rowtypes - Statement 1",
+    "query": "create type complex as (r float8, i float8)",
+    "expected": "CREATE TYPE complex AS (r FLOAT8, i FLOAT8)"
+  },
+  {
+    "comment": "rowtypes - Statement 2",
+    "query": "create temp table fullname (first text, last text)",
+    "expected": "CREATE TEMPORARY TABLE fullname (first TEXT, last TEXT)"
+  },
+  {
+    "comment": "rowtypes - Statement 3",
+    "query": "create type quad as (c1 complex, c2 complex)",
+    "expected": "CREATE TYPE quad AS (c1 complex, c2 complex)"
+  },
+  {
+    "comment": "rowtypes - Statement 4",
+    "query": "select (1.1,2.2)::complex, row((3.3,4.4),(5.5,null))::quad",
+    "expected": "SELECT CAST((1.1, 2.2) AS complex), CAST(ROW((3.3, 4.4), (5.5, NULL)) AS quad)"
+  },
+  {
+    "comment": "rowtypes - Statement 5",
+    "query": "select row('Joe', 'Blow')::fullname, '(Joe,Blow)'::fullname",
+    "expected": "SELECT CAST(ROW('Joe', 'Blow') AS fullname), CAST('(Joe,Blow)' AS fullname)"
+  },
+  {
+    "comment": "rowtypes - Statement 6",
+    "query": "select '(Joe,von Blow)'::fullname, '(Joe,d''Blow)'::fullname",
+    "expected": "SELECT CAST('(Joe,von Blow)' AS fullname), CAST('(Joe,d''Blow)' AS fullname)"
+  },
+  {
+    "comment": "rowtypes - Statement 7",
+    "query": "select '(Joe,\"von\"\"Blow\")'::fullname, E'(Joe,d\\\\\\\\Blow)'::fullname",
+    "expected": "SELECT CAST('(Joe,\"von\"\"Blow\")' AS fullname), CAST('(Joe,d\\\\Blow)' AS fullname)"
+  },
+  {
+    "comment": "rowtypes - Statement 8",
+    "query": "select '(Joe,\"Blow,Jr\")'::fullname",
+    "expected": "SELECT CAST('(Joe,\"Blow,Jr\")' AS fullname)"
+  },
+  {
+    "comment": "rowtypes - Statement 9",
+    "query": "select '(Joe,)'::fullname",
+    "expected": "SELECT CAST('(Joe,)' AS fullname)"
+  },
+  {
+    "comment": "rowtypes - Statement 10",
+    "query": "select '(Joe)'::fullname",
+    "expected": "SELECT CAST('(Joe)' AS fullname)"
+  },
+  {
+    "comment": "rowtypes - Statement 11",
+    "query": "select '(Joe,,)'::fullname",
+    "expected": "SELECT CAST('(Joe,,)' AS fullname)"
+  },
+  {
+    "comment": "rowtypes - Statement 12",
+    "query": "select '[]'::fullname",
+    "expected": "SELECT CAST('[]' AS fullname)"
+  },
+  {
+    "comment": "rowtypes - Statement 13",
+    "query": "select ' (Joe,Blow)  '::fullname",
+    "expected": "SELECT CAST(' (Joe,Blow)  ' AS fullname)"
+  },
+  {
+    "comment": "rowtypes - Statement 14",
+    "query": "select '(Joe,Blow) /'::fullname",
+    "expected": "SELECT CAST('(Joe,Blow) /' AS fullname)"
+  },
+  {
+    "comment": "rowtypes - Statement 15",
+    "query": "SELECT pg_input_is_valid('(1,2)', 'complex')"
+  },
+  {
+    "comment": "rowtypes - Statement 16",
+    "query": "SELECT pg_input_is_valid('(1,2', 'complex')"
+  },
+  {
+    "comment": "rowtypes - Statement 17",
+    "query": "SELECT pg_input_is_valid('(1,zed)', 'complex')"
+  },
+  {
+    "comment": "rowtypes - Statement 18",
+    "query": "SELECT * FROM pg_input_error_info('(1,zed)', 'complex')"
+  },
+  {
+    "comment": "rowtypes - Statement 19",
+    "query": "SELECT * FROM pg_input_error_info('(1,1e400)', 'complex')"
+  },
+  {
+    "comment": "rowtypes - Statement 20",
+    "query": "create temp table quadtable(f1 int, q quad)",
+    "expected": "CREATE TEMPORARY TABLE quadtable (f1 INT, q quad)"
+  },
+  {
+    "comment": "rowtypes - Statement 21",
+    "query": "insert into quadtable values (1, ((3.3,4.4),(5.5,6.6)))",
+    "expected": "INSERT INTO quadtable VALUES (1, ((3.3, 4.4), (5.5, 6.6)))"
+  },
+  {
+    "comment": "rowtypes - Statement 22",
+    "query": "insert into quadtable values (2, ((null,4.4),(5.5,6.6)))",
+    "expected": "INSERT INTO quadtable VALUES (2, ((NULL, 4.4), (5.5, 6.6)))"
+  },
+  {
+    "comment": "rowtypes - Statement 23",
+    "query": "select * from quadtable",
+    "expected": "SELECT * FROM quadtable"
+  },
+  {
+    "comment": "rowtypes - Statement 24",
+    "query": "select f1, q.c1 from quadtable",
+    "expected": "SELECT f1, q.c1 FROM quadtable"
+  },
+  {
+    "comment": "rowtypes - Statement 25",
+    "query": "select f1, (q).c1, (qq.q).c1.i from quadtable qq",
+    "expected": "SELECT f1, (q).c1, (qq.q).c1.i FROM quadtable AS qq"
+  },
+  {
+    "comment": "rowtypes - Statement 26",
+    "query": "create temp table people (fn fullname, bd date)",
+    "expected": "CREATE TEMPORARY TABLE people (fn fullname, bd DATE)"
+  },
+  {
+    "comment": "rowtypes - Statement 27",
+    "query": "insert into people values ('(Joe,Blow)', '1984-01-10')",
+    "expected": "INSERT INTO people VALUES ('(Joe,Blow)', '1984-01-10')"
+  },
+  {
+    "comment": "rowtypes - Statement 28",
+    "query": "select * from people",
+    "expected": "SELECT * FROM people"
+  },
+  {
+    "comment": "rowtypes - Statement 29",
+    "query": "alter table fullname add column suffix text default ''",
+    "expected": "ALTER TABLE fullname ADD COLUMN suffix TEXT DEFAULT ''"
+  },
+  {
+    "comment": "rowtypes - Statement 30",
+    "query": "alter table fullname add column suffix text default null",
+    "expected": "ALTER TABLE fullname ADD COLUMN suffix TEXT DEFAULT NULL"
+  },
+  {
+    "comment": "rowtypes - Statement 31",
+    "query": "update people set fn.suffix = 'Jr'",
+    "expected": "UPDATE people SET fn.suffix = 'Jr'"
+  },
+  {
+    "comment": "rowtypes - Statement 32",
+    "query": "insert into quadtable (f1, q.c1.r, q.c2.i) values(44,55,66)",
+    "expected": "INSERT INTO quadtable (f1, q.c1.r, q.c2.i) VALUES (44, 55, 66)"
+  },
+  {
+    "comment": "rowtypes - Statement 33",
+    "query": "update quadtable set q.c1.r = 12 where f1 = 2",
+    "expected": "UPDATE quadtable SET q.c1.r = 12 WHERE f1 = 2"
+  },
+  {
+    "comment": "rowtypes - Statement 34",
+    "query": "update quadtable set q.c1 = 12",
+    "expected": "UPDATE quadtable SET q.c1 = 12"
+  },
+  {
+    "comment": "rowtypes - Statement 35",
+    "query": "create temp table pp (f1 text)",
+    "expected": "CREATE TEMPORARY TABLE pp (f1 TEXT)"
+  },
+  {
+    "comment": "rowtypes - Statement 36",
+    "query": "insert into pp values (repeat('abcdefghijkl', 100000))",
+    "expected": "INSERT INTO pp VALUES (repeat('abcdefghijkl', 100000))"
+  },
+  {
+    "comment": "rowtypes - Statement 37",
+    "query": "insert into people select ('Jim', f1, null)::fullname, current_date from pp",
+    "expected": "INSERT INTO people SELECT CAST(('Jim', f1, NULL) AS fullname), CURRENT_DATE FROM pp"
+  },
+  {
+    "comment": "rowtypes - Statement 38",
+    "query": "select (fn).first, substr((fn).last, 1, 20), length((fn).last) from people",
+    "expected": "SELECT (fn).first, substr((fn).last, 1, 20), length((fn).last) FROM people"
+  },
+  {
+    "comment": "rowtypes - Statement 39",
+    "query": "update people set fn.first = 'Jack'",
+    "expected": "UPDATE people SET fn.first = 'Jack'"
+  },
+  {
+    "comment": "rowtypes - Statement 40",
+    "query": "select ROW(1,2) \u003c ROW(1,3) as true",
+    "expected": "SELECT ROW(1, 2) \u003c ROW(1, 3) AS \"true\""
+  },
+  {
+    "comment": "rowtypes - Statement 41",
+    "query": "select ROW(1,2) \u003c ROW(1,1) as false",
+    "expected": "SELECT ROW(1, 2) \u003c ROW(1, 1) AS \"false\""
+  },
+  {
+    "comment": "rowtypes - Statement 42",
+    "query": "select ROW(1,2) \u003c ROW(1,NULL) as null",
+    "expected": "SELECT ROW(1, 2) \u003c ROW(1, NULL) AS \"null\""
+  },
+  {
+    "comment": "rowtypes - Statement 43",
+    "query": "select ROW(1,2,3) \u003c ROW(1,3,NULL) as true",
+    "expected": "SELECT ROW(1, 2, 3) \u003c ROW(1, 3, NULL) AS \"true\""
+  },
+  {
+    "comment": "rowtypes - Statement 44",
+    "query": "select ROW(11,'ABC') \u003c ROW(11,'DEF') as true",
+    "expected": "SELECT ROW(11, 'ABC') \u003c ROW(11, 'DEF') AS \"true\""
+  },
+  {
+    "comment": "rowtypes - Statement 45",
+    "query": "select ROW(11,'ABC') \u003e ROW(11,'DEF') as false",
+    "expected": "SELECT ROW(11, 'ABC') \u003e ROW(11, 'DEF') AS \"false\""
+  },
+  {
+    "comment": "rowtypes - Statement 46",
+    "query": "select ROW(12,'ABC') \u003e ROW(11,'DEF') as true",
+    "expected": "SELECT ROW(12, 'ABC') \u003e ROW(11, 'DEF') AS \"true\""
+  },
+  {
+    "comment": "rowtypes - Statement 47",
+    "query": "select ROW(1,2,3) \u003c ROW(1,NULL,4) as null",
+    "expected": "SELECT ROW(1, 2, 3) \u003c ROW(1, NULL, 4) AS \"null\""
+  },
+  {
+    "comment": "rowtypes - Statement 48",
+    "query": "select ROW(1,2,3) = ROW(1,NULL,4) as false",
+    "expected": "SELECT ROW(1, 2, 3) = ROW(1, NULL, 4) AS \"false\""
+  },
+  {
+    "comment": "rowtypes - Statement 49",
+    "query": "select ROW(1,2,3) \u003c\u003e ROW(1,NULL,4) as true",
+    "expected": "SELECT ROW(1, 2, 3) \u003c\u003e ROW(1, NULL, 4) AS \"true\""
+  },
+  {
+    "comment": "rowtypes - Statement 50",
+    "query": "select ROW('ABC','DEF') ~\u003c=~ ROW('DEF','ABC') as true",
+    "expected": "SELECT ROW('ABC', 'DEF') ~\u003c=~ ROW('DEF', 'ABC') AS \"true\""
+  },
+  {
+    "comment": "rowtypes - Statement 51",
+    "query": "select ROW('ABC','DEF') ~\u003e=~ ROW('DEF','ABC') as false",
+    "expected": "SELECT ROW('ABC', 'DEF') ~\u003e=~ ROW('DEF', 'ABC') AS \"false\""
+  },
+  {
+    "comment": "rowtypes - Statement 52",
+    "query": "select ROW('ABC','DEF') ~~ ROW('DEF','ABC') as fail",
+    "expected": "SELECT ROW('ABC', 'DEF') ~~ ROW('DEF', 'ABC') AS fail"
+  },
+  {
+    "comment": "rowtypes - Statement 53",
+    "query": "select ROW(1,2) = ROW(1,2::int8)",
+    "expected": "SELECT ROW(1, 2) = ROW(1, CAST(2 AS BIGINT))"
+  },
+  {
+    "comment": "rowtypes - Statement 54",
+    "query": "select ROW(1,2) in (ROW(3,4), ROW(1,2))",
+    "expected": "SELECT ROW(1, 2) IN (ROW(3, 4), ROW(1, 2))"
+  },
+  {
+    "comment": "rowtypes - Statement 55",
+    "query": "select ROW(1,2) in (ROW(3,4), ROW(1,2::int8))",
+    "expected": "SELECT ROW(1, 2) IN (ROW(3, 4), ROW(1, CAST(2 AS BIGINT)))"
+  },
+  {
+    "comment": "rowtypes - Statement 56",
+    "query": "select unique1, unique2 from tenk1 where (unique1, unique2) \u003c any (select ten, ten from tenk1 where hundred \u003c 3) and unique1 \u003c= 20 order by 1",
+    "expected": "SELECT unique1, unique2 FROM tenk1 WHERE (unique1, unique2) \u003c ANY (SELECT ten, ten FROM tenk1 WHERE hundred \u003c 3) AND unique1 \u003c= 20 ORDER BY 1"
+  },
+  {
+    "comment": "rowtypes - Statement 57",
+    "query": "explain (costs off) select thousand, tenthous from tenk1 where (thousand, tenthous) \u003e= (997, 5000) order by thousand, tenthous",
+    "expected": "EXPLAIN (COSTS false) SELECT thousand, tenthous FROM tenk1 WHERE (thousand, tenthous) \u003e= (997, 5000) ORDER BY thousand, tenthous"
+  },
+  {
+    "comment": "rowtypes - Statement 58",
+    "query": "select thousand, tenthous from tenk1 where (thousand, tenthous) \u003e= (997, 5000) order by thousand, tenthous",
+    "expected": "SELECT thousand, tenthous FROM tenk1 WHERE (thousand, tenthous) \u003e= (997, 5000) ORDER BY thousand, tenthous"
+  },
+  {
+    "comment": "rowtypes - Statement 59",
+    "query": "explain (costs off) select thousand, tenthous, four from tenk1 where (thousand, tenthous, four) \u003e (998, 5000, 3) order by thousand, tenthous",
+    "expected": "EXPLAIN (COSTS false) SELECT thousand, tenthous, four FROM tenk1 WHERE (thousand, tenthous, four) \u003e (998, 5000, 3) ORDER BY thousand, tenthous"
+  },
+  {
+    "comment": "rowtypes - Statement 60",
+    "query": "select thousand, tenthous, four from tenk1 where (thousand, tenthous, four) \u003e (998, 5000, 3) order by thousand, tenthous",
+    "expected": "SELECT thousand, tenthous, four FROM tenk1 WHERE (thousand, tenthous, four) \u003e (998, 5000, 3) ORDER BY thousand, tenthous"
+  },
+  {
+    "comment": "rowtypes - Statement 61",
+    "query": "explain (costs off) select thousand, tenthous from tenk1 where (998, 5000) \u003c (thousand, tenthous) order by thousand, tenthous",
+    "expected": "EXPLAIN (COSTS false) SELECT thousand, tenthous FROM tenk1 WHERE (998, 5000) \u003c (thousand, tenthous) ORDER BY thousand, tenthous"
+  },
+  {
+    "comment": "rowtypes - Statement 62",
+    "query": "select thousand, tenthous from tenk1 where (998, 5000) \u003c (thousand, tenthous) order by thousand, tenthous",
+    "expected": "SELECT thousand, tenthous FROM tenk1 WHERE (998, 5000) \u003c (thousand, tenthous) ORDER BY thousand, tenthous"
+  },
+  {
+    "comment": "rowtypes - Statement 63",
+    "query": "explain (costs off) select thousand, hundred from tenk1 where (998, 5000) \u003c (thousand, hundred) order by thousand, hundred",
+    "expected": "EXPLAIN (COSTS false) SELECT thousand, hundred FROM tenk1 WHERE (998, 5000) \u003c (thousand, hundred) ORDER BY thousand, hundred"
+  },
+  {
+    "comment": "rowtypes - Statement 64",
+    "query": "select thousand, hundred from tenk1 where (998, 5000) \u003c (thousand, hundred) order by thousand, hundred",
+    "expected": "SELECT thousand, hundred FROM tenk1 WHERE (998, 5000) \u003c (thousand, hundred) ORDER BY thousand, hundred"
+  },
+  {
+    "comment": "rowtypes - Statement 65",
+    "query": "create temp table test_table (a text, b text)",
+    "expected": "CREATE TEMPORARY TABLE test_table (a TEXT, b TEXT)"
+  },
+  {
+    "comment": "rowtypes - Statement 66",
+    "query": "insert into test_table values ('a', 'b')",
+    "expected": "INSERT INTO test_table VALUES ('a', 'b')"
+  },
+  {
+    "comment": "rowtypes - Statement 67",
+    "query": "insert into test_table select 'a', null from generate_series(1,1000)",
+    "expected": "INSERT INTO test_table SELECT 'a', NULL FROM generate_series(1, 1000)"
+  },
+  {
+    "comment": "rowtypes - Statement 68",
+    "query": "insert into test_table values ('b', 'a')",
+    "expected": "INSERT INTO test_table VALUES ('b', 'a')"
+  },
+  {
+    "comment": "rowtypes - Statement 69",
+    "query": "create index on test_table (a,b)",
+    "expected": "CREATE INDEX ON test_table USING btree ( a, b )"
+  },
+  {
+    "comment": "rowtypes - Statement 70",
+    "query": "set enable_sort = off",
+    "expected": "SET enable_sort = off"
+  },
+  {
+    "comment": "rowtypes - Statement 71",
+    "query": "explain (costs off) select a,b from test_table where (a,b) \u003e ('a','a') order by a,b",
+    "expected": "EXPLAIN (COSTS false) SELECT a, b FROM test_table WHERE (a, b) \u003e ('a', 'a') ORDER BY a, b"
+  },
+  {
+    "comment": "rowtypes - Statement 72",
+    "query": "select a,b from test_table where (a,b) \u003e ('a','a') order by a,b",
+    "expected": "SELECT a, b FROM test_table WHERE (a, b) \u003e ('a', 'a') ORDER BY a, b"
+  },
+  {
+    "comment": "rowtypes - Statement 73",
+    "query": "reset enable_sort",
+    "expected": "RESET enable_sort"
+  },
+  {
+    "comment": "rowtypes - Statement 74",
+    "query": "select * from int8_tbl i8 where i8 in (row(123,456))",
+    "expected": "SELECT * FROM int8_tbl AS i8 WHERE i8 IN (ROW(123, 456))"
+  },
+  {
+    "comment": "rowtypes - Statement 75",
+    "query": "explain (costs off) select * from int8_tbl i8 where i8 in (row(123,456)::int8_tbl, '(4567890123456789,123)')",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM int8_tbl AS i8 WHERE i8 IN (CAST(ROW(123, 456) AS int8_tbl), '(4567890123456789,123)')"
+  },
+  {
+    "comment": "rowtypes - Statement 76",
+    "query": "select * from int8_tbl i8 where i8 in (row(123,456)::int8_tbl, '(4567890123456789,123)')",
+    "expected": "SELECT * FROM int8_tbl AS i8 WHERE i8 IN (CAST(ROW(123, 456) AS int8_tbl), '(4567890123456789,123)')"
+  },
+  {
+    "comment": "rowtypes - Statement 77",
+    "query": "select (row(1, 2.0)).f1",
+    "expected": "SELECT (ROW(1, 2.0)).f1"
+  },
+  {
+    "comment": "rowtypes - Statement 78",
+    "query": "select (row(1, 2.0)).f2",
+    "expected": "SELECT (ROW(1, 2.0)).f2"
+  },
+  {
+    "comment": "rowtypes - Statement 79",
+    "query": "select (row(1, 2.0)).nosuch",
+    "expected": "SELECT (ROW(1, 2.0)).nosuch"
+  },
+  {
+    "comment": "rowtypes - Statement 80",
+    "query": "select (row(1, 2.0)).*",
+    "expected": "SELECT (ROW(1, 2.0)).*"
+  },
+  {
+    "comment": "rowtypes - Statement 81",
+    "query": "select (r).f1 from (select row(1, 2.0) as r) ss",
+    "expected": "SELECT (r).f1 FROM (SELECT ROW(1, 2.0) AS r) AS ss"
+  },
+  {
+    "comment": "rowtypes - Statement 82",
+    "query": "select (r).f3 from (select row(1, 2.0) as r) ss",
+    "expected": "SELECT (r).f3 FROM (SELECT ROW(1, 2.0) AS r) AS ss"
+  },
+  {
+    "comment": "rowtypes - Statement 83",
+    "query": "select (r).* from (select row(1, 2.0) as r) ss",
+    "expected": "SELECT (r).* FROM (SELECT ROW(1, 2.0) AS r) AS ss"
+  },
+  {
+    "comment": "rowtypes - Statement 84",
+    "query": "select ROW()",
+    "expected": "SELECT ROW()"
+  },
+  {
+    "comment": "rowtypes - Statement 85",
+    "query": "select ROW() IS NULL",
+    "expected": "SELECT ROW() IS NULL"
+  },
+  {
+    "comment": "rowtypes - Statement 86",
+    "query": "select ROW() = ROW()",
+    "expected": "SELECT ROW() = ROW()"
+  },
+  {
+    "comment": "rowtypes - Statement 87",
+    "query": "select array[ row(1,2), row(3,4), row(5,6) ]",
+    "expected": "SELECT ARRAY[ROW(1, 2),ROW(3, 4),ROW(5, 6)]"
+  },
+  {
+    "comment": "rowtypes - Statement 88",
+    "query": "select row(1,1.1) = any (array[ row(7,7.7), row(1,1.1), row(0,0.0) ])",
+    "expected": "SELECT ROW(1, 1.1) = ANY (ARRAY[ROW(7, 7.7),ROW(1, 1.1),ROW(0, 0.0)])"
+  },
+  {
+    "comment": "rowtypes - Statement 89",
+    "query": "select row(1,1.1) = any (array[ row(7,7.7), row(1,1.0), row(0,0.0) ])",
+    "expected": "SELECT ROW(1, 1.1) = ANY (ARRAY[ROW(7, 7.7),ROW(1, 1.0),ROW(0, 0.0)])"
+  },
+  {
+    "comment": "rowtypes - Statement 90",
+    "query": "create type cantcompare as (p point, r float8)",
+    "expected": "CREATE TYPE cantcompare AS (p point, r FLOAT8)"
+  },
+  {
+    "comment": "rowtypes - Statement 91",
+    "query": "create temp table cc (f1 cantcompare)",
+    "expected": "CREATE TEMPORARY TABLE cc (f1 cantcompare)"
+  },
+  {
+    "comment": "rowtypes - Statement 92",
+    "query": "insert into cc values('(\"(1,2)\",3)')",
+    "expected": "INSERT INTO cc VALUES ('(\"(1,2)\",3)')"
+  },
+  {
+    "comment": "rowtypes - Statement 93",
+    "query": "insert into cc values('(\"(4,5)\",6)')",
+    "expected": "INSERT INTO cc VALUES ('(\"(4,5)\",6)')"
+  },
+  {
+    "comment": "rowtypes - Statement 94",
+    "query": "select * from cc order by f1",
+    "expected": "SELECT * FROM cc ORDER BY f1"
+  },
+  {
+    "comment": "rowtypes - Statement 95",
+    "query": "create type testtype1 as (a int, b int)",
+    "expected": "CREATE TYPE testtype1 AS (a INT, b INT)"
+  },
+  {
+    "comment": "rowtypes - Statement 96",
+    "query": "select row(1, 2)::testtype1 \u003c row(1, 3)::testtype1",
+    "expected": "SELECT CAST(ROW(1, 2) AS testtype1) \u003c CAST(ROW(1, 3) AS testtype1)"
+  },
+  {
+    "comment": "rowtypes - Statement 97",
+    "query": "select row(1, 2)::testtype1 \u003c= row(1, 3)::testtype1",
+    "expected": "SELECT CAST(ROW(1, 2) AS testtype1) \u003c= CAST(ROW(1, 3) AS testtype1)"
+  },
+  {
+    "comment": "rowtypes - Statement 98",
+    "query": "select row(1, 2)::testtype1 = row(1, 2)::testtype1",
+    "expected": "SELECT CAST(ROW(1, 2) AS testtype1) = CAST(ROW(1, 2) AS testtype1)"
+  },
+  {
+    "comment": "rowtypes - Statement 99",
+    "query": "select row(1, 2)::testtype1 \u003c\u003e row(1, 3)::testtype1",
+    "expected": "SELECT CAST(ROW(1, 2) AS testtype1) \u003c\u003e CAST(ROW(1, 3) AS testtype1)"
+  },
+  {
+    "comment": "rowtypes - Statement 100",
+    "query": "select row(1, 3)::testtype1 \u003e= row(1, 2)::testtype1",
+    "expected": "SELECT CAST(ROW(1, 3) AS testtype1) \u003e= CAST(ROW(1, 2) AS testtype1)"
+  },
+  {
+    "comment": "rowtypes - Statement 101",
+    "query": "select row(1, 3)::testtype1 \u003e row(1, 2)::testtype1",
+    "expected": "SELECT CAST(ROW(1, 3) AS testtype1) \u003e CAST(ROW(1, 2) AS testtype1)"
+  },
+  {
+    "comment": "rowtypes - Statement 102",
+    "query": "select row(1, -2)::testtype1 \u003c row(1, -3)::testtype1",
+    "expected": "SELECT CAST(ROW(1, -2) AS testtype1) \u003c CAST(ROW(1, -3) AS testtype1)"
+  },
+  {
+    "comment": "rowtypes - Statement 103",
+    "query": "select row(1, -2)::testtype1 \u003c= row(1, -3)::testtype1",
+    "expected": "SELECT CAST(ROW(1, -2) AS testtype1) \u003c= CAST(ROW(1, -3) AS testtype1)"
+  },
+  {
+    "comment": "rowtypes - Statement 104",
+    "query": "select row(1, -2)::testtype1 = row(1, -3)::testtype1",
+    "expected": "SELECT CAST(ROW(1, -2) AS testtype1) = CAST(ROW(1, -3) AS testtype1)"
+  },
+  {
+    "comment": "rowtypes - Statement 105",
+    "query": "select row(1, -2)::testtype1 \u003c\u003e row(1, -2)::testtype1",
+    "expected": "SELECT CAST(ROW(1, -2) AS testtype1) \u003c\u003e CAST(ROW(1, -2) AS testtype1)"
+  },
+  {
+    "comment": "rowtypes - Statement 106",
+    "query": "select row(1, -3)::testtype1 \u003e= row(1, -2)::testtype1",
+    "expected": "SELECT CAST(ROW(1, -3) AS testtype1) \u003e= CAST(ROW(1, -2) AS testtype1)"
+  },
+  {
+    "comment": "rowtypes - Statement 107",
+    "query": "select row(1, -3)::testtype1 \u003e row(1, -2)::testtype1",
+    "expected": "SELECT CAST(ROW(1, -3) AS testtype1) \u003e CAST(ROW(1, -2) AS testtype1)"
+  },
+  {
+    "comment": "rowtypes - Statement 108",
+    "query": "select row(1, -2)::testtype1 \u003c row(1, 3)::testtype1",
+    "expected": "SELECT CAST(ROW(1, -2) AS testtype1) \u003c CAST(ROW(1, 3) AS testtype1)"
+  },
+  {
+    "comment": "rowtypes - Statement 109",
+    "query": "create type testtype3 as (a int, b text)",
+    "expected": "CREATE TYPE testtype3 AS (a INT, b TEXT)"
+  },
+  {
+    "comment": "rowtypes - Statement 110",
+    "query": "select row(1, 2)::testtype1 \u003c row(1, 'abc')::testtype3",
+    "expected": "SELECT CAST(ROW(1, 2) AS testtype1) \u003c CAST(ROW(1, 'abc') AS testtype3)"
+  },
+  {
+    "comment": "rowtypes - Statement 111",
+    "query": "select row(1, 2)::testtype1 \u003c\u003e row(1, 'abc')::testtype3",
+    "expected": "SELECT CAST(ROW(1, 2) AS testtype1) \u003c\u003e CAST(ROW(1, 'abc') AS testtype3)"
+  },
+  {
+    "comment": "rowtypes - Statement 112",
+    "query": "create type testtype5 as (a int)",
+    "expected": "CREATE TYPE testtype5 AS (a INT)"
+  },
+  {
+    "comment": "rowtypes - Statement 113",
+    "query": "select row(1, 2)::testtype1 \u003c row(1)::testtype5",
+    "expected": "SELECT CAST(ROW(1, 2) AS testtype1) \u003c CAST(ROW(1) AS testtype5)"
+  },
+  {
+    "comment": "rowtypes - Statement 114",
+    "query": "select row(1, 2)::testtype1 \u003c\u003e row(1)::testtype5",
+    "expected": "SELECT CAST(ROW(1, 2) AS testtype1) \u003c\u003e CAST(ROW(1) AS testtype5)"
+  },
+  {
+    "comment": "rowtypes - Statement 115",
+    "query": "create type testtype6 as (a int, b point)",
+    "expected": "CREATE TYPE testtype6 AS (a INT, b point)"
+  },
+  {
+    "comment": "rowtypes - Statement 116",
+    "query": "select row(1, '(1,2)')::testtype6 \u003c row(1, '(1,3)')::testtype6",
+    "expected": "SELECT CAST(ROW(1, '(1,2)') AS testtype6) \u003c CAST(ROW(1, '(1,3)') AS testtype6)"
+  },
+  {
+    "comment": "rowtypes - Statement 117",
+    "query": "select row(1, '(1,2)')::testtype6 \u003c\u003e row(1, '(1,3)')::testtype6",
+    "expected": "SELECT CAST(ROW(1, '(1,2)') AS testtype6) \u003c\u003e CAST(ROW(1, '(1,3)') AS testtype6)"
+  },
+  {
+    "comment": "rowtypes - Statement 118",
+    "query": "drop type testtype1, testtype3, testtype5, testtype6",
+    "expected": "DROP TYPE testtype1, testtype3, testtype5, testtype6"
+  },
+  {
+    "comment": "rowtypes - Statement 119",
+    "query": "select row(1, 2)::testtype1 *\u003c row(1, 3)::testtype1",
+    "expected": "SELECT CAST(ROW(1, 2) AS testtype1) *\u003c CAST(ROW(1, 3) AS testtype1)"
+  },
+  {
+    "comment": "rowtypes - Statement 120",
+    "query": "select row(1, 2)::testtype1 *\u003c= row(1, 3)::testtype1",
+    "expected": "SELECT CAST(ROW(1, 2) AS testtype1) *\u003c= CAST(ROW(1, 3) AS testtype1)"
+  },
+  {
+    "comment": "rowtypes - Statement 121",
+    "query": "select row(1, 2)::testtype1 *= row(1, 2)::testtype1",
+    "expected": "SELECT CAST(ROW(1, 2) AS testtype1) *= CAST(ROW(1, 2) AS testtype1)"
+  },
+  {
+    "comment": "rowtypes - Statement 122",
+    "query": "select row(1, 2)::testtype1 *\u003c\u003e row(1, 3)::testtype1",
+    "expected": "SELECT CAST(ROW(1, 2) AS testtype1) *\u003c\u003e CAST(ROW(1, 3) AS testtype1)"
+  },
+  {
+    "comment": "rowtypes - Statement 123",
+    "query": "select row(1, 3)::testtype1 *\u003e= row(1, 2)::testtype1",
+    "expected": "SELECT CAST(ROW(1, 3) AS testtype1) *\u003e= CAST(ROW(1, 2) AS testtype1)"
+  },
+  {
+    "comment": "rowtypes - Statement 124",
+    "query": "select row(1, 3)::testtype1 *\u003e row(1, 2)::testtype1",
+    "expected": "SELECT CAST(ROW(1, 3) AS testtype1) *\u003e CAST(ROW(1, 2) AS testtype1)"
+  },
+  {
+    "comment": "rowtypes - Statement 125",
+    "query": "select row(1, -2)::testtype1 *\u003c row(1, -3)::testtype1",
+    "expected": "SELECT CAST(ROW(1, -2) AS testtype1) *\u003c CAST(ROW(1, -3) AS testtype1)"
+  },
+  {
+    "comment": "rowtypes - Statement 126",
+    "query": "select row(1, -2)::testtype1 *\u003c= row(1, -3)::testtype1",
+    "expected": "SELECT CAST(ROW(1, -2) AS testtype1) *\u003c= CAST(ROW(1, -3) AS testtype1)"
+  },
+  {
+    "comment": "rowtypes - Statement 127",
+    "query": "select row(1, -2)::testtype1 *= row(1, -3)::testtype1",
+    "expected": "SELECT CAST(ROW(1, -2) AS testtype1) *= CAST(ROW(1, -3) AS testtype1)"
+  },
+  {
+    "comment": "rowtypes - Statement 128",
+    "query": "select row(1, -2)::testtype1 *\u003c\u003e row(1, -2)::testtype1",
+    "expected": "SELECT CAST(ROW(1, -2) AS testtype1) *\u003c\u003e CAST(ROW(1, -2) AS testtype1)"
+  },
+  {
+    "comment": "rowtypes - Statement 129",
+    "query": "select row(1, -3)::testtype1 *\u003e= row(1, -2)::testtype1",
+    "expected": "SELECT CAST(ROW(1, -3) AS testtype1) *\u003e= CAST(ROW(1, -2) AS testtype1)"
+  },
+  {
+    "comment": "rowtypes - Statement 130",
+    "query": "select row(1, -3)::testtype1 *\u003e row(1, -2)::testtype1",
+    "expected": "SELECT CAST(ROW(1, -3) AS testtype1) *\u003e CAST(ROW(1, -2) AS testtype1)"
+  },
+  {
+    "comment": "rowtypes - Statement 131",
+    "query": "select row(1, -2)::testtype1 *\u003c row(1, 3)::testtype1",
+    "expected": "SELECT CAST(ROW(1, -2) AS testtype1) *\u003c CAST(ROW(1, 3) AS testtype1)"
+  },
+  {
+    "comment": "rowtypes - Statement 132",
+    "query": "create type testtype2 as (a smallint, b bool)",
+    "expected": "CREATE TYPE testtype2 AS (a SMALLINT, b BOOLEAN)"
+  },
+  {
+    "comment": "rowtypes - Statement 133",
+    "query": "select row(1, true)::testtype2 *\u003c row(2, true)::testtype2",
+    "expected": "SELECT CAST(ROW(1, TRUE) AS testtype2) *\u003c CAST(ROW(2, TRUE) AS testtype2)"
+  },
+  {
+    "comment": "rowtypes - Statement 134",
+    "query": "select row(-2, true)::testtype2 *\u003c row(-1, true)::testtype2",
+    "expected": "SELECT CAST(ROW(-2, TRUE) AS testtype2) *\u003c CAST(ROW(-1, TRUE) AS testtype2)"
+  },
+  {
+    "comment": "rowtypes - Statement 135",
+    "query": "select row(0, false)::testtype2 *\u003c row(0, true)::testtype2",
+    "expected": "SELECT CAST(ROW(0, FALSE) AS testtype2) *\u003c CAST(ROW(0, TRUE) AS testtype2)"
+  },
+  {
+    "comment": "rowtypes - Statement 136",
+    "query": "select row(0, false)::testtype2 *\u003c\u003e row(0, true)::testtype2",
+    "expected": "SELECT CAST(ROW(0, FALSE) AS testtype2) *\u003c\u003e CAST(ROW(0, TRUE) AS testtype2)"
+  },
+  {
+    "comment": "rowtypes - Statement 137",
+    "query": "select row(1, 'abc')::testtype3 *\u003c row(1, 'abd')::testtype3",
+    "expected": "SELECT CAST(ROW(1, 'abc') AS testtype3) *\u003c CAST(ROW(1, 'abd') AS testtype3)"
+  },
+  {
+    "comment": "rowtypes - Statement 138",
+    "query": "select row(1, 'abc')::testtype3 *\u003c row(1, 'abcd')::testtype3",
+    "expected": "SELECT CAST(ROW(1, 'abc') AS testtype3) *\u003c CAST(ROW(1, 'abcd') AS testtype3)"
+  },
+  {
+    "comment": "rowtypes - Statement 139",
+    "query": "select row(1, 'abc')::testtype3 *\u003e row(1, 'abd')::testtype3",
+    "expected": "SELECT CAST(ROW(1, 'abc') AS testtype3) *\u003e CAST(ROW(1, 'abd') AS testtype3)"
+  },
+  {
+    "comment": "rowtypes - Statement 140",
+    "query": "select row(1, 'abc')::testtype3 *\u003c\u003e row(1, 'abd')::testtype3",
+    "expected": "SELECT CAST(ROW(1, 'abc') AS testtype3) *\u003c\u003e CAST(ROW(1, 'abd') AS testtype3)"
+  },
+  {
+    "comment": "rowtypes - Statement 141",
+    "query": "create type testtype4 as (a int, b point)",
+    "expected": "CREATE TYPE testtype4 AS (a INT, b point)"
+  },
+  {
+    "comment": "rowtypes - Statement 142",
+    "query": "select row(1, '(1,2)')::testtype4 *\u003c row(1, '(1,3)')::testtype4",
+    "expected": "SELECT CAST(ROW(1, '(1,2)') AS testtype4) *\u003c CAST(ROW(1, '(1,3)') AS testtype4)"
+  },
+  {
+    "comment": "rowtypes - Statement 143",
+    "query": "select row(1, '(1,2)')::testtype4 *\u003c\u003e row(1, '(1,3)')::testtype4",
+    "expected": "SELECT CAST(ROW(1, '(1,2)') AS testtype4) *\u003c\u003e CAST(ROW(1, '(1,3)') AS testtype4)"
+  },
+  {
+    "comment": "rowtypes - Statement 144",
+    "query": "select row(1, 2)::testtype1 *\u003c row(1, 'abc')::testtype3",
+    "expected": "SELECT CAST(ROW(1, 2) AS testtype1) *\u003c CAST(ROW(1, 'abc') AS testtype3)"
+  },
+  {
+    "comment": "rowtypes - Statement 145",
+    "query": "select row(1, 2)::testtype1 *\u003c\u003e row(1, 'abc')::testtype3",
+    "expected": "SELECT CAST(ROW(1, 2) AS testtype1) *\u003c\u003e CAST(ROW(1, 'abc') AS testtype3)"
+  },
+  {
+    "comment": "rowtypes - Statement 146",
+    "query": "select row(1, 2)::testtype1 *\u003c row(1)::testtype5",
+    "expected": "SELECT CAST(ROW(1, 2) AS testtype1) *\u003c CAST(ROW(1) AS testtype5)"
+  },
+  {
+    "comment": "rowtypes - Statement 147",
+    "query": "select row(1, 2)::testtype1 *\u003c\u003e row(1)::testtype5",
+    "expected": "SELECT CAST(ROW(1, 2) AS testtype1) *\u003c\u003e CAST(ROW(1) AS testtype5)"
+  },
+  {
+    "comment": "rowtypes - Statement 148",
+    "query": "select row(1, '(1,2)')::testtype6 *\u003c row(1, '(1,3)')::testtype6",
+    "expected": "SELECT CAST(ROW(1, '(1,2)') AS testtype6) *\u003c CAST(ROW(1, '(1,3)') AS testtype6)"
+  },
+  {
+    "comment": "rowtypes - Statement 149",
+    "query": "select row(1, '(1,2)')::testtype6 *\u003e= row(1, '(1,3)')::testtype6",
+    "expected": "SELECT CAST(ROW(1, '(1,2)') AS testtype6) *\u003e= CAST(ROW(1, '(1,3)') AS testtype6)"
+  },
+  {
+    "comment": "rowtypes - Statement 150",
+    "query": "select row(1, '(1,2)')::testtype6 *\u003c\u003e row(1, '(1,3)')::testtype6",
+    "expected": "SELECT CAST(ROW(1, '(1,2)') AS testtype6) *\u003c\u003e CAST(ROW(1, '(1,3)') AS testtype6)"
+  },
+  {
+    "comment": "rowtypes - Statement 151",
+    "query": "select q.a, q.b = row(2), q.c = array[row(3)], q.d = row(row(4)) from unnest(array[row(1, row(2), array[row(3)], row(row(4))), row(2, row(3), array[row(4)], row(row(5)))]) as q(a int, b record, c record[], d record)",
+    "expected": "SELECT q.a, q.b = ROW(2), q.c = ARRAY[ROW(3)], q.d = ROW(ROW(4)) FROM unnest(ARRAY[ROW(1, ROW(2), ARRAY[ROW(3)], ROW(ROW(4))),ROW(2, ROW(3), ARRAY[ROW(4)], ROW(ROW(5)))]) AS q"
+  },
+  {
+    "comment": "rowtypes - Statement 152",
+    "query": "drop type testtype1, testtype2, testtype3, testtype4, testtype5, testtype6",
+    "expected": "DROP TYPE testtype1, testtype2, testtype3, testtype4, testtype5, testtype6"
+  },
+  {
+    "comment": "rowtypes - Statement 153",
+    "query": "BEGIN"
+  },
+  {
+    "comment": "rowtypes - Statement 154",
+    "query": "CREATE TABLE price ( id SERIAL PRIMARY KEY, active BOOLEAN NOT NULL, price NUMERIC )",
+    "expected": "CREATE TABLE price (id serial PRIMARY KEY, active BOOLEAN NOT NULL, price NUMERIC)"
+  },
+  {
+    "comment": "rowtypes - Statement 155",
+    "query": "CREATE TYPE price_input AS ( id INTEGER, price NUMERIC )",
+    "expected": "CREATE TYPE price_input AS (id INT, price NUMERIC)"
+  },
+  {
+    "comment": "rowtypes - Statement 156",
+    "query": "CREATE TYPE price_key AS ( id INTEGER )",
+    "expected": "CREATE TYPE price_key AS (id INT)"
+  },
+  {
+    "comment": "rowtypes - Statement 157",
+    "query": "CREATE FUNCTION price_key_from_table(price) RETURNS price_key AS $$ SELECT $1.id $$ LANGUAGE SQL",
+    "expected": "CREATE FUNCTION price_key_from_table (price) RETURNS price_key AS $$ SELECT $1.id $$ LANGUAGE sql"
+  },
+  {
+    "comment": "rowtypes - Statement 158",
+    "query": "CREATE FUNCTION price_key_from_input(price_input) RETURNS price_key AS $$ SELECT $1.id $$ LANGUAGE SQL",
+    "expected": "CREATE FUNCTION price_key_from_input (price_input) RETURNS price_key AS $$ SELECT $1.id $$ LANGUAGE sql"
+  },
+  {
+    "comment": "rowtypes - Statement 159",
+    "query": "insert into price values (1,false,42), (10,false,100), (11,true,17.99)",
+    "expected": "INSERT INTO price VALUES (1, FALSE, 42), (10, FALSE, 100), (11, TRUE, 17.99)"
+  },
+  {
+    "comment": "rowtypes - Statement 160",
+    "query": "UPDATE price SET active = true, price = input_prices.price FROM unnest(ARRAY[(10, 123.00), (11, 99.99)]::price_input[]) input_prices WHERE price_key_from_table(price.*) = price_key_from_input(input_prices.*)",
+    "expected": "UPDATE price SET active = TRUE, price = input_prices.price FROM unnest(CAST(ARRAY[(10, 123.00),(11, 99.99)] AS price_input[])) AS input_prices WHERE price_key_from_table(price.*) = price_key_from_input(input_prices.*)"
+  },
+  {
+    "comment": "rowtypes - Statement 161",
+    "query": "select * from price",
+    "expected": "SELECT * FROM price"
+  },
+  {
+    "comment": "rowtypes - Statement 162",
+    "query": "rollback",
+    "expected": "ROLLBACK"
+  },
+  {
+    "comment": "rowtypes - Statement 163",
+    "query": "create temp table compos (f1 int, f2 text)",
+    "expected": "CREATE TEMPORARY TABLE compos (f1 INT, f2 TEXT)"
+  },
+  {
+    "comment": "rowtypes - Statement 164",
+    "query": "create function fcompos1(v compos) returns void as $$ insert into compos values (v); $$ language sql",
+    "expected": "CREATE FUNCTION fcompos1 (v compos) RETURNS void AS $$ insert into compos values (v); $$ LANGUAGE sql"
+  },
+  {
+    "comment": "rowtypes - Statement 165",
+    "query": "create function fcompos1(v compos) returns void as $$ insert into compos values (v.*); $$ language sql",
+    "expected": "CREATE FUNCTION fcompos1 (v compos) RETURNS void AS $$ insert into compos values (v.*); $$ LANGUAGE sql"
+  },
+  {
+    "comment": "rowtypes - Statement 166",
+    "query": "create function fcompos2(v compos) returns void as $$ select fcompos1(v); $$ language sql",
+    "expected": "CREATE FUNCTION fcompos2 (v compos) RETURNS void AS $$ select fcompos1(v); $$ LANGUAGE sql"
+  },
+  {
+    "comment": "rowtypes - Statement 167",
+    "query": "create function fcompos3(v compos) returns void as $$ select fcompos1(fcompos3.v.*); $$ language sql",
+    "expected": "CREATE FUNCTION fcompos3 (v compos) RETURNS void AS $$ select fcompos1(fcompos3.v.*); $$ LANGUAGE sql"
+  },
+  {
+    "comment": "rowtypes - Statement 168",
+    "query": "select fcompos1(row(1,'one'))",
+    "expected": "SELECT fcompos1(ROW(1, 'one'))"
+  },
+  {
+    "comment": "rowtypes - Statement 169",
+    "query": "select fcompos2(row(2,'two'))",
+    "expected": "SELECT fcompos2(ROW(2, 'two'))"
+  },
+  {
+    "comment": "rowtypes - Statement 170",
+    "query": "select fcompos3(row(3,'three'))",
+    "expected": "SELECT fcompos3(ROW(3, 'three'))"
+  },
+  {
+    "comment": "rowtypes - Statement 171",
+    "query": "select * from compos",
+    "expected": "SELECT * FROM compos"
+  },
+  {
+    "comment": "rowtypes - Statement 172",
+    "query": "select cast (fullname as text) from fullname",
+    "expected": "SELECT CAST(fullname AS TEXT) FROM fullname"
+  },
+  {
+    "comment": "rowtypes - Statement 173",
+    "query": "select fullname::text from fullname",
+    "expected": "SELECT CAST(fullname AS TEXT) FROM fullname"
+  },
+  {
+    "comment": "rowtypes - Statement 174",
+    "query": "select text(fullname) from fullname",
+    "expected": "SELECT text(fullname) FROM fullname"
+  },
+  {
+    "comment": "rowtypes - Statement 175",
+    "query": "select fullname.text from fullname",
+    "expected": "SELECT fullname.text FROM fullname"
+  },
+  {
+    "comment": "rowtypes - Statement 176",
+    "query": "select cast (row('Jim', 'Beam') as text)",
+    "expected": "SELECT CAST(ROW('Jim', 'Beam') AS TEXT)"
+  },
+  {
+    "comment": "rowtypes - Statement 177",
+    "query": "select (row('Jim', 'Beam'))::text",
+    "expected": "SELECT CAST((ROW('Jim', 'Beam')) AS TEXT)"
+  },
+  {
+    "comment": "rowtypes - Statement 178",
+    "query": "select text(row('Jim', 'Beam'))",
+    "expected": "SELECT text(ROW('Jim', 'Beam'))"
+  },
+  {
+    "comment": "rowtypes - Statement 179",
+    "query": "select (row('Jim', 'Beam')).text",
+    "expected": "SELECT (ROW('Jim', 'Beam')).text"
+  },
+  {
+    "comment": "rowtypes - Statement 180",
+    "query": "insert into fullname values ('Joe', 'Blow')",
+    "expected": "INSERT INTO fullname VALUES ('Joe', 'Blow')"
+  },
+  {
+    "comment": "rowtypes - Statement 181",
+    "query": "select f.last from fullname f",
+    "expected": "SELECT f.last FROM fullname AS f"
+  },
+  {
+    "comment": "rowtypes - Statement 182",
+    "query": "select last(f) from fullname f",
+    "expected": "SELECT last(f) FROM fullname AS f"
+  },
+  {
+    "comment": "rowtypes - Statement 183",
+    "query": "create function longname(fullname) returns text language sql as $$select $1.first || ' ' || $1.last$$",
+    "expected": "CREATE FUNCTION longname (fullname) RETURNS TEXT LANGUAGE sql AS $$select $1.first || ' ' || $1.last$$"
+  },
+  {
+    "comment": "rowtypes - Statement 184",
+    "query": "select f.longname from fullname f",
+    "expected": "SELECT f.longname FROM fullname AS f"
+  },
+  {
+    "comment": "rowtypes - Statement 185",
+    "query": "select longname(f) from fullname f",
+    "expected": "SELECT longname(f) FROM fullname AS f"
+  },
+  {
+    "comment": "rowtypes - Statement 186",
+    "query": "alter table fullname add column longname text",
+    "expected": "ALTER TABLE fullname ADD COLUMN longname TEXT"
+  },
+  {
+    "comment": "rowtypes - Statement 187",
+    "query": "select row_to_json(i) from int8_tbl i",
+    "expected": "SELECT row_to_json(i) FROM int8_tbl AS i"
+  },
+  {
+    "comment": "rowtypes - Statement 188",
+    "query": "select row_to_json(i) from int8_tbl i(x,y)",
+    "expected": "SELECT row_to_json(i) FROM int8_tbl AS i(x, y)"
+  },
+  {
+    "comment": "rowtypes - Statement 189",
+    "query": "select row_to_json(ss) from (select q1, q2 from int8_tbl) as ss",
+    "expected": "SELECT row_to_json(ss) FROM (SELECT q1, q2 FROM int8_tbl) AS ss"
+  },
+  {
+    "comment": "rowtypes - Statement 190",
+    "query": "select row_to_json(ss) from (select q1, q2 from int8_tbl offset 0) as ss",
+    "expected": "SELECT row_to_json(ss) FROM (SELECT q1, q2 FROM int8_tbl OFFSET 0) AS ss"
+  },
+  {
+    "comment": "rowtypes - Statement 191",
+    "query": "select row_to_json(ss) from (select q1 as a, q2 as b from int8_tbl) as ss",
+    "expected": "SELECT row_to_json(ss) FROM (SELECT q1 AS a, q2 AS b FROM int8_tbl) AS ss"
+  },
+  {
+    "comment": "rowtypes - Statement 192",
+    "query": "select row_to_json(ss) from (select q1 as a, q2 as b from int8_tbl offset 0) as ss",
+    "expected": "SELECT row_to_json(ss) FROM (SELECT q1 AS a, q2 AS b FROM int8_tbl OFFSET 0) AS ss"
+  },
+  {
+    "comment": "rowtypes - Statement 193",
+    "query": "select row_to_json(ss) from (select q1 as a, q2 as b from int8_tbl) as ss(x,y)",
+    "expected": "SELECT row_to_json(ss) FROM (SELECT q1 AS a, q2 AS b FROM int8_tbl) AS ss(x, y)"
+  },
+  {
+    "comment": "rowtypes - Statement 194",
+    "query": "select row_to_json(ss) from (select q1 as a, q2 as b from int8_tbl offset 0) as ss(x,y)",
+    "expected": "SELECT row_to_json(ss) FROM (SELECT q1 AS a, q2 AS b FROM int8_tbl OFFSET 0) AS ss(x, y)"
+  },
+  {
+    "comment": "rowtypes - Statement 195",
+    "query": "explain (costs off) select row_to_json(q) from (select thousand, tenthous from tenk1 where thousand = 42 and tenthous \u003c 2000 offset 0) q",
+    "expected": "EXPLAIN (COSTS false) SELECT row_to_json(q) FROM (SELECT thousand, tenthous FROM tenk1 WHERE thousand = 42 AND tenthous \u003c 2000 OFFSET 0) AS q"
+  },
+  {
+    "comment": "rowtypes - Statement 196",
+    "query": "select row_to_json(q) from (select thousand, tenthous from tenk1 where thousand = 42 and tenthous \u003c 2000 offset 0) q",
+    "expected": "SELECT row_to_json(q) FROM (SELECT thousand, tenthous FROM tenk1 WHERE thousand = 42 AND tenthous \u003c 2000 OFFSET 0) AS q"
+  },
+  {
+    "comment": "rowtypes - Statement 197",
+    "query": "select row_to_json(q) from (select thousand as x, tenthous as y from tenk1 where thousand = 42 and tenthous \u003c 2000 offset 0) q",
+    "expected": "SELECT row_to_json(q) FROM (SELECT thousand AS x, tenthous AS y FROM tenk1 WHERE thousand = 42 AND tenthous \u003c 2000 OFFSET 0) AS q"
+  },
+  {
+    "comment": "rowtypes - Statement 198",
+    "query": "select row_to_json(q) from (select thousand as x, tenthous as y from tenk1 where thousand = 42 and tenthous \u003c 2000 offset 0) q(a,b)",
+    "expected": "SELECT row_to_json(q) FROM (SELECT thousand AS x, tenthous AS y FROM tenk1 WHERE thousand = 42 AND tenthous \u003c 2000 OFFSET 0) AS q(a, b)"
+  },
+  {
+    "comment": "rowtypes - Statement 199",
+    "query": "create temp table tt1 as select * from int8_tbl limit 2",
+    "expected": "CREATE TEMP TABLE tt1 AS SELECT * FROM int8_tbl LIMIT 2"
+  },
+  {
+    "comment": "rowtypes - Statement 200",
+    "query": "create temp table tt2 () inherits(tt1)",
+    "expected": "CREATE TEMPORARY TABLE tt2 () INHERITS (tt1)"
+  },
+  {
+    "comment": "rowtypes - Statement 201",
+    "query": "insert into tt2 values(0,0)",
+    "expected": "INSERT INTO tt2 VALUES (0, 0)"
+  },
+  {
+    "comment": "rowtypes - Statement 202",
+    "query": "select row_to_json(r) from (select q2,q1 from tt1 offset 0) r",
+    "expected": "SELECT row_to_json(r) FROM (SELECT q2, q1 FROM tt1 OFFSET 0) AS r"
+  },
+  {
+    "comment": "rowtypes - Statement 203",
+    "query": "create temp table tt3 () inherits(tt2)",
+    "expected": "CREATE TEMPORARY TABLE tt3 () INHERITS (tt2)"
+  },
+  {
+    "comment": "rowtypes - Statement 204",
+    "query": "insert into tt3 values(33,44)",
+    "expected": "INSERT INTO tt3 VALUES (33, 44)"
+  },
+  {
+    "comment": "rowtypes - Statement 205",
+    "query": "select row_to_json(tt3::tt2::tt1) from tt3",
+    "expected": "SELECT row_to_json(CAST(CAST(tt3 AS tt2) AS tt1)) FROM tt3"
+  },
+  {
+    "comment": "rowtypes - Statement 206",
+    "query": "explain (verbose, costs off) select r, r is null as isnull, r is not null as isnotnull from (values (1,row(1,2)), (1,row(null,null)), (1,null), (null,row(1,2)), (null,row(null,null)), (null,null) ) r(a,b)",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) SELECT r, r IS NULL AS isnull, r IS NOT NULL AS isnotnull FROM (VALUES (1, ROW(1, 2)), (1, ROW(NULL, NULL)), (1, NULL), (NULL, ROW(1, 2)), (NULL, ROW(NULL, NULL)), (NULL, NULL)) AS r(a, b)"
+  },
+  {
+    "comment": "rowtypes - Statement 207",
+    "query": "select r, r is null as isnull, r is not null as isnotnull from (values (1,row(1,2)), (1,row(null,null)), (1,null), (null,row(1,2)), (null,row(null,null)), (null,null) ) r(a,b)",
+    "expected": "SELECT r, r IS NULL AS isnull, r IS NOT NULL AS isnotnull FROM (VALUES (1, ROW(1, 2)), (1, ROW(NULL, NULL)), (1, NULL), (NULL, ROW(1, 2)), (NULL, ROW(NULL, NULL)), (NULL, NULL)) AS r(a, b)"
+  },
+  {
+    "comment": "rowtypes - Statement 208",
+    "query": "explain (verbose, costs off) with r(a,b) as materialized (values (1,row(1,2)), (1,row(null,null)), (1,null), (null,row(1,2)), (null,row(null,null)), (null,null) ) select r, r is null as isnull, r is not null as isnotnull from r",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) WITH r(a, b) AS MATERIALIZED (VALUES (1, ROW(1, 2)), (1, ROW(NULL, NULL)), (1, NULL), (NULL, ROW(1, 2)), (NULL, ROW(NULL, NULL)), (NULL, NULL)) SELECT r, r IS NULL AS isnull, r IS NOT NULL AS isnotnull FROM r"
+  },
+  {
+    "comment": "rowtypes - Statement 209",
+    "query": "with r(a,b) as materialized (values (1,row(1,2)), (1,row(null,null)), (1,null), (null,row(1,2)), (null,row(null,null)), (null,null) ) select r, r is null as isnull, r is not null as isnotnull from r",
+    "expected": "WITH r(a, b) AS MATERIALIZED (VALUES (1, ROW(1, 2)), (1, ROW(NULL, NULL)), (1, NULL), (NULL, ROW(1, 2)), (NULL, ROW(NULL, NULL)), (NULL, NULL)) SELECT r, r IS NULL AS isnull, r IS NOT NULL AS isnotnull FROM r"
+  },
+  {
+    "comment": "rowtypes - Statement 210",
+    "query": "explain (verbose, costs off) with cte(c) as materialized (select row(1, 2)), cte2(c) as (select * from cte) select * from cte2 as t where (select * from (select c as c1) s where (select (c1).f1 \u003e 0)) is not null",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) WITH cte(c) AS MATERIALIZED (SELECT ROW(1, 2)), cte2(c) AS (SELECT * FROM cte) SELECT * FROM cte2 AS t WHERE (SELECT * FROM (SELECT c AS c1) AS s WHERE (SELECT (c1).f1 \u003e 0)) IS NOT NULL"
+  },
+  {
+    "comment": "rowtypes - Statement 211",
+    "query": "with cte(c) as materialized (select row(1, 2)), cte2(c) as (select * from cte) select * from cte2 as t where (select * from (select c as c1) s where (select (c1).f1 \u003e 0)) is not null",
+    "expected": "WITH cte(c) AS MATERIALIZED (SELECT ROW(1, 2)), cte2(c) AS (SELECT * FROM cte) SELECT * FROM cte2 AS t WHERE (SELECT * FROM (SELECT c AS c1) AS s WHERE (SELECT (c1).f1 \u003e 0)) IS NOT NULL"
+  },
+  {
+    "comment": "rowtypes - Statement 212",
+    "query": "create view composite_v as with cte(c) as materialized (select row(1, 2)), cte2(c) as (select * from cte) select 1 as one from cte2 as t where (select * from (select c as c1) s where (select (c1).f1 \u003e 0)) is not null",
+    "expected": "CREATE VIEW composite_v AS WITH cte(c) AS MATERIALIZED (SELECT ROW(1, 2)), cte2(c) AS (SELECT * FROM cte) SELECT 1 AS one FROM cte2 AS t WHERE (SELECT * FROM (SELECT c AS c1) AS s WHERE (SELECT (c1).f1 \u003e 0)) IS NOT NULL"
+  },
+  {
+    "comment": "rowtypes - Statement 213",
+    "query": "select pg_get_viewdef('composite_v', true)",
+    "expected": "SELECT pg_get_viewdef('composite_v', TRUE)"
+  },
+  {
+    "comment": "rowtypes - Statement 214",
+    "query": "drop view composite_v",
+    "expected": "DROP VIEW composite_v"
+  },
+  {
+    "comment": "rowtypes - Statement 215",
+    "query": "explain (verbose, costs off) select (ss.a).x, (ss.a).n from (select information_schema._pg_expandarray(array[1,2]) AS a) ss",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) SELECT (ss.a).x, (ss.a).n FROM (SELECT information_schema._pg_expandarray(ARRAY[1,2]) AS a) AS ss"
+  },
+  {
+    "comment": "rowtypes - Statement 216",
+    "query": "explain (verbose, costs off) select (ss.a).x, (ss.a).n from (select information_schema._pg_expandarray(array[1,2]) AS a) ss where false",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) SELECT (ss.a).x, (ss.a).n FROM (SELECT information_schema._pg_expandarray(ARRAY[1,2]) AS a) AS ss WHERE FALSE"
+  },
+  {
+    "comment": "rowtypes - Statement 217",
+    "query": "explain (verbose, costs off) with cte(c) as materialized (select row(1, 2)), cte2(c) as (select * from cte) select (c).f1 from cte2 as t",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) WITH cte(c) AS MATERIALIZED (SELECT ROW(1, 2)), cte2(c) AS (SELECT * FROM cte) SELECT (c).f1 FROM cte2 AS t"
+  },
+  {
+    "comment": "rowtypes - Statement 218",
+    "query": "explain (verbose, costs off) with cte(c) as materialized (select row(1, 2)), cte2(c) as (select * from cte) select (c).f1 from cte2 as t where false",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) WITH cte(c) AS MATERIALIZED (SELECT ROW(1, 2)), cte2(c) AS (SELECT * FROM cte) SELECT (c).f1 FROM cte2 AS t WHERE FALSE"
+  },
+  {
+    "comment": "rowtypes - Statement 219",
+    "query": "CREATE TABLE compositetable(a text, b text)",
+    "expected": "CREATE TABLE compositetable (a TEXT, b TEXT)"
+  },
+  {
+    "comment": "rowtypes - Statement 220",
+    "query": "INSERT INTO compositetable(a, b) VALUES('fa', 'fb')",
+    "expected": "INSERT INTO compositetable (a, b) VALUES ('fa', 'fb')"
+  },
+  {
+    "comment": "rowtypes - Statement 221",
+    "query": "SELECT d.a FROM (SELECT compositetable AS d FROM compositetable) s",
+    "expected": "SELECT d.a FROM (SELECT compositetable AS d FROM compositetable) AS s"
+  },
+  {
+    "comment": "rowtypes - Statement 222",
+    "query": "SELECT (d).a, (d).b FROM (SELECT compositetable AS d FROM compositetable) s",
+    "expected": "SELECT (d).a, (d).b FROM (SELECT compositetable AS d FROM compositetable) AS s"
+  },
+  {
+    "comment": "rowtypes - Statement 223",
+    "query": "SELECT (d).ctid FROM (SELECT compositetable AS d FROM compositetable) s",
+    "expected": "SELECT (d).ctid FROM (SELECT compositetable AS d FROM compositetable) AS s"
+  },
+  {
+    "comment": "rowtypes - Statement 224",
+    "query": "SELECT (NULL::compositetable).nonexistent",
+    "expected": "SELECT (CAST(NULL AS compositetable)).nonexistent"
+  },
+  {
+    "comment": "rowtypes - Statement 225",
+    "query": "SELECT (NULL::compositetable).a",
+    "expected": "SELECT (CAST(NULL AS compositetable)).a"
+  },
+  {
+    "comment": "rowtypes - Statement 226",
+    "query": "SELECT (NULL::compositetable).oid",
+    "expected": "SELECT (CAST(NULL AS compositetable)).oid"
+  },
+  {
+    "comment": "rowtypes - Statement 227",
+    "query": "DROP TABLE compositetable"
+  }
+]
