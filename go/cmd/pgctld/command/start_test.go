@@ -244,11 +244,10 @@ func TestWaitForPostgreSQL(t *testing.T) {
 
 		// Create config that matches the test setup
 		config, err := pgctld.NewPostgresCtlConfig(
-			"localhost",
 			5432,
 			"postgres",
 			"postgres",
-			"",
+
 			30, // timeout
 			pgctld.PostgresDataDir(baseDir),
 			pgctld.PostgresConfigFile(baseDir),
@@ -278,11 +277,9 @@ func TestWaitForPostgreSQL(t *testing.T) {
 
 		// Create config with short timeout for test
 		config, err := pgctld.NewPostgresCtlConfig(
-			"localhost",
 			5432,
 			"postgres",
 			"postgres",
-			"",
 			1, // 1 second timeout
 			pgctld.PostgresDataDir(baseDir),
 			pgctld.PostgresConfigFile(baseDir),

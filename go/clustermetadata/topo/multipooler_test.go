@@ -975,42 +975,46 @@ func TestInitMultiPooler(t *testing.T) {
 // TestNewMultiPooler tests the factory function
 func TestNewMultiPooler(t *testing.T) {
 	tests := []struct {
-		testName string
-		name     string
-		cell     string
-		host     string
-		expected *clustermetadatapb.MultiPooler
+		testName   string
+		name       string
+		cell       string
+		host       string
+		tableGroup string
+		expected   *clustermetadatapb.MultiPooler
 	}{
 		{
-			testName: "basic creation",
-			name:     "100",
-			cell:     "zone1",
-			host:     "host.example.com",
+			testName:   "basic creation",
+			name:       "100",
+			cell:       "zone1",
+			host:       "host.example.com",
+			tableGroup: "default",
 			expected: &clustermetadatapb.MultiPooler{
 				Id: &clustermetadatapb.ID{
 					Cell: "zone1",
 					Name: "100",
 				},
-				Hostname: "host.example.com",
-				PortMap:  map[string]int32{},
-				Database: "", // Default empty database
+				Hostname:   "host.example.com",
+				TableGroup: "default",
+				PortMap:    map[string]int32{},
+				Database:   "", // Default empty database
 			},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.testName, func(t *testing.T) {
-			result := topo.NewMultiPooler(tt.name, tt.cell, tt.host)
+			result := topo.NewMultiPooler(tt.name, tt.cell, tt.host, tt.tableGroup)
 			require.Equal(t, tt.expected.Id.Cell, result.Id.Cell)
 			require.Equal(t, tt.expected.Id.Name, result.Id.Name)
 			require.Equal(t, tt.expected.Hostname, result.Hostname)
+			require.Equal(t, tt.expected.TableGroup, result.TableGroup)
 			require.NotNil(t, result.PortMap)
 		})
 	}
 
 	// Test random name generation when name is empty
 	t.Run("empty name generates random name", func(t *testing.T) {
-		result := topo.NewMultiPooler("", "zone2", "host2.example.com")
+		result := topo.NewMultiPooler("", "zone2", "host2.example.com", "default")
 
 		// Verify basic properties
 		require.Equal(t, "zone2", result.Id.Cell)
@@ -1028,7 +1032,7 @@ func TestNewMultiPooler(t *testing.T) {
 		}
 
 		// Test that multiple calls generate different names
-		result2 := topo.NewMultiPooler("", "zone2", "host2.example.com")
+		result2 := topo.NewMultiPooler("", "zone2", "host2.example.com", "default")
 		require.NotEqual(t, result.Id.Name, result2.Id.Name, "multiple calls should generate different random names")
 	})
 }

@@ -28,6 +28,8 @@ import (
 )
 
 func init() {
+	servenv.RegisterServiceCmd(Root)
+	servenv.InitServiceMap("grpc", "pgctld")
 	Root.AddCommand(ServerCmd)
 	ServerCmd.Flags().IntVar(&pgPort, "pg-port", pgPort, "PostgreSQL port")
 }
@@ -61,7 +63,7 @@ func runServer(cmd *cobra.Command, args []string) error {
 
 	// Create and register our service
 	poolerDir := pgctld.GetPoolerDir()
-	pgctldService, err := NewPgCtldService(logger, pgHost, pgPort, pgUser, pgDatabase, timeout, poolerDir)
+	pgctldService, err := NewPgCtldService(logger, pgPort, pgUser, pgDatabase, timeout, poolerDir)
 	if err != nil {
 		return err
 	}
@@ -91,7 +93,6 @@ func runServer(cmd *cobra.Command, args []string) error {
 type PgCtldService struct {
 	pb.UnimplementedPgCtldServer
 	logger     *slog.Logger
-	pgHost     string
 	pgPort     int
 	pgUser     string
 	pgDatabase string
@@ -126,15 +127,12 @@ func validatePortConsistency(expectedPort int, configFilePath string) error {
 }
 
 // NewPgCtldService creates a new PgCtldService with validation
-func NewPgCtldService(logger *slog.Logger, pgHost string, pgPort int, pgUser string, pgDatabase string, timeout int, poolerDir string) (*PgCtldService, error) {
+func NewPgCtldService(logger *slog.Logger, pgPort int, pgUser string, pgDatabase string, timeout int, poolerDir string) (*PgCtldService, error) {
 	// Validate essential parameters for service creation
 	// Note: We don't validate postgresDataDir or postgresConfigFile existence here
 	// because the server should be able to start even with uninitialized data directory
 	if poolerDir == "" {
 		return nil, fmt.Errorf("pooler-dir needs to be set")
-	}
-	if pgHost == "" {
-		return nil, fmt.Errorf("pg-host needs to be set")
 	}
 	if pgPort == 0 {
 		return nil, fmt.Errorf("pg-port needs to be set")
@@ -149,19 +147,11 @@ func NewPgCtldService(logger *slog.Logger, pgHost string, pgPort int, pgUser str
 		return nil, fmt.Errorf("timeout needs to be set")
 	}
 
-	// Resolve password from file or environment variable
-	effectivePassword, err := resolvePassword()
-	if err != nil {
-		return nil, fmt.Errorf("failed to resolve password: %w", err)
-	}
-
 	// Create the PostgreSQL config once during service initialization
 	config, err := pgctld.NewPostgresCtlConfig(
-		pgHost,
 		pgPort,
 		pgUser,
 		pgDatabase,
-		effectivePassword,
 		timeout,
 		pgctld.PostgresDataDir(poolerDir),
 		pgctld.PostgresConfigFile(poolerDir),
@@ -181,11 +171,9 @@ func NewPgCtldService(logger *slog.Logger, pgHost string, pgPort int, pgUser str
 
 	return &PgCtldService{
 		logger:     logger,
-		pgHost:     pgHost,
 		pgPort:     pgPort,
 		pgUser:     pgUser,
 		pgDatabase: pgDatabase,
-		pgPassword: effectivePassword,
 		timeout:    timeout,
 		poolerDir:  poolerDir,
 		config:     config,
@@ -283,7 +271,6 @@ func (s *PgCtldService) Status(ctx context.Context, req *pb.StatusRequest) (*pb.
 			Status:  pb.ServerStatus_NOT_INITIALIZED,
 			DataDir: pgctld.PostgresDataDir(s.poolerDir),
 			Port:    int32(s.pgPort),
-			Host:    s.pgHost,
 			Message: "Data directory is not initialized",
 		}, nil
 	}
@@ -312,7 +299,6 @@ func (s *PgCtldService) Status(ctx context.Context, req *pb.StatusRequest) (*pb.
 		UptimeSeconds: result.UptimeSeconds,
 		DataDir:       result.DataDir,
 		Port:          int32(result.Port),
-		Host:          result.Host,
 		Ready:         result.Ready,
 		Message:       result.Message,
 	}, nil
