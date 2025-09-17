@@ -20,9 +20,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
 	"strings"
 
 	"github.com/multigres/multigres/go/viperutil/internal/registry"
+	"github.com/multigres/multigres/go/web"
 
 	"github.com/spf13/pflag"
 )
@@ -38,21 +40,33 @@ func HandlerFunc(w http.ResponseWriter, r *http.Request) {
 	format := strings.ToLower(r.URL.Query().Get("format"))
 
 	// Collect command-line flags
-	cmdlineFlags := make(map[string]string)
+	type ConfigData struct {
+		Title   string
+		Options map[string]string
+		Config  map[string]string
+	}
+	configData := ConfigData{
+		Title:   os.Args[0],
+		Options: make(map[string]string),
+		Config:  make(map[string]string),
+	}
 	pflag.CommandLine.VisitAll(func(flag *pflag.Flag) {
 		if flag.Changed {
-			cmdlineFlags[flag.Name] = flag.Value.String()
+			configData.Options[flag.Name] = flag.Value.String()
 		}
 	})
 
 	// Handle default format (debug text)
 	if format == "" {
-		fmt.Fprintf(w, "=== Command-line Flags (parsed) ===\n")
-		for name, value := range cmdlineFlags {
-			fmt.Fprintf(w, "%s=%s\n", name, value)
+		for _, k := range v.AllKeys() {
+			value := v.Get(k)
+			if value == nil {
+				// should not happen
+				continue
+			}
+			configData.Config[k] = fmt.Sprintf("%v", value)
 		}
-		fmt.Fprintf(w, "\n=== Viper Configuration ===\n")
-		v.DebugTo(w)
+		_ = web.Templates.ExecuteTemplate(w, "config.html", configData)
 		return
 	}
 
@@ -60,8 +74,8 @@ func HandlerFunc(w http.ResponseWriter, r *http.Request) {
 	if format == "json" {
 		w.Header().Set("Content-Type", "application/json")
 
-		response := map[string]interface{}{
-			"command_line_flags": cmdlineFlags,
+		response := map[string]any{
+			"command_line_flags": configData.Options,
 			"viper_config":       v.AllSettings(),
 		}
 

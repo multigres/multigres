@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Server Status</title>
+    <link rel="stylesheet" href="/css/common.css" />
+    <link rel="stylesheet" href="/css/status.css" />
+  </head>
+  <body>
+    <div class="container">
+      <div class="status">✓</div>
+      <div class="message">ok</div>
+      <div class="timestamp">
+        <script>
+          document.write(new Date().toISOString());
+        </script>
+        <br />local:
+        <script>
+          document.write(new Date().toLocaleString());
+        </script>
+      </div>
+    </div>
+  </body>
+</html>
