@@ -14,7 +14,7 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/multigres/parser/go/parser/ast"
+	"github.com/multigres/multigres/go/parser/ast"
 )
 
 // Lexer represents the main lexer instance
@@ -45,7 +45,7 @@ func (l *Lexer) NextToken() *Token {
 		l.RecordError(err)
 		return NewToken(INVALID, l.context.CurrentPosition(), "")
 	}
-	
+
 	// Apply PostgreSQL's base_yylex token filtering
 	// This handles both keyword lookahead (WITH_LA, etc.) and Unicode token conversion (UIDENT→IDENT, USCONST→SCONST)
 	return l.applyTokenFilter(token)
@@ -70,12 +70,12 @@ func (l *Lexer) applyTokenFilter(token *Token) *Token {
 			}
 		}
 		return token
-		
+
 	case UIDENT, USCONST:
 		// Unicode tokens that need conversion - implement PostgreSQL's UIDENT/USCONST processing
 		// Based on PostgreSQL parser.c lines 252-321
 		return l.processUnicodeToken(token)
-		
+
 	default:
 		// No special processing needed
 		return token
@@ -89,10 +89,10 @@ func (l *Lexer) processUnicodeToken(token *Token) *Token {
 	// Look ahead for UESCAPE token following PostgreSQL's pattern
 	// postgres/src/backend/parser/parser.c:255-256
 	nextToken := l.peekNextTokenType()
-	
-	var escapeChar byte = '\\'  // Default escape character (postgres/src/backend/parser/parser.c:303)
+
+	var escapeChar byte = '\\' // Default escape character (postgres/src/backend/parser/parser.c:303)
 	consumeUescape := false
-	
+
 	if nextToken == UESCAPE {
 		// Found UESCAPE - need to get the third token which should be SCONST
 		// postgres/src/backend/parser/parser.c:257-279
@@ -108,7 +108,7 @@ func (l *Lexer) processUnicodeToken(token *Token) *Token {
 			consumeUescape = true
 		}
 	}
-	
+
 	// Apply Unicode decoding using the escape character
 	// postgres/src/backend/parser/parser.c:284-306
 	decodedValue, err := l.decodeUnicodeString(token.Value.Str, escapeChar)
@@ -116,12 +116,12 @@ func (l *Lexer) processUnicodeToken(token *Token) *Token {
 		l.RecordError(err)
 		decodedValue = token.Value.Str // Fall back to original value
 	}
-	
+
 	// If we found and processed UESCAPE, consume those tokens
 	if consumeUescape {
 		l.consumeUescapeTokens()
 	}
-	
+
 	// Convert token type and apply identifier truncation if needed
 	// postgres/src/backend/parser/parser.c:308-320
 	if token.Type == UIDENT {
@@ -143,42 +143,42 @@ func (l *Lexer) peekUescapeValue() (string, error) {
 	// Save current position to restore later
 	savedPos := l.context.currentPosition
 	savedScanPos := l.context.scanPos
-	
+
 	defer func() {
 		// Restore position after lookahead
 		l.context.currentPosition = savedPos
 		l.context.scanPos = savedScanPos
 	}()
-	
+
 	// Skip whitespace to find UESCAPE keyword
 	l.skipWhitespaceForLookahead()
-	
+
 	// Skip the UESCAPE keyword
 	ident := l.peekNextIdentifier()
 	if strings.ToLower(ident) != "uescape" {
 		return "", fmt.Errorf("expected UESCAPE keyword")
 	}
 	l.skipIdentifier()
-	
+
 	// Skip whitespace to find the string literal
 	l.skipWhitespaceForLookahead()
-	
+
 	// Check for string literal (SCONST)
 	b, ok := l.context.CurrentByte()
 	if !ok || b != '\'' {
 		return "", fmt.Errorf("UESCAPE must be followed by a simple string literal")
 	}
-	
+
 	// Parse the string literal to get the escape character
 	token, err := l.nextTokenInternal()
 	if err != nil {
 		return "", err
 	}
-	
+
 	if token.Type != SCONST {
 		return "", fmt.Errorf("UESCAPE must be followed by a simple string literal")
 	}
-	
+
 	return token.Value.Str, nil
 }
 
@@ -190,7 +190,7 @@ func (l *Lexer) skipIdentifier() {
 		return
 	}
 	l.context.NextByte()
-	
+
 	// Skip rest of identifier
 	for {
 		b, ok := l.context.CurrentByte()
@@ -210,7 +210,7 @@ func (l *Lexer) consumeUescapeTokens() {
 	if strings.ToLower(ident) == "uescape" {
 		l.skipIdentifier()
 	}
-	
+
 	// Skip whitespace and consume the string literal
 	l.skipWhitespace()
 	if b, ok := l.context.CurrentByte(); ok && b == '\'' {
@@ -243,10 +243,10 @@ func (l *Lexer) decodeUnicodeString(input string, escapeChar byte) (string, erro
 	if len(input) == 0 {
 		return input, nil
 	}
-	
+
 	result := make([]byte, 0, len(input))
 	i := 0
-	
+
 	for i < len(input) {
 		if input[i] == escapeChar {
 			if i+1 < len(input) && input[i+1] == escapeChar {
@@ -279,7 +279,7 @@ func (l *Lexer) decodeUnicodeString(input string, escapeChar byte) (string, erro
 			i++
 		}
 	}
-	
+
 	return string(result), nil
 }
 
@@ -318,7 +318,7 @@ func (l *Lexer) codepointToUTF8(codepoint rune) []byte {
 		// Invalid codepoint, return replacement character
 		return []byte{0xEF, 0xBF, 0xBD} // UTF-8 for U+FFFD
 	}
-	
+
 	result := make([]byte, 4)
 	n := len(string(codepoint))
 	copy(result[:n], []byte(string(codepoint)))
@@ -330,11 +330,11 @@ func (l *Lexer) codepointToUTF8(codepoint rune) []byte {
 func (l *Lexer) truncateIdentifier(ident string) string {
 	const NAMEDATALEN = 64 // PostgreSQL's maximum identifier length + 1
 	maxLen := NAMEDATALEN - 1
-	
+
 	if len(ident) <= maxLen {
 		return ident
 	}
-	
+
 	// Truncate and warn (in a real implementation, this would log a warning)
 	return ident[:maxLen]
 }

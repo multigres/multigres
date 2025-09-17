@@ -6,7 +6,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/multigres/parser/go/parser/ast"
+	"github.com/multigres/multigres/go/parser/ast"
 )
 
 // TestNewParseContext tests unified context creation

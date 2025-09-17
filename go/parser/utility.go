@@ -3,7 +3,7 @@ package parser
 import (
 	"fmt"
 
-	"github.com/multigres/parser/go/parser/ast"
+	"github.com/multigres/multigres/go/parser/ast"
 )
 
 // linitial returns the first element of a NodeList, equivalent to PostgreSQL's linitial()
@@ -295,12 +295,12 @@ func extractAggrArgTypes(aggrArgs *ast.NodeList) *ast.NodeList {
 	if aggrArgs == nil || aggrArgs.Len() != 2 {
 		return ast.NewNodeList()
 	}
-	
+
 	// First element contains the actual arguments (or nil for *)
 	if firstElem, ok := aggrArgs.Items[0].(*ast.NodeList); ok {
 		return extractArgTypes(firstElem)
 	}
-	
+
 	return ast.NewNodeList()
 }
 
@@ -310,9 +310,9 @@ func extractArgTypes(parameters *ast.NodeList) *ast.NodeList {
 	if parameters == nil {
 		return ast.NewNodeList()
 	}
-	
+
 	result := ast.NewNodeList()
-	
+
 	for _, item := range parameters.Items {
 		if param, ok := item.(*ast.FunctionParameter); ok {
 			if param.Mode != ast.FUNC_PARAM_OUT && param.Mode != ast.FUNC_PARAM_TABLE {
@@ -322,7 +322,7 @@ func extractArgTypes(parameters *ast.NodeList) *ast.NodeList {
 			}
 		}
 	}
-	
+
 	return result
 }
 

@@ -1,0 +1,25 @@
+// Copyright 2025 Supabase, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+// Package topo provides a central place to import all topology plugins.
+// This ensures that all topology implementations are available without
+// having to import them individually in each command.
+package topo
+
+import (
+	// Import all topology implementations here.
+	// This makes them available for registration and use.
+	_ "github.com/multigres/multigres/go/clustermetadata/topo/etcdtopo"
+	_ "github.com/multigres/multigres/go/clustermetadata/topo/memorytopo"
+)

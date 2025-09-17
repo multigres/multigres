@@ -5,6 +5,9 @@
 *.so
 *.dylib
 
+# Build output directory
+bin/
+
 # Test binary, built with `go test -c`
 *.test
 
@@ -28,9 +31,34 @@ go.work.sum
 .idea/
 .vscode/
 .swp
+.zed/
 
-# MacOS
+# Dependencies
+node_modules
+
+# Site
+site/build
+site/.docusaurus
+site/.cache-loader
+
+# Misc
 .DS_Store
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+dist/*
+
+# Local development directory
+multigres_local/
+
+# Local linter output directory
+super-linter-output/
 
 # Claude Code settings
 .claude/

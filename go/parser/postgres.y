@@ -12,7 +12,7 @@ package parser
 import (
 	"fmt"
 	"strings"
-	"github.com/multigres/parser/go/parser/ast"
+	"github.com/multigres/multigres/go/parser/ast"
 )
 
 // Parser state for handling complex grammar constructs

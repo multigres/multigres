@@ -1,0 +1,213 @@
+// Copyright 2025 Supabase, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+syntax = "proto3";
+
+package clustermetadata;
+
+option go_package = "github.com/multigres/multigres/go/pb/clustermetadata";
+
+// Topology Schemas for Multigres Cluster Management
+
+// =============================================================================
+// Global Topology
+// =============================================================================
+
+// TopoConfig defines the connection parameters for a topology service.
+// It specifies the type of topology backend, where it's hosted, and the
+// logical root path within that backend.
+// This is not stored in the topo itself, but it's the entry point to
+// configure the global topo.
+message GlobalTopoConfig {
+  // implementation indicates the type of topology service in use
+  // (for example: "etcd2",  "memory").
+  string implementation = 1;
+
+  // server is the network address (host:port) of the topology service.
+  // Can be a list list for HA setups.
+  repeated string server_addresses = 2;
+
+  // root is the logical root directory or namespace inside the topology backend
+  // under which all cluster metadata will be stored.
+  string root = 3;
+}
+
+// Cell describes how to connect to a cell topology.
+// These records are stored in the global topology server.
+message Cell {
+  // name for this cell
+  string name = 1;
+
+  // server_address is the network address of the cell topology service.
+  repeated string server_addresses = 2;
+
+  // root is the namespace or directory path within the topology service
+  // where this cell's metadata is stored. Used only when connecting to server_addresses.
+  string root = 3;
+}
+
+message Database {
+  // Name of the database
+  string name = 1;
+
+  // Backups location
+  string backup_location = 2;
+
+  // Durability policy used for consensus
+  string durability_policy = 3;
+
+  // List of cell identifiers where this database should be deployed
+  repeated string cells = 4;
+}
+
+// =============================================================================
+// Cell Topology
+// =============================================================================
+
+// MultiPooler represents metadata about a running multipooler component instance in the cluster.
+message MultiPooler {
+  // id is the unique identifier of the multipooler in the cluster.
+  ID id = 1;
+
+  // Database name.
+  string database = 2;
+
+  // TableGroup name.
+  string table_group = 3;
+
+  // Shard name. If range based sharding is used, it should match
+  // key_range.
+  string shard = 4;
+
+  // If range based sharding is used, range for the pooler's shard.
+  KeyRange key_range = 5;
+
+  // PoolerType is the kind of pooler: PRIMARY or REPLICA
+  PoolerType type = 6;
+
+  // PoolerServingStatus is the current type of the pooler.
+  PoolerServingStatus serving_status = 7;
+
+  // Fully qualified domain name of the host.
+  string hostname = 8;
+
+  // Map of named ports. These are ports that the pooler exposes. Initially, this will only be gRPC
+  map<string, int32> port_map = 9;
+
+
+}
+
+// MultiGateway represents metadata about a running multigateway component instance in the cluster.
+message MultiGateway {
+  // id is the unique name of the multi gateway in the cluster.
+  ID id = 1;
+
+  // Fully qualified domain name of the host.
+  string hostname = 2;
+
+  // Map of named ports. Normally this should include postgres and grpc.
+  map<string, int32> port_map = 3;
+}
+
+// MultiOrch represents information about a running instance of multiorch.
+message MultiOrch {
+  // id is the unique name of the MultiOrch in the cluster.
+  ID id = 1;
+
+  // Fully qualified domain name of the host.
+  string hostname = 2;
+
+  // Map of named ports. These are ports that MultiOrc exposes.
+  map<string, int32> port_map = 3;
+}
+
+// ID is a globally unique pooler identifier.
+message ID {
+  // component identifies the type of Multigres component (multipooler, multigateway, or multiorch)
+  ComponentType component = 1;
+
+  // cell is the Multigres cell where the component is located
+  string cell = 2;
+
+  // name is a unique identifier for the component within the multigres
+  // cluster.
+  string name = 3;
+
+  // =============================================================================
+  // Auxiliary Data Types
+  // =============================================================================
+
+  // ComponentType represents the type of Multigres component
+  enum ComponentType {
+    // UNKNOWN represents an unknown or uninitialized component type
+    UNKNOWN = 0;
+
+    // MULTIPOOLER represents a multipooler component
+    MULTIPOOLER = 1;
+
+    // MULTIGATEWAY represents a multigateway component
+    MULTIGATEWAY = 2;
+
+    // MULTIORCH represents a multiorch component
+    MULTIORCH = 3;
+  }
+}
+
+// KeyRange represents a range of keys for sharding
+message KeyRange {
+  // start is the start key of the range (inclusive)
+  bytes start = 1;
+
+  // end is the end key of the range (exclusive)
+  bytes end = 2;
+}
+
+// PoolerType represents the type of a given MultiPooler.
+enum PoolerType {
+  // UNKNOWN this is not a valid type.
+  // It is useful during upgrades to detect when a value is not initialized
+  UNKNOWN = 0;
+
+  // PRIMARY is the primary server for the shard. Only PRIMARY allows DMLs.
+  PRIMARY = 1;
+
+  // REPLICA replicates from leader. It is used to read only traffic
+  REPLICA = 2;
+}
+
+// PoolerServingStatus represents the serving status of the given MultiPooler.
+enum PoolerServingStatus {
+  // SERVING is the status a server during normal operations when it is serving traffic.
+  SERVING = 0;
+
+  // NOT_SERVING is the status of a server when it is not serving traffic.
+  // This typically occurs during startup, shutdown, or when the server is
+  // in an error state and cannot accept connections.
+  NOT_SERVING = 1;
+
+  // BACKUP is the status of a server when it is taking a backup. No queries
+  // can be served in BACKUP mode.
+  BACKUP = 2;
+
+  // RESTORE is the status a server uses when restoring a backup, at
+  // startup time.  No queries can be served in RESTORE mode.
+  RESTORE = 3;
+
+  // DRAINED is the status a server goes into when used by Multigres tools
+  // to perform an offline action. It is a serving type (as
+  // the tools processes may need to run queries), but it's not used
+  // to route queries from Multigres users. In this state,
+  // this multipooler is dedicated to the process that uses it.
+  DRAINED = 4;
+}

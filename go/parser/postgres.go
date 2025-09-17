@@ -3,17 +3,17 @@
 //line postgres.y:10
 package parser
 
-import __yyfmt__ "fmt"
-
-//line postgres.y:10
-
 import (
 	"fmt"
-	"github.com/multigres/parser/go/parser/ast"
+	__yyfmt__ "fmt"
 	"strings"
+
+	"github.com/multigres/multigres/go/parser/ast"
 )
 
 // Parser state for handling complex grammar constructs
+//
+//line postgres.y:10
 var parserState struct {
 	// Future parser state variables can be added here
 }

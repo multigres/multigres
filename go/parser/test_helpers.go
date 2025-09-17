@@ -10,7 +10,7 @@ package parser
 import (
 	"testing"
 
-	"github.com/multigres/parser/go/parser/ast"
+	"github.com/multigres/multigres/go/parser/ast"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -48,12 +48,12 @@ func AssertLexerHasErrors(t *testing.T, lexer *Lexer) {
 func AssertTokenSequence(t *testing.T, input string, expectedTypes []TokenType) {
 	lexer := NewLexer(input)
 	tokens := ScanAllTokens(t, lexer)
-	
+
 	require.Len(t, tokens, len(expectedTypes)+1, "Expected %d tokens plus EOF", len(expectedTypes))
 	for i, expectedType := range expectedTypes {
 		assert.Equal(t, expectedType, tokens[i].Type, "Token %d type mismatch", i)
 	}
-	
+
 	// Last token should be EOF
 	assert.Equal(t, EOF, tokens[len(tokens)-1].Type, "Last token should be EOF")
 }
@@ -141,7 +141,7 @@ func AssertLexerContextError(t *testing.T, lexer *Lexer, expectedErrorType Lexer
 	require.True(t, lexer.GetContext().HasErrors(), "Expected lexer to have errors")
 	errors := lexer.GetContext().GetErrors()
 	require.NotEmpty(t, errors, "Expected at least one error")
-	
+
 	found := false
 	for _, err := range errors {
 		if err.Type == expectedErrorType {

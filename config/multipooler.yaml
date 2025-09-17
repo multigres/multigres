@@ -1,0 +1,11 @@
+# multipooler configuration file
+# Connection pooling service configuration
+
+# gRPC port to listen on
+grpc-port: "15100"
+
+# Address of pgctld gRPC service
+pgctld-addr: "localhost:15200"
+
+# Log level (debug, info, warn, error)
+log-level: "info"
