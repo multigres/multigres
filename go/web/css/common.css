@@ -1,13 +1,13 @@
 :root {
-  --bg-color: #ffffff;
-  --text-color: #333333;
+  --bg-color: #fff;
+  --text-color: #333;
   --dim-text-color: #6b7280;
   --accent-color: #28a745;
   --error-color: #dc3545;
   --border-color: #e1e1e1;
   --table-bg: #f8f9fa;
   --table-header-bg: #e9ecef;
-  --shadow: rgba(0, 0, 0, 0.1);
+  --shadow: rgb(0 0 0 / 10%);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -20,7 +20,7 @@
     --border-color: #404040;
     --table-bg: #2d2d2d;
     --table-header-bg: #404040;
-    --shadow: rgba(0, 0, 0, 0.3);
+    --shadow: rgb(0 0 0 / 30%);
   }
 }
 
@@ -172,7 +172,7 @@ body {
   margin-top: auto;
 }
 
-@media (max-width: 768px) {
+@media (width <= 768px) {
   .container {
     padding: 1rem;
   }

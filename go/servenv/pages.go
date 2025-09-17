@@ -17,7 +17,7 @@ package servenv
 import (
 	"net/http"
 	"os"
-	"path"
+	"strings"
 	"time"
 
 	viperdebug "github.com/multigres/multigres/go/viperutil/debug"
@@ -29,10 +29,11 @@ import (
 func init() {
 	HTTPHandleFunc("/css/", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/css")
-		cssPath := path.Join("templates", r.URL.Path)
-		content, err := web.TemplateFS.ReadFile(cssPath)
+		cssPath := strings.TrimPrefix(r.URL.Path, "/")
+		content, err := web.CSSFS.ReadFile(cssPath)
 		if err != nil {
 			http.NotFound(w, r)
+			_, _ = w.Write([]byte(err.Error()))
 			return
 		}
 		_, _ = w.Write(content)
