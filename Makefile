@@ -49,7 +49,7 @@ parser:
 	@echo "Parser generation completed"
 
 # Build Go binaries only
-build: parser
+build:
 	mkdir -p bin/
 	go build -o bin/multigateway ./go/cmd/multigateway
 	go build -o bin/multipooler ./go/cmd/multipooler
@@ -58,8 +58,8 @@ build: parser
 	go build -o bin/multigres ./go/cmd/multigres
 	go build -o bin/multiadmin ./go/cmd/multiadmin
 
-# Build everything (proto + binaries)
-build-all: proto build
+# Build everything (proto + parser + binaries)
+build-all: proto parser build
 
 # Clean build artifacts
 clean:
