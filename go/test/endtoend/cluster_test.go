@@ -453,7 +453,7 @@ func checkServiceConnectivity(service string, state local.LocalProvisionedServic
 // buildMultigresBinary builds the multigres binary and returns its path
 func buildMultigresBinary() (string, error) {
 	// Create a temporary directory for the multigres binary
-	tempDir, err := os.MkdirTemp("/tmp/", "mlt")
+	tempDir, err := os.MkdirTemp("/tmp", "mlt")
 	if err != nil {
 		return "", fmt.Errorf("failed to create temp directory for multigres binary: %v", err)
 	}
@@ -574,7 +574,7 @@ func TestInitCommand(t *testing.T) {
 		{
 			name: "successful init with current directory",
 			setupDirs: func(t *testing.T) ([]string, func()) {
-				tempDir, err := os.MkdirTemp("/tmp/", "mlt")
+				tempDir, err := os.MkdirTemp("/tmp", "mlt")
 				require.NoError(t, err)
 				return []string{tempDir}, func() { os.RemoveAll(tempDir) }
 			},
@@ -603,7 +603,7 @@ func TestInitCommand(t *testing.T) {
 		{
 			name: "successful init with multiple valid paths",
 			setupDirs: func(t *testing.T) ([]string, func()) {
-				tempDir1, err := os.MkdirTemp("/tmp/", "mlt")
+				tempDir1, err := os.MkdirTemp("/tmp", "mlt")
 				require.NoError(t, err)
 				tempDir2, err := os.MkdirTemp("", "multigres_init_test2")
 				require.NoError(t, err)
@@ -742,7 +742,7 @@ func TestInitCommandConfigFileAlreadyExists(t *testing.T) {
 	ensureBinaryBuilt(t)
 
 	// Setup test directory
-	tempDir, err := os.MkdirTemp("/tmp/", "mlt")
+	tempDir, err := os.MkdirTemp("/tmp", "mlt")
 	require.NoError(t, err)
 	defer os.RemoveAll(tempDir)
 
@@ -812,7 +812,7 @@ func TestClusterLifecycle(t *testing.T) {
 
 	t.Run("cluster init and basic connectivity test", func(t *testing.T) {
 		// Setup test directory
-		tempDir, err := os.MkdirTemp("/tmp/", "mlt")
+		tempDir, err := os.MkdirTemp("/tmp", "mlt")
 		require.NoError(t, err)
 		defer os.RemoveAll(tempDir)
 
@@ -1013,7 +1013,7 @@ func TestClusterLifecycle(t *testing.T) {
 		// We'll test this by trying to run the provisioned multipooler directly
 		// without the --database flag and expecting it to fail
 
-		tempDir, err := os.MkdirTemp("/tmp/", "mlt")
+		tempDir, err := os.MkdirTemp("/tmp", "mlt")
 		require.NoError(t, err)
 		defer os.RemoveAll(tempDir)
 
@@ -1060,7 +1060,7 @@ func TestClusterLifecycle(t *testing.T) {
 	// cluster start fails with a helpful error mentioning the conflict.
 	t.Run("cluster start fails when a service port is already in use", func(t *testing.T) {
 		// Setup test directory
-		tempDir, err := os.MkdirTemp("/tmp/", "mlt")
+		tempDir, err := os.MkdirTemp("/tmp", "mlt")
 		require.NoError(t, err)
 		defer os.RemoveAll(tempDir)
 
