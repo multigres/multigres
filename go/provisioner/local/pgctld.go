@@ -17,6 +17,7 @@ package local
 import (
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
 	"time"
 
@@ -212,8 +213,12 @@ func (p *localProvisioner) provisionPgctld(ctx context.Context, dbName, tableGro
 		logLevel = level
 	}
 
-	// Create pooler directory with shorter path: data/pooler_${service-id}/
-	poolerDir := GeneratePoolerDir(p.getRootWorkingDir(), serviceID)
+	poolerDir := ""
+	dir, ok := pgctldConfig["pooler_dir"].(string)
+	if !ok {
+		return nil, fmt.Errorf("pooler_dir not found in config")
+	}
+	poolerDir = dir
 
 	// Create pgctld log file
 	pgctldLogFile, err := p.createLogFile("pgctld", serviceID, dbName)
@@ -327,6 +332,14 @@ func (p *localProvisioner) deprovisionPgctld(ctx context.Context, service *Local
 	fmt.Printf("Stopping pgctld process...")
 	if err := p.stopProcessByPID(service.PID); err != nil {
 		return fmt.Errorf("failed to stop pgctld process: %w", err)
+	}
+
+	// Clean up log file
+	if service.LogFile != "" {
+		fmt.Printf("Cleaning up pgctld log file...")
+		if err := os.Remove(service.LogFile); err != nil && !os.IsNotExist(err) {
+			fmt.Printf("Warning: failed to remove pgctld log file %s: %v\n", service.LogFile, err)
+		}
 	}
 
 	fmt.Printf(" pgctld stopped ✓\n")

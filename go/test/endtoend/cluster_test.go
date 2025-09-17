@@ -36,6 +36,7 @@ import (
 	"github.com/multigres/multigres/go/cmd/multigres/command/cluster"
 	"github.com/multigres/multigres/go/provisioner/local"
 	"github.com/multigres/multigres/go/test/utils"
+	"github.com/multigres/multigres/go/tools/stringutil"
 
 	_ "github.com/multigres/multigres/go/plugins/topo"
 )
@@ -54,10 +55,13 @@ type testPortConfig struct {
 	MultiadminGRPCPort   int
 	MultigatewayHTTPPort int
 	MultigatewayGRPCPort int
+	MultigatewayPGPort   int
 	MultipoolerHTTPPort  int
 	MultipoolerGRPCPort  int
 	MultiorchHTTPPort    int
 	MultiorchGRPCPort    int
+	PgctldPGPort         int
+	PgctldGRPCPort       int
 }
 
 // getTestPortConfig returns a port configuration for tests that avoids conflicts
@@ -68,10 +72,13 @@ func getTestPortConfig() *testPortConfig {
 		MultiadminGRPCPort:   utils.GetNextPort(),
 		MultigatewayHTTPPort: utils.GetNextPort(),
 		MultigatewayGRPCPort: utils.GetNextPort(),
+		MultigatewayPGPort:   utils.GetNextPort(),
 		MultipoolerHTTPPort:  utils.GetNextPort(),
 		MultipoolerGRPCPort:  utils.GetNextPort(),
 		MultiorchHTTPPort:    utils.GetNextPort(),
 		MultiorchGRPCPort:    utils.GetNextPort(),
+		PgctldPGPort:         utils.GetNextPort(),
+		PgctldGRPCPort:       utils.GetNextPort(),
 	}
 }
 
@@ -158,6 +165,9 @@ func cleanupTestProcesses(tempDir string) error {
 func createTestConfigWithPorts(tempDir string, portConfig *testPortConfig) (string, error) {
 	// Create a typed configuration using LocalProvisionerConfig
 	binPath := filepath.Join(tempDir, "bin")
+	serviceIDZone1 := stringutil.RandomString(8)
+	serviceIDZone2 := stringutil.RandomString(8)
+
 	localConfig := &local.LocalProvisionerConfig{
 		RootWorkingDir: tempDir,
 		DefaultDbName:  "postgres",
@@ -192,7 +202,7 @@ func createTestConfigWithPorts(tempDir string, portConfig *testPortConfig) (stri
 					Path:     filepath.Join(binPath, "multigateway"),
 					HttpPort: portConfig.MultigatewayHTTPPort,
 					GrpcPort: portConfig.MultigatewayGRPCPort,
-					PgPort:   15432,
+					PgPort:   portConfig.MultigatewayPGPort,
 					LogLevel: "info",
 				},
 				Multipooler: local.MultipoolerConfig{
@@ -201,6 +211,7 @@ func createTestConfigWithPorts(tempDir string, portConfig *testPortConfig) (stri
 					TableGroup: "default",
 					HttpPort:   portConfig.MultipoolerHTTPPort,
 					GrpcPort:   portConfig.MultipoolerGRPCPort,
+					ServiceID:  serviceIDZone1,
 					LogLevel:   "info",
 				},
 				Multiorch: local.MultiorchConfig{
@@ -211,12 +222,14 @@ func createTestConfigWithPorts(tempDir string, portConfig *testPortConfig) (stri
 				},
 				Pgctld: local.PgctldConfig{
 					Path:       filepath.Join(binPath, "pgctld"),
-					GrpcPort:   17000,
-					PgPort:     5432,
+					GrpcPort:   portConfig.PgctldGRPCPort,
+					PgPort:     portConfig.PgctldPGPort,
 					PgDatabase: "postgres",
 					PgUser:     "postgres",
 					Timeout:    30,
 					LogLevel:   "info",
+					PoolerDir:  local.GeneratePoolerDir(tempDir, serviceIDZone1),
+					PgPwfile:   filepath.Join(local.GeneratePoolerDir(tempDir, serviceIDZone1), "pgctld.pwfile"),
 				},
 			},
 			"zone2": {
@@ -224,7 +237,7 @@ func createTestConfigWithPorts(tempDir string, portConfig *testPortConfig) (stri
 					Path:     filepath.Join(binPath, "multigateway"),
 					HttpPort: portConfig.MultigatewayHTTPPort + 100,
 					GrpcPort: portConfig.MultigatewayGRPCPort + 100,
-					PgPort:   15432 + 100,
+					PgPort:   portConfig.MultigatewayPGPort + 100,
 					LogLevel: "info",
 				},
 				Multipooler: local.MultipoolerConfig{
@@ -233,6 +246,7 @@ func createTestConfigWithPorts(tempDir string, portConfig *testPortConfig) (stri
 					TableGroup: "default",
 					HttpPort:   portConfig.MultipoolerHTTPPort + 100,
 					GrpcPort:   portConfig.MultipoolerGRPCPort + 100,
+					ServiceID:  serviceIDZone2,
 					LogLevel:   "info",
 				},
 				Multiorch: local.MultiorchConfig{
@@ -243,12 +257,14 @@ func createTestConfigWithPorts(tempDir string, portConfig *testPortConfig) (stri
 				},
 				Pgctld: local.PgctldConfig{
 					Path:       filepath.Join(binPath, "pgctld"),
-					GrpcPort:   17100, // offset for zone2
-					PgPort:     5532,  // offset for zone2
+					GrpcPort:   portConfig.PgctldGRPCPort + 100, // offset for zone2
+					PgPort:     portConfig.PgctldPGPort + 100,   // offset for zone2
 					PgDatabase: "postgres",
 					PgUser:     "postgres",
 					Timeout:    30,
 					LogLevel:   "info",
+					PoolerDir:  local.GeneratePoolerDir(tempDir, serviceIDZone2),
+					PgPwfile:   filepath.Join(local.GeneratePoolerDir(tempDir, serviceIDZone2), "pgctld.pwfile"),
 				},
 			},
 		},
@@ -437,7 +453,7 @@ func checkServiceConnectivity(service string, state local.LocalProvisionedServic
 // buildMultigresBinary builds the multigres binary and returns its path
 func buildMultigresBinary() (string, error) {
 	// Create a temporary directory for the multigres binary
-	tempDir, err := os.MkdirTemp("", "multigres_binary_")
+	tempDir, err := os.MkdirTemp("/tmp/", "mlt")
 	if err != nil {
 		return "", fmt.Errorf("failed to create temp directory for multigres binary: %v", err)
 	}
@@ -558,7 +574,7 @@ func TestInitCommand(t *testing.T) {
 		{
 			name: "successful init with current directory",
 			setupDirs: func(t *testing.T) ([]string, func()) {
-				tempDir, err := os.MkdirTemp("", "multigres_init_test")
+				tempDir, err := os.MkdirTemp("/tmp/", "mlt")
 				require.NoError(t, err)
 				return []string{tempDir}, func() { os.RemoveAll(tempDir) }
 			},
@@ -587,7 +603,7 @@ func TestInitCommand(t *testing.T) {
 		{
 			name: "successful init with multiple valid paths",
 			setupDirs: func(t *testing.T) ([]string, func()) {
-				tempDir1, err := os.MkdirTemp("", "multigres_init_test1")
+				tempDir1, err := os.MkdirTemp("/tmp/", "mlt")
 				require.NoError(t, err)
 				tempDir2, err := os.MkdirTemp("", "multigres_init_test2")
 				require.NoError(t, err)
@@ -726,7 +742,7 @@ func TestInitCommandConfigFileAlreadyExists(t *testing.T) {
 	ensureBinaryBuilt(t)
 
 	// Setup test directory
-	tempDir, err := os.MkdirTemp("", "multigres_init_exists_test")
+	tempDir, err := os.MkdirTemp("/tmp/", "mlt")
 	require.NoError(t, err)
 	defer os.RemoveAll(tempDir)
 
@@ -776,7 +792,7 @@ func TestClusterLifecycle(t *testing.T) {
 
 	t.Run("cluster init and basic connectivity test", func(t *testing.T) {
 		// Setup test directory
-		tempDir, err := os.MkdirTemp("", "multigres_lifecycle_test")
+		tempDir, err := os.MkdirTemp("/tmp/", "mlt")
 		require.NoError(t, err)
 		defer os.RemoveAll(tempDir)
 
@@ -971,7 +987,7 @@ func TestClusterLifecycle(t *testing.T) {
 		// We'll test this by trying to run the provisioned multipooler directly
 		// without the --database flag and expecting it to fail
 
-		tempDir, err := os.MkdirTemp("", "multigres_database_flag_test")
+		tempDir, err := os.MkdirTemp("/tmp/", "mlt")
 		require.NoError(t, err)
 		defer os.RemoveAll(tempDir)
 
@@ -1018,7 +1034,7 @@ func TestClusterLifecycle(t *testing.T) {
 	// cluster start fails with a helpful error mentioning the conflict.
 	t.Run("cluster start fails when a service port is already in use", func(t *testing.T) {
 		// Setup test directory
-		tempDir, err := os.MkdirTemp("", "multigres_port_conflict_test")
+		tempDir, err := os.MkdirTemp("/tmp/", "mlt")
 		require.NoError(t, err)
 		defer os.RemoveAll(tempDir)
 

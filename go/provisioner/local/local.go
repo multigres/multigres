@@ -373,7 +373,16 @@ func (p *localProvisioner) initializePgctldDirectories() error {
 		fmt.Printf("Setting up pgctld directory for cell %s...\n", cellName)
 
 		poolerDir := cellConfig.Pgctld.PoolerDir
+
+		if poolerDir == "" {
+			return fmt.Errorf("pooler-dir not found in config for pgtctld in cell %s", cellName)
+		}
+
 		passwordFile := cellConfig.Pgctld.PgPwfile
+
+		if passwordFile == "" {
+			return fmt.Errorf("pgctld password file not found in config for cell %s", cellName)
+		}
 
 		if err := createPasswordFileAndDirectories(poolerDir, passwordFile); err != nil {
 			return fmt.Errorf("failed to initialize pgctld directory for cell %s: %w", cellName, err)
