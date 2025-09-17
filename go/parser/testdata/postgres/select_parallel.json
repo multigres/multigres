@@ -1,0 +1,574 @@
+[
+  {
+    "comment": "select_parallel - Statement 1",
+    "query": "create function sp_parallel_restricted(int) returns int as $$begin return $1; end$$ language plpgsql parallel restricted",
+    "expected": "CREATE FUNCTION sp_parallel_restricted (INT) RETURNS INT AS $$begin return $1; end$$ LANGUAGE plpgsql PARALLEL RESTRICTED"
+  },
+  {
+    "comment": "select_parallel - Statement 2",
+    "query": "begin",
+    "expected": "BEGIN"
+  },
+  {
+    "comment": "select_parallel - Statement 3",
+    "query": "set parallel_setup_cost=0",
+    "expected": "SET parallel_setup_cost = 0"
+  },
+  {
+    "comment": "select_parallel - Statement 4",
+    "query": "set parallel_tuple_cost=0",
+    "expected": "SET parallel_tuple_cost = 0"
+  },
+  {
+    "comment": "select_parallel - Statement 5",
+    "query": "set min_parallel_table_scan_size=0",
+    "expected": "SET min_parallel_table_scan_size = 0"
+  },
+  {
+    "comment": "select_parallel - Statement 6",
+    "query": "set max_parallel_workers_per_gather=4",
+    "expected": "SET max_parallel_workers_per_gather = 4"
+  },
+  {
+    "comment": "select_parallel - Statement 7",
+    "query": "explain (costs off) select round(avg(aa)), sum(aa) from a_star",
+    "expected": "EXPLAIN (COSTS false) SELECT round(AVG(aa)), SUM(aa) FROM a_star"
+  },
+  {
+    "comment": "select_parallel - Statement 8",
+    "query": "select round(avg(aa)), sum(aa) from a_star a1",
+    "expected": "SELECT round(AVG(aa)), SUM(aa) FROM a_star AS a1"
+  },
+  {
+    "comment": "select_parallel - Statement 9",
+    "query": "alter table c_star set (parallel_workers = 0)",
+    "expected": "ALTER TABLE c_star SET (parallel_workers = 0)"
+  },
+  {
+    "comment": "select_parallel - Statement 10",
+    "query": "alter table d_star set (parallel_workers = 0)",
+    "expected": "ALTER TABLE d_star SET (parallel_workers = 0)"
+  },
+  {
+    "comment": "select_parallel - Statement 11",
+    "query": "select round(avg(aa)), sum(aa) from a_star a2",
+    "expected": "SELECT round(AVG(aa)), SUM(aa) FROM a_star AS a2"
+  },
+  {
+    "comment": "select_parallel - Statement 12",
+    "query": "alter table a_star set (parallel_workers = 0)",
+    "expected": "ALTER TABLE a_star SET (parallel_workers = 0)"
+  },
+  {
+    "comment": "select_parallel - Statement 13",
+    "query": "alter table b_star set (parallel_workers = 0)",
+    "expected": "ALTER TABLE b_star SET (parallel_workers = 0)"
+  },
+  {
+    "comment": "select_parallel - Statement 14",
+    "query": "alter table e_star set (parallel_workers = 0)",
+    "expected": "ALTER TABLE e_star SET (parallel_workers = 0)"
+  },
+  {
+    "comment": "select_parallel - Statement 15",
+    "query": "alter table f_star set (parallel_workers = 0)",
+    "expected": "ALTER TABLE f_star SET (parallel_workers = 0)"
+  },
+  {
+    "comment": "select_parallel - Statement 16",
+    "query": "select round(avg(aa)), sum(aa) from a_star a3",
+    "expected": "SELECT round(AVG(aa)), SUM(aa) FROM a_star AS a3"
+  },
+  {
+    "comment": "select_parallel - Statement 17",
+    "query": "alter table a_star reset (parallel_workers)",
+    "expected": "ALTER TABLE a_star RESET (parallel_workers)"
+  },
+  {
+    "comment": "select_parallel - Statement 18",
+    "query": "alter table b_star reset (parallel_workers)",
+    "expected": "ALTER TABLE b_star RESET (parallel_workers)"
+  },
+  {
+    "comment": "select_parallel - Statement 19",
+    "query": "alter table c_star reset (parallel_workers)",
+    "expected": "ALTER TABLE c_star RESET (parallel_workers)"
+  },
+  {
+    "comment": "select_parallel - Statement 20",
+    "query": "alter table d_star reset (parallel_workers)",
+    "expected": "ALTER TABLE d_star RESET (parallel_workers)"
+  },
+  {
+    "comment": "select_parallel - Statement 21",
+    "query": "alter table e_star reset (parallel_workers)",
+    "expected": "ALTER TABLE e_star RESET (parallel_workers)"
+  },
+  {
+    "comment": "select_parallel - Statement 22",
+    "query": "alter table f_star reset (parallel_workers)",
+    "expected": "ALTER TABLE f_star RESET (parallel_workers)"
+  },
+  {
+    "comment": "select_parallel - Statement 23",
+    "query": "set enable_parallel_append to off",
+    "expected": "SET enable_parallel_append = off"
+  },
+  {
+    "comment": "select_parallel - Statement 24",
+    "query": "select round(avg(aa)), sum(aa) from a_star a4",
+    "expected": "SELECT round(AVG(aa)), SUM(aa) FROM a_star AS a4"
+  },
+  {
+    "comment": "select_parallel - Statement 25",
+    "query": "reset enable_parallel_append",
+    "expected": "RESET enable_parallel_append"
+  },
+  {
+    "comment": "select_parallel - Statement 26",
+    "query": "create function sp_test_func() returns setof text as $$ select 'foo'::varchar union all select 'bar'::varchar $$ language sql stable; select sp_test_func() order by 1;   create table part_pa_test(a int, b int) partition by range(a); create table part_pa_test_p1 partition of part_pa_test for values from (minvalue) to (0); create table part_pa_test_p2 partition of part_pa_test for values from (0) to (maxvalue); explain (costs off) select (select max((select pa1.b from part_pa_test pa1 where pa1.a = pa2.a))) from part_pa_test pa2; drop table part_pa_test;   set parallel_leader_participation = off; explain (costs off) select count(*) from tenk1 where stringu1 = 'GRAAAA'; select count(*) from tenk1 where stringu1 = 'GRAAAA';    set max_parallel_workers = 0; explain (costs off) select count(*) from tenk1 where stringu1 = 'GRAAAA'; select count(*) from tenk1 where stringu1 = 'GRAAAA';  reset max_parallel_workers; reset parallel_leader_participation;   alter table tenk1 set (parallel_workers = 4); explain (verbose, costs off) select sp_parallel_restricted(unique1) from tenk1 where stringu1 = 'GRAAAA' order by 1;   explain (costs off) select length(stringu1) from tenk1 group by length(stringu1); select length(stringu1) from tenk1 group by length(stringu1);  explain (costs off) select stringu1, count(*) from tenk1 group by stringu1 order by stringu1;    explain (costs off) select  sum(sp_parallel_restricted(unique1)) from tenk1 group by(sp_parallel_restricted(unique1));   prepare tenk1_count(integer) As select  count((unique1)) from tenk1 where hundred \u003e $1; explain (costs off) execute tenk1_count(1); execute tenk1_count(1); deallocate tenk1_count;   alter table tenk2 set (parallel_workers = 0); explain (costs off) select count(*) from tenk1 where (two, four) not in (select hundred, thousand from tenk2 where thousand \u003e 100); select count(*) from tenk1 where (two, four) not in (select hundred, thousand from tenk2 where thousand \u003e 100);  explain (costs off) select * from tenk1 where (unique1 + random())::integer not in (select ten from tenk2); alter table tenk2 reset (parallel_workers);   set enable_indexscan = off; set enable_indexonlyscan = off; set enable_bitmapscan = off; alter table tenk2 set (parallel_workers = 2);  explain (costs off) select count(*) from tenk1 where tenk1.unique1 = (Select max(tenk2.unique1) from tenk2); select count(*) from tenk1 where tenk1.unique1 = (Select max(tenk2.unique1) from tenk2);  reset enable_indexscan; reset enable_indexonlyscan; reset enable_bitmapscan; alter table tenk2 reset (parallel_workers);   set enable_seqscan to off; set enable_bitmapscan to off; set random_page_cost = 2;  explain (costs off) select  count((unique1)) from tenk1 where hundred \u003e 1; select  count((unique1)) from tenk1 where hundred \u003e 1;   explain (costs off) select count((unique1)) from tenk1 where hundred = any ((select array_agg(i) from generate_series(1, 100, 15) i)::int[]); select count((unique1)) from tenk1 where hundred = any ((select array_agg(i) from generate_series(1, 100, 15) i)::int[]);   explain (costs off) select  count(*) from tenk1 where thousand \u003e 95; select  count(*) from tenk1 where thousand \u003e 95;   set enable_material = false;  explain (costs off) select * from (select count(unique1) from tenk1 where hundred \u003e 10) ss right join (values (1),(2),(3)) v(x) on true; select * from (select count(unique1) from tenk1 where hundred \u003e 10) ss right join (values (1),(2),(3)) v(x) on true;  explain (costs off) select * from (select count(*) from tenk1 where thousand \u003e 99) ss right join (values (1),(2),(3)) v(x) on true; select * from (select count(*) from tenk1 where thousand \u003e 99) ss right join (values (1),(2),(3)) v(x) on true;   reset enable_seqscan; set enable_indexonlyscan to off; set enable_indexscan to off; alter table tenk1 set (parallel_workers = 0); alter table tenk2 set (parallel_workers = 1); explain (costs off) select count(*) from tenk1 left join (select tenk2.unique1 from tenk2 order by 1 limit 1000) ss on tenk1.unique1 \u003c ss.unique1 + 1 where tenk1.unique1 \u003c 2; select count(*) from tenk1 left join (select tenk2.unique1 from tenk2 order by 1 limit 1000) ss on tenk1.unique1 \u003c ss.unique1 + 1 where tenk1.unique1 \u003c 2;  alter table tenk1 set (parallel_workers = 4); alter table tenk2 reset (parallel_workers);  reset enable_material; reset enable_bitmapscan; reset enable_indexonlyscan; reset enable_indexscan;   set enable_seqscan to off; set enable_indexscan to off; set enable_hashjoin to off; set enable_mergejoin to off; set enable_material to off;  DO $$ BEGIN SET effective_io_concurrency = 50; EXCEPTION WHEN invalid_parameter_value THEN END $$",
+    "expected": "CREATE FUNCTION sp_test_func () RETURNS SETOF TEXT AS $$ select 'foo'::varchar union all select 'bar'::varchar $$ LANGUAGE sql STABLE; SELECT sp_test_func() ORDER BY 1; CREATE TABLE part_pa_test (a INT, b INT) PARTITION BY range (a); CREATE TABLE part_pa_test_p1 PARTITION OF part_pa_test FOR VALUES FROM (minvalue) TO (0); CREATE TABLE part_pa_test_p2 PARTITION OF part_pa_test FOR VALUES FROM (0) TO (maxvalue); EXPLAIN (COSTS false) SELECT (SELECT MAX((SELECT pa1.b FROM part_pa_test AS pa1 WHERE pa1.a = pa2.a))) FROM part_pa_test AS pa2; DROP TABLE part_pa_test; SET parallel_leader_participation = off; EXPLAIN (COSTS false) SELECT COUNT(*) FROM tenk1 WHERE stringu1 = 'GRAAAA'; SELECT COUNT(*) FROM tenk1 WHERE stringu1 = 'GRAAAA'; SET max_parallel_workers = 0; EXPLAIN (COSTS false) SELECT COUNT(*) FROM tenk1 WHERE stringu1 = 'GRAAAA'; SELECT COUNT(*) FROM tenk1 WHERE stringu1 = 'GRAAAA'; RESET max_parallel_workers; RESET parallel_leader_participation; ALTER TABLE tenk1 SET (parallel_workers = 4); EXPLAIN (VERBOSE true, COSTS false) SELECT sp_parallel_restricted(unique1) FROM tenk1 WHERE stringu1 = 'GRAAAA' ORDER BY 1; EXPLAIN (COSTS false) SELECT length(stringu1) FROM tenk1 GROUP BY length(stringu1); SELECT length(stringu1) FROM tenk1 GROUP BY length(stringu1); EXPLAIN (COSTS false) SELECT stringu1, COUNT(*) FROM tenk1 GROUP BY stringu1 ORDER BY stringu1; EXPLAIN (COSTS false) SELECT SUM(sp_parallel_restricted(unique1)) FROM tenk1 GROUP BY (sp_parallel_restricted(unique1)); PREPARE tenk1_count ( INT ) AS SELECT COUNT((unique1)) FROM tenk1 WHERE hundred \u003e $1; EXPLAIN (COSTS false) EXECUTE tenk1_count ( 1 ); EXECUTE tenk1_count ( 1 ); DEALLOCATE tenk1_count; ALTER TABLE tenk2 SET (parallel_workers = 0); EXPLAIN (COSTS false) SELECT COUNT(*) FROM tenk1 WHERE NOT (two, four) IN (SELECT hundred, thousand FROM tenk2 WHERE thousand \u003e 100); SELECT COUNT(*) FROM tenk1 WHERE NOT (two, four) IN (SELECT hundred, thousand FROM tenk2 WHERE thousand \u003e 100); EXPLAIN (COSTS false) SELECT * FROM tenk1 WHERE NOT CAST((unique1 + random()) AS INT) IN (SELECT ten FROM tenk2); ALTER TABLE tenk2 RESET (parallel_workers); SET enable_indexscan = off; SET enable_indexonlyscan = off; SET enable_bitmapscan = off; ALTER TABLE tenk2 SET (parallel_workers = 2); EXPLAIN (COSTS false) SELECT COUNT(*) FROM tenk1 WHERE tenk1.unique1 = (SELECT MAX(tenk2.unique1) FROM tenk2); SELECT COUNT(*) FROM tenk1 WHERE tenk1.unique1 = (SELECT MAX(tenk2.unique1) FROM tenk2); RESET enable_indexscan; RESET enable_indexonlyscan; RESET enable_bitmapscan; ALTER TABLE tenk2 RESET (parallel_workers); SET enable_seqscan = off; SET enable_bitmapscan = off; SET random_page_cost = 2; EXPLAIN (COSTS false) SELECT COUNT((unique1)) FROM tenk1 WHERE hundred \u003e 1; SELECT COUNT((unique1)) FROM tenk1 WHERE hundred \u003e 1; EXPLAIN (COSTS false) SELECT COUNT((unique1)) FROM tenk1 WHERE hundred = ANY (CAST((SELECT array_agg(i) FROM generate_series(1, 100, 15) AS i) AS INT[])); SELECT COUNT((unique1)) FROM tenk1 WHERE hundred = ANY (CAST((SELECT array_agg(i) FROM generate_series(1, 100, 15) AS i) AS INT[])); EXPLAIN (COSTS false) SELECT COUNT(*) FROM tenk1 WHERE thousand \u003e 95; SELECT COUNT(*) FROM tenk1 WHERE thousand \u003e 95; SET enable_material = false; EXPLAIN (COSTS false) SELECT * FROM (SELECT COUNT(unique1) FROM tenk1 WHERE hundred \u003e 10) AS ss RIGHT OUTER JOIN (VALUES (1), (2), (3)) AS v(x) ON TRUE; SELECT * FROM (SELECT COUNT(unique1) FROM tenk1 WHERE hundred \u003e 10) AS ss RIGHT OUTER JOIN (VALUES (1), (2), (3)) AS v(x) ON TRUE; EXPLAIN (COSTS false) SELECT * FROM (SELECT COUNT(*) FROM tenk1 WHERE thousand \u003e 99) AS ss RIGHT OUTER JOIN (VALUES (1), (2), (3)) AS v(x) ON TRUE; SELECT * FROM (SELECT COUNT(*) FROM tenk1 WHERE thousand \u003e 99) AS ss RIGHT OUTER JOIN (VALUES (1), (2), (3)) AS v(x) ON TRUE; RESET enable_seqscan; SET enable_indexonlyscan = off; SET enable_indexscan = off; ALTER TABLE tenk1 SET (parallel_workers = 0); ALTER TABLE tenk2 SET (parallel_workers = 1); EXPLAIN (COSTS false) SELECT COUNT(*) FROM tenk1 LEFT OUTER JOIN (SELECT tenk2.unique1 FROM tenk2 ORDER BY 1 LIMIT 1000) AS ss ON tenk1.unique1 \u003c ss.unique1 + 1 WHERE tenk1.unique1 \u003c 2; SELECT COUNT(*) FROM tenk1 LEFT OUTER JOIN (SELECT tenk2.unique1 FROM tenk2 ORDER BY 1 LIMIT 1000) AS ss ON tenk1.unique1 \u003c ss.unique1 + 1 WHERE tenk1.unique1 \u003c 2; ALTER TABLE tenk1 SET (parallel_workers = 4); ALTER TABLE tenk2 RESET (parallel_workers); RESET enable_material; RESET enable_bitmapscan; RESET enable_indexonlyscan; RESET enable_indexscan; SET enable_seqscan = off; SET enable_indexscan = off; SET enable_hashjoin = off; SET enable_mergejoin = off; SET enable_material = off; DO ' BEGIN SET effective_io_concurrency = 50; EXCEPTION WHEN invalid_parameter_value THEN END '"
+  },
+  {
+    "comment": "select_parallel - Statement 27",
+    "query": "set work_mem='64kB'",
+    "expected": "SET work_mem = '64kB'"
+  },
+  {
+    "comment": "select_parallel - Statement 28",
+    "query": "explain (costs off) select count(*) from tenk1, tenk2 where tenk1.hundred \u003e 1 and tenk2.thousand=0",
+    "expected": "EXPLAIN (COSTS false) SELECT COUNT(*) FROM tenk1, tenk2 WHERE tenk1.hundred \u003e 1 AND tenk2.thousand = 0"
+  },
+  {
+    "comment": "select_parallel - Statement 29",
+    "query": "select count(*) from tenk1, tenk2 where tenk1.hundred \u003e 1 and tenk2.thousand=0",
+    "expected": "SELECT COUNT(*) FROM tenk1, tenk2 WHERE tenk1.hundred \u003e 1 AND tenk2.thousand = 0"
+  },
+  {
+    "comment": "select_parallel - Statement 30",
+    "query": "create table bmscantest (a int, t text)",
+    "expected": "CREATE TABLE bmscantest (a INT, t TEXT)"
+  },
+  {
+    "comment": "select_parallel - Statement 31",
+    "query": "insert into bmscantest select r, 'fooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo' FROM generate_series(1,100000) r",
+    "expected": "INSERT INTO bmscantest SELECT r, 'fooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo' FROM generate_series(1, 100000) AS r"
+  },
+  {
+    "comment": "select_parallel - Statement 32",
+    "query": "create index i_bmtest ON bmscantest(a)",
+    "expected": "CREATE INDEX i_bmtest ON bmscantest USING btree ( a )"
+  },
+  {
+    "comment": "select_parallel - Statement 33",
+    "query": "select count(*) from bmscantest where a\u003e1",
+    "expected": "SELECT COUNT(*) FROM bmscantest WHERE a \u003e 1"
+  },
+  {
+    "comment": "select_parallel - Statement 34",
+    "query": "reset enable_seqscan",
+    "expected": "RESET enable_seqscan"
+  },
+  {
+    "comment": "select_parallel - Statement 35",
+    "query": "alter table tenk2 set (parallel_workers = 0)",
+    "expected": "ALTER TABLE tenk2 SET (parallel_workers = 0)"
+  },
+  {
+    "comment": "select_parallel - Statement 36",
+    "query": "explain (analyze, timing off, summary off, costs off) select count(*) from tenk1, tenk2 where tenk1.hundred \u003e 1 and tenk2.thousand=0",
+    "expected": "EXPLAIN (ANALYZE true, TIMING false, SUMMARY false, COSTS false) SELECT COUNT(*) FROM tenk1, tenk2 WHERE tenk1.hundred \u003e 1 AND tenk2.thousand = 0"
+  },
+  {
+    "comment": "select_parallel - Statement 37",
+    "query": "alter table tenk2 reset (parallel_workers)",
+    "expected": "ALTER TABLE tenk2 RESET (parallel_workers)"
+  },
+  {
+    "comment": "select_parallel - Statement 38",
+    "query": "reset work_mem",
+    "expected": "RESET work_mem"
+  },
+  {
+    "comment": "select_parallel - Statement 39",
+    "query": "create function explain_parallel_sort_stats() returns setof text language plpgsql as $$ declare ln text; begin for ln in explain (analyze, timing off, summary off, costs off) select * from (select ten from tenk1 where ten \u003c 100 order by ten) ss right join (values (1),(2),(3)) v(x) on true loop ln := regexp_replace(ln, 'Memory: \\S*',  'Memory: xxx'); return next ln; end loop; end; $$",
+    "expected": "CREATE FUNCTION explain_parallel_sort_stats () RETURNS SETOF TEXT LANGUAGE plpgsql AS $$ declare ln text; begin for ln in explain (analyze, timing off, summary off, costs off) select * from (select ten from tenk1 where ten \u003c 100 order by ten) ss right join (values (1),(2),(3)) v(x) on true loop ln := regexp_replace(ln, 'Memory: \\S*',  'Memory: xxx'); return next ln; end loop; end; $$"
+  },
+  {
+    "comment": "select_parallel - Statement 40",
+    "query": "select * from explain_parallel_sort_stats()",
+    "expected": "SELECT * FROM explain_parallel_sort_stats()"
+  },
+  {
+    "comment": "select_parallel - Statement 41",
+    "query": "reset enable_indexscan",
+    "expected": "RESET enable_indexscan"
+  },
+  {
+    "comment": "select_parallel - Statement 42",
+    "query": "reset enable_hashjoin",
+    "expected": "RESET enable_hashjoin"
+  },
+  {
+    "comment": "select_parallel - Statement 43",
+    "query": "reset enable_mergejoin",
+    "expected": "RESET enable_mergejoin"
+  },
+  {
+    "comment": "select_parallel - Statement 44",
+    "query": "reset enable_material",
+    "expected": "RESET enable_material"
+  },
+  {
+    "comment": "select_parallel - Statement 45",
+    "query": "reset effective_io_concurrency",
+    "expected": "RESET effective_io_concurrency"
+  },
+  {
+    "comment": "select_parallel - Statement 46",
+    "query": "drop table bmscantest",
+    "expected": "DROP TABLE bmscantest"
+  },
+  {
+    "comment": "select_parallel - Statement 47",
+    "query": "drop function explain_parallel_sort_stats()",
+    "expected": "DROP FUNCTION explain_parallel_sort_stats()"
+  },
+  {
+    "comment": "select_parallel - Statement 48",
+    "query": "set enable_hashjoin to off",
+    "expected": "SET enable_hashjoin = off"
+  },
+  {
+    "comment": "select_parallel - Statement 49",
+    "query": "set enable_nestloop to off",
+    "expected": "SET enable_nestloop = off"
+  },
+  {
+    "comment": "select_parallel - Statement 50",
+    "query": "explain (costs off) select  count(*) from tenk1, tenk2 where tenk1.unique1 = tenk2.unique1",
+    "expected": "EXPLAIN (COSTS false) SELECT COUNT(*) FROM tenk1, tenk2 WHERE tenk1.unique1 = tenk2.unique1"
+  },
+  {
+    "comment": "select_parallel - Statement 51",
+    "query": "select  count(*) from tenk1, tenk2 where tenk1.unique1 = tenk2.unique1",
+    "expected": "SELECT COUNT(*) FROM tenk1, tenk2 WHERE tenk1.unique1 = tenk2.unique1"
+  },
+  {
+    "comment": "select_parallel - Statement 52",
+    "query": "reset enable_nestloop",
+    "expected": "RESET enable_nestloop"
+  },
+  {
+    "comment": "select_parallel - Statement 53",
+    "query": "set enable_hashagg = false",
+    "expected": "SET enable_hashagg = false"
+  },
+  {
+    "comment": "select_parallel - Statement 54",
+    "query": "explain (costs off) select count(*) from tenk1 group by twenty",
+    "expected": "EXPLAIN (COSTS false) SELECT COUNT(*) FROM tenk1 GROUP BY twenty"
+  },
+  {
+    "comment": "select_parallel - Statement 55",
+    "query": "select count(*) from tenk1 group by twenty",
+    "expected": "SELECT COUNT(*) FROM tenk1 GROUP BY twenty"
+  },
+  {
+    "comment": "select_parallel - Statement 56",
+    "query": "create function sp_simple_func(var1 integer) returns integer as $$ begin return var1 + 10; end; $$ language plpgsql PARALLEL SAFE",
+    "expected": "CREATE FUNCTION sp_simple_func (var1 INT) RETURNS INT AS $$ begin return var1 + 10; end; $$ LANGUAGE plpgsql PARALLEL SAFE"
+  },
+  {
+    "comment": "select_parallel - Statement 57",
+    "query": "explain (costs off, verbose) select ten, sp_simple_func(ten) from tenk1 where ten \u003c 100 order by ten",
+    "expected": "EXPLAIN (COSTS false, VERBOSE true) SELECT ten, sp_simple_func(ten) FROM tenk1 WHERE ten \u003c 100 ORDER BY ten"
+  },
+  {
+    "comment": "select_parallel - Statement 58",
+    "query": "drop function sp_simple_func(integer)",
+    "expected": "DROP FUNCTION sp_simple_func(INT)"
+  },
+  {
+    "comment": "select_parallel - Statement 59",
+    "query": "explain (costs off) select count(*), generate_series(1,2) from tenk1 group by twenty",
+    "expected": "EXPLAIN (COSTS false) SELECT COUNT(*), generate_series(1, 2) FROM tenk1 GROUP BY twenty"
+  },
+  {
+    "comment": "select_parallel - Statement 60",
+    "query": "select count(*), generate_series(1,2) from tenk1 group by twenty",
+    "expected": "SELECT COUNT(*), generate_series(1, 2) FROM tenk1 GROUP BY twenty"
+  },
+  {
+    "comment": "select_parallel - Statement 61",
+    "query": "set parallel_leader_participation = off",
+    "expected": "SET parallel_leader_participation = off"
+  },
+  {
+    "comment": "select_parallel - Statement 62",
+    "query": "reset parallel_leader_participation",
+    "expected": "RESET parallel_leader_participation"
+  },
+  {
+    "comment": "select_parallel - Statement 63",
+    "query": "set enable_material = false",
+    "expected": "SET enable_material = false"
+  },
+  {
+    "comment": "select_parallel - Statement 64",
+    "query": "explain (costs off) select * from (select string4, count(unique2) from tenk1 group by string4 order by string4) ss right join (values (1),(2),(3)) v(x) on true",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM (SELECT string4, COUNT(unique2) FROM tenk1 GROUP BY string4 ORDER BY string4) AS ss RIGHT OUTER JOIN (VALUES (1), (2), (3)) AS v(x) ON TRUE"
+  },
+  {
+    "comment": "select_parallel - Statement 65",
+    "query": "select * from (select string4, count(unique2) from tenk1 group by string4 order by string4) ss right join (values (1),(2),(3)) v(x) on true",
+    "expected": "SELECT * FROM (SELECT string4, COUNT(unique2) FROM tenk1 GROUP BY string4 ORDER BY string4) AS ss RIGHT OUTER JOIN (VALUES (1), (2), (3)) AS v(x) ON TRUE"
+  },
+  {
+    "comment": "select_parallel - Statement 66",
+    "query": "reset enable_hashagg",
+    "expected": "RESET enable_hashagg"
+  },
+  {
+    "comment": "select_parallel - Statement 67",
+    "query": "explain (costs off) select avg(unique1::int8) from tenk1",
+    "expected": "EXPLAIN (COSTS false) SELECT AVG(CAST(unique1 AS BIGINT)) FROM tenk1"
+  },
+  {
+    "comment": "select_parallel - Statement 68",
+    "query": "select avg(unique1::int8) from tenk1",
+    "expected": "SELECT AVG(CAST(unique1 AS BIGINT)) FROM tenk1"
+  },
+  {
+    "comment": "select_parallel - Statement 69",
+    "query": "explain (costs off) select fivethous from tenk1 order by fivethous limit 4",
+    "expected": "EXPLAIN (COSTS false) SELECT fivethous FROM tenk1 ORDER BY fivethous LIMIT 4"
+  },
+  {
+    "comment": "select_parallel - Statement 70",
+    "query": "select fivethous from tenk1 order by fivethous limit 4",
+    "expected": "SELECT fivethous FROM tenk1 ORDER BY fivethous LIMIT 4"
+  },
+  {
+    "comment": "select_parallel - Statement 71",
+    "query": "set max_parallel_workers = 0",
+    "expected": "SET max_parallel_workers = 0"
+  },
+  {
+    "comment": "select_parallel - Statement 72",
+    "query": "explain (costs off) select string4 from tenk1 order by string4 limit 5",
+    "expected": "EXPLAIN (COSTS false) SELECT string4 FROM tenk1 ORDER BY string4 LIMIT 5"
+  },
+  {
+    "comment": "select_parallel - Statement 73",
+    "query": "select string4 from tenk1 order by string4 limit 5",
+    "expected": "SELECT string4 FROM tenk1 ORDER BY string4 LIMIT 5"
+  },
+  {
+    "comment": "select_parallel - Statement 74",
+    "query": "reset max_parallel_workers",
+    "expected": "RESET max_parallel_workers"
+  },
+  {
+    "comment": "select_parallel - Statement 75",
+    "query": "create function parallel_safe_volatile(a int) returns int as $$ begin return a; end; $$ parallel safe volatile language plpgsql;   explain (costs off) select * from tenk1 where four = 2 order by four, hundred, parallel_safe_volatile(thousand);   set min_parallel_index_scan_size = 0; set enable_seqscan = off;  explain (costs off) select * from tenk1 where four = 2 order by four, hundred, parallel_safe_volatile(thousand);  reset min_parallel_index_scan_size; reset enable_seqscan;   explain (costs off) select count(*) from tenk1 group by twenty, parallel_safe_volatile(two);  drop function parallel_safe_volatile(int);  SAVEPOINT settings; SET LOCAL debug_parallel_query = 1; explain (costs off) select stringu1::int2 from tenk1 where unique1 = 1; ROLLBACK TO SAVEPOINT settings;   CREATE FUNCTION make_record(n int) RETURNS RECORD LANGUAGE plpgsql PARALLEL SAFE AS $$ BEGIN RETURN CASE n WHEN 1 THEN ROW(1) WHEN 2 THEN ROW(1, 2) WHEN 3 THEN ROW(1, 2, 3) WHEN 4 THEN ROW(1, 2, 3, 4) ELSE ROW(1, 2, 3, 4, 5) END; END; $$",
+    "expected": "CREATE FUNCTION parallel_safe_volatile (a INT) RETURNS INT AS $$ begin return a; end; $$ PARALLEL SAFE VOLATILE LANGUAGE plpgsql; EXPLAIN (COSTS false) SELECT * FROM tenk1 WHERE four = 2 ORDER BY four, hundred, parallel_safe_volatile(thousand); SET min_parallel_index_scan_size = 0; SET enable_seqscan = off; EXPLAIN (COSTS false) SELECT * FROM tenk1 WHERE four = 2 ORDER BY four, hundred, parallel_safe_volatile(thousand); RESET min_parallel_index_scan_size; RESET enable_seqscan; EXPLAIN (COSTS false) SELECT COUNT(*) FROM tenk1 GROUP BY twenty, parallel_safe_volatile(two); DROP FUNCTION parallel_safe_volatile(INT); SAVEPOINT settings; SET LOCAL debug_parallel_query = 1; EXPLAIN (COSTS false) SELECT CAST(stringu1 AS SMALLINT) FROM tenk1 WHERE unique1 = 1; ROLLBACK TO SAVEPOINT settings; CREATE FUNCTION make_record (n INT) RETURNS record LANGUAGE plpgsql PARALLEL SAFE AS $$ BEGIN RETURN CASE n WHEN 1 THEN ROW(1) WHEN 2 THEN ROW(1, 2) WHEN 3 THEN ROW(1, 2, 3) WHEN 4 THEN ROW(1, 2, 3, 4) ELSE ROW(1, 2, 3, 4, 5) END; END; $$"
+  },
+  {
+    "comment": "select_parallel - Statement 76",
+    "query": "SAVEPOINT settings"
+  },
+  {
+    "comment": "select_parallel - Statement 77",
+    "query": "SET LOCAL debug_parallel_query = 1"
+  },
+  {
+    "comment": "select_parallel - Statement 78",
+    "query": "SELECT make_record(x) FROM (SELECT generate_series(1, 5) x) ss ORDER BY x",
+    "expected": "SELECT make_record(x) FROM (SELECT generate_series(1, 5) AS x) AS ss ORDER BY x"
+  },
+  {
+    "comment": "select_parallel - Statement 79",
+    "query": "ROLLBACK TO SAVEPOINT settings"
+  },
+  {
+    "comment": "select_parallel - Statement 80",
+    "query": "DROP function make_record(n int)",
+    "expected": "DROP FUNCTION make_record(n INT)"
+  },
+  {
+    "comment": "select_parallel - Statement 81",
+    "query": "drop role if exists regress_parallel_worker",
+    "expected": "DROP ROLE IF EXISTS regress_parallel_worker"
+  },
+  {
+    "comment": "select_parallel - Statement 82",
+    "query": "create role regress_parallel_worker",
+    "expected": "CREATE ROLE regress_parallel_worker"
+  },
+  {
+    "comment": "select_parallel - Statement 83",
+    "query": "set role regress_parallel_worker",
+    "expected": "SET ROLE 'regress_parallel_worker'"
+  },
+  {
+    "comment": "select_parallel - Statement 84",
+    "query": "reset session authorization",
+    "expected": "RESET session_authorization"
+  },
+  {
+    "comment": "select_parallel - Statement 85",
+    "query": "drop role regress_parallel_worker",
+    "expected": "DROP ROLE regress_parallel_worker"
+  },
+  {
+    "comment": "select_parallel - Statement 86",
+    "query": "set debug_parallel_query = 1",
+    "expected": "SET debug_parallel_query = 1"
+  },
+  {
+    "comment": "select_parallel - Statement 87",
+    "query": "select count(*) from tenk1",
+    "expected": "SELECT COUNT(*) FROM tenk1"
+  },
+  {
+    "comment": "select_parallel - Statement 88",
+    "query": "reset debug_parallel_query",
+    "expected": "RESET debug_parallel_query"
+  },
+  {
+    "comment": "select_parallel - Statement 89",
+    "query": "reset role",
+    "expected": "RESET role"
+  },
+  {
+    "comment": "select_parallel - Statement 90",
+    "query": "explain (costs off, verbose) select count(*) from tenk1 a where (unique1, two) in (select unique1, row_number() over() from tenk1 b)",
+    "expected": "EXPLAIN (COSTS false, VERBOSE true) SELECT COUNT(*) FROM tenk1 AS a WHERE (unique1, two) IN (SELECT unique1, ROW_NUMBER() OVER () FROM tenk1 AS b)"
+  },
+  {
+    "comment": "select_parallel - Statement 91",
+    "query": "explain (costs off) select * from tenk1 a where two in (select two from tenk1 b where stringu1 like '%AAAA' limit 3)",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM tenk1 AS a WHERE two IN (SELECT two FROM tenk1 AS b WHERE stringu1 LIKE '%AAAA' LIMIT 3)"
+  },
+  {
+    "comment": "select_parallel - Statement 92",
+    "query": "EXPLAIN (analyze, timing off, summary off, costs off) SELECT * FROM tenk1",
+    "expected": "EXPLAIN (ANALYZE true, TIMING false, SUMMARY false, COSTS false) SELECT * FROM tenk1"
+  },
+  {
+    "comment": "select_parallel - Statement 93",
+    "query": "select (stringu1 || repeat('abcd', 5000))::int2 from tenk1 where unique1 = 1",
+    "expected": "SELECT CAST((stringu1 || repeat('abcd', 5000)) AS SMALLINT) FROM tenk1 WHERE unique1 = 1"
+  },
+  {
+    "comment": "select_parallel - Statement 94",
+    "query": "SET LOCAL parallel_setup_cost = 10"
+  },
+  {
+    "comment": "select_parallel - Statement 95",
+    "query": "EXPLAIN (COSTS OFF) SELECT unique1 FROM tenk1 WHERE fivethous = tenthous + 1 UNION ALL SELECT unique1 FROM tenk1 WHERE fivethous = tenthous + 1",
+    "expected": "EXPLAIN (COSTS false) (SELECT unique1 FROM tenk1 WHERE fivethous = tenthous + 1) UNION ALL (SELECT unique1 FROM tenk1 WHERE fivethous = tenthous + 1)"
+  },
+  {
+    "comment": "select_parallel - Statement 96",
+    "query": "EXPLAIN (COSTS OFF) SELECT unique1 FROM tenk1 WHERE fivethous = (SELECT unique1 FROM tenk1 WHERE fivethous = 1 LIMIT 1) UNION ALL SELECT unique1 FROM tenk1 WHERE fivethous = (SELECT unique2 FROM tenk1 WHERE fivethous = 1 LIMIT 1) ORDER BY 1",
+    "expected": "EXPLAIN (COSTS false) (SELECT unique1 FROM tenk1 WHERE fivethous = (SELECT unique1 FROM tenk1 WHERE fivethous = 1 LIMIT 1)) UNION ALL (SELECT unique1 FROM tenk1 WHERE fivethous = (SELECT unique2 FROM tenk1 WHERE fivethous = 1 LIMIT 1)) ORDER BY 1"
+  },
+  {
+    "comment": "select_parallel - Statement 97",
+    "query": "SELECT * FROM information_schema.foreign_data_wrapper_options ORDER BY 1, 2, 3"
+  },
+  {
+    "comment": "select_parallel - Statement 98",
+    "query": "EXPLAIN (VERBOSE, COSTS OFF) SELECT generate_series(1, two), array(select generate_series(1, two)) FROM tenk1 ORDER BY tenthous",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) SELECT generate_series(1, two), ARRAY(SELECT generate_series(1, two)) FROM tenk1 ORDER BY tenthous"
+  },
+  {
+    "comment": "select_parallel - Statement 99",
+    "query": "EXPLAIN (VERBOSE, COSTS OFF) SELECT unnest(ARRAY[]::integer[]) + 1 AS pathkey FROM tenk1 t1 JOIN tenk1 t2 ON TRUE ORDER BY pathkey",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) SELECT unnest(CAST(ARRAY[] AS INT[])) + 1 AS pathkey FROM tenk1 AS t1 INNER JOIN tenk1 AS t2 ON TRUE ORDER BY pathkey"
+  },
+  {
+    "comment": "select_parallel - Statement 100",
+    "query": "CREATE FUNCTION make_some_array(int,int) returns int[] as $$declare x int[]; begin x[1] := $1; x[2] := $2; return x; end$$ language plpgsql parallel safe",
+    "expected": "CREATE FUNCTION make_some_array (INT, INT) RETURNS INT[] AS $$declare x int[]; begin x[1] := $1; x[2] := $2; return x; end$$ LANGUAGE plpgsql PARALLEL SAFE"
+  },
+  {
+    "comment": "select_parallel - Statement 101",
+    "query": "CREATE TABLE fooarr(f1 text, f2 int[], f3 text)",
+    "expected": "CREATE TABLE fooarr (f1 TEXT, f2 INT[], f3 TEXT)"
+  },
+  {
+    "comment": "select_parallel - Statement 102",
+    "query": "INSERT INTO fooarr VALUES('1', ARRAY[1,2], 'one')",
+    "expected": "INSERT INTO fooarr VALUES ('1', ARRAY[1,2], 'one')"
+  },
+  {
+    "comment": "select_parallel - Statement 103",
+    "query": "PREPARE pstmt(text, int[]) AS SELECT * FROM fooarr WHERE f1 = $1 AND f2 = $2",
+    "expected": "PREPARE pstmt ( TEXT, INT[] ) AS SELECT * FROM fooarr WHERE f1 = $1 AND f2 = $2"
+  },
+  {
+    "comment": "select_parallel - Statement 104",
+    "query": "EXPLAIN (COSTS OFF) EXECUTE pstmt('1', make_some_array(1,2))",
+    "expected": "EXPLAIN (COSTS false) EXECUTE pstmt ( '1', make_some_array(1, 2) )"
+  },
+  {
+    "comment": "select_parallel - Statement 105",
+    "query": "EXECUTE pstmt('1', make_some_array(1,2))",
+    "expected": "EXECUTE pstmt ( '1', make_some_array(1, 2) )"
+  },
+  {
+    "comment": "select_parallel - Statement 106",
+    "query": "DEALLOCATE pstmt"
+  },
+  {
+    "comment": "select_parallel - Statement 107",
+    "query": "CREATE VIEW tenk1_vw_sec WITH (security_barrier) AS SELECT * FROM tenk1",
+    "expected": "CREATE VIEW tenk1_vw_sec WITH ( security_barrier) AS SELECT * FROM tenk1"
+  },
+  {
+    "comment": "select_parallel - Statement 108",
+    "query": "EXPLAIN (COSTS OFF) SELECT 1 FROM tenk1_vw_sec WHERE (SELECT sum(f1) FROM int4_tbl WHERE f1 \u003c unique1) \u003c 100",
+    "expected": "EXPLAIN (COSTS false) SELECT 1 FROM tenk1_vw_sec WHERE (SELECT SUM(f1) FROM int4_tbl WHERE f1 \u003c unique1) \u003c 100"
+  },
+  {
+    "comment": "select_parallel - Statement 109",
+    "query": "rollback",
+    "expected": "ROLLBACK"
+  },
+  {
+    "comment": "select_parallel - Statement 110",
+    "query": "create function set_and_report_role() returns text as $$ select current_setting('role') $$ language sql parallel safe set role = regress_parallel_worker;  create function set_role_and_error(int) returns int as $$ select 1 / $1 $$ language sql parallel safe set role = regress_parallel_worker;  set debug_parallel_query = 0; select set_and_report_role(); select set_role_and_error(0); set debug_parallel_query = 1; select set_and_report_role(); select set_role_and_error(0); reset debug_parallel_query;  drop function set_and_report_role(); drop function set_role_and_error(int); drop role regress_parallel_worker;   BEGIN;  CREATE FUNCTION my_cmp (int4, int4) RETURNS int LANGUAGE sql AS $$ SELECT CASE WHEN $1 \u003c $2 THEN -1 WHEN $1 \u003e $2 THEN  1 ELSE 0 END; $$",
+    "expected": "CREATE FUNCTION set_and_report_role () RETURNS TEXT AS $$ select current_setting('role') $$ LANGUAGE sql PARALLEL SAFE SET ROLE 'regress_parallel_worker'; CREATE FUNCTION set_role_and_error (INT) RETURNS INT AS $$ select 1 / $1 $$ LANGUAGE sql PARALLEL SAFE SET ROLE 'regress_parallel_worker'; SET debug_parallel_query = 0; SELECT set_and_report_role(); SELECT set_role_and_error(0); SET debug_parallel_query = 1; SELECT set_and_report_role(); SELECT set_role_and_error(0); RESET debug_parallel_query; DROP FUNCTION set_and_report_role(); DROP FUNCTION set_role_and_error(INT); DROP ROLE regress_parallel_worker; BEGIN; CREATE FUNCTION my_cmp (INT, INT) RETURNS INT LANGUAGE sql AS $$ SELECT CASE WHEN $1 \u003c $2 THEN -1 WHEN $1 \u003e $2 THEN  1 ELSE 0 END; $$"
+  },
+  {
+    "comment": "select_parallel - Statement 111",
+    "query": "CREATE TABLE parallel_hang (i int4)",
+    "expected": "CREATE TABLE parallel_hang (i INT)"
+  },
+  {
+    "comment": "select_parallel - Statement 112",
+    "query": "INSERT INTO parallel_hang (SELECT * FROM generate_series(1, 400) gs)",
+    "expected": "INSERT INTO parallel_hang SELECT * FROM generate_series(1, 400) AS gs"
+  },
+  {
+    "comment": "select_parallel - Statement 113",
+    "query": "CREATE OPERATOR CLASS int4_custom_ops FOR TYPE int4 USING btree AS OPERATOR 1 \u003c (int4, int4), OPERATOR 2 \u003c= (int4, int4), OPERATOR 3 = (int4, int4), OPERATOR 4 \u003e= (int4, int4), OPERATOR 5 \u003e (int4, int4), FUNCTION 1 my_cmp(int4, int4)",
+    "expected": "CREATE OPERATOR CLASS int4_custom_ops FOR TYPE INT USING btree AS OPERATOR 1 \u003c (int4, int4), OPERATOR 2 \u003c= (int4, int4), OPERATOR 3 = (int4, int4), OPERATOR 4 \u003e= (int4, int4), OPERATOR 5 \u003e (int4, int4), FUNCTION 1 my_cmp(int4, int4)"
+  },
+  {
+    "comment": "select_parallel - Statement 114",
+    "query": "CREATE UNIQUE INDEX parallel_hang_idx ON parallel_hang USING btree (i int4_custom_ops)",
+    "expected": "CREATE UNIQUE INDEX parallel_hang_idx ON parallel_hang USING btree ( i int4_custom_ops )"
+  },
+  {
+    "comment": "select_parallel - Statement 115",
+    "query": "SET debug_parallel_query = on"
+  },
+  {
+    "comment": "select_parallel - Statement 116",
+    "query": "DELETE FROM parallel_hang WHERE 380 \u003c= i AND i \u003c= 420"
+  }
+]

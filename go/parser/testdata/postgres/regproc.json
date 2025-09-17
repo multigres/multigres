@@ -1,0 +1,401 @@
+[
+  {
+    "comment": "regproc - Statement 1",
+    "query": "/* If objects exist, return oids */ CREATE ROLE regress_regrole_test",
+    "expected": "CREATE ROLE regress_regrole_test"
+  },
+  {
+    "comment": "regproc - Statement 2",
+    "query": "SELECT regoper('||/')"
+  },
+  {
+    "comment": "regproc - Statement 3",
+    "query": "SELECT regoperator('+(int4,int4)')"
+  },
+  {
+    "comment": "regproc - Statement 4",
+    "query": "SELECT regproc('now')"
+  },
+  {
+    "comment": "regproc - Statement 5",
+    "query": "SELECT regprocedure('abs(numeric)')"
+  },
+  {
+    "comment": "regproc - Statement 6",
+    "query": "SELECT regclass('pg_class')"
+  },
+  {
+    "comment": "regproc - Statement 7",
+    "query": "SELECT regtype('int4')"
+  },
+  {
+    "comment": "regproc - Statement 8",
+    "query": "SELECT regcollation('\"POSIX\"')"
+  },
+  {
+    "comment": "regproc - Statement 9",
+    "query": "SELECT to_regoper('||/')"
+  },
+  {
+    "comment": "regproc - Statement 10",
+    "query": "SELECT to_regoperator('+(int4,int4)')"
+  },
+  {
+    "comment": "regproc - Statement 11",
+    "query": "SELECT to_regproc('now')"
+  },
+  {
+    "comment": "regproc - Statement 12",
+    "query": "SELECT to_regprocedure('abs(numeric)')"
+  },
+  {
+    "comment": "regproc - Statement 13",
+    "query": "SELECT to_regclass('pg_class')"
+  },
+  {
+    "comment": "regproc - Statement 14",
+    "query": "SELECT to_regtype('int4')"
+  },
+  {
+    "comment": "regproc - Statement 15",
+    "query": "SELECT to_regcollation('\"POSIX\"')"
+  },
+  {
+    "comment": "regproc - Statement 16",
+    "query": "SELECT regoper('pg_catalog.||/')"
+  },
+  {
+    "comment": "regproc - Statement 17",
+    "query": "SELECT regoperator('pg_catalog.+(int4,int4)')"
+  },
+  {
+    "comment": "regproc - Statement 18",
+    "query": "SELECT regproc('pg_catalog.now')"
+  },
+  {
+    "comment": "regproc - Statement 19",
+    "query": "SELECT regprocedure('pg_catalog.abs(numeric)')"
+  },
+  {
+    "comment": "regproc - Statement 20",
+    "query": "SELECT regclass('pg_catalog.pg_class')"
+  },
+  {
+    "comment": "regproc - Statement 21",
+    "query": "SELECT regtype('pg_catalog.int4')"
+  },
+  {
+    "comment": "regproc - Statement 22",
+    "query": "SELECT regcollation('pg_catalog.\"POSIX\"')"
+  },
+  {
+    "comment": "regproc - Statement 23",
+    "query": "SELECT to_regoper('pg_catalog.||/')"
+  },
+  {
+    "comment": "regproc - Statement 24",
+    "query": "SELECT to_regproc('pg_catalog.now')"
+  },
+  {
+    "comment": "regproc - Statement 25",
+    "query": "SELECT to_regprocedure('pg_catalog.abs(numeric)')"
+  },
+  {
+    "comment": "regproc - Statement 26",
+    "query": "SELECT to_regclass('pg_catalog.pg_class')"
+  },
+  {
+    "comment": "regproc - Statement 27",
+    "query": "SELECT to_regtype('pg_catalog.int4')"
+  },
+  {
+    "comment": "regproc - Statement 28",
+    "query": "SELECT to_regcollation('pg_catalog.\"POSIX\"')"
+  },
+  {
+    "comment": "regproc - Statement 29",
+    "query": "SELECT regrole('regress_regrole_test')"
+  },
+  {
+    "comment": "regproc - Statement 30",
+    "query": "SELECT regrole('\"regress_regrole_test\"')"
+  },
+  {
+    "comment": "regproc - Statement 31",
+    "query": "SELECT regnamespace('pg_catalog')"
+  },
+  {
+    "comment": "regproc - Statement 32",
+    "query": "SELECT regnamespace('\"pg_catalog\"')"
+  },
+  {
+    "comment": "regproc - Statement 33",
+    "query": "SELECT to_regrole('regress_regrole_test')"
+  },
+  {
+    "comment": "regproc - Statement 34",
+    "query": "SELECT to_regrole('\"regress_regrole_test\"')"
+  },
+  {
+    "comment": "regproc - Statement 35",
+    "query": "SELECT to_regnamespace('pg_catalog')"
+  },
+  {
+    "comment": "regproc - Statement 36",
+    "query": "SELECT to_regnamespace('\"pg_catalog\"')"
+  },
+  {
+    "comment": "regproc - Statement 37",
+    "query": "/* If objects don't exist, raise errors. */ DROP ROLE regress_regrole_test",
+    "expected": "DROP ROLE regress_regrole_test"
+  },
+  {
+    "comment": "regproc - Statement 38",
+    "query": "SELECT regoper('||//')"
+  },
+  {
+    "comment": "regproc - Statement 39",
+    "query": "SELECT regoperator('++(int4,int4)')"
+  },
+  {
+    "comment": "regproc - Statement 40",
+    "query": "SELECT regproc('know')"
+  },
+  {
+    "comment": "regproc - Statement 41",
+    "query": "SELECT regprocedure('absinthe(numeric)')"
+  },
+  {
+    "comment": "regproc - Statement 42",
+    "query": "SELECT regclass('pg_classes')"
+  },
+  {
+    "comment": "regproc - Statement 43",
+    "query": "SELECT regtype('int3')"
+  },
+  {
+    "comment": "regproc - Statement 44",
+    "query": "SELECT regoper('ng_catalog.||/')"
+  },
+  {
+    "comment": "regproc - Statement 45",
+    "query": "SELECT regoperator('ng_catalog.+(int4,int4)')"
+  },
+  {
+    "comment": "regproc - Statement 46",
+    "query": "SELECT regproc('ng_catalog.now')"
+  },
+  {
+    "comment": "regproc - Statement 47",
+    "query": "SELECT regprocedure('ng_catalog.abs(numeric)')"
+  },
+  {
+    "comment": "regproc - Statement 48",
+    "query": "SELECT regclass('ng_catalog.pg_class')"
+  },
+  {
+    "comment": "regproc - Statement 49",
+    "query": "SELECT regtype('ng_catalog.int4')"
+  },
+  {
+    "comment": "regproc - Statement 50",
+    "query": "SELECT regrole('Nonexistent')"
+  },
+  {
+    "comment": "regproc - Statement 51",
+    "query": "SELECT regrole('\"Nonexistent\"')"
+  },
+  {
+    "comment": "regproc - Statement 52",
+    "query": "SELECT regrole('foo.bar')"
+  },
+  {
+    "comment": "regproc - Statement 53",
+    "query": "SELECT regnamespace('Nonexistent')"
+  },
+  {
+    "comment": "regproc - Statement 54",
+    "query": "SELECT regnamespace('\"Nonexistent\"')"
+  },
+  {
+    "comment": "regproc - Statement 55",
+    "query": "SELECT regnamespace('foo.bar')"
+  },
+  {
+    "comment": "regproc - Statement 56",
+    "query": "/* If objects don't exist, return NULL with no error. */ SELECT to_regoper('||//')",
+    "expected": "SELECT to_regoper('||//')"
+  },
+  {
+    "comment": "regproc - Statement 57",
+    "query": "SELECT to_regoperator('++(int4,int4)')"
+  },
+  {
+    "comment": "regproc - Statement 58",
+    "query": "SELECT to_regproc('know')"
+  },
+  {
+    "comment": "regproc - Statement 59",
+    "query": "SELECT to_regprocedure('absinthe(numeric)')"
+  },
+  {
+    "comment": "regproc - Statement 60",
+    "query": "SELECT to_regclass('pg_classes')"
+  },
+  {
+    "comment": "regproc - Statement 61",
+    "query": "SELECT to_regtype('int3')"
+  },
+  {
+    "comment": "regproc - Statement 62",
+    "query": "SELECT to_regcollation('notacollation')"
+  },
+  {
+    "comment": "regproc - Statement 63",
+    "query": "SELECT to_regoper('ng_catalog.||/')"
+  },
+  {
+    "comment": "regproc - Statement 64",
+    "query": "SELECT to_regoperator('ng_catalog.+(int4,int4)')"
+  },
+  {
+    "comment": "regproc - Statement 65",
+    "query": "SELECT to_regproc('ng_catalog.now')"
+  },
+  {
+    "comment": "regproc - Statement 66",
+    "query": "SELECT to_regprocedure('ng_catalog.abs(numeric)')"
+  },
+  {
+    "comment": "regproc - Statement 67",
+    "query": "SELECT to_regclass('ng_catalog.pg_class')"
+  },
+  {
+    "comment": "regproc - Statement 68",
+    "query": "SELECT to_regtype('ng_catalog.int4')"
+  },
+  {
+    "comment": "regproc - Statement 69",
+    "query": "SELECT to_regcollation('ng_catalog.\"POSIX\"')"
+  },
+  {
+    "comment": "regproc - Statement 70",
+    "query": "SELECT to_regrole('foo.bar')"
+  },
+  {
+    "comment": "regproc - Statement 71",
+    "query": "SELECT to_regrole('Nonexistent')"
+  },
+  {
+    "comment": "regproc - Statement 72",
+    "query": "SELECT to_regrole('\"Nonexistent\"')"
+  },
+  {
+    "comment": "regproc - Statement 73",
+    "query": "SELECT to_regnamespace('Nonexistent')"
+  },
+  {
+    "comment": "regproc - Statement 74",
+    "query": "SELECT to_regnamespace('\"Nonexistent\"')"
+  },
+  {
+    "comment": "regproc - Statement 75",
+    "query": "SELECT to_regnamespace('foo.bar')"
+  },
+  {
+    "comment": "regproc - Statement 76",
+    "query": "SELECT to_regtypemod('text')"
+  },
+  {
+    "comment": "regproc - Statement 77",
+    "query": "SELECT to_regtypemod('timestamp(4)')"
+  },
+  {
+    "comment": "regproc - Statement 78",
+    "query": "SELECT to_regtypemod('no_such_type(4)')"
+  },
+  {
+    "comment": "regproc - Statement 79",
+    "query": "SELECT format_type(to_regtype('varchar(32)'), to_regtypemod('varchar(32)'))"
+  },
+  {
+    "comment": "regproc - Statement 80",
+    "query": "SELECT format_type(to_regtype('bit'), to_regtypemod('bit'))"
+  },
+  {
+    "comment": "regproc - Statement 81",
+    "query": "SELECT format_type(to_regtype('\"bit\"'), to_regtypemod('\"bit\"'))"
+  },
+  {
+    "comment": "regproc - Statement 82",
+    "query": "SELECT * FROM pg_input_error_info('ng_catalog.pg_class', 'regclass')"
+  },
+  {
+    "comment": "regproc - Statement 83",
+    "query": "SELECT pg_input_is_valid('ng_catalog.\"POSIX\"', 'regcollation')"
+  },
+  {
+    "comment": "regproc - Statement 84",
+    "query": "SELECT * FROM pg_input_error_info('no_such_config', 'regconfig')"
+  },
+  {
+    "comment": "regproc - Statement 85",
+    "query": "SELECT * FROM pg_input_error_info('no_such_dictionary', 'regdictionary')"
+  },
+  {
+    "comment": "regproc - Statement 86",
+    "query": "SELECT * FROM pg_input_error_info('Nonexistent', 'regnamespace')"
+  },
+  {
+    "comment": "regproc - Statement 87",
+    "query": "SELECT * FROM pg_input_error_info('ng_catalog.||/', 'regoper')"
+  },
+  {
+    "comment": "regproc - Statement 88",
+    "query": "SELECT * FROM pg_input_error_info('-', 'regoper')"
+  },
+  {
+    "comment": "regproc - Statement 89",
+    "query": "SELECT * FROM pg_input_error_info('ng_catalog.+(int4,int4)', 'regoperator')"
+  },
+  {
+    "comment": "regproc - Statement 90",
+    "query": "SELECT * FROM pg_input_error_info('-', 'regoperator')"
+  },
+  {
+    "comment": "regproc - Statement 91",
+    "query": "SELECT * FROM pg_input_error_info('ng_catalog.now', 'regproc')"
+  },
+  {
+    "comment": "regproc - Statement 92",
+    "query": "SELECT * FROM pg_input_error_info('ng_catalog.abs(numeric)', 'regprocedure')"
+  },
+  {
+    "comment": "regproc - Statement 93",
+    "query": "SELECT * FROM pg_input_error_info('ng_catalog.abs(numeric', 'regprocedure')"
+  },
+  {
+    "comment": "regproc - Statement 94",
+    "query": "SELECT * FROM pg_input_error_info('regress_regrole_test', 'regrole')"
+  },
+  {
+    "comment": "regproc - Statement 95",
+    "query": "SELECT * FROM pg_input_error_info('no_such_type', 'regtype')"
+  },
+  {
+    "comment": "regproc - Statement 96",
+    "query": "SELECT * FROM pg_input_error_info('incorrect type name syntax', 'regtype')"
+  },
+  {
+    "comment": "regproc - Statement 97",
+    "query": "SELECT * FROM pg_input_error_info('numeric(1,2,3)', 'regtype')"
+  },
+  {
+    "comment": "regproc - Statement 98",
+    "query": "SELECT * FROM pg_input_error_info('way.too.many.names', 'regtype')"
+  },
+  {
+    "comment": "regproc - Statement 99",
+    "query": "SELECT * FROM pg_input_error_info('no_such_catalog.schema.name', 'regtype')"
+  }
+]

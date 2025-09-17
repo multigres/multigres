@@ -1,0 +1,781 @@
+[
+  {
+    "comment": "psql - Statement 1",
+    "query": "select 10 as \"bad name\"",
+    "expected": "SELECT 10 AS \"bad name\""
+  },
+  {
+    "comment": "psql - Statement 2",
+    "query": "select 97 as \"EOF\", 'ok' as _foo",
+    "expected": "SELECT 97 AS \"EOF\", 'ok' AS _foo"
+  },
+  {
+    "comment": "psql - Statement 3",
+    "query": "select 1 as x, 2 as y",
+    "expected": "SELECT 1 AS x, 2 AS y"
+  },
+  {
+    "comment": "psql - Statement 4",
+    "query": "select 3 as x, 4 as y",
+    "expected": "SELECT 3 AS x, 4 AS y"
+  },
+  {
+    "comment": "psql - Statement 5",
+    "query": "select 5 as x, 6 as y",
+    "expected": "SELECT 5 AS x, 6 AS y"
+  },
+  {
+    "comment": "psql - Statement 6",
+    "query": "select 7 as x, 8 as y",
+    "expected": "SELECT 7 AS x, 8 AS y"
+  },
+  {
+    "comment": "psql - Statement 7",
+    "query": "select 1 as var1, NULL as var2, 3 as var3",
+    "expected": "SELECT 1 AS var1, NULL AS var2, 3 AS var3"
+  },
+  {
+    "comment": "psql - Statement 8",
+    "query": "select 10 as test01, 20 as test02 from generate_series(1,0)",
+    "expected": "SELECT 10 AS test01, 20 AS test02 FROM generate_series(1, 0)"
+  },
+  {
+    "comment": "psql - Statement 9",
+    "query": "select a from generate_series(1, 10) as a where a = 11",
+    "expected": "SELECT a FROM generate_series(1, 10) AS a WHERE a = 11"
+  },
+  {
+    "comment": "psql - Statement 10",
+    "query": "select 10 as test01, 20 as test02 from generate_series(1,3)",
+    "expected": "SELECT 10 AS test01, 20 AS test02 FROM generate_series(1, 3)"
+  },
+  {
+    "comment": "psql - Statement 11",
+    "query": "EXECUTE test ; EXPLAIN EXECUTE test ; SELECT 1 + ; SELECT ; CREATE TABLE bububu(a int) ; TABLE bububu",
+    "error": "parse error at position 50: syntax error"
+  },
+  {
+    "comment": "psql - Statement 12",
+    "query": "SELECT 1 AS x, 'Hello', 2 AS y, true AS \"dirty\\name\" ; SELECT 3 AS x, 'Hello', 4 AS y, true AS \"dirty\\name\" ; set search_path = default",
+    "expected": "SELECT 1 AS x, 'Hello', 2 AS y, TRUE AS \"dirty\\name\"; SELECT 3 AS x, 'Hello', 4 AS y, TRUE AS \"dirty\\name\"; SET search_path = DEFAULT"
+  },
+  {
+    "comment": "psql - Statement 13",
+    "query": "begin",
+    "expected": "BEGIN"
+  },
+  {
+    "comment": "psql - Statement 14",
+    "query": "bogus",
+    "error": "parse error at position 5: syntax error"
+  },
+  {
+    "comment": "psql - Statement 16",
+    "query": "create temporary table gexec_test(a int, b text, c date, d float)",
+    "expected": "CREATE TEMPORARY TABLE gexec_test (a INT, b TEXT, c DATE, d FLOAT8)"
+  },
+  {
+    "comment": "psql - Statement 17",
+    "query": "select format('create index on gexec_test(%I)', attname) from pg_attribute where attrelid = 'gexec_test'::regclass and attnum \u003e 0 order by attnum",
+    "expected": "SELECT format('create index on gexec_test(%I)', attname) FROM pg_attribute WHERE attrelid = CAST('gexec_test' AS regclass) AND attnum \u003e 0 ORDER BY attnum"
+  },
+  {
+    "comment": "psql - Statement 18",
+    "query": "deallocate q",
+    "expected": "DEALLOCATE q"
+  },
+  {
+    "comment": "psql - Statement 19",
+    "query": "prepare q as select repeat('x',2*n) as \"0123456789abcdef\", repeat('y',20-2*n) as \"0123456789\" from generate_series(1,10) as n",
+    "expected": "PREPARE q AS SELECT repeat('x', 2 * n) AS \"0123456789abcdef\", repeat('y', 20 - 2 * n) AS \"0123456789\" FROM generate_series(1, 10) AS n"
+  },
+  {
+    "comment": "psql - Statement 20",
+    "query": "CREATE ROLE regress_display_role"
+  },
+  {
+    "comment": "psql - Statement 21",
+    "query": "ALTER SCHEMA tableam_display OWNER TO regress_display_role"
+  },
+  {
+    "comment": "psql - Statement 22",
+    "query": "SET search_path TO tableam_display",
+    "expected": "SET SCHEMA 'tableam_display'"
+  },
+  {
+    "comment": "psql - Statement 23",
+    "query": "CREATE ACCESS METHOD heap_psql TYPE TABLE HANDLER heap_tableam_handler"
+  },
+  {
+    "comment": "psql - Statement 24",
+    "query": "SET ROLE TO regress_display_role",
+    "expected": "SET ROLE 'regress_display_role'"
+  },
+  {
+    "comment": "psql - Statement 25",
+    "query": "CREATE TABLE tbl_heap_psql(f1 int, f2 char(100)) using heap_psql",
+    "expected": "CREATE TABLE tbl_heap_psql (f1 INT, f2 CHAR(100)) USING heap_psql"
+  },
+  {
+    "comment": "psql - Statement 26",
+    "query": "CREATE TABLE tbl_heap(f1 int, f2 char(100)) using heap",
+    "expected": "CREATE TABLE tbl_heap (f1 INT, f2 CHAR(100)) USING heap"
+  },
+  {
+    "comment": "psql - Statement 27",
+    "query": "CREATE VIEW view_heap_psql AS SELECT f1 from tbl_heap_psql",
+    "expected": "CREATE VIEW view_heap_psql AS SELECT f1 FROM tbl_heap_psql"
+  },
+  {
+    "comment": "psql - Statement 28",
+    "query": "CREATE MATERIALIZED VIEW mat_view_heap_psql USING heap_psql AS SELECT f1 from tbl_heap_psql",
+    "expected": "CREATE MATERIALIZED VIEW mat_view_heap_psql USING heap_psql AS SELECT f1 FROM tbl_heap_psql"
+  },
+  {
+    "comment": "psql - Statement 29",
+    "query": "RESET search_path"
+  },
+  {
+    "comment": "psql - Statement 30",
+    "query": "DROP SCHEMA tableam_display CASCADE"
+  },
+  {
+    "comment": "psql - Statement 31",
+    "query": "DROP ACCESS METHOD heap_psql"
+  },
+  {
+    "comment": "psql - Statement 32",
+    "query": "DROP ROLE regress_display_role"
+  },
+  {
+    "comment": "psql - Statement 33",
+    "query": "select '\\.' as data",
+    "expected": "SELECT '\\.' AS data"
+  },
+  {
+    "comment": "psql - Statement 34",
+    "query": "select 'still okay'",
+    "expected": "SELECT 'still okay'"
+  },
+  {
+    "comment": "psql - Statement 35",
+    "query": "select \\if true 42 \\else (bogus \\endif forty_two",
+    "error": "parse error at position 18: syntax error"
+  },
+  {
+    "comment": "psql - Statement 36",
+    "query": "select \\if false \\\\ (bogus \\else \\\\ 42 \\endif \\\\ forty_two",
+    "error": "parse error at position 18: syntax error"
+  },
+  {
+    "comment": "psql - Statement 37",
+    "query": "SELECT 1 AS one"
+  },
+  {
+    "comment": "psql - Statement 38",
+    "query": "SELECT NOT :{?no_such_var} AS no_such_var_is_not_defined",
+    "error": "parse error at position 12: syntax error"
+  },
+  {
+    "comment": "psql - Statement 39",
+    "query": "do $$ begin   raise notice 'foo';   raise exception 'bar'; end $$;",
+    "expected": "DO ' begin   raise notice ''foo'';   raise exception ''bar''; end '"
+  },
+  {
+    "comment": "psql - Statement 41",
+    "query": "SELECT 1"
+  },
+  {
+    "comment": "psql - Statement 42",
+    "query": "select 1/(15-unique2) from tenk1 order by unique2 limit 19",
+    "expected": "SELECT 1 / (15 - unique2) FROM tenk1 ORDER BY unique2 LIMIT 19"
+  },
+  {
+    "comment": "psql - Statement 43",
+    "query": "create role regress_partitioning_role",
+    "expected": "CREATE ROLE regress_partitioning_role"
+  },
+  {
+    "comment": "psql - Statement 44",
+    "query": "alter schema testpart owner to regress_partitioning_role",
+    "expected": "ALTER SCHEMA testpart OWNER TO regress_partitioning_role"
+  },
+  {
+    "comment": "psql - Statement 45",
+    "query": "set role to regress_partitioning_role",
+    "expected": "SET ROLE 'regress_partitioning_role'"
+  },
+  {
+    "comment": "psql - Statement 46",
+    "query": "set search_path to testpart",
+    "expected": "SET SCHEMA 'testpart'"
+  },
+  {
+    "comment": "psql - Statement 47",
+    "query": "create table testtable_apple(logdate date)",
+    "expected": "CREATE TABLE testtable_apple (logdate DATE)"
+  },
+  {
+    "comment": "psql - Statement 48",
+    "query": "create table testtable_orange(logdate date)",
+    "expected": "CREATE TABLE testtable_orange (logdate DATE)"
+  },
+  {
+    "comment": "psql - Statement 49",
+    "query": "create index testtable_apple_index on testtable_apple(logdate)",
+    "expected": "CREATE INDEX testtable_apple_index ON testtable_apple USING btree ( logdate )"
+  },
+  {
+    "comment": "psql - Statement 50",
+    "query": "create index testtable_orange_index on testtable_orange(logdate)",
+    "expected": "CREATE INDEX testtable_orange_index ON testtable_orange USING btree ( logdate )"
+  },
+  {
+    "comment": "psql - Statement 51",
+    "query": "create table testpart_apple(logdate date) partition by range(logdate)",
+    "expected": "CREATE TABLE testpart_apple (logdate DATE) PARTITION BY range (logdate)"
+  },
+  {
+    "comment": "psql - Statement 52",
+    "query": "create table testpart_orange(logdate date) partition by range(logdate)",
+    "expected": "CREATE TABLE testpart_orange (logdate DATE) PARTITION BY range (logdate)"
+  },
+  {
+    "comment": "psql - Statement 53",
+    "query": "create index testpart_apple_index on testpart_apple(logdate)",
+    "expected": "CREATE INDEX testpart_apple_index ON testpart_apple USING btree ( logdate )"
+  },
+  {
+    "comment": "psql - Statement 54",
+    "query": "create index testpart_orange_index on testpart_orange(logdate)",
+    "expected": "CREATE INDEX testpart_orange_index ON testpart_orange USING btree ( logdate )"
+  },
+  {
+    "comment": "psql - Statement 55",
+    "query": "drop table testtable_orange",
+    "expected": "DROP TABLE testtable_orange"
+  },
+  {
+    "comment": "psql - Statement 56",
+    "query": "drop table testpart_apple",
+    "expected": "DROP TABLE testpart_apple"
+  },
+  {
+    "comment": "psql - Statement 57",
+    "query": "drop table testpart_orange",
+    "expected": "DROP TABLE testpart_orange"
+  },
+  {
+    "comment": "psql - Statement 58",
+    "query": "create table parent_tab (id int) partition by range (id)",
+    "expected": "CREATE TABLE parent_tab (id INT) PARTITION BY range (id)"
+  },
+  {
+    "comment": "psql - Statement 59",
+    "query": "create index parent_index on parent_tab (id)",
+    "expected": "CREATE INDEX parent_index ON parent_tab USING btree ( id )"
+  },
+  {
+    "comment": "psql - Statement 60",
+    "query": "create table child_0_10 partition of parent_tab for values from (0) to (10)",
+    "expected": "CREATE TABLE child_0_10 PARTITION OF parent_tab FOR VALUES FROM (0) TO (10)"
+  },
+  {
+    "comment": "psql - Statement 61",
+    "query": "create table child_10_20 partition of parent_tab for values from (10) to (20)",
+    "expected": "CREATE TABLE child_10_20 PARTITION OF parent_tab FOR VALUES FROM (10) TO (20)"
+  },
+  {
+    "comment": "psql - Statement 62",
+    "query": "create table child_20_30 partition of parent_tab for values from (20) to (30)",
+    "expected": "CREATE TABLE child_20_30 PARTITION OF parent_tab FOR VALUES FROM (20) TO (30)"
+  },
+  {
+    "comment": "psql - Statement 63",
+    "query": "insert into parent_tab values (generate_series(0,29))",
+    "expected": "INSERT INTO parent_tab VALUES (generate_series(0, 29))"
+  },
+  {
+    "comment": "psql - Statement 64",
+    "query": "create table child_30_40 partition of parent_tab for values from (30) to (40) partition by range(id)",
+    "expected": "CREATE TABLE child_30_40 PARTITION OF parent_tab FOR VALUES FROM (30) TO (40) PARTITION BY range (id)"
+  },
+  {
+    "comment": "psql - Statement 65",
+    "query": "create table child_30_35 partition of child_30_40 for values from (30) to (35)",
+    "expected": "CREATE TABLE child_30_35 PARTITION OF child_30_40 FOR VALUES FROM (30) TO (35)"
+  },
+  {
+    "comment": "psql - Statement 66",
+    "query": "create table child_35_40 partition of child_30_40 for values from (35) to (40)",
+    "expected": "CREATE TABLE child_35_40 PARTITION OF child_30_40 FOR VALUES FROM (35) TO (40)"
+  },
+  {
+    "comment": "psql - Statement 67",
+    "query": "insert into parent_tab values (generate_series(30,39))",
+    "expected": "INSERT INTO parent_tab VALUES (generate_series(30, 39))"
+  },
+  {
+    "comment": "psql - Statement 68",
+    "query": "drop schema testpart",
+    "expected": "DROP SCHEMA testpart"
+  },
+  {
+    "comment": "psql - Statement 69",
+    "query": "set search_path to default",
+    "expected": "SET search_path = DEFAULT"
+  },
+  {
+    "comment": "psql - Statement 70",
+    "query": "set role to default",
+    "expected": "SET role = DEFAULT"
+  },
+  {
+    "comment": "psql - Statement 71",
+    "query": "drop role regress_partitioning_role",
+    "expected": "DROP ROLE regress_partitioning_role"
+  },
+  {
+    "comment": "psql - Statement 72",
+    "query": "set session authorization regress_psql_user",
+    "expected": "SET SESSION AUTHORIZATION 'regress_psql_user'"
+  },
+  {
+    "comment": "psql - Statement 73",
+    "query": "create function psql_df_internal (float8) returns float8 language internal immutable parallel safe strict as 'dsin'",
+    "expected": "CREATE FUNCTION psql_df_internal (FLOAT8) RETURNS FLOAT8 LANGUAGE internal IMMUTABLE PARALLEL SAFE STRICT AS $$dsin$$"
+  },
+  {
+    "comment": "psql - Statement 74",
+    "query": "create function psql_df_sql (x integer) returns integer security definer begin atomic select x + 1; end",
+    "expected": "CREATE FUNCTION psql_df_sql (x INT) RETURNS INT SECURITY DEFINER LANGUAGE sql BEGIN ATOMIC SELECT x + 1; END"
+  },
+  {
+    "comment": "psql - Statement 75",
+    "query": "create function psql_df_plpgsql () returns void language plpgsql as $$ begin return; end; $$",
+    "expected": "CREATE FUNCTION psql_df_plpgsql () RETURNS void LANGUAGE plpgsql AS $$ begin return; end; $$"
+  },
+  {
+    "comment": "psql - Statement 76",
+    "query": "comment on function psql_df_plpgsql () is 'some comment'",
+    "expected": "COMMENT ON FUNCTION psql_df_plpgsql() IS 'some comment'"
+  },
+  {
+    "comment": "psql - Statement 77",
+    "query": "drop role regress_psql_user",
+    "expected": "DROP ROLE regress_psql_user"
+  },
+  {
+    "comment": "psql - Statement 78",
+    "query": "COMMIT"
+  },
+  {
+    "comment": "psql - Statement 79",
+    "query": "SELECT * FROM ac_test"
+  },
+  {
+    "comment": "psql - Statement 80",
+    "query": "INSERT INTO ac_test VALUES (2)"
+  },
+  {
+    "comment": "psql - Statement 81",
+    "query": "ROLLBACK"
+  },
+  {
+    "comment": "psql - Statement 82",
+    "query": "INSERT INTO ac_test VALUES (3)"
+  },
+  {
+    "comment": "psql - Statement 83",
+    "query": "INSERT INTO ac_test VALUES (4)"
+  },
+  {
+    "comment": "psql - Statement 84",
+    "query": "INSERT INTO oer_test VALUES (1)"
+  },
+  {
+    "comment": "psql - Statement 85",
+    "query": "INSERT INTO oer_test VALUES ('foo')"
+  },
+  {
+    "comment": "psql - Statement 86",
+    "query": "INSERT INTO oer_test VALUES (3)"
+  },
+  {
+    "comment": "psql - Statement 87",
+    "query": "SELECT * FROM oer_test"
+  },
+  {
+    "comment": "psql - Statement 88",
+    "query": "INSERT INTO oer_test VALUES (4)"
+  },
+  {
+    "comment": "psql - Statement 89",
+    "query": "INSERT INTO oer_test VALUES (5)"
+  },
+  {
+    "comment": "psql - Statement 90",
+    "query": "COMMIT AND CHAIN"
+  },
+  {
+    "comment": "psql - Statement 91",
+    "query": "INSERT INTO oer_test VALUES (6)"
+  },
+  {
+    "comment": "psql - Statement 92",
+    "query": "DROP TABLE oer_test"
+  },
+  {
+    "comment": "psql - Statement 93",
+    "query": "SELECT 1 AS one ; SELECT warn('1.5') ; SELECT 2 AS two",
+    "expected": "SELECT 1 AS one; SELECT warn('1.5'); SELECT 2 AS two"
+  },
+  {
+    "comment": "psql - Statement 94",
+    "query": "SELECT 3 AS three ; SELECT warn('3.5') ; SELECT 4 AS four",
+    "expected": "SELECT 3 AS three; SELECT warn('3.5'); SELECT 4 AS four"
+  },
+  {
+    "comment": "psql - Statement 95",
+    "query": "BEGIN ; SELECT 8 AS eight ; SELECT 9/0 AS nine ; ROLLBACK ; SELECT 10 AS ten",
+    "expected": "BEGIN; SELECT 8 AS eight; SELECT 9 / 0 AS nine; ROLLBACK; SELECT 10 AS ten"
+  },
+  {
+    "comment": "psql - Statement 96",
+    "query": "SELECT 'ok' AS \"begin\"",
+    "expected": "SELECT 'ok' AS begin"
+  },
+  {
+    "comment": "psql - Statement 97",
+    "query": "CREATE TABLE psql_comics(s TEXT) ",
+    "expected": "CREATE TABLE psql_comics (s TEXT)"
+  },
+  {
+    "comment": "psql - Statement 98",
+    "query": "INSERT INTO psql_comics VALUES ('Calvin'), ('hobbes') ",
+    "expected": "INSERT INTO psql_comics VALUES ('Calvin'), ('hobbes')"
+  },
+  {
+    "comment": "psql - Statement 99",
+    "query": "COPY psql_comics FROM STDIN ",
+    "expected": "COPY psql_comics FROM STDIN"
+  },
+  {
+    "comment": "psql - Statement 100",
+    "query": "UPDATE psql_comics SET s = 'Hobbes' WHERE s = 'hobbes' ",
+    "expected": "UPDATE psql_comics SET s = 'Hobbes' WHERE s = 'hobbes'"
+  },
+  {
+    "comment": "psql - Statement 101",
+    "query": "DELETE FROM psql_comics WHERE s = 'Moe' ",
+    "expected": "DELETE FROM psql_comics WHERE s = 'Moe'"
+  },
+  {
+    "comment": "psql - Statement 102",
+    "query": "COPY psql_comics TO STDOUT ",
+    "expected": "COPY psql_comics TO STDOUT"
+  },
+  {
+    "comment": "psql - Statement 103",
+    "query": "TRUNCATE psql_comics ",
+    "expected": "TRUNCATE TABLE psql_comics CONTINUE IDENTITY RESTRICT"
+  },
+  {
+    "comment": "psql - Statement 104",
+    "query": "DROP TABLE psql_comics ",
+    "expected": "DROP TABLE psql_comics"
+  },
+  {
+    "comment": "psql - Statement 105",
+    "query": "SELECT 'ok' AS \"done\"",
+    "expected": "SELECT 'ok' AS done"
+  },
+  {
+    "comment": "psql - Statement 106",
+    "query": "Moe Susie \\. \\set SHOW_ALL_RESULTS off SELECT 1 AS one ; SELECT warn('1.5') ; SELECT 2 AS two",
+    "error": "parse error at position 3: syntax error"
+  },
+  {
+    "comment": "psql - Statement 107",
+    "query": "SELECT 1 AS a '/tmp/output.txt' COPY reload_output(line) FROM :'g_out_file'",
+    "error": "parse error at position 32: syntax error"
+  },
+  {
+    "comment": "psql - Statement 108",
+    "query": "SELECT 2 AS b; SELECT 3 AS c; SELECT 4 AS d '/tmp/output.txt' COPY reload_output(line) FROM :'g_out_file'",
+    "error": "parse error at position 62: syntax error"
+  },
+  {
+    "comment": "psql - Statement 109",
+    "query": "COPY (SELECT 'foo') TO STDOUT ; COPY (SELECT 'bar') TO STDOUT '/tmp/output.txt' COPY reload_output(line) FROM :'g_out_file'",
+    "error": "parse error at position 80: syntax error"
+  },
+  {
+    "comment": "psql - Statement 110",
+    "query": "SELECT line FROM reload_output ORDER BY lineno"
+  },
+  {
+    "comment": "psql - Statement 111",
+    "query": "TRUNCATE TABLE reload_output",
+    "expected": "TRUNCATE TABLE reload_output CONTINUE IDENTITY RESTRICT"
+  },
+  {
+    "comment": "psql - Statement 112",
+    "query": "SELECT 1 AS a; SELECT 2 AS b; SELECT 3 AS c"
+  },
+  {
+    "comment": "psql - Statement 113",
+    "query": "UPDATE onek SET unique1 = unique1 WHERE false",
+    "expected": "UPDATE onek SET unique1 = unique1 WHERE FALSE"
+  },
+  {
+    "comment": "psql - Statement 114",
+    "query": "COPY reload_output(line) FROM :'o_out_file'",
+    "error": "parse error at position 31: syntax error"
+  },
+  {
+    "comment": "psql - Statement 115",
+    "query": "COPY (SELECT 'foo2') TO STDOUT ; COPY (SELECT 'bar2') TO STDOUT '/tmp/output.txt' \\o COPY reload_output(line) FROM :'g_out_file'",
+    "error": "parse error at position 82: syntax error"
+  },
+  {
+    "comment": "psql - Statement 116",
+    "query": "DROP TABLE reload_output"
+  },
+  {
+    "comment": "psql - Statement 117",
+    "query": "CREATE TABLE foo(s TEXT) ",
+    "expected": "CREATE TABLE foo (s TEXT)"
+  },
+  {
+    "comment": "psql - Statement 118",
+    "query": "INSERT INTO foo(s) VALUES ('hello'), ('world') ",
+    "expected": "INSERT INTO foo (s) VALUES ('hello'), ('world')"
+  },
+  {
+    "comment": "psql - Statement 119",
+    "query": "DROP TABLE foo ",
+    "expected": "DROP TABLE foo"
+  },
+  {
+    "comment": "psql - Statement 120",
+    "query": "SELECT * FROM foo ORDER BY 1 ",
+    "expected": "SELECT * FROM foo ORDER BY 1"
+  },
+  {
+    "comment": "psql - Statement 121",
+    "query": "BEGIN ",
+    "expected": "BEGIN"
+  },
+  {
+    "comment": "psql - Statement 122",
+    "query": "ROLLBACK ",
+    "expected": "ROLLBACK"
+  },
+  {
+    "comment": "psql - Statement 123",
+    "query": "DROP TABLE foo"
+  },
+  {
+    "comment": "psql - Statement 124",
+    "query": "CREATE FUNCTION psql_error(msg TEXT) RETURNS BOOLEAN AS $$ BEGIN RAISE EXCEPTION 'error %', msg",
+    "error": "parse error at position 57: syntax error"
+  },
+  {
+    "comment": "psql - Statement 125",
+    "query": "END",
+    "expected": "COMMIT"
+  },
+  {
+    "comment": "psql - Statement 126",
+    "query": "$$ LANGUAGE plpgsql",
+    "error": "parse error at position 1: syntax error"
+  },
+  {
+    "comment": "psql - Statement 127",
+    "query": "CREATE TABLE bla(s NO_SUCH_TYPE)",
+    "expected": "CREATE TABLE bla (s no_such_type)"
+  },
+  {
+    "comment": "psql - Statement 128",
+    "query": "CREATE TABLE bla(s TEXT)",
+    "expected": "CREATE TABLE bla (s TEXT)"
+  },
+  {
+    "comment": "psql - Statement 129",
+    "query": "SELECT psql_error('oops!')"
+  },
+  {
+    "comment": "psql - Statement 130",
+    "query": "INSERT INTO bla VALUES ('Calvin'), ('Hobbes')"
+  },
+  {
+    "comment": "psql - Statement 131",
+    "query": "SELECT * FROM bla ORDER BY 1"
+  },
+  {
+    "comment": "psql - Statement 132",
+    "query": "INSERT INTO bla VALUES ('Susie')"
+  },
+  {
+    "comment": "psql - Statement 133",
+    "query": "INSERT INTO bla VALUES ('Rosalyn') ",
+    "expected": "INSERT INTO bla VALUES ('Rosalyn')"
+  },
+  {
+    "comment": "psql - Statement 134",
+    "query": "SELECT 'before error' AS show ",
+    "expected": "SELECT 'before error' AS show"
+  },
+  {
+    "comment": "psql - Statement 135",
+    "query": "SELECT psql_error('boum!') ",
+    "expected": "SELECT psql_error('boum!')"
+  },
+  {
+    "comment": "psql - Statement 136",
+    "query": "SELECT 'after error' AS noshow"
+  },
+  {
+    "comment": "psql - Statement 137",
+    "query": "INSERT INTO bla(s) VALUES ('Moe') ",
+    "expected": "INSERT INTO bla (s) VALUES ('Moe')"
+  },
+  {
+    "comment": "psql - Statement 138",
+    "query": "SELECT psql_error('bam!')"
+  },
+  {
+    "comment": "psql - Statement 139",
+    "query": "INSERT INTO bla VALUES ('Miss Wormwood')"
+  },
+  {
+    "comment": "psql - Statement 140",
+    "query": "SELECT psql_error('bad!')"
+  },
+  {
+    "comment": "psql - Statement 141",
+    "query": "INSERT INTO bla VALUES ('Mum') ",
+    "expected": "INSERT INTO bla VALUES ('Mum')"
+  },
+  {
+    "comment": "psql - Statement 142",
+    "query": "SELECT COUNT(*) AS \"#mum\" FROM bla WHERE s = 'Mum' ",
+    "expected": "SELECT COUNT(*) AS \"#mum\" FROM bla WHERE s = 'Mum'"
+  },
+  {
+    "comment": "psql - Statement 143",
+    "query": "DROP FUNCTION psql_error"
+  },
+  {
+    "comment": "psql - Statement 144",
+    "query": "CREATE ROLE regress_du_role1"
+  },
+  {
+    "comment": "psql - Statement 145",
+    "query": "CREATE ROLE regress_du_role2"
+  },
+  {
+    "comment": "psql - Statement 146",
+    "query": "CREATE ROLE regress_du_admin"
+  },
+  {
+    "comment": "psql - Statement 147",
+    "query": "GRANT regress_du_role0 TO regress_du_admin WITH ADMIN TRUE",
+    "expected": "GRANT regress_du_role0 TO regress_du_admin WITH ADMIN OPTION"
+  },
+  {
+    "comment": "psql - Statement 148",
+    "query": "GRANT regress_du_role1 TO regress_du_admin WITH ADMIN TRUE",
+    "expected": "GRANT regress_du_role1 TO regress_du_admin WITH ADMIN OPTION"
+  },
+  {
+    "comment": "psql - Statement 149",
+    "query": "GRANT regress_du_role2 TO regress_du_admin WITH ADMIN TRUE",
+    "expected": "GRANT regress_du_role2 TO regress_du_admin WITH ADMIN OPTION"
+  },
+  {
+    "comment": "psql - Statement 150",
+    "query": "GRANT regress_du_role0 TO regress_du_role1 WITH ADMIN TRUE,  INHERIT TRUE,  SET TRUE  GRANTED BY regress_du_admin",
+    "expected": "GRANT regress_du_role0 TO regress_du_role1 WITH ADMIN OPTION, INHERIT OPTION, SET OPTION GRANTED BY regress_du_admin"
+  },
+  {
+    "comment": "psql - Statement 151",
+    "query": "GRANT regress_du_role0 TO regress_du_role2 WITH ADMIN TRUE,  INHERIT FALSE, SET FALSE GRANTED BY regress_du_admin",
+    "expected": "GRANT regress_du_role0 TO regress_du_role2 WITH ADMIN OPTION, INHERIT OPTION, SET OPTION GRANTED BY regress_du_admin"
+  },
+  {
+    "comment": "psql - Statement 152",
+    "query": "GRANT regress_du_role1 TO regress_du_role2 WITH ADMIN TRUE , INHERIT FALSE, SET TRUE  GRANTED BY regress_du_admin",
+    "expected": "GRANT regress_du_role1 TO regress_du_role2 WITH ADMIN OPTION, INHERIT OPTION, SET OPTION GRANTED BY regress_du_admin"
+  },
+  {
+    "comment": "psql - Statement 153",
+    "query": "GRANT regress_du_role0 TO regress_du_role1 WITH ADMIN FALSE, INHERIT TRUE,  SET FALSE GRANTED BY regress_du_role1",
+    "expected": "GRANT regress_du_role0 TO regress_du_role1 WITH ADMIN OPTION, INHERIT OPTION, SET OPTION GRANTED BY regress_du_role1"
+  },
+  {
+    "comment": "psql - Statement 154",
+    "query": "GRANT regress_du_role0 TO regress_du_role2 WITH ADMIN FALSE, INHERIT TRUE , SET TRUE  GRANTED BY regress_du_role1",
+    "expected": "GRANT regress_du_role0 TO regress_du_role2 WITH ADMIN OPTION, INHERIT OPTION, SET OPTION GRANTED BY regress_du_role1"
+  },
+  {
+    "comment": "psql - Statement 155",
+    "query": "GRANT regress_du_role0 TO regress_du_role1 WITH ADMIN FALSE, INHERIT FALSE, SET TRUE  GRANTED BY regress_du_role2",
+    "expected": "GRANT regress_du_role0 TO regress_du_role1 WITH ADMIN OPTION, INHERIT OPTION, SET OPTION GRANTED BY regress_du_role2"
+  },
+  {
+    "comment": "psql - Statement 156",
+    "query": "GRANT regress_du_role0 TO regress_du_role2 WITH ADMIN FALSE, INHERIT FALSE, SET FALSE GRANTED BY regress_du_role2",
+    "expected": "GRANT regress_du_role0 TO regress_du_role2 WITH ADMIN OPTION, INHERIT OPTION, SET OPTION GRANTED BY regress_du_role2"
+  },
+  {
+    "comment": "psql - Statement 157",
+    "query": "DROP ROLE regress_du_role1"
+  },
+  {
+    "comment": "psql - Statement 158",
+    "query": "DROP ROLE regress_du_role2"
+  },
+  {
+    "comment": "psql - Statement 159",
+    "query": "DROP ROLE regress_du_admin"
+  },
+  {
+    "comment": "psql - Statement 160",
+    "query": "CREATE ROLE regress_zeropriv_owner"
+  },
+  {
+    "comment": "psql - Statement 161",
+    "query": "SET LOCAL ROLE regress_zeropriv_owner",
+    "expected": "SET LOCAL ROLE 'regress_zeropriv_owner'"
+  },
+  {
+    "comment": "psql - Statement 162",
+    "query": "CREATE DOMAIN regress_zeropriv_domain AS int",
+    "expected": "CREATE DOMAIN regress_zeropriv_domain AS INT"
+  },
+  {
+    "comment": "psql - Statement 163",
+    "query": "REVOKE ALL ON DOMAIN regress_zeropriv_domain FROM CURRENT_USER, PUBLIC",
+    "expected": "REVOKE ALL ON regress_zeropriv_domain FROM CURRENT_USER, PUBLIC"
+  },
+  {
+    "comment": "psql - Statement 164",
+    "query": "REVOKE ALL ON PROCEDURE regress_zeropriv_proc() FROM CURRENT_USER, PUBLIC"
+  },
+  {
+    "comment": "psql - Statement 165",
+    "query": "REVOKE ALL ON TABLE regress_zeropriv_tbl FROM CURRENT_USER",
+    "expected": "REVOKE ALL ON regress_zeropriv_tbl FROM CURRENT_USER"
+  },
+  {
+    "comment": "psql - Statement 166",
+    "query": "REVOKE ALL ON TYPE regress_zeropriv_type FROM CURRENT_USER, PUBLIC"
+  },
+  {
+    "comment": "psql - Statement 167",
+    "query": "CREATE TABLE defprivs (a int)",
+    "expected": "CREATE TABLE defprivs (a INT)"
+  }
+]

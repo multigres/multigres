@@ -1,0 +1,130 @@
+[
+  {
+    "comment": "index_including_gist - Statement 1",
+    "query": "/* * 1.1. test CREATE INDEX with buffered build */ CREATE TABLE tbl_gist (c1 int, c2 int, c3 int, c4 box)",
+    "expected": "CREATE TABLE tbl_gist (c1 INT, c2 INT, c3 INT, c4 box)"
+  },
+  {
+    "comment": "index_including_gist - Statement 2",
+    "query": "INSERT INTO tbl_gist SELECT x, 2*x, 3*x, box(point(x,x+1),point(2*x,2*x+1)) FROM generate_series(1,8000) AS x",
+    "expected": "INSERT INTO tbl_gist SELECT x, 2 * x, 3 * x, box(point(x, x + 1), point(2 * x, 2 * x + 1)) FROM generate_series(1, 8000) AS x"
+  },
+  {
+    "comment": "index_including_gist - Statement 3",
+    "query": "CREATE INDEX tbl_gist_idx ON tbl_gist using gist (c4) INCLUDE (c1,c2,c3)",
+    "expected": "CREATE INDEX tbl_gist_idx ON tbl_gist USING gist ( c4 ) INCLUDE (c1, c2, c3)"
+  },
+  {
+    "comment": "index_including_gist - Statement 4",
+    "query": "SELECT pg_get_indexdef(i.indexrelid) FROM pg_index i JOIN pg_class c ON i.indexrelid = c.oid WHERE i.indrelid = 'tbl_gist'::regclass ORDER BY c.relname",
+    "expected": "SELECT pg_get_indexdef(i.indexrelid) FROM pg_index AS i INNER JOIN pg_class AS c ON i.indexrelid = c.oid WHERE i.indrelid = CAST('tbl_gist' AS regclass) ORDER BY c.relname"
+  },
+  {
+    "comment": "index_including_gist - Statement 5",
+    "query": "SELECT * FROM tbl_gist where c4 \u003c@ box(point(1,1),point(10,10))",
+    "expected": "SELECT * FROM tbl_gist WHERE c4 \u003c@ box(point(1, 1), point(10, 10))"
+  },
+  {
+    "comment": "index_including_gist - Statement 6",
+    "query": "SET enable_bitmapscan TO off",
+    "expected": "SET enable_bitmapscan = off"
+  },
+  {
+    "comment": "index_including_gist - Statement 7",
+    "query": "EXPLAIN  (costs off) SELECT * FROM tbl_gist where c4 \u003c@ box(point(1,1),point(10,10))",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM tbl_gist WHERE c4 \u003c@ box(point(1, 1), point(10, 10))"
+  },
+  {
+    "comment": "index_including_gist - Statement 8",
+    "query": "SET enable_bitmapscan TO default",
+    "expected": "SET enable_bitmapscan = DEFAULT"
+  },
+  {
+    "comment": "index_including_gist - Statement 9",
+    "query": "DROP TABLE tbl_gist"
+  },
+  {
+    "comment": "index_including_gist - Statement 10",
+    "query": "/* * 1.2. test CREATE INDEX with inserts */ CREATE TABLE tbl_gist (c1 int, c2 int, c3 int, c4 box)",
+    "expected": "CREATE TABLE tbl_gist (c1 INT, c2 INT, c3 INT, c4 box)"
+  },
+  {
+    "comment": "index_including_gist - Statement 11",
+    "query": "/* * 2. CREATE INDEX CONCURRENTLY */ CREATE TABLE tbl_gist (c1 int, c2 int, c3 int, c4 box)",
+    "expected": "CREATE TABLE tbl_gist (c1 INT, c2 INT, c3 INT, c4 box)"
+  },
+  {
+    "comment": "index_including_gist - Statement 12",
+    "query": "INSERT INTO tbl_gist SELECT x, 2*x, 3*x, box(point(x,x+1),point(2*x,2*x+1)) FROM generate_series(1,10) AS x",
+    "expected": "INSERT INTO tbl_gist SELECT x, 2 * x, 3 * x, box(point(x, x + 1), point(2 * x, 2 * x + 1)) FROM generate_series(1, 10) AS x"
+  },
+  {
+    "comment": "index_including_gist - Statement 13",
+    "query": "CREATE INDEX CONCURRENTLY tbl_gist_idx ON tbl_gist using gist (c4) INCLUDE (c1,c2,c3)",
+    "expected": "CREATE INDEX CONCURRENTLY tbl_gist_idx ON tbl_gist USING gist ( c4 ) INCLUDE (c1, c2, c3)"
+  },
+  {
+    "comment": "index_including_gist - Statement 14",
+    "query": "SELECT indexdef FROM pg_indexes WHERE tablename = 'tbl_gist' ORDER BY indexname"
+  },
+  {
+    "comment": "index_including_gist - Statement 15",
+    "query": "/* * 3. REINDEX */ CREATE TABLE tbl_gist (c1 int, c2 int, c3 int, c4 box)",
+    "expected": "CREATE TABLE tbl_gist (c1 INT, c2 INT, c3 INT, c4 box)"
+  },
+  {
+    "comment": "index_including_gist - Statement 16",
+    "query": "CREATE INDEX tbl_gist_idx ON tbl_gist using gist (c4) INCLUDE (c1,c3)",
+    "expected": "CREATE INDEX tbl_gist_idx ON tbl_gist USING gist ( c4 ) INCLUDE (c1, c3)"
+  },
+  {
+    "comment": "index_including_gist - Statement 17",
+    "query": "REINDEX INDEX tbl_gist_idx"
+  },
+  {
+    "comment": "index_including_gist - Statement 18",
+    "query": "ALTER TABLE tbl_gist DROP COLUMN c1"
+  },
+  {
+    "comment": "index_including_gist - Statement 19",
+    "query": "/* * 4. Update, delete values in indexed table. */ CREATE TABLE tbl_gist (c1 int, c2 int, c3 int, c4 box)",
+    "expected": "CREATE TABLE tbl_gist (c1 INT, c2 INT, c3 INT, c4 box)"
+  },
+  {
+    "comment": "index_including_gist - Statement 20",
+    "query": "UPDATE tbl_gist SET c1 = 100 WHERE c1 = 2"
+  },
+  {
+    "comment": "index_including_gist - Statement 21",
+    "query": "UPDATE tbl_gist SET c1 = 1 WHERE c1 = 3"
+  },
+  {
+    "comment": "index_including_gist - Statement 22",
+    "query": "DELETE FROM tbl_gist WHERE c1 = 5 OR c3 = 12"
+  },
+  {
+    "comment": "index_including_gist - Statement 23",
+    "query": "/* * 5. Alter column type. */ CREATE TABLE tbl_gist (c1 int, c2 int, c3 int, c4 box)",
+    "expected": "CREATE TABLE tbl_gist (c1 INT, c2 INT, c3 INT, c4 box)"
+  },
+  {
+    "comment": "index_including_gist - Statement 24",
+    "query": "ALTER TABLE tbl_gist ALTER c1 TYPE bigint",
+    "expected": "ALTER TABLE tbl_gist ALTER COLUMN c1 TYPE BIGINT"
+  },
+  {
+    "comment": "index_including_gist - Statement 25",
+    "query": "ALTER TABLE tbl_gist ALTER c3 TYPE bigint",
+    "expected": "ALTER TABLE tbl_gist ALTER COLUMN c3 TYPE BIGINT"
+  },
+  {
+    "comment": "index_including_gist - Statement 26",
+    "query": "/* * 6. EXCLUDE constraint. */ CREATE TABLE tbl_gist (c1 int, c2 int, c3 int, c4 box, EXCLUDE USING gist (c4 WITH \u0026\u0026) INCLUDE (c1, c2, c3))",
+    "expected": "CREATE TABLE tbl_gist (c1 INT, c2 INT, c3 INT, c4 box, EXCLUDE USING gist (c4 WITH \u0026\u0026))"
+  },
+  {
+    "comment": "index_including_gist - Statement 27",
+    "query": "INSERT INTO tbl_gist SELECT x, 2*x, 3*x, box(point(3*x,2*x),point(3*x+1,2*x+1)) FROM generate_series(1,10) AS x",
+    "expected": "INSERT INTO tbl_gist SELECT x, 2 * x, 3 * x, box(point(3 * x, 2 * x), point(3 * x + 1, 2 * x + 1)) FROM generate_series(1, 10) AS x"
+  }
+]

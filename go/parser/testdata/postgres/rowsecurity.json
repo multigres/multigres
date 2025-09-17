@@ -1,0 +1,2784 @@
+[
+  {
+    "comment": "rowsecurity - Statement 1",
+    "query": "SET client_min_messages TO 'warning'",
+    "expected": "SET client_min_messages = 'warning'"
+  },
+  {
+    "comment": "rowsecurity - Statement 2",
+    "query": "DROP USER IF EXISTS regress_rls_alice",
+    "expected": "DROP ROLE IF EXISTS regress_rls_alice"
+  },
+  {
+    "comment": "rowsecurity - Statement 3",
+    "query": "DROP USER IF EXISTS regress_rls_bob",
+    "expected": "DROP ROLE IF EXISTS regress_rls_bob"
+  },
+  {
+    "comment": "rowsecurity - Statement 4",
+    "query": "DROP USER IF EXISTS regress_rls_carol",
+    "expected": "DROP ROLE IF EXISTS regress_rls_carol"
+  },
+  {
+    "comment": "rowsecurity - Statement 5",
+    "query": "DROP USER IF EXISTS regress_rls_dave",
+    "expected": "DROP ROLE IF EXISTS regress_rls_dave"
+  },
+  {
+    "comment": "rowsecurity - Statement 6",
+    "query": "DROP USER IF EXISTS regress_rls_exempt_user",
+    "expected": "DROP ROLE IF EXISTS regress_rls_exempt_user"
+  },
+  {
+    "comment": "rowsecurity - Statement 7",
+    "query": "DROP ROLE IF EXISTS regress_rls_group1"
+  },
+  {
+    "comment": "rowsecurity - Statement 8",
+    "query": "DROP ROLE IF EXISTS regress_rls_group2"
+  },
+  {
+    "comment": "rowsecurity - Statement 9",
+    "query": "DROP SCHEMA IF EXISTS regress_rls_schema CASCADE"
+  },
+  {
+    "comment": "rowsecurity - Statement 10",
+    "query": "RESET client_min_messages"
+  },
+  {
+    "comment": "rowsecurity - Statement 11",
+    "query": "CREATE USER regress_rls_alice NOLOGIN"
+  },
+  {
+    "comment": "rowsecurity - Statement 12",
+    "query": "CREATE USER regress_rls_bob NOLOGIN"
+  },
+  {
+    "comment": "rowsecurity - Statement 13",
+    "query": "CREATE USER regress_rls_carol NOLOGIN"
+  },
+  {
+    "comment": "rowsecurity - Statement 14",
+    "query": "CREATE USER regress_rls_dave NOLOGIN"
+  },
+  {
+    "comment": "rowsecurity - Statement 15",
+    "query": "CREATE USER regress_rls_exempt_user BYPASSRLS NOLOGIN"
+  },
+  {
+    "comment": "rowsecurity - Statement 16",
+    "query": "CREATE ROLE regress_rls_group1 NOLOGIN"
+  },
+  {
+    "comment": "rowsecurity - Statement 17",
+    "query": "CREATE ROLE regress_rls_group2 NOLOGIN"
+  },
+  {
+    "comment": "rowsecurity - Statement 18",
+    "query": "GRANT regress_rls_group1 TO regress_rls_bob"
+  },
+  {
+    "comment": "rowsecurity - Statement 19",
+    "query": "GRANT regress_rls_group2 TO regress_rls_carol"
+  },
+  {
+    "comment": "rowsecurity - Statement 20",
+    "query": "CREATE SCHEMA regress_rls_schema"
+  },
+  {
+    "comment": "rowsecurity - Statement 21",
+    "query": "GRANT ALL ON SCHEMA regress_rls_schema to public",
+    "expected": "GRANT ALL ON SCHEMA regress_rls_schema TO PUBLIC"
+  },
+  {
+    "comment": "rowsecurity - Statement 22",
+    "query": "SET search_path = regress_rls_schema",
+    "expected": "SET SCHEMA 'regress_rls_schema'"
+  },
+  {
+    "comment": "rowsecurity - Statement 23",
+    "query": "CREATE OR REPLACE FUNCTION f_leak(text) RETURNS bool COST 0.0000001 LANGUAGE plpgsql AS 'BEGIN RAISE NOTICE ''f_leak =\u003e %'', $1; RETURN true; END'",
+    "expected": "CREATE OR REPLACE FUNCTION f_leak (TEXT) RETURNS BOOLEAN COST 0.0000001 LANGUAGE plpgsql AS $$BEGIN RAISE NOTICE 'f_leak =\u003e %', $1; RETURN true; END$$"
+  },
+  {
+    "comment": "rowsecurity - Statement 24",
+    "query": "GRANT EXECUTE ON FUNCTION f_leak(text) TO public",
+    "expected": "GRANT EXECUTE ON FUNCTION f_leak(TEXT) TO PUBLIC"
+  },
+  {
+    "comment": "rowsecurity - Statement 25",
+    "query": "SET SESSION AUTHORIZATION regress_rls_alice",
+    "expected": "SET SESSION AUTHORIZATION 'regress_rls_alice'"
+  },
+  {
+    "comment": "rowsecurity - Statement 26",
+    "query": "CREATE TABLE uaccount ( pguser      name primary key, seclv       int )",
+    "expected": "CREATE TABLE uaccount (pguser name PRIMARY KEY, seclv INT)"
+  },
+  {
+    "comment": "rowsecurity - Statement 27",
+    "query": "GRANT SELECT ON uaccount TO public",
+    "expected": "GRANT SELECT ON uaccount TO PUBLIC"
+  },
+  {
+    "comment": "rowsecurity - Statement 28",
+    "query": "INSERT INTO uaccount VALUES ('regress_rls_alice', 99), ('regress_rls_bob', 1), ('regress_rls_carol', 2), ('regress_rls_dave', 3)"
+  },
+  {
+    "comment": "rowsecurity - Statement 29",
+    "query": "CREATE TABLE category ( cid        int primary key, cname      text )",
+    "expected": "CREATE TABLE category (cid INT PRIMARY KEY, cname TEXT)"
+  },
+  {
+    "comment": "rowsecurity - Statement 30",
+    "query": "GRANT ALL ON category TO public",
+    "expected": "GRANT ALL ON category TO PUBLIC"
+  },
+  {
+    "comment": "rowsecurity - Statement 31",
+    "query": "INSERT INTO category VALUES (11, 'novel'), (22, 'science fiction'), (33, 'technology'), (44, 'manga')"
+  },
+  {
+    "comment": "rowsecurity - Statement 32",
+    "query": "CREATE TABLE document ( did         int primary key, cid         int references category(cid), dlevel      int not null, dauthor     name, dtitle      text )",
+    "expected": "CREATE TABLE document (did INT PRIMARY KEY, cid INT REFERENCES category(cid), dlevel INT NOT NULL, dauthor name, dtitle TEXT)"
+  },
+  {
+    "comment": "rowsecurity - Statement 33",
+    "query": "GRANT ALL ON document TO public",
+    "expected": "GRANT ALL ON document TO PUBLIC"
+  },
+  {
+    "comment": "rowsecurity - Statement 34",
+    "query": "INSERT INTO document VALUES ( 1, 11, 1, 'regress_rls_bob', 'my first novel'), ( 2, 11, 2, 'regress_rls_bob', 'my second novel'), ( 3, 22, 2, 'regress_rls_bob', 'my science fiction'), ( 4, 44, 1, 'regress_rls_bob', 'my first manga'), ( 5, 44, 2, 'regress_rls_bob', 'my second manga'), ( 6, 22, 1, 'regress_rls_carol', 'great science fiction'), ( 7, 33, 2, 'regress_rls_carol', 'great technology book'), ( 8, 44, 1, 'regress_rls_carol', 'great manga'), ( 9, 22, 1, 'regress_rls_dave', 'awesome science fiction'), (10, 33, 2, 'regress_rls_dave', 'awesome technology book')",
+    "expected": "INSERT INTO document VALUES (1, 11, 1, 'regress_rls_bob', 'my first novel'), (2, 11, 2, 'regress_rls_bob', 'my second novel'), (3, 22, 2, 'regress_rls_bob', 'my science fiction'), (4, 44, 1, 'regress_rls_bob', 'my first manga'), (5, 44, 2, 'regress_rls_bob', 'my second manga'), (6, 22, 1, 'regress_rls_carol', 'great science fiction'), (7, 33, 2, 'regress_rls_carol', 'great technology book'), (8, 44, 1, 'regress_rls_carol', 'great manga'), (9, 22, 1, 'regress_rls_dave', 'awesome science fiction'), (10, 33, 2, 'regress_rls_dave', 'awesome technology book')"
+  },
+  {
+    "comment": "rowsecurity - Statement 35",
+    "query": "ALTER TABLE document ENABLE ROW LEVEL SECURITY"
+  },
+  {
+    "comment": "rowsecurity - Statement 36",
+    "query": "CREATE POLICY p1 ON document AS PERMISSIVE USING (dlevel \u003c= (SELECT seclv FROM uaccount WHERE pguser = current_user))",
+    "expected": "CREATE POLICY p1 ON document AS PERMISSIVE FOR all TO PUBLIC USING ( dlevel \u003c= (SELECT seclv FROM uaccount WHERE pguser = CURRENT_USER) )"
+  },
+  {
+    "comment": "rowsecurity - Statement 37",
+    "query": "CREATE POLICY p1 ON document AS UGLY USING (dlevel \u003c= (SELECT seclv FROM uaccount WHERE pguser = current_user))",
+    "error": "parse error at position 36: unrecognized row security option"
+  },
+  {
+    "comment": "rowsecurity - Statement 38",
+    "query": "CREATE POLICY p2r ON document AS RESTRICTIVE TO regress_rls_dave USING (cid \u003c\u003e 44 AND cid \u003c 50)",
+    "expected": "CREATE POLICY p2r ON document AS RESTRICTIVE FOR all TO regress_rls_dave USING ( cid \u003c\u003e 44 AND cid \u003c 50 )"
+  },
+  {
+    "comment": "rowsecurity - Statement 39",
+    "query": "CREATE POLICY p1r ON document AS RESTRICTIVE TO regress_rls_dave USING (cid \u003c\u003e 44)",
+    "expected": "CREATE POLICY p1r ON document AS RESTRICTIVE FOR all TO regress_rls_dave USING ( cid \u003c\u003e 44 )"
+  },
+  {
+    "comment": "rowsecurity - Statement 40",
+    "query": "SET SESSION AUTHORIZATION regress_rls_bob",
+    "expected": "SET SESSION AUTHORIZATION 'regress_rls_bob'"
+  },
+  {
+    "comment": "rowsecurity - Statement 41",
+    "query": "SET row_security TO ON",
+    "expected": "SET row_security = on"
+  },
+  {
+    "comment": "rowsecurity - Statement 42",
+    "query": "SELECT * FROM document WHERE f_leak(dtitle) ORDER BY did"
+  },
+  {
+    "comment": "rowsecurity - Statement 43",
+    "query": "SELECT * FROM document NATURAL JOIN category WHERE f_leak(dtitle) ORDER BY did"
+  },
+  {
+    "comment": "rowsecurity - Statement 44",
+    "query": "SELECT * FROM document TABLESAMPLE BERNOULLI(50) REPEATABLE(0) WHERE f_leak(dtitle) ORDER BY did",
+    "expected": "SELECT * FROM document TABLESAMPLE bernoulli (50) REPEATABLE (0) WHERE f_leak(dtitle) ORDER BY did"
+  },
+  {
+    "comment": "rowsecurity - Statement 45",
+    "query": "SET SESSION AUTHORIZATION regress_rls_carol",
+    "expected": "SET SESSION AUTHORIZATION 'regress_rls_carol'"
+  },
+  {
+    "comment": "rowsecurity - Statement 46",
+    "query": "EXPLAIN (COSTS OFF) SELECT * FROM document WHERE f_leak(dtitle)",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM document WHERE f_leak(dtitle)"
+  },
+  {
+    "comment": "rowsecurity - Statement 47",
+    "query": "EXPLAIN (COSTS OFF) SELECT * FROM document NATURAL JOIN category WHERE f_leak(dtitle)",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM document NATURAL JOIN category WHERE f_leak(dtitle)"
+  },
+  {
+    "comment": "rowsecurity - Statement 48",
+    "query": "SET SESSION AUTHORIZATION regress_rls_dave",
+    "expected": "SET SESSION AUTHORIZATION 'regress_rls_dave'"
+  },
+  {
+    "comment": "rowsecurity - Statement 49",
+    "query": "INSERT INTO document VALUES (100, 44, 1, 'regress_rls_dave', 'testing sorting of policies')"
+  },
+  {
+    "comment": "rowsecurity - Statement 50",
+    "query": "INSERT INTO document VALUES (100, 55, 1, 'regress_rls_dave', 'testing sorting of policies')"
+  },
+  {
+    "comment": "rowsecurity - Statement 51",
+    "query": "ALTER POLICY p1 ON document USING (true)",
+    "expected": "ALTER POLICY p1 ON document USING ( TRUE )"
+  },
+  {
+    "comment": "rowsecurity - Statement 52",
+    "query": "DROP POLICY p1 ON document"
+  },
+  {
+    "comment": "rowsecurity - Statement 53",
+    "query": "ALTER POLICY p1 ON document USING (dauthor = current_user)",
+    "expected": "ALTER POLICY p1 ON document USING ( dauthor = CURRENT_USER )"
+  },
+  {
+    "comment": "rowsecurity - Statement 54",
+    "query": "CREATE POLICY p2 ON category USING (CASE WHEN current_user = 'regress_rls_bob' THEN cid IN (11, 33) WHEN current_user = 'regress_rls_carol' THEN cid IN (22, 44) ELSE false END)",
+    "expected": "CREATE POLICY p2 ON category AS PERMISSIVE FOR all TO PUBLIC USING ( CASE WHEN CURRENT_USER = 'regress_rls_bob' THEN cid IN (11, 33) WHEN CURRENT_USER = 'regress_rls_carol' THEN cid IN (22, 44) ELSE FALSE END )"
+  },
+  {
+    "comment": "rowsecurity - Statement 55",
+    "query": "ALTER TABLE category ENABLE ROW LEVEL SECURITY"
+  },
+  {
+    "comment": "rowsecurity - Statement 56",
+    "query": "SELECT * FROM document d FULL OUTER JOIN category c on d.cid = c.cid ORDER BY d.did, c.cid",
+    "expected": "SELECT * FROM document AS d FULL OUTER JOIN category AS c ON d.cid = c.cid ORDER BY d.did, c.cid"
+  },
+  {
+    "comment": "rowsecurity - Statement 57",
+    "query": "DELETE FROM category WHERE cid = 33"
+  },
+  {
+    "comment": "rowsecurity - Statement 58",
+    "query": "INSERT INTO document VALUES (11, 33, 1, current_user, 'hoge')",
+    "expected": "INSERT INTO document VALUES (11, 33, 1, CURRENT_USER, 'hoge')"
+  },
+  {
+    "comment": "rowsecurity - Statement 59",
+    "query": "INSERT INTO document VALUES (8, 44, 1, 'regress_rls_bob', 'my third manga')"
+  },
+  {
+    "comment": "rowsecurity - Statement 60",
+    "query": "SELECT * FROM document WHERE did = 8"
+  },
+  {
+    "comment": "rowsecurity - Statement 61",
+    "query": "INSERT INTO document VALUES (8, 44, 1, 'regress_rls_carol', 'my third manga')"
+  },
+  {
+    "comment": "rowsecurity - Statement 62",
+    "query": "UPDATE document SET did = 8, dauthor = 'regress_rls_carol' WHERE did = 5"
+  },
+  {
+    "comment": "rowsecurity - Statement 63",
+    "query": "RESET SESSION AUTHORIZATION",
+    "expected": "RESET session_authorization"
+  },
+  {
+    "comment": "rowsecurity - Statement 64",
+    "query": "SELECT * FROM document"
+  },
+  {
+    "comment": "rowsecurity - Statement 65",
+    "query": "SELECT * FROM category"
+  },
+  {
+    "comment": "rowsecurity - Statement 66",
+    "query": "SET row_security TO OFF",
+    "expected": "SET row_security = off"
+  },
+  {
+    "comment": "rowsecurity - Statement 67",
+    "query": "SET SESSION AUTHORIZATION regress_rls_exempt_user",
+    "expected": "SET SESSION AUTHORIZATION 'regress_rls_exempt_user'"
+  },
+  {
+    "comment": "rowsecurity - Statement 68",
+    "query": "CREATE TABLE t1 (id int not null primary key, a int, junk1 text, b text)",
+    "expected": "CREATE TABLE t1 (id INT NOT NULL PRIMARY KEY, a INT, junk1 TEXT, b TEXT)"
+  },
+  {
+    "comment": "rowsecurity - Statement 69",
+    "query": "ALTER TABLE t1 DROP COLUMN junk1"
+  },
+  {
+    "comment": "rowsecurity - Statement 70",
+    "query": "GRANT ALL ON t1 TO public",
+    "expected": "GRANT ALL ON t1 TO PUBLIC"
+  },
+  {
+    "comment": "rowsecurity - Statement 71",
+    "query": "COPY t1 FROM stdin WITH",
+    "expected": "COPY t1 FROM STDIN"
+  },
+  {
+    "comment": "rowsecurity - Statement 72",
+    "query": "CREATE TABLE t2 (c float) INHERITS (t1)",
+    "expected": "CREATE TABLE t2 (c FLOAT8) INHERITS (t1)"
+  },
+  {
+    "comment": "rowsecurity - Statement 73",
+    "query": "GRANT ALL ON t2 TO public",
+    "expected": "GRANT ALL ON t2 TO PUBLIC"
+  },
+  {
+    "comment": "rowsecurity - Statement 74",
+    "query": "COPY t2 FROM stdin",
+    "expected": "COPY t2 FROM STDIN"
+  },
+  {
+    "comment": "rowsecurity - Statement 75",
+    "query": "CREATE TABLE t3 (id int not null primary key, c text, b text, a int)",
+    "expected": "CREATE TABLE t3 (id INT NOT NULL PRIMARY KEY, c TEXT, b TEXT, a INT)"
+  },
+  {
+    "comment": "rowsecurity - Statement 76",
+    "query": "ALTER TABLE t3 INHERIT t1"
+  },
+  {
+    "comment": "rowsecurity - Statement 77",
+    "query": "GRANT ALL ON t3 TO public",
+    "expected": "GRANT ALL ON t3 TO PUBLIC"
+  },
+  {
+    "comment": "rowsecurity - Statement 78",
+    "query": "COPY t3(id, a,b,c) FROM stdin",
+    "expected": "COPY t3 (id, a, b, c) FROM STDIN"
+  },
+  {
+    "comment": "rowsecurity - Statement 79",
+    "query": "CREATE POLICY p1 ON t1 FOR ALL TO PUBLIC USING (a % 2 = 0)",
+    "expected": "CREATE POLICY p1 ON t1 AS PERMISSIVE FOR all TO PUBLIC USING ( a % 2 = 0 )"
+  },
+  {
+    "comment": "rowsecurity - Statement 80",
+    "query": "CREATE POLICY p2 ON t2 FOR ALL TO PUBLIC USING (a % 2 = 1)",
+    "expected": "CREATE POLICY p2 ON t2 AS PERMISSIVE FOR all TO PUBLIC USING ( a % 2 = 1 )"
+  },
+  {
+    "comment": "rowsecurity - Statement 81",
+    "query": "ALTER TABLE t1 ENABLE ROW LEVEL SECURITY"
+  },
+  {
+    "comment": "rowsecurity - Statement 82",
+    "query": "ALTER TABLE t2 ENABLE ROW LEVEL SECURITY"
+  },
+  {
+    "comment": "rowsecurity - Statement 83",
+    "query": "SELECT * FROM t1"
+  },
+  {
+    "comment": "rowsecurity - Statement 84",
+    "query": "EXPLAIN (COSTS OFF) SELECT * FROM t1",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM t1"
+  },
+  {
+    "comment": "rowsecurity - Statement 85",
+    "query": "SELECT * FROM t1 WHERE f_leak(b)"
+  },
+  {
+    "comment": "rowsecurity - Statement 86",
+    "query": "EXPLAIN (COSTS OFF) SELECT * FROM t1 WHERE f_leak(b)",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM t1 WHERE f_leak(b)"
+  },
+  {
+    "comment": "rowsecurity - Statement 87",
+    "query": "SELECT tableoid::regclass, * FROM t1",
+    "expected": "SELECT CAST(tableoid AS regclass), * FROM t1"
+  },
+  {
+    "comment": "rowsecurity - Statement 88",
+    "query": "EXPLAIN (COSTS OFF) SELECT *, t1 FROM t1",
+    "expected": "EXPLAIN (COSTS false) SELECT *, t1 FROM t1"
+  },
+  {
+    "comment": "rowsecurity - Statement 89",
+    "query": "SELECT *, t1 FROM t1"
+  },
+  {
+    "comment": "rowsecurity - Statement 90",
+    "query": "SELECT * FROM t1 FOR SHARE"
+  },
+  {
+    "comment": "rowsecurity - Statement 91",
+    "query": "EXPLAIN (COSTS OFF) SELECT * FROM t1 FOR SHARE",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM t1 FOR SHARE"
+  },
+  {
+    "comment": "rowsecurity - Statement 92",
+    "query": "SELECT * FROM t1 WHERE f_leak(b) FOR SHARE"
+  },
+  {
+    "comment": "rowsecurity - Statement 93",
+    "query": "EXPLAIN (COSTS OFF) SELECT * FROM t1 WHERE f_leak(b) FOR SHARE",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM t1 WHERE f_leak(b) FOR SHARE"
+  },
+  {
+    "comment": "rowsecurity - Statement 94",
+    "query": "SELECT a, b, tableoid::regclass FROM t2 UNION ALL SELECT a, b, tableoid::regclass FROM t3",
+    "expected": "SELECT a, b, CAST(tableoid AS regclass) FROM t2 UNION ALL SELECT a, b, CAST(tableoid AS regclass) FROM t3"
+  },
+  {
+    "comment": "rowsecurity - Statement 95",
+    "query": "EXPLAIN (COSTS OFF) SELECT a, b, tableoid::regclass FROM t2 UNION ALL SELECT a, b, tableoid::regclass FROM t3",
+    "expected": "EXPLAIN (COSTS false) SELECT a, b, CAST(tableoid AS regclass) FROM t2 UNION ALL SELECT a, b, CAST(tableoid AS regclass) FROM t3"
+  },
+  {
+    "comment": "rowsecurity - Statement 96",
+    "query": "CREATE TABLE part_document ( did         int, cid         int, dlevel      int not null, dauthor     name, dtitle      text ) PARTITION BY RANGE (cid)",
+    "expected": "CREATE TABLE part_document (did INT, cid INT, dlevel INT NOT NULL, dauthor name, dtitle TEXT) PARTITION BY range (cid)"
+  },
+  {
+    "comment": "rowsecurity - Statement 97",
+    "query": "GRANT ALL ON part_document TO public",
+    "expected": "GRANT ALL ON part_document TO PUBLIC"
+  },
+  {
+    "comment": "rowsecurity - Statement 98",
+    "query": "CREATE TABLE part_document_fiction PARTITION OF part_document FOR VALUES FROM (11) to (12)",
+    "expected": "CREATE TABLE part_document_fiction PARTITION OF part_document FOR VALUES FROM (11) TO (12)"
+  },
+  {
+    "comment": "rowsecurity - Statement 99",
+    "query": "CREATE TABLE part_document_satire PARTITION OF part_document FOR VALUES FROM (55) to (56)",
+    "expected": "CREATE TABLE part_document_satire PARTITION OF part_document FOR VALUES FROM (55) TO (56)"
+  },
+  {
+    "comment": "rowsecurity - Statement 100",
+    "query": "CREATE TABLE part_document_nonfiction PARTITION OF part_document FOR VALUES FROM (99) to (100)",
+    "expected": "CREATE TABLE part_document_nonfiction PARTITION OF part_document FOR VALUES FROM (99) TO (100)"
+  },
+  {
+    "comment": "rowsecurity - Statement 101",
+    "query": "GRANT ALL ON part_document_fiction TO public",
+    "expected": "GRANT ALL ON part_document_fiction TO PUBLIC"
+  },
+  {
+    "comment": "rowsecurity - Statement 102",
+    "query": "GRANT ALL ON part_document_satire TO public",
+    "expected": "GRANT ALL ON part_document_satire TO PUBLIC"
+  },
+  {
+    "comment": "rowsecurity - Statement 103",
+    "query": "GRANT ALL ON part_document_nonfiction TO public",
+    "expected": "GRANT ALL ON part_document_nonfiction TO PUBLIC"
+  },
+  {
+    "comment": "rowsecurity - Statement 104",
+    "query": "INSERT INTO part_document VALUES ( 1, 11, 1, 'regress_rls_bob', 'my first novel'), ( 2, 11, 2, 'regress_rls_bob', 'my second novel'), ( 3, 99, 2, 'regress_rls_bob', 'my science textbook'), ( 4, 55, 1, 'regress_rls_bob', 'my first satire'), ( 5, 99, 2, 'regress_rls_bob', 'my history book'), ( 6, 11, 1, 'regress_rls_carol', 'great science fiction'), ( 7, 99, 2, 'regress_rls_carol', 'great technology book'), ( 8, 55, 2, 'regress_rls_carol', 'great satire'), ( 9, 11, 1, 'regress_rls_dave', 'awesome science fiction'), (10, 99, 2, 'regress_rls_dave', 'awesome technology book')",
+    "expected": "INSERT INTO part_document VALUES (1, 11, 1, 'regress_rls_bob', 'my first novel'), (2, 11, 2, 'regress_rls_bob', 'my second novel'), (3, 99, 2, 'regress_rls_bob', 'my science textbook'), (4, 55, 1, 'regress_rls_bob', 'my first satire'), (5, 99, 2, 'regress_rls_bob', 'my history book'), (6, 11, 1, 'regress_rls_carol', 'great science fiction'), (7, 99, 2, 'regress_rls_carol', 'great technology book'), (8, 55, 2, 'regress_rls_carol', 'great satire'), (9, 11, 1, 'regress_rls_dave', 'awesome science fiction'), (10, 99, 2, 'regress_rls_dave', 'awesome technology book')"
+  },
+  {
+    "comment": "rowsecurity - Statement 105",
+    "query": "ALTER TABLE part_document ENABLE ROW LEVEL SECURITY"
+  },
+  {
+    "comment": "rowsecurity - Statement 106",
+    "query": "CREATE POLICY pp1 ON part_document AS PERMISSIVE USING (dlevel \u003c= (SELECT seclv FROM uaccount WHERE pguser = current_user))",
+    "expected": "CREATE POLICY pp1 ON part_document AS PERMISSIVE FOR all TO PUBLIC USING ( dlevel \u003c= (SELECT seclv FROM uaccount WHERE pguser = CURRENT_USER) )"
+  },
+  {
+    "comment": "rowsecurity - Statement 107",
+    "query": "CREATE POLICY pp1r ON part_document AS RESTRICTIVE TO regress_rls_dave USING (cid \u003c 55)",
+    "expected": "CREATE POLICY pp1r ON part_document AS RESTRICTIVE FOR all TO regress_rls_dave USING ( cid \u003c 55 )"
+  },
+  {
+    "comment": "rowsecurity - Statement 108",
+    "query": "SELECT * FROM part_document WHERE f_leak(dtitle) ORDER BY did"
+  },
+  {
+    "comment": "rowsecurity - Statement 109",
+    "query": "EXPLAIN (COSTS OFF) SELECT * FROM part_document WHERE f_leak(dtitle)",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM part_document WHERE f_leak(dtitle)"
+  },
+  {
+    "comment": "rowsecurity - Statement 110",
+    "query": "INSERT INTO part_document VALUES (100, 11, 5, 'regress_rls_dave', 'testing pp1')"
+  },
+  {
+    "comment": "rowsecurity - Statement 111",
+    "query": "INSERT INTO part_document VALUES (100, 99, 1, 'regress_rls_dave', 'testing pp1r')"
+  },
+  {
+    "comment": "rowsecurity - Statement 112",
+    "query": "INSERT INTO part_document VALUES (100, 55, 1, 'regress_rls_dave', 'testing RLS with partitions')"
+  },
+  {
+    "comment": "rowsecurity - Statement 113",
+    "query": "INSERT INTO part_document_satire VALUES (100, 55, 1, 'regress_rls_dave', 'testing RLS with partitions')"
+  },
+  {
+    "comment": "rowsecurity - Statement 114",
+    "query": "SELECT * FROM part_document_satire WHERE f_leak(dtitle) ORDER BY did"
+  },
+  {
+    "comment": "rowsecurity - Statement 115",
+    "query": "ALTER TABLE part_document_satire ENABLE ROW LEVEL SECURITY"
+  },
+  {
+    "comment": "rowsecurity - Statement 116",
+    "query": "CREATE POLICY pp3 ON part_document_satire AS RESTRICTIVE USING (cid \u003c 55)",
+    "expected": "CREATE POLICY pp3 ON part_document_satire AS RESTRICTIVE FOR all TO PUBLIC USING ( cid \u003c 55 )"
+  },
+  {
+    "comment": "rowsecurity - Statement 117",
+    "query": "INSERT INTO part_document_satire VALUES (101, 55, 1, 'regress_rls_dave', 'testing RLS with partitions')"
+  },
+  {
+    "comment": "rowsecurity - Statement 118",
+    "query": "ALTER POLICY pp1 ON part_document USING (true)",
+    "expected": "ALTER POLICY pp1 ON part_document USING ( TRUE )"
+  },
+  {
+    "comment": "rowsecurity - Statement 119",
+    "query": "DROP POLICY pp1 ON part_document"
+  },
+  {
+    "comment": "rowsecurity - Statement 120",
+    "query": "ALTER POLICY pp1 ON part_document USING (dauthor = current_user)",
+    "expected": "ALTER POLICY pp1 ON part_document USING ( dauthor = CURRENT_USER )"
+  },
+  {
+    "comment": "rowsecurity - Statement 121",
+    "query": "SELECT * FROM part_document ORDER BY did"
+  },
+  {
+    "comment": "rowsecurity - Statement 122",
+    "query": "SELECT * FROM part_document_satire ORDER by did",
+    "expected": "SELECT * FROM part_document_satire ORDER BY did"
+  },
+  {
+    "comment": "rowsecurity - Statement 123",
+    "query": "CREATE POLICY pp3 ON part_document AS RESTRICTIVE USING ((SELECT dlevel \u003c= seclv FROM uaccount WHERE pguser = current_user))",
+    "expected": "CREATE POLICY pp3 ON part_document AS RESTRICTIVE FOR all TO PUBLIC USING ( (SELECT dlevel \u003c= seclv FROM uaccount WHERE pguser = CURRENT_USER) )"
+  },
+  {
+    "comment": "rowsecurity - Statement 124",
+    "query": "INSERT INTO part_document VALUES (100, 11, 5, 'regress_rls_carol', 'testing pp3')"
+  },
+  {
+    "comment": "rowsecurity - Statement 125",
+    "query": "CREATE TABLE dependee (x integer, y integer)",
+    "expected": "CREATE TABLE dependee (x INT, y INT)"
+  },
+  {
+    "comment": "rowsecurity - Statement 126",
+    "query": "CREATE TABLE dependent (x integer, y integer)",
+    "expected": "CREATE TABLE dependent (x INT, y INT)"
+  },
+  {
+    "comment": "rowsecurity - Statement 127",
+    "query": "CREATE POLICY d1 ON dependent FOR ALL TO PUBLIC USING (x = (SELECT d.x FROM dependee d WHERE d.y = y))",
+    "expected": "CREATE POLICY d1 ON dependent AS PERMISSIVE FOR all TO PUBLIC USING ( x = (SELECT d.x FROM dependee AS d WHERE d.y = y) )"
+  },
+  {
+    "comment": "rowsecurity - Statement 128",
+    "query": "DROP TABLE dependee"
+  },
+  {
+    "comment": "rowsecurity - Statement 129",
+    "query": "DROP TABLE dependee CASCADE"
+  },
+  {
+    "comment": "rowsecurity - Statement 130",
+    "query": "EXPLAIN (COSTS OFF) SELECT * FROM dependent",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM dependent"
+  },
+  {
+    "comment": "rowsecurity - Statement 131",
+    "query": "CREATE TABLE rec1 (x integer, y integer)",
+    "expected": "CREATE TABLE rec1 (x INT, y INT)"
+  },
+  {
+    "comment": "rowsecurity - Statement 132",
+    "query": "CREATE POLICY r1 ON rec1 USING (x = (SELECT r.x FROM rec1 r WHERE y = r.y))",
+    "expected": "CREATE POLICY r1 ON rec1 AS PERMISSIVE FOR all TO PUBLIC USING ( x = (SELECT r.x FROM rec1 AS r WHERE y = r.y) )"
+  },
+  {
+    "comment": "rowsecurity - Statement 133",
+    "query": "ALTER TABLE rec1 ENABLE ROW LEVEL SECURITY"
+  },
+  {
+    "comment": "rowsecurity - Statement 134",
+    "query": "SELECT * FROM rec1"
+  },
+  {
+    "comment": "rowsecurity - Statement 135",
+    "query": "CREATE TABLE rec2 (a integer, b integer)",
+    "expected": "CREATE TABLE rec2 (a INT, b INT)"
+  },
+  {
+    "comment": "rowsecurity - Statement 136",
+    "query": "ALTER POLICY r1 ON rec1 USING (x = (SELECT a FROM rec2 WHERE b = y))",
+    "expected": "ALTER POLICY r1 ON rec1 USING ( x = (SELECT a FROM rec2 WHERE b = y) )"
+  },
+  {
+    "comment": "rowsecurity - Statement 137",
+    "query": "CREATE POLICY r2 ON rec2 USING (a = (SELECT x FROM rec1 WHERE y = b))",
+    "expected": "CREATE POLICY r2 ON rec2 AS PERMISSIVE FOR all TO PUBLIC USING ( a = (SELECT x FROM rec1 WHERE y = b) )"
+  },
+  {
+    "comment": "rowsecurity - Statement 138",
+    "query": "ALTER TABLE rec2 ENABLE ROW LEVEL SECURITY"
+  },
+  {
+    "comment": "rowsecurity - Statement 139",
+    "query": "CREATE VIEW rec1v AS SELECT * FROM rec1"
+  },
+  {
+    "comment": "rowsecurity - Statement 140",
+    "query": "CREATE VIEW rec2v AS SELECT * FROM rec2"
+  },
+  {
+    "comment": "rowsecurity - Statement 141",
+    "query": "ALTER POLICY r1 ON rec1 USING (x = (SELECT a FROM rec2v WHERE b = y))",
+    "expected": "ALTER POLICY r1 ON rec1 USING ( x = (SELECT a FROM rec2v WHERE b = y) )"
+  },
+  {
+    "comment": "rowsecurity - Statement 142",
+    "query": "ALTER POLICY r2 ON rec2 USING (a = (SELECT x FROM rec1v WHERE y = b))",
+    "expected": "ALTER POLICY r2 ON rec2 USING ( a = (SELECT x FROM rec1v WHERE y = b) )"
+  },
+  {
+    "comment": "rowsecurity - Statement 143",
+    "query": "DROP VIEW rec1v, rec2v CASCADE"
+  },
+  {
+    "comment": "rowsecurity - Statement 144",
+    "query": "CREATE VIEW rec1v WITH (security_barrier) AS SELECT * FROM rec1",
+    "expected": "CREATE VIEW rec1v WITH ( security_barrier) AS SELECT * FROM rec1"
+  },
+  {
+    "comment": "rowsecurity - Statement 145",
+    "query": "CREATE VIEW rec2v WITH (security_barrier) AS SELECT * FROM rec2",
+    "expected": "CREATE VIEW rec2v WITH ( security_barrier) AS SELECT * FROM rec2"
+  },
+  {
+    "comment": "rowsecurity - Statement 146",
+    "query": "CREATE POLICY r1 ON rec1 USING (x = (SELECT a FROM rec2v WHERE b = y))",
+    "expected": "CREATE POLICY r1 ON rec1 AS PERMISSIVE FOR all TO PUBLIC USING ( x = (SELECT a FROM rec2v WHERE b = y) )"
+  },
+  {
+    "comment": "rowsecurity - Statement 147",
+    "query": "CREATE POLICY r2 ON rec2 USING (a = (SELECT x FROM rec1v WHERE y = b))",
+    "expected": "CREATE POLICY r2 ON rec2 AS PERMISSIVE FOR all TO PUBLIC USING ( a = (SELECT x FROM rec1v WHERE y = b) )"
+  },
+  {
+    "comment": "rowsecurity - Statement 148",
+    "query": "CREATE TABLE s1 (a int, b text)",
+    "expected": "CREATE TABLE s1 (a INT, b TEXT)"
+  },
+  {
+    "comment": "rowsecurity - Statement 149",
+    "query": "INSERT INTO s1 (SELECT x, public.fipshash(x::text) FROM generate_series(-10,10) x)",
+    "expected": "INSERT INTO s1 SELECT x, public.fipshash(CAST(x AS TEXT)) FROM generate_series(-10, 10) AS x"
+  },
+  {
+    "comment": "rowsecurity - Statement 150",
+    "query": "CREATE TABLE s2 (x int, y text)",
+    "expected": "CREATE TABLE s2 (x INT, y TEXT)"
+  },
+  {
+    "comment": "rowsecurity - Statement 151",
+    "query": "INSERT INTO s2 (SELECT x, public.fipshash(x::text) FROM generate_series(-6,6) x)",
+    "expected": "INSERT INTO s2 SELECT x, public.fipshash(CAST(x AS TEXT)) FROM generate_series(-6, 6) AS x"
+  },
+  {
+    "comment": "rowsecurity - Statement 152",
+    "query": "GRANT SELECT ON s1, s2 TO regress_rls_bob"
+  },
+  {
+    "comment": "rowsecurity - Statement 153",
+    "query": "CREATE POLICY p1 ON s1 USING (a in (select x from s2 where y like '%2f%'))",
+    "expected": "CREATE POLICY p1 ON s1 AS PERMISSIVE FOR all TO PUBLIC USING ( a IN (SELECT x FROM s2 WHERE y LIKE '%2f%') )"
+  },
+  {
+    "comment": "rowsecurity - Statement 154",
+    "query": "CREATE POLICY p2 ON s2 USING (x in (select a from s1 where b like '%22%'))",
+    "expected": "CREATE POLICY p2 ON s2 AS PERMISSIVE FOR all TO PUBLIC USING ( x IN (SELECT a FROM s1 WHERE b LIKE '%22%') )"
+  },
+  {
+    "comment": "rowsecurity - Statement 155",
+    "query": "CREATE POLICY p3 ON s1 FOR INSERT WITH CHECK (a = (SELECT a FROM s1))",
+    "expected": "CREATE POLICY p3 ON s1 AS PERMISSIVE FOR insert TO PUBLIC WITH CHECK ( a = (SELECT a FROM s1) )"
+  },
+  {
+    "comment": "rowsecurity - Statement 156",
+    "query": "ALTER TABLE s1 ENABLE ROW LEVEL SECURITY"
+  },
+  {
+    "comment": "rowsecurity - Statement 157",
+    "query": "ALTER TABLE s2 ENABLE ROW LEVEL SECURITY"
+  },
+  {
+    "comment": "rowsecurity - Statement 158",
+    "query": "CREATE VIEW v2 AS SELECT * FROM s2 WHERE y like '%af%'",
+    "expected": "CREATE VIEW v2 AS SELECT * FROM s2 WHERE y LIKE '%af%'"
+  },
+  {
+    "comment": "rowsecurity - Statement 159",
+    "query": "SELECT * FROM s1 WHERE f_leak(b)"
+  },
+  {
+    "comment": "rowsecurity - Statement 160",
+    "query": "INSERT INTO s1 VALUES (1, 'foo')"
+  },
+  {
+    "comment": "rowsecurity - Statement 161",
+    "query": "DROP POLICY p3 on s1",
+    "expected": "DROP POLICY p3 ON s1"
+  },
+  {
+    "comment": "rowsecurity - Statement 162",
+    "query": "ALTER POLICY p2 ON s2 USING (x % 2 = 0)",
+    "expected": "ALTER POLICY p2 ON s2 USING ( x % 2 = 0 )"
+  },
+  {
+    "comment": "rowsecurity - Statement 163",
+    "query": "EXPLAIN (COSTS OFF) SELECT * FROM only s1 WHERE f_leak(b)",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM ONLY s1 WHERE f_leak(b)"
+  },
+  {
+    "comment": "rowsecurity - Statement 164",
+    "query": "ALTER POLICY p1 ON s1 USING (a in (select x from v2))",
+    "expected": "ALTER POLICY p1 ON s1 USING ( a IN (SELECT x FROM v2) )"
+  },
+  {
+    "comment": "rowsecurity - Statement 165",
+    "query": "EXPLAIN (COSTS OFF) SELECT * FROM s1 WHERE f_leak(b)",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM s1 WHERE f_leak(b)"
+  },
+  {
+    "comment": "rowsecurity - Statement 166",
+    "query": "SELECT (SELECT x FROM s1 LIMIT 1) xx, * FROM s2 WHERE y like '%28%'",
+    "expected": "SELECT (SELECT x FROM s1 LIMIT 1) AS xx, * FROM s2 WHERE y LIKE '%28%'"
+  },
+  {
+    "comment": "rowsecurity - Statement 167",
+    "query": "EXPLAIN (COSTS OFF) SELECT (SELECT x FROM s1 LIMIT 1) xx, * FROM s2 WHERE y like '%28%'",
+    "expected": "EXPLAIN (COSTS false) SELECT (SELECT x FROM s1 LIMIT 1) AS xx, * FROM s2 WHERE y LIKE '%28%'"
+  },
+  {
+    "comment": "rowsecurity - Statement 168",
+    "query": "ALTER POLICY p2 ON s2 USING (x in (select a from s1 where b like '%d2%'))",
+    "expected": "ALTER POLICY p2 ON s2 USING ( x IN (SELECT a FROM s1 WHERE b LIKE '%d2%') )"
+  },
+  {
+    "comment": "rowsecurity - Statement 169",
+    "query": "PREPARE p1(int) AS SELECT * FROM t1 WHERE a \u003c= $1",
+    "expected": "PREPARE p1 ( INT ) AS SELECT * FROM t1 WHERE a \u003c= $1"
+  },
+  {
+    "comment": "rowsecurity - Statement 170",
+    "query": "EXECUTE p1(2)",
+    "expected": "EXECUTE p1 ( 2 )"
+  },
+  {
+    "comment": "rowsecurity - Statement 171",
+    "query": "EXPLAIN (COSTS OFF) EXECUTE p1(2)",
+    "expected": "EXPLAIN (COSTS false) EXECUTE p1 ( 2 )"
+  },
+  {
+    "comment": "rowsecurity - Statement 172",
+    "query": "PREPARE p2(int) AS SELECT * FROM t1 WHERE a = $1",
+    "expected": "PREPARE p2 ( INT ) AS SELECT * FROM t1 WHERE a = $1"
+  },
+  {
+    "comment": "rowsecurity - Statement 173",
+    "query": "EXECUTE p2(2)",
+    "expected": "EXECUTE p2 ( 2 )"
+  },
+  {
+    "comment": "rowsecurity - Statement 174",
+    "query": "EXPLAIN (COSTS OFF) EXECUTE p2(2)",
+    "expected": "EXPLAIN (COSTS false) EXECUTE p2 ( 2 )"
+  },
+  {
+    "comment": "rowsecurity - Statement 175",
+    "query": "EXPLAIN (COSTS OFF) UPDATE t1 SET b = b || b WHERE f_leak(b)",
+    "expected": "EXPLAIN (COSTS false) UPDATE t1 SET b = b || b WHERE f_leak(b)"
+  },
+  {
+    "comment": "rowsecurity - Statement 176",
+    "query": "UPDATE t1 SET b = b || b WHERE f_leak(b)"
+  },
+  {
+    "comment": "rowsecurity - Statement 177",
+    "query": "EXPLAIN (COSTS OFF) UPDATE only t1 SET b = b || '_updt' WHERE f_leak(b)",
+    "expected": "EXPLAIN (COSTS false) UPDATE ONLY t1 SET b = b || '_updt' WHERE f_leak(b)"
+  },
+  {
+    "comment": "rowsecurity - Statement 178",
+    "query": "UPDATE only t1 SET b = b || '_updt' WHERE f_leak(b)",
+    "expected": "UPDATE ONLY t1 SET b = b || '_updt' WHERE f_leak(b)"
+  },
+  {
+    "comment": "rowsecurity - Statement 179",
+    "query": "UPDATE only t1 SET b = b WHERE f_leak(b) RETURNING tableoid::regclass, *, t1",
+    "expected": "UPDATE ONLY t1 SET b = b WHERE f_leak(b) RETURNING CAST(tableoid AS regclass), *, t1"
+  },
+  {
+    "comment": "rowsecurity - Statement 180",
+    "query": "UPDATE t1 SET b = b WHERE f_leak(b) RETURNING *"
+  },
+  {
+    "comment": "rowsecurity - Statement 181",
+    "query": "UPDATE t1 SET b = b WHERE f_leak(b) RETURNING tableoid::regclass, *, t1",
+    "expected": "UPDATE t1 SET b = b WHERE f_leak(b) RETURNING CAST(tableoid AS regclass), *, t1"
+  },
+  {
+    "comment": "rowsecurity - Statement 182",
+    "query": "EXPLAIN (COSTS OFF) UPDATE t2 SET b=t2.b FROM t3 WHERE t2.a = 3 and t3.a = 2 AND f_leak(t2.b) AND f_leak(t3.b)",
+    "expected": "EXPLAIN (COSTS false) UPDATE t2 SET b = t2.b FROM t3 WHERE t2.a = 3 AND t3.a = 2 AND f_leak(t2.b) AND f_leak(t3.b)"
+  },
+  {
+    "comment": "rowsecurity - Statement 183",
+    "query": "UPDATE t2 SET b=t2.b FROM t3 WHERE t2.a = 3 and t3.a = 2 AND f_leak(t2.b) AND f_leak(t3.b)",
+    "expected": "UPDATE t2 SET b = t2.b FROM t3 WHERE t2.a = 3 AND t3.a = 2 AND f_leak(t2.b) AND f_leak(t3.b)"
+  },
+  {
+    "comment": "rowsecurity - Statement 184",
+    "query": "EXPLAIN (COSTS OFF) UPDATE t1 SET b=t1.b FROM t2 WHERE t1.a = 3 and t2.a = 3 AND f_leak(t1.b) AND f_leak(t2.b)",
+    "expected": "EXPLAIN (COSTS false) UPDATE t1 SET b = t1.b FROM t2 WHERE t1.a = 3 AND t2.a = 3 AND f_leak(t1.b) AND f_leak(t2.b)"
+  },
+  {
+    "comment": "rowsecurity - Statement 185",
+    "query": "UPDATE t1 SET b=t1.b FROM t2 WHERE t1.a = 3 and t2.a = 3 AND f_leak(t1.b) AND f_leak(t2.b)",
+    "expected": "UPDATE t1 SET b = t1.b FROM t2 WHERE t1.a = 3 AND t2.a = 3 AND f_leak(t1.b) AND f_leak(t2.b)"
+  },
+  {
+    "comment": "rowsecurity - Statement 186",
+    "query": "EXPLAIN (COSTS OFF) UPDATE t2 SET b=t2.b FROM t1 WHERE t1.a = 3 and t2.a = 3 AND f_leak(t1.b) AND f_leak(t2.b)",
+    "expected": "EXPLAIN (COSTS false) UPDATE t2 SET b = t2.b FROM t1 WHERE t1.a = 3 AND t2.a = 3 AND f_leak(t1.b) AND f_leak(t2.b)"
+  },
+  {
+    "comment": "rowsecurity - Statement 187",
+    "query": "UPDATE t2 SET b=t2.b FROM t1 WHERE t1.a = 3 and t2.a = 3 AND f_leak(t1.b) AND f_leak(t2.b)",
+    "expected": "UPDATE t2 SET b = t2.b FROM t1 WHERE t1.a = 3 AND t2.a = 3 AND f_leak(t1.b) AND f_leak(t2.b)"
+  },
+  {
+    "comment": "rowsecurity - Statement 188",
+    "query": "EXPLAIN (COSTS OFF) UPDATE t2 t2_1 SET b = t2_2.b FROM t2 t2_2 WHERE t2_1.a = 3 AND t2_2.a = t2_1.a AND t2_2.b = t2_1.b AND f_leak(t2_1.b) AND f_leak(t2_2.b) RETURNING *, t2_1, t2_2",
+    "expected": "EXPLAIN (COSTS false) UPDATE t2 AS t2_1 SET b = t2_2.b FROM t2 AS t2_2 WHERE t2_1.a = 3 AND t2_2.a = t2_1.a AND t2_2.b = t2_1.b AND f_leak(t2_1.b) AND f_leak(t2_2.b) RETURNING *, t2_1, t2_2"
+  },
+  {
+    "comment": "rowsecurity - Statement 189",
+    "query": "UPDATE t2 t2_1 SET b = t2_2.b FROM t2 t2_2 WHERE t2_1.a = 3 AND t2_2.a = t2_1.a AND t2_2.b = t2_1.b AND f_leak(t2_1.b) AND f_leak(t2_2.b) RETURNING *, t2_1, t2_2",
+    "expected": "UPDATE t2 AS t2_1 SET b = t2_2.b FROM t2 AS t2_2 WHERE t2_1.a = 3 AND t2_2.a = t2_1.a AND t2_2.b = t2_1.b AND f_leak(t2_1.b) AND f_leak(t2_2.b) RETURNING *, t2_1, t2_2"
+  },
+  {
+    "comment": "rowsecurity - Statement 190",
+    "query": "EXPLAIN (COSTS OFF) UPDATE t1 t1_1 SET b = t1_2.b FROM t1 t1_2 WHERE t1_1.a = 4 AND t1_2.a = t1_1.a AND t1_2.b = t1_1.b AND f_leak(t1_1.b) AND f_leak(t1_2.b) RETURNING *, t1_1, t1_2",
+    "expected": "EXPLAIN (COSTS false) UPDATE t1 AS t1_1 SET b = t1_2.b FROM t1 AS t1_2 WHERE t1_1.a = 4 AND t1_2.a = t1_1.a AND t1_2.b = t1_1.b AND f_leak(t1_1.b) AND f_leak(t1_2.b) RETURNING *, t1_1, t1_2"
+  },
+  {
+    "comment": "rowsecurity - Statement 191",
+    "query": "UPDATE t1 t1_1 SET b = t1_2.b FROM t1 t1_2 WHERE t1_1.a = 4 AND t1_2.a = t1_1.a AND t1_2.b = t1_1.b AND f_leak(t1_1.b) AND f_leak(t1_2.b) RETURNING *, t1_1, t1_2",
+    "expected": "UPDATE t1 AS t1_1 SET b = t1_2.b FROM t1 AS t1_2 WHERE t1_1.a = 4 AND t1_2.a = t1_1.a AND t1_2.b = t1_1.b AND f_leak(t1_1.b) AND f_leak(t1_2.b) RETURNING *, t1_1, t1_2"
+  },
+  {
+    "comment": "rowsecurity - Statement 192",
+    "query": "SELECT * FROM t1 ORDER BY a,b",
+    "expected": "SELECT * FROM t1 ORDER BY a, b"
+  },
+  {
+    "comment": "rowsecurity - Statement 193",
+    "query": "EXPLAIN (COSTS OFF) DELETE FROM only t1 WHERE f_leak(b)",
+    "expected": "EXPLAIN (COSTS false) DELETE FROM ONLY t1 WHERE f_leak(b)"
+  },
+  {
+    "comment": "rowsecurity - Statement 194",
+    "query": "EXPLAIN (COSTS OFF) DELETE FROM t1 WHERE f_leak(b)",
+    "expected": "EXPLAIN (COSTS false) DELETE FROM t1 WHERE f_leak(b)"
+  },
+  {
+    "comment": "rowsecurity - Statement 195",
+    "query": "DELETE FROM only t1 WHERE f_leak(b) RETURNING tableoid::regclass, *, t1",
+    "expected": "DELETE FROM ONLY t1 WHERE f_leak(b) RETURNING CAST(tableoid AS regclass), *, t1"
+  },
+  {
+    "comment": "rowsecurity - Statement 196",
+    "query": "DELETE FROM t1 WHERE f_leak(b) RETURNING tableoid::regclass, *, t1",
+    "expected": "DELETE FROM t1 WHERE f_leak(b) RETURNING CAST(tableoid AS regclass), *, t1"
+  },
+  {
+    "comment": "rowsecurity - Statement 197",
+    "query": "CREATE TABLE b1 (a int, b text)",
+    "expected": "CREATE TABLE b1 (a INT, b TEXT)"
+  },
+  {
+    "comment": "rowsecurity - Statement 198",
+    "query": "INSERT INTO b1 (SELECT x, public.fipshash(x::text) FROM generate_series(-10,10) x)",
+    "expected": "INSERT INTO b1 SELECT x, public.fipshash(CAST(x AS TEXT)) FROM generate_series(-10, 10) AS x"
+  },
+  {
+    "comment": "rowsecurity - Statement 199",
+    "query": "CREATE POLICY p1 ON b1 USING (a % 2 = 0)",
+    "expected": "CREATE POLICY p1 ON b1 AS PERMISSIVE FOR all TO PUBLIC USING ( a % 2 = 0 )"
+  },
+  {
+    "comment": "rowsecurity - Statement 200",
+    "query": "ALTER TABLE b1 ENABLE ROW LEVEL SECURITY"
+  },
+  {
+    "comment": "rowsecurity - Statement 201",
+    "query": "GRANT ALL ON b1 TO regress_rls_bob"
+  },
+  {
+    "comment": "rowsecurity - Statement 202",
+    "query": "CREATE VIEW bv1 WITH (security_barrier) AS SELECT * FROM b1 WHERE a \u003e 0 WITH CHECK OPTION",
+    "expected": "CREATE VIEW bv1 WITH ( security_barrier) AS SELECT * FROM b1 WHERE a \u003e 0 WITH CHECK OPTION"
+  },
+  {
+    "comment": "rowsecurity - Statement 203",
+    "query": "GRANT ALL ON bv1 TO regress_rls_carol"
+  },
+  {
+    "comment": "rowsecurity - Statement 204",
+    "query": "EXPLAIN (COSTS OFF) SELECT * FROM bv1 WHERE f_leak(b)",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM bv1 WHERE f_leak(b)"
+  },
+  {
+    "comment": "rowsecurity - Statement 205",
+    "query": "SELECT * FROM bv1 WHERE f_leak(b)"
+  },
+  {
+    "comment": "rowsecurity - Statement 206",
+    "query": "INSERT INTO bv1 VALUES (-1, 'xxx')"
+  },
+  {
+    "comment": "rowsecurity - Statement 207",
+    "query": "INSERT INTO bv1 VALUES (11, 'xxx')"
+  },
+  {
+    "comment": "rowsecurity - Statement 208",
+    "query": "INSERT INTO bv1 VALUES (12, 'xxx')"
+  },
+  {
+    "comment": "rowsecurity - Statement 209",
+    "query": "EXPLAIN (COSTS OFF) UPDATE bv1 SET b = 'yyy' WHERE a = 4 AND f_leak(b)",
+    "expected": "EXPLAIN (COSTS false) UPDATE bv1 SET b = 'yyy' WHERE a = 4 AND f_leak(b)"
+  },
+  {
+    "comment": "rowsecurity - Statement 210",
+    "query": "UPDATE bv1 SET b = 'yyy' WHERE a = 4 AND f_leak(b)"
+  },
+  {
+    "comment": "rowsecurity - Statement 211",
+    "query": "EXPLAIN (COSTS OFF) DELETE FROM bv1 WHERE a = 6 AND f_leak(b)",
+    "expected": "EXPLAIN (COSTS false) DELETE FROM bv1 WHERE a = 6 AND f_leak(b)"
+  },
+  {
+    "comment": "rowsecurity - Statement 212",
+    "query": "DELETE FROM bv1 WHERE a = 6 AND f_leak(b)"
+  },
+  {
+    "comment": "rowsecurity - Statement 213",
+    "query": "SELECT * FROM b1"
+  },
+  {
+    "comment": "rowsecurity - Statement 214",
+    "query": "DROP POLICY p1r ON document"
+  },
+  {
+    "comment": "rowsecurity - Statement 215",
+    "query": "CREATE POLICY p1 ON document FOR SELECT USING (true)",
+    "expected": "CREATE POLICY p1 ON document AS PERMISSIVE FOR select TO PUBLIC USING ( TRUE )"
+  },
+  {
+    "comment": "rowsecurity - Statement 216",
+    "query": "CREATE POLICY p2 ON document FOR INSERT WITH CHECK (dauthor = current_user)",
+    "expected": "CREATE POLICY p2 ON document AS PERMISSIVE FOR insert TO PUBLIC WITH CHECK ( dauthor = CURRENT_USER )"
+  },
+  {
+    "comment": "rowsecurity - Statement 217",
+    "query": "CREATE POLICY p3 ON document FOR UPDATE USING (cid = (SELECT cid from category WHERE cname = 'novel')) WITH CHECK (dauthor = current_user)",
+    "expected": "CREATE POLICY p3 ON document AS PERMISSIVE FOR update TO PUBLIC USING ( cid = (SELECT cid FROM category WHERE cname = 'novel') ) WITH CHECK ( dauthor = CURRENT_USER )"
+  },
+  {
+    "comment": "rowsecurity - Statement 218",
+    "query": "SELECT * FROM document WHERE did = 2"
+  },
+  {
+    "comment": "rowsecurity - Statement 219",
+    "query": "INSERT INTO document VALUES (2, (SELECT cid from category WHERE cname = 'novel'), 1, 'regress_rls_carol', 'my first novel') ON CONFLICT (did) DO UPDATE SET dtitle = EXCLUDED.dtitle, dauthor = EXCLUDED.dauthor",
+    "expected": "INSERT INTO document VALUES (2, (SELECT cid FROM category WHERE cname = 'novel'), 1, 'regress_rls_carol', 'my first novel') ON CONFLICT (did) DO UPDATE SET dtitle = excluded.dtitle, dauthor = excluded.dauthor"
+  },
+  {
+    "comment": "rowsecurity - Statement 220",
+    "query": "INSERT INTO document VALUES (33, 22, 1, 'regress_rls_bob', 'okay science fiction')"
+  },
+  {
+    "comment": "rowsecurity - Statement 221",
+    "query": "INSERT INTO document VALUES (33, (SELECT cid from category WHERE cname = 'novel'), 1, 'regress_rls_bob', 'Some novel, replaces sci-fi') ON CONFLICT (did) DO UPDATE SET dtitle = EXCLUDED.dtitle",
+    "expected": "INSERT INTO document VALUES (33, (SELECT cid FROM category WHERE cname = 'novel'), 1, 'regress_rls_bob', 'Some novel, replaces sci-fi') ON CONFLICT (did) DO UPDATE SET dtitle = excluded.dtitle"
+  },
+  {
+    "comment": "rowsecurity - Statement 222",
+    "query": "INSERT INTO document VALUES (2, (SELECT cid from category WHERE cname = 'novel'), 1, 'regress_rls_bob', 'my first novel') ON CONFLICT (did) DO UPDATE SET dtitle = EXCLUDED.dtitle RETURNING *",
+    "expected": "INSERT INTO document VALUES (2, (SELECT cid FROM category WHERE cname = 'novel'), 1, 'regress_rls_bob', 'my first novel') ON CONFLICT (did) DO UPDATE SET dtitle = excluded.dtitle RETURNING *"
+  },
+  {
+    "comment": "rowsecurity - Statement 223",
+    "query": "INSERT INTO document VALUES (78, (SELECT cid from category WHERE cname = 'novel'), 1, 'regress_rls_bob', 'some technology novel') ON CONFLICT (did) DO UPDATE SET dtitle = EXCLUDED.dtitle, cid = 33 RETURNING *",
+    "expected": "INSERT INTO document VALUES (78, (SELECT cid FROM category WHERE cname = 'novel'), 1, 'regress_rls_bob', 'some technology novel') ON CONFLICT (did) DO UPDATE SET dtitle = excluded.dtitle, cid = 33 RETURNING *"
+  },
+  {
+    "comment": "rowsecurity - Statement 224",
+    "query": "INSERT INTO document VALUES (79, (SELECT cid from category WHERE cname = 'technology'), 1, 'regress_rls_bob', 'technology book, can only insert') ON CONFLICT (did) DO UPDATE SET dtitle = EXCLUDED.dtitle RETURNING *",
+    "expected": "INSERT INTO document VALUES (79, (SELECT cid FROM category WHERE cname = 'technology'), 1, 'regress_rls_bob', 'technology book, can only insert') ON CONFLICT (did) DO UPDATE SET dtitle = excluded.dtitle RETURNING *"
+  },
+  {
+    "comment": "rowsecurity - Statement 225",
+    "query": "DROP POLICY p2 ON document"
+  },
+  {
+    "comment": "rowsecurity - Statement 226",
+    "query": "DROP POLICY p3 ON document"
+  },
+  {
+    "comment": "rowsecurity - Statement 227",
+    "query": "CREATE POLICY p3_with_default ON document FOR UPDATE USING (cid = (SELECT cid from category WHERE cname = 'novel'))",
+    "expected": "CREATE POLICY p3_with_default ON document AS PERMISSIVE FOR update TO PUBLIC USING ( cid = (SELECT cid FROM category WHERE cname = 'novel') )"
+  },
+  {
+    "comment": "rowsecurity - Statement 228",
+    "query": "INSERT INTO document VALUES (2, (SELECT cid from category WHERE cname = 'technology'), 1, 'regress_rls_bob', 'my first novel') ON CONFLICT (did) DO UPDATE SET cid = EXCLUDED.cid, dtitle = EXCLUDED.dtitle RETURNING *",
+    "expected": "INSERT INTO document VALUES (2, (SELECT cid FROM category WHERE cname = 'technology'), 1, 'regress_rls_bob', 'my first novel') ON CONFLICT (did) DO UPDATE SET cid = excluded.cid, dtitle = excluded.dtitle RETURNING *"
+  },
+  {
+    "comment": "rowsecurity - Statement 229",
+    "query": "DROP POLICY p3_with_default ON document"
+  },
+  {
+    "comment": "rowsecurity - Statement 230",
+    "query": "CREATE POLICY p3_with_all ON document FOR ALL USING (cid = (SELECT cid from category WHERE cname = 'novel')) WITH CHECK (dauthor = current_user)",
+    "expected": "CREATE POLICY p3_with_all ON document AS PERMISSIVE FOR all TO PUBLIC USING ( cid = (SELECT cid FROM category WHERE cname = 'novel') ) WITH CHECK ( dauthor = CURRENT_USER )"
+  },
+  {
+    "comment": "rowsecurity - Statement 231",
+    "query": "INSERT INTO document VALUES (80, (SELECT cid from category WHERE cname = 'novel'), 1, 'regress_rls_carol', 'my first novel') ON CONFLICT (did) DO UPDATE SET dtitle = EXCLUDED.dtitle, cid = 33",
+    "expected": "INSERT INTO document VALUES (80, (SELECT cid FROM category WHERE cname = 'novel'), 1, 'regress_rls_carol', 'my first novel') ON CONFLICT (did) DO UPDATE SET dtitle = excluded.dtitle, cid = 33"
+  },
+  {
+    "comment": "rowsecurity - Statement 232",
+    "query": "INSERT INTO document VALUES (4, (SELECT cid from category WHERE cname = 'novel'), 1, 'regress_rls_bob', 'my first novel') ON CONFLICT (did) DO UPDATE SET dtitle = EXCLUDED.dtitle",
+    "expected": "INSERT INTO document VALUES (4, (SELECT cid FROM category WHERE cname = 'novel'), 1, 'regress_rls_bob', 'my first novel') ON CONFLICT (did) DO UPDATE SET dtitle = excluded.dtitle"
+  },
+  {
+    "comment": "rowsecurity - Statement 233",
+    "query": "INSERT INTO document VALUES (1, (SELECT cid from category WHERE cname = 'novel'), 1, 'regress_rls_bob', 'my first novel') ON CONFLICT (did) DO UPDATE SET dauthor = 'regress_rls_carol'",
+    "expected": "INSERT INTO document VALUES (1, (SELECT cid FROM category WHERE cname = 'novel'), 1, 'regress_rls_bob', 'my first novel') ON CONFLICT (did) DO UPDATE SET dauthor = 'regress_rls_carol'"
+  },
+  {
+    "comment": "rowsecurity - Statement 234",
+    "query": "DROP POLICY p3_with_all ON document"
+  },
+  {
+    "comment": "rowsecurity - Statement 235",
+    "query": "ALTER TABLE document ADD COLUMN dnotes text DEFAULT ''",
+    "expected": "ALTER TABLE document ADD COLUMN dnotes TEXT DEFAULT ''"
+  },
+  {
+    "comment": "rowsecurity - Statement 236",
+    "query": "CREATE POLICY p3 ON document FOR UPDATE USING (cid = (SELECT cid from category WHERE cname = 'novel')) WITH CHECK (dlevel \u003e 0)",
+    "expected": "CREATE POLICY p3 ON document AS PERMISSIVE FOR update TO PUBLIC USING ( cid = (SELECT cid FROM category WHERE cname = 'novel') ) WITH CHECK ( dlevel \u003e 0 )"
+  },
+  {
+    "comment": "rowsecurity - Statement 237",
+    "query": "CREATE POLICY p4 ON document FOR DELETE USING (cid = (SELECT cid from category WHERE cname = 'manga'))",
+    "expected": "CREATE POLICY p4 ON document AS PERMISSIVE FOR delete TO PUBLIC USING ( cid = (SELECT cid FROM category WHERE cname = 'manga') )"
+  },
+  {
+    "comment": "rowsecurity - Statement 238",
+    "query": "MERGE INTO document d USING (SELECT 1 as sdid) s ON did = s.sdid WHEN MATCHED THEN UPDATE SET dnotes = dnotes || ' notes added by merge1 ', dlevel = 0",
+    "expected": "MERGE INTO document AS d USING (SELECT 1 AS sdid) AS s ON did = s.sdid WHEN MATCHED THEN UPDATE SET dnotes = dnotes || ' notes added by merge1 ', dlevel = 0"
+  },
+  {
+    "comment": "rowsecurity - Statement 239",
+    "query": "MERGE INTO document d USING (SELECT 1 as sdid) s ON did = s.sdid WHEN MATCHED THEN UPDATE SET dnotes = dnotes || ' notes added by merge2 '",
+    "expected": "MERGE INTO document AS d USING (SELECT 1 AS sdid) AS s ON did = s.sdid WHEN MATCHED THEN UPDATE SET dnotes = dnotes || ' notes added by merge2 '"
+  },
+  {
+    "comment": "rowsecurity - Statement 240",
+    "query": "MERGE INTO document d USING (SELECT 1 as sdid) s ON did = s.sdid WHEN MATCHED THEN UPDATE SET dnotes = dnotes || ' notes added by merge3 ', dlevel = 1",
+    "expected": "MERGE INTO document AS d USING (SELECT 1 AS sdid) AS s ON did = s.sdid WHEN MATCHED THEN UPDATE SET dnotes = dnotes || ' notes added by merge3 ', dlevel = 1"
+  },
+  {
+    "comment": "rowsecurity - Statement 241",
+    "query": "MERGE INTO document d USING (SELECT 3 as sdid) s ON did = s.sdid WHEN MATCHED THEN UPDATE SET dnotes = dnotes || ' notes added by merge '",
+    "expected": "MERGE INTO document AS d USING (SELECT 3 AS sdid) AS s ON did = s.sdid WHEN MATCHED THEN UPDATE SET dnotes = dnotes || ' notes added by merge '"
+  },
+  {
+    "comment": "rowsecurity - Statement 242",
+    "query": "MERGE INTO document d USING (SELECT 3 as sdid) s ON did = s.sdid WHEN MATCHED THEN DELETE",
+    "expected": "MERGE INTO document AS d USING (SELECT 3 AS sdid) AS s ON did = s.sdid WHEN MATCHED THEN DELETE"
+  },
+  {
+    "comment": "rowsecurity - Statement 243",
+    "query": "MERGE INTO document d USING (SELECT 4 as sdid) s ON did = s.sdid WHEN MATCHED AND dnotes = '' THEN UPDATE SET dnotes = dnotes || ' notes added by merge ' WHEN MATCHED THEN DELETE",
+    "expected": "MERGE INTO document AS d USING (SELECT 4 AS sdid) AS s ON did = s.sdid WHEN MATCHED AND dnotes = '' THEN UPDATE SET dnotes = dnotes || ' notes added by merge ' WHEN MATCHED THEN DELETE"
+  },
+  {
+    "comment": "rowsecurity - Statement 244",
+    "query": "MERGE INTO document d USING (SELECT 4 as sdid) s ON did = s.sdid WHEN MATCHED AND dnotes \u003c\u003e '' THEN UPDATE SET dnotes = dnotes || ' notes added by merge ' WHEN MATCHED THEN DELETE",
+    "expected": "MERGE INTO document AS d USING (SELECT 4 AS sdid) AS s ON did = s.sdid WHEN MATCHED AND dnotes \u003c\u003e '' THEN UPDATE SET dnotes = dnotes || ' notes added by merge ' WHEN MATCHED THEN DELETE"
+  },
+  {
+    "comment": "rowsecurity - Statement 245",
+    "query": "MERGE INTO document d USING (SELECT 4 as sdid) s ON did = s.sdid WHEN MATCHED AND dnotes \u003c\u003e '' THEN UPDATE SET dnotes = dnotes || ' notes added by merge ' WHEN MATCHED THEN DO NOTHING",
+    "expected": "MERGE INTO document AS d USING (SELECT 4 AS sdid) AS s ON did = s.sdid WHEN MATCHED AND dnotes \u003c\u003e '' THEN UPDATE SET dnotes = dnotes || ' notes added by merge ' WHEN MATCHED THEN DO NOTHING"
+  },
+  {
+    "comment": "rowsecurity - Statement 246",
+    "query": "SELECT * FROM document WHERE did = 4"
+  },
+  {
+    "comment": "rowsecurity - Statement 247",
+    "query": "MERGE INTO document d USING (SELECT 12 as sdid) s ON did = s.sdid WHEN MATCHED THEN DELETE WHEN NOT MATCHED THEN INSERT VALUES (12, 11, 1, 'regress_rls_dave', 'another novel')",
+    "expected": "MERGE INTO document AS d USING (SELECT 12 AS sdid) AS s ON did = s.sdid WHEN MATCHED THEN DELETE WHEN NOT MATCHED THEN INSERT VALUES (12, 11, 1, 'regress_rls_dave', 'another novel')"
+  },
+  {
+    "comment": "rowsecurity - Statement 248",
+    "query": "MERGE INTO document d USING (SELECT 12 as sdid) s ON did = s.sdid WHEN MATCHED THEN DELETE WHEN NOT MATCHED THEN INSERT VALUES (12, 11, 1, 'regress_rls_bob', 'another novel')",
+    "expected": "MERGE INTO document AS d USING (SELECT 12 AS sdid) AS s ON did = s.sdid WHEN MATCHED THEN DELETE WHEN NOT MATCHED THEN INSERT VALUES (12, 11, 1, 'regress_rls_bob', 'another novel')"
+  },
+  {
+    "comment": "rowsecurity - Statement 249",
+    "query": "MERGE INTO document d USING (SELECT 1 as sdid) s ON did = s.sdid WHEN MATCHED THEN UPDATE SET dnotes = dnotes || ' notes added by merge4 ' WHEN NOT MATCHED THEN INSERT VALUES (12, 11, 1, 'regress_rls_bob', 'another novel')",
+    "expected": "MERGE INTO document AS d USING (SELECT 1 AS sdid) AS s ON did = s.sdid WHEN MATCHED THEN UPDATE SET dnotes = dnotes || ' notes added by merge4 ' WHEN NOT MATCHED THEN INSERT VALUES (12, 11, 1, 'regress_rls_bob', 'another novel')"
+  },
+  {
+    "comment": "rowsecurity - Statement 250",
+    "query": "CREATE POLICY p1 ON document FOR SELECT USING (cid = (SELECT cid from category WHERE cname = 'novel'))",
+    "expected": "CREATE POLICY p1 ON document AS PERMISSIVE FOR select TO PUBLIC USING ( cid = (SELECT cid FROM category WHERE cname = 'novel') )"
+  },
+  {
+    "comment": "rowsecurity - Statement 251",
+    "query": "MERGE INTO document d USING (SELECT 7 as sdid) s ON did = s.sdid WHEN MATCHED THEN UPDATE SET dnotes = dnotes || ' notes added by merge5 ' WHEN NOT MATCHED THEN INSERT VALUES (12, 11, 1, 'regress_rls_bob', 'another novel')",
+    "expected": "MERGE INTO document AS d USING (SELECT 7 AS sdid) AS s ON did = s.sdid WHEN MATCHED THEN UPDATE SET dnotes = dnotes || ' notes added by merge5 ' WHEN NOT MATCHED THEN INSERT VALUES (12, 11, 1, 'regress_rls_bob', 'another novel')"
+  },
+  {
+    "comment": "rowsecurity - Statement 252",
+    "query": "MERGE INTO document d USING (SELECT 1 as sdid) s ON did = s.sdid WHEN MATCHED THEN UPDATE SET dnotes = dnotes || ' notes added by merge6 ', cid = (SELECT cid from category WHERE cname = 'technology')",
+    "expected": "MERGE INTO document AS d USING (SELECT 1 AS sdid) AS s ON did = s.sdid WHEN MATCHED THEN UPDATE SET dnotes = dnotes || ' notes added by merge6 ', cid = (SELECT cid FROM category WHERE cname = 'technology')"
+  },
+  {
+    "comment": "rowsecurity - Statement 253",
+    "query": "MERGE INTO document d USING (SELECT 1 as sdid) s ON did = s.sdid WHEN MATCHED THEN UPDATE SET dnotes = dnotes || ' notes added by merge7 ', cid = (SELECT cid from category WHERE cname = 'novel')",
+    "expected": "MERGE INTO document AS d USING (SELECT 1 AS sdid) AS s ON did = s.sdid WHEN MATCHED THEN UPDATE SET dnotes = dnotes || ' notes added by merge7 ', cid = (SELECT cid FROM category WHERE cname = 'novel')"
+  },
+  {
+    "comment": "rowsecurity - Statement 254",
+    "query": "MERGE INTO document d USING (SELECT 13 as sdid) s ON did = s.sdid WHEN MATCHED THEN UPDATE SET dnotes = dnotes || ' notes added by merge8 ' WHEN NOT MATCHED THEN INSERT VALUES (13, 44, 1, 'regress_rls_bob', 'new manga')",
+    "expected": "MERGE INTO document AS d USING (SELECT 13 AS sdid) AS s ON did = s.sdid WHEN MATCHED THEN UPDATE SET dnotes = dnotes || ' notes added by merge8 ' WHEN NOT MATCHED THEN INSERT VALUES (13, 44, 1, 'regress_rls_bob', 'new manga')"
+  },
+  {
+    "comment": "rowsecurity - Statement 255",
+    "query": "SELECT * FROM document WHERE did = 13"
+  },
+  {
+    "comment": "rowsecurity - Statement 256",
+    "query": "MERGE INTO document d USING (SELECT 14 as sdid) s ON did = s.sdid WHEN MATCHED THEN UPDATE SET dnotes = dnotes || ' notes added by merge9 ' WHEN NOT MATCHED THEN INSERT VALUES (14, 44, 1, 'regress_rls_bob', 'new manga') RETURNING *",
+    "expected": "MERGE INTO document AS d USING (SELECT 14 AS sdid) AS s ON did = s.sdid WHEN MATCHED THEN UPDATE SET dnotes = dnotes || ' notes added by merge9 ' WHEN NOT MATCHED THEN INSERT VALUES (14, 44, 1, 'regress_rls_bob', 'new manga') RETURNING *"
+  },
+  {
+    "comment": "rowsecurity - Statement 257",
+    "query": "MERGE INTO document d USING (SELECT 14 as sdid) s ON did = s.sdid WHEN MATCHED THEN UPDATE SET dnotes = dnotes || ' notes added by merge10 ' WHEN NOT MATCHED THEN INSERT VALUES (14, 11, 1, 'regress_rls_bob', 'new novel') RETURNING *",
+    "expected": "MERGE INTO document AS d USING (SELECT 14 AS sdid) AS s ON did = s.sdid WHEN MATCHED THEN UPDATE SET dnotes = dnotes || ' notes added by merge10 ' WHEN NOT MATCHED THEN INSERT VALUES (14, 11, 1, 'regress_rls_bob', 'new novel') RETURNING *"
+  },
+  {
+    "comment": "rowsecurity - Statement 258",
+    "query": "CREATE TABLE z1 (a int, b text)",
+    "expected": "CREATE TABLE z1 (a INT, b TEXT)"
+  },
+  {
+    "comment": "rowsecurity - Statement 259",
+    "query": "CREATE TABLE z2 (a int, b text)",
+    "expected": "CREATE TABLE z2 (a INT, b TEXT)"
+  },
+  {
+    "comment": "rowsecurity - Statement 260",
+    "query": "GRANT SELECT ON z1,z2 TO regress_rls_group1, regress_rls_group2, regress_rls_bob, regress_rls_carol",
+    "expected": "GRANT SELECT ON z1, z2 TO regress_rls_group1, regress_rls_group2, regress_rls_bob, regress_rls_carol"
+  },
+  {
+    "comment": "rowsecurity - Statement 261",
+    "query": "INSERT INTO z1 VALUES (1, 'aba'), (2, 'bbb'), (3, 'ccc'), (4, 'dad')"
+  },
+  {
+    "comment": "rowsecurity - Statement 262",
+    "query": "CREATE POLICY p1 ON z1 TO regress_rls_group1 USING (a % 2 = 0)",
+    "expected": "CREATE POLICY p1 ON z1 AS PERMISSIVE FOR all TO regress_rls_group1 USING ( a % 2 = 0 )"
+  },
+  {
+    "comment": "rowsecurity - Statement 263",
+    "query": "CREATE POLICY p2 ON z1 TO regress_rls_group2 USING (a % 2 = 1)",
+    "expected": "CREATE POLICY p2 ON z1 AS PERMISSIVE FOR all TO regress_rls_group2 USING ( a % 2 = 1 )"
+  },
+  {
+    "comment": "rowsecurity - Statement 264",
+    "query": "ALTER TABLE z1 ENABLE ROW LEVEL SECURITY"
+  },
+  {
+    "comment": "rowsecurity - Statement 265",
+    "query": "SELECT * FROM z1 WHERE f_leak(b)"
+  },
+  {
+    "comment": "rowsecurity - Statement 266",
+    "query": "EXPLAIN (COSTS OFF) SELECT * FROM z1 WHERE f_leak(b)",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM z1 WHERE f_leak(b)"
+  },
+  {
+    "comment": "rowsecurity - Statement 267",
+    "query": "PREPARE plancache_test AS SELECT * FROM z1 WHERE f_leak(b)"
+  },
+  {
+    "comment": "rowsecurity - Statement 268",
+    "query": "EXPLAIN (COSTS OFF) EXECUTE plancache_test",
+    "expected": "EXPLAIN (COSTS false) EXECUTE plancache_test"
+  },
+  {
+    "comment": "rowsecurity - Statement 269",
+    "query": "PREPARE plancache_test2 AS WITH q AS MATERIALIZED (SELECT * FROM z1 WHERE f_leak(b)) SELECT * FROM q,z2",
+    "expected": "PREPARE plancache_test2 AS WITH q AS MATERIALIZED (SELECT * FROM z1 WHERE f_leak(b)) SELECT * FROM q, z2"
+  },
+  {
+    "comment": "rowsecurity - Statement 270",
+    "query": "EXPLAIN (COSTS OFF) EXECUTE plancache_test2",
+    "expected": "EXPLAIN (COSTS false) EXECUTE plancache_test2"
+  },
+  {
+    "comment": "rowsecurity - Statement 271",
+    "query": "PREPARE plancache_test3 AS WITH q AS MATERIALIZED (SELECT * FROM z2) SELECT * FROM q,z1 WHERE f_leak(z1.b)",
+    "expected": "PREPARE plancache_test3 AS WITH q AS MATERIALIZED (SELECT * FROM z2) SELECT * FROM q, z1 WHERE f_leak(z1.b)"
+  },
+  {
+    "comment": "rowsecurity - Statement 272",
+    "query": "EXPLAIN (COSTS OFF) EXECUTE plancache_test3",
+    "expected": "EXPLAIN (COSTS false) EXECUTE plancache_test3"
+  },
+  {
+    "comment": "rowsecurity - Statement 273",
+    "query": "SET ROLE regress_rls_group1",
+    "expected": "SET ROLE 'regress_rls_group1'"
+  },
+  {
+    "comment": "rowsecurity - Statement 274",
+    "query": "SET ROLE regress_rls_group2",
+    "expected": "SET ROLE 'regress_rls_group2'"
+  },
+  {
+    "comment": "rowsecurity - Statement 275",
+    "query": "CREATE VIEW rls_view AS SELECT * FROM z1 WHERE f_leak(b)"
+  },
+  {
+    "comment": "rowsecurity - Statement 276",
+    "query": "GRANT SELECT ON rls_view TO regress_rls_bob"
+  },
+  {
+    "comment": "rowsecurity - Statement 277",
+    "query": "SELECT * FROM rls_view"
+  },
+  {
+    "comment": "rowsecurity - Statement 278",
+    "query": "EXPLAIN (COSTS OFF) SELECT * FROM rls_view",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM rls_view"
+  },
+  {
+    "comment": "rowsecurity - Statement 279",
+    "query": "DROP VIEW rls_view"
+  },
+  {
+    "comment": "rowsecurity - Statement 280",
+    "query": "GRANT SELECT ON rls_view TO regress_rls_alice"
+  },
+  {
+    "comment": "rowsecurity - Statement 281",
+    "query": "GRANT SELECT ON rls_view TO regress_rls_carol"
+  },
+  {
+    "comment": "rowsecurity - Statement 282",
+    "query": "CREATE TABLE z1_blacklist (a int)",
+    "expected": "CREATE TABLE z1_blacklist (a INT)"
+  },
+  {
+    "comment": "rowsecurity - Statement 283",
+    "query": "INSERT INTO z1_blacklist VALUES (3), (4)"
+  },
+  {
+    "comment": "rowsecurity - Statement 284",
+    "query": "CREATE POLICY p3 ON z1 AS RESTRICTIVE USING (a NOT IN (SELECT a FROM z1_blacklist))",
+    "expected": "CREATE POLICY p3 ON z1 AS RESTRICTIVE FOR all TO PUBLIC USING ( NOT a IN (SELECT a FROM z1_blacklist) )"
+  },
+  {
+    "comment": "rowsecurity - Statement 285",
+    "query": "GRANT SELECT ON z1_blacklist TO regress_rls_bob"
+  },
+  {
+    "comment": "rowsecurity - Statement 286",
+    "query": "REVOKE SELECT ON z1_blacklist FROM regress_rls_bob"
+  },
+  {
+    "comment": "rowsecurity - Statement 287",
+    "query": "DROP POLICY p3 ON z1"
+  },
+  {
+    "comment": "rowsecurity - Statement 288",
+    "query": "CREATE VIEW rls_view WITH (security_invoker) AS SELECT * FROM z1 WHERE f_leak(b)",
+    "expected": "CREATE VIEW rls_view WITH ( security_invoker) AS SELECT * FROM z1 WHERE f_leak(b)"
+  },
+  {
+    "comment": "rowsecurity - Statement 289",
+    "query": "GRANT SELECT ON z1_blacklist TO regress_rls_carol"
+  },
+  {
+    "comment": "rowsecurity - Statement 290",
+    "query": "CREATE TABLE x1 (a int, b text, c text)",
+    "expected": "CREATE TABLE x1 (a INT, b TEXT, c TEXT)"
+  },
+  {
+    "comment": "rowsecurity - Statement 291",
+    "query": "GRANT ALL ON x1 TO PUBLIC"
+  },
+  {
+    "comment": "rowsecurity - Statement 292",
+    "query": "INSERT INTO x1 VALUES (1, 'abc', 'regress_rls_bob'), (2, 'bcd', 'regress_rls_bob'), (3, 'cde', 'regress_rls_carol'), (4, 'def', 'regress_rls_carol'), (5, 'efg', 'regress_rls_bob'), (6, 'fgh', 'regress_rls_bob'), (7, 'fgh', 'regress_rls_carol'), (8, 'fgh', 'regress_rls_carol')"
+  },
+  {
+    "comment": "rowsecurity - Statement 293",
+    "query": "CREATE POLICY p0 ON x1 FOR ALL USING (c = current_user)",
+    "expected": "CREATE POLICY p0 ON x1 AS PERMISSIVE FOR all TO PUBLIC USING ( c = CURRENT_USER )"
+  },
+  {
+    "comment": "rowsecurity - Statement 294",
+    "query": "CREATE POLICY p1 ON x1 FOR SELECT USING (a % 2 = 0)",
+    "expected": "CREATE POLICY p1 ON x1 AS PERMISSIVE FOR select TO PUBLIC USING ( a % 2 = 0 )"
+  },
+  {
+    "comment": "rowsecurity - Statement 295",
+    "query": "CREATE POLICY p2 ON x1 FOR INSERT WITH CHECK (a % 2 = 1)",
+    "expected": "CREATE POLICY p2 ON x1 AS PERMISSIVE FOR insert TO PUBLIC WITH CHECK ( a % 2 = 1 )"
+  },
+  {
+    "comment": "rowsecurity - Statement 296",
+    "query": "CREATE POLICY p3 ON x1 FOR UPDATE USING (a % 2 = 0)",
+    "expected": "CREATE POLICY p3 ON x1 AS PERMISSIVE FOR update TO PUBLIC USING ( a % 2 = 0 )"
+  },
+  {
+    "comment": "rowsecurity - Statement 297",
+    "query": "CREATE POLICY p4 ON x1 FOR DELETE USING (a \u003c 8)",
+    "expected": "CREATE POLICY p4 ON x1 AS PERMISSIVE FOR delete TO PUBLIC USING ( a \u003c 8 )"
+  },
+  {
+    "comment": "rowsecurity - Statement 298",
+    "query": "ALTER TABLE x1 ENABLE ROW LEVEL SECURITY"
+  },
+  {
+    "comment": "rowsecurity - Statement 299",
+    "query": "SELECT * FROM x1 WHERE f_leak(b) ORDER BY a ASC"
+  },
+  {
+    "comment": "rowsecurity - Statement 300",
+    "query": "UPDATE x1 SET b = b || '_updt' WHERE f_leak(b) RETURNING *"
+  },
+  {
+    "comment": "rowsecurity - Statement 301",
+    "query": "DELETE FROM x1 WHERE f_leak(b) RETURNING *"
+  },
+  {
+    "comment": "rowsecurity - Statement 302",
+    "query": "CREATE TABLE y1 (a int, b text)",
+    "expected": "CREATE TABLE y1 (a INT, b TEXT)"
+  },
+  {
+    "comment": "rowsecurity - Statement 303",
+    "query": "CREATE TABLE y2 (a int, b text)",
+    "expected": "CREATE TABLE y2 (a INT, b TEXT)"
+  },
+  {
+    "comment": "rowsecurity - Statement 304",
+    "query": "GRANT ALL ON y1, y2 TO regress_rls_bob"
+  },
+  {
+    "comment": "rowsecurity - Statement 305",
+    "query": "CREATE POLICY p1 ON y1 FOR ALL USING (a % 2 = 0)",
+    "expected": "CREATE POLICY p1 ON y1 AS PERMISSIVE FOR all TO PUBLIC USING ( a % 2 = 0 )"
+  },
+  {
+    "comment": "rowsecurity - Statement 306",
+    "query": "CREATE POLICY p2 ON y1 FOR SELECT USING (a \u003e 2)",
+    "expected": "CREATE POLICY p2 ON y1 AS PERMISSIVE FOR select TO PUBLIC USING ( a \u003e 2 )"
+  },
+  {
+    "comment": "rowsecurity - Statement 307",
+    "query": "CREATE POLICY p1 ON y1 FOR SELECT USING (a % 2 = 1)",
+    "expected": "CREATE POLICY p1 ON y1 AS PERMISSIVE FOR select TO PUBLIC USING ( a % 2 = 1 )"
+  },
+  {
+    "comment": "rowsecurity - Statement 308",
+    "query": "CREATE POLICY p1 ON y2 FOR ALL USING (a % 2 = 0)",
+    "expected": "CREATE POLICY p1 ON y2 AS PERMISSIVE FOR all TO PUBLIC USING ( a % 2 = 0 )"
+  },
+  {
+    "comment": "rowsecurity - Statement 309",
+    "query": "ALTER TABLE y1 ENABLE ROW LEVEL SECURITY"
+  },
+  {
+    "comment": "rowsecurity - Statement 310",
+    "query": "ALTER TABLE y2 ENABLE ROW LEVEL SECURITY"
+  },
+  {
+    "comment": "rowsecurity - Statement 311",
+    "query": "CREATE VIEW rls_sbv WITH (security_barrier) AS SELECT * FROM y1 WHERE f_leak(b)",
+    "expected": "CREATE VIEW rls_sbv WITH ( security_barrier) AS SELECT * FROM y1 WHERE f_leak(b)"
+  },
+  {
+    "comment": "rowsecurity - Statement 312",
+    "query": "EXPLAIN (COSTS OFF) SELECT * FROM rls_sbv WHERE (a = 1)",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM rls_sbv WHERE (a = 1)"
+  },
+  {
+    "comment": "rowsecurity - Statement 313",
+    "query": "DROP VIEW rls_sbv"
+  },
+  {
+    "comment": "rowsecurity - Statement 314",
+    "query": "INSERT INTO y2 (SELECT x, public.fipshash(x::text) FROM generate_series(0,20) x)",
+    "expected": "INSERT INTO y2 SELECT x, public.fipshash(CAST(x AS TEXT)) FROM generate_series(0, 20) AS x"
+  },
+  {
+    "comment": "rowsecurity - Statement 315",
+    "query": "CREATE POLICY p2 ON y2 USING (a % 3 = 0)",
+    "expected": "CREATE POLICY p2 ON y2 AS PERMISSIVE FOR all TO PUBLIC USING ( a % 3 = 0 )"
+  },
+  {
+    "comment": "rowsecurity - Statement 316",
+    "query": "CREATE POLICY p3 ON y2 USING (a % 4 = 0)",
+    "expected": "CREATE POLICY p3 ON y2 AS PERMISSIVE FOR all TO PUBLIC USING ( a % 4 = 0 )"
+  },
+  {
+    "comment": "rowsecurity - Statement 317",
+    "query": "SELECT * FROM y2 WHERE f_leak(b)"
+  },
+  {
+    "comment": "rowsecurity - Statement 318",
+    "query": "EXPLAIN (COSTS OFF) SELECT * FROM y2 WHERE f_leak(b)",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM y2 WHERE f_leak(b)"
+  },
+  {
+    "comment": "rowsecurity - Statement 319",
+    "query": "SELECT * FROM y2 WHERE f_leak('abc')"
+  },
+  {
+    "comment": "rowsecurity - Statement 320",
+    "query": "EXPLAIN (COSTS OFF) SELECT * FROM y2 WHERE f_leak('abc')",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM y2 WHERE f_leak('abc')"
+  },
+  {
+    "comment": "rowsecurity - Statement 321",
+    "query": "CREATE TABLE test_qual_pushdown ( abc text )",
+    "expected": "CREATE TABLE test_qual_pushdown (abc TEXT)"
+  },
+  {
+    "comment": "rowsecurity - Statement 322",
+    "query": "INSERT INTO test_qual_pushdown VALUES ('abc'),('def')",
+    "expected": "INSERT INTO test_qual_pushdown VALUES ('abc'), ('def')"
+  },
+  {
+    "comment": "rowsecurity - Statement 323",
+    "query": "SELECT * FROM y2 JOIN test_qual_pushdown ON (b = abc) WHERE f_leak(abc)",
+    "expected": "SELECT * FROM y2 INNER JOIN test_qual_pushdown ON (b = abc) WHERE f_leak(abc)"
+  },
+  {
+    "comment": "rowsecurity - Statement 324",
+    "query": "EXPLAIN (COSTS OFF) SELECT * FROM y2 JOIN test_qual_pushdown ON (b = abc) WHERE f_leak(abc)",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM y2 INNER JOIN test_qual_pushdown ON (b = abc) WHERE f_leak(abc)"
+  },
+  {
+    "comment": "rowsecurity - Statement 325",
+    "query": "SELECT * FROM y2 JOIN test_qual_pushdown ON (b = abc) WHERE f_leak(b)",
+    "expected": "SELECT * FROM y2 INNER JOIN test_qual_pushdown ON (b = abc) WHERE f_leak(b)"
+  },
+  {
+    "comment": "rowsecurity - Statement 326",
+    "query": "EXPLAIN (COSTS OFF) SELECT * FROM y2 JOIN test_qual_pushdown ON (b = abc) WHERE f_leak(b)",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM y2 INNER JOIN test_qual_pushdown ON (b = abc) WHERE f_leak(b)"
+  },
+  {
+    "comment": "rowsecurity - Statement 327",
+    "query": "DROP TABLE test_qual_pushdown"
+  },
+  {
+    "comment": "rowsecurity - Statement 328",
+    "query": "DROP TABLE t1 CASCADE"
+  },
+  {
+    "comment": "rowsecurity - Statement 329",
+    "query": "CREATE TABLE t1 (a integer)",
+    "expected": "CREATE TABLE t1 (a INT)"
+  },
+  {
+    "comment": "rowsecurity - Statement 330",
+    "query": "GRANT SELECT ON t1 TO regress_rls_bob, regress_rls_carol"
+  },
+  {
+    "comment": "rowsecurity - Statement 331",
+    "query": "CREATE POLICY p1 ON t1 TO regress_rls_bob USING ((a % 2) = 0)",
+    "expected": "CREATE POLICY p1 ON t1 AS PERMISSIVE FOR all TO regress_rls_bob USING ( (a % 2) = 0 )"
+  },
+  {
+    "comment": "rowsecurity - Statement 332",
+    "query": "CREATE POLICY p2 ON t1 TO regress_rls_carol USING ((a % 4) = 0)",
+    "expected": "CREATE POLICY p2 ON t1 AS PERMISSIVE FOR all TO regress_rls_carol USING ( (a % 4) = 0 )"
+  },
+  {
+    "comment": "rowsecurity - Statement 333",
+    "query": "SET ROLE regress_rls_bob",
+    "expected": "SET ROLE 'regress_rls_bob'"
+  },
+  {
+    "comment": "rowsecurity - Statement 334",
+    "query": "PREPARE role_inval AS SELECT * FROM t1"
+  },
+  {
+    "comment": "rowsecurity - Statement 335",
+    "query": "EXPLAIN (COSTS OFF) EXECUTE role_inval",
+    "expected": "EXPLAIN (COSTS false) EXECUTE role_inval"
+  },
+  {
+    "comment": "rowsecurity - Statement 336",
+    "query": "SET ROLE regress_rls_carol",
+    "expected": "SET ROLE 'regress_rls_carol'"
+  },
+  {
+    "comment": "rowsecurity - Statement 337",
+    "query": "CREATE TABLE t1 (a integer, b text)",
+    "expected": "CREATE TABLE t1 (a INT, b TEXT)"
+  },
+  {
+    "comment": "rowsecurity - Statement 338",
+    "query": "CREATE POLICY p1 ON t1 USING (a % 2 = 0)",
+    "expected": "CREATE POLICY p1 ON t1 AS PERMISSIVE FOR all TO PUBLIC USING ( a % 2 = 0 )"
+  },
+  {
+    "comment": "rowsecurity - Statement 339",
+    "query": "GRANT ALL ON t1 TO regress_rls_bob"
+  },
+  {
+    "comment": "rowsecurity - Statement 340",
+    "query": "INSERT INTO t1 (SELECT x, public.fipshash(x::text) FROM generate_series(0,20) x)",
+    "expected": "INSERT INTO t1 SELECT x, public.fipshash(CAST(x AS TEXT)) FROM generate_series(0, 20) AS x"
+  },
+  {
+    "comment": "rowsecurity - Statement 341",
+    "query": "WITH cte1 AS MATERIALIZED (SELECT * FROM t1 WHERE f_leak(b)) SELECT * FROM cte1"
+  },
+  {
+    "comment": "rowsecurity - Statement 342",
+    "query": "EXPLAIN (COSTS OFF) WITH cte1 AS MATERIALIZED (SELECT * FROM t1 WHERE f_leak(b)) SELECT * FROM cte1",
+    "expected": "EXPLAIN (COSTS false) WITH cte1 AS MATERIALIZED (SELECT * FROM t1 WHERE f_leak(b)) SELECT * FROM cte1"
+  },
+  {
+    "comment": "rowsecurity - Statement 343",
+    "query": "WITH cte1 AS (UPDATE t1 SET a = a + 1 RETURNING *) SELECT * FROM cte1"
+  },
+  {
+    "comment": "rowsecurity - Statement 344",
+    "query": "WITH cte1 AS (UPDATE t1 SET a = a RETURNING *) SELECT * FROM cte1"
+  },
+  {
+    "comment": "rowsecurity - Statement 345",
+    "query": "WITH cte1 AS (INSERT INTO t1 VALUES (21, 'Fail') RETURNING *) SELECT * FROM cte1"
+  },
+  {
+    "comment": "rowsecurity - Statement 346",
+    "query": "WITH cte1 AS (INSERT INTO t1 VALUES (20, 'Success') RETURNING *) SELECT * FROM cte1"
+  },
+  {
+    "comment": "rowsecurity - Statement 347",
+    "query": "ALTER POLICY p1 ON t1 RENAME TO p1"
+  },
+  {
+    "comment": "rowsecurity - Statement 348",
+    "query": "SELECT polname, relname FROM pg_policy pol JOIN pg_class pc ON (pc.oid = pol.polrelid) WHERE relname = 't1'",
+    "expected": "SELECT polname, relname FROM pg_policy AS pol INNER JOIN pg_class AS pc ON (pc.oid = pol.polrelid) WHERE relname = 't1'"
+  },
+  {
+    "comment": "rowsecurity - Statement 349",
+    "query": "ALTER POLICY p1 ON t1 RENAME TO p2"
+  },
+  {
+    "comment": "rowsecurity - Statement 350",
+    "query": "CREATE TABLE t2 (a integer, b text)",
+    "expected": "CREATE TABLE t2 (a INT, b TEXT)"
+  },
+  {
+    "comment": "rowsecurity - Statement 351",
+    "query": "INSERT INTO t2 (SELECT * FROM t1)",
+    "expected": "INSERT INTO t2 SELECT * FROM t1"
+  },
+  {
+    "comment": "rowsecurity - Statement 352",
+    "query": "EXPLAIN (COSTS OFF) INSERT INTO t2 (SELECT * FROM t1)",
+    "expected": "EXPLAIN (COSTS false) INSERT INTO t2 SELECT * FROM t1"
+  },
+  {
+    "comment": "rowsecurity - Statement 353",
+    "query": "SELECT * FROM t2"
+  },
+  {
+    "comment": "rowsecurity - Statement 354",
+    "query": "EXPLAIN (COSTS OFF) SELECT * FROM t2",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM t2"
+  },
+  {
+    "comment": "rowsecurity - Statement 355",
+    "query": "CREATE TABLE t3 AS SELECT * FROM t1"
+  },
+  {
+    "comment": "rowsecurity - Statement 356",
+    "query": "SELECT * FROM t3"
+  },
+  {
+    "comment": "rowsecurity - Statement 357",
+    "query": "SELECT * INTO t4 FROM t1"
+  },
+  {
+    "comment": "rowsecurity - Statement 358",
+    "query": "SELECT * FROM t4"
+  },
+  {
+    "comment": "rowsecurity - Statement 359",
+    "query": "CREATE TABLE blog (id integer, author text, post text)",
+    "expected": "CREATE TABLE blog (id INT, author TEXT, post TEXT)"
+  },
+  {
+    "comment": "rowsecurity - Statement 360",
+    "query": "CREATE TABLE comment (blog_id integer, message text)",
+    "expected": "CREATE TABLE comment (blog_id INT, message TEXT)"
+  },
+  {
+    "comment": "rowsecurity - Statement 361",
+    "query": "GRANT ALL ON blog, comment TO regress_rls_bob"
+  },
+  {
+    "comment": "rowsecurity - Statement 362",
+    "query": "CREATE POLICY blog_1 ON blog USING (id % 2 = 0)",
+    "expected": "CREATE POLICY blog_1 ON blog AS PERMISSIVE FOR all TO PUBLIC USING ( id % 2 = 0 )"
+  },
+  {
+    "comment": "rowsecurity - Statement 363",
+    "query": "ALTER TABLE blog ENABLE ROW LEVEL SECURITY"
+  },
+  {
+    "comment": "rowsecurity - Statement 364",
+    "query": "INSERT INTO blog VALUES (1, 'alice', 'blog #1'), (2, 'bob', 'blog #1'), (3, 'alice', 'blog #2'), (4, 'alice', 'blog #3'), (5, 'john', 'blog #1')"
+  },
+  {
+    "comment": "rowsecurity - Statement 365",
+    "query": "INSERT INTO comment VALUES (1, 'cool blog'), (1, 'fun blog'), (3, 'crazy blog'), (5, 'what?'), (4, 'insane!'), (2, 'who did it?')"
+  },
+  {
+    "comment": "rowsecurity - Statement 366",
+    "query": "SELECT id, author, message FROM blog JOIN comment ON id = blog_id",
+    "expected": "SELECT id, author, message FROM blog INNER JOIN comment ON id = blog_id"
+  },
+  {
+    "comment": "rowsecurity - Statement 367",
+    "query": "SELECT id, author, message FROM comment JOIN blog ON id = blog_id",
+    "expected": "SELECT id, author, message FROM comment INNER JOIN blog ON id = blog_id"
+  },
+  {
+    "comment": "rowsecurity - Statement 368",
+    "query": "CREATE POLICY comment_1 ON comment USING (blog_id \u003c 4)",
+    "expected": "CREATE POLICY comment_1 ON comment AS PERMISSIVE FOR all TO PUBLIC USING ( blog_id \u003c 4 )"
+  },
+  {
+    "comment": "rowsecurity - Statement 369",
+    "query": "ALTER TABLE comment ENABLE ROW LEVEL SECURITY"
+  },
+  {
+    "comment": "rowsecurity - Statement 370",
+    "query": "DROP TABLE blog, comment"
+  },
+  {
+    "comment": "rowsecurity - Statement 371",
+    "query": "DROP POLICY p2 ON t1"
+  },
+  {
+    "comment": "rowsecurity - Statement 372",
+    "query": "ALTER TABLE t1 OWNER TO regress_rls_alice"
+  },
+  {
+    "comment": "rowsecurity - Statement 373",
+    "query": "DROP TABLE copy_t CASCADE"
+  },
+  {
+    "comment": "rowsecurity - Statement 374",
+    "query": "CREATE TABLE copy_t (a integer, b text)",
+    "expected": "CREATE TABLE copy_t (a INT, b TEXT)"
+  },
+  {
+    "comment": "rowsecurity - Statement 375",
+    "query": "CREATE POLICY p1 ON copy_t USING (a % 2 = 0)",
+    "expected": "CREATE POLICY p1 ON copy_t AS PERMISSIVE FOR all TO PUBLIC USING ( a % 2 = 0 )"
+  },
+  {
+    "comment": "rowsecurity - Statement 376",
+    "query": "ALTER TABLE copy_t ENABLE ROW LEVEL SECURITY"
+  },
+  {
+    "comment": "rowsecurity - Statement 377",
+    "query": "GRANT ALL ON copy_t TO regress_rls_bob, regress_rls_exempt_user"
+  },
+  {
+    "comment": "rowsecurity - Statement 378",
+    "query": "INSERT INTO copy_t (SELECT x, public.fipshash(x::text) FROM generate_series(0,10) x)",
+    "expected": "INSERT INTO copy_t SELECT x, public.fipshash(CAST(x AS TEXT)) FROM generate_series(0, 10) AS x"
+  },
+  {
+    "comment": "rowsecurity - Statement 379",
+    "query": "COPY (SELECT * FROM copy_t ORDER BY a ASC) TO STDOUT WITH DELIMITER ','",
+    "expected": "COPY (SELECT * FROM copy_t ORDER BY a ASC) TO STDOUT (delimiter ',')"
+  },
+  {
+    "comment": "rowsecurity - Statement 380",
+    "query": "CREATE TABLE copy_rel_to (a integer, b text)",
+    "expected": "CREATE TABLE copy_rel_to (a INT, b TEXT)"
+  },
+  {
+    "comment": "rowsecurity - Statement 381",
+    "query": "CREATE POLICY p1 ON copy_rel_to USING (a % 2 = 0)",
+    "expected": "CREATE POLICY p1 ON copy_rel_to AS PERMISSIVE FOR all TO PUBLIC USING ( a % 2 = 0 )"
+  },
+  {
+    "comment": "rowsecurity - Statement 382",
+    "query": "ALTER TABLE copy_rel_to ENABLE ROW LEVEL SECURITY"
+  },
+  {
+    "comment": "rowsecurity - Statement 383",
+    "query": "GRANT ALL ON copy_rel_to TO regress_rls_bob, regress_rls_exempt_user"
+  },
+  {
+    "comment": "rowsecurity - Statement 384",
+    "query": "INSERT INTO copy_rel_to VALUES (1, public.fipshash('1'))"
+  },
+  {
+    "comment": "rowsecurity - Statement 385",
+    "query": "COPY copy_rel_to TO STDOUT WITH DELIMITER ','",
+    "expected": "COPY copy_rel_to TO STDOUT (delimiter ',')"
+  },
+  {
+    "comment": "rowsecurity - Statement 386",
+    "query": "CREATE TABLE copy_rel_to_child () INHERITS (copy_rel_to)"
+  },
+  {
+    "comment": "rowsecurity - Statement 387",
+    "query": "INSERT INTO copy_rel_to_child VALUES (1, 'one'), (2, 'two')"
+  },
+  {
+    "comment": "rowsecurity - Statement 388",
+    "query": "COPY copy_t FROM STDIN"
+  },
+  {
+    "comment": "rowsecurity - Statement 389",
+    "query": "SET row_security TO ON",
+    "expected": "SET row_security = on"
+  },
+  {
+    "comment": "rowsecurity - Statement 390",
+    "query": "SET SESSION AUTHORIZATION regress_rls_bob",
+    "expected": "SET SESSION AUTHORIZATION 'regress_rls_bob'"
+  },
+  {
+    "comment": "rowsecurity - Statement 391",
+    "query": "SET SESSION AUTHORIZATION regress_rls_carol",
+    "expected": "SET SESSION AUTHORIZATION 'regress_rls_carol'"
+  },
+  {
+    "comment": "rowsecurity - Statement 392",
+    "query": "DROP TABLE copy_t"
+  },
+  {
+    "comment": "rowsecurity - Statement 393",
+    "query": "DROP TABLE copy_rel_to CASCADE"
+  },
+  {
+    "comment": "rowsecurity - Statement 394",
+    "query": "CREATE TABLE current_check (currentid int, payload text, rlsuser text)",
+    "expected": "CREATE TABLE current_check (currentid INT, payload TEXT, rlsuser TEXT)"
+  },
+  {
+    "comment": "rowsecurity - Statement 395",
+    "query": "GRANT ALL ON current_check TO PUBLIC"
+  },
+  {
+    "comment": "rowsecurity - Statement 396",
+    "query": "INSERT INTO current_check VALUES (1, 'abc', 'regress_rls_bob'), (2, 'bcd', 'regress_rls_bob'), (3, 'cde', 'regress_rls_bob'), (4, 'def', 'regress_rls_bob')"
+  },
+  {
+    "comment": "rowsecurity - Statement 397",
+    "query": "CREATE POLICY p1 ON current_check FOR SELECT USING (currentid % 2 = 0)",
+    "expected": "CREATE POLICY p1 ON current_check AS PERMISSIVE FOR select TO PUBLIC USING ( currentid % 2 = 0 )"
+  },
+  {
+    "comment": "rowsecurity - Statement 398",
+    "query": "CREATE POLICY p2 ON current_check FOR DELETE USING (currentid = 4 AND rlsuser = current_user)",
+    "expected": "CREATE POLICY p2 ON current_check AS PERMISSIVE FOR delete TO PUBLIC USING ( currentid = 4 AND rlsuser = CURRENT_USER )"
+  },
+  {
+    "comment": "rowsecurity - Statement 399",
+    "query": "CREATE POLICY p3 ON current_check FOR UPDATE USING (currentid = 4) WITH CHECK (rlsuser = current_user)",
+    "expected": "CREATE POLICY p3 ON current_check AS PERMISSIVE FOR update TO PUBLIC USING ( currentid = 4 ) WITH CHECK ( rlsuser = CURRENT_USER )"
+  },
+  {
+    "comment": "rowsecurity - Statement 400",
+    "query": "ALTER TABLE current_check ENABLE ROW LEVEL SECURITY"
+  },
+  {
+    "comment": "rowsecurity - Statement 401",
+    "query": "SELECT * FROM current_check"
+  },
+  {
+    "comment": "rowsecurity - Statement 402",
+    "query": "UPDATE current_check SET payload = payload || '_new' WHERE currentid = 2 RETURNING *"
+  },
+  {
+    "comment": "rowsecurity - Statement 403",
+    "query": "BEGIN"
+  },
+  {
+    "comment": "rowsecurity - Statement 404",
+    "query": "DECLARE current_check_cursor SCROLL CURSOR FOR SELECT * FROM current_check"
+  },
+  {
+    "comment": "rowsecurity - Statement 405",
+    "query": "FETCH ABSOLUTE 1 FROM current_check_cursor",
+    "expected": "FETCH FIRST FROM current_check_cursor"
+  },
+  {
+    "comment": "rowsecurity - Statement 406",
+    "query": "UPDATE current_check SET payload = payload || '_new' WHERE CURRENT OF current_check_cursor RETURNING *"
+  },
+  {
+    "comment": "rowsecurity - Statement 407",
+    "query": "FETCH RELATIVE 1 FROM current_check_cursor"
+  },
+  {
+    "comment": "rowsecurity - Statement 408",
+    "query": "EXPLAIN (COSTS OFF) UPDATE current_check SET payload = payload WHERE CURRENT OF current_check_cursor",
+    "expected": "EXPLAIN (COSTS false) UPDATE current_check SET payload = payload WHERE CURRENT OF current_check_cursor"
+  },
+  {
+    "comment": "rowsecurity - Statement 409",
+    "query": "DELETE FROM current_check WHERE CURRENT OF current_check_cursor RETURNING *"
+  },
+  {
+    "comment": "rowsecurity - Statement 410",
+    "query": "COMMIT"
+  },
+  {
+    "comment": "rowsecurity - Statement 411",
+    "query": "CREATE TABLE current_check_2 (a int, b text)",
+    "expected": "CREATE TABLE current_check_2 (a INT, b TEXT)"
+  },
+  {
+    "comment": "rowsecurity - Statement 412",
+    "query": "INSERT INTO current_check_2 VALUES (1, 'Apple')"
+  },
+  {
+    "comment": "rowsecurity - Statement 413",
+    "query": "ALTER TABLE current_check_2 ENABLE ROW LEVEL SECURITY"
+  },
+  {
+    "comment": "rowsecurity - Statement 414",
+    "query": "ALTER TABLE current_check_2 FORCE ROW LEVEL SECURITY"
+  },
+  {
+    "comment": "rowsecurity - Statement 415",
+    "query": "CREATE POLICY p1 ON current_check_2 AS PERMISSIVE USING (ctid IN ('(0,1)', '(0,2)', '(4294967295,0)'))",
+    "expected": "CREATE POLICY p1 ON current_check_2 AS PERMISSIVE FOR all TO PUBLIC USING ( ctid IN ('(0,1)', '(0,2)', '(4294967295,0)') )"
+  },
+  {
+    "comment": "rowsecurity - Statement 416",
+    "query": "SELECT ctid, * FROM current_check_2"
+  },
+  {
+    "comment": "rowsecurity - Statement 417",
+    "query": "DECLARE current_check_cursor CURSOR FOR SELECT * FROM current_check_2"
+  },
+  {
+    "comment": "rowsecurity - Statement 418",
+    "query": "FETCH FROM current_check_cursor"
+  },
+  {
+    "comment": "rowsecurity - Statement 419",
+    "query": "EXPLAIN (COSTS OFF) UPDATE current_check_2 SET b = 'Manzana' WHERE CURRENT OF current_check_cursor",
+    "expected": "EXPLAIN (COSTS false) UPDATE current_check_2 SET b = 'Manzana' WHERE CURRENT OF current_check_cursor"
+  },
+  {
+    "comment": "rowsecurity - Statement 420",
+    "query": "UPDATE current_check_2 SET b = 'Manzana' WHERE CURRENT OF current_check_cursor"
+  },
+  {
+    "comment": "rowsecurity - Statement 421",
+    "query": "ROLLBACK"
+  },
+  {
+    "comment": "rowsecurity - Statement 422",
+    "query": "ANALYZE current_check"
+  },
+  {
+    "comment": "rowsecurity - Statement 423",
+    "query": "SELECT row_security_active('current_check')"
+  },
+  {
+    "comment": "rowsecurity - Statement 424",
+    "query": "SELECT attname, most_common_vals FROM pg_stats WHERE tablename = 'current_check' ORDER BY 1"
+  },
+  {
+    "comment": "rowsecurity - Statement 425",
+    "query": "CREATE TABLE coll_t (c) AS VALUES ('bar'::text)",
+    "expected": "CREATE TABLE coll_t (c) AS VALUES (CAST('bar' AS TEXT))"
+  },
+  {
+    "comment": "rowsecurity - Statement 426",
+    "query": "CREATE POLICY coll_p ON coll_t USING (c \u003c ('foo'::text COLLATE \"C\"))",
+    "expected": "CREATE POLICY coll_p ON coll_t AS PERMISSIVE FOR all TO PUBLIC USING ( c \u003c (CAST('foo' AS TEXT) COLLATE \"C\") )"
+  },
+  {
+    "comment": "rowsecurity - Statement 427",
+    "query": "ALTER TABLE coll_t ENABLE ROW LEVEL SECURITY"
+  },
+  {
+    "comment": "rowsecurity - Statement 428",
+    "query": "GRANT SELECT ON coll_t TO regress_rls_alice"
+  },
+  {
+    "comment": "rowsecurity - Statement 429",
+    "query": "SELECT (string_to_array(polqual, ':'))[7] AS inputcollid FROM pg_policy WHERE polrelid = 'coll_t'::regclass",
+    "expected": "SELECT (string_to_array(polqual, ':'))[7] AS inputcollid FROM pg_policy WHERE polrelid = CAST('coll_t' AS regclass)"
+  },
+  {
+    "comment": "rowsecurity - Statement 430",
+    "query": "SELECT * FROM coll_t"
+  },
+  {
+    "comment": "rowsecurity - Statement 431",
+    "query": "CREATE ROLE regress_rls_eve"
+  },
+  {
+    "comment": "rowsecurity - Statement 432",
+    "query": "CREATE ROLE regress_rls_frank"
+  },
+  {
+    "comment": "rowsecurity - Statement 433",
+    "query": "CREATE TABLE tbl1 (c) AS VALUES ('bar'::text)",
+    "expected": "CREATE TABLE tbl1 (c) AS VALUES (CAST('bar' AS TEXT))"
+  },
+  {
+    "comment": "rowsecurity - Statement 434",
+    "query": "GRANT SELECT ON TABLE tbl1 TO regress_rls_eve",
+    "expected": "GRANT SELECT ON tbl1 TO regress_rls_eve"
+  },
+  {
+    "comment": "rowsecurity - Statement 435",
+    "query": "CREATE POLICY P ON tbl1 TO regress_rls_eve, regress_rls_frank USING (true)",
+    "expected": "CREATE POLICY p ON tbl1 AS PERMISSIVE FOR all TO regress_rls_eve, regress_rls_frank USING ( TRUE )"
+  },
+  {
+    "comment": "rowsecurity - Statement 436",
+    "query": "SELECT refclassid::regclass, deptype FROM pg_depend WHERE classid = 'pg_policy'::regclass AND refobjid = 'tbl1'::regclass",
+    "expected": "SELECT CAST(refclassid AS regclass), deptype FROM pg_depend WHERE classid = CAST('pg_policy' AS regclass) AND refobjid = CAST('tbl1' AS regclass)"
+  },
+  {
+    "comment": "rowsecurity - Statement 437",
+    "query": "SELECT refclassid::regclass, deptype FROM pg_shdepend WHERE classid = 'pg_policy'::regclass AND refobjid IN ('regress_rls_eve'::regrole, 'regress_rls_frank'::regrole)",
+    "expected": "SELECT CAST(refclassid AS regclass), deptype FROM pg_shdepend WHERE classid = CAST('pg_policy' AS regclass) AND refobjid IN (CAST('regress_rls_eve' AS regrole), CAST('regress_rls_frank' AS regrole))"
+  },
+  {
+    "comment": "rowsecurity - Statement 438",
+    "query": "SAVEPOINT q"
+  },
+  {
+    "comment": "rowsecurity - Statement 439",
+    "query": "DROP ROLE regress_rls_eve"
+  },
+  {
+    "comment": "rowsecurity - Statement 440",
+    "query": "ROLLBACK TO q",
+    "expected": "ROLLBACK TO SAVEPOINT q"
+  },
+  {
+    "comment": "rowsecurity - Statement 441",
+    "query": "ALTER POLICY p ON tbl1 TO regress_rls_frank USING (true)",
+    "expected": "ALTER POLICY p ON tbl1 TO regress_rls_frank USING ( TRUE )"
+  },
+  {
+    "comment": "rowsecurity - Statement 442",
+    "query": "REVOKE ALL ON TABLE tbl1 FROM regress_rls_eve",
+    "expected": "REVOKE ALL ON tbl1 FROM regress_rls_eve"
+  },
+  {
+    "comment": "rowsecurity - Statement 443",
+    "query": "DROP ROLE regress_rls_frank"
+  },
+  {
+    "comment": "rowsecurity - Statement 444",
+    "query": "DROP POLICY p ON tbl1"
+  },
+  {
+    "comment": "rowsecurity - Statement 445",
+    "query": "CREATE TABLE t (c) AS VALUES ('bar'::text)",
+    "expected": "CREATE TABLE t (c) AS VALUES (CAST('bar' AS TEXT))"
+  },
+  {
+    "comment": "rowsecurity - Statement 446",
+    "query": "CREATE POLICY p ON t USING (max(c))",
+    "expected": "CREATE POLICY p ON t AS PERMISSIVE FOR all TO PUBLIC USING ( MAX(c) )"
+  },
+  {
+    "comment": "rowsecurity - Statement 447",
+    "query": "CREATE TABLE r1 (a int)",
+    "expected": "CREATE TABLE r1 (a INT)"
+  },
+  {
+    "comment": "rowsecurity - Statement 448",
+    "query": "CREATE TABLE r2 (a int)",
+    "expected": "CREATE TABLE r2 (a INT)"
+  },
+  {
+    "comment": "rowsecurity - Statement 449",
+    "query": "INSERT INTO r1 VALUES (10), (20)"
+  },
+  {
+    "comment": "rowsecurity - Statement 450",
+    "query": "INSERT INTO r2 VALUES (10), (20)"
+  },
+  {
+    "comment": "rowsecurity - Statement 451",
+    "query": "GRANT ALL ON r1, r2 TO regress_rls_bob"
+  },
+  {
+    "comment": "rowsecurity - Statement 452",
+    "query": "CREATE POLICY p1 ON r1 USING (true)",
+    "expected": "CREATE POLICY p1 ON r1 AS PERMISSIVE FOR all TO PUBLIC USING ( TRUE )"
+  },
+  {
+    "comment": "rowsecurity - Statement 453",
+    "query": "ALTER TABLE r1 ENABLE ROW LEVEL SECURITY"
+  },
+  {
+    "comment": "rowsecurity - Statement 454",
+    "query": "CREATE POLICY p1 ON r2 FOR SELECT USING (true)",
+    "expected": "CREATE POLICY p1 ON r2 AS PERMISSIVE FOR select TO PUBLIC USING ( TRUE )"
+  },
+  {
+    "comment": "rowsecurity - Statement 455",
+    "query": "CREATE POLICY p2 ON r2 FOR INSERT WITH CHECK (false)",
+    "expected": "CREATE POLICY p2 ON r2 AS PERMISSIVE FOR insert TO PUBLIC WITH CHECK ( FALSE )"
+  },
+  {
+    "comment": "rowsecurity - Statement 456",
+    "query": "CREATE POLICY p3 ON r2 FOR UPDATE USING (false)",
+    "expected": "CREATE POLICY p3 ON r2 AS PERMISSIVE FOR update TO PUBLIC USING ( FALSE )"
+  },
+  {
+    "comment": "rowsecurity - Statement 457",
+    "query": "CREATE POLICY p4 ON r2 FOR DELETE USING (false)",
+    "expected": "CREATE POLICY p4 ON r2 AS PERMISSIVE FOR delete TO PUBLIC USING ( FALSE )"
+  },
+  {
+    "comment": "rowsecurity - Statement 458",
+    "query": "ALTER TABLE r2 ENABLE ROW LEVEL SECURITY"
+  },
+  {
+    "comment": "rowsecurity - Statement 459",
+    "query": "SELECT * FROM r1"
+  },
+  {
+    "comment": "rowsecurity - Statement 460",
+    "query": "SELECT * FROM r2"
+  },
+  {
+    "comment": "rowsecurity - Statement 461",
+    "query": "INSERT INTO r2 VALUES (2)"
+  },
+  {
+    "comment": "rowsecurity - Statement 462",
+    "query": "UPDATE r2 SET a = 2 RETURNING *"
+  },
+  {
+    "comment": "rowsecurity - Statement 463",
+    "query": "DELETE FROM r2 RETURNING *"
+  },
+  {
+    "comment": "rowsecurity - Statement 464",
+    "query": "INSERT INTO r1 SELECT a + 1 FROM r2 RETURNING *"
+  },
+  {
+    "comment": "rowsecurity - Statement 465",
+    "query": "UPDATE r1 SET a = r2.a + 2 FROM r2 WHERE r1.a = r2.a RETURNING *"
+  },
+  {
+    "comment": "rowsecurity - Statement 466",
+    "query": "DELETE FROM r1 USING r2 WHERE r1.a = r2.a + 2 RETURNING *"
+  },
+  {
+    "comment": "rowsecurity - Statement 467",
+    "query": "DROP TABLE r1"
+  },
+  {
+    "comment": "rowsecurity - Statement 468",
+    "query": "DROP TABLE r2"
+  },
+  {
+    "comment": "rowsecurity - Statement 469",
+    "query": "SET row_security = on"
+  },
+  {
+    "comment": "rowsecurity - Statement 470",
+    "query": "CREATE POLICY p1 ON r1 USING (false)",
+    "expected": "CREATE POLICY p1 ON r1 AS PERMISSIVE FOR all TO PUBLIC USING ( FALSE )"
+  },
+  {
+    "comment": "rowsecurity - Statement 471",
+    "query": "ALTER TABLE r1 FORCE ROW LEVEL SECURITY"
+  },
+  {
+    "comment": "rowsecurity - Statement 472",
+    "query": "TABLE r1",
+    "expected": "SELECT * FROM r1"
+  },
+  {
+    "comment": "rowsecurity - Statement 473",
+    "query": "INSERT INTO r1 VALUES (1)"
+  },
+  {
+    "comment": "rowsecurity - Statement 474",
+    "query": "UPDATE r1 SET a = 1"
+  },
+  {
+    "comment": "rowsecurity - Statement 475",
+    "query": "DELETE FROM r1"
+  },
+  {
+    "comment": "rowsecurity - Statement 476",
+    "query": "SET row_security = off"
+  },
+  {
+    "comment": "rowsecurity - Statement 477",
+    "query": "CREATE TABLE r1 (a int PRIMARY KEY)",
+    "expected": "CREATE TABLE r1 (a INT PRIMARY KEY)"
+  },
+  {
+    "comment": "rowsecurity - Statement 478",
+    "query": "CREATE TABLE r2 (a int REFERENCES r1)",
+    "expected": "CREATE TABLE r2 (a INT REFERENCES r1)"
+  },
+  {
+    "comment": "rowsecurity - Statement 479",
+    "query": "CREATE POLICY p1 ON r2 USING (false)",
+    "expected": "CREATE POLICY p1 ON r2 AS PERMISSIVE FOR all TO PUBLIC USING ( FALSE )"
+  },
+  {
+    "comment": "rowsecurity - Statement 480",
+    "query": "ALTER TABLE r2 FORCE ROW LEVEL SECURITY"
+  },
+  {
+    "comment": "rowsecurity - Statement 481",
+    "query": "DROP POLICY p1 ON r2"
+  },
+  {
+    "comment": "rowsecurity - Statement 482",
+    "query": "ALTER TABLE r2 NO FORCE ROW LEVEL SECURITY"
+  },
+  {
+    "comment": "rowsecurity - Statement 483",
+    "query": "ALTER TABLE r2 DISABLE ROW LEVEL SECURITY"
+  },
+  {
+    "comment": "rowsecurity - Statement 484",
+    "query": "DELETE FROM r2"
+  },
+  {
+    "comment": "rowsecurity - Statement 485",
+    "query": "INSERT INTO r2 VALUES (10)"
+  },
+  {
+    "comment": "rowsecurity - Statement 486",
+    "query": "CREATE TABLE r2 (a int REFERENCES r1 ON DELETE CASCADE)",
+    "expected": "CREATE TABLE r2 (a INT REFERENCES r1 ON DELETE CASCADE)"
+  },
+  {
+    "comment": "rowsecurity - Statement 487",
+    "query": "TABLE r2",
+    "expected": "SELECT * FROM r2"
+  },
+  {
+    "comment": "rowsecurity - Statement 488",
+    "query": "CREATE TABLE r2 (a int REFERENCES r1 ON UPDATE CASCADE)",
+    "expected": "CREATE TABLE r2 (a INT REFERENCES r1 ON UPDATE CASCADE)"
+  },
+  {
+    "comment": "rowsecurity - Statement 489",
+    "query": "UPDATE r1 SET a = a+5",
+    "expected": "UPDATE r1 SET a = a + 5"
+  },
+  {
+    "comment": "rowsecurity - Statement 490",
+    "query": "CREATE POLICY p1 ON r1 FOR SELECT USING (false)",
+    "expected": "CREATE POLICY p1 ON r1 AS PERMISSIVE FOR select TO PUBLIC USING ( FALSE )"
+  },
+  {
+    "comment": "rowsecurity - Statement 491",
+    "query": "CREATE POLICY p2 ON r1 FOR INSERT WITH CHECK (true)",
+    "expected": "CREATE POLICY p2 ON r1 AS PERMISSIVE FOR insert TO PUBLIC WITH CHECK ( TRUE )"
+  },
+  {
+    "comment": "rowsecurity - Statement 492",
+    "query": "INSERT INTO r1 VALUES (10), (20) RETURNING *"
+  },
+  {
+    "comment": "rowsecurity - Statement 493",
+    "query": "CREATE POLICY p1 ON r1 FOR SELECT USING (a \u003c 20)",
+    "expected": "CREATE POLICY p1 ON r1 AS PERMISSIVE FOR select TO PUBLIC USING ( a \u003c 20 )"
+  },
+  {
+    "comment": "rowsecurity - Statement 494",
+    "query": "CREATE POLICY p2 ON r1 FOR UPDATE USING (a \u003c 20) WITH CHECK (true)",
+    "expected": "CREATE POLICY p2 ON r1 AS PERMISSIVE FOR update TO PUBLIC USING ( a \u003c 20 ) WITH CHECK ( TRUE )"
+  },
+  {
+    "comment": "rowsecurity - Statement 495",
+    "query": "CREATE POLICY p3 ON r1 FOR INSERT WITH CHECK (true)",
+    "expected": "CREATE POLICY p3 ON r1 AS PERMISSIVE FOR insert TO PUBLIC WITH CHECK ( TRUE )"
+  },
+  {
+    "comment": "rowsecurity - Statement 496",
+    "query": "INSERT INTO r1 VALUES (10)"
+  },
+  {
+    "comment": "rowsecurity - Statement 497",
+    "query": "UPDATE r1 SET a = 30"
+  },
+  {
+    "comment": "rowsecurity - Statement 498",
+    "query": "ALTER TABLE r1 NO FORCE ROW LEVEL SECURITY"
+  },
+  {
+    "comment": "rowsecurity - Statement 499",
+    "query": "UPDATE r1 SET a = 10"
+  },
+  {
+    "comment": "rowsecurity - Statement 500",
+    "query": "UPDATE r1 SET a = 30 RETURNING *"
+  },
+  {
+    "comment": "rowsecurity - Statement 501",
+    "query": "INSERT INTO r1 VALUES (10) ON CONFLICT (a) DO UPDATE SET a = 30 RETURNING *"
+  },
+  {
+    "comment": "rowsecurity - Statement 502",
+    "query": "INSERT INTO r1 VALUES (10) ON CONFLICT (a) DO UPDATE SET a = 30"
+  },
+  {
+    "comment": "rowsecurity - Statement 503",
+    "query": "INSERT INTO r1 VALUES (10) ON CONFLICT ON CONSTRAINT r1_pkey DO UPDATE SET a = 30"
+  },
+  {
+    "comment": "rowsecurity - Statement 504",
+    "query": "CREATE TABLE dep1 (c1 int)",
+    "expected": "CREATE TABLE dep1 (c1 INT)"
+  },
+  {
+    "comment": "rowsecurity - Statement 505",
+    "query": "CREATE TABLE dep2 (c1 int)",
+    "expected": "CREATE TABLE dep2 (c1 INT)"
+  },
+  {
+    "comment": "rowsecurity - Statement 506",
+    "query": "CREATE POLICY dep_p1 ON dep1 TO regress_rls_bob USING (c1 \u003e (select max(dep2.c1) from dep2))",
+    "expected": "CREATE POLICY dep_p1 ON dep1 AS PERMISSIVE FOR all TO regress_rls_bob USING ( c1 \u003e (SELECT MAX(dep2.c1) FROM dep2) )"
+  },
+  {
+    "comment": "rowsecurity - Statement 507",
+    "query": "ALTER POLICY dep_p1 ON dep1 TO regress_rls_bob,regress_rls_carol",
+    "expected": "ALTER POLICY dep_p1 ON dep1 TO regress_rls_bob, regress_rls_carol"
+  },
+  {
+    "comment": "rowsecurity - Statement 508",
+    "query": "SELECT count(*) = 1 FROM pg_depend WHERE objid = (SELECT oid FROM pg_policy WHERE polname = 'dep_p1') AND refobjid = (SELECT oid FROM pg_class WHERE relname = 'dep2')",
+    "expected": "SELECT COUNT(*) = 1 FROM pg_depend WHERE objid = (SELECT oid FROM pg_policy WHERE polname = 'dep_p1') AND refobjid = (SELECT oid FROM pg_class WHERE relname = 'dep2')"
+  },
+  {
+    "comment": "rowsecurity - Statement 509",
+    "query": "ALTER POLICY dep_p1 ON dep1 USING (true)",
+    "expected": "ALTER POLICY dep_p1 ON dep1 USING ( TRUE )"
+  },
+  {
+    "comment": "rowsecurity - Statement 510",
+    "query": "SELECT count(*) = 1 FROM pg_shdepend WHERE objid = (SELECT oid FROM pg_policy WHERE polname = 'dep_p1') AND refobjid = (SELECT oid FROM pg_authid WHERE rolname = 'regress_rls_bob')",
+    "expected": "SELECT COUNT(*) = 1 FROM pg_shdepend WHERE objid = (SELECT oid FROM pg_policy WHERE polname = 'dep_p1') AND refobjid = (SELECT oid FROM pg_authid WHERE rolname = 'regress_rls_bob')"
+  },
+  {
+    "comment": "rowsecurity - Statement 511",
+    "query": "SELECT count(*) = 1 FROM pg_shdepend WHERE objid = (SELECT oid FROM pg_policy WHERE polname = 'dep_p1') AND refobjid = (SELECT oid FROM pg_authid WHERE rolname = 'regress_rls_carol')",
+    "expected": "SELECT COUNT(*) = 1 FROM pg_shdepend WHERE objid = (SELECT oid FROM pg_policy WHERE polname = 'dep_p1') AND refobjid = (SELECT oid FROM pg_authid WHERE rolname = 'regress_rls_carol')"
+  },
+  {
+    "comment": "rowsecurity - Statement 512",
+    "query": "SELECT count(*) = 0 FROM pg_depend WHERE objid = (SELECT oid FROM pg_policy WHERE polname = 'dep_p1') AND refobjid = (SELECT oid FROM pg_class WHERE relname = 'dep2')",
+    "expected": "SELECT COUNT(*) = 0 FROM pg_depend WHERE objid = (SELECT oid FROM pg_policy WHERE polname = 'dep_p1') AND refobjid = (SELECT oid FROM pg_class WHERE relname = 'dep2')"
+  },
+  {
+    "comment": "rowsecurity - Statement 513",
+    "query": "CREATE ROLE regress_rls_dob_role1"
+  },
+  {
+    "comment": "rowsecurity - Statement 514",
+    "query": "CREATE ROLE regress_rls_dob_role2"
+  },
+  {
+    "comment": "rowsecurity - Statement 515",
+    "query": "CREATE TABLE dob_t1 (c1 int)",
+    "expected": "CREATE TABLE dob_t1 (c1 INT)"
+  },
+  {
+    "comment": "rowsecurity - Statement 516",
+    "query": "CREATE TABLE dob_t2 (c1 int) PARTITION BY RANGE (c1)",
+    "expected": "CREATE TABLE dob_t2 (c1 INT) PARTITION BY range (c1)"
+  },
+  {
+    "comment": "rowsecurity - Statement 517",
+    "query": "CREATE POLICY p1 ON dob_t1 TO regress_rls_dob_role1 USING (true)",
+    "expected": "CREATE POLICY p1 ON dob_t1 AS PERMISSIVE FOR all TO regress_rls_dob_role1 USING ( TRUE )"
+  },
+  {
+    "comment": "rowsecurity - Statement 518",
+    "query": "DROP OWNED BY regress_rls_dob_role1",
+    "expected": "DROP OWNED BY regress_rls_dob_role1 RESTRICT"
+  },
+  {
+    "comment": "rowsecurity - Statement 519",
+    "query": "DROP POLICY p1 ON dob_t1"
+  },
+  {
+    "comment": "rowsecurity - Statement 520",
+    "query": "CREATE POLICY p1 ON dob_t1 TO regress_rls_dob_role1,regress_rls_dob_role2 USING (true)",
+    "expected": "CREATE POLICY p1 ON dob_t1 AS PERMISSIVE FOR all TO regress_rls_dob_role1, regress_rls_dob_role2 USING ( TRUE )"
+  },
+  {
+    "comment": "rowsecurity - Statement 521",
+    "query": "CREATE POLICY p1 ON dob_t1 TO regress_rls_dob_role1,regress_rls_dob_role1 USING (true)",
+    "expected": "CREATE POLICY p1 ON dob_t1 AS PERMISSIVE FOR all TO regress_rls_dob_role1, regress_rls_dob_role1 USING ( TRUE )"
+  },
+  {
+    "comment": "rowsecurity - Statement 522",
+    "query": "CREATE POLICY p1 ON dob_t1 TO regress_rls_dob_role1,regress_rls_dob_role1,regress_rls_dob_role2 USING (true)",
+    "expected": "CREATE POLICY p1 ON dob_t1 AS PERMISSIVE FOR all TO regress_rls_dob_role1, regress_rls_dob_role1, regress_rls_dob_role2 USING ( TRUE )"
+  },
+  {
+    "comment": "rowsecurity - Statement 523",
+    "query": "CREATE POLICY p1 ON dob_t2 TO regress_rls_dob_role1,regress_rls_dob_role2 USING (true)",
+    "expected": "CREATE POLICY p1 ON dob_t2 AS PERMISSIVE FOR all TO regress_rls_dob_role1, regress_rls_dob_role2 USING ( TRUE )"
+  },
+  {
+    "comment": "rowsecurity - Statement 524",
+    "query": "DROP POLICY p1 ON dob_t2"
+  },
+  {
+    "comment": "rowsecurity - Statement 525",
+    "query": "DROP USER regress_rls_dob_role1",
+    "expected": "DROP ROLE regress_rls_dob_role1"
+  },
+  {
+    "comment": "rowsecurity - Statement 526",
+    "query": "DROP USER regress_rls_dob_role2",
+    "expected": "DROP ROLE regress_rls_dob_role2"
+  },
+  {
+    "comment": "rowsecurity - Statement 527",
+    "query": "CREATE TABLE ref_tbl (a int)",
+    "expected": "CREATE TABLE ref_tbl (a INT)"
+  },
+  {
+    "comment": "rowsecurity - Statement 528",
+    "query": "INSERT INTO ref_tbl VALUES (1)"
+  },
+  {
+    "comment": "rowsecurity - Statement 529",
+    "query": "CREATE TABLE rls_tbl (a int)",
+    "expected": "CREATE TABLE rls_tbl (a INT)"
+  },
+  {
+    "comment": "rowsecurity - Statement 530",
+    "query": "INSERT INTO rls_tbl VALUES (10)"
+  },
+  {
+    "comment": "rowsecurity - Statement 531",
+    "query": "ALTER TABLE rls_tbl ENABLE ROW LEVEL SECURITY"
+  },
+  {
+    "comment": "rowsecurity - Statement 532",
+    "query": "CREATE POLICY p1 ON rls_tbl USING (EXISTS (SELECT 1 FROM ref_tbl))",
+    "expected": "CREATE POLICY p1 ON rls_tbl AS PERMISSIVE FOR all TO PUBLIC USING ( EXISTS (SELECT 1 FROM ref_tbl) )"
+  },
+  {
+    "comment": "rowsecurity - Statement 533",
+    "query": "GRANT SELECT ON ref_tbl TO regress_rls_bob"
+  },
+  {
+    "comment": "rowsecurity - Statement 534",
+    "query": "GRANT SELECT ON rls_tbl TO regress_rls_bob"
+  },
+  {
+    "comment": "rowsecurity - Statement 535",
+    "query": "CREATE VIEW rls_view AS SELECT * FROM rls_tbl"
+  },
+  {
+    "comment": "rowsecurity - Statement 536",
+    "query": "ALTER VIEW rls_view OWNER TO regress_rls_bob"
+  },
+  {
+    "comment": "rowsecurity - Statement 537",
+    "query": "SELECT * FROM ref_tbl"
+  },
+  {
+    "comment": "rowsecurity - Statement 538",
+    "query": "SELECT * FROM rls_tbl"
+  },
+  {
+    "comment": "rowsecurity - Statement 539",
+    "query": "DROP TABLE rls_tbl"
+  },
+  {
+    "comment": "rowsecurity - Statement 540",
+    "query": "DROP TABLE ref_tbl"
+  },
+  {
+    "comment": "rowsecurity - Statement 541",
+    "query": "INSERT INTO rls_tbl SELECT x/10 FROM generate_series(1, 100) x",
+    "expected": "INSERT INTO rls_tbl SELECT x / 10 FROM generate_series(1, 100) AS x"
+  },
+  {
+    "comment": "rowsecurity - Statement 542",
+    "query": "ANALYZE rls_tbl"
+  },
+  {
+    "comment": "rowsecurity - Statement 543",
+    "query": "GRANT SELECT ON rls_tbl TO regress_rls_alice"
+  },
+  {
+    "comment": "rowsecurity - Statement 544",
+    "query": "CREATE FUNCTION op_leak(int, int) RETURNS bool AS 'BEGIN RAISE NOTICE ''op_leak =\u003e %, %'', $1, $2; RETURN $1 \u003c $2; END' LANGUAGE plpgsql",
+    "expected": "CREATE FUNCTION op_leak (INT, INT) RETURNS BOOLEAN AS $$BEGIN RAISE NOTICE 'op_leak =\u003e %, %', $1, $2; RETURN $1 \u003c $2; END$$ LANGUAGE plpgsql"
+  },
+  {
+    "comment": "rowsecurity - Statement 545",
+    "query": "CREATE OPERATOR \u003c\u003c\u003c (procedure = op_leak, leftarg = int, rightarg = int, restrict = scalarltsel)",
+    "expected": "CREATE OPERATOR \u003c\u003c\u003c (procedure = op_leak, leftarg = INT, rightarg = INT, restrict = scalarltsel)"
+  },
+  {
+    "comment": "rowsecurity - Statement 546",
+    "query": "SELECT * FROM rls_tbl WHERE a \u003c\u003c\u003c 1000"
+  },
+  {
+    "comment": "rowsecurity - Statement 547",
+    "query": "DROP OPERATOR \u003c\u003c\u003c (int, int)",
+    "expected": "DROP OPERATOR \u003c\u003c\u003c(INT, INT)"
+  },
+  {
+    "comment": "rowsecurity - Statement 548",
+    "query": "DROP FUNCTION op_leak(int, int)",
+    "expected": "DROP FUNCTION op_leak(INT, INT)"
+  },
+  {
+    "comment": "rowsecurity - Statement 549",
+    "query": "CREATE TABLE rls_tbl (a int, b int, c int)",
+    "expected": "CREATE TABLE rls_tbl (a INT, b INT, c INT)"
+  },
+  {
+    "comment": "rowsecurity - Statement 550",
+    "query": "CREATE POLICY p1 ON rls_tbl USING (rls_tbl \u003e= ROW(1,1,1))",
+    "expected": "CREATE POLICY p1 ON rls_tbl AS PERMISSIVE FOR all TO PUBLIC USING ( rls_tbl \u003e= ROW(1, 1, 1) )"
+  },
+  {
+    "comment": "rowsecurity - Statement 551",
+    "query": "ALTER TABLE rls_tbl FORCE ROW LEVEL SECURITY"
+  },
+  {
+    "comment": "rowsecurity - Statement 552",
+    "query": "INSERT INTO rls_tbl SELECT 10, 20, 30"
+  },
+  {
+    "comment": "rowsecurity - Statement 553",
+    "query": "EXPLAIN (VERBOSE, COSTS OFF) INSERT INTO rls_tbl SELECT * FROM (SELECT b, c FROM rls_tbl ORDER BY a) ss",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) INSERT INTO rls_tbl SELECT * FROM (SELECT b, c FROM rls_tbl ORDER BY a) AS ss"
+  },
+  {
+    "comment": "rowsecurity - Statement 554",
+    "query": "INSERT INTO rls_tbl SELECT * FROM (SELECT b, c FROM rls_tbl ORDER BY a) ss",
+    "expected": "INSERT INTO rls_tbl SELECT * FROM (SELECT b, c FROM rls_tbl ORDER BY a) AS ss"
+  },
+  {
+    "comment": "rowsecurity - Statement 555",
+    "query": "create table rls_t (c text)",
+    "expected": "CREATE TABLE rls_t (c TEXT)"
+  },
+  {
+    "comment": "rowsecurity - Statement 556",
+    "query": "insert into rls_t values ('invisible to bob')",
+    "expected": "INSERT INTO rls_t VALUES ('invisible to bob')"
+  },
+  {
+    "comment": "rowsecurity - Statement 557",
+    "query": "alter table rls_t enable row level security",
+    "expected": "ALTER TABLE rls_t ENABLE ROW LEVEL SECURITY"
+  },
+  {
+    "comment": "rowsecurity - Statement 558",
+    "query": "grant select on rls_t to regress_rls_alice, regress_rls_bob",
+    "expected": "GRANT SELECT ON rls_t TO regress_rls_alice, regress_rls_bob"
+  },
+  {
+    "comment": "rowsecurity - Statement 559",
+    "query": "create policy p1 on rls_t for select to regress_rls_alice using (true)",
+    "expected": "CREATE POLICY p1 ON rls_t AS PERMISSIVE FOR select TO regress_rls_alice USING ( TRUE )"
+  },
+  {
+    "comment": "rowsecurity - Statement 560",
+    "query": "create policy p2 on rls_t for select to regress_rls_bob using (false)",
+    "expected": "CREATE POLICY p2 ON rls_t AS PERMISSIVE FOR select TO regress_rls_bob USING ( FALSE )"
+  },
+  {
+    "comment": "rowsecurity - Statement 561",
+    "query": "create function rls_f () returns setof rls_t stable language sql as $$ select * from rls_t $$",
+    "expected": "CREATE FUNCTION rls_f () RETURNS SETOF rls_t STABLE LANGUAGE sql AS $$ select * from rls_t $$"
+  },
+  {
+    "comment": "rowsecurity - Statement 562",
+    "query": "prepare q as select current_user, * from rls_f()",
+    "expected": "PREPARE q AS SELECT CURRENT_USER, * FROM rls_f()"
+  },
+  {
+    "comment": "rowsecurity - Statement 563",
+    "query": "set role regress_rls_alice",
+    "expected": "SET ROLE 'regress_rls_alice'"
+  },
+  {
+    "comment": "rowsecurity - Statement 564",
+    "query": "execute q",
+    "expected": "EXECUTE q"
+  },
+  {
+    "comment": "rowsecurity - Statement 565",
+    "query": "reset role",
+    "expected": "RESET role"
+  },
+  {
+    "comment": "rowsecurity - Statement 566",
+    "query": "create or replace function rls_f() returns setof rls_t stable language sql as $$ with cte as (select * from rls_t) select * from cte $$",
+    "expected": "CREATE OR REPLACE FUNCTION rls_f () RETURNS SETOF rls_t STABLE LANGUAGE sql AS $$ with cte as (select * from rls_t) select * from cte $$"
+  },
+  {
+    "comment": "rowsecurity - Statement 567",
+    "query": "prepare r as select current_user, * from rls_f()",
+    "expected": "PREPARE r AS SELECT CURRENT_USER, * FROM rls_f()"
+  },
+  {
+    "comment": "rowsecurity - Statement 568",
+    "query": "execute r",
+    "expected": "EXECUTE r"
+  },
+  {
+    "comment": "rowsecurity - Statement 569",
+    "query": "create or replace function rls_f() returns setof rls_t stable language sql as $$ select * from (select * from rls_t) _ $$",
+    "expected": "CREATE OR REPLACE FUNCTION rls_f () RETURNS SETOF rls_t STABLE LANGUAGE sql AS $$ select * from (select * from rls_t) _ $$"
+  },
+  {
+    "comment": "rowsecurity - Statement 570",
+    "query": "prepare s as select current_user, * from rls_f()",
+    "expected": "PREPARE s AS SELECT CURRENT_USER, * FROM rls_f()"
+  },
+  {
+    "comment": "rowsecurity - Statement 571",
+    "query": "execute s",
+    "expected": "EXECUTE s"
+  },
+  {
+    "comment": "rowsecurity - Statement 572",
+    "query": "create or replace function rls_f() returns setof rls_t stable language sql as $$ select exists(select * from rls_t)::text $$",
+    "expected": "CREATE OR REPLACE FUNCTION rls_f () RETURNS SETOF rls_t STABLE LANGUAGE sql AS $$ select exists(select * from rls_t)::text $$"
+  },
+  {
+    "comment": "rowsecurity - Statement 573",
+    "query": "prepare t as select current_user, * from rls_f()",
+    "expected": "PREPARE t AS SELECT CURRENT_USER, * FROM rls_f()"
+  },
+  {
+    "comment": "rowsecurity - Statement 574",
+    "query": "execute t",
+    "expected": "EXECUTE t"
+  },
+  {
+    "comment": "rowsecurity - Statement 575",
+    "query": "create or replace function rls_f() returns setof rls_t stable language sql as $$ select * from (select array_agg(c) as cs from rls_t) _ group by cs $$",
+    "expected": "CREATE OR REPLACE FUNCTION rls_f () RETURNS SETOF rls_t STABLE LANGUAGE sql AS $$ select * from (select array_agg(c) as cs from rls_t) _ group by cs $$"
+  },
+  {
+    "comment": "rowsecurity - Statement 576",
+    "query": "prepare u as select current_user, * from rls_f()",
+    "expected": "PREPARE u AS SELECT CURRENT_USER, * FROM rls_f()"
+  },
+  {
+    "comment": "rowsecurity - Statement 577",
+    "query": "execute u",
+    "expected": "EXECUTE u"
+  },
+  {
+    "comment": "rowsecurity - Statement 578",
+    "query": "create view rls_v with (security_invoker) as select * from rls_t",
+    "expected": "CREATE VIEW rls_v WITH ( security_invoker) AS SELECT * FROM rls_t"
+  },
+  {
+    "comment": "rowsecurity - Statement 579",
+    "query": "grant select on rls_v to regress_rls_alice, regress_rls_bob",
+    "expected": "GRANT SELECT ON rls_v TO regress_rls_alice, regress_rls_bob"
+  },
+  {
+    "comment": "rowsecurity - Statement 580",
+    "query": "create or replace function rls_f() returns setof rls_t stable language sql as $$ select * from rls_v $$",
+    "expected": "CREATE OR REPLACE FUNCTION rls_f () RETURNS SETOF rls_t STABLE LANGUAGE sql AS $$ select * from rls_v $$"
+  },
+  {
+    "comment": "rowsecurity - Statement 581",
+    "query": "prepare v as select current_user, * from rls_f()",
+    "expected": "PREPARE v AS SELECT CURRENT_USER, * FROM rls_f()"
+  },
+  {
+    "comment": "rowsecurity - Statement 582",
+    "query": "execute v",
+    "expected": "EXECUTE v"
+  },
+  {
+    "comment": "rowsecurity - Statement 583",
+    "query": "DROP FUNCTION rls_f()"
+  },
+  {
+    "comment": "rowsecurity - Statement 584",
+    "query": "DROP VIEW rls_v"
+  },
+  {
+    "comment": "rowsecurity - Statement 585",
+    "query": "DROP TABLE rls_t"
+  },
+  {
+    "comment": "rowsecurity - Statement 586",
+    "query": "DROP SCHEMA regress_rls_schema CASCADE"
+  },
+  {
+    "comment": "rowsecurity - Statement 587",
+    "query": "DROP USER regress_rls_alice",
+    "expected": "DROP ROLE regress_rls_alice"
+  },
+  {
+    "comment": "rowsecurity - Statement 588",
+    "query": "DROP USER regress_rls_bob",
+    "expected": "DROP ROLE regress_rls_bob"
+  },
+  {
+    "comment": "rowsecurity - Statement 589",
+    "query": "DROP USER regress_rls_carol",
+    "expected": "DROP ROLE regress_rls_carol"
+  },
+  {
+    "comment": "rowsecurity - Statement 590",
+    "query": "DROP USER regress_rls_dave",
+    "expected": "DROP ROLE regress_rls_dave"
+  },
+  {
+    "comment": "rowsecurity - Statement 591",
+    "query": "DROP USER regress_rls_exempt_user",
+    "expected": "DROP ROLE regress_rls_exempt_user"
+  },
+  {
+    "comment": "rowsecurity - Statement 592",
+    "query": "DROP ROLE regress_rls_group1"
+  },
+  {
+    "comment": "rowsecurity - Statement 593",
+    "query": "DROP ROLE regress_rls_group2"
+  },
+  {
+    "comment": "rowsecurity - Statement 594",
+    "query": "CREATE TABLE rls_tbl (c1 int)",
+    "expected": "CREATE TABLE rls_tbl (c1 INT)"
+  },
+  {
+    "comment": "rowsecurity - Statement 595",
+    "query": "CREATE POLICY p1 ON rls_tbl USING (c1 \u003e 5)",
+    "expected": "CREATE POLICY p1 ON rls_tbl AS PERMISSIVE FOR all TO PUBLIC USING ( c1 \u003e 5 )"
+  },
+  {
+    "comment": "rowsecurity - Statement 596",
+    "query": "CREATE POLICY p2 ON rls_tbl FOR SELECT USING (c1 \u003c= 3)",
+    "expected": "CREATE POLICY p2 ON rls_tbl AS PERMISSIVE FOR select TO PUBLIC USING ( c1 \u003c= 3 )"
+  },
+  {
+    "comment": "rowsecurity - Statement 597",
+    "query": "CREATE POLICY p3 ON rls_tbl FOR UPDATE USING (c1 \u003c= 3) WITH CHECK (c1 \u003e 5)",
+    "expected": "CREATE POLICY p3 ON rls_tbl AS PERMISSIVE FOR update TO PUBLIC USING ( c1 \u003c= 3 ) WITH CHECK ( c1 \u003e 5 )"
+  },
+  {
+    "comment": "rowsecurity - Statement 598",
+    "query": "CREATE POLICY p4 ON rls_tbl FOR DELETE USING (c1 \u003c= 3)",
+    "expected": "CREATE POLICY p4 ON rls_tbl AS PERMISSIVE FOR delete TO PUBLIC USING ( c1 \u003c= 3 )"
+  },
+  {
+    "comment": "rowsecurity - Statement 599",
+    "query": "CREATE TABLE rls_tbl_force (c1 int)",
+    "expected": "CREATE TABLE rls_tbl_force (c1 INT)"
+  },
+  {
+    "comment": "rowsecurity - Statement 600",
+    "query": "ALTER TABLE rls_tbl_force ENABLE ROW LEVEL SECURITY"
+  },
+  {
+    "comment": "rowsecurity - Statement 601",
+    "query": "ALTER TABLE rls_tbl_force FORCE ROW LEVEL SECURITY"
+  },
+  {
+    "comment": "rowsecurity - Statement 602",
+    "query": "CREATE POLICY p1 ON rls_tbl_force USING (c1 = 5) WITH CHECK (c1 \u003c 5)",
+    "expected": "CREATE POLICY p1 ON rls_tbl_force AS PERMISSIVE FOR all TO PUBLIC USING ( c1 = 5 ) WITH CHECK ( c1 \u003c 5 )"
+  },
+  {
+    "comment": "rowsecurity - Statement 603",
+    "query": "CREATE POLICY p2 ON rls_tbl_force FOR SELECT USING (c1 = 8)",
+    "expected": "CREATE POLICY p2 ON rls_tbl_force AS PERMISSIVE FOR select TO PUBLIC USING ( c1 = 8 )"
+  },
+  {
+    "comment": "rowsecurity - Statement 604",
+    "query": "CREATE POLICY p3 ON rls_tbl_force FOR UPDATE USING (c1 = 8) WITH CHECK (c1 \u003e= 5)",
+    "expected": "CREATE POLICY p3 ON rls_tbl_force AS PERMISSIVE FOR update TO PUBLIC USING ( c1 = 8 ) WITH CHECK ( c1 \u003e= 5 )"
+  },
+  {
+    "comment": "rowsecurity - Statement 605",
+    "query": "CREATE POLICY p4 ON rls_tbl_force FOR DELETE USING (c1 = 8)",
+    "expected": "CREATE POLICY p4 ON rls_tbl_force AS PERMISSIVE FOR delete TO PUBLIC USING ( c1 = 8 )"
+  }
+]

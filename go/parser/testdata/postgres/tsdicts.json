@@ -1,0 +1,507 @@
+[
+  {
+    "comment": "tsdicts - Statement 1",
+    "query": "CREATE TEXT SEARCH DICTIONARY ispell ( Template=ispell, DictFile=ispell_sample, AffFile=ispell_sample )",
+    "expected": "CREATE TEXT SEARCH DICTIONARY ispell (template = ispell, dictfile = ispell_sample, afffile = ispell_sample)"
+  },
+  {
+    "comment": "tsdicts - Statement 2",
+    "query": "SELECT ts_lexize('ispell', 'skies')"
+  },
+  {
+    "comment": "tsdicts - Statement 3",
+    "query": "SELECT ts_lexize('ispell', 'bookings')"
+  },
+  {
+    "comment": "tsdicts - Statement 4",
+    "query": "SELECT ts_lexize('ispell', 'booking')"
+  },
+  {
+    "comment": "tsdicts - Statement 5",
+    "query": "SELECT ts_lexize('ispell', 'foot')"
+  },
+  {
+    "comment": "tsdicts - Statement 6",
+    "query": "SELECT ts_lexize('ispell', 'foots')"
+  },
+  {
+    "comment": "tsdicts - Statement 7",
+    "query": "SELECT ts_lexize('ispell', 'rebookings')"
+  },
+  {
+    "comment": "tsdicts - Statement 8",
+    "query": "SELECT ts_lexize('ispell', 'rebooking')"
+  },
+  {
+    "comment": "tsdicts - Statement 9",
+    "query": "SELECT ts_lexize('ispell', 'rebook')"
+  },
+  {
+    "comment": "tsdicts - Statement 10",
+    "query": "SELECT ts_lexize('ispell', 'unbookings')"
+  },
+  {
+    "comment": "tsdicts - Statement 11",
+    "query": "SELECT ts_lexize('ispell', 'unbooking')"
+  },
+  {
+    "comment": "tsdicts - Statement 12",
+    "query": "SELECT ts_lexize('ispell', 'unbook')"
+  },
+  {
+    "comment": "tsdicts - Statement 13",
+    "query": "SELECT ts_lexize('ispell', 'footklubber')"
+  },
+  {
+    "comment": "tsdicts - Statement 14",
+    "query": "SELECT ts_lexize('ispell', 'footballklubber')"
+  },
+  {
+    "comment": "tsdicts - Statement 15",
+    "query": "SELECT ts_lexize('ispell', 'ballyklubber')"
+  },
+  {
+    "comment": "tsdicts - Statement 16",
+    "query": "SELECT ts_lexize('ispell', 'footballyklubber')"
+  },
+  {
+    "comment": "tsdicts - Statement 17",
+    "query": "CREATE TEXT SEARCH DICTIONARY hunspell ( Template=ispell, DictFile=ispell_sample, AffFile=hunspell_sample )",
+    "expected": "CREATE TEXT SEARCH DICTIONARY hunspell (template = ispell, dictfile = ispell_sample, afffile = hunspell_sample)"
+  },
+  {
+    "comment": "tsdicts - Statement 18",
+    "query": "SELECT ts_lexize('hunspell', 'skies')"
+  },
+  {
+    "comment": "tsdicts - Statement 19",
+    "query": "SELECT ts_lexize('hunspell', 'bookings')"
+  },
+  {
+    "comment": "tsdicts - Statement 20",
+    "query": "SELECT ts_lexize('hunspell', 'booking')"
+  },
+  {
+    "comment": "tsdicts - Statement 21",
+    "query": "SELECT ts_lexize('hunspell', 'foot')"
+  },
+  {
+    "comment": "tsdicts - Statement 22",
+    "query": "SELECT ts_lexize('hunspell', 'foots')"
+  },
+  {
+    "comment": "tsdicts - Statement 23",
+    "query": "SELECT ts_lexize('hunspell', 'rebookings')"
+  },
+  {
+    "comment": "tsdicts - Statement 24",
+    "query": "SELECT ts_lexize('hunspell', 'rebooking')"
+  },
+  {
+    "comment": "tsdicts - Statement 25",
+    "query": "SELECT ts_lexize('hunspell', 'rebook')"
+  },
+  {
+    "comment": "tsdicts - Statement 26",
+    "query": "SELECT ts_lexize('hunspell', 'unbookings')"
+  },
+  {
+    "comment": "tsdicts - Statement 27",
+    "query": "SELECT ts_lexize('hunspell', 'unbooking')"
+  },
+  {
+    "comment": "tsdicts - Statement 28",
+    "query": "SELECT ts_lexize('hunspell', 'unbook')"
+  },
+  {
+    "comment": "tsdicts - Statement 29",
+    "query": "SELECT ts_lexize('hunspell', 'footklubber')"
+  },
+  {
+    "comment": "tsdicts - Statement 30",
+    "query": "SELECT ts_lexize('hunspell', 'footballklubber')"
+  },
+  {
+    "comment": "tsdicts - Statement 31",
+    "query": "SELECT ts_lexize('hunspell', 'ballyklubber')"
+  },
+  {
+    "comment": "tsdicts - Statement 32",
+    "query": "SELECT ts_lexize('hunspell', 'footballyklubber')"
+  },
+  {
+    "comment": "tsdicts - Statement 33",
+    "query": "CREATE TEXT SEARCH DICTIONARY hunspell_long ( Template=ispell, DictFile=hunspell_sample_long, AffFile=hunspell_sample_long )",
+    "expected": "CREATE TEXT SEARCH DICTIONARY hunspell_long (template = ispell, dictfile = hunspell_sample_long, afffile = hunspell_sample_long)"
+  },
+  {
+    "comment": "tsdicts - Statement 34",
+    "query": "SELECT ts_lexize('hunspell_long', 'skies')"
+  },
+  {
+    "comment": "tsdicts - Statement 35",
+    "query": "SELECT ts_lexize('hunspell_long', 'bookings')"
+  },
+  {
+    "comment": "tsdicts - Statement 36",
+    "query": "SELECT ts_lexize('hunspell_long', 'booking')"
+  },
+  {
+    "comment": "tsdicts - Statement 37",
+    "query": "SELECT ts_lexize('hunspell_long', 'foot')"
+  },
+  {
+    "comment": "tsdicts - Statement 38",
+    "query": "SELECT ts_lexize('hunspell_long', 'foots')"
+  },
+  {
+    "comment": "tsdicts - Statement 39",
+    "query": "SELECT ts_lexize('hunspell_long', 'rebookings')"
+  },
+  {
+    "comment": "tsdicts - Statement 40",
+    "query": "SELECT ts_lexize('hunspell_long', 'rebooking')"
+  },
+  {
+    "comment": "tsdicts - Statement 41",
+    "query": "SELECT ts_lexize('hunspell_long', 'rebook')"
+  },
+  {
+    "comment": "tsdicts - Statement 42",
+    "query": "SELECT ts_lexize('hunspell_long', 'unbookings')"
+  },
+  {
+    "comment": "tsdicts - Statement 43",
+    "query": "SELECT ts_lexize('hunspell_long', 'unbooking')"
+  },
+  {
+    "comment": "tsdicts - Statement 44",
+    "query": "SELECT ts_lexize('hunspell_long', 'unbook')"
+  },
+  {
+    "comment": "tsdicts - Statement 45",
+    "query": "SELECT ts_lexize('hunspell_long', 'booked')"
+  },
+  {
+    "comment": "tsdicts - Statement 46",
+    "query": "SELECT ts_lexize('hunspell_long', 'footklubber')"
+  },
+  {
+    "comment": "tsdicts - Statement 47",
+    "query": "SELECT ts_lexize('hunspell_long', 'footballklubber')"
+  },
+  {
+    "comment": "tsdicts - Statement 48",
+    "query": "SELECT ts_lexize('hunspell_long', 'ballyklubber')"
+  },
+  {
+    "comment": "tsdicts - Statement 49",
+    "query": "SELECT ts_lexize('hunspell_long', 'ballsklubber')"
+  },
+  {
+    "comment": "tsdicts - Statement 50",
+    "query": "SELECT ts_lexize('hunspell_long', 'footballyklubber')"
+  },
+  {
+    "comment": "tsdicts - Statement 51",
+    "query": "SELECT ts_lexize('hunspell_long', 'ex-machina')"
+  },
+  {
+    "comment": "tsdicts - Statement 52",
+    "query": "CREATE TEXT SEARCH DICTIONARY hunspell_num ( Template=ispell, DictFile=hunspell_sample_num, AffFile=hunspell_sample_num )",
+    "expected": "CREATE TEXT SEARCH DICTIONARY hunspell_num (template = ispell, dictfile = hunspell_sample_num, afffile = hunspell_sample_num)"
+  },
+  {
+    "comment": "tsdicts - Statement 53",
+    "query": "SELECT ts_lexize('hunspell_num', 'skies')"
+  },
+  {
+    "comment": "tsdicts - Statement 54",
+    "query": "SELECT ts_lexize('hunspell_num', 'sk')"
+  },
+  {
+    "comment": "tsdicts - Statement 55",
+    "query": "SELECT ts_lexize('hunspell_num', 'bookings')"
+  },
+  {
+    "comment": "tsdicts - Statement 56",
+    "query": "SELECT ts_lexize('hunspell_num', 'booking')"
+  },
+  {
+    "comment": "tsdicts - Statement 57",
+    "query": "SELECT ts_lexize('hunspell_num', 'foot')"
+  },
+  {
+    "comment": "tsdicts - Statement 58",
+    "query": "SELECT ts_lexize('hunspell_num', 'foots')"
+  },
+  {
+    "comment": "tsdicts - Statement 59",
+    "query": "SELECT ts_lexize('hunspell_num', 'rebookings')"
+  },
+  {
+    "comment": "tsdicts - Statement 60",
+    "query": "SELECT ts_lexize('hunspell_num', 'rebooking')"
+  },
+  {
+    "comment": "tsdicts - Statement 61",
+    "query": "SELECT ts_lexize('hunspell_num', 'rebook')"
+  },
+  {
+    "comment": "tsdicts - Statement 62",
+    "query": "SELECT ts_lexize('hunspell_num', 'unbookings')"
+  },
+  {
+    "comment": "tsdicts - Statement 63",
+    "query": "SELECT ts_lexize('hunspell_num', 'unbooking')"
+  },
+  {
+    "comment": "tsdicts - Statement 64",
+    "query": "SELECT ts_lexize('hunspell_num', 'unbook')"
+  },
+  {
+    "comment": "tsdicts - Statement 65",
+    "query": "SELECT ts_lexize('hunspell_num', 'booked')"
+  },
+  {
+    "comment": "tsdicts - Statement 66",
+    "query": "SELECT ts_lexize('hunspell_num', 'footklubber')"
+  },
+  {
+    "comment": "tsdicts - Statement 67",
+    "query": "SELECT ts_lexize('hunspell_num', 'footballklubber')"
+  },
+  {
+    "comment": "tsdicts - Statement 68",
+    "query": "SELECT ts_lexize('hunspell_num', 'ballyklubber')"
+  },
+  {
+    "comment": "tsdicts - Statement 69",
+    "query": "SELECT ts_lexize('hunspell_num', 'footballyklubber')"
+  },
+  {
+    "comment": "tsdicts - Statement 70",
+    "query": "CREATE TEXT SEARCH DICTIONARY hunspell_err ( Template=ispell, DictFile=ispell_sample, AffFile=hunspell_sample_long )",
+    "expected": "CREATE TEXT SEARCH DICTIONARY hunspell_err (template = ispell, dictfile = ispell_sample, afffile = hunspell_sample_long)"
+  },
+  {
+    "comment": "tsdicts - Statement 71",
+    "query": "CREATE TEXT SEARCH DICTIONARY hunspell_err ( Template=ispell, DictFile=ispell_sample, AffFile=hunspell_sample_num )",
+    "expected": "CREATE TEXT SEARCH DICTIONARY hunspell_err (template = ispell, dictfile = ispell_sample, afffile = hunspell_sample_num)"
+  },
+  {
+    "comment": "tsdicts - Statement 72",
+    "query": "CREATE TEXT SEARCH DICTIONARY hunspell_invalid_1 ( Template=ispell, DictFile=hunspell_sample_long, AffFile=ispell_sample )",
+    "expected": "CREATE TEXT SEARCH DICTIONARY hunspell_invalid_1 (template = ispell, dictfile = hunspell_sample_long, afffile = ispell_sample)"
+  },
+  {
+    "comment": "tsdicts - Statement 73",
+    "query": "CREATE TEXT SEARCH DICTIONARY hunspell_invalid_2 ( Template=ispell, DictFile=hunspell_sample_long, AffFile=hunspell_sample_num )",
+    "expected": "CREATE TEXT SEARCH DICTIONARY hunspell_invalid_2 (template = ispell, dictfile = hunspell_sample_long, afffile = hunspell_sample_num)"
+  },
+  {
+    "comment": "tsdicts - Statement 74",
+    "query": "CREATE TEXT SEARCH DICTIONARY hunspell_invalid_3 ( Template=ispell, DictFile=hunspell_sample_num, AffFile=ispell_sample )",
+    "expected": "CREATE TEXT SEARCH DICTIONARY hunspell_invalid_3 (template = ispell, dictfile = hunspell_sample_num, afffile = ispell_sample)"
+  },
+  {
+    "comment": "tsdicts - Statement 75",
+    "query": "CREATE TEXT SEARCH DICTIONARY hunspell_err ( Template=ispell, DictFile=hunspell_sample_num, AffFile=hunspell_sample_long )",
+    "expected": "CREATE TEXT SEARCH DICTIONARY hunspell_err (template = ispell, dictfile = hunspell_sample_num, afffile = hunspell_sample_long)"
+  },
+  {
+    "comment": "tsdicts - Statement 76",
+    "query": "CREATE TEXT SEARCH DICTIONARY synonym ( Template=synonym, Synonyms=synonym_sample )",
+    "expected": "CREATE TEXT SEARCH DICTIONARY synonym (template = synonym, synonyms = synonym_sample)"
+  },
+  {
+    "comment": "tsdicts - Statement 77",
+    "query": "SELECT ts_lexize('synonym', 'PoStGrEs')"
+  },
+  {
+    "comment": "tsdicts - Statement 78",
+    "query": "SELECT ts_lexize('synonym', 'Gogle')"
+  },
+  {
+    "comment": "tsdicts - Statement 79",
+    "query": "SELECT ts_lexize('synonym', 'indices')"
+  },
+  {
+    "comment": "tsdicts - Statement 80",
+    "query": "SELECT dictinitoption FROM pg_ts_dict WHERE dictname = 'synonym'"
+  },
+  {
+    "comment": "tsdicts - Statement 81",
+    "query": "ALTER TEXT SEARCH DICTIONARY synonym (CaseSensitive = 1)",
+    "expected": "ALTER TEXT SEARCH DICTIONARY synonym (casesensitive = 1)"
+  },
+  {
+    "comment": "tsdicts - Statement 82",
+    "query": "ALTER TEXT SEARCH DICTIONARY synonym (CaseSensitive = 2)",
+    "expected": "ALTER TEXT SEARCH DICTIONARY synonym (casesensitive = 2)"
+  },
+  {
+    "comment": "tsdicts - Statement 83",
+    "query": "ALTER TEXT SEARCH DICTIONARY synonym (CaseSensitive = off)",
+    "expected": "ALTER TEXT SEARCH DICTIONARY synonym (casesensitive = off)"
+  },
+  {
+    "comment": "tsdicts - Statement 84",
+    "query": "CREATE TEXT SEARCH DICTIONARY thesaurus ( Template=thesaurus, DictFile=thesaurus_sample, Dictionary=english_stem )",
+    "expected": "CREATE TEXT SEARCH DICTIONARY thesaurus (template = thesaurus, dictfile = thesaurus_sample, dictionary = english_stem)"
+  },
+  {
+    "comment": "tsdicts - Statement 85",
+    "query": "SELECT ts_lexize('thesaurus', 'one')"
+  },
+  {
+    "comment": "tsdicts - Statement 86",
+    "query": "CREATE TEXT SEARCH CONFIGURATION ispell_tst ( COPY=english )",
+    "expected": "CREATE TEXT SEARCH CONFIGURATION ispell_tst (copy = english)"
+  },
+  {
+    "comment": "tsdicts - Statement 87",
+    "query": "ALTER TEXT SEARCH CONFIGURATION ispell_tst ALTER MAPPING FOR word, numword, asciiword, hword, numhword, asciihword, hword_part, hword_numpart, hword_asciipart WITH ispell, english_stem"
+  },
+  {
+    "comment": "tsdicts - Statement 88",
+    "query": "SELECT to_tsvector('ispell_tst', 'Booking the skies after rebookings for footballklubber from a foot')"
+  },
+  {
+    "comment": "tsdicts - Statement 89",
+    "query": "SELECT to_tsquery('ispell_tst', 'footballklubber')"
+  },
+  {
+    "comment": "tsdicts - Statement 90",
+    "query": "SELECT to_tsquery('ispell_tst', 'footballyklubber:b \u0026 rebookings:A \u0026 sky')"
+  },
+  {
+    "comment": "tsdicts - Statement 91",
+    "query": "CREATE TEXT SEARCH CONFIGURATION hunspell_tst ( COPY=ispell_tst )",
+    "expected": "CREATE TEXT SEARCH CONFIGURATION hunspell_tst (copy = ispell_tst)"
+  },
+  {
+    "comment": "tsdicts - Statement 92",
+    "query": "ALTER TEXT SEARCH CONFIGURATION hunspell_tst ALTER MAPPING REPLACE ispell WITH hunspell"
+  },
+  {
+    "comment": "tsdicts - Statement 93",
+    "query": "SELECT to_tsvector('hunspell_tst', 'Booking the skies after rebookings for footballklubber from a foot')"
+  },
+  {
+    "comment": "tsdicts - Statement 94",
+    "query": "SELECT to_tsquery('hunspell_tst', 'footballklubber')"
+  },
+  {
+    "comment": "tsdicts - Statement 95",
+    "query": "SELECT to_tsquery('hunspell_tst', 'footballyklubber:b \u0026 rebookings:A \u0026 sky')"
+  },
+  {
+    "comment": "tsdicts - Statement 96",
+    "query": "SELECT to_tsquery('hunspell_tst', 'footballyklubber:b \u003c-\u003e sky')"
+  },
+  {
+    "comment": "tsdicts - Statement 97",
+    "query": "SELECT phraseto_tsquery('hunspell_tst', 'footballyklubber sky')"
+  },
+  {
+    "comment": "tsdicts - Statement 98",
+    "query": "ALTER TEXT SEARCH CONFIGURATION hunspell_tst ALTER MAPPING REPLACE hunspell WITH hunspell_long"
+  },
+  {
+    "comment": "tsdicts - Statement 99",
+    "query": "ALTER TEXT SEARCH CONFIGURATION hunspell_tst ALTER MAPPING REPLACE hunspell_long WITH hunspell_num"
+  },
+  {
+    "comment": "tsdicts - Statement 100",
+    "query": "CREATE TEXT SEARCH CONFIGURATION synonym_tst ( COPY=english )",
+    "expected": "CREATE TEXT SEARCH CONFIGURATION synonym_tst (copy = english)"
+  },
+  {
+    "comment": "tsdicts - Statement 101",
+    "query": "ALTER TEXT SEARCH CONFIGURATION synonym_tst ALTER MAPPING FOR asciiword, hword_asciipart, asciihword WITH synonym, english_stem"
+  },
+  {
+    "comment": "tsdicts - Statement 102",
+    "query": "SELECT to_tsvector('synonym_tst', 'Postgresql is often called as postgres or pgsql and pronounced as postgre')"
+  },
+  {
+    "comment": "tsdicts - Statement 103",
+    "query": "SELECT to_tsvector('synonym_tst', 'Most common mistake is to write Gogle instead of Google')"
+  },
+  {
+    "comment": "tsdicts - Statement 104",
+    "query": "SELECT to_tsvector('synonym_tst', 'Indexes or indices - Which is right plural form of index?')"
+  },
+  {
+    "comment": "tsdicts - Statement 105",
+    "query": "SELECT to_tsquery('synonym_tst', 'Index \u0026 indices')"
+  },
+  {
+    "comment": "tsdicts - Statement 106",
+    "query": "CREATE TEXT SEARCH CONFIGURATION thesaurus_tst ( COPY=synonym_tst )",
+    "expected": "CREATE TEXT SEARCH CONFIGURATION thesaurus_tst (copy = synonym_tst)"
+  },
+  {
+    "comment": "tsdicts - Statement 107",
+    "query": "ALTER TEXT SEARCH CONFIGURATION thesaurus_tst ALTER MAPPING FOR asciiword, hword_asciipart, asciihword WITH synonym, thesaurus, english_stem"
+  },
+  {
+    "comment": "tsdicts - Statement 108",
+    "query": "SELECT to_tsvector('thesaurus_tst', 'one postgres one two one two three one')"
+  },
+  {
+    "comment": "tsdicts - Statement 109",
+    "query": "SELECT to_tsvector('thesaurus_tst', 'Supernovae star is very new star and usually called supernovae (abbreviation SN)')"
+  },
+  {
+    "comment": "tsdicts - Statement 110",
+    "query": "SELECT to_tsvector('thesaurus_tst', 'Booking tickets is looking like a booking a tickets')"
+  },
+  {
+    "comment": "tsdicts - Statement 111",
+    "query": "CREATE TEXT SEARCH DICTIONARY tsdict_case ( Template = ispell, \"DictFile\" = ispell_sample, \"AffFile\" = ispell_sample )",
+    "expected": "CREATE TEXT SEARCH DICTIONARY tsdict_case (template = ispell, \"DictFile\" = ispell_sample, \"AffFile\" = ispell_sample)"
+  },
+  {
+    "comment": "tsdicts - Statement 112",
+    "query": "CREATE TEXT SEARCH CONFIGURATION dummy_tst (COPY=english)",
+    "expected": "CREATE TEXT SEARCH CONFIGURATION dummy_tst (copy = english)"
+  },
+  {
+    "comment": "tsdicts - Statement 113",
+    "query": "ALTER TEXT SEARCH CONFIGURATION dummy_tst ALTER MAPPING FOR word, word WITH ispell"
+  },
+  {
+    "comment": "tsdicts - Statement 114",
+    "query": "ALTER TEXT SEARCH CONFIGURATION dummy_tst DROP MAPPING FOR not_a_token, not_a_token"
+  },
+  {
+    "comment": "tsdicts - Statement 115",
+    "query": "ALTER TEXT SEARCH CONFIGURATION dummy_tst DROP MAPPING IF EXISTS FOR not_a_token, not_a_token"
+  },
+  {
+    "comment": "tsdicts - Statement 116",
+    "query": "ALTER TEXT SEARCH CONFIGURATION dummy_tst DROP MAPPING FOR word, word"
+  },
+  {
+    "comment": "tsdicts - Statement 117",
+    "query": "ALTER TEXT SEARCH CONFIGURATION dummy_tst DROP MAPPING FOR word"
+  },
+  {
+    "comment": "tsdicts - Statement 118",
+    "query": "ALTER TEXT SEARCH CONFIGURATION dummy_tst DROP MAPPING IF EXISTS FOR word, word"
+  },
+  {
+    "comment": "tsdicts - Statement 119",
+    "query": "ALTER TEXT SEARCH CONFIGURATION dummy_tst ADD MAPPING FOR word, word WITH ispell"
+  },
+  {
+    "comment": "tsdicts - Statement 120",
+    "query": "ALTER TEXT SEARCH CONFIGURATION dummy_tst ADD MAPPING FOR not_a_token WITH ispell"
+  },
+  {
+    "comment": "tsdicts - Statement 121",
+    "query": "DROP TEXT SEARCH CONFIGURATION dummy_tst"
+  }
+]

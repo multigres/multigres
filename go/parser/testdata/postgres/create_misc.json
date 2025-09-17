@@ -1,0 +1,420 @@
+[
+  {
+    "comment": "create_misc - Statement 1",
+    "query": "CREATE TABLE a_star ( class\t\tchar, a \t\t\tint4 )",
+    "expected": "CREATE TABLE a_star (class CHAR(1), a INT)"
+  },
+  {
+    "comment": "create_misc - Statement 2",
+    "query": "CREATE TABLE b_star ( b \t\t\ttext ) INHERITS (a_star)",
+    "expected": "CREATE TABLE b_star (b TEXT) INHERITS (a_star)"
+  },
+  {
+    "comment": "create_misc - Statement 3",
+    "query": "CREATE TABLE c_star ( c \t\t\tname ) INHERITS (a_star)",
+    "expected": "CREATE TABLE c_star (c name) INHERITS (a_star)"
+  },
+  {
+    "comment": "create_misc - Statement 4",
+    "query": "CREATE TABLE d_star ( d \t\t\tfloat8 ) INHERITS (b_star, c_star)",
+    "expected": "CREATE TABLE d_star (d FLOAT8) INHERITS (b_star, c_star)"
+  },
+  {
+    "comment": "create_misc - Statement 5",
+    "query": "CREATE TABLE e_star ( e \t\t\tint2 ) INHERITS (c_star)",
+    "expected": "CREATE TABLE e_star (e SMALLINT) INHERITS (c_star)"
+  },
+  {
+    "comment": "create_misc - Statement 6",
+    "query": "CREATE TABLE f_star ( f \t\t\tpolygon ) INHERITS (e_star)",
+    "expected": "CREATE TABLE f_star (f polygon) INHERITS (e_star)"
+  },
+  {
+    "comment": "create_misc - Statement 7",
+    "query": "INSERT INTO a_star (class, a) VALUES ('a', 1)"
+  },
+  {
+    "comment": "create_misc - Statement 8",
+    "query": "INSERT INTO a_star (class, a) VALUES ('a', 2)"
+  },
+  {
+    "comment": "create_misc - Statement 9",
+    "query": "INSERT INTO a_star (class) VALUES ('a')"
+  },
+  {
+    "comment": "create_misc - Statement 10",
+    "query": "INSERT INTO b_star (class, a, b) VALUES ('b', 3, 'mumble'::text)",
+    "expected": "INSERT INTO b_star (class, a, b) VALUES ('b', 3, CAST('mumble' AS TEXT))"
+  },
+  {
+    "comment": "create_misc - Statement 11",
+    "query": "INSERT INTO b_star (class, a) VALUES ('b', 4)"
+  },
+  {
+    "comment": "create_misc - Statement 12",
+    "query": "INSERT INTO b_star (class, b) VALUES ('b', 'bumble'::text)",
+    "expected": "INSERT INTO b_star (class, b) VALUES ('b', CAST('bumble' AS TEXT))"
+  },
+  {
+    "comment": "create_misc - Statement 13",
+    "query": "INSERT INTO b_star (class) VALUES ('b')"
+  },
+  {
+    "comment": "create_misc - Statement 14",
+    "query": "INSERT INTO c_star (class, a, c) VALUES ('c', 5, 'hi mom'::name)",
+    "expected": "INSERT INTO c_star (class, a, c) VALUES ('c', 5, CAST('hi mom' AS name))"
+  },
+  {
+    "comment": "create_misc - Statement 15",
+    "query": "INSERT INTO c_star (class, a) VALUES ('c', 6)"
+  },
+  {
+    "comment": "create_misc - Statement 16",
+    "query": "INSERT INTO c_star (class, c) VALUES ('c', 'hi paul'::name)",
+    "expected": "INSERT INTO c_star (class, c) VALUES ('c', CAST('hi paul' AS name))"
+  },
+  {
+    "comment": "create_misc - Statement 17",
+    "query": "INSERT INTO c_star (class) VALUES ('c')"
+  },
+  {
+    "comment": "create_misc - Statement 18",
+    "query": "INSERT INTO d_star (class, a, b, c, d) VALUES ('d', 7, 'grumble'::text, 'hi sunita'::name, '0.0'::float8)",
+    "expected": "INSERT INTO d_star (class, a, b, c, d) VALUES ('d', 7, CAST('grumble' AS TEXT), CAST('hi sunita' AS name), CAST('0.0' AS FLOAT8))"
+  },
+  {
+    "comment": "create_misc - Statement 19",
+    "query": "INSERT INTO d_star (class, a, b, c) VALUES ('d', 8, 'stumble'::text, 'hi koko'::name)",
+    "expected": "INSERT INTO d_star (class, a, b, c) VALUES ('d', 8, CAST('stumble' AS TEXT), CAST('hi koko' AS name))"
+  },
+  {
+    "comment": "create_misc - Statement 20",
+    "query": "INSERT INTO d_star (class, a, b, d) VALUES ('d', 9, 'rumble'::text, '1.1'::float8)",
+    "expected": "INSERT INTO d_star (class, a, b, d) VALUES ('d', 9, CAST('rumble' AS TEXT), CAST('1.1' AS FLOAT8))"
+  },
+  {
+    "comment": "create_misc - Statement 21",
+    "query": "INSERT INTO d_star (class, a, c, d) VALUES ('d', 10, 'hi kristin'::name, '10.01'::float8)",
+    "expected": "INSERT INTO d_star (class, a, c, d) VALUES ('d', 10, CAST('hi kristin' AS name), CAST('10.01' AS FLOAT8))"
+  },
+  {
+    "comment": "create_misc - Statement 22",
+    "query": "INSERT INTO d_star (class, b, c, d) VALUES ('d', 'crumble'::text, 'hi boris'::name, '100.001'::float8)",
+    "expected": "INSERT INTO d_star (class, b, c, d) VALUES ('d', CAST('crumble' AS TEXT), CAST('hi boris' AS name), CAST('100.001' AS FLOAT8))"
+  },
+  {
+    "comment": "create_misc - Statement 23",
+    "query": "INSERT INTO d_star (class, a, b) VALUES ('d', 11, 'fumble'::text)",
+    "expected": "INSERT INTO d_star (class, a, b) VALUES ('d', 11, CAST('fumble' AS TEXT))"
+  },
+  {
+    "comment": "create_misc - Statement 24",
+    "query": "INSERT INTO d_star (class, a, c) VALUES ('d', 12, 'hi avi'::name)",
+    "expected": "INSERT INTO d_star (class, a, c) VALUES ('d', 12, CAST('hi avi' AS name))"
+  },
+  {
+    "comment": "create_misc - Statement 25",
+    "query": "INSERT INTO d_star (class, a, d) VALUES ('d', 13, '1000.0001'::float8)",
+    "expected": "INSERT INTO d_star (class, a, d) VALUES ('d', 13, CAST('1000.0001' AS FLOAT8))"
+  },
+  {
+    "comment": "create_misc - Statement 26",
+    "query": "INSERT INTO d_star (class, b, c) VALUES ('d', 'tumble'::text, 'hi andrew'::name)",
+    "expected": "INSERT INTO d_star (class, b, c) VALUES ('d', CAST('tumble' AS TEXT), CAST('hi andrew' AS name))"
+  },
+  {
+    "comment": "create_misc - Statement 27",
+    "query": "INSERT INTO d_star (class, b, d) VALUES ('d', 'humble'::text, '10000.00001'::float8)",
+    "expected": "INSERT INTO d_star (class, b, d) VALUES ('d', CAST('humble' AS TEXT), CAST('10000.00001' AS FLOAT8))"
+  },
+  {
+    "comment": "create_misc - Statement 28",
+    "query": "INSERT INTO d_star (class, c, d) VALUES ('d', 'hi ginger'::name, '100000.000001'::float8)",
+    "expected": "INSERT INTO d_star (class, c, d) VALUES ('d', CAST('hi ginger' AS name), CAST('100000.000001' AS FLOAT8))"
+  },
+  {
+    "comment": "create_misc - Statement 29",
+    "query": "INSERT INTO d_star (class, a) VALUES ('d', 14)"
+  },
+  {
+    "comment": "create_misc - Statement 30",
+    "query": "INSERT INTO d_star (class, b) VALUES ('d', 'jumble'::text)",
+    "expected": "INSERT INTO d_star (class, b) VALUES ('d', CAST('jumble' AS TEXT))"
+  },
+  {
+    "comment": "create_misc - Statement 31",
+    "query": "INSERT INTO d_star (class, c) VALUES ('d', 'hi jolly'::name)",
+    "expected": "INSERT INTO d_star (class, c) VALUES ('d', CAST('hi jolly' AS name))"
+  },
+  {
+    "comment": "create_misc - Statement 32",
+    "query": "INSERT INTO d_star (class, d) VALUES ('d', '1000000.0000001'::float8)",
+    "expected": "INSERT INTO d_star (class, d) VALUES ('d', CAST('1000000.0000001' AS FLOAT8))"
+  },
+  {
+    "comment": "create_misc - Statement 33",
+    "query": "INSERT INTO d_star (class) VALUES ('d')"
+  },
+  {
+    "comment": "create_misc - Statement 34",
+    "query": "INSERT INTO e_star (class, a, c, e) VALUES ('e', 15, 'hi carol'::name, '-1'::int2)",
+    "expected": "INSERT INTO e_star (class, a, c, e) VALUES ('e', 15, CAST('hi carol' AS name), CAST('-1' AS SMALLINT))"
+  },
+  {
+    "comment": "create_misc - Statement 35",
+    "query": "INSERT INTO e_star (class, a, c) VALUES ('e', 16, 'hi bob'::name)",
+    "expected": "INSERT INTO e_star (class, a, c) VALUES ('e', 16, CAST('hi bob' AS name))"
+  },
+  {
+    "comment": "create_misc - Statement 36",
+    "query": "INSERT INTO e_star (class, a, e) VALUES ('e', 17, '-2'::int2)",
+    "expected": "INSERT INTO e_star (class, a, e) VALUES ('e', 17, CAST('-2' AS SMALLINT))"
+  },
+  {
+    "comment": "create_misc - Statement 37",
+    "query": "INSERT INTO e_star (class, c, e) VALUES ('e', 'hi michelle'::name, '-3'::int2)",
+    "expected": "INSERT INTO e_star (class, c, e) VALUES ('e', CAST('hi michelle' AS name), CAST('-3' AS SMALLINT))"
+  },
+  {
+    "comment": "create_misc - Statement 38",
+    "query": "INSERT INTO e_star (class, a) VALUES ('e', 18)"
+  },
+  {
+    "comment": "create_misc - Statement 39",
+    "query": "INSERT INTO e_star (class, c) VALUES ('e', 'hi elisa'::name)",
+    "expected": "INSERT INTO e_star (class, c) VALUES ('e', CAST('hi elisa' AS name))"
+  },
+  {
+    "comment": "create_misc - Statement 40",
+    "query": "INSERT INTO e_star (class, e) VALUES ('e', '-4'::int2)",
+    "expected": "INSERT INTO e_star (class, e) VALUES ('e', CAST('-4' AS SMALLINT))"
+  },
+  {
+    "comment": "create_misc - Statement 41",
+    "query": "INSERT INTO f_star (class, a, c, e, f) VALUES ('f', 19, 'hi claire'::name, '-5'::int2, '(1,3),(2,4)'::polygon)",
+    "expected": "INSERT INTO f_star (class, a, c, e, f) VALUES ('f', 19, CAST('hi claire' AS name), CAST('-5' AS SMALLINT), CAST('(1,3),(2,4)' AS polygon))"
+  },
+  {
+    "comment": "create_misc - Statement 42",
+    "query": "INSERT INTO f_star (class, a, c, e) VALUES ('f', 20, 'hi mike'::name, '-6'::int2)",
+    "expected": "INSERT INTO f_star (class, a, c, e) VALUES ('f', 20, CAST('hi mike' AS name), CAST('-6' AS SMALLINT))"
+  },
+  {
+    "comment": "create_misc - Statement 43",
+    "query": "INSERT INTO f_star (class, a, c, f) VALUES ('f', 21, 'hi marcel'::name, '(11,44),(22,55),(33,66)'::polygon)",
+    "expected": "INSERT INTO f_star (class, a, c, f) VALUES ('f', 21, CAST('hi marcel' AS name), CAST('(11,44),(22,55),(33,66)' AS polygon))"
+  },
+  {
+    "comment": "create_misc - Statement 44",
+    "query": "INSERT INTO f_star (class, a, e, f) VALUES ('f', 22, '-7'::int2, '(111,555),(222,666),(333,777),(444,888)'::polygon)",
+    "expected": "INSERT INTO f_star (class, a, e, f) VALUES ('f', 22, CAST('-7' AS SMALLINT), CAST('(111,555),(222,666),(333,777),(444,888)' AS polygon))"
+  },
+  {
+    "comment": "create_misc - Statement 45",
+    "query": "INSERT INTO f_star (class, c, e, f) VALUES ('f', 'hi keith'::name, '-8'::int2, '(1111,3333),(2222,4444)'::polygon)",
+    "expected": "INSERT INTO f_star (class, c, e, f) VALUES ('f', CAST('hi keith' AS name), CAST('-8' AS SMALLINT), CAST('(1111,3333),(2222,4444)' AS polygon))"
+  },
+  {
+    "comment": "create_misc - Statement 46",
+    "query": "INSERT INTO f_star (class, a, c) VALUES ('f', 24, 'hi marc'::name)",
+    "expected": "INSERT INTO f_star (class, a, c) VALUES ('f', 24, CAST('hi marc' AS name))"
+  },
+  {
+    "comment": "create_misc - Statement 47",
+    "query": "INSERT INTO f_star (class, a, e) VALUES ('f', 25, '-9'::int2)",
+    "expected": "INSERT INTO f_star (class, a, e) VALUES ('f', 25, CAST('-9' AS SMALLINT))"
+  },
+  {
+    "comment": "create_misc - Statement 48",
+    "query": "INSERT INTO f_star (class, a, f) VALUES ('f', 26, '(11111,33333),(22222,44444)'::polygon)",
+    "expected": "INSERT INTO f_star (class, a, f) VALUES ('f', 26, CAST('(11111,33333),(22222,44444)' AS polygon))"
+  },
+  {
+    "comment": "create_misc - Statement 49",
+    "query": "INSERT INTO f_star (class, c, e) VALUES ('f', 'hi allison'::name, '-10'::int2)",
+    "expected": "INSERT INTO f_star (class, c, e) VALUES ('f', CAST('hi allison' AS name), CAST('-10' AS SMALLINT))"
+  },
+  {
+    "comment": "create_misc - Statement 50",
+    "query": "INSERT INTO f_star (class, c, f) VALUES ('f', 'hi jeff'::name, '(111111,333333),(222222,444444)'::polygon)",
+    "expected": "INSERT INTO f_star (class, c, f) VALUES ('f', CAST('hi jeff' AS name), CAST('(111111,333333),(222222,444444)' AS polygon))"
+  },
+  {
+    "comment": "create_misc - Statement 51",
+    "query": "INSERT INTO f_star (class, e, f) VALUES ('f', '-11'::int2, '(1111111,3333333),(2222222,4444444)'::polygon)",
+    "expected": "INSERT INTO f_star (class, e, f) VALUES ('f', CAST('-11' AS SMALLINT), CAST('(1111111,3333333),(2222222,4444444)' AS polygon))"
+  },
+  {
+    "comment": "create_misc - Statement 52",
+    "query": "INSERT INTO f_star (class, a) VALUES ('f', 27)"
+  },
+  {
+    "comment": "create_misc - Statement 53",
+    "query": "INSERT INTO f_star (class, c) VALUES ('f', 'hi carl'::name)",
+    "expected": "INSERT INTO f_star (class, c) VALUES ('f', CAST('hi carl' AS name))"
+  },
+  {
+    "comment": "create_misc - Statement 54",
+    "query": "INSERT INTO f_star (class, e) VALUES ('f', '-12'::int2)",
+    "expected": "INSERT INTO f_star (class, e) VALUES ('f', CAST('-12' AS SMALLINT))"
+  },
+  {
+    "comment": "create_misc - Statement 55",
+    "query": "INSERT INTO f_star (class, f) VALUES ('f', '(11111111,33333333),(22222222,44444444)'::polygon)",
+    "expected": "INSERT INTO f_star (class, f) VALUES ('f', CAST('(11111111,33333333),(22222222,44444444)' AS polygon))"
+  },
+  {
+    "comment": "create_misc - Statement 56",
+    "query": "INSERT INTO f_star (class) VALUES ('f')"
+  },
+  {
+    "comment": "create_misc - Statement 57",
+    "query": "ANALYZE a_star"
+  },
+  {
+    "comment": "create_misc - Statement 58",
+    "query": "ANALYZE b_star"
+  },
+  {
+    "comment": "create_misc - Statement 59",
+    "query": "ANALYZE c_star"
+  },
+  {
+    "comment": "create_misc - Statement 60",
+    "query": "ANALYZE d_star"
+  },
+  {
+    "comment": "create_misc - Statement 61",
+    "query": "ANALYZE e_star"
+  },
+  {
+    "comment": "create_misc - Statement 62",
+    "query": "ANALYZE f_star"
+  },
+  {
+    "comment": "create_misc - Statement 63",
+    "query": "SELECT * FROM a_star*",
+    "expected": "SELECT * FROM a_star"
+  },
+  {
+    "comment": "create_misc - Statement 64",
+    "query": "SELECT * FROM b_star* x WHERE x.b = text 'bumble' or x.a \u003c 3",
+    "expected": "SELECT * FROM b_star AS x WHERE x.b = CAST('bumble' AS TEXT) OR x.a \u003c 3"
+  },
+  {
+    "comment": "create_misc - Statement 65",
+    "query": "SELECT class, a FROM c_star* x WHERE x.c ~ text 'hi'",
+    "expected": "SELECT class, a FROM c_star AS x WHERE x.c ~ CAST('hi' AS TEXT)"
+  },
+  {
+    "comment": "create_misc - Statement 66",
+    "query": "SELECT class, b, c FROM d_star* x WHERE x.a \u003c 100",
+    "expected": "SELECT class, b, c FROM d_star AS x WHERE x.a \u003c 100"
+  },
+  {
+    "comment": "create_misc - Statement 67",
+    "query": "SELECT class, c FROM e_star* x WHERE x.c NOTNULL",
+    "expected": "SELECT class, c FROM e_star AS x WHERE x.c IS NOT NULL"
+  },
+  {
+    "comment": "create_misc - Statement 68",
+    "query": "SELECT * FROM f_star* x WHERE x.c ISNULL",
+    "expected": "SELECT * FROM f_star AS x WHERE x.c IS NULL"
+  },
+  {
+    "comment": "create_misc - Statement 69",
+    "query": "SELECT sum(a) FROM a_star*",
+    "expected": "SELECT SUM(a) FROM a_star"
+  },
+  {
+    "comment": "create_misc - Statement 70",
+    "query": "SELECT class, sum(a) FROM a_star* GROUP BY class ORDER BY class",
+    "expected": "SELECT class, SUM(a) FROM a_star GROUP BY class ORDER BY class"
+  },
+  {
+    "comment": "create_misc - Statement 71",
+    "query": "ALTER TABLE f_star RENAME COLUMN f TO ff"
+  },
+  {
+    "comment": "create_misc - Statement 72",
+    "query": "ALTER TABLE e_star* RENAME COLUMN e TO ee",
+    "expected": "ALTER TABLE e_star RENAME COLUMN e TO ee"
+  },
+  {
+    "comment": "create_misc - Statement 73",
+    "query": "ALTER TABLE d_star* RENAME COLUMN d TO dd",
+    "expected": "ALTER TABLE d_star RENAME COLUMN d TO dd"
+  },
+  {
+    "comment": "create_misc - Statement 74",
+    "query": "ALTER TABLE c_star* RENAME COLUMN c TO cc",
+    "expected": "ALTER TABLE c_star RENAME COLUMN c TO cc"
+  },
+  {
+    "comment": "create_misc - Statement 75",
+    "query": "ALTER TABLE b_star* RENAME COLUMN b TO bb",
+    "expected": "ALTER TABLE b_star RENAME COLUMN b TO bb"
+  },
+  {
+    "comment": "create_misc - Statement 76",
+    "query": "ALTER TABLE a_star* RENAME COLUMN a TO aa",
+    "expected": "ALTER TABLE a_star RENAME COLUMN a TO aa"
+  },
+  {
+    "comment": "create_misc - Statement 77",
+    "query": "SELECT class, aa FROM a_star* x WHERE aa ISNULL",
+    "expected": "SELECT class, aa FROM a_star AS x WHERE aa IS NULL"
+  },
+  {
+    "comment": "create_misc - Statement 78",
+    "query": "ALTER TABLE a_star RENAME COLUMN aa TO foo"
+  },
+  {
+    "comment": "create_misc - Statement 79",
+    "query": "SELECT class, foo FROM a_star* x WHERE x.foo \u003e= 2",
+    "expected": "SELECT class, foo FROM a_star AS x WHERE x.foo \u003e= 2"
+  },
+  {
+    "comment": "create_misc - Statement 80",
+    "query": "ALTER TABLE a_star RENAME COLUMN foo TO aa"
+  },
+  {
+    "comment": "create_misc - Statement 81",
+    "query": "SELECT * from a_star* WHERE aa \u003c 1000",
+    "expected": "SELECT * FROM a_star WHERE aa \u003c 1000"
+  },
+  {
+    "comment": "create_misc - Statement 82",
+    "query": "ALTER TABLE f_star ADD COLUMN f int4",
+    "expected": "ALTER TABLE f_star ADD COLUMN f INT"
+  },
+  {
+    "comment": "create_misc - Statement 83",
+    "query": "UPDATE f_star SET f = 10"
+  },
+  {
+    "comment": "create_misc - Statement 84",
+    "query": "ALTER TABLE e_star* ADD COLUMN e int4",
+    "expected": "ALTER TABLE e_star ADD COLUMN e INT"
+  },
+  {
+    "comment": "create_misc - Statement 85",
+    "query": "SELECT * FROM e_star*",
+    "expected": "SELECT * FROM e_star"
+  },
+  {
+    "comment": "create_misc - Statement 86",
+    "query": "ALTER TABLE a_star* ADD COLUMN a text",
+    "expected": "ALTER TABLE a_star ADD COLUMN a TEXT"
+  },
+  {
+    "comment": "create_misc - Statement 87",
+    "query": "SELECT relname, reltoastrelid \u003c\u003e 0 AS has_toast_table FROM pg_class WHERE oid::regclass IN ('a_star', 'c_star') ORDER BY 1",
+    "expected": "SELECT relname, reltoastrelid \u003c\u003e 0 AS has_toast_table FROM pg_class WHERE CAST(oid AS regclass) IN ('a_star', 'c_star') ORDER BY 1"
+  },
+  {
+    "comment": "create_misc - Statement 88",
+    "query": "SELECT class, aa, a FROM a_star*",
+    "expected": "SELECT class, aa, a FROM a_star"
+  }
+]

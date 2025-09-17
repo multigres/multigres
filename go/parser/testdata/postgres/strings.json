@@ -1,0 +1,1897 @@
+[
+  {
+    "comment": "strings - Statement 1",
+    "query": "SELECT 'first line'\n' - next line'\n' - third line' AS \"Three lines to one\"",
+    "expected": "SELECT 'first line - next line - third line' AS \"Three lines to one\""
+  },
+  {
+    "comment": "strings - Statement 2",
+    "query": "SELECT 'first line' ' - next line' /* this comment is not allowed here */ ' - third line' AS \"Illegal comment within continuation\"",
+    "error": "parse error at position 36: syntax error"
+  },
+  {
+    "comment": "strings - Statement 3",
+    "query": "SET standard_conforming_strings TO on",
+    "expected": "SET standard_conforming_strings = on"
+  },
+  {
+    "comment": "strings - Statement 4",
+    "query": "SELECT U\u0026'd\\0061t\\+000061' AS U\u0026\"d\\0061t\\+000061\"",
+    "expected": "SELECT 'data' AS data"
+  },
+  {
+    "comment": "strings - Statement 5",
+    "query": "SELECT U\u0026'd!0061t\\+000061' UESCAPE '!' AS U\u0026\"d*0061t\\+000061\" UESCAPE '*'",
+    "expected": "SELECT 'dat\\+000061' AS \"dat\\+000061\""
+  },
+  {
+    "comment": "strings - Statement 6",
+    "query": "SELECT U\u0026'a\\\\b' AS \"a\\b\"",
+    "expected": "SELECT 'a\\b' AS \"a\\b\""
+  },
+  {
+    "comment": "strings - Statement 7",
+    "query": "SELECT U\u0026' \\' UESCAPE '!' AS \"tricky\"",
+    "expected": "SELECT ' \\' AS tricky"
+  },
+  {
+    "comment": "strings - Statement 8",
+    "query": "SELECT 'tricky' AS U\u0026\"\\\" UESCAPE '!'",
+    "expected": "SELECT 'tricky' AS \"\\\""
+  },
+  {
+    "comment": "strings - Statement 9",
+    "query": "SELECT U\u0026'wrong: \\061'",
+    "error": "invalid Unicode escape sequence"
+  },
+  {
+    "comment": "strings - Statement 10",
+    "query": "SELECT U\u0026'wrong: \\+0061'",
+    "error": "invalid Unicode escape sequence"
+  },
+  {
+    "comment": "strings - Statement 11",
+    "query": "SELECT U\u0026'wrong: +0061' UESCAPE +",
+    "error": "UESCAPE must be followed by a simple string literal"
+  },
+  {
+    "comment": "strings - Statement 12",
+    "query": "SELECT U\u0026'wrong: +0061' UESCAPE '+'",
+    "error": "invalid Unicode escape character"
+  },
+  {
+    "comment": "strings - Statement 13",
+    "query": "SELECT U\u0026'wrong: \\db99'",
+    "expected": "SELECT 'wrong: �'"
+  },
+  {
+    "comment": "strings - Statement 14",
+    "query": "SELECT U\u0026'wrong: \\db99xy'",
+    "expected": "SELECT 'wrong: �xy'"
+  },
+  {
+    "comment": "strings - Statement 15",
+    "query": "SELECT U\u0026'wrong: \\db99\\\\'",
+    "expected": "SELECT 'wrong: �\\'"
+  },
+  {
+    "comment": "strings - Statement 16",
+    "query": "SELECT U\u0026'wrong: \\db99\\0061'",
+    "expected": "SELECT 'wrong: �a'"
+  },
+  {
+    "comment": "strings - Statement 17",
+    "query": "SELECT U\u0026'wrong: \\+00db99\\+000061'",
+    "expected": "SELECT 'wrong: �a'"
+  },
+  {
+    "comment": "strings - Statement 18",
+    "query": "SELECT U\u0026'wrong: \\+2FFFFF'",
+    "expected": "SELECT 'wrong: �'"
+  },
+  {
+    "comment": "strings - Statement 19",
+    "query": "SELECT E'd\\u0061t\\U00000061' AS \"data\"",
+    "expected": "SELECT 'data' AS data"
+  },
+  {
+    "comment": "strings - Statement 20",
+    "query": "SELECT E'a\\\\b' AS \"a\\b\"",
+    "expected": "SELECT 'a\\b' AS \"a\\b\""
+  },
+  {
+    "comment": "strings - Statement 21",
+    "query": "SELECT E'wrong: \\u061'",
+    "error": "invalid Unicode escape sequence, expected 4 hex digits"
+  },
+  {
+    "comment": "strings - Statement 22",
+    "query": "SELECT E'wrong: \\U0061'",
+    "error": "invalid Unicode escape sequence, expected 8 hex digits"
+  },
+  {
+    "comment": "strings - Statement 23",
+    "query": "SELECT E'wrong: \\udb99'",
+    "error": "invalid Unicode surrogate pair: expected escape sequence"
+  },
+  {
+    "comment": "strings - Statement 24",
+    "query": "SELECT E'wrong: \\udb99xy'",
+    "error": "invalid Unicode surrogate pair: expected escape sequence"
+  },
+  {
+    "comment": "strings - Statement 25",
+    "query": "SELECT E'wrong: \\udb99\\\\'",
+    "error": "invalid Unicode surrogate pair: expected \\u or \\U"
+  },
+  {
+    "comment": "strings - Statement 26",
+    "query": "SELECT E'wrong: \\udb99\\u0061'",
+    "error": "invalid Unicode surrogate pair"
+  },
+  {
+    "comment": "strings - Statement 27",
+    "query": "SELECT E'wrong: \\U0000db99\\U00000061'",
+    "error": "invalid Unicode surrogate pair"
+  },
+  {
+    "comment": "strings - Statement 28",
+    "query": "SELECT E'wrong: \\U002FFFFF'",
+    "error": "Unicode escape sequence out of range"
+  },
+  {
+    "comment": "strings - Statement 29",
+    "query": "SET standard_conforming_strings TO off",
+    "expected": "SET standard_conforming_strings = off"
+  },
+  {
+    "comment": "strings - Statement 30",
+    "query": "RESET standard_conforming_strings"
+  },
+  {
+    "comment": "strings - Statement 31",
+    "query": "SET bytea_output TO hex",
+    "expected": "SET bytea_output = 'hex'"
+  },
+  {
+    "comment": "strings - Statement 32",
+    "query": "SELECT E'\\\\xDeAdBeEf'::bytea",
+    "expected": "SELECT CAST('\\xDeAdBeEf' AS BYTEA)"
+  },
+  {
+    "comment": "strings - Statement 33",
+    "query": "SELECT E'\\\\x De Ad Be Ef '::bytea",
+    "expected": "SELECT CAST('\\x De Ad Be Ef ' AS BYTEA)"
+  },
+  {
+    "comment": "strings - Statement 34",
+    "query": "SELECT E'\\\\xDeAdBeE'::bytea",
+    "expected": "SELECT CAST('\\xDeAdBeE' AS BYTEA)"
+  },
+  {
+    "comment": "strings - Statement 35",
+    "query": "SELECT E'\\\\xDeAdBeEx'::bytea",
+    "expected": "SELECT CAST('\\xDeAdBeEx' AS BYTEA)"
+  },
+  {
+    "comment": "strings - Statement 36",
+    "query": "SELECT E'\\\\xDe00BeEf'::bytea",
+    "expected": "SELECT CAST('\\xDe00BeEf' AS BYTEA)"
+  },
+  {
+    "comment": "strings - Statement 37",
+    "query": "SELECT E'DeAdBeEf'::bytea",
+    "expected": "SELECT CAST('DeAdBeEf' AS BYTEA)"
+  },
+  {
+    "comment": "strings - Statement 38",
+    "query": "SELECT E'De\\\\000dBeEf'::bytea",
+    "expected": "SELECT CAST('De\\000dBeEf' AS BYTEA)"
+  },
+  {
+    "comment": "strings - Statement 39",
+    "query": "SELECT E'De\\123dBeEf'::bytea",
+    "expected": "SELECT CAST('DeSdBeEf' AS BYTEA)"
+  },
+  {
+    "comment": "strings - Statement 40",
+    "query": "SELECT E'De\\\\123dBeEf'::bytea",
+    "expected": "SELECT CAST('De\\123dBeEf' AS BYTEA)"
+  },
+  {
+    "comment": "strings - Statement 41",
+    "query": "SELECT E'De\\\\678dBeEf'::bytea",
+    "expected": "SELECT CAST('De\\678dBeEf' AS BYTEA)"
+  },
+  {
+    "comment": "strings - Statement 42",
+    "query": "SET bytea_output TO escape",
+    "expected": "SET bytea_output = 'escape'"
+  },
+  {
+    "comment": "strings - Statement 43",
+    "query": "SELECT pg_input_is_valid(E'\\\\xDeAdBeE', 'bytea')",
+    "expected": "SELECT pg_input_is_valid('\\xDeAdBeE', 'bytea')"
+  },
+  {
+    "comment": "strings - Statement 44",
+    "query": "SELECT * FROM pg_input_error_info(E'\\\\xDeAdBeE', 'bytea')",
+    "expected": "SELECT * FROM pg_input_error_info('\\xDeAdBeE', 'bytea')"
+  },
+  {
+    "comment": "strings - Statement 45",
+    "query": "SELECT * FROM pg_input_error_info(E'\\\\xDeAdBeEx', 'bytea')",
+    "expected": "SELECT * FROM pg_input_error_info('\\xDeAdBeEx', 'bytea')"
+  },
+  {
+    "comment": "strings - Statement 46",
+    "query": "SELECT * FROM pg_input_error_info(E'foo\\\\99bar', 'bytea')",
+    "expected": "SELECT * FROM pg_input_error_info('foo\\99bar', 'bytea')"
+  },
+  {
+    "comment": "strings - Statement 47",
+    "query": "SELECT CAST(f1 AS text) AS \"text(char)\" FROM CHAR_TBL",
+    "expected": "SELECT CAST(f1 AS TEXT) AS \"text(char)\" FROM char_tbl"
+  },
+  {
+    "comment": "strings - Statement 48",
+    "query": "SELECT CAST(f1 AS text) AS \"text(varchar)\" FROM VARCHAR_TBL",
+    "expected": "SELECT CAST(f1 AS TEXT) AS \"text(varchar)\" FROM varchar_tbl"
+  },
+  {
+    "comment": "strings - Statement 49",
+    "query": "SELECT CAST(name 'namefield' AS text) AS \"text(name)\"",
+    "expected": "SELECT CAST(CAST('namefield' AS name) AS TEXT) AS \"text(name)\""
+  },
+  {
+    "comment": "strings - Statement 50",
+    "query": "SELECT CAST(f1 AS char(10)) AS \"char(text)\" FROM TEXT_TBL",
+    "expected": "SELECT CAST(f1 AS CHAR(10)) AS \"char(text)\" FROM text_tbl"
+  },
+  {
+    "comment": "strings - Statement 51",
+    "query": "SELECT CAST(f1 AS char(20)) AS \"char(text)\" FROM TEXT_TBL",
+    "expected": "SELECT CAST(f1 AS CHAR(20)) AS \"char(text)\" FROM text_tbl"
+  },
+  {
+    "comment": "strings - Statement 52",
+    "query": "SELECT CAST(f1 AS char(10)) AS \"char(varchar)\" FROM VARCHAR_TBL",
+    "expected": "SELECT CAST(f1 AS CHAR(10)) AS \"char(varchar)\" FROM varchar_tbl"
+  },
+  {
+    "comment": "strings - Statement 53",
+    "query": "SELECT CAST(name 'namefield' AS char(10)) AS \"char(name)\"",
+    "expected": "SELECT CAST(CAST('namefield' AS name) AS CHAR(10)) AS \"char(name)\""
+  },
+  {
+    "comment": "strings - Statement 54",
+    "query": "SELECT CAST(f1 AS varchar) AS \"varchar(text)\" FROM TEXT_TBL",
+    "expected": "SELECT CAST(f1 AS VARCHAR) AS \"varchar(text)\" FROM text_tbl"
+  },
+  {
+    "comment": "strings - Statement 55",
+    "query": "SELECT CAST(f1 AS varchar) AS \"varchar(char)\" FROM CHAR_TBL",
+    "expected": "SELECT CAST(f1 AS VARCHAR) AS \"varchar(char)\" FROM char_tbl"
+  },
+  {
+    "comment": "strings - Statement 56",
+    "query": "SELECT CAST(name 'namefield' AS varchar) AS \"varchar(name)\"",
+    "expected": "SELECT CAST(CAST('namefield' AS name) AS VARCHAR) AS \"varchar(name)\""
+  },
+  {
+    "comment": "strings - Statement 57",
+    "query": "SELECT TRIM(BOTH FROM '  bunch o blanks  ') = 'bunch o blanks' AS \"bunch o blanks\"",
+    "expected": "SELECT trim('  bunch o blanks  ') = 'bunch o blanks' AS \"bunch o blanks\""
+  },
+  {
+    "comment": "strings - Statement 58",
+    "query": "SELECT TRIM(LEADING FROM '  bunch o blanks  ') = 'bunch o blanks  ' AS \"bunch o blanks  \"",
+    "expected": "SELECT ltrim('  bunch o blanks  ') = 'bunch o blanks  ' AS \"bunch o blanks  \""
+  },
+  {
+    "comment": "strings - Statement 59",
+    "query": "SELECT TRIM(TRAILING FROM '  bunch o blanks  ') = '  bunch o blanks' AS \"  bunch o blanks\"",
+    "expected": "SELECT rtrim('  bunch o blanks  ') = '  bunch o blanks' AS \"  bunch o blanks\""
+  },
+  {
+    "comment": "strings - Statement 60",
+    "query": "SELECT TRIM(BOTH 'x' FROM 'xxxxxsome Xsxxxxx') = 'some Xs' AS \"some Xs\"",
+    "expected": "SELECT trim('xxxxxsome Xsxxxxx', 'x') = 'some Xs' AS \"some Xs\""
+  },
+  {
+    "comment": "strings - Statement 61",
+    "query": "SELECT SUBSTRING('1234567890' FROM 3) = '34567890' AS \"34567890\""
+  },
+  {
+    "comment": "strings - Statement 62",
+    "query": "SELECT SUBSTRING('1234567890' FROM 4 FOR 3) = '456' AS \"456\""
+  },
+  {
+    "comment": "strings - Statement 63",
+    "query": "SELECT SUBSTRING('string' FROM 2 FOR 2147483646) AS \"tring\"",
+    "expected": "SELECT SUBSTRING('string' FROM 2 FOR 2147483646) AS tring"
+  },
+  {
+    "comment": "strings - Statement 64",
+    "query": "SELECT SUBSTRING('string' FROM -10 FOR 2147483646) AS \"string\"",
+    "expected": "SELECT SUBSTRING('string' FROM -10 FOR 2147483646) AS string"
+  },
+  {
+    "comment": "strings - Statement 65",
+    "query": "SELECT SUBSTRING('string' FROM -10 FOR -2147483646) AS \"error\"",
+    "expected": "SELECT SUBSTRING('string' FROM -10 FOR -2147483646) AS error"
+  },
+  {
+    "comment": "strings - Statement 66",
+    "query": "SELECT SUBSTRING('abcdefg' SIMILAR 'a#\"(b_d)#\"%' ESCAPE '#') AS \"bcd\"",
+    "expected": "SELECT SUBSTRING('abcdefg' FROM 'a#\"(b_d)#\"%' FOR '#') AS bcd"
+  },
+  {
+    "comment": "strings - Statement 67",
+    "query": "SELECT SUBSTRING('abcdefg' FROM 'a#\"(b_d)#\"%' FOR '#') AS \"bcd\"",
+    "expected": "SELECT SUBSTRING('abcdefg' FROM 'a#\"(b_d)#\"%' FOR '#') AS bcd"
+  },
+  {
+    "comment": "strings - Statement 68",
+    "query": "SELECT SUBSTRING('abcdefg' SIMILAR '#\"(b_d)#\"%' ESCAPE '#') IS NULL AS \"True\"",
+    "expected": "SELECT SUBSTRING('abcdefg' FROM '#\"(b_d)#\"%' FOR '#') IS NULL AS \"True\""
+  },
+  {
+    "comment": "strings - Statement 69",
+    "query": "SELECT SUBSTRING('abcdefg' SIMILAR '%' ESCAPE NULL) IS NULL AS \"True\"",
+    "expected": "SELECT SUBSTRING('abcdefg' FROM '%' FOR NULL) IS NULL AS \"True\""
+  },
+  {
+    "comment": "strings - Statement 70",
+    "query": "SELECT SUBSTRING(NULL SIMILAR '%' ESCAPE '#') IS NULL AS \"True\"",
+    "expected": "SELECT SUBSTRING(NULL FROM '%' FOR '#') IS NULL AS \"True\""
+  },
+  {
+    "comment": "strings - Statement 71",
+    "query": "SELECT SUBSTRING('abcdefg' SIMILAR NULL ESCAPE '#') IS NULL AS \"True\"",
+    "expected": "SELECT SUBSTRING('abcdefg' FROM NULL FOR '#') IS NULL AS \"True\""
+  },
+  {
+    "comment": "strings - Statement 72",
+    "query": "SELECT SUBSTRING('abcdefg' SIMILAR 'a#\"%#\"g' ESCAPE '#') AS \"bcdef\"",
+    "expected": "SELECT SUBSTRING('abcdefg' FROM 'a#\"%#\"g' FOR '#') AS bcdef"
+  },
+  {
+    "comment": "strings - Statement 73",
+    "query": "SELECT SUBSTRING('abcdefg' SIMILAR 'a*#\"%#\"g*' ESCAPE '#') AS \"abcdefg\"",
+    "expected": "SELECT SUBSTRING('abcdefg' FROM 'a*#\"%#\"g*' FOR '#') AS abcdefg"
+  },
+  {
+    "comment": "strings - Statement 74",
+    "query": "SELECT SUBSTRING('abcdefg' SIMILAR 'a|b#\"%#\"g' ESCAPE '#') AS \"bcdef\"",
+    "expected": "SELECT SUBSTRING('abcdefg' FROM 'a|b#\"%#\"g' FOR '#') AS bcdef"
+  },
+  {
+    "comment": "strings - Statement 75",
+    "query": "SELECT SUBSTRING('abcdefg' SIMILAR 'a#\"%#\"x|g' ESCAPE '#') AS \"bcdef\"",
+    "expected": "SELECT SUBSTRING('abcdefg' FROM 'a#\"%#\"x|g' FOR '#') AS bcdef"
+  },
+  {
+    "comment": "strings - Statement 76",
+    "query": "SELECT SUBSTRING('abcdefg' SIMILAR 'a#\"%|ab#\"g' ESCAPE '#') AS \"bcdef\"",
+    "expected": "SELECT SUBSTRING('abcdefg' FROM 'a#\"%|ab#\"g' FOR '#') AS bcdef"
+  },
+  {
+    "comment": "strings - Statement 77",
+    "query": "SELECT SUBSTRING('abcdefg' SIMILAR 'a*#\"%#\"g*#\"x' ESCAPE '#') AS \"error\"",
+    "expected": "SELECT SUBSTRING('abcdefg' FROM 'a*#\"%#\"g*#\"x' FOR '#') AS error"
+  },
+  {
+    "comment": "strings - Statement 78",
+    "query": "SELECT SUBSTRING('abcdefg' SIMILAR 'a#\"%g' ESCAPE '#') AS \"bcdefg\"",
+    "expected": "SELECT SUBSTRING('abcdefg' FROM 'a#\"%g' FOR '#') AS bcdefg"
+  },
+  {
+    "comment": "strings - Statement 79",
+    "query": "SELECT SUBSTRING('abcdefg' SIMILAR 'a%g' ESCAPE '#') AS \"abcdefg\"",
+    "expected": "SELECT SUBSTRING('abcdefg' FROM 'a%g' FOR '#') AS abcdefg"
+  },
+  {
+    "comment": "strings - Statement 80",
+    "query": "SELECT SUBSTRING('abcdefg' FROM 'c.e') AS \"cde\"",
+    "expected": "SELECT SUBSTRING('abcdefg' FROM 'c.e') AS cde"
+  },
+  {
+    "comment": "strings - Statement 81",
+    "query": "SELECT SUBSTRING('abcdefg' FROM 'b(.*)f') AS \"cde\"",
+    "expected": "SELECT SUBSTRING('abcdefg' FROM 'b(.*)f') AS cde"
+  },
+  {
+    "comment": "strings - Statement 82",
+    "query": "SELECT SUBSTRING('foo' FROM 'foo(bar)?') IS NULL AS t"
+  },
+  {
+    "comment": "strings - Statement 83",
+    "query": "SELECT 'abcdefg' SIMILAR TO '_bcd%' AS true",
+    "expected": "SELECT 'abcdefg' SIMILAR TO '_bcd%' AS \"true\""
+  },
+  {
+    "comment": "strings - Statement 84",
+    "query": "SELECT 'abcdefg' SIMILAR TO 'bcd%' AS false",
+    "expected": "SELECT 'abcdefg' SIMILAR TO 'bcd%' AS \"false\""
+  },
+  {
+    "comment": "strings - Statement 85",
+    "query": "SELECT 'abcdefg' SIMILAR TO '_bcd#%' ESCAPE '#' AS false",
+    "expected": "SELECT 'abcdefg' SIMILAR TO '_bcd#%' AS \"false\""
+  },
+  {
+    "comment": "strings - Statement 86",
+    "query": "SELECT 'abcd%' SIMILAR TO '_bcd#%' ESCAPE '#' AS true",
+    "expected": "SELECT 'abcd%' SIMILAR TO '_bcd#%' AS \"true\""
+  },
+  {
+    "comment": "strings - Statement 87",
+    "query": "SELECT 'abcdefg' SIMILAR TO '_bcd\\%' AS false",
+    "expected": "SELECT 'abcdefg' SIMILAR TO '_bcd\\%' AS \"false\""
+  },
+  {
+    "comment": "strings - Statement 88",
+    "query": "SELECT 'abcd\\efg' SIMILAR TO '_bcd\\%' ESCAPE '' AS true",
+    "expected": "SELECT 'abcd\\efg' SIMILAR TO '_bcd\\%' AS \"true\""
+  },
+  {
+    "comment": "strings - Statement 89",
+    "query": "SELECT 'abcdefg' SIMILAR TO '_bcd%' ESCAPE NULL AS null",
+    "expected": "SELECT 'abcdefg' SIMILAR TO '_bcd%' AS \"null\""
+  },
+  {
+    "comment": "strings - Statement 90",
+    "query": "SELECT 'abcdefg' SIMILAR TO '_bcd#%' ESCAPE '##' AS error",
+    "expected": "SELECT 'abcdefg' SIMILAR TO '_bcd#%' AS error"
+  },
+  {
+    "comment": "strings - Statement 91",
+    "query": "SELECT regexp_replace('1112223333', E'(\\\\d{3})(\\\\d{3})(\\\\d{4})', E'(\\\\1) \\\\2-\\\\3')",
+    "expected": "SELECT regexp_replace('1112223333', '(\\d{3})(\\d{3})(\\d{4})', '(\\1) \\2-\\3')"
+  },
+  {
+    "comment": "strings - Statement 92",
+    "query": "SELECT regexp_replace('foobarrbazz', E'(.)\\\\1', E'X\\\\\u0026Y', 'g')",
+    "expected": "SELECT regexp_replace('foobarrbazz', '(.)\\1', 'X\\\u0026Y', 'g')"
+  },
+  {
+    "comment": "strings - Statement 93",
+    "query": "SELECT regexp_replace('foobarrbazz', E'(.)\\\\1', E'X\\\\\\\\Y', 'g')",
+    "expected": "SELECT regexp_replace('foobarrbazz', '(.)\\1', 'X\\\\Y', 'g')"
+  },
+  {
+    "comment": "strings - Statement 94",
+    "query": "SELECT regexp_replace('foobarrbazz', E'(.)\\\\1', E'X\\\\Y\\\\1Z\\\\')",
+    "expected": "SELECT regexp_replace('foobarrbazz', '(.)\\1', 'X\\Y\\1Z\\')"
+  },
+  {
+    "comment": "strings - Statement 95",
+    "query": "SELECT regexp_replace('AAA   BBB   CCC   ', E'\\\\s+', ' ', 'g')",
+    "expected": "SELECT regexp_replace('AAA   BBB   CCC   ', '\\s+', ' ', 'g')"
+  },
+  {
+    "comment": "strings - Statement 96",
+    "query": "SELECT regexp_replace('AAA', '^|$', 'Z', 'g')"
+  },
+  {
+    "comment": "strings - Statement 97",
+    "query": "SELECT regexp_replace('AAA aaa', 'A+', 'Z', 'gi')"
+  },
+  {
+    "comment": "strings - Statement 98",
+    "query": "SELECT regexp_replace('AAA aaa', 'A+', 'Z', 'z')"
+  },
+  {
+    "comment": "strings - Statement 99",
+    "query": "SELECT regexp_replace('A PostgreSQL function', 'A|e|i|o|u', 'X', 1)"
+  },
+  {
+    "comment": "strings - Statement 100",
+    "query": "SELECT regexp_replace('A PostgreSQL function', 'A|e|i|o|u', 'X', 1, 2)"
+  },
+  {
+    "comment": "strings - Statement 101",
+    "query": "SELECT regexp_replace('A PostgreSQL function', 'a|e|i|o|u', 'X', 1, 0, 'i')"
+  },
+  {
+    "comment": "strings - Statement 102",
+    "query": "SELECT regexp_replace('A PostgreSQL function', 'a|e|i|o|u', 'X', 1, 1, 'i')"
+  },
+  {
+    "comment": "strings - Statement 103",
+    "query": "SELECT regexp_replace('A PostgreSQL function', 'a|e|i|o|u', 'X', 1, 2, 'i')"
+  },
+  {
+    "comment": "strings - Statement 104",
+    "query": "SELECT regexp_replace('A PostgreSQL function', 'a|e|i|o|u', 'X', 1, 3, 'i')"
+  },
+  {
+    "comment": "strings - Statement 105",
+    "query": "SELECT regexp_replace('A PostgreSQL function', 'a|e|i|o|u', 'X', 1, 9, 'i')"
+  },
+  {
+    "comment": "strings - Statement 106",
+    "query": "SELECT regexp_replace('A PostgreSQL function', 'A|e|i|o|u', 'X', 7, 0, 'i')"
+  },
+  {
+    "comment": "strings - Statement 107",
+    "query": "SELECT regexp_replace('A PostgreSQL function', 'a|e|i|o|u', 'X', 1, 1, 'g')"
+  },
+  {
+    "comment": "strings - Statement 108",
+    "query": "SELECT regexp_replace('A PostgreSQL function', 'a|e|i|o|u', 'X', -1, 0, 'i')"
+  },
+  {
+    "comment": "strings - Statement 109",
+    "query": "SELECT regexp_replace('A PostgreSQL function', 'a|e|i|o|u', 'X', 1, -1, 'i')"
+  },
+  {
+    "comment": "strings - Statement 110",
+    "query": "SELECT regexp_replace('A PostgreSQL function', 'a|e|i|o|u', 'X', '1')"
+  },
+  {
+    "comment": "strings - Statement 111",
+    "query": "SELECT regexp_count('123123123123123', '(12)3')"
+  },
+  {
+    "comment": "strings - Statement 112",
+    "query": "SELECT regexp_count('123123123123', '123', 1)"
+  },
+  {
+    "comment": "strings - Statement 113",
+    "query": "SELECT regexp_count('123123123123', '123', 3)"
+  },
+  {
+    "comment": "strings - Statement 114",
+    "query": "SELECT regexp_count('123123123123', '123', 33)"
+  },
+  {
+    "comment": "strings - Statement 115",
+    "query": "SELECT regexp_count('ABCABCABCABC', 'Abc', 1, '')"
+  },
+  {
+    "comment": "strings - Statement 116",
+    "query": "SELECT regexp_count('ABCABCABCABC', 'Abc', 1, 'i')"
+  },
+  {
+    "comment": "strings - Statement 117",
+    "query": "SELECT regexp_count('123123123123', '123', 0)"
+  },
+  {
+    "comment": "strings - Statement 118",
+    "query": "SELECT regexp_count('123123123123', '123', -3)"
+  },
+  {
+    "comment": "strings - Statement 119",
+    "query": "SELECT regexp_like('Steven', '^Ste(v|ph)en$')"
+  },
+  {
+    "comment": "strings - Statement 120",
+    "query": "SELECT regexp_like('a'||CHR(10)||'d', 'a.d', 'n')",
+    "expected": "SELECT regexp_like('a' || chr(10) || 'd', 'a.d', 'n')"
+  },
+  {
+    "comment": "strings - Statement 121",
+    "query": "SELECT regexp_like('a'||CHR(10)||'d', 'a.d', 's')",
+    "expected": "SELECT regexp_like('a' || chr(10) || 'd', 'a.d', 's')"
+  },
+  {
+    "comment": "strings - Statement 122",
+    "query": "SELECT regexp_like('abc', ' a . c ', 'x')"
+  },
+  {
+    "comment": "strings - Statement 123",
+    "query": "SELECT regexp_like('abc', 'a.c', 'g')"
+  },
+  {
+    "comment": "strings - Statement 124",
+    "query": "SELECT regexp_instr('abcdefghi', 'd.f')"
+  },
+  {
+    "comment": "strings - Statement 125",
+    "query": "SELECT regexp_instr('abcdefghi', 'd.q')"
+  },
+  {
+    "comment": "strings - Statement 126",
+    "query": "SELECT regexp_instr('abcabcabc', 'a.c')"
+  },
+  {
+    "comment": "strings - Statement 127",
+    "query": "SELECT regexp_instr('abcabcabc', 'a.c', 2)"
+  },
+  {
+    "comment": "strings - Statement 128",
+    "query": "SELECT regexp_instr('abcabcabc', 'a.c', 1, 3)"
+  },
+  {
+    "comment": "strings - Statement 129",
+    "query": "SELECT regexp_instr('abcabcabc', 'a.c', 1, 4)"
+  },
+  {
+    "comment": "strings - Statement 130",
+    "query": "SELECT regexp_instr('abcabcabc', 'A.C', 1, 2, 0, 'i')"
+  },
+  {
+    "comment": "strings - Statement 131",
+    "query": "SELECT regexp_instr('1234567890', '(123)(4(56)(78))', 1, 1, 0, 'i', 0)"
+  },
+  {
+    "comment": "strings - Statement 132",
+    "query": "SELECT regexp_instr('1234567890', '(123)(4(56)(78))', 1, 1, 0, 'i', 1)"
+  },
+  {
+    "comment": "strings - Statement 133",
+    "query": "SELECT regexp_instr('1234567890', '(123)(4(56)(78))', 1, 1, 0, 'i', 2)"
+  },
+  {
+    "comment": "strings - Statement 134",
+    "query": "SELECT regexp_instr('1234567890', '(123)(4(56)(78))', 1, 1, 0, 'i', 3)"
+  },
+  {
+    "comment": "strings - Statement 135",
+    "query": "SELECT regexp_instr('1234567890', '(123)(4(56)(78))', 1, 1, 0, 'i', 4)"
+  },
+  {
+    "comment": "strings - Statement 136",
+    "query": "SELECT regexp_instr('1234567890', '(123)(4(56)(78))', 1, 1, 0, 'i', 5)"
+  },
+  {
+    "comment": "strings - Statement 137",
+    "query": "SELECT regexp_instr('1234567890', '(123)(4(56)(78))', 1, 1, 1, 'i', 0)"
+  },
+  {
+    "comment": "strings - Statement 138",
+    "query": "SELECT regexp_instr('1234567890', '(123)(4(56)(78))', 1, 1, 1, 'i', 1)"
+  },
+  {
+    "comment": "strings - Statement 139",
+    "query": "SELECT regexp_instr('1234567890', '(123)(4(56)(78))', 1, 1, 1, 'i', 2)"
+  },
+  {
+    "comment": "strings - Statement 140",
+    "query": "SELECT regexp_instr('1234567890', '(123)(4(56)(78))', 1, 1, 1, 'i', 3)"
+  },
+  {
+    "comment": "strings - Statement 141",
+    "query": "SELECT regexp_instr('1234567890', '(123)(4(56)(78))', 1, 1, 1, 'i', 4)"
+  },
+  {
+    "comment": "strings - Statement 142",
+    "query": "SELECT regexp_instr('1234567890', '(123)(4(56)(78))', 1, 1, 1, 'i', 5)"
+  },
+  {
+    "comment": "strings - Statement 143",
+    "query": "SELECT regexp_instr('foo', 'foo(bar)?', 1, 1, 0, '', 1)"
+  },
+  {
+    "comment": "strings - Statement 144",
+    "query": "SELECT regexp_instr('abcabcabc', 'a.c', 0, 1)"
+  },
+  {
+    "comment": "strings - Statement 145",
+    "query": "SELECT regexp_instr('abcabcabc', 'a.c', 1, 0)"
+  },
+  {
+    "comment": "strings - Statement 146",
+    "query": "SELECT regexp_instr('abcabcabc', 'a.c', 1, 1, -1)"
+  },
+  {
+    "comment": "strings - Statement 147",
+    "query": "SELECT regexp_instr('abcabcabc', 'a.c', 1, 1, 2)"
+  },
+  {
+    "comment": "strings - Statement 148",
+    "query": "SELECT regexp_instr('abcabcabc', 'a.c', 1, 1, 0, 'g')"
+  },
+  {
+    "comment": "strings - Statement 149",
+    "query": "SELECT regexp_instr('abcabcabc', 'a.c', 1, 1, 0, '', -1)"
+  },
+  {
+    "comment": "strings - Statement 150",
+    "query": "SELECT regexp_substr('abcdefghi', 'd.f')"
+  },
+  {
+    "comment": "strings - Statement 151",
+    "query": "SELECT regexp_substr('abcdefghi', 'd.q') IS NULL AS t"
+  },
+  {
+    "comment": "strings - Statement 152",
+    "query": "SELECT regexp_substr('abcabcabc', 'a.c')"
+  },
+  {
+    "comment": "strings - Statement 153",
+    "query": "SELECT regexp_substr('abcabcabc', 'a.c', 2)"
+  },
+  {
+    "comment": "strings - Statement 154",
+    "query": "SELECT regexp_substr('abcabcabc', 'a.c', 1, 3)"
+  },
+  {
+    "comment": "strings - Statement 155",
+    "query": "SELECT regexp_substr('abcabcabc', 'a.c', 1, 4) IS NULL AS t"
+  },
+  {
+    "comment": "strings - Statement 156",
+    "query": "SELECT regexp_substr('abcabcabc', 'A.C', 1, 2, 'i')"
+  },
+  {
+    "comment": "strings - Statement 157",
+    "query": "SELECT regexp_substr('1234567890', '(123)(4(56)(78))', 1, 1, 'i', 0)"
+  },
+  {
+    "comment": "strings - Statement 158",
+    "query": "SELECT regexp_substr('1234567890', '(123)(4(56)(78))', 1, 1, 'i', 1)"
+  },
+  {
+    "comment": "strings - Statement 159",
+    "query": "SELECT regexp_substr('1234567890', '(123)(4(56)(78))', 1, 1, 'i', 2)"
+  },
+  {
+    "comment": "strings - Statement 160",
+    "query": "SELECT regexp_substr('1234567890', '(123)(4(56)(78))', 1, 1, 'i', 3)"
+  },
+  {
+    "comment": "strings - Statement 161",
+    "query": "SELECT regexp_substr('1234567890', '(123)(4(56)(78))', 1, 1, 'i', 4)"
+  },
+  {
+    "comment": "strings - Statement 162",
+    "query": "SELECT regexp_substr('1234567890', '(123)(4(56)(78))', 1, 1, 'i', 5) IS NULL AS t"
+  },
+  {
+    "comment": "strings - Statement 163",
+    "query": "SELECT regexp_substr('foo', 'foo(bar)?', 1, 1, '', 1) IS NULL AS t"
+  },
+  {
+    "comment": "strings - Statement 164",
+    "query": "SELECT regexp_substr('abcabcabc', 'a.c', 0, 1)"
+  },
+  {
+    "comment": "strings - Statement 165",
+    "query": "SELECT regexp_substr('abcabcabc', 'a.c', 1, 0)"
+  },
+  {
+    "comment": "strings - Statement 166",
+    "query": "SELECT regexp_substr('abcabcabc', 'a.c', 1, 1, 'g')"
+  },
+  {
+    "comment": "strings - Statement 167",
+    "query": "SELECT regexp_substr('abcabcabc', 'a.c', 1, 1, '', -1)"
+  },
+  {
+    "comment": "strings - Statement 168",
+    "query": "SELECT regexp_matches('foObARbEqUEbAz', $re$(bar)(beque)$re$, 'i')",
+    "expected": "SELECT regexp_matches('foObARbEqUEbAz', '(bar)(beque)', 'i')"
+  },
+  {
+    "comment": "strings - Statement 169",
+    "query": "SELECT regexp_matches('foobarbequebazilbarfbonk', $re$(b[^b]+)(b[^b]+)$re$, 'g')",
+    "expected": "SELECT regexp_matches('foobarbequebazilbarfbonk', '(b[^b]+)(b[^b]+)', 'g')"
+  },
+  {
+    "comment": "strings - Statement 170",
+    "query": "SELECT regexp_matches('foobarbequebaz', $re$(bar)(.*)(beque)$re$)",
+    "expected": "SELECT regexp_matches('foobarbequebaz', '(bar)(.*)(beque)')"
+  },
+  {
+    "comment": "strings - Statement 171",
+    "query": "SELECT regexp_matches('foobarbequebaz', $re$(bar)(.+)(beque)$re$)",
+    "expected": "SELECT regexp_matches('foobarbequebaz', '(bar)(.+)(beque)')"
+  },
+  {
+    "comment": "strings - Statement 172",
+    "query": "SELECT regexp_matches('foobarbequebaz', $re$(bar)(.+)?(beque)$re$)",
+    "expected": "SELECT regexp_matches('foobarbequebaz', '(bar)(.+)?(beque)')"
+  },
+  {
+    "comment": "strings - Statement 173",
+    "query": "SELECT regexp_matches('foobarbequebaz', $re$barbeque$re$)",
+    "expected": "SELECT regexp_matches('foobarbequebaz', 'barbeque')"
+  },
+  {
+    "comment": "strings - Statement 174",
+    "query": "SELECT regexp_matches('foo' || chr(10) || 'bar' || chr(10) || 'bequq' || chr(10) || 'baz', '^', 'mg')"
+  },
+  {
+    "comment": "strings - Statement 175",
+    "query": "SELECT regexp_matches('foo' || chr(10) || 'bar' || chr(10) || 'bequq' || chr(10) || 'baz', '$', 'mg')"
+  },
+  {
+    "comment": "strings - Statement 176",
+    "query": "SELECT regexp_matches('1' || chr(10) || '2' || chr(10) || '3' || chr(10) || '4' || chr(10), '^.?', 'mg')"
+  },
+  {
+    "comment": "strings - Statement 177",
+    "query": "SELECT regexp_matches(chr(10) || '1' || chr(10) || '2' || chr(10) || '3' || chr(10) || '4' || chr(10), '.?$', 'mg')"
+  },
+  {
+    "comment": "strings - Statement 178",
+    "query": "SELECT regexp_matches(chr(10) || '1' || chr(10) || '2' || chr(10) || '3' || chr(10) || '4', '.?$', 'mg')"
+  },
+  {
+    "comment": "strings - Statement 179",
+    "query": "SELECT regexp_matches('foobarbequebaz', $re$(bar)(beque)$re$, 'gz')",
+    "expected": "SELECT regexp_matches('foobarbequebaz', '(bar)(beque)', 'gz')"
+  },
+  {
+    "comment": "strings - Statement 180",
+    "query": "SELECT regexp_matches('foobarbequebaz', $re$(barbeque$re$)",
+    "expected": "SELECT regexp_matches('foobarbequebaz', '(barbeque')"
+  },
+  {
+    "comment": "strings - Statement 181",
+    "query": "SELECT regexp_matches('foobarbequebaz', $re$(bar)(beque){2,1}$re$)",
+    "expected": "SELECT regexp_matches('foobarbequebaz', '(bar)(beque){2,1}')"
+  },
+  {
+    "comment": "strings - Statement 182",
+    "query": "SELECT foo, length(foo) FROM regexp_split_to_table('the quick brown fox jumps over the lazy dog', $re$\\s+$re$) AS foo",
+    "expected": "SELECT foo, length(foo) FROM regexp_split_to_table('the quick brown fox jumps over the lazy dog', '\\s+') AS foo"
+  },
+  {
+    "comment": "strings - Statement 183",
+    "query": "SELECT regexp_split_to_array('the quick brown fox jumps over the lazy dog', $re$\\s+$re$)",
+    "expected": "SELECT regexp_split_to_array('the quick brown fox jumps over the lazy dog', '\\s+')"
+  },
+  {
+    "comment": "strings - Statement 184",
+    "query": "SELECT foo, length(foo) FROM regexp_split_to_table('the quick brown fox jumps over the lazy dog', $re$\\s*$re$) AS foo",
+    "expected": "SELECT foo, length(foo) FROM regexp_split_to_table('the quick brown fox jumps over the lazy dog', '\\s*') AS foo"
+  },
+  {
+    "comment": "strings - Statement 185",
+    "query": "SELECT regexp_split_to_array('the quick brown fox jumps over the lazy dog', $re$\\s*$re$)",
+    "expected": "SELECT regexp_split_to_array('the quick brown fox jumps over the lazy dog', '\\s*')"
+  },
+  {
+    "comment": "strings - Statement 186",
+    "query": "SELECT foo, length(foo) FROM regexp_split_to_table('the quick brown fox jumps over the lazy dog', '') AS foo"
+  },
+  {
+    "comment": "strings - Statement 187",
+    "query": "SELECT regexp_split_to_array('the quick brown fox jumps over the lazy dog', '')"
+  },
+  {
+    "comment": "strings - Statement 188",
+    "query": "SELECT foo, length(foo) FROM regexp_split_to_table('thE QUick bROWn FOx jUMPs ovEr The lazy dOG', 'e', 'i') AS foo"
+  },
+  {
+    "comment": "strings - Statement 189",
+    "query": "SELECT regexp_split_to_array('thE QUick bROWn FOx jUMPs ovEr The lazy dOG', 'e', 'i')"
+  },
+  {
+    "comment": "strings - Statement 190",
+    "query": "SELECT foo, length(foo) FROM regexp_split_to_table('the quick brown fox jumps over the lazy dog', 'nomatch') AS foo"
+  },
+  {
+    "comment": "strings - Statement 191",
+    "query": "SELECT regexp_split_to_array('the quick brown fox jumps over the lazy dog', 'nomatch')"
+  },
+  {
+    "comment": "strings - Statement 192",
+    "query": "SELECT regexp_split_to_array('123456','1')",
+    "expected": "SELECT regexp_split_to_array('123456', '1')"
+  },
+  {
+    "comment": "strings - Statement 193",
+    "query": "SELECT regexp_split_to_array('123456','6')",
+    "expected": "SELECT regexp_split_to_array('123456', '6')"
+  },
+  {
+    "comment": "strings - Statement 194",
+    "query": "SELECT regexp_split_to_array('123456','.')",
+    "expected": "SELECT regexp_split_to_array('123456', '.')"
+  },
+  {
+    "comment": "strings - Statement 195",
+    "query": "SELECT regexp_split_to_array('123456','')",
+    "expected": "SELECT regexp_split_to_array('123456', '')"
+  },
+  {
+    "comment": "strings - Statement 196",
+    "query": "SELECT regexp_split_to_array('123456','(?:)')",
+    "expected": "SELECT regexp_split_to_array('123456', '(?:)')"
+  },
+  {
+    "comment": "strings - Statement 197",
+    "query": "SELECT regexp_split_to_array('1','')",
+    "expected": "SELECT regexp_split_to_array('1', '')"
+  },
+  {
+    "comment": "strings - Statement 198",
+    "query": "SELECT foo, length(foo) FROM regexp_split_to_table('thE QUick bROWn FOx jUMPs ovEr The lazy dOG', 'e', 'zippy') AS foo"
+  },
+  {
+    "comment": "strings - Statement 199",
+    "query": "SELECT regexp_split_to_array('thE QUick bROWn FOx jUMPs ovEr The lazy dOG', 'e', 'iz')"
+  },
+  {
+    "comment": "strings - Statement 200",
+    "query": "SELECT foo, length(foo) FROM regexp_split_to_table('thE QUick bROWn FOx jUMPs ovEr The lazy dOG', 'e', 'g') AS foo"
+  },
+  {
+    "comment": "strings - Statement 201",
+    "query": "SELECT regexp_split_to_array('thE QUick bROWn FOx jUMPs ovEr The lazy dOG', 'e', 'g')"
+  },
+  {
+    "comment": "strings - Statement 202",
+    "query": "SELECT POSITION('5' IN '1234567890') = '5' AS \"5\""
+  },
+  {
+    "comment": "strings - Statement 203",
+    "query": "SELECT OVERLAY('abcdef' PLACING '45' FROM 4) AS \"abc45f\"",
+    "expected": "SELECT overlay('abcdef' placing '45' from 4) AS abc45f"
+  },
+  {
+    "comment": "strings - Statement 204",
+    "query": "SELECT OVERLAY('yabadoo' PLACING 'daba' FROM 5) AS \"yabadaba\"",
+    "expected": "SELECT overlay('yabadoo' placing 'daba' from 5) AS yabadaba"
+  },
+  {
+    "comment": "strings - Statement 205",
+    "query": "SELECT OVERLAY('yabadoo' PLACING 'daba' FROM 5 FOR 0) AS \"yabadabadoo\"",
+    "expected": "SELECT overlay('yabadoo' placing 'daba' from 5 for 0) AS yabadabadoo"
+  },
+  {
+    "comment": "strings - Statement 206",
+    "query": "SELECT OVERLAY('babosa' PLACING 'ubb' FROM 2 FOR 4) AS \"bubba\"",
+    "expected": "SELECT overlay('babosa' placing 'ubb' from 2 for 4) AS bubba"
+  },
+  {
+    "comment": "strings - Statement 207",
+    "query": "SELECT 'hawkeye' LIKE 'h%' AS \"true\""
+  },
+  {
+    "comment": "strings - Statement 208",
+    "query": "SELECT 'hawkeye' NOT LIKE 'h%' AS \"false\"",
+    "expected": "SELECT 'hawkeye' LIKE 'h%' AS \"false\""
+  },
+  {
+    "comment": "strings - Statement 209",
+    "query": "SELECT 'hawkeye' LIKE 'H%' AS \"false\""
+  },
+  {
+    "comment": "strings - Statement 210",
+    "query": "SELECT 'hawkeye' NOT LIKE 'H%' AS \"true\"",
+    "expected": "SELECT 'hawkeye' LIKE 'H%' AS \"true\""
+  },
+  {
+    "comment": "strings - Statement 211",
+    "query": "SELECT 'hawkeye' LIKE 'indio%' AS \"false\""
+  },
+  {
+    "comment": "strings - Statement 212",
+    "query": "SELECT 'hawkeye' NOT LIKE 'indio%' AS \"true\"",
+    "expected": "SELECT 'hawkeye' LIKE 'indio%' AS \"true\""
+  },
+  {
+    "comment": "strings - Statement 213",
+    "query": "SELECT 'hawkeye' LIKE 'h%eye' AS \"true\""
+  },
+  {
+    "comment": "strings - Statement 214",
+    "query": "SELECT 'hawkeye' NOT LIKE 'h%eye' AS \"false\"",
+    "expected": "SELECT 'hawkeye' LIKE 'h%eye' AS \"false\""
+  },
+  {
+    "comment": "strings - Statement 215",
+    "query": "SELECT 'indio' LIKE '_ndio' AS \"true\""
+  },
+  {
+    "comment": "strings - Statement 216",
+    "query": "SELECT 'indio' NOT LIKE '_ndio' AS \"false\"",
+    "expected": "SELECT 'indio' LIKE '_ndio' AS \"false\""
+  },
+  {
+    "comment": "strings - Statement 217",
+    "query": "SELECT 'indio' LIKE 'in__o' AS \"true\""
+  },
+  {
+    "comment": "strings - Statement 218",
+    "query": "SELECT 'indio' NOT LIKE 'in__o' AS \"false\"",
+    "expected": "SELECT 'indio' LIKE 'in__o' AS \"false\""
+  },
+  {
+    "comment": "strings - Statement 219",
+    "query": "SELECT 'indio' LIKE 'in_o' AS \"false\""
+  },
+  {
+    "comment": "strings - Statement 220",
+    "query": "SELECT 'indio' NOT LIKE 'in_o' AS \"true\"",
+    "expected": "SELECT 'indio' LIKE 'in_o' AS \"true\""
+  },
+  {
+    "comment": "strings - Statement 221",
+    "query": "SELECT 'abc'::name LIKE '_b_' AS \"true\"",
+    "expected": "SELECT CAST('abc' AS name) LIKE '_b_' AS \"true\""
+  },
+  {
+    "comment": "strings - Statement 222",
+    "query": "SELECT 'abc'::name NOT LIKE '_b_' AS \"false\"",
+    "expected": "SELECT CAST('abc' AS name) LIKE '_b_' AS \"false\""
+  },
+  {
+    "comment": "strings - Statement 223",
+    "query": "SELECT 'abc'::bytea LIKE '_b_'::bytea AS \"true\"",
+    "expected": "SELECT CAST('abc' AS BYTEA) LIKE CAST('_b_' AS BYTEA) AS \"true\""
+  },
+  {
+    "comment": "strings - Statement 224",
+    "query": "SELECT 'abc'::bytea NOT LIKE '_b_'::bytea AS \"false\"",
+    "expected": "SELECT CAST('abc' AS BYTEA) LIKE CAST('_b_' AS BYTEA) AS \"false\""
+  },
+  {
+    "comment": "strings - Statement 225",
+    "query": "SELECT 'hawkeye' LIKE 'h%' ESCAPE '#' AS \"true\"",
+    "expected": "SELECT 'hawkeye' LIKE like_escape('h%', '#') AS \"true\""
+  },
+  {
+    "comment": "strings - Statement 226",
+    "query": "SELECT 'hawkeye' NOT LIKE 'h%' ESCAPE '#' AS \"false\"",
+    "expected": "SELECT 'hawkeye' LIKE like_escape('h%', '#') AS \"false\""
+  },
+  {
+    "comment": "strings - Statement 227",
+    "query": "SELECT 'indio' LIKE 'ind_o' ESCAPE '$' AS \"true\"",
+    "expected": "SELECT 'indio' LIKE like_escape('ind_o', '$') AS \"true\""
+  },
+  {
+    "comment": "strings - Statement 228",
+    "query": "SELECT 'indio' NOT LIKE 'ind_o' ESCAPE '$' AS \"false\"",
+    "expected": "SELECT 'indio' LIKE like_escape('ind_o', '$') AS \"false\""
+  },
+  {
+    "comment": "strings - Statement 229",
+    "query": "SELECT 'h%' LIKE 'h#%' ESCAPE '#' AS \"true\"",
+    "expected": "SELECT 'h%' LIKE like_escape('h#%', '#') AS \"true\""
+  },
+  {
+    "comment": "strings - Statement 230",
+    "query": "SELECT 'h%' NOT LIKE 'h#%' ESCAPE '#' AS \"false\"",
+    "expected": "SELECT 'h%' LIKE like_escape('h#%', '#') AS \"false\""
+  },
+  {
+    "comment": "strings - Statement 231",
+    "query": "SELECT 'h%wkeye' LIKE 'h#%' ESCAPE '#' AS \"false\"",
+    "expected": "SELECT 'h%wkeye' LIKE like_escape('h#%', '#') AS \"false\""
+  },
+  {
+    "comment": "strings - Statement 232",
+    "query": "SELECT 'h%wkeye' NOT LIKE 'h#%' ESCAPE '#' AS \"true\"",
+    "expected": "SELECT 'h%wkeye' LIKE like_escape('h#%', '#') AS \"true\""
+  },
+  {
+    "comment": "strings - Statement 233",
+    "query": "SELECT 'h%wkeye' LIKE 'h#%%' ESCAPE '#' AS \"true\"",
+    "expected": "SELECT 'h%wkeye' LIKE like_escape('h#%%', '#') AS \"true\""
+  },
+  {
+    "comment": "strings - Statement 234",
+    "query": "SELECT 'h%wkeye' NOT LIKE 'h#%%' ESCAPE '#' AS \"false\"",
+    "expected": "SELECT 'h%wkeye' LIKE like_escape('h#%%', '#') AS \"false\""
+  },
+  {
+    "comment": "strings - Statement 235",
+    "query": "SELECT 'h%awkeye' LIKE 'h#%a%k%e' ESCAPE '#' AS \"true\"",
+    "expected": "SELECT 'h%awkeye' LIKE like_escape('h#%a%k%e', '#') AS \"true\""
+  },
+  {
+    "comment": "strings - Statement 236",
+    "query": "SELECT 'h%awkeye' NOT LIKE 'h#%a%k%e' ESCAPE '#' AS \"false\"",
+    "expected": "SELECT 'h%awkeye' LIKE like_escape('h#%a%k%e', '#') AS \"false\""
+  },
+  {
+    "comment": "strings - Statement 237",
+    "query": "SELECT 'indio' LIKE '_ndio' ESCAPE '$' AS \"true\"",
+    "expected": "SELECT 'indio' LIKE like_escape('_ndio', '$') AS \"true\""
+  },
+  {
+    "comment": "strings - Statement 238",
+    "query": "SELECT 'indio' NOT LIKE '_ndio' ESCAPE '$' AS \"false\"",
+    "expected": "SELECT 'indio' LIKE like_escape('_ndio', '$') AS \"false\""
+  },
+  {
+    "comment": "strings - Statement 239",
+    "query": "SELECT 'i_dio' LIKE 'i$_d_o' ESCAPE '$' AS \"true\"",
+    "expected": "SELECT 'i_dio' LIKE like_escape('i$_d_o', '$') AS \"true\""
+  },
+  {
+    "comment": "strings - Statement 240",
+    "query": "SELECT 'i_dio' NOT LIKE 'i$_d_o' ESCAPE '$' AS \"false\"",
+    "expected": "SELECT 'i_dio' LIKE like_escape('i$_d_o', '$') AS \"false\""
+  },
+  {
+    "comment": "strings - Statement 241",
+    "query": "SELECT 'i_dio' LIKE 'i$_nd_o' ESCAPE '$' AS \"false\"",
+    "expected": "SELECT 'i_dio' LIKE like_escape('i$_nd_o', '$') AS \"false\""
+  },
+  {
+    "comment": "strings - Statement 242",
+    "query": "SELECT 'i_dio' NOT LIKE 'i$_nd_o' ESCAPE '$' AS \"true\"",
+    "expected": "SELECT 'i_dio' LIKE like_escape('i$_nd_o', '$') AS \"true\""
+  },
+  {
+    "comment": "strings - Statement 243",
+    "query": "SELECT 'i_dio' LIKE 'i$_d%o' ESCAPE '$' AS \"true\"",
+    "expected": "SELECT 'i_dio' LIKE like_escape('i$_d%o', '$') AS \"true\""
+  },
+  {
+    "comment": "strings - Statement 244",
+    "query": "SELECT 'i_dio' NOT LIKE 'i$_d%o' ESCAPE '$' AS \"false\"",
+    "expected": "SELECT 'i_dio' LIKE like_escape('i$_d%o', '$') AS \"false\""
+  },
+  {
+    "comment": "strings - Statement 245",
+    "query": "SELECT 'a_c'::bytea LIKE 'a$__'::bytea ESCAPE '$'::bytea AS \"true\"",
+    "expected": "SELECT CAST('a_c' AS BYTEA) LIKE like_escape(CAST('a$__' AS BYTEA), CAST('$' AS BYTEA)) AS \"true\""
+  },
+  {
+    "comment": "strings - Statement 246",
+    "query": "SELECT 'a_c'::bytea NOT LIKE 'a$__'::bytea ESCAPE '$'::bytea AS \"false\"",
+    "expected": "SELECT CAST('a_c' AS BYTEA) LIKE like_escape(CAST('a$__' AS BYTEA), CAST('$' AS BYTEA)) AS \"false\""
+  },
+  {
+    "comment": "strings - Statement 247",
+    "query": "SELECT 'maca' LIKE 'm%aca' ESCAPE '%' AS \"true\"",
+    "expected": "SELECT 'maca' LIKE like_escape('m%aca', '%') AS \"true\""
+  },
+  {
+    "comment": "strings - Statement 248",
+    "query": "SELECT 'maca' NOT LIKE 'm%aca' ESCAPE '%' AS \"false\"",
+    "expected": "SELECT 'maca' LIKE like_escape('m%aca', '%') AS \"false\""
+  },
+  {
+    "comment": "strings - Statement 249",
+    "query": "SELECT 'ma%a' LIKE 'm%a%%a' ESCAPE '%' AS \"true\"",
+    "expected": "SELECT 'ma%a' LIKE like_escape('m%a%%a', '%') AS \"true\""
+  },
+  {
+    "comment": "strings - Statement 250",
+    "query": "SELECT 'ma%a' NOT LIKE 'm%a%%a' ESCAPE '%' AS \"false\"",
+    "expected": "SELECT 'ma%a' LIKE like_escape('m%a%%a', '%') AS \"false\""
+  },
+  {
+    "comment": "strings - Statement 251",
+    "query": "SELECT 'bear' LIKE 'b_ear' ESCAPE '_' AS \"true\"",
+    "expected": "SELECT 'bear' LIKE like_escape('b_ear', '_') AS \"true\""
+  },
+  {
+    "comment": "strings - Statement 252",
+    "query": "SELECT 'bear' NOT LIKE 'b_ear' ESCAPE '_' AS \"false\"",
+    "expected": "SELECT 'bear' LIKE like_escape('b_ear', '_') AS \"false\""
+  },
+  {
+    "comment": "strings - Statement 253",
+    "query": "SELECT 'be_r' LIKE 'b_e__r' ESCAPE '_' AS \"true\"",
+    "expected": "SELECT 'be_r' LIKE like_escape('b_e__r', '_') AS \"true\""
+  },
+  {
+    "comment": "strings - Statement 254",
+    "query": "SELECT 'be_r' NOT LIKE 'b_e__r' ESCAPE '_' AS \"false\"",
+    "expected": "SELECT 'be_r' LIKE like_escape('b_e__r', '_') AS \"false\""
+  },
+  {
+    "comment": "strings - Statement 255",
+    "query": "SELECT 'be_r' LIKE '__e__r' ESCAPE '_' AS \"false\"",
+    "expected": "SELECT 'be_r' LIKE like_escape('__e__r', '_') AS \"false\""
+  },
+  {
+    "comment": "strings - Statement 256",
+    "query": "SELECT 'be_r' NOT LIKE '__e__r' ESCAPE '_' AS \"true\"",
+    "expected": "SELECT 'be_r' LIKE like_escape('__e__r', '_') AS \"true\""
+  },
+  {
+    "comment": "strings - Statement 257",
+    "query": "SELECT 'hawkeye' ILIKE 'h%' AS \"true\""
+  },
+  {
+    "comment": "strings - Statement 258",
+    "query": "SELECT 'hawkeye' NOT ILIKE 'h%' AS \"false\"",
+    "expected": "SELECT 'hawkeye' ILIKE 'h%' AS \"false\""
+  },
+  {
+    "comment": "strings - Statement 259",
+    "query": "SELECT 'hawkeye' ILIKE 'H%Eye' AS \"true\""
+  },
+  {
+    "comment": "strings - Statement 260",
+    "query": "SELECT 'hawkeye' NOT ILIKE 'H%Eye' AS \"false\"",
+    "expected": "SELECT 'hawkeye' ILIKE 'H%Eye' AS \"false\""
+  },
+  {
+    "comment": "strings - Statement 261",
+    "query": "SELECT 'ABC'::name ILIKE '_b_' AS \"true\"",
+    "expected": "SELECT CAST('ABC' AS name) ILIKE '_b_' AS \"true\""
+  },
+  {
+    "comment": "strings - Statement 262",
+    "query": "SELECT 'ABC'::name NOT ILIKE '_b_' AS \"false\"",
+    "expected": "SELECT CAST('ABC' AS name) ILIKE '_b_' AS \"false\""
+  },
+  {
+    "comment": "strings - Statement 263",
+    "query": "SELECT 'foo' LIKE '_%' as t, 'f' LIKE '_%' as t, '' LIKE '_%' as f",
+    "expected": "SELECT 'foo' LIKE '_%' AS t, 'f' LIKE '_%' AS t, '' LIKE '_%' AS f"
+  },
+  {
+    "comment": "strings - Statement 264",
+    "query": "SELECT 'foo' LIKE '%_' as t, 'f' LIKE '%_' as t, '' LIKE '%_' as f",
+    "expected": "SELECT 'foo' LIKE '%_' AS t, 'f' LIKE '%_' AS t, '' LIKE '%_' AS f"
+  },
+  {
+    "comment": "strings - Statement 265",
+    "query": "SELECT 'foo' LIKE '__%' as t, 'foo' LIKE '___%' as t, 'foo' LIKE '____%' as f",
+    "expected": "SELECT 'foo' LIKE '__%' AS t, 'foo' LIKE '___%' AS t, 'foo' LIKE '____%' AS f"
+  },
+  {
+    "comment": "strings - Statement 266",
+    "query": "SELECT 'foo' LIKE '%__' as t, 'foo' LIKE '%___' as t, 'foo' LIKE '%____' as f",
+    "expected": "SELECT 'foo' LIKE '%__' AS t, 'foo' LIKE '%___' AS t, 'foo' LIKE '%____' AS f"
+  },
+  {
+    "comment": "strings - Statement 267",
+    "query": "SELECT 'jack' LIKE '%____%' AS t"
+  },
+  {
+    "comment": "strings - Statement 268",
+    "query": "CREATE TABLE texttest (a text PRIMARY KEY, b int)",
+    "expected": "CREATE TABLE texttest (a TEXT PRIMARY KEY, b INT)"
+  },
+  {
+    "comment": "strings - Statement 269",
+    "query": "SELECT * FROM texttest WHERE a LIKE '%1%'"
+  },
+  {
+    "comment": "strings - Statement 270",
+    "query": "CREATE TABLE byteatest (a bytea PRIMARY KEY, b int)",
+    "expected": "CREATE TABLE byteatest (a BYTEA PRIMARY KEY, b INT)"
+  },
+  {
+    "comment": "strings - Statement 271",
+    "query": "SELECT * FROM byteatest WHERE a LIKE '%1%'"
+  },
+  {
+    "comment": "strings - Statement 272",
+    "query": "DROP TABLE texttest, byteatest"
+  },
+  {
+    "comment": "strings - Statement 273",
+    "query": "SELECT 'unknown' || ' and unknown' AS \"Concat unknown types\""
+  },
+  {
+    "comment": "strings - Statement 274",
+    "query": "SELECT text 'text' || ' and unknown' AS \"Concat text to unknown type\"",
+    "expected": "SELECT CAST('text' AS TEXT) || ' and unknown' AS \"Concat text to unknown type\""
+  },
+  {
+    "comment": "strings - Statement 275",
+    "query": "SELECT char(20) 'characters' || ' and text' AS \"Concat char to unknown type\"",
+    "expected": "SELECT CAST('characters' AS CHAR(20)) || ' and text' AS \"Concat char to unknown type\""
+  },
+  {
+    "comment": "strings - Statement 276",
+    "query": "SELECT text 'text' || char(20) ' and characters' AS \"Concat text to char\"",
+    "expected": "SELECT CAST('text' AS TEXT) || CAST(' and characters' AS CHAR(20)) AS \"Concat text to char\""
+  },
+  {
+    "comment": "strings - Statement 277",
+    "query": "SELECT text 'text' || varchar ' and varchar' AS \"Concat text to varchar\"",
+    "expected": "SELECT CAST('text' AS TEXT) || CAST(' and varchar' AS VARCHAR) AS \"Concat text to varchar\""
+  },
+  {
+    "comment": "strings - Statement 278",
+    "query": "CREATE TABLE toasttest(f1 text)",
+    "expected": "CREATE TABLE toasttest (f1 TEXT)"
+  },
+  {
+    "comment": "strings - Statement 279",
+    "query": "insert into toasttest values(repeat('1234567890',10000))",
+    "expected": "INSERT INTO toasttest VALUES (repeat('1234567890', 10000))"
+  },
+  {
+    "comment": "strings - Statement 280",
+    "query": "alter table toasttest alter column f1 set storage external",
+    "expected": "ALTER TABLE toasttest ALTER COLUMN f1 SET STORAGE external"
+  },
+  {
+    "comment": "strings - Statement 281",
+    "query": "SELECT substr(f1, -1, 5) from toasttest",
+    "expected": "SELECT substr(f1, -1, 5) FROM toasttest"
+  },
+  {
+    "comment": "strings - Statement 282",
+    "query": "SELECT substr(f1, 5, -1) from toasttest",
+    "expected": "SELECT substr(f1, 5, -1) FROM toasttest"
+  },
+  {
+    "comment": "strings - Statement 283",
+    "query": "SELECT substr(f1, 99995) from toasttest",
+    "expected": "SELECT substr(f1, 99995) FROM toasttest"
+  },
+  {
+    "comment": "strings - Statement 284",
+    "query": "SELECT substr(f1, 99995, 10) from toasttest",
+    "expected": "SELECT substr(f1, 99995, 10) FROM toasttest"
+  },
+  {
+    "comment": "strings - Statement 285",
+    "query": "TRUNCATE TABLE toasttest",
+    "expected": "TRUNCATE TABLE toasttest CONTINUE IDENTITY RESTRICT"
+  },
+  {
+    "comment": "strings - Statement 286",
+    "query": "INSERT INTO toasttest values (repeat('1234567890',300))",
+    "expected": "INSERT INTO toasttest VALUES (repeat('1234567890', 300))"
+  },
+  {
+    "comment": "strings - Statement 287",
+    "query": "SELECT pg_relation_size(reltoastrelid) = 0 AS is_empty FROM pg_class where relname = 'toasttest'",
+    "expected": "SELECT pg_relation_size(reltoastrelid) = 0 AS is_empty FROM pg_class WHERE relname = 'toasttest'"
+  },
+  {
+    "comment": "strings - Statement 288",
+    "query": "ALTER TABLE toasttest set (toast_tuple_target = 4080)",
+    "expected": "ALTER TABLE toasttest SET (toast_tuple_target = 4080)"
+  },
+  {
+    "comment": "strings - Statement 289",
+    "query": "DROP TABLE toasttest"
+  },
+  {
+    "comment": "strings - Statement 290",
+    "query": "CREATE TABLE toasttest(f1 bytea)",
+    "expected": "CREATE TABLE toasttest (f1 BYTEA)"
+  },
+  {
+    "comment": "strings - Statement 291",
+    "query": "insert into toasttest values(decode(repeat('1234567890',10000),'escape'))",
+    "expected": "INSERT INTO toasttest VALUES (decode(repeat('1234567890', 10000), 'escape'))"
+  },
+  {
+    "comment": "strings - Statement 292",
+    "query": "CREATE TABLE toasttest (c char(4096))",
+    "expected": "CREATE TABLE toasttest (c CHAR(4096))"
+  },
+  {
+    "comment": "strings - Statement 293",
+    "query": "INSERT INTO toasttest VALUES('x')",
+    "expected": "INSERT INTO toasttest VALUES ('x')"
+  },
+  {
+    "comment": "strings - Statement 294",
+    "query": "SELECT length(c), c::text FROM toasttest",
+    "expected": "SELECT length(c), CAST(c AS TEXT) FROM toasttest"
+  },
+  {
+    "comment": "strings - Statement 295",
+    "query": "SELECT c FROM toasttest"
+  },
+  {
+    "comment": "strings - Statement 296",
+    "query": "SELECT length('abcdef') AS \"length_6\"",
+    "expected": "SELECT length('abcdef') AS length_6"
+  },
+  {
+    "comment": "strings - Statement 297",
+    "query": "SELECT strpos('abcdef', 'cd') AS \"pos_3\"",
+    "expected": "SELECT strpos('abcdef', 'cd') AS pos_3"
+  },
+  {
+    "comment": "strings - Statement 298",
+    "query": "SELECT strpos('abcdef', 'xy') AS \"pos_0\"",
+    "expected": "SELECT strpos('abcdef', 'xy') AS pos_0"
+  },
+  {
+    "comment": "strings - Statement 299",
+    "query": "SELECT strpos('abcdef', '') AS \"pos_1\"",
+    "expected": "SELECT strpos('abcdef', '') AS pos_1"
+  },
+  {
+    "comment": "strings - Statement 300",
+    "query": "SELECT strpos('', 'xy') AS \"pos_0\"",
+    "expected": "SELECT strpos('', 'xy') AS pos_0"
+  },
+  {
+    "comment": "strings - Statement 301",
+    "query": "SELECT strpos('', '') AS \"pos_1\"",
+    "expected": "SELECT strpos('', '') AS pos_1"
+  },
+  {
+    "comment": "strings - Statement 302",
+    "query": "SELECT replace('abcdef', 'de', '45') AS \"abc45f\"",
+    "expected": "SELECT replace('abcdef', 'de', '45') AS abc45f"
+  },
+  {
+    "comment": "strings - Statement 303",
+    "query": "SELECT replace('yabadabadoo', 'ba', '123') AS \"ya123da123doo\"",
+    "expected": "SELECT replace('yabadabadoo', 'ba', '123') AS ya123da123doo"
+  },
+  {
+    "comment": "strings - Statement 304",
+    "query": "SELECT replace('yabadoo', 'bad', '') AS \"yaoo\"",
+    "expected": "SELECT replace('yabadoo', 'bad', '') AS yaoo"
+  },
+  {
+    "comment": "strings - Statement 305",
+    "query": "select split_part('','@',1) AS \"empty string\"",
+    "expected": "SELECT split_part('', '@', 1) AS \"empty string\""
+  },
+  {
+    "comment": "strings - Statement 306",
+    "query": "select split_part('','@',-1) AS \"empty string\"",
+    "expected": "SELECT split_part('', '@', -1) AS \"empty string\""
+  },
+  {
+    "comment": "strings - Statement 307",
+    "query": "select split_part('joeuser@mydatabase','',1) AS \"joeuser@mydatabase\"",
+    "expected": "SELECT split_part('joeuser@mydatabase', '', 1) AS \"joeuser@mydatabase\""
+  },
+  {
+    "comment": "strings - Statement 308",
+    "query": "select split_part('joeuser@mydatabase','',2) AS \"empty string\"",
+    "expected": "SELECT split_part('joeuser@mydatabase', '', 2) AS \"empty string\""
+  },
+  {
+    "comment": "strings - Statement 309",
+    "query": "select split_part('joeuser@mydatabase','',-1) AS \"joeuser@mydatabase\"",
+    "expected": "SELECT split_part('joeuser@mydatabase', '', -1) AS \"joeuser@mydatabase\""
+  },
+  {
+    "comment": "strings - Statement 310",
+    "query": "select split_part('joeuser@mydatabase','',-2) AS \"empty string\"",
+    "expected": "SELECT split_part('joeuser@mydatabase', '', -2) AS \"empty string\""
+  },
+  {
+    "comment": "strings - Statement 311",
+    "query": "select split_part('joeuser@mydatabase','@',0) AS \"an error\"",
+    "expected": "SELECT split_part('joeuser@mydatabase', '@', 0) AS \"an error\""
+  },
+  {
+    "comment": "strings - Statement 312",
+    "query": "select split_part('joeuser@mydatabase','@@',1) AS \"joeuser@mydatabase\"",
+    "expected": "SELECT split_part('joeuser@mydatabase', '@@', 1) AS \"joeuser@mydatabase\""
+  },
+  {
+    "comment": "strings - Statement 313",
+    "query": "select split_part('joeuser@mydatabase','@@',2) AS \"empty string\"",
+    "expected": "SELECT split_part('joeuser@mydatabase', '@@', 2) AS \"empty string\""
+  },
+  {
+    "comment": "strings - Statement 314",
+    "query": "select split_part('joeuser@mydatabase','@',1) AS \"joeuser\"",
+    "expected": "SELECT split_part('joeuser@mydatabase', '@', 1) AS joeuser"
+  },
+  {
+    "comment": "strings - Statement 315",
+    "query": "select split_part('joeuser@mydatabase','@',2) AS \"mydatabase\"",
+    "expected": "SELECT split_part('joeuser@mydatabase', '@', 2) AS mydatabase"
+  },
+  {
+    "comment": "strings - Statement 316",
+    "query": "select split_part('joeuser@mydatabase','@',3) AS \"empty string\"",
+    "expected": "SELECT split_part('joeuser@mydatabase', '@', 3) AS \"empty string\""
+  },
+  {
+    "comment": "strings - Statement 317",
+    "query": "select split_part('@joeuser@mydatabase@','@',2) AS \"joeuser\"",
+    "expected": "SELECT split_part('@joeuser@mydatabase@', '@', 2) AS joeuser"
+  },
+  {
+    "comment": "strings - Statement 318",
+    "query": "select split_part('joeuser@mydatabase','@',-1) AS \"mydatabase\"",
+    "expected": "SELECT split_part('joeuser@mydatabase', '@', -1) AS mydatabase"
+  },
+  {
+    "comment": "strings - Statement 319",
+    "query": "select split_part('joeuser@mydatabase','@',-2) AS \"joeuser\"",
+    "expected": "SELECT split_part('joeuser@mydatabase', '@', -2) AS joeuser"
+  },
+  {
+    "comment": "strings - Statement 320",
+    "query": "select split_part('joeuser@mydatabase','@',-3) AS \"empty string\"",
+    "expected": "SELECT split_part('joeuser@mydatabase', '@', -3) AS \"empty string\""
+  },
+  {
+    "comment": "strings - Statement 321",
+    "query": "select split_part('@joeuser@mydatabase@','@',-2) AS \"mydatabase\"",
+    "expected": "SELECT split_part('@joeuser@mydatabase@', '@', -2) AS mydatabase"
+  },
+  {
+    "comment": "strings - Statement 322",
+    "query": "select to_bin(-1234) AS \"11111111111111111111101100101110\"",
+    "expected": "SELECT to_bin(-1234) AS \"11111111111111111111101100101110\""
+  },
+  {
+    "comment": "strings - Statement 323",
+    "query": "select to_bin(-1234::bigint)",
+    "expected": "SELECT to_bin(-CAST(1234 AS BIGINT))"
+  },
+  {
+    "comment": "strings - Statement 324",
+    "query": "select to_bin(256*256*256 - 1) AS \"111111111111111111111111\"",
+    "expected": "SELECT to_bin(256 * 256 * 256 - 1) AS \"111111111111111111111111\""
+  },
+  {
+    "comment": "strings - Statement 325",
+    "query": "select to_bin(256::bigint*256::bigint*256::bigint*256::bigint - 1) AS \"11111111111111111111111111111111\"",
+    "expected": "SELECT to_bin(CAST(CAST(CAST(CAST(256 AS BIGINT) * 256 AS BIGINT) * 256 AS BIGINT) * 256 AS BIGINT) - 1) AS \"11111111111111111111111111111111\""
+  },
+  {
+    "comment": "strings - Statement 326",
+    "query": "select to_oct(-1234) AS \"37777775456\"",
+    "expected": "SELECT to_oct(-1234) AS \"37777775456\""
+  },
+  {
+    "comment": "strings - Statement 327",
+    "query": "select to_oct(-1234::bigint) AS \"1777777777777777775456\"",
+    "expected": "SELECT to_oct(-CAST(1234 AS BIGINT)) AS \"1777777777777777775456\""
+  },
+  {
+    "comment": "strings - Statement 328",
+    "query": "select to_oct(256*256*256 - 1) AS \"77777777\"",
+    "expected": "SELECT to_oct(256 * 256 * 256 - 1) AS \"77777777\""
+  },
+  {
+    "comment": "strings - Statement 329",
+    "query": "select to_oct(256::bigint*256::bigint*256::bigint*256::bigint - 1) AS \"37777777777\"",
+    "expected": "SELECT to_oct(CAST(CAST(CAST(CAST(256 AS BIGINT) * 256 AS BIGINT) * 256 AS BIGINT) * 256 AS BIGINT) - 1) AS \"37777777777\""
+  },
+  {
+    "comment": "strings - Statement 330",
+    "query": "select to_hex(-1234) AS \"fffffb2e\"",
+    "expected": "SELECT to_hex(-1234) AS fffffb2e"
+  },
+  {
+    "comment": "strings - Statement 331",
+    "query": "select to_hex(-1234::bigint) AS \"fffffffffffffb2e\"",
+    "expected": "SELECT to_hex(-CAST(1234 AS BIGINT)) AS fffffffffffffb2e"
+  },
+  {
+    "comment": "strings - Statement 332",
+    "query": "select to_hex(256*256*256 - 1) AS \"ffffff\"",
+    "expected": "SELECT to_hex(256 * 256 * 256 - 1) AS ffffff"
+  },
+  {
+    "comment": "strings - Statement 333",
+    "query": "select to_hex(256::bigint*256::bigint*256::bigint*256::bigint - 1) AS \"ffffffff\"",
+    "expected": "SELECT to_hex(CAST(CAST(CAST(CAST(256 AS BIGINT) * 256 AS BIGINT) * 256 AS BIGINT) * 256 AS BIGINT) - 1) AS ffffffff"
+  },
+  {
+    "comment": "strings - Statement 334",
+    "query": "SELECT sha224('')"
+  },
+  {
+    "comment": "strings - Statement 335",
+    "query": "SELECT sha224('The quick brown fox jumps over the lazy dog.')"
+  },
+  {
+    "comment": "strings - Statement 336",
+    "query": "SELECT sha256('')"
+  },
+  {
+    "comment": "strings - Statement 337",
+    "query": "SELECT sha256('The quick brown fox jumps over the lazy dog.')"
+  },
+  {
+    "comment": "strings - Statement 338",
+    "query": "SELECT sha384('')"
+  },
+  {
+    "comment": "strings - Statement 339",
+    "query": "SELECT sha384('The quick brown fox jumps over the lazy dog.')"
+  },
+  {
+    "comment": "strings - Statement 340",
+    "query": "SELECT sha512('')"
+  },
+  {
+    "comment": "strings - Statement 341",
+    "query": "SELECT sha512('The quick brown fox jumps over the lazy dog.')"
+  },
+  {
+    "comment": "strings - Statement 342",
+    "query": "SELECT encode('\\x1234567890abcdef00', 'hex')"
+  },
+  {
+    "comment": "strings - Statement 343",
+    "query": "SELECT decode('1234567890abcdef00', 'hex')"
+  },
+  {
+    "comment": "strings - Statement 344",
+    "query": "SELECT encode(('\\x' || repeat('1234567890abcdef0001', 7))::bytea, 'base64')",
+    "expected": "SELECT encode(CAST(('\\x' || repeat('1234567890abcdef0001', 7)) AS BYTEA), 'base64')"
+  },
+  {
+    "comment": "strings - Statement 345",
+    "query": "SELECT decode(encode(('\\x' || repeat('1234567890abcdef0001', 7))::bytea, 'base64'), 'base64')",
+    "expected": "SELECT decode(encode(CAST(('\\x' || repeat('1234567890abcdef0001', 7)) AS BYTEA), 'base64'), 'base64')"
+  },
+  {
+    "comment": "strings - Statement 346",
+    "query": "SELECT encode('\\x1234567890abcdef00', 'escape')"
+  },
+  {
+    "comment": "strings - Statement 347",
+    "query": "SELECT decode(encode('\\x1234567890abcdef00', 'escape'), 'escape')"
+  },
+  {
+    "comment": "strings - Statement 348",
+    "query": "SELECT get_bit('\\x1234567890abcdef00'::bytea, 43)",
+    "expected": "SELECT get_bit(CAST('\\x1234567890abcdef00' AS BYTEA), 43)"
+  },
+  {
+    "comment": "strings - Statement 349",
+    "query": "SELECT get_bit('\\x1234567890abcdef00'::bytea, 99)",
+    "expected": "SELECT get_bit(CAST('\\x1234567890abcdef00' AS BYTEA), 99)"
+  },
+  {
+    "comment": "strings - Statement 350",
+    "query": "SELECT set_bit('\\x1234567890abcdef00'::bytea, 43, 0)",
+    "expected": "SELECT set_bit(CAST('\\x1234567890abcdef00' AS BYTEA), 43, 0)"
+  },
+  {
+    "comment": "strings - Statement 351",
+    "query": "SELECT set_bit('\\x1234567890abcdef00'::bytea, 99, 0)",
+    "expected": "SELECT set_bit(CAST('\\x1234567890abcdef00' AS BYTEA), 99, 0)"
+  },
+  {
+    "comment": "strings - Statement 352",
+    "query": "SELECT get_byte('\\x1234567890abcdef00'::bytea, 3)",
+    "expected": "SELECT get_byte(CAST('\\x1234567890abcdef00' AS BYTEA), 3)"
+  },
+  {
+    "comment": "strings - Statement 353",
+    "query": "SELECT get_byte('\\x1234567890abcdef00'::bytea, 99)",
+    "expected": "SELECT get_byte(CAST('\\x1234567890abcdef00' AS BYTEA), 99)"
+  },
+  {
+    "comment": "strings - Statement 354",
+    "query": "SELECT set_byte('\\x1234567890abcdef00'::bytea, 7, 11)",
+    "expected": "SELECT set_byte(CAST('\\x1234567890abcdef00' AS BYTEA), 7, 11)"
+  },
+  {
+    "comment": "strings - Statement 355",
+    "query": "SELECT set_byte('\\x1234567890abcdef00'::bytea, 99, 11)",
+    "expected": "SELECT set_byte(CAST('\\x1234567890abcdef00' AS BYTEA), 99, 11)"
+  },
+  {
+    "comment": "strings - Statement 356",
+    "query": "set escape_string_warning = off",
+    "expected": "SET escape_string_warning = off"
+  },
+  {
+    "comment": "strings - Statement 357",
+    "query": "set standard_conforming_strings = off",
+    "expected": "SET standard_conforming_strings = off"
+  },
+  {
+    "comment": "strings - Statement 358",
+    "query": "show escape_string_warning",
+    "expected": "SHOW escape_string_warning"
+  },
+  {
+    "comment": "strings - Statement 359",
+    "query": "show standard_conforming_strings",
+    "expected": "SHOW standard_conforming_strings"
+  },
+  {
+    "comment": "strings - Statement 360",
+    "query": "set escape_string_warning = on",
+    "expected": "SET escape_string_warning = on"
+  },
+  {
+    "comment": "strings - Statement 361",
+    "query": "set standard_conforming_strings = on",
+    "expected": "SET standard_conforming_strings = on"
+  },
+  {
+    "comment": "strings - Statement 362",
+    "query": "select 'a\\bcd' as f1, 'a\\b''cd' as f2, 'a\\b''''cd' as f3, 'abcd\\'   as f4, 'ab\\''cd' as f5, '\\\\' as f6",
+    "expected": "SELECT 'a\\bcd' AS f1, 'a\\b''cd' AS f2, 'a\\b''''cd' AS f3, 'abcd\\' AS f4, 'ab\\''cd' AS f5, '\\\\' AS f6"
+  },
+  {
+    "comment": "strings - Statement 364",
+    "query": "SELECT initcap('hi THOMAS')"
+  },
+  {
+    "comment": "strings - Statement 365",
+    "query": "SELECT lpad('hi', 5, 'xy')"
+  },
+  {
+    "comment": "strings - Statement 366",
+    "query": "SELECT lpad('hi', 5)"
+  },
+  {
+    "comment": "strings - Statement 367",
+    "query": "SELECT lpad('hi', -5, 'xy')"
+  },
+  {
+    "comment": "strings - Statement 368",
+    "query": "SELECT lpad('hello', 2)"
+  },
+  {
+    "comment": "strings - Statement 369",
+    "query": "SELECT lpad('hi', 5, '')"
+  },
+  {
+    "comment": "strings - Statement 370",
+    "query": "SELECT rpad('hi', 5, 'xy')"
+  },
+  {
+    "comment": "strings - Statement 371",
+    "query": "SELECT rpad('hi', 5)"
+  },
+  {
+    "comment": "strings - Statement 372",
+    "query": "SELECT rpad('hi', -5, 'xy')"
+  },
+  {
+    "comment": "strings - Statement 373",
+    "query": "SELECT rpad('hello', 2)"
+  },
+  {
+    "comment": "strings - Statement 374",
+    "query": "SELECT rpad('hi', 5, '')"
+  },
+  {
+    "comment": "strings - Statement 375",
+    "query": "SELECT ltrim('zzzytrim', 'xyz')"
+  },
+  {
+    "comment": "strings - Statement 376",
+    "query": "SELECT translate('', '14', 'ax')"
+  },
+  {
+    "comment": "strings - Statement 377",
+    "query": "SELECT translate('12345', '14', 'ax')"
+  },
+  {
+    "comment": "strings - Statement 378",
+    "query": "SELECT translate('12345', '134', 'a')"
+  },
+  {
+    "comment": "strings - Statement 379",
+    "query": "SELECT ascii('x')"
+  },
+  {
+    "comment": "strings - Statement 380",
+    "query": "SELECT ascii('')"
+  },
+  {
+    "comment": "strings - Statement 381",
+    "query": "SELECT chr(65)"
+  },
+  {
+    "comment": "strings - Statement 382",
+    "query": "SELECT chr(0)"
+  },
+  {
+    "comment": "strings - Statement 383",
+    "query": "SELECT repeat('Pg', 4)"
+  },
+  {
+    "comment": "strings - Statement 384",
+    "query": "SELECT repeat('Pg', -4)"
+  },
+  {
+    "comment": "strings - Statement 385",
+    "query": "SELECT SUBSTRING('1234567890'::bytea FROM 3) \"34567890\"",
+    "expected": "SELECT SUBSTRING(CAST('1234567890' AS BYTEA) FROM 3) AS \"34567890\""
+  },
+  {
+    "comment": "strings - Statement 386",
+    "query": "SELECT SUBSTRING('1234567890'::bytea FROM 4 FOR 3) AS \"456\"",
+    "expected": "SELECT SUBSTRING(CAST('1234567890' AS BYTEA) FROM 4 FOR 3) AS \"456\""
+  },
+  {
+    "comment": "strings - Statement 387",
+    "query": "SELECT SUBSTRING('string'::bytea FROM 2 FOR 2147483646) AS \"tring\"",
+    "expected": "SELECT SUBSTRING(CAST('string' AS BYTEA) FROM 2 FOR 2147483646) AS tring"
+  },
+  {
+    "comment": "strings - Statement 388",
+    "query": "SELECT SUBSTRING('string'::bytea FROM -10 FOR 2147483646) AS \"string\"",
+    "expected": "SELECT SUBSTRING(CAST('string' AS BYTEA) FROM -10 FOR 2147483646) AS string"
+  },
+  {
+    "comment": "strings - Statement 389",
+    "query": "SELECT SUBSTRING('string'::bytea FROM -10 FOR -2147483646) AS \"error\"",
+    "expected": "SELECT SUBSTRING(CAST('string' AS BYTEA) FROM -10 FOR -2147483646) AS error"
+  },
+  {
+    "comment": "strings - Statement 390",
+    "query": "SELECT trim(E'\\\\000'::bytea from E'\\\\000Tom\\\\000'::bytea)",
+    "expected": "SELECT trim(CAST('\\000Tom\\000' AS BYTEA), CAST('\\000' AS BYTEA))"
+  },
+  {
+    "comment": "strings - Statement 391",
+    "query": "SELECT trim(leading E'\\\\000'::bytea from E'\\\\000Tom\\\\000'::bytea)",
+    "expected": "SELECT ltrim(CAST('\\000Tom\\000' AS BYTEA), CAST('\\000' AS BYTEA))"
+  },
+  {
+    "comment": "strings - Statement 392",
+    "query": "SELECT trim(trailing E'\\\\000'::bytea from E'\\\\000Tom\\\\000'::bytea)",
+    "expected": "SELECT rtrim(CAST('\\000Tom\\000' AS BYTEA), CAST('\\000' AS BYTEA))"
+  },
+  {
+    "comment": "strings - Statement 393",
+    "query": "SELECT btrim(E'\\\\000trim\\\\000'::bytea, E'\\\\000'::bytea)",
+    "expected": "SELECT trim(CAST('\\000trim\\000' AS BYTEA), CAST('\\000' AS BYTEA))"
+  },
+  {
+    "comment": "strings - Statement 394",
+    "query": "SELECT btrim(''::bytea, E'\\\\000'::bytea)",
+    "expected": "SELECT trim(CAST('' AS BYTEA), CAST('\\000' AS BYTEA))"
+  },
+  {
+    "comment": "strings - Statement 395",
+    "query": "SELECT btrim(E'\\\\000trim\\\\000'::bytea, ''::bytea)",
+    "expected": "SELECT trim(CAST('\\000trim\\000' AS BYTEA), CAST('' AS BYTEA))"
+  },
+  {
+    "comment": "strings - Statement 396",
+    "query": "SELECT encode(overlay(E'Th\\\\000omas'::bytea placing E'Th\\\\001omas'::bytea from 2),'escape')",
+    "expected": "SELECT encode(overlay(CAST('Th\\000omas' AS BYTEA) placing CAST('Th\\001omas' AS BYTEA) from 2), 'escape')"
+  },
+  {
+    "comment": "strings - Statement 397",
+    "query": "SELECT encode(overlay(E'Th\\\\000omas'::bytea placing E'\\\\002\\\\003'::bytea from 8),'escape')",
+    "expected": "SELECT encode(overlay(CAST('Th\\000omas' AS BYTEA) placing CAST('\\002\\003' AS BYTEA) from 8), 'escape')"
+  },
+  {
+    "comment": "strings - Statement 398",
+    "query": "SELECT encode(overlay(E'Th\\\\000omas'::bytea placing E'\\\\002\\\\003'::bytea from 5 for 3),'escape')",
+    "expected": "SELECT encode(overlay(CAST('Th\\000omas' AS BYTEA) placing CAST('\\002\\003' AS BYTEA) from 5 for 3), 'escape')"
+  },
+  {
+    "comment": "strings - Statement 399",
+    "query": "SELECT bit_count('\\x1234567890'::bytea)",
+    "expected": "SELECT bit_count(CAST('\\x1234567890' AS BYTEA))"
+  },
+  {
+    "comment": "strings - Statement 400",
+    "query": "SELECT unistr('\\0064at\\+0000610')"
+  },
+  {
+    "comment": "strings - Statement 401",
+    "query": "SELECT unistr('d\\u0061t\\U000000610')"
+  },
+  {
+    "comment": "strings - Statement 402",
+    "query": "SELECT unistr('a\\\\b')"
+  },
+  {
+    "comment": "strings - Statement 403",
+    "query": "SELECT unistr('wrong: \\db99')"
+  },
+  {
+    "comment": "strings - Statement 404",
+    "query": "SELECT unistr('wrong: \\db99\\0061')"
+  },
+  {
+    "comment": "strings - Statement 405",
+    "query": "SELECT unistr('wrong: \\+00db99\\+000061')"
+  },
+  {
+    "comment": "strings - Statement 406",
+    "query": "SELECT unistr('wrong: \\+2FFFFF')"
+  },
+  {
+    "comment": "strings - Statement 407",
+    "query": "SELECT unistr('wrong: \\udb99\\u0061')"
+  },
+  {
+    "comment": "strings - Statement 408",
+    "query": "SELECT unistr('wrong: \\U0000db99\\U00000061')"
+  },
+  {
+    "comment": "strings - Statement 409",
+    "query": "SELECT unistr('wrong: \\U002FFFFF')"
+  },
+  {
+    "comment": "strings - Statement 410",
+    "query": "SELECT unistr('wrong: \\xyz')"
+  }
+]

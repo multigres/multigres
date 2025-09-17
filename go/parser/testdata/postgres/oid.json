@@ -1,0 +1,177 @@
+[
+  {
+    "comment": "oid - Statement 1",
+    "query": "CREATE TABLE OID_TBL(f1 oid)",
+    "expected": "CREATE TABLE oid_tbl (f1 oid)"
+  },
+  {
+    "comment": "oid - Statement 2",
+    "query": "INSERT INTO OID_TBL(f1) VALUES ('1234')",
+    "expected": "INSERT INTO oid_tbl (f1) VALUES ('1234')"
+  },
+  {
+    "comment": "oid - Statement 3",
+    "query": "INSERT INTO OID_TBL(f1) VALUES ('1235')",
+    "expected": "INSERT INTO oid_tbl (f1) VALUES ('1235')"
+  },
+  {
+    "comment": "oid - Statement 4",
+    "query": "INSERT INTO OID_TBL(f1) VALUES ('987')",
+    "expected": "INSERT INTO oid_tbl (f1) VALUES ('987')"
+  },
+  {
+    "comment": "oid - Statement 5",
+    "query": "INSERT INTO OID_TBL(f1) VALUES ('-1040')",
+    "expected": "INSERT INTO oid_tbl (f1) VALUES ('-1040')"
+  },
+  {
+    "comment": "oid - Statement 6",
+    "query": "INSERT INTO OID_TBL(f1) VALUES ('99999999')",
+    "expected": "INSERT INTO oid_tbl (f1) VALUES ('99999999')"
+  },
+  {
+    "comment": "oid - Statement 7",
+    "query": "INSERT INTO OID_TBL(f1) VALUES ('5     ')",
+    "expected": "INSERT INTO oid_tbl (f1) VALUES ('5     ')"
+  },
+  {
+    "comment": "oid - Statement 8",
+    "query": "INSERT INTO OID_TBL(f1) VALUES ('   10  ')",
+    "expected": "INSERT INTO oid_tbl (f1) VALUES ('   10  ')"
+  },
+  {
+    "comment": "oid - Statement 9",
+    "query": "INSERT INTO OID_TBL(f1) VALUES ('\t  15 \t  ')",
+    "expected": "INSERT INTO oid_tbl (f1) VALUES ('\t  15 \t  ')"
+  },
+  {
+    "comment": "oid - Statement 10",
+    "query": "INSERT INTO OID_TBL(f1) VALUES ('')",
+    "expected": "INSERT INTO oid_tbl (f1) VALUES ('')"
+  },
+  {
+    "comment": "oid - Statement 11",
+    "query": "INSERT INTO OID_TBL(f1) VALUES ('    ')",
+    "expected": "INSERT INTO oid_tbl (f1) VALUES ('    ')"
+  },
+  {
+    "comment": "oid - Statement 12",
+    "query": "INSERT INTO OID_TBL(f1) VALUES ('asdfasd')",
+    "expected": "INSERT INTO oid_tbl (f1) VALUES ('asdfasd')"
+  },
+  {
+    "comment": "oid - Statement 13",
+    "query": "INSERT INTO OID_TBL(f1) VALUES ('99asdfasd')",
+    "expected": "INSERT INTO oid_tbl (f1) VALUES ('99asdfasd')"
+  },
+  {
+    "comment": "oid - Statement 14",
+    "query": "INSERT INTO OID_TBL(f1) VALUES ('5    d')",
+    "expected": "INSERT INTO oid_tbl (f1) VALUES ('5    d')"
+  },
+  {
+    "comment": "oid - Statement 15",
+    "query": "INSERT INTO OID_TBL(f1) VALUES ('    5d')",
+    "expected": "INSERT INTO oid_tbl (f1) VALUES ('    5d')"
+  },
+  {
+    "comment": "oid - Statement 16",
+    "query": "INSERT INTO OID_TBL(f1) VALUES ('5    5')",
+    "expected": "INSERT INTO oid_tbl (f1) VALUES ('5    5')"
+  },
+  {
+    "comment": "oid - Statement 17",
+    "query": "INSERT INTO OID_TBL(f1) VALUES (' - 500')",
+    "expected": "INSERT INTO oid_tbl (f1) VALUES (' - 500')"
+  },
+  {
+    "comment": "oid - Statement 18",
+    "query": "INSERT INTO OID_TBL(f1) VALUES ('32958209582039852935')",
+    "expected": "INSERT INTO oid_tbl (f1) VALUES ('32958209582039852935')"
+  },
+  {
+    "comment": "oid - Statement 19",
+    "query": "INSERT INTO OID_TBL(f1) VALUES ('-23582358720398502385')",
+    "expected": "INSERT INTO oid_tbl (f1) VALUES ('-23582358720398502385')"
+  },
+  {
+    "comment": "oid - Statement 20",
+    "query": "SELECT * FROM OID_TBL",
+    "expected": "SELECT * FROM oid_tbl"
+  },
+  {
+    "comment": "oid - Statement 21",
+    "query": "SELECT pg_input_is_valid('1234', 'oid')"
+  },
+  {
+    "comment": "oid - Statement 22",
+    "query": "SELECT pg_input_is_valid('01XYZ', 'oid')"
+  },
+  {
+    "comment": "oid - Statement 23",
+    "query": "SELECT * FROM pg_input_error_info('01XYZ', 'oid')"
+  },
+  {
+    "comment": "oid - Statement 24",
+    "query": "SELECT pg_input_is_valid('9999999999', 'oid')"
+  },
+  {
+    "comment": "oid - Statement 25",
+    "query": "SELECT * FROM pg_input_error_info('9999999999', 'oid')"
+  },
+  {
+    "comment": "oid - Statement 26",
+    "query": "SELECT pg_input_is_valid(' 1 2  4 ', 'oidvector')"
+  },
+  {
+    "comment": "oid - Statement 27",
+    "query": "SELECT pg_input_is_valid('01 01XYZ', 'oidvector')"
+  },
+  {
+    "comment": "oid - Statement 28",
+    "query": "SELECT * FROM pg_input_error_info('01 01XYZ', 'oidvector')"
+  },
+  {
+    "comment": "oid - Statement 29",
+    "query": "SELECT pg_input_is_valid('01 9999999999', 'oidvector')"
+  },
+  {
+    "comment": "oid - Statement 30",
+    "query": "SELECT * FROM pg_input_error_info('01 9999999999', 'oidvector')"
+  },
+  {
+    "comment": "oid - Statement 31",
+    "query": "SELECT o.* FROM OID_TBL o WHERE o.f1 = 1234",
+    "expected": "SELECT o.* FROM oid_tbl AS o WHERE o.f1 = 1234"
+  },
+  {
+    "comment": "oid - Statement 32",
+    "query": "SELECT o.* FROM OID_TBL o WHERE o.f1 \u003c\u003e '1234'",
+    "expected": "SELECT o.* FROM oid_tbl AS o WHERE o.f1 \u003c\u003e '1234'"
+  },
+  {
+    "comment": "oid - Statement 33",
+    "query": "SELECT o.* FROM OID_TBL o WHERE o.f1 \u003c= '1234'",
+    "expected": "SELECT o.* FROM oid_tbl AS o WHERE o.f1 \u003c= '1234'"
+  },
+  {
+    "comment": "oid - Statement 34",
+    "query": "SELECT o.* FROM OID_TBL o WHERE o.f1 \u003c '1234'",
+    "expected": "SELECT o.* FROM oid_tbl AS o WHERE o.f1 \u003c '1234'"
+  },
+  {
+    "comment": "oid - Statement 35",
+    "query": "SELECT o.* FROM OID_TBL o WHERE o.f1 \u003e= '1234'",
+    "expected": "SELECT o.* FROM oid_tbl AS o WHERE o.f1 \u003e= '1234'"
+  },
+  {
+    "comment": "oid - Statement 36",
+    "query": "SELECT o.* FROM OID_TBL o WHERE o.f1 \u003e '1234'",
+    "expected": "SELECT o.* FROM oid_tbl AS o WHERE o.f1 \u003e '1234'"
+  },
+  {
+    "comment": "oid - Statement 37",
+    "query": "DROP TABLE OID_TBL",
+    "expected": "DROP TABLE oid_tbl"
+  }
+]

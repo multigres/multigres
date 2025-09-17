@@ -1,0 +1,70 @@
+[
+  {
+    "comment": "maintain_every - Statement 1",
+    "query": "CREATE ROLE regress_maintain"
+  },
+  {
+    "comment": "maintain_every - Statement 2",
+    "query": "SET ROLE regress_maintain",
+    "expected": "SET ROLE 'regress_maintain'"
+  },
+  {
+    "comment": "maintain_every - Statement 3",
+    "query": "CREATE TEMP TABLE past_inh_db_other ()",
+    "expected": "CREATE TEMPORARY TABLE past_inh_db_other ()"
+  },
+  {
+    "comment": "maintain_every - Statement 4",
+    "query": "CREATE TEMP TABLE past_inh_db_parent () ON COMMIT DELETE ROWS",
+    "expected": "CREATE TEMPORARY TABLE past_inh_db_parent () ON COMMIT DELETE ROWS"
+  },
+  {
+    "comment": "maintain_every - Statement 5",
+    "query": "CREATE TEMP TABLE past_inh_db_child () INHERITS (past_inh_db_parent)",
+    "expected": "CREATE TEMPORARY TABLE past_inh_db_child () INHERITS (past_inh_db_parent)"
+  },
+  {
+    "comment": "maintain_every - Statement 6",
+    "query": "CREATE INDEX ON past_inh_db_parent ((1))",
+    "expected": "CREATE INDEX ON past_inh_db_parent USING btree ( (1) )"
+  },
+  {
+    "comment": "maintain_every - Statement 7",
+    "query": "ANALYZE past_inh_db_parent"
+  },
+  {
+    "comment": "maintain_every - Statement 8",
+    "query": "SELECT reltuples, relhassubclass FROM pg_class WHERE oid = 'past_inh_db_parent'::regclass",
+    "expected": "SELECT reltuples, relhassubclass FROM pg_class WHERE oid = CAST('past_inh_db_parent' AS regclass)"
+  },
+  {
+    "comment": "maintain_every - Statement 9",
+    "query": "DROP TABLE past_inh_db_child"
+  },
+  {
+    "comment": "maintain_every - Statement 10",
+    "query": "SET client_min_messages = error",
+    "expected": "SET client_min_messages = 'error'"
+  },
+  {
+    "comment": "maintain_every - Statement 11",
+    "query": "ANALYZE"
+  },
+  {
+    "comment": "maintain_every - Statement 12",
+    "query": "RESET client_min_messages"
+  },
+  {
+    "comment": "maintain_every - Statement 13",
+    "query": "DROP TABLE past_inh_db_parent, past_inh_db_other"
+  },
+  {
+    "comment": "maintain_every - Statement 14",
+    "query": "RESET ROLE",
+    "expected": "RESET role"
+  },
+  {
+    "comment": "maintain_every - Statement 15",
+    "query": "DROP ROLE regress_maintain"
+  }
+]

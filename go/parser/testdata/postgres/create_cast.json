@@ -1,0 +1,96 @@
+[
+  {
+    "comment": "create_cast - Statement 1",
+    "query": "CREATE TYPE casttesttype"
+  },
+  {
+    "comment": "create_cast - Statement 2",
+    "query": "CREATE FUNCTION casttesttype_in(cstring) RETURNS casttesttype AS 'textin' LANGUAGE internal STRICT IMMUTABLE",
+    "expected": "CREATE FUNCTION casttesttype_in (cstring) RETURNS casttesttype AS $$textin$$ LANGUAGE internal STRICT IMMUTABLE"
+  },
+  {
+    "comment": "create_cast - Statement 3",
+    "query": "CREATE FUNCTION casttesttype_out(casttesttype) RETURNS cstring AS 'textout' LANGUAGE internal STRICT IMMUTABLE",
+    "expected": "CREATE FUNCTION casttesttype_out (casttesttype) RETURNS cstring AS $$textout$$ LANGUAGE internal STRICT IMMUTABLE"
+  },
+  {
+    "comment": "create_cast - Statement 4",
+    "query": "CREATE TYPE casttesttype ( internallength = variable, input = casttesttype_in, output = casttesttype_out, alignment = int4 )",
+    "expected": "CREATE TYPE casttesttype (internallength = variable, input = casttesttype_in, output = casttesttype_out, alignment = INT)"
+  },
+  {
+    "comment": "create_cast - Statement 5",
+    "query": "CREATE FUNCTION casttestfunc(casttesttype) RETURNS int4 LANGUAGE SQL AS $$ SELECT 1; $$",
+    "expected": "CREATE FUNCTION casttestfunc (casttesttype) RETURNS INT LANGUAGE sql AS $$ SELECT 1; $$"
+  },
+  {
+    "comment": "create_cast - Statement 6",
+    "query": "SELECT casttestfunc('foo'::text)",
+    "expected": "SELECT casttestfunc(CAST('foo' AS TEXT))"
+  },
+  {
+    "comment": "create_cast - Statement 7",
+    "query": "CREATE CAST (text AS casttesttype) WITHOUT FUNCTION",
+    "expected": "CREATE CAST (TEXT AS casttesttype) WITHOUT FUNCTION"
+  },
+  {
+    "comment": "create_cast - Statement 8",
+    "query": "SELECT casttestfunc('foo'::text::casttesttype)",
+    "expected": "SELECT casttestfunc(CAST(CAST('foo' AS TEXT) AS casttesttype))"
+  },
+  {
+    "comment": "create_cast - Statement 9",
+    "query": "DROP CAST (text AS casttesttype)",
+    "expected": "DROP CAST ( TEXT AS casttesttype ) RESTRICT"
+  },
+  {
+    "comment": "create_cast - Statement 10",
+    "query": "CREATE CAST (text AS casttesttype) WITHOUT FUNCTION AS IMPLICIT",
+    "expected": "CREATE CAST (TEXT AS casttesttype) WITHOUT FUNCTION AS IMPLICIT"
+  },
+  {
+    "comment": "create_cast - Statement 11",
+    "query": "SELECT 1234::int4::casttesttype",
+    "expected": "SELECT CAST(CAST(1234 AS INT) AS casttesttype)"
+  },
+  {
+    "comment": "create_cast - Statement 12",
+    "query": "CREATE CAST (int4 AS casttesttype) WITH INOUT",
+    "expected": "CREATE CAST (INT AS casttesttype) WITH INOUT"
+  },
+  {
+    "comment": "create_cast - Statement 13",
+    "query": "DROP CAST (int4 AS casttesttype)",
+    "expected": "DROP CAST ( INT AS casttesttype ) RESTRICT"
+  },
+  {
+    "comment": "create_cast - Statement 14",
+    "query": "CREATE FUNCTION int4_casttesttype(int4) RETURNS casttesttype LANGUAGE SQL AS $$ SELECT ('foo'::text || $1::text)::casttesttype; $$",
+    "expected": "CREATE FUNCTION int4_casttesttype (INT) RETURNS casttesttype LANGUAGE sql AS $$ SELECT ('foo'::text || $1::text)::casttesttype; $$"
+  },
+  {
+    "comment": "create_cast - Statement 15",
+    "query": "CREATE CAST (int4 AS casttesttype) WITH FUNCTION int4_casttesttype(int4) AS IMPLICIT",
+    "expected": "CREATE CAST (INT AS casttesttype) WITH FUNCTION int4_casttesttype(INT) AS IMPLICIT"
+  },
+  {
+    "comment": "create_cast - Statement 16",
+    "query": "DROP FUNCTION int4_casttesttype(int4) CASCADE",
+    "expected": "DROP FUNCTION int4_casttesttype(INT) CASCADE"
+  },
+  {
+    "comment": "create_cast - Statement 17",
+    "query": "CREATE FUNCTION bar_int4_text(int4) RETURNS text LANGUAGE SQL AS $$ SELECT ('bar'::text || $1::text); $$",
+    "expected": "CREATE FUNCTION bar_int4_text (INT) RETURNS TEXT LANGUAGE sql AS $$ SELECT ('bar'::text || $1::text); $$"
+  },
+  {
+    "comment": "create_cast - Statement 18",
+    "query": "CREATE CAST (int4 AS casttesttype) WITH FUNCTION bar_int4_text(int4) AS IMPLICIT",
+    "expected": "CREATE CAST (INT AS casttesttype) WITH FUNCTION bar_int4_text(INT) AS IMPLICIT"
+  },
+  {
+    "comment": "create_cast - Statement 19",
+    "query": "SELECT pg_describe_object(classid, objid, objsubid) as obj, pg_describe_object(refclassid, refobjid, refobjsubid) as objref, deptype FROM pg_depend WHERE classid = 'pg_cast'::regclass AND objid = (SELECT oid FROM pg_cast WHERE castsource = 'int4'::regtype AND casttarget = 'casttesttype'::regtype) ORDER BY refclassid",
+    "expected": "SELECT pg_describe_object(classid, objid, objsubid) AS obj, pg_describe_object(refclassid, refobjid, refobjsubid) AS objref, deptype FROM pg_depend WHERE classid = CAST('pg_cast' AS regclass) AND objid = (SELECT oid FROM pg_cast WHERE castsource = CAST('int4' AS regtype) AND casttarget = CAST('casttesttype' AS regtype)) ORDER BY refclassid"
+  }
+]

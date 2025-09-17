@@ -1,0 +1,51 @@
+[
+  {
+    "comment": "mvcc - Statement 1",
+    "query": "BEGIN"
+  },
+  {
+    "comment": "mvcc - Statement 2",
+    "query": "SET LOCAL enable_seqscan = false"
+  },
+  {
+    "comment": "mvcc - Statement 3",
+    "query": "SET LOCAL enable_indexonlyscan = false"
+  },
+  {
+    "comment": "mvcc - Statement 4",
+    "query": "SET LOCAL enable_bitmapscan = false"
+  },
+  {
+    "comment": "mvcc - Statement 5",
+    "query": "CREATE TABLE clean_aborted_self(key int, data text)",
+    "expected": "CREATE TABLE clean_aborted_self (\"key\" INT, data TEXT)"
+  },
+  {
+    "comment": "mvcc - Statement 6",
+    "query": "CREATE INDEX clean_aborted_self_key ON clean_aborted_self(key)",
+    "expected": "CREATE INDEX clean_aborted_self_key ON clean_aborted_self USING btree ( \"key\" )"
+  },
+  {
+    "comment": "mvcc - Statement 7",
+    "query": "INSERT INTO clean_aborted_self (key, data) VALUES (-1, 'just to allocate metapage')",
+    "expected": "INSERT INTO clean_aborted_self (\"key\", data) VALUES (-1, 'just to allocate metapage')"
+  },
+  {
+    "comment": "mvcc - Statement 8",
+    "query": "SELECT pg_relation_size('clean_aborted_self_key') AS clean_aborted_self_key_before"
+  },
+  {
+    "comment": "mvcc - Statement 9",
+    "query": "DO $$ BEGIN     FOR i IN 1..100 LOOP         BEGIN             IF EXISTS(SELECT * FROM clean_aborted_self WHERE key \u003e 0 AND key \u003c 100) THEN          RAISE data_corrupted USING MESSAGE = 'these rows should not exist';             END IF;             INSERT INTO clean_aborted_self SELECT g.i, 'rolling back in a sec' FROM generate_series(1, 100) g(i);      RAISE reading_sql_data_not_permitted USING MESSAGE = 'round and round again';  EXCEPTION WHEN reading_sql_data_not_permitted THEN END;     END LOOP; END;$$;",
+    "expected": "DO ' BEGIN     FOR i IN 1..100 LOOP         BEGIN             IF EXISTS(SELECT * FROM clean_aborted_self WHERE key \u003e 0 AND key \u003c 100) THEN          RAISE data_corrupted USING MESSAGE = ''these rows should not exist'';             END IF;             INSERT INTO clean_aborted_self SELECT g.i, ''rolling back in a sec'' FROM generate_series(1, 100) g(i);      RAISE reading_sql_data_not_permitted USING MESSAGE = ''round and round again'';  EXCEPTION WHEN reading_sql_data_not_permitted THEN END;     END LOOP; END;'"
+  },
+  {
+    "comment": "mvcc - Statement 16",
+    "query": "SELECT 1000 AS size_before, pg_relation_size('clean_aborted_self_key') size_after WHERE 1000 != pg_relation_size('clean_aborted_self_key')",
+    "expected": "SELECT 1000 AS size_before, pg_relation_size('clean_aborted_self_key') AS size_after WHERE 1000 \u003c\u003e pg_relation_size('clean_aborted_self_key')"
+  },
+  {
+    "comment": "mvcc - Statement 17",
+    "query": "ROLLBACK"
+  }
+]

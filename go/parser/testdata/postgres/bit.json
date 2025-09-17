@@ -1,0 +1,573 @@
+[
+  {
+    "comment": "bit - Statement 1",
+    "query": "CREATE TABLE BIT_TABLE(b BIT(11))",
+    "expected": "CREATE TABLE bit_table (b bit(11))"
+  },
+  {
+    "comment": "bit - Statement 2",
+    "query": "INSERT INTO BIT_TABLE VALUES (B'10')",
+    "expected": "INSERT INTO bit_table VALUES (B'10')"
+  },
+  {
+    "comment": "bit - Statement 3",
+    "query": "INSERT INTO BIT_TABLE VALUES (B'00000000000')",
+    "expected": "INSERT INTO bit_table VALUES (B'00000000000')"
+  },
+  {
+    "comment": "bit - Statement 4",
+    "query": "INSERT INTO BIT_TABLE VALUES (B'11011000000')",
+    "expected": "INSERT INTO bit_table VALUES (B'11011000000')"
+  },
+  {
+    "comment": "bit - Statement 5",
+    "query": "INSERT INTO BIT_TABLE VALUES (B'01010101010')",
+    "expected": "INSERT INTO bit_table VALUES (B'01010101010')"
+  },
+  {
+    "comment": "bit - Statement 6",
+    "query": "INSERT INTO BIT_TABLE VALUES (B'101011111010')",
+    "expected": "INSERT INTO bit_table VALUES (B'101011111010')"
+  },
+  {
+    "comment": "bit - Statement 7",
+    "query": "SELECT * FROM BIT_TABLE",
+    "expected": "SELECT * FROM bit_table"
+  },
+  {
+    "comment": "bit - Statement 8",
+    "query": "CREATE TABLE VARBIT_TABLE(v BIT VARYING(11))",
+    "expected": "CREATE TABLE varbit_table (v varbit(11))"
+  },
+  {
+    "comment": "bit - Statement 9",
+    "query": "INSERT INTO VARBIT_TABLE VALUES (B'')",
+    "expected": "INSERT INTO varbit_table VALUES (B'')"
+  },
+  {
+    "comment": "bit - Statement 10",
+    "query": "INSERT INTO VARBIT_TABLE VALUES (B'0')",
+    "expected": "INSERT INTO varbit_table VALUES (B'0')"
+  },
+  {
+    "comment": "bit - Statement 11",
+    "query": "INSERT INTO VARBIT_TABLE VALUES (B'010101')",
+    "expected": "INSERT INTO varbit_table VALUES (B'010101')"
+  },
+  {
+    "comment": "bit - Statement 12",
+    "query": "INSERT INTO VARBIT_TABLE VALUES (B'01010101010')",
+    "expected": "INSERT INTO varbit_table VALUES (B'01010101010')"
+  },
+  {
+    "comment": "bit - Statement 13",
+    "query": "INSERT INTO VARBIT_TABLE VALUES (B'101011111010')",
+    "expected": "INSERT INTO varbit_table VALUES (B'101011111010')"
+  },
+  {
+    "comment": "bit - Statement 14",
+    "query": "SELECT * FROM VARBIT_TABLE",
+    "expected": "SELECT * FROM varbit_table"
+  },
+  {
+    "comment": "bit - Statement 15",
+    "query": "SELECT b' 0'",
+    "expected": "SELECT B'0'"
+  },
+  {
+    "comment": "bit - Statement 16",
+    "query": "SELECT b'0 '",
+    "expected": "SELECT B'0'"
+  },
+  {
+    "comment": "bit - Statement 17",
+    "query": "SELECT x' 0'",
+    "expected": "SELECT X'0'"
+  },
+  {
+    "comment": "bit - Statement 18",
+    "query": "SELECT x'0 '",
+    "expected": "SELECT X'0'"
+  },
+  {
+    "comment": "bit - Statement 19",
+    "query": "SELECT v, b, (v || b) AS concat FROM BIT_TABLE, VARBIT_TABLE ORDER BY 3",
+    "expected": "SELECT v, b, (v || b) AS concat FROM bit_table, varbit_table ORDER BY 3"
+  },
+  {
+    "comment": "bit - Statement 20",
+    "query": "SELECT b, length(b) AS lb FROM BIT_TABLE",
+    "expected": "SELECT b, length(b) AS lb FROM bit_table"
+  },
+  {
+    "comment": "bit - Statement 21",
+    "query": "SELECT v, length(v) AS lv FROM VARBIT_TABLE",
+    "expected": "SELECT v, length(v) AS lv FROM varbit_table"
+  },
+  {
+    "comment": "bit - Statement 22",
+    "query": "SELECT b, SUBSTRING(b FROM 2 FOR 4) AS sub_2_4, SUBSTRING(b FROM 7 FOR 13) AS sub_7_13, SUBSTRING(b FROM 6) AS sub_6 FROM BIT_TABLE",
+    "expected": "SELECT b, SUBSTRING(b FROM 2 FOR 4) AS sub_2_4, SUBSTRING(b FROM 7 FOR 13) AS sub_7_13, SUBSTRING(b FROM 6) AS sub_6 FROM bit_table"
+  },
+  {
+    "comment": "bit - Statement 23",
+    "query": "SELECT v, SUBSTRING(v FROM 2 FOR 4) AS sub_2_4, SUBSTRING(v FROM 7 FOR 13) AS sub_7_13, SUBSTRING(v FROM 6) AS sub_6 FROM VARBIT_TABLE",
+    "expected": "SELECT v, SUBSTRING(v FROM 2 FOR 4) AS sub_2_4, SUBSTRING(v FROM 7 FOR 13) AS sub_7_13, SUBSTRING(v FROM 6) AS sub_6 FROM varbit_table"
+  },
+  {
+    "comment": "bit - Statement 24",
+    "query": "SELECT SUBSTRING('01010101'::bit(8) FROM 2 FOR 2147483646) AS \"1010101\"",
+    "expected": "SELECT SUBSTRING(CAST('01010101' AS bit(8)) FROM 2 FOR 2147483646) AS \"1010101\""
+  },
+  {
+    "comment": "bit - Statement 25",
+    "query": "SELECT SUBSTRING('01010101'::bit(8) FROM -10 FOR 2147483646) AS \"01010101\"",
+    "expected": "SELECT SUBSTRING(CAST('01010101' AS bit(8)) FROM -10 FOR 2147483646) AS \"01010101\""
+  },
+  {
+    "comment": "bit - Statement 26",
+    "query": "SELECT SUBSTRING('01010101'::bit(8) FROM -10 FOR -2147483646) AS \"error\"",
+    "expected": "SELECT SUBSTRING(CAST('01010101' AS bit(8)) FROM -10 FOR -2147483646) AS error"
+  },
+  {
+    "comment": "bit - Statement 27",
+    "query": "SELECT SUBSTRING('01010101'::varbit FROM 2 FOR 2147483646) AS \"1010101\"",
+    "expected": "SELECT SUBSTRING(CAST('01010101' AS varbit) FROM 2 FOR 2147483646) AS \"1010101\""
+  },
+  {
+    "comment": "bit - Statement 28",
+    "query": "SELECT SUBSTRING('01010101'::varbit FROM -10 FOR 2147483646) AS \"01010101\"",
+    "expected": "SELECT SUBSTRING(CAST('01010101' AS varbit) FROM -10 FOR 2147483646) AS \"01010101\""
+  },
+  {
+    "comment": "bit - Statement 29",
+    "query": "SELECT SUBSTRING('01010101'::varbit FROM -10 FOR -2147483646) AS \"error\"",
+    "expected": "SELECT SUBSTRING(CAST('01010101' AS varbit) FROM -10 FOR -2147483646) AS error"
+  },
+  {
+    "comment": "bit - Statement 30",
+    "query": "DROP TABLE varbit_table"
+  },
+  {
+    "comment": "bit - Statement 31",
+    "query": "CREATE TABLE varbit_table (a BIT VARYING(16), b BIT VARYING(16))",
+    "expected": "CREATE TABLE varbit_table (a varbit(16), b varbit(16))"
+  },
+  {
+    "comment": "bit - Statement 32",
+    "query": "COPY varbit_table FROM stdin",
+    "expected": "COPY varbit_table FROM STDIN"
+  },
+  {
+    "comment": "bit - Statement 33",
+    "query": "SELECT a, b, ~a AS \"~ a\", a \u0026 b AS \"a \u0026 b\", a | b AS \"a | b\", a # b AS \"a # b\" FROM varbit_table"
+  },
+  {
+    "comment": "bit - Statement 34",
+    "query": "SELECT a,b,a\u003cb AS \"a\u003cb\",a\u003c=b AS \"a\u003c=b\",a=b AS \"a=b\", a\u003e=b AS \"a\u003e=b\",a\u003eb AS \"a\u003eb\",a\u003c\u003eb AS \"a\u003c\u003eb\" FROM varbit_table",
+    "expected": "SELECT a, b, a \u003c b AS \"a\u003cb\", a \u003c= b AS \"a\u003c=b\", a = b AS \"a=b\", a \u003e= b AS \"a\u003e=b\", a \u003e b AS \"a\u003eb\", a \u003c\u003e b AS \"a\u003c\u003eb\" FROM varbit_table"
+  },
+  {
+    "comment": "bit - Statement 35",
+    "query": "SELECT a,a\u003c\u003c4 AS \"a\u003c\u003c4\",b,b\u003e\u003e2 AS \"b\u003e\u003e2\" FROM varbit_table",
+    "expected": "SELECT a, a \u003c\u003c 4 AS \"a\u003c\u003c4\", b, b \u003e\u003e 2 AS \"b\u003e\u003e2\" FROM varbit_table"
+  },
+  {
+    "comment": "bit - Statement 36",
+    "query": "DROP TABLE bit_table"
+  },
+  {
+    "comment": "bit - Statement 37",
+    "query": "CREATE TABLE bit_table (a BIT(16), b BIT(16))",
+    "expected": "CREATE TABLE bit_table (a bit(16), b bit(16))"
+  },
+  {
+    "comment": "bit - Statement 38",
+    "query": "COPY bit_table FROM stdin",
+    "expected": "COPY bit_table FROM STDIN"
+  },
+  {
+    "comment": "bit - Statement 39",
+    "query": "SELECT a,b,~a AS \"~ a\",a \u0026 b AS \"a \u0026 b\", a|b AS \"a | b\", a # b AS \"a # b\" FROM bit_table",
+    "expected": "SELECT a, b, ~a AS \"~ a\", a \u0026 b AS \"a \u0026 b\", a | b AS \"a | b\", a # b AS \"a # b\" FROM bit_table"
+  },
+  {
+    "comment": "bit - Statement 40",
+    "query": "SELECT a,b,a\u003cb AS \"a\u003cb\",a\u003c=b AS \"a\u003c=b\",a=b AS \"a=b\", a\u003e=b AS \"a\u003e=b\",a\u003eb AS \"a\u003eb\",a\u003c\u003eb AS \"a\u003c\u003eb\" FROM bit_table",
+    "expected": "SELECT a, b, a \u003c b AS \"a\u003cb\", a \u003c= b AS \"a\u003c=b\", a = b AS \"a=b\", a \u003e= b AS \"a\u003e=b\", a \u003e b AS \"a\u003eb\", a \u003c\u003e b AS \"a\u003c\u003eb\" FROM bit_table"
+  },
+  {
+    "comment": "bit - Statement 41",
+    "query": "SELECT a,a\u003c\u003c4 AS \"a\u003c\u003c4\",b,b\u003e\u003e2 AS \"b\u003e\u003e2\" FROM bit_table",
+    "expected": "SELECT a, a \u003c\u003c 4 AS \"a\u003c\u003c4\", b, b \u003e\u003e 2 AS \"b\u003e\u003e2\" FROM bit_table"
+  },
+  {
+    "comment": "bit - Statement 42",
+    "query": "select B'001' \u0026 B'10'",
+    "expected": "SELECT B'001' \u0026 B'10'"
+  },
+  {
+    "comment": "bit - Statement 43",
+    "query": "select B'0111' | B'011'",
+    "expected": "SELECT B'0111' | B'011'"
+  },
+  {
+    "comment": "bit - Statement 44",
+    "query": "select B'0010' # B'011101'",
+    "expected": "SELECT B'0010' # B'011101'"
+  },
+  {
+    "comment": "bit - Statement 45",
+    "query": "SELECT POSITION(B'1010' IN B'0000101')"
+  },
+  {
+    "comment": "bit - Statement 46",
+    "query": "SELECT POSITION(B'1010' IN B'00001010')"
+  },
+  {
+    "comment": "bit - Statement 47",
+    "query": "SELECT POSITION(B'1010' IN B'00000101')"
+  },
+  {
+    "comment": "bit - Statement 48",
+    "query": "SELECT POSITION(B'1010' IN B'000001010')"
+  },
+  {
+    "comment": "bit - Statement 49",
+    "query": "SELECT POSITION(B'' IN B'00001010')"
+  },
+  {
+    "comment": "bit - Statement 50",
+    "query": "SELECT POSITION(B'0' IN B'')"
+  },
+  {
+    "comment": "bit - Statement 51",
+    "query": "SELECT POSITION(B'' IN B'')"
+  },
+  {
+    "comment": "bit - Statement 52",
+    "query": "SELECT POSITION(B'101101' IN B'001011011011011000')"
+  },
+  {
+    "comment": "bit - Statement 53",
+    "query": "SELECT POSITION(B'10110110' IN B'001011011011010')"
+  },
+  {
+    "comment": "bit - Statement 54",
+    "query": "SELECT POSITION(B'1011011011011' IN B'001011011011011')"
+  },
+  {
+    "comment": "bit - Statement 55",
+    "query": "SELECT POSITION(B'1011011011011' IN B'00001011011011011')"
+  },
+  {
+    "comment": "bit - Statement 56",
+    "query": "SELECT POSITION(B'11101011' IN B'11101011')"
+  },
+  {
+    "comment": "bit - Statement 57",
+    "query": "SELECT POSITION(B'11101011' IN B'011101011')"
+  },
+  {
+    "comment": "bit - Statement 58",
+    "query": "SELECT POSITION(B'11101011' IN B'00011101011')"
+  },
+  {
+    "comment": "bit - Statement 59",
+    "query": "SELECT POSITION(B'11101011' IN B'0000011101011')"
+  },
+  {
+    "comment": "bit - Statement 60",
+    "query": "SELECT POSITION(B'111010110' IN B'111010110')"
+  },
+  {
+    "comment": "bit - Statement 61",
+    "query": "SELECT POSITION(B'111010110' IN B'0111010110')"
+  },
+  {
+    "comment": "bit - Statement 62",
+    "query": "SELECT POSITION(B'111010110' IN B'000111010110')"
+  },
+  {
+    "comment": "bit - Statement 63",
+    "query": "SELECT POSITION(B'111010110' IN B'00000111010110')"
+  },
+  {
+    "comment": "bit - Statement 64",
+    "query": "SELECT POSITION(B'111010110' IN B'11101011')"
+  },
+  {
+    "comment": "bit - Statement 65",
+    "query": "SELECT POSITION(B'111010110' IN B'011101011')"
+  },
+  {
+    "comment": "bit - Statement 66",
+    "query": "SELECT POSITION(B'111010110' IN B'00011101011')"
+  },
+  {
+    "comment": "bit - Statement 67",
+    "query": "SELECT POSITION(B'111010110' IN B'0000011101011')"
+  },
+  {
+    "comment": "bit - Statement 68",
+    "query": "SELECT POSITION(B'111010110' IN B'000001110101111101011')"
+  },
+  {
+    "comment": "bit - Statement 69",
+    "query": "SELECT POSITION(B'111010110' IN B'0000001110101111101011')"
+  },
+  {
+    "comment": "bit - Statement 70",
+    "query": "SELECT POSITION(B'111010110' IN B'000000001110101111101011')"
+  },
+  {
+    "comment": "bit - Statement 71",
+    "query": "SELECT POSITION(B'111010110' IN B'00000000001110101111101011')"
+  },
+  {
+    "comment": "bit - Statement 72",
+    "query": "SELECT POSITION(B'111010110' IN B'0000011101011111010110')"
+  },
+  {
+    "comment": "bit - Statement 73",
+    "query": "SELECT POSITION(B'111010110' IN B'00000011101011111010110')"
+  },
+  {
+    "comment": "bit - Statement 74",
+    "query": "SELECT POSITION(B'111010110' IN B'0000000011101011111010110')"
+  },
+  {
+    "comment": "bit - Statement 75",
+    "query": "SELECT POSITION(B'111010110' IN B'000000000011101011111010110')"
+  },
+  {
+    "comment": "bit - Statement 76",
+    "query": "SELECT POSITION(B'000000000011101011111010110' IN B'000000000011101011111010110')"
+  },
+  {
+    "comment": "bit - Statement 77",
+    "query": "SELECT POSITION(B'00000000011101011111010110' IN B'000000000011101011111010110')"
+  },
+  {
+    "comment": "bit - Statement 78",
+    "query": "SELECT POSITION(B'0000000000011101011111010110' IN B'000000000011101011111010110')"
+  },
+  {
+    "comment": "bit - Statement 79",
+    "query": "CREATE TABLE BIT_SHIFT_TABLE(b BIT(16))",
+    "expected": "CREATE TABLE bit_shift_table (b bit(16))"
+  },
+  {
+    "comment": "bit - Statement 80",
+    "query": "INSERT INTO BIT_SHIFT_TABLE VALUES (B'1101100000000000')",
+    "expected": "INSERT INTO bit_shift_table VALUES (B'1101100000000000')"
+  },
+  {
+    "comment": "bit - Statement 81",
+    "query": "INSERT INTO BIT_SHIFT_TABLE SELECT b\u003e\u003e1 FROM BIT_SHIFT_TABLE",
+    "expected": "INSERT INTO bit_shift_table SELECT b \u003e\u003e 1 FROM bit_shift_table"
+  },
+  {
+    "comment": "bit - Statement 82",
+    "query": "INSERT INTO BIT_SHIFT_TABLE SELECT b\u003e\u003e2 FROM BIT_SHIFT_TABLE",
+    "expected": "INSERT INTO bit_shift_table SELECT b \u003e\u003e 2 FROM bit_shift_table"
+  },
+  {
+    "comment": "bit - Statement 83",
+    "query": "INSERT INTO BIT_SHIFT_TABLE SELECT b\u003e\u003e4 FROM BIT_SHIFT_TABLE",
+    "expected": "INSERT INTO bit_shift_table SELECT b \u003e\u003e 4 FROM bit_shift_table"
+  },
+  {
+    "comment": "bit - Statement 84",
+    "query": "INSERT INTO BIT_SHIFT_TABLE SELECT b\u003e\u003e8 FROM BIT_SHIFT_TABLE",
+    "expected": "INSERT INTO bit_shift_table SELECT b \u003e\u003e 8 FROM bit_shift_table"
+  },
+  {
+    "comment": "bit - Statement 85",
+    "query": "SELECT POSITION(B'1101' IN b), POSITION(B'11011' IN b), b FROM BIT_SHIFT_TABLE",
+    "expected": "SELECT POSITION(B'1101' IN b), POSITION(B'11011' IN b), b FROM bit_shift_table"
+  },
+  {
+    "comment": "bit - Statement 86",
+    "query": "SELECT b, b \u003e\u003e 1 AS bsr, b \u003c\u003c 1 AS bsl FROM BIT_SHIFT_TABLE",
+    "expected": "SELECT b, b \u003e\u003e 1 AS bsr, b \u003c\u003c 1 AS bsl FROM bit_shift_table"
+  },
+  {
+    "comment": "bit - Statement 87",
+    "query": "SELECT b, b \u003e\u003e 8 AS bsr8, b \u003c\u003c 8 AS bsl8 FROM BIT_SHIFT_TABLE",
+    "expected": "SELECT b, b \u003e\u003e 8 AS bsr8, b \u003c\u003c 8 AS bsl8 FROM bit_shift_table"
+  },
+  {
+    "comment": "bit - Statement 88",
+    "query": "SELECT b::bit(15), b::bit(15) \u003e\u003e 1 AS bsr, b::bit(15) \u003c\u003c 1 AS bsl FROM BIT_SHIFT_TABLE",
+    "expected": "SELECT CAST(b AS bit(15)), CAST(b AS bit(15)) \u003e\u003e 1 AS bsr, CAST(b AS bit(15)) \u003c\u003c 1 AS bsl FROM bit_shift_table"
+  },
+  {
+    "comment": "bit - Statement 89",
+    "query": "SELECT b::bit(15), b::bit(15) \u003e\u003e 8 AS bsr8, b::bit(15) \u003c\u003c 8 AS bsl8 FROM BIT_SHIFT_TABLE",
+    "expected": "SELECT CAST(b AS bit(15)), CAST(b AS bit(15)) \u003e\u003e 8 AS bsr8, CAST(b AS bit(15)) \u003c\u003c 8 AS bsl8 FROM bit_shift_table"
+  },
+  {
+    "comment": "bit - Statement 90",
+    "query": "CREATE TABLE VARBIT_SHIFT_TABLE(v BIT VARYING(20))",
+    "expected": "CREATE TABLE varbit_shift_table (v varbit(20))"
+  },
+  {
+    "comment": "bit - Statement 91",
+    "query": "INSERT INTO VARBIT_SHIFT_TABLE VALUES (B'11011')",
+    "expected": "INSERT INTO varbit_shift_table VALUES (B'11011')"
+  },
+  {
+    "comment": "bit - Statement 92",
+    "query": "INSERT INTO VARBIT_SHIFT_TABLE SELECT CAST(v || B'0' AS BIT VARYING(6)) \u003e\u003e1 FROM VARBIT_SHIFT_TABLE",
+    "expected": "INSERT INTO varbit_shift_table SELECT CAST(v || B'0' AS varbit(6)) \u003e\u003e 1 FROM varbit_shift_table"
+  },
+  {
+    "comment": "bit - Statement 93",
+    "query": "INSERT INTO VARBIT_SHIFT_TABLE SELECT CAST(v || B'00' AS BIT VARYING(8)) \u003e\u003e2 FROM VARBIT_SHIFT_TABLE",
+    "expected": "INSERT INTO varbit_shift_table SELECT CAST(v || B'00' AS varbit(8)) \u003e\u003e 2 FROM varbit_shift_table"
+  },
+  {
+    "comment": "bit - Statement 94",
+    "query": "INSERT INTO VARBIT_SHIFT_TABLE SELECT CAST(v || B'0000' AS BIT VARYING(12)) \u003e\u003e4 FROM VARBIT_SHIFT_TABLE",
+    "expected": "INSERT INTO varbit_shift_table SELECT CAST(v || B'0000' AS varbit(12)) \u003e\u003e 4 FROM varbit_shift_table"
+  },
+  {
+    "comment": "bit - Statement 95",
+    "query": "INSERT INTO VARBIT_SHIFT_TABLE SELECT CAST(v || B'00000000' AS BIT VARYING(20)) \u003e\u003e8 FROM VARBIT_SHIFT_TABLE",
+    "expected": "INSERT INTO varbit_shift_table SELECT CAST(v || B'00000000' AS varbit(20)) \u003e\u003e 8 FROM varbit_shift_table"
+  },
+  {
+    "comment": "bit - Statement 96",
+    "query": "SELECT POSITION(B'1101' IN v), POSITION(B'11011' IN v), v FROM VARBIT_SHIFT_TABLE",
+    "expected": "SELECT POSITION(B'1101' IN v), POSITION(B'11011' IN v), v FROM varbit_shift_table"
+  },
+  {
+    "comment": "bit - Statement 97",
+    "query": "SELECT v, v \u003e\u003e 1 AS vsr, v \u003c\u003c 1 AS vsl FROM VARBIT_SHIFT_TABLE",
+    "expected": "SELECT v, v \u003e\u003e 1 AS vsr, v \u003c\u003c 1 AS vsl FROM varbit_shift_table"
+  },
+  {
+    "comment": "bit - Statement 98",
+    "query": "SELECT v, v \u003e\u003e 8 AS vsr8, v \u003c\u003c 8 AS vsl8 FROM VARBIT_SHIFT_TABLE",
+    "expected": "SELECT v, v \u003e\u003e 8 AS vsr8, v \u003c\u003c 8 AS vsl8 FROM varbit_shift_table"
+  },
+  {
+    "comment": "bit - Statement 99",
+    "query": "DROP TABLE BIT_SHIFT_TABLE",
+    "expected": "DROP TABLE bit_shift_table"
+  },
+  {
+    "comment": "bit - Statement 100",
+    "query": "DROP TABLE VARBIT_SHIFT_TABLE",
+    "expected": "DROP TABLE varbit_shift_table"
+  },
+  {
+    "comment": "bit - Statement 101",
+    "query": "SELECT get_bit(B'0101011000100', 10)"
+  },
+  {
+    "comment": "bit - Statement 102",
+    "query": "SELECT set_bit(B'0101011000100100', 15, 1)"
+  },
+  {
+    "comment": "bit - Statement 103",
+    "query": "SELECT set_bit(B'0101011000100100', 16, 1)"
+  },
+  {
+    "comment": "bit - Statement 104",
+    "query": "SELECT overlay(B'0101011100' placing '001' from 2 for 3)"
+  },
+  {
+    "comment": "bit - Statement 105",
+    "query": "SELECT overlay(B'0101011100' placing '101' from 6)"
+  },
+  {
+    "comment": "bit - Statement 106",
+    "query": "SELECT overlay(B'0101011100' placing '001' from 11)"
+  },
+  {
+    "comment": "bit - Statement 107",
+    "query": "SELECT overlay(B'0101011100' placing '001' from 20)"
+  },
+  {
+    "comment": "bit - Statement 108",
+    "query": "SELECT bit_count(B'0101011100'::bit(10))",
+    "expected": "SELECT bit_count(CAST(B'0101011100' AS bit(10)))"
+  },
+  {
+    "comment": "bit - Statement 109",
+    "query": "SELECT bit_count(B'1111111111'::bit(10))",
+    "expected": "SELECT bit_count(CAST(B'1111111111' AS bit(10)))"
+  },
+  {
+    "comment": "bit - Statement 110",
+    "query": "SELECT bit_count(repeat('0', 100)::bit(100))",
+    "expected": "SELECT bit_count(CAST(repeat('0', 100) AS bit(100)))"
+  },
+  {
+    "comment": "bit - Statement 111",
+    "query": "SELECT bit_count(repeat('1', 100)::bit(100))",
+    "expected": "SELECT bit_count(CAST(repeat('1', 100) AS bit(100)))"
+  },
+  {
+    "comment": "bit - Statement 112",
+    "query": "SELECT bit_count(repeat('01', 500)::bit(1000))",
+    "expected": "SELECT bit_count(CAST(repeat('01', 500) AS bit(1000)))"
+  },
+  {
+    "comment": "bit - Statement 113",
+    "query": "SELECT bit_count(repeat('10101', 200)::bit(1000))",
+    "expected": "SELECT bit_count(CAST(repeat('10101', 200) AS bit(1000)))"
+  },
+  {
+    "comment": "bit - Statement 114",
+    "query": "CREATE TABLE bit_defaults( b1 bit(4) DEFAULT '1001', b2 bit(4) DEFAULT B'0101', b3 bit varying(5) DEFAULT '1001', b4 bit varying(5) DEFAULT B'0101' )",
+    "expected": "CREATE TABLE bit_defaults (b1 bit(4) DEFAULT '1001', b2 bit(4) DEFAULT B'0101', b3 varbit(5) DEFAULT '1001', b4 varbit(5) DEFAULT B'0101')"
+  },
+  {
+    "comment": "bit - Statement 115",
+    "query": "TABLE bit_defaults",
+    "expected": "SELECT * FROM bit_defaults"
+  },
+  {
+    "comment": "bit - Statement 116",
+    "query": "SELECT pg_input_is_valid('01010001', 'bit(10)')"
+  },
+  {
+    "comment": "bit - Statement 117",
+    "query": "SELECT * FROM pg_input_error_info('01010001', 'bit(10)')"
+  },
+  {
+    "comment": "bit - Statement 118",
+    "query": "SELECT pg_input_is_valid('01010Z01', 'bit(8)')"
+  },
+  {
+    "comment": "bit - Statement 119",
+    "query": "SELECT * FROM pg_input_error_info('01010Z01', 'bit(8)')"
+  },
+  {
+    "comment": "bit - Statement 120",
+    "query": "SELECT pg_input_is_valid('x01010Z01', 'bit(32)')"
+  },
+  {
+    "comment": "bit - Statement 121",
+    "query": "SELECT * FROM pg_input_error_info('x01010Z01', 'bit(32)')"
+  },
+  {
+    "comment": "bit - Statement 122",
+    "query": "SELECT pg_input_is_valid('01010Z01', 'varbit')"
+  },
+  {
+    "comment": "bit - Statement 123",
+    "query": "SELECT * FROM pg_input_error_info('01010Z01', 'varbit')"
+  },
+  {
+    "comment": "bit - Statement 124",
+    "query": "SELECT pg_input_is_valid('x01010Z01', 'varbit')"
+  },
+  {
+    "comment": "bit - Statement 125",
+    "query": "SELECT * FROM pg_input_error_info('x01010Z01', 'varbit')"
+  }
+]

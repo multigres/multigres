@@ -1,0 +1,69 @@
+[
+  {
+    "comment": "unicode - Statement 1",
+    "query": "SELECT getdatabaseencoding() \u003c\u003e 'UTF8' AS skip_test"
+  },
+  {
+    "comment": "unicode - Statement 2",
+    "query": "SELECT unicode_version() IS NOT NULL"
+  },
+  {
+    "comment": "unicode - Statement 3",
+    "query": "SELECT unicode_assigned(U\u0026'abc')",
+    "expected": "SELECT unicode_assigned('abc')"
+  },
+  {
+    "comment": "unicode - Statement 4",
+    "query": "SELECT unicode_assigned(U\u0026'abc\\+10FFFF')",
+    "expected": "SELECT unicode_assigned('abc􏿿')"
+  },
+  {
+    "comment": "unicode - Statement 5",
+    "query": "SELECT normalize('')"
+  },
+  {
+    "comment": "unicode - Statement 6",
+    "query": "SELECT normalize(U\u0026'\\0061\\0308\\24D1c') = U\u0026'\\00E4\\24D1c' COLLATE \"C\" AS test_default",
+    "expected": "SELECT normalize('äⓑc') = 'äⓑc' COLLATE \"C\" AS test_default"
+  },
+  {
+    "comment": "unicode - Statement 7",
+    "query": "SELECT normalize(U\u0026'\\0061\\0308\\24D1c', NFC) = U\u0026'\\00E4\\24D1c' COLLATE \"C\" AS test_nfc",
+    "expected": "SELECT normalize('äⓑc', NFC) = 'äⓑc' COLLATE \"C\" AS test_nfc"
+  },
+  {
+    "comment": "unicode - Statement 8",
+    "query": "SELECT normalize(U\u0026'\\00E4bc', NFC) = U\u0026'\\00E4bc' COLLATE \"C\" AS test_nfc_idem",
+    "expected": "SELECT normalize('äbc', NFC) = 'äbc' COLLATE \"C\" AS test_nfc_idem"
+  },
+  {
+    "comment": "unicode - Statement 9",
+    "query": "SELECT normalize(U\u0026'\\00E4\\24D1c', NFD) = U\u0026'\\0061\\0308\\24D1c' COLLATE \"C\" AS test_nfd",
+    "expected": "SELECT normalize('äⓑc', NFD) = 'äⓑc' COLLATE \"C\" AS test_nfd"
+  },
+  {
+    "comment": "unicode - Statement 10",
+    "query": "SELECT normalize(U\u0026'\\0061\\0308\\24D1c', NFKC) = U\u0026'\\00E4bc' COLLATE \"C\" AS test_nfkc",
+    "expected": "SELECT normalize('äⓑc', NFKC) = 'äbc' COLLATE \"C\" AS test_nfkc"
+  },
+  {
+    "comment": "unicode - Statement 11",
+    "query": "SELECT normalize(U\u0026'\\00E4\\24D1c', NFKD) = U\u0026'\\0061\\0308bc' COLLATE \"C\" AS test_nfkd",
+    "expected": "SELECT normalize('äⓑc', NFKD) = 'äbc' COLLATE \"C\" AS test_nfkd"
+  },
+  {
+    "comment": "unicode - Statement 13",
+    "query": "SELECT U\u0026'\\00E4\\24D1c' IS NORMALIZED AS test_default",
+    "expected": "SELECT 'äⓑc' is normalized AS test_default"
+  },
+  {
+    "comment": "unicode - Statement 14",
+    "query": "SELECT U\u0026'\\00E4\\24D1c' IS NFC NORMALIZED AS test_nfc",
+    "expected": "SELECT 'äⓑc' is NFC normalized AS test_nfc"
+  },
+  {
+    "comment": "unicode - Statement 15",
+    "query": "SELECT num, val, val IS NFC NORMALIZED AS NFC, val IS NFD NORMALIZED AS NFD, val IS NFKC NORMALIZED AS NFKC, val IS NFKD NORMALIZED AS NFKD FROM (VALUES (1, U\u0026'\\00E4bc'), (2, U\u0026'\\0061\\0308bc'), (3, U\u0026'\\00E4\\24D1c'), (4, U\u0026'\\0061\\0308\\24D1c'), (5, '')) vals (num, val) ORDER BY num",
+    "expected": "SELECT num, val, val is NFC normalized AS nfc, val is NFD normalized AS nfd, val is NFKC normalized AS nfkc, val is NFKD normalized AS nfkd FROM (VALUES (1, 'äbc'), (2, 'äbc'), (3, 'äⓑc'), (4, 'äⓑc'), (5, '')) AS vals(num, val) ORDER BY num"
+  }
+]

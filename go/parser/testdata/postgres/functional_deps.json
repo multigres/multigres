@@ -1,0 +1,161 @@
+[
+  {
+    "comment": "functional_deps - Statement 1",
+    "query": "CREATE TEMP TABLE articles ( id int CONSTRAINT articles_pkey PRIMARY KEY, keywords text, title text UNIQUE NOT NULL, body text UNIQUE, created date )",
+    "expected": "CREATE TEMPORARY TABLE articles (id INT CONSTRAINT articles_pkey PRIMARY KEY, keywords TEXT, title TEXT UNIQUE NOT NULL, body TEXT UNIQUE, created DATE)"
+  },
+  {
+    "comment": "functional_deps - Statement 2",
+    "query": "CREATE TEMP TABLE articles_in_category ( article_id int, category_id int, changed date, PRIMARY KEY (article_id, category_id) )",
+    "expected": "CREATE TEMPORARY TABLE articles_in_category (article_id INT, category_id INT, changed DATE, PRIMARY KEY (article_id, category_id))"
+  },
+  {
+    "comment": "functional_deps - Statement 3",
+    "query": "SELECT id, keywords, title, body, created FROM articles GROUP BY id"
+  },
+  {
+    "comment": "functional_deps - Statement 4",
+    "query": "SELECT id, keywords, title, body, created FROM articles GROUP BY title"
+  },
+  {
+    "comment": "functional_deps - Statement 5",
+    "query": "SELECT id, keywords, title, body, created FROM articles GROUP BY body"
+  },
+  {
+    "comment": "functional_deps - Statement 6",
+    "query": "SELECT id, keywords, title, body, created FROM articles GROUP BY keywords"
+  },
+  {
+    "comment": "functional_deps - Statement 7",
+    "query": "SELECT a.id, a.keywords, a.title, a.body, a.created FROM articles AS a, articles_in_category AS aic WHERE a.id = aic.article_id AND aic.category_id in (14,62,70,53,138) GROUP BY a.id",
+    "expected": "SELECT a.id, a.keywords, a.title, a.body, a.created FROM articles AS a, articles_in_category AS aic WHERE a.id = aic.article_id AND aic.category_id IN (14, 62, 70, 53, 138) GROUP BY a.id"
+  },
+  {
+    "comment": "functional_deps - Statement 8",
+    "query": "SELECT a.id, a.keywords, a.title, a.body, a.created FROM articles AS a, articles_in_category AS aic WHERE a.id = aic.article_id AND aic.category_id in (14,62,70,53,138) GROUP BY aic.article_id, aic.category_id",
+    "expected": "SELECT a.id, a.keywords, a.title, a.body, a.created FROM articles AS a, articles_in_category AS aic WHERE a.id = aic.article_id AND aic.category_id IN (14, 62, 70, 53, 138) GROUP BY aic.article_id, aic.category_id"
+  },
+  {
+    "comment": "functional_deps - Statement 9",
+    "query": "SELECT a.id, a.keywords, a.title, a.body, a.created FROM articles AS a JOIN articles_in_category AS aic ON a.id = aic.article_id WHERE aic.category_id in (14,62,70,53,138) GROUP BY a.id",
+    "expected": "SELECT a.id, a.keywords, a.title, a.body, a.created FROM articles AS a INNER JOIN articles_in_category AS aic ON a.id = aic.article_id WHERE aic.category_id IN (14, 62, 70, 53, 138) GROUP BY a.id"
+  },
+  {
+    "comment": "functional_deps - Statement 10",
+    "query": "SELECT a.id, a.keywords, a.title, a.body, a.created FROM articles AS a JOIN articles_in_category AS aic ON a.id = aic.article_id WHERE aic.category_id in (14,62,70,53,138) GROUP BY aic.article_id, aic.category_id",
+    "expected": "SELECT a.id, a.keywords, a.title, a.body, a.created FROM articles AS a INNER JOIN articles_in_category AS aic ON a.id = aic.article_id WHERE aic.category_id IN (14, 62, 70, 53, 138) GROUP BY aic.article_id, aic.category_id"
+  },
+  {
+    "comment": "functional_deps - Statement 11",
+    "query": "SELECT aic.changed FROM articles AS a JOIN articles_in_category AS aic ON a.id = aic.article_id WHERE aic.category_id in (14,62,70,53,138) GROUP BY aic.category_id, aic.article_id",
+    "expected": "SELECT aic.changed FROM articles AS a INNER JOIN articles_in_category AS aic ON a.id = aic.article_id WHERE aic.category_id IN (14, 62, 70, 53, 138) GROUP BY aic.category_id, aic.article_id"
+  },
+  {
+    "comment": "functional_deps - Statement 12",
+    "query": "SELECT aic.changed FROM articles AS a JOIN articles_in_category AS aic ON a.id = aic.article_id WHERE aic.category_id in (14,62,70,53,138) GROUP BY aic.article_id",
+    "expected": "SELECT aic.changed FROM articles AS a INNER JOIN articles_in_category AS aic ON a.id = aic.article_id WHERE aic.category_id IN (14, 62, 70, 53, 138) GROUP BY aic.article_id"
+  },
+  {
+    "comment": "functional_deps - Statement 13",
+    "query": "CREATE TEMP TABLE products (product_id int, name text, price numeric)",
+    "expected": "CREATE TEMPORARY TABLE products (product_id INT, name TEXT, price NUMERIC)"
+  },
+  {
+    "comment": "functional_deps - Statement 14",
+    "query": "CREATE TEMP TABLE sales (product_id int, units int)",
+    "expected": "CREATE TEMPORARY TABLE sales (product_id INT, units INT)"
+  },
+  {
+    "comment": "functional_deps - Statement 15",
+    "query": "SELECT product_id, p.name, (sum(s.units) * p.price) AS sales FROM products p LEFT JOIN sales s USING (product_id) GROUP BY product_id, p.name, p.price",
+    "expected": "SELECT product_id, p.name, (SUM(s.units) * p.price) AS sales FROM products AS p LEFT OUTER JOIN sales AS s USING (product_id) GROUP BY product_id, p.name, p.price"
+  },
+  {
+    "comment": "functional_deps - Statement 16",
+    "query": "SELECT product_id, p.name, (sum(s.units) * p.price) AS sales FROM products p LEFT JOIN sales s USING (product_id) GROUP BY product_id",
+    "expected": "SELECT product_id, p.name, (SUM(s.units) * p.price) AS sales FROM products AS p LEFT OUTER JOIN sales AS s USING (product_id) GROUP BY product_id"
+  },
+  {
+    "comment": "functional_deps - Statement 17",
+    "query": "ALTER TABLE products ADD PRIMARY KEY (product_id)"
+  },
+  {
+    "comment": "functional_deps - Statement 18",
+    "query": "CREATE TEMP TABLE node ( nid SERIAL, vid integer NOT NULL default '0', type varchar(32) NOT NULL default '', title varchar(128) NOT NULL default '', uid integer NOT NULL default '0', status integer NOT NULL default '1', created integer NOT NULL default '0', PRIMARY KEY (nid, vid) )",
+    "expected": "CREATE TEMPORARY TABLE node (nid serial, vid INT NOT NULL DEFAULT '0', type VARCHAR(32) NOT NULL DEFAULT '', title VARCHAR(128) NOT NULL DEFAULT '', uid INT NOT NULL DEFAULT '0', status INT NOT NULL DEFAULT '1', created INT NOT NULL DEFAULT '0', PRIMARY KEY (nid, vid))"
+  },
+  {
+    "comment": "functional_deps - Statement 19",
+    "query": "CREATE TEMP TABLE users ( uid integer NOT NULL default '0', name varchar(60) NOT NULL default '', pass varchar(32) NOT NULL default '', PRIMARY KEY (uid), UNIQUE (name) )",
+    "expected": "CREATE TEMPORARY TABLE users (uid INT NOT NULL DEFAULT '0', name VARCHAR(60) NOT NULL DEFAULT '', pass VARCHAR(32) NOT NULL DEFAULT '', PRIMARY KEY (uid), UNIQUE (name))"
+  },
+  {
+    "comment": "functional_deps - Statement 20",
+    "query": "SELECT u.uid, u.name FROM node n INNER JOIN users u ON u.uid = n.uid WHERE n.type = 'blog' AND n.status = 1 GROUP BY u.uid, u.name",
+    "expected": "SELECT u.uid, u.name FROM node AS n INNER JOIN users AS u ON u.uid = n.uid WHERE n.type = 'blog' AND n.status = 1 GROUP BY u.uid, u.name"
+  },
+  {
+    "comment": "functional_deps - Statement 21",
+    "query": "SELECT u.uid, u.name FROM node n INNER JOIN users u ON u.uid = n.uid WHERE n.type = 'blog' AND n.status = 1 GROUP BY u.uid",
+    "expected": "SELECT u.uid, u.name FROM node AS n INNER JOIN users AS u ON u.uid = n.uid WHERE n.type = 'blog' AND n.status = 1 GROUP BY u.uid"
+  },
+  {
+    "comment": "functional_deps - Statement 22",
+    "query": "CREATE TEMP VIEW fdv1 AS SELECT id, keywords, title, body, created FROM articles GROUP BY body",
+    "expected": "CREATE TEMPORARY VIEW fdv1 AS SELECT id, keywords, title, body, created FROM articles GROUP BY body"
+  },
+  {
+    "comment": "functional_deps - Statement 23",
+    "query": "CREATE TEMP VIEW fdv1 AS SELECT id, keywords, title, body, created FROM articles GROUP BY id",
+    "expected": "CREATE TEMPORARY VIEW fdv1 AS SELECT id, keywords, title, body, created FROM articles GROUP BY id"
+  },
+  {
+    "comment": "functional_deps - Statement 24",
+    "query": "ALTER TABLE articles DROP CONSTRAINT articles_pkey RESTRICT",
+    "expected": "ALTER TABLE articles DROP CONSTRAINT articles_pkey"
+  },
+  {
+    "comment": "functional_deps - Statement 25",
+    "query": "DROP VIEW fdv1"
+  },
+  {
+    "comment": "functional_deps - Statement 26",
+    "query": "CREATE TEMP VIEW fdv2 AS SELECT a.id, a.keywords, a.title, aic.category_id, aic.changed FROM articles AS a JOIN articles_in_category AS aic ON a.id = aic.article_id WHERE aic.category_id in (14,62,70,53,138) GROUP BY a.id, aic.category_id, aic.article_id",
+    "expected": "CREATE TEMPORARY VIEW fdv2 AS SELECT a.id, a.keywords, a.title, aic.category_id, aic.changed FROM articles AS a INNER JOIN articles_in_category AS aic ON a.id = aic.article_id WHERE aic.category_id IN (14, 62, 70, 53, 138) GROUP BY a.id, aic.category_id, aic.article_id"
+  },
+  {
+    "comment": "functional_deps - Statement 27",
+    "query": "ALTER TABLE articles_in_category DROP CONSTRAINT articles_in_category_pkey RESTRICT",
+    "expected": "ALTER TABLE articles_in_category DROP CONSTRAINT articles_in_category_pkey"
+  },
+  {
+    "comment": "functional_deps - Statement 28",
+    "query": "DROP VIEW fdv2"
+  },
+  {
+    "comment": "functional_deps - Statement 29",
+    "query": "CREATE TEMP VIEW fdv3 AS SELECT id, keywords, title, body, created FROM articles GROUP BY id UNION SELECT id, keywords, title, body, created FROM articles GROUP BY id",
+    "expected": "CREATE TEMPORARY VIEW fdv3 AS (SELECT id, keywords, title, body, created FROM articles GROUP BY id) UNION (SELECT id, keywords, title, body, created FROM articles GROUP BY id)"
+  },
+  {
+    "comment": "functional_deps - Statement 30",
+    "query": "DROP VIEW fdv3"
+  },
+  {
+    "comment": "functional_deps - Statement 31",
+    "query": "CREATE TEMP VIEW fdv4 AS SELECT * FROM articles WHERE title IN (SELECT title FROM articles GROUP BY id)",
+    "expected": "CREATE TEMPORARY VIEW fdv4 AS SELECT * FROM articles WHERE title IN (SELECT title FROM articles GROUP BY id)"
+  },
+  {
+    "comment": "functional_deps - Statement 32",
+    "query": "DROP VIEW fdv4"
+  },
+  {
+    "comment": "functional_deps - Statement 33",
+    "query": "PREPARE foo AS SELECT id, keywords, title, body, created FROM articles GROUP BY id"
+  },
+  {
+    "comment": "functional_deps - Statement 34",
+    "query": "EXECUTE foo"
+  }
+]

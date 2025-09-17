@@ -1,0 +1,352 @@
+[
+  {
+    "comment": "equivclass - Statement 1",
+    "query": "create type int8alias1",
+    "expected": "CREATE TYPE int8alias1"
+  },
+  {
+    "comment": "equivclass - Statement 2",
+    "query": "create function int8alias1in(cstring) returns int8alias1 strict immutable language internal as 'int8in'",
+    "expected": "CREATE FUNCTION int8alias1in (cstring) RETURNS int8alias1 STRICT IMMUTABLE LANGUAGE internal AS $$int8in$$"
+  },
+  {
+    "comment": "equivclass - Statement 3",
+    "query": "create function int8alias1out(int8alias1) returns cstring strict immutable language internal as 'int8out'",
+    "expected": "CREATE FUNCTION int8alias1out (int8alias1) RETURNS cstring STRICT IMMUTABLE LANGUAGE internal AS $$int8out$$"
+  },
+  {
+    "comment": "equivclass - Statement 4",
+    "query": "create type int8alias1 ( input = int8alias1in, output = int8alias1out, like = int8 )",
+    "expected": "CREATE TYPE int8alias1 (input = int8alias1in, output = int8alias1out, \"like\" = BIGINT)"
+  },
+  {
+    "comment": "equivclass - Statement 5",
+    "query": "create type int8alias2",
+    "expected": "CREATE TYPE int8alias2"
+  },
+  {
+    "comment": "equivclass - Statement 6",
+    "query": "create function int8alias2in(cstring) returns int8alias2 strict immutable language internal as 'int8in'",
+    "expected": "CREATE FUNCTION int8alias2in (cstring) RETURNS int8alias2 STRICT IMMUTABLE LANGUAGE internal AS $$int8in$$"
+  },
+  {
+    "comment": "equivclass - Statement 7",
+    "query": "create function int8alias2out(int8alias2) returns cstring strict immutable language internal as 'int8out'",
+    "expected": "CREATE FUNCTION int8alias2out (int8alias2) RETURNS cstring STRICT IMMUTABLE LANGUAGE internal AS $$int8out$$"
+  },
+  {
+    "comment": "equivclass - Statement 8",
+    "query": "create type int8alias2 ( input = int8alias2in, output = int8alias2out, like = int8 )",
+    "expected": "CREATE TYPE int8alias2 (input = int8alias2in, output = int8alias2out, \"like\" = BIGINT)"
+  },
+  {
+    "comment": "equivclass - Statement 9",
+    "query": "create cast (int8 as int8alias1) without function",
+    "expected": "CREATE CAST (BIGINT AS int8alias1) WITHOUT FUNCTION"
+  },
+  {
+    "comment": "equivclass - Statement 10",
+    "query": "create cast (int8 as int8alias2) without function",
+    "expected": "CREATE CAST (BIGINT AS int8alias2) WITHOUT FUNCTION"
+  },
+  {
+    "comment": "equivclass - Statement 11",
+    "query": "create cast (int8alias1 as int8) without function",
+    "expected": "CREATE CAST (int8alias1 AS BIGINT) WITHOUT FUNCTION"
+  },
+  {
+    "comment": "equivclass - Statement 12",
+    "query": "create cast (int8alias2 as int8) without function",
+    "expected": "CREATE CAST (int8alias2 AS BIGINT) WITHOUT FUNCTION"
+  },
+  {
+    "comment": "equivclass - Statement 13",
+    "query": "create function int8alias1eq(int8alias1, int8alias1) returns bool strict immutable language internal as 'int8eq'",
+    "expected": "CREATE FUNCTION int8alias1eq (int8alias1, int8alias1) RETURNS BOOLEAN STRICT IMMUTABLE LANGUAGE internal AS $$int8eq$$"
+  },
+  {
+    "comment": "equivclass - Statement 14",
+    "query": "create operator = ( procedure = int8alias1eq, leftarg = int8alias1, rightarg = int8alias1, commutator = =, restrict = eqsel, join = eqjoinsel, merges )",
+    "expected": "CREATE OPERATOR = (procedure = int8alias1eq, leftarg = int8alias1, rightarg = int8alias1, commutator = '=', restrict = eqsel, \"join\" = eqjoinsel, merges)"
+  },
+  {
+    "comment": "equivclass - Statement 15",
+    "query": "alter operator family integer_ops using btree add operator 3 = (int8alias1, int8alias1)",
+    "expected": "ALTER OPERATOR FAMILY integer_ops USING btree ADD OPERATOR 3 = (int8alias1, int8alias1)"
+  },
+  {
+    "comment": "equivclass - Statement 16",
+    "query": "create function int8alias2eq(int8alias2, int8alias2) returns bool strict immutable language internal as 'int8eq'",
+    "expected": "CREATE FUNCTION int8alias2eq (int8alias2, int8alias2) RETURNS BOOLEAN STRICT IMMUTABLE LANGUAGE internal AS $$int8eq$$"
+  },
+  {
+    "comment": "equivclass - Statement 17",
+    "query": "create operator = ( procedure = int8alias2eq, leftarg = int8alias2, rightarg = int8alias2, commutator = =, restrict = eqsel, join = eqjoinsel, merges )",
+    "expected": "CREATE OPERATOR = (procedure = int8alias2eq, leftarg = int8alias2, rightarg = int8alias2, commutator = '=', restrict = eqsel, \"join\" = eqjoinsel, merges)"
+  },
+  {
+    "comment": "equivclass - Statement 18",
+    "query": "alter operator family integer_ops using btree add operator 3 = (int8alias2, int8alias2)",
+    "expected": "ALTER OPERATOR FAMILY integer_ops USING btree ADD OPERATOR 3 = (int8alias2, int8alias2)"
+  },
+  {
+    "comment": "equivclass - Statement 19",
+    "query": "create function int8alias1eq(int8, int8alias1) returns bool strict immutable language internal as 'int8eq'",
+    "expected": "CREATE FUNCTION int8alias1eq (BIGINT, int8alias1) RETURNS BOOLEAN STRICT IMMUTABLE LANGUAGE internal AS $$int8eq$$"
+  },
+  {
+    "comment": "equivclass - Statement 20",
+    "query": "create operator = ( procedure = int8alias1eq, leftarg = int8, rightarg = int8alias1, restrict = eqsel, join = eqjoinsel, merges )",
+    "expected": "CREATE OPERATOR = (procedure = int8alias1eq, leftarg = BIGINT, rightarg = int8alias1, restrict = eqsel, \"join\" = eqjoinsel, merges)"
+  },
+  {
+    "comment": "equivclass - Statement 21",
+    "query": "alter operator family integer_ops using btree add operator 3 = (int8, int8alias1)",
+    "expected": "ALTER OPERATOR FAMILY integer_ops USING btree ADD OPERATOR 3 = (int8, int8alias1)"
+  },
+  {
+    "comment": "equivclass - Statement 22",
+    "query": "create function int8alias1eq(int8alias1, int8alias2) returns bool strict immutable language internal as 'int8eq'",
+    "expected": "CREATE FUNCTION int8alias1eq (int8alias1, int8alias2) RETURNS BOOLEAN STRICT IMMUTABLE LANGUAGE internal AS $$int8eq$$"
+  },
+  {
+    "comment": "equivclass - Statement 23",
+    "query": "create operator = ( procedure = int8alias1eq, leftarg = int8alias1, rightarg = int8alias2, restrict = eqsel, join = eqjoinsel, merges )",
+    "expected": "CREATE OPERATOR = (procedure = int8alias1eq, leftarg = int8alias1, rightarg = int8alias2, restrict = eqsel, \"join\" = eqjoinsel, merges)"
+  },
+  {
+    "comment": "equivclass - Statement 24",
+    "query": "alter operator family integer_ops using btree add operator 3 = (int8alias1, int8alias2)",
+    "expected": "ALTER OPERATOR FAMILY integer_ops USING btree ADD OPERATOR 3 = (int8alias1, int8alias2)"
+  },
+  {
+    "comment": "equivclass - Statement 25",
+    "query": "create function int8alias1lt(int8alias1, int8alias1) returns bool strict immutable language internal as 'int8lt'",
+    "expected": "CREATE FUNCTION int8alias1lt (int8alias1, int8alias1) RETURNS BOOLEAN STRICT IMMUTABLE LANGUAGE internal AS $$int8lt$$"
+  },
+  {
+    "comment": "equivclass - Statement 26",
+    "query": "create operator \u003c ( procedure = int8alias1lt, leftarg = int8alias1, rightarg = int8alias1 )",
+    "expected": "CREATE OPERATOR \u003c (procedure = int8alias1lt, leftarg = int8alias1, rightarg = int8alias1)"
+  },
+  {
+    "comment": "equivclass - Statement 27",
+    "query": "alter operator family integer_ops using btree add operator 1 \u003c (int8alias1, int8alias1)",
+    "expected": "ALTER OPERATOR FAMILY integer_ops USING btree ADD OPERATOR 1 \u003c (int8alias1, int8alias1)"
+  },
+  {
+    "comment": "equivclass - Statement 28",
+    "query": "create function int8alias1cmp(int8, int8alias1) returns int strict immutable language internal as 'btint8cmp'",
+    "expected": "CREATE FUNCTION int8alias1cmp (BIGINT, int8alias1) RETURNS INT STRICT IMMUTABLE LANGUAGE internal AS $$btint8cmp$$"
+  },
+  {
+    "comment": "equivclass - Statement 29",
+    "query": "alter operator family integer_ops using btree add function 1 int8alias1cmp (int8, int8alias1)",
+    "expected": "ALTER OPERATOR FAMILY integer_ops USING btree ADD FUNCTION 1 int8alias1cmp(int8, int8alias1)"
+  },
+  {
+    "comment": "equivclass - Statement 30",
+    "query": "create table ec0 (ff int8 primary key, f1 int8, f2 int8)",
+    "expected": "CREATE TABLE ec0 (ff BIGINT PRIMARY KEY, f1 BIGINT, f2 BIGINT)"
+  },
+  {
+    "comment": "equivclass - Statement 31",
+    "query": "create table ec1 (ff int8 primary key, f1 int8alias1, f2 int8alias2)",
+    "expected": "CREATE TABLE ec1 (ff BIGINT PRIMARY KEY, f1 int8alias1, f2 int8alias2)"
+  },
+  {
+    "comment": "equivclass - Statement 32",
+    "query": "create table ec2 (xf int8 primary key, x1 int8alias1, x2 int8alias2)",
+    "expected": "CREATE TABLE ec2 (xf BIGINT PRIMARY KEY, x1 int8alias1, x2 int8alias2)"
+  },
+  {
+    "comment": "equivclass - Statement 33",
+    "query": "set enable_hashjoin = off",
+    "expected": "SET enable_hashjoin = off"
+  },
+  {
+    "comment": "equivclass - Statement 34",
+    "query": "set enable_mergejoin = off",
+    "expected": "SET enable_mergejoin = off"
+  },
+  {
+    "comment": "equivclass - Statement 35",
+    "query": "explain (costs off) select * from ec0 where ff = f1 and f1 = '42'::int8",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM ec0 WHERE ff = f1 AND f1 = CAST('42' AS BIGINT)"
+  },
+  {
+    "comment": "equivclass - Statement 36",
+    "query": "explain (costs off) select * from ec0 where ff = f1 and f1 = '42'::int8alias1",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM ec0 WHERE ff = f1 AND f1 = CAST('42' AS int8alias1)"
+  },
+  {
+    "comment": "equivclass - Statement 37",
+    "query": "explain (costs off) select * from ec1 where ff = f1 and f1 = '42'::int8alias1",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM ec1 WHERE ff = f1 AND f1 = CAST('42' AS int8alias1)"
+  },
+  {
+    "comment": "equivclass - Statement 38",
+    "query": "explain (costs off) select * from ec1 where ff = f1 and f1 = '42'::int8alias2",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM ec1 WHERE ff = f1 AND f1 = CAST('42' AS int8alias2)"
+  },
+  {
+    "comment": "equivclass - Statement 39",
+    "query": "explain (costs off) select * from ec1, ec2 where ff = x1 and ff = '42'::int8",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM ec1, ec2 WHERE ff = x1 AND ff = CAST('42' AS BIGINT)"
+  },
+  {
+    "comment": "equivclass - Statement 40",
+    "query": "explain (costs off) select * from ec1, ec2 where ff = x1 and ff = '42'::int8alias1",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM ec1, ec2 WHERE ff = x1 AND ff = CAST('42' AS int8alias1)"
+  },
+  {
+    "comment": "equivclass - Statement 41",
+    "query": "explain (costs off) select * from ec1, ec2 where ff = x1 and '42'::int8 = x1",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM ec1, ec2 WHERE ff = x1 AND CAST('42' AS BIGINT) = x1"
+  },
+  {
+    "comment": "equivclass - Statement 42",
+    "query": "explain (costs off) select * from ec1, ec2 where ff = x1 and x1 = '42'::int8alias1",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM ec1, ec2 WHERE ff = x1 AND x1 = CAST('42' AS int8alias1)"
+  },
+  {
+    "comment": "equivclass - Statement 43",
+    "query": "explain (costs off) select * from ec1, ec2 where ff = x1 and x1 = '42'::int8alias2",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM ec1, ec2 WHERE ff = x1 AND x1 = CAST('42' AS int8alias2)"
+  },
+  {
+    "comment": "equivclass - Statement 44",
+    "query": "create unique index ec1_expr1 on ec1((ff + 1))",
+    "expected": "CREATE UNIQUE INDEX ec1_expr1 ON ec1 USING btree ( (ff + 1) )"
+  },
+  {
+    "comment": "equivclass - Statement 45",
+    "query": "create unique index ec1_expr2 on ec1((ff + 2 + 1))",
+    "expected": "CREATE UNIQUE INDEX ec1_expr2 ON ec1 USING btree ( (ff + 2 + 1) )"
+  },
+  {
+    "comment": "equivclass - Statement 46",
+    "query": "create unique index ec1_expr3 on ec1((ff + 3 + 1))",
+    "expected": "CREATE UNIQUE INDEX ec1_expr3 ON ec1 USING btree ( (ff + 3 + 1) )"
+  },
+  {
+    "comment": "equivclass - Statement 47",
+    "query": "create unique index ec1_expr4 on ec1((ff + 4))",
+    "expected": "CREATE UNIQUE INDEX ec1_expr4 ON ec1 USING btree ( (ff + 4) )"
+  },
+  {
+    "comment": "equivclass - Statement 48",
+    "query": "explain (costs off) select * from ec1, (select ff + 1 as x from (select ff + 2 as ff from ec1 union all select ff + 3 as ff from ec1) ss0 union all select ff + 4 as x from ec1) as ss1 where ss1.x = ec1.f1 and ec1.ff = 42::int8",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM ec1, (SELECT ff + 1 AS x FROM (SELECT ff + 2 AS ff FROM ec1 UNION ALL SELECT ff + 3 AS ff FROM ec1) AS ss0 UNION ALL SELECT ff + 4 AS x FROM ec1) AS ss1 WHERE ss1.x = ec1.f1 AND ec1.ff = CAST(42 AS BIGINT)"
+  },
+  {
+    "comment": "equivclass - Statement 49",
+    "query": "explain (costs off) select * from ec1, (select ff + 1 as x from (select ff + 2 as ff from ec1 union all select ff + 3 as ff from ec1) ss0 union all select ff + 4 as x from ec1) as ss1 where ss1.x = ec1.f1 and ec1.ff = 42::int8 and ec1.ff = ec1.f1",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM ec1, (SELECT ff + 1 AS x FROM (SELECT ff + 2 AS ff FROM ec1 UNION ALL SELECT ff + 3 AS ff FROM ec1) AS ss0 UNION ALL SELECT ff + 4 AS x FROM ec1) AS ss1 WHERE ss1.x = ec1.f1 AND ec1.ff = CAST(42 AS BIGINT) AND ec1.ff = ec1.f1"
+  },
+  {
+    "comment": "equivclass - Statement 50",
+    "query": "explain (costs off) select * from ec1, (select ff + 1 as x from (select ff + 2 as ff from ec1 union all select ff + 3 as ff from ec1) ss0 union all select ff + 4 as x from ec1) as ss1, (select ff + 1 as x from (select ff + 2 as ff from ec1 union all select ff + 3 as ff from ec1) ss0 union all select ff + 4 as x from ec1) as ss2 where ss1.x = ec1.f1 and ss1.x = ss2.x and ec1.ff = 42::int8",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM ec1, (SELECT ff + 1 AS x FROM (SELECT ff + 2 AS ff FROM ec1 UNION ALL SELECT ff + 3 AS ff FROM ec1) AS ss0 UNION ALL SELECT ff + 4 AS x FROM ec1) AS ss1, (SELECT ff + 1 AS x FROM (SELECT ff + 2 AS ff FROM ec1 UNION ALL SELECT ff + 3 AS ff FROM ec1) AS ss0 UNION ALL SELECT ff + 4 AS x FROM ec1) AS ss2 WHERE ss1.x = ec1.f1 AND ss1.x = ss2.x AND ec1.ff = CAST(42 AS BIGINT)"
+  },
+  {
+    "comment": "equivclass - Statement 51",
+    "query": "set enable_mergejoin = on",
+    "expected": "SET enable_mergejoin = on"
+  },
+  {
+    "comment": "equivclass - Statement 52",
+    "query": "set enable_nestloop = off",
+    "expected": "SET enable_nestloop = off"
+  },
+  {
+    "comment": "equivclass - Statement 53",
+    "query": "set enable_nestloop = on",
+    "expected": "SET enable_nestloop = on"
+  },
+  {
+    "comment": "equivclass - Statement 54",
+    "query": "drop index ec1_expr3",
+    "expected": "DROP INDEX ec1_expr3"
+  },
+  {
+    "comment": "equivclass - Statement 55",
+    "query": "alter table ec1 enable row level security",
+    "expected": "ALTER TABLE ec1 ENABLE ROW LEVEL SECURITY"
+  },
+  {
+    "comment": "equivclass - Statement 56",
+    "query": "create policy p1 on ec1 using (f1 \u003c '5'::int8alias1)",
+    "expected": "CREATE POLICY p1 ON ec1 AS PERMISSIVE FOR all TO PUBLIC USING ( f1 \u003c CAST('5' AS int8alias1) )"
+  },
+  {
+    "comment": "equivclass - Statement 57",
+    "query": "create user regress_user_ectest",
+    "expected": "CREATE USER regress_user_ectest"
+  },
+  {
+    "comment": "equivclass - Statement 58",
+    "query": "grant select on ec0 to regress_user_ectest",
+    "expected": "GRANT SELECT ON ec0 TO regress_user_ectest"
+  },
+  {
+    "comment": "equivclass - Statement 59",
+    "query": "grant select on ec1 to regress_user_ectest",
+    "expected": "GRANT SELECT ON ec1 TO regress_user_ectest"
+  },
+  {
+    "comment": "equivclass - Statement 60",
+    "query": "explain (costs off) select * from ec0 a, ec1 b where a.ff = b.ff and a.ff = 43::bigint::int8alias1",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM ec0 AS a, ec1 AS b WHERE a.ff = b.ff AND a.ff = CAST(CAST(43 AS BIGINT) AS int8alias1)"
+  },
+  {
+    "comment": "equivclass - Statement 61",
+    "query": "set session authorization regress_user_ectest",
+    "expected": "SET SESSION AUTHORIZATION 'regress_user_ectest'"
+  },
+  {
+    "comment": "equivclass - Statement 62",
+    "query": "reset session authorization",
+    "expected": "RESET session_authorization"
+  },
+  {
+    "comment": "equivclass - Statement 63",
+    "query": "revoke select on ec0 from regress_user_ectest",
+    "expected": "REVOKE SELECT ON ec0 FROM regress_user_ectest"
+  },
+  {
+    "comment": "equivclass - Statement 64",
+    "query": "revoke select on ec1 from regress_user_ectest",
+    "expected": "REVOKE SELECT ON ec1 FROM regress_user_ectest"
+  },
+  {
+    "comment": "equivclass - Statement 65",
+    "query": "drop user regress_user_ectest",
+    "expected": "DROP ROLE regress_user_ectest"
+  },
+  {
+    "comment": "equivclass - Statement 66",
+    "query": "explain (costs off) select * from tenk1 where unique1 = unique1 and unique2 = unique2",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM tenk1 WHERE unique1 = unique1 AND unique2 = unique2"
+  },
+  {
+    "comment": "equivclass - Statement 67",
+    "query": "explain (costs off) select * from tenk1 where unique1 = unique1 or unique2 = unique2",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM tenk1 WHERE unique1 = unique1 OR unique2 = unique2"
+  },
+  {
+    "comment": "equivclass - Statement 68",
+    "query": "create temp table undername (f1 name, f2 int)",
+    "expected": "CREATE TEMPORARY TABLE undername (f1 name, f2 INT)"
+  },
+  {
+    "comment": "equivclass - Statement 69",
+    "query": "create temp view overview as select f1::information_schema.sql_identifier as sqli, f2 from undername",
+    "expected": "CREATE TEMPORARY VIEW overview AS SELECT CAST(f1 AS information_schema.sql_identifier) AS sqli, f2 FROM undername"
+  },
+  {
+    "comment": "equivclass - Statement 70",
+    "query": "explain (costs off) select * from overview where sqli = 'foo' order by sqli",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM overview WHERE sqli = 'foo' ORDER BY sqli"
+  }
+]

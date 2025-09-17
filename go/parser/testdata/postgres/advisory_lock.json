@@ -1,0 +1,55 @@
+[
+  {
+    "comment": "advisory_lock - Statement 1",
+    "query": "SELECT oid AS datoid FROM pg_database WHERE datname = current_database()"
+  },
+  {
+    "comment": "advisory_lock - Statement 2",
+    "query": "BEGIN"
+  },
+  {
+    "comment": "advisory_lock - Statement 3",
+    "query": "SELECT pg_advisory_xact_lock(1), pg_advisory_xact_lock_shared(2), pg_advisory_xact_lock(1, 1), pg_advisory_xact_lock_shared(2, 2)"
+  },
+  {
+    "comment": "advisory_lock - Statement 4",
+    "query": "SELECT locktype, classid, objid, objsubid, mode, granted FROM pg_locks WHERE locktype = 'advisory' AND database = 12345 ORDER BY classid, objid, objsubid"
+  },
+  {
+    "comment": "advisory_lock - Statement 5",
+    "query": "SELECT pg_advisory_unlock_all()"
+  },
+  {
+    "comment": "advisory_lock - Statement 6",
+    "query": "SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' AND database = 12345",
+    "expected": "SELECT COUNT(*) FROM pg_locks WHERE locktype = 'advisory' AND database = 12345"
+  },
+  {
+    "comment": "advisory_lock - Statement 7",
+    "query": "SELECT pg_advisory_unlock(1), pg_advisory_unlock_shared(2), pg_advisory_unlock(1, 1), pg_advisory_unlock_shared(2, 2)"
+  },
+  {
+    "comment": "advisory_lock - Statement 8",
+    "query": "COMMIT"
+  },
+  {
+    "comment": "advisory_lock - Statement 9",
+    "query": "SELECT pg_advisory_lock(1), pg_advisory_lock_shared(2), pg_advisory_lock(1, 1), pg_advisory_lock_shared(2, 2)"
+  },
+  {
+    "comment": "advisory_lock - Statement 10",
+    "query": "ROLLBACK"
+  },
+  {
+    "comment": "advisory_lock - Statement 11",
+    "query": "SELECT pg_advisory_unlock(1), pg_advisory_unlock(1), pg_advisory_unlock_shared(2), pg_advisory_unlock_shared(2), pg_advisory_unlock(1, 1), pg_advisory_unlock(1, 1), pg_advisory_unlock_shared(2, 2), pg_advisory_unlock_shared(2, 2)"
+  },
+  {
+    "comment": "advisory_lock - Statement 12",
+    "query": "SELECT pg_advisory_xact_lock(1), pg_advisory_xact_lock(1), pg_advisory_xact_lock_shared(2), pg_advisory_xact_lock_shared(2), pg_advisory_xact_lock(1, 1), pg_advisory_xact_lock(1, 1), pg_advisory_xact_lock_shared(2, 2), pg_advisory_xact_lock_shared(2, 2)"
+  },
+  {
+    "comment": "advisory_lock - Statement 13",
+    "query": "SELECT pg_advisory_lock(1), pg_advisory_lock(1), pg_advisory_lock_shared(2), pg_advisory_lock_shared(2), pg_advisory_lock(1, 1), pg_advisory_lock(1, 1), pg_advisory_lock_shared(2, 2), pg_advisory_lock_shared(2, 2)"
+  }
+]

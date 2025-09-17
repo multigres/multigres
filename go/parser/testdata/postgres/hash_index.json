@@ -1,0 +1,380 @@
+[
+  {
+    "comment": "hash_index - Statement 1",
+    "query": "CREATE TABLE hash_name_heap ( seqno \t\tint4, random \t\tname )",
+    "expected": "CREATE TABLE hash_name_heap (seqno INT, random name)"
+  },
+  {
+    "comment": "hash_index - Statement 2",
+    "query": "CREATE TABLE hash_txt_heap ( seqno \t\tint4, random \t\ttext )",
+    "expected": "CREATE TABLE hash_txt_heap (seqno INT, random TEXT)"
+  },
+  {
+    "comment": "hash_index - Statement 3",
+    "query": "CREATE TABLE hash_f8_heap ( seqno\t\tint4, random \t\tfloat8 )",
+    "expected": "CREATE TABLE hash_f8_heap (seqno INT, random FLOAT8)"
+  },
+  {
+    "comment": "hash_index - Statement 4",
+    "query": "COPY hash_name_heap FROM 'filename'"
+  },
+  {
+    "comment": "hash_index - Statement 5",
+    "query": "COPY hash_txt_heap FROM 'filename'"
+  },
+  {
+    "comment": "hash_index - Statement 6",
+    "query": "COPY hash_f8_heap FROM 'filename'"
+  },
+  {
+    "comment": "hash_index - Statement 7",
+    "query": "ANALYZE hash_i4_heap"
+  },
+  {
+    "comment": "hash_index - Statement 8",
+    "query": "ANALYZE hash_name_heap"
+  },
+  {
+    "comment": "hash_index - Statement 9",
+    "query": "ANALYZE hash_txt_heap"
+  },
+  {
+    "comment": "hash_index - Statement 10",
+    "query": "ANALYZE hash_f8_heap"
+  },
+  {
+    "comment": "hash_index - Statement 11",
+    "query": "CREATE INDEX hash_i4_index ON hash_i4_heap USING hash (random int4_ops)",
+    "expected": "CREATE INDEX hash_i4_index ON hash_i4_heap USING hash ( random int4_ops )"
+  },
+  {
+    "comment": "hash_index - Statement 12",
+    "query": "CREATE INDEX hash_name_index ON hash_name_heap USING hash (random name_ops)",
+    "expected": "CREATE INDEX hash_name_index ON hash_name_heap USING hash ( random name_ops )"
+  },
+  {
+    "comment": "hash_index - Statement 13",
+    "query": "CREATE INDEX hash_txt_index ON hash_txt_heap USING hash (random text_ops)",
+    "expected": "CREATE INDEX hash_txt_index ON hash_txt_heap USING hash ( random text_ops )"
+  },
+  {
+    "comment": "hash_index - Statement 14",
+    "query": "CREATE INDEX hash_f8_index ON hash_f8_heap USING hash (random float8_ops) WITH (fillfactor=60)",
+    "expected": "CREATE INDEX hash_f8_index ON hash_f8_heap USING hash ( random float8_ops ) WITH (fillfactor = 60)"
+  },
+  {
+    "comment": "hash_index - Statement 15",
+    "query": "create unique index hash_f8_index_1 on hash_f8_heap(abs(random))",
+    "expected": "CREATE UNIQUE INDEX hash_f8_index_1 ON hash_f8_heap USING btree ( (abs(random)) )"
+  },
+  {
+    "comment": "hash_index - Statement 16",
+    "query": "create unique index hash_f8_index_2 on hash_f8_heap((seqno + 1), random)",
+    "expected": "CREATE UNIQUE INDEX hash_f8_index_2 ON hash_f8_heap USING btree ( (seqno + 1), random )"
+  },
+  {
+    "comment": "hash_index - Statement 17",
+    "query": "create unique index hash_f8_index_3 on hash_f8_heap(random) where seqno \u003e 1000",
+    "expected": "CREATE UNIQUE INDEX hash_f8_index_3 ON hash_f8_heap USING btree ( random ) WHERE seqno \u003e 1000"
+  },
+  {
+    "comment": "hash_index - Statement 18",
+    "query": "SELECT * FROM hash_i4_heap WHERE hash_i4_heap.random = 843938989"
+  },
+  {
+    "comment": "hash_index - Statement 19",
+    "query": "SELECT * FROM hash_i4_heap WHERE hash_i4_heap.random = 66766766"
+  },
+  {
+    "comment": "hash_index - Statement 20",
+    "query": "SELECT * FROM hash_name_heap WHERE hash_name_heap.random = '1505703298'::name",
+    "expected": "SELECT * FROM hash_name_heap WHERE hash_name_heap.random = CAST('1505703298' AS name)"
+  },
+  {
+    "comment": "hash_index - Statement 21",
+    "query": "SELECT * FROM hash_name_heap WHERE hash_name_heap.random = '7777777'::name",
+    "expected": "SELECT * FROM hash_name_heap WHERE hash_name_heap.random = CAST('7777777' AS name)"
+  },
+  {
+    "comment": "hash_index - Statement 22",
+    "query": "SELECT * FROM hash_txt_heap WHERE hash_txt_heap.random = '1351610853'::text",
+    "expected": "SELECT * FROM hash_txt_heap WHERE hash_txt_heap.random = CAST('1351610853' AS TEXT)"
+  },
+  {
+    "comment": "hash_index - Statement 23",
+    "query": "SELECT * FROM hash_txt_heap WHERE hash_txt_heap.random = '111111112222222233333333'::text",
+    "expected": "SELECT * FROM hash_txt_heap WHERE hash_txt_heap.random = CAST('111111112222222233333333' AS TEXT)"
+  },
+  {
+    "comment": "hash_index - Statement 24",
+    "query": "SELECT * FROM hash_f8_heap WHERE hash_f8_heap.random = '444705537'::float8",
+    "expected": "SELECT * FROM hash_f8_heap WHERE hash_f8_heap.random = CAST('444705537' AS FLOAT8)"
+  },
+  {
+    "comment": "hash_index - Statement 25",
+    "query": "SELECT * FROM hash_f8_heap WHERE hash_f8_heap.random = '88888888'::float8",
+    "expected": "SELECT * FROM hash_f8_heap WHERE hash_f8_heap.random = CAST('88888888' AS FLOAT8)"
+  },
+  {
+    "comment": "hash_index - Statement 26",
+    "query": "UPDATE hash_i4_heap SET random = 1 WHERE hash_i4_heap.seqno = 1492"
+  },
+  {
+    "comment": "hash_index - Statement 27",
+    "query": "SELECT h.seqno AS i1492, h.random AS i1 FROM hash_i4_heap h WHERE h.random = 1",
+    "expected": "SELECT h.seqno AS i1492, h.random AS i1 FROM hash_i4_heap AS h WHERE h.random = 1"
+  },
+  {
+    "comment": "hash_index - Statement 28",
+    "query": "UPDATE hash_i4_heap SET seqno = 20000 WHERE hash_i4_heap.random = 1492795354"
+  },
+  {
+    "comment": "hash_index - Statement 29",
+    "query": "SELECT h.seqno AS i20000 FROM hash_i4_heap h WHERE h.random = 1492795354",
+    "expected": "SELECT h.seqno AS i20000 FROM hash_i4_heap AS h WHERE h.random = 1492795354"
+  },
+  {
+    "comment": "hash_index - Statement 30",
+    "query": "UPDATE hash_name_heap SET random = '0123456789abcdef'::name WHERE hash_name_heap.seqno = 6543",
+    "expected": "UPDATE hash_name_heap SET random = CAST('0123456789abcdef' AS name) WHERE hash_name_heap.seqno = 6543"
+  },
+  {
+    "comment": "hash_index - Statement 31",
+    "query": "SELECT h.seqno AS i6543, h.random AS c0_to_f FROM hash_name_heap h WHERE h.random = '0123456789abcdef'::name",
+    "expected": "SELECT h.seqno AS i6543, h.random AS c0_to_f FROM hash_name_heap AS h WHERE h.random = CAST('0123456789abcdef' AS name)"
+  },
+  {
+    "comment": "hash_index - Statement 32",
+    "query": "UPDATE hash_name_heap SET seqno = 20000 WHERE hash_name_heap.random = '76652222'::name",
+    "expected": "UPDATE hash_name_heap SET seqno = 20000 WHERE hash_name_heap.random = CAST('76652222' AS name)"
+  },
+  {
+    "comment": "hash_index - Statement 33",
+    "query": "SELECT h.seqno AS emptyset FROM hash_name_heap h WHERE h.random = '76652222'::name",
+    "expected": "SELECT h.seqno AS emptyset FROM hash_name_heap AS h WHERE h.random = CAST('76652222' AS name)"
+  },
+  {
+    "comment": "hash_index - Statement 34",
+    "query": "UPDATE hash_txt_heap SET random = '0123456789abcdefghijklmnop'::text WHERE hash_txt_heap.seqno = 4002",
+    "expected": "UPDATE hash_txt_heap SET random = CAST('0123456789abcdefghijklmnop' AS TEXT) WHERE hash_txt_heap.seqno = 4002"
+  },
+  {
+    "comment": "hash_index - Statement 35",
+    "query": "SELECT h.seqno AS i4002, h.random AS c0_to_p FROM hash_txt_heap h WHERE h.random = '0123456789abcdefghijklmnop'::text",
+    "expected": "SELECT h.seqno AS i4002, h.random AS c0_to_p FROM hash_txt_heap AS h WHERE h.random = CAST('0123456789abcdefghijklmnop' AS TEXT)"
+  },
+  {
+    "comment": "hash_index - Statement 36",
+    "query": "UPDATE hash_txt_heap SET seqno = 20000 WHERE hash_txt_heap.random = '959363399'::text",
+    "expected": "UPDATE hash_txt_heap SET seqno = 20000 WHERE hash_txt_heap.random = CAST('959363399' AS TEXT)"
+  },
+  {
+    "comment": "hash_index - Statement 37",
+    "query": "SELECT h.seqno AS t20000 FROM hash_txt_heap h WHERE h.random = '959363399'::text",
+    "expected": "SELECT h.seqno AS t20000 FROM hash_txt_heap AS h WHERE h.random = CAST('959363399' AS TEXT)"
+  },
+  {
+    "comment": "hash_index - Statement 38",
+    "query": "UPDATE hash_f8_heap SET random = '-1234.1234'::float8 WHERE hash_f8_heap.seqno = 8906",
+    "expected": "UPDATE hash_f8_heap SET random = CAST('-1234.1234' AS FLOAT8) WHERE hash_f8_heap.seqno = 8906"
+  },
+  {
+    "comment": "hash_index - Statement 39",
+    "query": "SELECT h.seqno AS i8096, h.random AS f1234_1234 FROM hash_f8_heap h WHERE h.random = '-1234.1234'::float8",
+    "expected": "SELECT h.seqno AS i8096, h.random AS f1234_1234 FROM hash_f8_heap AS h WHERE h.random = CAST('-1234.1234' AS FLOAT8)"
+  },
+  {
+    "comment": "hash_index - Statement 40",
+    "query": "UPDATE hash_f8_heap SET seqno = 20000 WHERE hash_f8_heap.random = '488912369'::float8",
+    "expected": "UPDATE hash_f8_heap SET seqno = 20000 WHERE hash_f8_heap.random = CAST('488912369' AS FLOAT8)"
+  },
+  {
+    "comment": "hash_index - Statement 41",
+    "query": "SELECT h.seqno AS f20000 FROM hash_f8_heap h WHERE h.random = '488912369'::float8",
+    "expected": "SELECT h.seqno AS f20000 FROM hash_f8_heap AS h WHERE h.random = CAST('488912369' AS FLOAT8)"
+  },
+  {
+    "comment": "hash_index - Statement 42",
+    "query": "CREATE TABLE hash_split_heap (keycol INT)"
+  },
+  {
+    "comment": "hash_index - Statement 43",
+    "query": "INSERT INTO hash_split_heap SELECT 1 FROM generate_series(1, 500) a",
+    "expected": "INSERT INTO hash_split_heap SELECT 1 FROM generate_series(1, 500) AS a"
+  },
+  {
+    "comment": "hash_index - Statement 44",
+    "query": "CREATE INDEX hash_split_index on hash_split_heap USING HASH (keycol)",
+    "expected": "CREATE INDEX hash_split_index ON hash_split_heap USING hash ( keycol )"
+  },
+  {
+    "comment": "hash_index - Statement 45",
+    "query": "INSERT INTO hash_split_heap SELECT 1 FROM generate_series(1, 5000) a",
+    "expected": "INSERT INTO hash_split_heap SELECT 1 FROM generate_series(1, 5000) AS a"
+  },
+  {
+    "comment": "hash_index - Statement 46",
+    "query": "BEGIN"
+  },
+  {
+    "comment": "hash_index - Statement 47",
+    "query": "SET enable_seqscan = OFF",
+    "expected": "SET enable_seqscan = off"
+  },
+  {
+    "comment": "hash_index - Statement 48",
+    "query": "SET enable_bitmapscan = OFF",
+    "expected": "SET enable_bitmapscan = off"
+  },
+  {
+    "comment": "hash_index - Statement 49",
+    "query": "DECLARE c CURSOR FOR SELECT * from hash_split_heap WHERE keycol = 1",
+    "expected": "DECLARE c CURSOR FOR SELECT * FROM hash_split_heap WHERE keycol = 1"
+  },
+  {
+    "comment": "hash_index - Statement 50",
+    "query": "MOVE FORWARD ALL FROM c",
+    "expected": "MOVE ALL FROM c"
+  },
+  {
+    "comment": "hash_index - Statement 51",
+    "query": "MOVE BACKWARD 10000 FROM c"
+  },
+  {
+    "comment": "hash_index - Statement 52",
+    "query": "MOVE BACKWARD ALL FROM c"
+  },
+  {
+    "comment": "hash_index - Statement 53",
+    "query": "CLOSE c"
+  },
+  {
+    "comment": "hash_index - Statement 54",
+    "query": "END",
+    "expected": "COMMIT"
+  },
+  {
+    "comment": "hash_index - Statement 55",
+    "query": "DELETE FROM hash_split_heap WHERE keycol = 1"
+  },
+  {
+    "comment": "hash_index - Statement 56",
+    "query": "INSERT INTO hash_split_heap SELECT a/2 FROM generate_series(1, 25000) a",
+    "expected": "INSERT INTO hash_split_heap SELECT a / 2 FROM generate_series(1, 25000) AS a"
+  },
+  {
+    "comment": "hash_index - Statement 57",
+    "query": "VACUUM hash_split_heap"
+  },
+  {
+    "comment": "hash_index - Statement 58",
+    "query": "ALTER INDEX hash_split_index SET (fillfactor = 10)"
+  },
+  {
+    "comment": "hash_index - Statement 59",
+    "query": "REINDEX INDEX hash_split_index"
+  },
+  {
+    "comment": "hash_index - Statement 60",
+    "query": "DROP TABLE hash_split_heap"
+  },
+  {
+    "comment": "hash_index - Statement 61",
+    "query": "CREATE TABLE hash_cleanup_heap(keycol INT)",
+    "expected": "CREATE TABLE hash_cleanup_heap (keycol INT)"
+  },
+  {
+    "comment": "hash_index - Statement 62",
+    "query": "CREATE INDEX hash_cleanup_index on hash_cleanup_heap USING HASH (keycol)",
+    "expected": "CREATE INDEX hash_cleanup_index ON hash_cleanup_heap USING hash ( keycol )"
+  },
+  {
+    "comment": "hash_index - Statement 63",
+    "query": "INSERT INTO hash_cleanup_heap SELECT 1 FROM generate_series(1, 500) as i",
+    "expected": "INSERT INTO hash_cleanup_heap SELECT 1 FROM generate_series(1, 500) AS i"
+  },
+  {
+    "comment": "hash_index - Statement 64",
+    "query": "INSERT INTO hash_cleanup_heap SELECT 1 FROM generate_series(1, 1000) as i",
+    "expected": "INSERT INTO hash_cleanup_heap SELECT 1 FROM generate_series(1, 1000) AS i"
+  },
+  {
+    "comment": "hash_index - Statement 65",
+    "query": "ROLLBACK"
+  },
+  {
+    "comment": "hash_index - Statement 66",
+    "query": "CHECKPOINT"
+  },
+  {
+    "comment": "hash_index - Statement 67",
+    "query": "VACUUM hash_cleanup_heap"
+  },
+  {
+    "comment": "hash_index - Statement 68",
+    "query": "TRUNCATE hash_cleanup_heap",
+    "expected": "TRUNCATE TABLE hash_cleanup_heap CONTINUE IDENTITY RESTRICT"
+  },
+  {
+    "comment": "hash_index - Statement 69",
+    "query": "INSERT INTO hash_cleanup_heap SELECT 1 FROM generate_series(1, 50) as i",
+    "expected": "INSERT INTO hash_cleanup_heap SELECT 1 FROM generate_series(1, 50) AS i"
+  },
+  {
+    "comment": "hash_index - Statement 70",
+    "query": "INSERT INTO hash_cleanup_heap SELECT 1 FROM generate_series(1, 1500) as i",
+    "expected": "INSERT INTO hash_cleanup_heap SELECT 1 FROM generate_series(1, 1500) AS i"
+  },
+  {
+    "comment": "hash_index - Statement 71",
+    "query": "DROP TABLE hash_cleanup_heap"
+  },
+  {
+    "comment": "hash_index - Statement 72",
+    "query": "CREATE TEMP TABLE hash_temp_heap (x int, y int)",
+    "expected": "CREATE TEMPORARY TABLE hash_temp_heap (x INT, y INT)"
+  },
+  {
+    "comment": "hash_index - Statement 73",
+    "query": "INSERT INTO hash_temp_heap VALUES (1,1)",
+    "expected": "INSERT INTO hash_temp_heap VALUES (1, 1)"
+  },
+  {
+    "comment": "hash_index - Statement 74",
+    "query": "CREATE INDEX hash_idx ON hash_temp_heap USING hash (x)",
+    "expected": "CREATE INDEX hash_idx ON hash_temp_heap USING hash ( x )"
+  },
+  {
+    "comment": "hash_index - Statement 75",
+    "query": "DROP TABLE hash_temp_heap CASCADE"
+  },
+  {
+    "comment": "hash_index - Statement 76",
+    "query": "CREATE TABLE hash_heap_float4 (x float4, y int)",
+    "expected": "CREATE TABLE hash_heap_float4 (x REAL, y INT)"
+  },
+  {
+    "comment": "hash_index - Statement 77",
+    "query": "INSERT INTO hash_heap_float4 VALUES (1.1,1)",
+    "expected": "INSERT INTO hash_heap_float4 VALUES (1.1, 1)"
+  },
+  {
+    "comment": "hash_index - Statement 78",
+    "query": "CREATE INDEX hash_idx ON hash_heap_float4 USING hash (x)",
+    "expected": "CREATE INDEX hash_idx ON hash_heap_float4 USING hash ( x )"
+  },
+  {
+    "comment": "hash_index - Statement 79",
+    "query": "DROP TABLE hash_heap_float4 CASCADE"
+  },
+  {
+    "comment": "hash_index - Statement 80",
+    "query": "CREATE INDEX hash_f8_index2 ON hash_f8_heap USING hash (random float8_ops) WITH (fillfactor=9)",
+    "expected": "CREATE INDEX hash_f8_index2 ON hash_f8_heap USING hash ( random float8_ops ) WITH (fillfactor = 9)"
+  },
+  {
+    "comment": "hash_index - Statement 81",
+    "query": "CREATE INDEX hash_f8_index2 ON hash_f8_heap USING hash (random float8_ops) WITH (fillfactor=101)",
+    "expected": "CREATE INDEX hash_f8_index2 ON hash_f8_heap USING hash ( random float8_ops ) WITH (fillfactor = 101)"
+  }
+]

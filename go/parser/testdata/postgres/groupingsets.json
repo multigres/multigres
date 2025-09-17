@@ -1,0 +1,773 @@
+[
+  {
+    "comment": "groupingsets - Statement 1",
+    "query": "create temp view gstest1(a,b,v) as values (1,1,10),(1,1,11),(1,2,12),(1,2,13),(1,3,14), (2,3,15), (3,3,16),(3,4,17), (4,1,18),(4,1,19)",
+    "expected": "CREATE TEMPORARY VIEW gstest1 (a, b, v) AS VALUES (1, 1, 10), (1, 1, 11), (1, 2, 12), (1, 2, 13), (1, 3, 14), (2, 3, 15), (3, 3, 16), (3, 4, 17), (4, 1, 18), (4, 1, 19)"
+  },
+  {
+    "comment": "groupingsets - Statement 2",
+    "query": "create temp table gstest2 (a integer, b integer, c integer, d integer, e integer, f integer, g integer, h integer)",
+    "expected": "CREATE TEMPORARY TABLE gstest2 (a INT, b INT, c INT, d INT, e INT, f INT, g INT, h INT)"
+  },
+  {
+    "comment": "groupingsets - Statement 3",
+    "query": "copy gstest2 from stdin",
+    "expected": "COPY gstest2 FROM STDIN"
+  },
+  {
+    "comment": "groupingsets - Statement 4",
+    "query": "create temp table gstest3 (a integer, b integer, c integer, d integer)",
+    "expected": "CREATE TEMPORARY TABLE gstest3 (a INT, b INT, c INT, d INT)"
+  },
+  {
+    "comment": "groupingsets - Statement 5",
+    "query": "copy gstest3 from stdin",
+    "expected": "COPY gstest3 FROM STDIN"
+  },
+  {
+    "comment": "groupingsets - Statement 6",
+    "query": "alter table gstest3 add primary key (a)",
+    "expected": "ALTER TABLE gstest3 ADD PRIMARY KEY (a)"
+  },
+  {
+    "comment": "groupingsets - Statement 7",
+    "query": "create temp table gstest4(id integer, v integer, unhashable_col bit(4), unsortable_col xid)",
+    "expected": "CREATE TEMPORARY TABLE gstest4 (id INT, v INT, unhashable_col bit(4), unsortable_col xid)"
+  },
+  {
+    "comment": "groupingsets - Statement 8",
+    "query": "insert into gstest4 values (1,1,b'0000','1'), (2,2,b'0001','1'), (3,4,b'0010','2'), (4,8,b'0011','2'), (5,16,b'0000','2'), (6,32,b'0001','2'), (7,64,b'0010','1'), (8,128,b'0011','1')",
+    "expected": "INSERT INTO gstest4 VALUES (1, 1, B'0000', '1'), (2, 2, B'0001', '1'), (3, 4, B'0010', '2'), (4, 8, B'0011', '2'), (5, 16, B'0000', '2'), (6, 32, B'0001', '2'), (7, 64, B'0010', '1'), (8, 128, B'0011', '1')"
+  },
+  {
+    "comment": "groupingsets - Statement 9",
+    "query": "create temp table gstest_empty (a integer, b integer, v integer)",
+    "expected": "CREATE TEMPORARY TABLE gstest_empty (a INT, b INT, v INT)"
+  },
+  {
+    "comment": "groupingsets - Statement 10",
+    "query": "create function gstest_data(v integer, out a integer, out b integer) returns setof record as $f$ begin return query select v, i from generate_series(1,3) i",
+    "error": "unterminated dollar-quoted string at or near \"$f$\""
+  },
+  {
+    "comment": "groupingsets - Statement 11",
+    "query": "end",
+    "expected": "COMMIT"
+  },
+  {
+    "comment": "groupingsets - Statement 12",
+    "query": "$f$ language plpgsql",
+    "error": "unterminated dollar-quoted string at or near \"$f$\""
+  },
+  {
+    "comment": "groupingsets - Statement 13",
+    "query": "set enable_hashagg = false",
+    "expected": "SET enable_hashagg = false"
+  },
+  {
+    "comment": "groupingsets - Statement 14",
+    "query": "select a, b, grouping(a,b), sum(v), count(*), max(v) from gstest1 group by rollup (a,b)",
+    "expected": "SELECT a, b, GROUPING(a, b), SUM(v), COUNT(*), MAX(v) FROM gstest1 GROUP BY ROLLUP(a, b)"
+  },
+  {
+    "comment": "groupingsets - Statement 15",
+    "query": "select a, b, grouping(a,b), sum(v), count(*), max(v) from gstest1 group by rollup (a,b) order by a,b",
+    "expected": "SELECT a, b, GROUPING(a, b), SUM(v), COUNT(*), MAX(v) FROM gstest1 GROUP BY ROLLUP(a, b) ORDER BY a, b"
+  },
+  {
+    "comment": "groupingsets - Statement 16",
+    "query": "select a, b, grouping(a,b), sum(v), count(*), max(v) from gstest1 group by rollup (a,b) order by b desc, a",
+    "expected": "SELECT a, b, GROUPING(a, b), SUM(v), COUNT(*), MAX(v) FROM gstest1 GROUP BY ROLLUP(a, b) ORDER BY b DESC, a"
+  },
+  {
+    "comment": "groupingsets - Statement 17",
+    "query": "select a, b, grouping(a,b), sum(v), count(*), max(v) from gstest1 group by rollup (a,b) order by coalesce(a,0)+coalesce(b,0)",
+    "expected": "SELECT a, b, GROUPING(a, b), SUM(v), COUNT(*), MAX(v) FROM gstest1 GROUP BY ROLLUP(a, b) ORDER BY COALESCE(a, 0) + COALESCE(b, 0)"
+  },
+  {
+    "comment": "groupingsets - Statement 18",
+    "query": "select a, b, grouping(a,b), array_agg(v order by v), string_agg(v::text, ':' order by v desc), percentile_disc(0.5) within group (order by v), rank(1,2,12) within group (order by a,b,v) from gstest1 group by rollup (a,b) order by a,b",
+    "expected": "SELECT a, b, GROUPING(a, b), array_agg(v ORDER BY v), string_agg(CAST(v AS TEXT), ':' ORDER BY v DESC), percentile_disc(0.5) WITHIN GROUP (ORDER BY v), RANK(1, 2, 12) WITHIN GROUP (ORDER BY a, b, v) FROM gstest1 GROUP BY ROLLUP(a, b) ORDER BY a, b"
+  },
+  {
+    "comment": "groupingsets - Statement 19",
+    "query": "select grouping(a), a, array_agg(b), rank(a) within group (order by b nulls first), rank(a) within group (order by b nulls last) from (values (1,1),(1,4),(1,5),(3,1),(3,2)) v(a,b) group by rollup (a) order by a",
+    "expected": "SELECT GROUPING(a), a, array_agg(b), RANK(a) WITHIN GROUP (ORDER BY b NULLS FIRST), RANK(a) WITHIN GROUP (ORDER BY b NULLS LAST) FROM (VALUES (1, 1), (1, 4), (1, 5), (3, 1), (3, 2)) AS v(a, b) GROUP BY ROLLUP(a) ORDER BY a"
+  },
+  {
+    "comment": "groupingsets - Statement 20",
+    "query": "select a, b, sum(c), sum(sum(c)) over (order by a,b) as rsum from gstest2 group by rollup (a,b) order by rsum, a, b",
+    "expected": "SELECT a, b, SUM(c), SUM(SUM(c)) OVER (ORDER BY a, b) AS rsum FROM gstest2 GROUP BY ROLLUP(a, b) ORDER BY rsum, a, b"
+  },
+  {
+    "comment": "groupingsets - Statement 21",
+    "query": "select sum(c) from gstest2 group by grouping sets((), grouping sets((), grouping sets(()))) order by 1 desc",
+    "expected": "SELECT SUM(c) FROM gstest2 GROUP BY GROUPING SETS ((), GROUPING SETS ((), GROUPING SETS (()))) ORDER BY 1 DESC"
+  },
+  {
+    "comment": "groupingsets - Statement 22",
+    "query": "select sum(c) from gstest2 group by grouping sets((), grouping sets((), grouping sets(((a, b))))) order by 1 desc",
+    "expected": "SELECT SUM(c) FROM gstest2 GROUP BY GROUPING SETS ((), GROUPING SETS ((), GROUPING SETS (((a, b))))) ORDER BY 1 DESC"
+  },
+  {
+    "comment": "groupingsets - Statement 23",
+    "query": "select sum(c) from gstest2 group by grouping sets(grouping sets(rollup(c), grouping sets(cube(c)))) order by 1 desc",
+    "expected": "SELECT SUM(c) FROM gstest2 GROUP BY GROUPING SETS (GROUPING SETS (ROLLUP(c), GROUPING SETS (CUBE(c)))) ORDER BY 1 DESC"
+  },
+  {
+    "comment": "groupingsets - Statement 24",
+    "query": "select sum(c) from gstest2 group by grouping sets(a, grouping sets(a, cube(b))) order by 1 desc",
+    "expected": "SELECT SUM(c) FROM gstest2 GROUP BY GROUPING SETS ((a), GROUPING SETS ((a), CUBE(b))) ORDER BY 1 DESC"
+  },
+  {
+    "comment": "groupingsets - Statement 25",
+    "query": "select sum(c) from gstest2 group by grouping sets(grouping sets((a, (b)))) order by 1 desc",
+    "expected": "SELECT SUM(c) FROM gstest2 GROUP BY GROUPING SETS (GROUPING SETS ((a, (b)))) ORDER BY 1 DESC"
+  },
+  {
+    "comment": "groupingsets - Statement 26",
+    "query": "select sum(c) from gstest2 group by grouping sets(grouping sets((a, b))) order by 1 desc",
+    "expected": "SELECT SUM(c) FROM gstest2 GROUP BY GROUPING SETS (GROUPING SETS ((a, b))) ORDER BY 1 DESC"
+  },
+  {
+    "comment": "groupingsets - Statement 27",
+    "query": "select sum(c) from gstest2 group by grouping sets(grouping sets(a, grouping sets(a), a)) order by 1 desc",
+    "expected": "SELECT SUM(c) FROM gstest2 GROUP BY GROUPING SETS (GROUPING SETS ((a), GROUPING SETS ((a)), (a))) ORDER BY 1 DESC"
+  },
+  {
+    "comment": "groupingsets - Statement 28",
+    "query": "select sum(c) from gstest2 group by grouping sets(grouping sets(a, grouping sets(a, grouping sets(a), ((a)), a, grouping sets(a), (a)), a)) order by 1 desc",
+    "expected": "SELECT SUM(c) FROM gstest2 GROUP BY GROUPING SETS (GROUPING SETS ((a), GROUPING SETS ((a), GROUPING SETS ((a)), ((a)), (a), GROUPING SETS ((a)), (a)), (a))) ORDER BY 1 DESC"
+  },
+  {
+    "comment": "groupingsets - Statement 29",
+    "query": "select sum(c) from gstest2 group by grouping sets((a,(a,b)), grouping sets((a,(a,b)),a)) order by 1 desc",
+    "expected": "SELECT SUM(c) FROM gstest2 GROUP BY GROUPING SETS ((a, (a, b)), GROUPING SETS ((a, (a, b)), (a))) ORDER BY 1 DESC"
+  },
+  {
+    "comment": "groupingsets - Statement 30",
+    "query": "select a, b, sum(v), count(*) from gstest_empty group by grouping sets ((a,b),a)",
+    "expected": "SELECT a, b, SUM(v), COUNT(*) FROM gstest_empty GROUP BY GROUPING SETS ((a, b), (a))"
+  },
+  {
+    "comment": "groupingsets - Statement 31",
+    "query": "select a, b, sum(v), count(*) from gstest_empty group by grouping sets ((a,b),())",
+    "expected": "SELECT a, b, SUM(v), COUNT(*) FROM gstest_empty GROUP BY GROUPING SETS ((a, b), ())"
+  },
+  {
+    "comment": "groupingsets - Statement 32",
+    "query": "select a, b, sum(v), count(*) from gstest_empty group by grouping sets ((a,b),(),(),())",
+    "expected": "SELECT a, b, SUM(v), COUNT(*) FROM gstest_empty GROUP BY GROUPING SETS ((a, b), (), (), ())"
+  },
+  {
+    "comment": "groupingsets - Statement 33",
+    "query": "select sum(v), count(*) from gstest_empty group by grouping sets ((),(),())",
+    "expected": "SELECT SUM(v), COUNT(*) FROM gstest_empty GROUP BY GROUPING SETS ((), (), ())"
+  },
+  {
+    "comment": "groupingsets - Statement 34",
+    "query": "select t1.a, t2.b, sum(t1.v), count(*) from gstest_empty t1, gstest_empty t2 group by grouping sets ((t1.a,t2.b),())",
+    "expected": "SELECT t1.a, t2.b, SUM(t1.v), COUNT(*) FROM gstest_empty AS t1, gstest_empty AS t2 GROUP BY GROUPING SETS ((t1.a, t2.b), ())"
+  },
+  {
+    "comment": "groupingsets - Statement 35",
+    "query": "select t1.a, t2.b, grouping(t1.a, t2.b), sum(t1.v), max(t2.a) from gstest1 t1, gstest2 t2 group by grouping sets ((t1.a, t2.b), ())",
+    "expected": "SELECT t1.a, t2.b, GROUPING(t1.a, t2.b), SUM(t1.v), MAX(t2.a) FROM gstest1 AS t1, gstest2 AS t2 GROUP BY GROUPING SETS ((t1.a, t2.b), ())"
+  },
+  {
+    "comment": "groupingsets - Statement 36",
+    "query": "select t1.a, t2.b, grouping(t1.a, t2.b), sum(t1.v), max(t2.a) from gstest1 t1 join gstest2 t2 on (t1.a=t2.a) group by grouping sets ((t1.a, t2.b), ())",
+    "expected": "SELECT t1.a, t2.b, GROUPING(t1.a, t2.b), SUM(t1.v), MAX(t2.a) FROM gstest1 AS t1 INNER JOIN gstest2 AS t2 ON (t1.a = t2.a) GROUP BY GROUPING SETS ((t1.a, t2.b), ())"
+  },
+  {
+    "comment": "groupingsets - Statement 37",
+    "query": "select a, b, grouping(a, b), sum(t1.v), max(t2.c) from gstest1 t1 join gstest2 t2 using (a,b) group by grouping sets ((a, b), ())",
+    "expected": "SELECT a, b, GROUPING(a, b), SUM(t1.v), MAX(t2.c) FROM gstest1 AS t1 INNER JOIN gstest2 AS t2 USING (a, b) GROUP BY GROUPING SETS ((a, b), ())"
+  },
+  {
+    "comment": "groupingsets - Statement 38",
+    "query": "select a, d, grouping(a,b,c) from gstest3 group by grouping sets ((a,b), (a,c))",
+    "expected": "SELECT a, d, GROUPING(a, b, c) FROM gstest3 GROUP BY GROUPING SETS ((a, b), (a, c))"
+  },
+  {
+    "comment": "groupingsets - Statement 39",
+    "query": "explain (costs off) select g as alias1, g as alias2 from generate_series(1,3) g group by alias1, rollup(alias2)",
+    "expected": "EXPLAIN (COSTS false) SELECT g AS alias1, g AS alias2 FROM generate_series(1, 3) AS g GROUP BY alias1, ROLLUP(alias2)"
+  },
+  {
+    "comment": "groupingsets - Statement 40",
+    "query": "select g as alias1, g as alias2 from generate_series(1,3) g group by alias1, rollup(alias2)",
+    "expected": "SELECT g AS alias1, g AS alias2 FROM generate_series(1, 3) AS g GROUP BY alias1, ROLLUP(alias2)"
+  },
+  {
+    "comment": "groupingsets - Statement 41",
+    "query": "select four, x from (select four, ten, 'foo'::text as x from tenk1) as t group by grouping sets (four, x) having x = 'foo'",
+    "expected": "SELECT four, x FROM (SELECT four, ten, CAST('foo' AS TEXT) AS x FROM tenk1) AS t GROUP BY GROUPING SETS ((four), (x)) HAVING x = 'foo'"
+  },
+  {
+    "comment": "groupingsets - Statement 42",
+    "query": "select four, x || 'x' from (select four, ten, 'foo'::text as x from tenk1) as t group by grouping sets (four, x) order by four",
+    "expected": "SELECT four, x || 'x' FROM (SELECT four, ten, CAST('foo' AS TEXT) AS x FROM tenk1) AS t GROUP BY GROUPING SETS ((four), (x)) ORDER BY four"
+  },
+  {
+    "comment": "groupingsets - Statement 43",
+    "query": "select (x+y)*1, sum(z) from (select 1 as x, 2 as y, 3 as z) s group by grouping sets (x+y, x)",
+    "expected": "SELECT (x + y) * 1, SUM(z) FROM (SELECT 1 AS x, 2 AS y, 3 AS z) AS s GROUP BY GROUPING SETS ((x + y), (x))"
+  },
+  {
+    "comment": "groupingsets - Statement 44",
+    "query": "select x, not x as not_x, q2 from (select *, q1 = 1 as x from int8_tbl i1) as t group by grouping sets(x, q2) order by x, q2",
+    "expected": "SELECT x, NOT x AS not_x, q2 FROM (SELECT *, q1 = 1 AS x FROM int8_tbl AS i1) AS t GROUP BY GROUPING SETS ((x), (q2)) ORDER BY x, q2"
+  },
+  {
+    "comment": "groupingsets - Statement 45",
+    "query": "explain (verbose, costs off) select * from ( select 1 as x, q1, sum(q2) from int8_tbl i1 group by grouping sets(1, 2) ) ss where x = 1 and q1 = 123",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) SELECT * FROM (SELECT 1 AS x, q1, SUM(q2) FROM int8_tbl AS i1 GROUP BY GROUPING SETS ((1), (2))) AS ss WHERE x = 1 AND q1 = 123"
+  },
+  {
+    "comment": "groupingsets - Statement 46",
+    "query": "select * from ( select 1 as x, q1, sum(q2) from int8_tbl i1 group by grouping sets(1, 2) ) ss where x = 1 and q1 = 123",
+    "expected": "SELECT * FROM (SELECT 1 AS x, q1, SUM(q2) FROM int8_tbl AS i1 GROUP BY GROUPING SETS ((1), (2))) AS ss WHERE x = 1 AND q1 = 123"
+  },
+  {
+    "comment": "groupingsets - Statement 47",
+    "query": "explain (verbose, costs off) select grouping(ss.x) from int8_tbl i1 cross join lateral (select (select i1.q1) as x) ss group by ss.x",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) SELECT GROUPING(ss.x) FROM int8_tbl AS i1 INNER JOIN LATERAL (SELECT (SELECT i1.q1) AS x) AS ss ON TRUE GROUP BY ss.x"
+  },
+  {
+    "comment": "groupingsets - Statement 48",
+    "query": "select grouping(ss.x) from int8_tbl i1 cross join lateral (select (select i1.q1) as x) ss group by ss.x",
+    "expected": "SELECT GROUPING(ss.x) FROM int8_tbl AS i1 INNER JOIN LATERAL (SELECT (SELECT i1.q1) AS x) AS ss ON TRUE GROUP BY ss.x"
+  },
+  {
+    "comment": "groupingsets - Statement 49",
+    "query": "explain (verbose, costs off) select (select grouping(ss.x)) from int8_tbl i1 cross join lateral (select (select i1.q1) as x) ss group by ss.x",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) SELECT (SELECT GROUPING(ss.x)) FROM int8_tbl AS i1 INNER JOIN LATERAL (SELECT (SELECT i1.q1) AS x) AS ss ON TRUE GROUP BY ss.x"
+  },
+  {
+    "comment": "groupingsets - Statement 50",
+    "query": "select (select grouping(ss.x)) from int8_tbl i1 cross join lateral (select (select i1.q1) as x) ss group by ss.x",
+    "expected": "SELECT (SELECT GROUPING(ss.x)) FROM int8_tbl AS i1 INNER JOIN LATERAL (SELECT (SELECT i1.q1) AS x) AS ss ON TRUE GROUP BY ss.x"
+  },
+  {
+    "comment": "groupingsets - Statement 51",
+    "query": "select a, b, sum(v.x) from (values (1),(2)) v(x), gstest_data(v.x) group by rollup (a,b)",
+    "expected": "SELECT a, b, SUM(v.x) FROM (VALUES (1), (2)) AS v(x), gstest_data(v.x) GROUP BY ROLLUP(a, b)"
+  },
+  {
+    "comment": "groupingsets - Statement 52",
+    "query": "select * from (values (1),(2)) v(x), lateral (select a, b, sum(v.x) from gstest_data(v.x) group by rollup (a,b)) s",
+    "expected": "SELECT * FROM (VALUES (1), (2)) AS v(x), LATERAL (SELECT a, b, SUM(v.x) FROM gstest_data(v.x) GROUP BY ROLLUP(a, b)) AS s"
+  },
+  {
+    "comment": "groupingsets - Statement 53",
+    "query": "explain (costs off) select min(unique1) from tenk1 GROUP BY ()",
+    "expected": "EXPLAIN (COSTS false) SELECT MIN(unique1) FROM tenk1 GROUP BY ()"
+  },
+  {
+    "comment": "groupingsets - Statement 54",
+    "query": "CREATE VIEW gstest_view AS select a, b, grouping(a,b), sum(c), count(*), max(c) from gstest2 group by rollup ((a,b,c),(c,d))",
+    "expected": "CREATE VIEW gstest_view AS SELECT a, b, GROUPING(a, b), SUM(c), COUNT(*), MAX(c) FROM gstest2 GROUP BY ROLLUP((a, b, c), (c, d))"
+  },
+  {
+    "comment": "groupingsets - Statement 55",
+    "query": "select pg_get_viewdef('gstest_view'::regclass, true)",
+    "expected": "SELECT pg_get_viewdef(CAST('gstest_view' AS regclass), TRUE)"
+  },
+  {
+    "comment": "groupingsets - Statement 56",
+    "query": "select(select (select grouping(a,b) from (values (1)) v2(c)) from (values (1,2)) v1(a,b) group by (a,b)) from (values(6,7)) v3(e,f) GROUP BY ROLLUP(e,f)",
+    "expected": "SELECT (SELECT (SELECT GROUPING(a, b) FROM (VALUES (1)) AS v2(c)) FROM (VALUES (1, 2)) AS v1(a, b) GROUP BY (a, b)) FROM (VALUES (6, 7)) AS v3(e, f) GROUP BY ROLLUP(e, f)"
+  },
+  {
+    "comment": "groupingsets - Statement 57",
+    "query": "select(select (select grouping(e,f) from (values (1)) v2(c)) from (values (1,2)) v1(a,b) group by (a,b)) from (values(6,7)) v3(e,f) GROUP BY ROLLUP(e,f)",
+    "expected": "SELECT (SELECT (SELECT GROUPING(e, f) FROM (VALUES (1)) AS v2(c)) FROM (VALUES (1, 2)) AS v1(a, b) GROUP BY (a, b)) FROM (VALUES (6, 7)) AS v3(e, f) GROUP BY ROLLUP(e, f)"
+  },
+  {
+    "comment": "groupingsets - Statement 58",
+    "query": "select(select (select grouping(c) from (values (1)) v2(c) GROUP BY c) from (values (1,2)) v1(a,b) group by (a,b)) from (values(6,7)) v3(e,f) GROUP BY ROLLUP(e,f)",
+    "expected": "SELECT (SELECT (SELECT GROUPING(c) FROM (VALUES (1)) AS v2(c) GROUP BY c) FROM (VALUES (1, 2)) AS v1(a, b) GROUP BY (a, b)) FROM (VALUES (6, 7)) AS v3(e, f) GROUP BY ROLLUP(e, f)"
+  },
+  {
+    "comment": "groupingsets - Statement 59",
+    "query": "select a, b, c, d from gstest2 group by rollup(a,b),grouping sets(c,d)",
+    "expected": "SELECT a, b, c, d FROM gstest2 GROUP BY ROLLUP(a, b), GROUPING SETS ((c), (d))"
+  },
+  {
+    "comment": "groupingsets - Statement 60",
+    "query": "select a, b from (values (1,2),(2,3)) v(a,b) group by a,b, grouping sets(a)",
+    "expected": "SELECT a, b FROM (VALUES (1, 2), (2, 3)) AS v(a, b) GROUP BY a, b, GROUPING SETS ((a))"
+  },
+  {
+    "comment": "groupingsets - Statement 61",
+    "query": "select a, b, grouping(a,b), sum(v), count(*), max(v) from gstest1 group by grouping sets ((a,b),(a+1,b+1),(a+2,b+2)) order by 3,6",
+    "expected": "SELECT a, b, GROUPING(a, b), SUM(v), COUNT(*), MAX(v) FROM gstest1 GROUP BY GROUPING SETS ((a, b), (a + 1, b + 1), (a + 2, b + 2)) ORDER BY 3, 6"
+  },
+  {
+    "comment": "groupingsets - Statement 62",
+    "query": "select(select (select grouping(a,b) from (values (1)) v2(c)) from (values (1,2)) v1(a,b) group by (a,b)) from (values(6,7)) v3(e,f) GROUP BY ROLLUP((e+1),(f+1))",
+    "expected": "SELECT (SELECT (SELECT GROUPING(a, b) FROM (VALUES (1)) AS v2(c)) FROM (VALUES (1, 2)) AS v1(a, b) GROUP BY (a, b)) FROM (VALUES (6, 7)) AS v3(e, f) GROUP BY ROLLUP((e + 1), (f + 1))"
+  },
+  {
+    "comment": "groupingsets - Statement 63",
+    "query": "select(select (select grouping(a,b) from (values (1)) v2(c)) from (values (1,2)) v1(a,b) group by (a,b)) from (values(6,7)) v3(e,f) GROUP BY CUBE((e+1),(f+1)) ORDER BY (e+1),(f+1)",
+    "expected": "SELECT (SELECT (SELECT GROUPING(a, b) FROM (VALUES (1)) AS v2(c)) FROM (VALUES (1, 2)) AS v1(a, b) GROUP BY (a, b)) FROM (VALUES (6, 7)) AS v3(e, f) GROUP BY CUBE((e + 1), (f + 1)) ORDER BY (e + 1), (f + 1)"
+  },
+  {
+    "comment": "groupingsets - Statement 64",
+    "query": "select a, b, sum(c), sum(sum(c)) over (order by a,b) as rsum from gstest2 group by cube (a,b) order by rsum, a, b",
+    "expected": "SELECT a, b, SUM(c), SUM(SUM(c)) OVER (ORDER BY a, b) AS rsum FROM gstest2 GROUP BY CUBE(a, b) ORDER BY rsum, a, b"
+  },
+  {
+    "comment": "groupingsets - Statement 65",
+    "query": "select a, b, sum(c) from (values (1,1,10),(1,1,11),(1,2,12),(1,2,13),(1,3,14),(2,3,15),(3,3,16),(3,4,17),(4,1,18),(4,1,19)) v(a,b,c) group by rollup (a,b)",
+    "expected": "SELECT a, b, SUM(c) FROM (VALUES (1, 1, 10), (1, 1, 11), (1, 2, 12), (1, 2, 13), (1, 3, 14), (2, 3, 15), (3, 3, 16), (3, 4, 17), (4, 1, 18), (4, 1, 19)) AS v(a, b, c) GROUP BY ROLLUP(a, b)"
+  },
+  {
+    "comment": "groupingsets - Statement 66",
+    "query": "select a, b, sum(v.x) from (values (1),(2)) v(x), gstest_data(v.x) group by cube (a,b) order by a,b",
+    "expected": "SELECT a, b, SUM(v.x) FROM (VALUES (1), (2)) AS v(x), gstest_data(v.x) GROUP BY CUBE(a, b) ORDER BY a, b"
+  },
+  {
+    "comment": "groupingsets - Statement 67",
+    "query": "explain (costs off) select * from gstest1 group by grouping sets((a,b,v),(v)) order by v,b,a",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM gstest1 GROUP BY GROUPING SETS ((a, b, v), (v)) ORDER BY v, b, a"
+  },
+  {
+    "comment": "groupingsets - Statement 68",
+    "query": "select (select grouping(a,b) from gstest2) from gstest2 group by a,b",
+    "expected": "SELECT (SELECT GROUPING(a, b) FROM gstest2) FROM gstest2 GROUP BY a, b"
+  },
+  {
+    "comment": "groupingsets - Statement 69",
+    "query": "select a, b, sum(c), count(*) from gstest2 group by grouping sets (rollup(a,b),a)",
+    "expected": "SELECT a, b, SUM(c), COUNT(*) FROM gstest2 GROUP BY GROUPING SETS (ROLLUP(a, b), (a))"
+  },
+  {
+    "comment": "groupingsets - Statement 70",
+    "query": "select ten, sum(distinct four) from onek a group by grouping sets((ten,four),(ten)) having exists (select 1 from onek b where sum(distinct a.four) = b.four)",
+    "expected": "SELECT ten, SUM(DISTINCT four) FROM onek AS a GROUP BY GROUPING SETS ((ten, four), (ten)) HAVING EXISTS (SELECT 1 FROM onek AS b WHERE SUM(DISTINCT a.four) = b.four)"
+  },
+  {
+    "comment": "groupingsets - Statement 71",
+    "query": "select a,count(*) from gstest2 group by rollup(a) order by a",
+    "expected": "SELECT a, COUNT(*) FROM gstest2 GROUP BY ROLLUP(a) ORDER BY a"
+  },
+  {
+    "comment": "groupingsets - Statement 72",
+    "query": "select a,count(*) from gstest2 group by rollup(a) having a is distinct from 1 order by a",
+    "expected": "SELECT a, COUNT(*) FROM gstest2 GROUP BY ROLLUP(a) HAVING a IS DISTINCT FROM 1 ORDER BY a"
+  },
+  {
+    "comment": "groupingsets - Statement 73",
+    "query": "explain (costs off) select a,count(*) from gstest2 group by rollup(a) having a is distinct from 1 order by a",
+    "expected": "EXPLAIN (COSTS false) SELECT a, COUNT(*) FROM gstest2 GROUP BY ROLLUP(a) HAVING a IS DISTINCT FROM 1 ORDER BY a"
+  },
+  {
+    "comment": "groupingsets - Statement 74",
+    "query": "select v.c, (select count(*) from gstest2 group by () having v.c) from (values (false),(true)) v(c) order by v.c",
+    "expected": "SELECT v.c, (SELECT COUNT(*) FROM gstest2 GROUP BY () HAVING v.c) FROM (VALUES (FALSE), (TRUE)) AS v(c) ORDER BY v.c"
+  },
+  {
+    "comment": "groupingsets - Statement 75",
+    "query": "explain (costs off) select v.c, (select count(*) from gstest2 group by () having v.c) from (values (false),(true)) v(c) order by v.c",
+    "expected": "EXPLAIN (COSTS false) SELECT v.c, (SELECT COUNT(*) FROM gstest2 GROUP BY () HAVING v.c) FROM (VALUES (FALSE), (TRUE)) AS v(c) ORDER BY v.c"
+  },
+  {
+    "comment": "groupingsets - Statement 76",
+    "query": "select ten, grouping(ten) from onek group by grouping sets(ten) having grouping(ten) \u003e= 0 order by 2,1",
+    "expected": "SELECT ten, GROUPING(ten) FROM onek GROUP BY GROUPING SETS ((ten)) HAVING GROUPING(ten) \u003e= 0 ORDER BY 2, 1"
+  },
+  {
+    "comment": "groupingsets - Statement 77",
+    "query": "select ten, grouping(ten) from onek group by grouping sets(ten, four) having grouping(ten) \u003e 0 order by 2,1",
+    "expected": "SELECT ten, GROUPING(ten) FROM onek GROUP BY GROUPING SETS ((ten), (four)) HAVING GROUPING(ten) \u003e 0 ORDER BY 2, 1"
+  },
+  {
+    "comment": "groupingsets - Statement 78",
+    "query": "select ten, grouping(ten) from onek group by rollup(ten) having grouping(ten) \u003e 0 order by 2,1",
+    "expected": "SELECT ten, GROUPING(ten) FROM onek GROUP BY ROLLUP(ten) HAVING GROUPING(ten) \u003e 0 ORDER BY 2, 1"
+  },
+  {
+    "comment": "groupingsets - Statement 79",
+    "query": "select ten, grouping(ten) from onek group by cube(ten) having grouping(ten) \u003e 0 order by 2,1",
+    "expected": "SELECT ten, GROUPING(ten) FROM onek GROUP BY CUBE(ten) HAVING GROUPING(ten) \u003e 0 ORDER BY 2, 1"
+  },
+  {
+    "comment": "groupingsets - Statement 80",
+    "query": "select ten, grouping(ten) from onek group by (ten) having grouping(ten) \u003e= 0 order by 2,1",
+    "expected": "SELECT ten, GROUPING(ten) FROM onek GROUP BY (ten) HAVING GROUPING(ten) \u003e= 0 ORDER BY 2, 1"
+  },
+  {
+    "comment": "groupingsets - Statement 81",
+    "query": "select ten, sum(distinct four) filter (where four::text ~ '123') from onek a group by rollup(ten)",
+    "expected": "SELECT ten, SUM(DISTINCT four) FILTER (WHERE CAST(four AS TEXT) ~ '123') FROM onek AS a GROUP BY ROLLUP(ten)"
+  },
+  {
+    "comment": "groupingsets - Statement 82",
+    "query": "select * from (values (1),(2)) v(a) left join lateral (select v.a, four, ten, count(*) from onek group by cube(four,ten)) s on true order by v.a,four,ten",
+    "expected": "SELECT * FROM (VALUES (1), (2)) AS v(a) LEFT OUTER JOIN LATERAL (SELECT v.a, four, ten, COUNT(*) FROM onek GROUP BY CUBE(four, ten)) AS s ON TRUE ORDER BY v.a, four, ten"
+  },
+  {
+    "comment": "groupingsets - Statement 83",
+    "query": "select array(select row(v.a,s1.*) from (select two,four, count(*) from onek group by cube(two,four) order by two,four) s1) from (values (1),(2)) v(a)",
+    "expected": "SELECT ARRAY(SELECT ROW(v.a, s1.*) FROM (SELECT two, four, COUNT(*) FROM onek GROUP BY CUBE(two, four) ORDER BY two, four) AS s1) FROM (VALUES (1), (2)) AS v(a)"
+  },
+  {
+    "comment": "groupingsets - Statement 84",
+    "query": "select sum(ten) from onek group by two, rollup(four::text) order by 1",
+    "expected": "SELECT SUM(ten) FROM onek GROUP BY two, ROLLUP(CAST(four AS TEXT)) ORDER BY 1"
+  },
+  {
+    "comment": "groupingsets - Statement 85",
+    "query": "select sum(ten) from onek group by rollup(four::text), two order by 1",
+    "expected": "SELECT SUM(ten) FROM onek GROUP BY ROLLUP(CAST(four AS TEXT)), two ORDER BY 1"
+  },
+  {
+    "comment": "groupingsets - Statement 86",
+    "query": "set enable_hashagg = true",
+    "expected": "SET enable_hashagg = true"
+  },
+  {
+    "comment": "groupingsets - Statement 87",
+    "query": "select count(*) from gstest4 group by rollup(unhashable_col,unsortable_col)",
+    "expected": "SELECT COUNT(*) FROM gstest4 GROUP BY ROLLUP(unhashable_col, unsortable_col)"
+  },
+  {
+    "comment": "groupingsets - Statement 88",
+    "query": "select array_agg(v order by v) from gstest4 group by grouping sets ((id,unsortable_col),(id))",
+    "expected": "SELECT array_agg(v ORDER BY v) FROM gstest4 GROUP BY GROUPING SETS ((id, unsortable_col), (id))"
+  },
+  {
+    "comment": "groupingsets - Statement 89",
+    "query": "select a, b, grouping(a,b), sum(v), count(*), max(v) from gstest1 group by grouping sets ((a),(b)) order by 3,1,2",
+    "expected": "SELECT a, b, GROUPING(a, b), SUM(v), COUNT(*), MAX(v) FROM gstest1 GROUP BY GROUPING SETS ((a), (b)) ORDER BY 3, 1, 2"
+  },
+  {
+    "comment": "groupingsets - Statement 90",
+    "query": "explain (costs off) select a, b, grouping(a,b), sum(v), count(*), max(v) from gstest1 group by grouping sets ((a),(b)) order by 3,1,2",
+    "expected": "EXPLAIN (COSTS false) SELECT a, b, GROUPING(a, b), SUM(v), COUNT(*), MAX(v) FROM gstest1 GROUP BY GROUPING SETS ((a), (b)) ORDER BY 3, 1, 2"
+  },
+  {
+    "comment": "groupingsets - Statement 91",
+    "query": "select a, b, grouping(a,b), sum(v), count(*), max(v) from gstest1 group by cube(a,b) order by 3,1,2",
+    "expected": "SELECT a, b, GROUPING(a, b), SUM(v), COUNT(*), MAX(v) FROM gstest1 GROUP BY CUBE(a, b) ORDER BY 3, 1, 2"
+  },
+  {
+    "comment": "groupingsets - Statement 92",
+    "query": "explain (costs off) select a, b, grouping(a,b), sum(v), count(*), max(v) from gstest1 group by cube(a,b) order by 3,1,2",
+    "expected": "EXPLAIN (COSTS false) SELECT a, b, GROUPING(a, b), SUM(v), COUNT(*), MAX(v) FROM gstest1 GROUP BY CUBE(a, b) ORDER BY 3, 1, 2"
+  },
+  {
+    "comment": "groupingsets - Statement 93",
+    "query": "explain (costs off) select a, b, grouping(a,b), array_agg(v order by v) from gstest1 group by cube(a,b)",
+    "expected": "EXPLAIN (COSTS false) SELECT a, b, GROUPING(a, b), array_agg(v ORDER BY v) FROM gstest1 GROUP BY CUBE(a, b)"
+  },
+  {
+    "comment": "groupingsets - Statement 94",
+    "query": "select unsortable_col, count(*) from gstest4 group by grouping sets ((unsortable_col),(unsortable_col)) order by unsortable_col::text",
+    "expected": "SELECT unsortable_col, COUNT(*) FROM gstest4 GROUP BY GROUPING SETS ((unsortable_col), (unsortable_col)) ORDER BY CAST(unsortable_col AS TEXT)"
+  },
+  {
+    "comment": "groupingsets - Statement 95",
+    "query": "select unhashable_col, unsortable_col, grouping(unhashable_col, unsortable_col), count(*), sum(v) from gstest4 group by grouping sets ((unhashable_col),(unsortable_col)) order by 3, 5",
+    "expected": "SELECT unhashable_col, unsortable_col, GROUPING(unhashable_col, unsortable_col), COUNT(*), SUM(v) FROM gstest4 GROUP BY GROUPING SETS ((unhashable_col), (unsortable_col)) ORDER BY 3, 5"
+  },
+  {
+    "comment": "groupingsets - Statement 96",
+    "query": "explain (costs off) select unhashable_col, unsortable_col, grouping(unhashable_col, unsortable_col), count(*), sum(v) from gstest4 group by grouping sets ((unhashable_col),(unsortable_col)) order by 3,5",
+    "expected": "EXPLAIN (COSTS false) SELECT unhashable_col, unsortable_col, GROUPING(unhashable_col, unsortable_col), COUNT(*), SUM(v) FROM gstest4 GROUP BY GROUPING SETS ((unhashable_col), (unsortable_col)) ORDER BY 3, 5"
+  },
+  {
+    "comment": "groupingsets - Statement 97",
+    "query": "select unhashable_col, unsortable_col, grouping(unhashable_col, unsortable_col), count(*), sum(v) from gstest4 group by grouping sets ((v,unhashable_col),(v,unsortable_col)) order by 3,5",
+    "expected": "SELECT unhashable_col, unsortable_col, GROUPING(unhashable_col, unsortable_col), COUNT(*), SUM(v) FROM gstest4 GROUP BY GROUPING SETS ((v, unhashable_col), (v, unsortable_col)) ORDER BY 3, 5"
+  },
+  {
+    "comment": "groupingsets - Statement 98",
+    "query": "explain (costs off) select unhashable_col, unsortable_col, grouping(unhashable_col, unsortable_col), count(*), sum(v) from gstest4 group by grouping sets ((v,unhashable_col),(v,unsortable_col)) order by 3,5",
+    "expected": "EXPLAIN (COSTS false) SELECT unhashable_col, unsortable_col, GROUPING(unhashable_col, unsortable_col), COUNT(*), SUM(v) FROM gstest4 GROUP BY GROUPING SETS ((v, unhashable_col), (v, unsortable_col)) ORDER BY 3, 5"
+  },
+  {
+    "comment": "groupingsets - Statement 99",
+    "query": "explain (costs off) select a, b, sum(v), count(*) from gstest_empty group by grouping sets ((a,b),a)",
+    "expected": "EXPLAIN (COSTS false) SELECT a, b, SUM(v), COUNT(*) FROM gstest_empty GROUP BY GROUPING SETS ((a, b), (a))"
+  },
+  {
+    "comment": "groupingsets - Statement 100",
+    "query": "explain (costs off) select a, b, sum(v), count(*) from gstest_empty group by grouping sets ((a,b),(),(),())",
+    "expected": "EXPLAIN (COSTS false) SELECT a, b, SUM(v), COUNT(*) FROM gstest_empty GROUP BY GROUPING SETS ((a, b), (), (), ())"
+  },
+  {
+    "comment": "groupingsets - Statement 101",
+    "query": "explain (costs off) select sum(v), count(*) from gstest_empty group by grouping sets ((),(),())",
+    "expected": "EXPLAIN (COSTS false) SELECT SUM(v), COUNT(*) FROM gstest_empty GROUP BY GROUPING SETS ((), (), ())"
+  },
+  {
+    "comment": "groupingsets - Statement 102",
+    "query": "explain (costs off) select a, d, grouping(a,b,c) from gstest3 group by grouping sets ((a,b), (a,c))",
+    "expected": "EXPLAIN (COSTS false) SELECT a, d, GROUPING(a, b, c) FROM gstest3 GROUP BY GROUPING SETS ((a, b), (a, c))"
+  },
+  {
+    "comment": "groupingsets - Statement 103",
+    "query": "select a, b, sum(v.x) from (values (1),(2)) v(x), gstest_data(v.x) group by grouping sets (a,b) order by 1, 2, 3",
+    "expected": "SELECT a, b, SUM(v.x) FROM (VALUES (1), (2)) AS v(x), gstest_data(v.x) GROUP BY GROUPING SETS ((a), (b)) ORDER BY 1, 2, 3"
+  },
+  {
+    "comment": "groupingsets - Statement 104",
+    "query": "explain (costs off) select a, b, sum(v.x) from (values (1),(2)) v(x), gstest_data(v.x) group by grouping sets (a,b) order by 3, 1, 2",
+    "expected": "EXPLAIN (COSTS false) SELECT a, b, SUM(v.x) FROM (VALUES (1), (2)) AS v(x), gstest_data(v.x) GROUP BY GROUPING SETS ((a), (b)) ORDER BY 3, 1, 2"
+  },
+  {
+    "comment": "groupingsets - Statement 105",
+    "query": "select * from (values (1),(2)) v(x), lateral (select a, b, sum(v.x) from gstest_data(v.x) group by grouping sets (a,b)) s",
+    "expected": "SELECT * FROM (VALUES (1), (2)) AS v(x), LATERAL (SELECT a, b, SUM(v.x) FROM gstest_data(v.x) GROUP BY GROUPING SETS ((a), (b))) AS s"
+  },
+  {
+    "comment": "groupingsets - Statement 106",
+    "query": "explain (costs off) select * from (values (1),(2)) v(x), lateral (select a, b, sum(v.x) from gstest_data(v.x) group by grouping sets (a,b)) s",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM (VALUES (1), (2)) AS v(x), LATERAL (SELECT a, b, SUM(v.x) FROM gstest_data(v.x) GROUP BY GROUPING SETS ((a), (b))) AS s"
+  },
+  {
+    "comment": "groupingsets - Statement 107",
+    "query": "explain (costs off) select a, b, grouping(a,b), sum(v), count(*), max(v) from gstest1 group by grouping sets ((a,b),(a+1,b+1),(a+2,b+2)) order by 3,6",
+    "expected": "EXPLAIN (COSTS false) SELECT a, b, GROUPING(a, b), SUM(v), COUNT(*), MAX(v) FROM gstest1 GROUP BY GROUPING SETS ((a, b), (a + 1, b + 1), (a + 2, b + 2)) ORDER BY 3, 6"
+  },
+  {
+    "comment": "groupingsets - Statement 108",
+    "query": "explain (costs off) select a, b, sum(c), sum(sum(c)) over (order by a,b) as rsum from gstest2 group by cube (a,b) order by rsum, a, b",
+    "expected": "EXPLAIN (COSTS false) SELECT a, b, SUM(c), SUM(SUM(c)) OVER (ORDER BY a, b) AS rsum FROM gstest2 GROUP BY CUBE(a, b) ORDER BY rsum, a, b"
+  },
+  {
+    "comment": "groupingsets - Statement 109",
+    "query": "explain (costs off) select a, b, sum(v.x) from (values (1),(2)) v(x), gstest_data(v.x) group by cube (a,b) order by a,b",
+    "expected": "EXPLAIN (COSTS false) SELECT a, b, SUM(v.x) FROM (VALUES (1), (2)) AS v(x), gstest_data(v.x) GROUP BY CUBE(a, b) ORDER BY a, b"
+  },
+  {
+    "comment": "groupingsets - Statement 110",
+    "query": "BEGIN"
+  },
+  {
+    "comment": "groupingsets - Statement 111",
+    "query": "SET LOCAL enable_hashagg = false"
+  },
+  {
+    "comment": "groupingsets - Statement 112",
+    "query": "EXPLAIN (COSTS OFF) SELECT a, b, count(*), max(a), max(b) FROM gstest3 GROUP BY GROUPING SETS(a, b,()) ORDER BY a, b",
+    "expected": "EXPLAIN (COSTS false) SELECT a, b, COUNT(*), MAX(a), MAX(b) FROM gstest3 GROUP BY GROUPING SETS ((a), (b), ()) ORDER BY a, b"
+  },
+  {
+    "comment": "groupingsets - Statement 113",
+    "query": "SELECT a, b, count(*), max(a), max(b) FROM gstest3 GROUP BY GROUPING SETS(a, b,()) ORDER BY a, b",
+    "expected": "SELECT a, b, COUNT(*), MAX(a), MAX(b) FROM gstest3 GROUP BY GROUPING SETS ((a), (b), ()) ORDER BY a, b"
+  },
+  {
+    "comment": "groupingsets - Statement 114",
+    "query": "SET LOCAL enable_seqscan = false"
+  },
+  {
+    "comment": "groupingsets - Statement 115",
+    "query": "COMMIT"
+  },
+  {
+    "comment": "groupingsets - Statement 116",
+    "query": "select * from (values (1),(2)) v(a) left join lateral (select v.a, four, ten, count(*) from onek group by grouping sets(four,ten)) s on true order by v.a,four,ten",
+    "expected": "SELECT * FROM (VALUES (1), (2)) AS v(a) LEFT OUTER JOIN LATERAL (SELECT v.a, four, ten, COUNT(*) FROM onek GROUP BY GROUPING SETS ((four), (ten))) AS s ON TRUE ORDER BY v.a, four, ten"
+  },
+  {
+    "comment": "groupingsets - Statement 117",
+    "query": "select array(select row(v.a,s1.*) from (select two,four, count(*) from onek group by grouping sets(two,four) order by two,four) s1) from (values (1),(2)) v(a)",
+    "expected": "SELECT ARRAY(SELECT ROW(v.a, s1.*) FROM (SELECT two, four, COUNT(*) FROM onek GROUP BY GROUPING SETS ((two), (four)) ORDER BY two, four) AS s1) FROM (VALUES (1), (2)) AS v(a)"
+  },
+  {
+    "comment": "groupingsets - Statement 118",
+    "query": "set enable_indexscan = false",
+    "expected": "SET enable_indexscan = false"
+  },
+  {
+    "comment": "groupingsets - Statement 119",
+    "query": "set hash_mem_multiplier = 1.0",
+    "expected": "SET hash_mem_multiplier = 1.0"
+  },
+  {
+    "comment": "groupingsets - Statement 120",
+    "query": "set work_mem = '64kB'",
+    "expected": "SET work_mem = '64kB'"
+  },
+  {
+    "comment": "groupingsets - Statement 121",
+    "query": "explain (costs off) select unique1, count(two), count(four), count(ten), count(hundred), count(thousand), count(twothousand), count(*) from tenk1 group by grouping sets (unique1,twothousand,thousand,hundred,ten,four,two)",
+    "expected": "EXPLAIN (COSTS false) SELECT unique1, COUNT(two), COUNT(four), COUNT(ten), COUNT(hundred), COUNT(thousand), COUNT(twothousand), COUNT(*) FROM tenk1 GROUP BY GROUPING SETS ((unique1), (twothousand), (thousand), (hundred), (ten), (four), (two))"
+  },
+  {
+    "comment": "groupingsets - Statement 122",
+    "query": "explain (costs off) select unique1, count(two), count(four), count(ten), count(hundred), count(thousand), count(twothousand), count(*) from tenk1 group by grouping sets (unique1,hundred,ten,four,two)",
+    "expected": "EXPLAIN (COSTS false) SELECT unique1, COUNT(two), COUNT(four), COUNT(ten), COUNT(hundred), COUNT(thousand), COUNT(twothousand), COUNT(*) FROM tenk1 GROUP BY GROUPING SETS ((unique1), (hundred), (ten), (four), (two))"
+  },
+  {
+    "comment": "groupingsets - Statement 123",
+    "query": "set work_mem = '384kB'",
+    "expected": "SET work_mem = '384kB'"
+  },
+  {
+    "comment": "groupingsets - Statement 124",
+    "query": "select v||'a', case grouping(v||'a') when 1 then 1 else 0 end, count(*) from unnest(array[1,1], array['a','b']) u(i,v) group by rollup(i, v||'a') order by 1,3",
+    "expected": "SELECT v || 'a', CASE GROUPING(v || 'a') WHEN 1 THEN 1 ELSE 0 END, COUNT(*) FROM unnest(ARRAY[1,1], ARRAY['a','b']) AS u(i, v) GROUP BY ROLLUP(i, v || 'a') ORDER BY 1, 3"
+  },
+  {
+    "comment": "groupingsets - Statement 125",
+    "query": "select v||'a', case when grouping(v||'a') = 1 then 1 else 0 end, count(*) from unnest(array[1,1], array['a','b']) u(i,v) group by rollup(i, v||'a') order by 1,3",
+    "expected": "SELECT v || 'a', CASE WHEN GROUPING(v || 'a') = 1 THEN 1 ELSE 0 END, COUNT(*) FROM unnest(ARRAY[1,1], ARRAY['a','b']) AS u(i, v) GROUP BY ROLLUP(i, v || 'a') ORDER BY 1, 3"
+  },
+  {
+    "comment": "groupingsets - Statement 126",
+    "query": "create table bug_16784(i int, j int)",
+    "expected": "CREATE TABLE bug_16784 (i INT, j INT)"
+  },
+  {
+    "comment": "groupingsets - Statement 127",
+    "query": "analyze bug_16784",
+    "expected": "ANALYZE bug_16784"
+  },
+  {
+    "comment": "groupingsets - Statement 128",
+    "query": "alter table bug_16784 set (autovacuum_enabled = 'false')",
+    "expected": "ALTER TABLE bug_16784 SET (autovacuum_enabled = 'false')"
+  },
+  {
+    "comment": "groupingsets - Statement 129",
+    "query": "update pg_class set reltuples = 10 where relname='bug_16784'",
+    "expected": "UPDATE pg_class SET reltuples = 10 WHERE relname = 'bug_16784'"
+  },
+  {
+    "comment": "groupingsets - Statement 130",
+    "query": "insert into bug_16784 select g/10, g from generate_series(1,40) g",
+    "expected": "INSERT INTO bug_16784 SELECT g / 10, g FROM generate_series(1, 40) AS g"
+  },
+  {
+    "comment": "groupingsets - Statement 131",
+    "query": "set work_mem='64kB'",
+    "expected": "SET work_mem = '64kB'"
+  },
+  {
+    "comment": "groupingsets - Statement 132",
+    "query": "set enable_sort = false",
+    "expected": "SET enable_sort = false"
+  },
+  {
+    "comment": "groupingsets - Statement 133",
+    "query": "select * from (values (1),(2)) v(a), lateral (select a, i, j, count(*) from bug_16784 group by cube(i,j)) s order by v.a, i, j",
+    "expected": "SELECT * FROM (VALUES (1), (2)) AS v(a), LATERAL (SELECT a, i, j, COUNT(*) FROM bug_16784 GROUP BY CUBE(i, j)) AS s ORDER BY v.a, i, j"
+  },
+  {
+    "comment": "groupingsets - Statement 134",
+    "query": "create table gs_data_1 as select g%1000 as g1000, g%100 as g100, g%10 as g10, g from generate_series(0,1999) g",
+    "expected": "CREATE TABLE gs_data_1 AS SELECT g % 1000 AS g1000, g % 100 AS g100, g % 10 AS g10, g FROM generate_series(0, 1999) AS g"
+  },
+  {
+    "comment": "groupingsets - Statement 135",
+    "query": "analyze gs_data_1",
+    "expected": "ANALYZE gs_data_1"
+  },
+  {
+    "comment": "groupingsets - Statement 136",
+    "query": "alter table gs_data_1 set (autovacuum_enabled = 'false')",
+    "expected": "ALTER TABLE gs_data_1 SET (autovacuum_enabled = 'false')"
+  },
+  {
+    "comment": "groupingsets - Statement 137",
+    "query": "update pg_class set reltuples = 10 where relname='gs_data_1'",
+    "expected": "UPDATE pg_class SET reltuples = 10 WHERE relname = 'gs_data_1'"
+  },
+  {
+    "comment": "groupingsets - Statement 138",
+    "query": "set enable_sort = true",
+    "expected": "SET enable_sort = true"
+  },
+  {
+    "comment": "groupingsets - Statement 139",
+    "query": "set jit_above_cost = 0",
+    "expected": "SET jit_above_cost = 0"
+  },
+  {
+    "comment": "groupingsets - Statement 140",
+    "query": "explain (costs off) select g100, g10, sum(g::numeric), count(*), max(g::text) from gs_data_1 group by cube (g1000, g100,g10)",
+    "expected": "EXPLAIN (COSTS false) SELECT g100, g10, SUM(CAST(g AS NUMERIC)), COUNT(*), MAX(CAST(g AS TEXT)) FROM gs_data_1 GROUP BY CUBE(g1000, g100, g10)"
+  },
+  {
+    "comment": "groupingsets - Statement 141",
+    "query": "create table gs_group_1 as select g100, g10, sum(g::numeric), count(*), max(g::text) from gs_data_1 group by cube (g1000, g100,g10)",
+    "expected": "CREATE TABLE gs_group_1 AS SELECT g100, g10, SUM(CAST(g AS NUMERIC)), COUNT(*), MAX(CAST(g AS TEXT)) FROM gs_data_1 GROUP BY CUBE(g1000, g100, g10)"
+  },
+  {
+    "comment": "groupingsets - Statement 142",
+    "query": "create table gs_hash_1 as select g100, g10, sum(g::numeric), count(*), max(g::text) from gs_data_1 group by cube (g1000, g100,g10)",
+    "expected": "CREATE TABLE gs_hash_1 AS SELECT g100, g10, SUM(CAST(g AS NUMERIC)), COUNT(*), MAX(CAST(g AS TEXT)) FROM gs_data_1 GROUP BY CUBE(g1000, g100, g10)"
+  },
+  {
+    "comment": "groupingsets - Statement 143",
+    "query": "set work_mem to default",
+    "expected": "SET work_mem = DEFAULT"
+  },
+  {
+    "comment": "groupingsets - Statement 144",
+    "query": "set hash_mem_multiplier to default",
+    "expected": "SET hash_mem_multiplier = DEFAULT"
+  },
+  {
+    "comment": "groupingsets - Statement 145",
+    "query": "(select * from gs_hash_1 except select * from gs_group_1) union all (select * from gs_group_1 except select * from gs_hash_1)",
+    "expected": "(SELECT * FROM gs_hash_1 EXCEPT SELECT * FROM gs_group_1) UNION ALL (SELECT * FROM gs_group_1 EXCEPT SELECT * FROM gs_hash_1)"
+  },
+  {
+    "comment": "groupingsets - Statement 146",
+    "query": "drop table gs_group_1",
+    "expected": "DROP TABLE gs_group_1"
+  },
+  {
+    "comment": "groupingsets - Statement 147",
+    "query": "drop table gs_hash_1",
+    "expected": "DROP TABLE gs_hash_1"
+  },
+  {
+    "comment": "groupingsets - Statement 148",
+    "query": "select a, b, c from (values (1, 2, 3), (4, null, 6), (7, 8, 9)) as t (a, b, c) group by all rollup(a, b), rollup(a, c) order by a, b, c",
+    "expected": "SELECT a, b, c FROM (VALUES (1, 2, 3), (4, NULL, 6), (7, 8, 9)) AS t(a, b, c) GROUP BY ROLLUP(a, b), ROLLUP(a, c) ORDER BY a, b, c"
+  },
+  {
+    "comment": "groupingsets - Statement 149",
+    "query": "select a, b, c from (values (1, 2, 3), (4, null, 6), (7, 8, 9)) as t (a, b, c) group by rollup(a, b), rollup(a, c) order by a, b, c",
+    "expected": "SELECT a, b, c FROM (VALUES (1, 2, 3), (4, NULL, 6), (7, 8, 9)) AS t(a, b, c) GROUP BY ROLLUP(a, b), ROLLUP(a, c) ORDER BY a, b, c"
+  },
+  {
+    "comment": "groupingsets - Statement 150",
+    "query": "select a, b, c from (values (1, 2, 3), (4, null, 6), (7, 8, 9)) as t (a, b, c) group by distinct rollup(a, b), rollup(a, c) order by a, b, c",
+    "expected": "SELECT a, b, c FROM (VALUES (1, 2, 3), (4, NULL, 6), (7, 8, 9)) AS t(a, b, c) GROUP BY DISTINCT ROLLUP(a, b), ROLLUP(a, c) ORDER BY a, b, c"
+  },
+  {
+    "comment": "groupingsets - Statement 151",
+    "query": "select distinct a, b, c from (values (1, 2, 3), (4, null, 6), (7, 8, 9)) as t (a, b, c) group by rollup(a, b), rollup(a, c) order by a, b, c",
+    "expected": "SELECT DISTINCT a, b, c FROM (VALUES (1, 2, 3), (4, NULL, 6), (7, 8, 9)) AS t(a, b, c) GROUP BY ROLLUP(a, b), ROLLUP(a, c) ORDER BY a, b, c"
+  },
+  {
+    "comment": "groupingsets - Statement 152",
+    "query": "explain (costs off) select (select grouping(v1)) from (values ((select 1))) v(v1) group by cube(v1)",
+    "expected": "EXPLAIN (COSTS false) SELECT (SELECT GROUPING(v1)) FROM (VALUES ((SELECT 1))) AS v(v1) GROUP BY CUBE(v1)"
+  },
+  {
+    "comment": "groupingsets - Statement 153",
+    "query": "select (select grouping(v1)) from (values ((select 1))) v(v1) group by cube(v1)",
+    "expected": "SELECT (SELECT GROUPING(v1)) FROM (VALUES ((SELECT 1))) AS v(v1) GROUP BY CUBE(v1)"
+  },
+  {
+    "comment": "groupingsets - Statement 154",
+    "query": "explain (costs off) select (select grouping(v1)) from (values ((select 1))) v(v1) group by v1",
+    "expected": "EXPLAIN (COSTS false) SELECT (SELECT GROUPING(v1)) FROM (VALUES ((SELECT 1))) AS v(v1) GROUP BY v1"
+  },
+  {
+    "comment": "groupingsets - Statement 155",
+    "query": "select (select grouping(v1)) from (values ((select 1))) v(v1) group by v1",
+    "expected": "SELECT (SELECT GROUPING(v1)) FROM (VALUES ((SELECT 1))) AS v(v1) GROUP BY v1"
+  }
+]

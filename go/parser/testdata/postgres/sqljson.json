@@ -1,0 +1,1029 @@
+[
+  {
+    "comment": "sqljson - Statement 1",
+    "query": "SELECT JSON()",
+    "error": "parse error at position 13: syntax error"
+  },
+  {
+    "comment": "sqljson - Statement 2",
+    "query": "SELECT JSON(NULL)"
+  },
+  {
+    "comment": "sqljson - Statement 3",
+    "query": "SELECT JSON('{ \"a\" : 1 } ')"
+  },
+  {
+    "comment": "sqljson - Statement 4",
+    "query": "SELECT JSON('{ \"a\" : 1 } ' FORMAT JSON)"
+  },
+  {
+    "comment": "sqljson - Statement 5",
+    "query": "SELECT JSON('{ \"a\" : 1 } ' FORMAT JSON ENCODING UTF8)",
+    "expected": "SELECT JSON('{ \"a\" : 1 } ' FORMAT JSON)"
+  },
+  {
+    "comment": "sqljson - Statement 6",
+    "query": "SELECT JSON('{ \"a\" : 1 } '::bytea FORMAT JSON ENCODING UTF8)",
+    "expected": "SELECT JSON(CAST('{ \"a\" : 1 } ' AS BYTEA) FORMAT JSON)"
+  },
+  {
+    "comment": "sqljson - Statement 7",
+    "query": "SELECT pg_typeof(JSON('{ \"a\" : 1 } '))"
+  },
+  {
+    "comment": "sqljson - Statement 8",
+    "query": "SELECT JSON('   1   '::json)",
+    "expected": "SELECT JSON(CAST('   1   ' AS JSON))"
+  },
+  {
+    "comment": "sqljson - Statement 9",
+    "query": "SELECT JSON('   1   '::jsonb)",
+    "expected": "SELECT JSON(CAST('   1   ' AS JSONB))"
+  },
+  {
+    "comment": "sqljson - Statement 10",
+    "query": "SELECT JSON('   1   '::json WITH UNIQUE KEYS)",
+    "expected": "SELECT JSON(CAST('   1   ' AS JSON))"
+  },
+  {
+    "comment": "sqljson - Statement 11",
+    "query": "SELECT JSON(123)"
+  },
+  {
+    "comment": "sqljson - Statement 12",
+    "query": "SELECT JSON('{\"a\": 1, \"a\": 2}')"
+  },
+  {
+    "comment": "sqljson - Statement 13",
+    "query": "SELECT JSON('{\"a\": 1, \"a\": 2}' WITH UNIQUE KEYS)",
+    "expected": "SELECT JSON('{\"a\": 1, \"a\": 2}')"
+  },
+  {
+    "comment": "sqljson - Statement 14",
+    "query": "SELECT JSON('{\"a\": 1, \"a\": 2}' WITHOUT UNIQUE KEYS)",
+    "expected": "SELECT JSON('{\"a\": 1, \"a\": 2}')"
+  },
+  {
+    "comment": "sqljson - Statement 15",
+    "query": "EXPLAIN (VERBOSE, COSTS OFF) SELECT JSON('123')",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) SELECT JSON('123')"
+  },
+  {
+    "comment": "sqljson - Statement 16",
+    "query": "EXPLAIN (VERBOSE, COSTS OFF) SELECT JSON('123' FORMAT JSON)",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) SELECT JSON('123' FORMAT JSON)"
+  },
+  {
+    "comment": "sqljson - Statement 17",
+    "query": "EXPLAIN (VERBOSE, COSTS OFF) SELECT JSON('123'::bytea FORMAT JSON)",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) SELECT JSON(CAST('123' AS BYTEA) FORMAT JSON)"
+  },
+  {
+    "comment": "sqljson - Statement 18",
+    "query": "EXPLAIN (VERBOSE, COSTS OFF) SELECT JSON('123'::bytea FORMAT JSON ENCODING UTF8)",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) SELECT JSON(CAST('123' AS BYTEA) FORMAT JSON)"
+  },
+  {
+    "comment": "sqljson - Statement 19",
+    "query": "EXPLAIN (VERBOSE, COSTS OFF) SELECT JSON('123' WITH UNIQUE KEYS)",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) SELECT JSON('123')"
+  },
+  {
+    "comment": "sqljson - Statement 20",
+    "query": "EXPLAIN (VERBOSE, COSTS OFF) SELECT JSON('123' WITHOUT UNIQUE KEYS)",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) SELECT JSON('123')"
+  },
+  {
+    "comment": "sqljson - Statement 21",
+    "query": "SELECT pg_typeof(JSON('123'))"
+  },
+  {
+    "comment": "sqljson - Statement 22",
+    "query": "SELECT JSON_SCALAR()",
+    "error": "parse error at position 20: syntax error"
+  },
+  {
+    "comment": "sqljson - Statement 23",
+    "query": "SELECT JSON_SCALAR(NULL)"
+  },
+  {
+    "comment": "sqljson - Statement 24",
+    "query": "SELECT JSON_SCALAR(NULL::int)",
+    "expected": "SELECT JSON_SCALAR(CAST(NULL AS INT))"
+  },
+  {
+    "comment": "sqljson - Statement 25",
+    "query": "SELECT JSON_SCALAR(123)"
+  },
+  {
+    "comment": "sqljson - Statement 26",
+    "query": "SELECT JSON_SCALAR(123.45)"
+  },
+  {
+    "comment": "sqljson - Statement 27",
+    "query": "SELECT JSON_SCALAR(123.45::numeric)",
+    "expected": "SELECT JSON_SCALAR(CAST(123.45 AS NUMERIC))"
+  },
+  {
+    "comment": "sqljson - Statement 28",
+    "query": "SELECT JSON_SCALAR(true)",
+    "expected": "SELECT JSON_SCALAR(TRUE)"
+  },
+  {
+    "comment": "sqljson - Statement 29",
+    "query": "SELECT JSON_SCALAR(false)",
+    "expected": "SELECT JSON_SCALAR(FALSE)"
+  },
+  {
+    "comment": "sqljson - Statement 30",
+    "query": "SELECT JSON_SCALAR(' 123.45')"
+  },
+  {
+    "comment": "sqljson - Statement 31",
+    "query": "SELECT JSON_SCALAR('2020-06-07'::date)",
+    "expected": "SELECT JSON_SCALAR(CAST('2020-06-07' AS DATE))"
+  },
+  {
+    "comment": "sqljson - Statement 32",
+    "query": "SELECT JSON_SCALAR('2020-06-07 01:02:03'::timestamp)",
+    "expected": "SELECT JSON_SCALAR(CAST('2020-06-07 01:02:03' AS TIMESTAMP))"
+  },
+  {
+    "comment": "sqljson - Statement 33",
+    "query": "SELECT JSON_SCALAR('{}'::json)",
+    "expected": "SELECT JSON_SCALAR(CAST('{}' AS JSON))"
+  },
+  {
+    "comment": "sqljson - Statement 34",
+    "query": "SELECT JSON_SCALAR('{}'::jsonb)",
+    "expected": "SELECT JSON_SCALAR(CAST('{}' AS JSONB))"
+  },
+  {
+    "comment": "sqljson - Statement 35",
+    "query": "EXPLAIN (VERBOSE, COSTS OFF) SELECT JSON_SCALAR(123)",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) SELECT JSON_SCALAR(123)"
+  },
+  {
+    "comment": "sqljson - Statement 36",
+    "query": "EXPLAIN (VERBOSE, COSTS OFF) SELECT JSON_SCALAR('123')",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) SELECT JSON_SCALAR('123')"
+  },
+  {
+    "comment": "sqljson - Statement 37",
+    "query": "SELECT JSON_SERIALIZE()",
+    "error": "parse error at position 23: syntax error"
+  },
+  {
+    "comment": "sqljson - Statement 38",
+    "query": "SELECT JSON_SERIALIZE(NULL)"
+  },
+  {
+    "comment": "sqljson - Statement 39",
+    "query": "SELECT JSON_SERIALIZE(JSON('{ \"a\" : 1 } '))"
+  },
+  {
+    "comment": "sqljson - Statement 40",
+    "query": "SELECT JSON_SERIALIZE('{ \"a\" : 1 } ')"
+  },
+  {
+    "comment": "sqljson - Statement 41",
+    "query": "SELECT JSON_SERIALIZE('1')"
+  },
+  {
+    "comment": "sqljson - Statement 42",
+    "query": "SELECT JSON_SERIALIZE('1' FORMAT JSON)"
+  },
+  {
+    "comment": "sqljson - Statement 43",
+    "query": "SELECT JSON_SERIALIZE('{ \"a\" : 1 } ' RETURNING bytea)",
+    "expected": "SELECT JSON_SERIALIZE('{ \"a\" : 1 } ' RETURNING BYTEA)"
+  },
+  {
+    "comment": "sqljson - Statement 44",
+    "query": "SELECT JSON_SERIALIZE('{ \"a\" : 1 } ' RETURNING varchar)",
+    "expected": "SELECT JSON_SERIALIZE('{ \"a\" : 1 } ' RETURNING VARCHAR)"
+  },
+  {
+    "comment": "sqljson - Statement 45",
+    "query": "SELECT pg_typeof(JSON_SERIALIZE(NULL))"
+  },
+  {
+    "comment": "sqljson - Statement 46",
+    "query": "SELECT JSON_SERIALIZE('{ \"a\" : 1 } ' RETURNING jsonb)",
+    "expected": "SELECT JSON_SERIALIZE('{ \"a\" : 1 } ' RETURNING JSONB)"
+  },
+  {
+    "comment": "sqljson - Statement 47",
+    "query": "EXPLAIN (VERBOSE, COSTS OFF) SELECT JSON_SERIALIZE('{}')",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) SELECT JSON_SERIALIZE('{}')"
+  },
+  {
+    "comment": "sqljson - Statement 48",
+    "query": "EXPLAIN (VERBOSE, COSTS OFF) SELECT JSON_SERIALIZE('{}' RETURNING bytea)",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) SELECT JSON_SERIALIZE('{}' RETURNING BYTEA)"
+  },
+  {
+    "comment": "sqljson - Statement 49",
+    "query": "SELECT JSON_OBJECT()"
+  },
+  {
+    "comment": "sqljson - Statement 50",
+    "query": "SELECT JSON_OBJECT(RETURNING json)",
+    "expected": "SELECT JSON_OBJECT( RETURNING JSON)"
+  },
+  {
+    "comment": "sqljson - Statement 51",
+    "query": "SELECT JSON_OBJECT(RETURNING json FORMAT JSON)",
+    "expected": "SELECT JSON_OBJECT( RETURNING JSON)"
+  },
+  {
+    "comment": "sqljson - Statement 52",
+    "query": "SELECT JSON_OBJECT(RETURNING jsonb)",
+    "expected": "SELECT JSON_OBJECT( RETURNING JSONB)"
+  },
+  {
+    "comment": "sqljson - Statement 53",
+    "query": "SELECT JSON_OBJECT(RETURNING jsonb FORMAT JSON)",
+    "expected": "SELECT JSON_OBJECT( RETURNING JSONB)"
+  },
+  {
+    "comment": "sqljson - Statement 54",
+    "query": "SELECT JSON_OBJECT(RETURNING text)",
+    "expected": "SELECT JSON_OBJECT( RETURNING TEXT)"
+  },
+  {
+    "comment": "sqljson - Statement 55",
+    "query": "SELECT JSON_OBJECT(RETURNING text FORMAT JSON)",
+    "expected": "SELECT JSON_OBJECT( RETURNING TEXT)"
+  },
+  {
+    "comment": "sqljson - Statement 56",
+    "query": "SELECT JSON_OBJECT(RETURNING text FORMAT JSON ENCODING UTF8)",
+    "expected": "SELECT JSON_OBJECT( RETURNING TEXT)"
+  },
+  {
+    "comment": "sqljson - Statement 57",
+    "query": "SELECT JSON_OBJECT(RETURNING text FORMAT JSON ENCODING INVALID_ENCODING)",
+    "expected": "SELECT JSON_OBJECT( RETURNING TEXT)"
+  },
+  {
+    "comment": "sqljson - Statement 58",
+    "query": "SELECT JSON_OBJECT(RETURNING bytea)",
+    "expected": "SELECT JSON_OBJECT( RETURNING BYTEA)"
+  },
+  {
+    "comment": "sqljson - Statement 59",
+    "query": "SELECT JSON_OBJECT(RETURNING bytea FORMAT JSON)",
+    "expected": "SELECT JSON_OBJECT( RETURNING BYTEA)"
+  },
+  {
+    "comment": "sqljson - Statement 60",
+    "query": "SELECT JSON_OBJECT(RETURNING bytea FORMAT JSON ENCODING UTF8)",
+    "expected": "SELECT JSON_OBJECT( RETURNING BYTEA)"
+  },
+  {
+    "comment": "sqljson - Statement 61",
+    "query": "SELECT JSON_OBJECT(RETURNING bytea FORMAT JSON ENCODING UTF16)",
+    "expected": "SELECT JSON_OBJECT( RETURNING BYTEA)"
+  },
+  {
+    "comment": "sqljson - Statement 62",
+    "query": "SELECT JSON_OBJECT(RETURNING bytea FORMAT JSON ENCODING UTF32)",
+    "expected": "SELECT JSON_OBJECT( RETURNING BYTEA)"
+  },
+  {
+    "comment": "sqljson - Statement 63",
+    "query": "SELECT JSON_OBJECT('foo': NULL::int FORMAT JSON)",
+    "expected": "SELECT JSON_OBJECT('foo' : CAST(NULL AS INT) FORMAT JSON)"
+  },
+  {
+    "comment": "sqljson - Statement 64",
+    "query": "SELECT JSON_OBJECT('foo': NULL::int FORMAT JSON ENCODING UTF8)",
+    "expected": "SELECT JSON_OBJECT('foo' : CAST(NULL AS INT) FORMAT JSON)"
+  },
+  {
+    "comment": "sqljson - Statement 65",
+    "query": "SELECT JSON_OBJECT('foo': NULL::json FORMAT JSON)",
+    "expected": "SELECT JSON_OBJECT('foo' : CAST(NULL AS JSON) FORMAT JSON)"
+  },
+  {
+    "comment": "sqljson - Statement 66",
+    "query": "SELECT JSON_OBJECT('foo': NULL::json FORMAT JSON ENCODING UTF8)",
+    "expected": "SELECT JSON_OBJECT('foo' : CAST(NULL AS JSON) FORMAT JSON)"
+  },
+  {
+    "comment": "sqljson - Statement 67",
+    "query": "SELECT JSON_OBJECT('foo': NULL::jsonb FORMAT JSON)",
+    "expected": "SELECT JSON_OBJECT('foo' : CAST(NULL AS JSONB) FORMAT JSON)"
+  },
+  {
+    "comment": "sqljson - Statement 68",
+    "query": "SELECT JSON_OBJECT('foo': NULL::jsonb FORMAT JSON ENCODING UTF8)",
+    "expected": "SELECT JSON_OBJECT('foo' : CAST(NULL AS JSONB) FORMAT JSON)"
+  },
+  {
+    "comment": "sqljson - Statement 69",
+    "query": "SELECT JSON_OBJECT(NULL: 1)",
+    "expected": "SELECT JSON_OBJECT(NULL : 1)"
+  },
+  {
+    "comment": "sqljson - Statement 70",
+    "query": "SELECT JSON_OBJECT('a': 2 + 3)",
+    "expected": "SELECT JSON_OBJECT('a' : 2 + 3)"
+  },
+  {
+    "comment": "sqljson - Statement 71",
+    "query": "SELECT JSON_OBJECT('a' VALUE 2 + 3)",
+    "expected": "SELECT JSON_OBJECT('a' : 2 + 3)"
+  },
+  {
+    "comment": "sqljson - Statement 72",
+    "query": "SELECT JSON_OBJECT('a' || 2: 1)",
+    "expected": "SELECT JSON_OBJECT('a' || 2 : 1)"
+  },
+  {
+    "comment": "sqljson - Statement 73",
+    "query": "SELECT JSON_OBJECT(('a' || 2) VALUE 1)",
+    "expected": "SELECT JSON_OBJECT(('a' || 2) : 1)"
+  },
+  {
+    "comment": "sqljson - Statement 74",
+    "query": "SELECT JSON_OBJECT('a': 2::text)",
+    "expected": "SELECT JSON_OBJECT('a' : CAST(2 AS TEXT))"
+  },
+  {
+    "comment": "sqljson - Statement 75",
+    "query": "SELECT JSON_OBJECT('a' VALUE 2::text)",
+    "expected": "SELECT JSON_OBJECT('a' : CAST(2 AS TEXT))"
+  },
+  {
+    "comment": "sqljson - Statement 76",
+    "query": "SELECT JSON_OBJECT(1::text: 2)",
+    "expected": "SELECT JSON_OBJECT(CAST(1 AS TEXT) : 2)"
+  },
+  {
+    "comment": "sqljson - Statement 77",
+    "query": "SELECT JSON_OBJECT((1::text) VALUE 2)",
+    "expected": "SELECT JSON_OBJECT((CAST(1 AS TEXT)) : 2)"
+  },
+  {
+    "comment": "sqljson - Statement 78",
+    "query": "SELECT JSON_OBJECT(json '[1]': 123)",
+    "expected": "SELECT JSON_OBJECT(CAST('[1]' AS JSON) : 123)"
+  },
+  {
+    "comment": "sqljson - Statement 79",
+    "query": "SELECT JSON_OBJECT(ARRAY[1,2,3]: 'aaa')",
+    "expected": "SELECT JSON_OBJECT(ARRAY[1,2,3] : 'aaa')"
+  },
+  {
+    "comment": "sqljson - Statement 80",
+    "query": "SELECT JSON_OBJECT( 'a': '123', 1.23: 123, 'c': json '[ 1,true,{ } ]', 'd': jsonb '{ \"x\" : 123.45 }' )",
+    "expected": "SELECT JSON_OBJECT('a' : '123', 1.23 : 123, 'c' : CAST('[ 1,true,{ } ]' AS JSON), 'd' : CAST('{ \"x\" : 123.45 }' AS JSONB))"
+  },
+  {
+    "comment": "sqljson - Statement 81",
+    "query": "SELECT JSON_OBJECT( 'a': '123', 1.23: 123, 'c': json '[ 1,true,{ } ]', 'd': jsonb '{ \"x\" : 123.45 }' RETURNING jsonb )",
+    "expected": "SELECT JSON_OBJECT('a' : '123', 1.23 : 123, 'c' : CAST('[ 1,true,{ } ]' AS JSON), 'd' : CAST('{ \"x\" : 123.45 }' AS JSONB) RETURNING JSONB)"
+  },
+  {
+    "comment": "sqljson - Statement 82",
+    "query": "SELECT JSON_OBJECT( 'a': '123', KEY 1.23 VALUE 123, 'c' VALUE json '[1, true, {}]' )",
+    "error": "parse error at position 40: syntax error"
+  },
+  {
+    "comment": "sqljson - Statement 83",
+    "query": "SELECT JSON_OBJECT('a': '123', 'b': JSON_OBJECT('a': 111, 'b': 'aaa'))",
+    "expected": "SELECT JSON_OBJECT('a' : '123', 'b' : JSON_OBJECT('a' : 111, 'b' : 'aaa'))"
+  },
+  {
+    "comment": "sqljson - Statement 84",
+    "query": "SELECT JSON_OBJECT('a': '123', 'b': JSON_OBJECT('a': 111, 'b': 'aaa' RETURNING jsonb))",
+    "expected": "SELECT JSON_OBJECT('a' : '123', 'b' : JSON_OBJECT('a' : 111, 'b' : 'aaa' RETURNING JSONB))"
+  },
+  {
+    "comment": "sqljson - Statement 85",
+    "query": "SELECT JSON_OBJECT('a': JSON_OBJECT('b': 1 RETURNING text))",
+    "expected": "SELECT JSON_OBJECT('a' : JSON_OBJECT('b' : 1 RETURNING TEXT))"
+  },
+  {
+    "comment": "sqljson - Statement 86",
+    "query": "SELECT JSON_OBJECT('a': JSON_OBJECT('b': 1 RETURNING text) FORMAT JSON)",
+    "expected": "SELECT JSON_OBJECT('a' : JSON_OBJECT('b' : 1 RETURNING TEXT) FORMAT JSON)"
+  },
+  {
+    "comment": "sqljson - Statement 87",
+    "query": "SELECT JSON_OBJECT('a': JSON_OBJECT('b': 1 RETURNING bytea))",
+    "expected": "SELECT JSON_OBJECT('a' : JSON_OBJECT('b' : 1 RETURNING BYTEA))"
+  },
+  {
+    "comment": "sqljson - Statement 88",
+    "query": "SELECT JSON_OBJECT('a': JSON_OBJECT('b': 1 RETURNING bytea) FORMAT JSON)",
+    "expected": "SELECT JSON_OBJECT('a' : JSON_OBJECT('b' : 1 RETURNING BYTEA) FORMAT JSON)"
+  },
+  {
+    "comment": "sqljson - Statement 89",
+    "query": "SELECT JSON_OBJECT('a': '1', 'b': NULL, 'c': 2)",
+    "expected": "SELECT JSON_OBJECT('a' : '1', 'b' : NULL, 'c' : 2)"
+  },
+  {
+    "comment": "sqljson - Statement 90",
+    "query": "SELECT JSON_OBJECT('a': '1', 'b': NULL, 'c': 2 NULL ON NULL)",
+    "expected": "SELECT JSON_OBJECT('a' : '1', 'b' : NULL, 'c' : 2)"
+  },
+  {
+    "comment": "sqljson - Statement 91",
+    "query": "SELECT JSON_OBJECT('a': '1', 'b': NULL, 'c': 2 ABSENT ON NULL)",
+    "expected": "SELECT JSON_OBJECT('a' : '1', 'b' : NULL, 'c' : 2)"
+  },
+  {
+    "comment": "sqljson - Statement 92",
+    "query": "SELECT JSON_OBJECT(1: 1, '2': NULL, '3': 1, repeat('x', 1000): 1, 2: repeat('a', 100) WITH UNIQUE)",
+    "expected": "SELECT JSON_OBJECT(1 : 1, '2' : NULL, '3' : 1, repeat('x', 1000) : 1, 2 : repeat('a', 100))"
+  },
+  {
+    "comment": "sqljson - Statement 93",
+    "query": "SELECT JSON_OBJECT(1: 1, '1': NULL WITH UNIQUE)",
+    "expected": "SELECT JSON_OBJECT(1 : 1, '1' : NULL)"
+  },
+  {
+    "comment": "sqljson - Statement 94",
+    "query": "SELECT JSON_OBJECT(1: 1, '1': NULL ABSENT ON NULL WITH UNIQUE)",
+    "expected": "SELECT JSON_OBJECT(1 : 1, '1' : NULL)"
+  },
+  {
+    "comment": "sqljson - Statement 95",
+    "query": "SELECT JSON_OBJECT(1: 1, '1': NULL NULL ON NULL WITH UNIQUE RETURNING jsonb)",
+    "expected": "SELECT JSON_OBJECT(1 : 1, '1' : NULL RETURNING JSONB)"
+  },
+  {
+    "comment": "sqljson - Statement 96",
+    "query": "SELECT JSON_OBJECT(1: 1, '1': NULL ABSENT ON NULL WITH UNIQUE RETURNING jsonb)",
+    "expected": "SELECT JSON_OBJECT(1 : 1, '1' : NULL RETURNING JSONB)"
+  },
+  {
+    "comment": "sqljson - Statement 97",
+    "query": "SELECT JSON_OBJECT(1: 1, '2': NULL, '1': 1 NULL ON NULL WITH UNIQUE)",
+    "expected": "SELECT JSON_OBJECT(1 : 1, '2' : NULL, '1' : 1)"
+  },
+  {
+    "comment": "sqljson - Statement 98",
+    "query": "SELECT JSON_OBJECT(1: 1, '2': NULL, '1': 1 ABSENT ON NULL WITH UNIQUE)",
+    "expected": "SELECT JSON_OBJECT(1 : 1, '2' : NULL, '1' : 1)"
+  },
+  {
+    "comment": "sqljson - Statement 99",
+    "query": "SELECT JSON_OBJECT(1: 1, '2': NULL, '1': 1 ABSENT ON NULL WITHOUT UNIQUE)",
+    "expected": "SELECT JSON_OBJECT(1 : 1, '2' : NULL, '1' : 1)"
+  },
+  {
+    "comment": "sqljson - Statement 100",
+    "query": "SELECT JSON_OBJECT(1: 1, '2': NULL, '1': 1 ABSENT ON NULL WITH UNIQUE RETURNING jsonb)",
+    "expected": "SELECT JSON_OBJECT(1 : 1, '2' : NULL, '1' : 1 RETURNING JSONB)"
+  },
+  {
+    "comment": "sqljson - Statement 101",
+    "query": "SELECT JSON_OBJECT(1: 1, '2': NULL, '1': 1 ABSENT ON NULL WITHOUT UNIQUE RETURNING jsonb)",
+    "expected": "SELECT JSON_OBJECT(1 : 1, '2' : NULL, '1' : 1 RETURNING JSONB)"
+  },
+  {
+    "comment": "sqljson - Statement 102",
+    "query": "SELECT JSON_OBJECT(1: 1, '2': NULL, '3': 1, 4: NULL, '5': 'a' ABSENT ON NULL WITH UNIQUE RETURNING jsonb)",
+    "expected": "SELECT JSON_OBJECT(1 : 1, '2' : NULL, '3' : 1, 4 : NULL, '5' : 'a' RETURNING JSONB)"
+  },
+  {
+    "comment": "sqljson - Statement 103",
+    "query": "CREATE TYPE mood AS ENUM ('happy', 'sad', 'neutral')"
+  },
+  {
+    "comment": "sqljson - Statement 104",
+    "query": "CREATE FUNCTION mood_to_json(mood) RETURNS json AS $$ SELECT to_json($1::text); $$ LANGUAGE sql IMMUTABLE",
+    "expected": "CREATE FUNCTION mood_to_json (mood) RETURNS JSON AS $$ SELECT to_json($1::text); $$ LANGUAGE sql IMMUTABLE"
+  },
+  {
+    "comment": "sqljson - Statement 105",
+    "query": "CREATE CAST (mood AS json) WITH FUNCTION mood_to_json(mood) AS IMPLICIT",
+    "expected": "CREATE CAST (mood AS JSON) WITH FUNCTION mood_to_json(mood) AS IMPLICIT"
+  },
+  {
+    "comment": "sqljson - Statement 106",
+    "query": "SELECT JSON_OBJECT('happy'::mood: '123'::jsonb)",
+    "expected": "SELECT JSON_OBJECT(CAST('happy' AS mood) : CAST('123' AS JSONB))"
+  },
+  {
+    "comment": "sqljson - Statement 107",
+    "query": "DROP CAST (mood AS json)",
+    "expected": "DROP CAST ( mood AS JSON ) RESTRICT"
+  },
+  {
+    "comment": "sqljson - Statement 108",
+    "query": "DROP FUNCTION mood_to_json"
+  },
+  {
+    "comment": "sqljson - Statement 109",
+    "query": "DROP TYPE mood"
+  },
+  {
+    "comment": "sqljson - Statement 110",
+    "query": "SELECT JSON_ARRAY()"
+  },
+  {
+    "comment": "sqljson - Statement 111",
+    "query": "SELECT JSON_ARRAY(RETURNING json)",
+    "expected": "SELECT JSON_ARRAY( RETURNING JSON)"
+  },
+  {
+    "comment": "sqljson - Statement 112",
+    "query": "SELECT JSON_ARRAY(RETURNING json FORMAT JSON)",
+    "expected": "SELECT JSON_ARRAY( RETURNING JSON)"
+  },
+  {
+    "comment": "sqljson - Statement 113",
+    "query": "SELECT JSON_ARRAY(RETURNING jsonb)",
+    "expected": "SELECT JSON_ARRAY( RETURNING JSONB)"
+  },
+  {
+    "comment": "sqljson - Statement 114",
+    "query": "SELECT JSON_ARRAY(RETURNING jsonb FORMAT JSON)",
+    "expected": "SELECT JSON_ARRAY( RETURNING JSONB)"
+  },
+  {
+    "comment": "sqljson - Statement 115",
+    "query": "SELECT JSON_ARRAY(RETURNING text)",
+    "expected": "SELECT JSON_ARRAY( RETURNING TEXT)"
+  },
+  {
+    "comment": "sqljson - Statement 116",
+    "query": "SELECT JSON_ARRAY(RETURNING text FORMAT JSON)",
+    "expected": "SELECT JSON_ARRAY( RETURNING TEXT)"
+  },
+  {
+    "comment": "sqljson - Statement 117",
+    "query": "SELECT JSON_ARRAY(RETURNING text FORMAT JSON ENCODING UTF8)",
+    "expected": "SELECT JSON_ARRAY( RETURNING TEXT)"
+  },
+  {
+    "comment": "sqljson - Statement 118",
+    "query": "SELECT JSON_ARRAY(RETURNING text FORMAT JSON ENCODING INVALID_ENCODING)",
+    "expected": "SELECT JSON_ARRAY( RETURNING TEXT)"
+  },
+  {
+    "comment": "sqljson - Statement 119",
+    "query": "SELECT JSON_ARRAY(RETURNING bytea)",
+    "expected": "SELECT JSON_ARRAY( RETURNING BYTEA)"
+  },
+  {
+    "comment": "sqljson - Statement 120",
+    "query": "SELECT JSON_ARRAY(RETURNING bytea FORMAT JSON)",
+    "expected": "SELECT JSON_ARRAY( RETURNING BYTEA)"
+  },
+  {
+    "comment": "sqljson - Statement 121",
+    "query": "SELECT JSON_ARRAY(RETURNING bytea FORMAT JSON ENCODING UTF8)",
+    "expected": "SELECT JSON_ARRAY( RETURNING BYTEA)"
+  },
+  {
+    "comment": "sqljson - Statement 122",
+    "query": "SELECT JSON_ARRAY(RETURNING bytea FORMAT JSON ENCODING UTF16)",
+    "expected": "SELECT JSON_ARRAY( RETURNING BYTEA)"
+  },
+  {
+    "comment": "sqljson - Statement 123",
+    "query": "SELECT JSON_ARRAY(RETURNING bytea FORMAT JSON ENCODING UTF32)",
+    "expected": "SELECT JSON_ARRAY( RETURNING BYTEA)"
+  },
+  {
+    "comment": "sqljson - Statement 124",
+    "query": "SELECT JSON_ARRAY('aaa', 111, true, array[1,2,3], NULL, json '{\"a\": [1]}', jsonb '[\"a\",3]')",
+    "expected": "SELECT JSON_ARRAY('aaa', 111, TRUE, ARRAY[1,2,3], NULL, CAST('{\"a\": [1]}' AS JSON), CAST('[\"a\",3]' AS JSONB))"
+  },
+  {
+    "comment": "sqljson - Statement 125",
+    "query": "SELECT JSON_ARRAY('a',  NULL, 'b' NULL   ON NULL)",
+    "expected": "SELECT JSON_ARRAY('a', NULL, 'b')"
+  },
+  {
+    "comment": "sqljson - Statement 126",
+    "query": "SELECT JSON_ARRAY('a',  NULL, 'b' ABSENT ON NULL)",
+    "expected": "SELECT JSON_ARRAY('a', NULL, 'b')"
+  },
+  {
+    "comment": "sqljson - Statement 127",
+    "query": "SELECT JSON_ARRAY(NULL, NULL, 'b' ABSENT ON NULL)",
+    "expected": "SELECT JSON_ARRAY(NULL, NULL, 'b')"
+  },
+  {
+    "comment": "sqljson - Statement 128",
+    "query": "SELECT JSON_ARRAY('a',  NULL, 'b' NULL   ON NULL RETURNING jsonb)",
+    "expected": "SELECT JSON_ARRAY('a', NULL, 'b' RETURNING JSONB)"
+  },
+  {
+    "comment": "sqljson - Statement 129",
+    "query": "SELECT JSON_ARRAY('a',  NULL, 'b' ABSENT ON NULL RETURNING jsonb)",
+    "expected": "SELECT JSON_ARRAY('a', NULL, 'b' RETURNING JSONB)"
+  },
+  {
+    "comment": "sqljson - Statement 130",
+    "query": "SELECT JSON_ARRAY(NULL, NULL, 'b' ABSENT ON NULL RETURNING jsonb)",
+    "expected": "SELECT JSON_ARRAY(NULL, NULL, 'b' RETURNING JSONB)"
+  },
+  {
+    "comment": "sqljson - Statement 131",
+    "query": "SELECT JSON_ARRAY(JSON_ARRAY('{ \"a\" : 123 }' RETURNING text))",
+    "expected": "SELECT JSON_ARRAY(JSON_ARRAY('{ \"a\" : 123 }' RETURNING TEXT))"
+  },
+  {
+    "comment": "sqljson - Statement 132",
+    "query": "SELECT JSON_ARRAY(JSON_ARRAY('{ \"a\" : 123 }' FORMAT JSON RETURNING text))",
+    "expected": "SELECT JSON_ARRAY(JSON_ARRAY('{ \"a\" : 123 }' FORMAT JSON RETURNING TEXT))"
+  },
+  {
+    "comment": "sqljson - Statement 133",
+    "query": "SELECT JSON_ARRAY(JSON_ARRAY('{ \"a\" : 123 }' FORMAT JSON RETURNING text) FORMAT JSON)",
+    "expected": "SELECT JSON_ARRAY(JSON_ARRAY('{ \"a\" : 123 }' FORMAT JSON RETURNING TEXT) FORMAT JSON)"
+  },
+  {
+    "comment": "sqljson - Statement 134",
+    "query": "SELECT JSON_ARRAY(SELECT i FROM (VALUES (1), (2), (NULL), (4)) foo(i))",
+    "expected": "SELECT JSON_ARRAY(SELECT i FROM (VALUES (1), (2), (NULL), (4)) AS foo(i))"
+  },
+  {
+    "comment": "sqljson - Statement 135",
+    "query": "SELECT JSON_ARRAY(SELECT i FROM (VALUES (NULL::int[]), ('{1,2}'), (NULL), (NULL), ('{3,4}'), (NULL)) foo(i))",
+    "expected": "SELECT JSON_ARRAY(SELECT i FROM (VALUES (CAST(NULL AS INT[])), ('{1,2}'), (NULL), (NULL), ('{3,4}'), (NULL)) AS foo(i))"
+  },
+  {
+    "comment": "sqljson - Statement 136",
+    "query": "SELECT JSON_ARRAY(SELECT i FROM (VALUES (NULL::int[]), ('{1,2}'), (NULL), (NULL), ('{3,4}'), (NULL)) foo(i) RETURNING jsonb)",
+    "expected": "SELECT JSON_ARRAY(SELECT i FROM (VALUES (CAST(NULL AS INT[])), ('{1,2}'), (NULL), (NULL), ('{3,4}'), (NULL)) AS foo(i) RETURNING JSONB)"
+  },
+  {
+    "comment": "sqljson - Statement 137",
+    "query": "SELECT JSON_ARRAY(SELECT i FROM (VALUES (3), (1), (NULL), (2)) foo(i) ORDER BY i)",
+    "expected": "SELECT JSON_ARRAY(SELECT i FROM (VALUES (3), (1), (NULL), (2)) AS foo(i) ORDER BY i)"
+  },
+  {
+    "comment": "sqljson - Statement 138",
+    "query": "SELECT JSON_ARRAY(WITH x AS (SELECT 1) VALUES (TRUE))",
+    "expected": "SELECT JSON_ARRAY(VALUES (TRUE))"
+  },
+  {
+    "comment": "sqljson - Statement 139",
+    "query": "SELECT JSON_ARRAY(SELECT FROM (VALUES (1)) foo(i))",
+    "expected": "SELECT JSON_ARRAY(SELECT * FROM (VALUES (1)) AS foo(i))"
+  },
+  {
+    "comment": "sqljson - Statement 140",
+    "query": "SELECT JSON_ARRAY(SELECT i, i FROM (VALUES (1)) foo(i))",
+    "expected": "SELECT JSON_ARRAY(SELECT i, i FROM (VALUES (1)) AS foo(i))"
+  },
+  {
+    "comment": "sqljson - Statement 141",
+    "query": "SELECT JSON_ARRAY(SELECT * FROM (VALUES (1, 2)) foo(i, j))",
+    "expected": "SELECT JSON_ARRAY(SELECT * FROM (VALUES (1, 2)) AS foo(i, j))"
+  },
+  {
+    "comment": "sqljson - Statement 142",
+    "query": "SELECT\tJSON_ARRAYAGG(i) IS NULL, JSON_ARRAYAGG(i RETURNING jsonb) IS NULL FROM generate_series(1, 0) i",
+    "expected": "SELECT JSON_ARRAYAGG(i) IS NULL, JSON_ARRAYAGG(i RETURNING JSONB) IS NULL FROM generate_series(1, 0) AS i"
+  },
+  {
+    "comment": "sqljson - Statement 143",
+    "query": "SELECT\tJSON_ARRAYAGG(i), JSON_ARRAYAGG(i RETURNING jsonb) FROM generate_series(1, 5) i",
+    "expected": "SELECT JSON_ARRAYAGG(i), JSON_ARRAYAGG(i RETURNING JSONB) FROM generate_series(1, 5) AS i"
+  },
+  {
+    "comment": "sqljson - Statement 144",
+    "query": "SELECT JSON_ARRAYAGG(i ORDER BY i DESC) FROM generate_series(1, 5) i",
+    "expected": "SELECT JSON_ARRAYAGG(i) FROM generate_series(1, 5) AS i"
+  },
+  {
+    "comment": "sqljson - Statement 145",
+    "query": "SELECT JSON_ARRAYAGG(i::text::json) FROM generate_series(1, 5) i",
+    "expected": "SELECT JSON_ARRAYAGG(CAST(CAST(i AS TEXT) AS JSON)) FROM generate_series(1, 5) AS i"
+  },
+  {
+    "comment": "sqljson - Statement 146",
+    "query": "SELECT JSON_ARRAYAGG(JSON_ARRAY(i, i + 1 RETURNING text) FORMAT JSON) FROM generate_series(1, 5) i",
+    "expected": "SELECT JSON_ARRAYAGG(JSON_ARRAY(i, i + 1 RETURNING TEXT) FORMAT JSON) FROM generate_series(1, 5) AS i"
+  },
+  {
+    "comment": "sqljson - Statement 147",
+    "query": "SELECT\tJSON_ARRAYAGG(NULL), JSON_ARRAYAGG(NULL RETURNING jsonb) FROM generate_series(1, 5)",
+    "expected": "SELECT JSON_ARRAYAGG(NULL), JSON_ARRAYAGG(NULL RETURNING JSONB) FROM generate_series(1, 5)"
+  },
+  {
+    "comment": "sqljson - Statement 148",
+    "query": "SELECT\tJSON_ARRAYAGG(NULL NULL ON NULL), JSON_ARRAYAGG(NULL NULL ON NULL RETURNING jsonb) FROM generate_series(1, 5)",
+    "expected": "SELECT JSON_ARRAYAGG(NULL), JSON_ARRAYAGG(NULL RETURNING JSONB) FROM generate_series(1, 5)"
+  },
+  {
+    "comment": "sqljson - Statement 149",
+    "query": "SELECT\tJSON_OBJECTAGG('key': 1) IS NULL, JSON_OBJECTAGG('key': 1 RETURNING jsonb) IS NULL WHERE FALSE",
+    "expected": "SELECT JSON_OBJECTAGG('key' : 1) IS NULL, JSON_OBJECTAGG('key' : 1 RETURNING JSONB) IS NULL WHERE FALSE"
+  },
+  {
+    "comment": "sqljson - Statement 150",
+    "query": "SELECT JSON_OBJECTAGG(NULL: 1)",
+    "expected": "SELECT JSON_OBJECTAGG(NULL : 1)"
+  },
+  {
+    "comment": "sqljson - Statement 151",
+    "query": "SELECT JSON_OBJECTAGG(NULL: 1 RETURNING jsonb)",
+    "expected": "SELECT JSON_OBJECTAGG(NULL : 1 RETURNING JSONB)"
+  },
+  {
+    "comment": "sqljson - Statement 152",
+    "query": "SELECT JSON_OBJECTAGG(i: i), JSON_OBJECTAGG(i: i RETURNING jsonb) FROM generate_series(1, 5) i",
+    "expected": "SELECT JSON_OBJECTAGG(i : i), JSON_OBJECTAGG(i : i RETURNING JSONB) FROM generate_series(1, 5) AS i"
+  },
+  {
+    "comment": "sqljson - Statement 153",
+    "query": "SELECT JSON_OBJECTAGG(k: v), JSON_OBJECTAGG(k: v NULL ON NULL), JSON_OBJECTAGG(k: v ABSENT ON NULL), JSON_OBJECTAGG(k: v RETURNING jsonb), JSON_OBJECTAGG(k: v NULL ON NULL RETURNING jsonb), JSON_OBJECTAGG(k: v ABSENT ON NULL RETURNING jsonb) FROM (VALUES (1, 1), (1, NULL), (2, NULL), (3, 3)) foo(k, v)",
+    "expected": "SELECT JSON_OBJECTAGG(k : v), JSON_OBJECTAGG(k : v), JSON_OBJECTAGG(k : v), JSON_OBJECTAGG(k : v RETURNING JSONB), JSON_OBJECTAGG(k : v RETURNING JSONB), JSON_OBJECTAGG(k : v RETURNING JSONB) FROM (VALUES (1, 1), (1, NULL), (2, NULL), (3, 3)) AS foo(k, v)"
+  },
+  {
+    "comment": "sqljson - Statement 154",
+    "query": "SELECT JSON_OBJECTAGG(k: v WITH UNIQUE KEYS) FROM (VALUES (1, 1), (1, NULL), (2, 2)) foo(k, v)",
+    "expected": "SELECT JSON_OBJECTAGG(k : v) FROM (VALUES (1, 1), (1, NULL), (2, 2)) AS foo(k, v)"
+  },
+  {
+    "comment": "sqljson - Statement 155",
+    "query": "SELECT JSON_OBJECTAGG(k: v ABSENT ON NULL WITH UNIQUE KEYS) FROM (VALUES (1, 1), (1, NULL), (2, 2)) foo(k, v)",
+    "expected": "SELECT JSON_OBJECTAGG(k : v) FROM (VALUES (1, 1), (1, NULL), (2, 2)) AS foo(k, v)"
+  },
+  {
+    "comment": "sqljson - Statement 156",
+    "query": "SELECT JSON_OBJECTAGG(k: v ABSENT ON NULL WITH UNIQUE KEYS) FROM (VALUES (1, 1), (0, NULL), (3, NULL), (2, 2), (4, NULL)) foo(k, v)",
+    "expected": "SELECT JSON_OBJECTAGG(k : v) FROM (VALUES (1, 1), (0, NULL), (3, NULL), (2, 2), (4, NULL)) AS foo(k, v)"
+  },
+  {
+    "comment": "sqljson - Statement 157",
+    "query": "SELECT JSON_OBJECTAGG(k: v WITH UNIQUE KEYS RETURNING jsonb) FROM (VALUES (1, 1), (1, NULL), (2, 2)) foo(k, v)",
+    "expected": "SELECT JSON_OBJECTAGG(k : v RETURNING JSONB) FROM (VALUES (1, 1), (1, NULL), (2, 2)) AS foo(k, v)"
+  },
+  {
+    "comment": "sqljson - Statement 158",
+    "query": "SELECT JSON_OBJECTAGG(k: v ABSENT ON NULL WITH UNIQUE KEYS RETURNING jsonb) FROM (VALUES (1, 1), (1, NULL), (2, 2)) foo(k, v)",
+    "expected": "SELECT JSON_OBJECTAGG(k : v RETURNING JSONB) FROM (VALUES (1, 1), (1, NULL), (2, 2)) AS foo(k, v)"
+  },
+  {
+    "comment": "sqljson - Statement 159",
+    "query": "SELECT JSON_OBJECTAGG(k: v ABSENT ON NULL WITH UNIQUE KEYS RETURNING jsonb) FROM (VALUES (1, 1), (0, NULL),(4, null), (5, null),(6, null),(2, 2)) foo(k, v)",
+    "expected": "SELECT JSON_OBJECTAGG(k : v RETURNING JSONB) FROM (VALUES (1, 1), (0, NULL), (4, NULL), (5, NULL), (6, NULL), (2, 2)) AS foo(k, v)"
+  },
+  {
+    "comment": "sqljson - Statement 160",
+    "query": "SELECT JSON_OBJECTAGG(mod(i,100): (i)::text FORMAT JSON WITH UNIQUE) FROM generate_series(0, 199) i",
+    "expected": "SELECT JSON_OBJECTAGG(mod(i, 100) : CAST((i) AS TEXT) FORMAT JSON) FROM generate_series(0, 199) AS i"
+  },
+  {
+    "comment": "sqljson - Statement 161",
+    "query": "EXPLAIN (VERBOSE, COSTS OFF) SELECT JSON_OBJECT('foo' : '1' FORMAT JSON, 'bar' : 'baz' RETURNING json)",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) SELECT JSON_OBJECT('foo' : '1' FORMAT JSON, 'bar' : 'baz' RETURNING JSON)"
+  },
+  {
+    "comment": "sqljson - Statement 162",
+    "query": "CREATE VIEW json_object_view AS SELECT JSON_OBJECT('foo' : '1' FORMAT JSON, 'bar' : 'baz' RETURNING json)",
+    "expected": "CREATE VIEW json_object_view AS SELECT JSON_OBJECT('foo' : '1' FORMAT JSON, 'bar' : 'baz' RETURNING JSON)"
+  },
+  {
+    "comment": "sqljson - Statement 163",
+    "query": "SELECT to_json(a) AS a, JSON_OBJECTAGG(k : v WITH UNIQUE KEYS) OVER (ORDER BY k) FROM (VALUES (1,1), (2,2)) a(k,v)",
+    "expected": "SELECT to_json(a) AS a, JSON_OBJECTAGG(k : v) OVER (ORDER BY k) FROM (VALUES (1, 1), (2, 2)) AS a(k, v)"
+  },
+  {
+    "comment": "sqljson - Statement 164",
+    "query": "SELECT to_json(a) AS a, JSON_OBJECTAGG(k : v WITH UNIQUE KEYS) OVER (ORDER BY k) FROM (VALUES (1,1), (1,2), (2,2)) a(k,v)",
+    "expected": "SELECT to_json(a) AS a, JSON_OBJECTAGG(k : v) OVER (ORDER BY k) FROM (VALUES (1, 1), (1, 2), (2, 2)) AS a(k, v)"
+  },
+  {
+    "comment": "sqljson - Statement 165",
+    "query": "SELECT to_json(a) AS a, JSON_OBJECTAGG(k : v ABSENT ON NULL WITH UNIQUE KEYS) OVER (ORDER BY k) FROM (VALUES (1,1), (1,null), (2,2)) a(k,v)",
+    "expected": "SELECT to_json(a) AS a, JSON_OBJECTAGG(k : v) OVER (ORDER BY k) FROM (VALUES (1, 1), (1, NULL), (2, 2)) AS a(k, v)"
+  },
+  {
+    "comment": "sqljson - Statement 166",
+    "query": "SELECT to_json(a) AS a, JSON_OBJECTAGG(k : v ABSENT ON NULL) OVER (ORDER BY k) FROM (VALUES (1,1), (1,null), (2,2)) a(k,v)",
+    "expected": "SELECT to_json(a) AS a, JSON_OBJECTAGG(k : v) OVER (ORDER BY k) FROM (VALUES (1, 1), (1, NULL), (2, 2)) AS a(k, v)"
+  },
+  {
+    "comment": "sqljson - Statement 167",
+    "query": "SELECT to_json(a) AS a, JSON_OBJECTAGG(k : v ABSENT ON NULL) OVER (ORDER BY k RANGE BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) FROM (VALUES (1,1), (1,null), (2,2)) a(k,v)",
+    "expected": "SELECT to_json(a) AS a, JSON_OBJECTAGG(k : v) OVER (ORDER BY k RANGE BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) FROM (VALUES (1, 1), (1, NULL), (2, 2)) AS a(k, v)"
+  },
+  {
+    "comment": "sqljson - Statement 168",
+    "query": "EXPLAIN (VERBOSE, COSTS OFF) SELECT JSON_ARRAY('1' FORMAT JSON, 2 RETURNING json)",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) SELECT JSON_ARRAY('1' FORMAT JSON, 2 RETURNING JSON)"
+  },
+  {
+    "comment": "sqljson - Statement 169",
+    "query": "CREATE VIEW json_array_view AS SELECT JSON_ARRAY('1' FORMAT JSON, 2 RETURNING json)",
+    "expected": "CREATE VIEW json_array_view AS SELECT JSON_ARRAY('1' FORMAT JSON, 2 RETURNING JSON)"
+  },
+  {
+    "comment": "sqljson - Statement 170",
+    "query": "EXPLAIN (VERBOSE, COSTS OFF) SELECT JSON_OBJECTAGG(i: ('111' || i)::bytea FORMAT JSON WITH UNIQUE RETURNING text) FILTER (WHERE i \u003e 3) FROM generate_series(1,5) i",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) SELECT JSON_OBJECTAGG(i : CAST(('111' || i) AS BYTEA) FORMAT JSON RETURNING TEXT) FILTER (WHERE i \u003e 3) FROM generate_series(1, 5) AS i"
+  },
+  {
+    "comment": "sqljson - Statement 171",
+    "query": "EXPLAIN (VERBOSE, COSTS OFF) SELECT JSON_OBJECTAGG(i: ('111' || i)::bytea FORMAT JSON WITH UNIQUE RETURNING text) OVER (PARTITION BY i % 2) FROM generate_series(1,5) i",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) SELECT JSON_OBJECTAGG(i : CAST(('111' || i) AS BYTEA) FORMAT JSON RETURNING TEXT) OVER (PARTITION BY i % 2) FROM generate_series(1, 5) AS i"
+  },
+  {
+    "comment": "sqljson - Statement 172",
+    "query": "CREATE VIEW json_objectagg_view AS SELECT JSON_OBJECTAGG(i: ('111' || i)::bytea FORMAT JSON WITH UNIQUE RETURNING text) FILTER (WHERE i \u003e 3) FROM generate_series(1,5) i",
+    "expected": "CREATE VIEW json_objectagg_view AS SELECT JSON_OBJECTAGG(i : CAST(('111' || i) AS BYTEA) FORMAT JSON RETURNING TEXT) FILTER (WHERE i \u003e 3) FROM generate_series(1, 5) AS i"
+  },
+  {
+    "comment": "sqljson - Statement 173",
+    "query": "EXPLAIN (VERBOSE, COSTS OFF) SELECT JSON_ARRAYAGG(('111' || i)::bytea FORMAT JSON NULL ON NULL RETURNING text) FILTER (WHERE i \u003e 3) FROM generate_series(1,5) i",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) SELECT JSON_ARRAYAGG(CAST(('111' || i) AS BYTEA) FORMAT JSON RETURNING TEXT) FILTER (WHERE i \u003e 3) FROM generate_series(1, 5) AS i"
+  },
+  {
+    "comment": "sqljson - Statement 174",
+    "query": "EXPLAIN (VERBOSE, COSTS OFF) SELECT JSON_ARRAYAGG(('111' || i)::bytea FORMAT JSON NULL ON NULL RETURNING text) OVER (PARTITION BY i % 2) FROM generate_series(1,5) i",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) SELECT JSON_ARRAYAGG(CAST(('111' || i) AS BYTEA) FORMAT JSON RETURNING TEXT) OVER (PARTITION BY i % 2) FROM generate_series(1, 5) AS i"
+  },
+  {
+    "comment": "sqljson - Statement 175",
+    "query": "CREATE VIEW json_arrayagg_view AS SELECT JSON_ARRAYAGG(('111' || i)::bytea FORMAT JSON NULL ON NULL RETURNING text) FILTER (WHERE i \u003e 3) FROM generate_series(1,5) i",
+    "expected": "CREATE VIEW json_arrayagg_view AS SELECT JSON_ARRAYAGG(CAST(('111' || i) AS BYTEA) FORMAT JSON RETURNING TEXT) FILTER (WHERE i \u003e 3) FROM generate_series(1, 5) AS i"
+  },
+  {
+    "comment": "sqljson - Statement 176",
+    "query": "EXPLAIN (VERBOSE, COSTS OFF) SELECT JSON_ARRAY(SELECT i FROM (VALUES (1), (2), (NULL), (4)) foo(i) RETURNING jsonb)",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) SELECT JSON_ARRAY(SELECT i FROM (VALUES (1), (2), (NULL), (4)) AS foo(i) RETURNING JSONB)"
+  },
+  {
+    "comment": "sqljson - Statement 177",
+    "query": "CREATE VIEW json_array_subquery_view AS SELECT JSON_ARRAY(SELECT i FROM (VALUES (1), (2), (NULL), (4)) foo(i) RETURNING jsonb)",
+    "expected": "CREATE VIEW json_array_subquery_view AS SELECT JSON_ARRAY(SELECT i FROM (VALUES (1), (2), (NULL), (4)) AS foo(i) RETURNING JSONB)"
+  },
+  {
+    "comment": "sqljson - Statement 178",
+    "query": "SELECT NULL IS JSON"
+  },
+  {
+    "comment": "sqljson - Statement 179",
+    "query": "SELECT NULL IS NOT JSON",
+    "expected": "SELECT NOT NULL IS JSON"
+  },
+  {
+    "comment": "sqljson - Statement 180",
+    "query": "SELECT NULL::json IS JSON",
+    "expected": "SELECT CAST(NULL AS JSON) IS JSON"
+  },
+  {
+    "comment": "sqljson - Statement 181",
+    "query": "SELECT NULL::jsonb IS JSON",
+    "expected": "SELECT CAST(NULL AS JSONB) IS JSON"
+  },
+  {
+    "comment": "sqljson - Statement 182",
+    "query": "SELECT NULL::text IS JSON",
+    "expected": "SELECT CAST(NULL AS TEXT) IS JSON"
+  },
+  {
+    "comment": "sqljson - Statement 183",
+    "query": "SELECT NULL::bytea IS JSON",
+    "expected": "SELECT CAST(NULL AS BYTEA) IS JSON"
+  },
+  {
+    "comment": "sqljson - Statement 184",
+    "query": "SELECT NULL::int IS JSON",
+    "expected": "SELECT CAST(NULL AS INT) IS JSON"
+  },
+  {
+    "comment": "sqljson - Statement 185",
+    "query": "SELECT '' IS JSON"
+  },
+  {
+    "comment": "sqljson - Statement 186",
+    "query": "SELECT bytea '\\x00' IS JSON",
+    "expected": "SELECT CAST('\\x00' AS BYTEA) IS JSON"
+  },
+  {
+    "comment": "sqljson - Statement 187",
+    "query": "CREATE TABLE test_is_json (js text)",
+    "expected": "CREATE TABLE test_is_json (js TEXT)"
+  },
+  {
+    "comment": "sqljson - Statement 188",
+    "query": "INSERT INTO test_is_json VALUES (NULL), (''), ('123'), ('\"aaa \"'), ('true'), ('null'), ('[]'), ('[1, \"2\", {}]'), ('{}'), ('{ \"a\": 1, \"b\": null }'), ('{ \"a\": 1, \"a\": null }'), ('{ \"a\": 1, \"b\": [{ \"a\": 1 }, { \"a\": 2 }] }'), ('{ \"a\": 1, \"b\": [{ \"a\": 1, \"b\": 0, \"a\": 2 }] }'), ('aaa'), ('{a:1}'), ('[\"a\",]')"
+  },
+  {
+    "comment": "sqljson - Statement 189",
+    "query": "SELECT js, js IS JSON \"IS JSON\", js IS NOT JSON \"IS NOT JSON\", js IS JSON VALUE \"IS VALUE\", js IS JSON OBJECT \"IS OBJECT\", js IS JSON ARRAY \"IS ARRAY\", js IS JSON SCALAR \"IS SCALAR\", js IS JSON WITHOUT UNIQUE KEYS \"WITHOUT UNIQUE\", js IS JSON WITH UNIQUE KEYS \"WITH UNIQUE\" FROM test_is_json",
+    "expected": "SELECT js, js IS JSON AS \"IS JSON\", NOT js IS JSON AS \"IS NOT JSON\", js IS JSON AS \"IS VALUE\", js IS JSON OBJECT AS \"IS OBJECT\", js IS JSON ARRAY AS \"IS ARRAY\", js IS JSON SCALAR AS \"IS SCALAR\", js IS JSON AS \"WITHOUT UNIQUE\", js IS JSON WITH UNIQUE KEYS AS \"WITH UNIQUE\" FROM test_is_json"
+  },
+  {
+    "comment": "sqljson - Statement 190",
+    "query": "SELECT js, js IS JSON \"IS JSON\", js IS NOT JSON \"IS NOT JSON\", js IS JSON VALUE \"IS VALUE\", js IS JSON OBJECT \"IS OBJECT\", js IS JSON ARRAY \"IS ARRAY\", js IS JSON SCALAR \"IS SCALAR\", js IS JSON WITHOUT UNIQUE KEYS \"WITHOUT UNIQUE\", js IS JSON WITH UNIQUE KEYS \"WITH UNIQUE\" FROM (SELECT js::json FROM test_is_json WHERE js IS JSON) foo(js)",
+    "expected": "SELECT js, js IS JSON AS \"IS JSON\", NOT js IS JSON AS \"IS NOT JSON\", js IS JSON AS \"IS VALUE\", js IS JSON OBJECT AS \"IS OBJECT\", js IS JSON ARRAY AS \"IS ARRAY\", js IS JSON SCALAR AS \"IS SCALAR\", js IS JSON AS \"WITHOUT UNIQUE\", js IS JSON WITH UNIQUE KEYS AS \"WITH UNIQUE\" FROM (SELECT CAST(js AS JSON) FROM test_is_json WHERE js IS JSON) AS foo(js)"
+  },
+  {
+    "comment": "sqljson - Statement 191",
+    "query": "SELECT js0, js IS JSON \"IS JSON\", js IS NOT JSON \"IS NOT JSON\", js IS JSON VALUE \"IS VALUE\", js IS JSON OBJECT \"IS OBJECT\", js IS JSON ARRAY \"IS ARRAY\", js IS JSON SCALAR \"IS SCALAR\", js IS JSON WITHOUT UNIQUE KEYS \"WITHOUT UNIQUE\", js IS JSON WITH UNIQUE KEYS \"WITH UNIQUE\" FROM (SELECT js, js::bytea FROM test_is_json WHERE js IS JSON) foo(js0, js)",
+    "expected": "SELECT js0, js IS JSON AS \"IS JSON\", NOT js IS JSON AS \"IS NOT JSON\", js IS JSON AS \"IS VALUE\", js IS JSON OBJECT AS \"IS OBJECT\", js IS JSON ARRAY AS \"IS ARRAY\", js IS JSON SCALAR AS \"IS SCALAR\", js IS JSON AS \"WITHOUT UNIQUE\", js IS JSON WITH UNIQUE KEYS AS \"WITH UNIQUE\" FROM (SELECT js, CAST(js AS BYTEA) FROM test_is_json WHERE js IS JSON) AS foo(js0, js)"
+  },
+  {
+    "comment": "sqljson - Statement 192",
+    "query": "SELECT js, js IS JSON \"IS JSON\", js IS NOT JSON \"IS NOT JSON\", js IS JSON VALUE \"IS VALUE\", js IS JSON OBJECT \"IS OBJECT\", js IS JSON ARRAY \"IS ARRAY\", js IS JSON SCALAR \"IS SCALAR\", js IS JSON WITHOUT UNIQUE KEYS \"WITHOUT UNIQUE\", js IS JSON WITH UNIQUE KEYS \"WITH UNIQUE\" FROM (SELECT js::jsonb FROM test_is_json WHERE js IS JSON) foo(js)",
+    "expected": "SELECT js, js IS JSON AS \"IS JSON\", NOT js IS JSON AS \"IS NOT JSON\", js IS JSON AS \"IS VALUE\", js IS JSON OBJECT AS \"IS OBJECT\", js IS JSON ARRAY AS \"IS ARRAY\", js IS JSON SCALAR AS \"IS SCALAR\", js IS JSON AS \"WITHOUT UNIQUE\", js IS JSON WITH UNIQUE KEYS AS \"WITH UNIQUE\" FROM (SELECT CAST(js AS JSONB) FROM test_is_json WHERE js IS JSON) AS foo(js)"
+  },
+  {
+    "comment": "sqljson - Statement 193",
+    "query": "EXPLAIN (VERBOSE, COSTS OFF) SELECT '1' IS JSON AS \"any\", ('1' || i) IS JSON SCALAR AS \"scalar\", '[]' IS NOT JSON ARRAY AS \"array\", '{}' IS JSON OBJECT WITH UNIQUE AS \"object\" FROM generate_series(1, 3) i",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) SELECT '1' IS JSON AS \"any\", ('1' || i) IS JSON SCALAR AS scalar, NOT '[]' IS JSON ARRAY AS array, '{}' IS JSON OBJECT WITH UNIQUE KEYS AS object FROM generate_series(1, 3) AS i"
+  },
+  {
+    "comment": "sqljson - Statement 194",
+    "query": "CREATE VIEW is_json_view AS SELECT '1' IS JSON AS \"any\", ('1' || i) IS JSON SCALAR AS \"scalar\", '[]' IS NOT JSON ARRAY AS \"array\", '{}' IS JSON OBJECT WITH UNIQUE AS \"object\" FROM generate_series(1, 3) i",
+    "expected": "CREATE VIEW is_json_view AS SELECT '1' IS JSON AS \"any\", ('1' || i) IS JSON SCALAR AS scalar, NOT '[]' IS JSON ARRAY AS array, '{}' IS JSON OBJECT WITH UNIQUE KEYS AS object FROM generate_series(1, 3) AS i"
+  },
+  {
+    "comment": "sqljson - Statement 195",
+    "query": "SELECT JSON_SERIALIZE('{ \"a\" : 1 } ' RETURNING varchar(2))",
+    "expected": "SELECT JSON_SERIALIZE('{ \"a\" : 1 } ' RETURNING VARCHAR(2))"
+  },
+  {
+    "comment": "sqljson - Statement 196",
+    "query": "SELECT JSON_OBJECT('a': JSON_OBJECT('b': 1 RETURNING varchar(2)))",
+    "expected": "SELECT JSON_OBJECT('a' : JSON_OBJECT('b' : 1 RETURNING VARCHAR(2)))"
+  },
+  {
+    "comment": "sqljson - Statement 197",
+    "query": "SELECT JSON_ARRAY(JSON_ARRAY('{ \"a\" : 123 }' RETURNING varchar(2)))",
+    "expected": "SELECT JSON_ARRAY(JSON_ARRAY('{ \"a\" : 123 }' RETURNING VARCHAR(2)))"
+  },
+  {
+    "comment": "sqljson - Statement 198",
+    "query": "SELECT JSON_ARRAYAGG(('111' || i)::bytea FORMAT JSON NULL ON NULL RETURNING varchar(2)) FROM generate_series(1,1) i",
+    "expected": "SELECT JSON_ARRAYAGG(CAST(('111' || i) AS BYTEA) FORMAT JSON RETURNING VARCHAR(2)) FROM generate_series(1, 1) AS i"
+  },
+  {
+    "comment": "sqljson - Statement 199",
+    "query": "SELECT JSON_OBJECTAGG(i: ('111' || i)::bytea FORMAT JSON WITH UNIQUE RETURNING varchar(2)) FROM generate_series(1, 1) i",
+    "expected": "SELECT JSON_OBJECTAGG(i : CAST(('111' || i) AS BYTEA) FORMAT JSON RETURNING VARCHAR(2)) FROM generate_series(1, 1) AS i"
+  },
+  {
+    "comment": "sqljson - Statement 200",
+    "query": "CREATE DOMAIN sqljson_char2 AS char(2) CHECK (VALUE NOT IN ('12'))",
+    "expected": "CREATE DOMAIN sqljson_char2 AS CHAR(2) CHECK (value NOT IN ('12'))"
+  },
+  {
+    "comment": "sqljson - Statement 201",
+    "query": "SELECT JSON_SERIALIZE('123' RETURNING sqljson_char2)"
+  },
+  {
+    "comment": "sqljson - Statement 202",
+    "query": "SELECT JSON_SERIALIZE('12' RETURNING sqljson_char2)"
+  },
+  {
+    "comment": "sqljson - Statement 203",
+    "query": "CREATE FUNCTION volatile_one() RETURNS int AS $$ BEGIN RETURN 1; END; $$ LANGUAGE plpgsql VOLATILE",
+    "expected": "CREATE FUNCTION volatile_one () RETURNS INT AS $$ BEGIN RETURN 1; END; $$ LANGUAGE plpgsql VOLATILE"
+  },
+  {
+    "comment": "sqljson - Statement 204",
+    "query": "CREATE FUNCTION stable_one() RETURNS int AS $$ BEGIN RETURN 1; END; $$ LANGUAGE plpgsql STABLE",
+    "expected": "CREATE FUNCTION stable_one () RETURNS INT AS $$ BEGIN RETURN 1; END; $$ LANGUAGE plpgsql STABLE"
+  },
+  {
+    "comment": "sqljson - Statement 205",
+    "query": "EXPLAIN (VERBOSE, COSTS OFF) SELECT JSON_OBJECT('a': JSON_OBJECTAGG('b': volatile_one() RETURNING text) FORMAT JSON)",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) SELECT JSON_OBJECT('a' : JSON_OBJECTAGG('b' : volatile_one() RETURNING TEXT) FORMAT JSON)"
+  },
+  {
+    "comment": "sqljson - Statement 206",
+    "query": "SELECT JSON_OBJECT('a': JSON_OBJECTAGG('b': volatile_one() RETURNING text) FORMAT JSON)",
+    "expected": "SELECT JSON_OBJECT('a' : JSON_OBJECTAGG('b' : volatile_one() RETURNING TEXT) FORMAT JSON)"
+  },
+  {
+    "comment": "sqljson - Statement 207",
+    "query": "EXPLAIN (VERBOSE, COSTS OFF) SELECT JSON_OBJECT('a': JSON_OBJECTAGG('b': stable_one() RETURNING text) FORMAT JSON)",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) SELECT JSON_OBJECT('a' : JSON_OBJECTAGG('b' : stable_one() RETURNING TEXT) FORMAT JSON)"
+  },
+  {
+    "comment": "sqljson - Statement 208",
+    "query": "SELECT JSON_OBJECT('a': JSON_OBJECTAGG('b': stable_one() RETURNING text) FORMAT JSON)",
+    "expected": "SELECT JSON_OBJECT('a' : JSON_OBJECTAGG('b' : stable_one() RETURNING TEXT) FORMAT JSON)"
+  },
+  {
+    "comment": "sqljson - Statement 209",
+    "query": "EXPLAIN (VERBOSE, COSTS OFF) SELECT JSON_OBJECT('a': JSON_OBJECTAGG('b': 1 RETURNING text) FORMAT JSON)",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) SELECT JSON_OBJECT('a' : JSON_OBJECTAGG('b' : 1 RETURNING TEXT) FORMAT JSON)"
+  },
+  {
+    "comment": "sqljson - Statement 210",
+    "query": "SELECT JSON_OBJECT('a': JSON_OBJECTAGG('b': 1 RETURNING text) FORMAT JSON)",
+    "expected": "SELECT JSON_OBJECT('a' : JSON_OBJECTAGG('b' : 1 RETURNING TEXT) FORMAT JSON)"
+  },
+  {
+    "comment": "sqljson - Statement 211",
+    "query": "DROP FUNCTION volatile_one, stable_one"
+  }
+]

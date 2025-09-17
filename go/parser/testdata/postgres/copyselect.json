@@ -1,0 +1,167 @@
+[
+  {
+    "comment": "copyselect - Statement 1",
+    "query": "create table test1 (id serial, t text)",
+    "expected": "CREATE TABLE test1 (id serial, t TEXT)"
+  },
+  {
+    "comment": "copyselect - Statement 2",
+    "query": "insert into test1 (t) values ('a')",
+    "expected": "INSERT INTO test1 (t) VALUES ('a')"
+  },
+  {
+    "comment": "copyselect - Statement 3",
+    "query": "insert into test1 (t) values ('b')",
+    "expected": "INSERT INTO test1 (t) VALUES ('b')"
+  },
+  {
+    "comment": "copyselect - Statement 4",
+    "query": "insert into test1 (t) values ('c')",
+    "expected": "INSERT INTO test1 (t) VALUES ('c')"
+  },
+  {
+    "comment": "copyselect - Statement 5",
+    "query": "insert into test1 (t) values ('d')",
+    "expected": "INSERT INTO test1 (t) VALUES ('d')"
+  },
+  {
+    "comment": "copyselect - Statement 6",
+    "query": "insert into test1 (t) values ('e')",
+    "expected": "INSERT INTO test1 (t) VALUES ('e')"
+  },
+  {
+    "comment": "copyselect - Statement 7",
+    "query": "create table test2 (id serial, t text)",
+    "expected": "CREATE TABLE test2 (id serial, t TEXT)"
+  },
+  {
+    "comment": "copyselect - Statement 8",
+    "query": "insert into test2 (t) values ('A')",
+    "expected": "INSERT INTO test2 (t) VALUES ('A')"
+  },
+  {
+    "comment": "copyselect - Statement 9",
+    "query": "insert into test2 (t) values ('B')",
+    "expected": "INSERT INTO test2 (t) VALUES ('B')"
+  },
+  {
+    "comment": "copyselect - Statement 10",
+    "query": "insert into test2 (t) values ('C')",
+    "expected": "INSERT INTO test2 (t) VALUES ('C')"
+  },
+  {
+    "comment": "copyselect - Statement 11",
+    "query": "insert into test2 (t) values ('D')",
+    "expected": "INSERT INTO test2 (t) VALUES ('D')"
+  },
+  {
+    "comment": "copyselect - Statement 12",
+    "query": "insert into test2 (t) values ('E')",
+    "expected": "INSERT INTO test2 (t) VALUES ('E')"
+  },
+  {
+    "comment": "copyselect - Statement 13",
+    "query": "create view v_test1 as select 'v_'||t from test1",
+    "expected": "CREATE VIEW v_test1 AS SELECT 'v_' || t FROM test1"
+  },
+  {
+    "comment": "copyselect - Statement 14",
+    "query": "copy test1 to stdout",
+    "expected": "COPY test1 TO STDOUT"
+  },
+  {
+    "comment": "copyselect - Statement 15",
+    "query": "copy v_test1 to stdout",
+    "expected": "COPY v_test1 TO STDOUT"
+  },
+  {
+    "comment": "copyselect - Statement 16",
+    "query": "copy (select t from test1 where id=1) to stdout",
+    "expected": "COPY (SELECT t FROM test1 WHERE id = 1) TO STDOUT"
+  },
+  {
+    "comment": "copyselect - Statement 17",
+    "query": "copy (select t from test1 where id=3 for update) to stdout",
+    "expected": "COPY (SELECT t FROM test1 WHERE id = 3 FOR UPDATE) TO STDOUT"
+  },
+  {
+    "comment": "copyselect - Statement 18",
+    "query": "copy (select t into temp test3 from test1 where id=3) to stdout",
+    "expected": "COPY (SELECT t INTO TEMPORARY test3 FROM test1 WHERE id = 3) TO STDOUT"
+  },
+  {
+    "comment": "copyselect - Statement 19",
+    "query": "copy (select * from test1) from stdin",
+    "error": "parse error at position 31: syntax error"
+  },
+  {
+    "comment": "copyselect - Statement 20",
+    "query": "copy (select * from test1) (t,id) to stdout",
+    "error": "parse error at position 28: syntax error"
+  },
+  {
+    "comment": "copyselect - Statement 21",
+    "query": "copy (select * from test1 join test2 using (id)) to stdout",
+    "expected": "COPY (SELECT * FROM test1 INNER JOIN test2 USING (id)) TO STDOUT"
+  },
+  {
+    "comment": "copyselect - Statement 22",
+    "query": "copy (select t from test1 where id = 1 UNION select * from v_test1 ORDER BY 1) to stdout",
+    "expected": "COPY ((SELECT t FROM test1 WHERE id = 1) UNION SELECT * FROM v_test1 ORDER BY 1) TO STDOUT"
+  },
+  {
+    "comment": "copyselect - Statement 23",
+    "query": "copy (select * from (select t from test1 where id = 1 UNION select * from v_test1 ORDER BY 1) t1) to stdout",
+    "expected": "COPY (SELECT * FROM ((SELECT t FROM test1 WHERE id = 1) UNION SELECT * FROM v_test1 ORDER BY 1) AS t1) TO STDOUT"
+  },
+  {
+    "comment": "copyselect - Statement 24",
+    "query": "copy (select t from test1 where id = 1) to stdout csv header force quote t",
+    "expected": "COPY (SELECT t FROM test1 WHERE id = 1) TO STDOUT (format 'csv', header true, force_quote (t))"
+  },
+  {
+    "comment": "copyselect - Statement 25",
+    "query": "drop view v_test1",
+    "expected": "DROP VIEW v_test1"
+  },
+  {
+    "comment": "copyselect - Statement 26",
+    "query": "drop table test1",
+    "expected": "DROP TABLE test1"
+  },
+  {
+    "comment": "copyselect - Statement 27",
+    "query": "copy (select 1) to stdout\\; select 1/0",
+    "error": "parse error at position 26: syntax error"
+  },
+  {
+    "comment": "copyselect - Statement 28",
+    "query": "select 1/0\\; copy (select 1) to stdout",
+    "error": "parse error at position 12: syntax error"
+  },
+  {
+    "comment": "copyselect - Statement 29",
+    "query": "copy (select 1) to stdout\\; copy (select 2) to stdout\\; select 3\\; select 4",
+    "error": "parse error at position 26: syntax error"
+  },
+  {
+    "comment": "copyselect - Statement 30",
+    "query": "create table test3 (c int)",
+    "expected": "CREATE TABLE test3 (c INT)"
+  },
+  {
+    "comment": "copyselect - Statement 31",
+    "query": "select 0\\; copy test3 from stdin\\; copy test3 from stdin\\; select 1",
+    "error": "parse error at position 10: syntax error"
+  },
+  {
+    "comment": "copyselect - Statement 32",
+    "query": "select * from test3",
+    "expected": "SELECT * FROM test3"
+  },
+  {
+    "comment": "copyselect - Statement 33",
+    "query": "drop table test3",
+    "expected": "DROP TABLE test3"
+  }
+]

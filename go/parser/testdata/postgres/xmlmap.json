@@ -1,0 +1,199 @@
+[
+  {
+    "comment": "xmlmap - Statement 1",
+    "query": "CREATE SCHEMA testxmlschema"
+  },
+  {
+    "comment": "xmlmap - Statement 2",
+    "query": "CREATE TABLE testxmlschema.test1 (a int, b text)",
+    "expected": "CREATE TABLE testxmlschema.test1 (a INT, b TEXT)"
+  },
+  {
+    "comment": "xmlmap - Statement 3",
+    "query": "INSERT INTO testxmlschema.test1 VALUES (1, 'one'), (2, 'two'), (-1, null)",
+    "expected": "INSERT INTO testxmlschema.test1 VALUES (1, 'one'), (2, 'two'), (-1, NULL)"
+  },
+  {
+    "comment": "xmlmap - Statement 4",
+    "query": "CREATE DOMAIN testxmldomain AS varchar",
+    "expected": "CREATE DOMAIN testxmldomain AS VARCHAR"
+  },
+  {
+    "comment": "xmlmap - Statement 5",
+    "query": "CREATE TABLE testxmlschema.test2 (z int, y varchar(500), x char(6), w numeric(9,2), v smallint, u bigint, t real, s time, stz timetz, r timestamp, rtz timestamptz, q date, p xml, o testxmldomain, n bool, m bytea, aaa text)",
+    "expected": "CREATE TABLE testxmlschema.test2 (z INT, y VARCHAR(500), x CHAR(6), w NUMERIC(9, 2), v SMALLINT, u BIGINT, t REAL, s TIME, stz TIMETZ, r TIMESTAMP, rtz TIMESTAMPTZ, q DATE, p XML, o testxmldomain, n BOOLEAN, m BYTEA, aaa TEXT)"
+  },
+  {
+    "comment": "xmlmap - Statement 6",
+    "query": "ALTER TABLE testxmlschema.test2 DROP COLUMN aaa"
+  },
+  {
+    "comment": "xmlmap - Statement 7",
+    "query": "INSERT INTO testxmlschema.test2 VALUES (55, 'abc', 'def', 98.6, 2, 999, 0, '21:07', '21:11 +05', '2009-06-08 21:07:30', '2009-06-08 21:07:30 -07', '2009-06-08', NULL, 'ABC', true, 'XYZ')",
+    "expected": "INSERT INTO testxmlschema.test2 VALUES (55, 'abc', 'def', 98.6, 2, 999, 0, '21:07', '21:11 +05', '2009-06-08 21:07:30', '2009-06-08 21:07:30 -07', '2009-06-08', NULL, 'ABC', TRUE, 'XYZ')"
+  },
+  {
+    "comment": "xmlmap - Statement 8",
+    "query": "SELECT table_to_xml('testxmlschema.test1', false, false, '')",
+    "expected": "SELECT table_to_xml('testxmlschema.test1', FALSE, FALSE, '')"
+  },
+  {
+    "comment": "xmlmap - Statement 9",
+    "query": "SELECT table_to_xml('testxmlschema.test1', true, false, 'foo')",
+    "expected": "SELECT table_to_xml('testxmlschema.test1', TRUE, FALSE, 'foo')"
+  },
+  {
+    "comment": "xmlmap - Statement 10",
+    "query": "SELECT table_to_xml('testxmlschema.test1', false, true, '')",
+    "expected": "SELECT table_to_xml('testxmlschema.test1', FALSE, TRUE, '')"
+  },
+  {
+    "comment": "xmlmap - Statement 11",
+    "query": "SELECT table_to_xml('testxmlschema.test1', true, true, '')",
+    "expected": "SELECT table_to_xml('testxmlschema.test1', TRUE, TRUE, '')"
+  },
+  {
+    "comment": "xmlmap - Statement 12",
+    "query": "SELECT table_to_xml('testxmlschema.test2', false, false, '')",
+    "expected": "SELECT table_to_xml('testxmlschema.test2', FALSE, FALSE, '')"
+  },
+  {
+    "comment": "xmlmap - Statement 13",
+    "query": "SELECT table_to_xmlschema('testxmlschema.test1', false, false, '')",
+    "expected": "SELECT table_to_xmlschema('testxmlschema.test1', FALSE, FALSE, '')"
+  },
+  {
+    "comment": "xmlmap - Statement 14",
+    "query": "SELECT table_to_xmlschema('testxmlschema.test1', true, false, '')",
+    "expected": "SELECT table_to_xmlschema('testxmlschema.test1', TRUE, FALSE, '')"
+  },
+  {
+    "comment": "xmlmap - Statement 15",
+    "query": "SELECT table_to_xmlschema('testxmlschema.test1', false, true, 'foo')",
+    "expected": "SELECT table_to_xmlschema('testxmlschema.test1', FALSE, TRUE, 'foo')"
+  },
+  {
+    "comment": "xmlmap - Statement 16",
+    "query": "SELECT table_to_xmlschema('testxmlschema.test1', true, true, '')",
+    "expected": "SELECT table_to_xmlschema('testxmlschema.test1', TRUE, TRUE, '')"
+  },
+  {
+    "comment": "xmlmap - Statement 17",
+    "query": "SELECT table_to_xmlschema('testxmlschema.test2', false, false, '')",
+    "expected": "SELECT table_to_xmlschema('testxmlschema.test2', FALSE, FALSE, '')"
+  },
+  {
+    "comment": "xmlmap - Statement 18",
+    "query": "SELECT table_to_xml_and_xmlschema('testxmlschema.test1', false, false, '')",
+    "expected": "SELECT table_to_xml_and_xmlschema('testxmlschema.test1', FALSE, FALSE, '')"
+  },
+  {
+    "comment": "xmlmap - Statement 19",
+    "query": "SELECT table_to_xml_and_xmlschema('testxmlschema.test1', true, false, '')",
+    "expected": "SELECT table_to_xml_and_xmlschema('testxmlschema.test1', TRUE, FALSE, '')"
+  },
+  {
+    "comment": "xmlmap - Statement 20",
+    "query": "SELECT table_to_xml_and_xmlschema('testxmlschema.test1', false, true, '')",
+    "expected": "SELECT table_to_xml_and_xmlschema('testxmlschema.test1', FALSE, TRUE, '')"
+  },
+  {
+    "comment": "xmlmap - Statement 21",
+    "query": "SELECT table_to_xml_and_xmlschema('testxmlschema.test1', true, true, 'foo')",
+    "expected": "SELECT table_to_xml_and_xmlschema('testxmlschema.test1', TRUE, TRUE, 'foo')"
+  },
+  {
+    "comment": "xmlmap - Statement 22",
+    "query": "SELECT query_to_xml('SELECT * FROM testxmlschema.test1', false, false, '')",
+    "expected": "SELECT query_to_xml('SELECT * FROM testxmlschema.test1', FALSE, FALSE, '')"
+  },
+  {
+    "comment": "xmlmap - Statement 23",
+    "query": "SELECT query_to_xmlschema('SELECT * FROM testxmlschema.test1', false, false, '')",
+    "expected": "SELECT query_to_xmlschema('SELECT * FROM testxmlschema.test1', FALSE, FALSE, '')"
+  },
+  {
+    "comment": "xmlmap - Statement 24",
+    "query": "SELECT query_to_xml_and_xmlschema('SELECT * FROM testxmlschema.test1', true, true, '')",
+    "expected": "SELECT query_to_xml_and_xmlschema('SELECT * FROM testxmlschema.test1', TRUE, TRUE, '')"
+  },
+  {
+    "comment": "xmlmap - Statement 25",
+    "query": "DECLARE xc CURSOR WITH HOLD FOR SELECT * FROM testxmlschema.test1 ORDER BY 1, 2"
+  },
+  {
+    "comment": "xmlmap - Statement 26",
+    "query": "SELECT cursor_to_xml('xc'::refcursor, 5, false, true, '')",
+    "expected": "SELECT cursor_to_xml(CAST('xc' AS refcursor), 5, FALSE, TRUE, '')"
+  },
+  {
+    "comment": "xmlmap - Statement 27",
+    "query": "SELECT cursor_to_xmlschema('xc'::refcursor, false, true, '')",
+    "expected": "SELECT cursor_to_xmlschema(CAST('xc' AS refcursor), FALSE, TRUE, '')"
+  },
+  {
+    "comment": "xmlmap - Statement 28",
+    "query": "MOVE BACKWARD ALL IN xc",
+    "expected": "MOVE BACKWARD ALL FROM xc"
+  },
+  {
+    "comment": "xmlmap - Statement 29",
+    "query": "SELECT cursor_to_xml('xc'::refcursor, 5, true, false, '')",
+    "expected": "SELECT cursor_to_xml(CAST('xc' AS refcursor), 5, TRUE, FALSE, '')"
+  },
+  {
+    "comment": "xmlmap - Statement 30",
+    "query": "SELECT cursor_to_xmlschema('xc'::refcursor, true, false, '')",
+    "expected": "SELECT cursor_to_xmlschema(CAST('xc' AS refcursor), TRUE, FALSE, '')"
+  },
+  {
+    "comment": "xmlmap - Statement 31",
+    "query": "SELECT schema_to_xml('testxmlschema', false, true, '')",
+    "expected": "SELECT schema_to_xml('testxmlschema', FALSE, TRUE, '')"
+  },
+  {
+    "comment": "xmlmap - Statement 32",
+    "query": "SELECT schema_to_xml('testxmlschema', true, false, '')",
+    "expected": "SELECT schema_to_xml('testxmlschema', TRUE, FALSE, '')"
+  },
+  {
+    "comment": "xmlmap - Statement 33",
+    "query": "SELECT schema_to_xmlschema('testxmlschema', false, true, '')",
+    "expected": "SELECT schema_to_xmlschema('testxmlschema', FALSE, TRUE, '')"
+  },
+  {
+    "comment": "xmlmap - Statement 34",
+    "query": "SELECT schema_to_xmlschema('testxmlschema', true, false, '')",
+    "expected": "SELECT schema_to_xmlschema('testxmlschema', TRUE, FALSE, '')"
+  },
+  {
+    "comment": "xmlmap - Statement 35",
+    "query": "SELECT schema_to_xml_and_xmlschema('testxmlschema', true, true, 'foo')",
+    "expected": "SELECT schema_to_xml_and_xmlschema('testxmlschema', TRUE, TRUE, 'foo')"
+  },
+  {
+    "comment": "xmlmap - Statement 36",
+    "query": "CREATE DOMAIN testboolxmldomain AS bool",
+    "expected": "CREATE DOMAIN testboolxmldomain AS BOOLEAN"
+  },
+  {
+    "comment": "xmlmap - Statement 37",
+    "query": "CREATE DOMAIN testdatexmldomain AS date",
+    "expected": "CREATE DOMAIN testdatexmldomain AS DATE"
+  },
+  {
+    "comment": "xmlmap - Statement 38",
+    "query": "CREATE TABLE testxmlschema.test3 AS SELECT true c1, true::testboolxmldomain c2, '2013-02-21'::date c3, '2013-02-21'::testdatexmldomain c4",
+    "expected": "CREATE TABLE testxmlschema.test3 AS SELECT TRUE AS c1, CAST(TRUE AS testboolxmldomain) AS c2, CAST('2013-02-21' AS DATE) AS c3, CAST('2013-02-21' AS testdatexmldomain) AS c4"
+  },
+  {
+    "comment": "xmlmap - Statement 39",
+    "query": "SELECT xmlforest(c1, c2, c3, c4) FROM testxmlschema.test3",
+    "expected": "SELECT XMLFOREST(c1, c2, c3, c4) FROM testxmlschema.test3"
+  },
+  {
+    "comment": "xmlmap - Statement 40",
+    "query": "SELECT table_to_xml('testxmlschema.test3', true, true, '')",
+    "expected": "SELECT table_to_xml('testxmlschema.test3', TRUE, TRUE, '')"
+  }
+]

@@ -1,0 +1,52 @@
+[
+  {
+    "comment": "drop_operator - Statement 1",
+    "query": "CREATE OPERATOR === ( PROCEDURE = int8eq, LEFTARG = bigint, RIGHTARG = bigint, COMMUTATOR = === )",
+    "expected": "CREATE OPERATOR === (procedure = int8eq, leftarg = BIGINT, rightarg = BIGINT, commutator = '===')"
+  },
+  {
+    "comment": "drop_operator - Statement 2",
+    "query": "CREATE OPERATOR !== ( PROCEDURE = int8ne, LEFTARG = bigint, RIGHTARG = bigint, NEGATOR = ===, COMMUTATOR = !== )",
+    "expected": "CREATE OPERATOR !== (procedure = int8ne, leftarg = BIGINT, rightarg = BIGINT, negator = '===', commutator = '!==')"
+  },
+  {
+    "comment": "drop_operator - Statement 3",
+    "query": "DROP OPERATOR !==(bigint, bigint)",
+    "expected": "DROP OPERATOR !==(BIGINT, BIGINT)"
+  },
+  {
+    "comment": "drop_operator - Statement 4",
+    "query": "SELECT  ctid, oprcom FROM    pg_catalog.pg_operator fk WHERE   oprcom != 0 AND NOT EXISTS(SELECT 1 FROM pg_catalog.pg_operator pk WHERE pk.oid = fk.oprcom)",
+    "expected": "SELECT ctid, oprcom FROM pg_catalog.pg_operator AS fk WHERE oprcom \u003c\u003e 0 AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_operator AS pk WHERE pk.oid = fk.oprcom)"
+  },
+  {
+    "comment": "drop_operator - Statement 5",
+    "query": "SELECT  ctid, oprnegate FROM    pg_catalog.pg_operator fk WHERE   oprnegate != 0 AND NOT EXISTS(SELECT 1 FROM pg_catalog.pg_operator pk WHERE pk.oid = fk.oprnegate)",
+    "expected": "SELECT ctid, oprnegate FROM pg_catalog.pg_operator AS fk WHERE oprnegate \u003c\u003e 0 AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_operator AS pk WHERE pk.oid = fk.oprnegate)"
+  },
+  {
+    "comment": "drop_operator - Statement 6",
+    "query": "DROP OPERATOR ===(bigint, bigint)",
+    "expected": "DROP OPERATOR ===(BIGINT, BIGINT)"
+  },
+  {
+    "comment": "drop_operator - Statement 7",
+    "query": "CREATE OPERATOR \u003c| ( PROCEDURE = int8lt, LEFTARG = bigint, RIGHTARG = bigint )",
+    "expected": "CREATE OPERATOR \u003c| (procedure = int8lt, leftarg = BIGINT, rightarg = BIGINT)"
+  },
+  {
+    "comment": "drop_operator - Statement 8",
+    "query": "CREATE OPERATOR |\u003e ( PROCEDURE = int8gt, LEFTARG = bigint, RIGHTARG = bigint, NEGATOR = \u003c|, COMMUTATOR = \u003c| )",
+    "expected": "CREATE OPERATOR |\u003e (procedure = int8gt, leftarg = BIGINT, rightarg = BIGINT, negator = '\u003c|', commutator = '\u003c|')"
+  },
+  {
+    "comment": "drop_operator - Statement 9",
+    "query": "DROP OPERATOR |\u003e(bigint, bigint)",
+    "expected": "DROP OPERATOR |\u003e(BIGINT, BIGINT)"
+  },
+  {
+    "comment": "drop_operator - Statement 10",
+    "query": "DROP OPERATOR \u003c|(bigint, bigint)",
+    "expected": "DROP OPERATOR \u003c|(BIGINT, BIGINT)"
+  }
+]

@@ -1,0 +1,111 @@
+[
+  {
+    "comment": "dbsize - Statement 1",
+    "query": "SELECT size, pg_size_pretty(size), pg_size_pretty(-1 * size) FROM (VALUES (10::bigint), (1000::bigint), (1000000::bigint), (1000000000::bigint), (1000000000000::bigint), (1000000000000000::bigint)) x(size)",
+    "expected": "SELECT size, pg_size_pretty(size), pg_size_pretty(-1 * size) FROM (VALUES (CAST(10 AS BIGINT)), (CAST(1000 AS BIGINT)), (CAST(1000000 AS BIGINT)), (CAST(1000000000 AS BIGINT)), (CAST(1000000000000 AS BIGINT)), (CAST(1000000000000000 AS BIGINT))) AS x(size)"
+  },
+  {
+    "comment": "dbsize - Statement 2",
+    "query": "SELECT size, pg_size_pretty(size), pg_size_pretty(-1 * size) FROM (VALUES (10::numeric), (1000::numeric), (1000000::numeric), (1000000000::numeric), (1000000000000::numeric), (1000000000000000::numeric), (10.5::numeric), (1000.5::numeric), (1000000.5::numeric), (1000000000.5::numeric), (1000000000000.5::numeric), (1000000000000000.5::numeric)) x(size)",
+    "expected": "SELECT size, pg_size_pretty(size), pg_size_pretty(-1 * size) FROM (VALUES (CAST(10 AS NUMERIC)), (CAST(1000 AS NUMERIC)), (CAST(1000000 AS NUMERIC)), (CAST(1000000000 AS NUMERIC)), (CAST(1000000000000 AS NUMERIC)), (CAST(1000000000000000 AS NUMERIC)), (CAST(10.5 AS NUMERIC)), (CAST(1000.5 AS NUMERIC)), (CAST(1000000.5 AS NUMERIC)), (CAST(1000000000.5 AS NUMERIC)), (CAST(1000000000000.5 AS NUMERIC)), (CAST(1000000000000000.5 AS NUMERIC))) AS x(size)"
+  },
+  {
+    "comment": "dbsize - Statement 3",
+    "query": "SELECT size, pg_size_pretty(size), pg_size_pretty(-1 * size) FROM (VALUES (10239::bigint), (10240::bigint), (10485247::bigint), (10485248::bigint), (10736893951::bigint), (10736893952::bigint), (10994579406847::bigint), (10994579406848::bigint), (11258449312612351::bigint), (11258449312612352::bigint)) x(size)",
+    "expected": "SELECT size, pg_size_pretty(size), pg_size_pretty(-1 * size) FROM (VALUES (CAST(10239 AS BIGINT)), (CAST(10240 AS BIGINT)), (CAST(10485247 AS BIGINT)), (CAST(10485248 AS BIGINT)), (CAST(10736893951 AS BIGINT)), (CAST(10736893952 AS BIGINT)), (CAST(10994579406847 AS BIGINT)), (CAST(10994579406848 AS BIGINT)), (CAST(11258449312612351 AS BIGINT)), (CAST(11258449312612352 AS BIGINT))) AS x(size)"
+  },
+  {
+    "comment": "dbsize - Statement 4",
+    "query": "SELECT size, pg_size_pretty(size), pg_size_pretty(-1 * size) FROM (VALUES (10239::numeric), (10240::numeric), (10485247::numeric), (10485248::numeric), (10736893951::numeric), (10736893952::numeric), (10994579406847::numeric), (10994579406848::numeric), (11258449312612351::numeric), (11258449312612352::numeric), (11528652096115048447::numeric), (11528652096115048448::numeric)) x(size)",
+    "expected": "SELECT size, pg_size_pretty(size), pg_size_pretty(-1 * size) FROM (VALUES (CAST(10239 AS NUMERIC)), (CAST(10240 AS NUMERIC)), (CAST(10485247 AS NUMERIC)), (CAST(10485248 AS NUMERIC)), (CAST(10736893951 AS NUMERIC)), (CAST(10736893952 AS NUMERIC)), (CAST(10994579406847 AS NUMERIC)), (CAST(10994579406848 AS NUMERIC)), (CAST(11258449312612351 AS NUMERIC)), (CAST(11258449312612352 AS NUMERIC)), (CAST(11528652096115048447 AS NUMERIC)), (CAST(11528652096115048448 AS NUMERIC))) AS x(size)"
+  },
+  {
+    "comment": "dbsize - Statement 5",
+    "query": "SELECT pg_size_pretty('-9223372036854775808'::bigint), pg_size_pretty('9223372036854775807'::bigint)",
+    "expected": "SELECT pg_size_pretty(CAST('-9223372036854775808' AS BIGINT)), pg_size_pretty(CAST('9223372036854775807' AS BIGINT))"
+  },
+  {
+    "comment": "dbsize - Statement 6",
+    "query": "SELECT size, pg_size_bytes(size) FROM (VALUES ('1'), ('123bytes'), ('256 B'), ('1kB'), ('1MB'), (' 1 GB'), ('1.5 GB '), ('1TB'), ('3000 TB'), ('1e6 MB'), ('99 PB')) x(size)",
+    "expected": "SELECT size, pg_size_bytes(size) FROM (VALUES ('1'), ('123bytes'), ('256 B'), ('1kB'), ('1MB'), (' 1 GB'), ('1.5 GB '), ('1TB'), ('3000 TB'), ('1e6 MB'), ('99 PB')) AS x(size)"
+  },
+  {
+    "comment": "dbsize - Statement 7",
+    "query": "SELECT size, pg_size_bytes(size) FROM (VALUES ('1'), ('123bYteS'), ('1kb'), ('1mb'), (' 1 Gb'), ('1.5 gB '), ('1tb'), ('3000 tb'), ('1e6 mb'), ('99 pb')) x(size)",
+    "expected": "SELECT size, pg_size_bytes(size) FROM (VALUES ('1'), ('123bYteS'), ('1kb'), ('1mb'), (' 1 Gb'), ('1.5 gB '), ('1tb'), ('3000 tb'), ('1e6 mb'), ('99 pb')) AS x(size)"
+  },
+  {
+    "comment": "dbsize - Statement 8",
+    "query": "SELECT size, pg_size_bytes(size) FROM (VALUES ('-1'), ('-123bytes'), ('-1kb'), ('-1mb'), (' -1 Gb'), ('-1.5 gB '), ('-1tb'), ('-3000 TB'), ('-10e-1 MB'), ('-99 PB')) x(size)",
+    "expected": "SELECT size, pg_size_bytes(size) FROM (VALUES ('-1'), ('-123bytes'), ('-1kb'), ('-1mb'), (' -1 Gb'), ('-1.5 gB '), ('-1tb'), ('-3000 TB'), ('-10e-1 MB'), ('-99 PB')) AS x(size)"
+  },
+  {
+    "comment": "dbsize - Statement 9",
+    "query": "SELECT size, pg_size_bytes(size) FROM (VALUES ('-1.'), ('-1.kb'), ('-1. kb'), ('-0. gb'), ('-.1'), ('-.1kb'), ('-.1 kb'), ('-.0 gb')) x(size)",
+    "expected": "SELECT size, pg_size_bytes(size) FROM (VALUES ('-1.'), ('-1.kb'), ('-1. kb'), ('-0. gb'), ('-.1'), ('-.1kb'), ('-.1 kb'), ('-.0 gb')) AS x(size)"
+  },
+  {
+    "comment": "dbsize - Statement 10",
+    "query": "SELECT pg_size_bytes('1 AB')"
+  },
+  {
+    "comment": "dbsize - Statement 11",
+    "query": "SELECT pg_size_bytes('1 AB A')"
+  },
+  {
+    "comment": "dbsize - Statement 12",
+    "query": "SELECT pg_size_bytes('1 AB A    ')"
+  },
+  {
+    "comment": "dbsize - Statement 13",
+    "query": "SELECT pg_size_bytes('9223372036854775807.9')"
+  },
+  {
+    "comment": "dbsize - Statement 14",
+    "query": "SELECT pg_size_bytes('1e100')"
+  },
+  {
+    "comment": "dbsize - Statement 15",
+    "query": "SELECT pg_size_bytes('1e1000000000000000000')"
+  },
+  {
+    "comment": "dbsize - Statement 16",
+    "query": "SELECT pg_size_bytes('1 byte')"
+  },
+  {
+    "comment": "dbsize - Statement 17",
+    "query": "SELECT pg_size_bytes('')"
+  },
+  {
+    "comment": "dbsize - Statement 18",
+    "query": "SELECT pg_size_bytes('kb')"
+  },
+  {
+    "comment": "dbsize - Statement 19",
+    "query": "SELECT pg_size_bytes('..')"
+  },
+  {
+    "comment": "dbsize - Statement 20",
+    "query": "SELECT pg_size_bytes('-.')"
+  },
+  {
+    "comment": "dbsize - Statement 21",
+    "query": "SELECT pg_size_bytes('-.kb')"
+  },
+  {
+    "comment": "dbsize - Statement 22",
+    "query": "SELECT pg_size_bytes('-. kb')"
+  },
+  {
+    "comment": "dbsize - Statement 23",
+    "query": "SELECT pg_size_bytes('.+912')"
+  },
+  {
+    "comment": "dbsize - Statement 24",
+    "query": "SELECT pg_size_bytes('+912+ kB')"
+  },
+  {
+    "comment": "dbsize - Statement 25",
+    "query": "SELECT pg_size_bytes('++123 kB')"
+  }
+]

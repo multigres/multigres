@@ -1,0 +1,162 @@
+[
+  {
+    "comment": "copydml - Statement 1",
+    "query": "create table copydml_test (id serial, t text)",
+    "expected": "CREATE TABLE copydml_test (id serial, t TEXT)"
+  },
+  {
+    "comment": "copydml - Statement 2",
+    "query": "insert into copydml_test (t) values ('a')",
+    "expected": "INSERT INTO copydml_test (t) VALUES ('a')"
+  },
+  {
+    "comment": "copydml - Statement 3",
+    "query": "insert into copydml_test (t) values ('b')",
+    "expected": "INSERT INTO copydml_test (t) VALUES ('b')"
+  },
+  {
+    "comment": "copydml - Statement 4",
+    "query": "insert into copydml_test (t) values ('c')",
+    "expected": "INSERT INTO copydml_test (t) VALUES ('c')"
+  },
+  {
+    "comment": "copydml - Statement 5",
+    "query": "insert into copydml_test (t) values ('d')",
+    "expected": "INSERT INTO copydml_test (t) VALUES ('d')"
+  },
+  {
+    "comment": "copydml - Statement 6",
+    "query": "insert into copydml_test (t) values ('e')",
+    "expected": "INSERT INTO copydml_test (t) VALUES ('e')"
+  },
+  {
+    "comment": "copydml - Statement 7",
+    "query": "copy (insert into copydml_test (t) values ('f') returning id) to stdout",
+    "expected": "COPY (INSERT INTO copydml_test (t) VALUES ('f') RETURNING id) TO STDOUT"
+  },
+  {
+    "comment": "copydml - Statement 8",
+    "query": "copy (update copydml_test set t = 'g' where t = 'f' returning id) to stdout",
+    "expected": "COPY (UPDATE copydml_test SET t = 'g' WHERE t = 'f' RETURNING id) TO STDOUT"
+  },
+  {
+    "comment": "copydml - Statement 9",
+    "query": "copy (delete from copydml_test where t = 'g' returning id) to stdout",
+    "expected": "COPY (DELETE FROM copydml_test WHERE t = 'g' RETURNING id) TO STDOUT"
+  },
+  {
+    "comment": "copydml - Statement 10",
+    "query": "copy (insert into copydml_test default values) to stdout",
+    "expected": "COPY (INSERT INTO copydml_test DEFAULT VALUES) TO STDOUT"
+  },
+  {
+    "comment": "copydml - Statement 11",
+    "query": "copy (update copydml_test set t = 'g') to stdout",
+    "expected": "COPY (UPDATE copydml_test SET t = 'g') TO STDOUT"
+  },
+  {
+    "comment": "copydml - Statement 12",
+    "query": "copy (delete from copydml_test) to stdout",
+    "expected": "COPY (DELETE FROM copydml_test) TO STDOUT"
+  },
+  {
+    "comment": "copydml - Statement 13",
+    "query": "create rule qqq as on insert to copydml_test do instead nothing",
+    "expected": "CREATE RULE qqq AS ON INSERT TO copydml_test DO INSTEAD NOTHING"
+  },
+  {
+    "comment": "copydml - Statement 14",
+    "query": "drop rule qqq on copydml_test",
+    "expected": "DROP RULE qqq ON copydml_test"
+  },
+  {
+    "comment": "copydml - Statement 15",
+    "query": "create rule qqq as on insert to copydml_test do also delete from copydml_test",
+    "expected": "CREATE RULE qqq AS ON INSERT TO copydml_test DO DELETE FROM copydml_test"
+  },
+  {
+    "comment": "copydml - Statement 16",
+    "query": "create rule qqq as on insert to copydml_test do instead (delete from copydml_test; delete from copydml_test)",
+    "expected": "CREATE RULE qqq AS ON INSERT TO copydml_test DO INSTEAD (DELETE FROM copydml_test; DELETE FROM copydml_test)"
+  },
+  {
+    "comment": "copydml - Statement 17",
+    "query": "create rule qqq as on insert to copydml_test where new.t \u003c\u003e 'f' do instead delete from copydml_test",
+    "expected": "CREATE RULE qqq AS ON INSERT TO copydml_test WHERE new.t \u003c\u003e 'f' DO INSTEAD DELETE FROM copydml_test"
+  },
+  {
+    "comment": "copydml - Statement 18",
+    "query": "create rule qqq as on update to copydml_test do instead nothing",
+    "expected": "CREATE RULE qqq AS ON UPDATE TO copydml_test DO INSTEAD NOTHING"
+  },
+  {
+    "comment": "copydml - Statement 19",
+    "query": "copy (update copydml_test set t = 'f') to stdout",
+    "expected": "COPY (UPDATE copydml_test SET t = 'f') TO STDOUT"
+  },
+  {
+    "comment": "copydml - Statement 20",
+    "query": "create rule qqq as on update to copydml_test do also delete from copydml_test",
+    "expected": "CREATE RULE qqq AS ON UPDATE TO copydml_test DO DELETE FROM copydml_test"
+  },
+  {
+    "comment": "copydml - Statement 21",
+    "query": "create rule qqq as on update to copydml_test do instead (delete from copydml_test; delete from copydml_test)",
+    "expected": "CREATE RULE qqq AS ON UPDATE TO copydml_test DO INSTEAD (DELETE FROM copydml_test; DELETE FROM copydml_test)"
+  },
+  {
+    "comment": "copydml - Statement 22",
+    "query": "create rule qqq as on update to copydml_test where new.t \u003c\u003e 'f' do instead delete from copydml_test",
+    "expected": "CREATE RULE qqq AS ON UPDATE TO copydml_test WHERE new.t \u003c\u003e 'f' DO INSTEAD DELETE FROM copydml_test"
+  },
+  {
+    "comment": "copydml - Statement 23",
+    "query": "create rule qqq as on delete to copydml_test do instead nothing",
+    "expected": "CREATE RULE qqq AS ON DELETE TO copydml_test DO INSTEAD NOTHING"
+  },
+  {
+    "comment": "copydml - Statement 24",
+    "query": "create rule qqq as on delete to copydml_test do also insert into copydml_test default values",
+    "expected": "CREATE RULE qqq AS ON DELETE TO copydml_test DO INSERT INTO copydml_test DEFAULT VALUES"
+  },
+  {
+    "comment": "copydml - Statement 25",
+    "query": "create rule qqq as on delete to copydml_test do instead (insert into copydml_test default values; insert into copydml_test default values)",
+    "expected": "CREATE RULE qqq AS ON DELETE TO copydml_test DO INSTEAD (INSERT INTO copydml_test DEFAULT VALUES; INSERT INTO copydml_test DEFAULT VALUES)"
+  },
+  {
+    "comment": "copydml - Statement 26",
+    "query": "create rule qqq as on delete to copydml_test where old.t \u003c\u003e 'f' do instead insert into copydml_test default values",
+    "expected": "CREATE RULE qqq AS ON DELETE TO copydml_test WHERE old.t \u003c\u003e 'f' DO INSTEAD INSERT INTO copydml_test DEFAULT VALUES"
+  },
+  {
+    "comment": "copydml - Statement 27",
+    "query": "create rule qqq as on insert to copydml_test do instead notify copydml_test",
+    "expected": "CREATE RULE qqq AS ON INSERT TO copydml_test DO INSTEAD NOTIFY copydml_test"
+  },
+  {
+    "comment": "copydml - Statement 28",
+    "query": "create function qqq_trig() returns trigger as $$ begin if tg_op in ('INSERT', 'UPDATE') then raise notice '% % %', tg_when, tg_op, new.id; return new; else raise notice '% % %', tg_when, tg_op, old.id; return old; end if; end $$ language plpgsql;",
+    "expected": "CREATE FUNCTION qqq_trig () RETURNS trigger AS $$ begin if tg_op in ('INSERT', 'UPDATE') then raise notice '% % %', tg_when, tg_op, new.id; return new; else raise notice '% % %', tg_when, tg_op, old.id; return old; end if; end $$ LANGUAGE plpgsql"
+  },
+  {
+    "comment": "copydml - Statement 34",
+    "query": "create trigger qqqbef before insert or update or delete on copydml_test for each row execute procedure qqq_trig()",
+    "expected": "CREATE TRIGGER qqqbef BEFORE INSERT OR UPDATE OR DELETE ON copydml_test FOR EACH ROW EXECUTE FUNCTION qqq_trig()"
+  },
+  {
+    "comment": "copydml - Statement 35",
+    "query": "create trigger qqqaf after insert or update or delete on copydml_test for each row execute procedure qqq_trig()",
+    "expected": "CREATE TRIGGER qqqaf AFTER INSERT OR UPDATE OR DELETE ON copydml_test FOR EACH ROW EXECUTE FUNCTION qqq_trig()"
+  },
+  {
+    "comment": "copydml - Statement 36",
+    "query": "drop table copydml_test",
+    "expected": "DROP TABLE copydml_test"
+  },
+  {
+    "comment": "copydml - Statement 37",
+    "query": "drop function qqq_trig()",
+    "expected": "DROP FUNCTION qqq_trig()"
+  }
+]

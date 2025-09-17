@@ -1,0 +1,358 @@
+[
+  {
+    "comment": "tsrf - Statement 1",
+    "query": "SELECT generate_series(1, 3)"
+  },
+  {
+    "comment": "tsrf - Statement 2",
+    "query": "SELECT generate_series(1, 3), generate_series(3,5)",
+    "expected": "SELECT generate_series(1, 3), generate_series(3, 5)"
+  },
+  {
+    "comment": "tsrf - Statement 3",
+    "query": "SELECT generate_series(1, 2), generate_series(1,4)",
+    "expected": "SELECT generate_series(1, 2), generate_series(1, 4)"
+  },
+  {
+    "comment": "tsrf - Statement 4",
+    "query": "SELECT generate_series(1, generate_series(1, 3))"
+  },
+  {
+    "comment": "tsrf - Statement 5",
+    "query": "SELECT * FROM generate_series(1, generate_series(1, 3))"
+  },
+  {
+    "comment": "tsrf - Statement 6",
+    "query": "SELECT generate_series(generate_series(1,3), generate_series(2, 4))",
+    "expected": "SELECT generate_series(generate_series(1, 3), generate_series(2, 4))"
+  },
+  {
+    "comment": "tsrf - Statement 7",
+    "query": "explain (verbose, costs off) SELECT generate_series(1, generate_series(1, 3)), generate_series(2, 4)",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) SELECT generate_series(1, generate_series(1, 3)), generate_series(2, 4)"
+  },
+  {
+    "comment": "tsrf - Statement 8",
+    "query": "SELECT generate_series(1, generate_series(1, 3)), generate_series(2, 4)"
+  },
+  {
+    "comment": "tsrf - Statement 9",
+    "query": "CREATE TABLE few(id int, dataa text, datab text)",
+    "expected": "CREATE TABLE few (id INT, dataa TEXT, datab TEXT)"
+  },
+  {
+    "comment": "tsrf - Statement 10",
+    "query": "INSERT INTO few VALUES(1, 'a', 'foo'),(2, 'a', 'bar'),(3, 'b', 'bar')",
+    "expected": "INSERT INTO few VALUES (1, 'a', 'foo'), (2, 'a', 'bar'), (3, 'b', 'bar')"
+  },
+  {
+    "comment": "tsrf - Statement 11",
+    "query": "explain (verbose, costs off) SELECT unnest(ARRAY[1, 2]) FROM few WHERE false",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) SELECT unnest(ARRAY[1,2]) FROM few WHERE FALSE"
+  },
+  {
+    "comment": "tsrf - Statement 12",
+    "query": "SELECT unnest(ARRAY[1, 2]) FROM few WHERE false",
+    "expected": "SELECT unnest(ARRAY[1,2]) FROM few WHERE FALSE"
+  },
+  {
+    "comment": "tsrf - Statement 13",
+    "query": "explain (verbose, costs off) SELECT * FROM few f1, (SELECT unnest(ARRAY[1,2]) FROM few f2 WHERE false OFFSET 0) ss",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) SELECT * FROM few AS f1, (SELECT unnest(ARRAY[1,2]) FROM few AS f2 WHERE FALSE OFFSET 0) AS ss"
+  },
+  {
+    "comment": "tsrf - Statement 14",
+    "query": "SELECT * FROM few f1, (SELECT unnest(ARRAY[1,2]) FROM few f2 WHERE false OFFSET 0) ss",
+    "expected": "SELECT * FROM few AS f1, (SELECT unnest(ARRAY[1,2]) FROM few AS f2 WHERE FALSE OFFSET 0) AS ss"
+  },
+  {
+    "comment": "tsrf - Statement 15",
+    "query": "SELECT few.id, generate_series(1,3) g FROM few ORDER BY id DESC",
+    "expected": "SELECT few.id, generate_series(1, 3) AS g FROM few ORDER BY id DESC"
+  },
+  {
+    "comment": "tsrf - Statement 16",
+    "query": "SELECT few.id, generate_series(1,3) g FROM few ORDER BY id, g DESC",
+    "expected": "SELECT few.id, generate_series(1, 3) AS g FROM few ORDER BY id, g DESC"
+  },
+  {
+    "comment": "tsrf - Statement 17",
+    "query": "SELECT few.id, generate_series(1,3) g FROM few ORDER BY id, generate_series(1,3) DESC",
+    "expected": "SELECT few.id, generate_series(1, 3) AS g FROM few ORDER BY id, generate_series(1, 3) DESC"
+  },
+  {
+    "comment": "tsrf - Statement 18",
+    "query": "SELECT few.id FROM few ORDER BY id, generate_series(1,3) DESC",
+    "expected": "SELECT few.id FROM few ORDER BY id, generate_series(1, 3) DESC"
+  },
+  {
+    "comment": "tsrf - Statement 19",
+    "query": "SET enable_hashagg TO 0",
+    "expected": "SET enable_hashagg = 0"
+  },
+  {
+    "comment": "tsrf - Statement 20",
+    "query": "SELECT few.dataa, count(*), min(id), max(id), unnest('{1,1,3}'::int[]) FROM few WHERE few.id = 1 GROUP BY few.dataa",
+    "expected": "SELECT few.dataa, COUNT(*), MIN(id), MAX(id), unnest(CAST('{1,1,3}' AS INT[])) FROM few WHERE few.id = 1 GROUP BY few.dataa"
+  },
+  {
+    "comment": "tsrf - Statement 21",
+    "query": "SELECT few.dataa, count(*), min(id), max(id), unnest('{1,1,3}'::int[]) FROM few WHERE few.id = 1 GROUP BY few.dataa, unnest('{1,1,3}'::int[])",
+    "expected": "SELECT few.dataa, COUNT(*), MIN(id), MAX(id), unnest(CAST('{1,1,3}' AS INT[])) FROM few WHERE few.id = 1 GROUP BY few.dataa, unnest(CAST('{1,1,3}' AS INT[]))"
+  },
+  {
+    "comment": "tsrf - Statement 22",
+    "query": "SELECT few.dataa, count(*), min(id), max(id), unnest('{1,1,3}'::int[]) FROM few WHERE few.id = 1 GROUP BY few.dataa, 5",
+    "expected": "SELECT few.dataa, COUNT(*), MIN(id), MAX(id), unnest(CAST('{1,1,3}' AS INT[])) FROM few WHERE few.id = 1 GROUP BY few.dataa, 5"
+  },
+  {
+    "comment": "tsrf - Statement 23",
+    "query": "RESET enable_hashagg"
+  },
+  {
+    "comment": "tsrf - Statement 24",
+    "query": "SELECT dataa, generate_series(1,1), count(*) FROM few GROUP BY 1 HAVING count(*) \u003e 1",
+    "expected": "SELECT dataa, generate_series(1, 1), COUNT(*) FROM few GROUP BY 1 HAVING COUNT(*) \u003e 1"
+  },
+  {
+    "comment": "tsrf - Statement 25",
+    "query": "SELECT dataa, generate_series(1,1), count(*) FROM few GROUP BY 1, 2 HAVING count(*) \u003e 1",
+    "expected": "SELECT dataa, generate_series(1, 1), COUNT(*) FROM few GROUP BY 1, 2 HAVING COUNT(*) \u003e 1"
+  },
+  {
+    "comment": "tsrf - Statement 26",
+    "query": "SELECT few.dataa, count(*) FROM few WHERE dataa = 'a' GROUP BY few.dataa ORDER BY 2",
+    "expected": "SELECT few.dataa, COUNT(*) FROM few WHERE dataa = 'a' GROUP BY few.dataa ORDER BY 2"
+  },
+  {
+    "comment": "tsrf - Statement 27",
+    "query": "SELECT few.dataa, count(*) FROM few WHERE dataa = 'a' GROUP BY few.dataa, unnest('{1,1,3}'::int[]) ORDER BY 2",
+    "expected": "SELECT few.dataa, COUNT(*) FROM few WHERE dataa = 'a' GROUP BY few.dataa, unnest(CAST('{1,1,3}' AS INT[])) ORDER BY 2"
+  },
+  {
+    "comment": "tsrf - Statement 28",
+    "query": "SELECT q1, case when q1 \u003e 0 then generate_series(1,3) else 0 end FROM int8_tbl",
+    "expected": "SELECT q1, CASE WHEN q1 \u003e 0 THEN generate_series(1, 3) ELSE 0 END FROM int8_tbl"
+  },
+  {
+    "comment": "tsrf - Statement 29",
+    "query": "SELECT q1, coalesce(generate_series(1,3), 0) FROM int8_tbl",
+    "expected": "SELECT q1, COALESCE(generate_series(1, 3), 0) FROM int8_tbl"
+  },
+  {
+    "comment": "tsrf - Statement 30",
+    "query": "SELECT min(generate_series(1, 3)) FROM few",
+    "expected": "SELECT MIN(generate_series(1, 3)) FROM few"
+  },
+  {
+    "comment": "tsrf - Statement 31",
+    "query": "SELECT sum((3 = ANY(SELECT generate_series(1,4)))::int)",
+    "expected": "SELECT SUM(CAST((3 = ANY (SELECT generate_series(1, 4))) AS INT))"
+  },
+  {
+    "comment": "tsrf - Statement 32",
+    "query": "SELECT sum((3 = ANY(SELECT lag(x) over(order by x) FROM generate_series(1,4) x))::int)",
+    "expected": "SELECT SUM(CAST((3 = ANY (SELECT LAG(x) OVER (ORDER BY x) FROM generate_series(1, 4) AS x)) AS INT))"
+  },
+  {
+    "comment": "tsrf - Statement 33",
+    "query": "SELECT min(generate_series(1, 3)) OVER() FROM few",
+    "expected": "SELECT MIN(generate_series(1, 3)) OVER () FROM few"
+  },
+  {
+    "comment": "tsrf - Statement 34",
+    "query": "SELECT id,lag(id) OVER(), count(*) OVER(), generate_series(1,3) FROM few",
+    "expected": "SELECT id, LAG(id) OVER (), COUNT(*) OVER (), generate_series(1, 3) FROM few"
+  },
+  {
+    "comment": "tsrf - Statement 35",
+    "query": "SELECT SUM(count(*)) OVER(PARTITION BY generate_series(1,3) ORDER BY generate_series(1,3)), generate_series(1,3) g FROM few GROUP BY g",
+    "expected": "SELECT SUM(COUNT(*)) OVER (PARTITION BY generate_series(1, 3) ORDER BY generate_series(1, 3)), generate_series(1, 3) AS g FROM few GROUP BY g"
+  },
+  {
+    "comment": "tsrf - Statement 36",
+    "query": "SELECT few.dataa, count(*), min(id), max(id), generate_series(1,3) FROM few GROUP BY few.dataa ORDER BY 5, 1",
+    "expected": "SELECT few.dataa, COUNT(*), MIN(id), MAX(id), generate_series(1, 3) FROM few GROUP BY few.dataa ORDER BY 5, 1"
+  },
+  {
+    "comment": "tsrf - Statement 37",
+    "query": "set enable_hashagg = false",
+    "expected": "SET enable_hashagg = false"
+  },
+  {
+    "comment": "tsrf - Statement 38",
+    "query": "SELECT dataa, datab b, generate_series(1,2) g, count(*) FROM few GROUP BY CUBE(dataa, datab)",
+    "expected": "SELECT dataa, datab AS b, generate_series(1, 2) AS g, COUNT(*) FROM few GROUP BY CUBE(dataa, datab)"
+  },
+  {
+    "comment": "tsrf - Statement 39",
+    "query": "SELECT dataa, datab b, generate_series(1,2) g, count(*) FROM few GROUP BY CUBE(dataa, datab) ORDER BY dataa",
+    "expected": "SELECT dataa, datab AS b, generate_series(1, 2) AS g, COUNT(*) FROM few GROUP BY CUBE(dataa, datab) ORDER BY dataa"
+  },
+  {
+    "comment": "tsrf - Statement 40",
+    "query": "SELECT dataa, datab b, generate_series(1,2) g, count(*) FROM few GROUP BY CUBE(dataa, datab) ORDER BY g",
+    "expected": "SELECT dataa, datab AS b, generate_series(1, 2) AS g, COUNT(*) FROM few GROUP BY CUBE(dataa, datab) ORDER BY g"
+  },
+  {
+    "comment": "tsrf - Statement 41",
+    "query": "SELECT dataa, datab b, generate_series(1,2) g, count(*) FROM few GROUP BY CUBE(dataa, datab, g)",
+    "expected": "SELECT dataa, datab AS b, generate_series(1, 2) AS g, COUNT(*) FROM few GROUP BY CUBE(dataa, datab, g)"
+  },
+  {
+    "comment": "tsrf - Statement 42",
+    "query": "SELECT dataa, datab b, generate_series(1,2) g, count(*) FROM few GROUP BY CUBE(dataa, datab, g) ORDER BY dataa",
+    "expected": "SELECT dataa, datab AS b, generate_series(1, 2) AS g, COUNT(*) FROM few GROUP BY CUBE(dataa, datab, g) ORDER BY dataa"
+  },
+  {
+    "comment": "tsrf - Statement 43",
+    "query": "SELECT dataa, datab b, generate_series(1,2) g, count(*) FROM few GROUP BY CUBE(dataa, datab, g) ORDER BY g",
+    "expected": "SELECT dataa, datab AS b, generate_series(1, 2) AS g, COUNT(*) FROM few GROUP BY CUBE(dataa, datab, g) ORDER BY g"
+  },
+  {
+    "comment": "tsrf - Statement 44",
+    "query": "explain (verbose, costs off) select 'foo' as f, generate_series(1,2) as g from few order by 1",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) SELECT 'foo' AS f, generate_series(1, 2) AS g FROM few ORDER BY 1"
+  },
+  {
+    "comment": "tsrf - Statement 45",
+    "query": "select 'foo' as f, generate_series(1,2) as g from few order by 1",
+    "expected": "SELECT 'foo' AS f, generate_series(1, 2) AS g FROM few ORDER BY 1"
+  },
+  {
+    "comment": "tsrf - Statement 46",
+    "query": "CREATE TABLE fewmore AS SELECT generate_series(1,3) AS data",
+    "expected": "CREATE TABLE fewmore AS SELECT generate_series(1, 3) AS data"
+  },
+  {
+    "comment": "tsrf - Statement 47",
+    "query": "INSERT INTO fewmore VALUES(generate_series(4,5))",
+    "expected": "INSERT INTO fewmore VALUES (generate_series(4, 5))"
+  },
+  {
+    "comment": "tsrf - Statement 48",
+    "query": "SELECT * FROM fewmore"
+  },
+  {
+    "comment": "tsrf - Statement 49",
+    "query": "UPDATE fewmore SET data = generate_series(4,9)",
+    "expected": "UPDATE fewmore SET data = generate_series(4, 9)"
+  },
+  {
+    "comment": "tsrf - Statement 50",
+    "query": "INSERT INTO fewmore VALUES(1) RETURNING generate_series(1,3)",
+    "expected": "INSERT INTO fewmore VALUES (1) RETURNING generate_series(1, 3)"
+  },
+  {
+    "comment": "tsrf - Statement 51",
+    "query": "VALUES(1, generate_series(1,2))",
+    "expected": "VALUES (1, generate_series(1, 2))"
+  },
+  {
+    "comment": "tsrf - Statement 52",
+    "query": "SELECT int4mul(generate_series(1,2), 10)",
+    "expected": "SELECT int4mul(generate_series(1, 2), 10)"
+  },
+  {
+    "comment": "tsrf - Statement 53",
+    "query": "SELECT generate_series(1,3) IS DISTINCT FROM 2",
+    "expected": "SELECT generate_series(1, 3) IS DISTINCT FROM 2"
+  },
+  {
+    "comment": "tsrf - Statement 54",
+    "query": "SELECT * FROM int4mul(generate_series(1,2), 10)",
+    "expected": "SELECT * FROM int4mul(generate_series(1, 2), 10)"
+  },
+  {
+    "comment": "tsrf - Statement 55",
+    "query": "SELECT DISTINCT ON (a) a, b, generate_series(1,3) g FROM (VALUES (3, 2), (3,1), (1,1), (1,4), (5,3), (5,1)) AS t(a, b)",
+    "expected": "SELECT DISTINCT ON (a) a, b, generate_series(1, 3) AS g FROM (VALUES (3, 2), (3, 1), (1, 1), (1, 4), (5, 3), (5, 1)) AS t(a, b)"
+  },
+  {
+    "comment": "tsrf - Statement 56",
+    "query": "SELECT DISTINCT ON (a) a, b, generate_series(1,3) g FROM (VALUES (3, 2), (3,1), (1,1), (1,4), (5,3), (5,1)) AS t(a, b) ORDER BY a, b DESC",
+    "expected": "SELECT DISTINCT ON (a) a, b, generate_series(1, 3) AS g FROM (VALUES (3, 2), (3, 1), (1, 1), (1, 4), (5, 3), (5, 1)) AS t(a, b) ORDER BY a, b DESC"
+  },
+  {
+    "comment": "tsrf - Statement 57",
+    "query": "SELECT DISTINCT ON (a) a, b, generate_series(1,3) g FROM (VALUES (3, 2), (3,1), (1,1), (1,4), (5,3), (5,1)) AS t(a, b) ORDER BY a, b DESC, g DESC",
+    "expected": "SELECT DISTINCT ON (a) a, b, generate_series(1, 3) AS g FROM (VALUES (3, 2), (3, 1), (1, 1), (1, 4), (5, 3), (5, 1)) AS t(a, b) ORDER BY a, b DESC, g DESC"
+  },
+  {
+    "comment": "tsrf - Statement 58",
+    "query": "SELECT DISTINCT ON (a, b, g) a, b, generate_series(1,3) g FROM (VALUES (3, 2), (3,1), (1,1), (1,4), (5,3), (5,1)) AS t(a, b) ORDER BY a, b DESC, g DESC",
+    "expected": "SELECT DISTINCT ON (a, b, g) a, b, generate_series(1, 3) AS g FROM (VALUES (3, 2), (3, 1), (1, 1), (1, 4), (5, 3), (5, 1)) AS t(a, b) ORDER BY a, b DESC, g DESC"
+  },
+  {
+    "comment": "tsrf - Statement 59",
+    "query": "SELECT DISTINCT ON (g) a, b, generate_series(1,3) g FROM (VALUES (3, 2), (3,1), (1,1), (1,4), (5,3), (5,1)) AS t(a, b)",
+    "expected": "SELECT DISTINCT ON (g) a, b, generate_series(1, 3) AS g FROM (VALUES (3, 2), (3, 1), (1, 1), (1, 4), (5, 3), (5, 1)) AS t(a, b)"
+  },
+  {
+    "comment": "tsrf - Statement 60",
+    "query": "SELECT a, generate_series(1,2) FROM (VALUES(1),(2),(3)) r(a) LIMIT 2 OFFSET 2",
+    "expected": "SELECT a, generate_series(1, 2) FROM (VALUES (1), (2), (3)) AS r(a) LIMIT 2 OFFSET 2"
+  },
+  {
+    "comment": "tsrf - Statement 61",
+    "query": "SELECT 1 LIMIT generate_series(1,3)",
+    "expected": "SELECT 1 LIMIT generate_series(1, 3)"
+  },
+  {
+    "comment": "tsrf - Statement 62",
+    "query": "SELECT (SELECT generate_series(1,3) LIMIT 1 OFFSET few.id) FROM few",
+    "expected": "SELECT (SELECT generate_series(1, 3) LIMIT 1 OFFSET few.id) FROM few"
+  },
+  {
+    "comment": "tsrf - Statement 63",
+    "query": "SELECT (SELECT generate_series(1,3) LIMIT 1 OFFSET g.i) FROM generate_series(0,3) g(i)",
+    "expected": "SELECT (SELECT generate_series(1, 3) LIMIT 1 OFFSET g.i) FROM generate_series(0, 3) AS g(i)"
+  },
+  {
+    "comment": "tsrf - Statement 64",
+    "query": "CREATE OPERATOR |@| (PROCEDURE = unnest, RIGHTARG = ANYARRAY)",
+    "expected": "CREATE OPERATOR |@| (procedure = unnest, rightarg = anyarray)"
+  },
+  {
+    "comment": "tsrf - Statement 65",
+    "query": "SELECT |@|ARRAY[1,2,3]"
+  },
+  {
+    "comment": "tsrf - Statement 66",
+    "query": "explain (verbose, costs off) select generate_series(1,3) as x, generate_series(1,3) + 1 as xp1",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) SELECT generate_series(1, 3) AS x, generate_series(1, 3) + 1 AS xp1"
+  },
+  {
+    "comment": "tsrf - Statement 67",
+    "query": "select generate_series(1,3) as x, generate_series(1,3) + 1 as xp1",
+    "expected": "SELECT generate_series(1, 3) AS x, generate_series(1, 3) + 1 AS xp1"
+  },
+  {
+    "comment": "tsrf - Statement 68",
+    "query": "explain (verbose, costs off) select generate_series(1,3)+1 order by generate_series(1,3)",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) SELECT generate_series(1, 3) + 1 ORDER BY generate_series(1, 3)"
+  },
+  {
+    "comment": "tsrf - Statement 69",
+    "query": "select generate_series(1,3)+1 order by generate_series(1,3)",
+    "expected": "SELECT generate_series(1, 3) + 1 ORDER BY generate_series(1, 3)"
+  },
+  {
+    "comment": "tsrf - Statement 70",
+    "query": "explain (verbose, costs off) select generate_series(1,3) as x, generate_series(3,6) + 1 as y",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) SELECT generate_series(1, 3) AS x, generate_series(3, 6) + 1 AS y"
+  },
+  {
+    "comment": "tsrf - Statement 71",
+    "query": "select generate_series(1,3) as x, generate_series(3,6) + 1 as y",
+    "expected": "SELECT generate_series(1, 3) AS x, generate_series(3, 6) + 1 AS y"
+  },
+  {
+    "comment": "tsrf - Statement 72",
+    "query": "DROP TABLE few"
+  },
+  {
+    "comment": "tsrf - Statement 73",
+    "query": "DROP TABLE fewmore"
+  }
+]

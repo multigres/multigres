@@ -1,0 +1,270 @@
+[
+  {
+    "comment": "roleattributes - Statement 1",
+    "query": "CREATE ROLE regress_test_def_superuser"
+  },
+  {
+    "comment": "roleattributes - Statement 2",
+    "query": "SELECT rolname, rolsuper, rolinherit, rolcreaterole, rolcreatedb, rolcanlogin, rolreplication, rolbypassrls, rolconnlimit, rolpassword, rolvaliduntil FROM pg_authid WHERE rolname = 'regress_test_def_superuser'"
+  },
+  {
+    "comment": "roleattributes - Statement 3",
+    "query": "CREATE ROLE regress_test_superuser WITH SUPERUSER",
+    "expected": "CREATE ROLE regress_test_superuser SUPERUSER"
+  },
+  {
+    "comment": "roleattributes - Statement 4",
+    "query": "SELECT rolname, rolsuper, rolinherit, rolcreaterole, rolcreatedb, rolcanlogin, rolreplication, rolbypassrls, rolconnlimit, rolpassword, rolvaliduntil FROM pg_authid WHERE rolname = 'regress_test_superuser'"
+  },
+  {
+    "comment": "roleattributes - Statement 5",
+    "query": "ALTER ROLE regress_test_superuser WITH NOSUPERUSER"
+  },
+  {
+    "comment": "roleattributes - Statement 6",
+    "query": "ALTER ROLE regress_test_superuser WITH SUPERUSER"
+  },
+  {
+    "comment": "roleattributes - Statement 7",
+    "query": "CREATE ROLE regress_test_def_inherit"
+  },
+  {
+    "comment": "roleattributes - Statement 8",
+    "query": "SELECT rolname, rolsuper, rolinherit, rolcreaterole, rolcreatedb, rolcanlogin, rolreplication, rolbypassrls, rolconnlimit, rolpassword, rolvaliduntil FROM pg_authid WHERE rolname = 'regress_test_def_inherit'"
+  },
+  {
+    "comment": "roleattributes - Statement 9",
+    "query": "CREATE ROLE regress_test_inherit WITH NOINHERIT",
+    "expected": "CREATE ROLE regress_test_inherit NOINHERIT"
+  },
+  {
+    "comment": "roleattributes - Statement 10",
+    "query": "SELECT rolname, rolsuper, rolinherit, rolcreaterole, rolcreatedb, rolcanlogin, rolreplication, rolbypassrls, rolconnlimit, rolpassword, rolvaliduntil FROM pg_authid WHERE rolname = 'regress_test_inherit'"
+  },
+  {
+    "comment": "roleattributes - Statement 11",
+    "query": "ALTER ROLE regress_test_inherit WITH INHERIT"
+  },
+  {
+    "comment": "roleattributes - Statement 12",
+    "query": "ALTER ROLE regress_test_inherit WITH NOINHERIT"
+  },
+  {
+    "comment": "roleattributes - Statement 13",
+    "query": "CREATE ROLE regress_test_def_createrole"
+  },
+  {
+    "comment": "roleattributes - Statement 14",
+    "query": "SELECT rolname, rolsuper, rolinherit, rolcreaterole, rolcreatedb, rolcanlogin, rolreplication, rolbypassrls, rolconnlimit, rolpassword, rolvaliduntil FROM pg_authid WHERE rolname = 'regress_test_def_createrole'"
+  },
+  {
+    "comment": "roleattributes - Statement 15",
+    "query": "CREATE ROLE regress_test_createrole WITH CREATEROLE",
+    "expected": "CREATE ROLE regress_test_createrole CREATEROLE"
+  },
+  {
+    "comment": "roleattributes - Statement 16",
+    "query": "SELECT rolname, rolsuper, rolinherit, rolcreaterole, rolcreatedb, rolcanlogin, rolreplication, rolbypassrls, rolconnlimit, rolpassword, rolvaliduntil FROM pg_authid WHERE rolname = 'regress_test_createrole'"
+  },
+  {
+    "comment": "roleattributes - Statement 17",
+    "query": "ALTER ROLE regress_test_createrole WITH NOCREATEROLE"
+  },
+  {
+    "comment": "roleattributes - Statement 18",
+    "query": "ALTER ROLE regress_test_createrole WITH CREATEROLE"
+  },
+  {
+    "comment": "roleattributes - Statement 19",
+    "query": "CREATE ROLE regress_test_def_createdb"
+  },
+  {
+    "comment": "roleattributes - Statement 20",
+    "query": "SELECT rolname, rolsuper, rolinherit, rolcreaterole, rolcreatedb, rolcanlogin, rolreplication, rolbypassrls, rolconnlimit, rolpassword, rolvaliduntil FROM pg_authid WHERE rolname = 'regress_test_def_createdb'"
+  },
+  {
+    "comment": "roleattributes - Statement 21",
+    "query": "CREATE ROLE regress_test_createdb WITH CREATEDB",
+    "expected": "CREATE ROLE regress_test_createdb CREATEDB"
+  },
+  {
+    "comment": "roleattributes - Statement 22",
+    "query": "SELECT rolname, rolsuper, rolinherit, rolcreaterole, rolcreatedb, rolcanlogin, rolreplication, rolbypassrls, rolconnlimit, rolpassword, rolvaliduntil FROM pg_authid WHERE rolname = 'regress_test_createdb'"
+  },
+  {
+    "comment": "roleattributes - Statement 23",
+    "query": "ALTER ROLE regress_test_createdb WITH NOCREATEDB"
+  },
+  {
+    "comment": "roleattributes - Statement 24",
+    "query": "ALTER ROLE regress_test_createdb WITH CREATEDB"
+  },
+  {
+    "comment": "roleattributes - Statement 25",
+    "query": "CREATE ROLE regress_test_def_role_canlogin"
+  },
+  {
+    "comment": "roleattributes - Statement 26",
+    "query": "SELECT rolname, rolsuper, rolinherit, rolcreaterole, rolcreatedb, rolcanlogin, rolreplication, rolbypassrls, rolconnlimit, rolpassword, rolvaliduntil FROM pg_authid WHERE rolname = 'regress_test_def_role_canlogin'"
+  },
+  {
+    "comment": "roleattributes - Statement 27",
+    "query": "CREATE ROLE regress_test_role_canlogin WITH LOGIN",
+    "expected": "CREATE ROLE regress_test_role_canlogin LOGIN"
+  },
+  {
+    "comment": "roleattributes - Statement 28",
+    "query": "SELECT rolname, rolsuper, rolinherit, rolcreaterole, rolcreatedb, rolcanlogin, rolreplication, rolbypassrls, rolconnlimit, rolpassword, rolvaliduntil FROM pg_authid WHERE rolname = 'regress_test_role_canlogin'"
+  },
+  {
+    "comment": "roleattributes - Statement 29",
+    "query": "ALTER ROLE regress_test_role_canlogin WITH NOLOGIN"
+  },
+  {
+    "comment": "roleattributes - Statement 30",
+    "query": "ALTER ROLE regress_test_role_canlogin WITH LOGIN"
+  },
+  {
+    "comment": "roleattributes - Statement 31",
+    "query": "CREATE USER regress_test_def_user_canlogin"
+  },
+  {
+    "comment": "roleattributes - Statement 32",
+    "query": "SELECT rolname, rolsuper, rolinherit, rolcreaterole, rolcreatedb, rolcanlogin, rolreplication, rolbypassrls, rolconnlimit, rolpassword, rolvaliduntil FROM pg_authid WHERE rolname = 'regress_test_def_user_canlogin'"
+  },
+  {
+    "comment": "roleattributes - Statement 33",
+    "query": "CREATE USER regress_test_user_canlogin WITH NOLOGIN",
+    "expected": "CREATE USER regress_test_user_canlogin NOLOGIN"
+  },
+  {
+    "comment": "roleattributes - Statement 34",
+    "query": "SELECT rolname, rolsuper, rolinherit, rolcreaterole, rolcreatedb, rolcanlogin, rolreplication, rolbypassrls, rolconnlimit, rolpassword, rolvaliduntil FROM pg_authid WHERE rolname = 'regress_test_user_canlogin'"
+  },
+  {
+    "comment": "roleattributes - Statement 35",
+    "query": "ALTER USER regress_test_user_canlogin WITH LOGIN",
+    "expected": "ALTER ROLE regress_test_user_canlogin WITH LOGIN"
+  },
+  {
+    "comment": "roleattributes - Statement 36",
+    "query": "ALTER USER regress_test_user_canlogin WITH NOLOGIN",
+    "expected": "ALTER ROLE regress_test_user_canlogin WITH NOLOGIN"
+  },
+  {
+    "comment": "roleattributes - Statement 37",
+    "query": "CREATE ROLE regress_test_def_replication"
+  },
+  {
+    "comment": "roleattributes - Statement 38",
+    "query": "SELECT rolname, rolsuper, rolinherit, rolcreaterole, rolcreatedb, rolcanlogin, rolreplication, rolbypassrls, rolconnlimit, rolpassword, rolvaliduntil FROM pg_authid WHERE rolname = 'regress_test_def_replication'"
+  },
+  {
+    "comment": "roleattributes - Statement 39",
+    "query": "CREATE ROLE regress_test_replication WITH REPLICATION",
+    "expected": "CREATE ROLE regress_test_replication REPLICATION"
+  },
+  {
+    "comment": "roleattributes - Statement 40",
+    "query": "SELECT rolname, rolsuper, rolinherit, rolcreaterole, rolcreatedb, rolcanlogin, rolreplication, rolbypassrls, rolconnlimit, rolpassword, rolvaliduntil FROM pg_authid WHERE rolname = 'regress_test_replication'"
+  },
+  {
+    "comment": "roleattributes - Statement 41",
+    "query": "ALTER ROLE regress_test_replication WITH NOREPLICATION"
+  },
+  {
+    "comment": "roleattributes - Statement 42",
+    "query": "ALTER ROLE regress_test_replication WITH REPLICATION"
+  },
+  {
+    "comment": "roleattributes - Statement 43",
+    "query": "CREATE ROLE regress_test_def_bypassrls"
+  },
+  {
+    "comment": "roleattributes - Statement 44",
+    "query": "SELECT rolname, rolsuper, rolinherit, rolcreaterole, rolcreatedb, rolcanlogin, rolreplication, rolbypassrls, rolconnlimit, rolpassword, rolvaliduntil FROM pg_authid WHERE rolname = 'regress_test_def_bypassrls'"
+  },
+  {
+    "comment": "roleattributes - Statement 45",
+    "query": "CREATE ROLE regress_test_bypassrls WITH BYPASSRLS",
+    "expected": "CREATE ROLE regress_test_bypassrls BYPASSRLS"
+  },
+  {
+    "comment": "roleattributes - Statement 46",
+    "query": "SELECT rolname, rolsuper, rolinherit, rolcreaterole, rolcreatedb, rolcanlogin, rolreplication, rolbypassrls, rolconnlimit, rolpassword, rolvaliduntil FROM pg_authid WHERE rolname = 'regress_test_bypassrls'"
+  },
+  {
+    "comment": "roleattributes - Statement 47",
+    "query": "ALTER ROLE regress_test_bypassrls WITH NOBYPASSRLS"
+  },
+  {
+    "comment": "roleattributes - Statement 48",
+    "query": "ALTER ROLE regress_test_bypassrls WITH BYPASSRLS"
+  },
+  {
+    "comment": "roleattributes - Statement 49",
+    "query": "DROP ROLE regress_test_def_superuser"
+  },
+  {
+    "comment": "roleattributes - Statement 50",
+    "query": "DROP ROLE regress_test_superuser"
+  },
+  {
+    "comment": "roleattributes - Statement 51",
+    "query": "DROP ROLE regress_test_def_inherit"
+  },
+  {
+    "comment": "roleattributes - Statement 52",
+    "query": "DROP ROLE regress_test_inherit"
+  },
+  {
+    "comment": "roleattributes - Statement 53",
+    "query": "DROP ROLE regress_test_def_createrole"
+  },
+  {
+    "comment": "roleattributes - Statement 54",
+    "query": "DROP ROLE regress_test_createrole"
+  },
+  {
+    "comment": "roleattributes - Statement 55",
+    "query": "DROP ROLE regress_test_def_createdb"
+  },
+  {
+    "comment": "roleattributes - Statement 56",
+    "query": "DROP ROLE regress_test_createdb"
+  },
+  {
+    "comment": "roleattributes - Statement 57",
+    "query": "DROP ROLE regress_test_def_role_canlogin"
+  },
+  {
+    "comment": "roleattributes - Statement 58",
+    "query": "DROP ROLE regress_test_role_canlogin"
+  },
+  {
+    "comment": "roleattributes - Statement 59",
+    "query": "DROP USER regress_test_def_user_canlogin",
+    "expected": "DROP ROLE regress_test_def_user_canlogin"
+  },
+  {
+    "comment": "roleattributes - Statement 60",
+    "query": "DROP USER regress_test_user_canlogin",
+    "expected": "DROP ROLE regress_test_user_canlogin"
+  },
+  {
+    "comment": "roleattributes - Statement 61",
+    "query": "DROP ROLE regress_test_def_replication"
+  },
+  {
+    "comment": "roleattributes - Statement 62",
+    "query": "DROP ROLE regress_test_replication"
+  },
+  {
+    "comment": "roleattributes - Statement 63",
+    "query": "DROP ROLE regress_test_def_bypassrls"
+  },
+  {
+    "comment": "roleattributes - Statement 64",
+    "query": "DROP ROLE regress_test_bypassrls"
+  }
+]

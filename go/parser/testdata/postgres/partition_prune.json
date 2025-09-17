@@ -1,0 +1,3228 @@
+[
+  {
+    "comment": "partition_prune - Statement 1",
+    "query": "set plan_cache_mode = force_generic_plan",
+    "expected": "SET plan_cache_mode = 'force_generic_plan'"
+  },
+  {
+    "comment": "partition_prune - Statement 2",
+    "query": "create table lp (a char) partition by list (a)",
+    "expected": "CREATE TABLE lp (a CHAR(1)) PARTITION BY list (a)"
+  },
+  {
+    "comment": "partition_prune - Statement 3",
+    "query": "create table lp_default partition of lp default",
+    "expected": "CREATE TABLE lp_default PARTITION OF lp DEFAULT"
+  },
+  {
+    "comment": "partition_prune - Statement 4",
+    "query": "create table lp_ef partition of lp for values in ('e', 'f')",
+    "expected": "CREATE TABLE lp_ef PARTITION OF lp FOR VALUES IN ('e', 'f')"
+  },
+  {
+    "comment": "partition_prune - Statement 5",
+    "query": "create table lp_ad partition of lp for values in ('a', 'd')",
+    "expected": "CREATE TABLE lp_ad PARTITION OF lp FOR VALUES IN ('a', 'd')"
+  },
+  {
+    "comment": "partition_prune - Statement 6",
+    "query": "create table lp_bc partition of lp for values in ('b', 'c')",
+    "expected": "CREATE TABLE lp_bc PARTITION OF lp FOR VALUES IN ('b', 'c')"
+  },
+  {
+    "comment": "partition_prune - Statement 7",
+    "query": "create table lp_g partition of lp for values in ('g')",
+    "expected": "CREATE TABLE lp_g PARTITION OF lp FOR VALUES IN ('g')"
+  },
+  {
+    "comment": "partition_prune - Statement 8",
+    "query": "create table lp_null partition of lp for values in (null)",
+    "expected": "CREATE TABLE lp_null PARTITION OF lp FOR VALUES IN (NULL)"
+  },
+  {
+    "comment": "partition_prune - Statement 9",
+    "query": "explain (costs off) select * from lp",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM lp"
+  },
+  {
+    "comment": "partition_prune - Statement 10",
+    "query": "explain (costs off) select * from lp where a \u003e 'a' and a \u003c 'd'",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM lp WHERE a \u003e 'a' AND a \u003c 'd'"
+  },
+  {
+    "comment": "partition_prune - Statement 11",
+    "query": "explain (costs off) select * from lp where a \u003e 'a' and a \u003c= 'd'",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM lp WHERE a \u003e 'a' AND a \u003c= 'd'"
+  },
+  {
+    "comment": "partition_prune - Statement 12",
+    "query": "explain (costs off) select * from lp where a = 'a'",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM lp WHERE a = 'a'"
+  },
+  {
+    "comment": "partition_prune - Statement 13",
+    "query": "explain (costs off) select * from lp where 'a' = a;\t/* commuted */ explain (costs off) select * from lp where a is not null",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM lp WHERE 'a' = a; EXPLAIN (COSTS false) SELECT * FROM lp WHERE a IS NOT NULL"
+  },
+  {
+    "comment": "partition_prune - Statement 14",
+    "query": "explain (costs off) select * from lp where a is null",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM lp WHERE a IS NULL"
+  },
+  {
+    "comment": "partition_prune - Statement 15",
+    "query": "explain (costs off) select * from lp where a = 'a' or a = 'c'",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM lp WHERE a = 'a' OR a = 'c'"
+  },
+  {
+    "comment": "partition_prune - Statement 16",
+    "query": "explain (costs off) select * from lp where a is not null and (a = 'a' or a = 'c')",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM lp WHERE a IS NOT NULL AND (a = 'a' OR a = 'c')"
+  },
+  {
+    "comment": "partition_prune - Statement 17",
+    "query": "explain (costs off) select * from lp where a \u003c\u003e 'g'",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM lp WHERE a \u003c\u003e 'g'"
+  },
+  {
+    "comment": "partition_prune - Statement 18",
+    "query": "explain (costs off) select * from lp where a \u003c\u003e 'a' and a \u003c\u003e 'd'",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM lp WHERE a \u003c\u003e 'a' AND a \u003c\u003e 'd'"
+  },
+  {
+    "comment": "partition_prune - Statement 19",
+    "query": "explain (costs off) select * from lp where a not in ('a', 'd')",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM lp WHERE a NOT IN ('a', 'd')"
+  },
+  {
+    "comment": "partition_prune - Statement 20",
+    "query": "create table coll_pruning (a text collate \"C\") partition by list (a)",
+    "expected": "CREATE TABLE coll_pruning (a TEXT COLLATE \"C\") PARTITION BY list (a)"
+  },
+  {
+    "comment": "partition_prune - Statement 21",
+    "query": "create table coll_pruning_a partition of coll_pruning for values in ('a')",
+    "expected": "CREATE TABLE coll_pruning_a PARTITION OF coll_pruning FOR VALUES IN ('a')"
+  },
+  {
+    "comment": "partition_prune - Statement 22",
+    "query": "create table coll_pruning_b partition of coll_pruning for values in ('b')",
+    "expected": "CREATE TABLE coll_pruning_b PARTITION OF coll_pruning FOR VALUES IN ('b')"
+  },
+  {
+    "comment": "partition_prune - Statement 23",
+    "query": "create table coll_pruning_def partition of coll_pruning default",
+    "expected": "CREATE TABLE coll_pruning_def PARTITION OF coll_pruning DEFAULT"
+  },
+  {
+    "comment": "partition_prune - Statement 24",
+    "query": "explain (costs off) select * from coll_pruning where a collate \"C\" = 'a' collate \"C\"",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM coll_pruning WHERE a COLLATE \"C\" = 'a' COLLATE \"C\""
+  },
+  {
+    "comment": "partition_prune - Statement 25",
+    "query": "explain (costs off) select * from coll_pruning where a collate \"POSIX\" = 'a' collate \"POSIX\"",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM coll_pruning WHERE a COLLATE \"POSIX\" = 'a' COLLATE \"POSIX\""
+  },
+  {
+    "comment": "partition_prune - Statement 26",
+    "query": "create table rlp (a int, b varchar) partition by range (a)",
+    "expected": "CREATE TABLE rlp (a INT, b VARCHAR) PARTITION BY range (a)"
+  },
+  {
+    "comment": "partition_prune - Statement 27",
+    "query": "create table rlp_default partition of rlp default partition by list (a)",
+    "expected": "CREATE TABLE rlp_default PARTITION OF rlp DEFAULT PARTITION BY list (a)"
+  },
+  {
+    "comment": "partition_prune - Statement 28",
+    "query": "create table rlp_default_default partition of rlp_default default",
+    "expected": "CREATE TABLE rlp_default_default PARTITION OF rlp_default DEFAULT"
+  },
+  {
+    "comment": "partition_prune - Statement 29",
+    "query": "create table rlp_default_10 partition of rlp_default for values in (10)",
+    "expected": "CREATE TABLE rlp_default_10 PARTITION OF rlp_default FOR VALUES IN (10)"
+  },
+  {
+    "comment": "partition_prune - Statement 30",
+    "query": "create table rlp_default_30 partition of rlp_default for values in (30)",
+    "expected": "CREATE TABLE rlp_default_30 PARTITION OF rlp_default FOR VALUES IN (30)"
+  },
+  {
+    "comment": "partition_prune - Statement 31",
+    "query": "create table rlp_default_null partition of rlp_default for values in (null)",
+    "expected": "CREATE TABLE rlp_default_null PARTITION OF rlp_default FOR VALUES IN (NULL)"
+  },
+  {
+    "comment": "partition_prune - Statement 32",
+    "query": "create table rlp1 partition of rlp for values from (minvalue) to (1)",
+    "expected": "CREATE TABLE rlp1 PARTITION OF rlp FOR VALUES FROM (minvalue) TO (1)"
+  },
+  {
+    "comment": "partition_prune - Statement 33",
+    "query": "create table rlp2 partition of rlp for values from (1) to (10)",
+    "expected": "CREATE TABLE rlp2 PARTITION OF rlp FOR VALUES FROM (1) TO (10)"
+  },
+  {
+    "comment": "partition_prune - Statement 34",
+    "query": "create table rlp3 (b varchar, a int) partition by list (b varchar_ops)",
+    "expected": "CREATE TABLE rlp3 (b VARCHAR, a INT) PARTITION BY list (b varchar_ops)"
+  },
+  {
+    "comment": "partition_prune - Statement 35",
+    "query": "create table rlp3_default partition of rlp3 default",
+    "expected": "CREATE TABLE rlp3_default PARTITION OF rlp3 DEFAULT"
+  },
+  {
+    "comment": "partition_prune - Statement 36",
+    "query": "create table rlp3abcd partition of rlp3 for values in ('ab', 'cd')",
+    "expected": "CREATE TABLE rlp3abcd PARTITION OF rlp3 FOR VALUES IN ('ab', 'cd')"
+  },
+  {
+    "comment": "partition_prune - Statement 37",
+    "query": "create table rlp3efgh partition of rlp3 for values in ('ef', 'gh')",
+    "expected": "CREATE TABLE rlp3efgh PARTITION OF rlp3 FOR VALUES IN ('ef', 'gh')"
+  },
+  {
+    "comment": "partition_prune - Statement 38",
+    "query": "create table rlp3nullxy partition of rlp3 for values in (null, 'xy')",
+    "expected": "CREATE TABLE rlp3nullxy PARTITION OF rlp3 FOR VALUES IN (NULL, 'xy')"
+  },
+  {
+    "comment": "partition_prune - Statement 39",
+    "query": "alter table rlp attach partition rlp3 for values from (15) to (20)",
+    "expected": "ALTER TABLE rlp ATTACH PARTITION rlp3 FOR VALUES FROM (15) TO (20)"
+  },
+  {
+    "comment": "partition_prune - Statement 40",
+    "query": "create table rlp4 partition of rlp for values from (20) to (30) partition by range (a)",
+    "expected": "CREATE TABLE rlp4 PARTITION OF rlp FOR VALUES FROM (20) TO (30) PARTITION BY range (a)"
+  },
+  {
+    "comment": "partition_prune - Statement 41",
+    "query": "create table rlp4_default partition of rlp4 default",
+    "expected": "CREATE TABLE rlp4_default PARTITION OF rlp4 DEFAULT"
+  },
+  {
+    "comment": "partition_prune - Statement 42",
+    "query": "create table rlp4_1 partition of rlp4 for values from (20) to (25)",
+    "expected": "CREATE TABLE rlp4_1 PARTITION OF rlp4 FOR VALUES FROM (20) TO (25)"
+  },
+  {
+    "comment": "partition_prune - Statement 43",
+    "query": "create table rlp4_2 partition of rlp4 for values from (25) to (29)",
+    "expected": "CREATE TABLE rlp4_2 PARTITION OF rlp4 FOR VALUES FROM (25) TO (29)"
+  },
+  {
+    "comment": "partition_prune - Statement 44",
+    "query": "create table rlp5 partition of rlp for values from (31) to (maxvalue) partition by range (a)",
+    "expected": "CREATE TABLE rlp5 PARTITION OF rlp FOR VALUES FROM (31) TO (maxvalue) PARTITION BY range (a)"
+  },
+  {
+    "comment": "partition_prune - Statement 45",
+    "query": "create table rlp5_default partition of rlp5 default",
+    "expected": "CREATE TABLE rlp5_default PARTITION OF rlp5 DEFAULT"
+  },
+  {
+    "comment": "partition_prune - Statement 46",
+    "query": "create table rlp5_1 partition of rlp5 for values from (31) to (40)",
+    "expected": "CREATE TABLE rlp5_1 PARTITION OF rlp5 FOR VALUES FROM (31) TO (40)"
+  },
+  {
+    "comment": "partition_prune - Statement 47",
+    "query": "explain (costs off) select * from rlp where a \u003c 1",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM rlp WHERE a \u003c 1"
+  },
+  {
+    "comment": "partition_prune - Statement 48",
+    "query": "explain (costs off) select * from rlp where 1 \u003e a;\t/* commuted */ explain (costs off) select * from rlp where a \u003c= 1",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM rlp WHERE 1 \u003e a; EXPLAIN (COSTS false) SELECT * FROM rlp WHERE a \u003c= 1"
+  },
+  {
+    "comment": "partition_prune - Statement 49",
+    "query": "explain (costs off) select * from rlp where a = 1",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM rlp WHERE a = 1"
+  },
+  {
+    "comment": "partition_prune - Statement 50",
+    "query": "explain (costs off) select * from rlp where a = 1::bigint;\t\t/* same as above */ explain (costs off) select * from rlp where a = 1::numeric;\t\t/* no pruning */ explain (costs off) select * from rlp where a \u003c= 10",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM rlp WHERE a = CAST(1 AS BIGINT); EXPLAIN (COSTS false) SELECT * FROM rlp WHERE a = CAST(1 AS NUMERIC); EXPLAIN (COSTS false) SELECT * FROM rlp WHERE a \u003c= 10"
+  },
+  {
+    "comment": "partition_prune - Statement 51",
+    "query": "explain (costs off) select * from rlp where a \u003e 10",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM rlp WHERE a \u003e 10"
+  },
+  {
+    "comment": "partition_prune - Statement 52",
+    "query": "explain (costs off) select * from rlp where a \u003c 15",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM rlp WHERE a \u003c 15"
+  },
+  {
+    "comment": "partition_prune - Statement 53",
+    "query": "explain (costs off) select * from rlp where a \u003c= 15",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM rlp WHERE a \u003c= 15"
+  },
+  {
+    "comment": "partition_prune - Statement 54",
+    "query": "explain (costs off) select * from rlp where a \u003e 15 and b = 'ab'",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM rlp WHERE a \u003e 15 AND b = 'ab'"
+  },
+  {
+    "comment": "partition_prune - Statement 55",
+    "query": "explain (costs off) select * from rlp where a = 16",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM rlp WHERE a = 16"
+  },
+  {
+    "comment": "partition_prune - Statement 56",
+    "query": "explain (costs off) select * from rlp where a = 16 and b in ('not', 'in', 'here')",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM rlp WHERE a = 16 AND b IN ('not', 'in', 'here')"
+  },
+  {
+    "comment": "partition_prune - Statement 57",
+    "query": "explain (costs off) select * from rlp where a = 16 and b \u003c 'ab'",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM rlp WHERE a = 16 AND b \u003c 'ab'"
+  },
+  {
+    "comment": "partition_prune - Statement 58",
+    "query": "explain (costs off) select * from rlp where a = 16 and b \u003c= 'ab'",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM rlp WHERE a = 16 AND b \u003c= 'ab'"
+  },
+  {
+    "comment": "partition_prune - Statement 59",
+    "query": "explain (costs off) select * from rlp where a = 16 and b is null",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM rlp WHERE a = 16 AND b IS NULL"
+  },
+  {
+    "comment": "partition_prune - Statement 60",
+    "query": "explain (costs off) select * from rlp where a = 16 and b is not null",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM rlp WHERE a = 16 AND b IS NOT NULL"
+  },
+  {
+    "comment": "partition_prune - Statement 61",
+    "query": "explain (costs off) select * from rlp where a is null",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM rlp WHERE a IS NULL"
+  },
+  {
+    "comment": "partition_prune - Statement 62",
+    "query": "explain (costs off) select * from rlp where a is not null",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM rlp WHERE a IS NOT NULL"
+  },
+  {
+    "comment": "partition_prune - Statement 63",
+    "query": "explain (costs off) select * from rlp where a \u003e 30",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM rlp WHERE a \u003e 30"
+  },
+  {
+    "comment": "partition_prune - Statement 64",
+    "query": "explain (costs off) select * from rlp where a = 30;\t/* only default is scanned */ explain (costs off) select * from rlp where a \u003c= 31",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM rlp WHERE a = 30; EXPLAIN (COSTS false) SELECT * FROM rlp WHERE a \u003c= 31"
+  },
+  {
+    "comment": "partition_prune - Statement 65",
+    "query": "explain (costs off) select * from rlp where a = 1 or a = 7",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM rlp WHERE a = 1 OR a = 7"
+  },
+  {
+    "comment": "partition_prune - Statement 66",
+    "query": "explain (costs off) select * from rlp where a = 1 or b = 'ab'",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM rlp WHERE a = 1 OR b = 'ab'"
+  },
+  {
+    "comment": "partition_prune - Statement 67",
+    "query": "explain (costs off) select * from rlp where a \u003e 20 and a \u003c 27",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM rlp WHERE a \u003e 20 AND a \u003c 27"
+  },
+  {
+    "comment": "partition_prune - Statement 68",
+    "query": "explain (costs off) select * from rlp where a = 29",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM rlp WHERE a = 29"
+  },
+  {
+    "comment": "partition_prune - Statement 69",
+    "query": "explain (costs off) select * from rlp where a \u003e= 29",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM rlp WHERE a \u003e= 29"
+  },
+  {
+    "comment": "partition_prune - Statement 70",
+    "query": "explain (costs off) select * from rlp where a \u003c 1 or (a \u003e 20 and a \u003c 25)",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM rlp WHERE a \u003c 1 OR (a \u003e 20 AND a \u003c 25)"
+  },
+  {
+    "comment": "partition_prune - Statement 71",
+    "query": "explain (costs off) select * from rlp where a = 20 or a = 40",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM rlp WHERE a = 20 OR a = 40"
+  },
+  {
+    "comment": "partition_prune - Statement 72",
+    "query": "explain (costs off) select * from rlp3 where a = 20;   /* empty */ explain (costs off) select * from rlp where a \u003e 1 and a = 10;\t/* only default */ explain (costs off) select * from rlp where a \u003e 1 and a \u003e=15;\t/* rlp3 onwards, including default */ explain (costs off) select * from rlp where a = 1 and a = 3;\t/* empty */ explain (costs off) select * from rlp where (a = 1 and a = 3) or (a \u003e 1 and a = 15)",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM rlp3 WHERE a = 20; EXPLAIN (COSTS false) SELECT * FROM rlp WHERE a \u003e 1 AND a = 10; EXPLAIN (COSTS false) SELECT * FROM rlp WHERE a \u003e 1 AND a \u003e= 15; EXPLAIN (COSTS false) SELECT * FROM rlp WHERE a = 1 AND a = 3; EXPLAIN (COSTS false) SELECT * FROM rlp WHERE (a = 1 AND a = 3) OR (a \u003e 1 AND a = 15)"
+  },
+  {
+    "comment": "partition_prune - Statement 73",
+    "query": "create table mc3p (a int, b int, c int) partition by range (a, abs(b), c)",
+    "expected": "CREATE TABLE mc3p (a INT, b INT, c INT) PARTITION BY range (a, abs(b), c)"
+  },
+  {
+    "comment": "partition_prune - Statement 74",
+    "query": "create table mc3p_default partition of mc3p default",
+    "expected": "CREATE TABLE mc3p_default PARTITION OF mc3p DEFAULT"
+  },
+  {
+    "comment": "partition_prune - Statement 75",
+    "query": "create table mc3p0 partition of mc3p for values from (minvalue, minvalue, minvalue) to (1, 1, 1)",
+    "expected": "CREATE TABLE mc3p0 PARTITION OF mc3p FOR VALUES FROM (minvalue, minvalue, minvalue) TO (1, 1, 1)"
+  },
+  {
+    "comment": "partition_prune - Statement 76",
+    "query": "create table mc3p1 partition of mc3p for values from (1, 1, 1) to (10, 5, 10)",
+    "expected": "CREATE TABLE mc3p1 PARTITION OF mc3p FOR VALUES FROM (1, 1, 1) TO (10, 5, 10)"
+  },
+  {
+    "comment": "partition_prune - Statement 77",
+    "query": "create table mc3p2 partition of mc3p for values from (10, 5, 10) to (10, 10, 10)",
+    "expected": "CREATE TABLE mc3p2 PARTITION OF mc3p FOR VALUES FROM (10, 5, 10) TO (10, 10, 10)"
+  },
+  {
+    "comment": "partition_prune - Statement 78",
+    "query": "create table mc3p3 partition of mc3p for values from (10, 10, 10) to (10, 10, 20)",
+    "expected": "CREATE TABLE mc3p3 PARTITION OF mc3p FOR VALUES FROM (10, 10, 10) TO (10, 10, 20)"
+  },
+  {
+    "comment": "partition_prune - Statement 79",
+    "query": "create table mc3p4 partition of mc3p for values from (10, 10, 20) to (10, maxvalue, maxvalue)",
+    "expected": "CREATE TABLE mc3p4 PARTITION OF mc3p FOR VALUES FROM (10, 10, 20) TO (10, maxvalue, maxvalue)"
+  },
+  {
+    "comment": "partition_prune - Statement 80",
+    "query": "create table mc3p5 partition of mc3p for values from (11, 1, 1) to (20, 10, 10)",
+    "expected": "CREATE TABLE mc3p5 PARTITION OF mc3p FOR VALUES FROM (11, 1, 1) TO (20, 10, 10)"
+  },
+  {
+    "comment": "partition_prune - Statement 81",
+    "query": "create table mc3p6 partition of mc3p for values from (20, 10, 10) to (20, 20, 20)",
+    "expected": "CREATE TABLE mc3p6 PARTITION OF mc3p FOR VALUES FROM (20, 10, 10) TO (20, 20, 20)"
+  },
+  {
+    "comment": "partition_prune - Statement 82",
+    "query": "create table mc3p7 partition of mc3p for values from (20, 20, 20) to (maxvalue, maxvalue, maxvalue)",
+    "expected": "CREATE TABLE mc3p7 PARTITION OF mc3p FOR VALUES FROM (20, 20, 20) TO (maxvalue, maxvalue, maxvalue)"
+  },
+  {
+    "comment": "partition_prune - Statement 83",
+    "query": "explain (costs off) select * from mc3p where a = 1",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM mc3p WHERE a = 1"
+  },
+  {
+    "comment": "partition_prune - Statement 84",
+    "query": "explain (costs off) select * from mc3p where a = 1 and abs(b) \u003c 1",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM mc3p WHERE a = 1 AND abs(b) \u003c 1"
+  },
+  {
+    "comment": "partition_prune - Statement 85",
+    "query": "explain (costs off) select * from mc3p where a = 1 and abs(b) = 1",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM mc3p WHERE a = 1 AND abs(b) = 1"
+  },
+  {
+    "comment": "partition_prune - Statement 86",
+    "query": "explain (costs off) select * from mc3p where a = 1 and abs(b) = 1 and c \u003c 8",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM mc3p WHERE a = 1 AND abs(b) = 1 AND c \u003c 8"
+  },
+  {
+    "comment": "partition_prune - Statement 87",
+    "query": "explain (costs off) select * from mc3p where a = 10 and abs(b) between 5 and 35",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM mc3p WHERE a = 10 AND abs(b) BETWEEN 5 AND 35"
+  },
+  {
+    "comment": "partition_prune - Statement 88",
+    "query": "explain (costs off) select * from mc3p where a \u003e 10",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM mc3p WHERE a \u003e 10"
+  },
+  {
+    "comment": "partition_prune - Statement 89",
+    "query": "explain (costs off) select * from mc3p where a \u003e= 10",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM mc3p WHERE a \u003e= 10"
+  },
+  {
+    "comment": "partition_prune - Statement 90",
+    "query": "explain (costs off) select * from mc3p where a \u003c 10",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM mc3p WHERE a \u003c 10"
+  },
+  {
+    "comment": "partition_prune - Statement 91",
+    "query": "explain (costs off) select * from mc3p where a \u003c= 10 and abs(b) \u003c 10",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM mc3p WHERE a \u003c= 10 AND abs(b) \u003c 10"
+  },
+  {
+    "comment": "partition_prune - Statement 92",
+    "query": "explain (costs off) select * from mc3p where a = 11 and abs(b) = 0",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM mc3p WHERE a = 11 AND abs(b) = 0"
+  },
+  {
+    "comment": "partition_prune - Statement 93",
+    "query": "explain (costs off) select * from mc3p where a = 20 and abs(b) = 10 and c = 100",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM mc3p WHERE a = 20 AND abs(b) = 10 AND c = 100"
+  },
+  {
+    "comment": "partition_prune - Statement 94",
+    "query": "explain (costs off) select * from mc3p where a \u003e 20",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM mc3p WHERE a \u003e 20"
+  },
+  {
+    "comment": "partition_prune - Statement 95",
+    "query": "explain (costs off) select * from mc3p where a \u003e= 20",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM mc3p WHERE a \u003e= 20"
+  },
+  {
+    "comment": "partition_prune - Statement 96",
+    "query": "explain (costs off) select * from mc3p where (a = 1 and abs(b) = 1 and c = 1) or (a = 10 and abs(b) = 5 and c = 10) or (a \u003e 11 and a \u003c 20)",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM mc3p WHERE (a = 1 AND abs(b) = 1 AND c = 1) OR (a = 10 AND abs(b) = 5 AND c = 10) OR (a \u003e 11 AND a \u003c 20)"
+  },
+  {
+    "comment": "partition_prune - Statement 97",
+    "query": "explain (costs off) select * from mc3p where (a = 1 and abs(b) = 1 and c = 1) or (a = 10 and abs(b) = 5 and c = 10) or (a \u003e 11 and a \u003c 20) or a \u003c 1",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM mc3p WHERE (a = 1 AND abs(b) = 1 AND c = 1) OR (a = 10 AND abs(b) = 5 AND c = 10) OR (a \u003e 11 AND a \u003c 20) OR a \u003c 1"
+  },
+  {
+    "comment": "partition_prune - Statement 98",
+    "query": "explain (costs off) select * from mc3p where (a = 1 and abs(b) = 1 and c = 1) or (a = 10 and abs(b) = 5 and c = 10) or (a \u003e 11 and a \u003c 20) or a \u003c 1 or a = 1",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM mc3p WHERE (a = 1 AND abs(b) = 1 AND c = 1) OR (a = 10 AND abs(b) = 5 AND c = 10) OR (a \u003e 11 AND a \u003c 20) OR a \u003c 1 OR a = 1"
+  },
+  {
+    "comment": "partition_prune - Statement 99",
+    "query": "explain (costs off) select * from mc3p where a = 1 or abs(b) = 1 or c = 1",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM mc3p WHERE a = 1 OR abs(b) = 1 OR c = 1"
+  },
+  {
+    "comment": "partition_prune - Statement 100",
+    "query": "explain (costs off) select * from mc3p where (a = 1 and abs(b) = 1) or (a = 10 and abs(b) = 10)",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM mc3p WHERE (a = 1 AND abs(b) = 1) OR (a = 10 AND abs(b) = 10)"
+  },
+  {
+    "comment": "partition_prune - Statement 101",
+    "query": "explain (costs off) select * from mc3p where (a = 1 and abs(b) = 1) or (a = 10 and abs(b) = 9)",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM mc3p WHERE (a = 1 AND abs(b) = 1) OR (a = 10 AND abs(b) = 9)"
+  },
+  {
+    "comment": "partition_prune - Statement 102",
+    "query": "create table mc2p (a int, b int) partition by range (a, b)",
+    "expected": "CREATE TABLE mc2p (a INT, b INT) PARTITION BY range (a, b)"
+  },
+  {
+    "comment": "partition_prune - Statement 103",
+    "query": "create table mc2p_default partition of mc2p default",
+    "expected": "CREATE TABLE mc2p_default PARTITION OF mc2p DEFAULT"
+  },
+  {
+    "comment": "partition_prune - Statement 104",
+    "query": "create table mc2p0 partition of mc2p for values from (minvalue, minvalue) to (1, minvalue)",
+    "expected": "CREATE TABLE mc2p0 PARTITION OF mc2p FOR VALUES FROM (minvalue, minvalue) TO (1, minvalue)"
+  },
+  {
+    "comment": "partition_prune - Statement 105",
+    "query": "create table mc2p1 partition of mc2p for values from (1, minvalue) to (1, 1)",
+    "expected": "CREATE TABLE mc2p1 PARTITION OF mc2p FOR VALUES FROM (1, minvalue) TO (1, 1)"
+  },
+  {
+    "comment": "partition_prune - Statement 106",
+    "query": "create table mc2p2 partition of mc2p for values from (1, 1) to (2, minvalue)",
+    "expected": "CREATE TABLE mc2p2 PARTITION OF mc2p FOR VALUES FROM (1, 1) TO (2, minvalue)"
+  },
+  {
+    "comment": "partition_prune - Statement 107",
+    "query": "create table mc2p3 partition of mc2p for values from (2, minvalue) to (2, 1)",
+    "expected": "CREATE TABLE mc2p3 PARTITION OF mc2p FOR VALUES FROM (2, minvalue) TO (2, 1)"
+  },
+  {
+    "comment": "partition_prune - Statement 108",
+    "query": "create table mc2p4 partition of mc2p for values from (2, 1) to (2, maxvalue)",
+    "expected": "CREATE TABLE mc2p4 PARTITION OF mc2p FOR VALUES FROM (2, 1) TO (2, maxvalue)"
+  },
+  {
+    "comment": "partition_prune - Statement 109",
+    "query": "create table mc2p5 partition of mc2p for values from (2, maxvalue) to (maxvalue, maxvalue)",
+    "expected": "CREATE TABLE mc2p5 PARTITION OF mc2p FOR VALUES FROM (2, maxvalue) TO (maxvalue, maxvalue)"
+  },
+  {
+    "comment": "partition_prune - Statement 110",
+    "query": "explain (costs off) select * from mc2p where a \u003c 2",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM mc2p WHERE a \u003c 2"
+  },
+  {
+    "comment": "partition_prune - Statement 111",
+    "query": "explain (costs off) select * from mc2p where a = 2 and b \u003c 1",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM mc2p WHERE a = 2 AND b \u003c 1"
+  },
+  {
+    "comment": "partition_prune - Statement 112",
+    "query": "explain (costs off) select * from mc2p where a \u003e 1",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM mc2p WHERE a \u003e 1"
+  },
+  {
+    "comment": "partition_prune - Statement 113",
+    "query": "explain (costs off) select * from mc2p where a = 1 and b \u003e 1",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM mc2p WHERE a = 1 AND b \u003e 1"
+  },
+  {
+    "comment": "partition_prune - Statement 114",
+    "query": "explain (costs off) select * from mc2p where a = 1 and b is null",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM mc2p WHERE a = 1 AND b IS NULL"
+  },
+  {
+    "comment": "partition_prune - Statement 115",
+    "query": "explain (costs off) select * from mc2p where a is null and b is null",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM mc2p WHERE a IS NULL AND b IS NULL"
+  },
+  {
+    "comment": "partition_prune - Statement 116",
+    "query": "explain (costs off) select * from mc2p where a is null and b = 1",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM mc2p WHERE a IS NULL AND b = 1"
+  },
+  {
+    "comment": "partition_prune - Statement 117",
+    "query": "explain (costs off) select * from mc2p where a is null",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM mc2p WHERE a IS NULL"
+  },
+  {
+    "comment": "partition_prune - Statement 118",
+    "query": "explain (costs off) select * from mc2p where b is null",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM mc2p WHERE b IS NULL"
+  },
+  {
+    "comment": "partition_prune - Statement 119",
+    "query": "create table boolpart (a bool) partition by list (a)",
+    "expected": "CREATE TABLE boolpart (a BOOLEAN) PARTITION BY list (a)"
+  },
+  {
+    "comment": "partition_prune - Statement 120",
+    "query": "create table boolpart_default partition of boolpart default",
+    "expected": "CREATE TABLE boolpart_default PARTITION OF boolpart DEFAULT"
+  },
+  {
+    "comment": "partition_prune - Statement 121",
+    "query": "create table boolpart_t partition of boolpart for values in ('true')",
+    "expected": "CREATE TABLE boolpart_t PARTITION OF boolpart FOR VALUES IN ('true')"
+  },
+  {
+    "comment": "partition_prune - Statement 122",
+    "query": "create table boolpart_f partition of boolpart for values in ('false')",
+    "expected": "CREATE TABLE boolpart_f PARTITION OF boolpart FOR VALUES IN ('false')"
+  },
+  {
+    "comment": "partition_prune - Statement 123",
+    "query": "insert into boolpart values (true), (false), (null)",
+    "expected": "INSERT INTO boolpart VALUES (TRUE), (FALSE), (NULL)"
+  },
+  {
+    "comment": "partition_prune - Statement 124",
+    "query": "explain (costs off) select * from boolpart where a in (true, false)",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM boolpart WHERE a IN (TRUE, FALSE)"
+  },
+  {
+    "comment": "partition_prune - Statement 125",
+    "query": "explain (costs off) select * from boolpart where a = false",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM boolpart WHERE a = FALSE"
+  },
+  {
+    "comment": "partition_prune - Statement 126",
+    "query": "explain (costs off) select * from boolpart where not a = false",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM boolpart WHERE NOT a = FALSE"
+  },
+  {
+    "comment": "partition_prune - Statement 127",
+    "query": "explain (costs off) select * from boolpart where a is true or a is not true",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM boolpart WHERE a IS TRUE OR a IS NOT TRUE"
+  },
+  {
+    "comment": "partition_prune - Statement 128",
+    "query": "explain (costs off) select * from boolpart where a is not true",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM boolpart WHERE a IS NOT TRUE"
+  },
+  {
+    "comment": "partition_prune - Statement 129",
+    "query": "explain (costs off) select * from boolpart where a is not true and a is not false",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM boolpart WHERE a IS NOT TRUE AND a IS NOT FALSE"
+  },
+  {
+    "comment": "partition_prune - Statement 130",
+    "query": "explain (costs off) select * from boolpart where a is unknown",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM boolpart WHERE a IS UNKNOWN"
+  },
+  {
+    "comment": "partition_prune - Statement 131",
+    "query": "explain (costs off) select * from boolpart where a is not unknown",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM boolpart WHERE a IS NOT UNKNOWN"
+  },
+  {
+    "comment": "partition_prune - Statement 132",
+    "query": "select * from boolpart where a in (true, false)",
+    "expected": "SELECT * FROM boolpart WHERE a IN (TRUE, FALSE)"
+  },
+  {
+    "comment": "partition_prune - Statement 133",
+    "query": "select * from boolpart where a = false",
+    "expected": "SELECT * FROM boolpart WHERE a = FALSE"
+  },
+  {
+    "comment": "partition_prune - Statement 134",
+    "query": "select * from boolpart where not a = false",
+    "expected": "SELECT * FROM boolpart WHERE NOT a = FALSE"
+  },
+  {
+    "comment": "partition_prune - Statement 135",
+    "query": "select * from boolpart where a is true or a is not true",
+    "expected": "SELECT * FROM boolpart WHERE a IS TRUE OR a IS NOT TRUE"
+  },
+  {
+    "comment": "partition_prune - Statement 136",
+    "query": "select * from boolpart where a is not true",
+    "expected": "SELECT * FROM boolpart WHERE a IS NOT TRUE"
+  },
+  {
+    "comment": "partition_prune - Statement 137",
+    "query": "select * from boolpart where a is not true and a is not false",
+    "expected": "SELECT * FROM boolpart WHERE a IS NOT TRUE AND a IS NOT FALSE"
+  },
+  {
+    "comment": "partition_prune - Statement 138",
+    "query": "select * from boolpart where a is unknown",
+    "expected": "SELECT * FROM boolpart WHERE a IS UNKNOWN"
+  },
+  {
+    "comment": "partition_prune - Statement 139",
+    "query": "select * from boolpart where a is not unknown",
+    "expected": "SELECT * FROM boolpart WHERE a IS NOT UNKNOWN"
+  },
+  {
+    "comment": "partition_prune - Statement 140",
+    "query": "delete from boolpart where a is null",
+    "expected": "DELETE FROM boolpart WHERE a IS NULL"
+  },
+  {
+    "comment": "partition_prune - Statement 141",
+    "query": "create table boolpart_null partition of boolpart for values in (null)",
+    "expected": "CREATE TABLE boolpart_null PARTITION OF boolpart FOR VALUES IN (NULL)"
+  },
+  {
+    "comment": "partition_prune - Statement 142",
+    "query": "insert into boolpart values(null)",
+    "expected": "INSERT INTO boolpart VALUES (NULL)"
+  },
+  {
+    "comment": "partition_prune - Statement 143",
+    "query": "explain (costs off) select * from boolpart where a is not false",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM boolpart WHERE a IS NOT FALSE"
+  },
+  {
+    "comment": "partition_prune - Statement 144",
+    "query": "select * from boolpart where a is not false",
+    "expected": "SELECT * FROM boolpart WHERE a IS NOT FALSE"
+  },
+  {
+    "comment": "partition_prune - Statement 145",
+    "query": "explain (costs off) select * from boolpart where a is not unknown and a is unknown",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM boolpart WHERE a IS NOT UNKNOWN AND a IS UNKNOWN"
+  },
+  {
+    "comment": "partition_prune - Statement 146",
+    "query": "explain (costs off) select * from boolpart where a is false and a is unknown",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM boolpart WHERE a IS FALSE AND a IS UNKNOWN"
+  },
+  {
+    "comment": "partition_prune - Statement 147",
+    "query": "explain (costs off) select * from boolpart where a is true and a is unknown",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM boolpart WHERE a IS TRUE AND a IS UNKNOWN"
+  },
+  {
+    "comment": "partition_prune - Statement 148",
+    "query": "create table iboolpart (a bool) partition by list ((not a))",
+    "expected": "CREATE TABLE iboolpart (a BOOLEAN) PARTITION BY list ((NOT a))"
+  },
+  {
+    "comment": "partition_prune - Statement 149",
+    "query": "create table iboolpart_default partition of iboolpart default",
+    "expected": "CREATE TABLE iboolpart_default PARTITION OF iboolpart DEFAULT"
+  },
+  {
+    "comment": "partition_prune - Statement 150",
+    "query": "create table iboolpart_f partition of iboolpart for values in ('true')",
+    "expected": "CREATE TABLE iboolpart_f PARTITION OF iboolpart FOR VALUES IN ('true')"
+  },
+  {
+    "comment": "partition_prune - Statement 151",
+    "query": "create table iboolpart_t partition of iboolpart for values in ('false')",
+    "expected": "CREATE TABLE iboolpart_t PARTITION OF iboolpart FOR VALUES IN ('false')"
+  },
+  {
+    "comment": "partition_prune - Statement 152",
+    "query": "insert into iboolpart values (true), (false), (null)",
+    "expected": "INSERT INTO iboolpart VALUES (TRUE), (FALSE), (NULL)"
+  },
+  {
+    "comment": "partition_prune - Statement 153",
+    "query": "explain (costs off) select * from iboolpart where a in (true, false)",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM iboolpart WHERE a IN (TRUE, FALSE)"
+  },
+  {
+    "comment": "partition_prune - Statement 154",
+    "query": "explain (costs off) select * from iboolpart where a = false",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM iboolpart WHERE a = FALSE"
+  },
+  {
+    "comment": "partition_prune - Statement 155",
+    "query": "explain (costs off) select * from iboolpart where not a = false",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM iboolpart WHERE NOT a = FALSE"
+  },
+  {
+    "comment": "partition_prune - Statement 156",
+    "query": "explain (costs off) select * from iboolpart where a is true or a is not true",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM iboolpart WHERE a IS TRUE OR a IS NOT TRUE"
+  },
+  {
+    "comment": "partition_prune - Statement 157",
+    "query": "explain (costs off) select * from iboolpart where a is not true",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM iboolpart WHERE a IS NOT TRUE"
+  },
+  {
+    "comment": "partition_prune - Statement 158",
+    "query": "explain (costs off) select * from iboolpart where a is not true and a is not false",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM iboolpart WHERE a IS NOT TRUE AND a IS NOT FALSE"
+  },
+  {
+    "comment": "partition_prune - Statement 159",
+    "query": "explain (costs off) select * from iboolpart where a is unknown",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM iboolpart WHERE a IS UNKNOWN"
+  },
+  {
+    "comment": "partition_prune - Statement 160",
+    "query": "explain (costs off) select * from iboolpart where a is not unknown",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM iboolpart WHERE a IS NOT UNKNOWN"
+  },
+  {
+    "comment": "partition_prune - Statement 161",
+    "query": "select * from iboolpart where a in (true, false)",
+    "expected": "SELECT * FROM iboolpart WHERE a IN (TRUE, FALSE)"
+  },
+  {
+    "comment": "partition_prune - Statement 162",
+    "query": "select * from iboolpart where a = false",
+    "expected": "SELECT * FROM iboolpart WHERE a = FALSE"
+  },
+  {
+    "comment": "partition_prune - Statement 163",
+    "query": "select * from iboolpart where not a = false",
+    "expected": "SELECT * FROM iboolpart WHERE NOT a = FALSE"
+  },
+  {
+    "comment": "partition_prune - Statement 164",
+    "query": "select * from iboolpart where a is true or a is not true",
+    "expected": "SELECT * FROM iboolpart WHERE a IS TRUE OR a IS NOT TRUE"
+  },
+  {
+    "comment": "partition_prune - Statement 165",
+    "query": "select * from iboolpart where a is not true",
+    "expected": "SELECT * FROM iboolpart WHERE a IS NOT TRUE"
+  },
+  {
+    "comment": "partition_prune - Statement 166",
+    "query": "select * from iboolpart where a is not true and a is not false",
+    "expected": "SELECT * FROM iboolpart WHERE a IS NOT TRUE AND a IS NOT FALSE"
+  },
+  {
+    "comment": "partition_prune - Statement 167",
+    "query": "select * from iboolpart where a is unknown",
+    "expected": "SELECT * FROM iboolpart WHERE a IS UNKNOWN"
+  },
+  {
+    "comment": "partition_prune - Statement 168",
+    "query": "select * from iboolpart where a is not unknown",
+    "expected": "SELECT * FROM iboolpart WHERE a IS NOT UNKNOWN"
+  },
+  {
+    "comment": "partition_prune - Statement 169",
+    "query": "delete from iboolpart where a is null",
+    "expected": "DELETE FROM iboolpart WHERE a IS NULL"
+  },
+  {
+    "comment": "partition_prune - Statement 170",
+    "query": "create table iboolpart_null partition of iboolpart for values in (null)",
+    "expected": "CREATE TABLE iboolpart_null PARTITION OF iboolpart FOR VALUES IN (NULL)"
+  },
+  {
+    "comment": "partition_prune - Statement 171",
+    "query": "insert into iboolpart values(null)",
+    "expected": "INSERT INTO iboolpart VALUES (NULL)"
+  },
+  {
+    "comment": "partition_prune - Statement 172",
+    "query": "select * from iboolpart where a is not false",
+    "expected": "SELECT * FROM iboolpart WHERE a IS NOT FALSE"
+  },
+  {
+    "comment": "partition_prune - Statement 173",
+    "query": "create table boolrangep (a bool, b bool, c int) partition by range (a,b,c)",
+    "expected": "CREATE TABLE boolrangep (a BOOLEAN, b BOOLEAN, c INT) PARTITION BY range (a, b, c)"
+  },
+  {
+    "comment": "partition_prune - Statement 174",
+    "query": "create table boolrangep_tf partition of boolrangep for values from ('true', 'false', 0) to ('true', 'false', 100)",
+    "expected": "CREATE TABLE boolrangep_tf PARTITION OF boolrangep FOR VALUES FROM ('true', 'false', 0) TO ('true', 'false', 100)"
+  },
+  {
+    "comment": "partition_prune - Statement 175",
+    "query": "create table boolrangep_ft partition of boolrangep for values from ('false', 'true', 0) to ('false', 'true', 100)",
+    "expected": "CREATE TABLE boolrangep_ft PARTITION OF boolrangep FOR VALUES FROM ('false', 'true', 0) TO ('false', 'true', 100)"
+  },
+  {
+    "comment": "partition_prune - Statement 176",
+    "query": "create table boolrangep_ff1 partition of boolrangep for values from ('false', 'false', 0) to ('false', 'false', 50)",
+    "expected": "CREATE TABLE boolrangep_ff1 PARTITION OF boolrangep FOR VALUES FROM ('false', 'false', 0) TO ('false', 'false', 50)"
+  },
+  {
+    "comment": "partition_prune - Statement 177",
+    "query": "create table boolrangep_ff2 partition of boolrangep for values from ('false', 'false', 50) to ('false', 'false', 100)",
+    "expected": "CREATE TABLE boolrangep_ff2 PARTITION OF boolrangep FOR VALUES FROM ('false', 'false', 50) TO ('false', 'false', 100)"
+  },
+  {
+    "comment": "partition_prune - Statement 178",
+    "query": "create table boolrangep_null partition of boolrangep default",
+    "expected": "CREATE TABLE boolrangep_null PARTITION OF boolrangep DEFAULT"
+  },
+  {
+    "comment": "partition_prune - Statement 179",
+    "query": "explain (costs off)  select * from boolrangep where not a and not b and c = 25",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM boolrangep WHERE NOT a AND NOT b AND c = 25"
+  },
+  {
+    "comment": "partition_prune - Statement 180",
+    "query": "explain (costs off)  select * from boolrangep where a is not true and not b and c = 25",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM boolrangep WHERE a IS NOT TRUE AND NOT b AND c = 25"
+  },
+  {
+    "comment": "partition_prune - Statement 181",
+    "query": "explain (costs off)  select * from boolrangep where a is not false and not b and c = 25",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM boolrangep WHERE a IS NOT FALSE AND NOT b AND c = 25"
+  },
+  {
+    "comment": "partition_prune - Statement 182",
+    "query": "create table coercepart (a varchar) partition by list (a)",
+    "expected": "CREATE TABLE coercepart (a VARCHAR) PARTITION BY list (a)"
+  },
+  {
+    "comment": "partition_prune - Statement 183",
+    "query": "create table coercepart_ab partition of coercepart for values in ('ab')",
+    "expected": "CREATE TABLE coercepart_ab PARTITION OF coercepart FOR VALUES IN ('ab')"
+  },
+  {
+    "comment": "partition_prune - Statement 184",
+    "query": "create table coercepart_bc partition of coercepart for values in ('bc')",
+    "expected": "CREATE TABLE coercepart_bc PARTITION OF coercepart FOR VALUES IN ('bc')"
+  },
+  {
+    "comment": "partition_prune - Statement 185",
+    "query": "create table coercepart_cd partition of coercepart for values in ('cd')",
+    "expected": "CREATE TABLE coercepart_cd PARTITION OF coercepart FOR VALUES IN ('cd')"
+  },
+  {
+    "comment": "partition_prune - Statement 186",
+    "query": "explain (costs off) select * from coercepart where a in ('ab', to_char(125, '999'))",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM coercepart WHERE a IN ('ab', to_char(125, '999'))"
+  },
+  {
+    "comment": "partition_prune - Statement 187",
+    "query": "explain (costs off) select * from coercepart where a ~ any ('{ab}')",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM coercepart WHERE a ~ ANY ('{ab}')"
+  },
+  {
+    "comment": "partition_prune - Statement 188",
+    "query": "explain (costs off) select * from coercepart where a !~ all ('{ab}')",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM coercepart WHERE a !~ ALL ('{ab}')"
+  },
+  {
+    "comment": "partition_prune - Statement 189",
+    "query": "explain (costs off) select * from coercepart where a ~ any ('{ab,bc}')",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM coercepart WHERE a ~ ANY ('{ab,bc}')"
+  },
+  {
+    "comment": "partition_prune - Statement 190",
+    "query": "explain (costs off) select * from coercepart where a !~ all ('{ab,bc}')",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM coercepart WHERE a !~ ALL ('{ab,bc}')"
+  },
+  {
+    "comment": "partition_prune - Statement 191",
+    "query": "explain (costs off) select * from coercepart where a = any ('{ab,bc}')",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM coercepart WHERE a = ANY ('{ab,bc}')"
+  },
+  {
+    "comment": "partition_prune - Statement 192",
+    "query": "explain (costs off) select * from coercepart where a = any ('{ab,null}')",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM coercepart WHERE a = ANY ('{ab,null}')"
+  },
+  {
+    "comment": "partition_prune - Statement 193",
+    "query": "explain (costs off) select * from coercepart where a = any (null::text[])",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM coercepart WHERE a = ANY (CAST(NULL AS TEXT[]))"
+  },
+  {
+    "comment": "partition_prune - Statement 194",
+    "query": "explain (costs off) select * from coercepart where a = all ('{ab}')",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM coercepart WHERE a = ALL ('{ab}')"
+  },
+  {
+    "comment": "partition_prune - Statement 195",
+    "query": "explain (costs off) select * from coercepart where a = all ('{ab,bc}')",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM coercepart WHERE a = ALL ('{ab,bc}')"
+  },
+  {
+    "comment": "partition_prune - Statement 196",
+    "query": "explain (costs off) select * from coercepart where a = all ('{ab,null}')",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM coercepart WHERE a = ALL ('{ab,null}')"
+  },
+  {
+    "comment": "partition_prune - Statement 197",
+    "query": "explain (costs off) select * from coercepart where a = all (null::text[])",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM coercepart WHERE a = ALL (CAST(NULL AS TEXT[]))"
+  },
+  {
+    "comment": "partition_prune - Statement 198",
+    "query": "drop table coercepart",
+    "expected": "DROP TABLE coercepart"
+  },
+  {
+    "comment": "partition_prune - Statement 199",
+    "query": "CREATE TABLE part (a INT, b INT) PARTITION BY LIST (a)",
+    "expected": "CREATE TABLE part (a INT, b INT) PARTITION BY list (a)"
+  },
+  {
+    "comment": "partition_prune - Statement 200",
+    "query": "CREATE TABLE part_p1 PARTITION OF part FOR VALUES IN (-2,-1,0,1,2)",
+    "expected": "CREATE TABLE part_p1 PARTITION OF part FOR VALUES IN (-2, -1, 0, 1, 2)"
+  },
+  {
+    "comment": "partition_prune - Statement 201",
+    "query": "CREATE TABLE part_p2 PARTITION OF part DEFAULT PARTITION BY RANGE(a)",
+    "expected": "CREATE TABLE part_p2 PARTITION OF part DEFAULT PARTITION BY range (a)"
+  },
+  {
+    "comment": "partition_prune - Statement 202",
+    "query": "CREATE TABLE part_p2_p1 PARTITION OF part_p2 DEFAULT"
+  },
+  {
+    "comment": "partition_prune - Statement 203",
+    "query": "CREATE TABLE part_rev (b INT, c INT, a INT)"
+  },
+  {
+    "comment": "partition_prune - Statement 204",
+    "query": "ALTER TABLE part ATTACH PARTITION part_rev FOR VALUES IN (3)"
+  },
+  {
+    "comment": "partition_prune - Statement 205",
+    "query": "ALTER TABLE part_rev DROP COLUMN c"
+  },
+  {
+    "comment": "partition_prune - Statement 206",
+    "query": "INSERT INTO part VALUES (-1,-1), (1,1), (2,NULL), (NULL,-2),(NULL,NULL)",
+    "expected": "INSERT INTO part VALUES (-1, -1), (1, 1), (2, NULL), (NULL, -2), (NULL, NULL)"
+  },
+  {
+    "comment": "partition_prune - Statement 207",
+    "query": "EXPLAIN (COSTS OFF) SELECT tableoid::regclass as part, a, b FROM part WHERE a IS NULL ORDER BY 1, 2, 3",
+    "expected": "EXPLAIN (COSTS false) SELECT CAST(tableoid AS regclass) AS part, a, b FROM part WHERE a IS NULL ORDER BY 1, 2, 3"
+  },
+  {
+    "comment": "partition_prune - Statement 208",
+    "query": "EXPLAIN (VERBOSE, COSTS OFF) SELECT * FROM part p(x) ORDER BY x",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) SELECT * FROM part AS p(x) ORDER BY x"
+  },
+  {
+    "comment": "partition_prune - Statement 209",
+    "query": "explain (costs off) select * from mc2p t1, lateral (select count(*) from mc3p t2 where t2.a = t1.b and abs(t2.b) = 1 and t2.c = 1) s where t1.a = 1",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM mc2p AS t1, LATERAL (SELECT COUNT(*) FROM mc3p AS t2 WHERE t2.a = t1.b AND abs(t2.b) = 1 AND t2.c = 1) AS s WHERE t1.a = 1"
+  },
+  {
+    "comment": "partition_prune - Statement 210",
+    "query": "explain (costs off) select * from mc2p t1, lateral (select count(*) from mc3p t2 where t2.c = t1.b and abs(t2.b) = 1 and t2.a = 1) s where t1.a = 1",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM mc2p AS t1, LATERAL (SELECT COUNT(*) FROM mc3p AS t2 WHERE t2.c = t1.b AND abs(t2.b) = 1 AND t2.a = 1) AS s WHERE t1.a = 1"
+  },
+  {
+    "comment": "partition_prune - Statement 211",
+    "query": "explain (costs off) select * from mc2p t1, lateral (select count(*) from mc3p t2 where t2.a = 1 and abs(t2.b) = 1 and t2.c = 1) s where t1.a = 1",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM mc2p AS t1, LATERAL (SELECT COUNT(*) FROM mc3p AS t2 WHERE t2.a = 1 AND abs(t2.b) = 1 AND t2.c = 1) AS s WHERE t1.a = 1"
+  },
+  {
+    "comment": "partition_prune - Statement 212",
+    "query": "create table rp (a int) partition by range (a)",
+    "expected": "CREATE TABLE rp (a INT) PARTITION BY range (a)"
+  },
+  {
+    "comment": "partition_prune - Statement 213",
+    "query": "create table rp0 partition of rp for values from (minvalue) to (1)",
+    "expected": "CREATE TABLE rp0 PARTITION OF rp FOR VALUES FROM (minvalue) TO (1)"
+  },
+  {
+    "comment": "partition_prune - Statement 214",
+    "query": "create table rp1 partition of rp for values from (1) to (2)",
+    "expected": "CREATE TABLE rp1 PARTITION OF rp FOR VALUES FROM (1) TO (2)"
+  },
+  {
+    "comment": "partition_prune - Statement 215",
+    "query": "create table rp2 partition of rp for values from (2) to (maxvalue)",
+    "expected": "CREATE TABLE rp2 PARTITION OF rp FOR VALUES FROM (2) TO (maxvalue)"
+  },
+  {
+    "comment": "partition_prune - Statement 216",
+    "query": "explain (costs off) select * from rp where a \u003c\u003e 1",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM rp WHERE a \u003c\u003e 1"
+  },
+  {
+    "comment": "partition_prune - Statement 217",
+    "query": "explain (costs off) select * from rp where a \u003c\u003e 1 and a \u003c\u003e 2",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM rp WHERE a \u003c\u003e 1 AND a \u003c\u003e 2"
+  },
+  {
+    "comment": "partition_prune - Statement 218",
+    "query": "explain (costs off) select * from lp where a \u003c\u003e 'a'",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM lp WHERE a \u003c\u003e 'a'"
+  },
+  {
+    "comment": "partition_prune - Statement 219",
+    "query": "explain (costs off) select * from lp where a \u003c\u003e 'a' and a is null",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM lp WHERE a \u003c\u003e 'a' AND a IS NULL"
+  },
+  {
+    "comment": "partition_prune - Statement 220",
+    "query": "explain (costs off) select * from lp where (a \u003c\u003e 'a' and a \u003c\u003e 'd') or a is null",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM lp WHERE (a \u003c\u003e 'a' AND a \u003c\u003e 'd') OR a IS NULL"
+  },
+  {
+    "comment": "partition_prune - Statement 221",
+    "query": "explain (costs off) select * from rlp where a = 15 and b \u003c\u003e 'ab' and b \u003c\u003e 'cd' and b \u003c\u003e 'xy' and b is not null",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM rlp WHERE a = 15 AND b \u003c\u003e 'ab' AND b \u003c\u003e 'cd' AND b \u003c\u003e 'xy' AND b IS NOT NULL"
+  },
+  {
+    "comment": "partition_prune - Statement 222",
+    "query": "create table coll_pruning_multi (a text) partition by range (substr(a, 1) collate \"POSIX\", substr(a, 1) collate \"C\")",
+    "expected": "CREATE TABLE coll_pruning_multi (a TEXT) PARTITION BY range (substr(a, 1) COLLATE \"POSIX\", substr(a, 1) COLLATE \"C\")"
+  },
+  {
+    "comment": "partition_prune - Statement 223",
+    "query": "create table coll_pruning_multi1 partition of coll_pruning_multi for values from ('a', 'a') to ('a', 'e')",
+    "expected": "CREATE TABLE coll_pruning_multi1 PARTITION OF coll_pruning_multi FOR VALUES FROM ('a', 'a') TO ('a', 'e')"
+  },
+  {
+    "comment": "partition_prune - Statement 224",
+    "query": "create table coll_pruning_multi2 partition of coll_pruning_multi for values from ('a', 'e') to ('a', 'z')",
+    "expected": "CREATE TABLE coll_pruning_multi2 PARTITION OF coll_pruning_multi FOR VALUES FROM ('a', 'e') TO ('a', 'z')"
+  },
+  {
+    "comment": "partition_prune - Statement 225",
+    "query": "create table coll_pruning_multi3 partition of coll_pruning_multi for values from ('b', 'a') to ('b', 'e')",
+    "expected": "CREATE TABLE coll_pruning_multi3 PARTITION OF coll_pruning_multi FOR VALUES FROM ('b', 'a') TO ('b', 'e')"
+  },
+  {
+    "comment": "partition_prune - Statement 226",
+    "query": "explain (costs off) select * from coll_pruning_multi where substr(a, 1) = 'e' collate \"C\"",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM coll_pruning_multi WHERE substr(a, 1) = 'e' COLLATE \"C\""
+  },
+  {
+    "comment": "partition_prune - Statement 227",
+    "query": "explain (costs off) select * from coll_pruning_multi where substr(a, 1) = 'a' collate \"POSIX\"",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM coll_pruning_multi WHERE substr(a, 1) = 'a' COLLATE \"POSIX\""
+  },
+  {
+    "comment": "partition_prune - Statement 228",
+    "query": "explain (costs off) select * from coll_pruning_multi where substr(a, 1) = 'e' collate \"C\" and substr(a, 1) = 'a' collate \"POSIX\"",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM coll_pruning_multi WHERE substr(a, 1) = 'e' COLLATE \"C\" AND substr(a, 1) = 'a' COLLATE \"POSIX\""
+  },
+  {
+    "comment": "partition_prune - Statement 229",
+    "query": "create table like_op_noprune (a text) partition by list (a)",
+    "expected": "CREATE TABLE like_op_noprune (a TEXT) PARTITION BY list (a)"
+  },
+  {
+    "comment": "partition_prune - Statement 230",
+    "query": "create table like_op_noprune1 partition of like_op_noprune for values in ('ABC')",
+    "expected": "CREATE TABLE like_op_noprune1 PARTITION OF like_op_noprune FOR VALUES IN ('ABC')"
+  },
+  {
+    "comment": "partition_prune - Statement 231",
+    "query": "create table like_op_noprune2 partition of like_op_noprune for values in ('BCD')",
+    "expected": "CREATE TABLE like_op_noprune2 PARTITION OF like_op_noprune FOR VALUES IN ('BCD')"
+  },
+  {
+    "comment": "partition_prune - Statement 232",
+    "query": "explain (costs off) select * from like_op_noprune where a like '%BC'",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM like_op_noprune WHERE a LIKE '%BC'"
+  },
+  {
+    "comment": "partition_prune - Statement 233",
+    "query": "create table lparted_by_int2 (a smallint) partition by list (a)",
+    "expected": "CREATE TABLE lparted_by_int2 (a SMALLINT) PARTITION BY list (a)"
+  },
+  {
+    "comment": "partition_prune - Statement 234",
+    "query": "create table lparted_by_int2_1 partition of lparted_by_int2 for values in (1)",
+    "expected": "CREATE TABLE lparted_by_int2_1 PARTITION OF lparted_by_int2 FOR VALUES IN (1)"
+  },
+  {
+    "comment": "partition_prune - Statement 235",
+    "query": "create table lparted_by_int2_16384 partition of lparted_by_int2 for values in (16384)",
+    "expected": "CREATE TABLE lparted_by_int2_16384 PARTITION OF lparted_by_int2 FOR VALUES IN (16384)"
+  },
+  {
+    "comment": "partition_prune - Statement 236",
+    "query": "explain (costs off) select * from lparted_by_int2 where a = 100_000_000_000_000",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM lparted_by_int2 WHERE a = 100_000_000_000_000"
+  },
+  {
+    "comment": "partition_prune - Statement 237",
+    "query": "create table rparted_by_int2 (a smallint) partition by range (a)",
+    "expected": "CREATE TABLE rparted_by_int2 (a SMALLINT) PARTITION BY range (a)"
+  },
+  {
+    "comment": "partition_prune - Statement 238",
+    "query": "create table rparted_by_int2_1 partition of rparted_by_int2 for values from (1) to (10)",
+    "expected": "CREATE TABLE rparted_by_int2_1 PARTITION OF rparted_by_int2 FOR VALUES FROM (1) TO (10)"
+  },
+  {
+    "comment": "partition_prune - Statement 239",
+    "query": "create table rparted_by_int2_16384 partition of rparted_by_int2 for values from (10) to (16384)",
+    "expected": "CREATE TABLE rparted_by_int2_16384 PARTITION OF rparted_by_int2 FOR VALUES FROM (10) TO (16384)"
+  },
+  {
+    "comment": "partition_prune - Statement 240",
+    "query": "explain (costs off) select * from rparted_by_int2 where a \u003e 100_000_000_000_000",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM rparted_by_int2 WHERE a \u003e 100_000_000_000_000"
+  },
+  {
+    "comment": "partition_prune - Statement 241",
+    "query": "create table rparted_by_int2_maxvalue partition of rparted_by_int2 for values from (16384) to (maxvalue)",
+    "expected": "CREATE TABLE rparted_by_int2_maxvalue PARTITION OF rparted_by_int2 FOR VALUES FROM (16384) TO (maxvalue)"
+  },
+  {
+    "comment": "partition_prune - Statement 242",
+    "query": "drop table lp, coll_pruning, rlp, mc3p, mc2p, boolpart, iboolpart, boolrangep, rp, coll_pruning_multi, like_op_noprune, lparted_by_int2, rparted_by_int2",
+    "expected": "DROP TABLE lp, coll_pruning, rlp, mc3p, mc2p, boolpart, iboolpart, boolrangep, rp, coll_pruning_multi, like_op_noprune, lparted_by_int2, rparted_by_int2"
+  },
+  {
+    "comment": "partition_prune - Statement 243",
+    "query": "create table asptab (id int primary key) partition by range (id)",
+    "expected": "CREATE TABLE asptab (id INT PRIMARY KEY) PARTITION BY range (id)"
+  },
+  {
+    "comment": "partition_prune - Statement 244",
+    "query": "create table asptab0 partition of asptab for values from (0) to (1)",
+    "expected": "CREATE TABLE asptab0 PARTITION OF asptab FOR VALUES FROM (0) TO (1)"
+  },
+  {
+    "comment": "partition_prune - Statement 245",
+    "query": "create table asptab1 partition of asptab for values from (1) to (2)",
+    "expected": "CREATE TABLE asptab1 PARTITION OF asptab FOR VALUES FROM (1) TO (2)"
+  },
+  {
+    "comment": "partition_prune - Statement 246",
+    "query": "explain (costs off) select * from (select exists (select 1 from int4_tbl tinner where f1 = touter.f1) as b from int4_tbl touter) ss, asptab where asptab.id \u003e ss.b::int",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM (SELECT EXISTS (SELECT 1 FROM int4_tbl AS tinner WHERE f1 = touter.f1) AS b FROM int4_tbl AS touter) AS ss, asptab WHERE asptab.id \u003e CAST(ss.b AS INT)"
+  },
+  {
+    "comment": "partition_prune - Statement 247",
+    "query": "drop table asptab",
+    "expected": "DROP TABLE asptab"
+  },
+  {
+    "comment": "partition_prune - Statement 248",
+    "query": "create table hp (a int, b text, c int) partition by hash (a part_test_int4_ops, b part_test_text_ops)",
+    "expected": "CREATE TABLE hp (a INT, b TEXT, c INT) PARTITION BY hash (a part_test_int4_ops, b part_test_text_ops)"
+  },
+  {
+    "comment": "partition_prune - Statement 249",
+    "query": "create table hp0 partition of hp for values with (modulus 4, remainder 0)",
+    "expected": "CREATE TABLE hp0 PARTITION OF hp FOR VALUES WITH (modulus 4, remainder 0)"
+  },
+  {
+    "comment": "partition_prune - Statement 250",
+    "query": "create table hp3 partition of hp for values with (modulus 4, remainder 3)",
+    "expected": "CREATE TABLE hp3 PARTITION OF hp FOR VALUES WITH (modulus 4, remainder 3)"
+  },
+  {
+    "comment": "partition_prune - Statement 251",
+    "query": "create table hp1 partition of hp for values with (modulus 4, remainder 1)",
+    "expected": "CREATE TABLE hp1 PARTITION OF hp FOR VALUES WITH (modulus 4, remainder 1)"
+  },
+  {
+    "comment": "partition_prune - Statement 252",
+    "query": "create table hp2 partition of hp for values with (modulus 4, remainder 2)",
+    "expected": "CREATE TABLE hp2 PARTITION OF hp FOR VALUES WITH (modulus 4, remainder 2)"
+  },
+  {
+    "comment": "partition_prune - Statement 253",
+    "query": "insert into hp values (null, null, 0)",
+    "expected": "INSERT INTO hp VALUES (NULL, NULL, 0)"
+  },
+  {
+    "comment": "partition_prune - Statement 254",
+    "query": "insert into hp values (1, null, 1)",
+    "expected": "INSERT INTO hp VALUES (1, NULL, 1)"
+  },
+  {
+    "comment": "partition_prune - Statement 255",
+    "query": "insert into hp values (1, 'xxx', 2)",
+    "expected": "INSERT INTO hp VALUES (1, 'xxx', 2)"
+  },
+  {
+    "comment": "partition_prune - Statement 256",
+    "query": "insert into hp values (null, 'xxx', 3)",
+    "expected": "INSERT INTO hp VALUES (NULL, 'xxx', 3)"
+  },
+  {
+    "comment": "partition_prune - Statement 257",
+    "query": "insert into hp values (2, 'xxx', 4)",
+    "expected": "INSERT INTO hp VALUES (2, 'xxx', 4)"
+  },
+  {
+    "comment": "partition_prune - Statement 258",
+    "query": "insert into hp values (1, 'abcde', 5)",
+    "expected": "INSERT INTO hp VALUES (1, 'abcde', 5)"
+  },
+  {
+    "comment": "partition_prune - Statement 259",
+    "query": "select tableoid::regclass, * from hp order by c",
+    "expected": "SELECT CAST(tableoid AS regclass), * FROM hp ORDER BY c"
+  },
+  {
+    "comment": "partition_prune - Statement 260",
+    "query": "explain (costs off) select * from hp where a = 1",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM hp WHERE a = 1"
+  },
+  {
+    "comment": "partition_prune - Statement 261",
+    "query": "explain (costs off) select * from hp where b = 'xxx'",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM hp WHERE b = 'xxx'"
+  },
+  {
+    "comment": "partition_prune - Statement 262",
+    "query": "explain (costs off) select * from hp where a is null",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM hp WHERE a IS NULL"
+  },
+  {
+    "comment": "partition_prune - Statement 263",
+    "query": "explain (costs off) select * from hp where b is null",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM hp WHERE b IS NULL"
+  },
+  {
+    "comment": "partition_prune - Statement 264",
+    "query": "explain (costs off) select * from hp where a \u003c 1 and b = 'xxx'",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM hp WHERE a \u003c 1 AND b = 'xxx'"
+  },
+  {
+    "comment": "partition_prune - Statement 265",
+    "query": "explain (costs off) select * from hp where a \u003c\u003e 1 and b = 'yyy'",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM hp WHERE a \u003c\u003e 1 AND b = 'yyy'"
+  },
+  {
+    "comment": "partition_prune - Statement 266",
+    "query": "explain (costs off) select * from hp where a \u003c\u003e 1 and b \u003c\u003e 'xxx'",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM hp WHERE a \u003c\u003e 1 AND b \u003c\u003e 'xxx'"
+  },
+  {
+    "comment": "partition_prune - Statement 267",
+    "query": "explain (costs off) select * from hp where a is null and b is null",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM hp WHERE a IS NULL AND b IS NULL"
+  },
+  {
+    "comment": "partition_prune - Statement 268",
+    "query": "explain (costs off) select * from hp where a = 1 and b is null",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM hp WHERE a = 1 AND b IS NULL"
+  },
+  {
+    "comment": "partition_prune - Statement 269",
+    "query": "explain (costs off) select * from hp where a = 1 and b = 'xxx'",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM hp WHERE a = 1 AND b = 'xxx'"
+  },
+  {
+    "comment": "partition_prune - Statement 270",
+    "query": "explain (costs off) select * from hp where a is null and b = 'xxx'",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM hp WHERE a IS NULL AND b = 'xxx'"
+  },
+  {
+    "comment": "partition_prune - Statement 271",
+    "query": "explain (costs off) select * from hp where a = 2 and b = 'xxx'",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM hp WHERE a = 2 AND b = 'xxx'"
+  },
+  {
+    "comment": "partition_prune - Statement 272",
+    "query": "explain (costs off) select * from hp where a = 1 and b = 'abcde'",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM hp WHERE a = 1 AND b = 'abcde'"
+  },
+  {
+    "comment": "partition_prune - Statement 273",
+    "query": "explain (costs off) select * from hp where (a = 1 and b = 'abcde') or (a = 2 and b = 'xxx') or (a is null and b is null)",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM hp WHERE (a = 1 AND b = 'abcde') OR (a = 2 AND b = 'xxx') OR (a IS NULL AND b IS NULL)"
+  },
+  {
+    "comment": "partition_prune - Statement 274",
+    "query": "drop table hp1",
+    "expected": "DROP TABLE hp1"
+  },
+  {
+    "comment": "partition_prune - Statement 275",
+    "query": "drop table hp3",
+    "expected": "DROP TABLE hp3"
+  },
+  {
+    "comment": "partition_prune - Statement 276",
+    "query": "explain (costs off) select * from hp where a = 1 and b = 'abcde' and (c = 2 or c = 3)",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM hp WHERE a = 1 AND b = 'abcde' AND (c = 2 OR c = 3)"
+  },
+  {
+    "comment": "partition_prune - Statement 277",
+    "query": "drop table hp2",
+    "expected": "DROP TABLE hp2"
+  },
+  {
+    "comment": "partition_prune - Statement 278",
+    "query": "create table ab (a int not null, b int not null) partition by list (a)",
+    "expected": "CREATE TABLE ab (a INT NOT NULL, b INT NOT NULL) PARTITION BY list (a)"
+  },
+  {
+    "comment": "partition_prune - Statement 279",
+    "query": "create table ab_a2 partition of ab for values in(2) partition by list (b)",
+    "expected": "CREATE TABLE ab_a2 PARTITION OF ab FOR VALUES IN (2) PARTITION BY list (b)"
+  },
+  {
+    "comment": "partition_prune - Statement 280",
+    "query": "create table ab_a2_b1 partition of ab_a2 for values in (1)",
+    "expected": "CREATE TABLE ab_a2_b1 PARTITION OF ab_a2 FOR VALUES IN (1)"
+  },
+  {
+    "comment": "partition_prune - Statement 281",
+    "query": "create table ab_a2_b2 partition of ab_a2 for values in (2)",
+    "expected": "CREATE TABLE ab_a2_b2 PARTITION OF ab_a2 FOR VALUES IN (2)"
+  },
+  {
+    "comment": "partition_prune - Statement 282",
+    "query": "create table ab_a2_b3 partition of ab_a2 for values in (3)",
+    "expected": "CREATE TABLE ab_a2_b3 PARTITION OF ab_a2 FOR VALUES IN (3)"
+  },
+  {
+    "comment": "partition_prune - Statement 283",
+    "query": "create table ab_a1 partition of ab for values in(1) partition by list (b)",
+    "expected": "CREATE TABLE ab_a1 PARTITION OF ab FOR VALUES IN (1) PARTITION BY list (b)"
+  },
+  {
+    "comment": "partition_prune - Statement 284",
+    "query": "create table ab_a1_b1 partition of ab_a1 for values in (1)",
+    "expected": "CREATE TABLE ab_a1_b1 PARTITION OF ab_a1 FOR VALUES IN (1)"
+  },
+  {
+    "comment": "partition_prune - Statement 285",
+    "query": "create table ab_a1_b2 partition of ab_a1 for values in (2)",
+    "expected": "CREATE TABLE ab_a1_b2 PARTITION OF ab_a1 FOR VALUES IN (2)"
+  },
+  {
+    "comment": "partition_prune - Statement 286",
+    "query": "create table ab_a1_b3 partition of ab_a1 for values in (3)",
+    "expected": "CREATE TABLE ab_a1_b3 PARTITION OF ab_a1 FOR VALUES IN (3)"
+  },
+  {
+    "comment": "partition_prune - Statement 287",
+    "query": "create table ab_a3 partition of ab for values in(3) partition by list (b)",
+    "expected": "CREATE TABLE ab_a3 PARTITION OF ab FOR VALUES IN (3) PARTITION BY list (b)"
+  },
+  {
+    "comment": "partition_prune - Statement 288",
+    "query": "create table ab_a3_b1 partition of ab_a3 for values in (1)",
+    "expected": "CREATE TABLE ab_a3_b1 PARTITION OF ab_a3 FOR VALUES IN (1)"
+  },
+  {
+    "comment": "partition_prune - Statement 289",
+    "query": "create table ab_a3_b2 partition of ab_a3 for values in (2)",
+    "expected": "CREATE TABLE ab_a3_b2 PARTITION OF ab_a3 FOR VALUES IN (2)"
+  },
+  {
+    "comment": "partition_prune - Statement 290",
+    "query": "create table ab_a3_b3 partition of ab_a3 for values in (3)",
+    "expected": "CREATE TABLE ab_a3_b3 PARTITION OF ab_a3 FOR VALUES IN (3)"
+  },
+  {
+    "comment": "partition_prune - Statement 291",
+    "query": "set enable_indexonlyscan = off",
+    "expected": "SET enable_indexonlyscan = off"
+  },
+  {
+    "comment": "partition_prune - Statement 292",
+    "query": "prepare ab_q1 (int, int, int) as select * from ab where a between $1 and $2 and b \u003c= $3",
+    "expected": "PREPARE ab_q1 ( INT, INT, INT ) AS SELECT * FROM ab WHERE a BETWEEN $1 AND $2 AND b \u003c= $3"
+  },
+  {
+    "comment": "partition_prune - Statement 293",
+    "query": "explain (analyze, costs off, summary off, timing off) execute ab_q1 (2, 2, 3)",
+    "expected": "EXPLAIN (ANALYZE true, COSTS false, SUMMARY false, TIMING false) EXECUTE ab_q1 ( 2, 2, 3 )"
+  },
+  {
+    "comment": "partition_prune - Statement 294",
+    "query": "explain (analyze, costs off, summary off, timing off) execute ab_q1 (1, 2, 3)",
+    "expected": "EXPLAIN (ANALYZE true, COSTS false, SUMMARY false, TIMING false) EXECUTE ab_q1 ( 1, 2, 3 )"
+  },
+  {
+    "comment": "partition_prune - Statement 295",
+    "query": "deallocate ab_q1",
+    "expected": "DEALLOCATE ab_q1"
+  },
+  {
+    "comment": "partition_prune - Statement 296",
+    "query": "prepare ab_q1 (int, int) as select a from ab where a between $1 and $2 and b \u003c 3",
+    "expected": "PREPARE ab_q1 ( INT, INT ) AS SELECT a FROM ab WHERE a BETWEEN $1 AND $2 AND b \u003c 3"
+  },
+  {
+    "comment": "partition_prune - Statement 297",
+    "query": "explain (analyze, costs off, summary off, timing off) execute ab_q1 (2, 2)",
+    "expected": "EXPLAIN (ANALYZE true, COSTS false, SUMMARY false, TIMING false) EXECUTE ab_q1 ( 2, 2 )"
+  },
+  {
+    "comment": "partition_prune - Statement 298",
+    "query": "explain (analyze, costs off, summary off, timing off) execute ab_q1 (2, 4)",
+    "expected": "EXPLAIN (ANALYZE true, COSTS false, SUMMARY false, TIMING false) EXECUTE ab_q1 ( 2, 4 )"
+  },
+  {
+    "comment": "partition_prune - Statement 299",
+    "query": "prepare ab_q2 (int, int) as select a from ab where a between $1 and $2 and b \u003c (select 3)",
+    "expected": "PREPARE ab_q2 ( INT, INT ) AS SELECT a FROM ab WHERE a BETWEEN $1 AND $2 AND b \u003c (SELECT 3)"
+  },
+  {
+    "comment": "partition_prune - Statement 300",
+    "query": "explain (analyze, costs off, summary off, timing off) execute ab_q2 (2, 2)",
+    "expected": "EXPLAIN (ANALYZE true, COSTS false, SUMMARY false, TIMING false) EXECUTE ab_q2 ( 2, 2 )"
+  },
+  {
+    "comment": "partition_prune - Statement 301",
+    "query": "prepare ab_q3 (int, int) as select a from ab where b between $1 and $2 and a \u003c (select 3)",
+    "expected": "PREPARE ab_q3 ( INT, INT ) AS SELECT a FROM ab WHERE b BETWEEN $1 AND $2 AND a \u003c (SELECT 3)"
+  },
+  {
+    "comment": "partition_prune - Statement 302",
+    "query": "explain (analyze, costs off, summary off, timing off) execute ab_q3 (2, 2)",
+    "expected": "EXPLAIN (ANALYZE true, COSTS false, SUMMARY false, TIMING false) EXECUTE ab_q3 ( 2, 2 )"
+  },
+  {
+    "comment": "partition_prune - Statement 303",
+    "query": "prepare hp_q1 (text) as select * from hp where a is null and b = $1",
+    "expected": "PREPARE hp_q1 ( TEXT ) AS SELECT * FROM hp WHERE a IS NULL AND b = $1"
+  },
+  {
+    "comment": "partition_prune - Statement 304",
+    "query": "explain (costs off) execute hp_q1('xxx')",
+    "expected": "EXPLAIN (COSTS false) EXECUTE hp_q1 ( 'xxx' )"
+  },
+  {
+    "comment": "partition_prune - Statement 305",
+    "query": "deallocate hp_q1",
+    "expected": "DEALLOCATE hp_q1"
+  },
+  {
+    "comment": "partition_prune - Statement 306",
+    "query": "drop table hp",
+    "expected": "DROP TABLE hp"
+  },
+  {
+    "comment": "partition_prune - Statement 307",
+    "query": "create table list_part (a int) partition by list (a)",
+    "expected": "CREATE TABLE list_part (a INT) PARTITION BY list (a)"
+  },
+  {
+    "comment": "partition_prune - Statement 308",
+    "query": "create table list_part1 partition of list_part for values in (1)",
+    "expected": "CREATE TABLE list_part1 PARTITION OF list_part FOR VALUES IN (1)"
+  },
+  {
+    "comment": "partition_prune - Statement 309",
+    "query": "create table list_part2 partition of list_part for values in (2)",
+    "expected": "CREATE TABLE list_part2 PARTITION OF list_part FOR VALUES IN (2)"
+  },
+  {
+    "comment": "partition_prune - Statement 310",
+    "query": "create table list_part3 partition of list_part for values in (3)",
+    "expected": "CREATE TABLE list_part3 PARTITION OF list_part FOR VALUES IN (3)"
+  },
+  {
+    "comment": "partition_prune - Statement 311",
+    "query": "create table list_part4 partition of list_part for values in (4)",
+    "expected": "CREATE TABLE list_part4 PARTITION OF list_part FOR VALUES IN (4)"
+  },
+  {
+    "comment": "partition_prune - Statement 312",
+    "query": "insert into list_part select generate_series(1,4)",
+    "expected": "INSERT INTO list_part SELECT generate_series(1, 4)"
+  },
+  {
+    "comment": "partition_prune - Statement 313",
+    "query": "begin",
+    "expected": "BEGIN"
+  },
+  {
+    "comment": "partition_prune - Statement 314",
+    "query": "declare cur SCROLL CURSOR for select 1 from list_part where a \u003e (select 1) and a \u003c (select 4)",
+    "expected": "DECLARE cur SCROLL CURSOR FOR SELECT 1 FROM list_part WHERE a \u003e (SELECT 1) AND a \u003c (SELECT 4)"
+  },
+  {
+    "comment": "partition_prune - Statement 315",
+    "query": "move 3 from cur",
+    "expected": "MOVE 3 FROM cur"
+  },
+  {
+    "comment": "partition_prune - Statement 316",
+    "query": "fetch backward all from cur",
+    "expected": "FETCH BACKWARD ALL FROM cur"
+  },
+  {
+    "comment": "partition_prune - Statement 317",
+    "query": "commit",
+    "expected": "COMMIT"
+  },
+  {
+    "comment": "partition_prune - Statement 318",
+    "query": "create function list_part_fn(int) returns int as $$ begin return $1; end;$$ language plpgsql stable",
+    "expected": "CREATE FUNCTION list_part_fn (INT) RETURNS INT AS $$ begin return $1; end;$$ LANGUAGE plpgsql STABLE"
+  },
+  {
+    "comment": "partition_prune - Statement 319",
+    "query": "explain (analyze, costs off, summary off, timing off) select * from list_part where a = list_part_fn(1)",
+    "expected": "EXPLAIN (ANALYZE true, COSTS false, SUMMARY false, TIMING false) SELECT * FROM list_part WHERE a = list_part_fn(1)"
+  },
+  {
+    "comment": "partition_prune - Statement 320",
+    "query": "explain (analyze, costs off, summary off, timing off) select * from list_part where a = list_part_fn(a)",
+    "expected": "EXPLAIN (ANALYZE true, COSTS false, SUMMARY false, TIMING false) SELECT * FROM list_part WHERE a = list_part_fn(a)"
+  },
+  {
+    "comment": "partition_prune - Statement 321",
+    "query": "explain (analyze, costs off, summary off, timing off) select * from list_part where a = list_part_fn(1) + a",
+    "expected": "EXPLAIN (ANALYZE true, COSTS false, SUMMARY false, TIMING false) SELECT * FROM list_part WHERE a = list_part_fn(1) + a"
+  },
+  {
+    "comment": "partition_prune - Statement 322",
+    "query": "rollback",
+    "expected": "ROLLBACK"
+  },
+  {
+    "comment": "partition_prune - Statement 323",
+    "query": "drop table list_part",
+    "expected": "DROP TABLE list_part"
+  },
+  {
+    "comment": "partition_prune - Statement 324",
+    "query": "create function explain_parallel_append(text) returns setof text language plpgsql as $$ declare     ln text; begin     for ln in         execute format('explain (analyze, costs off, summary off, timing off) %s',             $1)     loop         ln := regexp_replace(ln, 'Workers Launched: \\d+', 'Workers Launched: N');         ln := regexp_replace(ln, 'actual rows=\\d+ loops=\\d+', 'actual rows=N loops=N');         ln := regexp_replace(ln, 'Rows Removed by Filter: \\d+', 'Rows Removed by Filter: N');         return next ln;     end loop; end; $$;",
+    "expected": "CREATE FUNCTION explain_parallel_append (TEXT) RETURNS SETOF TEXT LANGUAGE plpgsql AS $$ declare     ln text; begin     for ln in         execute format('explain (analyze, costs off, summary off, timing off) %s',             $1)     loop         ln := regexp_replace(ln, 'Workers Launched: \\d+', 'Workers Launched: N');         ln := regexp_replace(ln, 'actual rows=\\d+ loops=\\d+', 'actual rows=N loops=N');         ln := regexp_replace(ln, 'Rows Removed by Filter: \\d+', 'Rows Removed by Filter: N');         return next ln;     end loop; end; $$"
+  },
+  {
+    "comment": "partition_prune - Statement 332",
+    "query": "prepare ab_q4 (int, int) as select avg(a) from ab where a between $1 and $2 and b \u003c 4",
+    "expected": "PREPARE ab_q4 ( INT, INT ) AS SELECT AVG(a) FROM ab WHERE a BETWEEN $1 AND $2 AND b \u003c 4"
+  },
+  {
+    "comment": "partition_prune - Statement 333",
+    "query": "set parallel_setup_cost = 0",
+    "expected": "SET parallel_setup_cost = 0"
+  },
+  {
+    "comment": "partition_prune - Statement 334",
+    "query": "set parallel_tuple_cost = 0",
+    "expected": "SET parallel_tuple_cost = 0"
+  },
+  {
+    "comment": "partition_prune - Statement 335",
+    "query": "set min_parallel_table_scan_size = 0",
+    "expected": "SET min_parallel_table_scan_size = 0"
+  },
+  {
+    "comment": "partition_prune - Statement 336",
+    "query": "set max_parallel_workers_per_gather = 2",
+    "expected": "SET max_parallel_workers_per_gather = 2"
+  },
+  {
+    "comment": "partition_prune - Statement 337",
+    "query": "select explain_parallel_append('execute ab_q4 (2, 2)')",
+    "expected": "SELECT explain_parallel_append('execute ab_q4 (2, 2)')"
+  },
+  {
+    "comment": "partition_prune - Statement 338",
+    "query": "prepare ab_q5 (int, int, int) as select avg(a) from ab where a in($1,$2,$3) and b \u003c 4",
+    "expected": "PREPARE ab_q5 ( INT, INT, INT ) AS SELECT AVG(a) FROM ab WHERE a IN ($1, $2, $3) AND b \u003c 4"
+  },
+  {
+    "comment": "partition_prune - Statement 339",
+    "query": "select explain_parallel_append('execute ab_q5 (1, 1, 1)')",
+    "expected": "SELECT explain_parallel_append('execute ab_q5 (1, 1, 1)')"
+  },
+  {
+    "comment": "partition_prune - Statement 340",
+    "query": "select explain_parallel_append('execute ab_q5 (2, 3, 3)')",
+    "expected": "SELECT explain_parallel_append('execute ab_q5 (2, 3, 3)')"
+  },
+  {
+    "comment": "partition_prune - Statement 341",
+    "query": "select explain_parallel_append('execute ab_q5 (33, 44, 55)')",
+    "expected": "SELECT explain_parallel_append('execute ab_q5 (33, 44, 55)')"
+  },
+  {
+    "comment": "partition_prune - Statement 342",
+    "query": "select explain_parallel_append('select count(*) from ab where (a = (select 1) or a = (select 3)) and b = 2')",
+    "expected": "SELECT explain_parallel_append('select count(*) from ab where (a = (select 1) or a = (select 3)) and b = 2')"
+  },
+  {
+    "comment": "partition_prune - Statement 343",
+    "query": "create table lprt_a (a int not null)",
+    "expected": "CREATE TABLE lprt_a (a INT NOT NULL)"
+  },
+  {
+    "comment": "partition_prune - Statement 344",
+    "query": "insert into lprt_a select 0 from generate_series(1,100)",
+    "expected": "INSERT INTO lprt_a SELECT 0 FROM generate_series(1, 100)"
+  },
+  {
+    "comment": "partition_prune - Statement 345",
+    "query": "insert into lprt_a values(1),(1)",
+    "expected": "INSERT INTO lprt_a VALUES (1), (1)"
+  },
+  {
+    "comment": "partition_prune - Statement 346",
+    "query": "analyze lprt_a",
+    "expected": "ANALYZE lprt_a"
+  },
+  {
+    "comment": "partition_prune - Statement 347",
+    "query": "create index ab_a2_b1_a_idx on ab_a2_b1 (a)",
+    "expected": "CREATE INDEX ab_a2_b1_a_idx ON ab_a2_b1 USING btree ( a )"
+  },
+  {
+    "comment": "partition_prune - Statement 348",
+    "query": "create index ab_a2_b2_a_idx on ab_a2_b2 (a)",
+    "expected": "CREATE INDEX ab_a2_b2_a_idx ON ab_a2_b2 USING btree ( a )"
+  },
+  {
+    "comment": "partition_prune - Statement 349",
+    "query": "create index ab_a2_b3_a_idx on ab_a2_b3 (a)",
+    "expected": "CREATE INDEX ab_a2_b3_a_idx ON ab_a2_b3 USING btree ( a )"
+  },
+  {
+    "comment": "partition_prune - Statement 350",
+    "query": "create index ab_a1_b1_a_idx on ab_a1_b1 (a)",
+    "expected": "CREATE INDEX ab_a1_b1_a_idx ON ab_a1_b1 USING btree ( a )"
+  },
+  {
+    "comment": "partition_prune - Statement 351",
+    "query": "create index ab_a1_b2_a_idx on ab_a1_b2 (a)",
+    "expected": "CREATE INDEX ab_a1_b2_a_idx ON ab_a1_b2 USING btree ( a )"
+  },
+  {
+    "comment": "partition_prune - Statement 352",
+    "query": "create index ab_a1_b3_a_idx on ab_a1_b3 (a)",
+    "expected": "CREATE INDEX ab_a1_b3_a_idx ON ab_a1_b3 USING btree ( a )"
+  },
+  {
+    "comment": "partition_prune - Statement 353",
+    "query": "create index ab_a3_b1_a_idx on ab_a3_b1 (a)",
+    "expected": "CREATE INDEX ab_a3_b1_a_idx ON ab_a3_b1 USING btree ( a )"
+  },
+  {
+    "comment": "partition_prune - Statement 354",
+    "query": "create index ab_a3_b2_a_idx on ab_a3_b2 (a)",
+    "expected": "CREATE INDEX ab_a3_b2_a_idx ON ab_a3_b2 USING btree ( a )"
+  },
+  {
+    "comment": "partition_prune - Statement 355",
+    "query": "create index ab_a3_b3_a_idx on ab_a3_b3 (a)",
+    "expected": "CREATE INDEX ab_a3_b3_a_idx ON ab_a3_b3 USING btree ( a )"
+  },
+  {
+    "comment": "partition_prune - Statement 356",
+    "query": "set enable_hashjoin = 0",
+    "expected": "SET enable_hashjoin = 0"
+  },
+  {
+    "comment": "partition_prune - Statement 357",
+    "query": "set enable_mergejoin = 0",
+    "expected": "SET enable_mergejoin = 0"
+  },
+  {
+    "comment": "partition_prune - Statement 358",
+    "query": "set enable_memoize = 0",
+    "expected": "SET enable_memoize = 0"
+  },
+  {
+    "comment": "partition_prune - Statement 359",
+    "query": "select explain_parallel_append('select avg(ab.a) from ab inner join lprt_a a on ab.a = a.a where a.a in(0, 0, 1)')",
+    "expected": "SELECT explain_parallel_append('select avg(ab.a) from ab inner join lprt_a a on ab.a = a.a where a.a in(0, 0, 1)')"
+  },
+  {
+    "comment": "partition_prune - Statement 360",
+    "query": "select explain_parallel_append('select avg(ab.a) from ab inner join lprt_a a on ab.a = a.a + 0 where a.a in(0, 0, 1)')",
+    "expected": "SELECT explain_parallel_append('select avg(ab.a) from ab inner join lprt_a a on ab.a = a.a + 0 where a.a in(0, 0, 1)')"
+  },
+  {
+    "comment": "partition_prune - Statement 361",
+    "query": "insert into lprt_a values(3),(3)",
+    "expected": "INSERT INTO lprt_a VALUES (3), (3)"
+  },
+  {
+    "comment": "partition_prune - Statement 362",
+    "query": "select explain_parallel_append('select avg(ab.a) from ab inner join lprt_a a on ab.a = a.a where a.a in(1, 0, 3)')",
+    "expected": "SELECT explain_parallel_append('select avg(ab.a) from ab inner join lprt_a a on ab.a = a.a where a.a in(1, 0, 3)')"
+  },
+  {
+    "comment": "partition_prune - Statement 363",
+    "query": "select explain_parallel_append('select avg(ab.a) from ab inner join lprt_a a on ab.a = a.a where a.a in(1, 0, 0)')",
+    "expected": "SELECT explain_parallel_append('select avg(ab.a) from ab inner join lprt_a a on ab.a = a.a where a.a in(1, 0, 0)')"
+  },
+  {
+    "comment": "partition_prune - Statement 364",
+    "query": "delete from lprt_a where a = 1",
+    "expected": "DELETE FROM lprt_a WHERE a = 1"
+  },
+  {
+    "comment": "partition_prune - Statement 365",
+    "query": "reset enable_hashjoin",
+    "expected": "RESET enable_hashjoin"
+  },
+  {
+    "comment": "partition_prune - Statement 366",
+    "query": "reset enable_mergejoin",
+    "expected": "RESET enable_mergejoin"
+  },
+  {
+    "comment": "partition_prune - Statement 367",
+    "query": "reset enable_memoize",
+    "expected": "RESET enable_memoize"
+  },
+  {
+    "comment": "partition_prune - Statement 368",
+    "query": "reset parallel_setup_cost",
+    "expected": "RESET parallel_setup_cost"
+  },
+  {
+    "comment": "partition_prune - Statement 369",
+    "query": "reset parallel_tuple_cost",
+    "expected": "RESET parallel_tuple_cost"
+  },
+  {
+    "comment": "partition_prune - Statement 370",
+    "query": "reset min_parallel_table_scan_size",
+    "expected": "RESET min_parallel_table_scan_size"
+  },
+  {
+    "comment": "partition_prune - Statement 371",
+    "query": "reset max_parallel_workers_per_gather",
+    "expected": "RESET max_parallel_workers_per_gather"
+  },
+  {
+    "comment": "partition_prune - Statement 372",
+    "query": "explain (analyze, costs off, summary off, timing off) select * from ab where a = (select max(a) from lprt_a) and b = (select max(a)-1 from lprt_a)",
+    "expected": "EXPLAIN (ANALYZE true, COSTS false, SUMMARY false, TIMING false) SELECT * FROM ab WHERE a = (SELECT MAX(a) FROM lprt_a) AND b = (SELECT MAX(a) - 1 FROM lprt_a)"
+  },
+  {
+    "comment": "partition_prune - Statement 373",
+    "query": "explain (analyze, costs off, summary off, timing off) select * from (select * from ab where a = 1 union all select * from ab) ab where b = (select 1)",
+    "expected": "EXPLAIN (ANALYZE true, COSTS false, SUMMARY false, TIMING false) SELECT * FROM ((SELECT * FROM ab WHERE a = 1) UNION ALL SELECT * FROM ab) AS ab WHERE b = (SELECT 1)"
+  },
+  {
+    "comment": "partition_prune - Statement 374",
+    "query": "explain (analyze, costs off, summary off, timing off) select * from (select * from ab where a = 1 union all (values(10,5)) union all select * from ab) ab where b = (select 1)",
+    "expected": "EXPLAIN (ANALYZE true, COSTS false, SUMMARY false, TIMING false) SELECT * FROM (((SELECT * FROM ab WHERE a = 1) UNION ALL VALUES (10, 5)) UNION ALL SELECT * FROM ab) AS ab WHERE b = (SELECT 1)"
+  },
+  {
+    "comment": "partition_prune - Statement 375",
+    "query": "create table xy_1 (x int, y int)",
+    "expected": "CREATE TABLE xy_1 (x INT, y INT)"
+  },
+  {
+    "comment": "partition_prune - Statement 376",
+    "query": "insert into xy_1 values(100,-10)",
+    "expected": "INSERT INTO xy_1 VALUES (100, -10)"
+  },
+  {
+    "comment": "partition_prune - Statement 377",
+    "query": "set enable_bitmapscan = 0",
+    "expected": "SET enable_bitmapscan = 0"
+  },
+  {
+    "comment": "partition_prune - Statement 378",
+    "query": "set enable_indexscan = 0",
+    "expected": "SET enable_indexscan = 0"
+  },
+  {
+    "comment": "partition_prune - Statement 379",
+    "query": "prepare ab_q6 as select * from ( select tableoid::regclass,a,b from ab union all select tableoid::regclass,x,y from xy_1 union all select tableoid::regclass,a,b from ab ) ab where a = $1 and b = (select -10)",
+    "expected": "PREPARE ab_q6 AS SELECT * FROM ((SELECT CAST(tableoid AS regclass), a, b FROM ab UNION ALL SELECT CAST(tableoid AS regclass), x, y FROM xy_1) UNION ALL SELECT CAST(tableoid AS regclass), a, b FROM ab) AS ab WHERE a = $1 AND b = (SELECT -10)"
+  },
+  {
+    "comment": "partition_prune - Statement 380",
+    "query": "explain (analyze, costs off, summary off, timing off) execute ab_q6(1)",
+    "expected": "EXPLAIN (ANALYZE true, COSTS false, SUMMARY false, TIMING false) EXECUTE ab_q6 ( 1 )"
+  },
+  {
+    "comment": "partition_prune - Statement 381",
+    "query": "execute ab_q6(100)",
+    "expected": "EXECUTE ab_q6 ( 100 )"
+  },
+  {
+    "comment": "partition_prune - Statement 382",
+    "query": "reset enable_bitmapscan",
+    "expected": "RESET enable_bitmapscan"
+  },
+  {
+    "comment": "partition_prune - Statement 383",
+    "query": "reset enable_indexscan",
+    "expected": "RESET enable_indexscan"
+  },
+  {
+    "comment": "partition_prune - Statement 384",
+    "query": "deallocate ab_q2",
+    "expected": "DEALLOCATE ab_q2"
+  },
+  {
+    "comment": "partition_prune - Statement 385",
+    "query": "deallocate ab_q3",
+    "expected": "DEALLOCATE ab_q3"
+  },
+  {
+    "comment": "partition_prune - Statement 386",
+    "query": "deallocate ab_q4",
+    "expected": "DEALLOCATE ab_q4"
+  },
+  {
+    "comment": "partition_prune - Statement 387",
+    "query": "deallocate ab_q5",
+    "expected": "DEALLOCATE ab_q5"
+  },
+  {
+    "comment": "partition_prune - Statement 388",
+    "query": "deallocate ab_q6",
+    "expected": "DEALLOCATE ab_q6"
+  },
+  {
+    "comment": "partition_prune - Statement 389",
+    "query": "insert into ab values (1,2)",
+    "expected": "INSERT INTO ab VALUES (1, 2)"
+  },
+  {
+    "comment": "partition_prune - Statement 390",
+    "query": "explain (analyze, costs off, summary off, timing off) update ab_a1 set b = 3 from ab where ab.a = 1 and ab.a = ab_a1.a",
+    "expected": "EXPLAIN (ANALYZE true, COSTS false, SUMMARY false, TIMING false) UPDATE ab_a1 SET b = 3 FROM ab WHERE ab.a = 1 AND ab.a = ab_a1.a"
+  },
+  {
+    "comment": "partition_prune - Statement 391",
+    "query": "table ab",
+    "expected": "SELECT * FROM ab"
+  },
+  {
+    "comment": "partition_prune - Statement 392",
+    "query": "truncate ab",
+    "expected": "TRUNCATE TABLE ab CONTINUE IDENTITY RESTRICT"
+  },
+  {
+    "comment": "partition_prune - Statement 393",
+    "query": "insert into ab values (1, 1), (1, 2), (1, 3), (2, 1)",
+    "expected": "INSERT INTO ab VALUES (1, 1), (1, 2), (1, 3), (2, 1)"
+  },
+  {
+    "comment": "partition_prune - Statement 394",
+    "query": "explain (analyze, costs off, summary off, timing off) update ab_a1 set b = 3 from ab_a2 where ab_a2.b = (select 1)",
+    "expected": "EXPLAIN (ANALYZE true, COSTS false, SUMMARY false, TIMING false) UPDATE ab_a1 SET b = 3 FROM ab_a2 WHERE ab_a2.b = (SELECT 1)"
+  },
+  {
+    "comment": "partition_prune - Statement 395",
+    "query": "select tableoid::regclass, * from ab",
+    "expected": "SELECT CAST(tableoid AS regclass), * FROM ab"
+  },
+  {
+    "comment": "partition_prune - Statement 396",
+    "query": "drop table ab, lprt_a",
+    "expected": "DROP TABLE ab, lprt_a"
+  },
+  {
+    "comment": "partition_prune - Statement 397",
+    "query": "create table tbl1(col1 int)",
+    "expected": "CREATE TABLE tbl1 (col1 INT)"
+  },
+  {
+    "comment": "partition_prune - Statement 398",
+    "query": "insert into tbl1 values (501), (505)",
+    "expected": "INSERT INTO tbl1 VALUES (501), (505)"
+  },
+  {
+    "comment": "partition_prune - Statement 399",
+    "query": "create table tprt (col1 int) partition by range (col1)",
+    "expected": "CREATE TABLE tprt (col1 INT) PARTITION BY range (col1)"
+  },
+  {
+    "comment": "partition_prune - Statement 400",
+    "query": "create table tprt_1 partition of tprt for values from (1) to (501)",
+    "expected": "CREATE TABLE tprt_1 PARTITION OF tprt FOR VALUES FROM (1) TO (501)"
+  },
+  {
+    "comment": "partition_prune - Statement 401",
+    "query": "create table tprt_2 partition of tprt for values from (501) to (1001)",
+    "expected": "CREATE TABLE tprt_2 PARTITION OF tprt FOR VALUES FROM (501) TO (1001)"
+  },
+  {
+    "comment": "partition_prune - Statement 402",
+    "query": "create table tprt_3 partition of tprt for values from (1001) to (2001)",
+    "expected": "CREATE TABLE tprt_3 PARTITION OF tprt FOR VALUES FROM (1001) TO (2001)"
+  },
+  {
+    "comment": "partition_prune - Statement 403",
+    "query": "create table tprt_4 partition of tprt for values from (2001) to (3001)",
+    "expected": "CREATE TABLE tprt_4 PARTITION OF tprt FOR VALUES FROM (2001) TO (3001)"
+  },
+  {
+    "comment": "partition_prune - Statement 404",
+    "query": "create table tprt_5 partition of tprt for values from (3001) to (4001)",
+    "expected": "CREATE TABLE tprt_5 PARTITION OF tprt FOR VALUES FROM (3001) TO (4001)"
+  },
+  {
+    "comment": "partition_prune - Statement 405",
+    "query": "create table tprt_6 partition of tprt for values from (4001) to (5001)",
+    "expected": "CREATE TABLE tprt_6 PARTITION OF tprt FOR VALUES FROM (4001) TO (5001)"
+  },
+  {
+    "comment": "partition_prune - Statement 406",
+    "query": "create index tprt1_idx on tprt_1 (col1)",
+    "expected": "CREATE INDEX tprt1_idx ON tprt_1 USING btree ( col1 )"
+  },
+  {
+    "comment": "partition_prune - Statement 407",
+    "query": "create index tprt2_idx on tprt_2 (col1)",
+    "expected": "CREATE INDEX tprt2_idx ON tprt_2 USING btree ( col1 )"
+  },
+  {
+    "comment": "partition_prune - Statement 408",
+    "query": "create index tprt3_idx on tprt_3 (col1)",
+    "expected": "CREATE INDEX tprt3_idx ON tprt_3 USING btree ( col1 )"
+  },
+  {
+    "comment": "partition_prune - Statement 409",
+    "query": "create index tprt4_idx on tprt_4 (col1)",
+    "expected": "CREATE INDEX tprt4_idx ON tprt_4 USING btree ( col1 )"
+  },
+  {
+    "comment": "partition_prune - Statement 410",
+    "query": "create index tprt5_idx on tprt_5 (col1)",
+    "expected": "CREATE INDEX tprt5_idx ON tprt_5 USING btree ( col1 )"
+  },
+  {
+    "comment": "partition_prune - Statement 411",
+    "query": "create index tprt6_idx on tprt_6 (col1)",
+    "expected": "CREATE INDEX tprt6_idx ON tprt_6 USING btree ( col1 )"
+  },
+  {
+    "comment": "partition_prune - Statement 412",
+    "query": "insert into tprt values (10), (20), (501), (502), (505), (1001), (4500)",
+    "expected": "INSERT INTO tprt VALUES (10), (20), (501), (502), (505), (1001), (4500)"
+  },
+  {
+    "comment": "partition_prune - Statement 413",
+    "query": "set enable_hashjoin = off",
+    "expected": "SET enable_hashjoin = off"
+  },
+  {
+    "comment": "partition_prune - Statement 414",
+    "query": "set enable_mergejoin = off",
+    "expected": "SET enable_mergejoin = off"
+  },
+  {
+    "comment": "partition_prune - Statement 415",
+    "query": "explain (analyze, costs off, summary off, timing off) select * from tbl1 join tprt on tbl1.col1 \u003e tprt.col1",
+    "expected": "EXPLAIN (ANALYZE true, COSTS false, SUMMARY false, TIMING false) SELECT * FROM tbl1 INNER JOIN tprt ON tbl1.col1 \u003e tprt.col1"
+  },
+  {
+    "comment": "partition_prune - Statement 416",
+    "query": "explain (analyze, costs off, summary off, timing off) select * from tbl1 join tprt on tbl1.col1 = tprt.col1",
+    "expected": "EXPLAIN (ANALYZE true, COSTS false, SUMMARY false, TIMING false) SELECT * FROM tbl1 INNER JOIN tprt ON tbl1.col1 = tprt.col1"
+  },
+  {
+    "comment": "partition_prune - Statement 417",
+    "query": "select tbl1.col1, tprt.col1 from tbl1 inner join tprt on tbl1.col1 \u003e tprt.col1 order by tbl1.col1, tprt.col1",
+    "expected": "SELECT tbl1.col1, tprt.col1 FROM tbl1 INNER JOIN tprt ON tbl1.col1 \u003e tprt.col1 ORDER BY tbl1.col1, tprt.col1"
+  },
+  {
+    "comment": "partition_prune - Statement 418",
+    "query": "select tbl1.col1, tprt.col1 from tbl1 inner join tprt on tbl1.col1 = tprt.col1 order by tbl1.col1, tprt.col1",
+    "expected": "SELECT tbl1.col1, tprt.col1 FROM tbl1 INNER JOIN tprt ON tbl1.col1 = tprt.col1 ORDER BY tbl1.col1, tprt.col1"
+  },
+  {
+    "comment": "partition_prune - Statement 419",
+    "query": "insert into tbl1 values (1001), (1010), (1011)",
+    "expected": "INSERT INTO tbl1 VALUES (1001), (1010), (1011)"
+  },
+  {
+    "comment": "partition_prune - Statement 420",
+    "query": "explain (analyze, costs off, summary off, timing off) select * from tbl1 inner join tprt on tbl1.col1 \u003e tprt.col1",
+    "expected": "EXPLAIN (ANALYZE true, COSTS false, SUMMARY false, TIMING false) SELECT * FROM tbl1 INNER JOIN tprt ON tbl1.col1 \u003e tprt.col1"
+  },
+  {
+    "comment": "partition_prune - Statement 421",
+    "query": "explain (analyze, costs off, summary off, timing off) select * from tbl1 inner join tprt on tbl1.col1 = tprt.col1",
+    "expected": "EXPLAIN (ANALYZE true, COSTS false, SUMMARY false, TIMING false) SELECT * FROM tbl1 INNER JOIN tprt ON tbl1.col1 = tprt.col1"
+  },
+  {
+    "comment": "partition_prune - Statement 422",
+    "query": "delete from tbl1",
+    "expected": "DELETE FROM tbl1"
+  },
+  {
+    "comment": "partition_prune - Statement 423",
+    "query": "insert into tbl1 values (4400)",
+    "expected": "INSERT INTO tbl1 VALUES (4400)"
+  },
+  {
+    "comment": "partition_prune - Statement 424",
+    "query": "explain (analyze, costs off, summary off, timing off) select * from tbl1 join tprt on tbl1.col1 \u003c tprt.col1",
+    "expected": "EXPLAIN (ANALYZE true, COSTS false, SUMMARY false, TIMING false) SELECT * FROM tbl1 INNER JOIN tprt ON tbl1.col1 \u003c tprt.col1"
+  },
+  {
+    "comment": "partition_prune - Statement 425",
+    "query": "select tbl1.col1, tprt.col1 from tbl1 inner join tprt on tbl1.col1 \u003c tprt.col1 order by tbl1.col1, tprt.col1",
+    "expected": "SELECT tbl1.col1, tprt.col1 FROM tbl1 INNER JOIN tprt ON tbl1.col1 \u003c tprt.col1 ORDER BY tbl1.col1, tprt.col1"
+  },
+  {
+    "comment": "partition_prune - Statement 426",
+    "query": "insert into tbl1 values (10000)",
+    "expected": "INSERT INTO tbl1 VALUES (10000)"
+  },
+  {
+    "comment": "partition_prune - Statement 427",
+    "query": "drop table tbl1, tprt",
+    "expected": "DROP TABLE tbl1, tprt"
+  },
+  {
+    "comment": "partition_prune - Statement 428",
+    "query": "create table part_abc (a int not null, b int not null, c int not null) partition by list (a)",
+    "expected": "CREATE TABLE part_abc (a INT NOT NULL, b INT NOT NULL, c INT NOT NULL) PARTITION BY list (a)"
+  },
+  {
+    "comment": "partition_prune - Statement 429",
+    "query": "create table part_bac (b int not null, a int not null, c int not null) partition by list (b)",
+    "expected": "CREATE TABLE part_bac (b INT NOT NULL, a INT NOT NULL, c INT NOT NULL) PARTITION BY list (b)"
+  },
+  {
+    "comment": "partition_prune - Statement 430",
+    "query": "create table part_cab (c int not null, a int not null, b int not null) partition by list (c)",
+    "expected": "CREATE TABLE part_cab (c INT NOT NULL, a INT NOT NULL, b INT NOT NULL) PARTITION BY list (c)"
+  },
+  {
+    "comment": "partition_prune - Statement 431",
+    "query": "create table part_abc_p1 (a int not null, b int not null, c int not null)",
+    "expected": "CREATE TABLE part_abc_p1 (a INT NOT NULL, b INT NOT NULL, c INT NOT NULL)"
+  },
+  {
+    "comment": "partition_prune - Statement 432",
+    "query": "alter table part_abc attach partition part_bac for values in(1)",
+    "expected": "ALTER TABLE part_abc ATTACH PARTITION part_bac FOR VALUES IN (1)"
+  },
+  {
+    "comment": "partition_prune - Statement 433",
+    "query": "alter table part_bac attach partition part_cab for values in(2)",
+    "expected": "ALTER TABLE part_bac ATTACH PARTITION part_cab FOR VALUES IN (2)"
+  },
+  {
+    "comment": "partition_prune - Statement 434",
+    "query": "alter table part_cab attach partition part_abc_p1 for values in(3)",
+    "expected": "ALTER TABLE part_cab ATTACH PARTITION part_abc_p1 FOR VALUES IN (3)"
+  },
+  {
+    "comment": "partition_prune - Statement 435",
+    "query": "prepare part_abc_q1 (int, int, int) as select * from part_abc where a = $1 and b = $2 and c = $3",
+    "expected": "PREPARE part_abc_q1 ( INT, INT, INT ) AS SELECT * FROM part_abc WHERE a = $1 AND b = $2 AND c = $3"
+  },
+  {
+    "comment": "partition_prune - Statement 436",
+    "query": "explain (analyze, costs off, summary off, timing off) execute part_abc_q1 (1, 2, 3)",
+    "expected": "EXPLAIN (ANALYZE true, COSTS false, SUMMARY false, TIMING false) EXECUTE part_abc_q1 ( 1, 2, 3 )"
+  },
+  {
+    "comment": "partition_prune - Statement 437",
+    "query": "deallocate part_abc_q1",
+    "expected": "DEALLOCATE part_abc_q1"
+  },
+  {
+    "comment": "partition_prune - Statement 438",
+    "query": "drop table part_abc",
+    "expected": "DROP TABLE part_abc"
+  },
+  {
+    "comment": "partition_prune - Statement 439",
+    "query": "create table listp (a int, b int) partition by list (a)",
+    "expected": "CREATE TABLE listp (a INT, b INT) PARTITION BY list (a)"
+  },
+  {
+    "comment": "partition_prune - Statement 440",
+    "query": "create table listp_1 partition of listp for values in(1) partition by list (b)",
+    "expected": "CREATE TABLE listp_1 PARTITION OF listp FOR VALUES IN (1) PARTITION BY list (b)"
+  },
+  {
+    "comment": "partition_prune - Statement 441",
+    "query": "create table listp_1_1 partition of listp_1 for values in(1)",
+    "expected": "CREATE TABLE listp_1_1 PARTITION OF listp_1 FOR VALUES IN (1)"
+  },
+  {
+    "comment": "partition_prune - Statement 442",
+    "query": "create table listp_2 partition of listp for values in(2) partition by list (b)",
+    "expected": "CREATE TABLE listp_2 PARTITION OF listp FOR VALUES IN (2) PARTITION BY list (b)"
+  },
+  {
+    "comment": "partition_prune - Statement 443",
+    "query": "create table listp_2_1 partition of listp_2 for values in(2)",
+    "expected": "CREATE TABLE listp_2_1 PARTITION OF listp_2 FOR VALUES IN (2)"
+  },
+  {
+    "comment": "partition_prune - Statement 444",
+    "query": "select * from listp where b = 1",
+    "expected": "SELECT * FROM listp WHERE b = 1"
+  },
+  {
+    "comment": "partition_prune - Statement 445",
+    "query": "prepare q1 (int,int) as select * from listp where b in ($1,$2)",
+    "expected": "PREPARE q1 ( INT, INT ) AS SELECT * FROM listp WHERE b IN ($1, $2)"
+  },
+  {
+    "comment": "partition_prune - Statement 446",
+    "query": "explain (analyze, costs off, summary off, timing off)  execute q1 (1,1)",
+    "expected": "EXPLAIN (ANALYZE true, COSTS false, SUMMARY false, TIMING false) EXECUTE q1 ( 1, 1 )"
+  },
+  {
+    "comment": "partition_prune - Statement 447",
+    "query": "explain (analyze, costs off, summary off, timing off)  execute q1 (2,2)",
+    "expected": "EXPLAIN (ANALYZE true, COSTS false, SUMMARY false, TIMING false) EXECUTE q1 ( 2, 2 )"
+  },
+  {
+    "comment": "partition_prune - Statement 448",
+    "query": "explain (analyze, costs off, summary off, timing off)  execute q1 (0,0)",
+    "expected": "EXPLAIN (ANALYZE true, COSTS false, SUMMARY false, TIMING false) EXECUTE q1 ( 0, 0 )"
+  },
+  {
+    "comment": "partition_prune - Statement 449",
+    "query": "deallocate q1",
+    "expected": "DEALLOCATE q1"
+  },
+  {
+    "comment": "partition_prune - Statement 450",
+    "query": "prepare q1 (int,int,int,int) as select * from listp where b in($1,$2) and $3 \u003c\u003e b and $4 \u003c\u003e b",
+    "expected": "PREPARE q1 ( INT, INT, INT, INT ) AS SELECT * FROM listp WHERE b IN ($1, $2) AND $3 \u003c\u003e b AND $4 \u003c\u003e b"
+  },
+  {
+    "comment": "partition_prune - Statement 451",
+    "query": "explain (analyze, costs off, summary off, timing off)  execute q1 (1,2,2,0)",
+    "expected": "EXPLAIN (ANALYZE true, COSTS false, SUMMARY false, TIMING false) EXECUTE q1 ( 1, 2, 2, 0 )"
+  },
+  {
+    "comment": "partition_prune - Statement 452",
+    "query": "explain (analyze, costs off, summary off, timing off)  execute q1 (1,2,2,1)",
+    "expected": "EXPLAIN (ANALYZE true, COSTS false, SUMMARY false, TIMING false) EXECUTE q1 ( 1, 2, 2, 1 )"
+  },
+  {
+    "comment": "partition_prune - Statement 453",
+    "query": "explain (analyze, costs off, summary off, timing off) select * from listp where a = (select null::int)",
+    "expected": "EXPLAIN (ANALYZE true, COSTS false, SUMMARY false, TIMING false) SELECT * FROM listp WHERE a = (SELECT CAST(NULL AS INT))"
+  },
+  {
+    "comment": "partition_prune - Statement 454",
+    "query": "drop table listp",
+    "expected": "DROP TABLE listp"
+  },
+  {
+    "comment": "partition_prune - Statement 455",
+    "query": "create table stable_qual_pruning (a timestamp) partition by range (a)",
+    "expected": "CREATE TABLE stable_qual_pruning (a TIMESTAMP) PARTITION BY range (a)"
+  },
+  {
+    "comment": "partition_prune - Statement 456",
+    "query": "create table stable_qual_pruning1 partition of stable_qual_pruning for values from ('2000-01-01') to ('2000-02-01')",
+    "expected": "CREATE TABLE stable_qual_pruning1 PARTITION OF stable_qual_pruning FOR VALUES FROM ('2000-01-01') TO ('2000-02-01')"
+  },
+  {
+    "comment": "partition_prune - Statement 457",
+    "query": "create table stable_qual_pruning2 partition of stable_qual_pruning for values from ('2000-02-01') to ('2000-03-01')",
+    "expected": "CREATE TABLE stable_qual_pruning2 PARTITION OF stable_qual_pruning FOR VALUES FROM ('2000-02-01') TO ('2000-03-01')"
+  },
+  {
+    "comment": "partition_prune - Statement 458",
+    "query": "create table stable_qual_pruning3 partition of stable_qual_pruning for values from ('3000-02-01') to ('3000-03-01')",
+    "expected": "CREATE TABLE stable_qual_pruning3 PARTITION OF stable_qual_pruning FOR VALUES FROM ('3000-02-01') TO ('3000-03-01')"
+  },
+  {
+    "comment": "partition_prune - Statement 459",
+    "query": "explain (analyze, costs off, summary off, timing off) select * from stable_qual_pruning where a \u003c localtimestamp",
+    "expected": "EXPLAIN (ANALYZE true, COSTS false, SUMMARY false, TIMING false) SELECT * FROM stable_qual_pruning WHERE a \u003c LOCALTIMESTAMP"
+  },
+  {
+    "comment": "partition_prune - Statement 460",
+    "query": "explain (analyze, costs off, summary off, timing off) select * from stable_qual_pruning where a \u003c '2000-02-01'::timestamptz",
+    "expected": "EXPLAIN (ANALYZE true, COSTS false, SUMMARY false, TIMING false) SELECT * FROM stable_qual_pruning WHERE a \u003c CAST('2000-02-01' AS TIMESTAMPTZ)"
+  },
+  {
+    "comment": "partition_prune - Statement 461",
+    "query": "explain (analyze, costs off, summary off, timing off) select * from stable_qual_pruning where a = any(array['2010-02-01', '2020-01-01']::timestamp[])",
+    "expected": "EXPLAIN (ANALYZE true, COSTS false, SUMMARY false, TIMING false) SELECT * FROM stable_qual_pruning WHERE a = ANY (CAST(ARRAY['2010-02-01','2020-01-01'] AS TIMESTAMP[]))"
+  },
+  {
+    "comment": "partition_prune - Statement 462",
+    "query": "explain (analyze, costs off, summary off, timing off) select * from stable_qual_pruning where a = any(array['2000-02-01', '2010-01-01']::timestamp[])",
+    "expected": "EXPLAIN (ANALYZE true, COSTS false, SUMMARY false, TIMING false) SELECT * FROM stable_qual_pruning WHERE a = ANY (CAST(ARRAY['2000-02-01','2010-01-01'] AS TIMESTAMP[]))"
+  },
+  {
+    "comment": "partition_prune - Statement 463",
+    "query": "explain (analyze, costs off, summary off, timing off) select * from stable_qual_pruning where a = any(array['2000-02-01', localtimestamp]::timestamp[])",
+    "expected": "EXPLAIN (ANALYZE true, COSTS false, SUMMARY false, TIMING false) SELECT * FROM stable_qual_pruning WHERE a = ANY (CAST(ARRAY['2000-02-01',LOCALTIMESTAMP] AS TIMESTAMP[]))"
+  },
+  {
+    "comment": "partition_prune - Statement 464",
+    "query": "explain (analyze, costs off, summary off, timing off) select * from stable_qual_pruning where a = any(array['2010-02-01', '2020-01-01']::timestamptz[])",
+    "expected": "EXPLAIN (ANALYZE true, COSTS false, SUMMARY false, TIMING false) SELECT * FROM stable_qual_pruning WHERE a = ANY (CAST(ARRAY['2010-02-01','2020-01-01'] AS TIMESTAMPTZ[]))"
+  },
+  {
+    "comment": "partition_prune - Statement 465",
+    "query": "explain (analyze, costs off, summary off, timing off) select * from stable_qual_pruning where a = any(array['2000-02-01', '2010-01-01']::timestamptz[])",
+    "expected": "EXPLAIN (ANALYZE true, COSTS false, SUMMARY false, TIMING false) SELECT * FROM stable_qual_pruning WHERE a = ANY (CAST(ARRAY['2000-02-01','2010-01-01'] AS TIMESTAMPTZ[]))"
+  },
+  {
+    "comment": "partition_prune - Statement 466",
+    "query": "explain (analyze, costs off, summary off, timing off) select * from stable_qual_pruning where a = any(null::timestamptz[])",
+    "expected": "EXPLAIN (ANALYZE true, COSTS false, SUMMARY false, TIMING false) SELECT * FROM stable_qual_pruning WHERE a = ANY (CAST(NULL AS TIMESTAMPTZ[]))"
+  },
+  {
+    "comment": "partition_prune - Statement 467",
+    "query": "drop table stable_qual_pruning",
+    "expected": "DROP TABLE stable_qual_pruning"
+  },
+  {
+    "comment": "partition_prune - Statement 468",
+    "query": "create table mc3p0 partition of mc3p for values from (0, 0, 0) to (0, maxvalue, maxvalue)",
+    "expected": "CREATE TABLE mc3p0 PARTITION OF mc3p FOR VALUES FROM (0, 0, 0) TO (0, maxvalue, maxvalue)"
+  },
+  {
+    "comment": "partition_prune - Statement 469",
+    "query": "create table mc3p1 partition of mc3p for values from (1, 1, 1) to (2, minvalue, minvalue)",
+    "expected": "CREATE TABLE mc3p1 PARTITION OF mc3p FOR VALUES FROM (1, 1, 1) TO (2, minvalue, minvalue)"
+  },
+  {
+    "comment": "partition_prune - Statement 470",
+    "query": "create table mc3p2 partition of mc3p for values from (2, minvalue, minvalue) to (3, maxvalue, maxvalue)",
+    "expected": "CREATE TABLE mc3p2 PARTITION OF mc3p FOR VALUES FROM (2, minvalue, minvalue) TO (3, maxvalue, maxvalue)"
+  },
+  {
+    "comment": "partition_prune - Statement 471",
+    "query": "insert into mc3p values (0, 1, 1), (1, 1, 1), (2, 1, 1)",
+    "expected": "INSERT INTO mc3p VALUES (0, 1, 1), (1, 1, 1), (2, 1, 1)"
+  },
+  {
+    "comment": "partition_prune - Statement 472",
+    "query": "explain (analyze, costs off, summary off, timing off) select * from mc3p where a \u003c 3 and abs(b) = 1",
+    "expected": "EXPLAIN (ANALYZE true, COSTS false, SUMMARY false, TIMING false) SELECT * FROM mc3p WHERE a \u003c 3 AND abs(b) = 1"
+  },
+  {
+    "comment": "partition_prune - Statement 473",
+    "query": "prepare ps1 as select * from mc3p where a = $1 and abs(b) \u003c (select 3)",
+    "expected": "PREPARE ps1 AS SELECT * FROM mc3p WHERE a = $1 AND abs(b) \u003c (SELECT 3)"
+  },
+  {
+    "comment": "partition_prune - Statement 474",
+    "query": "explain (analyze, costs off, summary off, timing off) execute ps1(1)",
+    "expected": "EXPLAIN (ANALYZE true, COSTS false, SUMMARY false, TIMING false) EXECUTE ps1 ( 1 )"
+  },
+  {
+    "comment": "partition_prune - Statement 475",
+    "query": "deallocate ps1",
+    "expected": "DEALLOCATE ps1"
+  },
+  {
+    "comment": "partition_prune - Statement 476",
+    "query": "prepare ps2 as select * from mc3p where a \u003c= $1 and abs(b) \u003c (select 3)",
+    "expected": "PREPARE ps2 AS SELECT * FROM mc3p WHERE a \u003c= $1 AND abs(b) \u003c (SELECT 3)"
+  },
+  {
+    "comment": "partition_prune - Statement 477",
+    "query": "explain (analyze, costs off, summary off, timing off) execute ps2(1)",
+    "expected": "EXPLAIN (ANALYZE true, COSTS false, SUMMARY false, TIMING false) EXECUTE ps2 ( 1 )"
+  },
+  {
+    "comment": "partition_prune - Statement 478",
+    "query": "deallocate ps2",
+    "expected": "DEALLOCATE ps2"
+  },
+  {
+    "comment": "partition_prune - Statement 479",
+    "query": "drop table mc3p",
+    "expected": "DROP TABLE mc3p"
+  },
+  {
+    "comment": "partition_prune - Statement 480",
+    "query": "create table boolvalues (value bool not null)",
+    "expected": "CREATE TABLE boolvalues (value BOOLEAN NOT NULL)"
+  },
+  {
+    "comment": "partition_prune - Statement 481",
+    "query": "insert into boolvalues values('t'),('f')",
+    "expected": "INSERT INTO boolvalues VALUES ('t'), ('f')"
+  },
+  {
+    "comment": "partition_prune - Statement 482",
+    "query": "create table boolp (a bool) partition by list (a)",
+    "expected": "CREATE TABLE boolp (a BOOLEAN) PARTITION BY list (a)"
+  },
+  {
+    "comment": "partition_prune - Statement 483",
+    "query": "create table boolp_t partition of boolp for values in('t')",
+    "expected": "CREATE TABLE boolp_t PARTITION OF boolp FOR VALUES IN ('t')"
+  },
+  {
+    "comment": "partition_prune - Statement 484",
+    "query": "create table boolp_f partition of boolp for values in('f')",
+    "expected": "CREATE TABLE boolp_f PARTITION OF boolp FOR VALUES IN ('f')"
+  },
+  {
+    "comment": "partition_prune - Statement 485",
+    "query": "explain (analyze, costs off, summary off, timing off) select * from boolp where a = (select value from boolvalues where value)",
+    "expected": "EXPLAIN (ANALYZE true, COSTS false, SUMMARY false, TIMING false) SELECT * FROM boolp WHERE a = (SELECT value FROM boolvalues WHERE value)"
+  },
+  {
+    "comment": "partition_prune - Statement 486",
+    "query": "explain (analyze, costs off, summary off, timing off) select * from boolp where a = (select value from boolvalues where not value)",
+    "expected": "EXPLAIN (ANALYZE true, COSTS false, SUMMARY false, TIMING false) SELECT * FROM boolp WHERE a = (SELECT value FROM boolvalues WHERE NOT value)"
+  },
+  {
+    "comment": "partition_prune - Statement 487",
+    "query": "drop table boolp",
+    "expected": "DROP TABLE boolp"
+  },
+  {
+    "comment": "partition_prune - Statement 488",
+    "query": "set enable_seqscan = off",
+    "expected": "SET enable_seqscan = off"
+  },
+  {
+    "comment": "partition_prune - Statement 489",
+    "query": "set enable_sort = off",
+    "expected": "SET enable_sort = off"
+  },
+  {
+    "comment": "partition_prune - Statement 490",
+    "query": "create table ma_test (a int, b int) partition by range (a)",
+    "expected": "CREATE TABLE ma_test (a INT, b INT) PARTITION BY range (a)"
+  },
+  {
+    "comment": "partition_prune - Statement 491",
+    "query": "create table ma_test_p1 partition of ma_test for values from (0) to (10)",
+    "expected": "CREATE TABLE ma_test_p1 PARTITION OF ma_test FOR VALUES FROM (0) TO (10)"
+  },
+  {
+    "comment": "partition_prune - Statement 492",
+    "query": "create table ma_test_p2 partition of ma_test for values from (10) to (20)",
+    "expected": "CREATE TABLE ma_test_p2 PARTITION OF ma_test FOR VALUES FROM (10) TO (20)"
+  },
+  {
+    "comment": "partition_prune - Statement 493",
+    "query": "create table ma_test_p3 partition of ma_test for values from (20) to (30)",
+    "expected": "CREATE TABLE ma_test_p3 PARTITION OF ma_test FOR VALUES FROM (20) TO (30)"
+  },
+  {
+    "comment": "partition_prune - Statement 494",
+    "query": "insert into ma_test select x,x from generate_series(0,29) t(x)",
+    "expected": "INSERT INTO ma_test SELECT x, x FROM generate_series(0, 29) AS t(x)"
+  },
+  {
+    "comment": "partition_prune - Statement 495",
+    "query": "create index on ma_test (b)",
+    "expected": "CREATE INDEX ON ma_test USING btree ( b )"
+  },
+  {
+    "comment": "partition_prune - Statement 496",
+    "query": "analyze ma_test",
+    "expected": "ANALYZE ma_test"
+  },
+  {
+    "comment": "partition_prune - Statement 497",
+    "query": "prepare mt_q1 (int) as select a from ma_test where a \u003e= $1 and a % 10 = 5 order by b",
+    "expected": "PREPARE mt_q1 ( INT ) AS SELECT a FROM ma_test WHERE a \u003e= $1 AND a % 10 = 5 ORDER BY b"
+  },
+  {
+    "comment": "partition_prune - Statement 498",
+    "query": "explain (analyze, costs off, summary off, timing off) execute mt_q1(15)",
+    "expected": "EXPLAIN (ANALYZE true, COSTS false, SUMMARY false, TIMING false) EXECUTE mt_q1 ( 15 )"
+  },
+  {
+    "comment": "partition_prune - Statement 499",
+    "query": "execute mt_q1(15)",
+    "expected": "EXECUTE mt_q1 ( 15 )"
+  },
+  {
+    "comment": "partition_prune - Statement 500",
+    "query": "explain (analyze, costs off, summary off, timing off) execute mt_q1(25)",
+    "expected": "EXPLAIN (ANALYZE true, COSTS false, SUMMARY false, TIMING false) EXECUTE mt_q1 ( 25 )"
+  },
+  {
+    "comment": "partition_prune - Statement 501",
+    "query": "execute mt_q1(25)",
+    "expected": "EXECUTE mt_q1 ( 25 )"
+  },
+  {
+    "comment": "partition_prune - Statement 502",
+    "query": "explain (analyze, costs off, summary off, timing off) execute mt_q1(35)",
+    "expected": "EXPLAIN (ANALYZE true, COSTS false, SUMMARY false, TIMING false) EXECUTE mt_q1 ( 35 )"
+  },
+  {
+    "comment": "partition_prune - Statement 503",
+    "query": "execute mt_q1(35)",
+    "expected": "EXECUTE mt_q1 ( 35 )"
+  },
+  {
+    "comment": "partition_prune - Statement 504",
+    "query": "deallocate mt_q1",
+    "expected": "DEALLOCATE mt_q1"
+  },
+  {
+    "comment": "partition_prune - Statement 505",
+    "query": "prepare mt_q2 (int) as select * from ma_test where a \u003e= $1 order by b limit 1",
+    "expected": "PREPARE mt_q2 ( INT ) AS SELECT * FROM ma_test WHERE a \u003e= $1 ORDER BY b LIMIT 1"
+  },
+  {
+    "comment": "partition_prune - Statement 506",
+    "query": "explain (analyze, verbose, costs off, summary off, timing off) execute mt_q2 (35)",
+    "expected": "EXPLAIN (ANALYZE true, VERBOSE true, COSTS false, SUMMARY false, TIMING false) EXECUTE mt_q2 ( 35 )"
+  },
+  {
+    "comment": "partition_prune - Statement 507",
+    "query": "deallocate mt_q2",
+    "expected": "DEALLOCATE mt_q2"
+  },
+  {
+    "comment": "partition_prune - Statement 508",
+    "query": "explain (analyze, costs off, summary off, timing off) select * from ma_test where a \u003e= (select min(b) from ma_test_p2) order by b",
+    "expected": "EXPLAIN (ANALYZE true, COSTS false, SUMMARY false, TIMING false) SELECT * FROM ma_test WHERE a \u003e= (SELECT MIN(b) FROM ma_test_p2) ORDER BY b"
+  },
+  {
+    "comment": "partition_prune - Statement 509",
+    "query": "reset enable_seqscan",
+    "expected": "RESET enable_seqscan"
+  },
+  {
+    "comment": "partition_prune - Statement 510",
+    "query": "reset enable_sort",
+    "expected": "RESET enable_sort"
+  },
+  {
+    "comment": "partition_prune - Statement 511",
+    "query": "drop table ma_test",
+    "expected": "DROP TABLE ma_test"
+  },
+  {
+    "comment": "partition_prune - Statement 512",
+    "query": "reset enable_indexonlyscan",
+    "expected": "RESET enable_indexonlyscan"
+  },
+  {
+    "comment": "partition_prune - Statement 513",
+    "query": "create table pp_arrpart (a int[]) partition by list (a)",
+    "expected": "CREATE TABLE pp_arrpart (a INT[]) PARTITION BY list (a)"
+  },
+  {
+    "comment": "partition_prune - Statement 514",
+    "query": "create table pp_arrpart1 partition of pp_arrpart for values in ('{1}')",
+    "expected": "CREATE TABLE pp_arrpart1 PARTITION OF pp_arrpart FOR VALUES IN ('{1}')"
+  },
+  {
+    "comment": "partition_prune - Statement 515",
+    "query": "create table pp_arrpart2 partition of pp_arrpart for values in ('{2, 3}', '{4, 5}')",
+    "expected": "CREATE TABLE pp_arrpart2 PARTITION OF pp_arrpart FOR VALUES IN ('{2, 3}', '{4, 5}')"
+  },
+  {
+    "comment": "partition_prune - Statement 516",
+    "query": "explain (costs off) select * from pp_arrpart where a = '{1}'",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM pp_arrpart WHERE a = '{1}'"
+  },
+  {
+    "comment": "partition_prune - Statement 517",
+    "query": "explain (costs off) select * from pp_arrpart where a = '{1, 2}'",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM pp_arrpart WHERE a = '{1, 2}'"
+  },
+  {
+    "comment": "partition_prune - Statement 518",
+    "query": "explain (costs off) select * from pp_arrpart where a in ('{4, 5}', '{1}')",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM pp_arrpart WHERE a IN ('{4, 5}', '{1}')"
+  },
+  {
+    "comment": "partition_prune - Statement 519",
+    "query": "explain (costs off) update pp_arrpart set a = a where a = '{1}'",
+    "expected": "EXPLAIN (COSTS false) UPDATE pp_arrpart SET a = a WHERE a = '{1}'"
+  },
+  {
+    "comment": "partition_prune - Statement 520",
+    "query": "explain (costs off) delete from pp_arrpart where a = '{1}'",
+    "expected": "EXPLAIN (COSTS false) DELETE FROM pp_arrpart WHERE a = '{1}'"
+  },
+  {
+    "comment": "partition_prune - Statement 521",
+    "query": "drop table pp_arrpart",
+    "expected": "DROP TABLE pp_arrpart"
+  },
+  {
+    "comment": "partition_prune - Statement 522",
+    "query": "create table pph_arrpart (a int[]) partition by hash (a)",
+    "expected": "CREATE TABLE pph_arrpart (a INT[]) PARTITION BY hash (a)"
+  },
+  {
+    "comment": "partition_prune - Statement 523",
+    "query": "create table pph_arrpart1 partition of pph_arrpart for values with (modulus 2, remainder 0)",
+    "expected": "CREATE TABLE pph_arrpart1 PARTITION OF pph_arrpart FOR VALUES WITH (modulus 2, remainder 0)"
+  },
+  {
+    "comment": "partition_prune - Statement 524",
+    "query": "create table pph_arrpart2 partition of pph_arrpart for values with (modulus 2, remainder 1)",
+    "expected": "CREATE TABLE pph_arrpart2 PARTITION OF pph_arrpart FOR VALUES WITH (modulus 2, remainder 1)"
+  },
+  {
+    "comment": "partition_prune - Statement 525",
+    "query": "insert into pph_arrpart values ('{1}'), ('{1, 2}'), ('{4, 5}')",
+    "expected": "INSERT INTO pph_arrpart VALUES ('{1}'), ('{1, 2}'), ('{4, 5}')"
+  },
+  {
+    "comment": "partition_prune - Statement 526",
+    "query": "select tableoid::regclass, * from pph_arrpart order by 1",
+    "expected": "SELECT CAST(tableoid AS regclass), * FROM pph_arrpart ORDER BY 1"
+  },
+  {
+    "comment": "partition_prune - Statement 527",
+    "query": "explain (costs off) select * from pph_arrpart where a = '{1}'",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM pph_arrpart WHERE a = '{1}'"
+  },
+  {
+    "comment": "partition_prune - Statement 528",
+    "query": "explain (costs off) select * from pph_arrpart where a = '{1, 2}'",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM pph_arrpart WHERE a = '{1, 2}'"
+  },
+  {
+    "comment": "partition_prune - Statement 529",
+    "query": "explain (costs off) select * from pph_arrpart where a in ('{4, 5}', '{1}')",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM pph_arrpart WHERE a IN ('{4, 5}', '{1}')"
+  },
+  {
+    "comment": "partition_prune - Statement 530",
+    "query": "drop table pph_arrpart",
+    "expected": "DROP TABLE pph_arrpart"
+  },
+  {
+    "comment": "partition_prune - Statement 531",
+    "query": "create type pp_colors as enum ('green', 'blue', 'black')",
+    "expected": "CREATE TYPE pp_colors AS ENUM ('green', 'blue', 'black')"
+  },
+  {
+    "comment": "partition_prune - Statement 532",
+    "query": "create table pp_enumpart (a pp_colors) partition by list (a)",
+    "expected": "CREATE TABLE pp_enumpart (a pp_colors) PARTITION BY list (a)"
+  },
+  {
+    "comment": "partition_prune - Statement 533",
+    "query": "create table pp_enumpart_green partition of pp_enumpart for values in ('green')",
+    "expected": "CREATE TABLE pp_enumpart_green PARTITION OF pp_enumpart FOR VALUES IN ('green')"
+  },
+  {
+    "comment": "partition_prune - Statement 534",
+    "query": "create table pp_enumpart_blue partition of pp_enumpart for values in ('blue')",
+    "expected": "CREATE TABLE pp_enumpart_blue PARTITION OF pp_enumpart FOR VALUES IN ('blue')"
+  },
+  {
+    "comment": "partition_prune - Statement 535",
+    "query": "explain (costs off) select * from pp_enumpart where a = 'blue'",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM pp_enumpart WHERE a = 'blue'"
+  },
+  {
+    "comment": "partition_prune - Statement 536",
+    "query": "explain (costs off) select * from pp_enumpart where a = 'black'",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM pp_enumpart WHERE a = 'black'"
+  },
+  {
+    "comment": "partition_prune - Statement 537",
+    "query": "drop table pp_enumpart",
+    "expected": "DROP TABLE pp_enumpart"
+  },
+  {
+    "comment": "partition_prune - Statement 538",
+    "query": "drop type pp_colors",
+    "expected": "DROP TYPE pp_colors"
+  },
+  {
+    "comment": "partition_prune - Statement 539",
+    "query": "create type pp_rectype as (a int, b int)",
+    "expected": "CREATE TYPE pp_rectype AS (a INT, b INT)"
+  },
+  {
+    "comment": "partition_prune - Statement 540",
+    "query": "create table pp_recpart (a pp_rectype) partition by list (a)",
+    "expected": "CREATE TABLE pp_recpart (a pp_rectype) PARTITION BY list (a)"
+  },
+  {
+    "comment": "partition_prune - Statement 541",
+    "query": "create table pp_recpart_11 partition of pp_recpart for values in ('(1,1)')",
+    "expected": "CREATE TABLE pp_recpart_11 PARTITION OF pp_recpart FOR VALUES IN ('(1,1)')"
+  },
+  {
+    "comment": "partition_prune - Statement 542",
+    "query": "create table pp_recpart_23 partition of pp_recpart for values in ('(2,3)')",
+    "expected": "CREATE TABLE pp_recpart_23 PARTITION OF pp_recpart FOR VALUES IN ('(2,3)')"
+  },
+  {
+    "comment": "partition_prune - Statement 543",
+    "query": "explain (costs off) select * from pp_recpart where a = '(1,1)'::pp_rectype",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM pp_recpart WHERE a = CAST('(1,1)' AS pp_rectype)"
+  },
+  {
+    "comment": "partition_prune - Statement 544",
+    "query": "explain (costs off) select * from pp_recpart where a = '(1,2)'::pp_rectype",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM pp_recpart WHERE a = CAST('(1,2)' AS pp_rectype)"
+  },
+  {
+    "comment": "partition_prune - Statement 545",
+    "query": "drop table pp_recpart",
+    "expected": "DROP TABLE pp_recpart"
+  },
+  {
+    "comment": "partition_prune - Statement 546",
+    "query": "drop type pp_rectype",
+    "expected": "DROP TYPE pp_rectype"
+  },
+  {
+    "comment": "partition_prune - Statement 547",
+    "query": "create table pp_intrangepart (a int4range) partition by list (a)",
+    "expected": "CREATE TABLE pp_intrangepart (a int4range) PARTITION BY list (a)"
+  },
+  {
+    "comment": "partition_prune - Statement 548",
+    "query": "create table pp_intrangepart12 partition of pp_intrangepart for values in ('[1,2]')",
+    "expected": "CREATE TABLE pp_intrangepart12 PARTITION OF pp_intrangepart FOR VALUES IN ('[1,2]')"
+  },
+  {
+    "comment": "partition_prune - Statement 549",
+    "query": "create table pp_intrangepart2inf partition of pp_intrangepart for values in ('[2,)')",
+    "expected": "CREATE TABLE pp_intrangepart2inf PARTITION OF pp_intrangepart FOR VALUES IN ('[2,)')"
+  },
+  {
+    "comment": "partition_prune - Statement 550",
+    "query": "explain (costs off) select * from pp_intrangepart where a = '[1,2]'::int4range",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM pp_intrangepart WHERE a = CAST('[1,2]' AS int4range)"
+  },
+  {
+    "comment": "partition_prune - Statement 551",
+    "query": "explain (costs off) select * from pp_intrangepart where a = '(1,2)'::int4range",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM pp_intrangepart WHERE a = CAST('(1,2)' AS int4range)"
+  },
+  {
+    "comment": "partition_prune - Statement 552",
+    "query": "drop table pp_intrangepart",
+    "expected": "DROP TABLE pp_intrangepart"
+  },
+  {
+    "comment": "partition_prune - Statement 553",
+    "query": "create table pp_lp (a int, value int) partition by list (a)",
+    "expected": "CREATE TABLE pp_lp (a INT, value INT) PARTITION BY list (a)"
+  },
+  {
+    "comment": "partition_prune - Statement 554",
+    "query": "create table pp_lp1 partition of pp_lp for values in(1)",
+    "expected": "CREATE TABLE pp_lp1 PARTITION OF pp_lp FOR VALUES IN (1)"
+  },
+  {
+    "comment": "partition_prune - Statement 555",
+    "query": "create table pp_lp2 partition of pp_lp for values in(2)",
+    "expected": "CREATE TABLE pp_lp2 PARTITION OF pp_lp FOR VALUES IN (2)"
+  },
+  {
+    "comment": "partition_prune - Statement 556",
+    "query": "explain (costs off) select * from pp_lp where a = 1",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM pp_lp WHERE a = 1"
+  },
+  {
+    "comment": "partition_prune - Statement 557",
+    "query": "explain (costs off) update pp_lp set value = 10 where a = 1",
+    "expected": "EXPLAIN (COSTS false) UPDATE pp_lp SET value = 10 WHERE a = 1"
+  },
+  {
+    "comment": "partition_prune - Statement 558",
+    "query": "explain (costs off) delete from pp_lp where a = 1",
+    "expected": "EXPLAIN (COSTS false) DELETE FROM pp_lp WHERE a = 1"
+  },
+  {
+    "comment": "partition_prune - Statement 559",
+    "query": "set enable_partition_pruning = off",
+    "expected": "SET enable_partition_pruning = off"
+  },
+  {
+    "comment": "partition_prune - Statement 560",
+    "query": "set constraint_exclusion = 'partition'",
+    "expected": "SET constraint_exclusion = 'partition'"
+  },
+  {
+    "comment": "partition_prune - Statement 561",
+    "query": "set constraint_exclusion = 'off'",
+    "expected": "SET constraint_exclusion = off"
+  },
+  {
+    "comment": "partition_prune - Statement 562",
+    "query": "drop table pp_lp",
+    "expected": "DROP TABLE pp_lp"
+  },
+  {
+    "comment": "partition_prune - Statement 563",
+    "query": "create table inh_lp (a int, value int)",
+    "expected": "CREATE TABLE inh_lp (a INT, value INT)"
+  },
+  {
+    "comment": "partition_prune - Statement 564",
+    "query": "create table inh_lp1 (a int, value int, check(a = 1)) inherits (inh_lp)",
+    "expected": "CREATE TABLE inh_lp1 (a INT, value INT, CHECK (a = 1)) INHERITS (inh_lp)"
+  },
+  {
+    "comment": "partition_prune - Statement 565",
+    "query": "create table inh_lp2 (a int, value int, check(a = 2)) inherits (inh_lp)",
+    "expected": "CREATE TABLE inh_lp2 (a INT, value INT, CHECK (a = 2)) INHERITS (inh_lp)"
+  },
+  {
+    "comment": "partition_prune - Statement 566",
+    "query": "explain (costs off) select * from inh_lp where a = 1",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM inh_lp WHERE a = 1"
+  },
+  {
+    "comment": "partition_prune - Statement 567",
+    "query": "explain (costs off) update inh_lp set value = 10 where a = 1",
+    "expected": "EXPLAIN (COSTS false) UPDATE inh_lp SET value = 10 WHERE a = 1"
+  },
+  {
+    "comment": "partition_prune - Statement 568",
+    "query": "explain (costs off) delete from inh_lp where a = 1",
+    "expected": "EXPLAIN (COSTS false) DELETE FROM inh_lp WHERE a = 1"
+  },
+  {
+    "comment": "partition_prune - Statement 569",
+    "query": "explain (costs off) update inh_lp1 set value = 10 where a = 2",
+    "expected": "EXPLAIN (COSTS false) UPDATE inh_lp1 SET value = 10 WHERE a = 2"
+  },
+  {
+    "comment": "partition_prune - Statement 570",
+    "query": "drop table inh_lp cascade",
+    "expected": "DROP TABLE inh_lp CASCADE"
+  },
+  {
+    "comment": "partition_prune - Statement 571",
+    "query": "reset enable_partition_pruning",
+    "expected": "RESET enable_partition_pruning"
+  },
+  {
+    "comment": "partition_prune - Statement 572",
+    "query": "reset constraint_exclusion",
+    "expected": "RESET constraint_exclusion"
+  },
+  {
+    "comment": "partition_prune - Statement 573",
+    "query": "create temp table pp_temp_parent (a int) partition by list (a)",
+    "expected": "CREATE TEMPORARY TABLE pp_temp_parent (a INT) PARTITION BY list (a)"
+  },
+  {
+    "comment": "partition_prune - Statement 574",
+    "query": "create temp table pp_temp_part_1 partition of pp_temp_parent for values in (1)",
+    "expected": "CREATE TEMPORARY TABLE pp_temp_part_1 PARTITION OF pp_temp_parent FOR VALUES IN (1)"
+  },
+  {
+    "comment": "partition_prune - Statement 575",
+    "query": "create temp table pp_temp_part_def partition of pp_temp_parent default",
+    "expected": "CREATE TEMPORARY TABLE pp_temp_part_def PARTITION OF pp_temp_parent DEFAULT"
+  },
+  {
+    "comment": "partition_prune - Statement 576",
+    "query": "explain (costs off) select * from pp_temp_parent where true",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM pp_temp_parent WHERE TRUE"
+  },
+  {
+    "comment": "partition_prune - Statement 577",
+    "query": "explain (costs off) select * from pp_temp_parent where a = 2",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM pp_temp_parent WHERE a = 2"
+  },
+  {
+    "comment": "partition_prune - Statement 578",
+    "query": "drop table pp_temp_parent",
+    "expected": "DROP TABLE pp_temp_parent"
+  },
+  {
+    "comment": "partition_prune - Statement 579",
+    "query": "create temp table p (a int, b int, c int) partition by list (a)",
+    "expected": "CREATE TEMPORARY TABLE p (a INT, b INT, c INT) PARTITION BY list (a)"
+  },
+  {
+    "comment": "partition_prune - Statement 580",
+    "query": "create temp table p1 partition of p for values in (1)",
+    "expected": "CREATE TEMPORARY TABLE p1 PARTITION OF p FOR VALUES IN (1)"
+  },
+  {
+    "comment": "partition_prune - Statement 581",
+    "query": "create temp table p2 partition of p for values in (2)",
+    "expected": "CREATE TEMPORARY TABLE p2 PARTITION OF p FOR VALUES IN (2)"
+  },
+  {
+    "comment": "partition_prune - Statement 582",
+    "query": "create temp table q (a int, b int, c int) partition by list (a)",
+    "expected": "CREATE TEMPORARY TABLE q (a INT, b INT, c INT) PARTITION BY list (a)"
+  },
+  {
+    "comment": "partition_prune - Statement 583",
+    "query": "create temp table q1 partition of q for values in (1) partition by list (b)",
+    "expected": "CREATE TEMPORARY TABLE q1 PARTITION OF q FOR VALUES IN (1) PARTITION BY list (b)"
+  },
+  {
+    "comment": "partition_prune - Statement 584",
+    "query": "create temp table q11 partition of q1 for values in (1) partition by list (c)",
+    "expected": "CREATE TEMPORARY TABLE q11 PARTITION OF q1 FOR VALUES IN (1) PARTITION BY list (c)"
+  },
+  {
+    "comment": "partition_prune - Statement 585",
+    "query": "create temp table q111 partition of q11 for values in (1)",
+    "expected": "CREATE TEMPORARY TABLE q111 PARTITION OF q11 FOR VALUES IN (1)"
+  },
+  {
+    "comment": "partition_prune - Statement 586",
+    "query": "create temp table q2 partition of q for values in (2) partition by list (b)",
+    "expected": "CREATE TEMPORARY TABLE q2 PARTITION OF q FOR VALUES IN (2) PARTITION BY list (b)"
+  },
+  {
+    "comment": "partition_prune - Statement 587",
+    "query": "create temp table q21 partition of q2 for values in (1)",
+    "expected": "CREATE TEMPORARY TABLE q21 PARTITION OF q2 FOR VALUES IN (1)"
+  },
+  {
+    "comment": "partition_prune - Statement 588",
+    "query": "create temp table q22 partition of q2 for values in (2)",
+    "expected": "CREATE TEMPORARY TABLE q22 PARTITION OF q2 FOR VALUES IN (2)"
+  },
+  {
+    "comment": "partition_prune - Statement 589",
+    "query": "insert into q22 values (2, 2, 3)",
+    "expected": "INSERT INTO q22 VALUES (2, 2, 3)"
+  },
+  {
+    "comment": "partition_prune - Statement 590",
+    "query": "explain (costs off) select * from ( select * from p union all select * from q1 union all select 1, 1, 1 ) s(a, b, c) where s.a = 1 and s.b = 1 and s.c = (select 1)",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM ((SELECT * FROM p UNION ALL SELECT * FROM q1) UNION ALL SELECT 1, 1, 1) AS s(a, b, c) WHERE s.a = 1 AND s.b = 1 AND s.c = (SELECT 1)"
+  },
+  {
+    "comment": "partition_prune - Statement 591",
+    "query": "select * from ( select * from p union all select * from q1 union all select 1, 1, 1 ) s(a, b, c) where s.a = 1 and s.b = 1 and s.c = (select 1)",
+    "expected": "SELECT * FROM ((SELECT * FROM p UNION ALL SELECT * FROM q1) UNION ALL SELECT 1, 1, 1) AS s(a, b, c) WHERE s.a = 1 AND s.b = 1 AND s.c = (SELECT 1)"
+  },
+  {
+    "comment": "partition_prune - Statement 592",
+    "query": "prepare q (int, int) as select * from ( select * from p union all select * from q1 union all select 1, 1, 1 ) s(a, b, c) where s.a = $1 and s.b = $2 and s.c = (select 1)",
+    "expected": "PREPARE q ( INT, INT ) AS SELECT * FROM ((SELECT * FROM p UNION ALL SELECT * FROM q1) UNION ALL SELECT 1, 1, 1) AS s(a, b, c) WHERE s.a = $1 AND s.b = $2 AND s.c = (SELECT 1)"
+  },
+  {
+    "comment": "partition_prune - Statement 593",
+    "query": "explain (costs off) execute q (1, 1)",
+    "expected": "EXPLAIN (COSTS false) EXECUTE q ( 1, 1 )"
+  },
+  {
+    "comment": "partition_prune - Statement 594",
+    "query": "execute q (1, 1)",
+    "expected": "EXECUTE q ( 1, 1 )"
+  },
+  {
+    "comment": "partition_prune - Statement 595",
+    "query": "drop table p, q",
+    "expected": "DROP TABLE p, q"
+  },
+  {
+    "comment": "partition_prune - Statement 596",
+    "query": "create table listp1 partition of listp for values in(1)",
+    "expected": "CREATE TABLE listp1 PARTITION OF listp FOR VALUES IN (1)"
+  },
+  {
+    "comment": "partition_prune - Statement 597",
+    "query": "create table listp2 partition of listp for values in(2) partition by list(b)",
+    "expected": "CREATE TABLE listp2 PARTITION OF listp FOR VALUES IN (2) PARTITION BY list (b)"
+  },
+  {
+    "comment": "partition_prune - Statement 598",
+    "query": "create table listp2_10 partition of listp2 for values in (10)",
+    "expected": "CREATE TABLE listp2_10 PARTITION OF listp2 FOR VALUES IN (10)"
+  },
+  {
+    "comment": "partition_prune - Statement 599",
+    "query": "explain (analyze, costs off, summary off, timing off) select * from listp where a = (select 2) and b \u003c\u003e 10",
+    "expected": "EXPLAIN (ANALYZE true, COSTS false, SUMMARY false, TIMING false) SELECT * FROM listp WHERE a = (SELECT 2) AND b \u003c\u003e 10"
+  },
+  {
+    "comment": "partition_prune - Statement 600",
+    "query": "set enable_partition_pruning to off",
+    "expected": "SET enable_partition_pruning = off"
+  },
+  {
+    "comment": "partition_prune - Statement 601",
+    "query": "set constraint_exclusion to 'partition'",
+    "expected": "SET constraint_exclusion = 'partition'"
+  },
+  {
+    "comment": "partition_prune - Statement 602",
+    "query": "explain (costs off) select * from listp1 where a = 2",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM listp1 WHERE a = 2"
+  },
+  {
+    "comment": "partition_prune - Statement 603",
+    "query": "explain (costs off) update listp1 set a = 1 where a = 2",
+    "expected": "EXPLAIN (COSTS false) UPDATE listp1 SET a = 1 WHERE a = 2"
+  },
+  {
+    "comment": "partition_prune - Statement 604",
+    "query": "set constraint_exclusion to 'on'",
+    "expected": "SET constraint_exclusion = on"
+  },
+  {
+    "comment": "partition_prune - Statement 605",
+    "query": "set parallel_setup_cost to 0",
+    "expected": "SET parallel_setup_cost = 0"
+  },
+  {
+    "comment": "partition_prune - Statement 606",
+    "query": "set parallel_tuple_cost to 0",
+    "expected": "SET parallel_tuple_cost = 0"
+  },
+  {
+    "comment": "partition_prune - Statement 607",
+    "query": "create table listp (a int) partition by list(a)",
+    "expected": "CREATE TABLE listp (a INT) PARTITION BY list (a)"
+  },
+  {
+    "comment": "partition_prune - Statement 608",
+    "query": "create table listp_12 partition of listp for values in(1,2) partition by list(a)",
+    "expected": "CREATE TABLE listp_12 PARTITION OF listp FOR VALUES IN (1, 2) PARTITION BY list (a)"
+  },
+  {
+    "comment": "partition_prune - Statement 609",
+    "query": "create table listp_12_1 partition of listp_12 for values in(1)",
+    "expected": "CREATE TABLE listp_12_1 PARTITION OF listp_12 FOR VALUES IN (1)"
+  },
+  {
+    "comment": "partition_prune - Statement 610",
+    "query": "create table listp_12_2 partition of listp_12 for values in(2)",
+    "expected": "CREATE TABLE listp_12_2 PARTITION OF listp_12 FOR VALUES IN (2)"
+  },
+  {
+    "comment": "partition_prune - Statement 611",
+    "query": "alter table listp_12_1 set (parallel_workers = 0)",
+    "expected": "ALTER TABLE listp_12_1 SET (parallel_workers = 0)"
+  },
+  {
+    "comment": "partition_prune - Statement 612",
+    "query": "select explain_parallel_append('select * from listp where a = (select 1);')",
+    "expected": "SELECT explain_parallel_append('select * from listp where a = (select 1);')"
+  },
+  {
+    "comment": "partition_prune - Statement 613",
+    "query": "select explain_parallel_append( 'select * from listp where a = (select 1) union all select * from listp where a = (select 2);')",
+    "expected": "SELECT explain_parallel_append('select * from listp where a = (select 1) union all select * from listp where a = (select 2);')"
+  },
+  {
+    "comment": "partition_prune - Statement 614",
+    "query": "set enable_sort to 0",
+    "expected": "SET enable_sort = 0"
+  },
+  {
+    "comment": "partition_prune - Statement 615",
+    "query": "create table rangep (a int, b int) partition by range (a)",
+    "expected": "CREATE TABLE rangep (a INT, b INT) PARTITION BY range (a)"
+  },
+  {
+    "comment": "partition_prune - Statement 616",
+    "query": "create table rangep_0_to_100 partition of rangep for values from (0) to (100) partition by list (b)",
+    "expected": "CREATE TABLE rangep_0_to_100 PARTITION OF rangep FOR VALUES FROM (0) TO (100) PARTITION BY list (b)"
+  },
+  {
+    "comment": "partition_prune - Statement 617",
+    "query": "create table rangep_0_to_100_1 partition of rangep_0_to_100 for values in(1)",
+    "expected": "CREATE TABLE rangep_0_to_100_1 PARTITION OF rangep_0_to_100 FOR VALUES IN (1)"
+  },
+  {
+    "comment": "partition_prune - Statement 618",
+    "query": "create table rangep_0_to_100_2 partition of rangep_0_to_100 for values in(2)",
+    "expected": "CREATE TABLE rangep_0_to_100_2 PARTITION OF rangep_0_to_100 FOR VALUES IN (2)"
+  },
+  {
+    "comment": "partition_prune - Statement 619",
+    "query": "create table rangep_0_to_100_3 partition of rangep_0_to_100 for values in(3)",
+    "expected": "CREATE TABLE rangep_0_to_100_3 PARTITION OF rangep_0_to_100 FOR VALUES IN (3)"
+  },
+  {
+    "comment": "partition_prune - Statement 620",
+    "query": "create table rangep_100_to_200 partition of rangep for values from (100) to (200)",
+    "expected": "CREATE TABLE rangep_100_to_200 PARTITION OF rangep FOR VALUES FROM (100) TO (200)"
+  },
+  {
+    "comment": "partition_prune - Statement 621",
+    "query": "create index on rangep (a)",
+    "expected": "CREATE INDEX ON rangep USING btree ( a )"
+  },
+  {
+    "comment": "partition_prune - Statement 622",
+    "query": "explain (analyze on, costs off, timing off, summary off) select * from rangep where b IN((select 1),(select 2)) order by a",
+    "expected": "EXPLAIN (ANALYZE true, COSTS false, TIMING false, SUMMARY false) SELECT * FROM rangep WHERE b IN ((SELECT 1), (SELECT 2)) ORDER BY a"
+  },
+  {
+    "comment": "partition_prune - Statement 623",
+    "query": "drop table rangep",
+    "expected": "DROP TABLE rangep"
+  },
+  {
+    "comment": "partition_prune - Statement 624",
+    "query": "create table rp_prefix_test1 (a int, b varchar) partition by range(a, b)",
+    "expected": "CREATE TABLE rp_prefix_test1 (a INT, b VARCHAR) PARTITION BY range (a, b)"
+  },
+  {
+    "comment": "partition_prune - Statement 625",
+    "query": "create table rp_prefix_test1_p1 partition of rp_prefix_test1 for values from (1, 'a') to (1, 'b')",
+    "expected": "CREATE TABLE rp_prefix_test1_p1 PARTITION OF rp_prefix_test1 FOR VALUES FROM (1, 'a') TO (1, 'b')"
+  },
+  {
+    "comment": "partition_prune - Statement 626",
+    "query": "create table rp_prefix_test1_p2 partition of rp_prefix_test1 for values from (2, 'a') to (2, 'b')",
+    "expected": "CREATE TABLE rp_prefix_test1_p2 PARTITION OF rp_prefix_test1 FOR VALUES FROM (2, 'a') TO (2, 'b')"
+  },
+  {
+    "comment": "partition_prune - Statement 627",
+    "query": "explain (costs off) select * from rp_prefix_test1 where a \u003c= 1 and b = 'a'",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM rp_prefix_test1 WHERE a \u003c= 1 AND b = 'a'"
+  },
+  {
+    "comment": "partition_prune - Statement 628",
+    "query": "create table rp_prefix_test2 (a int, b int, c int) partition by range(a, b, c)",
+    "expected": "CREATE TABLE rp_prefix_test2 (a INT, b INT, c INT) PARTITION BY range (a, b, c)"
+  },
+  {
+    "comment": "partition_prune - Statement 629",
+    "query": "create table rp_prefix_test2_p1 partition of rp_prefix_test2 for values from (1, 1, 0) to (1, 1, 10)",
+    "expected": "CREATE TABLE rp_prefix_test2_p1 PARTITION OF rp_prefix_test2 FOR VALUES FROM (1, 1, 0) TO (1, 1, 10)"
+  },
+  {
+    "comment": "partition_prune - Statement 630",
+    "query": "create table rp_prefix_test2_p2 partition of rp_prefix_test2 for values from (2, 2, 0) to (2, 2, 10)",
+    "expected": "CREATE TABLE rp_prefix_test2_p2 PARTITION OF rp_prefix_test2 FOR VALUES FROM (2, 2, 0) TO (2, 2, 10)"
+  },
+  {
+    "comment": "partition_prune - Statement 631",
+    "query": "explain (costs off) select * from rp_prefix_test2 where a \u003c= 1 and b = 1 and c \u003e= 0",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM rp_prefix_test2 WHERE a \u003c= 1 AND b = 1 AND c \u003e= 0"
+  },
+  {
+    "comment": "partition_prune - Statement 632",
+    "query": "create table rp_prefix_test3 (a int, b int, c int, d int) partition by range(a, b, c, d)",
+    "expected": "CREATE TABLE rp_prefix_test3 (a INT, b INT, c INT, d INT) PARTITION BY range (a, b, c, d)"
+  },
+  {
+    "comment": "partition_prune - Statement 633",
+    "query": "create table rp_prefix_test3_p1 partition of rp_prefix_test3 for values from (1, 1, 1, 0) to (1, 1, 1, 10)",
+    "expected": "CREATE TABLE rp_prefix_test3_p1 PARTITION OF rp_prefix_test3 FOR VALUES FROM (1, 1, 1, 0) TO (1, 1, 1, 10)"
+  },
+  {
+    "comment": "partition_prune - Statement 634",
+    "query": "create table rp_prefix_test3_p2 partition of rp_prefix_test3 for values from (2, 2, 2, 0) to (2, 2, 2, 10)",
+    "expected": "CREATE TABLE rp_prefix_test3_p2 PARTITION OF rp_prefix_test3 FOR VALUES FROM (2, 2, 2, 0) TO (2, 2, 2, 10)"
+  },
+  {
+    "comment": "partition_prune - Statement 635",
+    "query": "explain (costs off) select * from rp_prefix_test3 where a \u003e= 1 and b \u003e= 1 and b \u003e= 2 and c \u003e= 2 and d \u003e= 0",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM rp_prefix_test3 WHERE a \u003e= 1 AND b \u003e= 1 AND b \u003e= 2 AND c \u003e= 2 AND d \u003e= 0"
+  },
+  {
+    "comment": "partition_prune - Statement 636",
+    "query": "explain (costs off) select * from rp_prefix_test3 where a \u003e= 1 and b \u003e= 1 and b = 2 and c = 2 and d \u003e= 0",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM rp_prefix_test3 WHERE a \u003e= 1 AND b \u003e= 1 AND b = 2 AND c = 2 AND d \u003e= 0"
+  },
+  {
+    "comment": "partition_prune - Statement 637",
+    "query": "drop table rp_prefix_test1",
+    "expected": "DROP TABLE rp_prefix_test1"
+  },
+  {
+    "comment": "partition_prune - Statement 638",
+    "query": "drop table rp_prefix_test2",
+    "expected": "DROP TABLE rp_prefix_test2"
+  },
+  {
+    "comment": "partition_prune - Statement 639",
+    "query": "drop table rp_prefix_test3",
+    "expected": "DROP TABLE rp_prefix_test3"
+  },
+  {
+    "comment": "partition_prune - Statement 640",
+    "query": "create table hp_prefix_test (a int, b int, c int, d int) partition by hash (a part_test_int4_ops, b part_test_int4_ops, c part_test_int4_ops, d part_test_int4_ops)",
+    "expected": "CREATE TABLE hp_prefix_test (a INT, b INT, c INT, d INT) PARTITION BY hash (a part_test_int4_ops, b part_test_int4_ops, c part_test_int4_ops, d part_test_int4_ops)"
+  },
+  {
+    "comment": "partition_prune - Statement 641",
+    "query": "select 'create table hp_prefix_test_p' || x::text || ' partition of hp_prefix_test for values with (modulus 8, remainder ' || x::text || ');' from generate_Series(0,7) x",
+    "expected": "SELECT 'create table hp_prefix_test_p' || CAST(x AS TEXT) || ' partition of hp_prefix_test for values with (modulus 8, remainder ' || CAST(x AS TEXT) || ');' FROM generate_series(0, 7) AS x"
+  },
+  {
+    "comment": "partition_prune - Statement 642",
+    "query": "insert into hp_prefix_test select case a when 0 then null else 1 end, case b when 0 then null else 2 end, case c when 0 then null else 3 end, case d when 0 then null else 4 end from generate_series(0,1) a, generate_series(0,1) b, generate_Series(0,1) c, generate_Series(0,1) d",
+    "expected": "INSERT INTO hp_prefix_test SELECT CASE a WHEN 0 THEN NULL ELSE 1 END, CASE b WHEN 0 THEN NULL ELSE 2 END, CASE c WHEN 0 THEN NULL ELSE 3 END, CASE d WHEN 0 THEN NULL ELSE 4 END FROM generate_series(0, 1) AS a, generate_series(0, 1) AS b, generate_series(0, 1) AS c, generate_series(0, 1) AS d"
+  },
+  {
+    "comment": "partition_prune - Statement 643",
+    "query": "select 'select tableoid::regclass,* from hp_prefix_test where ' || string_agg(c.colname || case when g.s \u0026 (1 \u003c\u003c c.colpos) = 0 then ' is null' else ' = ' || (colpos+1)::text end, ' and ' order by c.colpos) from (values('a',0),('b',1),('c',2),('d',3)) c(colname, colpos), generate_Series(0,15) g(s) group by g.s order by g.s",
+    "expected": "SELECT 'select tableoid::regclass,* from hp_prefix_test where ' || string_agg(c.colname || CASE WHEN g.s \u0026 (1 \u003c\u003c c.colpos) = 0 THEN ' is null' ELSE ' = ' || CAST((colpos + 1) AS TEXT) END, ' and ' ORDER BY c.colpos) FROM (VALUES ('a', 0), ('b', 1), ('c', 2), ('d', 3)) AS c(colname, colpos), generate_series(0, 15) AS g(s) GROUP BY g.s ORDER BY g.s"
+  },
+  {
+    "comment": "partition_prune - Statement 644",
+    "query": "create operator === ( leftarg = int4, rightarg = int4, procedure = int4eq, commutator = ===, hashes )",
+    "expected": "CREATE OPERATOR === (leftarg = INT, rightarg = INT, procedure = int4eq, commutator = '===', hashes)"
+  },
+  {
+    "comment": "partition_prune - Statement 645",
+    "query": "create operator class part_test_int4_ops2 for type int4 using hash as operator 1 ===, function 2 part_hashint4_noop(int4, int8)",
+    "expected": "CREATE OPERATOR CLASS part_test_int4_ops2 FOR TYPE INT USING hash AS OPERATOR 1 ===, FUNCTION 2 part_hashint4_noop(int4, int8)"
+  },
+  {
+    "comment": "partition_prune - Statement 646",
+    "query": "create table hp_contradict_test (a int, b int) partition by hash (a part_test_int4_ops2, b part_test_int4_ops2)",
+    "expected": "CREATE TABLE hp_contradict_test (a INT, b INT) PARTITION BY hash (a part_test_int4_ops2, b part_test_int4_ops2)"
+  },
+  {
+    "comment": "partition_prune - Statement 647",
+    "query": "create table hp_contradict_test_p1 partition of hp_contradict_test for values with (modulus 2, remainder 0)",
+    "expected": "CREATE TABLE hp_contradict_test_p1 PARTITION OF hp_contradict_test FOR VALUES WITH (modulus 2, remainder 0)"
+  },
+  {
+    "comment": "partition_prune - Statement 648",
+    "query": "create table hp_contradict_test_p2 partition of hp_contradict_test for values with (modulus 2, remainder 1)",
+    "expected": "CREATE TABLE hp_contradict_test_p2 PARTITION OF hp_contradict_test FOR VALUES WITH (modulus 2, remainder 1)"
+  },
+  {
+    "comment": "partition_prune - Statement 649",
+    "query": "explain (costs off) select * from hp_contradict_test where a is null and a === 1 and b === 1",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM hp_contradict_test WHERE a IS NULL AND a === 1 AND b === 1"
+  },
+  {
+    "comment": "partition_prune - Statement 650",
+    "query": "explain (costs off) select * from hp_contradict_test where a === 1 and b === 1 and a is null",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM hp_contradict_test WHERE a === 1 AND b === 1 AND a IS NULL"
+  },
+  {
+    "comment": "partition_prune - Statement 651",
+    "query": "drop table hp_contradict_test",
+    "expected": "DROP TABLE hp_contradict_test"
+  },
+  {
+    "comment": "partition_prune - Statement 652",
+    "query": "drop operator class part_test_int4_ops2 using hash",
+    "expected": "DROP OPERATOR CLASS part_test_int4_ops2 USING hash RESTRICT"
+  },
+  {
+    "comment": "partition_prune - Statement 653",
+    "query": "drop operator ===(int4, int4)",
+    "expected": "DROP OPERATOR ===(INT, INT)"
+  }
+]

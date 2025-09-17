@@ -1,0 +1,1117 @@
+[
+  {
+    "comment": "updatable_views - Statement 1",
+    "query": "SET extra_float_digits = 0"
+  },
+  {
+    "comment": "updatable_views - Statement 2",
+    "query": "CREATE TABLE base_tbl (a int PRIMARY KEY, b text DEFAULT 'Unspecified')",
+    "expected": "CREATE TABLE base_tbl (a INT PRIMARY KEY, b TEXT DEFAULT 'Unspecified')"
+  },
+  {
+    "comment": "updatable_views - Statement 3",
+    "query": "INSERT INTO base_tbl SELECT i, 'Row ' || i FROM generate_series(-2, 2) g(i)",
+    "expected": "INSERT INTO base_tbl SELECT i, 'Row ' || i FROM generate_series(-2, 2) AS g(i)"
+  },
+  {
+    "comment": "updatable_views - Statement 4",
+    "query": "CREATE VIEW ro_view1 AS SELECT DISTINCT a, b FROM base_tbl"
+  },
+  {
+    "comment": "updatable_views - Statement 5",
+    "query": "CREATE VIEW ro_view2 AS SELECT a, b FROM base_tbl GROUP BY a, b"
+  },
+  {
+    "comment": "updatable_views - Statement 6",
+    "query": "CREATE VIEW ro_view3 AS SELECT 1 FROM base_tbl HAVING max(a) \u003e 0",
+    "expected": "CREATE VIEW ro_view3 AS SELECT 1 FROM base_tbl HAVING MAX(a) \u003e 0"
+  },
+  {
+    "comment": "updatable_views - Statement 7",
+    "query": "CREATE VIEW ro_view4 AS SELECT count(*) FROM base_tbl",
+    "expected": "CREATE VIEW ro_view4 AS SELECT COUNT(*) FROM base_tbl"
+  },
+  {
+    "comment": "updatable_views - Statement 8",
+    "query": "CREATE VIEW ro_view5 AS SELECT a, rank() OVER() FROM base_tbl",
+    "expected": "CREATE VIEW ro_view5 AS SELECT a, RANK() OVER () FROM base_tbl"
+  },
+  {
+    "comment": "updatable_views - Statement 9",
+    "query": "CREATE VIEW ro_view6 AS SELECT a, b FROM base_tbl UNION SELECT -a, b FROM base_tbl"
+  },
+  {
+    "comment": "updatable_views - Statement 10",
+    "query": "CREATE VIEW ro_view7 AS WITH t AS (SELECT a, b FROM base_tbl) SELECT * FROM t"
+  },
+  {
+    "comment": "updatable_views - Statement 11",
+    "query": "CREATE VIEW ro_view8 AS SELECT a, b FROM base_tbl ORDER BY a OFFSET 1"
+  },
+  {
+    "comment": "updatable_views - Statement 12",
+    "query": "CREATE VIEW ro_view9 AS SELECT a, b FROM base_tbl ORDER BY a LIMIT 1"
+  },
+  {
+    "comment": "updatable_views - Statement 13",
+    "query": "CREATE VIEW ro_view10 AS SELECT 1 AS a"
+  },
+  {
+    "comment": "updatable_views - Statement 14",
+    "query": "CREATE VIEW ro_view11 AS SELECT b1.a, b2.b FROM base_tbl b1, base_tbl b2",
+    "expected": "CREATE VIEW ro_view11 AS SELECT b1.a, b2.b FROM base_tbl AS b1, base_tbl AS b2"
+  },
+  {
+    "comment": "updatable_views - Statement 15",
+    "query": "CREATE VIEW ro_view12 AS SELECT * FROM generate_series(1, 10) AS g(a)"
+  },
+  {
+    "comment": "updatable_views - Statement 16",
+    "query": "CREATE VIEW ro_view13 AS SELECT a, b FROM (SELECT * FROM base_tbl) AS t"
+  },
+  {
+    "comment": "updatable_views - Statement 17",
+    "query": "CREATE VIEW rw_view14 AS SELECT ctid, a, b FROM base_tbl"
+  },
+  {
+    "comment": "updatable_views - Statement 18",
+    "query": "CREATE VIEW rw_view15 AS SELECT a, upper(b) FROM base_tbl"
+  },
+  {
+    "comment": "updatable_views - Statement 19",
+    "query": "CREATE VIEW rw_view16 AS SELECT a, b, a AS aa FROM base_tbl"
+  },
+  {
+    "comment": "updatable_views - Statement 20",
+    "query": "CREATE VIEW ro_view17 AS SELECT * FROM ro_view1"
+  },
+  {
+    "comment": "updatable_views - Statement 21",
+    "query": "CREATE VIEW ro_view18 AS SELECT * FROM (VALUES(1)) AS tmp(a)",
+    "expected": "CREATE VIEW ro_view18 AS SELECT * FROM (VALUES (1)) AS tmp(a)"
+  },
+  {
+    "comment": "updatable_views - Statement 22",
+    "query": "CREATE SEQUENCE uv_seq"
+  },
+  {
+    "comment": "updatable_views - Statement 23",
+    "query": "CREATE VIEW ro_view19 AS SELECT * FROM uv_seq"
+  },
+  {
+    "comment": "updatable_views - Statement 24",
+    "query": "CREATE VIEW ro_view20 AS SELECT a, b, generate_series(1, a) g FROM base_tbl",
+    "expected": "CREATE VIEW ro_view20 AS SELECT a, b, generate_series(1, a) AS g FROM base_tbl"
+  },
+  {
+    "comment": "updatable_views - Statement 25",
+    "query": "SELECT table_name, is_insertable_into FROM information_schema.tables WHERE table_name LIKE E'r_\\\\_view%' ORDER BY table_name",
+    "expected": "SELECT table_name, is_insertable_into FROM information_schema.tables WHERE table_name LIKE 'r_\\_view%' ORDER BY table_name"
+  },
+  {
+    "comment": "updatable_views - Statement 26",
+    "query": "SELECT table_name, is_updatable, is_insertable_into FROM information_schema.views WHERE table_name LIKE E'r_\\\\_view%' ORDER BY table_name",
+    "expected": "SELECT table_name, is_updatable, is_insertable_into FROM information_schema.views WHERE table_name LIKE 'r_\\_view%' ORDER BY table_name"
+  },
+  {
+    "comment": "updatable_views - Statement 27",
+    "query": "SELECT table_name, column_name, is_updatable FROM information_schema.columns WHERE table_name LIKE E'r_\\\\_view%' ORDER BY table_name, ordinal_position",
+    "expected": "SELECT table_name, column_name, is_updatable FROM information_schema.columns WHERE table_name LIKE 'r_\\_view%' ORDER BY table_name, ordinal_position"
+  },
+  {
+    "comment": "updatable_views - Statement 28",
+    "query": "DELETE FROM ro_view1"
+  },
+  {
+    "comment": "updatable_views - Statement 29",
+    "query": "DELETE FROM ro_view2"
+  },
+  {
+    "comment": "updatable_views - Statement 30",
+    "query": "DELETE FROM ro_view3"
+  },
+  {
+    "comment": "updatable_views - Statement 31",
+    "query": "DELETE FROM ro_view4"
+  },
+  {
+    "comment": "updatable_views - Statement 32",
+    "query": "DELETE FROM ro_view5"
+  },
+  {
+    "comment": "updatable_views - Statement 33",
+    "query": "DELETE FROM ro_view6"
+  },
+  {
+    "comment": "updatable_views - Statement 34",
+    "query": "UPDATE ro_view7 SET a=a+1",
+    "expected": "UPDATE ro_view7 SET a = a + 1"
+  },
+  {
+    "comment": "updatable_views - Statement 35",
+    "query": "UPDATE ro_view8 SET a=a+1",
+    "expected": "UPDATE ro_view8 SET a = a + 1"
+  },
+  {
+    "comment": "updatable_views - Statement 36",
+    "query": "UPDATE ro_view9 SET a=a+1",
+    "expected": "UPDATE ro_view9 SET a = a + 1"
+  },
+  {
+    "comment": "updatable_views - Statement 37",
+    "query": "UPDATE ro_view10 SET a=a+1",
+    "expected": "UPDATE ro_view10 SET a = a + 1"
+  },
+  {
+    "comment": "updatable_views - Statement 38",
+    "query": "UPDATE ro_view11 SET a=a+1",
+    "expected": "UPDATE ro_view11 SET a = a + 1"
+  },
+  {
+    "comment": "updatable_views - Statement 39",
+    "query": "UPDATE ro_view12 SET a=a+1",
+    "expected": "UPDATE ro_view12 SET a = a + 1"
+  },
+  {
+    "comment": "updatable_views - Statement 40",
+    "query": "INSERT INTO ro_view13 VALUES (3, 'Row 3')"
+  },
+  {
+    "comment": "updatable_views - Statement 41",
+    "query": "MERGE INTO ro_view13 AS t USING (VALUES (1, 'Row 1')) AS v(a,b) ON t.a = v.a WHEN MATCHED THEN DELETE",
+    "expected": "MERGE INTO ro_view13 AS t USING (VALUES (1, 'Row 1')) AS v(a, b) ON t.a = v.a WHEN MATCHED THEN DELETE"
+  },
+  {
+    "comment": "updatable_views - Statement 42",
+    "query": "MERGE INTO ro_view13 AS t USING (VALUES (2, 'Row 2')) AS v(a,b) ON t.a = v.a WHEN MATCHED THEN UPDATE SET b = v.b",
+    "expected": "MERGE INTO ro_view13 AS t USING (VALUES (2, 'Row 2')) AS v(a, b) ON t.a = v.a WHEN MATCHED THEN UPDATE SET b = v.b"
+  },
+  {
+    "comment": "updatable_views - Statement 43",
+    "query": "MERGE INTO ro_view13 AS t USING (VALUES (3, 'Row 3')) AS v(a,b) ON t.a = v.a WHEN NOT MATCHED THEN INSERT VALUES (v.a, v.b)",
+    "expected": "MERGE INTO ro_view13 AS t USING (VALUES (3, 'Row 3')) AS v(a, b) ON t.a = v.a WHEN NOT MATCHED THEN INSERT VALUES (v.a, v.b)"
+  },
+  {
+    "comment": "updatable_views - Statement 44",
+    "query": "MERGE INTO ro_view13 AS t USING (VALUES (2, 'Row 2')) AS v(a,b) ON t.a = v.a WHEN MATCHED THEN DO NOTHING WHEN NOT MATCHED THEN DO NOTHING",
+    "expected": "MERGE INTO ro_view13 AS t USING (VALUES (2, 'Row 2')) AS v(a, b) ON t.a = v.a WHEN MATCHED THEN DO NOTHING WHEN NOT MATCHED THEN DO NOTHING"
+  },
+  {
+    "comment": "updatable_views - Statement 45",
+    "query": "MERGE INTO ro_view13 AS t USING (VALUES (3, 'Row 3')) AS v(a,b) ON t.a = v.a WHEN MATCHED THEN DO NOTHING WHEN NOT MATCHED THEN DO NOTHING",
+    "expected": "MERGE INTO ro_view13 AS t USING (VALUES (3, 'Row 3')) AS v(a, b) ON t.a = v.a WHEN MATCHED THEN DO NOTHING WHEN NOT MATCHED THEN DO NOTHING"
+  },
+  {
+    "comment": "updatable_views - Statement 46",
+    "query": "INSERT INTO rw_view14 VALUES (null, 3, 'Row 3')",
+    "expected": "INSERT INTO rw_view14 VALUES (NULL, 3, 'Row 3')"
+  },
+  {
+    "comment": "updatable_views - Statement 47",
+    "query": "INSERT INTO rw_view14 (a, b) VALUES (3, 'Row 3')"
+  },
+  {
+    "comment": "updatable_views - Statement 48",
+    "query": "UPDATE rw_view14 SET ctid=null WHERE a=3",
+    "expected": "UPDATE rw_view14 SET ctid = NULL WHERE a = 3"
+  },
+  {
+    "comment": "updatable_views - Statement 49",
+    "query": "UPDATE rw_view14 SET b='ROW 3' WHERE a=3",
+    "expected": "UPDATE rw_view14 SET b = 'ROW 3' WHERE a = 3"
+  },
+  {
+    "comment": "updatable_views - Statement 50",
+    "query": "SELECT * FROM base_tbl"
+  },
+  {
+    "comment": "updatable_views - Statement 51",
+    "query": "DELETE FROM rw_view14 WHERE a=3",
+    "expected": "DELETE FROM rw_view14 WHERE a = 3"
+  },
+  {
+    "comment": "updatable_views - Statement 52",
+    "query": "MERGE INTO rw_view14  AS t USING (VALUES (2, 'Merged row 2'), (3, 'Merged row 3')) AS v(a,b) ON t.a = v.a WHEN MATCHED THEN UPDATE SET b = v.b WHEN NOT MATCHED THEN INSERT VALUES (null, v.a, v.b)",
+    "expected": "MERGE INTO rw_view14 AS t USING (VALUES (2, 'Merged row 2'), (3, 'Merged row 3')) AS v(a, b) ON t.a = v.a WHEN MATCHED THEN UPDATE SET b = v.b WHEN NOT MATCHED THEN INSERT VALUES (NULL, v.a, v.b)"
+  },
+  {
+    "comment": "updatable_views - Statement 53",
+    "query": "MERGE INTO rw_view14  AS t USING (VALUES (2, 'Merged row 2'), (3, 'Merged row 3')) AS v(a,b) ON t.a = v.a WHEN MATCHED THEN UPDATE SET b = v.b WHEN NOT MATCHED THEN INSERT (a,b) VALUES (v.a, v.b)",
+    "expected": "MERGE INTO rw_view14 AS t USING (VALUES (2, 'Merged row 2'), (3, 'Merged row 3')) AS v(a, b) ON t.a = v.a WHEN MATCHED THEN UPDATE SET b = v.b WHEN NOT MATCHED THEN INSERT (a, b) VALUES (v.a, v.b)"
+  },
+  {
+    "comment": "updatable_views - Statement 54",
+    "query": "SELECT * FROM base_tbl ORDER BY a"
+  },
+  {
+    "comment": "updatable_views - Statement 55",
+    "query": "MERGE INTO rw_view14  AS t USING (VALUES (2, 'Row 2'), (3, 'Row 3')) AS v(a,b) ON t.a = v.a WHEN MATCHED AND t.a = 2 THEN UPDATE SET b = v.b WHEN MATCHED AND t.a = 3 THEN DELETE",
+    "expected": "MERGE INTO rw_view14 AS t USING (VALUES (2, 'Row 2'), (3, 'Row 3')) AS v(a, b) ON t.a = v.a WHEN MATCHED AND t.a = 2 THEN UPDATE SET b = v.b WHEN MATCHED AND t.a = 3 THEN DELETE"
+  },
+  {
+    "comment": "updatable_views - Statement 56",
+    "query": "INSERT INTO rw_view15 VALUES (3, 'ROW 3')"
+  },
+  {
+    "comment": "updatable_views - Statement 57",
+    "query": "INSERT INTO rw_view15 (a) VALUES (3)"
+  },
+  {
+    "comment": "updatable_views - Statement 58",
+    "query": "INSERT INTO rw_view15 (a) VALUES (3) ON CONFLICT DO NOTHING"
+  },
+  {
+    "comment": "updatable_views - Statement 59",
+    "query": "SELECT * FROM rw_view15"
+  },
+  {
+    "comment": "updatable_views - Statement 60",
+    "query": "INSERT INTO rw_view15 (a) VALUES (3) ON CONFLICT (a) DO NOTHING"
+  },
+  {
+    "comment": "updatable_views - Statement 61",
+    "query": "INSERT INTO rw_view15 (a) VALUES (3) ON CONFLICT (a) DO UPDATE set a = excluded.a",
+    "expected": "INSERT INTO rw_view15 (a) VALUES (3) ON CONFLICT (a) DO UPDATE SET a = excluded.a"
+  },
+  {
+    "comment": "updatable_views - Statement 62",
+    "query": "INSERT INTO rw_view15 (a) VALUES (3) ON CONFLICT (a) DO UPDATE set upper = 'blarg'",
+    "expected": "INSERT INTO rw_view15 (a) VALUES (3) ON CONFLICT (a) DO UPDATE SET upper = 'blarg'"
+  },
+  {
+    "comment": "updatable_views - Statement 63",
+    "query": "ALTER VIEW rw_view15 ALTER COLUMN upper SET DEFAULT 'NOT SET'"
+  },
+  {
+    "comment": "updatable_views - Statement 64",
+    "query": "INSERT INTO rw_view15 (a) VALUES (4)"
+  },
+  {
+    "comment": "updatable_views - Statement 65",
+    "query": "UPDATE rw_view15 SET upper='ROW 3' WHERE a=3",
+    "expected": "UPDATE rw_view15 SET upper = 'ROW 3' WHERE a = 3"
+  },
+  {
+    "comment": "updatable_views - Statement 66",
+    "query": "UPDATE rw_view15 SET upper=DEFAULT WHERE a=3",
+    "expected": "UPDATE rw_view15 SET upper = DEFAULT WHERE a = 3"
+  },
+  {
+    "comment": "updatable_views - Statement 67",
+    "query": "UPDATE rw_view15 SET a=4 WHERE a=3",
+    "expected": "UPDATE rw_view15 SET a = 4 WHERE a = 3"
+  },
+  {
+    "comment": "updatable_views - Statement 68",
+    "query": "DELETE FROM rw_view15 WHERE a=4",
+    "expected": "DELETE FROM rw_view15 WHERE a = 4"
+  },
+  {
+    "comment": "updatable_views - Statement 69",
+    "query": "INSERT INTO rw_view16 VALUES (3, 'Row 3', 3)"
+  },
+  {
+    "comment": "updatable_views - Statement 70",
+    "query": "INSERT INTO rw_view16 (a, b) VALUES (3, 'Row 3')"
+  },
+  {
+    "comment": "updatable_views - Statement 71",
+    "query": "UPDATE rw_view16 SET a=3, aa= -3 WHERE a=3",
+    "expected": "UPDATE rw_view16 SET a = 3, aa = -3 WHERE a = 3"
+  },
+  {
+    "comment": "updatable_views - Statement 72",
+    "query": "UPDATE rw_view16 SET aa= -3 WHERE a=3",
+    "expected": "UPDATE rw_view16 SET aa = -3 WHERE a = 3"
+  },
+  {
+    "comment": "updatable_views - Statement 73",
+    "query": "DELETE FROM rw_view16 WHERE a=-3",
+    "expected": "DELETE FROM rw_view16 WHERE a =- 3"
+  },
+  {
+    "comment": "updatable_views - Statement 74",
+    "query": "INSERT INTO ro_view17 VALUES (3, 'ROW 3')"
+  },
+  {
+    "comment": "updatable_views - Statement 75",
+    "query": "DELETE FROM ro_view18"
+  },
+  {
+    "comment": "updatable_views - Statement 76",
+    "query": "MERGE INTO ro_view18 AS t USING (VALUES (1, 'Row 1')) AS v(a,b) ON t.a = v.a WHEN MATCHED THEN DO NOTHING",
+    "expected": "MERGE INTO ro_view18 AS t USING (VALUES (1, 'Row 1')) AS v(a, b) ON t.a = v.a WHEN MATCHED THEN DO NOTHING"
+  },
+  {
+    "comment": "updatable_views - Statement 77",
+    "query": "UPDATE ro_view19 SET last_value=1000",
+    "expected": "UPDATE ro_view19 SET last_value = 1000"
+  },
+  {
+    "comment": "updatable_views - Statement 78",
+    "query": "UPDATE ro_view20 SET b=upper(b)",
+    "expected": "UPDATE ro_view20 SET b = upper(b)"
+  },
+  {
+    "comment": "updatable_views - Statement 79",
+    "query": "CREATE RULE rw_view16_ins_rule AS ON INSERT TO rw_view16 WHERE NEW.a \u003e 0 DO INSTEAD INSERT INTO base_tbl VALUES (NEW.a, NEW.b)",
+    "expected": "CREATE RULE rw_view16_ins_rule AS ON INSERT TO rw_view16 WHERE new.a \u003e 0 DO INSTEAD INSERT INTO base_tbl VALUES (new.a, new.b)"
+  },
+  {
+    "comment": "updatable_views - Statement 80",
+    "query": "CREATE RULE rw_view16_upd_rule AS ON UPDATE TO rw_view16 WHERE OLD.a \u003e 0 DO INSTEAD UPDATE base_tbl SET b=NEW.b WHERE a=OLD.a",
+    "expected": "CREATE RULE rw_view16_upd_rule AS ON UPDATE TO rw_view16 WHERE old.a \u003e 0 DO INSTEAD UPDATE base_tbl SET b = new.b WHERE a = old.a"
+  },
+  {
+    "comment": "updatable_views - Statement 81",
+    "query": "CREATE RULE rw_view16_del_rule AS ON DELETE TO rw_view16 WHERE OLD.a \u003e 0 DO INSTEAD DELETE FROM base_tbl WHERE a=OLD.a",
+    "expected": "CREATE RULE rw_view16_del_rule AS ON DELETE TO rw_view16 WHERE old.a \u003e 0 DO INSTEAD DELETE FROM base_tbl WHERE a = old.a"
+  },
+  {
+    "comment": "updatable_views - Statement 82",
+    "query": "UPDATE rw_view16 SET b='ROW 2' WHERE a=2",
+    "expected": "UPDATE rw_view16 SET b = 'ROW 2' WHERE a = 2"
+  },
+  {
+    "comment": "updatable_views - Statement 83",
+    "query": "DELETE FROM rw_view16 WHERE a=2",
+    "expected": "DELETE FROM rw_view16 WHERE a = 2"
+  },
+  {
+    "comment": "updatable_views - Statement 84",
+    "query": "MERGE INTO rw_view16 AS t USING (VALUES (3, 'Row 3')) AS v(a,b) ON t.a = v.a WHEN NOT MATCHED THEN INSERT VALUES (v.a, v.b)",
+    "expected": "MERGE INTO rw_view16 AS t USING (VALUES (3, 'Row 3')) AS v(a, b) ON t.a = v.a WHEN NOT MATCHED THEN INSERT VALUES (v.a, v.b)"
+  },
+  {
+    "comment": "updatable_views - Statement 85",
+    "query": "DROP TABLE base_tbl CASCADE"
+  },
+  {
+    "comment": "updatable_views - Statement 86",
+    "query": "DROP VIEW ro_view10, ro_view12, ro_view18"
+  },
+  {
+    "comment": "updatable_views - Statement 87",
+    "query": "DROP SEQUENCE uv_seq CASCADE"
+  },
+  {
+    "comment": "updatable_views - Statement 88",
+    "query": "CREATE VIEW rw_view1 AS SELECT * FROM base_tbl WHERE a\u003e0",
+    "expected": "CREATE VIEW rw_view1 AS SELECT * FROM base_tbl WHERE a \u003e 0"
+  },
+  {
+    "comment": "updatable_views - Statement 89",
+    "query": "SELECT table_name, is_insertable_into FROM information_schema.tables WHERE table_name = 'rw_view1'"
+  },
+  {
+    "comment": "updatable_views - Statement 90",
+    "query": "SELECT table_name, is_updatable, is_insertable_into FROM information_schema.views WHERE table_name = 'rw_view1'"
+  },
+  {
+    "comment": "updatable_views - Statement 91",
+    "query": "SELECT table_name, column_name, is_updatable FROM information_schema.columns WHERE table_name = 'rw_view1' ORDER BY ordinal_position"
+  },
+  {
+    "comment": "updatable_views - Statement 92",
+    "query": "INSERT INTO rw_view1 VALUES (3, 'Row 3')"
+  },
+  {
+    "comment": "updatable_views - Statement 93",
+    "query": "INSERT INTO rw_view1 (a) VALUES (4)"
+  },
+  {
+    "comment": "updatable_views - Statement 94",
+    "query": "UPDATE rw_view1 SET a=5 WHERE a=4",
+    "expected": "UPDATE rw_view1 SET a = 5 WHERE a = 4"
+  },
+  {
+    "comment": "updatable_views - Statement 95",
+    "query": "DELETE FROM rw_view1 WHERE b='Row 2'",
+    "expected": "DELETE FROM rw_view1 WHERE b = 'Row 2'"
+  },
+  {
+    "comment": "updatable_views - Statement 96",
+    "query": "MERGE INTO rw_view1 t USING (VALUES (0, 'ROW 0'), (1, 'ROW 1'), (2, 'ROW 2'), (3, 'ROW 3')) AS v(a,b) ON t.a = v.a WHEN MATCHED AND t.a \u003c= 1 THEN UPDATE SET b = v.b WHEN MATCHED THEN DELETE WHEN NOT MATCHED AND a \u003e 0 THEN INSERT (a) VALUES (v.a) RETURNING merge_action(), v.*, t.*",
+    "expected": "MERGE INTO rw_view1 AS t USING (VALUES (0, 'ROW 0'), (1, 'ROW 1'), (2, 'ROW 2'), (3, 'ROW 3')) AS v(a, b) ON t.a = v.a WHEN MATCHED AND t.a \u003c= 1 THEN UPDATE SET b = v.b WHEN MATCHED THEN DELETE WHEN NOT MATCHED AND a \u003e 0 THEN INSERT (a) VALUES (v.a) RETURNING MERGE_ACTION(), v.*, t.*"
+  },
+  {
+    "comment": "updatable_views - Statement 97",
+    "query": "MERGE INTO rw_view1 t USING (VALUES (0, 'R0'), (1, 'R1'), (2, 'R2'), (3, 'R3')) AS v(a,b) ON t.a = v.a WHEN MATCHED AND t.a \u003c= 1 THEN UPDATE SET b = v.b WHEN MATCHED THEN DELETE WHEN NOT MATCHED BY SOURCE THEN DELETE WHEN NOT MATCHED AND a \u003e 0 THEN INSERT (a) VALUES (v.a) RETURNING merge_action(), v.*, t.*",
+    "expected": "MERGE INTO rw_view1 AS t USING (VALUES (0, 'R0'), (1, 'R1'), (2, 'R2'), (3, 'R3')) AS v(a, b) ON t.a = v.a WHEN MATCHED AND t.a \u003c= 1 THEN UPDATE SET b = v.b WHEN MATCHED THEN DELETE WHEN NOT MATCHED BY SOURCE THEN DELETE WHEN NOT MATCHED AND a \u003e 0 THEN INSERT (a) VALUES (v.a) RETURNING MERGE_ACTION(), v.*, t.*"
+  },
+  {
+    "comment": "updatable_views - Statement 98",
+    "query": "EXPLAIN (costs off) UPDATE rw_view1 SET a=6 WHERE a=5",
+    "expected": "EXPLAIN (COSTS false) UPDATE rw_view1 SET a = 6 WHERE a = 5"
+  },
+  {
+    "comment": "updatable_views - Statement 99",
+    "query": "EXPLAIN (costs off) DELETE FROM rw_view1 WHERE a=5",
+    "expected": "EXPLAIN (COSTS false) DELETE FROM rw_view1 WHERE a = 5"
+  },
+  {
+    "comment": "updatable_views - Statement 100",
+    "query": "EXPLAIN (costs off) MERGE INTO rw_view1 t USING (VALUES (5, 'X')) AS v(a,b) ON t.a = v.a WHEN MATCHED THEN DELETE",
+    "expected": "EXPLAIN (COSTS false) MERGE INTO rw_view1 AS t USING (VALUES (5, 'X')) AS v(a, b) ON t.a = v.a WHEN MATCHED THEN DELETE"
+  },
+  {
+    "comment": "updatable_views - Statement 101",
+    "query": "EXPLAIN (costs off) MERGE INTO rw_view1 t USING (SELECT * FROM generate_series(1,5)) AS s(a) ON t.a = s.a WHEN MATCHED THEN UPDATE SET b = 'Updated'",
+    "expected": "EXPLAIN (COSTS false) MERGE INTO rw_view1 AS t USING (SELECT * FROM generate_series(1, 5)) AS s(a) ON t.a = s.a WHEN MATCHED THEN UPDATE SET b = 'Updated'"
+  },
+  {
+    "comment": "updatable_views - Statement 102",
+    "query": "EXPLAIN (costs off) MERGE INTO rw_view1 t USING (SELECT * FROM generate_series(1,5)) AS s(a) ON t.a = s.a WHEN NOT MATCHED BY SOURCE THEN DELETE",
+    "expected": "EXPLAIN (COSTS false) MERGE INTO rw_view1 AS t USING (SELECT * FROM generate_series(1, 5)) AS s(a) ON t.a = s.a WHEN NOT MATCHED BY SOURCE THEN DELETE"
+  },
+  {
+    "comment": "updatable_views - Statement 103",
+    "query": "EXPLAIN (costs off) MERGE INTO rw_view1 t USING (SELECT * FROM generate_series(1,5)) AS s(a) ON t.a = s.a WHEN NOT MATCHED THEN INSERT (a) VALUES (s.a)",
+    "expected": "EXPLAIN (COSTS false) MERGE INTO rw_view1 AS t USING (SELECT * FROM generate_series(1, 5)) AS s(a) ON t.a = s.a WHEN NOT MATCHED THEN INSERT (a) VALUES (s.a)"
+  },
+  {
+    "comment": "updatable_views - Statement 104",
+    "query": "CREATE TABLE base_tbl_hist(ts timestamptz default now(), a int, b text)",
+    "expected": "CREATE TABLE base_tbl_hist (ts TIMESTAMPTZ DEFAULT NOW(), a INT, b TEXT)"
+  },
+  {
+    "comment": "updatable_views - Statement 105",
+    "query": "CREATE RULE base_tbl_log AS ON INSERT TO rw_view1 DO ALSO INSERT INTO base_tbl_hist(a,b) VALUES(new.a, new.b)",
+    "expected": "CREATE RULE base_tbl_log AS ON INSERT TO rw_view1 DO INSERT INTO base_tbl_hist (a, b) VALUES (new.a, new.b)"
+  },
+  {
+    "comment": "updatable_views - Statement 106",
+    "query": "INSERT INTO rw_view1 VALUES (9, DEFAULT), (10, DEFAULT)"
+  },
+  {
+    "comment": "updatable_views - Statement 107",
+    "query": "SELECT a, b FROM base_tbl_hist"
+  },
+  {
+    "comment": "updatable_views - Statement 108",
+    "query": "DROP TABLE base_tbl_hist"
+  },
+  {
+    "comment": "updatable_views - Statement 109",
+    "query": "CREATE VIEW rw_view1 AS SELECT b AS bb, a AS aa FROM base_tbl WHERE a\u003e0",
+    "expected": "CREATE VIEW rw_view1 AS SELECT b AS bb, a AS aa FROM base_tbl WHERE a \u003e 0"
+  },
+  {
+    "comment": "updatable_views - Statement 110",
+    "query": "CREATE VIEW rw_view2 AS SELECT aa AS aaa, bb AS bbb FROM rw_view1 WHERE aa\u003c10",
+    "expected": "CREATE VIEW rw_view2 AS SELECT aa AS aaa, bb AS bbb FROM rw_view1 WHERE aa \u003c 10"
+  },
+  {
+    "comment": "updatable_views - Statement 111",
+    "query": "SELECT table_name, is_insertable_into FROM information_schema.tables WHERE table_name = 'rw_view2'"
+  },
+  {
+    "comment": "updatable_views - Statement 112",
+    "query": "SELECT table_name, is_updatable, is_insertable_into FROM information_schema.views WHERE table_name = 'rw_view2'"
+  },
+  {
+    "comment": "updatable_views - Statement 113",
+    "query": "SELECT table_name, column_name, is_updatable FROM information_schema.columns WHERE table_name = 'rw_view2' ORDER BY ordinal_position"
+  },
+  {
+    "comment": "updatable_views - Statement 114",
+    "query": "INSERT INTO rw_view2 VALUES (3, 'Row 3')"
+  },
+  {
+    "comment": "updatable_views - Statement 115",
+    "query": "INSERT INTO rw_view2 (aaa) VALUES (4)"
+  },
+  {
+    "comment": "updatable_views - Statement 116",
+    "query": "SELECT * FROM rw_view2"
+  },
+  {
+    "comment": "updatable_views - Statement 117",
+    "query": "UPDATE rw_view2 SET bbb='Row 4' WHERE aaa=4",
+    "expected": "UPDATE rw_view2 SET bbb = 'Row 4' WHERE aaa = 4"
+  },
+  {
+    "comment": "updatable_views - Statement 118",
+    "query": "DELETE FROM rw_view2 WHERE aaa=2",
+    "expected": "DELETE FROM rw_view2 WHERE aaa = 2"
+  },
+  {
+    "comment": "updatable_views - Statement 119",
+    "query": "MERGE INTO rw_view2 t USING (VALUES (3, 'R3'), (4, 'R4'), (5, 'R5')) AS v(a,b) ON aaa = v.a WHEN MATCHED AND aaa = 3 THEN DELETE WHEN MATCHED THEN UPDATE SET bbb = v.b WHEN NOT MATCHED THEN INSERT (aaa) VALUES (v.a) RETURNING merge_action(), v.*, t.*",
+    "expected": "MERGE INTO rw_view2 AS t USING (VALUES (3, 'R3'), (4, 'R4'), (5, 'R5')) AS v(a, b) ON aaa = v.a WHEN MATCHED AND aaa = 3 THEN DELETE WHEN MATCHED THEN UPDATE SET bbb = v.b WHEN NOT MATCHED THEN INSERT (aaa) VALUES (v.a) RETURNING MERGE_ACTION(), v.*, t.*"
+  },
+  {
+    "comment": "updatable_views - Statement 120",
+    "query": "SELECT * FROM rw_view2 ORDER BY aaa"
+  },
+  {
+    "comment": "updatable_views - Statement 121",
+    "query": "MERGE INTO rw_view2 t USING (VALUES (4, 'r4'), (5, 'r5'), (6, 'r6')) AS v(a,b) ON aaa = v.a WHEN MATCHED AND aaa = 4 THEN DELETE WHEN MATCHED THEN UPDATE SET bbb = v.b WHEN NOT MATCHED THEN INSERT (aaa) VALUES (v.a) WHEN NOT MATCHED BY SOURCE THEN UPDATE SET bbb = 'Not matched by source' RETURNING merge_action(), v.*, t.*",
+    "expected": "MERGE INTO rw_view2 AS t USING (VALUES (4, 'r4'), (5, 'r5'), (6, 'r6')) AS v(a, b) ON aaa = v.a WHEN MATCHED AND aaa = 4 THEN DELETE WHEN MATCHED THEN UPDATE SET bbb = v.b WHEN NOT MATCHED THEN INSERT (aaa) VALUES (v.a) WHEN NOT MATCHED BY SOURCE THEN UPDATE SET bbb = 'Not matched by source' RETURNING MERGE_ACTION(), v.*, t.*"
+  },
+  {
+    "comment": "updatable_views - Statement 122",
+    "query": "EXPLAIN (costs off) UPDATE rw_view2 SET aaa=5 WHERE aaa=4",
+    "expected": "EXPLAIN (COSTS false) UPDATE rw_view2 SET aaa = 5 WHERE aaa = 4"
+  },
+  {
+    "comment": "updatable_views - Statement 123",
+    "query": "EXPLAIN (costs off) DELETE FROM rw_view2 WHERE aaa=4",
+    "expected": "EXPLAIN (COSTS false) DELETE FROM rw_view2 WHERE aaa = 4"
+  },
+  {
+    "comment": "updatable_views - Statement 124",
+    "query": "CREATE VIEW rw_view1 AS SELECT * FROM base_tbl WHERE a\u003e0 OFFSET 0",
+    "expected": "CREATE VIEW rw_view1 AS SELECT * FROM base_tbl WHERE a \u003e 0 OFFSET 0"
+  },
+  {
+    "comment": "updatable_views - Statement 125",
+    "query": "CREATE VIEW rw_view2 AS SELECT * FROM rw_view1 WHERE a\u003c10",
+    "expected": "CREATE VIEW rw_view2 AS SELECT * FROM rw_view1 WHERE a \u003c 10"
+  },
+  {
+    "comment": "updatable_views - Statement 126",
+    "query": "SELECT table_name, is_insertable_into FROM information_schema.tables WHERE table_name LIKE 'rw_view%' ORDER BY table_name"
+  },
+  {
+    "comment": "updatable_views - Statement 127",
+    "query": "SELECT table_name, is_updatable, is_insertable_into FROM information_schema.views WHERE table_name LIKE 'rw_view%' ORDER BY table_name"
+  },
+  {
+    "comment": "updatable_views - Statement 128",
+    "query": "SELECT table_name, column_name, is_updatable FROM information_schema.columns WHERE table_name LIKE 'rw_view%' ORDER BY table_name, ordinal_position"
+  },
+  {
+    "comment": "updatable_views - Statement 129",
+    "query": "CREATE RULE rw_view1_ins_rule AS ON INSERT TO rw_view1 DO INSTEAD INSERT INTO base_tbl VALUES (NEW.a, NEW.b) RETURNING *",
+    "expected": "CREATE RULE rw_view1_ins_rule AS ON INSERT TO rw_view1 DO INSTEAD INSERT INTO base_tbl VALUES (new.a, new.b) RETURNING *"
+  },
+  {
+    "comment": "updatable_views - Statement 130",
+    "query": "CREATE RULE rw_view1_upd_rule AS ON UPDATE TO rw_view1 DO INSTEAD UPDATE base_tbl SET b=NEW.b WHERE a=OLD.a RETURNING NEW.*",
+    "expected": "CREATE RULE rw_view1_upd_rule AS ON UPDATE TO rw_view1 DO INSTEAD UPDATE base_tbl SET b = new.b WHERE a = old.a RETURNING new.*"
+  },
+  {
+    "comment": "updatable_views - Statement 131",
+    "query": "CREATE RULE rw_view1_del_rule AS ON DELETE TO rw_view1 DO INSTEAD DELETE FROM base_tbl WHERE a=OLD.a RETURNING OLD.*",
+    "expected": "CREATE RULE rw_view1_del_rule AS ON DELETE TO rw_view1 DO INSTEAD DELETE FROM base_tbl WHERE a = old.a RETURNING old.*"
+  },
+  {
+    "comment": "updatable_views - Statement 132",
+    "query": "INSERT INTO rw_view2 VALUES (3, 'Row 3') RETURNING *"
+  },
+  {
+    "comment": "updatable_views - Statement 133",
+    "query": "UPDATE rw_view2 SET b='Row three' WHERE a=3 RETURNING *",
+    "expected": "UPDATE rw_view2 SET b = 'Row three' WHERE a = 3 RETURNING *"
+  },
+  {
+    "comment": "updatable_views - Statement 134",
+    "query": "DELETE FROM rw_view2 WHERE a=3 RETURNING *",
+    "expected": "DELETE FROM rw_view2 WHERE a = 3 RETURNING *"
+  },
+  {
+    "comment": "updatable_views - Statement 135",
+    "query": "MERGE INTO rw_view2 t USING (VALUES (3, 'Row 3')) AS v(a,b) ON t.a = v.a WHEN NOT MATCHED THEN INSERT VALUES (v.a, v.b)",
+    "expected": "MERGE INTO rw_view2 AS t USING (VALUES (3, 'Row 3')) AS v(a, b) ON t.a = v.a WHEN NOT MATCHED THEN INSERT VALUES (v.a, v.b)"
+  },
+  {
+    "comment": "updatable_views - Statement 136",
+    "query": "EXPLAIN (costs off) UPDATE rw_view2 SET a=3 WHERE a=2",
+    "expected": "EXPLAIN (COSTS false) UPDATE rw_view2 SET a = 3 WHERE a = 2"
+  },
+  {
+    "comment": "updatable_views - Statement 137",
+    "query": "EXPLAIN (costs off) DELETE FROM rw_view2 WHERE a=2",
+    "expected": "EXPLAIN (COSTS false) DELETE FROM rw_view2 WHERE a = 2"
+  },
+  {
+    "comment": "updatable_views - Statement 138",
+    "query": "SELECT table_name, is_updatable, is_insertable_into, is_trigger_updatable, is_trigger_deletable, is_trigger_insertable_into FROM information_schema.views WHERE table_name LIKE 'rw_view%' ORDER BY table_name"
+  },
+  {
+    "comment": "updatable_views - Statement 139",
+    "query": "CREATE FUNCTION rw_view1_trig_fn() RETURNS trigger AS $$ BEGIN IF TG_OP = 'INSERT' THEN INSERT INTO base_tbl VALUES (NEW.a, NEW.b); RETURN NEW; ELSIF TG_OP = 'UPDATE' THEN UPDATE base_tbl SET b=NEW.b WHERE a=OLD.a; RETURN NEW; ELSIF TG_OP = 'DELETE' THEN DELETE FROM base_tbl WHERE a=OLD.a; RETURN OLD; END IF; END; $$ LANGUAGE plpgsql;  CREATE TRIGGER rw_view1_ins_trig INSTEAD OF INSERT ON rw_view1 FOR EACH ROW EXECUTE PROCEDURE rw_view1_trig_fn();  SELECT table_name, is_insertable_into FROM information_schema.tables WHERE table_name LIKE 'rw_view%' ORDER BY table_name;  SELECT table_name, is_updatable, is_insertable_into, is_trigger_updatable, is_trigger_deletable, is_trigger_insertable_into FROM information_schema.views WHERE table_name LIKE 'rw_view%' ORDER BY table_name;  SELECT table_name, column_name, is_updatable FROM information_schema.columns WHERE table_name LIKE 'rw_view%' ORDER BY table_name, ordinal_position;  CREATE TRIGGER rw_view1_upd_trig INSTEAD OF UPDATE ON rw_view1 FOR EACH ROW EXECUTE PROCEDURE rw_view1_trig_fn();  SELECT table_name, is_insertable_into FROM information_schema.tables WHERE table_name LIKE 'rw_view%' ORDER BY table_name;  SELECT table_name, is_updatable, is_insertable_into, is_trigger_updatable, is_trigger_deletable, is_trigger_insertable_into FROM information_schema.views WHERE table_name LIKE 'rw_view%' ORDER BY table_name;  SELECT table_name, column_name, is_updatable FROM information_schema.columns WHERE table_name LIKE 'rw_view%' ORDER BY table_name, ordinal_position;  CREATE TRIGGER rw_view1_del_trig INSTEAD OF DELETE ON rw_view1 FOR EACH ROW EXECUTE PROCEDURE rw_view1_trig_fn();  SELECT table_name, is_insertable_into FROM information_schema.tables WHERE table_name LIKE 'rw_view%' ORDER BY table_name;  SELECT table_name, is_updatable, is_insertable_into, is_trigger_updatable, is_trigger_deletable, is_trigger_insertable_into FROM information_schema.views WHERE table_name LIKE 'rw_view%' ORDER BY table_name;  SELECT table_name, column_name, is_updatable FROM information_schema.columns WHERE table_name LIKE 'rw_view%' ORDER BY table_name, ordinal_position;  INSERT INTO rw_view2 VALUES (3, 'Row 3') RETURNING *; UPDATE rw_view2 SET b='Row three' WHERE a=3 RETURNING *; SELECT * FROM rw_view2; DELETE FROM rw_view2 WHERE a=3 RETURNING *; SELECT * FROM rw_view2;  MERGE INTO rw_view2 t USING (SELECT x, 'R'||x FROM generate_series(0,3) x) AS s(a,b) ON t.a = s.a WHEN MATCHED AND t.a \u003c= 1 THEN DELETE WHEN MATCHED THEN UPDATE SET b = s.b WHEN NOT MATCHED AND s.a \u003e 0 THEN INSERT VALUES (s.a, s.b) RETURNING merge_action(), s.*, t.*; SELECT * FROM base_tbl ORDER BY a;  MERGE INTO rw_view2 t USING (SELECT x, 'r'||x FROM generate_series(0,2) x) AS s(a,b) ON t.a = s.a WHEN MATCHED THEN UPDATE SET b = s.b WHEN NOT MATCHED AND s.a \u003e 0 THEN INSERT VALUES (s.a, s.b) WHEN NOT MATCHED BY SOURCE THEN UPDATE SET b = 'Not matched by source' RETURNING merge_action(), s.*, t.*; SELECT * FROM base_tbl ORDER BY a;  EXPLAIN (costs off) UPDATE rw_view2 SET a=3 WHERE a=2; EXPLAIN (costs off) DELETE FROM rw_view2 WHERE a=2;  EXPLAIN (costs off) MERGE INTO rw_view2 t USING (SELECT x, 'R'||x FROM generate_series(0,3) x) AS s(a,b) ON t.a = s.a WHEN MATCHED AND t.a \u003c= 1 THEN DELETE WHEN MATCHED THEN UPDATE SET b = s.b WHEN NOT MATCHED AND s.a \u003e 0 THEN INSERT VALUES (s.a, s.b);   DROP TRIGGER rw_view1_del_trig ON rw_view1; MERGE INTO rw_view2 t USING (SELECT x, 'R'||x FROM generate_series(0,3) x) AS s(a,b) ON t.a = s.a WHEN MATCHED AND t.a \u003c= 1 THEN DELETE WHEN MATCHED THEN UPDATE SET b = s.b WHEN NOT MATCHED AND s.a \u003e 0 THEN INSERT VALUES (s.a, s.b); MERGE INTO rw_view2 t USING (SELECT x, 'R'||x FROM generate_series(0,3) x) AS s(a,b) ON t.a = s.a WHEN MATCHED THEN UPDATE SET b = s.b WHEN NOT MATCHED AND s.a \u003e 0 THEN INSERT VALUES (s.a, s.b);  DROP TRIGGER rw_view1_ins_trig ON rw_view1; MERGE INTO rw_view2 t USING (SELECT x, 'R'||x FROM generate_series(0,3) x) AS s(a,b) ON t.a = s.a WHEN MATCHED THEN UPDATE SET b = s.b WHEN NOT MATCHED AND s.a \u003e 0 THEN INSERT VALUES (s.a, s.b); MERGE INTO rw_view2 t USING (SELECT x, 'R'||x FROM generate_series(0,3) x) AS s(a,b) ON t.a = s.a WHEN MATCHED THEN UPDATE SET b = s.b;   CREATE TRIGGER rw_view2_upd_trig INSTEAD OF UPDATE ON rw_view2 FOR EACH ROW EXECUTE PROCEDURE rw_view1_trig_fn(); MERGE INTO rw_view2 t USING (SELECT x, 'R'||x FROM generate_series(0,3) x) AS s(a,b) ON t.a = s.a WHEN MATCHED THEN UPDATE SET b = s.b WHEN NOT MATCHED AND s.a \u003e 0 THEN INSERT VALUES (s.a, s.b); MERGE INTO rw_view2 t USING (SELECT x, 'R'||x FROM generate_series(0,3) x) AS s(a,b) ON t.a = s.a WHEN MATCHED THEN UPDATE SET b = s.b; SELECT * FROM base_tbl ORDER BY a;  DROP TABLE base_tbl CASCADE; DROP FUNCTION rw_view1_trig_fn();    CREATE TABLE base_tbl (a int PRIMARY KEY, b text DEFAULT 'Unspecified'); INSERT INTO base_tbl SELECT i, 'Row ' || i FROM generate_series(-2, 2) g(i);  CREATE VIEW rw_view1 AS SELECT b AS bb, a AS aa FROM base_tbl;  CREATE FUNCTION rw_view1_aa(x rw_view1) RETURNS int AS $$ SELECT x.aa $$ LANGUAGE sql",
+    "expected": "CREATE FUNCTION rw_view1_trig_fn () RETURNS trigger AS $$ BEGIN IF TG_OP = 'INSERT' THEN INSERT INTO base_tbl VALUES (NEW.a, NEW.b); RETURN NEW; ELSIF TG_OP = 'UPDATE' THEN UPDATE base_tbl SET b=NEW.b WHERE a=OLD.a; RETURN NEW; ELSIF TG_OP = 'DELETE' THEN DELETE FROM base_tbl WHERE a=OLD.a; RETURN OLD; END IF; END; $$ LANGUAGE plpgsql; CREATE TRIGGER rw_view1_ins_trig INSTEAD OF INSERT ON rw_view1 FOR EACH ROW EXECUTE FUNCTION rw_view1_trig_fn(); SELECT table_name, is_insertable_into FROM information_schema.tables WHERE table_name LIKE 'rw_view%' ORDER BY table_name; SELECT table_name, is_updatable, is_insertable_into, is_trigger_updatable, is_trigger_deletable, is_trigger_insertable_into FROM information_schema.views WHERE table_name LIKE 'rw_view%' ORDER BY table_name; SELECT table_name, column_name, is_updatable FROM information_schema.columns WHERE table_name LIKE 'rw_view%' ORDER BY table_name, ordinal_position; CREATE TRIGGER rw_view1_upd_trig INSTEAD OF UPDATE ON rw_view1 FOR EACH ROW EXECUTE FUNCTION rw_view1_trig_fn(); SELECT table_name, is_insertable_into FROM information_schema.tables WHERE table_name LIKE 'rw_view%' ORDER BY table_name; SELECT table_name, is_updatable, is_insertable_into, is_trigger_updatable, is_trigger_deletable, is_trigger_insertable_into FROM information_schema.views WHERE table_name LIKE 'rw_view%' ORDER BY table_name; SELECT table_name, column_name, is_updatable FROM information_schema.columns WHERE table_name LIKE 'rw_view%' ORDER BY table_name, ordinal_position; CREATE TRIGGER rw_view1_del_trig INSTEAD OF DELETE ON rw_view1 FOR EACH ROW EXECUTE FUNCTION rw_view1_trig_fn(); SELECT table_name, is_insertable_into FROM information_schema.tables WHERE table_name LIKE 'rw_view%' ORDER BY table_name; SELECT table_name, is_updatable, is_insertable_into, is_trigger_updatable, is_trigger_deletable, is_trigger_insertable_into FROM information_schema.views WHERE table_name LIKE 'rw_view%' ORDER BY table_name; SELECT table_name, column_name, is_updatable FROM information_schema.columns WHERE table_name LIKE 'rw_view%' ORDER BY table_name, ordinal_position; INSERT INTO rw_view2 VALUES (3, 'Row 3') RETURNING *; UPDATE rw_view2 SET b = 'Row three' WHERE a = 3 RETURNING *; SELECT * FROM rw_view2; DELETE FROM rw_view2 WHERE a = 3 RETURNING *; SELECT * FROM rw_view2; MERGE INTO rw_view2 AS t USING (SELECT x, 'R' || x FROM generate_series(0, 3) AS x) AS s(a, b) ON t.a = s.a WHEN MATCHED AND t.a \u003c= 1 THEN DELETE WHEN MATCHED THEN UPDATE SET b = s.b WHEN NOT MATCHED AND s.a \u003e 0 THEN INSERT VALUES (s.a, s.b) RETURNING MERGE_ACTION(), s.*, t.*; SELECT * FROM base_tbl ORDER BY a; MERGE INTO rw_view2 AS t USING (SELECT x, 'r' || x FROM generate_series(0, 2) AS x) AS s(a, b) ON t.a = s.a WHEN MATCHED THEN UPDATE SET b = s.b WHEN NOT MATCHED AND s.a \u003e 0 THEN INSERT VALUES (s.a, s.b) WHEN NOT MATCHED BY SOURCE THEN UPDATE SET b = 'Not matched by source' RETURNING MERGE_ACTION(), s.*, t.*; SELECT * FROM base_tbl ORDER BY a; EXPLAIN (COSTS false) UPDATE rw_view2 SET a = 3 WHERE a = 2; EXPLAIN (COSTS false) DELETE FROM rw_view2 WHERE a = 2; EXPLAIN (COSTS false) MERGE INTO rw_view2 AS t USING (SELECT x, 'R' || x FROM generate_series(0, 3) AS x) AS s(a, b) ON t.a = s.a WHEN MATCHED AND t.a \u003c= 1 THEN DELETE WHEN MATCHED THEN UPDATE SET b = s.b WHEN NOT MATCHED AND s.a \u003e 0 THEN INSERT VALUES (s.a, s.b); DROP TRIGGER rw_view1_del_trig ON rw_view1; MERGE INTO rw_view2 AS t USING (SELECT x, 'R' || x FROM generate_series(0, 3) AS x) AS s(a, b) ON t.a = s.a WHEN MATCHED AND t.a \u003c= 1 THEN DELETE WHEN MATCHED THEN UPDATE SET b = s.b WHEN NOT MATCHED AND s.a \u003e 0 THEN INSERT VALUES (s.a, s.b); MERGE INTO rw_view2 AS t USING (SELECT x, 'R' || x FROM generate_series(0, 3) AS x) AS s(a, b) ON t.a = s.a WHEN MATCHED THEN UPDATE SET b = s.b WHEN NOT MATCHED AND s.a \u003e 0 THEN INSERT VALUES (s.a, s.b); DROP TRIGGER rw_view1_ins_trig ON rw_view1; MERGE INTO rw_view2 AS t USING (SELECT x, 'R' || x FROM generate_series(0, 3) AS x) AS s(a, b) ON t.a = s.a WHEN MATCHED THEN UPDATE SET b = s.b WHEN NOT MATCHED AND s.a \u003e 0 THEN INSERT VALUES (s.a, s.b); MERGE INTO rw_view2 AS t USING (SELECT x, 'R' || x FROM generate_series(0, 3) AS x) AS s(a, b) ON t.a = s.a WHEN MATCHED THEN UPDATE SET b = s.b; CREATE TRIGGER rw_view2_upd_trig INSTEAD OF UPDATE ON rw_view2 FOR EACH ROW EXECUTE FUNCTION rw_view1_trig_fn(); MERGE INTO rw_view2 AS t USING (SELECT x, 'R' || x FROM generate_series(0, 3) AS x) AS s(a, b) ON t.a = s.a WHEN MATCHED THEN UPDATE SET b = s.b WHEN NOT MATCHED AND s.a \u003e 0 THEN INSERT VALUES (s.a, s.b); MERGE INTO rw_view2 AS t USING (SELECT x, 'R' || x FROM generate_series(0, 3) AS x) AS s(a, b) ON t.a = s.a WHEN MATCHED THEN UPDATE SET b = s.b; SELECT * FROM base_tbl ORDER BY a; DROP TABLE base_tbl CASCADE; DROP FUNCTION rw_view1_trig_fn(); CREATE TABLE base_tbl (a INT PRIMARY KEY, b TEXT DEFAULT 'Unspecified'); INSERT INTO base_tbl SELECT i, 'Row ' || i FROM generate_series(-2, 2) AS g(i); CREATE VIEW rw_view1 AS SELECT b AS bb, a AS aa FROM base_tbl; CREATE FUNCTION rw_view1_aa (x rw_view1) RETURNS INT AS $$ SELECT x.aa $$ LANGUAGE sql"
+  },
+  {
+    "comment": "updatable_views - Statement 140",
+    "query": "UPDATE rw_view1 v SET bb='Updated row 2' WHERE rw_view1_aa(v)=2 RETURNING rw_view1_aa(v), v.bb",
+    "expected": "UPDATE rw_view1 AS v SET bb = 'Updated row 2' WHERE rw_view1_aa(v) = 2 RETURNING rw_view1_aa(v), v.bb"
+  },
+  {
+    "comment": "updatable_views - Statement 141",
+    "query": "EXPLAIN (costs off) UPDATE rw_view1 v SET bb='Updated row 2' WHERE rw_view1_aa(v)=2 RETURNING rw_view1_aa(v), v.bb",
+    "expected": "EXPLAIN (COSTS false) UPDATE rw_view1 AS v SET bb = 'Updated row 2' WHERE rw_view1_aa(v) = 2 RETURNING rw_view1_aa(v), v.bb"
+  },
+  {
+    "comment": "updatable_views - Statement 142",
+    "query": "CREATE USER regress_view_user1"
+  },
+  {
+    "comment": "updatable_views - Statement 143",
+    "query": "CREATE USER regress_view_user2"
+  },
+  {
+    "comment": "updatable_views - Statement 144",
+    "query": "CREATE USER regress_view_user3"
+  },
+  {
+    "comment": "updatable_views - Statement 145",
+    "query": "SET SESSION AUTHORIZATION regress_view_user1",
+    "expected": "SET SESSION AUTHORIZATION 'regress_view_user1'"
+  },
+  {
+    "comment": "updatable_views - Statement 146",
+    "query": "CREATE TABLE base_tbl(a int, b text, c float)",
+    "expected": "CREATE TABLE base_tbl (a INT, b TEXT, c FLOAT8)"
+  },
+  {
+    "comment": "updatable_views - Statement 147",
+    "query": "INSERT INTO base_tbl VALUES (1, 'Row 1', 1.0)"
+  },
+  {
+    "comment": "updatable_views - Statement 148",
+    "query": "CREATE VIEW rw_view1 AS SELECT b AS bb, c AS cc, a AS aa FROM base_tbl"
+  },
+  {
+    "comment": "updatable_views - Statement 149",
+    "query": "INSERT INTO rw_view1 VALUES ('Row 2', 2.0, 2)"
+  },
+  {
+    "comment": "updatable_views - Statement 150",
+    "query": "GRANT SELECT ON base_tbl TO regress_view_user2"
+  },
+  {
+    "comment": "updatable_views - Statement 151",
+    "query": "GRANT SELECT ON rw_view1 TO regress_view_user2"
+  },
+  {
+    "comment": "updatable_views - Statement 152",
+    "query": "GRANT UPDATE (a,c) ON base_tbl TO regress_view_user2",
+    "expected": "GRANT UPDATE (a, c) ON base_tbl TO regress_view_user2"
+  },
+  {
+    "comment": "updatable_views - Statement 153",
+    "query": "GRANT UPDATE (bb,cc) ON rw_view1 TO regress_view_user2",
+    "expected": "GRANT UPDATE (bb, cc) ON rw_view1 TO regress_view_user2"
+  },
+  {
+    "comment": "updatable_views - Statement 154",
+    "query": "RESET SESSION AUTHORIZATION",
+    "expected": "RESET session_authorization"
+  },
+  {
+    "comment": "updatable_views - Statement 155",
+    "query": "SET SESSION AUTHORIZATION regress_view_user2",
+    "expected": "SET SESSION AUTHORIZATION 'regress_view_user2'"
+  },
+  {
+    "comment": "updatable_views - Statement 156",
+    "query": "CREATE VIEW rw_view2 AS SELECT b AS bb, c AS cc, a AS aa FROM base_tbl"
+  },
+  {
+    "comment": "updatable_views - Statement 157",
+    "query": "SELECT * FROM rw_view1"
+  },
+  {
+    "comment": "updatable_views - Statement 158",
+    "query": "INSERT INTO base_tbl VALUES (3, 'Row 3', 3.0)"
+  },
+  {
+    "comment": "updatable_views - Statement 159",
+    "query": "INSERT INTO rw_view1 VALUES ('Row 3', 3.0, 3)"
+  },
+  {
+    "comment": "updatable_views - Statement 160",
+    "query": "INSERT INTO rw_view2 VALUES ('Row 3', 3.0, 3)"
+  },
+  {
+    "comment": "updatable_views - Statement 161",
+    "query": "MERGE INTO rw_view1 t USING (VALUES ('Row 3', 3.0, 3)) AS v(b,c,a) ON t.aa = v.a WHEN NOT MATCHED THEN INSERT VALUES (v.b, v.c, v.a)",
+    "expected": "MERGE INTO rw_view1 AS t USING (VALUES ('Row 3', 3.0, 3)) AS v(b, c, a) ON t.aa = v.a WHEN NOT MATCHED THEN INSERT VALUES (v.b, v.c, v.a)"
+  },
+  {
+    "comment": "updatable_views - Statement 162",
+    "query": "MERGE INTO rw_view2 t USING (VALUES ('Row 3', 3.0, 3)) AS v(b,c,a) ON t.aa = v.a WHEN NOT MATCHED THEN INSERT VALUES (v.b, v.c, v.a)",
+    "expected": "MERGE INTO rw_view2 AS t USING (VALUES ('Row 3', 3.0, 3)) AS v(b, c, a) ON t.aa = v.a WHEN NOT MATCHED THEN INSERT VALUES (v.b, v.c, v.a)"
+  },
+  {
+    "comment": "updatable_views - Statement 163",
+    "query": "UPDATE base_tbl SET a=a, c=c",
+    "expected": "UPDATE base_tbl SET a = a, c = c"
+  },
+  {
+    "comment": "updatable_views - Statement 164",
+    "query": "UPDATE base_tbl SET b=b",
+    "expected": "UPDATE base_tbl SET b = b"
+  },
+  {
+    "comment": "updatable_views - Statement 165",
+    "query": "UPDATE rw_view1 SET bb=bb, cc=cc",
+    "expected": "UPDATE rw_view1 SET bb = bb, cc = cc"
+  },
+  {
+    "comment": "updatable_views - Statement 166",
+    "query": "UPDATE rw_view1 SET aa=aa",
+    "expected": "UPDATE rw_view1 SET aa = aa"
+  },
+  {
+    "comment": "updatable_views - Statement 167",
+    "query": "UPDATE rw_view2 SET aa=aa, cc=cc",
+    "expected": "UPDATE rw_view2 SET aa = aa, cc = cc"
+  },
+  {
+    "comment": "updatable_views - Statement 168",
+    "query": "UPDATE rw_view2 SET bb=bb",
+    "expected": "UPDATE rw_view2 SET bb = bb"
+  },
+  {
+    "comment": "updatable_views - Statement 169",
+    "query": "MERGE INTO rw_view1 t USING (VALUES (1)) AS v(a) ON t.aa = v.a WHEN MATCHED THEN UPDATE SET bb = bb, cc = cc",
+    "expected": "MERGE INTO rw_view1 AS t USING (VALUES (1)) AS v(a) ON t.aa = v.a WHEN MATCHED THEN UPDATE SET bb = bb, cc = cc"
+  },
+  {
+    "comment": "updatable_views - Statement 170",
+    "query": "MERGE INTO rw_view1 t USING (VALUES (1)) AS v(a) ON t.aa = v.a WHEN MATCHED THEN UPDATE SET aa = aa",
+    "expected": "MERGE INTO rw_view1 AS t USING (VALUES (1)) AS v(a) ON t.aa = v.a WHEN MATCHED THEN UPDATE SET aa = aa"
+  },
+  {
+    "comment": "updatable_views - Statement 171",
+    "query": "MERGE INTO rw_view2 t USING (VALUES (1)) AS v(a) ON t.aa = v.a WHEN MATCHED THEN UPDATE SET aa = aa, cc = cc",
+    "expected": "MERGE INTO rw_view2 AS t USING (VALUES (1)) AS v(a) ON t.aa = v.a WHEN MATCHED THEN UPDATE SET aa = aa, cc = cc"
+  },
+  {
+    "comment": "updatable_views - Statement 172",
+    "query": "MERGE INTO rw_view2 t USING (VALUES (1)) AS v(a) ON t.aa = v.a WHEN MATCHED THEN UPDATE SET bb = bb",
+    "expected": "MERGE INTO rw_view2 AS t USING (VALUES (1)) AS v(a) ON t.aa = v.a WHEN MATCHED THEN UPDATE SET bb = bb"
+  },
+  {
+    "comment": "updatable_views - Statement 173",
+    "query": "DELETE FROM base_tbl"
+  },
+  {
+    "comment": "updatable_views - Statement 174",
+    "query": "DELETE FROM rw_view1"
+  },
+  {
+    "comment": "updatable_views - Statement 175",
+    "query": "DELETE FROM rw_view2"
+  },
+  {
+    "comment": "updatable_views - Statement 176",
+    "query": "GRANT INSERT, DELETE ON base_tbl TO regress_view_user2"
+  },
+  {
+    "comment": "updatable_views - Statement 177",
+    "query": "INSERT INTO rw_view1 VALUES ('Row 4', 4.0, 4)"
+  },
+  {
+    "comment": "updatable_views - Statement 178",
+    "query": "INSERT INTO rw_view2 VALUES ('Row 4', 4.0, 4)"
+  },
+  {
+    "comment": "updatable_views - Statement 179",
+    "query": "DELETE FROM base_tbl WHERE a=1",
+    "expected": "DELETE FROM base_tbl WHERE a = 1"
+  },
+  {
+    "comment": "updatable_views - Statement 180",
+    "query": "DELETE FROM rw_view1 WHERE aa=2",
+    "expected": "DELETE FROM rw_view1 WHERE aa = 2"
+  },
+  {
+    "comment": "updatable_views - Statement 181",
+    "query": "DELETE FROM rw_view2 WHERE aa=2",
+    "expected": "DELETE FROM rw_view2 WHERE aa = 2"
+  },
+  {
+    "comment": "updatable_views - Statement 182",
+    "query": "MERGE INTO rw_view1 t USING (VALUES (1)) AS v(a) ON t.aa = v.a WHEN MATCHED AND bb = 'xxx' THEN DELETE",
+    "expected": "MERGE INTO rw_view1 AS t USING (VALUES (1)) AS v(a) ON t.aa = v.a WHEN MATCHED AND bb = 'xxx' THEN DELETE"
+  },
+  {
+    "comment": "updatable_views - Statement 183",
+    "query": "MERGE INTO rw_view2 t USING (VALUES (1)) AS v(a) ON t.aa = v.a WHEN MATCHED AND bb = 'xxx' THEN DELETE",
+    "expected": "MERGE INTO rw_view2 AS t USING (VALUES (1)) AS v(a) ON t.aa = v.a WHEN MATCHED AND bb = 'xxx' THEN DELETE"
+  },
+  {
+    "comment": "updatable_views - Statement 184",
+    "query": "REVOKE INSERT, DELETE ON base_tbl FROM regress_view_user2"
+  },
+  {
+    "comment": "updatable_views - Statement 185",
+    "query": "GRANT INSERT, DELETE ON rw_view1 TO regress_view_user2"
+  },
+  {
+    "comment": "updatable_views - Statement 186",
+    "query": "INSERT INTO base_tbl VALUES (5, 'Row 5', 5.0)"
+  },
+  {
+    "comment": "updatable_views - Statement 187",
+    "query": "INSERT INTO rw_view1 VALUES ('Row 5', 5.0, 5)"
+  },
+  {
+    "comment": "updatable_views - Statement 188",
+    "query": "INSERT INTO rw_view2 VALUES ('Row 6', 6.0, 6)"
+  },
+  {
+    "comment": "updatable_views - Statement 189",
+    "query": "DELETE FROM base_tbl WHERE a=3",
+    "expected": "DELETE FROM base_tbl WHERE a = 3"
+  },
+  {
+    "comment": "updatable_views - Statement 190",
+    "query": "DELETE FROM rw_view1 WHERE aa=3",
+    "expected": "DELETE FROM rw_view1 WHERE aa = 3"
+  },
+  {
+    "comment": "updatable_views - Statement 191",
+    "query": "DELETE FROM rw_view2 WHERE aa=4",
+    "expected": "DELETE FROM rw_view2 WHERE aa = 4"
+  },
+  {
+    "comment": "updatable_views - Statement 192",
+    "query": "CREATE VIEW rw_view1 AS SELECT * FROM base_tbl"
+  },
+  {
+    "comment": "updatable_views - Statement 193",
+    "query": "SELECT * FROM rw_view1 FOR UPDATE"
+  },
+  {
+    "comment": "updatable_views - Statement 194",
+    "query": "UPDATE rw_view1 SET b = 'foo' WHERE a = 1"
+  },
+  {
+    "comment": "updatable_views - Statement 195",
+    "query": "MERGE INTO rw_view1 t USING (VALUES (1)) AS v(a) ON t.a = v.a WHEN MATCHED THEN UPDATE SET b = 'foo'",
+    "expected": "MERGE INTO rw_view1 AS t USING (VALUES (1)) AS v(a) ON t.a = v.a WHEN MATCHED THEN UPDATE SET b = 'foo'"
+  },
+  {
+    "comment": "updatable_views - Statement 196",
+    "query": "CREATE VIEW rw_view2 AS SELECT * FROM rw_view1"
+  },
+  {
+    "comment": "updatable_views - Statement 197",
+    "query": "SELECT * FROM rw_view2 FOR UPDATE"
+  },
+  {
+    "comment": "updatable_views - Statement 198",
+    "query": "UPDATE rw_view2 SET b = 'bar' WHERE a = 1"
+  },
+  {
+    "comment": "updatable_views - Statement 199",
+    "query": "MERGE INTO rw_view2 t USING (VALUES (1)) AS v(a) ON t.a = v.a WHEN MATCHED THEN UPDATE SET b = 'foo'",
+    "expected": "MERGE INTO rw_view2 AS t USING (VALUES (1)) AS v(a) ON t.a = v.a WHEN MATCHED THEN UPDATE SET b = 'foo'"
+  },
+  {
+    "comment": "updatable_views - Statement 200",
+    "query": "GRANT SELECT ON base_tbl TO regress_view_user1"
+  },
+  {
+    "comment": "updatable_views - Statement 201",
+    "query": "GRANT UPDATE ON base_tbl TO regress_view_user1"
+  },
+  {
+    "comment": "updatable_views - Statement 202",
+    "query": "MERGE INTO rw_view2 t USING (VALUES (1)) AS v(a) ON t.a = v.a WHEN MATCHED THEN UPDATE SET b = 'bar'",
+    "expected": "MERGE INTO rw_view2 AS t USING (VALUES (1)) AS v(a) ON t.a = v.a WHEN MATCHED THEN UPDATE SET b = 'bar'"
+  },
+  {
+    "comment": "updatable_views - Statement 203",
+    "query": "GRANT UPDATE ON rw_view1 TO regress_view_user2"
+  },
+  {
+    "comment": "updatable_views - Statement 204",
+    "query": "MERGE INTO rw_view2 t USING (VALUES (1)) AS v(a) ON t.a = v.a WHEN MATCHED THEN UPDATE SET b = 'fud'",
+    "expected": "MERGE INTO rw_view2 AS t USING (VALUES (1)) AS v(a) ON t.a = v.a WHEN MATCHED THEN UPDATE SET b = 'fud'"
+  },
+  {
+    "comment": "updatable_views - Statement 205",
+    "query": "REVOKE UPDATE ON base_tbl FROM regress_view_user1"
+  },
+  {
+    "comment": "updatable_views - Statement 206",
+    "query": "ALTER VIEW rw_view1 SET (security_invoker = true)",
+    "expected": "ALTER VIEW rw_view1 SET (security_invoker = 'true')"
+  },
+  {
+    "comment": "updatable_views - Statement 207",
+    "query": "UPDATE base_tbl SET a=a",
+    "expected": "UPDATE base_tbl SET a = a"
+  },
+  {
+    "comment": "updatable_views - Statement 208",
+    "query": "MERGE INTO rw_view1 t USING (VALUES (1)) AS v(a) ON t.aa = v.a WHEN MATCHED THEN UPDATE SET bb = bb",
+    "expected": "MERGE INTO rw_view1 AS t USING (VALUES (1)) AS v(a) ON t.aa = v.a WHEN MATCHED THEN UPDATE SET bb = bb"
+  },
+  {
+    "comment": "updatable_views - Statement 209",
+    "query": "MERGE INTO rw_view1 t USING (VALUES (1)) AS v(a) ON t.aa = v.a WHEN MATCHED THEN DELETE",
+    "expected": "MERGE INTO rw_view1 AS t USING (VALUES (1)) AS v(a) ON t.aa = v.a WHEN MATCHED THEN DELETE"
+  },
+  {
+    "comment": "updatable_views - Statement 210",
+    "query": "UPDATE rw_view1 SET cc=cc",
+    "expected": "UPDATE rw_view1 SET cc = cc"
+  },
+  {
+    "comment": "updatable_views - Statement 211",
+    "query": "MERGE INTO rw_view1 t USING (VALUES (1)) AS v(a) ON t.aa = v.a WHEN MATCHED THEN UPDATE SET cc = cc",
+    "expected": "MERGE INTO rw_view1 AS t USING (VALUES (1)) AS v(a) ON t.aa = v.a WHEN MATCHED THEN UPDATE SET cc = cc"
+  },
+  {
+    "comment": "updatable_views - Statement 212",
+    "query": "UPDATE rw_view1 SET bb=bb",
+    "expected": "UPDATE rw_view1 SET bb = bb"
+  },
+  {
+    "comment": "updatable_views - Statement 213",
+    "query": "MERGE INTO rw_view1 t USING (VALUES (3)) AS v(a) ON t.aa = v.a WHEN MATCHED THEN DELETE",
+    "expected": "MERGE INTO rw_view1 AS t USING (VALUES (3)) AS v(a) ON t.aa = v.a WHEN MATCHED THEN DELETE"
+  },
+  {
+    "comment": "updatable_views - Statement 214",
+    "query": "MERGE INTO rw_view1 t USING (VALUES (2, 'Row 2', 2.0)) AS v(a,b,c) ON t.aa = v.a WHEN NOT MATCHED THEN INSERT VALUES (v.b, v.c, v.a)",
+    "expected": "MERGE INTO rw_view1 AS t USING (VALUES (2, 'Row 2', 2.0)) AS v(a, b, c) ON t.aa = v.a WHEN NOT MATCHED THEN INSERT VALUES (v.b, v.c, v.a)"
+  },
+  {
+    "comment": "updatable_views - Statement 215",
+    "query": "CREATE VIEW rw_view2 AS SELECT cc AS ccc, aa AS aaa, bb AS bbb FROM rw_view1"
+  },
+  {
+    "comment": "updatable_views - Statement 216",
+    "query": "GRANT SELECT, UPDATE ON rw_view2 TO regress_view_user3"
+  },
+  {
+    "comment": "updatable_views - Statement 217",
+    "query": "UPDATE rw_view2 SET aaa=aaa",
+    "expected": "UPDATE rw_view2 SET aaa = aaa"
+  },
+  {
+    "comment": "updatable_views - Statement 218",
+    "query": "MERGE INTO rw_view2 t USING (VALUES (2, 'Row 2', 2.0)) AS v(a,b,c) ON t.aaa = v.a WHEN NOT MATCHED THEN INSERT VALUES (v.c, v.a, v.b)",
+    "expected": "MERGE INTO rw_view2 AS t USING (VALUES (2, 'Row 2', 2.0)) AS v(a, b, c) ON t.aaa = v.a WHEN NOT MATCHED THEN INSERT VALUES (v.c, v.a, v.b)"
+  },
+  {
+    "comment": "updatable_views - Statement 219",
+    "query": "GRANT UPDATE (a, b) ON base_tbl TO regress_view_user1"
+  },
+  {
+    "comment": "updatable_views - Statement 220",
+    "query": "UPDATE rw_view1 SET aa=aa, bb=bb",
+    "expected": "UPDATE rw_view1 SET aa = aa, bb = bb"
+  },
+  {
+    "comment": "updatable_views - Statement 221",
+    "query": "MERGE INTO rw_view1 t USING (VALUES (1)) AS v(a) ON t.aa = v.a WHEN MATCHED THEN UPDATE SET aa = aa, bb = bb",
+    "expected": "MERGE INTO rw_view1 AS t USING (VALUES (1)) AS v(a) ON t.aa = v.a WHEN MATCHED THEN UPDATE SET aa = aa, bb = bb"
+  },
+  {
+    "comment": "updatable_views - Statement 222",
+    "query": "MERGE INTO rw_view2 t USING (VALUES (1)) AS v(a) ON t.aaa = v.a WHEN MATCHED THEN UPDATE SET aaa = aaa",
+    "expected": "MERGE INTO rw_view2 AS t USING (VALUES (1)) AS v(a) ON t.aaa = v.a WHEN MATCHED THEN UPDATE SET aaa = aaa"
+  },
+  {
+    "comment": "updatable_views - Statement 223",
+    "query": "SET SESSION AUTHORIZATION regress_view_user3",
+    "expected": "SET SESSION AUTHORIZATION 'regress_view_user3'"
+  },
+  {
+    "comment": "updatable_views - Statement 224",
+    "query": "GRANT UPDATE (bb, cc) ON rw_view1 TO regress_view_user2"
+  },
+  {
+    "comment": "updatable_views - Statement 225",
+    "query": "UPDATE rw_view2 SET bbb=bbb",
+    "expected": "UPDATE rw_view2 SET bbb = bbb"
+  },
+  {
+    "comment": "updatable_views - Statement 226",
+    "query": "MERGE INTO rw_view2 t USING (VALUES (1)) AS v(a) ON t.aaa = v.a WHEN MATCHED THEN UPDATE SET bbb = bbb",
+    "expected": "MERGE INTO rw_view2 AS t USING (VALUES (1)) AS v(a) ON t.aaa = v.a WHEN MATCHED THEN UPDATE SET bbb = bbb"
+  },
+  {
+    "comment": "updatable_views - Statement 227",
+    "query": "GRANT UPDATE (a, c) ON base_tbl TO regress_view_user2"
+  },
+  {
+    "comment": "updatable_views - Statement 228",
+    "query": "UPDATE rw_view2 SET ccc=ccc",
+    "expected": "UPDATE rw_view2 SET ccc = ccc"
+  },
+  {
+    "comment": "updatable_views - Statement 229",
+    "query": "MERGE INTO rw_view2 t USING (VALUES (1)) AS v(a) ON t.aaa = v.a WHEN MATCHED THEN UPDATE SET ccc = ccc",
+    "expected": "MERGE INTO rw_view2 AS t USING (VALUES (1)) AS v(a) ON t.aaa = v.a WHEN MATCHED THEN UPDATE SET ccc = ccc"
+  },
+  {
+    "comment": "updatable_views - Statement 230",
+    "query": "GRANT SELECT ON base_tbl TO regress_view_user3"
+  },
+  {
+    "comment": "updatable_views - Statement 231",
+    "query": "GRANT UPDATE (a, c) ON base_tbl TO regress_view_user3"
+  },
+  {
+    "comment": "updatable_views - Statement 232",
+    "query": "REVOKE SELECT, UPDATE ON base_tbl FROM regress_view_user1"
+  },
+  {
+    "comment": "updatable_views - Statement 233",
+    "query": "REVOKE SELECT, UPDATE ON base_tbl FROM regress_view_user2"
+  },
+  {
+    "comment": "updatable_views - Statement 234",
+    "query": "DROP USER regress_view_user1",
+    "expected": "DROP ROLE regress_view_user1"
+  },
+  {
+    "comment": "updatable_views - Statement 235",
+    "query": "DROP USER regress_view_user2",
+    "expected": "DROP ROLE regress_view_user2"
+  },
+  {
+    "comment": "updatable_views - Statement 236",
+    "query": "DROP USER regress_view_user3",
+    "expected": "DROP ROLE regress_view_user3"
+  },
+  {
+    "comment": "updatable_views - Statement 237",
+    "query": "CREATE TABLE base_tbl (a int PRIMARY KEY, b text DEFAULT 'Unspecified', c serial)",
+    "expected": "CREATE TABLE base_tbl (a INT PRIMARY KEY, b TEXT DEFAULT 'Unspecified', c serial)"
+  },
+  {
+    "comment": "updatable_views - Statement 238",
+    "query": "INSERT INTO base_tbl VALUES (1, 'Row 1')"
+  },
+  {
+    "comment": "updatable_views - Statement 239",
+    "query": "INSERT INTO base_tbl VALUES (2, 'Row 2')"
+  },
+  {
+    "comment": "updatable_views - Statement 240",
+    "query": "INSERT INTO base_tbl VALUES (3)"
+  },
+  {
+    "comment": "updatable_views - Statement 241",
+    "query": "CREATE VIEW rw_view1 AS SELECT a AS aa, b AS bb FROM base_tbl"
+  },
+  {
+    "comment": "updatable_views - Statement 242",
+    "query": "ALTER VIEW rw_view1 ALTER COLUMN bb SET DEFAULT 'View default'"
+  },
+  {
+    "comment": "updatable_views - Statement 243",
+    "query": "INSERT INTO rw_view1 VALUES (4, 'Row 4')"
+  },
+  {
+    "comment": "updatable_views - Statement 244",
+    "query": "INSERT INTO rw_view1 (aa) VALUES (5)"
+  },
+  {
+    "comment": "updatable_views - Statement 245",
+    "query": "MERGE INTO rw_view1 t USING (VALUES (6)) AS v(a) ON t.aa = v.a WHEN NOT MATCHED THEN INSERT (aa) VALUES (v.a)",
+    "expected": "MERGE INTO rw_view1 AS t USING (VALUES (6)) AS v(a) ON t.aa = v.a WHEN NOT MATCHED THEN INSERT (aa) VALUES (v.a)"
+  }
+]

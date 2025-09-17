@@ -1,0 +1,1122 @@
+[
+  {
+    "comment": "jsonpath - Statement 1",
+    "query": "select ''::jsonpath",
+    "expected": "SELECT CAST('' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 2",
+    "query": "select '$'::jsonpath",
+    "expected": "SELECT CAST('$' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 3",
+    "query": "select 'strict $'::jsonpath",
+    "expected": "SELECT CAST('strict $' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 4",
+    "query": "select 'lax $'::jsonpath",
+    "expected": "SELECT CAST('lax $' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 5",
+    "query": "select '$.a'::jsonpath",
+    "expected": "SELECT CAST('$.a' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 6",
+    "query": "select '$.a.v'::jsonpath",
+    "expected": "SELECT CAST('$.a.v' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 7",
+    "query": "select '$.a.*'::jsonpath",
+    "expected": "SELECT CAST('$.a.*' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 8",
+    "query": "select '$.*[*]'::jsonpath",
+    "expected": "SELECT CAST('$.*[*]' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 9",
+    "query": "select '$.a[*]'::jsonpath",
+    "expected": "SELECT CAST('$.a[*]' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 10",
+    "query": "select '$.a[*][*]'::jsonpath",
+    "expected": "SELECT CAST('$.a[*][*]' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 11",
+    "query": "select '$[*]'::jsonpath",
+    "expected": "SELECT CAST('$[*]' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 12",
+    "query": "select '$[0]'::jsonpath",
+    "expected": "SELECT CAST('$[0]' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 13",
+    "query": "select '$[*][0]'::jsonpath",
+    "expected": "SELECT CAST('$[*][0]' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 14",
+    "query": "select '$[*].a'::jsonpath",
+    "expected": "SELECT CAST('$[*].a' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 15",
+    "query": "select '$[*][0].a.b'::jsonpath",
+    "expected": "SELECT CAST('$[*][0].a.b' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 16",
+    "query": "select '$.a.**.b'::jsonpath",
+    "expected": "SELECT CAST('$.a.**.b' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 17",
+    "query": "select '$.a.**{2}.b'::jsonpath",
+    "expected": "SELECT CAST('$.a.**{2}.b' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 18",
+    "query": "select '$.a.**{2 to 2}.b'::jsonpath",
+    "expected": "SELECT CAST('$.a.**{2 to 2}.b' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 19",
+    "query": "select '$.a.**{2 to 5}.b'::jsonpath",
+    "expected": "SELECT CAST('$.a.**{2 to 5}.b' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 20",
+    "query": "select '$.a.**{0 to 5}.b'::jsonpath",
+    "expected": "SELECT CAST('$.a.**{0 to 5}.b' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 21",
+    "query": "select '$.a.**{5 to last}.b'::jsonpath",
+    "expected": "SELECT CAST('$.a.**{5 to last}.b' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 22",
+    "query": "select '$.a.**{last}.b'::jsonpath",
+    "expected": "SELECT CAST('$.a.**{last}.b' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 23",
+    "query": "select '$.a.**{last to 5}.b'::jsonpath",
+    "expected": "SELECT CAST('$.a.**{last to 5}.b' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 24",
+    "query": "select '$+1'::jsonpath",
+    "expected": "SELECT CAST('$+1' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 25",
+    "query": "select '$-1'::jsonpath",
+    "expected": "SELECT CAST('$-1' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 26",
+    "query": "select '$--+1'::jsonpath",
+    "expected": "SELECT CAST('$--+1' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 27",
+    "query": "select '$.a/+-1'::jsonpath",
+    "expected": "SELECT CAST('$.a/+-1' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 28",
+    "query": "select '1 * 2 + 4 % -3 != false'::jsonpath",
+    "expected": "SELECT CAST('1 * 2 + 4 % -3 != false' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 29",
+    "query": "select '\"\\b\\f\\r\\n\\t\\v\\\"\\''\\\\\"'::jsonpath",
+    "expected": "SELECT CAST('\"\\b\\f\\r\\n\\t\\v\\\"\\''\\\\\"' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 30",
+    "query": "select '\"\\x50\\u0067\\u{53}\\u{051}\\u{00004C}\"'::jsonpath",
+    "expected": "SELECT CAST('\"\\x50\\u0067\\u{53}\\u{051}\\u{00004C}\"' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 31",
+    "query": "select '$.foo\\x50\\u0067\\u{53}\\u{051}\\u{00004C}\\t\\\"bar'::jsonpath",
+    "expected": "SELECT CAST('$.foo\\x50\\u0067\\u{53}\\u{051}\\u{00004C}\\t\\\"bar' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 32",
+    "query": "select '\"\\z\"'::jsonpath",
+    "expected": "SELECT CAST('\"\\z\"' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 33",
+    "query": "select '$.g ? ($.a == 1)'::jsonpath",
+    "expected": "SELECT CAST('$.g ? ($.a == 1)' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 34",
+    "query": "select '$.g ? (@ == 1)'::jsonpath",
+    "expected": "SELECT CAST('$.g ? (@ == 1)' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 35",
+    "query": "select '$.g ? (@.a == 1)'::jsonpath",
+    "expected": "SELECT CAST('$.g ? (@.a == 1)' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 36",
+    "query": "select '$.g ? (@.a == 1 || @.a == 4)'::jsonpath",
+    "expected": "SELECT CAST('$.g ? (@.a == 1 || @.a == 4)' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 37",
+    "query": "select '$.g ? (@.a == 1 \u0026\u0026 @.a == 4)'::jsonpath",
+    "expected": "SELECT CAST('$.g ? (@.a == 1 \u0026\u0026 @.a == 4)' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 38",
+    "query": "select '$.g ? (@.a == 1 || @.a == 4 \u0026\u0026 @.b == 7)'::jsonpath",
+    "expected": "SELECT CAST('$.g ? (@.a == 1 || @.a == 4 \u0026\u0026 @.b == 7)' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 39",
+    "query": "select '$.g ? (@.a == 1 || !(@.a == 4) \u0026\u0026 @.b == 7)'::jsonpath",
+    "expected": "SELECT CAST('$.g ? (@.a == 1 || !(@.a == 4) \u0026\u0026 @.b == 7)' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 40",
+    "query": "select '$.g ? (@.a == 1 || !(@.x \u003e= 123 || @.a == 4) \u0026\u0026 @.b == 7)'::jsonpath",
+    "expected": "SELECT CAST('$.g ? (@.a == 1 || !(@.x \u003e= 123 || @.a == 4) \u0026\u0026 @.b == 7)' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 41",
+    "query": "select '$.g ? (@.x \u003e= @[*]?(@.a \u003e \"abc\"))'::jsonpath",
+    "expected": "SELECT CAST('$.g ? (@.x \u003e= @[*]?(@.a \u003e \"abc\"))' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 42",
+    "query": "select '$.g ? ((@.x \u003e= 123 || @.a == 4) is unknown)'::jsonpath",
+    "expected": "SELECT CAST('$.g ? ((@.x \u003e= 123 || @.a == 4) is unknown)' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 43",
+    "query": "select '$.g ? (exists (@.x))'::jsonpath",
+    "expected": "SELECT CAST('$.g ? (exists (@.x))' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 44",
+    "query": "select '$.g ? (exists (@.x ? (@ == 14)))'::jsonpath",
+    "expected": "SELECT CAST('$.g ? (exists (@.x ? (@ == 14)))' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 45",
+    "query": "select '$.g ? ((@.x \u003e= 123 || @.a == 4) \u0026\u0026 exists (@.x ? (@ == 14)))'::jsonpath",
+    "expected": "SELECT CAST('$.g ? ((@.x \u003e= 123 || @.a == 4) \u0026\u0026 exists (@.x ? (@ == 14)))' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 46",
+    "query": "select '$.g ? (+@.x \u003e= +-(+@.a + 2))'::jsonpath",
+    "expected": "SELECT CAST('$.g ? (+@.x \u003e= +-(+@.a + 2))' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 47",
+    "query": "select '$a'::jsonpath",
+    "expected": "SELECT CAST('$a' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 48",
+    "query": "select '$a.b'::jsonpath",
+    "expected": "SELECT CAST('$a.b' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 49",
+    "query": "select '$a[*]'::jsonpath",
+    "expected": "SELECT CAST('$a[*]' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 50",
+    "query": "select '$.g ? (@.zip == $zip)'::jsonpath",
+    "expected": "SELECT CAST('$.g ? (@.zip == $zip)' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 51",
+    "query": "select '$.a[1,2, 3 to 16]'::jsonpath",
+    "expected": "SELECT CAST('$.a[1,2, 3 to 16]' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 52",
+    "query": "select '$.a[$a + 1, ($b[*]) to -($[0] * 2)]'::jsonpath",
+    "expected": "SELECT CAST('$.a[$a + 1, ($b[*]) to -($[0] * 2)]' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 53",
+    "query": "select '$.a[$.a.size() - 3]'::jsonpath",
+    "expected": "SELECT CAST('$.a[$.a.size() - 3]' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 54",
+    "query": "select 'last'::jsonpath",
+    "expected": "SELECT CAST('last' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 55",
+    "query": "select '\"last\"'::jsonpath",
+    "expected": "SELECT CAST('\"last\"' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 56",
+    "query": "select '$.last'::jsonpath",
+    "expected": "SELECT CAST('$.last' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 57",
+    "query": "select '$ ? (last \u003e 0)'::jsonpath",
+    "expected": "SELECT CAST('$ ? (last \u003e 0)' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 58",
+    "query": "select '$[last]'::jsonpath",
+    "expected": "SELECT CAST('$[last]' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 59",
+    "query": "select '$[$[0] ? (last \u003e 0)]'::jsonpath",
+    "expected": "SELECT CAST('$[$[0] ? (last \u003e 0)]' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 60",
+    "query": "select 'null.type()'::jsonpath",
+    "expected": "SELECT CAST('null.type()' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 61",
+    "query": "select '1.type()'::jsonpath",
+    "expected": "SELECT CAST('1.type()' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 62",
+    "query": "select '(1).type()'::jsonpath",
+    "expected": "SELECT CAST('(1).type()' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 63",
+    "query": "select '1.2.type()'::jsonpath",
+    "expected": "SELECT CAST('1.2.type()' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 64",
+    "query": "select '\"aaa\".type()'::jsonpath",
+    "expected": "SELECT CAST('\"aaa\".type()' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 65",
+    "query": "select 'true.type()'::jsonpath",
+    "expected": "SELECT CAST('true.type()' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 66",
+    "query": "select '$.double().floor().ceiling().abs()'::jsonpath",
+    "expected": "SELECT CAST('$.double().floor().ceiling().abs()' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 67",
+    "query": "select '$.keyvalue().key'::jsonpath",
+    "expected": "SELECT CAST('$.keyvalue().key' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 68",
+    "query": "select '$.datetime()'::jsonpath",
+    "expected": "SELECT CAST('$.datetime()' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 69",
+    "query": "select '$.datetime(\"datetime template\")'::jsonpath",
+    "expected": "SELECT CAST('$.datetime(\"datetime template\")' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 70",
+    "query": "select '$.bigint().integer().number().decimal()'::jsonpath",
+    "expected": "SELECT CAST('$.bigint().integer().number().decimal()' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 71",
+    "query": "select '$.boolean()'::jsonpath",
+    "expected": "SELECT CAST('$.boolean()' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 72",
+    "query": "select '$.date()'::jsonpath",
+    "expected": "SELECT CAST('$.date()' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 73",
+    "query": "select '$.decimal(4,2)'::jsonpath",
+    "expected": "SELECT CAST('$.decimal(4,2)' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 74",
+    "query": "select '$.string()'::jsonpath",
+    "expected": "SELECT CAST('$.string()' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 75",
+    "query": "select '$.time()'::jsonpath",
+    "expected": "SELECT CAST('$.time()' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 76",
+    "query": "select '$.time(6)'::jsonpath",
+    "expected": "SELECT CAST('$.time(6)' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 77",
+    "query": "select '$.time_tz()'::jsonpath",
+    "expected": "SELECT CAST('$.time_tz()' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 78",
+    "query": "select '$.time_tz(4)'::jsonpath",
+    "expected": "SELECT CAST('$.time_tz(4)' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 79",
+    "query": "select '$.timestamp()'::jsonpath",
+    "expected": "SELECT CAST('$.timestamp()' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 80",
+    "query": "select '$.timestamp(2)'::jsonpath",
+    "expected": "SELECT CAST('$.timestamp(2)' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 81",
+    "query": "select '$.timestamp_tz()'::jsonpath",
+    "expected": "SELECT CAST('$.timestamp_tz()' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 82",
+    "query": "select '$.timestamp_tz(0)'::jsonpath",
+    "expected": "SELECT CAST('$.timestamp_tz(0)' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 83",
+    "query": "select '$ ? (@ starts with \"abc\")'::jsonpath",
+    "expected": "SELECT CAST('$ ? (@ starts with \"abc\")' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 84",
+    "query": "select '$ ? (@ starts with $var)'::jsonpath",
+    "expected": "SELECT CAST('$ ? (@ starts with $var)' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 85",
+    "query": "select '$ ? (@ like_regex \"(invalid pattern\")'::jsonpath",
+    "expected": "SELECT CAST('$ ? (@ like_regex \"(invalid pattern\")' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 86",
+    "query": "select '$ ? (@ like_regex \"pattern\")'::jsonpath",
+    "expected": "SELECT CAST('$ ? (@ like_regex \"pattern\")' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 87",
+    "query": "select '$ ? (@ like_regex \"pattern\" flag \"\")'::jsonpath",
+    "expected": "SELECT CAST('$ ? (@ like_regex \"pattern\" flag \"\")' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 88",
+    "query": "select '$ ? (@ like_regex \"pattern\" flag \"i\")'::jsonpath",
+    "expected": "SELECT CAST('$ ? (@ like_regex \"pattern\" flag \"i\")' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 89",
+    "query": "select '$ ? (@ like_regex \"pattern\" flag \"is\")'::jsonpath",
+    "expected": "SELECT CAST('$ ? (@ like_regex \"pattern\" flag \"is\")' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 90",
+    "query": "select '$ ? (@ like_regex \"pattern\" flag \"isim\")'::jsonpath",
+    "expected": "SELECT CAST('$ ? (@ like_regex \"pattern\" flag \"isim\")' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 91",
+    "query": "select '$ ? (@ like_regex \"pattern\" flag \"xsms\")'::jsonpath",
+    "expected": "SELECT CAST('$ ? (@ like_regex \"pattern\" flag \"xsms\")' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 92",
+    "query": "select '$ ? (@ like_regex \"pattern\" flag \"q\")'::jsonpath",
+    "expected": "SELECT CAST('$ ? (@ like_regex \"pattern\" flag \"q\")' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 93",
+    "query": "select '$ ? (@ like_regex \"pattern\" flag \"iq\")'::jsonpath",
+    "expected": "SELECT CAST('$ ? (@ like_regex \"pattern\" flag \"iq\")' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 94",
+    "query": "select '$ ? (@ like_regex \"pattern\" flag \"smixq\")'::jsonpath",
+    "expected": "SELECT CAST('$ ? (@ like_regex \"pattern\" flag \"smixq\")' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 95",
+    "query": "select '$ ? (@ like_regex \"pattern\" flag \"a\")'::jsonpath",
+    "expected": "SELECT CAST('$ ? (@ like_regex \"pattern\" flag \"a\")' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 96",
+    "query": "select '$ \u003c 1'::jsonpath",
+    "expected": "SELECT CAST('$ \u003c 1' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 97",
+    "query": "select '($ \u003c 1) || $.a.b \u003c= $x'::jsonpath",
+    "expected": "SELECT CAST('($ \u003c 1) || $.a.b \u003c= $x' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 98",
+    "query": "select '@ + 1'::jsonpath",
+    "expected": "SELECT CAST('@ + 1' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 99",
+    "query": "select '($).a.b'::jsonpath",
+    "expected": "SELECT CAST('($).a.b' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 100",
+    "query": "select '($.a.b).c.d'::jsonpath",
+    "expected": "SELECT CAST('($.a.b).c.d' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 101",
+    "query": "select '($.a.b + -$.x.y).c.d'::jsonpath",
+    "expected": "SELECT CAST('($.a.b + -$.x.y).c.d' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 102",
+    "query": "select '(-+$.a.b).c.d'::jsonpath",
+    "expected": "SELECT CAST('(-+$.a.b).c.d' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 103",
+    "query": "select '1 + ($.a.b + 2).c.d'::jsonpath",
+    "expected": "SELECT CAST('1 + ($.a.b + 2).c.d' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 104",
+    "query": "select '1 + ($.a.b \u003e 2).c.d'::jsonpath",
+    "expected": "SELECT CAST('1 + ($.a.b \u003e 2).c.d' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 105",
+    "query": "select '($)'::jsonpath",
+    "expected": "SELECT CAST('($)' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 106",
+    "query": "select '(($))'::jsonpath",
+    "expected": "SELECT CAST('(($))' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 107",
+    "query": "select '((($ + 1)).a + ((2)).b ? ((((@ \u003e 1)) || (exists(@.c)))))'::jsonpath",
+    "expected": "SELECT CAST('((($ + 1)).a + ((2)).b ? ((((@ \u003e 1)) || (exists(@.c)))))' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 108",
+    "query": "select '$ ? (@.a \u003c 1)'::jsonpath",
+    "expected": "SELECT CAST('$ ? (@.a \u003c 1)' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 109",
+    "query": "select '$ ? (@.a \u003c -1)'::jsonpath",
+    "expected": "SELECT CAST('$ ? (@.a \u003c -1)' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 110",
+    "query": "select '$ ? (@.a \u003c +1)'::jsonpath",
+    "expected": "SELECT CAST('$ ? (@.a \u003c +1)' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 111",
+    "query": "select '$ ? (@.a \u003c .1)'::jsonpath",
+    "expected": "SELECT CAST('$ ? (@.a \u003c .1)' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 112",
+    "query": "select '$ ? (@.a \u003c -.1)'::jsonpath",
+    "expected": "SELECT CAST('$ ? (@.a \u003c -.1)' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 113",
+    "query": "select '$ ? (@.a \u003c +.1)'::jsonpath",
+    "expected": "SELECT CAST('$ ? (@.a \u003c +.1)' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 114",
+    "query": "select '$ ? (@.a \u003c 0.1)'::jsonpath",
+    "expected": "SELECT CAST('$ ? (@.a \u003c 0.1)' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 115",
+    "query": "select '$ ? (@.a \u003c -0.1)'::jsonpath",
+    "expected": "SELECT CAST('$ ? (@.a \u003c -0.1)' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 116",
+    "query": "select '$ ? (@.a \u003c +0.1)'::jsonpath",
+    "expected": "SELECT CAST('$ ? (@.a \u003c +0.1)' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 117",
+    "query": "select '$ ? (@.a \u003c 10.1)'::jsonpath",
+    "expected": "SELECT CAST('$ ? (@.a \u003c 10.1)' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 118",
+    "query": "select '$ ? (@.a \u003c -10.1)'::jsonpath",
+    "expected": "SELECT CAST('$ ? (@.a \u003c -10.1)' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 119",
+    "query": "select '$ ? (@.a \u003c +10.1)'::jsonpath",
+    "expected": "SELECT CAST('$ ? (@.a \u003c +10.1)' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 120",
+    "query": "select '$ ? (@.a \u003c 1e1)'::jsonpath",
+    "expected": "SELECT CAST('$ ? (@.a \u003c 1e1)' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 121",
+    "query": "select '$ ? (@.a \u003c -1e1)'::jsonpath",
+    "expected": "SELECT CAST('$ ? (@.a \u003c -1e1)' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 122",
+    "query": "select '$ ? (@.a \u003c +1e1)'::jsonpath",
+    "expected": "SELECT CAST('$ ? (@.a \u003c +1e1)' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 123",
+    "query": "select '$ ? (@.a \u003c .1e1)'::jsonpath",
+    "expected": "SELECT CAST('$ ? (@.a \u003c .1e1)' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 124",
+    "query": "select '$ ? (@.a \u003c -.1e1)'::jsonpath",
+    "expected": "SELECT CAST('$ ? (@.a \u003c -.1e1)' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 125",
+    "query": "select '$ ? (@.a \u003c +.1e1)'::jsonpath",
+    "expected": "SELECT CAST('$ ? (@.a \u003c +.1e1)' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 126",
+    "query": "select '$ ? (@.a \u003c 0.1e1)'::jsonpath",
+    "expected": "SELECT CAST('$ ? (@.a \u003c 0.1e1)' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 127",
+    "query": "select '$ ? (@.a \u003c -0.1e1)'::jsonpath",
+    "expected": "SELECT CAST('$ ? (@.a \u003c -0.1e1)' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 128",
+    "query": "select '$ ? (@.a \u003c +0.1e1)'::jsonpath",
+    "expected": "SELECT CAST('$ ? (@.a \u003c +0.1e1)' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 129",
+    "query": "select '$ ? (@.a \u003c 10.1e1)'::jsonpath",
+    "expected": "SELECT CAST('$ ? (@.a \u003c 10.1e1)' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 130",
+    "query": "select '$ ? (@.a \u003c -10.1e1)'::jsonpath",
+    "expected": "SELECT CAST('$ ? (@.a \u003c -10.1e1)' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 131",
+    "query": "select '$ ? (@.a \u003c +10.1e1)'::jsonpath",
+    "expected": "SELECT CAST('$ ? (@.a \u003c +10.1e1)' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 132",
+    "query": "select '$ ? (@.a \u003c 1e-1)'::jsonpath",
+    "expected": "SELECT CAST('$ ? (@.a \u003c 1e-1)' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 133",
+    "query": "select '$ ? (@.a \u003c -1e-1)'::jsonpath",
+    "expected": "SELECT CAST('$ ? (@.a \u003c -1e-1)' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 134",
+    "query": "select '$ ? (@.a \u003c +1e-1)'::jsonpath",
+    "expected": "SELECT CAST('$ ? (@.a \u003c +1e-1)' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 135",
+    "query": "select '$ ? (@.a \u003c .1e-1)'::jsonpath",
+    "expected": "SELECT CAST('$ ? (@.a \u003c .1e-1)' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 136",
+    "query": "select '$ ? (@.a \u003c -.1e-1)'::jsonpath",
+    "expected": "SELECT CAST('$ ? (@.a \u003c -.1e-1)' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 137",
+    "query": "select '$ ? (@.a \u003c +.1e-1)'::jsonpath",
+    "expected": "SELECT CAST('$ ? (@.a \u003c +.1e-1)' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 138",
+    "query": "select '$ ? (@.a \u003c 0.1e-1)'::jsonpath",
+    "expected": "SELECT CAST('$ ? (@.a \u003c 0.1e-1)' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 139",
+    "query": "select '$ ? (@.a \u003c -0.1e-1)'::jsonpath",
+    "expected": "SELECT CAST('$ ? (@.a \u003c -0.1e-1)' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 140",
+    "query": "select '$ ? (@.a \u003c +0.1e-1)'::jsonpath",
+    "expected": "SELECT CAST('$ ? (@.a \u003c +0.1e-1)' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 141",
+    "query": "select '$ ? (@.a \u003c 10.1e-1)'::jsonpath",
+    "expected": "SELECT CAST('$ ? (@.a \u003c 10.1e-1)' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 142",
+    "query": "select '$ ? (@.a \u003c -10.1e-1)'::jsonpath",
+    "expected": "SELECT CAST('$ ? (@.a \u003c -10.1e-1)' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 143",
+    "query": "select '$ ? (@.a \u003c +10.1e-1)'::jsonpath",
+    "expected": "SELECT CAST('$ ? (@.a \u003c +10.1e-1)' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 144",
+    "query": "select '$ ? (@.a \u003c 1e+1)'::jsonpath",
+    "expected": "SELECT CAST('$ ? (@.a \u003c 1e+1)' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 145",
+    "query": "select '$ ? (@.a \u003c -1e+1)'::jsonpath",
+    "expected": "SELECT CAST('$ ? (@.a \u003c -1e+1)' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 146",
+    "query": "select '$ ? (@.a \u003c +1e+1)'::jsonpath",
+    "expected": "SELECT CAST('$ ? (@.a \u003c +1e+1)' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 147",
+    "query": "select '$ ? (@.a \u003c .1e+1)'::jsonpath",
+    "expected": "SELECT CAST('$ ? (@.a \u003c .1e+1)' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 148",
+    "query": "select '$ ? (@.a \u003c -.1e+1)'::jsonpath",
+    "expected": "SELECT CAST('$ ? (@.a \u003c -.1e+1)' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 149",
+    "query": "select '$ ? (@.a \u003c +.1e+1)'::jsonpath",
+    "expected": "SELECT CAST('$ ? (@.a \u003c +.1e+1)' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 150",
+    "query": "select '$ ? (@.a \u003c 0.1e+1)'::jsonpath",
+    "expected": "SELECT CAST('$ ? (@.a \u003c 0.1e+1)' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 151",
+    "query": "select '$ ? (@.a \u003c -0.1e+1)'::jsonpath",
+    "expected": "SELECT CAST('$ ? (@.a \u003c -0.1e+1)' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 152",
+    "query": "select '$ ? (@.a \u003c +0.1e+1)'::jsonpath",
+    "expected": "SELECT CAST('$ ? (@.a \u003c +0.1e+1)' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 153",
+    "query": "select '$ ? (@.a \u003c 10.1e+1)'::jsonpath",
+    "expected": "SELECT CAST('$ ? (@.a \u003c 10.1e+1)' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 154",
+    "query": "select '$ ? (@.a \u003c -10.1e+1)'::jsonpath",
+    "expected": "SELECT CAST('$ ? (@.a \u003c -10.1e+1)' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 155",
+    "query": "select '$ ? (@.a \u003c +10.1e+1)'::jsonpath",
+    "expected": "SELECT CAST('$ ? (@.a \u003c +10.1e+1)' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 156",
+    "query": "select '0'::jsonpath",
+    "expected": "SELECT CAST('0' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 157",
+    "query": "select '00'::jsonpath",
+    "expected": "SELECT CAST('00' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 158",
+    "query": "select '0755'::jsonpath",
+    "expected": "SELECT CAST('0755' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 159",
+    "query": "select '0.0'::jsonpath",
+    "expected": "SELECT CAST('0.0' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 160",
+    "query": "select '0.000'::jsonpath",
+    "expected": "SELECT CAST('0.000' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 161",
+    "query": "select '0.000e1'::jsonpath",
+    "expected": "SELECT CAST('0.000e1' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 162",
+    "query": "select '0.000e2'::jsonpath",
+    "expected": "SELECT CAST('0.000e2' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 163",
+    "query": "select '0.000e3'::jsonpath",
+    "expected": "SELECT CAST('0.000e3' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 164",
+    "query": "select '0.0010'::jsonpath",
+    "expected": "SELECT CAST('0.0010' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 165",
+    "query": "select '0.0010e-1'::jsonpath",
+    "expected": "SELECT CAST('0.0010e-1' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 166",
+    "query": "select '0.0010e+1'::jsonpath",
+    "expected": "SELECT CAST('0.0010e+1' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 167",
+    "query": "select '0.0010e+2'::jsonpath",
+    "expected": "SELECT CAST('0.0010e+2' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 168",
+    "query": "select '.001'::jsonpath",
+    "expected": "SELECT CAST('.001' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 169",
+    "query": "select '.001e1'::jsonpath",
+    "expected": "SELECT CAST('.001e1' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 170",
+    "query": "select '1.'::jsonpath",
+    "expected": "SELECT CAST('1.' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 171",
+    "query": "select '1.e1'::jsonpath",
+    "expected": "SELECT CAST('1.e1' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 172",
+    "query": "select '1a'::jsonpath",
+    "expected": "SELECT CAST('1a' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 173",
+    "query": "select '1e'::jsonpath",
+    "expected": "SELECT CAST('1e' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 174",
+    "query": "select '1.e'::jsonpath",
+    "expected": "SELECT CAST('1.e' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 175",
+    "query": "select '1.2a'::jsonpath",
+    "expected": "SELECT CAST('1.2a' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 176",
+    "query": "select '1.2e'::jsonpath",
+    "expected": "SELECT CAST('1.2e' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 177",
+    "query": "select '1.2.e'::jsonpath",
+    "expected": "SELECT CAST('1.2.e' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 178",
+    "query": "select '(1.2).e'::jsonpath",
+    "expected": "SELECT CAST('(1.2).e' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 179",
+    "query": "select '1e3'::jsonpath",
+    "expected": "SELECT CAST('1e3' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 180",
+    "query": "select '1.e3'::jsonpath",
+    "expected": "SELECT CAST('1.e3' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 181",
+    "query": "select '1.e3.e'::jsonpath",
+    "expected": "SELECT CAST('1.e3.e' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 182",
+    "query": "select '1.e3.e4'::jsonpath",
+    "expected": "SELECT CAST('1.e3.e4' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 183",
+    "query": "select '1.2e3'::jsonpath",
+    "expected": "SELECT CAST('1.2e3' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 184",
+    "query": "select '1.2e3a'::jsonpath",
+    "expected": "SELECT CAST('1.2e3a' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 185",
+    "query": "select '1.2.e3'::jsonpath",
+    "expected": "SELECT CAST('1.2.e3' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 186",
+    "query": "select '(1.2).e3'::jsonpath",
+    "expected": "SELECT CAST('(1.2).e3' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 187",
+    "query": "select '1..e'::jsonpath",
+    "expected": "SELECT CAST('1..e' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 188",
+    "query": "select '1..e3'::jsonpath",
+    "expected": "SELECT CAST('1..e3' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 189",
+    "query": "select '(1.).e'::jsonpath",
+    "expected": "SELECT CAST('(1.).e' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 190",
+    "query": "select '(1.).e3'::jsonpath",
+    "expected": "SELECT CAST('(1.).e3' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 191",
+    "query": "select '1?(2\u003e3)'::jsonpath",
+    "expected": "SELECT CAST('1?(2\u003e3)' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 192",
+    "query": "select '0b100101'::jsonpath",
+    "expected": "SELECT CAST('0b100101' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 193",
+    "query": "select '0o273'::jsonpath",
+    "expected": "SELECT CAST('0o273' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 194",
+    "query": "select '0x42F'::jsonpath",
+    "expected": "SELECT CAST('0x42F' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 195",
+    "query": "select '0b'::jsonpath",
+    "expected": "SELECT CAST('0b' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 196",
+    "query": "select '1b'::jsonpath",
+    "expected": "SELECT CAST('1b' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 197",
+    "query": "select '0b0x'::jsonpath",
+    "expected": "SELECT CAST('0b0x' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 198",
+    "query": "select '0o'::jsonpath",
+    "expected": "SELECT CAST('0o' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 199",
+    "query": "select '1o'::jsonpath",
+    "expected": "SELECT CAST('1o' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 200",
+    "query": "select '0o0x'::jsonpath",
+    "expected": "SELECT CAST('0o0x' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 201",
+    "query": "select '0x'::jsonpath",
+    "expected": "SELECT CAST('0x' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 202",
+    "query": "select '1x'::jsonpath",
+    "expected": "SELECT CAST('1x' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 203",
+    "query": "select '0x0y'::jsonpath",
+    "expected": "SELECT CAST('0x0y' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 204",
+    "query": "select '1_000_000'::jsonpath",
+    "expected": "SELECT CAST('1_000_000' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 205",
+    "query": "select '1_2_3'::jsonpath",
+    "expected": "SELECT CAST('1_2_3' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 206",
+    "query": "select '0x1EEE_FFFF'::jsonpath",
+    "expected": "SELECT CAST('0x1EEE_FFFF' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 207",
+    "query": "select '0o2_73'::jsonpath",
+    "expected": "SELECT CAST('0o2_73' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 208",
+    "query": "select '0b10_0101'::jsonpath",
+    "expected": "SELECT CAST('0b10_0101' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 209",
+    "query": "select '1_000.000_005'::jsonpath",
+    "expected": "SELECT CAST('1_000.000_005' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 210",
+    "query": "select '1_000.'::jsonpath",
+    "expected": "SELECT CAST('1_000.' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 211",
+    "query": "select '.000_005'::jsonpath",
+    "expected": "SELECT CAST('.000_005' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 212",
+    "query": "select '1_000.5e0_1'::jsonpath",
+    "expected": "SELECT CAST('1_000.5e0_1' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 213",
+    "query": "select '_100'::jsonpath",
+    "expected": "SELECT CAST('_100' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 214",
+    "query": "select '100_'::jsonpath",
+    "expected": "SELECT CAST('100_' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 215",
+    "query": "select '100__000'::jsonpath",
+    "expected": "SELECT CAST('100__000' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 216",
+    "query": "select '_1_000.5'::jsonpath",
+    "expected": "SELECT CAST('_1_000.5' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 217",
+    "query": "select '1_000_.5'::jsonpath",
+    "expected": "SELECT CAST('1_000_.5' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 218",
+    "query": "select '1_000._5'::jsonpath",
+    "expected": "SELECT CAST('1_000._5' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 219",
+    "query": "select '1_000.5_'::jsonpath",
+    "expected": "SELECT CAST('1_000.5_' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 220",
+    "query": "select '1_000.5e_1'::jsonpath",
+    "expected": "SELECT CAST('1_000.5e_1' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 221",
+    "query": "select '0b_10_0101'::jsonpath",
+    "expected": "SELECT CAST('0b_10_0101' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 222",
+    "query": "select '0o_273'::jsonpath",
+    "expected": "SELECT CAST('0o_273' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 223",
+    "query": "select '0x_42F'::jsonpath",
+    "expected": "SELECT CAST('0x_42F' AS jsonpath)"
+  },
+  {
+    "comment": "jsonpath - Statement 224",
+    "query": "SELECT str as jsonpath, pg_input_is_valid(str,'jsonpath') as ok, errinfo.sql_error_code, errinfo.message, errinfo.detail, errinfo.hint FROM unnest(ARRAY['$ ? (@ like_regex \"pattern\" flag \"smixq\")'::text, '$ ? (@ like_regex \"pattern\" flag \"a\")', '@ + 1', '00', '1a']) str, LATERAL pg_input_error_info(str, 'jsonpath') as errinfo",
+    "expected": "SELECT str AS jsonpath, pg_input_is_valid(str, 'jsonpath') AS ok, errinfo.sql_error_code, errinfo.message, errinfo.detail, errinfo.hint FROM unnest(ARRAY[CAST('$ ? (@ like_regex \"pattern\" flag \"smixq\")' AS TEXT),'$ ? (@ like_regex \"pattern\" flag \"a\")','@ + 1','00','1a']) AS str, LATERAL pg_input_error_info(str, 'jsonpath') AS errinfo"
+  }
+]

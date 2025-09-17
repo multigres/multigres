@@ -1,0 +1,294 @@
+[
+  {
+    "comment": "polygon - Statement 1",
+    "query": "CREATE TABLE POLYGON_TBL(f1 polygon)",
+    "expected": "CREATE TABLE polygon_tbl (f1 polygon)"
+  },
+  {
+    "comment": "polygon - Statement 2",
+    "query": "INSERT INTO POLYGON_TBL(f1) VALUES ('(2.0,0.0),(2.0,4.0),(0.0,0.0)')",
+    "expected": "INSERT INTO polygon_tbl (f1) VALUES ('(2.0,0.0),(2.0,4.0),(0.0,0.0)')"
+  },
+  {
+    "comment": "polygon - Statement 3",
+    "query": "INSERT INTO POLYGON_TBL(f1) VALUES ('(3.0,1.0),(3.0,3.0),(1.0,0.0)')",
+    "expected": "INSERT INTO polygon_tbl (f1) VALUES ('(3.0,1.0),(3.0,3.0),(1.0,0.0)')"
+  },
+  {
+    "comment": "polygon - Statement 4",
+    "query": "INSERT INTO POLYGON_TBL(f1) VALUES ('(1,2),(3,4),(5,6),(7,8)')",
+    "expected": "INSERT INTO polygon_tbl (f1) VALUES ('(1,2),(3,4),(5,6),(7,8)')"
+  },
+  {
+    "comment": "polygon - Statement 5",
+    "query": "INSERT INTO POLYGON_TBL(f1) VALUES ('(7,8),(5,6),(3,4),(1,2)')",
+    "expected": "INSERT INTO polygon_tbl (f1) VALUES ('(7,8),(5,6),(3,4),(1,2)')"
+  },
+  {
+    "comment": "polygon - Statement 6",
+    "query": "INSERT INTO POLYGON_TBL(f1) VALUES ('(1,2),(7,8),(5,6),(3,-4)')",
+    "expected": "INSERT INTO polygon_tbl (f1) VALUES ('(1,2),(7,8),(5,6),(3,-4)')"
+  },
+  {
+    "comment": "polygon - Statement 7",
+    "query": "INSERT INTO POLYGON_TBL(f1) VALUES ('(0.0,0.0)')",
+    "expected": "INSERT INTO polygon_tbl (f1) VALUES ('(0.0,0.0)')"
+  },
+  {
+    "comment": "polygon - Statement 8",
+    "query": "INSERT INTO POLYGON_TBL(f1) VALUES ('(0.0,1.0),(0.0,1.0)')",
+    "expected": "INSERT INTO polygon_tbl (f1) VALUES ('(0.0,1.0),(0.0,1.0)')"
+  },
+  {
+    "comment": "polygon - Statement 9",
+    "query": "INSERT INTO POLYGON_TBL(f1) VALUES ('0.0')",
+    "expected": "INSERT INTO polygon_tbl (f1) VALUES ('0.0')"
+  },
+  {
+    "comment": "polygon - Statement 10",
+    "query": "INSERT INTO POLYGON_TBL(f1) VALUES ('(0.0 0.0')",
+    "expected": "INSERT INTO polygon_tbl (f1) VALUES ('(0.0 0.0')"
+  },
+  {
+    "comment": "polygon - Statement 11",
+    "query": "INSERT INTO POLYGON_TBL(f1) VALUES ('(0,1,2)')",
+    "expected": "INSERT INTO polygon_tbl (f1) VALUES ('(0,1,2)')"
+  },
+  {
+    "comment": "polygon - Statement 12",
+    "query": "INSERT INTO POLYGON_TBL(f1) VALUES ('(0,1,2,3')",
+    "expected": "INSERT INTO polygon_tbl (f1) VALUES ('(0,1,2,3')"
+  },
+  {
+    "comment": "polygon - Statement 13",
+    "query": "INSERT INTO POLYGON_TBL(f1) VALUES ('asdf')",
+    "expected": "INSERT INTO polygon_tbl (f1) VALUES ('asdf')"
+  },
+  {
+    "comment": "polygon - Statement 14",
+    "query": "SELECT * FROM POLYGON_TBL",
+    "expected": "SELECT * FROM polygon_tbl"
+  },
+  {
+    "comment": "polygon - Statement 15",
+    "query": "CREATE TABLE quad_poly_tbl (id int, p polygon)",
+    "expected": "CREATE TABLE quad_poly_tbl (id INT, p polygon)"
+  },
+  {
+    "comment": "polygon - Statement 16",
+    "query": "INSERT INTO quad_poly_tbl SELECT (x - 1) * 100 + y, polygon(circle(point(x * 10, y * 10), 1 + (x + y) % 10)) FROM generate_series(1, 100) x, generate_series(1, 100) y",
+    "expected": "INSERT INTO quad_poly_tbl SELECT (x - 1) * 100 + y, polygon(circle(point(x * 10, y * 10), 1 + (x + y) % 10)) FROM generate_series(1, 100) AS x, generate_series(1, 100) AS y"
+  },
+  {
+    "comment": "polygon - Statement 17",
+    "query": "INSERT INTO quad_poly_tbl SELECT i, polygon '((200, 300),(210, 310),(230, 290))' FROM generate_series(10001, 11000) AS i",
+    "expected": "INSERT INTO quad_poly_tbl SELECT i, CAST('((200, 300),(210, 310),(230, 290))' AS polygon) FROM generate_series(10001, 11000) AS i"
+  },
+  {
+    "comment": "polygon - Statement 18",
+    "query": "INSERT INTO quad_poly_tbl VALUES (11001, NULL), (11002, NULL), (11003, NULL)"
+  },
+  {
+    "comment": "polygon - Statement 19",
+    "query": "CREATE INDEX quad_poly_tbl_idx ON quad_poly_tbl USING spgist(p)",
+    "expected": "CREATE INDEX quad_poly_tbl_idx ON quad_poly_tbl USING spgist ( p )"
+  },
+  {
+    "comment": "polygon - Statement 20",
+    "query": "SET enable_seqscan = ON",
+    "expected": "SET enable_seqscan = on"
+  },
+  {
+    "comment": "polygon - Statement 21",
+    "query": "SET enable_indexscan = OFF",
+    "expected": "SET enable_indexscan = off"
+  },
+  {
+    "comment": "polygon - Statement 22",
+    "query": "SET enable_bitmapscan = OFF",
+    "expected": "SET enable_bitmapscan = off"
+  },
+  {
+    "comment": "polygon - Statement 23",
+    "query": "CREATE TEMP TABLE quad_poly_tbl_ord_seq2 AS SELECT rank() OVER (ORDER BY p \u003c-\u003e point '123,456') n, p \u003c-\u003e point '123,456' dist, id FROM quad_poly_tbl WHERE p \u003c@ polygon '((300,300),(400,600),(600,500),(700,200))'",
+    "expected": "CREATE TEMP TABLE quad_poly_tbl_ord_seq2 AS SELECT RANK() OVER (ORDER BY p \u003c-\u003e CAST('123,456' AS point)) AS n, p \u003c-\u003e CAST('123,456' AS point) AS dist, id FROM quad_poly_tbl WHERE p \u003c@ CAST('((300,300),(400,600),(600,500),(700,200))' AS polygon)"
+  },
+  {
+    "comment": "polygon - Statement 24",
+    "query": "SET enable_seqscan = OFF",
+    "expected": "SET enable_seqscan = off"
+  },
+  {
+    "comment": "polygon - Statement 25",
+    "query": "SET enable_bitmapscan = ON",
+    "expected": "SET enable_bitmapscan = on"
+  },
+  {
+    "comment": "polygon - Statement 26",
+    "query": "EXPLAIN (COSTS OFF) SELECT count(*) FROM quad_poly_tbl WHERE p \u003c\u003c polygon '((300,300),(400,600),(600,500),(700,200))'",
+    "expected": "EXPLAIN (COSTS false) SELECT COUNT(*) FROM quad_poly_tbl WHERE p \u003c\u003c CAST('((300,300),(400,600),(600,500),(700,200))' AS polygon)"
+  },
+  {
+    "comment": "polygon - Statement 27",
+    "query": "SELECT count(*) FROM quad_poly_tbl WHERE p \u003c\u003c polygon '((300,300),(400,600),(600,500),(700,200))'",
+    "expected": "SELECT COUNT(*) FROM quad_poly_tbl WHERE p \u003c\u003c CAST('((300,300),(400,600),(600,500),(700,200))' AS polygon)"
+  },
+  {
+    "comment": "polygon - Statement 28",
+    "query": "EXPLAIN (COSTS OFF) SELECT count(*) FROM quad_poly_tbl WHERE p \u0026\u003c polygon '((300,300),(400,600),(600,500),(700,200))'",
+    "expected": "EXPLAIN (COSTS false) SELECT COUNT(*) FROM quad_poly_tbl WHERE p \u0026\u003c CAST('((300,300),(400,600),(600,500),(700,200))' AS polygon)"
+  },
+  {
+    "comment": "polygon - Statement 29",
+    "query": "SELECT count(*) FROM quad_poly_tbl WHERE p \u0026\u003c polygon '((300,300),(400,600),(600,500),(700,200))'",
+    "expected": "SELECT COUNT(*) FROM quad_poly_tbl WHERE p \u0026\u003c CAST('((300,300),(400,600),(600,500),(700,200))' AS polygon)"
+  },
+  {
+    "comment": "polygon - Statement 30",
+    "query": "EXPLAIN (COSTS OFF) SELECT count(*) FROM quad_poly_tbl WHERE p \u0026\u0026 polygon '((300,300),(400,600),(600,500),(700,200))'",
+    "expected": "EXPLAIN (COSTS false) SELECT COUNT(*) FROM quad_poly_tbl WHERE p \u0026\u0026 CAST('((300,300),(400,600),(600,500),(700,200))' AS polygon)"
+  },
+  {
+    "comment": "polygon - Statement 31",
+    "query": "SELECT count(*) FROM quad_poly_tbl WHERE p \u0026\u0026 polygon '((300,300),(400,600),(600,500),(700,200))'",
+    "expected": "SELECT COUNT(*) FROM quad_poly_tbl WHERE p \u0026\u0026 CAST('((300,300),(400,600),(600,500),(700,200))' AS polygon)"
+  },
+  {
+    "comment": "polygon - Statement 32",
+    "query": "EXPLAIN (COSTS OFF) SELECT count(*) FROM quad_poly_tbl WHERE p \u0026\u003e polygon '((300,300),(400,600),(600,500),(700,200))'",
+    "expected": "EXPLAIN (COSTS false) SELECT COUNT(*) FROM quad_poly_tbl WHERE p \u0026\u003e CAST('((300,300),(400,600),(600,500),(700,200))' AS polygon)"
+  },
+  {
+    "comment": "polygon - Statement 33",
+    "query": "SELECT count(*) FROM quad_poly_tbl WHERE p \u0026\u003e polygon '((300,300),(400,600),(600,500),(700,200))'",
+    "expected": "SELECT COUNT(*) FROM quad_poly_tbl WHERE p \u0026\u003e CAST('((300,300),(400,600),(600,500),(700,200))' AS polygon)"
+  },
+  {
+    "comment": "polygon - Statement 34",
+    "query": "EXPLAIN (COSTS OFF) SELECT count(*) FROM quad_poly_tbl WHERE p \u003e\u003e polygon '((300,300),(400,600),(600,500),(700,200))'",
+    "expected": "EXPLAIN (COSTS false) SELECT COUNT(*) FROM quad_poly_tbl WHERE p \u003e\u003e CAST('((300,300),(400,600),(600,500),(700,200))' AS polygon)"
+  },
+  {
+    "comment": "polygon - Statement 35",
+    "query": "SELECT count(*) FROM quad_poly_tbl WHERE p \u003e\u003e polygon '((300,300),(400,600),(600,500),(700,200))'",
+    "expected": "SELECT COUNT(*) FROM quad_poly_tbl WHERE p \u003e\u003e CAST('((300,300),(400,600),(600,500),(700,200))' AS polygon)"
+  },
+  {
+    "comment": "polygon - Statement 36",
+    "query": "EXPLAIN (COSTS OFF) SELECT count(*) FROM quad_poly_tbl WHERE p \u003c\u003c| polygon '((300,300),(400,600),(600,500),(700,200))'",
+    "expected": "EXPLAIN (COSTS false) SELECT COUNT(*) FROM quad_poly_tbl WHERE p \u003c\u003c| CAST('((300,300),(400,600),(600,500),(700,200))' AS polygon)"
+  },
+  {
+    "comment": "polygon - Statement 37",
+    "query": "SELECT count(*) FROM quad_poly_tbl WHERE p \u003c\u003c| polygon '((300,300),(400,600),(600,500),(700,200))'",
+    "expected": "SELECT COUNT(*) FROM quad_poly_tbl WHERE p \u003c\u003c| CAST('((300,300),(400,600),(600,500),(700,200))' AS polygon)"
+  },
+  {
+    "comment": "polygon - Statement 38",
+    "query": "EXPLAIN (COSTS OFF) SELECT count(*) FROM quad_poly_tbl WHERE p \u0026\u003c| polygon '((300,300),(400,600),(600,500),(700,200))'",
+    "expected": "EXPLAIN (COSTS false) SELECT COUNT(*) FROM quad_poly_tbl WHERE p \u0026\u003c| CAST('((300,300),(400,600),(600,500),(700,200))' AS polygon)"
+  },
+  {
+    "comment": "polygon - Statement 39",
+    "query": "SELECT count(*) FROM quad_poly_tbl WHERE p \u0026\u003c| polygon '((300,300),(400,600),(600,500),(700,200))'",
+    "expected": "SELECT COUNT(*) FROM quad_poly_tbl WHERE p \u0026\u003c| CAST('((300,300),(400,600),(600,500),(700,200))' AS polygon)"
+  },
+  {
+    "comment": "polygon - Statement 40",
+    "query": "EXPLAIN (COSTS OFF) SELECT count(*) FROM quad_poly_tbl WHERE p |\u0026\u003e polygon '((300,300),(400,600),(600,500),(700,200))'",
+    "expected": "EXPLAIN (COSTS false) SELECT COUNT(*) FROM quad_poly_tbl WHERE p |\u0026\u003e CAST('((300,300),(400,600),(600,500),(700,200))' AS polygon)"
+  },
+  {
+    "comment": "polygon - Statement 41",
+    "query": "SELECT count(*) FROM quad_poly_tbl WHERE p |\u0026\u003e polygon '((300,300),(400,600),(600,500),(700,200))'",
+    "expected": "SELECT COUNT(*) FROM quad_poly_tbl WHERE p |\u0026\u003e CAST('((300,300),(400,600),(600,500),(700,200))' AS polygon)"
+  },
+  {
+    "comment": "polygon - Statement 42",
+    "query": "EXPLAIN (COSTS OFF) SELECT count(*) FROM quad_poly_tbl WHERE p |\u003e\u003e polygon '((300,300),(400,600),(600,500),(700,200))'",
+    "expected": "EXPLAIN (COSTS false) SELECT COUNT(*) FROM quad_poly_tbl WHERE p |\u003e\u003e CAST('((300,300),(400,600),(600,500),(700,200))' AS polygon)"
+  },
+  {
+    "comment": "polygon - Statement 43",
+    "query": "SELECT count(*) FROM quad_poly_tbl WHERE p |\u003e\u003e polygon '((300,300),(400,600),(600,500),(700,200))'",
+    "expected": "SELECT COUNT(*) FROM quad_poly_tbl WHERE p |\u003e\u003e CAST('((300,300),(400,600),(600,500),(700,200))' AS polygon)"
+  },
+  {
+    "comment": "polygon - Statement 44",
+    "query": "EXPLAIN (COSTS OFF) SELECT count(*) FROM quad_poly_tbl WHERE p \u003c@ polygon '((300,300),(400,600),(600,500),(700,200))'",
+    "expected": "EXPLAIN (COSTS false) SELECT COUNT(*) FROM quad_poly_tbl WHERE p \u003c@ CAST('((300,300),(400,600),(600,500),(700,200))' AS polygon)"
+  },
+  {
+    "comment": "polygon - Statement 45",
+    "query": "SELECT count(*) FROM quad_poly_tbl WHERE p \u003c@ polygon '((300,300),(400,600),(600,500),(700,200))'",
+    "expected": "SELECT COUNT(*) FROM quad_poly_tbl WHERE p \u003c@ CAST('((300,300),(400,600),(600,500),(700,200))' AS polygon)"
+  },
+  {
+    "comment": "polygon - Statement 46",
+    "query": "EXPLAIN (COSTS OFF) SELECT count(*) FROM quad_poly_tbl WHERE p @\u003e polygon '((340,550),(343,552),(341,553))'",
+    "expected": "EXPLAIN (COSTS false) SELECT COUNT(*) FROM quad_poly_tbl WHERE p @\u003e CAST('((340,550),(343,552),(341,553))' AS polygon)"
+  },
+  {
+    "comment": "polygon - Statement 47",
+    "query": "SELECT count(*) FROM quad_poly_tbl WHERE p @\u003e polygon '((340,550),(343,552),(341,553))'",
+    "expected": "SELECT COUNT(*) FROM quad_poly_tbl WHERE p @\u003e CAST('((340,550),(343,552),(341,553))' AS polygon)"
+  },
+  {
+    "comment": "polygon - Statement 48",
+    "query": "EXPLAIN (COSTS OFF) SELECT count(*) FROM quad_poly_tbl WHERE p ~= polygon '((200, 300),(210, 310),(230, 290))'",
+    "expected": "EXPLAIN (COSTS false) SELECT COUNT(*) FROM quad_poly_tbl WHERE p ~= CAST('((200, 300),(210, 310),(230, 290))' AS polygon)"
+  },
+  {
+    "comment": "polygon - Statement 49",
+    "query": "SELECT count(*) FROM quad_poly_tbl WHERE p ~= polygon '((200, 300),(210, 310),(230, 290))'",
+    "expected": "SELECT COUNT(*) FROM quad_poly_tbl WHERE p ~= CAST('((200, 300),(210, 310),(230, 290))' AS polygon)"
+  },
+  {
+    "comment": "polygon - Statement 50",
+    "query": "SET enable_indexscan = ON",
+    "expected": "SET enable_indexscan = on"
+  },
+  {
+    "comment": "polygon - Statement 51",
+    "query": "EXPLAIN (COSTS OFF) SELECT rank() OVER (ORDER BY p \u003c-\u003e point '123,456') n, p \u003c-\u003e point '123,456' dist, id FROM quad_poly_tbl WHERE p \u003c@ polygon '((300,300),(400,600),(600,500),(700,200))'",
+    "expected": "EXPLAIN (COSTS false) SELECT RANK() OVER (ORDER BY p \u003c-\u003e CAST('123,456' AS point)) AS n, p \u003c-\u003e CAST('123,456' AS point) AS dist, id FROM quad_poly_tbl WHERE p \u003c@ CAST('((300,300),(400,600),(600,500),(700,200))' AS polygon)"
+  },
+  {
+    "comment": "polygon - Statement 52",
+    "query": "CREATE TEMP TABLE quad_poly_tbl_ord_idx2 AS SELECT rank() OVER (ORDER BY p \u003c-\u003e point '123,456') n, p \u003c-\u003e point '123,456' dist, id FROM quad_poly_tbl WHERE p \u003c@ polygon '((300,300),(400,600),(600,500),(700,200))'",
+    "expected": "CREATE TEMP TABLE quad_poly_tbl_ord_idx2 AS SELECT RANK() OVER (ORDER BY p \u003c-\u003e CAST('123,456' AS point)) AS n, p \u003c-\u003e CAST('123,456' AS point) AS dist, id FROM quad_poly_tbl WHERE p \u003c@ CAST('((300,300),(400,600),(600,500),(700,200))' AS polygon)"
+  },
+  {
+    "comment": "polygon - Statement 53",
+    "query": "SELECT * FROM quad_poly_tbl_ord_seq2 seq FULL JOIN quad_poly_tbl_ord_idx2 idx ON seq.n = idx.n AND seq.id = idx.id AND (seq.dist = idx.dist OR seq.dist IS NULL AND idx.dist IS NULL) WHERE seq.id IS NULL OR idx.id IS NULL",
+    "expected": "SELECT * FROM quad_poly_tbl_ord_seq2 AS seq FULL OUTER JOIN quad_poly_tbl_ord_idx2 AS idx ON seq.n = idx.n AND seq.id = idx.id AND (seq.dist = idx.dist OR seq.dist IS NULL AND idx.dist IS NULL) WHERE seq.id IS NULL OR idx.id IS NULL"
+  },
+  {
+    "comment": "polygon - Statement 54",
+    "query": "RESET enable_seqscan"
+  },
+  {
+    "comment": "polygon - Statement 55",
+    "query": "RESET enable_indexscan"
+  },
+  {
+    "comment": "polygon - Statement 56",
+    "query": "RESET enable_bitmapscan"
+  },
+  {
+    "comment": "polygon - Statement 57",
+    "query": "SELECT pg_input_is_valid('(2.0,0.8,0.1)', 'polygon')"
+  },
+  {
+    "comment": "polygon - Statement 58",
+    "query": "SELECT * FROM pg_input_error_info('(2.0,0.8,0.1)', 'polygon')"
+  },
+  {
+    "comment": "polygon - Statement 59",
+    "query": "SELECT pg_input_is_valid('(2.0,xyz)', 'polygon')"
+  },
+  {
+    "comment": "polygon - Statement 60",
+    "query": "SELECT * FROM pg_input_error_info('(2.0,xyz)', 'polygon')"
+  }
+]

@@ -1,0 +1,311 @@
+[
+  {
+    "comment": "partition_info - Statement 1",
+    "query": "SELECT * FROM pg_partition_tree(NULL)"
+  },
+  {
+    "comment": "partition_info - Statement 2",
+    "query": "SELECT * FROM pg_partition_tree(0)"
+  },
+  {
+    "comment": "partition_info - Statement 3",
+    "query": "SELECT * FROM pg_partition_ancestors(NULL)"
+  },
+  {
+    "comment": "partition_info - Statement 4",
+    "query": "SELECT * FROM pg_partition_ancestors(0)"
+  },
+  {
+    "comment": "partition_info - Statement 5",
+    "query": "SELECT pg_partition_root(NULL)"
+  },
+  {
+    "comment": "partition_info - Statement 6",
+    "query": "SELECT pg_partition_root(0)"
+  },
+  {
+    "comment": "partition_info - Statement 7",
+    "query": "CREATE TABLE ptif_test (a int, b int) PARTITION BY range (a)",
+    "expected": "CREATE TABLE ptif_test (a INT, b INT) PARTITION BY range (a)"
+  },
+  {
+    "comment": "partition_info - Statement 8",
+    "query": "CREATE TABLE ptif_test0 PARTITION OF ptif_test FOR VALUES FROM (minvalue) TO (0) PARTITION BY list (b)"
+  },
+  {
+    "comment": "partition_info - Statement 9",
+    "query": "CREATE TABLE ptif_test01 PARTITION OF ptif_test0 FOR VALUES IN (1)"
+  },
+  {
+    "comment": "partition_info - Statement 10",
+    "query": "CREATE TABLE ptif_test1 PARTITION OF ptif_test FOR VALUES FROM (0) TO (100) PARTITION BY list (b)"
+  },
+  {
+    "comment": "partition_info - Statement 11",
+    "query": "CREATE TABLE ptif_test11 PARTITION OF ptif_test1 FOR VALUES IN (1)"
+  },
+  {
+    "comment": "partition_info - Statement 12",
+    "query": "CREATE TABLE ptif_test2 PARTITION OF ptif_test FOR VALUES FROM (100) TO (200)"
+  },
+  {
+    "comment": "partition_info - Statement 13",
+    "query": "CREATE TABLE ptif_test3 PARTITION OF ptif_test FOR VALUES FROM (200) TO (maxvalue) PARTITION BY list (b)"
+  },
+  {
+    "comment": "partition_info - Statement 14",
+    "query": "SELECT pg_partition_root('ptif_test')"
+  },
+  {
+    "comment": "partition_info - Statement 15",
+    "query": "SELECT pg_partition_root('ptif_test0')"
+  },
+  {
+    "comment": "partition_info - Statement 16",
+    "query": "SELECT pg_partition_root('ptif_test01')"
+  },
+  {
+    "comment": "partition_info - Statement 17",
+    "query": "SELECT pg_partition_root('ptif_test3')"
+  },
+  {
+    "comment": "partition_info - Statement 18",
+    "query": "CREATE INDEX ptif_test_index ON ONLY ptif_test (a)",
+    "expected": "CREATE INDEX ptif_test_index ON ONLY ptif_test USING btree ( a )"
+  },
+  {
+    "comment": "partition_info - Statement 19",
+    "query": "CREATE INDEX ptif_test0_index ON ONLY ptif_test0 (a)",
+    "expected": "CREATE INDEX ptif_test0_index ON ONLY ptif_test0 USING btree ( a )"
+  },
+  {
+    "comment": "partition_info - Statement 20",
+    "query": "ALTER INDEX ptif_test_index ATTACH PARTITION ptif_test0_index"
+  },
+  {
+    "comment": "partition_info - Statement 21",
+    "query": "CREATE INDEX ptif_test01_index ON ptif_test01 (a)",
+    "expected": "CREATE INDEX ptif_test01_index ON ptif_test01 USING btree ( a )"
+  },
+  {
+    "comment": "partition_info - Statement 22",
+    "query": "ALTER INDEX ptif_test0_index ATTACH PARTITION ptif_test01_index"
+  },
+  {
+    "comment": "partition_info - Statement 23",
+    "query": "CREATE INDEX ptif_test1_index ON ONLY ptif_test1 (a)",
+    "expected": "CREATE INDEX ptif_test1_index ON ONLY ptif_test1 USING btree ( a )"
+  },
+  {
+    "comment": "partition_info - Statement 24",
+    "query": "ALTER INDEX ptif_test_index ATTACH PARTITION ptif_test1_index"
+  },
+  {
+    "comment": "partition_info - Statement 25",
+    "query": "CREATE INDEX ptif_test11_index ON ptif_test11 (a)",
+    "expected": "CREATE INDEX ptif_test11_index ON ptif_test11 USING btree ( a )"
+  },
+  {
+    "comment": "partition_info - Statement 26",
+    "query": "ALTER INDEX ptif_test1_index ATTACH PARTITION ptif_test11_index"
+  },
+  {
+    "comment": "partition_info - Statement 27",
+    "query": "CREATE INDEX ptif_test2_index ON ptif_test2 (a)",
+    "expected": "CREATE INDEX ptif_test2_index ON ptif_test2 USING btree ( a )"
+  },
+  {
+    "comment": "partition_info - Statement 28",
+    "query": "ALTER INDEX ptif_test_index ATTACH PARTITION ptif_test2_index"
+  },
+  {
+    "comment": "partition_info - Statement 29",
+    "query": "CREATE INDEX ptif_test3_index ON ptif_test3 (a)",
+    "expected": "CREATE INDEX ptif_test3_index ON ptif_test3 USING btree ( a )"
+  },
+  {
+    "comment": "partition_info - Statement 30",
+    "query": "ALTER INDEX ptif_test_index ATTACH PARTITION ptif_test3_index"
+  },
+  {
+    "comment": "partition_info - Statement 31",
+    "query": "SELECT pg_partition_root('ptif_test_index')"
+  },
+  {
+    "comment": "partition_info - Statement 32",
+    "query": "SELECT pg_partition_root('ptif_test0_index')"
+  },
+  {
+    "comment": "partition_info - Statement 33",
+    "query": "SELECT pg_partition_root('ptif_test01_index')"
+  },
+  {
+    "comment": "partition_info - Statement 34",
+    "query": "SELECT pg_partition_root('ptif_test3_index')"
+  },
+  {
+    "comment": "partition_info - Statement 35",
+    "query": "SELECT relid, parentrelid, level, isleaf FROM pg_partition_tree('ptif_test')"
+  },
+  {
+    "comment": "partition_info - Statement 36",
+    "query": "SELECT relid, parentrelid, level, isleaf FROM pg_partition_tree('ptif_test0') p JOIN pg_class c ON (p.relid = c.oid)",
+    "expected": "SELECT relid, parentrelid, level, isleaf FROM pg_partition_tree('ptif_test0') AS p INNER JOIN pg_class AS c ON (p.relid = c.oid)"
+  },
+  {
+    "comment": "partition_info - Statement 37",
+    "query": "SELECT relid, parentrelid, level, isleaf FROM pg_partition_tree('ptif_test01') p JOIN pg_class c ON (p.relid = c.oid)",
+    "expected": "SELECT relid, parentrelid, level, isleaf FROM pg_partition_tree('ptif_test01') AS p INNER JOIN pg_class AS c ON (p.relid = c.oid)"
+  },
+  {
+    "comment": "partition_info - Statement 38",
+    "query": "SELECT relid, parentrelid, level, isleaf FROM pg_partition_tree('ptif_test3') p JOIN pg_class c ON (p.relid = c.oid)",
+    "expected": "SELECT relid, parentrelid, level, isleaf FROM pg_partition_tree('ptif_test3') AS p INNER JOIN pg_class AS c ON (p.relid = c.oid)"
+  },
+  {
+    "comment": "partition_info - Statement 39",
+    "query": "SELECT * FROM pg_partition_ancestors('ptif_test01')"
+  },
+  {
+    "comment": "partition_info - Statement 40",
+    "query": "SELECT * FROM pg_partition_ancestors('ptif_test')"
+  },
+  {
+    "comment": "partition_info - Statement 41",
+    "query": "SELECT relid, parentrelid, level, isleaf FROM pg_partition_tree(pg_partition_root('ptif_test01')) p JOIN pg_class c ON (p.relid = c.oid)",
+    "expected": "SELECT relid, parentrelid, level, isleaf FROM pg_partition_tree(pg_partition_root('ptif_test01')) AS p INNER JOIN pg_class AS c ON (p.relid = c.oid)"
+  },
+  {
+    "comment": "partition_info - Statement 42",
+    "query": "SELECT relid, parentrelid, level, isleaf FROM pg_partition_tree('ptif_test_index')"
+  },
+  {
+    "comment": "partition_info - Statement 43",
+    "query": "SELECT relid, parentrelid, level, isleaf FROM pg_partition_tree('ptif_test0_index') p JOIN pg_class c ON (p.relid = c.oid)",
+    "expected": "SELECT relid, parentrelid, level, isleaf FROM pg_partition_tree('ptif_test0_index') AS p INNER JOIN pg_class AS c ON (p.relid = c.oid)"
+  },
+  {
+    "comment": "partition_info - Statement 44",
+    "query": "SELECT relid, parentrelid, level, isleaf FROM pg_partition_tree('ptif_test01_index') p JOIN pg_class c ON (p.relid = c.oid)",
+    "expected": "SELECT relid, parentrelid, level, isleaf FROM pg_partition_tree('ptif_test01_index') AS p INNER JOIN pg_class AS c ON (p.relid = c.oid)"
+  },
+  {
+    "comment": "partition_info - Statement 45",
+    "query": "SELECT relid, parentrelid, level, isleaf FROM pg_partition_tree('ptif_test3_index') p JOIN pg_class c ON (p.relid = c.oid)",
+    "expected": "SELECT relid, parentrelid, level, isleaf FROM pg_partition_tree('ptif_test3_index') AS p INNER JOIN pg_class AS c ON (p.relid = c.oid)"
+  },
+  {
+    "comment": "partition_info - Statement 46",
+    "query": "SELECT relid, parentrelid, level, isleaf FROM pg_partition_tree(pg_partition_root('ptif_test01_index')) p JOIN pg_class c ON (p.relid = c.oid)",
+    "expected": "SELECT relid, parentrelid, level, isleaf FROM pg_partition_tree(pg_partition_root('ptif_test01_index')) AS p INNER JOIN pg_class AS c ON (p.relid = c.oid)"
+  },
+  {
+    "comment": "partition_info - Statement 47",
+    "query": "SELECT * FROM pg_partition_ancestors('ptif_test01_index')"
+  },
+  {
+    "comment": "partition_info - Statement 48",
+    "query": "SELECT * FROM pg_partition_ancestors('ptif_test_index')"
+  },
+  {
+    "comment": "partition_info - Statement 49",
+    "query": "DROP TABLE ptif_test"
+  },
+  {
+    "comment": "partition_info - Statement 50",
+    "query": "CREATE TABLE ptif_normal_table(a int)",
+    "expected": "CREATE TABLE ptif_normal_table (a INT)"
+  },
+  {
+    "comment": "partition_info - Statement 51",
+    "query": "SELECT relid, parentrelid, level, isleaf FROM pg_partition_tree('ptif_normal_table')"
+  },
+  {
+    "comment": "partition_info - Statement 52",
+    "query": "SELECT * FROM pg_partition_ancestors('ptif_normal_table')"
+  },
+  {
+    "comment": "partition_info - Statement 53",
+    "query": "SELECT pg_partition_root('ptif_normal_table')"
+  },
+  {
+    "comment": "partition_info - Statement 54",
+    "query": "DROP TABLE ptif_normal_table"
+  },
+  {
+    "comment": "partition_info - Statement 55",
+    "query": "CREATE VIEW ptif_test_view AS SELECT 1"
+  },
+  {
+    "comment": "partition_info - Statement 56",
+    "query": "CREATE MATERIALIZED VIEW ptif_test_matview AS SELECT 1"
+  },
+  {
+    "comment": "partition_info - Statement 57",
+    "query": "CREATE TABLE ptif_li_parent ()"
+  },
+  {
+    "comment": "partition_info - Statement 58",
+    "query": "CREATE TABLE ptif_li_child () INHERITS (ptif_li_parent)"
+  },
+  {
+    "comment": "partition_info - Statement 59",
+    "query": "SELECT * FROM pg_partition_tree('ptif_test_view')"
+  },
+  {
+    "comment": "partition_info - Statement 60",
+    "query": "SELECT * FROM pg_partition_tree('ptif_test_matview')"
+  },
+  {
+    "comment": "partition_info - Statement 61",
+    "query": "SELECT * FROM pg_partition_tree('ptif_li_parent')"
+  },
+  {
+    "comment": "partition_info - Statement 62",
+    "query": "SELECT * FROM pg_partition_tree('ptif_li_child')"
+  },
+  {
+    "comment": "partition_info - Statement 63",
+    "query": "SELECT * FROM pg_partition_ancestors('ptif_test_view')"
+  },
+  {
+    "comment": "partition_info - Statement 64",
+    "query": "SELECT * FROM pg_partition_ancestors('ptif_test_matview')"
+  },
+  {
+    "comment": "partition_info - Statement 65",
+    "query": "SELECT * FROM pg_partition_ancestors('ptif_li_parent')"
+  },
+  {
+    "comment": "partition_info - Statement 66",
+    "query": "SELECT * FROM pg_partition_ancestors('ptif_li_child')"
+  },
+  {
+    "comment": "partition_info - Statement 67",
+    "query": "SELECT pg_partition_root('ptif_test_view')"
+  },
+  {
+    "comment": "partition_info - Statement 68",
+    "query": "SELECT pg_partition_root('ptif_test_matview')"
+  },
+  {
+    "comment": "partition_info - Statement 69",
+    "query": "SELECT pg_partition_root('ptif_li_parent')"
+  },
+  {
+    "comment": "partition_info - Statement 70",
+    "query": "SELECT pg_partition_root('ptif_li_child')"
+  },
+  {
+    "comment": "partition_info - Statement 71",
+    "query": "DROP VIEW ptif_test_view"
+  },
+  {
+    "comment": "partition_info - Statement 72",
+    "query": "DROP MATERIALIZED VIEW ptif_test_matview"
+  },
+  {
+    "comment": "partition_info - Statement 73",
+    "query": "DROP TABLE ptif_li_parent, ptif_li_child"
+  }
+]

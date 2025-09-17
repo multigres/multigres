@@ -1,0 +1,453 @@
+[
+  {
+    "comment": "inet - Statement 1",
+    "query": "DROP TABLE INET_TBL",
+    "expected": "DROP TABLE inet_tbl"
+  },
+  {
+    "comment": "inet - Statement 2",
+    "query": "CREATE TABLE INET_TBL (c cidr, i inet)",
+    "expected": "CREATE TABLE inet_tbl (c cidr, i inet)"
+  },
+  {
+    "comment": "inet - Statement 3",
+    "query": "INSERT INTO INET_TBL (c, i) VALUES ('192.168.1', '192.168.1.226/24')",
+    "expected": "INSERT INTO inet_tbl (c, i) VALUES ('192.168.1', '192.168.1.226/24')"
+  },
+  {
+    "comment": "inet - Statement 4",
+    "query": "INSERT INTO INET_TBL (c, i) VALUES ('192.168.1.0/26', '192.168.1.226')",
+    "expected": "INSERT INTO inet_tbl (c, i) VALUES ('192.168.1.0/26', '192.168.1.226')"
+  },
+  {
+    "comment": "inet - Statement 5",
+    "query": "INSERT INTO INET_TBL (c, i) VALUES ('192.168.1', '192.168.1.0/24')",
+    "expected": "INSERT INTO inet_tbl (c, i) VALUES ('192.168.1', '192.168.1.0/24')"
+  },
+  {
+    "comment": "inet - Statement 6",
+    "query": "INSERT INTO INET_TBL (c, i) VALUES ('192.168.1', '192.168.1.0/25')",
+    "expected": "INSERT INTO inet_tbl (c, i) VALUES ('192.168.1', '192.168.1.0/25')"
+  },
+  {
+    "comment": "inet - Statement 7",
+    "query": "INSERT INTO INET_TBL (c, i) VALUES ('192.168.1', '192.168.1.255/24')",
+    "expected": "INSERT INTO inet_tbl (c, i) VALUES ('192.168.1', '192.168.1.255/24')"
+  },
+  {
+    "comment": "inet - Statement 8",
+    "query": "INSERT INTO INET_TBL (c, i) VALUES ('192.168.1', '192.168.1.255/25')",
+    "expected": "INSERT INTO inet_tbl (c, i) VALUES ('192.168.1', '192.168.1.255/25')"
+  },
+  {
+    "comment": "inet - Statement 9",
+    "query": "INSERT INTO INET_TBL (c, i) VALUES ('10', '10.1.2.3/8')",
+    "expected": "INSERT INTO inet_tbl (c, i) VALUES ('10', '10.1.2.3/8')"
+  },
+  {
+    "comment": "inet - Statement 10",
+    "query": "INSERT INTO INET_TBL (c, i) VALUES ('10.0.0.0', '10.1.2.3/8')",
+    "expected": "INSERT INTO inet_tbl (c, i) VALUES ('10.0.0.0', '10.1.2.3/8')"
+  },
+  {
+    "comment": "inet - Statement 11",
+    "query": "INSERT INTO INET_TBL (c, i) VALUES ('10.1.2.3', '10.1.2.3/32')",
+    "expected": "INSERT INTO inet_tbl (c, i) VALUES ('10.1.2.3', '10.1.2.3/32')"
+  },
+  {
+    "comment": "inet - Statement 12",
+    "query": "INSERT INTO INET_TBL (c, i) VALUES ('10.1.2', '10.1.2.3/24')",
+    "expected": "INSERT INTO inet_tbl (c, i) VALUES ('10.1.2', '10.1.2.3/24')"
+  },
+  {
+    "comment": "inet - Statement 13",
+    "query": "INSERT INTO INET_TBL (c, i) VALUES ('10.1', '10.1.2.3/16')",
+    "expected": "INSERT INTO inet_tbl (c, i) VALUES ('10.1', '10.1.2.3/16')"
+  },
+  {
+    "comment": "inet - Statement 14",
+    "query": "INSERT INTO INET_TBL (c, i) VALUES ('10', '11.1.2.3/8')",
+    "expected": "INSERT INTO inet_tbl (c, i) VALUES ('10', '11.1.2.3/8')"
+  },
+  {
+    "comment": "inet - Statement 15",
+    "query": "INSERT INTO INET_TBL (c, i) VALUES ('10', '9.1.2.3/8')",
+    "expected": "INSERT INTO inet_tbl (c, i) VALUES ('10', '9.1.2.3/8')"
+  },
+  {
+    "comment": "inet - Statement 16",
+    "query": "INSERT INTO INET_TBL (c, i) VALUES ('10:23::f1', '10:23::f1/64')",
+    "expected": "INSERT INTO inet_tbl (c, i) VALUES ('10:23::f1', '10:23::f1/64')"
+  },
+  {
+    "comment": "inet - Statement 17",
+    "query": "INSERT INTO INET_TBL (c, i) VALUES ('10:23::8000/113', '10:23::ffff')",
+    "expected": "INSERT INTO inet_tbl (c, i) VALUES ('10:23::8000/113', '10:23::ffff')"
+  },
+  {
+    "comment": "inet - Statement 18",
+    "query": "INSERT INTO INET_TBL (c, i) VALUES ('::ffff:1.2.3.4', '::4.3.2.1/24')",
+    "expected": "INSERT INTO inet_tbl (c, i) VALUES ('::ffff:1.2.3.4', '::4.3.2.1/24')"
+  },
+  {
+    "comment": "inet - Statement 19",
+    "query": "INSERT INTO INET_TBL (c, i) VALUES ('192.168.1.2/30', '192.168.1.226')",
+    "expected": "INSERT INTO inet_tbl (c, i) VALUES ('192.168.1.2/30', '192.168.1.226')"
+  },
+  {
+    "comment": "inet - Statement 20",
+    "query": "INSERT INTO INET_TBL (c, i) VALUES ('1234::1234::1234', '::1.2.3.4')",
+    "expected": "INSERT INTO inet_tbl (c, i) VALUES ('1234::1234::1234', '::1.2.3.4')"
+  },
+  {
+    "comment": "inet - Statement 21",
+    "query": "INSERT INTO INET_TBL (c, i) VALUES (cidr('192.168.1.2/30'), '192.168.1.226')",
+    "expected": "INSERT INTO inet_tbl (c, i) VALUES (cidr('192.168.1.2/30'), '192.168.1.226')"
+  },
+  {
+    "comment": "inet - Statement 22",
+    "query": "INSERT INTO INET_TBL (c, i) VALUES (cidr('ffff:ffff:ffff:ffff::/24'), '::192.168.1.226')",
+    "expected": "INSERT INTO inet_tbl (c, i) VALUES (cidr('ffff:ffff:ffff:ffff::/24'), '::192.168.1.226')"
+  },
+  {
+    "comment": "inet - Statement 23",
+    "query": "SELECT c AS cidr, i AS inet FROM INET_TBL",
+    "expected": "SELECT c AS cidr, i AS inet FROM inet_tbl"
+  },
+  {
+    "comment": "inet - Statement 24",
+    "query": "SELECT i AS inet, host(i), text(i), family(i) FROM INET_TBL",
+    "expected": "SELECT i AS inet, host(i), text(i), family(i) FROM inet_tbl"
+  },
+  {
+    "comment": "inet - Statement 25",
+    "query": "SELECT c AS cidr, abbrev(c) FROM INET_TBL",
+    "expected": "SELECT c AS cidr, abbrev(c) FROM inet_tbl"
+  },
+  {
+    "comment": "inet - Statement 26",
+    "query": "SELECT c AS cidr, broadcast(c), i AS inet, broadcast(i) FROM INET_TBL",
+    "expected": "SELECT c AS cidr, broadcast(c), i AS inet, broadcast(i) FROM inet_tbl"
+  },
+  {
+    "comment": "inet - Statement 27",
+    "query": "SELECT c AS cidr, network(c) AS \"network(cidr)\", i AS inet, network(i) AS \"network(inet)\" FROM INET_TBL",
+    "expected": "SELECT c AS cidr, network(c) AS \"network(cidr)\", i AS inet, network(i) AS \"network(inet)\" FROM inet_tbl"
+  },
+  {
+    "comment": "inet - Statement 28",
+    "query": "SELECT c AS cidr, masklen(c) AS \"masklen(cidr)\", i AS inet, masklen(i) AS \"masklen(inet)\" FROM INET_TBL",
+    "expected": "SELECT c AS cidr, masklen(c) AS \"masklen(cidr)\", i AS inet, masklen(i) AS \"masklen(inet)\" FROM inet_tbl"
+  },
+  {
+    "comment": "inet - Statement 29",
+    "query": "SELECT c AS cidr, masklen(c) AS \"masklen(cidr)\", i AS inet, masklen(i) AS \"masklen(inet)\" FROM INET_TBL WHERE masklen(c) \u003c= 8",
+    "expected": "SELECT c AS cidr, masklen(c) AS \"masklen(cidr)\", i AS inet, masklen(i) AS \"masklen(inet)\" FROM inet_tbl WHERE masklen(c) \u003c= 8"
+  },
+  {
+    "comment": "inet - Statement 30",
+    "query": "SELECT c AS cidr, i AS inet FROM INET_TBL WHERE c = i",
+    "expected": "SELECT c AS cidr, i AS inet FROM inet_tbl WHERE c = i"
+  },
+  {
+    "comment": "inet - Statement 31",
+    "query": "SELECT i, c, i \u003c c AS lt, i \u003c= c AS le, i = c AS eq, i \u003e= c AS ge, i \u003e c AS gt, i \u003c\u003e c AS ne, i \u003c\u003c c AS sb, i \u003c\u003c= c AS sbe, i \u003e\u003e c AS sup, i \u003e\u003e= c AS spe, i \u0026\u0026 c AS ovr FROM INET_TBL",
+    "expected": "SELECT i, c, i \u003c c AS lt, i \u003c= c AS le, i = c AS eq, i \u003e= c AS ge, i \u003e c AS gt, i \u003c\u003e c AS ne, i \u003c\u003c c AS sb, i \u003c\u003c= c AS sbe, i \u003e\u003e c AS sup, i \u003e\u003e= c AS spe, i \u0026\u0026 c AS ovr FROM inet_tbl"
+  },
+  {
+    "comment": "inet - Statement 32",
+    "query": "SELECT max(i) AS max, min(i) AS min FROM INET_TBL",
+    "expected": "SELECT MAX(i) AS max, MIN(i) AS min FROM inet_tbl"
+  },
+  {
+    "comment": "inet - Statement 33",
+    "query": "SELECT max(c) AS max, min(c) AS min FROM INET_TBL",
+    "expected": "SELECT MAX(c) AS max, MIN(c) AS min FROM inet_tbl"
+  },
+  {
+    "comment": "inet - Statement 34",
+    "query": "SELECT set_masklen(inet(text(i)), 24) FROM INET_TBL",
+    "expected": "SELECT set_masklen(inet(text(i)), 24) FROM inet_tbl"
+  },
+  {
+    "comment": "inet - Statement 35",
+    "query": "CREATE INDEX inet_idx1 ON inet_tbl(i)",
+    "expected": "CREATE INDEX inet_idx1 ON inet_tbl USING btree ( i )"
+  },
+  {
+    "comment": "inet - Statement 36",
+    "query": "SET enable_seqscan TO off",
+    "expected": "SET enable_seqscan = off"
+  },
+  {
+    "comment": "inet - Statement 37",
+    "query": "EXPLAIN (COSTS OFF) SELECT * FROM inet_tbl WHERE i\u003c\u003c'192.168.1.0/24'::cidr",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM inet_tbl WHERE i \u003c\u003c CAST('192.168.1.0/24' AS cidr)"
+  },
+  {
+    "comment": "inet - Statement 38",
+    "query": "SELECT * FROM inet_tbl WHERE i\u003c\u003c'192.168.1.0/24'::cidr",
+    "expected": "SELECT * FROM inet_tbl WHERE i \u003c\u003c CAST('192.168.1.0/24' AS cidr)"
+  },
+  {
+    "comment": "inet - Statement 39",
+    "query": "EXPLAIN (COSTS OFF) SELECT * FROM inet_tbl WHERE i\u003c\u003c='192.168.1.0/24'::cidr",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM inet_tbl WHERE i \u003c\u003c= CAST('192.168.1.0/24' AS cidr)"
+  },
+  {
+    "comment": "inet - Statement 40",
+    "query": "SELECT * FROM inet_tbl WHERE i\u003c\u003c='192.168.1.0/24'::cidr",
+    "expected": "SELECT * FROM inet_tbl WHERE i \u003c\u003c= CAST('192.168.1.0/24' AS cidr)"
+  },
+  {
+    "comment": "inet - Statement 41",
+    "query": "EXPLAIN (COSTS OFF) SELECT * FROM inet_tbl WHERE '192.168.1.0/24'::cidr \u003e\u003e= i",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM inet_tbl WHERE CAST('192.168.1.0/24' AS cidr) \u003e\u003e= i"
+  },
+  {
+    "comment": "inet - Statement 42",
+    "query": "SELECT * FROM inet_tbl WHERE '192.168.1.0/24'::cidr \u003e\u003e= i",
+    "expected": "SELECT * FROM inet_tbl WHERE CAST('192.168.1.0/24' AS cidr) \u003e\u003e= i"
+  },
+  {
+    "comment": "inet - Statement 43",
+    "query": "EXPLAIN (COSTS OFF) SELECT * FROM inet_tbl WHERE '192.168.1.0/24'::cidr \u003e\u003e i",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM inet_tbl WHERE CAST('192.168.1.0/24' AS cidr) \u003e\u003e i"
+  },
+  {
+    "comment": "inet - Statement 44",
+    "query": "SELECT * FROM inet_tbl WHERE '192.168.1.0/24'::cidr \u003e\u003e i",
+    "expected": "SELECT * FROM inet_tbl WHERE CAST('192.168.1.0/24' AS cidr) \u003e\u003e i"
+  },
+  {
+    "comment": "inet - Statement 45",
+    "query": "SET enable_seqscan TO on",
+    "expected": "SET enable_seqscan = on"
+  },
+  {
+    "comment": "inet - Statement 46",
+    "query": "DROP INDEX inet_idx1"
+  },
+  {
+    "comment": "inet - Statement 47",
+    "query": "CREATE INDEX inet_idx2 ON inet_tbl using gist (i inet_ops)",
+    "expected": "CREATE INDEX inet_idx2 ON inet_tbl USING gist ( i inet_ops )"
+  },
+  {
+    "comment": "inet - Statement 48",
+    "query": "SELECT * FROM inet_tbl WHERE i \u003c\u003c '192.168.1.0/24'::cidr ORDER BY i",
+    "expected": "SELECT * FROM inet_tbl WHERE i \u003c\u003c CAST('192.168.1.0/24' AS cidr) ORDER BY i"
+  },
+  {
+    "comment": "inet - Statement 49",
+    "query": "SELECT * FROM inet_tbl WHERE i \u003c\u003c= '192.168.1.0/24'::cidr ORDER BY i",
+    "expected": "SELECT * FROM inet_tbl WHERE i \u003c\u003c= CAST('192.168.1.0/24' AS cidr) ORDER BY i"
+  },
+  {
+    "comment": "inet - Statement 50",
+    "query": "SELECT * FROM inet_tbl WHERE i \u0026\u0026 '192.168.1.0/24'::cidr ORDER BY i",
+    "expected": "SELECT * FROM inet_tbl WHERE i \u0026\u0026 CAST('192.168.1.0/24' AS cidr) ORDER BY i"
+  },
+  {
+    "comment": "inet - Statement 51",
+    "query": "SELECT * FROM inet_tbl WHERE i \u003e\u003e= '192.168.1.0/24'::cidr ORDER BY i",
+    "expected": "SELECT * FROM inet_tbl WHERE i \u003e\u003e= CAST('192.168.1.0/24' AS cidr) ORDER BY i"
+  },
+  {
+    "comment": "inet - Statement 52",
+    "query": "SELECT * FROM inet_tbl WHERE i \u003e\u003e '192.168.1.0/24'::cidr ORDER BY i",
+    "expected": "SELECT * FROM inet_tbl WHERE i \u003e\u003e CAST('192.168.1.0/24' AS cidr) ORDER BY i"
+  },
+  {
+    "comment": "inet - Statement 53",
+    "query": "SELECT * FROM inet_tbl WHERE i \u003c '192.168.1.0/24'::cidr ORDER BY i",
+    "expected": "SELECT * FROM inet_tbl WHERE i \u003c CAST('192.168.1.0/24' AS cidr) ORDER BY i"
+  },
+  {
+    "comment": "inet - Statement 54",
+    "query": "SELECT * FROM inet_tbl WHERE i \u003c= '192.168.1.0/24'::cidr ORDER BY i",
+    "expected": "SELECT * FROM inet_tbl WHERE i \u003c= CAST('192.168.1.0/24' AS cidr) ORDER BY i"
+  },
+  {
+    "comment": "inet - Statement 55",
+    "query": "SELECT * FROM inet_tbl WHERE i = '192.168.1.0/24'::cidr ORDER BY i",
+    "expected": "SELECT * FROM inet_tbl WHERE i = CAST('192.168.1.0/24' AS cidr) ORDER BY i"
+  },
+  {
+    "comment": "inet - Statement 56",
+    "query": "SELECT * FROM inet_tbl WHERE i \u003e= '192.168.1.0/24'::cidr ORDER BY i",
+    "expected": "SELECT * FROM inet_tbl WHERE i \u003e= CAST('192.168.1.0/24' AS cidr) ORDER BY i"
+  },
+  {
+    "comment": "inet - Statement 57",
+    "query": "SELECT * FROM inet_tbl WHERE i \u003e '192.168.1.0/24'::cidr ORDER BY i",
+    "expected": "SELECT * FROM inet_tbl WHERE i \u003e CAST('192.168.1.0/24' AS cidr) ORDER BY i"
+  },
+  {
+    "comment": "inet - Statement 58",
+    "query": "SELECT * FROM inet_tbl WHERE i \u003c\u003e '192.168.1.0/24'::cidr ORDER BY i",
+    "expected": "SELECT * FROM inet_tbl WHERE i \u003c\u003e CAST('192.168.1.0/24' AS cidr) ORDER BY i"
+  },
+  {
+    "comment": "inet - Statement 59",
+    "query": "EXPLAIN (COSTS OFF) SELECT i FROM inet_tbl WHERE i \u003c\u003c '192.168.1.0/24'::cidr ORDER BY i",
+    "expected": "EXPLAIN (COSTS false) SELECT i FROM inet_tbl WHERE i \u003c\u003c CAST('192.168.1.0/24' AS cidr) ORDER BY i"
+  },
+  {
+    "comment": "inet - Statement 60",
+    "query": "SELECT i FROM inet_tbl WHERE i \u003c\u003c '192.168.1.0/24'::cidr ORDER BY i",
+    "expected": "SELECT i FROM inet_tbl WHERE i \u003c\u003c CAST('192.168.1.0/24' AS cidr) ORDER BY i"
+  },
+  {
+    "comment": "inet - Statement 61",
+    "query": "DROP INDEX inet_idx2"
+  },
+  {
+    "comment": "inet - Statement 62",
+    "query": "CREATE INDEX inet_idx3 ON inet_tbl using spgist (i)",
+    "expected": "CREATE INDEX inet_idx3 ON inet_tbl USING spgist ( i )"
+  },
+  {
+    "comment": "inet - Statement 63",
+    "query": "DROP INDEX inet_idx3"
+  },
+  {
+    "comment": "inet - Statement 64",
+    "query": "SELECT i, ~i AS \"~i\" FROM inet_tbl"
+  },
+  {
+    "comment": "inet - Statement 65",
+    "query": "SELECT i, c, i \u0026 c AS \"and\" FROM inet_tbl"
+  },
+  {
+    "comment": "inet - Statement 66",
+    "query": "SELECT i, c, i | c AS \"or\" FROM inet_tbl"
+  },
+  {
+    "comment": "inet - Statement 67",
+    "query": "SELECT i, i + 500 AS \"i+500\" FROM inet_tbl"
+  },
+  {
+    "comment": "inet - Statement 68",
+    "query": "SELECT i, i - 500 AS \"i-500\" FROM inet_tbl"
+  },
+  {
+    "comment": "inet - Statement 69",
+    "query": "SELECT i, c, i - c AS \"minus\" FROM inet_tbl",
+    "expected": "SELECT i, c, i - c AS minus FROM inet_tbl"
+  },
+  {
+    "comment": "inet - Statement 70",
+    "query": "SELECT '127.0.0.1'::inet + 257",
+    "expected": "SELECT CAST('127.0.0.1' AS inet) + 257"
+  },
+  {
+    "comment": "inet - Statement 71",
+    "query": "SELECT ('127.0.0.1'::inet + 257) - 257",
+    "expected": "SELECT (CAST('127.0.0.1' AS inet) + 257) - 257"
+  },
+  {
+    "comment": "inet - Statement 72",
+    "query": "SELECT '127::1'::inet + 257",
+    "expected": "SELECT CAST('127::1' AS inet) + 257"
+  },
+  {
+    "comment": "inet - Statement 73",
+    "query": "SELECT ('127::1'::inet + 257) - 257",
+    "expected": "SELECT (CAST('127::1' AS inet) + 257) - 257"
+  },
+  {
+    "comment": "inet - Statement 74",
+    "query": "SELECT '127.0.0.2'::inet  - ('127.0.0.2'::inet + 500)",
+    "expected": "SELECT CAST('127.0.0.2' AS inet) - (CAST('127.0.0.2' AS inet) + 500)"
+  },
+  {
+    "comment": "inet - Statement 75",
+    "query": "SELECT '127.0.0.2'::inet  - ('127.0.0.2'::inet - 500)",
+    "expected": "SELECT CAST('127.0.0.2' AS inet) - (CAST('127.0.0.2' AS inet) - 500)"
+  },
+  {
+    "comment": "inet - Statement 76",
+    "query": "SELECT '127::2'::inet  - ('127::2'::inet + 500)",
+    "expected": "SELECT CAST('127::2' AS inet) - (CAST('127::2' AS inet) + 500)"
+  },
+  {
+    "comment": "inet - Statement 77",
+    "query": "SELECT '127::2'::inet  - ('127::2'::inet - 500)",
+    "expected": "SELECT CAST('127::2' AS inet) - (CAST('127::2' AS inet) - 500)"
+  },
+  {
+    "comment": "inet - Statement 78",
+    "query": "SELECT '127.0.0.1'::inet + 10000000000",
+    "expected": "SELECT CAST('127.0.0.1' AS inet) + 10000000000"
+  },
+  {
+    "comment": "inet - Statement 79",
+    "query": "SELECT '127.0.0.1'::inet - 10000000000",
+    "expected": "SELECT CAST('127.0.0.1' AS inet) - 10000000000"
+  },
+  {
+    "comment": "inet - Statement 80",
+    "query": "SELECT '126::1'::inet - '127::2'::inet",
+    "expected": "SELECT CAST(CAST('126::1' AS inet) - '127::2' AS inet)"
+  },
+  {
+    "comment": "inet - Statement 81",
+    "query": "SELECT '127::1'::inet - '126::2'::inet",
+    "expected": "SELECT CAST(CAST('127::1' AS inet) - '126::2' AS inet)"
+  },
+  {
+    "comment": "inet - Statement 82",
+    "query": "SELECT '127::1'::inet + 10000000000",
+    "expected": "SELECT CAST('127::1' AS inet) + 10000000000"
+  },
+  {
+    "comment": "inet - Statement 83",
+    "query": "SELECT '127::1'::inet - '127::2'::inet",
+    "expected": "SELECT CAST(CAST('127::1' AS inet) - '127::2' AS inet)"
+  },
+  {
+    "comment": "inet - Statement 84",
+    "query": "INSERT INTO INET_TBL (c, i) VALUES ('10', '10::/8')",
+    "expected": "INSERT INTO inet_tbl (c, i) VALUES ('10', '10::/8')"
+  },
+  {
+    "comment": "inet - Statement 85",
+    "query": "SELECT inet_merge(c, i) FROM INET_TBL",
+    "expected": "SELECT inet_merge(c, i) FROM inet_tbl"
+  },
+  {
+    "comment": "inet - Statement 86",
+    "query": "SELECT inet_merge(c, i) FROM INET_TBL WHERE inet_same_family(c, i)",
+    "expected": "SELECT inet_merge(c, i) FROM inet_tbl WHERE inet_same_family(c, i)"
+  },
+  {
+    "comment": "inet - Statement 87",
+    "query": "SELECT a FROM (VALUES ('0.0.0.0/0'::inet), ('0.0.0.0/1'::inet), ('0.0.0.0/32'::inet), ('0.0.0.1/0'::inet), ('0.0.0.1/1'::inet), ('127.126.127.127/0'::inet), ('127.127.127.127/0'::inet), ('127.128.127.127/0'::inet), ('192.168.1.0/24'::inet), ('192.168.1.0/25'::inet), ('192.168.1.1/23'::inet), ('192.168.1.1/5'::inet), ('192.168.1.1/6'::inet), ('192.168.1.1/25'::inet), ('192.168.1.2/25'::inet), ('192.168.1.1/26'::inet), ('192.168.1.2/26'::inet), ('192.168.1.2/23'::inet), ('192.168.1.255/5'::inet), ('192.168.1.255/6'::inet), ('192.168.1.3/1'::inet), ('192.168.1.3/23'::inet), ('192.168.1.4/0'::inet), ('192.168.1.5/0'::inet), ('255.0.0.0/0'::inet), ('255.1.0.0/0'::inet), ('255.2.0.0/0'::inet), ('255.255.000.000/0'::inet), ('255.255.000.000/0'::inet), ('255.255.000.000/15'::inet), ('255.255.000.000/16'::inet), ('255.255.255.254/32'::inet), ('255.255.255.000/32'::inet), ('255.255.255.001/31'::inet), ('255.255.255.002/31'::inet), ('255.255.255.003/31'::inet), ('255.255.255.003/32'::inet), ('255.255.255.001/32'::inet), ('255.255.255.255/0'::inet), ('255.255.255.255/0'::inet), ('255.255.255.255/0'::inet), ('255.255.255.255/1'::inet), ('255.255.255.255/16'::inet), ('255.255.255.255/16'::inet), ('255.255.255.255/31'::inet), ('255.255.255.255/32'::inet), ('255.255.255.253/32'::inet), ('255.255.255.252/32'::inet), ('255.3.0.0/0'::inet), ('0000:0000:0000:0000:0000:0000:0000:0000/0'::inet), ('0000:0000:0000:0000:0000:0000:0000:0000/128'::inet), ('0000:0000:0000:0000:0000:0000:0000:0001/128'::inet), ('10:23::f1/64'::inet), ('10:23::f1/65'::inet), ('10:23::ffff'::inet), ('127::1'::inet), ('127::2'::inet), ('8000:0000:0000:0000:0000:0000:0000:0000/1'::inet), ('::1:ffff:ffff:ffff:ffff/128'::inet), ('::2:ffff:ffff:ffff:ffff/128'::inet), ('::4:3:2:0/24'::inet), ('::4:3:2:1/24'::inet), ('::4:3:2:2/24'::inet), ('ffff:83e7:f118:57dc:6093:6d92:689d:58cf/70'::inet), ('ffff:84b0:4775:536e:c3ed:7116:a6d6:34f0/44'::inet), ('ffff:8566:f84:5867:47f1:7867:d2ba:8a1a/69'::inet), ('ffff:8883:f028:7d2:4d68:d510:7d6b:ac43/73'::inet), ('ffff:8ae8:7c14:65b3:196:8e4a:89ae:fb30/89'::inet), ('ffff:8dd0:646:694c:7c16:7e35:6a26:171/104'::inet), ('ffff:8eef:cbf:700:eda3:ae32:f4b4:318b/121'::inet), ('ffff:90e7:e744:664:a93:8efe:1f25:7663/122'::inet), ('ffff:9597:c69c:8b24:57a:8639:ec78:6026/111'::inet), ('ffff:9e86:79ea:f16e:df31:8e4d:7783:532e/88'::inet), ('ffff:a0c7:82d3:24de:f762:6e1f:316d:3fb2/23'::inet), ('ffff:fffa:ffff:ffff:ffff:ffff:ffff:ffff/0'::inet), ('ffff:fffb:ffff:ffff:ffff:ffff:ffff:ffff/0'::inet), ('ffff:fffc:ffff:ffff:ffff:ffff:ffff:ffff/0'::inet), ('ffff:fffd:ffff:ffff:ffff:ffff:ffff:ffff/0'::inet), ('ffff:fffe:ffff:ffff:ffff:ffff:ffff:ffff/0'::inet), ('ffff:ffff:ffff:fffa:ffff:ffff:ffff:ffff/0'::inet), ('ffff:ffff:ffff:fffb:ffff:ffff:ffff:ffff/0'::inet), ('ffff:ffff:ffff:fffc:ffff:ffff:ffff:ffff/0'::inet), ('ffff:ffff:ffff:fffd::/128'::inet), ('ffff:ffff:ffff:fffd:ffff:ffff:ffff:ffff/0'::inet), ('ffff:ffff:ffff:fffe::/128'::inet), ('ffff:ffff:ffff:fffe:ffff:ffff:ffff:ffff/0'::inet), ('ffff:ffff:ffff:ffff:4:3:2:0/24'::inet), ('ffff:ffff:ffff:ffff:4:3:2:1/24'::inet), ('ffff:ffff:ffff:ffff:4:3:2:2/24'::inet), ('ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff/0'::inet), ('ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff/128'::inet) ) AS i(a) ORDER BY a",
+    "expected": "SELECT a FROM (VALUES (CAST('0.0.0.0/0' AS inet)), (CAST('0.0.0.0/1' AS inet)), (CAST('0.0.0.0/32' AS inet)), (CAST('0.0.0.1/0' AS inet)), (CAST('0.0.0.1/1' AS inet)), (CAST('127.126.127.127/0' AS inet)), (CAST('127.127.127.127/0' AS inet)), (CAST('127.128.127.127/0' AS inet)), (CAST('192.168.1.0/24' AS inet)), (CAST('192.168.1.0/25' AS inet)), (CAST('192.168.1.1/23' AS inet)), (CAST('192.168.1.1/5' AS inet)), (CAST('192.168.1.1/6' AS inet)), (CAST('192.168.1.1/25' AS inet)), (CAST('192.168.1.2/25' AS inet)), (CAST('192.168.1.1/26' AS inet)), (CAST('192.168.1.2/26' AS inet)), (CAST('192.168.1.2/23' AS inet)), (CAST('192.168.1.255/5' AS inet)), (CAST('192.168.1.255/6' AS inet)), (CAST('192.168.1.3/1' AS inet)), (CAST('192.168.1.3/23' AS inet)), (CAST('192.168.1.4/0' AS inet)), (CAST('192.168.1.5/0' AS inet)), (CAST('255.0.0.0/0' AS inet)), (CAST('255.1.0.0/0' AS inet)), (CAST('255.2.0.0/0' AS inet)), (CAST('255.255.000.000/0' AS inet)), (CAST('255.255.000.000/0' AS inet)), (CAST('255.255.000.000/15' AS inet)), (CAST('255.255.000.000/16' AS inet)), (CAST('255.255.255.254/32' AS inet)), (CAST('255.255.255.000/32' AS inet)), (CAST('255.255.255.001/31' AS inet)), (CAST('255.255.255.002/31' AS inet)), (CAST('255.255.255.003/31' AS inet)), (CAST('255.255.255.003/32' AS inet)), (CAST('255.255.255.001/32' AS inet)), (CAST('255.255.255.255/0' AS inet)), (CAST('255.255.255.255/0' AS inet)), (CAST('255.255.255.255/0' AS inet)), (CAST('255.255.255.255/1' AS inet)), (CAST('255.255.255.255/16' AS inet)), (CAST('255.255.255.255/16' AS inet)), (CAST('255.255.255.255/31' AS inet)), (CAST('255.255.255.255/32' AS inet)), (CAST('255.255.255.253/32' AS inet)), (CAST('255.255.255.252/32' AS inet)), (CAST('255.3.0.0/0' AS inet)), (CAST('0000:0000:0000:0000:0000:0000:0000:0000/0' AS inet)), (CAST('0000:0000:0000:0000:0000:0000:0000:0000/128' AS inet)), (CAST('0000:0000:0000:0000:0000:0000:0000:0001/128' AS inet)), (CAST('10:23::f1/64' AS inet)), (CAST('10:23::f1/65' AS inet)), (CAST('10:23::ffff' AS inet)), (CAST('127::1' AS inet)), (CAST('127::2' AS inet)), (CAST('8000:0000:0000:0000:0000:0000:0000:0000/1' AS inet)), (CAST('::1:ffff:ffff:ffff:ffff/128' AS inet)), (CAST('::2:ffff:ffff:ffff:ffff/128' AS inet)), (CAST('::4:3:2:0/24' AS inet)), (CAST('::4:3:2:1/24' AS inet)), (CAST('::4:3:2:2/24' AS inet)), (CAST('ffff:83e7:f118:57dc:6093:6d92:689d:58cf/70' AS inet)), (CAST('ffff:84b0:4775:536e:c3ed:7116:a6d6:34f0/44' AS inet)), (CAST('ffff:8566:f84:5867:47f1:7867:d2ba:8a1a/69' AS inet)), (CAST('ffff:8883:f028:7d2:4d68:d510:7d6b:ac43/73' AS inet)), (CAST('ffff:8ae8:7c14:65b3:196:8e4a:89ae:fb30/89' AS inet)), (CAST('ffff:8dd0:646:694c:7c16:7e35:6a26:171/104' AS inet)), (CAST('ffff:8eef:cbf:700:eda3:ae32:f4b4:318b/121' AS inet)), (CAST('ffff:90e7:e744:664:a93:8efe:1f25:7663/122' AS inet)), (CAST('ffff:9597:c69c:8b24:57a:8639:ec78:6026/111' AS inet)), (CAST('ffff:9e86:79ea:f16e:df31:8e4d:7783:532e/88' AS inet)), (CAST('ffff:a0c7:82d3:24de:f762:6e1f:316d:3fb2/23' AS inet)), (CAST('ffff:fffa:ffff:ffff:ffff:ffff:ffff:ffff/0' AS inet)), (CAST('ffff:fffb:ffff:ffff:ffff:ffff:ffff:ffff/0' AS inet)), (CAST('ffff:fffc:ffff:ffff:ffff:ffff:ffff:ffff/0' AS inet)), (CAST('ffff:fffd:ffff:ffff:ffff:ffff:ffff:ffff/0' AS inet)), (CAST('ffff:fffe:ffff:ffff:ffff:ffff:ffff:ffff/0' AS inet)), (CAST('ffff:ffff:ffff:fffa:ffff:ffff:ffff:ffff/0' AS inet)), (CAST('ffff:ffff:ffff:fffb:ffff:ffff:ffff:ffff/0' AS inet)), (CAST('ffff:ffff:ffff:fffc:ffff:ffff:ffff:ffff/0' AS inet)), (CAST('ffff:ffff:ffff:fffd::/128' AS inet)), (CAST('ffff:ffff:ffff:fffd:ffff:ffff:ffff:ffff/0' AS inet)), (CAST('ffff:ffff:ffff:fffe::/128' AS inet)), (CAST('ffff:ffff:ffff:fffe:ffff:ffff:ffff:ffff/0' AS inet)), (CAST('ffff:ffff:ffff:ffff:4:3:2:0/24' AS inet)), (CAST('ffff:ffff:ffff:ffff:4:3:2:1/24' AS inet)), (CAST('ffff:ffff:ffff:ffff:4:3:2:2/24' AS inet)), (CAST('ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff/0' AS inet)), (CAST('ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff/128' AS inet))) AS i(a) ORDER BY a"
+  },
+  {
+    "comment": "inet - Statement 88",
+    "query": "SELECT pg_input_is_valid('1234', 'cidr')"
+  },
+  {
+    "comment": "inet - Statement 89",
+    "query": "SELECT * FROM pg_input_error_info('1234', 'cidr')"
+  },
+  {
+    "comment": "inet - Statement 90",
+    "query": "SELECT pg_input_is_valid('192.168.198.200/24', 'cidr')"
+  },
+  {
+    "comment": "inet - Statement 91",
+    "query": "SELECT * FROM pg_input_error_info('192.168.198.200/24', 'cidr')"
+  },
+  {
+    "comment": "inet - Statement 92",
+    "query": "SELECT pg_input_is_valid('1234', 'inet')"
+  },
+  {
+    "comment": "inet - Statement 93",
+    "query": "SELECT * FROM pg_input_error_info('1234', 'inet')"
+  }
+]

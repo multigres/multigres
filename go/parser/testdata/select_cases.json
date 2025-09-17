@@ -1,0 +1,2334 @@
+[
+  {
+    "comment": "Simple SELECT all",
+    "query": "SELECT *"
+  },
+  {
+    "comment": "SELECT specific columns",
+    "query": "SELECT id, name"
+  },
+  {
+    "comment": "SELECT with alias",
+    "query": "SELECT id AS user_id"
+  },
+  {
+    "comment": "SELECT from table",
+    "query": "SELECT * FROM users"
+  },
+  {
+    "comment": "SELECT from qualified table",
+    "query": "SELECT * FROM public.users"
+  },
+  {
+    "comment": "WHERE with equality",
+    "query": "SELECT * FROM users WHERE id = 1"
+  },
+  {
+    "comment": "WHERE with comparison",
+    "query": "SELECT * FROM users WHERE age \u003e 18"
+  },
+  {
+    "comment": "WHERE with AND",
+    "query": "SELECT * FROM users WHERE (age \u003e 18 AND active = TRUE)"
+  },
+  {
+    "comment": "WHERE with OR",
+    "query": "SELECT * FROM users WHERE (active = TRUE OR admin = TRUE)"
+  },
+  {
+    "comment": "WHERE with NOT",
+    "query": "SELECT * FROM users WHERE NOT deleted"
+  },
+  {
+    "comment": "SELECT DISTINCT",
+    "query": "SELECT DISTINCT name FROM users"
+  },
+  {
+    "comment": "SELECT DISTINCT ON",
+    "query": "SELECT DISTINCT ON (department) name FROM employees"
+  },
+  {
+    "comment": "Arithmetic addition",
+    "query": "SELECT 1 + 2"
+  },
+  {
+    "comment": "Arithmetic subtraction",
+    "query": "SELECT 5 - 3"
+  },
+  {
+    "comment": "Arithmetic multiplication",
+    "query": "SELECT 4 * 6"
+  },
+  {
+    "comment": "Arithmetic division",
+    "query": "SELECT 10 / 2"
+  },
+  {
+    "comment": "Unary minus",
+    "query": "SELECT -42"
+  },
+  {
+    "comment": "Unary plus",
+    "query": "SELECT +42"
+  },
+  {
+    "comment": "Complex arithmetic",
+    "query": "SELECT ((1 + 2) * 3)"
+  },
+  {
+    "comment": "Type cast simple",
+    "query": "SELECT id::TEXT FROM users",
+    "expected": "SELECT CAST(id AS TEXT) FROM users"
+  },
+  {
+    "comment": "Type cast expression",
+    "query": "SELECT (age + 1)::varchar FROM users",
+    "expected": "SELECT CAST((age + 1) AS VARCHAR) FROM users"
+  },
+  {
+    "comment": "Function no args",
+    "query": "SELECT now()",
+    "expected": "SELECT NOW()"
+  },
+  {
+    "comment": "Function with arg",
+    "query": "SELECT length('hello')"
+  },
+  {
+    "comment": "Function multiple args",
+    "query": "SELECT substring('hello', 1, 3)"
+  },
+  {
+    "comment": "JSON_OBJECTAGG simple",
+    "query": "SELECT JSON_OBJECTAGG('name' VALUE value) FROM users",
+    "expected": "SELECT JSON_OBJECTAGG('name' : value) FROM users"
+  },
+  {
+    "comment": "JSON_ARRAYAGG simple",
+    "query": "SELECT JSON_ARRAYAGG(name) FROM users"
+  },
+  {
+    "comment": "JSON_OBJECTAGG with RETURNING",
+    "query": "SELECT JSON_OBJECTAGG('key' VALUE value RETURNING TEXT) FROM users",
+    "expected": "SELECT JSON_OBJECTAGG('key' : value RETURNING TEXT) FROM users"
+  },
+  {
+    "comment": "JSON_ARRAYAGG with RETURNING",
+    "query": "SELECT JSON_ARRAYAGG(name RETURNING JSONB) FROM users"
+  },
+  {
+    "comment": "JSON_OBJECTAGG with FILTER",
+    "query": "SELECT JSON_OBJECTAGG('key' VALUE val) FILTER (WHERE val IS NOT NULL) FROM users",
+    "expected": "SELECT JSON_OBJECTAGG('key' : val) FILTER (WHERE val IS NOT NULL) FROM users"
+  },
+  {
+    "comment": "JSON_ARRAYAGG with OVER",
+    "query": "SELECT JSON_ARRAYAGG(name) OVER (PARTITION BY department) FROM users"
+  },
+  {
+    "comment": "JSON_OBJECTAGG with FILTER and OVER",
+    "query": "SELECT JSON_OBJECTAGG('key' VALUE val RETURNING TEXT) FILTER (WHERE val \u003e 0) OVER (ORDER BY id) FROM users",
+    "expected": "SELECT JSON_OBJECTAGG('key' : val RETURNING TEXT) FILTER (WHERE val \u003e 0) OVER (ORDER BY id) FROM users"
+  },
+  {
+    "comment": "JSON_OBJECT legacy",
+    "query": "SELECT json_object('name', 'John', 'age', 30)"
+  },
+  {
+    "comment": "JSON_OBJECT constructor simple",
+    "query": "SELECT JSON_OBJECT('name' VALUE 'John', 'age' VALUE 30)",
+    "expected": "SELECT JSON_OBJECT('name' : 'John', 'age' : 30)"
+  },
+  {
+    "comment": "JSON_OBJECT empty",
+    "query": "SELECT JSON_OBJECT()"
+  },
+  {
+    "comment": "JSON_OBJECT with returning",
+    "query": "SELECT JSON_OBJECT('key' VALUE 'value' RETURNING TEXT)",
+    "expected": "SELECT JSON_OBJECT('key' : 'value' RETURNING TEXT)"
+  },
+  {
+    "comment": "JSON_ARRAY constructor",
+    "query": "SELECT JSON_ARRAY('a' FORMAT JSON, 'b', 'c')"
+  },
+  {
+    "comment": "JSON_ARRAY empty",
+    "query": "SELECT JSON_ARRAY()"
+  },
+  {
+    "comment": "JSON_ARRAY with subquery",
+    "query": "SELECT JSON_ARRAY(SELECT name FROM users)"
+  },
+  {
+    "comment": "JSON_SCALAR",
+    "query": "SELECT JSON_SCALAR('test')"
+  },
+  {
+    "comment": "JSON parse",
+    "query": "SELECT JSON('{\"name\": \"John\"}')"
+  },
+  {
+    "comment": "JSON_SERIALIZE",
+    "query": "SELECT JSON_SERIALIZE('{\"name\": \"John\"}')"
+  },
+  {
+    "comment": "JSON_VALUE",
+    "query": "SELECT JSON_VALUE('{\"name\": \"John\"}', '$.name')"
+  },
+  {
+    "comment": "JSON_EXISTS",
+    "query": "SELECT JSON_EXISTS('{\"name\": \"John\"}', '$.name')"
+  },
+  {
+    "comment": "JSON_QUERY",
+    "query": "SELECT JSON_QUERY('{\"items\": [1,2,3]}', '$.items')"
+  },
+  {
+    "comment": "MERGE_ACTION",
+    "query": "SELECT MERGE_ACTION()"
+  },
+  {
+    "comment": "Simple column",
+    "query": "SELECT name FROM users"
+  },
+  {
+    "comment": "Qualified column",
+    "query": "SELECT users.name FROM users"
+  },
+  {
+    "comment": "Integer constant",
+    "query": "SELECT 42"
+  },
+  {
+    "comment": "Float constant",
+    "query": "SELECT 3.14"
+  },
+  {
+    "comment": "String constant",
+    "query": "SELECT 'hello'"
+  },
+  {
+    "comment": "Boolean TRUE",
+    "query": "SELECT TRUE"
+  },
+  {
+    "comment": "Boolean FALSE",
+    "query": "SELECT FALSE"
+  },
+  {
+    "comment": "NULL constant",
+    "query": "SELECT NULL"
+  },
+  {
+    "comment": "Table with alias",
+    "query": "SELECT * FROM users AS u"
+  },
+  {
+    "comment": "Table with implicit alias",
+    "query": "SELECT * FROM users u",
+    "expected": "SELECT * FROM users AS u"
+  },
+  {
+    "comment": "Multiple tables",
+    "query": "SELECT * FROM users, orders"
+  },
+  {
+    "comment": "Complex query",
+    "query": "SELECT id, name FROM users WHERE age \u003e 21"
+  },
+  {
+    "comment": "Query with multiple conditions",
+    "query": "SELECT * FROM users WHERE (id \u003e 0 AND active = TRUE)"
+  },
+  {
+    "comment": "SELECT INTO",
+    "query": "SELECT * INTO new_table FROM users"
+  },
+  {
+    "comment": "SELECT INTO TEMPORARY",
+    "query": "SELECT * INTO TEMPORARY temp_users FROM users"
+  },
+  {
+    "comment": "SELECT INTO TEMP",
+    "query": "SELECT * INTO TEMP temp_users FROM users",
+    "expected": "SELECT * INTO TEMPORARY temp_users FROM users"
+  },
+  {
+    "comment": "SELECT INTO LOCAL TEMPORARY",
+    "query": "SELECT * INTO LOCAL TEMPORARY local_temp_users FROM users",
+    "expected": "SELECT * INTO TEMPORARY local_temp_users FROM users"
+  },
+  {
+    "comment": "SELECT INTO UNLOGGED",
+    "query": "SELECT * INTO UNLOGGED unlogged_users FROM users"
+  },
+  {
+    "comment": "SELECT INTO TABLE explicit",
+    "query": "SELECT * INTO TABLE explicit_table FROM users",
+    "expected": "SELECT * INTO explicit_table FROM users"
+  },
+  {
+    "comment": "TABLE statement",
+    "query": "TABLE users",
+    "expected": "SELECT * FROM users"
+  },
+  {
+    "comment": "SELECT from ONLY",
+    "query": "SELECT * FROM ONLY users"
+  },
+  {
+    "comment": "INNER JOIN",
+    "query": "SELECT * FROM users INNER JOIN orders ON users.id = orders.user_id"
+  },
+  {
+    "comment": "LEFT JOIN",
+    "query": "SELECT * FROM users LEFT JOIN orders ON users.id = orders.user_id",
+    "expected": "SELECT * FROM users LEFT OUTER JOIN orders ON users.id = orders.user_id"
+  },
+  {
+    "comment": "RIGHT JOIN",
+    "query": "SELECT * FROM users RIGHT JOIN orders ON users.id = orders.user_id",
+    "expected": "SELECT * FROM users RIGHT OUTER JOIN orders ON users.id = orders.user_id"
+  },
+  {
+    "comment": "FULL JOIN",
+    "query": "SELECT * FROM users FULL JOIN orders ON users.id = orders.user_id",
+    "expected": "SELECT * FROM users FULL OUTER JOIN orders ON users.id = orders.user_id"
+  },
+  {
+    "comment": "CROSS JOIN",
+    "query": "SELECT * FROM users CROSS JOIN orders",
+    "expected": "SELECT * FROM users INNER JOIN orders ON TRUE"
+  },
+  {
+    "comment": "NATURAL JOIN",
+    "query": "SELECT * FROM users NATURAL JOIN orders"
+  },
+  {
+    "comment": "JOIN with USING",
+    "query": "SELECT * FROM users JOIN orders USING (user_id)",
+    "expected": "SELECT * FROM users INNER JOIN orders USING (user_id)"
+  },
+  {
+    "comment": "JOIN implicit INNER",
+    "query": "SELECT * FROM users JOIN orders ON users.id = orders.user_id",
+    "expected": "SELECT * FROM users INNER JOIN orders ON users.id = orders.user_id"
+  },
+  {
+    "comment": "LEFT OUTER JOIN explicit",
+    "query": "SELECT * FROM users LEFT OUTER JOIN orders ON users.id = orders.user_id"
+  },
+  {
+    "comment": "RIGHT OUTER JOIN explicit",
+    "query": "SELECT * FROM users RIGHT OUTER JOIN orders ON users.id = orders.user_id"
+  },
+  {
+    "comment": "FULL OUTER JOIN explicit",
+    "query": "SELECT * FROM users FULL OUTER JOIN orders ON users.id = orders.user_id"
+  },
+  {
+    "comment": "NATURAL INNER JOIN",
+    "query": "SELECT * FROM users NATURAL INNER JOIN orders",
+    "expected": "SELECT * FROM users NATURAL JOIN orders"
+  },
+  {
+    "comment": "NATURAL LEFT JOIN",
+    "query": "SELECT * FROM users NATURAL LEFT JOIN orders"
+  },
+  {
+    "comment": "NATURAL RIGHT JOIN",
+    "query": "SELECT * FROM users NATURAL RIGHT JOIN orders"
+  },
+  {
+    "comment": "NATURAL FULL JOIN",
+    "query": "SELECT * FROM users NATURAL FULL JOIN orders"
+  },
+  {
+    "comment": "Multiple column USING",
+    "query": "SELECT * FROM users JOIN orders USING (user_id, created_date)",
+    "expected": "SELECT * FROM users INNER JOIN orders USING (user_id, created_date)"
+  },
+  {
+    "comment": "Chained JOINs",
+    "query": "SELECT * FROM users JOIN orders ON users.id = orders.user_id JOIN products ON orders.product_id = products.id",
+    "expected": "SELECT * FROM users INNER JOIN orders ON users.id = orders.user_id INNER JOIN products ON orders.product_id = products.id"
+  },
+  {
+    "comment": "Mixed JOIN types",
+    "query": "SELECT * FROM users LEFT JOIN orders ON users.id = orders.user_id CROSS JOIN categories",
+    "expected": "SELECT * FROM users LEFT OUTER JOIN orders ON users.id = orders.user_id INNER JOIN categories ON TRUE"
+  },
+  {
+    "comment": "Parenthesized JOIN",
+    "query": "SELECT * FROM users JOIN (orders JOIN products ON orders.product_id = products.id) ON users.id = orders.user_id",
+    "expected": "SELECT * FROM users INNER JOIN (orders INNER JOIN products ON orders.product_id = products.id) ON users.id = orders.user_id"
+  },
+  {
+    "comment": "JOIN with table aliases",
+    "query": "SELECT * FROM users u JOIN orders o ON u.id = o.user_id",
+    "expected": "SELECT * FROM users AS u INNER JOIN orders AS o ON u.id = o.user_id"
+  },
+  {
+    "comment": "Basic CTE",
+    "query": "WITH stats AS (SELECT * FROM users) SELECT * FROM stats"
+  },
+  {
+    "comment": "Recursive CTE",
+    "query": "WITH RECURSIVE t AS (SELECT 1) SELECT * FROM t"
+  },
+  {
+    "comment": "Multiple CTEs",
+    "query": "WITH t1 AS (SELECT id FROM users), t2 AS (SELECT * FROM t1) SELECT * FROM t2"
+  },
+  {
+    "comment": "CTE with column list",
+    "query": "WITH stats(user_id) AS (SELECT id FROM users) SELECT * FROM stats"
+  },
+  {
+    "comment": "MATERIALIZED CTE",
+    "query": "WITH stats AS MATERIALIZED (SELECT id FROM users) SELECT * FROM stats"
+  },
+  {
+    "comment": "NOT MATERIALIZED CTE",
+    "query": "WITH stats AS NOT MATERIALIZED (SELECT id FROM users) SELECT * FROM stats"
+  },
+  {
+    "comment": "Recursive MATERIALIZED CTE",
+    "query": "WITH RECURSIVE t AS MATERIALIZED (SELECT 1) SELECT * FROM t"
+  },
+  {
+    "comment": "CTE with SEARCH DEPTH FIRST",
+    "query": "WITH RECURSIVE tree AS (SELECT id FROM nodes) SEARCH DEPTH FIRST BY id SET search_seq SELECT * FROM tree"
+  },
+  {
+    "comment": "CTE with SEARCH BREADTH FIRST",
+    "query": "WITH RECURSIVE tree AS (SELECT id FROM nodes) SEARCH BREADTH FIRST BY id SET search_seq SELECT * FROM tree"
+  },
+  {
+    "comment": "CTE with SEARCH multiple columns",
+    "query": "WITH RECURSIVE tree AS (SELECT id, parent_id FROM nodes) SEARCH DEPTH FIRST BY id, parent_id SET search_seq SELECT * FROM tree"
+  },
+  {
+    "comment": "CTE with CYCLE simple",
+    "query": "WITH RECURSIVE tree AS (SELECT id FROM nodes) CYCLE id SET is_cycle USING path SELECT * FROM tree"
+  },
+  {
+    "comment": "CTE with CYCLE full",
+    "query": "WITH RECURSIVE tree AS (SELECT id FROM nodes) CYCLE id SET is_cycle TO TRUE DEFAULT FALSE USING path SELECT * FROM tree"
+  },
+  {
+    "comment": "CTE with CYCLE multiple columns",
+    "query": "WITH RECURSIVE tree AS (SELECT id, parent_id FROM nodes) CYCLE id, parent_id SET is_cycle USING path SELECT * FROM tree"
+  },
+  {
+    "comment": "CTE with MATERIALIZED and SEARCH",
+    "query": "WITH RECURSIVE tree AS MATERIALIZED (SELECT id FROM nodes) SEARCH DEPTH FIRST BY id SET search_seq SELECT * FROM tree"
+  },
+  {
+    "comment": "CTE with SEARCH and CYCLE",
+    "query": "WITH RECURSIVE tree AS (SELECT id FROM nodes) SEARCH DEPTH FIRST BY id SET search_seq CYCLE id SET is_cycle USING path SELECT * FROM tree"
+  },
+  {
+    "comment": "CTE with all advanced features",
+    "query": "WITH RECURSIVE tree AS MATERIALIZED (SELECT id FROM nodes) SEARCH DEPTH FIRST BY id SET search_seq CYCLE id SET is_cycle TO TRUE DEFAULT FALSE USING path SELECT * FROM tree"
+  },
+  {
+    "comment": "Subquery in FROM",
+    "query": "SELECT * FROM (SELECT id FROM users) AS sub"
+  },
+  {
+    "comment": "LATERAL subquery",
+    "query": "SELECT * FROM users, LATERAL (SELECT * FROM orders) AS sub"
+  },
+  {
+    "comment": "Subquery with alias and columns",
+    "query": "SELECT * FROM (SELECT id, name FROM users) AS sub(user_id, user_name)"
+  },
+  {
+    "comment": "Simple SELECT statement",
+    "query": "SELECT 1"
+  },
+  {
+    "comment": "SELECT statement with expected normalization",
+    "query": "select   1",
+    "expected": "SELECT 1"
+  },
+  {
+    "comment": "SELECT with FROM clause",
+    "query": "SELECT * FROM users"
+  },
+  {
+    "comment": "SELECT with WHERE clause",
+    "query": "SELECT id, name FROM users WHERE id = 1"
+  },
+  {
+    "comment": "SELECT with JOIN",
+    "query": "SELECT u.name, o.total FROM users u JOIN orders o ON u.id = o.user_id",
+    "expected": "SELECT u.name, o.total FROM users AS u INNER JOIN orders AS o ON u.id = o.user_id"
+  },
+  {
+    "comment": "SELECT with GROUP BY",
+    "query": "SELECT department, COUNT(*) FROM employees GROUP BY department"
+  },
+  {
+    "comment": "SELECT with ORDER BY",
+    "query": "SELECT * FROM products ORDER BY price DESC"
+  },
+  {
+    "comment": "SELECT with LIMIT",
+    "query": "SELECT * FROM logs LIMIT 10"
+  },
+  {
+    "comment": "SELECT with CTE",
+    "query": "WITH active_users AS (SELECT * FROM users WHERE active = true) SELECT * FROM active_users",
+    "expected": "WITH active_users AS (SELECT * FROM users WHERE active = TRUE) SELECT * FROM active_users"
+  },
+  {
+    "comment": "SELECT with window function",
+    "query": "SELECT name, salary, RANK() OVER (ORDER BY salary DESC) FROM employees"
+  },
+  {
+    "comment": "Invalid SELECT - should error",
+    "query": "SELECT FROM WHERE",
+    "error": "parse error at position 17: syntax error"
+  },
+  {
+    "comment": "Basic GROUP BY",
+    "query": "SELECT dept_id, COUNT(*) FROM employees GROUP BY dept_id"
+  },
+  {
+    "comment": "GROUP BY multiple columns",
+    "query": "SELECT dept_id, status, COUNT(*) FROM employees GROUP BY dept_id, status"
+  },
+  {
+    "comment": "GROUP BY with expression",
+    "query": "SELECT DATE(created_at), COUNT(*) FROM orders GROUP BY DATE(created_at)",
+    "expected": "SELECT date(created_at), COUNT(*) FROM orders GROUP BY date(created_at)"
+  },
+  {
+    "comment": "GROUP BY ROLLUP",
+    "query": "SELECT year, quarter, SUM(sales) FROM sales GROUP BY ROLLUP(year, quarter)"
+  },
+  {
+    "comment": "GROUP BY CUBE",
+    "query": "SELECT category, subcategory, COUNT(*) FROM products GROUP BY CUBE(category, subcategory)"
+  },
+  {
+    "comment": "GROUP BY GROUPING SETS",
+    "query": "SELECT col1, col2, COUNT(*) FROM table1 GROUP BY GROUPING SETS ((col1), (col2), ())"
+  },
+  {
+    "comment": "GROUP BY empty grouping set",
+    "query": "SELECT COUNT(*) FROM table1 GROUP BY ()"
+  },
+  {
+    "comment": "Basic HAVING",
+    "query": "SELECT dept_id, COUNT(*) FROM employees GROUP BY dept_id HAVING COUNT(*) \u003e 5"
+  },
+  {
+    "comment": "HAVING with AND",
+    "query": "SELECT dept_id, AVG(salary) FROM employees GROUP BY dept_id HAVING COUNT(*) \u003e 5 AND AVG(salary) \u003e 50000"
+  },
+  {
+    "comment": "HAVING with complex expression",
+    "query": "SELECT category, SUM(amount) FROM transactions GROUP BY category HAVING SUM(amount) \u003e 1000 AND COUNT(*) \u003e 10"
+  },
+  {
+    "comment": "Basic ORDER BY",
+    "query": "SELECT name, age FROM users ORDER BY name"
+  },
+  {
+    "comment": "ORDER BY ASC/DESC",
+    "query": "SELECT name, age FROM users ORDER BY name ASC, age DESC"
+  },
+  {
+    "comment": "ORDER BY NULLS FIRST",
+    "query": "SELECT name, score FROM users ORDER BY score NULLS FIRST"
+  },
+  {
+    "comment": "ORDER BY NULLS LAST",
+    "query": "SELECT name, score FROM users ORDER BY score DESC NULLS LAST"
+  },
+  {
+    "comment": "ORDER BY multiple with mixed nulls",
+    "query": "SELECT name, score, age FROM users ORDER BY score ASC NULLS FIRST, age DESC NULLS LAST"
+  },
+  {
+    "comment": "ORDER BY with expression",
+    "query": "SELECT name FROM users ORDER BY upper(name)"
+  },
+  {
+    "comment": "GROUP BY + HAVING",
+    "query": "SELECT dept_id, COUNT(*) FROM employees GROUP BY dept_id HAVING COUNT(*) \u003e 5"
+  },
+  {
+    "comment": "GROUP BY + ORDER BY",
+    "query": "SELECT dept_id, COUNT(*) FROM employees GROUP BY dept_id ORDER BY dept_id"
+  },
+  {
+    "comment": "HAVING + ORDER BY",
+    "query": "SELECT dept_id, COUNT(*) FROM employees GROUP BY dept_id HAVING COUNT(*) \u003e 5 ORDER BY COUNT(*) DESC"
+  },
+  {
+    "comment": "All three combined",
+    "query": "SELECT dept_id, AVG(salary) FROM employees GROUP BY dept_id HAVING AVG(salary) \u003e 50000 ORDER BY AVG(salary) DESC"
+  },
+  {
+    "comment": "Advanced ROLLUP with ORDER BY",
+    "query": "SELECT year, quarter, SUM(sales) FROM sales GROUP BY ROLLUP(year, quarter) ORDER BY year NULLS LAST, quarter"
+  },
+  {
+    "comment": "Complex GROUPING SETS with HAVING and ORDER BY",
+    "query": "SELECT category, subcategory, COUNT(*), SUM(amount) FROM transactions GROUP BY GROUPING SETS ((category), (category, subcategory), ()) HAVING SUM(amount) \u003e 1000 ORDER BY category NULLS FIRST, subcategory DESC"
+  },
+  {
+    "comment": "Aggregate with FILTER",
+    "query": "SELECT COUNT(*) FILTER (WHERE active = TRUE) FROM users"
+  },
+  {
+    "comment": "SUM with FILTER",
+    "query": "SELECT SUM(amount) FILTER (WHERE status = 'paid') FROM invoices"
+  },
+  {
+    "comment": "Multiple aggregates with FILTER",
+    "query": "SELECT COUNT(*) FILTER (WHERE active), SUM(sales) FILTER (WHERE region = 'US') FROM data"
+  },
+  {
+    "comment": "Aggregate FILTER with GROUP BY",
+    "query": "SELECT dept, AVG(salary) FILTER (WHERE experience \u003e 5) FROM employees GROUP BY dept"
+  },
+  {
+    "comment": "percentile_cont WITHIN GROUP",
+    "query": "SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY score) FROM results"
+  },
+  {
+    "comment": "mode WITHIN GROUP",
+    "query": "SELECT mode() WITHIN GROUP (ORDER BY value) FROM measurements"
+  },
+  {
+    "comment": "string_agg WITHIN GROUP",
+    "query": "SELECT string_agg(name, ',') WITHIN GROUP (ORDER BY name) FROM users"
+  },
+  {
+    "comment": "WITHIN GROUP with DESC",
+    "query": "SELECT percentile_disc(0.9) WITHIN GROUP (ORDER BY amount DESC) FROM transactions"
+  },
+  {
+    "comment": "Aggregate with FILTER and WITHIN GROUP",
+    "query": "SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY score) FILTER (WHERE valid = TRUE) FROM tests"
+  },
+  {
+    "comment": "Simple FOR UPDATE",
+    "query": "SELECT * FROM users FOR UPDATE"
+  },
+  {
+    "comment": "FOR UPDATE with table",
+    "query": "SELECT * FROM users u FOR UPDATE OF u",
+    "expected": "SELECT * FROM users AS u FOR UPDATE OF u"
+  },
+  {
+    "comment": "FOR UPDATE NOWAIT",
+    "query": "SELECT * FROM accounts FOR UPDATE NOWAIT"
+  },
+  {
+    "comment": "FOR UPDATE SKIP LOCKED",
+    "query": "SELECT * FROM queue FOR UPDATE SKIP LOCKED"
+  },
+  {
+    "comment": "FOR NO KEY UPDATE",
+    "query": "SELECT * FROM settings FOR NO KEY UPDATE"
+  },
+  {
+    "comment": "FOR NO KEY UPDATE SKIP LOCKED",
+    "query": "SELECT * FROM tasks FOR NO KEY UPDATE SKIP LOCKED"
+  },
+  {
+    "comment": "FOR SHARE",
+    "query": "SELECT * FROM products FOR SHARE"
+  },
+  {
+    "comment": "FOR SHARE NOWAIT",
+    "query": "SELECT * FROM inventory FOR SHARE NOWAIT"
+  },
+  {
+    "comment": "FOR KEY SHARE",
+    "query": "SELECT * FROM categories FOR KEY SHARE"
+  },
+  {
+    "comment": "FOR KEY SHARE SKIP LOCKED",
+    "query": "SELECT * FROM jobs FOR KEY SHARE SKIP LOCKED"
+  },
+  {
+    "comment": "Multiple locking clauses",
+    "query": "SELECT * FROM t1, t2 FOR UPDATE OF t1 FOR SHARE OF t2"
+  },
+  {
+    "comment": "FOR READ ONLY",
+    "query": "SELECT * FROM logs FOR READ ONLY",
+    "expected": "SELECT * FROM logs"
+  },
+  {
+    "comment": "Locking with ORDER BY LIMIT",
+    "query": "SELECT * FROM queue ORDER BY priority LIMIT 10 FOR UPDATE SKIP LOCKED"
+  },
+  {
+    "comment": "Locking with GROUP BY",
+    "query": "SELECT user_id, COUNT(*) FROM orders GROUP BY user_id FOR UPDATE"
+  },
+  {
+    "comment": "SELECT with array type cast",
+    "query": "SELECT value::INT[]",
+    "expected": "SELECT CAST(value AS INT[])"
+  },
+  {
+    "comment": "SELECT with bounded array type cast",
+    "query": "SELECT value::INT[5]",
+    "expected": "SELECT CAST(value AS INT[5])"
+  },
+  {
+    "comment": "SELECT with SETOF type cast",
+    "query": "SELECT value::SETOF INT",
+    "expected": "SELECT CAST(value AS SETOF INT)"
+  },
+  {
+    "comment": "Nested arithmetic",
+    "query": "SELECT ((1 + 2) * (3 - 4))"
+  },
+  {
+    "comment": "Division and modulo",
+    "query": "SELECT (10 / 3) % 2"
+  },
+  {
+    "comment": "Power operator",
+    "query": "SELECT 2 ^ 3"
+  },
+  {
+    "comment": "Not equal",
+    "query": "SELECT * FROM users WHERE id \u003c\u003e 1"
+  },
+  {
+    "comment": "Less than or equal",
+    "query": "SELECT * FROM users WHERE age \u003c= 65"
+  },
+  {
+    "comment": "Greater than or equal",
+    "query": "SELECT * FROM users WHERE age \u003e= 18"
+  },
+  {
+    "comment": "Complex AND/OR",
+    "query": "SELECT * FROM users WHERE ((active = TRUE OR admin = TRUE) AND NOT deleted)"
+  },
+  {
+    "comment": "Nested NOT",
+    "query": "SELECT * FROM users WHERE NOT NOT active"
+  },
+  {
+    "comment": "Arithmetic in WHERE",
+    "query": "SELECT * FROM users WHERE (age * 2) \u003e 50"
+  },
+  {
+    "comment": "Function in expression",
+    "query": "SELECT * FROM users WHERE length(name) \u003e 5"
+  },
+  {
+    "comment": "Column arithmetic",
+    "query": "SELECT age + 1 FROM users"
+  },
+  {
+    "comment": "Column with function",
+    "query": "SELECT upper(name) FROM users"
+  },
+  {
+    "comment": "Deeply nested",
+    "query": "SELECT (((1 + 2) * 3) - 4) / 5"
+  },
+  {
+    "comment": "Mixed operators",
+    "query": "SELECT * FROM users WHERE (age + 5) * 2 \u003e 30"
+  },
+  {
+    "comment": "SELECT * FROM users",
+    "query": "SELECT * FROM users"
+  },
+  {
+    "comment": "SELECT id, name FROM users WHERE active = TRUE",
+    "query": "SELECT id, name FROM users WHERE active = TRUE"
+  },
+  {
+    "comment": "SELECT DISTINCT department FROM employees",
+    "query": "SELECT DISTINCT department FROM employees"
+  },
+  {
+    "comment": "SELECT 1 + 2 * 3",
+    "query": "SELECT 1 + 2 * 3"
+  },
+  {
+    "comment": "SELECT age::TEXT FROM users",
+    "query": "SELECT age::TEXT FROM users",
+    "expected": "SELECT CAST(age AS TEXT) FROM users"
+  },
+  {
+    "comment": "SELECT length(name) FROM users",
+    "query": "SELECT length(name) FROM users"
+  },
+  {
+    "comment": "SELECT * FROM users WHERE (age \u003e 18 AND active = TRUE)",
+    "query": "SELECT * FROM users WHERE (age \u003e 18 AND active = TRUE)"
+  },
+  {
+    "comment": "SELECT id AS user_id, name AS user_name FROM users AS u",
+    "query": "SELECT id AS user_id, name AS user_name FROM users AS u"
+  },
+  {
+    "comment": "SELECT * FROM users, orders WHERE users.id = orders.user_id",
+    "query": "SELECT * FROM users, orders WHERE users.id = orders.user_id"
+  },
+  {
+    "comment": "TABLE users",
+    "query": "TABLE users",
+    "expected": "SELECT * FROM users"
+  },
+  {
+    "comment": "SELECT * FROM ONLY users",
+    "query": "SELECT * FROM ONLY users"
+  },
+  {
+    "comment": "SELECT * INTO backup FROM users",
+    "query": "SELECT * INTO backup FROM users"
+  },
+  {
+    "comment": "Simple function table",
+    "query": "SELECT * FROM generate_series(1, 5)"
+  },
+  {
+    "comment": "Function table with ORDINALITY",
+    "query": "SELECT * FROM generate_series(1, 5) WITH ORDINALITY"
+  },
+  {
+    "comment": "LATERAL function table",
+    "query": "SELECT * FROM LATERAL generate_series(1, t.max_val)"
+  },
+  {
+    "comment": "Function table with alias",
+    "query": "SELECT * FROM generate_series(1, 5) AS t"
+  },
+  {
+    "comment": "Basic XMLTABLE",
+    "query": "SELECT * FROM XMLTABLE('/root/item' PASSING '\u003croot\u003e\u003citem\u003e1\u003c/item\u003e\u003c/root\u003e' COLUMNS id INT, name TEXT)"
+  },
+  {
+    "comment": "XMLTABLE with FOR ORDINALITY",
+    "query": "SELECT * FROM XMLTABLE('/root/item' PASSING '\u003croot\u003e\u003citem\u003e1\u003c/item\u003e\u003c/root\u003e' COLUMNS pos FOR ORDINALITY, id INT)"
+  },
+  {
+    "comment": "LATERAL XMLTABLE",
+    "query": "SELECT * FROM LATERAL XMLTABLE('/root/item' PASSING t.xml_data COLUMNS id INT)"
+  },
+  {
+    "comment": "Column alias with AS",
+    "query": "SELECT id AS user_id"
+  },
+  {
+    "comment": "Column alias without AS",
+    "query": "SELECT id user_id",
+    "expected": "SELECT id AS user_id"
+  },
+  {
+    "comment": "Multiple column aliases",
+    "query": "SELECT id AS user_id, name AS user_name"
+  },
+  {
+    "comment": "Table alias with AS",
+    "query": "SELECT * FROM users AS u"
+  },
+  {
+    "comment": "Table alias without AS",
+    "query": "SELECT * FROM users u",
+    "expected": "SELECT * FROM users AS u"
+  },
+  {
+    "comment": "Complex aliases",
+    "query": "SELECT u.id AS user_id FROM users AS u"
+  },
+  {
+    "comment": "Function with alias",
+    "query": "SELECT length(name) AS name_length FROM users"
+  },
+  {
+    "comment": "Expression with alias",
+    "query": "SELECT age + 1 AS next_age FROM users"
+  },
+  {
+    "comment": "simple limit",
+    "query": "SELECT * FROM users LIMIT 10"
+  },
+  {
+    "comment": "limit with offset",
+    "query": "SELECT * FROM users LIMIT 10 OFFSET 5"
+  },
+  {
+    "comment": "fetch first only",
+    "query": "SELECT * FROM users FETCH FIRST 10 ROWS ONLY",
+    "expected": "SELECT * FROM users LIMIT 10"
+  },
+  {
+    "comment": "fetch first with ties",
+    "query": "SELECT * FROM users ORDER BY id FETCH FIRST 5 ROWS WITH TIES"
+  },
+  {
+    "comment": "offset with rows",
+    "query": "SELECT * FROM users OFFSET 10 ROWS",
+    "expected": "SELECT * FROM users OFFSET 10"
+  },
+  {
+    "comment": "complex query",
+    "query": "SELECT name, COUNT(*) FROM users WHERE active = true GROUP BY name ORDER BY COUNT(*) DESC LIMIT 20 OFFSET 10",
+    "expected": "SELECT name, COUNT(*) FROM users WHERE active = TRUE GROUP BY name ORDER BY COUNT(*) DESC LIMIT 20 OFFSET 10"
+  },
+  {
+    "comment": "simple LIMIT",
+    "query": "SELECT * FROM users LIMIT 10"
+  },
+  {
+    "comment": "LIMIT with expression",
+    "query": "SELECT * FROM users LIMIT 5 + 5"
+  },
+  {
+    "comment": "LIMIT ALL",
+    "query": "SELECT * FROM users LIMIT ALL"
+  },
+  {
+    "comment": "simple OFFSET",
+    "query": "SELECT * FROM users OFFSET 20"
+  },
+  {
+    "comment": "OFFSET with expression",
+    "query": "SELECT * FROM users OFFSET 10 * 2"
+  },
+  {
+    "comment": "LIMIT and OFFSET",
+    "query": "SELECT * FROM users LIMIT 10 OFFSET 20"
+  },
+  {
+    "comment": "OFFSET before LIMIT",
+    "query": "SELECT * FROM users OFFSET 20 LIMIT 10",
+    "expected": "SELECT * FROM users LIMIT 10 OFFSET 20"
+  },
+  {
+    "comment": "FETCH FIRST ROW ONLY",
+    "query": "SELECT * FROM users FETCH FIRST ROW ONLY",
+    "expected": "SELECT * FROM users LIMIT 1"
+  },
+  {
+    "comment": "FETCH FIRST ROWS ONLY (implicit 1)",
+    "query": "SELECT * FROM users FETCH FIRST ROWS ONLY",
+    "expected": "SELECT * FROM users LIMIT 1"
+  },
+  {
+    "comment": "FETCH NEXT ROW ONLY",
+    "query": "SELECT * FROM users FETCH NEXT ROW ONLY",
+    "expected": "SELECT * FROM users LIMIT 1"
+  },
+  {
+    "comment": "FETCH FIRST 5 ROWS ONLY",
+    "query": "SELECT * FROM users FETCH FIRST 5 ROWS ONLY",
+    "expected": "SELECT * FROM users LIMIT 5"
+  },
+  {
+    "comment": "FETCH NEXT 10 ROWS ONLY",
+    "query": "SELECT * FROM users FETCH NEXT 10 ROWS ONLY",
+    "expected": "SELECT * FROM users LIMIT 10"
+  },
+  {
+    "comment": "FETCH FIRST ROW WITH TIES",
+    "query": "SELECT * FROM users ORDER BY score FETCH FIRST ROW WITH TIES"
+  },
+  {
+    "comment": "FETCH FIRST 5 ROWS WITH TIES",
+    "query": "SELECT * FROM users ORDER BY score FETCH FIRST 5 ROWS WITH TIES"
+  },
+  {
+    "comment": "OFFSET with ROWS keyword",
+    "query": "SELECT * FROM users OFFSET 10 ROWS",
+    "expected": "SELECT * FROM users OFFSET 10"
+  },
+  {
+    "comment": "OFFSET with ROW keyword",
+    "query": "SELECT * FROM users OFFSET 1 ROW",
+    "expected": "SELECT * FROM users OFFSET 1"
+  },
+  {
+    "comment": "OFFSET and FETCH FIRST",
+    "query": "SELECT * FROM users OFFSET 20 FETCH FIRST 10 ROWS ONLY",
+    "expected": "SELECT * FROM users LIMIT 10 OFFSET 20"
+  },
+  {
+    "comment": "ORDER BY with LIMIT",
+    "query": "SELECT * FROM users ORDER BY name LIMIT 10"
+  },
+  {
+    "comment": "ORDER BY with FETCH FIRST WITH TIES",
+    "query": "SELECT * FROM users ORDER BY score DESC FETCH FIRST 5 ROWS WITH TIES"
+  },
+  {
+    "comment": "WHERE with LIMIT and OFFSET",
+    "query": "SELECT * FROM users WHERE active = true OFFSET 50 LIMIT 25",
+    "expected": "SELECT * FROM users WHERE active = TRUE LIMIT 25 OFFSET 50"
+  },
+  {
+    "comment": "Complex query with CTE and FETCH",
+    "query": "WITH top_users AS (SELECT * FROM users ORDER BY score DESC FETCH FIRST 20 ROWS ONLY) SELECT * FROM top_users",
+    "expected": "WITH top_users AS (SELECT * FROM users ORDER BY score DESC LIMIT 20) SELECT * FROM top_users"
+  },
+  {
+    "comment": "Subquery with LIMIT",
+    "query": "SELECT * FROM (SELECT * FROM users LIMIT 10) AS u WHERE u.age \u003e 25"
+  },
+  {
+    "comment": "Simple function table",
+    "query": "SELECT * FROM generate_series(1, 5)"
+  },
+  {
+    "comment": "Function table with ORDINALITY",
+    "query": "SELECT * FROM generate_series(1, 5) WITH ORDINALITY"
+  },
+  {
+    "comment": "LATERAL function table",
+    "query": "SELECT * FROM LATERAL generate_series(1, t.max_val)"
+  },
+  {
+    "comment": "ROWS FROM syntax",
+    "query": "SELECT * FROM ROWS FROM (generate_series(1, 5))"
+  },
+  {
+    "comment": "ROWS FROM with ORDINALITY",
+    "query": "SELECT * FROM ROWS FROM (generate_series(1, 5)) WITH ORDINALITY"
+  },
+  {
+    "comment": "Basic XMLTABLE",
+    "query": "SELECT * FROM XMLTABLE('/root/item' PASSING '\u003croot\u003e\u003citem\u003e1\u003c/item\u003e\u003c/root\u003e' COLUMNS id INT, name TEXT)"
+  },
+  {
+    "comment": "XMLTABLE with FOR ORDINALITY",
+    "query": "SELECT * FROM XMLTABLE('/root/item' PASSING '\u003croot\u003e\u003citem\u003e1\u003c/item\u003e\u003c/root\u003e' COLUMNS pos FOR ORDINALITY, id INT)"
+  },
+  {
+    "comment": "LATERAL XMLTABLE",
+    "query": "SELECT * FROM LATERAL XMLTABLE('/root/item' PASSING t.xml_data COLUMNS id INT)"
+  },
+  {
+    "comment": "Basic JSON_TABLE",
+    "query": "SELECT * FROM JSON_TABLE('{}', '$' COLUMNS (id INT))"
+  },
+  {
+    "comment": "JSON_TABLE with FOR ORDINALITY",
+    "query": "SELECT * FROM JSON_TABLE('{\"items\": [1, 2, 3]}', '$.items[*]' COLUMNS (pos FOR ORDINALITY, val INT PATH '$'))"
+  },
+  {
+    "comment": "JSON_TABLE with EXISTS column",
+    "query": "SELECT * FROM JSON_TABLE('{\"items\": [{\"id\": 1}]}', '$.items[*]' COLUMNS (has_id BOOLEAN EXISTS PATH '$.id'))"
+  },
+  {
+    "comment": "JSON_TABLE with NESTED columns",
+    "query": "SELECT * FROM JSON_TABLE('{\"items\": [{\"props\": {\"a\": 1}}]}', '$.items[*]' COLUMNS (NESTED PATH '$.props' COLUMNS (a INT PATH '$.a')))"
+  },
+  {
+    "comment": "LATERAL JSON_TABLE",
+    "query": "SELECT * FROM LATERAL JSON_TABLE(t.json_data, '$.items[*]' COLUMNS (id INT PATH '$.id'))"
+  },
+  {
+    "comment": "Function table with alias",
+    "query": "SELECT * FROM generate_series(1, 5) AS t"
+  },
+  {
+    "comment": "XMLTABLE with alias",
+    "query": "SELECT * FROM XMLTABLE('/root/item' PASSING '\u003croot\u003e\u003c/root\u003e' COLUMNS id INT) AS xt"
+  },
+  {
+    "comment": "JSON_TABLE with alias",
+    "query": "SELECT * FROM JSON_TABLE('[]', '$[*]' COLUMNS (id INT)) AS jt"
+  },
+  {
+    "comment": "Function table with column aliases",
+    "query": "SELECT * FROM generate_series(1, 5) AS t(num)"
+  },
+  {
+    "comment": "MATERIALIZED CTE deparsing",
+    "query": "WITH stats AS MATERIALIZED (SELECT COUNT(a) FROM users) SELECT * FROM stats"
+  },
+  {
+    "comment": "NOT MATERIALIZED CTE deparsing",
+    "query": "WITH stats AS NOT MATERIALIZED (SELECT COUNT(a) FROM users) SELECT * FROM stats"
+  },
+  {
+    "comment": "RECURSIVE MATERIALIZED CTE",
+    "query": "WITH RECURSIVE t AS MATERIALIZED (SELECT 1) SELECT * FROM t"
+  },
+  {
+    "comment": "SEARCH DEPTH FIRST single column",
+    "query": "WITH RECURSIVE t AS (SELECT id FROM tree) SEARCH DEPTH FIRST BY id SET seq SELECT * FROM t"
+  },
+  {
+    "comment": "SEARCH BREADTH FIRST single column",
+    "query": "WITH RECURSIVE t AS (SELECT id FROM tree) SEARCH BREADTH FIRST BY id SET seq SELECT * FROM t"
+  },
+  {
+    "comment": "CYCLE simple form single column",
+    "query": "WITH RECURSIVE t AS (SELECT id FROM tree) CYCLE id SET mark USING path SELECT * FROM t"
+  },
+  {
+    "comment": "CYCLE full form single column",
+    "query": "WITH RECURSIVE t AS (SELECT id FROM tree) CYCLE id SET mark TO TRUE DEFAULT FALSE USING path SELECT * FROM t"
+  },
+  {
+    "comment": "MATERIALIZED with SEARCH",
+    "query": "WITH RECURSIVE tree AS MATERIALIZED (SELECT id FROM nodes) SEARCH DEPTH FIRST BY id SET search_seq SELECT * FROM tree"
+  },
+  {
+    "comment": "SEARCH with CYCLE",
+    "query": "WITH RECURSIVE tree AS (SELECT id FROM nodes) SEARCH DEPTH FIRST BY id SET search_seq CYCLE id SET is_cycle USING path SELECT * FROM tree"
+  },
+  {
+    "comment": "JOIN with table aliases",
+    "query": "SELECT u.name, o.total FROM users u INNER JOIN orders o ON u.id = o.user_id",
+    "expected": "SELECT u.name, o.total FROM users AS u INNER JOIN orders AS o ON u.id = o.user_id"
+  },
+  {
+    "comment": "JOIN with complex ON condition",
+    "query": "SELECT * FROM users u JOIN orders o ON u.id = o.user_id AND u.active = TRUE",
+    "expected": "SELECT * FROM users AS u INNER JOIN orders AS o ON u.id = o.user_id AND u.active = TRUE"
+  },
+  {
+    "comment": "NATURAL JOIN with explicit type",
+    "query": "SELECT * FROM users NATURAL INNER JOIN orders",
+    "expected": "SELECT * FROM users NATURAL JOIN orders"
+  },
+  {
+    "comment": "NATURAL LEFT JOIN",
+    "query": "SELECT * FROM users NATURAL LEFT JOIN orders"
+  },
+  {
+    "comment": "NATURAL RIGHT JOIN",
+    "query": "SELECT * FROM users NATURAL RIGHT JOIN orders"
+  },
+  {
+    "comment": "NATURAL FULL JOIN",
+    "query": "SELECT * FROM users NATURAL FULL JOIN orders"
+  },
+  {
+    "comment": "LATERAL with simple subquery",
+    "query": "SELECT * FROM users u, LATERAL (SELECT * FROM orders o WHERE o.user_id = u.id) AS recent_orders",
+    "expected": "SELECT * FROM users AS u, LATERAL (SELECT * FROM orders AS o WHERE o.user_id = u.id) AS recent_orders"
+  },
+  {
+    "comment": "Nested subqueries in FROM",
+    "query": "SELECT * FROM (SELECT id FROM (SELECT user_id AS id FROM orders) AS inner_sub) AS outer_sub"
+  },
+  {
+    "comment": "Addition and multiplication",
+    "query": "SELECT 1 + 2 * 3"
+  },
+  {
+    "comment": "Parentheses override precedence",
+    "query": "SELECT (1 + 2) * 3"
+  },
+  {
+    "comment": "Multiple operators",
+    "query": "SELECT 1 + 2 * 3 - 4 / 2"
+  },
+  {
+    "comment": "Unary and binary",
+    "query": "SELECT -1 + 2"
+  },
+  {
+    "comment": "Power has highest precedence",
+    "query": "SELECT 2 + 3 ^ 2"
+  },
+  {
+    "comment": "Modulo precedence",
+    "query": "SELECT 10 + 5 % 3"
+  },
+  {
+    "comment": "Comparison and logical",
+    "query": "SELECT * FROM users WHERE age \u003e 18 AND active"
+  },
+  {
+    "comment": "Mixed precedence",
+    "query": "SELECT * FROM users WHERE age + 1 \u003e 18 AND NOT deleted"
+  },
+  {
+    "comment": "OR has lower precedence than AND",
+    "query": "SELECT * FROM users WHERE active AND verified OR admin"
+  },
+  {
+    "comment": "Parentheses with logical",
+    "query": "SELECT * FROM users WHERE (active OR admin) AND verified"
+  },
+  {
+    "comment": "Deeply nested arithmetic",
+    "query": "SELECT ((1 + 2) * 3) - (4 / 2)"
+  },
+  {
+    "comment": "Mixed arithmetic and comparison",
+    "query": "SELECT * FROM users WHERE (age * 2) + 5 \u003e 30"
+  },
+  {
+    "comment": "Function call precedence",
+    "query": "SELECT length(name) + 10 FROM users"
+  },
+  {
+    "comment": "Type cast precedence",
+    "query": "SELECT age::text FROM users",
+    "expected": "SELECT CAST(age AS TEXT) FROM users"
+  },
+  {
+    "comment": "Complex WHERE precedence",
+    "query": "SELECT * FROM users WHERE id = 1 OR id = 2 AND active"
+  },
+  {
+    "comment": "WHERE with parentheses",
+    "query": "SELECT * FROM users WHERE (id = 1 OR id = 2) AND active"
+  },
+  {
+    "comment": "NOT precedence",
+    "query": "SELECT * FROM users WHERE NOT active AND verified"
+  },
+  {
+    "comment": "NOT with parentheses",
+    "query": "SELECT * FROM users WHERE NOT (active AND verified)"
+  },
+  {
+    "comment": "Simple SELECT star",
+    "query": "SELECT *"
+  },
+  {
+    "comment": "SELECT single column",
+    "query": "SELECT id"
+  },
+  {
+    "comment": "SELECT with column alias AS",
+    "query": "SELECT id AS user_id"
+  },
+  {
+    "comment": "SELECT with column alias implicit",
+    "query": "SELECT id user_id",
+    "expected": "SELECT id AS user_id"
+  },
+  {
+    "comment": "SELECT multiple columns",
+    "query": "SELECT id, name"
+  },
+  {
+    "comment": "SELECT all columns from table",
+    "query": "SELECT * FROM users"
+  },
+  {
+    "comment": "FROM with table alias AS",
+    "query": "SELECT * FROM users AS u"
+  },
+  {
+    "comment": "FROM with table alias implicit",
+    "query": "SELECT * FROM users u",
+    "expected": "SELECT * FROM users AS u"
+  },
+  {
+    "comment": "FROM with qualified table",
+    "query": "SELECT * FROM public.users"
+  },
+  {
+    "comment": "FROM with ONLY modifier",
+    "query": "SELECT * FROM ONLY users"
+  },
+  {
+    "comment": "FROM multiple tables",
+    "query": "SELECT * FROM users, orders"
+  },
+  {
+    "comment": "SELECT without FROM",
+    "query": "SELECT 1"
+  },
+  {
+    "comment": "SELECT DISTINCT single",
+    "query": "SELECT DISTINCT id"
+  },
+  {
+    "comment": "SELECT DISTINCT multiple",
+    "query": "SELECT DISTINCT id, name"
+  },
+  {
+    "comment": "SELECT DISTINCT ON single",
+    "query": "SELECT DISTINCT ON (id) name"
+  },
+  {
+    "comment": "SELECT DISTINCT ON multiple",
+    "query": "SELECT DISTINCT ON (department, level) name"
+  },
+  {
+    "comment": "WHERE simple boolean",
+    "query": "SELECT * FROM users WHERE active"
+  },
+  {
+    "comment": "WHERE equality",
+    "query": "SELECT * FROM users WHERE id = 1"
+  },
+  {
+    "comment": "WHERE not equal",
+    "query": "SELECT * FROM users WHERE id \u003c\u003e 1"
+  },
+  {
+    "comment": "WHERE less than",
+    "query": "SELECT * FROM users WHERE age \u003c 30"
+  },
+  {
+    "comment": "WHERE greater than",
+    "query": "SELECT * FROM users WHERE age \u003e 18"
+  },
+  {
+    "comment": "WHERE less or equal",
+    "query": "SELECT * FROM users WHERE age \u003c= 65"
+  },
+  {
+    "comment": "WHERE greater or equal",
+    "query": "SELECT * FROM users WHERE age \u003e= 18"
+  },
+  {
+    "comment": "WHERE complex AND",
+    "query": "SELECT * FROM users WHERE id \u003e 10 AND active = TRUE"
+  },
+  {
+    "comment": "WHERE complex OR",
+    "query": "SELECT * FROM users WHERE admin = TRUE OR moderator = TRUE"
+  },
+  {
+    "comment": "WHERE complex NOT",
+    "query": "SELECT * FROM users WHERE NOT deleted"
+  },
+  {
+    "comment": "WHERE mixed logical",
+    "query": "SELECT * FROM users WHERE (active = TRUE OR admin = TRUE) AND NOT deleted"
+  },
+  {
+    "comment": "Arithmetic addition",
+    "query": "SELECT 1 + 2"
+  },
+  {
+    "comment": "Arithmetic subtraction",
+    "query": "SELECT 5 - 3"
+  },
+  {
+    "comment": "Arithmetic multiplication",
+    "query": "SELECT 4 * 6"
+  },
+  {
+    "comment": "Arithmetic division",
+    "query": "SELECT 10 / 2"
+  },
+  {
+    "comment": "Arithmetic modulo",
+    "query": "SELECT 10 % 3"
+  },
+  {
+    "comment": "Arithmetic power",
+    "query": "SELECT 2 ^ 3"
+  },
+  {
+    "comment": "Unary plus",
+    "query": "SELECT +42"
+  },
+  {
+    "comment": "Unary minus",
+    "query": "SELECT -42"
+  },
+  {
+    "comment": "Complex arithmetic",
+    "query": "SELECT (1 + 2) * 3 - 4 / 2"
+  },
+  {
+    "comment": "Column arithmetic",
+    "query": "SELECT age + 1 FROM users"
+  },
+  {
+    "comment": "Mixed arithmetic",
+    "query": "SELECT id + age * 2 FROM users"
+  },
+  {
+    "comment": "Type cast to text",
+    "query": "SELECT id::text FROM users",
+    "expected": "SELECT CAST(id AS TEXT) FROM users"
+  },
+  {
+    "comment": "Type cast with spaces",
+    "query": "SELECT id :: integer FROM users",
+    "expected": "SELECT CAST(id AS INT) FROM users"
+  },
+  {
+    "comment": "Complex expression cast",
+    "query": "SELECT (age + 1)::varchar FROM users",
+    "expected": "SELECT CAST((age + 1) AS VARCHAR) FROM users"
+  },
+  {
+    "comment": "Multiple casts",
+    "query": "SELECT id::text, age::varchar FROM users",
+    "expected": "SELECT CAST(id AS TEXT), CAST(age AS VARCHAR) FROM users"
+  },
+  {
+    "comment": "Simple column reference",
+    "query": "SELECT id FROM users"
+  },
+  {
+    "comment": "Qualified column reference",
+    "query": "SELECT users.id FROM users"
+  },
+  {
+    "comment": "Schema qualified column",
+    "query": "SELECT public.users.id FROM public.users"
+  },
+  {
+    "comment": "Multiple qualified columns",
+    "query": "SELECT u.id, u.name FROM users AS u"
+  },
+  {
+    "comment": "Function no args",
+    "query": "SELECT now()",
+    "expected": "SELECT NOW()"
+  },
+  {
+    "comment": "Function single arg",
+    "query": "SELECT length(name) FROM users"
+  },
+  {
+    "comment": "Function multiple args",
+    "query": "SELECT substring(name, 1, 5) FROM users"
+  },
+  {
+    "comment": "Qualified function",
+    "query": "SELECT my_catalog.length(name) FROM users"
+  },
+  {
+    "comment": "Nested functions",
+    "query": "SELECT upper(trim(name)) FROM users"
+  },
+  {
+    "comment": "Function in WHERE",
+    "query": "SELECT * FROM users WHERE length(name) \u003e 5"
+  },
+  {
+    "comment": "Integer constant",
+    "query": "SELECT 42"
+  },
+  {
+    "comment": "Negative integer",
+    "query": "SELECT -123"
+  },
+  {
+    "comment": "Float constant",
+    "query": "SELECT 3.14"
+  },
+  {
+    "comment": "String literal",
+    "query": "SELECT 'hello world'"
+  },
+  {
+    "comment": "Boolean TRUE",
+    "query": "SELECT TRUE"
+  },
+  {
+    "comment": "Boolean FALSE",
+    "query": "SELECT FALSE"
+  },
+  {
+    "comment": "NULL constant",
+    "query": "SELECT NULL"
+  },
+  {
+    "comment": "SELECT INTO basic",
+    "query": "SELECT * INTO backup_users FROM users"
+  },
+  {
+    "comment": "SELECT INTO with WHERE",
+    "query": "SELECT id, name INTO temp_users FROM users WHERE active = TRUE"
+  },
+  {
+    "comment": "TABLE statement",
+    "query": "TABLE users",
+    "expected": "SELECT * FROM users"
+  },
+  {
+    "comment": "TABLE with qualified name",
+    "query": "TABLE public.users",
+    "expected": "SELECT * FROM public.users"
+  },
+  {
+    "comment": "Complex SELECT with all features",
+    "query": "SELECT u.id AS user_id, upper(u.name) AS user_name FROM users AS u WHERE u.active = TRUE AND u.age \u003e 18"
+  },
+  {
+    "comment": "Multiple expressions with aliases",
+    "query": "SELECT id AS user_id, name AS user_name, age + 1 AS next_age FROM users"
+  },
+  {
+    "comment": "Arithmetic in WHERE with functions",
+    "query": "SELECT * FROM users WHERE length(name) + age \u003e 25"
+  },
+  {
+    "comment": "column list in function",
+    "query": "SELECT func(a, b, c)"
+  },
+  {
+    "comment": "multiple column references",
+    "query": "SELECT a, b, c FROM table1"
+  },
+  {
+    "comment": "qualified column list",
+    "query": "SELECT t1.a, t2.b, t3.c FROM t1, t2, t3"
+  },
+  {
+    "comment": "array subscript",
+    "query": "SELECT column_val[1]"
+  },
+  {
+    "comment": "array slice",
+    "query": "SELECT column_val[1:5]"
+  },
+  {
+    "comment": "field access",
+    "query": "SELECT record.field"
+  },
+  {
+    "comment": "nested field access",
+    "query": "SELECT record.subrecord.field"
+  },
+  {
+    "comment": "mixed indirection",
+    "query": "SELECT array_col[1].field"
+  },
+  {
+    "comment": "qualified operator",
+    "query": "SELECT a OPERATOR(pg_catalog.+) b"
+  },
+  {
+    "comment": "schema qualified operator",
+    "query": "SELECT a OPERATOR(myschema.=) b"
+  },
+  {
+    "comment": "custom operator",
+    "query": "SELECT a OPERATOR(public.@@) b"
+  },
+  {
+    "comment": "bit type casting",
+    "query": "SELECT value::bit",
+    "expected": "SELECT CAST(value AS bit)"
+  },
+  {
+    "comment": "bit with length",
+    "query": "SELECT value::bit(8)",
+    "expected": "SELECT CAST(value AS bit(8))"
+  },
+  {
+    "comment": "timestamp type",
+    "query": "SELECT value::TIMESTAMP",
+    "expected": "SELECT CAST(value AS TIMESTAMP)"
+  },
+  {
+    "comment": "timestamp with precision",
+    "query": "SELECT value::timestamp(6)",
+    "expected": "SELECT CAST(value AS TIMESTAMP(6))"
+  },
+  {
+    "comment": "timestamptz type",
+    "query": "SELECT value::timestamptz",
+    "expected": "SELECT CAST(value AS TIMESTAMPTZ)"
+  },
+  {
+    "comment": "date type",
+    "query": "SELECT value::DATE",
+    "expected": "SELECT CAST(value AS DATE)"
+  },
+  {
+    "comment": "time type",
+    "query": "SELECT value::TIME",
+    "expected": "SELECT CAST(value AS TIME)"
+  },
+  {
+    "comment": "interval type",
+    "query": "SELECT value::INTERVAL",
+    "expected": "SELECT CAST(value AS INTERVAL)"
+  },
+  {
+    "comment": "select all",
+    "query": "SELECT ALL * FROM users",
+    "expected": "SELECT * FROM users"
+  },
+  {
+    "comment": "select all with columns",
+    "query": "SELECT ALL id, name FROM users",
+    "expected": "SELECT id, name FROM users"
+  },
+  {
+    "comment": "select all with where",
+    "query": "SELECT ALL * FROM users WHERE active = true",
+    "expected": "SELECT * FROM users WHERE active = TRUE"
+  },
+  {
+    "comment": "two simple statements",
+    "query": "SELECT 1; SELECT 2"
+  },
+  {
+    "comment": "multiple statements with different types",
+    "query": "SELECT * FROM users; SELECT name FROM orders"
+  },
+  {
+    "comment": "statements with whitespace",
+    "query": "SELECT 1;   SELECT 2;   SELECT 3",
+    "expected": "SELECT 1; SELECT 2; SELECT 3"
+  },
+  {
+    "comment": "trailing semicolon",
+    "query": "SELECT 1; SELECT 2;",
+    "expected": "SELECT 1; SELECT 2"
+  },
+  {
+    "comment": "simple GROUP BY",
+    "query": "SELECT col1, COUNT(*) FROM table1 GROUP BY col1"
+  },
+  {
+    "comment": "GROUP BY multiple columns",
+    "query": "SELECT col1, col2, COUNT(*) FROM table1 GROUP BY col1, col2"
+  },
+  {
+    "comment": "GROUP BY with expression",
+    "query": "SELECT DATE(created_at), COUNT(*) FROM table1 GROUP BY DATE(created_at)",
+    "expected": "SELECT date(created_at), COUNT(*) FROM table1 GROUP BY date(created_at)"
+  },
+  {
+    "comment": "GROUP BY with ORDER BY",
+    "query": "SELECT col1, COUNT(*) FROM table1 GROUP BY col1 ORDER BY col1"
+  },
+  {
+    "comment": "GROUP BY ROLLUP",
+    "query": "SELECT col1, col2, COUNT(*) FROM table1 GROUP BY ROLLUP(col1, col2)"
+  },
+  {
+    "comment": "GROUP BY CUBE",
+    "query": "SELECT col1, col2, COUNT(*) FROM table1 GROUP BY CUBE(col1, col2)"
+  },
+  {
+    "comment": "GROUP BY GROUPING SETS",
+    "query": "SELECT col1, col2, COUNT(*) FROM table1 GROUP BY GROUPING SETS ((col1), (col2), ())"
+  },
+  {
+    "comment": "GROUP BY empty grouping set",
+    "query": "SELECT COUNT(*) FROM table1 GROUP BY ()"
+  },
+  {
+    "comment": "simple HAVING",
+    "query": "SELECT col1, COUNT(*) FROM table1 GROUP BY col1 HAVING COUNT(*) \u003e 1"
+  },
+  {
+    "comment": "HAVING with AND",
+    "query": "SELECT col1, COUNT(*) FROM table1 GROUP BY col1 HAVING COUNT(*) \u003e 1 AND col1 IS NOT NULL"
+  },
+  {
+    "comment": "HAVING with ORDER BY",
+    "query": "SELECT col1, COUNT(*) FROM table1 GROUP BY col1 HAVING COUNT(*) \u003e 1 ORDER BY col1"
+  },
+  {
+    "comment": "simple ORDER BY",
+    "query": "SELECT col1, col2 FROM table1 ORDER BY col1"
+  },
+  {
+    "comment": "ORDER BY ASC",
+    "query": "SELECT col1, col2 FROM table1 ORDER BY col1 ASC"
+  },
+  {
+    "comment": "ORDER BY DESC",
+    "query": "SELECT col1, col2 FROM table1 ORDER BY col1 DESC"
+  },
+  {
+    "comment": "ORDER BY NULLS FIRST",
+    "query": "SELECT col1, col2 FROM table1 ORDER BY col1 NULLS FIRST"
+  },
+  {
+    "comment": "ORDER BY DESC NULLS LAST",
+    "query": "SELECT col1, col2 FROM table1 ORDER BY col1 DESC NULLS LAST"
+  },
+  {
+    "comment": "ORDER BY multiple columns",
+    "query": "SELECT col1, col2 FROM table1 ORDER BY col1 ASC, col2 DESC NULLS FIRST"
+  },
+  {
+    "comment": "GROUP BY + HAVING + ORDER BY",
+    "query": "SELECT dept_id, COUNT(*), AVG(salary) FROM employees GROUP BY dept_id HAVING COUNT(*) \u003e 5 ORDER BY dept_id ASC"
+  },
+  {
+    "comment": "Complex GROUP BY with ROLLUP and ORDER BY",
+    "query": "SELECT year, quarter, SUM(sales) FROM sales_data GROUP BY ROLLUP(year, quarter) ORDER BY year, quarter NULLS LAST"
+  },
+  {
+    "comment": "All features combined",
+    "query": "SELECT category, subcategory, COUNT(*), SUM(amount) FROM transactions WHERE amount \u003e 0 GROUP BY GROUPING SETS ((category), (category, subcategory), ()) HAVING SUM(amount) \u003e 1000 ORDER BY category NULLS FIRST, subcategory DESC"
+  },
+  {
+    "comment": "JSON_OBJECTAGG simple",
+    "query": "SELECT JSON_OBJECTAGG('name' VALUE value) FROM users",
+    "expected": "SELECT JSON_OBJECTAGG('name' : value) FROM users"
+  },
+  {
+    "comment": "JSON_ARRAYAGG simple",
+    "query": "SELECT JSON_ARRAYAGG(name) FROM users"
+  },
+  {
+    "comment": "JSON_OBJECTAGG with RETURNING",
+    "query": "SELECT JSON_OBJECTAGG('key' VALUE value RETURNING TEXT) FROM users",
+    "expected": "SELECT JSON_OBJECTAGG('key' : value RETURNING TEXT) FROM users"
+  },
+  {
+    "comment": "JSON_ARRAYAGG with RETURNING",
+    "query": "SELECT JSON_ARRAYAGG(name RETURNING JSONB) FROM users"
+  },
+  {
+    "comment": "JSON_OBJECTAGG with FILTER",
+    "query": "SELECT JSON_OBJECTAGG('key' VALUE value) FILTER (WHERE value IS NOT NULL) FROM users",
+    "expected": "SELECT JSON_OBJECTAGG('key' : value) FILTER (WHERE value IS NOT NULL) FROM users"
+  },
+  {
+    "comment": "JSON_ARRAYAGG with OVER window",
+    "query": "SELECT JSON_ARRAYAGG(name) OVER (PARTITION BY department) FROM users"
+  },
+  {
+    "comment": "JSON_OBJECTAGG with FILTER and OVER",
+    "query": "SELECT JSON_OBJECTAGG('key' VALUE value RETURNING TEXT) FILTER (WHERE value \u003e 0) OVER (ORDER BY id) FROM users",
+    "expected": "SELECT JSON_OBJECTAGG('key' : value RETURNING TEXT) FILTER (WHERE value \u003e 0) OVER (ORDER BY id) FROM users"
+  },
+  {
+    "comment": "Simple INTO",
+    "query": "SELECT * INTO new_table FROM users"
+  },
+  {
+    "comment": "INTO TEMPORARY table",
+    "query": "SELECT * INTO TEMPORARY temp_users FROM users"
+  },
+  {
+    "comment": "INTO TEMP table",
+    "query": "SELECT * INTO TEMP temp_users FROM users",
+    "expected": "SELECT * INTO TEMPORARY temp_users FROM users"
+  },
+  {
+    "comment": "INTO LOCAL TEMPORARY table",
+    "query": "SELECT * INTO LOCAL TEMPORARY local_temp_users FROM users",
+    "expected": "SELECT * INTO TEMPORARY local_temp_users FROM users"
+  },
+  {
+    "comment": "INTO UNLOGGED table",
+    "query": "SELECT * INTO UNLOGGED unlogged_users FROM users"
+  },
+  {
+    "comment": "INTO TABLE explicit",
+    "query": "SELECT * INTO TABLE explicit_table FROM users",
+    "expected": "SELECT * INTO explicit_table FROM users"
+  },
+  {
+    "comment": "ROW_NUMBER window function",
+    "query": "SELECT ROW_NUMBER() OVER (ORDER BY id) FROM users"
+  },
+  {
+    "comment": "RANK window function with PARTITION BY",
+    "query": "SELECT RANK() OVER (PARTITION BY department ORDER BY salary DESC) FROM employees"
+  },
+  {
+    "comment": "DENSE_RANK window function",
+    "query": "SELECT DENSE_RANK() OVER (PARTITION BY category ORDER BY price) FROM products"
+  },
+  {
+    "comment": "LAG window function",
+    "query": "SELECT LAG(price, 1) OVER (ORDER BY date) FROM stock_prices"
+  },
+  {
+    "comment": "LEAD window function with default",
+    "query": "SELECT LEAD(value, 2, 0) OVER (PARTITION BY group_id ORDER BY seq) FROM data"
+  },
+  {
+    "comment": "FIRST_VALUE window function",
+    "query": "SELECT FIRST_VALUE(name) OVER (PARTITION BY dept ORDER BY hire_date) FROM employees"
+  },
+  {
+    "comment": "LAST_VALUE window function with frame",
+    "query": "SELECT LAST_VALUE(score) OVER (ORDER BY date ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) FROM scores"
+  },
+  {
+    "comment": "NTH_VALUE window function",
+    "query": "SELECT NTH_VALUE(amount, 2) OVER (ORDER BY date) FROM transactions"
+  },
+  {
+    "comment": "PERCENT_RANK window function",
+    "query": "SELECT PERCENT_RANK() OVER (ORDER BY score) FROM test_results"
+  },
+  {
+    "comment": "CUME_DIST window function",
+    "query": "SELECT CUME_DIST() OVER (ORDER BY salary) FROM employees"
+  },
+  {
+    "comment": "NTILE window function",
+    "query": "SELECT NTILE(4) OVER (ORDER BY score DESC) FROM students"
+  },
+  {
+    "comment": "SUM window function",
+    "query": "SELECT SUM(amount) OVER (PARTITION BY account ORDER BY date) FROM transactions"
+  },
+  {
+    "comment": "COUNT window function",
+    "query": "SELECT COUNT(*) OVER (PARTITION BY region ORDER BY date ROWS UNBOUNDED PRECEDING) FROM sales"
+  },
+  {
+    "comment": "AVG window function with frame",
+    "query": "SELECT AVG(temperature) OVER (ORDER BY date ROWS BETWEEN 2 PRECEDING AND 2 FOLLOWING) FROM weather"
+  },
+  {
+    "comment": "MIN and MAX window functions",
+    "query": "SELECT MIN(price) OVER (PARTITION BY category), MAX(price) OVER (PARTITION BY category) FROM products"
+  },
+  {
+    "comment": "Named window definition",
+    "query": "SELECT ROW_NUMBER() OVER w FROM users WINDOW w AS (ORDER BY created_at)"
+  },
+  {
+    "comment": "Multiple named windows",
+    "query": "SELECT ROW_NUMBER() OVER w1, SUM(amount) OVER w2 FROM data WINDOW w1 AS (ORDER BY id), w2 AS (PARTITION BY type ORDER BY date)"
+  },
+  {
+    "comment": "Named window with inheritance",
+    "query": "SELECT ROW_NUMBER() OVER (w ORDER BY name) FROM users WINDOW w AS (PARTITION BY department)"
+  },
+  {
+    "comment": "ROWS frame - UNBOUNDED PRECEDING",
+    "query": "SELECT SUM(amount) OVER (ORDER BY date ROWS UNBOUNDED PRECEDING) FROM sales"
+  },
+  {
+    "comment": "ROWS frame - n PRECEDING",
+    "query": "SELECT AVG(price) OVER (ORDER BY date ROWS 3 PRECEDING) FROM stocks"
+  },
+  {
+    "comment": "ROWS frame - CURRENT ROW",
+    "query": "SELECT SUM(quantity) OVER (ORDER BY id ROWS CURRENT ROW) FROM orders"
+  },
+  {
+    "comment": "ROWS frame - BETWEEN PRECEDING AND FOLLOWING",
+    "query": "SELECT AVG(amount) OVER (ORDER BY date ROWS BETWEEN 1 PRECEDING AND 1 FOLLOWING) FROM transactions"
+  },
+  {
+    "comment": "ROWS frame - BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW",
+    "query": "SELECT SUM(sales) OVER (PARTITION BY region ORDER BY month ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) FROM monthly_sales"
+  },
+  {
+    "comment": "ROWS frame - BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING",
+    "query": "SELECT COUNT(*) OVER (ORDER BY date ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM events"
+  },
+  {
+    "comment": "RANGE frame - UNBOUNDED PRECEDING",
+    "query": "SELECT SUM(amount) OVER (ORDER BY amount RANGE UNBOUNDED PRECEDING) FROM payments"
+  },
+  {
+    "comment": "RANGE frame - CURRENT ROW",
+    "query": "SELECT COUNT(*) OVER (ORDER BY score RANGE CURRENT ROW) FROM results"
+  },
+  {
+    "comment": "RANGE frame - BETWEEN PRECEDING AND FOLLOWING",
+    "query": "SELECT AVG(value) OVER (ORDER BY val RANGE BETWEEN (SELECT 3) PRECEDING AND (SELECT 4) FOLLOWING) FROM daily_metrics"
+  },
+  {
+    "comment": "GROUPS frame - UNBOUNDED PRECEDING",
+    "query": "SELECT FIRST_VALUE(name) OVER (ORDER BY score GROUPS UNBOUNDED PRECEDING) FROM players"
+  },
+  {
+    "comment": "GROUPS frame - n PRECEDING",
+    "query": "SELECT COUNT(*) OVER (ORDER BY category GROUPS 2 PRECEDING) FROM products"
+  },
+  {
+    "comment": "GROUPS frame - BETWEEN PRECEDING AND FOLLOWING",
+    "query": "SELECT SUM(amount) OVER (ORDER BY date GROUPS BETWEEN 1 PRECEDING AND 1 FOLLOWING) FROM transactions"
+  },
+  {
+    "comment": "Frame with EXCLUDE CURRENT ROW",
+    "query": "SELECT AVG(salary) OVER (PARTITION BY dept ORDER BY salary ROWS BETWEEN 1 PRECEDING AND 1 FOLLOWING EXCLUDE CURRENT ROW) FROM employees"
+  },
+  {
+    "comment": "Frame with EXCLUDE GROUP",
+    "query": "SELECT SUM(amount) OVER (ORDER BY category GROUPS BETWEEN 1 PRECEDING AND 1 FOLLOWING EXCLUDE GROUP) FROM sales"
+  },
+  {
+    "comment": "Frame with EXCLUDE TIES",
+    "query": "SELECT COUNT(*) OVER (ORDER BY score ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW EXCLUDE TIES) FROM test_scores"
+  },
+  {
+    "comment": "Frame with EXCLUDE NO OTHERS",
+    "query": "SELECT MAX(value) OVER (ORDER BY date ROWS BETWEEN 2 PRECEDING AND 2 FOLLOWING EXCLUDE NO OTHERS) FROM measurements",
+    "expected": "SELECT MAX(value) OVER (ORDER BY date ROWS BETWEEN 2 PRECEDING AND 2 FOLLOWING) FROM measurements"
+  },
+  {
+    "comment": "Window function in WHERE clause (subquery)",
+    "query": "SELECT * FROM (SELECT id, ROW_NUMBER() OVER (ORDER BY created_at) as rn FROM users) t WHERE rn \u003c= 10",
+    "expected": "SELECT * FROM (SELECT id, ROW_NUMBER() OVER (ORDER BY created_at) AS rn FROM users) AS t WHERE rn \u003c= 10"
+  },
+  {
+    "comment": "Multiple window functions",
+    "query": "SELECT id, ROW_NUMBER() OVER (ORDER BY salary), RANK() OVER (ORDER BY salary), PERCENT_RANK() OVER (ORDER BY salary) FROM employees"
+  },
+  {
+    "comment": "Window function with CASE expression",
+    "query": "SELECT CASE WHEN ROW_NUMBER() OVER (ORDER BY score DESC) \u003c= 3 THEN 'Top 3' ELSE 'Other' END FROM students"
+  },
+  {
+    "comment": "Window function in ORDER BY",
+    "query": "SELECT name FROM employees ORDER BY ROW_NUMBER() OVER (PARTITION BY department ORDER BY hire_date)"
+  },
+  {
+    "comment": "Window function with DISTINCT",
+    "query": "SELECT COUNT(DISTINCT category) OVER (PARTITION BY region) FROM products"
+  },
+  {
+    "comment": "Window function with ALL",
+    "query": "SELECT SUM(ALL amount) OVER (ORDER BY date) FROM transactions",
+    "expected": "SELECT SUM(amount) OVER (ORDER BY date) FROM transactions"
+  },
+  {
+    "comment": "COUNT with FILTER",
+    "query": "SELECT COUNT(*) FILTER (WHERE status = 'active') FROM users"
+  },
+  {
+    "comment": "SUM with FILTER",
+    "query": "SELECT SUM(amount) FILTER (WHERE date \u003e '2024-01-01') FROM transactions"
+  },
+  {
+    "comment": "AVG with FILTER and GROUP BY",
+    "query": "SELECT department, AVG(salary) FILTER (WHERE experience \u003e 5) FROM employees GROUP BY department"
+  },
+  {
+    "comment": "Multiple aggregates with FILTER",
+    "query": "SELECT COUNT(*) FILTER (WHERE active), SUM(value) FILTER (WHERE type = 'sale') FROM records"
+  },
+  {
+    "comment": "FILTER with complex condition",
+    "query": "SELECT MAX(price) FILTER (WHERE category = 'electronics' AND in_stock = true) FROM products",
+    "expected": "SELECT MAX(price) FILTER (WHERE category = 'electronics' AND in_stock = TRUE) FROM products"
+  },
+  {
+    "comment": "percentile_cont with WITHIN GROUP",
+    "query": "SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY salary) FROM employees"
+  },
+  {
+    "comment": "mode with WITHIN GROUP",
+    "query": "SELECT mode() WITHIN GROUP (ORDER BY category) FROM products"
+  },
+  {
+    "comment": "string_agg with WITHIN GROUP",
+    "query": "SELECT string_agg(name, ', ') WITHIN GROUP (ORDER BY name) FROM users"
+  },
+  {
+    "comment": "WITHIN GROUP with DESC",
+    "query": "SELECT percentile_disc(0.9) WITHIN GROUP (ORDER BY score DESC) FROM tests"
+  },
+  {
+    "comment": "Aggregate with both FILTER and WITHIN GROUP",
+    "query": "SELECT percentile_cont(0.9) WITHIN GROUP (ORDER BY score) FILTER (WHERE status = 'completed') FROM tests"
+  },
+  {
+    "comment": "Aggregate with FILTER and OVER",
+    "query": "SELECT SUM(amount) FILTER (WHERE type = 'credit') OVER (PARTITION BY account_id) FROM transactions"
+  },
+  {
+    "comment": "COUNT FILTER with window",
+    "query": "SELECT COUNT(*) FILTER (WHERE active = true) OVER (ORDER BY created_at) FROM users",
+    "expected": "SELECT COUNT(*) FILTER (WHERE active = TRUE) OVER (ORDER BY created_at) FROM users"
+  },
+  {
+    "comment": "Simple FOR UPDATE",
+    "query": "SELECT * FROM users FOR UPDATE"
+  },
+  {
+    "comment": "FOR UPDATE with specific tables",
+    "query": "SELECT * FROM users u, orders o WHERE u.id = o.user_id FOR UPDATE OF u",
+    "expected": "SELECT * FROM users AS u, orders AS o WHERE u.id = o.user_id FOR UPDATE OF u"
+  },
+  {
+    "comment": "FOR UPDATE NOWAIT",
+    "query": "SELECT * FROM accounts WHERE balance \u003e 1000 FOR UPDATE NOWAIT"
+  },
+  {
+    "comment": "FOR UPDATE SKIP LOCKED",
+    "query": "SELECT * FROM queue WHERE processed = false FOR UPDATE SKIP LOCKED",
+    "expected": "SELECT * FROM queue WHERE processed = FALSE FOR UPDATE SKIP LOCKED"
+  },
+  {
+    "comment": "FOR NO KEY UPDATE",
+    "query": "SELECT * FROM settings FOR NO KEY UPDATE"
+  },
+  {
+    "comment": "FOR NO KEY UPDATE SKIP LOCKED",
+    "query": "SELECT * FROM tasks FOR NO KEY UPDATE SKIP LOCKED"
+  },
+  {
+    "comment": "FOR NO KEY UPDATE with specific table",
+    "query": "SELECT * FROM users u, posts p WHERE u.id = p.user_id FOR NO KEY UPDATE OF u",
+    "expected": "SELECT * FROM users AS u, posts AS p WHERE u.id = p.user_id FOR NO KEY UPDATE OF u"
+  },
+  {
+    "comment": "Simple FOR SHARE",
+    "query": "SELECT * FROM products FOR SHARE"
+  },
+  {
+    "comment": "FOR SHARE with multiple tables",
+    "query": "SELECT * FROM orders o, items i WHERE o.id = i.order_id FOR SHARE OF o, i",
+    "expected": "SELECT * FROM orders AS o, items AS i WHERE o.id = i.order_id FOR SHARE OF o, i"
+  },
+  {
+    "comment": "FOR SHARE NOWAIT",
+    "query": "SELECT * FROM inventory FOR SHARE NOWAIT"
+  },
+  {
+    "comment": "FOR KEY SHARE",
+    "query": "SELECT * FROM categories FOR KEY SHARE"
+  },
+  {
+    "comment": "FOR KEY SHARE NOWAIT",
+    "query": "SELECT * FROM configs FOR KEY SHARE NOWAIT"
+  },
+  {
+    "comment": "FOR KEY SHARE SKIP LOCKED",
+    "query": "SELECT * FROM jobs FOR KEY SHARE SKIP LOCKED"
+  },
+  {
+    "comment": "Multiple locking clauses",
+    "query": "SELECT * FROM users u, accounts a WHERE u.id = a.user_id FOR UPDATE OF u FOR SHARE OF a",
+    "expected": "SELECT * FROM users AS u, accounts AS a WHERE u.id = a.user_id FOR UPDATE OF u FOR SHARE OF a"
+  },
+  {
+    "comment": "Mixed locking strengths",
+    "query": "SELECT * FROM t1, t2, t3 WHERE t1.id = t2.ref_id AND t2.id = t3.ref_id FOR UPDATE OF t1 FOR NO KEY UPDATE OF t2 FOR SHARE OF t3"
+  },
+  {
+    "comment": "FOR READ ONLY",
+    "query": "SELECT * FROM logs FOR READ ONLY",
+    "expected": "SELECT * FROM logs"
+  },
+  {
+    "comment": "Locking with ORDER BY and LIMIT",
+    "query": "SELECT * FROM queue ORDER BY priority DESC LIMIT 10 FOR UPDATE SKIP LOCKED"
+  },
+  {
+    "comment": "Locking with GROUP BY",
+    "query": "SELECT user_id, COUNT(*) FROM orders GROUP BY user_id FOR UPDATE"
+  },
+  {
+    "comment": "Locking with subquery",
+    "query": "SELECT * FROM (SELECT * FROM users WHERE active = true) AS u FOR UPDATE",
+    "expected": "SELECT * FROM (SELECT * FROM users WHERE active = TRUE) AS u FOR UPDATE"
+  },
+  {
+    "comment": "Locking with JOIN",
+    "query": "SELECT * FROM users u JOIN accounts a ON u.id = a.user_id FOR UPDATE OF u",
+    "expected": "SELECT * FROM users AS u INNER JOIN accounts AS a ON u.id = a.user_id FOR UPDATE OF u"
+  },
+  {
+    "comment": "Locking with CTE",
+    "query": "WITH active_users AS (SELECT * FROM users WHERE active = true) SELECT * FROM active_users FOR UPDATE",
+    "expected": "WITH active_users AS (SELECT * FROM users WHERE active = TRUE) SELECT * FROM active_users FOR UPDATE"
+  },
+  {
+    "comment": "Aggregate with FILTER and locking",
+    "query": "SELECT user_id, COUNT(*) FILTER (WHERE status = 'pending') FROM orders GROUP BY user_id FOR UPDATE"
+  },
+  {
+    "comment": "WITHIN GROUP with locking",
+    "query": "SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY amount) FROM transactions FOR SHARE"
+  },
+  {
+    "comment": "INNER JOIN",
+    "query": "SELECT * FROM users INNER JOIN orders ON users.id = orders.user_id"
+  },
+  {
+    "comment": "LEFT JOIN",
+    "query": "SELECT * FROM users LEFT JOIN orders ON users.id = orders.user_id",
+    "expected": "SELECT * FROM users LEFT OUTER JOIN orders ON users.id = orders.user_id"
+  },
+  {
+    "comment": "JOIN with USING",
+    "query": "SELECT * FROM users JOIN orders USING (user_id)",
+    "expected": "SELECT * FROM users INNER JOIN orders USING (user_id)"
+  },
+  {
+    "comment": "CROSS JOIN",
+    "query": "SELECT * FROM users CROSS JOIN orders",
+    "expected": "SELECT * FROM users INNER JOIN orders ON TRUE"
+  },
+  {
+    "comment": "NATURAL JOIN",
+    "query": "SELECT * FROM users NATURAL JOIN orders"
+  },
+  {
+    "comment": "Basic CTE",
+    "query": "WITH user_stats AS (SELECT user_id FROM orders) SELECT * FROM user_stats"
+  },
+  {
+    "comment": "Recursive CTE",
+    "query": "WITH RECURSIVE t AS (SELECT 1) SELECT * FROM t"
+  },
+  {
+    "comment": "Multiple CTEs",
+    "query": "WITH stats AS (SELECT * FROM orders), totals AS (SELECT amount FROM stats) SELECT * FROM totals"
+  },
+  {
+    "comment": "Subquery in FROM",
+    "query": "SELECT * FROM (SELECT user_id FROM orders) AS stats"
+  },
+  {
+    "comment": "LATERAL subquery",
+    "query": "SELECT * FROM users, LATERAL (SELECT * FROM orders) AS user_orders"
+  },
+  {
+    "comment": "MATERIALIZED CTE",
+    "query": "WITH user_stats AS MATERIALIZED (SELECT user_id FROM orders) SELECT * FROM user_stats"
+  },
+  {
+    "comment": "NOT MATERIALIZED CTE",
+    "query": "WITH user_stats AS NOT MATERIALIZED (SELECT user_id FROM orders) SELECT * FROM user_stats"
+  },
+  {
+    "comment": "CTE with SEARCH DEPTH FIRST",
+    "query": "WITH RECURSIVE org_chart AS (SELECT id FROM employees) SEARCH DEPTH FIRST BY id SET search_seq SELECT * FROM org_chart"
+  },
+  {
+    "comment": "CTE with SEARCH BREADTH FIRST",
+    "query": "WITH RECURSIVE org_chart AS (SELECT id FROM employees) SEARCH BREADTH FIRST BY id SET search_seq SELECT * FROM org_chart"
+  },
+  {
+    "comment": "CTE with CYCLE simple",
+    "query": "WITH RECURSIVE org_chart AS (SELECT id FROM employees) CYCLE id SET is_cycle USING path SELECT * FROM org_chart"
+  },
+  {
+    "comment": "CTE with CYCLE full",
+    "query": "WITH RECURSIVE org_chart AS (SELECT id FROM employees) CYCLE id SET is_cycle TO TRUE DEFAULT FALSE USING path SELECT * FROM org_chart"
+  },
+  {
+    "comment": "CTE with both SEARCH and CYCLE",
+    "query": "WITH RECURSIVE org_chart AS (SELECT id FROM employees) SEARCH DEPTH FIRST BY id SET search_seq CYCLE id SET is_cycle USING path SELECT * FROM org_chart"
+  },
+  {
+    "comment": "simple limit",
+    "query": "SELECT * FROM users LIMIT 10"
+  },
+  {
+    "comment": "simple offset",
+    "query": "SELECT * FROM users OFFSET 5"
+  },
+  {
+    "comment": "limit with offset",
+    "query": "SELECT * FROM users LIMIT 10 OFFSET 5"
+  },
+  {
+    "comment": "offset with limit",
+    "query": "SELECT * FROM users OFFSET 5 LIMIT 10",
+    "expected": "SELECT * FROM users LIMIT 10 OFFSET 5"
+  },
+  {
+    "comment": "limit all",
+    "query": "SELECT * FROM users LIMIT ALL"
+  },
+  {
+    "comment": "limit with expression",
+    "query": "SELECT * FROM users LIMIT 5 + 5"
+  },
+  {
+    "comment": "offset with expression",
+    "query": "SELECT * FROM users OFFSET 2 * 3"
+  },
+  {
+    "comment": "fetch first row only",
+    "query": "SELECT * FROM users FETCH FIRST ROW ONLY",
+    "expected": "SELECT * FROM users LIMIT 1"
+  },
+  {
+    "comment": "fetch first rows only",
+    "query": "SELECT * FROM users FETCH FIRST ROWS ONLY",
+    "expected": "SELECT * FROM users LIMIT 1"
+  },
+  {
+    "comment": "fetch next row only",
+    "query": "SELECT * FROM users FETCH NEXT ROW ONLY",
+    "expected": "SELECT * FROM users LIMIT 1"
+  },
+  {
+    "comment": "fetch first 5 rows only",
+    "query": "SELECT * FROM users FETCH FIRST 5 ROWS ONLY",
+    "expected": "SELECT * FROM users LIMIT 5"
+  },
+  {
+    "comment": "fetch next 10 rows only",
+    "query": "SELECT * FROM users FETCH NEXT 10 ROWS ONLY",
+    "expected": "SELECT * FROM users LIMIT 10"
+  },
+  {
+    "comment": "fetch first with ties",
+    "query": "SELECT * FROM users ORDER BY score FETCH FIRST ROW WITH TIES"
+  },
+  {
+    "comment": "fetch first 5 rows with ties",
+    "query": "SELECT * FROM users ORDER BY score FETCH FIRST 5 ROWS WITH TIES"
+  },
+  {
+    "comment": "offset with fetch first",
+    "query": "SELECT * FROM users OFFSET 10 ROWS FETCH NEXT 5 ROWS ONLY",
+    "expected": "SELECT * FROM users LIMIT 5 OFFSET 10"
+  },
+  {
+    "comment": "offset with row keyword",
+    "query": "SELECT * FROM users OFFSET 10 ROW",
+    "expected": "SELECT * FROM users OFFSET 10"
+  },
+  {
+    "comment": "offset with rows keyword",
+    "query": "SELECT * FROM users OFFSET 10 ROWS",
+    "expected": "SELECT * FROM users OFFSET 10"
+  },
+  {
+    "comment": "order by with limit",
+    "query": "SELECT * FROM users ORDER BY id LIMIT 10"
+  },
+  {
+    "comment": "order by with limit and offset",
+    "query": "SELECT * FROM users ORDER BY id LIMIT 10 OFFSET 5"
+  },
+  {
+    "comment": "order by with fetch first",
+    "query": "SELECT * FROM users ORDER BY score DESC FETCH FIRST 3 ROWS ONLY",
+    "expected": "SELECT * FROM users ORDER BY score DESC LIMIT 3"
+  },
+  {
+    "comment": "order by with fetch first with ties",
+    "query": "SELECT * FROM users ORDER BY score DESC FETCH FIRST 3 ROWS WITH TIES"
+  },
+  {
+    "comment": "with clause and limit",
+    "query": "WITH top_users AS (SELECT * FROM users) SELECT * FROM top_users LIMIT 10"
+  },
+  {
+    "comment": "subquery with limit",
+    "query": "SELECT * FROM (SELECT * FROM users LIMIT 10) AS limited_users"
+  },
+  {
+    "comment": "limit with complex expression",
+    "query": "SELECT * FROM users LIMIT (SELECT COUNT(*) / 10 FROM users)"
+  },
+  {
+    "comment": "deprecated limit comma syntax",
+    "query": "SELECT * FROM users LIMIT 10, 5",
+    "error": "parse error at position 31: LIMIT #,# syntax is not supported. Use separate LIMIT and OFFSET clauses."
+  },
+  {
+    "comment": "Boolean test IS TRUE",
+    "query": "SELECT * FROM users WHERE active IS TRUE"
+  },
+  {
+    "comment": "Boolean test IS FALSE",
+    "query": "SELECT * FROM users WHERE deleted IS FALSE"
+  },
+  {
+    "comment": "Boolean test IS NOT TRUE",
+    "query": "SELECT * FROM users WHERE verified IS NOT TRUE"
+  },
+  {
+    "comment": "Boolean test IS NOT FALSE",
+    "query": "SELECT * FROM users WHERE enabled IS NOT FALSE"
+  },
+  {
+    "comment": "Boolean test IS UNKNOWN",
+    "query": "SELECT * FROM users WHERE status IS UNKNOWN"
+  },
+  {
+    "comment": "Boolean test IS NOT UNKNOWN",
+    "query": "SELECT * FROM users WHERE permission IS NOT UNKNOWN"
+  },
+  {
+    "comment": "Boolean test with column expression",
+    "query": "SELECT * FROM users WHERE (active AND verified) IS TRUE"
+  },
+  {
+    "comment": "Boolean test with function call",
+    "query": "SELECT * FROM users WHERE coalesce(active, false) IS TRUE",
+    "expected": "SELECT * FROM users WHERE COALESCE(active, FALSE) IS TRUE"
+  },
+  {
+    "comment": "Boolean test in SELECT clause",
+    "query": "SELECT name, (active IS TRUE) AS is_active FROM users"
+  },
+  {
+    "comment": "Complex boolean test with AND",
+    "query": "SELECT * FROM users WHERE active IS TRUE AND deleted IS FALSE"
+  },
+  {
+    "comment": "Boolean test with subquery",
+    "query": "SELECT * FROM users WHERE (EXISTS(SELECT 1 FROM orders WHERE user_id = users.id)) IS TRUE",
+    "expected": "SELECT * FROM users WHERE (EXISTS (SELECT 1 FROM orders WHERE user_id = users.id)) IS TRUE"
+  },
+  {
+    "comment": "BitString binary literal",
+    "query": "SELECT B'101010'"
+  },
+  {
+    "comment": "BitString hex literal",
+    "query": "SELECT X'1FA'"
+  },
+  {
+    "comment": "BitString hex that looks like binary - should stay as X'1010' not B'1010'",
+    "query": "SELECT X'1010'"
+  },
+  {
+    "comment": "BitString binary vs hex comparison",
+    "query": "SELECT B'1010' = X'1010'"
+  },
+  {
+    "comment": "BitString in WHERE clause",
+    "query": "SELECT * FROM data WHERE flags = B'1010'"
+  },
+  {
+    "comment": "GREATEST function with two arguments",
+    "query": "SELECT GREATEST(10, 20)"
+  },
+  {
+    "comment": "LEAST function with two arguments",
+    "query": "SELECT LEAST(10, 20)"
+  },
+  {
+    "comment": "GREATEST with multiple arguments",
+    "query": "SELECT GREATEST(1, 5, 3, 9, 2)"
+  },
+  {
+    "comment": "LEAST with multiple arguments",
+    "query": "SELECT LEAST(1, 5, 3, 9, 2)"
+  },
+  {
+    "comment": "GREATEST with column references",
+    "query": "SELECT GREATEST(price, min_price, default_price) FROM products"
+  },
+  {
+    "comment": "LEAST with expressions",
+    "query": "SELECT LEAST(price * 0.9, sale_price, clearance_price) FROM products"
+  },
+  {
+    "comment": "Nested GREATEST and LEAST",
+    "query": "SELECT GREATEST(LEAST(100, price), 10) FROM products"
+  },
+  {
+    "comment": "Function with named arguments",
+    "query": "SELECT substring(string =\u003e 'hello world', start =\u003e 7, length =\u003e 5)"
+  },
+  {
+    "comment": "Function with mixed positional and named arguments",
+    "query": "SELECT substring('hello world', start =\u003e 7)"
+  },
+  {
+    "comment": "Function with named argument only",
+    "query": "SELECT now(timezone =\u003e 'UTC')",
+    "expected": "SELECT NOW(timezone =\u003e 'UTC')"
+  }
+]

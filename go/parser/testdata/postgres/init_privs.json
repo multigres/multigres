@@ -1,0 +1,19 @@
+[
+  {
+    "comment": "init_privs - Statement 1",
+    "query": "SELECT count(*) \u003e 0 FROM pg_init_privs",
+    "expected": "SELECT COUNT(*) \u003e 0 FROM pg_init_privs"
+  },
+  {
+    "comment": "init_privs - Statement 2",
+    "query": "GRANT SELECT ON pg_proc TO CURRENT_USER"
+  },
+  {
+    "comment": "init_privs - Statement 3",
+    "query": "GRANT SELECT (prosrc) ON pg_proc TO CURRENT_USER"
+  },
+  {
+    "comment": "init_privs - Statement 4",
+    "query": "GRANT SELECT (rolname, rolsuper) ON pg_authid TO CURRENT_USER"
+  }
+]

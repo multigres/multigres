@@ -1,0 +1,316 @@
+[
+  {
+    "comment": "expressions - Statement 1",
+    "query": "SELECT date(now())::text = current_date::text",
+    "expected": "SELECT CAST(date(NOW()) AS TEXT) = CAST(CURRENT_DATE AS TEXT)"
+  },
+  {
+    "comment": "expressions - Statement 2",
+    "query": "SELECT now()::timetz::text = current_time::text",
+    "expected": "SELECT CAST(CAST(NOW() AS TIMETZ) AS TEXT) = CAST(CURRENT_TIME AS TEXT)"
+  },
+  {
+    "comment": "expressions - Statement 3",
+    "query": "SELECT now()::timetz(4)::text = current_time(4)::text",
+    "expected": "SELECT CAST(CAST(NOW() AS TIMETZ(4)) AS TEXT) = CAST(CURRENT_TIME(4) AS TEXT)"
+  },
+  {
+    "comment": "expressions - Statement 4",
+    "query": "SELECT now()::time::text = localtime::text",
+    "expected": "SELECT CAST(CAST(NOW() AS TIME) AS TEXT) = CAST(LOCALTIME AS TEXT)"
+  },
+  {
+    "comment": "expressions - Statement 5",
+    "query": "SELECT now()::time(3)::text = localtime(3)::text",
+    "expected": "SELECT CAST(CAST(NOW() AS TIME(3)) AS TEXT) = CAST(LOCALTIME(3) AS TEXT)"
+  },
+  {
+    "comment": "expressions - Statement 6",
+    "query": "SELECT current_timestamp = NOW()",
+    "expected": "SELECT CURRENT_TIMESTAMP = NOW()"
+  },
+  {
+    "comment": "expressions - Statement 7",
+    "query": "SELECT length(current_timestamp::text) \u003e= length(current_timestamp(0)::text)",
+    "expected": "SELECT length(CAST(CURRENT_TIMESTAMP AS TEXT)) \u003e= length(CAST(CURRENT_TIMESTAMP(0) AS TEXT))"
+  },
+  {
+    "comment": "expressions - Statement 8",
+    "query": "SELECT now()::timestamp::text = localtimestamp::text",
+    "expected": "SELECT CAST(CAST(NOW() AS TIMESTAMP) AS TEXT) = CAST(LOCALTIMESTAMP AS TEXT)"
+  },
+  {
+    "comment": "expressions - Statement 9",
+    "query": "SELECT current_time = current_time(7)",
+    "expected": "SELECT CURRENT_TIME = CURRENT_TIME(7)"
+  },
+  {
+    "comment": "expressions - Statement 10",
+    "query": "SELECT current_timestamp = current_timestamp(7)",
+    "expected": "SELECT CURRENT_TIMESTAMP = CURRENT_TIMESTAMP(7)"
+  },
+  {
+    "comment": "expressions - Statement 11",
+    "query": "SELECT localtime = localtime(7)",
+    "expected": "SELECT LOCALTIME = LOCALTIME(7)"
+  },
+  {
+    "comment": "expressions - Statement 12",
+    "query": "SELECT localtimestamp = localtimestamp(7)",
+    "expected": "SELECT LOCALTIMESTAMP = LOCALTIMESTAMP(7)"
+  },
+  {
+    "comment": "expressions - Statement 13",
+    "query": "SELECT current_catalog = current_database()",
+    "expected": "SELECT CURRENT_CATALOG = current_database()"
+  },
+  {
+    "comment": "expressions - Statement 14",
+    "query": "SELECT current_schema",
+    "expected": "SELECT CURRENT_SCHEMA"
+  },
+  {
+    "comment": "expressions - Statement 15",
+    "query": "SET search_path = 'notme'",
+    "expected": "SET SCHEMA 'notme'"
+  },
+  {
+    "comment": "expressions - Statement 16",
+    "query": "SET search_path = 'pg_catalog'",
+    "expected": "SET SCHEMA 'pg_catalog'"
+  },
+  {
+    "comment": "expressions - Statement 17",
+    "query": "RESET search_path"
+  },
+  {
+    "comment": "expressions - Statement 18",
+    "query": "begin",
+    "expected": "BEGIN"
+  },
+  {
+    "comment": "expressions - Statement 19",
+    "query": "create table numeric_tbl (f1 numeric(18,3), f2 numeric)",
+    "expected": "CREATE TABLE numeric_tbl (f1 NUMERIC(18, 3), f2 NUMERIC)"
+  },
+  {
+    "comment": "expressions - Statement 20",
+    "query": "create view numeric_view as select f1, f1::numeric(16,4) as f1164, f1::numeric as f1n, f2, f2::numeric(16,4) as f2164, f2::numeric as f2n from numeric_tbl",
+    "expected": "CREATE VIEW numeric_view AS SELECT f1, CAST(f1 AS NUMERIC(16, 4)) AS f1164, CAST(f1 AS NUMERIC) AS f1n, f2, CAST(f2 AS NUMERIC(16, 4)) AS f2164, CAST(f2 AS NUMERIC) AS f2n FROM numeric_tbl"
+  },
+  {
+    "comment": "expressions - Statement 21",
+    "query": "create table bpchar_tbl (f1 character(16) unique, f2 char)",
+    "expected": "CREATE TABLE bpchar_tbl (f1 CHAR(16) UNIQUE, f2 CHAR(1))"
+  },
+  {
+    "comment": "expressions - Statement 22",
+    "query": "create view bpchar_view as select f1, f1::character(14) as f114, f1::char as f1n, f2, f2::character(14) as f214, f2::char as f2n from bpchar_tbl",
+    "expected": "CREATE VIEW bpchar_view AS SELECT f1, CAST(f1 AS CHAR(14)) AS f114, CAST(f1 AS CHAR(1)) AS f1n, f2, CAST(f2 AS CHAR(14)) AS f214, CAST(f2 AS CHAR(1)) AS f2n FROM bpchar_tbl"
+  },
+  {
+    "comment": "expressions - Statement 23",
+    "query": "rollback",
+    "expected": "ROLLBACK"
+  },
+  {
+    "comment": "expressions - Statement 24",
+    "query": "explain (verbose, costs off) select random() IN (1, 4, 8.0)",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) SELECT random() IN (1, 4, 8.0)"
+  },
+  {
+    "comment": "expressions - Statement 25",
+    "query": "explain (verbose, costs off) select random()::int IN (1, 4, 8.0)",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) SELECT CAST(random() AS INT) IN (1, 4, 8.0)"
+  },
+  {
+    "comment": "expressions - Statement 26",
+    "query": "select '(0,0)'::point in ('(0,0,0,0)'::box, point(0,0))",
+    "expected": "SELECT CAST('(0,0)' AS point) IN (CAST('(0,0,0,0)' AS box), point(0, 0))"
+  },
+  {
+    "comment": "expressions - Statement 27",
+    "query": "create function return_int_input(int) returns int as $$ begin  return $1; end; $$ language plpgsql stable;",
+    "expected": "CREATE FUNCTION return_int_input (INT) RETURNS INT AS $$ begin  return $1; end; $$ LANGUAGE plpgsql STABLE"
+  },
+  {
+    "comment": "expressions - Statement 30",
+    "query": "create function return_text_input(text) returns text as $$ begin  return $1; end; $$ language plpgsql stable;",
+    "expected": "CREATE FUNCTION return_text_input (TEXT) RETURNS TEXT AS $$ begin  return $1; end; $$ LANGUAGE plpgsql STABLE"
+  },
+  {
+    "comment": "expressions - Statement 31",
+    "query": "select return_int_input(1) in (10, 9, 2, 8, 3, 7, 4, 6, 5, 1)",
+    "expected": "SELECT return_int_input(1) IN (10, 9, 2, 8, 3, 7, 4, 6, 5, 1)"
+  },
+  {
+    "comment": "expressions - Statement 32",
+    "query": "select return_int_input(1) in (10, 9, 2, 8, 3, 7, 4, 6, 5, null)",
+    "expected": "SELECT return_int_input(1) IN (10, 9, 2, 8, 3, 7, 4, 6, 5, NULL)"
+  },
+  {
+    "comment": "expressions - Statement 33",
+    "query": "select return_int_input(1) in (null, null, null, null, null, null, null, null, null, null, null)",
+    "expected": "SELECT return_int_input(1) IN (NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)"
+  },
+  {
+    "comment": "expressions - Statement 34",
+    "query": "select return_int_input(1) in (10, 9, 2, 8, 3, 7, 4, 6, 5, 1, null)",
+    "expected": "SELECT return_int_input(1) IN (10, 9, 2, 8, 3, 7, 4, 6, 5, 1, NULL)"
+  },
+  {
+    "comment": "expressions - Statement 35",
+    "query": "select return_int_input(null::int) in (10, 9, 2, 8, 3, 7, 4, 6, 5, 1)",
+    "expected": "SELECT return_int_input(CAST(NULL AS INT)) IN (10, 9, 2, 8, 3, 7, 4, 6, 5, 1)"
+  },
+  {
+    "comment": "expressions - Statement 36",
+    "query": "select return_int_input(null::int) in (10, 9, 2, 8, 3, 7, 4, 6, 5, null)",
+    "expected": "SELECT return_int_input(CAST(NULL AS INT)) IN (10, 9, 2, 8, 3, 7, 4, 6, 5, NULL)"
+  },
+  {
+    "comment": "expressions - Statement 37",
+    "query": "select return_text_input('a') in ('a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j')",
+    "expected": "SELECT return_text_input('a') IN ('a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j')"
+  },
+  {
+    "comment": "expressions - Statement 38",
+    "query": "select return_int_input(1) not in (10, 9, 2, 8, 3, 7, 4, 6, 5, 1)",
+    "expected": "SELECT return_int_input(1) NOT IN (10, 9, 2, 8, 3, 7, 4, 6, 5, 1)"
+  },
+  {
+    "comment": "expressions - Statement 39",
+    "query": "select return_int_input(1) not in (10, 9, 2, 8, 3, 7, 4, 6, 5, 0)",
+    "expected": "SELECT return_int_input(1) NOT IN (10, 9, 2, 8, 3, 7, 4, 6, 5, 0)"
+  },
+  {
+    "comment": "expressions - Statement 40",
+    "query": "select return_int_input(1) not in (10, 9, 2, 8, 3, 7, 4, 6, 5, 2, null)",
+    "expected": "SELECT return_int_input(1) NOT IN (10, 9, 2, 8, 3, 7, 4, 6, 5, 2, NULL)"
+  },
+  {
+    "comment": "expressions - Statement 41",
+    "query": "select return_int_input(1) not in (10, 9, 2, 8, 3, 7, 4, 6, 5, 1, null)",
+    "expected": "SELECT return_int_input(1) NOT IN (10, 9, 2, 8, 3, 7, 4, 6, 5, 1, NULL)"
+  },
+  {
+    "comment": "expressions - Statement 42",
+    "query": "select return_int_input(1) not in (null, null, null, null, null, null, null, null, null, null, null)",
+    "expected": "SELECT return_int_input(1) NOT IN (NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)"
+  },
+  {
+    "comment": "expressions - Statement 43",
+    "query": "select return_int_input(null::int) not in (10, 9, 2, 8, 3, 7, 4, 6, 5, 1)",
+    "expected": "SELECT return_int_input(CAST(NULL AS INT)) NOT IN (10, 9, 2, 8, 3, 7, 4, 6, 5, 1)"
+  },
+  {
+    "comment": "expressions - Statement 44",
+    "query": "select return_int_input(null::int) not in (10, 9, 2, 8, 3, 7, 4, 6, 5, null)",
+    "expected": "SELECT return_int_input(CAST(NULL AS INT)) NOT IN (10, 9, 2, 8, 3, 7, 4, 6, 5, NULL)"
+  },
+  {
+    "comment": "expressions - Statement 45",
+    "query": "select return_text_input('a') not in ('a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j')",
+    "expected": "SELECT return_text_input('a') NOT IN ('a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j')"
+  },
+  {
+    "comment": "expressions - Statement 46",
+    "query": "create type myint",
+    "expected": "CREATE TYPE myint"
+  },
+  {
+    "comment": "expressions - Statement 47",
+    "query": "create function myintin(cstring) returns myint strict immutable language internal as 'int4in'",
+    "expected": "CREATE FUNCTION myintin (cstring) RETURNS myint STRICT IMMUTABLE LANGUAGE internal AS $$int4in$$"
+  },
+  {
+    "comment": "expressions - Statement 48",
+    "query": "create function myintout(myint) returns cstring strict immutable language internal as 'int4out'",
+    "expected": "CREATE FUNCTION myintout (myint) RETURNS cstring STRICT IMMUTABLE LANGUAGE internal AS $$int4out$$"
+  },
+  {
+    "comment": "expressions - Statement 49",
+    "query": "create function myinthash(myint) returns integer strict immutable language internal as 'hashint4'",
+    "expected": "CREATE FUNCTION myinthash (myint) RETURNS INT STRICT IMMUTABLE LANGUAGE internal AS $$hashint4$$"
+  },
+  {
+    "comment": "expressions - Statement 50",
+    "query": "create type myint (input = myintin, output = myintout, like = int4)",
+    "expected": "CREATE TYPE myint (input = myintin, output = myintout, \"like\" = INT)"
+  },
+  {
+    "comment": "expressions - Statement 51",
+    "query": "create cast (int4 as myint) without function",
+    "expected": "CREATE CAST (INT AS myint) WITHOUT FUNCTION"
+  },
+  {
+    "comment": "expressions - Statement 52",
+    "query": "create cast (myint as int4) without function",
+    "expected": "CREATE CAST (myint AS INT) WITHOUT FUNCTION"
+  },
+  {
+    "comment": "expressions - Statement 53",
+    "query": "ccreate function myinteq(myint, myint) returns bool as $$ begin   if $1 is null and $2 is null then     return true;   else     return $1::int = $2::int;   end if; end; $$ language plpgsql immutable;",
+    "error": "parse error at position 7: syntax error"
+  },
+  {
+    "comment": "expressions - Statement 57",
+    "query": "ccreate function myintne(myint, myint) returns bool as $$ begin   return not myinteq($1, $2); end; $$ language plpgsql immutable;",
+    "error": "parse error at position 7: syntax error"
+  },
+  {
+    "comment": "expressions - Statement 58",
+    "query": "create operator = ( leftarg    = myint, rightarg   = myint, commutator = =, negator    = \u003c\u003e, procedure  = myinteq, restrict   = eqsel, join       = eqjoinsel, merges )",
+    "expected": "CREATE OPERATOR = (leftarg = myint, rightarg = myint, commutator = '=', negator = '\u003c\u003e', procedure = myinteq, restrict = eqsel, \"join\" = eqjoinsel, merges)"
+  },
+  {
+    "comment": "expressions - Statement 59",
+    "query": "create operator \u003c\u003e ( leftarg    = myint, rightarg   = myint, commutator = \u003c\u003e, negator    = =, procedure  = myintne, restrict   = eqsel, join       = eqjoinsel, merges )",
+    "expected": "CREATE OPERATOR \u003c\u003e (leftarg = myint, rightarg = myint, commutator = '\u003c\u003e', negator = '=', procedure = myintne, restrict = eqsel, \"join\" = eqjoinsel, merges)"
+  },
+  {
+    "comment": "expressions - Statement 60",
+    "query": "create operator class myint_ops default for type myint using hash as operator    1   =  (myint, myint), function    1   myinthash(myint)",
+    "expected": "CREATE OPERATOR CLASS myint_ops DEFAULT FOR TYPE myint USING hash AS OPERATOR 1 = (myint, myint), FUNCTION 1 myinthash(myint)"
+  },
+  {
+    "comment": "expressions - Statement 61",
+    "query": "create table inttest (a myint)",
+    "expected": "CREATE TABLE inttest (a myint)"
+  },
+  {
+    "comment": "expressions - Statement 62",
+    "query": "insert into inttest values(1::myint),(null)",
+    "expected": "INSERT INTO inttest VALUES (CAST(1 AS myint)), (NULL)"
+  },
+  {
+    "comment": "expressions - Statement 63",
+    "query": "select * from inttest where a in (1::myint,2::myint,3::myint,4::myint,5::myint,6::myint,7::myint,8::myint,9::myint, null)",
+    "expected": "SELECT * FROM inttest WHERE a IN (CAST(1 AS myint), CAST(2 AS myint), CAST(3 AS myint), CAST(4 AS myint), CAST(5 AS myint), CAST(6 AS myint), CAST(7 AS myint), CAST(8 AS myint), CAST(9 AS myint), NULL)"
+  },
+  {
+    "comment": "expressions - Statement 64",
+    "query": "select * from inttest where a not in (1::myint,2::myint,3::myint,4::myint,5::myint,6::myint,7::myint,8::myint,9::myint, null)",
+    "expected": "SELECT * FROM inttest WHERE a NOT IN (CAST(1 AS myint), CAST(2 AS myint), CAST(3 AS myint), CAST(4 AS myint), CAST(5 AS myint), CAST(6 AS myint), CAST(7 AS myint), CAST(8 AS myint), CAST(9 AS myint), NULL)"
+  },
+  {
+    "comment": "expressions - Statement 65",
+    "query": "select * from inttest where a not in (0::myint,2::myint,3::myint,4::myint,5::myint,6::myint,7::myint,8::myint,9::myint, null)",
+    "expected": "SELECT * FROM inttest WHERE a NOT IN (CAST(0 AS myint), CAST(2 AS myint), CAST(3 AS myint), CAST(4 AS myint), CAST(5 AS myint), CAST(6 AS myint), CAST(7 AS myint), CAST(8 AS myint), CAST(9 AS myint), NULL)"
+  },
+  {
+    "comment": "expressions - Statement 66",
+    "query": "select * from inttest where a in (1::myint,2::myint,3::myint,4::myint,5::myint, null)",
+    "expected": "SELECT * FROM inttest WHERE a IN (CAST(1 AS myint), CAST(2 AS myint), CAST(3 AS myint), CAST(4 AS myint), CAST(5 AS myint), NULL)"
+  },
+  {
+    "comment": "expressions - Statement 67",
+    "query": "select * from inttest where a not in (1::myint,2::myint,3::myint,4::myint,5::myint, null)",
+    "expected": "SELECT * FROM inttest WHERE a NOT IN (CAST(1 AS myint), CAST(2 AS myint), CAST(3 AS myint), CAST(4 AS myint), CAST(5 AS myint), NULL)"
+  },
+  {
+    "comment": "expressions - Statement 68",
+    "query": "select * from inttest where a not in (0::myint,2::myint,3::myint,4::myint,5::myint, null)",
+    "expected": "SELECT * FROM inttest WHERE a NOT IN (CAST(0 AS myint), CAST(2 AS myint), CAST(3 AS myint), CAST(4 AS myint), CAST(5 AS myint), NULL)"
+  }
+]

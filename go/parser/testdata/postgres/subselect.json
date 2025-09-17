@@ -1,0 +1,1208 @@
+[
+  {
+    "comment": "subselect - Statement 1",
+    "query": "SELECT 1 AS one WHERE 1 IN (SELECT 1)"
+  },
+  {
+    "comment": "subselect - Statement 2",
+    "query": "SELECT 1 AS zero WHERE 1 NOT IN (SELECT 1)",
+    "expected": "SELECT 1 AS zero WHERE NOT 1 IN (SELECT 1)"
+  },
+  {
+    "comment": "subselect - Statement 3",
+    "query": "SELECT 1 AS zero WHERE 1 IN (SELECT 2)"
+  },
+  {
+    "comment": "subselect - Statement 4",
+    "query": "SELECT * FROM (SELECT 1 AS x) ss",
+    "expected": "SELECT * FROM (SELECT 1 AS x) AS ss"
+  },
+  {
+    "comment": "subselect - Statement 5",
+    "query": "SELECT * FROM ((SELECT 1 AS x)) ss",
+    "expected": "SELECT * FROM (SELECT 1 AS x) AS ss"
+  },
+  {
+    "comment": "subselect - Statement 6",
+    "query": "SELECT * FROM ((SELECT 1 AS x)), ((SELECT * FROM ((SELECT 2 AS y))))",
+    "expected": "SELECT * FROM (SELECT 1 AS x), (SELECT * FROM (SELECT 2 AS y))"
+  },
+  {
+    "comment": "subselect - Statement 7",
+    "query": "(SELECT 2) UNION SELECT 2",
+    "expected": "SELECT 2 UNION SELECT 2"
+  },
+  {
+    "comment": "subselect - Statement 8",
+    "query": "((SELECT 2)) UNION SELECT 2",
+    "expected": "SELECT 2 UNION SELECT 2"
+  },
+  {
+    "comment": "subselect - Statement 9",
+    "query": "SELECT ((SELECT 2) UNION SELECT 2)",
+    "expected": "SELECT (SELECT 2 UNION SELECT 2)"
+  },
+  {
+    "comment": "subselect - Statement 10",
+    "query": "SELECT (((SELECT 2)) UNION SELECT 2)",
+    "expected": "SELECT (SELECT 2 UNION SELECT 2)"
+  },
+  {
+    "comment": "subselect - Statement 11",
+    "query": "SELECT (SELECT ARRAY[1,2,3])[1]"
+  },
+  {
+    "comment": "subselect - Statement 12",
+    "query": "SELECT ((SELECT ARRAY[1,2,3]))[2]",
+    "expected": "SELECT (SELECT ARRAY[1,2,3])[2]"
+  },
+  {
+    "comment": "subselect - Statement 13",
+    "query": "SELECT (((SELECT ARRAY[1,2,3])))[3]",
+    "expected": "SELECT (SELECT ARRAY[1,2,3])[3]"
+  },
+  {
+    "comment": "subselect - Statement 14",
+    "query": "CREATE TABLE SUBSELECT_TBL ( f1 integer, f2 integer, f3 float )",
+    "expected": "CREATE TABLE subselect_tbl (f1 INT, f2 INT, f3 FLOAT8)"
+  },
+  {
+    "comment": "subselect - Statement 15",
+    "query": "INSERT INTO SUBSELECT_TBL VALUES (1, 2, 3)",
+    "expected": "INSERT INTO subselect_tbl VALUES (1, 2, 3)"
+  },
+  {
+    "comment": "subselect - Statement 16",
+    "query": "INSERT INTO SUBSELECT_TBL VALUES (2, 3, 4)",
+    "expected": "INSERT INTO subselect_tbl VALUES (2, 3, 4)"
+  },
+  {
+    "comment": "subselect - Statement 17",
+    "query": "INSERT INTO SUBSELECT_TBL VALUES (3, 4, 5)",
+    "expected": "INSERT INTO subselect_tbl VALUES (3, 4, 5)"
+  },
+  {
+    "comment": "subselect - Statement 18",
+    "query": "INSERT INTO SUBSELECT_TBL VALUES (1, 1, 1)",
+    "expected": "INSERT INTO subselect_tbl VALUES (1, 1, 1)"
+  },
+  {
+    "comment": "subselect - Statement 19",
+    "query": "INSERT INTO SUBSELECT_TBL VALUES (2, 2, 2)",
+    "expected": "INSERT INTO subselect_tbl VALUES (2, 2, 2)"
+  },
+  {
+    "comment": "subselect - Statement 20",
+    "query": "INSERT INTO SUBSELECT_TBL VALUES (3, 3, 3)",
+    "expected": "INSERT INTO subselect_tbl VALUES (3, 3, 3)"
+  },
+  {
+    "comment": "subselect - Statement 21",
+    "query": "INSERT INTO SUBSELECT_TBL VALUES (6, 7, 8)",
+    "expected": "INSERT INTO subselect_tbl VALUES (6, 7, 8)"
+  },
+  {
+    "comment": "subselect - Statement 22",
+    "query": "INSERT INTO SUBSELECT_TBL VALUES (8, 9, NULL)",
+    "expected": "INSERT INTO subselect_tbl VALUES (8, 9, NULL)"
+  },
+  {
+    "comment": "subselect - Statement 23",
+    "query": "SELECT * FROM SUBSELECT_TBL",
+    "expected": "SELECT * FROM subselect_tbl"
+  },
+  {
+    "comment": "subselect - Statement 24",
+    "query": "SELECT f1 AS \"Constant Select\" FROM SUBSELECT_TBL WHERE f1 IN (SELECT 1)",
+    "expected": "SELECT f1 AS \"Constant Select\" FROM subselect_tbl WHERE f1 IN (SELECT 1)"
+  },
+  {
+    "comment": "subselect - Statement 25",
+    "query": "SELECT f1 AS \"Uncorrelated Field\" FROM SUBSELECT_TBL WHERE f1 IN (SELECT f2 FROM SUBSELECT_TBL)",
+    "expected": "SELECT f1 AS \"Uncorrelated Field\" FROM subselect_tbl WHERE f1 IN (SELECT f2 FROM subselect_tbl)"
+  },
+  {
+    "comment": "subselect - Statement 26",
+    "query": "SELECT f1 AS \"Uncorrelated Field\" FROM SUBSELECT_TBL WHERE f1 IN (SELECT f2 FROM SUBSELECT_TBL WHERE f2 IN (SELECT f1 FROM SUBSELECT_TBL))",
+    "expected": "SELECT f1 AS \"Uncorrelated Field\" FROM subselect_tbl WHERE f1 IN (SELECT f2 FROM subselect_tbl WHERE f2 IN (SELECT f1 FROM subselect_tbl))"
+  },
+  {
+    "comment": "subselect - Statement 27",
+    "query": "SELECT f1, f2 FROM SUBSELECT_TBL WHERE (f1, f2) NOT IN (SELECT f2, CAST(f3 AS int4) FROM SUBSELECT_TBL WHERE f3 IS NOT NULL)",
+    "expected": "SELECT f1, f2 FROM subselect_tbl WHERE NOT (f1, f2) IN (SELECT f2, CAST(f3 AS INT) FROM subselect_tbl WHERE f3 IS NOT NULL)"
+  },
+  {
+    "comment": "subselect - Statement 28",
+    "query": "SELECT f1 AS \"Correlated Field\", f2 AS \"Second Field\" FROM SUBSELECT_TBL upper WHERE f1 IN (SELECT f2 FROM SUBSELECT_TBL WHERE f1 = upper.f1)",
+    "expected": "SELECT f1 AS \"Correlated Field\", f2 AS \"Second Field\" FROM subselect_tbl AS upper WHERE f1 IN (SELECT f2 FROM subselect_tbl WHERE f1 = upper.f1)"
+  },
+  {
+    "comment": "subselect - Statement 29",
+    "query": "SELECT f1 AS \"Correlated Field\", f3 AS \"Second Field\" FROM SUBSELECT_TBL upper WHERE f1 IN (SELECT f2 FROM SUBSELECT_TBL WHERE CAST(upper.f2 AS float) = f3)",
+    "expected": "SELECT f1 AS \"Correlated Field\", f3 AS \"Second Field\" FROM subselect_tbl AS upper WHERE f1 IN (SELECT f2 FROM subselect_tbl WHERE CAST(upper.f2 AS FLOAT8) = f3)"
+  },
+  {
+    "comment": "subselect - Statement 30",
+    "query": "SELECT f1 AS \"Correlated Field\", f3 AS \"Second Field\" FROM SUBSELECT_TBL upper WHERE f3 IN (SELECT upper.f1 + f2 FROM SUBSELECT_TBL WHERE f2 = CAST(f3 AS integer))",
+    "expected": "SELECT f1 AS \"Correlated Field\", f3 AS \"Second Field\" FROM subselect_tbl AS upper WHERE f3 IN (SELECT upper.f1 + f2 FROM subselect_tbl WHERE f2 = CAST(f3 AS INT))"
+  },
+  {
+    "comment": "subselect - Statement 31",
+    "query": "SELECT f1 AS \"Correlated Field\" FROM SUBSELECT_TBL WHERE (f1, f2) IN (SELECT f2, CAST(f3 AS int4) FROM SUBSELECT_TBL WHERE f3 IS NOT NULL)",
+    "expected": "SELECT f1 AS \"Correlated Field\" FROM subselect_tbl WHERE (f1, f2) IN (SELECT f2, CAST(f3 AS INT) FROM subselect_tbl WHERE f3 IS NOT NULL)"
+  },
+  {
+    "comment": "subselect - Statement 32",
+    "query": "EXPLAIN (VERBOSE, COSTS OFF) SELECT ROW(1, 2) = (SELECT f1, f2) AS eq FROM SUBSELECT_TBL",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) SELECT ROW(1, 2) = (SELECT f1, f2) AS eq FROM subselect_tbl"
+  },
+  {
+    "comment": "subselect - Statement 33",
+    "query": "SELECT ROW(1, 2) = (SELECT f1, f2) AS eq FROM SUBSELECT_TBL",
+    "expected": "SELECT ROW(1, 2) = (SELECT f1, f2) AS eq FROM subselect_tbl"
+  },
+  {
+    "comment": "subselect - Statement 34",
+    "query": "EXPLAIN (VERBOSE, COSTS OFF) SELECT ROW(1, 2) = (SELECT 3, 4) AS eq FROM SUBSELECT_TBL",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) SELECT ROW(1, 2) = (SELECT 3, 4) AS eq FROM subselect_tbl"
+  },
+  {
+    "comment": "subselect - Statement 35",
+    "query": "SELECT ROW(1, 2) = (SELECT 3, 4) AS eq FROM SUBSELECT_TBL",
+    "expected": "SELECT ROW(1, 2) = (SELECT 3, 4) AS eq FROM subselect_tbl"
+  },
+  {
+    "comment": "subselect - Statement 36",
+    "query": "SELECT ROW(1, 2) = (SELECT f1, f2 FROM SUBSELECT_TBL)",
+    "expected": "SELECT ROW(1, 2) = (SELECT f1, f2 FROM subselect_tbl)"
+  },
+  {
+    "comment": "subselect - Statement 37",
+    "query": "SELECT count FROM (SELECT COUNT(DISTINCT name) FROM road)"
+  },
+  {
+    "comment": "subselect - Statement 38",
+    "query": "SELECT COUNT(*) FROM (SELECT DISTINCT name FROM road)"
+  },
+  {
+    "comment": "subselect - Statement 39",
+    "query": "SELECT * FROM (SELECT * FROM int4_tbl), (VALUES (123456)) WHERE f1 = column1"
+  },
+  {
+    "comment": "subselect - Statement 40",
+    "query": "CREATE VIEW view_unnamed_ss AS SELECT * FROM (SELECT * FROM (SELECT abs(f1) AS a1 FROM int4_tbl)), (SELECT * FROM int8_tbl) WHERE a1 \u003c 10 AND q1 \u003e a1 ORDER BY q1, q2"
+  },
+  {
+    "comment": "subselect - Statement 41",
+    "query": "SELECT * FROM view_unnamed_ss"
+  },
+  {
+    "comment": "subselect - Statement 42",
+    "query": "CREATE VIEW view_unnamed_ss_locking AS SELECT * FROM (SELECT * FROM int4_tbl), int8_tbl AS unnamed_subquery WHERE f1 = q1 FOR UPDATE OF unnamed_subquery"
+  },
+  {
+    "comment": "subselect - Statement 43",
+    "query": "SELECT ss.f1 AS \"Correlated Field\", ss.f3 AS \"Second Field\" FROM SUBSELECT_TBL ss WHERE f1 NOT IN (SELECT f1+1 FROM INT4_TBL WHERE f1 != ss.f1 AND f1 \u003c 2147483647)",
+    "expected": "SELECT ss.f1 AS \"Correlated Field\", ss.f3 AS \"Second Field\" FROM subselect_tbl AS ss WHERE NOT f1 IN (SELECT f1 + 1 FROM int4_tbl WHERE f1 \u003c\u003e ss.f1 AND f1 \u003c 2147483647)"
+  },
+  {
+    "comment": "subselect - Statement 44",
+    "query": "select q1, float8(count(*)) / (select count(*) from int8_tbl) from int8_tbl group by q1 order by q1",
+    "expected": "SELECT q1, float8(COUNT(*)) / (SELECT COUNT(*) FROM int8_tbl) FROM int8_tbl GROUP BY q1 ORDER BY q1"
+  },
+  {
+    "comment": "subselect - Statement 45",
+    "query": "SELECT *, pg_typeof(f1) FROM (SELECT 'foo' AS f1 FROM generate_series(1,3)) ss ORDER BY 1",
+    "expected": "SELECT *, pg_typeof(f1) FROM (SELECT 'foo' AS f1 FROM generate_series(1, 3)) AS ss ORDER BY 1"
+  },
+  {
+    "comment": "subselect - Statement 46",
+    "query": "explain (verbose, costs off) select '42' union all select '43'",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) SELECT '42' UNION ALL SELECT '43'"
+  },
+  {
+    "comment": "subselect - Statement 47",
+    "query": "explain (verbose, costs off) select '42' union all select 43",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) SELECT '42' UNION ALL SELECT 43"
+  },
+  {
+    "comment": "subselect - Statement 48",
+    "query": "explain (verbose, costs off) select 1 = all (select (select 1))",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) SELECT 1 = ALL (SELECT (SELECT 1))"
+  },
+  {
+    "comment": "subselect - Statement 49",
+    "query": "select 1 = all (select (select 1))",
+    "expected": "SELECT 1 = ALL (SELECT (SELECT 1))"
+  },
+  {
+    "comment": "subselect - Statement 50",
+    "query": "explain (costs off) select * from int4_tbl o where exists (select 1 from int4_tbl i where i.f1=o.f1 limit null)",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM int4_tbl AS o WHERE EXISTS (SELECT 1 FROM int4_tbl AS i WHERE i.f1 = o.f1 LIMIT ALL)"
+  },
+  {
+    "comment": "subselect - Statement 51",
+    "query": "explain (costs off) select * from int4_tbl o where not exists (select 1 from int4_tbl i where i.f1=o.f1 limit 1)",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM int4_tbl AS o WHERE NOT EXISTS (SELECT 1 FROM int4_tbl AS i WHERE i.f1 = o.f1 LIMIT 1)"
+  },
+  {
+    "comment": "subselect - Statement 52",
+    "query": "explain (costs off) select * from int4_tbl o where exists (select 1 from int4_tbl i where i.f1=o.f1 limit 0)",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM int4_tbl AS o WHERE EXISTS (SELECT 1 FROM int4_tbl AS i WHERE i.f1 = o.f1 LIMIT 0)"
+  },
+  {
+    "comment": "subselect - Statement 53",
+    "query": "select count(*) from (select 1 from tenk1 a where unique1 IN (select hundred from tenk1 b)) ss",
+    "expected": "SELECT COUNT(*) FROM (SELECT 1 FROM tenk1 AS a WHERE unique1 IN (SELECT hundred FROM tenk1 AS b)) AS ss"
+  },
+  {
+    "comment": "subselect - Statement 54",
+    "query": "select count(distinct ss.ten) from (select ten from tenk1 a where unique1 IN (select hundred from tenk1 b)) ss",
+    "expected": "SELECT COUNT(DISTINCT ss.ten) FROM (SELECT ten FROM tenk1 AS a WHERE unique1 IN (SELECT hundred FROM tenk1 AS b)) AS ss"
+  },
+  {
+    "comment": "subselect - Statement 55",
+    "query": "select count(*) from (select 1 from tenk1 a where unique1 IN (select distinct hundred from tenk1 b)) ss",
+    "expected": "SELECT COUNT(*) FROM (SELECT 1 FROM tenk1 AS a WHERE unique1 IN (SELECT DISTINCT hundred FROM tenk1 AS b)) AS ss"
+  },
+  {
+    "comment": "subselect - Statement 56",
+    "query": "select count(distinct ss.ten) from (select ten from tenk1 a where unique1 IN (select distinct hundred from tenk1 b)) ss",
+    "expected": "SELECT COUNT(DISTINCT ss.ten) FROM (SELECT ten FROM tenk1 AS a WHERE unique1 IN (SELECT DISTINCT hundred FROM tenk1 AS b)) AS ss"
+  },
+  {
+    "comment": "subselect - Statement 57",
+    "query": "CREATE TEMP TABLE foo (id integer)",
+    "expected": "CREATE TEMPORARY TABLE foo (id INT)"
+  },
+  {
+    "comment": "subselect - Statement 58",
+    "query": "CREATE TEMP TABLE bar (id1 integer, id2 integer)",
+    "expected": "CREATE TEMPORARY TABLE bar (id1 INT, id2 INT)"
+  },
+  {
+    "comment": "subselect - Statement 59",
+    "query": "INSERT INTO foo VALUES (1)"
+  },
+  {
+    "comment": "subselect - Statement 60",
+    "query": "INSERT INTO bar VALUES (1, 1)"
+  },
+  {
+    "comment": "subselect - Statement 61",
+    "query": "INSERT INTO bar VALUES (2, 2)"
+  },
+  {
+    "comment": "subselect - Statement 62",
+    "query": "INSERT INTO bar VALUES (3, 1)"
+  },
+  {
+    "comment": "subselect - Statement 63",
+    "query": "SELECT * FROM foo WHERE id IN (SELECT id2 FROM (SELECT DISTINCT id1, id2 FROM bar) AS s)"
+  },
+  {
+    "comment": "subselect - Statement 64",
+    "query": "SELECT * FROM foo WHERE id IN (SELECT id2 FROM (SELECT id1,id2 FROM bar GROUP BY id1,id2) AS s)",
+    "expected": "SELECT * FROM foo WHERE id IN (SELECT id2 FROM (SELECT id1, id2 FROM bar GROUP BY id1, id2) AS s)"
+  },
+  {
+    "comment": "subselect - Statement 65",
+    "query": "SELECT * FROM foo WHERE id IN (SELECT id2 FROM (SELECT id1, id2 FROM bar UNION SELECT id1, id2 FROM bar) AS s)"
+  },
+  {
+    "comment": "subselect - Statement 66",
+    "query": "SELECT * FROM foo WHERE id IN (SELECT id2 FROM (SELECT DISTINCT ON (id2) id1, id2 FROM bar) AS s)"
+  },
+  {
+    "comment": "subselect - Statement 67",
+    "query": "SELECT * FROM foo WHERE id IN (SELECT id2 FROM (SELECT id2 FROM bar GROUP BY id2) AS s)"
+  },
+  {
+    "comment": "subselect - Statement 68",
+    "query": "SELECT * FROM foo WHERE id IN (SELECT id2 FROM (SELECT id2 FROM bar UNION SELECT id2 FROM bar) AS s)"
+  },
+  {
+    "comment": "subselect - Statement 69",
+    "query": "CREATE TABLE orderstest ( approver_ref integer, po_ref integer, ordercanceled boolean )",
+    "expected": "CREATE TABLE orderstest (approver_ref INT, po_ref INT, ordercanceled BOOLEAN)"
+  },
+  {
+    "comment": "subselect - Statement 70",
+    "query": "INSERT INTO orderstest VALUES (1, 1, false)",
+    "expected": "INSERT INTO orderstest VALUES (1, 1, FALSE)"
+  },
+  {
+    "comment": "subselect - Statement 71",
+    "query": "INSERT INTO orderstest VALUES (66, 5, false)",
+    "expected": "INSERT INTO orderstest VALUES (66, 5, FALSE)"
+  },
+  {
+    "comment": "subselect - Statement 72",
+    "query": "INSERT INTO orderstest VALUES (66, 6, false)",
+    "expected": "INSERT INTO orderstest VALUES (66, 6, FALSE)"
+  },
+  {
+    "comment": "subselect - Statement 73",
+    "query": "INSERT INTO orderstest VALUES (66, 7, false)",
+    "expected": "INSERT INTO orderstest VALUES (66, 7, FALSE)"
+  },
+  {
+    "comment": "subselect - Statement 74",
+    "query": "INSERT INTO orderstest VALUES (66, 1, true)",
+    "expected": "INSERT INTO orderstest VALUES (66, 1, TRUE)"
+  },
+  {
+    "comment": "subselect - Statement 75",
+    "query": "INSERT INTO orderstest VALUES (66, 8, false)",
+    "expected": "INSERT INTO orderstest VALUES (66, 8, FALSE)"
+  },
+  {
+    "comment": "subselect - Statement 76",
+    "query": "INSERT INTO orderstest VALUES (66, 1, false)",
+    "expected": "INSERT INTO orderstest VALUES (66, 1, FALSE)"
+  },
+  {
+    "comment": "subselect - Statement 77",
+    "query": "INSERT INTO orderstest VALUES (77, 1, false)",
+    "expected": "INSERT INTO orderstest VALUES (77, 1, FALSE)"
+  },
+  {
+    "comment": "subselect - Statement 78",
+    "query": "CREATE VIEW orders_view AS SELECT *, (SELECT CASE WHEN ord.approver_ref=1 THEN '---' ELSE 'Approved' END) AS \"Approved\", (SELECT CASE WHEN ord.ordercanceled THEN 'Canceled' ELSE (SELECT CASE WHEN ord.po_ref=1 THEN (SELECT CASE WHEN ord.approver_ref=1 THEN '---' ELSE 'Approved' END) ELSE 'PO' END) END) AS \"Status\", (CASE WHEN ord.ordercanceled THEN 'Canceled' ELSE (CASE WHEN ord.po_ref=1 THEN (CASE WHEN ord.approver_ref=1 THEN '---' ELSE 'Approved' END) ELSE 'PO' END) END) AS \"Status_OK\" FROM orderstest ord",
+    "expected": "CREATE VIEW orders_view AS SELECT *, (SELECT CASE WHEN ord.approver_ref = 1 THEN '---' ELSE 'Approved' END) AS \"Approved\", (SELECT CASE WHEN ord.ordercanceled THEN 'Canceled' ELSE (SELECT CASE WHEN ord.po_ref = 1 THEN (SELECT CASE WHEN ord.approver_ref = 1 THEN '---' ELSE 'Approved' END) ELSE 'PO' END) END) AS \"Status\", (CASE WHEN ord.ordercanceled THEN 'Canceled' ELSE (CASE WHEN ord.po_ref = 1 THEN (CASE WHEN ord.approver_ref = 1 THEN '---' ELSE 'Approved' END) ELSE 'PO' END) END) AS \"Status_OK\" FROM orderstest AS ord"
+  },
+  {
+    "comment": "subselect - Statement 79",
+    "query": "SELECT * FROM orders_view"
+  },
+  {
+    "comment": "subselect - Statement 80",
+    "query": "DROP TABLE orderstest cascade",
+    "expected": "DROP TABLE orderstest CASCADE"
+  },
+  {
+    "comment": "subselect - Statement 81",
+    "query": "create temp table parts ( partnum     text, cost        float8 )",
+    "expected": "CREATE TEMPORARY TABLE parts (partnum TEXT, cost FLOAT8)"
+  },
+  {
+    "comment": "subselect - Statement 82",
+    "query": "create temp table shipped ( ttype       char(2), ordnum      int4, partnum     text, value       float8 )",
+    "expected": "CREATE TEMPORARY TABLE shipped (ttype CHAR(2), ordnum INT, partnum TEXT, value FLOAT8)"
+  },
+  {
+    "comment": "subselect - Statement 83",
+    "query": "create temp view shipped_view as select * from shipped where ttype = 'wt'",
+    "expected": "CREATE TEMPORARY VIEW shipped_view AS SELECT * FROM shipped WHERE ttype = 'wt'"
+  },
+  {
+    "comment": "subselect - Statement 84",
+    "query": "create rule shipped_view_insert as on insert to shipped_view do instead insert into shipped values('wt', new.ordnum, new.partnum, new.value)",
+    "expected": "CREATE RULE shipped_view_insert AS ON INSERT TO shipped_view DO INSTEAD INSERT INTO shipped VALUES ('wt', new.ordnum, new.partnum, new.value)"
+  },
+  {
+    "comment": "subselect - Statement 85",
+    "query": "insert into parts (partnum, cost) values (1, 1234.56)",
+    "expected": "INSERT INTO parts (partnum, cost) VALUES (1, 1234.56)"
+  },
+  {
+    "comment": "subselect - Statement 86",
+    "query": "insert into shipped_view (ordnum, partnum, value) values (0, 1, (select cost from parts where partnum = '1'))",
+    "expected": "INSERT INTO shipped_view (ordnum, partnum, value) VALUES (0, 1, (SELECT cost FROM parts WHERE partnum = '1'))"
+  },
+  {
+    "comment": "subselect - Statement 87",
+    "query": "select * from shipped_view",
+    "expected": "SELECT * FROM shipped_view"
+  },
+  {
+    "comment": "subselect - Statement 88",
+    "query": "create rule shipped_view_update as on update to shipped_view do instead update shipped set partnum = new.partnum, value = new.value where ttype = new.ttype and ordnum = new.ordnum",
+    "expected": "CREATE RULE shipped_view_update AS ON UPDATE TO shipped_view DO INSTEAD UPDATE shipped SET partnum = new.partnum, value = new.value WHERE ttype = new.ttype AND ordnum = new.ordnum"
+  },
+  {
+    "comment": "subselect - Statement 89",
+    "query": "update shipped_view set value = 11 from int4_tbl a join int4_tbl b on (a.f1 = (select f1 from int4_tbl c where c.f1=b.f1)) where ordnum = a.f1",
+    "expected": "UPDATE shipped_view SET value = 11 FROM int4_tbl AS a INNER JOIN int4_tbl AS b ON (a.f1 = (SELECT f1 FROM int4_tbl AS c WHERE c.f1 = b.f1)) WHERE ordnum = a.f1"
+  },
+  {
+    "comment": "subselect - Statement 90",
+    "query": "select f1, ss1 as relabel from (select *, (select sum(f1) from int4_tbl b where f1 \u003e= a.f1) as ss1 from int4_tbl a) ss",
+    "expected": "SELECT f1, ss1 AS relabel FROM (SELECT *, (SELECT SUM(f1) FROM int4_tbl AS b WHERE f1 \u003e= a.f1) AS ss1 FROM int4_tbl AS a) AS ss"
+  },
+  {
+    "comment": "subselect - Statement 91",
+    "query": "select * from ( select max(unique1) from tenk1 as a where exists (select 1 from tenk1 as b where b.thousand = a.unique2) ) ss",
+    "expected": "SELECT * FROM (SELECT MAX(unique1) FROM tenk1 AS a WHERE EXISTS (SELECT 1 FROM tenk1 AS b WHERE b.thousand = a.unique2)) AS ss"
+  },
+  {
+    "comment": "subselect - Statement 92",
+    "query": "select * from ( select min(unique1) from tenk1 as a where not exists (select 1 from tenk1 as b where b.unique2 = 10000) ) ss",
+    "expected": "SELECT * FROM (SELECT MIN(unique1) FROM tenk1 AS a WHERE NOT EXISTS (SELECT 1 FROM tenk1 AS b WHERE b.unique2 = 10000)) AS ss"
+  },
+  {
+    "comment": "subselect - Statement 93",
+    "query": "create temp table numeric_table (num_col numeric)",
+    "expected": "CREATE TEMPORARY TABLE numeric_table (num_col NUMERIC)"
+  },
+  {
+    "comment": "subselect - Statement 94",
+    "query": "insert into numeric_table values (1), (1.000000000000000000001), (2), (3)",
+    "expected": "INSERT INTO numeric_table VALUES (1), (1.000000000000000000001), (2), (3)"
+  },
+  {
+    "comment": "subselect - Statement 95",
+    "query": "create temp table float_table (float_col float8)",
+    "expected": "CREATE TEMPORARY TABLE float_table (float_col FLOAT8)"
+  },
+  {
+    "comment": "subselect - Statement 96",
+    "query": "insert into float_table values (1), (2), (3)",
+    "expected": "INSERT INTO float_table VALUES (1), (2), (3)"
+  },
+  {
+    "comment": "subselect - Statement 97",
+    "query": "select * from float_table where float_col in (select num_col from numeric_table)",
+    "expected": "SELECT * FROM float_table WHERE float_col IN (SELECT num_col FROM numeric_table)"
+  },
+  {
+    "comment": "subselect - Statement 98",
+    "query": "select * from numeric_table where num_col in (select float_col from float_table)",
+    "expected": "SELECT * FROM numeric_table WHERE num_col IN (SELECT float_col FROM float_table)"
+  },
+  {
+    "comment": "subselect - Statement 99",
+    "query": "create temp table ta (id int primary key, val int)",
+    "expected": "CREATE TEMPORARY TABLE ta (id INT PRIMARY KEY, val INT)"
+  },
+  {
+    "comment": "subselect - Statement 100",
+    "query": "insert into ta values(1,1)",
+    "expected": "INSERT INTO ta VALUES (1, 1)"
+  },
+  {
+    "comment": "subselect - Statement 101",
+    "query": "insert into ta values(2,2)",
+    "expected": "INSERT INTO ta VALUES (2, 2)"
+  },
+  {
+    "comment": "subselect - Statement 102",
+    "query": "create temp table tb (id int primary key, aval int)",
+    "expected": "CREATE TEMPORARY TABLE tb (id INT PRIMARY KEY, aval INT)"
+  },
+  {
+    "comment": "subselect - Statement 103",
+    "query": "insert into tb values(1,1)",
+    "expected": "INSERT INTO tb VALUES (1, 1)"
+  },
+  {
+    "comment": "subselect - Statement 104",
+    "query": "insert into tb values(2,1)",
+    "expected": "INSERT INTO tb VALUES (2, 1)"
+  },
+  {
+    "comment": "subselect - Statement 105",
+    "query": "insert into tb values(3,2)",
+    "expected": "INSERT INTO tb VALUES (3, 2)"
+  },
+  {
+    "comment": "subselect - Statement 106",
+    "query": "insert into tb values(4,2)",
+    "expected": "INSERT INTO tb VALUES (4, 2)"
+  },
+  {
+    "comment": "subselect - Statement 107",
+    "query": "create temp table tc (id int primary key, aid int)",
+    "expected": "CREATE TEMPORARY TABLE tc (id INT PRIMARY KEY, aid INT)"
+  },
+  {
+    "comment": "subselect - Statement 108",
+    "query": "insert into tc values(1,1)",
+    "expected": "INSERT INTO tc VALUES (1, 1)"
+  },
+  {
+    "comment": "subselect - Statement 109",
+    "query": "insert into tc values(2,2)",
+    "expected": "INSERT INTO tc VALUES (2, 2)"
+  },
+  {
+    "comment": "subselect - Statement 110",
+    "query": "select ( select min(tb.id) from tb where tb.aval = (select ta.val from ta where ta.id = tc.aid) ) as min_tb_id from tc",
+    "expected": "SELECT (SELECT MIN(tb.id) FROM tb WHERE tb.aval = (SELECT ta.val FROM ta WHERE ta.id = tc.aid)) AS min_tb_id FROM tc"
+  },
+  {
+    "comment": "subselect - Statement 111",
+    "query": "create temp table t1 (f1 numeric(14,0), f2 varchar(30))",
+    "expected": "CREATE TEMPORARY TABLE t1 (f1 NUMERIC(14, 0), f2 VARCHAR(30))"
+  },
+  {
+    "comment": "subselect - Statement 112",
+    "query": "select * from (select distinct f1, f2, (select f2 from t1 x where x.f1 = up.f1) as fs from t1 up) ss group by f1,f2,fs",
+    "expected": "SELECT * FROM (SELECT DISTINCT f1, f2, (SELECT f2 FROM t1 AS x WHERE x.f1 = up.f1) AS fs FROM t1 AS up) AS ss GROUP BY f1, f2, fs"
+  },
+  {
+    "comment": "subselect - Statement 113",
+    "query": "create temp table table_a(id integer)",
+    "expected": "CREATE TEMPORARY TABLE table_a (id INT)"
+  },
+  {
+    "comment": "subselect - Statement 114",
+    "query": "insert into table_a values (42)",
+    "expected": "INSERT INTO table_a VALUES (42)"
+  },
+  {
+    "comment": "subselect - Statement 115",
+    "query": "create temp view view_a as select * from table_a",
+    "expected": "CREATE TEMPORARY VIEW view_a AS SELECT * FROM table_a"
+  },
+  {
+    "comment": "subselect - Statement 116",
+    "query": "select view_a from view_a",
+    "expected": "SELECT view_a FROM view_a"
+  },
+  {
+    "comment": "subselect - Statement 117",
+    "query": "select (select view_a) from view_a",
+    "expected": "SELECT (SELECT view_a) FROM view_a"
+  },
+  {
+    "comment": "subselect - Statement 118",
+    "query": "select (select (select view_a)) from view_a",
+    "expected": "SELECT (SELECT (SELECT view_a)) FROM view_a"
+  },
+  {
+    "comment": "subselect - Statement 119",
+    "query": "select (select (a.*)::text) from view_a a",
+    "expected": "SELECT (SELECT CAST((a.*) AS TEXT)) FROM view_a AS a"
+  },
+  {
+    "comment": "subselect - Statement 120",
+    "query": "select q from (select max(f1) from int4_tbl group by f1 order by f1) q",
+    "expected": "SELECT q FROM (SELECT MAX(f1) FROM int4_tbl GROUP BY f1 ORDER BY f1) AS q"
+  },
+  {
+    "comment": "subselect - Statement 121",
+    "query": "with q as (select max(f1) from int4_tbl group by f1 order by f1) select q from q",
+    "expected": "WITH q AS (SELECT MAX(f1) FROM int4_tbl GROUP BY f1 ORDER BY f1) SELECT q FROM q"
+  },
+  {
+    "comment": "subselect - Statement 122",
+    "query": "begin",
+    "expected": "BEGIN"
+  },
+  {
+    "comment": "subselect - Statement 123",
+    "query": "delete from road where exists ( select 1 from int4_tbl cross join ( select f1, array(select q1 from int8_tbl) as arr from text_tbl ) ss where road.name = ss.f1 )",
+    "expected": "DELETE FROM road WHERE EXISTS (SELECT 1 FROM int4_tbl INNER JOIN (SELECT f1, ARRAY(SELECT q1 FROM int8_tbl) AS arr FROM text_tbl) AS ss ON TRUE WHERE road.name = ss.f1)"
+  },
+  {
+    "comment": "subselect - Statement 124",
+    "query": "rollback",
+    "expected": "ROLLBACK"
+  },
+  {
+    "comment": "subselect - Statement 125",
+    "query": "select (select sq1) as qq1 from (select exists(select 1 from int4_tbl where f1 = q2) as sq1, 42 as dummy from int8_tbl) sq0 join int4_tbl i4 on dummy = i4.f1",
+    "expected": "SELECT (SELECT sq1) AS qq1 FROM (SELECT EXISTS (SELECT 1 FROM int4_tbl WHERE f1 = q2) AS sq1, 42 AS dummy FROM int8_tbl) AS sq0 INNER JOIN int4_tbl AS i4 ON dummy = i4.f1"
+  },
+  {
+    "comment": "subselect - Statement 126",
+    "query": "create temp table upsert(key int4 primary key, val text)",
+    "expected": "CREATE TEMPORARY TABLE upsert (\"key\" INT PRIMARY KEY, val TEXT)"
+  },
+  {
+    "comment": "subselect - Statement 127",
+    "query": "insert into upsert values(1, 'val') on conflict (key) do update set val = 'not seen'",
+    "expected": "INSERT INTO upsert VALUES (1, 'val') ON CONFLICT (\"key\") DO UPDATE SET val = 'not seen'"
+  },
+  {
+    "comment": "subselect - Statement 128",
+    "query": "insert into upsert values(1, 'val') on conflict (key) do update set val = 'seen with subselect ' || (select f1 from int4_tbl where f1 != 0 limit 1)::text",
+    "expected": "INSERT INTO upsert VALUES (1, 'val') ON CONFLICT (\"key\") DO UPDATE SET val = 'seen with subselect ' || CAST((SELECT f1 FROM int4_tbl WHERE f1 \u003c\u003e 0 LIMIT 1) AS TEXT)"
+  },
+  {
+    "comment": "subselect - Statement 129",
+    "query": "select * from upsert",
+    "expected": "SELECT * FROM upsert"
+  },
+  {
+    "comment": "subselect - Statement 130",
+    "query": "with aa as (select 'int4_tbl' u from int4_tbl limit 1) insert into upsert values (1, 'x'), (999, 'y') on conflict (key) do update set val = (select u from aa) returning *",
+    "expected": "WITH aa AS (SELECT 'int4_tbl' AS u FROM int4_tbl LIMIT 1) INSERT INTO upsert VALUES (1, 'x'), (999, 'y') ON CONFLICT (\"key\") DO UPDATE SET val = (SELECT u FROM aa) RETURNING *"
+  },
+  {
+    "comment": "subselect - Statement 131",
+    "query": "create temp table outer_7597 (f1 int4, f2 int4)",
+    "expected": "CREATE TEMPORARY TABLE outer_7597 (f1 INT, f2 INT)"
+  },
+  {
+    "comment": "subselect - Statement 132",
+    "query": "insert into outer_7597 values (0, 0)",
+    "expected": "INSERT INTO outer_7597 VALUES (0, 0)"
+  },
+  {
+    "comment": "subselect - Statement 133",
+    "query": "insert into outer_7597 values (1, 0)",
+    "expected": "INSERT INTO outer_7597 VALUES (1, 0)"
+  },
+  {
+    "comment": "subselect - Statement 134",
+    "query": "insert into outer_7597 values (0, null)",
+    "expected": "INSERT INTO outer_7597 VALUES (0, NULL)"
+  },
+  {
+    "comment": "subselect - Statement 135",
+    "query": "insert into outer_7597 values (1, null)",
+    "expected": "INSERT INTO outer_7597 VALUES (1, NULL)"
+  },
+  {
+    "comment": "subselect - Statement 136",
+    "query": "create temp table inner_7597(c1 int8, c2 int8)",
+    "expected": "CREATE TEMPORARY TABLE inner_7597 (c1 BIGINT, c2 BIGINT)"
+  },
+  {
+    "comment": "subselect - Statement 137",
+    "query": "insert into inner_7597 values(0, null)",
+    "expected": "INSERT INTO inner_7597 VALUES (0, NULL)"
+  },
+  {
+    "comment": "subselect - Statement 138",
+    "query": "select * from outer_7597 where (f1, f2) not in (select * from inner_7597)",
+    "expected": "SELECT * FROM outer_7597 WHERE NOT (f1, f2) IN (SELECT * FROM inner_7597)"
+  },
+  {
+    "comment": "subselect - Statement 139",
+    "query": "create temp table outer_text (f1 text, f2 text)",
+    "expected": "CREATE TEMPORARY TABLE outer_text (f1 TEXT, f2 TEXT)"
+  },
+  {
+    "comment": "subselect - Statement 140",
+    "query": "insert into outer_text values ('a', 'a')",
+    "expected": "INSERT INTO outer_text VALUES ('a', 'a')"
+  },
+  {
+    "comment": "subselect - Statement 141",
+    "query": "insert into outer_text values ('b', 'a')",
+    "expected": "INSERT INTO outer_text VALUES ('b', 'a')"
+  },
+  {
+    "comment": "subselect - Statement 142",
+    "query": "insert into outer_text values ('a', null)",
+    "expected": "INSERT INTO outer_text VALUES ('a', NULL)"
+  },
+  {
+    "comment": "subselect - Statement 143",
+    "query": "insert into outer_text values ('b', null)",
+    "expected": "INSERT INTO outer_text VALUES ('b', NULL)"
+  },
+  {
+    "comment": "subselect - Statement 144",
+    "query": "create temp table inner_text (c1 text, c2 text)",
+    "expected": "CREATE TEMPORARY TABLE inner_text (c1 TEXT, c2 TEXT)"
+  },
+  {
+    "comment": "subselect - Statement 145",
+    "query": "insert into inner_text values ('a', null)",
+    "expected": "INSERT INTO inner_text VALUES ('a', NULL)"
+  },
+  {
+    "comment": "subselect - Statement 146",
+    "query": "insert into inner_text values ('123', '456')",
+    "expected": "INSERT INTO inner_text VALUES ('123', '456')"
+  },
+  {
+    "comment": "subselect - Statement 147",
+    "query": "select * from outer_text where (f1, f2) not in (select * from inner_text)",
+    "expected": "SELECT * FROM outer_text WHERE NOT (f1, f2) IN (SELECT * FROM inner_text)"
+  },
+  {
+    "comment": "subselect - Statement 148",
+    "query": "explain (verbose, costs off) select 'foo'::text in (select 'bar'::name union all select 'bar'::name)",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) SELECT CAST('foo' AS TEXT) IN (SELECT CAST('bar' AS name) UNION ALL SELECT CAST('bar' AS name))"
+  },
+  {
+    "comment": "subselect - Statement 149",
+    "query": "select 'foo'::text in (select 'bar'::name union all select 'bar'::name)",
+    "expected": "SELECT CAST('foo' AS TEXT) IN (SELECT CAST('bar' AS name) UNION ALL SELECT CAST('bar' AS name))"
+  },
+  {
+    "comment": "subselect - Statement 150",
+    "query": "explain (verbose, costs off) select row(row(row(1))) = any (select row(row(1)))",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) SELECT ROW(ROW(ROW(1))) = ANY (SELECT ROW(ROW(1)))"
+  },
+  {
+    "comment": "subselect - Statement 151",
+    "query": "select row(row(row(1))) = any (select row(row(1)))",
+    "expected": "SELECT ROW(ROW(ROW(1))) = ANY (SELECT ROW(ROW(1)))"
+  },
+  {
+    "comment": "subselect - Statement 152",
+    "query": "select '1'::text in (select '1'::name union all select '1'::name)",
+    "expected": "SELECT CAST('1' AS TEXT) IN (SELECT CAST('1' AS name) UNION ALL SELECT CAST('1' AS name))"
+  },
+  {
+    "comment": "subselect - Statement 153",
+    "query": "select * from int8_tbl where q1 in (select c1 from inner_text)",
+    "expected": "SELECT * FROM int8_tbl WHERE q1 IN (SELECT c1 FROM inner_text)"
+  },
+  {
+    "comment": "subselect - Statement 154",
+    "query": "create function bogus_int8_text_eq(int8, text) returns boolean language sql as 'select $1::text = $2'",
+    "expected": "CREATE FUNCTION bogus_int8_text_eq (BIGINT, TEXT) RETURNS BOOLEAN LANGUAGE sql AS $$select $1::text = $2$$"
+  },
+  {
+    "comment": "subselect - Statement 155",
+    "query": "create operator = (procedure=bogus_int8_text_eq, leftarg=int8, rightarg=text)",
+    "expected": "CREATE OPERATOR = (procedure = bogus_int8_text_eq, leftarg = BIGINT, rightarg = TEXT)"
+  },
+  {
+    "comment": "subselect - Statement 156",
+    "query": "explain (costs off) select * from int8_tbl where q1 in (select c1 from inner_text)",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM int8_tbl WHERE q1 IN (SELECT c1 FROM inner_text)"
+  },
+  {
+    "comment": "subselect - Statement 157",
+    "query": "create or replace function bogus_int8_text_eq(int8, text) returns boolean language sql as 'select $1::text = $2 and $1::text = $2'",
+    "expected": "CREATE OR REPLACE FUNCTION bogus_int8_text_eq (BIGINT, TEXT) RETURNS BOOLEAN LANGUAGE sql AS $$select $1::text = $2 and $1::text = $2$$"
+  },
+  {
+    "comment": "subselect - Statement 158",
+    "query": "create or replace function bogus_int8_text_eq(int8, text) returns boolean language sql as 'select $2 = $1::text'",
+    "expected": "CREATE OR REPLACE FUNCTION bogus_int8_text_eq (BIGINT, TEXT) RETURNS BOOLEAN LANGUAGE sql AS $$select $2 = $1::text$$"
+  },
+  {
+    "comment": "subselect - Statement 159",
+    "query": "explain (costs off) select count(*) from tenk1 t where (exists(select 1 from tenk1 k where k.unique1 = t.unique2) or ten \u003c 0)",
+    "expected": "EXPLAIN (COSTS false) SELECT COUNT(*) FROM tenk1 AS t WHERE (EXISTS (SELECT 1 FROM tenk1 AS k WHERE k.unique1 = t.unique2) OR ten \u003c 0)"
+  },
+  {
+    "comment": "subselect - Statement 160",
+    "query": "select count(*) from tenk1 t where (exists(select 1 from tenk1 k where k.unique1 = t.unique2) or ten \u003c 0)",
+    "expected": "SELECT COUNT(*) FROM tenk1 AS t WHERE (EXISTS (SELECT 1 FROM tenk1 AS k WHERE k.unique1 = t.unique2) OR ten \u003c 0)"
+  },
+  {
+    "comment": "subselect - Statement 161",
+    "query": "explain (costs off) select count(*) from tenk1 t where (exists(select 1 from tenk1 k where k.unique1 = t.unique2) or ten \u003c 0) and thousand = 1",
+    "expected": "EXPLAIN (COSTS false) SELECT COUNT(*) FROM tenk1 AS t WHERE (EXISTS (SELECT 1 FROM tenk1 AS k WHERE k.unique1 = t.unique2) OR ten \u003c 0) AND thousand = 1"
+  },
+  {
+    "comment": "subselect - Statement 162",
+    "query": "select count(*) from tenk1 t where (exists(select 1 from tenk1 k where k.unique1 = t.unique2) or ten \u003c 0) and thousand = 1",
+    "expected": "SELECT COUNT(*) FROM tenk1 AS t WHERE (EXISTS (SELECT 1 FROM tenk1 AS k WHERE k.unique1 = t.unique2) OR ten \u003c 0) AND thousand = 1"
+  },
+  {
+    "comment": "subselect - Statement 163",
+    "query": "create temp table exists_tbl (c1 int, c2 int, c3 int) partition by list (c1)",
+    "expected": "CREATE TEMPORARY TABLE exists_tbl (c1 INT, c2 INT, c3 INT) PARTITION BY list (c1)"
+  },
+  {
+    "comment": "subselect - Statement 164",
+    "query": "create temp table exists_tbl_null partition of exists_tbl for values in (null)",
+    "expected": "CREATE TEMPORARY TABLE exists_tbl_null PARTITION OF exists_tbl FOR VALUES IN (NULL)"
+  },
+  {
+    "comment": "subselect - Statement 165",
+    "query": "create temp table exists_tbl_def partition of exists_tbl default",
+    "expected": "CREATE TEMPORARY TABLE exists_tbl_def PARTITION OF exists_tbl DEFAULT"
+  },
+  {
+    "comment": "subselect - Statement 166",
+    "query": "insert into exists_tbl select x, x/2, x+1 from generate_series(0,10) x",
+    "expected": "INSERT INTO exists_tbl SELECT x, x / 2, x + 1 FROM generate_series(0, 10) AS x"
+  },
+  {
+    "comment": "subselect - Statement 167",
+    "query": "analyze exists_tbl",
+    "expected": "ANALYZE exists_tbl"
+  },
+  {
+    "comment": "subselect - Statement 168",
+    "query": "explain (costs off) select * from exists_tbl t1 where (exists(select 1 from exists_tbl t2 where t1.c1 = t2.c2) or c3 \u003c 0)",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM exists_tbl AS t1 WHERE (EXISTS (SELECT 1 FROM exists_tbl AS t2 WHERE t1.c1 = t2.c2) OR c3 \u003c 0)"
+  },
+  {
+    "comment": "subselect - Statement 169",
+    "query": "select * from exists_tbl t1 where (exists(select 1 from exists_tbl t2 where t1.c1 = t2.c2) or c3 \u003c 0)",
+    "expected": "SELECT * FROM exists_tbl AS t1 WHERE (EXISTS (SELECT 1 FROM exists_tbl AS t2 WHERE t1.c1 = t2.c2) OR c3 \u003c 0)"
+  },
+  {
+    "comment": "subselect - Statement 170",
+    "query": "select a.thousand from tenk1 a, tenk1 b where a.thousand = b.thousand and exists ( select 1 from tenk1 c where b.hundred = c.hundred and not exists ( select 1 from tenk1 d where a.thousand = d.thousand ) )",
+    "expected": "SELECT a.thousand FROM tenk1 AS a, tenk1 AS b WHERE a.thousand = b.thousand AND EXISTS (SELECT 1 FROM tenk1 AS c WHERE b.hundred = c.hundred AND NOT EXISTS (SELECT 1 FROM tenk1 AS d WHERE a.thousand = d.thousand))"
+  },
+  {
+    "comment": "subselect - Statement 171",
+    "query": "explain (verbose, costs off) select x, x from (select (select now()) as x from (values(1),(2)) v(y)) ss",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) SELECT x, x FROM (SELECT (SELECT NOW()) AS x FROM (VALUES (1), (2)) AS v(y)) AS ss"
+  },
+  {
+    "comment": "subselect - Statement 172",
+    "query": "explain (verbose, costs off) select x, x from (select (select random()) as x from (values(1),(2)) v(y)) ss",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) SELECT x, x FROM (SELECT (SELECT random()) AS x FROM (VALUES (1), (2)) AS v(y)) AS ss"
+  },
+  {
+    "comment": "subselect - Statement 173",
+    "query": "explain (verbose, costs off) select x, x from (select (select now() where y=y) as x from (values(1),(2)) v(y)) ss",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) SELECT x, x FROM (SELECT (SELECT NOW() WHERE y = y) AS x FROM (VALUES (1), (2)) AS v(y)) AS ss"
+  },
+  {
+    "comment": "subselect - Statement 174",
+    "query": "explain (verbose, costs off) select x, x from (select (select random() where y=y) as x from (values(1),(2)) v(y)) ss",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) SELECT x, x FROM (SELECT (SELECT random() WHERE y = y) AS x FROM (VALUES (1), (2)) AS v(y)) AS ss"
+  },
+  {
+    "comment": "subselect - Statement 175",
+    "query": "explain (verbose, costs off) select sum(ss.tst::int) from onek o cross join lateral ( select i.ten in (select f1 from int4_tbl where f1 \u003c= o.hundred) as tst, random() as r from onek i where i.unique1 = o.unique1 ) ss where o.ten = 0",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) SELECT SUM(CAST(ss.tst AS INT)) FROM onek AS o INNER JOIN LATERAL (SELECT i.ten IN (SELECT f1 FROM int4_tbl WHERE f1 \u003c= o.hundred) AS tst, random() AS r FROM onek AS i WHERE i.unique1 = o.unique1) AS ss ON TRUE WHERE o.ten = 0"
+  },
+  {
+    "comment": "subselect - Statement 176",
+    "query": "select sum(ss.tst::int) from onek o cross join lateral ( select i.ten in (select f1 from int4_tbl where f1 \u003c= o.hundred) as tst, random() as r from onek i where i.unique1 = o.unique1 ) ss where o.ten = 0",
+    "expected": "SELECT SUM(CAST(ss.tst AS INT)) FROM onek AS o INNER JOIN LATERAL (SELECT i.ten IN (SELECT f1 FROM int4_tbl WHERE f1 \u003c= o.hundred) AS tst, random() AS r FROM onek AS i WHERE i.unique1 = o.unique1) AS ss ON TRUE WHERE o.ten = 0"
+  },
+  {
+    "comment": "subselect - Statement 177",
+    "query": "explain (costs off) select count(*) from onek o cross join lateral ( select * from onek i1 where i1.unique1 = o.unique1 except select * from onek i2 where i2.unique1 = o.unique2 ) ss where o.ten = 1",
+    "expected": "EXPLAIN (COSTS false) SELECT COUNT(*) FROM onek AS o INNER JOIN LATERAL ((SELECT * FROM onek AS i1 WHERE i1.unique1 = o.unique1) EXCEPT (SELECT * FROM onek AS i2 WHERE i2.unique1 = o.unique2)) AS ss ON TRUE WHERE o.ten = 1"
+  },
+  {
+    "comment": "subselect - Statement 178",
+    "query": "select count(*) from onek o cross join lateral ( select * from onek i1 where i1.unique1 = o.unique1 except select * from onek i2 where i2.unique1 = o.unique2 ) ss where o.ten = 1",
+    "expected": "SELECT COUNT(*) FROM onek AS o INNER JOIN LATERAL ((SELECT * FROM onek AS i1 WHERE i1.unique1 = o.unique1) EXCEPT (SELECT * FROM onek AS i2 WHERE i2.unique1 = o.unique2)) AS ss ON TRUE WHERE o.ten = 1"
+  },
+  {
+    "comment": "subselect - Statement 179",
+    "query": "explain (costs off) select sum(o.four), sum(ss.a) from onek o cross join lateral ( with recursive x(a) as (select o.four as a union select a + 1 from x where a \u003c 10) select * from x ) ss where o.ten = 1",
+    "expected": "EXPLAIN (COSTS false) SELECT SUM(o.four), SUM(ss.a) FROM onek AS o INNER JOIN LATERAL (WITH RECURSIVE x(a) AS (SELECT o.four AS a UNION (SELECT a + 1 FROM x WHERE a \u003c 10)) SELECT * FROM x) AS ss ON TRUE WHERE o.ten = 1"
+  },
+  {
+    "comment": "subselect - Statement 180",
+    "query": "select sum(o.four), sum(ss.a) from onek o cross join lateral ( with recursive x(a) as (select o.four as a union select a + 1 from x where a \u003c 10) select * from x ) ss where o.ten = 1",
+    "expected": "SELECT SUM(o.four), SUM(ss.a) FROM onek AS o INNER JOIN LATERAL (WITH RECURSIVE x(a) AS (SELECT o.four AS a UNION (SELECT a + 1 FROM x WHERE a \u003c 10)) SELECT * FROM x) AS ss ON TRUE WHERE o.ten = 1"
+  },
+  {
+    "comment": "subselect - Statement 181",
+    "query": "create temp table notinouter (a int)",
+    "expected": "CREATE TEMPORARY TABLE notinouter (a INT)"
+  },
+  {
+    "comment": "subselect - Statement 182",
+    "query": "create temp table notininner (b int not null)",
+    "expected": "CREATE TEMPORARY TABLE notininner (b INT NOT NULL)"
+  },
+  {
+    "comment": "subselect - Statement 183",
+    "query": "insert into notinouter values (null), (1)",
+    "expected": "INSERT INTO notinouter VALUES (NULL), (1)"
+  },
+  {
+    "comment": "subselect - Statement 184",
+    "query": "select * from notinouter where a not in (select b from notininner)",
+    "expected": "SELECT * FROM notinouter WHERE NOT a IN (SELECT b FROM notininner)"
+  },
+  {
+    "comment": "subselect - Statement 185",
+    "query": "create temp table nocolumns()",
+    "expected": "CREATE TEMPORARY TABLE nocolumns ()"
+  },
+  {
+    "comment": "subselect - Statement 186",
+    "query": "select exists(select * from nocolumns)",
+    "expected": "SELECT EXISTS (SELECT * FROM nocolumns)"
+  },
+  {
+    "comment": "subselect - Statement 187",
+    "query": "select val.x from generate_series(1,10) as s(i), lateral ( values ((select s.i + 1)), (s.i + 101) ) as val(x) where s.i \u003c 10 and (select val.x) \u003c 110",
+    "expected": "SELECT val.x FROM generate_series(1, 10) AS s(i), LATERAL (VALUES ((SELECT s.i + 1)), (s.i + 101)) AS val(x) WHERE s.i \u003c 10 AND (SELECT val.x) \u003c 110"
+  },
+  {
+    "comment": "subselect - Statement 188",
+    "query": "explain (verbose, costs off) select * from (values (3 not in (select * from (values (1), (2)) ss1)), (false) ) ss",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) SELECT * FROM (VALUES (NOT 3 IN (SELECT * FROM (VALUES (1), (2)) AS ss1)), (FALSE)) AS ss"
+  },
+  {
+    "comment": "subselect - Statement 189",
+    "query": "select * from (values (3 not in (select * from (values (1), (2)) ss1)), (false) ) ss",
+    "expected": "SELECT * FROM (VALUES (NOT 3 IN (SELECT * FROM (VALUES (1), (2)) AS ss1)), (FALSE)) AS ss"
+  },
+  {
+    "comment": "subselect - Statement 190",
+    "query": "explain (verbose, costs off) select * from int4_tbl where (case when f1 in (select unique1 from tenk1 a) then f1 else null end) in (select ten from tenk1 b)",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) SELECT * FROM int4_tbl WHERE (CASE WHEN f1 IN (SELECT unique1 FROM tenk1 AS a) THEN f1 ELSE NULL END) IN (SELECT ten FROM tenk1 AS b)"
+  },
+  {
+    "comment": "subselect - Statement 191",
+    "query": "select * from int4_tbl where (case when f1 in (select unique1 from tenk1 a) then f1 else null end) in (select ten from tenk1 b)",
+    "expected": "SELECT * FROM int4_tbl WHERE (CASE WHEN f1 IN (SELECT unique1 FROM tenk1 AS a) THEN f1 ELSE NULL END) IN (SELECT ten FROM tenk1 AS b)"
+  },
+  {
+    "comment": "subselect - Statement 192",
+    "query": "explain (verbose, costs off) select * from int4_tbl o where (f1, f1) in (select f1, generate_series(1,50) / 10 g from int4_tbl i group by f1)",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) SELECT * FROM int4_tbl AS o WHERE (f1, f1) IN (SELECT f1, generate_series(1, 50) / 10 AS g FROM int4_tbl AS i GROUP BY f1)"
+  },
+  {
+    "comment": "subselect - Statement 193",
+    "query": "select * from int4_tbl o where (f1, f1) in (select f1, generate_series(1,50) / 10 g from int4_tbl i group by f1)",
+    "expected": "SELECT * FROM int4_tbl AS o WHERE (f1, f1) IN (SELECT f1, generate_series(1, 50) / 10 AS g FROM int4_tbl AS i GROUP BY f1)"
+  },
+  {
+    "comment": "subselect - Statement 194",
+    "query": "select (select q from (select 1,2,3 where f1 \u003e 0 union all select 4,5,6.0 where f1 \u003c= 0 ) q ) from int4_tbl",
+    "expected": "SELECT (SELECT q FROM ((SELECT 1, 2, 3 WHERE f1 \u003e 0) UNION ALL (SELECT 4, 5, 6.0 WHERE f1 \u003c= 0)) AS q) FROM int4_tbl"
+  },
+  {
+    "comment": "subselect - Statement 195",
+    "query": "explain (verbose, costs off) select * from int4_tbl i4, lateral ( select i4.f1 \u003e 1 as b, 1 as id from (select random() order by 1) as t1 union all select true as b, 2 as id ) as t2 where b and f1 \u003e= 0",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) SELECT * FROM int4_tbl AS i4, LATERAL (SELECT i4.f1 \u003e 1 AS b, 1 AS id FROM (SELECT random() ORDER BY 1) AS t1 UNION ALL SELECT TRUE AS b, 2 AS id) AS t2 WHERE b AND f1 \u003e= 0"
+  },
+  {
+    "comment": "subselect - Statement 196",
+    "query": "select * from int4_tbl i4, lateral ( select i4.f1 \u003e 1 as b, 1 as id from (select random() order by 1) as t1 union all select true as b, 2 as id ) as t2 where b and f1 \u003e= 0",
+    "expected": "SELECT * FROM int4_tbl AS i4, LATERAL (SELECT i4.f1 \u003e 1 AS b, 1 AS id FROM (SELECT random() ORDER BY 1) AS t1 UNION ALL SELECT TRUE AS b, 2 AS id) AS t2 WHERE b AND f1 \u003e= 0"
+  },
+  {
+    "comment": "subselect - Statement 197",
+    "query": "create temp sequence ts1",
+    "expected": "CREATE SEQUENCE ts1"
+  },
+  {
+    "comment": "subselect - Statement 198",
+    "query": "select * from (select distinct ten from tenk1) ss where ten \u003c 10 + nextval('ts1') order by 1",
+    "expected": "SELECT * FROM (SELECT DISTINCT ten FROM tenk1) AS ss WHERE ten \u003c 10 + nextval('ts1') ORDER BY 1"
+  },
+  {
+    "comment": "subselect - Statement 199",
+    "query": "select nextval('ts1')",
+    "expected": "SELECT nextval('ts1')"
+  },
+  {
+    "comment": "subselect - Statement 200",
+    "query": "create function tattle(x int, y int) returns bool volatile language plpgsql as $$ begin raise notice 'x = %, y = %', x, y; return x \u003e y; end$$",
+    "expected": "CREATE FUNCTION tattle (x INT, y INT) RETURNS BOOLEAN VOLATILE LANGUAGE plpgsql AS $$ begin raise notice 'x = %, y = %', x, y; return x \u003e y; end$$"
+  },
+  {
+    "comment": "subselect - Statement 201",
+    "query": "explain (verbose, costs off) select * from (select 9 as x, unnest(array[1,2,3,11,12,13]) as u) ss where tattle(x, 8)",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) SELECT * FROM (SELECT 9 AS x, unnest(ARRAY[1,2,3,11,12,13]) AS u) AS ss WHERE tattle(x, 8)"
+  },
+  {
+    "comment": "subselect - Statement 202",
+    "query": "select * from (select 9 as x, unnest(array[1,2,3,11,12,13]) as u) ss where tattle(x, 8)",
+    "expected": "SELECT * FROM (SELECT 9 AS x, unnest(ARRAY[1,2,3,11,12,13]) AS u) AS ss WHERE tattle(x, 8)"
+  },
+  {
+    "comment": "subselect - Statement 203",
+    "query": "alter function tattle(x int, y int) stable",
+    "expected": "ALTER FUNCTION tattle(x INT, y INT) STABLE"
+  },
+  {
+    "comment": "subselect - Statement 204",
+    "query": "explain (verbose, costs off) select * from (select 9 as x, unnest(array[1,2,3,11,12,13]) as u) ss where tattle(x, u)",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) SELECT * FROM (SELECT 9 AS x, unnest(ARRAY[1,2,3,11,12,13]) AS u) AS ss WHERE tattle(x, u)"
+  },
+  {
+    "comment": "subselect - Statement 205",
+    "query": "select * from (select 9 as x, unnest(array[1,2,3,11,12,13]) as u) ss where tattle(x, u)",
+    "expected": "SELECT * FROM (SELECT 9 AS x, unnest(ARRAY[1,2,3,11,12,13]) AS u) AS ss WHERE tattle(x, u)"
+  },
+  {
+    "comment": "subselect - Statement 206",
+    "query": "drop function tattle(x int, y int)",
+    "expected": "DROP FUNCTION tattle(x INT, y INT)"
+  },
+  {
+    "comment": "subselect - Statement 207",
+    "query": "create table sq_limit (pk int primary key, c1 int, c2 int)",
+    "expected": "CREATE TABLE sq_limit (pk INT PRIMARY KEY, c1 INT, c2 INT)"
+  },
+  {
+    "comment": "subselect - Statement 208",
+    "query": "insert into sq_limit values (1, 1, 1), (2, 2, 2), (3, 3, 3), (4, 4, 4), (5, 1, 1), (6, 2, 2), (7, 3, 3), (8, 4, 4)",
+    "expected": "INSERT INTO sq_limit VALUES (1, 1, 1), (2, 2, 2), (3, 3, 3), (4, 4, 4), (5, 1, 1), (6, 2, 2), (7, 3, 3), (8, 4, 4)"
+  },
+  {
+    "comment": "subselect - Statement 209",
+    "query": "create function explain_sq_limit() returns setof text language plpgsql as $$ declare ln text; begin for ln in explain (analyze, summary off, timing off, costs off) select * from (select pk,c2 from sq_limit order by c1,pk) as x limit 3 loop ln := regexp_replace(ln, 'Memory: \\S*',  'Memory: xxx'); return next ln; end loop; end; $$",
+    "expected": "CREATE FUNCTION explain_sq_limit () RETURNS SETOF TEXT LANGUAGE plpgsql AS $$ declare ln text; begin for ln in explain (analyze, summary off, timing off, costs off) select * from (select pk,c2 from sq_limit order by c1,pk) as x limit 3 loop ln := regexp_replace(ln, 'Memory: \\S*',  'Memory: xxx'); return next ln; end loop; end; $$"
+  },
+  {
+    "comment": "subselect - Statement 210",
+    "query": "select * from explain_sq_limit()",
+    "expected": "SELECT * FROM explain_sq_limit()"
+  },
+  {
+    "comment": "subselect - Statement 211",
+    "query": "select * from (select pk,c2 from sq_limit order by c1,pk) as x limit 3",
+    "expected": "SELECT * FROM (SELECT pk, c2 FROM sq_limit ORDER BY c1, pk) AS x LIMIT 3"
+  },
+  {
+    "comment": "subselect - Statement 212",
+    "query": "drop function explain_sq_limit()",
+    "expected": "DROP FUNCTION explain_sq_limit()"
+  },
+  {
+    "comment": "subselect - Statement 213",
+    "query": "drop table sq_limit",
+    "expected": "DROP TABLE sq_limit"
+  },
+  {
+    "comment": "subselect - Statement 214",
+    "query": "declare c1 scroll cursor for select * from generate_series(1,4) i where i \u003c\u003e all (values (2),(3))",
+    "expected": "DECLARE c1 SCROLL CURSOR FOR SELECT * FROM generate_series(1, 4) AS i WHERE i \u003c\u003e ALL (VALUES (2), (3))"
+  },
+  {
+    "comment": "subselect - Statement 215",
+    "query": "move forward all in c1",
+    "expected": "MOVE ALL FROM c1"
+  },
+  {
+    "comment": "subselect - Statement 216",
+    "query": "fetch backward all in c1",
+    "expected": "FETCH BACKWARD ALL FROM c1"
+  },
+  {
+    "comment": "subselect - Statement 217",
+    "query": "commit",
+    "expected": "COMMIT"
+  },
+  {
+    "comment": "subselect - Statement 218",
+    "query": "explain (costs off) select tname, attname from ( select relname::information_schema.sql_identifier as tname, * from (select * from pg_class c) ss1) ss2 right join pg_attribute a on a.attrelid = ss2.oid where tname = 'tenk1' and attnum = 1",
+    "expected": "EXPLAIN (COSTS false) SELECT tname, attname FROM (SELECT CAST(relname AS information_schema.sql_identifier) AS tname, * FROM (SELECT * FROM pg_class AS c) AS ss1) AS ss2 RIGHT OUTER JOIN pg_attribute AS a ON a.attrelid = ss2.oid WHERE tname = 'tenk1' AND attnum = 1"
+  },
+  {
+    "comment": "subselect - Statement 219",
+    "query": "select tname, attname from ( select relname::information_schema.sql_identifier as tname, * from (select * from pg_class c) ss1) ss2 right join pg_attribute a on a.attrelid = ss2.oid where tname = 'tenk1' and attnum = 1",
+    "expected": "SELECT tname, attname FROM (SELECT CAST(relname AS information_schema.sql_identifier) AS tname, * FROM (SELECT * FROM pg_class AS c) AS ss1) AS ss2 RIGHT OUTER JOIN pg_attribute AS a ON a.attrelid = ss2.oid WHERE tname = 'tenk1' AND attnum = 1"
+  },
+  {
+    "comment": "subselect - Statement 220",
+    "query": "explain (verbose, costs off) select t1.ten, sum(x) from tenk1 t1 left join lateral ( select t1.ten + t2.ten as x, t2.fivethous from tenk1 t2 ) ss on t1.unique1 = ss.fivethous group by t1.ten order by t1.ten",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) SELECT t1.ten, SUM(x) FROM tenk1 AS t1 LEFT OUTER JOIN LATERAL (SELECT t1.ten + t2.ten AS x, t2.fivethous FROM tenk1 AS t2) AS ss ON t1.unique1 = ss.fivethous GROUP BY t1.ten ORDER BY t1.ten"
+  },
+  {
+    "comment": "subselect - Statement 221",
+    "query": "select t1.ten, sum(x) from tenk1 t1 left join lateral ( select t1.ten + t2.ten as x, t2.fivethous from tenk1 t2 ) ss on t1.unique1 = ss.fivethous group by t1.ten order by t1.ten",
+    "expected": "SELECT t1.ten, SUM(x) FROM tenk1 AS t1 LEFT OUTER JOIN LATERAL (SELECT t1.ten + t2.ten AS x, t2.fivethous FROM tenk1 AS t2) AS ss ON t1.unique1 = ss.fivethous GROUP BY t1.ten ORDER BY t1.ten"
+  },
+  {
+    "comment": "subselect - Statement 222",
+    "query": "explain (verbose, costs off) select t1.q1, x from int8_tbl t1 left join (int8_tbl t2 left join lateral (select t2.q1+t3.q1 as x, * from int8_tbl t3) t3 on t2.q2 = t3.q2) on t1.q2 = t2.q2 order by 1, 2",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) SELECT t1.q1, x FROM int8_tbl AS t1 LEFT OUTER JOIN (int8_tbl AS t2 LEFT OUTER JOIN LATERAL (SELECT t2.q1 + t3.q1 AS x, * FROM int8_tbl AS t3) AS t3 ON t2.q2 = t3.q2) ON t1.q2 = t2.q2 ORDER BY 1, 2"
+  },
+  {
+    "comment": "subselect - Statement 223",
+    "query": "select t1.q1, x from int8_tbl t1 left join (int8_tbl t2 left join lateral (select t2.q1+t3.q1 as x, * from int8_tbl t3) t3 on t2.q2 = t3.q2) on t1.q2 = t2.q2 order by 1, 2",
+    "expected": "SELECT t1.q1, x FROM int8_tbl AS t1 LEFT OUTER JOIN (int8_tbl AS t2 LEFT OUTER JOIN LATERAL (SELECT t2.q1 + t3.q1 AS x, * FROM int8_tbl AS t3) AS t3 ON t2.q2 = t3.q2) ON t1.q2 = t2.q2 ORDER BY 1, 2"
+  },
+  {
+    "comment": "subselect - Statement 224",
+    "query": "explain (verbose, costs off) with x as (select * from (select f1 from subselect_tbl) ss) select * from x where f1 = 1",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) WITH x AS (SELECT * FROM (SELECT f1 FROM subselect_tbl) AS ss) SELECT * FROM x WHERE f1 = 1"
+  },
+  {
+    "comment": "subselect - Statement 225",
+    "query": "explain (verbose, costs off) with x as materialized (select * from (select f1 from subselect_tbl) ss) select * from x where f1 = 1",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) WITH x AS MATERIALIZED (SELECT * FROM (SELECT f1 FROM subselect_tbl) AS ss) SELECT * FROM x WHERE f1 = 1"
+  },
+  {
+    "comment": "subselect - Statement 226",
+    "query": "explain (verbose, costs off) with x as (select * from (select f1, now() from subselect_tbl) ss) select * from x where f1 = 1",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) WITH x AS (SELECT * FROM (SELECT f1, NOW() FROM subselect_tbl) AS ss) SELECT * FROM x WHERE f1 = 1"
+  },
+  {
+    "comment": "subselect - Statement 227",
+    "query": "explain (verbose, costs off) with x as (select * from (select f1, random() from subselect_tbl) ss) select * from x where f1 = 1",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) WITH x AS (SELECT * FROM (SELECT f1, random() FROM subselect_tbl) AS ss) SELECT * FROM x WHERE f1 = 1"
+  },
+  {
+    "comment": "subselect - Statement 228",
+    "query": "explain (verbose, costs off) with x as (select * from (select f1 from subselect_tbl for update) ss) select * from x where f1 = 1",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) WITH x AS (SELECT * FROM (SELECT f1 FROM subselect_tbl FOR UPDATE) AS ss) SELECT * FROM x WHERE f1 = 1"
+  },
+  {
+    "comment": "subselect - Statement 229",
+    "query": "explain (verbose, costs off) with x as (select * from (select f1, now() as n from subselect_tbl) ss) select * from x, x x2 where x.n = x2.n",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) WITH x AS (SELECT * FROM (SELECT f1, NOW() AS n FROM subselect_tbl) AS ss) SELECT * FROM x, x AS x2 WHERE x.n = x2.n"
+  },
+  {
+    "comment": "subselect - Statement 230",
+    "query": "explain (verbose, costs off) with x as not materialized (select * from (select f1, now() as n from subselect_tbl) ss) select * from x, x x2 where x.n = x2.n",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) WITH x AS NOT MATERIALIZED (SELECT * FROM (SELECT f1, NOW() AS n FROM subselect_tbl) AS ss) SELECT * FROM x, x AS x2 WHERE x.n = x2.n"
+  },
+  {
+    "comment": "subselect - Statement 231",
+    "query": "explain (verbose, costs off) with recursive x(a) as ((values ('a'), ('b')) union all (with z as not materialized (select * from x) select z.a || z1.a as a from z cross join z as z1 where length(z.a || z1.a) \u003c 5)) select * from x",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) WITH RECURSIVE x(a) AS (VALUES ('a'), ('b') UNION ALL (WITH z AS NOT MATERIALIZED (SELECT * FROM x) SELECT z.a || z1.a AS a FROM z INNER JOIN z AS z1 ON TRUE WHERE length(z.a || z1.a) \u003c 5)) SELECT * FROM x"
+  },
+  {
+    "comment": "subselect - Statement 232",
+    "query": "with recursive x(a) as ((values ('a'), ('b')) union all (with z as not materialized (select * from x) select z.a || z1.a as a from z cross join z as z1 where length(z.a || z1.a) \u003c 5)) select * from x",
+    "expected": "WITH RECURSIVE x(a) AS (VALUES ('a'), ('b') UNION ALL (WITH z AS NOT MATERIALIZED (SELECT * FROM x) SELECT z.a || z1.a AS a FROM z INNER JOIN z AS z1 ON TRUE WHERE length(z.a || z1.a) \u003c 5)) SELECT * FROM x"
+  },
+  {
+    "comment": "subselect - Statement 233",
+    "query": "explain (verbose, costs off) with recursive x(a) as ((values ('a'), ('b')) union all (with z as not materialized (select * from x) select z.a || z.a as a from z where length(z.a || z.a) \u003c 5)) select * from x",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) WITH RECURSIVE x(a) AS (VALUES ('a'), ('b') UNION ALL (WITH z AS NOT MATERIALIZED (SELECT * FROM x) SELECT z.a || z.a AS a FROM z WHERE length(z.a || z.a) \u003c 5)) SELECT * FROM x"
+  },
+  {
+    "comment": "subselect - Statement 234",
+    "query": "with recursive x(a) as ((values ('a'), ('b')) union all (with z as not materialized (select * from x) select z.a || z.a as a from z where length(z.a || z.a) \u003c 5)) select * from x",
+    "expected": "WITH RECURSIVE x(a) AS (VALUES ('a'), ('b') UNION ALL (WITH z AS NOT MATERIALIZED (SELECT * FROM x) SELECT z.a || z.a AS a FROM z WHERE length(z.a || z.a) \u003c 5)) SELECT * FROM x"
+  },
+  {
+    "comment": "subselect - Statement 235",
+    "query": "explain (verbose, costs off) with x as (select * from int4_tbl) select * from (with y as (select * from x) select * from y) ss",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) WITH x AS (SELECT * FROM int4_tbl) SELECT * FROM (WITH y AS (SELECT * FROM x) SELECT * FROM y) AS ss"
+  },
+  {
+    "comment": "subselect - Statement 236",
+    "query": "explain (verbose, costs off) with x as materialized (select * from int4_tbl) select * from (with y as (select * from x) select * from y) ss",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) WITH x AS MATERIALIZED (SELECT * FROM int4_tbl) SELECT * FROM (WITH y AS (SELECT * FROM x) SELECT * FROM y) AS ss"
+  },
+  {
+    "comment": "subselect - Statement 237",
+    "query": "explain (verbose, costs off) with x as (select 1 as y) select * from (with x as (select 2 as y) select * from x) ss",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) WITH x AS (SELECT 1 AS y) SELECT * FROM (WITH x AS (SELECT 2 AS y) SELECT * FROM x) AS ss"
+  },
+  {
+    "comment": "subselect - Statement 238",
+    "query": "explain (verbose, costs off) with x as (select * from subselect_tbl) select * from x for update",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) WITH x AS (SELECT * FROM subselect_tbl) SELECT * FROM x FOR UPDATE"
+  },
+  {
+    "comment": "subselect - Statement 239",
+    "query": "explain (costs off) select * from tenk1 A where hundred in (select hundred from tenk2 B where B.odd = A.odd)",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM tenk1 AS a WHERE hundred IN (SELECT hundred FROM tenk2 AS b WHERE b.odd = a.odd)"
+  },
+  {
+    "comment": "subselect - Statement 240",
+    "query": "explain (costs off) select * from tenk1 A where exists (select 1 from tenk2 B where A.hundred in (select C.hundred FROM tenk2 C WHERE c.odd = b.odd))",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM tenk1 AS a WHERE EXISTS (SELECT 1 FROM tenk2 AS b WHERE a.hundred IN (SELECT c.hundred FROM tenk2 AS c WHERE c.odd = b.odd))"
+  },
+  {
+    "comment": "subselect - Statement 241",
+    "query": "explain (costs off) SELECT * FROM tenk1 A LEFT JOIN tenk2 B ON A.hundred in (SELECT c.hundred FROM tenk2 C WHERE c.odd = b.odd)",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM tenk1 AS a LEFT OUTER JOIN tenk2 AS b ON a.hundred IN (SELECT c.hundred FROM tenk2 AS c WHERE c.odd = b.odd)"
+  },
+  {
+    "comment": "subselect - Statement 242",
+    "query": "explain (costs off) SELECT * FROM tenk1 A LEFT JOIN tenk2 B ON B.hundred in (SELECT c.hundred FROM tenk2 C WHERE c.odd = a.odd)",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM tenk1 AS a LEFT OUTER JOIN tenk2 AS b ON b.hundred IN (SELECT c.hundred FROM tenk2 AS c WHERE c.odd = a.odd)"
+  },
+  {
+    "comment": "subselect - Statement 243",
+    "query": "explain (costs off) SELECT * FROM tenk1 A LEFT JOIN tenk2 B ON B.hundred in (SELECT c.hundred FROM tenk2 C WHERE c.odd = b.odd)",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM tenk1 AS a LEFT OUTER JOIN tenk2 AS b ON b.hundred IN (SELECT c.hundred FROM tenk2 AS c WHERE c.odd = b.odd)"
+  },
+  {
+    "comment": "subselect - Statement 244",
+    "query": "explain (costs off) SELECT * FROM tenk1 A INNER JOIN tenk2 B ON A.hundred in (SELECT c.hundred FROM tenk2 C WHERE c.odd = b.odd) WHERE a.thousand \u003c 750",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM tenk1 AS a INNER JOIN tenk2 AS b ON a.hundred IN (SELECT c.hundred FROM tenk2 AS c WHERE c.odd = b.odd) WHERE a.thousand \u003c 750"
+  },
+  {
+    "comment": "subselect - Statement 245",
+    "query": "explain (costs off) SELECT * FROM tenk1 A LEFT JOIN tenk2 B ON B.hundred in (SELECT min(c.hundred) FROM tenk2 C WHERE c.odd = b.odd)",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM tenk1 AS a LEFT OUTER JOIN tenk2 AS b ON b.hundred IN (SELECT MIN(c.hundred) FROM tenk2 AS c WHERE c.odd = b.odd)"
+  }
+]

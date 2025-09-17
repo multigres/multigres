@@ -1,0 +1,208 @@
+[
+  {
+    "comment": "dependency - Statement 1",
+    "query": "CREATE USER regress_dep_user"
+  },
+  {
+    "comment": "dependency - Statement 2",
+    "query": "CREATE USER regress_dep_user2"
+  },
+  {
+    "comment": "dependency - Statement 3",
+    "query": "CREATE USER regress_dep_user3"
+  },
+  {
+    "comment": "dependency - Statement 4",
+    "query": "CREATE GROUP regress_dep_group"
+  },
+  {
+    "comment": "dependency - Statement 5",
+    "query": "CREATE TABLE deptest (f1 serial primary key, f2 text)",
+    "expected": "CREATE TABLE deptest (f1 serial PRIMARY KEY, f2 TEXT)"
+  },
+  {
+    "comment": "dependency - Statement 6",
+    "query": "GRANT SELECT ON TABLE deptest TO GROUP regress_dep_group",
+    "expected": "GRANT SELECT ON deptest TO regress_dep_group"
+  },
+  {
+    "comment": "dependency - Statement 7",
+    "query": "GRANT ALL ON TABLE deptest TO regress_dep_user, regress_dep_user2",
+    "expected": "GRANT ALL ON deptest TO regress_dep_user, regress_dep_user2"
+  },
+  {
+    "comment": "dependency - Statement 8",
+    "query": "DROP USER regress_dep_user",
+    "expected": "DROP ROLE regress_dep_user"
+  },
+  {
+    "comment": "dependency - Statement 9",
+    "query": "DROP GROUP regress_dep_group",
+    "expected": "DROP ROLE regress_dep_group"
+  },
+  {
+    "comment": "dependency - Statement 10",
+    "query": "REVOKE SELECT ON deptest FROM GROUP regress_dep_group",
+    "expected": "REVOKE SELECT ON deptest FROM regress_dep_group"
+  },
+  {
+    "comment": "dependency - Statement 11",
+    "query": "REVOKE SELECT, INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, MAINTAIN ON deptest FROM regress_dep_user"
+  },
+  {
+    "comment": "dependency - Statement 12",
+    "query": "REVOKE TRIGGER ON deptest FROM regress_dep_user"
+  },
+  {
+    "comment": "dependency - Statement 13",
+    "query": "REVOKE ALL ON deptest FROM regress_dep_user2"
+  },
+  {
+    "comment": "dependency - Statement 14",
+    "query": "DROP USER regress_dep_user2",
+    "expected": "DROP ROLE regress_dep_user2"
+  },
+  {
+    "comment": "dependency - Statement 15",
+    "query": "DROP USER regress_dep_user3",
+    "expected": "DROP ROLE regress_dep_user3"
+  },
+  {
+    "comment": "dependency - Statement 16",
+    "query": "CREATE USER regress_dep_user0"
+  },
+  {
+    "comment": "dependency - Statement 17",
+    "query": "CREATE USER regress_dep_user1"
+  },
+  {
+    "comment": "dependency - Statement 18",
+    "query": "SET SESSION AUTHORIZATION regress_dep_user0",
+    "expected": "SET SESSION AUTHORIZATION 'regress_dep_user0'"
+  },
+  {
+    "comment": "dependency - Statement 19",
+    "query": "DROP OWNED BY regress_dep_user1",
+    "expected": "DROP OWNED BY regress_dep_user1 RESTRICT"
+  },
+  {
+    "comment": "dependency - Statement 20",
+    "query": "DROP OWNED BY regress_dep_user0, regress_dep_user2",
+    "expected": "DROP OWNED BY regress_dep_user0, regress_dep_user2 RESTRICT"
+  },
+  {
+    "comment": "dependency - Statement 21",
+    "query": "REASSIGN OWNED BY regress_dep_user0 TO regress_dep_user1"
+  },
+  {
+    "comment": "dependency - Statement 22",
+    "query": "REASSIGN OWNED BY regress_dep_user1 TO regress_dep_user0"
+  },
+  {
+    "comment": "dependency - Statement 23",
+    "query": "DROP OWNED BY regress_dep_user0",
+    "expected": "DROP OWNED BY regress_dep_user0 RESTRICT"
+  },
+  {
+    "comment": "dependency - Statement 24",
+    "query": "CREATE TABLE deptest1 (f1 int unique)",
+    "expected": "CREATE TABLE deptest1 (f1 INT UNIQUE)"
+  },
+  {
+    "comment": "dependency - Statement 25",
+    "query": "GRANT ALL ON deptest1 TO regress_dep_user1 WITH GRANT OPTION"
+  },
+  {
+    "comment": "dependency - Statement 26",
+    "query": "SET SESSION AUTHORIZATION regress_dep_user1",
+    "expected": "SET SESSION AUTHORIZATION 'regress_dep_user1'"
+  },
+  {
+    "comment": "dependency - Statement 27",
+    "query": "CREATE TABLE deptest (a serial primary key, b text)",
+    "expected": "CREATE TABLE deptest (a serial PRIMARY KEY, b TEXT)"
+  },
+  {
+    "comment": "dependency - Statement 28",
+    "query": "GRANT ALL ON deptest1 TO regress_dep_user2"
+  },
+  {
+    "comment": "dependency - Statement 29",
+    "query": "RESET SESSION AUTHORIZATION",
+    "expected": "RESET session_authorization"
+  },
+  {
+    "comment": "dependency - Statement 30",
+    "query": "GRANT CREATE ON DATABASE regression TO regress_dep_user1"
+  },
+  {
+    "comment": "dependency - Statement 31",
+    "query": "CREATE SCHEMA deptest"
+  },
+  {
+    "comment": "dependency - Statement 32",
+    "query": "ALTER DEFAULT PRIVILEGES FOR ROLE regress_dep_user1 IN SCHEMA deptest GRANT ALL ON TABLES TO regress_dep_user2",
+    "expected": "ALTER DEFAULT PRIVILEGES FOR ROLE regress_dep_user1 IN SCHEMA deptest GRANT ALL PRIVILEGES ON TABLES TO regress_dep_user2"
+  },
+  {
+    "comment": "dependency - Statement 33",
+    "query": "CREATE FUNCTION deptest_func() RETURNS void LANGUAGE plpgsql AS $$ BEGIN END; $$",
+    "expected": "CREATE FUNCTION deptest_func () RETURNS void LANGUAGE plpgsql AS $$ BEGIN END; $$"
+  },
+  {
+    "comment": "dependency - Statement 34",
+    "query": "CREATE TYPE deptest_enum AS ENUM ('red')"
+  },
+  {
+    "comment": "dependency - Statement 35",
+    "query": "CREATE TYPE deptest_range AS RANGE (SUBTYPE = int4)",
+    "expected": "CREATE TYPE deptest_range AS RANGE (subtype = INT)"
+  },
+  {
+    "comment": "dependency - Statement 36",
+    "query": "CREATE TABLE deptest2 (f1 int)",
+    "expected": "CREATE TABLE deptest2 (f1 INT)"
+  },
+  {
+    "comment": "dependency - Statement 37",
+    "query": "CREATE SEQUENCE ss1"
+  },
+  {
+    "comment": "dependency - Statement 38",
+    "query": "ALTER TABLE deptest2 ALTER f1 SET DEFAULT nextval('ss1')",
+    "expected": "ALTER TABLE deptest2 ALTER COLUMN f1 SET DEFAULT nextval('ss1')"
+  },
+  {
+    "comment": "dependency - Statement 39",
+    "query": "ALTER SEQUENCE ss1 OWNED BY deptest2.f1"
+  },
+  {
+    "comment": "dependency - Statement 40",
+    "query": "CREATE TYPE deptest_t AS (a int)",
+    "expected": "CREATE TYPE deptest_t AS (a INT)"
+  },
+  {
+    "comment": "dependency - Statement 41",
+    "query": "SELECT typowner = relowner FROM pg_type JOIN pg_class c ON typrelid = c.oid WHERE typname = 'deptest_t'",
+    "expected": "SELECT typowner = relowner FROM pg_type INNER JOIN pg_class AS c ON typrelid = c.oid WHERE typname = 'deptest_t'"
+  },
+  {
+    "comment": "dependency - Statement 42",
+    "query": "REASSIGN OWNED BY regress_dep_user1 TO regress_dep_user2"
+  },
+  {
+    "comment": "dependency - Statement 43",
+    "query": "DROP USER regress_dep_user1",
+    "expected": "DROP ROLE regress_dep_user1"
+  },
+  {
+    "comment": "dependency - Statement 44",
+    "query": "DROP OWNED BY regress_dep_user2, regress_dep_user0",
+    "expected": "DROP OWNED BY regress_dep_user2, regress_dep_user0 RESTRICT"
+  },
+  {
+    "comment": "dependency - Statement 45",
+    "query": "DROP USER regress_dep_user0",
+    "expected": "DROP ROLE regress_dep_user0"
+  }
+]

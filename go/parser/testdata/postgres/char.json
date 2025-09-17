@@ -1,0 +1,144 @@
+[
+  {
+    "comment": "char - Statement 2",
+    "query": "CREATE TEMP TABLE CHAR_TBL(f1 char)",
+    "expected": "CREATE TEMPORARY TABLE char_tbl (f1 CHAR(1))"
+  },
+  {
+    "comment": "char - Statement 3",
+    "query": "INSERT INTO CHAR_TBL (f1) VALUES ('a')",
+    "expected": "INSERT INTO char_tbl (f1) VALUES ('a')"
+  },
+  {
+    "comment": "char - Statement 4",
+    "query": "INSERT INTO CHAR_TBL (f1) VALUES ('1')",
+    "expected": "INSERT INTO char_tbl (f1) VALUES ('1')"
+  },
+  {
+    "comment": "char - Statement 5",
+    "query": "INSERT INTO CHAR_TBL (f1) VALUES (2)",
+    "expected": "INSERT INTO char_tbl (f1) VALUES (2)"
+  },
+  {
+    "comment": "char - Statement 6",
+    "query": "INSERT INTO CHAR_TBL (f1) VALUES ('3')",
+    "expected": "INSERT INTO char_tbl (f1) VALUES ('3')"
+  },
+  {
+    "comment": "char - Statement 7",
+    "query": "INSERT INTO CHAR_TBL (f1) VALUES ('')",
+    "expected": "INSERT INTO char_tbl (f1) VALUES ('')"
+  },
+  {
+    "comment": "char - Statement 8",
+    "query": "INSERT INTO CHAR_TBL (f1) VALUES ('cd')",
+    "expected": "INSERT INTO char_tbl (f1) VALUES ('cd')"
+  },
+  {
+    "comment": "char - Statement 9",
+    "query": "INSERT INTO CHAR_TBL (f1) VALUES ('c     ')",
+    "expected": "INSERT INTO char_tbl (f1) VALUES ('c     ')"
+  },
+  {
+    "comment": "char - Statement 10",
+    "query": "SELECT * FROM CHAR_TBL",
+    "expected": "SELECT * FROM char_tbl"
+  },
+  {
+    "comment": "char - Statement 11",
+    "query": "SELECT c.* FROM CHAR_TBL c WHERE c.f1 \u003c\u003e 'a'",
+    "expected": "SELECT c.* FROM char_tbl AS c WHERE c.f1 \u003c\u003e 'a'"
+  },
+  {
+    "comment": "char - Statement 12",
+    "query": "SELECT c.* FROM CHAR_TBL c WHERE c.f1 = 'a'",
+    "expected": "SELECT c.* FROM char_tbl AS c WHERE c.f1 = 'a'"
+  },
+  {
+    "comment": "char - Statement 13",
+    "query": "SELECT c.* FROM CHAR_TBL c WHERE c.f1 \u003c 'a'",
+    "expected": "SELECT c.* FROM char_tbl AS c WHERE c.f1 \u003c 'a'"
+  },
+  {
+    "comment": "char - Statement 14",
+    "query": "SELECT c.* FROM CHAR_TBL c WHERE c.f1 \u003c= 'a'",
+    "expected": "SELECT c.* FROM char_tbl AS c WHERE c.f1 \u003c= 'a'"
+  },
+  {
+    "comment": "char - Statement 15",
+    "query": "SELECT c.* FROM CHAR_TBL c WHERE c.f1 \u003e 'a'",
+    "expected": "SELECT c.* FROM char_tbl AS c WHERE c.f1 \u003e 'a'"
+  },
+  {
+    "comment": "char - Statement 16",
+    "query": "SELECT c.* FROM CHAR_TBL c WHERE c.f1 \u003e= 'a'",
+    "expected": "SELECT c.* FROM char_tbl AS c WHERE c.f1 \u003e= 'a'"
+  },
+  {
+    "comment": "char - Statement 17",
+    "query": "DROP TABLE CHAR_TBL",
+    "expected": "DROP TABLE char_tbl"
+  },
+  {
+    "comment": "char - Statement 18",
+    "query": "INSERT INTO CHAR_TBL (f1) VALUES ('abcde')",
+    "expected": "INSERT INTO char_tbl (f1) VALUES ('abcde')"
+  },
+  {
+    "comment": "char - Statement 19",
+    "query": "SELECT pg_input_is_valid('abcd  ', 'char(4)')"
+  },
+  {
+    "comment": "char - Statement 20",
+    "query": "SELECT pg_input_is_valid('abcde', 'char(4)')"
+  },
+  {
+    "comment": "char - Statement 21",
+    "query": "SELECT * FROM pg_input_error_info('abcde', 'char(4)')"
+  },
+  {
+    "comment": "char - Statement 22",
+    "query": "SELECT 'a'::char",
+    "expected": "SELECT CAST('a' AS CHAR(1))"
+  },
+  {
+    "comment": "char - Statement 23",
+    "query": "SELECT '\\101'::char",
+    "expected": "SELECT CAST('\\101' AS CHAR(1))"
+  },
+  {
+    "comment": "char - Statement 24",
+    "query": "SELECT '\\377'::char",
+    "expected": "SELECT CAST('\\377' AS CHAR(1))"
+  },
+  {
+    "comment": "char - Statement 25",
+    "query": "SELECT 'a'::char::text",
+    "expected": "SELECT CAST(CAST('a' AS CHAR(1)) AS TEXT)"
+  },
+  {
+    "comment": "char - Statement 26",
+    "query": "SELECT '\\377'::char::text",
+    "expected": "SELECT CAST(CAST('\\377' AS CHAR(1)) AS TEXT)"
+  },
+  {
+    "comment": "char - Statement 27",
+    "query": "SELECT '\\000'::char::text",
+    "expected": "SELECT CAST(CAST('\\000' AS CHAR(1)) AS TEXT)"
+  },
+  {
+    "comment": "char - Statement 28",
+    "query": "SELECT 'a'::text::char",
+    "expected": "SELECT CAST(CAST('a' AS TEXT) AS CHAR(1))"
+  },
+  {
+    "comment": "char - Statement 29",
+    "query": "SELECT '\\377'::text::char",
+    "expected": "SELECT CAST(CAST('\\377' AS TEXT) AS CHAR(1))"
+  },
+  {
+    "comment": "char - Statement 30",
+    "query": "SELECT ''::text::char",
+    "expected": "SELECT CAST(CAST('' AS TEXT) AS CHAR(1))"
+  }
+]
