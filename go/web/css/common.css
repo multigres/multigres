@@ -141,6 +141,19 @@ body {
   font-style: italic;
 }
 
+.page-link-group {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 1rem;
+}
+
+.page-link {
+  width: 200px;
+  padding: 0.75rem 1.5rem;
+  border-radius: 8px;
+  box-shadow: 0 2px 4px var(--shadow);
+}
+
 .live-link {
   display: inline-block;
   padding: 0.75rem 1.5rem;
@@ -160,6 +173,7 @@ body {
 }
 
 .timestamp {
+  text-align: center;
   font-size: 0.875rem;
   color: var(--dim-text-color);
   font-family: "SF Mono", Monaco, "Cascadia Code", monospace;

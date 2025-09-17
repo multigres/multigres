@@ -13,19 +13,27 @@
       </header>
 
       <main>
-        {{range .Links}}
         <section class="section">
-          <h2 class="section-title">{{.Title}}</h2>
-          <br />
-          <a href="{{.Link}}" class="live-link">{{.Link}}</a>
+            <div class="page-link-group">
+                {{range .Links}}
+                <div class="page-link">
+                    <h2 class="section-title">{{.Title}}</h2>
+                    <br />
+                    <a href="{{.Link}}" class="live-link">{{.Link}}</a>
+                </div>
+                {{end}}
+            </div>
         </section>
-        {{end}}
       </main>
-          <div class="timestamp">
-            <script>
-              document.write(new Date().toISOString());
-            </script>
-          </div>
+      <div class="timestamp">
+        <script>
+          document.write(new Date().toISOString());
+        </script>
+        <br />local:
+        <script>
+          document.write(new Date().toLocaleString());
+        </script>
+      </div>
         </section>
       </main>
     </div>
