@@ -25,9 +25,9 @@ import (
 	"github.com/multigres/multigres/go/parser/ast"
 )
 
-// Parser state for handling complex grammar constructs
-//
 //line postgres.y:24
+
+// Parser state for handling complex grammar constructs
 var parserState struct {
 	// Future parser state variables can be added here
 }
