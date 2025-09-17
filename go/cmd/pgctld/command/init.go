@@ -32,11 +32,17 @@ type InitResult struct {
 	Message            string
 }
 
+var (
+	pgPort   = 5432
+	pgPwfile = ""
+)
+
 func init() {
 	Root.AddCommand(initCmd)
 
 	// Add init-specific flags
 	initCmd.Flags().IntVarP(&pgPort, "pg-port", "p", pgPort, "PostgreSQL port")
+	initCmd.Flags().StringVar(&pgPwfile, "pg-pwfile", pgPwfile, "PostgreSQL password file path")
 }
 
 var initCmd = &cobra.Command{

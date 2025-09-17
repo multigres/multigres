@@ -588,7 +588,7 @@ func TestPostgreSQLAuthentication(t *testing.T) {
 
 		// Start the PostgreSQL server
 		t.Logf("Starting PostgreSQL server")
-		startCmd := exec.Command(pgctldBinary, "start", "--pooler-dir", baseDir, "--pg-pwfile", pwfile)
+		startCmd := exec.Command(pgctldBinary, "start", "--pooler-dir", baseDir)
 		startCmd.Env = append(os.Environ(), "PGCONNECT_TIMEOUT=5")
 		output, err = startCmd.CombinedOutput()
 		require.NoError(t, err, "pgctld start should succeed, output: %s", string(output))
@@ -612,7 +612,7 @@ func TestPostgreSQLAuthentication(t *testing.T) {
 
 		// Clean shutdown
 		t.Logf("Shutting down PostgreSQL")
-		stopCmd := exec.Command(pgctldBinary, "stop", "--pooler-dir", baseDir, "--pg-pwfile", pwfile)
+		stopCmd := exec.Command(pgctldBinary, "stop", "--pooler-dir", baseDir)
 		stopCmd.Env = append(os.Environ(), "PGCONNECT_TIMEOUT=5")
 		err = stopCmd.Run()
 		require.NoError(t, err, "pgctld stop should succeed")

@@ -24,11 +24,9 @@ import (
 // It contains a PostgresServerConfig for all PostgreSQL-specific settings
 // plus additional connection parameters for control operations
 type PostgresCtlConfig struct {
-	Host               string
 	Port               int
 	User               string
 	Database           string
-	Password           string
 	PostgresDataDir    string
 	PostgresConfigFile string
 	Timeout            int
@@ -36,7 +34,7 @@ type PostgresCtlConfig struct {
 }
 
 // NewPostgresCtlConfig creates a PostgresCtlConfig with the given parameters
-func NewPostgresCtlConfig(host string, port int, user, database, password string, timeout int, postgresDataDir string, postgresConfigFile string, poolerDir string) (*PostgresCtlConfig, error) {
+func NewPostgresCtlConfig(port int, user string, database string, timeout int, postgresDataDir string, postgresConfigFile string, poolerDir string) (*PostgresCtlConfig, error) {
 	if postgresDataDir == "" {
 		return nil, fmt.Errorf("postgres-data-dir needs to be set")
 	}
@@ -45,9 +43,6 @@ func NewPostgresCtlConfig(host string, port int, user, database, password string
 		return nil, fmt.Errorf("pooler-dir needs to be set")
 	}
 
-	if host == "" {
-		return nil, fmt.Errorf("host needs to be set")
-	}
 	if port == 0 {
 		return nil, fmt.Errorf("port needs to be set")
 	}
@@ -56,11 +51,9 @@ func NewPostgresCtlConfig(host string, port int, user, database, password string
 	}
 
 	return &PostgresCtlConfig{
-		Host:               host,
 		Port:               port,
 		User:               user,
 		Database:           database,
-		Password:           password,
 		PostgresDataDir:    postgresDataDir,
 		Timeout:            timeout,
 		PostgresConfigFile: postgresConfigFile,
