@@ -5396,7 +5396,25 @@ xmltable_column_el:
 		|	ColId Typename xmltable_column_option_list
 			{
 				rangeTableFuncCol := ast.NewRangeTableFuncCol($1, $2, false, false, nil, nil, 0)
-				// TODO: Process column options from $3
+				
+				// Process column options from $3, matching PostgreSQL's implementation
+				optionsList := $3
+				if optionsList != nil {
+					for _, option := range optionsList.Items {
+						if defElem, ok := option.(*ast.DefElem); ok {
+							if defElem.Defname == "path" {
+								rangeTableFuncCol.ColExpr = defElem.Arg
+							} else if defElem.Defname == "default" {
+								rangeTableFuncCol.ColDefExpr = defElem.Arg
+							} else if defElem.Defname == "is_not_null" {
+								if boolVal, ok := defElem.Arg.(*ast.Boolean); ok {
+									rangeTableFuncCol.IsNotNull = boolVal.BoolVal
+								}
+							}
+						}
+					}
+				}
+				
 				$$ = rangeTableFuncCol
 			}
 		;

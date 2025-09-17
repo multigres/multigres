@@ -741,6 +741,7 @@ func (s *SelectStmt) needsParenthesesInSetOperation() bool {
 		   s.SortClause != nil && s.SortClause.Len() > 0 || 
 		   s.LimitOffset != nil || 
 		   s.LimitCount != nil ||
+		   s.WithClause != nil || // WITH clauses need parentheses in set operations
 		   s.Op != SETOP_NONE // Nested set operations always need parentheses
 }
 
@@ -1310,8 +1311,8 @@ func (cc *CTECycleClause) SqlString() string {
 
 	if cc.CycleMarkValue != nil && cc.CycleMarkDefault != nil {
 		result += fmt.Sprintf(" TO %s DEFAULT %s",
-			cc.CycleMarkValue.SqlString(),
-			cc.CycleMarkDefault.SqlString())
+			PrintAExprConst(cc.CycleMarkValue),
+			PrintAExprConst(cc.CycleMarkDefault))
 	}
 
 	result += fmt.Sprintf(" USING %s", cc.CyclePathColumn)

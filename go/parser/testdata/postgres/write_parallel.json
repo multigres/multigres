@@ -1,82 +1,102 @@
 [
   {
     "comment": "write_parallel - Statement 1",
-    "query": "begin"
+    "query": "begin",
+    "expected": "BEGIN"
   },
   {
     "comment": "write_parallel - Statement 2",
-    "query": "set parallel_setup_cost=0"
+    "query": "set parallel_setup_cost=0",
+    "expected": "SET parallel_setup_cost = 0"
   },
   {
     "comment": "write_parallel - Statement 3",
-    "query": "set parallel_tuple_cost=0"
+    "query": "set parallel_tuple_cost=0",
+    "expected": "SET parallel_tuple_cost = 0"
   },
   {
     "comment": "write_parallel - Statement 4",
-    "query": "set min_parallel_table_scan_size=0"
+    "query": "set min_parallel_table_scan_size=0",
+    "expected": "SET min_parallel_table_scan_size = 0"
   },
   {
     "comment": "write_parallel - Statement 5",
-    "query": "set max_parallel_workers_per_gather=4"
+    "query": "set max_parallel_workers_per_gather=4",
+    "expected": "SET max_parallel_workers_per_gather = 4"
   },
   {
     "comment": "write_parallel - Statement 6",
-    "query": "explain (costs off) create table parallel_write as select length(stringu1) from tenk1 group by length(stringu1)"
+    "query": "explain (costs off) create table parallel_write as select length(stringu1) from tenk1 group by length(stringu1)",
+    "expected": "EXPLAIN (COSTS false) CREATE TABLE parallel_write AS SELECT length(stringu1) FROM tenk1 GROUP BY length(stringu1)"
   },
   {
     "comment": "write_parallel - Statement 7",
-    "query": "create table parallel_write as select length(stringu1) from tenk1 group by length(stringu1)"
+    "query": "create table parallel_write as select length(stringu1) from tenk1 group by length(stringu1)",
+    "expected": "CREATE TABLE parallel_write AS SELECT length(stringu1) FROM tenk1 GROUP BY length(stringu1)"
   },
   {
     "comment": "write_parallel - Statement 8",
-    "query": "drop table parallel_write"
+    "query": "drop table parallel_write",
+    "expected": "DROP TABLE parallel_write"
   },
   {
     "comment": "write_parallel - Statement 9",
-    "query": "explain (costs off) select length(stringu1) into parallel_write from tenk1 group by length(stringu1)"
+    "query": "explain (costs off) select length(stringu1) into parallel_write from tenk1 group by length(stringu1)",
+    "expected": "EXPLAIN (COSTS false) SELECT length(stringu1) INTO parallel_write FROM tenk1 GROUP BY length(stringu1)"
   },
   {
     "comment": "write_parallel - Statement 10",
-    "query": "select length(stringu1) into parallel_write from tenk1 group by length(stringu1)"
+    "query": "select length(stringu1) into parallel_write from tenk1 group by length(stringu1)",
+    "expected": "SELECT length(stringu1) INTO parallel_write FROM tenk1 GROUP BY length(stringu1)"
   },
   {
     "comment": "write_parallel - Statement 11",
-    "query": "explain (costs off) create materialized view parallel_mat_view as select length(stringu1) from tenk1 group by length(stringu1)"
+    "query": "explain (costs off) create materialized view parallel_mat_view as select length(stringu1) from tenk1 group by length(stringu1)",
+    "expected": "EXPLAIN (COSTS false) CREATE MATERIALIZED VIEW parallel_mat_view AS SELECT length(stringu1) FROM tenk1 GROUP BY length(stringu1)"
   },
   {
     "comment": "write_parallel - Statement 12",
-    "query": "create materialized view parallel_mat_view as select length(stringu1) from tenk1 group by length(stringu1)"
+    "query": "create materialized view parallel_mat_view as select length(stringu1) from tenk1 group by length(stringu1)",
+    "expected": "CREATE MATERIALIZED VIEW parallel_mat_view AS SELECT length(stringu1) FROM tenk1 GROUP BY length(stringu1)"
   },
   {
     "comment": "write_parallel - Statement 13",
-    "query": "create unique index on parallel_mat_view(length)"
+    "query": "create unique index on parallel_mat_view(length)",
+    "expected": "CREATE UNIQUE INDEX ON parallel_mat_view USING btree ( length )"
   },
   {
     "comment": "write_parallel - Statement 14",
-    "query": "refresh materialized view parallel_mat_view"
+    "query": "refresh materialized view parallel_mat_view",
+    "expected": "REFRESH MATERIALIZED VIEW parallel_mat_view"
   },
   {
     "comment": "write_parallel - Statement 15",
-    "query": "refresh materialized view concurrently parallel_mat_view"
+    "query": "refresh materialized view concurrently parallel_mat_view",
+    "expected": "REFRESH MATERIALIZED VIEW CONCURRENTLY parallel_mat_view"
   },
   {
     "comment": "write_parallel - Statement 16",
-    "query": "drop materialized view parallel_mat_view"
+    "query": "drop materialized view parallel_mat_view",
+    "expected": "DROP MATERIALIZED VIEW parallel_mat_view"
   },
   {
     "comment": "write_parallel - Statement 17",
-    "query": "prepare prep_stmt as select length(stringu1) from tenk1 group by length(stringu1)"
+    "query": "prepare prep_stmt as select length(stringu1) from tenk1 group by length(stringu1)",
+    "expected": "PREPARE prep_stmt AS SELECT length(stringu1) FROM tenk1 GROUP BY length(stringu1)"
   },
   {
     "comment": "write_parallel - Statement 18",
-    "query": "explain (costs off) create table parallel_write as execute prep_stmt"
+    "query": "explain (costs off) create table parallel_write as execute prep_stmt",
+    "expected": "EXPLAIN (COSTS false) CREATE TABLE parallel_write AS EXECUTE prep_stmt"
   },
   {
     "comment": "write_parallel - Statement 19",
-    "query": "create table parallel_write as execute prep_stmt"
+    "query": "create table parallel_write as execute prep_stmt",
+    "expected": "CREATE TABLE parallel_write AS EXECUTE prep_stmt"
   },
   {
     "comment": "write_parallel - Statement 20",
-    "query": "rollback"
+    "query": "rollback",
+    "expected": "ROLLBACK"
   }
 ]

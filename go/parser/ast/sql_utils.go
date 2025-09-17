@@ -252,3 +252,33 @@ func parseQualifiedIdentifier(name string) []string {
 	
 	return parts
 }
+
+// printAExprConst formats an expression using the appropriate syntax for constants.
+// For TypeCast expressions, it uses the 'type value' syntax instead of 'CAST(value AS type)'.
+// For all other expressions, it uses the standard SqlString() method.
+func PrintAExprConst(expr Expression) string {
+	if expr == nil {
+		return ""
+	}
+	
+	// Check if this is a TypeCast expression
+	if typeCast, ok := expr.(*TypeCast); ok {
+		// Use the shorter 'type value' syntax instead of CAST(value AS type)
+		argStr := ""
+		if typeCast.Arg != nil {
+			argStr = typeCast.Arg.SqlString()
+		}
+		
+		typeStr := ""
+		if typeCast.TypeName != nil {
+			typeStr = typeCast.TypeName.SqlString()
+		}
+		
+		if typeStr != "" && argStr != "" {
+			return typeStr + " " + argStr
+		}
+	}
+	
+	// For all other expressions, use the standard SqlString method
+	return expr.SqlString()
+}

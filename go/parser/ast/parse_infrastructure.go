@@ -804,6 +804,17 @@ func (f *FuncCall) SqlString() string {
 	} else if strings.ToLower(funcName) == "system_user" && len(argStrs) == 0 {
 		// SYSTEM_USER function call with no arguments should be deparsed as SYSTEM_USER (SQL value function)
 		result = "SYSTEM_USER"
+	} else if strings.ToLower(funcName) == "xmlexists" && f.Funcformat == COERCE_SQL_SYNTAX {
+		// xmlexists function with SQL syntax: xmlexists(xpath PASSING [BY REF] document [BY REF])
+		// The grammar converts xmlexists(A PASSING [BY REF] B [BY REF]) to xmlexists(A, B, ...)
+		// We restore the xmlexists syntax using BY REF as separator between arguments
+		if len(argStrs) >= 2 {
+			passingArgs := strings.Join(argStrs[1:], " BY REF ")
+			result = fmt.Sprintf("xmlexists(%s PASSING %s)", argStrs[0], passingArgs)
+		} else {
+			// Fallback for edge cases
+			result = fmt.Sprintf("%s(%s)", funcName, funcArgs)
+		}
 	} else {
 		result = fmt.Sprintf("%s(%s)", funcName, funcArgs)
 	}

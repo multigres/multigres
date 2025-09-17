@@ -2020,7 +2020,7 @@ func (x *XmlExpr) SqlString() string {
 
 	case IS_XMLELEMENT:
 		result.WriteString("XMLELEMENT(NAME ")
-		result.WriteString(x.Name)
+		result.WriteString(QuoteIdentifier(x.Name))
 		if x.Args != nil && len(x.Args.Items) > 0 {
 			result.WriteString(", ")
 			for i, arg := range x.Args.Items {
@@ -2036,8 +2036,8 @@ func (x *XmlExpr) SqlString() string {
 
 	case IS_XMLFOREST:
 		result.WriteString("XMLFOREST(")
-		if x.Args != nil {
-			for i, arg := range x.Args.Items {
+		if x.NamedArgs != nil {
+			for i, arg := range x.NamedArgs.Items {
 				if i > 0 {
 					result.WriteString(", ")
 				}
@@ -2063,7 +2063,7 @@ func (x *XmlExpr) SqlString() string {
 
 	case IS_XMLPI:
 		result.WriteString("XMLPI(NAME ")
-		result.WriteString(x.Name)
+		result.WriteString(QuoteIdentifier(x.Name))
 		if x.Args != nil && len(x.Args.Items) > 0 {
 			result.WriteString(", ")
 			result.WriteString(x.Args.Items[0].SqlString())

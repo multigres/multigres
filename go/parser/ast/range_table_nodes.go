@@ -428,17 +428,27 @@ func (r *RangeTableFuncCol) SqlString() string {
 	var result strings.Builder
 
 	if r.ForOrdinality {
-		result.WriteString(r.ColName)
+		result.WriteString(QuoteIdentifier(r.ColName))
 		result.WriteString(" FOR ORDINALITY")
 	} else {
-		result.WriteString(r.ColName)
+		// Quote column name if it needs quoting (contains special chars, is a keyword, etc.)
+		result.WriteString(QuoteIdentifier(r.ColName))
 		if r.TypeName != nil {
 			result.WriteString(" ")
 			result.WriteString(r.TypeName.SqlString())
 		}
 
-		// Add other options like PATH, DEFAULT, etc. if present
-		// These would be processed from the grammar but for now we'll handle the basic case
+		// Add PATH clause if ColExpr is present
+		if r.ColExpr != nil {
+			result.WriteString(" PATH ")
+			result.WriteString(r.ColExpr.SqlString())
+		}
+
+		// Add DEFAULT clause if ColDefExpr is present
+		if r.ColDefExpr != nil {
+			result.WriteString(" DEFAULT ")
+			result.WriteString(r.ColDefExpr.SqlString())
+		}
 
 		if r.IsNotNull {
 			result.WriteString(" NOT NULL")
