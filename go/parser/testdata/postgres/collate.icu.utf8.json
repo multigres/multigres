@@ -982,12 +982,12 @@
   {
     "comment": "collate.icu.utf8 - Statement 227",
     "query": "INSERT INTO test6 VALUES (1, U\u0026'\\00E4bc')",
-    "expected": "INSERT INTO test6 VALUES (1, '\\00E4bc')"
+    "expected": "INSERT INTO test6 VALUES (1, 'äbc')"
   },
   {
     "comment": "collate.icu.utf8 - Statement 228",
     "query": "INSERT INTO test6 VALUES (2, U\u0026'\\0061\\0308bc')",
-    "expected": "INSERT INTO test6 VALUES (2, '\\0061\\0308bc')"
+    "expected": "INSERT INTO test6 VALUES (2, 'äbc')"
   },
   {
     "comment": "collate.icu.utf8 - Statement 229",
@@ -1009,12 +1009,12 @@
   {
     "comment": "collate.icu.utf8 - Statement 233",
     "query": "INSERT INTO test6a VALUES (1, ARRAY[U\u0026'\\00E4bc'])",
-    "expected": "INSERT INTO test6a VALUES (1, ARRAY['\\00E4bc'])"
+    "expected": "INSERT INTO test6a VALUES (1, ARRAY['äbc'])"
   },
   {
     "comment": "collate.icu.utf8 - Statement 234",
     "query": "INSERT INTO test6a VALUES (2, ARRAY[U\u0026'\\0061\\0308bc'])",
-    "expected": "INSERT INTO test6a VALUES (2, ARRAY['\\0061\\0308bc'])"
+    "expected": "INSERT INTO test6a VALUES (2, ARRAY['äbc'])"
   },
   {
     "comment": "collate.icu.utf8 - Statement 235",

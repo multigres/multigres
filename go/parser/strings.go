@@ -21,7 +21,19 @@ import (
 
 // scanStandardString processes a standard SQL string literal ('...')
 // Equivalent to PostgreSQL xq state handling - postgres/src/backend/parser/scan.l:559-587
+// When isUnicodeString is true, this handles U&'...' strings and returns USCONST tokens
 func (l *Lexer) scanStandardString(startPos, startScanPos int) (*Token, error) {
+	return l.scanStandardStringWithType(startPos, startScanPos, false)
+}
+
+// scanUnicodeString processes a Unicode string literal (U&'...')
+// Equivalent to PostgreSQL xus state handling
+func (l *Lexer) scanUnicodeString(startPos, startScanPos int) (*Token, error) {
+	return l.scanStandardStringWithType(startPos, startScanPos, true)
+}
+
+// scanStandardStringWithType processes a string literal with the specified type
+func (l *Lexer) scanStandardStringWithType(startPos, startScanPos int, isUnicodeString bool) (*Token, error) {
 	ctx := l.context
 
 	// Clear literal buffer for accumulating string content
@@ -71,11 +83,19 @@ func (l *Lexer) scanStandardString(startPos, startScanPos int) (*Token, error) {
 	if !foundClosingQuote {
 		_ = ctx.AddErrorWithType(UnterminatedString, "unterminated quoted string")
 		text := ctx.GetCurrentText(startScanPos)
-		return NewStringToken(USCONST, ctx.GetLiteral(), startPos, text), nil
+		if isUnicodeString {
+			return NewStringToken(USCONST, ctx.GetLiteral(), startPos, text), nil
+		} else {
+			return NewStringToken(SCONST, ctx.GetLiteral(), startPos, text), nil
+		}
 	}
 
 	// Check for string continuation
-	return l.checkStringContinuation(SCONST, startPos, startScanPos)
+	if isUnicodeString {
+		return l.checkStringContinuation(USCONST, startPos, startScanPos)
+	} else {
+		return l.checkStringContinuation(SCONST, startPos, startScanPos)
+	}
 }
 
 // scanExtendedString processes an extended string literal (E'...')

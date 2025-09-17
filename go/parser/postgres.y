@@ -5460,8 +5460,16 @@ json_table:
 
 				// Create JsonTable with context item and path spec
 				jsonTable := ast.NewJsonTable($3.(*ast.JsonValueExpr), pathSpec)
+				// Set PASSING clause if present
+				if $7 != nil {
+					jsonTable.Passing = $7.(*ast.NodeList)
+				}
 				if $10 != nil {
 					jsonTable.Columns = $10
+				}
+				// Set ON ERROR clause if present
+				if $12 != nil {
+					jsonTable.OnError = $12.(*ast.JsonBehavior)
 				}
 				$$ = jsonTable
 			}

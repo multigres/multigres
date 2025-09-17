@@ -100,7 +100,8 @@
   },
   {
     "comment": "JSON_OBJECTAGG simple",
-    "query": "SELECT JSON_OBJECTAGG('name' VALUE value) FROM users"
+    "query": "SELECT JSON_OBJECTAGG('name' VALUE value) FROM users",
+    "expected": "SELECT JSON_OBJECTAGG('name' : value) FROM users"
   },
   {
     "comment": "JSON_ARRAYAGG simple",
@@ -108,7 +109,8 @@
   },
   {
     "comment": "JSON_OBJECTAGG with RETURNING",
-    "query": "SELECT JSON_OBJECTAGG('key' VALUE value RETURNING TEXT) FROM users"
+    "query": "SELECT JSON_OBJECTAGG('key' VALUE value RETURNING TEXT) FROM users",
+    "expected": "SELECT JSON_OBJECTAGG('key' : value RETURNING TEXT) FROM users"
   },
   {
     "comment": "JSON_ARRAYAGG with RETURNING",
@@ -116,7 +118,8 @@
   },
   {
     "comment": "JSON_OBJECTAGG with FILTER",
-    "query": "SELECT JSON_OBJECTAGG('key' VALUE val) FILTER (WHERE val IS NOT NULL) FROM users"
+    "query": "SELECT JSON_OBJECTAGG('key' VALUE val) FILTER (WHERE val IS NOT NULL) FROM users",
+    "expected": "SELECT JSON_OBJECTAGG('key' : val) FILTER (WHERE val IS NOT NULL) FROM users"
   },
   {
     "comment": "JSON_ARRAYAGG with OVER",
@@ -124,7 +127,8 @@
   },
   {
     "comment": "JSON_OBJECTAGG with FILTER and OVER",
-    "query": "SELECT JSON_OBJECTAGG('key' VALUE val RETURNING TEXT) FILTER (WHERE val \u003e 0) OVER (ORDER BY id) FROM users"
+    "query": "SELECT JSON_OBJECTAGG('key' VALUE val RETURNING TEXT) FILTER (WHERE val \u003e 0) OVER (ORDER BY id) FROM users",
+    "expected": "SELECT JSON_OBJECTAGG('key' : val RETURNING TEXT) FILTER (WHERE val \u003e 0) OVER (ORDER BY id) FROM users"
   },
   {
     "comment": "JSON_OBJECT legacy",
@@ -132,7 +136,8 @@
   },
   {
     "comment": "JSON_OBJECT constructor simple",
-    "query": "SELECT JSON_OBJECT('name' VALUE 'John', 'age' VALUE 30)"
+    "query": "SELECT JSON_OBJECT('name' VALUE 'John', 'age' VALUE 30)",
+    "expected": "SELECT JSON_OBJECT('name' : 'John', 'age' : 30)"
   },
   {
     "comment": "JSON_OBJECT empty",
@@ -140,7 +145,8 @@
   },
   {
     "comment": "JSON_OBJECT with returning",
-    "query": "SELECT JSON_OBJECT('key' VALUE 'value' RETURNING TEXT)"
+    "query": "SELECT JSON_OBJECT('key' VALUE 'value' RETURNING TEXT)",
+    "expected": "SELECT JSON_OBJECT('key' : 'value' RETURNING TEXT)"
   },
   {
     "comment": "JSON_ARRAY constructor",
@@ -1665,7 +1671,8 @@
   },
   {
     "comment": "JSON_OBJECTAGG simple",
-    "query": "SELECT JSON_OBJECTAGG('name' VALUE value) FROM users"
+    "query": "SELECT JSON_OBJECTAGG('name' VALUE value) FROM users",
+    "expected": "SELECT JSON_OBJECTAGG('name' : value) FROM users"
   },
   {
     "comment": "JSON_ARRAYAGG simple",
@@ -1673,7 +1680,8 @@
   },
   {
     "comment": "JSON_OBJECTAGG with RETURNING",
-    "query": "SELECT JSON_OBJECTAGG('key' VALUE value RETURNING TEXT) FROM users"
+    "query": "SELECT JSON_OBJECTAGG('key' VALUE value RETURNING TEXT) FROM users",
+    "expected": "SELECT JSON_OBJECTAGG('key' : value RETURNING TEXT) FROM users"
   },
   {
     "comment": "JSON_ARRAYAGG with RETURNING",
@@ -1681,7 +1689,8 @@
   },
   {
     "comment": "JSON_OBJECTAGG with FILTER",
-    "query": "SELECT JSON_OBJECTAGG('key' VALUE value) FILTER (WHERE value IS NOT NULL) FROM users"
+    "query": "SELECT JSON_OBJECTAGG('key' VALUE value) FILTER (WHERE value IS NOT NULL) FROM users",
+    "expected": "SELECT JSON_OBJECTAGG('key' : value) FILTER (WHERE value IS NOT NULL) FROM users"
   },
   {
     "comment": "JSON_ARRAYAGG with OVER window",
@@ -1689,7 +1698,8 @@
   },
   {
     "comment": "JSON_OBJECTAGG with FILTER and OVER",
-    "query": "SELECT JSON_OBJECTAGG('key' VALUE value RETURNING TEXT) FILTER (WHERE value \u003e 0) OVER (ORDER BY id) FROM users"
+    "query": "SELECT JSON_OBJECTAGG('key' VALUE value RETURNING TEXT) FILTER (WHERE value \u003e 0) OVER (ORDER BY id) FROM users",
+    "expected": "SELECT JSON_OBJECTAGG('key' : value RETURNING TEXT) FILTER (WHERE value \u003e 0) OVER (ORDER BY id) FROM users"
   },
   {
     "comment": "Simple INTO",

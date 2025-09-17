@@ -56,9 +56,8 @@ func (c *CreateTableSpaceStmt) SqlString() string {
 		parts = append(parts, "OWNER", c.Owner.SqlString())
 	}
 
-	if c.LocationPath != "" {
-		parts = append(parts, "LOCATION", fmt.Sprintf("'%s'", c.LocationPath))
-	}
+	// Always include LOCATION clause since it's required in CREATE TABLESPACE syntax
+	parts = append(parts, "LOCATION", fmt.Sprintf("'%s'", c.LocationPath))
 
 	if c.Options != nil && c.Options.Len() > 0 {
 		optionStrs := make([]string, 0, c.Options.Len())
@@ -722,10 +721,19 @@ func (a *AlterSubscriptionStmt) SqlString() string {
 			pubStrs := make([]string, 0, a.Publication.Len())
 			for i := 0; i < a.Publication.Len(); i++ {
 				if strNode, ok := a.Publication.Items[i].(*String); ok {
-					pubStrs = append(pubStrs, fmt.Sprintf("'%s'", strNode.SVal))
+					pubStrs = append(pubStrs, QuoteIdentifier(strNode.SVal))
 				}
 			}
 			parts = append(parts, strings.Join(pubStrs, ", "))
+		}
+		if a.Options != nil && a.Options.Len() > 0 {
+			optionStrs := make([]string, 0, a.Options.Len())
+			for i := 0; i < a.Options.Len(); i++ {
+				if defElem, ok := a.Options.Items[i].(*DefElem); ok {
+					optionStrs = append(optionStrs, defElem.SqlString())
+				}
+			}
+			parts = append(parts, "WITH (", strings.Join(optionStrs, ", "), ")")
 		}
 	case ALTER_SUBSCRIPTION_DROP_PUBLICATION:
 		parts = append(parts, "DROP PUBLICATION")
@@ -733,10 +741,19 @@ func (a *AlterSubscriptionStmt) SqlString() string {
 			pubStrs := make([]string, 0, a.Publication.Len())
 			for i := 0; i < a.Publication.Len(); i++ {
 				if strNode, ok := a.Publication.Items[i].(*String); ok {
-					pubStrs = append(pubStrs, fmt.Sprintf("'%s'", strNode.SVal))
+					pubStrs = append(pubStrs, QuoteIdentifier(strNode.SVal))
 				}
 			}
 			parts = append(parts, strings.Join(pubStrs, ", "))
+		}
+		if a.Options != nil && a.Options.Len() > 0 {
+			optionStrs := make([]string, 0, a.Options.Len())
+			for i := 0; i < a.Options.Len(); i++ {
+				if defElem, ok := a.Options.Items[i].(*DefElem); ok {
+					optionStrs = append(optionStrs, defElem.SqlString())
+				}
+			}
+			parts = append(parts, "WITH (", strings.Join(optionStrs, ", "), ")")
 		}
 	case ALTER_SUBSCRIPTION_SET_PUBLICATION:
 		parts = append(parts, "SET PUBLICATION")
@@ -744,7 +761,7 @@ func (a *AlterSubscriptionStmt) SqlString() string {
 			pubStrs := make([]string, 0, a.Publication.Len())
 			for i := 0; i < a.Publication.Len(); i++ {
 				if strNode, ok := a.Publication.Items[i].(*String); ok {
-					pubStrs = append(pubStrs, fmt.Sprintf("'%s'", strNode.SVal))
+					pubStrs = append(pubStrs, QuoteIdentifier(strNode.SVal))
 				}
 			}
 			parts = append(parts, strings.Join(pubStrs, ", "))
@@ -753,6 +770,15 @@ func (a *AlterSubscriptionStmt) SqlString() string {
 		parts = append(parts, "ENABLE")
 	case ALTER_SUBSCRIPTION_SKIP:
 		parts = append(parts, "SKIP")
+		if a.Options != nil && a.Options.Len() > 0 {
+			optionStrs := make([]string, 0, a.Options.Len())
+			for i := 0; i < a.Options.Len(); i++ {
+				if defElem, ok := a.Options.Items[i].(*DefElem); ok {
+					optionStrs = append(optionStrs, defElem.SqlString())
+				}
+			}
+			parts = append(parts, "(", strings.Join(optionStrs, ", "), ")")
+		}
 	}
 
 	return strings.Join(parts, " ")

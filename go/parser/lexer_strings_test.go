@@ -61,8 +61,8 @@ func TestStandardStrings(t *testing.T) {
 			name:        "Unterminated string",
 			input:       "'unterminated",
 			expected:    "unterminated",
-			tokenType:   USCONST,
-			shouldError: false, // Returns USCONST token, doesn't error
+			tokenType:   SCONST, // PostgreSQL converts USCONST→SCONST, but regular strings generate SCONST directly
+			shouldError: false,  // Returns SCONST token, doesn't error
 		},
 	}
 
@@ -538,7 +538,7 @@ func TestSpecialLiteralRecognition(t *testing.T) {
 				tokenType TokenType
 				text      string
 			}{
-				{UIDENT, "U&\"unicode_id\""},
+				{IDENT, "U&\"unicode_id\""},
 				{SCONST, "U&'unicode_str'"},
 			},
 		},

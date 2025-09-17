@@ -1,7 +1,8 @@
 [
   {
     "comment": "timestamptz - Statement 1",
-    "query": "CREATE TABLE TIMESTAMPTZ_TBL (d1 timestamp(2) with time zone)"
+    "query": "CREATE TABLE TIMESTAMPTZ_TBL (d1 timestamp(2) with time zone)",
+    "expected": "CREATE TABLE timestamptz_tbl (d1 TIMESTAMPTZ(2))"
   },
   {
     "comment": "timestamptz - Statement 2",
@@ -9,43 +10,53 @@
   },
   {
     "comment": "timestamptz - Statement 3",
-    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('today')"
+    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('today')",
+    "expected": "INSERT INTO timestamptz_tbl VALUES ('today')"
   },
   {
     "comment": "timestamptz - Statement 4",
-    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('yesterday')"
+    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('yesterday')",
+    "expected": "INSERT INTO timestamptz_tbl VALUES ('yesterday')"
   },
   {
     "comment": "timestamptz - Statement 5",
-    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('tomorrow')"
+    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('tomorrow')",
+    "expected": "INSERT INTO timestamptz_tbl VALUES ('tomorrow')"
   },
   {
     "comment": "timestamptz - Statement 6",
-    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('tomorrow EST')"
+    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('tomorrow EST')",
+    "expected": "INSERT INTO timestamptz_tbl VALUES ('tomorrow EST')"
   },
   {
     "comment": "timestamptz - Statement 7",
-    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('tomorrow zulu')"
+    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('tomorrow zulu')",
+    "expected": "INSERT INTO timestamptz_tbl VALUES ('tomorrow zulu')"
   },
   {
     "comment": "timestamptz - Statement 8",
-    "query": "SELECT count(*) AS One FROM TIMESTAMPTZ_TBL WHERE d1 = timestamp with time zone 'today'"
+    "query": "SELECT count(*) AS One FROM TIMESTAMPTZ_TBL WHERE d1 = timestamp with time zone 'today'",
+    "expected": "SELECT COUNT(*) AS one FROM timestamptz_tbl WHERE d1 = CAST('today' AS TIMESTAMPTZ)"
   },
   {
     "comment": "timestamptz - Statement 9",
-    "query": "SELECT count(*) AS One FROM TIMESTAMPTZ_TBL WHERE d1 = timestamp with time zone 'tomorrow'"
+    "query": "SELECT count(*) AS One FROM TIMESTAMPTZ_TBL WHERE d1 = timestamp with time zone 'tomorrow'",
+    "expected": "SELECT COUNT(*) AS one FROM timestamptz_tbl WHERE d1 = CAST('tomorrow' AS TIMESTAMPTZ)"
   },
   {
     "comment": "timestamptz - Statement 10",
-    "query": "SELECT count(*) AS One FROM TIMESTAMPTZ_TBL WHERE d1 = timestamp with time zone 'yesterday'"
+    "query": "SELECT count(*) AS One FROM TIMESTAMPTZ_TBL WHERE d1 = timestamp with time zone 'yesterday'",
+    "expected": "SELECT COUNT(*) AS one FROM timestamptz_tbl WHERE d1 = CAST('yesterday' AS TIMESTAMPTZ)"
   },
   {
     "comment": "timestamptz - Statement 11",
-    "query": "SELECT count(*) AS One FROM TIMESTAMPTZ_TBL WHERE d1 = timestamp with time zone 'tomorrow EST'"
+    "query": "SELECT count(*) AS One FROM TIMESTAMPTZ_TBL WHERE d1 = timestamp with time zone 'tomorrow EST'",
+    "expected": "SELECT COUNT(*) AS one FROM timestamptz_tbl WHERE d1 = CAST('tomorrow EST' AS TIMESTAMPTZ)"
   },
   {
     "comment": "timestamptz - Statement 12",
-    "query": "SELECT count(*) AS One FROM TIMESTAMPTZ_TBL WHERE d1 = timestamp with time zone 'tomorrow zulu'"
+    "query": "SELECT count(*) AS One FROM TIMESTAMPTZ_TBL WHERE d1 = timestamp with time zone 'tomorrow zulu'",
+    "expected": "SELECT COUNT(*) AS one FROM timestamptz_tbl WHERE d1 = CAST('tomorrow zulu' AS TIMESTAMPTZ)"
   },
   {
     "comment": "timestamptz - Statement 13",
@@ -53,11 +64,13 @@
   },
   {
     "comment": "timestamptz - Statement 14",
-    "query": "DELETE FROM TIMESTAMPTZ_TBL"
+    "query": "DELETE FROM TIMESTAMPTZ_TBL",
+    "expected": "DELETE FROM timestamptz_tbl"
   },
   {
     "comment": "timestamptz - Statement 15",
-    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('now')"
+    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('now')",
+    "expected": "INSERT INTO timestamptz_tbl VALUES ('now')"
   },
   {
     "comment": "timestamptz - Statement 16",
@@ -65,199 +78,248 @@
   },
   {
     "comment": "timestamptz - Statement 17",
-    "query": "SELECT count(*) AS two FROM TIMESTAMPTZ_TBL WHERE d1 = timestamp(2) with time zone 'now'"
+    "query": "SELECT count(*) AS two FROM TIMESTAMPTZ_TBL WHERE d1 = timestamp(2) with time zone 'now'",
+    "expected": "SELECT COUNT(*) AS two FROM timestamptz_tbl WHERE d1 = CAST('now' AS TIMESTAMPTZ(2))"
   },
   {
     "comment": "timestamptz - Statement 18",
-    "query": "SELECT count(d1) AS three, count(DISTINCT d1) AS two FROM TIMESTAMPTZ_TBL"
+    "query": "SELECT count(d1) AS three, count(DISTINCT d1) AS two FROM TIMESTAMPTZ_TBL",
+    "expected": "SELECT COUNT(d1) AS three, COUNT(DISTINCT d1) AS two FROM timestamptz_tbl"
   },
   {
     "comment": "timestamptz - Statement 19",
-    "query": "TRUNCATE TIMESTAMPTZ_TBL"
+    "query": "TRUNCATE TIMESTAMPTZ_TBL",
+    "expected": "TRUNCATE TABLE timestamptz_tbl CONTINUE IDENTITY RESTRICT"
   },
   {
     "comment": "timestamptz - Statement 20",
-    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('-infinity')"
+    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('-infinity')",
+    "expected": "INSERT INTO timestamptz_tbl VALUES ('-infinity')"
   },
   {
     "comment": "timestamptz - Statement 21",
-    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('infinity')"
+    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('infinity')",
+    "expected": "INSERT INTO timestamptz_tbl VALUES ('infinity')"
   },
   {
     "comment": "timestamptz - Statement 22",
-    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('epoch')"
+    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('epoch')",
+    "expected": "INSERT INTO timestamptz_tbl VALUES ('epoch')"
   },
   {
     "comment": "timestamptz - Statement 23",
-    "query": "SELECT timestamptz 'infinity' = timestamptz '+infinity' AS t"
+    "query": "SELECT timestamptz 'infinity' = timestamptz '+infinity' AS t",
+    "expected": "SELECT CAST('infinity' AS TIMESTAMPTZ) = CAST('+infinity' AS TIMESTAMPTZ) AS t"
   },
   {
     "comment": "timestamptz - Statement 24",
-    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('Mon Feb 10 17:32:01 1997 PST')"
+    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('Mon Feb 10 17:32:01 1997 PST')",
+    "expected": "INSERT INTO timestamptz_tbl VALUES ('Mon Feb 10 17:32:01 1997 PST')"
   },
   {
     "comment": "timestamptz - Statement 25",
-    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('Mon Feb 10 17:32:01.000001 1997 PST')"
+    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('Mon Feb 10 17:32:01.000001 1997 PST')",
+    "expected": "INSERT INTO timestamptz_tbl VALUES ('Mon Feb 10 17:32:01.000001 1997 PST')"
   },
   {
     "comment": "timestamptz - Statement 26",
-    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('Mon Feb 10 17:32:01.999999 1997 PST')"
+    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('Mon Feb 10 17:32:01.999999 1997 PST')",
+    "expected": "INSERT INTO timestamptz_tbl VALUES ('Mon Feb 10 17:32:01.999999 1997 PST')"
   },
   {
     "comment": "timestamptz - Statement 27",
-    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('Mon Feb 10 17:32:01.4 1997 PST')"
+    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('Mon Feb 10 17:32:01.4 1997 PST')",
+    "expected": "INSERT INTO timestamptz_tbl VALUES ('Mon Feb 10 17:32:01.4 1997 PST')"
   },
   {
     "comment": "timestamptz - Statement 28",
-    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('Mon Feb 10 17:32:01.5 1997 PST')"
+    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('Mon Feb 10 17:32:01.5 1997 PST')",
+    "expected": "INSERT INTO timestamptz_tbl VALUES ('Mon Feb 10 17:32:01.5 1997 PST')"
   },
   {
     "comment": "timestamptz - Statement 29",
-    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('Mon Feb 10 17:32:01.6 1997 PST')"
+    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('Mon Feb 10 17:32:01.6 1997 PST')",
+    "expected": "INSERT INTO timestamptz_tbl VALUES ('Mon Feb 10 17:32:01.6 1997 PST')"
   },
   {
     "comment": "timestamptz - Statement 30",
-    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('1997-01-02')"
+    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('1997-01-02')",
+    "expected": "INSERT INTO timestamptz_tbl VALUES ('1997-01-02')"
   },
   {
     "comment": "timestamptz - Statement 31",
-    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('1997-01-02 03:04:05')"
+    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('1997-01-02 03:04:05')",
+    "expected": "INSERT INTO timestamptz_tbl VALUES ('1997-01-02 03:04:05')"
   },
   {
     "comment": "timestamptz - Statement 32",
-    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('1997-02-10 17:32:01-08')"
+    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('1997-02-10 17:32:01-08')",
+    "expected": "INSERT INTO timestamptz_tbl VALUES ('1997-02-10 17:32:01-08')"
   },
   {
     "comment": "timestamptz - Statement 33",
-    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('1997-02-10 17:32:01-0800')"
+    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('1997-02-10 17:32:01-0800')",
+    "expected": "INSERT INTO timestamptz_tbl VALUES ('1997-02-10 17:32:01-0800')"
   },
   {
     "comment": "timestamptz - Statement 34",
-    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('1997-02-10 17:32:01 -08:00')"
+    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('1997-02-10 17:32:01 -08:00')",
+    "expected": "INSERT INTO timestamptz_tbl VALUES ('1997-02-10 17:32:01 -08:00')"
   },
   {
     "comment": "timestamptz - Statement 35",
-    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('19970210 173201 -0800')"
+    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('19970210 173201 -0800')",
+    "expected": "INSERT INTO timestamptz_tbl VALUES ('19970210 173201 -0800')"
   },
   {
     "comment": "timestamptz - Statement 36",
-    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('1997-06-10 17:32:01 -07:00')"
+    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('1997-06-10 17:32:01 -07:00')",
+    "expected": "INSERT INTO timestamptz_tbl VALUES ('1997-06-10 17:32:01 -07:00')"
   },
   {
     "comment": "timestamptz - Statement 37",
-    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('2001-09-22T18:19:20')"
+    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('2001-09-22T18:19:20')",
+    "expected": "INSERT INTO timestamptz_tbl VALUES ('2001-09-22T18:19:20')"
   },
   {
     "comment": "timestamptz - Statement 38",
-    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('2000-03-15 08:14:01 GMT+8')"
+    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('2000-03-15 08:14:01 GMT+8')",
+    "expected": "INSERT INTO timestamptz_tbl VALUES ('2000-03-15 08:14:01 GMT+8')"
   },
   {
     "comment": "timestamptz - Statement 39",
-    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('2000-03-15 13:14:02 GMT-1')"
+    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('2000-03-15 13:14:02 GMT-1')",
+    "expected": "INSERT INTO timestamptz_tbl VALUES ('2000-03-15 13:14:02 GMT-1')"
   },
   {
     "comment": "timestamptz - Statement 40",
-    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('2000-03-15 12:14:03 GMT-2')"
+    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('2000-03-15 12:14:03 GMT-2')",
+    "expected": "INSERT INTO timestamptz_tbl VALUES ('2000-03-15 12:14:03 GMT-2')"
   },
   {
     "comment": "timestamptz - Statement 41",
-    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('2000-03-15 03:14:04 PST+8')"
+    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('2000-03-15 03:14:04 PST+8')",
+    "expected": "INSERT INTO timestamptz_tbl VALUES ('2000-03-15 03:14:04 PST+8')"
   },
   {
     "comment": "timestamptz - Statement 42",
-    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('2000-03-15 02:14:05 MST+7:00')"
+    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('2000-03-15 02:14:05 MST+7:00')",
+    "expected": "INSERT INTO timestamptz_tbl VALUES ('2000-03-15 02:14:05 MST+7:00')"
   },
   {
     "comment": "timestamptz - Statement 43",
-    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('Feb 10 17:32:01 1997 -0800')"
+    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('Feb 10 17:32:01 1997 -0800')",
+    "expected": "INSERT INTO timestamptz_tbl VALUES ('Feb 10 17:32:01 1997 -0800')"
   },
   {
     "comment": "timestamptz - Statement 44",
-    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('Feb 10 17:32:01 1997')"
+    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('Feb 10 17:32:01 1997')",
+    "expected": "INSERT INTO timestamptz_tbl VALUES ('Feb 10 17:32:01 1997')"
   },
   {
     "comment": "timestamptz - Statement 45",
-    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('Feb 10 5:32PM 1997')"
+    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('Feb 10 5:32PM 1997')",
+    "expected": "INSERT INTO timestamptz_tbl VALUES ('Feb 10 5:32PM 1997')"
   },
   {
     "comment": "timestamptz - Statement 46",
-    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('1997/02/10 17:32:01-0800')"
+    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('1997/02/10 17:32:01-0800')",
+    "expected": "INSERT INTO timestamptz_tbl VALUES ('1997/02/10 17:32:01-0800')"
   },
   {
     "comment": "timestamptz - Statement 47",
-    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('1997-02-10 17:32:01 PST')"
+    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('1997-02-10 17:32:01 PST')",
+    "expected": "INSERT INTO timestamptz_tbl VALUES ('1997-02-10 17:32:01 PST')"
   },
   {
     "comment": "timestamptz - Statement 48",
-    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('Feb-10-1997 17:32:01 PST')"
+    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('Feb-10-1997 17:32:01 PST')",
+    "expected": "INSERT INTO timestamptz_tbl VALUES ('Feb-10-1997 17:32:01 PST')"
   },
   {
     "comment": "timestamptz - Statement 49",
-    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('02-10-1997 17:32:01 PST')"
+    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('02-10-1997 17:32:01 PST')",
+    "expected": "INSERT INTO timestamptz_tbl VALUES ('02-10-1997 17:32:01 PST')"
   },
   {
     "comment": "timestamptz - Statement 50",
-    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('19970210 173201 PST')"
+    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('19970210 173201 PST')",
+    "expected": "INSERT INTO timestamptz_tbl VALUES ('19970210 173201 PST')"
   },
   {
     "comment": "timestamptz - Statement 51",
-    "query": "set datestyle to ymd"
+    "query": "set datestyle to ymd",
+    "expected": "SET datestyle = 'ymd'"
   },
   {
     "comment": "timestamptz - Statement 52",
-    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('97FEB10 5:32:01PM UTC')"
+    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('97FEB10 5:32:01PM UTC')",
+    "expected": "INSERT INTO timestamptz_tbl VALUES ('97FEB10 5:32:01PM UTC')"
   },
   {
     "comment": "timestamptz - Statement 53",
-    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('97/02/10 17:32:01 UTC')"
+    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('97/02/10 17:32:01 UTC')",
+    "expected": "INSERT INTO timestamptz_tbl VALUES ('97/02/10 17:32:01 UTC')"
   },
   {
     "comment": "timestamptz - Statement 54",
-    "query": "reset datestyle"
+    "query": "reset datestyle",
+    "expected": "RESET datestyle"
   },
   {
     "comment": "timestamptz - Statement 55",
-    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('1997.041 17:32:01 UTC')"
+    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('1997.041 17:32:01 UTC')",
+    "expected": "INSERT INTO timestamptz_tbl VALUES ('1997.041 17:32:01 UTC')"
   },
   {
     "comment": "timestamptz - Statement 56",
-    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('19970210 173201 America/New_York')"
+    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('19970210 173201 America/New_York')",
+    "expected": "INSERT INTO timestamptz_tbl VALUES ('19970210 173201 America/New_York')"
   },
   {
     "comment": "timestamptz - Statement 57",
-    "query": "SELECT '19970210 173201' AT TIME ZONE 'America/New_York'"
+    "query": "SELECT '19970210 173201' AT TIME ZONE 'America/New_York'",
+    "expected": "SELECT timezone('America/New_York', '19970210 173201')"
   },
   {
     "comment": "timestamptz - Statement 58",
-    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('19970710 173201 America/New_York')"
+    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('19970710 173201 America/New_York')",
+    "expected": "INSERT INTO timestamptz_tbl VALUES ('19970710 173201 America/New_York')"
   },
   {
     "comment": "timestamptz - Statement 59",
-    "query": "SELECT '19970710 173201' AT TIME ZONE 'America/New_York'"
+    "query": "SELECT '19970710 173201' AT TIME ZONE 'America/New_York'",
+    "expected": "SELECT timezone('America/New_York', '19970710 173201')"
   },
   {
     "comment": "timestamptz - Statement 60",
-    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('19970710 173201 America/Does_not_exist')"
+    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('19970710 173201 America/Does_not_exist')",
+    "expected": "INSERT INTO timestamptz_tbl VALUES ('19970710 173201 America/Does_not_exist')"
   },
   {
     "comment": "timestamptz - Statement 61",
-    "query": "SELECT '19970710 173201' AT TIME ZONE 'America/Does_not_exist'"
+    "query": "SELECT '19970710 173201' AT TIME ZONE 'America/Does_not_exist'",
+    "expected": "SELECT timezone('America/Does_not_exist', '19970710 173201')"
   },
   {
     "comment": "timestamptz - Statement 62",
-    "query": "SELECT '20500710 173201 Europe/Helsinki'::timestamptz"
+    "query": "SELECT '20500710 173201 Europe/Helsinki'::timestamptz",
+    "expected": "SELECT CAST('20500710 173201 Europe/Helsinki' AS TIMESTAMPTZ)"
   },
   {
     "comment": "timestamptz - Statement 63",
-    "query": "SELECT '20500110 173201 Europe/Helsinki'::timestamptz"
+    "query": "SELECT '20500110 173201 Europe/Helsinki'::timestamptz",
+    "expected": "SELECT CAST('20500110 173201 Europe/Helsinki' AS TIMESTAMPTZ)"
   },
   {
     "comment": "timestamptz - Statement 64",
-    "query": "SELECT '205000-07-10 17:32:01 Europe/Helsinki'::timestamptz"
+    "query": "SELECT '205000-07-10 17:32:01 Europe/Helsinki'::timestamptz",
+    "expected": "SELECT CAST('205000-07-10 17:32:01 Europe/Helsinki' AS TIMESTAMPTZ)"
   },
   {
     "comment": "timestamptz - Statement 65",
-    "query": "SELECT '205000-01-10 17:32:01 Europe/Helsinki'::timestamptz"
+    "query": "SELECT '205000-01-10 17:32:01 Europe/Helsinki'::timestamptz",
+    "expected": "SELECT CAST('205000-01-10 17:32:01 Europe/Helsinki' AS TIMESTAMPTZ)"
   },
   {
     "comment": "timestamptz - Statement 66",
@@ -281,411 +343,513 @@
   },
   {
     "comment": "timestamptz - Statement 71",
-    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('1997-06-10 18:32:01 PDT')"
+    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('1997-06-10 18:32:01 PDT')",
+    "expected": "INSERT INTO timestamptz_tbl VALUES ('1997-06-10 18:32:01 PDT')"
   },
   {
     "comment": "timestamptz - Statement 72",
-    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('Feb 11 17:32:01 1997')"
+    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('Feb 11 17:32:01 1997')",
+    "expected": "INSERT INTO timestamptz_tbl VALUES ('Feb 11 17:32:01 1997')"
   },
   {
     "comment": "timestamptz - Statement 73",
-    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('Feb 12 17:32:01 1997')"
+    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('Feb 12 17:32:01 1997')",
+    "expected": "INSERT INTO timestamptz_tbl VALUES ('Feb 12 17:32:01 1997')"
   },
   {
     "comment": "timestamptz - Statement 74",
-    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('Feb 13 17:32:01 1997')"
+    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('Feb 13 17:32:01 1997')",
+    "expected": "INSERT INTO timestamptz_tbl VALUES ('Feb 13 17:32:01 1997')"
   },
   {
     "comment": "timestamptz - Statement 75",
-    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('Feb 14 17:32:01 1997')"
+    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('Feb 14 17:32:01 1997')",
+    "expected": "INSERT INTO timestamptz_tbl VALUES ('Feb 14 17:32:01 1997')"
   },
   {
     "comment": "timestamptz - Statement 76",
-    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('Feb 15 17:32:01 1997')"
+    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('Feb 15 17:32:01 1997')",
+    "expected": "INSERT INTO timestamptz_tbl VALUES ('Feb 15 17:32:01 1997')"
   },
   {
     "comment": "timestamptz - Statement 77",
-    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('Feb 16 17:32:01 1997')"
+    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('Feb 16 17:32:01 1997')",
+    "expected": "INSERT INTO timestamptz_tbl VALUES ('Feb 16 17:32:01 1997')"
   },
   {
     "comment": "timestamptz - Statement 78",
-    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('Feb 16 17:32:01 0097 BC')"
+    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('Feb 16 17:32:01 0097 BC')",
+    "expected": "INSERT INTO timestamptz_tbl VALUES ('Feb 16 17:32:01 0097 BC')"
   },
   {
     "comment": "timestamptz - Statement 79",
-    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('Feb 16 17:32:01 0097')"
+    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('Feb 16 17:32:01 0097')",
+    "expected": "INSERT INTO timestamptz_tbl VALUES ('Feb 16 17:32:01 0097')"
   },
   {
     "comment": "timestamptz - Statement 80",
-    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('Feb 16 17:32:01 0597')"
+    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('Feb 16 17:32:01 0597')",
+    "expected": "INSERT INTO timestamptz_tbl VALUES ('Feb 16 17:32:01 0597')"
   },
   {
     "comment": "timestamptz - Statement 81",
-    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('Feb 16 17:32:01 1097')"
+    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('Feb 16 17:32:01 1097')",
+    "expected": "INSERT INTO timestamptz_tbl VALUES ('Feb 16 17:32:01 1097')"
   },
   {
     "comment": "timestamptz - Statement 82",
-    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('Feb 16 17:32:01 1697')"
+    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('Feb 16 17:32:01 1697')",
+    "expected": "INSERT INTO timestamptz_tbl VALUES ('Feb 16 17:32:01 1697')"
   },
   {
     "comment": "timestamptz - Statement 83",
-    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('Feb 16 17:32:01 1797')"
+    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('Feb 16 17:32:01 1797')",
+    "expected": "INSERT INTO timestamptz_tbl VALUES ('Feb 16 17:32:01 1797')"
   },
   {
     "comment": "timestamptz - Statement 84",
-    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('Feb 16 17:32:01 1897')"
+    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('Feb 16 17:32:01 1897')",
+    "expected": "INSERT INTO timestamptz_tbl VALUES ('Feb 16 17:32:01 1897')"
   },
   {
     "comment": "timestamptz - Statement 85",
-    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('Feb 16 17:32:01 2097')"
+    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('Feb 16 17:32:01 2097')",
+    "expected": "INSERT INTO timestamptz_tbl VALUES ('Feb 16 17:32:01 2097')"
   },
   {
     "comment": "timestamptz - Statement 86",
-    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('Feb 28 17:32:01 1996')"
+    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('Feb 28 17:32:01 1996')",
+    "expected": "INSERT INTO timestamptz_tbl VALUES ('Feb 28 17:32:01 1996')"
   },
   {
     "comment": "timestamptz - Statement 87",
-    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('Feb 29 17:32:01 1996')"
+    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('Feb 29 17:32:01 1996')",
+    "expected": "INSERT INTO timestamptz_tbl VALUES ('Feb 29 17:32:01 1996')"
   },
   {
     "comment": "timestamptz - Statement 88",
-    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('Mar 01 17:32:01 1996')"
+    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('Mar 01 17:32:01 1996')",
+    "expected": "INSERT INTO timestamptz_tbl VALUES ('Mar 01 17:32:01 1996')"
   },
   {
     "comment": "timestamptz - Statement 89",
-    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('Dec 30 17:32:01 1996')"
+    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('Dec 30 17:32:01 1996')",
+    "expected": "INSERT INTO timestamptz_tbl VALUES ('Dec 30 17:32:01 1996')"
   },
   {
     "comment": "timestamptz - Statement 90",
-    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('Dec 31 17:32:01 1996')"
+    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('Dec 31 17:32:01 1996')",
+    "expected": "INSERT INTO timestamptz_tbl VALUES ('Dec 31 17:32:01 1996')"
   },
   {
     "comment": "timestamptz - Statement 91",
-    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('Jan 01 17:32:01 1997')"
+    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('Jan 01 17:32:01 1997')",
+    "expected": "INSERT INTO timestamptz_tbl VALUES ('Jan 01 17:32:01 1997')"
   },
   {
     "comment": "timestamptz - Statement 92",
-    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('Feb 28 17:32:01 1997')"
+    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('Feb 28 17:32:01 1997')",
+    "expected": "INSERT INTO timestamptz_tbl VALUES ('Feb 28 17:32:01 1997')"
   },
   {
     "comment": "timestamptz - Statement 93",
-    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('Feb 29 17:32:01 1997')"
+    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('Feb 29 17:32:01 1997')",
+    "expected": "INSERT INTO timestamptz_tbl VALUES ('Feb 29 17:32:01 1997')"
   },
   {
     "comment": "timestamptz - Statement 94",
-    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('Mar 01 17:32:01 1997')"
+    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('Mar 01 17:32:01 1997')",
+    "expected": "INSERT INTO timestamptz_tbl VALUES ('Mar 01 17:32:01 1997')"
   },
   {
     "comment": "timestamptz - Statement 95",
-    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('Dec 30 17:32:01 1997')"
+    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('Dec 30 17:32:01 1997')",
+    "expected": "INSERT INTO timestamptz_tbl VALUES ('Dec 30 17:32:01 1997')"
   },
   {
     "comment": "timestamptz - Statement 96",
-    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('Dec 31 17:32:01 1997')"
+    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('Dec 31 17:32:01 1997')",
+    "expected": "INSERT INTO timestamptz_tbl VALUES ('Dec 31 17:32:01 1997')"
   },
   {
     "comment": "timestamptz - Statement 97",
-    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('Dec 31 17:32:01 1999')"
+    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('Dec 31 17:32:01 1999')",
+    "expected": "INSERT INTO timestamptz_tbl VALUES ('Dec 31 17:32:01 1999')"
   },
   {
     "comment": "timestamptz - Statement 98",
-    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('Jan 01 17:32:01 2000')"
+    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('Jan 01 17:32:01 2000')",
+    "expected": "INSERT INTO timestamptz_tbl VALUES ('Jan 01 17:32:01 2000')"
   },
   {
     "comment": "timestamptz - Statement 99",
-    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('Dec 31 17:32:01 2000')"
+    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('Dec 31 17:32:01 2000')",
+    "expected": "INSERT INTO timestamptz_tbl VALUES ('Dec 31 17:32:01 2000')"
   },
   {
     "comment": "timestamptz - Statement 100",
-    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('Jan 01 17:32:01 2001')"
+    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('Jan 01 17:32:01 2001')",
+    "expected": "INSERT INTO timestamptz_tbl VALUES ('Jan 01 17:32:01 2001')"
   },
   {
     "comment": "timestamptz - Statement 101",
-    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('Feb 16 17:32:01 -0097')"
+    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('Feb 16 17:32:01 -0097')",
+    "expected": "INSERT INTO timestamptz_tbl VALUES ('Feb 16 17:32:01 -0097')"
   },
   {
     "comment": "timestamptz - Statement 102",
-    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('Feb 16 17:32:01 5097 BC')"
+    "query": "INSERT INTO TIMESTAMPTZ_TBL VALUES ('Feb 16 17:32:01 5097 BC')",
+    "expected": "INSERT INTO timestamptz_tbl VALUES ('Feb 16 17:32:01 5097 BC')"
   },
   {
     "comment": "timestamptz - Statement 103",
-    "query": "SELECT 'Wed Jul 11 10:51:14 America/New_York 2001'::timestamptz"
+    "query": "SELECT 'Wed Jul 11 10:51:14 America/New_York 2001'::timestamptz",
+    "expected": "SELECT CAST('Wed Jul 11 10:51:14 America/New_York 2001' AS TIMESTAMPTZ)"
   },
   {
     "comment": "timestamptz - Statement 104",
-    "query": "SELECT 'Wed Jul 11 10:51:14 GMT-4 2001'::timestamptz"
+    "query": "SELECT 'Wed Jul 11 10:51:14 GMT-4 2001'::timestamptz",
+    "expected": "SELECT CAST('Wed Jul 11 10:51:14 GMT-4 2001' AS TIMESTAMPTZ)"
   },
   {
     "comment": "timestamptz - Statement 105",
-    "query": "SELECT 'Wed Jul 11 10:51:14 GMT+4 2001'::timestamptz"
+    "query": "SELECT 'Wed Jul 11 10:51:14 GMT+4 2001'::timestamptz",
+    "expected": "SELECT CAST('Wed Jul 11 10:51:14 GMT+4 2001' AS TIMESTAMPTZ)"
   },
   {
     "comment": "timestamptz - Statement 106",
-    "query": "SELECT 'Wed Jul 11 10:51:14 PST-03:00 2001'::timestamptz"
+    "query": "SELECT 'Wed Jul 11 10:51:14 PST-03:00 2001'::timestamptz",
+    "expected": "SELECT CAST('Wed Jul 11 10:51:14 PST-03:00 2001' AS TIMESTAMPTZ)"
   },
   {
     "comment": "timestamptz - Statement 107",
-    "query": "SELECT 'Wed Jul 11 10:51:14 PST+03:00 2001'::timestamptz"
+    "query": "SELECT 'Wed Jul 11 10:51:14 PST+03:00 2001'::timestamptz",
+    "expected": "SELECT CAST('Wed Jul 11 10:51:14 PST+03:00 2001' AS TIMESTAMPTZ)"
   },
   {
     "comment": "timestamptz - Statement 108",
-    "query": "SELECT d1 FROM TIMESTAMPTZ_TBL"
+    "query": "SELECT d1 FROM TIMESTAMPTZ_TBL",
+    "expected": "SELECT d1 FROM timestamptz_tbl"
   },
   {
     "comment": "timestamptz - Statement 109",
-    "query": "SELECT '4714-11-24 00:00:00+00 BC'::timestamptz"
+    "query": "SELECT '4714-11-24 00:00:00+00 BC'::timestamptz",
+    "expected": "SELECT CAST('4714-11-24 00:00:00+00 BC' AS TIMESTAMPTZ)"
   },
   {
     "comment": "timestamptz - Statement 110",
-    "query": "SELECT '4714-11-23 16:00:00-08 BC'::timestamptz"
+    "query": "SELECT '4714-11-23 16:00:00-08 BC'::timestamptz",
+    "expected": "SELECT CAST('4714-11-23 16:00:00-08 BC' AS TIMESTAMPTZ)"
   },
   {
     "comment": "timestamptz - Statement 111",
-    "query": "SELECT 'Sun Nov 23 16:00:00 4714 PST BC'::timestamptz"
+    "query": "SELECT 'Sun Nov 23 16:00:00 4714 PST BC'::timestamptz",
+    "expected": "SELECT CAST('Sun Nov 23 16:00:00 4714 PST BC' AS TIMESTAMPTZ)"
   },
   {
     "comment": "timestamptz - Statement 112",
-    "query": "SELECT '4714-11-23 23:59:59+00 BC'::timestamptz"
+    "query": "SELECT '4714-11-23 23:59:59+00 BC'::timestamptz",
+    "expected": "SELECT CAST('4714-11-23 23:59:59+00 BC' AS TIMESTAMPTZ)"
   },
   {
     "comment": "timestamptz - Statement 113",
-    "query": "SELECT '294276-12-31 23:59:59+00'::timestamptz"
+    "query": "SELECT '294276-12-31 23:59:59+00'::timestamptz",
+    "expected": "SELECT CAST('294276-12-31 23:59:59+00' AS TIMESTAMPTZ)"
   },
   {
     "comment": "timestamptz - Statement 114",
-    "query": "SELECT '294276-12-31 15:59:59-08'::timestamptz"
+    "query": "SELECT '294276-12-31 15:59:59-08'::timestamptz",
+    "expected": "SELECT CAST('294276-12-31 15:59:59-08' AS TIMESTAMPTZ)"
   },
   {
     "comment": "timestamptz - Statement 115",
-    "query": "SELECT '294277-01-01 00:00:00+00'::timestamptz"
+    "query": "SELECT '294277-01-01 00:00:00+00'::timestamptz",
+    "expected": "SELECT CAST('294277-01-01 00:00:00+00' AS TIMESTAMPTZ)"
   },
   {
     "comment": "timestamptz - Statement 116",
-    "query": "SELECT '294277-12-31 16:00:00-08'::timestamptz"
+    "query": "SELECT '294277-12-31 16:00:00-08'::timestamptz",
+    "expected": "SELECT CAST('294277-12-31 16:00:00-08' AS TIMESTAMPTZ)"
   },
   {
     "comment": "timestamptz - Statement 117",
-    "query": "SELECT d1 FROM TIMESTAMPTZ_TBL WHERE d1 > timestamp with time zone '1997-01-02'"
+    "query": "SELECT d1 FROM TIMESTAMPTZ_TBL WHERE d1 \u003e timestamp with time zone '1997-01-02'",
+    "expected": "SELECT d1 FROM timestamptz_tbl WHERE d1 \u003e CAST('1997-01-02' AS TIMESTAMPTZ)"
   },
   {
     "comment": "timestamptz - Statement 118",
-    "query": "SELECT d1 FROM TIMESTAMPTZ_TBL WHERE d1 < timestamp with time zone '1997-01-02'"
+    "query": "SELECT d1 FROM TIMESTAMPTZ_TBL WHERE d1 \u003c timestamp with time zone '1997-01-02'",
+    "expected": "SELECT d1 FROM timestamptz_tbl WHERE d1 \u003c CAST('1997-01-02' AS TIMESTAMPTZ)"
   },
   {
     "comment": "timestamptz - Statement 119",
-    "query": "SELECT d1 FROM TIMESTAMPTZ_TBL WHERE d1 = timestamp with time zone '1997-01-02'"
+    "query": "SELECT d1 FROM TIMESTAMPTZ_TBL WHERE d1 = timestamp with time zone '1997-01-02'",
+    "expected": "SELECT d1 FROM timestamptz_tbl WHERE d1 = CAST('1997-01-02' AS TIMESTAMPTZ)"
   },
   {
     "comment": "timestamptz - Statement 120",
-    "query": "SELECT d1 FROM TIMESTAMPTZ_TBL WHERE d1 != timestamp with time zone '1997-01-02'"
+    "query": "SELECT d1 FROM TIMESTAMPTZ_TBL WHERE d1 != timestamp with time zone '1997-01-02'",
+    "expected": "SELECT d1 FROM timestamptz_tbl WHERE d1 \u003c\u003e CAST('1997-01-02' AS TIMESTAMPTZ)"
   },
   {
     "comment": "timestamptz - Statement 121",
-    "query": "SELECT d1 FROM TIMESTAMPTZ_TBL WHERE d1 <= timestamp with time zone '1997-01-02'"
+    "query": "SELECT d1 FROM TIMESTAMPTZ_TBL WHERE d1 \u003c= timestamp with time zone '1997-01-02'",
+    "expected": "SELECT d1 FROM timestamptz_tbl WHERE d1 \u003c= CAST('1997-01-02' AS TIMESTAMPTZ)"
   },
   {
     "comment": "timestamptz - Statement 122",
-    "query": "SELECT d1 FROM TIMESTAMPTZ_TBL WHERE d1 >= timestamp with time zone '1997-01-02'"
+    "query": "SELECT d1 FROM TIMESTAMPTZ_TBL WHERE d1 \u003e= timestamp with time zone '1997-01-02'",
+    "expected": "SELECT d1 FROM timestamptz_tbl WHERE d1 \u003e= CAST('1997-01-02' AS TIMESTAMPTZ)"
   },
   {
     "comment": "timestamptz - Statement 123",
-    "query": "SELECT d1 - timestamp with time zone '1997-01-02' AS diff FROM TIMESTAMPTZ_TBL WHERE d1 BETWEEN '1902-01-01' AND '2038-01-01'"
+    "query": "SELECT d1 - timestamp with time zone '1997-01-02' AS diff FROM TIMESTAMPTZ_TBL WHERE d1 BETWEEN '1902-01-01' AND '2038-01-01'",
+    "expected": "SELECT d1 - CAST('1997-01-02' AS TIMESTAMPTZ) AS diff FROM timestamptz_tbl WHERE d1 BETWEEN '1902-01-01' AND '2038-01-01'"
   },
   {
     "comment": "timestamptz - Statement 124",
-    "query": "SELECT date_trunc( 'week', timestamp with time zone '2004-02-29 15:44:17.71393' ) AS week_trunc"
+    "query": "SELECT date_trunc( 'week', timestamp with time zone '2004-02-29 15:44:17.71393' ) AS week_trunc",
+    "expected": "SELECT date_trunc('week', CAST('2004-02-29 15:44:17.71393' AS TIMESTAMPTZ)) AS week_trunc"
   },
   {
     "comment": "timestamptz - Statement 125",
-    "query": "SELECT date_trunc('day', timestamp with time zone '2001-02-16 20:38:40+00', 'Australia/Sydney') as sydney_trunc"
+    "query": "SELECT date_trunc('day', timestamp with time zone '2001-02-16 20:38:40+00', 'Australia/Sydney') as sydney_trunc",
+    "expected": "SELECT date_trunc('day', CAST('2001-02-16 20:38:40+00' AS TIMESTAMPTZ), 'Australia/Sydney') AS sydney_trunc"
   },
   {
     "comment": "timestamptz - Statement 126",
-    "query": "SELECT date_trunc('day', timestamp with time zone '2001-02-16 20:38:40+00', 'GMT') as gmt_trunc"
+    "query": "SELECT date_trunc('day', timestamp with time zone '2001-02-16 20:38:40+00', 'GMT') as gmt_trunc",
+    "expected": "SELECT date_trunc('day', CAST('2001-02-16 20:38:40+00' AS TIMESTAMPTZ), 'GMT') AS gmt_trunc"
   },
   {
     "comment": "timestamptz - Statement 127",
-    "query": "SELECT date_trunc('day', timestamp with time zone '2001-02-16 20:38:40+00', 'VET') as vet_trunc"
+    "query": "SELECT date_trunc('day', timestamp with time zone '2001-02-16 20:38:40+00', 'VET') as vet_trunc",
+    "expected": "SELECT date_trunc('day', CAST('2001-02-16 20:38:40+00' AS TIMESTAMPTZ), 'VET') AS vet_trunc"
   },
   {
     "comment": "timestamptz - Statement 128",
-    "query": "SELECT str, interval, date_trunc(str, ts, 'Australia/Sydney') = date_bin(interval::interval, ts, timestamp with time zone '2001-01-01+11') AS equal FROM ( VALUES ('day', '1 d'), ('hour', '1 h'), ('minute', '1 m'), ('second', '1 s'), ('millisecond', '1 ms'), ('microsecond', '1 us') ) intervals (str, interval), (VALUES (timestamptz '2020-02-29 15:44:17.71393+00')) ts (ts)"
+    "query": "SELECT str, interval, date_trunc(str, ts, 'Australia/Sydney') = date_bin(interval::interval, ts, timestamp with time zone '2001-01-01+11') AS equal FROM ( VALUES ('day', '1 d'), ('hour', '1 h'), ('minute', '1 m'), ('second', '1 s'), ('millisecond', '1 ms'), ('microsecond', '1 us') ) intervals (str, interval), (VALUES (timestamptz '2020-02-29 15:44:17.71393+00')) ts (ts)",
+    "expected": "SELECT str, interval, date_trunc(str, ts, 'Australia/Sydney') = date_bin(CAST(interval AS INTERVAL), ts, CAST('2001-01-01+11' AS TIMESTAMPTZ)) AS equal FROM (VALUES ('day', '1 d'), ('hour', '1 h'), ('minute', '1 m'), ('second', '1 s'), ('millisecond', '1 ms'), ('microsecond', '1 us')) AS intervals(str, interval), (VALUES (CAST('2020-02-29 15:44:17.71393+00' AS TIMESTAMPTZ))) AS ts(ts)"
   },
   {
     "comment": "timestamptz - Statement 129",
-    "query": "SELECT interval, ts, origin, date_bin(interval::interval, ts, origin) FROM ( VALUES ('15 days'), ('2 hours'), ('1 hour 30 minutes'), ('15 minutes'), ('10 seconds'), ('100 milliseconds'), ('250 microseconds') ) intervals (interval), (VALUES (timestamptz '2020-02-11 15:44:17.71393')) ts (ts), (VALUES (timestamptz '2001-01-01')) origin (origin)"
+    "query": "SELECT interval, ts, origin, date_bin(interval::interval, ts, origin) FROM ( VALUES ('15 days'), ('2 hours'), ('1 hour 30 minutes'), ('15 minutes'), ('10 seconds'), ('100 milliseconds'), ('250 microseconds') ) intervals (interval), (VALUES (timestamptz '2020-02-11 15:44:17.71393')) ts (ts), (VALUES (timestamptz '2001-01-01')) origin (origin)",
+    "expected": "SELECT interval, ts, origin, date_bin(CAST(interval AS INTERVAL), ts, origin) FROM (VALUES ('15 days'), ('2 hours'), ('1 hour 30 minutes'), ('15 minutes'), ('10 seconds'), ('100 milliseconds'), ('250 microseconds')) AS intervals(interval), (VALUES (CAST('2020-02-11 15:44:17.71393' AS TIMESTAMPTZ))) AS ts(ts), (VALUES (CAST('2001-01-01' AS TIMESTAMPTZ))) AS origin(origin)"
   },
   {
     "comment": "timestamptz - Statement 130",
-    "query": "SELECT date_bin('5 min'::interval, timestamptz '2020-02-01 01:01:01+00', timestamptz '2020-02-01 00:02:30+00')"
+    "query": "SELECT date_bin('5 min'::interval, timestamptz '2020-02-01 01:01:01+00', timestamptz '2020-02-01 00:02:30+00')",
+    "expected": "SELECT date_bin(CAST('5 min' AS INTERVAL), CAST('2020-02-01 01:01:01+00' AS TIMESTAMPTZ), CAST('2020-02-01 00:02:30+00' AS TIMESTAMPTZ))"
   },
   {
     "comment": "timestamptz - Statement 131",
-    "query": "SELECT date_bin('30 minutes'::interval, timestamptz '2024-02-01 15:00:00', timestamptz '2024-02-01 17:00:00')"
+    "query": "SELECT date_bin('30 minutes'::interval, timestamptz '2024-02-01 15:00:00', timestamptz '2024-02-01 17:00:00')",
+    "expected": "SELECT date_bin(CAST('30 minutes' AS INTERVAL), CAST('2024-02-01 15:00:00' AS TIMESTAMPTZ), CAST('2024-02-01 17:00:00' AS TIMESTAMPTZ))"
   },
   {
     "comment": "timestamptz - Statement 132",
-    "query": "SELECT date_bin('5 months'::interval, timestamp with time zone '2020-02-01 01:01:01+00', timestamp with time zone '2001-01-01+00')"
+    "query": "SELECT date_bin('5 months'::interval, timestamp with time zone '2020-02-01 01:01:01+00', timestamp with time zone '2001-01-01+00')",
+    "expected": "SELECT date_bin(CAST('5 months' AS INTERVAL), CAST('2020-02-01 01:01:01+00' AS TIMESTAMPTZ), CAST('2001-01-01+00' AS TIMESTAMPTZ))"
   },
   {
     "comment": "timestamptz - Statement 133",
-    "query": "SELECT date_bin('5 years'::interval,  timestamp with time zone '2020-02-01 01:01:01+00', timestamp with time zone '2001-01-01+00')"
+    "query": "SELECT date_bin('5 years'::interval,  timestamp with time zone '2020-02-01 01:01:01+00', timestamp with time zone '2001-01-01+00')",
+    "expected": "SELECT date_bin(CAST('5 years' AS INTERVAL), CAST('2020-02-01 01:01:01+00' AS TIMESTAMPTZ), CAST('2001-01-01+00' AS TIMESTAMPTZ))"
   },
   {
     "comment": "timestamptz - Statement 134",
-    "query": "SELECT date_bin('0 days'::interval, timestamp with time zone '1970-01-01 01:00:00+00' , timestamp with time zone '1970-01-01 00:00:00+00')"
+    "query": "SELECT date_bin('0 days'::interval, timestamp with time zone '1970-01-01 01:00:00+00' , timestamp with time zone '1970-01-01 00:00:00+00')",
+    "expected": "SELECT date_bin(CAST('0 days' AS INTERVAL), CAST('1970-01-01 01:00:00+00' AS TIMESTAMPTZ), CAST('1970-01-01 00:00:00+00' AS TIMESTAMPTZ))"
   },
   {
     "comment": "timestamptz - Statement 135",
-    "query": "SELECT date_bin('-2 days'::interval, timestamp with time zone '1970-01-01 01:00:00+00' , timestamp with time zone '1970-01-01 00:00:00+00')"
+    "query": "SELECT date_bin('-2 days'::interval, timestamp with time zone '1970-01-01 01:00:00+00' , timestamp with time zone '1970-01-01 00:00:00+00')",
+    "expected": "SELECT date_bin(CAST('-2 days' AS INTERVAL), CAST('1970-01-01 01:00:00+00' AS TIMESTAMPTZ), CAST('1970-01-01 00:00:00+00' AS TIMESTAMPTZ))"
   },
   {
     "comment": "timestamptz - Statement 136",
-    "query": "select date_bin('15 minutes'::interval, timestamptz '294276-12-30', timestamptz '4000-12-20 BC')"
+    "query": "select date_bin('15 minutes'::interval, timestamptz '294276-12-30', timestamptz '4000-12-20 BC')",
+    "expected": "SELECT date_bin(CAST('15 minutes' AS INTERVAL), CAST('294276-12-30' AS TIMESTAMPTZ), CAST('4000-12-20 BC' AS TIMESTAMPTZ))"
   },
   {
     "comment": "timestamptz - Statement 137",
-    "query": "select date_bin('200000000 days'::interval, '2024-02-01'::timestamptz, '2024-01-01'::timestamptz)"
+    "query": "select date_bin('200000000 days'::interval, '2024-02-01'::timestamptz, '2024-01-01'::timestamptz)",
+    "expected": "SELECT date_bin(CAST('200000000 days' AS INTERVAL), CAST('2024-02-01' AS TIMESTAMPTZ), CAST('2024-01-01' AS TIMESTAMPTZ))"
   },
   {
     "comment": "timestamptz - Statement 138",
-    "query": "select date_bin('365000 days'::interval, '4400-01-01 BC'::timestamptz, '4000-01-01 BC'::timestamptz)"
+    "query": "select date_bin('365000 days'::interval, '4400-01-01 BC'::timestamptz, '4000-01-01 BC'::timestamptz)",
+    "expected": "SELECT date_bin(CAST('365000 days' AS INTERVAL), CAST('4400-01-01 BC' AS TIMESTAMPTZ), CAST('4000-01-01 BC' AS TIMESTAMPTZ))"
   },
   {
     "comment": "timestamptz - Statement 139",
-    "query": "SELECT d1 - timestamp with time zone '1997-01-02' AS diff FROM TIMESTAMPTZ_TBL WHERE d1 BETWEEN timestamp with time zone '1902-01-01' AND timestamp with time zone '2038-01-01'"
+    "query": "SELECT d1 - timestamp with time zone '1997-01-02' AS diff FROM TIMESTAMPTZ_TBL WHERE d1 BETWEEN timestamp with time zone '1902-01-01' AND timestamp with time zone '2038-01-01'",
+    "expected": "SELECT d1 - CAST('1997-01-02' AS TIMESTAMPTZ) AS diff FROM timestamptz_tbl WHERE d1 BETWEEN CAST('1902-01-01' AS TIMESTAMPTZ) AND CAST('2038-01-01' AS TIMESTAMPTZ)"
   },
   {
     "comment": "timestamptz - Statement 140",
-    "query": "SELECT d1 as timestamptz, date_part( 'year', d1) AS year, date_part( 'month', d1) AS month, date_part( 'day', d1) AS day, date_part( 'hour', d1) AS hour, date_part( 'minute', d1) AS minute, date_part( 'second', d1) AS second FROM TIMESTAMPTZ_TBL"
+    "query": "SELECT d1 as timestamptz, date_part( 'year', d1) AS year, date_part( 'month', d1) AS month, date_part( 'day', d1) AS day, date_part( 'hour', d1) AS hour, date_part( 'minute', d1) AS minute, date_part( 'second', d1) AS second FROM TIMESTAMPTZ_TBL",
+    "expected": "SELECT d1 AS timestamptz, date_part('year', d1) AS year, date_part('month', d1) AS month, date_part('day', d1) AS day, date_part('hour', d1) AS hour, date_part('minute', d1) AS minute, date_part('second', d1) AS second FROM timestamptz_tbl"
   },
   {
     "comment": "timestamptz - Statement 141",
-    "query": "SELECT d1 as timestamptz, date_part( 'quarter', d1) AS quarter, date_part( 'msec', d1) AS msec, date_part( 'usec', d1) AS usec FROM TIMESTAMPTZ_TBL"
+    "query": "SELECT d1 as timestamptz, date_part( 'quarter', d1) AS quarter, date_part( 'msec', d1) AS msec, date_part( 'usec', d1) AS usec FROM TIMESTAMPTZ_TBL",
+    "expected": "SELECT d1 AS timestamptz, date_part('quarter', d1) AS quarter, date_part('msec', d1) AS msec, date_part('usec', d1) AS usec FROM timestamptz_tbl"
   },
   {
     "comment": "timestamptz - Statement 142",
-    "query": "SELECT d1 as timestamptz, date_part( 'isoyear', d1) AS isoyear, date_part( 'week', d1) AS week, date_part( 'isodow', d1) AS isodow, date_part( 'dow', d1) AS dow, date_part( 'doy', d1) AS doy FROM TIMESTAMPTZ_TBL"
+    "query": "SELECT d1 as timestamptz, date_part( 'isoyear', d1) AS isoyear, date_part( 'week', d1) AS week, date_part( 'isodow', d1) AS isodow, date_part( 'dow', d1) AS dow, date_part( 'doy', d1) AS doy FROM TIMESTAMPTZ_TBL",
+    "expected": "SELECT d1 AS timestamptz, date_part('isoyear', d1) AS isoyear, date_part('week', d1) AS week, date_part('isodow', d1) AS isodow, date_part('dow', d1) AS dow, date_part('doy', d1) AS doy FROM timestamptz_tbl"
   },
   {
     "comment": "timestamptz - Statement 143",
-    "query": "SELECT d1 as timestamptz, date_part( 'decade', d1) AS decade, date_part( 'century', d1) AS century, date_part( 'millennium', d1) AS millennium, round(date_part( 'julian', d1)) AS julian, date_part( 'epoch', d1) AS epoch FROM TIMESTAMPTZ_TBL"
+    "query": "SELECT d1 as timestamptz, date_part( 'decade', d1) AS decade, date_part( 'century', d1) AS century, date_part( 'millennium', d1) AS millennium, round(date_part( 'julian', d1)) AS julian, date_part( 'epoch', d1) AS epoch FROM TIMESTAMPTZ_TBL",
+    "expected": "SELECT d1 AS timestamptz, date_part('decade', d1) AS decade, date_part('century', d1) AS century, date_part('millennium', d1) AS millennium, round(date_part('julian', d1)) AS julian, date_part('epoch', d1) AS epoch FROM timestamptz_tbl"
   },
   {
     "comment": "timestamptz - Statement 144",
-    "query": "SELECT d1 as timestamptz, date_part( 'timezone', d1) AS timezone, date_part( 'timezone_hour', d1) AS timezone_hour, date_part( 'timezone_minute', d1) AS timezone_minute FROM TIMESTAMPTZ_TBL"
+    "query": "SELECT d1 as timestamptz, date_part( 'timezone', d1) AS timezone, date_part( 'timezone_hour', d1) AS timezone_hour, date_part( 'timezone_minute', d1) AS timezone_minute FROM TIMESTAMPTZ_TBL",
+    "expected": "SELECT d1 AS timestamptz, date_part('timezone', d1) AS timezone, date_part('timezone_hour', d1) AS timezone_hour, date_part('timezone_minute', d1) AS timezone_minute FROM timestamptz_tbl"
   },
   {
     "comment": "timestamptz - Statement 145",
-    "query": "SELECT d1 as \"timestamp\", extract(microseconds from d1) AS microseconds, extract(milliseconds from d1) AS milliseconds, extract(seconds from d1) AS seconds, round(extract(julian from d1)) AS julian, extract(epoch from d1) AS epoch FROM TIMESTAMPTZ_TBL"
+    "query": "SELECT d1 as \"timestamp\", extract(microseconds from d1) AS microseconds, extract(milliseconds from d1) AS milliseconds, extract(seconds from d1) AS seconds, round(extract(julian from d1)) AS julian, extract(epoch from d1) AS epoch FROM TIMESTAMPTZ_TBL",
+    "expected": "SELECT d1 AS timestamp, extract(microseconds FROM d1) AS microseconds, extract(milliseconds FROM d1) AS milliseconds, extract(seconds FROM d1) AS seconds, round(extract(julian FROM d1)) AS julian, extract(epoch FROM d1) AS epoch FROM timestamptz_tbl"
   },
   {
     "comment": "timestamptz - Statement 146",
-    "query": "SELECT date_part('epoch', '294270-01-01 00:00:00+00'::timestamptz)"
+    "query": "SELECT date_part('epoch', '294270-01-01 00:00:00+00'::timestamptz)",
+    "expected": "SELECT date_part('epoch', CAST('294270-01-01 00:00:00+00' AS TIMESTAMPTZ))"
   },
   {
     "comment": "timestamptz - Statement 147",
-    "query": "SELECT extract(epoch from '294270-01-01 00:00:00+00'::timestamptz)"
+    "query": "SELECT extract(epoch from '294270-01-01 00:00:00+00'::timestamptz)",
+    "expected": "SELECT extract(epoch FROM CAST('294270-01-01 00:00:00+00' AS TIMESTAMPTZ))"
   },
   {
     "comment": "timestamptz - Statement 148",
-    "query": "SELECT extract(epoch from '5000-01-01 00:00:00+00'::timestamptz)"
+    "query": "SELECT extract(epoch from '5000-01-01 00:00:00+00'::timestamptz)",
+    "expected": "SELECT extract(epoch FROM CAST('5000-01-01 00:00:00+00' AS TIMESTAMPTZ))"
   },
   {
     "comment": "timestamptz - Statement 149",
-    "query": "SELECT timestamptz '294276-12-31 23:59:59 UTC' - timestamptz '1999-12-23 19:59:04.224193 UTC' AS ok"
+    "query": "SELECT timestamptz '294276-12-31 23:59:59 UTC' - timestamptz '1999-12-23 19:59:04.224193 UTC' AS ok",
+    "expected": "SELECT CAST('294276-12-31 23:59:59 UTC' AS TIMESTAMPTZ) - CAST('1999-12-23 19:59:04.224193 UTC' AS TIMESTAMPTZ) AS ok"
   },
   {
     "comment": "timestamptz - Statement 150",
-    "query": "SELECT timestamptz '294276-12-31 23:59:59 UTC' - timestamptz '1999-12-23 19:59:04.224192 UTC' AS overflows"
+    "query": "SELECT timestamptz '294276-12-31 23:59:59 UTC' - timestamptz '1999-12-23 19:59:04.224192 UTC' AS overflows",
+    "expected": "SELECT CAST('294276-12-31 23:59:59 UTC' AS TIMESTAMPTZ) - CAST('1999-12-23 19:59:04.224192 UTC' AS TIMESTAMPTZ) AS overflows"
   },
   {
     "comment": "timestamptz - Statement 151",
-    "query": "SELECT to_char(d1, 'DAY Day day DY Dy dy MONTH Month month RM MON Mon mon') FROM TIMESTAMPTZ_TBL"
+    "query": "SELECT to_char(d1, 'DAY Day day DY Dy dy MONTH Month month RM MON Mon mon') FROM TIMESTAMPTZ_TBL",
+    "expected": "SELECT to_char(d1, 'DAY Day day DY Dy dy MONTH Month month RM MON Mon mon') FROM timestamptz_tbl"
   },
   {
     "comment": "timestamptz - Statement 152",
-    "query": "SELECT to_char(d1, 'FMDAY FMDay FMday FMMONTH FMMonth FMmonth FMRM') FROM TIMESTAMPTZ_TBL"
+    "query": "SELECT to_char(d1, 'FMDAY FMDay FMday FMMONTH FMMonth FMmonth FMRM') FROM TIMESTAMPTZ_TBL",
+    "expected": "SELECT to_char(d1, 'FMDAY FMDay FMday FMMONTH FMMonth FMmonth FMRM') FROM timestamptz_tbl"
   },
   {
     "comment": "timestamptz - Statement 153",
-    "query": "SELECT to_char(d1, 'Y,YYY YYYY YYY YY Y CC Q MM WW DDD DD D J') FROM TIMESTAMPTZ_TBL"
+    "query": "SELECT to_char(d1, 'Y,YYY YYYY YYY YY Y CC Q MM WW DDD DD D J') FROM TIMESTAMPTZ_TBL",
+    "expected": "SELECT to_char(d1, 'Y,YYY YYYY YYY YY Y CC Q MM WW DDD DD D J') FROM timestamptz_tbl"
   },
   {
     "comment": "timestamptz - Statement 154",
-    "query": "SELECT to_char(d1, 'FMY,YYY FMYYYY FMYYY FMYY FMY FMCC FMQ FMMM FMWW FMDDD FMDD FMD FMJ') FROM TIMESTAMPTZ_TBL"
+    "query": "SELECT to_char(d1, 'FMY,YYY FMYYYY FMYYY FMYY FMY FMCC FMQ FMMM FMWW FMDDD FMDD FMD FMJ') FROM TIMESTAMPTZ_TBL",
+    "expected": "SELECT to_char(d1, 'FMY,YYY FMYYYY FMYYY FMYY FMY FMCC FMQ FMMM FMWW FMDDD FMDD FMD FMJ') FROM timestamptz_tbl"
   },
   {
     "comment": "timestamptz - Statement 155",
-    "query": "SELECT to_char(d1, 'HH HH12 HH24 MI SS SSSS') FROM TIMESTAMPTZ_TBL"
+    "query": "SELECT to_char(d1, 'HH HH12 HH24 MI SS SSSS') FROM TIMESTAMPTZ_TBL",
+    "expected": "SELECT to_char(d1, 'HH HH12 HH24 MI SS SSSS') FROM timestamptz_tbl"
   },
   {
     "comment": "timestamptz - Statement 156",
-    "query": "SELECT to_char(d1, E'\"HH:MI:SS is\" HH:MI:SS \"\\\\\"text between quote marks\\\\\"\"') FROM TIMESTAMPTZ_TBL"
+    "query": "SELECT to_char(d1, E'\"HH:MI:SS is\" HH:MI:SS \"\\\\\"text between quote marks\\\\\"\"') FROM TIMESTAMPTZ_TBL",
+    "expected": "SELECT to_char(d1, '\"HH:MI:SS is\" HH:MI:SS \"\\\"text between quote marks\\\"\"') FROM timestamptz_tbl"
   },
   {
     "comment": "timestamptz - Statement 157",
-    "query": "SELECT to_char(d1, 'HH24--text--MI--text--SS') FROM TIMESTAMPTZ_TBL"
+    "query": "SELECT to_char(d1, 'HH24--text--MI--text--SS') FROM TIMESTAMPTZ_TBL",
+    "expected": "SELECT to_char(d1, 'HH24--text--MI--text--SS') FROM timestamptz_tbl"
   },
   {
     "comment": "timestamptz - Statement 158",
-    "query": "SELECT to_char(d1, 'YYYYTH YYYYth Jth') FROM TIMESTAMPTZ_TBL"
+    "query": "SELECT to_char(d1, 'YYYYTH YYYYth Jth') FROM TIMESTAMPTZ_TBL",
+    "expected": "SELECT to_char(d1, 'YYYYTH YYYYth Jth') FROM timestamptz_tbl"
   },
   {
     "comment": "timestamptz - Statement 159",
-    "query": "SELECT to_char(d1, 'YYYY A.D. YYYY a.d. YYYY bc HH:MI:SS P.M. HH:MI:SS p.m. HH:MI:SS pm') FROM TIMESTAMPTZ_TBL"
+    "query": "SELECT to_char(d1, 'YYYY A.D. YYYY a.d. YYYY bc HH:MI:SS P.M. HH:MI:SS p.m. HH:MI:SS pm') FROM TIMESTAMPTZ_TBL",
+    "expected": "SELECT to_char(d1, 'YYYY A.D. YYYY a.d. YYYY bc HH:MI:SS P.M. HH:MI:SS p.m. HH:MI:SS pm') FROM timestamptz_tbl"
   },
   {
     "comment": "timestamptz - Statement 160",
-    "query": "SELECT to_char(d1, 'IYYY IYY IY I IW IDDD ID') FROM TIMESTAMPTZ_TBL"
+    "query": "SELECT to_char(d1, 'IYYY IYY IY I IW IDDD ID') FROM TIMESTAMPTZ_TBL",
+    "expected": "SELECT to_char(d1, 'IYYY IYY IY I IW IDDD ID') FROM timestamptz_tbl"
   },
   {
     "comment": "timestamptz - Statement 161",
-    "query": "SELECT to_char(d1, 'FMIYYY FMIYY FMIY FMI FMIW FMIDDD FMID') FROM TIMESTAMPTZ_TBL"
+    "query": "SELECT to_char(d1, 'FMIYYY FMIYY FMIY FMI FMIW FMIDDD FMID') FROM TIMESTAMPTZ_TBL",
+    "expected": "SELECT to_char(d1, 'FMIYYY FMIYY FMIY FMI FMIW FMIDDD FMID') FROM timestamptz_tbl"
   },
   {
     "comment": "timestamptz - Statement 162",
-    "query": "SELECT to_char(d, 'FF1 FF2 FF3 FF4 FF5 FF6  ff1 ff2 ff3 ff4 ff5 ff6  MS US') FROM (VALUES ('2018-11-02 12:34:56'::timestamptz), ('2018-11-02 12:34:56.78'), ('2018-11-02 12:34:56.78901'), ('2018-11-02 12:34:56.78901234') ) d(d)"
+    "query": "SELECT to_char(d, 'FF1 FF2 FF3 FF4 FF5 FF6  ff1 ff2 ff3 ff4 ff5 ff6  MS US') FROM (VALUES ('2018-11-02 12:34:56'::timestamptz), ('2018-11-02 12:34:56.78'), ('2018-11-02 12:34:56.78901'), ('2018-11-02 12:34:56.78901234') ) d(d)",
+    "expected": "SELECT to_char(d, 'FF1 FF2 FF3 FF4 FF5 FF6  ff1 ff2 ff3 ff4 ff5 ff6  MS US') FROM (VALUES (CAST('2018-11-02 12:34:56' AS TIMESTAMPTZ)), ('2018-11-02 12:34:56.78'), ('2018-11-02 12:34:56.78901'), ('2018-11-02 12:34:56.78901234')) AS d(d)"
   },
   {
     "comment": "timestamptz - Statement 163",
-    "query": "SET timezone = '00:00'"
+    "query": "SET timezone = '00:00'",
+    "expected": "SET TIME ZONE '00:00'"
   },
   {
     "comment": "timestamptz - Statement 164",
-    "query": "SELECT to_char(now(), 'OF') as \"OF\", to_char(now(), 'TZH:TZM') as \"TZH:TZM\""
+    "query": "SELECT to_char(now(), 'OF') as \"OF\", to_char(now(), 'TZH:TZM') as \"TZH:TZM\"",
+    "expected": "SELECT to_char(NOW(), 'OF') AS \"OF\", to_char(NOW(), 'TZH:TZM') AS \"TZH:TZM\""
   },
   {
     "comment": "timestamptz - Statement 165",
-    "query": "SET timezone = '+02:00'"
+    "query": "SET timezone = '+02:00'",
+    "expected": "SET TIME ZONE '+02:00'"
   },
   {
     "comment": "timestamptz - Statement 166",
-    "query": "SET timezone = '-13:00'"
+    "query": "SET timezone = '-13:00'",
+    "expected": "SET TIME ZONE '-13:00'"
   },
   {
     "comment": "timestamptz - Statement 167",
-    "query": "SET timezone = '-00:30'"
+    "query": "SET timezone = '-00:30'",
+    "expected": "SET TIME ZONE '-00:30'"
   },
   {
     "comment": "timestamptz - Statement 168",
-    "query": "SET timezone = '00:30'"
+    "query": "SET timezone = '00:30'",
+    "expected": "SET TIME ZONE '00:30'"
   },
   {
     "comment": "timestamptz - Statement 169",
-    "query": "SET timezone = '-04:30'"
+    "query": "SET timezone = '-04:30'",
+    "expected": "SET TIME ZONE '-04:30'"
   },
   {
     "comment": "timestamptz - Statement 170",
-    "query": "SET timezone = '04:30'"
+    "query": "SET timezone = '04:30'",
+    "expected": "SET TIME ZONE '04:30'"
   },
   {
     "comment": "timestamptz - Statement 171",
-    "query": "SET timezone = '-04:15'"
+    "query": "SET timezone = '-04:15'",
+    "expected": "SET TIME ZONE '-04:15'"
   },
   {
     "comment": "timestamptz - Statement 172",
-    "query": "SET timezone = '04:15'"
+    "query": "SET timezone = '04:15'",
+    "expected": "SET TIME ZONE '04:15'"
   },
   {
     "comment": "timestamptz - Statement 173",
@@ -693,63 +857,78 @@
   },
   {
     "comment": "timestamptz - Statement 174",
-    "query": "CREATE TABLE TIMESTAMPTZ_TST (a int , b timestamptz)"
+    "query": "CREATE TABLE TIMESTAMPTZ_TST (a int , b timestamptz)",
+    "expected": "CREATE TABLE timestamptz_tst (a INT, b TIMESTAMPTZ)"
   },
   {
     "comment": "timestamptz - Statement 175",
-    "query": "INSERT INTO TIMESTAMPTZ_TST VALUES(1, 'Sat Mar 12 23:58:48 1000 IST')"
+    "query": "INSERT INTO TIMESTAMPTZ_TST VALUES(1, 'Sat Mar 12 23:58:48 1000 IST')",
+    "expected": "INSERT INTO timestamptz_tst VALUES (1, 'Sat Mar 12 23:58:48 1000 IST')"
   },
   {
     "comment": "timestamptz - Statement 176",
-    "query": "INSERT INTO TIMESTAMPTZ_TST VALUES(2, 'Sat Mar 12 23:58:48 10000 IST')"
+    "query": "INSERT INTO TIMESTAMPTZ_TST VALUES(2, 'Sat Mar 12 23:58:48 10000 IST')",
+    "expected": "INSERT INTO timestamptz_tst VALUES (2, 'Sat Mar 12 23:58:48 10000 IST')"
   },
   {
     "comment": "timestamptz - Statement 177",
-    "query": "INSERT INTO TIMESTAMPTZ_TST VALUES(3, 'Sat Mar 12 23:58:48 100000 IST')"
+    "query": "INSERT INTO TIMESTAMPTZ_TST VALUES(3, 'Sat Mar 12 23:58:48 100000 IST')",
+    "expected": "INSERT INTO timestamptz_tst VALUES (3, 'Sat Mar 12 23:58:48 100000 IST')"
   },
   {
     "comment": "timestamptz - Statement 178",
-    "query": "INSERT INTO TIMESTAMPTZ_TST VALUES(3, '10000 Mar 12 23:58:48 IST')"
+    "query": "INSERT INTO TIMESTAMPTZ_TST VALUES(3, '10000 Mar 12 23:58:48 IST')",
+    "expected": "INSERT INTO timestamptz_tst VALUES (3, '10000 Mar 12 23:58:48 IST')"
   },
   {
     "comment": "timestamptz - Statement 179",
-    "query": "INSERT INTO TIMESTAMPTZ_TST VALUES(4, '100000312 23:58:48 IST')"
+    "query": "INSERT INTO TIMESTAMPTZ_TST VALUES(4, '100000312 23:58:48 IST')",
+    "expected": "INSERT INTO timestamptz_tst VALUES (4, '100000312 23:58:48 IST')"
   },
   {
     "comment": "timestamptz - Statement 180",
-    "query": "INSERT INTO TIMESTAMPTZ_TST VALUES(4, '1000000312 23:58:48 IST')"
+    "query": "INSERT INTO TIMESTAMPTZ_TST VALUES(4, '1000000312 23:58:48 IST')",
+    "expected": "INSERT INTO timestamptz_tst VALUES (4, '1000000312 23:58:48 IST')"
   },
   {
     "comment": "timestamptz - Statement 181",
-    "query": "SELECT * FROM TIMESTAMPTZ_TST ORDER BY a"
+    "query": "SELECT * FROM TIMESTAMPTZ_TST ORDER BY a",
+    "expected": "SELECT * FROM timestamptz_tst ORDER BY a"
   },
   {
     "comment": "timestamptz - Statement 182",
-    "query": "DROP TABLE TIMESTAMPTZ_TST"
+    "query": "DROP TABLE TIMESTAMPTZ_TST",
+    "expected": "DROP TABLE timestamptz_tst"
   },
   {
     "comment": "timestamptz - Statement 183",
-    "query": "set TimeZone to 'America/New_York'"
+    "query": "set TimeZone to 'America/New_York'",
+    "expected": "SET TIME ZONE 'America/New_York'"
   },
   {
     "comment": "timestamptz - Statement 184",
-    "query": "SELECT make_timestamptz(1973, 07, 15, 08, 15, 55.33)"
+    "query": "SELECT make_timestamptz(1973, 07, 15, 08, 15, 55.33)",
+    "expected": "SELECT make_timestamptz(1973, 7, 15, 8, 15, 55.33)"
   },
   {
     "comment": "timestamptz - Statement 185",
-    "query": "SELECT make_timestamptz(1973, 07, 15, 08, 15, 55.33, '+2')"
+    "query": "SELECT make_timestamptz(1973, 07, 15, 08, 15, 55.33, '+2')",
+    "expected": "SELECT make_timestamptz(1973, 7, 15, 8, 15, 55.33, '+2')"
   },
   {
     "comment": "timestamptz - Statement 186",
-    "query": "SELECT make_timestamptz(1973, 07, 15, 08, 15, 55.33, '-2')"
+    "query": "SELECT make_timestamptz(1973, 07, 15, 08, 15, 55.33, '-2')",
+    "expected": "SELECT make_timestamptz(1973, 7, 15, 8, 15, 55.33, '-2')"
   },
   {
     "comment": "timestamptz - Statement 187",
-    "query": "WITH tzs (tz) AS (VALUES ('+1'), ('+1:'), ('+1:0'), ('+100'), ('+1:00'), ('+01:00'), ('+10'), ('+1000'), ('+10:'), ('+10:0'), ('+10:00'), ('+10:00:'), ('+10:00:1'), ('+10:00:01'), ('+10:00:10')) SELECT make_timestamptz(2010, 2, 27, 3, 45, 00, tz), tz FROM tzs"
+    "query": "WITH tzs (tz) AS (VALUES ('+1'), ('+1:'), ('+1:0'), ('+100'), ('+1:00'), ('+01:00'), ('+10'), ('+1000'), ('+10:'), ('+10:0'), ('+10:00'), ('+10:00:'), ('+10:00:1'), ('+10:00:01'), ('+10:00:10')) SELECT make_timestamptz(2010, 2, 27, 3, 45, 00, tz), tz FROM tzs",
+    "expected": "WITH tzs(tz) AS (VALUES ('+1'), ('+1:'), ('+1:0'), ('+100'), ('+1:00'), ('+01:00'), ('+10'), ('+1000'), ('+10:'), ('+10:0'), ('+10:00'), ('+10:00:'), ('+10:00:1'), ('+10:00:01'), ('+10:00:10')) SELECT make_timestamptz(2010, 2, 27, 3, 45, 0, tz), tz FROM tzs"
   },
   {
     "comment": "timestamptz - Statement 188",
-    "query": "SELECT make_timestamptz(1973, 07, 15, 08, 15, 55.33, '2')"
+    "query": "SELECT make_timestamptz(1973, 07, 15, 08, 15, 55.33, '2')",
+    "expected": "SELECT make_timestamptz(1973, 7, 15, 8, 15, 55.33, '2')"
   },
   {
     "comment": "timestamptz - Statement 189",
@@ -761,27 +940,33 @@
   },
   {
     "comment": "timestamptz - Statement 191",
-    "query": "SELECT make_timestamptz(1973, 07, 15, 08, 15, 55.33, '+2') = '1973-07-15 08:15:55.33+02'::timestamptz"
+    "query": "SELECT make_timestamptz(1973, 07, 15, 08, 15, 55.33, '+2') = '1973-07-15 08:15:55.33+02'::timestamptz",
+    "expected": "SELECT make_timestamptz(1973, 7, 15, 8, 15, 55.33, '+2') = CAST('1973-07-15 08:15:55.33+02' AS TIMESTAMPTZ)"
   },
   {
     "comment": "timestamptz - Statement 192",
-    "query": "SELECT make_timestamptz(2014, 12, 10, 0, 0, 0, 'Europe/Prague') = timestamptz '2014-12-10 00:00:00 Europe/Prague'"
+    "query": "SELECT make_timestamptz(2014, 12, 10, 0, 0, 0, 'Europe/Prague') = timestamptz '2014-12-10 00:00:00 Europe/Prague'",
+    "expected": "SELECT make_timestamptz(2014, 12, 10, 0, 0, 0, 'Europe/Prague') = CAST('2014-12-10 00:00:00 Europe/Prague' AS TIMESTAMPTZ)"
   },
   {
     "comment": "timestamptz - Statement 193",
-    "query": "SELECT make_timestamptz(2014, 12, 10, 0, 0, 0, 'Europe/Prague') AT TIME ZONE 'UTC'"
+    "query": "SELECT make_timestamptz(2014, 12, 10, 0, 0, 0, 'Europe/Prague') AT TIME ZONE 'UTC'",
+    "expected": "SELECT timezone('UTC', make_timestamptz(2014, 12, 10, 0, 0, 0, 'Europe/Prague'))"
   },
   {
     "comment": "timestamptz - Statement 194",
-    "query": "SELECT make_timestamptz(1881, 12, 10, 0, 0, 0, 'Asia/Singapore') AT TIME ZONE 'UTC'"
+    "query": "SELECT make_timestamptz(1881, 12, 10, 0, 0, 0, 'Asia/Singapore') AT TIME ZONE 'UTC'",
+    "expected": "SELECT timezone('UTC', make_timestamptz(1881, 12, 10, 0, 0, 0, 'Asia/Singapore'))"
   },
   {
     "comment": "timestamptz - Statement 195",
-    "query": "SELECT make_timestamptz(1881, 12, 10, 0, 0, 0, 'Pacific/Honolulu') AT TIME ZONE 'UTC'"
+    "query": "SELECT make_timestamptz(1881, 12, 10, 0, 0, 0, 'Pacific/Honolulu') AT TIME ZONE 'UTC'",
+    "expected": "SELECT timezone('UTC', make_timestamptz(1881, 12, 10, 0, 0, 0, 'Pacific/Honolulu'))"
   },
   {
     "comment": "timestamptz - Statement 196",
-    "query": "SELECT make_timestamptz(1881, 12, 10, 0, 0, 0, 'Europe/Paris') AT TIME ZONE 'UTC'"
+    "query": "SELECT make_timestamptz(1881, 12, 10, 0, 0, 0, 'Europe/Paris') AT TIME ZONE 'UTC'",
+    "expected": "SELECT timezone('UTC', make_timestamptz(1881, 12, 10, 0, 0, 0, 'Europe/Paris'))"
   },
   {
     "comment": "timestamptz - Statement 197",
@@ -805,271 +990,338 @@
   },
   {
     "comment": "timestamptz - Statement 202",
-    "query": "select * from generate_series('2020-01-01 00:00'::timestamptz, '2020-01-02 03:00'::timestamptz, '1 hour'::interval)"
+    "query": "select * from generate_series('2020-01-01 00:00'::timestamptz, '2020-01-02 03:00'::timestamptz, '1 hour'::interval)",
+    "expected": "SELECT * FROM generate_series(CAST('2020-01-01 00:00' AS TIMESTAMPTZ), CAST('2020-01-02 03:00' AS TIMESTAMPTZ), CAST('1 hour' AS INTERVAL))"
   },
   {
     "comment": "timestamptz - Statement 203",
-    "query": "select generate_series('2022-01-01 00:00'::timestamptz, 'infinity'::timestamptz, '1 month'::interval) limit 10"
+    "query": "select generate_series('2022-01-01 00:00'::timestamptz, 'infinity'::timestamptz, '1 month'::interval) limit 10",
+    "expected": "SELECT generate_series(CAST('2022-01-01 00:00' AS TIMESTAMPTZ), CAST('infinity' AS TIMESTAMPTZ), CAST('1 month' AS INTERVAL)) LIMIT 10"
   },
   {
     "comment": "timestamptz - Statement 204",
-    "query": "select * from generate_series('2020-01-01 00:00'::timestamptz, '2020-01-02 03:00'::timestamptz, '0 hour'::interval)"
+    "query": "select * from generate_series('2020-01-01 00:00'::timestamptz, '2020-01-02 03:00'::timestamptz, '0 hour'::interval)",
+    "expected": "SELECT * FROM generate_series(CAST('2020-01-01 00:00' AS TIMESTAMPTZ), CAST('2020-01-02 03:00' AS TIMESTAMPTZ), CAST('0 hour' AS INTERVAL))"
   },
   {
     "comment": "timestamptz - Statement 205",
-    "query": "select generate_series(timestamptz '1995-08-06 12:12:12', timestamptz '1996-08-06 12:12:12', interval 'infinity')"
+    "query": "select generate_series(timestamptz '1995-08-06 12:12:12', timestamptz '1996-08-06 12:12:12', interval 'infinity')",
+    "expected": "SELECT generate_series(CAST('1995-08-06 12:12:12' AS TIMESTAMPTZ), CAST('1996-08-06 12:12:12' AS TIMESTAMPTZ), CAST('infinity' AS INTERVAL))"
   },
   {
     "comment": "timestamptz - Statement 206",
-    "query": "select generate_series(timestamptz '1995-08-06 12:12:12', timestamptz '1996-08-06 12:12:12', interval '-infinity')"
+    "query": "select generate_series(timestamptz '1995-08-06 12:12:12', timestamptz '1996-08-06 12:12:12', interval '-infinity')",
+    "expected": "SELECT generate_series(CAST('1995-08-06 12:12:12' AS TIMESTAMPTZ), CAST('1996-08-06 12:12:12' AS TIMESTAMPTZ), CAST('-infinity' AS INTERVAL))"
   },
   {
     "comment": "timestamptz - Statement 207",
-    "query": "SET TimeZone to 'UTC'"
+    "query": "SET TimeZone to 'UTC'",
+    "expected": "SET TIME ZONE 'UTC'"
   },
   {
     "comment": "timestamptz - Statement 208",
-    "query": "SELECT date_add('2022-10-30 00:00:00+01'::timestamptz, '1 day'::interval)"
+    "query": "SELECT date_add('2022-10-30 00:00:00+01'::timestamptz, '1 day'::interval)",
+    "expected": "SELECT date_add(CAST('2022-10-30 00:00:00+01' AS TIMESTAMPTZ), CAST('1 day' AS INTERVAL))"
   },
   {
     "comment": "timestamptz - Statement 209",
-    "query": "SELECT date_add('2021-10-31 00:00:00+02'::timestamptz, '1 day'::interval, 'Europe/Warsaw')"
+    "query": "SELECT date_add('2021-10-31 00:00:00+02'::timestamptz, '1 day'::interval, 'Europe/Warsaw')",
+    "expected": "SELECT date_add(CAST('2021-10-31 00:00:00+02' AS TIMESTAMPTZ), CAST('1 day' AS INTERVAL), 'Europe/Warsaw')"
   },
   {
     "comment": "timestamptz - Statement 210",
-    "query": "SELECT date_subtract('2022-10-30 00:00:00+01'::timestamptz, '1 day'::interval)"
+    "query": "SELECT date_subtract('2022-10-30 00:00:00+01'::timestamptz, '1 day'::interval)",
+    "expected": "SELECT date_subtract(CAST('2022-10-30 00:00:00+01' AS TIMESTAMPTZ), CAST('1 day' AS INTERVAL))"
   },
   {
     "comment": "timestamptz - Statement 211",
-    "query": "SELECT date_subtract('2021-10-31 00:00:00+02'::timestamptz, '1 day'::interval, 'Europe/Warsaw')"
+    "query": "SELECT date_subtract('2021-10-31 00:00:00+02'::timestamptz, '1 day'::interval, 'Europe/Warsaw')",
+    "expected": "SELECT date_subtract(CAST('2021-10-31 00:00:00+02' AS TIMESTAMPTZ), CAST('1 day' AS INTERVAL), 'Europe/Warsaw')"
   },
   {
     "comment": "timestamptz - Statement 212",
-    "query": "SELECT * FROM generate_series('2021-12-31 23:00:00+00'::timestamptz, '2020-12-31 23:00:00+00'::timestamptz, '-1 month'::interval, 'Europe/Warsaw')"
+    "query": "SELECT * FROM generate_series('2021-12-31 23:00:00+00'::timestamptz, '2020-12-31 23:00:00+00'::timestamptz, '-1 month'::interval, 'Europe/Warsaw')",
+    "expected": "SELECT * FROM generate_series(CAST('2021-12-31 23:00:00+00' AS TIMESTAMPTZ), CAST('2020-12-31 23:00:00+00' AS TIMESTAMPTZ), CAST('-1 month' AS INTERVAL), 'Europe/Warsaw')"
   },
   {
     "comment": "timestamptz - Statement 213",
-    "query": "SELECT '2011-03-27 00:00:00 Europe/Moscow'::timestamptz"
+    "query": "SELECT '2011-03-27 00:00:00 Europe/Moscow'::timestamptz",
+    "expected": "SELECT CAST('2011-03-27 00:00:00 Europe/Moscow' AS TIMESTAMPTZ)"
   },
   {
     "comment": "timestamptz - Statement 214",
-    "query": "SELECT '2011-03-27 01:00:00 Europe/Moscow'::timestamptz"
+    "query": "SELECT '2011-03-27 01:00:00 Europe/Moscow'::timestamptz",
+    "expected": "SELECT CAST('2011-03-27 01:00:00 Europe/Moscow' AS TIMESTAMPTZ)"
   },
   {
     "comment": "timestamptz - Statement 215",
-    "query": "SELECT '2011-03-27 01:59:59 Europe/Moscow'::timestamptz"
+    "query": "SELECT '2011-03-27 01:59:59 Europe/Moscow'::timestamptz",
+    "expected": "SELECT CAST('2011-03-27 01:59:59 Europe/Moscow' AS TIMESTAMPTZ)"
   },
   {
     "comment": "timestamptz - Statement 216",
-    "query": "SELECT '2011-03-27 02:00:00 Europe/Moscow'::timestamptz"
+    "query": "SELECT '2011-03-27 02:00:00 Europe/Moscow'::timestamptz",
+    "expected": "SELECT CAST('2011-03-27 02:00:00 Europe/Moscow' AS TIMESTAMPTZ)"
   },
   {
     "comment": "timestamptz - Statement 217",
-    "query": "SELECT '2011-03-27 02:00:01 Europe/Moscow'::timestamptz"
+    "query": "SELECT '2011-03-27 02:00:01 Europe/Moscow'::timestamptz",
+    "expected": "SELECT CAST('2011-03-27 02:00:01 Europe/Moscow' AS TIMESTAMPTZ)"
   },
   {
     "comment": "timestamptz - Statement 218",
-    "query": "SELECT '2011-03-27 02:59:59 Europe/Moscow'::timestamptz"
+    "query": "SELECT '2011-03-27 02:59:59 Europe/Moscow'::timestamptz",
+    "expected": "SELECT CAST('2011-03-27 02:59:59 Europe/Moscow' AS TIMESTAMPTZ)"
   },
   {
     "comment": "timestamptz - Statement 219",
-    "query": "SELECT '2011-03-27 03:00:00 Europe/Moscow'::timestamptz"
+    "query": "SELECT '2011-03-27 03:00:00 Europe/Moscow'::timestamptz",
+    "expected": "SELECT CAST('2011-03-27 03:00:00 Europe/Moscow' AS TIMESTAMPTZ)"
   },
   {
     "comment": "timestamptz - Statement 220",
-    "query": "SELECT '2011-03-27 03:00:01 Europe/Moscow'::timestamptz"
+    "query": "SELECT '2011-03-27 03:00:01 Europe/Moscow'::timestamptz",
+    "expected": "SELECT CAST('2011-03-27 03:00:01 Europe/Moscow' AS TIMESTAMPTZ)"
   },
   {
     "comment": "timestamptz - Statement 221",
-    "query": "SELECT '2011-03-27 04:00:00 Europe/Moscow'::timestamptz"
+    "query": "SELECT '2011-03-27 04:00:00 Europe/Moscow'::timestamptz",
+    "expected": "SELECT CAST('2011-03-27 04:00:00 Europe/Moscow' AS TIMESTAMPTZ)"
   },
   {
     "comment": "timestamptz - Statement 222",
-    "query": "SELECT '2011-03-27 00:00:00 MSK'::timestamptz"
+    "query": "SELECT '2011-03-27 00:00:00 MSK'::timestamptz",
+    "expected": "SELECT CAST('2011-03-27 00:00:00 MSK' AS TIMESTAMPTZ)"
   },
   {
     "comment": "timestamptz - Statement 223",
-    "query": "SELECT '2011-03-27 01:00:00 MSK'::timestamptz"
+    "query": "SELECT '2011-03-27 01:00:00 MSK'::timestamptz",
+    "expected": "SELECT CAST('2011-03-27 01:00:00 MSK' AS TIMESTAMPTZ)"
   },
   {
     "comment": "timestamptz - Statement 224",
-    "query": "SELECT '2011-03-27 01:59:59 MSK'::timestamptz"
+    "query": "SELECT '2011-03-27 01:59:59 MSK'::timestamptz",
+    "expected": "SELECT CAST('2011-03-27 01:59:59 MSK' AS TIMESTAMPTZ)"
   },
   {
     "comment": "timestamptz - Statement 225",
-    "query": "SELECT '2011-03-27 02:00:00 MSK'::timestamptz"
+    "query": "SELECT '2011-03-27 02:00:00 MSK'::timestamptz",
+    "expected": "SELECT CAST('2011-03-27 02:00:00 MSK' AS TIMESTAMPTZ)"
   },
   {
     "comment": "timestamptz - Statement 226",
-    "query": "SELECT '2011-03-27 02:00:01 MSK'::timestamptz"
+    "query": "SELECT '2011-03-27 02:00:01 MSK'::timestamptz",
+    "expected": "SELECT CAST('2011-03-27 02:00:01 MSK' AS TIMESTAMPTZ)"
   },
   {
     "comment": "timestamptz - Statement 227",
-    "query": "SELECT '2011-03-27 02:59:59 MSK'::timestamptz"
+    "query": "SELECT '2011-03-27 02:59:59 MSK'::timestamptz",
+    "expected": "SELECT CAST('2011-03-27 02:59:59 MSK' AS TIMESTAMPTZ)"
   },
   {
     "comment": "timestamptz - Statement 228",
-    "query": "SELECT '2011-03-27 03:00:00 MSK'::timestamptz"
+    "query": "SELECT '2011-03-27 03:00:00 MSK'::timestamptz",
+    "expected": "SELECT CAST('2011-03-27 03:00:00 MSK' AS TIMESTAMPTZ)"
   },
   {
     "comment": "timestamptz - Statement 229",
-    "query": "SELECT '2011-03-27 03:00:01 MSK'::timestamptz"
+    "query": "SELECT '2011-03-27 03:00:01 MSK'::timestamptz",
+    "expected": "SELECT CAST('2011-03-27 03:00:01 MSK' AS TIMESTAMPTZ)"
   },
   {
     "comment": "timestamptz - Statement 230",
-    "query": "SELECT '2011-03-27 04:00:00 MSK'::timestamptz"
+    "query": "SELECT '2011-03-27 04:00:00 MSK'::timestamptz",
+    "expected": "SELECT CAST('2011-03-27 04:00:00 MSK' AS TIMESTAMPTZ)"
   },
   {
     "comment": "timestamptz - Statement 231",
-    "query": "SELECT '2014-10-26 00:00:00 Europe/Moscow'::timestamptz"
+    "query": "SELECT '2014-10-26 00:00:00 Europe/Moscow'::timestamptz",
+    "expected": "SELECT CAST('2014-10-26 00:00:00 Europe/Moscow' AS TIMESTAMPTZ)"
   },
   {
     "comment": "timestamptz - Statement 232",
-    "query": "SELECT '2014-10-26 00:59:59 Europe/Moscow'::timestamptz"
+    "query": "SELECT '2014-10-26 00:59:59 Europe/Moscow'::timestamptz",
+    "expected": "SELECT CAST('2014-10-26 00:59:59 Europe/Moscow' AS TIMESTAMPTZ)"
   },
   {
     "comment": "timestamptz - Statement 233",
-    "query": "SELECT '2014-10-26 01:00:00 Europe/Moscow'::timestamptz"
+    "query": "SELECT '2014-10-26 01:00:00 Europe/Moscow'::timestamptz",
+    "expected": "SELECT CAST('2014-10-26 01:00:00 Europe/Moscow' AS TIMESTAMPTZ)"
   },
   {
     "comment": "timestamptz - Statement 234",
-    "query": "SELECT '2014-10-26 01:00:01 Europe/Moscow'::timestamptz"
+    "query": "SELECT '2014-10-26 01:00:01 Europe/Moscow'::timestamptz",
+    "expected": "SELECT CAST('2014-10-26 01:00:01 Europe/Moscow' AS TIMESTAMPTZ)"
   },
   {
     "comment": "timestamptz - Statement 235",
-    "query": "SELECT '2014-10-26 02:00:00 Europe/Moscow'::timestamptz"
+    "query": "SELECT '2014-10-26 02:00:00 Europe/Moscow'::timestamptz",
+    "expected": "SELECT CAST('2014-10-26 02:00:00 Europe/Moscow' AS TIMESTAMPTZ)"
   },
   {
     "comment": "timestamptz - Statement 236",
-    "query": "SELECT '2014-10-26 00:00:00 MSK'::timestamptz"
+    "query": "SELECT '2014-10-26 00:00:00 MSK'::timestamptz",
+    "expected": "SELECT CAST('2014-10-26 00:00:00 MSK' AS TIMESTAMPTZ)"
   },
   {
     "comment": "timestamptz - Statement 237",
-    "query": "SELECT '2014-10-26 00:59:59 MSK'::timestamptz"
+    "query": "SELECT '2014-10-26 00:59:59 MSK'::timestamptz",
+    "expected": "SELECT CAST('2014-10-26 00:59:59 MSK' AS TIMESTAMPTZ)"
   },
   {
     "comment": "timestamptz - Statement 238",
-    "query": "SELECT '2014-10-26 01:00:00 MSK'::timestamptz"
+    "query": "SELECT '2014-10-26 01:00:00 MSK'::timestamptz",
+    "expected": "SELECT CAST('2014-10-26 01:00:00 MSK' AS TIMESTAMPTZ)"
   },
   {
     "comment": "timestamptz - Statement 239",
-    "query": "SELECT '2014-10-26 01:00:01 MSK'::timestamptz"
+    "query": "SELECT '2014-10-26 01:00:01 MSK'::timestamptz",
+    "expected": "SELECT CAST('2014-10-26 01:00:01 MSK' AS TIMESTAMPTZ)"
   },
   {
     "comment": "timestamptz - Statement 240",
-    "query": "SELECT '2014-10-26 02:00:00 MSK'::timestamptz"
+    "query": "SELECT '2014-10-26 02:00:00 MSK'::timestamptz",
+    "expected": "SELECT CAST('2014-10-26 02:00:00 MSK' AS TIMESTAMPTZ)"
   },
   {
     "comment": "timestamptz - Statement 241",
-    "query": "SELECT '2011-03-27 00:00:00'::timestamp AT TIME ZONE 'Europe/Moscow'"
+    "query": "SELECT '2011-03-27 00:00:00'::timestamp AT TIME ZONE 'Europe/Moscow'",
+    "expected": "SELECT timezone('Europe/Moscow', CAST('2011-03-27 00:00:00' AS TIMESTAMP))"
   },
   {
     "comment": "timestamptz - Statement 242",
-    "query": "SELECT '2011-03-27 01:00:00'::timestamp AT TIME ZONE 'Europe/Moscow'"
+    "query": "SELECT '2011-03-27 01:00:00'::timestamp AT TIME ZONE 'Europe/Moscow'",
+    "expected": "SELECT timezone('Europe/Moscow', CAST('2011-03-27 01:00:00' AS TIMESTAMP))"
   },
   {
     "comment": "timestamptz - Statement 243",
-    "query": "SELECT '2011-03-27 01:59:59'::timestamp AT TIME ZONE 'Europe/Moscow'"
+    "query": "SELECT '2011-03-27 01:59:59'::timestamp AT TIME ZONE 'Europe/Moscow'",
+    "expected": "SELECT timezone('Europe/Moscow', CAST('2011-03-27 01:59:59' AS TIMESTAMP))"
   },
   {
     "comment": "timestamptz - Statement 244",
-    "query": "SELECT '2011-03-27 02:00:00'::timestamp AT TIME ZONE 'Europe/Moscow'"
+    "query": "SELECT '2011-03-27 02:00:00'::timestamp AT TIME ZONE 'Europe/Moscow'",
+    "expected": "SELECT timezone('Europe/Moscow', CAST('2011-03-27 02:00:00' AS TIMESTAMP))"
   },
   {
     "comment": "timestamptz - Statement 245",
-    "query": "SELECT '2011-03-27 02:00:01'::timestamp AT TIME ZONE 'Europe/Moscow'"
+    "query": "SELECT '2011-03-27 02:00:01'::timestamp AT TIME ZONE 'Europe/Moscow'",
+    "expected": "SELECT timezone('Europe/Moscow', CAST('2011-03-27 02:00:01' AS TIMESTAMP))"
   },
   {
     "comment": "timestamptz - Statement 246",
-    "query": "SELECT '2011-03-27 02:59:59'::timestamp AT TIME ZONE 'Europe/Moscow'"
+    "query": "SELECT '2011-03-27 02:59:59'::timestamp AT TIME ZONE 'Europe/Moscow'",
+    "expected": "SELECT timezone('Europe/Moscow', CAST('2011-03-27 02:59:59' AS TIMESTAMP))"
   },
   {
     "comment": "timestamptz - Statement 247",
-    "query": "SELECT '2011-03-27 03:00:00'::timestamp AT TIME ZONE 'Europe/Moscow'"
+    "query": "SELECT '2011-03-27 03:00:00'::timestamp AT TIME ZONE 'Europe/Moscow'",
+    "expected": "SELECT timezone('Europe/Moscow', CAST('2011-03-27 03:00:00' AS TIMESTAMP))"
   },
   {
     "comment": "timestamptz - Statement 248",
-    "query": "SELECT '2011-03-27 03:00:01'::timestamp AT TIME ZONE 'Europe/Moscow'"
+    "query": "SELECT '2011-03-27 03:00:01'::timestamp AT TIME ZONE 'Europe/Moscow'",
+    "expected": "SELECT timezone('Europe/Moscow', CAST('2011-03-27 03:00:01' AS TIMESTAMP))"
   },
   {
     "comment": "timestamptz - Statement 249",
-    "query": "SELECT '2011-03-27 04:00:00'::timestamp AT TIME ZONE 'Europe/Moscow'"
+    "query": "SELECT '2011-03-27 04:00:00'::timestamp AT TIME ZONE 'Europe/Moscow'",
+    "expected": "SELECT timezone('Europe/Moscow', CAST('2011-03-27 04:00:00' AS TIMESTAMP))"
   },
   {
     "comment": "timestamptz - Statement 250",
-    "query": "SELECT '2011-03-27 00:00:00'::timestamp AT TIME ZONE 'MSK'"
+    "query": "SELECT '2011-03-27 00:00:00'::timestamp AT TIME ZONE 'MSK'",
+    "expected": "SELECT timezone('MSK', CAST('2011-03-27 00:00:00' AS TIMESTAMP))"
   },
   {
     "comment": "timestamptz - Statement 251",
-    "query": "SELECT '2011-03-27 01:00:00'::timestamp AT TIME ZONE 'MSK'"
+    "query": "SELECT '2011-03-27 01:00:00'::timestamp AT TIME ZONE 'MSK'",
+    "expected": "SELECT timezone('MSK', CAST('2011-03-27 01:00:00' AS TIMESTAMP))"
   },
   {
     "comment": "timestamptz - Statement 252",
-    "query": "SELECT '2011-03-27 01:59:59'::timestamp AT TIME ZONE 'MSK'"
+    "query": "SELECT '2011-03-27 01:59:59'::timestamp AT TIME ZONE 'MSK'",
+    "expected": "SELECT timezone('MSK', CAST('2011-03-27 01:59:59' AS TIMESTAMP))"
   },
   {
     "comment": "timestamptz - Statement 253",
-    "query": "SELECT '2011-03-27 02:00:00'::timestamp AT TIME ZONE 'MSK'"
+    "query": "SELECT '2011-03-27 02:00:00'::timestamp AT TIME ZONE 'MSK'",
+    "expected": "SELECT timezone('MSK', CAST('2011-03-27 02:00:00' AS TIMESTAMP))"
   },
   {
     "comment": "timestamptz - Statement 254",
-    "query": "SELECT '2011-03-27 02:00:01'::timestamp AT TIME ZONE 'MSK'"
+    "query": "SELECT '2011-03-27 02:00:01'::timestamp AT TIME ZONE 'MSK'",
+    "expected": "SELECT timezone('MSK', CAST('2011-03-27 02:00:01' AS TIMESTAMP))"
   },
   {
     "comment": "timestamptz - Statement 255",
-    "query": "SELECT '2011-03-27 02:59:59'::timestamp AT TIME ZONE 'MSK'"
+    "query": "SELECT '2011-03-27 02:59:59'::timestamp AT TIME ZONE 'MSK'",
+    "expected": "SELECT timezone('MSK', CAST('2011-03-27 02:59:59' AS TIMESTAMP))"
   },
   {
     "comment": "timestamptz - Statement 256",
-    "query": "SELECT '2011-03-27 03:00:00'::timestamp AT TIME ZONE 'MSK'"
+    "query": "SELECT '2011-03-27 03:00:00'::timestamp AT TIME ZONE 'MSK'",
+    "expected": "SELECT timezone('MSK', CAST('2011-03-27 03:00:00' AS TIMESTAMP))"
   },
   {
     "comment": "timestamptz - Statement 257",
-    "query": "SELECT '2011-03-27 03:00:01'::timestamp AT TIME ZONE 'MSK'"
+    "query": "SELECT '2011-03-27 03:00:01'::timestamp AT TIME ZONE 'MSK'",
+    "expected": "SELECT timezone('MSK', CAST('2011-03-27 03:00:01' AS TIMESTAMP))"
   },
   {
     "comment": "timestamptz - Statement 258",
-    "query": "SELECT '2011-03-27 04:00:00'::timestamp AT TIME ZONE 'MSK'"
+    "query": "SELECT '2011-03-27 04:00:00'::timestamp AT TIME ZONE 'MSK'",
+    "expected": "SELECT timezone('MSK', CAST('2011-03-27 04:00:00' AS TIMESTAMP))"
   },
   {
     "comment": "timestamptz - Statement 259",
-    "query": "SELECT '2014-10-26 00:00:00'::timestamp AT TIME ZONE 'Europe/Moscow'"
+    "query": "SELECT '2014-10-26 00:00:00'::timestamp AT TIME ZONE 'Europe/Moscow'",
+    "expected": "SELECT timezone('Europe/Moscow', CAST('2014-10-26 00:00:00' AS TIMESTAMP))"
   },
   {
     "comment": "timestamptz - Statement 260",
-    "query": "SELECT '2014-10-26 00:59:59'::timestamp AT TIME ZONE 'Europe/Moscow'"
+    "query": "SELECT '2014-10-26 00:59:59'::timestamp AT TIME ZONE 'Europe/Moscow'",
+    "expected": "SELECT timezone('Europe/Moscow', CAST('2014-10-26 00:59:59' AS TIMESTAMP))"
   },
   {
     "comment": "timestamptz - Statement 261",
-    "query": "SELECT '2014-10-26 01:00:00'::timestamp AT TIME ZONE 'Europe/Moscow'"
+    "query": "SELECT '2014-10-26 01:00:00'::timestamp AT TIME ZONE 'Europe/Moscow'",
+    "expected": "SELECT timezone('Europe/Moscow', CAST('2014-10-26 01:00:00' AS TIMESTAMP))"
   },
   {
     "comment": "timestamptz - Statement 262",
-    "query": "SELECT '2014-10-26 01:00:01'::timestamp AT TIME ZONE 'Europe/Moscow'"
+    "query": "SELECT '2014-10-26 01:00:01'::timestamp AT TIME ZONE 'Europe/Moscow'",
+    "expected": "SELECT timezone('Europe/Moscow', CAST('2014-10-26 01:00:01' AS TIMESTAMP))"
   },
   {
     "comment": "timestamptz - Statement 263",
-    "query": "SELECT '2014-10-26 02:00:00'::timestamp AT TIME ZONE 'Europe/Moscow'"
+    "query": "SELECT '2014-10-26 02:00:00'::timestamp AT TIME ZONE 'Europe/Moscow'",
+    "expected": "SELECT timezone('Europe/Moscow', CAST('2014-10-26 02:00:00' AS TIMESTAMP))"
   },
   {
     "comment": "timestamptz - Statement 264",
-    "query": "SELECT '2014-10-26 00:00:00'::timestamp AT TIME ZONE 'MSK'"
+    "query": "SELECT '2014-10-26 00:00:00'::timestamp AT TIME ZONE 'MSK'",
+    "expected": "SELECT timezone('MSK', CAST('2014-10-26 00:00:00' AS TIMESTAMP))"
   },
   {
     "comment": "timestamptz - Statement 265",
-    "query": "SELECT '2014-10-26 00:59:59'::timestamp AT TIME ZONE 'MSK'"
+    "query": "SELECT '2014-10-26 00:59:59'::timestamp AT TIME ZONE 'MSK'",
+    "expected": "SELECT timezone('MSK', CAST('2014-10-26 00:59:59' AS TIMESTAMP))"
   },
   {
     "comment": "timestamptz - Statement 266",
-    "query": "SELECT '2014-10-26 01:00:00'::timestamp AT TIME ZONE 'MSK'"
+    "query": "SELECT '2014-10-26 01:00:00'::timestamp AT TIME ZONE 'MSK'",
+    "expected": "SELECT timezone('MSK', CAST('2014-10-26 01:00:00' AS TIMESTAMP))"
   },
   {
     "comment": "timestamptz - Statement 267",
-    "query": "SELECT '2014-10-26 01:00:01'::timestamp AT TIME ZONE 'MSK'"
+    "query": "SELECT '2014-10-26 01:00:01'::timestamp AT TIME ZONE 'MSK'",
+    "expected": "SELECT timezone('MSK', CAST('2014-10-26 01:00:01' AS TIMESTAMP))"
   },
   {
     "comment": "timestamptz - Statement 268",
-    "query": "SELECT '2014-10-26 02:00:00'::timestamp AT TIME ZONE 'MSK'"
+    "query": "SELECT '2014-10-26 02:00:00'::timestamp AT TIME ZONE 'MSK'",
+    "expected": "SELECT timezone('MSK', CAST('2014-10-26 02:00:00' AS TIMESTAMP))"
   },
   {
     "comment": "timestamptz - Statement 269",
@@ -1081,11 +1333,13 @@
   },
   {
     "comment": "timestamptz - Statement 271",
-    "query": "SELECT to_timestamp(         0)"
+    "query": "SELECT to_timestamp(         0)",
+    "expected": "SELECT to_timestamp(0)"
   },
   {
     "comment": "timestamptz - Statement 272",
-    "query": "SELECT to_timestamp( 946684800)"
+    "query": "SELECT to_timestamp( 946684800)",
+    "expected": "SELECT to_timestamp(946684800)"
   },
   {
     "comment": "timestamptz - Statement 273",
@@ -1097,163 +1351,203 @@
   },
   {
     "comment": "timestamptz - Statement 275",
-    "query": "SELECT to_timestamp(' Infinity'::float)"
+    "query": "SELECT to_timestamp(' Infinity'::float)",
+    "expected": "SELECT to_timestamp(CAST(' Infinity' AS FLOAT8))"
   },
   {
     "comment": "timestamptz - Statement 276",
-    "query": "SELECT to_timestamp('-Infinity'::float)"
+    "query": "SELECT to_timestamp('-Infinity'::float)",
+    "expected": "SELECT to_timestamp(CAST('-Infinity' AS FLOAT8))"
   },
   {
     "comment": "timestamptz - Statement 277",
-    "query": "SELECT to_timestamp('NaN'::float)"
+    "query": "SELECT to_timestamp('NaN'::float)",
+    "expected": "SELECT to_timestamp(CAST('NaN' AS FLOAT8))"
   },
   {
     "comment": "timestamptz - Statement 278",
-    "query": "SET TimeZone to 'Europe/Moscow'"
+    "query": "SET TimeZone to 'Europe/Moscow'",
+    "expected": "SET TIME ZONE 'Europe/Moscow'"
   },
   {
     "comment": "timestamptz - Statement 279",
-    "query": "SELECT '2011-03-26 21:00:00 UTC'::timestamptz"
+    "query": "SELECT '2011-03-26 21:00:00 UTC'::timestamptz",
+    "expected": "SELECT CAST('2011-03-26 21:00:00 UTC' AS TIMESTAMPTZ)"
   },
   {
     "comment": "timestamptz - Statement 280",
-    "query": "SELECT '2011-03-26 22:00:00 UTC'::timestamptz"
+    "query": "SELECT '2011-03-26 22:00:00 UTC'::timestamptz",
+    "expected": "SELECT CAST('2011-03-26 22:00:00 UTC' AS TIMESTAMPTZ)"
   },
   {
     "comment": "timestamptz - Statement 281",
-    "query": "SELECT '2011-03-26 22:59:59 UTC'::timestamptz"
+    "query": "SELECT '2011-03-26 22:59:59 UTC'::timestamptz",
+    "expected": "SELECT CAST('2011-03-26 22:59:59 UTC' AS TIMESTAMPTZ)"
   },
   {
     "comment": "timestamptz - Statement 282",
-    "query": "SELECT '2011-03-26 23:00:00 UTC'::timestamptz"
+    "query": "SELECT '2011-03-26 23:00:00 UTC'::timestamptz",
+    "expected": "SELECT CAST('2011-03-26 23:00:00 UTC' AS TIMESTAMPTZ)"
   },
   {
     "comment": "timestamptz - Statement 283",
-    "query": "SELECT '2011-03-26 23:00:01 UTC'::timestamptz"
+    "query": "SELECT '2011-03-26 23:00:01 UTC'::timestamptz",
+    "expected": "SELECT CAST('2011-03-26 23:00:01 UTC' AS TIMESTAMPTZ)"
   },
   {
     "comment": "timestamptz - Statement 284",
-    "query": "SELECT '2011-03-26 23:59:59 UTC'::timestamptz"
+    "query": "SELECT '2011-03-26 23:59:59 UTC'::timestamptz",
+    "expected": "SELECT CAST('2011-03-26 23:59:59 UTC' AS TIMESTAMPTZ)"
   },
   {
     "comment": "timestamptz - Statement 285",
-    "query": "SELECT '2011-03-27 00:00:00 UTC'::timestamptz"
+    "query": "SELECT '2011-03-27 00:00:00 UTC'::timestamptz",
+    "expected": "SELECT CAST('2011-03-27 00:00:00 UTC' AS TIMESTAMPTZ)"
   },
   {
     "comment": "timestamptz - Statement 286",
-    "query": "SELECT '2014-10-25 21:00:00 UTC'::timestamptz"
+    "query": "SELECT '2014-10-25 21:00:00 UTC'::timestamptz",
+    "expected": "SELECT CAST('2014-10-25 21:00:00 UTC' AS TIMESTAMPTZ)"
   },
   {
     "comment": "timestamptz - Statement 287",
-    "query": "SELECT '2014-10-25 21:59:59 UTC'::timestamptz"
+    "query": "SELECT '2014-10-25 21:59:59 UTC'::timestamptz",
+    "expected": "SELECT CAST('2014-10-25 21:59:59 UTC' AS TIMESTAMPTZ)"
   },
   {
     "comment": "timestamptz - Statement 288",
-    "query": "SELECT '2014-10-25 22:00:00 UTC'::timestamptz"
+    "query": "SELECT '2014-10-25 22:00:00 UTC'::timestamptz",
+    "expected": "SELECT CAST('2014-10-25 22:00:00 UTC' AS TIMESTAMPTZ)"
   },
   {
     "comment": "timestamptz - Statement 289",
-    "query": "SELECT '2014-10-25 22:00:01 UTC'::timestamptz"
+    "query": "SELECT '2014-10-25 22:00:01 UTC'::timestamptz",
+    "expected": "SELECT CAST('2014-10-25 22:00:01 UTC' AS TIMESTAMPTZ)"
   },
   {
     "comment": "timestamptz - Statement 290",
-    "query": "SELECT '2014-10-25 23:00:00 UTC'::timestamptz"
+    "query": "SELECT '2014-10-25 23:00:00 UTC'::timestamptz",
+    "expected": "SELECT CAST('2014-10-25 23:00:00 UTC' AS TIMESTAMPTZ)"
   },
   {
     "comment": "timestamptz - Statement 291",
-    "query": "SELECT '2011-03-26 21:00:00 UTC'::timestamptz AT TIME ZONE 'Europe/Moscow'"
+    "query": "SELECT '2011-03-26 21:00:00 UTC'::timestamptz AT TIME ZONE 'Europe/Moscow'",
+    "expected": "SELECT timezone('Europe/Moscow', CAST('2011-03-26 21:00:00 UTC' AS TIMESTAMPTZ))"
   },
   {
     "comment": "timestamptz - Statement 292",
-    "query": "SELECT '2011-03-26 22:00:00 UTC'::timestamptz AT TIME ZONE 'Europe/Moscow'"
+    "query": "SELECT '2011-03-26 22:00:00 UTC'::timestamptz AT TIME ZONE 'Europe/Moscow'",
+    "expected": "SELECT timezone('Europe/Moscow', CAST('2011-03-26 22:00:00 UTC' AS TIMESTAMPTZ))"
   },
   {
     "comment": "timestamptz - Statement 293",
-    "query": "SELECT '2011-03-26 22:59:59 UTC'::timestamptz AT TIME ZONE 'Europe/Moscow'"
+    "query": "SELECT '2011-03-26 22:59:59 UTC'::timestamptz AT TIME ZONE 'Europe/Moscow'",
+    "expected": "SELECT timezone('Europe/Moscow', CAST('2011-03-26 22:59:59 UTC' AS TIMESTAMPTZ))"
   },
   {
     "comment": "timestamptz - Statement 294",
-    "query": "SELECT '2011-03-26 23:00:00 UTC'::timestamptz AT TIME ZONE 'Europe/Moscow'"
+    "query": "SELECT '2011-03-26 23:00:00 UTC'::timestamptz AT TIME ZONE 'Europe/Moscow'",
+    "expected": "SELECT timezone('Europe/Moscow', CAST('2011-03-26 23:00:00 UTC' AS TIMESTAMPTZ))"
   },
   {
     "comment": "timestamptz - Statement 295",
-    "query": "SELECT '2011-03-26 23:00:01 UTC'::timestamptz AT TIME ZONE 'Europe/Moscow'"
+    "query": "SELECT '2011-03-26 23:00:01 UTC'::timestamptz AT TIME ZONE 'Europe/Moscow'",
+    "expected": "SELECT timezone('Europe/Moscow', CAST('2011-03-26 23:00:01 UTC' AS TIMESTAMPTZ))"
   },
   {
     "comment": "timestamptz - Statement 296",
-    "query": "SELECT '2011-03-26 23:59:59 UTC'::timestamptz AT TIME ZONE 'Europe/Moscow'"
+    "query": "SELECT '2011-03-26 23:59:59 UTC'::timestamptz AT TIME ZONE 'Europe/Moscow'",
+    "expected": "SELECT timezone('Europe/Moscow', CAST('2011-03-26 23:59:59 UTC' AS TIMESTAMPTZ))"
   },
   {
     "comment": "timestamptz - Statement 297",
-    "query": "SELECT '2011-03-27 00:00:00 UTC'::timestamptz AT TIME ZONE 'Europe/Moscow'"
+    "query": "SELECT '2011-03-27 00:00:00 UTC'::timestamptz AT TIME ZONE 'Europe/Moscow'",
+    "expected": "SELECT timezone('Europe/Moscow', CAST('2011-03-27 00:00:00 UTC' AS TIMESTAMPTZ))"
   },
   {
     "comment": "timestamptz - Statement 298",
-    "query": "SELECT '2014-10-25 21:00:00 UTC'::timestamptz AT TIME ZONE 'Europe/Moscow'"
+    "query": "SELECT '2014-10-25 21:00:00 UTC'::timestamptz AT TIME ZONE 'Europe/Moscow'",
+    "expected": "SELECT timezone('Europe/Moscow', CAST('2014-10-25 21:00:00 UTC' AS TIMESTAMPTZ))"
   },
   {
     "comment": "timestamptz - Statement 299",
-    "query": "SELECT '2014-10-25 21:59:59 UTC'::timestamptz AT TIME ZONE 'Europe/Moscow'"
+    "query": "SELECT '2014-10-25 21:59:59 UTC'::timestamptz AT TIME ZONE 'Europe/Moscow'",
+    "expected": "SELECT timezone('Europe/Moscow', CAST('2014-10-25 21:59:59 UTC' AS TIMESTAMPTZ))"
   },
   {
     "comment": "timestamptz - Statement 300",
-    "query": "SELECT '2014-10-25 22:00:00 UTC'::timestamptz AT TIME ZONE 'Europe/Moscow'"
+    "query": "SELECT '2014-10-25 22:00:00 UTC'::timestamptz AT TIME ZONE 'Europe/Moscow'",
+    "expected": "SELECT timezone('Europe/Moscow', CAST('2014-10-25 22:00:00 UTC' AS TIMESTAMPTZ))"
   },
   {
     "comment": "timestamptz - Statement 301",
-    "query": "SELECT '2014-10-25 22:00:01 UTC'::timestamptz AT TIME ZONE 'Europe/Moscow'"
+    "query": "SELECT '2014-10-25 22:00:01 UTC'::timestamptz AT TIME ZONE 'Europe/Moscow'",
+    "expected": "SELECT timezone('Europe/Moscow', CAST('2014-10-25 22:00:01 UTC' AS TIMESTAMPTZ))"
   },
   {
     "comment": "timestamptz - Statement 302",
-    "query": "SELECT '2014-10-25 23:00:00 UTC'::timestamptz AT TIME ZONE 'Europe/Moscow'"
+    "query": "SELECT '2014-10-25 23:00:00 UTC'::timestamptz AT TIME ZONE 'Europe/Moscow'",
+    "expected": "SELECT timezone('Europe/Moscow', CAST('2014-10-25 23:00:00 UTC' AS TIMESTAMPTZ))"
   },
   {
     "comment": "timestamptz - Statement 303",
-    "query": "SELECT '2011-03-26 21:00:00 UTC'::timestamptz AT TIME ZONE 'MSK'"
+    "query": "SELECT '2011-03-26 21:00:00 UTC'::timestamptz AT TIME ZONE 'MSK'",
+    "expected": "SELECT timezone('MSK', CAST('2011-03-26 21:00:00 UTC' AS TIMESTAMPTZ))"
   },
   {
     "comment": "timestamptz - Statement 304",
-    "query": "SELECT '2011-03-26 22:00:00 UTC'::timestamptz AT TIME ZONE 'MSK'"
+    "query": "SELECT '2011-03-26 22:00:00 UTC'::timestamptz AT TIME ZONE 'MSK'",
+    "expected": "SELECT timezone('MSK', CAST('2011-03-26 22:00:00 UTC' AS TIMESTAMPTZ))"
   },
   {
     "comment": "timestamptz - Statement 305",
-    "query": "SELECT '2011-03-26 22:59:59 UTC'::timestamptz AT TIME ZONE 'MSK'"
+    "query": "SELECT '2011-03-26 22:59:59 UTC'::timestamptz AT TIME ZONE 'MSK'",
+    "expected": "SELECT timezone('MSK', CAST('2011-03-26 22:59:59 UTC' AS TIMESTAMPTZ))"
   },
   {
     "comment": "timestamptz - Statement 306",
-    "query": "SELECT '2011-03-26 23:00:00 UTC'::timestamptz AT TIME ZONE 'MSK'"
+    "query": "SELECT '2011-03-26 23:00:00 UTC'::timestamptz AT TIME ZONE 'MSK'",
+    "expected": "SELECT timezone('MSK', CAST('2011-03-26 23:00:00 UTC' AS TIMESTAMPTZ))"
   },
   {
     "comment": "timestamptz - Statement 307",
-    "query": "SELECT '2011-03-26 23:00:01 UTC'::timestamptz AT TIME ZONE 'MSK'"
+    "query": "SELECT '2011-03-26 23:00:01 UTC'::timestamptz AT TIME ZONE 'MSK'",
+    "expected": "SELECT timezone('MSK', CAST('2011-03-26 23:00:01 UTC' AS TIMESTAMPTZ))"
   },
   {
     "comment": "timestamptz - Statement 308",
-    "query": "SELECT '2011-03-26 23:59:59 UTC'::timestamptz AT TIME ZONE 'MSK'"
+    "query": "SELECT '2011-03-26 23:59:59 UTC'::timestamptz AT TIME ZONE 'MSK'",
+    "expected": "SELECT timezone('MSK', CAST('2011-03-26 23:59:59 UTC' AS TIMESTAMPTZ))"
   },
   {
     "comment": "timestamptz - Statement 309",
-    "query": "SELECT '2011-03-27 00:00:00 UTC'::timestamptz AT TIME ZONE 'MSK'"
+    "query": "SELECT '2011-03-27 00:00:00 UTC'::timestamptz AT TIME ZONE 'MSK'",
+    "expected": "SELECT timezone('MSK', CAST('2011-03-27 00:00:00 UTC' AS TIMESTAMPTZ))"
   },
   {
     "comment": "timestamptz - Statement 310",
-    "query": "SELECT '2014-10-25 21:00:00 UTC'::timestamptz AT TIME ZONE 'MSK'"
+    "query": "SELECT '2014-10-25 21:00:00 UTC'::timestamptz AT TIME ZONE 'MSK'",
+    "expected": "SELECT timezone('MSK', CAST('2014-10-25 21:00:00 UTC' AS TIMESTAMPTZ))"
   },
   {
     "comment": "timestamptz - Statement 311",
-    "query": "SELECT '2014-10-25 21:59:59 UTC'::timestamptz AT TIME ZONE 'MSK'"
+    "query": "SELECT '2014-10-25 21:59:59 UTC'::timestamptz AT TIME ZONE 'MSK'",
+    "expected": "SELECT timezone('MSK', CAST('2014-10-25 21:59:59 UTC' AS TIMESTAMPTZ))"
   },
   {
     "comment": "timestamptz - Statement 312",
-    "query": "SELECT '2014-10-25 22:00:00 UTC'::timestamptz AT TIME ZONE 'MSK'"
+    "query": "SELECT '2014-10-25 22:00:00 UTC'::timestamptz AT TIME ZONE 'MSK'",
+    "expected": "SELECT timezone('MSK', CAST('2014-10-25 22:00:00 UTC' AS TIMESTAMPTZ))"
   },
   {
     "comment": "timestamptz - Statement 313",
-    "query": "SELECT '2014-10-25 22:00:01 UTC'::timestamptz AT TIME ZONE 'MSK'"
+    "query": "SELECT '2014-10-25 22:00:01 UTC'::timestamptz AT TIME ZONE 'MSK'",
+    "expected": "SELECT timezone('MSK', CAST('2014-10-25 22:00:01 UTC' AS TIMESTAMPTZ))"
   },
   {
     "comment": "timestamptz - Statement 314",
-    "query": "SELECT '2014-10-25 23:00:00 UTC'::timestamptz AT TIME ZONE 'MSK'"
+    "query": "SELECT '2014-10-25 23:00:00 UTC'::timestamptz AT TIME ZONE 'MSK'",
+    "expected": "SELECT timezone('MSK', CAST('2014-10-25 23:00:00 UTC' AS TIMESTAMPTZ))"
   },
   {
     "comment": "timestamptz - Statement 315",
@@ -1261,11 +1555,13 @@
   },
   {
     "comment": "timestamptz - Statement 316",
-    "query": "VALUES (CAST('1978-07-07 19:38 America/New_York' AS TIMESTAMP WITH TIME ZONE) AT LOCAL)"
+    "query": "VALUES (CAST('1978-07-07 19:38 America/New_York' AS TIMESTAMP WITH TIME ZONE) AT LOCAL)",
+    "expected": "VALUES (timezone(CAST('1978-07-07 19:38 America/New_York' AS TIMESTAMPTZ)))"
   },
   {
     "comment": "timestamptz - Statement 317",
-    "query": "VALUES (TIMESTAMP '1978-07-07 19:38' AT LOCAL)"
+    "query": "VALUES (TIMESTAMP '1978-07-07 19:38' AT LOCAL)",
+    "expected": "VALUES (timezone(CAST('1978-07-07 19:38' AS TIMESTAMP)))"
   },
   {
     "comment": "timestamptz - Statement 318",
@@ -1273,78 +1569,97 @@
   },
   {
     "comment": "timestamptz - Statement 319",
-    "query": "SET LOCAL TimeZone TO 'UTC'"
+    "query": "SET LOCAL TimeZone TO 'UTC'",
+    "expected": "SET LOCAL TIME ZONE 'UTC'"
   },
   {
     "comment": "timestamptz - Statement 320",
-    "query": "CREATE VIEW timestamp_local_view AS SELECT CAST('1978-07-07 19:38 America/New_York' AS TIMESTAMP WITH TIME ZONE) AT LOCAL AS ttz_at_local, timezone(CAST('1978-07-07 19:38 America/New_York' AS TIMESTAMP WITH TIME ZONE)) AS ttz_func, TIMESTAMP '1978-07-07 19:38' AT LOCAL AS t_at_local, timezone(TIMESTAMP '1978-07-07 19:38') AS t_func"
+    "query": "CREATE VIEW timestamp_local_view AS SELECT CAST('1978-07-07 19:38 America/New_York' AS TIMESTAMP WITH TIME ZONE) AT LOCAL AS ttz_at_local, timezone(CAST('1978-07-07 19:38 America/New_York' AS TIMESTAMP WITH TIME ZONE)) AS ttz_func, TIMESTAMP '1978-07-07 19:38' AT LOCAL AS t_at_local, timezone(TIMESTAMP '1978-07-07 19:38') AS t_func",
+    "expected": "CREATE VIEW timestamp_local_view AS SELECT timezone(CAST('1978-07-07 19:38 America/New_York' AS TIMESTAMPTZ)) AS ttz_at_local, timezone(CAST('1978-07-07 19:38 America/New_York' AS TIMESTAMPTZ)) AS ttz_func, timezone(CAST('1978-07-07 19:38' AS TIMESTAMP)) AS t_at_local, timezone(CAST('1978-07-07 19:38' AS TIMESTAMP)) AS t_func"
   },
   {
     "comment": "timestamptz - Statement 321",
-    "query": "SELECT pg_get_viewdef('timestamp_local_view', true)"
+    "query": "SELECT pg_get_viewdef('timestamp_local_view', true)",
+    "expected": "SELECT pg_get_viewdef('timestamp_local_view', TRUE)"
   },
   {
     "comment": "timestamptz - Statement 322",
-    "query": "create temp table tmptz (f1 timestamptz primary key)"
+    "query": "create temp table tmptz (f1 timestamptz primary key)",
+    "expected": "CREATE TEMPORARY TABLE tmptz (f1 TIMESTAMPTZ PRIMARY KEY)"
   },
   {
     "comment": "timestamptz - Statement 323",
-    "query": "insert into tmptz values ('2017-01-18 00:00+00')"
+    "query": "insert into tmptz values ('2017-01-18 00:00+00')",
+    "expected": "INSERT INTO tmptz VALUES ('2017-01-18 00:00+00')"
   },
   {
     "comment": "timestamptz - Statement 324",
-    "query": "explain (costs off) select * from tmptz where f1 at time zone 'utc' = '2017-01-18 00:00'"
+    "query": "explain (costs off) select * from tmptz where f1 at time zone 'utc' = '2017-01-18 00:00'",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM tmptz WHERE timezone('utc', f1) = '2017-01-18 00:00'"
   },
   {
     "comment": "timestamptz - Statement 325",
-    "query": "select * from tmptz where f1 at time zone 'utc' = '2017-01-18 00:00'"
+    "query": "select * from tmptz where f1 at time zone 'utc' = '2017-01-18 00:00'",
+    "expected": "SELECT * FROM tmptz WHERE timezone('utc', f1) = '2017-01-18 00:00'"
   },
   {
     "comment": "timestamptz - Statement 326",
-    "query": "SELECT timestamptz 'infinity' - timestamptz 'infinity'"
+    "query": "SELECT timestamptz 'infinity' - timestamptz 'infinity'",
+    "expected": "SELECT CAST('infinity' AS TIMESTAMPTZ) - CAST('infinity' AS TIMESTAMPTZ)"
   },
   {
     "comment": "timestamptz - Statement 327",
-    "query": "SELECT timestamptz 'infinity' - timestamptz '-infinity'"
+    "query": "SELECT timestamptz 'infinity' - timestamptz '-infinity'",
+    "expected": "SELECT CAST('infinity' AS TIMESTAMPTZ) - CAST('-infinity' AS TIMESTAMPTZ)"
   },
   {
     "comment": "timestamptz - Statement 328",
-    "query": "SELECT timestamptz '-infinity' - timestamptz 'infinity'"
+    "query": "SELECT timestamptz '-infinity' - timestamptz 'infinity'",
+    "expected": "SELECT CAST('-infinity' AS TIMESTAMPTZ) - CAST('infinity' AS TIMESTAMPTZ)"
   },
   {
     "comment": "timestamptz - Statement 329",
-    "query": "SELECT timestamptz '-infinity' - timestamptz '-infinity'"
+    "query": "SELECT timestamptz '-infinity' - timestamptz '-infinity'",
+    "expected": "SELECT CAST('-infinity' AS TIMESTAMPTZ) - CAST('-infinity' AS TIMESTAMPTZ)"
   },
   {
     "comment": "timestamptz - Statement 330",
-    "query": "SELECT timestamptz 'infinity' - timestamptz '1995-08-06 12:12:12'"
+    "query": "SELECT timestamptz 'infinity' - timestamptz '1995-08-06 12:12:12'",
+    "expected": "SELECT CAST('infinity' AS TIMESTAMPTZ) - CAST('1995-08-06 12:12:12' AS TIMESTAMPTZ)"
   },
   {
     "comment": "timestamptz - Statement 331",
-    "query": "SELECT timestamptz '-infinity' - timestamptz '1995-08-06 12:12:12'"
+    "query": "SELECT timestamptz '-infinity' - timestamptz '1995-08-06 12:12:12'",
+    "expected": "SELECT CAST('-infinity' AS TIMESTAMPTZ) - CAST('1995-08-06 12:12:12' AS TIMESTAMPTZ)"
   },
   {
     "comment": "timestamptz - Statement 332",
-    "query": "SELECT age(timestamptz 'infinity')"
+    "query": "SELECT age(timestamptz 'infinity')",
+    "expected": "SELECT age(CAST('infinity' AS TIMESTAMPTZ))"
   },
   {
     "comment": "timestamptz - Statement 333",
-    "query": "SELECT age(timestamptz '-infinity')"
+    "query": "SELECT age(timestamptz '-infinity')",
+    "expected": "SELECT age(CAST('-infinity' AS TIMESTAMPTZ))"
   },
   {
     "comment": "timestamptz - Statement 334",
-    "query": "SELECT age(timestamptz 'infinity', timestamptz 'infinity')"
+    "query": "SELECT age(timestamptz 'infinity', timestamptz 'infinity')",
+    "expected": "SELECT age(CAST('infinity' AS TIMESTAMPTZ), CAST('infinity' AS TIMESTAMPTZ))"
   },
   {
     "comment": "timestamptz - Statement 335",
-    "query": "SELECT age(timestamptz 'infinity', timestamptz '-infinity')"
+    "query": "SELECT age(timestamptz 'infinity', timestamptz '-infinity')",
+    "expected": "SELECT age(CAST('infinity' AS TIMESTAMPTZ), CAST('-infinity' AS TIMESTAMPTZ))"
   },
   {
     "comment": "timestamptz - Statement 336",
-    "query": "SELECT age(timestamptz '-infinity', timestamptz 'infinity')"
+    "query": "SELECT age(timestamptz '-infinity', timestamptz 'infinity')",
+    "expected": "SELECT age(CAST('-infinity' AS TIMESTAMPTZ), CAST('infinity' AS TIMESTAMPTZ))"
   },
   {
     "comment": "timestamptz - Statement 337",
-    "query": "SELECT age(timestamptz '-infinity', timestamptz '-infinity')"
+    "query": "SELECT age(timestamptz '-infinity', timestamptz '-infinity')",
+    "expected": "SELECT age(CAST('-infinity' AS TIMESTAMPTZ), CAST('-infinity' AS TIMESTAMPTZ))"
   }
 ]

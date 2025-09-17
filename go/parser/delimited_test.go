@@ -287,25 +287,25 @@ func TestUnicodeIdentifiers(t *testing.T) {
 		{
 			name:     "basic Unicode identifier",
 			input:    `U&"identifier"`,
-			expected: []TokenType{UIDENT, EOF},
+			expected: []TokenType{IDENT, EOF}, // PostgreSQL converts UIDENT→IDENT
 			values:   []string{"identifier", ""},
 		},
 		{
 			name:     "lowercase u prefix",
 			input:    `u&"identifier"`,
-			expected: []TokenType{UIDENT, EOF},
+			expected: []TokenType{IDENT, EOF}, // PostgreSQL converts UIDENT→IDENT
 			values:   []string{"identifier", ""},
 		},
 		{
 			name:     "Unicode identifier with escapes",
 			input:    `U&"test""quote"`,
-			expected: []TokenType{UIDENT, EOF},
+			expected: []TokenType{IDENT, EOF}, // PostgreSQL converts UIDENT→IDENT
 			values:   []string{`test"quote`, ""},
 		},
 		{
 			name:     "empty Unicode identifier in context",
 			input:    `SELECT U&""`,
-			expected: []TokenType{SELECT, UIDENT, EOF},
+			expected: []TokenType{SELECT, IDENT, EOF}, // PostgreSQL converts UIDENT→IDENT
 			values:   []string{"select", "", ""},
 		},
 	}

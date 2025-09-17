@@ -5,23 +5,28 @@
   },
   {
     "comment": "stats - Statement 2",
-    "query": "SET enable_seqscan TO on"
+    "query": "SET enable_seqscan TO on",
+    "expected": "SET enable_seqscan = on"
   },
   {
     "comment": "stats - Statement 3",
-    "query": "SET enable_indexscan TO on"
+    "query": "SET enable_indexscan TO on",
+    "expected": "SET enable_indexscan = on"
   },
   {
     "comment": "stats - Statement 4",
-    "query": "SET enable_indexonlyscan TO off"
+    "query": "SET enable_indexonlyscan TO off",
+    "expected": "SET enable_indexonlyscan = off"
   },
   {
     "comment": "stats - Statement 5",
-    "query": "SET track_functions TO 'all'"
+    "query": "SET track_functions TO 'all'",
+    "expected": "SET track_functions = 'all'"
   },
   {
     "comment": "stats - Statement 6",
-    "query": "SELECT oid AS dboid from pg_database where datname = current_database()"
+    "query": "SELECT oid AS dboid from pg_database where datname = current_database()",
+    "expected": "SELECT oid AS dboid FROM pg_database WHERE datname = current_database()"
   },
   {
     "comment": "stats - Statement 7",
@@ -29,11 +34,13 @@
   },
   {
     "comment": "stats - Statement 8",
-    "query": "SET LOCAL stats_fetch_consistency = snapshot"
+    "query": "SET LOCAL stats_fetch_consistency = snapshot",
+    "expected": "SET LOCAL stats_fetch_consistency = 'snapshot'"
   },
   {
     "comment": "stats - Statement 9",
-    "query": "CREATE TABLE prevstats AS SELECT t.seq_scan, t.seq_tup_read, t.idx_scan, t.idx_tup_fetch, (b.heap_blks_read + b.heap_blks_hit) AS heap_blks, (b.idx_blks_read + b.idx_blks_hit) AS idx_blks, pg_stat_get_snapshot_timestamp() as snap_ts FROM pg_catalog.pg_stat_user_tables AS t, pg_catalog.pg_statio_user_tables AS b WHERE t.relname='tenk2' AND b.relname='tenk2'"
+    "query": "CREATE TABLE prevstats AS SELECT t.seq_scan, t.seq_tup_read, t.idx_scan, t.idx_tup_fetch, (b.heap_blks_read + b.heap_blks_hit) AS heap_blks, (b.idx_blks_read + b.idx_blks_hit) AS idx_blks, pg_stat_get_snapshot_timestamp() as snap_ts FROM pg_catalog.pg_stat_user_tables AS t, pg_catalog.pg_statio_user_tables AS b WHERE t.relname='tenk2' AND b.relname='tenk2'",
+    "expected": "CREATE TABLE prevstats AS SELECT t.seq_scan, t.seq_tup_read, t.idx_scan, t.idx_tup_fetch, (b.heap_blks_read + b.heap_blks_hit) AS heap_blks, (b.idx_blks_read + b.idx_blks_hit) AS idx_blks, pg_stat_get_snapshot_timestamp() AS snap_ts FROM pg_catalog.pg_stat_user_tables AS t, pg_catalog.pg_statio_user_tables AS b WHERE t.relname = 'tenk2' AND b.relname = 'tenk2'"
   },
   {
     "comment": "stats - Statement 10",
@@ -41,23 +48,28 @@
   },
   {
     "comment": "stats - Statement 11",
-    "query": "CREATE TABLE trunc_stats_test(id serial)"
+    "query": "CREATE TABLE trunc_stats_test(id serial)",
+    "expected": "CREATE TABLE trunc_stats_test (id serial)"
   },
   {
     "comment": "stats - Statement 12",
-    "query": "CREATE TABLE trunc_stats_test1(id serial, stuff text)"
+    "query": "CREATE TABLE trunc_stats_test1(id serial, stuff text)",
+    "expected": "CREATE TABLE trunc_stats_test1 (id serial, stuff TEXT)"
   },
   {
     "comment": "stats - Statement 13",
-    "query": "CREATE TABLE trunc_stats_test2(id serial)"
+    "query": "CREATE TABLE trunc_stats_test2(id serial)",
+    "expected": "CREATE TABLE trunc_stats_test2 (id serial)"
   },
   {
     "comment": "stats - Statement 14",
-    "query": "CREATE TABLE trunc_stats_test3(id serial, stuff text)"
+    "query": "CREATE TABLE trunc_stats_test3(id serial, stuff text)",
+    "expected": "CREATE TABLE trunc_stats_test3 (id serial, stuff TEXT)"
   },
   {
     "comment": "stats - Statement 15",
-    "query": "CREATE TABLE trunc_stats_test4(id serial)"
+    "query": "CREATE TABLE trunc_stats_test4(id serial)",
+    "expected": "CREATE TABLE trunc_stats_test4 (id serial)"
   },
   {
     "comment": "stats - Statement 16",
@@ -65,7 +77,8 @@
   },
   {
     "comment": "stats - Statement 17",
-    "query": "TRUNCATE trunc_stats_test"
+    "query": "TRUNCATE trunc_stats_test",
+    "expected": "TRUNCATE TABLE trunc_stats_test CONTINUE IDENTITY RESTRICT"
   },
   {
     "comment": "stats - Statement 18",
@@ -85,7 +98,8 @@
   },
   {
     "comment": "stats - Statement 22",
-    "query": "TRUNCATE trunc_stats_test1"
+    "query": "TRUNCATE trunc_stats_test1",
+    "expected": "TRUNCATE TABLE trunc_stats_test1 CONTINUE IDENTITY RESTRICT"
   },
   {
     "comment": "stats - Statement 23",
@@ -97,7 +111,8 @@
   },
   {
     "comment": "stats - Statement 25",
-    "query": "TRUNCATE trunc_stats_test2"
+    "query": "TRUNCATE trunc_stats_test2",
+    "expected": "TRUNCATE TABLE trunc_stats_test2 CONTINUE IDENTITY RESTRICT"
   },
   {
     "comment": "stats - Statement 26",
@@ -109,7 +124,8 @@
   },
   {
     "comment": "stats - Statement 28",
-    "query": "TRUNCATE trunc_stats_test3"
+    "query": "TRUNCATE trunc_stats_test3",
+    "expected": "TRUNCATE TABLE trunc_stats_test3 CONTINUE IDENTITY RESTRICT"
   },
   {
     "comment": "stats - Statement 29",
@@ -121,7 +137,8 @@
   },
   {
     "comment": "stats - Statement 31",
-    "query": "TRUNCATE trunc_stats_test4"
+    "query": "TRUNCATE trunc_stats_test4",
+    "expected": "TRUNCATE TABLE trunc_stats_test4 CONTINUE IDENTITY RESTRICT"
   },
   {
     "comment": "stats - Statement 32",
@@ -129,15 +146,18 @@
   },
   {
     "comment": "stats - Statement 33",
-    "query": "SELECT count(*) FROM tenk2"
+    "query": "SELECT count(*) FROM tenk2",
+    "expected": "SELECT COUNT(*) FROM tenk2"
   },
   {
     "comment": "stats - Statement 34",
-    "query": "SET enable_bitmapscan TO off"
+    "query": "SET enable_bitmapscan TO off",
+    "expected": "SET enable_bitmapscan = off"
   },
   {
     "comment": "stats - Statement 35",
-    "query": "SELECT count(*) FROM tenk2 WHERE unique1 = 1"
+    "query": "SELECT count(*) FROM tenk2 WHERE unique1 = 1",
+    "expected": "SELECT COUNT(*) FROM tenk2 WHERE unique1 = 1"
   },
   {
     "comment": "stats - Statement 36",
@@ -149,39 +169,48 @@
   },
   {
     "comment": "stats - Statement 38",
-    "query": "SELECT relname, n_tup_ins, n_tup_upd, n_tup_del, n_live_tup, n_dead_tup FROM pg_stat_user_tables WHERE relname like 'trunc_stats_test%' order by relname"
+    "query": "SELECT relname, n_tup_ins, n_tup_upd, n_tup_del, n_live_tup, n_dead_tup FROM pg_stat_user_tables WHERE relname like 'trunc_stats_test%' order by relname",
+    "expected": "SELECT relname, n_tup_ins, n_tup_upd, n_tup_del, n_live_tup, n_dead_tup FROM pg_stat_user_tables WHERE relname LIKE 'trunc_stats_test%' ORDER BY relname"
   },
   {
     "comment": "stats - Statement 39",
-    "query": "SELECT st.seq_scan >= pr.seq_scan + 1, st.seq_tup_read >= pr.seq_tup_read + cl.reltuples, st.idx_scan >= pr.idx_scan + 1, st.idx_tup_fetch >= pr.idx_tup_fetch + 1 FROM pg_stat_user_tables AS st, pg_class AS cl, prevstats AS pr WHERE st.relname='tenk2' AND cl.relname='tenk2'"
+    "query": "SELECT st.seq_scan \u003e= pr.seq_scan + 1, st.seq_tup_read \u003e= pr.seq_tup_read + cl.reltuples, st.idx_scan \u003e= pr.idx_scan + 1, st.idx_tup_fetch \u003e= pr.idx_tup_fetch + 1 FROM pg_stat_user_tables AS st, pg_class AS cl, prevstats AS pr WHERE st.relname='tenk2' AND cl.relname='tenk2'",
+    "expected": "SELECT st.seq_scan \u003e= pr.seq_scan + 1, st.seq_tup_read \u003e= pr.seq_tup_read + cl.reltuples, st.idx_scan \u003e= pr.idx_scan + 1, st.idx_tup_fetch \u003e= pr.idx_tup_fetch + 1 FROM pg_stat_user_tables AS st, pg_class AS cl, prevstats AS pr WHERE st.relname = 'tenk2' AND cl.relname = 'tenk2'"
   },
   {
     "comment": "stats - Statement 40",
-    "query": "SELECT st.heap_blks_read + st.heap_blks_hit >= pr.heap_blks + cl.relpages, st.idx_blks_read + st.idx_blks_hit >= pr.idx_blks + 1 FROM pg_statio_user_tables AS st, pg_class AS cl, prevstats AS pr WHERE st.relname='tenk2' AND cl.relname='tenk2'"
+    "query": "SELECT st.heap_blks_read + st.heap_blks_hit \u003e= pr.heap_blks + cl.relpages, st.idx_blks_read + st.idx_blks_hit \u003e= pr.idx_blks + 1 FROM pg_statio_user_tables AS st, pg_class AS cl, prevstats AS pr WHERE st.relname='tenk2' AND cl.relname='tenk2'",
+    "expected": "SELECT st.heap_blks_read + st.heap_blks_hit \u003e= pr.heap_blks + cl.relpages, st.idx_blks_read + st.idx_blks_hit \u003e= pr.idx_blks + 1 FROM pg_statio_user_tables AS st, pg_class AS cl, prevstats AS pr WHERE st.relname = 'tenk2' AND cl.relname = 'tenk2'"
   },
   {
     "comment": "stats - Statement 41",
-    "query": "SELECT pr.snap_ts < pg_stat_get_snapshot_timestamp() as snapshot_newer FROM prevstats AS pr"
+    "query": "SELECT pr.snap_ts \u003c pg_stat_get_snapshot_timestamp() as snapshot_newer FROM prevstats AS pr",
+    "expected": "SELECT pr.snap_ts \u003c pg_stat_get_snapshot_timestamp() AS snapshot_newer FROM prevstats AS pr"
   },
   {
     "comment": "stats - Statement 42",
-    "query": "CREATE FUNCTION stats_test_func1() RETURNS VOID LANGUAGE plpgsql AS $$BEGIN END;$$"
+    "query": "CREATE FUNCTION stats_test_func1() RETURNS VOID LANGUAGE plpgsql AS $$BEGIN END;$$",
+    "expected": "CREATE FUNCTION stats_test_func1 () RETURNS void LANGUAGE plpgsql AS $$BEGIN END;$$"
   },
   {
     "comment": "stats - Statement 43",
-    "query": "SELECT 'stats_test_func1()'::regprocedure::oid AS stats_test_func1_oid"
+    "query": "SELECT 'stats_test_func1()'::regprocedure::oid AS stats_test_func1_oid",
+    "expected": "SELECT CAST(CAST('stats_test_func1()' AS regprocedure) AS oid) AS stats_test_func1_oid"
   },
   {
     "comment": "stats - Statement 44",
-    "query": "CREATE FUNCTION stats_test_func2() RETURNS VOID LANGUAGE plpgsql AS $$BEGIN END;$$"
+    "query": "CREATE FUNCTION stats_test_func2() RETURNS VOID LANGUAGE plpgsql AS $$BEGIN END;$$",
+    "expected": "CREATE FUNCTION stats_test_func2 () RETURNS void LANGUAGE plpgsql AS $$BEGIN END;$$"
   },
   {
     "comment": "stats - Statement 45",
-    "query": "SELECT 'stats_test_func2()'::regprocedure::oid AS stats_test_func2_oid"
+    "query": "SELECT 'stats_test_func2()'::regprocedure::oid AS stats_test_func2_oid",
+    "expected": "SELECT CAST(CAST('stats_test_func2()' AS regprocedure) AS oid) AS stats_test_func2_oid"
   },
   {
     "comment": "stats - Statement 46",
-    "query": "SET LOCAL stats_fetch_consistency = none"
+    "query": "SET LOCAL stats_fetch_consistency = none",
+    "expected": "SET LOCAL stats_fetch_consistency = 'none'"
   },
   {
     "comment": "stats - Statement 47",
@@ -229,7 +258,8 @@
   },
   {
     "comment": "stats - Statement 58",
-    "query": "CREATE TABLE drop_stats_test()"
+    "query": "CREATE TABLE drop_stats_test()",
+    "expected": "CREATE TABLE drop_stats_test ()"
   },
   {
     "comment": "stats - Statement 59",
@@ -237,11 +267,13 @@
   },
   {
     "comment": "stats - Statement 60",
-    "query": "SELECT 'drop_stats_test'::regclass::oid AS drop_stats_test_oid"
+    "query": "SELECT 'drop_stats_test'::regclass::oid AS drop_stats_test_oid",
+    "expected": "SELECT CAST(CAST('drop_stats_test' AS regclass) AS oid) AS drop_stats_test_oid"
   },
   {
     "comment": "stats - Statement 61",
-    "query": "CREATE TABLE drop_stats_test_xact()"
+    "query": "CREATE TABLE drop_stats_test_xact()",
+    "expected": "CREATE TABLE drop_stats_test_xact ()"
   },
   {
     "comment": "stats - Statement 62",
@@ -249,11 +281,13 @@
   },
   {
     "comment": "stats - Statement 63",
-    "query": "SELECT 'drop_stats_test_xact'::regclass::oid AS drop_stats_test_xact_oid"
+    "query": "SELECT 'drop_stats_test_xact'::regclass::oid AS drop_stats_test_xact_oid",
+    "expected": "SELECT CAST(CAST('drop_stats_test_xact' AS regclass) AS oid) AS drop_stats_test_xact_oid"
   },
   {
     "comment": "stats - Statement 64",
-    "query": "CREATE TABLE drop_stats_test_subxact()"
+    "query": "CREATE TABLE drop_stats_test_subxact()",
+    "expected": "CREATE TABLE drop_stats_test_subxact ()"
   },
   {
     "comment": "stats - Statement 65",
@@ -261,7 +295,8 @@
   },
   {
     "comment": "stats - Statement 66",
-    "query": "SELECT 'drop_stats_test_subxact'::regclass::oid AS drop_stats_test_subxact_oid"
+    "query": "SELECT 'drop_stats_test_subxact'::regclass::oid AS drop_stats_test_subxact_oid",
+    "expected": "SELECT CAST(CAST('drop_stats_test_subxact' AS regclass) AS oid) AS drop_stats_test_subxact_oid"
   },
   {
     "comment": "stats - Statement 67",
@@ -317,59 +352,73 @@
   },
   {
     "comment": "stats - Statement 80",
-    "query": "CREATE TEMPORARY TABLE test_last_scan(idx_col int primary key, noidx_col int)"
+    "query": "CREATE TEMPORARY TABLE test_last_scan(idx_col int primary key, noidx_col int)",
+    "expected": "CREATE TEMPORARY TABLE test_last_scan (idx_col INT PRIMARY KEY, noidx_col INT)"
   },
   {
     "comment": "stats - Statement 81",
-    "query": "INSERT INTO test_last_scan(idx_col, noidx_col) VALUES(1, 1)"
+    "query": "INSERT INTO test_last_scan(idx_col, noidx_col) VALUES(1, 1)",
+    "expected": "INSERT INTO test_last_scan (idx_col, noidx_col) VALUES (1, 1)"
   },
   {
     "comment": "stats - Statement 82",
-    "query": "SELECT last_seq_scan, last_idx_scan FROM pg_stat_all_tables WHERE relid = 'test_last_scan'::regclass"
+    "query": "SELECT last_seq_scan, last_idx_scan FROM pg_stat_all_tables WHERE relid = 'test_last_scan'::regclass",
+    "expected": "SELECT last_seq_scan, last_idx_scan FROM pg_stat_all_tables WHERE relid = CAST('test_last_scan' AS regclass)"
   },
   {
     "comment": "stats - Statement 83",
-    "query": "SELECT pg_stat_reset_single_table_counters('test_last_scan'::regclass)"
+    "query": "SELECT pg_stat_reset_single_table_counters('test_last_scan'::regclass)",
+    "expected": "SELECT pg_stat_reset_single_table_counters(CAST('test_last_scan' AS regclass))"
   },
   {
     "comment": "stats - Statement 84",
-    "query": "SELECT seq_scan, idx_scan FROM pg_stat_all_tables WHERE relid = 'test_last_scan'::regclass"
+    "query": "SELECT seq_scan, idx_scan FROM pg_stat_all_tables WHERE relid = 'test_last_scan'::regclass",
+    "expected": "SELECT seq_scan, idx_scan FROM pg_stat_all_tables WHERE relid = CAST('test_last_scan' AS regclass)"
   },
   {
     "comment": "stats - Statement 85",
-    "query": "SET LOCAL enable_seqscan TO on"
+    "query": "SET LOCAL enable_seqscan TO on",
+    "expected": "SET LOCAL enable_seqscan = on"
   },
   {
     "comment": "stats - Statement 86",
-    "query": "SET LOCAL enable_indexscan TO on"
+    "query": "SET LOCAL enable_indexscan TO on",
+    "expected": "SET LOCAL enable_indexscan = on"
   },
   {
     "comment": "stats - Statement 87",
-    "query": "SET LOCAL enable_bitmapscan TO off"
+    "query": "SET LOCAL enable_bitmapscan TO off",
+    "expected": "SET LOCAL enable_bitmapscan = off"
   },
   {
     "comment": "stats - Statement 88",
-    "query": "EXPLAIN (COSTS off) SELECT count(*) FROM test_last_scan WHERE noidx_col = 1"
+    "query": "EXPLAIN (COSTS off) SELECT count(*) FROM test_last_scan WHERE noidx_col = 1",
+    "expected": "EXPLAIN (COSTS false) SELECT COUNT(*) FROM test_last_scan WHERE noidx_col = 1"
   },
   {
     "comment": "stats - Statement 89",
-    "query": "SELECT count(*) FROM test_last_scan WHERE noidx_col = 1"
+    "query": "SELECT count(*) FROM test_last_scan WHERE noidx_col = 1",
+    "expected": "SELECT COUNT(*) FROM test_last_scan WHERE noidx_col = 1"
   },
   {
     "comment": "stats - Statement 90",
-    "query": "SET LOCAL enable_seqscan TO off"
+    "query": "SET LOCAL enable_seqscan TO off",
+    "expected": "SET LOCAL enable_seqscan = off"
   },
   {
     "comment": "stats - Statement 91",
-    "query": "EXPLAIN (COSTS off) SELECT count(*) FROM test_last_scan WHERE idx_col = 1"
+    "query": "EXPLAIN (COSTS off) SELECT count(*) FROM test_last_scan WHERE idx_col = 1",
+    "expected": "EXPLAIN (COSTS false) SELECT COUNT(*) FROM test_last_scan WHERE idx_col = 1"
   },
   {
     "comment": "stats - Statement 92",
-    "query": "SELECT count(*) FROM test_last_scan WHERE idx_col = 1"
+    "query": "SELECT count(*) FROM test_last_scan WHERE idx_col = 1",
+    "expected": "SELECT COUNT(*) FROM test_last_scan WHERE idx_col = 1"
   },
   {
     "comment": "stats - Statement 93",
-    "query": "SELECT last_seq_scan AS test_last_seq, last_idx_scan AS test_last_idx FROM pg_stat_all_tables WHERE relid = 'test_last_scan'::regclass"
+    "query": "SELECT last_seq_scan AS test_last_seq, last_idx_scan AS test_last_idx FROM pg_stat_all_tables WHERE relid = 'test_last_scan'::regclass",
+    "expected": "SELECT last_seq_scan AS test_last_seq, last_idx_scan AS test_last_idx FROM pg_stat_all_tables WHERE relid = CAST('test_last_scan' AS regclass)"
   },
   {
     "comment": "stats - Statement 94",
@@ -377,43 +426,52 @@
   },
   {
     "comment": "stats - Statement 95",
-    "query": "SET LOCAL enable_indexscan TO off"
+    "query": "SET LOCAL enable_indexscan TO off",
+    "expected": "SET LOCAL enable_indexscan = off"
   },
   {
     "comment": "stats - Statement 96",
-    "query": "SELECT seq_scan, :'test_last_seq' < last_seq_scan AS seq_ok, idx_scan, :'test_last_idx' = last_idx_scan AS idx_ok FROM pg_stat_all_tables WHERE relid = 'test_last_scan'::regclass"
+    "query": "SELECT seq_scan, 'test_last_seq' \u003c last_seq_scan AS seq_ok, idx_scan, 'test_last_idx' = last_idx_scan AS idx_ok FROM pg_stat_all_tables WHERE relid = 'test_last_scan'::regclass",
+    "expected": "SELECT seq_scan, 'test_last_seq' \u003c last_seq_scan AS seq_ok, idx_scan, 'test_last_idx' = last_idx_scan AS idx_ok FROM pg_stat_all_tables WHERE relid = CAST('test_last_scan' AS regclass)"
   },
   {
     "comment": "stats - Statement 97",
-    "query": "SELECT seq_scan, :'test_last_seq' = last_seq_scan AS seq_ok, idx_scan, :'test_last_idx' < last_idx_scan AS idx_ok FROM pg_stat_all_tables WHERE relid = 'test_last_scan'::regclass"
+    "query": "SELECT seq_scan, 'test_last_seq' = last_seq_scan AS seq_ok, idx_scan, 'test_last_idx' \u003c last_idx_scan AS idx_ok FROM pg_stat_all_tables WHERE relid = 'test_last_scan'::regclass",
+    "expected": "SELECT seq_scan, 'test_last_seq' = last_seq_scan AS seq_ok, idx_scan, 'test_last_idx' \u003c last_idx_scan AS idx_ok FROM pg_stat_all_tables WHERE relid = CAST('test_last_scan' AS regclass)"
   },
   {
     "comment": "stats - Statement 98",
-    "query": "SET LOCAL enable_bitmapscan TO on"
+    "query": "SET LOCAL enable_bitmapscan TO on",
+    "expected": "SET LOCAL enable_bitmapscan = on"
   },
   {
     "comment": "stats - Statement 99",
-    "query": "SELECT shobj_description(d.oid, 'pg_database') as description_before FROM pg_database d WHERE datname = current_database()"
+    "query": "SELECT shobj_description(d.oid, 'pg_database') as description_before FROM pg_database d WHERE datname = current_database()",
+    "expected": "SELECT shobj_description(d.oid, 'pg_database') AS description_before FROM pg_database AS d WHERE datname = current_database()"
   },
   {
     "comment": "stats - Statement 100",
-    "query": "SELECT current_database() as datname"
+    "query": "SELECT current_database() as datname",
+    "expected": "SELECT current_database() AS datname"
   },
   {
     "comment": "stats - Statement 101",
-    "query": "COMMENT ON DATABASE :\"datname\" IS 'This is a test comment'"
+    "query": "COMMENT ON DATABASE \"datname\" IS 'This is a test comment'",
+    "expected": "COMMENT ON DATABASE datname IS 'This is a test comment'"
   },
   {
     "comment": "stats - Statement 102",
-    "query": "SELECT (n_tup_ins + n_tup_upd) > 0 AS has_data FROM pg_stat_all_tables WHERE relid = 'pg_shdescription'::regclass"
+    "query": "SELECT (n_tup_ins + n_tup_upd) \u003e 0 AS has_data FROM pg_stat_all_tables WHERE relid = 'pg_shdescription'::regclass",
+    "expected": "SELECT (n_tup_ins + n_tup_upd) \u003e 0 AS has_data FROM pg_stat_all_tables WHERE relid = CAST('pg_shdescription' AS regclass)"
   },
   {
     "comment": "stats - Statement 103",
-    "query": "SELECT pg_stat_reset_single_table_counters('pg_shdescription'::regclass)"
+    "query": "SELECT pg_stat_reset_single_table_counters('pg_shdescription'::regclass)",
+    "expected": "SELECT pg_stat_reset_single_table_counters(CAST('pg_shdescription' AS regclass))"
   },
   {
     "comment": "stats - Statement 104",
-    "query": "SELECT sessions > 1 FROM pg_stat_database WHERE datname = (SELECT current_database())"
+    "query": "SELECT sessions \u003e 1 FROM pg_stat_database WHERE datname = (SELECT current_database())"
   },
   {
     "comment": "stats - Statement 105",
@@ -437,15 +495,16 @@
   },
   {
     "comment": "stats - Statement 110",
-    "query": "SELECT num_requested > 1000 FROM pg_stat_checkpointer"
+    "query": "SELECT num_requested \u003e 1000 FROM pg_stat_checkpointer"
   },
   {
     "comment": "stats - Statement 111",
-    "query": "SELECT wal_bytes > 1000 FROM pg_stat_wal"
+    "query": "SELECT wal_bytes \u003e 1000 FROM pg_stat_wal"
   },
   {
     "comment": "stats - Statement 112",
-    "query": "SELECT (current_schemas(true))[1] = ('pg_temp_' || beid::text) AS match FROM pg_stat_get_backend_idset() beid WHERE pg_stat_get_backend_pid(beid) = pg_backend_pid()"
+    "query": "SELECT (current_schemas(true))[1] = ('pg_temp_' || beid::text) AS match FROM pg_stat_get_backend_idset() beid WHERE pg_stat_get_backend_pid(beid) = pg_backend_pid()",
+    "expected": "SELECT (current_schemas(TRUE))[1] = ('pg_temp_' || CAST(beid AS TEXT)) AS match FROM pg_stat_get_backend_idset() AS beid WHERE pg_stat_get_backend_pid(beid) = pg_backend_pid()"
   },
   {
     "comment": "stats - Statement 113",
@@ -461,7 +520,8 @@
   },
   {
     "comment": "stats - Statement 116",
-    "query": "SELECT stats_reset > :'slru_commit_ts_reset_ts'::timestamptz FROM pg_stat_slru WHERE name = 'commit_timestamp'"
+    "query": "SELECT stats_reset \u003e 'slru_commit_ts_reset_ts'::timestamptz FROM pg_stat_slru WHERE name = 'commit_timestamp'",
+    "expected": "SELECT stats_reset \u003e CAST('slru_commit_ts_reset_ts' AS TIMESTAMPTZ) FROM pg_stat_slru WHERE name = 'commit_timestamp'"
   },
   {
     "comment": "stats - Statement 117",
@@ -469,7 +529,8 @@
   },
   {
     "comment": "stats - Statement 118",
-    "query": "SELECT stats_reset > :'slru_notify_reset_ts'::timestamptz FROM pg_stat_slru WHERE name = 'notify'"
+    "query": "SELECT stats_reset \u003e 'slru_notify_reset_ts'::timestamptz FROM pg_stat_slru WHERE name = 'notify'",
+    "expected": "SELECT stats_reset \u003e CAST('slru_notify_reset_ts' AS TIMESTAMPTZ) FROM pg_stat_slru WHERE name = 'notify'"
   },
   {
     "comment": "stats - Statement 119",
@@ -481,7 +542,8 @@
   },
   {
     "comment": "stats - Statement 121",
-    "query": "SELECT stats_reset > :'archiver_reset_ts'::timestamptz FROM pg_stat_archiver"
+    "query": "SELECT stats_reset \u003e 'archiver_reset_ts'::timestamptz FROM pg_stat_archiver",
+    "expected": "SELECT stats_reset \u003e CAST('archiver_reset_ts' AS TIMESTAMPTZ) FROM pg_stat_archiver"
   },
   {
     "comment": "stats - Statement 122",
@@ -493,7 +555,8 @@
   },
   {
     "comment": "stats - Statement 124",
-    "query": "SELECT stats_reset > :'bgwriter_reset_ts'::timestamptz FROM pg_stat_bgwriter"
+    "query": "SELECT stats_reset \u003e 'bgwriter_reset_ts'::timestamptz FROM pg_stat_bgwriter",
+    "expected": "SELECT stats_reset \u003e CAST('bgwriter_reset_ts' AS TIMESTAMPTZ) FROM pg_stat_bgwriter"
   },
   {
     "comment": "stats - Statement 125",
@@ -505,7 +568,8 @@
   },
   {
     "comment": "stats - Statement 127",
-    "query": "SELECT stats_reset > :'checkpointer_reset_ts'::timestamptz FROM pg_stat_checkpointer"
+    "query": "SELECT stats_reset \u003e 'checkpointer_reset_ts'::timestamptz FROM pg_stat_checkpointer",
+    "expected": "SELECT stats_reset \u003e CAST('checkpointer_reset_ts' AS TIMESTAMPTZ) FROM pg_stat_checkpointer"
   },
   {
     "comment": "stats - Statement 128",
@@ -517,11 +581,13 @@
   },
   {
     "comment": "stats - Statement 130",
-    "query": "SELECT stats_reset > :'recovery_prefetch_reset_ts'::timestamptz FROM pg_stat_recovery_prefetch"
+    "query": "SELECT stats_reset \u003e 'recovery_prefetch_reset_ts'::timestamptz FROM pg_stat_recovery_prefetch",
+    "expected": "SELECT stats_reset \u003e CAST('recovery_prefetch_reset_ts' AS TIMESTAMPTZ) FROM pg_stat_recovery_prefetch"
   },
   {
     "comment": "stats - Statement 131",
-    "query": "SELECT max(stats_reset) AS slru_reset_ts FROM pg_stat_slru"
+    "query": "SELECT max(stats_reset) AS slru_reset_ts FROM pg_stat_slru",
+    "expected": "SELECT MAX(stats_reset) AS slru_reset_ts FROM pg_stat_slru"
   },
   {
     "comment": "stats - Statement 132",
@@ -529,7 +595,8 @@
   },
   {
     "comment": "stats - Statement 133",
-    "query": "SELECT max(stats_reset) > :'slru_reset_ts'::timestamptz FROM pg_stat_slru"
+    "query": "SELECT max(stats_reset) \u003e 'slru_reset_ts'::timestamptz FROM pg_stat_slru",
+    "expected": "SELECT MAX(stats_reset) \u003e CAST('slru_reset_ts' AS TIMESTAMPTZ) FROM pg_stat_slru"
   },
   {
     "comment": "stats - Statement 134",
@@ -541,7 +608,8 @@
   },
   {
     "comment": "stats - Statement 136",
-    "query": "SELECT stats_reset > :'wal_reset_ts'::timestamptz FROM pg_stat_wal"
+    "query": "SELECT stats_reset \u003e 'wal_reset_ts'::timestamptz FROM pg_stat_wal",
+    "expected": "SELECT stats_reset \u003e CAST('wal_reset_ts' AS TIMESTAMPTZ) FROM pg_stat_wal"
   },
   {
     "comment": "stats - Statement 137",
@@ -557,7 +625,8 @@
   },
   {
     "comment": "stats - Statement 140",
-    "query": "SELECT stats_reset > :'db_reset_ts'::timestamptz FROM pg_stat_database WHERE datname = (SELECT current_database())"
+    "query": "SELECT stats_reset \u003e 'db_reset_ts'::timestamptz FROM pg_stat_database WHERE datname = (SELECT current_database())",
+    "expected": "SELECT stats_reset \u003e CAST('db_reset_ts' AS TIMESTAMPTZ) FROM pg_stat_database WHERE datname = (SELECT current_database())"
   },
   {
     "comment": "stats - Statement 141",
@@ -569,7 +638,7 @@
   },
   {
     "comment": "stats - Statement 143",
-    "query": "SELECT pg_stat_get_snapshot_timestamp() >= NOW()"
+    "query": "SELECT pg_stat_get_snapshot_timestamp() \u003e= NOW()"
   },
   {
     "comment": "stats - Statement 144",
@@ -577,7 +646,8 @@
   },
   {
     "comment": "stats - Statement 145",
-    "query": "SET LOCAL stats_fetch_consistency = cache"
+    "query": "SET LOCAL stats_fetch_consistency = cache",
+    "expected": "SET LOCAL stats_fetch_consistency = 'cache'"
   },
   {
     "comment": "stats - Statement 146",
@@ -601,23 +671,28 @@
   },
   {
     "comment": "stats - Statement 151",
-    "query": "CREATE table stats_test_tab1 as select generate_series(1,10) a"
+    "query": "CREATE table stats_test_tab1 as select generate_series(1,10) a",
+    "expected": "CREATE TABLE stats_test_tab1 AS SELECT generate_series(1, 10) AS a"
   },
   {
     "comment": "stats - Statement 152",
-    "query": "CREATE index stats_test_idx1 on stats_test_tab1(a)"
+    "query": "CREATE index stats_test_idx1 on stats_test_tab1(a)",
+    "expected": "CREATE INDEX stats_test_idx1 ON stats_test_tab1 USING btree ( a )"
   },
   {
     "comment": "stats - Statement 153",
-    "query": "SELECT 'stats_test_idx1'::regclass::oid AS stats_test_idx1_oid"
+    "query": "SELECT 'stats_test_idx1'::regclass::oid AS stats_test_idx1_oid",
+    "expected": "SELECT CAST(CAST('stats_test_idx1' AS regclass) AS oid) AS stats_test_idx1_oid"
   },
   {
     "comment": "stats - Statement 154",
-    "query": "SET enable_seqscan TO off"
+    "query": "SET enable_seqscan TO off",
+    "expected": "SET enable_seqscan = off"
   },
   {
     "comment": "stats - Statement 155",
-    "query": "select a from stats_test_tab1 where a = 3"
+    "query": "select a from stats_test_tab1 where a = 3",
+    "expected": "SELECT a FROM stats_test_tab1 WHERE a = 3"
   },
   {
     "comment": "stats - Statement 156",
@@ -625,11 +700,13 @@
   },
   {
     "comment": "stats - Statement 157",
-    "query": "DROP index stats_test_idx1"
+    "query": "DROP index stats_test_idx1",
+    "expected": "DROP INDEX stats_test_idx1"
   },
   {
     "comment": "stats - Statement 158",
-    "query": "REINDEX index CONCURRENTLY stats_test_idx1"
+    "query": "REINDEX index CONCURRENTLY stats_test_idx1",
+    "expected": "REINDEX INDEX CONCURRENTLY stats_test_idx1"
   },
   {
     "comment": "stats - Statement 159",
@@ -641,39 +718,45 @@
   },
   {
     "comment": "stats - Statement 161",
-    "query": "SELECT sum(extends) AS io_sum_shared_before_extends FROM pg_stat_io WHERE context = 'normal' AND object = 'relation'"
+    "query": "SELECT sum(extends) AS io_sum_shared_before_extends FROM pg_stat_io WHERE context = 'normal' AND object = 'relation'",
+    "expected": "SELECT SUM(extends) AS io_sum_shared_before_extends FROM pg_stat_io WHERE context = 'normal' AND object = 'relation'"
   },
   {
     "comment": "stats - Statement 162",
-    "query": "SELECT sum(writes) AS writes, sum(fsyncs) AS fsyncs FROM pg_stat_io WHERE object = 'relation'"
+    "query": "SELECT sum(writes) AS writes, sum(fsyncs) AS fsyncs FROM pg_stat_io WHERE object = 'relation'",
+    "expected": "SELECT SUM(writes) AS writes, SUM(fsyncs) AS fsyncs FROM pg_stat_io WHERE object = 'relation'"
   },
   {
     "comment": "stats - Statement 163",
-    "query": "io_sum_shared_before_ CREATE TABLE test_io_shared(a int)"
+    "query": "CREATE TABLE test_io_shared(a int)",
+    "expected": "CREATE TABLE test_io_shared (a INT)"
   },
   {
     "comment": "stats - Statement 164",
-    "query": "INSERT INTO test_io_shared SELECT i FROM generate_series(1,100)i"
+    "query": "INSERT INTO test_io_shared SELECT i FROM generate_series(1,100)i",
+    "expected": "INSERT INTO test_io_shared SELECT i FROM generate_series(1, 100) AS i"
   },
   {
     "comment": "stats - Statement 165",
-    "query": "SELECT sum(extends) AS io_sum_shared_after_extends FROM pg_stat_io WHERE context = 'normal' AND object = 'relation'"
+    "query": "SELECT sum(extends) AS io_sum_shared_after_extends FROM pg_stat_io WHERE context = 'normal' AND object = 'relation'",
+    "expected": "SELECT SUM(extends) AS io_sum_shared_after_extends FROM pg_stat_io WHERE context = 'normal' AND object = 'relation'"
   },
   {
     "comment": "stats - Statement 166",
-    "query": "SELECT 1000 > 1000"
+    "query": "SELECT 1000 \u003e 1000"
   },
   {
     "comment": "stats - Statement 167",
-    "query": "io_sum_shared_after_ SELECT 1000 > 1000"
+    "query": "SELECT 1000 \u003e 1000"
   },
   {
     "comment": "stats - Statement 168",
-    "query": "SELECT current_setting('fsync') = 'off' OR 1000 > 1000"
+    "query": "SELECT current_setting('fsync') = 'off' OR 1000 \u003e 1000"
   },
   {
     "comment": "stats - Statement 169",
-    "query": "SELECT sum(reads) AS io_sum_shared_before_reads FROM pg_stat_io WHERE context = 'normal' AND object = 'relation'"
+    "query": "SELECT sum(reads) AS io_sum_shared_before_reads FROM pg_stat_io WHERE context = 'normal' AND object = 'relation'",
+    "expected": "SELECT SUM(reads) AS io_sum_shared_before_reads FROM pg_stat_io WHERE context = 'normal' AND object = 'relation'"
   },
   {
     "comment": "stats - Statement 170",
@@ -685,31 +768,38 @@
   },
   {
     "comment": "stats - Statement 172",
-    "query": "SELECT sum(reads) AS io_sum_shared_after_reads FROM pg_stat_io WHERE context = 'normal' AND object = 'relation'"
+    "query": "SELECT sum(reads) AS io_sum_shared_after_reads FROM pg_stat_io WHERE context = 'normal' AND object = 'relation'",
+    "expected": "SELECT SUM(reads) AS io_sum_shared_after_reads FROM pg_stat_io WHERE context = 'normal' AND object = 'relation'"
   },
   {
     "comment": "stats - Statement 173",
-    "query": "SELECT sum(hits) AS io_sum_shared_before_hits FROM pg_stat_io WHERE context = 'normal' AND object = 'relation'"
+    "query": "SELECT sum(hits) AS io_sum_shared_before_hits FROM pg_stat_io WHERE context = 'normal' AND object = 'relation'",
+    "expected": "SELECT SUM(hits) AS io_sum_shared_before_hits FROM pg_stat_io WHERE context = 'normal' AND object = 'relation'"
   },
   {
     "comment": "stats - Statement 174",
-    "query": "SET LOCAL enable_nestloop TO on; SET LOCAL enable_mergejoin TO off"
+    "query": "SET LOCAL enable_nestloop TO on; SET LOCAL enable_mergejoin TO off",
+    "expected": "SET LOCAL enable_nestloop = on; SET LOCAL enable_mergejoin = off"
   },
   {
     "comment": "stats - Statement 175",
-    "query": "SET LOCAL enable_hashjoin TO off; SET LOCAL enable_material TO off"
+    "query": "SET LOCAL enable_hashjoin TO off; SET LOCAL enable_material TO off",
+    "expected": "SET LOCAL enable_hashjoin = off; SET LOCAL enable_material = off"
   },
   {
     "comment": "stats - Statement 176",
-    "query": "EXPLAIN (COSTS OFF) SELECT COUNT(*) FROM test_io_shared t1 INNER JOIN test_io_shared t2 USING (a)"
+    "query": "EXPLAIN (COSTS OFF) SELECT COUNT(*) FROM test_io_shared t1 INNER JOIN test_io_shared t2 USING (a)",
+    "expected": "EXPLAIN (COSTS false) SELECT COUNT(*) FROM test_io_shared AS t1 INNER JOIN test_io_shared AS t2 USING (a)"
   },
   {
     "comment": "stats - Statement 177",
-    "query": "SELECT COUNT(*) FROM test_io_shared t1 INNER JOIN test_io_shared t2 USING (a)"
+    "query": "SELECT COUNT(*) FROM test_io_shared t1 INNER JOIN test_io_shared t2 USING (a)",
+    "expected": "SELECT COUNT(*) FROM test_io_shared AS t1 INNER JOIN test_io_shared AS t2 USING (a)"
   },
   {
     "comment": "stats - Statement 178",
-    "query": "SELECT sum(hits) AS io_sum_shared_after_hits FROM pg_stat_io WHERE context = 'normal' AND object = 'relation'"
+    "query": "SELECT sum(hits) AS io_sum_shared_after_hits FROM pg_stat_io WHERE context = 'normal' AND object = 'relation'",
+    "expected": "SELECT SUM(hits) AS io_sum_shared_after_hits FROM pg_stat_io WHERE context = 'normal' AND object = 'relation'"
   },
   {
     "comment": "stats - Statement 179",
@@ -717,23 +807,28 @@
   },
   {
     "comment": "stats - Statement 180",
-    "query": "CREATE TEMPORARY TABLE test_io_local(a int, b TEXT)"
+    "query": "CREATE TEMPORARY TABLE test_io_local(a int, b TEXT)",
+    "expected": "CREATE TEMPORARY TABLE test_io_local (a INT, b TEXT)"
   },
   {
     "comment": "stats - Statement 181",
-    "query": "SELECT sum(extends) AS extends, sum(evictions) AS evictions, sum(writes) AS writes FROM pg_stat_io WHERE context = 'normal' AND object = 'temp relation'"
+    "query": "SELECT sum(extends) AS extends, sum(evictions) AS evictions, sum(writes) AS writes FROM pg_stat_io WHERE context = 'normal' AND object = 'temp relation'",
+    "expected": "SELECT SUM(extends) AS extends, SUM(evictions) AS evictions, SUM(writes) AS writes FROM pg_stat_io WHERE context = 'normal' AND object = 'temp relation'"
   },
   {
     "comment": "stats - Statement 182",
-    "query": "io_sum_local_before_ INSERT INTO test_io_local SELECT generate_series(1, 5000) as id, repeat('a', 200)"
+    "query": "INSERT INTO test_io_local SELECT generate_series(1, 5000) as id, repeat('a', 200)",
+    "expected": "INSERT INTO test_io_local SELECT generate_series(1, 5000) AS id, repeat('a', 200)"
   },
   {
     "comment": "stats - Statement 183",
-    "query": "SELECT pg_relation_size('test_io_local') / current_setting('block_size')::int8 > 100"
+    "query": "SELECT pg_relation_size('test_io_local') / current_setting('block_size')::int8 \u003e 100",
+    "expected": "SELECT CAST(pg_relation_size('test_io_local') / current_setting('block_size') AS BIGINT) \u003e 100"
   },
   {
     "comment": "stats - Statement 184",
-    "query": "SELECT sum(reads) AS io_sum_local_before_reads FROM pg_stat_io WHERE context = 'normal' AND object = 'temp relation'"
+    "query": "SELECT sum(reads) AS io_sum_local_before_reads FROM pg_stat_io WHERE context = 'normal' AND object = 'temp relation'",
+    "expected": "SELECT SUM(reads) AS io_sum_local_before_reads FROM pg_stat_io WHERE context = 'normal' AND object = 'temp relation'"
   },
   {
     "comment": "stats - Statement 185",
@@ -741,11 +836,12 @@
   },
   {
     "comment": "stats - Statement 186",
-    "query": "SELECT sum(evictions) AS evictions, sum(reads) AS reads, sum(writes) AS writes, sum(extends) AS extends FROM pg_stat_io WHERE context = 'normal' AND object = 'temp relation'"
+    "query": "SELECT sum(evictions) AS evictions, sum(reads) AS reads, sum(writes) AS writes, sum(extends) AS extends FROM pg_stat_io WHERE context = 'normal' AND object = 'temp relation'",
+    "expected": "SELECT SUM(evictions) AS evictions, SUM(reads) AS reads, SUM(writes) AS writes, SUM(extends) AS extends FROM pg_stat_io WHERE context = 'normal' AND object = 'temp relation'"
   },
   {
     "comment": "stats - Statement 187",
-    "query": "io_sum_local_after_ SELECT 1000 > 1000, 1000 > 1000, 1000 > 1000, 1000 > 1000"
+    "query": "SELECT 1000 \u003e 1000, 1000 \u003e 1000, 1000 \u003e 1000, 1000 \u003e 1000"
   },
   {
     "comment": "stats - Statement 188",
@@ -753,11 +849,12 @@
   },
   {
     "comment": "stats - Statement 189",
-    "query": "SELECT sum(writes) AS io_sum_local_new_tblspc_writes FROM pg_stat_io WHERE context = 'normal' AND object = 'temp relation'"
+    "query": "SELECT sum(writes) AS io_sum_local_new_tblspc_writes FROM pg_stat_io WHERE context = 'normal' AND object = 'temp relation'",
+    "expected": "SELECT SUM(writes) AS io_sum_local_new_tblspc_writes FROM pg_stat_io WHERE context = 'normal' AND object = 'temp relation'"
   },
   {
     "comment": "stats - Statement 190",
-    "query": "SELECT 1 > 1000"
+    "query": "SELECT 1 \u003e 1000"
   },
   {
     "comment": "stats - Statement 191",
@@ -769,15 +866,18 @@
   },
   {
     "comment": "stats - Statement 193",
-    "query": "SELECT sum(reuses) AS reuses, sum(reads) AS reads, sum(evictions) AS evictions FROM pg_stat_io WHERE context = 'vacuum'"
+    "query": "SELECT sum(reuses) AS reuses, sum(reads) AS reads, sum(evictions) AS evictions FROM pg_stat_io WHERE context = 'vacuum'",
+    "expected": "SELECT SUM(reuses) AS reuses, SUM(reads) AS reads, SUM(evictions) AS evictions FROM pg_stat_io WHERE context = 'vacuum'"
   },
   {
     "comment": "stats - Statement 194",
-    "query": "io_sum_vac_strategy_before_ CREATE TABLE test_io_vac_strategy(a int, b int) WITH (autovacuum_enabled = 'false')"
+    "query": "CREATE TABLE test_io_vac_strategy(a int, b int) WITH (autovacuum_enabled = 'false')",
+    "expected": "CREATE TABLE test_io_vac_strategy (a INT, b INT) WITH (autovacuum_enabled = 'false')"
   },
   {
     "comment": "stats - Statement 195",
-    "query": "INSERT INTO test_io_vac_strategy SELECT i, i from generate_series(1, 4500)i"
+    "query": "INSERT INTO test_io_vac_strategy SELECT i, i from generate_series(1, 4500)i",
+    "expected": "INSERT INTO test_io_vac_strategy SELECT i, i FROM generate_series(1, 4500) AS i"
   },
   {
     "comment": "stats - Statement 196",
@@ -789,11 +889,11 @@
   },
   {
     "comment": "stats - Statement 198",
-    "query": "io_sum_vac_strategy_after_ SELECT 1000 > 1000"
+    "query": "SELECT 1000 \u003e 1000"
   },
   {
     "comment": "stats - Statement 199",
-    "query": "SELECT (1000 + 1000) > (1000 + 1000)"
+    "query": "SELECT (1000 + 1000) \u003e (1000 + 1000)"
   },
   {
     "comment": "stats - Statement 200",
@@ -801,15 +901,18 @@
   },
   {
     "comment": "stats - Statement 201",
-    "query": "SELECT sum(extends) AS io_sum_bulkwrite_strategy_extends_before FROM pg_stat_io WHERE context = 'bulkwrite'"
+    "query": "SELECT sum(extends) AS io_sum_bulkwrite_strategy_extends_before FROM pg_stat_io WHERE context = 'bulkwrite'",
+    "expected": "SELECT SUM(extends) AS io_sum_bulkwrite_strategy_extends_before FROM pg_stat_io WHERE context = 'bulkwrite'"
   },
   {
     "comment": "stats - Statement 202",
-    "query": "CREATE TABLE test_io_bulkwrite_strategy AS SELECT i FROM generate_series(1,100)i"
+    "query": "CREATE TABLE test_io_bulkwrite_strategy AS SELECT i FROM generate_series(1,100)i",
+    "expected": "CREATE TABLE test_io_bulkwrite_strategy AS SELECT i FROM generate_series(1, 100) AS i"
   },
   {
     "comment": "stats - Statement 203",
-    "query": "SELECT sum(extends) AS io_sum_bulkwrite_strategy_extends_after FROM pg_stat_io WHERE context = 'bulkwrite'"
+    "query": "SELECT sum(extends) AS io_sum_bulkwrite_strategy_extends_after FROM pg_stat_io WHERE context = 'bulkwrite'",
+    "expected": "SELECT SUM(extends) AS io_sum_bulkwrite_strategy_extends_after FROM pg_stat_io WHERE context = 'bulkwrite'"
   },
   {
     "comment": "stats - Statement 204",
@@ -817,7 +920,8 @@
   },
   {
     "comment": "stats - Statement 205",
-    "query": "SELECT sum(evictions) + sum(reuses) + sum(extends) + sum(fsyncs) + sum(reads) + sum(writes) + sum(writebacks) + sum(hits) AS io_stats_pre_reset FROM pg_stat_io"
+    "query": "SELECT sum(evictions) + sum(reuses) + sum(extends) + sum(fsyncs) + sum(reads) + sum(writes) + sum(writebacks) + sum(hits) AS io_stats_pre_reset FROM pg_stat_io",
+    "expected": "SELECT SUM(evictions) + SUM(reuses) + SUM(extends) + SUM(fsyncs) + SUM(reads) + SUM(writes) + SUM(writebacks) + SUM(hits) AS io_stats_pre_reset FROM pg_stat_io"
   },
   {
     "comment": "stats - Statement 206",
@@ -825,15 +929,17 @@
   },
   {
     "comment": "stats - Statement 207",
-    "query": "SELECT sum(evictions) + sum(reuses) + sum(extends) + sum(fsyncs) + sum(reads) + sum(writes) + sum(writebacks) + sum(hits) AS io_stats_post_reset FROM pg_stat_io"
+    "query": "SELECT sum(evictions) + sum(reuses) + sum(extends) + sum(fsyncs) + sum(reads) + sum(writes) + sum(writebacks) + sum(hits) AS io_stats_post_reset FROM pg_stat_io",
+    "expected": "SELECT SUM(evictions) + SUM(reuses) + SUM(extends) + SUM(fsyncs) + SUM(reads) + SUM(writes) + SUM(writebacks) + SUM(hits) AS io_stats_post_reset FROM pg_stat_io"
   },
   {
     "comment": "stats - Statement 208",
-    "query": "SELECT 1 < 1"
+    "query": "SELECT 1 \u003c 1"
   },
   {
     "comment": "stats - Statement 209",
-    "query": "CREATE TABLE brin_hot ( id  integer PRIMARY KEY, val integer NOT NULL ) WITH (autovacuum_enabled = off, fillfactor = 70)"
+    "query": "CREATE TABLE brin_hot ( id  integer PRIMARY KEY, val integer NOT NULL ) WITH (autovacuum_enabled = off, fillfactor = 70)",
+    "expected": "CREATE TABLE brin_hot (id INT PRIMARY KEY, val INT NOT NULL) WITH (autovacuum_enabled = off, fillfactor = 70)"
   },
   {
     "comment": "stats - Statement 210",
@@ -841,11 +947,13 @@
   },
   {
     "comment": "stats - Statement 211",
-    "query": "CREATE INDEX val_brin ON brin_hot using brin(val)"
+    "query": "CREATE INDEX val_brin ON brin_hot using brin(val)",
+    "expected": "CREATE INDEX val_brin ON brin_hot USING brin ( val )"
   },
   {
     "comment": "stats - Statement 212",
-    "query": "CREATE FUNCTION wait_for_hot_stats() RETURNS void AS $$ DECLARE start_time timestamptz := clock_timestamp(); updated bool; BEGIN  FOR i IN 1 .. 300 LOOP SELECT (pg_stat_get_tuples_hot_updated('brin_hot'::regclass::oid) > 0) INTO updated; EXIT WHEN updated;   PERFORM pg_sleep_for('100 milliseconds');  PERFORM pg_stat_clear_snapshot(); END LOOP;  RAISE log 'wait_for_hot_stats delayed % seconds', EXTRACT(epoch FROM clock_timestamp() - start_time); END $$ LANGUAGE plpgsql"
+    "query": "CREATE FUNCTION wait_for_hot_stats() RETURNS void AS $$ DECLARE start_time timestamptz := clock_timestamp(); updated bool; BEGIN  FOR i IN 1 .. 300 LOOP SELECT (pg_stat_get_tuples_hot_updated('brin_hot'::regclass::oid) \u003e 0) INTO updated; EXIT WHEN updated;   PERFORM pg_sleep_for('100 milliseconds');  PERFORM pg_stat_clear_snapshot(); END LOOP;  RAISE log 'wait_for_hot_stats delayed % seconds', EXTRACT(epoch FROM clock_timestamp() - start_time); END $$ LANGUAGE plpgsql",
+    "expected": "CREATE FUNCTION wait_for_hot_stats () RETURNS void AS $$ DECLARE start_time timestamptz := clock_timestamp(); updated bool; BEGIN  FOR i IN 1 .. 300 LOOP SELECT (pg_stat_get_tuples_hot_updated('brin_hot'::regclass::oid) \u003e 0) INTO updated; EXIT WHEN updated;   PERFORM pg_sleep_for('100 milliseconds');  PERFORM pg_stat_clear_snapshot(); END LOOP;  RAISE log 'wait_for_hot_stats delayed % seconds', EXTRACT(epoch FROM clock_timestamp() - start_time); END $$ LANGUAGE plpgsql"
   },
   {
     "comment": "stats - Statement 213",
@@ -853,7 +961,8 @@
   },
   {
     "comment": "stats - Statement 214",
-    "query": "SELECT pg_stat_get_tuples_hot_updated('brin_hot'::regclass::oid)"
+    "query": "SELECT pg_stat_get_tuples_hot_updated('brin_hot'::regclass::oid)",
+    "expected": "SELECT pg_stat_get_tuples_hot_updated(CAST(CAST('brin_hot' AS regclass) AS oid))"
   },
   {
     "comment": "stats - Statement 215",
@@ -865,7 +974,8 @@
   },
   {
     "comment": "stats - Statement 217",
-    "query": "CREATE TABLE brin_hot_2 (a int, b int)"
+    "query": "CREATE TABLE brin_hot_2 (a int, b int)",
+    "expected": "CREATE TABLE brin_hot_2 (a INT, b INT)"
   },
   {
     "comment": "stats - Statement 218",
@@ -873,7 +983,8 @@
   },
   {
     "comment": "stats - Statement 219",
-    "query": "CREATE INDEX ON brin_hot_2 USING brin (b) WHERE a = 2"
+    "query": "CREATE INDEX ON brin_hot_2 USING brin (b) WHERE a = 2",
+    "expected": "CREATE INDEX ON brin_hot_2 USING brin ( b ) WHERE a = 2"
   },
   {
     "comment": "stats - Statement 220",
@@ -881,7 +992,8 @@
   },
   {
     "comment": "stats - Statement 221",
-    "query": "EXPLAIN (COSTS OFF) SELECT * FROM brin_hot_2 WHERE a = 2 AND b = 100"
+    "query": "EXPLAIN (COSTS OFF) SELECT * FROM brin_hot_2 WHERE a = 2 AND b = 100",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM brin_hot_2 WHERE a = 2 AND b = 100"
   },
   {
     "comment": "stats - Statement 222",
@@ -897,7 +1009,8 @@
   },
   {
     "comment": "stats - Statement 225",
-    "query": "CREATE TABLE brin_hot_3 (a int, filler text) WITH (fillfactor = 10)"
+    "query": "CREATE TABLE brin_hot_3 (a int, filler text) WITH (fillfactor = 10)",
+    "expected": "CREATE TABLE brin_hot_3 (a INT, filler TEXT) WITH (fillfactor = 10)"
   },
   {
     "comment": "stats - Statement 226",
@@ -905,7 +1018,8 @@
   },
   {
     "comment": "stats - Statement 227",
-    "query": "CREATE INDEX ON brin_hot_3 USING brin (a) WITH (pages_per_range = 1)"
+    "query": "CREATE INDEX ON brin_hot_3 USING brin (a) WITH (pages_per_range = 1)",
+    "expected": "CREATE INDEX ON brin_hot_3 USING brin ( a ) WITH (pages_per_range = 1)"
   },
   {
     "comment": "stats - Statement 228",
@@ -913,7 +1027,8 @@
   },
   {
     "comment": "stats - Statement 229",
-    "query": "EXPLAIN (COSTS OFF) SELECT * FROM brin_hot_3 WHERE a = 2"
+    "query": "EXPLAIN (COSTS OFF) SELECT * FROM brin_hot_3 WHERE a = 2",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM brin_hot_3 WHERE a = 2"
   },
   {
     "comment": "stats - Statement 230",
@@ -929,11 +1044,13 @@
   },
   {
     "comment": "stats - Statement 233",
-    "query": "CREATE TABLE table_fillfactor ( n char(1000) ) with (fillfactor=10, autovacuum_enabled=off)"
+    "query": "CREATE TABLE table_fillfactor ( n char(1000) ) with (fillfactor=10, autovacuum_enabled=off)",
+    "expected": "CREATE TABLE table_fillfactor (n CHAR(1000)) WITH (fillfactor = 10, autovacuum_enabled = off)"
   },
   {
     "comment": "stats - Statement 234",
-    "query": "INSERT INTO table_fillfactor SELECT 'x' FROM generate_series(1,1000)"
+    "query": "INSERT INTO table_fillfactor SELECT 'x' FROM generate_series(1,1000)",
+    "expected": "INSERT INTO table_fillfactor SELECT 'x' FROM generate_series(1, 1000)"
   },
   {
     "comment": "stats - Statement 235",

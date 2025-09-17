@@ -1,55 +1,68 @@
 [
   {
     "comment": "tablesample - Statement 1",
-    "query": "CREATE TABLE test_tablesample (id int, name text) WITH (fillfactor=10)"
+    "query": "CREATE TABLE test_tablesample (id int, name text) WITH (fillfactor=10)",
+    "expected": "CREATE TABLE test_tablesample (id INT, name TEXT) WITH (fillfactor = 10)"
   },
   {
     "comment": "tablesample - Statement 2",
-    "query": "INSERT INTO test_tablesample SELECT i, repeat(i::text, 200) FROM generate_series(0, 9) s(i)"
+    "query": "INSERT INTO test_tablesample SELECT i, repeat(i::text, 200) FROM generate_series(0, 9) s(i)",
+    "expected": "INSERT INTO test_tablesample SELECT i, repeat(CAST(i AS TEXT), 200) FROM generate_series(0, 9) AS s(i)"
   },
   {
     "comment": "tablesample - Statement 3",
-    "query": "SELECT t.id FROM test_tablesample AS t TABLESAMPLE SYSTEM (50) REPEATABLE (0)"
+    "query": "SELECT t.id FROM test_tablesample AS t TABLESAMPLE SYSTEM (50) REPEATABLE (0)",
+    "expected": "SELECT t.id FROM test_tablesample AS t TABLESAMPLE system (50) REPEATABLE (0)"
   },
   {
     "comment": "tablesample - Statement 4",
-    "query": "SELECT id FROM test_tablesample TABLESAMPLE SYSTEM (100.0/11) REPEATABLE (0)"
+    "query": "SELECT id FROM test_tablesample TABLESAMPLE SYSTEM (100.0/11) REPEATABLE (0)",
+    "expected": "SELECT id FROM test_tablesample TABLESAMPLE system (100.0 / 11) REPEATABLE (0)"
   },
   {
     "comment": "tablesample - Statement 5",
-    "query": "SELECT id FROM test_tablesample TABLESAMPLE SYSTEM (50) REPEATABLE (0)"
+    "query": "SELECT id FROM test_tablesample TABLESAMPLE SYSTEM (50) REPEATABLE (0)",
+    "expected": "SELECT id FROM test_tablesample TABLESAMPLE system (50) REPEATABLE (0)"
   },
   {
     "comment": "tablesample - Statement 6",
-    "query": "SELECT id FROM test_tablesample TABLESAMPLE BERNOULLI (50) REPEATABLE (0)"
+    "query": "SELECT id FROM test_tablesample TABLESAMPLE BERNOULLI (50) REPEATABLE (0)",
+    "expected": "SELECT id FROM test_tablesample TABLESAMPLE bernoulli (50) REPEATABLE (0)"
   },
   {
     "comment": "tablesample - Statement 7",
-    "query": "SELECT id FROM test_tablesample TABLESAMPLE BERNOULLI (5.5) REPEATABLE (0)"
+    "query": "SELECT id FROM test_tablesample TABLESAMPLE BERNOULLI (5.5) REPEATABLE (0)",
+    "expected": "SELECT id FROM test_tablesample TABLESAMPLE bernoulli (5.5) REPEATABLE (0)"
   },
   {
     "comment": "tablesample - Statement 8",
-    "query": "SELECT count(*) FROM test_tablesample TABLESAMPLE SYSTEM (100)"
+    "query": "SELECT count(*) FROM test_tablesample TABLESAMPLE SYSTEM (100)",
+    "expected": "SELECT COUNT(*) FROM test_tablesample TABLESAMPLE system (100)"
   },
   {
     "comment": "tablesample - Statement 9",
-    "query": "SELECT count(*) FROM test_tablesample TABLESAMPLE SYSTEM (100) REPEATABLE (1+2)"
+    "query": "SELECT count(*) FROM test_tablesample TABLESAMPLE SYSTEM (100) REPEATABLE (1+2)",
+    "expected": "SELECT COUNT(*) FROM test_tablesample TABLESAMPLE system (100) REPEATABLE (1 + 2)"
   },
   {
     "comment": "tablesample - Statement 10",
-    "query": "SELECT count(*) FROM test_tablesample TABLESAMPLE SYSTEM (100) REPEATABLE (0.4)"
+    "query": "SELECT count(*) FROM test_tablesample TABLESAMPLE SYSTEM (100) REPEATABLE (0.4)",
+    "expected": "SELECT COUNT(*) FROM test_tablesample TABLESAMPLE system (100) REPEATABLE (0.4)"
   },
   {
     "comment": "tablesample - Statement 11",
-    "query": "CREATE VIEW test_tablesample_v1 AS SELECT id FROM test_tablesample TABLESAMPLE SYSTEM (10*2) REPEATABLE (2)"
+    "query": "CREATE VIEW test_tablesample_v1 AS SELECT id FROM test_tablesample TABLESAMPLE SYSTEM (10*2) REPEATABLE (2)",
+    "expected": "CREATE VIEW test_tablesample_v1 AS SELECT id FROM test_tablesample TABLESAMPLE system (10 * 2) REPEATABLE (2)"
   },
   {
     "comment": "tablesample - Statement 12",
-    "query": "CREATE VIEW test_tablesample_v2 AS SELECT id FROM test_tablesample TABLESAMPLE SYSTEM (99)"
+    "query": "CREATE VIEW test_tablesample_v2 AS SELECT id FROM test_tablesample TABLESAMPLE SYSTEM (99)",
+    "expected": "CREATE VIEW test_tablesample_v2 AS SELECT id FROM test_tablesample TABLESAMPLE system (99)"
   },
   {
     "comment": "tablesample - Statement 13",
-    "query": "DECLARE tablesample_cur SCROLL CURSOR FOR SELECT id FROM test_tablesample TABLESAMPLE SYSTEM (50) REPEATABLE (0)"
+    "query": "DECLARE tablesample_cur SCROLL CURSOR FOR SELECT id FROM test_tablesample TABLESAMPLE SYSTEM (50) REPEATABLE (0)",
+    "expected": "DECLARE tablesample_cur SCROLL CURSOR FOR SELECT id FROM test_tablesample TABLESAMPLE system (50) REPEATABLE (0)"
   },
   {
     "comment": "tablesample - Statement 14",
@@ -57,7 +70,8 @@
   },
   {
     "comment": "tablesample - Statement 15",
-    "query": "FETCH NEXT FROM tablesample_cur"
+    "query": "FETCH NEXT FROM tablesample_cur",
+    "expected": "FETCH FROM tablesample_cur"
   },
   {
     "comment": "tablesample - Statement 16",
@@ -65,114 +79,142 @@
   },
   {
     "comment": "tablesample - Statement 17",
-    "query": "END"
+    "query": "END",
+    "expected": "COMMIT"
   },
   {
     "comment": "tablesample - Statement 18",
-    "query": "EXPLAIN (COSTS OFF) SELECT id FROM test_tablesample TABLESAMPLE SYSTEM (50) REPEATABLE (2)"
+    "query": "EXPLAIN (COSTS OFF) SELECT id FROM test_tablesample TABLESAMPLE SYSTEM (50) REPEATABLE (2)",
+    "expected": "EXPLAIN (COSTS false) SELECT id FROM test_tablesample TABLESAMPLE system (50) REPEATABLE (2)"
   },
   {
     "comment": "tablesample - Statement 19",
-    "query": "EXPLAIN (COSTS OFF) SELECT * FROM test_tablesample_v1"
+    "query": "EXPLAIN (COSTS OFF) SELECT * FROM test_tablesample_v1",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM test_tablesample_v1"
   },
   {
     "comment": "tablesample - Statement 20",
-    "query": "explain (costs off) select count(*) from person tablesample bernoulli (100)"
+    "query": "explain (costs off) select count(*) from person tablesample bernoulli (100)",
+    "expected": "EXPLAIN (COSTS false) SELECT COUNT(*) FROM person TABLESAMPLE bernoulli (100)"
   },
   {
     "comment": "tablesample - Statement 21",
-    "query": "select count(*) from person tablesample bernoulli (100)"
+    "query": "select count(*) from person tablesample bernoulli (100)",
+    "expected": "SELECT COUNT(*) FROM person TABLESAMPLE bernoulli (100)"
   },
   {
     "comment": "tablesample - Statement 22",
-    "query": "select count(*) from person"
+    "query": "select count(*) from person",
+    "expected": "SELECT COUNT(*) FROM person"
   },
   {
     "comment": "tablesample - Statement 23",
-    "query": "SELECT count(*) FROM test_tablesample TABLESAMPLE bernoulli (('1'::text < '0'::text)::int)"
+    "query": "SELECT count(*) FROM test_tablesample TABLESAMPLE bernoulli (('1'::text \u003c '0'::text)::int)",
+    "expected": "SELECT COUNT(*) FROM test_tablesample TABLESAMPLE bernoulli (CAST((CAST('1' AS TEXT) \u003c CAST('0' AS TEXT)) AS INT))"
   },
   {
     "comment": "tablesample - Statement 24",
-    "query": "select * from (values (0),(100)) v(pct), lateral (select count(*) from tenk1 tablesample bernoulli (pct)) ss"
+    "query": "select * from (values (0),(100)) v(pct), lateral (select count(*) from tenk1 tablesample bernoulli (pct)) ss",
+    "expected": "SELECT * FROM (VALUES (0), (100)) AS v(pct), LATERAL (SELECT COUNT(*) FROM tenk1 TABLESAMPLE bernoulli (pct)) AS ss"
   },
   {
     "comment": "tablesample - Statement 25",
-    "query": "select * from (values (0),(100)) v(pct), lateral (select count(*) from tenk1 tablesample system (pct)) ss"
+    "query": "select * from (values (0),(100)) v(pct), lateral (select count(*) from tenk1 tablesample system (pct)) ss",
+    "expected": "SELECT * FROM (VALUES (0), (100)) AS v(pct), LATERAL (SELECT COUNT(*) FROM tenk1 TABLESAMPLE system (pct)) AS ss"
   },
   {
     "comment": "tablesample - Statement 26",
-    "query": "explain (costs off) select pct, count(unique1) from (values (0),(100)) v(pct), lateral (select * from tenk1 tablesample bernoulli (pct)) ss group by pct"
+    "query": "explain (costs off) select pct, count(unique1) from (values (0),(100)) v(pct), lateral (select * from tenk1 tablesample bernoulli (pct)) ss group by pct",
+    "expected": "EXPLAIN (COSTS false) SELECT pct, COUNT(unique1) FROM (VALUES (0), (100)) AS v(pct), LATERAL (SELECT * FROM tenk1 TABLESAMPLE bernoulli (pct)) AS ss GROUP BY pct"
   },
   {
     "comment": "tablesample - Statement 27",
-    "query": "select pct, count(unique1) from (values (0),(100)) v(pct), lateral (select * from tenk1 tablesample bernoulli (pct)) ss group by pct"
+    "query": "select pct, count(unique1) from (values (0),(100)) v(pct), lateral (select * from tenk1 tablesample bernoulli (pct)) ss group by pct",
+    "expected": "SELECT pct, COUNT(unique1) FROM (VALUES (0), (100)) AS v(pct), LATERAL (SELECT * FROM tenk1 TABLESAMPLE bernoulli (pct)) AS ss GROUP BY pct"
   },
   {
     "comment": "tablesample - Statement 28",
-    "query": "select pct, count(unique1) from (values (0),(100)) v(pct), lateral (select * from tenk1 tablesample system (pct)) ss group by pct"
+    "query": "select pct, count(unique1) from (values (0),(100)) v(pct), lateral (select * from tenk1 tablesample system (pct)) ss group by pct",
+    "expected": "SELECT pct, COUNT(unique1) FROM (VALUES (0), (100)) AS v(pct), LATERAL (SELECT * FROM tenk1 TABLESAMPLE system (pct)) AS ss GROUP BY pct"
   },
   {
     "comment": "tablesample - Statement 29",
-    "query": "SELECT id FROM test_tablesample TABLESAMPLE FOOBAR (1)"
+    "query": "SELECT id FROM test_tablesample TABLESAMPLE FOOBAR (1)",
+    "expected": "SELECT id FROM test_tablesample TABLESAMPLE foobar (1)"
   },
   {
     "comment": "tablesample - Statement 30",
-    "query": "SELECT id FROM test_tablesample TABLESAMPLE SYSTEM (NULL)"
+    "query": "SELECT id FROM test_tablesample TABLESAMPLE SYSTEM (NULL)",
+    "expected": "SELECT id FROM test_tablesample TABLESAMPLE system (NULL)"
   },
   {
     "comment": "tablesample - Statement 31",
-    "query": "SELECT id FROM test_tablesample TABLESAMPLE SYSTEM (50) REPEATABLE (NULL)"
+    "query": "SELECT id FROM test_tablesample TABLESAMPLE SYSTEM (50) REPEATABLE (NULL)",
+    "expected": "SELECT id FROM test_tablesample TABLESAMPLE system (50) REPEATABLE (NULL)"
   },
   {
     "comment": "tablesample - Statement 32",
-    "query": "SELECT id FROM test_tablesample TABLESAMPLE BERNOULLI (-1)"
+    "query": "SELECT id FROM test_tablesample TABLESAMPLE BERNOULLI (-1)",
+    "expected": "SELECT id FROM test_tablesample TABLESAMPLE bernoulli (-1)"
   },
   {
     "comment": "tablesample - Statement 33",
-    "query": "SELECT id FROM test_tablesample TABLESAMPLE BERNOULLI (200)"
+    "query": "SELECT id FROM test_tablesample TABLESAMPLE BERNOULLI (200)",
+    "expected": "SELECT id FROM test_tablesample TABLESAMPLE bernoulli (200)"
   },
   {
     "comment": "tablesample - Statement 34",
-    "query": "SELECT id FROM test_tablesample TABLESAMPLE SYSTEM (-1)"
+    "query": "SELECT id FROM test_tablesample TABLESAMPLE SYSTEM (-1)",
+    "expected": "SELECT id FROM test_tablesample TABLESAMPLE system (-1)"
   },
   {
     "comment": "tablesample - Statement 35",
-    "query": "SELECT id FROM test_tablesample TABLESAMPLE SYSTEM (200)"
+    "query": "SELECT id FROM test_tablesample TABLESAMPLE SYSTEM (200)",
+    "expected": "SELECT id FROM test_tablesample TABLESAMPLE system (200)"
   },
   {
     "comment": "tablesample - Statement 36",
-    "query": "SELECT id FROM test_tablesample_v1 TABLESAMPLE BERNOULLI (1)"
+    "query": "SELECT id FROM test_tablesample_v1 TABLESAMPLE BERNOULLI (1)",
+    "expected": "SELECT id FROM test_tablesample_v1 TABLESAMPLE bernoulli (1)"
   },
   {
     "comment": "tablesample - Statement 37",
-    "query": "INSERT INTO test_tablesample_v1 VALUES(1)"
+    "query": "INSERT INTO test_tablesample_v1 VALUES(1)",
+    "expected": "INSERT INTO test_tablesample_v1 VALUES (1)"
   },
   {
     "comment": "tablesample - Statement 38",
-    "query": "WITH query_select AS (SELECT * FROM test_tablesample) SELECT * FROM query_select TABLESAMPLE BERNOULLI (5.5) REPEATABLE (1)"
+    "query": "WITH query_select AS (SELECT * FROM test_tablesample) SELECT * FROM query_select TABLESAMPLE BERNOULLI (5.5) REPEATABLE (1)",
+    "expected": "WITH query_select AS (SELECT * FROM test_tablesample) SELECT * FROM query_select TABLESAMPLE bernoulli (5.5) REPEATABLE (1)"
   },
   {
     "comment": "tablesample - Statement 39",
-    "query": "SELECT q.* FROM (SELECT * FROM test_tablesample) as q TABLESAMPLE BERNOULLI (5)"
+    "query": "SELECT q.* FROM (SELECT * FROM test_tablesample) as q TABLESAMPLE BERNOULLI (5)",
+    "error": "parse error at position 65: syntax error"
   },
   {
     "comment": "tablesample - Statement 40",
-    "query": "create table parted_sample (a int) partition by list (a)"
+    "query": "create table parted_sample (a int) partition by list (a)",
+    "expected": "CREATE TABLE parted_sample (a INT) PARTITION BY list (a)"
   },
   {
     "comment": "tablesample - Statement 41",
-    "query": "create table parted_sample_1 partition of parted_sample for values in (1)"
+    "query": "create table parted_sample_1 partition of parted_sample for values in (1)",
+    "expected": "CREATE TABLE parted_sample_1 PARTITION OF parted_sample FOR VALUES IN (1)"
   },
   {
     "comment": "tablesample - Statement 42",
-    "query": "create table parted_sample_2 partition of parted_sample for values in (2)"
+    "query": "create table parted_sample_2 partition of parted_sample for values in (2)",
+    "expected": "CREATE TABLE parted_sample_2 PARTITION OF parted_sample FOR VALUES IN (2)"
   },
   {
     "comment": "tablesample - Statement 43",
-    "query": "explain (costs off) select * from parted_sample tablesample bernoulli (100)"
+    "query": "explain (costs off) select * from parted_sample tablesample bernoulli (100)",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM parted_sample TABLESAMPLE bernoulli (100)"
   },
   {
     "comment": "tablesample - Statement 44",
-    "query": "drop table parted_sample, parted_sample_1, parted_sample_2"
+    "query": "drop table parted_sample, parted_sample_1, parted_sample_2",
+    "expected": "DROP TABLE parted_sample, parted_sample_1, parted_sample_2"
   }
 ]

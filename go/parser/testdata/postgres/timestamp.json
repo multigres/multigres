@@ -1,7 +1,8 @@
 [
   {
     "comment": "timestamp - Statement 1",
-    "query": "CREATE TABLE TIMESTAMP_TBL (d1 timestamp(2) without time zone)"
+    "query": "CREATE TABLE TIMESTAMP_TBL (d1 timestamp(2) without time zone)",
+    "expected": "CREATE TABLE timestamp_tbl (d1 TIMESTAMP(2))"
   },
   {
     "comment": "timestamp - Statement 2",
@@ -9,35 +10,43 @@
   },
   {
     "comment": "timestamp - Statement 3",
-    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('today')"
+    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('today')",
+    "expected": "INSERT INTO timestamp_tbl VALUES ('today')"
   },
   {
     "comment": "timestamp - Statement 4",
-    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('yesterday')"
+    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('yesterday')",
+    "expected": "INSERT INTO timestamp_tbl VALUES ('yesterday')"
   },
   {
     "comment": "timestamp - Statement 5",
-    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('tomorrow')"
+    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('tomorrow')",
+    "expected": "INSERT INTO timestamp_tbl VALUES ('tomorrow')"
   },
   {
     "comment": "timestamp - Statement 6",
-    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('tomorrow EST')"
+    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('tomorrow EST')",
+    "expected": "INSERT INTO timestamp_tbl VALUES ('tomorrow EST')"
   },
   {
     "comment": "timestamp - Statement 7",
-    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('tomorrow zulu')"
+    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('tomorrow zulu')",
+    "expected": "INSERT INTO timestamp_tbl VALUES ('tomorrow zulu')"
   },
   {
     "comment": "timestamp - Statement 8",
-    "query": "SELECT count(*) AS One FROM TIMESTAMP_TBL WHERE d1 = timestamp without time zone 'today'"
+    "query": "SELECT count(*) AS One FROM TIMESTAMP_TBL WHERE d1 = timestamp without time zone 'today'",
+    "expected": "SELECT COUNT(*) AS one FROM timestamp_tbl WHERE d1 = CAST('today' AS TIMESTAMP)"
   },
   {
     "comment": "timestamp - Statement 9",
-    "query": "SELECT count(*) AS Three FROM TIMESTAMP_TBL WHERE d1 = timestamp without time zone 'tomorrow'"
+    "query": "SELECT count(*) AS Three FROM TIMESTAMP_TBL WHERE d1 = timestamp without time zone 'tomorrow'",
+    "expected": "SELECT COUNT(*) AS three FROM timestamp_tbl WHERE d1 = CAST('tomorrow' AS TIMESTAMP)"
   },
   {
     "comment": "timestamp - Statement 10",
-    "query": "SELECT count(*) AS One FROM TIMESTAMP_TBL WHERE d1 = timestamp without time zone 'yesterday'"
+    "query": "SELECT count(*) AS One FROM TIMESTAMP_TBL WHERE d1 = timestamp without time zone 'yesterday'",
+    "expected": "SELECT COUNT(*) AS one FROM timestamp_tbl WHERE d1 = CAST('yesterday' AS TIMESTAMP)"
   },
   {
     "comment": "timestamp - Statement 11",
@@ -45,11 +54,13 @@
   },
   {
     "comment": "timestamp - Statement 12",
-    "query": "DELETE FROM TIMESTAMP_TBL"
+    "query": "DELETE FROM TIMESTAMP_TBL",
+    "expected": "DELETE FROM timestamp_tbl"
   },
   {
     "comment": "timestamp - Statement 13",
-    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('now')"
+    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('now')",
+    "expected": "INSERT INTO timestamp_tbl VALUES ('now')"
   },
   {
     "comment": "timestamp - Statement 14",
@@ -57,167 +68,208 @@
   },
   {
     "comment": "timestamp - Statement 15",
-    "query": "SELECT count(*) AS two FROM TIMESTAMP_TBL WHERE d1 = timestamp(2) without time zone 'now'"
+    "query": "SELECT count(*) AS two FROM TIMESTAMP_TBL WHERE d1 = timestamp(2) without time zone 'now'",
+    "expected": "SELECT COUNT(*) AS two FROM timestamp_tbl WHERE d1 = CAST('now' AS TIMESTAMP(2))"
   },
   {
     "comment": "timestamp - Statement 16",
-    "query": "SELECT count(d1) AS three, count(DISTINCT d1) AS two FROM TIMESTAMP_TBL"
+    "query": "SELECT count(d1) AS three, count(DISTINCT d1) AS two FROM TIMESTAMP_TBL",
+    "expected": "SELECT COUNT(d1) AS three, COUNT(DISTINCT d1) AS two FROM timestamp_tbl"
   },
   {
     "comment": "timestamp - Statement 17",
-    "query": "TRUNCATE TIMESTAMP_TBL"
+    "query": "TRUNCATE TIMESTAMP_TBL",
+    "expected": "TRUNCATE TABLE timestamp_tbl CONTINUE IDENTITY RESTRICT"
   },
   {
     "comment": "timestamp - Statement 18",
-    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('-infinity')"
+    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('-infinity')",
+    "expected": "INSERT INTO timestamp_tbl VALUES ('-infinity')"
   },
   {
     "comment": "timestamp - Statement 19",
-    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('infinity')"
+    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('infinity')",
+    "expected": "INSERT INTO timestamp_tbl VALUES ('infinity')"
   },
   {
     "comment": "timestamp - Statement 20",
-    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('epoch')"
+    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('epoch')",
+    "expected": "INSERT INTO timestamp_tbl VALUES ('epoch')"
   },
   {
     "comment": "timestamp - Statement 21",
-    "query": "SELECT timestamp 'infinity' = timestamp '+infinity' AS t"
+    "query": "SELECT timestamp 'infinity' = timestamp '+infinity' AS t",
+    "expected": "SELECT CAST('infinity' AS TIMESTAMP) = CAST('+infinity' AS TIMESTAMP) AS t"
   },
   {
     "comment": "timestamp - Statement 22",
-    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('Mon Feb 10 17:32:01 1997 PST')"
+    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('Mon Feb 10 17:32:01 1997 PST')",
+    "expected": "INSERT INTO timestamp_tbl VALUES ('Mon Feb 10 17:32:01 1997 PST')"
   },
   {
     "comment": "timestamp - Statement 23",
-    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('Mon Feb 10 17:32:01.000001 1997 PST')"
+    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('Mon Feb 10 17:32:01.000001 1997 PST')",
+    "expected": "INSERT INTO timestamp_tbl VALUES ('Mon Feb 10 17:32:01.000001 1997 PST')"
   },
   {
     "comment": "timestamp - Statement 24",
-    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('Mon Feb 10 17:32:01.999999 1997 PST')"
+    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('Mon Feb 10 17:32:01.999999 1997 PST')",
+    "expected": "INSERT INTO timestamp_tbl VALUES ('Mon Feb 10 17:32:01.999999 1997 PST')"
   },
   {
     "comment": "timestamp - Statement 25",
-    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('Mon Feb 10 17:32:01.4 1997 PST')"
+    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('Mon Feb 10 17:32:01.4 1997 PST')",
+    "expected": "INSERT INTO timestamp_tbl VALUES ('Mon Feb 10 17:32:01.4 1997 PST')"
   },
   {
     "comment": "timestamp - Statement 26",
-    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('Mon Feb 10 17:32:01.5 1997 PST')"
+    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('Mon Feb 10 17:32:01.5 1997 PST')",
+    "expected": "INSERT INTO timestamp_tbl VALUES ('Mon Feb 10 17:32:01.5 1997 PST')"
   },
   {
     "comment": "timestamp - Statement 27",
-    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('Mon Feb 10 17:32:01.6 1997 PST')"
+    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('Mon Feb 10 17:32:01.6 1997 PST')",
+    "expected": "INSERT INTO timestamp_tbl VALUES ('Mon Feb 10 17:32:01.6 1997 PST')"
   },
   {
     "comment": "timestamp - Statement 28",
-    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('1997-01-02')"
+    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('1997-01-02')",
+    "expected": "INSERT INTO timestamp_tbl VALUES ('1997-01-02')"
   },
   {
     "comment": "timestamp - Statement 29",
-    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('1997-01-02 03:04:05')"
+    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('1997-01-02 03:04:05')",
+    "expected": "INSERT INTO timestamp_tbl VALUES ('1997-01-02 03:04:05')"
   },
   {
     "comment": "timestamp - Statement 30",
-    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('1997-02-10 17:32:01-08')"
+    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('1997-02-10 17:32:01-08')",
+    "expected": "INSERT INTO timestamp_tbl VALUES ('1997-02-10 17:32:01-08')"
   },
   {
     "comment": "timestamp - Statement 31",
-    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('1997-02-10 17:32:01-0800')"
+    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('1997-02-10 17:32:01-0800')",
+    "expected": "INSERT INTO timestamp_tbl VALUES ('1997-02-10 17:32:01-0800')"
   },
   {
     "comment": "timestamp - Statement 32",
-    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('1997-02-10 17:32:01 -08:00')"
+    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('1997-02-10 17:32:01 -08:00')",
+    "expected": "INSERT INTO timestamp_tbl VALUES ('1997-02-10 17:32:01 -08:00')"
   },
   {
     "comment": "timestamp - Statement 33",
-    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('19970210 173201 -0800')"
+    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('19970210 173201 -0800')",
+    "expected": "INSERT INTO timestamp_tbl VALUES ('19970210 173201 -0800')"
   },
   {
     "comment": "timestamp - Statement 34",
-    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('1997-06-10 17:32:01 -07:00')"
+    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('1997-06-10 17:32:01 -07:00')",
+    "expected": "INSERT INTO timestamp_tbl VALUES ('1997-06-10 17:32:01 -07:00')"
   },
   {
     "comment": "timestamp - Statement 35",
-    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('2001-09-22T18:19:20')"
+    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('2001-09-22T18:19:20')",
+    "expected": "INSERT INTO timestamp_tbl VALUES ('2001-09-22T18:19:20')"
   },
   {
     "comment": "timestamp - Statement 36",
-    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('2000-03-15 08:14:01 GMT+8')"
+    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('2000-03-15 08:14:01 GMT+8')",
+    "expected": "INSERT INTO timestamp_tbl VALUES ('2000-03-15 08:14:01 GMT+8')"
   },
   {
     "comment": "timestamp - Statement 37",
-    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('2000-03-15 13:14:02 GMT-1')"
+    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('2000-03-15 13:14:02 GMT-1')",
+    "expected": "INSERT INTO timestamp_tbl VALUES ('2000-03-15 13:14:02 GMT-1')"
   },
   {
     "comment": "timestamp - Statement 38",
-    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('2000-03-15 12:14:03 GMT-2')"
+    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('2000-03-15 12:14:03 GMT-2')",
+    "expected": "INSERT INTO timestamp_tbl VALUES ('2000-03-15 12:14:03 GMT-2')"
   },
   {
     "comment": "timestamp - Statement 39",
-    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('2000-03-15 03:14:04 PST+8')"
+    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('2000-03-15 03:14:04 PST+8')",
+    "expected": "INSERT INTO timestamp_tbl VALUES ('2000-03-15 03:14:04 PST+8')"
   },
   {
     "comment": "timestamp - Statement 40",
-    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('2000-03-15 02:14:05 MST+7:00')"
+    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('2000-03-15 02:14:05 MST+7:00')",
+    "expected": "INSERT INTO timestamp_tbl VALUES ('2000-03-15 02:14:05 MST+7:00')"
   },
   {
     "comment": "timestamp - Statement 41",
-    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('Feb 10 17:32:01 1997 -0800')"
+    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('Feb 10 17:32:01 1997 -0800')",
+    "expected": "INSERT INTO timestamp_tbl VALUES ('Feb 10 17:32:01 1997 -0800')"
   },
   {
     "comment": "timestamp - Statement 42",
-    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('Feb 10 17:32:01 1997')"
+    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('Feb 10 17:32:01 1997')",
+    "expected": "INSERT INTO timestamp_tbl VALUES ('Feb 10 17:32:01 1997')"
   },
   {
     "comment": "timestamp - Statement 43",
-    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('Feb 10 5:32PM 1997')"
+    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('Feb 10 5:32PM 1997')",
+    "expected": "INSERT INTO timestamp_tbl VALUES ('Feb 10 5:32PM 1997')"
   },
   {
     "comment": "timestamp - Statement 44",
-    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('1997/02/10 17:32:01-0800')"
+    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('1997/02/10 17:32:01-0800')",
+    "expected": "INSERT INTO timestamp_tbl VALUES ('1997/02/10 17:32:01-0800')"
   },
   {
     "comment": "timestamp - Statement 45",
-    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('1997-02-10 17:32:01 PST')"
+    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('1997-02-10 17:32:01 PST')",
+    "expected": "INSERT INTO timestamp_tbl VALUES ('1997-02-10 17:32:01 PST')"
   },
   {
     "comment": "timestamp - Statement 46",
-    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('Feb-10-1997 17:32:01 PST')"
+    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('Feb-10-1997 17:32:01 PST')",
+    "expected": "INSERT INTO timestamp_tbl VALUES ('Feb-10-1997 17:32:01 PST')"
   },
   {
     "comment": "timestamp - Statement 47",
-    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('02-10-1997 17:32:01 PST')"
+    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('02-10-1997 17:32:01 PST')",
+    "expected": "INSERT INTO timestamp_tbl VALUES ('02-10-1997 17:32:01 PST')"
   },
   {
     "comment": "timestamp - Statement 48",
-    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('19970210 173201 PST')"
+    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('19970210 173201 PST')",
+    "expected": "INSERT INTO timestamp_tbl VALUES ('19970210 173201 PST')"
   },
   {
     "comment": "timestamp - Statement 49",
-    "query": "set datestyle to ymd"
+    "query": "set datestyle to ymd",
+    "expected": "SET datestyle = 'ymd'"
   },
   {
     "comment": "timestamp - Statement 50",
-    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('97FEB10 5:32:01PM UTC')"
+    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('97FEB10 5:32:01PM UTC')",
+    "expected": "INSERT INTO timestamp_tbl VALUES ('97FEB10 5:32:01PM UTC')"
   },
   {
     "comment": "timestamp - Statement 51",
-    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('97/02/10 17:32:01 UTC')"
+    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('97/02/10 17:32:01 UTC')",
+    "expected": "INSERT INTO timestamp_tbl VALUES ('97/02/10 17:32:01 UTC')"
   },
   {
     "comment": "timestamp - Statement 52",
-    "query": "reset datestyle"
+    "query": "reset datestyle",
+    "expected": "RESET datestyle"
   },
   {
     "comment": "timestamp - Statement 53",
-    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('1997.041 17:32:01 UTC')"
+    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('1997.041 17:32:01 UTC')",
+    "expected": "INSERT INTO timestamp_tbl VALUES ('1997.041 17:32:01 UTC')"
   },
   {
     "comment": "timestamp - Statement 54",
-    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('19970210 173201 America/New_York')"
+    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('19970210 173201 America/New_York')",
+    "expected": "INSERT INTO timestamp_tbl VALUES ('19970210 173201 America/New_York')"
   },
   {
     "comment": "timestamp - Statement 55",
-    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('19970710 173201 America/Does_not_exist')"
+    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('19970710 173201 America/Does_not_exist')",
+    "expected": "INSERT INTO timestamp_tbl VALUES ('19970710 173201 America/Does_not_exist')"
   },
   {
     "comment": "timestamp - Statement 56",
@@ -241,335 +293,418 @@
   },
   {
     "comment": "timestamp - Statement 61",
-    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('1997-06-10 18:32:01 PDT')"
+    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('1997-06-10 18:32:01 PDT')",
+    "expected": "INSERT INTO timestamp_tbl VALUES ('1997-06-10 18:32:01 PDT')"
   },
   {
     "comment": "timestamp - Statement 62",
-    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('Feb 11 17:32:01 1997')"
+    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('Feb 11 17:32:01 1997')",
+    "expected": "INSERT INTO timestamp_tbl VALUES ('Feb 11 17:32:01 1997')"
   },
   {
     "comment": "timestamp - Statement 63",
-    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('Feb 12 17:32:01 1997')"
+    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('Feb 12 17:32:01 1997')",
+    "expected": "INSERT INTO timestamp_tbl VALUES ('Feb 12 17:32:01 1997')"
   },
   {
     "comment": "timestamp - Statement 64",
-    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('Feb 13 17:32:01 1997')"
+    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('Feb 13 17:32:01 1997')",
+    "expected": "INSERT INTO timestamp_tbl VALUES ('Feb 13 17:32:01 1997')"
   },
   {
     "comment": "timestamp - Statement 65",
-    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('Feb 14 17:32:01 1997')"
+    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('Feb 14 17:32:01 1997')",
+    "expected": "INSERT INTO timestamp_tbl VALUES ('Feb 14 17:32:01 1997')"
   },
   {
     "comment": "timestamp - Statement 66",
-    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('Feb 15 17:32:01 1997')"
+    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('Feb 15 17:32:01 1997')",
+    "expected": "INSERT INTO timestamp_tbl VALUES ('Feb 15 17:32:01 1997')"
   },
   {
     "comment": "timestamp - Statement 67",
-    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('Feb 16 17:32:01 1997')"
+    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('Feb 16 17:32:01 1997')",
+    "expected": "INSERT INTO timestamp_tbl VALUES ('Feb 16 17:32:01 1997')"
   },
   {
     "comment": "timestamp - Statement 68",
-    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('Feb 16 17:32:01 0097 BC')"
+    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('Feb 16 17:32:01 0097 BC')",
+    "expected": "INSERT INTO timestamp_tbl VALUES ('Feb 16 17:32:01 0097 BC')"
   },
   {
     "comment": "timestamp - Statement 69",
-    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('Feb 16 17:32:01 0097')"
+    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('Feb 16 17:32:01 0097')",
+    "expected": "INSERT INTO timestamp_tbl VALUES ('Feb 16 17:32:01 0097')"
   },
   {
     "comment": "timestamp - Statement 70",
-    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('Feb 16 17:32:01 0597')"
+    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('Feb 16 17:32:01 0597')",
+    "expected": "INSERT INTO timestamp_tbl VALUES ('Feb 16 17:32:01 0597')"
   },
   {
     "comment": "timestamp - Statement 71",
-    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('Feb 16 17:32:01 1097')"
+    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('Feb 16 17:32:01 1097')",
+    "expected": "INSERT INTO timestamp_tbl VALUES ('Feb 16 17:32:01 1097')"
   },
   {
     "comment": "timestamp - Statement 72",
-    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('Feb 16 17:32:01 1697')"
+    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('Feb 16 17:32:01 1697')",
+    "expected": "INSERT INTO timestamp_tbl VALUES ('Feb 16 17:32:01 1697')"
   },
   {
     "comment": "timestamp - Statement 73",
-    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('Feb 16 17:32:01 1797')"
+    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('Feb 16 17:32:01 1797')",
+    "expected": "INSERT INTO timestamp_tbl VALUES ('Feb 16 17:32:01 1797')"
   },
   {
     "comment": "timestamp - Statement 74",
-    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('Feb 16 17:32:01 1897')"
+    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('Feb 16 17:32:01 1897')",
+    "expected": "INSERT INTO timestamp_tbl VALUES ('Feb 16 17:32:01 1897')"
   },
   {
     "comment": "timestamp - Statement 75",
-    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('Feb 16 17:32:01 2097')"
+    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('Feb 16 17:32:01 2097')",
+    "expected": "INSERT INTO timestamp_tbl VALUES ('Feb 16 17:32:01 2097')"
   },
   {
     "comment": "timestamp - Statement 76",
-    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('Feb 28 17:32:01 1996')"
+    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('Feb 28 17:32:01 1996')",
+    "expected": "INSERT INTO timestamp_tbl VALUES ('Feb 28 17:32:01 1996')"
   },
   {
     "comment": "timestamp - Statement 77",
-    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('Feb 29 17:32:01 1996')"
+    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('Feb 29 17:32:01 1996')",
+    "expected": "INSERT INTO timestamp_tbl VALUES ('Feb 29 17:32:01 1996')"
   },
   {
     "comment": "timestamp - Statement 78",
-    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('Mar 01 17:32:01 1996')"
+    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('Mar 01 17:32:01 1996')",
+    "expected": "INSERT INTO timestamp_tbl VALUES ('Mar 01 17:32:01 1996')"
   },
   {
     "comment": "timestamp - Statement 79",
-    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('Dec 30 17:32:01 1996')"
+    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('Dec 30 17:32:01 1996')",
+    "expected": "INSERT INTO timestamp_tbl VALUES ('Dec 30 17:32:01 1996')"
   },
   {
     "comment": "timestamp - Statement 80",
-    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('Dec 31 17:32:01 1996')"
+    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('Dec 31 17:32:01 1996')",
+    "expected": "INSERT INTO timestamp_tbl VALUES ('Dec 31 17:32:01 1996')"
   },
   {
     "comment": "timestamp - Statement 81",
-    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('Jan 01 17:32:01 1997')"
+    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('Jan 01 17:32:01 1997')",
+    "expected": "INSERT INTO timestamp_tbl VALUES ('Jan 01 17:32:01 1997')"
   },
   {
     "comment": "timestamp - Statement 82",
-    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('Feb 28 17:32:01 1997')"
+    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('Feb 28 17:32:01 1997')",
+    "expected": "INSERT INTO timestamp_tbl VALUES ('Feb 28 17:32:01 1997')"
   },
   {
     "comment": "timestamp - Statement 83",
-    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('Feb 29 17:32:01 1997')"
+    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('Feb 29 17:32:01 1997')",
+    "expected": "INSERT INTO timestamp_tbl VALUES ('Feb 29 17:32:01 1997')"
   },
   {
     "comment": "timestamp - Statement 84",
-    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('Mar 01 17:32:01 1997')"
+    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('Mar 01 17:32:01 1997')",
+    "expected": "INSERT INTO timestamp_tbl VALUES ('Mar 01 17:32:01 1997')"
   },
   {
     "comment": "timestamp - Statement 85",
-    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('Dec 30 17:32:01 1997')"
+    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('Dec 30 17:32:01 1997')",
+    "expected": "INSERT INTO timestamp_tbl VALUES ('Dec 30 17:32:01 1997')"
   },
   {
     "comment": "timestamp - Statement 86",
-    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('Dec 31 17:32:01 1997')"
+    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('Dec 31 17:32:01 1997')",
+    "expected": "INSERT INTO timestamp_tbl VALUES ('Dec 31 17:32:01 1997')"
   },
   {
     "comment": "timestamp - Statement 87",
-    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('Dec 31 17:32:01 1999')"
+    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('Dec 31 17:32:01 1999')",
+    "expected": "INSERT INTO timestamp_tbl VALUES ('Dec 31 17:32:01 1999')"
   },
   {
     "comment": "timestamp - Statement 88",
-    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('Jan 01 17:32:01 2000')"
+    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('Jan 01 17:32:01 2000')",
+    "expected": "INSERT INTO timestamp_tbl VALUES ('Jan 01 17:32:01 2000')"
   },
   {
     "comment": "timestamp - Statement 89",
-    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('Dec 31 17:32:01 2000')"
+    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('Dec 31 17:32:01 2000')",
+    "expected": "INSERT INTO timestamp_tbl VALUES ('Dec 31 17:32:01 2000')"
   },
   {
     "comment": "timestamp - Statement 90",
-    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('Jan 01 17:32:01 2001')"
+    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('Jan 01 17:32:01 2001')",
+    "expected": "INSERT INTO timestamp_tbl VALUES ('Jan 01 17:32:01 2001')"
   },
   {
     "comment": "timestamp - Statement 91",
-    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('Feb 16 17:32:01 -0097')"
+    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('Feb 16 17:32:01 -0097')",
+    "expected": "INSERT INTO timestamp_tbl VALUES ('Feb 16 17:32:01 -0097')"
   },
   {
     "comment": "timestamp - Statement 92",
-    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('Feb 16 17:32:01 5097 BC')"
+    "query": "INSERT INTO TIMESTAMP_TBL VALUES ('Feb 16 17:32:01 5097 BC')",
+    "expected": "INSERT INTO timestamp_tbl VALUES ('Feb 16 17:32:01 5097 BC')"
   },
   {
     "comment": "timestamp - Statement 93",
-    "query": "SELECT d1 FROM TIMESTAMP_TBL"
+    "query": "SELECT d1 FROM TIMESTAMP_TBL",
+    "expected": "SELECT d1 FROM timestamp_tbl"
   },
   {
     "comment": "timestamp - Statement 94",
-    "query": "SELECT '4714-11-24 00:00:00 BC'::timestamp"
+    "query": "SELECT '4714-11-24 00:00:00 BC'::timestamp",
+    "expected": "SELECT CAST('4714-11-24 00:00:00 BC' AS TIMESTAMP)"
   },
   {
     "comment": "timestamp - Statement 95",
-    "query": "SELECT '4714-11-23 23:59:59 BC'::timestamp"
+    "query": "SELECT '4714-11-23 23:59:59 BC'::timestamp",
+    "expected": "SELECT CAST('4714-11-23 23:59:59 BC' AS TIMESTAMP)"
   },
   {
     "comment": "timestamp - Statement 96",
-    "query": "SELECT '294276-12-31 23:59:59'::timestamp"
+    "query": "SELECT '294276-12-31 23:59:59'::timestamp",
+    "expected": "SELECT CAST('294276-12-31 23:59:59' AS TIMESTAMP)"
   },
   {
     "comment": "timestamp - Statement 97",
-    "query": "SELECT '294277-01-01 00:00:00'::timestamp"
+    "query": "SELECT '294277-01-01 00:00:00'::timestamp",
+    "expected": "SELECT CAST('294277-01-01 00:00:00' AS TIMESTAMP)"
   },
   {
     "comment": "timestamp - Statement 98",
-    "query": "SELECT d1 FROM TIMESTAMP_TBL WHERE d1 > timestamp without time zone '1997-01-02'"
+    "query": "SELECT d1 FROM TIMESTAMP_TBL WHERE d1 \u003e timestamp without time zone '1997-01-02'",
+    "expected": "SELECT d1 FROM timestamp_tbl WHERE d1 \u003e CAST('1997-01-02' AS TIMESTAMP)"
   },
   {
     "comment": "timestamp - Statement 99",
-    "query": "SELECT d1 FROM TIMESTAMP_TBL WHERE d1 < timestamp without time zone '1997-01-02'"
+    "query": "SELECT d1 FROM TIMESTAMP_TBL WHERE d1 \u003c timestamp without time zone '1997-01-02'",
+    "expected": "SELECT d1 FROM timestamp_tbl WHERE d1 \u003c CAST('1997-01-02' AS TIMESTAMP)"
   },
   {
     "comment": "timestamp - Statement 100",
-    "query": "SELECT d1 FROM TIMESTAMP_TBL WHERE d1 = timestamp without time zone '1997-01-02'"
+    "query": "SELECT d1 FROM TIMESTAMP_TBL WHERE d1 = timestamp without time zone '1997-01-02'",
+    "expected": "SELECT d1 FROM timestamp_tbl WHERE d1 = CAST('1997-01-02' AS TIMESTAMP)"
   },
   {
     "comment": "timestamp - Statement 101",
-    "query": "SELECT d1 FROM TIMESTAMP_TBL WHERE d1 != timestamp without time zone '1997-01-02'"
+    "query": "SELECT d1 FROM TIMESTAMP_TBL WHERE d1 != timestamp without time zone '1997-01-02'",
+    "expected": "SELECT d1 FROM timestamp_tbl WHERE d1 \u003c\u003e CAST('1997-01-02' AS TIMESTAMP)"
   },
   {
     "comment": "timestamp - Statement 102",
-    "query": "SELECT d1 FROM TIMESTAMP_TBL WHERE d1 <= timestamp without time zone '1997-01-02'"
+    "query": "SELECT d1 FROM TIMESTAMP_TBL WHERE d1 \u003c= timestamp without time zone '1997-01-02'",
+    "expected": "SELECT d1 FROM timestamp_tbl WHERE d1 \u003c= CAST('1997-01-02' AS TIMESTAMP)"
   },
   {
     "comment": "timestamp - Statement 103",
-    "query": "SELECT d1 FROM TIMESTAMP_TBL WHERE d1 >= timestamp without time zone '1997-01-02'"
+    "query": "SELECT d1 FROM TIMESTAMP_TBL WHERE d1 \u003e= timestamp without time zone '1997-01-02'",
+    "expected": "SELECT d1 FROM timestamp_tbl WHERE d1 \u003e= CAST('1997-01-02' AS TIMESTAMP)"
   },
   {
     "comment": "timestamp - Statement 104",
-    "query": "SELECT d1 - timestamp without time zone '1997-01-02' AS diff FROM TIMESTAMP_TBL WHERE d1 BETWEEN '1902-01-01' AND '2038-01-01'"
+    "query": "SELECT d1 - timestamp without time zone '1997-01-02' AS diff FROM TIMESTAMP_TBL WHERE d1 BETWEEN '1902-01-01' AND '2038-01-01'",
+    "expected": "SELECT d1 - CAST('1997-01-02' AS TIMESTAMP) AS diff FROM timestamp_tbl WHERE d1 BETWEEN '1902-01-01' AND '2038-01-01'"
   },
   {
     "comment": "timestamp - Statement 105",
-    "query": "SELECT date_trunc( 'week', timestamp '2004-02-29 15:44:17.71393' ) AS week_trunc"
+    "query": "SELECT date_trunc( 'week', timestamp '2004-02-29 15:44:17.71393' ) AS week_trunc",
+    "expected": "SELECT date_trunc('week', CAST('2004-02-29 15:44:17.71393' AS TIMESTAMP)) AS week_trunc"
   },
   {
     "comment": "timestamp - Statement 106",
-    "query": "SELECT str, interval, date_trunc(str, ts) = date_bin(interval::interval, ts, timestamp '2001-01-01') AS equal FROM ( VALUES ('week', '7 d'), ('day', '1 d'), ('hour', '1 h'), ('minute', '1 m'), ('second', '1 s'), ('millisecond', '1 ms'), ('microsecond', '1 us') ) intervals (str, interval), (VALUES (timestamp '2020-02-29 15:44:17.71393')) ts (ts)"
+    "query": "SELECT str, interval, date_trunc(str, ts) = date_bin(interval::interval, ts, timestamp '2001-01-01') AS equal FROM ( VALUES ('week', '7 d'), ('day', '1 d'), ('hour', '1 h'), ('minute', '1 m'), ('second', '1 s'), ('millisecond', '1 ms'), ('microsecond', '1 us') ) intervals (str, interval), (VALUES (timestamp '2020-02-29 15:44:17.71393')) ts (ts)",
+    "expected": "SELECT str, interval, date_trunc(str, ts) = date_bin(CAST(interval AS INTERVAL), ts, CAST('2001-01-01' AS TIMESTAMP)) AS equal FROM (VALUES ('week', '7 d'), ('day', '1 d'), ('hour', '1 h'), ('minute', '1 m'), ('second', '1 s'), ('millisecond', '1 ms'), ('microsecond', '1 us')) AS intervals(str, interval), (VALUES (CAST('2020-02-29 15:44:17.71393' AS TIMESTAMP))) AS ts(ts)"
   },
   {
     "comment": "timestamp - Statement 107",
-    "query": "SELECT str, interval, date_trunc(str, ts) = date_bin(interval::interval, ts, timestamp '2000-01-01 BC') AS equal FROM ( VALUES ('week', '7 d'), ('day', '1 d'), ('hour', '1 h'), ('minute', '1 m'), ('second', '1 s'), ('millisecond', '1 ms'), ('microsecond', '1 us') ) intervals (str, interval), (VALUES (timestamp '0055-6-10 15:44:17.71393 BC')) ts (ts)"
+    "query": "SELECT str, interval, date_trunc(str, ts) = date_bin(interval::interval, ts, timestamp '2000-01-01 BC') AS equal FROM ( VALUES ('week', '7 d'), ('day', '1 d'), ('hour', '1 h'), ('minute', '1 m'), ('second', '1 s'), ('millisecond', '1 ms'), ('microsecond', '1 us') ) intervals (str, interval), (VALUES (timestamp '0055-6-10 15:44:17.71393 BC')) ts (ts)",
+    "expected": "SELECT str, interval, date_trunc(str, ts) = date_bin(CAST(interval AS INTERVAL), ts, CAST('2000-01-01 BC' AS TIMESTAMP)) AS equal FROM (VALUES ('week', '7 d'), ('day', '1 d'), ('hour', '1 h'), ('minute', '1 m'), ('second', '1 s'), ('millisecond', '1 ms'), ('microsecond', '1 us')) AS intervals(str, interval), (VALUES (CAST('0055-6-10 15:44:17.71393 BC' AS TIMESTAMP))) AS ts(ts)"
   },
   {
     "comment": "timestamp - Statement 108",
-    "query": "SELECT str, interval, date_trunc(str, ts) = date_bin(interval::interval, ts, timestamp '2020-03-02') AS equal FROM ( VALUES ('week', '7 d'), ('day', '1 d'), ('hour', '1 h'), ('minute', '1 m'), ('second', '1 s'), ('millisecond', '1 ms'), ('microsecond', '1 us') ) intervals (str, interval), (VALUES (timestamp '2020-02-29 15:44:17.71393')) ts (ts)"
+    "query": "SELECT str, interval, date_trunc(str, ts) = date_bin(interval::interval, ts, timestamp '2020-03-02') AS equal FROM ( VALUES ('week', '7 d'), ('day', '1 d'), ('hour', '1 h'), ('minute', '1 m'), ('second', '1 s'), ('millisecond', '1 ms'), ('microsecond', '1 us') ) intervals (str, interval), (VALUES (timestamp '2020-02-29 15:44:17.71393')) ts (ts)",
+    "expected": "SELECT str, interval, date_trunc(str, ts) = date_bin(CAST(interval AS INTERVAL), ts, CAST('2020-03-02' AS TIMESTAMP)) AS equal FROM (VALUES ('week', '7 d'), ('day', '1 d'), ('hour', '1 h'), ('minute', '1 m'), ('second', '1 s'), ('millisecond', '1 ms'), ('microsecond', '1 us')) AS intervals(str, interval), (VALUES (CAST('2020-02-29 15:44:17.71393' AS TIMESTAMP))) AS ts(ts)"
   },
   {
     "comment": "timestamp - Statement 109",
-    "query": "SELECT str, interval, date_trunc(str, ts) = date_bin(interval::interval, ts, timestamp '0055-06-17 BC') AS equal FROM ( VALUES ('week', '7 d'), ('day', '1 d'), ('hour', '1 h'), ('minute', '1 m'), ('second', '1 s'), ('millisecond', '1 ms'), ('microsecond', '1 us') ) intervals (str, interval), (VALUES (timestamp '0055-6-10 15:44:17.71393 BC')) ts (ts)"
+    "query": "SELECT str, interval, date_trunc(str, ts) = date_bin(interval::interval, ts, timestamp '0055-06-17 BC') AS equal FROM ( VALUES ('week', '7 d'), ('day', '1 d'), ('hour', '1 h'), ('minute', '1 m'), ('second', '1 s'), ('millisecond', '1 ms'), ('microsecond', '1 us') ) intervals (str, interval), (VALUES (timestamp '0055-6-10 15:44:17.71393 BC')) ts (ts)",
+    "expected": "SELECT str, interval, date_trunc(str, ts) = date_bin(CAST(interval AS INTERVAL), ts, CAST('0055-06-17 BC' AS TIMESTAMP)) AS equal FROM (VALUES ('week', '7 d'), ('day', '1 d'), ('hour', '1 h'), ('minute', '1 m'), ('second', '1 s'), ('millisecond', '1 ms'), ('microsecond', '1 us')) AS intervals(str, interval), (VALUES (CAST('0055-6-10 15:44:17.71393 BC' AS TIMESTAMP))) AS ts(ts)"
   },
   {
     "comment": "timestamp - Statement 110",
-    "query": "SELECT interval, ts, origin, date_bin(interval::interval, ts, origin) FROM ( VALUES ('15 days'), ('2 hours'), ('1 hour 30 minutes'), ('15 minutes'), ('10 seconds'), ('100 milliseconds'), ('250 microseconds') ) intervals (interval), (VALUES (timestamp '2020-02-11 15:44:17.71393')) ts (ts), (VALUES (timestamp '2001-01-01')) origin (origin)"
+    "query": "SELECT interval, ts, origin, date_bin(interval::interval, ts, origin) FROM ( VALUES ('15 days'), ('2 hours'), ('1 hour 30 minutes'), ('15 minutes'), ('10 seconds'), ('100 milliseconds'), ('250 microseconds') ) intervals (interval), (VALUES (timestamp '2020-02-11 15:44:17.71393')) ts (ts), (VALUES (timestamp '2001-01-01')) origin (origin)",
+    "expected": "SELECT interval, ts, origin, date_bin(CAST(interval AS INTERVAL), ts, origin) FROM (VALUES ('15 days'), ('2 hours'), ('1 hour 30 minutes'), ('15 minutes'), ('10 seconds'), ('100 milliseconds'), ('250 microseconds')) AS intervals(interval), (VALUES (CAST('2020-02-11 15:44:17.71393' AS TIMESTAMP))) AS ts(ts), (VALUES (CAST('2001-01-01' AS TIMESTAMP))) AS origin(origin)"
   },
   {
     "comment": "timestamp - Statement 111",
-    "query": "SELECT date_bin('5 min'::interval, timestamp '2020-02-01 01:01:01', timestamp '2020-02-01 00:02:30')"
+    "query": "SELECT date_bin('5 min'::interval, timestamp '2020-02-01 01:01:01', timestamp '2020-02-01 00:02:30')",
+    "expected": "SELECT date_bin(CAST('5 min' AS INTERVAL), CAST('2020-02-01 01:01:01' AS TIMESTAMP), CAST('2020-02-01 00:02:30' AS TIMESTAMP))"
   },
   {
     "comment": "timestamp - Statement 112",
-    "query": "SELECT date_bin('30 minutes'::interval, timestamp '2024-02-01 15:00:00', timestamp '2024-02-01 17:00:00')"
+    "query": "SELECT date_bin('30 minutes'::interval, timestamp '2024-02-01 15:00:00', timestamp '2024-02-01 17:00:00')",
+    "expected": "SELECT date_bin(CAST('30 minutes' AS INTERVAL), CAST('2024-02-01 15:00:00' AS TIMESTAMP), CAST('2024-02-01 17:00:00' AS TIMESTAMP))"
   },
   {
     "comment": "timestamp - Statement 113",
-    "query": "SELECT date_bin('5 months'::interval, timestamp '2020-02-01 01:01:01', timestamp '2001-01-01')"
+    "query": "SELECT date_bin('5 months'::interval, timestamp '2020-02-01 01:01:01', timestamp '2001-01-01')",
+    "expected": "SELECT date_bin(CAST('5 months' AS INTERVAL), CAST('2020-02-01 01:01:01' AS TIMESTAMP), CAST('2001-01-01' AS TIMESTAMP))"
   },
   {
     "comment": "timestamp - Statement 114",
-    "query": "SELECT date_bin('5 years'::interval,  timestamp '2020-02-01 01:01:01', timestamp '2001-01-01')"
+    "query": "SELECT date_bin('5 years'::interval,  timestamp '2020-02-01 01:01:01', timestamp '2001-01-01')",
+    "expected": "SELECT date_bin(CAST('5 years' AS INTERVAL), CAST('2020-02-01 01:01:01' AS TIMESTAMP), CAST('2001-01-01' AS TIMESTAMP))"
   },
   {
     "comment": "timestamp - Statement 115",
-    "query": "SELECT date_bin('0 days'::interval, timestamp '1970-01-01 01:00:00' , timestamp '1970-01-01 00:00:00')"
+    "query": "SELECT date_bin('0 days'::interval, timestamp '1970-01-01 01:00:00' , timestamp '1970-01-01 00:00:00')",
+    "expected": "SELECT date_bin(CAST('0 days' AS INTERVAL), CAST('1970-01-01 01:00:00' AS TIMESTAMP), CAST('1970-01-01 00:00:00' AS TIMESTAMP))"
   },
   {
     "comment": "timestamp - Statement 116",
-    "query": "SELECT date_bin('-2 days'::interval, timestamp '1970-01-01 01:00:00' , timestamp '1970-01-01 00:00:00')"
+    "query": "SELECT date_bin('-2 days'::interval, timestamp '1970-01-01 01:00:00' , timestamp '1970-01-01 00:00:00')",
+    "expected": "SELECT date_bin(CAST('-2 days' AS INTERVAL), CAST('1970-01-01 01:00:00' AS TIMESTAMP), CAST('1970-01-01 00:00:00' AS TIMESTAMP))"
   },
   {
     "comment": "timestamp - Statement 117",
-    "query": "select date_bin('15 minutes'::interval, timestamp '294276-12-30', timestamp '4000-12-20 BC')"
+    "query": "select date_bin('15 minutes'::interval, timestamp '294276-12-30', timestamp '4000-12-20 BC')",
+    "expected": "SELECT date_bin(CAST('15 minutes' AS INTERVAL), CAST('294276-12-30' AS TIMESTAMP), CAST('4000-12-20 BC' AS TIMESTAMP))"
   },
   {
     "comment": "timestamp - Statement 118",
-    "query": "select date_bin('200000000 days'::interval, '2024-02-01'::timestamp, '2024-01-01'::timestamp)"
+    "query": "select date_bin('200000000 days'::interval, '2024-02-01'::timestamp, '2024-01-01'::timestamp)",
+    "expected": "SELECT date_bin(CAST('200000000 days' AS INTERVAL), CAST('2024-02-01' AS TIMESTAMP), CAST('2024-01-01' AS TIMESTAMP))"
   },
   {
     "comment": "timestamp - Statement 119",
-    "query": "select date_bin('365000 days'::interval, '4400-01-01 BC'::timestamp, '4000-01-01 BC'::timestamp)"
+    "query": "select date_bin('365000 days'::interval, '4400-01-01 BC'::timestamp, '4000-01-01 BC'::timestamp)",
+    "expected": "SELECT date_bin(CAST('365000 days' AS INTERVAL), CAST('4400-01-01 BC' AS TIMESTAMP), CAST('4000-01-01 BC' AS TIMESTAMP))"
   },
   {
     "comment": "timestamp - Statement 120",
-    "query": "SELECT d1 - timestamp without time zone '1997-01-02' AS diff FROM TIMESTAMP_TBL WHERE d1 BETWEEN timestamp without time zone '1902-01-01' AND timestamp without time zone '2038-01-01'"
+    "query": "SELECT d1 - timestamp without time zone '1997-01-02' AS diff FROM TIMESTAMP_TBL WHERE d1 BETWEEN timestamp without time zone '1902-01-01' AND timestamp without time zone '2038-01-01'",
+    "expected": "SELECT d1 - CAST('1997-01-02' AS TIMESTAMP) AS diff FROM timestamp_tbl WHERE d1 BETWEEN CAST('1902-01-01' AS TIMESTAMP) AND CAST('2038-01-01' AS TIMESTAMP)"
   },
   {
     "comment": "timestamp - Statement 121",
-    "query": "SELECT d1 as \"timestamp\", date_part( 'year', d1) AS year, date_part( 'month', d1) AS month, date_part( 'day', d1) AS day, date_part( 'hour', d1) AS hour, date_part( 'minute', d1) AS minute, date_part( 'second', d1) AS second FROM TIMESTAMP_TBL"
+    "query": "SELECT d1 as \"timestamp\", date_part( 'year', d1) AS year, date_part( 'month', d1) AS month, date_part( 'day', d1) AS day, date_part( 'hour', d1) AS hour, date_part( 'minute', d1) AS minute, date_part( 'second', d1) AS second FROM TIMESTAMP_TBL",
+    "expected": "SELECT d1 AS timestamp, date_part('year', d1) AS year, date_part('month', d1) AS month, date_part('day', d1) AS day, date_part('hour', d1) AS hour, date_part('minute', d1) AS minute, date_part('second', d1) AS second FROM timestamp_tbl"
   },
   {
     "comment": "timestamp - Statement 122",
-    "query": "SELECT d1 as \"timestamp\", date_part( 'quarter', d1) AS quarter, date_part( 'msec', d1) AS msec, date_part( 'usec', d1) AS usec FROM TIMESTAMP_TBL"
+    "query": "SELECT d1 as \"timestamp\", date_part( 'quarter', d1) AS quarter, date_part( 'msec', d1) AS msec, date_part( 'usec', d1) AS usec FROM TIMESTAMP_TBL",
+    "expected": "SELECT d1 AS timestamp, date_part('quarter', d1) AS quarter, date_part('msec', d1) AS msec, date_part('usec', d1) AS usec FROM timestamp_tbl"
   },
   {
     "comment": "timestamp - Statement 123",
-    "query": "SELECT d1 as \"timestamp\", date_part( 'isoyear', d1) AS isoyear, date_part( 'week', d1) AS week, date_part( 'isodow', d1) AS isodow, date_part( 'dow', d1) AS dow, date_part( 'doy', d1) AS doy FROM TIMESTAMP_TBL"
+    "query": "SELECT d1 as \"timestamp\", date_part( 'isoyear', d1) AS isoyear, date_part( 'week', d1) AS week, date_part( 'isodow', d1) AS isodow, date_part( 'dow', d1) AS dow, date_part( 'doy', d1) AS doy FROM TIMESTAMP_TBL",
+    "expected": "SELECT d1 AS timestamp, date_part('isoyear', d1) AS isoyear, date_part('week', d1) AS week, date_part('isodow', d1) AS isodow, date_part('dow', d1) AS dow, date_part('doy', d1) AS doy FROM timestamp_tbl"
   },
   {
     "comment": "timestamp - Statement 124",
-    "query": "SELECT d1 as \"timestamp\", date_part( 'decade', d1) AS decade, date_part( 'century', d1) AS century, date_part( 'millennium', d1) AS millennium, round(date_part( 'julian', d1)) AS julian, date_part( 'epoch', d1) AS epoch FROM TIMESTAMP_TBL"
+    "query": "SELECT d1 as \"timestamp\", date_part( 'decade', d1) AS decade, date_part( 'century', d1) AS century, date_part( 'millennium', d1) AS millennium, round(date_part( 'julian', d1)) AS julian, date_part( 'epoch', d1) AS epoch FROM TIMESTAMP_TBL",
+    "expected": "SELECT d1 AS timestamp, date_part('decade', d1) AS decade, date_part('century', d1) AS century, date_part('millennium', d1) AS millennium, round(date_part('julian', d1)) AS julian, date_part('epoch', d1) AS epoch FROM timestamp_tbl"
   },
   {
     "comment": "timestamp - Statement 125",
-    "query": "SELECT d1 as \"timestamp\", extract(microseconds from d1) AS microseconds, extract(milliseconds from d1) AS milliseconds, extract(seconds from d1) AS seconds, round(extract(julian from d1)) AS julian, extract(epoch from d1) AS epoch FROM TIMESTAMP_TBL"
+    "query": "SELECT d1 as \"timestamp\", extract(microseconds from d1) AS microseconds, extract(milliseconds from d1) AS milliseconds, extract(seconds from d1) AS seconds, round(extract(julian from d1)) AS julian, extract(epoch from d1) AS epoch FROM TIMESTAMP_TBL",
+    "expected": "SELECT d1 AS timestamp, extract(microseconds FROM d1) AS microseconds, extract(milliseconds FROM d1) AS milliseconds, extract(seconds FROM d1) AS seconds, round(extract(julian FROM d1)) AS julian, extract(epoch FROM d1) AS epoch FROM timestamp_tbl"
   },
   {
     "comment": "timestamp - Statement 126",
-    "query": "SELECT date_part('epoch', '294270-01-01 00:00:00'::timestamp)"
+    "query": "SELECT date_part('epoch', '294270-01-01 00:00:00'::timestamp)",
+    "expected": "SELECT date_part('epoch', CAST('294270-01-01 00:00:00' AS TIMESTAMP))"
   },
   {
     "comment": "timestamp - Statement 127",
-    "query": "SELECT extract(epoch from '294270-01-01 00:00:00'::timestamp)"
+    "query": "SELECT extract(epoch from '294270-01-01 00:00:00'::timestamp)",
+    "expected": "SELECT extract(epoch FROM CAST('294270-01-01 00:00:00' AS TIMESTAMP))"
   },
   {
     "comment": "timestamp - Statement 128",
-    "query": "SELECT extract(epoch from '5000-01-01 00:00:00'::timestamp)"
+    "query": "SELECT extract(epoch from '5000-01-01 00:00:00'::timestamp)",
+    "expected": "SELECT extract(epoch FROM CAST('5000-01-01 00:00:00' AS TIMESTAMP))"
   },
   {
     "comment": "timestamp - Statement 129",
-    "query": "SELECT timestamp '294276-12-31 23:59:59' - timestamp '1999-12-23 19:59:04.224193' AS ok"
+    "query": "SELECT timestamp '294276-12-31 23:59:59' - timestamp '1999-12-23 19:59:04.224193' AS ok",
+    "expected": "SELECT CAST('294276-12-31 23:59:59' AS TIMESTAMP) - CAST('1999-12-23 19:59:04.224193' AS TIMESTAMP) AS ok"
   },
   {
     "comment": "timestamp - Statement 130",
-    "query": "SELECT timestamp '294276-12-31 23:59:59' - timestamp '1999-12-23 19:59:04.224192' AS overflows"
+    "query": "SELECT timestamp '294276-12-31 23:59:59' - timestamp '1999-12-23 19:59:04.224192' AS overflows",
+    "expected": "SELECT CAST('294276-12-31 23:59:59' AS TIMESTAMP) - CAST('1999-12-23 19:59:04.224192' AS TIMESTAMP) AS overflows"
   },
   {
     "comment": "timestamp - Statement 131",
-    "query": "SELECT to_char(d1, 'DAY Day day DY Dy dy MONTH Month month RM MON Mon mon') FROM TIMESTAMP_TBL"
+    "query": "SELECT to_char(d1, 'DAY Day day DY Dy dy MONTH Month month RM MON Mon mon') FROM TIMESTAMP_TBL",
+    "expected": "SELECT to_char(d1, 'DAY Day day DY Dy dy MONTH Month month RM MON Mon mon') FROM timestamp_tbl"
   },
   {
     "comment": "timestamp - Statement 132",
-    "query": "SELECT to_char(d1, 'FMDAY FMDay FMday FMMONTH FMMonth FMmonth FMRM') FROM TIMESTAMP_TBL"
+    "query": "SELECT to_char(d1, 'FMDAY FMDay FMday FMMONTH FMMonth FMmonth FMRM') FROM TIMESTAMP_TBL",
+    "expected": "SELECT to_char(d1, 'FMDAY FMDay FMday FMMONTH FMMonth FMmonth FMRM') FROM timestamp_tbl"
   },
   {
     "comment": "timestamp - Statement 133",
-    "query": "SELECT to_char(d1, 'Y,YYY YYYY YYY YY Y CC Q MM WW DDD DD D J') FROM TIMESTAMP_TBL"
+    "query": "SELECT to_char(d1, 'Y,YYY YYYY YYY YY Y CC Q MM WW DDD DD D J') FROM TIMESTAMP_TBL",
+    "expected": "SELECT to_char(d1, 'Y,YYY YYYY YYY YY Y CC Q MM WW DDD DD D J') FROM timestamp_tbl"
   },
   {
     "comment": "timestamp - Statement 134",
-    "query": "SELECT to_char(d1, 'FMY,YYY FMYYYY FMYYY FMYY FMY FMCC FMQ FMMM FMWW FMDDD FMDD FMD FMJ') FROM TIMESTAMP_TBL"
+    "query": "SELECT to_char(d1, 'FMY,YYY FMYYYY FMYYY FMYY FMY FMCC FMQ FMMM FMWW FMDDD FMDD FMD FMJ') FROM TIMESTAMP_TBL",
+    "expected": "SELECT to_char(d1, 'FMY,YYY FMYYYY FMYYY FMYY FMY FMCC FMQ FMMM FMWW FMDDD FMDD FMD FMJ') FROM timestamp_tbl"
   },
   {
     "comment": "timestamp - Statement 135",
-    "query": "SELECT to_char(d1, 'HH HH12 HH24 MI SS SSSS') FROM TIMESTAMP_TBL"
+    "query": "SELECT to_char(d1, 'HH HH12 HH24 MI SS SSSS') FROM TIMESTAMP_TBL",
+    "expected": "SELECT to_char(d1, 'HH HH12 HH24 MI SS SSSS') FROM timestamp_tbl"
   },
   {
     "comment": "timestamp - Statement 136",
-    "query": "SELECT to_char(d1, E'\"HH:MI:SS is\" HH:MI:SS \"\\\\\"text between quote marks\\\\\"\"') FROM TIMESTAMP_TBL"
+    "query": "SELECT to_char(d1, E'\"HH:MI:SS is\" HH:MI:SS \"\\\\\"text between quote marks\\\\\"\"') FROM TIMESTAMP_TBL",
+    "expected": "SELECT to_char(d1, '\"HH:MI:SS is\" HH:MI:SS \"\\\"text between quote marks\\\"\"') FROM timestamp_tbl"
   },
   {
     "comment": "timestamp - Statement 137",
-    "query": "SELECT to_char(d1, 'HH24--text--MI--text--SS') FROM TIMESTAMP_TBL"
+    "query": "SELECT to_char(d1, 'HH24--text--MI--text--SS') FROM TIMESTAMP_TBL",
+    "expected": "SELECT to_char(d1, 'HH24--text--MI--text--SS') FROM timestamp_tbl"
   },
   {
     "comment": "timestamp - Statement 138",
-    "query": "SELECT to_char(d1, 'YYYYTH YYYYth Jth') FROM TIMESTAMP_TBL"
+    "query": "SELECT to_char(d1, 'YYYYTH YYYYth Jth') FROM TIMESTAMP_TBL",
+    "expected": "SELECT to_char(d1, 'YYYYTH YYYYth Jth') FROM timestamp_tbl"
   },
   {
     "comment": "timestamp - Statement 139",
-    "query": "SELECT to_char(d1, 'YYYY A.D. YYYY a.d. YYYY bc HH:MI:SS P.M. HH:MI:SS p.m. HH:MI:SS pm') FROM TIMESTAMP_TBL"
+    "query": "SELECT to_char(d1, 'YYYY A.D. YYYY a.d. YYYY bc HH:MI:SS P.M. HH:MI:SS p.m. HH:MI:SS pm') FROM TIMESTAMP_TBL",
+    "expected": "SELECT to_char(d1, 'YYYY A.D. YYYY a.d. YYYY bc HH:MI:SS P.M. HH:MI:SS p.m. HH:MI:SS pm') FROM timestamp_tbl"
   },
   {
     "comment": "timestamp - Statement 140",
-    "query": "SELECT to_char(d1, 'IYYY IYY IY I IW IDDD ID') FROM TIMESTAMP_TBL"
+    "query": "SELECT to_char(d1, 'IYYY IYY IY I IW IDDD ID') FROM TIMESTAMP_TBL",
+    "expected": "SELECT to_char(d1, 'IYYY IYY IY I IW IDDD ID') FROM timestamp_tbl"
   },
   {
     "comment": "timestamp - Statement 141",
-    "query": "SELECT to_char(d1, 'FMIYYY FMIYY FMIY FMI FMIW FMIDDD FMID') FROM TIMESTAMP_TBL"
+    "query": "SELECT to_char(d1, 'FMIYYY FMIYY FMIY FMI FMIW FMIDDD FMID') FROM TIMESTAMP_TBL",
+    "expected": "SELECT to_char(d1, 'FMIYYY FMIYY FMIY FMI FMIW FMIDDD FMID') FROM timestamp_tbl"
   },
   {
     "comment": "timestamp - Statement 142",
-    "query": "SELECT to_char(d, 'FF1 FF2 FF3 FF4 FF5 FF6  ff1 ff2 ff3 ff4 ff5 ff6  MS US') FROM (VALUES ('2018-11-02 12:34:56'::timestamp), ('2018-11-02 12:34:56.78'), ('2018-11-02 12:34:56.78901'), ('2018-11-02 12:34:56.78901234') ) d(d)"
+    "query": "SELECT to_char(d, 'FF1 FF2 FF3 FF4 FF5 FF6  ff1 ff2 ff3 ff4 ff5 ff6  MS US') FROM (VALUES ('2018-11-02 12:34:56'::timestamp), ('2018-11-02 12:34:56.78'), ('2018-11-02 12:34:56.78901'), ('2018-11-02 12:34:56.78901234') ) d(d)",
+    "expected": "SELECT to_char(d, 'FF1 FF2 FF3 FF4 FF5 FF6  ff1 ff2 ff3 ff4 ff5 ff6  MS US') FROM (VALUES (CAST('2018-11-02 12:34:56' AS TIMESTAMP)), ('2018-11-02 12:34:56.78'), ('2018-11-02 12:34:56.78901'), ('2018-11-02 12:34:56.78901234')) AS d(d)"
   },
   {
     "comment": "timestamp - Statement 143",
-    "query": "SELECT i, to_char(i * interval '1mon', 'rm'), to_char(i * interval '1mon', 'RM') FROM generate_series(-13, 13) i"
+    "query": "SELECT i, to_char(i * interval '1mon', 'rm'), to_char(i * interval '1mon', 'RM') FROM generate_series(-13, 13) i",
+    "expected": "SELECT i, to_char(i * CAST('1mon' AS INTERVAL), 'rm'), to_char(i * CAST('1mon' AS INTERVAL), 'RM') FROM generate_series(-13, 13) AS i"
   },
   {
     "comment": "timestamp - Statement 144",
@@ -581,74 +716,92 @@
   },
   {
     "comment": "timestamp - Statement 146",
-    "query": "select make_timestamp(0, 7, 15, 12, 30, 15)"
+    "query": "select make_timestamp(0, 7, 15, 12, 30, 15)",
+    "expected": "SELECT make_timestamp(0, 7, 15, 12, 30, 15)"
   },
   {
     "comment": "timestamp - Statement 147",
-    "query": "select * from generate_series('2020-01-01 00:00'::timestamp, '2020-01-02 03:00'::timestamp, '1 hour'::interval)"
+    "query": "select * from generate_series('2020-01-01 00:00'::timestamp, '2020-01-02 03:00'::timestamp, '1 hour'::interval)",
+    "expected": "SELECT * FROM generate_series(CAST('2020-01-01 00:00' AS TIMESTAMP), CAST('2020-01-02 03:00' AS TIMESTAMP), CAST('1 hour' AS INTERVAL))"
   },
   {
     "comment": "timestamp - Statement 148",
-    "query": "select generate_series('2022-01-01 00:00'::timestamp, 'infinity'::timestamp, '1 month'::interval) limit 10"
+    "query": "select generate_series('2022-01-01 00:00'::timestamp, 'infinity'::timestamp, '1 month'::interval) limit 10",
+    "expected": "SELECT generate_series(CAST('2022-01-01 00:00' AS TIMESTAMP), CAST('infinity' AS TIMESTAMP), CAST('1 month' AS INTERVAL)) LIMIT 10"
   },
   {
     "comment": "timestamp - Statement 149",
-    "query": "select * from generate_series('2020-01-01 00:00'::timestamp, '2020-01-02 03:00'::timestamp, '0 hour'::interval)"
+    "query": "select * from generate_series('2020-01-01 00:00'::timestamp, '2020-01-02 03:00'::timestamp, '0 hour'::interval)",
+    "expected": "SELECT * FROM generate_series(CAST('2020-01-01 00:00' AS TIMESTAMP), CAST('2020-01-02 03:00' AS TIMESTAMP), CAST('0 hour' AS INTERVAL))"
   },
   {
     "comment": "timestamp - Statement 150",
-    "query": "select generate_series(timestamp '1995-08-06 12:12:12', timestamp '1996-08-06 12:12:12', interval 'infinity')"
+    "query": "select generate_series(timestamp '1995-08-06 12:12:12', timestamp '1996-08-06 12:12:12', interval 'infinity')",
+    "expected": "SELECT generate_series(CAST('1995-08-06 12:12:12' AS TIMESTAMP), CAST('1996-08-06 12:12:12' AS TIMESTAMP), CAST('infinity' AS INTERVAL))"
   },
   {
     "comment": "timestamp - Statement 151",
-    "query": "select generate_series(timestamp '1995-08-06 12:12:12', timestamp '1996-08-06 12:12:12', interval '-infinity')"
+    "query": "select generate_series(timestamp '1995-08-06 12:12:12', timestamp '1996-08-06 12:12:12', interval '-infinity')",
+    "expected": "SELECT generate_series(CAST('1995-08-06 12:12:12' AS TIMESTAMP), CAST('1996-08-06 12:12:12' AS TIMESTAMP), CAST('-infinity' AS INTERVAL))"
   },
   {
     "comment": "timestamp - Statement 152",
-    "query": "select timestamp 'infinity' - timestamp 'infinity'"
+    "query": "select timestamp 'infinity' - timestamp 'infinity'",
+    "expected": "SELECT CAST('infinity' AS TIMESTAMP) - CAST('infinity' AS TIMESTAMP)"
   },
   {
     "comment": "timestamp - Statement 153",
-    "query": "select timestamp 'infinity' - timestamp '-infinity'"
+    "query": "select timestamp 'infinity' - timestamp '-infinity'",
+    "expected": "SELECT CAST('infinity' AS TIMESTAMP) - CAST('-infinity' AS TIMESTAMP)"
   },
   {
     "comment": "timestamp - Statement 154",
-    "query": "select timestamp '-infinity' - timestamp 'infinity'"
+    "query": "select timestamp '-infinity' - timestamp 'infinity'",
+    "expected": "SELECT CAST('-infinity' AS TIMESTAMP) - CAST('infinity' AS TIMESTAMP)"
   },
   {
     "comment": "timestamp - Statement 155",
-    "query": "select timestamp '-infinity' - timestamp '-infinity'"
+    "query": "select timestamp '-infinity' - timestamp '-infinity'",
+    "expected": "SELECT CAST('-infinity' AS TIMESTAMP) - CAST('-infinity' AS TIMESTAMP)"
   },
   {
     "comment": "timestamp - Statement 156",
-    "query": "select timestamp 'infinity' - timestamp '1995-08-06 12:12:12'"
+    "query": "select timestamp 'infinity' - timestamp '1995-08-06 12:12:12'",
+    "expected": "SELECT CAST('infinity' AS TIMESTAMP) - CAST('1995-08-06 12:12:12' AS TIMESTAMP)"
   },
   {
     "comment": "timestamp - Statement 157",
-    "query": "select timestamp '-infinity' - timestamp '1995-08-06 12:12:12'"
+    "query": "select timestamp '-infinity' - timestamp '1995-08-06 12:12:12'",
+    "expected": "SELECT CAST('-infinity' AS TIMESTAMP) - CAST('1995-08-06 12:12:12' AS TIMESTAMP)"
   },
   {
     "comment": "timestamp - Statement 158",
-    "query": "select age(timestamp 'infinity')"
+    "query": "select age(timestamp 'infinity')",
+    "expected": "SELECT age(CAST('infinity' AS TIMESTAMP))"
   },
   {
     "comment": "timestamp - Statement 159",
-    "query": "select age(timestamp '-infinity')"
+    "query": "select age(timestamp '-infinity')",
+    "expected": "SELECT age(CAST('-infinity' AS TIMESTAMP))"
   },
   {
     "comment": "timestamp - Statement 160",
-    "query": "select age(timestamp 'infinity', timestamp 'infinity')"
+    "query": "select age(timestamp 'infinity', timestamp 'infinity')",
+    "expected": "SELECT age(CAST('infinity' AS TIMESTAMP), CAST('infinity' AS TIMESTAMP))"
   },
   {
     "comment": "timestamp - Statement 161",
-    "query": "select age(timestamp 'infinity', timestamp '-infinity')"
+    "query": "select age(timestamp 'infinity', timestamp '-infinity')",
+    "expected": "SELECT age(CAST('infinity' AS TIMESTAMP), CAST('-infinity' AS TIMESTAMP))"
   },
   {
     "comment": "timestamp - Statement 162",
-    "query": "select age(timestamp '-infinity', timestamp 'infinity')"
+    "query": "select age(timestamp '-infinity', timestamp 'infinity')",
+    "expected": "SELECT age(CAST('-infinity' AS TIMESTAMP), CAST('infinity' AS TIMESTAMP))"
   },
   {
     "comment": "timestamp - Statement 163",
-    "query": "select age(timestamp '-infinity', timestamp '-infinity')"
+    "query": "select age(timestamp '-infinity', timestamp '-infinity')",
+    "expected": "SELECT age(CAST('-infinity' AS TIMESTAMP), CAST('-infinity' AS TIMESTAMP))"
   }
 ]

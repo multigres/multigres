@@ -1,15 +1,18 @@
 [
   {
     "comment": "tid - Statement 1",
-    "query": "SELECT '(0,0)'::tid as tid00, '(0,1)'::tid as tid01, '(-1,0)'::tid as tidm10, '(4294967295,65535)'::tid as tidmax"
+    "query": "SELECT '(0,0)'::tid as tid00, '(0,1)'::tid as tid01, '(-1,0)'::tid as tidm10, '(4294967295,65535)'::tid as tidmax",
+    "expected": "SELECT CAST('(0,0)' AS tid) AS tid00, CAST('(0,1)' AS tid) AS tid01, CAST('(-1,0)' AS tid) AS tidm10, CAST('(4294967295,65535)' AS tid) AS tidmax"
   },
   {
     "comment": "tid - Statement 2",
-    "query": "SELECT '(4294967296,1)'::tid"
+    "query": "SELECT '(4294967296,1)'::tid",
+    "expected": "SELECT CAST('(4294967296,1)' AS tid)"
   },
   {
     "comment": "tid - Statement 3",
-    "query": "SELECT '(1,65536)'::tid"
+    "query": "SELECT '(1,65536)'::tid",
+    "expected": "SELECT CAST('(1,65536)' AS tid)"
   },
   {
     "comment": "tid - Statement 4",
@@ -29,7 +32,8 @@
   },
   {
     "comment": "tid - Statement 8",
-    "query": "CREATE TABLE tid_tab (a int)"
+    "query": "CREATE TABLE tid_tab (a int)",
+    "expected": "CREATE TABLE tid_tab (a INT)"
   },
   {
     "comment": "tid - Statement 9",
@@ -37,15 +41,18 @@
   },
   {
     "comment": "tid - Statement 10",
-    "query": "SELECT min(ctid) FROM tid_tab"
+    "query": "SELECT min(ctid) FROM tid_tab",
+    "expected": "SELECT MIN(ctid) FROM tid_tab"
   },
   {
     "comment": "tid - Statement 11",
-    "query": "SELECT max(ctid) FROM tid_tab"
+    "query": "SELECT max(ctid) FROM tid_tab",
+    "expected": "SELECT MAX(ctid) FROM tid_tab"
   },
   {
     "comment": "tid - Statement 12",
-    "query": "TRUNCATE tid_tab"
+    "query": "TRUNCATE tid_tab",
+    "expected": "TRUNCATE TABLE tid_tab CONTINUE IDENTITY RESTRICT"
   },
   {
     "comment": "tid - Statement 13",
@@ -53,7 +60,8 @@
   },
   {
     "comment": "tid - Statement 14",
-    "query": "SELECT currtid2('tid_matview'::text, '(0,1)'::tid)"
+    "query": "SELECT currtid2('tid_matview'::text, '(0,1)'::tid)",
+    "expected": "SELECT currtid2(CAST('tid_matview' AS TEXT), CAST('(0,1)' AS tid))"
   },
   {
     "comment": "tid - Statement 15",
@@ -73,7 +81,8 @@
   },
   {
     "comment": "tid - Statement 19",
-    "query": "SELECT currtid2('tid_seq'::text, '(0,1)'::tid)"
+    "query": "SELECT currtid2('tid_seq'::text, '(0,1)'::tid)",
+    "expected": "SELECT currtid2(CAST('tid_seq' AS TEXT), CAST('(0,1)' AS tid))"
   },
   {
     "comment": "tid - Statement 20",
@@ -81,11 +90,13 @@
   },
   {
     "comment": "tid - Statement 21",
-    "query": "CREATE INDEX tid_ind ON tid_tab(a)"
+    "query": "CREATE INDEX tid_ind ON tid_tab(a)",
+    "expected": "CREATE INDEX tid_ind ON tid_tab USING btree ( a )"
   },
   {
     "comment": "tid - Statement 22",
-    "query": "SELECT currtid2('tid_ind'::text, '(0,1)'::tid)"
+    "query": "SELECT currtid2('tid_ind'::text, '(0,1)'::tid)",
+    "expected": "SELECT currtid2(CAST('tid_ind' AS TEXT), CAST('(0,1)' AS tid))"
   },
   {
     "comment": "tid - Statement 23",
@@ -93,11 +104,13 @@
   },
   {
     "comment": "tid - Statement 24",
-    "query": "CREATE TABLE tid_part (a int) PARTITION BY RANGE (a)"
+    "query": "CREATE TABLE tid_part (a int) PARTITION BY RANGE (a)",
+    "expected": "CREATE TABLE tid_part (a INT) PARTITION BY range (a)"
   },
   {
     "comment": "tid - Statement 25",
-    "query": "SELECT currtid2('tid_part'::text, '(0,1)'::tid)"
+    "query": "SELECT currtid2('tid_part'::text, '(0,1)'::tid)",
+    "expected": "SELECT currtid2(CAST('tid_part' AS TEXT), CAST('(0,1)' AS tid))"
   },
   {
     "comment": "tid - Statement 26",
@@ -109,7 +122,8 @@
   },
   {
     "comment": "tid - Statement 28",
-    "query": "SELECT currtid2('tid_view_no_ctid'::text, '(0,1)'::tid)"
+    "query": "SELECT currtid2('tid_view_no_ctid'::text, '(0,1)'::tid)",
+    "expected": "SELECT currtid2(CAST('tid_view_no_ctid' AS TEXT), CAST('(0,1)' AS tid))"
   },
   {
     "comment": "tid - Statement 29",
@@ -121,7 +135,8 @@
   },
   {
     "comment": "tid - Statement 31",
-    "query": "SELECT currtid2('tid_view_with_ctid'::text, '(0,1)'::tid)"
+    "query": "SELECT currtid2('tid_view_with_ctid'::text, '(0,1)'::tid)",
+    "expected": "SELECT currtid2(CAST('tid_view_with_ctid' AS TEXT), CAST('(0,1)' AS tid))"
   },
   {
     "comment": "tid - Statement 32",
@@ -133,7 +148,8 @@
   },
   {
     "comment": "tid - Statement 34",
-    "query": "SELECT currtid2('tid_view_fake_ctid'::text, '(0,1)'::tid)"
+    "query": "SELECT currtid2('tid_view_fake_ctid'::text, '(0,1)'::tid)",
+    "expected": "SELECT currtid2(CAST('tid_view_fake_ctid' AS TEXT), CAST('(0,1)' AS tid))"
   },
   {
     "comment": "tid - Statement 35",

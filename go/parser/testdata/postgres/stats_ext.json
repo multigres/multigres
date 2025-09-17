@@ -1,23 +1,28 @@
 [
   {
     "comment": "stats_ext - Statement 1",
-    "query": "create function check_estimated_rows(text) returns table (estimated int, actual int) language plpgsql as $$ declare ln text; tmp text[]; first_row bool := true; begin for ln in execute format('explain analyze %s', $1) loop if first_row then first_row := false; tmp := regexp_match(ln, 'rows=(\\d*) .* rows=(\\d*)'); return query select tmp[1]::int, tmp[2]::int; end if; end loop; end; $$"
+    "query": "create function check_estimated_rows(text) returns table (estimated int, actual int) language plpgsql as $$ declare ln text; tmp text[]; first_row bool := true; begin for ln in execute format('explain analyze %s', $1) loop if first_row then first_row := false; tmp := regexp_match(ln, 'rows=(\\d*) .* rows=(\\d*)'); return query select tmp[1]::int, tmp[2]::int; end if; end loop; end; $$",
+    "expected": "CREATE FUNCTION check_estimated_rows (TEXT) LANGUAGE plpgsql AS $$ declare ln text; tmp text[]; first_row bool := true; begin for ln in execute format('explain analyze %s', $1) loop if first_row then first_row := false; tmp := regexp_match(ln, 'rows=(\\d*) .* rows=(\\d*)'); return query select tmp[1]::int, tmp[2]::int; end if; end loop; end; $$"
   },
   {
     "comment": "stats_ext - Statement 2",
-    "query": "CREATE TABLE ext_stats_test (x text, y int, z int)"
+    "query": "CREATE TABLE ext_stats_test (x text, y int, z int)",
+    "expected": "CREATE TABLE ext_stats_test (x TEXT, y INT, z INT)"
   },
   {
     "comment": "stats_ext - Statement 3",
-    "query": "CREATE STATISTICS tst"
+    "query": "CREATE STATISTICS tst",
+    "error": "parse error at position 21: syntax error"
   },
   {
     "comment": "stats_ext - Statement 4",
-    "query": "CREATE STATISTICS tst ON a, b"
+    "query": "CREATE STATISTICS tst ON a, b",
+    "error": "parse error at position 29: syntax error"
   },
   {
     "comment": "stats_ext - Statement 5",
-    "query": "CREATE STATISTICS tst FROM sometab"
+    "query": "CREATE STATISTICS tst FROM sometab",
+    "error": "parse error at position 26: syntax error"
   },
   {
     "comment": "stats_ext - Statement 6",
@@ -57,11 +62,13 @@
   },
   {
     "comment": "stats_ext - Statement 15",
-    "query": "CREATE STATISTICS tst ON y + z FROM ext_stats_test"
+    "query": "CREATE STATISTICS tst ON y + z FROM ext_stats_test",
+    "error": "parse error at position 28: syntax error"
   },
   {
     "comment": "stats_ext - Statement 16",
-    "query": "CREATE STATISTICS tst ON (x, y) FROM ext_stats_test"
+    "query": "CREATE STATISTICS tst ON (x, y) FROM ext_stats_test",
+    "error": "parse error at position 28: syntax error"
   },
   {
     "comment": "stats_ext - Statement 17",
@@ -69,7 +76,8 @@
   },
   {
     "comment": "stats_ext - Statement 18",
-    "query": "CREATE TABLE ab1 (a INTEGER, b INTEGER, c INTEGER)"
+    "query": "CREATE TABLE ab1 (a INTEGER, b INTEGER, c INTEGER)",
+    "expected": "CREATE TABLE ab1 (a INT, b INT, c INT)"
   },
   {
     "comment": "stats_ext - Statement 19",
@@ -85,7 +93,8 @@
   },
   {
     "comment": "stats_ext - Statement 22",
-    "query": "SET SESSION AUTHORIZATION regress_stats_ext"
+    "query": "SET SESSION AUTHORIZATION regress_stats_ext",
+    "expected": "SET SESSION AUTHORIZATION 'regress_stats_ext'"
   },
   {
     "comment": "stats_ext - Statement 23",
@@ -101,7 +110,8 @@
   },
   {
     "comment": "stats_ext - Statement 26",
-    "query": "RESET SESSION AUTHORIZATION"
+    "query": "RESET SESSION AUTHORIZATION",
+    "expected": "RESET session_authorization"
   },
   {
     "comment": "stats_ext - Statement 27",
@@ -149,15 +159,18 @@
   },
   {
     "comment": "stats_ext - Statement 38",
-    "query": "CREATE TABLE ab1 (a INTEGER, b INTEGER)"
+    "query": "CREATE TABLE ab1 (a INTEGER, b INTEGER)",
+    "expected": "CREATE TABLE ab1 (a INT, b INT)"
   },
   {
     "comment": "stats_ext - Statement 39",
-    "query": "ALTER TABLE ab1 ALTER a SET STATISTICS 0"
+    "query": "ALTER TABLE ab1 ALTER a SET STATISTICS 0",
+    "expected": "ALTER TABLE ab1 ALTER COLUMN a SET STATISTICS 0"
   },
   {
     "comment": "stats_ext - Statement 40",
-    "query": "INSERT INTO ab1 SELECT a, a%23 FROM generate_series(1, 1000) a"
+    "query": "INSERT INTO ab1 SELECT a, a%23 FROM generate_series(1, 1000) a",
+    "expected": "INSERT INTO ab1 SELECT a, a % 23 FROM generate_series(1, 1000) AS a"
   },
   {
     "comment": "stats_ext - Statement 41",
@@ -169,7 +182,8 @@
   },
   {
     "comment": "stats_ext - Statement 43",
-    "query": "ALTER TABLE ab1 ALTER a SET STATISTICS -1"
+    "query": "ALTER TABLE ab1 ALTER a SET STATISTICS -1",
+    "expected": "ALTER TABLE ab1 ALTER COLUMN a SET STATISTICS -1"
   },
   {
     "comment": "stats_ext - Statement 44",
@@ -177,7 +191,8 @@
   },
   {
     "comment": "stats_ext - Statement 45",
-    "query": "SELECT stxname, stxdndistinct, stxddependencies, stxdmcv, stxdinherit FROM pg_statistic_ext s LEFT JOIN pg_statistic_ext_data d ON (d.stxoid = s.oid) WHERE s.stxname = 'ab1_a_b_stats'"
+    "query": "SELECT stxname, stxdndistinct, stxddependencies, stxdmcv, stxdinherit FROM pg_statistic_ext s LEFT JOIN pg_statistic_ext_data d ON (d.stxoid = s.oid) WHERE s.stxname = 'ab1_a_b_stats'",
+    "expected": "SELECT stxname, stxdndistinct, stxddependencies, stxdmcv, stxdinherit FROM pg_statistic_ext AS s LEFT OUTER JOIN pg_statistic_ext_data AS d ON (d.stxoid = s.oid) WHERE s.stxname = 'ab1_a_b_stats'"
   },
   {
     "comment": "stats_ext - Statement 46",
@@ -193,7 +208,8 @@
   },
   {
     "comment": "stats_ext - Statement 49",
-    "query": "INSERT INTO ab1 VALUES (1,1)"
+    "query": "INSERT INTO ab1 VALUES (1,1)",
+    "expected": "INSERT INTO ab1 VALUES (1, 1)"
   },
   {
     "comment": "stats_ext - Statement 50",
@@ -201,31 +217,38 @@
   },
   {
     "comment": "stats_ext - Statement 51",
-    "query": "CREATE TABLE stxdinh(a int, b int)"
+    "query": "CREATE TABLE stxdinh(a int, b int)",
+    "expected": "CREATE TABLE stxdinh (a INT, b INT)"
   },
   {
     "comment": "stats_ext - Statement 52",
-    "query": "CREATE TABLE stxdinh1() INHERITS(stxdinh)"
+    "query": "CREATE TABLE stxdinh1() INHERITS(stxdinh)",
+    "expected": "CREATE TABLE stxdinh1 () INHERITS (stxdinh)"
   },
   {
     "comment": "stats_ext - Statement 53",
-    "query": "CREATE TABLE stxdinh2() INHERITS(stxdinh)"
+    "query": "CREATE TABLE stxdinh2() INHERITS(stxdinh)",
+    "expected": "CREATE TABLE stxdinh2 () INHERITS (stxdinh)"
   },
   {
     "comment": "stats_ext - Statement 54",
-    "query": "INSERT INTO stxdinh SELECT mod(a,50), mod(a,100) FROM generate_series(0, 1999) a"
+    "query": "INSERT INTO stxdinh SELECT mod(a,50), mod(a,100) FROM generate_series(0, 1999) a",
+    "expected": "INSERT INTO stxdinh SELECT mod(a, 50), mod(a, 100) FROM generate_series(0, 1999) AS a"
   },
   {
     "comment": "stats_ext - Statement 55",
-    "query": "INSERT INTO stxdinh1 SELECT mod(a,100), mod(a,100) FROM generate_series(0, 999) a"
+    "query": "INSERT INTO stxdinh1 SELECT mod(a,100), mod(a,100) FROM generate_series(0, 999) a",
+    "expected": "INSERT INTO stxdinh1 SELECT mod(a, 100), mod(a, 100) FROM generate_series(0, 999) AS a"
   },
   {
     "comment": "stats_ext - Statement 56",
-    "query": "INSERT INTO stxdinh2 SELECT mod(a,100), mod(a,100) FROM generate_series(0, 999) a"
+    "query": "INSERT INTO stxdinh2 SELECT mod(a,100), mod(a,100) FROM generate_series(0, 999) a",
+    "expected": "INSERT INTO stxdinh2 SELECT mod(a, 100), mod(a, 100) FROM generate_series(0, 999) AS a"
   },
   {
     "comment": "stats_ext - Statement 57",
-    "query": "VACUUM ANALYZE stxdinh, stxdinh1, stxdinh2"
+    "query": "VACUUM ANALYZE stxdinh, stxdinh1, stxdinh2",
+    "expected": "VACUUM (ANALYZE) stxdinh, stxdinh1, stxdinh2"
   },
   {
     "comment": "stats_ext - Statement 58",
@@ -253,7 +276,8 @@
   },
   {
     "comment": "stats_ext - Statement 64",
-    "query": "CREATE TABLE stxdinp(i int, a int, b int) PARTITION BY RANGE (i)"
+    "query": "CREATE TABLE stxdinp(i int, a int, b int) PARTITION BY RANGE (i)",
+    "expected": "CREATE TABLE stxdinp (i INT, a INT, b INT) PARTITION BY range (i)"
   },
   {
     "comment": "stats_ext - Statement 65",
@@ -261,7 +285,8 @@
   },
   {
     "comment": "stats_ext - Statement 66",
-    "query": "INSERT INTO stxdinp SELECT 1, a/100, a/100 FROM generate_series(1, 999) a"
+    "query": "INSERT INTO stxdinp SELECT 1, a/100, a/100 FROM generate_series(1, 999) a",
+    "expected": "INSERT INTO stxdinp SELECT 1, a / 100, a / 100 FROM generate_series(1, 999) AS a"
   },
   {
     "comment": "stats_ext - Statement 67",
@@ -269,11 +294,13 @@
   },
   {
     "comment": "stats_ext - Statement 68",
-    "query": "VACUUM ANALYZE stxdinp"
+    "query": "VACUUM ANALYZE stxdinp",
+    "expected": "VACUUM (ANALYZE) stxdinp"
   },
   {
     "comment": "stats_ext - Statement 69",
-    "query": "SELECT 1 FROM pg_statistic_ext WHERE stxrelid = 'stxdinp'::regclass"
+    "query": "SELECT 1 FROM pg_statistic_ext WHERE stxrelid = 'stxdinp'::regclass",
+    "expected": "SELECT 1 FROM pg_statistic_ext WHERE stxrelid = CAST('stxdinp' AS regclass)"
   },
   {
     "comment": "stats_ext - Statement 70",
@@ -289,15 +316,18 @@
   },
   {
     "comment": "stats_ext - Statement 73",
-    "query": "CREATE TABLE ab1 (a INTEGER, b INTEGER, c TIMESTAMP, d TIMESTAMPTZ)"
+    "query": "CREATE TABLE ab1 (a INTEGER, b INTEGER, c TIMESTAMP, d TIMESTAMPTZ)",
+    "expected": "CREATE TABLE ab1 (a INT, b INT, c TIMESTAMP, d TIMESTAMPTZ)"
   },
   {
     "comment": "stats_ext - Statement 74",
-    "query": "CREATE STATISTICS ab1_exprstat_1 ON (a+b) FROM ab1"
+    "query": "CREATE STATISTICS ab1_exprstat_1 ON (a+b) FROM ab1",
+    "expected": "CREATE STATISTICS ab1_exprstat_1 ON (a + b) FROM ab1"
   },
   {
     "comment": "stats_ext - Statement 75",
-    "query": "CREATE STATISTICS ab1_exprstat_2 ON (a+b) FROM ab1"
+    "query": "CREATE STATISTICS ab1_exprstat_2 ON (a+b) FROM ab1",
+    "expected": "CREATE STATISTICS ab1_exprstat_2 ON (a + b) FROM ab1"
   },
   {
     "comment": "stats_ext - Statement 76",
@@ -305,7 +335,8 @@
   },
   {
     "comment": "stats_ext - Statement 77",
-    "query": "CREATE STATISTICS ab1_exprstat_3 ON (a+b), a FROM ab1"
+    "query": "CREATE STATISTICS ab1_exprstat_3 ON (a+b), a FROM ab1",
+    "expected": "CREATE STATISTICS ab1_exprstat_3 ON (a + b), a FROM ab1"
   },
   {
     "comment": "stats_ext - Statement 78",
@@ -321,11 +352,13 @@
   },
   {
     "comment": "stats_ext - Statement 81",
-    "query": "CREATE STATISTICS ab1_exprstat_6 ON (case a when 1 then true else false end), b FROM ab1"
+    "query": "CREATE STATISTICS ab1_exprstat_6 ON (case a when 1 then true else false end), b FROM ab1",
+    "expected": "CREATE STATISTICS ab1_exprstat_6 ON (CASE a WHEN 1 THEN TRUE ELSE FALSE END), b FROM ab1"
   },
   {
     "comment": "stats_ext - Statement 82",
-    "query": "INSERT INTO ab1 SELECT x / 10, x / 3, '2020-10-01'::timestamp + x * interval '1 day', '2020-10-01'::timestamptz + x * interval '1 day' FROM generate_series(1, 100) x"
+    "query": "INSERT INTO ab1 SELECT x / 10, x / 3, '2020-10-01'::timestamp + x * interval '1 day', '2020-10-01'::timestamptz + x * interval '1 day' FROM generate_series(1, 100) x",
+    "expected": "INSERT INTO ab1 SELECT x / 10, x / 3, CAST('2020-10-01' AS TIMESTAMP) + x * CAST('1 day' AS INTERVAL), CAST('2020-10-01' AS TIMESTAMPTZ) + x * CAST('1 day' AS INTERVAL) FROM generate_series(1, 100) AS x"
   },
   {
     "comment": "stats_ext - Statement 83",
@@ -333,15 +366,18 @@
   },
   {
     "comment": "stats_ext - Statement 84",
-    "query": "CREATE schema tststats"
+    "query": "CREATE schema tststats",
+    "expected": "CREATE SCHEMA tststats"
   },
   {
     "comment": "stats_ext - Statement 85",
-    "query": "CREATE TABLE tststats.t (a int, b int, c text)"
+    "query": "CREATE TABLE tststats.t (a int, b int, c text)",
+    "expected": "CREATE TABLE tststats.t (a INT, b INT, c TEXT)"
   },
   {
     "comment": "stats_ext - Statement 86",
-    "query": "CREATE INDEX ti ON tststats.t (a, b)"
+    "query": "CREATE INDEX ti ON tststats.t (a, b)",
+    "expected": "CREATE INDEX ti ON tststats.t USING btree ( a, b )"
   },
   {
     "comment": "stats_ext - Statement 87",
@@ -357,7 +393,8 @@
   },
   {
     "comment": "stats_ext - Statement 90",
-    "query": "CREATE TYPE tststats.ty AS (a int, b int, c text)"
+    "query": "CREATE TYPE tststats.ty AS (a int, b int, c text)",
+    "expected": "CREATE TYPE tststats.ty AS (a INT, b INT, c TEXT)"
   },
   {
     "comment": "stats_ext - Statement 91",
@@ -369,11 +406,13 @@
   },
   {
     "comment": "stats_ext - Statement 93",
-    "query": "CREATE FOREIGN TABLE tststats.f (a int, b int, c text) SERVER extstats_dummy_srv"
+    "query": "CREATE FOREIGN TABLE tststats.f (a int, b int, c text) SERVER extstats_dummy_srv",
+    "expected": "CREATE FOREIGN TABLE tststats.f (a INT, b INT, c TEXT) SERVER extstats_dummy_srv"
   },
   {
     "comment": "stats_ext - Statement 94",
-    "query": "CREATE TABLE tststats.pt (a int, b int, c text) PARTITION BY RANGE (a, b)"
+    "query": "CREATE TABLE tststats.pt (a int, b int, c text) PARTITION BY RANGE (a, b)",
+    "expected": "CREATE TABLE tststats.pt (a INT, b INT, c TEXT) PARTITION BY range (a, b)"
   },
   {
     "comment": "stats_ext - Statement 95",
@@ -417,7 +456,8 @@
   },
   {
     "comment": "stats_ext - Statement 105",
-    "query": "DO $$ DECLARE relname text := reltoastrelid::regclass FROM pg_class WHERE oid = 'tststats.t'::regclass; BEGIN EXECUTE 'CREATE STATISTICS tststats.s10 ON a, b FROM ' || relname; EXCEPTION WHEN wrong_object_type THEN RAISE NOTICE 'stats on toast table not created'; END; $$"
+    "query": "DO $$ DECLARE relname text := reltoastrelid::regclass FROM pg_class WHERE oid = 'tststats.t'::regclass; BEGIN EXECUTE 'CREATE STATISTICS tststats.s10 ON a, b FROM ' || relname; EXCEPTION WHEN wrong_object_type THEN RAISE NOTICE 'stats on toast table not created'; END; $$",
+    "expected": "DO ' DECLARE relname text := reltoastrelid::regclass FROM pg_class WHERE oid = ''tststats.t''::regclass; BEGIN EXECUTE ''CREATE STATISTICS tststats.s10 ON a, b FROM '' || relname; EXCEPTION WHEN wrong_object_type THEN RAISE NOTICE ''stats on toast table not created''; END; '"
   },
   {
     "comment": "stats_ext - Statement 106",
@@ -429,11 +469,13 @@
   },
   {
     "comment": "stats_ext - Statement 108",
-    "query": "CREATE TABLE ndistinct ( filler1 TEXT, filler2 NUMERIC, a INT, b INT, filler3 DATE, c INT, d INT ) WITH (autovacuum_enabled = off)"
+    "query": "CREATE TABLE ndistinct ( filler1 TEXT, filler2 NUMERIC, a INT, b INT, filler3 DATE, c INT, d INT ) WITH (autovacuum_enabled = off)",
+    "expected": "CREATE TABLE ndistinct (filler1 TEXT, filler2 NUMERIC, a INT, b INT, filler3 DATE, c INT, d INT) WITH (autovacuum_enabled = off)"
   },
   {
     "comment": "stats_ext - Statement 109",
-    "query": "INSERT INTO ndistinct (a, b, c, filler1) SELECT i/100, i/100, i/100, (i/100) || ' dollars and zero cents' FROM generate_series(1,1000) s(i)"
+    "query": "INSERT INTO ndistinct (a, b, c, filler1) SELECT i/100, i/100, i/100, (i/100) || ' dollars and zero cents' FROM generate_series(1,1000) s(i)",
+    "expected": "INSERT INTO ndistinct (a, b, c, filler1) SELECT i / 100, i / 100, i / 100, (i / 100) || ' dollars and zero cents' FROM generate_series(1, 1000) AS s(i)"
   },
   {
     "comment": "stats_ext - Statement 110",
@@ -481,7 +523,8 @@
   },
   {
     "comment": "stats_ext - Statement 121",
-    "query": "SELECT s.stxkind, d.stxdndistinct FROM pg_statistic_ext s, pg_statistic_ext_data d WHERE s.stxrelid = 'ndistinct'::regclass AND d.stxoid = s.oid"
+    "query": "SELECT s.stxkind, d.stxdndistinct FROM pg_statistic_ext s, pg_statistic_ext_data d WHERE s.stxrelid = 'ndistinct'::regclass AND d.stxoid = s.oid",
+    "expected": "SELECT s.stxkind, d.stxdndistinct FROM pg_statistic_ext AS s, pg_statistic_ext_data AS d WHERE s.stxrelid = CAST('ndistinct' AS regclass) AND d.stxoid = s.oid"
   },
   {
     "comment": "stats_ext - Statement 122",
@@ -489,11 +532,13 @@
   },
   {
     "comment": "stats_ext - Statement 123",
-    "query": "TRUNCATE TABLE ndistinct"
+    "query": "TRUNCATE TABLE ndistinct",
+    "expected": "TRUNCATE TABLE ndistinct CONTINUE IDENTITY RESTRICT"
   },
   {
     "comment": "stats_ext - Statement 124",
-    "query": "INSERT INTO ndistinct (a, b, c, filler1) SELECT mod(i,13), mod(i,17), mod(i,19), mod(i,23) || ' dollars and zero cents' FROM generate_series(1,1000) s(i)"
+    "query": "INSERT INTO ndistinct (a, b, c, filler1) SELECT mod(i,13), mod(i,17), mod(i,19), mod(i,23) || ' dollars and zero cents' FROM generate_series(1,1000) s(i)",
+    "expected": "INSERT INTO ndistinct (a, b, c, filler1) SELECT mod(i, 13), mod(i, 17), mod(i, 19), mod(i, 23) || ' dollars and zero cents' FROM generate_series(1, 1000) AS s(i)"
   },
   {
     "comment": "stats_ext - Statement 125",
@@ -505,7 +550,8 @@
   },
   {
     "comment": "stats_ext - Statement 127",
-    "query": "CREATE STATISTICS s10 (ndistinct) ON (a+1), (b+100), (2*c) FROM ndistinct"
+    "query": "CREATE STATISTICS s10 (ndistinct) ON (a+1), (b+100), (2*c) FROM ndistinct",
+    "expected": "CREATE STATISTICS s10 (ndistinct) ON (a + 1), (b + 100), (2 * c) FROM ndistinct"
   },
   {
     "comment": "stats_ext - Statement 128",
@@ -517,15 +563,18 @@
   },
   {
     "comment": "stats_ext - Statement 130",
-    "query": "CREATE STATISTICS s10 (ndistinct) ON a, b, (2*c) FROM ndistinct"
+    "query": "CREATE STATISTICS s10 (ndistinct) ON a, b, (2*c) FROM ndistinct",
+    "expected": "CREATE STATISTICS s10 (ndistinct) ON a, b, (2 * c) FROM ndistinct"
   },
   {
     "comment": "stats_ext - Statement 131",
-    "query": "TRUNCATE ndistinct"
+    "query": "TRUNCATE ndistinct",
+    "expected": "TRUNCATE TABLE ndistinct CONTINUE IDENTITY RESTRICT"
   },
   {
     "comment": "stats_ext - Statement 132",
-    "query": "INSERT INTO ndistinct (a, b, c, d) SELECT mod(i,3), mod(i,9), mod(i,5), mod(i,20) FROM generate_series(1,1000) s(i)"
+    "query": "INSERT INTO ndistinct (a, b, c, d) SELECT mod(i,3), mod(i,9), mod(i,5), mod(i,20) FROM generate_series(1,1000) s(i)",
+    "expected": "INSERT INTO ndistinct (a, b, c, d) SELECT mod(i, 3), mod(i, 9), mod(i, 5), mod(i, 20) FROM generate_series(1, 1000) AS s(i)"
   },
   {
     "comment": "stats_ext - Statement 133",
@@ -577,27 +626,33 @@
   },
   {
     "comment": "stats_ext - Statement 145",
-    "query": "CREATE STATISTICS s11 (ndistinct) ON a, b, (a*5), (b+1) FROM ndistinct"
+    "query": "CREATE STATISTICS s11 (ndistinct) ON a, b, (a*5), (b+1) FROM ndistinct",
+    "expected": "CREATE STATISTICS s11 (ndistinct) ON a, b, (a * 5), (b + 1) FROM ndistinct"
   },
   {
     "comment": "stats_ext - Statement 146",
-    "query": "CREATE STATISTICS s12 (ndistinct) ON a, (b+1), (c * 10) FROM ndistinct"
+    "query": "CREATE STATISTICS s12 (ndistinct) ON a, (b+1), (c * 10) FROM ndistinct",
+    "expected": "CREATE STATISTICS s12 (ndistinct) ON a, (b + 1), (c * 10) FROM ndistinct"
   },
   {
     "comment": "stats_ext - Statement 147",
-    "query": "CREATE TABLE functional_dependencies ( filler1 TEXT, filler2 NUMERIC, a INT, b TEXT, filler3 DATE, c INT, d TEXT ) WITH (autovacuum_enabled = off)"
+    "query": "CREATE TABLE functional_dependencies ( filler1 TEXT, filler2 NUMERIC, a INT, b TEXT, filler3 DATE, c INT, d TEXT ) WITH (autovacuum_enabled = off)",
+    "expected": "CREATE TABLE functional_dependencies (filler1 TEXT, filler2 NUMERIC, a INT, b TEXT, filler3 DATE, c INT, d TEXT) WITH (autovacuum_enabled = off)"
   },
   {
     "comment": "stats_ext - Statement 148",
-    "query": "CREATE INDEX fdeps_ab_idx ON functional_dependencies (a, b)"
+    "query": "CREATE INDEX fdeps_ab_idx ON functional_dependencies (a, b)",
+    "expected": "CREATE INDEX fdeps_ab_idx ON functional_dependencies USING btree ( a, b )"
   },
   {
     "comment": "stats_ext - Statement 149",
-    "query": "CREATE INDEX fdeps_abc_idx ON functional_dependencies (a, b, c)"
+    "query": "CREATE INDEX fdeps_abc_idx ON functional_dependencies (a, b, c)",
+    "expected": "CREATE INDEX fdeps_abc_idx ON functional_dependencies USING btree ( a, b, c )"
   },
   {
     "comment": "stats_ext - Statement 150",
-    "query": "INSERT INTO functional_dependencies (a, b, c, filler1) SELECT mod(i, 5), mod(i, 7), mod(i, 11), i FROM generate_series(1,1000) s(i)"
+    "query": "INSERT INTO functional_dependencies (a, b, c, filler1) SELECT mod(i, 5), mod(i, 7), mod(i, 11), i FROM generate_series(1,1000) s(i)",
+    "expected": "INSERT INTO functional_dependencies (a, b, c, filler1) SELECT mod(i, 5), mod(i, 7), mod(i, 11), i FROM generate_series(1, 1000) AS s(i)"
   },
   {
     "comment": "stats_ext - Statement 151",
@@ -617,7 +672,8 @@
   },
   {
     "comment": "stats_ext - Statement 155",
-    "query": "TRUNCATE functional_dependencies"
+    "query": "TRUNCATE functional_dependencies",
+    "expected": "TRUNCATE TABLE functional_dependencies CONTINUE IDENTITY RESTRICT"
   },
   {
     "comment": "stats_ext - Statement 156",
@@ -625,7 +681,8 @@
   },
   {
     "comment": "stats_ext - Statement 157",
-    "query": "INSERT INTO functional_dependencies (a, b, c, filler1) SELECT i, i, i, i FROM generate_series(1,5000) s(i)"
+    "query": "INSERT INTO functional_dependencies (a, b, c, filler1) SELECT i, i, i, i FROM generate_series(1,5000) s(i)",
+    "expected": "INSERT INTO functional_dependencies (a, b, c, filler1) SELECT i, i, i, i FROM generate_series(1, 5000) AS s(i)"
   },
   {
     "comment": "stats_ext - Statement 158",
@@ -637,11 +694,13 @@
   },
   {
     "comment": "stats_ext - Statement 160",
-    "query": "CREATE STATISTICS func_deps_stat (dependencies) ON (mod(a,11)), (mod(b::int, 13)), (mod(c, 7)) FROM functional_dependencies"
+    "query": "CREATE STATISTICS func_deps_stat (dependencies) ON (mod(a,11)), (mod(b::int, 13)), (mod(c, 7)) FROM functional_dependencies",
+    "expected": "CREATE STATISTICS func_deps_stat (dependencies) ON (mod(a, 11)), (mod(CAST(b AS INT), 13)), (mod(c, 7)) FROM functional_dependencies"
   },
   {
     "comment": "stats_ext - Statement 161",
-    "query": "INSERT INTO functional_dependencies (a, b, c, filler1) SELECT mod(i,100), mod(i,50), mod(i,25), i FROM generate_series(1,5000) s(i)"
+    "query": "INSERT INTO functional_dependencies (a, b, c, filler1) SELECT mod(i,100), mod(i,50), mod(i,25), i FROM generate_series(1,5000) s(i)",
+    "expected": "INSERT INTO functional_dependencies (a, b, c, filler1) SELECT mod(i, 100), mod(i, 50), mod(i, 25), i FROM generate_series(1, 5000) AS s(i)"
   },
   {
     "comment": "stats_ext - Statement 162",
@@ -713,15 +772,15 @@
   },
   {
     "comment": "stats_ext - Statement 179",
-    "query": "SELECT * FROM check_estimated_rows('SELECT * FROM functional_dependencies WHERE a < ANY (ARRAY[1, 51]) AND b > ''1''')"
+    "query": "SELECT * FROM check_estimated_rows('SELECT * FROM functional_dependencies WHERE a \u003c ANY (ARRAY[1, 51]) AND b \u003e ''1''')"
   },
   {
     "comment": "stats_ext - Statement 180",
-    "query": "SELECT * FROM check_estimated_rows('SELECT * FROM functional_dependencies WHERE a >= ANY (ARRAY[1, 51]) AND b <= ANY (ARRAY[''1'', ''2''])')"
+    "query": "SELECT * FROM check_estimated_rows('SELECT * FROM functional_dependencies WHERE a \u003e= ANY (ARRAY[1, 51]) AND b \u003c= ANY (ARRAY[''1'', ''2''])')"
   },
   {
     "comment": "stats_ext - Statement 181",
-    "query": "SELECT * FROM check_estimated_rows('SELECT * FROM functional_dependencies WHERE a <= ANY (ARRAY[1, 2, 51, 52]) AND b >= ANY (ARRAY[''1'', ''2''])')"
+    "query": "SELECT * FROM check_estimated_rows('SELECT * FROM functional_dependencies WHERE a \u003c= ANY (ARRAY[1, 2, 51, 52]) AND b \u003e= ANY (ARRAY[''1'', ''2''])')"
   },
   {
     "comment": "stats_ext - Statement 182",
@@ -741,7 +800,8 @@
   },
   {
     "comment": "stats_ext - Statement 186",
-    "query": "ALTER TABLE functional_dependencies ALTER COLUMN c TYPE numeric"
+    "query": "ALTER TABLE functional_dependencies ALTER COLUMN c TYPE numeric",
+    "expected": "ALTER TABLE functional_dependencies ALTER COLUMN c TYPE NUMERIC"
   },
   {
     "comment": "stats_ext - Statement 187",
@@ -821,15 +881,15 @@
   },
   {
     "comment": "stats_ext - Statement 206",
-    "query": "SELECT * FROM check_estimated_rows('SELECT * FROM functional_dependencies WHERE (a * 2) < ANY (ARRAY[2, 102]) AND upper(b) > ''1''')"
+    "query": "SELECT * FROM check_estimated_rows('SELECT * FROM functional_dependencies WHERE (a * 2) \u003c ANY (ARRAY[2, 102]) AND upper(b) \u003e ''1''')"
   },
   {
     "comment": "stats_ext - Statement 207",
-    "query": "SELECT * FROM check_estimated_rows('SELECT * FROM functional_dependencies WHERE (a * 2) >= ANY (ARRAY[2, 102]) AND upper(b) <= ANY (ARRAY[''1'', ''2''])')"
+    "query": "SELECT * FROM check_estimated_rows('SELECT * FROM functional_dependencies WHERE (a * 2) \u003e= ANY (ARRAY[2, 102]) AND upper(b) \u003c= ANY (ARRAY[''1'', ''2''])')"
   },
   {
     "comment": "stats_ext - Statement 208",
-    "query": "SELECT * FROM check_estimated_rows('SELECT * FROM functional_dependencies WHERE (a * 2) <= ANY (ARRAY[2, 4, 102, 104]) AND upper(b) >= ANY (ARRAY[''1'', ''2''])')"
+    "query": "SELECT * FROM check_estimated_rows('SELECT * FROM functional_dependencies WHERE (a * 2) \u003c= ANY (ARRAY[2, 4, 102, 104]) AND upper(b) \u003e= ANY (ARRAY[''1'', ''2''])')"
   },
   {
     "comment": "stats_ext - Statement 209",
@@ -849,11 +909,13 @@
   },
   {
     "comment": "stats_ext - Statement 213",
-    "query": "CREATE TABLE functional_dependencies_multi ( a INTEGER, b INTEGER, c INTEGER, d INTEGER ) WITH (autovacuum_enabled = off)"
+    "query": "CREATE TABLE functional_dependencies_multi ( a INTEGER, b INTEGER, c INTEGER, d INTEGER ) WITH (autovacuum_enabled = off)",
+    "expected": "CREATE TABLE functional_dependencies_multi (a INT, b INT, c INT, d INT) WITH (autovacuum_enabled = off)"
   },
   {
     "comment": "stats_ext - Statement 214",
-    "query": "INSERT INTO functional_dependencies_multi (a, b, c, d) SELECT mod(i,7), mod(i,7), mod(i,11), mod(i,11) FROM generate_series(1,5000) s(i)"
+    "query": "INSERT INTO functional_dependencies_multi (a, b, c, d) SELECT mod(i,7), mod(i,7), mod(i,11), mod(i,11) FROM generate_series(1,5000) s(i)",
+    "expected": "INSERT INTO functional_dependencies_multi (a, b, c, d) SELECT mod(i, 7), mod(i, 7), mod(i, 11), mod(i, 11) FROM generate_series(1, 5000) AS s(i)"
   },
   {
     "comment": "stats_ext - Statement 215",
@@ -893,11 +955,13 @@
   },
   {
     "comment": "stats_ext - Statement 224",
-    "query": "CREATE TABLE mcv_lists ( filler1 TEXT, filler2 NUMERIC, a INT, b VARCHAR, filler3 DATE, c INT, d TEXT, ia INT[] ) WITH (autovacuum_enabled = off)"
+    "query": "CREATE TABLE mcv_lists ( filler1 TEXT, filler2 NUMERIC, a INT, b VARCHAR, filler3 DATE, c INT, d TEXT, ia INT[] ) WITH (autovacuum_enabled = off)",
+    "expected": "CREATE TABLE mcv_lists (filler1 TEXT, filler2 NUMERIC, a INT, b VARCHAR, filler3 DATE, c INT, d TEXT, ia INT[]) WITH (autovacuum_enabled = off)"
   },
   {
     "comment": "stats_ext - Statement 225",
-    "query": "INSERT INTO mcv_lists (a, b, c, filler1) SELECT mod(i,37), mod(i,41), mod(i,43), mod(i,47) FROM generate_series(1,5000) s(i)"
+    "query": "INSERT INTO mcv_lists (a, b, c, filler1) SELECT mod(i,37), mod(i,41), mod(i,43), mod(i,47) FROM generate_series(1,5000) s(i)",
+    "expected": "INSERT INTO mcv_lists (a, b, c, filler1) SELECT mod(i, 37), mod(i, 41), mod(i, 43), mod(i, 47) FROM generate_series(1, 5000) AS s(i)"
   },
   {
     "comment": "stats_ext - Statement 226",
@@ -917,7 +981,8 @@
   },
   {
     "comment": "stats_ext - Statement 230",
-    "query": "TRUNCATE mcv_lists"
+    "query": "TRUNCATE mcv_lists",
+    "expected": "TRUNCATE TABLE mcv_lists CONTINUE IDENTITY RESTRICT"
   },
   {
     "comment": "stats_ext - Statement 231",
@@ -925,7 +990,8 @@
   },
   {
     "comment": "stats_ext - Statement 232",
-    "query": "INSERT INTO mcv_lists (a, b, c, filler1) SELECT i, i, i, i FROM generate_series(1,1000) s(i)"
+    "query": "INSERT INTO mcv_lists (a, b, c, filler1) SELECT i, i, i, i FROM generate_series(1,1000) s(i)",
+    "expected": "INSERT INTO mcv_lists (a, b, c, filler1) SELECT i, i, i, i FROM generate_series(1, 1000) AS s(i)"
   },
   {
     "comment": "stats_ext - Statement 233",
@@ -937,11 +1003,13 @@
   },
   {
     "comment": "stats_ext - Statement 235",
-    "query": "CREATE STATISTICS mcv_lists_stats (mcv) ON (mod(a,7)), (mod(b::int,11)), (mod(c,13)) FROM mcv_lists"
+    "query": "CREATE STATISTICS mcv_lists_stats (mcv) ON (mod(a,7)), (mod(b::int,11)), (mod(c,13)) FROM mcv_lists",
+    "expected": "CREATE STATISTICS mcv_lists_stats (mcv) ON (mod(a, 7)), (mod(CAST(b AS INT), 11)), (mod(c, 13)) FROM mcv_lists"
   },
   {
     "comment": "stats_ext - Statement 236",
-    "query": "INSERT INTO mcv_lists (a, b, c, ia, filler1) SELECT mod(i,100), mod(i,50), mod(i,25), array[mod(i,25)], i FROM generate_series(1,5000) s(i)"
+    "query": "INSERT INTO mcv_lists (a, b, c, ia, filler1) SELECT mod(i,100), mod(i,50), mod(i,25), array[mod(i,25)], i FROM generate_series(1,5000) s(i)",
+    "expected": "INSERT INTO mcv_lists (a, b, c, ia, filler1) SELECT mod(i, 100), mod(i, 50), mod(i, 25), ARRAY[mod(i, 25)], i FROM generate_series(1, 5000) AS s(i)"
   },
   {
     "comment": "stats_ext - Statement 237",
@@ -949,35 +1017,35 @@
   },
   {
     "comment": "stats_ext - Statement 238",
-    "query": "SELECT * FROM check_estimated_rows('SELECT * FROM mcv_lists WHERE a < 1 AND b < ''1''')"
+    "query": "SELECT * FROM check_estimated_rows('SELECT * FROM mcv_lists WHERE a \u003c 1 AND b \u003c ''1''')"
   },
   {
     "comment": "stats_ext - Statement 239",
-    "query": "SELECT * FROM check_estimated_rows('SELECT * FROM mcv_lists WHERE 1 > a AND ''1'' > b')"
+    "query": "SELECT * FROM check_estimated_rows('SELECT * FROM mcv_lists WHERE 1 \u003e a AND ''1'' \u003e b')"
   },
   {
     "comment": "stats_ext - Statement 240",
-    "query": "SELECT * FROM check_estimated_rows('SELECT * FROM mcv_lists WHERE a <= 0 AND b <= ''0''')"
+    "query": "SELECT * FROM check_estimated_rows('SELECT * FROM mcv_lists WHERE a \u003c= 0 AND b \u003c= ''0''')"
   },
   {
     "comment": "stats_ext - Statement 241",
-    "query": "SELECT * FROM check_estimated_rows('SELECT * FROM mcv_lists WHERE 0 >= a AND ''0'' >= b')"
+    "query": "SELECT * FROM check_estimated_rows('SELECT * FROM mcv_lists WHERE 0 \u003e= a AND ''0'' \u003e= b')"
   },
   {
     "comment": "stats_ext - Statement 242",
-    "query": "SELECT * FROM check_estimated_rows('SELECT * FROM mcv_lists WHERE a < 5 AND b < ''1'' AND c < 5')"
+    "query": "SELECT * FROM check_estimated_rows('SELECT * FROM mcv_lists WHERE a \u003c 5 AND b \u003c ''1'' AND c \u003c 5')"
   },
   {
     "comment": "stats_ext - Statement 243",
-    "query": "SELECT * FROM check_estimated_rows('SELECT * FROM mcv_lists WHERE a < 5 AND ''1'' > b AND 5 > c')"
+    "query": "SELECT * FROM check_estimated_rows('SELECT * FROM mcv_lists WHERE a \u003c 5 AND ''1'' \u003e b AND 5 \u003e c')"
   },
   {
     "comment": "stats_ext - Statement 244",
-    "query": "SELECT * FROM check_estimated_rows('SELECT * FROM mcv_lists WHERE a <= 4 AND b <= ''0'' AND c <= 4')"
+    "query": "SELECT * FROM check_estimated_rows('SELECT * FROM mcv_lists WHERE a \u003c= 4 AND b \u003c= ''0'' AND c \u003c= 4')"
   },
   {
     "comment": "stats_ext - Statement 245",
-    "query": "SELECT * FROM check_estimated_rows('SELECT * FROM mcv_lists WHERE 4 >= a AND ''0'' >= b AND 4 >= c')"
+    "query": "SELECT * FROM check_estimated_rows('SELECT * FROM mcv_lists WHERE 4 \u003e= a AND ''0'' \u003e= b AND 4 \u003e= c')"
   },
   {
     "comment": "stats_ext - Statement 246",
@@ -1005,27 +1073,27 @@
   },
   {
     "comment": "stats_ext - Statement 252",
-    "query": "SELECT * FROM check_estimated_rows('SELECT * FROM mcv_lists WHERE a <= ANY (ARRAY[1, 2, 3]) AND b IN (''1'', ''2'', ''3'')')"
+    "query": "SELECT * FROM check_estimated_rows('SELECT * FROM mcv_lists WHERE a \u003c= ANY (ARRAY[1, 2, 3]) AND b IN (''1'', ''2'', ''3'')')"
   },
   {
     "comment": "stats_ext - Statement 253",
-    "query": "SELECT * FROM check_estimated_rows('SELECT * FROM mcv_lists WHERE a <= ANY (ARRAY[1, NULL, 2, 3]) AND b IN (''1'', ''2'', NULL, ''3'')')"
+    "query": "SELECT * FROM check_estimated_rows('SELECT * FROM mcv_lists WHERE a \u003c= ANY (ARRAY[1, NULL, 2, 3]) AND b IN (''1'', ''2'', NULL, ''3'')')"
   },
   {
     "comment": "stats_ext - Statement 254",
-    "query": "SELECT * FROM check_estimated_rows('SELECT * FROM mcv_lists WHERE a < ALL (ARRAY[4, 5]) AND c > ANY (ARRAY[1, 2, 3])')"
+    "query": "SELECT * FROM check_estimated_rows('SELECT * FROM mcv_lists WHERE a \u003c ALL (ARRAY[4, 5]) AND c \u003e ANY (ARRAY[1, 2, 3])')"
   },
   {
     "comment": "stats_ext - Statement 255",
-    "query": "SELECT * FROM check_estimated_rows('SELECT * FROM mcv_lists WHERE a < ALL (ARRAY[4, 5]) AND c > ANY (ARRAY[1, 2, 3, NULL])')"
+    "query": "SELECT * FROM check_estimated_rows('SELECT * FROM mcv_lists WHERE a \u003c ALL (ARRAY[4, 5]) AND c \u003e ANY (ARRAY[1, 2, 3, NULL])')"
   },
   {
     "comment": "stats_ext - Statement 256",
-    "query": "SELECT * FROM check_estimated_rows('SELECT * FROM mcv_lists WHERE a < ALL (ARRAY[4, 5]) AND b IN (''1'', ''2'', ''3'') AND c > ANY (ARRAY[1, 2, 3])')"
+    "query": "SELECT * FROM check_estimated_rows('SELECT * FROM mcv_lists WHERE a \u003c ALL (ARRAY[4, 5]) AND b IN (''1'', ''2'', ''3'') AND c \u003e ANY (ARRAY[1, 2, 3])')"
   },
   {
     "comment": "stats_ext - Statement 257",
-    "query": "SELECT * FROM check_estimated_rows('SELECT * FROM mcv_lists WHERE a < ALL (ARRAY[4, 5]) AND b IN (''1'', ''2'', NULL, ''3'') AND c > ANY (ARRAY[1, 2, NULL, 3])')"
+    "query": "SELECT * FROM check_estimated_rows('SELECT * FROM mcv_lists WHERE a \u003c ALL (ARRAY[4, 5]) AND b IN (''1'', ''2'', NULL, ''3'') AND c \u003e ANY (ARRAY[1, 2, NULL, 3])')"
   },
   {
     "comment": "stats_ext - Statement 258",
@@ -1041,11 +1109,13 @@
   },
   {
     "comment": "stats_ext - Statement 261",
-    "query": "SELECT d.stxdmcv IS NOT NULL FROM pg_statistic_ext s, pg_statistic_ext_data d WHERE s.stxname = 'mcv_lists_stats' AND d.stxoid = s.oid"
+    "query": "SELECT d.stxdmcv IS NOT NULL FROM pg_statistic_ext s, pg_statistic_ext_data d WHERE s.stxname = 'mcv_lists_stats' AND d.stxoid = s.oid",
+    "expected": "SELECT d.stxdmcv IS NOT NULL FROM pg_statistic_ext AS s, pg_statistic_ext_data AS d WHERE s.stxname = 'mcv_lists_stats' AND d.stxoid = s.oid"
   },
   {
     "comment": "stats_ext - Statement 262",
-    "query": "ALTER TABLE mcv_lists ALTER COLUMN c TYPE numeric"
+    "query": "ALTER TABLE mcv_lists ALTER COLUMN c TYPE numeric",
+    "expected": "ALTER TABLE mcv_lists ALTER COLUMN c TYPE NUMERIC"
   },
   {
     "comment": "stats_ext - Statement 263",
@@ -1057,11 +1127,11 @@
   },
   {
     "comment": "stats_ext - Statement 265",
-    "query": "SELECT * FROM check_estimated_rows('SELECT * FROM mcv_lists WHERE mod(a,20) < 1 AND mod(b::int,10) < 1')"
+    "query": "SELECT * FROM check_estimated_rows('SELECT * FROM mcv_lists WHERE mod(a,20) \u003c 1 AND mod(b::int,10) \u003c 1')"
   },
   {
     "comment": "stats_ext - Statement 266",
-    "query": "SELECT * FROM check_estimated_rows('SELECT * FROM mcv_lists WHERE 1 > mod(a,20) AND 1 > mod(b::int,10)')"
+    "query": "SELECT * FROM check_estimated_rows('SELECT * FROM mcv_lists WHERE 1 \u003e mod(a,20) AND 1 \u003e mod(b::int,10)')"
   },
   {
     "comment": "stats_ext - Statement 267",
@@ -1081,23 +1151,26 @@
   },
   {
     "comment": "stats_ext - Statement 271",
-    "query": "SELECT * FROM check_estimated_rows('SELECT * FROM mcv_lists WHERE mod(a,20) <= ANY (ARRAY[1, NULL, 2, 3]) AND mod(b::int,10) IN (1, 2, NULL, 3)')"
+    "query": "SELECT * FROM check_estimated_rows('SELECT * FROM mcv_lists WHERE mod(a,20) \u003c= ANY (ARRAY[1, NULL, 2, 3]) AND mod(b::int,10) IN (1, 2, NULL, 3)')"
   },
   {
     "comment": "stats_ext - Statement 272",
-    "query": "SELECT * FROM check_estimated_rows('SELECT * FROM mcv_lists WHERE mod(a,20) < ALL (ARRAY[4, 5]) AND mod(b::int,10) IN (1, 2, 3) AND mod(c,5) > ANY (ARRAY[1, 2, 3])')"
+    "query": "SELECT * FROM check_estimated_rows('SELECT * FROM mcv_lists WHERE mod(a,20) \u003c ALL (ARRAY[4, 5]) AND mod(b::int,10) IN (1, 2, 3) AND mod(c,5) \u003e ANY (ARRAY[1, 2, 3])')"
   },
   {
     "comment": "stats_ext - Statement 273",
-    "query": "CREATE STATISTICS mcv_lists_stats_1 ON (mod(a,20)) FROM mcv_lists"
+    "query": "CREATE STATISTICS mcv_lists_stats_1 ON (mod(a,20)) FROM mcv_lists",
+    "expected": "CREATE STATISTICS mcv_lists_stats_1 ON (mod(a, 20)) FROM mcv_lists"
   },
   {
     "comment": "stats_ext - Statement 274",
-    "query": "CREATE STATISTICS mcv_lists_stats_2 ON (mod(b::int,10)) FROM mcv_lists"
+    "query": "CREATE STATISTICS mcv_lists_stats_2 ON (mod(b::int,10)) FROM mcv_lists",
+    "expected": "CREATE STATISTICS mcv_lists_stats_2 ON (mod(CAST(b AS INT), 10)) FROM mcv_lists"
   },
   {
     "comment": "stats_ext - Statement 275",
-    "query": "CREATE STATISTICS mcv_lists_stats_3 ON (mod(c,5)) FROM mcv_lists"
+    "query": "CREATE STATISTICS mcv_lists_stats_3 ON (mod(c,5)) FROM mcv_lists",
+    "expected": "CREATE STATISTICS mcv_lists_stats_3 ON (mod(c, 5)) FROM mcv_lists"
   },
   {
     "comment": "stats_ext - Statement 276",
@@ -1113,7 +1186,8 @@
   },
   {
     "comment": "stats_ext - Statement 279",
-    "query": "CREATE STATISTICS mcv_lists_stats (mcv) ON (mod(a,20)), (mod(b::int,10)), (mod(c,5)) FROM mcv_lists"
+    "query": "CREATE STATISTICS mcv_lists_stats (mcv) ON (mod(a,20)), (mod(b::int,10)), (mod(c,5)) FROM mcv_lists",
+    "expected": "CREATE STATISTICS mcv_lists_stats (mcv) ON (mod(a, 20)), (mod(CAST(b AS INT), 10)), (mod(c, 5)) FROM mcv_lists"
   },
   {
     "comment": "stats_ext - Statement 280",
@@ -1121,7 +1195,8 @@
   },
   {
     "comment": "stats_ext - Statement 281",
-    "query": "INSERT INTO mcv_lists (a, b, c, filler1) SELECT (CASE WHEN mod(i,100) = 1 THEN NULL ELSE mod(i,100) END), (CASE WHEN mod(i,50) = 1  THEN NULL ELSE mod(i,50) END), (CASE WHEN mod(i,25) = 1  THEN NULL ELSE mod(i,25) END), i FROM generate_series(1,5000) s(i)"
+    "query": "INSERT INTO mcv_lists (a, b, c, filler1) SELECT (CASE WHEN mod(i,100) = 1 THEN NULL ELSE mod(i,100) END), (CASE WHEN mod(i,50) = 1  THEN NULL ELSE mod(i,50) END), (CASE WHEN mod(i,25) = 1  THEN NULL ELSE mod(i,25) END), i FROM generate_series(1,5000) s(i)",
+    "expected": "INSERT INTO mcv_lists (a, b, c, filler1) SELECT (CASE WHEN mod(i, 100) = 1 THEN NULL ELSE mod(i, 100) END), (CASE WHEN mod(i, 50) = 1 THEN NULL ELSE mod(i, 50) END), (CASE WHEN mod(i, 25) = 1 THEN NULL ELSE mod(i, 25) END), i FROM generate_series(1, 5000) AS s(i)"
   },
   {
     "comment": "stats_ext - Statement 282",
@@ -1145,15 +1220,18 @@
   },
   {
     "comment": "stats_ext - Statement 287",
-    "query": "INSERT INTO mcv_lists (a, b, c) SELECT 1, 2, 3 FROM generate_series(1,1000) s(i)"
+    "query": "INSERT INTO mcv_lists (a, b, c) SELECT 1, 2, 3 FROM generate_series(1,1000) s(i)",
+    "expected": "INSERT INTO mcv_lists (a, b, c) SELECT 1, 2, 3 FROM generate_series(1, 1000) AS s(i)"
   },
   {
     "comment": "stats_ext - Statement 288",
-    "query": "SELECT m.* FROM pg_statistic_ext s, pg_statistic_ext_data d, pg_mcv_list_items(d.stxdmcv) m WHERE s.stxname = 'mcv_lists_stats' AND d.stxoid = s.oid"
+    "query": "SELECT m.* FROM pg_statistic_ext s, pg_statistic_ext_data d, pg_mcv_list_items(d.stxdmcv) m WHERE s.stxname = 'mcv_lists_stats' AND d.stxoid = s.oid",
+    "expected": "SELECT m.* FROM pg_statistic_ext AS s, pg_statistic_ext_data AS d, pg_mcv_list_items(d.stxdmcv) AS m WHERE s.stxname = 'mcv_lists_stats' AND d.stxoid = s.oid"
   },
   {
     "comment": "stats_ext - Statement 289",
-    "query": "INSERT INTO mcv_lists (a, b, c, d) SELECT NULL, (CASE WHEN mod(i,2) = 0 THEN NULL ELSE 'x' END), (CASE WHEN mod(i,2) = 0 THEN NULL ELSE 0 END), (CASE WHEN mod(i,2) = 0 THEN NULL ELSE 'x' END) FROM generate_series(1,5000) s(i)"
+    "query": "INSERT INTO mcv_lists (a, b, c, d) SELECT NULL, (CASE WHEN mod(i,2) = 0 THEN NULL ELSE 'x' END), (CASE WHEN mod(i,2) = 0 THEN NULL ELSE 0 END), (CASE WHEN mod(i,2) = 0 THEN NULL ELSE 'x' END) FROM generate_series(1,5000) s(i)",
+    "expected": "INSERT INTO mcv_lists (a, b, c, d) SELECT NULL, (CASE WHEN mod(i, 2) = 0 THEN NULL ELSE 'x' END), (CASE WHEN mod(i, 2) = 0 THEN NULL ELSE 0 END), (CASE WHEN mod(i, 2) = 0 THEN NULL ELSE 'x' END) FROM generate_series(1, 5000) AS s(i)"
   },
   {
     "comment": "stats_ext - Statement 290",
@@ -1173,11 +1251,13 @@
   },
   {
     "comment": "stats_ext - Statement 294",
-    "query": "CREATE TABLE mcv_lists_uuid ( a UUID, b UUID, c UUID ) WITH (autovacuum_enabled = off)"
+    "query": "CREATE TABLE mcv_lists_uuid ( a UUID, b UUID, c UUID ) WITH (autovacuum_enabled = off)",
+    "expected": "CREATE TABLE mcv_lists_uuid (a UUID, b UUID, c UUID) WITH (autovacuum_enabled = off)"
   },
   {
     "comment": "stats_ext - Statement 295",
-    "query": "INSERT INTO mcv_lists_uuid (a, b, c) SELECT fipshash(mod(i,100)::text)::uuid, fipshash(mod(i,50)::text)::uuid, fipshash(mod(i,25)::text)::uuid FROM generate_series(1,5000) s(i)"
+    "query": "INSERT INTO mcv_lists_uuid (a, b, c) SELECT fipshash(mod(i,100)::text)::uuid, fipshash(mod(i,50)::text)::uuid, fipshash(mod(i,25)::text)::uuid FROM generate_series(1,5000) s(i)",
+    "expected": "INSERT INTO mcv_lists_uuid (a, b, c) SELECT CAST(fipshash(CAST(mod(i, 100) AS TEXT)) AS UUID), CAST(fipshash(CAST(mod(i, 50) AS TEXT)) AS UUID), CAST(fipshash(CAST(mod(i, 25) AS TEXT)) AS UUID) FROM generate_series(1, 5000) AS s(i)"
   },
   {
     "comment": "stats_ext - Statement 296",
@@ -1201,11 +1281,13 @@
   },
   {
     "comment": "stats_ext - Statement 301",
-    "query": "CREATE TABLE mcv_lists_arrays ( a TEXT[], b NUMERIC[], c INT[] ) WITH (autovacuum_enabled = off)"
+    "query": "CREATE TABLE mcv_lists_arrays ( a TEXT[], b NUMERIC[], c INT[] ) WITH (autovacuum_enabled = off)",
+    "expected": "CREATE TABLE mcv_lists_arrays (a TEXT[], b NUMERIC[], c INT[]) WITH (autovacuum_enabled = off)"
   },
   {
     "comment": "stats_ext - Statement 302",
-    "query": "INSERT INTO mcv_lists_arrays (a, b, c) SELECT ARRAY[fipshash((i/100)::text), fipshash((i/100-1)::text), fipshash((i/100+1)::text)], ARRAY[(i/100-1)::numeric/1000, (i/100)::numeric/1000, (i/100+1)::numeric/1000], ARRAY[(i/100-1), i/100, (i/100+1)] FROM generate_series(1,5000) s(i)"
+    "query": "INSERT INTO mcv_lists_arrays (a, b, c) SELECT ARRAY[fipshash((i/100)::text), fipshash((i/100-1)::text), fipshash((i/100+1)::text)], ARRAY[(i/100-1)::numeric/1000, (i/100)::numeric/1000, (i/100+1)::numeric/1000], ARRAY[(i/100-1), i/100, (i/100+1)] FROM generate_series(1,5000) s(i)",
+    "expected": "INSERT INTO mcv_lists_arrays (a, b, c) SELECT ARRAY[fipshash(CAST((i / 100) AS TEXT)),fipshash(CAST((i / 100 - 1) AS TEXT)),fipshash(CAST((i / 100 + 1) AS TEXT))], ARRAY[CAST((i / 100 - 1) AS NUMERIC) / 1000,CAST((i / 100) AS NUMERIC) / 1000,CAST((i / 100 + 1) AS NUMERIC) / 1000], ARRAY[(i / 100 - 1),i / 100,(i / 100 + 1)] FROM generate_series(1, 5000) AS s(i)"
   },
   {
     "comment": "stats_ext - Statement 303",
@@ -1217,11 +1299,13 @@
   },
   {
     "comment": "stats_ext - Statement 305",
-    "query": "CREATE TABLE mcv_lists_bool ( a BOOL, b BOOL, c BOOL ) WITH (autovacuum_enabled = off)"
+    "query": "CREATE TABLE mcv_lists_bool ( a BOOL, b BOOL, c BOOL ) WITH (autovacuum_enabled = off)",
+    "expected": "CREATE TABLE mcv_lists_bool (a BOOLEAN, b BOOLEAN, c BOOLEAN) WITH (autovacuum_enabled = off)"
   },
   {
     "comment": "stats_ext - Statement 306",
-    "query": "INSERT INTO mcv_lists_bool (a, b, c) SELECT (mod(i,2) = 0), (mod(i,4) = 0), (mod(i,8) = 0) FROM generate_series(1,10000) s(i)"
+    "query": "INSERT INTO mcv_lists_bool (a, b, c) SELECT (mod(i,2) = 0), (mod(i,4) = 0), (mod(i,8) = 0) FROM generate_series(1,10000) s(i)",
+    "expected": "INSERT INTO mcv_lists_bool (a, b, c) SELECT (mod(i, 2) = 0), (mod(i, 4) = 0), (mod(i, 8) = 0) FROM generate_series(1, 10000) AS s(i)"
   },
   {
     "comment": "stats_ext - Statement 307",
@@ -1249,19 +1333,23 @@
   },
   {
     "comment": "stats_ext - Statement 313",
-    "query": "CREATE TABLE mcv_lists_partial ( a INT, b INT, c INT )"
+    "query": "CREATE TABLE mcv_lists_partial ( a INT, b INT, c INT )",
+    "expected": "CREATE TABLE mcv_lists_partial (a INT, b INT, c INT)"
   },
   {
     "comment": "stats_ext - Statement 314",
-    "query": "INSERT INTO mcv_lists_partial (a, b, c) SELECT mod(i,10), mod(i,10), mod(i,10) FROM generate_series(0,999) s(i)"
+    "query": "INSERT INTO mcv_lists_partial (a, b, c) SELECT mod(i,10), mod(i,10), mod(i,10) FROM generate_series(0,999) s(i)",
+    "expected": "INSERT INTO mcv_lists_partial (a, b, c) SELECT mod(i, 10), mod(i, 10), mod(i, 10) FROM generate_series(0, 999) AS s(i)"
   },
   {
     "comment": "stats_ext - Statement 315",
-    "query": "INSERT INTO mcv_lists_partial (a, b, c) SELECT i, i, i FROM generate_series(0,99) s(i)"
+    "query": "INSERT INTO mcv_lists_partial (a, b, c) SELECT i, i, i FROM generate_series(0,99) s(i)",
+    "expected": "INSERT INTO mcv_lists_partial (a, b, c) SELECT i, i, i FROM generate_series(0, 99) AS s(i)"
   },
   {
     "comment": "stats_ext - Statement 316",
-    "query": "INSERT INTO mcv_lists_partial (a, b, c) SELECT i, i, i FROM generate_series(0,3999) s(i)"
+    "query": "INSERT INTO mcv_lists_partial (a, b, c) SELECT i, i, i FROM generate_series(0,3999) s(i)",
+    "expected": "INSERT INTO mcv_lists_partial (a, b, c) SELECT i, i, i FROM generate_series(0, 3999) AS s(i)"
   },
   {
     "comment": "stats_ext - Statement 317",
@@ -1309,11 +1397,13 @@
   },
   {
     "comment": "stats_ext - Statement 328",
-    "query": "CREATE TABLE mcv_lists_multi ( a INTEGER, b INTEGER, c INTEGER, d INTEGER ) WITH (autovacuum_enabled = off)"
+    "query": "CREATE TABLE mcv_lists_multi ( a INTEGER, b INTEGER, c INTEGER, d INTEGER ) WITH (autovacuum_enabled = off)",
+    "expected": "CREATE TABLE mcv_lists_multi (a INT, b INT, c INT, d INT) WITH (autovacuum_enabled = off)"
   },
   {
     "comment": "stats_ext - Statement 329",
-    "query": "INSERT INTO mcv_lists_multi (a, b, c, d) SELECT mod(i,5), mod(i,5), mod(i,7), mod(i,7) FROM generate_series(1,5000) s(i)"
+    "query": "INSERT INTO mcv_lists_multi (a, b, c, d) SELECT mod(i,5), mod(i,5), mod(i,7), mod(i,7) FROM generate_series(1,5000) s(i)",
+    "expected": "INSERT INTO mcv_lists_multi (a, b, c, d) SELECT mod(i, 5), mod(i, 5), mod(i, 7), mod(i, 7) FROM generate_series(1, 5000) AS s(i)"
   },
   {
     "comment": "stats_ext - Statement 330",
@@ -1361,11 +1451,13 @@
   },
   {
     "comment": "stats_ext - Statement 341",
-    "query": "CREATE TABLE expr_stats (a int, b int, c int)"
+    "query": "CREATE TABLE expr_stats (a int, b int, c int)",
+    "expected": "CREATE TABLE expr_stats (a INT, b INT, c INT)"
   },
   {
     "comment": "stats_ext - Statement 342",
-    "query": "INSERT INTO expr_stats SELECT mod(i,10), mod(i,10), mod(i,10) FROM generate_series(1,1000) s(i)"
+    "query": "INSERT INTO expr_stats SELECT mod(i,10), mod(i,10), mod(i,10) FROM generate_series(1,1000) s(i)",
+    "expected": "INSERT INTO expr_stats SELECT mod(i, 10), mod(i, 10), mod(i, 10) FROM generate_series(1, 1000) AS s(i)"
   },
   {
     "comment": "stats_ext - Statement 343",
@@ -1381,7 +1473,8 @@
   },
   {
     "comment": "stats_ext - Statement 346",
-    "query": "CREATE STATISTICS expr_stats_1 (mcv) ON (a+b), (a-b), (2*a), (3*b) FROM expr_stats"
+    "query": "CREATE STATISTICS expr_stats_1 (mcv) ON (a+b), (a-b), (2*a), (3*b) FROM expr_stats",
+    "expected": "CREATE STATISTICS expr_stats_1 (mcv) ON (a + b), (a - b), (2 * a), (3 * b) FROM expr_stats"
   },
   {
     "comment": "stats_ext - Statement 347",
@@ -1405,19 +1498,22 @@
   },
   {
     "comment": "stats_ext - Statement 352",
-    "query": "CREATE STATISTICS expr_stats_1 (mcv) ON a, b, (2*a), (3*b), (a+b), (a-b) FROM expr_stats"
+    "query": "CREATE STATISTICS expr_stats_1 (mcv) ON a, b, (2*a), (3*b), (a+b), (a-b) FROM expr_stats",
+    "expected": "CREATE STATISTICS expr_stats_1 (mcv) ON a, b, (2 * a), (3 * b), (a + b), (a - b) FROM expr_stats"
   },
   {
     "comment": "stats_ext - Statement 353",
-    "query": "CREATE TABLE expr_stats (a int, b name, c text)"
+    "query": "CREATE TABLE expr_stats (a int, b name, c text)",
+    "expected": "CREATE TABLE expr_stats (a INT, b name, c TEXT)"
   },
   {
     "comment": "stats_ext - Statement 354",
-    "query": "INSERT INTO expr_stats SELECT mod(i,10), fipshash(mod(i,10)::text), fipshash(mod(i,10)::text) FROM generate_series(1,1000) s(i)"
+    "query": "INSERT INTO expr_stats SELECT mod(i,10), fipshash(mod(i,10)::text), fipshash(mod(i,10)::text) FROM generate_series(1,1000) s(i)",
+    "expected": "INSERT INTO expr_stats SELECT mod(i, 10), fipshash(CAST(mod(i, 10) AS TEXT)), fipshash(CAST(mod(i, 10) AS TEXT)) FROM generate_series(1, 1000) AS s(i)"
   },
   {
     "comment": "stats_ext - Statement 355",
-    "query": "SELECT * FROM check_estimated_rows('SELECT * FROM expr_stats WHERE a = 0 AND (b || c) <= ''z'' AND (c || b) >= ''0''')"
+    "query": "SELECT * FROM check_estimated_rows('SELECT * FROM expr_stats WHERE a = 0 AND (b || c) \u003c= ''z'' AND (c || b) \u003e= ''0''')"
   },
   {
     "comment": "stats_ext - Statement 356",
@@ -1425,7 +1521,8 @@
   },
   {
     "comment": "stats_ext - Statement 357",
-    "query": "CREATE TABLE expr_stats_incompatible_test ( c0 double precision, c1 boolean NOT NULL )"
+    "query": "CREATE TABLE expr_stats_incompatible_test ( c0 double precision, c1 boolean NOT NULL )",
+    "expected": "CREATE TABLE expr_stats_incompatible_test (c0 FLOAT8, c1 BOOLEAN NOT NULL)"
   },
   {
     "comment": "stats_ext - Statement 358",
@@ -1433,7 +1530,8 @@
   },
   {
     "comment": "stats_ext - Statement 359",
-    "query": "INSERT INTO expr_stats_incompatible_test VALUES (1234,false), (5678,true)"
+    "query": "INSERT INTO expr_stats_incompatible_test VALUES (1234,false), (5678,true)",
+    "expected": "INSERT INTO expr_stats_incompatible_test VALUES (1234, FALSE), (5678, TRUE)"
   },
   {
     "comment": "stats_ext - Statement 360",
@@ -1441,7 +1539,8 @@
   },
   {
     "comment": "stats_ext - Statement 361",
-    "query": "SELECT c0 FROM ONLY expr_stats_incompatible_test WHERE ( upper('x') LIKE ('x'||('[0,1]'::int4range)) AND (c0 IN (0, 1) OR c1) )"
+    "query": "SELECT c0 FROM ONLY expr_stats_incompatible_test WHERE ( upper('x') LIKE ('x'||('[0,1]'::int4range)) AND (c0 IN (0, 1) OR c1) )",
+    "expected": "SELECT c0 FROM ONLY expr_stats_incompatible_test WHERE (upper('x') LIKE ('x' || (CAST('[0,1]' AS int4range))) AND (c0 IN (0, 1) OR c1))"
   },
   {
     "comment": "stats_ext - Statement 362",
@@ -1449,11 +1548,13 @@
   },
   {
     "comment": "stats_ext - Statement 363",
-    "query": "CREATE TABLE tststats.priv_test_tbl ( a int, b int )"
+    "query": "CREATE TABLE tststats.priv_test_tbl ( a int, b int )",
+    "expected": "CREATE TABLE tststats.priv_test_tbl (a INT, b INT)"
   },
   {
     "comment": "stats_ext - Statement 364",
-    "query": "INSERT INTO tststats.priv_test_tbl SELECT mod(i,5), mod(i,10) FROM generate_series(1,100) s(i)"
+    "query": "INSERT INTO tststats.priv_test_tbl SELECT mod(i,5), mod(i,10) FROM generate_series(1,100) s(i)",
+    "expected": "INSERT INTO tststats.priv_test_tbl SELECT mod(i, 5), mod(i, 10) FROM generate_series(1, 100) AS s(i)"
   },
   {
     "comment": "stats_ext - Statement 365",
@@ -1465,103 +1566,128 @@
   },
   {
     "comment": "stats_ext - Statement 367",
-    "query": "create table stts_t1 (a int, b int)"
+    "query": "create table stts_t1 (a int, b int)",
+    "expected": "CREATE TABLE stts_t1 (a INT, b INT)"
   },
   {
     "comment": "stats_ext - Statement 368",
-    "query": "create statistics (ndistinct) on a, b from stts_t1"
+    "query": "create statistics (ndistinct) on a, b from stts_t1",
+    "expected": "CREATE STATISTICS (ndistinct) ON a, b FROM stts_t1"
   },
   {
     "comment": "stats_ext - Statement 369",
-    "query": "create statistics (ndistinct, dependencies) on a, b from stts_t1"
+    "query": "create statistics (ndistinct, dependencies) on a, b from stts_t1",
+    "expected": "CREATE STATISTICS (ndistinct, dependencies) ON a, b FROM stts_t1"
   },
   {
     "comment": "stats_ext - Statement 370",
-    "query": "create statistics (ndistinct, dependencies, mcv) on a, b from stts_t1"
+    "query": "create statistics (ndistinct, dependencies, mcv) on a, b from stts_t1",
+    "expected": "CREATE STATISTICS (ndistinct, dependencies, mcv) ON a, b FROM stts_t1"
   },
   {
     "comment": "stats_ext - Statement 371",
-    "query": "create table stts_t2 (a int, b int, c int)"
+    "query": "create table stts_t2 (a int, b int, c int)",
+    "expected": "CREATE TABLE stts_t2 (a INT, b INT, c INT)"
   },
   {
     "comment": "stats_ext - Statement 372",
-    "query": "create statistics on b, c from stts_t2"
+    "query": "create statistics on b, c from stts_t2",
+    "expected": "CREATE STATISTICS ON b, c FROM stts_t2"
   },
   {
     "comment": "stats_ext - Statement 373",
-    "query": "create table stts_t3 (col1 int, col2 int, col3 int)"
+    "query": "create table stts_t3 (col1 int, col2 int, col3 int)",
+    "expected": "CREATE TABLE stts_t3 (col1 INT, col2 INT, col3 INT)"
   },
   {
     "comment": "stats_ext - Statement 374",
-    "query": "create statistics stts_hoge on col1, col2, col3 from stts_t3"
+    "query": "create statistics stts_hoge on col1, col2, col3 from stts_t3",
+    "expected": "CREATE STATISTICS stts_hoge ON col1, col2, col3 FROM stts_t3"
   },
   {
     "comment": "stats_ext - Statement 375",
-    "query": "create schema stts_s1"
+    "query": "create schema stts_s1",
+    "expected": "CREATE SCHEMA stts_s1"
   },
   {
     "comment": "stats_ext - Statement 376",
-    "query": "create schema stts_s2"
+    "query": "create schema stts_s2",
+    "expected": "CREATE SCHEMA stts_s2"
   },
   {
     "comment": "stats_ext - Statement 377",
-    "query": "create statistics stts_s1.stts_foo on col1, col2 from stts_t3"
+    "query": "create statistics stts_s1.stts_foo on col1, col2 from stts_t3",
+    "expected": "CREATE STATISTICS stts_s1.stts_foo ON col1, col2 FROM stts_t3"
   },
   {
     "comment": "stats_ext - Statement 378",
-    "query": "create statistics stts_s2.stts_yama (dependencies, mcv) on col1, col3 from stts_t3"
+    "query": "create statistics stts_s2.stts_yama (dependencies, mcv) on col1, col3 from stts_t3",
+    "expected": "CREATE STATISTICS stts_s2.stts_yama (dependencies, mcv) ON col1, col3 FROM stts_t3"
   },
   {
     "comment": "stats_ext - Statement 379",
-    "query": "insert into stts_t1 select i,i from generate_series(1,100) i"
+    "query": "insert into stts_t1 select i,i from generate_series(1,100) i",
+    "expected": "INSERT INTO stts_t1 SELECT i, i FROM generate_series(1, 100) AS i"
   },
   {
     "comment": "stats_ext - Statement 380",
-    "query": "analyze stts_t1"
+    "query": "analyze stts_t1",
+    "expected": "ANALYZE stts_t1"
   },
   {
     "comment": "stats_ext - Statement 381",
-    "query": "set search_path to public, stts_s1, stts_s2, tststats"
+    "query": "set search_path to public, stts_s1, stts_s2, tststats",
+    "expected": "SET search_path = 'public', 'stts_s1', 'stts_s2', 'tststats'"
   },
   {
     "comment": "stats_ext - Statement 382",
-    "query": "create statistics (mcv) ON a, b, (a+b), (a-b) FROM stts_t1"
+    "query": "create statistics (mcv) ON a, b, (a+b), (a-b) FROM stts_t1",
+    "expected": "CREATE STATISTICS (mcv) ON a, b, (a + b), (a - b) FROM stts_t1"
   },
   {
     "comment": "stats_ext - Statement 383",
-    "query": "create statistics (mcv) ON (a+b), (a-b) FROM stts_t1"
+    "query": "create statistics (mcv) ON (a+b), (a-b) FROM stts_t1",
+    "expected": "CREATE STATISTICS (mcv) ON (a + b), (a - b) FROM stts_t1"
   },
   {
     "comment": "stats_ext - Statement 384",
-    "query": "drop statistics stts_t1_a_b_expr_expr_stat1"
+    "query": "drop statistics stts_t1_a_b_expr_expr_stat1",
+    "expected": "DROP STATISTICS stts_t1_a_b_expr_expr_stat1"
   },
   {
     "comment": "stats_ext - Statement 385",
-    "query": "drop statistics stts_t1_expr_expr_stat"
+    "query": "drop statistics stts_t1_expr_expr_stat",
+    "expected": "DROP STATISTICS stts_t1_expr_expr_stat"
   },
   {
     "comment": "stats_ext - Statement 386",
-    "query": "set search_path to public, stts_s1"
+    "query": "set search_path to public, stts_s1",
+    "expected": "SET search_path = 'public', 'stts_s1'"
   },
   {
     "comment": "stats_ext - Statement 387",
-    "query": "set role regress_stats_ext"
+    "query": "set role regress_stats_ext",
+    "expected": "SET ROLE 'regress_stats_ext'"
   },
   {
     "comment": "stats_ext - Statement 388",
-    "query": "drop table stts_t1, stts_t2, stts_t3"
+    "query": "drop table stts_t1, stts_t2, stts_t3",
+    "expected": "DROP TABLE stts_t1, stts_t2, stts_t3"
   },
   {
     "comment": "stats_ext - Statement 389",
-    "query": "drop schema stts_s1, stts_s2 cascade"
+    "query": "drop schema stts_s1, stts_s2 cascade",
+    "expected": "DROP SCHEMA stts_s1, stts_s2 CASCADE"
   },
   {
     "comment": "stats_ext - Statement 390",
-    "query": "drop user regress_stats_ext"
+    "query": "drop user regress_stats_ext",
+    "expected": "DROP ROLE regress_stats_ext"
   },
   {
     "comment": "stats_ext - Statement 391",
-    "query": "reset search_path"
+    "query": "reset search_path",
+    "expected": "RESET search_path"
   },
   {
     "comment": "stats_ext - Statement 392",
@@ -1573,7 +1699,8 @@
   },
   {
     "comment": "stats_ext - Statement 394",
-    "query": "SET SESSION AUTHORIZATION regress_stats_user1"
+    "query": "SET SESSION AUTHORIZATION regress_stats_user1",
+    "expected": "SET SESSION AUTHORIZATION 'regress_stats_user1'"
   },
   {
     "comment": "stats_ext - Statement 395",
@@ -1581,27 +1708,31 @@
   },
   {
     "comment": "stats_ext - Statement 396",
-    "query": "SELECT * FROM tststats.priv_test_tbl WHERE a = 1 and tststats.priv_test_tbl.* > (1, 1) is not null"
+    "query": "SELECT * FROM tststats.priv_test_tbl WHERE a = 1 and tststats.priv_test_tbl.* \u003e (1, 1) is not null",
+    "expected": "SELECT * FROM tststats.priv_test_tbl WHERE a = 1 AND tststats.priv_test_tbl.* \u003e (1, 1) IS NOT NULL"
   },
   {
     "comment": "stats_ext - Statement 397",
-    "query": "CREATE FUNCTION op_leak(int, int) RETURNS bool AS 'BEGIN RAISE NOTICE ''op_leak => %, %'', $1, $2; RETURN $1 < $2; END' LANGUAGE plpgsql"
+    "query": "CREATE FUNCTION op_leak(int, int) RETURNS bool AS 'BEGIN RAISE NOTICE ''op_leak =\u003e %, %'', $1, $2; RETURN $1 \u003c $2; END' LANGUAGE plpgsql",
+    "expected": "CREATE FUNCTION op_leak (INT, INT) RETURNS BOOLEAN AS $$BEGIN RAISE NOTICE 'op_leak =\u003e %, %', $1, $2; RETURN $1 \u003c $2; END$$ LANGUAGE plpgsql"
   },
   {
     "comment": "stats_ext - Statement 398",
-    "query": "CREATE OPERATOR <<< (procedure = op_leak, leftarg = int, rightarg = int, restrict = scalarltsel)"
+    "query": "CREATE OPERATOR \u003c\u003c\u003c (procedure = op_leak, leftarg = int, rightarg = int, restrict = scalarltsel)",
+    "expected": "CREATE OPERATOR \u003c\u003c\u003c (procedure = op_leak, leftarg = INT, rightarg = INT, restrict = scalarltsel)"
   },
   {
     "comment": "stats_ext - Statement 399",
-    "query": "SELECT * FROM tststats.priv_test_tbl WHERE a <<< 0 AND b <<< 0"
+    "query": "SELECT * FROM tststats.priv_test_tbl WHERE a \u003c\u003c\u003c 0 AND b \u003c\u003c\u003c 0"
   },
   {
     "comment": "stats_ext - Statement 400",
-    "query": "DELETE FROM tststats.priv_test_tbl WHERE a <<< 0 AND b <<< 0"
+    "query": "DELETE FROM tststats.priv_test_tbl WHERE a \u003c\u003c\u003c 0 AND b \u003c\u003c\u003c 0"
   },
   {
     "comment": "stats_ext - Statement 401",
-    "query": "CREATE VIEW tststats.priv_test_view WITH (security_barrier=true) AS SELECT * FROM tststats.priv_test_tbl WHERE false"
+    "query": "CREATE VIEW tststats.priv_test_view WITH (security_barrier=true) AS SELECT * FROM tststats.priv_test_tbl WHERE false",
+    "expected": "CREATE VIEW tststats.priv_test_view WITH ( security_barrier = 'true') AS SELECT * FROM tststats.priv_test_tbl WHERE FALSE"
   },
   {
     "comment": "stats_ext - Statement 402",
@@ -1609,11 +1740,11 @@
   },
   {
     "comment": "stats_ext - Statement 403",
-    "query": "SELECT * FROM tststats.priv_test_view WHERE a <<< 0 AND b <<< 0"
+    "query": "SELECT * FROM tststats.priv_test_view WHERE a \u003c\u003c\u003c 0 AND b \u003c\u003c\u003c 0"
   },
   {
     "comment": "stats_ext - Statement 404",
-    "query": "DELETE FROM tststats.priv_test_view WHERE a <<< 0 AND b <<< 0"
+    "query": "DELETE FROM tststats.priv_test_view WHERE a \u003c\u003c\u003c 0 AND b \u003c\u003c\u003c 0"
   },
   {
     "comment": "stats_ext - Statement 405",
@@ -1645,11 +1776,13 @@
   },
   {
     "comment": "stats_ext - Statement 412",
-    "query": "SELECT statistics_name, most_common_vals FROM pg_stats_ext x WHERE tablename = 'stats_ext_tbl' ORDER BY ROW(x.*)"
+    "query": "SELECT statistics_name, most_common_vals FROM pg_stats_ext x WHERE tablename = 'stats_ext_tbl' ORDER BY ROW(x.*)",
+    "expected": "SELECT statistics_name, most_common_vals FROM pg_stats_ext AS x WHERE tablename = 'stats_ext_tbl' ORDER BY ROW(x.*)"
   },
   {
     "comment": "stats_ext - Statement 413",
-    "query": "SELECT statistics_name, most_common_vals FROM pg_stats_ext_exprs x WHERE tablename = 'stats_ext_tbl' ORDER BY ROW(x.*)"
+    "query": "SELECT statistics_name, most_common_vals FROM pg_stats_ext_exprs x WHERE tablename = 'stats_ext_tbl' ORDER BY ROW(x.*)",
+    "expected": "SELECT statistics_name, most_common_vals FROM pg_stats_ext_exprs AS x WHERE tablename = 'stats_ext_tbl' ORDER BY ROW(x.*)"
   },
   {
     "comment": "stats_ext - Statement 414",
@@ -1657,11 +1790,13 @@
   },
   {
     "comment": "stats_ext - Statement 415",
-    "query": "DROP OPERATOR <<< (int, int)"
+    "query": "DROP OPERATOR \u003c\u003c\u003c (int, int)",
+    "expected": "DROP OPERATOR \u003c\u003c\u003c(INT, INT)"
   },
   {
     "comment": "stats_ext - Statement 416",
-    "query": "DROP FUNCTION op_leak(int, int)"
+    "query": "DROP FUNCTION op_leak(int, int)",
+    "expected": "DROP FUNCTION op_leak(INT, INT)"
   },
   {
     "comment": "stats_ext - Statement 417",
@@ -1669,6 +1804,7 @@
   },
   {
     "comment": "stats_ext - Statement 418",
-    "query": "DROP USER regress_stats_user1"
+    "query": "DROP USER regress_stats_user1",
+    "expected": "DROP ROLE regress_stats_user1"
   }
 ]

@@ -13,11 +13,13 @@
   },
   {
     "comment": "tablespace - Statement 4",
-    "query": "CREATE TABLESPACE regress_tblspacewith LOCATION '' WITH (some_nonexistent_parameter = true)"
+    "query": "CREATE TABLESPACE regress_tblspacewith LOCATION '' WITH (some_nonexistent_parameter = true)",
+    "expected": "CREATE TABLESPACE regress_tblspacewith LOCATION '' WITH ( some_nonexistent_parameter = 'true' )"
   },
   {
     "comment": "tablespace - Statement 5",
-    "query": "CREATE TABLESPACE regress_tblspacewith LOCATION '' WITH (random_page_cost = 3.0)"
+    "query": "CREATE TABLESPACE regress_tblspacewith LOCATION '' WITH (random_page_cost = 3.0)",
+    "expected": "CREATE TABLESPACE regress_tblspacewith LOCATION '' WITH ( random_page_cost = 3.0 )"
   },
   {
     "comment": "tablespace - Statement 6",
@@ -29,83 +31,103 @@
   },
   {
     "comment": "tablespace - Statement 8",
-    "query": "SELECT regexp_replace(pg_tablespace_location(oid), '(pg_tblspc)/(\\d+)', '\\1/NNN') FROM pg_tablespace  WHERE spcname = 'regress_tblspace'"
+    "query": "SELECT regexp_replace(pg_tablespace_location(oid), '(pg_tblspc)/(\\d+)', '\\1/NNN') FROM pg_tablespace  WHERE spcname = 'regress_tblspace'",
+    "expected": "SELECT regexp_replace(pg_tablespace_location(oid), '(pg_tblspc)/(\\d+)', '\\1/NNN') FROM pg_tablespace WHERE spcname = 'regress_tblspace'"
   },
   {
     "comment": "tablespace - Statement 9",
-    "query": "ALTER TABLESPACE regress_tblspace SET (random_page_cost = 1.0, seq_page_cost = 1.1)"
+    "query": "ALTER TABLESPACE regress_tblspace SET (random_page_cost = 1.0, seq_page_cost = 1.1)",
+    "expected": "ALTER TABLESPACE regress_tblspace SET ( random_page_cost = 1.0, seq_page_cost = 1.1 )"
   },
   {
     "comment": "tablespace - Statement 10",
-    "query": "ALTER TABLESPACE regress_tblspace SET (some_nonexistent_parameter = true)"
+    "query": "ALTER TABLESPACE regress_tblspace SET (some_nonexistent_parameter = true)",
+    "expected": "ALTER TABLESPACE regress_tblspace SET ( some_nonexistent_parameter = 'true' )"
   },
   {
     "comment": "tablespace - Statement 11",
-    "query": "ALTER TABLESPACE regress_tblspace RESET (random_page_cost = 2.0)"
+    "query": "ALTER TABLESPACE regress_tblspace RESET (random_page_cost = 2.0)",
+    "expected": "ALTER TABLESPACE regress_tblspace RESET ( random_page_cost = 2.0 )"
   },
   {
     "comment": "tablespace - Statement 12",
-    "query": "ALTER TABLESPACE regress_tblspace RESET (random_page_cost, effective_io_concurrency)"
+    "query": "ALTER TABLESPACE regress_tblspace RESET (random_page_cost, effective_io_concurrency)",
+    "expected": "ALTER TABLESPACE regress_tblspace RESET ( random_page_cost, effective_io_concurrency )"
   },
   {
     "comment": "tablespace - Statement 13",
-    "query": "REINDEX (TABLESPACE regress_tblspace) TABLE pg_am"
+    "query": "REINDEX (TABLESPACE regress_tblspace) TABLE pg_am",
+    "expected": "REINDEX (tablespace) TABLE pg_am"
   },
   {
     "comment": "tablespace - Statement 14",
-    "query": "REINDEX (TABLESPACE regress_tblspace) TABLE CONCURRENTLY pg_am"
+    "query": "REINDEX (TABLESPACE regress_tblspace) TABLE CONCURRENTLY pg_am",
+    "expected": "REINDEX (tablespace) TABLE CONCURRENTLY pg_am"
   },
   {
     "comment": "tablespace - Statement 15",
-    "query": "REINDEX (TABLESPACE regress_tblspace) TABLE pg_authid"
+    "query": "REINDEX (TABLESPACE regress_tblspace) TABLE pg_authid",
+    "expected": "REINDEX (tablespace) TABLE pg_authid"
   },
   {
     "comment": "tablespace - Statement 16",
-    "query": "REINDEX (TABLESPACE regress_tblspace) TABLE CONCURRENTLY pg_authid"
+    "query": "REINDEX (TABLESPACE regress_tblspace) TABLE CONCURRENTLY pg_authid",
+    "expected": "REINDEX (tablespace) TABLE CONCURRENTLY pg_authid"
   },
   {
     "comment": "tablespace - Statement 17",
-    "query": "REINDEX (TABLESPACE regress_tblspace) INDEX pg_toast.pg_toast_1260_index"
+    "query": "REINDEX (TABLESPACE regress_tblspace) INDEX pg_toast.pg_toast_1260_index",
+    "expected": "REINDEX (tablespace) INDEX pg_toast_1260_index"
   },
   {
     "comment": "tablespace - Statement 18",
-    "query": "REINDEX (TABLESPACE regress_tblspace) INDEX CONCURRENTLY pg_toast.pg_toast_1260_index"
+    "query": "REINDEX (TABLESPACE regress_tblspace) INDEX CONCURRENTLY pg_toast.pg_toast_1260_index",
+    "expected": "REINDEX (tablespace) INDEX CONCURRENTLY pg_toast_1260_index"
   },
   {
     "comment": "tablespace - Statement 19",
-    "query": "REINDEX (TABLESPACE regress_tblspace) TABLE pg_toast.pg_toast_1260"
+    "query": "REINDEX (TABLESPACE regress_tblspace) TABLE pg_toast.pg_toast_1260",
+    "expected": "REINDEX (tablespace) TABLE pg_toast_1260"
   },
   {
     "comment": "tablespace - Statement 20",
-    "query": "REINDEX (TABLESPACE regress_tblspace) TABLE CONCURRENTLY pg_toast.pg_toast_1260"
+    "query": "REINDEX (TABLESPACE regress_tblspace) TABLE CONCURRENTLY pg_toast.pg_toast_1260",
+    "expected": "REINDEX (tablespace) TABLE CONCURRENTLY pg_toast_1260"
   },
   {
     "comment": "tablespace - Statement 21",
-    "query": "REINDEX (TABLESPACE pg_global) TABLE pg_authid"
+    "query": "REINDEX (TABLESPACE pg_global) TABLE pg_authid",
+    "expected": "REINDEX (tablespace) TABLE pg_authid"
   },
   {
     "comment": "tablespace - Statement 22",
-    "query": "REINDEX (TABLESPACE pg_global) TABLE CONCURRENTLY pg_authid"
+    "query": "REINDEX (TABLESPACE pg_global) TABLE CONCURRENTLY pg_authid",
+    "expected": "REINDEX (tablespace) TABLE CONCURRENTLY pg_authid"
   },
   {
     "comment": "tablespace - Statement 23",
-    "query": "CREATE TABLE regress_tblspace_test_tbl (num1 bigint, num2 double precision, t text)"
+    "query": "CREATE TABLE regress_tblspace_test_tbl (num1 bigint, num2 double precision, t text)",
+    "expected": "CREATE TABLE regress_tblspace_test_tbl (num1 BIGINT, num2 FLOAT8, t TEXT)"
   },
   {
     "comment": "tablespace - Statement 24",
-    "query": "INSERT INTO regress_tblspace_test_tbl (num1, num2, t) SELECT round(random()*100), random(), 'text' FROM generate_series(1, 10) s(i)"
+    "query": "INSERT INTO regress_tblspace_test_tbl (num1, num2, t) SELECT round(random()*100), random(), 'text' FROM generate_series(1, 10) s(i)",
+    "expected": "INSERT INTO regress_tblspace_test_tbl (num1, num2, t) SELECT round(random() * 100), random(), 'text' FROM generate_series(1, 10) AS s(i)"
   },
   {
     "comment": "tablespace - Statement 25",
-    "query": "CREATE INDEX regress_tblspace_test_tbl_idx ON regress_tblspace_test_tbl (num1)"
+    "query": "CREATE INDEX regress_tblspace_test_tbl_idx ON regress_tblspace_test_tbl (num1)",
+    "expected": "CREATE INDEX regress_tblspace_test_tbl_idx ON regress_tblspace_test_tbl USING btree ( num1 )"
   },
   {
     "comment": "tablespace - Statement 26",
-    "query": "REINDEX (TABLESPACE pg_global) INDEX regress_tblspace_test_tbl_idx"
+    "query": "REINDEX (TABLESPACE pg_global) INDEX regress_tblspace_test_tbl_idx",
+    "expected": "REINDEX (tablespace) INDEX regress_tblspace_test_tbl_idx"
   },
   {
     "comment": "tablespace - Statement 27",
-    "query": "REINDEX (TABLESPACE pg_global) INDEX CONCURRENTLY regress_tblspace_test_tbl_idx"
+    "query": "REINDEX (TABLESPACE pg_global) INDEX CONCURRENTLY regress_tblspace_test_tbl_idx",
+    "expected": "REINDEX (tablespace) INDEX CONCURRENTLY regress_tblspace_test_tbl_idx"
   },
   {
     "comment": "tablespace - Statement 28",
@@ -113,11 +135,13 @@
   },
   {
     "comment": "tablespace - Statement 29",
-    "query": "REINDEX (TABLESPACE regress_tblspace) INDEX regress_tblspace_test_tbl_idx"
+    "query": "REINDEX (TABLESPACE regress_tblspace) INDEX regress_tblspace_test_tbl_idx",
+    "expected": "REINDEX (tablespace) INDEX regress_tblspace_test_tbl_idx"
   },
   {
     "comment": "tablespace - Statement 30",
-    "query": "REINDEX (TABLESPACE regress_tblspace) TABLE regress_tblspace_test_tbl"
+    "query": "REINDEX (TABLESPACE regress_tblspace) TABLE regress_tblspace_test_tbl",
+    "expected": "REINDEX (tablespace) TABLE regress_tblspace_test_tbl"
   },
   {
     "comment": "tablespace - Statement 31",
@@ -125,19 +149,23 @@
   },
   {
     "comment": "tablespace - Statement 32",
-    "query": "SELECT c.relname FROM pg_class c, pg_tablespace s WHERE c.reltablespace = s.oid AND s.spcname = 'regress_tblspace'"
+    "query": "SELECT c.relname FROM pg_class c, pg_tablespace s WHERE c.reltablespace = s.oid AND s.spcname = 'regress_tblspace'",
+    "expected": "SELECT c.relname FROM pg_class AS c, pg_tablespace AS s WHERE c.reltablespace = s.oid AND s.spcname = 'regress_tblspace'"
   },
   {
     "comment": "tablespace - Statement 33",
-    "query": "SELECT relfilenode as main_filenode FROM pg_class WHERE relname = 'regress_tblspace_test_tbl_idx'"
+    "query": "SELECT relfilenode as main_filenode FROM pg_class WHERE relname = 'regress_tblspace_test_tbl_idx'",
+    "expected": "SELECT relfilenode AS main_filenode FROM pg_class WHERE relname = 'regress_tblspace_test_tbl_idx'"
   },
   {
     "comment": "tablespace - Statement 34",
-    "query": "SELECT relfilenode as toast_filenode FROM pg_class WHERE oid = (SELECT i.indexrelid FROM pg_class c, pg_index i WHERE i.indrelid = c.reltoastrelid AND c.relname = 'regress_tblspace_test_tbl')"
+    "query": "SELECT relfilenode as toast_filenode FROM pg_class WHERE oid = (SELECT i.indexrelid FROM pg_class c, pg_index i WHERE i.indrelid = c.reltoastrelid AND c.relname = 'regress_tblspace_test_tbl')",
+    "expected": "SELECT relfilenode AS toast_filenode FROM pg_class WHERE oid = (SELECT i.indexrelid FROM pg_class AS c, pg_index AS i WHERE i.indrelid = c.reltoastrelid AND c.relname = 'regress_tblspace_test_tbl')"
   },
   {
     "comment": "tablespace - Statement 35",
-    "query": "SELECT c.relname FROM pg_class c, pg_tablespace s WHERE c.reltablespace = s.oid AND s.spcname = 'regress_tblspace' ORDER BY c.relname"
+    "query": "SELECT c.relname FROM pg_class c, pg_tablespace s WHERE c.reltablespace = s.oid AND s.spcname = 'regress_tblspace' ORDER BY c.relname",
+    "expected": "SELECT c.relname FROM pg_class AS c, pg_tablespace AS s WHERE c.reltablespace = s.oid AND s.spcname = 'regress_tblspace' ORDER BY c.relname"
   },
   {
     "comment": "tablespace - Statement 36",
@@ -153,7 +181,8 @@
   },
   {
     "comment": "tablespace - Statement 39",
-    "query": "REINDEX (TABLESPACE regress_tblspace, CONCURRENTLY) TABLE regress_tblspace_test_tbl"
+    "query": "REINDEX (TABLESPACE regress_tblspace, CONCURRENTLY) TABLE regress_tblspace_test_tbl",
+    "expected": "REINDEX (tablespace) TABLE CONCURRENTLY regress_tblspace_test_tbl"
   },
   {
     "comment": "tablespace - Statement 40",
@@ -161,7 +190,8 @@
   },
   {
     "comment": "tablespace - Statement 41",
-    "query": "SELECT relfilenode = 16385 as toast_same FROM pg_class WHERE oid = (SELECT i.indexrelid FROM pg_class c, pg_index i WHERE i.indrelid = c.reltoastrelid AND c.relname = 'regress_tblspace_test_tbl')"
+    "query": "SELECT relfilenode = 16385 as toast_same FROM pg_class WHERE oid = (SELECT i.indexrelid FROM pg_class c, pg_index i WHERE i.indrelid = c.reltoastrelid AND c.relname = 'regress_tblspace_test_tbl')",
+    "expected": "SELECT relfilenode = 16385 AS toast_same FROM pg_class WHERE oid = (SELECT i.indexrelid FROM pg_class AS c, pg_index AS i WHERE i.indrelid = c.reltoastrelid AND c.relname = 'regress_tblspace_test_tbl')"
   },
   {
     "comment": "tablespace - Statement 42",
@@ -169,7 +199,8 @@
   },
   {
     "comment": "tablespace - Statement 43",
-    "query": "CREATE TABLE tbspace_reindex_part (c1 int, c2 int) PARTITION BY RANGE (c1)"
+    "query": "CREATE TABLE tbspace_reindex_part (c1 int, c2 int) PARTITION BY RANGE (c1)",
+    "expected": "CREATE TABLE tbspace_reindex_part (c1 INT, c2 INT) PARTITION BY range (c1)"
   },
   {
     "comment": "tablespace - Statement 44",
@@ -189,11 +220,13 @@
   },
   {
     "comment": "tablespace - Statement 48",
-    "query": "CREATE INDEX tbspace_reindex_part_index ON ONLY tbspace_reindex_part (c1)"
+    "query": "CREATE INDEX tbspace_reindex_part_index ON ONLY tbspace_reindex_part (c1)",
+    "expected": "CREATE INDEX tbspace_reindex_part_index ON ONLY tbspace_reindex_part USING btree ( c1 )"
   },
   {
     "comment": "tablespace - Statement 49",
-    "query": "CREATE INDEX tbspace_reindex_part_index_0 ON ONLY tbspace_reindex_part_0 (c1)"
+    "query": "CREATE INDEX tbspace_reindex_part_index_0 ON ONLY tbspace_reindex_part_0 (c1)",
+    "expected": "CREATE INDEX tbspace_reindex_part_index_0 ON ONLY tbspace_reindex_part_0 USING btree ( c1 )"
   },
   {
     "comment": "tablespace - Statement 50",
@@ -201,7 +234,8 @@
   },
   {
     "comment": "tablespace - Statement 51",
-    "query": "CREATE INDEX tbspace_reindex_part_index_10 ON ONLY tbspace_reindex_part_10 (c1)"
+    "query": "CREATE INDEX tbspace_reindex_part_index_10 ON ONLY tbspace_reindex_part_10 (c1)",
+    "expected": "CREATE INDEX tbspace_reindex_part_index_10 ON ONLY tbspace_reindex_part_10 USING btree ( c1 )"
   },
   {
     "comment": "tablespace - Statement 52",
@@ -209,7 +243,8 @@
   },
   {
     "comment": "tablespace - Statement 53",
-    "query": "CREATE INDEX tbspace_reindex_part_index_0_1 ON ONLY tbspace_reindex_part_0_1 (c1)"
+    "query": "CREATE INDEX tbspace_reindex_part_index_0_1 ON ONLY tbspace_reindex_part_0_1 (c1)",
+    "expected": "CREATE INDEX tbspace_reindex_part_index_0_1 ON ONLY tbspace_reindex_part_0_1 USING btree ( c1 )"
   },
   {
     "comment": "tablespace - Statement 54",
@@ -217,7 +252,8 @@
   },
   {
     "comment": "tablespace - Statement 55",
-    "query": "CREATE INDEX tbspace_reindex_part_index_0_2 ON ONLY tbspace_reindex_part_0_2 (c1)"
+    "query": "CREATE INDEX tbspace_reindex_part_index_0_2 ON ONLY tbspace_reindex_part_0_2 (c1)",
+    "expected": "CREATE INDEX tbspace_reindex_part_index_0_2 ON ONLY tbspace_reindex_part_0_2 USING btree ( c1 )"
   },
   {
     "comment": "tablespace - Statement 56",
@@ -233,11 +269,13 @@
   },
   {
     "comment": "tablespace - Statement 59",
-    "query": "REINDEX (TABLESPACE regress_tblspace, CONCURRENTLY) TABLE tbspace_reindex_part"
+    "query": "REINDEX (TABLESPACE regress_tblspace, CONCURRENTLY) TABLE tbspace_reindex_part",
+    "expected": "REINDEX (tablespace) TABLE CONCURRENTLY tbspace_reindex_part"
   },
   {
     "comment": "tablespace - Statement 60",
-    "query": "SELECT b.relname, CASE WHEN a.relfilenode = b.relfilenode THEN 'relfilenode is unchanged' ELSE 'relfilenode has changed' END AS filenode, CASE WHEN a.reltablespace = b.reltablespace THEN 'reltablespace is unchanged' ELSE 'reltablespace has changed' END AS tbspace FROM reindex_temp_before b JOIN pg_class a ON b.relname = a.relname ORDER BY 1"
+    "query": "SELECT b.relname, CASE WHEN a.relfilenode = b.relfilenode THEN 'relfilenode is unchanged' ELSE 'relfilenode has changed' END AS filenode, CASE WHEN a.reltablespace = b.reltablespace THEN 'reltablespace is unchanged' ELSE 'reltablespace has changed' END AS tbspace FROM reindex_temp_before b JOIN pg_class a ON b.relname = a.relname ORDER BY 1",
+    "expected": "SELECT b.relname, CASE WHEN a.relfilenode = b.relfilenode THEN 'relfilenode is unchanged' ELSE 'relfilenode has changed' END AS filenode, CASE WHEN a.reltablespace = b.reltablespace THEN 'reltablespace is unchanged' ELSE 'reltablespace has changed' END AS tbspace FROM reindex_temp_before AS b INNER JOIN pg_class AS a ON b.relname = a.relname ORDER BY 1"
   },
   {
     "comment": "tablespace - Statement 61",
@@ -249,51 +287,63 @@
   },
   {
     "comment": "tablespace - Statement 63",
-    "query": "CREATE TABLE testschema.foo (i int) TABLESPACE regress_tblspace"
+    "query": "CREATE TABLE testschema.foo (i int) TABLESPACE regress_tblspace",
+    "expected": "CREATE TABLE testschema.foo (i INT) TABLESPACE regress_tblspace"
   },
   {
     "comment": "tablespace - Statement 64",
-    "query": "SELECT relname, spcname FROM pg_catalog.pg_tablespace t, pg_catalog.pg_class c where c.reltablespace = t.oid AND c.relname = 'foo'"
+    "query": "SELECT relname, spcname FROM pg_catalog.pg_tablespace t, pg_catalog.pg_class c where c.reltablespace = t.oid AND c.relname = 'foo'",
+    "expected": "SELECT relname, spcname FROM pg_catalog.pg_tablespace AS t, pg_catalog.pg_class AS c WHERE c.reltablespace = t.oid AND c.relname = 'foo'"
   },
   {
     "comment": "tablespace - Statement 65",
-    "query": "INSERT INTO testschema.foo VALUES(1)"
+    "query": "INSERT INTO testschema.foo VALUES(1)",
+    "expected": "INSERT INTO testschema.foo VALUES (1)"
   },
   {
     "comment": "tablespace - Statement 66",
-    "query": "INSERT INTO testschema.foo VALUES(2)"
+    "query": "INSERT INTO testschema.foo VALUES(2)",
+    "expected": "INSERT INTO testschema.foo VALUES (2)"
   },
   {
     "comment": "tablespace - Statement 67",
-    "query": "CREATE TABLE testschema.asselect TABLESPACE regress_tblspace AS SELECT 1"
+    "query": "CREATE TABLE testschema.asselect TABLESPACE regress_tblspace AS SELECT 1",
+    "expected": "CREATE TABLE testschema.asselect AS SELECT 1"
   },
   {
     "comment": "tablespace - Statement 68",
-    "query": "SELECT relname, spcname FROM pg_catalog.pg_tablespace t, pg_catalog.pg_class c where c.reltablespace = t.oid AND c.relname = 'asselect'"
+    "query": "SELECT relname, spcname FROM pg_catalog.pg_tablespace t, pg_catalog.pg_class c where c.reltablespace = t.oid AND c.relname = 'asselect'",
+    "expected": "SELECT relname, spcname FROM pg_catalog.pg_tablespace AS t, pg_catalog.pg_class AS c WHERE c.reltablespace = t.oid AND c.relname = 'asselect'"
   },
   {
     "comment": "tablespace - Statement 69",
-    "query": "PREPARE selectsource(int) AS SELECT $1"
+    "query": "PREPARE selectsource(int) AS SELECT $1",
+    "expected": "PREPARE selectsource ( INT ) AS SELECT $1"
   },
   {
     "comment": "tablespace - Statement 70",
-    "query": "CREATE TABLE testschema.asexecute TABLESPACE regress_tblspace AS EXECUTE selectsource(2)"
+    "query": "CREATE TABLE testschema.asexecute TABLESPACE regress_tblspace AS EXECUTE selectsource(2)",
+    "expected": "CREATE TABLE testschema.asexecute AS EXECUTE selectsource ( 2 )"
   },
   {
     "comment": "tablespace - Statement 71",
-    "query": "SELECT relname, spcname FROM pg_catalog.pg_tablespace t, pg_catalog.pg_class c where c.reltablespace = t.oid AND c.relname = 'asexecute'"
+    "query": "SELECT relname, spcname FROM pg_catalog.pg_tablespace t, pg_catalog.pg_class c where c.reltablespace = t.oid AND c.relname = 'asexecute'",
+    "expected": "SELECT relname, spcname FROM pg_catalog.pg_tablespace AS t, pg_catalog.pg_class AS c WHERE c.reltablespace = t.oid AND c.relname = 'asexecute'"
   },
   {
     "comment": "tablespace - Statement 72",
-    "query": "CREATE INDEX foo_idx on testschema.foo(i) TABLESPACE regress_tblspace"
+    "query": "CREATE INDEX foo_idx on testschema.foo(i) TABLESPACE regress_tblspace",
+    "expected": "CREATE INDEX foo_idx ON testschema.foo USING btree ( i ) TABLESPACE regress_tblspace"
   },
   {
     "comment": "tablespace - Statement 73",
-    "query": "SELECT relname, spcname FROM pg_catalog.pg_tablespace t, pg_catalog.pg_class c where c.reltablespace = t.oid AND c.relname = 'foo_idx'"
+    "query": "SELECT relname, spcname FROM pg_catalog.pg_tablespace t, pg_catalog.pg_class c where c.reltablespace = t.oid AND c.relname = 'foo_idx'",
+    "expected": "SELECT relname, spcname FROM pg_catalog.pg_tablespace AS t, pg_catalog.pg_class AS c WHERE c.reltablespace = t.oid AND c.relname = 'foo_idx'"
   },
   {
     "comment": "tablespace - Statement 74",
-    "query": "SET default_tablespace TO pg_global"
+    "query": "SET default_tablespace TO pg_global",
+    "expected": "SET default_tablespace = 'pg_global'"
   },
   {
     "comment": "tablespace - Statement 75",
@@ -305,7 +355,8 @@
   },
   {
     "comment": "tablespace - Statement 77",
-    "query": "SET default_tablespace TO regress_tblspace"
+    "query": "SET default_tablespace TO regress_tblspace",
+    "expected": "SET default_tablespace = 'regress_tblspace'"
   },
   {
     "comment": "tablespace - Statement 78",
@@ -325,7 +376,8 @@
   },
   {
     "comment": "tablespace - Statement 82",
-    "query": "CREATE TABLE testschema.part_56 PARTITION OF testschema.part FOR VALUES IN (5, 6) PARTITION BY LIST (a)"
+    "query": "CREATE TABLE testschema.part_56 PARTITION OF testschema.part FOR VALUES IN (5, 6) PARTITION BY LIST (a)",
+    "expected": "CREATE TABLE testschema.part_56 PARTITION OF testschema.part FOR VALUES IN (5, 6) PARTITION BY list (a)"
   },
   {
     "comment": "tablespace - Statement 83",
@@ -333,15 +385,18 @@
   },
   {
     "comment": "tablespace - Statement 84",
-    "query": "CREATE TABLE testschema.part_78 PARTITION OF testschema.part FOR VALUES IN (7, 8) PARTITION BY LIST (a)"
+    "query": "CREATE TABLE testschema.part_78 PARTITION OF testschema.part FOR VALUES IN (7, 8) PARTITION BY LIST (a)",
+    "expected": "CREATE TABLE testschema.part_78 PARTITION OF testschema.part FOR VALUES IN (7, 8) PARTITION BY list (a)"
   },
   {
     "comment": "tablespace - Statement 85",
-    "query": "CREATE TABLE testschema.part_910 PARTITION OF testschema.part FOR VALUES IN (9, 10) PARTITION BY LIST (a) TABLESPACE regress_tblspace"
+    "query": "CREATE TABLE testschema.part_910 PARTITION OF testschema.part FOR VALUES IN (9, 10) PARTITION BY LIST (a) TABLESPACE regress_tblspace",
+    "expected": "CREATE TABLE testschema.part_910 PARTITION OF testschema.part FOR VALUES IN (9, 10) PARTITION BY list (a) TABLESPACE regress_tblspace"
   },
   {
     "comment": "tablespace - Statement 86",
-    "query": "SELECT relname, spcname FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON (c.relnamespace = n.oid) LEFT JOIN pg_catalog.pg_tablespace t ON c.reltablespace = t.oid where c.relname LIKE 'part%' AND n.nspname = 'testschema' order by relname"
+    "query": "SELECT relname, spcname FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON (c.relnamespace = n.oid) LEFT JOIN pg_catalog.pg_tablespace t ON c.reltablespace = t.oid where c.relname LIKE 'part%' AND n.nspname = 'testschema' order by relname",
+    "expected": "SELECT relname, spcname FROM pg_catalog.pg_class AS c INNER JOIN pg_catalog.pg_namespace AS n ON (c.relnamespace = n.oid) LEFT OUTER JOIN pg_catalog.pg_tablespace AS t ON c.reltablespace = t.oid WHERE c.relname LIKE 'part%' AND n.nspname = 'testschema' ORDER BY relname"
   },
   {
     "comment": "tablespace - Statement 87",
@@ -349,7 +404,8 @@
   },
   {
     "comment": "tablespace - Statement 88",
-    "query": "CREATE TABLE testschema.part (a int) PARTITION BY LIST (a)"
+    "query": "CREATE TABLE testschema.part (a int) PARTITION BY LIST (a)",
+    "expected": "CREATE TABLE testschema.part (a INT) PARTITION BY list (a)"
   },
   {
     "comment": "tablespace - Statement 89",
@@ -357,7 +413,8 @@
   },
   {
     "comment": "tablespace - Statement 90",
-    "query": "CREATE INDEX part_a_idx ON testschema.part (a) TABLESPACE regress_tblspace"
+    "query": "CREATE INDEX part_a_idx ON testschema.part (a) TABLESPACE regress_tblspace",
+    "expected": "CREATE INDEX part_a_idx ON testschema.part USING btree ( a ) TABLESPACE regress_tblspace"
   },
   {
     "comment": "tablespace - Statement 91",
@@ -365,35 +422,43 @@
   },
   {
     "comment": "tablespace - Statement 92",
-    "query": "SELECT relname, spcname FROM pg_catalog.pg_tablespace t, pg_catalog.pg_class c where c.reltablespace = t.oid AND c.relname LIKE 'part%_idx' ORDER BY relname"
+    "query": "SELECT relname, spcname FROM pg_catalog.pg_tablespace t, pg_catalog.pg_class c where c.reltablespace = t.oid AND c.relname LIKE 'part%_idx' ORDER BY relname",
+    "expected": "SELECT relname, spcname FROM pg_catalog.pg_tablespace AS t, pg_catalog.pg_class AS c WHERE c.reltablespace = t.oid AND c.relname LIKE 'part%_idx' ORDER BY relname"
   },
   {
     "comment": "tablespace - Statement 93",
-    "query": "CREATE TABLE testschema.dflt (a int PRIMARY KEY USING INDEX TABLESPACE pg_default) PARTITION BY LIST (a)"
+    "query": "CREATE TABLE testschema.dflt (a int PRIMARY KEY USING INDEX TABLESPACE pg_default) PARTITION BY LIST (a)",
+    "expected": "CREATE TABLE testschema.dflt (a INT PRIMARY KEY) PARTITION BY list (a)"
   },
   {
     "comment": "tablespace - Statement 94",
-    "query": "SET default_tablespace TO 'pg_default'"
+    "query": "SET default_tablespace TO 'pg_default'",
+    "expected": "SET default_tablespace = 'pg_default'"
   },
   {
     "comment": "tablespace - Statement 95",
-    "query": "CREATE TABLE testschema.dflt (a int PRIMARY KEY) PARTITION BY LIST (a) TABLESPACE regress_tblspace"
+    "query": "CREATE TABLE testschema.dflt (a int PRIMARY KEY) PARTITION BY LIST (a) TABLESPACE regress_tblspace",
+    "expected": "CREATE TABLE testschema.dflt (a INT PRIMARY KEY) PARTITION BY list (a) TABLESPACE regress_tblspace"
   },
   {
     "comment": "tablespace - Statement 96",
-    "query": "CREATE TABLE testschema.dflt (a int PRIMARY KEY USING INDEX TABLESPACE regress_tblspace) PARTITION BY LIST (a)"
+    "query": "CREATE TABLE testschema.dflt (a int PRIMARY KEY USING INDEX TABLESPACE regress_tblspace) PARTITION BY LIST (a)",
+    "expected": "CREATE TABLE testschema.dflt (a INT PRIMARY KEY) PARTITION BY list (a)"
   },
   {
     "comment": "tablespace - Statement 97",
-    "query": "CREATE TABLE testschema.dflt (a int PRIMARY KEY USING INDEX TABLESPACE regress_tblspace) PARTITION BY LIST (a) TABLESPACE regress_tblspace"
+    "query": "CREATE TABLE testschema.dflt (a int PRIMARY KEY USING INDEX TABLESPACE regress_tblspace) PARTITION BY LIST (a) TABLESPACE regress_tblspace",
+    "expected": "CREATE TABLE testschema.dflt (a INT PRIMARY KEY) PARTITION BY list (a) TABLESPACE regress_tblspace"
   },
   {
     "comment": "tablespace - Statement 98",
-    "query": "SET default_tablespace TO ''"
+    "query": "SET default_tablespace TO ''",
+    "expected": "SET default_tablespace = ''"
   },
   {
     "comment": "tablespace - Statement 99",
-    "query": "CREATE TABLE testschema.dflt2 (a int PRIMARY KEY) PARTITION BY LIST (a)"
+    "query": "CREATE TABLE testschema.dflt2 (a int PRIMARY KEY) PARTITION BY LIST (a)",
+    "expected": "CREATE TABLE testschema.dflt2 (a INT PRIMARY KEY) PARTITION BY list (a)"
   },
   {
     "comment": "tablespace - Statement 100",
@@ -401,7 +466,8 @@
   },
   {
     "comment": "tablespace - Statement 101",
-    "query": "CREATE TABLE testschema.test_default_tab(id bigint) TABLESPACE regress_tblspace"
+    "query": "CREATE TABLE testschema.test_default_tab(id bigint) TABLESPACE regress_tblspace",
+    "expected": "CREATE TABLE testschema.test_default_tab (id BIGINT) TABLESPACE regress_tblspace"
   },
   {
     "comment": "tablespace - Statement 102",
@@ -409,11 +475,13 @@
   },
   {
     "comment": "tablespace - Statement 103",
-    "query": "CREATE INDEX test_index1 on testschema.test_default_tab (id)"
+    "query": "CREATE INDEX test_index1 on testschema.test_default_tab (id)",
+    "expected": "CREATE INDEX test_index1 ON testschema.test_default_tab USING btree ( id )"
   },
   {
     "comment": "tablespace - Statement 104",
-    "query": "CREATE INDEX test_index2 on testschema.test_default_tab (id) TABLESPACE regress_tblspace"
+    "query": "CREATE INDEX test_index2 on testschema.test_default_tab (id) TABLESPACE regress_tblspace",
+    "expected": "CREATE INDEX test_index2 ON testschema.test_default_tab USING btree ( id ) TABLESPACE regress_tblspace"
   },
   {
     "comment": "tablespace - Statement 105",
@@ -421,19 +489,23 @@
   },
   {
     "comment": "tablespace - Statement 106",
-    "query": "ALTER TABLE testschema.test_default_tab ADD CONSTRAINT test_index4 UNIQUE (id) USING INDEX TABLESPACE regress_tblspace"
+    "query": "ALTER TABLE testschema.test_default_tab ADD CONSTRAINT test_index4 UNIQUE (id) USING INDEX TABLESPACE regress_tblspace",
+    "expected": "ALTER TABLE testschema.test_default_tab ADD CONSTRAINT test_index4 UNIQUE (id)"
   },
   {
     "comment": "tablespace - Statement 107",
-    "query": "ALTER TABLE testschema.test_default_tab ALTER id TYPE bigint"
+    "query": "ALTER TABLE testschema.test_default_tab ALTER id TYPE bigint",
+    "expected": "ALTER TABLE testschema.test_default_tab ALTER COLUMN id TYPE BIGINT"
   },
   {
     "comment": "tablespace - Statement 108",
-    "query": "ALTER TABLE testschema.test_default_tab ALTER id TYPE int"
+    "query": "ALTER TABLE testschema.test_default_tab ALTER id TYPE int",
+    "expected": "ALTER TABLE testschema.test_default_tab ALTER COLUMN id TYPE INT"
   },
   {
     "comment": "tablespace - Statement 109",
-    "query": "CREATE TABLE testschema.test_default_tab_p(id bigint, val bigint) PARTITION BY LIST (id) TABLESPACE regress_tblspace"
+    "query": "CREATE TABLE testschema.test_default_tab_p(id bigint, val bigint) PARTITION BY LIST (id) TABLESPACE regress_tblspace",
+    "expected": "CREATE TABLE testschema.test_default_tab_p (id BIGINT, val BIGINT) PARTITION BY list (id) TABLESPACE regress_tblspace"
   },
   {
     "comment": "tablespace - Statement 110",
@@ -445,11 +517,13 @@
   },
   {
     "comment": "tablespace - Statement 112",
-    "query": "CREATE INDEX test_index1 on testschema.test_default_tab_p (val)"
+    "query": "CREATE INDEX test_index1 on testschema.test_default_tab_p (val)",
+    "expected": "CREATE INDEX test_index1 ON testschema.test_default_tab_p USING btree ( val )"
   },
   {
     "comment": "tablespace - Statement 113",
-    "query": "CREATE INDEX test_index2 on testschema.test_default_tab_p (val) TABLESPACE regress_tblspace"
+    "query": "CREATE INDEX test_index2 on testschema.test_default_tab_p (val) TABLESPACE regress_tblspace",
+    "expected": "CREATE INDEX test_index2 ON testschema.test_default_tab_p USING btree ( val ) TABLESPACE regress_tblspace"
   },
   {
     "comment": "tablespace - Statement 114",
@@ -457,19 +531,23 @@
   },
   {
     "comment": "tablespace - Statement 115",
-    "query": "ALTER TABLE testschema.test_default_tab_p ADD CONSTRAINT test_index4 UNIQUE (id) USING INDEX TABLESPACE regress_tblspace"
+    "query": "ALTER TABLE testschema.test_default_tab_p ADD CONSTRAINT test_index4 UNIQUE (id) USING INDEX TABLESPACE regress_tblspace",
+    "expected": "ALTER TABLE testschema.test_default_tab_p ADD CONSTRAINT test_index4 UNIQUE (id)"
   },
   {
     "comment": "tablespace - Statement 116",
-    "query": "ALTER TABLE testschema.test_default_tab_p ALTER val TYPE bigint"
+    "query": "ALTER TABLE testschema.test_default_tab_p ALTER val TYPE bigint",
+    "expected": "ALTER TABLE testschema.test_default_tab_p ALTER COLUMN val TYPE BIGINT"
   },
   {
     "comment": "tablespace - Statement 117",
-    "query": "ALTER TABLE testschema.test_default_tab_p ALTER val TYPE int"
+    "query": "ALTER TABLE testschema.test_default_tab_p ALTER val TYPE int",
+    "expected": "ALTER TABLE testschema.test_default_tab_p ALTER COLUMN val TYPE INT"
   },
   {
     "comment": "tablespace - Statement 118",
-    "query": "CREATE TABLE testschema.test_tab(id int) TABLESPACE regress_tblspace"
+    "query": "CREATE TABLE testschema.test_tab(id int) TABLESPACE regress_tblspace",
+    "expected": "CREATE TABLE testschema.test_tab (id INT) TABLESPACE regress_tblspace"
   },
   {
     "comment": "tablespace - Statement 119",
@@ -489,7 +567,8 @@
   },
   {
     "comment": "tablespace - Statement 123",
-    "query": "CREATE TABLE testschema.test_tab(a int, b int, c int)"
+    "query": "CREATE TABLE testschema.test_tab(a int, b int, c int)",
+    "expected": "CREATE TABLE testschema.test_tab (a INT, b INT, c INT)"
   },
   {
     "comment": "tablespace - Statement 124",
@@ -497,11 +576,13 @@
   },
   {
     "comment": "tablespace - Statement 125",
-    "query": "CREATE INDEX test_tab_a_idx ON testschema.test_tab (a)"
+    "query": "CREATE INDEX test_tab_a_idx ON testschema.test_tab (a)",
+    "expected": "CREATE INDEX test_tab_a_idx ON testschema.test_tab USING btree ( a )"
   },
   {
     "comment": "tablespace - Statement 126",
-    "query": "CREATE INDEX test_tab_b_idx ON testschema.test_tab (b)"
+    "query": "CREATE INDEX test_tab_b_idx ON testschema.test_tab (b)",
+    "expected": "CREATE INDEX test_tab_b_idx ON testschema.test_tab USING btree ( b )"
   },
   {
     "comment": "tablespace - Statement 127",
@@ -509,7 +590,8 @@
   },
   {
     "comment": "tablespace - Statement 128",
-    "query": "CREATE UNIQUE INDEX anindex ON testschema.atable(column1)"
+    "query": "CREATE UNIQUE INDEX anindex ON testschema.atable(column1)",
+    "expected": "CREATE UNIQUE INDEX anindex ON testschema.atable USING btree ( column1 )"
   },
   {
     "comment": "tablespace - Statement 129",
@@ -533,11 +615,13 @@
   },
   {
     "comment": "tablespace - Statement 134",
-    "query": "INSERT INTO testschema.atable VALUES(3)"
+    "query": "INSERT INTO testschema.atable VALUES(3)",
+    "expected": "INSERT INTO testschema.atable VALUES (3)"
   },
   {
     "comment": "tablespace - Statement 135",
-    "query": "INSERT INTO testschema.atable VALUES(1)"
+    "query": "INSERT INTO testschema.atable VALUES(1)",
+    "expected": "INSERT INTO testschema.atable VALUES (1)"
   },
   {
     "comment": "tablespace - Statement 136",
@@ -565,7 +649,8 @@
   },
   {
     "comment": "tablespace - Statement 142",
-    "query": "CREATE TABLE bar (i int) TABLESPACE regress_nosuchspace"
+    "query": "CREATE TABLE bar (i int) TABLESPACE regress_nosuchspace",
+    "expected": "CREATE TABLE bar (i INT) TABLESPACE regress_nosuchspace"
   },
   {
     "comment": "tablespace - Statement 143",
@@ -573,15 +658,18 @@
   },
   {
     "comment": "tablespace - Statement 144",
-    "query": "GRANT ALL ON TABLESPACE regress_tblspace TO PUBLIC"
+    "query": "GRANT ALL ON TABLESPACE regress_tblspace TO PUBLIC",
+    "expected": "GRANT ALL ON regress_tblspace TO PUBLIC"
   },
   {
     "comment": "tablespace - Statement 145",
-    "query": "CREATE ROLE regress_tablespace_user1 login"
+    "query": "CREATE ROLE regress_tablespace_user1 login",
+    "expected": "CREATE ROLE regress_tablespace_user1 LOGIN"
   },
   {
     "comment": "tablespace - Statement 146",
-    "query": "CREATE ROLE regress_tablespace_user2 login"
+    "query": "CREATE ROLE regress_tablespace_user2 login",
+    "expected": "CREATE ROLE regress_tablespace_user2 LOGIN"
   },
   {
     "comment": "tablespace - Statement 147",
@@ -593,11 +681,13 @@
   },
   {
     "comment": "tablespace - Statement 149",
-    "query": "CREATE TABLE testschema.tablespace_acl (c int)"
+    "query": "CREATE TABLE testschema.tablespace_acl (c int)",
+    "expected": "CREATE TABLE testschema.tablespace_acl (c INT)"
   },
   {
     "comment": "tablespace - Statement 150",
-    "query": "CREATE INDEX k ON testschema.tablespace_acl (c) TABLESPACE regress_tblspace"
+    "query": "CREATE INDEX k ON testschema.tablespace_acl (c) TABLESPACE regress_tblspace",
+    "expected": "CREATE INDEX k ON testschema.tablespace_acl USING btree ( c ) TABLESPACE regress_tblspace"
   },
   {
     "comment": "tablespace - Statement 151",
@@ -605,27 +695,33 @@
   },
   {
     "comment": "tablespace - Statement 152",
-    "query": "SET SESSION ROLE regress_tablespace_user2"
+    "query": "SET SESSION ROLE regress_tablespace_user2",
+    "expected": "SET ROLE 'regress_tablespace_user2'"
   },
   {
     "comment": "tablespace - Statement 153",
-    "query": "CREATE TABLE tablespace_table (i int) TABLESPACE regress_tblspace"
+    "query": "CREATE TABLE tablespace_table (i int) TABLESPACE regress_tblspace",
+    "expected": "CREATE TABLE tablespace_table (i INT) TABLESPACE regress_tblspace"
   },
   {
     "comment": "tablespace - Statement 154",
-    "query": "ALTER TABLE testschema.tablespace_acl ALTER c TYPE bigint"
+    "query": "ALTER TABLE testschema.tablespace_acl ALTER c TYPE bigint",
+    "expected": "ALTER TABLE testschema.tablespace_acl ALTER COLUMN c TYPE BIGINT"
   },
   {
     "comment": "tablespace - Statement 155",
-    "query": "REINDEX (TABLESPACE regress_tblspace) TABLE tablespace_table"
+    "query": "REINDEX (TABLESPACE regress_tblspace) TABLE tablespace_table",
+    "expected": "REINDEX (tablespace) TABLE tablespace_table"
   },
   {
     "comment": "tablespace - Statement 156",
-    "query": "REINDEX (TABLESPACE regress_tblspace, CONCURRENTLY) TABLE tablespace_table"
+    "query": "REINDEX (TABLESPACE regress_tblspace, CONCURRENTLY) TABLE tablespace_table",
+    "expected": "REINDEX (tablespace) TABLE CONCURRENTLY tablespace_table"
   },
   {
     "comment": "tablespace - Statement 157",
-    "query": "RESET ROLE"
+    "query": "RESET ROLE",
+    "expected": "RESET role"
   },
   {
     "comment": "tablespace - Statement 158",

@@ -543,7 +543,7 @@ func TestStringErrors(t *testing.T) {
 		{
 			name:      "Unterminated standard string",
 			input:     "'hello",
-			tokenType: USCONST,
+			tokenType: SCONST, // PostgreSQL converts USCONST→SCONST, but regular strings generate SCONST directly
 		},
 		{
 			name:      "Unterminated extended string",
@@ -563,7 +563,7 @@ func TestStringErrors(t *testing.T) {
 		{
 			name:      "Unterminated dollar-quoted string",
 			input:     "$tag$hello",
-			tokenType: USCONST,
+			tokenType: SCONST, // PostgreSQL converts USCONST→SCONST, but regular strings generate SCONST directly
 		},
 	}
 
@@ -590,7 +590,7 @@ func TestStringLiteralErrorCases(t *testing.T) {
 		{
 			name:         "Unterminated string",
 			input:        "'unterminated",
-			expectedType: USCONST,
+			expectedType: SCONST, // PostgreSQL converts USCONST→SCONST, but regular strings generate SCONST directly
 			shouldError:  true,
 		},
 		{

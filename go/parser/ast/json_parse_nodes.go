@@ -376,12 +376,57 @@ func (n *JsonBehavior) String() string {
 	return behaviorStr
 }
 
+// SqlString returns the SQL representation of JsonBehavior
+func (n *JsonBehavior) SqlString() string {
+	switch n.Btype {
+	case JSON_BEHAVIOR_NULL:
+		return "NULL"
+	case JSON_BEHAVIOR_ERROR:
+		return "ERROR"
+	case JSON_BEHAVIOR_EMPTY:
+		return "EMPTY"
+	case JSON_BEHAVIOR_TRUE:
+		return "TRUE"
+	case JSON_BEHAVIOR_FALSE:
+		return "FALSE"
+	case JSON_BEHAVIOR_UNKNOWN:
+		return "UNKNOWN"
+	case JSON_BEHAVIOR_EMPTY_ARRAY:
+		return "EMPTY ARRAY"
+	case JSON_BEHAVIOR_EMPTY_OBJECT:
+		return "EMPTY OBJECT"
+	case JSON_BEHAVIOR_DEFAULT:
+		if n.Expr != nil {
+			return "DEFAULT " + n.Expr.SqlString()
+		}
+		return "DEFAULT"
+	default:
+		return "NULL"
+	}
+}
+
 func (n *JsonOutput) String() string {
 	return "JsonOutput"
 }
 
 func (n *JsonArgument) String() string {
 	return "JsonArgument"
+}
+
+// SqlString returns the SQL representation of JsonArgument
+func (n *JsonArgument) SqlString() string {
+	var result strings.Builder
+	
+	if n.Val != nil {
+		result.WriteString(n.Val.SqlString())
+	}
+	
+	if n.Name != "" {
+		result.WriteString(" AS ")
+		result.WriteString(QuoteIdentifier(n.Name))
+	}
+	
+	return result.String()
 }
 
 func (n *JsonFuncExpr) String() string {
@@ -402,7 +447,7 @@ func (n *JsonFuncExpr) ExpressionType() string { return "JsonFuncExpr" }
 // SqlString returns the SQL representation of JsonFuncExpr
 func (n *JsonFuncExpr) SqlString() string {
 	var result strings.Builder
-	
+
 	switch n.Op {
 	case JSON_EXISTS_OP:
 		result.WriteString("JSON_EXISTS(")
@@ -521,7 +566,7 @@ func (n *JsonTableColumn) SqlString() string {
 
 	// Column name (only for non-NESTED columns)
 	if n.Coltype != JTC_NESTED {
-		result.WriteString(n.Name)
+		result.WriteString(QuoteIdentifier(n.Name))
 	}
 
 	switch n.Coltype {
@@ -614,7 +659,7 @@ func (n *JsonKeyValue) SqlString() string {
 	if n.Key != nil {
 		result.WriteString(n.Key.SqlString())
 	}
-	result.WriteString(" VALUE ")
+	result.WriteString(" : ")
 	if n.Value != nil {
 		result.WriteString(n.Value.SqlString())
 	}
@@ -801,21 +846,21 @@ func (n *JsonAggConstructor) String() string {
 // SqlString returns the SQL representation of filter and over clauses
 func (n *JsonAggConstructor) SqlString() string {
 	var result strings.Builder
-	
+
 	// Add FILTER clause if present
 	if n.AggFilter != nil {
 		result.WriteString(" FILTER (WHERE ")
 		result.WriteString(n.AggFilter.SqlString())
 		result.WriteString(")")
 	}
-	
+
 	// Add OVER clause if present
 	if n.Over != nil {
 		result.WriteString(" OVER (")
 		result.WriteString(n.Over.SqlString())
 		result.WriteString(")")
 	}
-	
+
 	return result.String()
 }
 
@@ -847,12 +892,12 @@ func (n *JsonObjectAgg) SqlString() string {
 	}
 
 	result.WriteString(")")
-	
+
 	// Add FILTER and OVER clauses if present
 	if n.Constructor != nil {
 		result.WriteString(n.Constructor.SqlString())
 	}
-	
+
 	return result.String()
 }
 
@@ -884,12 +929,12 @@ func (n *JsonArrayAgg) SqlString() string {
 	}
 
 	result.WriteString(")")
-	
+
 	// Add FILTER and OVER clauses if present
 	if n.Constructor != nil {
 		result.WriteString(n.Constructor.SqlString())
 	}
-	
+
 	return result.String()
 }
 
@@ -1155,11 +1200,11 @@ func (j *JsonIsPredicate) String() string {
 // SqlString returns the SQL representation of JsonIsPredicate
 func (j *JsonIsPredicate) SqlString() string {
 	var result strings.Builder
-	
+
 	if j.Expr != nil {
 		result.WriteString(j.Expr.SqlString())
 		result.WriteString(" IS JSON")
-		
+
 		switch j.ItemType {
 		case JS_TYPE_OBJECT:
 			result.WriteString(" OBJECT")
@@ -1170,12 +1215,12 @@ func (j *JsonIsPredicate) SqlString() string {
 		case JS_TYPE_ANY:
 			// For JS_TYPE_ANY, we don't add any suffix (just "IS JSON")
 		}
-		
+
 		if j.UniqueKeys {
 			result.WriteString(" WITH UNIQUE KEYS")
 		}
 	}
-	
+
 	return result.String()
 }
 
