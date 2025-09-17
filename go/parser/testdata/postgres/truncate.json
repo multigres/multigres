@@ -1,7 +1,8 @@
 [
   {
     "comment": "truncate - Statement 1",
-    "query": "CREATE TABLE truncate_a (col1 integer primary key)"
+    "query": "CREATE TABLE truncate_a (col1 integer primary key)",
+    "expected": "CREATE TABLE truncate_a (col1 INT PRIMARY KEY)"
   },
   {
     "comment": "truncate - Statement 2",
@@ -21,7 +22,8 @@
   },
   {
     "comment": "truncate - Statement 6",
-    "query": "TRUNCATE truncate_a"
+    "query": "TRUNCATE truncate_a",
+    "expected": "TRUNCATE TABLE truncate_a CONTINUE IDENTITY RESTRICT"
   },
   {
     "comment": "truncate - Statement 7",
@@ -33,7 +35,8 @@
   },
   {
     "comment": "truncate - Statement 9",
-    "query": "CREATE TABLE trunc_b (a int REFERENCES truncate_a)"
+    "query": "CREATE TABLE trunc_b (a int REFERENCES truncate_a)",
+    "expected": "CREATE TABLE trunc_b (a INT REFERENCES truncate_a)"
   },
   {
     "comment": "truncate - Statement 10",
@@ -41,55 +44,68 @@
   },
   {
     "comment": "truncate - Statement 11",
-    "query": "CREATE TABLE trunc_d (a int REFERENCES trunc_c)"
+    "query": "CREATE TABLE trunc_d (a int REFERENCES trunc_c)",
+    "expected": "CREATE TABLE trunc_d (a INT REFERENCES trunc_c)"
   },
   {
     "comment": "truncate - Statement 12",
-    "query": "CREATE TABLE trunc_e (a int REFERENCES truncate_a, b int REFERENCES trunc_c)"
+    "query": "CREATE TABLE trunc_e (a int REFERENCES truncate_a, b int REFERENCES trunc_c)",
+    "expected": "CREATE TABLE trunc_e (a INT REFERENCES truncate_a, b INT REFERENCES trunc_c)"
   },
   {
     "comment": "truncate - Statement 13",
-    "query": "TRUNCATE TABLE truncate_a"
+    "query": "TRUNCATE TABLE truncate_a",
+    "expected": "TRUNCATE TABLE truncate_a CONTINUE IDENTITY RESTRICT"
   },
   {
     "comment": "truncate - Statement 14",
-    "query": "TRUNCATE TABLE truncate_a,trunc_b"
+    "query": "TRUNCATE TABLE truncate_a,trunc_b",
+    "expected": "TRUNCATE TABLE truncate_a, trunc_b CONTINUE IDENTITY RESTRICT"
   },
   {
     "comment": "truncate - Statement 15",
-    "query": "TRUNCATE TABLE truncate_a,trunc_b,trunc_e"
+    "query": "TRUNCATE TABLE truncate_a,trunc_b,trunc_e",
+    "expected": "TRUNCATE TABLE truncate_a, trunc_b, trunc_e CONTINUE IDENTITY RESTRICT"
   },
   {
     "comment": "truncate - Statement 16",
-    "query": "TRUNCATE TABLE truncate_a,trunc_e"
+    "query": "TRUNCATE TABLE truncate_a,trunc_e",
+    "expected": "TRUNCATE TABLE truncate_a, trunc_e CONTINUE IDENTITY RESTRICT"
   },
   {
     "comment": "truncate - Statement 17",
-    "query": "TRUNCATE TABLE trunc_c"
+    "query": "TRUNCATE TABLE trunc_c",
+    "expected": "TRUNCATE TABLE trunc_c CONTINUE IDENTITY RESTRICT"
   },
   {
     "comment": "truncate - Statement 18",
-    "query": "TRUNCATE TABLE trunc_c,trunc_d"
+    "query": "TRUNCATE TABLE trunc_c,trunc_d",
+    "expected": "TRUNCATE TABLE trunc_c, trunc_d CONTINUE IDENTITY RESTRICT"
   },
   {
     "comment": "truncate - Statement 19",
-    "query": "TRUNCATE TABLE trunc_c,trunc_d,trunc_e"
+    "query": "TRUNCATE TABLE trunc_c,trunc_d,trunc_e",
+    "expected": "TRUNCATE TABLE trunc_c, trunc_d, trunc_e CONTINUE IDENTITY RESTRICT"
   },
   {
     "comment": "truncate - Statement 20",
-    "query": "TRUNCATE TABLE trunc_c,trunc_d,trunc_e,truncate_a"
+    "query": "TRUNCATE TABLE trunc_c,trunc_d,trunc_e,truncate_a",
+    "expected": "TRUNCATE TABLE trunc_c, trunc_d, trunc_e, truncate_a CONTINUE IDENTITY RESTRICT"
   },
   {
     "comment": "truncate - Statement 21",
-    "query": "TRUNCATE TABLE trunc_c,trunc_d,trunc_e,truncate_a,trunc_b"
+    "query": "TRUNCATE TABLE trunc_c,trunc_d,trunc_e,truncate_a,trunc_b",
+    "expected": "TRUNCATE TABLE trunc_c, trunc_d, trunc_e, truncate_a, trunc_b CONTINUE IDENTITY RESTRICT"
   },
   {
     "comment": "truncate - Statement 22",
-    "query": "TRUNCATE TABLE truncate_a RESTRICT"
+    "query": "TRUNCATE TABLE truncate_a RESTRICT",
+    "expected": "TRUNCATE TABLE truncate_a CONTINUE IDENTITY RESTRICT"
   },
   {
     "comment": "truncate - Statement 23",
-    "query": "TRUNCATE TABLE truncate_a CASCADE"
+    "query": "TRUNCATE TABLE truncate_a CASCADE",
+    "expected": "TRUNCATE TABLE truncate_a CONTINUE IDENTITY CASCADE"
   },
   {
     "comment": "truncate - Statement 24",
@@ -109,27 +125,33 @@
   },
   {
     "comment": "truncate - Statement 28",
-    "query": "INSERT INTO trunc_e VALUES (1,1)"
+    "query": "INSERT INTO trunc_e VALUES (1,1)",
+    "expected": "INSERT INTO trunc_e VALUES (1, 1)"
   },
   {
     "comment": "truncate - Statement 29",
-    "query": "TRUNCATE TABLE trunc_c,truncate_a"
+    "query": "TRUNCATE TABLE trunc_c,truncate_a",
+    "expected": "TRUNCATE TABLE trunc_c, truncate_a CONTINUE IDENTITY RESTRICT"
   },
   {
     "comment": "truncate - Statement 30",
-    "query": "TRUNCATE TABLE trunc_c,truncate_a,trunc_d"
+    "query": "TRUNCATE TABLE trunc_c,truncate_a,trunc_d",
+    "expected": "TRUNCATE TABLE trunc_c, truncate_a, trunc_d CONTINUE IDENTITY RESTRICT"
   },
   {
     "comment": "truncate - Statement 31",
-    "query": "TRUNCATE TABLE trunc_c,truncate_a,trunc_d,trunc_e"
+    "query": "TRUNCATE TABLE trunc_c,truncate_a,trunc_d,trunc_e",
+    "expected": "TRUNCATE TABLE trunc_c, truncate_a, trunc_d, trunc_e CONTINUE IDENTITY RESTRICT"
   },
   {
     "comment": "truncate - Statement 32",
-    "query": "TRUNCATE TABLE trunc_c,truncate_a,trunc_d,trunc_e,trunc_b"
+    "query": "TRUNCATE TABLE trunc_c,truncate_a,trunc_d,trunc_e,trunc_b",
+    "expected": "TRUNCATE TABLE trunc_c, truncate_a, trunc_d, trunc_e, trunc_b CONTINUE IDENTITY RESTRICT"
   },
   {
     "comment": "truncate - Statement 33",
-    "query": "SELECT * FROM truncate_a UNION ALL SELECT * FROM trunc_c UNION ALL SELECT * FROM trunc_b UNION ALL SELECT * FROM trunc_d"
+    "query": "SELECT * FROM truncate_a UNION ALL SELECT * FROM trunc_c UNION ALL SELECT * FROM trunc_b UNION ALL SELECT * FROM trunc_d",
+    "expected": "((SELECT * FROM truncate_a UNION ALL SELECT * FROM trunc_c) UNION ALL SELECT * FROM trunc_b) UNION ALL SELECT * FROM trunc_d"
   },
   {
     "comment": "truncate - Statement 34",
@@ -137,15 +159,18 @@
   },
   {
     "comment": "truncate - Statement 35",
-    "query": "TRUNCATE TABLE trunc_c CASCADE"
+    "query": "TRUNCATE TABLE trunc_c CASCADE",
+    "expected": "TRUNCATE TABLE trunc_c CONTINUE IDENTITY CASCADE"
   },
   {
     "comment": "truncate - Statement 36",
-    "query": "DROP TABLE truncate_a,trunc_c,trunc_b,trunc_d,trunc_e CASCADE"
+    "query": "DROP TABLE truncate_a,trunc_c,trunc_b,trunc_d,trunc_e CASCADE",
+    "expected": "DROP TABLE truncate_a, trunc_c, trunc_b, trunc_d, trunc_e CASCADE"
   },
   {
     "comment": "truncate - Statement 37",
-    "query": "CREATE TABLE trunc_f (col1 integer primary key)"
+    "query": "CREATE TABLE trunc_f (col1 integer primary key)",
+    "expected": "CREATE TABLE trunc_f (col1 INT PRIMARY KEY)"
   },
   {
     "comment": "truncate - Statement 38",
@@ -157,7 +182,8 @@
   },
   {
     "comment": "truncate - Statement 40",
-    "query": "CREATE TABLE trunc_fa (col2a text) INHERITS (trunc_f)"
+    "query": "CREATE TABLE trunc_fa (col2a text) INHERITS (trunc_f)",
+    "expected": "CREATE TABLE trunc_fa (col2a TEXT) INHERITS (trunc_f)"
   },
   {
     "comment": "truncate - Statement 41",
@@ -165,7 +191,8 @@
   },
   {
     "comment": "truncate - Statement 42",
-    "query": "CREATE TABLE trunc_fb (col2b int) INHERITS (trunc_f)"
+    "query": "CREATE TABLE trunc_fb (col2b int) INHERITS (trunc_f)",
+    "expected": "CREATE TABLE trunc_fb (col2b INT) INHERITS (trunc_f)"
   },
   {
     "comment": "truncate - Statement 43",
@@ -173,7 +200,8 @@
   },
   {
     "comment": "truncate - Statement 44",
-    "query": "CREATE TABLE trunc_faa (col3 text) INHERITS (trunc_fa)"
+    "query": "CREATE TABLE trunc_faa (col3 text) INHERITS (trunc_fa)",
+    "expected": "CREATE TABLE trunc_faa (col3 TEXT) INHERITS (trunc_fa)"
   },
   {
     "comment": "truncate - Statement 45",
@@ -185,11 +213,13 @@
   },
   {
     "comment": "truncate - Statement 47",
-    "query": "TRUNCATE trunc_f"
+    "query": "TRUNCATE trunc_f",
+    "expected": "TRUNCATE TABLE trunc_f CONTINUE IDENTITY RESTRICT"
   },
   {
     "comment": "truncate - Statement 48",
-    "query": "TRUNCATE ONLY trunc_f"
+    "query": "TRUNCATE ONLY trunc_f",
+    "expected": "TRUNCATE TABLE trunc_f CONTINUE IDENTITY RESTRICT"
   },
   {
     "comment": "truncate - Statement 49",
@@ -201,11 +231,13 @@
   },
   {
     "comment": "truncate - Statement 51",
-    "query": "TRUNCATE ONLY trunc_fb, ONLY trunc_fa"
+    "query": "TRUNCATE ONLY trunc_fb, ONLY trunc_fa",
+    "expected": "TRUNCATE TABLE trunc_fb, trunc_fa CONTINUE IDENTITY RESTRICT"
   },
   {
     "comment": "truncate - Statement 52",
-    "query": "TRUNCATE ONLY trunc_fb, trunc_fa"
+    "query": "TRUNCATE ONLY trunc_fb, trunc_fa",
+    "expected": "TRUNCATE TABLE trunc_fb, trunc_fa CONTINUE IDENTITY RESTRICT"
   },
   {
     "comment": "truncate - Statement 53",
@@ -213,27 +245,33 @@
   },
   {
     "comment": "truncate - Statement 54",
-    "query": "CREATE TABLE trunc_trigger_test (f1 int, f2 text, f3 text)"
+    "query": "CREATE TABLE trunc_trigger_test (f1 int, f2 text, f3 text)",
+    "expected": "CREATE TABLE trunc_trigger_test (f1 INT, f2 TEXT, f3 TEXT)"
   },
   {
     "comment": "truncate - Statement 55",
-    "query": "CREATE TABLE trunc_trigger_log (tgop text, tglevel text, tgwhen text, tgargv text, tgtable name, rowcount bigint)"
+    "query": "CREATE TABLE trunc_trigger_log (tgop text, tglevel text, tgwhen text, tgargv text, tgtable name, rowcount bigint)",
+    "expected": "CREATE TABLE trunc_trigger_log (tgop TEXT, tglevel TEXT, tgwhen TEXT, tgargv TEXT, tgtable name, rowcount BIGINT)"
   },
   {
     "comment": "truncate - Statement 56",
-    "query": "CREATE FUNCTION trunctrigger() RETURNS trigger as $$ declare c bigint; begin execute 'select count(*) from ' || quote_ident(tg_table_name) into c; insert into trunc_trigger_log values (TG_OP, TG_LEVEL, TG_WHEN, TG_ARGV[0], tg_table_name, c); return null; end; $$ LANGUAGE plpgsql"
+    "query": "CREATE FUNCTION trunctrigger() RETURNS trigger as $$ declare c bigint; begin execute 'select count(*) from ' || quote_ident(tg_table_name) into c; insert into trunc_trigger_log values (TG_OP, TG_LEVEL, TG_WHEN, TG_ARGV[0], tg_table_name, c); return null; end; $$ LANGUAGE plpgsql",
+    "expected": "CREATE FUNCTION trunctrigger () RETURNS trigger AS $$ declare c bigint; begin execute 'select count(*) from ' || quote_ident(tg_table_name) into c; insert into trunc_trigger_log values (TG_OP, TG_LEVEL, TG_WHEN, TG_ARGV[0], tg_table_name, c); return null; end; $$ LANGUAGE plpgsql"
   },
   {
     "comment": "truncate - Statement 57",
-    "query": "INSERT INTO trunc_trigger_test VALUES(1, 'foo', 'bar'), (2, 'baz', 'quux')"
+    "query": "INSERT INTO trunc_trigger_test VALUES(1, 'foo', 'bar'), (2, 'baz', 'quux')",
+    "expected": "INSERT INTO trunc_trigger_test VALUES (1, 'foo', 'bar'), (2, 'baz', 'quux')"
   },
   {
     "comment": "truncate - Statement 58",
-    "query": "CREATE TRIGGER t BEFORE TRUNCATE ON trunc_trigger_test FOR EACH STATEMENT EXECUTE PROCEDURE trunctrigger('before trigger truncate')"
+    "query": "CREATE TRIGGER t BEFORE TRUNCATE ON trunc_trigger_test FOR EACH STATEMENT EXECUTE PROCEDURE trunctrigger('before trigger truncate')",
+    "expected": "CREATE TRIGGER t BEFORE TRUNCATE ON trunc_trigger_test EXECUTE FUNCTION trunctrigger('before trigger truncate')"
   },
   {
     "comment": "truncate - Statement 59",
-    "query": "SELECT count(*) as \"Row count in test table\" FROM trunc_trigger_test"
+    "query": "SELECT count(*) as \"Row count in test table\" FROM trunc_trigger_test",
+    "expected": "SELECT COUNT(*) AS \"Row count in test table\" FROM trunc_trigger_test"
   },
   {
     "comment": "truncate - Statement 60",
@@ -241,7 +279,8 @@
   },
   {
     "comment": "truncate - Statement 61",
-    "query": "TRUNCATE trunc_trigger_test"
+    "query": "TRUNCATE trunc_trigger_test",
+    "expected": "TRUNCATE TABLE trunc_trigger_test CONTINUE IDENTITY RESTRICT"
   },
   {
     "comment": "truncate - Statement 62",
@@ -249,11 +288,13 @@
   },
   {
     "comment": "truncate - Statement 63",
-    "query": "truncate trunc_trigger_log"
+    "query": "truncate trunc_trigger_log",
+    "expected": "TRUNCATE TABLE trunc_trigger_log CONTINUE IDENTITY RESTRICT"
   },
   {
     "comment": "truncate - Statement 64",
-    "query": "CREATE TRIGGER tt AFTER TRUNCATE ON trunc_trigger_test FOR EACH STATEMENT EXECUTE PROCEDURE trunctrigger('after trigger truncate')"
+    "query": "CREATE TRIGGER tt AFTER TRUNCATE ON trunc_trigger_test FOR EACH STATEMENT EXECUTE PROCEDURE trunctrigger('after trigger truncate')",
+    "expected": "CREATE TRIGGER tt AFTER TRUNCATE ON trunc_trigger_test EXECUTE FUNCTION trunctrigger('after trigger truncate')"
   },
   {
     "comment": "truncate - Statement 65",
@@ -273,7 +314,8 @@
   },
   {
     "comment": "truncate - Statement 69",
-    "query": "CREATE TABLE truncate_a (id serial, id1 integer default nextval('truncate_a_id1'))"
+    "query": "CREATE TABLE truncate_a (id serial, id1 integer default nextval('truncate_a_id1'))",
+    "expected": "CREATE TABLE truncate_a (id serial, id1 INT DEFAULT nextval('truncate_a_id1'))"
   },
   {
     "comment": "truncate - Statement 70",
@@ -285,11 +327,13 @@
   },
   {
     "comment": "truncate - Statement 72",
-    "query": "TRUNCATE truncate_a RESTART IDENTITY"
+    "query": "TRUNCATE truncate_a RESTART IDENTITY",
+    "expected": "TRUNCATE TABLE truncate_a RESTART IDENTITY RESTRICT"
   },
   {
     "comment": "truncate - Statement 73",
-    "query": "CREATE TABLE truncate_b (id int GENERATED ALWAYS AS IDENTITY (START WITH 44))"
+    "query": "CREATE TABLE truncate_b (id int GENERATED ALWAYS AS IDENTITY (START WITH 44))",
+    "expected": "CREATE TABLE truncate_b (id INT GENERATED ALWAYS AS IDENTITY (START WITH 44))"
   },
   {
     "comment": "truncate - Statement 74",
@@ -301,11 +345,13 @@
   },
   {
     "comment": "truncate - Statement 76",
-    "query": "TRUNCATE truncate_b"
+    "query": "TRUNCATE truncate_b",
+    "expected": "TRUNCATE TABLE truncate_b CONTINUE IDENTITY RESTRICT"
   },
   {
     "comment": "truncate - Statement 77",
-    "query": "TRUNCATE truncate_b RESTART IDENTITY"
+    "query": "TRUNCATE truncate_b RESTART IDENTITY",
+    "expected": "TRUNCATE TABLE truncate_b RESTART IDENTITY RESTRICT"
   },
   {
     "comment": "truncate - Statement 78",
@@ -317,11 +363,13 @@
   },
   {
     "comment": "truncate - Statement 80",
-    "query": "CREATE TABLE truncparted (a int, b char) PARTITION BY LIST (a)"
+    "query": "CREATE TABLE truncparted (a int, b char) PARTITION BY LIST (a)",
+    "expected": "CREATE TABLE truncparted (a INT, b CHAR(1)) PARTITION BY list (a)"
   },
   {
     "comment": "truncate - Statement 81",
-    "query": "TRUNCATE ONLY truncparted"
+    "query": "TRUNCATE ONLY truncparted",
+    "expected": "TRUNCATE TABLE truncparted CONTINUE IDENTITY RESTRICT"
   },
   {
     "comment": "truncate - Statement 82",
@@ -333,7 +381,8 @@
   },
   {
     "comment": "truncate - Statement 84",
-    "query": "TRUNCATE truncparted"
+    "query": "TRUNCATE truncparted",
+    "expected": "TRUNCATE TABLE truncparted CONTINUE IDENTITY RESTRICT"
   },
   {
     "comment": "truncate - Statement 85",
@@ -341,19 +390,23 @@
   },
   {
     "comment": "truncate - Statement 86",
-    "query": "CREATE FUNCTION tp_ins_data() RETURNS void LANGUAGE plpgsql AS $$ BEGIN INSERT INTO truncprim VALUES (1), (100), (150); INSERT INTO truncpart VALUES (1), (100), (150); END $$"
+    "query": "CREATE FUNCTION tp_ins_data() RETURNS void LANGUAGE plpgsql AS $$ BEGIN INSERT INTO truncprim VALUES (1), (100), (150); INSERT INTO truncpart VALUES (1), (100), (150); END $$",
+    "expected": "CREATE FUNCTION tp_ins_data () RETURNS void LANGUAGE plpgsql AS $$ BEGIN INSERT INTO truncprim VALUES (1), (100), (150); INSERT INTO truncpart VALUES (1), (100), (150); END $$"
   },
   {
     "comment": "truncate - Statement 87",
-    "query": "CREATE FUNCTION tp_chk_data(OUT pktb regclass, OUT pkval int, OUT fktb regclass, OUT fkval int) RETURNS SETOF record LANGUAGE plpgsql AS $$ BEGIN RETURN QUERY SELECT pk.tableoid::regclass, pk.a, fk.tableoid::regclass, fk.a FROM truncprim pk FULL JOIN truncpart fk USING (a) ORDER BY 2, 4; END $$"
+    "query": "CREATE FUNCTION tp_chk_data(OUT pktb regclass, OUT pkval int, OUT fktb regclass, OUT fkval int) RETURNS SETOF record LANGUAGE plpgsql AS $$ BEGIN RETURN QUERY SELECT pk.tableoid::regclass, pk.a, fk.tableoid::regclass, fk.a FROM truncprim pk FULL JOIN truncpart fk USING (a) ORDER BY 2, 4; END $$",
+    "expected": "CREATE FUNCTION tp_chk_data (OUT pktb regclass, OUT pkval INT, OUT fktb regclass, OUT fkval INT) RETURNS SETOF record LANGUAGE plpgsql AS $$ BEGIN RETURN QUERY SELECT pk.tableoid::regclass, pk.a, fk.tableoid::regclass, fk.a FROM truncprim pk FULL JOIN truncpart fk USING (a) ORDER BY 2, 4; END $$"
   },
   {
     "comment": "truncate - Statement 88",
-    "query": "CREATE TABLE truncprim (a int PRIMARY KEY)"
+    "query": "CREATE TABLE truncprim (a int PRIMARY KEY)",
+    "expected": "CREATE TABLE truncprim (a INT PRIMARY KEY)"
   },
   {
     "comment": "truncate - Statement 89",
-    "query": "CREATE TABLE truncpart (a int REFERENCES truncprim) PARTITION BY RANGE (a)"
+    "query": "CREATE TABLE truncpart (a int REFERENCES truncprim) PARTITION BY RANGE (a)",
+    "expected": "CREATE TABLE truncpart (a INT REFERENCES truncprim) PARTITION BY range (a)"
   },
   {
     "comment": "truncate - Statement 90",
@@ -361,7 +414,8 @@
   },
   {
     "comment": "truncate - Statement 91",
-    "query": "CREATE TABLE truncpart_2 PARTITION OF truncpart FOR VALUES FROM (100) TO (200) PARTITION BY RANGE (a)"
+    "query": "CREATE TABLE truncpart_2 PARTITION OF truncpart FOR VALUES FROM (100) TO (200) PARTITION BY RANGE (a)",
+    "expected": "CREATE TABLE truncpart_2 PARTITION OF truncpart FOR VALUES FROM (100) TO (200) PARTITION BY range (a)"
   },
   {
     "comment": "truncate - Statement 92",
@@ -373,27 +427,33 @@
   },
   {
     "comment": "truncate - Statement 94",
-    "query": "TRUNCATE TABLE truncprim"
+    "query": "TRUNCATE TABLE truncprim",
+    "expected": "TRUNCATE TABLE truncprim CONTINUE IDENTITY RESTRICT"
   },
   {
     "comment": "truncate - Statement 95",
-    "query": "select tp_ins_data()"
+    "query": "select tp_ins_data()",
+    "expected": "SELECT tp_ins_data()"
   },
   {
     "comment": "truncate - Statement 96",
-    "query": "TRUNCATE TABLE truncprim, truncpart"
+    "query": "TRUNCATE TABLE truncprim, truncpart",
+    "expected": "TRUNCATE TABLE truncprim, truncpart CONTINUE IDENTITY RESTRICT"
   },
   {
     "comment": "truncate - Statement 97",
-    "query": "select * from tp_chk_data()"
+    "query": "select * from tp_chk_data()",
+    "expected": "SELECT * FROM tp_chk_data()"
   },
   {
     "comment": "truncate - Statement 98",
-    "query": "TRUNCATE TABLE truncprim CASCADE"
+    "query": "TRUNCATE TABLE truncprim CASCADE",
+    "expected": "TRUNCATE TABLE truncprim CONTINUE IDENTITY CASCADE"
   },
   {
     "comment": "truncate - Statement 99",
-    "query": "TRUNCATE TABLE truncpart"
+    "query": "TRUNCATE TABLE truncpart",
+    "expected": "TRUNCATE TABLE truncpart CONTINUE IDENTITY RESTRICT"
   },
   {
     "comment": "truncate - Statement 100",
@@ -405,7 +465,8 @@
   },
   {
     "comment": "truncate - Statement 102",
-    "query": "CREATE TABLE trunc_a (a INT PRIMARY KEY) PARTITION BY RANGE (a)"
+    "query": "CREATE TABLE trunc_a (a INT PRIMARY KEY) PARTITION BY RANGE (a)",
+    "expected": "CREATE TABLE trunc_a (a INT PRIMARY KEY) PARTITION BY range (a)"
   },
   {
     "comment": "truncate - Statement 103",
@@ -413,7 +474,8 @@
   },
   {
     "comment": "truncate - Statement 104",
-    "query": "CREATE TABLE trunc_a2 PARTITION OF trunc_a FOR VALUES FROM (10) TO (20) PARTITION BY RANGE (a)"
+    "query": "CREATE TABLE trunc_a2 PARTITION OF trunc_a FOR VALUES FROM (10) TO (20) PARTITION BY RANGE (a)",
+    "expected": "CREATE TABLE trunc_a2 PARTITION OF trunc_a FOR VALUES FROM (10) TO (20) PARTITION BY range (a)"
   },
   {
     "comment": "truncate - Statement 105",
@@ -437,7 +499,8 @@
   },
   {
     "comment": "truncate - Statement 110",
-    "query": "CREATE TABLE ref_b ( b INT PRIMARY KEY, a INT REFERENCES trunc_a(a) ON DELETE CASCADE )"
+    "query": "CREATE TABLE ref_b ( b INT PRIMARY KEY, a INT REFERENCES trunc_a(a) ON DELETE CASCADE )",
+    "expected": "CREATE TABLE ref_b (b INT PRIMARY KEY, a INT REFERENCES trunc_a(a) ON DELETE CASCADE)"
   },
   {
     "comment": "truncate - Statement 111",
@@ -445,7 +508,8 @@
   },
   {
     "comment": "truncate - Statement 112",
-    "query": "TRUNCATE TABLE trunc_a1 CASCADE"
+    "query": "TRUNCATE TABLE trunc_a1 CASCADE",
+    "expected": "TRUNCATE TABLE trunc_a1 CONTINUE IDENTITY CASCADE"
   },
   {
     "comment": "truncate - Statement 113",
@@ -457,7 +521,8 @@
   },
   {
     "comment": "truncate - Statement 115",
-    "query": "CREATE TABLE ref_c ( c INT PRIMARY KEY, a INT REFERENCES trunc_a(a) ON DELETE CASCADE ) PARTITION BY RANGE (c)"
+    "query": "CREATE TABLE ref_c ( c INT PRIMARY KEY, a INT REFERENCES trunc_a(a) ON DELETE CASCADE ) PARTITION BY RANGE (c)",
+    "expected": "CREATE TABLE ref_c (c INT PRIMARY KEY, a INT REFERENCES trunc_a(a) ON DELETE CASCADE) PARTITION BY range (c)"
   },
   {
     "comment": "truncate - Statement 116",
@@ -473,15 +538,18 @@
   },
   {
     "comment": "truncate - Statement 119",
-    "query": "TRUNCATE TABLE trunc_a21 CASCADE"
+    "query": "TRUNCATE TABLE trunc_a21 CASCADE",
+    "expected": "TRUNCATE TABLE trunc_a21 CONTINUE IDENTITY CASCADE"
   },
   {
     "comment": "truncate - Statement 120",
-    "query": "SELECT a as \"from table ref_c\" FROM ref_c"
+    "query": "SELECT a as \"from table ref_c\" FROM ref_c",
+    "expected": "SELECT a AS \"from table ref_c\" FROM ref_c"
   },
   {
     "comment": "truncate - Statement 121",
-    "query": "SELECT a as \"from table trunc_a\" FROM trunc_a ORDER BY a"
+    "query": "SELECT a as \"from table trunc_a\" FROM trunc_a ORDER BY a",
+    "expected": "SELECT a AS \"from table trunc_a\" FROM trunc_a ORDER BY a"
   },
   {
     "comment": "truncate - Statement 122",

@@ -5,7 +5,8 @@
   },
   {
     "comment": "transactions - Statement 2",
-    "query": "CREATE TABLE xacttest (a smallint, b real)"
+    "query": "CREATE TABLE xacttest (a smallint, b real)",
+    "expected": "CREATE TABLE xacttest (a SMALLINT, b REAL)"
   },
   {
     "comment": "transactions - Statement 3",
@@ -17,15 +18,17 @@
   },
   {
     "comment": "transactions - Statement 5",
-    "query": "END"
+    "query": "END",
+    "expected": "COMMIT"
   },
   {
     "comment": "transactions - Statement 6",
-    "query": "SELECT a FROM xacttest WHERE a > 100"
+    "query": "SELECT a FROM xacttest WHERE a \u003e 100"
   },
   {
     "comment": "transactions - Statement 7",
-    "query": "CREATE TABLE disappear (a int4)"
+    "query": "CREATE TABLE disappear (a int4)",
+    "expected": "CREATE TABLE disappear (a INT)"
   },
   {
     "comment": "transactions - Statement 8",
@@ -37,7 +40,8 @@
   },
   {
     "comment": "transactions - Statement 10",
-    "query": "ABORT"
+    "query": "ABORT",
+    "expected": "ROLLBACK"
   },
   {
     "comment": "transactions - Statement 11",
@@ -45,7 +49,8 @@
   },
   {
     "comment": "transactions - Statement 12",
-    "query": "BEGIN TRANSACTION ISOLATION LEVEL SERIALIZABLE"
+    "query": "BEGIN TRANSACTION ISOLATION LEVEL SERIALIZABLE",
+    "expected": "BEGIN ISOLATION LEVEL SERIALIZABLE"
   },
   {
     "comment": "transactions - Statement 13",
@@ -57,7 +62,8 @@
   },
   {
     "comment": "transactions - Statement 15",
-    "query": "BEGIN TRANSACTION READ ONLY"
+    "query": "BEGIN TRANSACTION READ ONLY",
+    "expected": "BEGIN READ ONLY"
   },
   {
     "comment": "transactions - Statement 16",
@@ -65,7 +71,8 @@
   },
   {
     "comment": "transactions - Statement 17",
-    "query": "BEGIN TRANSACTION DEFERRABLE"
+    "query": "BEGIN TRANSACTION DEFERRABLE",
+    "expected": "BEGIN DEFERRABLE"
   },
   {
     "comment": "transactions - Statement 18",
@@ -73,19 +80,23 @@
   },
   {
     "comment": "transactions - Statement 19",
-    "query": "CREATE FUNCTION errfunc() RETURNS int LANGUAGE SQL AS 'SELECT 1' SET transaction_read_only = on"
+    "query": "CREATE FUNCTION errfunc() RETURNS int LANGUAGE SQL AS 'SELECT 1' SET transaction_read_only = on",
+    "expected": "CREATE FUNCTION errfunc () RETURNS INT LANGUAGE sql AS $$SELECT 1$$ SET transaction_read_only = on"
   },
   {
     "comment": "transactions - Statement 20",
-    "query": "CREATE TABLE writetest (a int)"
+    "query": "CREATE TABLE writetest (a int)",
+    "expected": "CREATE TABLE writetest (a INT)"
   },
   {
     "comment": "transactions - Statement 21",
-    "query": "CREATE TEMPORARY TABLE temptest (a int)"
+    "query": "CREATE TEMPORARY TABLE temptest (a int)",
+    "expected": "CREATE TEMPORARY TABLE temptest (a INT)"
   },
   {
     "comment": "transactions - Statement 22",
-    "query": "SET TRANSACTION ISOLATION LEVEL SERIALIZABLE, READ ONLY, DEFERRABLE"
+    "query": "SET TRANSACTION ISOLATION LEVEL SERIALIZABLE, READ ONLY, DEFERRABLE",
+    "expected": "SET TRANSACTION ISOLATION LEVEL SERIALIZABLE READ ONLY DEFERRABLE"
   },
   {
     "comment": "transactions - Statement 23",
@@ -169,11 +180,13 @@
   },
   {
     "comment": "transactions - Statement 43",
-    "query": "CREATE TABLE trans_foobar (a int)"
+    "query": "CREATE TABLE trans_foobar (a int)",
+    "expected": "CREATE TABLE trans_foobar (a INT)"
   },
   {
     "comment": "transactions - Statement 44",
-    "query": "CREATE TABLE trans_foo (a int)"
+    "query": "CREATE TABLE trans_foo (a int)",
+    "expected": "CREATE TABLE trans_foo (a INT)"
   },
   {
     "comment": "transactions - Statement 45",
@@ -185,7 +198,8 @@
   },
   {
     "comment": "transactions - Statement 47",
-    "query": "CREATE TABLE trans_bar (a int)"
+    "query": "CREATE TABLE trans_bar (a int)",
+    "expected": "CREATE TABLE trans_bar (a INT)"
   },
   {
     "comment": "transactions - Statement 48",
@@ -201,7 +215,8 @@
   },
   {
     "comment": "transactions - Statement 51",
-    "query": "CREATE TABLE trans_baz (a int)"
+    "query": "CREATE TABLE trans_baz (a int)",
+    "expected": "CREATE TABLE trans_baz (a INT)"
   },
   {
     "comment": "transactions - Statement 52",
@@ -209,11 +224,13 @@
   },
   {
     "comment": "transactions - Statement 53",
-    "query": "drop TABLE trans_foobar"
+    "query": "drop TABLE trans_foobar",
+    "expected": "DROP TABLE trans_foobar"
   },
   {
     "comment": "transactions - Statement 54",
-    "query": "CREATE TABLE trans_barbaz (a int)"
+    "query": "CREATE TABLE trans_barbaz (a int)",
+    "expected": "CREATE TABLE trans_barbaz (a INT)"
   },
   {
     "comment": "transactions - Statement 55",
@@ -237,19 +254,23 @@
   },
   {
     "comment": "transactions - Statement 60",
-    "query": "INSERT into trans_bar VALUES (1)"
+    "query": "INSERT into trans_bar VALUES (1)",
+    "expected": "INSERT INTO trans_bar VALUES (1)"
   },
   {
     "comment": "transactions - Statement 61",
-    "query": "ROLLBACK TO one"
+    "query": "ROLLBACK TO one",
+    "expected": "ROLLBACK TO SAVEPOINT one"
   },
   {
     "comment": "transactions - Statement 62",
-    "query": "INSERT into trans_barbaz VALUES (1)"
+    "query": "INSERT into trans_barbaz VALUES (1)",
+    "expected": "INSERT INTO trans_barbaz VALUES (1)"
   },
   {
     "comment": "transactions - Statement 63",
-    "query": "RELEASE two"
+    "query": "RELEASE two",
+    "expected": "RELEASE SAVEPOINT two"
   },
   {
     "comment": "transactions - Statement 64",
@@ -285,7 +306,8 @@
   },
   {
     "comment": "transactions - Statement 72",
-    "query": "CREATE TABLE savepoints (a int)"
+    "query": "CREATE TABLE savepoints (a int)",
+    "expected": "CREATE TABLE savepoints (a INT)"
   },
   {
     "comment": "transactions - Statement 73",
@@ -313,11 +335,13 @@
   },
   {
     "comment": "transactions - Statement 79",
-    "query": "DELETE FROM savepoints WHERE a=1"
+    "query": "DELETE FROM savepoints WHERE a=1",
+    "expected": "DELETE FROM savepoints WHERE a = 1"
   },
   {
     "comment": "transactions - Statement 80",
-    "query": "DELETE FROM savepoints WHERE a=2"
+    "query": "DELETE FROM savepoints WHERE a=2",
+    "expected": "DELETE FROM savepoints WHERE a = 2"
   },
   {
     "comment": "transactions - Statement 81",
@@ -345,11 +369,13 @@
   },
   {
     "comment": "transactions - Statement 87",
-    "query": "SELECT a.xmin = b.xmin FROM savepoints a, savepoints b WHERE a.a=6 AND b.a=8"
+    "query": "SELECT a.xmin = b.xmin FROM savepoints a, savepoints b WHERE a.a=6 AND b.a=8",
+    "expected": "SELECT a.xmin = b.xmin FROM savepoints AS a, savepoints AS b WHERE a.a = 6 AND b.a = 8"
   },
   {
     "comment": "transactions - Statement 88",
-    "query": "SELECT a.xmin = b.xmin FROM savepoints a, savepoints b WHERE a.a=6 AND b.a=7"
+    "query": "SELECT a.xmin = b.xmin FROM savepoints a, savepoints b WHERE a.a=6 AND b.a=7",
+    "expected": "SELECT a.xmin = b.xmin FROM savepoints AS a, savepoints AS b WHERE a.a = 6 AND b.a = 7"
   },
   {
     "comment": "transactions - Statement 89",
@@ -365,11 +391,13 @@
   },
   {
     "comment": "transactions - Statement 92",
-    "query": "SELECT a FROM savepoints WHERE a in (9, 10, 11)"
+    "query": "SELECT a FROM savepoints WHERE a in (9, 10, 11)",
+    "expected": "SELECT a FROM savepoints WHERE a IN (9, 10, 11)"
   },
   {
     "comment": "transactions - Statement 93",
-    "query": "SELECT a.xmin = b.xmin FROM savepoints a, savepoints b WHERE a.a=9 AND b.a=11"
+    "query": "SELECT a.xmin = b.xmin FROM savepoints a, savepoints b WHERE a.a=9 AND b.a=11",
+    "expected": "SELECT a.xmin = b.xmin FROM savepoints AS a, savepoints AS b WHERE a.a = 9 AND b.a = 11"
   },
   {
     "comment": "transactions - Statement 94",
@@ -429,7 +457,8 @@
   },
   {
     "comment": "transactions - Statement 108",
-    "query": "SELECT 0/0"
+    "query": "SELECT 0/0",
+    "expected": "SELECT 0 / 0"
   },
   {
     "comment": "transactions - Statement 109",
@@ -449,7 +478,8 @@
   },
   {
     "comment": "transactions - Statement 113",
-    "query": "DECLARE c CURSOR FOR SELECT unique2/0 FROM tenk1 ORDER BY unique2"
+    "query": "DECLARE c CURSOR FOR SELECT unique2/0 FROM tenk1 ORDER BY unique2",
+    "expected": "DECLARE c CURSOR FOR SELECT unique2 / 0 FROM tenk1 ORDER BY unique2"
   },
   {
     "comment": "transactions - Statement 114",
@@ -457,23 +487,28 @@
   },
   {
     "comment": "transactions - Statement 115",
-    "query": "create or replace function max_xacttest() returns smallint language sql as 'select max(a) from xacttest' stable"
+    "query": "create or replace function max_xacttest() returns smallint language sql as 'select max(a) from xacttest' stable",
+    "expected": "CREATE OR REPLACE FUNCTION max_xacttest () RETURNS SMALLINT LANGUAGE sql AS $$select max(a) from xacttest$$ STABLE"
   },
   {
     "comment": "transactions - Statement 116",
-    "query": "update xacttest set a = max_xacttest() + 10 where a > 0"
+    "query": "update xacttest set a = max_xacttest() + 10 where a \u003e 0",
+    "expected": "UPDATE xacttest SET a = max_xacttest() + 10 WHERE a \u003e 0"
   },
   {
     "comment": "transactions - Statement 117",
-    "query": "create or replace function max_xacttest() returns smallint language sql as 'select max(a) from xacttest' volatile"
+    "query": "create or replace function max_xacttest() returns smallint language sql as 'select max(a) from xacttest' volatile",
+    "expected": "CREATE OR REPLACE FUNCTION max_xacttest () RETURNS SMALLINT LANGUAGE sql AS $$select max(a) from xacttest$$ VOLATILE"
   },
   {
     "comment": "transactions - Statement 118",
-    "query": "create or replace function max_xacttest() returns smallint language plpgsql as 'begin return max(a) from xacttest; end' stable"
+    "query": "create or replace function max_xacttest() returns smallint language plpgsql as 'begin return max(a) from xacttest; end' stable",
+    "expected": "CREATE OR REPLACE FUNCTION max_xacttest () RETURNS SMALLINT LANGUAGE plpgsql AS $$begin return max(a) from xacttest; end$$ STABLE"
   },
   {
     "comment": "transactions - Statement 119",
-    "query": "create or replace function max_xacttest() returns smallint language plpgsql as 'begin return max(a) from xacttest; end' volatile"
+    "query": "create or replace function max_xacttest() returns smallint language plpgsql as 'begin return max(a) from xacttest; end' volatile",
+    "expected": "CREATE OR REPLACE FUNCTION max_xacttest () RETURNS SMALLINT LANGUAGE plpgsql AS $$begin return max(a) from xacttest; end$$ VOLATILE"
   },
   {
     "comment": "transactions - Statement 120",
@@ -485,7 +520,8 @@
   },
   {
     "comment": "transactions - Statement 122",
-    "query": "rollback to x"
+    "query": "rollback to x",
+    "expected": "ROLLBACK TO SAVEPOINT x"
   },
   {
     "comment": "transactions - Statement 123",
@@ -497,59 +533,73 @@
   },
   {
     "comment": "transactions - Statement 125",
-    "query": "create function inverse(int) returns float8 as $$ begin analyze revalidate_bug; return 1::float8/$1; exception when division_by_zero then return 0; end$$ language plpgsql volatile"
+    "query": "create function inverse(int) returns float8 as $$ begin analyze revalidate_bug; return 1::float8/$1; exception when division_by_zero then return 0; end$$ language plpgsql volatile",
+    "expected": "CREATE FUNCTION inverse (INT) RETURNS FLOAT8 AS $$ begin analyze revalidate_bug; return 1::float8/$1; exception when division_by_zero then return 0; end$$ LANGUAGE plpgsql VOLATILE"
   },
   {
     "comment": "transactions - Statement 126",
-    "query": "create table revalidate_bug (c float8 unique)"
+    "query": "create table revalidate_bug (c float8 unique)",
+    "expected": "CREATE TABLE revalidate_bug (c FLOAT8 UNIQUE)"
   },
   {
     "comment": "transactions - Statement 127",
-    "query": "insert into revalidate_bug values (1)"
+    "query": "insert into revalidate_bug values (1)",
+    "expected": "INSERT INTO revalidate_bug VALUES (1)"
   },
   {
     "comment": "transactions - Statement 128",
-    "query": "insert into revalidate_bug values (inverse(0))"
+    "query": "insert into revalidate_bug values (inverse(0))",
+    "expected": "INSERT INTO revalidate_bug VALUES (inverse(0))"
   },
   {
     "comment": "transactions - Statement 129",
-    "query": "drop table revalidate_bug"
+    "query": "drop table revalidate_bug",
+    "expected": "DROP TABLE revalidate_bug"
   },
   {
     "comment": "transactions - Statement 130",
-    "query": "drop function inverse(int)"
+    "query": "drop function inverse(int)",
+    "expected": "DROP FUNCTION inverse(INT)"
   },
   {
     "comment": "transactions - Statement 131",
-    "query": "create table trans_abc (a int)"
+    "query": "create table trans_abc (a int)",
+    "expected": "CREATE TABLE trans_abc (a INT)"
   },
   {
     "comment": "transactions - Statement 132",
-    "query": "insert into trans_abc values (5)"
+    "query": "insert into trans_abc values (5)",
+    "expected": "INSERT INTO trans_abc VALUES (5)"
   },
   {
     "comment": "transactions - Statement 133",
-    "query": "insert into trans_abc values (10)"
+    "query": "insert into trans_abc values (10)",
+    "expected": "INSERT INTO trans_abc VALUES (10)"
   },
   {
     "comment": "transactions - Statement 134",
-    "query": "declare foo cursor for select * from trans_abc"
+    "query": "declare foo cursor for select * from trans_abc",
+    "expected": "DECLARE foo CURSOR FOR SELECT * FROM trans_abc"
   },
   {
     "comment": "transactions - Statement 135",
-    "query": "fetch from foo"
+    "query": "fetch from foo",
+    "expected": "FETCH FROM foo"
   },
   {
     "comment": "transactions - Statement 136",
-    "query": "insert into trans_abc values (15)"
+    "query": "insert into trans_abc values (15)",
+    "expected": "INSERT INTO trans_abc VALUES (15)"
   },
   {
     "comment": "transactions - Statement 137",
-    "query": "CREATE FUNCTION invert(x float8) RETURNS float8 LANGUAGE plpgsql AS $$ begin return 1/x; end $$"
+    "query": "CREATE FUNCTION invert(x float8) RETURNS float8 LANGUAGE plpgsql AS $$ begin return 1/x; end $$",
+    "expected": "CREATE FUNCTION invert (x FLOAT8) RETURNS FLOAT8 LANGUAGE plpgsql AS $$ begin return 1/x; end $$"
   },
   {
     "comment": "transactions - Statement 138",
-    "query": "CREATE FUNCTION create_temp_tab() RETURNS text LANGUAGE plpgsql AS $$ BEGIN CREATE TEMP TABLE new_table (f1 float8);   INSERT INTO new_table SELECT invert(0.0); RETURN 'foo'; END $$"
+    "query": "CREATE FUNCTION create_temp_tab() RETURNS text LANGUAGE plpgsql AS $$ BEGIN CREATE TEMP TABLE new_table (f1 float8);   INSERT INTO new_table SELECT invert(0.0); RETURN 'foo'; END $$",
+    "expected": "CREATE FUNCTION create_temp_tab () RETURNS TEXT LANGUAGE plpgsql AS $$ BEGIN CREATE TEMP TABLE new_table (f1 float8);   INSERT INTO new_table SELECT invert(0.0); RETURN 'foo'; END $$"
   },
   {
     "comment": "transactions - Statement 139",
@@ -561,7 +611,8 @@
   },
   {
     "comment": "transactions - Statement 141",
-    "query": "FETCH ok"
+    "query": "FETCH ok",
+    "expected": "FETCH FROM ok"
   },
   {
     "comment": "transactions - Statement 142",
@@ -569,11 +620,13 @@
   },
   {
     "comment": "transactions - Statement 143",
-    "query": "FETCH ctt"
+    "query": "FETCH ctt",
+    "expected": "FETCH FROM ctt"
   },
   {
     "comment": "transactions - Statement 144",
-    "query": "ROLLBACK TO s1"
+    "query": "ROLLBACK TO s1",
+    "expected": "ROLLBACK TO SAVEPOINT s1"
   },
   {
     "comment": "transactions - Statement 145",
@@ -581,7 +634,8 @@
   },
   {
     "comment": "transactions - Statement 146",
-    "query": "DROP FUNCTION invert(x float8)"
+    "query": "DROP FUNCTION invert(x float8)",
+    "expected": "DROP FUNCTION invert(x FLOAT8)"
   },
   {
     "comment": "transactions - Statement 147",
@@ -589,7 +643,8 @@
   },
   {
     "comment": "transactions - Statement 148",
-    "query": "START TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ WRITE, DEFERRABLE"
+    "query": "START TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ WRITE, DEFERRABLE",
+    "expected": "START TRANSACTION ISOLATION LEVEL REPEATABLE READ READ WRITE DEFERRABLE"
   },
   {
     "comment": "transactions - Statement 149",
@@ -625,11 +680,13 @@
   },
   {
     "comment": "transactions - Statement 157",
-    "query": "START TRANSACTION ISOLATION LEVEL READ COMMITTED, READ WRITE, DEFERRABLE"
+    "query": "START TRANSACTION ISOLATION LEVEL READ COMMITTED, READ WRITE, DEFERRABLE",
+    "expected": "START TRANSACTION ISOLATION LEVEL READ COMMITTED READ WRITE DEFERRABLE"
   },
   {
     "comment": "transactions - Statement 158",
-    "query": "START TRANSACTION ISOLATION LEVEL SERIALIZABLE, READ WRITE, NOT DEFERRABLE"
+    "query": "START TRANSACTION ISOLATION LEVEL SERIALIZABLE, READ WRITE, NOT DEFERRABLE",
+    "expected": "START TRANSACTION ISOLATION LEVEL SERIALIZABLE READ WRITE NOT DEFERRABLE"
   },
   {
     "comment": "transactions - Statement 159",
@@ -653,107 +710,117 @@
   },
   {
     "comment": "transactions - Statement 164",
-    "query": "create temp table i_table (f1 int)"
+    "query": "create temp table i_table (f1 int)",
+    "expected": "CREATE TEMPORARY TABLE i_table (f1 INT)"
   },
   {
     "comment": "transactions - Statement 165",
-    "query": "SELECT 1\\; SELECT 2\\; SELECT 3"
+    "query": "SELECT 1; SELECT 2; SELECT 3"
   },
   {
     "comment": "transactions - Statement 166",
-    "query": "insert into i_table values(1)\\; select * from i_table"
+    "query": "insert into i_table values(1); select * from i_table",
+    "expected": "INSERT INTO i_table VALUES (1); SELECT * FROM i_table"
   },
   {
     "comment": "transactions - Statement 167",
-    "query": "insert into i_table values(2)\\; select * from i_table\\; select 1/0"
+    "query": "insert into i_table values(2); select * from i_table; select 1/0",
+    "expected": "INSERT INTO i_table VALUES (2); SELECT * FROM i_table; SELECT 1 / 0"
   },
   {
     "comment": "transactions - Statement 168",
-    "query": "select * from i_table"
+    "query": "select * from i_table",
+    "expected": "SELECT * FROM i_table"
   },
   {
     "comment": "transactions - Statement 169",
-    "query": "begin\\; insert into i_table values(3)\\; commit"
+    "query": "begin; insert into i_table values(3); commit",
+    "expected": "BEGIN; INSERT INTO i_table VALUES (3); COMMIT"
   },
   {
     "comment": "transactions - Statement 170",
-    "query": "begin\\; insert into i_table values(4)\\; rollback"
+    "query": "begin; insert into i_table values(4); rollback",
+    "expected": "BEGIN; INSERT INTO i_table VALUES (4); ROLLBACK"
   },
   {
     "comment": "transactions - Statement 171",
-    "query": "select 1\\; begin\\; insert into i_table values(5)"
+    "query": "select 1; begin; insert into i_table values(5)",
+    "expected": "SELECT 1; BEGIN; INSERT INTO i_table VALUES (5)"
   },
   {
     "comment": "transactions - Statement 172",
-    "query": "select 1\\; begin\\; insert into i_table values(6)"
+    "query": "select 1; begin; insert into i_table values(6)",
+    "expected": "SELECT 1; BEGIN; INSERT INTO i_table VALUES (6)"
   },
   {
     "comment": "transactions - Statement 173",
-    "query": "insert into i_table values(7)\\; commit\\; insert into i_table values(8)\\; select 1/0"
+    "query": "insert into i_table values(7); commit; insert into i_table values(8); select 1/0",
+    "expected": "INSERT INTO i_table VALUES (7); COMMIT; INSERT INTO i_table VALUES (8); SELECT 1 / 0"
   },
   {
     "comment": "transactions - Statement 174",
-    "query": "insert into i_table values(9)\\; rollback\\; select 2"
+    "query": "insert into i_table values(9); rollback; select 2",
+    "expected": "INSERT INTO i_table VALUES (9); ROLLBACK; SELECT 2"
   },
   {
     "comment": "transactions - Statement 175",
-    "query": "SELECT 1\\; VACUUM"
+    "query": "SELECT 1; VACUUM"
   },
   {
     "comment": "transactions - Statement 176",
-    "query": "SELECT 1\\; COMMIT\\; VACUUM"
+    "query": "SELECT 1; COMMIT; VACUUM"
   },
   {
     "comment": "transactions - Statement 177",
-    "query": "SELECT 1\\; SAVEPOINT sp"
+    "query": "SELECT 1; SAVEPOINT sp"
   },
   {
     "comment": "transactions - Statement 178",
-    "query": "SELECT 1\\; COMMIT\\; SAVEPOINT sp"
+    "query": "SELECT 1; COMMIT; SAVEPOINT sp"
   },
   {
     "comment": "transactions - Statement 179",
-    "query": "ROLLBACK TO SAVEPOINT sp\\; SELECT 2"
+    "query": "ROLLBACK TO SAVEPOINT sp; SELECT 2"
   },
   {
     "comment": "transactions - Statement 180",
-    "query": "SELECT 2\\; RELEASE SAVEPOINT sp\\; SELECT 3"
+    "query": "SELECT 2; RELEASE SAVEPOINT sp; SELECT 3"
   },
   {
     "comment": "transactions - Statement 181",
-    "query": "SELECT 1\\; BEGIN\\; SAVEPOINT sp\\; ROLLBACK TO SAVEPOINT sp\\; COMMIT"
+    "query": "SELECT 1; BEGIN; SAVEPOINT sp; ROLLBACK TO SAVEPOINT sp; COMMIT"
   },
   {
     "comment": "transactions - Statement 182",
-    "query": "SET TRANSACTION READ ONLY\\; COMMIT AND CHAIN"
+    "query": "SET TRANSACTION READ ONLY; COMMIT AND CHAIN"
   },
   {
     "comment": "transactions - Statement 183",
-    "query": "SET TRANSACTION READ ONLY\\; ROLLBACK AND CHAIN"
+    "query": "SET TRANSACTION READ ONLY; ROLLBACK AND CHAIN"
   },
   {
     "comment": "transactions - Statement 184",
-    "query": "INSERT INTO trans_abc VALUES (7)\\; COMMIT\\; INSERT INTO trans_abc VALUES (8)\\; COMMIT AND CHAIN"
+    "query": "INSERT INTO trans_abc VALUES (7); COMMIT; INSERT INTO trans_abc VALUES (8); COMMIT AND CHAIN"
   },
   {
     "comment": "transactions - Statement 185",
-    "query": "INSERT INTO trans_abc VALUES (9)\\; ROLLBACK\\; INSERT INTO trans_abc VALUES (10)\\; ROLLBACK AND CHAIN"
+    "query": "INSERT INTO trans_abc VALUES (9); ROLLBACK; INSERT INTO trans_abc VALUES (10); ROLLBACK AND CHAIN"
   },
   {
     "comment": "transactions - Statement 186",
-    "query": "INSERT INTO trans_abc VALUES (11)\\; COMMIT AND CHAIN\\; INSERT INTO trans_abc VALUES (12)\\; COMMIT"
+    "query": "INSERT INTO trans_abc VALUES (11); COMMIT AND CHAIN; INSERT INTO trans_abc VALUES (12); COMMIT"
   },
   {
     "comment": "transactions - Statement 187",
-    "query": "INSERT INTO trans_abc VALUES (13)\\; ROLLBACK AND CHAIN\\; INSERT INTO trans_abc VALUES (14)\\; ROLLBACK"
+    "query": "INSERT INTO trans_abc VALUES (13); ROLLBACK AND CHAIN; INSERT INTO trans_abc VALUES (14); ROLLBACK"
   },
   {
     "comment": "transactions - Statement 188",
-    "query": "START TRANSACTION ISOLATION LEVEL REPEATABLE READ\\; INSERT INTO trans_abc VALUES (15)\\; COMMIT AND CHAIN"
+    "query": "START TRANSACTION ISOLATION LEVEL REPEATABLE READ; INSERT INTO trans_abc VALUES (15); COMMIT AND CHAIN"
   },
   {
     "comment": "transactions - Statement 189",
-    "query": "START TRANSACTION ISOLATION LEVEL REPEATABLE READ\\; INSERT INTO trans_abc VALUES (16)\\; ROLLBACK AND CHAIN"
+    "query": "START TRANSACTION ISOLATION LEVEL REPEATABLE READ; INSERT INTO trans_abc VALUES (16); ROLLBACK AND CHAIN"
   },
   {
     "comment": "transactions - Statement 190",
@@ -761,11 +828,11 @@
   },
   {
     "comment": "transactions - Statement 191",
-    "query": "START TRANSACTION ISOLATION LEVEL REPEATABLE READ\\; INSERT INTO trans_abc VALUES (17)\\; COMMIT\\; INSERT INTO trans_abc VALUES (18)\\; COMMIT AND CHAIN"
+    "query": "START TRANSACTION ISOLATION LEVEL REPEATABLE READ; INSERT INTO trans_abc VALUES (17); COMMIT; INSERT INTO trans_abc VALUES (18); COMMIT AND CHAIN"
   },
   {
     "comment": "transactions - Statement 192",
-    "query": "START TRANSACTION ISOLATION LEVEL REPEATABLE READ\\; INSERT INTO trans_abc VALUES (19)\\; ROLLBACK\\; INSERT INTO trans_abc VALUES (20)\\; ROLLBACK AND CHAIN"
+    "query": "START TRANSACTION ISOLATION LEVEL REPEATABLE READ; INSERT INTO trans_abc VALUES (19); ROLLBACK; INSERT INTO trans_abc VALUES (20); ROLLBACK AND CHAIN"
   },
   {
     "comment": "transactions - Statement 193",
@@ -773,7 +840,8 @@
   },
   {
     "comment": "transactions - Statement 194",
-    "query": "BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ"
+    "query": "BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ",
+    "expected": "BEGIN ISOLATION LEVEL REPEATABLE READ"
   },
   {
     "comment": "transactions - Statement 195",
@@ -785,6 +853,7 @@
   },
   {
     "comment": "transactions - Statement 197",
-    "query": "select 1/0"
+    "query": "select 1/0",
+    "expected": "SELECT 1 / 0"
   }
 ]

@@ -1,7 +1,8 @@
 [
   {
     "comment": "tsdicts - Statement 1",
-    "query": "CREATE TEXT SEARCH DICTIONARY ispell ( Template=ispell, DictFile=ispell_sample, AffFile=ispell_sample )"
+    "query": "CREATE TEXT SEARCH DICTIONARY ispell ( Template=ispell, DictFile=ispell_sample, AffFile=ispell_sample )",
+    "expected": "CREATE TEXT SEARCH DICTIONARY ispell (template = ispell, dictfile = ispell_sample, afffile = ispell_sample)"
   },
   {
     "comment": "tsdicts - Statement 2",
@@ -65,7 +66,8 @@
   },
   {
     "comment": "tsdicts - Statement 17",
-    "query": "CREATE TEXT SEARCH DICTIONARY hunspell ( Template=ispell, DictFile=ispell_sample, AffFile=hunspell_sample )"
+    "query": "CREATE TEXT SEARCH DICTIONARY hunspell ( Template=ispell, DictFile=ispell_sample, AffFile=hunspell_sample )",
+    "expected": "CREATE TEXT SEARCH DICTIONARY hunspell (template = ispell, dictfile = ispell_sample, afffile = hunspell_sample)"
   },
   {
     "comment": "tsdicts - Statement 18",
@@ -129,7 +131,8 @@
   },
   {
     "comment": "tsdicts - Statement 33",
-    "query": "CREATE TEXT SEARCH DICTIONARY hunspell_long ( Template=ispell, DictFile=hunspell_sample_long, AffFile=hunspell_sample_long )"
+    "query": "CREATE TEXT SEARCH DICTIONARY hunspell_long ( Template=ispell, DictFile=hunspell_sample_long, AffFile=hunspell_sample_long )",
+    "expected": "CREATE TEXT SEARCH DICTIONARY hunspell_long (template = ispell, dictfile = hunspell_sample_long, afffile = hunspell_sample_long)"
   },
   {
     "comment": "tsdicts - Statement 34",
@@ -205,7 +208,8 @@
   },
   {
     "comment": "tsdicts - Statement 52",
-    "query": "CREATE TEXT SEARCH DICTIONARY hunspell_num ( Template=ispell, DictFile=hunspell_sample_num, AffFile=hunspell_sample_num )"
+    "query": "CREATE TEXT SEARCH DICTIONARY hunspell_num ( Template=ispell, DictFile=hunspell_sample_num, AffFile=hunspell_sample_num )",
+    "expected": "CREATE TEXT SEARCH DICTIONARY hunspell_num (template = ispell, dictfile = hunspell_sample_num, afffile = hunspell_sample_num)"
   },
   {
     "comment": "tsdicts - Statement 53",
@@ -277,31 +281,38 @@
   },
   {
     "comment": "tsdicts - Statement 70",
-    "query": "CREATE TEXT SEARCH DICTIONARY hunspell_err ( Template=ispell, DictFile=ispell_sample, AffFile=hunspell_sample_long )"
+    "query": "CREATE TEXT SEARCH DICTIONARY hunspell_err ( Template=ispell, DictFile=ispell_sample, AffFile=hunspell_sample_long )",
+    "expected": "CREATE TEXT SEARCH DICTIONARY hunspell_err (template = ispell, dictfile = ispell_sample, afffile = hunspell_sample_long)"
   },
   {
     "comment": "tsdicts - Statement 71",
-    "query": "CREATE TEXT SEARCH DICTIONARY hunspell_err ( Template=ispell, DictFile=ispell_sample, AffFile=hunspell_sample_num )"
+    "query": "CREATE TEXT SEARCH DICTIONARY hunspell_err ( Template=ispell, DictFile=ispell_sample, AffFile=hunspell_sample_num )",
+    "expected": "CREATE TEXT SEARCH DICTIONARY hunspell_err (template = ispell, dictfile = ispell_sample, afffile = hunspell_sample_num)"
   },
   {
     "comment": "tsdicts - Statement 72",
-    "query": "CREATE TEXT SEARCH DICTIONARY hunspell_invalid_1 ( Template=ispell, DictFile=hunspell_sample_long, AffFile=ispell_sample )"
+    "query": "CREATE TEXT SEARCH DICTIONARY hunspell_invalid_1 ( Template=ispell, DictFile=hunspell_sample_long, AffFile=ispell_sample )",
+    "expected": "CREATE TEXT SEARCH DICTIONARY hunspell_invalid_1 (template = ispell, dictfile = hunspell_sample_long, afffile = ispell_sample)"
   },
   {
     "comment": "tsdicts - Statement 73",
-    "query": "CREATE TEXT SEARCH DICTIONARY hunspell_invalid_2 ( Template=ispell, DictFile=hunspell_sample_long, AffFile=hunspell_sample_num )"
+    "query": "CREATE TEXT SEARCH DICTIONARY hunspell_invalid_2 ( Template=ispell, DictFile=hunspell_sample_long, AffFile=hunspell_sample_num )",
+    "expected": "CREATE TEXT SEARCH DICTIONARY hunspell_invalid_2 (template = ispell, dictfile = hunspell_sample_long, afffile = hunspell_sample_num)"
   },
   {
     "comment": "tsdicts - Statement 74",
-    "query": "CREATE TEXT SEARCH DICTIONARY hunspell_invalid_3 ( Template=ispell, DictFile=hunspell_sample_num, AffFile=ispell_sample )"
+    "query": "CREATE TEXT SEARCH DICTIONARY hunspell_invalid_3 ( Template=ispell, DictFile=hunspell_sample_num, AffFile=ispell_sample )",
+    "expected": "CREATE TEXT SEARCH DICTIONARY hunspell_invalid_3 (template = ispell, dictfile = hunspell_sample_num, afffile = ispell_sample)"
   },
   {
     "comment": "tsdicts - Statement 75",
-    "query": "CREATE TEXT SEARCH DICTIONARY hunspell_err ( Template=ispell, DictFile=hunspell_sample_num, AffFile=hunspell_sample_long )"
+    "query": "CREATE TEXT SEARCH DICTIONARY hunspell_err ( Template=ispell, DictFile=hunspell_sample_num, AffFile=hunspell_sample_long )",
+    "expected": "CREATE TEXT SEARCH DICTIONARY hunspell_err (template = ispell, dictfile = hunspell_sample_num, afffile = hunspell_sample_long)"
   },
   {
     "comment": "tsdicts - Statement 76",
-    "query": "CREATE TEXT SEARCH DICTIONARY synonym ( Template=synonym, Synonyms=synonym_sample )"
+    "query": "CREATE TEXT SEARCH DICTIONARY synonym ( Template=synonym, Synonyms=synonym_sample )",
+    "expected": "CREATE TEXT SEARCH DICTIONARY synonym (template = synonym, synonyms = synonym_sample)"
   },
   {
     "comment": "tsdicts - Statement 77",
@@ -321,19 +332,23 @@
   },
   {
     "comment": "tsdicts - Statement 81",
-    "query": "ALTER TEXT SEARCH DICTIONARY synonym (CaseSensitive = 1)"
+    "query": "ALTER TEXT SEARCH DICTIONARY synonym (CaseSensitive = 1)",
+    "expected": "ALTER TEXT SEARCH DICTIONARY synonym (casesensitive = 1)"
   },
   {
     "comment": "tsdicts - Statement 82",
-    "query": "ALTER TEXT SEARCH DICTIONARY synonym (CaseSensitive = 2)"
+    "query": "ALTER TEXT SEARCH DICTIONARY synonym (CaseSensitive = 2)",
+    "expected": "ALTER TEXT SEARCH DICTIONARY synonym (casesensitive = 2)"
   },
   {
     "comment": "tsdicts - Statement 83",
-    "query": "ALTER TEXT SEARCH DICTIONARY synonym (CaseSensitive = off)"
+    "query": "ALTER TEXT SEARCH DICTIONARY synonym (CaseSensitive = off)",
+    "expected": "ALTER TEXT SEARCH DICTIONARY synonym (casesensitive = off)"
   },
   {
     "comment": "tsdicts - Statement 84",
-    "query": "CREATE TEXT SEARCH DICTIONARY thesaurus ( Template=thesaurus, DictFile=thesaurus_sample, Dictionary=english_stem )"
+    "query": "CREATE TEXT SEARCH DICTIONARY thesaurus ( Template=thesaurus, DictFile=thesaurus_sample, Dictionary=english_stem )",
+    "expected": "CREATE TEXT SEARCH DICTIONARY thesaurus (template = thesaurus, dictfile = thesaurus_sample, dictionary = english_stem)"
   },
   {
     "comment": "tsdicts - Statement 85",
@@ -341,7 +356,8 @@
   },
   {
     "comment": "tsdicts - Statement 86",
-    "query": "CREATE TEXT SEARCH CONFIGURATION ispell_tst ( COPY=english )"
+    "query": "CREATE TEXT SEARCH CONFIGURATION ispell_tst ( COPY=english )",
+    "expected": "CREATE TEXT SEARCH CONFIGURATION ispell_tst (copy = english)"
   },
   {
     "comment": "tsdicts - Statement 87",
@@ -357,11 +373,12 @@
   },
   {
     "comment": "tsdicts - Statement 90",
-    "query": "SELECT to_tsquery('ispell_tst', 'footballyklubber:b & rebookings:A & sky')"
+    "query": "SELECT to_tsquery('ispell_tst', 'footballyklubber:b \u0026 rebookings:A \u0026 sky')"
   },
   {
     "comment": "tsdicts - Statement 91",
-    "query": "CREATE TEXT SEARCH CONFIGURATION hunspell_tst ( COPY=ispell_tst )"
+    "query": "CREATE TEXT SEARCH CONFIGURATION hunspell_tst ( COPY=ispell_tst )",
+    "expected": "CREATE TEXT SEARCH CONFIGURATION hunspell_tst (copy = ispell_tst)"
   },
   {
     "comment": "tsdicts - Statement 92",
@@ -377,11 +394,11 @@
   },
   {
     "comment": "tsdicts - Statement 95",
-    "query": "SELECT to_tsquery('hunspell_tst', 'footballyklubber:b & rebookings:A & sky')"
+    "query": "SELECT to_tsquery('hunspell_tst', 'footballyklubber:b \u0026 rebookings:A \u0026 sky')"
   },
   {
     "comment": "tsdicts - Statement 96",
-    "query": "SELECT to_tsquery('hunspell_tst', 'footballyklubber:b <-> sky')"
+    "query": "SELECT to_tsquery('hunspell_tst', 'footballyklubber:b \u003c-\u003e sky')"
   },
   {
     "comment": "tsdicts - Statement 97",
@@ -397,7 +414,8 @@
   },
   {
     "comment": "tsdicts - Statement 100",
-    "query": "CREATE TEXT SEARCH CONFIGURATION synonym_tst ( COPY=english )"
+    "query": "CREATE TEXT SEARCH CONFIGURATION synonym_tst ( COPY=english )",
+    "expected": "CREATE TEXT SEARCH CONFIGURATION synonym_tst (copy = english)"
   },
   {
     "comment": "tsdicts - Statement 101",
@@ -417,11 +435,12 @@
   },
   {
     "comment": "tsdicts - Statement 105",
-    "query": "SELECT to_tsquery('synonym_tst', 'Index & indices')"
+    "query": "SELECT to_tsquery('synonym_tst', 'Index \u0026 indices')"
   },
   {
     "comment": "tsdicts - Statement 106",
-    "query": "CREATE TEXT SEARCH CONFIGURATION thesaurus_tst ( COPY=synonym_tst )"
+    "query": "CREATE TEXT SEARCH CONFIGURATION thesaurus_tst ( COPY=synonym_tst )",
+    "expected": "CREATE TEXT SEARCH CONFIGURATION thesaurus_tst (copy = synonym_tst)"
   },
   {
     "comment": "tsdicts - Statement 107",
@@ -441,11 +460,13 @@
   },
   {
     "comment": "tsdicts - Statement 111",
-    "query": "CREATE TEXT SEARCH DICTIONARY tsdict_case ( Template = ispell, \"DictFile\" = ispell_sample, \"AffFile\" = ispell_sample )"
+    "query": "CREATE TEXT SEARCH DICTIONARY tsdict_case ( Template = ispell, \"DictFile\" = ispell_sample, \"AffFile\" = ispell_sample )",
+    "expected": "CREATE TEXT SEARCH DICTIONARY tsdict_case (template = ispell, \"DictFile\" = ispell_sample, \"AffFile\" = ispell_sample)"
   },
   {
     "comment": "tsdicts - Statement 112",
-    "query": "CREATE TEXT SEARCH CONFIGURATION dummy_tst (COPY=english)"
+    "query": "CREATE TEXT SEARCH CONFIGURATION dummy_tst (COPY=english)",
+    "expected": "CREATE TEXT SEARCH CONFIGURATION dummy_tst (copy = english)"
   },
   {
     "comment": "tsdicts - Statement 113",

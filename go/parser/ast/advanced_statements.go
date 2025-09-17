@@ -799,6 +799,25 @@ func (n *CommentStmt) SqlString() string {
 			parts = append(parts, "COMMENT ON RULE", n.Object.SqlString(), "IS")
 		}
 
+	case OBJECT_TRIGGER:
+		if nodeList, ok := n.Object.(*NodeList); ok && len(nodeList.Items) == 2 {
+			// For TRIGGER, NodeList has [table_name, trigger_name] but we want "TRIGGER trigger_name ON table_name"
+			triggerName := ""
+			tableName := ""
+			
+			if str, ok := nodeList.Items[1].(*String); ok {
+				triggerName = QuoteIdentifier(str.SVal)
+			}
+			if str, ok := nodeList.Items[0].(*String); ok {
+				tableName = QuoteIdentifier(str.SVal)
+			}
+			
+			parts = append(parts, "COMMENT ON TRIGGER", triggerName, "ON", tableName, "IS")
+		} else {
+			// Fallback to regular formatting
+			parts = append(parts, "COMMENT ON TRIGGER", n.Object.SqlString(), "IS")
+		}
+
 	case OBJECT_CAST:
 		if nodeList, ok := n.Object.(*NodeList); ok && len(nodeList.Items) == 2 {
 			// First is source type, second is target type

@@ -1,51 +1,63 @@
 [
   {
     "comment": "type_sanity - Statement 1",
-    "query": "SELECT t1.oid, t1.typname FROM pg_type as t1 WHERE t1.typnamespace = 0 OR (t1.typlen <= 0 AND t1.typlen != -1 AND t1.typlen != -2) OR (t1.typtype not in ('b', 'c', 'd', 'e', 'm', 'p', 'r')) OR NOT t1.typisdefined OR (t1.typalign not in ('c', 's', 'i', 'd')) OR (t1.typstorage not in ('p', 'x', 'e', 'm'))"
+    "query": "SELECT t1.oid, t1.typname FROM pg_type as t1 WHERE t1.typnamespace = 0 OR (t1.typlen \u003c= 0 AND t1.typlen != -1 AND t1.typlen != -2) OR (t1.typtype not in ('b', 'c', 'd', 'e', 'm', 'p', 'r')) OR NOT t1.typisdefined OR (t1.typalign not in ('c', 's', 'i', 'd')) OR (t1.typstorage not in ('p', 'x', 'e', 'm'))",
+    "expected": "SELECT t1.oid, t1.typname FROM pg_type AS t1 WHERE t1.typnamespace = 0 OR (t1.typlen \u003c= 0 AND t1.typlen \u003c\u003e -1 AND t1.typlen \u003c\u003e -2) OR (t1.typtype NOT IN ('b', 'c', 'd', 'e', 'm', 'p', 'r')) OR NOT t1.typisdefined OR (t1.typalign NOT IN ('c', 's', 'i', 'd')) OR (t1.typstorage NOT IN ('p', 'x', 'e', 'm'))"
   },
   {
     "comment": "type_sanity - Statement 2",
-    "query": "SELECT t1.oid, t1.typname FROM pg_type as t1 WHERE t1.typbyval AND (t1.typlen != 1 OR t1.typalign != 'c') AND (t1.typlen != 2 OR t1.typalign != 's') AND (t1.typlen != 4 OR t1.typalign != 'i') AND (t1.typlen != 8 OR t1.typalign != 'd')"
+    "query": "SELECT t1.oid, t1.typname FROM pg_type as t1 WHERE t1.typbyval AND (t1.typlen != 1 OR t1.typalign != 'c') AND (t1.typlen != 2 OR t1.typalign != 's') AND (t1.typlen != 4 OR t1.typalign != 'i') AND (t1.typlen != 8 OR t1.typalign != 'd')",
+    "expected": "SELECT t1.oid, t1.typname FROM pg_type AS t1 WHERE t1.typbyval AND (t1.typlen \u003c\u003e 1 OR t1.typalign \u003c\u003e 'c') AND (t1.typlen \u003c\u003e 2 OR t1.typalign \u003c\u003e 's') AND (t1.typlen \u003c\u003e 4 OR t1.typalign \u003c\u003e 'i') AND (t1.typlen \u003c\u003e 8 OR t1.typalign \u003c\u003e 'd')"
   },
   {
     "comment": "type_sanity - Statement 3",
-    "query": "SELECT t1.oid, t1.typname FROM pg_type as t1 WHERE t1.typstorage != 'p' AND (t1.typbyval OR t1.typlen != -1)"
+    "query": "SELECT t1.oid, t1.typname FROM pg_type as t1 WHERE t1.typstorage != 'p' AND (t1.typbyval OR t1.typlen != -1)",
+    "expected": "SELECT t1.oid, t1.typname FROM pg_type AS t1 WHERE t1.typstorage \u003c\u003e 'p' AND (t1.typbyval OR t1.typlen \u003c\u003e -1)"
   },
   {
     "comment": "type_sanity - Statement 4",
-    "query": "SELECT t1.oid, t1.typname FROM pg_type as t1 WHERE (t1.typtype = 'c' AND t1.typrelid = 0) OR (t1.typtype != 'c' AND t1.typrelid != 0)"
+    "query": "SELECT t1.oid, t1.typname FROM pg_type as t1 WHERE (t1.typtype = 'c' AND t1.typrelid = 0) OR (t1.typtype != 'c' AND t1.typrelid != 0)",
+    "expected": "SELECT t1.oid, t1.typname FROM pg_type AS t1 WHERE (t1.typtype = 'c' AND t1.typrelid = 0) OR (t1.typtype \u003c\u003e 'c' AND t1.typrelid \u003c\u003e 0)"
   },
   {
     "comment": "type_sanity - Statement 5",
-    "query": "SELECT t1.oid, t1.typname FROM pg_type as t1 WHERE t1.typtype not in ('p') AND t1.typname NOT LIKE E'\\\\_%' AND NOT EXISTS (SELECT 1 FROM pg_type as t2 WHERE t2.typname = ('_' || t1.typname)::name AND t2.typelem = t1.oid and t1.typarray = t2.oid) ORDER BY t1.oid"
+    "query": "SELECT t1.oid, t1.typname FROM pg_type as t1 WHERE t1.typtype not in ('p') AND t1.typname NOT LIKE E'\\\\_%' AND NOT EXISTS (SELECT 1 FROM pg_type as t2 WHERE t2.typname = ('_' || t1.typname)::name AND t2.typelem = t1.oid and t1.typarray = t2.oid) ORDER BY t1.oid",
+    "expected": "SELECT t1.oid, t1.typname FROM pg_type AS t1 WHERE t1.typtype NOT IN ('p') AND t1.typname LIKE '\\_%' AND NOT EXISTS (SELECT 1 FROM pg_type AS t2 WHERE t2.typname = CAST(('_' || t1.typname) AS name) AND t2.typelem = t1.oid AND t1.typarray = t2.oid) ORDER BY t1.oid"
   },
   {
     "comment": "type_sanity - Statement 6",
-    "query": "SELECT t1.oid, t1.typname as basetype, t2.typname as arraytype, t2.typsubscript FROM   pg_type t1 LEFT JOIN pg_type t2 ON (t1.typarray = t2.oid) WHERE  t1.typarray <> 0 AND (t2.oid IS NULL OR t2.typsubscript <> 'array_subscript_handler'::regproc)"
+    "query": "SELECT t1.oid, t1.typname as basetype, t2.typname as arraytype, t2.typsubscript FROM   pg_type t1 LEFT JOIN pg_type t2 ON (t1.typarray = t2.oid) WHERE  t1.typarray \u003c\u003e 0 AND (t2.oid IS NULL OR t2.typsubscript \u003c\u003e 'array_subscript_handler'::regproc)",
+    "expected": "SELECT t1.oid, t1.typname AS basetype, t2.typname AS arraytype, t2.typsubscript FROM pg_type AS t1 LEFT OUTER JOIN pg_type AS t2 ON (t1.typarray = t2.oid) WHERE t1.typarray \u003c\u003e 0 AND (t2.oid IS NULL OR t2.typsubscript \u003c\u003e CAST('array_subscript_handler' AS regproc))"
   },
   {
     "comment": "type_sanity - Statement 7",
-    "query": "SELECT t1.oid, t1.typname FROM pg_type as t1 WHERE t1.typtype = 'r' AND NOT EXISTS(SELECT 1 FROM pg_range r WHERE rngtypid = t1.oid)"
+    "query": "SELECT t1.oid, t1.typname FROM pg_type as t1 WHERE t1.typtype = 'r' AND NOT EXISTS(SELECT 1 FROM pg_range r WHERE rngtypid = t1.oid)",
+    "expected": "SELECT t1.oid, t1.typname FROM pg_type AS t1 WHERE t1.typtype = 'r' AND NOT EXISTS (SELECT 1 FROM pg_range AS r WHERE rngtypid = t1.oid)"
   },
   {
     "comment": "type_sanity - Statement 8",
-    "query": "SELECT t1.oid, t1.typname, t1.typalign, t2.typname, t2.typalign FROM pg_type as t1 LEFT JOIN pg_range as r ON rngtypid = t1.oid LEFT JOIN pg_type as t2 ON rngsubtype = t2.oid WHERE t1.typtype = 'r' AND (t1.typalign != (CASE WHEN t2.typalign = 'd' THEN 'd'::\"char\" ELSE 'i'::\"char\" END) OR t2.oid IS NULL)"
+    "query": "SELECT t1.oid, t1.typname, t1.typalign, t2.typname, t2.typalign FROM pg_type as t1 LEFT JOIN pg_range as r ON rngtypid = t1.oid LEFT JOIN pg_type as t2 ON rngsubtype = t2.oid WHERE t1.typtype = 'r' AND (t1.typalign != (CASE WHEN t2.typalign = 'd' THEN 'd'::char ELSE 'i'::char END) OR t2.oid IS NULL)",
+    "expected": "SELECT t1.oid, t1.typname, t1.typalign, t2.typname, t2.typalign FROM pg_type AS t1 LEFT OUTER JOIN pg_range AS r ON rngtypid = t1.oid LEFT OUTER JOIN pg_type AS t2 ON rngsubtype = t2.oid WHERE t1.typtype = 'r' AND (t1.typalign \u003c\u003e (CASE WHEN t2.typalign = 'd' THEN CAST('d' AS CHAR(1)) ELSE CAST('i' AS CHAR(1)) END) OR t2.oid IS NULL)"
   },
   {
     "comment": "type_sanity - Statement 9",
-    "query": "SELECT t1.oid, t1.typname FROM pg_type as t1 WHERE (t1.typinput = 0 OR t1.typoutput = 0)"
+    "query": "SELECT t1.oid, t1.typname FROM pg_type as t1 WHERE (t1.typinput = 0 OR t1.typoutput = 0)",
+    "expected": "SELECT t1.oid, t1.typname FROM pg_type AS t1 WHERE (t1.typinput = 0 OR t1.typoutput = 0)"
   },
   {
     "comment": "type_sanity - Statement 10",
-    "query": "SELECT t1.oid, t1.typname, p1.oid, p1.proname FROM pg_type AS t1, pg_proc AS p1 WHERE t1.typinput = p1.oid AND NOT ((p1.pronargs = 1 AND p1.proargtypes[0] = 'cstring'::regtype) OR (p1.pronargs = 2 AND p1.proargtypes[0] = 'cstring'::regtype AND p1.proargtypes[1] = 'oid'::regtype) OR (p1.pronargs = 3 AND p1.proargtypes[0] = 'cstring'::regtype AND p1.proargtypes[1] = 'oid'::regtype AND p1.proargtypes[2] = 'int4'::regtype))"
+    "query": "SELECT t1.oid, t1.typname, p1.oid, p1.proname FROM pg_type AS t1, pg_proc AS p1 WHERE t1.typinput = p1.oid AND NOT ((p1.pronargs = 1 AND p1.proargtypes[0] = 'cstring'::regtype) OR (p1.pronargs = 2 AND p1.proargtypes[0] = 'cstring'::regtype AND p1.proargtypes[1] = 'oid'::regtype) OR (p1.pronargs = 3 AND p1.proargtypes[0] = 'cstring'::regtype AND p1.proargtypes[1] = 'oid'::regtype AND p1.proargtypes[2] = 'int4'::regtype))",
+    "expected": "SELECT t1.oid, t1.typname, p1.oid, p1.proname FROM pg_type AS t1, pg_proc AS p1 WHERE t1.typinput = p1.oid AND NOT ((p1.pronargs = 1 AND p1.proargtypes[0] = CAST('cstring' AS regtype)) OR (p1.pronargs = 2 AND p1.proargtypes[0] = CAST('cstring' AS regtype) AND p1.proargtypes[1] = CAST('oid' AS regtype)) OR (p1.pronargs = 3 AND p1.proargtypes[0] = CAST('cstring' AS regtype) AND p1.proargtypes[1] = CAST('oid' AS regtype) AND p1.proargtypes[2] = CAST('int4' AS regtype)))"
   },
   {
     "comment": "type_sanity - Statement 11",
-    "query": "SELECT t1.oid, t1.typname, p1.oid, p1.proname FROM pg_type AS t1, pg_proc AS p1 WHERE t1.typinput = p1.oid AND t1.typtype in ('b', 'p') AND NOT (t1.typelem != 0 AND t1.typlen < 0) AND NOT (p1.prorettype = t1.oid AND NOT p1.proretset) ORDER BY 1"
+    "query": "SELECT t1.oid, t1.typname, p1.oid, p1.proname FROM pg_type AS t1, pg_proc AS p1 WHERE t1.typinput = p1.oid AND t1.typtype in ('b', 'p') AND NOT (t1.typelem != 0 AND t1.typlen \u003c 0) AND NOT (p1.prorettype = t1.oid AND NOT p1.proretset) ORDER BY 1",
+    "expected": "SELECT t1.oid, t1.typname, p1.oid, p1.proname FROM pg_type AS t1, pg_proc AS p1 WHERE t1.typinput = p1.oid AND t1.typtype IN ('b', 'p') AND NOT (t1.typelem \u003c\u003e 0 AND t1.typlen \u003c 0) AND NOT (p1.prorettype = t1.oid AND NOT p1.proretset) ORDER BY 1"
   },
   {
     "comment": "type_sanity - Statement 12",
-    "query": "SELECT t1.oid, t1.typname, p1.oid, p1.proname FROM pg_type AS t1, pg_proc AS p1 WHERE t1.typinput = p1.oid AND (t1.typelem != 0 AND t1.typlen < 0) AND NOT (p1.oid = 'array_in'::regproc) ORDER BY 1"
+    "query": "SELECT t1.oid, t1.typname, p1.oid, p1.proname FROM pg_type AS t1, pg_proc AS p1 WHERE t1.typinput = p1.oid AND (t1.typelem != 0 AND t1.typlen \u003c 0) AND NOT (p1.oid = 'array_in'::regproc) ORDER BY 1",
+    "expected": "SELECT t1.oid, t1.typname, p1.oid, p1.proname FROM pg_type AS t1, pg_proc AS p1 WHERE t1.typinput = p1.oid AND (t1.typelem \u003c\u003e 0 AND t1.typlen \u003c 0) AND NOT (p1.oid = CAST('array_in' AS regproc)) ORDER BY 1"
   },
   {
     "comment": "type_sanity - Statement 13",
@@ -53,15 +65,18 @@
   },
   {
     "comment": "type_sanity - Statement 14",
-    "query": "SELECT DISTINCT typtype, typinput FROM pg_type AS t1 WHERE t1.typtype not in ('b', 'p') ORDER BY 1"
+    "query": "SELECT DISTINCT typtype, typinput FROM pg_type AS t1 WHERE t1.typtype not in ('b', 'p') ORDER BY 1",
+    "expected": "SELECT DISTINCT typtype, typinput FROM pg_type AS t1 WHERE t1.typtype NOT IN ('b', 'p') ORDER BY 1"
   },
   {
     "comment": "type_sanity - Statement 15",
-    "query": "SELECT t1.oid, t1.typname, p1.oid, p1.proname FROM pg_type AS t1, pg_proc AS p1 WHERE t1.typoutput = p1.oid AND t1.typtype in ('b', 'p') AND NOT (p1.pronargs = 1 AND (p1.proargtypes[0] = t1.oid OR (p1.oid = 'array_out'::regproc AND t1.typelem != 0 AND t1.typlen = -1))) ORDER BY 1"
+    "query": "SELECT t1.oid, t1.typname, p1.oid, p1.proname FROM pg_type AS t1, pg_proc AS p1 WHERE t1.typoutput = p1.oid AND t1.typtype in ('b', 'p') AND NOT (p1.pronargs = 1 AND (p1.proargtypes[0] = t1.oid OR (p1.oid = 'array_out'::regproc AND t1.typelem != 0 AND t1.typlen = -1))) ORDER BY 1",
+    "expected": "SELECT t1.oid, t1.typname, p1.oid, p1.proname FROM pg_type AS t1, pg_proc AS p1 WHERE t1.typoutput = p1.oid AND t1.typtype IN ('b', 'p') AND NOT (p1.pronargs = 1 AND (p1.proargtypes[0] = t1.oid OR (p1.oid = CAST('array_out' AS regproc) AND t1.typelem \u003c\u003e 0 AND t1.typlen = -1))) ORDER BY 1"
   },
   {
     "comment": "type_sanity - Statement 16",
-    "query": "SELECT t1.oid, t1.typname, p1.oid, p1.proname FROM pg_type AS t1, pg_proc AS p1 WHERE t1.typoutput = p1.oid AND NOT (p1.prorettype = 'cstring'::regtype AND NOT p1.proretset)"
+    "query": "SELECT t1.oid, t1.typname, p1.oid, p1.proname FROM pg_type AS t1, pg_proc AS p1 WHERE t1.typoutput = p1.oid AND NOT (p1.prorettype = 'cstring'::regtype AND NOT p1.proretset)",
+    "expected": "SELECT t1.oid, t1.typname, p1.oid, p1.proname FROM pg_type AS t1, pg_proc AS p1 WHERE t1.typoutput = p1.oid AND NOT (p1.prorettype = CAST('cstring' AS regtype) AND NOT p1.proretset)"
   },
   {
     "comment": "type_sanity - Statement 17",
@@ -69,27 +84,33 @@
   },
   {
     "comment": "type_sanity - Statement 18",
-    "query": "SELECT DISTINCT typtype, typoutput FROM pg_type AS t1 WHERE t1.typtype not in ('b', 'd', 'p') ORDER BY 1"
+    "query": "SELECT DISTINCT typtype, typoutput FROM pg_type AS t1 WHERE t1.typtype not in ('b', 'd', 'p') ORDER BY 1",
+    "expected": "SELECT DISTINCT typtype, typoutput FROM pg_type AS t1 WHERE t1.typtype NOT IN ('b', 'd', 'p') ORDER BY 1"
   },
   {
     "comment": "type_sanity - Statement 19",
-    "query": "SELECT t1.oid, t1.typname, t2.oid, t2.typname FROM pg_type AS t1 LEFT JOIN pg_type AS t2 ON t1.typbasetype = t2.oid WHERE t1.typtype = 'd' AND t1.typoutput IS DISTINCT FROM t2.typoutput"
+    "query": "SELECT t1.oid, t1.typname, t2.oid, t2.typname FROM pg_type AS t1 LEFT JOIN pg_type AS t2 ON t1.typbasetype = t2.oid WHERE t1.typtype = 'd' AND t1.typoutput IS DISTINCT FROM t2.typoutput",
+    "expected": "SELECT t1.oid, t1.typname, t2.oid, t2.typname FROM pg_type AS t1 LEFT OUTER JOIN pg_type AS t2 ON t1.typbasetype = t2.oid WHERE t1.typtype = 'd' AND t1.typoutput IS DISTINCT FROM t2.typoutput"
   },
   {
     "comment": "type_sanity - Statement 20",
-    "query": "SELECT t1.oid, t1.typname, p1.oid, p1.proname FROM pg_type AS t1, pg_proc AS p1 WHERE t1.typreceive = p1.oid AND NOT ((p1.pronargs = 1 AND p1.proargtypes[0] = 'internal'::regtype) OR (p1.pronargs = 2 AND p1.proargtypes[0] = 'internal'::regtype AND p1.proargtypes[1] = 'oid'::regtype) OR (p1.pronargs = 3 AND p1.proargtypes[0] = 'internal'::regtype AND p1.proargtypes[1] = 'oid'::regtype AND p1.proargtypes[2] = 'int4'::regtype))"
+    "query": "SELECT t1.oid, t1.typname, p1.oid, p1.proname FROM pg_type AS t1, pg_proc AS p1 WHERE t1.typreceive = p1.oid AND NOT ((p1.pronargs = 1 AND p1.proargtypes[0] = 'internal'::regtype) OR (p1.pronargs = 2 AND p1.proargtypes[0] = 'internal'::regtype AND p1.proargtypes[1] = 'oid'::regtype) OR (p1.pronargs = 3 AND p1.proargtypes[0] = 'internal'::regtype AND p1.proargtypes[1] = 'oid'::regtype AND p1.proargtypes[2] = 'int4'::regtype))",
+    "expected": "SELECT t1.oid, t1.typname, p1.oid, p1.proname FROM pg_type AS t1, pg_proc AS p1 WHERE t1.typreceive = p1.oid AND NOT ((p1.pronargs = 1 AND p1.proargtypes[0] = CAST('internal' AS regtype)) OR (p1.pronargs = 2 AND p1.proargtypes[0] = CAST('internal' AS regtype) AND p1.proargtypes[1] = CAST('oid' AS regtype)) OR (p1.pronargs = 3 AND p1.proargtypes[0] = CAST('internal' AS regtype) AND p1.proargtypes[1] = CAST('oid' AS regtype) AND p1.proargtypes[2] = CAST('int4' AS regtype)))"
   },
   {
     "comment": "type_sanity - Statement 21",
-    "query": "SELECT t1.oid, t1.typname, p1.oid, p1.proname FROM pg_type AS t1, pg_proc AS p1 WHERE t1.typreceive = p1.oid AND t1.typtype in ('b', 'p') AND NOT (t1.typelem != 0 AND t1.typlen < 0) AND NOT (p1.prorettype = t1.oid AND NOT p1.proretset) ORDER BY 1"
+    "query": "SELECT t1.oid, t1.typname, p1.oid, p1.proname FROM pg_type AS t1, pg_proc AS p1 WHERE t1.typreceive = p1.oid AND t1.typtype in ('b', 'p') AND NOT (t1.typelem != 0 AND t1.typlen \u003c 0) AND NOT (p1.prorettype = t1.oid AND NOT p1.proretset) ORDER BY 1",
+    "expected": "SELECT t1.oid, t1.typname, p1.oid, p1.proname FROM pg_type AS t1, pg_proc AS p1 WHERE t1.typreceive = p1.oid AND t1.typtype IN ('b', 'p') AND NOT (t1.typelem \u003c\u003e 0 AND t1.typlen \u003c 0) AND NOT (p1.prorettype = t1.oid AND NOT p1.proretset) ORDER BY 1"
   },
   {
     "comment": "type_sanity - Statement 22",
-    "query": "SELECT t1.oid, t1.typname, p1.oid, p1.proname FROM pg_type AS t1, pg_proc AS p1 WHERE t1.typreceive = p1.oid AND (t1.typelem != 0 AND t1.typlen < 0) AND NOT (p1.oid = 'array_recv'::regproc) ORDER BY 1"
+    "query": "SELECT t1.oid, t1.typname, p1.oid, p1.proname FROM pg_type AS t1, pg_proc AS p1 WHERE t1.typreceive = p1.oid AND (t1.typelem != 0 AND t1.typlen \u003c 0) AND NOT (p1.oid = 'array_recv'::regproc) ORDER BY 1",
+    "expected": "SELECT t1.oid, t1.typname, p1.oid, p1.proname FROM pg_type AS t1, pg_proc AS p1 WHERE t1.typreceive = p1.oid AND (t1.typelem \u003c\u003e 0 AND t1.typlen \u003c 0) AND NOT (p1.oid = CAST('array_recv' AS regproc)) ORDER BY 1"
   },
   {
     "comment": "type_sanity - Statement 23",
-    "query": "SELECT t1.oid, t1.typname, p1.oid, p1.proname, p2.oid, p2.proname FROM pg_type AS t1, pg_proc AS p1, pg_proc AS p2 WHERE t1.typinput = p1.oid AND t1.typreceive = p2.oid AND p1.pronargs != p2.pronargs"
+    "query": "SELECT t1.oid, t1.typname, p1.oid, p1.proname, p2.oid, p2.proname FROM pg_type AS t1, pg_proc AS p1, pg_proc AS p2 WHERE t1.typinput = p1.oid AND t1.typreceive = p2.oid AND p1.pronargs != p2.pronargs",
+    "expected": "SELECT t1.oid, t1.typname, p1.oid, p1.proname, p2.oid, p2.proname FROM pg_type AS t1, pg_proc AS p1, pg_proc AS p2 WHERE t1.typinput = p1.oid AND t1.typreceive = p2.oid AND p1.pronargs \u003c\u003e p2.pronargs"
   },
   {
     "comment": "type_sanity - Statement 24",
@@ -97,15 +118,18 @@
   },
   {
     "comment": "type_sanity - Statement 25",
-    "query": "SELECT DISTINCT typtype, typreceive FROM pg_type AS t1 WHERE t1.typtype not in ('b', 'p') ORDER BY 1"
+    "query": "SELECT DISTINCT typtype, typreceive FROM pg_type AS t1 WHERE t1.typtype not in ('b', 'p') ORDER BY 1",
+    "expected": "SELECT DISTINCT typtype, typreceive FROM pg_type AS t1 WHERE t1.typtype NOT IN ('b', 'p') ORDER BY 1"
   },
   {
     "comment": "type_sanity - Statement 26",
-    "query": "SELECT t1.oid, t1.typname, p1.oid, p1.proname FROM pg_type AS t1, pg_proc AS p1 WHERE t1.typsend = p1.oid AND t1.typtype in ('b', 'p') AND NOT (p1.pronargs = 1 AND (p1.proargtypes[0] = t1.oid OR (p1.oid = 'array_send'::regproc AND t1.typelem != 0 AND t1.typlen = -1))) ORDER BY 1"
+    "query": "SELECT t1.oid, t1.typname, p1.oid, p1.proname FROM pg_type AS t1, pg_proc AS p1 WHERE t1.typsend = p1.oid AND t1.typtype in ('b', 'p') AND NOT (p1.pronargs = 1 AND (p1.proargtypes[0] = t1.oid OR (p1.oid = 'array_send'::regproc AND t1.typelem != 0 AND t1.typlen = -1))) ORDER BY 1",
+    "expected": "SELECT t1.oid, t1.typname, p1.oid, p1.proname FROM pg_type AS t1, pg_proc AS p1 WHERE t1.typsend = p1.oid AND t1.typtype IN ('b', 'p') AND NOT (p1.pronargs = 1 AND (p1.proargtypes[0] = t1.oid OR (p1.oid = CAST('array_send' AS regproc) AND t1.typelem \u003c\u003e 0 AND t1.typlen = -1))) ORDER BY 1"
   },
   {
     "comment": "type_sanity - Statement 27",
-    "query": "SELECT t1.oid, t1.typname, p1.oid, p1.proname FROM pg_type AS t1, pg_proc AS p1 WHERE t1.typsend = p1.oid AND NOT (p1.prorettype = 'bytea'::regtype AND NOT p1.proretset)"
+    "query": "SELECT t1.oid, t1.typname, p1.oid, p1.proname FROM pg_type AS t1, pg_proc AS p1 WHERE t1.typsend = p1.oid AND NOT (p1.prorettype = 'bytea'::regtype AND NOT p1.proretset)",
+    "expected": "SELECT t1.oid, t1.typname, p1.oid, p1.proname FROM pg_type AS t1, pg_proc AS p1 WHERE t1.typsend = p1.oid AND NOT (p1.prorettype = CAST('bytea' AS regtype) AND NOT p1.proretset)"
   },
   {
     "comment": "type_sanity - Statement 28",
@@ -113,15 +137,18 @@
   },
   {
     "comment": "type_sanity - Statement 29",
-    "query": "SELECT DISTINCT typtype, typsend FROM pg_type AS t1 WHERE t1.typtype not in ('b', 'd', 'p') ORDER BY 1"
+    "query": "SELECT DISTINCT typtype, typsend FROM pg_type AS t1 WHERE t1.typtype not in ('b', 'd', 'p') ORDER BY 1",
+    "expected": "SELECT DISTINCT typtype, typsend FROM pg_type AS t1 WHERE t1.typtype NOT IN ('b', 'd', 'p') ORDER BY 1"
   },
   {
     "comment": "type_sanity - Statement 30",
-    "query": "SELECT t1.oid, t1.typname, t2.oid, t2.typname FROM pg_type AS t1 LEFT JOIN pg_type AS t2 ON t1.typbasetype = t2.oid WHERE t1.typtype = 'd' AND t1.typsend IS DISTINCT FROM t2.typsend"
+    "query": "SELECT t1.oid, t1.typname, t2.oid, t2.typname FROM pg_type AS t1 LEFT JOIN pg_type AS t2 ON t1.typbasetype = t2.oid WHERE t1.typtype = 'd' AND t1.typsend IS DISTINCT FROM t2.typsend",
+    "expected": "SELECT t1.oid, t1.typname, t2.oid, t2.typname FROM pg_type AS t1 LEFT OUTER JOIN pg_type AS t2 ON t1.typbasetype = t2.oid WHERE t1.typtype = 'd' AND t1.typsend IS DISTINCT FROM t2.typsend"
   },
   {
     "comment": "type_sanity - Statement 31",
-    "query": "SELECT t1.oid, t1.typname, p1.oid, p1.proname FROM pg_type AS t1, pg_proc AS p1 WHERE t1.typmodin = p1.oid AND NOT (p1.pronargs = 1 AND p1.proargtypes[0] = 'cstring[]'::regtype AND p1.prorettype = 'int4'::regtype AND NOT p1.proretset)"
+    "query": "SELECT t1.oid, t1.typname, p1.oid, p1.proname FROM pg_type AS t1, pg_proc AS p1 WHERE t1.typmodin = p1.oid AND NOT (p1.pronargs = 1 AND p1.proargtypes[0] = 'cstring[]'::regtype AND p1.prorettype = 'int4'::regtype AND NOT p1.proretset)",
+    "expected": "SELECT t1.oid, t1.typname, p1.oid, p1.proname FROM pg_type AS t1, pg_proc AS p1 WHERE t1.typmodin = p1.oid AND NOT (p1.pronargs = 1 AND p1.proargtypes[0] = CAST('cstring[]' AS regtype) AND p1.prorettype = CAST('int4' AS regtype) AND NOT p1.proretset)"
   },
   {
     "comment": "type_sanity - Statement 32",
@@ -129,7 +156,8 @@
   },
   {
     "comment": "type_sanity - Statement 33",
-    "query": "SELECT t1.oid, t1.typname, p1.oid, p1.proname FROM pg_type AS t1, pg_proc AS p1 WHERE t1.typmodout = p1.oid AND NOT (p1.pronargs = 1 AND p1.proargtypes[0] = 'int4'::regtype AND p1.prorettype = 'cstring'::regtype AND NOT p1.proretset)"
+    "query": "SELECT t1.oid, t1.typname, p1.oid, p1.proname FROM pg_type AS t1, pg_proc AS p1 WHERE t1.typmodout = p1.oid AND NOT (p1.pronargs = 1 AND p1.proargtypes[0] = 'int4'::regtype AND p1.prorettype = 'cstring'::regtype AND NOT p1.proretset)",
+    "expected": "SELECT t1.oid, t1.typname, p1.oid, p1.proname FROM pg_type AS t1, pg_proc AS p1 WHERE t1.typmodout = p1.oid AND NOT (p1.pronargs = 1 AND p1.proargtypes[0] = CAST('int4' AS regtype) AND p1.prorettype = CAST('cstring' AS regtype) AND NOT p1.proretset)"
   },
   {
     "comment": "type_sanity - Statement 34",
@@ -145,102 +173,126 @@
   },
   {
     "comment": "type_sanity - Statement 37",
-    "query": "SELECT t1.oid, t1.typname, t1.typalign, t2.typname, t2.typalign FROM pg_type AS t1, pg_type AS t2 WHERE t1.typarray = t2.oid AND t2.typalign != (CASE WHEN t1.typalign = 'd' THEN 'd'::\"char\" ELSE 'i'::\"char\" END)"
+    "query": "SELECT t1.oid, t1.typname, t1.typalign, t2.typname, t2.typalign FROM pg_type AS t1, pg_type AS t2 WHERE t1.typarray = t2.oid AND t2.typalign != (CASE WHEN t1.typalign = 'd' THEN 'd'::char ELSE 'i'::char END)",
+    "expected": "SELECT t1.oid, t1.typname, t1.typalign, t2.typname, t2.typalign FROM pg_type AS t1, pg_type AS t2 WHERE t1.typarray = t2.oid AND t2.typalign \u003c\u003e (CASE WHEN t1.typalign = 'd' THEN CAST('d' AS CHAR(1)) ELSE CAST('i' AS CHAR(1)) END)"
   },
   {
     "comment": "type_sanity - Statement 38",
-    "query": "SELECT t1.oid, t1.typname, t1.typelem FROM pg_type AS t1 WHERE t1.typelem != 0 AND t1.typsubscript = 0"
+    "query": "SELECT t1.oid, t1.typname, t1.typelem FROM pg_type AS t1 WHERE t1.typelem != 0 AND t1.typsubscript = 0",
+    "expected": "SELECT t1.oid, t1.typname, t1.typelem FROM pg_type AS t1 WHERE t1.typelem \u003c\u003e 0 AND t1.typsubscript = 0"
   },
   {
     "comment": "type_sanity - Statement 39",
-    "query": "SELECT t1.oid, t1.typname, t1.typelem, t1.typlen, t1.typbyval FROM pg_type AS t1 WHERE t1.typsubscript = 'array_subscript_handler'::regproc AND NOT (t1.typelem != 0 AND t1.typlen = -1 AND NOT t1.typbyval)"
+    "query": "SELECT t1.oid, t1.typname, t1.typelem, t1.typlen, t1.typbyval FROM pg_type AS t1 WHERE t1.typsubscript = 'array_subscript_handler'::regproc AND NOT (t1.typelem != 0 AND t1.typlen = -1 AND NOT t1.typbyval)",
+    "expected": "SELECT t1.oid, t1.typname, t1.typelem, t1.typlen, t1.typbyval FROM pg_type AS t1 WHERE t1.typsubscript = CAST('array_subscript_handler' AS regproc) AND NOT (t1.typelem \u003c\u003e 0 AND t1.typlen = -1 AND NOT t1.typbyval)"
   },
   {
     "comment": "type_sanity - Statement 40",
-    "query": "SELECT t1.oid, t1.typname, t1.typelem, t1.typlen, t1.typbyval FROM pg_type AS t1 WHERE t1.typsubscript = 'raw_array_subscript_handler'::regproc AND NOT (t1.typelem != 0 AND t1.typlen > 0 AND NOT t1.typbyval)"
+    "query": "SELECT t1.oid, t1.typname, t1.typelem, t1.typlen, t1.typbyval FROM pg_type AS t1 WHERE t1.typsubscript = 'raw_array_subscript_handler'::regproc AND NOT (t1.typelem != 0 AND t1.typlen \u003e 0 AND NOT t1.typbyval)",
+    "expected": "SELECT t1.oid, t1.typname, t1.typelem, t1.typlen, t1.typbyval FROM pg_type AS t1 WHERE t1.typsubscript = CAST('raw_array_subscript_handler' AS regproc) AND NOT (t1.typelem \u003c\u003e 0 AND t1.typlen \u003e 0 AND NOT t1.typbyval)"
   },
   {
     "comment": "type_sanity - Statement 41",
-    "query": "SELECT t1.oid, t1.typname, p1.oid, p1.proname FROM pg_type AS t1, pg_proc AS p1 WHERE t1.typanalyze = p1.oid AND NOT (p1.pronargs = 1 AND p1.proargtypes[0] = 'internal'::regtype AND p1.prorettype = 'bool'::regtype AND NOT p1.proretset)"
+    "query": "SELECT t1.oid, t1.typname, p1.oid, p1.proname FROM pg_type AS t1, pg_proc AS p1 WHERE t1.typanalyze = p1.oid AND NOT (p1.pronargs = 1 AND p1.proargtypes[0] = 'internal'::regtype AND p1.prorettype = 'bool'::regtype AND NOT p1.proretset)",
+    "expected": "SELECT t1.oid, t1.typname, p1.oid, p1.proname FROM pg_type AS t1, pg_proc AS p1 WHERE t1.typanalyze = p1.oid AND NOT (p1.pronargs = 1 AND p1.proargtypes[0] = CAST('internal' AS regtype) AND p1.prorettype = CAST('bool' AS regtype) AND NOT p1.proretset)"
   },
   {
     "comment": "type_sanity - Statement 42",
-    "query": "SELECT d.oid, d.typname, d.typanalyze, t.oid, t.typname, t.typanalyze FROM pg_type d JOIN pg_type t ON d.typbasetype = t.oid WHERE d.typanalyze != t.typanalyze"
+    "query": "SELECT d.oid, d.typname, d.typanalyze, t.oid, t.typname, t.typanalyze FROM pg_type d JOIN pg_type t ON d.typbasetype = t.oid WHERE d.typanalyze != t.typanalyze",
+    "expected": "SELECT d.oid, d.typname, d.typanalyze, t.oid, t.typname, t.typanalyze FROM pg_type AS d INNER JOIN pg_type AS t ON d.typbasetype = t.oid WHERE d.typanalyze \u003c\u003e t.typanalyze"
   },
   {
     "comment": "type_sanity - Statement 43",
-    "query": "SELECT t.oid, t.typname, t.typanalyze FROM pg_type t LEFT JOIN pg_range r on t.oid = r.rngtypid WHERE t.typbasetype = 0 AND (t.typanalyze = 'range_typanalyze'::regproc) != (r.rngtypid IS NOT NULL)"
+    "query": "SELECT t.oid, t.typname, t.typanalyze FROM pg_type t LEFT JOIN pg_range r on t.oid = r.rngtypid WHERE t.typbasetype = 0 AND (t.typanalyze = 'range_typanalyze'::regproc) != (r.rngtypid IS NOT NULL)",
+    "expected": "SELECT t.oid, t.typname, t.typanalyze FROM pg_type AS t LEFT OUTER JOIN pg_range AS r ON t.oid = r.rngtypid WHERE t.typbasetype = 0 AND (t.typanalyze = CAST('range_typanalyze' AS regproc)) \u003c\u003e (r.rngtypid IS NOT NULL)"
   },
   {
     "comment": "type_sanity - Statement 44",
-    "query": "SELECT t.oid, t.typname, t.typanalyze FROM pg_type t WHERE t.typbasetype = 0 AND (t.typanalyze = 'array_typanalyze'::regproc) != (t.typsubscript = 'array_subscript_handler'::regproc) ORDER BY 1"
+    "query": "SELECT t.oid, t.typname, t.typanalyze FROM pg_type t WHERE t.typbasetype = 0 AND (t.typanalyze = 'array_typanalyze'::regproc) != (t.typsubscript = 'array_subscript_handler'::regproc) ORDER BY 1",
+    "expected": "SELECT t.oid, t.typname, t.typanalyze FROM pg_type AS t WHERE t.typbasetype = 0 AND (t.typanalyze = CAST('array_typanalyze' AS regproc)) \u003c\u003e (t.typsubscript = CAST('array_subscript_handler' AS regproc)) ORDER BY 1"
   },
   {
     "comment": "type_sanity - Statement 45",
-    "query": "SELECT c1.oid, c1.relname FROM pg_class as c1 WHERE relkind NOT IN ('r', 'i', 'S', 't', 'v', 'm', 'c', 'f', 'p', 'I') OR relpersistence NOT IN ('p', 'u', 't') OR relreplident NOT IN ('d', 'n', 'f', 'i')"
+    "query": "SELECT c1.oid, c1.relname FROM pg_class as c1 WHERE relkind NOT IN ('r', 'i', 'S', 't', 'v', 'm', 'c', 'f', 'p', 'I') OR relpersistence NOT IN ('p', 'u', 't') OR relreplident NOT IN ('d', 'n', 'f', 'i')",
+    "expected": "SELECT c1.oid, c1.relname FROM pg_class AS c1 WHERE relkind NOT IN ('r', 'i', 'S', 't', 'v', 'm', 'c', 'f', 'p', 'I') OR relpersistence NOT IN ('p', 'u', 't') OR relreplident NOT IN ('d', 'n', 'f', 'i')"
   },
   {
     "comment": "type_sanity - Statement 46",
-    "query": "SELECT c1.oid, c1.relname FROM pg_class as c1 WHERE c1.relkind NOT IN ('S', 'v', 'f', 'c', 'p') and c1.relam = 0"
+    "query": "SELECT c1.oid, c1.relname FROM pg_class as c1 WHERE c1.relkind NOT IN ('S', 'v', 'f', 'c', 'p') and c1.relam = 0",
+    "expected": "SELECT c1.oid, c1.relname FROM pg_class AS c1 WHERE c1.relkind NOT IN ('S', 'v', 'f', 'c', 'p') AND c1.relam = 0"
   },
   {
     "comment": "type_sanity - Statement 47",
-    "query": "SELECT c1.oid, c1.relname FROM pg_class as c1 WHERE c1.relkind IN ('S', 'v', 'f', 'c', 'p') and c1.relam != 0"
+    "query": "SELECT c1.oid, c1.relname FROM pg_class as c1 WHERE c1.relkind IN ('S', 'v', 'f', 'c', 'p') and c1.relam != 0",
+    "expected": "SELECT c1.oid, c1.relname FROM pg_class AS c1 WHERE c1.relkind IN ('S', 'v', 'f', 'c', 'p') AND c1.relam \u003c\u003e 0"
   },
   {
     "comment": "type_sanity - Statement 48",
-    "query": "SELECT pc.oid, pc.relname, pa.amname, pa.amtype FROM pg_class as pc JOIN pg_am AS pa ON (pc.relam = pa.oid) WHERE pc.relkind IN ('i', 'I') and pa.amtype != 'i'"
+    "query": "SELECT pc.oid, pc.relname, pa.amname, pa.amtype FROM pg_class as pc JOIN pg_am AS pa ON (pc.relam = pa.oid) WHERE pc.relkind IN ('i', 'I') and pa.amtype != 'i'",
+    "expected": "SELECT pc.oid, pc.relname, pa.amname, pa.amtype FROM pg_class AS pc INNER JOIN pg_am AS pa ON (pc.relam = pa.oid) WHERE pc.relkind IN ('i', 'I') AND pa.amtype \u003c\u003e 'i'"
   },
   {
     "comment": "type_sanity - Statement 49",
-    "query": "SELECT pc.oid, pc.relname, pa.amname, pa.amtype FROM pg_class as pc JOIN pg_am AS pa ON (pc.relam = pa.oid) WHERE pc.relkind IN ('r', 't', 'm') and pa.amtype != 't'"
+    "query": "SELECT pc.oid, pc.relname, pa.amname, pa.amtype FROM pg_class as pc JOIN pg_am AS pa ON (pc.relam = pa.oid) WHERE pc.relkind IN ('r', 't', 'm') and pa.amtype != 't'",
+    "expected": "SELECT pc.oid, pc.relname, pa.amname, pa.amtype FROM pg_class AS pc INNER JOIN pg_am AS pa ON (pc.relam = pa.oid) WHERE pc.relkind IN ('r', 't', 'm') AND pa.amtype \u003c\u003e 't'"
   },
   {
     "comment": "type_sanity - Statement 50",
-    "query": "SELECT a1.attrelid, a1.attname FROM pg_attribute as a1 WHERE a1.attrelid = 0 OR a1.atttypid = 0 OR a1.attnum = 0 OR a1.attcacheoff != -1 OR a1.attinhcount < 0 OR (a1.attinhcount = 0 AND NOT a1.attislocal)"
+    "query": "SELECT a1.attrelid, a1.attname FROM pg_attribute as a1 WHERE a1.attrelid = 0 OR a1.atttypid = 0 OR a1.attnum = 0 OR a1.attcacheoff != -1 OR a1.attinhcount \u003c 0 OR (a1.attinhcount = 0 AND NOT a1.attislocal)",
+    "expected": "SELECT a1.attrelid, a1.attname FROM pg_attribute AS a1 WHERE a1.attrelid = 0 OR a1.atttypid = 0 OR a1.attnum = 0 OR a1.attcacheoff \u003c\u003e -1 OR a1.attinhcount \u003c 0 OR (a1.attinhcount = 0 AND NOT a1.attislocal)"
   },
   {
     "comment": "type_sanity - Statement 51",
-    "query": "SELECT a1.attrelid, a1.attname, c1.oid, c1.relname FROM pg_attribute AS a1, pg_class AS c1 WHERE a1.attrelid = c1.oid AND a1.attnum > c1.relnatts"
+    "query": "SELECT a1.attrelid, a1.attname, c1.oid, c1.relname FROM pg_attribute AS a1, pg_class AS c1 WHERE a1.attrelid = c1.oid AND a1.attnum \u003e c1.relnatts"
   },
   {
     "comment": "type_sanity - Statement 52",
-    "query": "SELECT c1.oid, c1.relname FROM pg_class AS c1 WHERE c1.relnatts != (SELECT count(*) FROM pg_attribute AS a1 WHERE a1.attrelid = c1.oid AND a1.attnum > 0)"
+    "query": "SELECT c1.oid, c1.relname FROM pg_class AS c1 WHERE c1.relnatts != (SELECT count(*) FROM pg_attribute AS a1 WHERE a1.attrelid = c1.oid AND a1.attnum \u003e 0)",
+    "expected": "SELECT c1.oid, c1.relname FROM pg_class AS c1 WHERE c1.relnatts \u003c\u003e (SELECT COUNT(*) FROM pg_attribute AS a1 WHERE a1.attrelid = c1.oid AND a1.attnum \u003e 0)"
   },
   {
     "comment": "type_sanity - Statement 53",
-    "query": "SELECT a1.attrelid, a1.attname, t1.oid, t1.typname FROM pg_attribute AS a1, pg_type AS t1 WHERE a1.atttypid = t1.oid AND (a1.attlen != t1.typlen OR a1.attalign != t1.typalign OR a1.attbyval != t1.typbyval OR (a1.attstorage != t1.typstorage AND a1.attstorage != 'p'))"
+    "query": "SELECT a1.attrelid, a1.attname, t1.oid, t1.typname FROM pg_attribute AS a1, pg_type AS t1 WHERE a1.atttypid = t1.oid AND (a1.attlen != t1.typlen OR a1.attalign != t1.typalign OR a1.attbyval != t1.typbyval OR (a1.attstorage != t1.typstorage AND a1.attstorage != 'p'))",
+    "expected": "SELECT a1.attrelid, a1.attname, t1.oid, t1.typname FROM pg_attribute AS a1, pg_type AS t1 WHERE a1.atttypid = t1.oid AND (a1.attlen \u003c\u003e t1.typlen OR a1.attalign \u003c\u003e t1.typalign OR a1.attbyval \u003c\u003e t1.typbyval OR (a1.attstorage \u003c\u003e t1.typstorage AND a1.attstorage \u003c\u003e 'p'))"
   },
   {
     "comment": "type_sanity - Statement 54",
-    "query": "SELECT r.rngtypid, r.rngsubtype FROM pg_range as r WHERE r.rngtypid = 0 OR r.rngsubtype = 0 OR r.rngsubopc = 0"
+    "query": "SELECT r.rngtypid, r.rngsubtype FROM pg_range as r WHERE r.rngtypid = 0 OR r.rngsubtype = 0 OR r.rngsubopc = 0",
+    "expected": "SELECT r.rngtypid, r.rngsubtype FROM pg_range AS r WHERE r.rngtypid = 0 OR r.rngsubtype = 0 OR r.rngsubopc = 0"
   },
   {
     "comment": "type_sanity - Statement 55",
-    "query": "SELECT r.rngtypid, r.rngsubtype, r.rngcollation, t.typcollation FROM pg_range r JOIN pg_type t ON t.oid = r.rngsubtype WHERE (rngcollation = 0) != (typcollation = 0)"
+    "query": "SELECT r.rngtypid, r.rngsubtype, r.rngcollation, t.typcollation FROM pg_range r JOIN pg_type t ON t.oid = r.rngsubtype WHERE (rngcollation = 0) != (typcollation = 0)",
+    "expected": "SELECT r.rngtypid, r.rngsubtype, r.rngcollation, t.typcollation FROM pg_range AS r INNER JOIN pg_type AS t ON t.oid = r.rngsubtype WHERE (rngcollation = 0) \u003c\u003e (typcollation = 0)"
   },
   {
     "comment": "type_sanity - Statement 56",
-    "query": "SELECT r.rngtypid, r.rngsubtype, o.opcmethod, o.opcname FROM pg_range r JOIN pg_opclass o ON o.oid = r.rngsubopc WHERE o.opcmethod != 403 OR ((o.opcintype != r.rngsubtype) AND NOT (o.opcintype = 'pg_catalog.anyarray'::regtype AND EXISTS(select 1 from pg_catalog.pg_type where oid = r.rngsubtype and typelem != 0 and typsubscript = 'array_subscript_handler'::regproc)))"
+    "query": "SELECT r.rngtypid, r.rngsubtype, o.opcmethod, o.opcname FROM pg_range r JOIN pg_opclass o ON o.oid = r.rngsubopc WHERE o.opcmethod != 403 OR ((o.opcintype != r.rngsubtype) AND NOT (o.opcintype = 'pg_catalog.anyarray'::regtype AND EXISTS(select 1 from pg_catalog.pg_type where oid = r.rngsubtype and typelem != 0 and typsubscript = 'array_subscript_handler'::regproc)))",
+    "expected": "SELECT r.rngtypid, r.rngsubtype, o.opcmethod, o.opcname FROM pg_range AS r INNER JOIN pg_opclass AS o ON o.oid = r.rngsubopc WHERE o.opcmethod \u003c\u003e 403 OR ((o.opcintype \u003c\u003e r.rngsubtype) AND NOT (o.opcintype = CAST('pg_catalog.anyarray' AS regtype) AND EXISTS (SELECT 1 FROM pg_catalog.pg_type WHERE oid = r.rngsubtype AND typelem \u003c\u003e 0 AND typsubscript = CAST('array_subscript_handler' AS regproc))))"
   },
   {
     "comment": "type_sanity - Statement 57",
-    "query": "SELECT r.rngtypid, r.rngsubtype, p.proname FROM pg_range r JOIN pg_proc p ON p.oid = r.rngcanonical WHERE pronargs != 1 OR proargtypes[0] != rngtypid OR prorettype != rngtypid"
+    "query": "SELECT r.rngtypid, r.rngsubtype, p.proname FROM pg_range r JOIN pg_proc p ON p.oid = r.rngcanonical WHERE pronargs != 1 OR proargtypes[0] != rngtypid OR prorettype != rngtypid",
+    "expected": "SELECT r.rngtypid, r.rngsubtype, p.proname FROM pg_range AS r INNER JOIN pg_proc AS p ON p.oid = r.rngcanonical WHERE pronargs \u003c\u003e 1 OR proargtypes[0] \u003c\u003e rngtypid OR prorettype \u003c\u003e rngtypid"
   },
   {
     "comment": "type_sanity - Statement 58",
-    "query": "SELECT r.rngtypid, r.rngsubtype, p.proname FROM pg_range r JOIN pg_proc p ON p.oid = r.rngsubdiff WHERE pronargs != 2 OR proargtypes[0] != rngsubtype OR proargtypes[1] != rngsubtype OR prorettype != 'pg_catalog.float8'::regtype"
+    "query": "SELECT r.rngtypid, r.rngsubtype, p.proname FROM pg_range r JOIN pg_proc p ON p.oid = r.rngsubdiff WHERE pronargs != 2 OR proargtypes[0] != rngsubtype OR proargtypes[1] != rngsubtype OR prorettype != 'pg_catalog.float8'::regtype",
+    "expected": "SELECT r.rngtypid, r.rngsubtype, p.proname FROM pg_range AS r INNER JOIN pg_proc AS p ON p.oid = r.rngsubdiff WHERE pronargs \u003c\u003e 2 OR proargtypes[0] \u003c\u003e rngsubtype OR proargtypes[1] \u003c\u003e rngsubtype OR prorettype \u003c\u003e CAST('pg_catalog.float8' AS regtype)"
   },
   {
     "comment": "type_sanity - Statement 59",
-    "query": "SELECT r.rngtypid, r.rngsubtype, r.rngmultitypid FROM pg_range r WHERE r.rngmultitypid IS NULL OR r.rngmultitypid = 0"
+    "query": "SELECT r.rngtypid, r.rngsubtype, r.rngmultitypid FROM pg_range r WHERE r.rngmultitypid IS NULL OR r.rngmultitypid = 0",
+    "expected": "SELECT r.rngtypid, r.rngsubtype, r.rngmultitypid FROM pg_range AS r WHERE r.rngmultitypid IS NULL OR r.rngmultitypid = 0"
   },
   {
     "comment": "type_sanity - Statement 60",
-    "query": "CREATE TABLE tab_core_types AS SELECT '(11,12)'::point, '(1,1),(2,2)'::line, '((11,11),(12,12))'::lseg, '((11,11),(13,13))'::box, '((11,12),(13,13),(14,14))'::path AS openedpath, '[(11,12),(13,13),(14,14)]'::path AS closedpath, '((11,12),(13,13),(14,14))'::polygon, '1,1,1'::circle, 'today'::date, 'now'::time, 'now'::timestamp, 'now'::timetz, 'now'::timestamptz, '12 seconds'::interval, '{\"reason\":\"because\"}'::json, '{\"when\":\"now\"}'::jsonb, '$.a[*] ? (@ > 2)'::jsonpath, '127.0.0.1'::inet, '127.0.0.0/8'::cidr, '00:01:03:86:1c:ba'::macaddr8, '00:01:03:86:1c:ba'::macaddr, 2::int2, 4::int4, 8::int8, 4::float4, '8'::float8, pi()::numeric, 'foo'::\"char\", 'c'::bpchar, 'abc'::varchar, 'name'::name, 'txt'::text, true::bool, E'\\\\xDEADBEEF'::bytea, B'10001'::bit, B'10001'::varbit AS varbit, '12.34'::money, 'abc'::refcursor, '1 2'::int2vector, '1 2'::oidvector, format('%I=UC/%I', USER, USER)::aclitem AS aclitem, 'a fat cat sat on a mat and ate a fat rat'::tsvector, 'fat & rat'::tsquery, 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11'::uuid, '11'::xid8, 'pg_class'::regclass, 'regtype'::regtype type, 'pg_monitor'::regrole, 'pg_class'::regclass::oid, '(1,1)'::tid, '2'::xid, '3'::cid, '10:20:10,14,15'::txid_snapshot, '10:20:10,14,15'::pg_snapshot, '16/B374D848'::pg_lsn, 1::information_schema.cardinal_number, 'l'::information_schema.character_data, 'n'::information_schema.sql_identifier, 'now'::information_schema.time_stamp, 'YES'::information_schema.yes_or_no, '(1,2)'::int4range, '{(1,2)}'::int4multirange, '(3,4)'::int8range, '{(3,4)}'::int8multirange, '(3,4)'::numrange, '{(3,4)}'::nummultirange, '(2020-01-02, 2021-02-03)'::daterange, '{(2020-01-02, 2021-02-03)}'::datemultirange, '(2020-01-02 03:04:05, 2021-02-03 06:07:08)'::tsrange, '{(2020-01-02 03:04:05, 2021-02-03 06:07:08)}'::tsmultirange, '(2020-01-02 03:04:05, 2021-02-03 06:07:08)'::tstzrange, '{(2020-01-02 03:04:05, 2021-02-03 06:07:08)}'::tstzmultirange"
+    "query": "CREATE TABLE tab_core_types AS SELECT '(11,12)'::point, '(1,1),(2,2)'::line, '((11,11),(12,12))'::lseg, '((11,11),(13,13))'::box, '((11,12),(13,13),(14,14))'::path AS openedpath, '[(11,12),(13,13),(14,14)]'::path AS closedpath, '((11,12),(13,13),(14,14))'::polygon, '1,1,1'::circle, 'today'::date, 'now'::time, 'now'::timestamp, 'now'::timetz, 'now'::timestamptz, '12 seconds'::interval, '{\"reason\":\"because\"}'::json, '{\"when\":\"now\"}'::jsonb, '$.a[*] ? (@ \u003e 2)'::jsonpath, '127.0.0.1'::inet, '127.0.0.0/8'::cidr, '00:01:03:86:1c:ba'::macaddr8, '00:01:03:86:1c:ba'::macaddr, 2::int2, 4::int4, 8::int8, 4::float4, '8'::float8, pi()::numeric, 'foo'::char, 'c'::char, 'abc'::varchar, 'name'::name, 'txt'::text, true::bool, E'\\\\xDEADBEEF'::bytea, B'10001'::bit, B'10001'::varbit AS varbit, '12.34'::money, 'abc'::refcursor, '1 2'::int2vector, '1 2'::oidvector, format('%I=UC/%I', USER, USER)::aclitem AS aclitem, 'a fat cat sat on a mat and ate a fat rat'::tsvector, 'fat \u0026 rat'::tsquery, 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11'::uuid, '11'::xid8, 'pg_class'::regclass, 'regtype'::regtype type, 'pg_monitor'::regrole, 'pg_class'::regclass::oid, '(1,1)'::tid, '2'::xid, '3'::cid, '10:20:10,14,15'::txid_snapshot, '10:20:10,14,15'::pg_snapshot, '16/B374D848'::pg_lsn, 1::information_schema.cardinal_number, 'l'::information_schema.character_data, 'n'::information_schema.sql_identifier, 'now'::information_schema.time_stamp, 'YES'::information_schema.yes_or_no, '(1,2)'::int4range, '{(1,2)}'::int4multirange, '(3,4)'::int8range, '{(3,4)}'::int8multirange, '(3,4)'::numrange, '{(3,4)}'::nummultirange, '(2020-01-02, 2021-02-03)'::daterange, '{(2020-01-02, 2021-02-03)}'::datemultirange, '(2020-01-02 03:04:05, 2021-02-03 06:07:08)'::tsrange, '{(2020-01-02 03:04:05, 2021-02-03 06:07:08)}'::tsmultirange, '(2020-01-02 03:04:05, 2021-02-03 06:07:08)'::tstzrange, '{(2020-01-02 03:04:05, 2021-02-03 06:07:08)}'::tstzmultirange",
+    "expected": "CREATE TABLE tab_core_types AS SELECT CAST('(11,12)' AS point), CAST('(1,1),(2,2)' AS line), CAST('((11,11),(12,12))' AS lseg), CAST('((11,11),(13,13))' AS box), CAST('((11,12),(13,13),(14,14))' AS path) AS openedpath, CAST('[(11,12),(13,13),(14,14)]' AS path) AS closedpath, CAST('((11,12),(13,13),(14,14))' AS polygon), CAST('1,1,1' AS circle), CAST('today' AS DATE), CAST('now' AS TIME), CAST('now' AS TIMESTAMP), CAST('now' AS TIMETZ), CAST('now' AS TIMESTAMPTZ), CAST('12 seconds' AS INTERVAL), CAST('{\"reason\":\"because\"}' AS JSON), CAST('{\"when\":\"now\"}' AS JSONB), CAST('$.a[*] ? (@ \u003e 2)' AS jsonpath), CAST('127.0.0.1' AS inet), CAST('127.0.0.0/8' AS cidr), CAST('00:01:03:86:1c:ba' AS macaddr8), CAST('00:01:03:86:1c:ba' AS macaddr), CAST(2 AS SMALLINT), CAST(4 AS INT), CAST(8 AS BIGINT), CAST(4 AS REAL), CAST('8' AS FLOAT8), CAST(pi() AS NUMERIC), CAST('foo' AS CHAR(1)), CAST('c' AS CHAR(1)), CAST('abc' AS VARCHAR), CAST('name' AS name), CAST('txt' AS TEXT), CAST(TRUE AS BOOLEAN), CAST('\\xDEADBEEF' AS BYTEA), CAST(B'10001' AS bit), CAST(B'10001' AS varbit) AS varbit, CAST('12.34' AS money), CAST('abc' AS refcursor), CAST('1 2' AS int2vector), CAST('1 2' AS oidvector), CAST(format('%I=UC/%I', USER, USER) AS aclitem) AS aclitem, CAST('a fat cat sat on a mat and ate a fat rat' AS tsvector), CAST('fat \u0026 rat' AS tsquery), CAST('a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11' AS UUID), CAST('11' AS xid8), CAST('pg_class' AS regclass), CAST('regtype' AS regtype) AS type, CAST('pg_monitor' AS regrole), CAST(CAST('pg_class' AS regclass) AS oid), CAST('(1,1)' AS tid), CAST('2' AS xid), CAST('3' AS cid), CAST('10:20:10,14,15' AS txid_snapshot), CAST('10:20:10,14,15' AS pg_snapshot), CAST('16/B374D848' AS pg_lsn), CAST(1 AS information_schema.cardinal_number), CAST('l' AS information_schema.character_data), CAST('n' AS information_schema.sql_identifier), CAST('now' AS information_schema.time_stamp), CAST('YES' AS information_schema.yes_or_no), CAST('(1,2)' AS int4range), CAST('{(1,2)}' AS int4multirange), CAST('(3,4)' AS int8range), CAST('{(3,4)}' AS int8multirange), CAST('(3,4)' AS numrange), CAST('{(3,4)}' AS nummultirange), CAST('(2020-01-02, 2021-02-03)' AS daterange), CAST('{(2020-01-02, 2021-02-03)}' AS datemultirange), CAST('(2020-01-02 03:04:05, 2021-02-03 06:07:08)' AS tsrange), CAST('{(2020-01-02 03:04:05, 2021-02-03 06:07:08)}' AS tsmultirange), CAST('(2020-01-02 03:04:05, 2021-02-03 06:07:08)' AS tstzrange), CAST('{(2020-01-02 03:04:05, 2021-02-03 06:07:08)}' AS tstzmultirange)"
   },
   {
     "comment": "type_sanity - Statement 61",
-    "query": "SELECT oid, typname, typtype, typelem, typarray FROM pg_type t WHERE oid < 16384 AND typtype NOT IN ('p', 'c') AND oid != ALL(ARRAY['regproc', 'regprocedure', 'regoper', 'regoperator', 'regconfig', 'regdictionary', 'regnamespace', 'regcollation']::regtype[]) AND oid != ALL(ARRAY['gtsvector', 'pg_node_tree', 'pg_ndistinct', 'pg_dependencies', 'pg_mcv_list', 'pg_brin_bloom_summary', 'pg_brin_minmax_multi_summary', 'xml']::regtype[]) AND NOT EXISTS (SELECT 1 FROM pg_type u WHERE u.typarray = t.oid) AND NOT EXISTS (SELECT 1 FROM pg_attribute a WHERE a.atttypid=t.oid AND a.attnum > 0 AND a.attrelid='tab_core_types'::regclass)"
+    "query": "SELECT oid, typname, typtype, typelem, typarray FROM pg_type t WHERE oid \u003c 16384 AND typtype NOT IN ('p', 'c') AND oid != ALL(ARRAY['regproc', 'regprocedure', 'regoper', 'regoperator', 'regconfig', 'regdictionary', 'regnamespace', 'regcollation']::regtype[]) AND oid != ALL(ARRAY['gtsvector', 'pg_node_tree', 'pg_ndistinct', 'pg_dependencies', 'pg_mcv_list', 'pg_brin_bloom_summary', 'pg_brin_minmax_multi_summary', 'xml']::regtype[]) AND NOT EXISTS (SELECT 1 FROM pg_type u WHERE u.typarray = t.oid) AND NOT EXISTS (SELECT 1 FROM pg_attribute a WHERE a.atttypid=t.oid AND a.attnum \u003e 0 AND a.attrelid='tab_core_types'::regclass)",
+    "expected": "SELECT oid, typname, typtype, typelem, typarray FROM pg_type AS t WHERE oid \u003c 16384 AND typtype NOT IN ('p', 'c') AND oid \u003c\u003e ALL (CAST(ARRAY['regproc','regprocedure','regoper','regoperator','regconfig','regdictionary','regnamespace','regcollation'] AS regtype[])) AND oid \u003c\u003e ALL (CAST(ARRAY['gtsvector','pg_node_tree','pg_ndistinct','pg_dependencies','pg_mcv_list','pg_brin_bloom_summary','pg_brin_minmax_multi_summary','xml'] AS regtype[])) AND NOT EXISTS (SELECT 1 FROM pg_type AS u WHERE u.typarray = t.oid) AND NOT EXISTS (SELECT 1 FROM pg_attribute AS a WHERE a.atttypid = t.oid AND a.attnum \u003e 0 AND a.attrelid = CAST('tab_core_types' AS regclass))"
   }
 ]

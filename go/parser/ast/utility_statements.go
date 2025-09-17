@@ -1620,6 +1620,37 @@ func (v *VariableSetStmt) SqlString() string {
 					}
 				}
 			}
+		} else if v.Name == "SESSION CHARACTERISTICS AS TRANSACTION" {
+			parts = append(parts, "SESSION", "CHARACTERISTICS", "AS", "TRANSACTION")
+			// Add transaction mode items
+			if v.Args != nil {
+				for _, arg := range v.Args.Items {
+					if defElem, ok := arg.(*DefElem); ok {
+						if defElem.Defname == "transaction_isolation" {
+							parts = append(parts, "ISOLATION", "LEVEL")
+							if str, ok := defElem.Arg.(*String); ok {
+								parts = append(parts, strings.ToUpper(str.SVal))
+							}
+						} else if defElem.Defname == "transaction_read_only" {
+							if boolVal, ok := defElem.Arg.(*Boolean); ok {
+								if boolVal.BoolVal {
+									parts = append(parts, "READ", "ONLY")
+								} else {
+									parts = append(parts, "READ", "WRITE")
+								}
+							}
+						} else if defElem.Defname == "transaction_deferrable" {
+							if boolVal, ok := defElem.Arg.(*Boolean); ok {
+								if boolVal.BoolVal {
+									parts = append(parts, "DEFERRABLE")
+								} else {
+									parts = append(parts, "NOT", "DEFERRABLE")
+								}
+							}
+						}
+					}
+				}
+			}
 		} else {
 			// For other multi-value statements, use generic handling
 			parts = append(parts, v.Name)

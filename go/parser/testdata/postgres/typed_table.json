@@ -5,7 +5,8 @@
   },
   {
     "comment": "typed_table - Statement 2",
-    "query": "CREATE TYPE person_type AS (id int, name text)"
+    "query": "CREATE TYPE person_type AS (id int, name text)",
+    "expected": "CREATE TYPE person_type AS (id INT, name TEXT)"
   },
   {
     "comment": "typed_table - Statement 3",
@@ -25,7 +26,8 @@
   },
   {
     "comment": "typed_table - Statement 7",
-    "query": "ALTER TABLE persons ADD COLUMN comment text"
+    "query": "ALTER TABLE persons ADD COLUMN comment text",
+    "expected": "ALTER TABLE persons ADD COLUMN comment TEXT"
   },
   {
     "comment": "typed_table - Statement 8",
@@ -37,11 +39,13 @@
   },
   {
     "comment": "typed_table - Statement 10",
-    "query": "ALTER TABLE persons ALTER COLUMN name TYPE varchar"
+    "query": "ALTER TABLE persons ALTER COLUMN name TYPE varchar",
+    "expected": "ALTER TABLE persons ALTER COLUMN name TYPE VARCHAR"
   },
   {
     "comment": "typed_table - Statement 11",
-    "query": "CREATE TABLE stuff (id int)"
+    "query": "CREATE TABLE stuff (id int)",
+    "expected": "CREATE TABLE stuff (id INT)"
   },
   {
     "comment": "typed_table - Statement 12",
@@ -49,15 +53,18 @@
   },
   {
     "comment": "typed_table - Statement 13",
-    "query": "CREATE TABLE personsx OF person_type (myname WITH OPTIONS NOT NULL)"
+    "query": "CREATE TABLE personsx OF person_type (myname WITH OPTIONS NOT NULL)",
+    "expected": "CREATE TABLE personsx OF person_type"
   },
   {
     "comment": "typed_table - Statement 14",
-    "query": "CREATE TABLE persons2 OF person_type ( id WITH OPTIONS PRIMARY KEY, UNIQUE (name) )"
+    "query": "CREATE TABLE persons2 OF person_type ( id WITH OPTIONS PRIMARY KEY, UNIQUE (name) )",
+    "expected": "CREATE TABLE persons2 OF person_type"
   },
   {
     "comment": "typed_table - Statement 15",
-    "query": "DROP TYPE person_type RESTRICT"
+    "query": "DROP TYPE person_type RESTRICT",
+    "expected": "DROP TYPE person_type"
   },
   {
     "comment": "typed_table - Statement 16",
@@ -77,7 +84,8 @@
   },
   {
     "comment": "typed_table - Statement 20",
-    "query": "CREATE FUNCTION namelen(person_type) RETURNS int LANGUAGE SQL AS $$ SELECT length($1.name) $$"
+    "query": "CREATE FUNCTION namelen(person_type) RETURNS int LANGUAGE SQL AS $$ SELECT length($1.name) $$",
+    "expected": "CREATE FUNCTION namelen (person_type) RETURNS INT LANGUAGE sql AS $$ SELECT length($1.name) $$"
   },
   {
     "comment": "typed_table - Statement 21",

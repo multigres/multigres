@@ -539,7 +539,6 @@ func (t *TypeCast) SqlString() string {
 	return fmt.Sprintf("CAST(%s AS %s)", argStr, typeStr)
 }
 
-
 // SqlString returns the SQL representation of the ParenExpr (preserves parentheses)
 func (p *ParenExpr) SqlString() string {
 	if p.Expr == nil {

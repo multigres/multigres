@@ -1,11 +1,13 @@
 [
   {
     "comment": "update - Statement 1",
-    "query": "CREATE TABLE update_test ( a   INT DEFAULT 10, b   INT, c   TEXT )"
+    "query": "CREATE TABLE update_test ( a   INT DEFAULT 10, b   INT, c   TEXT )",
+    "expected": "CREATE TABLE update_test (a INT DEFAULT 10, b INT, c TEXT)"
   },
   {
     "comment": "update - Statement 2",
-    "query": "CREATE TABLE upsert_test ( a   INT PRIMARY KEY, b   TEXT )"
+    "query": "CREATE TABLE upsert_test ( a   INT PRIMARY KEY, b   TEXT )",
+    "expected": "CREATE TABLE upsert_test (a INT PRIMARY KEY, b TEXT)"
   },
   {
     "comment": "update - Statement 3",
@@ -13,7 +15,8 @@
   },
   {
     "comment": "update - Statement 4",
-    "query": "INSERT INTO update_test(b, a) VALUES (15, 10)"
+    "query": "INSERT INTO update_test(b, a) VALUES (15, 10)",
+    "expected": "INSERT INTO update_test (b, a) VALUES (15, 10)"
   },
   {
     "comment": "update - Statement 5",
@@ -29,59 +32,73 @@
   },
   {
     "comment": "update - Statement 8",
-    "query": "UPDATE update_test t SET b = t.b + 10 WHERE t.a = 10"
+    "query": "UPDATE update_test t SET b = t.b + 10 WHERE t.a = 10",
+    "expected": "UPDATE update_test AS t SET b = t.b + 10 WHERE t.a = 10"
   },
   {
     "comment": "update - Statement 9",
-    "query": "UPDATE update_test t SET t.b = t.b + 10 WHERE t.a = 10"
+    "query": "UPDATE update_test t SET t.b = t.b + 10 WHERE t.a = 10",
+    "expected": "UPDATE update_test AS t SET t.b = t.b + 10 WHERE t.a = 10"
   },
   {
     "comment": "update - Statement 10",
-    "query": "UPDATE update_test SET a=v.i FROM (VALUES(100, 20)) AS v(i, j) WHERE update_test.b = v.j"
+    "query": "UPDATE update_test SET a=v.i FROM (VALUES(100, 20)) AS v(i, j) WHERE update_test.b = v.j",
+    "expected": "UPDATE update_test SET a = v.i FROM (VALUES (100, 20)) AS v(i, j) WHERE update_test.b = v.j"
   },
   {
     "comment": "update - Statement 11",
-    "query": "UPDATE update_test SET a = v.* FROM (VALUES(100, 20)) AS v(i, j) WHERE update_test.b = v.j"
+    "query": "UPDATE update_test SET a = v.* FROM (VALUES(100, 20)) AS v(i, j) WHERE update_test.b = v.j",
+    "expected": "UPDATE update_test SET a = v.* FROM (VALUES (100, 20)) AS v(i, j) WHERE update_test.b = v.j"
   },
   {
     "comment": "update - Statement 12",
-    "query": "INSERT INTO update_test SELECT a,b+1,c FROM update_test"
+    "query": "INSERT INTO update_test SELECT a,b+1,c FROM update_test",
+    "expected": "INSERT INTO update_test SELECT a, b + 1, c FROM update_test"
   },
   {
     "comment": "update - Statement 13",
-    "query": "UPDATE update_test SET (c,b,a) = ('bugle', b+11, DEFAULT) WHERE c = 'foo'"
+    "query": "UPDATE update_test SET (c,b,a) = ('bugle', b+11, DEFAULT) WHERE c = 'foo'",
+    "expected": "UPDATE update_test SET c = ('bugle', b + 11, DEFAULT), b = ('bugle', b + 11, DEFAULT), a = ('bugle', b + 11, DEFAULT) WHERE c = 'foo'"
   },
   {
     "comment": "update - Statement 14",
-    "query": "UPDATE update_test SET (c,b) = ('car', a+b), a = a + 1 WHERE a = 10"
+    "query": "UPDATE update_test SET (c,b) = ('car', a+b), a = a + 1 WHERE a = 10",
+    "expected": "UPDATE update_test SET c = ('car', a + b), b = ('car', a + b), a = a + 1 WHERE a = 10"
   },
   {
     "comment": "update - Statement 15",
-    "query": "UPDATE update_test SET (c,b) = ('car', a+b), b = a + 1 WHERE a = 10"
+    "query": "UPDATE update_test SET (c,b) = ('car', a+b), b = a + 1 WHERE a = 10",
+    "expected": "UPDATE update_test SET c = ('car', a + b), b = ('car', a + b), b = a + 1 WHERE a = 10"
   },
   {
     "comment": "update - Statement 16",
-    "query": "UPDATE update_test SET (b,a) = (select a,b from update_test where b = 41 and c = 'car') WHERE a = 100 AND b = 20"
+    "query": "UPDATE update_test SET (b,a) = (select a,b from update_test where b = 41 and c = 'car') WHERE a = 100 AND b = 20",
+    "expected": "UPDATE update_test SET b = (SELECT a, b FROM update_test WHERE b = 41 AND c = 'car'), a = (SELECT a, b FROM update_test WHERE b = 41 AND c = 'car') WHERE a = 100 AND b = 20"
   },
   {
     "comment": "update - Statement 17",
-    "query": "UPDATE update_test o SET (b,a) = (select a+1,b from update_test i where i.a=o.a and i.b=o.b and i.c is not distinct from o.c)"
+    "query": "UPDATE update_test o SET (b,a) = (select a+1,b from update_test i where i.a=o.a and i.b=o.b and i.c is not distinct from o.c)",
+    "expected": "UPDATE update_test AS o SET b = (SELECT a + 1, b FROM update_test AS i WHERE i.a = o.a AND i.b = o.b AND i.c IS NOT DISTINCT FROM o.c), a = (SELECT a + 1, b FROM update_test AS i WHERE i.a = o.a AND i.b = o.b AND i.c IS NOT DISTINCT FROM o.c)"
   },
   {
     "comment": "update - Statement 18",
-    "query": "UPDATE update_test SET (b,a) = (select a+1,b from update_test)"
+    "query": "UPDATE update_test SET (b,a) = (select a+1,b from update_test)",
+    "expected": "UPDATE update_test SET b = (SELECT a + 1, b FROM update_test), a = (SELECT a + 1, b FROM update_test)"
   },
   {
     "comment": "update - Statement 19",
-    "query": "UPDATE update_test SET (b,a) = (select a+1,b from update_test where a = 1000) WHERE a = 11"
+    "query": "UPDATE update_test SET (b,a) = (select a+1,b from update_test where a = 1000) WHERE a = 11",
+    "expected": "UPDATE update_test SET b = (SELECT a + 1, b FROM update_test WHERE a = 1000), a = (SELECT a + 1, b FROM update_test WHERE a = 1000) WHERE a = 11"
   },
   {
     "comment": "update - Statement 20",
-    "query": "UPDATE update_test SET (a,b) = ROW(v.*) FROM (VALUES(21, 100)) AS v(i, j) WHERE update_test.a = v.i"
+    "query": "UPDATE update_test SET (a,b) = ROW(v.*) FROM (VALUES(21, 100)) AS v(i, j) WHERE update_test.a = v.i",
+    "expected": "UPDATE update_test SET a = ROW(v.*), b = ROW(v.*) FROM (VALUES (21, 100)) AS v(i, j) WHERE update_test.a = v.i"
   },
   {
     "comment": "update - Statement 21",
-    "query": "UPDATE update_test SET (a,b) = (v.*) FROM (VALUES(21, 101)) AS v(i, j) WHERE update_test.a = v.i"
+    "query": "UPDATE update_test SET (a,b) = (v.*) FROM (VALUES(21, 101)) AS v(i, j) WHERE update_test.a = v.i",
+    "expected": "UPDATE update_test SET a = (v.*), b = (v.*) FROM (VALUES (21, 101)) AS v(i, j) WHERE update_test.a = v.i"
   },
   {
     "comment": "update - Statement 22",
@@ -97,35 +114,43 @@
   },
   {
     "comment": "update - Statement 25",
-    "query": "EXPLAIN (VERBOSE, COSTS OFF) UPDATE update_test t SET (a, b) = (SELECT b, a FROM update_test s WHERE s.a = t.a) WHERE CURRENT_USER = SESSION_USER"
+    "query": "EXPLAIN (VERBOSE, COSTS OFF) UPDATE update_test t SET (a, b) = (SELECT b, a FROM update_test s WHERE s.a = t.a) WHERE CURRENT_USER = SESSION_USER",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) UPDATE update_test AS t SET a = (SELECT b, a FROM update_test AS s WHERE s.a = t.a), b = (SELECT b, a FROM update_test AS s WHERE s.a = t.a) WHERE CURRENT_USER = SESSION_USER"
   },
   {
     "comment": "update - Statement 26",
-    "query": "UPDATE update_test t SET (a, b) = (SELECT b, a FROM update_test s WHERE s.a = t.a) WHERE CURRENT_USER = SESSION_USER"
+    "query": "UPDATE update_test t SET (a, b) = (SELECT b, a FROM update_test s WHERE s.a = t.a) WHERE CURRENT_USER = SESSION_USER",
+    "expected": "UPDATE update_test AS t SET a = (SELECT b, a FROM update_test AS s WHERE s.a = t.a), b = (SELECT b, a FROM update_test AS s WHERE s.a = t.a) WHERE CURRENT_USER = SESSION_USER"
   },
   {
     "comment": "update - Statement 27",
-    "query": "INSERT INTO upsert_test VALUES(1, 'Boo'), (3, 'Zoo')"
+    "query": "INSERT INTO upsert_test VALUES(1, 'Boo'), (3, 'Zoo')",
+    "expected": "INSERT INTO upsert_test VALUES (1, 'Boo'), (3, 'Zoo')"
   },
   {
     "comment": "update - Statement 28",
-    "query": "WITH aaa AS (SELECT 1 AS a, 'Foo' AS b) INSERT INTO upsert_test VALUES (1, 'Bar') ON CONFLICT(a) DO UPDATE SET (b, a) = (SELECT b, a FROM aaa) RETURNING *"
+    "query": "WITH aaa AS (SELECT 1 AS a, 'Foo' AS b) INSERT INTO upsert_test VALUES (1, 'Bar') ON CONFLICT(a) DO UPDATE SET (b, a) = (SELECT b, a FROM aaa) RETURNING *",
+    "expected": "WITH aaa AS (SELECT 1 AS a, 'Foo' AS b) INSERT INTO upsert_test VALUES (1, 'Bar') ON CONFLICT (a) DO UPDATE SET b = (SELECT b, a FROM aaa), a = (SELECT b, a FROM aaa) RETURNING *"
   },
   {
     "comment": "update - Statement 29",
-    "query": "INSERT INTO upsert_test VALUES (1, 'Baz'), (3, 'Zaz') ON CONFLICT(a) DO UPDATE SET (b, a) = (SELECT b || ', Correlated', a from upsert_test i WHERE i.a = upsert_test.a) RETURNING *"
+    "query": "INSERT INTO upsert_test VALUES (1, 'Baz'), (3, 'Zaz') ON CONFLICT(a) DO UPDATE SET (b, a) = (SELECT b || ', Correlated', a from upsert_test i WHERE i.a = upsert_test.a) RETURNING *",
+    "expected": "INSERT INTO upsert_test VALUES (1, 'Baz'), (3, 'Zaz') ON CONFLICT (a) DO UPDATE SET b = (SELECT b || ', Correlated', a FROM upsert_test AS i WHERE i.a = upsert_test.a), a = (SELECT b || ', Correlated', a FROM upsert_test AS i WHERE i.a = upsert_test.a) RETURNING *"
   },
   {
     "comment": "update - Statement 30",
-    "query": "INSERT INTO upsert_test VALUES (1, 'Bat'), (3, 'Zot') ON CONFLICT(a) DO UPDATE SET (b, a) = (SELECT b || ', Excluded', a from upsert_test i WHERE i.a = excluded.a) RETURNING *"
+    "query": "INSERT INTO upsert_test VALUES (1, 'Bat'), (3, 'Zot') ON CONFLICT(a) DO UPDATE SET (b, a) = (SELECT b || ', Excluded', a from upsert_test i WHERE i.a = excluded.a) RETURNING *",
+    "expected": "INSERT INTO upsert_test VALUES (1, 'Bat'), (3, 'Zot') ON CONFLICT (a) DO UPDATE SET b = (SELECT b || ', Excluded', a FROM upsert_test AS i WHERE i.a = excluded.a), a = (SELECT b || ', Excluded', a FROM upsert_test AS i WHERE i.a = excluded.a) RETURNING *"
   },
   {
     "comment": "update - Statement 31",
-    "query": "INSERT INTO upsert_test VALUES (2, 'Beeble') ON CONFLICT(a) DO UPDATE SET (b, a) = (SELECT b || ', Excluded', a from upsert_test i WHERE i.a = excluded.a) RETURNING tableoid::regclass, xmin = pg_current_xact_id()::xid AS xmin_correct, xmax = 0 AS xmax_correct"
+    "query": "INSERT INTO upsert_test VALUES (2, 'Beeble') ON CONFLICT(a) DO UPDATE SET (b, a) = (SELECT b || ', Excluded', a from upsert_test i WHERE i.a = excluded.a) RETURNING tableoid::regclass, xmin = pg_current_xact_id()::xid AS xmin_correct, xmax = 0 AS xmax_correct",
+    "expected": "INSERT INTO upsert_test VALUES (2, 'Beeble') ON CONFLICT (a) DO UPDATE SET b = (SELECT b || ', Excluded', a FROM upsert_test AS i WHERE i.a = excluded.a), a = (SELECT b || ', Excluded', a FROM upsert_test AS i WHERE i.a = excluded.a) RETURNING CAST(tableoid AS regclass), xmin = CAST(pg_current_xact_id() AS xid) AS xmin_correct, xmax = 0 AS xmax_correct"
   },
   {
     "comment": "update - Statement 32",
-    "query": "INSERT INTO upsert_test VALUES (2, 'Brox') ON CONFLICT(a) DO UPDATE SET (b, a) = (SELECT b || ', Excluded', a from upsert_test i WHERE i.a = excluded.a) RETURNING tableoid::regclass, xmin = pg_current_xact_id()::xid AS xmin_correct, xmax = pg_current_xact_id()::xid AS xmax_correct"
+    "query": "INSERT INTO upsert_test VALUES (2, 'Brox') ON CONFLICT(a) DO UPDATE SET (b, a) = (SELECT b || ', Excluded', a from upsert_test i WHERE i.a = excluded.a) RETURNING tableoid::regclass, xmin = pg_current_xact_id()::xid AS xmin_correct, xmax = pg_current_xact_id()::xid AS xmax_correct",
+    "expected": "INSERT INTO upsert_test VALUES (2, 'Brox') ON CONFLICT (a) DO UPDATE SET b = (SELECT b || ', Excluded', a FROM upsert_test AS i WHERE i.a = excluded.a), a = (SELECT b || ', Excluded', a FROM upsert_test AS i WHERE i.a = excluded.a) RETURNING CAST(tableoid AS regclass), xmin = CAST(pg_current_xact_id() AS xid) AS xmin_correct, xmax = CAST(pg_current_xact_id() AS xid) AS xmax_correct"
   },
   {
     "comment": "update - Statement 33",
@@ -137,7 +162,8 @@
   },
   {
     "comment": "update - Statement 35",
-    "query": "CREATE TABLE upsert_test ( a   INT PRIMARY KEY, b   TEXT ) PARTITION BY LIST (a)"
+    "query": "CREATE TABLE upsert_test ( a   INT PRIMARY KEY, b   TEXT ) PARTITION BY LIST (a)",
+    "expected": "CREATE TABLE upsert_test (a INT PRIMARY KEY, b TEXT) PARTITION BY list (a)"
   },
   {
     "comment": "update - Statement 36",
@@ -153,19 +179,23 @@
   },
   {
     "comment": "update - Statement 39",
-    "query": "INSERT INTO upsert_test VALUES(1, 'Boo'), (2, 'Zoo')"
+    "query": "INSERT INTO upsert_test VALUES(1, 'Boo'), (2, 'Zoo')",
+    "expected": "INSERT INTO upsert_test VALUES (1, 'Boo'), (2, 'Zoo')"
   },
   {
     "comment": "update - Statement 40",
-    "query": "WITH aaa AS (SELECT 1 AS ctea, ' Foo' AS cteb) INSERT INTO upsert_test VALUES (1, 'Bar'), (2, 'Baz') ON CONFLICT(a) DO UPDATE SET (b, a) = (SELECT upsert_test.b||cteb, upsert_test.a FROM aaa) RETURNING *"
+    "query": "WITH aaa AS (SELECT 1 AS ctea, ' Foo' AS cteb) INSERT INTO upsert_test VALUES (1, 'Bar'), (2, 'Baz') ON CONFLICT(a) DO UPDATE SET (b, a) = (SELECT upsert_test.b||cteb, upsert_test.a FROM aaa) RETURNING *",
+    "expected": "WITH aaa AS (SELECT 1 AS ctea, ' Foo' AS cteb) INSERT INTO upsert_test VALUES (1, 'Bar'), (2, 'Baz') ON CONFLICT (a) DO UPDATE SET b = (SELECT upsert_test.b || cteb, upsert_test.a FROM aaa), a = (SELECT upsert_test.b || cteb, upsert_test.a FROM aaa) RETURNING *"
   },
   {
     "comment": "update - Statement 41",
-    "query": "CREATE TABLE range_parted ( a text, b bigint, c numeric, d int, e varchar ) PARTITION BY RANGE (a, b)"
+    "query": "CREATE TABLE range_parted ( a text, b bigint, c numeric, d int, e varchar ) PARTITION BY RANGE (a, b)",
+    "expected": "CREATE TABLE range_parted (a TEXT, b BIGINT, c NUMERIC, d INT, e VARCHAR) PARTITION BY range (a, b)"
   },
   {
     "comment": "update - Statement 42",
-    "query": "CREATE TABLE part_b_20_b_30 (e varchar, c numeric, a text, b bigint, d int)"
+    "query": "CREATE TABLE part_b_20_b_30 (e varchar, c numeric, a text, b bigint, d int)",
+    "expected": "CREATE TABLE part_b_20_b_30 (e VARCHAR, c NUMERIC, a TEXT, b BIGINT, d INT)"
   },
   {
     "comment": "update - Statement 43",
@@ -173,7 +203,8 @@
   },
   {
     "comment": "update - Statement 44",
-    "query": "CREATE TABLE part_b_10_b_20 (e varchar, c numeric, a text, b bigint, d int) PARTITION BY RANGE (c)"
+    "query": "CREATE TABLE part_b_10_b_20 (e varchar, c numeric, a text, b bigint, d int) PARTITION BY RANGE (c)",
+    "expected": "CREATE TABLE part_b_10_b_20 (e VARCHAR, c NUMERIC, a TEXT, b BIGINT, d INT) PARTITION BY range (c)"
   },
   {
     "comment": "update - Statement 45",
@@ -193,11 +224,13 @@
   },
   {
     "comment": "update - Statement 49",
-    "query": "UPDATE part_b_10_b_20 set b = b - 6"
+    "query": "UPDATE part_b_10_b_20 set b = b - 6",
+    "expected": "UPDATE part_b_10_b_20 SET b = b - 6"
   },
   {
     "comment": "update - Statement 50",
-    "query": "CREATE TABLE part_c_100_200 (e varchar, c numeric, a text, b bigint, d int) PARTITION BY range (abs(d))"
+    "query": "CREATE TABLE part_c_100_200 (e varchar, c numeric, a text, b bigint, d int) PARTITION BY range (abs(d))",
+    "expected": "CREATE TABLE part_c_100_200 (e VARCHAR, c NUMERIC, a TEXT, b BIGINT, d INT) PARTITION BY range (abs(d))"
   },
   {
     "comment": "update - Statement 51",
@@ -205,7 +238,8 @@
   },
   {
     "comment": "update - Statement 52",
-    "query": "ALTER TABLE part_c_100_200 ADD COLUMN c numeric, ADD COLUMN e varchar, ADD COLUMN a text"
+    "query": "ALTER TABLE part_c_100_200 ADD COLUMN c numeric, ADD COLUMN e varchar, ADD COLUMN a text",
+    "expected": "ALTER TABLE part_c_100_200 ADD COLUMN c NUMERIC, ADD COLUMN e VARCHAR, ADD COLUMN a TEXT"
   },
   {
     "comment": "update - Statement 53",
@@ -213,7 +247,8 @@
   },
   {
     "comment": "update - Statement 54",
-    "query": "ALTER TABLE part_c_100_200 ADD COLUMN b bigint"
+    "query": "ALTER TABLE part_c_100_200 ADD COLUMN b bigint",
+    "expected": "ALTER TABLE part_c_100_200 ADD COLUMN b BIGINT"
   },
   {
     "comment": "update - Statement 55",
@@ -229,79 +264,92 @@
   },
   {
     "comment": "update - Statement 58",
-    "query": "CREATE TABLE part_c_1_100 (e varchar, d int, c numeric, b bigint, a text)"
+    "query": "CREATE TABLE part_c_1_100 (e varchar, d int, c numeric, b bigint, a text)",
+    "expected": "CREATE TABLE part_c_1_100 (e VARCHAR, d INT, c NUMERIC, b BIGINT, a TEXT)"
   },
   {
     "comment": "update - Statement 59",
     "query": "ALTER TABLE part_b_10_b_20 ATTACH PARTITION part_c_1_100 FOR VALUES FROM (1) TO (100)"
   },
   {
-    "comment": "update - Statement 60",
-    "query": "1"
-  },
-  {
     "comment": "update - Statement 61",
-    "query": "EXPLAIN (costs off) UPDATE range_parted set c = c - 50 WHERE c > 97"
+    "query": "EXPLAIN (costs off) UPDATE range_parted set c = c - 50 WHERE c \u003e 97",
+    "expected": "EXPLAIN (COSTS false) UPDATE range_parted SET c = c - 50 WHERE c \u003e 97"
   },
   {
     "comment": "update - Statement 62",
-    "query": "UPDATE part_c_100_200 set c = c - 20, d = c WHERE c = 105"
+    "query": "UPDATE part_c_100_200 set c = c - 20, d = c WHERE c = 105",
+    "expected": "UPDATE part_c_100_200 SET c = c - 20, d = c WHERE c = 105"
   },
   {
     "comment": "update - Statement 63",
-    "query": "UPDATE part_b_10_b_20 set a = 'a'"
+    "query": "UPDATE part_b_10_b_20 set a = 'a'",
+    "expected": "UPDATE part_b_10_b_20 SET a = 'a'"
   },
   {
     "comment": "update - Statement 64",
-    "query": "UPDATE range_parted set d = d - 10 WHERE d > 10"
+    "query": "UPDATE range_parted set d = d - 10 WHERE d \u003e 10",
+    "expected": "UPDATE range_parted SET d = d - 10 WHERE d \u003e 10"
   },
   {
     "comment": "update - Statement 65",
-    "query": "UPDATE range_parted set e = d"
+    "query": "UPDATE range_parted set e = d",
+    "expected": "UPDATE range_parted SET e = d"
   },
   {
     "comment": "update - Statement 66",
-    "query": "UPDATE part_c_1_100 set c = c + 20 WHERE c = 98"
+    "query": "UPDATE part_c_1_100 set c = c + 20 WHERE c = 98",
+    "expected": "UPDATE part_c_1_100 SET c = c + 20 WHERE c = 98"
   },
   {
     "comment": "update - Statement 67",
-    "query": "UPDATE part_b_10_b_20 set c = c + 20 returning c, b, a"
+    "query": "UPDATE part_b_10_b_20 set c = c + 20 returning c, b, a",
+    "expected": "UPDATE part_b_10_b_20 SET c = c + 20 RETURNING c, b, a"
   },
   {
     "comment": "update - Statement 68",
-    "query": "UPDATE part_b_10_b_20 set b = b - 6 WHERE c > 116 returning *"
+    "query": "UPDATE part_b_10_b_20 set b = b - 6 WHERE c \u003e 116 returning *",
+    "expected": "UPDATE part_b_10_b_20 SET b = b - 6 WHERE c \u003e 116 RETURNING *"
   },
   {
     "comment": "update - Statement 69",
-    "query": "UPDATE range_parted set b = b - 6 WHERE c > 116 returning a, b + c"
+    "query": "UPDATE range_parted set b = b - 6 WHERE c \u003e 116 returning a, b + c",
+    "expected": "UPDATE range_parted SET b = b - 6 WHERE c \u003e 116 RETURNING a, b + c"
   },
   {
     "comment": "update - Statement 70",
-    "query": "CREATE TABLE mintab(c1 int)"
+    "query": "CREATE TABLE mintab(c1 int)",
+    "expected": "CREATE TABLE mintab (c1 INT)"
   },
   {
     "comment": "update - Statement 71",
-    "query": "INSERT into mintab VALUES (120)"
+    "query": "INSERT into mintab VALUES (120)",
+    "expected": "INSERT INTO mintab VALUES (120)"
   },
   {
     "comment": "update - Statement 72",
-    "query": "CREATE VIEW upview AS SELECT * FROM range_parted WHERE (select c > c1 FROM mintab) WITH CHECK OPTION"
+    "query": "CREATE VIEW upview AS SELECT * FROM range_parted WHERE (select c \u003e c1 FROM mintab) WITH CHECK OPTION",
+    "expected": "CREATE VIEW upview AS SELECT * FROM range_parted WHERE (SELECT c \u003e c1 FROM mintab) WITH CHECK OPTION"
   },
   {
     "comment": "update - Statement 73",
-    "query": "UPDATE upview set c = 199 WHERE b = 4"
+    "query": "UPDATE upview set c = 199 WHERE b = 4",
+    "expected": "UPDATE upview SET c = 199 WHERE b = 4"
   },
   {
     "comment": "update - Statement 74",
-    "query": "UPDATE upview set c = 120 WHERE b = 4"
+    "query": "UPDATE upview set c = 120 WHERE b = 4",
+    "expected": "UPDATE upview SET c = 120 WHERE b = 4"
   },
   {
     "comment": "update - Statement 75",
-    "query": "UPDATE upview set a = 'b', b = 15, c = 120 WHERE b = 4"
+    "query": "UPDATE upview set a = 'b', b = 15, c = 120 WHERE b = 4",
+    "expected": "UPDATE upview SET a = 'b', b = 15, c = 120 WHERE b = 4"
   },
   {
     "comment": "update - Statement 76",
-    "query": "UPDATE upview set a = 'b', b = 15 WHERE b = 4"
+    "query": "UPDATE upview set a = 'b', b = 15 WHERE b = 4",
+    "expected": "UPDATE upview SET a = 'b', b = 15 WHERE b = 4"
   },
   {
     "comment": "update - Statement 77",
@@ -309,31 +357,38 @@
   },
   {
     "comment": "update - Statement 78",
-    "query": "UPDATE range_parted set c = 95 WHERE a = 'b' and b > 10 and c > 100 returning (range_parted), *"
+    "query": "UPDATE range_parted set c = 95 WHERE a = 'b' and b \u003e 10 and c \u003e 100 returning (range_parted), *",
+    "expected": "UPDATE range_parted SET c = 95 WHERE a = 'b' AND b \u003e 10 AND c \u003e 100 RETURNING (range_parted), *"
   },
   {
     "comment": "update - Statement 79",
-    "query": "CREATE FUNCTION trans_updatetrigfunc() RETURNS trigger LANGUAGE plpgsql AS $$ begin raise notice 'trigger = %, old table = %, new table = %', TG_NAME, (select string_agg(old_table::text, ', ' ORDER BY a) FROM old_table), (select string_agg(new_table::text, ', ' ORDER BY a) FROM new_table); return null; end; $$"
+    "query": "CREATE FUNCTION trans_updatetrigfunc() RETURNS trigger LANGUAGE plpgsql AS $$ begin raise notice 'trigger = %, old table = %, new table = %', TG_NAME, (select string_agg(old_table::text, ', ' ORDER BY a) FROM old_table), (select string_agg(new_table::text, ', ' ORDER BY a) FROM new_table); return null; end; $$",
+    "expected": "CREATE FUNCTION trans_updatetrigfunc () RETURNS trigger LANGUAGE plpgsql AS $$ begin raise notice 'trigger = %, old table = %, new table = %', TG_NAME, (select string_agg(old_table::text, ', ' ORDER BY a) FROM old_table), (select string_agg(new_table::text, ', ' ORDER BY a) FROM new_table); return null; end; $$"
   },
   {
     "comment": "update - Statement 80",
-    "query": "CREATE TRIGGER trans_updatetrig AFTER UPDATE ON range_parted REFERENCING OLD TABLE AS old_table NEW TABLE AS new_table FOR EACH STATEMENT EXECUTE PROCEDURE trans_updatetrigfunc()"
+    "query": "CREATE TRIGGER trans_updatetrig AFTER UPDATE ON range_parted REFERENCING OLD TABLE AS old_table NEW TABLE AS new_table FOR EACH STATEMENT EXECUTE PROCEDURE trans_updatetrigfunc()",
+    "expected": "CREATE TRIGGER trans_updatetrig AFTER UPDATE ON range_parted REFERENCING OLD TABLE AS old_table NEW TABLE AS new_table EXECUTE FUNCTION trans_updatetrigfunc()"
   },
   {
     "comment": "update - Statement 81",
-    "query": "UPDATE range_parted set c = (case when c = 96 then 110 else c + 1 end ) WHERE a = 'b' and b > 10 and c >= 96"
+    "query": "UPDATE range_parted set c = (case when c = 96 then 110 else c + 1 end ) WHERE a = 'b' and b \u003e 10 and c \u003e= 96",
+    "expected": "UPDATE range_parted SET c = (CASE WHEN c = 96 THEN 110 ELSE c + 1 END) WHERE a = 'b' AND b \u003e 10 AND c \u003e= 96"
   },
   {
     "comment": "update - Statement 82",
-    "query": "CREATE TRIGGER trans_deletetrig AFTER DELETE ON range_parted REFERENCING OLD TABLE AS old_table FOR EACH STATEMENT EXECUTE PROCEDURE trans_updatetrigfunc()"
+    "query": "CREATE TRIGGER trans_deletetrig AFTER DELETE ON range_parted REFERENCING OLD TABLE AS old_table FOR EACH STATEMENT EXECUTE PROCEDURE trans_updatetrigfunc()",
+    "expected": "CREATE TRIGGER trans_deletetrig AFTER DELETE ON range_parted REFERENCING OLD TABLE AS old_table EXECUTE FUNCTION trans_updatetrigfunc()"
   },
   {
     "comment": "update - Statement 83",
-    "query": "CREATE TRIGGER trans_inserttrig AFTER INSERT ON range_parted REFERENCING NEW TABLE AS new_table FOR EACH STATEMENT EXECUTE PROCEDURE trans_updatetrigfunc()"
+    "query": "CREATE TRIGGER trans_inserttrig AFTER INSERT ON range_parted REFERENCING NEW TABLE AS new_table FOR EACH STATEMENT EXECUTE PROCEDURE trans_updatetrigfunc()",
+    "expected": "CREATE TRIGGER trans_inserttrig AFTER INSERT ON range_parted REFERENCING NEW TABLE AS new_table EXECUTE FUNCTION trans_updatetrigfunc()"
   },
   {
     "comment": "update - Statement 84",
-    "query": "UPDATE range_parted set c = c + 50 WHERE a = 'b' and b > 10 and c >= 96"
+    "query": "UPDATE range_parted set c = c + 50 WHERE a = 'b' and b \u003e 10 and c \u003e= 96",
+    "expected": "UPDATE range_parted SET c = c + 50 WHERE a = 'b' AND b \u003e 10 AND c \u003e= 96"
   },
   {
     "comment": "update - Statement 85",
@@ -345,27 +400,33 @@
   },
   {
     "comment": "update - Statement 87",
-    "query": "CREATE FUNCTION func_parted_mod_b() RETURNS trigger AS $$ BEGIN NEW.b = NEW.b + 1; return NEW; END $$ language plpgsql"
+    "query": "CREATE FUNCTION func_parted_mod_b() RETURNS trigger AS $$ BEGIN NEW.b = NEW.b + 1; return NEW; END $$ language plpgsql",
+    "expected": "CREATE FUNCTION func_parted_mod_b () RETURNS trigger AS $$ BEGIN NEW.b = NEW.b + 1; return NEW; END $$ LANGUAGE plpgsql"
   },
   {
     "comment": "update - Statement 88",
-    "query": "CREATE TRIGGER trig_c1_100 BEFORE UPDATE OR INSERT ON part_c_1_100 FOR EACH ROW EXECUTE PROCEDURE func_parted_mod_b()"
+    "query": "CREATE TRIGGER trig_c1_100 BEFORE UPDATE OR INSERT ON part_c_1_100 FOR EACH ROW EXECUTE PROCEDURE func_parted_mod_b()",
+    "expected": "CREATE TRIGGER trig_c1_100 BEFORE INSERT OR UPDATE ON part_c_1_100 FOR EACH ROW EXECUTE FUNCTION func_parted_mod_b()"
   },
   {
     "comment": "update - Statement 89",
-    "query": "CREATE TRIGGER trig_d1_15 BEFORE UPDATE OR INSERT ON part_d_1_15 FOR EACH ROW EXECUTE PROCEDURE func_parted_mod_b()"
+    "query": "CREATE TRIGGER trig_d1_15 BEFORE UPDATE OR INSERT ON part_d_1_15 FOR EACH ROW EXECUTE PROCEDURE func_parted_mod_b()",
+    "expected": "CREATE TRIGGER trig_d1_15 BEFORE INSERT OR UPDATE ON part_d_1_15 FOR EACH ROW EXECUTE FUNCTION func_parted_mod_b()"
   },
   {
     "comment": "update - Statement 90",
-    "query": "CREATE TRIGGER trig_d15_20 BEFORE UPDATE OR INSERT ON part_d_15_20 FOR EACH ROW EXECUTE PROCEDURE func_parted_mod_b()"
+    "query": "CREATE TRIGGER trig_d15_20 BEFORE UPDATE OR INSERT ON part_d_15_20 FOR EACH ROW EXECUTE PROCEDURE func_parted_mod_b()",
+    "expected": "CREATE TRIGGER trig_d15_20 BEFORE INSERT OR UPDATE ON part_d_15_20 FOR EACH ROW EXECUTE FUNCTION func_parted_mod_b()"
   },
   {
     "comment": "update - Statement 91",
-    "query": "UPDATE range_parted set c = (case when c = 96 then 110 else c + 1 end) WHERE a = 'b' and b > 10 and c >= 96"
+    "query": "UPDATE range_parted set c = (case when c = 96 then 110 else c + 1 end) WHERE a = 'b' and b \u003e 10 and c \u003e= 96",
+    "expected": "UPDATE range_parted SET c = (CASE WHEN c = 96 THEN 110 ELSE c + 1 END) WHERE a = 'b' AND b \u003e 10 AND c \u003e= 96"
   },
   {
     "comment": "update - Statement 92",
-    "query": "UPDATE range_parted set b = 15 WHERE b = 1"
+    "query": "UPDATE range_parted set b = 15 WHERE b = 1",
+    "expected": "UPDATE range_parted SET b = 15 WHERE b = 1"
   },
   {
     "comment": "update - Statement 93",
@@ -401,35 +462,43 @@
   },
   {
     "comment": "update - Statement 101",
-    "query": "CREATE POLICY seeall ON range_parted AS PERMISSIVE FOR SELECT USING (true)"
+    "query": "CREATE POLICY seeall ON range_parted AS PERMISSIVE FOR SELECT USING (true)",
+    "expected": "CREATE POLICY seeall ON range_parted AS PERMISSIVE FOR select TO PUBLIC USING ( TRUE )"
   },
   {
     "comment": "update - Statement 102",
-    "query": "CREATE POLICY policy_range_parted ON range_parted for UPDATE USING (true) WITH CHECK (c % 2 = 0)"
+    "query": "CREATE POLICY policy_range_parted ON range_parted for UPDATE USING (true) WITH CHECK (c % 2 = 0)",
+    "expected": "CREATE POLICY policy_range_parted ON range_parted AS PERMISSIVE FOR update TO PUBLIC USING ( TRUE ) WITH CHECK ( c % 2 = 0 )"
   },
   {
     "comment": "update - Statement 103",
-    "query": "SET SESSION AUTHORIZATION regress_range_parted_user"
+    "query": "SET SESSION AUTHORIZATION regress_range_parted_user",
+    "expected": "SET SESSION AUTHORIZATION 'regress_range_parted_user'"
   },
   {
     "comment": "update - Statement 104",
-    "query": "UPDATE range_parted set a = 'b', c = 151 WHERE a = 'a' and c = 200"
+    "query": "UPDATE range_parted set a = 'b', c = 151 WHERE a = 'a' and c = 200",
+    "expected": "UPDATE range_parted SET a = 'b', c = 151 WHERE a = 'a' AND c = 200"
   },
   {
     "comment": "update - Statement 105",
-    "query": "RESET SESSION AUTHORIZATION"
+    "query": "RESET SESSION AUTHORIZATION",
+    "expected": "RESET session_authorization"
   },
   {
     "comment": "update - Statement 106",
-    "query": "CREATE FUNCTION func_d_1_15() RETURNS trigger AS $$ BEGIN NEW.c = NEW.c + 1; return NEW; END $$ LANGUAGE plpgsql"
+    "query": "CREATE FUNCTION func_d_1_15() RETURNS trigger AS $$ BEGIN NEW.c = NEW.c + 1; return NEW; END $$ LANGUAGE plpgsql",
+    "expected": "CREATE FUNCTION func_d_1_15 () RETURNS trigger AS $$ BEGIN NEW.c = NEW.c + 1; return NEW; END $$ LANGUAGE plpgsql"
   },
   {
     "comment": "update - Statement 107",
-    "query": "CREATE TRIGGER trig_d_1_15 BEFORE INSERT ON part_d_1_15 FOR EACH ROW EXECUTE PROCEDURE func_d_1_15()"
+    "query": "CREATE TRIGGER trig_d_1_15 BEFORE INSERT ON part_d_1_15 FOR EACH ROW EXECUTE PROCEDURE func_d_1_15()",
+    "expected": "CREATE TRIGGER trig_d_1_15 BEFORE INSERT ON part_d_1_15 FOR EACH ROW EXECUTE FUNCTION func_d_1_15()"
   },
   {
     "comment": "update - Statement 108",
-    "query": "UPDATE range_parted set a = 'b', c = 150 WHERE a = 'a' and c = 200"
+    "query": "UPDATE range_parted set a = 'b', c = 150 WHERE a = 'a' and c = 200",
+    "expected": "UPDATE range_parted SET a = 'b', c = 150 WHERE a = 'a' AND c = 200"
   },
   {
     "comment": "update - Statement 109",
@@ -441,27 +510,33 @@
   },
   {
     "comment": "update - Statement 111",
-    "query": "CREATE POLICY policy_range_parted_subplan on range_parted AS RESTRICTIVE for UPDATE USING (true) WITH CHECK ((SELECT range_parted.c <= c1 FROM mintab))"
+    "query": "CREATE POLICY policy_range_parted_subplan on range_parted AS RESTRICTIVE for UPDATE USING (true) WITH CHECK ((SELECT range_parted.c \u003c= c1 FROM mintab))",
+    "expected": "CREATE POLICY policy_range_parted_subplan ON range_parted AS RESTRICTIVE FOR update TO PUBLIC USING ( TRUE ) WITH CHECK ( (SELECT range_parted.c \u003c= c1 FROM mintab) )"
   },
   {
     "comment": "update - Statement 112",
-    "query": "UPDATE range_parted set a = 'b', c = 122 WHERE a = 'a' and c = 200"
+    "query": "UPDATE range_parted set a = 'b', c = 122 WHERE a = 'a' and c = 200",
+    "expected": "UPDATE range_parted SET a = 'b', c = 122 WHERE a = 'a' AND c = 200"
   },
   {
     "comment": "update - Statement 113",
-    "query": "UPDATE range_parted set a = 'b', c = 120 WHERE a = 'a' and c = 200"
+    "query": "UPDATE range_parted set a = 'b', c = 120 WHERE a = 'a' and c = 200",
+    "expected": "UPDATE range_parted SET a = 'b', c = 120 WHERE a = 'a' AND c = 200"
   },
   {
     "comment": "update - Statement 114",
-    "query": "CREATE POLICY policy_range_parted_wholerow on range_parted AS RESTRICTIVE for UPDATE USING (true) WITH CHECK (range_parted = row('b', 10, 112, 1, NULL)::range_parted)"
+    "query": "CREATE POLICY policy_range_parted_wholerow on range_parted AS RESTRICTIVE for UPDATE USING (true) WITH CHECK (range_parted = row('b', 10, 112, 1, NULL)::range_parted)",
+    "expected": "CREATE POLICY policy_range_parted_wholerow ON range_parted AS RESTRICTIVE FOR update TO PUBLIC USING ( TRUE ) WITH CHECK ( range_parted = CAST(ROW('b', 10, 112, 1, NULL) AS range_parted) )"
   },
   {
     "comment": "update - Statement 115",
-    "query": "UPDATE range_parted set a = 'b', c = 112 WHERE a = 'a' and c = 200"
+    "query": "UPDATE range_parted set a = 'b', c = 112 WHERE a = 'a' and c = 200",
+    "expected": "UPDATE range_parted SET a = 'b', c = 112 WHERE a = 'a' AND c = 200"
   },
   {
     "comment": "update - Statement 116",
-    "query": "UPDATE range_parted set a = 'b', c = 116 WHERE a = 'a' and c = 200"
+    "query": "UPDATE range_parted set a = 'b', c = 116 WHERE a = 'a' and c = 200",
+    "expected": "UPDATE range_parted SET a = 'b', c = 116 WHERE a = 'a' AND c = 200"
   },
   {
     "comment": "update - Statement 117",
@@ -481,7 +556,8 @@
   },
   {
     "comment": "update - Statement 121",
-    "query": "DROP USER regress_range_parted_user"
+    "query": "DROP USER regress_range_parted_user",
+    "expected": "DROP ROLE regress_range_parted_user"
   },
   {
     "comment": "update - Statement 122",
@@ -489,59 +565,73 @@
   },
   {
     "comment": "update - Statement 123",
-    "query": "CREATE FUNCTION trigfunc() returns trigger language plpgsql as $$ begin raise notice 'trigger = % fired on table % during %', TG_NAME, TG_TABLE_NAME, TG_OP; return null; end; $$"
+    "query": "CREATE FUNCTION trigfunc() returns trigger language plpgsql as $$ begin raise notice 'trigger = % fired on table % during %', TG_NAME, TG_TABLE_NAME, TG_OP; return null; end; $$",
+    "expected": "CREATE FUNCTION trigfunc () RETURNS trigger LANGUAGE plpgsql AS $$ begin raise notice 'trigger = % fired on table % during %', TG_NAME, TG_TABLE_NAME, TG_OP; return null; end; $$"
   },
   {
     "comment": "update - Statement 124",
-    "query": "CREATE TRIGGER parent_delete_trig AFTER DELETE ON range_parted for each statement execute procedure trigfunc()"
+    "query": "CREATE TRIGGER parent_delete_trig AFTER DELETE ON range_parted for each statement execute procedure trigfunc()",
+    "expected": "CREATE TRIGGER parent_delete_trig AFTER DELETE ON range_parted EXECUTE FUNCTION trigfunc()"
   },
   {
     "comment": "update - Statement 125",
-    "query": "CREATE TRIGGER parent_update_trig AFTER UPDATE ON range_parted for each statement execute procedure trigfunc()"
+    "query": "CREATE TRIGGER parent_update_trig AFTER UPDATE ON range_parted for each statement execute procedure trigfunc()",
+    "expected": "CREATE TRIGGER parent_update_trig AFTER UPDATE ON range_parted EXECUTE FUNCTION trigfunc()"
   },
   {
     "comment": "update - Statement 126",
-    "query": "CREATE TRIGGER parent_insert_trig AFTER INSERT ON range_parted for each statement execute procedure trigfunc()"
+    "query": "CREATE TRIGGER parent_insert_trig AFTER INSERT ON range_parted for each statement execute procedure trigfunc()",
+    "expected": "CREATE TRIGGER parent_insert_trig AFTER INSERT ON range_parted EXECUTE FUNCTION trigfunc()"
   },
   {
     "comment": "update - Statement 127",
-    "query": "CREATE TRIGGER c1_delete_trig AFTER DELETE ON part_c_1_100 for each statement execute procedure trigfunc()"
+    "query": "CREATE TRIGGER c1_delete_trig AFTER DELETE ON part_c_1_100 for each statement execute procedure trigfunc()",
+    "expected": "CREATE TRIGGER c1_delete_trig AFTER DELETE ON part_c_1_100 EXECUTE FUNCTION trigfunc()"
   },
   {
     "comment": "update - Statement 128",
-    "query": "CREATE TRIGGER c1_update_trig AFTER UPDATE ON part_c_1_100 for each statement execute procedure trigfunc()"
+    "query": "CREATE TRIGGER c1_update_trig AFTER UPDATE ON part_c_1_100 for each statement execute procedure trigfunc()",
+    "expected": "CREATE TRIGGER c1_update_trig AFTER UPDATE ON part_c_1_100 EXECUTE FUNCTION trigfunc()"
   },
   {
     "comment": "update - Statement 129",
-    "query": "CREATE TRIGGER c1_insert_trig AFTER INSERT ON part_c_1_100 for each statement execute procedure trigfunc()"
+    "query": "CREATE TRIGGER c1_insert_trig AFTER INSERT ON part_c_1_100 for each statement execute procedure trigfunc()",
+    "expected": "CREATE TRIGGER c1_insert_trig AFTER INSERT ON part_c_1_100 EXECUTE FUNCTION trigfunc()"
   },
   {
     "comment": "update - Statement 130",
-    "query": "CREATE TRIGGER d1_delete_trig AFTER DELETE ON part_d_1_15 for each statement execute procedure trigfunc()"
+    "query": "CREATE TRIGGER d1_delete_trig AFTER DELETE ON part_d_1_15 for each statement execute procedure trigfunc()",
+    "expected": "CREATE TRIGGER d1_delete_trig AFTER DELETE ON part_d_1_15 EXECUTE FUNCTION trigfunc()"
   },
   {
     "comment": "update - Statement 131",
-    "query": "CREATE TRIGGER d1_update_trig AFTER UPDATE ON part_d_1_15 for each statement execute procedure trigfunc()"
+    "query": "CREATE TRIGGER d1_update_trig AFTER UPDATE ON part_d_1_15 for each statement execute procedure trigfunc()",
+    "expected": "CREATE TRIGGER d1_update_trig AFTER UPDATE ON part_d_1_15 EXECUTE FUNCTION trigfunc()"
   },
   {
     "comment": "update - Statement 132",
-    "query": "CREATE TRIGGER d1_insert_trig AFTER INSERT ON part_d_1_15 for each statement execute procedure trigfunc()"
+    "query": "CREATE TRIGGER d1_insert_trig AFTER INSERT ON part_d_1_15 for each statement execute procedure trigfunc()",
+    "expected": "CREATE TRIGGER d1_insert_trig AFTER INSERT ON part_d_1_15 EXECUTE FUNCTION trigfunc()"
   },
   {
     "comment": "update - Statement 133",
-    "query": "CREATE TRIGGER d15_delete_trig AFTER DELETE ON part_d_15_20 for each statement execute procedure trigfunc()"
+    "query": "CREATE TRIGGER d15_delete_trig AFTER DELETE ON part_d_15_20 for each statement execute procedure trigfunc()",
+    "expected": "CREATE TRIGGER d15_delete_trig AFTER DELETE ON part_d_15_20 EXECUTE FUNCTION trigfunc()"
   },
   {
     "comment": "update - Statement 134",
-    "query": "CREATE TRIGGER d15_update_trig AFTER UPDATE ON part_d_15_20 for each statement execute procedure trigfunc()"
+    "query": "CREATE TRIGGER d15_update_trig AFTER UPDATE ON part_d_15_20 for each statement execute procedure trigfunc()",
+    "expected": "CREATE TRIGGER d15_update_trig AFTER UPDATE ON part_d_15_20 EXECUTE FUNCTION trigfunc()"
   },
   {
     "comment": "update - Statement 135",
-    "query": "CREATE TRIGGER d15_insert_trig AFTER INSERT ON part_d_15_20 for each statement execute procedure trigfunc()"
+    "query": "CREATE TRIGGER d15_insert_trig AFTER INSERT ON part_d_15_20 for each statement execute procedure trigfunc()",
+    "expected": "CREATE TRIGGER d15_insert_trig AFTER INSERT ON part_d_15_20 EXECUTE FUNCTION trigfunc()"
   },
   {
     "comment": "update - Statement 136",
-    "query": "UPDATE range_parted set c = c - 50 WHERE c > 97"
+    "query": "UPDATE range_parted set c = c - 50 WHERE c \u003e 97",
+    "expected": "UPDATE range_parted SET c = c - 50 WHERE c \u003e 97"
   },
   {
     "comment": "update - Statement 137",
@@ -593,35 +683,43 @@
   },
   {
     "comment": "update - Statement 149",
-    "query": "create table part_def partition of range_parted default"
+    "query": "create table part_def partition of range_parted default",
+    "expected": "CREATE TABLE part_def PARTITION OF range_parted DEFAULT"
   },
   {
     "comment": "update - Statement 150",
-    "query": "update part_def set a = 'd' where a = 'c'"
+    "query": "update part_def set a = 'd' where a = 'c'",
+    "expected": "UPDATE part_def SET a = 'd' WHERE a = 'c'"
   },
   {
     "comment": "update - Statement 151",
-    "query": "update part_def set a = 'a' where a = 'd'"
+    "query": "update part_def set a = 'a' where a = 'd'",
+    "expected": "UPDATE part_def SET a = 'a' WHERE a = 'd'"
   },
   {
     "comment": "update - Statement 152",
-    "query": "UPDATE part_a_10_a_20 set a = 'ad' WHERE a = 'a'"
+    "query": "UPDATE part_a_10_a_20 set a = 'ad' WHERE a = 'a'",
+    "expected": "UPDATE part_a_10_a_20 SET a = 'ad' WHERE a = 'a'"
   },
   {
     "comment": "update - Statement 153",
-    "query": "UPDATE range_parted set a = 'ad' WHERE a = 'a'"
+    "query": "UPDATE range_parted set a = 'ad' WHERE a = 'a'",
+    "expected": "UPDATE range_parted SET a = 'ad' WHERE a = 'a'"
   },
   {
     "comment": "update - Statement 154",
-    "query": "UPDATE range_parted set a = 'bd' WHERE a = 'b'"
+    "query": "UPDATE range_parted set a = 'bd' WHERE a = 'b'",
+    "expected": "UPDATE range_parted SET a = 'bd' WHERE a = 'b'"
   },
   {
     "comment": "update - Statement 155",
-    "query": "UPDATE range_parted set a = 'a' WHERE a = 'ad'"
+    "query": "UPDATE range_parted set a = 'a' WHERE a = 'ad'",
+    "expected": "UPDATE range_parted SET a = 'a' WHERE a = 'ad'"
   },
   {
     "comment": "update - Statement 156",
-    "query": "UPDATE range_parted set a = 'b' WHERE a = 'bd'"
+    "query": "UPDATE range_parted set a = 'b' WHERE a = 'bd'",
+    "expected": "UPDATE range_parted SET a = 'b' WHERE a = 'bd'"
   },
   {
     "comment": "update - Statement 157",
@@ -629,31 +727,38 @@
   },
   {
     "comment": "update - Statement 158",
-    "query": "CREATE TABLE list_parted ( a text, b int ) PARTITION BY list (a)"
+    "query": "CREATE TABLE list_parted ( a text, b int ) PARTITION BY list (a)",
+    "expected": "CREATE TABLE list_parted (a TEXT, b INT) PARTITION BY list (a)"
   },
   {
     "comment": "update - Statement 159",
-    "query": "CREATE TABLE list_part1  PARTITION OF list_parted for VALUES in ('a', 'b')"
+    "query": "CREATE TABLE list_part1  PARTITION OF list_parted for VALUES in ('a', 'b')",
+    "expected": "CREATE TABLE list_part1 PARTITION OF list_parted FOR VALUES IN ('a', 'b')"
   },
   {
     "comment": "update - Statement 160",
-    "query": "CREATE TABLE list_default PARTITION OF list_parted default"
+    "query": "CREATE TABLE list_default PARTITION OF list_parted default",
+    "expected": "CREATE TABLE list_default PARTITION OF list_parted DEFAULT"
   },
   {
     "comment": "update - Statement 161",
-    "query": "INSERT into list_part1 VALUES ('a', 1)"
+    "query": "INSERT into list_part1 VALUES ('a', 1)",
+    "expected": "INSERT INTO list_part1 VALUES ('a', 1)"
   },
   {
     "comment": "update - Statement 162",
-    "query": "INSERT into list_default VALUES ('d', 10)"
+    "query": "INSERT into list_default VALUES ('d', 10)",
+    "expected": "INSERT INTO list_default VALUES ('d', 10)"
   },
   {
     "comment": "update - Statement 163",
-    "query": "UPDATE list_default set a = 'a' WHERE a = 'd'"
+    "query": "UPDATE list_default set a = 'a' WHERE a = 'd'",
+    "expected": "UPDATE list_default SET a = 'a' WHERE a = 'd'"
   },
   {
     "comment": "update - Statement 164",
-    "query": "UPDATE list_default set a = 'x' WHERE a = 'd'"
+    "query": "UPDATE list_default set a = 'x' WHERE a = 'd'",
+    "expected": "UPDATE list_default SET a = 'x' WHERE a = 'd'"
   },
   {
     "comment": "update - Statement 165",
@@ -661,135 +766,168 @@
   },
   {
     "comment": "update - Statement 166",
-    "query": "create table utrtest (a int, b text) partition by list (a)"
+    "query": "create table utrtest (a int, b text) partition by list (a)",
+    "expected": "CREATE TABLE utrtest (a INT, b TEXT) PARTITION BY list (a)"
   },
   {
     "comment": "update - Statement 167",
-    "query": "create table utr1 (a int check (a in (1)), q text, b text)"
+    "query": "create table utr1 (a int check (a in (1)), q text, b text)",
+    "expected": "CREATE TABLE utr1 (a INT CHECK (a IN (1)), q TEXT, b TEXT)"
   },
   {
     "comment": "update - Statement 168",
-    "query": "create table utr2 (a int check (a in (2)), b text)"
+    "query": "create table utr2 (a int check (a in (2)), b text)",
+    "expected": "CREATE TABLE utr2 (a INT CHECK (a IN (2)), b TEXT)"
   },
   {
     "comment": "update - Statement 169",
-    "query": "alter table utr1 drop column q"
+    "query": "alter table utr1 drop column q",
+    "expected": "ALTER TABLE utr1 DROP COLUMN q"
   },
   {
     "comment": "update - Statement 170",
-    "query": "alter table utrtest attach partition utr1 for values in (1)"
+    "query": "alter table utrtest attach partition utr1 for values in (1)",
+    "expected": "ALTER TABLE utrtest ATTACH PARTITION utr1 FOR VALUES IN (1)"
   },
   {
     "comment": "update - Statement 171",
-    "query": "alter table utrtest attach partition utr2 for values in (2)"
+    "query": "alter table utrtest attach partition utr2 for values in (2)",
+    "expected": "ALTER TABLE utrtest ATTACH PARTITION utr2 FOR VALUES IN (2)"
   },
   {
     "comment": "update - Statement 172",
-    "query": "insert into utrtest values (1, 'foo') returning *, tableoid::regclass, xmin = pg_current_xact_id()::xid as xmin_ok"
+    "query": "insert into utrtest values (1, 'foo') returning *, tableoid::regclass, xmin = pg_current_xact_id()::xid as xmin_ok",
+    "expected": "INSERT INTO utrtest VALUES (1, 'foo') RETURNING *, CAST(tableoid AS regclass), xmin = CAST(pg_current_xact_id() AS xid) AS xmin_ok"
   },
   {
     "comment": "update - Statement 173",
-    "query": "insert into utrtest values (2, 'bar') returning *, tableoid::regclass, xmin = pg_current_xact_id()::xid as xmin_ok"
+    "query": "insert into utrtest values (2, 'bar') returning *, tableoid::regclass, xmin = pg_current_xact_id()::xid as xmin_ok",
+    "expected": "INSERT INTO utrtest VALUES (2, 'bar') RETURNING *, CAST(tableoid AS regclass), xmin = CAST(pg_current_xact_id() AS xid) AS xmin_ok"
   },
   {
     "comment": "update - Statement 174",
-    "query": "insert into utrtest values (2, 'bar') returning *, tableoid::regclass"
+    "query": "insert into utrtest values (2, 'bar') returning *, tableoid::regclass",
+    "expected": "INSERT INTO utrtest VALUES (2, 'bar') RETURNING *, CAST(tableoid AS regclass)"
   },
   {
     "comment": "update - Statement 175",
-    "query": "update utrtest set b = b || b from (values (1), (2)) s(x) where a = s.x returning *, tableoid::regclass, xmin = pg_current_xact_id()::xid as xmin_ok"
+    "query": "update utrtest set b = b || b from (values (1), (2)) s(x) where a = s.x returning *, tableoid::regclass, xmin = pg_current_xact_id()::xid as xmin_ok",
+    "expected": "UPDATE utrtest SET b = b || b FROM (VALUES (1), (2)) AS s(x) WHERE a = s.x RETURNING *, CAST(tableoid AS regclass), xmin = CAST(pg_current_xact_id() AS xid) AS xmin_ok"
   },
   {
     "comment": "update - Statement 176",
-    "query": "update utrtest set a = 3 - a from (values (1), (2)) s(x) where a = s.x returning *, tableoid::regclass, xmin = pg_current_xact_id()::xid as xmin_ok"
+    "query": "update utrtest set a = 3 - a from (values (1), (2)) s(x) where a = s.x returning *, tableoid::regclass, xmin = pg_current_xact_id()::xid as xmin_ok",
+    "expected": "UPDATE utrtest SET a = 3 - a FROM (VALUES (1), (2)) AS s(x) WHERE a = s.x RETURNING *, CAST(tableoid AS regclass), xmin = CAST(pg_current_xact_id() AS xid) AS xmin_ok"
   },
   {
     "comment": "update - Statement 177",
-    "query": "update utrtest set a = 3 - a from (values (1), (2)) s(x) where a = s.x returning *, tableoid::regclass"
+    "query": "update utrtest set a = 3 - a from (values (1), (2)) s(x) where a = s.x returning *, tableoid::regclass",
+    "expected": "UPDATE utrtest SET a = 3 - a FROM (VALUES (1), (2)) AS s(x) WHERE a = s.x RETURNING *, CAST(tableoid AS regclass)"
   },
   {
     "comment": "update - Statement 178",
-    "query": "delete from utrtest returning *, tableoid::regclass, xmax = pg_current_xact_id()::xid as xmax_ok"
+    "query": "delete from utrtest returning *, tableoid::regclass, xmax = pg_current_xact_id()::xid as xmax_ok",
+    "expected": "DELETE FROM utrtest RETURNING *, CAST(tableoid AS regclass), xmax = CAST(pg_current_xact_id() AS xid) AS xmax_ok"
   },
   {
     "comment": "update - Statement 179",
-    "query": "drop table utrtest"
+    "query": "drop table utrtest",
+    "expected": "DROP TABLE utrtest"
   },
   {
     "comment": "update - Statement 180",
-    "query": "CREATE TABLE list_parted (a numeric, b int, c int8) PARTITION BY list (a)"
+    "query": "CREATE TABLE list_parted (a numeric, b int, c int8) PARTITION BY list (a)",
+    "expected": "CREATE TABLE list_parted (a NUMERIC, b INT, c BIGINT) PARTITION BY list (a)"
   },
   {
     "comment": "update - Statement 181",
-    "query": "CREATE TABLE sub_parted PARTITION OF list_parted for VALUES in (1) PARTITION BY list (b)"
+    "query": "CREATE TABLE sub_parted PARTITION OF list_parted for VALUES in (1) PARTITION BY list (b)",
+    "expected": "CREATE TABLE sub_parted PARTITION OF list_parted FOR VALUES IN (1) PARTITION BY list (b)"
   },
   {
     "comment": "update - Statement 182",
-    "query": "CREATE TABLE sub_part1(b int, c int8, a numeric)"
+    "query": "CREATE TABLE sub_part1(b int, c int8, a numeric)",
+    "expected": "CREATE TABLE sub_part1 (b INT, c BIGINT, a NUMERIC)"
   },
   {
     "comment": "update - Statement 183",
-    "query": "ALTER TABLE sub_parted ATTACH PARTITION sub_part1 for VALUES in (1)"
+    "query": "ALTER TABLE sub_parted ATTACH PARTITION sub_part1 for VALUES in (1)",
+    "expected": "ALTER TABLE sub_parted ATTACH PARTITION sub_part1 FOR VALUES IN (1)"
   },
   {
     "comment": "update - Statement 184",
-    "query": "CREATE TABLE sub_part2(b int, c int8, a numeric)"
+    "query": "CREATE TABLE sub_part2(b int, c int8, a numeric)",
+    "expected": "CREATE TABLE sub_part2 (b INT, c BIGINT, a NUMERIC)"
   },
   {
     "comment": "update - Statement 185",
-    "query": "ALTER TABLE sub_parted ATTACH PARTITION sub_part2 for VALUES in (2)"
+    "query": "ALTER TABLE sub_parted ATTACH PARTITION sub_part2 for VALUES in (2)",
+    "expected": "ALTER TABLE sub_parted ATTACH PARTITION sub_part2 FOR VALUES IN (2)"
   },
   {
     "comment": "update - Statement 186",
-    "query": "CREATE TABLE list_part1(a numeric, b int, c int8)"
+    "query": "CREATE TABLE list_part1(a numeric, b int, c int8)",
+    "expected": "CREATE TABLE list_part1 (a NUMERIC, b INT, c BIGINT)"
   },
   {
     "comment": "update - Statement 187",
-    "query": "ALTER TABLE list_parted ATTACH PARTITION list_part1 for VALUES in (2,3)"
+    "query": "ALTER TABLE list_parted ATTACH PARTITION list_part1 for VALUES in (2,3)",
+    "expected": "ALTER TABLE list_parted ATTACH PARTITION list_part1 FOR VALUES IN (2, 3)"
   },
   {
     "comment": "update - Statement 188",
-    "query": "INSERT into list_parted VALUES (2,5,50)"
+    "query": "INSERT into list_parted VALUES (2,5,50)",
+    "expected": "INSERT INTO list_parted VALUES (2, 5, 50)"
   },
   {
     "comment": "update - Statement 189",
-    "query": "INSERT into list_parted VALUES (3,6,60)"
+    "query": "INSERT into list_parted VALUES (3,6,60)",
+    "expected": "INSERT INTO list_parted VALUES (3, 6, 60)"
   },
   {
     "comment": "update - Statement 190",
-    "query": "INSERT into sub_parted VALUES (1,1,60)"
+    "query": "INSERT into sub_parted VALUES (1,1,60)",
+    "expected": "INSERT INTO sub_parted VALUES (1, 1, 60)"
   },
   {
     "comment": "update - Statement 191",
-    "query": "INSERT into sub_parted VALUES (1,2,10)"
+    "query": "INSERT into sub_parted VALUES (1,2,10)",
+    "expected": "INSERT INTO sub_parted VALUES (1, 2, 10)"
   },
   {
     "comment": "update - Statement 192",
-    "query": "UPDATE sub_parted set a = 2 WHERE c = 10"
+    "query": "UPDATE sub_parted set a = 2 WHERE c = 10",
+    "expected": "UPDATE sub_parted SET a = 2 WHERE c = 10"
   },
   {
     "comment": "update - Statement 193",
-    "query": "SELECT tableoid::regclass::text, * FROM list_parted WHERE a = 2 ORDER BY 1"
+    "query": "SELECT tableoid::regclass::text, * FROM list_parted WHERE a = 2 ORDER BY 1",
+    "expected": "SELECT CAST(CAST(tableoid AS regclass) AS TEXT), * FROM list_parted WHERE a = 2 ORDER BY 1"
   },
   {
     "comment": "update - Statement 194",
-    "query": "UPDATE list_parted set b = c + a WHERE a = 2"
+    "query": "UPDATE list_parted set b = c + a WHERE a = 2",
+    "expected": "UPDATE list_parted SET b = c + a WHERE a = 2"
   },
   {
     "comment": "update - Statement 195",
-    "query": "CREATE FUNCTION func_parted_mod_b() returns trigger as $$ BEGIN NEW.b = 2; return NEW; END $$ LANGUAGE plpgsql"
+    "query": "CREATE FUNCTION func_parted_mod_b() returns trigger as $$ BEGIN NEW.b = 2; return NEW; END $$ LANGUAGE plpgsql",
+    "expected": "CREATE FUNCTION func_parted_mod_b () RETURNS trigger AS $$ BEGIN NEW.b = 2; return NEW; END $$ LANGUAGE plpgsql"
   },
   {
     "comment": "update - Statement 196",
-    "query": "CREATE TRIGGER parted_mod_b before update on sub_part1 for each row execute procedure func_parted_mod_b()"
+    "query": "CREATE TRIGGER parted_mod_b before update on sub_part1 for each row execute procedure func_parted_mod_b()",
+    "expected": "CREATE TRIGGER parted_mod_b BEFORE UPDATE ON sub_part1 FOR EACH ROW EXECUTE FUNCTION func_parted_mod_b()"
   },
   {
     "comment": "update - Statement 197",
-    "query": "SELECT tableoid::regclass::text, * FROM list_parted ORDER BY 1, 2, 3, 4"
+    "query": "SELECT tableoid::regclass::text, * FROM list_parted ORDER BY 1, 2, 3, 4",
+    "expected": "SELECT CAST(CAST(tableoid AS regclass) AS TEXT), * FROM list_parted ORDER BY 1, 2, 3, 4"
   },
   {
     "comment": "update - Statement 198",
-    "query": "UPDATE list_parted set c = 70 WHERE b  = 1"
+    "query": "UPDATE list_parted set c = 70 WHERE b  = 1",
+    "expected": "UPDATE list_parted SET c = 70 WHERE b = 1"
   },
   {
     "comment": "update - Statement 199",
@@ -797,15 +935,18 @@
   },
   {
     "comment": "update - Statement 200",
-    "query": "CREATE OR REPLACE FUNCTION func_parted_mod_b() returns trigger as $$ BEGIN raise notice 'Trigger: Got OLD row %, but returning NULL', OLD; return NULL; END $$ LANGUAGE plpgsql"
+    "query": "CREATE OR REPLACE FUNCTION func_parted_mod_b() returns trigger as $$ BEGIN raise notice 'Trigger: Got OLD row %, but returning NULL', OLD; return NULL; END $$ LANGUAGE plpgsql",
+    "expected": "CREATE OR REPLACE FUNCTION func_parted_mod_b () RETURNS trigger AS $$ BEGIN raise notice 'Trigger: Got OLD row %, but returning NULL', OLD; return NULL; END $$ LANGUAGE plpgsql"
   },
   {
     "comment": "update - Statement 201",
-    "query": "CREATE TRIGGER trig_skip_delete before delete on sub_part2 for each row execute procedure func_parted_mod_b()"
+    "query": "CREATE TRIGGER trig_skip_delete before delete on sub_part2 for each row execute procedure func_parted_mod_b()",
+    "expected": "CREATE TRIGGER trig_skip_delete BEFORE DELETE ON sub_part2 FOR EACH ROW EXECUTE FUNCTION func_parted_mod_b()"
   },
   {
     "comment": "update - Statement 202",
-    "query": "UPDATE list_parted set b = 1 WHERE c = 70"
+    "query": "UPDATE list_parted set b = 1 WHERE c = 70",
+    "expected": "UPDATE list_parted SET b = 1 WHERE c = 70"
   },
   {
     "comment": "update - Statement 203",
@@ -813,15 +954,18 @@
   },
   {
     "comment": "update - Statement 204",
-    "query": "CREATE TABLE non_parted (id int)"
+    "query": "CREATE TABLE non_parted (id int)",
+    "expected": "CREATE TABLE non_parted (id INT)"
   },
   {
     "comment": "update - Statement 205",
-    "query": "INSERT into non_parted VALUES (1), (1), (1), (2), (2), (2), (3), (3), (3)"
+    "query": "INSERT into non_parted VALUES (1), (1), (1), (2), (2), (2), (3), (3), (3)",
+    "expected": "INSERT INTO non_parted VALUES (1), (1), (1), (2), (2), (2), (3), (3), (3)"
   },
   {
     "comment": "update - Statement 206",
-    "query": "UPDATE list_parted t1 set a = 2 FROM non_parted t2 WHERE t1.a = t2.id and a = 1"
+    "query": "UPDATE list_parted t1 set a = 2 FROM non_parted t2 WHERE t1.a = t2.id and a = 1",
+    "expected": "UPDATE list_parted AS t1 SET a = 2 FROM non_parted AS t2 WHERE t1.a = t2.id AND a = 1"
   },
   {
     "comment": "update - Statement 207",
@@ -829,66 +973,82 @@
   },
   {
     "comment": "update - Statement 208",
-    "query": "create or replace function dummy_hashint4(a int4, seed int8) returns int8 as $$ begin return (a + seed); end; $$ language 'plpgsql' immutable"
+    "query": "create or replace function dummy_hashint4(a int4, seed int8) returns int8 as $$ begin return (a + seed); end; $$ language 'plpgsql' immutable",
+    "expected": "CREATE OR REPLACE FUNCTION dummy_hashint4 (a INT, seed BIGINT) RETURNS BIGINT AS $$ begin return (a + seed); end; $$ LANGUAGE plpgsql IMMUTABLE"
   },
   {
     "comment": "update - Statement 209",
-    "query": "create operator class custom_opclass for type int4 using hash as operator 1 = , function 2 dummy_hashint4(int4, int8)"
+    "query": "create operator class custom_opclass for type int4 using hash as operator 1 = , function 2 dummy_hashint4(int4, int8)",
+    "expected": "CREATE OPERATOR CLASS custom_opclass FOR TYPE INT USING hash AS OPERATOR 1 =, FUNCTION 2 dummy_hashint4(int4, int8)"
   },
   {
     "comment": "update - Statement 210",
-    "query": "create table hash_parted ( a int, b int ) partition by hash (a custom_opclass, b custom_opclass)"
+    "query": "create table hash_parted ( a int, b int ) partition by hash (a custom_opclass, b custom_opclass)",
+    "expected": "CREATE TABLE hash_parted (a INT, b INT) PARTITION BY hash (a custom_opclass, b custom_opclass)"
   },
   {
     "comment": "update - Statement 211",
-    "query": "create table hpart1 partition of hash_parted for values with (modulus 2, remainder 1)"
+    "query": "create table hpart1 partition of hash_parted for values with (modulus 2, remainder 1)",
+    "expected": "CREATE TABLE hpart1 PARTITION OF hash_parted FOR VALUES WITH (modulus 2, remainder 1)"
   },
   {
     "comment": "update - Statement 212",
-    "query": "create table hpart2 partition of hash_parted for values with (modulus 4, remainder 2)"
+    "query": "create table hpart2 partition of hash_parted for values with (modulus 4, remainder 2)",
+    "expected": "CREATE TABLE hpart2 PARTITION OF hash_parted FOR VALUES WITH (modulus 4, remainder 2)"
   },
   {
     "comment": "update - Statement 213",
-    "query": "create table hpart3 partition of hash_parted for values with (modulus 8, remainder 0)"
+    "query": "create table hpart3 partition of hash_parted for values with (modulus 8, remainder 0)",
+    "expected": "CREATE TABLE hpart3 PARTITION OF hash_parted FOR VALUES WITH (modulus 8, remainder 0)"
   },
   {
     "comment": "update - Statement 214",
-    "query": "create table hpart4 partition of hash_parted for values with (modulus 8, remainder 4)"
+    "query": "create table hpart4 partition of hash_parted for values with (modulus 8, remainder 4)",
+    "expected": "CREATE TABLE hpart4 PARTITION OF hash_parted FOR VALUES WITH (modulus 8, remainder 4)"
   },
   {
     "comment": "update - Statement 215",
-    "query": "insert into hpart1 values (1, 1)"
+    "query": "insert into hpart1 values (1, 1)",
+    "expected": "INSERT INTO hpart1 VALUES (1, 1)"
   },
   {
     "comment": "update - Statement 216",
-    "query": "insert into hpart2 values (2, 5)"
+    "query": "insert into hpart2 values (2, 5)",
+    "expected": "INSERT INTO hpart2 VALUES (2, 5)"
   },
   {
     "comment": "update - Statement 217",
-    "query": "insert into hpart4 values (3, 4)"
+    "query": "insert into hpart4 values (3, 4)",
+    "expected": "INSERT INTO hpart4 VALUES (3, 4)"
   },
   {
     "comment": "update - Statement 218",
-    "query": "update hpart1 set a = 3, b=4 where a = 1"
+    "query": "update hpart1 set a = 3, b=4 where a = 1",
+    "expected": "UPDATE hpart1 SET a = 3, b = 4 WHERE a = 1"
   },
   {
     "comment": "update - Statement 219",
-    "query": "update hash_parted set b = b - 1 where b = 1"
+    "query": "update hash_parted set b = b - 1 where b = 1",
+    "expected": "UPDATE hash_parted SET b = b - 1 WHERE b = 1"
   },
   {
     "comment": "update - Statement 220",
-    "query": "update hash_parted set b = b + 8 where b = 1"
+    "query": "update hash_parted set b = b + 8 where b = 1",
+    "expected": "UPDATE hash_parted SET b = b + 8 WHERE b = 1"
   },
   {
     "comment": "update - Statement 221",
-    "query": "drop table hash_parted"
+    "query": "drop table hash_parted",
+    "expected": "DROP TABLE hash_parted"
   },
   {
     "comment": "update - Statement 222",
-    "query": "drop operator class custom_opclass using hash"
+    "query": "drop operator class custom_opclass using hash",
+    "expected": "DROP OPERATOR CLASS custom_opclass USING hash RESTRICT"
   },
   {
     "comment": "update - Statement 223",
-    "query": "drop function dummy_hashint4(a int4, seed int8)"
+    "query": "drop function dummy_hashint4(a int4, seed int8)",
+    "expected": "DROP FUNCTION dummy_hashint4(a INT, seed BIGINT)"
   }
 ]

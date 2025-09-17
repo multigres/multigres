@@ -1,71 +1,88 @@
 [
   {
     "comment": "varchar - Statement 1",
-    "query": "CREATE TEMP TABLE VARCHAR_TBL(f1 varchar(1))"
+    "query": "CREATE TEMP TABLE VARCHAR_TBL(f1 varchar(1))",
+    "expected": "CREATE TEMPORARY TABLE varchar_tbl (f1 VARCHAR(1))"
   },
   {
     "comment": "varchar - Statement 2",
-    "query": "INSERT INTO VARCHAR_TBL (f1) VALUES ('a')"
+    "query": "INSERT INTO VARCHAR_TBL (f1) VALUES ('a')",
+    "expected": "INSERT INTO varchar_tbl (f1) VALUES ('a')"
   },
   {
     "comment": "varchar - Statement 3",
-    "query": "INSERT INTO VARCHAR_TBL (f1) VALUES ('1')"
+    "query": "INSERT INTO VARCHAR_TBL (f1) VALUES ('1')",
+    "expected": "INSERT INTO varchar_tbl (f1) VALUES ('1')"
   },
   {
     "comment": "varchar - Statement 4",
-    "query": "INSERT INTO VARCHAR_TBL (f1) VALUES (2)"
+    "query": "INSERT INTO VARCHAR_TBL (f1) VALUES (2)",
+    "expected": "INSERT INTO varchar_tbl (f1) VALUES (2)"
   },
   {
     "comment": "varchar - Statement 5",
-    "query": "INSERT INTO VARCHAR_TBL (f1) VALUES ('3')"
+    "query": "INSERT INTO VARCHAR_TBL (f1) VALUES ('3')",
+    "expected": "INSERT INTO varchar_tbl (f1) VALUES ('3')"
   },
   {
     "comment": "varchar - Statement 6",
-    "query": "INSERT INTO VARCHAR_TBL (f1) VALUES ('')"
+    "query": "INSERT INTO VARCHAR_TBL (f1) VALUES ('')",
+    "expected": "INSERT INTO varchar_tbl (f1) VALUES ('')"
   },
   {
     "comment": "varchar - Statement 7",
-    "query": "INSERT INTO VARCHAR_TBL (f1) VALUES ('cd')"
+    "query": "INSERT INTO VARCHAR_TBL (f1) VALUES ('cd')",
+    "expected": "INSERT INTO varchar_tbl (f1) VALUES ('cd')"
   },
   {
     "comment": "varchar - Statement 8",
-    "query": "INSERT INTO VARCHAR_TBL (f1) VALUES ('c     ')"
+    "query": "INSERT INTO VARCHAR_TBL (f1) VALUES ('c     ')",
+    "expected": "INSERT INTO varchar_tbl (f1) VALUES ('c     ')"
   },
   {
     "comment": "varchar - Statement 9",
-    "query": "SELECT * FROM VARCHAR_TBL"
+    "query": "SELECT * FROM VARCHAR_TBL",
+    "expected": "SELECT * FROM varchar_tbl"
   },
   {
     "comment": "varchar - Statement 10",
-    "query": "SELECT c.* FROM VARCHAR_TBL c WHERE c.f1 <> 'a'"
+    "query": "SELECT c.* FROM VARCHAR_TBL c WHERE c.f1 \u003c\u003e 'a'",
+    "expected": "SELECT c.* FROM varchar_tbl AS c WHERE c.f1 \u003c\u003e 'a'"
   },
   {
     "comment": "varchar - Statement 11",
-    "query": "SELECT c.* FROM VARCHAR_TBL c WHERE c.f1 = 'a'"
+    "query": "SELECT c.* FROM VARCHAR_TBL c WHERE c.f1 = 'a'",
+    "expected": "SELECT c.* FROM varchar_tbl AS c WHERE c.f1 = 'a'"
   },
   {
     "comment": "varchar - Statement 12",
-    "query": "SELECT c.* FROM VARCHAR_TBL c WHERE c.f1 < 'a'"
+    "query": "SELECT c.* FROM VARCHAR_TBL c WHERE c.f1 \u003c 'a'",
+    "expected": "SELECT c.* FROM varchar_tbl AS c WHERE c.f1 \u003c 'a'"
   },
   {
     "comment": "varchar - Statement 13",
-    "query": "SELECT c.* FROM VARCHAR_TBL c WHERE c.f1 <= 'a'"
+    "query": "SELECT c.* FROM VARCHAR_TBL c WHERE c.f1 \u003c= 'a'",
+    "expected": "SELECT c.* FROM varchar_tbl AS c WHERE c.f1 \u003c= 'a'"
   },
   {
     "comment": "varchar - Statement 14",
-    "query": "SELECT c.* FROM VARCHAR_TBL c WHERE c.f1 > 'a'"
+    "query": "SELECT c.* FROM VARCHAR_TBL c WHERE c.f1 \u003e 'a'",
+    "expected": "SELECT c.* FROM varchar_tbl AS c WHERE c.f1 \u003e 'a'"
   },
   {
     "comment": "varchar - Statement 15",
-    "query": "SELECT c.* FROM VARCHAR_TBL c WHERE c.f1 >= 'a'"
+    "query": "SELECT c.* FROM VARCHAR_TBL c WHERE c.f1 \u003e= 'a'",
+    "expected": "SELECT c.* FROM varchar_tbl AS c WHERE c.f1 \u003e= 'a'"
   },
   {
     "comment": "varchar - Statement 16",
-    "query": "DROP TABLE VARCHAR_TBL"
+    "query": "DROP TABLE VARCHAR_TBL",
+    "expected": "DROP TABLE varchar_tbl"
   },
   {
     "comment": "varchar - Statement 17",
-    "query": "INSERT INTO VARCHAR_TBL (f1) VALUES ('abcde')"
+    "query": "INSERT INTO VARCHAR_TBL (f1) VALUES ('abcde')",
+    "expected": "INSERT INTO varchar_tbl (f1) VALUES ('abcde')"
   },
   {
     "comment": "varchar - Statement 18",
