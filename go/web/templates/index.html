@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>{{.Title}}</title>
+    <link rel="stylesheet" href="/css/common.css" />
+  </head>
+  <body>
+    <div class="container">
+      <header class="header">
+        <h1 class="title">{{.Title}}</h1>
+      </header>
+
+      <main>
+        <section class="section">
+            <div class="page-link-group">
+                {{range .Links}}
+                <div class="page-link">
+                    <h2 class="section-title">{{.Title}}</h2>
+                    <br />
+                    <a href="{{.Link}}" class="live-link">{{.Link}}</a>
+                </div>
+                {{end}}
+            </div>
+        </section>
+      </main>
+      <div class="timestamp">
+        <script>
+          document.write(new Date().toISOString());
+        </script>
+        <br />local:
+        <script>
+          document.write(new Date().toLocaleString());
+        </script>
+      </div>
+        </section>
+      </main>
+    </div>
+  </body>
+</html>

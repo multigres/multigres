@@ -274,10 +274,6 @@ func getFlagHooksFor(cmd string) (hooks []func(fs *pflag.FlagSet)) {
 	return hooks
 }
 
-// Needed because some tests require multiple parse passes, so we guard against
-// that here.
-var debugConfigRegisterOnce sync.Once
-
 // ParseFlags initializes flags and handles the common case when no positional
 // arguments are expected.
 func ParseFlags(cmd string) {
@@ -328,10 +324,6 @@ func CobraPreRunE(cmd *cobra.Command, args []string) error {
 	// sending on a closed channel.
 	OnTerm(func() { close(ch) })
 
-	debugConfigRegisterOnce.Do(func() {
-		HTTPHandleFunc("/debug/config", viperdebug.HandlerFunc)
-	})
-
 	// Setup logging after config is loaded and flags are parsed
 	SetupLogging()
 
@@ -373,9 +365,6 @@ func loadViper(cmd string) {
 		os.Exit(1)
 	}
 	OnTerm(watchCancel)
-	debugConfigRegisterOnce.Do(func() {
-		HTTPHandleFunc("/debug/config", viperdebug.HandlerFunc)
-	})
 }
 
 // Flag installations for packages that servenv imports. We need to register
