@@ -231,31 +231,3 @@ func (s *parseTestSuite) TestPostgresTestsParsing() {
 		}
 	}
 }
-
-// TestDeparsing tests round-trip parsing and deparsing for all supported constructs
-func TestDeparsingsecond(t *testing.T) {
-	tests := []struct {
-		name     string
-		input    string
-		expected string // If empty, expects exact match with input
-	}{}
-
-	var expected []ParseTest
-	for _, tt := range tests {
-		expected = append(expected, ParseTest{
-			Comment:  tt.name,
-			Query:    tt.input,
-			Expected: tt.expected,
-		})
-	}
-
-	name := "/Users/manangupta/multigres/go/parser/testdata/deparse_cases.json"
-	file, err := os.Create(name)
-	require.NoError(t, err)
-	defer file.Close()
-
-	enc := json.NewEncoder(file)
-	enc.SetIndent("", "  ")
-	err = enc.Encode(expected)
-	require.NoError(t, err)
-}
