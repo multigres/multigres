@@ -37,3 +37,6 @@ go.work.sum
 
 # expected results of a test
 go/parser/testdata/expected
+
+# y.output file
+y.output
