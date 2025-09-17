@@ -1,3 +1,17 @@
+// Copyright 2025 Supabase, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 // Package ast provides PostgreSQL AST range table and FROM clause node definitions.
 // This file contains range table infrastructure nodes essential for FROM clause and JOIN support.
 // Ported from postgres/src/include/nodes/parsenodes.h and primnodes.h
@@ -15,8 +29,10 @@ import (
 // ==============================================================================
 
 // Type aliases for PostgreSQL types
-type AclMode uint32      // Access control mode bitmask
-type Cardinality float64 // Row count estimates
+type (
+	AclMode     uint32  // Access control mode bitmask
+	Cardinality float64 // Row count estimates
+)
 
 // TableFunc placeholder removed - now implemented in expressions.go
 
@@ -522,9 +538,7 @@ func (r *RangeTableSample) SqlString() string {
 	if r.Args != nil && len(r.Args.Items) > 0 {
 		var argStrs []string
 		for _, arg := range r.Args.Items {
-			if node, ok := arg.(Node); ok {
-				argStrs = append(argStrs, node.SqlString())
-			}
+			argStrs = append(argStrs, arg.SqlString())
 		}
 		parts = append(parts, fmt.Sprintf("(%s)", strings.Join(argStrs, ", ")))
 	} else {

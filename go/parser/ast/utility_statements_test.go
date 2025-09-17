@@ -1,4 +1,17 @@
-// Package ast provides PostgreSQL utility statement node tests.
+// Copyright 2025 Supabase, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 package ast
 
 import (
@@ -206,7 +219,7 @@ func TestGrantStmts(t *testing.T) {
 	t.Run("AlterDefaultPrivilegesStmt_Revoke", func(t *testing.T) {
 		// Test REVOKE action without options
 		options := &NodeList{Items: []Node{}}
-		
+
 		// Create REVOKE action
 		privilege := NewAccessPriv("INSERT", nil)
 		grantee := NewRoleSpec(ROLESPEC_CSTRING, "charlie")
@@ -251,7 +264,7 @@ func TestGrantStmts(t *testing.T) {
 	t.Run("AlterDefaultPrivilegesStmt_SqlString_Functions", func(t *testing.T) {
 		// Test with FUNCTIONS target and specific privileges
 		options := &NodeList{Items: []Node{}}
-		
+
 		privilege := NewAccessPriv("EXECUTE", nil)
 		grantee := NewRoleSpec(ROLESPEC_CSTRING, "dev_role")
 		action := NewGrantStmt(OBJECT_FUNCTION, nil, NewNodeList(privilege), NewNodeList(grantee))
@@ -798,7 +811,7 @@ func TestUtilityComplexExamples(t *testing.T) {
 		assert.True(t, stmt.IsVacuumcmd)
 		assert.Equal(t, 2, stmt.Options.Len())
 		assert.Equal(t, 1, stmt.Rels.Len())
-		
+
 		// Check that the first relation has the expected columns
 		firstRel := stmt.Rels.Items[0].(*VacuumRelation)
 		assert.Equal(t, 2, firstRel.VaCols.Len())

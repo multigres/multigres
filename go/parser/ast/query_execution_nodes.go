@@ -1,3 +1,17 @@
+// Copyright 2025 Supabase, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 // Package ast provides PostgreSQL AST query execution node definitions.
 // These nodes are essential for basic SQL query functionality including SELECT operations,
 // JOIN processing, subquery support, and modern SQL features like CTEs and window functions.
@@ -282,8 +296,8 @@ type SubPlan struct {
 	SetParam          []int        // initplan subqueries have to set these Params for parent plan - primnodes.h:1087
 	ParParam          []int        // indices of input Params from parent plan - primnodes.h:1088
 	Args              []Expression // exprs to pass as parParam values - primnodes.h:1089
-	StartupCost      float64      // one-time setup cost - primnodes.h:1090
-	PerCallCost     float64      // cost for each subplan evaluation - primnodes.h:1091
+	StartupCost       float64      // one-time setup cost - primnodes.h:1090
+	PerCallCost       float64      // cost for each subplan evaluation - primnodes.h:1091
 }
 
 // NewSubPlan creates a new SubPlan node.
@@ -345,20 +359,20 @@ func (asp *AlternativeSubPlan) String() string {
 // Ported from postgres/src/include/nodes/parsenodes.h:1536
 type WindowClause struct {
 	BaseNode
-	Name              string // Window name (NULL in an OVER clause) - parsenodes.h:1540
-	Refname           string // Referenced window name, if any - parsenodes.h:1542
+	Name              string    // Window name (NULL in an OVER clause) - parsenodes.h:1540
+	Refname           string    // Referenced window name, if any - parsenodes.h:1542
 	PartitionClause   *NodeList // PARTITION BY expression list - parsenodes.h:1543
 	OrderClause       *NodeList // ORDER BY (list of SortBy) - parsenodes.h:1545
-	FrameOptions      int    // Frame_clause options, see WindowDef - parsenodes.h:1546
-	StartOffset       Node   // Expression for starting bound, if any - parsenodes.h:1547
-	EndOffset         Node   // Expression for ending bound, if any - parsenodes.h:1548
-	StartInRangeFunc  Oid    // In_range function for startOffset - parsenodes.h:1550
-	EndInRangeFunc    Oid    // In_range function for endOffset - parsenodes.h:1552
-	InRangeColl       Oid    // Collation for in_range tests - parsenodes.h:1554
-	InRangeAsc        bool   // True if ASC in the ORDER BY clause - parsenodes.h:1556
-	InRangeNullsFirst bool   // True if NULLS FIRST in ORDER BY clause - parsenodes.h:1557
-	WinRef            Index  // winref assigned by windowClausesProcessor - parsenodes.h:1559
-	CopiedOrder       bool   // Did we copy orderClause from refname? - parsenodes.h:1560
+	FrameOptions      int       // Frame_clause options, see WindowDef - parsenodes.h:1546
+	StartOffset       Node      // Expression for starting bound, if any - parsenodes.h:1547
+	EndOffset         Node      // Expression for ending bound, if any - parsenodes.h:1548
+	StartInRangeFunc  Oid       // In_range function for startOffset - parsenodes.h:1550
+	EndInRangeFunc    Oid       // In_range function for endOffset - parsenodes.h:1552
+	InRangeColl       Oid       // Collation for in_range tests - parsenodes.h:1554
+	InRangeAsc        bool      // True if ASC in the ORDER BY clause - parsenodes.h:1556
+	InRangeNullsFirst bool      // True if NULLS FIRST in ORDER BY clause - parsenodes.h:1557
+	WinRef            Index     // winref assigned by windowClausesProcessor - parsenodes.h:1559
+	CopiedOrder       bool      // Did we copy orderClause from refname? - parsenodes.h:1560
 }
 
 // NewWindowClause creates a new WindowClause node.

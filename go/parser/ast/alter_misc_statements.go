@@ -1,5 +1,17 @@
-// Package ast provides PostgreSQL AST ALTER miscellaneous statement node definitions.
-// Ported from postgres/src/include/nodes/parsenodes.h
+// Copyright 2025 Supabase, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 package ast
 
 import (
@@ -507,8 +519,8 @@ func (n *AlterTSConfigurationStmt) SqlString() string {
 		if n.Tokentype != nil && n.Tokentype.Len() > 0 {
 			// Format: ALTER MAPPING FOR tokens REPLACE
 			parts = append(parts, "ALTER MAPPING")
-			
-			// Add FOR tokens  
+
+			// Add FOR tokens
 			parts = append(parts, "FOR")
 			var tokens []string
 			for _, token := range n.Tokentype.Items {
@@ -519,7 +531,7 @@ func (n *AlterTSConfigurationStmt) SqlString() string {
 				}
 			}
 			parts = append(parts, strings.Join(tokens, ", "))
-			
+
 			// Add REPLACE
 			parts = append(parts, "REPLACE")
 		} else {
@@ -529,7 +541,7 @@ func (n *AlterTSConfigurationStmt) SqlString() string {
 	} else {
 		// Standard operation types
 		parts = append(parts, n.Kind.String())
-		
+
 		// Add IF EXISTS if specified (for DROP operations)
 		if n.MissingOk && n.Kind == ALTER_TSCONFIG_DROP_MAPPING {
 			parts = append(parts, "IF EXISTS")

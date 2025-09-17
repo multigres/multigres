@@ -1,3 +1,17 @@
+// Copyright 2025 Supabase, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 /*
  * PostgreSQL Parser Lexer - Basic Tokenization Tests
  *
@@ -423,14 +437,14 @@ func TestComprehensiveOperatorRecognition(t *testing.T) {
 				tokenType TokenType
 				text      string
 			}{
-				{Op, "!=="},  // 3-char operator
-				{Op, "==="},  // 3-char operator
-				{Op, "=="},   // 2-char unknown operator
-				{Op, "++"},   // 2-char unknown operator
-				{Op, "**"},   // 2-char unknown operator
-				{Op, "&&"},   // 2-char unknown operator
-				{Op, "||"},   // 2-char unknown operator
-				{Op, "!!"},   // 2-char unknown operator
+				{Op, "!=="}, // 3-char operator
+				{Op, "==="}, // 3-char operator
+				{Op, "=="},  // 2-char unknown operator
+				{Op, "++"},  // 2-char unknown operator
+				{Op, "**"},  // 2-char unknown operator
+				{Op, "&&"},  // 2-char unknown operator
+				{Op, "||"},  // 2-char unknown operator
+				{Op, "!!"},  // 2-char unknown operator
 			},
 		},
 		{
@@ -464,7 +478,7 @@ func TestComprehensiveOperatorRecognition(t *testing.T) {
 				tokenType TokenType
 				text      string
 			}{
-				{Op, "!"},           // Single ! is an operator
+				{Op, "!"}, // Single ! is an operator
 				{TokenType('='), "="},
 				{TokenType('='), "="},
 				{TokenType('='), "="},
@@ -474,7 +488,7 @@ func TestComprehensiveOperatorRecognition(t *testing.T) {
 				{Op, "!"},
 				{Op, "=="},
 				{Op, "==="},
-				{Op, "!==="},        // 4-char operator
+				{Op, "!==="}, // 4-char operator
 			},
 		},
 		{
@@ -484,11 +498,11 @@ func TestComprehensiveOperatorRecognition(t *testing.T) {
 				tokenType TokenType
 				text      string
 			}{
-				{IDENT, "COMMUTATOR"},  // Token text preserves original case
+				{IDENT, "COMMUTATOR"}, // Token text preserves original case
 				{TokenType('='), "="},
 				{Op, "==="},
 				{TokenType(','), ","},
-				{IDENT, "NEGATOR"},      // Token text preserves original case
+				{IDENT, "NEGATOR"}, // Token text preserves original case
 				{TokenType('='), "="},
 				{Op, "!=="},
 			},

@@ -1,3 +1,17 @@
+// Copyright 2025 Supabase, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 /*
  * SQL Utility Functions for Deparsing
  *
@@ -48,12 +62,8 @@ func QuoteIdentifier(name string) string {
 	}
 
 	// Check if the identifier needs quoting
-	needsQuoting := false
-
 	// Must quote if doesn't match identifier pattern
-	if !sqlIdentifierRegex.MatchString(name) {
-		needsQuoting = true
-	}
+	needsQuoting := !sqlIdentifierRegex.MatchString(name)
 
 	// Must quote if it's a reserved keyword (case-insensitive check)
 	if reservedKeywords[strings.ToLower(name)] {
@@ -158,7 +168,7 @@ func FormatAlias(aliasName string) string {
 func DollarQuoteString(s string) string {
 	// Start with the simplest delimiter
 	delimiter := "$$"
-	
+
 	// If the string contains $$, find an alternative delimiter
 	if strings.Contains(s, "$$") {
 		// Try common alternatives
@@ -169,7 +179,7 @@ func DollarQuoteString(s string) string {
 				break
 			}
 		}
-		
+
 		// If all common alternatives are in use, generate a unique one
 		if strings.Contains(s, delimiter) {
 			for i := 1; ; i++ {
@@ -180,7 +190,7 @@ func DollarQuoteString(s string) string {
 			}
 		}
 	}
-	
+
 	return delimiter + s + delimiter
 }
 
@@ -203,7 +213,7 @@ func QuoteQualifiedIdentifier(name string) string {
 	if name == "" {
 		return ""
 	}
-	
+
 	// For dotted identifiers, we need to handle each part separately
 	// but preserve any existing quotes in the original string
 	if strings.Contains(name, ".") {
@@ -221,7 +231,7 @@ func QuoteQualifiedIdentifier(name string) string {
 		}
 		return strings.Join(quotedParts, ".")
 	}
-	
+
 	// Single identifier - use normal quoting
 	return QuoteIdentifier(name)
 }
@@ -231,7 +241,7 @@ func parseQualifiedIdentifier(name string) []string {
 	var parts []string
 	var current strings.Builder
 	inQuotes := false
-	
+
 	for _, r := range name {
 		if r == '"' {
 			inQuotes = !inQuotes
@@ -244,12 +254,12 @@ func parseQualifiedIdentifier(name string) []string {
 			current.WriteRune(r)
 		}
 	}
-	
+
 	// Add the last part
 	if current.Len() > 0 {
 		parts = append(parts, current.String())
 	}
-	
+
 	return parts
 }
 
@@ -260,7 +270,7 @@ func PrintAExprConst(expr Expression) string {
 	if expr == nil {
 		return ""
 	}
-	
+
 	// Check if this is a TypeCast expression
 	if typeCast, ok := expr.(*TypeCast); ok {
 		// Use the shorter 'type value' syntax instead of CAST(value AS type)
@@ -268,17 +278,17 @@ func PrintAExprConst(expr Expression) string {
 		if typeCast.Arg != nil {
 			argStr = typeCast.Arg.SqlString()
 		}
-		
+
 		typeStr := ""
 		if typeCast.TypeName != nil {
 			typeStr = typeCast.TypeName.SqlString()
 		}
-		
+
 		if typeStr != "" && argStr != "" {
 			return typeStr + " " + argStr
 		}
 	}
-	
+
 	// For all other expressions, use the standard SqlString method
 	return expr.SqlString()
 }

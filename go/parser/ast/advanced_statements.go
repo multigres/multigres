@@ -1,5 +1,17 @@
-// Package ast provides PostgreSQL AST advanced statement node definitions.
-// Ported from postgres/src/include/nodes/parsenodes.h
+// Copyright 2025 Supabase, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 package ast
 
 import (
@@ -785,14 +797,14 @@ func (n *CommentStmt) SqlString() string {
 			// For RULE, NodeList has [table_name, rule_name] but we want "RULE rule_name ON table_name"
 			ruleName := ""
 			tableName := ""
-			
+
 			if str, ok := nodeList.Items[1].(*String); ok {
 				ruleName = QuoteIdentifier(str.SVal)
 			}
 			if str, ok := nodeList.Items[0].(*String); ok {
 				tableName = QuoteIdentifier(str.SVal)
 			}
-			
+
 			parts = append(parts, "COMMENT ON RULE", ruleName, "ON", tableName, "IS")
 		} else {
 			// Fallback to regular formatting
@@ -804,14 +816,14 @@ func (n *CommentStmt) SqlString() string {
 			// For TRIGGER, NodeList has [table_name, trigger_name] but we want "TRIGGER trigger_name ON table_name"
 			triggerName := ""
 			tableName := ""
-			
+
 			if str, ok := nodeList.Items[1].(*String); ok {
 				triggerName = QuoteIdentifier(str.SVal)
 			}
 			if str, ok := nodeList.Items[0].(*String); ok {
 				tableName = QuoteIdentifier(str.SVal)
 			}
-			
+
 			parts = append(parts, "COMMENT ON TRIGGER", triggerName, "ON", tableName, "IS")
 		} else {
 			// Fallback to regular formatting
@@ -1212,7 +1224,8 @@ func (n *RenameStmt) SqlString() string {
 	}
 
 	// Handle different rename patterns
-	if n.RenameType == OBJECT_POLICY || n.RenameType == OBJECT_RULE || n.RenameType == OBJECT_TRIGGER {
+	switch n.RenameType {
+	case OBJECT_POLICY, OBJECT_RULE, OBJECT_TRIGGER:
 		// These have special syntax: ALTER <type> [IF EXISTS] old_name ON tablename RENAME TO new_name
 		if n.MissingOk {
 			parts = append(parts, "IF EXISTS")
@@ -1229,19 +1242,19 @@ func (n *RenameStmt) SqlString() string {
 		}
 
 		parts = append(parts, "RENAME", "TO", QuoteIdentifier(n.Newname))
-	} else if n.RenameType == OBJECT_COLUMN {
+	case OBJECT_COLUMN:
 		// Column rename: ALTER <type> tablename RENAME [COLUMN] old_name TO new_name
 		if n.Relation != nil {
 			parts = append(parts, n.Relation.SqlString())
 		}
 		parts = append(parts, "RENAME", "COLUMN", QuoteIdentifier(n.Subname), "TO", QuoteIdentifier(n.Newname))
-	} else if n.RenameType == OBJECT_TABCONSTRAINT {
+	case OBJECT_TABCONSTRAINT:
 		// Constraint rename: ALTER TABLE tablename RENAME CONSTRAINT old_name TO new_name
 		if n.Relation != nil {
 			parts = append(parts, n.Relation.SqlString())
 		}
 		parts = append(parts, "RENAME", "CONSTRAINT", n.Subname, "TO", n.Newname)
-	} else if n.RenameType == OBJECT_DOMCONSTRAINT {
+	case OBJECT_DOMCONSTRAINT:
 		// Domain constraint rename: ALTER DOMAIN domain_name RENAME CONSTRAINT old_name TO new_name
 		if n.Relation != nil {
 			parts = append(parts, n.Relation.SqlString())
@@ -1250,13 +1263,13 @@ func (n *RenameStmt) SqlString() string {
 			parts = append(parts, formatRenameObjectName(n.RenameType, n.Object))
 		}
 		parts = append(parts, "RENAME", "CONSTRAINT", n.Subname, "TO", n.Newname)
-	} else if n.RenameType == OBJECT_ATTRIBUTE {
+	case OBJECT_ATTRIBUTE:
 		// Type attribute rename: ALTER TYPE type_name RENAME ATTRIBUTE old_name TO new_name
 		if n.Relation != nil {
 			parts = append(parts, n.Relation.SqlString())
 		}
 		parts = append(parts, "RENAME", "ATTRIBUTE", n.Subname, "TO", n.Newname)
-	} else {
+	default:
 		// Default rename: ALTER <type> old_name RENAME TO new_name
 		if n.Relation != nil {
 			parts = append(parts, n.Relation.SqlString())
@@ -1459,7 +1472,7 @@ func (n *RuleStmt) StatementType() string {
 }
 
 func (n *RuleStmt) Location() int {
-	return n.BaseNode.Loc
+	return n.Loc
 }
 
 func (n *RuleStmt) NodeTag() NodeTag {

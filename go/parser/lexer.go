@@ -1,3 +1,17 @@
+// Copyright 2025 Supabase, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 /*
  * PostgreSQL Parser Lexer - Core Lexer Implementation
  *
@@ -205,14 +219,14 @@ func (l *Lexer) skipIdentifier() {
 // This is called when we've confirmed the UESCAPE sequence is valid
 func (l *Lexer) consumeUescapeTokens() {
 	// Skip whitespace and consume UESCAPE keyword
-	l.skipWhitespace()
+	_ = l.skipWhitespace()
 	ident := l.peekNextIdentifier()
 	if strings.ToLower(ident) == "uescape" {
 		l.skipIdentifier()
 	}
 
 	// Skip whitespace and consume the string literal
-	l.skipWhitespace()
+	_ = l.skipWhitespace()
 	if b, ok := l.context.CurrentByte(); ok && b == '\'' {
 		// Parse and consume the string literal
 		token, _ := l.nextTokenInternal()
@@ -286,7 +300,7 @@ func (l *Lexer) decodeUnicodeString(input string, escapeChar byte) (string, erro
 // isHexSequence checks if a string contains only hexadecimal digits
 func (l *Lexer) isHexSequence(s string) bool {
 	for _, c := range s {
-		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')) {
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') && (c < 'A' || c > 'F') {
 			return false
 		}
 	}
@@ -903,7 +917,7 @@ func (l *Lexer) scanNumber(startPos, startScanPos int) (*Token, error) {
 
 	// Check for integer_junk pattern BEFORE capturing text
 	// postgres/src/backend/parser/scan.l:435, 1066-1076
-	l.checkTrailingJunk() // Adds error to context if junk detected
+	_ = l.checkTrailingJunk() // Adds error to context if junk detected
 
 	// Get the text including any trailing junk
 	text := l.context.GetCurrentText(startScanPos)
@@ -1083,10 +1097,11 @@ func (l *Lexer) scanOperatorOrPunctuation(startPos, startScanPos int) (*Token, e
 	// Handle special case of colon-based operators (: is not an OpChar)
 	if b == ':' {
 		if next, ok := l.context.CurrentByte(); ok {
-			if next == ':' {
+			switch next {
+			case ':':
 				l.context.NextByte()
 				return NewToken(TYPECAST, startPos, "::"), nil
-			} else if next == '=' {
+			case '=':
 				l.context.NextByte()
 				return NewToken(COLON_EQUALS, startPos, ":="), nil
 			}
@@ -1152,14 +1167,7 @@ func (l *Lexer) countConsecutiveOpChars() int {
 	count := 0
 	currentPos := l.context.scanPos
 
-	for {
-		if currentPos >= len(l.context.scanBuf) {
-			break
-		}
-		if !IsOpChar(l.context.scanBuf[currentPos]) {
-			break
-		}
-
+	for currentPos < len(l.context.scanBuf) && IsOpChar(l.context.scanBuf[currentPos]) {
 		// Check for comment start sequences and stop before them
 		if currentPos+1 < len(l.context.scanBuf) {
 			// Check for /* comment start
@@ -1352,7 +1360,7 @@ func (l *Lexer) scanExponentPart(startPos, startScanPos int, isFloat bool) (*Tok
 		}
 
 		// Check for real_junk pattern BEFORE capturing text
-		l.checkTrailingJunk() // Adds error to context if junk detected
+		_ = l.checkTrailingJunk() // Adds error to context if junk detected
 
 		text := l.context.GetCurrentText(startScanPos)
 		return NewStringToken(FCONST, text, startPos, text), nil
@@ -1361,7 +1369,7 @@ func (l *Lexer) scanExponentPart(startPos, startScanPos int, isFloat bool) (*Tok
 	// No exponent
 	if isFloat {
 		// Check for numeric_junk pattern BEFORE capturing text
-		l.checkTrailingJunk() // Adds error to context if junk detected
+		_ = l.checkTrailingJunk() // Adds error to context if junk detected
 
 		text := l.context.GetCurrentText(startScanPos)
 		return NewStringToken(FCONST, text, startPos, text), nil
@@ -1412,10 +1420,11 @@ func (l *Lexer) parseInteger32(s string) (int32, bool) {
 	neg := false
 
 	// Handle sign
-	if s[ptr] == '-' {
+	switch s[ptr] {
+	case '-':
 		neg = true
 		ptr++
-	} else if s[ptr] == '+' {
+	case '+':
 		ptr++
 	}
 
@@ -1576,7 +1585,8 @@ func (l *Lexer) parseBinaryInteger(s string, start int) (uint32, bool) {
 
 	for ptr < len(s) {
 		c := s[ptr]
-		if c == '0' || c == '1' {
+		switch c {
+		case '0', '1':
 			// Check for overflow before shifting
 			if val > 0xFFFFFFFF/2 {
 				return 0, true
@@ -1584,13 +1594,13 @@ func (l *Lexer) parseBinaryInteger(s string, start int) (uint32, bool) {
 			val = val*2 + uint32(c-'0')
 			hasDigits = true
 			ptr++
-		} else if c == '_' {
+		case '_':
 			// Underscore must be followed by more binary digits
 			ptr++
 			if ptr >= len(s) || (s[ptr] != '0' && s[ptr] != '1') {
 				return 0, false // Invalid syntax
 			}
-		} else {
+		default:
 			break
 		}
 	}
@@ -1724,7 +1734,7 @@ func (l *Lexer) GetPosition() int {
 
 // RecordError records a parsing error
 func (l *Lexer) RecordError(err error) {
-	l.context.AddError(err.Error(), l.context.CurrentPosition())
+	_ = l.context.AddError(err.Error(), l.context.CurrentPosition())
 }
 
 // HasErrors returns true if there are any errors

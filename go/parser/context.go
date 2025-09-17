@@ -1,3 +1,17 @@
+// Copyright 2025 Supabase, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 /*
  * PostgreSQL Parser - Unified Context Management
  *
@@ -283,7 +297,6 @@ func (ctx *ParseContext) GetSourceText() string {
 // SetSourceText initializes the parser with new source text to parse
 // This resets the parser state for a new parsing operation
 func (ctx *ParseContext) SetSourceText(sourceText string) {
-
 	ctx.sourceText = sourceText
 	ctx.scanBuf = []byte(sourceText)
 	ctx.scanBufLen = len(sourceText)
@@ -330,7 +343,6 @@ func (ctx *ParseContext) SaveCurrentPosition() int {
 // Equivalent to PostgreSQL's POP_YYLLOC() macro
 // postgres/src/backend/parser/scan.l:122
 func (ctx *ParseContext) RestoreSavedPosition() {
-
 	if ctx.savePosition < 0 || ctx.savePosition > len(ctx.sourceText) {
 		return
 	}
@@ -394,7 +406,6 @@ func (ctx *ParseContext) AddLiteralByte(b byte) {
 
 // GetLiteral returns the accumulated literal value and resets the buffer
 func (ctx *ParseContext) GetLiteral() string {
-
 	if !ctx.literalActive {
 		return ""
 	}
@@ -407,7 +418,6 @@ func (ctx *ParseContext) GetLiteral() string {
 
 // CurrentChar returns the current character at ScanPos
 func (ctx *ParseContext) CurrentChar() rune {
-
 	if ctx.scanPos >= len(ctx.scanBuf) {
 		return 0
 	}
@@ -417,7 +427,6 @@ func (ctx *ParseContext) CurrentChar() rune {
 
 // PeekChar returns the next character without advancing
 func (ctx *ParseContext) PeekChar() rune {
-
 	if ctx.scanPos >= len(ctx.scanBuf) {
 		return 0
 	}
@@ -447,7 +456,6 @@ func (ctx *ParseContext) CurrentByte() (byte, bool) {
 
 // NextByte returns the current byte and advances the position
 func (ctx *ParseContext) NextByte() (byte, bool) {
-
 	b, ok := ctx.getByteAt(0)
 	if !ok {
 		return 0, false
@@ -458,7 +466,6 @@ func (ctx *ParseContext) NextByte() (byte, bool) {
 
 // PeekBytes returns n bytes starting at the current position without advancing
 func (ctx *ParseContext) PeekBytes(n int) []byte {
-
 	end := ctx.scanPos + n
 	if end > ctx.scanBufLen {
 		end = ctx.scanBufLen
@@ -479,7 +486,6 @@ func (ctx *ParseContext) PeekToEnd() []byte {
 
 // AdvanceBy moves the scan position forward by n bytes
 func (ctx *ParseContext) AdvanceBy(n int) {
-
 	for i := 0; i < n && ctx.scanPos < ctx.scanBufLen; i++ {
 		b := ctx.scanBuf[ctx.scanPos]
 		ctx.advancePosition(b)
@@ -504,7 +510,6 @@ func (ctx *ParseContext) advancePosition(b byte) {
 
 // AdvanceRune moves forward by one Unicode character (rune)
 func (ctx *ParseContext) AdvanceRune() rune {
-
 	if ctx.AtEOF() {
 		return 0
 	}
@@ -521,7 +526,6 @@ func (ctx *ParseContext) AdvanceRune() rune {
 
 // PeekRune returns the next rune without advancing position
 func (ctx *ParseContext) PeekRune() rune {
-
 	if ctx.AtEOF() {
 		return 0
 	}
@@ -537,7 +541,6 @@ func (ctx *ParseContext) AtEOF() bool {
 
 // GetCurrentText returns the text from start position to current position
 func (ctx *ParseContext) GetCurrentText(startPos int) string {
-
 	if startPos < 0 || startPos > ctx.scanPos {
 		return ""
 	}
@@ -568,7 +571,6 @@ func (ctx *ParseContext) GetParseTree() ast.Node {
 
 // IncrementDepth increments the expression nesting depth
 func (ctx *ParseContext) IncrementDepth() error {
-
 	ctx.currentDepth++
 	if ctx.currentDepth > ctx.options.MaxExpressionDepth {
 		return fmt.Errorf("expression too complex (maximum depth %d exceeded)",
@@ -626,7 +628,6 @@ func (ctx *ParseContext) AddWarning(message string, location int) *ParseError {
 
 // addErrorWithSeverity is the internal error adding function
 func (ctx *ParseContext) addErrorWithSeverity(severity ErrorSeverity, message string, location int, context string, hint string) *ParseError {
-
 	// Calculate line and column from location
 	line, col := ctx.calculateLineColumn(location)
 
@@ -654,7 +655,6 @@ func (ctx *ParseContext) addErrorWithSeverity(severity ErrorSeverity, message st
 
 // addLexerError adds a lexer-specific error with enhanced context
 func (ctx *ParseContext) addLexerError(errorType LexerErrorType, message string, location int) *ParseError {
-
 	// Calculate line and column from location
 	line, col := ctx.calculateLineColumn(location)
 
@@ -804,7 +804,6 @@ func (ctx *ParseContext) calculateErrorLength(errorType LexerErrorType) int {
 
 // GetErrors returns all collected parsing errors
 func (ctx *ParseContext) GetErrors() []ParseError {
-
 	// Return copy to prevent external modification
 	errors := make([]ParseError, len(ctx.errors))
 	copy(errors, ctx.errors)
@@ -813,7 +812,6 @@ func (ctx *ParseContext) GetErrors() []ParseError {
 
 // GetWarnings returns all collected parsing warnings
 func (ctx *ParseContext) GetWarnings() []ParseError {
-
 	// Return copy to prevent external modification
 	warnings := make([]ParseError, len(ctx.warnings))
 	copy(warnings, ctx.warnings)
@@ -840,7 +838,6 @@ func (ctx *ParseContext) ClearErrors() {
 
 // PutBack moves the scan position back by n bytes
 func (ctx *ParseContext) PutBack(n int) {
-
 	if n <= 0 {
 		return
 	}
@@ -870,7 +867,6 @@ func (ctx *ParseContext) Clone() *ParseContext {
 
 // String returns a string representation of the parser context for debugging
 func (ctx *ParseContext) String() string {
-
 	return fmt.Sprintf("ParseContext{id: %s, pos: %d/%d, line: %d, col: %d, errors: %d, warnings: %d, state: %d, depth: %d}",
 		ctx.contextID,
 		ctx.currentPosition,

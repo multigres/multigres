@@ -1,13 +1,16 @@
-/*
- * PostgreSQL Additional DDL Statement AST Nodes
- *
- * This file contains AST node definitions for additional CREATE/ALTER statements
- * that are not already defined in other AST files.
- * Includes: TABLESPACE, ACCESS METHOD, ALTER STATISTICS, PUBLICATION, SUBSCRIPTION,
- * and ALTER OPERATOR FAMILY statements.
- *
- * Ported from postgres/src/include/nodes/parsenodes.h
- */
+// Copyright 2025 Supabase, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 
 package ast
 
@@ -40,7 +43,7 @@ func NewCreateTableSpaceStmt(name string, owner *RoleSpec, location string, opti
 }
 
 func (c *CreateTableSpaceStmt) String() string {
-	return fmt.Sprintf("CreateTableSpaceStmt(%s)@%d", c.TablespaceName, c.BaseNode.Location())
+	return fmt.Sprintf("CreateTableSpaceStmt(%s)@%d", c.TablespaceName, c.Location())
 }
 
 func (c *CreateTableSpaceStmt) StatementType() string {
@@ -92,7 +95,7 @@ func NewAlterTableSpaceStmt(name string, options *NodeList, isReset bool) *Alter
 }
 
 func (a *AlterTableSpaceStmt) String() string {
-	return fmt.Sprintf("AlterTableSpaceStmt(%s)@%d", a.TablespaceName, a.BaseNode.Location())
+	return fmt.Sprintf("AlterTableSpaceStmt(%s)@%d", a.TablespaceName, a.Location())
 }
 
 func (a *AlterTableSpaceStmt) StatementType() string {
@@ -153,7 +156,7 @@ func NewCreateAmStmt(name string, amType AmType, handler *NodeList) *CreateAmStm
 }
 
 func (c *CreateAmStmt) String() string {
-	return fmt.Sprintf("CreateAmStmt(%s)@%d", c.AmName, c.BaseNode.Location())
+	return fmt.Sprintf("CreateAmStmt(%s)@%d", c.AmName, c.Location())
 }
 
 func (c *CreateAmStmt) StatementType() string {
@@ -209,7 +212,7 @@ func NewAlterStatsStmt(defnames *NodeList, target Node, missingOk bool) *AlterSt
 }
 
 func (a *AlterStatsStmt) String() string {
-	return fmt.Sprintf("AlterStatsStmt@%d", a.BaseNode.Location())
+	return fmt.Sprintf("AlterStatsStmt@%d", a.Location())
 }
 
 func (a *AlterStatsStmt) StatementType() string {
@@ -343,7 +346,7 @@ func NewCreatePublicationStmt(name string, objects *NodeList, forAllTables bool,
 }
 
 func (c *CreatePublicationStmt) String() string {
-	return fmt.Sprintf("CreatePublicationStmt(%s)@%d", c.PubName, c.BaseNode.Location())
+	return fmt.Sprintf("CreatePublicationStmt(%s)@%d", c.PubName, c.Location())
 }
 
 func (c *CreatePublicationStmt) StatementType() string {
@@ -433,7 +436,7 @@ func NewAlterPublicationStmt(name string, options, objects *NodeList, action Alt
 }
 
 func (a *AlterPublicationStmt) String() string {
-	return fmt.Sprintf("AlterPublicationStmt(%s)@%d", a.PubName, a.BaseNode.Location())
+	return fmt.Sprintf("AlterPublicationStmt(%s)@%d", a.PubName, a.Location())
 }
 
 func (a *AlterPublicationStmt) StatementType() string {
@@ -462,7 +465,7 @@ func (a *AlterPublicationStmt) SqlString() string {
 			hasTablesInSchema := false
 			var schemaNames []string
 			var tableObjects []string
-			
+
 			for i := 0; i < a.PubObjects.Len(); i++ {
 				if pubObj, ok := a.PubObjects.Items[i].(*PublicationObjSpec); ok {
 					if pubObj.PubObjType == PUBLICATIONOBJ_TABLES_IN_SCHEMA {
@@ -473,7 +476,7 @@ func (a *AlterPublicationStmt) SqlString() string {
 					}
 				}
 			}
-			
+
 			if hasTablesInSchema {
 				parts = append(parts, "ADD TABLES IN SCHEMA", strings.Join(schemaNames, ", "))
 			} else {
@@ -489,7 +492,7 @@ func (a *AlterPublicationStmt) SqlString() string {
 			hasTablesInSchema := false
 			var schemaNames []string
 			var tableObjects []string
-			
+
 			for i := 0; i < a.PubObjects.Len(); i++ {
 				if pubObj, ok := a.PubObjects.Items[i].(*PublicationObjSpec); ok {
 					if pubObj.PubObjType == PUBLICATIONOBJ_TABLES_IN_SCHEMA {
@@ -500,7 +503,7 @@ func (a *AlterPublicationStmt) SqlString() string {
 					}
 				}
 			}
-			
+
 			if hasTablesInSchema {
 				parts = append(parts, "SET TABLES IN SCHEMA", strings.Join(schemaNames, ", "))
 			} else {
@@ -516,7 +519,7 @@ func (a *AlterPublicationStmt) SqlString() string {
 			hasTablesInSchema := false
 			var schemaNames []string
 			var tableObjects []string
-			
+
 			for i := 0; i < a.PubObjects.Len(); i++ {
 				if pubObj, ok := a.PubObjects.Items[i].(*PublicationObjSpec); ok {
 					if pubObj.PubObjType == PUBLICATIONOBJ_TABLES_IN_SCHEMA {
@@ -527,7 +530,7 @@ func (a *AlterPublicationStmt) SqlString() string {
 					}
 				}
 			}
-			
+
 			if hasTablesInSchema {
 				parts = append(parts, "DROP TABLES IN SCHEMA", strings.Join(schemaNames, ", "))
 			} else {
@@ -580,7 +583,7 @@ func NewCreateSubscriptionStmt(name, connInfo string, publication, options *Node
 }
 
 func (c *CreateSubscriptionStmt) String() string {
-	return fmt.Sprintf("CreateSubscriptionStmt(%s)@%d", c.SubName, c.BaseNode.Location())
+	return fmt.Sprintf("CreateSubscriptionStmt(%s)@%d", c.SubName, c.Location())
 }
 
 func (c *CreateSubscriptionStmt) StatementType() string {
@@ -677,7 +680,7 @@ func NewAlterSubscriptionStmt(name string, kind AlterSubscriptionType, connInfo 
 }
 
 func (a *AlterSubscriptionStmt) String() string {
-	return fmt.Sprintf("AlterSubscriptionStmt(%s)@%d", a.SubName, a.BaseNode.Location())
+	return fmt.Sprintf("AlterSubscriptionStmt(%s)@%d", a.SubName, a.Location())
 }
 
 func (a *AlterSubscriptionStmt) StatementType() string {
@@ -808,7 +811,7 @@ func NewAlterOpFamilyStmt(name *NodeList, amName string, isDrop bool, items *Nod
 }
 
 func (a *AlterOpFamilyStmt) String() string {
-	return fmt.Sprintf("AlterOpFamilyStmt@%d", a.BaseNode.Location())
+	return fmt.Sprintf("AlterOpFamilyStmt@%d", a.Location())
 }
 
 func (a *AlterOpFamilyStmt) StatementType() string {
@@ -881,7 +884,7 @@ func (a *AlterFunctionStmt) String() string {
 	if a.ObjType == OBJECT_PROCEDURE {
 		objTypeStr = "PROCEDURE"
 	}
-	return fmt.Sprintf("AlterFunctionStmt(%s)@%d", objTypeStr, a.BaseNode.Location())
+	return fmt.Sprintf("AlterFunctionStmt(%s)@%d", objTypeStr, a.Location())
 }
 
 func (a *AlterFunctionStmt) StatementType() string {
@@ -892,11 +895,12 @@ func (a *AlterFunctionStmt) StatementType() string {
 func (a *AlterFunctionStmt) SqlString() string {
 	var parts []string
 
-	if a.ObjType == OBJECT_PROCEDURE {
+	switch a.ObjType {
+	case OBJECT_PROCEDURE:
 		parts = append(parts, "ALTER PROCEDURE")
-	} else if a.ObjType == OBJECT_ROUTINE {
+	case OBJECT_ROUTINE:
 		parts = append(parts, "ALTER ROUTINE")
-	} else {
+	default:
 		parts = append(parts, "ALTER FUNCTION")
 	}
 
@@ -940,7 +944,7 @@ func NewAlterTypeStmt(typeName *NodeList, options *NodeList) *AlterTypeStmt {
 }
 
 func (a *AlterTypeStmt) String() string {
-	return fmt.Sprintf("AlterTypeStmt@%d", a.BaseNode.Location())
+	return fmt.Sprintf("AlterTypeStmt@%d", a.Location())
 }
 
 func (a *AlterTypeStmt) StatementType() string {

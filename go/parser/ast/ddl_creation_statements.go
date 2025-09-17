@@ -1,5 +1,17 @@
-// Package ast provides PostgreSQL DDL creation statement node definitions.
-// Ported from postgres/src/include/nodes/parsenodes.h
+// Copyright 2025 Supabase, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 package ast
 
 import (
@@ -282,16 +294,17 @@ func (cfs *CreateFunctionStmt) SqlString() string {
 	if cfs.Options != nil {
 		for _, item := range cfs.Options.Items {
 			if option, ok := item.(*DefElem); ok {
-				if option.Defname == "language" {
+				switch option.Defname {
+				case "language":
 					if str, ok := option.Arg.(*String); ok {
 						parts = append(parts, "LANGUAGE", str.SVal)
 						hasLanguage = true
 					}
-				} else if option.Defname == "window" {
+				case "window":
 					if b, ok := option.Arg.(*Boolean); ok && b.BoolVal {
 						parts = append(parts, "WINDOW")
 					}
-				} else if option.Defname == "as" {
+				case "as":
 					if str, ok := option.Arg.(*String); ok {
 						// Use DollarQuoteString to handle nested dollar quotes properly
 						parts = append(parts, "AS", DollarQuoteString(str.SVal))
@@ -304,7 +317,7 @@ func (cfs *CreateFunctionStmt) SqlString() string {
 							}
 						}
 					}
-				} else {
+				default:
 					// All other options (SECURITY DEFINER, STABLE, STRICT, etc.)
 					optStr := option.SqlStringForFunction()
 					if optStr != "" && optStr != option.Defname {
@@ -689,14 +702,15 @@ func (oci *CreateOpClassItem) SqlString() string {
 	if oci.Name != nil {
 		nameStr := oci.Name.SqlString()
 		// Fix spacing and type names for operators
-		if oci.ItemType == OPCLASS_ITEM_OPERATOR {
+		switch oci.ItemType {
+		case OPCLASS_ITEM_OPERATOR:
 			// Fix type normalization in operator arguments (order matters!)
 			nameStr = strings.ReplaceAll(nameStr, "SMALLINT", "int2")
 			nameStr = strings.ReplaceAll(nameStr, "BIGINT", "int8")
 			nameStr = strings.ReplaceAll(nameStr, "INT", "int4")
 			// Add space before opening parenthesis
 			nameStr = strings.ReplaceAll(nameStr, "(", " (")
-		} else if oci.ItemType == OPCLASS_ITEM_FUNCTION {
+		case OPCLASS_ITEM_FUNCTION:
 			// Fix type normalization in function arguments (order matters!)
 			nameStr = strings.ReplaceAll(nameStr, "SMALLINT", "int2")
 			nameStr = strings.ReplaceAll(nameStr, "BIGINT", "int8")
@@ -736,13 +750,12 @@ func (oci *CreateOpClassItem) SqlString() string {
 	if oci.OrderFamily != nil && oci.OrderFamily.Len() > 0 {
 		var orderFamilyNames []string
 		for i := 0; i < oci.OrderFamily.Len(); i++ {
-			if nameNode, ok := oci.OrderFamily.Items[i].(Node); ok {
-				// Handle String nodes specially to avoid quotes for operator family names
-				if stringNode, ok := nameNode.(*String); ok {
-					orderFamilyNames = append(orderFamilyNames, stringNode.SVal)
-				} else {
-					orderFamilyNames = append(orderFamilyNames, nameNode.SqlString())
-				}
+			nameNode := oci.OrderFamily.Items[i]
+			// Handle String nodes specially to avoid quotes for operator family names
+			if stringNode, ok := nameNode.(*String); ok {
+				orderFamilyNames = append(orderFamilyNames, stringNode.SVal)
+			} else {
+				orderFamilyNames = append(orderFamilyNames, nameNode.SqlString())
 			}
 		}
 		if len(orderFamilyNames) > 0 {
@@ -1475,7 +1488,8 @@ func (ds *DefineStmt) SqlString() string {
 
 			numDirectArgs := int(numDirectArgsNode.IVal)
 
-			if numDirectArgs == -1 {
+			switch numDirectArgs {
+			case -1:
 				// Regular aggregate or COUNT(*)
 				if argListNode == nil {
 					// COUNT(*) case
@@ -1494,7 +1508,7 @@ func (ds *DefineStmt) SqlString() string {
 						parts = append(parts, "("+strings.Join(argStrs, ", ")+")")
 					}
 				}
-			} else if numDirectArgs == 0 {
+			case 0:
 				// Ordered-set aggregate without direct args: (ORDER BY args)
 				if argList, ok := argListNode.(*NodeList); ok {
 					var argStrs []string
@@ -1510,7 +1524,7 @@ func (ds *DefineStmt) SqlString() string {
 						parts = append(parts, "(ORDER BY "+strings.Join(argStrs, ", ")+")")
 					}
 				}
-			} else {
+			default:
 				// Hypothetical-set aggregate: (direct_args ORDER BY ordered_args)
 				if argList, ok := argListNode.(*NodeList); ok {
 					var directArgs []string
@@ -1716,27 +1730,30 @@ func (fs *FetchStmt) SqlString() string {
 	// Handle direction and count
 	switch fs.Direction {
 	case FETCH_FORWARD:
-		if fs.HowMany == 1 {
+		switch fs.HowMany {
+		case 1:
 			// Default case - just FETCH/MOVE cursor_name
-		} else if fs.HowMany == FETCH_ALL {
+		case FETCH_ALL:
 			parts = append(parts, "ALL")
-		} else {
+		default:
 			parts = append(parts, fmt.Sprintf("%d", fs.HowMany))
 		}
 	case FETCH_BACKWARD:
-		if fs.HowMany == 1 {
+		switch fs.HowMany {
+		case 1:
 			parts = append(parts, "BACKWARD")
-		} else if fs.HowMany == FETCH_ALL {
+		case FETCH_ALL:
 			parts = append(parts, "BACKWARD", "ALL")
-		} else {
+		default:
 			parts = append(parts, "BACKWARD", fmt.Sprintf("%d", fs.HowMany))
 		}
 	case FETCH_ABSOLUTE:
-		if fs.HowMany == 1 {
+		switch fs.HowMany {
+		case 1:
 			parts = append(parts, "FIRST")
-		} else if fs.HowMany == -1 {
+		case -1:
 			parts = append(parts, "LAST")
-		} else {
+		default:
 			parts = append(parts, "ABSOLUTE", fmt.Sprintf("%d", fs.HowMany))
 		}
 	case FETCH_RELATIVE:
@@ -2549,10 +2566,9 @@ func (ctas *CreateTableAsStmt) String() string {
 	if ctas.Into != nil {
 		if ctas.Into.SkipData {
 			parts = append(parts, "WITH NO DATA")
-		} else {
-			// Only add "WITH DATA" if it's explicit (to match PostgreSQL behavior)
-			// For now, we'll omit it since PostgreSQL's default is WITH DATA
 		}
+		// Only add "WITH DATA" if it's explicit (to match PostgreSQL behavior)
+		// For now, we'll omit it since PostgreSQL's default is WITH DATA
 	}
 
 	return strings.Join(parts, " ")
@@ -2703,7 +2719,7 @@ func (n *CreateAssertionStmt) StatementType() string {
 
 // Location returns the statement's source location
 func (n *CreateAssertionStmt) Location() int {
-	return n.BaseNode.Loc
+	return n.Loc
 }
 
 // NodeTag returns the node's type tag

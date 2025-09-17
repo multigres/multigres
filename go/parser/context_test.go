@@ -1,3 +1,17 @@
+// Copyright 2025 Supabase, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 package parser
 
 import (
@@ -207,7 +221,7 @@ func TestParseContextUnifiedErrors(t *testing.T) {
 	assert.Empty(t, ctx.GetWarnings())
 
 	// Add a regular error
-	ctx.AddError("syntax error", 15)
+	_ = ctx.AddError("syntax error", 15)
 	assert.True(t, ctx.HasErrors())
 	assert.False(t, ctx.HasWarnings())
 
@@ -218,14 +232,14 @@ func TestParseContextUnifiedErrors(t *testing.T) {
 	assert.Equal(t, 15, errors[0].Position)
 
 	// Add a lexer error with type
-	ctx.AddErrorWithType(UnterminatedString, "unterminated string")
+	_ = ctx.AddErrorWithType(UnterminatedString, "unterminated string")
 	errors = ctx.GetErrors()
 	assert.Len(t, errors, 2)
 	assert.Equal(t, UnterminatedString, errors[1].Type)
 	assert.Equal(t, "unterminated string", errors[1].Message)
 
 	// Add a warning
-	ctx.AddWarning("deprecated syntax", 5)
+	_ = ctx.AddWarning("deprecated syntax", 5)
 	assert.True(t, ctx.HasErrors())
 	assert.True(t, ctx.HasWarnings())
 
@@ -235,7 +249,7 @@ func TestParseContextUnifiedErrors(t *testing.T) {
 	assert.Equal(t, ErrorSeverityWarning, warnings[0].Severity)
 
 	// Add error with hint
-	ctx.AddErrorWithHint("missing semicolon", 30, "add ';' at end of statement")
+	_ = ctx.AddErrorWithHint("missing semicolon", 30, "add ';' at end of statement")
 	errors = ctx.GetErrors()
 	assert.Len(t, errors, 3)
 	assert.Equal(t, "add ';' at end of statement", errors[2].HintText)
@@ -380,7 +394,7 @@ func TestParseContextClone(t *testing.T) {
 		MaxIdentifierLength: 100,
 	}
 	ctx1 := NewParseContext("SELECT * FROM users;", options)
-	ctx1.AddError("test error", 5)
+	_ = ctx1.AddError("test error", 5)
 	ctx1.AdvanceBy(5)
 
 	// Clone the context
@@ -420,7 +434,7 @@ func TestParseContextSingleThreaded(t *testing.T) {
 
 		// Write operations
 		location := i
-		ctx.AddError("test error", location)
+		_ = ctx.AddError("test error", location)
 		ctx.SetCurrentPosition(location, 1, location+1)
 
 		// Depth operations
@@ -447,8 +461,8 @@ func TestParseContextSingleThreaded(t *testing.T) {
 func TestParseContextString(t *testing.T) {
 	ctx := NewParseContext("SELECT * FROM users;", nil)
 	ctx.SetCurrentPosition(7, 1, 8)
-	ctx.AddError("test error", 5)
-	ctx.AddWarning("test warning", 10)
+	_ = ctx.AddError("test error", 5)
+	_ = ctx.AddWarning("test warning", 10)
 	ctx.SetState(StateXQ)
 	_ = ctx.IncrementDepth()
 
@@ -550,7 +564,7 @@ func BenchmarkParseContextOperations(b *testing.B) {
 
 	b.Run("AddError", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
-			ctx.AddError("benchmark error", i%100)
+			_ = ctx.AddError("benchmark error", i%100)
 		}
 		ctx.ClearErrors() // Clean up
 	})
@@ -584,7 +598,7 @@ func BenchmarkParseContextOperations(b *testing.B) {
 	})
 
 	b.Run("HasErrors", func(b *testing.B) {
-		ctx.AddError("test", 0) // Add one error
+		_ = ctx.AddError("test", 0) // Add one error
 		for i := 0; i < b.N; i++ {
 			_ = ctx.HasErrors()
 		}

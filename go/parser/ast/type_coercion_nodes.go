@@ -1,3 +1,17 @@
+// Copyright 2025 Supabase, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 // Package ast provides PostgreSQL AST type coercion and advanced expression node definitions.
 // These nodes handle PostgreSQL's sophisticated type system including type casting,
 // field access, array operations, and various test expressions.
@@ -19,10 +33,10 @@ import (
 // Ported from postgres/src/include/nodes/primnodes.h:1181
 type RelabelType struct {
 	BaseExpr
-	Arg          Expression    // Input expression - primnodes.h:1184
-	Resulttype   Oid          // Output type OID - primnodes.h:1185
-	Resulttypmod int32        // Output typmod (usually -1) - primnodes.h:1187
-	Resultcollid Oid          // OID of collation, or InvalidOid if none - primnodes.h:1189
+	Arg           Expression   // Input expression - primnodes.h:1184
+	Resulttype    Oid          // Output type OID - primnodes.h:1185
+	Resulttypmod  int32        // Output typmod (usually -1) - primnodes.h:1187
+	Resultcollid  Oid          // OID of collation, or InvalidOid if none - primnodes.h:1189
 	Relabelformat CoercionForm // How to display this node - primnodes.h:1191
 }
 
@@ -72,7 +86,7 @@ func (rt *RelabelType) String() string {
 	if formatStr == "" {
 		formatStr = fmt.Sprintf("FORMAT_%d", int(rt.Relabelformat))
 	}
-	
+
 	return fmt.Sprintf("RelabelType(%s as %d, %s)", rt.Arg, rt.Resulttype, formatStr)
 }
 
@@ -82,7 +96,7 @@ func (rt *RelabelType) String() string {
 // Ported from postgres/src/include/nodes/primnodes.h:1204
 type CoerceViaIO struct {
 	BaseExpr
-	Arg          Expression    // Input expression - primnodes.h:1207
+	Arg          Expression   // Input expression - primnodes.h:1207
 	Resulttype   Oid          // Output type OID - primnodes.h:1208
 	Resultcollid Oid          // OID of collation, or InvalidOid if none - primnodes.h:1210
 	Coerceformat CoercionForm // How to display this coercion - primnodes.h:1211
@@ -121,7 +135,7 @@ func (cvio *CoerceViaIO) String() string {
 	if formatStr == "" {
 		formatStr = fmt.Sprintf("FORMAT_%d", int(cvio.Coerceformat))
 	}
-	
+
 	return fmt.Sprintf("CoerceViaIO(%s as %d, %s)", cvio.Arg, cvio.Resulttype, formatStr)
 }
 
@@ -130,12 +144,12 @@ func (cvio *CoerceViaIO) String() string {
 // Ported from postgres/src/include/nodes/primnodes.h:1230
 type ArrayCoerceExpr struct {
 	BaseExpr
-	Arg            Expression    // Input array expression - primnodes.h:1233
-	Elemexpr       Expression    // Expression representing per-element work - primnodes.h:1234
-	Resulttype     Oid          // Output type OID (array type) - primnodes.h:1235
-	Resulttypmod   int32        // Output typmod (usually -1) - primnodes.h:1236
-	Resultcollid   Oid          // OID of collation, or InvalidOid if none - primnodes.h:1237
-	Coerceformat   CoercionForm // How to display this coercion - primnodes.h:1238
+	Arg          Expression   // Input array expression - primnodes.h:1233
+	Elemexpr     Expression   // Expression representing per-element work - primnodes.h:1234
+	Resulttype   Oid          // Output type OID (array type) - primnodes.h:1235
+	Resulttypmod int32        // Output typmod (usually -1) - primnodes.h:1236
+	Resultcollid Oid          // OID of collation, or InvalidOid if none - primnodes.h:1237
+	Coerceformat CoercionForm // How to display this coercion - primnodes.h:1238
 }
 
 // NewArrayCoerceExpr creates a new ArrayCoerceExpr node.
@@ -175,7 +189,7 @@ func (ace *ArrayCoerceExpr) String() string {
 // Ported from postgres/src/include/nodes/primnodes.h:1258
 type ConvertRowtypeExpr struct {
 	BaseExpr
-	Arg           Expression    // Input expression - primnodes.h:1706
+	Arg           Expression   // Input expression - primnodes.h:1706
 	Resulttype    Oid          // Output type (always a composite type) - primnodes.h:1707
 	Convertformat CoercionForm // How to display this node - primnodes.h:1708
 }
@@ -203,8 +217,8 @@ func (crte *ConvertRowtypeExpr) String() string {
 // Ported from postgres/src/include/nodes/primnodes.h:1276
 type CollateExpr struct {
 	BaseExpr
-	Arg    Expression // Input expression - primnodes.h:1649
-	CollOid Oid       // Collation OID - primnodes.h:1650
+	Arg     Expression // Input expression - primnodes.h:1649
+	CollOid Oid        // Collation OID - primnodes.h:1650
 }
 
 // NewCollateExpr creates a new CollateExpr node.
@@ -401,7 +415,7 @@ const (
 // Ported from postgres/src/include/nodes/primnodes.h:1955
 type NullTest struct {
 	BaseExpr
-	Arg         Expression   // Input expression - primnodes.h:1958
+	Arg          Expression   // Input expression - primnodes.h:1958
 	Nulltesttype NullTestType // IS NULL or IS NOT NULL - primnodes.h:1959
 	Argisrow     bool         // True if input is known to be a row value - primnodes.h:1961
 }
@@ -455,28 +469,28 @@ func (nt *NullTest) String() string {
 	if testStr == "" {
 		testStr = fmt.Sprintf("NULLTEST_%d", int(nt.Nulltesttype))
 	}
-	
+
 	row := ""
 	if nt.Argisrow {
 		row = " (ROW)"
 	}
-	
+
 	return fmt.Sprintf("NullTest(%s %s%s)", nt.Arg, testStr, row)
 }
 
 // SqlString returns the SQL representation of NullTest
 func (nt *NullTest) SqlString() string {
 	var result strings.Builder
-	
+
 	result.WriteString(nt.Arg.SqlString())
-	
+
 	switch nt.Nulltesttype {
 	case IS_NULL:
 		result.WriteString(" IS NULL")
 	case IS_NOT_NULL:
 		result.WriteString(" IS NOT NULL")
 	}
-	
+
 	return result.String()
 }
 
@@ -485,12 +499,12 @@ func (nt *NullTest) SqlString() string {
 type BoolTestType int
 
 const (
-	IS_TRUE     BoolTestType = iota // IS TRUE - primnodes.h:1800
-	IS_NOT_TRUE                     // IS NOT TRUE - primnodes.h:1801
-	IS_FALSE                        // IS FALSE - primnodes.h:1802
-	IS_NOT_FALSE                    // IS NOT FALSE - primnodes.h:1803
-	IS_UNKNOWN                      // IS UNKNOWN - primnodes.h:1804
-	IS_NOT_UNKNOWN                  // IS NOT UNKNOWN - primnodes.h:1805
+	IS_TRUE        BoolTestType = iota // IS TRUE - primnodes.h:1800
+	IS_NOT_TRUE                        // IS NOT TRUE - primnodes.h:1801
+	IS_FALSE                           // IS FALSE - primnodes.h:1802
+	IS_NOT_FALSE                       // IS NOT FALSE - primnodes.h:1803
+	IS_UNKNOWN                         // IS UNKNOWN - primnodes.h:1804
+	IS_NOT_UNKNOWN                     // IS NOT UNKNOWN - primnodes.h:1805
 )
 
 // BooleanTest represents boolean test expressions (IS TRUE, IS FALSE, etc.).
@@ -498,7 +512,7 @@ const (
 // Ported from postgres/src/include/nodes/primnodes.h:1979
 type BooleanTest struct {
 	BaseExpr
-	Arg         Expression   // Input expression - primnodes.h:1806
+	Arg          Expression   // Input expression - primnodes.h:1806
 	Booltesttype BoolTestType // Kind of test - primnodes.h:1807
 }
 
@@ -552,16 +566,16 @@ func (bt *BooleanTest) String() string {
 	if testStr == "" {
 		testStr = fmt.Sprintf("BOOLTEST_%d", int(bt.Booltesttype))
 	}
-	
+
 	return fmt.Sprintf("BooleanTest(%s %s)", bt.Arg, testStr)
 }
 
 // SqlString returns the SQL representation of BooleanTest
 func (bt *BooleanTest) SqlString() string {
 	var result strings.Builder
-	
+
 	result.WriteString(bt.Arg.SqlString())
-	
+
 	switch bt.Booltesttype {
 	case IS_TRUE:
 		result.WriteString(" IS TRUE")
@@ -576,7 +590,7 @@ func (bt *BooleanTest) SqlString() string {
 	case IS_NOT_UNKNOWN:
 		result.WriteString(" IS NOT UNKNOWN")
 	}
-	
+
 	return result.String()
 }
 
@@ -585,7 +599,7 @@ func (bt *BooleanTest) SqlString() string {
 // Ported from postgres/src/include/nodes/primnodes.h:2025
 type CoerceToDomain struct {
 	BaseExpr
-	Arg            Expression    // Input expression - primnodes.h:1716
+	Arg            Expression   // Input expression - primnodes.h:1716
 	Resulttype     Oid          // Domain type OID - primnodes.h:1717
 	Resulttypmod   int32        // Output typmod (usually -1) - primnodes.h:1718
 	Resultcollid   Oid          // OID of collation, or InvalidOid if none - primnodes.h:1719
@@ -681,7 +695,7 @@ func (std *SetToDefault) SqlString() string {
 // Ported from postgres/src/include/nodes/primnodes.h:2094
 type CurrentOfExpr struct {
 	BaseExpr
-	Cvarno       Index  // RT index of target relation - primnodes.h:2097
+	Cvarno      Index  // RT index of target relation - primnodes.h:2097
 	CursorName  string // Name of referenced cursor, or NULL - primnodes.h:2098
 	CursorParam int    // Refcursor parameter number, or 0 - primnodes.h:2099
 }
@@ -697,8 +711,8 @@ func (c *CurrentOfExpr) SqlString() string {
 // NewCurrentOfExpr creates a new CurrentOfExpr node.
 func NewCurrentOfExpr(cvarno Index, cursor_name string) *CurrentOfExpr {
 	return &CurrentOfExpr{
-		BaseExpr:    BaseExpr{BaseNode: BaseNode{Tag: T_CurrentOfExpr}},
-		Cvarno:      cvarno,
+		BaseExpr:   BaseExpr{BaseNode: BaseNode{Tag: T_CurrentOfExpr}},
+		Cvarno:     cvarno,
 		CursorName: cursor_name,
 	}
 }
@@ -706,8 +720,8 @@ func NewCurrentOfExpr(cvarno Index, cursor_name string) *CurrentOfExpr {
 // NewCurrentOfExprParam creates a new CurrentOfExpr with parameter reference.
 func NewCurrentOfExprParam(cvarno Index, cursor_param int) *CurrentOfExpr {
 	return &CurrentOfExpr{
-		BaseExpr:     BaseExpr{BaseNode: BaseNode{Tag: T_CurrentOfExpr}},
-		Cvarno:       cvarno,
+		BaseExpr:    BaseExpr{BaseNode: BaseNode{Tag: T_CurrentOfExpr}},
+		Cvarno:      cvarno,
 		CursorParam: cursor_param,
 	}
 }
@@ -754,9 +768,9 @@ func (nve *NextValueExpr) String() string {
 // Ported from postgres/src/include/nodes/primnodes.h:2123
 type InferenceElem struct {
 	BaseExpr
-	Expr      Node // Expression to infer from - primnodes.h:2014
-	Infercollid Oid      // OID of collation, or InvalidOid - primnodes.h:2015
-	Inferopclass Oid     // OID of operator class, or InvalidOid - primnodes.h:2016
+	Expr         Node // Expression to infer from - primnodes.h:2014
+	Infercollid  Oid  // OID of collation, or InvalidOid - primnodes.h:2015
+	Inferopclass Oid  // OID of operator class, or InvalidOid - primnodes.h:2016
 }
 
 // NewInferenceElem creates a new InferenceElem node.

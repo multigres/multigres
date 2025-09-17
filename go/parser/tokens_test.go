@@ -1,3 +1,17 @@
+// Copyright 2025 Supabase, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 /*
  * PostgreSQL Parser Tokens - Test Suite
  *
@@ -135,7 +149,7 @@ func TestRefactoredArchitecture(t *testing.T) {
 func TestTokenTypeElimination(t *testing.T) {
 	// Verify that TokenType is now just an alias for int
 	var tokenType TokenType = 123
-	var intVal int = tokenType
+	intVal := int(tokenType)
 	assert.Equal(t, 123, intVal, "TokenType should be assignable to int")
 
 	// Verify Token.Type is now int

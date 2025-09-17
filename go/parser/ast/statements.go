@@ -1,3 +1,17 @@
+// Copyright 2025 Supabase, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 // Package ast provides PostgreSQL AST statement node definitions.
 // Ported from postgres/src/include/nodes/parsenodes.h
 package ast
@@ -733,16 +747,16 @@ func (s *SelectStmt) needsParenthesesInSetOperation() bool {
 	if s == nil {
 		return false
 	}
-	
+
 	// A SELECT needs parentheses if it has any of these complex clauses
-	return s.WhereClause != nil || 
-		   s.GroupClause != nil && s.GroupClause.Len() > 0 || 
-		   s.HavingClause != nil ||
-		   s.SortClause != nil && s.SortClause.Len() > 0 || 
-		   s.LimitOffset != nil || 
-		   s.LimitCount != nil ||
-		   s.WithClause != nil || // WITH clauses need parentheses in set operations
-		   s.Op != SETOP_NONE // Nested set operations always need parentheses
+	return s.WhereClause != nil ||
+		s.GroupClause != nil && s.GroupClause.Len() > 0 ||
+		s.HavingClause != nil ||
+		s.SortClause != nil && s.SortClause.Len() > 0 ||
+		s.LimitOffset != nil ||
+		s.LimitCount != nil ||
+		s.WithClause != nil || // WITH clauses need parentheses in set operations
+		s.Op != SETOP_NONE // Nested set operations always need parentheses
 }
 
 // isConstantOne checks if a Node represents the constant integer 1
@@ -1788,9 +1802,10 @@ func (d *DropStmt) sqlStringForDropCast() string {
 		}
 	}
 
-	if d.Behavior == DropCascade {
+	switch d.Behavior {
+	case DropCascade:
 		parts = append(parts, "CASCADE")
-	} else if d.Behavior == DropRestrict {
+	case DropRestrict:
 		parts = append(parts, "RESTRICT")
 	}
 
@@ -1839,9 +1854,10 @@ func (d *DropStmt) sqlStringForDropOpClass() string {
 		}
 	}
 
-	if d.Behavior == DropCascade {
+	switch d.Behavior {
+	case DropCascade:
 		parts = append(parts, "CASCADE")
-	} else if d.Behavior == DropRestrict {
+	case DropRestrict:
 		parts = append(parts, "RESTRICT")
 	}
 
@@ -1889,9 +1905,10 @@ func (d *DropStmt) sqlStringForDropOpFamily() string {
 		}
 	}
 
-	if d.Behavior == DropCascade {
+	switch d.Behavior {
+	case DropCascade:
 		parts = append(parts, "CASCADE")
-	} else if d.Behavior == DropRestrict {
+	case DropRestrict:
 		parts = append(parts, "RESTRICT")
 	}
 
@@ -1924,9 +1941,10 @@ func (d *DropStmt) sqlStringForDropTransform() string {
 		}
 	}
 
-	if d.Behavior == DropCascade {
+	switch d.Behavior {
+	case DropCascade:
 		parts = append(parts, "CASCADE")
-	} else if d.Behavior == DropRestrict {
+	case DropRestrict:
 		parts = append(parts, "RESTRICT")
 	}
 
@@ -1951,9 +1969,10 @@ func (d *DropStmt) sqlStringForDropSubscription() string {
 		}
 	}
 
-	if d.Behavior == DropCascade {
+	switch d.Behavior {
+	case DropCascade:
 		parts = append(parts, "CASCADE")
-	} else if d.Behavior == DropRestrict {
+	case DropRestrict:
 		parts = append(parts, "RESTRICT")
 	}
 

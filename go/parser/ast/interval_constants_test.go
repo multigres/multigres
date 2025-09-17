@@ -1,3 +1,17 @@
+// Copyright 2025 Supabase, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 package ast
 
 import (
@@ -33,10 +47,10 @@ func TestIntervalMask(t *testing.T) {
 		field    int
 		expected int
 	}{
-		{"YEAR", YEAR, 4},     // 1 << 2
-		{"MONTH", MONTH, 2},   // 1 << 1  
-		{"DAY", DAY, 8},       // 1 << 3
-		{"HOUR", HOUR, 1024},  // 1 << 10
+		{"YEAR", YEAR, 4},        // 1 << 2
+		{"MONTH", MONTH, 2},      // 1 << 1
+		{"DAY", DAY, 8},          // 1 << 3
+		{"HOUR", HOUR, 1024},     // 1 << 10
 		{"MINUTE", MINUTE, 2048}, // 1 << 11
 		{"SECOND", SECOND, 4096}, // 1 << 12
 	}
@@ -79,20 +93,20 @@ func TestIntervalRange(t *testing.T) {
 	if INTERVAL_FULL_RANGE != 0x7FFF {
 		t.Errorf("INTERVAL_FULL_RANGE = %d, expected %d", INTERVAL_FULL_RANGE, 0x7FFF)
 	}
-	
+
 	// Test IntervalTypmod function
 	precision := 6
 	rangeVal := 1023
 	typmod := IntervalTypmod(precision, rangeVal)
-	
+
 	// Verify we can extract precision and range correctly
 	extractedPrecision := IntervalPrecision(typmod)
 	extractedRange := IntervalRange(typmod)
-	
+
 	if extractedPrecision != precision {
 		t.Errorf("IntervalPrecision(%d) = %d, expected %d", typmod, extractedPrecision, precision)
 	}
-	
+
 	if extractedRange != rangeVal {
 		t.Errorf("IntervalRange(%d) = %d, expected %d", typmod, extractedRange, rangeVal)
 	}
@@ -105,13 +119,13 @@ func TestIntervalMaskCombinations(t *testing.T) {
 	if yearMonth != expectedYearMonth {
 		t.Errorf("YEAR | MONTH = %d, expected %d", yearMonth, expectedYearMonth)
 	}
-	
+
 	dayHour := INTERVAL_MASK_DAY | INTERVAL_MASK_HOUR
 	expectedDayHour := 8 | 1024 // 1032
 	if dayHour != expectedDayHour {
 		t.Errorf("DAY | HOUR = %d, expected %d", dayHour, expectedDayHour)
 	}
-	
+
 	hourMinuteSecond := INTERVAL_MASK_HOUR | INTERVAL_MASK_MINUTE | INTERVAL_MASK_SECOND
 	expectedHourMinuteSecond := 1024 | 2048 | 4096 // 7168
 	if hourMinuteSecond != expectedHourMinuteSecond {

@@ -1,3 +1,17 @@
+// Copyright 2025 Supabase, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 // Package ast provides PostgreSQL utility statement node definitions.
 // Ported from postgres/src/include/nodes/parsenodes.h
 package ast
@@ -1238,7 +1252,8 @@ func (arss *AlterRoleSetStmt) SqlString() string {
 
 	if arss.Setstmt != nil {
 		// Format the SET/RESET clause specifically for ALTER ROLE
-		if arss.Setstmt.Kind == VAR_SET_VALUE {
+		switch arss.Setstmt.Kind {
+		case VAR_SET_VALUE:
 			parts = append(parts, "SET", arss.Setstmt.Name)
 			if arss.Setstmt.Args != nil && arss.Setstmt.Args.Len() > 0 {
 				parts = append(parts, "TO")
@@ -1259,11 +1274,11 @@ func (arss *AlterRoleSetStmt) SqlString() string {
 				}
 				parts = append(parts, strings.Join(argParts, ", "))
 			}
-		} else if arss.Setstmt.Kind == VAR_SET_DEFAULT {
+		case VAR_SET_DEFAULT:
 			parts = append(parts, "SET", arss.Setstmt.Name, "TO", "DEFAULT")
-		} else if arss.Setstmt.Kind == VAR_SET_CURRENT {
+		case VAR_SET_CURRENT:
 			parts = append(parts, "SET", arss.Setstmt.Name, "FROM", "CURRENT")
-		} else if arss.Setstmt.Kind == VAR_SET_MULTI {
+		case VAR_SET_MULTI:
 			// For multi-valued SET like search_path
 			parts = append(parts, "SET", arss.Setstmt.Name)
 			if arss.Setstmt.Args != nil && arss.Setstmt.Args.Len() > 0 {
@@ -1285,9 +1300,9 @@ func (arss *AlterRoleSetStmt) SqlString() string {
 				}
 				parts = append(parts, strings.Join(argParts, ", "))
 			}
-		} else if arss.Setstmt.Kind == VAR_RESET {
+		case VAR_RESET:
 			parts = append(parts, "RESET", arss.Setstmt.Name)
-		} else if arss.Setstmt.Kind == VAR_RESET_ALL {
+		case VAR_RESET_ALL:
 			parts = append(parts, "RESET", "ALL")
 		}
 	}
@@ -1561,9 +1576,8 @@ func (v *VariableSetStmt) SqlString() string {
 					parts = append(parts, strings.Join(values, ", "))
 				}
 			}
-		} else if v.Name == "client_encoding" {
-			// SET NAMES without arguments is valid
 		}
+		// SET NAMES without arguments is valid for client_encoding
 
 	case VAR_SET_DEFAULT:
 		// Handle SET var = DEFAULT or SET SESSION AUTHORIZATION DEFAULT
@@ -1589,18 +1603,20 @@ func (v *VariableSetStmt) SqlString() string {
 
 	case VAR_SET_MULTI:
 		// Handle SET TRANSACTION and similar multi-value statements
-		if v.Name == "TRANSACTION" {
+		switch v.Name {
+		case "TRANSACTION":
 			parts = append(parts, "TRANSACTION")
 			// Add transaction mode items
 			if v.Args != nil {
 				for _, arg := range v.Args.Items {
 					if defElem, ok := arg.(*DefElem); ok {
-						if defElem.Defname == "transaction_isolation" {
+						switch defElem.Defname {
+						case "transaction_isolation":
 							parts = append(parts, "ISOLATION", "LEVEL")
 							if str, ok := defElem.Arg.(*String); ok {
 								parts = append(parts, strings.ToUpper(str.SVal))
 							}
-						} else if defElem.Defname == "transaction_read_only" {
+						case "transaction_read_only":
 							if boolVal, ok := defElem.Arg.(*Boolean); ok {
 								if boolVal.BoolVal {
 									parts = append(parts, "READ", "ONLY")
@@ -1608,7 +1624,7 @@ func (v *VariableSetStmt) SqlString() string {
 									parts = append(parts, "READ", "WRITE")
 								}
 							}
-						} else if defElem.Defname == "transaction_deferrable" {
+						case "transaction_deferrable":
 							if boolVal, ok := defElem.Arg.(*Boolean); ok {
 								if boolVal.BoolVal {
 									parts = append(parts, "DEFERRABLE")
@@ -1620,18 +1636,19 @@ func (v *VariableSetStmt) SqlString() string {
 					}
 				}
 			}
-		} else if v.Name == "SESSION CHARACTERISTICS AS TRANSACTION" {
+		case "SESSION CHARACTERISTICS AS TRANSACTION":
 			parts = append(parts, "SESSION", "CHARACTERISTICS", "AS", "TRANSACTION")
 			// Add transaction mode items
 			if v.Args != nil {
 				for _, arg := range v.Args.Items {
 					if defElem, ok := arg.(*DefElem); ok {
-						if defElem.Defname == "transaction_isolation" {
+						switch defElem.Defname {
+						case "transaction_isolation":
 							parts = append(parts, "ISOLATION", "LEVEL")
 							if str, ok := defElem.Arg.(*String); ok {
 								parts = append(parts, strings.ToUpper(str.SVal))
 							}
-						} else if defElem.Defname == "transaction_read_only" {
+						case "transaction_read_only":
 							if boolVal, ok := defElem.Arg.(*Boolean); ok {
 								if boolVal.BoolVal {
 									parts = append(parts, "READ", "ONLY")
@@ -1639,7 +1656,7 @@ func (v *VariableSetStmt) SqlString() string {
 									parts = append(parts, "READ", "WRITE")
 								}
 							}
-						} else if defElem.Defname == "transaction_deferrable" {
+						case "transaction_deferrable":
 							if boolVal, ok := defElem.Arg.(*Boolean); ok {
 								if boolVal.BoolVal {
 									parts = append(parts, "DEFERRABLE")
@@ -1651,7 +1668,7 @@ func (v *VariableSetStmt) SqlString() string {
 					}
 				}
 			}
-		} else {
+		default:
 			// For other multi-value statements, use generic handling
 			parts = append(parts, v.Name)
 			if v.Args != nil && v.Args.Len() > 0 {
@@ -1931,11 +1948,12 @@ func formatExplainOption(option *DefElem) string {
 
 	switch arg := option.Arg.(type) {
 	case *String:
-		if arg.SVal == "true" || arg.SVal == "on" || arg.SVal == "1" {
+		switch arg.SVal {
+		case "true", "on", "1":
 			return optionName + " true"
-		} else if arg.SVal == "false" || arg.SVal == "off" || arg.SVal == "0" {
+		case "false", "off", "0":
 			return optionName + " false"
-		} else {
+		default:
 			// String value - don't quote for EXPLAIN options like FORMAT JSON
 			return optionName + " " + strings.ToUpper(arg.SVal)
 		}
@@ -2277,13 +2295,14 @@ func formatCopyOption(option *DefElem) string {
 
 	switch arg := option.Arg.(type) {
 	case *String:
-		if arg.SVal == "true" || arg.SVal == "on" || arg.SVal == "1" {
+		switch arg.SVal {
+		case "true", "on", "1":
 			return optionName + " true"
-		} else if arg.SVal == "false" || arg.SVal == "off" || arg.SVal == "0" {
+		case "false", "off", "0":
 			return optionName + " false"
-		} else if arg.SVal == "default" {
+		case "default":
 			return optionName + " default"
-		} else {
+		default:
 			// String value - properly escape and quote it
 			return optionName + " " + QuoteStringLiteral(arg.SVal)
 		}
@@ -2482,15 +2501,16 @@ func formatVacuumOption(option *DefElem) string {
 
 	switch arg := option.Arg.(type) {
 	case *String:
-		if arg.SVal == "true" || arg.SVal == "on" || arg.SVal == "1" {
+		switch arg.SVal {
+		case "true", "on", "1":
 			// For simple boolean options that are true, just return the name
 			if isSimpleVacuumOption(option.Defname) {
 				return optionName
 			}
 			return optionName + " true"
-		} else if arg.SVal == "false" || arg.SVal == "off" || arg.SVal == "0" {
+		case "false", "off", "0":
 			return optionName + " false"
-		} else {
+		default:
 			// String value - quote it for VACUUM options
 			return optionName + " '" + arg.SVal + "'"
 		}

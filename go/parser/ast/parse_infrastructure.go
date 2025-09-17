@@ -1,3 +1,17 @@
+// Copyright 2025 Supabase, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 // Package ast provides PostgreSQL AST parse infrastructure node definitions.
 // This file contains core parsing infrastructure nodes essential for lexer/parser integration.
 // Ported from postgres/src/include/nodes/parsenodes.h
@@ -206,7 +220,7 @@ func (a *A_Expr) SqlString() string {
 			rightStr := a.Rexpr.SqlString()
 
 			// Get the operator
-			var op string = "=" // Default operator
+			op := "=" // Default operator
 			if a.Name != nil && len(a.Name.Items) > 0 {
 				if str, ok := a.Name.Items[0].(*String); ok {
 					op = str.SVal
@@ -223,7 +237,7 @@ func (a *A_Expr) SqlString() string {
 			rightStr := a.Rexpr.SqlString()
 
 			// Get the operator
-			var op string = "=" // Default operator
+			op := "=" // Default operator
 			if a.Name != nil && len(a.Name.Items) > 0 {
 				if str, ok := a.Name.Items[0].(*String); ok {
 					op = str.SVal
@@ -1139,9 +1153,10 @@ func (c *ColumnDef) SqlString() string {
 				if constraint.Contype == CONSTR_IDENTITY {
 					// Build the identity specification with proper formatting for column definitions
 					result := "GENERATED "
-					if constraint.GeneratedWhen == ATTRIBUTE_IDENTITY_ALWAYS {
+					switch constraint.GeneratedWhen {
+					case ATTRIBUTE_IDENTITY_ALWAYS:
 						result += "ALWAYS"
-					} else if constraint.GeneratedWhen == ATTRIBUTE_IDENTITY_BY_DEFAULT {
+					case ATTRIBUTE_IDENTITY_BY_DEFAULT:
 						result += "BY DEFAULT"
 					}
 					result += " AS IDENTITY"
@@ -1724,13 +1739,14 @@ func (g *GroupingSet) SqlString() string {
 					// Each item should be a GroupingSet or expression
 					if gs, ok := item.(*GroupingSet); ok {
 						// Handle different GroupingSet kinds
-						if gs.Kind == GROUPING_SET_EMPTY {
+						switch gs.Kind {
+						case GROUPING_SET_EMPTY:
 							// Empty grouping set: ()
 							sets = append(sets, "()")
-						} else if gs.Kind == GROUPING_SET_SIMPLE {
+						case GROUPING_SET_SIMPLE:
 							// Simple grouping set: (expr1, expr2)
 							sets = append(sets, fmt.Sprintf("(%s)", gs.SqlString()))
-						} else {
+						default:
 							// Other grouping sets (ROLLUP, CUBE, etc)
 							sets = append(sets, gs.SqlString())
 						}
@@ -2171,7 +2187,8 @@ func formatAggrArgsList(argsList *NodeList) string {
 
 // formatAggrArgsStructure formats the [args, numDirectArgs] structure from aggr_args
 func formatAggrArgsStructure(argList *NodeList, numDirectArgs int) string {
-	if numDirectArgs == -1 {
+	switch numDirectArgs {
+	case -1:
 		// Regular aggregate or COUNT(*)
 		if argList == nil || argList.Len() == 0 {
 			// COUNT(*) case
@@ -2190,7 +2207,7 @@ func formatAggrArgsStructure(argList *NodeList, numDirectArgs int) string {
 				return "(" + strings.Join(argStrs, ", ") + ")"
 			}
 		}
-	} else if numDirectArgs == 0 {
+	case 0:
 		// Ordered-set aggregate without direct args: (ORDER BY args)
 		if argList != nil {
 			var argStrs []string
@@ -2206,7 +2223,7 @@ func formatAggrArgsStructure(argList *NodeList, numDirectArgs int) string {
 				return "(ORDER BY " + strings.Join(argStrs, ", ") + ")"
 			}
 		}
-	} else {
+	default:
 		// Hypothetical-set aggregate: (direct_args ORDER BY ordered_args)
 		if argList != nil {
 			var directArgs []string

@@ -1,3 +1,17 @@
+// Copyright 2025 Supabase, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 package parser
 
 import (
@@ -31,7 +45,7 @@ func (s *parseTestSuite) SetupSuite() {
 	dir := getTestExpectationDir()
 	err := os.RemoveAll(dir)
 	require.NoError(s.T(), err)
-	err = os.Mkdir(dir, 0755)
+	err = os.Mkdir(dir, 0o755)
 	require.NoError(s.T(), err)
 	s.outputDir = dir
 }
@@ -165,7 +179,6 @@ func locateFile(name string) string {
 func getParserOutput(query string) (string, error) {
 	// Parse the query using the actual parser
 	asts, err := ParseSQL(query)
-
 	// Check for parse errors
 	if err != nil {
 		return "", err

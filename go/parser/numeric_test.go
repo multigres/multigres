@@ -1,3 +1,17 @@
+// Copyright 2025 Supabase, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 /*
  * PostgreSQL Numeric Literal Lexer Tests
  *
@@ -573,29 +587,29 @@ func TestEnhancedIntegerLiteralProcessing(t *testing.T) {
 		{"positive", "123", ICONST, 123, "", false},
 		{"simple with sign", "456", ICONST, 456, "", false}, // Note: signs are separate tokens
 		{"max int32", "2147483647", ICONST, 2147483647, "", false},
-		
+
 		// Decimal with underscores
 		{"decimal underscore", "1_234", ICONST, 1234, "", false},
 		{"decimal multiple underscores", "1_000_000", ICONST, 1000000, "", false},
-		
+
 		// Hexadecimal integers
 		{"hex lowercase", "0x1a", ICONST, 26, "", false},
 		{"hex uppercase", "0X1A", ICONST, 26, "", false},
 		{"hex mixed case", "0xDeAdBeEf", FCONST, 0, "0xDeAdBeEf", true},
 		{"hex with underscores", "0xFF_FF", ICONST, 0xFFFF, "", false},
 		{"hex max int32", "0x7FFFFFFF", ICONST, 2147483647, "", false},
-		
+
 		// Octal integers
 		{"octal lowercase", "0o755", ICONST, 493, "", false}, // 755 octal = 493 decimal
 		{"octal uppercase", "0O755", ICONST, 493, "", false},
 		{"octal with underscores", "0o7_5_5", ICONST, 493, "", false},
-		
+
 		// Binary integers
 		{"binary lowercase", "0b1010", ICONST, 10, "", false},
 		{"binary uppercase", "0B1010", ICONST, 10, "", false},
 		{"binary with underscores", "0b1111_0000", ICONST, 240, "", false},
 		{"binary byte", "0b11111111", ICONST, 255, "", false},
-		
+
 		// Overflow cases (should return FCONST)
 		{"overflow positive", "2147483648", FCONST, 0, "2147483648", true},
 		{"overflow hex", "0x80000000", FCONST, 0, "0x80000000", true},
@@ -637,17 +651,17 @@ func TestIntegerBaseParsing(t *testing.T) {
 		// Decimal
 		{"decimal simple", "42", 42},
 		{"decimal zero", "0", 0},
-		
+
 		// Hexadecimal
 		{"hex single digit", "0xF", 15},
 		{"hex byte", "0xFF", 255},
 		{"hex word", "0xFFFF", 65535},
-		
+
 		// Octal
 		{"octal simple", "0o777", 511},
 		{"octal zero", "0o0", 0},
 		{"octal max digit", "0o7", 7},
-		
+
 		// Binary
 		{"binary simple", "0b1111", 15},
 		{"binary zero", "0b0", 0},
@@ -659,13 +673,13 @@ func TestIntegerBaseParsing(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			lexer := NewLexer(tt.input)
 			val, overflow := lexer.parseInteger32(tt.input)
-			
+
 			if !overflow && tt.expected != 0 {
 				assert.Equal(t, tt.expected, val, "Parsed value mismatch")
 			}
-			
+
 			// Test that the value can be parsed without error
-			assert.False(t, overflow || val == 0 && tt.expected != 0, 
+			assert.False(t, overflow || val == 0 && tt.expected != 0,
 				"Should parse successfully for input: %s", tt.input)
 		})
 	}
@@ -674,30 +688,30 @@ func TestIntegerBaseParsing(t *testing.T) {
 // TestIntegerOverflowBehavior tests integer overflow detection
 func TestIntegerOverflowBehavior(t *testing.T) {
 	tests := []struct {
-		name          string
-		input         string
+		name           string
+		input          string
 		expectOverflow bool
-		description   string
+		description    string
 	}{
 		// Boundary cases
 		{"max int32", "2147483647", false, "INT32_MAX should not overflow"},
 		{"max int32 + 1", "2147483648", true, "INT32_MAX + 1 should overflow"},
 		{"min int32", "-2147483648", false, "INT32_MIN should not overflow"},
 		{"min int32 - 1", "-2147483649", true, "INT32_MIN - 1 should overflow"},
-		
+
 		// Large numbers
 		{"very large positive", "99999999999999999999", true, "Very large positive should overflow"},
 		{"very large negative", "-99999999999999999999", true, "Very large negative should overflow"},
-		
+
 		// Hex overflow
 		{"hex max int32", "0x7FFFFFFF", false, "Max positive hex should not overflow"},
 		{"hex overflow", "0x80000000", true, "0x80000000 should overflow"},
 		{"hex large", "0xFFFFFFFF", true, "Max uint32 should overflow int32"},
-		
-		// Binary overflow  
+
+		// Binary overflow
 		{"binary max", "0b01111111111111111111111111111111", false, "31-bit binary should not overflow"},
 		{"binary overflow", "0b10000000000000000000000000000000", true, "32-bit binary should overflow"},
-		
+
 		// Octal overflow
 		{"octal max", "0o17777777777", false, "Max int32 octal should not overflow"},
 		{"octal overflow", "0o20000000000", true, "Octal overflow should be detected"},
@@ -707,7 +721,7 @@ func TestIntegerOverflowBehavior(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			lexer := NewLexer(tt.input)
 			_, overflow := lexer.parseInteger32(tt.input)
-			
+
 			if tt.expectOverflow {
 				assert.True(t, overflow, tt.description)
 			} else {
@@ -730,7 +744,7 @@ func TestIntegerWithUnderscores(t *testing.T) {
 		{"hex with underscores", "0xAB_CD", 0xABCD, true},
 		{"octal with underscores", "0o7_5_5", 493, true}, // 755 octal
 		{"binary with underscores", "0b1111_0000_1010_0101", 0xF0A5, true},
-		
+
 		// Invalid underscore usage (these would be caught by lexer's junk detection)
 		{"trailing underscore", "123_", 0, false},
 		{"leading underscore after prefix", "0x_FF", 0, false},
@@ -741,7 +755,7 @@ func TestIntegerWithUnderscores(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			lexer := NewLexer(tt.input)
 			val, overflow := lexer.parseInteger32(tt.input)
-			
+
 			if tt.valid && !overflow {
 				assert.Equal(t, tt.expected, val, "Parsed value should match expected")
 			} else if !tt.valid {
