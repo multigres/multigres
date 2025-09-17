@@ -20,7 +20,6 @@ import (
 	"errors"
 	"fmt"
 	"net"
-	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -58,6 +57,7 @@ type CellServicesConfig struct {
 	Multigateway MultigatewayConfig `yaml:"multigateway"`
 	Multipooler  MultipoolerConfig  `yaml:"multipooler"`
 	Multiorch    MultiorchConfig    `yaml:"multiorch"`
+	Pgctld       PgctldConfig       `yaml:"pgctld"`
 }
 
 // LocalProvisionerConfig represents the typed configuration for the local provisioner
@@ -91,6 +91,7 @@ type MultipoolerConfig struct {
 	Path       string `yaml:"path"`
 	Database   string `yaml:"database"`
 	TableGroup string `yaml:"table-group"`
+	ServiceID  string `yaml:"service-id"`
 	HttpPort   int    `yaml:"http-port"`
 	GrpcPort   int    `yaml:"grpc-port"`
 	LogLevel   string `yaml:"log-level"`
@@ -110,6 +111,19 @@ type MultiadminConfig struct {
 	HttpPort int    `yaml:"http-port"`
 	GrpcPort int    `yaml:"grpc-port"`
 	LogLevel string `yaml:"log-level"`
+}
+
+// PgctldConfig holds pgctld service configuration
+type PgctldConfig struct {
+	Path       string `yaml:"path"`
+	PoolerDir  string `yaml:"pooler-dir"`  // Base directory for this pgctld instance
+	GrpcPort   int    `yaml:"grpc-port"`   // gRPC port for pgctld server
+	PgPort     int    `yaml:"pg-port"`     // PostgreSQL port
+	PgDatabase string `yaml:"pg-database"` // PostgreSQL database name
+	PgUser     string `yaml:"pg-user"`     // PostgreSQL username
+	PgPwfile   string `yaml:"pg-pwfile"`   // PostgreSQL password file path (optional)
+	Timeout    int    `yaml:"timeout"`     // Operation timeout in seconds
+	LogLevel   string `yaml:"log-level"`   // Log level
 }
 
 // localProvisioner implements the Provisioner interface for local binary-based provisioning
@@ -207,10 +221,16 @@ func (p *localProvisioner) DefaultConfig() map[string]any {
 		fmt.Println("Warning: MTROOT environment variable is not set, using relative paths for default binary configuration in local provisioner.")
 	}
 
+	// Generate service IDs for each cell using the same method as topo components
+	serviceIDZone1 := stringutil.RandomString(8)
+	serviceIDZone2 := stringutil.RandomString(8)
+	tableGroup := "default"
+	dbName := "postgres"
+
 	// Create typed configuration with defaults
 	localConfig := LocalProvisionerConfig{
 		RootWorkingDir: baseDir,
-		DefaultDbName:  "postgres",
+		DefaultDbName:  dbName,
 		Etcd: EtcdConfig{
 			Version: "3.5.9",
 			DataDir: filepath.Join(baseDir, "data", "etcd-data"),
@@ -247,8 +267,9 @@ func (p *localProvisioner) DefaultConfig() map[string]any {
 				},
 				Multipooler: MultipoolerConfig{
 					Path:       filepath.Join(binDir, "multipooler"),
-					Database:   "postgres",
-					TableGroup: "default",
+					Database:   dbName,
+					TableGroup: tableGroup,
+					ServiceID:  serviceIDZone1,
 					HttpPort:   15100,
 					GrpcPort:   16001,
 					LogLevel:   "info",
@@ -258,6 +279,17 @@ func (p *localProvisioner) DefaultConfig() map[string]any {
 					HttpPort: 15300,
 					GrpcPort: 16000,
 					LogLevel: "info",
+				},
+				Pgctld: PgctldConfig{
+					Path:       filepath.Join(binDir, "pgctld"),
+					PoolerDir:  GeneratePoolerDir(baseDir, serviceIDZone1),
+					GrpcPort:   17000,
+					PgPort:     5432,
+					PgDatabase: dbName,
+					PgUser:     "postgres",
+					PgPwfile:   filepath.Join(GeneratePoolerDir(baseDir, serviceIDZone1), "pgpassword.txt"),
+					Timeout:    30,
+					LogLevel:   "info",
 				},
 			},
 			"zone2": {
@@ -270,8 +302,9 @@ func (p *localProvisioner) DefaultConfig() map[string]any {
 				},
 				Multipooler: MultipoolerConfig{
 					Path:       filepath.Join(binDir, "multipooler"),
-					Database:   "postgres",
-					TableGroup: "default",
+					Database:   dbName,
+					TableGroup: tableGroup,
+					ServiceID:  serviceIDZone2,
 					HttpPort:   15200, // zone1 + 100
 					GrpcPort:   16101, // zone1 + 100
 					LogLevel:   "info",
@@ -281,6 +314,17 @@ func (p *localProvisioner) DefaultConfig() map[string]any {
 					HttpPort: 15400, // zone1 + 100
 					GrpcPort: 16100, // zone1 + 100
 					LogLevel: "info",
+				},
+				Pgctld: PgctldConfig{
+					Path:       filepath.Join(binDir, "pgctld"),
+					PoolerDir:  GeneratePoolerDir(baseDir, serviceIDZone2),
+					GrpcPort:   17100, // zone1 + 100
+					PgPort:     5532,  // zone1 + 100
+					PgDatabase: dbName,
+					PgUser:     "postgres",
+					PgPwfile:   filepath.Join(GeneratePoolerDir(baseDir, serviceIDZone2), "pgpassword.txt"),
+					Timeout:    30,
+					LogLevel:   "info",
 				},
 			},
 		},
@@ -302,6 +346,53 @@ func (p *localProvisioner) DefaultConfig() map[string]any {
 	}
 
 	return configMap
+}
+
+// createPasswordFileAndDirectories creates the pooler directory structure and password file
+func createPasswordFileAndDirectories(poolerDir, passwordFilePath string) error {
+	// Create the pooler directory structure
+	if err := os.MkdirAll(poolerDir, 0o755); err != nil {
+		return fmt.Errorf("failed to create pooler directory %s: %w", poolerDir, err)
+	}
+
+	// Create the password file with "postgres" password
+	if err := os.WriteFile(passwordFilePath, []byte("postgres"), 0o600); err != nil {
+		return fmt.Errorf("failed to create password file %s: %w", passwordFilePath, err)
+	}
+
+	return nil
+}
+
+// initializePgctldDirectories initializes all pgctld directories and password files based on the config
+func (p *localProvisioner) initializePgctldDirectories() error {
+	// Get the typed configuration
+	config := p.config
+
+	// Initialize directories for each cell's pgctld configuration
+	for cellName, cellConfig := range config.Cells {
+		fmt.Printf("Setting up pgctld directory for cell %s...\n", cellName)
+
+		poolerDir := cellConfig.Pgctld.PoolerDir
+
+		if poolerDir == "" {
+			return fmt.Errorf("pooler-dir not found in config for pgtctld in cell %s", cellName)
+		}
+
+		passwordFile := cellConfig.Pgctld.PgPwfile
+
+		if passwordFile == "" {
+			return fmt.Errorf("pgctld password file not found in config for cell %s", cellName)
+		}
+
+		if err := createPasswordFileAndDirectories(poolerDir, passwordFile); err != nil {
+			return fmt.Errorf("failed to initialize pgctld directory for cell %s: %w", cellName, err)
+		}
+
+		fmt.Printf("✓ Created pooler directory: %s\n", poolerDir)
+		fmt.Printf("✓ Created password file: %s\n", passwordFile)
+	}
+
+	return nil
 }
 
 // provisionEtcd provisions etcd using local binary
@@ -403,7 +494,7 @@ func (p *localProvisioner) provisionEtcd(ctx context.Context, req *provisioner.P
 
 	// Wait for etcd to be ready
 	servicePorts := map[string]int{"etcd_port": port}
-	if err := p.waitForServiceReady("etcd", "localhost", servicePorts); err != nil {
+	if err := p.waitForServiceReady("etcd", "localhost", servicePorts, 10*time.Second); err != nil {
 		logs := p.readServiceLogs(logFile, 20)
 		return nil, fmt.Errorf("etcd readiness check failed: %w\n\nLast 20 lines from etcd logs:\n%s", err, logs)
 	}
@@ -509,85 +600,6 @@ func (p *localProvisioner) checkEtcdVersion(binaryPath, expectedVersion string) 
 	return nil
 }
 
-// waitForServiceReady waits for a service to become ready by checking appropriate endpoints
-func (p *localProvisioner) waitForServiceReady(serviceName string, host string, servicePorts map[string]int) error {
-	ticker := time.NewTicker(1 * time.Second)
-	defer ticker.Stop()
-
-	deadline := time.After(10 * time.Second)
-
-	for {
-		select {
-		case <-deadline:
-			return fmt.Errorf("%s did not become ready within 10 seconds", serviceName)
-		case <-ticker.C:
-			// First check TCP connectivity on all advertised ports
-			allPortsReady := true
-			for _, port := range servicePorts {
-				address := net.JoinHostPort(host, fmt.Sprintf("%d", port))
-				conn, err := net.DialTimeout("tcp", address, 2*time.Second)
-				if err != nil {
-					allPortsReady = false
-					break // This port not ready yet
-				}
-				conn.Close()
-			}
-			if !allPortsReady {
-				continue // Not all ports ready yet
-			}
-
-			// For services with HTTP endpoints, check debug/config endpoint
-			if err := p.checkMultigresServiceHealth(serviceName, host, servicePorts); err != nil {
-				continue // HTTP endpoint not ready yet
-			}
-
-			return nil // Service is ready
-		}
-	}
-}
-
-// checkMultigresServiceHealth checks health for all supported service port types
-func (p *localProvisioner) checkMultigresServiceHealth(serviceName string, host string, servicePorts map[string]int) error {
-	// Iterate over service ports and run health checks for supported types
-	for portType, port := range servicePorts {
-		switch portType {
-		case "http_port":
-			// Run HTTP health check
-			httpAddress := net.JoinHostPort(host, fmt.Sprintf("%d", port))
-			if err := p.checkDebugConfigEndpoint(httpAddress); err != nil {
-				return err
-			}
-		// Future: Add other port types like grpc_port, etc.
-		default:
-			// No health check implemented for this port type, skip
-			continue
-		}
-	}
-
-	return nil
-}
-
-// checkDebugConfigEndpoint checks if the debug/config endpoint returns 200 OK
-func (p *localProvisioner) checkDebugConfigEndpoint(address string) error {
-	url := fmt.Sprintf("http://%s/live", address)
-
-	client := &http.Client{
-		Timeout: 2 * time.Second,
-	}
-
-	resp, err := client.Get(url)
-	if err != nil {
-		return fmt.Errorf("failed to reach debug endpoint: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("debug endpoint returned status %d", resp.StatusCode)
-	}
-
-	return nil
-}
-
 // readServiceLogs reads the last few lines from a service's log file for debugging
 func (p *localProvisioner) readServiceLogs(logFile string, lines int) string {
 	if logFile == "" {
@@ -649,6 +661,11 @@ func (p *localProvisioner) getRootWorkingDir() string {
 	}
 
 	return p.config.RootWorkingDir
+}
+
+// GeneratePoolerDir generates a pooler directory path for a given base directory and service ID
+func GeneratePoolerDir(baseDir, serviceID string) string {
+	return filepath.Join(baseDir, "data", fmt.Sprintf("pooler_%s", serviceID))
 }
 
 // getStateDir returns the path to the state directory
@@ -883,7 +900,7 @@ func (p *localProvisioner) provisionMultigateway(ctx context.Context, req *provi
 
 	// Wait for multigateway to be ready
 	servicePorts := map[string]int{"http_port": httpPort, "grpc_port": grpcPort}
-	if err := p.waitForServiceReady("multigateway", "localhost", servicePorts); err != nil {
+	if err := p.waitForServiceReady("multigateway", "localhost", servicePorts, 10*time.Second); err != nil {
 		logs := p.readServiceLogs(logFile, 20)
 		return nil, fmt.Errorf("multigateway readiness check failed: %w\n\nLast 20 lines from multigateway logs:\n%s", err, logs)
 	}
@@ -1015,7 +1032,7 @@ func (p *localProvisioner) provisionMultiadmin(ctx context.Context, req *provisi
 
 	// Wait for multiadmin to be ready (check HTTP port)
 	servicePorts := map[string]int{"http_port": httpPort, "grpc_port": grpcPort}
-	if err := p.waitForServiceReady("multiadmin", "localhost", servicePorts); err != nil {
+	if err := p.waitForServiceReady("multiadmin", "localhost", servicePorts, 10*time.Second); err != nil {
 		logs := p.readServiceLogs(logFile, 20)
 		return nil, fmt.Errorf("multiadmin readiness check failed: %w\n\nLast 20 lines from multiadmin logs:\n%s", err, logs)
 	}
@@ -1112,10 +1129,14 @@ func (p *localProvisioner) provisionMultipooler(ctx context.Context, req *provis
 		return nil, fmt.Errorf("multipooler binary not found: %w", err)
 	}
 
-	// Get or generate unique ID for this service instance (needed for log file)
-	serviceID := stringutil.RandomString(8)
-	if id, ok := req.Params["service_id"].(string); ok && id != "" {
+	// Get service ID from multipooler config - this should always be set
+	serviceID := ""
+	if id, ok := multipoolerConfig["service-id"].(string); ok && id != "" {
 		serviceID = id
+	}
+
+	if err != nil {
+		return nil, fmt.Errorf("service-id not found in multipooler config for cell %s", cell)
 	}
 
 	// Create log file path
@@ -1124,7 +1145,13 @@ func (p *localProvisioner) provisionMultipooler(ctx context.Context, req *provis
 		return nil, fmt.Errorf("failed to create log file: %w", err)
 	}
 
-	// Build command arguments
+	// Provision pgctld for this multipooler
+	pgctldResult, err := p.provisionPgctld(ctx, database, tableGroup, serviceID, cell)
+	if err != nil {
+		return nil, fmt.Errorf("failed to provision pgctld for multipooler: %w", err)
+	}
+
+	// Build command arguments with pgctld-addr
 	args := []string{
 		"--http-port", fmt.Sprintf("%d", httpPort),
 		"--grpc-port", fmt.Sprintf("%d", grpcPort),
@@ -1135,6 +1162,7 @@ func (p *localProvisioner) provisionMultipooler(ctx context.Context, req *provis
 		"--database", database,
 		"--table-group", tableGroup,
 		"--service-id", serviceID,
+		"--pgctld-addr", pgctldResult.Address,
 		"--log-level", logLevel,
 		"--log-output", logFile,
 	}
@@ -1155,7 +1183,7 @@ func (p *localProvisioner) provisionMultipooler(ctx context.Context, req *provis
 
 	// Wait for multipooler to be ready
 	servicePorts := map[string]int{"http_port": httpPort, "grpc_port": grpcPort}
-	if err := p.waitForServiceReady("multipooler", "localhost", servicePorts); err != nil {
+	if err := p.waitForServiceReady("multipooler", "localhost", servicePorts, 10*time.Second); err != nil {
 		logs := p.readServiceLogs(logFile, 20)
 		return nil, fmt.Errorf("multipooler readiness check failed: %w\n\nLast 20 lines from multipooler logs:\n%s", err, logs)
 	}
@@ -1191,6 +1219,13 @@ func (p *localProvisioner) provisionMultipooler(ctx context.Context, req *provis
 			"log_file":   logFile,
 		},
 	}, nil
+}
+
+// PgctldProvisionResult contains the result of provisioning pgctld
+type PgctldProvisionResult struct {
+	Address string
+	Port    int
+	LogFile string
 }
 
 // provisionMultiOrch provisions multi-orchestrator using local binary
@@ -1294,7 +1329,7 @@ func (p *localProvisioner) provisionMultiOrch(ctx context.Context, req *provisio
 
 	// Wait for multiorch to be ready
 	servicePorts := map[string]int{"http_port": httpPort, "grpc_port": grpcPort}
-	if err := p.waitForServiceReady("multiorch", "localhost", servicePorts); err != nil {
+	if err := p.waitForServiceReady("multiorch", "localhost", servicePorts, 10*time.Second); err != nil {
 		logs := p.readServiceLogs(logFile, 20)
 		return nil, fmt.Errorf("multiorch readiness check failed: %w\n\nLast 20 lines from multiorch logs:\n%s", err, logs)
 	}
@@ -1743,6 +1778,16 @@ func (p *localProvisioner) stopService(ctx context.Context, req *provisioner.Dep
 		fallthrough
 	case "multiorch":
 		return p.deprovisionService(ctx, req)
+	case "pgctld":
+		// pgctld requires special handling to stop PostgreSQL first
+		service, err := p.loadServiceState(req)
+		if err != nil {
+			return err
+		}
+		if service == nil {
+			return fmt.Errorf("pgctld service not found")
+		}
+		return p.deprovisionPgctld(ctx, service)
 	default:
 		return fmt.Errorf("unknown service type: %s", req.Service)
 	}
@@ -1848,6 +1893,13 @@ func (p *localProvisioner) Bootstrap(ctx context.Context) ([]*provisioner.Provis
 	allResults = append(allResults, etcdResult)
 
 	etcdAddress := fmt.Sprintf("%s:%d", etcdResult.FQDN, tcpPort)
+
+	// Initialize pgctld directories and password files
+	fmt.Println("=== Setting up pgctld directories ===")
+	if err := p.initializePgctldDirectories(); err != nil {
+		return nil, fmt.Errorf("failed to initialize pgctld directories: %w", err)
+	}
+	fmt.Println("")
 
 	topoConfig, err := p.getTopologyConfig()
 	if err != nil {
@@ -2450,6 +2502,7 @@ func (p *localProvisioner) getCellServiceConfig(cellName, service string) (map[s
 			"path":        cellServices.Multipooler.Path,
 			"database":    cellServices.Multipooler.Database,
 			"table_group": cellServices.Multipooler.TableGroup,
+			"service-id":  cellServices.Multipooler.ServiceID,
 			"http_port":   cellServices.Multipooler.HttpPort,
 			"grpc_port":   cellServices.Multipooler.GrpcPort,
 			"log_level":   cellServices.Multipooler.LogLevel,
@@ -2460,6 +2513,18 @@ func (p *localProvisioner) getCellServiceConfig(cellName, service string) (map[s
 			"http_port": cellServices.Multiorch.HttpPort,
 			"grpc_port": cellServices.Multiorch.GrpcPort,
 			"log_level": cellServices.Multiorch.LogLevel,
+		}, nil
+	case "pgctld":
+		return map[string]any{
+			"path":        cellServices.Pgctld.Path,
+			"pooler_dir":  cellServices.Pgctld.PoolerDir,
+			"grpc_port":   cellServices.Pgctld.GrpcPort,
+			"pg_port":     cellServices.Pgctld.PgPort,
+			"pg_database": cellServices.Pgctld.PgDatabase,
+			"pg_user":     cellServices.Pgctld.PgUser,
+			"pg_pwfile":   cellServices.Pgctld.PgPwfile,
+			"timeout":     cellServices.Pgctld.Timeout,
+			"log_level":   cellServices.Pgctld.LogLevel,
 		}, nil
 	default:
 		return nil, fmt.Errorf("unknown service %s", service)
