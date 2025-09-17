@@ -569,7 +569,7 @@ func (p *localProvisioner) checkMultigresServiceHealth(serviceName string, host 
 
 // checkDebugConfigEndpoint checks if the debug/config endpoint returns 200 OK
 func (p *localProvisioner) checkDebugConfigEndpoint(address string) error {
-	url := fmt.Sprintf("http://%s/debug/config?format=json", address)
+	url := fmt.Sprintf("http://%s/live", address)
 
 	client := &http.Client{
 		Timeout: 2 * time.Second,
@@ -583,12 +583,6 @@ func (p *localProvisioner) checkDebugConfigEndpoint(address string) error {
 
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("debug endpoint returned status %d", resp.StatusCode)
-	}
-
-	// Verify the response is valid JSON
-	var result map[string]any
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return fmt.Errorf("debug endpoint returned invalid JSON: %w", err)
 	}
 
 	return nil

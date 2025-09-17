@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>{{.Title}}</title>
+    <link rel="stylesheet" href="/css/common.css" />
+  </head>
+  <body>
+    <div class="container">
+      <header class="header">
+        <h1 class="title">{{.Title}}</h1>
+      </header>
+
+      <main>
+        <section class="section">
+          <h2 class="section-title">Command Line Options</h2>
+          {{if .Options}}
+          <table class="gen-table">
+            <thead>
+              <tr>
+                <th>Flag</th>
+                <th>Value</th>
+              </tr>
+            </thead>
+            <tbody>
+              {{range $Key, $Value := .Options}}
+              <tr>
+                <td class="key-cell">{{$Key}}</td>
+                <td class="value-cell">{{$Value}}</td>
+              </tr>
+              {{end}}
+            </tbody>
+          </table>
+          {{else}}
+          <div class="empty-state">No command line options detected</div>
+          {{end}}
+        </section>
+
+        <section class="section">
+          <h2 class="section-title">Viper Configuration</h2>
+          {{if .Config}}
+          <table class="gen-table">
+            <thead>
+              <tr>
+                <th>Flag</th>
+                <th>Value</th>
+              </tr>
+            </thead>
+            <tbody>
+              {{range $Key, $Value := .Config}}
+              <tr>
+                <td class="key-cell">{{$Key}}</td>
+                <td class="value-cell">{{$Value}}</td>
+              </tr>
+              {{end}}
+            </tbody>
+          </table>
+          {{else}}
+          <div class="empty-state">No configuration options detected</div>
+          {{end}}
+        </section>
+
+        <section class="section">
+          <div class="timestamp">
+            <script>
+              document.write(new Date().toISOString());
+            </script>
+          </div>
+        </section>
+      </main>
+    </div>
+  </body>
+</html>

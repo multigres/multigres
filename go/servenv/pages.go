@@ -17,13 +17,11 @@ package servenv
 import (
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
-	"time"
 
 	viperdebug "github.com/multigres/multigres/go/viperutil/debug"
 	"github.com/multigres/multigres/go/web"
-
-	"github.com/spf13/pflag"
 )
 
 func init() {
@@ -40,44 +38,28 @@ func init() {
 	})
 
 	HTTPHandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		type CommandOption struct {
-			Flag  string
-			Value string
+		type Link struct {
+			Title string
+			Link  string
 		}
-
 		type IndexData struct {
-			Title    string
-			Options  map[string]string
-			LiveLink string
+			Title string
+			Links []Link
 		}
-
-		cmdOptions := make(map[string]string)
-		pflag.CommandLine.VisitAll(func(flag *pflag.Flag) {
-			if flag.Changed {
-				cmdOptions[flag.Name] = flag.Value.String()
-			}
-		})
 
 		indexData := IndexData{
-			Title:    os.Args[0],
-			Options:  cmdOptions,
-			LiveLink: "/live",
+			Title: filepath.Base(os.Args[0]),
+			Links: []Link{
+				{"Live", "/live"},
+				{"Config", "/config"},
+			},
 		}
 		_ = web.Templates.ExecuteTemplate(w, "index.html", indexData)
 	})
 
 	HTTPHandleFunc("/live", func(w http.ResponseWriter, r *http.Request) {
-		// StatusContent represents a piece of content used in StatusTemplate.
-		type StatusContent struct {
-			Style   string
-			Message string
-		}
-		_ = web.Templates.ExecuteTemplate(w, "live.html", []StatusContent{
-			{Style: "status", Message: "✓"},
-			{Style: "message", Message: "ok"},
-			{Style: "timestamp", Message: time.Now().Format(time.RFC3339)},
-		})
+		_ = web.Templates.ExecuteTemplate(w, "live.html", nil)
 	})
 
-	HTTPHandleFunc("/debug/config", viperdebug.HandlerFunc)
+	HTTPHandleFunc("/config", viperdebug.HandlerFunc)
 }

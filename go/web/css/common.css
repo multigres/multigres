@@ -118,7 +118,7 @@ body {
   transition: background-color 0.2s ease;
 }
 
-.flag-cell {
+.key-cell {
   font-family:
     "SF Mono", Monaco, "Cascadia Code", "Roboto Mono", Consolas, "Courier New",
     monospace;

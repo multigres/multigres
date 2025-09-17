@@ -9,9 +9,13 @@
   </head>
   <body>
     <div class="container">
-      {{range .}}
-      <div class="{{.Style}}">{{.Message}}</div>
-      {{end}}
+      <div class="status">✓</div>
+      <div class="message">ok</div>
+      <div class="timestamp">
+        <script>
+          document.write(new Date().toISOString());
+        </script>
+      </div>
     </div>
   </body>
 </html>
