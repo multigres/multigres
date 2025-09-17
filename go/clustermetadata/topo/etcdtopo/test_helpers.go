@@ -21,21 +21,15 @@ import (
 	"net"
 	"os"
 	"os/exec"
-	"path"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/multigres/multigres/go/clustermetadata/topo"
-	"github.com/multigres/multigres/go/clustermetadata/topo/test"
-	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
-	"github.com/multigres/multigres/go/test/utils"
-
 	"github.com/stretchr/testify/require"
 	clientv3 "go.etcd.io/etcd/client/v3"
-)
 
-// Use the global port allocator for consistent port allocation across all tests
+	"github.com/multigres/multigres/go/test/utils"
+)
 
 // checkPortAvailable checks if a port is available for binding
 func checkPortAvailable(port int) error {
@@ -47,8 +41,8 @@ func checkPortAvailable(port int) error {
 	return nil
 }
 
-// startEtcd starts an etcd subprocess, and waits for it to be ready.
-func startEtcd(t *testing.T, port int) (string, *exec.Cmd) {
+// StartEtcd starts an etcd subprocess, and waits for it to be ready.
+func StartEtcd(t *testing.T, port int) (string, *exec.Cmd) {
 	// Check if etcd is available in PATH
 	_, err := exec.LookPath("etcd")
 	require.NoError(t, err, "etcd not found in PATH")
@@ -133,71 +127,4 @@ func startEtcd(t *testing.T, port int) (string, *exec.Cmd) {
 	})
 
 	return clientAddr, cmd
-}
-
-func TestEtcd2Topo(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping topology etcd integration test in short mode")
-	}
-	// Start a single etcd in the background.
-	clientAddr, _ := startEtcd(t, 0)
-
-	testIndex := 0
-	newServer := func() topo.Store {
-		// Each test will use its own subdirectories.
-		testRoot := fmt.Sprintf("/test-%v", testIndex)
-		testIndex++
-
-		// Create the server on the new root.
-		ts, err := topo.OpenServer("etcd2", path.Join(testRoot, topo.GlobalCell), []string{clientAddr})
-		require.NoError(t, err, "OpenServer() failed")
-
-		// Create the CellInfo.
-		err = ts.CreateCell(context.Background(), test.LocalCellName, &clustermetadatapb.Cell{
-			ServerAddresses: []string{clientAddr},
-			Root:            path.Join(testRoot, test.LocalCellName),
-		})
-		require.NoError(t, err, "CreateCellInfo() failed")
-
-		return ts
-	}
-
-	// Run the TopoServerTestSuite tests.
-	ctx := t.Context()
-	test.TopoServerTestSuite(t, ctx, func() topo.Store {
-		return newServer()
-	})
-
-	// Run etcd-specific tests.
-	ts := newServer()
-	testDatabaseLock(t, ts)
-	ts.Close()
-}
-
-// testDatabaseLock tests etcd-specific heartbeat (TTL).
-// Note TTL granularity is in seconds, even though the API uses time.Duration.
-// So we have to wait a long time in these tests.
-func testDatabaseLock(t *testing.T, ts topo.Store) {
-	ctx := context.Background()
-	databasePath := path.Join(topo.DatabasesPath, "test_database")
-	err := ts.CreateDatabase(ctx, "test_database", &clustermetadatapb.Database{})
-	require.NoError(t, err, "CreateKeyspace")
-
-	conn, err := ts.ConnForCell(ctx, topo.GlobalCell)
-	require.NoError(t, err, "ConnForCell failed")
-
-	// Long TTL, unlock before lease runs out.
-	leaseTTL = 1000
-	lockDescriptor, err := conn.Lock(ctx, databasePath, "ttl")
-	require.NoError(t, err, "Lock failed")
-	err = lockDescriptor.Unlock(ctx)
-	require.NoError(t, err, "Unlock failed")
-
-	// Short TTL, make sure it doesn't expire.
-	leaseTTL = 1
-	lockDescriptor, err = conn.Lock(ctx, databasePath, "short ttl")
-	require.NoError(t, err, "Lock failed")
-	time.Sleep(2 * time.Second)
-	err = lockDescriptor.Unlock(ctx)
-	require.NoError(t, err, "Unlock failed")
 }

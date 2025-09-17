@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package cluster
+package endtoend
 
 import (
 	"context"
@@ -33,6 +33,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/multigres/multigres/go/clustermetadata/topo"
+	"github.com/multigres/multigres/go/cmd/multigres/command/cluster"
 	"github.com/multigres/multigres/go/provisioner/local"
 	"github.com/multigres/multigres/go/test/utils"
 
@@ -245,7 +246,7 @@ func createTestConfigWithPorts(tempDir string, portConfig *testPortConfig) (stri
 	}
 
 	// Create the full configuration
-	config := &MultigresConfig{
+	config := &cluster.MultigresConfig{
 		Provisioner:       "local",
 		ProvisionerConfig: configMap,
 	}
@@ -429,7 +430,7 @@ func buildMultigresBinary() (string, error) {
 
 	// Build multigres binary
 	binaryPath := filepath.Join(tempDir, "multigres")
-	sourceDir := filepath.Join(projectRoot, "go/cmd", "multigres")
+	sourceDir := filepath.Join(projectRoot, "go", "cmd", "multigres")
 	buildCmd := exec.Command("go", "build", "-o", binaryPath, sourceDir)
 	buildCmd.Dir = projectRoot
 
@@ -467,7 +468,7 @@ func buildServiceBinaries(tempDir string) error {
 	for _, binaryName := range binaries {
 		// Define binary paths in the bin directory
 		binaryPath := filepath.Join(binDir, binaryName)
-		sourceDir := filepath.Join(projectRoot, "go/cmd", binaryName)
+		sourceDir := filepath.Join(projectRoot, "go", "cmd", binaryName)
 		buildCmd := exec.Command("go", "build", "-o", binaryPath, sourceDir)
 		buildCmd.Dir = projectRoot
 
@@ -640,7 +641,7 @@ func TestInitCommandConfigFileCreation(t *testing.T) {
 	configData, err := os.ReadFile(configFile)
 	require.NoError(t, err)
 
-	var config MultigresConfig
+	var config cluster.MultigresConfig
 	err = yaml.Unmarshal(configData, &config)
 	require.NoError(t, err)
 
@@ -836,7 +837,7 @@ func TestClusterLifecycle(t *testing.T) {
 		// Read the config to get topology settings
 		configData, err := os.ReadFile(configFile)
 		require.NoError(t, err)
-		var config MultigresConfig
+		var config cluster.MultigresConfig
 		err = yaml.Unmarshal(configData, &config)
 		require.NoError(t, err)
 
@@ -963,7 +964,7 @@ func TestClusterLifecycle(t *testing.T) {
 		require.NotEmpty(t, projectRoot, "MTROOT must be set")
 
 		multipoolerPath := filepath.Join(binDir, "multipooler")
-		sourceDir := filepath.Join(projectRoot, "go/cmd", "multipooler")
+		sourceDir := filepath.Join(projectRoot, "go", "cmd", "multipooler")
 		buildCmd := exec.Command("go", "build", "-o", multipoolerPath, sourceDir)
 		buildCmd.Dir = projectRoot
 

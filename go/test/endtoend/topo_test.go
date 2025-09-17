@@ -14,7 +14,7 @@
 
 //go:build integration
 
-package topo
+package endtoend
 
 import (
 	"bytes"
