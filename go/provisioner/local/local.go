@@ -88,11 +88,12 @@ type MultigatewayConfig struct {
 
 // MultipoolerConfig holds multipooler service configuration
 type MultipoolerConfig struct {
-	Path     string `yaml:"path"`
-	Database string `yaml:"database"`
-	HttpPort int    `yaml:"http-port"`
-	GrpcPort int    `yaml:"grpc-port"`
-	LogLevel string `yaml:"log-level"`
+	Path       string `yaml:"path"`
+	Database   string `yaml:"database"`
+	TableGroup string `yaml:"table-group"`
+	HttpPort   int    `yaml:"http-port"`
+	GrpcPort   int    `yaml:"grpc-port"`
+	LogLevel   string `yaml:"log-level"`
 }
 
 // MultiorchConfig holds multiorch service configuration
@@ -245,11 +246,12 @@ func (p *localProvisioner) DefaultConfig() map[string]any {
 					LogLevel: "info",
 				},
 				Multipooler: MultipoolerConfig{
-					Path:     filepath.Join(binDir, "multipooler"),
-					Database: "postgres",
-					HttpPort: 15100,
-					GrpcPort: 16001,
-					LogLevel: "info",
+					Path:       filepath.Join(binDir, "multipooler"),
+					Database:   "postgres",
+					TableGroup: "default",
+					HttpPort:   15100,
+					GrpcPort:   16001,
+					LogLevel:   "info",
 				},
 				Multiorch: MultiorchConfig{
 					Path:     filepath.Join(binDir, "multiorch"),
@@ -267,11 +269,12 @@ func (p *localProvisioner) DefaultConfig() map[string]any {
 					LogLevel: "info",
 				},
 				Multipooler: MultipoolerConfig{
-					Path:     filepath.Join(binDir, "multipooler"),
-					Database: "postgres",
-					HttpPort: 15200, // zone1 + 100
-					GrpcPort: 16101, // zone1 + 100
-					LogLevel: "info",
+					Path:       filepath.Join(binDir, "multipooler"),
+					Database:   "postgres",
+					TableGroup: "default",
+					HttpPort:   15200, // zone1 + 100
+					GrpcPort:   16101, // zone1 + 100
+					LogLevel:   "info",
 				},
 				Multiorch: MultiorchConfig{
 					Path:     filepath.Join(binDir, "multiorch"),
@@ -1097,6 +1100,12 @@ func (p *localProvisioner) provisionMultipooler(ctx context.Context, req *provis
 		database = req.DatabaseName
 	}
 
+	// Get table group from multipooler config, default to "default" if not set
+	tableGroup := "default"
+	if tgFromConfig, ok := multipoolerConfig["table_group"].(string); ok && tgFromConfig != "" {
+		tableGroup = tgFromConfig
+	}
+
 	// Get log level
 	logLevel := "info"
 	if level, ok := multipoolerConfig["log_level"].(string); ok {
@@ -1130,6 +1139,7 @@ func (p *localProvisioner) provisionMultipooler(ctx context.Context, req *provis
 		"--topo-implementation", topoBackend,
 		"--cell", cell,
 		"--database", database,
+		"--table-group", tableGroup,
 		"--service-id", serviceID,
 		"--log-level", logLevel,
 		"--log-output", logFile,
@@ -2443,11 +2453,12 @@ func (p *localProvisioner) getCellServiceConfig(cellName, service string) (map[s
 		}, nil
 	case "multipooler":
 		return map[string]any{
-			"path":      cellServices.Multipooler.Path,
-			"database":  cellServices.Multipooler.Database,
-			"http_port": cellServices.Multipooler.HttpPort,
-			"grpc_port": cellServices.Multipooler.GrpcPort,
-			"log_level": cellServices.Multipooler.LogLevel,
+			"path":        cellServices.Multipooler.Path,
+			"database":    cellServices.Multipooler.Database,
+			"table_group": cellServices.Multipooler.TableGroup,
+			"http_port":   cellServices.Multipooler.HttpPort,
+			"grpc_port":   cellServices.Multipooler.GrpcPort,
+			"log_level":   cellServices.Multipooler.LogLevel,
 		}, nil
 	case "multiorch":
 		return map[string]any{

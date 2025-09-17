@@ -28,9 +28,9 @@ import (
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 )
 
-// NewMultiPooler creates a new MultiPooler record with the given name, cell, and hostname.
+// NewMultiPooler creates a new MultiPooler record with the given name, cell, hostname, and tableGroup.
 // If name is empty, a random name will be generated.
-func NewMultiPooler(name string, cell, host string) *clustermetadatapb.MultiPooler {
+func NewMultiPooler(name string, cell, host, tableGroup string) *clustermetadatapb.MultiPooler {
 	if name == "" {
 		name = stringutil.RandomString(8)
 	}
@@ -40,8 +40,9 @@ func NewMultiPooler(name string, cell, host string) *clustermetadatapb.MultiPool
 			Cell:      cell,
 			Name:      name,
 		},
-		Hostname: host,
-		PortMap:  make(map[string]int32),
+		Hostname:   host,
+		TableGroup: tableGroup,
+		PortMap:    make(map[string]int32),
 	}
 }
 
