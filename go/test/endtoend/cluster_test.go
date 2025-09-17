@@ -209,6 +209,15 @@ func createTestConfigWithPorts(tempDir string, portConfig *testPortConfig) (stri
 					GrpcPort: portConfig.MultiorchGRPCPort,
 					LogLevel: "info",
 				},
+				Pgctld: local.PgctldConfig{
+					Path:       filepath.Join(binPath, "pgctld"),
+					GrpcPort:   17000,
+					PgPort:     5432,
+					PgDatabase: "postgres",
+					PgUser:     "postgres",
+					Timeout:    30,
+					LogLevel:   "info",
+				},
 			},
 			"zone2": {
 				Multigateway: local.MultigatewayConfig{
@@ -231,6 +240,15 @@ func createTestConfigWithPorts(tempDir string, portConfig *testPortConfig) (stri
 					HttpPort: portConfig.MultiorchHTTPPort + 100,
 					GrpcPort: portConfig.MultiorchGRPCPort + 100,
 					LogLevel: "info",
+				},
+				Pgctld: local.PgctldConfig{
+					Path:       filepath.Join(binPath, "pgctld"),
+					GrpcPort:   17100, // offset for zone2
+					PgPort:     5532,  // offset for zone2
+					PgDatabase: "postgres",
+					PgUser:     "postgres",
+					Timeout:    30,
+					LogLevel:   "info",
 				},
 			},
 		},
