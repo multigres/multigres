@@ -1133,7 +1133,9 @@ func (p *localProvisioner) provisionMultipooler(ctx context.Context, req *provis
 	serviceID := ""
 	if id, ok := multipoolerConfig["service-id"].(string); ok && id != "" {
 		serviceID = id
-	} else {
+	}
+
+	if err != nil {
 		return nil, fmt.Errorf("service-id not found in multipooler config for cell %s", cell)
 	}
 
