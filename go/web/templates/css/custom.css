@@ -1,0 +1,114 @@
+/* Custom styles for multigres web interface */
+/* This file provides minimal overrides to complement Pico CSS Jade theme */
+
+/* Status icon styling for live.html */
+.status-icon {
+  font-size: 4rem;
+  color: var(--pico-color-jade-500, #10b981);
+  margin-bottom: 1rem;
+  font-weight: 600;
+}
+
+/* Enhanced timestamp styling */
+.timestamp {
+  font-family:
+    ui-monospace, SFMono-Regular, "SF Mono", Monaco, Consolas,
+    "Liberation Mono", "Courier New", monospace;
+  opacity: 0.7;
+  margin-top: 1rem;
+}
+
+/* Status message styling */
+.status-message {
+  font-size: 1.1rem;
+  margin: 1rem 0;
+}
+
+/* Code elements in tables - enhance monospace appearance */
+table code {
+  font-size: 0.9em;
+  padding: 0.1em 0.3em;
+  background-color: var(--pico-code-background-color);
+  border-radius: 0.25rem;
+}
+
+/* Subtle enhancement for key-value pairs in tables */
+table td:first-child code {
+  font-weight: 600;
+  color: var(--pico-color-jade-600, #059669);
+}
+
+/* Grid layout for link cards */
+.link-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 1rem;
+}
+
+/* Responsive grid for link cards */
+@media (max-width: 768px) {
+  .link-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Error state for status page */
+.status-icon.error {
+  color: var(--pico-color-red-500, #ef4444);
+}
+
+.status-icon.error::before {
+  content: "✗";
+}
+
+/* Loading state */
+.status-icon.loading {
+  color: var(--pico-color-amber-500, #f59e0b);
+}
+
+.status-icon.loading::before {
+  content: "⟳";
+  animation: spin 2s linear infinite;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Subtle improvements to article cards on index page */
+main article {
+  transition:
+    transform 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+main article:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--pico-box-shadow-hover, 0 8px 16px rgba(0, 0, 0, 0.1));
+}
+
+/* Ensure proper spacing for footer timestamps */
+main > footer {
+  margin-top: 2rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--pico-border-color);
+  text-align: center;
+}
+
+/* Status page layout */
+.status-page {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+}
+
+.status-container {
+  text-align: center;
+  max-width: 400px;
+}

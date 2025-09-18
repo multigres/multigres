@@ -2,21 +2,26 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
     <title>{{.Title}}</title>
-    <link rel="stylesheet" href="/css/common.css" />
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.classless.jade.min.css"
+    />
+    <link rel="stylesheet" href="/css/custom.css" />
   </head>
   <body>
-    <div class="container">
-      <header class="header">
-        <h1 class="title">{{.Title}}</h1>
-      </header>
+    <header>
+      <h1>{{.Title}}</h1>
+    </header>
 
-      <main>
-        <section class="section">
-          <h2 class="section-title">Command Line Options</h2>
-          {{if .Options}}
-          <table class="gen-table">
+    <main>
+      <section>
+        <h2>Command Line Options</h2>
+        {{if .Options}}
+        <figure>
+          <table>
             <thead>
               <tr>
                 <th>Key</th>
@@ -26,21 +31,23 @@
             <tbody>
               {{range $Key, $Value := .Options}}
               <tr>
-                <td class="key-cell">{{$Key}}</td>
-                <td class="value-cell">{{$Value}}</td>
+                <td><code>{{$Key}}</code></td>
+                <td><code>{{$Value}}</code></td>
               </tr>
               {{end}}
             </tbody>
           </table>
-          {{else}}
-          <div class="empty-state">No command line options detected</div>
-          {{end}}
-        </section>
+        </figure>
+        {{else}}
+        <p><em>No command line options detected</em></p>
+        {{end}}
+      </section>
 
-        <section class="section">
-          <h2 class="section-title">Viper Configuration</h2>
-          {{if .Config}}
-          <table class="gen-table">
+      <section>
+        <h2>Viper Configuration</h2>
+        {{if .Config}}
+        <figure>
+          <table>
             <thead>
               <tr>
                 <th>Flag</th>
@@ -50,29 +57,29 @@
             <tbody>
               {{range $Key, $Value := .Config}}
               <tr>
-                <td class="key-cell">{{$Key}}</td>
-                <td class="value-cell">{{$Value}}</td>
+                <td><code>{{$Key}}</code></td>
+                <td><code>{{$Value}}</code></td>
               </tr>
               {{end}}
             </tbody>
           </table>
-          {{else}}
-          <div class="empty-state">No configuration options detected</div>
-          {{end}}
-        </section>
+        </figure>
+        {{else}}
+        <p><em>No configuration options detected</em></p>
+        {{end}}
+      </section>
 
-        <section class="section">
-          <div class="timestamp">
-            <script>
-              document.write(new Date().toISOString());
-            </script>
-            <br />local:
-            <script>
-              document.write(new Date().toLocaleString());
-            </script>
-          </div>
-        </section>
-      </main>
-    </div>
+      <footer>
+        <small class="timestamp">
+          <script>
+            document.write(new Date().toISOString());
+          </script>
+          <br />Local:
+          <script>
+            document.write(new Date().toLocaleString());
+          </script>
+        </small>
+      </footer>
+    </main>
   </body>
 </html>
