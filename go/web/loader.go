@@ -23,9 +23,6 @@ import (
 var TemplateFS embed.FS
 var Templates *template.Template
 
-//go:embed css
-var CSSFS embed.FS
-
 func init() {
 	var err error
 	Templates, err = template.ParseFS(TemplateFS, "templates/*.html")
