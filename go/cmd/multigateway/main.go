@@ -103,7 +103,6 @@ func run(cmd *cobra.Command, args []string) error {
 	servenv.Init()
 
 	logger := servenv.GetLogger()
-	servenv.RunDefault()
 
 	ts := topo.Open()
 	defer func() { _ = ts.Close() }()
