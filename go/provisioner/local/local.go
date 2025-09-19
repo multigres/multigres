@@ -92,6 +92,8 @@ type MultipoolerConfig struct {
 	Database   string `yaml:"database"`
 	TableGroup string `yaml:"table-group"`
 	ServiceID  string `yaml:"service-id"`
+	PoolerDir  string `yaml:"pooler-dir"` // Directory path for PostgreSQL socket files
+	PgPort     int    `yaml:"pg-port"`    // PostgreSQL port number (same as pgctld)
 	HttpPort   int    `yaml:"http-port"`
 	GrpcPort   int    `yaml:"grpc-port"`
 	LogLevel   string `yaml:"log-level"`
@@ -270,6 +272,8 @@ func (p *localProvisioner) DefaultConfig() map[string]any {
 					Database:   dbName,
 					TableGroup: tableGroup,
 					ServiceID:  serviceIDZone1,
+					PoolerDir:  GeneratePoolerDir(baseDir, serviceIDZone1),
+					PgPort:     5432, // Same as pgctld for this zone
 					HttpPort:   15100,
 					GrpcPort:   16001,
 					LogLevel:   "info",
@@ -305,6 +309,8 @@ func (p *localProvisioner) DefaultConfig() map[string]any {
 					Database:   dbName,
 					TableGroup: tableGroup,
 					ServiceID:  serviceIDZone2,
+					PoolerDir:  GeneratePoolerDir(baseDir, serviceIDZone2),
+					PgPort:     5532,  // Same as pgctld for this zone (zone1 + 100)
 					HttpPort:   15200, // zone1 + 100
 					GrpcPort:   16101, // zone1 + 100
 					LogLevel:   "info",
@@ -1054,6 +1060,9 @@ func (p *localProvisioner) provisionMultiadmin(ctx context.Context, req *provisi
 
 // provisionMultipooler provisions multipooler using local binary
 func (p *localProvisioner) provisionMultipooler(ctx context.Context, req *provisioner.ProvisionRequest) (*provisioner.ProvisionResult, error) {
+	// Debug: always print when this function is called
+	fmt.Fprintf(os.Stderr, "[PROVISIONER DEBUG] provisionMultipooler called for service: %s\n", req.Service)
+
 	// Sanity check: ensure this method is called for multipooler service
 	if req.Service != "multipooler" {
 		return nil, fmt.Errorf("provisionMultipooler called for wrong service type: %s", req.Service)
@@ -1061,6 +1070,7 @@ func (p *localProvisioner) provisionMultipooler(ctx context.Context, req *provis
 
 	// Get cell parameter
 	cell := req.Params["cell"].(string)
+	fmt.Fprintf(os.Stderr, "[PROVISIONER DEBUG] provisionMultipooler called for cell: %s\n", cell)
 
 	// Check if multipooler is already running
 	existingService, err := p.findRunningDbService("multipooler", req.DatabaseName, cell)
@@ -1090,6 +1100,8 @@ func (p *localProvisioner) provisionMultipooler(ctx context.Context, req *provis
 	if err != nil {
 		return nil, fmt.Errorf("failed to get multipooler config for cell %s: %w", cell, err)
 	}
+
+	fmt.Fprintf(os.Stderr, "[PROVISIONER DEBUG] provisionMultipooler called for cell %s with config: %+v\n", cell, multipoolerConfig)
 
 	// Get HTTP port from cell-specific config
 	httpPort := 15001
@@ -1133,9 +1145,7 @@ func (p *localProvisioner) provisionMultipooler(ctx context.Context, req *provis
 	serviceID := ""
 	if id, ok := multipoolerConfig["service-id"].(string); ok && id != "" {
 		serviceID = id
-	}
-
-	if err != nil {
+	} else {
 		return nil, fmt.Errorf("service-id not found in multipooler config for cell %s", cell)
 	}
 
@@ -1167,8 +1177,40 @@ func (p *localProvisioner) provisionMultipooler(ctx context.Context, req *provis
 		"--log-output", logFile,
 	}
 
+	// Add pooler directory from multipooler configuration
+	poolerDirFromConfig := ""
+	fmt.Fprintf(os.Stderr, "[PROVISIONER DEBUG] Looking for pooler-dir in config, found value: %v\n", multipoolerConfig["pooler-dir"])
+	if val, ok := multipoolerConfig["pooler-dir"].(string); ok && val != "" {
+		poolerDirFromConfig = val
+		fmt.Fprintf(os.Stderr, "[PROVISIONER DEBUG] Found pooler-dir: %s\n", poolerDirFromConfig)
+	}
+
+	if poolerDirFromConfig != "" {
+		args = append(args, "--pooler-dir", poolerDirFromConfig)
+
+		// Get PostgreSQL port from multipooler configuration
+		if pgPort, ok := multipoolerConfig["pg-port"].(int); ok && pgPort != 0 {
+			args = append(args, "--pg-port", fmt.Sprintf("%d", pgPort))
+			fmt.Fprintf(os.Stderr, "[PROVISIONER DEBUG] Adding pooler-dir and pg-port to multipooler: %s, %d\n", poolerDirFromConfig, pgPort)
+		} else {
+			fmt.Fprintf(os.Stderr, "[PROVISIONER DEBUG] pg-port not found in multipooler config, available keys: %v\n", getMapKeys(multipoolerConfig))
+		}
+	} else {
+		// Debug: try different key variations to see what's available
+		fmt.Fprintf(os.Stderr, "[PROVISIONER DEBUG] Failed to find pooler-dir in multipooler config. Available keys: %v\n", getMapKeys(multipoolerConfig))
+	}
+
+	// Always print debug info to see what's happening
+	fmt.Printf("[PROVISIONER DEBUG] Multipooler provisioning reached for cell %s, service ID %s\n", cell, serviceID)
+
+	// Add service map configuration to enable grpc-pooler service
+	args = append(args, "--service-map", "grpc-pooler")
+
 	// Start multipooler process
 	multipoolerCmd := exec.CommandContext(ctx, multipoolerBinary, args...)
+
+	// Debug: Print the full command being executed
+	fmt.Fprintf(os.Stderr, "[PROVISIONER DEBUG] Executing multipooler command: %s %v\n", multipoolerBinary, args)
 
 	fmt.Printf("▶️  - Launching multipooler (HTTP:%d, gRPC:%d)...", httpPort, grpcPort)
 
@@ -2538,6 +2580,15 @@ func NewLocalProvisioner() (provisioner.Provisioner, error) {
 	}
 
 	return p, nil
+}
+
+// getMapKeys returns the keys of a map for debugging purposes
+func getMapKeys(m map[string]interface{}) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	return keys
 }
 
 func init() {

@@ -1,0 +1,46 @@
+/*
+Copyright 2025 Supabase, Inc.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+// This file contains the RPC service definition for multipooler.
+
+syntax = "proto3";
+
+package multipoolerservice;
+
+import "mtrpc.proto";
+import "query.proto";
+
+option go_package = "github.com/multigres/multigres/go/pb/multipoolerservice";
+
+// MultiPoolerService provides connection pooling and query execution
+service MultiPoolerService {
+  // ExecuteQuery executes a SQL query and returns the result
+  rpc ExecuteQuery(ExecuteQueryRequest) returns (ExecuteQueryResponse);
+}
+
+// ExecuteQueryRequest represents a request to execute a SQL query
+message ExecuteQueryRequest {
+  bytes query = 1;
+  uint64 max_rows = 2;
+  // caller_id identifies the caller. This is the effective caller ID,
+  // set by the application to further identify the caller.
+  mtrpc.CallerID caller_id = 3;
+}
+
+// ExecuteQueryResponse represents the response from executing a SQL query
+message ExecuteQueryResponse {
+  query.QueryResult result = 1;
+}

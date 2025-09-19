@@ -209,9 +209,11 @@ func createTestConfigWithPorts(tempDir string, portConfig *testPortConfig) (stri
 					Path:       filepath.Join(binPath, "multipooler"),
 					Database:   "postgres",
 					TableGroup: "default",
+					ServiceID:  serviceIDZone1,
+					PoolerDir:  local.GeneratePoolerDir(tempDir, serviceIDZone1),
+					PgPort:     portConfig.PgctldPGPort, // Same as pgctld for this zone
 					HttpPort:   portConfig.MultipoolerHTTPPort,
 					GrpcPort:   portConfig.MultipoolerGRPCPort,
-					ServiceID:  serviceIDZone1,
 					LogLevel:   "info",
 				},
 				Multiorch: local.MultiorchConfig{
@@ -244,9 +246,11 @@ func createTestConfigWithPorts(tempDir string, portConfig *testPortConfig) (stri
 					Path:       filepath.Join(binPath, "multipooler"),
 					Database:   "postgres",
 					TableGroup: "default",
+					ServiceID:  serviceIDZone2,
+					PoolerDir:  local.GeneratePoolerDir(tempDir, serviceIDZone2),
+					PgPort:     portConfig.PgctldPGPort + 100, // Same as pgctld for this zone (offset for zone2)
 					HttpPort:   portConfig.MultipoolerHTTPPort + 100,
 					GrpcPort:   portConfig.MultipoolerGRPCPort + 100,
-					ServiceID:  serviceIDZone2,
 					LogLevel:   "info",
 				},
 				Multiorch: local.MultiorchConfig{
@@ -945,6 +949,12 @@ func TestClusterLifecycle(t *testing.T) {
 		testPostgreSQLConnection(t, testPorts.PgctldPGPort+100, "2")
 		t.Log("Both PostgreSQL instances are working correctly!")
 
+		// Test multipooler gRPC functionality
+		t.Log("Testing multipooler gRPC ExecuteQuery functionality...")
+		testMultipoolerGRPC(t, testPorts.MultipoolerGRPCPort)
+		testMultipoolerGRPC(t, testPorts.MultipoolerGRPCPort+100) // Zone 2
+		t.Log("Both multipooler gRPC instances are working correctly!")
+
 		// Start cluster is idempotent
 		t.Log("Stopping cluster...")
 		upOutput, err = executeStartCommand(t, []string{"--config-path", tempDir})
@@ -1122,4 +1132,40 @@ func assertDirectoryTreeEmpty(rootPath string) error {
 		// It's a directory, which is fine - continue walking
 		return nil
 	})
+}
+
+// testMultipoolerGRPC tests the multipooler gRPC ExecuteQuery functionality
+func testMultipoolerGRPC(t *testing.T, grpcPort int) {
+	t.Helper()
+
+	// Connect to multipooler gRPC service
+	multipoolerAddr := fmt.Sprintf("localhost:%d", grpcPort)
+	client, err := NewMultiPoolerTestClient(multipoolerAddr)
+	require.NoError(t, err, "Failed to connect to multipooler gRPC at %s", multipoolerAddr)
+	defer client.Close()
+
+	// Test basic SELECT query
+	TestBasicSelect(t, client)
+
+	// Test data types
+	TestDataTypes(t, client)
+
+	// Test a simple table lifecycle (without affecting other tests)
+	tableName := fmt.Sprintf("test_table_%d", grpcPort) // Unique table name per port
+	TestCreateTable(t, client, tableName)
+
+	// Insert some test data
+	testData := []map[string]interface{}{
+		{"name": "test1", "value": 100},
+		{"name": "test2", "value": 200},
+	}
+	TestInsertData(t, client, tableName, testData)
+
+	// Verify the data
+	TestSelectData(t, client, tableName, len(testData))
+
+	// Clean up
+	TestDropTable(t, client, tableName)
+
+	t.Logf("Multipooler gRPC test completed successfully for port %d", grpcPort)
 }
