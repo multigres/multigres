@@ -1,41 +1,75 @@
 /* Custom styles for multigres web interface */
 /* This file provides minimal overrides to complement Pico CSS Jade theme */
 
-/* Status icon styling for live.html */
-.status-icon {
-  font-size: 4rem;
-  color: var(--pico-color-jade-500, #10b981);
-  margin-bottom: 1rem;
-  font-weight: 600;
+/* Some color overrides */
+:root {
+  --bg-color: #fff;
+  --text-color: #333;
+  --dim-text-color: #6b7280;
+  --accent-color: #28a745;
+  --error-color: #dc3545;
+  --border-color: #e1e1e1;
+  --table-bg: #f8f9fa;
+  --table-header-bg: #e9ecef;
+  --shadow: rgb(0 0 0 / 10%);
 }
 
-/* Enhanced timestamp styling */
-.timestamp {
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg-color: #1a1a1a;
+    --text-color: #e1e1e1;
+    --dim-text-color: #6b7280;
+    --accent-color: #4ade80;
+    --error-color: #ef4444;
+    --border-color: #404040;
+    --table-bg: #2d2d2d;
+    --table-header-bg: #404040;
+    --shadow: rgb(0 0 0 / 30%);
+  }
+}
+
+h1,
+h2,
+h3,
+h4 {
+  font-weight: 300;
+  color: var(--accent-color);
+}
+
+footer {
   font-family:
     ui-monospace, SFMono-Regular, "SF Mono", Monaco, Consolas,
     "Liberation Mono", "Courier New", monospace;
+  margin-top: 2rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border-color);
+  text-align: center;
   opacity: 0.7;
-  margin-top: 1rem;
 }
 
-/* Status message styling */
-.status-message {
-  font-size: 1.1rem;
-  margin: 1rem 0;
+section {
+  padding: 0.5rem;
+  border-radius: 12px;
+  background: var(--table-bg);
+  border: 1px solid var(--border-color);
 }
 
-/* Code elements in tables - enhance monospace appearance */
-table code {
-  font-size: 0.9em;
-  padding: 0.1em 0.3em;
-  background-color: var(--pico-code-background-color);
-  border-radius: 0.25rem;
+table {
+  table-layout: fixed;
+  overflow-wrap: break-word;
 }
 
-/* Subtle enhancement for key-value pairs in tables */
-table td:first-child code {
-  font-weight: 600;
-  color: var(--pico-color-jade-600, #059669);
+th {
+  background-color: var(--table-bg);
+  color: var(--accent-color);
+  opacity: 0.8;
+  border-color: var(--border-color);
+}
+
+td {
+  background-color: var(--table-bg);
+  opacity: 0.6;
+  border-color: var(--border-color);
 }
 
 /* Grid layout for link cards */
@@ -43,72 +77,4 @@ table td:first-child code {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
   gap: 1rem;
-}
-
-/* Responsive grid for link cards */
-@media (max-width: 768px) {
-  .link-grid {
-    grid-template-columns: 1fr;
-  }
-}
-
-/* Error state for status page */
-.status-icon.error {
-  color: var(--pico-color-red-500, #ef4444);
-}
-
-.status-icon.error::before {
-  content: "✗";
-}
-
-/* Loading state */
-.status-icon.loading {
-  color: var(--pico-color-amber-500, #f59e0b);
-}
-
-.status-icon.loading::before {
-  content: "⟳";
-  animation: spin 2s linear infinite;
-}
-
-@keyframes spin {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-/* Subtle improvements to article cards on index page */
-main article {
-  transition:
-    transform 0.2s ease,
-    box-shadow 0.2s ease;
-}
-
-main article:hover {
-  transform: translateY(-2px);
-  box-shadow: var(--pico-box-shadow-hover, 0 8px 16px rgba(0, 0, 0, 0.1));
-}
-
-/* Ensure proper spacing for footer timestamps */
-main > footer {
-  margin-top: 2rem;
-  padding-top: 1rem;
-  border-top: 1px solid var(--pico-border-color);
-  text-align: center;
-}
-
-/* Status page layout */
-.status-page {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 100vh;
-}
-
-.status-container {
-  text-align: center;
-  max-width: 400px;
 }

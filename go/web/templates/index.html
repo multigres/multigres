@@ -17,32 +17,28 @@
     </header>
 
     <main>
-      <section>
-        <div class="link-grid">
+      <section text-align="center">
+        <grid>
           {{range .Links}}
-          <article>
-            <header>
-              <h3>{{.Title}}</h3>
-            </header>
-            <footer>
-              <a href="{{.Link}}" role="button">{{.Link}}</a>
-            </footer>
-          </article>
+          <header>
+            <h3>{{.Title}}</h3>
+          </header>
+          <footer>
+            <a href="{{.Link}}" role="button">{{.Link}}</a>
+          </footer>
           {{end}}
-        </div>
+        </grid>
       </section>
-
-      <footer>
-        <small class="timestamp">
-          <script>
-            document.write(new Date().toISOString());
-          </script>
-          <br />Local:
-          <script>
-            document.write(new Date().toLocaleString());
-          </script>
-        </small>
-      </footer>
     </main>
+
+    <footer>
+      <script>
+        document.write(new Date().toISOString());
+      </script>
+      <br />Local:
+      <script>
+        document.write(new Date().toLocaleString());
+      </script>
+    </footer>
   </body>
 </html>

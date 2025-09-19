@@ -18,26 +18,24 @@
 
     <main>
       <section>
-        <h2>Command Line Options</h2>
+        <h4>Command Line Options</h4>
         {{if .Options}}
-        <figure>
-          <table>
-            <thead>
-              <tr>
-                <th>Key</th>
-                <th>Value</th>
-              </tr>
-            </thead>
-            <tbody>
-              {{range $Key, $Value := .Options}}
-              <tr>
-                <td><code>{{$Key}}</code></td>
-                <td><code>{{$Value}}</code></td>
-              </tr>
-              {{end}}
-            </tbody>
-          </table>
-        </figure>
+        <table>
+          <thead>
+            <tr>
+              <th>Flag</th>
+              <th>Value</th>
+            </tr>
+          </thead>
+          <tbody>
+            {{range $Key, $Value := .Options}}
+            <tr>
+              <th>{{$Key}}</th>
+              <td>{{$Value}}</td>
+            </tr>
+            {{end}}
+          </tbody>
+        </table>
         {{else}}
         <p><em>No command line options detected</em></p>
         {{end}}
@@ -46,40 +44,38 @@
       <section>
         <h2>Viper Configuration</h2>
         {{if .Config}}
-        <figure>
-          <table>
-            <thead>
-              <tr>
-                <th>Flag</th>
-                <th>Value</th>
-              </tr>
-            </thead>
-            <tbody>
-              {{range $Key, $Value := .Config}}
-              <tr>
-                <td><code>{{$Key}}</code></td>
-                <td><code>{{$Value}}</code></td>
-              </tr>
-              {{end}}
-            </tbody>
-          </table>
-        </figure>
+        <table>
+          <thead>
+            <tr>
+              <th>Key</th>
+              <th>Value</th>
+            </tr>
+          </thead>
+          <tbody>
+            {{range $Key, $Value := .Config}}
+            <tr>
+              <th>{{$Key}}</th>
+              <td>{{$Value}}</td>
+            </tr>
+            {{end}}
+          </tbody>
+        </table>
         {{else}}
         <p><em>No configuration options detected</em></p>
         {{end}}
       </section>
-
-      <footer>
-        <small class="timestamp">
-          <script>
-            document.write(new Date().toISOString());
-          </script>
-          <br />Local:
-          <script>
-            document.write(new Date().toLocaleString());
-          </script>
-        </small>
-      </footer>
     </main>
+
+    <footer>
+      <small class="timestamp">
+        <script>
+          document.write(new Date().toISOString());
+        </script>
+        <br />Local:
+        <script>
+          document.write(new Date().toLocaleString());
+        </script>
+      </small>
+    </footer>
   </body>
 </html>
