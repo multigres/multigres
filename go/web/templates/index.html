@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en">
   <head>
-    <meta charset="UTF-8" />
+    <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="color-scheme" content="light dark" />
     <title>{{.Title}}</title>
@@ -17,15 +17,15 @@
     </header>
 
     <main>
-      <section text-align="center">
+      <section>
         <grid>
           {{range .Links}}
-          <header>
-            <h3>{{.Title}}</h3>
-          </header>
-          <footer>
-            <a href="{{.Link}}" role="button">{{.Link}}</a>
-          </footer>
+          <article>
+            <h4>{{.Title}}</h4>
+            <a href="{{.Link}}" role="button" data-tooltip="{{.Description}}"
+              >{{.Link}}</a
+            >
+          </article>
           {{end}}
         </grid>
       </section>

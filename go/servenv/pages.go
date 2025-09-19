@@ -39,8 +39,9 @@ func init() {
 
 	HTTPHandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		type Link struct {
-			Title string
-			Link  string
+			Title       string
+			Description string
+			Link        string
 		}
 		type IndexData struct {
 			Title string
@@ -50,8 +51,8 @@ func init() {
 		indexData := IndexData{
 			Title: filepath.Base(os.Args[0]),
 			Links: []Link{
-				{"Live", "/live"},
-				{"Config", "/config"},
+				{"Config", "Server configuration details", "/config"},
+				{"Live", "URL for liveness check", "/live"},
 			},
 		}
 		_ = web.Templates.ExecuteTemplate(w, "index.html", indexData)
