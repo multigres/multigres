@@ -461,7 +461,7 @@ func (ts *store) Close() error {
 	}
 
 	// Clear the map to release references
-	ts.cellConns = make(map[string]cellConn)
+	ts.cellConns = nil
 
 	// Return combined error if any occurred during cleanup
 	if len(errs) > 0 {

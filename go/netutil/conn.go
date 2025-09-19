@@ -20,7 +20,7 @@ import (
 
 var _ net.Conn = (*ConnWithTimeouts)(nil)
 
-// A ConnWithTimeouts is a wrapper to net.Comm that allows to set a read and write timeouts.
+// A ConnWithTimeouts is a wrapper to net.Conn that allows to set a read and write timeouts.
 type ConnWithTimeouts struct {
 	net.Conn
 	readTimeout  time.Duration

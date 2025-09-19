@@ -23,6 +23,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"slices"
 	"strings"
 	"time"
 
@@ -81,13 +82,7 @@ func CheckCellFlags(ts topo.Store, cell string) error {
 	}
 
 	// Check if the specified cell exists in topology
-	hasCell := false
-	for _, v := range cellsInTopo {
-		if v == cell {
-			hasCell = true
-			break
-		}
-	}
+	hasCell := slices.Contains(cellsInTopo, cell)
 	if !hasCell {
 		return fmt.Errorf("cell '%s' does not exist in topology. Available cells: [%s]",
 			cell, strings.Join(cellsInTopo, ", "))

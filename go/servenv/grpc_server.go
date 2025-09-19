@@ -185,7 +185,7 @@ func isGRPCEnabled() bool {
 	return false
 }
 
-// createGRPCServer create the gRPC server we will be using.
+// createGRPCServer creates the gRPC server we will be using.
 // It has to be called after flags are parsed, but before
 // services register themselves.
 func createGRPCServer() {
@@ -289,7 +289,7 @@ func serveGRPC() {
 
 	// and serve on it
 	// NOTE: Before we call Serve(), all services must have registered themselves
-	//       with "GRPCServer". This is the case because go/vt/servenv/run.go
+	//       with "GRPCServer". This is the case because go/servenv/run.go
 	//       runs all OnRun() hooks after createGRPCServer() and before
 	//       serveGRPC(). If this was not the case, the binary would crash with
 	//       the error "grpc: Server.RegisterService after Server.Serve".
