@@ -245,6 +245,8 @@ func (p *localProvisioner) provisionPgctld(ctx context.Context, dbName, tableGro
 	}
 
 	initCmd := exec.CommandContext(ctx, pgctldBinary, initArgs...)
+	initCmd.Stdout = os.Stdout
+	initCmd.Stderr = os.Stderr
 	if err := initCmd.Run(); err != nil {
 		return nil, fmt.Errorf("failed to initialize pgctld data directory: %w", err)
 	}
@@ -266,6 +268,8 @@ func (p *localProvisioner) provisionPgctld(ctx context.Context, dbName, tableGro
 	}
 
 	pgctldCmd := exec.CommandContext(ctx, pgctldBinary, serverArgs...)
+	pgctldCmd.Stdout = os.Stdout
+	pgctldCmd.Stderr = os.Stderr
 	if err := pgctldCmd.Start(); err != nil {
 		return nil, fmt.Errorf("failed to start pgctld server: %w", err)
 	}
