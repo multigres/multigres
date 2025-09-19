@@ -13,7 +13,7 @@
 // limitations under the License.
 
 /*
-Package etcd2topo implements topo.Server with etcd as the backend.
+Package etcd2topo implements topo.Conn with etcd as the backend.
 
 We expect the following behavior from the etcd client library:
 
@@ -65,7 +65,7 @@ func (f Factory) Create(cell, root string, serverAddrs []string) (topo.Conn, err
 	return NewServer(serverAddrs, root)
 }
 
-// Server is the implementation of topo.Server for etcd.
+// Server is the implementation of topo.Conn for etcd.
 type Server struct {
 	// cli is the v3 client.
 	cli *clientv3.Client
@@ -89,7 +89,7 @@ func registerEtcd2TopoFlags(fs *pflag.FlagSet) {
 	fs.StringVar(&serverCaPath, "topo_etcd_tls_ca", serverCaPath, "path to the ca to use to validate the server cert when connecting to the etcd topo server")
 }
 
-// Close implements topo.Server.Close.
+// Close implements topo.Conn.Close.
 // It will nil out the global and cells fields, so any attempt to
 // re-use this server will panic.
 func (s *Server) Close() error {
