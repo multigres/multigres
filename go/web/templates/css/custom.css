@@ -1,4 +1,3 @@
-/* Custom styles for multigres web interface */
 /* This file provides minimal overrides to complement Pico CSS Jade theme */
 
 /* Some color overrides */
@@ -73,9 +72,8 @@ td {
 }
 
 /* Pico's grid is not that good. This is a decent override */
-grid {
+.grid {
   display: flex;
   flex-wrap: wrap;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
   gap: 1rem;
 }

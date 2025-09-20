@@ -15,17 +15,15 @@
     </header>
 
     <main>
-      <section>
-        <grid>
-          {{range .Links}}
-          <article>
-            <h4>{{.Title}}</h4>
-            <a href="{{.Link}}" role="button" data-tooltip="{{.Description}}"
-              >{{.Link}}</a
-            >
-          </article>
-          {{end}}
-        </grid>
+      <section div class="grid">
+        {{range .Links}}
+        <article>
+          <h4>{{.Title}}</h4>
+          <a href="{{.Link}}" role="button" data-tooltip="{{.Description}}"
+            >{{.Link}}</a
+          >
+        </article>
+        {{end}}
       </section>
     </main>
 

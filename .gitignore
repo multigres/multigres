@@ -36,11 +36,6 @@ go.work.sum
 # Dependencies
 node_modules
 
-# Site
-site/build
-site/.docusaurus
-site/.cache-loader
-
 # Misc
 .DS_Store
 .env.local
@@ -66,6 +61,9 @@ super-linter-output/
 
 # expected results of a test
 go/parser/testdata/expected
+
+# files copied from external sources
+go/web/templates/css/pico.*
 
 # y.output file
 y.output
