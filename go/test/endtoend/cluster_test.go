@@ -36,10 +36,22 @@ import (
 	"github.com/multigres/multigres/go/cmd/multigres/command/cluster"
 	"github.com/multigres/multigres/go/provisioner/local"
 	"github.com/multigres/multigres/go/test/utils"
+	"github.com/multigres/multigres/go/tools/appendpath"
 	"github.com/multigres/multigres/go/tools/stringutil"
 
 	_ "github.com/multigres/multigres/go/plugins/topo"
 )
+
+// getProjectRoot finds the project root directory by traversing up from the current file.
+func getProjectRoot() (string, error) {
+	wd, err := os.Getwd()
+	if err != nil {
+		return "", fmt.Errorf("cannot get current file path: %v", err)
+	}
+	// The current file is in go/test/endtoend, so we go up three levels.
+	projectRoot := filepath.Join(wd, "..", "..", "..")
+	return filepath.Abs(projectRoot)
+}
 
 // Global variables for lazy binary building
 var (
@@ -462,10 +474,10 @@ func buildMultigresBinary() (string, error) {
 		return "", fmt.Errorf("failed to create temp directory for multigres binary: %v", err)
 	}
 
-	// Require MTROOT environment variable
-	projectRoot := os.Getenv("MTROOT")
-	if projectRoot == "" {
-		return "", fmt.Errorf("MTROOT environment variable must be set. Please run: source ./build.env")
+	// Get project root directory
+	projectRoot, err := getProjectRoot()
+	if err != nil {
+		return "", fmt.Errorf("failed to get project root: %w", err)
 	}
 
 	// Build multigres binary
@@ -490,10 +502,10 @@ func buildServiceBinaries(tempDir string) error {
 		return fmt.Errorf("failed to create bin directory: %v", err)
 	}
 
-	// Require MTROOT environment variable
-	projectRoot := os.Getenv("MTROOT")
-	if projectRoot == "" {
-		return fmt.Errorf("MTROOT environment variable must be set. Please run: source ./build.env")
+	// Get project root directory
+	projectRoot, err := getProjectRoot()
+	if err != nil {
+		return fmt.Errorf("failed to get project root: %w", err)
 	}
 
 	// Build service binaries (excluding multigres which is built separately)
@@ -541,8 +553,11 @@ func ensureBinaryBuilt(t *testing.T) {
 	}
 }
 
-// TestMain runs before all tests
+// TestMain sets the path and cleans up after all tests
 func TestMain(m *testing.M) {
+	// Set the PATH so etcd can be found
+	appendpath.AppendPath("../../../bin")
+
 	// Run all tests
 	exitCode := m.Run()
 
@@ -812,7 +827,7 @@ func TestClusterLifecycle(t *testing.T) {
 	_, err := exec.LookPath("etcd")
 	require.NoError(t, err, "etcd binary must be available in PATH for cluster lifecycle tests")
 
-	// Binaries are built in TestMain, no need for MTROOT environment variable
+	// Binaries are built in TestMain
 
 	t.Run("cluster init and basic connectivity test", func(t *testing.T) {
 		// Setup test directory
@@ -1032,8 +1047,9 @@ func TestClusterLifecycle(t *testing.T) {
 		binDir := filepath.Join(tempDir, "bin")
 		require.NoError(t, os.MkdirAll(binDir, 0o755))
 
-		projectRoot := os.Getenv("MTROOT")
-		require.NotEmpty(t, projectRoot, "MTROOT must be set")
+		projectRoot, err := getProjectRoot()
+		require.NoError(t, err)
+		require.NotEmpty(t, projectRoot, "projectRoot should not be empty")
 
 		multipoolerPath := filepath.Join(binDir, "multipooler")
 		sourceDir := filepath.Join(projectRoot, "go", "cmd", "multipooler")
