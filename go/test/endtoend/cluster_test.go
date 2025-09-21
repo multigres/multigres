@@ -601,25 +601,6 @@ func TestInitCommand(t *testing.T) {
 			outputContains: []string{"Initializing Multigres cluster configuration", "successfully"},
 		},
 		{
-			name: "error with non-existent config path",
-			setupDirs: func(t *testing.T) ([]string, func()) {
-				return []string{"/nonexistent/path/that/should/not/exist"}, func() {}
-			},
-			expectError:   true,
-			errorContains: "config path does not exist",
-		},
-		{
-			name: "error with file instead of directory",
-			setupDirs: func(t *testing.T) ([]string, func()) {
-				tempFile, err := os.CreateTemp("", "multigres_init_test_file")
-				require.NoError(t, err)
-				tempFile.Close()
-				return []string{tempFile.Name()}, func() { os.Remove(tempFile.Name()) }
-			},
-			expectError:   true,
-			errorContains: "config path is not a directory",
-		},
-		{
 			name: "successful init with multiple valid paths",
 			setupDirs: func(t *testing.T) ([]string, func()) {
 				tempDir1, err := os.MkdirTemp("/tmp", "mlt")

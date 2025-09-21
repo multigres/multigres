@@ -212,18 +212,8 @@ func (p *localProvisioner) LoadConfig(configPaths []string) error {
 }
 
 // DefaultConfig returns the default configuration for the local provisioner
-func (p *localProvisioner) DefaultConfig() map[string]any {
-	// Use MTDATAROOT environment variable if set, otherwise fall back to pwd/multigres_local
-	baseDir := os.Getenv("MTDATAROOT")
-	if baseDir == "" {
-		fmt.Println("Warning: MTDATAROOT environment variable is not set, using current directory for default binary configuration in local provisioner.")
-		if cur, err := os.Getwd(); err != nil {
-			// Should not happen, but just in case.
-			baseDir = "./multigres_local"
-		} else {
-			baseDir = filepath.Join(cur, "multigres_local")
-		}
-	}
+func (p *localProvisioner) DefaultConfig(configPaths []string) map[string]any {
+	baseDir := configPaths[0]
 	binDir, err := getExecutablePath()
 	if err != nil {
 		binDir = "./bin"
