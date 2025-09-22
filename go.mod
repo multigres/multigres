@@ -13,6 +13,7 @@ require (
 require (
 	github.com/fsnotify/fsnotify v1.8.0
 	github.com/grpc-ecosystem/go-grpc-middleware v1.4.0
+	github.com/lib/pq v1.10.9
 	github.com/mitchellh/mapstructure v1.5.0
 	github.com/spf13/afero v1.12.0
 	github.com/spf13/cobra v1.9.1
