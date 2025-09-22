@@ -28,6 +28,7 @@ import (
 	"time"
 
 	"github.com/multigres/multigres/go/clustermetadata/topo"
+	"github.com/multigres/multigres/go/multipooler/server"
 	"github.com/multigres/multigres/go/netutil"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/servenv"
@@ -37,13 +38,18 @@ import (
 )
 
 var (
-	pgctldAddr string
-	cell       string
-	database   string
-	tableGroup string
-	serviceID  string
+	pgctldAddr     string
+	cell           string
+	database       string
+	tableGroup     string
+	serviceID      string
+	socketFilePath string
+	poolerDir      string
+	pgPort         int
 	// multipoolerID stores the ID for deregistration during shutdown
 	multipoolerID *clustermetadatapb.ID
+	// poolerServer holds the gRPC multipooler server instance
+	poolerServer *server.MultiPoolerServer
 
 	Main = &cobra.Command{
 		Use:     "multipooler",
@@ -133,9 +139,24 @@ func run(cmd *cobra.Command, args []string) error {
 			"cell", cell,
 			"database", database,
 			"table_group", tableGroup,
+			"socket_file_path", socketFilePath,
+			"pooler_dir", poolerDir,
+			"pg_port", pgPort,
 			"http_port", servenv.HTTPPort(),
 			"grpc_port", servenv.GRPCPort(),
 		)
+
+		// Register multipooler gRPC service with servenv's GRPCServer
+		if servenv.GRPCCheckServiceMap("pooler") {
+			poolerServer = server.NewMultiPoolerServer(logger, &server.Config{
+				SocketFilePath: socketFilePath,
+				PoolerDir:      poolerDir,
+				PgPort:         pgPort,
+				Database:       database,
+			})
+			poolerServer.RegisterWithGRPCServer(servenv.GRPCServer)
+			logger.Info("MultiPooler gRPC service registered with servenv")
+		}
 
 		// Register with topology service
 		hostname, err := netutil.FullyQualifiedHostname()
@@ -198,6 +219,7 @@ func init() {
 	servenv.OnParseFor("multipooler", registerFlags)
 
 	servenv.RegisterServiceCmd(Main)
+	servenv.RegisterGRPCServerFlags()
 }
 
 func registerFlags(fs *pflag.FlagSet) {
@@ -206,35 +228,40 @@ func registerFlags(fs *pflag.FlagSet) {
 	fs.StringVar(&database, "database", "", "database name this multipooler serves (required)")
 	fs.StringVar(&tableGroup, "table-group", "", "table group this multipooler serves (required)")
 	fs.StringVar(&serviceID, "service-id", "", "optional service ID (if empty, a random ID will be generated)")
+	fs.StringVar(&socketFilePath, "socket-file", "", "PostgreSQL Unix socket file path (if empty, TCP connection will be used)")
+	fs.StringVar(&poolerDir, "pooler-dir", "", "pooler directory path (if empty, socket-file path will be used as-is)")
+	fs.IntVar(&pgPort, "pg-port", 5432, "PostgreSQL port number")
 }
 
 // StatusResponse represents the response from the temporary status endpoint
 // TEMPORARY: This is only for testing and will be removed later
 type StatusResponse struct {
-	ServiceType string                `json:"service_type"`
-	Cell        string                `json:"cell"`
-	Database    string                `json:"database"`
-	TableGroup  string                `json:"table_group"`
-	ServiceID   string                `json:"service_id"`
-	ID          *clustermetadatapb.ID `json:"id"`
-	PgctldAddr  string                `json:"pgctld_addr"`
-	Status      string                `json:"status"`
-	Message     string                `json:"message"`
+	ServiceType    string                `json:"service_type"`
+	Cell           string                `json:"cell"`
+	Database       string                `json:"database"`
+	TableGroup     string                `json:"table_group"`
+	ServiceID      string                `json:"service_id"`
+	ID             *clustermetadatapb.ID `json:"id"`
+	PgctldAddr     string                `json:"pgctld_addr"`
+	SocketFilePath string                `json:"socket_file_path"`
+	Status         string                `json:"status"`
+	Message        string                `json:"message"`
 }
 
 // handleStatusEndpoint handles the temporary HTTP endpoint that shows multipooler status
 // TEMPORARY: This is only for testing and will be removed later
 func handleStatusEndpoint(w http.ResponseWriter, r *http.Request) {
 	response := StatusResponse{
-		ServiceType: "multipooler",
-		Cell:        cell,
-		Database:    database,
-		TableGroup:  tableGroup,
-		ServiceID:   serviceID,
-		ID:          multipoolerID,
-		PgctldAddr:  pgctldAddr,
-		Status:      "running",
-		Message:     "TEMPORARY: This endpoint is for testing only and will be removed",
+		ServiceType:    "multipooler",
+		Cell:           cell,
+		Database:       database,
+		TableGroup:     tableGroup,
+		ServiceID:      serviceID,
+		ID:             multipoolerID,
+		PgctldAddr:     pgctldAddr,
+		SocketFilePath: socketFilePath,
+		Status:         "running",
+		Message:        "TEMPORARY: This endpoint is for testing only and will be removed",
 	}
 
 	w.Header().Set("Content-Type", "application/json")
