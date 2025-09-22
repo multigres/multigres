@@ -2,7 +2,7 @@ module github.com/multigres/multigres
 
 go 1.25.0
 
-require github.com/stretchr/testify v1.10.0
+require github.com/stretchr/testify v1.11.1
 
 require (
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
@@ -15,6 +15,7 @@ require (
 	github.com/grpc-ecosystem/go-grpc-middleware v1.4.0
 	github.com/lib/pq v1.10.9
 	github.com/mitchellh/mapstructure v1.5.0
+	github.com/pganalyze/pg_query_go/v6 v6.1.0
 	github.com/spf13/afero v1.12.0
 	github.com/spf13/cobra v1.9.1
 	github.com/spf13/pflag v1.0.7
@@ -47,7 +48,6 @@ require (
 	github.com/mattn/go-isatty v0.0.17 // indirect
 	github.com/oklog/run v1.0.0 // indirect
 	github.com/pelletier/go-toml/v2 v2.2.3 // indirect
-	github.com/pganalyze/pg_query_go/v6 v6.1.0 // indirect
 	github.com/sagikazarmark/locafero v0.7.0 // indirect
 	github.com/sourcegraph/conc v0.3.0 // indirect
 	github.com/spf13/cast v1.7.1 // indirect
