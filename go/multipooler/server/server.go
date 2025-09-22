@@ -26,6 +26,8 @@ import (
 	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
 	querypb "github.com/multigres/multigres/go/pb/query"
 	"github.com/multigres/multigres/go/servenv"
+
+	"google.golang.org/grpc"
 )
 
 func init() {
@@ -72,6 +74,12 @@ func NewMultiPoolerServer(logger *slog.Logger, config *Config) *MultiPoolerServe
 		logger: logger,
 		config: config,
 	}
+}
+
+// RegisterWithGRPCServer registers the MultiPooler service with the provided gRPC server
+func (s *MultiPoolerServer) RegisterWithGRPCServer(grpcServer *grpc.Server) {
+	multipoolerpb.RegisterMultiPoolerServiceServer(grpcServer, s)
+	s.logger.Info("MultiPooler service registered with gRPC server")
 }
 
 // connectDB establishes a connection to PostgreSQL

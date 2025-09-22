@@ -47,6 +47,8 @@ var (
 	pgPort         int
 	// multipoolerID stores the ID for deregistration during shutdown
 	multipoolerID *clustermetadatapb.ID
+	// poolerServer holds the gRPC multipooler server instance
+	poolerServer *server.MultiPoolerServer
 
 	Main = &cobra.Command{
 		Use:     "multipooler",
@@ -118,14 +120,6 @@ func run(cmd *cobra.Command, args []string) error {
 
 	servenv.Init()
 
-	// Register the gRPC service with configuration
-	server.RegisterService(&server.Config{
-		SocketFilePath: socketFilePath,
-		PoolerDir:      poolerDir,
-		PgPort:         pgPort,
-		Database:       database,
-	})
-
 	// Get the configured logger
 	logger := servenv.GetLogger()
 
@@ -156,6 +150,18 @@ func run(cmd *cobra.Command, args []string) error {
 			"http_port", servenv.HTTPPort(),
 			"grpc_port", servenv.GRPCPort(),
 		)
+
+		// Register multipooler gRPC service with servenv's GRPCServer
+		if servenv.GRPCCheckServiceMap("pooler") {
+			poolerServer = server.NewMultiPoolerServer(logger, &server.Config{
+				SocketFilePath: socketFilePath,
+				PoolerDir:      poolerDir,
+				PgPort:         pgPort,
+				Database:       database,
+			})
+			poolerServer.RegisterWithGRPCServer(servenv.GRPCServer)
+			logger.Info("MultiPooler gRPC service registered with servenv")
+		}
 
 		// Register with topology service
 		hostname, err := netutil.FullyQualifiedHostname()
@@ -218,6 +224,7 @@ func init() {
 	servenv.OnParseFor("multipooler", registerFlags)
 
 	servenv.RegisterServiceCmd(Main)
+	servenv.RegisterGRPCServerFlags()
 }
 
 func registerFlags(fs *pflag.FlagSet) {
