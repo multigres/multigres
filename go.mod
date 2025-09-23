@@ -18,7 +18,7 @@ require (
 	github.com/pganalyze/pg_query_go/v6 v6.1.0
 	github.com/spf13/afero v1.12.0
 	github.com/spf13/cobra v1.9.1
-	github.com/spf13/pflag v1.0.7
+	github.com/spf13/pflag v1.0.10
 	github.com/spf13/viper v1.20.1
 	go.etcd.io/etcd/api/v3 v3.6.5
 	go.etcd.io/etcd/client/pkg/v3 v3.6.5
