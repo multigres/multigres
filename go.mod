@@ -25,7 +25,7 @@ require (
 	go.etcd.io/etcd/client/v3 v3.6.5
 	go.uber.org/goleak v1.3.0
 	google.golang.org/grpc v1.75.1
-	google.golang.org/protobuf v1.36.7
+	google.golang.org/protobuf v1.36.9
 )
 
 require (
