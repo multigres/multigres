@@ -51,6 +51,7 @@ parser:
 # Build Go binaries only
 build:
 	mkdir -p bin/
+	cp external/pico/pico.* go/web/templates/css/
 	go build -o bin/multigateway ./go/cmd/multigateway
 	go build -o bin/multipooler ./go/cmd/multipooler
 	go build -o bin/pgctld ./go/cmd/pgctld
@@ -63,6 +64,7 @@ build-all: proto parser build
 
 # Clean build artifacts
 clean:
+	rm -f go/web/templates/css/pico.*
 	go clean -i ./go/...
 	rm -f bin/*
 

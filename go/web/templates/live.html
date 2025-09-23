@@ -1,25 +1,24 @@
 <!doctype html>
 <html lang="en">
   <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
     <title>Server Status</title>
-    <link rel="stylesheet" href="/css/common.css" />
-    <link rel="stylesheet" href="/css/status.css" />
+    <link rel="icon" href="/favicon.ico" type="image/x-icon" />
+    <link rel="stylesheet" href="/css/pico.classless.jade.min.css" />
+    <link rel="stylesheet" href="/css/custom.css" />
   </head>
   <body>
-    <div class="container">
-      <div class="status">✓</div>
-      <div class="message">ok</div>
-      <div class="timestamp">
-        <script>
-          document.write(new Date().toISOString());
-        </script>
-        <br />local:
-        <script>
-          document.write(new Date().toLocaleString());
-        </script>
-      </div>
-    </div>
+    <main>ok</main>
+    <footer>
+      <script>
+        document.write(new Date().toISOString());
+      </script>
+      <br />Local:
+      <script>
+        document.write(new Date().toLocaleString());
+      </script>
+    </footer>
   </body>
 </html>
