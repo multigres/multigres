@@ -44,7 +44,7 @@ func TestStopPostgreSQLWithResult(t *testing.T) {
 			expectError:   false,
 			expectedResult: func(result *StopResult) {
 				assert.True(t, result.WasRunning)
-				assert.Equal(t, "PostgreSQL server stopped successfully", result.Message)
+				assert.Equal(t, "PostgreSQL server stopped successfully\n", result.Message)
 			},
 		},
 		{
@@ -55,7 +55,7 @@ func TestStopPostgreSQLWithResult(t *testing.T) {
 			expectError:   false,
 			expectedResult: func(result *StopResult) {
 				assert.True(t, result.WasRunning)
-				assert.Equal(t, "PostgreSQL server stopped successfully", result.Message)
+				assert.Equal(t, "PostgreSQL server stopped successfully\n", result.Message)
 			},
 		},
 		{
@@ -66,7 +66,7 @@ func TestStopPostgreSQLWithResult(t *testing.T) {
 			expectError:   false,
 			expectedResult: func(result *StopResult) {
 				assert.True(t, result.WasRunning)
-				assert.Equal(t, "PostgreSQL server stopped successfully", result.Message)
+				assert.Equal(t, "PostgreSQL server stopped successfully\n", result.Message)
 			},
 		},
 		{
@@ -88,7 +88,7 @@ func TestStopPostgreSQLWithResult(t *testing.T) {
 			expectError:   false,
 			expectedResult: func(result *StopResult) {
 				assert.True(t, result.WasRunning)
-				assert.Equal(t, "PostgreSQL server stopped successfully", result.Message)
+				assert.Equal(t, "PostgreSQL server stopped successfully\n", result.Message)
 			},
 		},
 	}
