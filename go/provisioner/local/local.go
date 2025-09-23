@@ -19,6 +19,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net"
 	"os"
 	"os/exec"
@@ -31,6 +32,7 @@ import (
 
 	"github.com/multigres/multigres/go/clustermetadata/topo"
 	"github.com/multigres/multigres/go/provisioner"
+	"github.com/multigres/multigres/go/tools/appendpath"
 	"github.com/multigres/multigres/go/tools/semver"
 	"github.com/multigres/multigres/go/tools/stringutil"
 
@@ -210,17 +212,12 @@ func (p *localProvisioner) LoadConfig(configPaths []string) error {
 }
 
 // DefaultConfig returns the default configuration for the local provisioner
-func (p *localProvisioner) DefaultConfig() map[string]any {
-	// Use MTROOT environment variable if set, otherwise fall back to current directory
-	mtroot := os.Getenv("MTROOT")
-	baseDir := "."
-	binDir := "bin"
-
-	if mtroot != "" {
-		baseDir = mtroot + "/multigres_local"
-		binDir = filepath.Join(mtroot, "bin")
-	} else {
-		fmt.Println("Warning: MTROOT environment variable is not set, using relative paths for default binary configuration in local provisioner.")
+func (p *localProvisioner) DefaultConfig(configPaths []string) map[string]any {
+	baseDir := configPaths[0]
+	binDir, err := getExecutablePath()
+	if err != nil {
+		binDir = "./bin"
+		fmt.Println("Warning: Could not determine executable path, will use ./bin to find binaries")
 	}
 
 	// Generate service IDs for each cell using the same method as topo components
@@ -541,7 +538,8 @@ func (p *localProvisioner) provisionEtcd(ctx context.Context, req *provisioner.P
 	}, nil
 }
 
-// findBinary finds a binary by name, checking PATH first, then optional configured path
+// findBinary finds a binary by name, checking PATH first, then the executable directory,
+// and then the optional configured path
 func (p *localProvisioner) findBinary(name string, serviceConfig map[string]any) (string, error) {
 	// First try to find in PATH
 	if binaryPath, err := exec.LookPath(name); err == nil {
@@ -2572,7 +2570,24 @@ func getMapKeys(m map[string]interface{}) []string {
 	return keys
 }
 
+func getExecutablePath() (string, error) {
+	executablePath, err := os.Executable()
+	if err != nil {
+		executablePath, err = os.Getwd()
+	}
+	return filepath.Dir(executablePath), err
+}
+
 func init() {
 	// Register the local provisioner
 	provisioner.RegisterProvisioner("local", NewLocalProvisioner)
+
+	// Add the executable directory to the PATH. We're expecting
+	// to find the other executables in the same directory.
+	if binDir, err := getExecutablePath(); err == nil {
+		appendpath.AppendPath(binDir)
+	} else {
+		slog.Error(fmt.Sprintf("Local Provisioner failed to get executable path: %v", err))
+		os.Exit(1)
+	}
 }

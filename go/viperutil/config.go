@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"reflect"
 	"sort"
 	"strings"
@@ -87,13 +88,18 @@ var (
 )
 
 func init() {
-	wd, err := os.Getwd()
-	if err != nil {
-		slog.Warn("failed to get working directory", "err", err)
-		return
+	// Use MTDATAROOT environment variable if set, otherwise fall back to pwd/multigres_local
+	baseDir := os.Getenv("MTDATAROOT")
+	if baseDir == "" {
+		if cur, err := os.Getwd(); err != nil {
+			slog.Warn("failed to get working directory", "err", err)
+			return
+		} else {
+			baseDir = filepath.Join(cur, "multigres_local")
+		}
 	}
 
-	configPaths.(*value.Static[[]string]).DefaultVal = []string{wd}
+	configPaths.(*value.Static[[]string]).DefaultVal = []string{baseDir}
 	// Need to re-trigger the SetDefault call done during Configure.
 	registry.Static.SetDefault(configPaths.Key(), configPaths.Default())
 }

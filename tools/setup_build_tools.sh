@@ -15,9 +15,6 @@
 
 set -euo pipefail
 
-# shellcheck source=build.env
-source "$(dirname "${BASH_SOURCE[0]}")/../build.env"
-
 # Multigres build tools setup script
 # Installs build dependencies using install_dep pattern
 
@@ -182,7 +179,7 @@ install_go_tools() {
   # Install addlicense if not already installed
   if ! command -v addlicense >/dev/null 2>&1; then
     echo "Installing addlicense $ADDLICENSE_VERSION..."
-    go install github.com/google/addlicense@$ADDLICENSE_VERSION
+    go install github.com/google/addlicense@"$ADDLICENSE_VERSION"
   fi
 }
 
