@@ -116,7 +116,7 @@ func StopPostgreSQLWithResult(config *pgctld.PostgresCtlConfig, mode string) (*S
 		return nil, fmt.Errorf("failed to stop PostgreSQL: %w", err)
 	}
 
-	result.Message = "PostgreSQL server stopped successfully"
+	result.Message = "PostgreSQL server stopped successfully\n"
 	logger.Info("PostgreSQL server stopped successfully")
 	return result, nil
 }
