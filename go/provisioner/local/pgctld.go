@@ -79,7 +79,7 @@ func (p *localProvisioner) startPostgreSQLViaPgctld(address string) error {
 			statusResp.GetStatus().String(), statusResp.GetMessage())
 	}
 
-	fmt.Printf(" PostgreSQL started (PID: %d) ✓", statusResp.GetPid())
+	fmt.Printf(" PostgreSQL started (PID: %d) ✓\n", statusResp.GetPid())
 	if startResp.GetMessage() != "" {
 		fmt.Printf(" - %s", startResp.GetMessage())
 	}
@@ -130,7 +130,7 @@ func (p *localProvisioner) stopPostgreSQLViaPgctld(address string) error {
 			statusResp.GetStatus().String(), statusResp.GetMessage())
 	}
 
-	fmt.Printf(" PostgreSQL stopped ✓")
+	fmt.Printf(" PostgreSQL stopped ✓\n")
 	if stopResp.GetMessage() != "" {
 		fmt.Printf(" - %s", stopResp.GetMessage())
 	}
