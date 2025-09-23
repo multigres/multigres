@@ -31,32 +31,14 @@ func getAvailableTopoImplementations() []string {
 	return topo.GetAvailableImplementations()
 }
 
-// validateConfigPaths validates that the provided config paths exist and are directories
-func validateConfigPaths(cmd *cobra.Command) ([]string, error) {
+// getConfigPaths returns the list of config paths.
+func getConfigPaths(cmd *cobra.Command) ([]string, error) {
 	configPaths, err := cmd.Flags().GetStringSlice("config-path")
 	if err != nil {
 		return nil, fmt.Errorf("failed to get config-path flag: %w", err)
 	}
 	if len(configPaths) == 0 {
 		return nil, fmt.Errorf("no config paths specified")
-	}
-
-	for _, configPath := range configPaths {
-		absPath, err := filepath.Abs(configPath)
-		if err != nil {
-			return nil, fmt.Errorf("failed to resolve config path %s: %w", configPath, err)
-		}
-
-		if _, err := os.Stat(absPath); os.IsNotExist(err) {
-			return nil, fmt.Errorf("config path does not exist: %s", absPath)
-		} else if err != nil {
-			return nil, fmt.Errorf("failed to access config path %s: %w", absPath, err)
-		}
-
-		// Check if it's a directory
-		if info, err := os.Stat(absPath); err == nil && !info.IsDir() {
-			return nil, fmt.Errorf("config path is not a directory: %s", absPath)
-		}
 	}
 
 	return configPaths, nil
@@ -80,7 +62,7 @@ func buildConfigFromFlags(cmd *cobra.Command) (*MultigresConfig, error) {
 	}
 
 	// Create default configuration for the specified provisioner
-	config, err := createDefaultConfig(provisionerName)
+	config, err := createDefaultConfig(provisionerName, configPaths)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create default config: %w", err)
 	}
@@ -111,6 +93,18 @@ func createConfigFile(cmd *cobra.Command, configPaths []string) (string, error) 
 		return "", fmt.Errorf("config file already exists: %s", configFile)
 	}
 
+	// Check if config directory exists
+	if _, err := os.Stat(configDir); err != nil {
+		if os.IsNotExist(err) {
+			fmt.Printf("Creating config directory %s...\n", configDir)
+			if err := os.MkdirAll(configDir, 0o755); err != nil {
+				return "", fmt.Errorf("failed to create config directory %s: %w", configDir, err)
+			}
+		} else {
+			return "", fmt.Errorf("failed to access config directory %s: %w", configDir, err)
+		}
+	}
+
 	// Print the generated configuration
 	fmt.Println("\nGenerated configuration:")
 	fmt.Println("======================")
@@ -126,8 +120,7 @@ func createConfigFile(cmd *cobra.Command, configPaths []string) (string, error) 
 
 // runInit handles the initialization of a multigres cluster configuration
 func runInit(cmd *cobra.Command, args []string) error {
-	// Validate config paths
-	configPaths, err := validateConfigPaths(cmd)
+	configPaths, err := getConfigPaths(cmd)
 	if err != nil {
 		return err
 	}
@@ -146,14 +139,14 @@ func runInit(cmd *cobra.Command, args []string) error {
 }
 
 // createDefaultConfig creates a default configuration for the specified provisioner
-func createDefaultConfig(provisionerName string) (*MultigresConfig, error) {
+func createDefaultConfig(provisionerName string, configPaths []string) (*MultigresConfig, error) {
 	// Get default config from the provisioner
 	p, err := provisioner.GetProvisioner(provisionerName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get provisioner '%s': %w", provisionerName, err)
 	}
 
-	defaultConfig := p.DefaultConfig()
+	defaultConfig := p.DefaultConfig(configPaths)
 
 	return &MultigresConfig{
 		Provisioner:       provisionerName,

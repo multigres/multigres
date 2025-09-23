@@ -18,6 +18,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"path"
 	"sync/atomic"
 	"testing"
@@ -29,7 +30,16 @@ import (
 
 	"github.com/multigres/multigres/go/clustermetadata/topo"
 	"github.com/multigres/multigres/go/test/utils"
+	"github.com/multigres/multigres/go/tools/appendpath"
 )
+
+// TestMain sets the path before running tests
+func TestMain(m *testing.M) {
+	// Set the PATH so etcd can be found
+	appendpath.AppendPath("../../../../bin")
+
+	os.Exit(m.Run())
+}
 
 // TestWatchTopoVersion tests how the topo.Version values work within the etcd2topo
 // Watch implementation. Today, those logical versions are based on the key's

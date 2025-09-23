@@ -14,6 +14,16 @@
 
 SHELL := /bin/bash
 
+# These variables are used by the shell scripts.
+MTROOT := $(shell pwd)
+export MTROOT
+PROTOC_VER = 25.1
+export PROTOC_VER
+ADDLICENSE_VER = v1.2.0
+export ADDLICENSE_VER
+ETCD_VER = v3.6.4
+export ETCD_VER
+
 .PHONY: all build build-all clean install test proto tools parser
 
 # Default target
@@ -26,6 +36,9 @@ PROTO_GO_OUTS = pb
 # Install protobuf tools
 tools:
 	echo $$(date): Installing build tools
+	mkdir -p .git/hooks
+	ln -sf "$(MTROOT)/misc/git/pre-commit" .git/hooks/pre-commit
+	ln -sf "$(MTROOT)/misc/git/commit-msg" .git/hooks/commit-msg
 	./tools/setup_build_tools.sh
 	go install golang.org/x/tools/cmd/goyacc@latest
 
@@ -33,9 +46,9 @@ tools:
 proto: tools $(PROTO_GO_OUTS)
 
 pb: $(PROTO_SRCS)
-	source ./build.env && \
-	$$MTROOT/dist/protoc-$$PROTOC_VER/bin/protoc --go_out=. \
-		--go-grpc_out=. \
+	$(MTROOT)/dist/protoc-$(PROTOC_VER)/bin/protoc \
+	--plugin=$(MTROOT)/bin/protoc-gen-go --go_out=. \
+	--plugin=$(MTROOT)/bin/protoc-gen-go-grpc --go-grpc_out=. \
 		--proto_path=proto $(PROTO_SRCS) && \
 	mkdir -p go/pb && \
 	cp -Rf github.com/multigres/multigres/go/pb/* go/pb/ && \
@@ -79,15 +92,15 @@ install:
 
 # Run tests
 test: pb build
-	source ./build.env && go test ./...
+	go test ./...
 
 test-short:
-	source ./build.env && go test -short -v ./...
+	go test -short -v ./...
 
 # Clean build and dependencies
 clean-all: clean
 	echo "Removing build dependencies..."
-	source ./build.env && rm -rf $$MTROOT/dist $$MTROOT/bin
+	rm -rf $(MTROOT)/dist $(MTROOT)/bin
 	echo "Build dependencies removed. Run 'make tools' to reinstall."
 
 validate-generated-files: clean build-all
