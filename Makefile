@@ -92,15 +92,15 @@ install:
 
 # Run tests
 test: pb build
-	source go test ./...
+	go test ./...
 
 test-short:
-	source go test -short -v ./...
+	go test -short -v ./...
 
 # Clean build and dependencies
 clean-all: clean
 	echo "Removing build dependencies..."
-	source rm -rf $(MTROOT)/dist $(MTROOT)/bin
+	rm -rf $(MTROOT)/dist $(MTROOT)/bin
 	echo "Build dependencies removed. Run 'make tools' to reinstall."
 
 validate-generated-files: clean build-all
