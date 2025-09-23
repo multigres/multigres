@@ -1,0 +1,79 @@
+/* This file provides minimal overrides to complement Pico CSS Jade theme */
+
+/* Some color overrides */
+:root {
+  --bg-color: #fff;
+  --text-color: #333;
+  --dim-text-color: #6b7280;
+  --accent-color: #28a745;
+  --error-color: #dc3545;
+  --border-color: #e1e1e1;
+  --table-bg: #f8f9fa;
+  --table-header-bg: #e9ecef;
+  --shadow: rgb(0 0 0 / 10%);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg-color: #1a1a1a;
+    --text-color: #e1e1e1;
+    --dim-text-color: #6b7280;
+    --accent-color: #4ade80;
+    --error-color: #ef4444;
+    --border-color: #404040;
+    --table-bg: #2d2d2d;
+    --table-header-bg: #404040;
+    --shadow: rgb(0 0 0 / 30%);
+  }
+}
+
+h1,
+h2,
+h3,
+h4 {
+  font-weight: 300;
+  color: var(--accent-color);
+}
+
+footer {
+  font-family:
+    ui-monospace, SFMono-Regular, "SF Mono", Monaco, Consolas,
+    "Liberation Mono", "Courier New", monospace;
+  margin-top: 2rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border-color);
+  text-align: center;
+  opacity: 0.7;
+}
+
+section {
+  padding: 0.5rem;
+  border-radius: 12px;
+  background: var(--table-bg);
+  border: 1px solid var(--border-color);
+}
+
+table {
+  table-layout: fixed;
+  overflow-wrap: break-word;
+}
+
+th {
+  background-color: var(--table-bg);
+  color: var(--accent-color);
+  opacity: 0.8;
+  border-color: var(--border-color);
+}
+
+td {
+  background-color: var(--table-bg);
+  opacity: 0.6;
+  border-color: var(--border-color);
+}
+
+/* Pico's grid is not that good. This is a decent override */
+.grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+}

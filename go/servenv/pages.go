@@ -17,18 +17,37 @@ package servenv
 import (
 	"net/http"
 	"os"
+	"path"
 	"path/filepath"
-	"strings"
 
 	viperdebug "github.com/multigres/multigres/go/viperutil/debug"
 	"github.com/multigres/multigres/go/web"
 )
 
+// The init function sets up all the necessary frameworks for serving pages.
+// You can define go html templates in go/web/templates, and they can use css
+// files from go/web/templates/css, which contains a minimal pico download.
+// You can use an existing html file as an example to create your own.
+// Currently: Headings, tables and grids are supported. If other tags don't
+// render correctly, we may need to add more css styles.
+// We are using a classless css approach to minimize complexity.
+
 func init() {
+	HTTPHandleFunc("/favicon.ico", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "image/x-icon")
+		cssPath := path.Join("templates", r.URL.Path)
+		content, err := web.TemplateFS.ReadFile(cssPath)
+		if err != nil {
+			http.NotFound(w, r)
+			_, _ = w.Write([]byte(err.Error()))
+			return
+		}
+		_, _ = w.Write(content)
+	})
 	HTTPHandleFunc("/css/", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/css")
-		cssPath := strings.TrimPrefix(r.URL.Path, "/")
-		content, err := web.CSSFS.ReadFile(cssPath)
+		cssPath := path.Join("templates", r.URL.Path)
+		content, err := web.TemplateFS.ReadFile(cssPath)
 		if err != nil {
 			http.NotFound(w, r)
 			_, _ = w.Write([]byte(err.Error()))
@@ -39,8 +58,9 @@ func init() {
 
 	HTTPHandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		type Link struct {
-			Title string
-			Link  string
+			Title       string
+			Description string
+			Link        string
 		}
 		type IndexData struct {
 			Title string
@@ -50,8 +70,8 @@ func init() {
 		indexData := IndexData{
 			Title: filepath.Base(os.Args[0]),
 			Links: []Link{
-				{"Live", "/live"},
-				{"Config", "/config"},
+				{"Config", "Server configuration details", "/config"},
+				{"Live", "URL for liveness check", "/live"},
 			},
 		}
 		_ = web.Templates.ExecuteTemplate(w, "index.html", indexData)

@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+// Package web provides utilities for serving web pages.
 package web
 
 import (
@@ -19,12 +20,13 @@ import (
 	"text/template"
 )
 
+// TemplateFS provides access to the file tree under "templates" as an in-memory file system.
+//
 //go:embed templates
 var TemplateFS embed.FS
-var Templates *template.Template
 
-//go:embed css
-var CSSFS embed.FS
+// Templates is the parsed version of TemplateFS.
+var Templates *template.Template
 
 func init() {
 	var err error
