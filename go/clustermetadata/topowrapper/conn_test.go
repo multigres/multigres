@@ -847,6 +847,7 @@ func TestRetryConnection_TerminatesWhenClosed(t *testing.T) {
 	// Get the initial connection and manually trigger a retry with it
 	conn, err := wrapper.getConnection()
 	require.NoError(t, err, "Expected initial connection")
+	initialCount := factory.getCreateCount()
 
 	// Start retryConnection manually in a goroutine
 	done := make(chan bool, 1)
@@ -857,6 +858,9 @@ func TestRetryConnection_TerminatesWhenClosed(t *testing.T) {
 
 	// Give retryConnection a moment to start
 	time.Sleep(10 * time.Millisecond)
+
+	// Ensure retry tried at least once.
+	assert.Greater(t, factory.getCreateCount(), initialCount, "Expected retry count to increase")
 
 	// Close the wrapper - this should terminate retryConnection
 	err = wrapper.Close()
@@ -874,37 +878,6 @@ func TestRetryConnection_TerminatesWhenClosed(t *testing.T) {
 	_, err = wrapper.getConnection()
 	assert.Error(t, err, "Expected error after close")
 	assert.Equal(t, mtrpc.Code_UNAVAILABLE, mterrors.Code(err), "Expected UNAVAILABLE error after close")
-}
-
-func TestRetryConnection_TerminatesOnCloseWithExistingConnection(t *testing.T) {
-	factory := newMockFactory()
-	wrapper := NewConn(factory.newConn)
-
-	// Get initial connection
-	conn, err := wrapper.getConnection()
-	require.NoError(t, err, "Expected initial connection")
-
-	// Start a retry by manually calling retryConnection in background
-	done := make(chan bool, 1)
-	go func() {
-		wrapper.retryConnection(conn)
-		done <- true
-	}()
-
-	// Wait briefly for retryConnection to start
-	time.Sleep(10 * time.Millisecond)
-
-	// Close the wrapper - this should terminate retryConnection
-	err = wrapper.Close()
-	assert.NoError(t, err, "Close should not fail")
-
-	// Wait for retryConnection to complete or timeout
-	select {
-	case <-done:
-		// retryConnection completed successfully
-	case <-time.After(5 * time.Millisecond):
-		assert.Fail(t, "retryConnection did not terminate within expected time after close")
-	}
 }
 
 func TestRetryConnection_TerminatesWhenSuccessful(t *testing.T) {
@@ -971,8 +944,6 @@ func TestRetryConnection_TerminatesWhenConnectionReplaced(t *testing.T) {
 	assert.Equal(t, newConn, currentConn, "Expected connection to remain the newer one")
 }
 
-// Removed problematic test - replaced with TestRetryConnection_HandlesNilConnectionSafely
-// which tests the nil safety check on line 88
 func TestRetryConnection_ClosesStrayConnectionWhenWrapperClosed(t *testing.T) {
 	factory := newMockFactory()
 	// Make NewConn go into a retry loop.

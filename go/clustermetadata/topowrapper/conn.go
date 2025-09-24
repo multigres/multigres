@@ -129,6 +129,9 @@ func (c *Conn) getConnection() (topo.Conn, error) {
 // handleConnectionError examines the error and triggers reconnection for retriable errors.
 // Only specific error codes (UNAVAILABLE, FAILED_PRECONDITION, CLUSTER_EVENT) trigger retries.
 func (c *Conn) handleConnectionError(conn topo.Conn, err error) {
+	if err == nil {
+		return
+	}
 	switch mterrors.Code(err) {
 	case mtrpc.Code_UNAVAILABLE, mtrpc.Code_FAILED_PRECONDITION, mtrpc.Code_CLUSTER_EVENT:
 		go c.retryConnection(conn)
@@ -142,9 +145,7 @@ func (c *Conn) ListDir(ctx context.Context, dirPath string, full bool) ([]topo.D
 		return nil, err
 	}
 	result, err := conn.ListDir(ctx, dirPath, full)
-	if err != nil {
-		c.handleConnectionError(conn, err)
-	}
+	c.handleConnectionError(conn, err)
 	return result, err
 }
 
@@ -155,9 +156,7 @@ func (c *Conn) Create(ctx context.Context, filePath string, contents []byte) (to
 		return nil, err
 	}
 	result, err := conn.Create(ctx, filePath, contents)
-	if err != nil {
-		c.handleConnectionError(conn, err)
-	}
+	c.handleConnectionError(conn, err)
 	return result, err
 }
 
@@ -168,9 +167,7 @@ func (c *Conn) Update(ctx context.Context, filePath string, contents []byte, ver
 		return nil, err
 	}
 	result, err := conn.Update(ctx, filePath, contents, version)
-	if err != nil {
-		c.handleConnectionError(conn, err)
-	}
+	c.handleConnectionError(conn, err)
 	return result, err
 }
 
@@ -181,9 +178,7 @@ func (c *Conn) Get(ctx context.Context, filePath string) ([]byte, topo.Version, 
 		return nil, nil, err
 	}
 	data, version, err := conn.Get(ctx, filePath)
-	if err != nil {
-		c.handleConnectionError(conn, err)
-	}
+	c.handleConnectionError(conn, err)
 	return data, version, err
 }
 
@@ -194,9 +189,7 @@ func (c *Conn) GetVersion(ctx context.Context, filePath string, version int64) (
 		return nil, err
 	}
 	result, err := conn.GetVersion(ctx, filePath, version)
-	if err != nil {
-		c.handleConnectionError(conn, err)
-	}
+	c.handleConnectionError(conn, err)
 	return result, err
 }
 
@@ -207,9 +200,7 @@ func (c *Conn) List(ctx context.Context, filePathPrefix string) ([]topo.KVInfo, 
 		return nil, err
 	}
 	result, err := conn.List(ctx, filePathPrefix)
-	if err != nil {
-		c.handleConnectionError(conn, err)
-	}
+	c.handleConnectionError(conn, err)
 	return result, err
 }
 
@@ -220,9 +211,7 @@ func (c *Conn) Delete(ctx context.Context, filePath string, version topo.Version
 		return err
 	}
 	err = conn.Delete(ctx, filePath, version)
-	if err != nil {
-		c.handleConnectionError(conn, err)
-	}
+	c.handleConnectionError(conn, err)
 	return err
 }
 
@@ -233,9 +222,7 @@ func (c *Conn) Lock(ctx context.Context, dirPath, contents string) (topo.LockDes
 		return nil, err
 	}
 	result, err := conn.Lock(ctx, dirPath, contents)
-	if err != nil {
-		c.handleConnectionError(conn, err)
-	}
+	c.handleConnectionError(conn, err)
 	return result, err
 }
 
@@ -246,9 +233,7 @@ func (c *Conn) LockWithTTL(ctx context.Context, dirPath, contents string, ttl ti
 		return nil, err
 	}
 	result, err := conn.LockWithTTL(ctx, dirPath, contents, ttl)
-	if err != nil {
-		c.handleConnectionError(conn, err)
-	}
+	c.handleConnectionError(conn, err)
 	return result, err
 }
 
@@ -259,9 +244,7 @@ func (c *Conn) LockName(ctx context.Context, dirPath, contents string) (topo.Loc
 		return nil, err
 	}
 	result, err := conn.LockName(ctx, dirPath, contents)
-	if err != nil {
-		c.handleConnectionError(conn, err)
-	}
+	c.handleConnectionError(conn, err)
 	return result, err
 }
 
@@ -272,9 +255,7 @@ func (c *Conn) TryLock(ctx context.Context, dirPath, contents string) (topo.Lock
 		return nil, err
 	}
 	result, err := conn.TryLock(ctx, dirPath, contents)
-	if err != nil {
-		c.handleConnectionError(conn, err)
-	}
+	c.handleConnectionError(conn, err)
 	return result, err
 }
 
@@ -285,9 +266,7 @@ func (c *Conn) Watch(ctx context.Context, filePath string) (current *topo.WatchD
 		return nil, nil, err
 	}
 	current, changes, err = conn.Watch(ctx, filePath)
-	if err != nil {
-		c.handleConnectionError(conn, err)
-	}
+	c.handleConnectionError(conn, err)
 	return current, changes, err
 }
 
@@ -298,9 +277,7 @@ func (c *Conn) WatchRecursive(ctx context.Context, path string) ([]*topo.WatchDa
 		return nil, nil, err
 	}
 	current, changes, err := conn.WatchRecursive(ctx, path)
-	if err != nil {
-		c.handleConnectionError(conn, err)
-	}
+	c.handleConnectionError(conn, err)
 	return current, changes, err
 }
 
