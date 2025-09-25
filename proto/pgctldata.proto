@@ -1,0 +1,63 @@
+// Copyright 2025 Supabase, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+syntax = "proto3";
+
+package pgctldata;
+
+option go_package = "github.com/multigres/multigres/go/pb/pgctldata";
+
+// PostgreSQL replication status information
+message ReplicationStatus {
+  // Current replication LSN position (PostgreSQL format: X/XXXXXXXX)
+  string lsn = 1;
+
+  // Whether replication is stopped/paused
+  bool stopped = 2;
+
+  // Result of pg_is_wal_replay_paused()
+  bool is_wal_replay_paused = 3;
+
+  // Result of pg_get_wal_replay_pause_state()
+  string wal_replay_pause_state = 4;
+
+  // Replication lag in seconds (optional, may not always be available)
+  int64 lag_seconds = 5;
+}
+
+// Wait for PostgreSQL server to reach a specific LSN position
+message WaitForLSNRequest {
+  // Target LSN position to wait for (PostgreSQL LSN format: X/XXXXXXXX)
+  string target_lsn = 1;
+
+  // Timeout in seconds (0 means no timeout)
+  int32 timeout_seconds = 2;
+}
+
+message WaitForLSNResponse {
+}
+
+// Start PostgreSQL replication (calls pg_wal_replay_resume)
+message StartReplicationRequest {
+}
+
+message StartReplicationResponse {
+}
+
+// Stop PostgreSQL replication (calls pg_wal_replay_pause)
+message StopReplicationRequest {
+}
+
+message StopReplicationResponse {
+}

@@ -1,4 +1,4 @@
-// Copyright 2025 Supabase, Inc
+// Copyright 2025 Supabase, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -20,6 +20,9 @@ option go_package = "github.com/multigres/multigres/go/pb/pgctldservice";
 
 // PostgreSQL Control Service
 service PgCtld {
+
+  // Bootstrap and lifecycle Methods
+
   // Start PostgreSQL server
   rpc Start(StartRequest) returns (StartResponse);
 
@@ -40,6 +43,12 @@ service PgCtld {
 
   // Initialize data directory
   rpc InitDataDir(InitDataDirRequest) returns (InitDataDirResponse);
+
+  // PgRewind rewinds a PostgreSQL data directory to an earlier point in the timeline
+  // This is used to resynchronize a server that diverged from the primary after a failback
+  rpc PgRewind(PgRewindRequest) returns (PgRewindResponse);
+
+  // HA and Replication Methods. Main consumer of this is MultiOrch
 }
 
 // Start PostgreSQL server
@@ -48,7 +57,7 @@ message StartRequest {
   int32 port = 1;
 
   // Additional postgres command line arguments
-  repeated string extra_args = 5;
+  repeated string extra_args = 2;
 }
 
 message StartResponse {
@@ -84,7 +93,7 @@ message RestartRequest {
   // Override default port for start phase
   int32 port = 3;
 
-  repeated string extra_args = 7;
+  repeated string extra_args = 4;
 }
 
 message RestartResponse {
@@ -179,4 +188,20 @@ message InitDataDirRequest {
 message InitDataDirResponse {
   // Status message
   string message = 1;
+}
+
+// PgRewind rewinds a PostgreSQL data directory to an earlier point in the timeline
+message PgRewindRequest {
+  // Source server connection string (--source-server)
+  // Format: "host=<hostname> port=<port> user=<user> dbname=<dbname>"
+  string source_server = 1;
+
+  // Perform a dry run without making changes (--dry-run)
+  bool dry_run = 2;
+
+  // Additional pg_rewind command line arguments
+  repeated string extra_args = 3;
+}
+
+message PgRewindResponse {
 }
