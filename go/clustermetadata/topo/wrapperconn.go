@@ -12,39 +12,37 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package topowrapper provides a connection wrapper for topo.Conn that handles
-// automatic reconnection and error recovery.
-package topowrapper
+package topo
 
 import (
 	"context"
+	"log/slog"
 	"sync"
 	"time"
 
-	"github.com/multigres/multigres/go/clustermetadata/topo"
 	"github.com/multigres/multigres/go/mterrors"
 	"github.com/multigres/multigres/go/pb/mtrpc"
 	"github.com/multigres/multigres/go/tools/timertools"
 )
 
-// Conn wraps a topo.Conn with automatic reconnection and error handling.
+// WrapperConn wraps a Conn with automatic reconnection and error handling.
 // It provides transparent retry logic for retriable connection errors.
-type Conn struct {
-	newFunc func() (topo.Conn, error)
+type WrapperConn struct {
+	newFunc func() (Conn, error)
 	// mu protects wrapped and closed.
 	mu      sync.Mutex
-	wrapped topo.Conn
+	wrapped Conn
 	closed  bool
 }
 
-// NewConn creates a new connection wrapper that uses newFunc to establish connections.
+// NewWrapperConn creates a new connection wrapper that uses newFunc to establish connections.
 // If the initial connection attempt fails, it starts automatic retry logic in a goroutine.
-func NewConn(newFunc func() (topo.Conn, error)) *Conn {
-	c := &Conn{newFunc: newFunc}
+func NewWrapperConn(newFunc func() (Conn, error)) *WrapperConn {
+	c := &WrapperConn{newFunc: newFunc}
 
 	conn, err := newFunc()
 	if err != nil {
-		go c.retryConnection(nil)
+		c.handleConnectionError(nil, err)
 	} else {
 		c.wrapped = conn
 	}
@@ -57,7 +55,7 @@ func NewConn(newFunc func() (topo.Conn, error)) *Conn {
 // matches the wrapped conn. If they don't match, it means the connection was
 // already replaced and no action is needed.
 // retryConnection terminates if Conn is closed.
-func (c *Conn) retryConnection(conn topo.Conn) {
+func (c *WrapperConn) retryConnection(conn Conn) {
 	// Use defer to protect us from unexpected panics
 	mustReturn := func() bool {
 		c.mu.Lock()
@@ -88,6 +86,9 @@ func (c *Conn) retryConnection(conn topo.Conn) {
 
 	for range ticker.C {
 		conn, err := c.newFunc()
+		if err != nil {
+			slog.Error("Connection error on retry", "err", err)
+		}
 		mustContinue := func() bool {
 			// We have to do this entire operation within a lock:
 			// Once we check the value of c.closed, it should not be allowed
@@ -116,7 +117,7 @@ func (c *Conn) retryConnection(conn topo.Conn) {
 	}
 }
 
-func (c *Conn) getConnection() (topo.Conn, error) {
+func (c *WrapperConn) getConnection() (Conn, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -128,18 +129,25 @@ func (c *Conn) getConnection() (topo.Conn, error) {
 
 // handleConnectionError examines the error and triggers reconnection for retriable errors.
 // Only specific error codes (UNAVAILABLE, FAILED_PRECONDITION, CLUSTER_EVENT) trigger retries.
-func (c *Conn) handleConnectionError(conn topo.Conn, err error) {
+func (c *WrapperConn) handleConnectionError(conn Conn, err error) {
+	// If there is no connection, we want to retry irrespective of the error.
+	if conn == nil {
+		slog.Error("Connection error, will keep retrying", "err", err)
+		go c.retryConnection(conn)
+		return
+	}
 	if err == nil {
 		return
 	}
 	switch mterrors.Code(err) {
 	case mtrpc.Code_UNAVAILABLE, mtrpc.Code_FAILED_PRECONDITION, mtrpc.Code_CLUSTER_EVENT:
+		slog.Error("Connection error, will keep retrying", "err", err)
 		go c.retryConnection(conn)
 	}
 }
 
 // ListDir lists the contents of a directory in the topology server.
-func (c *Conn) ListDir(ctx context.Context, dirPath string, full bool) ([]topo.DirEntry, error) {
+func (c *WrapperConn) ListDir(ctx context.Context, dirPath string, full bool) ([]DirEntry, error) {
 	conn, err := c.getConnection()
 	if err != nil {
 		return nil, err
@@ -150,7 +158,7 @@ func (c *Conn) ListDir(ctx context.Context, dirPath string, full bool) ([]topo.D
 }
 
 // Create creates a new file in the topology server with the given contents.
-func (c *Conn) Create(ctx context.Context, filePath string, contents []byte) (topo.Version, error) {
+func (c *WrapperConn) Create(ctx context.Context, filePath string, contents []byte) (Version, error) {
 	conn, err := c.getConnection()
 	if err != nil {
 		return nil, err
@@ -161,7 +169,7 @@ func (c *Conn) Create(ctx context.Context, filePath string, contents []byte) (to
 }
 
 // Update updates an existing file in the topology server with new contents and version.
-func (c *Conn) Update(ctx context.Context, filePath string, contents []byte, version topo.Version) (topo.Version, error) {
+func (c *WrapperConn) Update(ctx context.Context, filePath string, contents []byte, version Version) (Version, error) {
 	conn, err := c.getConnection()
 	if err != nil {
 		return nil, err
@@ -172,7 +180,7 @@ func (c *Conn) Update(ctx context.Context, filePath string, contents []byte, ver
 }
 
 // Get retrieves the contents and version of a file from the topology server.
-func (c *Conn) Get(ctx context.Context, filePath string) ([]byte, topo.Version, error) {
+func (c *WrapperConn) Get(ctx context.Context, filePath string) ([]byte, Version, error) {
 	conn, err := c.getConnection()
 	if err != nil {
 		return nil, nil, err
@@ -183,7 +191,7 @@ func (c *Conn) Get(ctx context.Context, filePath string) ([]byte, topo.Version, 
 }
 
 // GetVersion retrieves the contents of a specific version of a file from the topology server.
-func (c *Conn) GetVersion(ctx context.Context, filePath string, version int64) ([]byte, error) {
+func (c *WrapperConn) GetVersion(ctx context.Context, filePath string, version int64) ([]byte, error) {
 	conn, err := c.getConnection()
 	if err != nil {
 		return nil, err
@@ -194,7 +202,7 @@ func (c *Conn) GetVersion(ctx context.Context, filePath string, version int64) (
 }
 
 // List returns key-value information for all files matching the given path prefix.
-func (c *Conn) List(ctx context.Context, filePathPrefix string) ([]topo.KVInfo, error) {
+func (c *WrapperConn) List(ctx context.Context, filePathPrefix string) ([]KVInfo, error) {
 	conn, err := c.getConnection()
 	if err != nil {
 		return nil, err
@@ -205,7 +213,7 @@ func (c *Conn) List(ctx context.Context, filePathPrefix string) ([]topo.KVInfo, 
 }
 
 // Delete removes a file from the topology server with the specified version.
-func (c *Conn) Delete(ctx context.Context, filePath string, version topo.Version) error {
+func (c *WrapperConn) Delete(ctx context.Context, filePath string, version Version) error {
 	conn, err := c.getConnection()
 	if err != nil {
 		return err
@@ -216,7 +224,7 @@ func (c *Conn) Delete(ctx context.Context, filePath string, version topo.Version
 }
 
 // Lock acquires a distributed lock on the specified directory path.
-func (c *Conn) Lock(ctx context.Context, dirPath, contents string) (topo.LockDescriptor, error) {
+func (c *WrapperConn) Lock(ctx context.Context, dirPath, contents string) (LockDescriptor, error) {
 	conn, err := c.getConnection()
 	if err != nil {
 		return nil, err
@@ -227,7 +235,7 @@ func (c *Conn) Lock(ctx context.Context, dirPath, contents string) (topo.LockDes
 }
 
 // LockWithTTL acquires a distributed lock with a time-to-live on the specified directory path.
-func (c *Conn) LockWithTTL(ctx context.Context, dirPath, contents string, ttl time.Duration) (topo.LockDescriptor, error) {
+func (c *WrapperConn) LockWithTTL(ctx context.Context, dirPath, contents string, ttl time.Duration) (LockDescriptor, error) {
 	conn, err := c.getConnection()
 	if err != nil {
 		return nil, err
@@ -238,7 +246,7 @@ func (c *Conn) LockWithTTL(ctx context.Context, dirPath, contents string, ttl ti
 }
 
 // LockName acquires a named distributed lock on the specified directory path.
-func (c *Conn) LockName(ctx context.Context, dirPath, contents string) (topo.LockDescriptor, error) {
+func (c *WrapperConn) LockName(ctx context.Context, dirPath, contents string) (LockDescriptor, error) {
 	conn, err := c.getConnection()
 	if err != nil {
 		return nil, err
@@ -249,7 +257,7 @@ func (c *Conn) LockName(ctx context.Context, dirPath, contents string) (topo.Loc
 }
 
 // TryLock attempts to acquire a distributed lock without blocking.
-func (c *Conn) TryLock(ctx context.Context, dirPath, contents string) (topo.LockDescriptor, error) {
+func (c *WrapperConn) TryLock(ctx context.Context, dirPath, contents string) (LockDescriptor, error) {
 	conn, err := c.getConnection()
 	if err != nil {
 		return nil, err
@@ -260,7 +268,7 @@ func (c *Conn) TryLock(ctx context.Context, dirPath, contents string) (topo.Lock
 }
 
 // Watch monitors a file for changes and returns the current state and a channel for updates.
-func (c *Conn) Watch(ctx context.Context, filePath string) (current *topo.WatchData, changes <-chan *topo.WatchData, err error) {
+func (c *WrapperConn) Watch(ctx context.Context, filePath string) (current *WatchData, changes <-chan *WatchData, err error) {
 	conn, err := c.getConnection()
 	if err != nil {
 		return nil, nil, err
@@ -271,7 +279,7 @@ func (c *Conn) Watch(ctx context.Context, filePath string) (current *topo.WatchD
 }
 
 // WatchRecursive monitors a directory recursively for changes and returns current state and update channel.
-func (c *Conn) WatchRecursive(ctx context.Context, path string) ([]*topo.WatchDataRecursive, <-chan *topo.WatchDataRecursive, error) {
+func (c *WrapperConn) WatchRecursive(ctx context.Context, path string) ([]*WatchDataRecursive, <-chan *WatchDataRecursive, error) {
 	conn, err := c.getConnection()
 	if err != nil {
 		return nil, nil, err
@@ -282,7 +290,7 @@ func (c *Conn) WatchRecursive(ctx context.Context, path string) ([]*topo.WatchDa
 }
 
 // Close closes the connection wrapper and terminates any ongoing retry operations.
-func (c *Conn) Close() error {
+func (c *WrapperConn) Close() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 

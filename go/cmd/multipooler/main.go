@@ -128,9 +128,9 @@ func run(cmd *cobra.Command, args []string) error {
 	// Validate cell configuration early to fail fast if misconfigured
 	if err := CheckCellFlags(ts, cell); err != nil {
 		logger.Error("Cell validation failed", "error", err)
-		return fmt.Errorf("cell validation failed: %w", err)
+	} else {
+		logger.Info("Cell validation passed", "cell", cell)
 	}
-	logger.Info("Cell validation passed", "cell", cell)
 
 	servenv.OnRun(func() {
 		// Flags are parsed now.
