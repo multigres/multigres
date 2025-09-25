@@ -155,14 +155,12 @@ type ReplicationStatus struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Current replication LSN position (PostgreSQL format: X/XXXXXXXX)
 	Lsn string `protobuf:"bytes,1,opt,name=lsn,proto3" json:"lsn,omitempty"`
-	// Whether replication is stopped/paused
-	Stopped bool `protobuf:"varint,2,opt,name=stopped,proto3" json:"stopped,omitempty"`
 	// Result of pg_is_wal_replay_paused()
-	IsWalReplayPaused bool `protobuf:"varint,3,opt,name=is_wal_replay_paused,json=isWalReplayPaused,proto3" json:"is_wal_replay_paused,omitempty"`
+	IsWalReplayPaused bool `protobuf:"varint,2,opt,name=is_wal_replay_paused,json=isWalReplayPaused,proto3" json:"is_wal_replay_paused,omitempty"`
 	// Result of pg_get_wal_replay_pause_state()
-	WalReplayPauseState string `protobuf:"bytes,4,opt,name=wal_replay_pause_state,json=walReplayPauseState,proto3" json:"wal_replay_pause_state,omitempty"`
+	WalReplayPauseState string `protobuf:"bytes,3,opt,name=wal_replay_pause_state,json=walReplayPauseState,proto3" json:"wal_replay_pause_state,omitempty"`
 	// Replication lag in seconds (optional, may not always be available)
-	LagSeconds    int64 `protobuf:"varint,5,opt,name=lag_seconds,json=lagSeconds,proto3" json:"lag_seconds,omitempty"`
+	LagSeconds    int64 `protobuf:"varint,4,opt,name=lag_seconds,json=lagSeconds,proto3" json:"lag_seconds,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -202,13 +200,6 @@ func (x *ReplicationStatus) GetLsn() string {
 		return x.Lsn
 	}
 	return ""
-}
-
-func (x *ReplicationStatus) GetStopped() bool {
-	if x != nil {
-		return x.Stopped
-	}
-	return false
 }
 
 func (x *ReplicationStatus) GetIsWalReplayPaused() bool {
@@ -396,79 +387,6 @@ func (*StartReplicationResponse) Descriptor() ([]byte, []int) {
 	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{4}
 }
 
-// Stop PostgreSQL replication (calls pg_wal_replay_pause)
-type StopReplicationRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *StopReplicationRequest) Reset() {
-	*x = StopReplicationRequest{}
-	mi := &file_multipoolermanagerdata_proto_msgTypes[5]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *StopReplicationRequest) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*StopReplicationRequest) ProtoMessage() {}
-
-func (x *StopReplicationRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_multipoolermanagerdata_proto_msgTypes[5]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use StopReplicationRequest.ProtoReflect.Descriptor instead.
-func (*StopReplicationRequest) Descriptor() ([]byte, []int) {
-	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{5}
-}
-
-type StopReplicationResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *StopReplicationResponse) Reset() {
-	*x = StopReplicationResponse{}
-	mi := &file_multipoolermanagerdata_proto_msgTypes[6]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *StopReplicationResponse) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*StopReplicationResponse) ProtoMessage() {}
-
-func (x *StopReplicationResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_multipoolermanagerdata_proto_msgTypes[6]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use StopReplicationResponse.ProtoReflect.Descriptor instead.
-func (*StopReplicationResponse) Descriptor() ([]byte, []int) {
-	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{6}
-}
-
 // SetReadOnly makes the PostgreSQL instance read-only
 type SetReadOnlyRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -478,7 +396,7 @@ type SetReadOnlyRequest struct {
 
 func (x *SetReadOnlyRequest) Reset() {
 	*x = SetReadOnlyRequest{}
-	mi := &file_multipoolermanagerdata_proto_msgTypes[7]
+	mi := &file_multipoolermanagerdata_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -490,7 +408,7 @@ func (x *SetReadOnlyRequest) String() string {
 func (*SetReadOnlyRequest) ProtoMessage() {}
 
 func (x *SetReadOnlyRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_multipoolermanagerdata_proto_msgTypes[7]
+	mi := &file_multipoolermanagerdata_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -503,7 +421,7 @@ func (x *SetReadOnlyRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SetReadOnlyRequest.ProtoReflect.Descriptor instead.
 func (*SetReadOnlyRequest) Descriptor() ([]byte, []int) {
-	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{7}
+	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{5}
 }
 
 type SetReadOnlyResponse struct {
@@ -514,7 +432,7 @@ type SetReadOnlyResponse struct {
 
 func (x *SetReadOnlyResponse) Reset() {
 	*x = SetReadOnlyResponse{}
-	mi := &file_multipoolermanagerdata_proto_msgTypes[8]
+	mi := &file_multipoolermanagerdata_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -526,7 +444,7 @@ func (x *SetReadOnlyResponse) String() string {
 func (*SetReadOnlyResponse) ProtoMessage() {}
 
 func (x *SetReadOnlyResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_multipoolermanagerdata_proto_msgTypes[8]
+	mi := &file_multipoolermanagerdata_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -539,7 +457,7 @@ func (x *SetReadOnlyResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SetReadOnlyResponse.ProtoReflect.Descriptor instead.
 func (*SetReadOnlyResponse) Descriptor() ([]byte, []int) {
-	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{8}
+	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{6}
 }
 
 // PromoteStandby PostgreSQL standby server to primary
@@ -555,7 +473,7 @@ type PromoteStandbyRequest struct {
 
 func (x *PromoteStandbyRequest) Reset() {
 	*x = PromoteStandbyRequest{}
-	mi := &file_multipoolermanagerdata_proto_msgTypes[9]
+	mi := &file_multipoolermanagerdata_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -567,7 +485,7 @@ func (x *PromoteStandbyRequest) String() string {
 func (*PromoteStandbyRequest) ProtoMessage() {}
 
 func (x *PromoteStandbyRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_multipoolermanagerdata_proto_msgTypes[9]
+	mi := &file_multipoolermanagerdata_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -580,7 +498,7 @@ func (x *PromoteStandbyRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PromoteStandbyRequest.ProtoReflect.Descriptor instead.
 func (*PromoteStandbyRequest) Descriptor() ([]byte, []int) {
-	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{9}
+	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *PromoteStandbyRequest) GetWait() bool {
@@ -605,7 +523,7 @@ type PromoteStandbyResponse struct {
 
 func (x *PromoteStandbyResponse) Reset() {
 	*x = PromoteStandbyResponse{}
-	mi := &file_multipoolermanagerdata_proto_msgTypes[10]
+	mi := &file_multipoolermanagerdata_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -617,7 +535,7 @@ func (x *PromoteStandbyResponse) String() string {
 func (*PromoteStandbyResponse) ProtoMessage() {}
 
 func (x *PromoteStandbyResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_multipoolermanagerdata_proto_msgTypes[10]
+	mi := &file_multipoolermanagerdata_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -630,7 +548,7 @@ func (x *PromoteStandbyResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PromoteStandbyResponse.ProtoReflect.Descriptor instead.
 func (*PromoteStandbyResponse) Descriptor() ([]byte, []int) {
-	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{10}
+	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{8}
 }
 
 // GetPrimaryLSN gets the current leader LSN position
@@ -642,7 +560,7 @@ type GetPrimaryLSNRequest struct {
 
 func (x *GetPrimaryLSNRequest) Reset() {
 	*x = GetPrimaryLSNRequest{}
-	mi := &file_multipoolermanagerdata_proto_msgTypes[11]
+	mi := &file_multipoolermanagerdata_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -654,7 +572,7 @@ func (x *GetPrimaryLSNRequest) String() string {
 func (*GetPrimaryLSNRequest) ProtoMessage() {}
 
 func (x *GetPrimaryLSNRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_multipoolermanagerdata_proto_msgTypes[11]
+	mi := &file_multipoolermanagerdata_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -667,7 +585,7 @@ func (x *GetPrimaryLSNRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetPrimaryLSNRequest.ProtoReflect.Descriptor instead.
 func (*GetPrimaryLSNRequest) Descriptor() ([]byte, []int) {
-	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{11}
+	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{9}
 }
 
 type GetPrimaryLSNResponse struct {
@@ -680,7 +598,7 @@ type GetPrimaryLSNResponse struct {
 
 func (x *GetPrimaryLSNResponse) Reset() {
 	*x = GetPrimaryLSNResponse{}
-	mi := &file_multipoolermanagerdata_proto_msgTypes[12]
+	mi := &file_multipoolermanagerdata_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -692,7 +610,7 @@ func (x *GetPrimaryLSNResponse) String() string {
 func (*GetPrimaryLSNResponse) ProtoMessage() {}
 
 func (x *GetPrimaryLSNResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_multipoolermanagerdata_proto_msgTypes[12]
+	mi := &file_multipoolermanagerdata_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -705,7 +623,7 @@ func (x *GetPrimaryLSNResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetPrimaryLSNResponse.ProtoReflect.Descriptor instead.
 func (*GetPrimaryLSNResponse) Descriptor() ([]byte, []int) {
-	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{12}
+	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *GetPrimaryLSNResponse) GetLeaderLsn() string {
@@ -724,7 +642,7 @@ type IsReadOnlyRequest struct {
 
 func (x *IsReadOnlyRequest) Reset() {
 	*x = IsReadOnlyRequest{}
-	mi := &file_multipoolermanagerdata_proto_msgTypes[13]
+	mi := &file_multipoolermanagerdata_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -736,7 +654,7 @@ func (x *IsReadOnlyRequest) String() string {
 func (*IsReadOnlyRequest) ProtoMessage() {}
 
 func (x *IsReadOnlyRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_multipoolermanagerdata_proto_msgTypes[13]
+	mi := &file_multipoolermanagerdata_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -749,7 +667,7 @@ func (x *IsReadOnlyRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use IsReadOnlyRequest.ProtoReflect.Descriptor instead.
 func (*IsReadOnlyRequest) Descriptor() ([]byte, []int) {
-	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{13}
+	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{11}
 }
 
 type IsReadOnlyResponse struct {
@@ -762,7 +680,7 @@ type IsReadOnlyResponse struct {
 
 func (x *IsReadOnlyResponse) Reset() {
 	*x = IsReadOnlyResponse{}
-	mi := &file_multipoolermanagerdata_proto_msgTypes[14]
+	mi := &file_multipoolermanagerdata_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -774,7 +692,7 @@ func (x *IsReadOnlyResponse) String() string {
 func (*IsReadOnlyResponse) ProtoMessage() {}
 
 func (x *IsReadOnlyResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_multipoolermanagerdata_proto_msgTypes[14]
+	mi := &file_multipoolermanagerdata_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -787,7 +705,7 @@ func (x *IsReadOnlyResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use IsReadOnlyResponse.ProtoReflect.Descriptor instead.
 func (*IsReadOnlyResponse) Descriptor() ([]byte, []int) {
-	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{14}
+	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *IsReadOnlyResponse) GetReadOnly() bool {
@@ -816,7 +734,7 @@ type SetStandbyPrimaryConnInfoRequest struct {
 
 func (x *SetStandbyPrimaryConnInfoRequest) Reset() {
 	*x = SetStandbyPrimaryConnInfoRequest{}
-	mi := &file_multipoolermanagerdata_proto_msgTypes[15]
+	mi := &file_multipoolermanagerdata_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -828,7 +746,7 @@ func (x *SetStandbyPrimaryConnInfoRequest) String() string {
 func (*SetStandbyPrimaryConnInfoRequest) ProtoMessage() {}
 
 func (x *SetStandbyPrimaryConnInfoRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_multipoolermanagerdata_proto_msgTypes[15]
+	mi := &file_multipoolermanagerdata_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -841,7 +759,7 @@ func (x *SetStandbyPrimaryConnInfoRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SetStandbyPrimaryConnInfoRequest.ProtoReflect.Descriptor instead.
 func (*SetStandbyPrimaryConnInfoRequest) Descriptor() ([]byte, []int) {
-	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{15}
+	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *SetStandbyPrimaryConnInfoRequest) GetHost() string {
@@ -887,7 +805,7 @@ type SetStandbyPrimaryConnInfoResponse struct {
 
 func (x *SetStandbyPrimaryConnInfoResponse) Reset() {
 	*x = SetStandbyPrimaryConnInfoResponse{}
-	mi := &file_multipoolermanagerdata_proto_msgTypes[16]
+	mi := &file_multipoolermanagerdata_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -899,7 +817,7 @@ func (x *SetStandbyPrimaryConnInfoResponse) String() string {
 func (*SetStandbyPrimaryConnInfoResponse) ProtoMessage() {}
 
 func (x *SetStandbyPrimaryConnInfoResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_multipoolermanagerdata_proto_msgTypes[16]
+	mi := &file_multipoolermanagerdata_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -912,21 +830,19 @@ func (x *SetStandbyPrimaryConnInfoResponse) ProtoReflect() protoreflect.Message 
 
 // Deprecated: Use SetStandbyPrimaryConnInfoResponse.ProtoReflect.Descriptor instead.
 func (*SetStandbyPrimaryConnInfoResponse) Descriptor() ([]byte, []int) {
-	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{16}
+	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{14}
 }
 
 // StopStandbyReplication stops WAL replay on standby
 type StopStandbyReplicationRequest struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
-	// Additional environment variables for hooks
-	HookExtraEnv  map[string]string `protobuf:"bytes,1,rep,name=hook_extra_env,json=hookExtraEnv,proto3" json:"hook_extra_env,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	state         protoimpl.MessageState `protogen:"open.v1"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *StopStandbyReplicationRequest) Reset() {
 	*x = StopStandbyReplicationRequest{}
-	mi := &file_multipoolermanagerdata_proto_msgTypes[17]
+	mi := &file_multipoolermanagerdata_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -938,7 +854,7 @@ func (x *StopStandbyReplicationRequest) String() string {
 func (*StopStandbyReplicationRequest) ProtoMessage() {}
 
 func (x *StopStandbyReplicationRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_multipoolermanagerdata_proto_msgTypes[17]
+	mi := &file_multipoolermanagerdata_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -951,14 +867,7 @@ func (x *StopStandbyReplicationRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StopStandbyReplicationRequest.ProtoReflect.Descriptor instead.
 func (*StopStandbyReplicationRequest) Descriptor() ([]byte, []int) {
-	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{17}
-}
-
-func (x *StopStandbyReplicationRequest) GetHookExtraEnv() map[string]string {
-	if x != nil {
-		return x.HookExtraEnv
-	}
-	return nil
+	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{15}
 }
 
 type StopStandbyReplicationResponse struct {
@@ -969,7 +878,7 @@ type StopStandbyReplicationResponse struct {
 
 func (x *StopStandbyReplicationResponse) Reset() {
 	*x = StopStandbyReplicationResponse{}
-	mi := &file_multipoolermanagerdata_proto_msgTypes[18]
+	mi := &file_multipoolermanagerdata_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -981,7 +890,7 @@ func (x *StopStandbyReplicationResponse) String() string {
 func (*StopStandbyReplicationResponse) ProtoMessage() {}
 
 func (x *StopStandbyReplicationResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_multipoolermanagerdata_proto_msgTypes[18]
+	mi := &file_multipoolermanagerdata_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -994,7 +903,7 @@ func (x *StopStandbyReplicationResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StopStandbyReplicationResponse.ProtoReflect.Descriptor instead.
 func (*StopStandbyReplicationResponse) Descriptor() ([]byte, []int) {
-	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{18}
+	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{16}
 }
 
 // StandbyReplicationStatus gets the current replication status
@@ -1006,7 +915,7 @@ type StandbyReplicationStatusRequest struct {
 
 func (x *StandbyReplicationStatusRequest) Reset() {
 	*x = StandbyReplicationStatusRequest{}
-	mi := &file_multipoolermanagerdata_proto_msgTypes[19]
+	mi := &file_multipoolermanagerdata_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1018,7 +927,7 @@ func (x *StandbyReplicationStatusRequest) String() string {
 func (*StandbyReplicationStatusRequest) ProtoMessage() {}
 
 func (x *StandbyReplicationStatusRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_multipoolermanagerdata_proto_msgTypes[19]
+	mi := &file_multipoolermanagerdata_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1031,7 +940,7 @@ func (x *StandbyReplicationStatusRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StandbyReplicationStatusRequest.ProtoReflect.Descriptor instead.
 func (*StandbyReplicationStatusRequest) Descriptor() ([]byte, []int) {
-	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{19}
+	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{17}
 }
 
 type StandbyReplicationStatusResponse struct {
@@ -1044,7 +953,7 @@ type StandbyReplicationStatusResponse struct {
 
 func (x *StandbyReplicationStatusResponse) Reset() {
 	*x = StandbyReplicationStatusResponse{}
-	mi := &file_multipoolermanagerdata_proto_msgTypes[20]
+	mi := &file_multipoolermanagerdata_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1056,7 +965,7 @@ func (x *StandbyReplicationStatusResponse) String() string {
 func (*StandbyReplicationStatusResponse) ProtoMessage() {}
 
 func (x *StandbyReplicationStatusResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_multipoolermanagerdata_proto_msgTypes[20]
+	mi := &file_multipoolermanagerdata_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1069,7 +978,7 @@ func (x *StandbyReplicationStatusResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StandbyReplicationStatusResponse.ProtoReflect.Descriptor instead.
 func (*StandbyReplicationStatusResponse) Descriptor() ([]byte, []int) {
-	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{20}
+	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *StandbyReplicationStatusResponse) GetStatus() *ReplicationStatus {
@@ -1094,7 +1003,7 @@ type PrimaryStatus struct {
 
 func (x *PrimaryStatus) Reset() {
 	*x = PrimaryStatus{}
-	mi := &file_multipoolermanagerdata_proto_msgTypes[21]
+	mi := &file_multipoolermanagerdata_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1106,7 +1015,7 @@ func (x *PrimaryStatus) String() string {
 func (*PrimaryStatus) ProtoMessage() {}
 
 func (x *PrimaryStatus) ProtoReflect() protoreflect.Message {
-	mi := &file_multipoolermanagerdata_proto_msgTypes[21]
+	mi := &file_multipoolermanagerdata_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1119,7 +1028,7 @@ func (x *PrimaryStatus) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PrimaryStatus.ProtoReflect.Descriptor instead.
 func (*PrimaryStatus) Descriptor() ([]byte, []int) {
-	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{21}
+	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *PrimaryStatus) GetLsn() string {
@@ -1160,7 +1069,7 @@ type FullStatus struct {
 
 func (x *FullStatus) Reset() {
 	*x = FullStatus{}
-	mi := &file_multipoolermanagerdata_proto_msgTypes[22]
+	mi := &file_multipoolermanagerdata_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1172,7 +1081,7 @@ func (x *FullStatus) String() string {
 func (*FullStatus) ProtoMessage() {}
 
 func (x *FullStatus) ProtoReflect() protoreflect.Message {
-	mi := &file_multipoolermanagerdata_proto_msgTypes[22]
+	mi := &file_multipoolermanagerdata_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1185,7 +1094,7 @@ func (x *FullStatus) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FullStatus.ProtoReflect.Descriptor instead.
 func (*FullStatus) Descriptor() ([]byte, []int) {
-	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{22}
+	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *FullStatus) GetServerStatus() string {
@@ -1216,88 +1125,6 @@ func (x *FullStatus) GetServerInfo() map[string]string {
 	return nil
 }
 
-// ReplicationStatus gets the current replication status
-type ReplicationStatusRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *ReplicationStatusRequest) Reset() {
-	*x = ReplicationStatusRequest{}
-	mi := &file_multipoolermanagerdata_proto_msgTypes[23]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *ReplicationStatusRequest) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*ReplicationStatusRequest) ProtoMessage() {}
-
-func (x *ReplicationStatusRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_multipoolermanagerdata_proto_msgTypes[23]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use ReplicationStatusRequest.ProtoReflect.Descriptor instead.
-func (*ReplicationStatusRequest) Descriptor() ([]byte, []int) {
-	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{23}
-}
-
-type ReplicationStatusResponse struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
-	// Current replication status
-	Status        *ReplicationStatus `protobuf:"bytes,1,opt,name=status,proto3" json:"status,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *ReplicationStatusResponse) Reset() {
-	*x = ReplicationStatusResponse{}
-	mi := &file_multipoolermanagerdata_proto_msgTypes[24]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *ReplicationStatusResponse) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*ReplicationStatusResponse) ProtoMessage() {}
-
-func (x *ReplicationStatusResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_multipoolermanagerdata_proto_msgTypes[24]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use ReplicationStatusResponse.ProtoReflect.Descriptor instead.
-func (*ReplicationStatusResponse) Descriptor() ([]byte, []int) {
-	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{24}
-}
-
-func (x *ReplicationStatusResponse) GetStatus() *ReplicationStatus {
-	if x != nil {
-		return x.Status
-	}
-	return nil
-}
-
 // PrimaryStatus gets the status of the leader server
 type PrimaryStatusRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -1307,7 +1134,7 @@ type PrimaryStatusRequest struct {
 
 func (x *PrimaryStatusRequest) Reset() {
 	*x = PrimaryStatusRequest{}
-	mi := &file_multipoolermanagerdata_proto_msgTypes[25]
+	mi := &file_multipoolermanagerdata_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1319,7 +1146,7 @@ func (x *PrimaryStatusRequest) String() string {
 func (*PrimaryStatusRequest) ProtoMessage() {}
 
 func (x *PrimaryStatusRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_multipoolermanagerdata_proto_msgTypes[25]
+	mi := &file_multipoolermanagerdata_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1332,7 +1159,7 @@ func (x *PrimaryStatusRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PrimaryStatusRequest.ProtoReflect.Descriptor instead.
 func (*PrimaryStatusRequest) Descriptor() ([]byte, []int) {
-	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{25}
+	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{21}
 }
 
 type PrimaryStatusResponse struct {
@@ -1345,7 +1172,7 @@ type PrimaryStatusResponse struct {
 
 func (x *PrimaryStatusResponse) Reset() {
 	*x = PrimaryStatusResponse{}
-	mi := &file_multipoolermanagerdata_proto_msgTypes[26]
+	mi := &file_multipoolermanagerdata_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1357,7 +1184,7 @@ func (x *PrimaryStatusResponse) String() string {
 func (*PrimaryStatusResponse) ProtoMessage() {}
 
 func (x *PrimaryStatusResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_multipoolermanagerdata_proto_msgTypes[26]
+	mi := &file_multipoolermanagerdata_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1370,7 +1197,7 @@ func (x *PrimaryStatusResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PrimaryStatusResponse.ProtoReflect.Descriptor instead.
 func (*PrimaryStatusResponse) Descriptor() ([]byte, []int) {
-	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{26}
+	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *PrimaryStatusResponse) GetStatus() *PrimaryStatus {
@@ -1389,7 +1216,7 @@ type PrimaryPositionRequest struct {
 
 func (x *PrimaryPositionRequest) Reset() {
 	*x = PrimaryPositionRequest{}
-	mi := &file_multipoolermanagerdata_proto_msgTypes[27]
+	mi := &file_multipoolermanagerdata_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1401,7 +1228,7 @@ func (x *PrimaryPositionRequest) String() string {
 func (*PrimaryPositionRequest) ProtoMessage() {}
 
 func (x *PrimaryPositionRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_multipoolermanagerdata_proto_msgTypes[27]
+	mi := &file_multipoolermanagerdata_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1414,7 +1241,7 @@ func (x *PrimaryPositionRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PrimaryPositionRequest.ProtoReflect.Descriptor instead.
 func (*PrimaryPositionRequest) Descriptor() ([]byte, []int) {
-	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{27}
+	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{23}
 }
 
 type PrimaryPositionResponse struct {
@@ -1427,7 +1254,7 @@ type PrimaryPositionResponse struct {
 
 func (x *PrimaryPositionResponse) Reset() {
 	*x = PrimaryPositionResponse{}
-	mi := &file_multipoolermanagerdata_proto_msgTypes[28]
+	mi := &file_multipoolermanagerdata_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1439,7 +1266,7 @@ func (x *PrimaryPositionResponse) String() string {
 func (*PrimaryPositionResponse) ProtoMessage() {}
 
 func (x *PrimaryPositionResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_multipoolermanagerdata_proto_msgTypes[28]
+	mi := &file_multipoolermanagerdata_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1452,7 +1279,7 @@ func (x *PrimaryPositionResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PrimaryPositionResponse.ProtoReflect.Descriptor instead.
 func (*PrimaryPositionResponse) Descriptor() ([]byte, []int) {
-	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{28}
+	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *PrimaryPositionResponse) GetLsnPosition() string {
@@ -1471,7 +1298,7 @@ type GetFollowersRequest struct {
 
 func (x *GetFollowersRequest) Reset() {
 	*x = GetFollowersRequest{}
-	mi := &file_multipoolermanagerdata_proto_msgTypes[29]
+	mi := &file_multipoolermanagerdata_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1483,7 +1310,7 @@ func (x *GetFollowersRequest) String() string {
 func (*GetFollowersRequest) ProtoMessage() {}
 
 func (x *GetFollowersRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_multipoolermanagerdata_proto_msgTypes[29]
+	mi := &file_multipoolermanagerdata_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1496,7 +1323,7 @@ func (x *GetFollowersRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetFollowersRequest.ProtoReflect.Descriptor instead.
 func (*GetFollowersRequest) Descriptor() ([]byte, []int) {
-	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{29}
+	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{25}
 }
 
 type GetFollowersResponse struct {
@@ -1509,7 +1336,7 @@ type GetFollowersResponse struct {
 
 func (x *GetFollowersResponse) Reset() {
 	*x = GetFollowersResponse{}
-	mi := &file_multipoolermanagerdata_proto_msgTypes[30]
+	mi := &file_multipoolermanagerdata_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1521,7 +1348,7 @@ func (x *GetFollowersResponse) String() string {
 func (*GetFollowersResponse) ProtoMessage() {}
 
 func (x *GetFollowersResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_multipoolermanagerdata_proto_msgTypes[30]
+	mi := &file_multipoolermanagerdata_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1534,7 +1361,7 @@ func (x *GetFollowersResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetFollowersResponse.ProtoReflect.Descriptor instead.
 func (*GetFollowersResponse) Descriptor() ([]byte, []int) {
-	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{30}
+	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *GetFollowersResponse) GetFollowerAddresses() []string {
@@ -1553,7 +1380,7 @@ type DemoteLeaderRequest struct {
 
 func (x *DemoteLeaderRequest) Reset() {
 	*x = DemoteLeaderRequest{}
-	mi := &file_multipoolermanagerdata_proto_msgTypes[31]
+	mi := &file_multipoolermanagerdata_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1565,7 +1392,7 @@ func (x *DemoteLeaderRequest) String() string {
 func (*DemoteLeaderRequest) ProtoMessage() {}
 
 func (x *DemoteLeaderRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_multipoolermanagerdata_proto_msgTypes[31]
+	mi := &file_multipoolermanagerdata_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1578,7 +1405,7 @@ func (x *DemoteLeaderRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DemoteLeaderRequest.ProtoReflect.Descriptor instead.
 func (*DemoteLeaderRequest) Descriptor() ([]byte, []int) {
-	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{31}
+	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{27}
 }
 
 type DemoteLeaderResponse struct {
@@ -1591,7 +1418,7 @@ type DemoteLeaderResponse struct {
 
 func (x *DemoteLeaderResponse) Reset() {
 	*x = DemoteLeaderResponse{}
-	mi := &file_multipoolermanagerdata_proto_msgTypes[32]
+	mi := &file_multipoolermanagerdata_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1603,7 +1430,7 @@ func (x *DemoteLeaderResponse) String() string {
 func (*DemoteLeaderResponse) ProtoMessage() {}
 
 func (x *DemoteLeaderResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_multipoolermanagerdata_proto_msgTypes[32]
+	mi := &file_multipoolermanagerdata_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1616,7 +1443,7 @@ func (x *DemoteLeaderResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DemoteLeaderResponse.ProtoReflect.Descriptor instead.
 func (*DemoteLeaderResponse) Descriptor() ([]byte, []int) {
-	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{32}
+	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{28}
 }
 
 func (x *DemoteLeaderResponse) GetLeaderStatus() *PrimaryStatus {
@@ -1635,7 +1462,7 @@ type UndoDemoteLeaderRequest struct {
 
 func (x *UndoDemoteLeaderRequest) Reset() {
 	*x = UndoDemoteLeaderRequest{}
-	mi := &file_multipoolermanagerdata_proto_msgTypes[33]
+	mi := &file_multipoolermanagerdata_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1647,7 +1474,7 @@ func (x *UndoDemoteLeaderRequest) String() string {
 func (*UndoDemoteLeaderRequest) ProtoMessage() {}
 
 func (x *UndoDemoteLeaderRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_multipoolermanagerdata_proto_msgTypes[33]
+	mi := &file_multipoolermanagerdata_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1660,7 +1487,7 @@ func (x *UndoDemoteLeaderRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UndoDemoteLeaderRequest.ProtoReflect.Descriptor instead.
 func (*UndoDemoteLeaderRequest) Descriptor() ([]byte, []int) {
-	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{33}
+	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{29}
 }
 
 type UndoDemoteLeaderResponse struct {
@@ -1671,7 +1498,7 @@ type UndoDemoteLeaderResponse struct {
 
 func (x *UndoDemoteLeaderResponse) Reset() {
 	*x = UndoDemoteLeaderResponse{}
-	mi := &file_multipoolermanagerdata_proto_msgTypes[34]
+	mi := &file_multipoolermanagerdata_proto_msgTypes[30]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1683,7 +1510,7 @@ func (x *UndoDemoteLeaderResponse) String() string {
 func (*UndoDemoteLeaderResponse) ProtoMessage() {}
 
 func (x *UndoDemoteLeaderResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_multipoolermanagerdata_proto_msgTypes[34]
+	mi := &file_multipoolermanagerdata_proto_msgTypes[30]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1696,7 +1523,7 @@ func (x *UndoDemoteLeaderResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UndoDemoteLeaderResponse.ProtoReflect.Descriptor instead.
 func (*UndoDemoteLeaderResponse) Descriptor() ([]byte, []int) {
-	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{34}
+	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{30}
 }
 
 // FullStatus collects and returns the full PostgreSQL status
@@ -1708,7 +1535,7 @@ type FullStatusRequest struct {
 
 func (x *FullStatusRequest) Reset() {
 	*x = FullStatusRequest{}
-	mi := &file_multipoolermanagerdata_proto_msgTypes[35]
+	mi := &file_multipoolermanagerdata_proto_msgTypes[31]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1720,7 +1547,7 @@ func (x *FullStatusRequest) String() string {
 func (*FullStatusRequest) ProtoMessage() {}
 
 func (x *FullStatusRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_multipoolermanagerdata_proto_msgTypes[35]
+	mi := &file_multipoolermanagerdata_proto_msgTypes[31]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1733,7 +1560,7 @@ func (x *FullStatusRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FullStatusRequest.ProtoReflect.Descriptor instead.
 func (*FullStatusRequest) Descriptor() ([]byte, []int) {
-	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{35}
+	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{31}
 }
 
 type FullStatusResponse struct {
@@ -1746,7 +1573,7 @@ type FullStatusResponse struct {
 
 func (x *FullStatusResponse) Reset() {
 	*x = FullStatusResponse{}
-	mi := &file_multipoolermanagerdata_proto_msgTypes[36]
+	mi := &file_multipoolermanagerdata_proto_msgTypes[32]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1758,7 +1585,7 @@ func (x *FullStatusResponse) String() string {
 func (*FullStatusResponse) ProtoMessage() {}
 
 func (x *FullStatusResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_multipoolermanagerdata_proto_msgTypes[36]
+	mi := &file_multipoolermanagerdata_proto_msgTypes[32]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1771,7 +1598,7 @@ func (x *FullStatusResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FullStatusResponse.ProtoReflect.Descriptor instead.
 func (*FullStatusResponse) Descriptor() ([]byte, []int) {
-	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{36}
+	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{32}
 }
 
 func (x *FullStatusResponse) GetStatus() *FullStatus {
@@ -1800,7 +1627,7 @@ type SetReplicationSourceRequest struct {
 
 func (x *SetReplicationSourceRequest) Reset() {
 	*x = SetReplicationSourceRequest{}
-	mi := &file_multipoolermanagerdata_proto_msgTypes[37]
+	mi := &file_multipoolermanagerdata_proto_msgTypes[33]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1812,7 +1639,7 @@ func (x *SetReplicationSourceRequest) String() string {
 func (*SetReplicationSourceRequest) ProtoMessage() {}
 
 func (x *SetReplicationSourceRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_multipoolermanagerdata_proto_msgTypes[37]
+	mi := &file_multipoolermanagerdata_proto_msgTypes[33]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1825,7 +1652,7 @@ func (x *SetReplicationSourceRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SetReplicationSourceRequest.ProtoReflect.Descriptor instead.
 func (*SetReplicationSourceRequest) Descriptor() ([]byte, []int) {
-	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{37}
+	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{33}
 }
 
 func (x *SetReplicationSourceRequest) GetLeaderId() *clustermetadata.ID {
@@ -1871,7 +1698,7 @@ type SetReplicationSourceResponse struct {
 
 func (x *SetReplicationSourceResponse) Reset() {
 	*x = SetReplicationSourceResponse{}
-	mi := &file_multipoolermanagerdata_proto_msgTypes[38]
+	mi := &file_multipoolermanagerdata_proto_msgTypes[34]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1883,7 +1710,7 @@ func (x *SetReplicationSourceResponse) String() string {
 func (*SetReplicationSourceResponse) ProtoMessage() {}
 
 func (x *SetReplicationSourceResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_multipoolermanagerdata_proto_msgTypes[38]
+	mi := &file_multipoolermanagerdata_proto_msgTypes[34]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1896,7 +1723,7 @@ func (x *SetReplicationSourceResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SetReplicationSourceResponse.ProtoReflect.Descriptor instead.
 func (*SetReplicationSourceResponse) Descriptor() ([]byte, []int) {
-	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{38}
+	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{34}
 }
 
 // StopReplicationAndGetStatus stops PostgreSQL replication and returns the status
@@ -1908,7 +1735,7 @@ type StopReplicationAndGetStatusRequest struct {
 
 func (x *StopReplicationAndGetStatusRequest) Reset() {
 	*x = StopReplicationAndGetStatusRequest{}
-	mi := &file_multipoolermanagerdata_proto_msgTypes[39]
+	mi := &file_multipoolermanagerdata_proto_msgTypes[35]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1920,7 +1747,7 @@ func (x *StopReplicationAndGetStatusRequest) String() string {
 func (*StopReplicationAndGetStatusRequest) ProtoMessage() {}
 
 func (x *StopReplicationAndGetStatusRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_multipoolermanagerdata_proto_msgTypes[39]
+	mi := &file_multipoolermanagerdata_proto_msgTypes[35]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1933,7 +1760,7 @@ func (x *StopReplicationAndGetStatusRequest) ProtoReflect() protoreflect.Message
 
 // Deprecated: Use StopReplicationAndGetStatusRequest.ProtoReflect.Descriptor instead.
 func (*StopReplicationAndGetStatusRequest) Descriptor() ([]byte, []int) {
-	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{39}
+	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{35}
 }
 
 type StopReplicationAndGetStatusResponse struct {
@@ -1946,7 +1773,7 @@ type StopReplicationAndGetStatusResponse struct {
 
 func (x *StopReplicationAndGetStatusResponse) Reset() {
 	*x = StopReplicationAndGetStatusResponse{}
-	mi := &file_multipoolermanagerdata_proto_msgTypes[40]
+	mi := &file_multipoolermanagerdata_proto_msgTypes[36]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1958,7 +1785,7 @@ func (x *StopReplicationAndGetStatusResponse) String() string {
 func (*StopReplicationAndGetStatusResponse) ProtoMessage() {}
 
 func (x *StopReplicationAndGetStatusResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_multipoolermanagerdata_proto_msgTypes[40]
+	mi := &file_multipoolermanagerdata_proto_msgTypes[36]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1971,7 +1798,7 @@ func (x *StopReplicationAndGetStatusResponse) ProtoReflect() protoreflect.Messag
 
 // Deprecated: Use StopReplicationAndGetStatusResponse.ProtoReflect.Descriptor instead.
 func (*StopReplicationAndGetStatusResponse) Descriptor() ([]byte, []int) {
-	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{40}
+	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{36}
 }
 
 func (x *StopReplicationAndGetStatusResponse) GetStatus() *ReplicationStatus {
@@ -1992,7 +1819,7 @@ type ChangeTypeRequest struct {
 
 func (x *ChangeTypeRequest) Reset() {
 	*x = ChangeTypeRequest{}
-	mi := &file_multipoolermanagerdata_proto_msgTypes[41]
+	mi := &file_multipoolermanagerdata_proto_msgTypes[37]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2004,7 +1831,7 @@ func (x *ChangeTypeRequest) String() string {
 func (*ChangeTypeRequest) ProtoMessage() {}
 
 func (x *ChangeTypeRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_multipoolermanagerdata_proto_msgTypes[41]
+	mi := &file_multipoolermanagerdata_proto_msgTypes[37]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2017,7 +1844,7 @@ func (x *ChangeTypeRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ChangeTypeRequest.ProtoReflect.Descriptor instead.
 func (*ChangeTypeRequest) Descriptor() ([]byte, []int) {
-	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{41}
+	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{37}
 }
 
 func (x *ChangeTypeRequest) GetPoolerType() clustermetadata.PoolerType {
@@ -2035,7 +1862,7 @@ type ChangeTypeResponse struct {
 
 func (x *ChangeTypeResponse) Reset() {
 	*x = ChangeTypeResponse{}
-	mi := &file_multipoolermanagerdata_proto_msgTypes[42]
+	mi := &file_multipoolermanagerdata_proto_msgTypes[38]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2047,7 +1874,7 @@ func (x *ChangeTypeResponse) String() string {
 func (*ChangeTypeResponse) ProtoMessage() {}
 
 func (x *ChangeTypeResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_multipoolermanagerdata_proto_msgTypes[42]
+	mi := &file_multipoolermanagerdata_proto_msgTypes[38]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2060,7 +1887,7 @@ func (x *ChangeTypeResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ChangeTypeResponse.ProtoReflect.Descriptor instead.
 func (*ChangeTypeResponse) Descriptor() ([]byte, []int) {
-	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{42}
+	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{38}
 }
 
 // PromoteFollower promotes a follower to leader
@@ -2072,7 +1899,7 @@ type PromoteFollowerRequest struct {
 
 func (x *PromoteFollowerRequest) Reset() {
 	*x = PromoteFollowerRequest{}
-	mi := &file_multipoolermanagerdata_proto_msgTypes[43]
+	mi := &file_multipoolermanagerdata_proto_msgTypes[39]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2084,7 +1911,7 @@ func (x *PromoteFollowerRequest) String() string {
 func (*PromoteFollowerRequest) ProtoMessage() {}
 
 func (x *PromoteFollowerRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_multipoolermanagerdata_proto_msgTypes[43]
+	mi := &file_multipoolermanagerdata_proto_msgTypes[39]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2097,7 +1924,7 @@ func (x *PromoteFollowerRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PromoteFollowerRequest.ProtoReflect.Descriptor instead.
 func (*PromoteFollowerRequest) Descriptor() ([]byte, []int) {
-	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{43}
+	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{39}
 }
 
 type PromoteFollowerResponse struct {
@@ -2110,7 +1937,7 @@ type PromoteFollowerResponse struct {
 
 func (x *PromoteFollowerResponse) Reset() {
 	*x = PromoteFollowerResponse{}
-	mi := &file_multipoolermanagerdata_proto_msgTypes[44]
+	mi := &file_multipoolermanagerdata_proto_msgTypes[40]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2122,7 +1949,7 @@ func (x *PromoteFollowerResponse) String() string {
 func (*PromoteFollowerResponse) ProtoMessage() {}
 
 func (x *PromoteFollowerResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_multipoolermanagerdata_proto_msgTypes[44]
+	mi := &file_multipoolermanagerdata_proto_msgTypes[40]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2135,7 +1962,7 @@ func (x *PromoteFollowerResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PromoteFollowerResponse.ProtoReflect.Descriptor instead.
 func (*PromoteFollowerResponse) Descriptor() ([]byte, []int) {
-	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{44}
+	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{40}
 }
 
 func (x *PromoteFollowerResponse) GetLsnPosition() string {
@@ -2154,7 +1981,7 @@ type ResetStandbyReplicationRequest struct {
 
 func (x *ResetStandbyReplicationRequest) Reset() {
 	*x = ResetStandbyReplicationRequest{}
-	mi := &file_multipoolermanagerdata_proto_msgTypes[45]
+	mi := &file_multipoolermanagerdata_proto_msgTypes[41]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2166,7 +1993,7 @@ func (x *ResetStandbyReplicationRequest) String() string {
 func (*ResetStandbyReplicationRequest) ProtoMessage() {}
 
 func (x *ResetStandbyReplicationRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_multipoolermanagerdata_proto_msgTypes[45]
+	mi := &file_multipoolermanagerdata_proto_msgTypes[41]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2179,7 +2006,7 @@ func (x *ResetStandbyReplicationRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResetStandbyReplicationRequest.ProtoReflect.Descriptor instead.
 func (*ResetStandbyReplicationRequest) Descriptor() ([]byte, []int) {
-	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{45}
+	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{41}
 }
 
 type ResetStandbyReplicationResponse struct {
@@ -2190,7 +2017,7 @@ type ResetStandbyReplicationResponse struct {
 
 func (x *ResetStandbyReplicationResponse) Reset() {
 	*x = ResetStandbyReplicationResponse{}
-	mi := &file_multipoolermanagerdata_proto_msgTypes[46]
+	mi := &file_multipoolermanagerdata_proto_msgTypes[42]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2202,7 +2029,7 @@ func (x *ResetStandbyReplicationResponse) String() string {
 func (*ResetStandbyReplicationResponse) ProtoMessage() {}
 
 func (x *ResetStandbyReplicationResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_multipoolermanagerdata_proto_msgTypes[46]
+	mi := &file_multipoolermanagerdata_proto_msgTypes[42]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2215,7 +2042,7 @@ func (x *ResetStandbyReplicationResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResetStandbyReplicationResponse.ProtoReflect.Descriptor instead.
 func (*ResetStandbyReplicationResponse) Descriptor() ([]byte, []int) {
-	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{46}
+	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{42}
 }
 
 // ConfigureSynchronousReplication configures PostgreSQL synchronous replication settings
@@ -2237,7 +2064,7 @@ type ConfigureSynchronousReplicationRequest struct {
 
 func (x *ConfigureSynchronousReplicationRequest) Reset() {
 	*x = ConfigureSynchronousReplicationRequest{}
-	mi := &file_multipoolermanagerdata_proto_msgTypes[47]
+	mi := &file_multipoolermanagerdata_proto_msgTypes[43]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2249,7 +2076,7 @@ func (x *ConfigureSynchronousReplicationRequest) String() string {
 func (*ConfigureSynchronousReplicationRequest) ProtoMessage() {}
 
 func (x *ConfigureSynchronousReplicationRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_multipoolermanagerdata_proto_msgTypes[47]
+	mi := &file_multipoolermanagerdata_proto_msgTypes[43]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2262,7 +2089,7 @@ func (x *ConfigureSynchronousReplicationRequest) ProtoReflect() protoreflect.Mes
 
 // Deprecated: Use ConfigureSynchronousReplicationRequest.ProtoReflect.Descriptor instead.
 func (*ConfigureSynchronousReplicationRequest) Descriptor() ([]byte, []int) {
-	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{47}
+	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{43}
 }
 
 func (x *ConfigureSynchronousReplicationRequest) GetSynchronousCommit() SynchronousCommitLevel {
@@ -2308,7 +2135,7 @@ type ConfigureSynchronousReplicationResponse struct {
 
 func (x *ConfigureSynchronousReplicationResponse) Reset() {
 	*x = ConfigureSynchronousReplicationResponse{}
-	mi := &file_multipoolermanagerdata_proto_msgTypes[48]
+	mi := &file_multipoolermanagerdata_proto_msgTypes[44]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2320,7 +2147,7 @@ func (x *ConfigureSynchronousReplicationResponse) String() string {
 func (*ConfigureSynchronousReplicationResponse) ProtoMessage() {}
 
 func (x *ConfigureSynchronousReplicationResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_multipoolermanagerdata_proto_msgTypes[48]
+	mi := &file_multipoolermanagerdata_proto_msgTypes[44]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2333,20 +2160,19 @@ func (x *ConfigureSynchronousReplicationResponse) ProtoReflect() protoreflect.Me
 
 // Deprecated: Use ConfigureSynchronousReplicationResponse.ProtoReflect.Descriptor instead.
 func (*ConfigureSynchronousReplicationResponse) Descriptor() ([]byte, []int) {
-	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{48}
+	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{44}
 }
 
 var File_multipoolermanagerdata_proto protoreflect.FileDescriptor
 
 const file_multipoolermanagerdata_proto_rawDesc = "" +
 	"\n" +
-	"\x1cmultipoolermanagerdata.proto\x12\x16multipoolermanagerdata\x1a\x15clustermetadata.proto\"\xc6\x01\n" +
+	"\x1cmultipoolermanagerdata.proto\x12\x16multipoolermanagerdata\x1a\x15clustermetadata.proto\"\xac\x01\n" +
 	"\x11ReplicationStatus\x12\x10\n" +
-	"\x03lsn\x18\x01 \x01(\tR\x03lsn\x12\x18\n" +
-	"\astopped\x18\x02 \x01(\bR\astopped\x12/\n" +
-	"\x14is_wal_replay_paused\x18\x03 \x01(\bR\x11isWalReplayPaused\x123\n" +
-	"\x16wal_replay_pause_state\x18\x04 \x01(\tR\x13walReplayPauseState\x12\x1f\n" +
-	"\vlag_seconds\x18\x05 \x01(\x03R\n" +
+	"\x03lsn\x18\x01 \x01(\tR\x03lsn\x12/\n" +
+	"\x14is_wal_replay_paused\x18\x02 \x01(\bR\x11isWalReplayPaused\x123\n" +
+	"\x16wal_replay_pause_state\x18\x03 \x01(\tR\x13walReplayPauseState\x12\x1f\n" +
+	"\vlag_seconds\x18\x04 \x01(\x03R\n" +
 	"lagSeconds\"[\n" +
 	"\x11WaitForLSNRequest\x12\x1d\n" +
 	"\n" +
@@ -2354,9 +2180,7 @@ const file_multipoolermanagerdata_proto_rawDesc = "" +
 	"\x0ftimeout_seconds\x18\x02 \x01(\x05R\x0etimeoutSeconds\"\x14\n" +
 	"\x12WaitForLSNResponse\"\x19\n" +
 	"\x17StartReplicationRequest\"\x1a\n" +
-	"\x18StartReplicationResponse\"\x18\n" +
-	"\x16StopReplicationRequest\"\x19\n" +
-	"\x17StopReplicationResponse\"\x14\n" +
+	"\x18StartReplicationResponse\"\x14\n" +
 	"\x12SetReadOnlyRequest\"\x15\n" +
 	"\x13SetReadOnlyResponse\"N\n" +
 	"\x15PromoteStandbyRequest\x12\x12\n" +
@@ -2376,12 +2200,8 @@ const file_multipoolermanagerdata_proto_rawDesc = "" +
 	"\x12heartbeat_interval\x18\x03 \x01(\x01R\x11heartbeatInterval\x126\n" +
 	"\x17stop_replication_before\x18\x04 \x01(\bR\x15stopReplicationBefore\x126\n" +
 	"\x17start_replication_after\x18\x05 \x01(\bR\x15startReplicationAfter\"#\n" +
-	"!SetStandbyPrimaryConnInfoResponse\"\xcf\x01\n" +
-	"\x1dStopStandbyReplicationRequest\x12m\n" +
-	"\x0ehook_extra_env\x18\x01 \x03(\v2G.multipoolermanagerdata.StopStandbyReplicationRequest.HookExtraEnvEntryR\fhookExtraEnv\x1a?\n" +
-	"\x11HookExtraEnvEntry\x12\x10\n" +
-	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\" \n" +
+	"!SetStandbyPrimaryConnInfoResponse\"\x1f\n" +
+	"\x1dStopStandbyReplicationRequest\" \n" +
 	"\x1eStopStandbyReplicationResponse\"!\n" +
 	"\x1fStandbyReplicationStatusRequest\"e\n" +
 	" StandbyReplicationStatusResponse\x12A\n" +
@@ -2399,10 +2219,7 @@ const file_multipoolermanagerdata_proto_rawDesc = "" +
 	"serverInfo\x1a=\n" +
 	"\x0fServerInfoEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x1a\n" +
-	"\x18ReplicationStatusRequest\"^\n" +
-	"\x19ReplicationStatusResponse\x12A\n" +
-	"\x06status\x18\x01 \x01(\v2).multipoolermanagerdata.ReplicationStatusR\x06status\"\x16\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x16\n" +
 	"\x14PrimaryStatusRequest\"V\n" +
 	"\x15PrimaryStatusResponse\x12=\n" +
 	"\x06status\x18\x01 \x01(\v2%.multipoolermanagerdata.PrimaryStatusR\x06status\"\x18\n" +
@@ -2470,7 +2287,7 @@ func file_multipoolermanagerdata_proto_rawDescGZIP() []byte {
 }
 
 var file_multipoolermanagerdata_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_multipoolermanagerdata_proto_msgTypes = make([]protoimpl.MessageInfo, 51)
+var file_multipoolermanagerdata_proto_msgTypes = make([]protoimpl.MessageInfo, 46)
 var file_multipoolermanagerdata_proto_goTypes = []any{
 	(SynchronousMethod)(0),                          // 0: multipoolermanagerdata.SynchronousMethod
 	(SynchronousCommitLevel)(0),                     // 1: multipoolermanagerdata.SynchronousCommitLevel
@@ -2479,75 +2296,68 @@ var file_multipoolermanagerdata_proto_goTypes = []any{
 	(*WaitForLSNResponse)(nil),                      // 4: multipoolermanagerdata.WaitForLSNResponse
 	(*StartReplicationRequest)(nil),                 // 5: multipoolermanagerdata.StartReplicationRequest
 	(*StartReplicationResponse)(nil),                // 6: multipoolermanagerdata.StartReplicationResponse
-	(*StopReplicationRequest)(nil),                  // 7: multipoolermanagerdata.StopReplicationRequest
-	(*StopReplicationResponse)(nil),                 // 8: multipoolermanagerdata.StopReplicationResponse
-	(*SetReadOnlyRequest)(nil),                      // 9: multipoolermanagerdata.SetReadOnlyRequest
-	(*SetReadOnlyResponse)(nil),                     // 10: multipoolermanagerdata.SetReadOnlyResponse
-	(*PromoteStandbyRequest)(nil),                   // 11: multipoolermanagerdata.PromoteStandbyRequest
-	(*PromoteStandbyResponse)(nil),                  // 12: multipoolermanagerdata.PromoteStandbyResponse
-	(*GetPrimaryLSNRequest)(nil),                    // 13: multipoolermanagerdata.GetPrimaryLSNRequest
-	(*GetPrimaryLSNResponse)(nil),                   // 14: multipoolermanagerdata.GetPrimaryLSNResponse
-	(*IsReadOnlyRequest)(nil),                       // 15: multipoolermanagerdata.IsReadOnlyRequest
-	(*IsReadOnlyResponse)(nil),                      // 16: multipoolermanagerdata.IsReadOnlyResponse
-	(*SetStandbyPrimaryConnInfoRequest)(nil),        // 17: multipoolermanagerdata.SetStandbyPrimaryConnInfoRequest
-	(*SetStandbyPrimaryConnInfoResponse)(nil),       // 18: multipoolermanagerdata.SetStandbyPrimaryConnInfoResponse
-	(*StopStandbyReplicationRequest)(nil),           // 19: multipoolermanagerdata.StopStandbyReplicationRequest
-	(*StopStandbyReplicationResponse)(nil),          // 20: multipoolermanagerdata.StopStandbyReplicationResponse
-	(*StandbyReplicationStatusRequest)(nil),         // 21: multipoolermanagerdata.StandbyReplicationStatusRequest
-	(*StandbyReplicationStatusResponse)(nil),        // 22: multipoolermanagerdata.StandbyReplicationStatusResponse
-	(*PrimaryStatus)(nil),                           // 23: multipoolermanagerdata.PrimaryStatus
-	(*FullStatus)(nil),                              // 24: multipoolermanagerdata.FullStatus
-	(*ReplicationStatusRequest)(nil),                // 25: multipoolermanagerdata.ReplicationStatusRequest
-	(*ReplicationStatusResponse)(nil),               // 26: multipoolermanagerdata.ReplicationStatusResponse
-	(*PrimaryStatusRequest)(nil),                    // 27: multipoolermanagerdata.PrimaryStatusRequest
-	(*PrimaryStatusResponse)(nil),                   // 28: multipoolermanagerdata.PrimaryStatusResponse
-	(*PrimaryPositionRequest)(nil),                  // 29: multipoolermanagerdata.PrimaryPositionRequest
-	(*PrimaryPositionResponse)(nil),                 // 30: multipoolermanagerdata.PrimaryPositionResponse
-	(*GetFollowersRequest)(nil),                     // 31: multipoolermanagerdata.GetFollowersRequest
-	(*GetFollowersResponse)(nil),                    // 32: multipoolermanagerdata.GetFollowersResponse
-	(*DemoteLeaderRequest)(nil),                     // 33: multipoolermanagerdata.DemoteLeaderRequest
-	(*DemoteLeaderResponse)(nil),                    // 34: multipoolermanagerdata.DemoteLeaderResponse
-	(*UndoDemoteLeaderRequest)(nil),                 // 35: multipoolermanagerdata.UndoDemoteLeaderRequest
-	(*UndoDemoteLeaderResponse)(nil),                // 36: multipoolermanagerdata.UndoDemoteLeaderResponse
-	(*FullStatusRequest)(nil),                       // 37: multipoolermanagerdata.FullStatusRequest
-	(*FullStatusResponse)(nil),                      // 38: multipoolermanagerdata.FullStatusResponse
-	(*SetReplicationSourceRequest)(nil),             // 39: multipoolermanagerdata.SetReplicationSourceRequest
-	(*SetReplicationSourceResponse)(nil),            // 40: multipoolermanagerdata.SetReplicationSourceResponse
-	(*StopReplicationAndGetStatusRequest)(nil),      // 41: multipoolermanagerdata.StopReplicationAndGetStatusRequest
-	(*StopReplicationAndGetStatusResponse)(nil),     // 42: multipoolermanagerdata.StopReplicationAndGetStatusResponse
-	(*ChangeTypeRequest)(nil),                       // 43: multipoolermanagerdata.ChangeTypeRequest
-	(*ChangeTypeResponse)(nil),                      // 44: multipoolermanagerdata.ChangeTypeResponse
-	(*PromoteFollowerRequest)(nil),                  // 45: multipoolermanagerdata.PromoteFollowerRequest
-	(*PromoteFollowerResponse)(nil),                 // 46: multipoolermanagerdata.PromoteFollowerResponse
-	(*ResetStandbyReplicationRequest)(nil),          // 47: multipoolermanagerdata.ResetStandbyReplicationRequest
-	(*ResetStandbyReplicationResponse)(nil),         // 48: multipoolermanagerdata.ResetStandbyReplicationResponse
-	(*ConfigureSynchronousReplicationRequest)(nil),  // 49: multipoolermanagerdata.ConfigureSynchronousReplicationRequest
-	(*ConfigureSynchronousReplicationResponse)(nil), // 50: multipoolermanagerdata.ConfigureSynchronousReplicationResponse
-	nil,                             // 51: multipoolermanagerdata.StopStandbyReplicationRequest.HookExtraEnvEntry
-	nil,                             // 52: multipoolermanagerdata.FullStatus.ServerInfoEntry
-	(*clustermetadata.ID)(nil),      // 53: clustermetadata.ID
-	(clustermetadata.PoolerType)(0), // 54: clustermetadata.PoolerType
+	(*SetReadOnlyRequest)(nil),                      // 7: multipoolermanagerdata.SetReadOnlyRequest
+	(*SetReadOnlyResponse)(nil),                     // 8: multipoolermanagerdata.SetReadOnlyResponse
+	(*PromoteStandbyRequest)(nil),                   // 9: multipoolermanagerdata.PromoteStandbyRequest
+	(*PromoteStandbyResponse)(nil),                  // 10: multipoolermanagerdata.PromoteStandbyResponse
+	(*GetPrimaryLSNRequest)(nil),                    // 11: multipoolermanagerdata.GetPrimaryLSNRequest
+	(*GetPrimaryLSNResponse)(nil),                   // 12: multipoolermanagerdata.GetPrimaryLSNResponse
+	(*IsReadOnlyRequest)(nil),                       // 13: multipoolermanagerdata.IsReadOnlyRequest
+	(*IsReadOnlyResponse)(nil),                      // 14: multipoolermanagerdata.IsReadOnlyResponse
+	(*SetStandbyPrimaryConnInfoRequest)(nil),        // 15: multipoolermanagerdata.SetStandbyPrimaryConnInfoRequest
+	(*SetStandbyPrimaryConnInfoResponse)(nil),       // 16: multipoolermanagerdata.SetStandbyPrimaryConnInfoResponse
+	(*StopStandbyReplicationRequest)(nil),           // 17: multipoolermanagerdata.StopStandbyReplicationRequest
+	(*StopStandbyReplicationResponse)(nil),          // 18: multipoolermanagerdata.StopStandbyReplicationResponse
+	(*StandbyReplicationStatusRequest)(nil),         // 19: multipoolermanagerdata.StandbyReplicationStatusRequest
+	(*StandbyReplicationStatusResponse)(nil),        // 20: multipoolermanagerdata.StandbyReplicationStatusResponse
+	(*PrimaryStatus)(nil),                           // 21: multipoolermanagerdata.PrimaryStatus
+	(*FullStatus)(nil),                              // 22: multipoolermanagerdata.FullStatus
+	(*PrimaryStatusRequest)(nil),                    // 23: multipoolermanagerdata.PrimaryStatusRequest
+	(*PrimaryStatusResponse)(nil),                   // 24: multipoolermanagerdata.PrimaryStatusResponse
+	(*PrimaryPositionRequest)(nil),                  // 25: multipoolermanagerdata.PrimaryPositionRequest
+	(*PrimaryPositionResponse)(nil),                 // 26: multipoolermanagerdata.PrimaryPositionResponse
+	(*GetFollowersRequest)(nil),                     // 27: multipoolermanagerdata.GetFollowersRequest
+	(*GetFollowersResponse)(nil),                    // 28: multipoolermanagerdata.GetFollowersResponse
+	(*DemoteLeaderRequest)(nil),                     // 29: multipoolermanagerdata.DemoteLeaderRequest
+	(*DemoteLeaderResponse)(nil),                    // 30: multipoolermanagerdata.DemoteLeaderResponse
+	(*UndoDemoteLeaderRequest)(nil),                 // 31: multipoolermanagerdata.UndoDemoteLeaderRequest
+	(*UndoDemoteLeaderResponse)(nil),                // 32: multipoolermanagerdata.UndoDemoteLeaderResponse
+	(*FullStatusRequest)(nil),                       // 33: multipoolermanagerdata.FullStatusRequest
+	(*FullStatusResponse)(nil),                      // 34: multipoolermanagerdata.FullStatusResponse
+	(*SetReplicationSourceRequest)(nil),             // 35: multipoolermanagerdata.SetReplicationSourceRequest
+	(*SetReplicationSourceResponse)(nil),            // 36: multipoolermanagerdata.SetReplicationSourceResponse
+	(*StopReplicationAndGetStatusRequest)(nil),      // 37: multipoolermanagerdata.StopReplicationAndGetStatusRequest
+	(*StopReplicationAndGetStatusResponse)(nil),     // 38: multipoolermanagerdata.StopReplicationAndGetStatusResponse
+	(*ChangeTypeRequest)(nil),                       // 39: multipoolermanagerdata.ChangeTypeRequest
+	(*ChangeTypeResponse)(nil),                      // 40: multipoolermanagerdata.ChangeTypeResponse
+	(*PromoteFollowerRequest)(nil),                  // 41: multipoolermanagerdata.PromoteFollowerRequest
+	(*PromoteFollowerResponse)(nil),                 // 42: multipoolermanagerdata.PromoteFollowerResponse
+	(*ResetStandbyReplicationRequest)(nil),          // 43: multipoolermanagerdata.ResetStandbyReplicationRequest
+	(*ResetStandbyReplicationResponse)(nil),         // 44: multipoolermanagerdata.ResetStandbyReplicationResponse
+	(*ConfigureSynchronousReplicationRequest)(nil),  // 45: multipoolermanagerdata.ConfigureSynchronousReplicationRequest
+	(*ConfigureSynchronousReplicationResponse)(nil), // 46: multipoolermanagerdata.ConfigureSynchronousReplicationResponse
+	nil,                             // 47: multipoolermanagerdata.FullStatus.ServerInfoEntry
+	(*clustermetadata.ID)(nil),      // 48: clustermetadata.ID
+	(clustermetadata.PoolerType)(0), // 49: clustermetadata.PoolerType
 }
 var file_multipoolermanagerdata_proto_depIdxs = []int32{
-	51, // 0: multipoolermanagerdata.StopStandbyReplicationRequest.hook_extra_env:type_name -> multipoolermanagerdata.StopStandbyReplicationRequest.HookExtraEnvEntry
-	2,  // 1: multipoolermanagerdata.StandbyReplicationStatusResponse.status:type_name -> multipoolermanagerdata.ReplicationStatus
-	2,  // 2: multipoolermanagerdata.FullStatus.replication_status:type_name -> multipoolermanagerdata.ReplicationStatus
-	23, // 3: multipoolermanagerdata.FullStatus.leader_status:type_name -> multipoolermanagerdata.PrimaryStatus
-	52, // 4: multipoolermanagerdata.FullStatus.server_info:type_name -> multipoolermanagerdata.FullStatus.ServerInfoEntry
-	2,  // 5: multipoolermanagerdata.ReplicationStatusResponse.status:type_name -> multipoolermanagerdata.ReplicationStatus
-	23, // 6: multipoolermanagerdata.PrimaryStatusResponse.status:type_name -> multipoolermanagerdata.PrimaryStatus
-	23, // 7: multipoolermanagerdata.DemoteLeaderResponse.leader_status:type_name -> multipoolermanagerdata.PrimaryStatus
-	24, // 8: multipoolermanagerdata.FullStatusResponse.status:type_name -> multipoolermanagerdata.FullStatus
-	53, // 9: multipoolermanagerdata.SetReplicationSourceRequest.leader_id:type_name -> clustermetadata.ID
-	2,  // 10: multipoolermanagerdata.StopReplicationAndGetStatusResponse.status:type_name -> multipoolermanagerdata.ReplicationStatus
-	54, // 11: multipoolermanagerdata.ChangeTypeRequest.pooler_type:type_name -> clustermetadata.PoolerType
-	1,  // 12: multipoolermanagerdata.ConfigureSynchronousReplicationRequest.synchronous_commit:type_name -> multipoolermanagerdata.SynchronousCommitLevel
-	0,  // 13: multipoolermanagerdata.ConfigureSynchronousReplicationRequest.synchronous_method:type_name -> multipoolermanagerdata.SynchronousMethod
-	14, // [14:14] is the sub-list for method output_type
-	14, // [14:14] is the sub-list for method input_type
-	14, // [14:14] is the sub-list for extension type_name
-	14, // [14:14] is the sub-list for extension extendee
-	0,  // [0:14] is the sub-list for field type_name
+	2,  // 0: multipoolermanagerdata.StandbyReplicationStatusResponse.status:type_name -> multipoolermanagerdata.ReplicationStatus
+	2,  // 1: multipoolermanagerdata.FullStatus.replication_status:type_name -> multipoolermanagerdata.ReplicationStatus
+	21, // 2: multipoolermanagerdata.FullStatus.leader_status:type_name -> multipoolermanagerdata.PrimaryStatus
+	47, // 3: multipoolermanagerdata.FullStatus.server_info:type_name -> multipoolermanagerdata.FullStatus.ServerInfoEntry
+	21, // 4: multipoolermanagerdata.PrimaryStatusResponse.status:type_name -> multipoolermanagerdata.PrimaryStatus
+	21, // 5: multipoolermanagerdata.DemoteLeaderResponse.leader_status:type_name -> multipoolermanagerdata.PrimaryStatus
+	22, // 6: multipoolermanagerdata.FullStatusResponse.status:type_name -> multipoolermanagerdata.FullStatus
+	48, // 7: multipoolermanagerdata.SetReplicationSourceRequest.leader_id:type_name -> clustermetadata.ID
+	2,  // 8: multipoolermanagerdata.StopReplicationAndGetStatusResponse.status:type_name -> multipoolermanagerdata.ReplicationStatus
+	49, // 9: multipoolermanagerdata.ChangeTypeRequest.pooler_type:type_name -> clustermetadata.PoolerType
+	1,  // 10: multipoolermanagerdata.ConfigureSynchronousReplicationRequest.synchronous_commit:type_name -> multipoolermanagerdata.SynchronousCommitLevel
+	0,  // 11: multipoolermanagerdata.ConfigureSynchronousReplicationRequest.synchronous_method:type_name -> multipoolermanagerdata.SynchronousMethod
+	12, // [12:12] is the sub-list for method output_type
+	12, // [12:12] is the sub-list for method input_type
+	12, // [12:12] is the sub-list for extension type_name
+	12, // [12:12] is the sub-list for extension extendee
+	0,  // [0:12] is the sub-list for field type_name
 }
 
 func init() { file_multipoolermanagerdata_proto_init() }
@@ -2561,7 +2371,7 @@ func file_multipoolermanagerdata_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_multipoolermanagerdata_proto_rawDesc), len(file_multipoolermanagerdata_proto_rawDesc)),
 			NumEnums:      2,
-			NumMessages:   51,
+			NumMessages:   46,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
