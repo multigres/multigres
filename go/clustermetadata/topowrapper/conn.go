@@ -24,6 +24,7 @@ import (
 	"github.com/multigres/multigres/go/clustermetadata/topo"
 	"github.com/multigres/multigres/go/mterrors"
 	"github.com/multigres/multigres/go/pb/mtrpc"
+	"github.com/multigres/multigres/go/tools/timertools"
 )
 
 // Conn wraps a topo.Conn with automatic reconnection and error handling.
@@ -82,8 +83,7 @@ func (c *Conn) retryConnection(conn topo.Conn) {
 		return
 	}
 
-	// TODO(sougou): Implement exponential backoff.
-	ticker := time.NewTicker(1 * time.Millisecond)
+	ticker := timertools.NewBackoffTicker(1*time.Millisecond, 30*time.Second)
 	defer ticker.Stop()
 
 	for range ticker.C {
