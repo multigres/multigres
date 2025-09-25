@@ -57,6 +57,11 @@ func NewBackoffTicker(initialInterval, maxInterval time.Duration) *BackoffTicker
 		rand:         rand.New(rand.NewPCG(uint64(time.Now().UnixNano()), uint64(time.Now().UnixNano()))),
 	}
 
+	// The race detector wants us to lock the mutex before scheduling the timer.
+	// This is because time.AfterFunc calls back bt.tick, which updates
+	// bt.timer.
+	bt.mu.Lock()
+	defer bt.mu.Unlock()
 	bt.schedule()
 	return bt
 }
