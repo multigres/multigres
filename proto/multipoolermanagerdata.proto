@@ -33,6 +33,9 @@ message ReplicationStatus {
 
   // Replication lag in seconds (optional, may not always be available)
   int64 lag_seconds = 4;
+
+  // Result of pg_last_xact_replay_timestamp()
+  string last_xact_replay_timestamp = 5;
 }
 
 // Wait for PostgreSQL server to reach a specific LSN position
@@ -117,8 +120,8 @@ message StopStandbyReplicationRequest {
 }
 
 message StopStandbyReplicationResponse {
-  // LSN position when replication was stopped
-  string lsn_position = 1;
+  // Replication status when replication was stopped
+  ReplicationStatus status = 1;
 }
 
 // StandbyReplicationStatus gets the current replication status
@@ -263,8 +266,8 @@ message ResetStandbyReplicationRequest {
 }
 
 message ResetStandbyReplicationResponse {
-  // LSN position when replication was reset
-  string lsn_position = 1;
+  // Replication status when replication was reset
+  ReplicationStatus status = 1;
 }
 
 // Synchronization method for standby servers
