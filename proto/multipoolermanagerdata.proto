@@ -117,6 +117,8 @@ message StopStandbyReplicationRequest {
 }
 
 message StopStandbyReplicationResponse {
+  // LSN position when replication was stopped
+  string lsn_position = 1;
 }
 
 // StandbyReplicationStatus gets the current replication status
@@ -261,6 +263,8 @@ message ResetStandbyReplicationRequest {
 }
 
 message ResetStandbyReplicationResponse {
+  // LSN position when replication was reset
+  string lsn_position = 1;
 }
 
 // Synchronization method for standby servers

@@ -871,7 +871,9 @@ func (*StopStandbyReplicationRequest) Descriptor() ([]byte, []int) {
 }
 
 type StopStandbyReplicationResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// LSN position when replication was stopped
+	LsnPosition   string `protobuf:"bytes,1,opt,name=lsn_position,json=lsnPosition,proto3" json:"lsn_position,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -904,6 +906,13 @@ func (x *StopStandbyReplicationResponse) ProtoReflect() protoreflect.Message {
 // Deprecated: Use StopStandbyReplicationResponse.ProtoReflect.Descriptor instead.
 func (*StopStandbyReplicationResponse) Descriptor() ([]byte, []int) {
 	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{16}
+}
+
+func (x *StopStandbyReplicationResponse) GetLsnPosition() string {
+	if x != nil {
+		return x.LsnPosition
+	}
+	return ""
 }
 
 // StandbyReplicationStatus gets the current replication status
@@ -2010,7 +2019,9 @@ func (*ResetStandbyReplicationRequest) Descriptor() ([]byte, []int) {
 }
 
 type ResetStandbyReplicationResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// LSN position when replication was reset
+	LsnPosition   string `protobuf:"bytes,1,opt,name=lsn_position,json=lsnPosition,proto3" json:"lsn_position,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2043,6 +2054,13 @@ func (x *ResetStandbyReplicationResponse) ProtoReflect() protoreflect.Message {
 // Deprecated: Use ResetStandbyReplicationResponse.ProtoReflect.Descriptor instead.
 func (*ResetStandbyReplicationResponse) Descriptor() ([]byte, []int) {
 	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{42}
+}
+
+func (x *ResetStandbyReplicationResponse) GetLsnPosition() string {
+	if x != nil {
+		return x.LsnPosition
+	}
+	return ""
 }
 
 // ConfigureSynchronousReplication configures PostgreSQL synchronous replication settings
@@ -2201,8 +2219,9 @@ const file_multipoolermanagerdata_proto_rawDesc = "" +
 	"\x17stop_replication_before\x18\x04 \x01(\bR\x15stopReplicationBefore\x126\n" +
 	"\x17start_replication_after\x18\x05 \x01(\bR\x15startReplicationAfter\"#\n" +
 	"!SetStandbyPrimaryConnInfoResponse\"\x1f\n" +
-	"\x1dStopStandbyReplicationRequest\" \n" +
-	"\x1eStopStandbyReplicationResponse\"!\n" +
+	"\x1dStopStandbyReplicationRequest\"C\n" +
+	"\x1eStopStandbyReplicationResponse\x12!\n" +
+	"\flsn_position\x18\x01 \x01(\tR\vlsnPosition\"!\n" +
 	"\x1fStandbyReplicationStatusRequest\"e\n" +
 	" StandbyReplicationStatusResponse\x12A\n" +
 	"\x06status\x18\x01 \x01(\v2).multipoolermanagerdata.ReplicationStatusR\x06status\"U\n" +
@@ -2254,8 +2273,9 @@ const file_multipoolermanagerdata_proto_rawDesc = "" +
 	"\x16PromoteFollowerRequest\"<\n" +
 	"\x17PromoteFollowerResponse\x12!\n" +
 	"\flsn_position\x18\x01 \x01(\tR\vlsnPosition\" \n" +
-	"\x1eResetStandbyReplicationRequest\"!\n" +
-	"\x1fResetStandbyReplicationResponse\"\xc6\x02\n" +
+	"\x1eResetStandbyReplicationRequest\"D\n" +
+	"\x1fResetStandbyReplicationResponse\x12!\n" +
+	"\flsn_position\x18\x01 \x01(\tR\vlsnPosition\"\xc6\x02\n" +
 	"&ConfigureSynchronousReplicationRequest\x12]\n" +
 	"\x12synchronous_commit\x18\x01 \x01(\x0e2..multipoolermanagerdata.SynchronousCommitLevelR\x11synchronousCommit\x12X\n" +
 	"\x12synchronous_method\x18\x02 \x01(\x0e2).multipoolermanagerdata.SynchronousMethodR\x11synchronousMethod\x12\x19\n" +
