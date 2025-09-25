@@ -47,13 +47,11 @@ const (
 	MultiPoolerManager_ConfigureSynchronousReplication_FullMethodName = "/multipoolermanager.MultiPoolerManager/ConfigureSynchronousReplication"
 	MultiPoolerManager_PrimaryStatus_FullMethodName                   = "/multipoolermanager.MultiPoolerManager/PrimaryStatus"
 	MultiPoolerManager_PrimaryPosition_FullMethodName                 = "/multipoolermanager.MultiPoolerManager/PrimaryPosition"
-	MultiPoolerManager_SetReplicationSource_FullMethodName            = "/multipoolermanager.MultiPoolerManager/SetReplicationSource"
 	MultiPoolerManager_StopReplicationAndGetStatus_FullMethodName     = "/multipoolermanager.MultiPoolerManager/StopReplicationAndGetStatus"
 	MultiPoolerManager_ChangeType_FullMethodName                      = "/multipoolermanager.MultiPoolerManager/ChangeType"
 	MultiPoolerManager_GetFollowers_FullMethodName                    = "/multipoolermanager.MultiPoolerManager/GetFollowers"
 	MultiPoolerManager_DemoteLeader_FullMethodName                    = "/multipoolermanager.MultiPoolerManager/DemoteLeader"
 	MultiPoolerManager_UndoDemoteLeader_FullMethodName                = "/multipoolermanager.MultiPoolerManager/UndoDemoteLeader"
-	MultiPoolerManager_FullStatus_FullMethodName                      = "/multipoolermanager.MultiPoolerManager/FullStatus"
 	MultiPoolerManager_PromoteFollower_FullMethodName                 = "/multipoolermanager.MultiPoolerManager/PromoteFollower"
 )
 
@@ -92,8 +90,6 @@ type MultiPoolerManagerClient interface {
 	PrimaryStatus(ctx context.Context, in *multipoolermanagerdata.PrimaryStatusRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.PrimaryStatusResponse, error)
 	// PrimaryPosition gets the current LSN position of the leader
 	PrimaryPosition(ctx context.Context, in *multipoolermanagerdata.PrimaryPositionRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.PrimaryPositionResponse, error)
-	// SetReplicationSource tells the follower to reparent to a new leader
-	SetReplicationSource(ctx context.Context, in *multipoolermanagerdata.SetReplicationSourceRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.SetReplicationSourceResponse, error)
 	// StopReplicationAndGetStatus stops PostgreSQL replication and returns the status
 	StopReplicationAndGetStatus(ctx context.Context, in *multipoolermanagerdata.StopReplicationAndGetStatusRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.StopReplicationAndGetStatusResponse, error)
 	// ChangeType changes the pooler type (LEADER/FOLLOWER)
@@ -104,8 +100,6 @@ type MultiPoolerManagerClient interface {
 	DemoteLeader(ctx context.Context, in *multipoolermanagerdata.DemoteLeaderRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.DemoteLeaderResponse, error)
 	// UndoDemoteLeader undoes a leader demotion
 	UndoDemoteLeader(ctx context.Context, in *multipoolermanagerdata.UndoDemoteLeaderRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.UndoDemoteLeaderResponse, error)
-	// FullStatus collects and returns the full PostgreSQL status including replication information
-	FullStatus(ctx context.Context, in *multipoolermanagerdata.FullStatusRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.FullStatusResponse, error)
 	// PromoteFollower promotes a follower to leader
 	PromoteFollower(ctx context.Context, in *multipoolermanagerdata.PromoteFollowerRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.PromoteFollowerResponse, error)
 }
@@ -235,15 +229,6 @@ func (c *multiPoolerManagerClient) PrimaryPosition(ctx context.Context, in *mult
 	return out, nil
 }
 
-func (c *multiPoolerManagerClient) SetReplicationSource(ctx context.Context, in *multipoolermanagerdata.SetReplicationSourceRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.SetReplicationSourceResponse, error) {
-	out := new(multipoolermanagerdata.SetReplicationSourceResponse)
-	err := c.cc.Invoke(ctx, MultiPoolerManager_SetReplicationSource_FullMethodName, in, out, opts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
 func (c *multiPoolerManagerClient) StopReplicationAndGetStatus(ctx context.Context, in *multipoolermanagerdata.StopReplicationAndGetStatusRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.StopReplicationAndGetStatusResponse, error) {
 	out := new(multipoolermanagerdata.StopReplicationAndGetStatusResponse)
 	err := c.cc.Invoke(ctx, MultiPoolerManager_StopReplicationAndGetStatus_FullMethodName, in, out, opts...)
@@ -283,15 +268,6 @@ func (c *multiPoolerManagerClient) DemoteLeader(ctx context.Context, in *multipo
 func (c *multiPoolerManagerClient) UndoDemoteLeader(ctx context.Context, in *multipoolermanagerdata.UndoDemoteLeaderRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.UndoDemoteLeaderResponse, error) {
 	out := new(multipoolermanagerdata.UndoDemoteLeaderResponse)
 	err := c.cc.Invoke(ctx, MultiPoolerManager_UndoDemoteLeader_FullMethodName, in, out, opts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *multiPoolerManagerClient) FullStatus(ctx context.Context, in *multipoolermanagerdata.FullStatusRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.FullStatusResponse, error) {
-	out := new(multipoolermanagerdata.FullStatusResponse)
-	err := c.cc.Invoke(ctx, MultiPoolerManager_FullStatus_FullMethodName, in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -342,8 +318,6 @@ type MultiPoolerManagerServer interface {
 	PrimaryStatus(context.Context, *multipoolermanagerdata.PrimaryStatusRequest) (*multipoolermanagerdata.PrimaryStatusResponse, error)
 	// PrimaryPosition gets the current LSN position of the leader
 	PrimaryPosition(context.Context, *multipoolermanagerdata.PrimaryPositionRequest) (*multipoolermanagerdata.PrimaryPositionResponse, error)
-	// SetReplicationSource tells the follower to reparent to a new leader
-	SetReplicationSource(context.Context, *multipoolermanagerdata.SetReplicationSourceRequest) (*multipoolermanagerdata.SetReplicationSourceResponse, error)
 	// StopReplicationAndGetStatus stops PostgreSQL replication and returns the status
 	StopReplicationAndGetStatus(context.Context, *multipoolermanagerdata.StopReplicationAndGetStatusRequest) (*multipoolermanagerdata.StopReplicationAndGetStatusResponse, error)
 	// ChangeType changes the pooler type (LEADER/FOLLOWER)
@@ -354,8 +328,6 @@ type MultiPoolerManagerServer interface {
 	DemoteLeader(context.Context, *multipoolermanagerdata.DemoteLeaderRequest) (*multipoolermanagerdata.DemoteLeaderResponse, error)
 	// UndoDemoteLeader undoes a leader demotion
 	UndoDemoteLeader(context.Context, *multipoolermanagerdata.UndoDemoteLeaderRequest) (*multipoolermanagerdata.UndoDemoteLeaderResponse, error)
-	// FullStatus collects and returns the full PostgreSQL status including replication information
-	FullStatus(context.Context, *multipoolermanagerdata.FullStatusRequest) (*multipoolermanagerdata.FullStatusResponse, error)
 	// PromoteFollower promotes a follower to leader
 	PromoteFollower(context.Context, *multipoolermanagerdata.PromoteFollowerRequest) (*multipoolermanagerdata.PromoteFollowerResponse, error)
 	mustEmbedUnimplementedMultiPoolerManagerServer()
@@ -404,9 +376,6 @@ func (UnimplementedMultiPoolerManagerServer) PrimaryStatus(context.Context, *mul
 func (UnimplementedMultiPoolerManagerServer) PrimaryPosition(context.Context, *multipoolermanagerdata.PrimaryPositionRequest) (*multipoolermanagerdata.PrimaryPositionResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method PrimaryPosition not implemented")
 }
-func (UnimplementedMultiPoolerManagerServer) SetReplicationSource(context.Context, *multipoolermanagerdata.SetReplicationSourceRequest) (*multipoolermanagerdata.SetReplicationSourceResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method SetReplicationSource not implemented")
-}
 func (UnimplementedMultiPoolerManagerServer) StopReplicationAndGetStatus(context.Context, *multipoolermanagerdata.StopReplicationAndGetStatusRequest) (*multipoolermanagerdata.StopReplicationAndGetStatusResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method StopReplicationAndGetStatus not implemented")
 }
@@ -421,9 +390,6 @@ func (UnimplementedMultiPoolerManagerServer) DemoteLeader(context.Context, *mult
 }
 func (UnimplementedMultiPoolerManagerServer) UndoDemoteLeader(context.Context, *multipoolermanagerdata.UndoDemoteLeaderRequest) (*multipoolermanagerdata.UndoDemoteLeaderResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method UndoDemoteLeader not implemented")
-}
-func (UnimplementedMultiPoolerManagerServer) FullStatus(context.Context, *multipoolermanagerdata.FullStatusRequest) (*multipoolermanagerdata.FullStatusResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method FullStatus not implemented")
 }
 func (UnimplementedMultiPoolerManagerServer) PromoteFollower(context.Context, *multipoolermanagerdata.PromoteFollowerRequest) (*multipoolermanagerdata.PromoteFollowerResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method PromoteFollower not implemented")
@@ -675,24 +641,6 @@ func _MultiPoolerManager_PrimaryPosition_Handler(srv interface{}, ctx context.Co
 	return interceptor(ctx, in, info, handler)
 }
 
-func _MultiPoolerManager_SetReplicationSource_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(multipoolermanagerdata.SetReplicationSourceRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(MultiPoolerManagerServer).SetReplicationSource(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: MultiPoolerManager_SetReplicationSource_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(MultiPoolerManagerServer).SetReplicationSource(ctx, req.(*multipoolermanagerdata.SetReplicationSourceRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
 func _MultiPoolerManager_StopReplicationAndGetStatus_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(multipoolermanagerdata.StopReplicationAndGetStatusRequest)
 	if err := dec(in); err != nil {
@@ -783,24 +731,6 @@ func _MultiPoolerManager_UndoDemoteLeader_Handler(srv interface{}, ctx context.C
 	return interceptor(ctx, in, info, handler)
 }
 
-func _MultiPoolerManager_FullStatus_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(multipoolermanagerdata.FullStatusRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(MultiPoolerManagerServer).FullStatus(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: MultiPoolerManager_FullStatus_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(MultiPoolerManagerServer).FullStatus(ctx, req.(*multipoolermanagerdata.FullStatusRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
 func _MultiPoolerManager_PromoteFollower_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(multipoolermanagerdata.PromoteFollowerRequest)
 	if err := dec(in); err != nil {
@@ -879,10 +809,6 @@ var MultiPoolerManager_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _MultiPoolerManager_PrimaryPosition_Handler,
 		},
 		{
-			MethodName: "SetReplicationSource",
-			Handler:    _MultiPoolerManager_SetReplicationSource_Handler,
-		},
-		{
 			MethodName: "StopReplicationAndGetStatus",
 			Handler:    _MultiPoolerManager_StopReplicationAndGetStatus_Handler,
 		},
@@ -901,10 +827,6 @@ var MultiPoolerManager_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "UndoDemoteLeader",
 			Handler:    _MultiPoolerManager_UndoDemoteLeader_Handler,
-		},
-		{
-			MethodName: "FullStatus",
-			Handler:    _MultiPoolerManager_FullStatus_Handler,
 		},
 		{
 			MethodName: "PromoteFollower",

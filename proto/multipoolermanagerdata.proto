@@ -145,22 +145,6 @@ message PrimaryStatus {
   repeated string followers = 3;
 }
 
-// Full PostgreSQL status information
-message FullStatus {
-  // Server status
-  string server_status = 1;
-
-  // Replication status
-  ReplicationStatus replication_status = 2;
-
-  // Leader status (if applicable)
-  PrimaryStatus leader_status = 3;
-
-  // Additional server information
-  map<string, string> server_info = 4;
-}
-
-
 // PrimaryStatus gets the status of the leader server
 message PrimaryStatusRequest {
 }
@@ -202,36 +186,6 @@ message UndoDemoteLeaderRequest {
 }
 
 message UndoDemoteLeaderResponse {
-}
-
-// FullStatus collects and returns the full PostgreSQL status
-message FullStatusRequest {
-}
-
-message FullStatusResponse {
-  // Full PostgreSQL status information
-  FullStatus status = 1;
-}
-
-// SetReplicationSource tells the follower to reparent to a new leader
-message SetReplicationSourceRequest {
-  // New leader server ID
-  clustermetadata.ID leader_id = 1;
-
-  // Timestamp when the reparenting was initiated
-  int64 time_created_ns = 2;
-
-  // Whether to force start replication after reparenting
-  bool force_start_replication = 3;
-
-  // LSN position to wait for before completing reparenting
-  string wait_lsn_position = 4;
-
-  // Heartbeat interval in seconds
-  double heartbeat_interval = 5;
-}
-
-message SetReplicationSourceResponse {
 }
 
 // StopReplicationAndGetStatus stops PostgreSQL replication and returns the status

@@ -81,10 +81,6 @@ service MultiPoolerManager {
   rpc PrimaryPosition(multipoolermanagerdata.PrimaryPositionRequest)
     returns (multipoolermanagerdata.PrimaryPositionResponse);
 
-  // SetReplicationSource tells the follower to reparent to a new leader
-  rpc SetReplicationSource(multipoolermanagerdata.SetReplicationSourceRequest)
-    returns (multipoolermanagerdata.SetReplicationSourceResponse);
-
   // StopReplicationAndGetStatus stops PostgreSQL replication and returns the status
   rpc StopReplicationAndGetStatus(multipoolermanagerdata.StopReplicationAndGetStatusRequest)
     returns (multipoolermanagerdata.StopReplicationAndGetStatusResponse);
@@ -109,10 +105,6 @@ service MultiPoolerManager {
   // UndoDemoteLeader undoes a leader demotion
   rpc UndoDemoteLeader(multipoolermanagerdata.UndoDemoteLeaderRequest)
     returns (multipoolermanagerdata.UndoDemoteLeaderResponse);
-
-  // FullStatus collects and returns the full PostgreSQL status including replication information
-  rpc FullStatus(multipoolermanagerdata.FullStatusRequest)
-    returns (multipoolermanagerdata.FullStatusResponse);
 
   // PromoteFollower promotes a follower to leader
   rpc PromoteFollower(multipoolermanagerdata.PromoteFollowerRequest)
