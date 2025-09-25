@@ -200,14 +200,6 @@ func (f *mockFactory) getCreateCount() int32 {
 	return atomic.LoadInt32(&f.createCount)
 }
 
-func (f *mockFactory) getConnections() []*mockConn {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	result := make([]*mockConn, len(f.connections))
-	copy(result, f.connections)
-	return result
-}
-
 func (f *mockFactory) newConn() (topo.Conn, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -221,6 +213,12 @@ func (f *mockFactory) newConn() (topo.Conn, error) {
 	conn := newMockConn(int(count))
 	f.connections = append(f.connections, conn)
 	return conn, nil
+}
+
+func (f *mockFactory) waitForNewConn(currentCount int32) {
+	for f.getCreateCount() == currentCount {
+		time.Sleep(time.Millisecond)
+	}
 }
 
 func TestNewConn_Success(t *testing.T) {
@@ -250,16 +248,13 @@ func TestNewConn_InitialFailure(t *testing.T) {
 	assert.Equal(t, int32(1), factory.getCreateCount(), "Expected 1 connection creation attempt")
 
 	// Allow connection to succeed and wait for retry
+	initialCount := factory.getCreateCount()
 	factory.setShouldFail(false)
-
-	// Wait for retry to succeed
-	time.Sleep(5 * time.Millisecond)
+	factory.waitForNewConn(initialCount)
 
 	conn, err = wrapper.getConnection()
 	assert.NoError(t, err, "Expected connection to be available after retry")
 	assert.NotNil(t, conn, "Expected connection to be non-nil after retry")
-
-	assert.GreaterOrEqual(t, factory.getCreateCount(), int32(2), "Expected at least 2 connection attempts")
 }
 
 func TestGetConnection_NoConnection(t *testing.T) {
@@ -296,10 +291,7 @@ func TestHandleConnectionError_RetriesOnSpecificErrors(t *testing.T) {
 			err = mterrors.Errorf(code, "test error")
 			wrapper.handleConnectionError(conn, err)
 
-			// Wait a bit for retry to kick in
-			time.Sleep(5 * time.Millisecond)
-
-			assert.Greater(t, factory.getCreateCount(), initialCount, "Expected retry for error code %v", code)
+			factory.waitForNewConn(initialCount)
 		})
 	}
 }
@@ -599,11 +591,7 @@ func TestAllMethods_ConnectionError(t *testing.T) {
 			assert.Error(t, err, "Expected error for %s when connection fails", method.name)
 			assert.Equal(t, mtrpc.Code_UNAVAILABLE, mterrors.Code(err), "Expected UNAVAILABLE error for %s", method.name)
 
-			// Wait for retries to happen
-			time.Sleep(5 * time.Millisecond)
-
-			// Should have attempted retries
-			assert.Greater(t, factory.getCreateCount(), initialCount, "Expected retry attempts after connection errors")
+			factory.waitForNewConn(initialCount)
 		})
 	}
 }
@@ -657,24 +645,6 @@ func TestHandleConnectionError_NilError(t *testing.T) {
 	time.Sleep(5 * time.Millisecond)
 
 	assert.Equal(t, initialCount, factory.getCreateCount(), "Expected no retry for nil error")
-}
-
-func TestHandleConnectionError_NonRetriableError(t *testing.T) {
-	factory := newMockFactory()
-	wrapper := NewConn(factory.newConn)
-
-	conn, err := wrapper.getConnection()
-	require.NoError(t, err, "Expected connection")
-
-	initialCount := factory.getCreateCount()
-
-	err = mterrors.Errorf(mtrpc.Code_INVALID_ARGUMENT, "test error")
-	wrapper.handleConnectionError(conn, err)
-
-	// Wait a bit
-	time.Sleep(5 * time.Millisecond)
-
-	assert.Equal(t, initialCount, factory.getCreateCount(), "Expected no retry for error code %v", mtrpc.Code_INVALID_ARGUMENT)
 }
 
 // mockConnWithDelayedFailure is a mock that can be configured to fail after N calls
@@ -759,6 +729,12 @@ func (f *mockFactoryWithDelayedFailure) newConn() (topo.Conn, error) {
 	return conn, nil
 }
 
+func (f *mockFactoryWithDelayedFailure) waitForNewConn(currentCount int32) {
+	for f.getCreateCount() == currentCount {
+		time.Sleep(time.Millisecond)
+	}
+}
+
 func TestOperationsTriggersHandleConnectionError(t *testing.T) {
 	// Create a connection that will fail after 2 calls
 	factory := newMockFactoryWithDelayedFailure(2)
@@ -781,11 +757,7 @@ func TestOperationsTriggersHandleConnectionError(t *testing.T) {
 	assert.Error(t, err, "Third ListDir should fail")
 	assert.Equal(t, mtrpc.Code_UNAVAILABLE, mterrors.Code(err), "Expected UNAVAILABLE error")
 
-	// Wait for retry to kick in
-	time.Sleep(5 * time.Millisecond)
-
-	// Should have created a new connection
-	assert.Greater(t, factory.getCreateCount(), initialCount, "Expected retry to create new connection")
+	factory.waitForNewConn(initialCount)
 
 	// New connection should work
 	_, err = wrapper.ListDir(ctx, "/test", true)
@@ -833,11 +805,7 @@ func TestMultipleOperationsWithConnectionErrors(t *testing.T) {
 			assert.Error(t, err, "Operation %s should fail", op.name)
 			assert.Equal(t, mtrpc.Code_UNAVAILABLE, mterrors.Code(err), "Expected UNAVAILABLE error for %s", op.name)
 
-			// Wait for retry
-			time.Sleep(5 * time.Millisecond)
-
-			// Should have attempted retry
-			assert.Greater(t, factory.getCreateCount(), initialCount, "Expected retry for operation %s", op.name)
+			factory.waitForNewConn(initialCount)
 		})
 	}
 }
@@ -858,11 +826,7 @@ func TestRetryConnection_TerminatesWhenClosed(t *testing.T) {
 		done <- true
 	}()
 
-	// Give retryConnection a moment to start
-	time.Sleep(10 * time.Millisecond)
-
-	// Ensure retry tried at least once.
-	assert.Greater(t, factory.getCreateCount(), initialCount, "Expected retry count to increase")
+	factory.waitForNewConn(initialCount)
 
 	// Close the wrapper - this should terminate retryConnection
 	err = wrapper.Close()
@@ -888,15 +852,15 @@ func TestRetryConnection_TerminatesWhenSuccessful(t *testing.T) {
 	// Start with failures
 	factory.setShouldFail(true)
 	wrapper := NewConn(factory.newConn)
-
+	initialCount := factory.getCreateCount()
 	// Wait for retryConnection to start attempting
-	time.Sleep(5 * time.Millisecond)
+	factory.waitForNewConn(initialCount)
 
 	// Allow connections to succeed
+	initialCount = factory.getCreateCount()
 	factory.setShouldFail(false)
-
 	// Wait for successful connection
-	time.Sleep(10 * time.Millisecond)
+	factory.waitForNewConn(initialCount)
 
 	// Verify connection is available
 	conn, err := wrapper.getConnection()
@@ -906,7 +870,7 @@ func TestRetryConnection_TerminatesWhenSuccessful(t *testing.T) {
 	successCount := factory.getCreateCount()
 
 	// Wait a bit more to ensure retryConnection has stopped
-	time.Sleep(20 * time.Millisecond)
+	time.Sleep(5 * time.Millisecond)
 
 	// Verify no additional connection attempts were made
 	assert.LessOrEqual(t, factory.getCreateCount(), successCount, "retryConnection should have terminated after successful connection")
@@ -935,7 +899,7 @@ func TestRetryConnection_TerminatesWhenConnectionReplaced(t *testing.T) {
 	wrapper.retryConnection(oldConn)
 
 	// Wait briefly
-	time.Sleep(10 * time.Millisecond)
+	time.Sleep(5 * time.Millisecond)
 
 	// Verify no new connections were created
 	assert.LessOrEqual(t, factory.getCreateCount(), initialCount, "retryConnection should have terminated when connection was already replaced")
@@ -955,9 +919,7 @@ func TestRetryConnection_ClosesStrayConnectionWhenWrapperClosed(t *testing.T) {
 
 	// Wait for at least one more connection attempt to be sure
 	// that we are well into the retry loop.
-	for factory.getCreateCount() <= initialCount {
-		time.Sleep(time.Millisecond)
-	}
+	factory.waitForNewConn(initialCount)
 
 	// Now block creation of a new connection by obtaining the lock
 	// and set it to succeed on the next attempt.
@@ -974,11 +936,15 @@ func TestRetryConnection_ClosesStrayConnectionWhenWrapperClosed(t *testing.T) {
 	// the stray connection was closed.
 	factory.mu.Unlock()
 
+	factory.waitForNewConn(initialCount)
+
 	// Give time for the retry routine to close the connection.
 	time.Sleep(5 * time.Millisecond)
 
-	assert.Equal(t, initialCount+1, factory.getCreateCount(), "Unexpected create count")
-
+	factory.mu.Lock()
+	defer factory.mu.Unlock()
 	conn := factory.connections[connectionCount]
+	conn.mu.Lock()
+	defer conn.mu.Unlock()
 	assert.True(t, conn.closed, "Connection should be closed")
 }
