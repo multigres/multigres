@@ -61,7 +61,8 @@ func Init() {
 	ts = topo.Open()
 
 	serverctx, servercancel = context.WithCancel(context.Background())
-	health.Cell = cell
+	// This doen't change
+	serverStatus.Cell = cell
 
 	logger.Info("multigateway starting up",
 		"cell", cell,
@@ -75,7 +76,7 @@ func Init() {
 		logger.Warn("Failed to get fully qualified hostname, falling back to simple hostname", "error", err)
 		hostname, err = os.Hostname()
 		if err != nil {
-			health.addInitError(fmt.Sprintf("Failed to get hostname: %v", err))
+			serverStatus.addInitError(fmt.Sprintf("Failed to get hostname: %v", err))
 			logger.Error("Failed to get hostname", "error", err)
 			return
 		}
@@ -91,7 +92,7 @@ func Init() {
 
 	// Validate cell
 	if err := checkCellFlags(); err != nil {
-		health.addInitError(fmt.Sprintf("Failed to validate cell: %v", err))
+		serverStatus.addInitError(fmt.Sprintf("Failed to validate cell: %v", err))
 		logger.Error("Failed to validate cell", "error", err)
 	}
 
@@ -148,7 +149,7 @@ func topoPublish(multigateway *clustermetadatapb.MultiGateway) {
 		logger.Info("Successfully registered multigateway with topology", "id", multigateway.Id)
 		return
 	} else {
-		health.addInitError(fmt.Sprintf("Failed to register multigateway with topology: %v", err))
+		serverStatus.addInitError(fmt.Sprintf("Failed to register multigateway with topology: %v", err))
 		logger.Error("Failed to register multigateway with topology", "error", err)
 	}
 	serverwg.Go(func() {
@@ -159,7 +160,7 @@ func topoPublish(multigateway *clustermetadatapb.MultiGateway) {
 				ctx, cancel := context.WithTimeout(serverctx, 10*time.Second)
 				if err := ts.InitMultiGateway(ctx, multigateway, true); err == nil {
 					logger.Info("Successfully registered multigateway with topology", "id", multigateway.Id)
-					health.InitError = ""
+					serverStatus.InitError = ""
 					cancel()
 					return
 				}

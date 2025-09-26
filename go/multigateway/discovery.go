@@ -203,15 +203,15 @@ func (pd *PoolerDiscovery) processPoolerChange(watchData *topo.WatchDataRecursiv
 }
 
 // GetPoolersName returns a list of all discovered pooler names.
-func (pd *PoolerDiscovery) GetPoolersName() []string {
+func (pd *PoolerDiscovery) GetPoolers() []*clustermetadatapb.MultiPooler {
 	pd.mu.RLock()
 	defer pd.mu.RUnlock()
 
-	names := make([]string, 0, len(pd.poolers))
+	poolers := make([]*clustermetadatapb.MultiPooler, 0, len(pd.poolers))
 	for _, pooler := range pd.poolers {
-		names = append(names, pooler.Id.Name)
+		poolers = append(poolers, proto.Clone(pooler).(*clustermetadatapb.MultiPooler))
 	}
-	return names
+	return poolers
 }
 
 // LastRefresh returns the timestamp of the last successful refresh.

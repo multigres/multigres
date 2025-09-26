@@ -77,3 +77,11 @@ td {
   flex-wrap: wrap;
   gap: 1rem;
 }
+
+.success {
+  color: var(--accent-color);
+}
+
+.error {
+  color: var(--error-color);
+}
