@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package main
+package multigateway
 
 import (
 	"context"
@@ -47,6 +47,8 @@ type PoolerDiscovery struct {
 	lastRefresh time.Time
 }
 
+var poolerDiscovery *PoolerDiscovery
+
 // NewPoolerDiscovery creates a new pooler discovery service.
 func NewPoolerDiscovery(ctx context.Context, topoStore topo.Store, cell string, logger *slog.Logger) *PoolerDiscovery {
 	discoveryCtx, cancel := context.WithCancel(ctx)
@@ -63,10 +65,7 @@ func NewPoolerDiscovery(ctx context.Context, topoStore topo.Store, cell string, 
 
 // Start begins the discovery process using topology watch.
 func (pd *PoolerDiscovery) Start() {
-	pd.wg.Add(1)
-	go func() {
-		defer pd.wg.Done()
-
+	pd.wg.Go(func() {
 		pd.logger.Info("Starting pooler discovery with topology watch", "cell", pd.cell)
 
 		// Get connection for the cell
@@ -108,7 +107,7 @@ func (pd *PoolerDiscovery) Start() {
 				pd.processPoolerChange(watchData)
 			}
 		}
-	}()
+	})
 }
 
 // Stop stops the discovery service.

@@ -38,22 +38,22 @@ type BackoffTicker struct {
 	rand         *rand.Rand
 }
 
-// NewBackoffTicker creates a new BackoffTicker with the given initial and maximum intervals.
-// The ticker will start with initialInterval and double on each tick until it reaches maxInterval.
+// NewBackoffTicker creates a new BackoffTicker with the given initial delay and maximum interval.
+// The ticker will start with initialDelay and double on each tick until it reaches maxInterval.
 // A 10% jitter is added to each interval to prevent synchronized behavior across multiple tickers.
-func NewBackoffTicker(initialInterval, maxInterval time.Duration) *BackoffTicker {
-	if initialInterval <= 0 {
+func NewBackoffTicker(initialDelay, maxInterval time.Duration) *BackoffTicker {
+	if initialDelay <= 0 {
 		panic("ticker: non-positive interval for NewBackoffTicker")
 	}
-	if maxInterval < initialInterval {
+	if maxInterval < initialDelay {
 		panic("ticker: maxInterval must be >= initialInterval")
 	}
 
 	bt := &BackoffTicker{
 		C:            make(chan time.Time, 1),
-		initialDelay: initialInterval,
+		initialDelay: initialDelay,
 		maxDelay:     maxInterval,
-		currentDelay: initialInterval,
+		currentDelay: initialDelay,
 		rand:         rand.New(rand.NewPCG(uint64(time.Now().UnixNano()), uint64(time.Now().UnixNano()))),
 	}
 
