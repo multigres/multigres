@@ -272,7 +272,15 @@ func TestDataTypes(t *testing.T, client *MultiPoolerTestClient) {
 		{"Boolean True", "SELECT TRUE::BOOLEAN", "BOOL"},
 		{"Boolean False", "SELECT FALSE::BOOLEAN", "BOOL"},
 		{"Timestamp", "SELECT CURRENT_TIMESTAMP", "TIMESTAMPTZ"},
-		{"NULL value", "SELECT NULL", "UNKNOWN"},
+		// UNKNOWN (NULL) column types are automatically coerced to TEXT. See:
+		// https://github.com/postgres/postgres/blob/e849bd551c323a384f2b14d20a1b7bfaa6127ed7/src/backend/parser/parse_coerce.c#L1441
+		{"NULL value", "SELECT NULL", "TEXT"},
+		{"Text Array", "SELECT ARRAY['foo', 'bar', 'baz']::TEXT[]", "_TEXT"},
+		{"Integer Array", "SELECT ARRAY[1, 2, 3]::INTEGER[]", "_INT4"},
+		{"OID", "SELECT 12345::OID", "OID"},
+		{"JSON", "SELECT '{\"key\": \"value\"}'::JSON", "JSON"},
+		{"JSONB", "SELECT '{\"key\": \"value\"}'::JSONB", "JSONB"},
+		{"UUID", "SELECT gen_random_uuid()", "UUID"},
 	}
 
 	for _, tt := range tests {
@@ -282,6 +290,7 @@ func TestDataTypes(t *testing.T, client *MultiPoolerTestClient) {
 			require.NotNil(t, result, "Result should not be nil")
 			assert.Len(t, result.Fields, 1, "Should have one field")
 			assert.Len(t, result.Rows, 1, "Should have one row")
+			assert.Equal(t, tt.expectedType, result.Fields[0].Type, "Field type should match")
 		})
 	}
 }
