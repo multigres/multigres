@@ -76,7 +76,7 @@ func Init() {
 		logger.Warn("Failed to get fully qualified hostname, falling back to simple hostname", "error", err)
 		hostname, err = os.Hostname()
 		if err != nil {
-			serverStatus.addInitError(fmt.Sprintf("Failed to get hostname: %v", err))
+			serverStatus.InitError = append(serverStatus.InitError, fmt.Sprintf("Failed to get hostname: %v", err))
 			logger.Error("Failed to get hostname", "error", err)
 			return
 		}
@@ -92,7 +92,7 @@ func Init() {
 
 	// Validate cell
 	if err := checkCellFlags(); err != nil {
-		serverStatus.addInitError(fmt.Sprintf("Failed to validate cell: %v", err))
+		serverStatus.InitError = append(serverStatus.InitError, fmt.Sprintf("Failed to validate cell: %v", err))
 		logger.Error("Failed to validate cell", "error", err)
 	}
 
@@ -103,10 +103,6 @@ func Init() {
 	poolerDiscovery = NewPoolerDiscovery(context.Background(), ts, cell, logger)
 	poolerDiscovery.Start()
 	logger.Info("Pooler discovery started with topology watch", "cell", cell)
-
-	// Add a demo HTTP endpoint to show discovered poolers
-	servenv.HTTPHandleFunc("/discovery/poolers", handleStatus)
-	logger.Info("Discovery HTTP endpoint available at /discovery/poolers")
 }
 
 // checkCellFlags validates the cell flag against available cells
@@ -149,7 +145,7 @@ func topoPublish(multigateway *clustermetadatapb.MultiGateway) {
 		logger.Info("Successfully registered multigateway with topology", "id", multigateway.Id)
 		return
 	} else {
-		serverStatus.addInitError(fmt.Sprintf("Failed to register multigateway with topology: %v", err))
+		serverStatus.InitError = append(serverStatus.InitError, fmt.Sprintf("Failed to register multigateway with topology: %v", err))
 		logger.Error("Failed to register multigateway with topology", "error", err)
 	}
 	serverwg.Go(func() {
@@ -160,7 +156,8 @@ func topoPublish(multigateway *clustermetadatapb.MultiGateway) {
 				ctx, cancel := context.WithTimeout(serverctx, 10*time.Second)
 				if err := ts.InitMultiGateway(ctx, multigateway, true); err == nil {
 					logger.Info("Successfully registered multigateway with topology", "id", multigateway.Id)
-					serverStatus.InitError = ""
+					// This means all previous errors have been resolved.
+					serverStatus.InitError = nil
 					cancel()
 					return
 				}

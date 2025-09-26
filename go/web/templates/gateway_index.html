@@ -22,8 +22,8 @@
             <tr>
               <th>Initialization</th>
               <td>
-                {{if .InitError}}
-                <span class="error">{{.InitError}}</span>
+                {{range $i, $err := .InitError}} {{if $i}}<br />{{end}}
+                <span class="error">{{$err}}</span>
                 {{else}}
                 <span class="success">No errors</span>
                 {{end}}

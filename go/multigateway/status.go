@@ -22,6 +22,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/multigres/multigres/go/servenv"
 	"github.com/multigres/multigres/go/web"
 )
 
@@ -41,7 +42,7 @@ type Link struct {
 type Status struct {
 	Title string `json:"title"`
 
-	InitError   string         `json:"init_error"`
+	InitError   []string       `json:"init_error"`
 	Cell        string         `json:"cell"`
 	PoolerCount int            `json:"pooler_count"`
 	LastRefresh time.Time      `json:"last_refresh"`
@@ -55,31 +56,38 @@ var serverStatus = Status{
 	Links: []Link{
 		{"Config", "Server configuration details", "/config"},
 		{"Live", "URL for liveness check", "/live"},
+		{"Ready", "URL for readiness check", "/ready"},
 	},
 }
 
-func (h *Status) addInitError(s string) {
-	if h.InitError == "" {
-		serverStatus.InitError = s
-	} else {
-		serverStatus.InitError += "\n" + s
+func init() {
+	servenv.HTTPHandleFunc("/status", handleStatus)
+	servenv.HTTPHandleFunc("/ready", handleReady)
+}
+
+func handleReady(w http.ResponseWriter, r *http.Request) {
+	isReady := (len(serverStatus.InitError) == 0)
+	if !isReady {
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}
+	if err := web.Templates.ExecuteTemplate(w, "isok.html", isReady); err != nil {
+		http.Error(w, fmt.Sprintf("Failed to execute template: %v", err), http.StatusInternalServerError)
+		return
 	}
 }
 
 // handleStatus handles the HTTP endpoint that shows overall status
 func handleStatus(w http.ResponseWriter, r *http.Request) {
-	if poolerDiscovery != nil {
-		serverStatus.PoolerCount = poolerDiscovery.PoolerCount()
-		serverStatus.LastRefresh = poolerDiscovery.LastRefresh()
-		poolers := poolerDiscovery.GetPoolers()
-		serverStatus.Poolers = make([]PoolerStatus, len(poolers))
-		for i, pooler := range poolers {
-			serverStatus.Poolers[i] = PoolerStatus{
-				Name:     pooler.Id.GetName(),
-				Database: pooler.GetDatabase(),
-				Type:     pooler.GetType().String(),
-			}
-		}
+	serverStatus.PoolerCount = poolerDiscovery.PoolerCount()
+	serverStatus.LastRefresh = poolerDiscovery.LastRefresh()
+	poolers := poolerDiscovery.GetPoolers()
+	serverStatus.Poolers = make([]PoolerStatus, 0, len(poolers))
+	for _, pooler := range poolers {
+		serverStatus.Poolers = append(serverStatus.Poolers, PoolerStatus{
+			Name:     pooler.Id.GetName(),
+			Database: pooler.GetDatabase(),
+			Type:     pooler.GetType().String(),
+		})
 	}
 
 	err := web.Templates.ExecuteTemplate(w, "gateway_index.html", serverStatus)
@@ -87,12 +95,4 @@ func handleStatus(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, fmt.Sprintf("Failed to execute template: %v", err), http.StatusInternalServerError)
 		return
 	}
-
-	/*
-		w.Header().Set("Content-Type", "application/json")
-		if err := json.NewEncoder(w).Encode(serverStatus); err != nil {
-			http.Error(w, "Failed to encode response", http.StatusInternalServerError)
-			return
-		}
-	*/
 }

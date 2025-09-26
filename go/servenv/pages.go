@@ -78,7 +78,7 @@ func init() {
 	})
 
 	HTTPHandleFunc("/live", func(w http.ResponseWriter, r *http.Request) {
-		_ = web.Templates.ExecuteTemplate(w, "live.html", nil)
+		_ = web.Templates.ExecuteTemplate(w, "isok.html", true)
 	})
 
 	HTTPHandleFunc("/config", viperdebug.HandlerFunc)
