@@ -22,9 +22,12 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"google.golang.org/protobuf/types/known/durationpb"
 
 	"github.com/multigres/multigres/go/cmd/pgctld/testutil"
 	pb "github.com/multigres/multigres/go/pb/pgctldservice"
@@ -137,7 +140,7 @@ func TestPgCtldServiceStop(t *testing.T) {
 			name: "successful stop",
 			request: &pb.StopRequest{
 				Mode:    "fast",
-				Timeout: 30,
+				Timeout: durationpb.New(30 * time.Second),
 			},
 			setupDataDir: func(baseDir string) string {
 				dataDir := testutil.CreateDataDir(t, baseDir, true)
@@ -293,7 +296,7 @@ func TestPgCtldServiceRestart(t *testing.T) {
 
 		request := &pb.RestartRequest{
 			Mode:    "fast",
-			Timeout: 30,
+			Timeout: durationpb.New(30 * time.Second),
 			Port:    5432,
 		}
 

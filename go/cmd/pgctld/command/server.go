@@ -18,11 +18,14 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/multigres/multigres/go/pgctld"
 	"github.com/multigres/multigres/go/servenv"
 
 	"github.com/spf13/cobra"
+
+	"google.golang.org/protobuf/types/known/durationpb"
 
 	pb "github.com/multigres/multigres/go/pb/pgctldservice"
 )
@@ -293,14 +296,14 @@ func (s *PgCtldService) Status(ctx context.Context, req *pb.StatusRequest) (*pb.
 	}
 
 	return &pb.StatusResponse{
-		Status:        status,
-		Pid:           int32(result.PID),
-		Version:       result.Version,
-		UptimeSeconds: result.UptimeSeconds,
-		DataDir:       result.DataDir,
-		Port:          int32(result.Port),
-		Ready:         result.Ready,
-		Message:       result.Message,
+		Status:  status,
+		Pid:     int32(result.PID),
+		Version: result.Version,
+		Uptime:  durationpb.New(time.Duration(result.UptimeSeconds) * time.Second),
+		DataDir: result.DataDir,
+		Port:    int32(result.Port),
+		Ready:   result.Ready,
+		Message: result.Message,
 	}, nil
 }
 

@@ -24,6 +24,7 @@ import (
 	clustermetadata "github.com/multigres/multigres/go/pb/clustermetadata"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
+	durationpb "google.golang.org/protobuf/types/known/durationpb"
 	reflect "reflect"
 	sync "sync"
 	unsafe "unsafe"
@@ -159,8 +160,8 @@ type ReplicationStatus struct {
 	IsWalReplayPaused bool `protobuf:"varint,2,opt,name=is_wal_replay_paused,json=isWalReplayPaused,proto3" json:"is_wal_replay_paused,omitempty"`
 	// Result of pg_get_wal_replay_pause_state()
 	WalReplayPauseState string `protobuf:"bytes,3,opt,name=wal_replay_pause_state,json=walReplayPauseState,proto3" json:"wal_replay_pause_state,omitempty"`
-	// Replication lag in seconds (optional, may not always be available)
-	LagSeconds int64 `protobuf:"varint,4,opt,name=lag_seconds,json=lagSeconds,proto3" json:"lag_seconds,omitempty"`
+	// Replication lag (optional, may not always be available)
+	Lag *durationpb.Duration `protobuf:"bytes,4,opt,name=lag,proto3" json:"lag,omitempty"`
 	// Result of pg_last_xact_replay_timestamp()
 	LastXactReplayTimestamp string `protobuf:"bytes,5,opt,name=last_xact_replay_timestamp,json=lastXactReplayTimestamp,proto3" json:"last_xact_replay_timestamp,omitempty"`
 	unknownFields           protoimpl.UnknownFields
@@ -218,11 +219,11 @@ func (x *ReplicationStatus) GetWalReplayPauseState() string {
 	return ""
 }
 
-func (x *ReplicationStatus) GetLagSeconds() int64 {
+func (x *ReplicationStatus) GetLag() *durationpb.Duration {
 	if x != nil {
-		return x.LagSeconds
+		return x.Lag
 	}
-	return 0
+	return nil
 }
 
 func (x *ReplicationStatus) GetLastXactReplayTimestamp() string {
@@ -237,10 +238,10 @@ type WaitForLSNRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Target LSN position to wait for (PostgreSQL LSN format: X/XXXXXXXX)
 	TargetLsn string `protobuf:"bytes,1,opt,name=target_lsn,json=targetLsn,proto3" json:"target_lsn,omitempty"`
-	// Timeout in seconds (0 means no timeout)
-	TimeoutSeconds int32 `protobuf:"varint,2,opt,name=timeout_seconds,json=timeoutSeconds,proto3" json:"timeout_seconds,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// Timeout (zero duration means no timeout)
+	Timeout       *durationpb.Duration `protobuf:"bytes,2,opt,name=timeout,proto3" json:"timeout,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *WaitForLSNRequest) Reset() {
@@ -280,11 +281,11 @@ func (x *WaitForLSNRequest) GetTargetLsn() string {
 	return ""
 }
 
-func (x *WaitForLSNRequest) GetTimeoutSeconds() int32 {
+func (x *WaitForLSNRequest) GetTimeout() *durationpb.Duration {
 	if x != nil {
-		return x.TimeoutSeconds
+		return x.Timeout
 	}
-	return 0
+	return nil
 }
 
 type WaitForLSNResponse struct {
@@ -474,8 +475,8 @@ type PromoteStandbyRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Whether to wait for promotion to complete (default: true)
 	Wait bool `protobuf:"varint,1,opt,name=wait,proto3" json:"wait,omitempty"`
-	// Maximum seconds to wait for promotion (default: 60)
-	WaitSeconds   int32 `protobuf:"varint,2,opt,name=wait_seconds,json=waitSeconds,proto3" json:"wait_seconds,omitempty"`
+	// Maximum time to wait for promotion (default: 60s)
+	WaitTimeout   *durationpb.Duration `protobuf:"bytes,2,opt,name=wait_timeout,json=waitTimeout,proto3" json:"wait_timeout,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -517,11 +518,11 @@ func (x *PromoteStandbyRequest) GetWait() bool {
 	return false
 }
 
-func (x *PromoteStandbyRequest) GetWaitSeconds() int32 {
+func (x *PromoteStandbyRequest) GetWaitTimeout() *durationpb.Duration {
 	if x != nil {
-		return x.WaitSeconds
+		return x.WaitTimeout
 	}
-	return 0
+	return nil
 }
 
 type PromoteStandbyResponse struct {
@@ -731,8 +732,8 @@ type SetStandbyPrimaryConnInfoRequest struct {
 	Host string `protobuf:"bytes,1,opt,name=host,proto3" json:"host,omitempty"`
 	// Primary server port
 	Port int32 `protobuf:"varint,2,opt,name=port,proto3" json:"port,omitempty"`
-	// Heartbeat interval in seconds
-	HeartbeatInterval float64 `protobuf:"fixed64,3,opt,name=heartbeat_interval,json=heartbeatInterval,proto3" json:"heartbeat_interval,omitempty"`
+	// Heartbeat interval
+	HeartbeatInterval *durationpb.Duration `protobuf:"bytes,3,opt,name=heartbeat_interval,json=heartbeatInterval,proto3" json:"heartbeat_interval,omitempty"`
 	// Whether to stop replication before making changes
 	StopReplicationBefore bool `protobuf:"varint,4,opt,name=stop_replication_before,json=stopReplicationBefore,proto3" json:"stop_replication_before,omitempty"`
 	// Whether to start replication after making changes
@@ -785,11 +786,11 @@ func (x *SetStandbyPrimaryConnInfoRequest) GetPort() int32 {
 	return 0
 }
 
-func (x *SetStandbyPrimaryConnInfoRequest) GetHeartbeatInterval() float64 {
+func (x *SetStandbyPrimaryConnInfoRequest) GetHeartbeatInterval() *durationpb.Duration {
 	if x != nil {
 		return x.HeartbeatInterval
 	}
-	return 0
+	return nil
 }
 
 func (x *SetStandbyPrimaryConnInfoRequest) GetStopReplicationBefore() bool {
@@ -1921,26 +1922,25 @@ var File_multipoolermanagerdata_proto protoreflect.FileDescriptor
 
 const file_multipoolermanagerdata_proto_rawDesc = "" +
 	"\n" +
-	"\x1cmultipoolermanagerdata.proto\x12\x16multipoolermanagerdata\x1a\x15clustermetadata.proto\"\xe9\x01\n" +
+	"\x1cmultipoolermanagerdata.proto\x12\x16multipoolermanagerdata\x1a\x15clustermetadata.proto\x1a\x1egoogle/protobuf/duration.proto\"\xf5\x01\n" +
 	"\x11ReplicationStatus\x12\x10\n" +
 	"\x03lsn\x18\x01 \x01(\tR\x03lsn\x12/\n" +
 	"\x14is_wal_replay_paused\x18\x02 \x01(\bR\x11isWalReplayPaused\x123\n" +
-	"\x16wal_replay_pause_state\x18\x03 \x01(\tR\x13walReplayPauseState\x12\x1f\n" +
-	"\vlag_seconds\x18\x04 \x01(\x03R\n" +
-	"lagSeconds\x12;\n" +
-	"\x1alast_xact_replay_timestamp\x18\x05 \x01(\tR\x17lastXactReplayTimestamp\"[\n" +
+	"\x16wal_replay_pause_state\x18\x03 \x01(\tR\x13walReplayPauseState\x12+\n" +
+	"\x03lag\x18\x04 \x01(\v2\x19.google.protobuf.DurationR\x03lag\x12;\n" +
+	"\x1alast_xact_replay_timestamp\x18\x05 \x01(\tR\x17lastXactReplayTimestamp\"g\n" +
 	"\x11WaitForLSNRequest\x12\x1d\n" +
 	"\n" +
-	"target_lsn\x18\x01 \x01(\tR\ttargetLsn\x12'\n" +
-	"\x0ftimeout_seconds\x18\x02 \x01(\x05R\x0etimeoutSeconds\"\x14\n" +
+	"target_lsn\x18\x01 \x01(\tR\ttargetLsn\x123\n" +
+	"\atimeout\x18\x02 \x01(\v2\x19.google.protobuf.DurationR\atimeout\"\x14\n" +
 	"\x12WaitForLSNResponse\"\x19\n" +
 	"\x17StartReplicationRequest\"\x1a\n" +
 	"\x18StartReplicationResponse\"\x14\n" +
 	"\x12SetReadOnlyRequest\"\x15\n" +
-	"\x13SetReadOnlyResponse\"N\n" +
+	"\x13SetReadOnlyResponse\"i\n" +
 	"\x15PromoteStandbyRequest\x12\x12\n" +
-	"\x04wait\x18\x01 \x01(\bR\x04wait\x12!\n" +
-	"\fwait_seconds\x18\x02 \x01(\x05R\vwaitSeconds\"\x18\n" +
+	"\x04wait\x18\x01 \x01(\bR\x04wait\x12<\n" +
+	"\fwait_timeout\x18\x02 \x01(\v2\x19.google.protobuf.DurationR\vwaitTimeout\"\x18\n" +
 	"\x16PromoteStandbyResponse\"\x16\n" +
 	"\x14GetPrimaryLSNRequest\"6\n" +
 	"\x15GetPrimaryLSNResponse\x12\x1d\n" +
@@ -1948,11 +1948,11 @@ const file_multipoolermanagerdata_proto_rawDesc = "" +
 	"leader_lsn\x18\x01 \x01(\tR\tleaderLsn\"\x13\n" +
 	"\x11IsReadOnlyRequest\"1\n" +
 	"\x12IsReadOnlyResponse\x12\x1b\n" +
-	"\tread_only\x18\x01 \x01(\bR\breadOnly\"\xe9\x01\n" +
+	"\tread_only\x18\x01 \x01(\bR\breadOnly\"\x84\x02\n" +
 	" SetStandbyPrimaryConnInfoRequest\x12\x12\n" +
 	"\x04host\x18\x01 \x01(\tR\x04host\x12\x12\n" +
-	"\x04port\x18\x02 \x01(\x05R\x04port\x12-\n" +
-	"\x12heartbeat_interval\x18\x03 \x01(\x01R\x11heartbeatInterval\x126\n" +
+	"\x04port\x18\x02 \x01(\x05R\x04port\x12H\n" +
+	"\x12heartbeat_interval\x18\x03 \x01(\v2\x19.google.protobuf.DurationR\x11heartbeatInterval\x126\n" +
 	"\x17stop_replication_before\x18\x04 \x01(\bR\x15stopReplicationBefore\x126\n" +
 	"\x17start_replication_after\x18\x05 \x01(\bR\x15startReplicationAfter\"#\n" +
 	"!SetStandbyPrimaryConnInfoResponse\"\x1f\n" +
@@ -2068,23 +2068,28 @@ var file_multipoolermanagerdata_proto_goTypes = []any{
 	(*ResetStandbyReplicationResponse)(nil),         // 39: multipoolermanagerdata.ResetStandbyReplicationResponse
 	(*ConfigureSynchronousReplicationRequest)(nil),  // 40: multipoolermanagerdata.ConfigureSynchronousReplicationRequest
 	(*ConfigureSynchronousReplicationResponse)(nil), // 41: multipoolermanagerdata.ConfigureSynchronousReplicationResponse
-	(clustermetadata.PoolerType)(0),                 // 42: clustermetadata.PoolerType
+	(*durationpb.Duration)(nil),                     // 42: google.protobuf.Duration
+	(clustermetadata.PoolerType)(0),                 // 43: clustermetadata.PoolerType
 }
 var file_multipoolermanagerdata_proto_depIdxs = []int32{
-	2,  // 0: multipoolermanagerdata.StopStandbyReplicationResponse.status:type_name -> multipoolermanagerdata.ReplicationStatus
-	2,  // 1: multipoolermanagerdata.StandbyReplicationStatusResponse.status:type_name -> multipoolermanagerdata.ReplicationStatus
-	21, // 2: multipoolermanagerdata.PrimaryStatusResponse.status:type_name -> multipoolermanagerdata.PrimaryStatus
-	21, // 3: multipoolermanagerdata.DemoteLeaderResponse.leader_status:type_name -> multipoolermanagerdata.PrimaryStatus
-	2,  // 4: multipoolermanagerdata.StopReplicationAndGetStatusResponse.status:type_name -> multipoolermanagerdata.ReplicationStatus
-	42, // 5: multipoolermanagerdata.ChangeTypeRequest.pooler_type:type_name -> clustermetadata.PoolerType
-	2,  // 6: multipoolermanagerdata.ResetStandbyReplicationResponse.status:type_name -> multipoolermanagerdata.ReplicationStatus
-	1,  // 7: multipoolermanagerdata.ConfigureSynchronousReplicationRequest.synchronous_commit:type_name -> multipoolermanagerdata.SynchronousCommitLevel
-	0,  // 8: multipoolermanagerdata.ConfigureSynchronousReplicationRequest.synchronous_method:type_name -> multipoolermanagerdata.SynchronousMethod
-	9,  // [9:9] is the sub-list for method output_type
-	9,  // [9:9] is the sub-list for method input_type
-	9,  // [9:9] is the sub-list for extension type_name
-	9,  // [9:9] is the sub-list for extension extendee
-	0,  // [0:9] is the sub-list for field type_name
+	42, // 0: multipoolermanagerdata.ReplicationStatus.lag:type_name -> google.protobuf.Duration
+	42, // 1: multipoolermanagerdata.WaitForLSNRequest.timeout:type_name -> google.protobuf.Duration
+	42, // 2: multipoolermanagerdata.PromoteStandbyRequest.wait_timeout:type_name -> google.protobuf.Duration
+	42, // 3: multipoolermanagerdata.SetStandbyPrimaryConnInfoRequest.heartbeat_interval:type_name -> google.protobuf.Duration
+	2,  // 4: multipoolermanagerdata.StopStandbyReplicationResponse.status:type_name -> multipoolermanagerdata.ReplicationStatus
+	2,  // 5: multipoolermanagerdata.StandbyReplicationStatusResponse.status:type_name -> multipoolermanagerdata.ReplicationStatus
+	21, // 6: multipoolermanagerdata.PrimaryStatusResponse.status:type_name -> multipoolermanagerdata.PrimaryStatus
+	21, // 7: multipoolermanagerdata.DemoteLeaderResponse.leader_status:type_name -> multipoolermanagerdata.PrimaryStatus
+	2,  // 8: multipoolermanagerdata.StopReplicationAndGetStatusResponse.status:type_name -> multipoolermanagerdata.ReplicationStatus
+	43, // 9: multipoolermanagerdata.ChangeTypeRequest.pooler_type:type_name -> clustermetadata.PoolerType
+	2,  // 10: multipoolermanagerdata.ResetStandbyReplicationResponse.status:type_name -> multipoolermanagerdata.ReplicationStatus
+	1,  // 11: multipoolermanagerdata.ConfigureSynchronousReplicationRequest.synchronous_commit:type_name -> multipoolermanagerdata.SynchronousCommitLevel
+	0,  // 12: multipoolermanagerdata.ConfigureSynchronousReplicationRequest.synchronous_method:type_name -> multipoolermanagerdata.SynchronousMethod
+	13, // [13:13] is the sub-list for method output_type
+	13, // [13:13] is the sub-list for method input_type
+	13, // [13:13] is the sub-list for extension type_name
+	13, // [13:13] is the sub-list for extension extendee
+	0,  // [0:13] is the sub-list for field type_name
 }
 
 func init() { file_multipoolermanagerdata_proto_init() }

@@ -23,6 +23,7 @@ package pgctldservice
 import (
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
+	durationpb "google.golang.org/protobuf/types/known/durationpb"
 	reflect "reflect"
 	sync "sync"
 	unsafe "unsafe"
@@ -208,8 +209,8 @@ type StopRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Shutdown mode: smart, fast, immediate
 	Mode string `protobuf:"bytes,1,opt,name=mode,proto3" json:"mode,omitempty"`
-	// Timeout in seconds
-	Timeout       int32 `protobuf:"varint,2,opt,name=timeout,proto3" json:"timeout,omitempty"`
+	// Timeout
+	Timeout       *durationpb.Duration `protobuf:"bytes,2,opt,name=timeout,proto3" json:"timeout,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -251,11 +252,11 @@ func (x *StopRequest) GetMode() string {
 	return ""
 }
 
-func (x *StopRequest) GetTimeout() int32 {
+func (x *StopRequest) GetTimeout() *durationpb.Duration {
 	if x != nil {
 		return x.Timeout
 	}
-	return 0
+	return nil
 }
 
 type StopResponse struct {
@@ -308,8 +309,8 @@ type RestartRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Shutdown mode for stop phase: smart, fast, immediate
 	Mode string `protobuf:"bytes,1,opt,name=mode,proto3" json:"mode,omitempty"`
-	// Timeout in seconds for stop phase
-	Timeout int32 `protobuf:"varint,2,opt,name=timeout,proto3" json:"timeout,omitempty"`
+	// Timeout for stop phase
+	Timeout *durationpb.Duration `protobuf:"bytes,2,opt,name=timeout,proto3" json:"timeout,omitempty"`
 	// Override default port for start phase
 	Port          int32    `protobuf:"varint,3,opt,name=port,proto3" json:"port,omitempty"`
 	ExtraArgs     []string `protobuf:"bytes,4,rep,name=extra_args,json=extraArgs,proto3" json:"extra_args,omitempty"`
@@ -354,11 +355,11 @@ func (x *RestartRequest) GetMode() string {
 	return ""
 }
 
-func (x *RestartRequest) GetTimeout() int32 {
+func (x *RestartRequest) GetTimeout() *durationpb.Duration {
 	if x != nil {
 		return x.Timeout
 	}
-	return 0
+	return nil
 }
 
 func (x *RestartRequest) GetPort() int32 {
@@ -556,8 +557,8 @@ type StatusResponse struct {
 	Pid int32 `protobuf:"varint,2,opt,name=pid,proto3" json:"pid,omitempty"`
 	// Server version (if available)
 	Version string `protobuf:"bytes,3,opt,name=version,proto3" json:"version,omitempty"`
-	// Uptime in seconds (if running)
-	UptimeSeconds int64 `protobuf:"varint,4,opt,name=uptime_seconds,json=uptimeSeconds,proto3" json:"uptime_seconds,omitempty"`
+	// Uptime (if running)
+	Uptime *durationpb.Duration `protobuf:"bytes,4,opt,name=uptime,proto3" json:"uptime,omitempty"`
 	// Data directory path
 	DataDir string `protobuf:"bytes,5,opt,name=data_dir,json=dataDir,proto3" json:"data_dir,omitempty"`
 	// Port number
@@ -623,11 +624,11 @@ func (x *StatusResponse) GetVersion() string {
 	return ""
 }
 
-func (x *StatusResponse) GetUptimeSeconds() int64 {
+func (x *StatusResponse) GetUptime() *durationpb.Duration {
 	if x != nil {
-		return x.UptimeSeconds
+		return x.Uptime
 	}
-	return 0
+	return nil
 }
 
 func (x *StatusResponse) GetDataDir() string {
@@ -1003,22 +1004,22 @@ var File_pgctldservice_proto protoreflect.FileDescriptor
 
 const file_pgctldservice_proto_rawDesc = "" +
 	"\n" +
-	"\x13pgctldservice.proto\x12\rpgctldservice\"A\n" +
+	"\x13pgctldservice.proto\x12\rpgctldservice\x1a\x1egoogle/protobuf/duration.proto\"A\n" +
 	"\fStartRequest\x12\x12\n" +
 	"\x04port\x18\x01 \x01(\x05R\x04port\x12\x1d\n" +
 	"\n" +
 	"extra_args\x18\x02 \x03(\tR\textraArgs\";\n" +
 	"\rStartResponse\x12\x10\n" +
 	"\x03pid\x18\x01 \x01(\x05R\x03pid\x12\x18\n" +
-	"\amessage\x18\x02 \x01(\tR\amessage\";\n" +
+	"\amessage\x18\x02 \x01(\tR\amessage\"V\n" +
 	"\vStopRequest\x12\x12\n" +
-	"\x04mode\x18\x01 \x01(\tR\x04mode\x12\x18\n" +
-	"\atimeout\x18\x02 \x01(\x05R\atimeout\"(\n" +
+	"\x04mode\x18\x01 \x01(\tR\x04mode\x123\n" +
+	"\atimeout\x18\x02 \x01(\v2\x19.google.protobuf.DurationR\atimeout\"(\n" +
 	"\fStopResponse\x12\x18\n" +
-	"\amessage\x18\x01 \x01(\tR\amessage\"q\n" +
+	"\amessage\x18\x01 \x01(\tR\amessage\"\x8c\x01\n" +
 	"\x0eRestartRequest\x12\x12\n" +
-	"\x04mode\x18\x01 \x01(\tR\x04mode\x12\x18\n" +
-	"\atimeout\x18\x02 \x01(\x05R\atimeout\x12\x12\n" +
+	"\x04mode\x18\x01 \x01(\tR\x04mode\x123\n" +
+	"\atimeout\x18\x02 \x01(\v2\x19.google.protobuf.DurationR\atimeout\x12\x12\n" +
 	"\x04port\x18\x03 \x01(\x05R\x04port\x12\x1d\n" +
 	"\n" +
 	"extra_args\x18\x04 \x03(\tR\textraArgs\"=\n" +
@@ -1028,12 +1029,12 @@ const file_pgctldservice_proto_rawDesc = "" +
 	"\x13ReloadConfigRequest\"0\n" +
 	"\x14ReloadConfigResponse\x12\x18\n" +
 	"\amessage\x18\x01 \x01(\tR\amessage\"\x0f\n" +
-	"\rStatusRequest\"\x8b\x02\n" +
+	"\rStatusRequest\"\x97\x02\n" +
 	"\x0eStatusResponse\x123\n" +
 	"\x06status\x18\x01 \x01(\x0e2\x1b.pgctldservice.ServerStatusR\x06status\x12\x10\n" +
 	"\x03pid\x18\x02 \x01(\x05R\x03pid\x12\x18\n" +
-	"\aversion\x18\x03 \x01(\tR\aversion\x12%\n" +
-	"\x0euptime_seconds\x18\x04 \x01(\x03R\ruptimeSeconds\x12\x19\n" +
+	"\aversion\x18\x03 \x01(\tR\aversion\x121\n" +
+	"\x06uptime\x18\x04 \x01(\v2\x19.google.protobuf.DurationR\x06uptime\x12\x19\n" +
 	"\bdata_dir\x18\x05 \x01(\tR\adataDir\x12\x12\n" +
 	"\x04port\x18\x06 \x01(\x05R\x04port\x12\x12\n" +
 	"\x04host\x18\a \x01(\tR\x04host\x12\x14\n" +
@@ -1110,30 +1111,34 @@ var file_pgctldservice_proto_goTypes = []any{
 	(*InitDataDirResponse)(nil),  // 14: pgctldservice.InitDataDirResponse
 	(*PgRewindRequest)(nil),      // 15: pgctldservice.PgRewindRequest
 	(*PgRewindResponse)(nil),     // 16: pgctldservice.PgRewindResponse
+	(*durationpb.Duration)(nil),  // 17: google.protobuf.Duration
 }
 var file_pgctldservice_proto_depIdxs = []int32{
-	0,  // 0: pgctldservice.StatusResponse.status:type_name -> pgctldservice.ServerStatus
-	1,  // 1: pgctldservice.PgCtld.Start:input_type -> pgctldservice.StartRequest
-	3,  // 2: pgctldservice.PgCtld.Stop:input_type -> pgctldservice.StopRequest
-	5,  // 3: pgctldservice.PgCtld.Restart:input_type -> pgctldservice.RestartRequest
-	7,  // 4: pgctldservice.PgCtld.ReloadConfig:input_type -> pgctldservice.ReloadConfigRequest
-	9,  // 5: pgctldservice.PgCtld.Status:input_type -> pgctldservice.StatusRequest
-	11, // 6: pgctldservice.PgCtld.Version:input_type -> pgctldservice.VersionRequest
-	13, // 7: pgctldservice.PgCtld.InitDataDir:input_type -> pgctldservice.InitDataDirRequest
-	15, // 8: pgctldservice.PgCtld.PgRewind:input_type -> pgctldservice.PgRewindRequest
-	2,  // 9: pgctldservice.PgCtld.Start:output_type -> pgctldservice.StartResponse
-	4,  // 10: pgctldservice.PgCtld.Stop:output_type -> pgctldservice.StopResponse
-	6,  // 11: pgctldservice.PgCtld.Restart:output_type -> pgctldservice.RestartResponse
-	8,  // 12: pgctldservice.PgCtld.ReloadConfig:output_type -> pgctldservice.ReloadConfigResponse
-	10, // 13: pgctldservice.PgCtld.Status:output_type -> pgctldservice.StatusResponse
-	12, // 14: pgctldservice.PgCtld.Version:output_type -> pgctldservice.VersionResponse
-	14, // 15: pgctldservice.PgCtld.InitDataDir:output_type -> pgctldservice.InitDataDirResponse
-	16, // 16: pgctldservice.PgCtld.PgRewind:output_type -> pgctldservice.PgRewindResponse
-	9,  // [9:17] is the sub-list for method output_type
-	1,  // [1:9] is the sub-list for method input_type
-	1,  // [1:1] is the sub-list for extension type_name
-	1,  // [1:1] is the sub-list for extension extendee
-	0,  // [0:1] is the sub-list for field type_name
+	17, // 0: pgctldservice.StopRequest.timeout:type_name -> google.protobuf.Duration
+	17, // 1: pgctldservice.RestartRequest.timeout:type_name -> google.protobuf.Duration
+	0,  // 2: pgctldservice.StatusResponse.status:type_name -> pgctldservice.ServerStatus
+	17, // 3: pgctldservice.StatusResponse.uptime:type_name -> google.protobuf.Duration
+	1,  // 4: pgctldservice.PgCtld.Start:input_type -> pgctldservice.StartRequest
+	3,  // 5: pgctldservice.PgCtld.Stop:input_type -> pgctldservice.StopRequest
+	5,  // 6: pgctldservice.PgCtld.Restart:input_type -> pgctldservice.RestartRequest
+	7,  // 7: pgctldservice.PgCtld.ReloadConfig:input_type -> pgctldservice.ReloadConfigRequest
+	9,  // 8: pgctldservice.PgCtld.Status:input_type -> pgctldservice.StatusRequest
+	11, // 9: pgctldservice.PgCtld.Version:input_type -> pgctldservice.VersionRequest
+	13, // 10: pgctldservice.PgCtld.InitDataDir:input_type -> pgctldservice.InitDataDirRequest
+	15, // 11: pgctldservice.PgCtld.PgRewind:input_type -> pgctldservice.PgRewindRequest
+	2,  // 12: pgctldservice.PgCtld.Start:output_type -> pgctldservice.StartResponse
+	4,  // 13: pgctldservice.PgCtld.Stop:output_type -> pgctldservice.StopResponse
+	6,  // 14: pgctldservice.PgCtld.Restart:output_type -> pgctldservice.RestartResponse
+	8,  // 15: pgctldservice.PgCtld.ReloadConfig:output_type -> pgctldservice.ReloadConfigResponse
+	10, // 16: pgctldservice.PgCtld.Status:output_type -> pgctldservice.StatusResponse
+	12, // 17: pgctldservice.PgCtld.Version:output_type -> pgctldservice.VersionResponse
+	14, // 18: pgctldservice.PgCtld.InitDataDir:output_type -> pgctldservice.InitDataDirResponse
+	16, // 19: pgctldservice.PgCtld.PgRewind:output_type -> pgctldservice.PgRewindResponse
+	12, // [12:20] is the sub-list for method output_type
+	4,  // [4:12] is the sub-list for method input_type
+	4,  // [4:4] is the sub-list for extension type_name
+	4,  // [4:4] is the sub-list for extension extendee
+	0,  // [0:4] is the sub-list for field type_name
 }
 
 func init() { file_pgctldservice_proto_init() }
