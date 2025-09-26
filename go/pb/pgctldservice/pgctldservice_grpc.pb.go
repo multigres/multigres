@@ -1,4 +1,4 @@
-// Copyright 2025 Supabase, Inc
+// Copyright 2025 Supabase, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -40,6 +40,7 @@ const (
 	PgCtld_Status_FullMethodName       = "/pgctldservice.PgCtld/Status"
 	PgCtld_Version_FullMethodName      = "/pgctldservice.PgCtld/Version"
 	PgCtld_InitDataDir_FullMethodName  = "/pgctldservice.PgCtld/InitDataDir"
+	PgCtld_PgRewind_FullMethodName     = "/pgctldservice.PgCtld/PgRewind"
 )
 
 // PgCtldClient is the client API for PgCtld service.
@@ -60,6 +61,9 @@ type PgCtldClient interface {
 	Version(ctx context.Context, in *VersionRequest, opts ...grpc.CallOption) (*VersionResponse, error)
 	// Initialize data directory
 	InitDataDir(ctx context.Context, in *InitDataDirRequest, opts ...grpc.CallOption) (*InitDataDirResponse, error)
+	// PgRewind rewinds a PostgreSQL data directory to an earlier point in the timeline
+	// This is used to resynchronize a server that diverged from the primary after a failback
+	PgRewind(ctx context.Context, in *PgRewindRequest, opts ...grpc.CallOption) (*PgRewindResponse, error)
 }
 
 type pgCtldClient struct {
@@ -133,6 +137,15 @@ func (c *pgCtldClient) InitDataDir(ctx context.Context, in *InitDataDirRequest, 
 	return out, nil
 }
 
+func (c *pgCtldClient) PgRewind(ctx context.Context, in *PgRewindRequest, opts ...grpc.CallOption) (*PgRewindResponse, error) {
+	out := new(PgRewindResponse)
+	err := c.cc.Invoke(ctx, PgCtld_PgRewind_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // PgCtldServer is the server API for PgCtld service.
 // All implementations must embed UnimplementedPgCtldServer
 // for forward compatibility
@@ -151,6 +164,9 @@ type PgCtldServer interface {
 	Version(context.Context, *VersionRequest) (*VersionResponse, error)
 	// Initialize data directory
 	InitDataDir(context.Context, *InitDataDirRequest) (*InitDataDirResponse, error)
+	// PgRewind rewinds a PostgreSQL data directory to an earlier point in the timeline
+	// This is used to resynchronize a server that diverged from the primary after a failback
+	PgRewind(context.Context, *PgRewindRequest) (*PgRewindResponse, error)
 	mustEmbedUnimplementedPgCtldServer()
 }
 
@@ -178,6 +194,9 @@ func (UnimplementedPgCtldServer) Version(context.Context, *VersionRequest) (*Ver
 }
 func (UnimplementedPgCtldServer) InitDataDir(context.Context, *InitDataDirRequest) (*InitDataDirResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method InitDataDir not implemented")
+}
+func (UnimplementedPgCtldServer) PgRewind(context.Context, *PgRewindRequest) (*PgRewindResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method PgRewind not implemented")
 }
 func (UnimplementedPgCtldServer) mustEmbedUnimplementedPgCtldServer() {}
 
@@ -318,6 +337,24 @@ func _PgCtld_InitDataDir_Handler(srv interface{}, ctx context.Context, dec func(
 	return interceptor(ctx, in, info, handler)
 }
 
+func _PgCtld_PgRewind_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(PgRewindRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PgCtldServer).PgRewind(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: PgCtld_PgRewind_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PgCtldServer).PgRewind(ctx, req.(*PgRewindRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // PgCtld_ServiceDesc is the grpc.ServiceDesc for PgCtld service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -352,6 +389,10 @@ var PgCtld_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "InitDataDir",
 			Handler:    _PgCtld_InitDataDir_Handler,
+		},
+		{
+			MethodName: "PgRewind",
+			Handler:    _PgCtld_PgRewind_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

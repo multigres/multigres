@@ -1,0 +1,276 @@
+// Copyright 2025 Supabase, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+syntax = "proto3";
+
+package multipoolermanagerdata;
+
+import "clustermetadata.proto";
+
+option go_package = "github.com/multigres/multigres/go/pb/multipoolermanagerdata";
+
+// PostgreSQL replication status information
+message ReplicationStatus {
+  // Current replication LSN position (PostgreSQL format: X/XXXXXXXX)
+  string lsn = 1;
+
+  // Result of pg_is_wal_replay_paused()
+  bool is_wal_replay_paused = 2;
+
+  // Result of pg_get_wal_replay_pause_state()
+  string wal_replay_pause_state = 3;
+
+  // Replication lag in seconds (optional, may not always be available)
+  int64 lag_seconds = 4;
+
+  // Result of pg_last_xact_replay_timestamp()
+  string last_xact_replay_timestamp = 5;
+}
+
+// Wait for PostgreSQL server to reach a specific LSN position
+message WaitForLSNRequest {
+  // Target LSN position to wait for (PostgreSQL LSN format: X/XXXXXXXX)
+  string target_lsn = 1;
+
+  // Timeout in seconds (0 means no timeout)
+  int32 timeout_seconds = 2;
+}
+
+message WaitForLSNResponse {
+}
+
+// Start PostgreSQL replication (calls pg_wal_replay_resume)
+message StartReplicationRequest {
+}
+
+message StartReplicationResponse {
+}
+
+// SetReadOnly makes the PostgreSQL instance read-only
+message SetReadOnlyRequest {
+}
+
+message SetReadOnlyResponse {
+}
+
+// PromoteStandby PostgreSQL standby server to primary
+message PromoteStandbyRequest {
+  // Whether to wait for promotion to complete (default: true)
+  bool wait = 1;
+
+  // Maximum seconds to wait for promotion (default: 60)
+  int32 wait_seconds = 2;
+}
+
+message PromoteStandbyResponse {
+}
+
+// GetPrimaryLSN gets the current leader LSN position
+message GetPrimaryLSNRequest {
+}
+
+message GetPrimaryLSNResponse {
+  // Current leader LSN position
+  string leader_lsn = 1;
+}
+
+// IsReadOnly checks if PostgreSQL instance is in read-only mode
+message IsReadOnlyRequest {
+}
+
+message IsReadOnlyResponse {
+  // Whether the instance is in read-only mode
+  bool read_only = 1;
+}
+
+// SetStandbyPrimaryConnInfo sets the primary connection info for a standby server
+message SetStandbyPrimaryConnInfoRequest {
+  // Primary server hostname
+  string host = 1;
+
+  // Primary server port
+  int32 port = 2;
+
+  // Heartbeat interval in seconds
+  double heartbeat_interval = 3;
+
+  // Whether to stop replication before making changes
+  bool stop_replication_before = 4;
+
+  // Whether to start replication after making changes
+  bool start_replication_after = 5;
+}
+
+message SetStandbyPrimaryConnInfoResponse {
+}
+
+// StopStandbyReplication stops WAL replay on standby
+message StopStandbyReplicationRequest {
+}
+
+message StopStandbyReplicationResponse {
+  // Replication status when replication was stopped
+  ReplicationStatus status = 1;
+}
+
+// StandbyReplicationStatus gets the current replication status
+message StandbyReplicationStatusRequest {
+}
+
+message StandbyReplicationStatusResponse {
+  // Current replication status
+  ReplicationStatus status = 1;
+}
+
+// PostgreSQL leader server status
+message PrimaryStatus {
+  // Current WAL LSN position (PostgreSQL format: X/XXXXXXXX)
+  string lsn = 1;
+
+  // Whether server is accepting connections
+  bool ready = 2;
+
+  // Connected follower servers
+  repeated string followers = 3;
+}
+
+// PrimaryStatus gets the status of the leader server
+message PrimaryStatusRequest {
+}
+
+message PrimaryStatusResponse {
+  // Leader server status
+  PrimaryStatus status = 1;
+}
+
+// PrimaryPosition gets the current LSN position of the leader
+message PrimaryPositionRequest {
+}
+
+message PrimaryPositionResponse {
+  // Current leader LSN position
+  string lsn_position = 1;
+}
+
+// GetFollowers gets the list of follower servers
+message GetFollowersRequest {
+}
+
+message GetFollowersResponse {
+  // List of follower server addresses
+  repeated string follower_addresses = 1;
+}
+
+// DemoteLeader demotes the current leader server
+message DemoteLeaderRequest {
+}
+
+message DemoteLeaderResponse {
+  // Leader status after demotion
+  PrimaryStatus leader_status = 1;
+}
+
+// UndoDemoteLeader undoes a leader demotion
+message UndoDemoteLeaderRequest {
+}
+
+message UndoDemoteLeaderResponse {
+}
+
+// StopReplicationAndGetStatus stops PostgreSQL replication and returns the status
+message StopReplicationAndGetStatusRequest {
+}
+
+message StopReplicationAndGetStatusResponse {
+  // Replication status before and after stopping
+  ReplicationStatus status = 1;
+}
+
+// ChangeType changes the pooler type
+message ChangeTypeRequest {
+  // New pooler type (PRIMARY or REPLICA - maps to LEADER/FOLLOWER)
+  clustermetadata.PoolerType pooler_type = 1;
+}
+
+message ChangeTypeResponse {
+}
+
+// PromoteFollower promotes a follower to leader
+message PromoteFollowerRequest {
+}
+
+message PromoteFollowerResponse {
+  // LSN position after promotion
+  string lsn_position = 1;
+}
+
+// ResetStandbyReplication resets the standby's connection to its primary
+message ResetStandbyReplicationRequest {
+}
+
+message ResetStandbyReplicationResponse {
+  // Replication status when replication was reset
+  ReplicationStatus status = 1;
+}
+
+// Synchronization method for standby servers
+enum SynchronousMethod {
+  // UNSPECIFIED means no synchronous replication (empty synchronous_standby_names)
+  SYNCHRONOUS_METHOD_UNSPECIFIED = 0;
+
+  // FIRST means wait for the first N standby servers (PostgreSQL default)
+  SYNCHRONOUS_METHOD_FIRST = 1;
+
+  // ANY means wait for any N standby servers
+  SYNCHRONOUS_METHOD_ANY = 2;
+}
+
+// Synchronous commit level
+enum SynchronousCommitLevel {
+  // OFF disables synchronous commit
+  SYNCHRONOUS_COMMIT_OFF = 0;
+
+  // LOCAL waits for local flush to disk
+  SYNCHRONOUS_COMMIT_LOCAL = 1;
+
+  // REMOTE_WRITE waits for standby to receive and write WAL
+  SYNCHRONOUS_COMMIT_REMOTE_WRITE = 2;
+
+  // ON waits for standby to receive, write, and flush WAL (same as remote_apply in newer versions)
+  SYNCHRONOUS_COMMIT_ON = 3;
+
+  // REMOTE_APPLY waits for standby to receive, write, flush, and apply WAL
+  SYNCHRONOUS_COMMIT_REMOTE_APPLY = 4;
+}
+
+// ConfigureSynchronousReplication configures PostgreSQL synchronous replication settings
+message ConfigureSynchronousReplicationRequest {
+  // Synchronous commit level (synchronous_commit setting)
+  SynchronousCommitLevel synchronous_commit = 1;
+
+  // Synchronization method (FIRST, ANY)
+  SynchronousMethod synchronous_method = 2;
+
+  // Number of standby servers to wait for (quorum count)
+  int32 num_sync = 3;
+
+  // List of standby server names that can participate in synchronous replication
+  repeated string standby_names = 4;
+
+  // Whether to reload configuration immediately
+  bool reload_config = 5;
+}
+
+message ConfigureSynchronousReplicationResponse {
+}
