@@ -16,6 +16,8 @@ syntax = "proto3";
 
 package pgctldservice;
 
+import "google/protobuf/duration.proto";
+
 option go_package = "github.com/multigres/multigres/go/pb/pgctldservice";
 
 // PostgreSQL Control Service
@@ -73,8 +75,8 @@ message StopRequest {
   // Shutdown mode: smart, fast, immediate
   string mode = 1;
 
-  // Timeout in seconds
-  int32 timeout = 2;
+  // Timeout
+  google.protobuf.Duration timeout = 2;
 }
 
 message StopResponse {
@@ -87,8 +89,8 @@ message RestartRequest {
   // Shutdown mode for stop phase: smart, fast, immediate
   string mode = 1;
 
-  // Timeout in seconds for stop phase
-  int32 timeout = 2;
+  // Timeout for stop phase
+  google.protobuf.Duration timeout = 2;
 
   // Override default port for start phase
   int32 port = 3;
@@ -127,8 +129,8 @@ message StatusResponse {
   // Server version (if available)
   string version = 3;
 
-  // Uptime in seconds (if running)
-  int64 uptime_seconds = 4;
+  // Uptime (if running)
+  google.protobuf.Duration uptime = 4;
 
   // Data directory path
   string data_dir = 5;

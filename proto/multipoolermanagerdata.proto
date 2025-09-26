@@ -17,6 +17,7 @@ syntax = "proto3";
 package multipoolermanagerdata;
 
 import "clustermetadata.proto";
+import "google/protobuf/duration.proto";
 
 option go_package = "github.com/multigres/multigres/go/pb/multipoolermanagerdata";
 
@@ -31,8 +32,8 @@ message ReplicationStatus {
   // Result of pg_get_wal_replay_pause_state()
   string wal_replay_pause_state = 3;
 
-  // Replication lag in seconds (optional, may not always be available)
-  int64 lag_seconds = 4;
+  // Replication lag (optional, may not always be available)
+  google.protobuf.Duration lag = 4;
 
   // Result of pg_last_xact_replay_timestamp()
   string last_xact_replay_timestamp = 5;
@@ -43,8 +44,8 @@ message WaitForLSNRequest {
   // Target LSN position to wait for (PostgreSQL LSN format: X/XXXXXXXX)
   string target_lsn = 1;
 
-  // Timeout in seconds (0 means no timeout)
-  int32 timeout_seconds = 2;
+  // Timeout (zero duration means no timeout)
+  google.protobuf.Duration timeout = 2;
 }
 
 message WaitForLSNResponse {
@@ -69,8 +70,8 @@ message PromoteStandbyRequest {
   // Whether to wait for promotion to complete (default: true)
   bool wait = 1;
 
-  // Maximum seconds to wait for promotion (default: 60)
-  int32 wait_seconds = 2;
+  // Maximum time to wait for promotion (default: 60s)
+  google.protobuf.Duration wait_timeout = 2;
 }
 
 message PromoteStandbyResponse {
@@ -102,8 +103,8 @@ message SetStandbyPrimaryConnInfoRequest {
   // Primary server port
   int32 port = 2;
 
-  // Heartbeat interval in seconds
-  double heartbeat_interval = 3;
+  // Heartbeat interval
+  google.protobuf.Duration heartbeat_interval = 3;
 
   // Whether to stop replication before making changes
   bool stop_replication_before = 4;
