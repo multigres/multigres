@@ -19,6 +19,8 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"os"
+	"syscall"
 	"time"
 
 	"google.golang.org/grpc"
@@ -123,4 +125,44 @@ func (p *localProvisioner) checkPgctldGrpcHealth(address string) error {
 	}
 
 	return nil
+}
+
+// validateProcessRunning checks if a process with the given PID is still running
+func (p *localProvisioner) validateProcessRunning(pid int) error {
+	if pid <= 0 {
+		return fmt.Errorf("invalid PID: %d", pid)
+	}
+
+	process, err := os.FindProcess(pid)
+	if err != nil {
+		return fmt.Errorf("process with PID %d not found: %w", pid, err)
+	}
+
+	// Send signal 0 to check if process exists without actually sending a signal
+	err = process.Signal(syscall.Signal(0))
+	if err != nil {
+		return fmt.Errorf("process with PID %d is not running: %w", pid, err)
+	}
+
+	return nil
+}
+
+// checkPortConflict checks if a port is already in use by another process
+func (p *localProvisioner) checkPortConflict(port int, serviceName, portName string) error {
+	if port <= 0 {
+		return nil // Skip invalid ports
+	}
+
+	address := fmt.Sprintf("localhost:%d", port)
+	conn, err := net.DialTimeout("tcp", address, 1*time.Second)
+	if err != nil {
+		// Port is not in use, this is good
+		return nil
+	}
+	conn.Close()
+
+	// Port is in use by some process
+	return fmt.Errorf("cannot start %s: port %d (%s) is already in use by another process. "+
+		"There is no way to do a clean start. Please kill the process using port %d or change the configuration",
+		serviceName, port, portName, port)
 }
