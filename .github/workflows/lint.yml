@@ -37,7 +37,7 @@ jobs:
         run: grep -v '^#' .github/super-linter.env >> "$GITHUB_ENV"
 
       - name: Super-linter
-        uses: super-linter/super-linter@v8.1.0 # zizmor: ignore[unpinned-uses]
+        uses: super-linter/super-linter@ffde3b2b33b745cb612d787f669ef9442b1339a6 # v8.1.0
         env:
           # To report GitHub Actions status checks
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
