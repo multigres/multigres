@@ -1,0 +1,113 @@
+// Copyright 2025 Supabase, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+syntax = "proto3";
+
+package multipoolermanager;
+
+import "multipoolermanagerdata.proto";
+
+option go_package = "github.com/multigres/multigres/go/pb/multipoolermanager";
+
+// MultiPoolerManager provides management APIs for PostgreSQL connection poolers
+service MultiPoolerManager {
+  //
+  // PG Replication API wrappers. 
+  //
+
+  // WaitForLSN waits for PostgreSQL server to reach a specific LSN position
+  rpc WaitForLSN(multipoolermanagerdata.WaitForLSNRequest) returns (multipoolermanagerdata.WaitForLSNResponse);
+
+  // SetReadOnly makes the PostgreSQL instance read-only
+  rpc SetReadOnly(multipoolermanagerdata.SetReadOnlyRequest) returns (multipoolermanagerdata.SetReadOnlyResponse);
+
+  // PromoteStandby PostgreSQL standby server to primary
+  // this will call pg_promote() in the underlying instance.
+  rpc PromoteStandby(multipoolermanagerdata.PromoteStandbyRequest)
+    returns (multipoolermanagerdata.PromoteStandbyResponse);
+
+  // GetPrimaryLSN gets the current leader LSN position
+  rpc GetPrimaryLSN(multipoolermanagerdata.GetPrimaryLSNRequest)
+    returns (multipoolermanagerdata.GetPrimaryLSNResponse);
+
+  // IsReadOnly checks if PostgreSQL instance is in read-only mode
+  rpc IsReadOnly(multipoolermanagerdata.IsReadOnlyRequest)
+    returns (multipoolermanagerdata.IsReadOnlyResponse);
+
+  // SetStandbyPrimaryConnInfo sets the primary connection info for a standby server
+  rpc SetStandbyPrimaryConnInfo(multipoolermanagerdata.SetStandbyPrimaryConnInfoRequest)
+    returns (multipoolermanagerdata.SetStandbyPrimaryConnInfoResponse);
+
+  // StartStandbyReplication starts WAL replay on standby (calls pg_wal_replay_resume)
+  rpc StartStandbyReplication(multipoolermanagerdata.StartReplicationRequest)
+    returns (multipoolermanagerdata.StartReplicationResponse);
+
+  // StopStandbyReplication stops WAL replay on standby (calls pg_wal_replay_pause)
+  rpc StopStandbyReplication(multipoolermanagerdata.StopStandbyReplicationRequest)
+    returns (multipoolermanagerdata.StopStandbyReplicationResponse);
+
+  // StandbyReplicationStatus gets the current replication status of the standby
+  rpc StandbyReplicationStatus(multipoolermanagerdata.StandbyReplicationStatusRequest)
+    returns (multipoolermanagerdata.StandbyReplicationStatusResponse);
+
+  // ResetStandbyReplication resets the standby's connection to its primary by clearing primary_conninfo,
+  // reloading PostgreSQL configuration, and terminating the WAL receiver process. This effectively
+  // disconnects the replica from the primary and prevents it from acknowledging commits, making it
+  // unavailable for synchronous replication until reconfigured.
+  rpc ResetStandbyReplication(multipoolermanagerdata.ResetStandbyReplicationRequest)
+    returns (multipoolermanagerdata.ResetStandbyReplicationResponse);
+
+  // ConfigureSynchronousReplication configures PostgreSQL synchronous replication settings
+  // including synchronous_commit, synchronous_standby_names, and synchronization method (ANY/FIRST/quorum)
+  rpc ConfigureSynchronousReplication(multipoolermanagerdata.ConfigureSynchronousReplicationRequest)
+    returns (multipoolermanagerdata.ConfigureSynchronousReplicationResponse);
+
+  // PrimaryStatus gets the status of the leader server
+  rpc PrimaryStatus(multipoolermanagerdata.PrimaryStatusRequest)
+    returns (multipoolermanagerdata.PrimaryStatusResponse);
+
+  // PrimaryPosition gets the current LSN position of the leader
+  rpc PrimaryPosition(multipoolermanagerdata.PrimaryPositionRequest)
+    returns (multipoolermanagerdata.PrimaryPositionResponse);
+
+  // StopReplicationAndGetStatus stops PostgreSQL replication and returns the status
+  rpc StopReplicationAndGetStatus(multipoolermanagerdata.StopReplicationAndGetStatusRequest)
+    returns (multipoolermanagerdata.StopReplicationAndGetStatusResponse);
+
+
+  // Multigres HA 
+  // The following methods are used by MultiOrch to 
+  // perform HA operations (reparents and failovers)
+
+  // ChangeType changes the pooler type (LEADER/FOLLOWER)
+  rpc ChangeType(multipoolermanagerdata.ChangeTypeRequest)
+    returns (multipoolermanagerdata.ChangeTypeResponse);
+
+  // GetFollowers gets the list of follower servers
+  rpc GetFollowers(multipoolermanagerdata.GetFollowersRequest)
+    returns (multipoolermanagerdata.GetFollowersResponse);
+
+  // DemoteLeader demotes the current leader server
+  rpc DemoteLeader(multipoolermanagerdata.DemoteLeaderRequest)
+    returns (multipoolermanagerdata.DemoteLeaderResponse);
+
+  // UndoDemoteLeader undoes a leader demotion
+  rpc UndoDemoteLeader(multipoolermanagerdata.UndoDemoteLeaderRequest)
+    returns (multipoolermanagerdata.UndoDemoteLeaderResponse);
+
+  // PromoteFollower promotes a follower to leader
+  rpc PromoteFollower(multipoolermanagerdata.PromoteFollowerRequest)
+    returns (multipoolermanagerdata.PromoteFollowerResponse);
+}
+
