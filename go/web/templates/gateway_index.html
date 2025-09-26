@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <title>{{.Title}}</title>
+    <link rel="icon" href="/favicon.ico" type="image/x-icon" />
+    <link rel="stylesheet" href="/css/pico.classless.jade.min.css" />
+    <link rel="stylesheet" href="/css/custom.css" />
+  </head>
+  <body>
+    <header>
+      <h1>{{.Title}}</h1>
+    </header>
+
+    <main>
+      <section>
+        <h4>Status</h4>
+        <table>
+          <tbody>
+            <tr>
+              <th>Initialization</th>
+              <td>
+                {{if .InitError}}
+                <span class="error">{{.InitError}}</span>
+                {{else}}
+                <span class="success">No errors</span>
+                {{end}}
+              </td>
+            </tr>
+            <tr>
+              <th>Cell</th>
+              <td>{{.Cell}}</td>
+            </tr>
+            <tr>
+              <th>Pooler count</th>
+              <td>{{.PoolerCount}}</td>
+            </tr>
+            <tr>
+              <th>Last refresh</th>
+              <td>{{.LastRefresh}}</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section div class="grid">
+        {{range .Links}}
+        <article>
+          <h4>{{.Title}}</h4>
+          <a href="{{.Link}}" role="button" data-tooltip="{{.Description}}"
+            >{{.Link}}</a
+          >
+        </article>
+        {{end}}
+      </section>
+    </main>
+
+    <section>
+      <h4>Poolers</h4>
+      <table>
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Database</th>
+            <th>Type</th>
+          </tr>
+        </thead>
+        <tbody>
+          {{range .Poolers}}
+          <tr>
+            <th>{{.Name}}</th>
+            <td>{{.Database}}</td>
+            <td>{{.Type}}</td>
+          </tr>
+          {{end}}
+        </tbody>
+      </table>
+    </section>
+
+    <footer>
+      <script>
+        document.write(new Date().toISOString());
+      </script>
+      <br />Local:
+      <script>
+        document.write(new Date().toLocaleString());
+      </script>
+    </footer>
+  </body>
+</html>
