@@ -517,8 +517,6 @@ func TestAllMethods_NoConnection(t *testing.T) {
 }
 
 func TestAllMethods_ConnectionError(t *testing.T) {
-	factory := newMockFactory()
-
 	ctx := context.Background()
 
 	// Test all methods trigger retry on connection error
@@ -581,6 +579,10 @@ func TestAllMethods_ConnectionError(t *testing.T) {
 
 	for _, method := range methods {
 		t.Run(method.name, func(t *testing.T) {
+			// Create a new factory for every test to avoid shared state
+			// between sub-tests that can cause race conditions with createCount
+			factory := newMockFactory()
+
 			// Create a new wrapper for every test because
 			// a call to handleConnection will affect the code path of
 			// subsequent tests.
