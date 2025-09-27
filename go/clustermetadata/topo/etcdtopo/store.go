@@ -140,7 +140,7 @@ func NewServerWithOpts(serverAddrs []string, root, certPath, keyPath, caPath str
 	// TODO: Rename this to NewServer and change NewServer to a name that signifies it uses the process-wide TLS settings.
 	config := clientv3.Config{
 		Endpoints:   serverAddrs,
-		DialTimeout: 5 * time.Second,
+		DialTimeout: time.Second,
 		DialOptions: []grpc.DialOption{grpc.WithBlock()}, // nolint:staticcheck
 	}
 

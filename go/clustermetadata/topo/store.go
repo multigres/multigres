@@ -60,7 +60,6 @@ package topo
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -70,7 +69,6 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/multigres/multigres/go/mterrors"
 	"github.com/multigres/multigres/go/servenv"
 
 	"github.com/spf13/pflag"
@@ -303,10 +301,10 @@ func GetAvailableImplementations() []string {
 // NewWithFactory creates a new topology store based on the given Factory.
 // It also opens the global topology connection and initializes the store.
 func NewWithFactory(factory Factory, root string, serverAddrs []string) (Store, error) {
-	conn, err := factory.Create(GlobalCell, root, serverAddrs)
-	if err != nil {
-		return nil, err
-	}
+	conn := NewWrapperConn(func() (Conn, error) {
+		return factory.Create(GlobalCell, root, serverAddrs)
+	})
+
 	// TODO: Add statistics and monitoring module for topology operations
 	// conn = NewStatsConn(GlobalTopo, conn, globalReadSem)
 
@@ -418,20 +416,10 @@ func (ts *store) ConnForCell(ctx context.Context, cell string) (Conn, error) {
 	// Connect to the cell topology server while holding the lock.
 	// This ensures only one connection is established at any given time.
 	// Create the connection and cache it for future use.
-	conn, err := ts.factory.Create(cell, ci.Root, ci.ServerAddresses)
-	switch {
-	case err == nil:
-		// TODO: Add statistics and monitoring module for cell operations
-		// cellReadSem := semaphore.NewWeighted(DefaultReadConcurrency)
-		// conn = NewStatsConn(cell, conn, cellReadSem)
-		ts.cellConns[cell] = cellConn{ci, conn}
-		return conn, nil
-	case errors.Is(err, &TopoError{Code: NoNode}):
-		err = mterrors.Wrap(err, fmt.Sprintf("failed to create topo connection to %v, %v", serverAddrsStr, ci.Root))
-		return nil, NewError(NoNode, err.Error())
-	default:
-		return nil, mterrors.Wrap(err, fmt.Sprintf("failed to create topo connection to %v, %v", serverAddrsStr, ci.Root))
-	}
+	conn := NewWrapperConn(func() (Conn, error) {
+		return ts.factory.Create(cell, ci.Root, ci.ServerAddresses)
+	})
+	return conn, nil
 }
 
 // Close will close all connections to underlying topology stores.

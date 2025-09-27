@@ -10,7 +10,13 @@
     <link rel="stylesheet" href="/css/custom.css" />
   </head>
   <body>
-    <main>ok</main>
+    <main>
+      {{if .}}
+      <span class="success">ok</span>
+      {{else}}
+      <span class="error">not ok</span>
+      {{end}}
+    </main>
     <footer>
       <script>
         document.write(new Date().toISOString());
