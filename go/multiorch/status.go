@@ -12,26 +12,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// multigateway is the top-level proxy that masquerades as a PostgreSQL server,
-// handling client connections and routing queries to multipooler instances.
-
-package multigateway
+package multiorch
 
 import (
 	"fmt"
 	"net/http"
-	"time"
 
 	"github.com/multigres/multigres/go/servenv"
 	"github.com/multigres/multigres/go/web"
 )
-
-// PoolerStatus represents the status of a multipooler instance.
-type PoolerStatus struct {
-	Name     string `json:"name"`
-	Database string `json:"database"`
-	Type     string `json:"type"`
-}
 
 // Link represents a link on the status page.
 type Link struct {
@@ -46,17 +35,13 @@ type Status struct {
 
 	InitError []string `json:"init_error"`
 
-	Cell        string         `json:"cell"`
-	ServiceID   string         `json:"service_id"`
-	PoolerCount int            `json:"pooler_count"`
-	LastRefresh time.Time      `json:"last_refresh"`
-	Poolers     []PoolerStatus `json:"poolers"`
+	Cell string `json:"cell"`
 
 	Links []Link `json:"links"`
 }
 
 var serverStatus = Status{
-	Title: "Multigateway",
+	Title: "Multiorch",
 	Links: []Link{
 		{"Config", "Server configuration details", "/config"},
 		{"Live", "URL for liveness check", "/live"},
@@ -71,19 +56,7 @@ func init() {
 
 // handleStatus handles the HTTP endpoint that shows overall status
 func handleStatus(w http.ResponseWriter, r *http.Request) {
-	serverStatus.PoolerCount = poolerDiscovery.PoolerCount()
-	serverStatus.LastRefresh = poolerDiscovery.LastRefresh()
-	poolers := poolerDiscovery.GetPoolers()
-	serverStatus.Poolers = make([]PoolerStatus, 0, len(poolers))
-	for _, pooler := range poolers {
-		serverStatus.Poolers = append(serverStatus.Poolers, PoolerStatus{
-			Name:     pooler.Id.GetName(),
-			Database: pooler.GetDatabase(),
-			Type:     pooler.GetType().String(),
-		})
-	}
-
-	err := web.Templates.ExecuteTemplate(w, "gateway_index.html", serverStatus)
+	err := web.Templates.ExecuteTemplate(w, "orch_index.html", serverStatus)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Failed to execute template: %v", err), http.StatusInternalServerError)
 		return
