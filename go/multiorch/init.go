@@ -20,8 +20,6 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"slices"
-	"strings"
 	"sync"
 	"time"
 
@@ -83,12 +81,6 @@ func Init() {
 		}
 	}
 
-	// Validate cell
-	if err := checkCellFlags(); err != nil {
-		serverStatus.InitError = append(serverStatus.InitError, fmt.Sprintf("Failed to validate cell: %v", err))
-		logger.Error("Failed to validate cell", "error", err)
-	}
-
 	// Create MultiOrch instance for topo registration
 	// TODO(sougou): Is serviceID needed? It's sent as empty string for now.
 	multiorch := topo.NewMultiOrch("", cell, hostname)
@@ -100,37 +92,6 @@ func Init() {
 
 	// Publish in topo
 	topoPublish(multiorch)
-}
-
-// checkCellFlags validates the cell flag against available cells
-// in the topology. This function does not retry because this gets
-// indirectly retried when we publish the gateway.
-func checkCellFlags() error {
-	if cell == "" {
-		return fmt.Errorf("cell flag must be set")
-	}
-
-	// Create context with timeout for topology operations
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-
-	// Get all known cells from topology.
-	cellsInTopo, err := ts.GetCellNames(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to get cells from topology: %w", err)
-	}
-	if len(cellsInTopo) == 0 {
-		return fmt.Errorf("topo server should have at least one cell configured")
-	}
-
-	// Check if the specified cell exists in topology
-	hasCell := slices.Contains(cellsInTopo, cell)
-	if !hasCell {
-		return fmt.Errorf("cell '%s' does not exist in topology. Available cells: [%s]",
-			cell, strings.Join(cellsInTopo, ", "))
-	}
-
-	return nil
 }
 
 func topoPublish(multiorch *clustermetadatapb.MultiOrch) {
