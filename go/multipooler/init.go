@@ -17,21 +17,15 @@ package multipooler
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
 	"os"
-	"sync"
-	"time"
 
 	"github.com/spf13/pflag"
 
 	"github.com/multigres/multigres/go/clustermetadata/topo"
+	"github.com/multigres/multigres/go/clustermetadata/topopublish"
 	"github.com/multigres/multigres/go/multipooler/server"
-	"github.com/multigres/multigres/go/netutil"
 	"github.com/multigres/multigres/go/servenv"
-	"github.com/multigres/multigres/go/tools/timertools"
-
-	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 )
 
 var (
@@ -47,14 +41,10 @@ var (
 	ts     topo.Store
 	logger *slog.Logger
 
-	// multipoolerID stores the ID for deregistration during shutdown
-	multipoolerID *clustermetadatapb.ID
 	// poolerServer holds the gRPC multipooler server instance
 	poolerServer *server.MultiPoolerServer
 
-	serverctx    context.Context
-	servercancel context.CancelFunc
-	serverwg     sync.WaitGroup
+	tp *topopublish.TopoPublisher
 )
 
 func RegisterFlags(fs *pflag.FlagSet) {
@@ -74,7 +64,6 @@ func RegisterFlags(fs *pflag.FlagSet) {
 func Init() {
 	logger = servenv.GetLogger()
 	ts = topo.Open()
-	serverctx, servercancel = context.WithCancel(context.Background())
 
 	// This doen't change
 	serverStatus.Cell = cell
@@ -97,15 +86,13 @@ func Init() {
 	)
 
 	if database == "" {
-		serverStatus.InitError = append(serverStatus.InitError, "database is required")
 		logger.Error("database is required")
-		return
+		os.Exit(1)
 	}
 
 	if tableGroup == "" {
-		serverStatus.InitError = append(serverStatus.InitError, "table group is required")
 		logger.Error("table group is required")
-		return
+		os.Exit(1)
 	}
 
 	// Register multipooler gRPC service with servenv's GRPCServer
@@ -120,81 +107,21 @@ func Init() {
 		logger.Info("MultiPooler gRPC service registered with servenv")
 	}
 
-	// Register with topology service
-	hostname, err := netutil.FullyQualifiedHostname()
-	if err != nil {
-		logger.Warn("Failed to get fully qualified hostname, falling back to simple hostname", "error", err)
-		hostname, err = os.Hostname()
-		if err != nil {
-			serverStatus.InitError = append(serverStatus.InitError, fmt.Sprintf("Failed to get hostname: %v", err))
-			logger.Error("Failed to get hostname", "error", err)
-			return
-		}
-	}
-
 	// Create MultiPooler instance for topo registration
-	multipooler := topo.NewMultiPooler(serviceID, cell, hostname, tableGroup)
+	multipooler := topo.NewMultiPooler(serviceID, cell, servenv.Hostname, tableGroup)
 	multipooler.PortMap["grpc"] = int32(servenv.GRPCPort())
 	multipooler.PortMap["http"] = int32(servenv.HTTPPort())
 	multipooler.Database = database
 
-	// Store ID for deregistration during shutdown
-	multipoolerID = multipooler.Id
-
-	// Publish in topo
-	topoPublish(multipooler)
-}
-
-func topoPublish(multipooler *clustermetadatapb.MultiPooler) {
-	// Register with topology
-	ctx, cancel := context.WithTimeout(serverctx, 10*time.Second)
-	defer cancel()
-
-	if err := ts.InitMultiPooler(ctx, multipooler, true); err != nil {
-		logger.Info("Successfully registered multipooler with topology", "id", multipooler.Id)
-		return
-	} else {
-		serverStatus.InitError = append(serverStatus.InitError, fmt.Sprintf("Failed to register multipooler with topology: %v", err))
-		logger.Error("Failed to register multipooler with topology", "error", err)
-	}
-	serverwg.Go(func() {
-		ticker := timertools.NewBackoffTicker(1*time.Second, 30*time.Second)
-		for {
-			select {
-			case <-ticker.C:
-				ctx, cancel := context.WithTimeout(serverctx, 10*time.Second)
-				if err := ts.InitMultiPooler(ctx, multipooler, true); err == nil {
-					logger.Info("Successfully registered multipooler with topology", "id", multipooler.Id)
-					// This means all previous errors have been resolved.
-					serverStatus.InitError = nil
-					cancel()
-					return
-				}
-				cancel()
-			case <-serverctx.Done():
-				return
-			}
-		}
-	})
+	tp = topopublish.Publish(
+		func(ctx context.Context) error { return ts.InitMultiPooler(ctx, multipooler, true) },
+		func(ctx context.Context) error { return ts.DeleteMultiPooler(ctx, multipooler.Id) },
+		func(s string) { serverStatus.InitError = s },
+	)
 }
 
 func Shutdown() {
 	logger.Info("multipooler shutting down")
-
-	// Stop any lingering initializations
-	servercancel()
-	serverwg.Wait()
-
-	// Deregister from topology service
-	if multipoolerID != nil {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-
-		if err := ts.DeleteMultiPooler(ctx, multipoolerID); err != nil {
-			logger.Error("Failed to deregister multipooler from topology", "error", err, "id", multipoolerID)
-		} else {
-			logger.Info("Successfully deregistered multipooler from topology", "id", multipoolerID)
-		}
-	}
+	tp.Unpublish()
 	ts.Close()
 }

@@ -86,9 +86,6 @@ func (c *WrapperConn) retryConnection(conn Conn) {
 
 	for range ticker.C {
 		conn, err := c.newFunc()
-		if err != nil {
-			slog.Error("Connection error on retry", "err", err)
-		}
 		mustContinue := func() bool {
 			// We have to do this entire operation within a lock:
 			// Once we check the value of c.closed, it should not be allowed

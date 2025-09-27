@@ -17,20 +17,13 @@ package multiorch
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
-	"os"
-	"sync"
-	"time"
 
 	"github.com/spf13/pflag"
 
 	"github.com/multigres/multigres/go/clustermetadata/topo"
-	"github.com/multigres/multigres/go/netutil"
+	"github.com/multigres/multigres/go/clustermetadata/topopublish"
 	"github.com/multigres/multigres/go/servenv"
-	"github.com/multigres/multigres/go/tools/timertools"
-
-	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 )
 
 var (
@@ -39,12 +32,7 @@ var (
 	ts     topo.Store
 	logger *slog.Logger
 
-	// multiorchID stores the ID for deregistration during shutdown
-	multiorchID *clustermetadatapb.ID
-
-	serverctx    context.Context
-	servercancel context.CancelFunc
-	serverwg     sync.WaitGroup
+	tp *topopublish.TopoPublisher
 )
 
 // Register flags that are specific to multiorch.
@@ -58,9 +46,8 @@ func RegisterFlags(fs *pflag.FlagSet) {
 func Init() {
 	logger = servenv.GetLogger()
 	ts = topo.Open()
-	serverctx, servercancel = context.WithCancel(context.Background())
 
-	// This doen't change
+	// This doesn't change
 	serverStatus.Cell = cell
 
 	logger.Info("multiorch starting up",
@@ -69,81 +56,21 @@ func Init() {
 		"grpc_port", servenv.GRPCPort(),
 	)
 
-	// Register with topology service
-	hostname, err := netutil.FullyQualifiedHostname()
-	if err != nil {
-		logger.Warn("Failed to get fully qualified hostname, falling back to simple hostname", "error", err)
-		hostname, err = os.Hostname()
-		if err != nil {
-			serverStatus.InitError = append(serverStatus.InitError, fmt.Sprintf("Failed to get hostname: %v", err))
-			logger.Error("Failed to get hostname", "error", err)
-			return
-		}
-	}
-
 	// Create MultiOrch instance for topo registration
 	// TODO(sougou): Is serviceID needed? It's sent as empty string for now.
-	multiorch := topo.NewMultiOrch("", cell, hostname)
+	multiorch := topo.NewMultiOrch("", cell, servenv.Hostname)
 	multiorch.PortMap["grpc"] = int32(servenv.GRPCPort())
 	multiorch.PortMap["http"] = int32(servenv.HTTPPort())
 
-	// Store ID for deregistration during shutdown
-	multiorchID = multiorch.Id
-
-	// Publish in topo
-	topoPublish(multiorch)
-}
-
-func topoPublish(multiorch *clustermetadatapb.MultiOrch) {
-	// Register with topology
-	ctx, cancel := context.WithTimeout(serverctx, 10*time.Second)
-	defer cancel()
-
-	if err := ts.InitMultiOrch(ctx, multiorch, true); err == nil {
-		logger.Info("Successfully registered multiorch with topology", "id", multiorch.Id)
-		return
-	} else {
-		serverStatus.InitError = append(serverStatus.InitError, fmt.Sprintf("Failed to register multiorch with topology: %v", err))
-		logger.Error("Failed to register multiorch with topology", "error", err)
-	}
-	serverwg.Go(func() {
-		ticker := timertools.NewBackoffTicker(1*time.Second, 30*time.Second)
-		for {
-			select {
-			case <-ticker.C:
-				ctx, cancel := context.WithTimeout(serverctx, 10*time.Second)
-				if err := ts.InitMultiOrch(ctx, multiorch, true); err == nil {
-					logger.Info("Successfully registered multiorch with topology", "id", multiorch.Id)
-					// This means all previous errors have been resolved.
-					serverStatus.InitError = nil
-					cancel()
-					return
-				}
-				cancel()
-			case <-serverctx.Done():
-				return
-			}
-		}
-	})
+	tp = topopublish.Publish(
+		func(ctx context.Context) error { return ts.InitMultiOrch(ctx, multiorch, true) },
+		func(ctx context.Context) error { return ts.DeleteMultiOrch(ctx, multiorch.Id) },
+		func(s string) { serverStatus.InitError = s },
+	)
 }
 
 func Shutdown() {
 	logger.Info("multiorch shutting down")
-
-	// Stop any lingering initializations
-	servercancel()
-	serverwg.Wait()
-
-	// Deregister from topology service
-	if multiorchID != nil {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-
-		if err := ts.DeleteMultiOrch(ctx, multiorchID); err != nil {
-			logger.Error("Failed to deregister multiorch from topology", "error", err, "id", multiorchID)
-		} else {
-			logger.Info("Successfully deregistered multiorch from topology", "id", multiorchID)
-		}
-	}
+	tp.Unpublish()
 	ts.Close()
 }

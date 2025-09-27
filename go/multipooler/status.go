@@ -35,7 +35,7 @@ type Link struct {
 type Status struct {
 	Title string `json:"title"`
 
-	InitError []string `json:"init_error"`
+	InitError string `json:"init_error"`
 
 	Cell           string `json:"cell"`
 	ServiceID      string `json:"service_id"`
