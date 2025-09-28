@@ -12,8 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package multipooler provides multipooler functionality.
-package multipooler
+package multiadmin
 
 import (
 	"fmt"
@@ -36,18 +35,11 @@ type Status struct {
 
 	InitError string `json:"init_error"`
 
-	Cell           string `json:"cell"`
-	ServiceID      string `json:"service_id"`
-	Database       string `json:"database"`
-	TableGroup     string `json:"table_group"`
-	PgctldAddr     string `json:"pgctld_addr"`
-	SocketFilePath string `json:"socket_file_path"`
-
 	Links []Link `json:"links"`
 }
 
 var serverStatus = Status{
-	Title: "Multipooler",
+	Title: "Multiadmin",
 	Links: []Link{
 		{"Config", "Server configuration details", "/config"},
 		{"Live", "URL for liveness check", "/live"},
@@ -62,7 +54,7 @@ func init() {
 
 // handleStatus handles the HTTP endpoint that shows overall status
 func handleStatus(w http.ResponseWriter, r *http.Request) {
-	err := web.Templates.ExecuteTemplate(w, "pooler_index.html", serverStatus)
+	err := web.Templates.ExecuteTemplate(w, "admin_index.html", serverStatus)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Failed to execute template: %v", err), http.StatusInternalServerError)
 		return
