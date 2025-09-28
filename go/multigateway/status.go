@@ -65,12 +65,12 @@ var serverStatus = Status{
 }
 
 func init() {
-	servenv.HTTPHandleFunc("/status", handleStatus)
+	servenv.HTTPHandleFunc("/", handleIndex)
 	servenv.HTTPHandleFunc("/ready", handleReady)
 }
 
-// handleStatus handles the HTTP endpoint that shows overall status
-func handleStatus(w http.ResponseWriter, r *http.Request) {
+// handleIndex serves the index page
+func handleIndex(w http.ResponseWriter, r *http.Request) {
 	serverStatus.PoolerCount = poolerDiscovery.PoolerCount()
 	serverStatus.LastRefresh = poolerDiscovery.LastRefresh()
 	poolers := poolerDiscovery.GetPoolers()

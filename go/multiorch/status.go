@@ -50,12 +50,12 @@ var serverStatus = Status{
 }
 
 func init() {
-	servenv.HTTPHandleFunc("/status", handleStatus)
+	servenv.HTTPHandleFunc("/", handleIndex)
 	servenv.HTTPHandleFunc("/ready", handleReady)
 }
 
-// handleStatus handles the HTTP endpoint that shows overall status
-func handleStatus(w http.ResponseWriter, r *http.Request) {
+// handleIndex serves the index page
+func handleIndex(w http.ResponseWriter, r *http.Request) {
 	err := web.Templates.ExecuteTemplate(w, "orch_index.html", serverStatus)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Failed to execute template: %v", err), http.StatusInternalServerError)

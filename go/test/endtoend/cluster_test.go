@@ -1042,14 +1042,18 @@ func TestClusterLifecycle(t *testing.T) {
 
 		// Try to run multipooler without --database flag (should fail)
 		t.Log("Testing multipooler without --database flag (should fail)...")
-		cmd := exec.Command(multipoolerPath, "--cell", "testcell")
+		cmd := exec.Command(multipoolerPath,
+			"--topo-global-server-addresses", "fake-address",
+			"--topo-global-root", "fake-root",
+			"--topo-implementation", "etcd2",
+		)
 		output, err := cmd.CombinedOutput()
 
 		// Should fail with database flag required error
 		require.Error(t, err, "multipooler should fail when --database flag is missing")
 		outputStr := string(output)
-		assert.Contains(t, outputStr, "--database flag is required",
-			"Error message should mention --database flag is required. Got: %s", outputStr)
+		assert.Contains(t, outputStr, "database is required",
+			"Error message should mention database is required. Got: %s", outputStr)
 
 		// Try to run multipooler with --database flag (should succeed with setup)
 		t.Log("Testing multipooler with --database flag (should not show database error)...")
