@@ -6,6 +6,7 @@ set -euo pipefail
 if ! command -v prettier >/dev/null 2>&1; then
   # If it's not installed, for now skip autoformatting. We can make it a tool dependency
   # in the future, if we want.
+  echo "Prettier not found. Skipping..."
   exit 0
 fi
 
