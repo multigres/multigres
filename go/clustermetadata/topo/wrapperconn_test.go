@@ -252,8 +252,9 @@ func TestNewConn_InitialFailure(t *testing.T) {
 	factory.waitForNewConn(initialCount)
 
 	conn, err = wrapper.getConnection()
-	assert.NoError(t, err, "Expected connection to be available after retry")
-	assert.NotNil(t, conn, "Expected connection to be non-nil after retry")
+	require.Eventually(t, func() bool {
+		return err == nil && conn != nil
+	}, 5*time.Second, 5*time.Millisecond)
 }
 
 func TestGetConnection_NoConnection(t *testing.T) {
@@ -270,14 +271,34 @@ func TestGetConnection_NoConnection(t *testing.T) {
 }
 
 func TestHandleConnectionError_RetriesOnSpecificErrors(t *testing.T) {
-	testCases := []mtrpc.Code{
-		mtrpc.Code_UNAVAILABLE,
-		mtrpc.Code_FAILED_PRECONDITION,
-		mtrpc.Code_CLUSTER_EVENT,
+	testCases := []struct {
+		name string
+		err  error
+	}{
+		{
+			name: "UNAVAILABLE",
+			err:  mterrors.Errorf(mtrpc.Code_UNAVAILABLE, "test error"),
+		},
+		{
+			name: "FAILED_PRECONDITION",
+			err:  mterrors.Errorf(mtrpc.Code_FAILED_PRECONDITION, "test error"),
+		},
+		{
+			name: "CLUSTER_EVENT",
+			err:  mterrors.Errorf(mtrpc.Code_CLUSTER_EVENT, "test error"),
+		},
+		{
+			name: "context deadline exceeded",
+			err:  mterrors.Errorf(mtrpc.Code_INVALID_ARGUMENT, "context deadline exceeded"),
+		},
+		{
+			name: "context canceled",
+			err:  mterrors.Errorf(mtrpc.Code_INVALID_ARGUMENT, "context canceled"),
+		},
 	}
 
-	for _, code := range testCases {
-		t.Run(code.String(), func(t *testing.T) {
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
 			factory := newMockFactory()
 			wrapper := NewWrapperConn(factory.newConn)
 
@@ -287,8 +308,7 @@ func TestHandleConnectionError_RetriesOnSpecificErrors(t *testing.T) {
 
 			initialCount := factory.getCreateCount()
 
-			err = mterrors.Errorf(code, "test error")
-			wrapper.handleConnectionError(conn, err)
+			wrapper.handleConnectionError(conn, tc.err)
 
 			factory.waitForNewConn(initialCount)
 		})
@@ -312,35 +332,6 @@ func TestHandleConnectionError_DoesNotRetryOnOtherErrors(t *testing.T) {
 	time.Sleep(5 * time.Millisecond)
 
 	assert.Equal(t, initialCount, factory.getCreateCount(), "Expected no retry for non-retriable error")
-}
-
-func TestRetryConnection_DoesNotReplaceNewerConnection(t *testing.T) {
-	factory := newMockFactory()
-	wrapper := NewWrapperConn(factory.newConn)
-
-	// Get initial connection
-	oldConn, err := wrapper.getConnection()
-	require.NoError(t, err, "Expected initial connection")
-
-	// Manually set a new connection
-	newConn, err := factory.newConn()
-	require.NoError(t, err, "Failed to create new connection")
-	wrapper.mu.Lock()
-	wrapper.wrapped = newConn
-	wrapper.mu.Unlock()
-
-	initialCount := factory.getCreateCount()
-
-	// Try to retry with old connection - should do nothing
-	wrapper.retryConnection(oldConn)
-
-	// Verify no new connections were created
-	assert.Equal(t, initialCount, factory.getCreateCount(), "Expected no new connections")
-
-	// Verify current connection is still the new one
-	currentConn, err := wrapper.getConnection()
-	require.NoError(t, err, "Expected to get current connection")
-	assert.Equal(t, newConn, currentConn, "Expected connection to remain the newer one")
 }
 
 func TestAllMethods_Success(t *testing.T) {
@@ -809,19 +800,77 @@ func TestMultipleOperationsWithConnectionErrors(t *testing.T) {
 	}
 }
 
+func TestRetryConnection_PreventsMultipleRetries(t *testing.T) {
+	factory := newMockFactory()
+	wrapper := NewWrapperConn(factory.newConn)
+
+	// Set factory to fail connections and make the wrapper go into retry
+	factory.setShouldFail(true)
+	conn, err := wrapper.getConnection()
+	require.NoError(t, err, "Expected initial connection")
+
+	// Trigger a retry by simulating a connection error
+	wrapper.handleConnectionError(conn, mterrors.Errorf(mtrpc.Code_UNAVAILABLE, "test error"))
+
+	// Wait for retry to start
+	require.Eventually(t, func() bool {
+		wrapper.mu.Lock()
+		defer wrapper.mu.Unlock()
+		return wrapper.retrying
+	}, 50*time.Millisecond, 5*time.Millisecond, "Expected retrying to become true")
+
+	// Change c.wrapped to a non-nil value
+	mockConn := newMockConn(999)
+	wrapper.mu.Lock()
+	wrapper.wrapped = mockConn
+	wrapper.mu.Unlock()
+
+	// Generate another failure to make it try to retry
+	wrapper.handleConnectionError(mockConn, mterrors.Errorf(mtrpc.Code_UNAVAILABLE, "another error"))
+
+	// Give time for retry to be invoked.
+	time.Sleep(1 * time.Millisecond)
+
+	// Verify that c.wrapped is still non-nil (retry was prevented)
+	wrapper.mu.Lock()
+	currentConn := wrapper.wrapped
+	wrapper.mu.Unlock()
+	assert.Equal(t, mockConn, currentConn, "Connection should still be the same - retry was prevented")
+
+	// Reset c.wrapped to nil
+	wrapper.mu.Lock()
+	wrapper.wrapped = nil
+	wrapper.mu.Unlock()
+
+	// Set factory to succeed
+	factory.setShouldFail(false)
+
+	// Verify that c.retrying becomes false (retry completes successfully)
+	require.Eventually(t, func() bool {
+		wrapper.mu.Lock()
+		defer wrapper.mu.Unlock()
+		return !wrapper.retrying && wrapper.wrapped != nil
+	}, 100*time.Millisecond, 5*time.Millisecond, "Expected retrying to become false and connection established")
+
+	wrapper.Close()
+}
+
 func TestRetryConnection_TerminatesWhenClosed(t *testing.T) {
 	factory := newMockFactory()
 	wrapper := NewWrapperConn(factory.newConn)
 
 	// Get the initial connection and manually trigger a retry with it
-	conn, err := wrapper.getConnection()
+	_, err := wrapper.getConnection()
 	require.NoError(t, err, "Expected initial connection")
 	initialCount := factory.getCreateCount()
+
+	// Ensure that retry will keep failing.
+	factory.setShouldFail(true)
 
 	// Start retryConnection manually in a goroutine
 	done := make(chan bool, 1)
 	go func() {
-		wrapper.retryConnection(conn)
+		wrapper.retryConnection()
 		done <- true
 	}()
 
@@ -835,7 +884,7 @@ func TestRetryConnection_TerminatesWhenClosed(t *testing.T) {
 	select {
 	case <-done:
 		// retryConnection completed successfully - this is what we want
-	case <-time.After(5 * time.Millisecond):
+	case <-time.After(100 * time.Millisecond):
 		assert.Fail(t, "retryConnection did not terminate within expected time after close")
 	}
 
@@ -873,40 +922,6 @@ func TestRetryConnection_TerminatesWhenSuccessful(t *testing.T) {
 
 	// Verify no additional connection attempts were made
 	assert.LessOrEqual(t, factory.getCreateCount(), successCount, "retryConnection should have terminated after successful connection")
-}
-
-func TestRetryConnection_TerminatesWhenConnectionReplaced(t *testing.T) {
-	factory := newMockFactory()
-	wrapper := NewWrapperConn(factory.newConn)
-
-	// Get initial connection
-	oldConn, err := wrapper.getConnection()
-	require.NoError(t, err, "Expected initial connection")
-
-	// Create a new connection manually
-	newConn, err := factory.newConn()
-	require.NoError(t, err, "Failed to create new connection")
-
-	// Replace the connection
-	wrapper.mu.Lock()
-	wrapper.wrapped = newConn
-	wrapper.mu.Unlock()
-
-	initialCount := factory.getCreateCount()
-
-	// Start retryConnection with the old connection - should terminate immediately
-	wrapper.retryConnection(oldConn)
-
-	// Wait briefly
-	time.Sleep(5 * time.Millisecond)
-
-	// Verify no new connections were created
-	assert.LessOrEqual(t, factory.getCreateCount(), initialCount, "retryConnection should have terminated when connection was already replaced")
-
-	// Verify current connection is still the new one
-	currentConn, err := wrapper.getConnection()
-	require.NoError(t, err, "Expected connection")
-	assert.Equal(t, newConn, currentConn, "Expected connection to remain the newer one")
 }
 
 func TestRetryConnection_ClosesStrayConnectionWhenWrapperClosed(t *testing.T) {

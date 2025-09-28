@@ -17,6 +17,7 @@ package topo
 import (
 	"context"
 	"log/slog"
+	"strings"
 	"sync"
 	"time"
 
@@ -29,10 +30,11 @@ import (
 // It provides transparent retry logic for retriable connection errors.
 type WrapperConn struct {
 	newFunc func() (Conn, error)
-	// mu protects wrapped and closed.
-	mu      sync.Mutex
-	wrapped Conn
-	closed  bool
+
+	mu       sync.Mutex
+	wrapped  Conn
+	retrying bool
+	closed   bool
 }
 
 // NewWrapperConn creates a new connection wrapper that uses newFunc to establish connections.
@@ -50,12 +52,44 @@ func NewWrapperConn(newFunc func() (Conn, error)) *WrapperConn {
 	return c
 }
 
+// handleConnectionError examines the error and triggers reconnection for retriable errors.
+func (c *WrapperConn) handleConnectionError(conn Conn, err error) {
+	// If there is no connection, we want to retry irrespective of the error.
+	if conn == nil {
+		slog.Error("Connection error, will keep retrying", "err", err)
+		go c.retryConnection()
+		return
+	}
+	if err == nil {
+		return
+	}
+	if strings.Contains(err.Error(), "context deadline exceeded") {
+		slog.Error("Connection error, will keep retrying", "err", err)
+		go c.retryConnection()
+		return
+	}
+	if strings.Contains(err.Error(), "context canceled") {
+		slog.Error("Connection error, will keep retrying", "err", err)
+		go c.retryConnection()
+		return
+	}
+	switch mterrors.Code(err) {
+	case mtrpc.Code_UNAVAILABLE, mtrpc.Code_FAILED_PRECONDITION, mtrpc.Code_CLUSTER_EVENT:
+		slog.Error("Connection error, will keep retrying", "err", err)
+		go c.retryConnection()
+	}
+}
+
 // retryConnection goes into a retry loop until a connection is established.
-// It ensures that it goes into the loop only if the input (failed) conn
-// matches the wrapped conn. If they don't match, it means the connection was
-// already replaced and no action is needed.
+// It ensures that it goes into the loop only if it's already not retrying.
 // retryConnection terminates if Conn is closed.
-func (c *WrapperConn) retryConnection(conn Conn) {
+func (c *WrapperConn) retryConnection() {
+	defer func() {
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		c.retrying = false
+	}()
+
 	// Use defer to protect us from unexpected panics
 	mustReturn := func() bool {
 		c.mu.Lock()
@@ -63,13 +97,10 @@ func (c *WrapperConn) retryConnection(conn Conn) {
 		if c.closed {
 			return true
 		}
-		// If two functions fail simultaneously, they will both trigger a retryConnection.
-		// The first invocation may successfully reopen a new connection. If so, we have to
-		// prevent the second retry from replacing that good connection.
-		// We check this by comparing the wrapped connection with the input connection.
-		if c.wrapped != conn {
+		if c.retrying {
 			return true
 		}
+		c.retrying = true
 		if c.wrapped != nil {
 			// Close the connection in a goroutine to prevent blocking.
 			go c.wrapped.Close()
@@ -81,7 +112,7 @@ func (c *WrapperConn) retryConnection(conn Conn) {
 		return
 	}
 
-	ticker := timertools.NewBackoffTicker(1*time.Millisecond, 30*time.Second)
+	ticker := timertools.NewBackoffTicker(10*time.Millisecond, 30*time.Second)
 	defer ticker.Stop()
 
 	for range ticker.C {
@@ -122,25 +153,6 @@ func (c *WrapperConn) getConnection() (Conn, error) {
 		return nil, mterrors.Errorf(mtrpc.Code_UNAVAILABLE, "no connection available")
 	}
 	return c.wrapped, nil
-}
-
-// handleConnectionError examines the error and triggers reconnection for retriable errors.
-// Only specific error codes (UNAVAILABLE, FAILED_PRECONDITION, CLUSTER_EVENT) trigger retries.
-func (c *WrapperConn) handleConnectionError(conn Conn, err error) {
-	// If there is no connection, we want to retry irrespective of the error.
-	if conn == nil {
-		slog.Error("Connection error, will keep retrying", "err", err)
-		go c.retryConnection(conn)
-		return
-	}
-	if err == nil {
-		return
-	}
-	switch mterrors.Code(err) {
-	case mtrpc.Code_UNAVAILABLE, mtrpc.Code_FAILED_PRECONDITION, mtrpc.Code_CLUSTER_EVENT:
-		slog.Error("Connection error, will keep retrying", "err", err)
-		go c.retryConnection(conn)
-	}
 }
 
 // ListDir lists the contents of a directory in the topology server.
