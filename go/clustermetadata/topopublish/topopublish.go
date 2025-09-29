@@ -58,7 +58,7 @@ func Publish(publish func(ctx context.Context) error, unpublish func(ctx context
 		tp.logger.Error("Failed to register component with topology", "error", err)
 	}
 	tp.wg.Go(func() {
-		ticker := timertools.NewBackoffTicker(time.Second, 30*time.Second)
+		ticker := timertools.NewBackoffTicker(10*time.Millisecond, 30*time.Second)
 		for {
 			select {
 			case <-ticker.C:
@@ -95,7 +95,7 @@ func (tp *TopoPublisher) Unpublish() {
 	tp.wg.Wait()
 
 	// Use standalone ctx because tp.ctx is already canceled.
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 
 	if err := tp.unpublish(ctx); err != nil {
