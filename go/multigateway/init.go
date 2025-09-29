@@ -25,7 +25,7 @@ import (
 	"github.com/spf13/pflag"
 
 	"github.com/multigres/multigres/go/clustermetadata/topo"
-	"github.com/multigres/multigres/go/clustermetadata/topopublish"
+	"github.com/multigres/multigres/go/clustermetadata/toporeg"
 	"github.com/multigres/multigres/go/servenv"
 )
 
@@ -36,7 +36,7 @@ var (
 	ts     topo.Store
 	logger *slog.Logger
 
-	tp *topopublish.TopoPublisher
+	tr *toporeg.TopoReg
 )
 
 // Register flags that are specific to multigateway.
@@ -68,9 +68,9 @@ func Init() {
 	multigateway.PortMap["grpc"] = int32(servenv.GRPCPort())
 	multigateway.PortMap["http"] = int32(servenv.HTTPPort())
 
-	tp = topopublish.Publish(
-		func(ctx context.Context) error { return ts.InitMultiGateway(ctx, multigateway, true) },
-		func(ctx context.Context) error { return ts.DeleteMultiGateway(ctx, multigateway.Id) },
+	tr = toporeg.Register(
+		func(ctx context.Context) error { return ts.RegisterMultiGateway(ctx, multigateway, true) },
+		func(ctx context.Context) error { return ts.UnregisterMultiGateway(ctx, multigateway.Id) },
 		func(s string) { serverStatus.InitError = s },
 	)
 
@@ -89,6 +89,6 @@ func Shutdown() {
 		logger.Info("Pooler discovery stopped")
 	}
 
-	tp.Unpublish()
+	tr.Unregister()
 	ts.Close()
 }

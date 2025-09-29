@@ -23,7 +23,7 @@ import (
 	"github.com/spf13/pflag"
 
 	"github.com/multigres/multigres/go/clustermetadata/topo"
-	"github.com/multigres/multigres/go/clustermetadata/topopublish"
+	"github.com/multigres/multigres/go/clustermetadata/toporeg"
 	"github.com/multigres/multigres/go/multipooler/server"
 	"github.com/multigres/multigres/go/servenv"
 )
@@ -44,7 +44,7 @@ var (
 	// poolerServer holds the gRPC multipooler server instance
 	poolerServer *server.MultiPoolerServer
 
-	tp *topopublish.TopoPublisher
+	tr *toporeg.TopoReg
 )
 
 func RegisterFlags(fs *pflag.FlagSet) {
@@ -113,15 +113,15 @@ func Init() {
 	multipooler.PortMap["http"] = int32(servenv.HTTPPort())
 	multipooler.Database = database
 
-	tp = topopublish.Publish(
-		func(ctx context.Context) error { return ts.InitMultiPooler(ctx, multipooler, true) },
-		func(ctx context.Context) error { return ts.DeleteMultiPooler(ctx, multipooler.Id) },
+	tr = toporeg.Register(
+		func(ctx context.Context) error { return ts.RegisterMultiPooler(ctx, multipooler, true) },
+		func(ctx context.Context) error { return ts.UnregisterMultiPooler(ctx, multipooler.Id) },
 		func(s string) { serverStatus.InitError = s },
 	)
 }
 
 func Shutdown() {
 	logger.Info("multipooler shutting down")
-	tp.Unpublish()
+	tr.Unregister()
 	ts.Close()
 }

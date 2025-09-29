@@ -162,8 +162,8 @@ type CellStore interface {
 	CreateMultiPooler(ctx context.Context, multipooler *clustermetadatapb.MultiPooler) error
 	UpdateMultiPooler(ctx context.Context, mpi *MultiPoolerInfo) error
 	UpdateMultiPoolerFields(ctx context.Context, id *clustermetadatapb.ID, update func(*clustermetadatapb.MultiPooler) error) (*clustermetadatapb.MultiPooler, error)
-	DeleteMultiPooler(ctx context.Context, id *clustermetadatapb.ID) error
-	InitMultiPooler(ctx context.Context, multipooler *clustermetadatapb.MultiPooler, allowUpdate bool) error
+	UnregisterMultiPooler(ctx context.Context, id *clustermetadatapb.ID) error
+	RegisterMultiPooler(ctx context.Context, multipooler *clustermetadatapb.MultiPooler, allowUpdate bool) error
 
 	// MultiGateway CRUD operations
 	GetMultiGateway(ctx context.Context, id *clustermetadatapb.ID) (*MultiGatewayInfo, error)
@@ -172,8 +172,8 @@ type CellStore interface {
 	CreateMultiGateway(ctx context.Context, multigateway *clustermetadatapb.MultiGateway) error
 	UpdateMultiGateway(ctx context.Context, mgi *MultiGatewayInfo) error
 	UpdateMultiGatewayFields(ctx context.Context, id *clustermetadatapb.ID, update func(*clustermetadatapb.MultiGateway) error) (*clustermetadatapb.MultiGateway, error)
-	DeleteMultiGateway(ctx context.Context, id *clustermetadatapb.ID) error
-	InitMultiGateway(ctx context.Context, multigateway *clustermetadatapb.MultiGateway, allowUpdate bool) error
+	UnregisterMultiGateway(ctx context.Context, id *clustermetadatapb.ID) error
+	RegisterMultiGateway(ctx context.Context, multigateway *clustermetadatapb.MultiGateway, allowUpdate bool) error
 
 	// MultiOrch CRUD operations
 	GetMultiOrch(ctx context.Context, id *clustermetadatapb.ID) (*MultiOrchInfo, error)
@@ -182,8 +182,8 @@ type CellStore interface {
 	CreateMultiOrch(ctx context.Context, multiorch *clustermetadatapb.MultiOrch) error
 	UpdateMultiOrch(ctx context.Context, moi *MultiOrchInfo) error
 	UpdateMultiOrchFields(ctx context.Context, id *clustermetadatapb.ID, update func(*clustermetadatapb.MultiOrch) error) (*clustermetadatapb.MultiOrch, error)
-	DeleteMultiOrch(ctx context.Context, id *clustermetadatapb.ID) error
-	InitMultiOrch(ctx context.Context, multiorch *clustermetadatapb.MultiOrch, allowUpdate bool) error
+	UnregisterMultiOrch(ctx context.Context, id *clustermetadatapb.ID) error
+	RegisterMultiOrch(ctx context.Context, multiorch *clustermetadatapb.MultiOrch, allowUpdate bool) error
 }
 
 // Store is the full topology API that combines both global and cell operations.

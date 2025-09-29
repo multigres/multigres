@@ -233,8 +233,8 @@ func (ts *store) CreateMultiOrch(ctx context.Context, mtorch *clustermetadatapb.
 	return nil
 }
 
-// DeleteMultiOrch deletes the specified multiorch.
-func (ts *store) DeleteMultiOrch(ctx context.Context, id *clustermetadatapb.ID) error {
+// UnregisterMultiOrch deletes the specified multiorch.
+func (ts *store) UnregisterMultiOrch(ctx context.Context, id *clustermetadatapb.ID) error {
 	conn, err := ts.ConnForCell(ctx, id.Cell)
 	if err != nil {
 		return err
@@ -248,9 +248,9 @@ func (ts *store) DeleteMultiOrch(ctx context.Context, id *clustermetadatapb.ID) 
 	return nil
 }
 
-// InitMultiOrch creates or updates a multiorch. If allowUpdate is true,
+// RegisterMultiOrch creates or updates a multiorch. If allowUpdate is true,
 // and a multiorch with the same ID exists, just update it.
-func (ts *store) InitMultiOrch(ctx context.Context, mtorch *clustermetadatapb.MultiOrch, allowUpdate bool) error {
+func (ts *store) RegisterMultiOrch(ctx context.Context, mtorch *clustermetadatapb.MultiOrch, allowUpdate bool) error {
 	err := ts.CreateMultiOrch(ctx, mtorch)
 	if errors.Is(err, &TopoError{Code: NodeExists}) && allowUpdate {
 		// Try to update then

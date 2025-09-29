@@ -349,7 +349,7 @@ func TestMultiOrchCRUDOperations(t *testing.T) {
 				err := ts.CreateMultiOrch(ctx, multiorch)
 				require.NoError(t, err)
 
-				err = ts.DeleteMultiOrch(ctx, multiorch.Id)
+				err = ts.UnregisterMultiOrch(ctx, multiorch.Id)
 				require.NoError(t, err)
 
 				_, err = ts.GetMultiOrch(ctx, multiorch.Id)
@@ -624,7 +624,7 @@ func TestInitMultiOrch(t *testing.T) {
 					PortMap:  map[string]int32{"grpc": 8080},
 				}
 
-				err := ts.InitMultiOrch(ctx, multiorch, false)
+				err := ts.RegisterMultiOrch(ctx, multiorch, false)
 				require.NoError(t, err)
 
 				retrieved, err := ts.GetMultiOrch(ctx, multiorch.Id)
@@ -656,7 +656,7 @@ func TestInitMultiOrch(t *testing.T) {
 					PortMap:  map[string]int32{"grpc": 8081, "http": 9090},
 				}
 
-				err := ts.InitMultiOrch(ctx, updated, true)
+				err := ts.RegisterMultiOrch(ctx, updated, true)
 				require.NoError(t, err)
 
 				retrieved, err := ts.GetMultiOrch(ctx, original.Id)
@@ -688,7 +688,7 @@ func TestInitMultiOrch(t *testing.T) {
 					PortMap:  map[string]int32{"grpc": 8081},
 				}
 
-				err := ts.InitMultiOrch(ctx, updated, false)
+				err := ts.RegisterMultiOrch(ctx, updated, false)
 				require.Error(t, err)
 				require.True(t, errors.Is(err, &topo.TopoError{Code: topo.NodeExists}))
 			},

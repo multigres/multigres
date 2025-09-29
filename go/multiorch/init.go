@@ -22,7 +22,7 @@ import (
 	"github.com/spf13/pflag"
 
 	"github.com/multigres/multigres/go/clustermetadata/topo"
-	"github.com/multigres/multigres/go/clustermetadata/topopublish"
+	"github.com/multigres/multigres/go/clustermetadata/toporeg"
 	"github.com/multigres/multigres/go/servenv"
 )
 
@@ -32,7 +32,7 @@ var (
 	ts     topo.Store
 	logger *slog.Logger
 
-	tp *topopublish.TopoPublisher
+	tr *toporeg.TopoReg
 )
 
 // Register flags that are specific to multiorch.
@@ -62,15 +62,15 @@ func Init() {
 	multiorch.PortMap["grpc"] = int32(servenv.GRPCPort())
 	multiorch.PortMap["http"] = int32(servenv.HTTPPort())
 
-	tp = topopublish.Publish(
-		func(ctx context.Context) error { return ts.InitMultiOrch(ctx, multiorch, true) },
-		func(ctx context.Context) error { return ts.DeleteMultiOrch(ctx, multiorch.Id) },
+	tr = toporeg.Register(
+		func(ctx context.Context) error { return ts.RegisterMultiOrch(ctx, multiorch, true) },
+		func(ctx context.Context) error { return ts.UnregisterMultiOrch(ctx, multiorch.Id) },
 		func(s string) { serverStatus.InitError = s },
 	)
 }
 
 func Shutdown() {
 	logger.Info("multiorch shutting down")
-	tp.Unpublish()
+	tr.Unregister()
 	ts.Close()
 }
