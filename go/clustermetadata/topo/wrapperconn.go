@@ -84,12 +84,6 @@ func (c *WrapperConn) handleConnectionError(conn Conn, err error) {
 // It ensures that it goes into the loop only if it's already not retrying.
 // retryConnection terminates if Conn is closed.
 func (c *WrapperConn) retryConnection() {
-	defer func() {
-		c.mu.Lock()
-		defer c.mu.Unlock()
-		c.retrying = false
-	}()
-
 	// Use defer to protect us from unexpected panics
 	mustReturn := func() bool {
 		c.mu.Lock()
@@ -111,6 +105,20 @@ func (c *WrapperConn) retryConnection() {
 	if mustReturn {
 		return
 	}
+
+	// There is a race condition:
+	// - Connection gets successfully established.
+	// - Lock is released, but the defer below is not executed yet.
+	// - Someone uses the new connection.
+	// - The connection fails, and causes a retry.
+	// - This will cause the second retry to return early, because the flag is not reset yet.
+	// This is a near impossible race condition, and it's also harmless.
+	// Eventually, someone will retry and this will trigger the retry logic.
+	defer func() {
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		c.retrying = false
+	}()
 
 	ticker := timertools.NewBackoffTicker(10*time.Millisecond, 30*time.Second)
 	defer ticker.Stop()

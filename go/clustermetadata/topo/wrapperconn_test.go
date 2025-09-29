@@ -837,6 +837,32 @@ func TestRetryConnection_PreventsMultipleRetries(t *testing.T) {
 	wrapper.mu.Unlock()
 	assert.Equal(t, mockConn, currentConn, "Connection should still be the same - retry was prevented")
 
+	// Add a third retry attempt to demonstrate the bug
+	// This will reset the retrying flag due to the defer at the top of retryConnection
+	thirdMockConn := newMockConn(1000)
+	wrapper.mu.Lock()
+	wrapper.wrapped = thirdMockConn
+	wrapper.mu.Unlock()
+
+	// Generate a third failure - this should demonstrate that the bug
+	// is now fixed where the retry flag was getting always reset, even
+	// if it was already on.
+	wrapper.handleConnectionError(thirdMockConn, mterrors.Errorf(mtrpc.Code_UNAVAILABLE, "third error"))
+
+	// Give time for the third retry to process
+	time.Sleep(1 * time.Millisecond)
+
+	// Verify the third retry was also prevented (fix working correctly)
+	wrapper.mu.Lock()
+	finalConn := wrapper.wrapped
+	retryingStatus := wrapper.retrying
+	wrapper.mu.Unlock()
+
+	// With the fix, the third retry should also be prevented
+	// The connection should still be thirdMockConn (not reset to nil)
+	assert.Equal(t, thirdMockConn, finalConn, "Third retry should have been prevented - connection should remain intact")
+	assert.True(t, retryingStatus, "Should still be retrying")
+
 	// Reset c.wrapped to nil
 	wrapper.mu.Lock()
 	wrapper.wrapped = nil
