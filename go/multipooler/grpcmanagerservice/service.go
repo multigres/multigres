@@ -23,7 +23,6 @@ import (
 	multipoolermanagerdata "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	"github.com/multigres/multigres/go/servenv"
 
-	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -39,17 +38,12 @@ func init() {
 	// Following Vitess pattern from grpctmserver/server.go
 	manager.RegisterPoolerManagerServices = append(manager.RegisterPoolerManagerServices, func(pm *manager.MultiPoolerManager) {
 		if servenv.GRPCCheckServiceMap("poolermanager") {
-			registerForManager(servenv.GRPCServer, pm)
+			srv := &managerService{
+				manager: pm,
+			}
+			multipoolermanagerpb.RegisterMultiPoolerManagerServer(servenv.GRPCServer, srv)
 		}
 	})
-}
-
-// registerForManager registers the gRPC service for the given manager
-func registerForManager(server *grpc.Server, pm *manager.MultiPoolerManager) {
-	svc := &managerService{
-		manager: pm,
-	}
-	multipoolermanagerpb.RegisterMultiPoolerManagerServer(server, svc)
 }
 
 // WaitForLSN waits for PostgreSQL server to reach a specific LSN position

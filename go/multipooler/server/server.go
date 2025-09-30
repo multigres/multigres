@@ -39,8 +39,6 @@ func RegisterService(config *manager.Config) {
 
 		logger := servenv.GetLogger()
 
-		logger.Info("CLAUDE DEBUG: CustomRegisterService function called - checking service map for poolerquery")
-
 		// Check if the pooler service should be registered
 		poolerServiceEnabled := servenv.GRPCCheckServiceMap("poolerquery")
 		logger.Info("Service map check result", "service", "poolerquery", "enabled", poolerServiceEnabled)
