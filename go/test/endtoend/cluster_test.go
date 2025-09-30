@@ -36,7 +36,7 @@ import (
 	"github.com/multigres/multigres/go/cmd/multigres/command/cluster"
 	"github.com/multigres/multigres/go/provisioner/local"
 	"github.com/multigres/multigres/go/test/utils"
-	"github.com/multigres/multigres/go/tools/appendpath"
+	"github.com/multigres/multigres/go/tools/pathutil"
 	"github.com/multigres/multigres/go/tools/stringutil"
 
 	_ "github.com/multigres/multigres/go/plugins/topo"
@@ -556,7 +556,7 @@ func ensureBinaryBuilt(t *testing.T) {
 // TestMain sets the path and cleans up after all tests
 func TestMain(m *testing.M) {
 	// Set the PATH so etcd can be found
-	appendpath.AppendPath("../../../bin")
+	pathutil.AppendPath("../../../bin")
 
 	// Run all tests
 	exitCode := m.Run()

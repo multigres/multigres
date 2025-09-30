@@ -23,17 +23,13 @@ import (
 	"path/filepath"
 	"strings"
 
+	multipoolermanagerpb "github.com/multigres/multigres/go/pb/multipoolermanager"
 	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
 	querypb "github.com/multigres/multigres/go/pb/query"
 	"github.com/multigres/multigres/go/servenv"
 
 	"google.golang.org/grpc"
 )
-
-func init() {
-	// Register the pooler service in the service map
-	servenv.InitServiceMap("grpc", "pooler")
-}
 
 // RegisterService registers the MultiPooler gRPC service with the given configuration
 func RegisterService(config *Config) {
@@ -42,12 +38,26 @@ func RegisterService(config *Config) {
 			return
 		}
 
+		logger := servenv.GetLogger()
+
+		logger.Info("CLAUDE DEBUG: CustomRegisterService function called - checking service map for poolerquery and poolermanager")
+
 		// Check if the pooler service should be registered
-		if servenv.GRPCCheckServiceMap("pooler") {
-			logger := servenv.GetLogger()
+		poolerServiceEnabled := servenv.GRPCCheckServiceMap("poolerquery")
+		logger.Info("Service map check result", "service", "poolerquery", "enabled", poolerServiceEnabled)
+		if poolerServiceEnabled {
 			server := NewMultiPoolerServer(logger, config)
 			multipoolerpb.RegisterMultiPoolerServiceServer(servenv.GRPCServer, server)
 			logger.Info("MultiPooler gRPC service registered")
+		}
+
+		// Check if the manager service should be registered
+		managerServiceEnabled := servenv.GRPCCheckServiceMap("poolermanager")
+		logger.Info("Service map check result", "service", "poolermanager", "enabled", managerServiceEnabled)
+		if managerServiceEnabled {
+			managerServer := NewMultiPoolerManagerServer(logger, config)
+			multipoolermanagerpb.RegisterMultiPoolerManagerServer(servenv.GRPCServer, managerServer)
+			logger.Info("MultiPoolerManager gRPC service registered")
 		}
 	})
 }

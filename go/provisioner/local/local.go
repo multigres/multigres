@@ -31,7 +31,7 @@ import (
 
 	"github.com/multigres/multigres/go/clustermetadata/topo"
 	"github.com/multigres/multigres/go/provisioner"
-	"github.com/multigres/multigres/go/tools/appendpath"
+	"github.com/multigres/multigres/go/tools/pathutil"
 	"github.com/multigres/multigres/go/tools/semver"
 	"github.com/multigres/multigres/go/tools/stringutil"
 
@@ -1707,7 +1707,7 @@ func init() {
 	// Add the executable directory to the PATH. We're expecting
 	// to find the other executables in the same directory.
 	if binDir, err := getExecutablePath(); err == nil {
-		appendpath.AppendPath(binDir)
+		pathutil.PrependPath(binDir)
 	} else {
 		slog.Error(fmt.Sprintf("Local Provisioner failed to get executable path: %v", err))
 		os.Exit(1)

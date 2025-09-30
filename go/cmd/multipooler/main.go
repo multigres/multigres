@@ -132,6 +132,14 @@ func run(cmd *cobra.Command, args []string) error {
 	}
 	logger.Info("Cell validation passed", "cell", cell)
 
+	// Register additional gRPC services (poolerquery and poolermanager)
+	server.RegisterService(&server.Config{
+		SocketFilePath: socketFilePath,
+		PoolerDir:      poolerDir,
+		PgPort:         pgPort,
+		Database:       database,
+	})
+
 	servenv.OnRun(func() {
 		// Flags are parsed now.
 		logger.Info("multipooler starting up",

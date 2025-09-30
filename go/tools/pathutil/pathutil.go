@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package appendpath provides a command to append a path to PATH.
-package appendpath
+// Package pathutil provides a command to append a path to PATH.
+package pathutil
 
 import (
 	"os"
@@ -28,4 +28,14 @@ func AppendPath(path string) {
 		return
 	}
 	_ = os.Setenv("PATH", os.Getenv("PATH")+string(os.PathListSeparator)+absPath)
+}
+
+// PrependPath prepends a given path to the PATH environment variable.
+// It ensures the path is absolute and takes precedence over existing paths.
+func PrependPath(path string) {
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		return
+	}
+	_ = os.Setenv("PATH", absPath+string(os.PathListSeparator)+os.Getenv("PATH"))
 }
