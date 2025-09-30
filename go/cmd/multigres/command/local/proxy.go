@@ -16,7 +16,6 @@ package local
 
 import (
 	"fmt"
-	"log"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
@@ -26,14 +25,13 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	"github.com/multigres/multigres/go/servenv"
+	"github.com/multigres/multigres/go/web"
+
 	"github.com/spf13/cobra"
 )
 
-var (
-	proxyPort      int
-	proxyLogLevel  string
-	proxyLogOutput string
-)
+// No custom flags needed - servenv provides --http-port, --log-level, --log-output
 
 // proxyConfig holds the parsed configuration for routing
 type proxyConfig struct {
@@ -58,32 +56,38 @@ func proxy(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to load configuration: %w", err)
 	}
 
-	// Setup logging if log output specified
-	if proxyLogOutput != "" {
-		logFile, err := os.OpenFile(proxyLogOutput, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
-		if err != nil {
-			return fmt.Errorf("failed to open log file: %w", err)
+	fmt.Printf("Starting localproxy on port %d\n", servenv.HTTPPort())
+	fmt.Printf("Loaded config from: %s\n", configFile)
+	fmt.Printf("Route requests like: http://multiadmin.localhost:%d/...\n", servenv.HTTPPort())
+	fmt.Printf("Or: http://multigateway.zone1.localhost:%d/...\n", servenv.HTTPPort())
+
+	// Initialize servenv
+	servenv.Init()
+
+	// Register landing page and proxy handler
+	// servenv already registered /css/, /live, /favicon.ico, /config
+	// We just need to handle the root path and proxy requests
+	servenv.HTTPHandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		// Check if this is for the proxy's own host
+		host := r.Host
+		if colonIdx := strings.Index(host, ":"); colonIdx != -1 {
+			host = host[:colonIdx]
 		}
-		defer logFile.Close()
-		log.SetOutput(logFile)
-	}
+		cleanHost := strings.TrimSuffix(host, ".localhost")
 
-	log.Printf("Starting localproxy on port %d", proxyPort)
-	log.Printf("Loaded config from: %s", configFile)
+		// For proxy's own host, only handle root path (landing page)
+		// Other paths like /css/, /live, etc. are handled by servenv's registered handlers
+		if (cleanHost == "multigres" || cleanHost == "localhost") && r.URL.Path == "/" {
+			renderLandingPage(w, r, cfg)
+			return
+		}
 
-	// Create proxy handler
-	handler := createProxyHandler(cfg)
+		// For all other requests, proxy them to backend services
+		proxyRequest(w, r, cfg)
+	})
 
-	// Start HTTP server
-	addr := fmt.Sprintf(":%d", proxyPort)
-	log.Printf("Listening on %s", addr)
-	fmt.Printf("Local proxy listening on http://localhost:%d\n", proxyPort)
-	fmt.Printf("Route requests like: http://multiadmin.localhost:%d/...\n", proxyPort)
-	fmt.Printf("Or: http://multigateway.zone1.localhost:%d/...\n", proxyPort)
-
-	if err := http.ListenAndServe(addr, handler); err != nil {
-		return fmt.Errorf("proxy server error: %w", err)
-	}
+	// Use servenv to run the HTTP server
+	servenv.RunDefault()
 
 	return nil
 }
@@ -162,64 +166,134 @@ func loadProxyConfig(configPaths []string) (*proxyConfig, string, error) {
 	return cfg, configFile, nil
 }
 
-// createProxyHandler creates an HTTP handler that routes based on subdomain
-func createProxyHandler(cfg *proxyConfig) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Extract subdomain from Host header
-		host := r.Host
-		if colonIdx := strings.Index(host, ":"); colonIdx != -1 {
-			host = host[:colonIdx]
+// ServiceLink represents a service with its URL for the landing page
+type ServiceLink struct {
+	Name string
+	URL  string
+}
+
+// CellServiceGroup represents services grouped by cell
+type CellServiceGroup struct {
+	CellName string
+	Services []ServiceLink
+}
+
+// LandingPageData holds data for the landing page template
+type LandingPageData struct {
+	GlobalServices []ServiceLink
+	CellServices   []CellServiceGroup
+}
+
+// renderLandingPage renders an HTML page listing all available services
+func renderLandingPage(w http.ResponseWriter, r *http.Request, cfg *proxyConfig) {
+	// Determine the port to use in URLs
+	// If request came with explicit port, use it; otherwise omit (default port)
+	portSuffix := ""
+	if colonIdx := strings.Index(r.Host, ":"); colonIdx != -1 {
+		port := r.Host[colonIdx+1:]
+		// Only include port in URL if it's not the default port (80 for http, 443 for https)
+		scheme := "http"
+		if r.TLS != nil {
+			scheme = "https"
 		}
-
-		// Health check endpoint for proxy itself - on multigres.localhost or plain localhost
-		cleanHost := strings.TrimSuffix(host, ".localhost")
-		if (cleanHost == "multigres" || cleanHost == "localhost") && r.URL.Path == "/live" {
-			w.WriteHeader(http.StatusOK)
-			_, _ = w.Write([]byte("OK"))
-			return
+		defaultPort := "80"
+		if scheme == "https" {
+			defaultPort = "443"
 		}
-
-		// Remove .localhost suffix
-		host = strings.TrimSuffix(host, ".localhost")
-
-		// Parse subdomain parts
-		parts := strings.Split(host, ".")
-		if len(parts) == 0 {
-			http.Error(w, "Invalid host format. Expected: service.localhost or service.cell.localhost", http.StatusBadRequest)
-			return
+		if port != defaultPort {
+			portSuffix = ":" + port
 		}
+	}
 
-		// Route based on service name
-		var targetURL *url.URL
-		var err error
+	data := LandingPageData{
+		GlobalServices: []ServiceLink{},
+		CellServices:   []CellServiceGroup{},
+	}
 
-		if len(parts) == 1 {
-			// Global service: multiadmin.localhost
-			serviceName := parts[0]
-			targetURL, err = getGlobalServiceURL(cfg, serviceName)
-		} else if len(parts) == 2 {
-			// Cell service: multigateway.zone1.localhost
-			serviceName := parts[0]
-			cellName := parts[1]
-			targetURL, err = getCellServiceURL(cfg, serviceName, cellName)
-		} else {
-			http.Error(w, fmt.Sprintf("Unknown host format: %s. Expected: service.localhost or service.cell.localhost", r.Host), http.StatusNotFound)
-			return
+	// Build global services list
+	for serviceName, servicePort := range cfg.GlobalServices {
+		if servicePort > 0 {
+			serviceURL := fmt.Sprintf("http://%s.localhost%s/", serviceName, portSuffix)
+			data.GlobalServices = append(data.GlobalServices, ServiceLink{
+				Name: serviceName,
+				URL:  serviceURL,
+			})
 		}
+	}
 
-		if err != nil {
-			log.Printf("Failed to route %s: %v", r.Host, err)
-			http.Error(w, fmt.Sprintf("Service not found: %v", err), http.StatusNotFound)
-			return
+	// Build cell services list
+	for cellName, services := range cfg.CellServices {
+		cellGroup := CellServiceGroup{
+			CellName: cellName,
+			Services: []ServiceLink{},
 		}
+		for serviceName, servicePort := range services {
+			if servicePort > 0 {
+				serviceURL := fmt.Sprintf("http://%s.%s.localhost%s/", serviceName, cellName, portSuffix)
+				displayName := fmt.Sprintf("%s (%s)", serviceName, cellName)
+				cellGroup.Services = append(cellGroup.Services, ServiceLink{
+					Name: displayName,
+					URL:  serviceURL,
+				})
+			}
+		}
+		if len(cellGroup.Services) > 0 {
+			data.CellServices = append(data.CellServices, cellGroup)
+		}
+	}
 
-		// Log the request
-		log.Printf("%s %s -> %s%s", r.Method, r.Host, targetURL.String(), r.URL.Path)
+	// Execute template using web.Templates
+	err := web.Templates.ExecuteTemplate(w, "proxy_landing.html", data)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to execute template: %v", err), http.StatusInternalServerError)
+		return
+	}
+}
 
-		// Create reverse proxy
-		proxy := httputil.NewSingleHostReverseProxy(targetURL)
-		proxy.ServeHTTP(w, r)
-	})
+// proxyRequest proxies a request to the appropriate backend service based on subdomain
+func proxyRequest(w http.ResponseWriter, r *http.Request, cfg *proxyConfig) {
+	// Extract subdomain from Host header
+	host := r.Host
+	if colonIdx := strings.Index(host, ":"); colonIdx != -1 {
+		host = host[:colonIdx]
+	}
+
+	// Remove .localhost suffix for routing
+	host = strings.TrimSuffix(host, ".localhost")
+
+	// Parse subdomain parts
+	parts := strings.Split(host, ".")
+	if len(parts) == 0 {
+		http.Error(w, "Invalid host format. Expected: service.localhost or service.cell.localhost", http.StatusBadRequest)
+		return
+	}
+
+	// Route based on service name
+	var targetURL *url.URL
+	var err error
+
+	if len(parts) == 1 {
+		// Global service: multiadmin.localhost
+		serviceName := parts[0]
+		targetURL, err = getGlobalServiceURL(cfg, serviceName)
+	} else if len(parts) == 2 {
+		// Cell service: multigateway.zone1.localhost
+		serviceName := parts[0]
+		cellName := parts[1]
+		targetURL, err = getCellServiceURL(cfg, serviceName, cellName)
+	} else {
+		http.Error(w, fmt.Sprintf("Unknown host format: %s. Expected: service.localhost or service.cell.localhost", r.Host), http.StatusNotFound)
+		return
+	}
+
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Service not found: %v", err), http.StatusNotFound)
+		return
+	}
+
+	// Create reverse proxy
+	proxy := httputil.NewSingleHostReverseProxy(targetURL)
+	proxy.ServeHTTP(w, r)
 }
 
 // getGlobalServiceURL returns the target URL for a global service
@@ -255,11 +329,11 @@ var ProxyCommand = &cobra.Command{
 Examples:
   http://multiadmin.localhost:8080/     -> routes to multiadmin HTTP port
   http://multigateway.zone1.localhost:8080/ -> routes to multigateway in zone1`,
-	RunE: proxy,
+	PreRunE: servenv.CobraPreRunE,
+	RunE:    proxy,
 }
 
 func init() {
-	ProxyCommand.Flags().IntVar(&proxyPort, "port", 8080, "Port to listen on")
-	ProxyCommand.Flags().StringVar(&proxyLogLevel, "log-level", "info", "Log level")
-	ProxyCommand.Flags().StringVar(&proxyLogOutput, "log-output", "", "Log output file (default: stderr)")
+	// Register servenv flags for service commands (--http-port, etc.)
+	servenv.RegisterServiceCmd(ProxyCommand)
 }

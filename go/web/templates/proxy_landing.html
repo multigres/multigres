@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <title>Multigres Local Proxy</title>
+    <link rel="icon" href="/favicon.ico" type="image/x-icon" />
+    <link rel="stylesheet" href="/css/pico.classless.jade.min.css" />
+    <link rel="stylesheet" href="/css/custom.css" />
+  </head>
+  <body>
+    <header>
+      <h1>Multigres Local Proxy</h1>
+    </header>
+
+    <main>
+      {{if .GlobalServices}}
+      <section>
+        <h4>Global Services</h4>
+        <section div class="grid">
+          {{range .GlobalServices}}
+          <article>
+            <h4>{{.Name}}</h4>
+            <a href="{{.URL}}" role="button" data-tooltip="Access {{.Name}}"
+              >{{.URL}}</a
+            >
+          </article>
+          {{end}}
+        </section>
+      </section>
+      {{end}} {{if .CellServices}} {{range .CellServices}}
+      <section>
+        <h4>Cell: {{.CellName}}</h4>
+        <section div class="grid">
+          {{range .Services}}
+          <article>
+            <h4>{{.Name}}</h4>
+            <a href="{{.URL}}" role="button" data-tooltip="Access {{.Name}}"
+              >{{.URL}}</a
+            >
+          </article>
+          {{end}}
+        </section>
+      </section>
+      {{end}} {{end}}
+    </main>
+
+    <footer>
+      <script>
+        document.write(new Date().toISOString());
+      </script>
+      <br />Local:
+      <script>
+        document.write(new Date().toLocaleString());
+      </script>
+    </footer>
+  </body>
+</html>
