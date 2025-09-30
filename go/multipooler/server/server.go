@@ -92,38 +92,35 @@ func (s *MultiPoolerServer) RegisterWithGRPCServer(grpcServer *grpc.Server) {
 	s.logger.Info("MultiPooler service registered with gRPC server")
 }
 
-// connectDB establishes a connection to PostgreSQL
-func (s *MultiPoolerServer) connectDB() error {
-	if s.db != nil {
-		return nil // Already connected
-	}
-
+// createDBConnection establishes a new connection to PostgreSQL using the config
+// This is a shared helper function used by both MultiPoolerServer and MultiPoolerManagerServer
+func createDBConnection(logger *slog.Logger, config *Config) (*sql.DB, error) {
 	// Debug: Log the configuration we received
-	s.logger.Info("connectDB: Configuration received",
-		"pooler_dir", s.config.PoolerDir,
-		"pg_port", s.config.PgPort,
-		"socket_file_path", s.config.SocketFilePath,
-		"database", s.config.Database)
+	logger.Info("createDBConnection: Configuration received",
+		"pooler_dir", config.PoolerDir,
+		"pg_port", config.PgPort,
+		"socket_file_path", config.SocketFilePath,
+		"database", config.Database)
 
 	var dsn string
-	if s.config.PoolerDir != "" && s.config.PgPort != 0 {
+	if config.PoolerDir != "" && config.PgPort != 0 {
 		// Use pooler directory and port to construct socket path
 		// PostgreSQL creates socket files as: {poolerDir}/pg_sockets/.s.PGSQL.{port}
-		socketDir := filepath.Join(s.config.PoolerDir, "pg_sockets")
-		port := fmt.Sprintf("%d", s.config.PgPort)
+		socketDir := filepath.Join(config.PoolerDir, "pg_sockets")
+		port := fmt.Sprintf("%d", config.PgPort)
 
 		dsn = fmt.Sprintf("user=postgres dbname=%s host=%s port=%s sslmode=disable",
-			s.config.Database, socketDir, port)
+			config.Database, socketDir, port)
 
-		s.logger.Info("Unix socket connection via pooler directory",
-			"pooler_dir", s.config.PoolerDir,
+		logger.Info("Unix socket connection via pooler directory",
+			"pooler_dir", config.PoolerDir,
 			"socket_dir", socketDir,
-			"pg_port", s.config.PgPort,
+			"pg_port", config.PgPort,
 			"dsn", dsn)
-	} else if s.config.SocketFilePath != "" {
+	} else if config.SocketFilePath != "" {
 		// Fallback: use socket file path directly
-		socketDir := filepath.Dir(s.config.SocketFilePath)
-		socketFile := filepath.Base(s.config.SocketFilePath)
+		socketDir := filepath.Dir(config.SocketFilePath)
+		socketFile := filepath.Base(config.SocketFilePath)
 
 		// Extract port from socket filename (.s.PGSQL.PORT)
 		port := "5432" // default
@@ -134,10 +131,10 @@ func (s *MultiPoolerServer) connectDB() error {
 		}
 
 		dsn = fmt.Sprintf("user=postgres dbname=%s host=%s port=%s sslmode=disable",
-			s.config.Database, socketDir, port)
+			config.Database, socketDir, port)
 
-		s.logger.Info("Unix socket connection via socket file path (fallback)",
-			"original_socket_path", s.config.SocketFilePath,
+		logger.Info("Unix socket connection via socket file path (fallback)",
+			"original_socket_path", config.SocketFilePath,
 			"socket_dir", socketDir,
 			"socket_file", socketFile,
 			"extracted_port", port,
@@ -145,23 +142,35 @@ func (s *MultiPoolerServer) connectDB() error {
 	} else {
 		// Use TCP connection (fallback)
 		dsn = fmt.Sprintf("user=postgres dbname=%s host=localhost port=5432 sslmode=disable",
-			s.config.Database)
+			config.Database)
 	}
 
-	var err error
-	s.db, err = sql.Open("postgres", dsn)
+	db, err := sql.Open("postgres", dsn)
 	if err != nil {
-		return fmt.Errorf("failed to open database connection: %w", err)
+		return nil, fmt.Errorf("failed to open database connection: %w", err)
 	}
 
 	// Test the connection
-	if err := s.db.Ping(); err != nil {
-		s.db.Close()
-		s.db = nil
-		return fmt.Errorf("failed to ping database: %w", err)
+	if err := db.Ping(); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("failed to ping database: %w", err)
 	}
 
-	s.logger.Info("Connected to PostgreSQL", "socket_path", s.config.SocketFilePath, "database", s.config.Database)
+	logger.Info("Connected to PostgreSQL", "socket_path", config.SocketFilePath, "database", config.Database)
+	return db, nil
+}
+
+// connectDB establishes a connection to PostgreSQL
+func (s *MultiPoolerServer) connectDB() error {
+	if s.db != nil {
+		return nil // Already connected
+	}
+
+	db, err := createDBConnection(s.logger, s.config)
+	if err != nil {
+		return err
+	}
+	s.db = db
 	return nil
 }
 

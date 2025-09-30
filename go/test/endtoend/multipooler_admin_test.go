@@ -96,19 +96,8 @@ func (p *ProcessInstance) Start(t *testing.T) error {
 func (p *ProcessInstance) startPgctld(t *testing.T) error {
 	t.Helper()
 
-	t.Logf("Starting %s: initializing with binary '%s'", p.Name, p.Binary)
+	t.Logf("Starting %s with binary '%s'", p.Name, p.Binary)
 	t.Logf("Data dir: %s, gRPC port: %d, PG port: %d", p.DataDir, p.GrpcPort, p.PgPort)
-
-	// Initialize the database first
-	initCmd := exec.Command(p.Binary, "init", "--pooler-dir", p.DataDir, "--pg-port", strconv.Itoa(p.PgPort))
-	initCmd.Env = p.Environment
-	t.Logf("Running init command: %v", initCmd.Args)
-	initOutput, err := initCmd.CombinedOutput()
-	t.Logf("pgctld init output for %s: %s", p.Name, string(initOutput))
-	if err != nil {
-		t.Logf("pgctld init failed for %s with error: %v", p.Name, err)
-		return fmt.Errorf("pgctld init failed: %w", err)
-	}
 
 	// Start the gRPC server
 	p.Process = exec.Command(p.Binary, "server",
@@ -119,7 +108,16 @@ func (p *ProcessInstance) startPgctld(t *testing.T) error {
 	p.Process.Env = p.Environment
 
 	t.Logf("Running server command: %v", p.Process.Args)
-	return p.waitForStartup(t, 20*time.Second, 50)
+	if err := p.waitForStartup(t, 20*time.Second, 50); err != nil {
+		return err
+	}
+
+	grpcAddr := fmt.Sprintf("localhost:%d", p.GrpcPort)
+	if err := InitAndStartPostgreSQL(t, grpcAddr); err != nil {
+		return fmt.Errorf("failed to initialize and start PostgreSQL: %w", err)
+	}
+
+	return nil
 }
 
 // startMultipooler starts a multipooler instance
@@ -440,7 +438,7 @@ func TestMultipoolerReplicationApi(t *testing.T) {
 
 	setup := getSharedTestSetup(t)
 
-	t.Run("GetPrimaryLSN_NotImplemented", func(t *testing.T) {
+	t.Run("GetPrimaryLSN_Primary", func(t *testing.T) {
 		// Connect to primary multipooler
 		conn, err := grpc.NewClient(
 			fmt.Sprintf("localhost:%d", setup.PrimaryMultipooler.GrpcPort),
@@ -456,7 +454,6 @@ func TestMultipoolerReplicationApi(t *testing.T) {
 		// Call GetPrimaryLSN
 		req := &multipoolermanagerdata.GetPrimaryLSNRequest{}
 		resp, err := client.GetPrimaryLSN(ctx, req)
-		// If we get an unexpected error, log the multipooler output for debugging
 		if err != nil {
 			st, ok := status.FromError(err)
 			if ok && st.Message() == "unknown service multipoolermanager.MultiPoolerManager" {
@@ -465,20 +462,18 @@ func TestMultipoolerReplicationApi(t *testing.T) {
 			}
 		}
 
-		// Assert that it returns "not implemented" error
-		assert.Error(t, err)
-		assert.Nil(t, resp)
+		// Assert that it succeeds and returns a valid LSN
+		require.NoError(t, err)
+		require.NotNil(t, resp)
+		assert.NotEmpty(t, resp.LeaderLsn, "LSN should not be empty")
 
-		st, ok := status.FromError(err)
-		require.True(t, ok, "Error should be a gRPC status error")
-		assert.Equal(t, codes.Unimplemented, st.Code(), "Should return Unimplemented code")
-		assert.Contains(t, st.Message(), "method GetPrimaryLSN not implemented",
-			"Error message should indicate method is not implemented")
+		// PostgreSQL LSN format is typically like "0/1234ABCD"
+		assert.Contains(t, resp.LeaderLsn, "/", "LSN should be in PostgreSQL format (e.g., 0/1234ABCD)")
 
-		t.Log("GetPrimaryLSN correctly returns 'not implemented' error")
+		t.Logf("GetPrimaryLSN returned LSN: %s", resp.LeaderLsn)
 	})
 
-	t.Run("GetPrimaryLSN_StandbyInstance", func(t *testing.T) {
+	t.Run("GetPrimaryLSN_Standby", func(t *testing.T) {
 		// Connect to standby multipooler
 		conn, err := grpc.NewClient(
 			fmt.Sprintf("localhost:%d", setup.StandbyMultipooler.GrpcPort),
@@ -495,17 +490,13 @@ func TestMultipoolerReplicationApi(t *testing.T) {
 		req := &multipoolermanagerdata.GetPrimaryLSNRequest{}
 		resp, err := client.GetPrimaryLSN(ctx, req)
 
-		// Assert that it returns "not implemented" error
-		assert.Error(t, err)
-		assert.Nil(t, resp)
+		// Assert that it succeeds and returns a valid LSN
+		require.NoError(t, err)
+		require.NotNil(t, resp)
+		assert.NotEmpty(t, resp.LeaderLsn, "LSN should not be empty")
+		assert.Contains(t, resp.LeaderLsn, "/", "LSN should be in PostgreSQL format")
 
-		st, ok := status.FromError(err)
-		require.True(t, ok, "Error should be a gRPC status error")
-		assert.Equal(t, codes.Unimplemented, st.Code(), "Should return Unimplemented code")
-		assert.Contains(t, st.Message(), "method GetPrimaryLSN not implemented",
-			"Error message should indicate method is not implemented")
-
-		t.Log("Standby GetPrimaryLSN correctly returns 'not implemented' error")
+		t.Logf("Standby GetPrimaryLSN returned LSN: %s", resp.LeaderLsn)
 	})
 
 	t.Run("IsReadOnly_NotImplemented", func(t *testing.T) {

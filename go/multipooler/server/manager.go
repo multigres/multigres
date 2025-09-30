@@ -16,6 +16,7 @@ package server
 
 import (
 	"context"
+	"database/sql"
 	"log/slog"
 
 	multipoolermanagerpb "github.com/multigres/multigres/go/pb/multipoolermanager"
@@ -30,6 +31,7 @@ type MultiPoolerManagerServer struct {
 	multipoolermanagerpb.UnimplementedMultiPoolerManagerServer
 	logger *slog.Logger
 	config *Config
+	db     *sql.DB
 }
 
 // NewMultiPoolerManagerServer creates a new multipooler manager gRPC server
@@ -38,6 +40,28 @@ func NewMultiPoolerManagerServer(logger *slog.Logger, config *Config) *MultiPool
 		logger: logger,
 		config: config,
 	}
+}
+
+// connectDB establishes a connection to PostgreSQL (reuses the shared logic)
+func (s *MultiPoolerManagerServer) connectDB() error {
+	if s.db != nil {
+		return nil // Already connected
+	}
+
+	db, err := createDBConnection(s.logger, s.config)
+	if err != nil {
+		return err
+	}
+	s.db = db
+	return nil
+}
+
+// Close closes the database connection
+func (s *MultiPoolerManagerServer) Close() error {
+	if s.db != nil {
+		return s.db.Close()
+	}
+	return nil
 }
 
 // WaitForLSN waits for PostgreSQL server to reach a specific LSN position
@@ -61,7 +85,26 @@ func (s *MultiPoolerManagerServer) PromoteStandby(ctx context.Context, req *mult
 // GetPrimaryLSN gets the current leader LSN position
 func (s *MultiPoolerManagerServer) GetPrimaryLSN(ctx context.Context, req *multipoolermanagerdata.GetPrimaryLSNRequest) (*multipoolermanagerdata.GetPrimaryLSNResponse, error) {
 	s.logger.Info("GetPrimaryLSN called")
-	return nil, status.Errorf(codes.Unimplemented, "method GetPrimaryLSN not implemented")
+
+	// Ensure database connection
+	if err := s.connectDB(); err != nil {
+		s.logger.Error("Failed to connect to database", "error", err)
+		return nil, status.Errorf(codes.Internal, "database connection failed: %v", err)
+	}
+
+	// Query PostgreSQL for the current LSN position
+	// pg_current_wal_lsn() returns the current write-ahead log write location
+	var lsn string
+	err := s.db.QueryRowContext(ctx, "SELECT pg_current_wal_lsn()::text").Scan(&lsn)
+	if err != nil {
+		s.logger.Error("Failed to query LSN", "error", err)
+		return nil, status.Errorf(codes.Internal, "failed to query LSN: %v", err)
+	}
+
+	s.logger.Info("GetPrimaryLSN returning", "lsn", lsn)
+	return &multipoolermanagerdata.GetPrimaryLSNResponse{
+		LeaderLsn: lsn,
+	}, nil
 }
 
 // IsReadOnly checks if PostgreSQL instance is in read-only mode
