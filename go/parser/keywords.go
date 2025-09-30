@@ -667,10 +667,3 @@ func (kc KeywordCategory) String() string {
 		return "UNKNOWN_KEYWORD_CATEGORY"
 	}
 }
-
-// getKeywordTokenType returns the appropriate token type for a keyword.
-// This preserves the identifier text while marking it for future keyword token assignment
-func getKeywordTokenType(keyword *KeywordInfo) TokenType {
-	// Return the keyword's specific token type
-	return keyword.TokenType
-}

@@ -157,6 +157,13 @@ func (t *Token) IsIdentifier() bool {
 
 // String returns a string representation of the token for debugging
 func (t *Token) String() string {
+	// tokenTypeNames provides string names for special token types (for debugging)
+	// Most token names are now provided by the generated yyToknames array
+	tokenTypeNames := map[int]string{
+		INVALID: "INVALID",
+		EOF:     "EOF",
+	}
+
 	typeName := tokenTypeNames[t.Type]
 	if typeName == "" {
 		if t.Type <= 126 && t.Type >= 32 {
@@ -174,11 +181,4 @@ func (t *Token) String() string {
 
 	return fmt.Sprintf("Token{Type: %s, Value: %v, Position: %d, Text: %q}",
 		typeName, t.Value, t.Position, t.Text)
-}
-
-// tokenTypeNames provides string names for special token types (for debugging)
-// Most token names are now provided by the generated yyToknames array
-var tokenTypeNames = map[int]string{
-	INVALID: "INVALID",
-	EOF:     "EOF",
 }
