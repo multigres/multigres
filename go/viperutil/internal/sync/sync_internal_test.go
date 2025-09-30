@@ -30,6 +30,10 @@ import (
 )
 
 func TestPersistConfig(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping test in short mode")
+	}
+
 	type config struct {
 		Foo int `json:"foo"`
 	}

@@ -42,11 +42,7 @@ func (h *Hooks) Fire() {
 	wg := sync.WaitGroup{}
 
 	for _, f := range h.funcs {
-		wg.Add(1)
-		go func(f func()) {
-			f()
-			wg.Done()
-		}(f)
+		wg.Go(f)
 	}
 	wg.Wait()
 }

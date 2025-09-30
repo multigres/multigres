@@ -28,6 +28,8 @@ import (
 	"runtime/debug"
 	"syscall"
 	"time"
+
+	"github.com/multigres/multigres/go/netutil"
 )
 
 // Init is the first phase of the server startup.
@@ -77,5 +79,26 @@ func Init() {
 	// out of memory issues in favor of a stack overflow error.
 	debug.SetMaxStack(maxStackSize)
 
+	// Get hostname upfront so we can crash early if it fails.
+	populateHostname()
+
 	onInitHooks.Fire()
+}
+
+func populateHostname() {
+	host, err := netutil.FullyQualifiedHostname()
+	if err != nil {
+		slog.Warn("Failed to get fully qualified hostname, falling back to simple hostname",
+			"error", err,
+			"note", "This may indicate DNS configuration issues but service will continue normally")
+		host, err = os.Hostname()
+		if err != nil {
+			slog.Error("os.Hostname() failed", "err", err)
+			os.Exit(1)
+		}
+		slog.Info("Using simple hostname for service URL", "hostname", host)
+	} else {
+		slog.Info("Using fully qualified hostname for service URL", "hostname", host)
+	}
+	Hostname = host
 }

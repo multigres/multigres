@@ -4,6 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="color-scheme" content="light dark" />
+    <meta http-equiv="refresh" content="30" />
     <title>{{.Title}}</title>
     <link rel="icon" href="/favicon.ico" type="image/x-icon" />
     <link rel="stylesheet" href="/css/pico.classless.jade.min.css" />
@@ -15,6 +16,28 @@
     </header>
 
     <main>
+      <section>
+        <h4>Status</h4>
+        <table>
+          <tbody>
+            <tr>
+              <th>Initialization</th>
+              <td>
+                {{if .InitError}}
+                <span class="error">{{.InitError}}</span>
+                {{else}}
+                <span class="success">Success</span>
+                {{end}}
+              </td>
+            </tr>
+            <tr>
+              <th>Cell</th>
+              <td>{{.Cell}}</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
       <section div class="grid">
         {{range .Links}}
         <article>

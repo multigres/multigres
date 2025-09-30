@@ -80,6 +80,7 @@ func runServer(cmd *cobra.Command, args []string) error {
 		if servenv.GRPCCheckServiceMap("pgctld") {
 			pb.RegisterPgCtldServer(servenv.GRPCServer, pgctldService)
 		}
+		// TODO(sougou): Add http server
 	})
 
 	servenv.OnClose(func() {

@@ -16,9 +16,7 @@ package servenv
 
 import (
 	"net/http"
-	"os"
 	"path"
-	"path/filepath"
 
 	viperdebug "github.com/multigres/multigres/go/viperutil/debug"
 	"github.com/multigres/multigres/go/web"
@@ -56,29 +54,8 @@ func init() {
 		_, _ = w.Write(content)
 	})
 
-	HTTPHandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		type Link struct {
-			Title       string
-			Description string
-			Link        string
-		}
-		type IndexData struct {
-			Title string
-			Links []Link
-		}
-
-		indexData := IndexData{
-			Title: filepath.Base(os.Args[0]),
-			Links: []Link{
-				{"Config", "Server configuration details", "/config"},
-				{"Live", "URL for liveness check", "/live"},
-			},
-		}
-		_ = web.Templates.ExecuteTemplate(w, "index.html", indexData)
-	})
-
 	HTTPHandleFunc("/live", func(w http.ResponseWriter, r *http.Request) {
-		_ = web.Templates.ExecuteTemplate(w, "live.html", nil)
+		_ = web.Templates.ExecuteTemplate(w, "isok.html", true)
 	})
 
 	HTTPHandleFunc("/config", viperdebug.HandlerFunc)

@@ -49,6 +49,8 @@ var (
 	onRunHooks      event.Hooks
 	inited          bool
 
+	// Hosname is filled when
+	Hostname string
 	// ListeningURL is filled in when calling Run, contains the server URL.
 	ListeningURL url.URL
 )
@@ -104,23 +106,9 @@ func GetInitStartTime() time.Time {
 }
 
 func populateListeningURL(port int32) {
-	host, err := netutil.FullyQualifiedHostname()
-	if err != nil {
-		slog.Warn("Failed to get fully qualified hostname, falling back to simple hostname",
-			"error", err,
-			"note", "This may indicate DNS configuration issues but service will continue normally")
-		host, err = os.Hostname()
-		if err != nil {
-			slog.Error("os.Hostname() failed", "err", err)
-			os.Exit(1)
-		}
-		slog.Info("Using simple hostname for service URL", "hostname", host)
-	} else {
-		slog.Info("Using fully qualified hostname for service URL", "hostname", host)
-	}
 	ListeningURL = url.URL{
 		Scheme: "http",
-		Host:   netutil.JoinHostPort(host, port),
+		Host:   netutil.JoinHostPort(Hostname, port),
 		Path:   "/",
 	}
 }
