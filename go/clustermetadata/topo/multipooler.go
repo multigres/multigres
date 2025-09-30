@@ -260,8 +260,8 @@ func (ts *store) CreateMultiPooler(ctx context.Context, mtpooler *clustermetadat
 	return nil
 }
 
-// DeleteMultiPooler deletes the specified multipooler.
-func (ts *store) DeleteMultiPooler(ctx context.Context, id *clustermetadatapb.ID) error {
+// UnregisterMultiPooler deletes the specified multipooler.
+func (ts *store) UnregisterMultiPooler(ctx context.Context, id *clustermetadatapb.ID) error {
 	conn, err := ts.ConnForCell(ctx, id.Cell)
 	if err != nil {
 		return err
@@ -275,9 +275,9 @@ func (ts *store) DeleteMultiPooler(ctx context.Context, id *clustermetadatapb.ID
 	return nil
 }
 
-// InitMultiPooler creates or updates a multipooler. If allowUpdate is true,
+// RegisterMultiPooler creates or updates a multipooler. If allowUpdate is true,
 // and a multipooler with the same ID exists, just update it.
-func (ts *store) InitMultiPooler(ctx context.Context, mtpooler *clustermetadatapb.MultiPooler, allowUpdate bool) error {
+func (ts *store) RegisterMultiPooler(ctx context.Context, mtpooler *clustermetadatapb.MultiPooler, allowUpdate bool) error {
 	err := ts.CreateMultiPooler(ctx, mtpooler)
 	if errors.Is(err, &TopoError{Code: NodeExists}) && allowUpdate {
 		// Try to update then

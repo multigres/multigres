@@ -27,11 +27,14 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 
 	pb "github.com/multigres/multigres/go/pb/pgctldservice"
+	"github.com/multigres/multigres/go/tools/timertools"
 )
 
 // waitForServiceReady waits for a service to become ready by checking appropriate endpoints
 func (p *localProvisioner) waitForServiceReady(serviceName string, host string, servicePorts map[string]int, timeout time.Duration) error {
-	ticker := time.NewTicker(1 * time.Second)
+	ticker := timertools.NewBackoffTicker(10*time.Millisecond, time.Second)
+	// Trigger an immediate first check
+	ticker.C <- time.Now()
 	defer ticker.Stop()
 	deadline := time.After(timeout)
 	for {

@@ -26,6 +26,8 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -34,6 +36,7 @@ import (
 	"github.com/multigres/multigres/go/tools/appendpath"
 	"github.com/multigres/multigres/go/tools/semver"
 	"github.com/multigres/multigres/go/tools/stringutil"
+	"github.com/multigres/multigres/go/tools/timertools"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 
@@ -1059,7 +1062,7 @@ func (p *localProvisioner) deprovisionService(ctx context.Context, req *provisio
 	// Stop the process if it's running
 	if service.PID > 0 {
 		if err := p.stopProcessByPID(service.PID); err != nil {
-			return fmt.Errorf("failed to stop multiorch process: %w", err)
+			return fmt.Errorf("failed to stop process: %w", err)
 		}
 	}
 
@@ -1115,11 +1118,34 @@ func (p *localProvisioner) stopProcessByPID(pid int) error {
 		}
 	}
 
-	// Wait a bit for the process to exit
-	time.Sleep(2 * time.Second)
+	// Wait for the process to actually exit
+	p.waitForProcessExit(process, 2*time.Second)
 
-	fmt.Printf("Process %d stopped successfully\n", pid)
 	return nil
+}
+
+// waitForProcessExit waits for a process to exit by polling with Signal(0)
+func (p *localProvisioner) waitForProcessExit(process *os.Process, timeout time.Duration) {
+	ticker := timertools.NewBackoffTicker(10*time.Millisecond, 1*time.Second)
+	ticker.C <- time.Now()
+	defer ticker.Stop()
+	timeoutch := time.After(timeout)
+	for {
+		select {
+		case <-ticker.C:
+			// Send null signal to test if process exists
+			err := process.Signal(syscall.Signal(0))
+			if err != nil {
+				fmt.Printf("Process %d stopped successfully\n", process.Pid)
+				// Process has exited or doesn't exist
+				return
+			}
+		case <-timeoutch:
+			fmt.Printf("Process %d still running after SIGTERM\n", process.Pid)
+			// No need to wait further
+			return
+		}
+	}
 }
 
 // Bootstrap sets up etcd and creates the default database
@@ -1543,8 +1569,9 @@ func (p *localProvisioner) DeprovisionDatabase(ctx context.Context, databaseName
 		return fmt.Errorf("failed to load service states for database %s: %w", databaseName, err)
 	}
 
-	servicesStopped := 0
+	var servicesStopped atomic.Int64
 
+	var wg sync.WaitGroup
 	for _, service := range services {
 		fmt.Printf("Stopping %s service (ID: %s) for database %s...\n", service.Service, service.ID, databaseName)
 
@@ -1555,19 +1582,20 @@ func (p *localProvisioner) DeprovisionDatabase(ctx context.Context, databaseName
 			Clean:        true, // Clean up data when deprovisioning database
 		}
 
-		if err := p.stopService(ctx, req); err != nil {
-			fmt.Printf("Warning: failed to stop %s service: %v\n", service.Service, err)
-			continue
-		}
-		// Remove state file
-		if err := p.removeServiceState(service.ID, req.Service, req.DatabaseName); err != nil {
-			fmt.Printf("Warning: failed to remove state file: %v\n", err)
-		}
-
-		servicesStopped++
+		wg.Go(func() {
+			if err := p.stopService(ctx, req); err != nil {
+				fmt.Printf("Warning: failed to stop %s service: %v\n", service.Service, err)
+			}
+			// Remove state file
+			if err := p.removeServiceState(service.ID, req.Service, req.DatabaseName); err != nil {
+				fmt.Printf("Warning: failed to remove state file: %v\n", err)
+			}
+			servicesStopped.Add(1)
+		})
 	}
+	wg.Wait()
 
-	fmt.Printf("Database %s deprovisioned successfully (%d services stopped)\n", databaseName, servicesStopped)
+	fmt.Printf("Database %s deprovisioned successfully (%d services stopped)\n", databaseName, servicesStopped.Load())
 	return nil
 }
 

@@ -349,7 +349,7 @@ func TestMultiGatewayCRUDOperations(t *testing.T) {
 				err := ts.CreateMultiGateway(ctx, multigateway)
 				require.NoError(t, err)
 
-				err = ts.DeleteMultiGateway(ctx, multigateway.Id)
+				err = ts.UnregisterMultiGateway(ctx, multigateway.Id)
 				require.NoError(t, err)
 
 				_, err = ts.GetMultiGateway(ctx, multigateway.Id)
@@ -624,7 +624,7 @@ func TestInitMultiGateway(t *testing.T) {
 					PortMap:  map[string]int32{"grpc": 8080},
 				}
 
-				err := ts.InitMultiGateway(ctx, multigateway, false)
+				err := ts.RegisterMultiGateway(ctx, multigateway, false)
 				require.NoError(t, err)
 
 				retrieved, err := ts.GetMultiGateway(ctx, multigateway.Id)
@@ -656,7 +656,7 @@ func TestInitMultiGateway(t *testing.T) {
 					PortMap:  map[string]int32{"grpc": 8081, "postgres": 5432},
 				}
 
-				err := ts.InitMultiGateway(ctx, updated, true)
+				err := ts.RegisterMultiGateway(ctx, updated, true)
 				require.NoError(t, err)
 
 				retrieved, err := ts.GetMultiGateway(ctx, original.Id)
@@ -688,7 +688,7 @@ func TestInitMultiGateway(t *testing.T) {
 					PortMap:  map[string]int32{"grpc": 8081},
 				}
 
-				err := ts.InitMultiGateway(ctx, updated, false)
+				err := ts.RegisterMultiGateway(ctx, updated, false)
 				require.Error(t, err)
 				require.True(t, errors.Is(err, &topo.TopoError{Code: topo.NodeExists}))
 			},
