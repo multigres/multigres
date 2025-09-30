@@ -88,6 +88,11 @@ func (p *localProvisioner) provisionLocalproxy(ctx context.Context, req *provisi
 		"--log-output", logFile,
 	}
 
+	// Add config paths if available
+	for _, configPath := range p.configPaths {
+		args = append(args, "--config-path", configPath)
+	}
+
 	// Start localproxy process
 	localproxyCmd := exec.CommandContext(ctx, multigresBinary, args...)
 

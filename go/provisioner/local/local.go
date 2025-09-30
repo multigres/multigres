@@ -45,8 +45,9 @@ import (
 
 // localProvisioner implements the Provisioner interface for local binary-based provisioning
 type localProvisioner struct {
-	config  *LocalProvisionerConfig
-	dataDir string // Base data directory for this provisioner instance
+	config      *LocalProvisionerConfig
+	dataDir     string   // Base data directory for this provisioner instance
+	configPaths []string // Config paths passed to LoadConfig
 }
 
 // Compile-time check to ensure localProvisioner implements Provisioner

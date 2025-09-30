@@ -161,6 +161,9 @@ func (p *localProvisioner) LoadConfig(configPaths []string) error {
 				return fmt.Errorf("failed to unmarshal provisioner config: %w", err)
 			}
 
+			// Store the config paths for use when spawning subprocesses
+			p.configPaths = configPaths
+
 			return nil
 		}
 	}
