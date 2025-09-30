@@ -33,28 +33,17 @@ import (
 	"github.com/multigres/multigres/go/servenv"
 
 	"github.com/spf13/cobra"
-	"github.com/spf13/pflag"
 )
 
-var (
+type MultiGateway struct {
 	cell string
-
 	// serviceID string
 	serviceID string
 	// multigatewayID stores the ID for deregistration during shutdown
 	multigatewayID *clustermetadatapb.ID
 	// poolerDiscovery handles discovery of multipoolers
 	poolerDiscovery *PoolerDiscovery
-
-	Main = &cobra.Command{
-		Use:     "multigateway",
-		Short:   "Multigateway is a stateless proxy responsible for accepting requests from applications and routing them to the appropriate multipooler server(s) for query execution. It speaks both the PostgresSQL Protocol and a gRPC protocol.",
-		Long:    "Multigateway is a stateless proxy responsible for accepting requests from applications and routing them to the appropriate multipooler server(s) for query execution. It speaks both the PostgresSQL Protocol and a gRPC protocol.",
-		Args:    cobra.NoArgs,
-		PreRunE: servenv.CobraPreRunE,
-		RunE:    run,
-	}
-)
+}
 
 // CheckCellFlags validates the cell flag against available cells in the topology.
 // It helps avoid strange behaviors when multigateway runs but actually does not work
@@ -93,13 +82,30 @@ func CheckCellFlags(ts topo.Store, cell string) error {
 }
 
 func main() {
-	if err := Main.Execute(); err != nil {
+	mg := &MultiGateway{}
+
+	main := &cobra.Command{
+		Use:     "multigateway",
+		Short:   "Multigateway is a stateless proxy responsible for accepting requests from applications and routing them to the appropriate multipooler server(s) for query execution. It speaks both the PostgresSQL Protocol and a gRPC protocol.",
+		Long:    "Multigateway is a stateless proxy responsible for accepting requests from applications and routing them to the appropriate multipooler server(s) for query execution. It speaks both the PostgresSQL Protocol and a gRPC protocol.",
+		Args:    cobra.NoArgs,
+		PreRunE: servenv.CobraPreRunE,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return run(cmd, args, mg)
+		},
+	}
+
+	main.Flags().StringVar(&mg.cell, "cell", mg.cell, "cell to use")
+	main.Flags().StringVar(&mg.serviceID, "service-id", "", "optional service ID (if empty, a random ID will be generated)")
+	servenv.RegisterServiceCmd(main)
+
+	if err := main.Execute(); err != nil {
 		slog.Error(err.Error())
 		os.Exit(1)
 	}
 }
 
-func run(cmd *cobra.Command, args []string) error {
+func run(cmd *cobra.Command, args []string, mg *MultiGateway) error {
 	servenv.Init()
 
 	logger := servenv.GetLogger()
@@ -108,16 +114,16 @@ func run(cmd *cobra.Command, args []string) error {
 	defer func() { _ = ts.Close() }()
 
 	// Validate cell configuration early to fail fast if misconfigured
-	if err := CheckCellFlags(ts, cell); err != nil {
+	if err := CheckCellFlags(ts, mg.cell); err != nil {
 		logger.Error("Cell validation failed", "error", err)
 		return fmt.Errorf("cell validation failed: %w", err)
 	}
-	logger.Info("Cell validation passed", "cell", cell)
+	logger.Info("Cell validation passed", "cell", mg.cell)
 
 	servenv.OnRun(func() {
 		// Flags are parsed now.
 		logger.Info("multigateway starting up",
-			"cell", cell,
+			"cell", mg.cell,
 			"http_port", servenv.HTTPPort(),
 			"grpc_port", servenv.GRPCPort(),
 		)
@@ -134,16 +140,16 @@ func run(cmd *cobra.Command, args []string) error {
 		}
 
 		// Create MultiGateway instance for topo registration
-		multigateway := topo.NewMultiGateway(serviceID, cell, hostname)
+		multigateway := topo.NewMultiGateway(mg.serviceID, mg.cell, hostname)
 		multigateway.PortMap["grpc"] = int32(servenv.GRPCPort())
 		multigateway.PortMap["http"] = int32(servenv.HTTPPort())
 
-		if serviceID == "" {
-			serviceID = multigateway.GetId().GetName()
+		if mg.serviceID == "" {
+			mg.serviceID = multigateway.GetId().GetName()
 		}
 
 		// Store ID for deregistration during shutdown
-		multigatewayID = multigateway.Id
+		mg.multigatewayID = multigateway.Id
 
 		// Register with topology
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -156,32 +162,32 @@ func run(cmd *cobra.Command, args []string) error {
 		}
 
 		// Start pooler discovery
-		poolerDiscovery = NewPoolerDiscovery(context.Background(), ts, cell, logger)
-		poolerDiscovery.Start()
-		logger.Info("Pooler discovery started with topology watch", "cell", cell)
+		mg.poolerDiscovery = NewPoolerDiscovery(context.Background(), ts, mg.cell, logger)
+		mg.poolerDiscovery.Start()
+		logger.Info("Pooler discovery started with topology watch", "cell", mg.cell)
 
 		// Add a demo HTTP endpoint to show discovered poolers
-		servenv.HTTPHandleFunc("/discovery/poolers", handlePoolersEndpoint)
+		servenv.HTTPHandleFunc("/discovery/poolers", getHandlePoolersEndpoint(mg))
 		logger.Info("Discovery HTTP endpoint available at /discovery/poolers")
 	})
 	servenv.OnClose(func() {
 		logger.Info("multigateway shutting down")
 
 		// Stop pooler discovery
-		if poolerDiscovery != nil {
-			poolerDiscovery.Stop()
+		if mg.poolerDiscovery != nil {
+			mg.poolerDiscovery.Stop()
 			logger.Info("Pooler discovery stopped")
 		}
 
 		// Deregister from topology service
-		if multigatewayID != nil {
+		if mg.multigatewayID != nil {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
 
-			if err := ts.DeleteMultiGateway(ctx, multigatewayID); err != nil {
-				logger.Error("Failed to deregister multigateway from topology", "error", err, "id", multigatewayID)
+			if err := ts.DeleteMultiGateway(ctx, mg.multigatewayID); err != nil {
+				logger.Error("Failed to deregister multigateway from topology", "error", err, "id", mg.multigatewayID)
 			} else {
-				logger.Info("Successfully deregistered multigateway from topology", "id", multigatewayID)
+				logger.Info("Successfully deregistered multigateway from topology", "id", mg.multigatewayID)
 			}
 		}
 	})
@@ -190,16 +196,27 @@ func run(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func init() {
-	// Adds multigateway specific flags
-	servenv.OnParseFor("multigateway", registerFlags)
+// getHandlePoolersEndpoint handles the HTTP endpoint that shows discovered poolers
+func getHandlePoolersEndpoint(mg *MultiGateway) func(http.ResponseWriter, *http.Request) {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if mg.poolerDiscovery == nil {
+			http.Error(w, "Pooler discovery not initialized", http.StatusServiceUnavailable)
+			return
+		}
 
-	servenv.RegisterServiceCmd(Main)
-}
+		response := DiscoveryResponse{
+			Cell:        mg.cell,
+			PoolerCount: mg.poolerDiscovery.PoolerCount(),
+			LastRefresh: mg.poolerDiscovery.LastRefresh(),
+			PoolerNames: mg.poolerDiscovery.GetPoolersName(),
+		}
 
-func registerFlags(fs *pflag.FlagSet) {
-	fs.StringVar(&cell, "cell", cell, "cell to use")
-	fs.StringVar(&serviceID, "service-id", "", "optional service ID (if empty, a random ID will be generated)")
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(response); err != nil {
+			http.Error(w, "Failed to encode response", http.StatusInternalServerError)
+			return
+		}
+	}
 }
 
 // DiscoveryResponse represents the response from the discovery endpoint
@@ -208,25 +225,4 @@ type DiscoveryResponse struct {
 	PoolerCount int       `json:"pooler_count"`
 	LastRefresh time.Time `json:"last_refresh"`
 	PoolerNames []string  `json:"pooler_names"`
-}
-
-// handlePoolersEndpoint handles the HTTP endpoint that shows discovered poolers
-func handlePoolersEndpoint(w http.ResponseWriter, r *http.Request) {
-	if poolerDiscovery == nil {
-		http.Error(w, "Pooler discovery not initialized", http.StatusServiceUnavailable)
-		return
-	}
-
-	response := DiscoveryResponse{
-		Cell:        cell,
-		PoolerCount: poolerDiscovery.PoolerCount(),
-		LastRefresh: poolerDiscovery.LastRefresh(),
-		PoolerNames: poolerDiscovery.GetPoolersName(),
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(response); err != nil {
-		http.Error(w, "Failed to encode response", http.StatusInternalServerError)
-		return
-	}
 }
