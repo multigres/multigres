@@ -25,30 +25,9 @@ import (
 	"github.com/multigres/multigres/go/multipooler/manager"
 	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
 	querypb "github.com/multigres/multigres/go/pb/query"
-	"github.com/multigres/multigres/go/servenv"
 
 	"google.golang.org/grpc"
 )
-
-// RegisterService registers the MultiPooler gRPC service with the given configuration
-func RegisterService(config *manager.Config) {
-	servenv.OnRun(func() {
-		if servenv.GRPCServer == nil {
-			return
-		}
-
-		logger := servenv.GetLogger()
-
-		// Check if the pooler service should be registered
-		poolerServiceEnabled := servenv.GRPCCheckServiceMap("poolerquery")
-		logger.Info("Service map check result", "service", "poolerquery", "enabled", poolerServiceEnabled)
-		if poolerServiceEnabled {
-			server := NewMultiPoolerServer(logger, config)
-			multipoolerpb.RegisterMultiPoolerServiceServer(servenv.GRPCServer, server)
-			logger.Info("MultiPooler gRPC service registered")
-		}
-	})
-}
 
 // MultiPoolerServer implements the MultiPoolerService gRPC interface
 type MultiPoolerServer struct {

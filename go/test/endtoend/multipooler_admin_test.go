@@ -124,13 +124,6 @@ func (p *ProcessInstance) startPgctld(t *testing.T) error {
 func (p *ProcessInstance) startMultipooler(t *testing.T) error {
 	t.Helper()
 
-	// Debug: Show full binary path
-	binaryPath, err := exec.LookPath(p.Binary)
-	if err != nil {
-		t.Logf("Failed to find binary '%s': %v", p.Binary, err)
-	} else {
-		t.Logf("CLAUDE DEBUG: Using binary at path: %s", binaryPath)
-	}
 	t.Logf("Starting %s: binary '%s', gRPC port %d", p.Name, p.Binary, p.GrpcPort)
 
 	// Start the multipooler server
@@ -231,12 +224,7 @@ func (p *ProcessInstance) logRecentOutput(t *testing.T, context string) {
 		return
 	}
 
-	// Show last 2000 characters or full content if smaller
 	logContent := string(content)
-	if len(logContent) > 2000 {
-		logContent = "..." + logContent[len(logContent)-2000:]
-	}
-
 	t.Logf("%s %s - Recent log output from %s:\n%s", p.Name, context, p.LogFile, logContent)
 }
 

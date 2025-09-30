@@ -95,29 +95,42 @@ func Init() {
 		logger.Error("table group is required")
 		os.Exit(1)
 	}
+	// Initialize the MultiPoolerManager (following Vitess tm_init.go pattern)
+	logger.Info("Initializing MultiPoolerManager")
+	poolerManager := manager.NewMultiPoolerManager(logger, &manager.Config{
+		SocketFilePath: socketFilePath,
+		PoolerDir:      poolerDir,
+		PgPort:         pgPort,
+		Database:       database,
+	})
 
-	// Register multipooler gRPC service with servenv's GRPCServer
-	if servenv.GRPCCheckServiceMap("pooler") {
-		poolerServer = server.NewMultiPoolerServer(logger, &manager.Config{
-			SocketFilePath: socketFilePath,
-			PoolerDir:      poolerDir,
-			PgPort:         pgPort,
-			Database:       database,
-		})
-		poolerServer.RegisterWithGRPCServer(servenv.GRPCServer)
-		logger.Info("MultiPooler gRPC service registered with servenv")
-	}
+	// Start the MultiPoolerManagekr
+	poolerManager.Start()
 
 	// Create MultiPooler instance for topo registration
 	multipooler := topo.NewMultiPooler(serviceID, cell, servenv.Hostname, tableGroup)
 	multipooler.PortMap["grpc"] = int32(servenv.GRPCPort())
 	multipooler.PortMap["http"] = int32(servenv.HTTPPort())
 	multipooler.Database = database
-
-	tr = toporeg.Register(
-		func(ctx context.Context) error { return ts.RegisterMultiPooler(ctx, multipooler, true) },
-		func(ctx context.Context) error { return ts.UnregisterMultiPooler(ctx, multipooler.Id) },
-		func(s string) { serverStatus.InitError = s },
+	servenv.OnRun(
+		func() {
+			// Register multipooler gRPC service with servenv's GRPCServer
+			if servenv.GRPCCheckServiceMap("pooler") {
+				poolerServer = server.NewMultiPoolerServer(logger, &manager.Config{
+					SocketFilePath: socketFilePath,
+					PoolerDir:      poolerDir,
+					PgPort:         pgPort,
+					Database:       database,
+				})
+				poolerServer.RegisterWithGRPCServer(servenv.GRPCServer)
+				logger.Info("MultiPooler gRPC service registered with servenv")
+			}
+			tr = toporeg.Register(
+				func(ctx context.Context) error { return ts.RegisterMultiPooler(ctx, multipooler, true) },
+				func(ctx context.Context) error { return ts.UnregisterMultiPooler(ctx, multipooler.Id) },
+				func(s string) { serverStatus.InitError = s },
+			)
+		},
 	)
 }
 
