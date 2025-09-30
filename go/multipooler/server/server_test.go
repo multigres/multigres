@@ -24,13 +24,14 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
+	"github.com/multigres/multigres/go/multipooler/manager"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
 )
 
 func TestNewMultiPoolerServer(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	config := &Config{
+	config := &manager.Config{
 		SocketFilePath: "/tmp/test.sock",
 		Database:       "testdb",
 	}
@@ -63,7 +64,7 @@ func TestConfig(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			config := &Config{
+			config := &manager.Config{
 				SocketFilePath: tt.socketFilePath,
 				Database:       tt.database,
 			}
@@ -76,7 +77,7 @@ func TestConfig(t *testing.T) {
 
 func TestExecuteQuery_InvalidInput(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	config := &Config{
+	config := &manager.Config{
 		SocketFilePath: "/nonexistent/socket",
 		Database:       "testdb",
 	}
@@ -166,7 +167,7 @@ func TestResultTranslation_NullValues(t *testing.T) {
 
 func TestExecuteQuery_EmptyQuery(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	config := &Config{
+	config := &manager.Config{
 		SocketFilePath: "/nonexistent/socket",
 		Database:       "testdb",
 	}
@@ -187,7 +188,7 @@ func TestExecuteQuery_EmptyQuery(t *testing.T) {
 
 func TestExecuteQuery_CallerIDLogging(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	config := &Config{
+	config := &manager.Config{
 		SocketFilePath: "/nonexistent/socket",
 		Database:       "testdb",
 	}
@@ -237,7 +238,7 @@ func TestExecuteQuery_CallerIDLogging(t *testing.T) {
 
 func TestClose(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	config := &Config{
+	config := &manager.Config{
 		SocketFilePath: "/tmp/test.sock",
 		Database:       "testdb",
 	}

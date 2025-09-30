@@ -20,10 +20,9 @@ import (
 	"database/sql"
 	"fmt"
 	"log/slog"
-	"path/filepath"
 	"strings"
 
-	multipoolermanagerpb "github.com/multigres/multigres/go/pb/multipoolermanager"
+	"github.com/multigres/multigres/go/multipooler/manager"
 	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
 	querypb "github.com/multigres/multigres/go/pb/query"
 	"github.com/multigres/multigres/go/servenv"
@@ -32,7 +31,7 @@ import (
 )
 
 // RegisterService registers the MultiPooler gRPC service with the given configuration
-func RegisterService(config *Config) {
+func RegisterService(config *manager.Config) {
 	servenv.OnRun(func() {
 		if servenv.GRPCServer == nil {
 			return
@@ -40,7 +39,7 @@ func RegisterService(config *Config) {
 
 		logger := servenv.GetLogger()
 
-		logger.Info("CLAUDE DEBUG: CustomRegisterService function called - checking service map for poolerquery and poolermanager")
+		logger.Info("CLAUDE DEBUG: CustomRegisterService function called - checking service map for poolerquery")
 
 		// Check if the pooler service should be registered
 		poolerServiceEnabled := servenv.GRPCCheckServiceMap("poolerquery")
@@ -50,36 +49,19 @@ func RegisterService(config *Config) {
 			multipoolerpb.RegisterMultiPoolerServiceServer(servenv.GRPCServer, server)
 			logger.Info("MultiPooler gRPC service registered")
 		}
-
-		// Check if the manager service should be registered
-		managerServiceEnabled := servenv.GRPCCheckServiceMap("poolermanager")
-		logger.Info("Service map check result", "service", "poolermanager", "enabled", managerServiceEnabled)
-		if managerServiceEnabled {
-			managerServer := NewMultiPoolerManagerServer(logger, config)
-			multipoolermanagerpb.RegisterMultiPoolerManagerServer(servenv.GRPCServer, managerServer)
-			logger.Info("MultiPoolerManager gRPC service registered")
-		}
 	})
-}
-
-// Config holds configuration for the MultiPooler server
-type Config struct {
-	SocketFilePath string
-	PoolerDir      string
-	PgPort         int
-	Database       string
 }
 
 // MultiPoolerServer implements the MultiPoolerService gRPC interface
 type MultiPoolerServer struct {
 	multipoolerpb.UnimplementedMultiPoolerServiceServer
 	logger *slog.Logger
-	config *Config
+	config *manager.Config
 	db     *sql.DB
 }
 
 // NewMultiPoolerServer creates a new multipooler gRPC server
-func NewMultiPoolerServer(logger *slog.Logger, config *Config) *MultiPoolerServer {
+func NewMultiPoolerServer(logger *slog.Logger, config *manager.Config) *MultiPoolerServer {
 	return &MultiPoolerServer{
 		logger: logger,
 		config: config,
@@ -92,81 +74,13 @@ func (s *MultiPoolerServer) RegisterWithGRPCServer(grpcServer *grpc.Server) {
 	s.logger.Info("MultiPooler service registered with gRPC server")
 }
 
-// createDBConnection establishes a new connection to PostgreSQL using the config
-// This is a shared helper function used by both MultiPoolerServer and MultiPoolerManagerServer
-func createDBConnection(logger *slog.Logger, config *Config) (*sql.DB, error) {
-	// Debug: Log the configuration we received
-	logger.Info("createDBConnection: Configuration received",
-		"pooler_dir", config.PoolerDir,
-		"pg_port", config.PgPort,
-		"socket_file_path", config.SocketFilePath,
-		"database", config.Database)
-
-	var dsn string
-	if config.PoolerDir != "" && config.PgPort != 0 {
-		// Use pooler directory and port to construct socket path
-		// PostgreSQL creates socket files as: {poolerDir}/pg_sockets/.s.PGSQL.{port}
-		socketDir := filepath.Join(config.PoolerDir, "pg_sockets")
-		port := fmt.Sprintf("%d", config.PgPort)
-
-		dsn = fmt.Sprintf("user=postgres dbname=%s host=%s port=%s sslmode=disable",
-			config.Database, socketDir, port)
-
-		logger.Info("Unix socket connection via pooler directory",
-			"pooler_dir", config.PoolerDir,
-			"socket_dir", socketDir,
-			"pg_port", config.PgPort,
-			"dsn", dsn)
-	} else if config.SocketFilePath != "" {
-		// Fallback: use socket file path directly
-		socketDir := filepath.Dir(config.SocketFilePath)
-		socketFile := filepath.Base(config.SocketFilePath)
-
-		// Extract port from socket filename (.s.PGSQL.PORT)
-		port := "5432" // default
-		if strings.HasPrefix(socketFile, ".s.PGSQL.") {
-			if portStr := strings.TrimPrefix(socketFile, ".s.PGSQL."); portStr != "" {
-				port = portStr
-			}
-		}
-
-		dsn = fmt.Sprintf("user=postgres dbname=%s host=%s port=%s sslmode=disable",
-			config.Database, socketDir, port)
-
-		logger.Info("Unix socket connection via socket file path (fallback)",
-			"original_socket_path", config.SocketFilePath,
-			"socket_dir", socketDir,
-			"socket_file", socketFile,
-			"extracted_port", port,
-			"dsn", dsn)
-	} else {
-		// Use TCP connection (fallback)
-		dsn = fmt.Sprintf("user=postgres dbname=%s host=localhost port=5432 sslmode=disable",
-			config.Database)
-	}
-
-	db, err := sql.Open("postgres", dsn)
-	if err != nil {
-		return nil, fmt.Errorf("failed to open database connection: %w", err)
-	}
-
-	// Test the connection
-	if err := db.Ping(); err != nil {
-		db.Close()
-		return nil, fmt.Errorf("failed to ping database: %w", err)
-	}
-
-	logger.Info("Connected to PostgreSQL", "socket_path", config.SocketFilePath, "database", config.Database)
-	return db, nil
-}
-
 // connectDB establishes a connection to PostgreSQL
 func (s *MultiPoolerServer) connectDB() error {
 	if s.db != nil {
 		return nil // Already connected
 	}
 
-	db, err := createDBConnection(s.logger, s.config)
+	db, err := manager.CreateDBConnection(s.logger, s.config)
 	if err != nil {
 		return err
 	}

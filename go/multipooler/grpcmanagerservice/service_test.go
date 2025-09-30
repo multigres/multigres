@@ -12,13 +12,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package server
+package grpcmanagerservice
 
 import (
 	"context"
 	"log/slog"
 	"os"
 	"testing"
+
+	"github.com/multigres/multigres/go/multipooler/manager"
 
 	"github.com/stretchr/testify/assert"
 
@@ -31,24 +33,15 @@ import (
 	durationpb "google.golang.org/protobuf/types/known/durationpb"
 )
 
-func TestNewMultiPoolerManagerServer(t *testing.T) {
+func TestManagerServiceMethods_NotImplemented(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	config := &Config{
-		SocketFilePath: "/tmp/test.sock",
-		Database:       "testdb",
+	config := &manager.Config{}
+	pm := manager.NewMultiPoolerManager(logger, config)
+
+	svc := &managerService{
+		manager: pm,
 	}
 
-	server := NewMultiPoolerManagerServer(logger, config)
-
-	assert.NotNil(t, server)
-	assert.Equal(t, config, server.config)
-	assert.Equal(t, logger, server.logger)
-}
-
-func TestMultiPoolerManagerMethods_NotImplemented(t *testing.T) {
-	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	config := &Config{}
-	server := NewMultiPoolerManagerServer(logger, config)
 	ctx := context.Background()
 
 	tests := []struct {
@@ -63,7 +56,7 @@ func TestMultiPoolerManagerMethods_NotImplemented(t *testing.T) {
 					TargetLsn: "0/1000000",
 					Timeout:   &durationpb.Duration{Seconds: 30},
 				}
-				_, err := server.WaitForLSN(ctx, req)
+				_, err := svc.WaitForLSN(ctx, req)
 				return err
 			},
 			expectedMethod: "WaitForLSN",
@@ -72,7 +65,7 @@ func TestMultiPoolerManagerMethods_NotImplemented(t *testing.T) {
 			name: "SetReadOnly",
 			method: func() error {
 				req := &multipoolermanagerdata.SetReadOnlyRequest{}
-				_, err := server.SetReadOnly(ctx, req)
+				_, err := svc.SetReadOnly(ctx, req)
 				return err
 			},
 			expectedMethod: "SetReadOnly",
@@ -84,25 +77,16 @@ func TestMultiPoolerManagerMethods_NotImplemented(t *testing.T) {
 					Wait:        true,
 					WaitTimeout: &durationpb.Duration{Seconds: 60},
 				}
-				_, err := server.PromoteStandby(ctx, req)
+				_, err := svc.PromoteStandby(ctx, req)
 				return err
 			},
 			expectedMethod: "PromoteStandby",
 		},
 		{
-			name: "GetPrimaryLSN",
-			method: func() error {
-				req := &multipoolermanagerdata.GetPrimaryLSNRequest{}
-				_, err := server.GetPrimaryLSN(ctx, req)
-				return err
-			},
-			expectedMethod: "GetPrimaryLSN",
-		},
-		{
 			name: "IsReadOnly",
 			method: func() error {
 				req := &multipoolermanagerdata.IsReadOnlyRequest{}
-				_, err := server.IsReadOnly(ctx, req)
+				_, err := svc.IsReadOnly(ctx, req)
 				return err
 			},
 			expectedMethod: "IsReadOnly",
@@ -114,7 +98,7 @@ func TestMultiPoolerManagerMethods_NotImplemented(t *testing.T) {
 					Host: "primary.example.com",
 					Port: 5432,
 				}
-				_, err := server.SetStandbyPrimaryConnInfo(ctx, req)
+				_, err := svc.SetStandbyPrimaryConnInfo(ctx, req)
 				return err
 			},
 			expectedMethod: "SetStandbyPrimaryConnInfo",
@@ -123,7 +107,7 @@ func TestMultiPoolerManagerMethods_NotImplemented(t *testing.T) {
 			name: "StartStandbyReplication",
 			method: func() error {
 				req := &multipoolermanagerdata.StartReplicationRequest{}
-				_, err := server.StartStandbyReplication(ctx, req)
+				_, err := svc.StartStandbyReplication(ctx, req)
 				return err
 			},
 			expectedMethod: "StartStandbyReplication",
@@ -132,7 +116,7 @@ func TestMultiPoolerManagerMethods_NotImplemented(t *testing.T) {
 			name: "StopStandbyReplication",
 			method: func() error {
 				req := &multipoolermanagerdata.StopStandbyReplicationRequest{}
-				_, err := server.StopStandbyReplication(ctx, req)
+				_, err := svc.StopStandbyReplication(ctx, req)
 				return err
 			},
 			expectedMethod: "StopStandbyReplication",
@@ -141,7 +125,7 @@ func TestMultiPoolerManagerMethods_NotImplemented(t *testing.T) {
 			name: "StandbyReplicationStatus",
 			method: func() error {
 				req := &multipoolermanagerdata.StandbyReplicationStatusRequest{}
-				_, err := server.StandbyReplicationStatus(ctx, req)
+				_, err := svc.StandbyReplicationStatus(ctx, req)
 				return err
 			},
 			expectedMethod: "StandbyReplicationStatus",
@@ -150,7 +134,7 @@ func TestMultiPoolerManagerMethods_NotImplemented(t *testing.T) {
 			name: "ResetStandbyReplication",
 			method: func() error {
 				req := &multipoolermanagerdata.ResetStandbyReplicationRequest{}
-				_, err := server.ResetStandbyReplication(ctx, req)
+				_, err := svc.ResetStandbyReplication(ctx, req)
 				return err
 			},
 			expectedMethod: "ResetStandbyReplication",
@@ -164,7 +148,7 @@ func TestMultiPoolerManagerMethods_NotImplemented(t *testing.T) {
 					NumSync:           1,
 					StandbyNames:      []string{"standby1"},
 				}
-				_, err := server.ConfigureSynchronousReplication(ctx, req)
+				_, err := svc.ConfigureSynchronousReplication(ctx, req)
 				return err
 			},
 			expectedMethod: "ConfigureSynchronousReplication",
@@ -173,7 +157,7 @@ func TestMultiPoolerManagerMethods_NotImplemented(t *testing.T) {
 			name: "PrimaryStatus",
 			method: func() error {
 				req := &multipoolermanagerdata.PrimaryStatusRequest{}
-				_, err := server.PrimaryStatus(ctx, req)
+				_, err := svc.PrimaryStatus(ctx, req)
 				return err
 			},
 			expectedMethod: "PrimaryStatus",
@@ -182,7 +166,7 @@ func TestMultiPoolerManagerMethods_NotImplemented(t *testing.T) {
 			name: "PrimaryPosition",
 			method: func() error {
 				req := &multipoolermanagerdata.PrimaryPositionRequest{}
-				_, err := server.PrimaryPosition(ctx, req)
+				_, err := svc.PrimaryPosition(ctx, req)
 				return err
 			},
 			expectedMethod: "PrimaryPosition",
@@ -191,7 +175,7 @@ func TestMultiPoolerManagerMethods_NotImplemented(t *testing.T) {
 			name: "StopReplicationAndGetStatus",
 			method: func() error {
 				req := &multipoolermanagerdata.StopReplicationAndGetStatusRequest{}
-				_, err := server.StopReplicationAndGetStatus(ctx, req)
+				_, err := svc.StopReplicationAndGetStatus(ctx, req)
 				return err
 			},
 			expectedMethod: "StopReplicationAndGetStatus",
@@ -202,7 +186,7 @@ func TestMultiPoolerManagerMethods_NotImplemented(t *testing.T) {
 				req := &multipoolermanagerdata.ChangeTypeRequest{
 					PoolerType: clustermetadata.PoolerType_PRIMARY,
 				}
-				_, err := server.ChangeType(ctx, req)
+				_, err := svc.ChangeType(ctx, req)
 				return err
 			},
 			expectedMethod: "ChangeType",
@@ -211,7 +195,7 @@ func TestMultiPoolerManagerMethods_NotImplemented(t *testing.T) {
 			name: "GetFollowers",
 			method: func() error {
 				req := &multipoolermanagerdata.GetFollowersRequest{}
-				_, err := server.GetFollowers(ctx, req)
+				_, err := svc.GetFollowers(ctx, req)
 				return err
 			},
 			expectedMethod: "GetFollowers",
@@ -220,7 +204,7 @@ func TestMultiPoolerManagerMethods_NotImplemented(t *testing.T) {
 			name: "DemoteLeader",
 			method: func() error {
 				req := &multipoolermanagerdata.DemoteLeaderRequest{}
-				_, err := server.DemoteLeader(ctx, req)
+				_, err := svc.DemoteLeader(ctx, req)
 				return err
 			},
 			expectedMethod: "DemoteLeader",
@@ -229,7 +213,7 @@ func TestMultiPoolerManagerMethods_NotImplemented(t *testing.T) {
 			name: "UndoDemoteLeader",
 			method: func() error {
 				req := &multipoolermanagerdata.UndoDemoteLeaderRequest{}
-				_, err := server.UndoDemoteLeader(ctx, req)
+				_, err := svc.UndoDemoteLeader(ctx, req)
 				return err
 			},
 			expectedMethod: "UndoDemoteLeader",
@@ -238,7 +222,7 @@ func TestMultiPoolerManagerMethods_NotImplemented(t *testing.T) {
 			name: "PromoteFollower",
 			method: func() error {
 				req := &multipoolermanagerdata.PromoteFollowerRequest{}
-				_, err := server.PromoteFollower(ctx, req)
+				_, err := svc.PromoteFollower(ctx, req)
 				return err
 			},
 			expectedMethod: "PromoteFollower",

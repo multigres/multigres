@@ -28,6 +28,8 @@ import (
 	"time"
 
 	"github.com/multigres/multigres/go/clustermetadata/topo"
+	"github.com/multigres/multigres/go/multipooler/grpcmanagerservice"
+	"github.com/multigres/multigres/go/multipooler/manager"
 	"github.com/multigres/multigres/go/multipooler/server"
 	"github.com/multigres/multigres/go/netutil"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
@@ -50,6 +52,8 @@ var (
 	multipoolerID *clustermetadatapb.ID
 	// poolerServer holds the gRPC multipooler server instance
 	poolerServer *server.MultiPoolerServer
+	// poolerManager holds the MultiPoolerManager instance
+	poolerManager *manager.MultiPoolerManager
 
 	Main = &cobra.Command{
 		Use:     "multipooler",
@@ -132,8 +136,27 @@ func run(cmd *cobra.Command, args []string) error {
 	}
 	logger.Info("Cell validation passed", "cell", cell)
 
-	// Register additional gRPC services (poolerquery and poolermanager)
-	server.RegisterService(&server.Config{
+	// Initialize the MultiPoolerManager (following Vitess tm_init.go pattern)
+	poolerManager = manager.NewMultiPoolerManager(logger, &manager.Config{
+		SocketFilePath: socketFilePath,
+		PoolerDir:      poolerDir,
+		PgPort:         pgPort,
+		Database:       database,
+	})
+
+	// Start the manager - registers manager-specific hooks
+	poolerManager.Start()
+
+	// Register gRPC manager service (at CLI level to avoid import cycles)
+	servenv.OnRun(func() {
+		if servenv.GRPCCheckServiceMap("poolermanager") {
+			grpcmanagerservice.RegisterForManager(servenv.GRPCServer, poolerManager)
+			logger.Info("MultiPoolerManager gRPC service registered")
+		}
+	})
+
+	// Register additional gRPC services (poolerquery)
+	server.RegisterService(&manager.Config{
 		SocketFilePath: socketFilePath,
 		PoolerDir:      poolerDir,
 		PgPort:         pgPort,
@@ -156,7 +179,7 @@ func run(cmd *cobra.Command, args []string) error {
 
 		// Register multipooler gRPC service with servenv's GRPCServer
 		if servenv.GRPCCheckServiceMap("pooler") {
-			poolerServer = server.NewMultiPoolerServer(logger, &server.Config{
+			poolerServer = server.NewMultiPoolerServer(logger, &manager.Config{
 				SocketFilePath: socketFilePath,
 				PoolerDir:      poolerDir,
 				PgPort:         pgPort,
@@ -202,6 +225,13 @@ func run(cmd *cobra.Command, args []string) error {
 	})
 	servenv.OnClose(func() {
 		logger.Info("multipooler shutting down")
+
+		// Close the manager
+		if poolerManager != nil {
+			if err := poolerManager.Close(); err != nil {
+				logger.Error("Failed to close MultiPoolerManager", "error", err)
+			}
+		}
 
 		// Deregister from topology service
 		if multipoolerID != nil {
