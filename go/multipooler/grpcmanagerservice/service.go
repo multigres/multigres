@@ -73,17 +73,6 @@ func (s *managerService) PromoteStandby(ctx context.Context, req *multipoolerman
 	return &multipoolermanagerdata.PromoteStandbyResponse{}, nil
 }
 
-// GetPrimaryLSN gets the current leader LSN position
-func (s *managerService) GetPrimaryLSN(ctx context.Context, req *multipoolermanagerdata.GetPrimaryLSNRequest) (*multipoolermanagerdata.GetPrimaryLSNResponse, error) {
-	lsn, err := s.manager.GetPrimaryLSN(ctx)
-	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to get primary LSN: %v", err)
-	}
-	return &multipoolermanagerdata.GetPrimaryLSNResponse{
-		LeaderLsn: lsn,
-	}, nil
-}
-
 // IsReadOnly checks if PostgreSQL instance is in read-only mode
 func (s *managerService) IsReadOnly(ctx context.Context, req *multipoolermanagerdata.IsReadOnlyRequest) (*multipoolermanagerdata.IsReadOnlyResponse, error) {
 	readOnly, err := s.manager.IsReadOnly(ctx)

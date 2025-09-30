@@ -37,7 +37,6 @@ const (
 	MultiPoolerManager_WaitForLSN_FullMethodName                      = "/multipoolermanager.MultiPoolerManager/WaitForLSN"
 	MultiPoolerManager_SetReadOnly_FullMethodName                     = "/multipoolermanager.MultiPoolerManager/SetReadOnly"
 	MultiPoolerManager_PromoteStandby_FullMethodName                  = "/multipoolermanager.MultiPoolerManager/PromoteStandby"
-	MultiPoolerManager_GetPrimaryLSN_FullMethodName                   = "/multipoolermanager.MultiPoolerManager/GetPrimaryLSN"
 	MultiPoolerManager_IsReadOnly_FullMethodName                      = "/multipoolermanager.MultiPoolerManager/IsReadOnly"
 	MultiPoolerManager_SetStandbyPrimaryConnInfo_FullMethodName       = "/multipoolermanager.MultiPoolerManager/SetStandbyPrimaryConnInfo"
 	MultiPoolerManager_StartStandbyReplication_FullMethodName         = "/multipoolermanager.MultiPoolerManager/StartStandbyReplication"
@@ -66,8 +65,6 @@ type MultiPoolerManagerClient interface {
 	// PromoteStandby PostgreSQL standby server to primary
 	// this will call pg_promote() in the underlying instance.
 	PromoteStandby(ctx context.Context, in *multipoolermanagerdata.PromoteStandbyRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.PromoteStandbyResponse, error)
-	// GetPrimaryLSN gets the current leader LSN position
-	GetPrimaryLSN(ctx context.Context, in *multipoolermanagerdata.GetPrimaryLSNRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.GetPrimaryLSNResponse, error)
 	// IsReadOnly checks if PostgreSQL instance is in read-only mode
 	IsReadOnly(ctx context.Context, in *multipoolermanagerdata.IsReadOnlyRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.IsReadOnlyResponse, error)
 	// SetStandbyPrimaryConnInfo sets the primary connection info for a standby server
@@ -133,15 +130,6 @@ func (c *multiPoolerManagerClient) SetReadOnly(ctx context.Context, in *multipoo
 func (c *multiPoolerManagerClient) PromoteStandby(ctx context.Context, in *multipoolermanagerdata.PromoteStandbyRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.PromoteStandbyResponse, error) {
 	out := new(multipoolermanagerdata.PromoteStandbyResponse)
 	err := c.cc.Invoke(ctx, MultiPoolerManager_PromoteStandby_FullMethodName, in, out, opts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *multiPoolerManagerClient) GetPrimaryLSN(ctx context.Context, in *multipoolermanagerdata.GetPrimaryLSNRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.GetPrimaryLSNResponse, error) {
-	out := new(multipoolermanagerdata.GetPrimaryLSNResponse)
-	err := c.cc.Invoke(ctx, MultiPoolerManager_GetPrimaryLSN_FullMethodName, in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -294,8 +282,6 @@ type MultiPoolerManagerServer interface {
 	// PromoteStandby PostgreSQL standby server to primary
 	// this will call pg_promote() in the underlying instance.
 	PromoteStandby(context.Context, *multipoolermanagerdata.PromoteStandbyRequest) (*multipoolermanagerdata.PromoteStandbyResponse, error)
-	// GetPrimaryLSN gets the current leader LSN position
-	GetPrimaryLSN(context.Context, *multipoolermanagerdata.GetPrimaryLSNRequest) (*multipoolermanagerdata.GetPrimaryLSNResponse, error)
 	// IsReadOnly checks if PostgreSQL instance is in read-only mode
 	IsReadOnly(context.Context, *multipoolermanagerdata.IsReadOnlyRequest) (*multipoolermanagerdata.IsReadOnlyResponse, error)
 	// SetStandbyPrimaryConnInfo sets the primary connection info for a standby server
@@ -345,9 +331,6 @@ func (UnimplementedMultiPoolerManagerServer) SetReadOnly(context.Context, *multi
 }
 func (UnimplementedMultiPoolerManagerServer) PromoteStandby(context.Context, *multipoolermanagerdata.PromoteStandbyRequest) (*multipoolermanagerdata.PromoteStandbyResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method PromoteStandby not implemented")
-}
-func (UnimplementedMultiPoolerManagerServer) GetPrimaryLSN(context.Context, *multipoolermanagerdata.GetPrimaryLSNRequest) (*multipoolermanagerdata.GetPrimaryLSNResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method GetPrimaryLSN not implemented")
 }
 func (UnimplementedMultiPoolerManagerServer) IsReadOnly(context.Context, *multipoolermanagerdata.IsReadOnlyRequest) (*multipoolermanagerdata.IsReadOnlyResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method IsReadOnly not implemented")
@@ -457,24 +440,6 @@ func _MultiPoolerManager_PromoteStandby_Handler(srv interface{}, ctx context.Con
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(MultiPoolerManagerServer).PromoteStandby(ctx, req.(*multipoolermanagerdata.PromoteStandbyRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _MultiPoolerManager_GetPrimaryLSN_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(multipoolermanagerdata.GetPrimaryLSNRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(MultiPoolerManagerServer).GetPrimaryLSN(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: MultiPoolerManager_GetPrimaryLSN_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(MultiPoolerManagerServer).GetPrimaryLSN(ctx, req.(*multipoolermanagerdata.GetPrimaryLSNRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -767,10 +732,6 @@ var MultiPoolerManager_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "PromoteStandby",
 			Handler:    _MultiPoolerManager_PromoteStandby_Handler,
-		},
-		{
-			MethodName: "GetPrimaryLSN",
-			Handler:    _MultiPoolerManager_GetPrimaryLSN_Handler,
 		},
 		{
 			MethodName: "IsReadOnly",

@@ -95,6 +95,12 @@ func Init() {
 		logger.Error("table group is required")
 		os.Exit(1)
 	}
+	// Create MultiPooler instance for topo registration
+	multipooler := topo.NewMultiPooler(serviceID, cell, servenv.Hostname, tableGroup)
+	multipooler.PortMap["grpc"] = int32(servenv.GRPCPort())
+	multipooler.PortMap["http"] = int32(servenv.HTTPPort())
+	multipooler.Database = database
+
 	// Initialize the MultiPoolerManager (following Vitess tm_init.go pattern)
 	logger.Info("Initializing MultiPoolerManager")
 	poolerManager := manager.NewMultiPoolerManager(logger, &manager.Config{
@@ -102,16 +108,13 @@ func Init() {
 		PoolerDir:      poolerDir,
 		PgPort:         pgPort,
 		Database:       database,
+		TopoClient:     ts,
+		ServiceID:      serviceID,
 	})
 
 	// Start the MultiPoolerManagekr
 	poolerManager.Start()
 
-	// Create MultiPooler instance for topo registration
-	multipooler := topo.NewMultiPooler(serviceID, cell, servenv.Hostname, tableGroup)
-	multipooler.PortMap["grpc"] = int32(servenv.GRPCPort())
-	multipooler.PortMap["http"] = int32(servenv.HTTPPort())
-	multipooler.Database = database
 	servenv.OnRun(
 		func() {
 			// Register multipooler gRPC service with servenv's GRPCServer
@@ -121,6 +124,8 @@ func Init() {
 					PoolerDir:      poolerDir,
 					PgPort:         pgPort,
 					Database:       database,
+					TopoClient:     ts,
+					ServiceID:      serviceID,
 				})
 				poolerServer.RegisterWithGRPCServer(servenv.GRPCServer)
 				logger.Info("MultiPooler gRPC service registered with servenv")

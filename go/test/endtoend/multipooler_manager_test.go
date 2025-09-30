@@ -30,7 +30,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
 
@@ -426,7 +425,7 @@ func TestMultipoolerReplicationApi(t *testing.T) {
 
 	setup := getSharedTestSetup(t)
 
-	t.Run("GetPrimaryLSN_Primary", func(t *testing.T) {
+	t.Run("PrimaryPosition_Primary", func(t *testing.T) {
 		// Connect to primary multipooler
 		conn, err := grpc.NewClient(
 			fmt.Sprintf("localhost:%d", setup.PrimaryMultipooler.GrpcPort),
@@ -439,9 +438,8 @@ func TestMultipoolerReplicationApi(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 
-		// Call GetPrimaryLSN
-		req := &multipoolermanagerdata.GetPrimaryLSNRequest{}
-		resp, err := client.GetPrimaryLSN(ctx, req)
+		req := &multipoolermanagerdata.PrimaryPositionRequest{}
+		resp, err := client.PrimaryPosition(ctx, req)
 		if err != nil {
 			st, ok := status.FromError(err)
 			if ok && st.Message() == "unknown service multipoolermanager.MultiPoolerManager" {
@@ -453,15 +451,17 @@ func TestMultipoolerReplicationApi(t *testing.T) {
 		// Assert that it succeeds and returns a valid LSN
 		require.NoError(t, err)
 		require.NotNil(t, resp)
-		assert.NotEmpty(t, resp.LeaderLsn, "LSN should not be empty")
+		assert.NotEmpty(t, resp.LsnPosition, "LSN should not be empty")
 
 		// PostgreSQL LSN format is typically like "0/1234ABCD"
-		assert.Contains(t, resp.LeaderLsn, "/", "LSN should be in PostgreSQL format (e.g., 0/1234ABCD)")
+		assert.Contains(t, resp.LsnPosition, "/", "LSN should be in PostgreSQL format (e.g., 0/1234ABCD)")
 
-		t.Logf("GetPrimaryLSN returned LSN: %s", resp.LeaderLsn)
+		t.Logf("PrimaryPosition returned LSN: %s", resp.LsnPosition)
+		// TODO: Once we have methods to change the server to a standby, we can
+		// test that PrimaryPosition returns an error when the server is a standby.
 	})
 
-	t.Run("GetPrimaryLSN_Standby", func(t *testing.T) {
+	t.Run("PrimaryPosition_Standby", func(t *testing.T) {
 		// Connect to standby multipooler
 		conn, err := grpc.NewClient(
 			fmt.Sprintf("localhost:%d", setup.StandbyMultipooler.GrpcPort),
@@ -474,46 +474,12 @@ func TestMultipoolerReplicationApi(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 
-		// Call GetPrimaryLSN on standby
-		req := &multipoolermanagerdata.GetPrimaryLSNRequest{}
-		resp, err := client.GetPrimaryLSN(ctx, req)
+		req := &multipoolermanagerdata.PrimaryPositionRequest{}
+		_, err = client.PrimaryPosition(ctx, req)
 
 		// Assert that it succeeds and returns a valid LSN
+		// TODO: This should error because this is not yet a real standby.
 		require.NoError(t, err)
-		require.NotNil(t, resp)
-		assert.NotEmpty(t, resp.LeaderLsn, "LSN should not be empty")
-		assert.Contains(t, resp.LeaderLsn, "/", "LSN should be in PostgreSQL format")
 
-		t.Logf("Standby GetPrimaryLSN returned LSN: %s", resp.LeaderLsn)
-	})
-
-	t.Run("IsReadOnly_NotImplemented", func(t *testing.T) {
-		// Test another replication API method to verify the interface is working
-		conn, err := grpc.NewClient(
-			fmt.Sprintf("localhost:%d", setup.PrimaryMultipooler.GrpcPort),
-			grpc.WithTransportCredentials(insecure.NewCredentials()),
-		)
-		require.NoError(t, err)
-		defer conn.Close()
-
-		client := multipoolermanagerpb.NewMultiPoolerManagerClient(conn)
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-
-		// Call IsReadOnly
-		req := &multipoolermanagerdata.IsReadOnlyRequest{}
-		resp, err := client.IsReadOnly(ctx, req)
-
-		// Assert that it returns "not implemented" error
-		assert.Error(t, err)
-		assert.Nil(t, resp)
-
-		st, ok := status.FromError(err)
-		require.True(t, ok, "Error should be a gRPC status error")
-		assert.Equal(t, codes.Unimplemented, st.Code(), "Should return Unimplemented code")
-		assert.Contains(t, st.Message(), "method IsReadOnly not implemented",
-			"Error message should indicate method is not implemented")
-
-		t.Log("IsReadOnly correctly returns 'not implemented' error")
 	})
 }

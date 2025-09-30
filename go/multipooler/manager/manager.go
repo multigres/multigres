@@ -19,20 +19,26 @@ import (
 	"database/sql"
 	"fmt"
 	"log/slog"
+
+	"github.com/multigres/multigres/go/clustermetadata/topo"
 )
 
 // MultiPoolerManager manages the pooler lifecycle and PostgreSQL operations
 type MultiPoolerManager struct {
-	logger *slog.Logger
-	config *Config
-	db     *sql.DB
+	logger     *slog.Logger
+	config     *Config
+	db         *sql.DB
+	topoClient topo.Store
+	serviceID  string
 }
 
 // NewMultiPoolerManager creates a new MultiPoolerManager instance
 func NewMultiPoolerManager(logger *slog.Logger, config *Config) *MultiPoolerManager {
 	return &MultiPoolerManager{
-		logger: logger,
-		config: config,
+		logger:     logger,
+		config:     config,
+		topoClient: config.TopoClient,
+		serviceID:  config.ServiceID,
 	}
 }
 
@@ -74,29 +80,6 @@ func (pm *MultiPoolerManager) SetReadOnly(ctx context.Context) error {
 func (pm *MultiPoolerManager) PromoteStandby(ctx context.Context) error {
 	pm.logger.Info("PromoteStandby called")
 	return fmt.Errorf("method PromoteStandby not implemented")
-}
-
-// GetPrimaryLSN gets the current leader LSN position
-func (pm *MultiPoolerManager) GetPrimaryLSN(ctx context.Context) (string, error) {
-	pm.logger.Info("GetPrimaryLSN called")
-
-	// Ensure database connection
-	if err := pm.connectDB(); err != nil {
-		pm.logger.Error("Failed to connect to database", "error", err)
-		return "", fmt.Errorf("database connection failed: %w", err)
-	}
-
-	// Query PostgreSQL for the current LSN position
-	// pg_current_wal_lsn() returns the current write-ahead log write location
-	var lsn string
-	err := pm.db.QueryRowContext(ctx, "SELECT pg_current_wal_lsn()::text").Scan(&lsn)
-	if err != nil {
-		pm.logger.Error("Failed to query LSN", "error", err)
-		return "", fmt.Errorf("failed to query LSN: %w", err)
-	}
-
-	pm.logger.Info("GetPrimaryLSN returning", "lsn", lsn)
-	return lsn, nil
 }
 
 // IsReadOnly checks if PostgreSQL instance is in read-only mode
@@ -150,7 +133,36 @@ func (pm *MultiPoolerManager) PrimaryStatus(ctx context.Context) (map[string]int
 // PrimaryPosition gets the current LSN position of the leader
 func (pm *MultiPoolerManager) PrimaryPosition(ctx context.Context) (string, error) {
 	pm.logger.Info("PrimaryPosition called")
-	return "", fmt.Errorf("method PrimaryPosition not implemented")
+
+	// Ensure database connection
+	if err := pm.connectDB(); err != nil {
+		pm.logger.Error("Failed to connect to database", "error", err)
+		return "", fmt.Errorf("database connection failed: %w", err)
+	}
+
+	// Guardrail: Check if the PostgreSQL instance is in standby mode
+	var isInRecovery bool
+	err := pm.db.QueryRowContext(ctx, "SELECT pg_is_in_recovery()").Scan(&isInRecovery)
+	if err != nil {
+		pm.logger.Error("Failed to check if instance is in recovery", "error", err)
+		return "", fmt.Errorf("failed to check recovery status: %w", err)
+	}
+
+	if isInRecovery {
+		pm.logger.Error("PrimaryPosition called on standby instance", "service_id", pm.serviceID)
+		return "", fmt.Errorf("operation not allowed: the PostgreSQL instance is in standby mode (service_id: %s)", pm.serviceID)
+	}
+
+	// Query PostgreSQL for the current LSN position
+	// pg_current_wal_lsn() returns the current write-ahead log write location
+	var lsn string
+	err = pm.db.QueryRowContext(ctx, "SELECT pg_current_wal_lsn()::text").Scan(&lsn)
+	if err != nil {
+		pm.logger.Error("Failed to query LSN", "error", err)
+		return "", fmt.Errorf("failed to query LSN: %w", err)
+	}
+
+	return lsn, nil
 }
 
 // StopReplicationAndGetStatus stops PostgreSQL replication and returns the status

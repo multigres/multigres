@@ -77,15 +77,6 @@ message PromoteStandbyRequest {
 message PromoteStandbyResponse {
 }
 
-// GetPrimaryLSN gets the current leader LSN position
-message GetPrimaryLSNRequest {
-}
-
-message GetPrimaryLSNResponse {
-  // Current leader LSN position
-  string leader_lsn = 1;
-}
-
 // IsReadOnly checks if PostgreSQL instance is in read-only mode
 message IsReadOnlyRequest {
 }
@@ -134,7 +125,7 @@ message StandbyReplicationStatusResponse {
   ReplicationStatus status = 1;
 }
 
-// PostgreSQL leader server status
+// PostgreSQL primary server status
 message PrimaryStatus {
   // Current WAL LSN position (PostgreSQL format: X/XXXXXXXX)
   string lsn = 1;
@@ -146,21 +137,21 @@ message PrimaryStatus {
   repeated string followers = 3;
 }
 
-// PrimaryStatus gets the status of the leader server
+// PrimaryStatus gets the status of the primary server
 message PrimaryStatusRequest {
 }
 
 message PrimaryStatusResponse {
-  // Leader server status
+  // Primary server status
   PrimaryStatus status = 1;
 }
 
-// PrimaryPosition gets the current LSN position of the leader
+// PrimaryPosition gets the current LSN position of the primary
 message PrimaryPositionRequest {
 }
 
 message PrimaryPositionResponse {
-  // Current leader LSN position
+  // Current primary LSN position
   string lsn_position = 1;
 }
 

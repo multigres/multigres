@@ -35,7 +35,10 @@ import (
 
 func TestManagerServiceMethods_NotImplemented(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	config := &manager.Config{}
+	config := &manager.Config{
+		TopoClient: nil,
+		ServiceID:  "test-service",
+	}
 	pm := manager.NewMultiPoolerManager(logger, config)
 
 	svc := &managerService{

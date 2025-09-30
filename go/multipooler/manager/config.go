@@ -15,10 +15,16 @@
 // Package manager implements the core MultiPoolerManager business logic
 package manager
 
+import (
+	"github.com/multigres/multigres/go/clustermetadata/topo"
+)
+
 // Config holds configuration for the MultiPoolerManager
 type Config struct {
 	SocketFilePath string
 	PoolerDir      string
 	PgPort         int
 	Database       string
+	TopoClient     topo.Store
+	ServiceID      string
 }

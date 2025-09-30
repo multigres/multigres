@@ -34,6 +34,8 @@ func TestNewMultiPoolerServer(t *testing.T) {
 	config := &manager.Config{
 		SocketFilePath: "/tmp/test.sock",
 		Database:       "testdb",
+		TopoClient:     nil,
+		ServiceID:      "test-service",
 	}
 
 	server := NewMultiPoolerServer(logger, config)
@@ -67,6 +69,8 @@ func TestConfig(t *testing.T) {
 			config := &manager.Config{
 				SocketFilePath: tt.socketFilePath,
 				Database:       tt.database,
+				TopoClient:     nil,
+				ServiceID:      "test-service",
 			}
 
 			assert.Equal(t, tt.socketFilePath, config.SocketFilePath)
@@ -80,6 +84,8 @@ func TestExecuteQuery_InvalidInput(t *testing.T) {
 	config := &manager.Config{
 		SocketFilePath: "/nonexistent/socket",
 		Database:       "testdb",
+		TopoClient:     nil,
+		ServiceID:      "test-service",
 	}
 	server := NewMultiPoolerServer(logger, config)
 
@@ -170,6 +176,8 @@ func TestExecuteQuery_EmptyQuery(t *testing.T) {
 	config := &manager.Config{
 		SocketFilePath: "/nonexistent/socket",
 		Database:       "testdb",
+		TopoClient:     nil,
+		ServiceID:      "test-service",
 	}
 	server := NewMultiPoolerServer(logger, config)
 
@@ -191,6 +199,8 @@ func TestExecuteQuery_CallerIDLogging(t *testing.T) {
 	config := &manager.Config{
 		SocketFilePath: "/nonexistent/socket",
 		Database:       "testdb",
+		TopoClient:     nil,
+		ServiceID:      "test-service",
 	}
 	server := NewMultiPoolerServer(logger, config)
 
@@ -241,6 +251,8 @@ func TestClose(t *testing.T) {
 	config := &manager.Config{
 		SocketFilePath: "/tmp/test.sock",
 		Database:       "testdb",
+		TopoClient:     nil,
+		ServiceID:      "test-service",
 	}
 	server := NewMultiPoolerServer(logger, config)
 

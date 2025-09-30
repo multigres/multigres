@@ -37,10 +37,6 @@ service MultiPoolerManager {
   rpc PromoteStandby(multipoolermanagerdata.PromoteStandbyRequest)
     returns (multipoolermanagerdata.PromoteStandbyResponse);
 
-  // GetPrimaryLSN gets the current leader LSN position
-  rpc GetPrimaryLSN(multipoolermanagerdata.GetPrimaryLSNRequest)
-    returns (multipoolermanagerdata.GetPrimaryLSNResponse);
-
   // IsReadOnly checks if PostgreSQL instance is in read-only mode
   rpc IsReadOnly(multipoolermanagerdata.IsReadOnlyRequest)
     returns (multipoolermanagerdata.IsReadOnlyResponse);
