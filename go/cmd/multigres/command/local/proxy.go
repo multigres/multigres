@@ -168,8 +168,9 @@ func loadProxyConfig(configPaths []string) (*proxyConfig, string, error) {
 
 // ServiceLink represents a service with its URL for the landing page
 type ServiceLink struct {
-	Name string
-	URL  string
+	Name      string
+	URL       string // Proxied URL (through subdomain)
+	DirectURL string // Direct URL (actual host:port)
 }
 
 // CellServiceGroup represents services grouped by cell
@@ -214,9 +215,11 @@ func renderLandingPage(w http.ResponseWriter, r *http.Request, cfg *proxyConfig)
 	for serviceName, servicePort := range cfg.GlobalServices {
 		if servicePort > 0 {
 			serviceURL := fmt.Sprintf("http://%s.localhost%s/", serviceName, portSuffix)
+			directURL := fmt.Sprintf("http://localhost:%d/", servicePort)
 			data.GlobalServices = append(data.GlobalServices, ServiceLink{
-				Name: serviceName,
-				URL:  serviceURL,
+				Name:      serviceName,
+				URL:       serviceURL,
+				DirectURL: directURL,
 			})
 		}
 	}
@@ -230,10 +233,12 @@ func renderLandingPage(w http.ResponseWriter, r *http.Request, cfg *proxyConfig)
 		for serviceName, servicePort := range services {
 			if servicePort > 0 {
 				serviceURL := fmt.Sprintf("http://%s.%s.localhost%s/", serviceName, cellName, portSuffix)
+				directURL := fmt.Sprintf("http://localhost:%d/", servicePort)
 				displayName := fmt.Sprintf("%s (%s)", serviceName, cellName)
 				cellGroup.Services = append(cellGroup.Services, ServiceLink{
-					Name: displayName,
-					URL:  serviceURL,
+					Name:      displayName,
+					URL:       serviceURL,
+					DirectURL: directURL,
 				})
 			}
 		}

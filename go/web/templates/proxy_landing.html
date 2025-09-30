@@ -22,8 +22,20 @@
           {{range .GlobalServices}}
           <article>
             <h4>{{.Name}}</h4>
-            <a href="{{.URL}}" role="button" data-tooltip="Access {{.Name}}"
+            <p><strong>Via Proxy:</strong></p>
+            <a
+              href="{{.URL}}"
+              role="button"
+              data-tooltip="Access {{.Name}} through proxy"
               >{{.URL}}</a
+            >
+            <p><strong>Direct:</strong></p>
+            <a
+              href="{{.DirectURL}}"
+              role="button"
+              class="secondary"
+              data-tooltip="Access {{.Name}} directly"
+              >{{.DirectURL}}</a
             >
           </article>
           {{end}}
@@ -36,8 +48,20 @@
           {{range .Services}}
           <article>
             <h4>{{.Name}}</h4>
-            <a href="{{.URL}}" role="button" data-tooltip="Access {{.Name}}"
+            <p><strong>Via Proxy:</strong></p>
+            <a
+              href="{{.URL}}"
+              role="button"
+              data-tooltip="Access {{.Name}} through proxy"
               >{{.URL}}</a
+            >
+            <p><strong>Direct:</strong></p>
+            <a
+              href="{{.DirectURL}}"
+              role="button"
+              class="secondary"
+              data-tooltip="Access {{.Name}} directly"
+              >{{.DirectURL}}</a
             >
           </article>
           {{end}}
