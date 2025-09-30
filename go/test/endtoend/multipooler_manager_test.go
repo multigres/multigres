@@ -41,6 +41,7 @@ import (
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multipoolermanagerpb "github.com/multigres/multigres/go/pb/multipoolermanager"
 	multipoolermanagerdata "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
+	pgctldpb "github.com/multigres/multigres/go/pb/pgctldservice"
 )
 
 var (
@@ -229,10 +230,38 @@ func (p *ProcessInstance) logRecentOutput(t *testing.T, context string) {
 
 // Stop stops the process instance
 func (p *ProcessInstance) Stop() {
-	if p.Process != nil && p.Process.ProcessState == nil {
-		_ = p.Process.Process.Kill()
-		_ = p.Process.Wait()
+	if p.Process == nil || p.Process.ProcessState != nil {
+		return // Process not running
 	}
+
+	// If this is pgctld, stop PostgreSQL first via gRPC
+	if p.Binary == "pgctld" {
+		p.stopPostgreSQL()
+	}
+
+	// Then kill the process
+	_ = p.Process.Process.Kill()
+	_ = p.Process.Wait()
+}
+
+// stopPostgreSQL stops PostgreSQL via gRPC (best effort, no error handling)
+func (p *ProcessInstance) stopPostgreSQL() {
+	conn, err := grpc.NewClient(
+		fmt.Sprintf("localhost:%d", p.GrpcPort),
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	)
+	if err != nil {
+		return // Can't connect, nothing we can do
+	}
+	defer conn.Close()
+
+	client := pgctldpb.NewPgCtldClient(conn)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// Stop PostgreSQL
+	_, _ = client.Stop(ctx, &pgctldpb.StopRequest{Mode: "fast"})
 }
 
 // createPgctldInstance creates a new pgctld instance configuration
@@ -480,6 +509,5 @@ func TestMultipoolerReplicationApi(t *testing.T) {
 		// Assert that it succeeds and returns a valid LSN
 		// TODO: This should error because this is not yet a real standby.
 		require.NoError(t, err)
-
 	})
 }
