@@ -28,7 +28,6 @@ import (
 	"time"
 
 	"github.com/multigres/multigres/go/clustermetadata/topo"
-	"github.com/multigres/multigres/go/multipooler/grpcmanagerservice"
 	"github.com/multigres/multigres/go/multipooler/manager"
 	"github.com/multigres/multigres/go/multipooler/server"
 	"github.com/multigres/multigres/go/netutil"
@@ -144,16 +143,10 @@ func run(cmd *cobra.Command, args []string) error {
 		Database:       database,
 	})
 
-	// Start the manager - registers manager-specific hooks
+	// Start the manager - this will call registerGRPCServices() callback during OnRun.
+	// The registration of the the callback itself happens in the init()
+	// function of the grpcmanagerservice package and then imported here via plugin_grpcserver.go
 	poolerManager.Start()
-
-	// Register gRPC manager service (at CLI level to avoid import cycles)
-	servenv.OnRun(func() {
-		if servenv.GRPCCheckServiceMap("poolermanager") {
-			grpcmanagerservice.RegisterForManager(servenv.GRPCServer, poolerManager)
-			logger.Info("MultiPoolerManager gRPC service registered")
-		}
-	})
 
 	// Register additional gRPC services (poolerquery)
 	server.RegisterService(&manager.Config{
@@ -177,7 +170,7 @@ func run(cmd *cobra.Command, args []string) error {
 			"grpc_port", servenv.GRPCPort(),
 		)
 
-		// Register multipooler gRPC service with servenv's GRPCServer
+		// Register multipooler query gRPC service with servenv's GRPCServer
 		if servenv.GRPCCheckServiceMap("pooler") {
 			poolerServer = server.NewMultiPoolerServer(logger, &manager.Config{
 				SocketFilePath: socketFilePath,
@@ -186,7 +179,7 @@ func run(cmd *cobra.Command, args []string) error {
 				Database:       database,
 			})
 			poolerServer.RegisterWithGRPCServer(servenv.GRPCServer)
-			logger.Info("MultiPooler gRPC service registered with servenv")
+			logger.Info("MultiPooler query gRPC service registered with servenv")
 		}
 
 		// Register with topology service

@@ -21,6 +21,7 @@ import (
 	"github.com/multigres/multigres/go/multipooler/manager"
 	multipoolermanagerpb "github.com/multigres/multigres/go/pb/multipoolermanager"
 	multipoolermanagerdata "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
+	"github.com/multigres/multigres/go/servenv"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -33,10 +34,20 @@ type managerService struct {
 	manager *manager.MultiPoolerManager
 }
 
-// RegisterForManager registers the gRPC service for the given manager
-func RegisterForManager(server *grpc.Server, m *manager.MultiPoolerManager) {
+func init() {
+	// Register ourselves to be invoked when the manager starts
+	// Following Vitess pattern from grpctmserver/server.go
+	manager.RegisterPoolerManagerServices = append(manager.RegisterPoolerManagerServices, func(pm *manager.MultiPoolerManager) {
+		if servenv.GRPCCheckServiceMap("poolermanager") {
+			registerForManager(servenv.GRPCServer, pm)
+		}
+	})
+}
+
+// registerForManager registers the gRPC service for the given manager
+func registerForManager(server *grpc.Server, pm *manager.MultiPoolerManager) {
 	svc := &managerService{
-		manager: m,
+		manager: pm,
 	}
 	multipoolermanagerpb.RegisterMultiPoolerManagerServer(server, svc)
 }

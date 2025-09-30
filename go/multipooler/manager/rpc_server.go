@@ -14,19 +14,16 @@
 
 package manager
 
-import (
-	"github.com/multigres/multigres/go/servenv"
-)
+// RegisterPoolerManagerService is used to delay registration of gRPC servers until we have all the objects.
+// Following Vitess pattern from vttablet/tabletmanager/rpc_server.go
+type RegisterPoolerManagerService func(*MultiPoolerManager)
 
-// Start initializes the MultiPoolerManager
-// This method follows the Vitess pattern similar to TabletManager.Start() in tm_init.go
-func (pm *MultiPoolerManager) Start() {
-	servenv.OnRun(func() {
-		pm.logger.Info("MultiPoolerManager started")
-		// Additional manager-specific initialization can happen here
+// RegisterPoolerManagerServices is a list of functions to call when the delayed gRPC registration is triggered.
+var RegisterPoolerManagerServices []RegisterPoolerManagerService
 
-		// Register all gRPC services that have registered themselves
-		// This follows the Vitess pattern - grpcmanagerservice will append to RegisterPoolerManagerServices in init()
-		pm.registerGRPCServices()
-	})
+// registerGRPCServices will register all the gRPC service instances.
+func (pm *MultiPoolerManager) registerGRPCServices() {
+	for _, f := range RegisterPoolerManagerServices {
+		f(pm)
+	}
 }
