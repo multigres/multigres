@@ -233,8 +233,8 @@ func (ts *store) CreateMultiGateway(ctx context.Context, mtgateway *clustermetad
 	return nil
 }
 
-// DeleteMultiGateway deletes the specified multigateway.
-func (ts *store) DeleteMultiGateway(ctx context.Context, id *clustermetadatapb.ID) error {
+// UnregisterMultiGateway deletes the specified multigateway.
+func (ts *store) UnregisterMultiGateway(ctx context.Context, id *clustermetadatapb.ID) error {
 	conn, err := ts.ConnForCell(ctx, id.Cell)
 	if err != nil {
 		return err
@@ -248,9 +248,9 @@ func (ts *store) DeleteMultiGateway(ctx context.Context, id *clustermetadatapb.I
 	return nil
 }
 
-// InitMultiGateway creates or updates a multigateway. If allowUpdate is true,
+// RegisterMultiGateway creates or updates a multigateway. If allowUpdate is true,
 // and a multigateway with the same ID exists, just update it.
-func (ts *store) InitMultiGateway(ctx context.Context, mtgateway *clustermetadatapb.MultiGateway, allowUpdate bool) error {
+func (ts *store) RegisterMultiGateway(ctx context.Context, mtgateway *clustermetadatapb.MultiGateway, allowUpdate bool) error {
 	err := ts.CreateMultiGateway(ctx, mtgateway)
 	if errors.Is(err, &TopoError{Code: NodeExists}) && allowUpdate {
 		// Try to update then
