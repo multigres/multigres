@@ -32,72 +32,13 @@ import (
 	"github.com/multigres/multigres/go/netutil"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/servenv"
-	"github.com/multigres/multigres/go/viperutil"
 
 	"github.com/spf13/cobra"
 )
 
-type MultiPooler struct {
-	pgctldAddr     viperutil.Value[string]
-	cell           viperutil.Value[string]
-	database       viperutil.Value[string]
-	tableGroup     viperutil.Value[string]
-	serviceID      viperutil.Value[string]
-	socketFilePath viperutil.Value[string]
-	poolerDir      viperutil.Value[string]
-	pgPort         viperutil.Value[int]
-	// multipoolerID stores the ID for deregistration during shutdown
-	multipoolerID *clustermetadatapb.ID
-	// poolerServer holds the gRPC multipooler server instance
-	poolerServer *server.MultiPoolerServer
-}
-
 // CreateMultiPoolerCommand creates a cobra command with a MultiPooler instance and registers its flags
-func CreateMultiPoolerCommand() (*cobra.Command, *MultiPooler) {
-	mp := &MultiPooler{
-		pgctldAddr: viperutil.Configure("pgctld-addr", viperutil.Options[string]{
-			Default:  "localhost:15200",
-			FlagName: "pgctld-addr",
-			Dynamic:  false,
-		}),
-		cell: viperutil.Configure("cell", viperutil.Options[string]{
-			Default:  "",
-			FlagName: "cell",
-			Dynamic:  false,
-			EnvVars:  []string{"MT_CELL"},
-		}),
-		database: viperutil.Configure("database", viperutil.Options[string]{
-			Default:  "",
-			FlagName: "database",
-			Dynamic:  false,
-		}),
-		tableGroup: viperutil.Configure("table-group", viperutil.Options[string]{
-			Default:  "",
-			FlagName: "table-group",
-			Dynamic:  false,
-		}),
-		serviceID: viperutil.Configure("service-id", viperutil.Options[string]{
-			Default:  "",
-			FlagName: "service-id",
-			Dynamic:  false,
-			EnvVars:  []string{"MT_SERVICE_ID"},
-		}),
-		socketFilePath: viperutil.Configure("socket-file", viperutil.Options[string]{
-			Default:  "",
-			FlagName: "socket-file",
-			Dynamic:  false,
-		}),
-		poolerDir: viperutil.Configure("pooler-dir", viperutil.Options[string]{
-			Default:  "",
-			FlagName: "pooler-dir",
-			Dynamic:  false,
-		}),
-		pgPort: viperutil.Configure("pg-port", viperutil.Options[int]{
-			Default:  5432,
-			FlagName: "pg-port",
-			Dynamic:  false,
-		}),
-	}
+func CreateMultiPoolerCommand() (*cobra.Command, *server.MultiPooler) {
+	mp := server.NewMultiPooler()
 
 	cmd := &cobra.Command{
 		Use:     "multipooler",
@@ -110,25 +51,7 @@ func CreateMultiPoolerCommand() (*cobra.Command, *MultiPooler) {
 		},
 	}
 
-	cmd.Flags().String("pgctld-addr", mp.pgctldAddr.Default(), "Address of pgctld gRPC service")
-	cmd.Flags().String("cell", mp.cell.Default(), "cell to use")
-	cmd.Flags().String("database", mp.database.Default(), "database name this multipooler serves (required)")
-	cmd.Flags().String("table-group", mp.tableGroup.Default(), "table group this multipooler serves (required)")
-	cmd.Flags().String("service-id", mp.serviceID.Default(), "optional service ID (if empty, a random ID will be generated)")
-	cmd.Flags().String("socket-file", mp.socketFilePath.Default(), "PostgreSQL Unix socket file path (if empty, TCP connection will be used)")
-	cmd.Flags().String("pooler-dir", mp.poolerDir.Default(), "pooler directory path (if empty, socket-file path will be used as-is)")
-	cmd.Flags().Int("pg-port", mp.pgPort.Default(), "PostgreSQL port number")
-
-	viperutil.BindFlags(cmd.Flags(),
-		mp.pgctldAddr,
-		mp.cell,
-		mp.database,
-		mp.tableGroup,
-		mp.serviceID,
-		mp.socketFilePath,
-		mp.poolerDir,
-		mp.pgPort,
-	)
+	mp.RegisterFlags(cmd.Flags())
 
 	return cmd, mp
 }
@@ -179,12 +102,12 @@ func main() {
 	}
 }
 
-func run(cmd *cobra.Command, args []string, mp *MultiPooler) error {
+func run(cmd *cobra.Command, args []string, mp *server.MultiPooler) error {
 	// Validate required flags first, before initializing service environment
-	if mp.database.Get() == "" {
+	if mp.Database.Get() == "" {
 		return fmt.Errorf("--database flag is required")
 	}
-	if mp.tableGroup.Get() == "" {
+	if mp.TableGroup.Get() == "" {
 		return fmt.Errorf("--table-group flag is required")
 	}
 
@@ -201,35 +124,35 @@ func run(cmd *cobra.Command, args []string, mp *MultiPooler) error {
 	defer func() { _ = ts.Close() }()
 
 	// Validate cell configuration early to fail fast if misconfigured
-	if err := CheckCellFlags(ts, mp.cell.Get()); err != nil {
+	if err := CheckCellFlags(ts, mp.Cell.Get()); err != nil {
 		logger.Error("Cell validation failed", "error", err)
 		return fmt.Errorf("cell validation failed: %w", err)
 	}
-	logger.Info("Cell validation passed", "cell", mp.cell)
+	logger.Info("Cell validation passed", "cell", mp.Cell)
 
 	servenv.OnRun(func() {
 		// Flags are parsed now.
 		logger.Info("multipooler starting up",
-			"pgctld_addr", mp.pgctldAddr,
-			"cell", mp.cell,
-			"database", mp.database,
-			"table_group", mp.tableGroup,
-			"socket_file_path", mp.socketFilePath,
-			"pooler_dir", mp.poolerDir,
-			"pg_port", mp.pgPort,
+			"pgctld_addr", mp.PgctldAddr,
+			"cell", mp.Cell,
+			"database", mp.Database,
+			"table_group", mp.TableGroup,
+			"socket_file_path", mp.SocketFilePath,
+			"pooler_dir", mp.PoolerDir,
+			"pg_port", mp.PgPort,
 			"http_port", servenv.HTTPPort(),
-			"grpc_port", servenv.GRPCPort(),
+			"grpc_port", mp.GrpcServer.Port(),
 		)
 
 		// Register multipooler gRPC service with servenv's GRPCServer
-		if servenv.GRPCCheckServiceMap("pooler") {
-			mp.poolerServer = server.NewMultiPoolerServer(logger, &server.Config{
-				SocketFilePath: mp.socketFilePath.Get(),
-				PoolerDir:      mp.poolerDir.Get(),
-				PgPort:         mp.pgPort.Get(),
-				Database:       mp.database.Get(),
+		if mp.GrpcServer.CheckServiceMap("pooler") {
+			mp.PoolerServer = server.NewMultiPoolerServer(logger, &server.Config{
+				SocketFilePath: mp.SocketFilePath.Get(),
+				PoolerDir:      mp.PoolerDir.Get(),
+				PgPort:         mp.PgPort.Get(),
+				Database:       mp.Database.Get(),
 			})
-			mp.poolerServer.RegisterWithGRPCServer(servenv.GRPCServer)
+			mp.PoolerServer.RegisterWithGRPCServer(mp.GrpcServer.Server)
 			logger.Info("MultiPooler gRPC service registered with servenv")
 		}
 
@@ -245,17 +168,17 @@ func run(cmd *cobra.Command, args []string, mp *MultiPooler) error {
 		}
 
 		// Create MultiPooler instance for topo registration
-		multipooler := topo.NewMultiPooler(mp.serviceID.Get(), mp.cell.Get(), hostname, mp.tableGroup.Get())
-		multipooler.PortMap["grpc"] = int32(servenv.GRPCPort())
+		multipooler := topo.NewMultiPooler(mp.ServiceID.Get(), mp.Cell.Get(), hostname, mp.TableGroup.Get())
+		multipooler.PortMap["grpc"] = int32(mp.GrpcServer.Port())
 		multipooler.PortMap["http"] = int32(servenv.HTTPPort())
-		multipooler.Database = mp.database.Get()
+		multipooler.Database = mp.Database.Get()
 
-		if mp.serviceID.Get() == "" {
-			mp.serviceID.Set(multipooler.GetId().GetName())
+		if mp.ServiceID.Get() == "" {
+			mp.ServiceID.Set(multipooler.GetId().GetName())
 		}
 
 		// Store ID for deregistration during shutdown
-		mp.multipoolerID = multipooler.Id
+		mp.MultipoolerID = multipooler.Id
 
 		// Register with topology
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -275,20 +198,20 @@ func run(cmd *cobra.Command, args []string, mp *MultiPooler) error {
 		logger.Info("multipooler shutting down")
 
 		// Deregister from topology service
-		if mp.multipoolerID != nil {
+		if mp.MultipoolerID != nil {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
 
-			if err := ts.DeleteMultiPooler(ctx, mp.multipoolerID); err != nil {
-				logger.Error("Failed to deregister multipooler from topology", "error", err, "id", mp.multipoolerID)
+			if err := ts.DeleteMultiPooler(ctx, mp.MultipoolerID); err != nil {
+				logger.Error("Failed to deregister multipooler from topology", "error", err, "id", mp.MultipoolerID)
 			} else {
-				logger.Info("Successfully deregistered multipooler from topology", "id", mp.multipoolerID)
+				logger.Info("Successfully deregistered multipooler from topology", "id", mp.MultipoolerID)
 			}
 		}
 	})
 	// TODO: Initialize gRPC connection to pgctld
 	// TODO: Setup health check endpoint
-	servenv.RunDefault()
+	servenv.RunDefault(mp.GrpcServer)
 
 	return nil
 }
@@ -310,17 +233,17 @@ type StatusResponse struct {
 
 // getHandleStatusEndpoint handles the temporary HTTP endpoint that shows multipooler status
 // TEMPORARY: This is only for testing and will be removed later
-func getHandleStatusEndpoint(mp *MultiPooler) func(http.ResponseWriter, *http.Request) {
+func getHandleStatusEndpoint(mp *server.MultiPooler) func(http.ResponseWriter, *http.Request) {
 	return func(w http.ResponseWriter, r *http.Request) {
 		response := StatusResponse{
 			ServiceType:    "multipooler",
-			Cell:           mp.cell.Get(),
-			Database:       mp.database.Get(),
-			TableGroup:     mp.tableGroup.Get(),
-			ServiceID:      mp.serviceID.Get(),
-			ID:             mp.multipoolerID,
-			PgctldAddr:     mp.pgctldAddr.Get(),
-			SocketFilePath: mp.socketFilePath.Get(),
+			Cell:           mp.Cell.Get(),
+			Database:       mp.Database.Get(),
+			TableGroup:     mp.TableGroup.Get(),
+			ServiceID:      mp.ServiceID.Get(),
+			ID:             mp.MultipoolerID,
+			PgctldAddr:     mp.PgctldAddr.Get(),
+			SocketFilePath: mp.SocketFilePath.Get(),
 			Status:         "running",
 			Message:        "TEMPORARY: This endpoint is for testing only and will be removed",
 		}

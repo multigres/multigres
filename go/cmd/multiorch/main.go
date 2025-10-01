@@ -38,6 +38,8 @@ type MultiOrch struct {
 	cell viperutil.Value[string]
 	// multiorchID stores the ID for deregistration during shutdown
 	multiorchID *clustermetadatapb.ID
+	// grpcServer is the grpc server
+	grpcServer *servenv.GrpcServer
 }
 
 // CheckCellFlags validates the cell flag against available cells in the topology.
@@ -84,6 +86,7 @@ func main() {
 			Dynamic:  false,
 			EnvVars:  []string{"MT_CELL"},
 		}),
+		grpcServer: servenv.NewGrpcServer(),
 	}
 
 	main := &cobra.Command{
@@ -100,6 +103,7 @@ func main() {
 	main.Flags().String("cell", mo.cell.Default(), "cell to use")
 	viperutil.BindFlags(main.Flags(), mo.cell)
 	servenv.RegisterServiceCmd(main)
+	mo.grpcServer.RegisterFlags(main.Flags())
 
 	if err := main.Execute(); err != nil {
 		slog.Error(err.Error())
@@ -127,7 +131,7 @@ func run(cmd *cobra.Command, args []string, mo *MultiOrch) error {
 		// Flags are parsed now.
 		logger.Info("multiorch starting up",
 			"cell", mo.cell,
-			"grpc_port", servenv.GRPCPort(),
+			"grpc_port", mo.grpcServer.Port(),
 		)
 
 		// Register with topology service
@@ -143,7 +147,7 @@ func run(cmd *cobra.Command, args []string, mo *MultiOrch) error {
 
 		// Create MultiOrch instance for topo registration
 		multiorch := topo.NewMultiOrch("", mo.cell.Get(), hostname)
-		multiorch.PortMap["grpc"] = int32(servenv.GRPCPort())
+		multiorch.PortMap["grpc"] = int32(mo.grpcServer.Port())
 
 		// Store ID for deregistration during shutdown
 		mo.multiorchID = multiorch.Id
@@ -178,7 +182,7 @@ func run(cmd *cobra.Command, args []string, mo *MultiOrch) error {
 	// TODO: Setup consensus protocol management
 	// TODO: Implement failover detection and repair
 	// TODO: Setup health monitoring of multipooler instances
-	servenv.RunDefault()
+	servenv.RunDefault(mo.grpcServer)
 
 	return nil
 }

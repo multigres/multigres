@@ -22,6 +22,7 @@ import (
 	"os"
 
 	"github.com/spf13/pflag"
+	"google.golang.org/grpc"
 )
 
 // socketFile has the flag used when calling
@@ -51,7 +52,8 @@ func serveSocketFile() {
 	}
 	slog.Info("Listening on socket file for gRPC", "name", name)
 	go func() {
-		if err := GRPCServer.Serve(l); err != nil {
+		grpcSrv := grpc.NewServer()
+		if err := grpcSrv.Serve(l); err != nil {
 			slog.Error("grpc server failed", "err", err)
 		}
 	}()

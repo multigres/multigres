@@ -224,8 +224,8 @@ func Port() int {
 }
 
 // RunDefault calls Run() with the parameters from the flags.
-func RunDefault() {
-	Run(bindAddress, httpPort)
+func RunDefault(grpcServer *GrpcServer) {
+	Run(bindAddress, httpPort, grpcServer)
 }
 
 var (
@@ -403,7 +403,6 @@ func AddFlagSetToCobraCommand(cmd *cobra.Command) {
 func RegisterCommonServiceFlags() {
 	RegisterDefaultFlags()
 	RegisterFlags()
-	RegisterGRPCServerFlags()
 	RegisterGRPCServerAuthFlags()
 	RegisterServiceMapFlag()
 }

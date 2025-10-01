@@ -33,10 +33,15 @@ import (
 type MultiAdmin struct {
 	// adminServer holds the gRPC admin server instance
 	adminServer *server.MultiAdminServer
+
+	// grpcServer is the grpc server
+	grpcServer *servenv.GrpcServer
 }
 
 func main() {
-	ma := &MultiAdmin{}
+	ma := &MultiAdmin{
+		grpcServer: servenv.NewGrpcServer(),
+	}
 
 	main := &cobra.Command{
 		Use:     "multiadmin",
@@ -50,7 +55,7 @@ func main() {
 	}
 
 	servenv.RegisterServiceCmd(main)
-	servenv.RegisterGRPCServerFlags()
+	ma.grpcServer.RegisterFlags(main.Flags())
 
 	if err := main.Execute(); err != nil {
 		slog.Error(err.Error())
@@ -72,18 +77,18 @@ func run(cmd *cobra.Command, args []string, ma *MultiAdmin) error {
 		// Flags are parsed now.
 		logger.Info("multiadmin starting up",
 			"http_port", servenv.HTTPPort(),
-			"grpc_port", servenv.GRPCPort(),
+			"grpc_port", ma.grpcServer.Port(),
 		)
 
 		// Register multiadmin gRPC service with servenv's GRPCServer
-		if servenv.GRPCCheckServiceMap("multiadmin") {
+		if ma.grpcServer.CheckServiceMap("multiadmin") {
 			ma.adminServer = server.NewMultiAdminServer(ts, logger)
-			ma.adminServer.RegisterWithGRPCServer(servenv.GRPCServer)
+			ma.adminServer.RegisterWithGRPCServer(ma.grpcServer.Server)
 			logger.Info("MultiAdmin gRPC service registered with servenv")
 		}
 
 		// Add HTTP endpoints for cluster management
-		servenv.HTTPHandleFunc("/admin/status", handleStatusEndpoint)
+		servenv.HTTPHandleFunc("/admin/status", getHandleStatusEndpoint(ma))
 		servenv.HTTPHandleFunc("/admin/clusters", getHandleClustersEndpoint(ma))
 		logger.Info("Admin HTTP endpoints available at /admin/status and /admin/clusters")
 	})
@@ -92,7 +97,7 @@ func run(cmd *cobra.Command, args []string, ma *MultiAdmin) error {
 		logger.Info("multiadmin shutting down")
 	})
 
-	servenv.RunDefault()
+	servenv.RunDefault(ma.grpcServer)
 
 	return nil
 }
@@ -112,20 +117,22 @@ type AdminClustersResponse struct {
 	Count    int      `json:"count"`
 }
 
-// handleStatusEndpoint handles the HTTP endpoint that shows multiadmin status
-func handleStatusEndpoint(w http.ResponseWriter, r *http.Request) {
-	response := AdminStatusResponse{
-		ServiceType: "multiadmin",
-		Status:      "running",
-		HTTPPort:    servenv.HTTPPort(),
-		GRPCPort:    servenv.GRPCPort(),
-		Uptime:      time.Since(servenv.GetInitStartTime()),
-	}
+// getHandleStatusEndpoint handles the HTTP endpoint that shows multiadmin status
+func getHandleStatusEndpoint(ma *MultiAdmin) func(http.ResponseWriter, *http.Request) {
+	return func(w http.ResponseWriter, r *http.Request) {
+		response := AdminStatusResponse{
+			ServiceType: "multiadmin",
+			Status:      "running",
+			HTTPPort:    servenv.HTTPPort(),
+			GRPCPort:    ma.grpcServer.Port(),
+			Uptime:      time.Since(servenv.GetInitStartTime()),
+		}
 
-	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(response); err != nil {
-		http.Error(w, "Failed to encode response", http.StatusInternalServerError)
-		return
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(response); err != nil {
+			http.Error(w, "Failed to encode response", http.StatusInternalServerError)
+			return
+		}
 	}
 }
 

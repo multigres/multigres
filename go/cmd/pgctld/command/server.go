@@ -104,8 +104,8 @@ func (s *PgCtldServerCmd) runServer(cmd *cobra.Command, args []string) error {
 		)
 
 		// Register gRPC service with the global GRPCServer
-		if servenv.GRPCCheckServiceMap("pgctld") {
-			pb.RegisterPgCtldServer(servenv.GRPCServer, pgctldService)
+		if s.grpcServer.CheckServiceMap("pgctld") {
+			pb.RegisterPgCtldServer(s.grpcServer.Server, pgctldService)
 		}
 	})
 

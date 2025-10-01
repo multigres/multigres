@@ -44,6 +44,8 @@ type MultiGateway struct {
 	multigatewayID *clustermetadatapb.ID
 	// poolerDiscovery handles discovery of multipoolers
 	poolerDiscovery *PoolerDiscovery
+	// grpcServer is the grpc server
+	grpcServer *servenv.GrpcServer
 }
 
 // CheckCellFlags validates the cell flag against available cells in the topology.
@@ -96,6 +98,7 @@ func main() {
 			Dynamic:  false,
 			EnvVars:  []string{"MT_SERVICE_ID"},
 		}),
+		grpcServer: servenv.NewGrpcServer(),
 	}
 
 	main := &cobra.Command{
@@ -116,6 +119,7 @@ func main() {
 		mg.serviceID,
 	)
 	servenv.RegisterServiceCmd(main)
+	mg.grpcServer.RegisterFlags(main.Flags())
 
 	if err := main.Execute(); err != nil {
 		slog.Error(err.Error())
@@ -143,7 +147,7 @@ func run(cmd *cobra.Command, args []string, mg *MultiGateway) error {
 		logger.Info("multigateway starting up",
 			"cell", mg.cell,
 			"http_port", servenv.HTTPPort(),
-			"grpc_port", servenv.GRPCPort(),
+			"grpc_port", mg.grpcServer.Port(),
 		)
 
 		// Register with topology service
@@ -159,7 +163,7 @@ func run(cmd *cobra.Command, args []string, mg *MultiGateway) error {
 
 		// Create MultiGateway instance for topo registration
 		multigateway := topo.NewMultiGateway(mg.serviceID.Get(), mg.cell.Get(), hostname)
-		multigateway.PortMap["grpc"] = int32(servenv.GRPCPort())
+		multigateway.PortMap["grpc"] = int32(mg.grpcServer.Port())
 		multigateway.PortMap["http"] = int32(servenv.HTTPPort())
 
 		if mg.serviceID.Get() == "" {
@@ -209,7 +213,7 @@ func run(cmd *cobra.Command, args []string, mg *MultiGateway) error {
 			}
 		}
 	})
-	servenv.RunDefault()
+	servenv.RunDefault(mg.grpcServer)
 
 	return nil
 }
