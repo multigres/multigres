@@ -166,15 +166,6 @@ func TestManagerServiceMethods_NotImplemented(t *testing.T) {
 			expectedMethod: "PrimaryStatus",
 		},
 		{
-			name: "PrimaryPosition",
-			method: func() error {
-				req := &multipoolermanagerdata.PrimaryPositionRequest{}
-				_, err := svc.PrimaryPosition(ctx, req)
-				return err
-			},
-			expectedMethod: "PrimaryPosition",
-		},
-		{
 			name: "StopReplicationAndGetStatus",
 			method: func() error {
 				req := &multipoolermanagerdata.StopReplicationAndGetStatusRequest{}
