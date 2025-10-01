@@ -31,14 +31,15 @@ import (
 	"github.com/multigres/multigres/go/netutil"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/servenv"
+	"github.com/multigres/multigres/go/viperutil"
 
 	"github.com/spf13/cobra"
 )
 
 type MultiGateway struct {
-	cell string
+	cell viperutil.Value[string]
 	// serviceID string
-	serviceID string
+	serviceID viperutil.Value[string]
 	// multigatewayID stores the ID for deregistration during shutdown
 	multigatewayID *clustermetadatapb.ID
 	// poolerDiscovery handles discovery of multipoolers
@@ -82,7 +83,20 @@ func CheckCellFlags(ts topo.Store, cell string) error {
 }
 
 func main() {
-	mg := &MultiGateway{}
+	mg := &MultiGateway{
+		cell: viperutil.Configure("cell", viperutil.Options[string]{
+			Default:  "",
+			FlagName: "cell",
+			Dynamic:  false,
+			EnvVars:  []string{"MT_CELL"},
+		}),
+		serviceID: viperutil.Configure("service-id", viperutil.Options[string]{
+			Default:  "",
+			FlagName: "service-id",
+			Dynamic:  false,
+			EnvVars:  []string{"MT_SERVICE_ID"},
+		}),
+	}
 
 	main := &cobra.Command{
 		Use:     "multigateway",
@@ -95,8 +109,12 @@ func main() {
 		},
 	}
 
-	main.Flags().StringVar(&mg.cell, "cell", mg.cell, "cell to use")
-	main.Flags().StringVar(&mg.serviceID, "service-id", "", "optional service ID (if empty, a random ID will be generated)")
+	main.Flags().String("cell", mg.cell.Default(), "cell to use")
+	main.Flags().String("service-id", mg.serviceID.Default(), "optional service ID (if empty, a random ID will be generated)")
+	viperutil.BindFlags(main.Flags(),
+		mg.cell,
+		mg.serviceID,
+	)
 	servenv.RegisterServiceCmd(main)
 
 	if err := main.Execute(); err != nil {
@@ -114,7 +132,7 @@ func run(cmd *cobra.Command, args []string, mg *MultiGateway) error {
 	defer func() { _ = ts.Close() }()
 
 	// Validate cell configuration early to fail fast if misconfigured
-	if err := CheckCellFlags(ts, mg.cell); err != nil {
+	if err := CheckCellFlags(ts, mg.cell.Get()); err != nil {
 		logger.Error("Cell validation failed", "error", err)
 		return fmt.Errorf("cell validation failed: %w", err)
 	}
@@ -140,12 +158,12 @@ func run(cmd *cobra.Command, args []string, mg *MultiGateway) error {
 		}
 
 		// Create MultiGateway instance for topo registration
-		multigateway := topo.NewMultiGateway(mg.serviceID, mg.cell, hostname)
+		multigateway := topo.NewMultiGateway(mg.serviceID.Get(), mg.cell.Get(), hostname)
 		multigateway.PortMap["grpc"] = int32(servenv.GRPCPort())
 		multigateway.PortMap["http"] = int32(servenv.HTTPPort())
 
-		if mg.serviceID == "" {
-			mg.serviceID = multigateway.GetId().GetName()
+		if mg.serviceID.Get() == "" {
+			mg.serviceID.Set(multigateway.GetId().GetName())
 		}
 
 		// Store ID for deregistration during shutdown
@@ -162,7 +180,7 @@ func run(cmd *cobra.Command, args []string, mg *MultiGateway) error {
 		}
 
 		// Start pooler discovery
-		mg.poolerDiscovery = NewPoolerDiscovery(context.Background(), ts, mg.cell, logger)
+		mg.poolerDiscovery = NewPoolerDiscovery(context.Background(), ts, mg.cell.Get(), logger)
 		mg.poolerDiscovery.Start()
 		logger.Info("Pooler discovery started with topology watch", "cell", mg.cell)
 
@@ -205,7 +223,7 @@ func getHandlePoolersEndpoint(mg *MultiGateway) func(http.ResponseWriter, *http.
 		}
 
 		response := DiscoveryResponse{
-			Cell:        mg.cell,
+			Cell:        mg.cell.Get(),
 			PoolerCount: mg.poolerDiscovery.PoolerCount(),
 			LastRefresh: mg.poolerDiscovery.LastRefresh(),
 			PoolerNames: mg.poolerDiscovery.GetPoolersName(),
