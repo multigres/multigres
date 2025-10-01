@@ -21,6 +21,7 @@ import (
 	"log/slog"
 
 	"github.com/multigres/multigres/go/clustermetadata/topo"
+	"github.com/multigres/multigres/go/servenv"
 )
 
 // MultiPoolerManager manages the pooler lifecycle and PostgreSQL operations
@@ -199,4 +200,18 @@ func (pm *MultiPoolerManager) UndoDemoteLeader(ctx context.Context) error {
 func (pm *MultiPoolerManager) PromoteFollower(ctx context.Context) error {
 	pm.logger.Info("PromoteFollower called")
 	return fmt.Errorf("method PromoteFollower not implemented")
+}
+
+// Start initializes the MultiPoolerManager
+// This method follows the Vitess pattern similar to TabletManager.Start() in tm_init.go
+func (pm *MultiPoolerManager) Start() {
+	servenv.OnRun(func() {
+		pm.logger.Info("MultiPoolerManager started")
+		// Additional manager-specific initialization can happen here
+
+		// Register all gRPC services that have registered themselves
+		// This follows the Vitess pattern - grpcmanagerservice will append to RegisterPoolerManagerServices in init()
+		pm.registerGRPCServices()
+		pm.logger.Info("MultiPoolerManager gRPC services registered")
+	})
 }
