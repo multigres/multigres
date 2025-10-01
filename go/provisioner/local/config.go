@@ -19,6 +19,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/multigres/multigres/go/provisioner/local/ports"
 	"github.com/multigres/multigres/go/tools/stringutil"
 
 	"gopkg.in/yaml.v3"
@@ -211,16 +212,16 @@ func (p *localProvisioner) DefaultConfig(configPaths []string) map[string]any {
 		},
 		Multiadmin: MultiadminConfig{
 			Path:     filepath.Join(binDir, "multiadmin"),
-			HttpPort: 15000,
-			GrpcPort: 15990,
+			HttpPort: ports.MultiadminHTTP,
+			GrpcPort: ports.MultiadminGRPC,
 			LogLevel: "info",
 		},
 		Cells: map[string]CellServicesConfig{
 			"zone1": {
 				Multigateway: MultigatewayConfig{
 					Path:     filepath.Join(binDir, "multigateway"),
-					HttpPort: 15001,
-					GrpcPort: 15991,
+					HttpPort: ports.MultigatewayHTTP,
+					GrpcPort: ports.MultigatewayGRPC,
 					PgPort:   15432,
 					LogLevel: "info",
 				},
@@ -230,22 +231,22 @@ func (p *localProvisioner) DefaultConfig(configPaths []string) map[string]any {
 					TableGroup: tableGroup,
 					ServiceID:  serviceIDZone1,
 					PoolerDir:  GeneratePoolerDir(baseDir, serviceIDZone1),
-					PgPort:     5432, // Same as pgctld for this zone
+					PgPort:     ports.PostgresPort, // Same as pgctld for this zone
 					HttpPort:   15100,
-					GrpcPort:   16001,
+					GrpcPort:   ports.MultipoolerGRPC,
 					LogLevel:   "info",
 				},
 				Multiorch: MultiorchConfig{
 					Path:     filepath.Join(binDir, "multiorch"),
 					HttpPort: 15300,
-					GrpcPort: 16000,
+					GrpcPort: ports.MultiorchGRPC,
 					LogLevel: "info",
 				},
 				Pgctld: PgctldConfig{
 					Path:       filepath.Join(binDir, "pgctld"),
 					PoolerDir:  GeneratePoolerDir(baseDir, serviceIDZone1),
-					GrpcPort:   17000,
-					PgPort:     5432,
+					GrpcPort:   ports.PgctldGRPC,
+					PgPort:     ports.PostgresPort,
 					PgDatabase: dbName,
 					PgUser:     "postgres",
 					PgPwfile:   filepath.Join(GeneratePoolerDir(baseDir, serviceIDZone1), "pgpassword.txt"),

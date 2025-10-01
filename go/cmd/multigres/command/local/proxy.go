@@ -32,6 +32,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	"github.com/multigres/multigres/go/provisioner/local/ports"
 	"github.com/multigres/multigres/go/servenv"
 
 	"github.com/spf13/cobra"
@@ -200,7 +201,7 @@ func loadProxyConfig(configPaths []string) (*proxyConfig, string, error) {
 	// Add global services with defaults
 	multiadminPort := rawConfig.ProvisionerConfig.Multiadmin.HttpPort
 	if multiadminPort == 0 {
-		multiadminPort = 15000 // default
+		multiadminPort = ports.MultiadminHTTP
 	}
 	cfg.GlobalServices["multiadmin"] = multiadminPort
 
@@ -211,21 +212,21 @@ func loadProxyConfig(configPaths []string) (*proxyConfig, string, error) {
 		// Multigateway with default
 		multigatewayPort := cellConfig.Multigateway.HttpPort
 		if multigatewayPort == 0 {
-			multigatewayPort = 15001 // default
+			multigatewayPort = ports.MultigatewayHTTP
 		}
 		cfg.CellServices[cellName]["multigateway"] = multigatewayPort
 
 		// Multipooler with default
 		multipoolerPort := cellConfig.Multipooler.HttpPort
 		if multipoolerPort == 0 {
-			multipoolerPort = 15001 // default (conflicts with multigateway, but config should override)
+			multipoolerPort = ports.MultipoolerHTTP
 		}
 		cfg.CellServices[cellName]["multipooler"] = multipoolerPort
 
 		// Multiorch with default
 		multiorchPort := cellConfig.Multiorch.HttpPort
 		if multiorchPort == 0 {
-			multiorchPort = 15301 // default
+			multiorchPort = ports.MultiorchHTTP
 		}
 		cfg.CellServices[cellName]["multiorch"] = multiorchPort
 	}

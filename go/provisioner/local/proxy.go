@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/multigres/multigres/go/provisioner"
+	"github.com/multigres/multigres/go/provisioner/local/ports"
 	"github.com/multigres/multigres/go/tools/stringutil"
 )
 
@@ -54,7 +55,7 @@ func (p *localProvisioner) provisionLocalproxy(ctx context.Context, req *provisi
 	localproxyConfig := p.getServiceConfig("localproxy")
 
 	// Get HTTP port from config
-	httpPort := 15800
+	httpPort := ports.LocalproxyHTTP
 	if p, ok := localproxyConfig["http_port"].(int); ok && p > 0 {
 		httpPort = p
 	}
