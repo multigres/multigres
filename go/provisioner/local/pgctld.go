@@ -297,7 +297,6 @@ func (p *localProvisioner) provisionPgctld(ctx context.Context, dbName, tableGro
 	}
 
 	// Now that pgctld is healthy, start PostgreSQL
-	// Use 127.0.0.1 instead of localhost to avoid IPv6 resolution delays
 	grpcAddress := fmt.Sprintf("localhost:%d", grpcPort)
 	if err := p.startPostgreSQLViaPgctld(grpcAddress); err != nil {
 		logs := p.readServiceLogs(pgctldLogFile, 20)
