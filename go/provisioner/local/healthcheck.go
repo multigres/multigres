@@ -85,35 +85,10 @@ func (p *localProvisioner) checkMultigresServiceHealth(serviceName string, host 
 				}
 			}
 			// Future: Add other gRPC services
-		case "etcd_port":
-			// Run etcd health check
-			if serviceName == "etcd" {
-				etcdAddress := net.JoinHostPort(host, fmt.Sprintf("%d", port))
-				if err := p.checkEtcdHealth(etcdAddress); err != nil {
-					return err
-				}
-			}
 		default:
 			// No health check implemented for this port type, skip
 			continue
 		}
-	}
-	return nil
-}
-
-// checkEtcdHealth checks if etcd is ready by querying its health endpoint
-func (p *localProvisioner) checkEtcdHealth(address string) error {
-	url := fmt.Sprintf("http://%s/health", address)
-	client := &http.Client{
-		Timeout: 5 * time.Second,
-	}
-	resp, err := client.Get(url)
-	if err != nil {
-		return fmt.Errorf("failed to reach etcd health endpoint: %w", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("etcd health endpoint returned status %d", resp.StatusCode)
 	}
 	return nil
 }
