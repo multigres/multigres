@@ -64,26 +64,40 @@ func proxy(cmd *cobra.Command, args []string) error {
 	// Initialize servenv
 	servenv.Init()
 
-	// Register landing page and proxy handler
-	// servenv already registered /css/, /live, /favicon.ico, /config
-	// We just need to handle the root path and proxy requests
+	// Register proxy handlers for each configured service subdomain
+	// This ensures requests to service.localhost/* get proxied, not handled by servenv
+
+	// Helper to create a proxy handler for a specific target URL
+	createProxyHandler := func(targetURL *url.URL) http.HandlerFunc {
+		proxy := httputil.NewSingleHostReverseProxy(targetURL)
+		return func(w http.ResponseWriter, r *http.Request) {
+			proxy.ServeHTTP(w, r)
+		}
+	}
+
+	// Register for global services
+	for serviceName, port := range cfg.GlobalServices {
+		if port > 0 {
+			targetURL, _ := url.Parse(fmt.Sprintf("http://localhost:%d", port))
+			host := fmt.Sprintf("%s.localhost/", serviceName)
+			servenv.HTTPHandleFunc(host, createProxyHandler(targetURL))
+		}
+	}
+
+	// Register for cell services
+	for cellName, services := range cfg.CellServices {
+		for serviceName, port := range services {
+			if port > 0 {
+				targetURL, _ := url.Parse(fmt.Sprintf("http://localhost:%d", port))
+				host := fmt.Sprintf("%s.%s.localhost/", serviceName, cellName)
+				servenv.HTTPHandleFunc(host, createProxyHandler(targetURL))
+			}
+		}
+	}
+
+	// Register landing page for proxy's own host
 	servenv.HTTPHandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		// Check if this is for the proxy's own host
-		host := r.Host
-		if colonIdx := strings.Index(host, ":"); colonIdx != -1 {
-			host = host[:colonIdx]
-		}
-		cleanHost := strings.TrimSuffix(host, ".localhost")
-
-		// For proxy's own host, only handle root path (landing page)
-		// Other paths like /css/, /live, etc. are handled by servenv's registered handlers
-		if (cleanHost == "multigres" || cleanHost == "localhost") && r.URL.Path == "/" {
-			renderLandingPage(w, r, cfg)
-			return
-		}
-
-		// For all other requests, proxy them to backend services
-		proxyRequest(w, r, cfg)
+		renderLandingPage(w, r, cfg)
 	})
 
 	// Use servenv to run the HTTP server
@@ -253,77 +267,6 @@ func renderLandingPage(w http.ResponseWriter, r *http.Request, cfg *proxyConfig)
 		http.Error(w, fmt.Sprintf("Failed to execute template: %v", err), http.StatusInternalServerError)
 		return
 	}
-}
-
-// proxyRequest proxies a request to the appropriate backend service based on subdomain
-func proxyRequest(w http.ResponseWriter, r *http.Request, cfg *proxyConfig) {
-	// Extract subdomain from Host header
-	host := r.Host
-	if colonIdx := strings.Index(host, ":"); colonIdx != -1 {
-		host = host[:colonIdx]
-	}
-
-	// Remove .localhost suffix for routing
-	host = strings.TrimSuffix(host, ".localhost")
-
-	// Parse subdomain parts
-	parts := strings.Split(host, ".")
-	if len(parts) == 0 {
-		http.Error(w, "Invalid host format. Expected: service.localhost or service.cell.localhost", http.StatusBadRequest)
-		return
-	}
-
-	// Route based on service name
-	var targetURL *url.URL
-	var err error
-
-	if len(parts) == 1 {
-		// Global service: multiadmin.localhost
-		serviceName := parts[0]
-		targetURL, err = getGlobalServiceURL(cfg, serviceName)
-	} else if len(parts) == 2 {
-		// Cell service: multigateway.zone1.localhost
-		serviceName := parts[0]
-		cellName := parts[1]
-		targetURL, err = getCellServiceURL(cfg, serviceName, cellName)
-	} else {
-		http.Error(w, fmt.Sprintf("Unknown host format: %s. Expected: service.localhost or service.cell.localhost", r.Host), http.StatusNotFound)
-		return
-	}
-
-	if err != nil {
-		http.Error(w, fmt.Sprintf("Service not found: %v", err), http.StatusNotFound)
-		return
-	}
-
-	// Create reverse proxy
-	proxy := httputil.NewSingleHostReverseProxy(targetURL)
-	proxy.ServeHTTP(w, r)
-}
-
-// getGlobalServiceURL returns the target URL for a global service
-func getGlobalServiceURL(cfg *proxyConfig, serviceName string) (*url.URL, error) {
-	port, ok := cfg.GlobalServices[serviceName]
-	if !ok || port == 0 {
-		return nil, fmt.Errorf("unknown or unconfigured global service: %s", serviceName)
-	}
-
-	return url.Parse(fmt.Sprintf("http://localhost:%d", port))
-}
-
-// getCellServiceURL returns the target URL for a cell-scoped service
-func getCellServiceURL(cfg *proxyConfig, serviceName, cellName string) (*url.URL, error) {
-	cellServices, ok := cfg.CellServices[cellName]
-	if !ok {
-		return nil, fmt.Errorf("unknown cell: %s", cellName)
-	}
-
-	port, ok := cellServices[serviceName]
-	if !ok || port == 0 {
-		return nil, fmt.Errorf("unknown or unconfigured service %s in cell %s", serviceName, cellName)
-	}
-
-	return url.Parse(fmt.Sprintf("http://localhost:%d", port))
 }
 
 var ProxyCommand = &cobra.Command{
