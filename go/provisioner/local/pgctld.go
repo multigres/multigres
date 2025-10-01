@@ -290,14 +290,16 @@ func (p *localProvisioner) provisionPgctld(ctx context.Context, dbName, tableGro
 	}
 
 	// Wait for pgctld to be ready
+	// Use 127.0.0.1 instead of localhost to avoid IPv6 resolution delays
 	servicePorts := map[string]int{"grpc_port": grpcPort}
-	if err := p.waitForServiceReady("pgctld", "localhost", servicePorts, 60*time.Second); err != nil {
+	if err := p.waitForServiceReady("pgctld", "127.0.0.1", servicePorts, 60*time.Second); err != nil {
 		logs := p.readServiceLogs(pgctldLogFile, 20)
 		return nil, fmt.Errorf("pgctld readiness check failed: %w\n\nLast 20 lines from pgctld logs:\n%s", err, logs)
 	}
 
 	// Now that pgctld is healthy, start PostgreSQL
-	grpcAddress := fmt.Sprintf("localhost:%d", grpcPort)
+	// Use 127.0.0.1 instead of localhost to avoid IPv6 resolution delays
+	grpcAddress := fmt.Sprintf("127.0.0.1:%d", grpcPort)
 	if err := p.startPostgreSQLViaPgctld(grpcAddress); err != nil {
 		logs := p.readServiceLogs(pgctldLogFile, 20)
 		return nil, fmt.Errorf("failed to start PostgreSQL: %w\n\nLast 20 lines from pgctld logs:\n%s", err, logs)

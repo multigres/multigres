@@ -112,7 +112,7 @@ func Init() {
 		ServiceID:      serviceID,
 	})
 
-	// Start the MultiPoolerManagekr
+	// Start the MultiPoolerManager
 	poolerManager.Start()
 
 	servenv.OnRun(

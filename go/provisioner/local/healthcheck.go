@@ -17,6 +17,7 @@ package local
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"net"
 	"net/http"
 	"os"
@@ -44,10 +45,12 @@ func (p *localProvisioner) waitForServiceReady(serviceName string, host string, 
 		case <-ticker.C:
 			// First check TCP connectivity on all advertised ports
 			allPortsReady := true
+			slog.Error(fmt.Sprintf("TRYING TO CONNECT TO PORT: %v, via", servicePorts))
 			for _, port := range servicePorts {
 				address := net.JoinHostPort(host, fmt.Sprintf("%d", port))
 				conn, err := net.DialTimeout("tcp", address, 2*time.Second)
 				if err != nil {
+					slog.Error(fmt.Sprintf("Local Provisioner failed to get executable path: %v, via %v", err, address))
 					allPortsReady = false
 					break // This port not ready yet
 				}
@@ -84,11 +87,36 @@ func (p *localProvisioner) checkMultigresServiceHealth(serviceName string, host 
 					return err
 				}
 			}
+		case "etcd_port":
+			// Run etcd health check
+			if serviceName == "etcd" {
+				etcdAddress := net.JoinHostPort(host, fmt.Sprintf("%d", port))
+				if err := p.checkEtcdHealth(etcdAddress); err != nil {
+					return err
+				}
+			}
 			// Future: Add other gRPC services
 		default:
 			// No health check implemented for this port type, skip
 			continue
 		}
+	}
+	return nil
+}
+
+// checkEtcdHealth checks if etcd is ready by querying its health endpoint
+func (p *localProvisioner) checkEtcdHealth(address string) error {
+	url := fmt.Sprintf("http://%s/health", address)
+	client := &http.Client{
+		Timeout: 5 * time.Second,
+	}
+	resp, err := client.Get(url)
+	if err != nil {
+		return fmt.Errorf("failed to reach etcd health endpoint: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("etcd health endpoint returned status %d", resp.StatusCode)
 	}
 	return nil
 }

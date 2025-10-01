@@ -112,7 +112,7 @@ func (p *ProcessInstance) startPgctld(t *testing.T) error {
 		return err
 	}
 
-	grpcAddr := fmt.Sprintf("localhost:%d", p.GrpcPort)
+	grpcAddr := fmt.Sprintf("127.0.0.1:%d", p.GrpcPort)
 	if err := InitAndStartPostgreSQL(t, grpcAddr); err != nil {
 		return fmt.Errorf("failed to initialize and start PostgreSQL: %w", err)
 	}
@@ -180,7 +180,7 @@ func (p *ProcessInstance) waitForStartup(t *testing.T, timeout time.Duration, lo
 
 		connectAttempts++
 		// Test gRPC connectivity
-		conn, err := net.DialTimeout("tcp", fmt.Sprintf("localhost:%d", p.GrpcPort), 100*time.Millisecond)
+		conn, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", p.GrpcPort), 100*time.Millisecond)
 		if err == nil {
 			conn.Close()
 			if p.Binary == "pgctld" {
@@ -247,7 +247,7 @@ func (p *ProcessInstance) Stop() {
 // stopPostgreSQL stops PostgreSQL via gRPC (best effort, no error handling)
 func (p *ProcessInstance) stopPostgreSQL() {
 	conn, err := grpc.NewClient(
-		fmt.Sprintf("localhost:%d", p.GrpcPort),
+		fmt.Sprintf("127.0.0.1:%d", p.GrpcPort),
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 	)
 	if err != nil {
@@ -373,9 +373,9 @@ func getSharedTestSetup(t *testing.T) *MultipoolerTestSetup {
 		standbyPgctld := createPgctldInstance(t, "standby", tempDir, standbyGrpcPort, standbyPgPort)
 
 		primaryMultipooler := createMultipoolerInstance(t, "primary-multipooler", tempDir, primaryMultipoolerPort,
-			fmt.Sprintf("localhost:%d", primaryGrpcPort), primaryPgctld.DataDir, primaryPgctld.PgPort, etcdClientAddr)
+			fmt.Sprintf("127.0.0.1:%d", primaryGrpcPort), primaryPgctld.DataDir, primaryPgctld.PgPort, etcdClientAddr)
 		standbyMultipooler := createMultipoolerInstance(t, "standby-multipooler", tempDir, standbyMultipoolerPort,
-			fmt.Sprintf("localhost:%d", standbyGrpcPort), standbyPgctld.DataDir, standbyPgctld.PgPort, etcdClientAddr)
+			fmt.Sprintf("127.0.0.1:%d", standbyGrpcPort), standbyPgctld.DataDir, standbyPgctld.PgPort, etcdClientAddr)
 
 		// Start pgctld instances
 		if err := primaryPgctld.Start(t); err != nil {
@@ -457,7 +457,7 @@ func TestMultipoolerReplicationApi(t *testing.T) {
 	t.Run("PrimaryPosition_Primary", func(t *testing.T) {
 		// Connect to primary multipooler
 		conn, err := grpc.NewClient(
-			fmt.Sprintf("localhost:%d", setup.PrimaryMultipooler.GrpcPort),
+			fmt.Sprintf("127.0.0.1:%d", setup.PrimaryMultipooler.GrpcPort),
 			grpc.WithTransportCredentials(insecure.NewCredentials()),
 		)
 		require.NoError(t, err)
@@ -478,6 +478,10 @@ func TestMultipoolerReplicationApi(t *testing.T) {
 		}
 
 		// Assert that it succeeds and returns a valid LSN
+		if err != nil {
+			t.Logf("Error getting primary position: %v", err)
+			setup.PrimaryMultipooler.logRecentOutput(t, "Debug - error getting primary position")
+		}
 		require.NoError(t, err)
 		require.NotNil(t, resp)
 		assert.NotEmpty(t, resp.LsnPosition, "LSN should not be empty")
@@ -493,7 +497,7 @@ func TestMultipoolerReplicationApi(t *testing.T) {
 	t.Run("PrimaryPosition_Standby", func(t *testing.T) {
 		// Connect to standby multipooler
 		conn, err := grpc.NewClient(
-			fmt.Sprintf("localhost:%d", setup.StandbyMultipooler.GrpcPort),
+			fmt.Sprintf("127.0.0.1:%d", setup.StandbyMultipooler.GrpcPort),
 			grpc.WithTransportCredentials(insecure.NewCredentials()),
 		)
 		require.NoError(t, err)
