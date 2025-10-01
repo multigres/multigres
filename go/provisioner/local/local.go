@@ -460,6 +460,7 @@ func (p *localProvisioner) provisionMultigateway(ctx context.Context, req *provi
 		"--cell", cell,
 		"--log-level", logLevel,
 		"--log-output", logFile,
+		"--hostname", "localhost",
 	}
 
 	// Start multigateway process
@@ -593,6 +594,7 @@ func (p *localProvisioner) provisionMultiadmin(ctx context.Context, req *provisi
 		"--log-level", logLevel,
 		"--log-output", logFile,
 		"--service-map", "grpc-multiadmin",
+		"--hostname", "localhost",
 	}
 
 	// Start multiadmin process
@@ -773,6 +775,7 @@ func (p *localProvisioner) provisionMultipooler(ctx context.Context, req *provis
 		"--log-output", logFile,
 		"--pooler-dir", poolerDir,
 		"--pg-port", fmt.Sprintf("%d", pgPort),
+		"--hostname", "localhost",
 	}
 
 	// Add service map configuration to enable grpc-pooler service
@@ -922,6 +925,7 @@ func (p *localProvisioner) provisionMultiOrch(ctx context.Context, req *provisio
 		"--cell", cell,
 		"--log-level", logLevel,
 		"--log-output", logFile,
+		"--hostname", "localhost",
 	}
 
 	// Start multiorch process
