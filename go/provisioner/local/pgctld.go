@@ -337,7 +337,7 @@ func (p *localProvisioner) provisionPgctld(ctx context.Context, dbName, tableGro
 func (p *localProvisioner) deprovisionPgctld(ctx context.Context, service *LocalProvisionedService) error {
 	// First, try to gracefully stop PostgreSQL via pgctld gRPC
 	grpcPort := service.Ports["grpc_port"]
-	address := fmt.Sprintf("localhost:%d", grpcPort)
+	address := fmt.Sprintf("127.0.0.1:%d", grpcPort)
 
 	fmt.Printf("Stopping PostgreSQL via pgctld...")
 	if err := p.stopPostgreSQLViaPgctld(address); err != nil {
