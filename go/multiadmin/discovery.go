@@ -21,6 +21,7 @@ import (
 	"strings"
 
 	"github.com/multigres/multigres/go/clustermetadata/topo"
+	"github.com/multigres/multigres/go/servenv"
 )
 
 // ServiceInfo represents a discoverable service in the cluster
@@ -51,11 +52,15 @@ func DiscoverServices(ctx context.Context, ts topo.Store, baseDomain string) (*S
 	// Add multiadmin as a global service
 	// Multiadmin is always available if this code is running
 	multiadminURL := fmt.Sprintf("http://multiadmin.%s/", baseDomain)
+	multiadminDirectURL := ""
+	if httpPort := servenv.HTTPPort(); httpPort > 0 && servenv.Hostname != "" {
+		multiadminDirectURL = fmt.Sprintf("http://%s:%d/", servenv.Hostname, httpPort)
+	}
 	result.GlobalServices = append(result.GlobalServices, ServiceInfo{
 		Name:      "multiadmin",
 		Cell:      "",
 		URL:       multiadminURL,
-		DirectURL: "", // Direct URL not available without config
+		DirectURL: multiadminDirectURL,
 	})
 
 	// Discover cells from topology
