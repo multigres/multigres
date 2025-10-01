@@ -15,7 +15,7 @@
 // Package local implements the local proxy command for rendering
 // admin HTTP debug pages as consistent URLs. The proxy uses subdomain
 // to route to a particular service, like
-// http://multigateway.cell1.localhost:<local proxy port>/
+// http://multigateway-cell1.localhost:<local proxy port>/
 package local
 
 import (
@@ -43,6 +43,13 @@ type proxyConfig struct {
 	CellServices   map[string]map[string]int // cell name -> service name -> http port
 }
 
+// normalizeForSubdomain removes hyphens from a name to avoid conflicts with the separator.
+// This allows using a single hyphen as the service-cell separator in subdomains while
+// supporting hyphens in service and cell names.
+func normalizeForSubdomain(name string) string {
+	return strings.ReplaceAll(name, "-", "")
+}
+
 // proxy starts a local HTTP proxy that routes subdomain requests to backend services
 func proxy(cmd *cobra.Command, args []string) error {
 	// Load configuration to get service ports
@@ -63,7 +70,7 @@ func proxy(cmd *cobra.Command, args []string) error {
 	fmt.Printf("Starting localproxy on port %d\n", servenv.HTTPPort())
 	fmt.Printf("Loaded config from: %s\n", configFile)
 	fmt.Printf("Route requests like: http://multiadmin.localhost:%d/...\n", servenv.HTTPPort())
-	fmt.Printf("Or: http://multigateway.zone1.localhost:%d/...\n", servenv.HTTPPort())
+	fmt.Printf("Or: http://multigateway-zone1.localhost:%d/...\n", servenv.HTTPPort())
 
 	// Initialize servenv
 	servenv.Init()
@@ -93,7 +100,10 @@ func proxy(cmd *cobra.Command, args []string) error {
 		for serviceName, port := range services {
 			if port > 0 {
 				targetURL, _ := url.Parse(fmt.Sprintf("http://localhost:%d", port))
-				host := fmt.Sprintf("%s.%s.localhost/", serviceName, cellName)
+				// Normalize names to remove hyphens, use single hyphen as separator
+				normalizedService := normalizeForSubdomain(serviceName)
+				normalizedCell := normalizeForSubdomain(cellName)
+				host := fmt.Sprintf("%s-%s.localhost/", normalizedService, normalizedCell)
 				servenv.HTTPHandleFunc(host, createProxyHandler(targetURL))
 			}
 		}
@@ -250,7 +260,10 @@ func renderLandingPage(w http.ResponseWriter, r *http.Request, cfg *proxyConfig)
 		}
 		for serviceName, servicePort := range services {
 			if servicePort > 0 {
-				serviceURL := fmt.Sprintf("http://%s.%s.localhost%s/", serviceName, cellName, portSuffix)
+				// Normalize names to remove hyphens, use single hyphen as separator
+				normalizedService := normalizeForSubdomain(serviceName)
+				normalizedCell := normalizeForSubdomain(cellName)
+				serviceURL := fmt.Sprintf("http://%s-%s.localhost%s/", normalizedService, normalizedCell, portSuffix)
 				directURL := fmt.Sprintf("http://localhost:%d/", servicePort)
 				displayName := fmt.Sprintf("%s (%s)", serviceName, cellName)
 				cellGroup.Services = append(cellGroup.Services, ServiceLink{
@@ -280,7 +293,7 @@ var ProxyCommand = &cobra.Command{
 
 Examples:
   http://multiadmin.localhost:8080/     -> routes to multiadmin HTTP port
-  http://multigateway.zone1.localhost:8080/ -> routes to multigateway in zone1`,
+  http://multigateway-zone1.localhost:8080/ -> routes to multigateway in zone1`,
 	PreRunE: servenv.CobraPreRunE,
 	RunE:    proxy,
 }
