@@ -25,6 +25,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -251,6 +252,10 @@ func renderLandingPage(w http.ResponseWriter, r *http.Request, cfg *proxyConfig)
 			})
 		}
 	}
+	// Sort global services alphabetically by name
+	sort.Slice(data.GlobalServices, func(i, j int) bool {
+		return data.GlobalServices[i].Name < data.GlobalServices[j].Name
+	})
 
 	// Build cell services list
 	for cellName, services := range cfg.CellServices {
@@ -273,10 +278,18 @@ func renderLandingPage(w http.ResponseWriter, r *http.Request, cfg *proxyConfig)
 				})
 			}
 		}
+		// Sort services within each cell alphabetically by name
+		sort.Slice(cellGroup.Services, func(i, j int) bool {
+			return cellGroup.Services[i].Name < cellGroup.Services[j].Name
+		})
 		if len(cellGroup.Services) > 0 {
 			data.CellServices = append(data.CellServices, cellGroup)
 		}
 	}
+	// Sort cell groups alphabetically by cell name
+	sort.Slice(data.CellServices, func(i, j int) bool {
+		return data.CellServices[i].CellName < data.CellServices[j].CellName
+	})
 
 	// Execute template using web.Templates
 	err := web.Templates.ExecuteTemplate(w, "proxy_landing.html", data)
