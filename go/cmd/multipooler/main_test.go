@@ -17,23 +17,12 @@ package main
 import (
 	"testing"
 
-	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func TestRequiredFlags(t *testing.T) {
-	// Create one command instance and reuse it for all tests
-	cmd := &cobra.Command{
-		Use:   "multipooler",
-		Short: "Test multipooler command",
-		RunE:  run, // Use the actual run function
-	}
-
-	// Register flags using the same function as main
-	registerFlags(cmd.Flags())
-
 	tests := []struct {
 		name          string
 		args          []string
@@ -62,11 +51,8 @@ func TestRequiredFlags(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Reset global variables before each test
-			database = ""
-			tableGroup = ""
-			cell = ""
-			serviceID = ""
+			// Create a fresh command and MultiPooler instance
+			cmd, _ := CreateMultiPoolerCommand()
 
 			// Reset flags for reuse
 			cmd.Flags().VisitAll(func(flag *pflag.Flag) {

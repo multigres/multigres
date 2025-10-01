@@ -30,28 +30,35 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var (
+type MultiAdmin struct {
 	// adminServer holds the gRPC admin server instance
 	adminServer *server.MultiAdminServer
+}
 
-	Main = &cobra.Command{
+func main() {
+	ma := &MultiAdmin{}
+
+	main := &cobra.Command{
 		Use:     "multiadmin",
 		Short:   "Multiadmin provides administrative services for the multigres cluster, exposing both HTTP and gRPC endpoints for cluster management operations.",
 		Long:    "Multiadmin provides administrative services for the multigres cluster, exposing both HTTP and gRPC endpoints for cluster management operations.",
 		Args:    cobra.NoArgs,
 		PreRunE: servenv.CobraPreRunE,
-		RunE:    run,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return run(cmd, args, ma)
+		},
 	}
-)
 
-func main() {
-	if err := Main.Execute(); err != nil {
+	servenv.RegisterServiceCmd(main)
+	servenv.RegisterGRPCServerFlags()
+
+	if err := main.Execute(); err != nil {
 		slog.Error(err.Error())
 		os.Exit(1)
 	}
 }
 
-func run(cmd *cobra.Command, args []string) error {
+func run(cmd *cobra.Command, args []string, ma *MultiAdmin) error {
 	servenv.Init()
 
 	// Get the configured logger
@@ -70,14 +77,14 @@ func run(cmd *cobra.Command, args []string) error {
 
 		// Register multiadmin gRPC service with servenv's GRPCServer
 		if servenv.GRPCCheckServiceMap("multiadmin") {
-			adminServer = server.NewMultiAdminServer(ts, logger)
-			adminServer.RegisterWithGRPCServer(servenv.GRPCServer)
+			ma.adminServer = server.NewMultiAdminServer(ts, logger)
+			ma.adminServer.RegisterWithGRPCServer(servenv.GRPCServer)
 			logger.Info("MultiAdmin gRPC service registered with servenv")
 		}
 
 		// Add HTTP endpoints for cluster management
 		servenv.HTTPHandleFunc("/admin/status", handleStatusEndpoint)
-		servenv.HTTPHandleFunc("/admin/clusters", handleClustersEndpoint)
+		servenv.HTTPHandleFunc("/admin/clusters", getHandleClustersEndpoint(ma))
 		logger.Info("Admin HTTP endpoints available at /admin/status and /admin/clusters")
 	})
 
@@ -88,11 +95,6 @@ func run(cmd *cobra.Command, args []string) error {
 	servenv.RunDefault()
 
 	return nil
-}
-
-func init() {
-	servenv.RegisterServiceCmd(Main)
-	servenv.RegisterGRPCServerFlags()
 }
 
 // AdminStatusResponse represents the response from the admin status endpoint
@@ -127,24 +129,26 @@ func handleStatusEndpoint(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// handleClustersEndpoint handles the HTTP endpoint that shows cluster information
-func handleClustersEndpoint(w http.ResponseWriter, r *http.Request) {
-	// For now, return a simple response - this would be enhanced to use the admin server
-	// to get actual cluster information
-	if adminServer == nil {
-		http.Error(w, "Admin server not initialized", http.StatusServiceUnavailable)
-		return
-	}
+// getHandleClustersEndpoint handles the HTTP endpoint that shows cluster information
+func getHandleClustersEndpoint(ma *MultiAdmin) func(http.ResponseWriter, *http.Request) {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// For now, return a simple response - this would be enhanced to use the admin server
+		// to get actual cluster information
+		if ma.adminServer == nil {
+			http.Error(w, "Admin server not initialized", http.StatusServiceUnavailable)
+			return
+		}
 
-	// TODO: Use adminServer to get actual cluster list
-	response := AdminClustersResponse{
-		Clusters: []string{}, // Will be populated with actual cluster data
-		Count:    0,
-	}
+		// TODO: Use adminServer to get actual cluster list
+		response := AdminClustersResponse{
+			Clusters: []string{}, // Will be populated with actual cluster data
+			Count:    0,
+		}
 
-	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(response); err != nil {
-		http.Error(w, "Failed to encode response", http.StatusInternalServerError)
-		return
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(response); err != nil {
+			http.Error(w, "Failed to encode response", http.StatusInternalServerError)
+			return
+		}
 	}
 }

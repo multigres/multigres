@@ -29,25 +29,16 @@ import (
 	"github.com/multigres/multigres/go/netutil"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/servenv"
+	"github.com/multigres/multigres/go/viperutil"
 
 	"github.com/spf13/cobra"
-	"github.com/spf13/pflag"
 )
 
-var (
-	cell string
+type MultiOrch struct {
+	cell viperutil.Value[string]
 	// multiorchID stores the ID for deregistration during shutdown
 	multiorchID *clustermetadatapb.ID
-
-	Main = &cobra.Command{
-		Use:     "multiorch",
-		Short:   "Multiorch orchestrates cluster operations including consensus protocol management, failover detection and repair, and health monitoring of multipooler instances.",
-		Long:    "Multiorch orchestrates cluster operations including consensus protocol management, failover detection and repair, and health monitoring of multipooler instances.",
-		Args:    cobra.NoArgs,
-		PreRunE: servenv.CobraPreRunE,
-		RunE:    run,
-	}
-)
+}
 
 // CheckCellFlags validates the cell flag against available cells in the topology.
 // It helps avoid strange behaviors when multiorch runs but actually does not work
@@ -86,13 +77,37 @@ func CheckCellFlags(ts topo.Store, cell string) error {
 }
 
 func main() {
-	if err := Main.Execute(); err != nil {
+	mo := &MultiOrch{
+		cell: viperutil.Configure("cell", viperutil.Options[string]{
+			Default:  "",
+			FlagName: "cell",
+			Dynamic:  false,
+			EnvVars:  []string{"MT_CELL"},
+		}),
+	}
+
+	main := &cobra.Command{
+		Use:     "multiorch",
+		Short:   "Multiorch orchestrates cluster operations including consensus protocol management, failover detection and repair, and health monitoring of multipooler instances.",
+		Long:    "Multiorch orchestrates cluster operations including consensus protocol management, failover detection and repair, and health monitoring of multipooler instances.",
+		Args:    cobra.NoArgs,
+		PreRunE: servenv.CobraPreRunE,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return run(cmd, args, mo)
+		},
+	}
+
+	main.Flags().String("cell", mo.cell.Default(), "cell to use")
+	viperutil.BindFlags(main.Flags(), mo.cell)
+	servenv.RegisterServiceCmd(main)
+
+	if err := main.Execute(); err != nil {
 		slog.Error(err.Error())
 		os.Exit(1)
 	}
 }
 
-func run(cmd *cobra.Command, args []string) error {
+func run(cmd *cobra.Command, args []string, mo *MultiOrch) error {
 	servenv.Init()
 
 	// Get the configured logger
@@ -102,16 +117,16 @@ func run(cmd *cobra.Command, args []string) error {
 	defer func() { _ = ts.Close() }()
 
 	// Validate cell configuration early to fail fast if misconfigured
-	if err := CheckCellFlags(ts, cell); err != nil {
+	if err := CheckCellFlags(ts, mo.cell.Get()); err != nil {
 		logger.Error("Cell validation failed", "error", err)
 		return fmt.Errorf("cell validation failed: %w", err)
 	}
-	logger.Info("Cell validation passed", "cell", cell)
+	logger.Info("Cell validation passed", "cell", mo.cell)
 
 	servenv.OnRun(func() {
 		// Flags are parsed now.
 		logger.Info("multiorch starting up",
-			"cell", cell,
+			"cell", mo.cell,
 			"grpc_port", servenv.GRPCPort(),
 		)
 
@@ -127,11 +142,11 @@ func run(cmd *cobra.Command, args []string) error {
 		}
 
 		// Create MultiOrch instance for topo registration
-		multiorch := topo.NewMultiOrch("", cell, hostname)
+		multiorch := topo.NewMultiOrch("", mo.cell.Get(), hostname)
 		multiorch.PortMap["grpc"] = int32(servenv.GRPCPort())
 
 		// Store ID for deregistration during shutdown
-		multiorchID = multiorch.Id
+		mo.multiorchID = multiorch.Id
 
 		// Register with topology
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -148,14 +163,14 @@ func run(cmd *cobra.Command, args []string) error {
 		logger.Info("multiorch shutting down")
 
 		// Deregister from topology service
-		if multiorchID != nil {
+		if mo.multiorchID != nil {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
 
-			if err := ts.DeleteMultiOrch(ctx, multiorchID); err != nil {
-				logger.Error("Failed to deregister multiorch from topology", "error", err, "id", multiorchID)
+			if err := ts.DeleteMultiOrch(ctx, mo.multiorchID); err != nil {
+				logger.Error("Failed to deregister multiorch from topology", "error", err, "id", mo.multiorchID)
 			} else {
-				logger.Info("Successfully deregistered multiorch from topology", "id", multiorchID)
+				logger.Info("Successfully deregistered multiorch from topology", "id", mo.multiorchID)
 			}
 		}
 	})
@@ -166,19 +181,4 @@ func run(cmd *cobra.Command, args []string) error {
 	servenv.RunDefault()
 
 	return nil
-}
-
-func init() {
-	// Register multiorch specific flags (when needed)
-	servenv.OnParseFor("multiorch", registerFlags)
-
-	servenv.RegisterServiceCmd(Main)
-
-	// Adds multiorch specific flags
-	Main.Flags().StringVar(&cell, "cell", cell, "cell to use")
-}
-
-func registerFlags(fs *pflag.FlagSet) {
-	// TODO: Add multiorch-specific flags here when needed
-	// Example: fs.StringVar(&cell, "cell", "", "cell to use")
 }
