@@ -29,16 +29,24 @@ type VersionResult struct {
 	Message string
 }
 
-func init() {
-	Root.AddCommand(versionCmd)
-
-	// Add version-specific flags for connecting to PostgreSQL server
+// PgCtlVersionCmd holds the version command configuration
+type PgCtlVersionCmd struct {
+	pgCtlCmd *PgCtlCommand
 }
 
-var versionCmd = &cobra.Command{
-	Use:   "version",
-	Short: "Show PostgreSQL server version information",
-	Long: `Show version information from a running PostgreSQL server.
+// AddVersionCommand adds the version subcommand to the root command
+func AddVersionCommand(root *cobra.Command, pc *PgCtlCommand) {
+	versionCmd := &PgCtlVersionCmd{
+		pgCtlCmd: pc,
+	}
+	root.AddCommand(versionCmd.createCommand())
+}
+
+func (v *PgCtlVersionCmd) createCommand() *cobra.Command {
+	return &cobra.Command{
+		Use:   "version",
+		Short: "Show PostgreSQL server version information",
+		Long: `Show version information from a running PostgreSQL server.
 
 The version command connects to a running PostgreSQL server and retrieves its
 version information using SQL. This is useful for verifying server version,
@@ -55,8 +63,9 @@ Examples:
   if pgctld version | grep -q "PostgreSQL 15"; then
     echo "Compatible version found"
   fi`,
-	PreRunE: validateInitialized,
-	RunE:    runVersion,
+		PreRunE: validateInitialized,
+		RunE:    v.runVersion,
+	}
 }
 
 // GetVersionWithResult gets PostgreSQL server version information and returns detailed result information
@@ -74,8 +83,8 @@ func GetVersionWithResult(config *pgctld.PostgresCtlConfig) (*VersionResult, err
 	return result, nil
 }
 
-func runVersion(cmd *cobra.Command, args []string) error {
-	config, err := NewPostgresCtlConfigFromDefaults()
+func (v *PgCtlVersionCmd) runVersion(cmd *cobra.Command, args []string) error {
+	config, err := NewPostgresCtlConfigFromDefaults(v.pgCtlCmd.pgUser.Get(), v.pgCtlCmd.pgDatabase.Get(), v.pgCtlCmd.timeout.Get())
 	if err != nil {
 		return err
 	}

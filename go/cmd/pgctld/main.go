@@ -24,7 +24,9 @@ import (
 )
 
 func main() {
-	if err := command.Root.Execute(); err != nil {
+	root := command.GetRootCommand()
+
+	if err := root.Execute(); err != nil {
 		slog.Error("Command execution failed", "error", err)
 		os.Exit(1)
 	}

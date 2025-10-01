@@ -38,7 +38,7 @@ type StartResult struct {
 }
 
 // NewPostgresCtlConfigFromDefaults creates a PostgresCtlConfig by reading from existing postgresql.conf
-func NewPostgresCtlConfigFromDefaults() (*pgctld.PostgresCtlConfig, error) {
+func NewPostgresCtlConfigFromDefaults(pgUser string, pgDatabase string, timeout int) (*pgctld.PostgresCtlConfig, error) {
 	poolerDir := pgctld.GetPoolerDir()
 	postgresConfigFile := pgctld.PostgresConfigFile(poolerDir)
 
@@ -61,7 +61,7 @@ func NewPostgresCtlConfigFromDefaults() (*pgctld.PostgresCtlConfig, error) {
 
 // ResolvePassword handles password resolution from file or environment variable
 // Returns error if both are set or if password file cannot be read
-func resolvePassword() (string, error) {
+func resolvePassword(pgPwfile string) (string, error) {
 	envPassword := os.Getenv("PGPASSWORD")
 	var filePassword string
 
@@ -88,14 +88,24 @@ func resolvePassword() (string, error) {
 	return envPassword, nil
 }
 
-func init() {
-	Root.AddCommand(startCmd)
+// AddStartCommand adds the start subcommand to the root command
+func AddStartCommand(root *cobra.Command, pc *PgCtlCommand) {
+	startCmd := &PgCtlStartCmd{
+		pgCtlCmd: pc,
+	}
+	root.AddCommand(startCmd.createCommand())
 }
 
-var startCmd = &cobra.Command{
-	Use:   "start",
-	Short: "Start PostgreSQL server",
-	Long: `Start a PostgreSQL server instance with the configured parameters.
+// PgCtlStartCmd holds the start command configuration
+type PgCtlStartCmd struct {
+	pgCtlCmd *PgCtlCommand
+}
+
+func (s *PgCtlStartCmd) createCommand() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "start",
+		Short: "Start PostgreSQL server",
+		Long: `Start a PostgreSQL server instance with the configured parameters.
 
 The start command initializes the data directory if needed and starts PostgreSQL.
 Configuration can be provided via config file, environment variables, or CLI flags.
@@ -110,12 +120,15 @@ Examples:
 
   # Start with custom socket directory and config file
   pgctld start --pooler-dir /var/lib/postgresql/data -s /var/run/postgresql -c /etc/postgresql/custom.conf`,
-	PreRunE: validateInitialized,
-	RunE:    runStart,
+		PreRunE: validateInitialized,
+		RunE:    s.runStart,
+	}
+
+	return cmd
 }
 
-func runStart(cmd *cobra.Command, args []string) error {
-	config, err := NewPostgresCtlConfigFromDefaults()
+func (s *PgCtlStartCmd) runStart(cmd *cobra.Command, args []string) error {
+	config, err := NewPostgresCtlConfigFromDefaults(s.pgCtlCmd.pgUser.Get(), s.pgCtlCmd.pgDatabase.Get(), s.pgCtlCmd.timeout.Get())
 	if err != nil {
 		return err
 	}

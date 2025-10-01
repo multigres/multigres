@@ -40,16 +40,24 @@ type StatusResult struct {
 	Message       string
 }
 
-func init() {
-	Root.AddCommand(statusCmd)
-
-	// Add status-specific flags
+// PgCtlStatusCmd holds the status command configuration
+type PgCtlStatusCmd struct {
+	pgCtlCmd *PgCtlCommand
 }
 
-var statusCmd = &cobra.Command{
-	Use:   "status",
-	Short: "Check PostgreSQL server status",
-	Long: `Check the status of the PostgreSQL server instance and report health information.
+// AddStatusCommand adds the status subcommand to the root command
+func AddStatusCommand(root *cobra.Command, pc *PgCtlCommand) {
+	statusCmd := &PgCtlStatusCmd{
+		pgCtlCmd: pc,
+	}
+	root.AddCommand(statusCmd.createCommand())
+}
+
+func (s *PgCtlStatusCmd) createCommand() *cobra.Command {
+	return &cobra.Command{
+		Use:   "status",
+		Short: "Check PostgreSQL server status",
+		Long: `Check the status of the PostgreSQL server instance and report health information.
 
 The status command checks if PostgreSQL is running and reports detailed information
 including PID, version, uptime, and connection readiness. Configuration can be
@@ -69,8 +77,9 @@ Examples:
   # Check status of multiple instances
   pgctld status -d /var/lib/poolerdir/instance1
   pgctld status -d /var/lib/poolerdir/instance2`,
-	PreRunE: validateInitialized,
-	RunE:    runStatus,
+		PreRunE: validateInitialized,
+		RunE:    s.runStatus,
+	}
 }
 
 // GetStatusWithResult gets PostgreSQL status with the given configuration and returns detailed result information
@@ -114,8 +123,8 @@ func GetStatusWithResult(config *pgctld.PostgresCtlConfig) (*StatusResult, error
 	return result, nil
 }
 
-func runStatus(cmd *cobra.Command, args []string) error {
-	config, err := NewPostgresCtlConfigFromDefaults()
+func (s *PgCtlStatusCmd) runStatus(cmd *cobra.Command, args []string) error {
+	config, err := NewPostgresCtlConfigFromDefaults(s.pgCtlCmd.pgUser.Get(), s.pgCtlCmd.pgDatabase.Get(), s.pgCtlCmd.timeout.Get())
 	if err != nil {
 		return err
 	}

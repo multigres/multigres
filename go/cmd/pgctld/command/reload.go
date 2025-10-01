@@ -32,16 +32,24 @@ type ReloadResult struct {
 	Message    string
 }
 
-func init() {
-	Root.AddCommand(reloadCmd)
-
-	// Add reload-config-specific flags
+// PgCtlReloadCmd holds the reload command configuration
+type PgCtlReloadCmd struct {
+	pgCtlCmd *PgCtlCommand
 }
 
-var reloadCmd = &cobra.Command{
-	Use:   "reload-config",
-	Short: "Reload PostgreSQL configuration",
-	Long: `Reload the PostgreSQL server configuration without restarting.
+// AddReloadCommand adds the reload subcommand to the root command
+func AddReloadCommand(root *cobra.Command, pc *PgCtlCommand) {
+	reloadCmd := &PgCtlReloadCmd{
+		pgCtlCmd: pc,
+	}
+	root.AddCommand(reloadCmd.createCommand())
+}
+
+func (r *PgCtlReloadCmd) createCommand() *cobra.Command {
+	return &cobra.Command{
+		Use:   "reload-config",
+		Short: "Reload PostgreSQL configuration",
+		Long: `Reload the PostgreSQL server configuration without restarting.
 
 This command sends a SIGHUP signal to the PostgreSQL process, causing it to re-read
 its configuration files. This allows configuration changes to take effect without
@@ -55,8 +63,9 @@ Examples:
 
   # Reload configuration for specific instance
   pgctld reload-config -d /var/lib/postgresql/instance2/data`,
-	PreRunE: validateInitialized,
-	RunE:    runReload,
+		PreRunE: validateInitialized,
+		RunE:    r.runReload,
+	}
 }
 
 // ReloadPostgreSQLConfigWithResult reloads PostgreSQL configuration and returns detailed result information
@@ -83,8 +92,8 @@ func ReloadPostgreSQLConfigWithResult(config *pgctld.PostgresCtlConfig) (*Reload
 	return result, nil
 }
 
-func runReload(cmd *cobra.Command, args []string) error {
-	config, err := NewPostgresCtlConfigFromDefaults()
+func (r *PgCtlReloadCmd) runReload(cmd *cobra.Command, args []string) error {
+	config, err := NewPostgresCtlConfigFromDefaults(r.pgCtlCmd.pgUser.Get(), r.pgCtlCmd.pgDatabase.Get(), r.pgCtlCmd.timeout.Get())
 	if err != nil {
 		return err
 	}

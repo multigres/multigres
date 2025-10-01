@@ -21,6 +21,7 @@ import (
 	"os/exec"
 
 	"github.com/multigres/multigres/go/pgctld"
+	"github.com/multigres/multigres/go/viperutil"
 
 	"github.com/spf13/cobra"
 )
@@ -31,15 +32,30 @@ type StopResult struct {
 	Message    string
 }
 
-func init() {
-	Root.AddCommand(stopCmd)
-	stopCmd.Flags().String("mode", "fast", "Shutdown mode: smart, fast, or immediate")
+// PgCtlStopCmd holds the stop command configuration
+type PgCtlStopCmd struct {
+	pgCtlCmd *PgCtlCommand
+	mode     viperutil.Value[string]
 }
 
-var stopCmd = &cobra.Command{
-	Use:   "stop",
-	Short: "Stop PostgreSQL server",
-	Long: `Stop a running PostgreSQL server instance.
+// AddStopCommand adds the stop subcommand to the root command
+func AddStopCommand(root *cobra.Command, pc *PgCtlCommand) {
+	stopCmd := &PgCtlStopCmd{
+		pgCtlCmd: pc,
+		mode: viperutil.Configure("mode", viperutil.Options[string]{
+			Default:  "fast",
+			FlagName: "mode",
+			Dynamic:  false,
+		}),
+	}
+	root.AddCommand(stopCmd.createCommand())
+}
+
+func (s *PgCtlStopCmd) createCommand() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "stop",
+		Short: "Stop PostgreSQL server",
+		Long: `Stop a running PostgreSQL server instance.
 
 The stop command gracefully shuts down a running PostgreSQL server using pg_ctl.
 Configuration can be provided via config file, environment variables, or CLI flags.
@@ -62,28 +78,30 @@ Examples:
 
   # Force immediate stop with short timeout
   pgctld stop --pg-data-dir /var/lib/postgresql/data --mode immediate --timeout 10`,
-	PreRunE: validateInitialized,
-	RunE:    runStop,
+		PreRunE: validateInitialized,
+		RunE:    s.runStop,
+	}
+
+	cmd.Flags().String("mode", s.mode.Default(), "Shutdown mode: smart, fast, or immediate")
+	viperutil.BindFlags(cmd.Flags(), s.mode)
+
+	return cmd
 }
 
-func runStop(cmd *cobra.Command, args []string) error {
-	config, err := NewPostgresCtlConfigFromDefaults()
+func (s *PgCtlStopCmd) runStop(cmd *cobra.Command, args []string) error {
+	config, err := NewPostgresCtlConfigFromDefaults(s.pgCtlCmd.pgUser.Get(), s.pgCtlCmd.pgDatabase.Get(), s.pgCtlCmd.timeout.Get())
 	if err != nil {
 		return err
 	}
 
-	mode, _ := cmd.Flags().GetString("mode")
-
-	// No local flag overrides needed - all flags are global now
-
-	result, err := StopPostgreSQLWithResult(config, mode)
+	result, err := StopPostgreSQLWithResult(config, s.mode.Get())
 	if err != nil {
 		return err
 	}
 
 	// Display appropriate message for CLI users
 	if result.WasRunning {
-		fmt.Printf("PostgreSQL server stopped successfully (mode: %s)\n", mode)
+		fmt.Printf("PostgreSQL server stopped successfully (mode: %s)\n", s.mode.Get())
 	} else {
 		fmt.Println("PostgreSQL is not running")
 	}

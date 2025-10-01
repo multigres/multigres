@@ -211,7 +211,8 @@ func TestRunStop(t *testing.T) {
 				defer os.Setenv("PATH", originalPath)
 			}
 
-			cmd := Root
+			// Create a fresh root command for each test
+			cmd := GetRootCommand()
 
 			// Set up the command arguments
 			args := []string{"stop", "--mode", tt.mode}
@@ -272,7 +273,7 @@ func TestStopPostgreSQLWithConfig(t *testing.T) {
 			}
 
 			// Create a mock PostgreSQL server config
-			pgConfig, err := pgctld.GeneratePostgresServerConfig(baseDir, pgPort, "postgres")
+			pgConfig, err := pgctld.GeneratePostgresServerConfig(baseDir, 5432, "postgres")
 			require.NoError(t, err)
 
 			// Always create data directory

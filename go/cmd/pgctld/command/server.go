@@ -22,6 +22,7 @@ import (
 
 	"github.com/multigres/multigres/go/pgctld"
 	"github.com/multigres/multigres/go/servenv"
+	"github.com/multigres/multigres/go/viperutil"
 
 	"github.com/spf13/cobra"
 
@@ -30,15 +31,33 @@ import (
 	pb "github.com/multigres/multigres/go/pb/pgctldservice"
 )
 
-func init() {
-	servenv.RegisterServiceCmd(Root)
+// PgCtldServerCmd holds the server command configuration
+type PgCtldServerCmd struct {
+	pgCtlCmd   *PgCtlCommand
+	grpcServer *servenv.GrpcServer
+	pgPort     viperutil.Value[int]
+}
+
+// AddServerCommand adds the server subcommand to the root command
+func AddServerCommand(root *cobra.Command, pc *PgCtlCommand) {
+	servenv.RegisterServiceCmd(root)
 	servenv.InitServiceMap("grpc", "pgctld")
-	Root.AddCommand(ServerCmd)
-	ServerCmd.Flags().IntVar(&pgPort, "pg-port", pgPort, "PostgreSQL port")
+
+	serverCmd := &PgCtldServerCmd{
+		pgCtlCmd:   pc,
+		grpcServer: servenv.NewGrpcServer(),
+		pgPort: viperutil.Configure("pg-port", viperutil.Options[int]{
+			Default:  5432,
+			FlagName: "pg-port",
+			Dynamic:  false,
+		}),
+	}
+
+	root.AddCommand(serverCmd.createCommand())
 }
 
 // validateServerFlags validates required flags for the server command
-func validateServerFlags(cmd *cobra.Command, args []string) error {
+func (s *PgCtldServerCmd) validateServerFlags(cmd *cobra.Command, args []string) error {
 	// First run the standard servenv validation
 	if err := servenv.CobraPreRunE(cmd, args); err != nil {
 		return err
@@ -49,16 +68,24 @@ func validateServerFlags(cmd *cobra.Command, args []string) error {
 	return validateGlobalFlags(cmd, args)
 }
 
-var ServerCmd = &cobra.Command{
-	Use:     "server",
-	Short:   "Run pgctld as a gRPC server daemon",
-	Long:    `Run pgctld as a background gRPC server daemon to handle PostgreSQL management requests.`,
-	RunE:    runServer,
-	Args:    cobra.NoArgs,
-	PreRunE: validateServerFlags,
+func (s *PgCtldServerCmd) createCommand() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:     "server",
+		Short:   "Run pgctld as a gRPC server daemon",
+		Long:    `Run pgctld as a background gRPC server daemon to handle PostgreSQL management requests.`,
+		RunE:    s.runServer,
+		Args:    cobra.NoArgs,
+		PreRunE: s.validateServerFlags,
+	}
+
+	cmd.Flags().Int("pg-port", s.pgPort.Default(), "PostgreSQL port")
+	viperutil.BindFlags(cmd.Flags(), s.pgPort)
+	s.grpcServer.RegisterFlags(cmd.Flags())
+
+	return cmd
 }
 
-func runServer(cmd *cobra.Command, args []string) error {
+func (s *PgCtldServerCmd) runServer(cmd *cobra.Command, args []string) error {
 	servenv.Init()
 
 	// Get the configured logger
@@ -66,14 +93,14 @@ func runServer(cmd *cobra.Command, args []string) error {
 
 	// Create and register our service
 	poolerDir := pgctld.GetPoolerDir()
-	pgctldService, err := NewPgCtldService(logger, pgPort, pgUser, pgDatabase, timeout, poolerDir)
+	pgctldService, err := NewPgCtldService(logger, s.pgPort.Get(), s.pgCtlCmd.pgUser.Get(), s.pgCtlCmd.pgDatabase.Get(), s.pgCtlCmd.timeout.Get(), poolerDir)
 	if err != nil {
 		return err
 	}
 
 	servenv.OnRun(func() {
 		logger.Info("pgctld server starting up",
-			"grpc_port", servenv.GRPCPort(),
+			"grpc_port", s.grpcServer.Port(),
 		)
 
 		// Register gRPC service with the global GRPCServer
@@ -87,7 +114,7 @@ func runServer(cmd *cobra.Command, args []string) error {
 		// TODO: add closing hooks
 	})
 
-	servenv.RunDefault()
+	servenv.RunDefault(s.grpcServer)
 
 	return nil
 }
@@ -324,7 +351,7 @@ func (s *PgCtldService) InitDataDir(ctx context.Context, req *pb.InitDataDirRequ
 	s.logger.Info("gRPC InitDataDir request")
 
 	// Use the shared init function with detailed result
-	result, err := InitDataDirWithResult(s.poolerDir)
+	result, err := InitDataDirWithResult(s.poolerDir, s.pgPort, s.pgUser, req.PgPwfile)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize data directory: %w", err)
 	}

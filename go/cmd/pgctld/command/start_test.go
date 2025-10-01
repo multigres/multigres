@@ -84,7 +84,8 @@ func TestRunStart(t *testing.T) {
 				defer os.Setenv("PATH", originalPath)
 			}
 
-			cmd := Root
+			// Create a fresh root command for each test
+			cmd := GetRootCommand()
 
 			// Set up the command arguments
 			args := []string{"start", "--pooler-dir", baseDir}
@@ -205,7 +206,7 @@ func TestInitializeDataDir(t *testing.T) {
 		os.Setenv("PATH", binDir+":"+originalPath)
 		defer os.Setenv("PATH", originalPath)
 
-		err := initializeDataDir(dataDir)
+		err := initializeDataDir(dataDir, "postgres", "")
 		require.NoError(t, err)
 
 		// Verify directory was created
@@ -219,7 +220,7 @@ func TestInitializeDataDir(t *testing.T) {
 		// Try to create data dir in a read-only location
 		dataDir := "/root/impossible_dir"
 
-		err := initializeDataDir(dataDir)
+		err := initializeDataDir(dataDir, "postgres", "")
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "failed to create data directory")
 	})
