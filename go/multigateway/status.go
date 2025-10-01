@@ -44,7 +44,8 @@ type Link struct {
 type Status struct {
 	Title string `json:"title"`
 
-	InitError string `json:"init_error"`
+	InitError  string            `json:"init_error"`
+	TopoStatus map[string]string `json:"topo_status"`
 
 	Cell        string         `json:"cell"`
 	ServiceID   string         `json:"service_id"`
@@ -71,6 +72,7 @@ func init() {
 
 // handleIndex serves the index page
 func handleIndex(w http.ResponseWriter, r *http.Request) {
+	serverStatus.TopoStatus = ts.Status()
 	serverStatus.PoolerCount = poolerDiscovery.PoolerCount()
 	serverStatus.LastRefresh = poolerDiscovery.LastRefresh()
 	poolers := poolerDiscovery.GetPoolers()

@@ -30,7 +30,7 @@ var Templates *template.Template
 
 func init() {
 	var err error
-	Templates, err = template.ParseFS(TemplateFS, "templates/*.html")
+	Templates, err = template.ParseFS(TemplateFS, "templates/*.html", "templates/*.tmpl")
 	if err != nil {
 		panic(err)
 	}
