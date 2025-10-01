@@ -30,6 +30,7 @@ import (
 // It provides transparent retry logic for retriable connection errors.
 type WrapperConn struct {
 	newFunc func() (Conn, error)
+	alarm   func(string)
 
 	mu       sync.Mutex
 	wrapped  Conn
@@ -39,8 +40,11 @@ type WrapperConn struct {
 
 // NewWrapperConn creates a new connection wrapper that uses newFunc to establish connections.
 // If the initial connection attempt fails, it starts automatic retry logic in a goroutine.
-func NewWrapperConn(newFunc func() (Conn, error)) *WrapperConn {
-	c := &WrapperConn{newFunc: newFunc}
+func NewWrapperConn(newFunc func() (Conn, error), alarm func(string)) *WrapperConn {
+	if alarm == nil {
+		alarm = func(string) {}
+	}
+	c := &WrapperConn{newFunc: newFunc, alarm: alarm}
 
 	conn, err := newFunc()
 	if err != nil {
@@ -57,7 +61,7 @@ func (c *WrapperConn) handleConnectionError(conn Conn, err error) {
 	// If there is no connection, we want to retry irrespective of the error.
 	if conn == nil {
 		slog.Error("Connection error, will keep retrying", "err", err)
-		go c.retryConnection()
+		go c.retryConnection(err)
 		return
 	}
 	if err == nil {
@@ -65,25 +69,25 @@ func (c *WrapperConn) handleConnectionError(conn Conn, err error) {
 	}
 	if strings.Contains(err.Error(), "context deadline exceeded") {
 		slog.Error("Connection error, will keep retrying", "err", err)
-		go c.retryConnection()
+		go c.retryConnection(err)
 		return
 	}
 	if strings.Contains(err.Error(), "context canceled") {
 		slog.Error("Connection error, will keep retrying", "err", err)
-		go c.retryConnection()
+		go c.retryConnection(err)
 		return
 	}
 	switch mterrors.Code(err) {
 	case mtrpc.Code_UNAVAILABLE, mtrpc.Code_FAILED_PRECONDITION, mtrpc.Code_CLUSTER_EVENT:
 		slog.Error("Connection error, will keep retrying", "err", err)
-		go c.retryConnection()
+		go c.retryConnection(err)
 	}
 }
 
 // retryConnection goes into a retry loop until a connection is established.
 // It ensures that it goes into the loop only if it's already not retrying.
 // retryConnection terminates if Conn is closed.
-func (c *WrapperConn) retryConnection() {
+func (c *WrapperConn) retryConnection(err error) {
 	// Use defer to protect us from unexpected panics
 	mustReturn := func() bool {
 		c.mu.Lock()
@@ -105,6 +109,7 @@ func (c *WrapperConn) retryConnection() {
 	if mustReturn {
 		return
 	}
+	c.alarm(err.Error())
 
 	// There is a race condition:
 	// - Connection gets successfully established.
@@ -118,6 +123,7 @@ func (c *WrapperConn) retryConnection() {
 		c.mu.Lock()
 		defer c.mu.Unlock()
 		c.retrying = false
+		c.alarm("")
 	}()
 
 	r := retry.New(10*time.Millisecond, 30*time.Second)
@@ -142,6 +148,7 @@ func (c *WrapperConn) retryConnection() {
 				return false
 			}
 			if err != nil {
+				c.alarm(err.Error())
 				return true
 			}
 			c.wrapped = conn

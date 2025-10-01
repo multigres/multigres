@@ -32,7 +32,8 @@ type Link struct {
 type Status struct {
 	Title string `json:"title"`
 
-	InitError string `json:"init_error"`
+	InitError  string            `json:"init_error"`
+	TopoStatus map[string]string `json:"topo_status"`
 
 	Cell string `json:"cell"`
 
@@ -42,6 +43,7 @@ type Status struct {
 // handleIndex serves the index page
 func (mo *MultiOrch) getHandleIndex() func(http.ResponseWriter, *http.Request) {
 	return func(w http.ResponseWriter, r *http.Request) {
+		mo.serverStatus.TopoStatus = mo.ts.Status()
 		err := web.Templates.ExecuteTemplate(w, "orch_index.html", mo.serverStatus)
 		if err != nil {
 			http.Error(w, fmt.Sprintf("Failed to execute template: %v", err), http.StatusInternalServerError)

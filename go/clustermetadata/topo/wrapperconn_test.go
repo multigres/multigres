@@ -16,6 +16,7 @@ package topo
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -28,202 +29,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// mockConn is a mock implementation of Conn for testing
-type mockConn struct {
-	id              int
-	closed          bool
-	shouldFailCalls bool
-	mu              sync.Mutex
-}
-
-func newMockConn(id int) *mockConn {
-	return &mockConn{id: id}
-}
-
-func (m *mockConn) setShouldFailCalls(fail bool) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.shouldFailCalls = fail
-}
-
-func (m *mockConn) checkError() error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if m.shouldFailCalls {
-		return mterrors.Errorf(mtrpc.Code_UNAVAILABLE, "connection error")
-	}
-	if m.closed {
-		return mterrors.Errorf(mtrpc.Code_UNAVAILABLE, "connection closed")
-	}
-	return nil
-}
-
-func (m *mockConn) ListDir(ctx context.Context, dirPath string, full bool) ([]DirEntry, error) {
-	if err := m.checkError(); err != nil {
-		return nil, err
-	}
-	return []DirEntry{{Name: "test"}}, nil
-}
-
-func (m *mockConn) Create(ctx context.Context, filePath string, contents []byte) (Version, error) {
-	if err := m.checkError(); err != nil {
-		return nil, err
-	}
-	return &mockVersion{version: "1"}, nil
-}
-
-func (m *mockConn) Update(ctx context.Context, filePath string, contents []byte, version Version) (Version, error) {
-	if err := m.checkError(); err != nil {
-		return nil, err
-	}
-	return &mockVersion{version: "2"}, nil
-}
-
-func (m *mockConn) Get(ctx context.Context, filePath string) ([]byte, Version, error) {
-	if err := m.checkError(); err != nil {
-		return nil, nil, err
-	}
-	return []byte("test"), &mockVersion{version: "1"}, nil
-}
-
-func (m *mockConn) GetVersion(ctx context.Context, filePath string, version int64) ([]byte, error) {
-	if err := m.checkError(); err != nil {
-		return nil, err
-	}
-	return []byte("test"), nil
-}
-
-func (m *mockConn) List(ctx context.Context, filePathPrefix string) ([]KVInfo, error) {
-	if err := m.checkError(); err != nil {
-		return nil, err
-	}
-	return []KVInfo{{Key: []byte("key"), Value: []byte("value")}}, nil
-}
-
-func (m *mockConn) Delete(ctx context.Context, filePath string, version Version) error {
-	return m.checkError()
-}
-
-func (m *mockConn) Lock(ctx context.Context, dirPath, contents string) (LockDescriptor, error) {
-	if err := m.checkError(); err != nil {
-		return nil, err
-	}
-	return &mockLockDescriptor{}, nil
-}
-
-func (m *mockConn) LockWithTTL(ctx context.Context, dirPath, contents string, ttl time.Duration) (LockDescriptor, error) {
-	if err := m.checkError(); err != nil {
-		return nil, err
-	}
-	return &mockLockDescriptor{}, nil
-}
-
-func (m *mockConn) LockName(ctx context.Context, dirPath, contents string) (LockDescriptor, error) {
-	if err := m.checkError(); err != nil {
-		return nil, err
-	}
-	return &mockLockDescriptor{}, nil
-}
-
-func (m *mockConn) TryLock(ctx context.Context, dirPath, contents string) (LockDescriptor, error) {
-	if err := m.checkError(); err != nil {
-		return nil, err
-	}
-	return &mockLockDescriptor{}, nil
-}
-
-func (m *mockConn) Watch(ctx context.Context, filePath string) (current *WatchData, changes <-chan *WatchData, err error) {
-	if err := m.checkError(); err != nil {
-		return nil, nil, err
-	}
-	ch := make(chan *WatchData, 1)
-	close(ch)
-	return &WatchData{Contents: []byte("test")}, ch, nil
-}
-
-func (m *mockConn) WatchRecursive(ctx context.Context, path string) ([]*WatchDataRecursive, <-chan *WatchDataRecursive, error) {
-	if err := m.checkError(); err != nil {
-		return nil, nil, err
-	}
-	ch := make(chan *WatchDataRecursive, 1)
-	close(ch)
-	return []*WatchDataRecursive{{Path: "test"}}, ch, nil
-}
-
-func (m *mockConn) Close() error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.closed = true
-	return nil
-}
-
-// mockVersion implements Version
-type mockVersion struct {
-	version string
-}
-
-func (v *mockVersion) String() string {
-	return v.version
-}
-
-// mockLockDescriptor implements LockDescriptor
-type mockLockDescriptor struct{}
-
-func (l *mockLockDescriptor) Check(ctx context.Context) error {
-	return nil
-}
-
-func (l *mockLockDescriptor) Unlock(ctx context.Context) error {
-	return nil
-}
-
-// mockFactory creates mock connections with controllable failure behavior
-type mockFactory struct {
-	mu          sync.Mutex
-	shouldFail  bool
-	createCount int32
-	connections []*mockConn
-}
-
-func newMockFactory() *mockFactory {
-	return &mockFactory{}
-}
-
-func (f *mockFactory) setShouldFail(fail bool) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.shouldFail = fail
-}
-
-func (f *mockFactory) getCreateCount() int32 {
-	return atomic.LoadInt32(&f.createCount)
-}
-
-func (f *mockFactory) newConn() (Conn, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-
-	count := atomic.AddInt32(&f.createCount, 1)
-
-	if f.shouldFail {
-		return nil, mterrors.Errorf(mtrpc.Code_UNAVAILABLE, "factory error")
-	}
-
-	conn := newMockConn(int(count))
-	f.connections = append(f.connections, conn)
-	return conn, nil
-}
-
-func (f *mockFactory) waitForNewConn(currentCount int32) {
-	for f.getCreateCount() == currentCount {
-		time.Sleep(time.Millisecond)
-	}
-}
-
 func TestNewConn_Success(t *testing.T) {
 	factory := newMockFactory()
 
-	wrapper := NewWrapperConn(factory.newConn)
+	wrapper := NewWrapperConn(factory.newConn, nil)
 	require.NotNil(t, wrapper, "Expected wrapper to be created")
 
 	// Verify connection was established
@@ -238,7 +47,7 @@ func TestNewConn_InitialFailure(t *testing.T) {
 	factory := newMockFactory()
 	factory.setShouldFail(true)
 
-	wrapper := NewWrapperConn(factory.newConn)
+	wrapper := NewWrapperConn(factory.newConn, nil)
 
 	// Should not have a connection initially
 	conn, err := wrapper.getConnection()
@@ -261,7 +70,7 @@ func TestGetConnection_NoConnection(t *testing.T) {
 	factory := newMockFactory()
 	factory.setShouldFail(true)
 
-	wrapper := NewWrapperConn(factory.newConn)
+	wrapper := NewWrapperConn(factory.newConn, nil)
 
 	conn, err := wrapper.getConnection()
 	assert.Error(t, err, "Expected error when no connection available")
@@ -300,7 +109,7 @@ func TestHandleConnectionError_RetriesOnSpecificErrors(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			factory := newMockFactory()
-			wrapper := NewWrapperConn(factory.newConn)
+			wrapper := NewWrapperConn(factory.newConn, nil)
 
 			// Get initial connection
 			conn, err := wrapper.getConnection()
@@ -317,7 +126,7 @@ func TestHandleConnectionError_RetriesOnSpecificErrors(t *testing.T) {
 
 func TestHandleConnectionError_DoesNotRetryOnOtherErrors(t *testing.T) {
 	factory := newMockFactory()
-	wrapper := NewWrapperConn(factory.newConn)
+	wrapper := NewWrapperConn(factory.newConn, nil)
 
 	conn, err := wrapper.getConnection()
 	require.NoError(t, err, "Expected initial connection")
@@ -336,7 +145,7 @@ func TestHandleConnectionError_DoesNotRetryOnOtherErrors(t *testing.T) {
 
 func TestAllMethods_Success(t *testing.T) {
 	factory := newMockFactory()
-	wrapper := NewWrapperConn(factory.newConn)
+	wrapper := NewWrapperConn(factory.newConn, nil)
 
 	ctx := context.Background()
 
@@ -363,7 +172,7 @@ func TestAllMethods_Success(t *testing.T) {
 	t.Run("Get", func(t *testing.T) {
 		data, version, err := wrapper.Get(ctx, "/test")
 		assert.NoError(t, err, "Get should not fail")
-		assert.Equal(t, "test", string(data), "Expected data to be 'test'")
+		assert.Equal(t, "content", string(data), "Expected data to be 'content'")
 		assert.Equal(t, "1", version.String(), "Expected version '1'")
 	})
 
@@ -427,7 +236,7 @@ func TestAllMethods_Success(t *testing.T) {
 func TestAllMethods_NoConnection(t *testing.T) {
 	factory := newMockFactory()
 	factory.setShouldFail(true)
-	wrapper := NewWrapperConn(factory.newConn)
+	wrapper := NewWrapperConn(factory.newConn, nil)
 
 	ctx := context.Background()
 
@@ -568,7 +377,7 @@ func TestAllMethods_ConnectionError(t *testing.T) {
 			// Create a new wrapper for every test because
 			// a call to handleConnection will affect the code path of
 			// subsequent tests.
-			wrapper := NewWrapperConn(factory.newConn)
+			wrapper := NewWrapperConn(factory.newConn, nil)
 			defer wrapper.Close()
 
 			// Get the connection and make it fail
@@ -588,7 +397,7 @@ func TestAllMethods_ConnectionError(t *testing.T) {
 
 func TestClose(t *testing.T) {
 	factory := newMockFactory()
-	wrapper := NewWrapperConn(factory.newConn)
+	wrapper := NewWrapperConn(factory.newConn, nil)
 
 	// Verify connection exists
 	conn, err := wrapper.getConnection()
@@ -612,7 +421,7 @@ func TestClose(t *testing.T) {
 func TestClose_NoConnection(t *testing.T) {
 	factory := newMockFactory()
 	factory.setShouldFail(true)
-	wrapper := NewWrapperConn(factory.newConn)
+	wrapper := NewWrapperConn(factory.newConn, nil)
 
 	// Should not fail even with no connection
 	err := wrapper.Close()
@@ -621,7 +430,7 @@ func TestClose_NoConnection(t *testing.T) {
 
 func TestHandleConnectionError_NilError(t *testing.T) {
 	factory := newMockFactory()
-	wrapper := NewWrapperConn(factory.newConn)
+	wrapper := NewWrapperConn(factory.newConn, nil)
 
 	conn, err := wrapper.getConnection()
 	require.NoError(t, err, "Expected connection")
@@ -728,7 +537,7 @@ func (f *mockFactoryWithDelayedFailure) waitForNewConn(currentCount int32) {
 func TestOperationsTriggersHandleConnectionError(t *testing.T) {
 	// Create a connection that will fail after 2 calls
 	factory := newMockFactoryWithDelayedFailure(2)
-	wrapper := NewWrapperConn(factory.newConn)
+	wrapper := NewWrapperConn(factory.newConn, nil)
 
 	ctx := context.Background()
 
@@ -785,7 +594,7 @@ func TestMultipleOperationsWithConnectionErrors(t *testing.T) {
 		t.Run(op.name, func(t *testing.T) {
 			// Create a connection that fails immediately
 			factory := newMockFactoryWithDelayedFailure(0)
-			wrapper := NewWrapperConn(factory.newConn)
+			wrapper := NewWrapperConn(factory.newConn, nil)
 
 			ctx := context.Background()
 			initialCount := factory.getCreateCount()
@@ -802,7 +611,7 @@ func TestMultipleOperationsWithConnectionErrors(t *testing.T) {
 
 func TestRetryConnection_PreventsMultipleRetries(t *testing.T) {
 	factory := newMockFactory()
-	wrapper := NewWrapperConn(factory.newConn)
+	wrapper := NewWrapperConn(factory.newConn, nil)
 
 	// Set factory to fail connections and make the wrapper go into retry
 	factory.setShouldFail(true)
@@ -883,7 +692,7 @@ func TestRetryConnection_PreventsMultipleRetries(t *testing.T) {
 
 func TestRetryConnection_TerminatesWhenClosed(t *testing.T) {
 	factory := newMockFactory()
-	wrapper := NewWrapperConn(factory.newConn)
+	wrapper := NewWrapperConn(factory.newConn, nil)
 
 	// Get the initial connection and manually trigger a retry with it
 	_, err := wrapper.getConnection()
@@ -896,7 +705,7 @@ func TestRetryConnection_TerminatesWhenClosed(t *testing.T) {
 	// Start retryConnection manually in a goroutine
 	done := make(chan bool, 1)
 	go func() {
-		wrapper.retryConnection()
+		wrapper.retryConnection(errors.New("test error"))
 		done <- true
 	}()
 
@@ -925,7 +734,7 @@ func TestRetryConnection_TerminatesWhenSuccessful(t *testing.T) {
 
 	// Start with failures
 	factory.setShouldFail(true)
-	wrapper := NewWrapperConn(factory.newConn)
+	wrapper := NewWrapperConn(factory.newConn, nil)
 	initialCount := factory.getCreateCount()
 	// Wait for retryConnection to start attempting
 	factory.waitForNewConn(initialCount)
@@ -933,6 +742,14 @@ func TestRetryConnection_TerminatesWhenSuccessful(t *testing.T) {
 	// Allow connections to succeed
 	initialCount = factory.getCreateCount()
 	factory.setShouldFail(false)
+
+	// Wait for retryConnection to terminate
+	require.Eventually(t, func() bool {
+		wrapper.mu.Lock()
+		defer wrapper.mu.Unlock()
+		return !wrapper.retrying
+	}, 100*time.Millisecond, time.Millisecond)
+
 	// Wait for successful connection
 	factory.waitForNewConn(initialCount)
 
@@ -943,18 +760,153 @@ func TestRetryConnection_TerminatesWhenSuccessful(t *testing.T) {
 
 	successCount := factory.getCreateCount()
 
-	// Wait a bit more to ensure retryConnection has stopped
-	time.Sleep(5 * time.Millisecond)
+	// Wait for retryConnection to terminate
+	require.Eventually(t, func() bool {
+		wrapper.mu.Lock()
+		defer wrapper.mu.Unlock()
+		return !wrapper.retrying
+	}, 100*time.Millisecond, time.Millisecond)
 
 	// Verify no additional connection attempts were made
 	assert.LessOrEqual(t, factory.getCreateCount(), successCount, "retryConnection should have terminated after successful connection")
+}
+
+func TestAlarm_CalledOnRetryStart(t *testing.T) {
+	factory := newMockFactory()
+	factory.setShouldFail(true)
+
+	alarmCalls := make([]string, 0)
+	var mu sync.Mutex
+	alarm := func(msg string) {
+		mu.Lock()
+		defer mu.Unlock()
+		alarmCalls = append(alarmCalls, msg)
+	}
+
+	wrapper := NewWrapperConn(factory.newConn, alarm)
+
+	// Wait for retry to start
+	require.Eventually(t, func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return len(alarmCalls) > 0
+	}, 100*time.Millisecond, 5*time.Millisecond, "Expected alarm to be called")
+
+	// Verify alarm was called with error message
+	mu.Lock()
+	defer mu.Unlock()
+	assert.Greater(t, len(alarmCalls), 0, "Alarm should be called")
+	assert.NotEmpty(t, alarmCalls[0], "First alarm call should have error message")
+	assert.Contains(t, alarmCalls[0], "factory error", "Alarm should contain error message")
+
+	wrapper.Close()
+}
+
+func TestAlarm_ResetOnRetrySuccess(t *testing.T) {
+	factory := newMockFactory()
+	factory.setShouldFail(true)
+
+	alarmCalls := make([]string, 0)
+	var mu sync.Mutex
+	alarm := func(msg string) {
+		mu.Lock()
+		defer mu.Unlock()
+		alarmCalls = append(alarmCalls, msg)
+	}
+
+	wrapper := NewWrapperConn(factory.newConn, alarm)
+
+	// Wait for retry to start
+	require.Eventually(t, func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return len(alarmCalls) > 0
+	}, 100*time.Millisecond, 5*time.Millisecond, "Expected alarm to be called")
+
+	// Allow connection to succeed
+	factory.setShouldFail(false)
+
+	// Wait for connection to be established and alarm to be reset
+	require.Eventually(t, func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		// Check if we have at least 2 calls and the last one is empty
+		if len(alarmCalls) < 2 {
+			return false
+		}
+		return alarmCalls[len(alarmCalls)-1] == ""
+	}, 2*time.Second, 10*time.Millisecond, "Expected alarm to be reset")
+
+	// Verify alarm was called with error and then reset with empty string
+	mu.Lock()
+	defer mu.Unlock()
+	assert.GreaterOrEqual(t, len(alarmCalls), 2, "Alarm should be called at least twice")
+	assert.NotEmpty(t, alarmCalls[0], "First call should have error message")
+	assert.Empty(t, alarmCalls[len(alarmCalls)-1], "Last call should be empty string to reset alarm")
+
+	wrapper.Close()
+}
+
+func TestAlarm_CalledOnConnectionError(t *testing.T) {
+	factory := newMockFactory()
+
+	alarmCalls := make([]string, 0)
+	var mu sync.Mutex
+	alarm := func(msg string) {
+		mu.Lock()
+		defer mu.Unlock()
+		alarmCalls = append(alarmCalls, msg)
+	}
+
+	wrapper := NewWrapperConn(factory.newConn, alarm)
+	defer wrapper.Close()
+
+	// Get the connection and make it fail
+	conn, err := wrapper.getConnection()
+	require.NoError(t, err)
+
+	mockConn := conn.(*mockConn)
+	mockConn.setShouldFailCalls(true)
+
+	ctx := context.Background()
+
+	// Trigger a connection error
+	_, err = wrapper.ListDir(ctx, "/test", true)
+	assert.Error(t, err, "Expected error from failing connection")
+
+	// Wait for alarm to be called
+	require.Eventually(t, func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return len(alarmCalls) > 0
+	}, 100*time.Millisecond, 5*time.Millisecond, "Expected alarm to be called after connection error")
+
+	// Verify alarm was called with error
+	mu.Lock()
+	defer mu.Unlock()
+	assert.Greater(t, len(alarmCalls), 0, "Alarm should be called")
+	assert.NotEmpty(t, alarmCalls[0], "Alarm should have error message")
+	assert.Contains(t, alarmCalls[0], "connection error", "Alarm should contain connection error")
+}
+
+func TestAlarm_NilAlarmDoesNotPanic(t *testing.T) {
+	factory := newMockFactory()
+
+	// Create wrapper with nil alarm - should not panic
+	wrapper := NewWrapperConn(factory.newConn, nil)
+	defer wrapper.Close()
+
+	// Verify it works normally
+	conn, err := wrapper.getConnection()
+	assert.NoError(t, err)
+	assert.NotNil(t, conn)
 }
 
 func TestRetryConnection_ClosesStrayConnectionWhenWrapperClosed(t *testing.T) {
 	factory := newMockFactory()
 	// Make NewConn go into a retry loop.
 	factory.setShouldFail(true)
-	wrapper := NewWrapperConn(factory.newConn)
+	wrapper := NewWrapperConn(factory.newConn, nil)
 	initialCount := factory.getCreateCount()
 
 	// Wait for at least one more connection attempt to be sure

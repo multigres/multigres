@@ -64,16 +64,18 @@ import (
 	"io"
 	"log"
 	"log/slog"
+	"maps"
 	"os"
 	"slices"
 	"strings"
 	"sync"
 
-	"github.com/multigres/multigres/go/viperutil"
-
+	"github.com/gogo/protobuf/proto"
 	"github.com/spf13/pflag"
+	"golang.org/x/sync/errgroup"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	"github.com/multigres/multigres/go/viperutil"
 )
 
 const (
@@ -207,6 +209,9 @@ type ConnProvider interface {
 	// ConnForCell returns a connection to the topology service for the specified cell.
 	// The connection is cached and reused for subsequent requests to the same cell.
 	ConnForCell(ctx context.Context, cell string) (Conn, error)
+
+	// Status returns the connection status for all cells
+	Status() map[string]string
 }
 
 // store is the main topology store implementation. It supports two ways of creation:
@@ -223,13 +228,18 @@ type store struct {
 	// It is set at construction time and used to create cell-specific connections.
 	factory Factory
 
-	// mu protects the following fields from concurrent access.
-	mu sync.Mutex
 	// cellConns contains cached connections to cell-specific topology services.
 	// These connections should be accessed through the ConnForCell() method, which
 	// will read the cell configuration from the global cluster and create clients
 	// as needed.
+	cellMu    sync.Mutex
 	cellConns map[string]cellConn
+
+	// status contains information about each connection.
+	// If the string for a cell is empty, the connection
+	// is healthy. Otherwise, it contains an error message.
+	statusMu sync.Mutex
+	status   map[string]string
 }
 
 // Ensure store implements the Store interface at compile time.
@@ -318,19 +328,25 @@ func GetAvailableImplementations() []string {
 
 // NewWithFactory creates a new topology store based on the given Factory.
 // It also opens the global topology connection and initializes the store.
-func NewWithFactory(factory Factory, root string, serverAddrs []string) (Store, error) {
-	conn := NewWrapperConn(func() (Conn, error) {
-		return factory.Create(GlobalCell, root, serverAddrs)
-	})
-
-	// TODO: Add statistics and monitoring module for topology operations
-	// conn = NewStatsConn(GlobalTopo, conn, globalReadSem)
-
-	return &store{
-		globalTopo: conn,
-		factory:    factory,
-		cellConns:  make(map[string]cellConn),
-	}, nil
+func NewWithFactory(factory Factory, root string, serverAddrs []string) Store {
+	ts := &store{
+		factory:   factory,
+		cellConns: make(map[string]cellConn),
+		status:    make(map[string]string),
+	}
+	ts.status[GlobalCell] = ""
+	conn := NewWrapperConn(
+		func() (Conn, error) {
+			return factory.Create(GlobalCell, root, serverAddrs)
+		},
+		func(s string) {
+			ts.statusMu.Lock()
+			defer ts.statusMu.Unlock()
+			ts.status[GlobalCell] = s
+		},
+	)
+	ts.globalTopo = conn
+	return ts
 }
 
 // OpenServer returns a topology store using the specified implementation,
@@ -350,7 +366,7 @@ func OpenServer(implementation, root string, serverAddrs []string) (Store, error
 
 		return nil, fmt.Errorf("topology implementation '%s' not found. Available implementations: %s", implementation, strings.Join(available, ", "))
 	}
-	return NewWithFactory(factory, root, serverAddrs)
+	return NewWithFactory(factory, root, serverAddrs), nil
 }
 
 // Open returns a topology store using the command-line parameter flags
@@ -413,21 +429,16 @@ func (ts *store) ConnForCell(ctx context.Context, cell string) (Conn, error) {
 		return nil, err
 	}
 
-	serverAddrsStr := strings.Join(ci.ServerAddresses, ",")
-
-	// Return a cached client if present and configuration hasn't changed.
-	ts.mu.Lock()
-	defer ts.mu.Unlock()
+	ts.cellMu.Lock()
+	defer ts.cellMu.Unlock()
 	cc, ok := ts.cellConns[cell]
 	if ok {
-		// Client exists in cache. Verify that it's for the same cell configuration.
-		// The cell name can be reused with different ServerAddresses and/or Root,
-		// in which case we should get a new connection and update the cache.
-		cellAddrs := strings.Join(cc.Cell.ServerAddresses, ",")
-		if serverAddrsStr == cellAddrs && ci.Root == cc.Cell.Root {
+		// Verify that the connection parameters match.
+		if proto.Equal(ci, cc.Cell) {
 			return cc.conn, nil
 		}
-		// Close the cached connection as it's no longer valid.
+		// Connections parameters have changed,
+		// close the cached connection and create a new one.
 		if cc.conn != nil {
 			cc.conn.Close()
 		}
@@ -436,45 +447,69 @@ func (ts *store) ConnForCell(ctx context.Context, cell string) (Conn, error) {
 	// Connect to the cell topology server while holding the lock.
 	// This ensures only one connection is established at any given time.
 	// Create the connection and cache it for future use.
-	conn := NewWrapperConn(func() (Conn, error) {
-		return ts.factory.Create(cell, ci.Root, ci.ServerAddresses)
-	})
+
+	ts.statusMu.Lock()
+	defer ts.statusMu.Unlock()
+	ts.status[cell] = ""
+	conn := NewWrapperConn(
+		func() (Conn, error) {
+			return ts.factory.Create(cell, ci.Root, ci.ServerAddresses)
+		},
+		func(s string) {
+			ts.statusMu.Lock()
+			defer ts.statusMu.Unlock()
+			ts.status[cell] = s
+		},
+	)
+	ts.cellConns[cell] = cellConn{
+		Cell: proto.Clone(ci).(*clustermetadatapb.Cell),
+		conn: conn,
+	}
 	return conn, nil
+}
+
+// Status returns the status of all the connections in the store.
+func (ts *store) Status() map[string]string {
+	ts.statusMu.Lock()
+	defer ts.statusMu.Unlock()
+	return maps.Clone(ts.status)
 }
 
 // Close will close all connections to underlying topology stores.
 // It will nil all member variables, so any further access will panic.
 // Returns a combined error if any errors occurred during cleanup.
 func (ts *store) Close() error {
-	var errs []error
+	g, _ := errgroup.WithContext(context.Background())
 
 	// Close global topology connection
-	if ts.globalTopo != nil {
-		if err := ts.globalTopo.Close(); err != nil {
-			errs = append(errs, fmt.Errorf("failed to close global topo: %w", err))
+	g.Go(func() error {
+		if ts.globalTopo != nil {
+			if err := ts.globalTopo.Close(); err != nil {
+				return fmt.Errorf("failed to close global topo: %w", err)
+			}
+			ts.globalTopo = nil
 		}
-		ts.globalTopo = nil
-	}
+		return nil
+	})
 
 	// Close all cell connections
-	ts.mu.Lock()
-	defer ts.mu.Unlock()
+	ts.cellMu.Lock()
+	defer ts.cellMu.Unlock()
 
-	for cell, cc := range ts.cellConns {
-		if cc.conn != nil {
-			if err := cc.conn.Close(); err != nil {
-				errs = append(errs, fmt.Errorf("failed to close cell connection %s: %w", cell, err))
+	g.Go(func() error {
+		for cell, cc := range ts.cellConns {
+			if cc.conn != nil {
+				if err := cc.conn.Close(); err != nil {
+					return fmt.Errorf("failed to close cell connection %s: %w", cell, err)
+				}
 			}
 		}
-	}
+		return nil
+	})
+	err := g.Wait()
 
-	// Clear the map to release references
 	ts.cellConns = make(map[string]cellConn)
+	ts.status = make(map[string]string)
 
-	// Return combined error if any occurred during cleanup
-	if len(errs) > 0 {
-		return fmt.Errorf("errors occurred while closing connections: %v", errs)
-	}
-
-	return nil
+	return err
 }

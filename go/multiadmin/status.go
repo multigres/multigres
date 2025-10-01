@@ -32,7 +32,8 @@ type Link struct {
 type Status struct {
 	Title string `json:"title"`
 
-	InitError string `json:"init_error"`
+	InitError  string            `json:"init_error"`
+	TopoStatus map[string]string `json:"topo_status"`
 
 	Links []Link `json:"links"`
 }
@@ -40,6 +41,7 @@ type Status struct {
 // handleIndex serves the index page
 func (ma *MultiAdmin) getHandleIndex() func(http.ResponseWriter, *http.Request) {
 	return func(w http.ResponseWriter, r *http.Request) {
+		ma.serverStatus.TopoStatus = ma.ts.Status()
 		err := web.Templates.ExecuteTemplate(w, "admin_index.html", ma.serverStatus)
 		if err != nil {
 			http.Error(w, fmt.Sprintf("Failed to execute template: %v", err), http.StatusInternalServerError)

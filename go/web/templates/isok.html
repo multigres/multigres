@@ -17,14 +17,6 @@
       <span class="error">not ok</span>
       {{end}}
     </main>
-    <footer>
-      <script>
-        document.write(new Date().toISOString());
-      </script>
-      <br />Local:
-      <script>
-        document.write(new Date().toLocaleString());
-      </script>
-    </footer>
+    <footer>{{template "timestamp.tmpl"}}</footer>
   </body>
 </html>

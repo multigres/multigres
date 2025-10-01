@@ -43,7 +43,8 @@ type Link struct {
 type Status struct {
 	Title string `json:"title"`
 
-	InitError string `json:"init_error"`
+	InitError  string            `json:"init_error"`
+	TopoStatus map[string]string `json:"topo_status"`
 
 	Cell        string         `json:"cell"`
 	ServiceID   string         `json:"service_id"`
@@ -57,6 +58,7 @@ type Status struct {
 // getHandleIndex serves the index page
 func (mg *MultiGateway) getHandleIndex() func(http.ResponseWriter, *http.Request) {
 	return func(w http.ResponseWriter, r *http.Request) {
+		mg.serverStatus.TopoStatus = mg.ts.Status()
 		mg.serverStatus.PoolerCount = mg.poolerDiscovery.PoolerCount()
 		mg.serverStatus.LastRefresh = mg.poolerDiscovery.LastRefresh()
 		poolers := mg.poolerDiscovery.GetPoolers()

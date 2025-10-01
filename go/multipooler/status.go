@@ -33,7 +33,8 @@ type Link struct {
 type Status struct {
 	Title string `json:"title"`
 
-	InitError string `json:"init_error"`
+	InitError  string            `json:"init_error"`
+	TopoStatus map[string]string `json:"topo_status"`
 
 	Cell           string `json:"cell"`
 	ServiceID      string `json:"service_id"`
@@ -48,6 +49,7 @@ type Status struct {
 // getHandleIndex serves the index page
 func (mp *MultiPooler) getHandleIndex() func(http.ResponseWriter, *http.Request) {
 	return func(w http.ResponseWriter, r *http.Request) {
+		mp.serverStatus.TopoStatus = mp.ts.Status()
 		err := web.Templates.ExecuteTemplate(w, "pooler_index.html", mp.serverStatus)
 		if err != nil {
 			http.Error(w, fmt.Sprintf("Failed to execute template: %v", err), http.StatusInternalServerError)

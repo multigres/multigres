@@ -23,7 +23,6 @@ import (
 	"fmt"
 	"log/slog"
 	"math/rand/v2"
-	"os"
 	"regexp"
 	"strings"
 	"sync"
@@ -324,12 +323,7 @@ func NewServerAndFactory(ctx context.Context, cells ...string) (topo.Store, *Fac
 	}
 	f.cells[topo.GlobalCell] = f.newDirectory(topo.GlobalCell, nil)
 
-	ts, err := topo.NewWithFactory(f, "" /*root*/, []string{""} /*serverAddrs*/)
-	if err != nil {
-		// CHECK THIS BEFORE MERGING
-		slog.Error("topo.NewWithFactory() failed", "error", err)
-		os.Exit(1)
-	}
+	ts := topo.NewWithFactory(f, "" /*root*/, []string{""} /*serverAddrs*/)
 	for _, cell := range cells {
 		f.cells[cell] = f.newDirectory(cell, nil)
 		// Create cell with mock server addresses for testing
