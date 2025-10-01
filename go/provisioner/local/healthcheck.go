@@ -45,7 +45,6 @@ func (p *localProvisioner) waitForServiceReady(serviceName string, host string, 
 		case <-ticker.C:
 			// First check TCP connectivity on all advertised ports
 			allPortsReady := true
-			slog.Error(fmt.Sprintf("TRYING TO CONNECT TO PORT: %v, via", servicePorts))
 			for _, port := range servicePorts {
 				address := net.JoinHostPort(host, fmt.Sprintf("%d", port))
 				conn, err := net.DialTimeout("tcp", address, 2*time.Second)
