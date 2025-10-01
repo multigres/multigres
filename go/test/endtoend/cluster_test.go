@@ -563,7 +563,7 @@ func ensureBinaryBuilt(t *testing.T) {
 // TestMain sets the path and cleans up after all tests
 func TestMain(m *testing.M) {
 	// Set the PATH so etcd can be found
-	pathutil.AppendPath("../../../bin")
+	pathutil.PrependPath("../../../bin")
 
 	// Run all tests
 	exitCode := m.Run()
