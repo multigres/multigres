@@ -17,7 +17,6 @@ package local
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"net"
 	"net/http"
 	"os"
@@ -49,7 +48,6 @@ func (p *localProvisioner) waitForServiceReady(serviceName string, host string, 
 				address := net.JoinHostPort(host, fmt.Sprintf("%d", port))
 				conn, err := net.DialTimeout("tcp", address, 2*time.Second)
 				if err != nil {
-					slog.Error(fmt.Sprintf("Local Provisioner failed to get executable path: %v, via %v", err, address))
 					allPortsReady = false
 					break // This port not ready yet
 				}
