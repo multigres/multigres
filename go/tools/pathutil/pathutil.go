@@ -20,16 +20,6 @@ import (
 	"path/filepath"
 )
 
-// AppendPath appends a given path to the PATH environment variable.
-// It ensures the path is absolute.
-func AppendPath(path string) {
-	absPath, err := filepath.Abs(path)
-	if err != nil {
-		return
-	}
-	_ = os.Setenv("PATH", os.Getenv("PATH")+string(os.PathListSeparator)+absPath)
-}
-
 // PrependPath prepends a given path to the PATH environment variable.
 // It ensures the path is absolute and takes precedence over existing paths.
 func PrependPath(path string) {
