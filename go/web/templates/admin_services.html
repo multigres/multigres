@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <title>Cluster Services - Multiadmin</title>
+    <link rel="icon" href="/favicon.ico" type="image/x-icon" />
+    <link rel="stylesheet" href="/css/pico.classless.jade.min.css" />
+    <link rel="stylesheet" href="/css/custom.css" />
+  </head>
+  <body>
+    <header>
+      <h1>Cluster Services</h1>
+      <p><a href="/">← Back to Multiadmin</a></p>
+    </header>
+
+    <main>
+      {{if .Error}}
+      <section>
+        <h4>Discovery Error</h4>
+        <p class="error">{{.Error}}</p>
+        <p>
+          Some services may not be listed. Check topology server connectivity.
+        </p>
+      </section>
+      {{end}} {{if .GlobalServices}}
+      <section>
+        <h4>Global Services</h4>
+        <section div class="grid">
+          {{range .GlobalServices}}
+          <article>
+            <h4>{{.Name}}</h4>
+            <a href="{{.URL}}" role="button" data-tooltip="Access {{.Name}}"
+              >{{.URL}}</a
+            >
+            {{if .DirectURL}}
+            <p>
+              <small>Direct: <a href="{{.DirectURL}}">{{.DirectURL}}</a></small>
+            </p>
+            {{end}}
+          </article>
+          {{end}}
+        </section>
+      </section>
+      {{end}} {{if .CellServices}} {{range $cellName, $services :=
+      .CellServices}}
+      <section>
+        <h4>Cell: {{$cellName}}</h4>
+        <section div class="grid">
+          {{range $services}}
+          <article>
+            <h4>{{.Name}}</h4>
+            <a
+              href="{{.URL}}"
+              role="button"
+              data-tooltip="Access {{.Name}} in {{.Cell}}"
+              >{{.URL}}</a
+            >
+            {{if .DirectURL}}
+            <p>
+              <small>Direct: <a href="{{.DirectURL}}">{{.DirectURL}}</a></small>
+            </p>
+            {{end}}
+          </article>
+          {{end}}
+        </section>
+      </section>
+      {{end}} {{end}} {{if not .GlobalServices}} {{if not .CellServices}}
+      <section>
+        <h4>No Services Found</h4>
+        <p>No services are currently registered in the topology.</p>
+        <p>
+          Services will appear here once they start and register themselves.
+        </p>
+      </section>
+      {{end}} {{end}}
+    </main>
+
+    <footer>
+      <script>
+        document.write(new Date().toISOString());
+      </script>
+      <br />Local:
+      <script>
+        document.write(new Date().toLocaleString());
+      </script>
+    </footer>
+  </body>
+</html>

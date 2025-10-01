@@ -41,6 +41,7 @@ type Status struct {
 var serverStatus = Status{
 	Title: "Multiadmin",
 	Links: []Link{
+		{"Services", "Discover and navigate to cluster services", "/services"},
 		{"Config", "Server configuration details", "/config"},
 		{"Live", "URL for liveness check", "/live"},
 		{"Ready", "URL for readiness check", "/ready"},
@@ -49,6 +50,7 @@ var serverStatus = Status{
 
 func init() {
 	servenv.HTTPHandleFunc("/", handleIndex)
+	servenv.HTTPHandleFunc("/services", handleServices)
 	servenv.HTTPHandleFunc("/ready", handleReady)
 }
 
@@ -56,6 +58,28 @@ func init() {
 func handleIndex(w http.ResponseWriter, r *http.Request) {
 	err := web.Templates.ExecuteTemplate(w, "admin_index.html", serverStatus)
 	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to execute template: %v", err), http.StatusInternalServerError)
+		return
+	}
+}
+
+// handleServices discovers and displays all cluster services
+func handleServices(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	// Discover services from topology (may be slow, that's okay for this endpoint)
+	services, err := DiscoverServices(ctx, ts, baseDomain)
+	if err != nil {
+		// Show error but still try to render what we have
+		if services == nil {
+			services = &ServiceList{
+				Error: fmt.Sprintf("Failed to discover services: %v", err),
+			}
+		}
+	}
+
+	// Render services template
+	if err := web.Templates.ExecuteTemplate(w, "admin_services.html", services); err != nil {
 		http.Error(w, fmt.Sprintf("Failed to execute template: %v", err), http.StatusInternalServerError)
 		return
 	}

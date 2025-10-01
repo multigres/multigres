@@ -31,11 +31,15 @@ var (
 
 	// adminServer holds the gRPC admin server instance
 	adminServer *server.MultiAdminServer
+
+	// baseDomain is used for generating service URLs in the /services page
+	baseDomain string
 )
 
 // Register flags that are specific to multiadmin.
 func RegisterFlags(fs *pflag.FlagSet) {
-	// Nothing to register for now.
+	fs.StringVar(&baseDomain, "base-domain", "localhost:8080",
+		"Base domain for service URLs (e.g., 'example.com' for production or 'localhost:8080' for local dev)")
 }
 
 // Init initializes the multiadmin. If any services fail to start,

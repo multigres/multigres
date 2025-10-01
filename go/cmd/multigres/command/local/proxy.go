@@ -12,10 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package local implements the local proxy command for rendering
-// admin HTTP debug pages as consistent URLs. The proxy uses subdomain
-// to route to a particular service, like
+// Package local implements the local proxy command for routing HTTP
+// requests to backend services. The proxy uses subdomain routing to
+// route to a particular service, like
 // http://multigateway-cell1.localhost:<local proxy port>/
+// The root path redirects to multiadmin for service navigation.
+// The local proxy won't be necessary for production, where we can
+// use k8s Ingress instead.
 package local
 
 import (
@@ -25,13 +28,11 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 
 	"gopkg.in/yaml.v3"
 
 	"github.com/multigres/multigres/go/servenv"
-	"github.com/multigres/multigres/go/web"
 
 	"github.com/spf13/cobra"
 )
@@ -110,9 +111,33 @@ func proxy(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Register landing page for proxy's own host
+	// Register redirect for proxy's own host - redirect root to multiadmin
+	// Only redirect when accessing localhost directly, not subdomains
 	servenv.HTTPHandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		renderLandingPage(w, r, cfg)
+		// Extract hostname without port
+		hostname := r.Host
+		if colonIdx := strings.Index(hostname, ":"); colonIdx != -1 {
+			hostname = hostname[:colonIdx]
+		}
+
+		// Only redirect if accessing localhost or 127.0.0.1 directly
+		if hostname == "localhost" || hostname == "127.0.0.1" {
+			// Redirect to multiadmin via the proxy
+			multiadminPort := cfg.GlobalServices["multiadmin"]
+			if multiadminPort == 0 {
+				http.Error(w, "Multiadmin not configured", http.StatusServiceUnavailable)
+				return
+			}
+
+			// Redirect to multiadmin through the proxy (using proxy's port)
+			proxyPort := servenv.HTTPPort()
+			redirectURL := fmt.Sprintf("http://multiadmin.localhost:%d/", proxyPort)
+			http.Redirect(w, r, redirectURL, http.StatusTemporaryRedirect)
+			return
+		}
+
+		// For other hosts (subdomains), return 404 - they should be handled by subdomain handlers
+		http.NotFound(w, r)
 	})
 
 	// Use servenv to run the HTTP server
@@ -193,110 +218,6 @@ func loadProxyConfig(configPaths []string) (*proxyConfig, string, error) {
 	}
 
 	return cfg, configFile, nil
-}
-
-// ServiceLink represents a service with its URL for the landing page
-type ServiceLink struct {
-	Name      string
-	URL       string // Proxied URL (through subdomain)
-	DirectURL string // Direct URL (actual host:port)
-}
-
-// CellServiceGroup represents services grouped by cell
-type CellServiceGroup struct {
-	CellName string
-	Services []ServiceLink
-}
-
-// LandingPageData holds data for the landing page template
-type LandingPageData struct {
-	GlobalServices []ServiceLink
-	CellServices   []CellServiceGroup
-}
-
-// renderLandingPage renders an HTML page listing all available services
-func renderLandingPage(w http.ResponseWriter, r *http.Request, cfg *proxyConfig) {
-	// Determine the port to use in URLs
-	// If request came with explicit port, use it; otherwise omit (default port)
-	portSuffix := ""
-	if colonIdx := strings.Index(r.Host, ":"); colonIdx != -1 {
-		port := r.Host[colonIdx+1:]
-		// Only include port in URL if it's not the default port (80 for http, 443 for https)
-		scheme := "http"
-		if r.TLS != nil {
-			scheme = "https"
-		}
-		defaultPort := "80"
-		if scheme == "https" {
-			defaultPort = "443"
-		}
-		if port != defaultPort {
-			portSuffix = ":" + port
-		}
-	}
-
-	data := LandingPageData{
-		GlobalServices: []ServiceLink{},
-		CellServices:   []CellServiceGroup{},
-	}
-
-	// Build global services list
-	for serviceName, servicePort := range cfg.GlobalServices {
-		if servicePort > 0 {
-			serviceURL := fmt.Sprintf("http://%s.localhost%s/", serviceName, portSuffix)
-			directURL := fmt.Sprintf("http://localhost:%d/", servicePort)
-			data.GlobalServices = append(data.GlobalServices, ServiceLink{
-				Name:      serviceName,
-				URL:       serviceURL,
-				DirectURL: directURL,
-			})
-		}
-	}
-	// Sort global services alphabetically by name
-	sort.Slice(data.GlobalServices, func(i, j int) bool {
-		return data.GlobalServices[i].Name < data.GlobalServices[j].Name
-	})
-
-	// Build cell services list
-	for cellName, services := range cfg.CellServices {
-		cellGroup := CellServiceGroup{
-			CellName: cellName,
-			Services: []ServiceLink{},
-		}
-		for serviceName, servicePort := range services {
-			if servicePort > 0 {
-				// Normalize names to remove hyphens, use single hyphen as separator
-				normalizedService := normalizeForSubdomain(serviceName)
-				normalizedCell := normalizeForSubdomain(cellName)
-				serviceURL := fmt.Sprintf("http://%s-%s.localhost%s/", normalizedService, normalizedCell, portSuffix)
-				directURL := fmt.Sprintf("http://localhost:%d/", servicePort)
-				displayName := fmt.Sprintf("%s (%s)", serviceName, cellName)
-				cellGroup.Services = append(cellGroup.Services, ServiceLink{
-					Name:      displayName,
-					URL:       serviceURL,
-					DirectURL: directURL,
-				})
-			}
-		}
-		// Sort services within each cell alphabetically by name
-		sort.Slice(cellGroup.Services, func(i, j int) bool {
-			return cellGroup.Services[i].Name < cellGroup.Services[j].Name
-		})
-		if len(cellGroup.Services) > 0 {
-			data.CellServices = append(data.CellServices, cellGroup)
-		}
-	}
-	// Sort cell groups alphabetically by cell name
-	sort.Slice(data.CellServices, func(i, j int) bool {
-		return data.CellServices[i].CellName < data.CellServices[j].CellName
-	})
-
-	// Execute template using web.Templates
-	err := web.Templates.ExecuteTemplate(w, "proxy_landing.html", data)
-	if err != nil {
-		http.Error(w, fmt.Sprintf("Failed to execute template: %v", err), http.StatusInternalServerError)
-		return
-	}
 }
 
 var ProxyCommand = &cobra.Command{
