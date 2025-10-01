@@ -1,0 +1,6 @@
+{{range $Key, $Value := .}}
+<tr>
+    <th>Cell: {{$Key}}</th>
+    <td>{{template "status_text.tmpl" $Value}}</td>
+</tr>
+{{end}}
