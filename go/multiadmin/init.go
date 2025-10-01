@@ -16,12 +16,14 @@
 package multiadmin
 
 import (
+	"fmt"
 	"log/slog"
 
 	"github.com/spf13/pflag"
 
 	"github.com/multigres/multigres/go/admin/server"
 	"github.com/multigres/multigres/go/clustermetadata/topo"
+	"github.com/multigres/multigres/go/provisioner/local/ports"
 	"github.com/multigres/multigres/go/servenv"
 )
 
@@ -38,7 +40,8 @@ var (
 
 // Register flags that are specific to multiadmin.
 func RegisterFlags(fs *pflag.FlagSet) {
-	fs.StringVar(&baseDomain, "base-domain", "localhost:15800",
+	defaultBaseDomain := fmt.Sprintf("localhost:%d", ports.DefaultLocalproxyHTTP)
+	fs.StringVar(&baseDomain, "base-domain", defaultBaseDomain,
 		"Base domain for service URLs (e.g., 'example.com' for production or 'localhost:15800' for local dev)")
 }
 
