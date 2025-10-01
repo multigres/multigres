@@ -290,7 +290,6 @@ func (p *localProvisioner) provisionPgctld(ctx context.Context, dbName, tableGro
 	}
 
 	// Wait for pgctld to be ready
-	// Use 127.0.0.1 instead of localhost to avoid IPv6 resolution delays
 	servicePorts := map[string]int{"grpc_port": grpcPort}
 	if err := p.waitForServiceReady("pgctld", "127.0.0.1", servicePorts, 60*time.Second); err != nil {
 		logs := p.readServiceLogs(pgctldLogFile, 20)
