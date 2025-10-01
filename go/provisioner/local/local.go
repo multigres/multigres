@@ -563,6 +563,7 @@ func (p *localProvisioner) provisionMultiadmin(ctx context.Context, req *provisi
 	etcdAddress := req.Params["etcd_address"].(string)
 	topoBackend := req.Params["topo_backend"].(string)
 	topoGlobalRoot := req.Params["topo_global_root"].(string)
+	localproxyPort := req.Params["localproxy_port"].(int)
 
 	// Get log level
 	logLevel := "info"
@@ -585,6 +586,9 @@ func (p *localProvisioner) provisionMultiadmin(ctx context.Context, req *provisi
 		return nil, fmt.Errorf("failed to create log file: %w", err)
 	}
 
+	// Build base domain for proxied service URLs
+	baseDomain := fmt.Sprintf("localhost:%d", localproxyPort)
+
 	// Build command arguments
 	args := []string{
 		"--http-port", fmt.Sprintf("%d", httpPort),
@@ -596,6 +600,7 @@ func (p *localProvisioner) provisionMultiadmin(ctx context.Context, req *provisi
 		"--log-output", logFile,
 		"--service-map", "grpc-multiadmin",
 		"--hostname", "localhost",
+		"--base-domain", baseDomain,
 	}
 
 	// Start multiadmin process
@@ -1220,6 +1225,13 @@ func (p *localProvisioner) Bootstrap(ctx context.Context) ([]*provisioner.Provis
 	}
 	fmt.Println("")
 
+	// Get localproxy port from config to pass to multiadmin for base-domain
+	localproxyConfig := p.getServiceConfig("localproxy")
+	localproxyPort := ports.DefaultLocalproxyHTTP
+	if port, ok := localproxyConfig["http_port"].(int); ok && port > 0 {
+		localproxyPort = port
+	}
+
 	// Provision multiadmin (global admin service)
 	fmt.Println("=== Starting MultiAdmin ===")
 	multiadminReq := &provisioner.ProvisionRequest{
@@ -1228,6 +1240,7 @@ func (p *localProvisioner) Bootstrap(ctx context.Context) ([]*provisioner.Provis
 			"etcd_address":     etcdAddress,
 			"topo_backend":     topoConfig.Backend,
 			"topo_global_root": topoConfig.GlobalRootPath,
+			"localproxy_port":  localproxyPort,
 		},
 	}
 
