@@ -28,7 +28,7 @@ import (
 type ServiceInfo struct {
 	Name      string // Service name (e.g., "multigateway")
 	Cell      string // Cell name (e.g., "zone1"), empty for global services
-	URL       string // Proxied/ingress URL (e.g., "http://multigateway-zone1.localhost:8080/")
+	URL       string // Proxied/ingress URL (e.g., "http://multigateway-zone1.localhost:15800/")
 	DirectURL string // Direct URL if available (e.g., "http://localhost:15001/")
 }
 

@@ -81,7 +81,7 @@ func (p *localProvisioner) provisionLocalproxy(ctx context.Context, req *provisi
 		return nil, fmt.Errorf("failed to create log file: %w", err)
 	}
 
-	// Build command arguments: multigres local proxy --http-port 8080 --log-level info --log-output <file>
+	// Build command arguments: multigres local proxy --http-port 15800 --log-level info --log-output <file>
 	args := []string{
 		"local", "proxy",
 		"--http-port", fmt.Sprintf("%d", httpPort),

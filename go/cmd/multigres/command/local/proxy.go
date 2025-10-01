@@ -240,8 +240,8 @@ var ProxyCommand = &cobra.Command{
 	Long: `Start a local HTTP proxy that routes subdomain-based requests to backend services.
 
 Examples:
-  http://multiadmin.localhost:8080/     -> routes to multiadmin HTTP port
-  http://multigateway-zone1.localhost:8080/ -> routes to multigateway in zone1`,
+  http://multiadmin.localhost:15800/     -> routes to multiadmin HTTP port
+  http://multigateway-zone1.localhost:15800/ -> routes to multigateway in zone1`,
 	PreRunE: servenv.CobraPreRunE,
 	RunE:    proxy,
 }

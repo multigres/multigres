@@ -38,8 +38,8 @@ var (
 
 // Register flags that are specific to multiadmin.
 func RegisterFlags(fs *pflag.FlagSet) {
-	fs.StringVar(&baseDomain, "base-domain", "localhost:8080",
-		"Base domain for service URLs (e.g., 'example.com' for production or 'localhost:8080' for local dev)")
+	fs.StringVar(&baseDomain, "base-domain", "localhost:15800",
+		"Base domain for service URLs (e.g., 'example.com' for production or 'localhost:15800' for local dev)")
 }
 
 // Init initializes the multiadmin. If any services fail to start,
