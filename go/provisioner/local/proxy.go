@@ -54,7 +54,7 @@ func (p *localProvisioner) provisionLocalproxy(ctx context.Context, req *provisi
 	localproxyConfig := p.getServiceConfig("localproxy")
 
 	// Get HTTP port from config
-	httpPort := 8080
+	httpPort := 15800
 	if p, ok := localproxyConfig["http_port"].(int); ok {
 		httpPort = p
 	}
