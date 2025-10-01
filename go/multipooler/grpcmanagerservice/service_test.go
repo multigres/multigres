@@ -74,13 +74,13 @@ func TestManagerServiceMethods_NotImplemented(t *testing.T) {
 			expectedMethod: "SetReadOnly",
 		},
 		{
-			name: "PromoteStandby",
+			name: "PgPromote",
 			method: func() error {
-				req := &multipoolermanagerdata.PromoteStandbyRequest{
+				req := &multipoolermanagerdata.PgPromoteRequest{
 					Wait:        true,
 					WaitTimeout: &durationpb.Duration{Seconds: 60},
 				}
-				_, err := svc.PromoteStandby(ctx, req)
+				_, err := svc.PgPromote(ctx, req)
 				return err
 			},
 			expectedMethod: "PromoteStandby",
@@ -95,49 +95,49 @@ func TestManagerServiceMethods_NotImplemented(t *testing.T) {
 			expectedMethod: "IsReadOnly",
 		},
 		{
-			name: "SetStandbyPrimaryConnInfo",
+			name: "SetPrimaryConnInfo",
 			method: func() error {
-				req := &multipoolermanagerdata.SetStandbyPrimaryConnInfoRequest{
+				req := &multipoolermanagerdata.SetPrimaryConnInfoRequest{
 					Host: "primary.example.com",
 					Port: 5432,
 				}
-				_, err := svc.SetStandbyPrimaryConnInfo(ctx, req)
+				_, err := svc.SetPrimaryConnInfo(ctx, req)
 				return err
 			},
 			expectedMethod: "SetStandbyPrimaryConnInfo",
 		},
 		{
-			name: "StartStandbyReplication",
+			name: "StartReplication",
 			method: func() error {
 				req := &multipoolermanagerdata.StartReplicationRequest{}
-				_, err := svc.StartStandbyReplication(ctx, req)
+				_, err := svc.StartReplication(ctx, req)
 				return err
 			},
 			expectedMethod: "StartStandbyReplication",
 		},
 		{
-			name: "StopStandbyReplication",
+			name: "StopReplication",
 			method: func() error {
-				req := &multipoolermanagerdata.StopStandbyReplicationRequest{}
-				_, err := svc.StopStandbyReplication(ctx, req)
+				req := &multipoolermanagerdata.StopReplicationRequest{}
+				_, err := svc.StopReplication(ctx, req)
 				return err
 			},
 			expectedMethod: "StopStandbyReplication",
 		},
 		{
-			name: "StandbyReplicationStatus",
+			name: "ReplicationStatus",
 			method: func() error {
-				req := &multipoolermanagerdata.StandbyReplicationStatusRequest{}
-				_, err := svc.StandbyReplicationStatus(ctx, req)
+				req := &multipoolermanagerdata.ReplicationStatusRequest{}
+				_, err := svc.ReplicationStatus(ctx, req)
 				return err
 			},
 			expectedMethod: "StandbyReplicationStatus",
 		},
 		{
-			name: "ResetStandbyReplication",
+			name: "ResetReplication",
 			method: func() error {
-				req := &multipoolermanagerdata.ResetStandbyReplicationRequest{}
-				_, err := svc.ResetStandbyReplication(ctx, req)
+				req := &multipoolermanagerdata.ResetReplicationRequest{}
+				_, err := svc.ResetReplication(ctx, req)
 				return err
 			},
 			expectedMethod: "ResetStandbyReplication",
@@ -195,28 +195,28 @@ func TestManagerServiceMethods_NotImplemented(t *testing.T) {
 			expectedMethod: "GetFollowers",
 		},
 		{
-			name: "DemoteLeader",
+			name: "Demote",
 			method: func() error {
-				req := &multipoolermanagerdata.DemoteLeaderRequest{}
-				_, err := svc.DemoteLeader(ctx, req)
+				req := &multipoolermanagerdata.DemoteRequest{}
+				_, err := svc.Demote(ctx, req)
 				return err
 			},
 			expectedMethod: "DemoteLeader",
 		},
 		{
-			name: "UndoDemoteLeader",
+			name: "UndoDemote",
 			method: func() error {
-				req := &multipoolermanagerdata.UndoDemoteLeaderRequest{}
-				_, err := svc.UndoDemoteLeader(ctx, req)
+				req := &multipoolermanagerdata.UndoDemoteRequest{}
+				_, err := svc.UndoDemote(ctx, req)
 				return err
 			},
 			expectedMethod: "UndoDemoteLeader",
 		},
 		{
-			name: "PromoteFollower",
+			name: "Promote",
 			method: func() error {
-				req := &multipoolermanagerdata.PromoteFollowerRequest{}
-				_, err := svc.PromoteFollower(ctx, req)
+				req := &multipoolermanagerdata.PromoteRequest{}
+				_, err := svc.Promote(ctx, req)
 				return err
 			},
 			expectedMethod: "PromoteFollower",

@@ -32,37 +32,37 @@ service MultiPoolerManager {
   // SetReadOnly makes the PostgreSQL instance read-only
   rpc SetReadOnly(multipoolermanagerdata.SetReadOnlyRequest) returns (multipoolermanagerdata.SetReadOnlyResponse);
 
-  // PromoteStandby PostgreSQL standby server to primary
+  // PgPromote PostgreSQL standby server to primary
   // this will call pg_promote() in the underlying instance.
-  rpc PromoteStandby(multipoolermanagerdata.PromoteStandbyRequest)
-    returns (multipoolermanagerdata.PromoteStandbyResponse);
+  rpc PgPromote(multipoolermanagerdata.PgPromoteRequest)
+    returns (multipoolermanagerdata.PgPromoteResponse);
 
   // IsReadOnly checks if PostgreSQL instance is in read-only mode
   rpc IsReadOnly(multipoolermanagerdata.IsReadOnlyRequest)
     returns (multipoolermanagerdata.IsReadOnlyResponse);
 
-  // SetStandbyPrimaryConnInfo sets the primary connection info for a standby server
-  rpc SetStandbyPrimaryConnInfo(multipoolermanagerdata.SetStandbyPrimaryConnInfoRequest)
-    returns (multipoolermanagerdata.SetStandbyPrimaryConnInfoResponse);
+  // SetPrimaryConnInfo sets the primary connection info for a standby server
+  rpc SetPrimaryConnInfo(multipoolermanagerdata.SetPrimaryConnInfoRequest)
+    returns (multipoolermanagerdata.SetPrimaryConnInfoResponse);
 
-  // StartStandbyReplication starts WAL replay on standby (calls pg_wal_replay_resume)
-  rpc StartStandbyReplication(multipoolermanagerdata.StartReplicationRequest)
+  // StartReplication starts WAL replay on standby (calls pg_wal_replay_resume)
+  rpc StartReplication(multipoolermanagerdata.StartReplicationRequest)
     returns (multipoolermanagerdata.StartReplicationResponse);
 
-  // StopStandbyReplication stops WAL replay on standby (calls pg_wal_replay_pause)
-  rpc StopStandbyReplication(multipoolermanagerdata.StopStandbyReplicationRequest)
-    returns (multipoolermanagerdata.StopStandbyReplicationResponse);
+  // StopReplication stops WAL replay on standby (calls pg_wal_replay_pause)
+  rpc StopReplication(multipoolermanagerdata.StopReplicationRequest)
+    returns (multipoolermanagerdata.StopReplicationResponse);
 
-  // StandbyReplicationStatus gets the current replication status of the standby
-  rpc StandbyReplicationStatus(multipoolermanagerdata.StandbyReplicationStatusRequest)
-    returns (multipoolermanagerdata.StandbyReplicationStatusResponse);
+  // ReplicationStatus gets the current replication status of the standby
+  rpc ReplicationStatus(multipoolermanagerdata.ReplicationStatusRequest)
+    returns (multipoolermanagerdata.ReplicationStatusResponse);
 
-  // ResetStandbyReplication resets the standby's connection to its primary by clearing primary_conninfo,
+  // ResetReplication resets the standby's connection to its primary by clearing primary_conninfo,
   // reloading PostgreSQL configuration, and terminating the WAL receiver process. This effectively
   // disconnects the replica from the primary and prevents it from acknowledging commits, making it
   // unavailable for synchronous replication until reconfigured.
-  rpc ResetStandbyReplication(multipoolermanagerdata.ResetStandbyReplicationRequest)
-    returns (multipoolermanagerdata.ResetStandbyReplicationResponse);
+  rpc ResetReplication(multipoolermanagerdata.ResetReplicationRequest)
+    returns (multipoolermanagerdata.ResetReplicationResponse);
 
   // ConfigureSynchronousReplication configures PostgreSQL synchronous replication settings
   // including synchronous_commit, synchronous_standby_names, and synchronization method (ANY/FIRST/quorum)
@@ -94,16 +94,16 @@ service MultiPoolerManager {
   rpc GetFollowers(multipoolermanagerdata.GetFollowersRequest)
     returns (multipoolermanagerdata.GetFollowersResponse);
 
-  // DemoteLeader demotes the current leader server
-  rpc DemoteLeader(multipoolermanagerdata.DemoteLeaderRequest)
-    returns (multipoolermanagerdata.DemoteLeaderResponse);
+  // Demote demotes the current leader server
+  rpc Demote(multipoolermanagerdata.DemoteRequest)
+    returns (multipoolermanagerdata.DemoteResponse);
 
-  // UndoDemoteLeader undoes a leader demotion
-  rpc UndoDemoteLeader(multipoolermanagerdata.UndoDemoteLeaderRequest)
-    returns (multipoolermanagerdata.UndoDemoteLeaderResponse);
+  // UndoDemote undoes a demotion
+  rpc UndoDemote(multipoolermanagerdata.UndoDemoteRequest)
+    returns (multipoolermanagerdata.UndoDemoteResponse);
 
-  // PromoteFollower promotes a follower to leader
-  rpc PromoteFollower(multipoolermanagerdata.PromoteFollowerRequest)
-    returns (multipoolermanagerdata.PromoteFollowerResponse);
+  // Promote promotes a replica to leader (Multigres-level operation)
+  rpc Promote(multipoolermanagerdata.PromoteRequest)
+    returns (multipoolermanagerdata.PromoteResponse);
 }
 

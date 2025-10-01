@@ -65,8 +65,8 @@ message SetReadOnlyRequest {
 message SetReadOnlyResponse {
 }
 
-// PromoteStandby PostgreSQL standby server to primary
-message PromoteStandbyRequest {
+// PgPromote PostgreSQL standby server to primary
+message PgPromoteRequest {
   // Whether to wait for promotion to complete (default: true)
   bool wait = 1;
 
@@ -74,7 +74,7 @@ message PromoteStandbyRequest {
   google.protobuf.Duration wait_timeout = 2;
 }
 
-message PromoteStandbyResponse {
+message PgPromoteResponse {
 }
 
 // IsReadOnly checks if PostgreSQL instance is in read-only mode
@@ -86,8 +86,8 @@ message IsReadOnlyResponse {
   bool read_only = 1;
 }
 
-// SetStandbyPrimaryConnInfo sets the primary connection info for a standby server
-message SetStandbyPrimaryConnInfoRequest {
+// SetPrimaryConnInfo sets the primary connection info for a standby server
+message SetPrimaryConnInfoRequest {
   // Primary server hostname
   string host = 1;
 
@@ -104,23 +104,23 @@ message SetStandbyPrimaryConnInfoRequest {
   bool start_replication_after = 5;
 }
 
-message SetStandbyPrimaryConnInfoResponse {
+message SetPrimaryConnInfoResponse {
 }
 
-// StopStandbyReplication stops WAL replay on standby
-message StopStandbyReplicationRequest {
+// StopReplication stops WAL replay on standby
+message StopReplicationRequest {
 }
 
-message StopStandbyReplicationResponse {
+message StopReplicationResponse {
   // Replication status when replication was stopped
   ReplicationStatus status = 1;
 }
 
-// StandbyReplicationStatus gets the current replication status
-message StandbyReplicationStatusRequest {
+// ReplicationStatus gets the current replication status
+message ReplicationStatusRequest {
 }
 
-message StandbyReplicationStatusResponse {
+message ReplicationStatusResponse {
   // Current replication status
   ReplicationStatus status = 1;
 }
@@ -164,20 +164,20 @@ message GetFollowersResponse {
   repeated string follower_addresses = 1;
 }
 
-// DemoteLeader demotes the current leader server
-message DemoteLeaderRequest {
+// Demote demotes the current leader server
+message DemoteRequest {
 }
 
-message DemoteLeaderResponse {
+message DemoteResponse {
   // Leader status after demotion
   PrimaryStatus leader_status = 1;
 }
 
-// UndoDemoteLeader undoes a leader demotion
-message UndoDemoteLeaderRequest {
+// UndoDemote undoes a demotion
+message UndoDemoteRequest {
 }
 
-message UndoDemoteLeaderResponse {
+message UndoDemoteResponse {
 }
 
 // StopReplicationAndGetStatus stops PostgreSQL replication and returns the status
@@ -198,20 +198,20 @@ message ChangeTypeRequest {
 message ChangeTypeResponse {
 }
 
-// PromoteFollower promotes a follower to leader
-message PromoteFollowerRequest {
+// Promote promotes a replica to leader (Multigres-level operation)
+message PromoteRequest {
 }
 
-message PromoteFollowerResponse {
+message PromoteResponse {
   // LSN position after promotion
   string lsn_position = 1;
 }
 
-// ResetStandbyReplication resets the standby's connection to its primary
-message ResetStandbyReplicationRequest {
+// ResetReplication resets the standby's connection to its primary
+message ResetReplicationRequest {
 }
 
-message ResetStandbyReplicationResponse {
+message ResetReplicationResponse {
   // Replication status when replication was reset
   ReplicationStatus status = 1;
 }
