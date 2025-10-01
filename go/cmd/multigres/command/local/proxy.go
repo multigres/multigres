@@ -12,6 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+// Package local implements the local proxy command for rendering
+// admin HTTP debug pages as consistent URLs. The proxy uses subdomain
+// to route to a particular service, like
+// http://multigateway.cell1.localhost:<local proxy port>/
 package local
 
 import (
@@ -75,7 +79,7 @@ func proxy(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Register for global services
+	// Register proxy handlers for global services
 	for serviceName, port := range cfg.GlobalServices {
 		if port > 0 {
 			targetURL, _ := url.Parse(fmt.Sprintf("http://localhost:%d", port))
@@ -84,7 +88,7 @@ func proxy(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Register for cell services
+	// Register proxy handlers for cell services
 	for cellName, services := range cfg.CellServices {
 		for serviceName, port := range services {
 			if port > 0 {
