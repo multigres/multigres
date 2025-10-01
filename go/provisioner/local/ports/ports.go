@@ -17,21 +17,21 @@ package ports
 
 const (
 	// Global Services
-	MultiadminHTTP = 15000
-	MultiadminGRPC = 15990
-	LocalproxyHTTP = 15800
+	DefaultMultiadminHTTP = 15000
+	DefaultMultiadminGRPC = 15990
+	DefaultLocalproxyHTTP = 15800
 
 	// Cell Services - HTTP
-	MultigatewayHTTP = 15001
-	MultipoolerHTTP  = 15001
-	MultiorchHTTP    = 15301
+	DefaultMultigatewayHTTP = 15001
+	DefaultMultipoolerHTTP  = 15001
+	DefaultMultiorchHTTP    = 15301
 
 	// Cell Services - gRPC
-	MultigatewayGRPC = 15991
-	MultipoolerGRPC  = 16001
-	MultiorchGRPC    = 16000
-	PgctldGRPC       = 17000
+	DefaultMultigatewayGRPC = 15991
+	DefaultMultipoolerGRPC  = 16001
+	DefaultMultiorchGRPC    = 16000
+	DefaultPgctldGRPC       = 17000
 
 	// PostgreSQL
-	PostgresPort = 5432
+	DefaultPostgresPort = 5432
 )

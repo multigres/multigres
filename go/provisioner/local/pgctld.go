@@ -182,13 +182,13 @@ func (p *localProvisioner) provisionPgctld(ctx context.Context, dbName, tableGro
 	}
 
 	// Get gRPC port from config or use default
-	grpcPort := ports.PgctldGRPC
+	grpcPort := ports.DefaultPgctldGRPC
 	if port, ok := pgctldConfig["grpc_port"].(int); ok && port > 0 {
 		grpcPort = port
 	}
 
 	// Get PostgreSQL port from config or use default
-	pgPort := ports.PostgresPort
+	pgPort := ports.DefaultPostgresPort
 	if port, ok := pgctldConfig["pg_port"].(int); ok && port > 0 {
 		pgPort = port
 	}

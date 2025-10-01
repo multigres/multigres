@@ -201,7 +201,7 @@ func loadProxyConfig(configPaths []string) (*proxyConfig, string, error) {
 	// Add global services with defaults
 	multiadminPort := rawConfig.ProvisionerConfig.Multiadmin.HttpPort
 	if multiadminPort == 0 {
-		multiadminPort = ports.MultiadminHTTP
+		multiadminPort = ports.DefaultMultiadminHTTP
 	}
 	cfg.GlobalServices["multiadmin"] = multiadminPort
 
@@ -212,21 +212,21 @@ func loadProxyConfig(configPaths []string) (*proxyConfig, string, error) {
 		// Multigateway with default
 		multigatewayPort := cellConfig.Multigateway.HttpPort
 		if multigatewayPort == 0 {
-			multigatewayPort = ports.MultigatewayHTTP
+			multigatewayPort = ports.DefaultMultigatewayHTTP
 		}
 		cfg.CellServices[cellName]["multigateway"] = multigatewayPort
 
 		// Multipooler with default
 		multipoolerPort := cellConfig.Multipooler.HttpPort
 		if multipoolerPort == 0 {
-			multipoolerPort = ports.MultipoolerHTTP
+			multipoolerPort = ports.DefaultMultipoolerHTTP
 		}
 		cfg.CellServices[cellName]["multipooler"] = multipoolerPort
 
 		// Multiorch with default
 		multiorchPort := cellConfig.Multiorch.HttpPort
 		if multiorchPort == 0 {
-			multiorchPort = ports.MultiorchHTTP
+			multiorchPort = ports.DefaultMultiorchHTTP
 		}
 		cfg.CellServices[cellName]["multiorch"] = multiorchPort
 	}
