@@ -1243,26 +1243,22 @@ func (p *localProvisioner) Bootstrap(ctx context.Context) ([]*provisioner.Provis
 	allResults = append(allResults, multiadminResult)
 	fmt.Println("")
 
-	// Provision localproxy (optional - only if configured with port > 0)
-	if p.config.Localproxy.HttpPort > 0 {
-		fmt.Println("=== Starting LocalProxy ===")
-		localproxyReq := &provisioner.ProvisionRequest{
-			Service: "localproxy",
-		}
-
-		localproxyResult, err := p.provisionLocalproxy(ctx, localproxyReq)
-		if err != nil {
-			// Localproxy is optional, so just warn if it fails
-			fmt.Printf("Warning: failed to provision localproxy: %v\n", err)
-		} else {
-			if httpPort, ok := localproxyResult.Ports["http_port"]; ok {
-				fmt.Printf("🌐 - Available at: http://localhost:%d\n", httpPort)
-				fmt.Printf("    Route requests like: http://multiadmin.localhost:%d/...\n", httpPort)
-			}
-			allResults = append(allResults, localproxyResult)
-		}
-		fmt.Println("")
+	// Provision localproxy
+	fmt.Println("=== Starting LocalProxy ===")
+	localproxyReq := &provisioner.ProvisionRequest{
+		Service: "localproxy",
 	}
+
+	localproxyResult, err := p.provisionLocalproxy(ctx, localproxyReq)
+	if err != nil {
+		return nil, fmt.Errorf("failed to provision localproxy: %w", err)
+	}
+	if httpPort, ok := localproxyResult.Ports["http_port"]; ok {
+		fmt.Printf("🌐 - Available at: http://localhost:%d\n", httpPort)
+		fmt.Printf("    Route requests like: http://multiadmin.localhost:%d/...\n", httpPort)
+	}
+	allResults = append(allResults, localproxyResult)
+	fmt.Println("")
 
 	// Setup default database
 	defaultDBName, err := p.getDefaultDatabaseName()

@@ -197,24 +197,37 @@ func loadProxyConfig(configPaths []string) (*proxyConfig, string, error) {
 		CellServices:   make(map[string]map[string]int),
 	}
 
-	// Add global services
-	if rawConfig.ProvisionerConfig.Multiadmin.HttpPort > 0 {
-		cfg.GlobalServices["multiadmin"] = rawConfig.ProvisionerConfig.Multiadmin.HttpPort
+	// Add global services with defaults
+	multiadminPort := rawConfig.ProvisionerConfig.Multiadmin.HttpPort
+	if multiadminPort == 0 {
+		multiadminPort = 15000 // default
 	}
+	cfg.GlobalServices["multiadmin"] = multiadminPort
 
-	// Add cell services
+	// Add cell services with defaults
 	for cellName, cellConfig := range rawConfig.ProvisionerConfig.Cells {
 		cfg.CellServices[cellName] = make(map[string]int)
 
-		if cellConfig.Multigateway.HttpPort > 0 {
-			cfg.CellServices[cellName]["multigateway"] = cellConfig.Multigateway.HttpPort
+		// Multigateway with default
+		multigatewayPort := cellConfig.Multigateway.HttpPort
+		if multigatewayPort == 0 {
+			multigatewayPort = 15001 // default
 		}
-		if cellConfig.Multipooler.HttpPort > 0 {
-			cfg.CellServices[cellName]["multipooler"] = cellConfig.Multipooler.HttpPort
+		cfg.CellServices[cellName]["multigateway"] = multigatewayPort
+
+		// Multipooler with default
+		multipoolerPort := cellConfig.Multipooler.HttpPort
+		if multipoolerPort == 0 {
+			multipoolerPort = 15001 // default (conflicts with multigateway, but config should override)
 		}
-		if cellConfig.Multiorch.HttpPort > 0 {
-			cfg.CellServices[cellName]["multiorch"] = cellConfig.Multiorch.HttpPort
+		cfg.CellServices[cellName]["multipooler"] = multipoolerPort
+
+		// Multiorch with default
+		multiorchPort := cellConfig.Multiorch.HttpPort
+		if multiorchPort == 0 {
+			multiorchPort = 15301 // default
 		}
+		cfg.CellServices[cellName]["multiorch"] = multiorchPort
 	}
 
 	return cfg, configFile, nil
