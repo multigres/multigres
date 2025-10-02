@@ -18,7 +18,6 @@ import (
 	"context"
 	"fmt"
 	"sort"
-	"strings"
 
 	"github.com/multigres/multigres/go/clustermetadata/topo"
 	"github.com/multigres/multigres/go/servenv"
@@ -28,7 +27,7 @@ import (
 type ServiceInfo struct {
 	Name      string // Service name (e.g., "multigateway")
 	Cell      string // Cell name (e.g., "zone1"), empty for global services
-	URL       string // Proxied/ingress URL (e.g., "http://multigateway-zone1.localhost:15800/")
+	URL       string // Proxied URL (e.g., "/proxy/gate/zone1/multigateway")
 	DirectURL string // Direct URL if available (e.g., "http://localhost:15001/")
 }
 
@@ -43,8 +42,7 @@ type ServiceList struct {
 // in the cluster. It returns a ServiceList with services organized by scope.
 // This function may be slow (topo queries), so it should be called from a
 // dedicated endpoint, not the fast-path root handler.
-// The baseDomain parameter is now ignored as we use path-based proxy URLs.
-func DiscoverServices(ctx context.Context, ts topo.Store, baseDomain string) (*ServiceList, error) {
+func DiscoverServices(ctx context.Context, ts topo.Store) (*ServiceList, error) {
 	result := &ServiceList{
 		GlobalServices: []ServiceInfo{},
 		CellServices:   make(map[string][]ServiceInfo),
@@ -145,11 +143,4 @@ func DiscoverServices(ctx context.Context, ts topo.Store, baseDomain string) (*S
 	})
 
 	return result, nil
-}
-
-// normalizeForSubdomain removes hyphens from a name to avoid conflicts with the separator.
-// This allows using a single hyphen as the service-cell separator in subdomains while
-// supporting hyphens in service and cell names.
-func normalizeForSubdomain(name string) string {
-	return strings.ReplaceAll(name, "-", "")
 }

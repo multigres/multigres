@@ -69,8 +69,7 @@ func handleServices(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
 	// Discover services from topology (may be slow, that's okay for this endpoint)
-	// baseDomain is no longer used - we use path-based proxy URLs
-	services, err := DiscoverServices(ctx, ts, "")
+	services, err := DiscoverServices(ctx, ts)
 	if err != nil {
 		// Show error but still try to render what we have
 		if services == nil {
