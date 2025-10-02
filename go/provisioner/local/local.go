@@ -58,19 +58,6 @@ const (
 	StateDir = "state"
 )
 
-// globalOnlyServiceNames lists all global (non-database) services
-var globalOnlyServiceNames = []string{"multiadmin"}
-
-// isGlobalOnlyService checks if a service name is a global service
-func isGlobalOnlyService(serviceName string) bool {
-	for _, name := range globalOnlyServiceNames {
-		if name == serviceName {
-			return true
-		}
-	}
-	return false
-}
-
 // Name returns the name of this provisioner
 func (p *localProvisioner) Name() string {
 	return "local"
@@ -1274,22 +1261,22 @@ func (p *localProvisioner) Teardown(ctx context.Context, clean bool) error {
 		fmt.Printf("Warning: failed to deprovision database: %v\n", err)
 	}
 
-	// 2. Deprovision global services (multiadmin, etc.)
+	// 2. Deprovision global services (multiadmin)
 	fmt.Println("=== Deprovisioning global services ===")
 	globalServices, err := p.loadGlobalServices()
 	if err != nil {
 		fmt.Printf("Warning: failed to load global service states: %v\n", err)
 	} else {
 		for _, service := range globalServices {
-			if isGlobalOnlyService(service.Service) {
+			if service.Service == "multiadmin" {
 				req := &provisioner.DeprovisionRequest{
-					Service:      service.Service,
+					Service:      "multiadmin",
 					ServiceID:    service.ID,
-					DatabaseName: "", // global services have no database name
+					DatabaseName: "", // multiadmin is a global service
 					Clean:        clean,
 				}
 				if err := p.deprovisionService(ctx, req); err != nil {
-					fmt.Printf("Warning: failed to deprovision %s: %v\n", service.Service, err)
+					fmt.Printf("Warning: failed to deprovision multiadmin: %v\n", err)
 				}
 			}
 		}

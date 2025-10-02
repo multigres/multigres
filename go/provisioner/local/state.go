@@ -281,8 +281,8 @@ func (p *localProvisioner) loadGlobalServices() ([]*LocalProvisionedService, err
 			serviceName := parts[0]
 			serviceID := parts[1]
 
-			// Load global services (including etcd)
-			if isGlobalOnlyService(serviceName) || serviceName == "etcd" {
+			// Load global services (non-etcd services can be included here)
+			if serviceName == "multiadmin" || serviceName == "etcd" {
 				req := &provisioner.DeprovisionRequest{
 					Service:      serviceName,
 					ServiceID:    serviceID,
