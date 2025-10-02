@@ -65,18 +65,6 @@ message SetReadOnlyRequest {
 message SetReadOnlyResponse {
 }
 
-// PgPromote PostgreSQL standby server to primary
-message PgPromoteRequest {
-  // Whether to wait for promotion to complete (default: true)
-  bool wait = 1;
-
-  // Maximum time to wait for promotion (default: 60s)
-  google.protobuf.Duration wait_timeout = 2;
-}
-
-message PgPromoteResponse {
-}
-
 // IsReadOnly checks if PostgreSQL instance is in read-only mode
 message IsReadOnlyRequest {
 }

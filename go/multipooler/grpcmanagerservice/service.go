@@ -64,15 +64,6 @@ func (s *managerService) SetReadOnly(ctx context.Context, req *multipoolermanage
 	return &multipoolermanagerdata.SetReadOnlyResponse{}, nil
 }
 
-// PgPromote PostgreSQL standby server to primary
-func (s *managerService) PgPromote(ctx context.Context, req *multipoolermanagerdata.PgPromoteRequest) (*multipoolermanagerdata.PgPromoteResponse, error) {
-	err := s.manager.PromoteStandby(ctx)
-	if err != nil {
-		return nil, status.Errorf(codes.Unimplemented, "%v", err)
-	}
-	return &multipoolermanagerdata.PgPromoteResponse{}, nil
-}
-
 // IsReadOnly checks if PostgreSQL instance is in read-only mode
 func (s *managerService) IsReadOnly(ctx context.Context, req *multipoolermanagerdata.IsReadOnlyRequest) (*multipoolermanagerdata.IsReadOnlyResponse, error) {
 	readOnly, err := s.manager.IsReadOnly(ctx)
@@ -86,7 +77,7 @@ func (s *managerService) IsReadOnly(ctx context.Context, req *multipoolermanager
 
 // SetPrimaryConnInfo sets the primary connection info for a standby server
 func (s *managerService) SetPrimaryConnInfo(ctx context.Context, req *multipoolermanagerdata.SetPrimaryConnInfoRequest) (*multipoolermanagerdata.SetPrimaryConnInfoResponse, error) {
-	err := s.manager.SetStandbyPrimaryConnInfo(ctx, req.Host, req.Port)
+	err := s.manager.SetPrimaryConnInfo(ctx, req.Host, req.Port)
 	if err != nil {
 		return nil, status.Errorf(codes.Unimplemented, "%v", err)
 	}
@@ -95,7 +86,7 @@ func (s *managerService) SetPrimaryConnInfo(ctx context.Context, req *multipoole
 
 // StartReplication starts WAL replay on standby (calls pg_wal_replay_resume)
 func (s *managerService) StartReplication(ctx context.Context, req *multipoolermanagerdata.StartReplicationRequest) (*multipoolermanagerdata.StartReplicationResponse, error) {
-	err := s.manager.StartStandbyReplication(ctx)
+	err := s.manager.StartReplication(ctx)
 	if err != nil {
 		return nil, status.Errorf(codes.Unimplemented, "%v", err)
 	}
@@ -104,7 +95,7 @@ func (s *managerService) StartReplication(ctx context.Context, req *multipoolerm
 
 // StopReplication stops WAL replay on standby (calls pg_wal_replay_pause)
 func (s *managerService) StopReplication(ctx context.Context, req *multipoolermanagerdata.StopReplicationRequest) (*multipoolermanagerdata.StopReplicationResponse, error) {
-	err := s.manager.StopStandbyReplication(ctx)
+	err := s.manager.StopReplication(ctx)
 	if err != nil {
 		return nil, status.Errorf(codes.Unimplemented, "%v", err)
 	}
@@ -113,7 +104,7 @@ func (s *managerService) StopReplication(ctx context.Context, req *multipoolerma
 
 // ReplicationStatus gets the current replication status of the standby
 func (s *managerService) ReplicationStatus(ctx context.Context, req *multipoolermanagerdata.ReplicationStatusRequest) (*multipoolermanagerdata.ReplicationStatusResponse, error) {
-	_, err := s.manager.StandbyReplicationStatus(ctx)
+	_, err := s.manager.ReplicationStatus(ctx)
 	if err != nil {
 		return nil, status.Errorf(codes.Unimplemented, "%v", err)
 	}
@@ -123,7 +114,7 @@ func (s *managerService) ReplicationStatus(ctx context.Context, req *multipooler
 
 // ResetReplication resets the standby's connection to its primary
 func (s *managerService) ResetReplication(ctx context.Context, req *multipoolermanagerdata.ResetReplicationRequest) (*multipoolermanagerdata.ResetReplicationResponse, error) {
-	err := s.manager.ResetStandbyReplication(ctx)
+	err := s.manager.ResetReplication(ctx)
 	if err != nil {
 		return nil, status.Errorf(codes.Unimplemented, "%v", err)
 	}
@@ -191,7 +182,7 @@ func (s *managerService) GetFollowers(ctx context.Context, req *multipoolermanag
 
 // Demote demotes the current leader server
 func (s *managerService) Demote(ctx context.Context, req *multipoolermanagerdata.DemoteRequest) (*multipoolermanagerdata.DemoteResponse, error) {
-	err := s.manager.DemoteLeader(ctx)
+	err := s.manager.Demote(ctx)
 	if err != nil {
 		return nil, status.Errorf(codes.Unimplemented, "%v", err)
 	}
@@ -200,7 +191,7 @@ func (s *managerService) Demote(ctx context.Context, req *multipoolermanagerdata
 
 // UndoDemote undoes a demotion
 func (s *managerService) UndoDemote(ctx context.Context, req *multipoolermanagerdata.UndoDemoteRequest) (*multipoolermanagerdata.UndoDemoteResponse, error) {
-	err := s.manager.UndoDemoteLeader(ctx)
+	err := s.manager.UndoDemote(ctx)
 	if err != nil {
 		return nil, status.Errorf(codes.Unimplemented, "%v", err)
 	}
@@ -209,7 +200,7 @@ func (s *managerService) UndoDemote(ctx context.Context, req *multipoolermanager
 
 // Promote promotes a replica to leader (Multigres-level operation)
 func (s *managerService) Promote(ctx context.Context, req *multipoolermanagerdata.PromoteRequest) (*multipoolermanagerdata.PromoteResponse, error) {
-	err := s.manager.PromoteFollower(ctx)
+	err := s.manager.Promote(ctx)
 	if err != nil {
 		return nil, status.Errorf(codes.Unimplemented, "%v", err)
 	}

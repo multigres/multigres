@@ -16,8 +16,10 @@ package grpcmanagerservice
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/multigres/multigres/go/multipooler/manager"
@@ -74,18 +76,6 @@ func TestManagerServiceMethods_NotImplemented(t *testing.T) {
 			expectedMethod: "SetReadOnly",
 		},
 		{
-			name: "PgPromote",
-			method: func() error {
-				req := &multipoolermanagerdata.PgPromoteRequest{
-					Wait:        true,
-					WaitTimeout: &durationpb.Duration{Seconds: 60},
-				}
-				_, err := svc.PgPromote(ctx, req)
-				return err
-			},
-			expectedMethod: "PromoteStandby",
-		},
-		{
 			name: "IsReadOnly",
 			method: func() error {
 				req := &multipoolermanagerdata.IsReadOnlyRequest{}
@@ -104,7 +94,7 @@ func TestManagerServiceMethods_NotImplemented(t *testing.T) {
 				_, err := svc.SetPrimaryConnInfo(ctx, req)
 				return err
 			},
-			expectedMethod: "SetStandbyPrimaryConnInfo",
+			expectedMethod: "SetPrimaryConnInfo",
 		},
 		{
 			name: "StartReplication",
@@ -113,7 +103,7 @@ func TestManagerServiceMethods_NotImplemented(t *testing.T) {
 				_, err := svc.StartReplication(ctx, req)
 				return err
 			},
-			expectedMethod: "StartStandbyReplication",
+			expectedMethod: "StartReplication",
 		},
 		{
 			name: "StopReplication",
@@ -122,7 +112,7 @@ func TestManagerServiceMethods_NotImplemented(t *testing.T) {
 				_, err := svc.StopReplication(ctx, req)
 				return err
 			},
-			expectedMethod: "StopStandbyReplication",
+			expectedMethod: "StopReplication",
 		},
 		{
 			name: "ReplicationStatus",
@@ -131,7 +121,7 @@ func TestManagerServiceMethods_NotImplemented(t *testing.T) {
 				_, err := svc.ReplicationStatus(ctx, req)
 				return err
 			},
-			expectedMethod: "StandbyReplicationStatus",
+			expectedMethod: "ReplicationStatus",
 		},
 		{
 			name: "ResetReplication",
@@ -140,7 +130,7 @@ func TestManagerServiceMethods_NotImplemented(t *testing.T) {
 				_, err := svc.ResetReplication(ctx, req)
 				return err
 			},
-			expectedMethod: "ResetStandbyReplication",
+			expectedMethod: "ResetReplication",
 		},
 		{
 			name: "ConfigureSynchronousReplication",
@@ -201,7 +191,7 @@ func TestManagerServiceMethods_NotImplemented(t *testing.T) {
 				_, err := svc.Demote(ctx, req)
 				return err
 			},
-			expectedMethod: "DemoteLeader",
+			expectedMethod: "Demote",
 		},
 		{
 			name: "UndoDemote",
@@ -210,7 +200,7 @@ func TestManagerServiceMethods_NotImplemented(t *testing.T) {
 				_, err := svc.UndoDemote(ctx, req)
 				return err
 			},
-			expectedMethod: "UndoDemoteLeader",
+			expectedMethod: "UndoDemote",
 		},
 		{
 			name: "Promote",
@@ -219,7 +209,7 @@ func TestManagerServiceMethods_NotImplemented(t *testing.T) {
 				_, err := svc.Promote(ctx, req)
 				return err
 			},
-			expectedMethod: "PromoteFollower",
+			expectedMethod: "Promote",
 		},
 	}
 
@@ -234,8 +224,9 @@ func TestManagerServiceMethods_NotImplemented(t *testing.T) {
 			st, ok := status.FromError(err)
 			assert.True(t, ok, "Error should be a gRPC status error")
 			assert.Equal(t, codes.Unimplemented, st.Code(), "Should return Unimplemented code")
-			assert.Contains(t, st.Message(), "method "+tt.expectedMethod+" not implemented",
-				"Error message should indicate method is not implemented")
+			if !strings.Contains(st.Message(), fmt.Sprintf("method %s not implemented", tt.expectedMethod)) {
+				t.Errorf("Error message should include: method %s not implemented, got: %s", tt.expectedMethod, st.Message())
+			}
 		})
 	}
 }

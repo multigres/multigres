@@ -77,46 +77,40 @@ func (pm *MultiPoolerManager) SetReadOnly(ctx context.Context) error {
 	return fmt.Errorf("method SetReadOnly not implemented")
 }
 
-// PromoteStandby promotes a PostgreSQL standby server to primary
-func (pm *MultiPoolerManager) PromoteStandby(ctx context.Context) error {
-	pm.logger.Info("PromoteStandby called")
-	return fmt.Errorf("method PromoteStandby not implemented")
-}
-
 // IsReadOnly checks if PostgreSQL instance is in read-only mode
 func (pm *MultiPoolerManager) IsReadOnly(ctx context.Context) (bool, error) {
 	pm.logger.Info("IsReadOnly called")
 	return false, fmt.Errorf("method IsReadOnly not implemented")
 }
 
-// SetStandbyPrimaryConnInfo sets the primary connection info for a standby server
-func (pm *MultiPoolerManager) SetStandbyPrimaryConnInfo(ctx context.Context, host string, port int32) error {
-	pm.logger.Info("SetStandbyPrimaryConnInfo called", "host", host, "port", port)
-	return fmt.Errorf("method SetStandbyPrimaryConnInfo not implemented")
+// SetPrimaryConnInfo sets the primary connection info for a standby server
+func (pm *MultiPoolerManager) SetPrimaryConnInfo(ctx context.Context, host string, port int32) error {
+	pm.logger.Info("SetPrimaryConnInfo called", "host", host, "port", port)
+	return fmt.Errorf("method SetPrimaryConnInfo not implemented")
 }
 
-// StartStandbyReplication starts WAL replay on standby (calls pg_wal_replay_resume)
-func (pm *MultiPoolerManager) StartStandbyReplication(ctx context.Context) error {
-	pm.logger.Info("StartStandbyReplication called")
-	return fmt.Errorf("method StartStandbyReplication not implemented")
+// StartReplication starts WAL replay on standby (calls pg_wal_replay_resume)
+func (pm *MultiPoolerManager) StartReplication(ctx context.Context) error {
+	pm.logger.Info("StartReplication called")
+	return fmt.Errorf("method StartReplication not implemented")
 }
 
-// StopStandbyReplication stops WAL replay on standby (calls pg_wal_replay_pause)
-func (pm *MultiPoolerManager) StopStandbyReplication(ctx context.Context) error {
-	pm.logger.Info("StopStandbyReplication called")
-	return fmt.Errorf("method StopStandbyReplication not implemented")
+// StopReplication stops WAL replay on standby (calls pg_wal_replay_pause)
+func (pm *MultiPoolerManager) StopReplication(ctx context.Context) error {
+	pm.logger.Info("StopReplication called")
+	return fmt.Errorf("method StopReplication not implemented")
 }
 
-// StandbyReplicationStatus gets the current replication status of the standby
-func (pm *MultiPoolerManager) StandbyReplicationStatus(ctx context.Context) (map[string]interface{}, error) {
-	pm.logger.Info("StandbyReplicationStatus called")
-	return nil, fmt.Errorf("method StandbyReplicationStatus not implemented")
+// ReplicationStatus gets the current replication status of the standby
+func (pm *MultiPoolerManager) ReplicationStatus(ctx context.Context) (map[string]interface{}, error) {
+	pm.logger.Info("ReplicationStatus called")
+	return nil, fmt.Errorf("method ReplicationStatus not implemented")
 }
 
-// ResetStandbyReplication resets the standby's connection to its primary
-func (pm *MultiPoolerManager) ResetStandbyReplication(ctx context.Context) error {
-	pm.logger.Info("ResetStandbyReplication called")
-	return fmt.Errorf("method ResetStandbyReplication not implemented")
+// ResetReplication resets the standby's connection to its primary
+func (pm *MultiPoolerManager) ResetReplication(ctx context.Context) error {
+	pm.logger.Info("ResetReplication called")
+	return fmt.Errorf("method ResetReplication not implemented")
 }
 
 // ConfigureSynchronousReplication configures PostgreSQL synchronous replication settings
@@ -184,22 +178,22 @@ func (pm *MultiPoolerManager) GetFollowers(ctx context.Context) ([]string, error
 	return nil, fmt.Errorf("method GetFollowers not implemented")
 }
 
-// DemoteLeader demotes the current leader server
-func (pm *MultiPoolerManager) DemoteLeader(ctx context.Context) error {
-	pm.logger.Info("DemoteLeader called")
-	return fmt.Errorf("method DemoteLeader not implemented")
+// Demote demotes the current leader server
+func (pm *MultiPoolerManager) Demote(ctx context.Context) error {
+	pm.logger.Info("Demote called")
+	return fmt.Errorf("method Demote not implemented")
 }
 
-// UndoDemoteLeader undoes a leader demotion
-func (pm *MultiPoolerManager) UndoDemoteLeader(ctx context.Context) error {
-	pm.logger.Info("UndoDemoteLeader called")
-	return fmt.Errorf("method UndoDemoteLeader not implemented")
+// UndoDemote undoes a demotion
+func (pm *MultiPoolerManager) UndoDemote(ctx context.Context) error {
+	pm.logger.Info("UndoDemote called")
+	return fmt.Errorf("method UndoDemote not implemented")
 }
 
-// PromoteFollower promotes a follower to leader
-func (pm *MultiPoolerManager) PromoteFollower(ctx context.Context) error {
-	pm.logger.Info("PromoteFollower called")
-	return fmt.Errorf("method PromoteFollower not implemented")
+// Promote promotes a follower to leader
+func (pm *MultiPoolerManager) Promote(ctx context.Context) error {
+	pm.logger.Info("Promote called")
+	return fmt.Errorf("method Promote not implemented")
 }
 
 // Start initializes the MultiPoolerManager

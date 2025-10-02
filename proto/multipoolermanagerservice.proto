@@ -32,11 +32,6 @@ service MultiPoolerManager {
   // SetReadOnly makes the PostgreSQL instance read-only
   rpc SetReadOnly(multipoolermanagerdata.SetReadOnlyRequest) returns (multipoolermanagerdata.SetReadOnlyResponse);
 
-  // PgPromote PostgreSQL standby server to primary
-  // this will call pg_promote() in the underlying instance.
-  rpc PgPromote(multipoolermanagerdata.PgPromoteRequest)
-    returns (multipoolermanagerdata.PgPromoteResponse);
-
   // IsReadOnly checks if PostgreSQL instance is in read-only mode
   rpc IsReadOnly(multipoolermanagerdata.IsReadOnlyRequest)
     returns (multipoolermanagerdata.IsReadOnlyResponse);
