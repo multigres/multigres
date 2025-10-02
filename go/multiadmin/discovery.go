@@ -50,14 +50,14 @@ func DiscoverServices(ctx context.Context, ts topo.Store) (*ServiceList, error) 
 
 	// Add multiadmin as a global service
 	// Multiadmin is always available if this code is running
-	multiadminProxyURL := "/proxy/admin/multiadmin"
+	multiadminProxyURL := fmt.Sprintf("/proxy/admin/%s/multiadmin", topo.GlobalCell)
 	multiadminDirectURL := ""
 	if httpPort := servenv.HTTPPort(); httpPort > 0 && servenv.Hostname != "" {
 		multiadminDirectURL = fmt.Sprintf("http://%s:%d/", servenv.Hostname, httpPort)
 	}
 	result.GlobalServices = append(result.GlobalServices, ServiceInfo{
 		Name:       "multiadmin",
-		Cell:       "",
+		Cell:       topo.GlobalCell,
 		ProxiedURL: multiadminProxyURL,
 		DirectURL:  multiadminDirectURL,
 	})

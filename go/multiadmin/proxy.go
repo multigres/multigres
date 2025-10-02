@@ -30,7 +30,7 @@ import (
 )
 
 // handleProxy routes requests to backend services based on path:
-// /proxy/admin/multiadmin -> routes to multiadmin (proxying to itself)
+// /proxy/admin/{cell}/{name} -> routes to multiadmin (proxying to itself)
 // /proxy/gate/{cell}/{name} -> routes to multigateway
 // /proxy/pool/{cell}/{name} -> routes to multipooler
 // /proxy/orch/{cell}/{name} -> routes to multiorch
@@ -39,15 +39,19 @@ func handleProxy(w http.ResponseWriter, r *http.Request) {
 	path := strings.TrimPrefix(r.URL.Path, "/proxy/")
 	parts := strings.SplitN(path, "/", 4)
 
-	if len(parts) < 2 {
+	if len(parts) < 3 {
 		http.Error(w, "Invalid proxy path", http.StatusBadRequest)
 		return
 	}
 
 	serviceType := parts[0] // "admin", "gate", "pool", "orch"
+	cellName := parts[1]
+	serviceName := parts[2]
+
 	ctx := r.Context()
 
 	var targetPort int
+	var targetHost string
 	var proxyBasePath string
 
 	switch serviceType {
@@ -55,6 +59,7 @@ func handleProxy(w http.ResponseWriter, r *http.Request) {
 		// Global service - multiadmin proxying to itself
 		// Format: /proxy/admin/multiadmin
 		targetPort = servenv.HTTPPort()
+		targetHost = servenv.Hostname
 		proxyBasePath = fmt.Sprintf("/proxy/admin/%s", parts[1])
 
 	case "gate", "pool", "orch":
@@ -65,8 +70,6 @@ func handleProxy(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		cellName := parts[1]
-		serviceName := parts[2]
 		proxyBasePath = fmt.Sprintf("/proxy/%s/%s/%s", serviceType, cellName, serviceName)
 
 		// Map service type to component and lookup function
@@ -84,6 +87,7 @@ func handleProxy(w http.ResponseWriter, r *http.Request) {
 			err = lookupErr
 			if gwInfo != nil {
 				portMap = gwInfo.PortMap
+				targetHost = gwInfo.Hostname
 			}
 		case "pool":
 			id := &clustermetadatapb.ID{
@@ -95,6 +99,7 @@ func handleProxy(w http.ResponseWriter, r *http.Request) {
 			err = lookupErr
 			if poolerInfo != nil {
 				portMap = poolerInfo.PortMap
+				targetHost = poolerInfo.Hostname
 			}
 		case "orch":
 			id := &clustermetadatapb.ID{
@@ -106,6 +111,7 @@ func handleProxy(w http.ResponseWriter, r *http.Request) {
 			err = lookupErr
 			if orchInfo != nil {
 				portMap = orchInfo.PortMap
+				targetHost = orchInfo.Hostname
 			}
 		}
 
@@ -123,13 +129,17 @@ func handleProxy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if targetHost == "" {
+		http.Error(w, "Service hostname not found", http.StatusNotFound)
+		return
+	}
 	if targetPort == 0 {
 		http.Error(w, "Service port not found", http.StatusNotFound)
 		return
 	}
 
 	// Create reverse proxy to the target service
-	targetURL, _ := url.Parse(fmt.Sprintf("http://localhost:%d", targetPort))
+	targetURL, _ := url.Parse(fmt.Sprintf("http://%s:%d", targetHost, targetPort))
 	proxy := httputil.NewSingleHostReverseProxy(targetURL)
 
 	// Modify the director to strip the proxy prefix from the request path
