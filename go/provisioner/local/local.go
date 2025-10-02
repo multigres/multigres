@@ -60,7 +60,7 @@ const (
 )
 
 // globalOnlyServiceNames lists all global (non-database) services
-var globalOnlyServiceNames = []string{"multiadmin", "localproxy"}
+var globalOnlyServiceNames = []string{"multiadmin"}
 
 // isGlobalOnlyService checks if a service name is a global service
 func isGlobalOnlyService(serviceName string) bool {
@@ -1051,8 +1051,6 @@ func (p *localProvisioner) stopService(ctx context.Context, req *provisioner.Dep
 		fallthrough
 	case "multiorch":
 		fallthrough
-	case "localproxy":
-		fallthrough
 	case "multiadmin":
 		return p.deprovisionService(ctx, req)
 	case "pgctld":
@@ -1277,7 +1275,7 @@ func (p *localProvisioner) Teardown(ctx context.Context, clean bool) error {
 		fmt.Printf("Warning: failed to deprovision database: %v\n", err)
 	}
 
-	// 2. Deprovision global services (multiadmin, localproxy, etc.)
+	// 2. Deprovision global services (multiadmin, etc.)
 	fmt.Println("=== Deprovisioning global services ===")
 	globalServices, err := p.loadGlobalServices()
 	if err != nil {

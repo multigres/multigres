@@ -408,10 +408,6 @@ func (p *localProvisioner) getExpectedPortsForService(serviceName string) map[st
 		if grpcPort, ok := serviceConfig["grpc_port"].(int); ok {
 			ports["grpc"] = grpcPort
 		}
-	case "localproxy":
-		if httpPort, ok := serviceConfig["http_port"].(int); ok {
-			ports["http"] = httpPort
-		}
 	case "etcd":
 		if port, ok := serviceConfig["port"].(int); ok {
 			ports["tcp"] = port

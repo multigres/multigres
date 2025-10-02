@@ -53,7 +53,6 @@ type LocalProvisionerConfig struct {
 	Etcd           EtcdConfig                    `yaml:"etcd"`
 	Topology       TopologyConfig                `yaml:"topology"`
 	Multiadmin     MultiadminConfig              `yaml:"multiadmin"`
-	Localproxy     LocalproxyConfig              `yaml:"localproxy,omitempty"`
 	Cells          map[string]CellServicesConfig `yaml:"cells,omitempty"`
 }
 
@@ -99,13 +98,6 @@ type MultiadminConfig struct {
 	Path     string `yaml:"path"`
 	HttpPort int    `yaml:"http-port"`
 	GrpcPort int    `yaml:"grpc-port"`
-	LogLevel string `yaml:"log-level"`
-}
-
-// LocalproxyConfig holds localproxy service configuration
-type LocalproxyConfig struct {
-	Path     string `yaml:"path"`
-	HttpPort int    `yaml:"http-port"`
 	LogLevel string `yaml:"log-level"`
 }
 
@@ -327,12 +319,6 @@ func (p *localProvisioner) getServiceConfig(service string) map[string]any {
 			"http_port": p.config.Multiadmin.HttpPort,
 			"grpc_port": p.config.Multiadmin.GrpcPort,
 			"log_level": p.config.Multiadmin.LogLevel,
-		}
-	case "localproxy":
-		return map[string]any{
-			"path":      p.config.Localproxy.Path,
-			"http_port": p.config.Localproxy.HttpPort,
-			"log_level": p.config.Localproxy.LogLevel,
 		}
 	default:
 		// Return empty config if not found

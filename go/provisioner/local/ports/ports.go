@@ -19,7 +19,6 @@ const (
 	// Global Services
 	DefaultMultiadminHTTP = 15000
 	DefaultMultiadminGRPC = 15990
-	DefaultLocalproxyHTTP = 15800
 
 	// Cell Services - HTTP
 	DefaultMultigatewayHTTP = 15001
