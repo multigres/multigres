@@ -144,6 +144,7 @@ func RegisterGRPCServerFlags() {
 		fs.StringVar(&gRPCServerCA, "grpc-server-ca", gRPCServerCA, "path to server CA in PEM format, which will be combine with server cert, return full certificate chain to clients")
 		fs.DurationVar(&gRPCKeepaliveTime, "grpc-server-keepalive-time", gRPCKeepaliveTime, "After a duration of this time, if the server doesn't see any activity, it pings the client to see if the transport is still alive.")
 		fs.DurationVar(&gRPCKeepaliveTimeout, "grpc-server-keepalive-timeout", gRPCKeepaliveTimeout, "After having pinged for keepalive check, the server waits for a duration of Timeout and if no activity is seen even after that the connection is closed.")
+		fs.StringVar(&gRPCSocketFile, "grpc-socket-file", gRPCSocketFile, "Local unix socket file to listen on")
 	})
 }
 
@@ -178,7 +179,7 @@ func isGRPCEnabled() bool {
 		return true
 	}
 
-	if socketFile != "" {
+	if gRPCSocketFile != "" {
 		return true
 	}
 

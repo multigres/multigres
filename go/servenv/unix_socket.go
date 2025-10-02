@@ -20,21 +20,19 @@ import (
 	"log/slog"
 	"net"
 	"os"
-
-	"github.com/spf13/pflag"
 )
 
-// socketFile has the flag used when calling
-// RegisterDefaultSocketFileFlags.
-var socketFile string
+// gRPCSocketFile has the flag used when calling
+// RegisterGRPCServerFlags.
+var gRPCSocketFile string
 
 // serveSocketFile listen to the named socket and serves RPCs on it.
 func serveSocketFile() {
-	if socketFile == "" {
+	if gRPCSocketFile == "" {
 		slog.Info("Not listening on socket file")
 		return
 	}
-	name := socketFile
+	name := gRPCSocketFile
 
 	// try to delete if file exists
 	if _, err := os.Stat(name); err == nil {
@@ -55,12 +53,4 @@ func serveSocketFile() {
 			slog.Error("grpc server failed", "err", err)
 		}
 	}()
-}
-
-// RegisterDefaultSocketFileFlags registers the default flags for listening
-// to a socket. This needs to be called before flags are parsed.
-func RegisterDefaultSocketFileFlags() {
-	OnParse(func(fs *pflag.FlagSet) {
-		fs.StringVar(&socketFile, "socket-file", socketFile, "Local unix socket file to listen on")
-	})
 }
