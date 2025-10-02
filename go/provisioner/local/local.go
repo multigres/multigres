@@ -717,6 +717,15 @@ func (p *localProvisioner) provisionMultipooler(ctx context.Context, req *provis
 		pgPort = port
 	}
 
+	// Get gRPC socket file if configured
+	socketFile, err := getGRPCSocketFile(multipoolerConfig)
+	if err != nil {
+		return nil, fmt.Errorf("failed to configure gRPC socket file: %w", err)
+	}
+	if socketFile != "" {
+		fmt.Printf("▶️  - Configuring multipooler gRPC Unix socket: %s\n", socketFile)
+	}
+
 	// Find multipooler binary
 	multipoolerBinary, err := p.findBinary("multipooler", multipoolerConfig)
 	if err != nil {
@@ -759,6 +768,11 @@ func (p *localProvisioner) provisionMultipooler(ctx context.Context, req *provis
 		"--log-output", logFile,
 		"--pooler-dir", poolerDir,
 		"--pg-port", fmt.Sprintf("%d", pgPort),
+	}
+
+	// Add socket file if configured
+	if socketFile != "" {
+		args = append(args, "--grpc-socket-file", socketFile)
 	}
 
 	// Add service map configuration to enable grpc-pooler service
@@ -1313,6 +1327,11 @@ func (p *localProvisioner) Teardown(ctx context.Context, clean bool) error {
 		if err := p.cleanupDataDirectory(dataDir); err != nil {
 			fmt.Printf("Warning: failed to clean up data directory: %v\n", err)
 		}
+
+		socketsDir := filepath.Join(p.config.RootWorkingDir, "sockets")
+		if err := p.cleanupSocketsDirectory(socketsDir); err != nil {
+			fmt.Printf("Warning: failed to clean up sockets directory: %v\n", err)
+		}
 	}
 
 	fmt.Println("Teardown completed successfully")
@@ -1365,6 +1384,44 @@ func (p *localProvisioner) cleanupDataDirectory(dataDir string) error {
 
 	fmt.Printf("Cleaned up data directory: %s\n", dataDir)
 	return nil
+}
+
+// cleanupSocketsDirectory removes the entire sockets directory and all its contents
+func (p *localProvisioner) cleanupSocketsDirectory(socketsDir string) error {
+	if _, err := os.Stat(socketsDir); os.IsNotExist(err) {
+		return nil // Directory doesn't exist, nothing to clean up
+	}
+
+	if err := os.RemoveAll(socketsDir); err != nil {
+		return fmt.Errorf("failed to remove sockets directory %s: %w", socketsDir, err)
+	}
+
+	fmt.Printf("Cleaned up sockets directory: %s\n", socketsDir)
+	return nil
+}
+
+// getGRPCSocketFile extracts and prepares the gRPC socket file path from a service config.
+// It returns the absolute path to the socket file and ensures the socket directory exists.
+// Returns empty string if no socket file is configured.
+func getGRPCSocketFile(serviceConfig map[string]any) (string, error) {
+	sf, ok := serviceConfig["grpc_socket_file"].(string)
+	if !ok || sf == "" {
+		return "", nil // No socket file configured
+	}
+
+	// Convert to absolute path since the working directory may change
+	socketFile, err := filepath.Abs(sf)
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve socket file path: %w", err)
+	}
+
+	// Ensure socket directory exists
+	socketDir := filepath.Dir(socketFile)
+	if err := os.MkdirAll(socketDir, 0o755); err != nil {
+		return "", fmt.Errorf("failed to create socket directory: %w", err)
+	}
+
+	return socketFile, nil
 }
 
 // getDefaultDatabaseName returns the default database name from config

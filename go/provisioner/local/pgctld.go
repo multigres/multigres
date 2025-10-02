@@ -220,6 +220,15 @@ func (p *localProvisioner) provisionPgctld(ctx context.Context, dbName, tableGro
 	}
 	poolerDir = dir
 
+	// Get gRPC socket file if configured
+	socketFile, err := getGRPCSocketFile(pgctldConfig)
+	if err != nil {
+		return nil, fmt.Errorf("failed to configure gRPC socket file: %w", err)
+	}
+	if socketFile != "" {
+		fmt.Printf("▶️  - Configuring pgctld gRPC Unix socket: %s\n", socketFile)
+	}
+
 	// Create pgctld log file
 	pgctldLogFile, err := p.createLogFile("pgctld", serviceID, dbName)
 	if err != nil {
@@ -263,6 +272,11 @@ func (p *localProvisioner) provisionPgctld(ctx context.Context, dbName, tableGro
 		"--timeout", fmt.Sprintf("%d", timeout),
 		"--log-level", logLevel,
 		"--log-output", pgctldLogFile,
+	}
+
+	// Add socket file if configured
+	if socketFile != "" {
+		serverArgs = append(serverArgs, "--grpc-socket-file", socketFile)
 	}
 
 	pgctldCmd := exec.CommandContext(ctx, pgctldBinary, serverArgs...)

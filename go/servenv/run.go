@@ -43,8 +43,7 @@ func Run(bindAddress string, port int) {
 	createGRPCServer()
 	onRunHooks.Fire()
 	serveGRPC()
-	// Do we want this?
-	// serveSocketFile()
+	serveSocketFile()
 
 	l, err := net.Listen("tcp", net.JoinHostPort(bindAddress, strconv.Itoa(port)))
 	if err != nil {
