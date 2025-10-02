@@ -1221,7 +1221,6 @@ func (p *localProvisioner) Bootstrap(ctx context.Context) ([]*provisioner.Provis
 	}
 	if httpPort, ok := multiadminResult.Ports["http_port"]; ok {
 		fmt.Printf("🌐 - Available at: http://%s:%d\n", multiadminResult.FQDN, httpPort)
-		fmt.Printf("    Access services via proxy: http://%s:%d/services\n", multiadminResult.FQDN, httpPort)
 	}
 	if grpcPort, ok := multiadminResult.Ports["grpc_port"]; ok {
 		fmt.Printf("🌐 - gRPC available at: %s:%d\n", multiadminResult.FQDN, grpcPort)
