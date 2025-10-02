@@ -50,3 +50,10 @@ func EnableGRPCPrometheus() bool {
 func MaxMessageSize() int {
 	return maxMessageSize
 }
+
+// ClientDialOptions returns a slice of grpc.DialOption to be used when creating a gRPC client.
+func ClientDialOptions() []grpc.DialOption {
+	return []grpc.DialOption{
+		grpc.WithDisableServiceConfig(),
+	}
+}

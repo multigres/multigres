@@ -24,6 +24,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
+	"github.com/multigres/multigres/go/grpccommon"
 	pb "github.com/multigres/multigres/go/pb/pgctldservice"
 )
 
@@ -32,7 +33,8 @@ func (p *localProvisioner) startPostgreSQLViaPgctld(address string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	conn, err := grpc.NewClient(address, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	opts := append([]grpc.DialOption{grpc.WithTransportCredentials(insecure.NewCredentials())}, grpccommon.ClientDialOptions()...)
+	conn, err := grpc.NewClient(address, opts...)
 	if err != nil {
 		return fmt.Errorf("failed to connect to pgctld gRPC server: %w", err)
 	}
@@ -92,7 +94,8 @@ func (p *localProvisioner) stopPostgreSQLViaPgctld(address string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	conn, err := grpc.NewClient(address, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	opts := append([]grpc.DialOption{grpc.WithTransportCredentials(insecure.NewCredentials())}, grpccommon.ClientDialOptions()...)
+	conn, err := grpc.NewClient(address, opts...)
 	if err != nil {
 		return fmt.Errorf("failed to connect to pgctld gRPC server: %w", err)
 	}
