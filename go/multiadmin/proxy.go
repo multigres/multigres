@@ -45,103 +45,78 @@ func handleProxy(w http.ResponseWriter, r *http.Request) {
 	}
 
 	serviceType := parts[0] // "admin", "gate", "pool", "orch"
+	ctx := r.Context()
+
 	var targetPort int
 	var proxyBasePath string
-
-	ctx := r.Context()
 
 	switch serviceType {
 	case "admin":
 		// Global service - multiadmin proxying to itself
 		// Format: /proxy/admin/multiadmin
-		if len(parts) < 2 {
-			http.Error(w, "Missing service name", http.StatusBadRequest)
-			return
-		}
-		// Multiadmin is always at localhost with its own HTTP port
 		targetPort = servenv.HTTPPort()
 		proxyBasePath = fmt.Sprintf("/proxy/admin/%s", parts[1])
 
-	case "gate":
-		// Cell service - multigateway
-		// Format: /proxy/gate/{cell}/{name}
+	case "gate", "pool", "orch":
+		// Cell services - multigateway, multipooler, multiorch
+		// Format: /proxy/{type}/{cell}/{name}
 		if len(parts) < 3 {
-			http.Error(w, "Missing cell or gateway name", http.StatusBadRequest)
+			http.Error(w, "Missing cell or service name", http.StatusBadRequest)
 			return
 		}
+
 		cellName := parts[1]
-		gatewayName := parts[2]
+		serviceName := parts[2]
+		proxyBasePath = fmt.Sprintf("/proxy/%s/%s/%s", serviceType, cellName, serviceName)
 
-		// Lookup gateway by ID
-		id := &clustermetadatapb.ID{
-			Component: clustermetadatapb.ID_MULTIGATEWAY,
-			Cell:      cellName,
-			Name:      gatewayName,
+		// Map service type to component and lookup function
+		var portMap map[string]int32
+		var err error
+
+		switch serviceType {
+		case "gate":
+			id := &clustermetadatapb.ID{
+				Component: clustermetadatapb.ID_MULTIGATEWAY,
+				Cell:      cellName,
+				Name:      serviceName,
+			}
+			gwInfo, lookupErr := ts.GetMultiGateway(ctx, id)
+			err = lookupErr
+			if gwInfo != nil {
+				portMap = gwInfo.PortMap
+			}
+		case "pool":
+			id := &clustermetadatapb.ID{
+				Component: clustermetadatapb.ID_MULTIPOOLER,
+				Cell:      cellName,
+				Name:      serviceName,
+			}
+			poolerInfo, lookupErr := ts.GetMultiPooler(ctx, id)
+			err = lookupErr
+			if poolerInfo != nil {
+				portMap = poolerInfo.PortMap
+			}
+		case "orch":
+			id := &clustermetadatapb.ID{
+				Component: clustermetadatapb.ID_MULTIORCH,
+				Cell:      cellName,
+				Name:      serviceName,
+			}
+			orchInfo, lookupErr := ts.GetMultiOrch(ctx, id)
+			err = lookupErr
+			if orchInfo != nil {
+				portMap = orchInfo.PortMap
+			}
 		}
-		gwInfo, err := ts.GetMultiGateway(ctx, id)
+
 		if err != nil {
-			http.Error(w, fmt.Sprintf("Gateway not found: %v", err), http.StatusNotFound)
+			http.Error(w, fmt.Sprintf("Service not found: %v", err), http.StatusNotFound)
 			return
 		}
 
-		if httpPort, ok := gwInfo.PortMap["http"]; ok && httpPort > 0 {
+		if httpPort, ok := portMap["http"]; ok && httpPort > 0 {
 			targetPort = int(httpPort)
 		}
-		proxyBasePath = fmt.Sprintf("/proxy/gate/%s/%s", cellName, gatewayName)
-
-	case "pool":
-		// Cell service - multipooler
-		// Format: /proxy/pool/{cell}/{name}
-		if len(parts) < 3 {
-			http.Error(w, "Missing cell or pooler name", http.StatusBadRequest)
-			return
-		}
-		cellName := parts[1]
-		poolerName := parts[2]
-
-		// Lookup pooler by ID
-		id := &clustermetadatapb.ID{
-			Component: clustermetadatapb.ID_MULTIPOOLER,
-			Cell:      cellName,
-			Name:      poolerName,
-		}
-		poolerInfo, err := ts.GetMultiPooler(ctx, id)
-		if err != nil {
-			http.Error(w, fmt.Sprintf("Pooler not found: %v", err), http.StatusNotFound)
-			return
-		}
-
-		if httpPort, ok := poolerInfo.PortMap["http"]; ok && httpPort > 0 {
-			targetPort = int(httpPort)
-		}
-		proxyBasePath = fmt.Sprintf("/proxy/pool/%s/%s", cellName, poolerName)
-
-	case "orch":
-		// Cell service - multiorch
-		// Format: /proxy/orch/{cell}/{name}
-		if len(parts) < 3 {
-			http.Error(w, "Missing cell or orch name", http.StatusBadRequest)
-			return
-		}
-		cellName := parts[1]
-		orchName := parts[2]
-
-		// Lookup orch by ID
-		id := &clustermetadatapb.ID{
-			Component: clustermetadatapb.ID_MULTIORCH,
-			Cell:      cellName,
-			Name:      orchName,
-		}
-		orchInfo, err := ts.GetMultiOrch(ctx, id)
-		if err != nil {
-			http.Error(w, fmt.Sprintf("Orch not found: %v", err), http.StatusNotFound)
-			return
-		}
-
-		if httpPort, ok := orchInfo.PortMap["http"]; ok && httpPort > 0 {
-			targetPort = int(httpPort)
-		}
-		proxyBasePath = fmt.Sprintf("/proxy/orch/%s/%s", cellName, orchName)
 
 	default:
 		http.Error(w, fmt.Sprintf("Invalid service type: %s", serviceType), http.StatusBadRequest)
