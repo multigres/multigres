@@ -563,7 +563,6 @@ func (p *localProvisioner) provisionMultiadmin(ctx context.Context, req *provisi
 	etcdAddress := req.Params["etcd_address"].(string)
 	topoBackend := req.Params["topo_backend"].(string)
 	topoGlobalRoot := req.Params["topo_global_root"].(string)
-	localproxyPort := req.Params["localproxy_port"].(int)
 
 	// Get log level
 	logLevel := "info"
@@ -586,9 +585,6 @@ func (p *localProvisioner) provisionMultiadmin(ctx context.Context, req *provisi
 		return nil, fmt.Errorf("failed to create log file: %w", err)
 	}
 
-	// Build base domain for proxied service URLs
-	baseDomain := fmt.Sprintf("localhost:%d", localproxyPort)
-
 	// Build command arguments
 	args := []string{
 		"--http-port", fmt.Sprintf("%d", httpPort),
@@ -600,7 +596,6 @@ func (p *localProvisioner) provisionMultiadmin(ctx context.Context, req *provisi
 		"--log-output", logFile,
 		"--service-map", "grpc-multiadmin",
 		"--hostname", "localhost",
-		"--base-domain", baseDomain,
 	}
 
 	// Start multiadmin process
@@ -1225,13 +1220,6 @@ func (p *localProvisioner) Bootstrap(ctx context.Context) ([]*provisioner.Provis
 	}
 	fmt.Println("")
 
-	// Get localproxy port from config to pass to multiadmin for base-domain
-	localproxyConfig := p.getServiceConfig("localproxy")
-	localproxyPort := ports.DefaultLocalproxyHTTP
-	if port, ok := localproxyConfig["http_port"].(int); ok && port > 0 {
-		localproxyPort = port
-	}
-
 	// Provision multiadmin (global admin service)
 	fmt.Println("=== Starting MultiAdmin ===")
 	multiadminReq := &provisioner.ProvisionRequest{
@@ -1240,7 +1228,6 @@ func (p *localProvisioner) Bootstrap(ctx context.Context) ([]*provisioner.Provis
 			"etcd_address":     etcdAddress,
 			"topo_backend":     topoConfig.Backend,
 			"topo_global_root": topoConfig.GlobalRootPath,
-			"localproxy_port":  localproxyPort,
 		},
 	}
 
@@ -1250,28 +1237,12 @@ func (p *localProvisioner) Bootstrap(ctx context.Context) ([]*provisioner.Provis
 	}
 	if httpPort, ok := multiadminResult.Ports["http_port"]; ok {
 		fmt.Printf("🌐 - Available at: http://%s:%d\n", multiadminResult.FQDN, httpPort)
+		fmt.Printf("    Access services via proxy: http://%s:%d/services\n", multiadminResult.FQDN, httpPort)
 	}
 	if grpcPort, ok := multiadminResult.Ports["grpc_port"]; ok {
 		fmt.Printf("🌐 - gRPC available at: %s:%d\n", multiadminResult.FQDN, grpcPort)
 	}
 	allResults = append(allResults, multiadminResult)
-	fmt.Println("")
-
-	// Provision localproxy
-	fmt.Println("=== Starting LocalProxy ===")
-	localproxyReq := &provisioner.ProvisionRequest{
-		Service: "localproxy",
-	}
-
-	localproxyResult, err := p.provisionLocalproxy(ctx, localproxyReq)
-	if err != nil {
-		return nil, fmt.Errorf("failed to provision localproxy: %w", err)
-	}
-	if httpPort, ok := localproxyResult.Ports["http_port"]; ok {
-		fmt.Printf("🌐 - Available at: http://localhost:%d\n", httpPort)
-		fmt.Printf("    Route requests like: http://multiadmin.localhost:%d/...\n", httpPort)
-	}
-	allResults = append(allResults, localproxyResult)
 	fmt.Println("")
 
 	// Setup default database

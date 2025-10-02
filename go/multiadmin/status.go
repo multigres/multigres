@@ -52,6 +52,7 @@ func init() {
 	servenv.HTTPHandleFunc("/", handleIndex)
 	servenv.HTTPHandleFunc("/services", handleServices)
 	servenv.HTTPHandleFunc("/ready", handleReady)
+	servenv.HTTPHandleFunc("/proxy/", handleProxy)
 }
 
 // handleIndex serves the index page
@@ -68,7 +69,8 @@ func handleServices(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
 	// Discover services from topology (may be slow, that's okay for this endpoint)
-	services, err := DiscoverServices(ctx, ts, baseDomain)
+	// baseDomain is no longer used - we use path-based proxy URLs
+	services, err := DiscoverServices(ctx, ts, "")
 	if err != nil {
 		// Show error but still try to render what we have
 		if services == nil {

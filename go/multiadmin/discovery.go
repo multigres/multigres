@@ -43,6 +43,7 @@ type ServiceList struct {
 // in the cluster. It returns a ServiceList with services organized by scope.
 // This function may be slow (topo queries), so it should be called from a
 // dedicated endpoint, not the fast-path root handler.
+// The baseDomain parameter is now ignored as we use path-based proxy URLs.
 func DiscoverServices(ctx context.Context, ts topo.Store, baseDomain string) (*ServiceList, error) {
 	result := &ServiceList{
 		GlobalServices: []ServiceInfo{},
@@ -51,7 +52,7 @@ func DiscoverServices(ctx context.Context, ts topo.Store, baseDomain string) (*S
 
 	// Add multiadmin as a global service
 	// Multiadmin is always available if this code is running
-	multiadminURL := fmt.Sprintf("http://multiadmin.%s/", baseDomain)
+	multiadminProxyURL := "/proxy/admin/multiadmin"
 	multiadminDirectURL := ""
 	if httpPort := servenv.HTTPPort(); httpPort > 0 && servenv.Hostname != "" {
 		multiadminDirectURL = fmt.Sprintf("http://%s:%d/", servenv.Hostname, httpPort)
@@ -59,7 +60,7 @@ func DiscoverServices(ctx context.Context, ts topo.Store, baseDomain string) (*S
 	result.GlobalServices = append(result.GlobalServices, ServiceInfo{
 		Name:      "multiadmin",
 		Cell:      "",
-		URL:       multiadminURL,
+		URL:       multiadminProxyURL,
 		DirectURL: multiadminDirectURL,
 	})
 
@@ -80,8 +81,8 @@ func DiscoverServices(ctx context.Context, ts topo.Store, baseDomain string) (*S
 		if err == nil && len(gateways) > 0 {
 			// Use the first registered gateway
 			gw := gateways[0].MultiGateway
-			normalizedCell := normalizeForSubdomain(cell)
-			serviceURL := fmt.Sprintf("http://multigateway-%s.%s/", normalizedCell, baseDomain)
+			gatewayName := gateways[0].Id.Name
+			proxyURL := fmt.Sprintf("/proxy/gate/%s/%s", cell, gatewayName)
 			directURL := ""
 			if httpPort, ok := gw.PortMap["http"]; ok && httpPort > 0 {
 				directURL = fmt.Sprintf("http://%s:%d/", gw.Hostname, httpPort)
@@ -89,7 +90,7 @@ func DiscoverServices(ctx context.Context, ts topo.Store, baseDomain string) (*S
 			result.CellServices[cell] = append(result.CellServices[cell], ServiceInfo{
 				Name:      "multigateway",
 				Cell:      cell,
-				URL:       serviceURL,
+				URL:       proxyURL,
 				DirectURL: directURL,
 			})
 		}
@@ -99,8 +100,8 @@ func DiscoverServices(ctx context.Context, ts topo.Store, baseDomain string) (*S
 		if err == nil && len(poolers) > 0 {
 			// Use the first registered pooler
 			mp := poolers[0].MultiPooler
-			normalizedCell := normalizeForSubdomain(cell)
-			serviceURL := fmt.Sprintf("http://multipooler-%s.%s/", normalizedCell, baseDomain)
+			poolerName := poolers[0].Id.Name
+			proxyURL := fmt.Sprintf("/proxy/pool/%s/%s", cell, poolerName)
 			directURL := ""
 			if httpPort, ok := mp.PortMap["http"]; ok && httpPort > 0 {
 				directURL = fmt.Sprintf("http://%s:%d/", mp.Hostname, httpPort)
@@ -108,7 +109,7 @@ func DiscoverServices(ctx context.Context, ts topo.Store, baseDomain string) (*S
 			result.CellServices[cell] = append(result.CellServices[cell], ServiceInfo{
 				Name:      "multipooler",
 				Cell:      cell,
-				URL:       serviceURL,
+				URL:       proxyURL,
 				DirectURL: directURL,
 			})
 		}
@@ -118,8 +119,8 @@ func DiscoverServices(ctx context.Context, ts topo.Store, baseDomain string) (*S
 		if err == nil && len(orchs) > 0 {
 			// Use the first registered orch
 			mo := orchs[0].MultiOrch
-			normalizedCell := normalizeForSubdomain(cell)
-			serviceURL := fmt.Sprintf("http://multiorch-%s.%s/", normalizedCell, baseDomain)
+			orchName := orchs[0].Id.Name
+			proxyURL := fmt.Sprintf("/proxy/orch/%s/%s", cell, orchName)
 			directURL := ""
 			if httpPort, ok := mo.PortMap["http"]; ok && httpPort > 0 {
 				directURL = fmt.Sprintf("http://%s:%d/", mo.Hostname, httpPort)
@@ -127,7 +128,7 @@ func DiscoverServices(ctx context.Context, ts topo.Store, baseDomain string) (*S
 			result.CellServices[cell] = append(result.CellServices[cell], ServiceInfo{
 				Name:      "multiorch",
 				Cell:      cell,
-				URL:       serviceURL,
+				URL:       proxyURL,
 				DirectURL: directURL,
 			})
 		}

@@ -16,14 +16,12 @@
 package multiadmin
 
 import (
-	"fmt"
 	"log/slog"
 
 	"github.com/spf13/pflag"
 
 	"github.com/multigres/multigres/go/admin/server"
 	"github.com/multigres/multigres/go/clustermetadata/topo"
-	"github.com/multigres/multigres/go/provisioner/local/ports"
 	"github.com/multigres/multigres/go/servenv"
 )
 
@@ -33,16 +31,11 @@ var (
 
 	// adminServer holds the gRPC admin server instance
 	adminServer *server.MultiAdminServer
-
-	// baseDomain is used for generating service URLs in the /services page
-	baseDomain string
 )
 
-// Register flags that are specific to multiadmin.
+// RegisterFlags registers flags specific to multiadmin.
 func RegisterFlags(fs *pflag.FlagSet) {
-	defaultBaseDomain := fmt.Sprintf("localhost:%d", ports.DefaultLocalproxyHTTP)
-	fs.StringVar(&baseDomain, "base-domain", defaultBaseDomain,
-		"Base domain for service URLs (e.g., 'example.com' for production or 'localhost:15800' for local dev)")
+	// No custom flags needed - proxy is now path-based
 }
 
 // Init initializes the multiadmin. If any services fail to start,
