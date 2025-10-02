@@ -85,6 +85,7 @@ func RegisterFlags() {
 		fs.DurationVar(&timeouts.OnTermTimeout, "onterm-timeout", timeouts.OnTermTimeout, "wait no more than this for OnTermSync handlers before stopping")
 		fs.DurationVar(&timeouts.OnCloseTimeout, "onclose-timeout", timeouts.OnCloseTimeout, "wait no more than this for OnClose handlers before stopping")
 		fs.StringVar(&pidFile, "pid-file", pidFile, "If set, the process will write its pid to the named file, and delete it on graceful shutdown.")
+		fs.StringVar(&Hostname, "hostname", "", "Hostname to use for service registration. If not set, will auto-detect using FQDN or os.Hostname()")
 	})
 }
 

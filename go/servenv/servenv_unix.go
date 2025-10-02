@@ -86,6 +86,13 @@ func Init() {
 }
 
 func populateHostname() {
+	// If hostname was explicitly set via --hostname flag, use that
+	if Hostname != "" {
+		slog.Info("Using explicitly configured hostname for service URL", "hostname", Hostname)
+		return
+	}
+
+	// Otherwise, auto-detect hostname
 	host, err := netutil.FullyQualifiedHostname()
 	if err != nil {
 		slog.Warn("Failed to get fully qualified hostname, falling back to simple hostname",
