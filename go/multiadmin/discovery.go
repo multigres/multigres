@@ -25,10 +25,10 @@ import (
 
 // ServiceInfo represents a discoverable service in the cluster
 type ServiceInfo struct {
-	Name      string // Service name (e.g., "multigateway")
-	Cell      string // Cell name (e.g., "zone1"), empty for global services
-	URL       string // Proxied URL (e.g., "/proxy/gate/zone1/multigateway")
-	DirectURL string // Direct URL if available (e.g., "http://localhost:15001/")
+	Name       string // Service name (e.g., "multigateway")
+	Cell       string // Cell name (e.g., "zone1"), empty for global services
+	ProxiedURL string // Proxied URL (e.g., "/proxy/gate/zone1/multigateway")
+	DirectURL  string // Direct URL if available (e.g., "http://localhost:15001/")
 }
 
 // ServiceList holds all discovered services organized by scope
@@ -56,10 +56,10 @@ func DiscoverServices(ctx context.Context, ts topo.Store) (*ServiceList, error) 
 		multiadminDirectURL = fmt.Sprintf("http://%s:%d/", servenv.Hostname, httpPort)
 	}
 	result.GlobalServices = append(result.GlobalServices, ServiceInfo{
-		Name:      "multiadmin",
-		Cell:      "",
-		URL:       multiadminProxyURL,
-		DirectURL: multiadminDirectURL,
+		Name:       "multiadmin",
+		Cell:       "",
+		ProxiedURL: multiadminProxyURL,
+		DirectURL:  multiadminDirectURL,
 	})
 
 	// Discover cells from topology
@@ -86,10 +86,10 @@ func DiscoverServices(ctx context.Context, ts topo.Store) (*ServiceList, error) 
 				directURL = fmt.Sprintf("http://%s:%d/", gw.Hostname, httpPort)
 			}
 			result.CellServices[cell] = append(result.CellServices[cell], ServiceInfo{
-				Name:      "multigateway",
-				Cell:      cell,
-				URL:       proxyURL,
-				DirectURL: directURL,
+				Name:       "multigateway",
+				Cell:       cell,
+				ProxiedURL: proxyURL,
+				DirectURL:  directURL,
 			})
 		}
 
@@ -105,10 +105,10 @@ func DiscoverServices(ctx context.Context, ts topo.Store) (*ServiceList, error) 
 				directURL = fmt.Sprintf("http://%s:%d/", mp.Hostname, httpPort)
 			}
 			result.CellServices[cell] = append(result.CellServices[cell], ServiceInfo{
-				Name:      "multipooler",
-				Cell:      cell,
-				URL:       proxyURL,
-				DirectURL: directURL,
+				Name:       "multipooler",
+				Cell:       cell,
+				ProxiedURL: proxyURL,
+				DirectURL:  directURL,
 			})
 		}
 
@@ -124,10 +124,10 @@ func DiscoverServices(ctx context.Context, ts topo.Store) (*ServiceList, error) 
 				directURL = fmt.Sprintf("http://%s:%d/", mo.Hostname, httpPort)
 			}
 			result.CellServices[cell] = append(result.CellServices[cell], ServiceInfo{
-				Name:      "multiorch",
-				Cell:      cell,
-				URL:       proxyURL,
-				DirectURL: directURL,
+				Name:       "multiorch",
+				Cell:       cell,
+				ProxiedURL: proxyURL,
+				DirectURL:  directURL,
 			})
 		}
 

@@ -31,8 +31,11 @@
           {{range .GlobalServices}}
           <article>
             <h4>{{.Name}}</h4>
-            <a href="{{.URL}}" role="button" data-tooltip="Access {{.Name}}"
-              >{{.URL}}</a
+            <a
+              href="{{.ProxiedURL}}"
+              role="button"
+              data-tooltip="Access {{.Name}}"
+              >{{.ProxiedURL}}</a
             >
             {{if .DirectURL}}
             <p>
@@ -52,10 +55,10 @@
           <article>
             <h4>{{.Name}}</h4>
             <a
-              href="{{.URL}}"
+              href="{{.ProxiedURL}}"
               role="button"
               data-tooltip="Access {{.Name}} in {{.Cell}}"
-              >{{.URL}}</a
+              >{{.ProxiedURL}}</a
             >
             {{if .DirectURL}}
             <p>
