@@ -35,7 +35,7 @@ var (
 
 // RegisterFlags registers flags specific to multiadmin.
 func RegisterFlags(fs *pflag.FlagSet) {
-	// No custom flags needed - proxy is now path-based
+	// Nothing to register for now.
 }
 
 // Init initializes the multiadmin. If any services fail to start,
