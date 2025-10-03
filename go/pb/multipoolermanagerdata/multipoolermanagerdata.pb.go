@@ -1745,6 +1745,97 @@ func (*ConfigureSynchronousReplicationResponse) Descriptor() ([]byte, []int) {
 	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{35}
 }
 
+// Status gets the current status of the manager
+type StatusRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *StatusRequest) Reset() {
+	*x = StatusRequest{}
+	mi := &file_multipoolermanagerdata_proto_msgTypes[36]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *StatusRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*StatusRequest) ProtoMessage() {}
+
+func (x *StatusRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_multipoolermanagerdata_proto_msgTypes[36]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use StatusRequest.ProtoReflect.Descriptor instead.
+func (*StatusRequest) Descriptor() ([]byte, []int) {
+	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{36}
+}
+
+type StatusResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Manager state (starting, ready, error)
+	State string `protobuf:"bytes,1,opt,name=state,proto3" json:"state,omitempty"`
+	// Error message if state is error
+	ErrorMessage  string `protobuf:"bytes,2,opt,name=error_message,json=errorMessage,proto3" json:"error_message,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *StatusResponse) Reset() {
+	*x = StatusResponse{}
+	mi := &file_multipoolermanagerdata_proto_msgTypes[37]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *StatusResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*StatusResponse) ProtoMessage() {}
+
+func (x *StatusResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_multipoolermanagerdata_proto_msgTypes[37]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use StatusResponse.ProtoReflect.Descriptor instead.
+func (*StatusResponse) Descriptor() ([]byte, []int) {
+	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{37}
+}
+
+func (x *StatusResponse) GetState() string {
+	if x != nil {
+		return x.State
+	}
+	return ""
+}
+
+func (x *StatusResponse) GetErrorMessage() string {
+	if x != nil {
+		return x.ErrorMessage
+	}
+	return ""
+}
+
 var File_multipoolermanagerdata_proto protoreflect.FileDescriptor
 
 const file_multipoolermanagerdata_proto_rawDesc = "" +
@@ -1818,7 +1909,11 @@ const file_multipoolermanagerdata_proto_rawDesc = "" +
 	"\bnum_sync\x18\x03 \x01(\x05R\anumSync\x12#\n" +
 	"\rstandby_names\x18\x04 \x03(\tR\fstandbyNames\x12#\n" +
 	"\rreload_config\x18\x05 \x01(\bR\freloadConfig\")\n" +
-	"'ConfigureSynchronousReplicationResponse*q\n" +
+	"'ConfigureSynchronousReplicationResponse\"\x0f\n" +
+	"\rStatusRequest\"K\n" +
+	"\x0eStatusResponse\x12\x14\n" +
+	"\x05state\x18\x01 \x01(\tR\x05state\x12#\n" +
+	"\rerror_message\x18\x02 \x01(\tR\ferrorMessage*q\n" +
 	"\x11SynchronousMethod\x12\"\n" +
 	"\x1eSYNCHRONOUS_METHOD_UNSPECIFIED\x10\x00\x12\x1c\n" +
 	"\x18SYNCHRONOUS_METHOD_FIRST\x10\x01\x12\x1a\n" +
@@ -1843,7 +1938,7 @@ func file_multipoolermanagerdata_proto_rawDescGZIP() []byte {
 }
 
 var file_multipoolermanagerdata_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_multipoolermanagerdata_proto_msgTypes = make([]protoimpl.MessageInfo, 36)
+var file_multipoolermanagerdata_proto_msgTypes = make([]protoimpl.MessageInfo, 38)
 var file_multipoolermanagerdata_proto_goTypes = []any{
 	(SynchronousMethod)(0),                          // 0: multipoolermanagerdata.SynchronousMethod
 	(SynchronousCommitLevel)(0),                     // 1: multipoolermanagerdata.SynchronousCommitLevel
@@ -1883,19 +1978,21 @@ var file_multipoolermanagerdata_proto_goTypes = []any{
 	(*ResetReplicationResponse)(nil),                // 35: multipoolermanagerdata.ResetReplicationResponse
 	(*ConfigureSynchronousReplicationRequest)(nil),  // 36: multipoolermanagerdata.ConfigureSynchronousReplicationRequest
 	(*ConfigureSynchronousReplicationResponse)(nil), // 37: multipoolermanagerdata.ConfigureSynchronousReplicationResponse
-	(*durationpb.Duration)(nil),                     // 38: google.protobuf.Duration
-	(clustermetadata.PoolerType)(0),                 // 39: clustermetadata.PoolerType
+	(*StatusRequest)(nil),                           // 38: multipoolermanagerdata.StatusRequest
+	(*StatusResponse)(nil),                          // 39: multipoolermanagerdata.StatusResponse
+	(*durationpb.Duration)(nil),                     // 40: google.protobuf.Duration
+	(clustermetadata.PoolerType)(0),                 // 41: clustermetadata.PoolerType
 }
 var file_multipoolermanagerdata_proto_depIdxs = []int32{
-	38, // 0: multipoolermanagerdata.ReplicationStatus.lag:type_name -> google.protobuf.Duration
-	38, // 1: multipoolermanagerdata.WaitForLSNRequest.timeout:type_name -> google.protobuf.Duration
-	38, // 2: multipoolermanagerdata.SetPrimaryConnInfoRequest.heartbeat_interval:type_name -> google.protobuf.Duration
+	40, // 0: multipoolermanagerdata.ReplicationStatus.lag:type_name -> google.protobuf.Duration
+	40, // 1: multipoolermanagerdata.WaitForLSNRequest.timeout:type_name -> google.protobuf.Duration
+	40, // 2: multipoolermanagerdata.SetPrimaryConnInfoRequest.heartbeat_interval:type_name -> google.protobuf.Duration
 	2,  // 3: multipoolermanagerdata.StopReplicationResponse.status:type_name -> multipoolermanagerdata.ReplicationStatus
 	2,  // 4: multipoolermanagerdata.ReplicationStatusResponse.status:type_name -> multipoolermanagerdata.ReplicationStatus
 	17, // 5: multipoolermanagerdata.PrimaryStatusResponse.status:type_name -> multipoolermanagerdata.PrimaryStatus
 	17, // 6: multipoolermanagerdata.DemoteResponse.leader_status:type_name -> multipoolermanagerdata.PrimaryStatus
 	2,  // 7: multipoolermanagerdata.StopReplicationAndGetStatusResponse.status:type_name -> multipoolermanagerdata.ReplicationStatus
-	39, // 8: multipoolermanagerdata.ChangeTypeRequest.pooler_type:type_name -> clustermetadata.PoolerType
+	41, // 8: multipoolermanagerdata.ChangeTypeRequest.pooler_type:type_name -> clustermetadata.PoolerType
 	2,  // 9: multipoolermanagerdata.ResetReplicationResponse.status:type_name -> multipoolermanagerdata.ReplicationStatus
 	1,  // 10: multipoolermanagerdata.ConfigureSynchronousReplicationRequest.synchronous_commit:type_name -> multipoolermanagerdata.SynchronousCommitLevel
 	0,  // 11: multipoolermanagerdata.ConfigureSynchronousReplicationRequest.synchronous_method:type_name -> multipoolermanagerdata.SynchronousMethod
@@ -1917,7 +2014,7 @@ func file_multipoolermanagerdata_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_multipoolermanagerdata_proto_rawDesc), len(file_multipoolermanagerdata_proto_rawDesc)),
 			NumEnums:      2,
-			NumMessages:   36,
+			NumMessages:   38,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

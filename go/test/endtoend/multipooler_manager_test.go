@@ -446,6 +446,39 @@ func cleanupSharedResources() {
 	}
 }
 
+// waitForManagerReady waits for the manager to be in ready state
+func waitForManagerReady(t *testing.T, setup *MultipoolerTestSetup, manager *ProcessInstance) {
+	t.Helper()
+
+	// Connect to the manager
+	conn, err := grpc.NewClient(
+		fmt.Sprintf("localhost:%d", manager.GrpcPort),
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	)
+	require.NoError(t, err)
+	defer conn.Close()
+
+	client := multipoolermanagerpb.NewMultiPoolerManagerClient(conn)
+
+	// Use require.Eventually to wait for manager to be ready
+	require.Eventually(t, func() bool {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		req := &multipoolermanagerdata.StatusRequest{}
+		resp, err := client.Status(ctx, req)
+		if err != nil {
+			return false
+		}
+		if resp.State == "error" {
+			t.Fatalf("Manager failed to initialize: %s", resp.ErrorMessage)
+		}
+		return resp.State == "ready"
+	}, 5*time.Second, 100*time.Millisecond, "Manager should become ready within 30 seconds")
+
+	t.Logf("Manager %s is ready", manager.Name)
+}
+
 // TestMultipoolerReplicationApi tests the replication API functionality
 func TestMultipoolerReplicationApi(t *testing.T) {
 	if testing.Short() {
@@ -453,6 +486,10 @@ func TestMultipoolerReplicationApi(t *testing.T) {
 	}
 
 	setup := getSharedTestSetup(t)
+
+	// Wait for both managers to be ready before running tests
+	waitForManagerReady(t, setup, setup.PrimaryMultipooler)
+	waitForManagerReady(t, setup, setup.StandbyMultipooler)
 
 	t.Run("PrimaryPosition_Primary", func(t *testing.T) {
 		// Connect to primary multipooler

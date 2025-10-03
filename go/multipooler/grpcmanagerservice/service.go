@@ -203,3 +203,8 @@ func (s *managerService) Promote(ctx context.Context, req *multipoolermanagerdat
 	}
 	return &multipoolermanagerdata.PromoteResponse{}, nil
 }
+
+// Status gets the current status of the manager
+func (s *managerService) Status(ctx context.Context, req *multipoolermanagerdata.StatusRequest) (*multipoolermanagerdata.StatusResponse, error) {
+	return s.manager.Status(ctx)
+}

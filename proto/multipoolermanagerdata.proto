@@ -254,3 +254,15 @@ message ConfigureSynchronousReplicationRequest {
 
 message ConfigureSynchronousReplicationResponse {
 }
+
+// Status gets the current status of the manager
+message StatusRequest {
+}
+
+message StatusResponse {
+  // Manager state (starting, ready, error)
+  string state = 1;
+
+  // Error message if state is error
+  string error_message = 2;
+}

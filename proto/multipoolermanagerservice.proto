@@ -100,5 +100,9 @@ service MultiPoolerManager {
   // Promote promotes a replica to leader (Multigres-level operation)
   rpc Promote(multipoolermanagerdata.PromoteRequest)
     returns (multipoolermanagerdata.PromoteResponse);
+
+  // Status gets the current status of the manager
+  rpc Status(multipoolermanagerdata.StatusRequest)
+    returns (multipoolermanagerdata.StatusResponse);
 }
 

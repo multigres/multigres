@@ -26,6 +26,7 @@ import (
 	"github.com/multigres/multigres/go/mterrors"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
+	multipoolermanagerdata "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	"github.com/multigres/multigres/go/servenv"
 	"github.com/multigres/multigres/go/tools/timertools"
 )
@@ -392,6 +393,23 @@ func (pm *MultiPoolerManager) ChangeType(ctx context.Context, poolerType string)
 	pm.logger.Info("Pooler type updated successfully", "new_type", poolerType, "service_id", pm.serviceID.String())
 
 	return nil
+}
+
+// Status returns the current manager status and error information
+func (pm *MultiPoolerManager) Status(ctx context.Context) (*multipoolermanagerdata.StatusResponse, error) {
+	pm.mu.RLock()
+	defer pm.mu.RUnlock()
+
+	state := string(pm.state)
+	var errorMessage string
+	if pm.stateError != nil {
+		errorMessage = pm.stateError.Error()
+	}
+
+	return &multipoolermanagerdata.StatusResponse{
+		State:        state,
+		ErrorMessage: errorMessage,
+	}, nil
 }
 
 // GetFollowers gets the list of follower servers
