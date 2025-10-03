@@ -36,23 +36,22 @@ const _ = grpc.SupportPackageIsVersion7
 const (
 	MultiPoolerManager_WaitForLSN_FullMethodName                      = "/multipoolermanager.MultiPoolerManager/WaitForLSN"
 	MultiPoolerManager_SetReadOnly_FullMethodName                     = "/multipoolermanager.MultiPoolerManager/SetReadOnly"
-	MultiPoolerManager_PromoteStandby_FullMethodName                  = "/multipoolermanager.MultiPoolerManager/PromoteStandby"
-	MultiPoolerManager_GetPrimaryLSN_FullMethodName                   = "/multipoolermanager.MultiPoolerManager/GetPrimaryLSN"
 	MultiPoolerManager_IsReadOnly_FullMethodName                      = "/multipoolermanager.MultiPoolerManager/IsReadOnly"
-	MultiPoolerManager_SetStandbyPrimaryConnInfo_FullMethodName       = "/multipoolermanager.MultiPoolerManager/SetStandbyPrimaryConnInfo"
-	MultiPoolerManager_StartStandbyReplication_FullMethodName         = "/multipoolermanager.MultiPoolerManager/StartStandbyReplication"
-	MultiPoolerManager_StopStandbyReplication_FullMethodName          = "/multipoolermanager.MultiPoolerManager/StopStandbyReplication"
-	MultiPoolerManager_StandbyReplicationStatus_FullMethodName        = "/multipoolermanager.MultiPoolerManager/StandbyReplicationStatus"
-	MultiPoolerManager_ResetStandbyReplication_FullMethodName         = "/multipoolermanager.MultiPoolerManager/ResetStandbyReplication"
+	MultiPoolerManager_SetPrimaryConnInfo_FullMethodName              = "/multipoolermanager.MultiPoolerManager/SetPrimaryConnInfo"
+	MultiPoolerManager_StartReplication_FullMethodName                = "/multipoolermanager.MultiPoolerManager/StartReplication"
+	MultiPoolerManager_StopReplication_FullMethodName                 = "/multipoolermanager.MultiPoolerManager/StopReplication"
+	MultiPoolerManager_ReplicationStatus_FullMethodName               = "/multipoolermanager.MultiPoolerManager/ReplicationStatus"
+	MultiPoolerManager_ResetReplication_FullMethodName                = "/multipoolermanager.MultiPoolerManager/ResetReplication"
 	MultiPoolerManager_ConfigureSynchronousReplication_FullMethodName = "/multipoolermanager.MultiPoolerManager/ConfigureSynchronousReplication"
 	MultiPoolerManager_PrimaryStatus_FullMethodName                   = "/multipoolermanager.MultiPoolerManager/PrimaryStatus"
 	MultiPoolerManager_PrimaryPosition_FullMethodName                 = "/multipoolermanager.MultiPoolerManager/PrimaryPosition"
 	MultiPoolerManager_StopReplicationAndGetStatus_FullMethodName     = "/multipoolermanager.MultiPoolerManager/StopReplicationAndGetStatus"
 	MultiPoolerManager_ChangeType_FullMethodName                      = "/multipoolermanager.MultiPoolerManager/ChangeType"
 	MultiPoolerManager_GetFollowers_FullMethodName                    = "/multipoolermanager.MultiPoolerManager/GetFollowers"
-	MultiPoolerManager_DemoteLeader_FullMethodName                    = "/multipoolermanager.MultiPoolerManager/DemoteLeader"
-	MultiPoolerManager_UndoDemoteLeader_FullMethodName                = "/multipoolermanager.MultiPoolerManager/UndoDemoteLeader"
-	MultiPoolerManager_PromoteFollower_FullMethodName                 = "/multipoolermanager.MultiPoolerManager/PromoteFollower"
+	MultiPoolerManager_Demote_FullMethodName                          = "/multipoolermanager.MultiPoolerManager/Demote"
+	MultiPoolerManager_UndoDemote_FullMethodName                      = "/multipoolermanager.MultiPoolerManager/UndoDemote"
+	MultiPoolerManager_Promote_FullMethodName                         = "/multipoolermanager.MultiPoolerManager/Promote"
+	MultiPoolerManager_Status_FullMethodName                          = "/multipoolermanager.MultiPoolerManager/Status"
 )
 
 // MultiPoolerManagerClient is the client API for MultiPoolerManager service.
@@ -63,26 +62,21 @@ type MultiPoolerManagerClient interface {
 	WaitForLSN(ctx context.Context, in *multipoolermanagerdata.WaitForLSNRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.WaitForLSNResponse, error)
 	// SetReadOnly makes the PostgreSQL instance read-only
 	SetReadOnly(ctx context.Context, in *multipoolermanagerdata.SetReadOnlyRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.SetReadOnlyResponse, error)
-	// PromoteStandby PostgreSQL standby server to primary
-	// this will call pg_promote() in the underlying instance.
-	PromoteStandby(ctx context.Context, in *multipoolermanagerdata.PromoteStandbyRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.PromoteStandbyResponse, error)
-	// GetPrimaryLSN gets the current leader LSN position
-	GetPrimaryLSN(ctx context.Context, in *multipoolermanagerdata.GetPrimaryLSNRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.GetPrimaryLSNResponse, error)
 	// IsReadOnly checks if PostgreSQL instance is in read-only mode
 	IsReadOnly(ctx context.Context, in *multipoolermanagerdata.IsReadOnlyRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.IsReadOnlyResponse, error)
-	// SetStandbyPrimaryConnInfo sets the primary connection info for a standby server
-	SetStandbyPrimaryConnInfo(ctx context.Context, in *multipoolermanagerdata.SetStandbyPrimaryConnInfoRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.SetStandbyPrimaryConnInfoResponse, error)
-	// StartStandbyReplication starts WAL replay on standby (calls pg_wal_replay_resume)
-	StartStandbyReplication(ctx context.Context, in *multipoolermanagerdata.StartReplicationRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.StartReplicationResponse, error)
-	// StopStandbyReplication stops WAL replay on standby (calls pg_wal_replay_pause)
-	StopStandbyReplication(ctx context.Context, in *multipoolermanagerdata.StopStandbyReplicationRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.StopStandbyReplicationResponse, error)
-	// StandbyReplicationStatus gets the current replication status of the standby
-	StandbyReplicationStatus(ctx context.Context, in *multipoolermanagerdata.StandbyReplicationStatusRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.StandbyReplicationStatusResponse, error)
-	// ResetStandbyReplication resets the standby's connection to its primary by clearing primary_conninfo,
+	// SetPrimaryConnInfo sets the primary connection info for a standby server
+	SetPrimaryConnInfo(ctx context.Context, in *multipoolermanagerdata.SetPrimaryConnInfoRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.SetPrimaryConnInfoResponse, error)
+	// StartReplication starts WAL replay on standby (calls pg_wal_replay_resume)
+	StartReplication(ctx context.Context, in *multipoolermanagerdata.StartReplicationRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.StartReplicationResponse, error)
+	// StopReplication stops WAL replay on standby (calls pg_wal_replay_pause)
+	StopReplication(ctx context.Context, in *multipoolermanagerdata.StopReplicationRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.StopReplicationResponse, error)
+	// ReplicationStatus gets the current replication status of the standby
+	ReplicationStatus(ctx context.Context, in *multipoolermanagerdata.ReplicationStatusRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.ReplicationStatusResponse, error)
+	// ResetReplication resets the standby's connection to its primary by clearing primary_conninfo,
 	// reloading PostgreSQL configuration, and terminating the WAL receiver process. This effectively
 	// disconnects the replica from the primary and prevents it from acknowledging commits, making it
 	// unavailable for synchronous replication until reconfigured.
-	ResetStandbyReplication(ctx context.Context, in *multipoolermanagerdata.ResetStandbyReplicationRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.ResetStandbyReplicationResponse, error)
+	ResetReplication(ctx context.Context, in *multipoolermanagerdata.ResetReplicationRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.ResetReplicationResponse, error)
 	// ConfigureSynchronousReplication configures PostgreSQL synchronous replication settings
 	// including synchronous_commit, synchronous_standby_names, and synchronization method (ANY/FIRST/quorum)
 	ConfigureSynchronousReplication(ctx context.Context, in *multipoolermanagerdata.ConfigureSynchronousReplicationRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.ConfigureSynchronousReplicationResponse, error)
@@ -96,12 +90,14 @@ type MultiPoolerManagerClient interface {
 	ChangeType(ctx context.Context, in *multipoolermanagerdata.ChangeTypeRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.ChangeTypeResponse, error)
 	// GetFollowers gets the list of follower servers
 	GetFollowers(ctx context.Context, in *multipoolermanagerdata.GetFollowersRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.GetFollowersResponse, error)
-	// DemoteLeader demotes the current leader server
-	DemoteLeader(ctx context.Context, in *multipoolermanagerdata.DemoteLeaderRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.DemoteLeaderResponse, error)
-	// UndoDemoteLeader undoes a leader demotion
-	UndoDemoteLeader(ctx context.Context, in *multipoolermanagerdata.UndoDemoteLeaderRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.UndoDemoteLeaderResponse, error)
-	// PromoteFollower promotes a follower to leader
-	PromoteFollower(ctx context.Context, in *multipoolermanagerdata.PromoteFollowerRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.PromoteFollowerResponse, error)
+	// Demote demotes the current leader server
+	Demote(ctx context.Context, in *multipoolermanagerdata.DemoteRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.DemoteResponse, error)
+	// UndoDemote undoes a demotion
+	UndoDemote(ctx context.Context, in *multipoolermanagerdata.UndoDemoteRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.UndoDemoteResponse, error)
+	// Promote promotes a replica to leader (Multigres-level operation)
+	Promote(ctx context.Context, in *multipoolermanagerdata.PromoteRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.PromoteResponse, error)
+	// Status gets the current status of the manager
+	Status(ctx context.Context, in *multipoolermanagerdata.StatusRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.StatusResponse, error)
 }
 
 type multiPoolerManagerClient struct {
@@ -130,24 +126,6 @@ func (c *multiPoolerManagerClient) SetReadOnly(ctx context.Context, in *multipoo
 	return out, nil
 }
 
-func (c *multiPoolerManagerClient) PromoteStandby(ctx context.Context, in *multipoolermanagerdata.PromoteStandbyRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.PromoteStandbyResponse, error) {
-	out := new(multipoolermanagerdata.PromoteStandbyResponse)
-	err := c.cc.Invoke(ctx, MultiPoolerManager_PromoteStandby_FullMethodName, in, out, opts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *multiPoolerManagerClient) GetPrimaryLSN(ctx context.Context, in *multipoolermanagerdata.GetPrimaryLSNRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.GetPrimaryLSNResponse, error) {
-	out := new(multipoolermanagerdata.GetPrimaryLSNResponse)
-	err := c.cc.Invoke(ctx, MultiPoolerManager_GetPrimaryLSN_FullMethodName, in, out, opts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
 func (c *multiPoolerManagerClient) IsReadOnly(ctx context.Context, in *multipoolermanagerdata.IsReadOnlyRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.IsReadOnlyResponse, error) {
 	out := new(multipoolermanagerdata.IsReadOnlyResponse)
 	err := c.cc.Invoke(ctx, MultiPoolerManager_IsReadOnly_FullMethodName, in, out, opts...)
@@ -157,45 +135,45 @@ func (c *multiPoolerManagerClient) IsReadOnly(ctx context.Context, in *multipool
 	return out, nil
 }
 
-func (c *multiPoolerManagerClient) SetStandbyPrimaryConnInfo(ctx context.Context, in *multipoolermanagerdata.SetStandbyPrimaryConnInfoRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.SetStandbyPrimaryConnInfoResponse, error) {
-	out := new(multipoolermanagerdata.SetStandbyPrimaryConnInfoResponse)
-	err := c.cc.Invoke(ctx, MultiPoolerManager_SetStandbyPrimaryConnInfo_FullMethodName, in, out, opts...)
+func (c *multiPoolerManagerClient) SetPrimaryConnInfo(ctx context.Context, in *multipoolermanagerdata.SetPrimaryConnInfoRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.SetPrimaryConnInfoResponse, error) {
+	out := new(multipoolermanagerdata.SetPrimaryConnInfoResponse)
+	err := c.cc.Invoke(ctx, MultiPoolerManager_SetPrimaryConnInfo_FullMethodName, in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *multiPoolerManagerClient) StartStandbyReplication(ctx context.Context, in *multipoolermanagerdata.StartReplicationRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.StartReplicationResponse, error) {
+func (c *multiPoolerManagerClient) StartReplication(ctx context.Context, in *multipoolermanagerdata.StartReplicationRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.StartReplicationResponse, error) {
 	out := new(multipoolermanagerdata.StartReplicationResponse)
-	err := c.cc.Invoke(ctx, MultiPoolerManager_StartStandbyReplication_FullMethodName, in, out, opts...)
+	err := c.cc.Invoke(ctx, MultiPoolerManager_StartReplication_FullMethodName, in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *multiPoolerManagerClient) StopStandbyReplication(ctx context.Context, in *multipoolermanagerdata.StopStandbyReplicationRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.StopStandbyReplicationResponse, error) {
-	out := new(multipoolermanagerdata.StopStandbyReplicationResponse)
-	err := c.cc.Invoke(ctx, MultiPoolerManager_StopStandbyReplication_FullMethodName, in, out, opts...)
+func (c *multiPoolerManagerClient) StopReplication(ctx context.Context, in *multipoolermanagerdata.StopReplicationRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.StopReplicationResponse, error) {
+	out := new(multipoolermanagerdata.StopReplicationResponse)
+	err := c.cc.Invoke(ctx, MultiPoolerManager_StopReplication_FullMethodName, in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *multiPoolerManagerClient) StandbyReplicationStatus(ctx context.Context, in *multipoolermanagerdata.StandbyReplicationStatusRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.StandbyReplicationStatusResponse, error) {
-	out := new(multipoolermanagerdata.StandbyReplicationStatusResponse)
-	err := c.cc.Invoke(ctx, MultiPoolerManager_StandbyReplicationStatus_FullMethodName, in, out, opts...)
+func (c *multiPoolerManagerClient) ReplicationStatus(ctx context.Context, in *multipoolermanagerdata.ReplicationStatusRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.ReplicationStatusResponse, error) {
+	out := new(multipoolermanagerdata.ReplicationStatusResponse)
+	err := c.cc.Invoke(ctx, MultiPoolerManager_ReplicationStatus_FullMethodName, in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *multiPoolerManagerClient) ResetStandbyReplication(ctx context.Context, in *multipoolermanagerdata.ResetStandbyReplicationRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.ResetStandbyReplicationResponse, error) {
-	out := new(multipoolermanagerdata.ResetStandbyReplicationResponse)
-	err := c.cc.Invoke(ctx, MultiPoolerManager_ResetStandbyReplication_FullMethodName, in, out, opts...)
+func (c *multiPoolerManagerClient) ResetReplication(ctx context.Context, in *multipoolermanagerdata.ResetReplicationRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.ResetReplicationResponse, error) {
+	out := new(multipoolermanagerdata.ResetReplicationResponse)
+	err := c.cc.Invoke(ctx, MultiPoolerManager_ResetReplication_FullMethodName, in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -256,27 +234,36 @@ func (c *multiPoolerManagerClient) GetFollowers(ctx context.Context, in *multipo
 	return out, nil
 }
 
-func (c *multiPoolerManagerClient) DemoteLeader(ctx context.Context, in *multipoolermanagerdata.DemoteLeaderRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.DemoteLeaderResponse, error) {
-	out := new(multipoolermanagerdata.DemoteLeaderResponse)
-	err := c.cc.Invoke(ctx, MultiPoolerManager_DemoteLeader_FullMethodName, in, out, opts...)
+func (c *multiPoolerManagerClient) Demote(ctx context.Context, in *multipoolermanagerdata.DemoteRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.DemoteResponse, error) {
+	out := new(multipoolermanagerdata.DemoteResponse)
+	err := c.cc.Invoke(ctx, MultiPoolerManager_Demote_FullMethodName, in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *multiPoolerManagerClient) UndoDemoteLeader(ctx context.Context, in *multipoolermanagerdata.UndoDemoteLeaderRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.UndoDemoteLeaderResponse, error) {
-	out := new(multipoolermanagerdata.UndoDemoteLeaderResponse)
-	err := c.cc.Invoke(ctx, MultiPoolerManager_UndoDemoteLeader_FullMethodName, in, out, opts...)
+func (c *multiPoolerManagerClient) UndoDemote(ctx context.Context, in *multipoolermanagerdata.UndoDemoteRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.UndoDemoteResponse, error) {
+	out := new(multipoolermanagerdata.UndoDemoteResponse)
+	err := c.cc.Invoke(ctx, MultiPoolerManager_UndoDemote_FullMethodName, in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *multiPoolerManagerClient) PromoteFollower(ctx context.Context, in *multipoolermanagerdata.PromoteFollowerRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.PromoteFollowerResponse, error) {
-	out := new(multipoolermanagerdata.PromoteFollowerResponse)
-	err := c.cc.Invoke(ctx, MultiPoolerManager_PromoteFollower_FullMethodName, in, out, opts...)
+func (c *multiPoolerManagerClient) Promote(ctx context.Context, in *multipoolermanagerdata.PromoteRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.PromoteResponse, error) {
+	out := new(multipoolermanagerdata.PromoteResponse)
+	err := c.cc.Invoke(ctx, MultiPoolerManager_Promote_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *multiPoolerManagerClient) Status(ctx context.Context, in *multipoolermanagerdata.StatusRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.StatusResponse, error) {
+	out := new(multipoolermanagerdata.StatusResponse)
+	err := c.cc.Invoke(ctx, MultiPoolerManager_Status_FullMethodName, in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -291,26 +278,21 @@ type MultiPoolerManagerServer interface {
 	WaitForLSN(context.Context, *multipoolermanagerdata.WaitForLSNRequest) (*multipoolermanagerdata.WaitForLSNResponse, error)
 	// SetReadOnly makes the PostgreSQL instance read-only
 	SetReadOnly(context.Context, *multipoolermanagerdata.SetReadOnlyRequest) (*multipoolermanagerdata.SetReadOnlyResponse, error)
-	// PromoteStandby PostgreSQL standby server to primary
-	// this will call pg_promote() in the underlying instance.
-	PromoteStandby(context.Context, *multipoolermanagerdata.PromoteStandbyRequest) (*multipoolermanagerdata.PromoteStandbyResponse, error)
-	// GetPrimaryLSN gets the current leader LSN position
-	GetPrimaryLSN(context.Context, *multipoolermanagerdata.GetPrimaryLSNRequest) (*multipoolermanagerdata.GetPrimaryLSNResponse, error)
 	// IsReadOnly checks if PostgreSQL instance is in read-only mode
 	IsReadOnly(context.Context, *multipoolermanagerdata.IsReadOnlyRequest) (*multipoolermanagerdata.IsReadOnlyResponse, error)
-	// SetStandbyPrimaryConnInfo sets the primary connection info for a standby server
-	SetStandbyPrimaryConnInfo(context.Context, *multipoolermanagerdata.SetStandbyPrimaryConnInfoRequest) (*multipoolermanagerdata.SetStandbyPrimaryConnInfoResponse, error)
-	// StartStandbyReplication starts WAL replay on standby (calls pg_wal_replay_resume)
-	StartStandbyReplication(context.Context, *multipoolermanagerdata.StartReplicationRequest) (*multipoolermanagerdata.StartReplicationResponse, error)
-	// StopStandbyReplication stops WAL replay on standby (calls pg_wal_replay_pause)
-	StopStandbyReplication(context.Context, *multipoolermanagerdata.StopStandbyReplicationRequest) (*multipoolermanagerdata.StopStandbyReplicationResponse, error)
-	// StandbyReplicationStatus gets the current replication status of the standby
-	StandbyReplicationStatus(context.Context, *multipoolermanagerdata.StandbyReplicationStatusRequest) (*multipoolermanagerdata.StandbyReplicationStatusResponse, error)
-	// ResetStandbyReplication resets the standby's connection to its primary by clearing primary_conninfo,
+	// SetPrimaryConnInfo sets the primary connection info for a standby server
+	SetPrimaryConnInfo(context.Context, *multipoolermanagerdata.SetPrimaryConnInfoRequest) (*multipoolermanagerdata.SetPrimaryConnInfoResponse, error)
+	// StartReplication starts WAL replay on standby (calls pg_wal_replay_resume)
+	StartReplication(context.Context, *multipoolermanagerdata.StartReplicationRequest) (*multipoolermanagerdata.StartReplicationResponse, error)
+	// StopReplication stops WAL replay on standby (calls pg_wal_replay_pause)
+	StopReplication(context.Context, *multipoolermanagerdata.StopReplicationRequest) (*multipoolermanagerdata.StopReplicationResponse, error)
+	// ReplicationStatus gets the current replication status of the standby
+	ReplicationStatus(context.Context, *multipoolermanagerdata.ReplicationStatusRequest) (*multipoolermanagerdata.ReplicationStatusResponse, error)
+	// ResetReplication resets the standby's connection to its primary by clearing primary_conninfo,
 	// reloading PostgreSQL configuration, and terminating the WAL receiver process. This effectively
 	// disconnects the replica from the primary and prevents it from acknowledging commits, making it
 	// unavailable for synchronous replication until reconfigured.
-	ResetStandbyReplication(context.Context, *multipoolermanagerdata.ResetStandbyReplicationRequest) (*multipoolermanagerdata.ResetStandbyReplicationResponse, error)
+	ResetReplication(context.Context, *multipoolermanagerdata.ResetReplicationRequest) (*multipoolermanagerdata.ResetReplicationResponse, error)
 	// ConfigureSynchronousReplication configures PostgreSQL synchronous replication settings
 	// including synchronous_commit, synchronous_standby_names, and synchronization method (ANY/FIRST/quorum)
 	ConfigureSynchronousReplication(context.Context, *multipoolermanagerdata.ConfigureSynchronousReplicationRequest) (*multipoolermanagerdata.ConfigureSynchronousReplicationResponse, error)
@@ -324,12 +306,14 @@ type MultiPoolerManagerServer interface {
 	ChangeType(context.Context, *multipoolermanagerdata.ChangeTypeRequest) (*multipoolermanagerdata.ChangeTypeResponse, error)
 	// GetFollowers gets the list of follower servers
 	GetFollowers(context.Context, *multipoolermanagerdata.GetFollowersRequest) (*multipoolermanagerdata.GetFollowersResponse, error)
-	// DemoteLeader demotes the current leader server
-	DemoteLeader(context.Context, *multipoolermanagerdata.DemoteLeaderRequest) (*multipoolermanagerdata.DemoteLeaderResponse, error)
-	// UndoDemoteLeader undoes a leader demotion
-	UndoDemoteLeader(context.Context, *multipoolermanagerdata.UndoDemoteLeaderRequest) (*multipoolermanagerdata.UndoDemoteLeaderResponse, error)
-	// PromoteFollower promotes a follower to leader
-	PromoteFollower(context.Context, *multipoolermanagerdata.PromoteFollowerRequest) (*multipoolermanagerdata.PromoteFollowerResponse, error)
+	// Demote demotes the current leader server
+	Demote(context.Context, *multipoolermanagerdata.DemoteRequest) (*multipoolermanagerdata.DemoteResponse, error)
+	// UndoDemote undoes a demotion
+	UndoDemote(context.Context, *multipoolermanagerdata.UndoDemoteRequest) (*multipoolermanagerdata.UndoDemoteResponse, error)
+	// Promote promotes a replica to leader (Multigres-level operation)
+	Promote(context.Context, *multipoolermanagerdata.PromoteRequest) (*multipoolermanagerdata.PromoteResponse, error)
+	// Status gets the current status of the manager
+	Status(context.Context, *multipoolermanagerdata.StatusRequest) (*multipoolermanagerdata.StatusResponse, error)
 	mustEmbedUnimplementedMultiPoolerManagerServer()
 }
 
@@ -343,29 +327,23 @@ func (UnimplementedMultiPoolerManagerServer) WaitForLSN(context.Context, *multip
 func (UnimplementedMultiPoolerManagerServer) SetReadOnly(context.Context, *multipoolermanagerdata.SetReadOnlyRequest) (*multipoolermanagerdata.SetReadOnlyResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SetReadOnly not implemented")
 }
-func (UnimplementedMultiPoolerManagerServer) PromoteStandby(context.Context, *multipoolermanagerdata.PromoteStandbyRequest) (*multipoolermanagerdata.PromoteStandbyResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method PromoteStandby not implemented")
-}
-func (UnimplementedMultiPoolerManagerServer) GetPrimaryLSN(context.Context, *multipoolermanagerdata.GetPrimaryLSNRequest) (*multipoolermanagerdata.GetPrimaryLSNResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method GetPrimaryLSN not implemented")
-}
 func (UnimplementedMultiPoolerManagerServer) IsReadOnly(context.Context, *multipoolermanagerdata.IsReadOnlyRequest) (*multipoolermanagerdata.IsReadOnlyResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method IsReadOnly not implemented")
 }
-func (UnimplementedMultiPoolerManagerServer) SetStandbyPrimaryConnInfo(context.Context, *multipoolermanagerdata.SetStandbyPrimaryConnInfoRequest) (*multipoolermanagerdata.SetStandbyPrimaryConnInfoResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method SetStandbyPrimaryConnInfo not implemented")
+func (UnimplementedMultiPoolerManagerServer) SetPrimaryConnInfo(context.Context, *multipoolermanagerdata.SetPrimaryConnInfoRequest) (*multipoolermanagerdata.SetPrimaryConnInfoResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method SetPrimaryConnInfo not implemented")
 }
-func (UnimplementedMultiPoolerManagerServer) StartStandbyReplication(context.Context, *multipoolermanagerdata.StartReplicationRequest) (*multipoolermanagerdata.StartReplicationResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method StartStandbyReplication not implemented")
+func (UnimplementedMultiPoolerManagerServer) StartReplication(context.Context, *multipoolermanagerdata.StartReplicationRequest) (*multipoolermanagerdata.StartReplicationResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method StartReplication not implemented")
 }
-func (UnimplementedMultiPoolerManagerServer) StopStandbyReplication(context.Context, *multipoolermanagerdata.StopStandbyReplicationRequest) (*multipoolermanagerdata.StopStandbyReplicationResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method StopStandbyReplication not implemented")
+func (UnimplementedMultiPoolerManagerServer) StopReplication(context.Context, *multipoolermanagerdata.StopReplicationRequest) (*multipoolermanagerdata.StopReplicationResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method StopReplication not implemented")
 }
-func (UnimplementedMultiPoolerManagerServer) StandbyReplicationStatus(context.Context, *multipoolermanagerdata.StandbyReplicationStatusRequest) (*multipoolermanagerdata.StandbyReplicationStatusResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method StandbyReplicationStatus not implemented")
+func (UnimplementedMultiPoolerManagerServer) ReplicationStatus(context.Context, *multipoolermanagerdata.ReplicationStatusRequest) (*multipoolermanagerdata.ReplicationStatusResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ReplicationStatus not implemented")
 }
-func (UnimplementedMultiPoolerManagerServer) ResetStandbyReplication(context.Context, *multipoolermanagerdata.ResetStandbyReplicationRequest) (*multipoolermanagerdata.ResetStandbyReplicationResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method ResetStandbyReplication not implemented")
+func (UnimplementedMultiPoolerManagerServer) ResetReplication(context.Context, *multipoolermanagerdata.ResetReplicationRequest) (*multipoolermanagerdata.ResetReplicationResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ResetReplication not implemented")
 }
 func (UnimplementedMultiPoolerManagerServer) ConfigureSynchronousReplication(context.Context, *multipoolermanagerdata.ConfigureSynchronousReplicationRequest) (*multipoolermanagerdata.ConfigureSynchronousReplicationResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ConfigureSynchronousReplication not implemented")
@@ -385,14 +363,17 @@ func (UnimplementedMultiPoolerManagerServer) ChangeType(context.Context, *multip
 func (UnimplementedMultiPoolerManagerServer) GetFollowers(context.Context, *multipoolermanagerdata.GetFollowersRequest) (*multipoolermanagerdata.GetFollowersResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetFollowers not implemented")
 }
-func (UnimplementedMultiPoolerManagerServer) DemoteLeader(context.Context, *multipoolermanagerdata.DemoteLeaderRequest) (*multipoolermanagerdata.DemoteLeaderResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method DemoteLeader not implemented")
+func (UnimplementedMultiPoolerManagerServer) Demote(context.Context, *multipoolermanagerdata.DemoteRequest) (*multipoolermanagerdata.DemoteResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method Demote not implemented")
 }
-func (UnimplementedMultiPoolerManagerServer) UndoDemoteLeader(context.Context, *multipoolermanagerdata.UndoDemoteLeaderRequest) (*multipoolermanagerdata.UndoDemoteLeaderResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method UndoDemoteLeader not implemented")
+func (UnimplementedMultiPoolerManagerServer) UndoDemote(context.Context, *multipoolermanagerdata.UndoDemoteRequest) (*multipoolermanagerdata.UndoDemoteResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method UndoDemote not implemented")
 }
-func (UnimplementedMultiPoolerManagerServer) PromoteFollower(context.Context, *multipoolermanagerdata.PromoteFollowerRequest) (*multipoolermanagerdata.PromoteFollowerResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method PromoteFollower not implemented")
+func (UnimplementedMultiPoolerManagerServer) Promote(context.Context, *multipoolermanagerdata.PromoteRequest) (*multipoolermanagerdata.PromoteResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method Promote not implemented")
+}
+func (UnimplementedMultiPoolerManagerServer) Status(context.Context, *multipoolermanagerdata.StatusRequest) (*multipoolermanagerdata.StatusResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method Status not implemented")
 }
 func (UnimplementedMultiPoolerManagerServer) mustEmbedUnimplementedMultiPoolerManagerServer() {}
 
@@ -443,42 +424,6 @@ func _MultiPoolerManager_SetReadOnly_Handler(srv interface{}, ctx context.Contex
 	return interceptor(ctx, in, info, handler)
 }
 
-func _MultiPoolerManager_PromoteStandby_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(multipoolermanagerdata.PromoteStandbyRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(MultiPoolerManagerServer).PromoteStandby(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: MultiPoolerManager_PromoteStandby_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(MultiPoolerManagerServer).PromoteStandby(ctx, req.(*multipoolermanagerdata.PromoteStandbyRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _MultiPoolerManager_GetPrimaryLSN_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(multipoolermanagerdata.GetPrimaryLSNRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(MultiPoolerManagerServer).GetPrimaryLSN(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: MultiPoolerManager_GetPrimaryLSN_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(MultiPoolerManagerServer).GetPrimaryLSN(ctx, req.(*multipoolermanagerdata.GetPrimaryLSNRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
 func _MultiPoolerManager_IsReadOnly_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(multipoolermanagerdata.IsReadOnlyRequest)
 	if err := dec(in); err != nil {
@@ -497,92 +442,92 @@ func _MultiPoolerManager_IsReadOnly_Handler(srv interface{}, ctx context.Context
 	return interceptor(ctx, in, info, handler)
 }
 
-func _MultiPoolerManager_SetStandbyPrimaryConnInfo_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(multipoolermanagerdata.SetStandbyPrimaryConnInfoRequest)
+func _MultiPoolerManager_SetPrimaryConnInfo_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(multipoolermanagerdata.SetPrimaryConnInfoRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(MultiPoolerManagerServer).SetStandbyPrimaryConnInfo(ctx, in)
+		return srv.(MultiPoolerManagerServer).SetPrimaryConnInfo(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: MultiPoolerManager_SetStandbyPrimaryConnInfo_FullMethodName,
+		FullMethod: MultiPoolerManager_SetPrimaryConnInfo_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(MultiPoolerManagerServer).SetStandbyPrimaryConnInfo(ctx, req.(*multipoolermanagerdata.SetStandbyPrimaryConnInfoRequest))
+		return srv.(MultiPoolerManagerServer).SetPrimaryConnInfo(ctx, req.(*multipoolermanagerdata.SetPrimaryConnInfoRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _MultiPoolerManager_StartStandbyReplication_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func _MultiPoolerManager_StartReplication_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(multipoolermanagerdata.StartReplicationRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(MultiPoolerManagerServer).StartStandbyReplication(ctx, in)
+		return srv.(MultiPoolerManagerServer).StartReplication(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: MultiPoolerManager_StartStandbyReplication_FullMethodName,
+		FullMethod: MultiPoolerManager_StartReplication_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(MultiPoolerManagerServer).StartStandbyReplication(ctx, req.(*multipoolermanagerdata.StartReplicationRequest))
+		return srv.(MultiPoolerManagerServer).StartReplication(ctx, req.(*multipoolermanagerdata.StartReplicationRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _MultiPoolerManager_StopStandbyReplication_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(multipoolermanagerdata.StopStandbyReplicationRequest)
+func _MultiPoolerManager_StopReplication_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(multipoolermanagerdata.StopReplicationRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(MultiPoolerManagerServer).StopStandbyReplication(ctx, in)
+		return srv.(MultiPoolerManagerServer).StopReplication(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: MultiPoolerManager_StopStandbyReplication_FullMethodName,
+		FullMethod: MultiPoolerManager_StopReplication_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(MultiPoolerManagerServer).StopStandbyReplication(ctx, req.(*multipoolermanagerdata.StopStandbyReplicationRequest))
+		return srv.(MultiPoolerManagerServer).StopReplication(ctx, req.(*multipoolermanagerdata.StopReplicationRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _MultiPoolerManager_StandbyReplicationStatus_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(multipoolermanagerdata.StandbyReplicationStatusRequest)
+func _MultiPoolerManager_ReplicationStatus_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(multipoolermanagerdata.ReplicationStatusRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(MultiPoolerManagerServer).StandbyReplicationStatus(ctx, in)
+		return srv.(MultiPoolerManagerServer).ReplicationStatus(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: MultiPoolerManager_StandbyReplicationStatus_FullMethodName,
+		FullMethod: MultiPoolerManager_ReplicationStatus_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(MultiPoolerManagerServer).StandbyReplicationStatus(ctx, req.(*multipoolermanagerdata.StandbyReplicationStatusRequest))
+		return srv.(MultiPoolerManagerServer).ReplicationStatus(ctx, req.(*multipoolermanagerdata.ReplicationStatusRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _MultiPoolerManager_ResetStandbyReplication_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(multipoolermanagerdata.ResetStandbyReplicationRequest)
+func _MultiPoolerManager_ResetReplication_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(multipoolermanagerdata.ResetReplicationRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(MultiPoolerManagerServer).ResetStandbyReplication(ctx, in)
+		return srv.(MultiPoolerManagerServer).ResetReplication(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: MultiPoolerManager_ResetStandbyReplication_FullMethodName,
+		FullMethod: MultiPoolerManager_ResetReplication_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(MultiPoolerManagerServer).ResetStandbyReplication(ctx, req.(*multipoolermanagerdata.ResetStandbyReplicationRequest))
+		return srv.(MultiPoolerManagerServer).ResetReplication(ctx, req.(*multipoolermanagerdata.ResetReplicationRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -695,56 +640,74 @@ func _MultiPoolerManager_GetFollowers_Handler(srv interface{}, ctx context.Conte
 	return interceptor(ctx, in, info, handler)
 }
 
-func _MultiPoolerManager_DemoteLeader_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(multipoolermanagerdata.DemoteLeaderRequest)
+func _MultiPoolerManager_Demote_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(multipoolermanagerdata.DemoteRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(MultiPoolerManagerServer).DemoteLeader(ctx, in)
+		return srv.(MultiPoolerManagerServer).Demote(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: MultiPoolerManager_DemoteLeader_FullMethodName,
+		FullMethod: MultiPoolerManager_Demote_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(MultiPoolerManagerServer).DemoteLeader(ctx, req.(*multipoolermanagerdata.DemoteLeaderRequest))
+		return srv.(MultiPoolerManagerServer).Demote(ctx, req.(*multipoolermanagerdata.DemoteRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _MultiPoolerManager_UndoDemoteLeader_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(multipoolermanagerdata.UndoDemoteLeaderRequest)
+func _MultiPoolerManager_UndoDemote_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(multipoolermanagerdata.UndoDemoteRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(MultiPoolerManagerServer).UndoDemoteLeader(ctx, in)
+		return srv.(MultiPoolerManagerServer).UndoDemote(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: MultiPoolerManager_UndoDemoteLeader_FullMethodName,
+		FullMethod: MultiPoolerManager_UndoDemote_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(MultiPoolerManagerServer).UndoDemoteLeader(ctx, req.(*multipoolermanagerdata.UndoDemoteLeaderRequest))
+		return srv.(MultiPoolerManagerServer).UndoDemote(ctx, req.(*multipoolermanagerdata.UndoDemoteRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _MultiPoolerManager_PromoteFollower_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(multipoolermanagerdata.PromoteFollowerRequest)
+func _MultiPoolerManager_Promote_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(multipoolermanagerdata.PromoteRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(MultiPoolerManagerServer).PromoteFollower(ctx, in)
+		return srv.(MultiPoolerManagerServer).Promote(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: MultiPoolerManager_PromoteFollower_FullMethodName,
+		FullMethod: MultiPoolerManager_Promote_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(MultiPoolerManagerServer).PromoteFollower(ctx, req.(*multipoolermanagerdata.PromoteFollowerRequest))
+		return srv.(MultiPoolerManagerServer).Promote(ctx, req.(*multipoolermanagerdata.PromoteRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _MultiPoolerManager_Status_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(multipoolermanagerdata.StatusRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MultiPoolerManagerServer).Status(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MultiPoolerManager_Status_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MultiPoolerManagerServer).Status(ctx, req.(*multipoolermanagerdata.StatusRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -765,36 +728,28 @@ var MultiPoolerManager_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _MultiPoolerManager_SetReadOnly_Handler,
 		},
 		{
-			MethodName: "PromoteStandby",
-			Handler:    _MultiPoolerManager_PromoteStandby_Handler,
-		},
-		{
-			MethodName: "GetPrimaryLSN",
-			Handler:    _MultiPoolerManager_GetPrimaryLSN_Handler,
-		},
-		{
 			MethodName: "IsReadOnly",
 			Handler:    _MultiPoolerManager_IsReadOnly_Handler,
 		},
 		{
-			MethodName: "SetStandbyPrimaryConnInfo",
-			Handler:    _MultiPoolerManager_SetStandbyPrimaryConnInfo_Handler,
+			MethodName: "SetPrimaryConnInfo",
+			Handler:    _MultiPoolerManager_SetPrimaryConnInfo_Handler,
 		},
 		{
-			MethodName: "StartStandbyReplication",
-			Handler:    _MultiPoolerManager_StartStandbyReplication_Handler,
+			MethodName: "StartReplication",
+			Handler:    _MultiPoolerManager_StartReplication_Handler,
 		},
 		{
-			MethodName: "StopStandbyReplication",
-			Handler:    _MultiPoolerManager_StopStandbyReplication_Handler,
+			MethodName: "StopReplication",
+			Handler:    _MultiPoolerManager_StopReplication_Handler,
 		},
 		{
-			MethodName: "StandbyReplicationStatus",
-			Handler:    _MultiPoolerManager_StandbyReplicationStatus_Handler,
+			MethodName: "ReplicationStatus",
+			Handler:    _MultiPoolerManager_ReplicationStatus_Handler,
 		},
 		{
-			MethodName: "ResetStandbyReplication",
-			Handler:    _MultiPoolerManager_ResetStandbyReplication_Handler,
+			MethodName: "ResetReplication",
+			Handler:    _MultiPoolerManager_ResetReplication_Handler,
 		},
 		{
 			MethodName: "ConfigureSynchronousReplication",
@@ -821,16 +776,20 @@ var MultiPoolerManager_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _MultiPoolerManager_GetFollowers_Handler,
 		},
 		{
-			MethodName: "DemoteLeader",
-			Handler:    _MultiPoolerManager_DemoteLeader_Handler,
+			MethodName: "Demote",
+			Handler:    _MultiPoolerManager_Demote_Handler,
 		},
 		{
-			MethodName: "UndoDemoteLeader",
-			Handler:    _MultiPoolerManager_UndoDemoteLeader_Handler,
+			MethodName: "UndoDemote",
+			Handler:    _MultiPoolerManager_UndoDemote_Handler,
 		},
 		{
-			MethodName: "PromoteFollower",
-			Handler:    _MultiPoolerManager_PromoteFollower_Handler,
+			MethodName: "Promote",
+			Handler:    _MultiPoolerManager_Promote_Handler,
+		},
+		{
+			MethodName: "Status",
+			Handler:    _MultiPoolerManager_Status_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

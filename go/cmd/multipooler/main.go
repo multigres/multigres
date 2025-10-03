@@ -44,7 +44,7 @@ func main() {
 
 func run(cmd *cobra.Command, args []string) error {
 	servenv.Init()
-	servenv.OnRun(multipooler.Init)
+	multipooler.Init()
 	servenv.OnClose(multipooler.Shutdown)
 	servenv.RunDefault()
 

@@ -24,8 +24,11 @@ import (
 
 	"github.com/multigres/multigres/go/clustermetadata/topo"
 	"github.com/multigres/multigres/go/clustermetadata/toporeg"
+	"github.com/multigres/multigres/go/multipooler/manager"
 	"github.com/multigres/multigres/go/multipooler/server"
 	"github.com/multigres/multigres/go/servenv"
+
+	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 )
 
 var (
@@ -94,29 +97,62 @@ func Init() {
 		logger.Error("table group is required")
 		os.Exit(1)
 	}
-
-	// Register multipooler gRPC service with servenv's GRPCServer
-	if servenv.GRPCCheckServiceMap("pooler") {
-		poolerServer = server.NewMultiPoolerServer(logger, &server.Config{
-			SocketFilePath: socketFilePath,
-			PoolerDir:      poolerDir,
-			PgPort:         pgPort,
-			Database:       database,
-		})
-		poolerServer.RegisterWithGRPCServer(servenv.GRPCServer)
-		logger.Info("MultiPooler gRPC service registered with servenv")
-	}
-
 	// Create MultiPooler instance for topo registration
 	multipooler := topo.NewMultiPooler(serviceID, cell, servenv.Hostname, tableGroup)
 	multipooler.PortMap["grpc"] = int32(servenv.GRPCPort())
 	multipooler.PortMap["http"] = int32(servenv.HTTPPort())
 	multipooler.Database = database
+	multipooler.ServingStatus = clustermetadatapb.PoolerServingStatus_NOT_SERVING
 
-	tr = toporeg.Register(
-		func(ctx context.Context) error { return ts.RegisterMultiPooler(ctx, multipooler, true) },
-		func(ctx context.Context) error { return ts.UnregisterMultiPooler(ctx, multipooler.Id) },
-		func(s string) { serverStatus.InitError = s },
+	// Initialize the MultiPoolerManager (following Vitess tm_init.go pattern)
+	logger.Info("Initializing MultiPoolerManager")
+	poolerManager := manager.NewMultiPoolerManager(logger, &manager.Config{
+		SocketFilePath: socketFilePath,
+		PoolerDir:      poolerDir,
+		PgPort:         pgPort,
+		Database:       database,
+		TopoClient:     ts,
+		ServiceID:      multipooler.Id,
+	})
+
+	// Start the MultiPoolerManager
+	poolerManager.Start()
+
+	servenv.OnRun(
+		func() {
+			// Register multipooler gRPC service with servenv's GRPCServer
+			if servenv.GRPCCheckServiceMap("pooler") {
+				poolerServer = server.NewMultiPoolerServer(logger, &manager.Config{
+					SocketFilePath: socketFilePath,
+					PoolerDir:      poolerDir,
+					PgPort:         pgPort,
+					Database:       database,
+					TopoClient:     ts,
+					ServiceID:      multipooler.Id,
+				})
+				poolerServer.RegisterWithGRPCServer(servenv.GRPCServer)
+				logger.Info("MultiPooler gRPC service registered with servenv")
+			}
+			registerFunc := func(ctx context.Context) error {
+				return ts.RegisterMultiPooler(ctx, multipooler, true /* allowUpdate */)
+			}
+			// For poolers, we don't un-register them on shutdown (they are persistent component)
+			// If they are actually deleted, they need to be cleaned up outside the lifecycle of starting / stopping.
+			unregisterFunc := func(ctx context.Context) error {
+				_, err := ts.UpdateMultiPoolerFields(ctx, multipooler.Id,
+					func(mp *clustermetadatapb.MultiPooler) error {
+						mp.ServingStatus = clustermetadatapb.PoolerServingStatus_NOT_SERVING
+						return nil
+					})
+				return err
+			}
+
+			tr = toporeg.Register(
+				registerFunc,
+				unregisterFunc,
+				func(s string) { serverStatus.InitError = s }, /* alarm */
+			)
+		},
 	)
 }
 

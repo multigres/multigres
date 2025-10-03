@@ -39,7 +39,7 @@ import (
 	pb "github.com/multigres/multigres/go/pb/pgctldservice"
 	"github.com/multigres/multigres/go/provisioner/local"
 	"github.com/multigres/multigres/go/test/utils"
-	"github.com/multigres/multigres/go/tools/appendpath"
+	"github.com/multigres/multigres/go/tools/pathutil"
 	"github.com/multigres/multigres/go/tools/stringutil"
 
 	_ "github.com/multigres/multigres/go/plugins/topo"
@@ -563,10 +563,13 @@ func ensureBinaryBuilt(t *testing.T) {
 // TestMain sets the path and cleans up after all tests
 func TestMain(m *testing.M) {
 	// Set the PATH so etcd can be found
-	appendpath.AppendPath("../../../bin")
+	pathutil.PrependPath("../../../bin")
 
 	// Run all tests
 	exitCode := m.Run()
+
+	// Clean up shared multipooler test resources
+	cleanupSharedResources()
 
 	// Clean up multigres binary after all tests if it was built
 	if multigresBinary != "" {
@@ -1110,7 +1113,7 @@ func TestClusterLifecycle(t *testing.T) {
 
 		// Intentionally occupy the multipooler gRPC port to create a conflict
 		conflictPort := testPorts.MultipoolerGRPCPort
-		ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", conflictPort))
+		ln, err := net.Listen("tcp", fmt.Sprintf("localhost:%d", conflictPort))
 		require.NoError(t, err, "failed to bind conflict port %d", conflictPort)
 		defer ln.Close()
 

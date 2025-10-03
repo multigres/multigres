@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package appendpath
+package pathutil
 
 import (
 	"os"
@@ -38,10 +38,10 @@ func TestAppendPath(t *testing.T) {
 
 	// Test appending to an existing PATH
 	os.Setenv("PATH", "/bin")
-	AppendPath(testPath)
+	PrependPath(testPath)
 	newPath := os.Getenv("PATH")
 	separator := string(os.PathListSeparator)
-	expectedPath := "/bin" + separator + absTestPath
+	expectedPath := absTestPath + separator + "/bin"
 	if newPath != expectedPath {
 		t.Errorf("PATH not updated correctly, expected %q, got %q", expectedPath, newPath)
 	}

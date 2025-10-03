@@ -30,13 +30,13 @@ import (
 
 	"github.com/multigres/multigres/go/clustermetadata/topo"
 	"github.com/multigres/multigres/go/test/utils"
-	"github.com/multigres/multigres/go/tools/appendpath"
+	"github.com/multigres/multigres/go/tools/pathutil"
 )
 
 // TestMain sets the path before running tests
 func TestMain(m *testing.M) {
 	// Set the PATH so etcd can be found
-	appendpath.AppendPath("../../../../bin")
+	pathutil.PrependPath("../../../../bin")
 
 	os.Exit(m.Run())
 }
