@@ -353,13 +353,45 @@ func (pm *MultiPoolerManager) StopReplicationAndGetStatus(ctx context.Context) (
 	return nil, mterrors.New(mtrpcpb.Code_UNIMPLEMENTED, "method StopReplicationAndGetStatus not implemented")
 }
 
-// ChangeType changes the pooler type (LEADER/FOLLOWER)
+// ChangeType changes the pooler type (PRIMARY/REPLICA)
 func (pm *MultiPoolerManager) ChangeType(ctx context.Context, poolerType string) error {
 	if err := pm.checkReady(); err != nil {
 		return err
 	}
-	pm.logger.Info("ChangeType called", "pooler_type", poolerType)
-	return mterrors.New(mtrpcpb.Code_UNIMPLEMENTED, "method ChangeType not implemented")
+
+	// Validate pooler type
+	var newType clustermetadatapb.PoolerType
+	// TODO: For now allow to change type to PRIMARY, this is to make it easier
+	// to perform tests while we are still developing HA. Once, we have multiorch
+	// fully implemented, we shouldn't allow to change the type to Primary.
+	// This would happen organically as part of Promote workflow.
+	switch poolerType {
+	case "PRIMARY":
+		newType = clustermetadatapb.PoolerType_PRIMARY
+	case "REPLICA":
+		newType = clustermetadatapb.PoolerType_REPLICA
+	default:
+		return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT,
+			fmt.Sprintf("invalid pooler type: %s, must be PRIMARY or REPLICA", poolerType))
+	}
+
+	pm.logger.Info("ChangeType called", "pooler_type", poolerType, "service_id", pm.serviceID.String())
+	// Update the multipooler record in topology
+	updatedMultipooler, err := pm.topoClient.UpdateMultiPoolerFields(ctx, pm.serviceID, func(mp *clustermetadatapb.MultiPooler) error {
+		mp.Type = newType
+		return nil
+	})
+	if err != nil {
+		pm.logger.Error("Failed to update pooler type in topology", "error", err, "service_id", pm.serviceID.String())
+		return mterrors.Wrap(err, "failed to update pooler type in topology")
+	}
+
+	pm.mu.Lock()
+	defer pm.mu.Unlock()
+	pm.multipooler.MultiPooler = updatedMultipooler
+	pm.logger.Info("Pooler type updated successfully", "new_type", poolerType, "service_id", pm.serviceID.String())
+
+	return nil
 }
 
 // GetFollowers gets the list of follower servers

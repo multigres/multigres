@@ -194,17 +194,6 @@ func TestManagerServiceMethods_NotImplemented(t *testing.T) {
 			expectedMethod: "StopReplicationAndGetStatus",
 		},
 		{
-			name: "ChangeType",
-			method: func() error {
-				req := &multipoolermanagerdata.ChangeTypeRequest{
-					PoolerType: clustermetadata.PoolerType_PRIMARY,
-				}
-				_, err := svc.ChangeType(ctx, req)
-				return err
-			},
-			expectedMethod: "ChangeType",
-		},
-		{
 			name: "GetFollowers",
 			method: func() error {
 				req := &multipoolermanagerdata.GetFollowersRequest{}

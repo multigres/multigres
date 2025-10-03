@@ -467,6 +467,13 @@ func TestMultipoolerReplicationApi(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 
+		// First, set the pooler type to PRIMARY
+		changeTypeReq := &multipoolermanagerdata.ChangeTypeRequest{
+			PoolerType: clustermetadatapb.PoolerType_PRIMARY,
+		}
+		_, err = client.ChangeType(ctx, changeTypeReq)
+		require.NoError(t, err)
+
 		req := &multipoolermanagerdata.PrimaryPositionRequest{}
 		resp, err := client.PrimaryPosition(ctx, req)
 		if err != nil {
@@ -506,6 +513,13 @@ func TestMultipoolerReplicationApi(t *testing.T) {
 		client := multipoolermanagerpb.NewMultiPoolerManagerClient(conn)
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
+
+		// First, set the pooler type to PRIMARY (this is testing that PrimaryPosition works on a pooler set as PRIMARY)
+		changeTypeReq := &multipoolermanagerdata.ChangeTypeRequest{
+			PoolerType: clustermetadatapb.PoolerType_PRIMARY,
+		}
+		_, err = client.ChangeType(ctx, changeTypeReq)
+		require.NoError(t, err)
 
 		req := &multipoolermanagerdata.PrimaryPositionRequest{}
 		_, err = client.PrimaryPosition(ctx, req)
