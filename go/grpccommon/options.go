@@ -19,6 +19,7 @@ package grpccommon
 import (
 	"github.com/spf13/pflag"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 )
 
 var (
@@ -49,4 +50,17 @@ func EnableGRPCPrometheus() bool {
 // MaxMessageSize returns the value of the --grpc-max-message-size flag.
 func MaxMessageSize() int {
 	return maxMessageSize
+}
+
+// LocalClientDialOptions returns a slice of grpc.DialOption to be used when creating a gRPC client.
+// These options are used for local clients connecting to the gRPC server.
+// They are not intended to be used for production environments.
+// The WithDisableServiceConfig is a workaround for a known issue
+// in MacOS where localhost host takes too long to resolve.
+// See the following PR for more details: https://github.com/multigres/multigres/pull/152
+func LocalClientDialOptions() []grpc.DialOption {
+	return []grpc.DialOption{
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithDisableServiceConfig(),
+	}
 }
