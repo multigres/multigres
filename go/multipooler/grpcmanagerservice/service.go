@@ -22,9 +22,6 @@ import (
 	multipoolermanagerpb "github.com/multigres/multigres/go/pb/multipoolermanager"
 	multipoolermanagerdata "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	"github.com/multigres/multigres/go/servenv"
-
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 )
 
 // managerService is the gRPC wrapper for MultiPoolerManager
@@ -50,7 +47,7 @@ func init() {
 func (s *managerService) WaitForLSN(ctx context.Context, req *multipoolermanagerdata.WaitForLSNRequest) (*multipoolermanagerdata.WaitForLSNResponse, error) {
 	err := s.manager.WaitForLSN(ctx, req.TargetLsn)
 	if err != nil {
-		return nil, status.Errorf(codes.Unimplemented, "%v", err)
+		return nil, err
 	}
 	return &multipoolermanagerdata.WaitForLSNResponse{}, nil
 }
@@ -59,7 +56,7 @@ func (s *managerService) WaitForLSN(ctx context.Context, req *multipoolermanager
 func (s *managerService) SetReadOnly(ctx context.Context, req *multipoolermanagerdata.SetReadOnlyRequest) (*multipoolermanagerdata.SetReadOnlyResponse, error) {
 	err := s.manager.SetReadOnly(ctx)
 	if err != nil {
-		return nil, status.Errorf(codes.Unimplemented, "%v", err)
+		return nil, err
 	}
 	return &multipoolermanagerdata.SetReadOnlyResponse{}, nil
 }
@@ -68,7 +65,7 @@ func (s *managerService) SetReadOnly(ctx context.Context, req *multipoolermanage
 func (s *managerService) IsReadOnly(ctx context.Context, req *multipoolermanagerdata.IsReadOnlyRequest) (*multipoolermanagerdata.IsReadOnlyResponse, error) {
 	readOnly, err := s.manager.IsReadOnly(ctx)
 	if err != nil {
-		return nil, status.Errorf(codes.Unimplemented, "%v", err)
+		return nil, err
 	}
 	return &multipoolermanagerdata.IsReadOnlyResponse{
 		ReadOnly: readOnly,
@@ -79,7 +76,7 @@ func (s *managerService) IsReadOnly(ctx context.Context, req *multipoolermanager
 func (s *managerService) SetPrimaryConnInfo(ctx context.Context, req *multipoolermanagerdata.SetPrimaryConnInfoRequest) (*multipoolermanagerdata.SetPrimaryConnInfoResponse, error) {
 	err := s.manager.SetPrimaryConnInfo(ctx, req.Host, req.Port)
 	if err != nil {
-		return nil, status.Errorf(codes.Unimplemented, "%v", err)
+		return nil, err
 	}
 	return &multipoolermanagerdata.SetPrimaryConnInfoResponse{}, nil
 }
@@ -88,7 +85,7 @@ func (s *managerService) SetPrimaryConnInfo(ctx context.Context, req *multipoole
 func (s *managerService) StartReplication(ctx context.Context, req *multipoolermanagerdata.StartReplicationRequest) (*multipoolermanagerdata.StartReplicationResponse, error) {
 	err := s.manager.StartReplication(ctx)
 	if err != nil {
-		return nil, status.Errorf(codes.Unimplemented, "%v", err)
+		return nil, err
 	}
 	return &multipoolermanagerdata.StartReplicationResponse{}, nil
 }
@@ -97,7 +94,7 @@ func (s *managerService) StartReplication(ctx context.Context, req *multipoolerm
 func (s *managerService) StopReplication(ctx context.Context, req *multipoolermanagerdata.StopReplicationRequest) (*multipoolermanagerdata.StopReplicationResponse, error) {
 	err := s.manager.StopReplication(ctx)
 	if err != nil {
-		return nil, status.Errorf(codes.Unimplemented, "%v", err)
+		return nil, err
 	}
 	return &multipoolermanagerdata.StopReplicationResponse{}, nil
 }
@@ -106,7 +103,7 @@ func (s *managerService) StopReplication(ctx context.Context, req *multipoolerma
 func (s *managerService) ReplicationStatus(ctx context.Context, req *multipoolermanagerdata.ReplicationStatusRequest) (*multipoolermanagerdata.ReplicationStatusResponse, error) {
 	_, err := s.manager.ReplicationStatus(ctx)
 	if err != nil {
-		return nil, status.Errorf(codes.Unimplemented, "%v", err)
+		return nil, err
 	}
 	// TODO: Convert map to proper response structure
 	return &multipoolermanagerdata.ReplicationStatusResponse{}, nil
@@ -116,7 +113,7 @@ func (s *managerService) ReplicationStatus(ctx context.Context, req *multipooler
 func (s *managerService) ResetReplication(ctx context.Context, req *multipoolermanagerdata.ResetReplicationRequest) (*multipoolermanagerdata.ResetReplicationResponse, error) {
 	err := s.manager.ResetReplication(ctx)
 	if err != nil {
-		return nil, status.Errorf(codes.Unimplemented, "%v", err)
+		return nil, err
 	}
 	return &multipoolermanagerdata.ResetReplicationResponse{}, nil
 }
@@ -125,7 +122,7 @@ func (s *managerService) ResetReplication(ctx context.Context, req *multipoolerm
 func (s *managerService) ConfigureSynchronousReplication(ctx context.Context, req *multipoolermanagerdata.ConfigureSynchronousReplicationRequest) (*multipoolermanagerdata.ConfigureSynchronousReplicationResponse, error) {
 	err := s.manager.ConfigureSynchronousReplication(ctx, req.SynchronousCommit.String())
 	if err != nil {
-		return nil, status.Errorf(codes.Unimplemented, "%v", err)
+		return nil, err
 	}
 	return &multipoolermanagerdata.ConfigureSynchronousReplicationResponse{}, nil
 }
@@ -134,7 +131,7 @@ func (s *managerService) ConfigureSynchronousReplication(ctx context.Context, re
 func (s *managerService) PrimaryStatus(ctx context.Context, req *multipoolermanagerdata.PrimaryStatusRequest) (*multipoolermanagerdata.PrimaryStatusResponse, error) {
 	_, err := s.manager.PrimaryStatus(ctx)
 	if err != nil {
-		return nil, status.Errorf(codes.Unimplemented, "%v", err)
+		return nil, err
 	}
 	// TODO: Convert map to proper response structure
 	return &multipoolermanagerdata.PrimaryStatusResponse{}, nil
@@ -144,7 +141,7 @@ func (s *managerService) PrimaryStatus(ctx context.Context, req *multipoolermana
 func (s *managerService) PrimaryPosition(ctx context.Context, req *multipoolermanagerdata.PrimaryPositionRequest) (*multipoolermanagerdata.PrimaryPositionResponse, error) {
 	position, err := s.manager.PrimaryPosition(ctx)
 	if err != nil {
-		return nil, status.Errorf(codes.Unimplemented, "%v", err)
+		return nil, err
 	}
 	return &multipoolermanagerdata.PrimaryPositionResponse{
 		LsnPosition: position,
@@ -155,7 +152,7 @@ func (s *managerService) PrimaryPosition(ctx context.Context, req *multipoolerma
 func (s *managerService) StopReplicationAndGetStatus(ctx context.Context, req *multipoolermanagerdata.StopReplicationAndGetStatusRequest) (*multipoolermanagerdata.StopReplicationAndGetStatusResponse, error) {
 	_, err := s.manager.StopReplicationAndGetStatus(ctx)
 	if err != nil {
-		return nil, status.Errorf(codes.Unimplemented, "%v", err)
+		return nil, err
 	}
 	// TODO: Convert map to proper response structure
 	return &multipoolermanagerdata.StopReplicationAndGetStatusResponse{}, nil
@@ -165,7 +162,7 @@ func (s *managerService) StopReplicationAndGetStatus(ctx context.Context, req *m
 func (s *managerService) ChangeType(ctx context.Context, req *multipoolermanagerdata.ChangeTypeRequest) (*multipoolermanagerdata.ChangeTypeResponse, error) {
 	err := s.manager.ChangeType(ctx, req.PoolerType.String())
 	if err != nil {
-		return nil, status.Errorf(codes.Unimplemented, "%v", err)
+		return nil, err
 	}
 	return &multipoolermanagerdata.ChangeTypeResponse{}, nil
 }
@@ -174,7 +171,7 @@ func (s *managerService) ChangeType(ctx context.Context, req *multipoolermanager
 func (s *managerService) GetFollowers(ctx context.Context, req *multipoolermanagerdata.GetFollowersRequest) (*multipoolermanagerdata.GetFollowersResponse, error) {
 	_, err := s.manager.GetFollowers(ctx)
 	if err != nil {
-		return nil, status.Errorf(codes.Unimplemented, "%v", err)
+		return nil, err
 	}
 	// TODO: Convert []string to proper response structure
 	return &multipoolermanagerdata.GetFollowersResponse{}, nil
@@ -184,7 +181,7 @@ func (s *managerService) GetFollowers(ctx context.Context, req *multipoolermanag
 func (s *managerService) Demote(ctx context.Context, req *multipoolermanagerdata.DemoteRequest) (*multipoolermanagerdata.DemoteResponse, error) {
 	err := s.manager.Demote(ctx)
 	if err != nil {
-		return nil, status.Errorf(codes.Unimplemented, "%v", err)
+		return nil, err
 	}
 	return &multipoolermanagerdata.DemoteResponse{}, nil
 }
@@ -193,7 +190,7 @@ func (s *managerService) Demote(ctx context.Context, req *multipoolermanagerdata
 func (s *managerService) UndoDemote(ctx context.Context, req *multipoolermanagerdata.UndoDemoteRequest) (*multipoolermanagerdata.UndoDemoteResponse, error) {
 	err := s.manager.UndoDemote(ctx)
 	if err != nil {
-		return nil, status.Errorf(codes.Unimplemented, "%v", err)
+		return nil, err
 	}
 	return &multipoolermanagerdata.UndoDemoteResponse{}, nil
 }
@@ -202,7 +199,7 @@ func (s *managerService) UndoDemote(ctx context.Context, req *multipoolermanager
 func (s *managerService) Promote(ctx context.Context, req *multipoolermanagerdata.PromoteRequest) (*multipoolermanagerdata.PromoteResponse, error) {
 	err := s.manager.Promote(ctx)
 	if err != nil {
-		return nil, status.Errorf(codes.Unimplemented, "%v", err)
+		return nil, err
 	}
 	return &multipoolermanagerdata.PromoteResponse{}, nil
 }

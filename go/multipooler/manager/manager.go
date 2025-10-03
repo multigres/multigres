@@ -23,7 +23,9 @@ import (
 	"time"
 
 	"github.com/multigres/multigres/go/clustermetadata/topo"
+	"github.com/multigres/multigres/go/mterrors"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	"github.com/multigres/multigres/go/servenv"
 	"github.com/multigres/multigres/go/tools/timertools"
 )
@@ -122,6 +124,23 @@ func (pm *MultiPoolerManager) GetMultiPooler() (*topo.MultiPoolerInfo, ManagerSt
 	return pm.multipooler, pm.state, pm.stateError
 }
 
+// checkReady returns an error if the manager is not in Ready state
+func (pm *MultiPoolerManager) checkReady() error {
+	pm.mu.RLock()
+	defer pm.mu.RUnlock()
+
+	switch pm.state {
+	case ManagerStateReady:
+		return nil
+	case ManagerStateStarting:
+		return mterrors.New(mtrpcpb.Code_UNAVAILABLE, "manager is still starting up")
+	case ManagerStateError:
+		return mterrors.Wrap(pm.stateError, "manager is in error state")
+	default:
+		return mterrors.New(mtrpcpb.Code_INTERNAL, fmt.Sprintf("manager is in unknown state: %s", pm.state))
+	}
+}
+
 // loadMultiPoolerFromTopo loads the multipooler record from topology asynchronously
 func (pm *MultiPoolerManager) loadMultiPoolerFromTopo() {
 	// Validate ServiceID is not nil
@@ -183,66 +202,99 @@ func (pm *MultiPoolerManager) loadMultiPoolerFromTopo() {
 
 // WaitForLSN waits for PostgreSQL server to reach a specific LSN position
 func (pm *MultiPoolerManager) WaitForLSN(ctx context.Context, targetLsn string) error {
+	if err := pm.checkReady(); err != nil {
+		return err
+	}
 	pm.logger.Info("WaitForLSN called", "target_lsn", targetLsn)
-	return fmt.Errorf("method WaitForLSN not implemented")
+	return mterrors.New(mtrpcpb.Code_UNIMPLEMENTED, "method WaitForLSN not implemented")
 }
 
 // SetReadOnly makes the PostgreSQL instance read-only
 func (pm *MultiPoolerManager) SetReadOnly(ctx context.Context) error {
+	if err := pm.checkReady(); err != nil {
+		return err
+	}
 	pm.logger.Info("SetReadOnly called")
-	return fmt.Errorf("method SetReadOnly not implemented")
+	return mterrors.New(mtrpcpb.Code_UNIMPLEMENTED, "method SetReadOnly not implemented")
 }
 
 // IsReadOnly checks if PostgreSQL instance is in read-only mode
 func (pm *MultiPoolerManager) IsReadOnly(ctx context.Context) (bool, error) {
+	if err := pm.checkReady(); err != nil {
+		return false, err
+	}
 	pm.logger.Info("IsReadOnly called")
-	return false, fmt.Errorf("method IsReadOnly not implemented")
+	return false, mterrors.New(mtrpcpb.Code_UNIMPLEMENTED, "method IsReadOnly not implemented")
 }
 
 // SetPrimaryConnInfo sets the primary connection info for a standby server
 func (pm *MultiPoolerManager) SetPrimaryConnInfo(ctx context.Context, host string, port int32) error {
+	if err := pm.checkReady(); err != nil {
+		return err
+	}
 	pm.logger.Info("SetPrimaryConnInfo called", "host", host, "port", port)
-	return fmt.Errorf("method SetPrimaryConnInfo not implemented")
+	return mterrors.New(mtrpcpb.Code_UNIMPLEMENTED, "method SetPrimaryConnInfo not implemented")
 }
 
 // StartReplication starts WAL replay on standby (calls pg_wal_replay_resume)
 func (pm *MultiPoolerManager) StartReplication(ctx context.Context) error {
+	if err := pm.checkReady(); err != nil {
+		return err
+	}
 	pm.logger.Info("StartReplication called")
-	return fmt.Errorf("method StartReplication not implemented")
+	return mterrors.New(mtrpcpb.Code_UNIMPLEMENTED, "method StartReplication not implemented")
 }
 
 // StopReplication stops WAL replay on standby (calls pg_wal_replay_pause)
 func (pm *MultiPoolerManager) StopReplication(ctx context.Context) error {
+	if err := pm.checkReady(); err != nil {
+		return err
+	}
 	pm.logger.Info("StopReplication called")
-	return fmt.Errorf("method StopReplication not implemented")
+	return mterrors.New(mtrpcpb.Code_UNIMPLEMENTED, "method StopReplication not implemented")
 }
 
 // ReplicationStatus gets the current replication status of the standby
 func (pm *MultiPoolerManager) ReplicationStatus(ctx context.Context) (map[string]interface{}, error) {
+	if err := pm.checkReady(); err != nil {
+		return nil, err
+	}
 	pm.logger.Info("ReplicationStatus called")
-	return nil, fmt.Errorf("method ReplicationStatus not implemented")
+	return nil, mterrors.New(mtrpcpb.Code_UNIMPLEMENTED, "method ReplicationStatus not implemented")
 }
 
 // ResetReplication resets the standby's connection to its primary
 func (pm *MultiPoolerManager) ResetReplication(ctx context.Context) error {
+	if err := pm.checkReady(); err != nil {
+		return err
+	}
 	pm.logger.Info("ResetReplication called")
-	return fmt.Errorf("method ResetReplication not implemented")
+	return mterrors.New(mtrpcpb.Code_UNIMPLEMENTED, "method ResetReplication not implemented")
 }
 
 // ConfigureSynchronousReplication configures PostgreSQL synchronous replication settings
 func (pm *MultiPoolerManager) ConfigureSynchronousReplication(ctx context.Context, synchronousCommit string) error {
+	if err := pm.checkReady(); err != nil {
+		return err
+	}
 	pm.logger.Info("ConfigureSynchronousReplication called", "synchronous_commit", synchronousCommit)
-	return fmt.Errorf("method ConfigureSynchronousReplication not implemented")
+	return mterrors.New(mtrpcpb.Code_UNIMPLEMENTED, "method ConfigureSynchronousReplication not implemented")
 }
 
 // PrimaryStatus gets the status of the leader server
 func (pm *MultiPoolerManager) PrimaryStatus(ctx context.Context) (map[string]interface{}, error) {
+	if err := pm.checkReady(); err != nil {
+		return nil, err
+	}
 	pm.logger.Info("PrimaryStatus called")
-	return nil, fmt.Errorf("method PrimaryStatus not implemented")
+	return nil, mterrors.New(mtrpcpb.Code_UNIMPLEMENTED, "method PrimaryStatus not implemented")
 }
 
 // PrimaryPosition gets the current LSN position of the leader
 func (pm *MultiPoolerManager) PrimaryPosition(ctx context.Context) (string, error) {
+	if err := pm.checkReady(); err != nil {
+		return "", err
+	}
 	pm.logger.Info("PrimaryPosition called")
 
 	// Ensure database connection
@@ -278,38 +330,56 @@ func (pm *MultiPoolerManager) PrimaryPosition(ctx context.Context) (string, erro
 
 // StopReplicationAndGetStatus stops PostgreSQL replication and returns the status
 func (pm *MultiPoolerManager) StopReplicationAndGetStatus(ctx context.Context) (map[string]interface{}, error) {
+	if err := pm.checkReady(); err != nil {
+		return nil, err
+	}
 	pm.logger.Info("StopReplicationAndGetStatus called")
-	return nil, fmt.Errorf("method StopReplicationAndGetStatus not implemented")
+	return nil, mterrors.New(mtrpcpb.Code_UNIMPLEMENTED, "method StopReplicationAndGetStatus not implemented")
 }
 
 // ChangeType changes the pooler type (LEADER/FOLLOWER)
 func (pm *MultiPoolerManager) ChangeType(ctx context.Context, poolerType string) error {
+	if err := pm.checkReady(); err != nil {
+		return err
+	}
 	pm.logger.Info("ChangeType called", "pooler_type", poolerType)
-	return fmt.Errorf("method ChangeType not implemented")
+	return mterrors.New(mtrpcpb.Code_UNIMPLEMENTED, "method ChangeType not implemented")
 }
 
 // GetFollowers gets the list of follower servers
 func (pm *MultiPoolerManager) GetFollowers(ctx context.Context) ([]string, error) {
+	if err := pm.checkReady(); err != nil {
+		return nil, err
+	}
 	pm.logger.Info("GetFollowers called")
-	return nil, fmt.Errorf("method GetFollowers not implemented")
+	return nil, mterrors.New(mtrpcpb.Code_UNIMPLEMENTED, "method GetFollowers not implemented")
 }
 
 // Demote demotes the current leader server
 func (pm *MultiPoolerManager) Demote(ctx context.Context) error {
+	if err := pm.checkReady(); err != nil {
+		return err
+	}
 	pm.logger.Info("Demote called")
-	return fmt.Errorf("method Demote not implemented")
+	return mterrors.New(mtrpcpb.Code_UNIMPLEMENTED, "method Demote not implemented")
 }
 
 // UndoDemote undoes a demotion
 func (pm *MultiPoolerManager) UndoDemote(ctx context.Context) error {
+	if err := pm.checkReady(); err != nil {
+		return err
+	}
 	pm.logger.Info("UndoDemote called")
-	return fmt.Errorf("method UndoDemote not implemented")
+	return mterrors.New(mtrpcpb.Code_UNIMPLEMENTED, "method UndoDemote not implemented")
 }
 
 // Promote promotes a follower to leader
 func (pm *MultiPoolerManager) Promote(ctx context.Context) error {
+	if err := pm.checkReady(); err != nil {
+		return err
+	}
 	pm.logger.Info("Promote called")
-	return fmt.Errorf("method Promote not implemented")
+	return mterrors.New(mtrpcpb.Code_UNIMPLEMENTED, "method Promote not implemented")
 }
 
 // Start initializes the MultiPoolerManager
