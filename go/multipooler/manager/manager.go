@@ -295,12 +295,27 @@ func (pm *MultiPoolerManager) PrimaryPosition(ctx context.Context) (string, erro
 	if err := pm.checkReady(); err != nil {
 		return "", err
 	}
+
+	// Check pooler type - only PRIMARY poolers can report primary position
+	pm.mu.RLock()
+	poolerType := pm.multipooler.Type
+	pm.mu.RUnlock()
+
+	if poolerType != clustermetadatapb.PoolerType_PRIMARY {
+		pm.logger.Error("PrimaryPosition called on non-primary pooler",
+			"service_id", pm.serviceID.String(),
+			"pooler_type", poolerType.String())
+		return "", mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
+			fmt.Sprintf("operation not allowed: pooler type is %s, must be PRIMARY (service_id: %s)",
+				poolerType.String(), pm.serviceID.String()))
+	}
+
 	pm.logger.Info("PrimaryPosition called")
 
 	// Ensure database connection
 	if err := pm.connectDB(); err != nil {
 		pm.logger.Error("Failed to connect to database", "error", err)
-		return "", fmt.Errorf("database connection failed: %w", err)
+		return "", mterrors.Wrap(err, "database connection failed")
 	}
 
 	// Guardrail: Check if the PostgreSQL instance is in standby mode
@@ -308,12 +323,13 @@ func (pm *MultiPoolerManager) PrimaryPosition(ctx context.Context) (string, erro
 	err := pm.db.QueryRowContext(ctx, "SELECT pg_is_in_recovery()").Scan(&isInRecovery)
 	if err != nil {
 		pm.logger.Error("Failed to check if instance is in recovery", "error", err)
-		return "", fmt.Errorf("failed to check recovery status: %w", err)
+		return "", mterrors.Wrap(err, "failed to check recovery status")
 	}
 
 	if isInRecovery {
 		pm.logger.Error("PrimaryPosition called on standby instance", "service_id", pm.serviceID.String())
-		return "", fmt.Errorf("operation not allowed: the PostgreSQL instance is in standby mode (service_id: %s)", pm.serviceID.String())
+		return "", mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
+			fmt.Sprintf("operation not allowed: the PostgreSQL instance is in standby mode (service_id: %s)", pm.serviceID.String()))
 	}
 
 	// Query PostgreSQL for the current LSN position
@@ -322,7 +338,7 @@ func (pm *MultiPoolerManager) PrimaryPosition(ctx context.Context) (string, erro
 	err = pm.db.QueryRowContext(ctx, "SELECT pg_current_wal_lsn()::text").Scan(&lsn)
 	if err != nil {
 		pm.logger.Error("Failed to query LSN", "error", err)
-		return "", fmt.Errorf("failed to query LSN: %w", err)
+		return "", mterrors.Wrap(err, "failed to query LSN")
 	}
 
 	return lsn, nil
