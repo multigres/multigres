@@ -22,14 +22,9 @@
           <tbody>
             <tr>
               <th>Initialization</th>
-              <td>
-                {{if .InitError}}
-                <span class="error">{{.InitError}}</span>
-                {{else}}
-                <span class="success">Success</span>
-                {{end}}
-              </td>
+              <td>{{template "status_text.tmpl" .InitError}}</td>
             </tr>
+            {{template "topostatus.tmpl" .TopoStatus}}
             <tr>
               <th>Cell</th>
               <td>{{.Cell}}</td>
@@ -50,14 +45,6 @@
       </section>
     </main>
 
-    <footer>
-      <script>
-        document.write(new Date().toISOString());
-      </script>
-      <br />Local:
-      <script>
-        document.write(new Date().toLocaleString());
-      </script>
-    </footer>
+    <footer>{{template "timestamp.tmpl"}}</footer>
   </body>
 </html>
