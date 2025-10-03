@@ -25,6 +25,7 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"github.com/multigres/multigres/go/multipooler/manager"
+	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
 )
@@ -35,7 +36,11 @@ func TestNewMultiPoolerServer(t *testing.T) {
 		SocketFilePath: "/tmp/test.sock",
 		Database:       "testdb",
 		TopoClient:     nil,
-		ServiceID:      "test-service",
+		ServiceID: &clustermetadatapb.ID{
+			Component: clustermetadatapb.ID_MULTIPOOLER,
+			Cell:      "zone1",
+			Name:      "test-service",
+		},
 	}
 
 	server := NewMultiPoolerServer(logger, config)
@@ -70,7 +75,11 @@ func TestConfig(t *testing.T) {
 				SocketFilePath: tt.socketFilePath,
 				Database:       tt.database,
 				TopoClient:     nil,
-				ServiceID:      "test-service",
+				ServiceID: &clustermetadatapb.ID{
+					Component: clustermetadatapb.ID_MULTIPOOLER,
+					Cell:      "zone1",
+					Name:      "test-service",
+				},
 			}
 
 			assert.Equal(t, tt.socketFilePath, config.SocketFilePath)
@@ -85,7 +94,11 @@ func TestExecuteQuery_InvalidInput(t *testing.T) {
 		SocketFilePath: "/nonexistent/socket",
 		Database:       "testdb",
 		TopoClient:     nil,
-		ServiceID:      "test-service",
+		ServiceID: &clustermetadatapb.ID{
+			Component: clustermetadatapb.ID_MULTIPOOLER,
+			Cell:      "zone1",
+			Name:      "test-service",
+		},
 	}
 	server := NewMultiPoolerServer(logger, config)
 
@@ -177,7 +190,11 @@ func TestExecuteQuery_EmptyQuery(t *testing.T) {
 		SocketFilePath: "/nonexistent/socket",
 		Database:       "testdb",
 		TopoClient:     nil,
-		ServiceID:      "test-service",
+		ServiceID: &clustermetadatapb.ID{
+			Component: clustermetadatapb.ID_MULTIPOOLER,
+			Cell:      "zone1",
+			Name:      "test-service",
+		},
 	}
 	server := NewMultiPoolerServer(logger, config)
 
@@ -200,7 +217,11 @@ func TestExecuteQuery_CallerIDLogging(t *testing.T) {
 		SocketFilePath: "/nonexistent/socket",
 		Database:       "testdb",
 		TopoClient:     nil,
-		ServiceID:      "test-service",
+		ServiceID: &clustermetadatapb.ID{
+			Component: clustermetadatapb.ID_MULTIPOOLER,
+			Cell:      "zone1",
+			Name:      "test-service",
+		},
 	}
 	server := NewMultiPoolerServer(logger, config)
 
@@ -252,7 +273,11 @@ func TestClose(t *testing.T) {
 		SocketFilePath: "/tmp/test.sock",
 		Database:       "testdb",
 		TopoClient:     nil,
-		ServiceID:      "test-service",
+		ServiceID: &clustermetadatapb.ID{
+			Component: clustermetadatapb.ID_MULTIPOOLER,
+			Cell:      "zone1",
+			Name:      "test-service",
+		},
 	}
 	server := NewMultiPoolerServer(logger, config)
 

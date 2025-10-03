@@ -17,6 +17,8 @@ package manager
 
 import (
 	"github.com/multigres/multigres/go/clustermetadata/topo"
+
+	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 )
 
 // Config holds configuration for the MultiPoolerManager
@@ -26,5 +28,5 @@ type Config struct {
 	PgPort         int
 	Database       string
 	TopoClient     topo.Store
-	ServiceID      string
+	ServiceID      *clustermetadatapb.ID
 }

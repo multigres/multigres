@@ -39,7 +39,11 @@ func TestManagerServiceMethods_NotImplemented(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	config := &manager.Config{
 		TopoClient: nil,
-		ServiceID:  "test-service",
+		ServiceID: &clustermetadata.ID{
+			Component: clustermetadata.ID_MULTIPOOLER,
+			Cell:      "zone1",
+			Name:      "test-service",
+		},
 	}
 	pm := manager.NewMultiPoolerManager(logger, config)
 

@@ -19,9 +19,25 @@ import (
 	"database/sql"
 	"fmt"
 	"log/slog"
+	"sync"
+	"time"
 
 	"github.com/multigres/multigres/go/clustermetadata/topo"
+	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/servenv"
+	"github.com/multigres/multigres/go/tools/timertools"
+)
+
+// ManagerState represents the state of the MultiPoolerManager
+type ManagerState string
+
+const (
+	// ManagerStateStarting indicates the manager is starting and loading the multipooler record
+	ManagerStateStarting ManagerState = "starting"
+	// ManagerStateReady indicates the manager has successfully loaded the multipooler record
+	ManagerStateReady ManagerState = "ready"
+	// ManagerStateError indicates the manager failed to load the multipooler record
+	ManagerStateError ManagerState = "error"
 )
 
 // MultiPoolerManager manages the pooler lifecycle and PostgreSQL operations
@@ -30,16 +46,35 @@ type MultiPoolerManager struct {
 	config     *Config
 	db         *sql.DB
 	topoClient topo.Store
-	serviceID  string
+	serviceID  *clustermetadatapb.ID
+
+	// Multipooler record from topology
+	mu          sync.RWMutex
+	multipooler *topo.MultiPoolerInfo
+	state       ManagerState
+	stateError  error
+	ctx         context.Context
+	cancel      context.CancelFunc
+	loadTimeout time.Duration
 }
 
 // NewMultiPoolerManager creates a new MultiPoolerManager instance
 func NewMultiPoolerManager(logger *slog.Logger, config *Config) *MultiPoolerManager {
+	return NewMultiPoolerManagerWithTimeout(logger, config, 5*time.Minute)
+}
+
+// NewMultiPoolerManagerWithTimeout creates a new MultiPoolerManager instance with a custom load timeout
+func NewMultiPoolerManagerWithTimeout(logger *slog.Logger, config *Config, loadTimeout time.Duration) *MultiPoolerManager {
+	ctx, cancel := context.WithCancel(context.Background())
 	return &MultiPoolerManager{
-		logger:     logger,
-		config:     config,
-		topoClient: config.TopoClient,
-		serviceID:  config.ServiceID,
+		logger:      logger,
+		config:      config,
+		topoClient:  config.TopoClient,
+		serviceID:   config.ServiceID,
+		state:       ManagerStateStarting,
+		ctx:         ctx,
+		cancel:      cancel,
+		loadTimeout: loadTimeout,
 	}
 }
 
@@ -57,12 +92,93 @@ func (pm *MultiPoolerManager) connectDB() error {
 	return nil
 }
 
-// Close closes the database connection
+// Close closes the database connection and stops the async loader
 func (pm *MultiPoolerManager) Close() error {
+	pm.cancel()
 	if pm.db != nil {
 		return pm.db.Close()
 	}
 	return nil
+}
+
+// GetState returns the current state of the manager
+func (pm *MultiPoolerManager) GetState() ManagerState {
+	pm.mu.RLock()
+	defer pm.mu.RUnlock()
+	return pm.state
+}
+
+// GetStateError returns the error that caused the manager to enter error state
+func (pm *MultiPoolerManager) GetStateError() error {
+	pm.mu.RLock()
+	defer pm.mu.RUnlock()
+	return pm.stateError
+}
+
+// GetMultiPooler returns the current multipooler record and state
+func (pm *MultiPoolerManager) GetMultiPooler() (*topo.MultiPoolerInfo, ManagerState, error) {
+	pm.mu.RLock()
+	defer pm.mu.RUnlock()
+	return pm.multipooler, pm.state, pm.stateError
+}
+
+// loadMultiPoolerFromTopo loads the multipooler record from topology asynchronously
+func (pm *MultiPoolerManager) loadMultiPoolerFromTopo() {
+	// Validate ServiceID is not nil
+	if pm.serviceID == nil {
+		pm.mu.Lock()
+		pm.state = ManagerStateError
+		pm.stateError = fmt.Errorf("ServiceID cannot be nil")
+		pm.mu.Unlock()
+		pm.logger.Error("Manager state changed", "state", ManagerStateError, "error", pm.stateError.Error())
+		return
+	}
+
+	ticker := timertools.NewBackoffTicker(100*time.Millisecond, 30*time.Second)
+	defer ticker.Stop()
+
+	// Set timeout for the entire loading process
+	timeoutCtx, timeoutCancel := context.WithTimeout(pm.ctx, pm.loadTimeout)
+	defer timeoutCancel()
+
+	for {
+		select {
+		case <-ticker.C:
+			ctx, cancel := context.WithTimeout(pm.ctx, 5*time.Second)
+			mp, err := pm.topoClient.GetMultiPooler(ctx, pm.serviceID)
+			cancel()
+
+			if err != nil {
+				continue
+			}
+
+			// Successfully loaded
+			pm.mu.Lock()
+			pm.multipooler = mp
+			pm.state = ManagerStateReady
+			pm.mu.Unlock()
+
+			pm.logger.Info("Manager state changed", "state", ManagerStateReady, "service_id", pm.serviceID.String(), "database", mp.Database)
+			return
+
+		case <-timeoutCtx.Done():
+			pm.mu.Lock()
+			pm.state = ManagerStateError
+			pm.stateError = fmt.Errorf("timeout waiting for multipooler record to be available in topology after %v", pm.loadTimeout)
+			pm.mu.Unlock()
+			pm.logger.Error("Manager state changed", "state", ManagerStateError, "service_id", pm.serviceID.String(), "error", pm.stateError.Error())
+			return
+
+		case <-pm.ctx.Done():
+			// Parent context cancelled - treat as error
+			pm.mu.Lock()
+			pm.state = ManagerStateError
+			pm.stateError = fmt.Errorf("manager context cancelled while loading multipooler record")
+			pm.mu.Unlock()
+			pm.logger.Error("Manager state changed", "state", ManagerStateError, "service_id", pm.serviceID.String(), "error", pm.stateError.Error())
+			return
+		}
+	}
 }
 
 // WaitForLSN waits for PostgreSQL server to reach a specific LSN position
@@ -144,8 +260,8 @@ func (pm *MultiPoolerManager) PrimaryPosition(ctx context.Context) (string, erro
 	}
 
 	if isInRecovery {
-		pm.logger.Error("PrimaryPosition called on standby instance", "service_id", pm.serviceID)
-		return "", fmt.Errorf("operation not allowed: the PostgreSQL instance is in standby mode (service_id: %s)", pm.serviceID)
+		pm.logger.Error("PrimaryPosition called on standby instance", "service_id", pm.serviceID.String())
+		return "", fmt.Errorf("operation not allowed: the PostgreSQL instance is in standby mode (service_id: %s)", pm.serviceID.String())
 	}
 
 	// Query PostgreSQL for the current LSN position
@@ -199,6 +315,9 @@ func (pm *MultiPoolerManager) Promote(ctx context.Context) error {
 // Start initializes the MultiPoolerManager
 // This method follows the Vitess pattern similar to TabletManager.Start() in tm_init.go
 func (pm *MultiPoolerManager) Start() {
+	// Start loading multipooler record from topology asynchronously
+	go pm.loadMultiPoolerFromTopo()
+
 	servenv.OnRun(func() {
 		pm.logger.Info("MultiPoolerManager started")
 		// Additional manager-specific initialization can happen here

@@ -115,7 +115,7 @@ func Init() {
 		PgPort:         pgPort,
 		Database:       database,
 		TopoClient:     ts,
-		ServiceID:      serviceID,
+		ServiceID:      multipooler.Id,
 	})
 
 	// Start the MultiPoolerManager
@@ -131,7 +131,7 @@ func Init() {
 					PgPort:         pgPort,
 					Database:       database,
 					TopoClient:     ts,
-					ServiceID:      serviceID,
+					ServiceID:      multipooler.Id,
 				})
 				poolerServer.RegisterWithGRPCServer(servenv.GRPCServer)
 				logger.Info("MultiPooler gRPC service registered with servenv")
