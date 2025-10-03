@@ -183,7 +183,7 @@ func (p *localProvisioner) DefaultConfig(configPaths []string) map[string]any {
 		Etcd: EtcdConfig{
 			Version: "3.5.9",
 			DataDir: filepath.Join(baseDir, "data", "etcd-data"),
-			Port:    2379,
+			Port:    ports.DefaultEtcdPort,
 		},
 		Topology: TopologyConfig{
 			Backend:        "etcd2",
@@ -211,7 +211,7 @@ func (p *localProvisioner) DefaultConfig(configPaths []string) map[string]any {
 					Path:     filepath.Join(binDir, "multigateway"),
 					HttpPort: ports.DefaultMultigatewayHTTP,
 					GrpcPort: ports.DefaultMultigatewayGRPC,
-					PgPort:   15432,
+					PgPort:   ports.DefaultMultigatewayPG,
 					LogLevel: "info",
 				},
 				Multipooler: MultipoolerConfig{
@@ -221,13 +221,13 @@ func (p *localProvisioner) DefaultConfig(configPaths []string) map[string]any {
 					ServiceID:  serviceIDZone1,
 					PoolerDir:  GeneratePoolerDir(baseDir, serviceIDZone1),
 					PgPort:     ports.DefaultPostgresPort, // Same as pgctld for this zone
-					HttpPort:   15100,
+					HttpPort:   ports.DefaultMultipoolerHTTP,
 					GrpcPort:   ports.DefaultMultipoolerGRPC,
 					LogLevel:   "info",
 				},
 				Multiorch: MultiorchConfig{
 					Path:     filepath.Join(binDir, "multiorch"),
-					HttpPort: 15300,
+					HttpPort: ports.DefaultMultiorchHTTP,
 					GrpcPort: ports.DefaultMultiorchGRPC,
 					LogLevel: "info",
 				},

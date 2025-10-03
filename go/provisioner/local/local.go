@@ -138,9 +138,9 @@ func (p *localProvisioner) provisionEtcd(ctx context.Context, req *provisioner.P
 		}, nil
 	}
 
-	// Get port from config (default 2379)
-	port := 2379
-	if p, ok := etcdConfig["port"].(int); ok {
+	// Get port from config or use default
+	port := ports.DefaultEtcdPort
+	if p, ok := etcdConfig["port"].(int); ok && p > 0 {
 		port = p
 	}
 
@@ -715,7 +715,7 @@ func (p *localProvisioner) provisionMultipooler(ctx context.Context, req *provis
 	}
 
 	// Get PostgreSQL port from config or use default
-	pgPort := 5432
+	pgPort := ports.DefaultPostgresPort
 	if port, ok := multipoolerConfig["pg_port"].(int); ok && port > 0 {
 		pgPort = port
 	}

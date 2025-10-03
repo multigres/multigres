@@ -19,6 +19,7 @@ const (
 	// Global Services
 	DefaultMultiadminHTTP = 15000
 	DefaultMultiadminGRPC = 15990
+	DefaultEtcdPort       = 2379
 
 	// Cell Services - HTTP
 	DefaultMultigatewayHTTP = 15001
@@ -32,5 +33,6 @@ const (
 	DefaultPgctldGRPC       = 17000
 
 	// PostgreSQL
-	DefaultPostgresPort = 5432
+	DefaultPostgresPort   = 5432
+	DefaultMultigatewayPG = 15432
 )
