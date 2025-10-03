@@ -23,7 +23,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 
 	"github.com/multigres/multigres/go/grpccommon"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
@@ -48,8 +47,7 @@ func NewMultiPoolerTestClient(addr string) (*MultiPoolerTestClient, error) {
 		return nil, fmt.Errorf("invalid address format: %s", addr)
 	}
 
-	opts := append([]grpc.DialOption{grpc.WithTransportCredentials(insecure.NewCredentials())}, grpccommon.ClientDialOptions()...)
-	conn, err := grpc.NewClient(addr, opts...)
+	conn, err := grpc.NewClient(addr, grpccommon.LocalClientDialOptions()...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create client for multipooler at %s: %w", addr, err)
 	}

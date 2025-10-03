@@ -27,7 +27,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 
 	"github.com/multigres/multigres/go/cmd/pgctld/command"
 	"github.com/multigres/multigres/go/grpccommon"
@@ -58,8 +57,7 @@ func TestGRPCServerIntegration(t *testing.T) {
 	defer cleanupServer()
 
 	// Connect to the gRPC server
-	opts := append([]grpc.DialOption{grpc.WithTransportCredentials(insecure.NewCredentials())}, grpccommon.ClientDialOptions()...)
-	conn, err := grpc.NewClient(lis.Addr().String(), opts...)
+	conn, err := grpc.NewClient(lis.Addr().String(), grpccommon.LocalClientDialOptions()...)
 	require.NoError(t, err)
 	defer conn.Close()
 
@@ -142,8 +140,7 @@ func TestGRPCErrorHandling(t *testing.T) {
 	defer cleanupServer()
 
 	// Connect to the gRPC server
-	opts := append([]grpc.DialOption{grpc.WithTransportCredentials(insecure.NewCredentials())}, grpccommon.ClientDialOptions()...)
-	conn, err := grpc.NewClient(lis.Addr().String(), opts...)
+	conn, err := grpc.NewClient(lis.Addr().String(), grpccommon.LocalClientDialOptions()...)
 	require.NoError(t, err)
 	defer conn.Close()
 
@@ -224,8 +221,7 @@ func TestGRPCConcurrentRequests(t *testing.T) {
 	defer cleanupServer()
 
 	// Connect to the gRPC server
-	opts := append([]grpc.DialOption{grpc.WithTransportCredentials(insecure.NewCredentials())}, grpccommon.ClientDialOptions()...)
-	conn, err := grpc.NewClient(lis.Addr().String(), opts...)
+	conn, err := grpc.NewClient(lis.Addr().String(), grpccommon.LocalClientDialOptions()...)
 	require.NoError(t, err)
 	defer conn.Close()
 
@@ -305,8 +301,7 @@ func TestGRPCWithDifferentConfigurations(t *testing.T) {
 		defer cleanupServer()
 
 		// Connect to the gRPC server
-		opts := append([]grpc.DialOption{grpc.WithTransportCredentials(insecure.NewCredentials())}, grpccommon.ClientDialOptions()...)
-		conn, err := grpc.NewClient(lis.Addr().String(), opts...)
+		conn, err := grpc.NewClient(lis.Addr().String(), grpccommon.LocalClientDialOptions()...)
 		require.NoError(t, err)
 		defer conn.Close()
 
@@ -360,8 +355,7 @@ func TestGRPCUninitializedDatabase(t *testing.T) {
 	defer cleanupServer()
 
 	// Connect to the gRPC server
-	opts := append([]grpc.DialOption{grpc.WithTransportCredentials(insecure.NewCredentials())}, grpccommon.ClientDialOptions()...)
-	conn, err := grpc.NewClient(lis.Addr().String(), opts...)
+	conn, err := grpc.NewClient(lis.Addr().String(), grpccommon.LocalClientDialOptions()...)
 	require.NoError(t, err)
 	defer conn.Close()
 
