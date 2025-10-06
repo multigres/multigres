@@ -629,7 +629,6 @@ func TestMultipoolerReplicationApi(t *testing.T) {
 		require.NotNil(t, isReadOnlyResp)
 		assert.False(t, isReadOnlyResp.ReadOnly, "Instance should not be in read-only mode after SetReadOnly(false)")
 
-		t.Logf("Verify writes work again after disabling read-only mode")
 		_, err = poolerClient.ExecuteQuery("INSERT INTO test_readonly VALUES (2)", 0)
 		require.NoError(t, err, "Should be able to insert after disabling read-only mode")
 		t.Logf("✓ Successfully inserted data after disabling read-only mode")
