@@ -45,7 +45,7 @@ jobs:
         run: make build
 
       - name: Run short tests
-        run: go test -short -v ./... > short-test-results.txt
+        run: go test -json -short -v ./... > short-test-results.txt
 
       - name: Test Report
         uses: dorny/test-reporter@v2
