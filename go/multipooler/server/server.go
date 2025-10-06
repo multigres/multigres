@@ -20,56 +20,25 @@ import (
 	"database/sql"
 	"fmt"
 	"log/slog"
-	"path/filepath"
 	"strings"
 
+	"github.com/multigres/multigres/go/multipooler/manager"
 	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
 	querypb "github.com/multigres/multigres/go/pb/query"
-	"github.com/multigres/multigres/go/servenv"
 
 	"google.golang.org/grpc"
 )
-
-func init() {
-	// Register the pooler service in the service map
-	servenv.InitServiceMap("grpc", "pooler")
-}
-
-// RegisterService registers the MultiPooler gRPC service with the given configuration
-func RegisterService(config *Config) {
-	servenv.OnRun(func() {
-		if servenv.GRPCServer == nil {
-			return
-		}
-
-		// Check if the pooler service should be registered
-		if servenv.GRPCCheckServiceMap("pooler") {
-			logger := servenv.GetLogger()
-			server := NewMultiPoolerServer(logger, config)
-			multipoolerpb.RegisterMultiPoolerServiceServer(servenv.GRPCServer, server)
-			logger.Info("MultiPooler gRPC service registered")
-		}
-	})
-}
-
-// Config holds configuration for the MultiPooler server
-type Config struct {
-	SocketFilePath string
-	PoolerDir      string
-	PgPort         int
-	Database       string
-}
 
 // MultiPoolerServer implements the MultiPoolerService gRPC interface
 type MultiPoolerServer struct {
 	multipoolerpb.UnimplementedMultiPoolerServiceServer
 	logger *slog.Logger
-	config *Config
+	config *manager.Config
 	db     *sql.DB
 }
 
 // NewMultiPoolerServer creates a new multipooler gRPC server
-func NewMultiPoolerServer(logger *slog.Logger, config *Config) *MultiPoolerServer {
+func NewMultiPoolerServer(logger *slog.Logger, config *manager.Config) *MultiPoolerServer {
 	return &MultiPoolerServer{
 		logger: logger,
 		config: config,
@@ -88,70 +57,11 @@ func (s *MultiPoolerServer) connectDB() error {
 		return nil // Already connected
 	}
 
-	// Debug: Log the configuration we received
-	s.logger.Info("connectDB: Configuration received",
-		"pooler_dir", s.config.PoolerDir,
-		"pg_port", s.config.PgPort,
-		"socket_file_path", s.config.SocketFilePath,
-		"database", s.config.Database)
-
-	var dsn string
-	if s.config.PoolerDir != "" && s.config.PgPort != 0 {
-		// Use pooler directory and port to construct socket path
-		// PostgreSQL creates socket files as: {poolerDir}/pg_sockets/.s.PGSQL.{port}
-		socketDir := filepath.Join(s.config.PoolerDir, "pg_sockets")
-		port := fmt.Sprintf("%d", s.config.PgPort)
-
-		dsn = fmt.Sprintf("user=postgres dbname=%s host=%s port=%s sslmode=disable",
-			s.config.Database, socketDir, port)
-
-		s.logger.Info("Unix socket connection via pooler directory",
-			"pooler_dir", s.config.PoolerDir,
-			"socket_dir", socketDir,
-			"pg_port", s.config.PgPort,
-			"dsn", dsn)
-	} else if s.config.SocketFilePath != "" {
-		// Fallback: use socket file path directly
-		socketDir := filepath.Dir(s.config.SocketFilePath)
-		socketFile := filepath.Base(s.config.SocketFilePath)
-
-		// Extract port from socket filename (.s.PGSQL.PORT)
-		port := "5432" // default
-		if strings.HasPrefix(socketFile, ".s.PGSQL.") {
-			if portStr := strings.TrimPrefix(socketFile, ".s.PGSQL."); portStr != "" {
-				port = portStr
-			}
-		}
-
-		dsn = fmt.Sprintf("user=postgres dbname=%s host=%s port=%s sslmode=disable",
-			s.config.Database, socketDir, port)
-
-		s.logger.Info("Unix socket connection via socket file path (fallback)",
-			"original_socket_path", s.config.SocketFilePath,
-			"socket_dir", socketDir,
-			"socket_file", socketFile,
-			"extracted_port", port,
-			"dsn", dsn)
-	} else {
-		// Use TCP connection (fallback)
-		dsn = fmt.Sprintf("user=postgres dbname=%s host=localhost port=5432 sslmode=disable",
-			s.config.Database)
-	}
-
-	var err error
-	s.db, err = sql.Open("postgres", dsn)
+	db, err := manager.CreateDBConnection(s.logger, s.config)
 	if err != nil {
-		return fmt.Errorf("failed to open database connection: %w", err)
+		return err
 	}
-
-	// Test the connection
-	if err := s.db.Ping(); err != nil {
-		s.db.Close()
-		s.db = nil
-		return fmt.Errorf("failed to ping database: %w", err)
-	}
-
-	s.logger.Info("Connected to PostgreSQL", "socket_path", s.config.SocketFilePath, "database", s.config.Database)
+	s.db = db
 	return nil
 }
 

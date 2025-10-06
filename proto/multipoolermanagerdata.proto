@@ -65,27 +65,6 @@ message SetReadOnlyRequest {
 message SetReadOnlyResponse {
 }
 
-// PromoteStandby PostgreSQL standby server to primary
-message PromoteStandbyRequest {
-  // Whether to wait for promotion to complete (default: true)
-  bool wait = 1;
-
-  // Maximum time to wait for promotion (default: 60s)
-  google.protobuf.Duration wait_timeout = 2;
-}
-
-message PromoteStandbyResponse {
-}
-
-// GetPrimaryLSN gets the current leader LSN position
-message GetPrimaryLSNRequest {
-}
-
-message GetPrimaryLSNResponse {
-  // Current leader LSN position
-  string leader_lsn = 1;
-}
-
 // IsReadOnly checks if PostgreSQL instance is in read-only mode
 message IsReadOnlyRequest {
 }
@@ -95,8 +74,8 @@ message IsReadOnlyResponse {
   bool read_only = 1;
 }
 
-// SetStandbyPrimaryConnInfo sets the primary connection info for a standby server
-message SetStandbyPrimaryConnInfoRequest {
+// SetPrimaryConnInfo sets the primary connection info for a standby server
+message SetPrimaryConnInfoRequest {
   // Primary server hostname
   string host = 1;
 
@@ -113,28 +92,28 @@ message SetStandbyPrimaryConnInfoRequest {
   bool start_replication_after = 5;
 }
 
-message SetStandbyPrimaryConnInfoResponse {
+message SetPrimaryConnInfoResponse {
 }
 
-// StopStandbyReplication stops WAL replay on standby
-message StopStandbyReplicationRequest {
+// StopReplication stops WAL replay on standby
+message StopReplicationRequest {
 }
 
-message StopStandbyReplicationResponse {
+message StopReplicationResponse {
   // Replication status when replication was stopped
   ReplicationStatus status = 1;
 }
 
-// StandbyReplicationStatus gets the current replication status
-message StandbyReplicationStatusRequest {
+// ReplicationStatus gets the current replication status
+message ReplicationStatusRequest {
 }
 
-message StandbyReplicationStatusResponse {
+message ReplicationStatusResponse {
   // Current replication status
   ReplicationStatus status = 1;
 }
 
-// PostgreSQL leader server status
+// PostgreSQL primary server status
 message PrimaryStatus {
   // Current WAL LSN position (PostgreSQL format: X/XXXXXXXX)
   string lsn = 1;
@@ -146,21 +125,21 @@ message PrimaryStatus {
   repeated string followers = 3;
 }
 
-// PrimaryStatus gets the status of the leader server
+// PrimaryStatus gets the status of the primary server
 message PrimaryStatusRequest {
 }
 
 message PrimaryStatusResponse {
-  // Leader server status
+  // Primary server status
   PrimaryStatus status = 1;
 }
 
-// PrimaryPosition gets the current LSN position of the leader
+// PrimaryPosition gets the current LSN position of the primary
 message PrimaryPositionRequest {
 }
 
 message PrimaryPositionResponse {
-  // Current leader LSN position
+  // Current primary LSN position
   string lsn_position = 1;
 }
 
@@ -173,20 +152,20 @@ message GetFollowersResponse {
   repeated string follower_addresses = 1;
 }
 
-// DemoteLeader demotes the current leader server
-message DemoteLeaderRequest {
+// Demote demotes the current leader server
+message DemoteRequest {
 }
 
-message DemoteLeaderResponse {
+message DemoteResponse {
   // Leader status after demotion
   PrimaryStatus leader_status = 1;
 }
 
-// UndoDemoteLeader undoes a leader demotion
-message UndoDemoteLeaderRequest {
+// UndoDemote undoes a demotion
+message UndoDemoteRequest {
 }
 
-message UndoDemoteLeaderResponse {
+message UndoDemoteResponse {
 }
 
 // StopReplicationAndGetStatus stops PostgreSQL replication and returns the status
@@ -207,20 +186,20 @@ message ChangeTypeRequest {
 message ChangeTypeResponse {
 }
 
-// PromoteFollower promotes a follower to leader
-message PromoteFollowerRequest {
+// Promote promotes a replica to leader (Multigres-level operation)
+message PromoteRequest {
 }
 
-message PromoteFollowerResponse {
+message PromoteResponse {
   // LSN position after promotion
   string lsn_position = 1;
 }
 
-// ResetStandbyReplication resets the standby's connection to its primary
-message ResetStandbyReplicationRequest {
+// ResetReplication resets the standby's connection to its primary
+message ResetReplicationRequest {
 }
 
-message ResetStandbyReplicationResponse {
+message ResetReplicationResponse {
   // Replication status when replication was reset
   ReplicationStatus status = 1;
 }
@@ -274,4 +253,16 @@ message ConfigureSynchronousReplicationRequest {
 }
 
 message ConfigureSynchronousReplicationResponse {
+}
+
+// Status gets the current status of the manager
+message StatusRequest {
+}
+
+message StatusResponse {
+  // Manager state (starting, ready, error)
+  string state = 1;
+
+  // Error message if state is error
+  string error_message = 2;
 }

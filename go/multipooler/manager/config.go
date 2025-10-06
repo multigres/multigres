@@ -4,7 +4,7 @@
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//     http://www.apache.org/licenses/LICENSE-2.0
+// http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -12,20 +12,21 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package appendpath provides a command to append a path to PATH.
-package appendpath
+// Package manager implements the core MultiPoolerManager business logic
+package manager
 
 import (
-	"os"
-	"path/filepath"
+	"github.com/multigres/multigres/go/clustermetadata/topo"
+
+	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 )
 
-// AppendPath appends a given path to the PATH environment variable.
-// It ensures the path is absolute.
-func AppendPath(path string) {
-	absPath, err := filepath.Abs(path)
-	if err != nil {
-		return
-	}
-	_ = os.Setenv("PATH", os.Getenv("PATH")+string(os.PathListSeparator)+absPath)
+// Config holds configuration for the MultiPoolerManager
+type Config struct {
+	SocketFilePath string
+	PoolerDir      string
+	PgPort         int
+	Database       string
+	TopoClient     topo.Store
+	ServiceID      *clustermetadatapb.ID
 }

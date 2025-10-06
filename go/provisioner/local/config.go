@@ -19,6 +19,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/multigres/multigres/go/provisioner/local/ports"
 	"github.com/multigres/multigres/go/tools/stringutil"
 
 	"gopkg.in/yaml.v3"
@@ -184,7 +185,7 @@ func (p *localProvisioner) DefaultConfig(configPaths []string) map[string]any {
 		Etcd: EtcdConfig{
 			Version: "3.5.9",
 			DataDir: filepath.Join(baseDir, "data", "etcd-data"),
-			Port:    2379,
+			Port:    ports.DefaultEtcdPort,
 		},
 		Topology: TopologyConfig{
 			Backend:        "etcd2",
@@ -202,17 +203,17 @@ func (p *localProvisioner) DefaultConfig(configPaths []string) map[string]any {
 		},
 		Multiadmin: MultiadminConfig{
 			Path:     filepath.Join(binDir, "multiadmin"),
-			HttpPort: 15000,
-			GrpcPort: 15990,
+			HttpPort: ports.DefaultMultiadminHTTP,
+			GrpcPort: ports.DefaultMultiadminGRPC,
 			LogLevel: "info",
 		},
 		Cells: map[string]CellServicesConfig{
 			"zone1": {
 				Multigateway: MultigatewayConfig{
 					Path:     filepath.Join(binDir, "multigateway"),
-					HttpPort: 15001,
-					GrpcPort: 15991,
-					PgPort:   15432,
+					HttpPort: ports.DefaultMultigatewayHTTP,
+					GrpcPort: ports.DefaultMultigatewayGRPC,
+					PgPort:   ports.DefaultMultigatewayPG,
 					LogLevel: "info",
 				},
 				Multipooler: MultipoolerConfig{
@@ -221,24 +222,24 @@ func (p *localProvisioner) DefaultConfig(configPaths []string) map[string]any {
 					TableGroup:     tableGroup,
 					ServiceID:      serviceIDZone1,
 					PoolerDir:      GeneratePoolerDir(baseDir, serviceIDZone1),
-					PgPort:         5432, // Same as pgctld for this zone
-					HttpPort:       15100,
-					GrpcPort:       16001,
+					PgPort:         ports.DefaultPostgresPort, // Same as pgctld for this zone
+					HttpPort:       ports.DefaultMultipoolerHTTP,
+					GrpcPort:       ports.DefaultMultipoolerGRPC,
 					GRPCSocketFile: filepath.Join(baseDir, "sockets", "multipooler-zone1.sock"),
 					LogLevel:       "info",
 				},
 				Multiorch: MultiorchConfig{
 					Path:     filepath.Join(binDir, "multiorch"),
-					HttpPort: 15300,
-					GrpcPort: 16000,
+					HttpPort: ports.DefaultMultiorchHTTP,
+					GrpcPort: ports.DefaultMultiorchGRPC,
 					LogLevel: "info",
 				},
 				Pgctld: PgctldConfig{
 					Path:           filepath.Join(binDir, "pgctld"),
 					PoolerDir:      GeneratePoolerDir(baseDir, serviceIDZone1),
-					GrpcPort:       17000,
+					GrpcPort:       ports.DefaultPgctldGRPC,
 					GRPCSocketFile: filepath.Join(baseDir, "sockets", "pgctld-zone1.sock"),
-					PgPort:         5432,
+					PgPort:         ports.DefaultPostgresPort,
 					PgDatabase:     dbName,
 					PgUser:         "postgres",
 					PgPwfile:       filepath.Join(GeneratePoolerDir(baseDir, serviceIDZone1), "pgpassword.txt"),
@@ -249,9 +250,9 @@ func (p *localProvisioner) DefaultConfig(configPaths []string) map[string]any {
 			"zone2": {
 				Multigateway: MultigatewayConfig{
 					Path:     filepath.Join(binDir, "multigateway"),
-					HttpPort: 15101, // zone1 + 100
-					GrpcPort: 16091, // zone1 + 100
-					PgPort:   15532, // zone1 + 100
+					HttpPort: ports.DefaultMultigatewayHTTP + 1,
+					GrpcPort: ports.DefaultMultigatewayGRPC + 1,
+					PgPort:   ports.DefaultPostgresPort + 1,
 					LogLevel: "info",
 				},
 				Multipooler: MultipoolerConfig{
@@ -260,24 +261,24 @@ func (p *localProvisioner) DefaultConfig(configPaths []string) map[string]any {
 					TableGroup:     tableGroup,
 					ServiceID:      serviceIDZone2,
 					PoolerDir:      GeneratePoolerDir(baseDir, serviceIDZone2),
-					PgPort:         5532,  // Same as pgctld for this zone (zone1 + 100)
-					HttpPort:       15200, // zone1 + 100
-					GrpcPort:       16101, // zone1 + 100
+					PgPort:         ports.DefaultPostgresPort + 1,
+					HttpPort:       ports.DefaultMultipoolerHTTP + 1,
+					GrpcPort:       ports.DefaultMultipoolerGRPC + 1,
 					GRPCSocketFile: filepath.Join(baseDir, "sockets", "multipooler-zone2.sock"),
 					LogLevel:       "info",
 				},
 				Multiorch: MultiorchConfig{
 					Path:     filepath.Join(binDir, "multiorch"),
-					HttpPort: 15400, // zone1 + 100
-					GrpcPort: 16100, // zone1 + 100
+					HttpPort: ports.DefaultMultiorchHTTP + 1,
+					GrpcPort: ports.DefaultMultiorchGRPC + 1,
 					LogLevel: "info",
 				},
 				Pgctld: PgctldConfig{
 					Path:           filepath.Join(binDir, "pgctld"),
 					PoolerDir:      GeneratePoolerDir(baseDir, serviceIDZone2),
-					GrpcPort:       17100, // zone1 + 100
+					GrpcPort:       ports.DefaultPgctldGRPC + 1,
 					GRPCSocketFile: filepath.Join(baseDir, "sockets", "pgctld-zone2.sock"),
-					PgPort:         5532, // zone1 + 100
+					PgPort:         ports.DefaultPostgresPort + 1,
 					PgDatabase:     dbName,
 					PgUser:         "postgres",
 					PgPwfile:       filepath.Join(GeneratePoolerDir(baseDir, serviceIDZone2), "pgpassword.txt"),
