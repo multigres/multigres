@@ -1,0 +1,18 @@
+# Git
+.git
+.gitignore
+
+# IDE / Editor configs
+.vscode/
+.idea/
+
+# Local build artifacts
+bin/
+build/
+
+# Documentation and miscellaneous files
+*.md
+Makefile
+
+# Local development directory
+multigres_local/

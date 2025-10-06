@@ -1,0 +1,261 @@
+# This is just a sample to bring all the components up and show how a cluster would look like. The topology init component is missing, so none of the components will be ready.
+
+networks:
+  multigres-net:
+    driver: bridge
+
+volumes:
+  etcd-data: {}
+  pg-data-0-0: {}
+  pg-data-0-1: {}
+
+services:
+  etcd:
+    image: k8s.gcr.io/etcd:3.5.9-0
+    command:
+      - etcd
+      - --name=etcd0
+      - --data-dir=/var/run/etcd/default.etcd
+      - --listen-client-urls=http://0.0.0.0:2379
+      - --advertise-client-urls=http://etcd:2379
+      - --listen-peer-urls=http://0.0.0.0:2380
+      - --initial-advertise-peer-urls=http://etcd:2380
+      - --initial-cluster=etcd0=http://etcd:2380
+      - --initial-cluster-token=multigres-etcd-cluster
+      - --initial-cluster-state=new
+    ports:
+      - "2379:2379"
+    volumes:
+      - etcd-data:/var/run/etcd
+    networks:
+      - multigres-net
+    healthcheck:
+      test: ["CMD", "etcdctl", "endpoint", "health"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # This init-cluster command is not implemented, maybe one day...
+  # init-cluster:
+  #   build:
+  #     context: .
+  #     dockerfile: Dockerfile
+  #   networks:
+  #     - multigres-net
+  #   depends_on:
+  #     etcd:
+  #       condition: service_healthy
+  #   command:
+  #     - multigres
+  #     - topo
+  #     - init
+  #     - --topo-implementation=etcd2
+  #     - --topo-global-server-addresses=etcd:2379
+  #     - --topo-global-root=/multigres/global
+  #     - --db-name=commerce
+  #     - --sharded=true
+  #     - --cell=zone1
+  #     - --cell=zone2
+
+  multiadmin:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command:
+      - multiadmin
+      - --topo-implementation=etcd2
+      - --topo-global-server-addresses=etcd:2379
+      - --topo-global-root=/multigres/global
+      - --http-port=15000
+      - --grpc-port=15990
+      - --log-level=info
+    ports:
+      - "15000:15000"
+    depends_on:
+      etcd:
+        condition: service_healthy
+    networks:
+      - multigres-net
+    develop:
+      watch:
+        - action: rebuild
+          path: ./go
+
+  multiorch:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command:
+      - multiorch
+      - --topo-implementation=etcd2
+      - --topo-global-server-addresses=etcd:2379
+      - --topo-global-root=/multigres/global
+      - --cell=zone1
+      - --http-port=15300
+      - --grpc-port=16000
+      - --log-level=info
+    ports:
+      - "15300:15300"
+      - "16000:16000"
+    depends_on:
+      etcd:
+        condition: service_healthy
+    networks:
+      - multigres-net
+    develop:
+      watch:
+        - action: rebuild
+          path: ./go
+
+  multigateway:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command:
+      - multigateway
+      - --topo-implementation=etcd2
+      - --topo-global-server-addresses=etcd:2379
+      - --topo-global-root=/multigres/global
+      - --cell=zone1
+      - --http-port=15001
+      - --grpc-port=15991
+      - --log-level=info
+    ports:
+      - "15433:15433"
+      - "15001:15001"
+      - "15991:15991"
+    depends_on:
+      etcd:
+        condition: service_healthy
+    networks:
+      - multigres-net
+    develop:
+      watch:
+        - action: rebuild
+          path: ./go
+
+  # --- Replica 0 ---
+  postgres-0-0:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    command: >
+      /bin/sh -c "
+        pgctld init --pooler-dir=/var/lib/postgresql/data --pg-port=5432 &&
+        pgctld start --pooler-dir=/var/lib/postgresql/data --log-level=info &&
+        exec pgctld server --pooler-dir=/var/lib/postgresql/data --grpc-port=17000 --pg-port=5432 --pg-database=postgres --pg-user=postgres --timeout=30 --log-level=info
+      "
+    ports:
+      - "54320:5432"
+      - "17000:17000"
+    volumes:
+      - pg-data-0-0:/var/lib/postgresql/data
+    networks:
+      - multigres-net
+    depends_on:
+      etcd:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "postgres", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    develop:
+      watch:
+        - action: rebuild
+          path: ./go
+
+  multipooler-0-0:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command:
+      - multipooler
+      - --topo-implementation=etcd2
+      - --topo-global-server-addresses=etcd:2379
+      - --topo-global-root=/multigres/global
+      - --cell=zone1
+      - --database=commerce
+      - --table-group=0
+      - --pooler-dir=/var/lib/postgresql/data
+      - --pgctld-addr=postgres-0-0:17000
+      - --pg-port=5432
+      - --grpc-port=16001
+      - --http-port=15100
+      - --log-level=info
+    ports:
+      - "15100:15100"
+      - "16001:16001"
+    networks:
+      - multigres-net
+    depends_on:
+      postgres-0-0:
+        condition: service_healthy
+    develop:
+      watch:
+        - action: rebuild
+          path: ./go
+
+  # --- Replica 1 ---
+  postgres-0-1:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    command: >
+      /bin/sh -c "
+        pgctld init --pooler-dir=/var/lib/postgresql/data --pg-port=5532 &&
+        pgctld start --pooler-dir=/var/lib/postgresql/data --log-level=info &&
+        exec pgctld server --pooler-dir=/var/lib/postgresql/data --grpc-port=17100 --pg-port=5532 --pg-database=postgres --pg-user=postgres --timeout=30 --log-level=info
+      "
+    ports:
+      - "54321:5532"
+      - "17100:17100"
+    volumes:
+      - pg-data-0-1:/var/lib/postgresql/data
+    networks:
+      - multigres-net
+    depends_on:
+      etcd:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "postgres", "-h", "localhost", "-p", "5532"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    develop:
+      watch:
+        - action: rebuild
+          path: ./go
+
+  multipooler-0-1:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command:
+      - multipooler
+      - --topo-implementation=etcd2
+      - --topo-global-server-addresses=etcd:2379
+      - --topo-global-root=/multigres/global
+      - --cell=zone2
+      - --database=commerce
+      - --table-group=0
+      - --pooler-dir=/var/lib/postgresql/data
+      - --pgctld-addr=postgres-0-1:17100
+      - --pg-port=5532
+      - --grpc-port=16002
+      - --http-port=15200
+      - --log-level=info
+    ports:
+      - "15200:15200"
+      - "16002:16002"
+    networks:
+      - multigres-net
+    depends_on:
+      postgres-0-1:
+        condition: service_healthy
+    develop:
+      watch:
+        - action: rebuild
+          path: ./go
