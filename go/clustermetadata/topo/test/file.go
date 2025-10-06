@@ -148,6 +148,8 @@ func checkFileInCell(t *testing.T, conn topo.Conn, hasCells bool) {
 	// ListDir root: nothing.
 	expected = expected[:len(expected)-1]
 	checkListDir(ctx, t, conn, "/", expected)
+
+	assert.Fail(t, "intentional failure")
 }
 
 // checkList tests the file part of the Conn API.
