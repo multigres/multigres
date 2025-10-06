@@ -45,7 +45,7 @@ jobs:
         run: make build
 
       - name: Run short tests
-        run: go test -json -short -v ./... | tee short-test-results.jsonl | go tool tparse -all -follow
+        run: go test -json -short -v ./... | tee short-test-results.jsonl | go tool tparse -follow
 
       - name: Test Report
         uses: dorny/test-reporter@dc3a92680fcc15842eef52e8c4606ea7ce6bd3f3 # v2.1.1
