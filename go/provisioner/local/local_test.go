@@ -15,6 +15,7 @@
 package local
 
 import (
+	"os"
 	"strings"
 	"testing"
 
@@ -47,11 +48,6 @@ func TestValidateUnixSocketPathLength(t *testing.T) {
 			expectError: true,
 			errorMsg:    "unix socket path would exceed system limit",
 		},
-		{
-			name:        "relative path should be converted to absolute",
-			rootDir:     "./short",
-			expectError: false,
-		},
 	}
 
 	for _, tt := range tests {
@@ -81,4 +77,28 @@ func TestValidateUnixSocketPathLength(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestValidateUnixSocketPathLengthWithWorkingDirectory(t *testing.T) {
+	// Setup test directory
+	tempDir, err := os.MkdirTemp("/tmp/", "socket_validation_test")
+	require.NoError(t, err)
+	defer os.RemoveAll(tempDir)
+
+	// Change to the subdirectory
+	originalDir, err := os.Getwd()
+	require.NoError(t, err)
+	defer func() {
+		_ = os.Chdir(originalDir)
+	}()
+
+	require.NoError(t, os.Chdir(tempDir))
+
+	provisioner := &localProvisioner{}
+	config := &LocalProvisionerConfig{
+		RootWorkingDir: "./relative_path", // This should be converted to absolute
+	}
+
+	err = provisioner.validateUnixSocketPathLength(config)
+	require.NoError(t, err)
 }
