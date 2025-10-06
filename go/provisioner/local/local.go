@@ -33,6 +33,7 @@ import (
 
 	"github.com/multigres/multigres/go/clustermetadata/topo"
 	"github.com/multigres/multigres/go/provisioner"
+	"github.com/multigres/multigres/go/provisioner/local/ports"
 	"github.com/multigres/multigres/go/tools/pathutil"
 	"github.com/multigres/multigres/go/tools/semver"
 	"github.com/multigres/multigres/go/tools/stringutil"
@@ -137,9 +138,9 @@ func (p *localProvisioner) provisionEtcd(ctx context.Context, req *provisioner.P
 		}, nil
 	}
 
-	// Get port from config (default 2379)
-	port := 2379
-	if p, ok := etcdConfig["port"].(int); ok {
+	// Get port from config or use default
+	port := ports.DefaultEtcdPort
+	if p, ok := etcdConfig["port"].(int); ok && p > 0 {
 		port = p
 	}
 
@@ -404,14 +405,14 @@ func (p *localProvisioner) provisionMultigateway(ctx context.Context, req *provi
 	}
 
 	// Get HTTP port from cell-specific config
-	httpPort := 15001
-	if p, ok := multigatewayConfig["http_port"].(int); ok {
+	httpPort := ports.DefaultMultigatewayHTTP
+	if p, ok := multigatewayConfig["http_port"].(int); ok && p > 0 {
 		httpPort = p
 	}
 
 	// Get gRPC port from cell-specific config
-	grpcPort := 15991
-	if p, ok := multigatewayConfig["grpc_port"].(int); ok {
+	grpcPort := ports.DefaultMultigatewayGRPC
+	if p, ok := multigatewayConfig["grpc_port"].(int); ok && p > 0 {
 		grpcPort = p
 	}
 
@@ -532,14 +533,14 @@ func (p *localProvisioner) provisionMultiadmin(ctx context.Context, req *provisi
 	multiadminConfig := p.getServiceConfig("multiadmin")
 
 	// Get HTTP port from config
-	httpPort := 15000
-	if p, ok := multiadminConfig["http_port"].(int); ok {
+	httpPort := ports.DefaultMultiadminHTTP
+	if p, ok := multiadminConfig["http_port"].(int); ok && p > 0 {
 		httpPort = p
 	}
 
 	// Get gRPC port from config
-	grpcPort := 15990
-	if p, ok := multiadminConfig["grpc_port"].(int); ok {
+	grpcPort := ports.DefaultMultiadminGRPC
+	if p, ok := multiadminConfig["grpc_port"].(int); ok && p > 0 {
 		grpcPort = p
 	}
 
@@ -674,14 +675,14 @@ func (p *localProvisioner) provisionMultipooler(ctx context.Context, req *provis
 	}
 
 	// Get HTTP port from cell-specific config
-	httpPort := 15001
-	if p, ok := multipoolerConfig["http_port"].(int); ok {
+	httpPort := ports.DefaultMultipoolerHTTP
+	if p, ok := multipoolerConfig["http_port"].(int); ok && p > 0 {
 		httpPort = p
 	}
 
 	// Get grpc port from cell-specific config
-	grpcPort := 16001
-	if port, ok := multipoolerConfig["grpc_port"].(int); ok {
+	grpcPort := ports.DefaultMultipoolerGRPC
+	if port, ok := multipoolerConfig["grpc_port"].(int); ok && port > 0 {
 		grpcPort = port
 	}
 
@@ -712,8 +713,8 @@ func (p *localProvisioner) provisionMultipooler(ctx context.Context, req *provis
 	}
 
 	// Get PostgreSQL port from config or use default
-	pgPort := 5432
-	if port, ok := multipoolerConfig["pg_port"].(int); ok {
+	pgPort := ports.DefaultPostgresPort
+	if port, ok := multipoolerConfig["pg_port"].(int); ok && port > 0 {
 		pgPort = port
 	}
 
@@ -880,14 +881,14 @@ func (p *localProvisioner) provisionMultiOrch(ctx context.Context, req *provisio
 	}
 
 	// Get HTTP port from cell-specific config
-	httpPort := 15301
-	if p, ok := multiorchConfig["http_port"].(int); ok {
+	httpPort := ports.DefaultMultiorchHTTP
+	if p, ok := multiorchConfig["http_port"].(int); ok && p > 0 {
 		httpPort = p
 	}
 
 	// Get grpc port from cell-specific config
-	grpcPort := 16000
-	if port, ok := multiorchConfig["grpc_port"].(int); ok {
+	grpcPort := ports.DefaultMultiorchGRPC
+	if port, ok := multiorchConfig["grpc_port"].(int); ok && port > 0 {
 		grpcPort = port
 	}
 
