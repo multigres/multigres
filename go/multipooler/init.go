@@ -25,7 +25,7 @@ import (
 	"github.com/multigres/multigres/go/clustermetadata/topo"
 	"github.com/multigres/multigres/go/clustermetadata/toporeg"
 	"github.com/multigres/multigres/go/multipooler/manager"
-	"github.com/multigres/multigres/go/multipooler/server"
+	"github.com/multigres/multigres/go/multipooler/pooler"
 	"github.com/multigres/multigres/go/servenv"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
@@ -43,9 +43,6 @@ var (
 
 	ts     topo.Store
 	logger *slog.Logger
-
-	// poolerServer holds the gRPC multipooler server instance
-	poolerServer *server.MultiPoolerServer
 
 	tr *toporeg.TopoReg
 )
@@ -118,21 +115,19 @@ func Init() {
 	// Start the MultiPoolerManager
 	poolerManager.Start()
 
+	// Initialize and start the MultiPoolerServer
+	poolerServer := pooler.NewMultiPoolerServer(logger, &manager.Config{
+		SocketFilePath: socketFilePath,
+		PoolerDir:      poolerDir,
+		PgPort:         pgPort,
+		Database:       database,
+		TopoClient:     ts,
+		ServiceID:      multipooler.Id,
+	})
+	poolerServer.Start()
+
 	servenv.OnRun(
 		func() {
-			// Register multipooler gRPC service with servenv's GRPCServer
-			if servenv.GRPCCheckServiceMap("pooler") {
-				poolerServer = server.NewMultiPoolerServer(logger, &manager.Config{
-					SocketFilePath: socketFilePath,
-					PoolerDir:      poolerDir,
-					PgPort:         pgPort,
-					Database:       database,
-					TopoClient:     ts,
-					ServiceID:      multipooler.Id,
-				})
-				poolerServer.RegisterWithGRPCServer(servenv.GRPCServer)
-				logger.Info("MultiPooler gRPC service registered with servenv")
-			}
 			registerFunc := func(ctx context.Context) error {
 				return ts.RegisterMultiPooler(ctx, multipooler, true /* allowUpdate */)
 			}

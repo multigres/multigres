@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package server implements the multipooler gRPC server
-package server
+// Package pooler implements the multipooler gRPC server
+package pooler
 
 import (
 	"context"
@@ -25,6 +25,7 @@ import (
 	"github.com/multigres/multigres/go/multipooler/manager"
 	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
 	querypb "github.com/multigres/multigres/go/pb/query"
+	"github.com/multigres/multigres/go/servenv"
 
 	"google.golang.org/grpc"
 )
@@ -71,6 +72,19 @@ func (s *MultiPoolerServer) Close() error {
 		return s.db.Close()
 	}
 	return nil
+}
+
+// Start initializes the MultiPoolerServer
+// This method follows the Vitess pattern similar to TabletManager.Start() in tm_init.go
+func (s *MultiPoolerServer) Start() {
+	servenv.OnRun(func() {
+		s.logger.Info("MultiPoolerServer started")
+
+		// Register all gRPC services that have registered themselves
+		// This follows the Vitess pattern - grpcpoolerservice will append to RegisterPoolerServices in init()
+		s.registerGRPCServices()
+		s.logger.Info("MultiPoolerServer gRPC services registered")
+	})
 }
 
 // ExecuteQuery implements the ExecuteQuery RPC method
