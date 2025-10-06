@@ -81,7 +81,7 @@ func TestValidateUnixSocketPathLength(t *testing.T) {
 
 func TestValidateUnixSocketPathLengthWithWorkingDirectory(t *testing.T) {
 	// Setup test directory
-	tempDir, err := os.MkdirTemp("/tmp/", "socket_validation_test")
+	tempDir, err := os.MkdirTemp("/tmp/", "socket")
 	require.NoError(t, err)
 	defer os.RemoveAll(tempDir)
 

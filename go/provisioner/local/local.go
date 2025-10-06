@@ -1784,10 +1784,15 @@ func (p *localProvisioner) ValidateConfig(config map[string]any) error {
 	return nil
 }
 
+// UnixPathMax returns the maximum Unix socket path length for the current platform.
+func UnixPathMax() int {
+	var addr syscall.RawSockaddrUnix
+	return len(addr.Path)
+}
+
 // validateUnixSocketPathLength validates that Unix socket paths won't exceed system limits
 func (p *localProvisioner) validateUnixSocketPathLength(config *LocalProvisionerConfig) error {
-	// Unix domain socket path length limit is typically 108 bytes on most systems
-	const maxSocketPathLength = 108
+	maxSocketPathLength := UnixPathMax()
 
 	// Convert root working dir to absolute path for accurate length calculation
 	absRootWorkingDir, err := filepath.Abs(config.RootWorkingDir)
