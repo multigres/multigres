@@ -1,0 +1,26 @@
+# =========================================================================
+# Dockerfile for local development of PostgreSQL nodes with Docker Compose.
+# =========================================================================
+
+# Stage 1: Build just the pgctld binary
+FROM golang:1.25-alpine AS builder
+
+WORKDIR /src
+
+# Install git in case it's needed for fetching modules
+RUN apk add --no-cache git
+
+# Cache dependencies
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY . .
+RUN CGO_ENABLED=0 go build -ldflags="-w -s" -o /bin/pgctld ./go/cmd/pgctld
+
+
+FROM postgres:15-alpine
+
+# Copy the compiled pgctld binary from our builder stage into the final image.
+COPY --from=builder /bin/pgctld /usr/local/bin/
+
+USER postgres
