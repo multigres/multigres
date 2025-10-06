@@ -24,8 +24,8 @@ import (
 	"time"
 
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 
+	"github.com/multigres/multigres/go/grpccommon"
 	pb "github.com/multigres/multigres/go/pb/pgctldservice"
 	"github.com/multigres/multigres/go/tools/timertools"
 )
@@ -84,7 +84,6 @@ func (p *localProvisioner) checkMultigresServiceHealth(serviceName string, host 
 					return err
 				}
 			}
-			// Future: Add other gRPC services
 		case "etcd_port":
 			// Run etcd health check
 			if serviceName == "etcd" {
@@ -93,6 +92,7 @@ func (p *localProvisioner) checkMultigresServiceHealth(serviceName string, host 
 					return err
 				}
 			}
+			// Future: Add other gRPC services
 		default:
 			// No health check implemented for this port type, skip
 			continue
@@ -140,7 +140,7 @@ func (p *localProvisioner) checkPgctldGrpcHealth(address string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	conn, err := grpc.NewClient(address, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	conn, err := grpc.NewClient(address, grpccommon.LocalClientDialOptions()...)
 	if err != nil {
 		return fmt.Errorf("failed to connect to pgctld gRPC server: %w", err)
 	}

@@ -74,15 +74,16 @@ type MultigatewayConfig struct {
 
 // MultipoolerConfig holds multipooler service configuration
 type MultipoolerConfig struct {
-	Path       string `yaml:"path"`
-	Database   string `yaml:"database"`
-	TableGroup string `yaml:"table-group"`
-	ServiceID  string `yaml:"service-id"`
-	PoolerDir  string `yaml:"pooler-dir"` // Directory path for PostgreSQL socket files
-	PgPort     int    `yaml:"pg-port"`    // PostgreSQL port number (same as pgctld)
-	HttpPort   int    `yaml:"http-port"`
-	GrpcPort   int    `yaml:"grpc-port"`
-	LogLevel   string `yaml:"log-level"`
+	Path           string `yaml:"path"`
+	Database       string `yaml:"database"`
+	TableGroup     string `yaml:"table-group"`
+	ServiceID      string `yaml:"service-id"`
+	PoolerDir      string `yaml:"pooler-dir"` // Directory path for PostgreSQL socket files
+	PgPort         int    `yaml:"pg-port"`    // PostgreSQL port number (same as pgctld)
+	HttpPort       int    `yaml:"http-port"`
+	GrpcPort       int    `yaml:"grpc-port"`
+	GRPCSocketFile string `yaml:"grpc-socket-file"` // Unix socket file path for gRPC
+	LogLevel       string `yaml:"log-level"`
 }
 
 // MultiorchConfig holds multiorch service configuration
@@ -103,15 +104,16 @@ type MultiadminConfig struct {
 
 // PgctldConfig holds pgctld service configuration
 type PgctldConfig struct {
-	Path       string `yaml:"path"`
-	PoolerDir  string `yaml:"pooler-dir"`  // Base directory for this pgctld instance
-	GrpcPort   int    `yaml:"grpc-port"`   // gRPC port for pgctld server
-	PgPort     int    `yaml:"pg-port"`     // PostgreSQL port
-	PgDatabase string `yaml:"pg-database"` // PostgreSQL database name
-	PgUser     string `yaml:"pg-user"`     // PostgreSQL username
-	PgPwfile   string `yaml:"pg-pwfile"`   // PostgreSQL password file path (optional)
-	Timeout    int    `yaml:"timeout"`     // Operation timeout in seconds
-	LogLevel   string `yaml:"log-level"`   // Log level
+	Path           string `yaml:"path"`
+	PoolerDir      string `yaml:"pooler-dir"`       // Base directory for this pgctld instance
+	GrpcPort       int    `yaml:"grpc-port"`        // gRPC port for pgctld server
+	GRPCSocketFile string `yaml:"grpc-socket-file"` // Unix socket file path for gRPC
+	PgPort         int    `yaml:"pg-port"`          // PostgreSQL port
+	PgDatabase     string `yaml:"pg-database"`      // PostgreSQL database name
+	PgUser         string `yaml:"pg-user"`          // PostgreSQL username
+	PgPwfile       string `yaml:"pg-pwfile"`        // PostgreSQL password file path (optional)
+	Timeout        int    `yaml:"timeout"`          // Operation timeout in seconds
+	LogLevel       string `yaml:"log-level"`        // Log level
 }
 
 // LoadConfig loads the provisioner-specific configuration from the given config paths
@@ -215,15 +217,16 @@ func (p *localProvisioner) DefaultConfig(configPaths []string) map[string]any {
 					LogLevel: "info",
 				},
 				Multipooler: MultipoolerConfig{
-					Path:       filepath.Join(binDir, "multipooler"),
-					Database:   dbName,
-					TableGroup: tableGroup,
-					ServiceID:  serviceIDZone1,
-					PoolerDir:  GeneratePoolerDir(baseDir, serviceIDZone1),
-					PgPort:     ports.DefaultPostgresPort, // Same as pgctld for this zone
-					HttpPort:   ports.DefaultMultipoolerHTTP,
-					GrpcPort:   ports.DefaultMultipoolerGRPC,
-					LogLevel:   "info",
+					Path:           filepath.Join(binDir, "multipooler"),
+					Database:       dbName,
+					TableGroup:     tableGroup,
+					ServiceID:      serviceIDZone1,
+					PoolerDir:      GeneratePoolerDir(baseDir, serviceIDZone1),
+					PgPort:         ports.DefaultPostgresPort, // Same as pgctld for this zone
+					HttpPort:       ports.DefaultMultipoolerHTTP,
+					GrpcPort:       ports.DefaultMultipoolerGRPC,
+					GRPCSocketFile: filepath.Join(baseDir, "sockets", "multipooler-zone1.sock"),
+					LogLevel:       "info",
 				},
 				Multiorch: MultiorchConfig{
 					Path:     filepath.Join(binDir, "multiorch"),
@@ -232,52 +235,55 @@ func (p *localProvisioner) DefaultConfig(configPaths []string) map[string]any {
 					LogLevel: "info",
 				},
 				Pgctld: PgctldConfig{
-					Path:       filepath.Join(binDir, "pgctld"),
-					PoolerDir:  GeneratePoolerDir(baseDir, serviceIDZone1),
-					GrpcPort:   ports.DefaultPgctldGRPC,
-					PgPort:     ports.DefaultPostgresPort,
-					PgDatabase: dbName,
-					PgUser:     "postgres",
-					PgPwfile:   filepath.Join(GeneratePoolerDir(baseDir, serviceIDZone1), "pgpassword.txt"),
-					Timeout:    30,
-					LogLevel:   "info",
+					Path:           filepath.Join(binDir, "pgctld"),
+					PoolerDir:      GeneratePoolerDir(baseDir, serviceIDZone1),
+					GrpcPort:       ports.DefaultPgctldGRPC,
+					GRPCSocketFile: filepath.Join(baseDir, "sockets", "pgctld-zone1.sock"),
+					PgPort:         ports.DefaultPostgresPort,
+					PgDatabase:     dbName,
+					PgUser:         "postgres",
+					PgPwfile:       filepath.Join(GeneratePoolerDir(baseDir, serviceIDZone1), "pgpassword.txt"),
+					Timeout:        30,
+					LogLevel:       "info",
 				},
 			},
 			"zone2": {
 				Multigateway: MultigatewayConfig{
 					Path:     filepath.Join(binDir, "multigateway"),
-					HttpPort: ports.DefaultMultigatewayHTTP + 100,
-					GrpcPort: ports.DefaultMultigatewayGRPC + 100,
-					PgPort:   ports.DefaultPostgresPort + 100,
+					HttpPort: ports.DefaultMultigatewayHTTP + 1,
+					GrpcPort: ports.DefaultMultigatewayGRPC + 1,
+					PgPort:   ports.DefaultPostgresPort + 1,
 					LogLevel: "info",
 				},
 				Multipooler: MultipoolerConfig{
-					Path:       filepath.Join(binDir, "multipooler"),
-					Database:   dbName,
-					TableGroup: tableGroup,
-					ServiceID:  serviceIDZone2,
-					PoolerDir:  GeneratePoolerDir(baseDir, serviceIDZone2),
-					PgPort:     ports.DefaultPostgresPort + 100,
-					HttpPort:   ports.DefaultMultipoolerHTTP + 100,
-					GrpcPort:   ports.DefaultMultipoolerGRPC + 100,
-					LogLevel:   "info",
+					Path:           filepath.Join(binDir, "multipooler"),
+					Database:       dbName,
+					TableGroup:     tableGroup,
+					ServiceID:      serviceIDZone2,
+					PoolerDir:      GeneratePoolerDir(baseDir, serviceIDZone2),
+					PgPort:         ports.DefaultPostgresPort + 1,
+					HttpPort:       ports.DefaultMultipoolerHTTP + 1,
+					GrpcPort:       ports.DefaultMultipoolerGRPC + 1,
+					GRPCSocketFile: filepath.Join(baseDir, "sockets", "multipooler-zone2.sock"),
+					LogLevel:       "info",
 				},
 				Multiorch: MultiorchConfig{
 					Path:     filepath.Join(binDir, "multiorch"),
-					HttpPort: ports.DefaultMultiorchHTTP + 100,
-					GrpcPort: ports.DefaultMultiorchGRPC + 100,
+					HttpPort: ports.DefaultMultiorchHTTP + 1,
+					GrpcPort: ports.DefaultMultiorchGRPC + 1,
 					LogLevel: "info",
 				},
 				Pgctld: PgctldConfig{
-					Path:       filepath.Join(binDir, "pgctld"),
-					PoolerDir:  GeneratePoolerDir(baseDir, serviceIDZone2),
-					GrpcPort:   ports.DefaultPgctldGRPC + 100,
-					PgPort:     ports.DefaultPostgresPort + 100,
-					PgDatabase: dbName,
-					PgUser:     "postgres",
-					PgPwfile:   filepath.Join(GeneratePoolerDir(baseDir, serviceIDZone2), "pgpassword.txt"),
-					Timeout:    30,
-					LogLevel:   "info",
+					Path:           filepath.Join(binDir, "pgctld"),
+					PoolerDir:      GeneratePoolerDir(baseDir, serviceIDZone2),
+					GrpcPort:       ports.DefaultPgctldGRPC + 1,
+					GRPCSocketFile: filepath.Join(baseDir, "sockets", "pgctld-zone2.sock"),
+					PgPort:         ports.DefaultPostgresPort + 1,
+					PgDatabase:     dbName,
+					PgUser:         "postgres",
+					PgPwfile:       filepath.Join(GeneratePoolerDir(baseDir, serviceIDZone2), "pgpassword.txt"),
+					Timeout:        30,
+					LogLevel:       "info",
 				},
 			},
 		},
@@ -341,15 +347,16 @@ func (p *localProvisioner) getCellServiceConfig(cellName, service string) (map[s
 		}, nil
 	case "multipooler":
 		return map[string]any{
-			"path":        cellServices.Multipooler.Path,
-			"database":    cellServices.Multipooler.Database,
-			"table_group": cellServices.Multipooler.TableGroup,
-			"service-id":  cellServices.Multipooler.ServiceID,
-			"http_port":   cellServices.Multipooler.HttpPort,
-			"grpc_port":   cellServices.Multipooler.GrpcPort,
-			"log_level":   cellServices.Multipooler.LogLevel,
-			"pooler_dir":  cellServices.Multipooler.PoolerDir,
-			"pg_port":     cellServices.Multipooler.PgPort,
+			"path":             cellServices.Multipooler.Path,
+			"database":         cellServices.Multipooler.Database,
+			"table_group":      cellServices.Multipooler.TableGroup,
+			"service-id":       cellServices.Multipooler.ServiceID,
+			"http_port":        cellServices.Multipooler.HttpPort,
+			"grpc_port":        cellServices.Multipooler.GrpcPort,
+			"grpc_socket_file": cellServices.Multipooler.GRPCSocketFile,
+			"log_level":        cellServices.Multipooler.LogLevel,
+			"pooler_dir":       cellServices.Multipooler.PoolerDir,
+			"pg_port":          cellServices.Multipooler.PgPort,
 		}, nil
 	case "multiorch":
 		return map[string]any{
@@ -360,15 +367,16 @@ func (p *localProvisioner) getCellServiceConfig(cellName, service string) (map[s
 		}, nil
 	case "pgctld":
 		return map[string]any{
-			"path":        cellServices.Pgctld.Path,
-			"pooler_dir":  cellServices.Pgctld.PoolerDir,
-			"grpc_port":   cellServices.Pgctld.GrpcPort,
-			"pg_port":     cellServices.Pgctld.PgPort,
-			"pg_database": cellServices.Pgctld.PgDatabase,
-			"pg_user":     cellServices.Pgctld.PgUser,
-			"pg_pwfile":   cellServices.Pgctld.PgPwfile,
-			"timeout":     cellServices.Pgctld.Timeout,
-			"log_level":   cellServices.Pgctld.LogLevel,
+			"path":             cellServices.Pgctld.Path,
+			"pooler_dir":       cellServices.Pgctld.PoolerDir,
+			"grpc_port":        cellServices.Pgctld.GrpcPort,
+			"grpc_socket_file": cellServices.Pgctld.GRPCSocketFile,
+			"pg_port":          cellServices.Pgctld.PgPort,
+			"pg_database":      cellServices.Pgctld.PgDatabase,
+			"pg_user":          cellServices.Pgctld.PgUser,
+			"pg_pwfile":        cellServices.Pgctld.PgPwfile,
+			"timeout":          cellServices.Pgctld.Timeout,
+			"log_level":        cellServices.Pgctld.LogLevel,
 		}, nil
 	default:
 		return nil, fmt.Errorf("unknown service %s", service)

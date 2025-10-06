@@ -13,26 +13,32 @@
 // limitations under the License.
 
 // Package ports defines default port constants for Multigres services.
+// By convention, ports are usually in the from 15xxx with HTTP ports
+// at 15x00 and the corresponding gRPC port at 15x70.
 package ports
 
 const (
-	// Global Services
+	// Standard ports (unchanged)
+	DefaultEtcdPort     = 2379
+	DefaultPostgresPort = 5432
+
+	// Multiadmin
 	DefaultMultiadminHTTP = 15000
-	DefaultMultiadminGRPC = 15990
-	DefaultEtcdPort       = 2379
+	DefaultMultiadminGRPC = 15070
 
-	// Cell Services - HTTP
-	DefaultMultigatewayHTTP = 15001
-	DefaultMultipoolerHTTP  = 15001
-	DefaultMultiorchHTTP    = 15301
+	// Multigateway
+	DefaultMultigatewayHTTP = 15100
+	DefaultMultigatewayGRPC = 15170
+	DefaultMultigatewayPG   = 15432
 
-	// Cell Services - gRPC
-	DefaultMultigatewayGRPC = 15991
-	DefaultMultipoolerGRPC  = 16001
-	DefaultMultiorchGRPC    = 16000
-	DefaultPgctldGRPC       = 17000
+	// Multipooler
+	DefaultMultipoolerHTTP = 15200
+	DefaultMultipoolerGRPC = 15270
 
-	// PostgreSQL
-	DefaultPostgresPort   = 5432
-	DefaultMultigatewayPG = 15432
+	// Multiorch
+	DefaultMultiorchHTTP = 15300
+	DefaultMultiorchGRPC = 15370
+
+	// Pgctld
+	DefaultPgctldGRPC = 15470
 )

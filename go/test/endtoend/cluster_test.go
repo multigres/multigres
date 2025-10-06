@@ -30,13 +30,16 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 	"gopkg.in/yaml.v3"
 
 	"github.com/multigres/multigres/go/clustermetadata/topo"
 	"github.com/multigres/multigres/go/cmd/multigres/command/cluster"
+	pb "github.com/multigres/multigres/go/pb/pgctldservice"
 	"github.com/multigres/multigres/go/provisioner/local"
 	"github.com/multigres/multigres/go/test/utils"
-	"github.com/multigres/multigres/go/tools/appendpath"
+	"github.com/multigres/multigres/go/tools/pathutil"
 	"github.com/multigres/multigres/go/tools/stringutil"
 
 	_ "github.com/multigres/multigres/go/plugins/topo"
@@ -218,15 +221,16 @@ func createTestConfigWithPorts(tempDir string, portConfig *testPortConfig) (stri
 					LogLevel: "info",
 				},
 				Multipooler: local.MultipoolerConfig{
-					Path:       filepath.Join(binPath, "multipooler"),
-					Database:   "postgres",
-					TableGroup: "default",
-					ServiceID:  serviceIDZone1,
-					PoolerDir:  local.GeneratePoolerDir(tempDir, serviceIDZone1),
-					PgPort:     portConfig.PgctldPGPort, // Same as pgctld for this zone
-					HttpPort:   portConfig.MultipoolerHTTPPort,
-					GrpcPort:   portConfig.MultipoolerGRPCPort,
-					LogLevel:   "info",
+					Path:           filepath.Join(binPath, "multipooler"),
+					Database:       "postgres",
+					TableGroup:     "default",
+					ServiceID:      serviceIDZone1,
+					PoolerDir:      local.GeneratePoolerDir(tempDir, serviceIDZone1),
+					PgPort:         portConfig.PgctldPGPort, // Same as pgctld for this zone
+					HttpPort:       portConfig.MultipoolerHTTPPort,
+					GrpcPort:       portConfig.MultipoolerGRPCPort,
+					GRPCSocketFile: filepath.Join(tempDir, "sockets", "multipooler-zone1.sock"),
+					LogLevel:       "info",
 				},
 				Multiorch: local.MultiorchConfig{
 					Path:     filepath.Join(binPath, "multiorch"),
@@ -235,15 +239,16 @@ func createTestConfigWithPorts(tempDir string, portConfig *testPortConfig) (stri
 					LogLevel: "info",
 				},
 				Pgctld: local.PgctldConfig{
-					Path:       filepath.Join(binPath, "pgctld"),
-					GrpcPort:   portConfig.PgctldGRPCPort,
-					PgPort:     portConfig.PgctldPGPort,
-					PgDatabase: "postgres",
-					PgUser:     "postgres",
-					Timeout:    30,
-					LogLevel:   "info",
-					PoolerDir:  local.GeneratePoolerDir(tempDir, serviceIDZone1),
-					PgPwfile:   filepath.Join(local.GeneratePoolerDir(tempDir, serviceIDZone1), "pgctld.pwfile"),
+					Path:           filepath.Join(binPath, "pgctld"),
+					GrpcPort:       portConfig.PgctldGRPCPort,
+					GRPCSocketFile: filepath.Join(tempDir, "sockets", "pgctld-zone1.sock"),
+					PgPort:         portConfig.PgctldPGPort,
+					PgDatabase:     "postgres",
+					PgUser:         "postgres",
+					Timeout:        30,
+					LogLevel:       "info",
+					PoolerDir:      local.GeneratePoolerDir(tempDir, serviceIDZone1),
+					PgPwfile:       filepath.Join(local.GeneratePoolerDir(tempDir, serviceIDZone1), "pgctld.pwfile"),
 				},
 			},
 			"zone2": {
@@ -255,15 +260,16 @@ func createTestConfigWithPorts(tempDir string, portConfig *testPortConfig) (stri
 					LogLevel: "info",
 				},
 				Multipooler: local.MultipoolerConfig{
-					Path:       filepath.Join(binPath, "multipooler"),
-					Database:   "postgres",
-					TableGroup: "default",
-					ServiceID:  serviceIDZone2,
-					PoolerDir:  local.GeneratePoolerDir(tempDir, serviceIDZone2),
-					PgPort:     portConfig.PgctldPGPort + 100, // Same as pgctld for this zone (offset for zone2)
-					HttpPort:   portConfig.MultipoolerHTTPPort + 100,
-					GrpcPort:   portConfig.MultipoolerGRPCPort + 100,
-					LogLevel:   "info",
+					Path:           filepath.Join(binPath, "multipooler"),
+					Database:       "postgres",
+					TableGroup:     "default",
+					ServiceID:      serviceIDZone2,
+					PoolerDir:      local.GeneratePoolerDir(tempDir, serviceIDZone2),
+					PgPort:         portConfig.PgctldPGPort + 100, // Same as pgctld for this zone (offset for zone2)
+					HttpPort:       portConfig.MultipoolerHTTPPort + 100,
+					GrpcPort:       portConfig.MultipoolerGRPCPort + 100,
+					GRPCSocketFile: filepath.Join(tempDir, "sockets", "multipooler-zone2.sock"),
+					LogLevel:       "info",
 				},
 				Multiorch: local.MultiorchConfig{
 					Path:     filepath.Join(binPath, "multiorch"),
@@ -272,15 +278,16 @@ func createTestConfigWithPorts(tempDir string, portConfig *testPortConfig) (stri
 					LogLevel: "info",
 				},
 				Pgctld: local.PgctldConfig{
-					Path:       filepath.Join(binPath, "pgctld"),
-					GrpcPort:   portConfig.PgctldGRPCPort + 100, // offset for zone2
-					PgPort:     portConfig.PgctldPGPort + 100,   // offset for zone2
-					PgDatabase: "postgres",
-					PgUser:     "postgres",
-					Timeout:    30,
-					LogLevel:   "info",
-					PoolerDir:  local.GeneratePoolerDir(tempDir, serviceIDZone2),
-					PgPwfile:   filepath.Join(local.GeneratePoolerDir(tempDir, serviceIDZone2), "pgctld.pwfile"),
+					Path:           filepath.Join(binPath, "pgctld"),
+					GrpcPort:       portConfig.PgctldGRPCPort + 100, // offset for zone2
+					GRPCSocketFile: filepath.Join(tempDir, "sockets", "pgctld-zone2.sock"),
+					PgPort:         portConfig.PgctldPGPort + 100, // offset for zone2
+					PgDatabase:     "postgres",
+					PgUser:         "postgres",
+					Timeout:        30,
+					LogLevel:       "info",
+					PoolerDir:      local.GeneratePoolerDir(tempDir, serviceIDZone2),
+					PgPwfile:       filepath.Join(local.GeneratePoolerDir(tempDir, serviceIDZone2), "pgctld.pwfile"),
 				},
 			},
 		},
@@ -556,10 +563,13 @@ func ensureBinaryBuilt(t *testing.T) {
 // TestMain sets the path and cleans up after all tests
 func TestMain(m *testing.M) {
 	// Set the PATH so etcd can be found
-	appendpath.AppendPath("../../../bin")
+	pathutil.PrependPath("../../../bin")
 
 	// Run all tests
 	exitCode := m.Run()
+
+	// Clean up shared multipooler test resources
+	cleanupSharedResources()
 
 	// Clean up multigres binary after all tests if it was built
 	if multigresBinary != "" {
@@ -945,11 +955,23 @@ func TestClusterLifecycle(t *testing.T) {
 		testPostgreSQLConnection(t, testPorts.PgctldPGPort+100, "2")
 		t.Log("Both PostgreSQL instances are working correctly!")
 
-		// Test multipooler gRPC functionality
-		t.Log("Testing multipooler gRPC ExecuteQuery functionality...")
-		testMultipoolerGRPC(t, testPorts.MultipoolerGRPCPort)
-		testMultipoolerGRPC(t, testPorts.MultipoolerGRPCPort+100) // Zone 2
-		t.Log("Both multipooler gRPC instances are working correctly!")
+		// Test multipooler gRPC functionality via TCP
+		t.Log("Testing multipooler gRPC ExecuteQuery functionality via TCP...")
+		testMultipoolerGRPC(t, fmt.Sprintf("localhost:%d", testPorts.MultipoolerGRPCPort))
+		testMultipoolerGRPC(t, fmt.Sprintf("localhost:%d", testPorts.MultipoolerGRPCPort+100))
+		t.Log("Both multipooler gRPC instances are working correctly via TCP!")
+
+		// Test multipooler gRPC functionality via Unix socket
+		t.Log("Testing multipooler gRPC ExecuteQuery functionality via Unix socket...")
+		testMultipoolerGRPC(t, "unix://"+filepath.Join(tempDir, "sockets", "multipooler-zone1.sock"))
+		testMultipoolerGRPC(t, "unix://"+filepath.Join(tempDir, "sockets", "multipooler-zone2.sock"))
+		t.Log("Both multipooler gRPC instances are working correctly via Unix socket!")
+
+		// Test pgctld gRPC functionality via Unix socket
+		t.Log("Testing pgctld gRPC Status functionality via Unix socket...")
+		testPgctldGRPC(t, "unix://"+filepath.Join(tempDir, "sockets", "pgctld-zone1.sock"))
+		testPgctldGRPC(t, "unix://"+filepath.Join(tempDir, "sockets", "pgctld-zone2.sock"))
+		t.Log("Both pgctld gRPC instances are working correctly via Unix socket!")
 
 		// Start cluster is idempotent
 		t.Log("Attempting to start running cluster...")
@@ -1091,7 +1113,7 @@ func TestClusterLifecycle(t *testing.T) {
 
 		// Intentionally occupy the multipooler gRPC port to create a conflict
 		conflictPort := testPorts.MultipoolerGRPCPort
-		ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", conflictPort))
+		ln, err := net.Listen("tcp", fmt.Sprintf("localhost:%d", conflictPort))
 		require.NoError(t, err, "failed to bind conflict port %d", conflictPort)
 		defer ln.Close()
 
@@ -1136,13 +1158,12 @@ func assertDirectoryTreeEmpty(rootPath string) error {
 }
 
 // testMultipoolerGRPC tests the multipooler gRPC ExecuteQuery functionality
-func testMultipoolerGRPC(t *testing.T, grpcPort int) {
+func testMultipoolerGRPC(t *testing.T, addr string) {
 	t.Helper()
 
 	// Connect to multipooler gRPC service
-	multipoolerAddr := fmt.Sprintf("localhost:%d", grpcPort)
-	client, err := NewMultiPoolerTestClient(multipoolerAddr)
-	require.NoError(t, err, "Failed to connect to multipooler gRPC at %s", multipoolerAddr)
+	client, err := NewMultiPoolerTestClient(addr)
+	require.NoError(t, err, "Failed to connect to multipooler gRPC at %s", addr)
 	defer client.Close()
 
 	// Test basic SELECT query
@@ -1152,7 +1173,8 @@ func testMultipoolerGRPC(t *testing.T, grpcPort int) {
 	TestDataTypes(t, client)
 
 	// Test a simple table lifecycle (without affecting other tests)
-	tableName := fmt.Sprintf("test_table_%d", grpcPort) // Unique table name per port
+	// Use a simple hash of the address to create unique table names
+	tableName := fmt.Sprintf("test_table_%d", stringHash(addr))
 	TestCreateTable(t, client, tableName)
 
 	// Insert some test data
@@ -1168,5 +1190,38 @@ func testMultipoolerGRPC(t *testing.T, grpcPort int) {
 	// Clean up
 	TestDropTable(t, client, tableName)
 
-	t.Logf("Multipooler gRPC test completed successfully for port %d", grpcPort)
+	t.Logf("Multipooler gRPC test completed successfully for %s", addr)
+}
+
+// testPgctldGRPC tests the pgctld gRPC Status functionality
+func testPgctldGRPC(t *testing.T, addr string) {
+	t.Helper()
+
+	// Connect to pgctld gRPC service
+	conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	require.NoError(t, err, "Failed to connect to pgctld gRPC at %s", addr)
+	defer conn.Close()
+
+	client := pb.NewPgCtldClient(conn)
+	ctx := context.Background()
+
+	// Test Status call to verify connectivity
+	statusResp, err := client.Status(ctx, &pb.StatusRequest{})
+	require.NoError(t, err, "Status call failed")
+	assert.Equal(t, pb.ServerStatus_RUNNING, statusResp.GetStatus(), "PostgreSQL should be running")
+	assert.NotZero(t, statusResp.GetPid(), "PID should be non-zero")
+
+	t.Logf("Pgctld gRPC test completed successfully for %s", addr)
+}
+
+// stringHash generates a simple hash from a string for creating unique identifiers
+func stringHash(s string) int {
+	h := 0
+	for _, c := range s {
+		h = 31*h + int(c)
+	}
+	if h < 0 {
+		h = -h
+	}
+	return h
 }

@@ -27,9 +27,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 
 	"github.com/multigres/multigres/go/cmd/pgctld/command"
+	"github.com/multigres/multigres/go/grpccommon"
 
 	"github.com/multigres/multigres/go/cmd/pgctld/testutil"
 	pb "github.com/multigres/multigres/go/pb/pgctldservice"
@@ -57,7 +57,7 @@ func TestGRPCServerIntegration(t *testing.T) {
 	defer cleanupServer()
 
 	// Connect to the gRPC server
-	conn, err := grpc.NewClient(lis.Addr().String(), grpc.WithTransportCredentials(insecure.NewCredentials()))
+	conn, err := grpc.NewClient(lis.Addr().String(), grpccommon.LocalClientDialOptions()...)
 	require.NoError(t, err)
 	defer conn.Close()
 
@@ -140,7 +140,7 @@ func TestGRPCErrorHandling(t *testing.T) {
 	defer cleanupServer()
 
 	// Connect to the gRPC server
-	conn, err := grpc.NewClient(lis.Addr().String(), grpc.WithTransportCredentials(insecure.NewCredentials()))
+	conn, err := grpc.NewClient(lis.Addr().String(), grpccommon.LocalClientDialOptions()...)
 	require.NoError(t, err)
 	defer conn.Close()
 
@@ -221,7 +221,7 @@ func TestGRPCConcurrentRequests(t *testing.T) {
 	defer cleanupServer()
 
 	// Connect to the gRPC server
-	conn, err := grpc.NewClient(lis.Addr().String(), grpc.WithTransportCredentials(insecure.NewCredentials()))
+	conn, err := grpc.NewClient(lis.Addr().String(), grpccommon.LocalClientDialOptions()...)
 	require.NoError(t, err)
 	defer conn.Close()
 
@@ -229,10 +229,7 @@ func TestGRPCConcurrentRequests(t *testing.T) {
 	ctx := context.Background()
 
 	// Initialize and start PostgreSQL first
-	_, err = client.InitDataDir(ctx, &pb.InitDataDirRequest{})
-	require.NoError(t, err)
-
-	_, err = client.Start(ctx, &pb.StartRequest{})
+	err = InitAndStartPostgreSQL(t, lis.Addr().String())
 	require.NoError(t, err)
 
 	defer func() {
@@ -301,7 +298,7 @@ func TestGRPCWithDifferentConfigurations(t *testing.T) {
 		defer cleanupServer()
 
 		// Connect to the gRPC server
-		conn, err := grpc.NewClient(lis.Addr().String(), grpc.WithTransportCredentials(insecure.NewCredentials()))
+		conn, err := grpc.NewClient(lis.Addr().String(), grpccommon.LocalClientDialOptions()...)
 		require.NoError(t, err)
 		defer conn.Close()
 
@@ -313,10 +310,7 @@ func TestGRPCWithDifferentConfigurations(t *testing.T) {
 		for _, mode := range stopModes {
 			t.Run(fmt.Sprintf("stop_mode_%s", mode), func(t *testing.T) {
 				// Initialize and start
-				_, err := client.InitDataDir(ctx, &pb.InitDataDirRequest{})
-				require.NoError(t, err)
-
-				_, err = client.Start(ctx, &pb.StartRequest{})
+				err := InitAndStartPostgreSQL(t, lis.Addr().String())
 				require.NoError(t, err)
 
 				// Stop with specific mode
@@ -355,7 +349,7 @@ func TestGRPCUninitializedDatabase(t *testing.T) {
 	defer cleanupServer()
 
 	// Connect to the gRPC server
-	conn, err := grpc.NewClient(lis.Addr().String(), grpc.WithTransportCredentials(insecure.NewCredentials()))
+	conn, err := grpc.NewClient(lis.Addr().String(), grpccommon.LocalClientDialOptions()...)
 	require.NoError(t, err)
 	defer conn.Close()
 
