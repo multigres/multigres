@@ -6,7 +6,7 @@
   {
     "comment": "SET variable TO value",
     "query": "SET my_var TO 'test_value'",
-    "expected": "SET my_var = 'test_value_fail'"
+    "expected": "SET my_var = 'test_value'"
   },
   {
     "comment": "SET variable equals DEFAULT",
