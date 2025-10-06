@@ -601,7 +601,7 @@ func TestInitCommand(t *testing.T) {
 		outputContains []string
 	}{
 		{
-			name: "successful init with current directory",
+			name: "basic successful init",
 			setupDirs: func(t *testing.T) ([]string, func()) {
 				tempDir, err := os.MkdirTemp("/tmp", "mlt")
 				require.NoError(t, err)
@@ -624,6 +624,17 @@ func TestInitCommand(t *testing.T) {
 			},
 			expectError:    false,
 			outputContains: []string{"Initializing Multigres cluster configuration", "successfully"},
+		},
+		{
+			name: "init fails in long path (it will exceed Unix socket limit)",
+			setupDirs: func(t *testing.T) ([]string, func()) {
+				// Create a very long path that will exceed Unix socket limit
+				tempDir, err := os.MkdirTemp("/tmp/", "very_long_path_that_will_exceed_unix_socket_path_length_limit_for_postgresql_sockets")
+				require.NoError(t, err)
+				return []string{tempDir}, func() { os.RemoveAll(tempDir) }
+			},
+			expectError:   true,
+			errorContains: "Unix socket path would exceed system limit",
 		},
 	}
 
@@ -665,7 +676,7 @@ func TestInitCommandConfigFileCreation(t *testing.T) {
 	ensureBinaryBuilt(t)
 
 	// Setup test directory
-	tempDir, err := os.MkdirTemp("", "multigres_init_config_test")
+	tempDir, err := os.MkdirTemp("/tmp/", "multigres_init_config_test")
 	require.NoError(t, err)
 	defer os.RemoveAll(tempDir)
 
@@ -746,6 +757,14 @@ func TestInitCommandConfigFileCreation(t *testing.T) {
 	assert.True(t, ok, "multipooler should be configured in zone2")
 	_, ok = zone2Services["multiorch"]
 	assert.True(t, ok, "multiorch should be configured in zone2")
+
+	// Now try to start the cluster without building the binaries
+	// This should fail with binary validation errors
+	t.Log("Attempting to start cluster without binaries (should fail)...")
+	output, err = executeStartCommand(t, []string{"--config-path", tempDir})
+	require.Error(t, err, "Start should fail when binaries are not present")
+	errorOutput := err.Error() + "\n" + output
+	assert.Contains(t, errorOutput, "binary validation failed", "error should mention binary validation failure. Got: %s", errorOutput)
 }
 
 func TestInitCommandConfigFileAlreadyExists(t *testing.T) {
