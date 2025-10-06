@@ -210,13 +210,75 @@ func (pm *MultiPoolerManager) WaitForLSN(ctx context.Context, targetLsn string) 
 	return mterrors.New(mtrpcpb.Code_UNIMPLEMENTED, "method WaitForLSN not implemented")
 }
 
-// SetReadOnly makes the PostgreSQL instance read-only
-func (pm *MultiPoolerManager) SetReadOnly(ctx context.Context) error {
+// SetReadOnly toggles the PostgreSQL instance read-only mode
+// TODO: This should coordinate with the query pooler to allow
+// existing transactions to finish gracefully before terminating connections.
+// The pooler could drain connections, wait for active transactions to complete,
+// then signal the manager to proceed with read-only mode and connection termination.
+func (pm *MultiPoolerManager) SetReadOnly(ctx context.Context, readOnly bool) error {
 	if err := pm.checkReady(); err != nil {
 		return err
 	}
-	pm.logger.Info("SetReadOnly called")
-	return mterrors.New(mtrpcpb.Code_UNIMPLEMENTED, "method SetReadOnly not implemented")
+	pm.logger.Info("SetReadOnly called", "read_only", readOnly)
+
+	// Ensure database connection
+	if err := pm.connectDB(); err != nil {
+		pm.logger.Error("Failed to connect to database", "error", err)
+		return mterrors.Wrap(err, "database connection failed")
+	}
+
+	// Set default_transaction_read_only using ALTER SYSTEM
+	query := "ALTER SYSTEM SET default_transaction_read_only = "
+	if readOnly {
+		query = query + "'on'"
+	} else {
+		query = query + "'off'"
+	}
+
+	_, err := pm.db.ExecContext(ctx, query)
+	if err != nil {
+		pm.logger.Error("Failed to set read-only mode", "error", err, "read_only", readOnly)
+		return mterrors.Wrap(err, "failed to set read-only mode")
+	}
+
+	// Reload PostgreSQL configuration to apply the change
+	_, err = pm.db.ExecContext(ctx, "SELECT pg_reload_conf()")
+	if err != nil {
+		pm.logger.Error("Failed to reload configuration", "error", err)
+		return mterrors.Wrap(err, "failed to reload configuration")
+	}
+
+	// Terminate all backend connections except our own to ensure they reconnect with the new setting
+	// Note: This is disruptive and will abort in-progress transactions
+	terminateCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	rows, err := pm.db.QueryContext(terminateCtx, `
+		SELECT pg_terminate_backend(pid)
+		FROM pg_stat_activity
+		WHERE pid != pg_backend_pid()
+		AND backend_type = 'client backend'
+	`)
+	if err != nil {
+		pm.logger.Error("Failed to terminate backend connections", "error", err)
+		return mterrors.Wrap(err, "failed to terminate backend connections")
+	}
+	defer rows.Close()
+
+	// Count terminated backends
+	terminatedCount := 0
+	for rows.Next() {
+		var terminated bool
+		if err := rows.Scan(&terminated); err != nil {
+			pm.logger.Warn("Failed to scan termination result", "error", err)
+			continue
+		}
+		if terminated {
+			terminatedCount++
+		}
+	}
+
+	pm.logger.Info("PostgreSQL instance read-only mode updated", "read_only", readOnly, "terminated_backends", terminatedCount)
+	return nil
 }
 
 // IsReadOnly checks if PostgreSQL instance is in read-only mode
@@ -225,7 +287,24 @@ func (pm *MultiPoolerManager) IsReadOnly(ctx context.Context) (bool, error) {
 		return false, err
 	}
 	pm.logger.Info("IsReadOnly called")
-	return false, mterrors.New(mtrpcpb.Code_UNIMPLEMENTED, "method IsReadOnly not implemented")
+
+	// Ensure database connection
+	if err := pm.connectDB(); err != nil {
+		pm.logger.Error("Failed to connect to database", "error", err)
+		return false, mterrors.Wrap(err, "database connection failed")
+	}
+
+	// Query the current setting of default_transaction_read_only
+	var setting string
+	err := pm.db.QueryRowContext(ctx, "SELECT current_setting('default_transaction_read_only')").Scan(&setting)
+	if err != nil {
+		pm.logger.Error("Failed to check read-only status", "error", err)
+		return false, mterrors.Wrap(err, "failed to check read-only status")
+	}
+
+	isReadOnly := setting == "on"
+	pm.logger.Info("Read-only status checked", "read_only", isReadOnly)
+	return isReadOnly, nil
 }
 
 // SetPrimaryConnInfo sets the primary connection info for a standby server

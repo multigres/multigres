@@ -52,9 +52,9 @@ func (s *managerService) WaitForLSN(ctx context.Context, req *multipoolermanager
 	return &multipoolermanagerdata.WaitForLSNResponse{}, nil
 }
 
-// SetReadOnly makes the PostgreSQL instance read-only
+// SetReadOnly toggles the PostgreSQL instance read-only mode
 func (s *managerService) SetReadOnly(ctx context.Context, req *multipoolermanagerdata.SetReadOnlyRequest) (*multipoolermanagerdata.SetReadOnlyResponse, error) {
-	err := s.manager.SetReadOnly(ctx)
+	err := s.manager.SetReadOnly(ctx, req.ReadOnly)
 	if err != nil {
 		return nil, err
 	}

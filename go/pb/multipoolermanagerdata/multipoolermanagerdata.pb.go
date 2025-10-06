@@ -397,9 +397,11 @@ func (*StartReplicationResponse) Descriptor() ([]byte, []int) {
 	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{4}
 }
 
-// SetReadOnly makes the PostgreSQL instance read-only
+// SetReadOnly toggles the PostgreSQL instance read-only mode
 type SetReadOnlyRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Whether to enable or disable read-only mode
+	ReadOnly      bool `protobuf:"varint,1,opt,name=read_only,json=readOnly,proto3" json:"read_only,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -432,6 +434,13 @@ func (x *SetReadOnlyRequest) ProtoReflect() protoreflect.Message {
 // Deprecated: Use SetReadOnlyRequest.ProtoReflect.Descriptor instead.
 func (*SetReadOnlyRequest) Descriptor() ([]byte, []int) {
 	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *SetReadOnlyRequest) GetReadOnly() bool {
+	if x != nil {
+		return x.ReadOnly
+	}
+	return false
 }
 
 type SetReadOnlyResponse struct {
@@ -1853,8 +1862,9 @@ const file_multipoolermanagerdata_proto_rawDesc = "" +
 	"\atimeout\x18\x02 \x01(\v2\x19.google.protobuf.DurationR\atimeout\"\x14\n" +
 	"\x12WaitForLSNResponse\"\x19\n" +
 	"\x17StartReplicationRequest\"\x1a\n" +
-	"\x18StartReplicationResponse\"\x14\n" +
-	"\x12SetReadOnlyRequest\"\x15\n" +
+	"\x18StartReplicationResponse\"1\n" +
+	"\x12SetReadOnlyRequest\x12\x1b\n" +
+	"\tread_only\x18\x01 \x01(\bR\breadOnly\"\x15\n" +
 	"\x13SetReadOnlyResponse\"\x13\n" +
 	"\x11IsReadOnlyRequest\"1\n" +
 	"\x12IsReadOnlyResponse\x12\x1b\n" +

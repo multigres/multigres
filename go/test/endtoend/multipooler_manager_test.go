@@ -134,7 +134,7 @@ func (p *ProcessInstance) startMultipooler(t *testing.T) error {
 		"--pgctld-addr", p.PgctldAddr,
 		"--pooler-dir", p.DataDir, // Use the same pooler dir as pgctld
 		"--pg-port", strconv.Itoa(p.PgPort),
-		"--service-map", "grpc-poolerquery,grpc-poolermanager",
+		"--service-map", "grpc-pooler,grpc-poolermanager",
 		"--topo-global-server-addresses", p.EtcdAddr,
 		"--topo-global-root", "/multigres/global",
 		"--topo-implementation", "etcd2",
@@ -564,5 +564,77 @@ func TestMultipoolerReplicationApi(t *testing.T) {
 		// Assert that it succeeds and returns a valid LSN
 		// TODO: This should error because this is not yet a real standby.
 		require.NoError(t, err)
+	})
+
+	t.Run("SetReadOnly_IsReadOnly", func(t *testing.T) {
+		// Connect to primary multipooler manager
+		conn, err := grpc.NewClient(
+			fmt.Sprintf("localhost:%d", setup.PrimaryMultipooler.GrpcPort),
+			grpc.WithTransportCredentials(insecure.NewCredentials()),
+		)
+		require.NoError(t, err)
+		defer conn.Close()
+
+		client := multipoolermanagerpb.NewMultiPoolerManagerClient(conn)
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		// Connect to multipooler query service to test actual writes
+		poolerClient, err := NewMultiPoolerTestClient(fmt.Sprintf("localhost:%d", setup.PrimaryMultipooler.GrpcPort))
+		require.NoError(t, err)
+		defer poolerClient.Close()
+
+		// First, check if the instance is already in read-only mode
+		isReadOnlyReq := &multipoolermanagerdata.IsReadOnlyRequest{}
+		isReadOnlyResp, err := client.IsReadOnly(ctx, isReadOnlyReq)
+		require.NoError(t, err)
+		require.NotNil(t, isReadOnlyResp)
+		initialReadOnly := isReadOnlyResp.ReadOnly
+		t.Logf("Initial read-only status: %v", initialReadOnly)
+
+		// Ensure we start in writable mode
+		if initialReadOnly {
+			setReadOnlyReq := &multipoolermanagerdata.SetReadOnlyRequest{ReadOnly: false}
+			_, err = client.SetReadOnly(ctx, setReadOnlyReq)
+			require.NoError(t, err)
+			t.Logf("Disabled initial read-only mode")
+		}
+
+		t.Logf("Verify writes work in normal (writable) mode")
+		_, err = poolerClient.ExecuteQuery("CREATE TABLE IF NOT EXISTS test_readonly (id INT)", 0)
+		require.NoError(t, err, "Should be able to create table in writable mode")
+
+		t.Logf("Enable read-only mode")
+		setReadOnlyReq := &multipoolermanagerdata.SetReadOnlyRequest{ReadOnly: true}
+		_, err = client.SetReadOnly(ctx, setReadOnlyReq)
+		require.NoError(t, err)
+
+		// Verify that the instance is now in read-only mode
+		isReadOnlyResp, err = client.IsReadOnly(ctx, isReadOnlyReq)
+		require.NoError(t, err)
+		require.NotNil(t, isReadOnlyResp)
+		assert.True(t, isReadOnlyResp.ReadOnly, "Instance should be in read-only mode after SetReadOnly(true)")
+
+		t.Logf("Verify writes fail in read-only mode")
+		_, err = poolerClient.ExecuteQuery("INSERT INTO test_readonly VALUES (1)", 0)
+		assert.Error(t, err, "Should NOT be able to insert in read-only mode")
+
+		setReadOnlyReq = &multipoolermanagerdata.SetReadOnlyRequest{ReadOnly: false}
+		_, err = client.SetReadOnly(ctx, setReadOnlyReq)
+		require.NoError(t, err)
+
+		// Verify that read-only mode is now disabled
+		isReadOnlyResp, err = client.IsReadOnly(ctx, isReadOnlyReq)
+		require.NoError(t, err)
+		require.NotNil(t, isReadOnlyResp)
+		assert.False(t, isReadOnlyResp.ReadOnly, "Instance should not be in read-only mode after SetReadOnly(false)")
+
+		t.Logf("Verify writes work again after disabling read-only mode")
+		_, err = poolerClient.ExecuteQuery("INSERT INTO test_readonly VALUES (2)", 0)
+		require.NoError(t, err, "Should be able to insert after disabling read-only mode")
+		t.Logf("✓ Successfully inserted data after disabling read-only mode")
+
+		// Cleanup: Drop test table
+		_, _ = poolerClient.ExecuteQuery("DROP TABLE IF EXISTS test_readonly", 0)
 	})
 }

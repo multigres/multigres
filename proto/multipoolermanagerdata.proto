@@ -58,8 +58,10 @@ message StartReplicationRequest {
 message StartReplicationResponse {
 }
 
-// SetReadOnly makes the PostgreSQL instance read-only
+// SetReadOnly toggles the PostgreSQL instance read-only mode
 message SetReadOnlyRequest {
+  // Whether to enable or disable read-only mode
+  bool read_only = 1;
 }
 
 message SetReadOnlyResponse {

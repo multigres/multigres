@@ -60,7 +60,7 @@ const (
 type MultiPoolerManagerClient interface {
 	// WaitForLSN waits for PostgreSQL server to reach a specific LSN position
 	WaitForLSN(ctx context.Context, in *multipoolermanagerdata.WaitForLSNRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.WaitForLSNResponse, error)
-	// SetReadOnly makes the PostgreSQL instance read-only
+	// SetReadOnly toggles the PostgreSQL instance read-only mode
 	SetReadOnly(ctx context.Context, in *multipoolermanagerdata.SetReadOnlyRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.SetReadOnlyResponse, error)
 	// IsReadOnly checks if PostgreSQL instance is in read-only mode
 	IsReadOnly(ctx context.Context, in *multipoolermanagerdata.IsReadOnlyRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.IsReadOnlyResponse, error)
@@ -276,7 +276,7 @@ func (c *multiPoolerManagerClient) Status(ctx context.Context, in *multipoolerma
 type MultiPoolerManagerServer interface {
 	// WaitForLSN waits for PostgreSQL server to reach a specific LSN position
 	WaitForLSN(context.Context, *multipoolermanagerdata.WaitForLSNRequest) (*multipoolermanagerdata.WaitForLSNResponse, error)
-	// SetReadOnly makes the PostgreSQL instance read-only
+	// SetReadOnly toggles the PostgreSQL instance read-only mode
 	SetReadOnly(context.Context, *multipoolermanagerdata.SetReadOnlyRequest) (*multipoolermanagerdata.SetReadOnlyResponse, error)
 	// IsReadOnly checks if PostgreSQL instance is in read-only mode
 	IsReadOnly(context.Context, *multipoolermanagerdata.IsReadOnlyRequest) (*multipoolermanagerdata.IsReadOnlyResponse, error)
