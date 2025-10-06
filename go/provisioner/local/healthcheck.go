@@ -84,7 +84,6 @@ func (p *localProvisioner) checkMultigresServiceHealth(serviceName string, host 
 					return err
 				}
 			}
-			// Future: Add other gRPC services
 		case "etcd_port":
 			// Run etcd health check
 			if serviceName == "etcd" {
@@ -93,6 +92,7 @@ func (p *localProvisioner) checkMultigresServiceHealth(serviceName string, host 
 					return err
 				}
 			}
+			// Future: Add other gRPC services
 		default:
 			// No health check implemented for this port type, skip
 			continue
