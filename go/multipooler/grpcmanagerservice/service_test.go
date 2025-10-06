@@ -96,24 +96,6 @@ func TestManagerServiceMethods_NotImplemented(t *testing.T) {
 			expectedMethod: "WaitForLSN",
 		},
 		{
-			name: "SetReadOnly",
-			method: func() error {
-				req := &multipoolermanagerdata.SetReadOnlyRequest{}
-				_, err := svc.SetReadOnly(ctx, req)
-				return err
-			},
-			expectedMethod: "SetReadOnly",
-		},
-		{
-			name: "IsReadOnly",
-			method: func() error {
-				req := &multipoolermanagerdata.IsReadOnlyRequest{}
-				_, err := svc.IsReadOnly(ctx, req)
-				return err
-			},
-			expectedMethod: "IsReadOnly",
-		},
-		{
 			name: "SetPrimaryConnInfo",
 			method: func() error {
 				req := &multipoolermanagerdata.SetPrimaryConnInfoRequest{
@@ -238,8 +220,9 @@ func TestManagerServiceMethods_NotImplemented(t *testing.T) {
 			// Assert that all methods return an error
 			assert.Error(t, err, "Method %s should return an error", tt.name)
 
-			// Assert that the error is a gRPC Unimplemented error
-			code := mterrors.Code(err)
+			// Convert gRPC error back to mterrors to check the code
+			mterr := mterrors.FromGRPC(err)
+			code := mterrors.Code(mterr)
 			assert.Equal(t, mtrpcpb.Code_UNIMPLEMENTED, code, "Should return Unimplemented code")
 			if !strings.Contains(err.Error(), fmt.Sprintf("method %s not implemented", tt.expectedMethod)) {
 				t.Errorf("Error message should include: method %s not implemented, got: %s", tt.expectedMethod, err.Error())
@@ -437,8 +420,9 @@ func TestManagerServiceMethods_ManagerNotReady(t *testing.T) {
 			// Assert that all methods return an error
 			assert.Error(t, err, "Method %s should return an error when manager is not ready", tt.name)
 
-			// Check the mterrors code directly
-			code := mterrors.Code(err)
+			// Convert gRPC error back to mterrors to check the code
+			mterr := mterrors.FromGRPC(err)
+			code := mterrors.Code(mterr)
 			// Should return UNAVAILABLE when manager is starting
 			assert.Equal(t, mtrpcpb.Code_UNAVAILABLE, code, "Should return UNAVAILABLE code when manager is not ready")
 			assert.Contains(t, err.Error(), "manager is still starting up", "Error message should indicate manager is starting")
