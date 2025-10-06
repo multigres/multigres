@@ -45,7 +45,7 @@ func TestValidateUnixSocketPathLength(t *testing.T) {
 			name:        "very long path should fail",
 			rootDir:     "/Users/very/long/path/that/will/definitely/exceed/the/unix/socket/path/limit/for/postgresql/sockets",
 			expectError: true,
-			errorMsg:    "Unix socket path would exceed system limit",
+			errorMsg:    "unix socket path would exceed system limit",
 		},
 		{
 			name:        "relative path should be converted to absolute",
