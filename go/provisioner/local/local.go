@@ -1165,6 +1165,16 @@ func (p *localProvisioner) waitForProcessExit(process *os.Process, timeout time.
 
 // Bootstrap sets up etcd and creates the default database
 func (p *localProvisioner) Bootstrap(ctx context.Context) ([]*provisioner.ProvisionResult, error) {
+	// Validate binary paths before starting
+	if err := p.validateBinaryPaths(p.config); err != nil {
+		return nil, err
+	}
+
+	// Validate required system binaries before starting
+	if err := p.validateSystemBinaries(); err != nil {
+		return nil, err
+	}
+
 	fmt.Println("=== Bootstrapping Multigres cluster ===")
 	fmt.Println("")
 
@@ -1764,6 +1774,164 @@ func (p *localProvisioner) ValidateConfig(config map[string]any) error {
 		if cell.RootPath == "" {
 			return fmt.Errorf("cell %s root-path is required", cell.Name)
 		}
+	}
+
+	// Validate Unix socket path length limits
+	if err := p.validateUnixSocketPathLength(typedConfig); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// UnixPathMax returns the maximum Unix socket path length for the current platform.
+func UnixPathMax() int {
+	var addr syscall.RawSockaddrUnix
+	return len(addr.Path)
+}
+
+// validateUnixSocketPathLength validates that Unix socket paths won't exceed system limits
+func (p *localProvisioner) validateUnixSocketPathLength(config *LocalProvisionerConfig) error {
+	maxSocketPathLength := UnixPathMax()
+
+	// Convert root working dir to absolute path for accurate length calculation
+	absRootWorkingDir, err := filepath.Abs(config.RootWorkingDir)
+	if err != nil {
+		return fmt.Errorf("failed to convert root working dir to absolute path: %w", err)
+	}
+
+	// Calculate the maximum possible path length for Unix sockets
+	// Path structure: <rootWorkingDir>/data/pooler_<serviceID>/pg_sockets/.s.PGSQL.5432
+	// We use a worst-case service ID length (8 chars) to be safe
+	maxServiceIDLength := 8
+	worstCasePoolerSocketPath := []string{
+		"data",
+		fmt.Sprintf("pooler_%s", strings.Repeat("x", maxServiceIDLength)),
+		"pg_sockets",
+		".s.PGSQL.5432",
+	}
+	worstCaseCurrentSocketPath := filepath.Join(append([]string{absRootWorkingDir}, worstCasePoolerSocketPath...)...)
+
+	worstCaseProposedSocketPath := filepath.Join(append([]string{"/tmp/mt"}, worstCasePoolerSocketPath...)...)
+
+	if len(worstCaseCurrentSocketPath) > maxSocketPathLength {
+		return fmt.Errorf("unix socket path would exceed system limit (%d bytes): %s\n\n"+
+			"To fix this issue:\n"+
+			"1. Initialize multigres from a directory with a shorter path\n"+
+			"2. Provide config-path to multigres (--config-path target_dir) that has a shorter length\n\n"+
+			"Example:\n"+
+			"  Current: multigres cluster init --config-path %s\n"+
+			"  Better:  multigres cluster init --config-path /tmp/mt/\n\n"+
+			"This will generate socket paths like:\n"+
+			"  %s (%d bytes)\n\n"+
+			"Current path length: %d bytes (limit: %d bytes)",
+			maxSocketPathLength, worstCaseCurrentSocketPath, config.RootWorkingDir, worstCaseProposedSocketPath, len(worstCaseProposedSocketPath), len(worstCaseCurrentSocketPath), maxSocketPathLength)
+	}
+
+	return nil
+}
+
+// validateBinaryPaths validates that all configured binary paths exist and are executable
+func (p *localProvisioner) validateBinaryPaths(config *LocalProvisionerConfig) error {
+	var errors []string
+
+	// Validate global service binaries
+	if config.Multiadmin.Path != "" {
+		if err := p.validateBinaryExists(config.Multiadmin.Path, "multiadmin"); err != nil {
+			errors = append(errors, err.Error())
+		}
+	}
+
+	// Validate cell service binaries
+	for cellName, cellConfig := range config.Cells {
+		// Validate multigateway
+		if cellConfig.Multigateway.Path != "" {
+			if err := p.validateBinaryExists(cellConfig.Multigateway.Path, fmt.Sprintf("multigateway (cell %s)", cellName)); err != nil {
+				errors = append(errors, err.Error())
+			}
+		}
+
+		// Validate multipooler
+		if cellConfig.Multipooler.Path != "" {
+			if err := p.validateBinaryExists(cellConfig.Multipooler.Path, fmt.Sprintf("multipooler (cell %s)", cellName)); err != nil {
+				errors = append(errors, err.Error())
+			}
+		}
+
+		// Validate multiorch
+		if cellConfig.Multiorch.Path != "" {
+			if err := p.validateBinaryExists(cellConfig.Multiorch.Path, fmt.Sprintf("multiorch (cell %s)", cellName)); err != nil {
+				errors = append(errors, err.Error())
+			}
+		}
+
+		// Validate pgctld
+		if cellConfig.Pgctld.Path != "" {
+			if err := p.validateBinaryExists(cellConfig.Pgctld.Path, fmt.Sprintf("pgctld (cell %s)", cellName)); err != nil {
+				errors = append(errors, err.Error())
+			}
+		}
+	}
+
+	if len(errors) > 0 {
+		return fmt.Errorf("binary validation failed:\n%s", strings.Join(errors, "\n"))
+	}
+
+	return nil
+}
+
+// validateBinaryExists checks if a binary path exists and is executable
+func (p *localProvisioner) validateBinaryExists(binaryPath, serviceName string) error {
+	// Convert to absolute path if it's relative
+	var fullPath string
+	if filepath.IsAbs(binaryPath) {
+		fullPath = binaryPath
+	} else {
+		// Make it relative to current directory
+		fullPath = filepath.Join(".", binaryPath)
+	}
+
+	// Check if the binary exists and is executable
+	info, err := os.Stat(fullPath)
+	if err != nil {
+		return fmt.Errorf("  %s binary not found at %s: %w", serviceName, binaryPath, err)
+	}
+
+	if info.IsDir() {
+		return fmt.Errorf("  %s path is a directory, not a binary: %s", serviceName, binaryPath)
+	}
+
+	// Check if it's executable (on Unix systems)
+	if info.Mode()&0o111 == 0 {
+		return fmt.Errorf("  %s binary is not executable: %s", serviceName, binaryPath)
+	}
+
+	return nil
+}
+
+// validateSystemBinaries validates that required system binaries are available in PATH
+func (p *localProvisioner) validateSystemBinaries() error {
+	requiredBinaries := []string{
+		"etcd",
+		"pg_ctl",
+		"postgres",
+		"pg_isready",
+	}
+
+	var missingBinaries []string
+
+	for _, binary := range requiredBinaries {
+		if _, err := exec.LookPath(binary); err != nil {
+			missingBinaries = append(missingBinaries, binary)
+		}
+	}
+
+	if len(missingBinaries) > 0 {
+		return fmt.Errorf("required system binaries not found in PATH: %s\n\n"+
+			"Please ensure PostgreSQL and etcd are installed and available in your PATH.\n"+
+			"For PostgreSQL: Install PostgreSQL client tools (pg_ctl, postgres, pg_isready)\n"+
+			"For etcd: Install etcd client binary",
+			strings.Join(missingBinaries, ", "))
 	}
 
 	return nil
