@@ -19,16 +19,15 @@ import (
 	"log/slog"
 
 	"github.com/multigres/multigres/go/multipooler/manager"
-	"github.com/multigres/multigres/go/multipooler/pooler"
+	"github.com/multigres/multigres/go/multipooler/poolerserver"
 	"github.com/multigres/multigres/go/servenv"
 )
 
 func init() {
 	// Register ourselves to be invoked when the pooler server registration is triggered
-	// Following Vitess pattern from grpctmserver/server.go
-	pooler.RegisterPoolerServices = append(pooler.RegisterPoolerServices, func(logger *slog.Logger, config *manager.Config) {
+	poolerserver.RegisterPoolerServices = append(poolerserver.RegisterPoolerServices, func(logger *slog.Logger, config *manager.Config) {
 		if servenv.GRPCCheckServiceMap("pooler") {
-			poolerServer := pooler.NewMultiPoolerServer(logger, config)
+			poolerServer := poolerserver.NewMultiPoolerServer(logger, config)
 			poolerServer.RegisterWithGRPCServer(servenv.GRPCServer)
 			logger.Info("MultiPooler gRPC service registered with servenv")
 		}

@@ -13,7 +13,7 @@
 // limitations under the License.
 
 // Package pooler implements the multipooler gRPC server
-package pooler
+package poolerserver
 
 import (
 	"context"
@@ -81,7 +81,6 @@ func (s *MultiPoolerServer) Start() {
 		s.logger.Info("MultiPoolerServer started")
 
 		// Register all gRPC services that have registered themselves
-		// This follows the Vitess pattern - grpcpoolerservice will append to RegisterPoolerServices in init()
 		s.registerGRPCServices()
 		s.logger.Info("MultiPoolerServer gRPC services registered")
 	})

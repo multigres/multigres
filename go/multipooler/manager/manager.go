@@ -459,7 +459,6 @@ func (pm *MultiPoolerManager) Start() {
 		// Additional manager-specific initialization can happen here
 
 		// Register all gRPC services that have registered themselves
-		// This follows the Vitess pattern - grpcmanagerservice will append to RegisterPoolerManagerServices in init()
 		pm.registerGRPCServices()
 		pm.logger.Info("MultiPoolerManager gRPC services registered")
 	})

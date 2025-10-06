@@ -25,7 +25,7 @@ import (
 	"github.com/multigres/multigres/go/clustermetadata/topo"
 	"github.com/multigres/multigres/go/clustermetadata/toporeg"
 	"github.com/multigres/multigres/go/multipooler/manager"
-	"github.com/multigres/multigres/go/multipooler/pooler"
+	"github.com/multigres/multigres/go/multipooler/poolerserver"
 	"github.com/multigres/multigres/go/servenv"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
@@ -116,7 +116,7 @@ func Init() {
 	poolerManager.Start()
 
 	// Initialize and start the MultiPoolerServer
-	poolerServer := pooler.NewMultiPoolerServer(logger, &manager.Config{
+	poolerServer := poolerserver.NewMultiPoolerServer(logger, &manager.Config{
 		SocketFilePath: socketFilePath,
 		PoolerDir:      poolerDir,
 		PgPort:         pgPort,

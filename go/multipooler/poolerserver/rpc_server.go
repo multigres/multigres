@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package pooler
+package poolerserver
 
 import (
 	"log/slog"
@@ -21,7 +21,6 @@ import (
 )
 
 // RegisterPoolerServiceFunc is used to delay registration of pooler gRPC servers until we have all the objects.
-// Following Vitess pattern from vttablet/tabletmanager/rpc_server.go
 type RegisterPoolerServiceFunc func(*slog.Logger, *manager.Config)
 
 // RegisterPoolerServices is a list of functions to call when the delayed gRPC registration is triggered.
