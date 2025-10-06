@@ -45,4 +45,12 @@ jobs:
         run: make build
 
       - name: Run short tests
-        run: go test -short -v ./...
+        run: go test -short -v ./... > short-test-results.txt
+
+      - name: Test Report
+        uses: dorny/test-reporter@v2
+        if: ${{ !cancelled() }}
+        with:
+          name: Unit Tests
+          path: short-test-results.txt
+          reporter: golang-json
