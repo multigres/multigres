@@ -22,15 +22,20 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var StatusCommand = &cobra.Command{
-	Use:   "status",
-	Short: "Show cluster health",
-	Long:  "Display the current health and status of the Multigres cluster.",
-	RunE: func(cmd *cobra.Command, args []string) error {
-		servenv.FireRunHooks()
-		fmt.Println("Checking Multigres cluster status...")
-		// TODO: Implement cluster status logic
-		fmt.Println("Cluster status: Running")
-		return nil
-	},
+// AddStatusCommand adds the status subcommand to the cluster command
+func AddStatusCommand(clusterCmd *cobra.Command) {
+	statusCmd := &cobra.Command{
+		Use:   "status",
+		Short: "Show cluster health",
+		Long:  "Display the current health and status of the Multigres cluster.",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			servenv.FireRunHooks()
+			fmt.Println("Checking Multigres cluster status...")
+			// TODO: Implement cluster status logic
+			fmt.Println("Cluster status: Running")
+			return nil
+		},
+	}
+
+	clusterCmd.AddCommand(statusCmd)
 }

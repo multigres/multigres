@@ -31,21 +31,23 @@ import (
 	"github.com/multigres/multigres/go/provisioner/local"
 )
 
-// GetCellCommand implements the getcell CLI command
-var GetCellCommand = &cobra.Command{
-	Use:   "getcell",
-	Short: "Get information about a specific cell",
-	Long:  "Retrieve detailed information about a cell from the multiadmin server.",
-	RunE:  runGetCell,
-}
+// AddGetCellCommand adds the getcell subcommand
+func AddGetCellCommand() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "getcell",
+		Short: "Get information about a specific cell",
+		Long:  "Retrieve detailed information about a cell from the multiadmin server.",
+		RunE:  runGetCell,
+	}
 
-func init() {
 	// Add command-specific flags
-	GetCellCommand.Flags().String("name", "", "Name of the cell to retrieve (required)")
-	GetCellCommand.Flags().String("admin-server", "", "gRPC address of the multiadmin server (e.g., localhost:15990)")
+	cmd.Flags().String("name", "", "Name of the cell to retrieve (required)")
+	cmd.Flags().String("admin-server", "", "gRPC address of the multiadmin server (e.g., localhost:15990)")
 
 	// Mark the name flag as required
-	_ = GetCellCommand.MarkFlagRequired("name")
+	_ = cmd.MarkFlagRequired("name")
+
+	return cmd
 }
 
 // getAdminServerAddress resolves the admin server address from flags or config

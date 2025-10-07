@@ -22,13 +22,23 @@ import (
 	"github.com/spf13/viper"
 )
 
-// Root represents the base command when called without any subcommands
-var Root = &cobra.Command{
-	Use:   "multigres",
-	Short: "The command-line companion for managing and developing with Multigres clusters",
-	Long: `The Multigres CLI makes distributed Postgres feel as easy as running Postgres locally.
+// MultigresCommand holds the configuration for multigres commands
+type MultigresCommand struct {
+	// Add any shared configuration values here if needed in the future
+}
 
-A single binary that gives developers confidence when experimenting, 
+// GetRootCommand creates and returns the root command for multigres with all subcommands
+func GetRootCommand() *cobra.Command {
+	mc := &MultigresCommand{
+		// Initialize any shared configuration here
+	}
+
+	root := &cobra.Command{
+		Use:   "multigres",
+		Short: "The command-line companion for managing and developing with Multigres clusters",
+		Long: `The Multigres CLI makes distributed Postgres feel as easy as running Postgres locally.
+
+A single binary that gives developers confidence when experimenting,
 and operators the tools to keep clusters healthy at scale.
 
 Get started with:
@@ -38,32 +48,37 @@ Get started with:
 Configuration:
   Multigres automatically searches for configuration files in this order:
   1. File specified by --config-file flag (if provided)
-  2. Files named 'multigres' with supported extensions (.yaml, .yml, .json, .toml) 
+  2. Files named 'multigres' with supported extensions (.yaml, .yml, .json, .toml)
      in directories specified by --config-path flags
   3. Current working directory (default search path)
-  
+
   Environment variable MT_CONFIG_NAME can override the config filename.
   Use --config-file-not-found-handling to control behavior when no config is found.`,
-	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
-		// Silence usage for application errors, but allow it for flag errors
-		// This gets called after flag parsing, so flag errors will still show usage
-		cmd.SilenceUsage = true
+		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+			// Silence usage for application errors, but allow it for flag errors
+			// This gets called after flag parsing, so flag errors will still show usage
+			cmd.SilenceUsage = true
 
-		// Set multigres-specific config name
-		viper.SetConfigName("multigres")
+			// Set multigres-specific config name
+			viper.SetConfigName("multigres")
 
-		// Load config (without the full servenv setup)
-		_, err := viperutil.LoadConfig()
-		return err
-	},
-}
-
-func init() {
-	// Override the default display value for multigres
-	if flag := Root.PersistentFlags().Lookup("config-name"); flag != nil {
-		flag.DefValue = "multigres"
+			// Load config (without the full servenv setup)
+			_, err := viperutil.LoadConfig()
+			return err
+		},
 	}
 
 	// Add any other servenv flags
-	servenv.AddFlagSetToCobraCommand(Root)
+	servenv.AddFlagSetToCobraCommand(root)
+
+	// Override the default display value for multigres
+	if flag := root.PersistentFlags().Lookup("config-name"); flag != nil {
+		flag.DefValue = "multigres"
+	}
+
+	// Add all subcommands
+	AddClusterCommand(root, mc)
+	AddTopoCommands(root, mc)
+
+	return root
 }

@@ -177,13 +177,16 @@ func start(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-var StartCommand = &cobra.Command{
-	Use:   "start",
-	Short: "Start local cluster",
-	Long:  "Start a local Multigres cluster using the configuration created with 'multigres cluster init'.",
-	RunE:  start,
-}
+// AddStartCommand adds the start subcommand to the cluster command
+func AddStartCommand(clusterCmd *cobra.Command) {
+	startCmd := &cobra.Command{
+		Use:   "start",
+		Short: "Start local cluster",
+		Long:  "Start a local Multigres cluster using the configuration created with 'multigres cluster init'.",
+		RunE:  start,
+	}
 
-func init() {
 	// No additional flags needed - config-path is provided by viperutil via root command
+
+	clusterCmd.AddCommand(startCmd)
 }

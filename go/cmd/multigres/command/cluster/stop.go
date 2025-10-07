@@ -89,13 +89,16 @@ func down(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-var StopCommand = &cobra.Command{
-	Use:   "stop",
-	Short: "Stop local cluster",
-	Long:  "Stop the local Multigres cluster. Use --clean to fully tear down all resources.",
-	RunE:  down,
-}
+// AddStopCommand adds the stop subcommand to the cluster command
+func AddStopCommand(clusterCmd *cobra.Command) {
+	stopCmd := &cobra.Command{
+		Use:   "stop",
+		Short: "Stop local cluster",
+		Long:  "Stop the local Multigres cluster. Use --clean to fully tear down all resources.",
+		RunE:  down,
+	}
 
-func init() {
-	StopCommand.Flags().Bool("clean", false, "Fully tear down all cluster resources")
+	stopCmd.Flags().Bool("clean", false, "Fully tear down all cluster resources")
+
+	clusterCmd.AddCommand(stopCmd)
 }
