@@ -36,7 +36,7 @@ var (
 // Writer runs on primary databases and writes heartbeats to the heartbeat
 // table at regular intervals.
 type Writer struct {
-	db       *sql.DB
+	db       *sql.DB // TODO: use connection pooling when it's implemented
 	logger   *slog.Logger
 	shardID  []byte
 	poolerID string
@@ -52,7 +52,10 @@ type Writer struct {
 }
 
 // NewWriter creates a new heartbeat writer.
+//
+// We do not support on-demand or disabled heartbeats at this time.
 func NewWriter(db *sql.DB, logger *slog.Logger, shardID []byte, poolerID string) *Writer {
+	// TODO: use a connection pool when it's implemented
 	w := &Writer{
 		db:       db,
 		logger:   logger,
@@ -79,10 +82,12 @@ func (w *Writer) Open() {
 
 	w.logger.Info("Heartbeat Writer: opening")
 
+	// TODO: open connection pools here
+
 	w.enableWrites()
 }
 
-// Close stops the heartbeat writer.
+// Close stops the heartbeat writer and periodic ticket.
 func (w *Writer) Close() {
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -92,6 +97,8 @@ func (w *Writer) Close() {
 	defer func() {
 		w.isOpen = false
 	}()
+
+	// TODO: close connection pools
 
 	w.logger.Info("Heartbeat Writer: closing")
 
@@ -201,7 +208,8 @@ func (w *Writer) killWritesUntilStopped(ctx context.Context) {
 
 		select {
 		case <-ctx.Done():
-			// Context cancelled means ticks have stopped and no writes are in progress
+			// If the context has been cancelled, then we know that the ticks have stopped.
+			// This guarantees that there are no writes in progress, so there is nothing to kill.
 			return
 		case <-ticker.C:
 			// Continue trying to kill

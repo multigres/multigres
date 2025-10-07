@@ -79,6 +79,7 @@ func (r *Reader) Open() {
 
 	r.logger.Info("Heartbeat Reader: opening")
 
+	// TODO: open connection pools
 	r.lastKnownTime = r.now()
 	r.ticks.Start(func() { r.readHeartbeat() })
 	r.isOpen = true
@@ -135,6 +136,7 @@ func (r *Reader) readHeartbeat() {
 
 	lag := r.now().Sub(time.Unix(0, ts))
 	r.reads.Add(1)
+	// TODO: update global heartbeat read stats
 
 	r.lagMu.Lock()
 	r.lastKnownTime = r.now()
