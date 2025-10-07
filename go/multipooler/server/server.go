@@ -33,11 +33,6 @@ import (
 	"google.golang.org/grpc"
 )
 
-func init() {
-	// Register the pooler service in the service map
-	servenv.InitServiceMap("grpc", "pooler")
-}
-
 // RegisterService registers the MultiPooler gRPC service with the given configuration
 func RegisterService(mp *MultiPooler, config *Config) {
 	mp.Senv.OnRun(func() {
@@ -46,7 +41,7 @@ func RegisterService(mp *MultiPooler, config *Config) {
 		}
 
 		// Check if the pooler service should be registered
-		if mp.GrpcServer.CheckServiceMap("pooler") {
+		if mp.GrpcServer.CheckServiceMap("pooler", mp.Senv) {
 			logger := mp.Senv.GetLogger()
 			server := NewMultiPoolerServer(logger, config)
 			multipoolerpb.RegisterMultiPoolerServiceServer(mp.GrpcServer.Server, server)
@@ -85,7 +80,7 @@ type MultiPooler struct {
 
 // NewMultiPooler creates a new MultiPooler instance with default configuration
 func NewMultiPooler() *MultiPooler {
-	return &MultiPooler{
+	mp := &MultiPooler{
 		PgctldAddr: viperutil.Configure("pgctld-addr", viperutil.Options[string]{
 			Default:  "localhost:15200",
 			FlagName: "pgctld-addr",
@@ -131,6 +126,8 @@ func NewMultiPooler() *MultiPooler {
 		GrpcServer: servenv.NewGrpcServer(),
 		Senv:       servenv.NewServEnv(),
 	}
+	mp.Senv.InitServiceMap("grpc", "pooler")
+	return mp
 }
 
 // RegisterFlags registers all multipooler flags with the given FlagSet

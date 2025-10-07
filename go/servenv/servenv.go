@@ -69,6 +69,17 @@ type ServEnv struct {
 	// exitChan waits for a signal that tells the process to terminate
 	exitChan chan os.Signal
 	lg       *Logger
+	pidFile  string // registered in RegisterFlags as --pid_file
+
+	pprofFlag      []string
+	httpPprof      bool
+	serviceMapFlag []string
+
+	// serviceMap is the used version of the service map.
+	// init() functions can add default values to it (using InitServiceMap).
+	// service_map command line parameter will alter the map.
+	// Can only be used after servenv.Init has been called.
+	serviceMap map[string]bool
 }
 
 // Global default instance for backward compatibility
@@ -99,6 +110,7 @@ func NewServEnv() *ServEnv {
 		MaxStackSize: 64 * 1024 * 1024,
 		mux:          http.NewServeMux(),
 		lg:           NewLogger(),
+		serviceMap:   make(map[string]bool),
 	}
 }
 
@@ -204,6 +216,9 @@ func (se *ServEnv) fireHooksWithTimeout(timeout time.Duration, name string, hook
 func (se *ServEnv) RegisterDefaultFlags(fs *pflag.FlagSet) {
 	fs.Int("http-port", se.HTTPPort.Default(), "HTTP port for the server")
 	fs.String("bind-address", se.BindAddress.Default(), "Bind address for the server. If empty, the server will listen on all available unicast and anycast IP addresses of the local system.")
+	fs.BoolVar(&se.httpPprof, "pprof-http", se.httpPprof, "enable pprof http endpoints")
+	fs.StringSliceVar(&se.pprofFlag, "pprof", se.pprofFlag, "enable profiling")
+	fs.StringSliceVar(&se.serviceMapFlag, "service-map", se.serviceMapFlag, "comma separated list of services to enable (or disable if prefixed with '-') Example: grpc-queryservice")
 	viperutil.BindFlags(fs, se.HTTPPort, se.BindAddress)
 }
 
@@ -212,7 +227,7 @@ func (se *ServEnv) RegisterTimeoutFlags(fs *pflag.FlagSet) {
 	fs.DurationVar(&se.Timeouts.LameduckPeriod, "lameduck-period", se.Timeouts.LameduckPeriod, "keep running at least this long after SIGTERM before stopping")
 	fs.DurationVar(&se.Timeouts.OnTermTimeout, "onterm-timeout", se.Timeouts.OnTermTimeout, "wait no more than this for OnTermSync handlers before stopping")
 	fs.DurationVar(&se.Timeouts.OnCloseTimeout, "onclose-timeout", se.Timeouts.OnCloseTimeout, "wait no more than this for OnClose handlers before stopping")
-	fs.StringVar(&pidFile, "pid-file", pidFile, "If set, the process will write its pid to the named file, and delete it on graceful shutdown.")
+	fs.StringVar(&se.pidFile, "pid-file", "", "If set, the process will write its pid to the named file, and delete it on graceful shutdown.")
 }
 
 // RunDefault calls Run() with the parameters from the flags
@@ -281,7 +296,7 @@ func getFlagHooksFor(cmd string) (hooks []func(fs *pflag.FlagSet)) {
 // CobraPreRunE returns the common function that commands will need to load
 // viper infrastructure. It matches the signature of cobra's (Pre|Post)RunE-type
 // functions.
-func CobraPreRunE(cmd *cobra.Command, args []string) error {
+func (sv *ServEnv) CobraPreRunE(cmd *cobra.Command) error {
 	// Register logging on config file change.
 	ch := make(chan struct{})
 	viperutil.NotifyConfigReload(ch)
@@ -296,15 +311,11 @@ func CobraPreRunE(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("%s: failed to read in config: %s", cmd.Name(), err)
 	}
 
-	OnTerm(watchCancel)
+	sv.OnTerm(watchCancel)
 	// Register a function to be called on termination that closes the channel.
 	// This is done after the watchCancel has registered to ensure that we don't end up
 	// sending on a closed channel.
-	OnTerm(func() { close(ch) })
-
-	// Setup logging after config is loaded and flags are parsed
-	SetupLogging()
-
+	sv.OnTerm(func() { close(ch) })
 	return nil
 }
 
@@ -344,7 +355,7 @@ func (se *ServEnv) RegisterFlags(fs *pflag.FlagSet) {
 	fs.DurationVar(&se.Timeouts.LameduckPeriod, "lameduck-period", se.Timeouts.LameduckPeriod, "keep running at least this long after SIGTERM before stopping")
 	fs.DurationVar(&se.Timeouts.OnTermTimeout, "onterm-timeout", se.Timeouts.OnTermTimeout, "wait no more than this for OnTermSync handlers before stopping")
 	fs.DurationVar(&se.Timeouts.OnCloseTimeout, "onclose-timeout", se.Timeouts.OnCloseTimeout, "wait no more than this for OnClose handlers before stopping")
-	fs.StringVar(&pidFile, "pid-file", pidFile, "If set, the process will write its pid to the named file, and delete it on graceful shutdown.")
+	fs.StringVar(&se.pidFile, "pid-file", "", "If set, the process will write its pid to the named file, and delete it on graceful shutdown.")
 
 	// Server auth flags
 	for _, fn := range grpcAuthServerFlagHooks {

@@ -27,8 +27,8 @@ import (
 	"syscall"
 )
 
-func pprofInit() {
-	prof, err := parseProfileFlag(pprofFlag)
+func (sv *ServEnv) pprofInit() {
+	prof, err := sv.parseProfileFlag(sv.pprofFlag)
 	if err != nil {
 		slog.Error("error parsing pprof flags", "err", err)
 		os.Exit(1)
@@ -63,6 +63,6 @@ func pprofInit() {
 			}
 		}()
 
-		OnTerm(stop)
+		sv.OnTerm(stop)
 	}
 }

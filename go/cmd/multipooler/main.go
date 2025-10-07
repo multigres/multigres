@@ -31,7 +31,6 @@ import (
 	"github.com/multigres/multigres/go/multipooler/server"
 	"github.com/multigres/multigres/go/netutil"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
-	"github.com/multigres/multigres/go/servenv"
 
 	"github.com/spf13/cobra"
 )
@@ -41,11 +40,13 @@ func CreateMultiPoolerCommand() (*cobra.Command, *server.MultiPooler) {
 	mp := server.NewMultiPooler()
 
 	cmd := &cobra.Command{
-		Use:     "multipooler",
-		Short:   "Multipooler provides connection pooling and communicates with pgctld via gRPC to serve queries from multigateway instances.",
-		Long:    "Multipooler provides connection pooling and communicates with pgctld via gRPC to serve queries from multigateway instances.",
-		Args:    cobra.NoArgs,
-		PreRunE: servenv.CobraPreRunE,
+		Use:   "multipooler",
+		Short: "Multipooler provides connection pooling and communicates with pgctld via gRPC to serve queries from multigateway instances.",
+		Long:  "Multipooler provides connection pooling and communicates with pgctld via gRPC to serve queries from multigateway instances.",
+		Args:  cobra.NoArgs,
+		PreRunE: func(cmd *cobra.Command, args []string) error {
+			return mp.Senv.CobraPreRunE(cmd)
+		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return run(cmd, args, mp)
 		},
@@ -144,7 +145,7 @@ func run(cmd *cobra.Command, args []string, mp *server.MultiPooler) error {
 		)
 
 		// Register multipooler gRPC service with servenv's GRPCServer
-		if mp.GrpcServer.CheckServiceMap("pooler") {
+		if mp.GrpcServer.CheckServiceMap("pooler", mp.Senv) {
 			mp.PoolerServer = server.NewMultiPoolerServer(logger, &server.Config{
 				SocketFilePath: mp.SocketFilePath.Get(),
 				PoolerDir:      mp.PoolerDir.Get(),

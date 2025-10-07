@@ -19,51 +19,29 @@ package servenv
 import (
 	"fmt"
 	"log/slog"
-
-	"github.com/spf13/pflag"
 )
-
-var (
-	serviceMapFlag []string
-
-	// serviceMap is the used version of the service map.
-	// init() functions can add default values to it (using InitServiceMap).
-	// service_map command line parameter will alter the map.
-	// Can only be used after servenv.Init has been called.
-	serviceMap = make(map[string]bool)
-)
-
-// RegisterServiceMapFlag registers an OnParse hook to install the
-// `--service_map` flag for a given cmd. It must be called before ParseFlags or
-// ParseFlagsWithArgs.
-func RegisterServiceMapFlag() {
-	OnParse(func(fs *pflag.FlagSet) {
-		fs.StringSliceVar(&serviceMapFlag, "service-map", serviceMapFlag, "comma separated list of services to enable (or disable if prefixed with '-') Example: grpc-queryservice")
-	})
-	OnInit(updateServiceMap)
-}
 
 // InitServiceMap will set the default value for a protocol/name to be served.
-func InitServiceMap(protocol, name string) {
-	serviceMap[protocol+"-"+name] = true
+func (sv *ServEnv) InitServiceMap(protocol, name string) {
+	sv.serviceMap[protocol+"-"+name] = true
 }
 
 // updateServiceMap takes the command line parameter, and updates the
 // ServiceMap accordingly
-func updateServiceMap() {
-	for _, s := range serviceMapFlag {
+func (sv *ServEnv) updateServiceMap() {
+	for _, s := range sv.serviceMapFlag {
 		if s[0] == '-' {
-			delete(serviceMap, s[1:])
+			delete(sv.serviceMap, s[1:])
 		} else {
-			serviceMap[s] = true
+			sv.serviceMap[s] = true
 		}
 	}
 }
 
 // checkServiceMap returns if we should register a RPC service
 // (and also logs how to enable / disable it)
-func checkServiceMap(protocol, name string) bool {
-	if serviceMap[protocol+"-"+name] {
+func (sv *ServEnv) checkServiceMap(protocol, name string) bool {
+	if sv.serviceMap[protocol+"-"+name] {
 		slog.Info(fmt.Sprintf("Registering %v for %v, disable it with -%v-%v service_map parameter", name, protocol, protocol, name))
 		return true
 	}

@@ -93,11 +93,13 @@ func main() {
 	}
 
 	main := &cobra.Command{
-		Use:     "multiorch",
-		Short:   "Multiorch orchestrates cluster operations including consensus protocol management, failover detection and repair, and health monitoring of multipooler instances.",
-		Long:    "Multiorch orchestrates cluster operations including consensus protocol management, failover detection and repair, and health monitoring of multipooler instances.",
-		Args:    cobra.NoArgs,
-		PreRunE: servenv.CobraPreRunE,
+		Use:   "multiorch",
+		Short: "Multiorch orchestrates cluster operations including consensus protocol management, failover detection and repair, and health monitoring of multipooler instances.",
+		Long:  "Multiorch orchestrates cluster operations including consensus protocol management, failover detection and repair, and health monitoring of multipooler instances.",
+		Args:  cobra.NoArgs,
+		PreRunE: func(cmd *cobra.Command, args []string) error {
+			return mo.senv.CobraPreRunE(cmd)
+		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return run(cmd, args, mo)
 		},

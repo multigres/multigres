@@ -48,11 +48,13 @@ func main() {
 	}
 
 	main := &cobra.Command{
-		Use:     "multiadmin",
-		Short:   "Multiadmin provides administrative services for the multigres cluster, exposing both HTTP and gRPC endpoints for cluster management operations.",
-		Long:    "Multiadmin provides administrative services for the multigres cluster, exposing both HTTP and gRPC endpoints for cluster management operations.",
-		Args:    cobra.NoArgs,
-		PreRunE: servenv.CobraPreRunE,
+		Use:   "multiadmin",
+		Short: "Multiadmin provides administrative services for the multigres cluster, exposing both HTTP and gRPC endpoints for cluster management operations.",
+		Long:  "Multiadmin provides administrative services for the multigres cluster, exposing both HTTP and gRPC endpoints for cluster management operations.",
+		Args:  cobra.NoArgs,
+		PreRunE: func(cmd *cobra.Command, args []string) error {
+			return ma.senv.CobraPreRunE(cmd)
+		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return run(cmd, args, ma)
 		},
@@ -85,7 +87,7 @@ func run(cmd *cobra.Command, args []string, ma *MultiAdmin) error {
 		)
 
 		// Register multiadmin gRPC service with servenv's GRPCServer
-		if ma.grpcServer.CheckServiceMap("multiadmin") {
+		if ma.grpcServer.CheckServiceMap("multiadmin", ma.senv) {
 			ma.adminServer = server.NewMultiAdminServer(ts, logger)
 			ma.adminServer.RegisterWithGRPCServer(ma.grpcServer.Server)
 			logger.Info("MultiAdmin gRPC service registered with servenv")

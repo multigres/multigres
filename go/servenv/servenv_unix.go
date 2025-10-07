@@ -31,56 +31,6 @@ import (
 )
 
 // Init is the first phase of the server startup.
-func Init() {
-	defaultServEnv.mu.Lock()
-	defer defaultServEnv.mu.Unlock()
-	defaultServEnv.InitStartTime = time.Now()
-
-	// Ignore SIGPIPE if specified
-	// The Go runtime catches SIGPIPE for us on all fds except stdout/stderr
-	// See https://golang.org/pkg/os/signal/#hdr-SIGPIPE
-	if defaultServEnv.CatchSigpipe {
-		sigChan := make(chan os.Signal, 1)
-		signal.Notify(sigChan, syscall.SIGPIPE)
-		go func() {
-			<-sigChan
-			slog.Warn("Caught SIGPIPE (ignoring all future SIGPIPEs)")
-			signal.Ignore(syscall.SIGPIPE)
-		}()
-	}
-
-	// Add version tag to every info log
-	if defaultServEnv.inited {
-		log.Fatal("servenv.Init called second time")
-	}
-	defaultServEnv.inited = true
-
-	// Once you run as root, you pretty much destroy the chances of a
-	// non-privileged user starting the program correctly.
-	if uid := os.Getuid(); uid == 0 {
-		slog.Error("servenv.Init: running this as root makes no sense")
-		os.Exit(1)
-	}
-
-	// We used to set this limit directly, but you pretty much have to
-	// use a root account to allow increasing a limit reliably. Dropping
-	// privileges is also tricky. The best strategy is to make a shell
-	// script set up the limits as root and switch users before starting
-	// the server.
-	fdLimit := &syscall.Rlimit{}
-	if err := syscall.Getrlimit(syscall.RLIMIT_NOFILE, fdLimit); err != nil {
-		slog.Error("max-open-fds failed", "err", err)
-	}
-
-	// Limit the stack size. We don't need huge stacks and smaller limits mean
-	// any infinite recursion fires earlier and on low memory systems avoids
-	// out of memory issues in favor of a stack overflow error.
-	debug.SetMaxStack(defaultServEnv.MaxStackSize)
-
-	defaultServEnv.OnInitHooks.Fire()
-}
-
-// Init is the first phase of the server startup.
 func (sv *ServEnv) Init() {
 	sv.mu.Lock()
 	defer sv.mu.Unlock()
@@ -129,4 +79,8 @@ func (sv *ServEnv) Init() {
 	debug.SetMaxStack(sv.MaxStackSize)
 
 	sv.OnInitHooks.Fire()
+	sv.registerPidFile()
+	sv.HTTPRegisterProfile()
+	sv.pprofInit()
+	sv.updateServiceMap()
 }

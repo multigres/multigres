@@ -20,22 +20,15 @@ import (
 	"log/slog"
 	"net"
 	"os"
-
-	"github.com/spf13/pflag"
-	"google.golang.org/grpc"
 )
 
-// socketFile has the flag used when calling
-// RegisterDefaultSocketFileFlags.
-var socketFile string
-
 // serveSocketFile listen to the named socket and serves RPCs on it.
-func serveSocketFile() {
-	if socketFile == "" {
+func (g *GrpcServer) serveSocketFile() {
+	if g.socketFile.Get() == "" {
 		slog.Info("Not listening on socket file")
 		return
 	}
-	name := socketFile
+	name := g.socketFile.Get()
 
 	// try to delete if file exists
 	if _, err := os.Stat(name); err == nil {
@@ -52,17 +45,8 @@ func serveSocketFile() {
 	}
 	slog.Info("Listening on socket file for gRPC", "name", name)
 	go func() {
-		grpcSrv := grpc.NewServer()
-		if err := grpcSrv.Serve(l); err != nil {
+		if err := g.Server.Serve(l); err != nil {
 			slog.Error("grpc server failed", "err", err)
 		}
 	}()
-}
-
-// RegisterDefaultSocketFileFlags registers the default flags for listening
-// to a socket. This needs to be called before flags are parsed.
-func RegisterDefaultSocketFileFlags() {
-	OnParse(func(fs *pflag.FlagSet) {
-		fs.StringVar(&socketFile, "socket-file", socketFile, "Local unix socket file to listen on")
-	})
 }

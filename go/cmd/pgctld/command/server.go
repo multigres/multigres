@@ -41,8 +41,6 @@ type PgCtldServerCmd struct {
 
 // AddServerCommand adds the server subcommand to the root command
 func AddServerCommand(root *cobra.Command, pc *PgCtlCommand) {
-	servenv.InitServiceMap("grpc", "pgctld")
-
 	serverCmd := &PgCtldServerCmd{
 		pgCtlCmd:   pc,
 		grpcServer: servenv.NewGrpcServer(),
@@ -53,13 +51,14 @@ func AddServerCommand(root *cobra.Command, pc *PgCtlCommand) {
 			Dynamic:  false,
 		}),
 	}
+	serverCmd.senv.InitServiceMap("grpc", "pgctld")
 	root.AddCommand(serverCmd.createCommand())
 }
 
 // validateServerFlags validates required flags for the server command
 func (s *PgCtldServerCmd) validateServerFlags(cmd *cobra.Command, args []string) error {
 	// First run the standard servenv validation
-	if err := servenv.CobraPreRunE(cmd, args); err != nil {
+	if err := s.senv.CobraPreRunE(cmd); err != nil {
 		return err
 	}
 
@@ -105,7 +104,7 @@ func (s *PgCtldServerCmd) runServer(cmd *cobra.Command, args []string) error {
 		)
 
 		// Register gRPC service with the global GRPCServer
-		if s.grpcServer.CheckServiceMap("pgctld") {
+		if s.grpcServer.CheckServiceMap("pgctld", s.senv) {
 			pb.RegisterPgCtldServer(s.grpcServer.Server, pgctldService)
 		}
 	})

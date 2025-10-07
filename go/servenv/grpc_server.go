@@ -112,6 +112,9 @@ type GrpcServer struct {
 
 	// authPlugin is the authenticator plugin
 	authPlugin Authenticator
+
+	// socketFile is the named socket for RPCs
+	socketFile viperutil.Value[string]
 }
 
 // NewGrpcServer creates and initializes a new GrpcServer with viperutil values
@@ -202,6 +205,11 @@ func NewGrpcServer() *GrpcServer {
 			FlagName: "grpc-server-ca",
 			Dynamic:  false,
 		}),
+		socketFile: viperutil.Configure("socket-file", viperutil.Options[string]{
+			Default:  "",
+			FlagName: "socket-file",
+			Dynamic:  false,
+		}),
 	}
 }
 
@@ -224,6 +232,7 @@ func (g *GrpcServer) RegisterFlags(fs *pflag.FlagSet) {
 	fs.String("grpc-server-ca", g.serverCA.Default(), "path to server CA in PEM format, which will be combine with server cert, return full certificate chain to clients")
 	fs.Duration("grpc-server-keepalive-time", g.keepaliveTime.Default(), "After a duration of this time, if the server doesn't see any activity, it pings the client to see if the transport is still alive.")
 	fs.Duration("grpc-server-keepalive-timeout", g.keepaliveTimeout.Default(), "After having pinged for keepalive check, the server waits for a duration of Timeout and if no activity is seen even after that the connection is closed.")
+	fs.String("socket-file", g.socketFile.Default(), "Local unix socket file to listen on")
 
 	viperutil.BindFlags(fs,
 		g.auth,
@@ -243,6 +252,7 @@ func (g *GrpcServer) RegisterFlags(fs *pflag.FlagSet) {
 		g.crl,
 		g.enableOptionalTLS,
 		g.serverCA,
+		g.socketFile,
 	)
 }
 
@@ -277,7 +287,7 @@ func (g *GrpcServer) IsEnabled() bool {
 		return true
 	}
 
-	if socketFile != "" {
+	if g.socketFile.Get() != "" {
 		return true
 	}
 
@@ -292,6 +302,7 @@ func (g *GrpcServer) Create() {
 		slog.Info("GRPC is not enabled (no grpc-port or socket-file set), skipping gRPC server creation")
 		return
 	}
+	g.serveSocketFile()
 
 	var opts []grpc.ServerOption
 	if g.cert.Get() != "" && g.key.Get() != "" {
@@ -415,7 +426,7 @@ func (g *GrpcServer) Serve(sv *ServEnv) {
 }
 
 // CheckServiceMap returns if we should register a gRPC service
-func (g *GrpcServer) CheckServiceMap(name string) bool {
+func (g *GrpcServer) CheckServiceMap(name string, sv *ServEnv) bool {
 	// Silently fail individual services if gRPC is not enabled in
 	// the first place (either on a grpc port or on the socket file)
 	if !g.IsEnabled() {
@@ -423,7 +434,7 @@ func (g *GrpcServer) CheckServiceMap(name string) bool {
 	}
 
 	// then check ServiceMap
-	return checkServiceMap("grpc", name)
+	return sv.checkServiceMap("grpc", name)
 }
 
 func (g *GrpcServer) authenticatingStreamInterceptor(srv any, stream grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {

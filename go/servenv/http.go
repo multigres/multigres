@@ -36,19 +36,6 @@ func HTTPHandleFunc(pattern string, handler func(http.ResponseWriter, *http.Requ
 	mux.Mux.HandleFunc(pattern, handler)
 }
 
-// HTTPRegisterProfile registers the default pprof HTTP endpoints with the internal servenv mux.
-func HTTPRegisterProfile() {
-	if !httpPprof {
-		return
-	}
-
-	HTTPHandleFunc("/debug/pprof/", pprof.Index)
-	HTTPHandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
-	HTTPHandleFunc("/debug/pprof/profile", pprof.Profile)
-	HTTPHandleFunc("/debug/pprof/symbol", pprof.Symbol)
-	HTTPHandleFunc("/debug/pprof/trace", pprof.Trace)
-}
-
 // HTTPHandle registers the given handler for the internal servenv mux.
 func (sv *ServEnv) HTTPHandle(pattern string, handler http.Handler) {
 	sv.mux.Handle(pattern, handler)
@@ -71,7 +58,7 @@ func (sv *ServEnv) HTTPServe(l net.Listener) error {
 
 // HTTPRegisterProfile registers the default pprof HTTP endpoints with the internal servenv mux.
 func (sv *ServEnv) HTTPRegisterProfile() {
-	if !httpPprof {
+	if !sv.httpPprof {
 		return
 	}
 
