@@ -40,14 +40,14 @@ func init() {
 
 // RegisterService registers the MultiPooler gRPC service with the given configuration
 func RegisterService(mp *MultiPooler, config *Config) {
-	servenv.OnRun(func() {
+	mp.Senv.OnRun(func() {
 		if mp.GrpcServer == nil {
 			return
 		}
 
 		// Check if the pooler service should be registered
 		if mp.GrpcServer.CheckServiceMap("pooler") {
-			logger := servenv.GetLogger()
+			logger := mp.Senv.GetLogger()
 			server := NewMultiPoolerServer(logger, config)
 			multipoolerpb.RegisterMultiPoolerServiceServer(mp.GrpcServer.Server, server)
 			logger.Info("MultiPooler gRPC service registered")
@@ -79,6 +79,8 @@ type MultiPooler struct {
 	PoolerServer *MultiPoolerServer
 	// GrpcServer is the grpc server
 	GrpcServer *servenv.GrpcServer
+	// Senv is the serving environment
+	Senv *servenv.ServEnv
 }
 
 // NewMultiPooler creates a new MultiPooler instance with default configuration
@@ -127,6 +129,7 @@ func NewMultiPooler() *MultiPooler {
 			Dynamic:  false,
 		}),
 		GrpcServer: servenv.NewGrpcServer(),
+		Senv:       servenv.NewServEnv(),
 	}
 }
 
@@ -153,6 +156,7 @@ func (mp *MultiPooler) RegisterFlags(flags *pflag.FlagSet) {
 	)
 
 	mp.GrpcServer.RegisterFlags(flags)
+	mp.Senv.RegisterFlags(flags)
 }
 
 // MultiPoolerServer implements the MultiPoolerService gRPC interface

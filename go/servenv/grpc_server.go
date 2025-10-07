@@ -368,7 +368,7 @@ func (g *GrpcServer) interceptors() []grpc.ServerOption {
 }
 
 // Serve starts the gRPC server and begins listening for requests
-func (g *GrpcServer) Serve() {
+func (g *GrpcServer) Serve(sv *ServEnv) {
 	// skip if not enabled
 	if g.port.Get() == 0 {
 		return
@@ -407,7 +407,7 @@ func (g *GrpcServer) Serve() {
 		}
 	}()
 
-	OnTermSync(func() {
+	sv.OnTermSync(func() {
 		slog.Info("Initiated graceful stop of gRPC server")
 		g.Server.GracefulStop()
 		slog.Info("gRPC server stopped")

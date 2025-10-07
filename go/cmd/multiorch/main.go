@@ -40,6 +40,8 @@ type MultiOrch struct {
 	multiorchID *clustermetadatapb.ID
 	// grpcServer is the grpc server
 	grpcServer *servenv.GrpcServer
+	// senv is the serving environment
+	senv *servenv.ServEnv
 }
 
 // CheckCellFlags validates the cell flag against available cells in the topology.
@@ -87,6 +89,7 @@ func main() {
 			EnvVars:  []string{"MT_CELL"},
 		}),
 		grpcServer: servenv.NewGrpcServer(),
+		senv:       servenv.NewServEnv(),
 	}
 
 	main := &cobra.Command{
@@ -102,7 +105,7 @@ func main() {
 
 	main.Flags().String("cell", mo.cell.Default(), "cell to use")
 	viperutil.BindFlags(main.Flags(), mo.cell)
-	servenv.RegisterServiceCmd(main)
+	mo.senv.RegisterFlags(main.Flags())
 	mo.grpcServer.RegisterFlags(main.Flags())
 
 	if err := main.Execute(); err != nil {
@@ -112,10 +115,10 @@ func main() {
 }
 
 func run(cmd *cobra.Command, args []string, mo *MultiOrch) error {
-	servenv.Init()
+	mo.senv.Init()
 
 	// Get the configured logger
-	logger := servenv.GetLogger()
+	logger := mo.senv.GetLogger()
 
 	ts := topo.Open()
 	defer func() { _ = ts.Close() }()
@@ -127,7 +130,7 @@ func run(cmd *cobra.Command, args []string, mo *MultiOrch) error {
 	}
 	logger.Info("Cell validation passed", "cell", mo.cell)
 
-	servenv.OnRun(func() {
+	mo.senv.OnRun(func() {
 		// Flags are parsed now.
 		logger.Info("multiorch starting up",
 			"cell", mo.cell,
@@ -163,7 +166,7 @@ func run(cmd *cobra.Command, args []string, mo *MultiOrch) error {
 		}
 	})
 
-	servenv.OnClose(func() {
+	mo.senv.OnClose(func() {
 		logger.Info("multiorch shutting down")
 
 		// Deregister from topology service
@@ -182,7 +185,7 @@ func run(cmd *cobra.Command, args []string, mo *MultiOrch) error {
 	// TODO: Setup consensus protocol management
 	// TODO: Implement failover detection and repair
 	// TODO: Setup health monitoring of multipooler instances
-	servenv.RunDefault(mo.grpcServer)
+	mo.senv.RunDefault(mo.grpcServer)
 
 	return nil
 }

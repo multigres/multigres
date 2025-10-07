@@ -19,9 +19,9 @@ package servenv
 import (
 	"fmt"
 	"log/slog"
+	"net/http"
 	"net/url"
 	"os"
-	"strings"
 	"sync"
 	"time"
 
@@ -35,75 +35,82 @@ import (
 	"github.com/spf13/pflag"
 )
 
-var (
-	// httpPort is part of the flags used when calling RegisterDefaultFlags.
-	httpPort    int
-	bindAddress string
-
-	// mutex used to protect the Init function
-	mu sync.Mutex
-
-	onInitHooks     event.Hooks
-	onTermHooks     event.Hooks
-	onTermSyncHooks event.Hooks
-	onRunHooks      event.Hooks
-	inited          bool
-
-	// ListeningURL is filled in when calling Run, contains the server URL.
-	ListeningURL url.URL
-)
-
-// Flags specific to Init, Run, and RunDefault functions.
-var (
-	catchSigpipe         bool
-	maxStackSize         = 64 * 1024 * 1024
-	initStartTime        time.Time // time when tablet init started: for debug purposes to time how long a tablet init takes
-	tableRefreshInterval int
-)
-
+// TimeoutFlags holds timeout configuration
 type TimeoutFlags struct {
 	LameduckPeriod time.Duration
 	OnTermTimeout  time.Duration
 	OnCloseTimeout time.Duration
 }
 
-var timeouts = &TimeoutFlags{
-	LameduckPeriod: 50 * time.Millisecond,
-	OnTermTimeout:  10 * time.Second,
-	OnCloseTimeout: 10 * time.Second,
+// ServEnv holds the service environment configuration and state
+type ServEnv struct {
+	// Configuration
+	HTTPPort        viperutil.Value[int]
+	BindAddress     viperutil.Value[string]
+	Timeouts        *TimeoutFlags
+	CatchSigpipe    bool
+	MaxStackSize    int
+	InitStartTime   time.Time
+	TableRefreshInt int
+
+	// Hooks
+	OnInitHooks     event.Hooks
+	OnTermHooks     event.Hooks
+	OnTermSyncHooks event.Hooks
+	OnRunHooks      event.Hooks
+
+	// State
+	mu           sync.Mutex
+	inited       bool
+	ListeningURL url.URL
+
+	mux          *http.ServeMux
+	onCloseHooks event.Hooks
+	// exitChan waits for a signal that tells the process to terminate
+	exitChan chan os.Signal
+	lg       *Logger
 }
 
-// RegisterFlags installs the flags used by Init, Run, and RunDefault.
-//
-// This must be called before servenv.ParseFlags if using any of those
-// functions.
-func RegisterFlags() {
-	OnParse(func(fs *pflag.FlagSet) {
-		fs.DurationVar(&timeouts.LameduckPeriod, "lameduck-period", timeouts.LameduckPeriod, "keep running at least this long after SIGTERM before stopping")
-		fs.DurationVar(&timeouts.OnTermTimeout, "onterm-timeout", timeouts.OnTermTimeout, "wait no more than this for OnTermSync handlers before stopping")
-		fs.DurationVar(&timeouts.OnCloseTimeout, "onclose-timeout", timeouts.OnCloseTimeout, "wait no more than this for OnClose handlers before stopping")
-		fs.StringVar(&pidFile, "pid-file", pidFile, "If set, the process will write its pid to the named file, and delete it on graceful shutdown.")
-	})
+// Global default instance for backward compatibility
+var defaultServEnv *ServEnv
+
+func init() {
+	defaultServEnv = NewServEnv()
 }
 
-func RegisterFlagsWithTimeouts(tf *TimeoutFlags) {
-	OnParse(func(fs *pflag.FlagSet) {
-		fs.DurationVar(&tf.LameduckPeriod, "lameduck-period", tf.LameduckPeriod, "keep running at least this long after SIGTERM before stopping")
-		fs.DurationVar(&tf.OnTermTimeout, "onterm-timeout", tf.OnTermTimeout, "wait no more than this for OnTermSync handlers before stopping")
-		fs.DurationVar(&tf.OnCloseTimeout, "onclose-timeout", tf.OnCloseTimeout, "wait no more than this for OnClose handlers before stopping")
-		// pid_file.go
-		fs.StringVar(&pidFile, "pid-file", pidFile, "If set, the process will write its pid to the named file, and delete it on graceful shutdown.")
-		timeouts = tf
-	})
+// NewServEnv creates a new ServEnv instance with default configuration
+func NewServEnv() *ServEnv {
+	return &ServEnv{
+		HTTPPort: viperutil.Configure("http-port", viperutil.Options[int]{
+			Default:  0,
+			FlagName: "http-port",
+			Dynamic:  false,
+		}),
+		BindAddress: viperutil.Configure("bind-address", viperutil.Options[string]{
+			Default:  "",
+			FlagName: "bind-address",
+			Dynamic:  false,
+		}),
+		Timeouts: &TimeoutFlags{
+			LameduckPeriod: 50 * time.Millisecond,
+			OnTermTimeout:  10 * time.Second,
+			OnCloseTimeout: 10 * time.Second,
+		},
+		MaxStackSize: 64 * 1024 * 1024,
+		mux:          http.NewServeMux(),
+		lg:           NewLogger(),
+	}
 }
 
-func GetInitStartTime() time.Time {
-	mu.Lock()
-	defer mu.Unlock()
-	return initStartTime
+// GetInitStartTime returns the initialization start time
+func (se *ServEnv) GetInitStartTime() time.Time {
+	se.mu.Lock()
+	defer se.mu.Unlock()
+	return se.InitStartTime
 }
 
-func populateListeningURL(port int32) {
+// PopulateListeningURL sets the listening URL based on hostname and port
+func (se *ServEnv) PopulateListeningURL(port int32) {
 	host, err := netutil.FullyQualifiedHostname()
 	if err != nil {
 		slog.Warn("Failed to get fully qualified hostname, falling back to simple hostname",
@@ -118,56 +125,60 @@ func populateListeningURL(port int32) {
 	} else {
 		slog.Info("Using fully qualified hostname for service URL", "hostname", host)
 	}
-	ListeningURL = url.URL{
+	se.ListeningURL = url.URL{
 		Scheme: "http",
 		Host:   netutil.JoinHostPort(host, port),
 		Path:   "/",
 	}
 }
 
-// OnInit registers f to be run at the beginning of the app
-// lifecycle. It should be called in an init() function.
-func OnInit(f func()) {
-	onInitHooks.Add(f)
+// OnInit registers f to be run at the beginning of the app lifecycle
+func (se *ServEnv) OnInit(f func()) {
+	se.OnInitHooks.Add(f)
 }
 
-// OnTerm registers a function to be run when the process receives a SIGTERM.
-// This allows the program to change its behavior during the lameduck period.
-//
-// All hooks are run in parallel, and there is no guarantee that the process
-// will wait for them to finish before dying when the lameduck period expires.
-//
-// See also: OnTermSync
-func OnTerm(f func()) {
-	onTermHooks.Add(f)
+// OnTerm registers a function to be run when the process receives a SIGTERM
+func (se *ServEnv) OnTerm(f func()) {
+	se.OnTermHooks.Add(f)
 }
 
-// OnTermSync registers a function to be run when the process receives SIGTERM.
-// This allows the program to change its behavior during the lameduck period.
-//
-// All hooks are run in parallel, and the process will do its best to wait
-// (up to -onterm_timeout) for all of them to finish before dying.
-//
-// See also: OnTerm
-func OnTermSync(f func()) {
-	onTermSyncHooks.Add(f)
+// OnTermSync registers a function to be run when the process receives SIGTERM
+func (se *ServEnv) OnTermSync(f func()) {
+	se.OnTermSyncHooks.Add(f)
 }
 
-// fireOnTermSyncHooks returns true iff all the hooks finish before the timeout.
-func fireOnTermSyncHooks(timeout time.Duration) bool {
-	return fireHooksWithTimeout(timeout, "OnTermSync", onTermSyncHooks.Fire)
+// OnRun registers f to be run right at the beginning of Run
+func (se *ServEnv) OnRun(f func()) {
+	se.OnRunHooks.Add(f)
 }
 
-// fireOnCloseHooks returns true iff all the hooks finish before the timeout.
-func fireOnCloseHooks(timeout time.Duration) bool {
-	return fireHooksWithTimeout(timeout, "OnClose", func() {
+// FireRunHooks fires the hooks registered by OnRun
+func (se *ServEnv) FireRunHooks() {
+	se.OnRunHooks.Fire()
+}
+
+// fireOnTermSyncHooks returns true iff all the hooks finish before the timeout
+func (se *ServEnv) fireOnTermSyncHooks(timeout time.Duration) bool {
+	return se.fireHooksWithTimeout(timeout, "OnTermSync", se.OnTermSyncHooks.Fire)
+}
+
+// FireRunHooks fires the hooks registered by OnHook.
+// Use this in a non-server to run the hooks registered
+// by servenv.OnRun().
+func FireRunHooks() {
+	defaultServEnv.OnRunHooks.Fire()
+}
+
+// fireOnCloseHooks returns true iff all the hooks finish before the timeout
+func (se *ServEnv) fireOnCloseHooks(timeout time.Duration) bool {
+	return se.fireHooksWithTimeout(timeout, "OnClose", func() {
 		onCloseHooks.Fire()
-		ListeningURL = url.URL{}
+		se.ListeningURL = url.URL{}
 	})
 }
 
-// fireHooksWithTimeout returns true iff all the hooks finish before the timeout.
-func fireHooksWithTimeout(timeout time.Duration, name string, hookFn func()) bool {
+// fireHooksWithTimeout returns true iff all the hooks finish before the timeout
+func (se *ServEnv) fireHooksWithTimeout(timeout time.Duration, name string, hookFn func()) bool {
 	slog.Info("Firing hooks and waiting for them", "name", name, "timeout", timeout)
 
 	timer := time.NewTimer(timeout)
@@ -189,43 +200,36 @@ func fireHooksWithTimeout(timeout time.Duration, name string, hookFn func()) boo
 	}
 }
 
-// OnRun registers f to be run right at the beginning of Run. All
-// hooks are run in parallel.
-func OnRun(f func()) {
-	onRunHooks.Add(f)
+// RegisterDefaultFlags registers the HTTP port and bind address flags
+func (se *ServEnv) RegisterDefaultFlags(fs *pflag.FlagSet) {
+	fs.Int("http-port", se.HTTPPort.Default(), "HTTP port for the server")
+	fs.String("bind-address", se.BindAddress.Default(), "Bind address for the server. If empty, the server will listen on all available unicast and anycast IP addresses of the local system.")
+	viperutil.BindFlags(fs, se.HTTPPort, se.BindAddress)
 }
 
-// FireRunHooks fires the hooks registered by OnHook.
-// Use this in a non-server to run the hooks registered
-// by servenv.OnRun().
-func FireRunHooks() {
-	onRunHooks.Fire()
+// RegisterTimeoutFlags registers timeout-related flags
+func (se *ServEnv) RegisterTimeoutFlags(fs *pflag.FlagSet) {
+	fs.DurationVar(&se.Timeouts.LameduckPeriod, "lameduck-period", se.Timeouts.LameduckPeriod, "keep running at least this long after SIGTERM before stopping")
+	fs.DurationVar(&se.Timeouts.OnTermTimeout, "onterm-timeout", se.Timeouts.OnTermTimeout, "wait no more than this for OnTermSync handlers before stopping")
+	fs.DurationVar(&se.Timeouts.OnCloseTimeout, "onclose-timeout", se.Timeouts.OnCloseTimeout, "wait no more than this for OnClose handlers before stopping")
+	fs.StringVar(&pidFile, "pid-file", pidFile, "If set, the process will write its pid to the named file, and delete it on graceful shutdown.")
 }
 
-// RegisterDefaultFlags registers the default flags for
-// listening to a given port for standard connections.
-// If calling this, then call RunDefault()
-func RegisterDefaultFlags() {
-	OnParse(func(fs *pflag.FlagSet) {
-		fs.IntVar(&httpPort, "http-port", httpPort, "HTTP port for the server")
-		fs.StringVar(&bindAddress, "bind-address", bindAddress, "Bind address for the server. If empty, the server will listen on all available unicast and anycast IP addresses of the local system.")
-	})
+// RunDefault calls Run() with the parameters from the flags
+func (se *ServEnv) RunDefault(grpcServer *GrpcServer) {
+	se.Run(se.BindAddress.Get(), se.HTTPPort.Get(), grpcServer)
 }
 
-// HTTPPort returns the value of the `--http-port` flag.
-func HTTPPort() int {
-	return httpPort
+// Backward compatible package-level functions using defaultServEnv
+
+// OnInit registers f to be run at the beginning of the app lifecycle
+func OnInit(f func()) {
+	defaultServEnv.OnInit(f)
 }
 
-// Port returns the value of the `--http-port` flag.
-// Deprecated: Use HTTPPort() instead.
-func Port() int {
-	return httpPort
-}
-
-// RunDefault calls Run() with the parameters from the flags.
-func RunDefault(grpcServer *GrpcServer) {
-	Run(bindAddress, httpPort, grpcServer)
+// OnTerm registers a function to be run when the process receives a SIGTERM
+func OnTerm(f func()) {
+	defaultServEnv.OnTerm(f)
 }
 
 var (
@@ -274,32 +278,6 @@ func getFlagHooksFor(cmd string) (hooks []func(fs *pflag.FlagSet)) {
 	return hooks
 }
 
-// ParseFlags initializes flags and handles the common case when no positional
-// arguments are expected.
-func ParseFlags(cmd string) {
-	fs := GetFlagSetFor(cmd)
-
-	viperutil.BindFlags(fs)
-	args := fs.Args()
-	if len(args) > 0 {
-		slog.Info(fmt.Sprintf("%s doesn't take any positional arguments, got '%s'", cmd, strings.Join(args, " ")))
-		os.Exit(1)
-	}
-
-	loadViper(cmd)
-}
-
-// ParseFlagsForTests initializes flags but skips the version, filesystem
-// args and go flag related work.
-// Note: this should not be used outside of unit tests.
-func ParseFlagsForTests(cmd string) {
-	fs := GetFlagSetFor(cmd)
-	pflag.CommandLine = fs
-	pflag.Parse()
-	viperutil.BindFlags(fs)
-	loadViper(cmd)
-}
-
 // CobraPreRunE returns the common function that commands will need to load
 // viper infrastructure. It matches the signature of cobra's (Pre|Post)RunE-type
 // functions.
@@ -341,46 +319,6 @@ func GetFlagSetFor(cmd string) *pflag.FlagSet {
 	return fs
 }
 
-// ParseFlagsWithArgs initializes flags and returns the positional arguments
-func ParseFlagsWithArgs(cmd string) []string {
-	fs := GetFlagSetFor(cmd)
-
-	viperutil.BindFlags(fs)
-
-	args := fs.Args()
-	if len(args) == 0 {
-		slog.Info(fmt.Sprintf("%s expected at least one positional argument", cmd))
-		os.Exit(1)
-	}
-
-	loadViper(cmd)
-
-	return args
-}
-
-func loadViper(cmd string) {
-	watchCancel, err := viperutil.LoadConfig()
-	if err != nil {
-		slog.Error("failed to read in config", "cmd", cmd, "err", err)
-		os.Exit(1)
-	}
-	OnTerm(watchCancel)
-}
-
-// Flag installations for packages that servenv imports. We need to register
-// here rather than in those packages (which is what we would normally do)
-// because that would create a dependency cycle.
-func init() {
-	// TODO: @rafael
-	// Leaving this here as a pointer as we continue the port.
-	// In this block we will call OnParseFor to register
-	// common flags for things like tracing / stats / grpc common flags
-	// Register logging flags by default
-	RegisterLoggingFlags()
-
-	OnParse(viperutil.RegisterFlags)
-}
-
 // TestingEndtoend is true when this Multigres binary is being run as part of an endtoend test suite
 var TestingEndtoend = false
 
@@ -396,22 +334,31 @@ func AddFlagSetToCobraCommand(cmd *cobra.Command) {
 	pflag.CommandLine = fs
 }
 
-// RegisterCommonServiceFlags registers the common flags that most services need.
-// This includes default flags, timeout flags, gRPC server flags, gRPC auth flags,
-// and service map flags. This method is mainly used internally by RegisterServiceCmd.
-// For most use cases, prefer using RegisterServiceCmd instead.
-func RegisterCommonServiceFlags() {
-	RegisterDefaultFlags()
-	RegisterFlags()
-	RegisterGRPCServerAuthFlags()
-	RegisterServiceMapFlag()
-}
+func (se *ServEnv) RegisterFlags(fs *pflag.FlagSet) {
+	// Default flags
+	fs.Int("http-port", se.HTTPPort.Default(), "HTTP port for the server")
+	fs.String("bind-address", se.BindAddress.Default(), "Bind address for the server. If empty, the server will listen on all available unicast and anycast IP addresses of the local system.")
+	viperutil.BindFlags(fs, se.HTTPPort, se.BindAddress)
 
-// RegisterServiceCmd registers the common flags that most services need and
-// sets up the command with flags parsed and hooked. This is a convenience
-// method that combines flag registration and command setup.
-func RegisterServiceCmd(cmd *cobra.Command) {
-	RegisterCommonServiceFlags()
-	// Get the flag set from servenv and add it to the cobra command
-	AddFlagSetToCobraCommand(cmd)
+	// Timeout flags
+	fs.DurationVar(&se.Timeouts.LameduckPeriod, "lameduck-period", se.Timeouts.LameduckPeriod, "keep running at least this long after SIGTERM before stopping")
+	fs.DurationVar(&se.Timeouts.OnTermTimeout, "onterm-timeout", se.Timeouts.OnTermTimeout, "wait no more than this for OnTermSync handlers before stopping")
+	fs.DurationVar(&se.Timeouts.OnCloseTimeout, "onclose-timeout", se.Timeouts.OnCloseTimeout, "wait no more than this for OnClose handlers before stopping")
+	fs.StringVar(&pidFile, "pid-file", pidFile, "If set, the process will write its pid to the named file, and delete it on graceful shutdown.")
+
+	// Server auth flags
+	for _, fn := range grpcAuthServerFlagHooks {
+		fn(fs)
+	}
+
+	se.lg.RegisterFlags(fs)
+	viperutil.RegisterFlags(fs)
+
+	// Service Map
+	// OnParse(func(fs *pflag.FlagSet) {
+	// 	fs.StringSliceVar(&serviceMapFlag, "service-map", serviceMapFlag, "comma separated list of services to enable (or disable if prefixed with '-') Example: grpc-queryservice")
+	// })
+	// OnInit(updateServiceMap)
+
+	// Global and command flag hooks
 }

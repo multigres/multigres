@@ -94,7 +94,6 @@ func CheckCellFlags(ts topo.Store, cell string) error {
 
 func main() {
 	cmd, _ := CreateMultiPoolerCommand()
-	servenv.RegisterServiceCmd(cmd)
 
 	if err := cmd.Execute(); err != nil {
 		slog.Error(err.Error())
@@ -111,10 +110,10 @@ func run(cmd *cobra.Command, args []string, mp *server.MultiPooler) error {
 		return fmt.Errorf("--table-group flag is required")
 	}
 
-	servenv.Init()
+	mp.Senv.Init()
 
 	// Get the configured logger
-	logger := servenv.GetLogger()
+	logger := mp.Senv.GetLogger()
 
 	// Ensure we open the topo before we start the context, so that the
 	// defer that closes the topo runs after cancelling the context.
@@ -130,7 +129,7 @@ func run(cmd *cobra.Command, args []string, mp *server.MultiPooler) error {
 	}
 	logger.Info("Cell validation passed", "cell", mp.Cell)
 
-	servenv.OnRun(func() {
+	mp.Senv.OnRun(func() {
 		// Flags are parsed now.
 		logger.Info("multipooler starting up",
 			"pgctld_addr", mp.PgctldAddr,
@@ -140,7 +139,7 @@ func run(cmd *cobra.Command, args []string, mp *server.MultiPooler) error {
 			"socket_file_path", mp.SocketFilePath,
 			"pooler_dir", mp.PoolerDir,
 			"pg_port", mp.PgPort,
-			"http_port", servenv.HTTPPort(),
+			"http_port", mp.Senv.HTTPPort.Get(),
 			"grpc_port", mp.GrpcServer.Port(),
 		)
 
@@ -170,7 +169,7 @@ func run(cmd *cobra.Command, args []string, mp *server.MultiPooler) error {
 		// Create MultiPooler instance for topo registration
 		multipooler := topo.NewMultiPooler(mp.ServiceID.Get(), mp.Cell.Get(), hostname, mp.TableGroup.Get())
 		multipooler.PortMap["grpc"] = int32(mp.GrpcServer.Port())
-		multipooler.PortMap["http"] = int32(servenv.HTTPPort())
+		multipooler.PortMap["http"] = int32(mp.Senv.HTTPPort.Get())
 		multipooler.Database = mp.Database.Get()
 
 		if mp.ServiceID.Get() == "" {
@@ -191,10 +190,10 @@ func run(cmd *cobra.Command, args []string, mp *server.MultiPooler) error {
 		}
 
 		// TEMPORARY: Add a demo HTTP endpoint for testing - this will be removed later
-		servenv.HTTPHandleFunc("/discovery/status", getHandleStatusEndpoint(mp))
+		mp.Senv.HTTPHandleFunc("/discovery/status", getHandleStatusEndpoint(mp))
 		logger.Info("TEMPORARY: Discovery HTTP endpoint available at /discovery/status (for testing only)")
 	})
-	servenv.OnClose(func() {
+	mp.Senv.OnClose(func() {
 		logger.Info("multipooler shutting down")
 
 		// Deregister from topology service
@@ -211,7 +210,7 @@ func run(cmd *cobra.Command, args []string, mp *server.MultiPooler) error {
 	})
 	// TODO: Initialize gRPC connection to pgctld
 	// TODO: Setup health check endpoint
-	servenv.RunDefault(mp.GrpcServer)
+	mp.Senv.RunDefault(mp.GrpcServer)
 
 	return nil
 }

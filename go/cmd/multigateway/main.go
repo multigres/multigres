@@ -46,6 +46,8 @@ type MultiGateway struct {
 	poolerDiscovery *PoolerDiscovery
 	// grpcServer is the grpc server
 	grpcServer *servenv.GrpcServer
+	// senv is the serving environment
+	senv *servenv.ServEnv
 }
 
 // CheckCellFlags validates the cell flag against available cells in the topology.
@@ -99,6 +101,7 @@ func main() {
 			EnvVars:  []string{"MT_SERVICE_ID"},
 		}),
 		grpcServer: servenv.NewGrpcServer(),
+		senv:       servenv.NewServEnv(),
 	}
 
 	main := &cobra.Command{
@@ -118,7 +121,7 @@ func main() {
 		mg.cell,
 		mg.serviceID,
 	)
-	servenv.RegisterServiceCmd(main)
+	mg.senv.RegisterFlags(main.Flags())
 	mg.grpcServer.RegisterFlags(main.Flags())
 
 	if err := main.Execute(); err != nil {
@@ -128,9 +131,9 @@ func main() {
 }
 
 func run(cmd *cobra.Command, args []string, mg *MultiGateway) error {
-	servenv.Init()
+	mg.senv.Init()
 
-	logger := servenv.GetLogger()
+	logger := mg.senv.GetLogger()
 
 	ts := topo.Open()
 	defer func() { _ = ts.Close() }()
@@ -142,11 +145,11 @@ func run(cmd *cobra.Command, args []string, mg *MultiGateway) error {
 	}
 	logger.Info("Cell validation passed", "cell", mg.cell)
 
-	servenv.OnRun(func() {
+	mg.senv.OnRun(func() {
 		// Flags are parsed now.
 		logger.Info("multigateway starting up",
 			"cell", mg.cell,
-			"http_port", servenv.HTTPPort(),
+			"http_port", mg.senv.HTTPPort.Get(),
 			"grpc_port", mg.grpcServer.Port(),
 		)
 
@@ -164,7 +167,7 @@ func run(cmd *cobra.Command, args []string, mg *MultiGateway) error {
 		// Create MultiGateway instance for topo registration
 		multigateway := topo.NewMultiGateway(mg.serviceID.Get(), mg.cell.Get(), hostname)
 		multigateway.PortMap["grpc"] = int32(mg.grpcServer.Port())
-		multigateway.PortMap["http"] = int32(servenv.HTTPPort())
+		multigateway.PortMap["http"] = int32(mg.senv.HTTPPort.Get())
 
 		if mg.serviceID.Get() == "" {
 			mg.serviceID.Set(multigateway.GetId().GetName())
@@ -189,10 +192,10 @@ func run(cmd *cobra.Command, args []string, mg *MultiGateway) error {
 		logger.Info("Pooler discovery started with topology watch", "cell", mg.cell)
 
 		// Add a demo HTTP endpoint to show discovered poolers
-		servenv.HTTPHandleFunc("/discovery/poolers", getHandlePoolersEndpoint(mg))
+		mg.senv.HTTPHandleFunc("/discovery/poolers", getHandlePoolersEndpoint(mg))
 		logger.Info("Discovery HTTP endpoint available at /discovery/poolers")
 	})
-	servenv.OnClose(func() {
+	mg.senv.OnClose(func() {
 		logger.Info("multigateway shutting down")
 
 		// Stop pooler discovery
@@ -213,7 +216,7 @@ func run(cmd *cobra.Command, args []string, mg *MultiGateway) error {
 			}
 		}
 	})
-	servenv.RunDefault(mg.grpcServer)
+	mg.senv.RunDefault(mg.grpcServer)
 
 	return nil
 }

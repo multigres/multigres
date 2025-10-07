@@ -36,16 +36,6 @@ func HTTPHandleFunc(pattern string, handler func(http.ResponseWriter, *http.Requ
 	mux.Mux.HandleFunc(pattern, handler)
 }
 
-// HTTPServe starts the HTTP server for the internal servenv mux on the listener.
-func HTTPServe(l net.Listener) error {
-	slog.Info("Listening for HTTP calls on port", "httpPort", httpPort)
-	err := http.Serve(l, mux.Mux)
-	if errors.Is(err, http.ErrServerClosed) || errors.Is(err, net.ErrClosed) {
-		return nil
-	}
-	return err
-}
-
 // HTTPRegisterProfile registers the default pprof HTTP endpoints with the internal servenv mux.
 func HTTPRegisterProfile() {
 	if !httpPprof {
@@ -57,4 +47,37 @@ func HTTPRegisterProfile() {
 	HTTPHandleFunc("/debug/pprof/profile", pprof.Profile)
 	HTTPHandleFunc("/debug/pprof/symbol", pprof.Symbol)
 	HTTPHandleFunc("/debug/pprof/trace", pprof.Trace)
+}
+
+// HTTPHandle registers the given handler for the internal servenv mux.
+func (sv *ServEnv) HTTPHandle(pattern string, handler http.Handler) {
+	sv.mux.Handle(pattern, handler)
+}
+
+// HTTPHandleFunc registers the given handler func for the internal servenv mux.
+func (sv *ServEnv) HTTPHandleFunc(pattern string, handler func(http.ResponseWriter, *http.Request)) {
+	sv.mux.HandleFunc(pattern, handler)
+}
+
+// HTTPServe starts the HTTP server for the internal servenv mux on the listener.
+func (sv *ServEnv) HTTPServe(l net.Listener) error {
+	slog.Info("Listening for HTTP calls on port", "httpPort", sv.HTTPPort.Get())
+	err := http.Serve(l, sv.mux)
+	if errors.Is(err, http.ErrServerClosed) || errors.Is(err, net.ErrClosed) {
+		return nil
+	}
+	return err
+}
+
+// HTTPRegisterProfile registers the default pprof HTTP endpoints with the internal servenv mux.
+func (sv *ServEnv) HTTPRegisterProfile() {
+	if !httpPprof {
+		return
+	}
+
+	sv.HTTPHandleFunc("/debug/pprof/", pprof.Index)
+	sv.HTTPHandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
+	sv.HTTPHandleFunc("/debug/pprof/profile", pprof.Profile)
+	sv.HTTPHandleFunc("/debug/pprof/symbol", pprof.Symbol)
+	sv.HTTPHandleFunc("/debug/pprof/trace", pprof.Trace)
 }

@@ -36,11 +36,15 @@ type MultiAdmin struct {
 
 	// grpcServer is the grpc server
 	grpcServer *servenv.GrpcServer
+
+	// senv is the serving environment
+	senv *servenv.ServEnv
 }
 
 func main() {
 	ma := &MultiAdmin{
 		grpcServer: servenv.NewGrpcServer(),
+		senv:       servenv.NewServEnv(),
 	}
 
 	main := &cobra.Command{
@@ -54,7 +58,7 @@ func main() {
 		},
 	}
 
-	servenv.RegisterServiceCmd(main)
+	ma.senv.RegisterFlags(main.Flags())
 	ma.grpcServer.RegisterFlags(main.Flags())
 
 	if err := main.Execute(); err != nil {
@@ -64,19 +68,19 @@ func main() {
 }
 
 func run(cmd *cobra.Command, args []string, ma *MultiAdmin) error {
-	servenv.Init()
+	ma.senv.Init()
 
 	// Get the configured logger
-	logger := servenv.GetLogger()
+	logger := ma.senv.GetLogger()
 
 	// Open topo connection to discover other components
 	ts := topo.Open()
 	defer func() { _ = ts.Close() }()
 
-	servenv.OnRun(func() {
+	ma.senv.OnRun(func() {
 		// Flags are parsed now.
 		logger.Info("multiadmin starting up",
-			"http_port", servenv.HTTPPort(),
+			"http_port", ma.senv.HTTPPort.Get(),
 			"grpc_port", ma.grpcServer.Port(),
 		)
 
@@ -88,16 +92,16 @@ func run(cmd *cobra.Command, args []string, ma *MultiAdmin) error {
 		}
 
 		// Add HTTP endpoints for cluster management
-		servenv.HTTPHandleFunc("/admin/status", getHandleStatusEndpoint(ma))
-		servenv.HTTPHandleFunc("/admin/clusters", getHandleClustersEndpoint(ma))
+		ma.senv.HTTPHandleFunc("/admin/status", getHandleStatusEndpoint(ma))
+		ma.senv.HTTPHandleFunc("/admin/clusters", getHandleClustersEndpoint(ma))
 		logger.Info("Admin HTTP endpoints available at /admin/status and /admin/clusters")
 	})
 
-	servenv.OnClose(func() {
+	ma.senv.OnClose(func() {
 		logger.Info("multiadmin shutting down")
 	})
 
-	servenv.RunDefault(ma.grpcServer)
+	ma.senv.RunDefault(ma.grpcServer)
 
 	return nil
 }
@@ -123,9 +127,9 @@ func getHandleStatusEndpoint(ma *MultiAdmin) func(http.ResponseWriter, *http.Req
 		response := AdminStatusResponse{
 			ServiceType: "multiadmin",
 			Status:      "running",
-			HTTPPort:    servenv.HTTPPort(),
+			HTTPPort:    ma.senv.HTTPPort.Get(),
 			GRPCPort:    ma.grpcServer.Port(),
-			Uptime:      time.Since(servenv.GetInitStartTime()),
+			Uptime:      time.Since(ma.senv.GetInitStartTime()),
 		}
 
 		w.Header().Set("Content-Type", "application/json")

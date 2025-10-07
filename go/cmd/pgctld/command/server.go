@@ -35,24 +35,24 @@ import (
 type PgCtldServerCmd struct {
 	pgCtlCmd   *PgCtlCommand
 	grpcServer *servenv.GrpcServer
+	senv       *servenv.ServEnv
 	pgPort     viperutil.Value[int]
 }
 
 // AddServerCommand adds the server subcommand to the root command
 func AddServerCommand(root *cobra.Command, pc *PgCtlCommand) {
-	servenv.RegisterServiceCmd(root)
 	servenv.InitServiceMap("grpc", "pgctld")
 
 	serverCmd := &PgCtldServerCmd{
 		pgCtlCmd:   pc,
 		grpcServer: servenv.NewGrpcServer(),
+		senv:       servenv.NewServEnv(),
 		pgPort: viperutil.Configure("pg-port", viperutil.Options[int]{
 			Default:  5432,
 			FlagName: "pg-port",
 			Dynamic:  false,
 		}),
 	}
-
 	root.AddCommand(serverCmd.createCommand())
 }
 
@@ -81,15 +81,16 @@ func (s *PgCtldServerCmd) createCommand() *cobra.Command {
 	cmd.Flags().Int("pg-port", s.pgPort.Default(), "PostgreSQL port")
 	viperutil.BindFlags(cmd.Flags(), s.pgPort)
 	s.grpcServer.RegisterFlags(cmd.Flags())
+	s.senv.RegisterFlags(cmd.Flags())
 
 	return cmd
 }
 
 func (s *PgCtldServerCmd) runServer(cmd *cobra.Command, args []string) error {
-	servenv.Init()
+	s.senv.Init()
 
 	// Get the configured logger
-	logger := servenv.GetLogger()
+	logger := s.senv.GetLogger()
 
 	// Create and register our service
 	poolerDir := pgctld.GetPoolerDir()
@@ -98,7 +99,7 @@ func (s *PgCtldServerCmd) runServer(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	servenv.OnRun(func() {
+	s.senv.OnRun(func() {
 		logger.Info("pgctld server starting up",
 			"grpc_port", s.grpcServer.Port(),
 		)
@@ -109,12 +110,12 @@ func (s *PgCtldServerCmd) runServer(cmd *cobra.Command, args []string) error {
 		}
 	})
 
-	servenv.OnClose(func() {
+	s.senv.OnClose(func() {
 		logger.Info("pgctld server shutting down")
 		// TODO: add closing hooks
 	})
 
-	servenv.RunDefault(s.grpcServer)
+	s.senv.RunDefault(s.grpcServer)
 
 	return nil
 }
