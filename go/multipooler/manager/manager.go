@@ -155,6 +155,7 @@ func (pm *MultiPoolerManager) loadMultiPoolerFromTopo() {
 	}
 
 	ticker := timertools.NewBackoffTicker(100*time.Millisecond, 30*time.Second)
+	<-ticker.C
 	defer ticker.Stop()
 
 	// Set timeout for the entire loading process
