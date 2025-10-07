@@ -31,7 +31,6 @@ type poolerService struct {
 
 func init() {
 	// Register ourselves to be invoked when the pooler starts
-	// Following Vitess pattern from grpctmserver/server.go
 	poolerserver.RegisterPoolerServices = append(poolerserver.RegisterPoolerServices, func(p *poolerserver.MultiPooler) {
 		if servenv.GRPCCheckServiceMap("pooler") {
 			srv := &poolerService{

@@ -32,7 +32,6 @@ type managerService struct {
 
 func init() {
 	// Register ourselves to be invoked when the manager starts
-	// Following Vitess pattern from grpctmserver/server.go
 	manager.RegisterPoolerManagerServices = append(manager.RegisterPoolerManagerServices, func(pm *manager.MultiPoolerManager) {
 		if servenv.GRPCCheckServiceMap("poolermanager") {
 			srv := &managerService{
