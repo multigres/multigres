@@ -115,8 +115,8 @@ func Init() {
 	// Start the MultiPoolerManager
 	poolerManager.Start()
 
-	// Initialize and start the MultiPoolerServer
-	poolerServer := poolerserver.NewMultiPoolerServer(logger, &manager.Config{
+	// Initialize and start the MultiPooler
+	pooler := poolerserver.NewMultiPooler(logger, &manager.Config{
 		SocketFilePath: socketFilePath,
 		PoolerDir:      poolerDir,
 		PgPort:         pgPort,
@@ -124,7 +124,7 @@ func Init() {
 		TopoClient:     ts,
 		ServiceID:      multipooler.Id,
 	})
-	poolerServer.Start()
+	pooler.Start()
 
 	servenv.OnRun(
 		func() {

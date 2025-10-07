@@ -14,21 +14,15 @@
 
 package poolerserver
 
-import (
-	"log/slog"
-
-	"github.com/multigres/multigres/go/multipooler/manager"
-)
-
 // RegisterPoolerServiceFunc is used to delay registration of pooler gRPC servers until we have all the objects.
-type RegisterPoolerServiceFunc func(*slog.Logger, *manager.Config)
+type RegisterPoolerServiceFunc func(*MultiPooler)
 
 // RegisterPoolerServices is a list of functions to call when the delayed gRPC registration is triggered.
 var RegisterPoolerServices []RegisterPoolerServiceFunc
 
 // registerGRPCServices will register all the pooler gRPC service instances.
-func (s *MultiPoolerServer) registerGRPCServices() {
+func (s *MultiPooler) registerGRPCServices() {
 	for _, f := range RegisterPoolerServices {
-		f(s.logger, s.config)
+		f(s)
 	}
 }

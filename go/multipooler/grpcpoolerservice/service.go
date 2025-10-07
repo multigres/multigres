@@ -16,20 +16,39 @@
 package grpcpoolerservice
 
 import (
-	"log/slog"
+	"context"
 
-	"github.com/multigres/multigres/go/multipooler/manager"
 	"github.com/multigres/multigres/go/multipooler/poolerserver"
+	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
 	"github.com/multigres/multigres/go/servenv"
 )
 
+// poolerService is the gRPC wrapper for MultiPooler
+type poolerService struct {
+	multipoolerpb.UnimplementedMultiPoolerServiceServer
+	pooler *poolerserver.MultiPooler
+}
+
 func init() {
-	// Register ourselves to be invoked when the pooler server registration is triggered
-	poolerserver.RegisterPoolerServices = append(poolerserver.RegisterPoolerServices, func(logger *slog.Logger, config *manager.Config) {
+	// Register ourselves to be invoked when the pooler starts
+	// Following Vitess pattern from grpctmserver/server.go
+	poolerserver.RegisterPoolerServices = append(poolerserver.RegisterPoolerServices, func(p *poolerserver.MultiPooler) {
 		if servenv.GRPCCheckServiceMap("pooler") {
-			poolerServer := poolerserver.NewMultiPoolerServer(logger, config)
-			poolerServer.RegisterWithGRPCServer(servenv.GRPCServer)
-			logger.Info("MultiPooler gRPC service registered with servenv")
+			srv := &poolerService{
+				pooler: p,
+			}
+			multipoolerpb.RegisterMultiPoolerServiceServer(servenv.GRPCServer, srv)
 		}
 	})
+}
+
+// ExecuteQuery executes a SQL query and returns the result
+func (s *poolerService) ExecuteQuery(ctx context.Context, req *multipoolerpb.ExecuteQueryRequest) (*multipoolerpb.ExecuteQueryResponse, error) {
+	result, err := s.pooler.ExecuteQuery(ctx, req.Query, req.MaxRows)
+	if err != nil {
+		return nil, err
+	}
+	return &multipoolerpb.ExecuteQueryResponse{
+		Result: result,
+	}, nil
 }
