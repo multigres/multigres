@@ -75,7 +75,6 @@ func (s *MultiPoolerServer) Close() error {
 }
 
 // Start initializes the MultiPoolerServer
-// This method follows the Vitess pattern similar to TabletManager.Start() in tm_init.go
 func (s *MultiPoolerServer) Start() {
 	servenv.OnRun(func() {
 		s.logger.Info("MultiPoolerServer started")
