@@ -76,7 +76,6 @@ type MultipoolerTestSetup struct {
 	StandbyPgctld      *ProcessInstance
 	PrimaryMultipooler *ProcessInstance
 	StandbyMultipooler *ProcessInstance
-	Cleanup            func()
 }
 
 // Start starts the process instance (pgctld or multipooler)
@@ -317,11 +316,17 @@ func getSharedTestSetup(t *testing.T) *MultipoolerTestSetup {
 			return
 		}
 
-		tempDir, cleanup := testutil.TempDir(t, "multipooler_shared_test")
+		tempDir, cleanupTempDir := testutil.TempDir(t, "multipooler_shared_test")
+		t.Cleanup(cleanupTempDir)
 
 		// Start etcd for topology
 		t.Logf("Starting etcd for topology...")
 		etcdClientAddr, etcdCmd := etcdtopo.StartEtcd(t, 0)
+		t.Cleanup(func() {
+			if etcdCmd != nil && etcdCmd.Process != nil {
+				_ = etcdCmd.Process.Kill()
+			}
+		})
 
 		// Create topology server and cell
 		testRoot := "/multigres"
@@ -331,11 +336,10 @@ func getSharedTestSetup(t *testing.T) *MultipoolerTestSetup {
 
 		ts, err := topo.OpenServer("etcd2", globalRoot, []string{etcdClientAddr})
 		if err != nil {
-			_ = etcdCmd.Process.Kill()
-			cleanup()
 			setupError = fmt.Errorf("failed to open topology server: %w", err)
 			return
 		}
+		t.Cleanup(func() { ts.Close() })
 
 		// Create the cell
 		err = ts.CreateCell(context.Background(), cellName, &clustermetadatapb.Cell{
@@ -343,9 +347,6 @@ func getSharedTestSetup(t *testing.T) *MultipoolerTestSetup {
 			Root:            cellRoot,
 		})
 		if err != nil {
-			ts.Close()
-			_ = etcdCmd.Process.Kill()
-			cleanup()
 			setupError = fmt.Errorf("failed to create cell: %w", err)
 			return
 		}
@@ -374,24 +375,20 @@ func getSharedTestSetup(t *testing.T) *MultipoolerTestSetup {
 
 		// Start pgctld servers
 		if err := primaryPgctld.Start(t); err != nil {
-			cleanup()
 			setupError = fmt.Errorf("failed to start primary pgctld: %w", err)
 			return
 		}
+		t.Cleanup(func() { primaryPgctld.Stop() })
 
 		if err := standbyPgctld.Start(t); err != nil {
-			primaryPgctld.Stop()
-			cleanup()
 			setupError = fmt.Errorf("failed to start standby pgctld: %w", err)
 			return
 		}
+		t.Cleanup(func() { standbyPgctld.Stop() })
 
 		// Initialize and start primary PostgreSQL (normal flow)
 		primaryGrpcAddr := fmt.Sprintf("localhost:%d", primaryPgctld.GrpcPort)
 		if err := InitAndStartPostgreSQL(t, primaryGrpcAddr); err != nil {
-			standbyPgctld.Stop()
-			primaryPgctld.Stop()
-			cleanup()
 			setupError = fmt.Errorf("failed to init and start primary PostgreSQL: %w", err)
 			return
 		}
@@ -399,9 +396,6 @@ func getSharedTestSetup(t *testing.T) *MultipoolerTestSetup {
 		// Initialize standby data directory (but don't start yet)
 		standbyGrpcAddr := fmt.Sprintf("localhost:%d", standbyPgctld.GrpcPort)
 		if err := InitPostgreSQLDataDir(t, standbyGrpcAddr); err != nil {
-			standbyPgctld.Stop()
-			primaryPgctld.Stop()
-			cleanup()
 			setupError = fmt.Errorf("failed to init standby data dir: %w", err)
 			return
 		}
@@ -412,30 +406,22 @@ func getSharedTestSetup(t *testing.T) *MultipoolerTestSetup {
 
 		// Start standby PostgreSQL (now configured as replica)
 		if err := StartPostgreSQL(t, standbyGrpcAddr); err != nil {
-			standbyPgctld.Stop()
-			primaryPgctld.Stop()
-			cleanup()
 			setupError = fmt.Errorf("failed to start standby PostgreSQL: %w", err)
 			return
 		}
 
 		// Start multipooler instances
 		if err := primaryMultipooler.Start(t); err != nil {
-			standbyPgctld.Stop()
-			primaryPgctld.Stop()
-			cleanup()
 			setupError = fmt.Errorf("failed to start primary multipooler: %w", err)
 			return
 		}
+		t.Cleanup(func() { primaryMultipooler.Stop() })
 
 		if err := standbyMultipooler.Start(t); err != nil {
-			primaryMultipooler.Stop()
-			standbyPgctld.Stop()
-			primaryPgctld.Stop()
-			cleanup()
 			setupError = fmt.Errorf("failed to start standby multipooler: %w", err)
 			return
 		}
+		t.Cleanup(func() { standbyMultipooler.Stop() })
 
 		// Verify standby is in recovery mode
 		t.Logf("Verifying standby is in recovery mode...")
@@ -460,15 +446,6 @@ func getSharedTestSetup(t *testing.T) *MultipoolerTestSetup {
 			StandbyPgctld:      standbyPgctld,
 			PrimaryMultipooler: primaryMultipooler,
 			StandbyMultipooler: standbyMultipooler,
-			Cleanup: func() {
-				standbyMultipooler.Stop()
-				primaryMultipooler.Stop()
-				standbyPgctld.Stop()
-				primaryPgctld.Stop()
-				ts.Close()
-				_ = etcdCmd.Process.Kill()
-				cleanup()
-			},
 		}
 
 		t.Logf("Shared test infrastructure started successfully")
@@ -479,13 +456,6 @@ func getSharedTestSetup(t *testing.T) *MultipoolerTestSetup {
 	}
 
 	return sharedTestSetup
-}
-
-// cleanupSharedResources cleans up shared test resources (called by existing TestMain)
-func cleanupSharedResources() {
-	if sharedTestSetup != nil {
-		sharedTestSetup.Cleanup()
-	}
 }
 
 // waitForManagerReady waits for the manager to be in ready state
