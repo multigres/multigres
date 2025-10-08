@@ -78,8 +78,10 @@ Examples:
 
   # Force immediate stop with short timeout
   pgctld stop --pg-data-dir /var/lib/postgresql/data --mode immediate --timeout 10`,
-		PreRunE: validateInitialized,
-		RunE:    s.runStop,
+		PreRunE: func(cmd *cobra.Command, args []string) error {
+			return s.pgCtlCmd.validateInitialized(cmd, args)
+		},
+		RunE: s.runStop,
 	}
 
 	cmd.Flags().String("mode", s.mode.Default(), "Shutdown mode: smart, fast, or immediate")
@@ -89,7 +91,7 @@ Examples:
 }
 
 func (s *PgCtlStopCmd) runStop(cmd *cobra.Command, args []string) error {
-	config, err := NewPostgresCtlConfigFromDefaults(s.pgCtlCmd.pgUser.Get(), s.pgCtlCmd.pgDatabase.Get(), s.pgCtlCmd.timeout.Get())
+	config, err := NewPostgresCtlConfigFromDefaults(s.pgCtlCmd.GetPoolerDir(), s.pgCtlCmd.pgUser.Get(), s.pgCtlCmd.pgDatabase.Get(), s.pgCtlCmd.timeout.Get())
 	if err != nil {
 		return err
 	}

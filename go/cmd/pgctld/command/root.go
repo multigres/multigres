@@ -27,6 +27,7 @@ import (
 type PgCtlCommand struct {
 	pgDatabase viperutil.Value[string]
 	pgUser     viperutil.Value[string]
+	poolerDir  viperutil.Value[string]
 	timeout    viperutil.Value[int]
 }
 
@@ -48,6 +49,11 @@ func GetRootCommand() *cobra.Command {
 			FlagName: "timeout",
 			Dynamic:  false,
 		}),
+		poolerDir: viperutil.Configure("pooler-dir", viperutil.Options[string]{
+			Default:  "",
+			FlagName: "pooler-dir",
+			Dynamic:  false,
+		}),
 	}
 
 	root := &cobra.Command{
@@ -62,11 +68,13 @@ management for PostgreSQL servers.`,
 	root.PersistentFlags().StringP("pg-database", "D", pc.pgDatabase.Default(), "PostgreSQL database name")
 	root.PersistentFlags().StringP("pg-user", "U", pc.pgUser.Default(), "PostgreSQL username")
 	root.PersistentFlags().IntP("timeout", "t", pc.timeout.Default(), "Operation timeout in seconds")
+	root.PersistentFlags().StringP("pooler-dir", "p", pc.poolerDir.Default(), "The directory to multipooler data")
 
 	viperutil.BindFlags(root.PersistentFlags(),
 		pc.pgDatabase,
 		pc.pgUser,
 		pc.timeout,
+		pc.poolerDir,
 	)
 
 	// Add all subcommands
@@ -83,9 +91,9 @@ management for PostgreSQL servers.`,
 }
 
 // validateGlobalFlags validates required global flags for all pgctld commands
-func validateGlobalFlags(cmd *cobra.Command, args []string) error {
+func (pc *PgCtlCommand) validateGlobalFlags(cmd *cobra.Command, args []string) error {
 	// Validate pooler-dir is required and non-empty for all commands
-	poolerDir := pgctld.GetPoolerDir()
+	poolerDir := pc.GetPoolerDir()
 	if poolerDir == "" {
 		return fmt.Errorf("pooler-dir needs to be set")
 	}
@@ -93,16 +101,33 @@ func validateGlobalFlags(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+// GetPoolerDir returns the configured pooler directory as an absolute path
+func (pc *PgCtlCommand) GetPoolerDir() string {
+	poolerDir := pc.poolerDir.Get()
+	if poolerDir == "" {
+		return ""
+	}
+
+	absPath, err := pgctld.ExpandToAbsolutePath(poolerDir)
+	if err != nil {
+		// If we can't expand the path, return the original to avoid breaking existing behavior
+		// This should rarely happen in practice
+		return poolerDir
+	}
+
+	return absPath
+}
+
 // validateInitialized validates that the PostgreSQL data directory has been initialized
 // This should be called by all commands except 'init'
-func validateInitialized(cmd *cobra.Command, args []string) error {
+func (pc *PgCtlCommand) validateInitialized(cmd *cobra.Command, args []string) error {
 	// First run the standard global validation
-	if err := validateGlobalFlags(cmd, args); err != nil {
+	if err := pc.validateGlobalFlags(cmd, args); err != nil {
 		return err
 	}
 
 	// Check if data directory is initialized
-	poolerDir := pgctld.GetPoolerDir()
+	poolerDir := pc.GetPoolerDir()
 
 	if !pgctld.IsDataDirInitialized(poolerDir) {
 		dataDir := pgctld.PostgresDataDir(poolerDir)

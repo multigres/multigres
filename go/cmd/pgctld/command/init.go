@@ -80,8 +80,10 @@ Examples:
 
   # Initialize using config file settings
   pgctld init --config-file /etc/pgctld/config.yaml`,
-		PreRunE: validateGlobalFlags,
-		RunE:    i.runInit,
+		PreRunE: func(cmd *cobra.Command, args []string) error {
+			return i.pgCtlCmd.validateGlobalFlags(cmd, args)
+		},
+		RunE: i.runInit,
 	}
 
 	cmd.Flags().IntP("pg-port", "p", i.pgPort.Default(), "PostgreSQL port")
@@ -122,7 +124,7 @@ func InitDataDirWithResult(poolerDir string, pgPort int, pgUser string, pgPwfile
 }
 
 func (i *PgCtldInitCmd) runInit(cmd *cobra.Command, args []string) error {
-	poolerDir := pgctld.GetPoolerDir()
+	poolerDir := i.pgCtlCmd.GetPoolerDir()
 	result, err := InitDataDirWithResult(poolerDir, i.pgPort.Get(), i.pgCtlCmd.pgUser.Get(), i.pgPwfile.Get())
 	if err != nil {
 		return err

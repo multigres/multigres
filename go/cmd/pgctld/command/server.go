@@ -64,7 +64,7 @@ func (s *PgCtldServerCmd) validateServerFlags(cmd *cobra.Command, args []string)
 
 	// Then run our global validation (but not initialization validation -
 	// the gRPC server should start and validate initialization per method)
-	return validateGlobalFlags(cmd, args)
+	return s.pgCtlCmd.validateGlobalFlags(cmd, args)
 }
 
 func (s *PgCtldServerCmd) createCommand() *cobra.Command {
@@ -92,7 +92,7 @@ func (s *PgCtldServerCmd) runServer(cmd *cobra.Command, args []string) error {
 	logger := s.senv.GetLogger()
 
 	// Create and register our service
-	poolerDir := pgctld.GetPoolerDir()
+	poolerDir := s.pgCtlCmd.GetPoolerDir()
 	pgctldService, err := NewPgCtldService(logger, s.pgPort.Get(), s.pgCtlCmd.pgUser.Get(), s.pgCtlCmd.pgDatabase.Get(), s.pgCtlCmd.timeout.Get(), poolerDir)
 	if err != nil {
 		return err

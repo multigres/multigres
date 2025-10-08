@@ -72,8 +72,10 @@ Examples:
 
   # Restart with immediate stop and custom socket directory
   pgctld restart -d /data --mode immediate -s /var/run/postgresql`,
-		PreRunE: validateInitialized,
-		RunE:    r.runRestart,
+		PreRunE: func(cmd *cobra.Command, args []string) error {
+			return r.pgCtlCmd.validateInitialized(cmd, args)
+		},
+		RunE: r.runRestart,
 	}
 
 	cmd.Flags().String("mode", r.mode.Default(), "Shutdown mode for stop phase: smart, fast, or immediate")
@@ -117,7 +119,7 @@ func RestartPostgreSQLWithResult(config *pgctld.PostgresCtlConfig, mode string) 
 }
 
 func (r *PgCtlRestartCmd) runRestart(cmd *cobra.Command, args []string) error {
-	config, err := NewPostgresCtlConfigFromDefaults(r.pgCtlCmd.pgUser.Get(), r.pgCtlCmd.pgDatabase.Get(), r.pgCtlCmd.timeout.Get())
+	config, err := NewPostgresCtlConfigFromDefaults(r.pgCtlCmd.GetPoolerDir(), r.pgCtlCmd.pgUser.Get(), r.pgCtlCmd.pgDatabase.Get(), r.pgCtlCmd.timeout.Get())
 	if err != nil {
 		return err
 	}

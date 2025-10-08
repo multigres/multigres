@@ -63,8 +63,10 @@ Examples:
 
   # Reload configuration for specific instance
   pgctld reload-config -d /var/lib/postgresql/instance2/data`,
-		PreRunE: validateInitialized,
-		RunE:    r.runReload,
+		PreRunE: func(cmd *cobra.Command, args []string) error {
+			return r.pgCtlCmd.validateInitialized(cmd, args)
+		},
+		RunE: r.runReload,
 	}
 }
 
@@ -93,7 +95,7 @@ func ReloadPostgreSQLConfigWithResult(config *pgctld.PostgresCtlConfig) (*Reload
 }
 
 func (r *PgCtlReloadCmd) runReload(cmd *cobra.Command, args []string) error {
-	config, err := NewPostgresCtlConfigFromDefaults(r.pgCtlCmd.pgUser.Get(), r.pgCtlCmd.pgDatabase.Get(), r.pgCtlCmd.timeout.Get())
+	config, err := NewPostgresCtlConfigFromDefaults(r.pgCtlCmd.GetPoolerDir(), r.pgCtlCmd.pgUser.Get(), r.pgCtlCmd.pgDatabase.Get(), r.pgCtlCmd.timeout.Get())
 	if err != nil {
 		return err
 	}

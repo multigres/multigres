@@ -77,8 +77,10 @@ Examples:
   # Check status of multiple instances
   pgctld status -d /var/lib/poolerdir/instance1
   pgctld status -d /var/lib/poolerdir/instance2`,
-		PreRunE: validateInitialized,
-		RunE:    s.runStatus,
+		PreRunE: func(cmd *cobra.Command, args []string) error {
+			return s.pgCtlCmd.validateInitialized(cmd, args)
+		},
+		RunE: s.runStatus,
 	}
 }
 
@@ -124,7 +126,7 @@ func GetStatusWithResult(config *pgctld.PostgresCtlConfig) (*StatusResult, error
 }
 
 func (s *PgCtlStatusCmd) runStatus(cmd *cobra.Command, args []string) error {
-	config, err := NewPostgresCtlConfigFromDefaults(s.pgCtlCmd.pgUser.Get(), s.pgCtlCmd.pgDatabase.Get(), s.pgCtlCmd.timeout.Get())
+	config, err := NewPostgresCtlConfigFromDefaults(s.pgCtlCmd.GetPoolerDir(), s.pgCtlCmd.pgUser.Get(), s.pgCtlCmd.pgDatabase.Get(), s.pgCtlCmd.timeout.Get())
 	if err != nil {
 		return err
 	}

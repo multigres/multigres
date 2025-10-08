@@ -38,8 +38,7 @@ type StartResult struct {
 }
 
 // NewPostgresCtlConfigFromDefaults creates a PostgresCtlConfig by reading from existing postgresql.conf
-func NewPostgresCtlConfigFromDefaults(pgUser string, pgDatabase string, timeout int) (*pgctld.PostgresCtlConfig, error) {
-	poolerDir := pgctld.GetPoolerDir()
+func NewPostgresCtlConfigFromDefaults(poolerDir string, pgUser string, pgDatabase string, timeout int) (*pgctld.PostgresCtlConfig, error) {
 	postgresConfigFile := pgctld.PostgresConfigFile(poolerDir)
 
 	// Read existing port from postgresql.conf - file must exist
@@ -120,15 +119,17 @@ Examples:
 
   # Start with custom socket directory and config file
   pgctld start --pooler-dir /var/lib/postgresql/data -s /var/run/postgresql -c /etc/postgresql/custom.conf`,
-		PreRunE: validateInitialized,
-		RunE:    s.runStart,
+		PreRunE: func(cmd *cobra.Command, args []string) error {
+			return s.pgCtlCmd.validateInitialized(cmd, args)
+		},
+		RunE: s.runStart,
 	}
 
 	return cmd
 }
 
 func (s *PgCtlStartCmd) runStart(cmd *cobra.Command, args []string) error {
-	config, err := NewPostgresCtlConfigFromDefaults(s.pgCtlCmd.pgUser.Get(), s.pgCtlCmd.pgDatabase.Get(), s.pgCtlCmd.timeout.Get())
+	config, err := NewPostgresCtlConfigFromDefaults(s.pgCtlCmd.GetPoolerDir(), s.pgCtlCmd.pgUser.Get(), s.pgCtlCmd.pgDatabase.Get(), s.pgCtlCmd.timeout.Get())
 	if err != nil {
 		return err
 	}

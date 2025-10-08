@@ -31,6 +31,7 @@ import (
 
 	"github.com/multigres/multigres/go/cmd/pgctld/testutil"
 	pb "github.com/multigres/multigres/go/pb/pgctldservice"
+	"github.com/multigres/multigres/go/viperutil"
 )
 
 func TestPgCtldServiceStart(t *testing.T) {
@@ -412,6 +413,28 @@ func TestPgCtldServiceInitDataDir(t *testing.T) {
 		require.NotNil(t, resp)
 		assert.Contains(t, resp.Message, "already initialized")
 	})
+}
+
+func TestGetPoolerDir(t *testing.T) {
+	// Set up poolerDir for testing using temporary directory
+	tempDir := t.TempDir()
+	pg := PgCtlCommand{
+		poolerDir: viperutil.Configure("pooler-dir", viperutil.Options[string]{
+			Default:  "",
+			FlagName: "pooler-dir",
+			Dynamic:  false,
+		}),
+	}
+
+	pg.poolerDir.Set(tempDir)
+
+	result := pg.GetPoolerDir()
+	assert.Equal(t, tempDir, result, "GetPoolerDir should return configured directory")
+
+	// Test empty case
+	pg.poolerDir.Set("")
+	result = pg.GetPoolerDir()
+	assert.Equal(t, "", result, "GetPoolerDir should return empty string when not configured")
 }
 
 // testLogger returns a no-op logger for testing

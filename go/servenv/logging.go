@@ -89,16 +89,6 @@ func (lg *Logger) RegisterFlags(fs *pflag.FlagSet) {
 	viperutil.BindFlags(fs, lg.logLevel, lg.logFormat, lg.logOutput)
 }
 
-// RegisterLoggingFlags registers logging-related command line flags.
-// This must be called before ParseFlags if using the logging system.
-func RegisterLoggingFlags() {
-	OnParse(func(fs *pflag.FlagSet) {
-		fs.StringVar(&logLevel, "log-level", "info", "Log level (debug, info, warn, error)")
-		fs.StringVar(&logFormat, "log-format", "json", "Log format (json, text)")
-		fs.StringVar(&logOutput, "log-output", "stdout", "Log output (stdout, stderr, or file path)")
-	})
-}
-
 // OnLoggingSetup registers a callback function to be called after the logger is created.
 // This allows applications to customize the logger behavior.
 func OnLoggingSetup(f func(*slog.Logger)) {

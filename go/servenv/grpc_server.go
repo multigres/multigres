@@ -205,9 +205,9 @@ func NewGrpcServer() *GrpcServer {
 			FlagName: "grpc-server-ca",
 			Dynamic:  false,
 		}),
-		socketFile: viperutil.Configure("socket-file", viperutil.Options[string]{
+		socketFile: viperutil.Configure("grpc-socket-file", viperutil.Options[string]{
 			Default:  "",
-			FlagName: "socket-file",
+			FlagName: "grpc-socket-file",
 			Dynamic:  false,
 		}),
 	}
@@ -232,7 +232,7 @@ func (g *GrpcServer) RegisterFlags(fs *pflag.FlagSet) {
 	fs.String("grpc-server-ca", g.serverCA.Default(), "path to server CA in PEM format, which will be combine with server cert, return full certificate chain to clients")
 	fs.Duration("grpc-server-keepalive-time", g.keepaliveTime.Default(), "After a duration of this time, if the server doesn't see any activity, it pings the client to see if the transport is still alive.")
 	fs.Duration("grpc-server-keepalive-timeout", g.keepaliveTimeout.Default(), "After having pinged for keepalive check, the server waits for a duration of Timeout and if no activity is seen even after that the connection is closed.")
-	fs.String("socket-file", g.socketFile.Default(), "Local unix socket file to listen on")
+	fs.String("grpc-socket-file", g.socketFile.Default(), "Local unix socket file to listen on")
 
 	viperutil.BindFlags(fs,
 		g.auth,
