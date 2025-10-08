@@ -39,8 +39,9 @@ type BackoffTicker struct {
 }
 
 // NewBackoffTicker creates a new BackoffTicker with the given initial delay and maximum interval.
-// The ticker will start with initialDelay and double on each tick until it reaches maxInterval.
-// A 10% jitter is added to each interval to prevent synchronized behavior across multiple tickers.
+// The ticker will send an immediate tick. Following this, it will start with initialDelay and
+// double on each tick until it reaches maxInterval. A 10% jitter is added to each interval
+// to prevent synchronized behavior across multiple tickers.
 func NewBackoffTicker(initialDelay, maxInterval time.Duration) *BackoffTicker {
 	if initialDelay <= 0 {
 		panic("ticker: non-positive interval for NewBackoffTicker")
@@ -56,6 +57,8 @@ func NewBackoffTicker(initialDelay, maxInterval time.Duration) *BackoffTicker {
 		currentDelay: initialDelay,
 		rand:         rand.New(rand.NewPCG(uint64(time.Now().UnixNano()), uint64(time.Now().UnixNano()))),
 	}
+	// Send an immediate tick.
+	bt.C <- time.Now()
 
 	// The race detector wants us to lock the mutex before scheduling the timer.
 	// This is because time.AfterFunc calls back bt.tick, which updates
@@ -86,6 +89,7 @@ func (bt *BackoffTicker) Stop() {
 
 // Reset resets the ticker back to its initial interval.
 // This is useful when you want to restart the backoff sequence.
+// Reset does not send an immediate tick.
 func (bt *BackoffTicker) Reset() {
 	bt.mu.Lock()
 	defer bt.mu.Unlock()

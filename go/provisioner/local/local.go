@@ -1148,7 +1148,6 @@ func (p *localProvisioner) stopProcessByPID(pid int) error {
 // waitForProcessExit waits for a process to exit by polling with Signal(0)
 func (p *localProvisioner) waitForProcessExit(process *os.Process, timeout time.Duration) {
 	ticker := timertools.NewBackoffTicker(10*time.Millisecond, 1*time.Second)
-	ticker.C <- time.Now()
 	defer ticker.Stop()
 	timeoutch := time.After(timeout)
 	for {
