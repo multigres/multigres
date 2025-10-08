@@ -36,9 +36,7 @@ import (
 var leaseTTL = 30 // This is the default used for all non-named locks
 
 func init() {
-	for _, cmd := range topo.FlagBinaries {
-		servenv.OnParseFor(cmd, registerEtcd2TopoLockFlags)
-	}
+	servenv.OnParse(registerEtcd2TopoLockFlags)
 }
 
 func registerEtcd2TopoLockFlags(fs *pflag.FlagSet) {

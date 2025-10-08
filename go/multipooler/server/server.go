@@ -23,6 +23,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/multigres/multigres/go/clustermetadata/topo"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
 	querypb "github.com/multigres/multigres/go/pb/query"
@@ -76,6 +77,8 @@ type MultiPooler struct {
 	GrpcServer *servenv.GrpcServer
 	// Senv is the serving environment
 	Senv *servenv.ServEnv
+	// TopoConfig holds topology configuration
+	TopoConfig *topo.TopoConfig
 }
 
 // NewMultiPooler creates a new MultiPooler instance with default configuration
@@ -125,6 +128,7 @@ func NewMultiPooler() *MultiPooler {
 		}),
 		GrpcServer: servenv.NewGrpcServer(),
 		Senv:       servenv.NewServEnv(),
+		TopoConfig: topo.NewTopoConfig(),
 	}
 	mp.Senv.InitServiceMap("grpc", "pooler")
 	return mp
@@ -154,6 +158,7 @@ func (mp *MultiPooler) RegisterFlags(flags *pflag.FlagSet) {
 
 	mp.GrpcServer.RegisterFlags(flags)
 	mp.Senv.RegisterFlags(flags)
+	mp.TopoConfig.RegisterFlags(flags)
 }
 
 // MultiPoolerServer implements the MultiPoolerService gRPC interface

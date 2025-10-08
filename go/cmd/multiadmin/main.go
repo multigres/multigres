@@ -39,12 +39,16 @@ type MultiAdmin struct {
 
 	// senv is the serving environment
 	senv *servenv.ServEnv
+
+	// topoConfig holds topology configuration
+	topoConfig *topo.TopoConfig
 }
 
 func main() {
 	ma := &MultiAdmin{
 		grpcServer: servenv.NewGrpcServer(),
 		senv:       servenv.NewServEnv(),
+		topoConfig: topo.NewTopoConfig(),
 	}
 
 	main := &cobra.Command{
@@ -62,6 +66,7 @@ func main() {
 
 	ma.senv.RegisterFlags(main.Flags())
 	ma.grpcServer.RegisterFlags(main.Flags())
+	ma.topoConfig.RegisterFlags(main.Flags())
 
 	if err := main.Execute(); err != nil {
 		slog.Error(err.Error())
@@ -76,7 +81,7 @@ func run(cmd *cobra.Command, args []string, ma *MultiAdmin) error {
 	logger := ma.senv.GetLogger()
 
 	// Open topo connection to discover other components
-	ts := topo.Open()
+	ts := ma.topoConfig.Open()
 	defer func() { _ = ts.Close() }()
 
 	ma.senv.OnRun(func() {

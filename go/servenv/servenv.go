@@ -295,6 +295,13 @@ func getFlagHooksFor(cmd string) (hooks []func(fs *pflag.FlagSet)) {
 	return hooks
 }
 
+func getGlobalFlagHooks() (hooks []func(fs *pflag.FlagSet)) {
+	flagHooksM.Lock()
+	defer flagHooksM.Unlock()
+	hooks = append(hooks, globalFlagHooks...) // done deliberately to copy the slice
+	return hooks
+}
+
 // CobraPreRunE returns the common function that commands will need to load
 // viper infrastructure. It matches the signature of cobra's (Pre|Post)RunE-type
 // functions.
@@ -374,4 +381,9 @@ func (se *ServEnv) RegisterFlags(fs *pflag.FlagSet) {
 	// OnInit(updateServiceMap)
 
 	// Global and command flag hooks
+	sync.OnceFunc(func() {
+		for _, hook := range getGlobalFlagHooks() {
+			hook(fs)
+		}
+	})
 }

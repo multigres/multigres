@@ -120,7 +120,7 @@ func run(cmd *cobra.Command, args []string, mp *server.MultiPooler) error {
 	// defer that closes the topo runs after cancelling the context.
 	// This ensures that we've properly closed things like the watchers
 	// at that point.
-	ts := topo.Open()
+	ts := mp.TopoConfig.Open()
 	defer func() { _ = ts.Close() }()
 
 	// Validate cell configuration early to fail fast if misconfigured

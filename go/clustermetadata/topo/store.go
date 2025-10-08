@@ -71,7 +71,7 @@ import (
 	"sync"
 
 	"github.com/multigres/multigres/go/mterrors"
-	"github.com/multigres/multigres/go/servenv"
+	"github.com/multigres/multigres/go/viperutil"
 
 	"github.com/spf13/pflag"
 
@@ -244,40 +244,58 @@ type cellConn struct {
 	conn Conn
 }
 
-var (
-	// topoImplementation specifies which topology implementation to use.
-	topoImplementation string
+// TopoConfig holds topology configuration using viperutil values
+type TopoConfig struct {
+	Implementation        viperutil.Value[string]
+	GlobalServerAddresses viperutil.Value[[]string]
+	GlobalRoot            viperutil.Value[string]
+	ReadConcurrency       viperutil.Value[int64]
+}
 
-	// topoGlobalServerAddresses contains the addresses of the global topology servers.
-	topoGlobalServerAddresses []string
-
-	// topoGlobalRoot is the root path to use for the global topology server.
-	topoGlobalRoot string
-
-	// factories contains the registered factories for creating topology connections.
-	// Each implementation (e.g., etcd, memory) registers its factory here.
-	factories = make(map[string]Factory)
-
-	// FlagBinaries lists the binary names that should register topology flags.
-	FlagBinaries = []string{"multigateway", "multiorch", "multipooler", "pgctld", "multiadmin"}
-
-	// DefaultReadConcurrency is the default read concurrency limit to avoid
-	// overwhelming the topology server with too many concurrent requests.
-	DefaultReadConcurrency int64 = 32
-)
-
-func init() {
-	for _, cmd := range FlagBinaries {
-		servenv.OnParseFor(cmd, registerTopoFlags)
+// NewTopoConfig creates a new TopoConfig with default values
+func NewTopoConfig() *TopoConfig {
+	return &TopoConfig{
+		Implementation: viperutil.Configure("topo-implementation", viperutil.Options[string]{
+			Default:  "",
+			FlagName: "topo-implementation",
+			Dynamic:  false,
+		}),
+		GlobalServerAddresses: viperutil.Configure("topo-global-server-addresses", viperutil.Options[[]string]{
+			Default:  []string{},
+			FlagName: "topo-global-server-addresses",
+			Dynamic:  false,
+		}),
+		GlobalRoot: viperutil.Configure("topo-global-root", viperutil.Options[string]{
+			Default:  "",
+			FlagName: "topo-global-root",
+			Dynamic:  false,
+		}),
+		ReadConcurrency: viperutil.Configure("topo-read-concurrency", viperutil.Options[int64]{
+			Default:  32,
+			FlagName: "topo-read-concurrency",
+			Dynamic:  false,
+		}),
 	}
 }
 
-func registerTopoFlags(fs *pflag.FlagSet) {
-	fs.StringVar(&topoImplementation, "topo-implementation", topoImplementation, "the topology implementation to use")
-	fs.StringSliceVar(&topoGlobalServerAddresses, "topo-global-server-addresses", topoGlobalServerAddresses, "the address of the global topology server")
-	fs.StringVar(&topoGlobalRoot, "topo-global-root", topoGlobalRoot, "the path of the global topology data in the global topology server")
-	fs.Int64Var(&DefaultReadConcurrency, "topo-read-concurrency", DefaultReadConcurrency, "Maximum concurrency of topo reads per global or local cell.")
+// RegisterFlags registers all topo flags with the given FlagSet
+func (tc *TopoConfig) RegisterFlags(fs *pflag.FlagSet) {
+	fs.String("topo-implementation", tc.Implementation.Default(), "the topology implementation to use")
+	fs.StringSlice("topo-global-server-addresses", tc.GlobalServerAddresses.Default(), "the address of the global topology server")
+	fs.String("topo-global-root", tc.GlobalRoot.Default(), "the path of the global topology data in the global topology server")
+	fs.Int64("topo-read-concurrency", tc.ReadConcurrency.Default(), "Maximum concurrency of topo reads per global or local cell.")
+
+	viperutil.BindFlags(fs,
+		tc.Implementation,
+		tc.GlobalServerAddresses,
+		tc.GlobalRoot,
+		tc.ReadConcurrency,
+	)
 }
+
+// factories contains the registered factories for creating topology connections.
+// Each implementation (e.g., etcd, memory) registers its factory here.
+var factories = make(map[string]Factory)
 
 // RegisterFactory registers a Factory for a specific topology implementation.
 // If an implementation with that name already exists, it will log.Fatal and exit.
@@ -340,19 +358,21 @@ func OpenServer(implementation, root string, serverAddrs []string) (Store, error
 // Open returns a topology store using the command-line parameter flags
 // for implementation, address, and root. It will log.Error and exit if
 // required configuration is missing or if an error occurs.
-func Open() Store {
-	if len(topoGlobalServerAddresses) == 0 {
-		// TODO: Consider using a proper logger from the start instead of slog
-		// This should be reviewed before merging
+func (config *TopoConfig) Open() Store {
+	addresses := config.GlobalServerAddresses.Get()
+	root := config.GlobalRoot.Get()
+	implementation := config.Implementation.Get()
+
+	if len(addresses) == 0 {
 		slog.Error("topo-global-server-addresses must be configured")
 		os.Exit(1)
 	}
-	if topoGlobalRoot == "" {
+	if root == "" {
 		slog.Error("topo-global-root must be non-empty")
 		os.Exit(1)
 	}
 
-	if topoImplementation == "" {
+	if implementation == "" {
 		// Build a helpful message showing available implementations
 		var available []string
 		for name := range factories {
@@ -367,9 +387,9 @@ func Open() Store {
 		os.Exit(1)
 	}
 
-	ts, err := OpenServer(topoImplementation, topoGlobalRoot, topoGlobalServerAddresses)
+	ts, err := OpenServer(implementation, root, addresses)
 	if err != nil {
-		slog.Error("Failed to open topo server", "error", err, "implementation", topoImplementation, "addresses", topoGlobalServerAddresses, "root", topoGlobalRoot)
+		slog.Error("Failed to open topo server", "error", err, "implementation", implementation, "addresses", addresses, "root", root)
 		os.Exit(1)
 	}
 	return ts

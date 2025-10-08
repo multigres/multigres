@@ -77,9 +77,7 @@ type Server struct {
 }
 
 func init() {
-	for _, cmd := range topo.FlagBinaries {
-		servenv.OnParseFor(cmd, registerEtcd2TopoFlags)
-	}
+	servenv.OnParse(registerEtcd2TopoFlags)
 	topo.RegisterFactory("etcd2", Factory{})
 }
 

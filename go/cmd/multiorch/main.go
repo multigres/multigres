@@ -42,6 +42,8 @@ type MultiOrch struct {
 	grpcServer *servenv.GrpcServer
 	// senv is the serving environment
 	senv *servenv.ServEnv
+	// topoConfig holds topology configuration
+	topoConfig *topo.TopoConfig
 }
 
 // CheckCellFlags validates the cell flag against available cells in the topology.
@@ -90,6 +92,7 @@ func main() {
 		}),
 		grpcServer: servenv.NewGrpcServer(),
 		senv:       servenv.NewServEnv(),
+		topoConfig: topo.NewTopoConfig(),
 	}
 
 	main := &cobra.Command{
@@ -109,6 +112,7 @@ func main() {
 	viperutil.BindFlags(main.Flags(), mo.cell)
 	mo.senv.RegisterFlags(main.Flags())
 	mo.grpcServer.RegisterFlags(main.Flags())
+	mo.topoConfig.RegisterFlags(main.Flags())
 
 	if err := main.Execute(); err != nil {
 		slog.Error(err.Error())
@@ -122,7 +126,7 @@ func run(cmd *cobra.Command, args []string, mo *MultiOrch) error {
 	// Get the configured logger
 	logger := mo.senv.GetLogger()
 
-	ts := topo.Open()
+	ts := mo.topoConfig.Open()
 	defer func() { _ = ts.Close() }()
 
 	// Validate cell configuration early to fail fast if misconfigured

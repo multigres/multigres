@@ -48,6 +48,8 @@ type MultiGateway struct {
 	grpcServer *servenv.GrpcServer
 	// senv is the serving environment
 	senv *servenv.ServEnv
+	// topoConfig holds topology configuration
+	topoConfig *topo.TopoConfig
 }
 
 // CheckCellFlags validates the cell flag against available cells in the topology.
@@ -102,6 +104,7 @@ func main() {
 		}),
 		grpcServer: servenv.NewGrpcServer(),
 		senv:       servenv.NewServEnv(),
+		topoConfig: topo.NewTopoConfig(),
 	}
 
 	main := &cobra.Command{
@@ -125,6 +128,7 @@ func main() {
 	)
 	mg.senv.RegisterFlags(main.Flags())
 	mg.grpcServer.RegisterFlags(main.Flags())
+	mg.topoConfig.RegisterFlags(main.Flags())
 
 	if err := main.Execute(); err != nil {
 		slog.Error(err.Error())
@@ -137,7 +141,7 @@ func run(cmd *cobra.Command, args []string, mg *MultiGateway) error {
 
 	logger := mg.senv.GetLogger()
 
-	ts := topo.Open()
+	ts := mg.topoConfig.Open()
 	defer func() { _ = ts.Close() }()
 
 	// Validate cell configuration early to fail fast if misconfigured
