@@ -20,7 +20,6 @@ import (
 	"strings"
 
 	"github.com/multigres/multigres/go/provisioner"
-	"github.com/multigres/multigres/go/servenv"
 
 	"github.com/spf13/cobra"
 )
@@ -115,8 +114,6 @@ func (s *ServiceSummary) PrintSummary() {
 
 // start handles the cluster up command
 func start(cmd *cobra.Command, args []string) error {
-	servenv.FireRunHooks()
-
 	fmt.Println("Multigres — Distributed Postgres made easy")
 	fmt.Println("=================================================================")
 	fmt.Println("✨ Bootstrapping your local Multigres cluster — this may take a few moments ✨")

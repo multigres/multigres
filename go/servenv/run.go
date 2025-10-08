@@ -48,7 +48,7 @@ func OnClose(f func()) {
 func (sv *ServEnv) Run(bindAddress string, port int, grpcServer *GrpcServer) {
 	sv.PopulateListeningURL(int32(port))
 	grpcServer.Create()
-	sv.OnRunHooks.Fire()
+	sv.FireRunHooks()
 	grpcServer.Serve(sv)
 	// Do we want this?
 	// serveSocketFile()

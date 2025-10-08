@@ -19,7 +19,6 @@ import (
 	"fmt"
 
 	"github.com/multigres/multigres/go/provisioner"
-	"github.com/multigres/multigres/go/servenv"
 
 	"github.com/spf13/cobra"
 )
@@ -47,7 +46,6 @@ func teardownAllServices(ctx context.Context, provisionerName string, configPath
 
 // down handles the cluster down command
 func down(cmd *cobra.Command, args []string) error {
-	servenv.FireRunHooks()
 	fmt.Println("Stopping Multigres cluster...")
 
 	// Get the clean flag

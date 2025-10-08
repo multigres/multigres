@@ -83,13 +83,6 @@ type ServEnv struct {
 	serviceMap map[string]bool
 }
 
-// Global default instance for backward compatibility
-var defaultServEnv *ServEnv
-
-func init() {
-	defaultServEnv = NewServEnv()
-}
-
 // NewServEnv creates a new ServEnv instance with default configuration
 func NewServEnv() *ServEnv {
 	return &ServEnv{
@@ -176,13 +169,6 @@ func (se *ServEnv) fireOnTermSyncHooks(timeout time.Duration) bool {
 	return se.fireHooksWithTimeout(timeout, "OnTermSync", se.OnTermSyncHooks.Fire)
 }
 
-// FireRunHooks fires the hooks registered by OnHook.
-// Use this in a non-server to run the hooks registered
-// by servenv.OnRun().
-func FireRunHooks() {
-	defaultServEnv.OnRunHooks.Fire()
-}
-
 // fireOnCloseHooks returns true iff all the hooks finish before the timeout
 func (se *ServEnv) fireOnCloseHooks(timeout time.Duration) bool {
 	return se.fireHooksWithTimeout(timeout, "OnClose", func() {
@@ -237,18 +223,6 @@ func (se *ServEnv) RunDefault(grpcServer *GrpcServer) {
 	se.Run(se.BindAddress.Get(), se.HTTPPort.Get(), grpcServer)
 }
 
-// Backward compatible package-level functions using defaultServEnv
-
-// OnInit registers f to be run at the beginning of the app lifecycle
-func OnInit(f func()) {
-	defaultServEnv.OnInit(f)
-}
-
-// OnTerm registers a function to be run when the process receives a SIGTERM
-func OnTerm(f func()) {
-	defaultServEnv.OnTerm(f)
-}
-
 var (
 	flagHooksM      sync.Mutex
 	globalFlagHooks = []func(*pflag.FlagSet){
@@ -264,22 +238,6 @@ func OnParse(f func(fs *pflag.FlagSet)) {
 	defer flagHooksM.Unlock()
 
 	globalFlagHooks = append(globalFlagHooks, f)
-}
-
-// OnParseFor registers a callback function to register flags on the flagset
-// used by servenv.Parse or servenv.ParseWithArgs. The provided callback will
-// only be called if the `cmd` argument passed to either Parse or ParseWithArgs
-// exactly matches the `cmd` argument passed to OnParseFor.
-//
-// To register for flags for multiple commands, for example if a package's flags
-// should be used for only vtgate and vttablet but no other binaries, call this
-// multiple times with the same callback function. To register flags for all
-// commands globally, use OnParse instead.
-func OnParseFor(cmd string, f func(fs *pflag.FlagSet)) {
-	flagHooksM.Lock()
-	defer flagHooksM.Unlock()
-
-	commandFlagHooks[cmd] = append(commandFlagHooks[cmd], f)
 }
 
 func getFlagHooksFor(cmd string) (hooks []func(fs *pflag.FlagSet)) {
@@ -346,14 +304,6 @@ func init() {
 	TestingEndtoend = os.Getenv("MTTEST") == "endtoend"
 }
 
-// AddFlagSetToCobraCommand moves the servenv-registered flags to the flagset of
-// the given cobra command.
-func AddFlagSetToCobraCommand(cmd *cobra.Command) {
-	fs := cmd.PersistentFlags()
-	fs.AddFlagSet(GetFlagSetFor(cmd.Name()))
-	pflag.CommandLine = fs
-}
-
 func (se *ServEnv) RegisterFlags(fs *pflag.FlagSet) {
 	// Default flags
 	fs.Int("http-port", se.HTTPPort.Default(), "HTTP port for the server")
@@ -373,12 +323,6 @@ func (se *ServEnv) RegisterFlags(fs *pflag.FlagSet) {
 
 	se.lg.RegisterFlags(fs)
 	se.vc.RegisterFlags(fs)
-
-	// Service Map
-	// OnParse(func(fs *pflag.FlagSet) {
-	// 	fs.StringSliceVar(&serviceMapFlag, "service-map", serviceMapFlag, "comma separated list of services to enable (or disable if prefixed with '-') Example: grpc-queryservice")
-	// })
-	// OnInit(updateServiceMap)
 
 	// Global and command flag hooks
 	sync.OnceFunc(func() {

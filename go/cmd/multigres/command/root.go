@@ -15,7 +15,6 @@
 package command
 
 import (
-	"github.com/multigres/multigres/go/servenv"
 	"github.com/multigres/multigres/go/viperutil"
 
 	"github.com/spf13/cobra"
@@ -70,7 +69,6 @@ Configuration:
 
 	// Add any other servenv flags
 	mc.vc.RegisterFlags(root.PersistentFlags())
-	servenv.AddFlagSetToCobraCommand(root)
 
 	// Override the default display value for multigres
 	if flag := root.PersistentFlags().Lookup("config-name"); flag != nil {
