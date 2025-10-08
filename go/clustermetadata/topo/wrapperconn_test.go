@@ -794,10 +794,11 @@ func TestAlarm_CalledOnRetryStart(t *testing.T) {
 
 	// Verify alarm was called with error message
 	mu.Lock()
-	defer mu.Unlock()
 	assert.Greater(t, len(alarmCalls), 0, "Alarm should be called")
 	assert.NotEmpty(t, alarmCalls[0], "First alarm call should have error message")
 	assert.Contains(t, alarmCalls[0], "factory error", "Alarm should contain error message")
+	// Don't defer. It causes deadlock with wrapper.Close().
+	mu.Unlock()
 
 	wrapper.Close()
 }

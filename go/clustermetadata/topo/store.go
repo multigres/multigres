@@ -340,9 +340,7 @@ func NewWithFactory(factory Factory, root string, serverAddrs []string) Store {
 			return factory.Create(GlobalCell, root, serverAddrs)
 		},
 		func(s string) {
-			ts.statusMu.Lock()
-			defer ts.statusMu.Unlock()
-			ts.status[GlobalCell] = s
+			ts.setStatus(GlobalCell, s)
 		},
 	)
 	ts.globalTopo = conn
@@ -448,17 +446,13 @@ func (ts *store) ConnForCell(ctx context.Context, cell string) (Conn, error) {
 	// This ensures only one connection is established at any given time.
 	// Create the connection and cache it for future use.
 
-	ts.statusMu.Lock()
-	defer ts.statusMu.Unlock()
-	ts.status[cell] = ""
+	ts.setStatus(cell, "")
 	conn := NewWrapperConn(
 		func() (Conn, error) {
 			return ts.factory.Create(cell, ci.Root, ci.ServerAddresses)
 		},
 		func(s string) {
-			ts.statusMu.Lock()
-			defer ts.statusMu.Unlock()
-			ts.status[cell] = s
+			ts.setStatus(cell, s)
 		},
 	)
 	ts.cellConns[cell] = cellConn{
@@ -466,6 +460,12 @@ func (ts *store) ConnForCell(ctx context.Context, cell string) (Conn, error) {
 		conn: conn,
 	}
 	return conn, nil
+}
+
+func (ts *store) setStatus(cell string, status string) {
+	ts.statusMu.Lock()
+	defer ts.statusMu.Unlock()
+	ts.status[cell] = status
 }
 
 // Status returns the status of all the connections in the store.
@@ -493,10 +493,11 @@ func (ts *store) Close() error {
 	})
 
 	// Close all cell connections
-	ts.cellMu.Lock()
-	defer ts.cellMu.Unlock()
 
 	g.Go(func() error {
+		ts.cellMu.Lock()
+		defer ts.cellMu.Unlock()
+
 		for cell, cc := range ts.cellConns {
 			if cc.conn != nil {
 				if err := cc.conn.Close(); err != nil {
@@ -508,7 +509,12 @@ func (ts *store) Close() error {
 	})
 	err := g.Wait()
 
+	ts.cellMu.Lock()
+	defer ts.cellMu.Unlock()
 	ts.cellConns = make(map[string]cellConn)
+
+	ts.statusMu.Lock()
+	defer ts.statusMu.Unlock()
 	ts.status = make(map[string]string)
 
 	return err

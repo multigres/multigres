@@ -120,10 +120,10 @@ func (c *WrapperConn) retryConnection(err error) {
 	// This is a near impossible race condition, and it's also harmless.
 	// Eventually, someone will retry and this will trigger the retry logic.
 	defer func() {
+		c.alarm("")
 		c.mu.Lock()
 		defer c.mu.Unlock()
 		c.retrying = false
-		c.alarm("")
 	}()
 
 	r := retry.New(10*time.Millisecond, 30*time.Second)
@@ -156,6 +156,10 @@ func (c *WrapperConn) retryConnection(err error) {
 		}()
 		if !mustContinue {
 			return
+		}
+		// For safety, set alarms when we're not holding internal locks.
+		if err != nil {
+			c.alarm(err.Error())
 		}
 	}
 }
