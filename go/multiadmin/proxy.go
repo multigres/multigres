@@ -57,6 +57,58 @@ func parseProxyPath(path string) (*proxyPathInfo, error) {
 	}, nil
 }
 
+// lookupCellService retrieves service information from topology service
+func lookupCellService(r *http.Request, pathInfo proxyPathInfo) (hostname string, httpPort int, err error) {
+	id := &clustermetadatapb.ID{
+		Cell: pathInfo.cellName,
+		Name: pathInfo.serviceName,
+	}
+
+	var portMap map[string]int32
+
+	switch pathInfo.serviceType {
+	case "gate":
+		id.Component = clustermetadatapb.ID_MULTIGATEWAY
+		gwInfo, lookupErr := ts.GetMultiGateway(r.Context(), id)
+		if lookupErr != nil {
+			return "", 0, lookupErr
+		}
+		hostname = gwInfo.Hostname
+		portMap = gwInfo.PortMap
+	case "pool":
+		id.Component = clustermetadatapb.ID_MULTIPOOLER
+		poolerInfo, lookupErr := ts.GetMultiPooler(r.Context(), id)
+		if lookupErr != nil {
+			return "", 0, lookupErr
+		}
+		hostname = poolerInfo.Hostname
+		portMap = poolerInfo.PortMap
+	case "orch":
+		id.Component = clustermetadatapb.ID_MULTIORCH
+		orchInfo, lookupErr := ts.GetMultiOrch(r.Context(), id)
+		if lookupErr != nil {
+			return "", 0, lookupErr
+		}
+		hostname = orchInfo.Hostname
+		portMap = orchInfo.PortMap
+	default:
+		return "", 0, fmt.Errorf("invalid service type: %s", pathInfo.serviceType)
+	}
+
+	if port, ok := portMap["http"]; ok && port > 0 {
+		httpPort = int(port)
+	}
+
+	if hostname == "" {
+		return "", 0, fmt.Errorf("service hostname not found")
+	}
+	if httpPort == 0 {
+		return "", 0, fmt.Errorf("service port not found")
+	}
+
+	return hostname, httpPort, nil
+}
+
 // resolveServiceTarget determines the target host, port, and base path for the proxy
 func resolveServiceTarget(r *http.Request, pathInfo proxyPathInfo) (*serviceTarget, error) {
 	switch pathInfo.serviceType {
@@ -70,68 +122,14 @@ func resolveServiceTarget(r *http.Request, pathInfo proxyPathInfo) (*serviceTarg
 
 	case "gate", "pool", "orch":
 		// Cell services - multigateway, multipooler, multiorch
-		var portMap map[string]int32
-		var hostname string
-		var err error
-
-		switch pathInfo.serviceType {
-		case "gate":
-			id := &clustermetadatapb.ID{
-				Component: clustermetadatapb.ID_MULTIGATEWAY,
-				Cell:      pathInfo.cellName,
-				Name:      pathInfo.serviceName,
-			}
-			gwInfo, lookupErr := ts.GetMultiGateway(r.Context(), id)
-			err = lookupErr
-			if gwInfo != nil {
-				portMap = gwInfo.PortMap
-				hostname = gwInfo.Hostname
-			}
-		case "pool":
-			id := &clustermetadatapb.ID{
-				Component: clustermetadatapb.ID_MULTIPOOLER,
-				Cell:      pathInfo.cellName,
-				Name:      pathInfo.serviceName,
-			}
-			poolerInfo, lookupErr := ts.GetMultiPooler(r.Context(), id)
-			err = lookupErr
-			if poolerInfo != nil {
-				portMap = poolerInfo.PortMap
-				hostname = poolerInfo.Hostname
-			}
-		case "orch":
-			id := &clustermetadatapb.ID{
-				Component: clustermetadatapb.ID_MULTIORCH,
-				Cell:      pathInfo.cellName,
-				Name:      pathInfo.serviceName,
-			}
-			orchInfo, lookupErr := ts.GetMultiOrch(r.Context(), id)
-			err = lookupErr
-			if orchInfo != nil {
-				portMap = orchInfo.PortMap
-				hostname = orchInfo.Hostname
-			}
-		}
-
+		hostname, httpPort, err := lookupCellService(r, pathInfo)
 		if err != nil {
 			return nil, fmt.Errorf("service not found: %w", err)
 		}
 
-		var targetPort int
-		if httpPort, ok := portMap["http"]; ok && httpPort > 0 {
-			targetPort = int(httpPort)
-		}
-
-		if hostname == "" {
-			return nil, fmt.Errorf("service hostname not found")
-		}
-		if targetPort == 0 {
-			return nil, fmt.Errorf("service port not found")
-		}
-
 		return &serviceTarget{
 			host:          hostname,
-			port:          targetPort,
+			port:          httpPort,
 			proxyBasePath: fmt.Sprintf("/proxy/%s/%s/%s", pathInfo.serviceType, pathInfo.cellName, pathInfo.serviceName),
 		}, nil
 
@@ -158,17 +156,12 @@ func handleProxy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if target.host == "" {
-		http.Error(w, "Service hostname not found", http.StatusNotFound)
-		return
-	}
-	if target.port == 0 {
-		http.Error(w, "Service port not found", http.StatusNotFound)
-		return
-	}
-
 	// Create reverse proxy to the target service
-	targetURL, _ := url.Parse(fmt.Sprintf("http://%s:%d", target.host, target.port))
+	targetURL, err := url.Parse(fmt.Sprintf("http://%s:%d", target.host, target.port))
+	if err != nil {
+		http.Error(w, "Failed to parse target URL", http.StatusInternalServerError)
+		return
+	}
 	proxy := httputil.NewSingleHostReverseProxy(targetURL)
 
 	// Modify the director to strip the proxy prefix from the request path
@@ -223,9 +216,9 @@ func rewriteHTML(htmlContent []byte, proxyBasePath string) ([]byte, error) {
 	}
 
 	// Traverse the document and rewrite URLs
-	var f func(*html.Node)
+	var rewriteNode func(*html.Node)
 	baseInjected := false
-	f = func(n *html.Node) {
+	rewriteNode = func(n *html.Node) {
 		if n.Type == html.ElementNode {
 			// Inject <base> tag into <head>
 			if n.Data == "head" && !baseInjected {
@@ -249,7 +242,7 @@ func rewriteHTML(htmlContent []byte, proxyBasePath string) ([]byte, error) {
 			// Rewrite absolute URLs in href and src attributes
 			for i, attr := range n.Attr {
 				if (attr.Key == "href" || attr.Key == "src") && strings.HasPrefix(attr.Val, "/") {
-					// Don't rewrite if it's already a proxy path or already under the current proxy path
+					// Skip rewriting if already prefixed with /proxy/ or current proxy base path
 					if !strings.HasPrefix(attr.Val, "/proxy/") && !strings.HasPrefix(attr.Val, proxyBasePath) {
 						// Rewrite absolute path to be relative to proxy base
 						n.Attr[i].Val = proxyBasePath + attr.Val
@@ -259,10 +252,10 @@ func rewriteHTML(htmlContent []byte, proxyBasePath string) ([]byte, error) {
 		}
 
 		for c := n.FirstChild; c != nil; c = c.NextSibling {
-			f(c)
+			rewriteNode(c)
 		}
 	}
-	f(doc)
+	rewriteNode(doc)
 
 	// Render the modified HTML back to bytes
 	var buf bytes.Buffer
