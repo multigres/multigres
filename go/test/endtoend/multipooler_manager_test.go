@@ -882,17 +882,19 @@ func TestSetPrimaryConnInfo(t *testing.T) {
 		t.Log("Replication configured successfully")
 
 		// Validate LSN starts moving and data appears
-		t.Log("Validating LSN moves and data replicates...")
+		t.Logf("Validating standby catches up to primary LSN: %s", primaryLSN)
 
-		// Wait for replication to catch up
+		// Wait for replication to catch up to primary's LSN
 		require.Eventually(t, func() bool {
 			queryResp, err := standbyPoolerClient.ExecuteQuery("SELECT pg_last_wal_replay_lsn()::text", 1)
 			if err != nil || len(queryResp.Rows) == 0 {
 				return false
 			}
 			currentStandbyLSN := string(queryResp.Rows[0].Values[0])
-			return currentStandbyLSN != initialStandbyLSN
-		}, 15*time.Second, 500*time.Millisecond, "Standby LSN should advance after replication is configured")
+			t.Logf("Standby LSN: %s (target: %s)", currentStandbyLSN, primaryLSN)
+			// Standby should catch up to exactly the primary LSN (no new writes happening)
+			return currentStandbyLSN == primaryLSN
+		}, 15*time.Second, 500*time.Millisecond, "Standby should catch up to primary LSN after replication is configured")
 
 		// Verify the table now exists in standby
 		require.Eventually(t, func() bool {
