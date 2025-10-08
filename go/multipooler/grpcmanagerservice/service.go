@@ -17,6 +17,7 @@ package grpcmanagerservice
 
 import (
 	"context"
+	"time"
 
 	"github.com/multigres/multigres/go/multipooler/manager"
 	multipoolermanagerpb "github.com/multigres/multigres/go/pb/multipoolermanager"
@@ -73,7 +74,18 @@ func (s *managerService) IsReadOnly(ctx context.Context, req *multipoolermanager
 
 // SetPrimaryConnInfo sets the primary connection info for a standby server
 func (s *managerService) SetPrimaryConnInfo(ctx context.Context, req *multipoolermanagerdata.SetPrimaryConnInfoRequest) (*multipoolermanagerdata.SetPrimaryConnInfoResponse, error) {
-	err := s.manager.SetPrimaryConnInfo(ctx, req.Host, req.Port)
+	// Convert protobuf Duration to time.Duration
+	var heartbeatInterval time.Duration
+	if req.HeartbeatInterval != nil {
+		heartbeatInterval = req.HeartbeatInterval.AsDuration()
+	}
+
+	err := s.manager.SetPrimaryConnInfo(ctx,
+		req.Host,
+		req.Port,
+		heartbeatInterval,
+		req.StopReplicationBefore,
+		req.StartReplicationAfter)
 	if err != nil {
 		return nil, err
 	}

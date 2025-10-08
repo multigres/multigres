@@ -92,7 +92,7 @@ func (p *ProcessInstance) Start(t *testing.T) error {
 	return fmt.Errorf("unknown binary type: %s", p.Binary)
 }
 
-// startPgctld starts a pgctld instance
+// startPgctld starts a pgctld instance (server only, PostgreSQL init/start done separately)
 func (p *ProcessInstance) startPgctld(t *testing.T) error {
 	t.Helper()
 
@@ -112,11 +112,6 @@ func (p *ProcessInstance) startPgctld(t *testing.T) error {
 		return err
 	}
 
-	grpcAddr := fmt.Sprintf("localhost:%d", p.GrpcPort)
-	if err := InitAndStartPostgreSQL(t, grpcAddr); err != nil {
-		return fmt.Errorf("failed to initialize and start PostgreSQL: %w", err)
-	}
-
 	return nil
 }
 
@@ -134,7 +129,7 @@ func (p *ProcessInstance) startMultipooler(t *testing.T) error {
 		"--pgctld-addr", p.PgctldAddr,
 		"--pooler-dir", p.DataDir, // Use the same pooler dir as pgctld
 		"--pg-port", strconv.Itoa(p.PgPort),
-		"--service-map", "grpc-poolerquery,grpc-poolermanager",
+		"--service-map", "grpc-pooler,grpc-poolermanager",
 		"--topo-global-server-addresses", p.EtcdAddr,
 		"--topo-global-root", "/multigres/global",
 		"--topo-implementation", "etcd2",
@@ -377,7 +372,7 @@ func getSharedTestSetup(t *testing.T) *MultipoolerTestSetup {
 		standbyMultipooler := createMultipoolerInstance(t, "standby-multipooler", tempDir, standbyMultipoolerPort,
 			fmt.Sprintf("localhost:%d", standbyGrpcPort), standbyPgctld.DataDir, standbyPgctld.PgPort, etcdClientAddr)
 
-		// Start pgctld instances
+		// Start pgctld servers
 		if err := primaryPgctld.Start(t); err != nil {
 			cleanup()
 			setupError = fmt.Errorf("failed to start primary pgctld: %w", err)
@@ -388,6 +383,39 @@ func getSharedTestSetup(t *testing.T) *MultipoolerTestSetup {
 			primaryPgctld.Stop()
 			cleanup()
 			setupError = fmt.Errorf("failed to start standby pgctld: %w", err)
+			return
+		}
+
+		// Initialize and start primary PostgreSQL (normal flow)
+		primaryGrpcAddr := fmt.Sprintf("localhost:%d", primaryPgctld.GrpcPort)
+		if err := InitAndStartPostgreSQL(t, primaryGrpcAddr); err != nil {
+			standbyPgctld.Stop()
+			primaryPgctld.Stop()
+			cleanup()
+			setupError = fmt.Errorf("failed to init and start primary PostgreSQL: %w", err)
+			return
+		}
+
+		// Initialize standby data directory (but don't start yet)
+		standbyGrpcAddr := fmt.Sprintf("localhost:%d", standbyPgctld.GrpcPort)
+		if err := InitPostgreSQLDataDir(t, standbyGrpcAddr); err != nil {
+			standbyPgctld.Stop()
+			primaryPgctld.Stop()
+			cleanup()
+			setupError = fmt.Errorf("failed to init standby data dir: %w", err)
+			return
+		}
+
+		// Configure standby as a replica using pg_basebackup
+		t.Logf("Configuring standby as replica of primary...")
+		setupStandbyReplication(t, primaryPgctld, standbyPgctld)
+
+		// Start standby PostgreSQL (now configured as replica)
+		if err := StartPostgreSQL(t, standbyGrpcAddr); err != nil {
+			standbyPgctld.Stop()
+			primaryPgctld.Stop()
+			cleanup()
+			setupError = fmt.Errorf("failed to start standby PostgreSQL: %w", err)
 			return
 		}
 
@@ -407,6 +435,20 @@ func getSharedTestSetup(t *testing.T) *MultipoolerTestSetup {
 			cleanup()
 			setupError = fmt.Errorf("failed to start standby multipooler: %w", err)
 			return
+		}
+
+		// Verify standby is in recovery mode
+		t.Logf("Verifying standby is in recovery mode...")
+		standbyPoolerClient, err := NewMultiPoolerTestClient(fmt.Sprintf("localhost:%d", standbyMultipooler.GrpcPort))
+		if err == nil {
+			queryResp, err := standbyPoolerClient.ExecuteQuery("SELECT pg_is_in_recovery()", 1)
+			if err == nil && queryResp != nil && len(queryResp.Rows) == 1 && len(queryResp.Rows[0].Values) == 1 {
+				if string(queryResp.Rows[0].Values[0]) == "true" {
+					t.Logf("✓ Standby verified in recovery mode")
+				} else {
+					t.Logf("WARNING: Standby is not in recovery mode!")
+				}
+			}
 		}
 
 		sharedTestSetup = &MultipoolerTestSetup{
@@ -479,6 +521,82 @@ func waitForManagerReady(t *testing.T, setup *MultipoolerTestSetup, manager *Pro
 	t.Logf("Manager %s is ready", manager.Name)
 }
 
+// setupStandbyReplication configures the standby to replicate from the primary
+// Assumes standby data dir is initialized but PostgreSQL is not started yet
+func setupStandbyReplication(t *testing.T, primaryPgctld *ProcessInstance, standbyPgctld *ProcessInstance) {
+	t.Helper()
+
+	// Backup standby's original configuration before pg_basebackup overwrites it
+	standbyPgDataDir := filepath.Join(standbyPgctld.DataDir, "pg_data")
+	configBackupDir := filepath.Join(standbyPgctld.DataDir, "config_backup")
+
+	t.Logf("Backing up standby configuration to: %s", configBackupDir)
+	err := os.MkdirAll(configBackupDir, 0o755)
+	require.NoError(t, err)
+
+	// Backup important config files
+	configFiles := []string{"postgresql.conf", "postgresql.auto.conf", "pg_hba.conf", "pg_ident.conf"}
+	for _, configFile := range configFiles {
+		srcPath := filepath.Join(standbyPgDataDir, configFile)
+		dstPath := filepath.Join(configBackupDir, configFile)
+
+		// Copy file if it exists
+		if data, err := os.ReadFile(srcPath); err == nil {
+			err = os.WriteFile(dstPath, data, 0o644)
+			require.NoError(t, err, "Should be able to backup %s", configFile)
+			t.Logf("Backed up %s", configFile)
+		}
+	}
+
+	// Remove the standby pg_data directory to prepare for pg_basebackup
+	t.Logf("Removing standby pg_data directory: %s", standbyPgDataDir)
+	err = os.RemoveAll(standbyPgDataDir)
+	require.NoError(t, err)
+
+	// Create base backup from primary using pg_basebackup
+	// Note: pg_basebackup needs to write to the pg_data subdirectory, not the pooler-dir
+	t.Logf("Creating base backup from primary (port %d) to standby pg_data dir...", primaryPgctld.PgPort)
+	basebackupCmd := exec.Command("pg_basebackup",
+		"-h", "localhost",
+		"-p", strconv.Itoa(primaryPgctld.PgPort),
+		"-U", "postgres",
+		"-D", standbyPgDataDir,
+		"-X", "stream",
+		"-c", "fast",
+		"-R") // -R creates standby.signal and configures primary_conninfo
+
+	basebackupCmd.Env = append(os.Environ(), "PGPASSWORD=postgres")
+	output, err := basebackupCmd.CombinedOutput()
+	if err != nil {
+		t.Logf("pg_basebackup output: %s", string(output))
+	}
+	require.NoError(t, err, "pg_basebackup should succeed")
+
+	t.Logf("Base backup completed successfully")
+
+	// Restore standby's original configuration files
+	t.Logf("Restoring standby's original configuration files...")
+	for _, configFile := range configFiles {
+		srcPath := filepath.Join(configBackupDir, configFile)
+		dstPath := filepath.Join(standbyPgDataDir, configFile)
+
+		// Restore file if backup exists
+		if data, err := os.ReadFile(srcPath); err == nil {
+			err = os.WriteFile(dstPath, data, 0o644)
+			require.NoError(t, err, "Should be able to restore %s", configFile)
+			t.Logf("Restored %s", configFile)
+		}
+	}
+
+	// Create standby.signal to put the server in recovery mode
+	standbySignalPath := filepath.Join(standbyPgDataDir, "standby.signal")
+	t.Logf("Creating standby.signal file: %s", standbySignalPath)
+	err = os.WriteFile(standbySignalPath, []byte(""), 0o644)
+	require.NoError(t, err, "Should be able to create standby.signal")
+
+	t.Logf("Standby data copied and configured as replica (PostgreSQL will be started next)")
+}
+
 // TestMultipoolerReplicationApi tests the replication API functionality
 func TestMultipoolerReplicationApi(t *testing.T) {
 	if testing.Short() {
@@ -532,10 +650,6 @@ func TestMultipoolerReplicationApi(t *testing.T) {
 
 		// PostgreSQL LSN format is typically like "0/1234ABCD"
 		assert.Contains(t, resp.LsnPosition, "/", "LSN should be in PostgreSQL format (e.g., 0/1234ABCD)")
-
-		t.Logf("PrimaryPosition returned LSN: %s", resp.LsnPosition)
-		// TODO: Once we have methods to change the server to a standby, we can
-		// test that PrimaryPosition returns an error when the server is a standby.
 	})
 
 	t.Run("PrimaryPosition_Standby", func(t *testing.T) {
@@ -560,9 +674,33 @@ func TestMultipoolerReplicationApi(t *testing.T) {
 
 		req := &multipoolermanagerdata.PrimaryPositionRequest{}
 		_, err = client.PrimaryPosition(ctx, req)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "operation not allowed")
+	})
+}
 
-		// Assert that it succeeds and returns a valid LSN
-		// TODO: This should error because this is not yet a real standby.
+// TestSetPrimaryConnInfo tests the SetPrimaryConnInfo API functionality
+func TestSetPrimaryConnInfo(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping end-to-end tests in short mode")
+	}
+
+	setup := getSharedTestSetup(t)
+
+	// Wait for both managers to be ready before running tests
+	waitForManagerReady(t, setup, setup.PrimaryMultipooler)
+	waitForManagerReady(t, setup, setup.StandbyMultipooler)
+
+	t.Run("VerifyStandbySetup", func(t *testing.T) {
+		// Standby is already configured as replica in shared setup
+		// Just verify it's in recovery mode
+		poolerClient, err := NewMultiPoolerTestClient(fmt.Sprintf("localhost:%d", setup.StandbyMultipooler.GrpcPort))
 		require.NoError(t, err)
+
+		queryResp, err := poolerClient.ExecuteQuery("SELECT pg_is_in_recovery()", 1)
+		require.NoError(t, err, "Should be able to query standby")
+		require.NotNil(t, queryResp)
+		require.Len(t, queryResp.Rows, 1, "Should get one row")
+		require.Equal(t, "true", string(queryResp.Rows[0].Values[0]), "Standby should be in recovery mode")
 	})
 }

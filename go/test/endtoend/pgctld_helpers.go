@@ -63,3 +63,60 @@ func InitAndStartPostgreSQL(t *testing.T, grpcAddr string) error {
 	t.Logf("PostgreSQL started: PID=%d, Message=%s", startResp.Pid, startResp.Message)
 	return nil
 }
+
+// InitPostgreSQLDataDir initializes the PostgreSQL data directory via pgctld gRPC
+func InitPostgreSQLDataDir(t *testing.T, grpcAddr string) error {
+	t.Helper()
+
+	// Connect to pgctld gRPC
+	conn, err := grpc.NewClient(
+		grpcAddr,
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	)
+	if err != nil {
+		return fmt.Errorf("failed to connect to pgctld gRPC at %s: %w", grpcAddr, err)
+	}
+	defer conn.Close()
+
+	client := pb.NewPgCtldClient(conn)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	// Initialize the data directory
+	t.Logf("Initializing PostgreSQL data directory via gRPC at %s", grpcAddr)
+	initResp, err := client.InitDataDir(ctx, &pb.InitDataDirRequest{})
+	if err != nil {
+		return fmt.Errorf("InitDataDir RPC failed: %w", err)
+	}
+	t.Logf("Init response: %s", initResp.Message)
+	return nil
+}
+
+// StartPostgreSQL starts PostgreSQL via pgctld gRPC
+func StartPostgreSQL(t *testing.T, grpcAddr string) error {
+	t.Helper()
+
+	// Connect to pgctld gRPC
+	conn, err := grpc.NewClient(
+		grpcAddr,
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	)
+	if err != nil {
+		return fmt.Errorf("failed to connect to pgctld gRPC at %s: %w", grpcAddr, err)
+	}
+	defer conn.Close()
+
+	client := pb.NewPgCtldClient(conn)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	// Start PostgreSQL
+	t.Logf("Starting PostgreSQL via gRPC at %s", grpcAddr)
+	startResp, err := client.Start(ctx, &pb.StartRequest{})
+	if err != nil {
+		return fmt.Errorf("Start RPC failed: %w", err)
+	}
+
+	t.Logf("PostgreSQL started: PID=%d, Message=%s", startResp.Pid, startResp.Message)
+	return nil
+}

@@ -230,12 +230,108 @@ func (pm *MultiPoolerManager) IsReadOnly(ctx context.Context) (bool, error) {
 }
 
 // SetPrimaryConnInfo sets the primary connection info for a standby server
-func (pm *MultiPoolerManager) SetPrimaryConnInfo(ctx context.Context, host string, port int32) error {
+func (pm *MultiPoolerManager) SetPrimaryConnInfo(ctx context.Context, host string, port int32, heartbeatInterval time.Duration, stopReplicationBefore, startReplicationAfter bool) error {
 	if err := pm.checkReady(); err != nil {
 		return err
 	}
-	pm.logger.Info("SetPrimaryConnInfo called", "host", host, "port", port)
-	return mterrors.New(mtrpcpb.Code_UNIMPLEMENTED, "method SetPrimaryConnInfo not implemented")
+	pm.logger.Info("SetPrimaryConnInfo called",
+		"host", host,
+		"port", port,
+		"heartbeat_interval", heartbeatInterval,
+		"stop_replication_before", stopReplicationBefore,
+		"start_replication_after", startReplicationAfter)
+
+	// Guardrail: Check pooler type - only REPLICA poolers can set primary_conninfo
+	pm.mu.RLock()
+	poolerType := pm.multipooler.Type
+	pm.mu.RUnlock()
+
+	if poolerType != clustermetadatapb.PoolerType_REPLICA {
+		pm.logger.Error("SetPrimaryConnInfo called on non-replica pooler",
+			"service_id", pm.serviceID.String(),
+			"pooler_type", poolerType.String())
+		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
+			fmt.Sprintf("operation not allowed: pooler type is %s, must be REPLICA (service_id: %s)",
+				poolerType.String(), pm.serviceID.String()))
+	}
+
+	// Ensure database connection
+	if err := pm.connectDB(); err != nil {
+		pm.logger.Error("Failed to connect to database", "error", err)
+		return mterrors.Wrap(err, "database connection failed")
+	}
+
+	// Guardrail: Check if the PostgreSQL instance is in recovery (standby mode)
+	var isInRecovery bool
+	err := pm.db.QueryRowContext(ctx, "SELECT pg_is_in_recovery()").Scan(&isInRecovery)
+	if err != nil {
+		pm.logger.Error("Failed to check if instance is in recovery", "error", err)
+		return mterrors.Wrap(err, "failed to check recovery status")
+	}
+
+	if !isInRecovery {
+		pm.logger.Error("SetPrimaryConnInfo called on non-standby instance", "service_id", pm.serviceID.String())
+		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
+			fmt.Sprintf("operation not allowed: the PostgreSQL instance is not in standby mode (service_id: %s)", pm.serviceID.String()))
+	}
+
+	// Optionally stop replication before making changes
+	if stopReplicationBefore {
+		pm.logger.Info("Stopping replication before setting primary_conninfo")
+		_, err := pm.db.ExecContext(ctx, "SELECT pg_wal_replay_pause()")
+		if err != nil {
+			pm.logger.Error("Failed to pause WAL replay", "error", err)
+			return mterrors.Wrap(err, "failed to pause WAL replay")
+		}
+	}
+
+	// Build primary_conninfo connection string
+	// Format: host=<host> port=<port> user=<user> application_name=<name>
+	// The heartbeat_interval is converted to keepalives_interval/keepalives_idle
+	pm.mu.RLock()
+	database := pm.multipooler.Database
+	pm.mu.RUnlock()
+
+	connInfo := fmt.Sprintf("host=%s port=%d user=%s application_name=%s",
+		host, port, database, pm.serviceID.String())
+
+	// Add keepalive settings if heartbeat interval is specified
+	if heartbeatInterval > 0 {
+		// Convert heartbeat to seconds for PostgreSQL keepalive settings
+		keepaliveSeconds := int(heartbeatInterval.Seconds())
+		connInfo = fmt.Sprintf("%s keepalives_idle=%d keepalives_interval=%d keepalives_count=3",
+			connInfo, keepaliveSeconds, keepaliveSeconds)
+	}
+
+	// Set primary_conninfo using ALTER SYSTEM
+	pm.logger.Info("Setting primary_conninfo", "conninfo", connInfo)
+	alterQuery := fmt.Sprintf("ALTER SYSTEM SET primary_conninfo = '%s'", connInfo)
+	_, err = pm.db.ExecContext(ctx, alterQuery)
+	if err != nil {
+		pm.logger.Error("Failed to set primary_conninfo", "error", err)
+		return mterrors.Wrap(err, "failed to set primary_conninfo")
+	}
+
+	// Reload PostgreSQL configuration to apply changes
+	pm.logger.Info("Reloading PostgreSQL configuration")
+	_, err = pm.db.ExecContext(ctx, "SELECT pg_reload_conf()")
+	if err != nil {
+		pm.logger.Error("Failed to reload configuration", "error", err)
+		return mterrors.Wrap(err, "failed to reload PostgreSQL configuration")
+	}
+
+	// Optionally start replication after making changes
+	if startReplicationAfter {
+		pm.logger.Info("Starting replication after setting primary_conninfo")
+		_, err := pm.db.ExecContext(ctx, "SELECT pg_wal_replay_resume()")
+		if err != nil {
+			pm.logger.Error("Failed to resume WAL replay", "error", err)
+			return mterrors.Wrap(err, "failed to resume WAL replay")
+		}
+	}
+
+	pm.logger.Info("SetPrimaryConnInfo completed successfully")
+	return nil
 }
 
 // StartReplication starts WAL replay on standby (calls pg_wal_replay_resume)
