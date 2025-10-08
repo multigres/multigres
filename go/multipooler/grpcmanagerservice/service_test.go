@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/multigres/multigres/go/clustermetadata/topo/memorytopo"
+	"github.com/multigres/multigres/go/cmd/pgctld/testutil"
 	"github.com/multigres/multigres/go/mterrors"
 	"github.com/multigres/multigres/go/multipooler/manager"
 
@@ -42,6 +43,10 @@ func TestManagerServiceMethods_NotImplemented(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
 	defer ts.Close()
+
+	// Start mock pgctld server
+	pgctldAddr, cleanupPgctld := testutil.StartMockPgctldServer(t)
+	defer cleanupPgctld()
 
 	// Create the multipooler in topology so manager can reach ready state
 	serviceID := &clustermetadata.ID{
@@ -62,6 +67,7 @@ func TestManagerServiceMethods_NotImplemented(t *testing.T) {
 	config := &manager.Config{
 		TopoClient: ts,
 		ServiceID:  serviceID,
+		PgctldAddr: pgctldAddr,
 	}
 	pm := manager.NewMultiPoolerManager(logger, config)
 	defer pm.Close()
@@ -112,18 +118,6 @@ func TestManagerServiceMethods_NotImplemented(t *testing.T) {
 				return err
 			},
 			expectedMethod: "IsReadOnly",
-		},
-		{
-			name: "SetPrimaryConnInfo",
-			method: func() error {
-				req := &multipoolermanagerdata.SetPrimaryConnInfoRequest{
-					Host: "primary.example.com",
-					Port: 5432,
-				}
-				_, err := svc.SetPrimaryConnInfo(ctx, req)
-				return err
-			},
-			expectedMethod: "SetPrimaryConnInfo",
 		},
 		{
 			name: "StartReplication",

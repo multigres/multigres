@@ -26,6 +26,7 @@ import (
 
 	"github.com/multigres/multigres/go/clustermetadata/topo"
 	"github.com/multigres/multigres/go/clustermetadata/topo/memorytopo"
+	"github.com/multigres/multigres/go/cmd/pgctld/testutil"
 	"github.com/multigres/multigres/go/mterrors"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
@@ -64,6 +65,10 @@ func TestManagerState_SuccessfulLoad(t *testing.T) {
 	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
 	defer ts.Close()
 
+	// Start mock pgctld server
+	pgctldAddr, cleanupPgctld := testutil.StartMockPgctldServer(t)
+	defer cleanupPgctld()
+
 	// Create the multipooler in topology
 	serviceID := &clustermetadatapb.ID{
 		Component: clustermetadatapb.ID_MULTIPOOLER,
@@ -83,13 +88,15 @@ func TestManagerState_SuccessfulLoad(t *testing.T) {
 	config := &Config{
 		TopoClient: ts,
 		ServiceID:  serviceID,
+		PgctldAddr: pgctldAddr,
 	}
 
 	manager := NewMultiPoolerManager(logger, config)
 	defer manager.Close()
 
-	// Start the async loader
+	// Start both async loaders (topo and consensus term)
 	go manager.loadMultiPoolerFromTopo()
+	go manager.loadConsensusTermFromPgctld()
 
 	// Wait for the state to become Ready
 	require.Eventually(t, func() bool {
@@ -194,6 +201,10 @@ func TestManagerState_RetryUntilSuccess(t *testing.T) {
 	ts, factory := memorytopo.NewServerAndFactory(ctx, "zone1")
 	defer ts.Close()
 
+	// Start mock pgctld server
+	pgctldAddr, cleanupPgctld := testutil.StartMockPgctldServer(t)
+	defer cleanupPgctld()
+
 	// Create the multipooler in topology
 	serviceID := &clustermetadatapb.ID{
 		Component: clustermetadatapb.ID_MULTIPOOLER,
@@ -218,13 +229,15 @@ func TestManagerState_RetryUntilSuccess(t *testing.T) {
 	config := &Config{
 		TopoClient: ts,
 		ServiceID:  serviceID,
+		PgctldAddr: pgctldAddr,
 	}
 
 	manager := NewMultiPoolerManager(logger, config)
 	defer manager.Close()
 
-	// Start the async loader
+	// Start both async loaders (topo and consensus term)
 	go manager.loadMultiPoolerFromTopo()
+	go manager.loadConsensusTermFromPgctld()
 
 	// Wait for the state to become Ready after retries
 	require.Eventually(t, func() bool {
@@ -306,6 +319,10 @@ func TestPrimaryPosition(t *testing.T) {
 			ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
 			defer ts.Close()
 
+			// Start mock pgctld server
+			pgctldAddr, cleanupPgctld := testutil.StartMockPgctldServer(t)
+			defer cleanupPgctld()
+
 			multipooler := &clustermetadatapb.MultiPooler{
 				Id:            serviceID,
 				Database:      "testdb",
@@ -319,6 +336,7 @@ func TestPrimaryPosition(t *testing.T) {
 			config := &Config{
 				TopoClient: ts,
 				ServiceID:  serviceID,
+				PgctldAddr: pgctldAddr,
 			}
 			manager := NewMultiPoolerManager(logger, config)
 			defer manager.Close()
