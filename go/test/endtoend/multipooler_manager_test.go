@@ -761,34 +761,32 @@ func TestSetPrimaryConnInfo(t *testing.T) {
 	waitForManagerReady(t, setup, setup.PrimaryMultipooler)
 	waitForManagerReady(t, setup, setup.StandbyMultipooler)
 
+	// Create shared clients for all subtests
+	primaryPoolerClient, err := NewMultiPoolerTestClient(fmt.Sprintf("localhost:%d", setup.PrimaryMultipooler.GrpcPort))
+	require.NoError(t, err)
+	t.Cleanup(func() { primaryPoolerClient.Close() })
+
+	standbyPoolerClient, err := NewMultiPoolerTestClient(fmt.Sprintf("localhost:%d", setup.StandbyMultipooler.GrpcPort))
+	require.NoError(t, err)
+	t.Cleanup(func() { standbyPoolerClient.Close() })
+
+	primaryConn, err := grpc.NewClient(
+		fmt.Sprintf("localhost:%d", setup.PrimaryMultipooler.GrpcPort),
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	)
+	require.NoError(t, err)
+	t.Cleanup(func() { primaryConn.Close() })
+	primaryManagerClient := multipoolermanagerpb.NewMultiPoolerManagerClient(primaryConn)
+
+	standbyConn, err := grpc.NewClient(
+		fmt.Sprintf("localhost:%d", setup.StandbyMultipooler.GrpcPort),
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	)
+	require.NoError(t, err)
+	t.Cleanup(func() { standbyConn.Close() })
+	standbyManagerClient := multipoolermanagerpb.NewMultiPoolerManagerClient(standbyConn)
+
 	t.Run("ConfigureReplicationAndValidate", func(t *testing.T) {
-		// Connect to primary and standby poolers
-		primaryPoolerClient, err := NewMultiPoolerTestClient(fmt.Sprintf("localhost:%d", setup.PrimaryMultipooler.GrpcPort))
-		require.NoError(t, err)
-		t.Cleanup(func() { primaryPoolerClient.Close() })
-		defer primaryPoolerClient.Close()
-
-		standbyPoolerClient, err := NewMultiPoolerTestClient(fmt.Sprintf("localhost:%d", setup.StandbyMultipooler.GrpcPort))
-		require.NoError(t, err)
-		t.Cleanup(func() { standbyPoolerClient.Close() })
-
-		// Connect to primary and standby managers
-		primaryConn, err := grpc.NewClient(
-			fmt.Sprintf("localhost:%d", setup.PrimaryMultipooler.GrpcPort),
-			grpc.WithTransportCredentials(insecure.NewCredentials()),
-		)
-		require.NoError(t, err)
-		t.Cleanup(func() { primaryConn.Close() })
-		primaryManagerClient := multipoolermanagerpb.NewMultiPoolerManagerClient(primaryConn)
-
-		standbyConn, err := grpc.NewClient(
-			fmt.Sprintf("localhost:%d", setup.StandbyMultipooler.GrpcPort),
-			grpc.WithTransportCredentials(insecure.NewCredentials()),
-		)
-		require.NoError(t, err)
-		t.Cleanup(func() { standbyConn.Close() })
-		standbyManagerClient := multipoolermanagerpb.NewMultiPoolerManagerClient(standbyConn)
-
 		t.Log("Creating table and inserting data in primary...")
 		_, err = primaryPoolerClient.ExecuteQuery("CREATE TABLE IF NOT EXISTS test_replication (id SERIAL PRIMARY KEY, data TEXT)", 0)
 		require.NoError(t, err, "Should be able to create table in primary")
@@ -888,15 +886,6 @@ func TestSetPrimaryConnInfo(t *testing.T) {
 	})
 
 	t.Run("TermMismatchRejected", func(t *testing.T) {
-		// Connect to standby manager
-		standbyConn, err := grpc.NewClient(
-			fmt.Sprintf("localhost:%d", setup.StandbyMultipooler.GrpcPort),
-			grpc.WithTransportCredentials(insecure.NewCredentials()),
-		)
-		require.NoError(t, err)
-		defer standbyConn.Close()
-		standbyManagerClient := multipoolermanagerpb.NewMultiPoolerManagerClient(standbyConn)
-
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 
@@ -917,5 +906,111 @@ func TestSetPrimaryConnInfo(t *testing.T) {
 		setPrimaryReq.Force = true
 		_, err = standbyManagerClient.SetPrimaryConnInfo(ctx, setPrimaryReq)
 		require.NoError(t, err, "SetPrimaryConnInfo should succeed with force=true")
+	})
+
+	t.Run("StopReplicationBeforeFlag", func(t *testing.T) {
+		// This test verifies that StopReplicationBefore flag stops replication before setting primary_conninfo
+
+		// First ensure replication is running by checking pg_stat_wal_receiver
+		t.Log("Verifying replication is running...")
+		queryResp, err := standbyPoolerClient.ExecuteQuery("SELECT status FROM pg_stat_wal_receiver", 1)
+		require.NoError(t, err)
+		require.Len(t, queryResp.Rows, 1)
+		initialStatus := string(queryResp.Rows[0].Values[0])
+		t.Logf("Initial WAL receiver status: %s", initialStatus)
+		assert.Equal(t, "streaming", initialStatus, "Replication should be streaming")
+
+		// Check if WAL replay is not paused
+		queryResp, err = standbyPoolerClient.ExecuteQuery("SELECT pg_is_wal_replay_paused()", 1)
+		require.NoError(t, err)
+		require.Len(t, queryResp.Rows, 1)
+		isPaused := string(queryResp.Rows[0].Values[0])
+		assert.Equal(t, "false", isPaused, "WAL replay should not be paused initially")
+
+		// Call SetPrimaryConnInfo with StopReplicationBefore=true and StartReplicationAfter=false
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		t.Log("Calling SetPrimaryConnInfo with StopReplicationBefore=true, StartReplicationAfter=false...")
+		setPrimaryReq := &multipoolermanagerdata.SetPrimaryConnInfoRequest{
+			Host:                  "localhost",
+			Port:                  int32(setup.PrimaryPgctld.PgPort),
+			StartReplicationAfter: false, // Don't start after
+			StopReplicationBefore: true,  // Stop before
+			CurrentTerm:           1,
+			Force:                 false,
+		}
+		_, err = standbyManagerClient.SetPrimaryConnInfo(ctx, setPrimaryReq)
+		require.NoError(t, err, "SetPrimaryConnInfo should succeed")
+
+		// Verify that WAL replay is now paused
+		t.Log("Verifying replication is paused after StopReplicationBefore...")
+		queryResp, err = standbyPoolerClient.ExecuteQuery("SELECT pg_is_wal_replay_paused()", 1)
+		require.NoError(t, err)
+		require.Len(t, queryResp.Rows, 1)
+		isPaused = string(queryResp.Rows[0].Values[0])
+		assert.Equal(t, "true", isPaused, "WAL replay should be paused after StopReplicationBefore=true")
+
+		t.Log("Replication successfully stopped with StopReplicationBefore flag")
+
+		// Resume replication for cleanup
+		_, err = standbyPoolerClient.ExecuteQuery("SELECT pg_wal_replay_resume()", 1)
+		require.NoError(t, err)
+	})
+
+	t.Run("StartReplicationAfterFlag", func(t *testing.T) {
+		// This test verifies that replication only starts if StartReplicationAfter=true
+
+		// Manually stop replication outside the SetPrimaryConnInfo method
+		t.Log("Manually stopping replication...")
+		_, err = standbyPoolerClient.ExecuteQuery("SELECT pg_wal_replay_pause()", 1)
+		require.NoError(t, err)
+
+		// Verify replication is paused
+		queryResp, err := standbyPoolerClient.ExecuteQuery("SELECT pg_is_wal_replay_paused()", 1)
+		require.NoError(t, err)
+		require.Len(t, queryResp.Rows, 1)
+		isPaused := string(queryResp.Rows[0].Values[0])
+		assert.Equal(t, "true", isPaused, "WAL replay should be paused")
+
+		// Call SetPrimaryConnInfo with StartReplicationAfter=false
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		t.Log("Calling SetPrimaryConnInfo with StartReplicationAfter=false...")
+		setPrimaryReq := &multipoolermanagerdata.SetPrimaryConnInfoRequest{
+			Host:                  "localhost",
+			Port:                  int32(setup.PrimaryPgctld.PgPort),
+			StartReplicationAfter: false, // Don't start after
+			StopReplicationBefore: false,
+			CurrentTerm:           1,
+			Force:                 false,
+		}
+		_, err = standbyManagerClient.SetPrimaryConnInfo(ctx, setPrimaryReq)
+		require.NoError(t, err, "SetPrimaryConnInfo should succeed")
+
+		// Verify replication is still paused (not started)
+		t.Log("Verifying replication remains paused when StartReplicationAfter=false...")
+		queryResp, err = standbyPoolerClient.ExecuteQuery("SELECT pg_is_wal_replay_paused()", 1)
+		require.NoError(t, err)
+		require.Len(t, queryResp.Rows, 1)
+		isPaused = string(queryResp.Rows[0].Values[0])
+		assert.Equal(t, "true", isPaused, "WAL replay should still be paused when StartReplicationAfter=false")
+
+		// Now call again with StartReplicationAfter=true
+		t.Log("Calling SetPrimaryConnInfo with StartReplicationAfter=true...")
+		setPrimaryReq.StartReplicationAfter = true
+		_, err = standbyManagerClient.SetPrimaryConnInfo(ctx, setPrimaryReq)
+		require.NoError(t, err, "SetPrimaryConnInfo should succeed")
+
+		// Verify replication is now running
+		t.Log("Verifying replication started when StartReplicationAfter=true...")
+		queryResp, err = standbyPoolerClient.ExecuteQuery("SELECT pg_is_wal_replay_paused()", 1)
+		require.NoError(t, err)
+		require.Len(t, queryResp.Rows, 1)
+		isPaused = string(queryResp.Rows[0].Values[0])
+		assert.Equal(t, "false", isPaused, "WAL replay should be running after StartReplicationAfter=true")
+
+		t.Log("Replication successfully started with StartReplicationAfter flag")
 	})
 }
