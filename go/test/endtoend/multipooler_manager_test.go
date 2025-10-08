@@ -423,6 +423,26 @@ func getSharedTestSetup(t *testing.T) *MultipoolerTestSetup {
 		}
 		t.Cleanup(func() { standbyMultipooler.Stop() })
 
+		// Note: this is something that would probably be wired the first time on bootstrap.
+		//  but we'll do it here for now as those parte are not implemented yet.
+		conn, err := grpc.NewClient(
+			fmt.Sprintf("localhost:%d", primaryMultipooler.GrpcPort),
+			grpc.WithTransportCredentials(insecure.NewCredentials()),
+		)
+		require.NoError(t, err)
+		t.Cleanup(func() { conn.Close() })
+
+		client := multipoolermanagerpb.NewMultiPoolerManagerClient(conn)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		// First, set the pooler type to PRIMARY
+		changeTypeReq := &multipoolermanagerdata.ChangeTypeRequest{
+			PoolerType: clustermetadatapb.PoolerType_PRIMARY,
+		}
+		_, err = client.ChangeType(ctx, changeTypeReq)
+		require.NoError(t, err)
+
 		// Verify standby is in recovery mode
 		// Note: Standby should be in recovery, but replication is not configured yet
 		// (we'll configure it via SetPrimaryConnInfo RPC in the tests)
@@ -436,6 +456,21 @@ func getSharedTestSetup(t *testing.T) *MultipoolerTestSetup {
 		require.Len(t, queryResp.Rows, 1)
 		require.Len(t, queryResp.Rows[0].Values, 1)
 		require.Equal(t, "true", string(queryResp.Rows[0].Values[0]))
+
+		changeTypeReq = &multipoolermanagerdata.ChangeTypeRequest{
+			PoolerType: clustermetadatapb.PoolerType_REPLICA,
+		}
+
+		conn, err = grpc.NewClient(
+			fmt.Sprintf("localhost:%d", standbyMultipooler.GrpcPort),
+			grpc.WithTransportCredentials(insecure.NewCredentials()),
+		)
+		require.NoError(t, err)
+		t.Cleanup(func() { conn.Close() })
+
+		standbyPoolerManagerClient := multipoolermanagerpb.NewMultiPoolerManagerClient(conn)
+		_, err = standbyPoolerManagerClient.ChangeType(ctx, changeTypeReq)
+		require.NoError(t, err)
 
 		sharedTestSetup = &MultipoolerTestSetup{
 			TempDir:            tempDir,
@@ -566,8 +601,8 @@ func setupStandbyReplication(t *testing.T, primaryPgctld *ProcessInstance, stand
 	t.Logf("Standby data copied and configured as replica (PostgreSQL will be started next)")
 }
 
-// TestMultipoolerReplicationApi tests the replication API functionality
-func TestMultipoolerReplicationApi(t *testing.T) {
+// TestMultipoolerPrimaryPosition tests the replication API functionality
+func TestMultipoolerPrimaryPosition(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping end-to-end tests in short mode")
 	}
@@ -590,13 +625,6 @@ func TestMultipoolerReplicationApi(t *testing.T) {
 		client := multipoolermanagerpb.NewMultiPoolerManagerClient(conn)
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-
-		// First, set the pooler type to PRIMARY
-		changeTypeReq := &multipoolermanagerdata.ChangeTypeRequest{
-			PoolerType: clustermetadatapb.PoolerType_PRIMARY,
-		}
-		_, err = client.ChangeType(ctx, changeTypeReq)
-		require.NoError(t, err)
 
 		req := &multipoolermanagerdata.PrimaryPositionRequest{}
 		resp, err := client.PrimaryPosition(ctx, req)
@@ -634,13 +662,6 @@ func TestMultipoolerReplicationApi(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 
-		// First, set the pooler type to PRIMARY (this is testing that PrimaryPosition works on a pooler set as PRIMARY)
-		changeTypeReq := &multipoolermanagerdata.ChangeTypeRequest{
-			PoolerType: clustermetadatapb.PoolerType_PRIMARY,
-		}
-		_, err = client.ChangeType(ctx, changeTypeReq)
-		require.NoError(t, err)
-
 		req := &multipoolermanagerdata.PrimaryPositionRequest{}
 		_, err = client.PrimaryPosition(ctx, req)
 		require.Error(t, err)
@@ -671,23 +692,44 @@ func TestSetPrimaryConnInfo(t *testing.T) {
 		require.NoError(t, err)
 		t.Cleanup(func() { standbyPoolerClient.Close() })
 
-		// Step 1: Create table and insert row in primary
-		t.Log("Step 1: Creating table and inserting data in primary...")
+		// Connect to primary and standby managers
+		primaryConn, err := grpc.NewClient(
+			fmt.Sprintf("localhost:%d", setup.PrimaryMultipooler.GrpcPort),
+			grpc.WithTransportCredentials(insecure.NewCredentials()),
+		)
+		require.NoError(t, err)
+		t.Cleanup(func() { primaryConn.Close() })
+		primaryManagerClient := multipoolermanagerpb.NewMultiPoolerManagerClient(primaryConn)
+
+		standbyConn, err := grpc.NewClient(
+			fmt.Sprintf("localhost:%d", setup.StandbyMultipooler.GrpcPort),
+			grpc.WithTransportCredentials(insecure.NewCredentials()),
+		)
+		require.NoError(t, err)
+		t.Cleanup(func() { standbyConn.Close() })
+		standbyManagerClient := multipoolermanagerpb.NewMultiPoolerManagerClient(standbyConn)
+
+		t.Log("Creating table and inserting data in primary...")
 		_, err = primaryPoolerClient.ExecuteQuery("CREATE TABLE IF NOT EXISTS test_replication (id SERIAL PRIMARY KEY, data TEXT)", 0)
 		require.NoError(t, err, "Should be able to create table in primary")
 
 		_, err = primaryPoolerClient.ExecuteQuery("INSERT INTO test_replication (data) VALUES ('test data')", 0)
 		require.NoError(t, err, "Should be able to insert data in primary")
 
-		// Get LSN from primary
-		queryResp, err := primaryPoolerClient.ExecuteQuery("SELECT pg_current_wal_lsn()::text", 1)
+		// Get LSN from primary using PrimaryPosition RPC
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		primaryPosResp, err := primaryManagerClient.PrimaryPosition(ctx, &multipoolermanagerdata.PrimaryPositionRequest{})
 		require.NoError(t, err)
-		require.Len(t, queryResp.Rows, 1)
-		primaryLSN := string(queryResp.Rows[0].Values[0])
+		primaryLSN := primaryPosResp.LsnPosition
 		t.Logf("Primary LSN after insert: %s", primaryLSN)
 
+		// Validate data is NOT in standby yet (no replication configured)
+		t.Log("Validating data is NOT in standby (replication not configured)...")
+
 		// Get initial standby LSN
-		queryResp, err = standbyPoolerClient.ExecuteQuery("SELECT pg_last_wal_replay_lsn()::text", 1)
+		queryResp, err := standbyPoolerClient.ExecuteQuery("SELECT pg_last_wal_replay_lsn()::text", 1)
 		require.NoError(t, err)
 		require.Len(t, queryResp.Rows, 1)
 		initialStandbyLSN := string(queryResp.Rows[0].Values[0])
@@ -710,18 +752,9 @@ func TestSetPrimaryConnInfo(t *testing.T) {
 		assert.Equal(t, "0", tableCount, "Table should not exist in standby yet")
 
 		// Configure replication using SetPrimaryConnInfo RPC
-		t.Log(" Configuring replication via SetPrimaryConnInfo RPC...")
+		t.Log("Configuring replication via SetPrimaryConnInfo RPC...")
 
-		// Connect to standby manager
-		conn, err := grpc.NewClient(
-			fmt.Sprintf("localhost:%d", setup.StandbyMultipooler.GrpcPort),
-			grpc.WithTransportCredentials(insecure.NewCredentials()),
-		)
-		require.NoError(t, err)
-		t.Cleanup(func() { conn.Close() })
-
-		managerClient := multipoolermanagerpb.NewMultiPoolerManagerClient(conn)
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		ctx, cancel = context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 
 		// Call SetPrimaryConnInfo with StartReplicationAfter=true
@@ -731,7 +764,7 @@ func TestSetPrimaryConnInfo(t *testing.T) {
 			StartReplicationAfter: true,
 			StopReplicationBefore: false,
 		}
-		_, err = managerClient.SetPrimaryConnInfo(ctx, setPrimaryReq)
+		_, err = standbyManagerClient.SetPrimaryConnInfo(ctx, setPrimaryReq)
 		require.NoError(t, err, "SetPrimaryConnInfo should succeed")
 		t.Log("Replication configured successfully")
 
