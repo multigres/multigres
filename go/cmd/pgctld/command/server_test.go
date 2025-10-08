@@ -418,22 +418,27 @@ func TestPgCtldServiceInitDataDir(t *testing.T) {
 func TestGetPoolerDir(t *testing.T) {
 	// Set up poolerDir for testing using temporary directory
 	tempDir := t.TempDir()
-	pg := PgCtlCommand{
+
+	// Test with configured directory
+	pg1 := PgCtlCommand{
+		poolerDir: viperutil.Configure("pooler-dir", viperutil.Options[string]{
+			Default:  tempDir,
+			FlagName: "pooler-dir",
+			Dynamic:  false,
+		}),
+	}
+	result := pg1.GetPoolerDir()
+	assert.Equal(t, tempDir, result, "GetPoolerDir should return configured directory")
+
+	// Test empty case
+	pg2 := PgCtlCommand{
 		poolerDir: viperutil.Configure("pooler-dir", viperutil.Options[string]{
 			Default:  "",
 			FlagName: "pooler-dir",
 			Dynamic:  false,
 		}),
 	}
-
-	pg.poolerDir.Set(tempDir)
-
-	result := pg.GetPoolerDir()
-	assert.Equal(t, tempDir, result, "GetPoolerDir should return configured directory")
-
-	// Test empty case
-	pg.poolerDir.Set("")
-	result = pg.GetPoolerDir()
+	result = pg2.GetPoolerDir()
 	assert.Equal(t, "", result, "GetPoolerDir should return empty string when not configured")
 }
 
