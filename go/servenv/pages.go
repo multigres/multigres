@@ -24,7 +24,7 @@ import (
 	"github.com/multigres/multigres/go/web"
 )
 
-// The init function sets up all the necessary frameworks for serving pages.
+// The RegisterCommonHTTPEndpoints function sets up all the necessary frameworks for serving pages.
 // You can define go html templates in go/web/templates, and they can use css
 // files from go/web/templates/css, which contains a minimal pico download.
 // You can use an existing html file as an example to create your own.
@@ -32,8 +32,8 @@ import (
 // render correctly, we may need to add more css styles.
 // We are using a classless css approach to minimize complexity.
 
-func init() {
-	HTTPHandleFunc("/favicon.ico", func(w http.ResponseWriter, r *http.Request) {
+func (sv *ServEnv) RegisterCommonHTTPEndpoints() {
+	sv.HTTPHandleFunc("/favicon.ico", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "image/x-icon")
 		cssPath := path.Join("templates", r.URL.Path)
 		content, err := web.TemplateFS.ReadFile(cssPath)
@@ -44,7 +44,7 @@ func init() {
 		}
 		_, _ = w.Write(content)
 	})
-	HTTPHandleFunc("/css/", func(w http.ResponseWriter, r *http.Request) {
+	sv.HTTPHandleFunc("/css/", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/css")
 		cssPath := path.Join("templates", r.URL.Path)
 		content, err := web.TemplateFS.ReadFile(cssPath)
@@ -56,7 +56,7 @@ func init() {
 		_, _ = w.Write(content)
 	})
 
-	HTTPHandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+	sv.HTTPHandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		type Link struct {
 			Title       string
 			Description string
@@ -77,9 +77,9 @@ func init() {
 		_ = web.Templates.ExecuteTemplate(w, "index.html", indexData)
 	})
 
-	HTTPHandleFunc("/live", func(w http.ResponseWriter, r *http.Request) {
+	sv.HTTPHandleFunc("/live", func(w http.ResponseWriter, r *http.Request) {
 		_ = web.Templates.ExecuteTemplate(w, "live.html", nil)
 	})
 
-	HTTPHandleFunc("/config", viperdebug.HandlerFunc)
+	sv.HTTPHandleFunc("/config", viperdebug.HandlerFunc)
 }

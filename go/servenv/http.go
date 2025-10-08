@@ -22,19 +22,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/pprof"
-
-	"github.com/multigres/multigres/go/servenv/internal/mux"
 )
-
-// HTTPHandle registers the given handler for the internal servenv mux.
-func HTTPHandle(pattern string, handler http.Handler) {
-	mux.Mux.Handle(pattern, handler)
-}
-
-// HTTPHandleFunc registers the given handler func for the internal servenv mux.
-func HTTPHandleFunc(pattern string, handler func(http.ResponseWriter, *http.Request)) {
-	mux.Mux.HandleFunc(pattern, handler)
-}
 
 // HTTPHandle registers the given handler for the internal servenv mux.
 func (sv *ServEnv) HTTPHandle(pattern string, handler http.Handler) {
@@ -57,7 +45,7 @@ func (sv *ServEnv) HTTPServe(l net.Listener) error {
 }
 
 // HTTPRegisterProfile registers the default pprof HTTP endpoints with the internal servenv mux.
-func (sv *ServEnv) HTTPRegisterProfile() {
+func (sv *ServEnv) HTTPRegisterPprofProfile() {
 	if !sv.httpPprof {
 		return
 	}

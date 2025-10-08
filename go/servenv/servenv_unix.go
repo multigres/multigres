@@ -80,7 +80,8 @@ func (sv *ServEnv) Init() {
 
 	sv.OnInitHooks.Fire()
 	sv.registerPidFile()
-	sv.HTTPRegisterProfile()
+	sv.RegisterCommonHTTPEndpoints()
+	sv.HTTPRegisterPprofProfile()
 	sv.pprofInit()
 	sv.updateServiceMap()
 }
