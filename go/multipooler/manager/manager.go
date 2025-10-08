@@ -33,6 +33,7 @@ import (
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multipoolermanagerdata "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
+	pgctldpb "github.com/multigres/multigres/go/pb/pgctldservice"
 )
 
 // ManagerState represents the state of the MultiPoolerManager
@@ -55,14 +56,17 @@ type MultiPoolerManager struct {
 	topoClient topo.Store
 	serviceID  *clustermetadatapb.ID
 
-	// Multipooler record from topology
-	mu          sync.RWMutex
-	multipooler *topo.MultiPoolerInfo
-	state       ManagerState
-	stateError  error
-	ctx         context.Context
-	cancel      context.CancelFunc
-	loadTimeout time.Duration
+	// Multipooler record from topology and startup state
+	mu              sync.RWMutex
+	multipooler     *topo.MultiPoolerInfo
+	state           ManagerState
+	stateError      error
+	consensusTerm   *pgctldpb.ConsensusTerm
+	topoLoaded      bool
+	consensusLoaded bool
+	ctx             context.Context
+	cancel          context.CancelFunc
+	loadTimeout     time.Duration
 }
 
 // NewMultiPoolerManager creates a new MultiPoolerManager instance
@@ -146,15 +150,33 @@ func (pm *MultiPoolerManager) checkReady() error {
 	}
 }
 
+// setStateError sets the manager state to error with the given error message
+// Must be called without holding the mutex
+func (pm *MultiPoolerManager) setStateError(err error) {
+	pm.mu.Lock()
+	defer pm.mu.Unlock()
+	pm.state = ManagerStateError
+	pm.stateError = err
+	pm.logger.Error("Manager state changed", "state", ManagerStateError, "error", err.Error())
+}
+
+// checkAndSetReady checks if all required resources are loaded and sets state to ready if so
+// Must be called without holding the mutex
+func (pm *MultiPoolerManager) checkAndSetReady() {
+	pm.mu.Lock()
+	defer pm.mu.Unlock()
+
+	if pm.topoLoaded && pm.consensusLoaded {
+		pm.state = ManagerStateReady
+		pm.logger.Info("Manager state changed", "state", ManagerStateReady, "service_id", pm.serviceID.String())
+	}
+}
+
 // loadMultiPoolerFromTopo loads the multipooler record from topology asynchronously
 func (pm *MultiPoolerManager) loadMultiPoolerFromTopo() {
 	// Validate ServiceID is not nil
 	if pm.serviceID == nil {
-		pm.mu.Lock()
-		pm.state = ManagerStateError
-		pm.stateError = fmt.Errorf("ServiceID cannot be nil")
-		pm.mu.Unlock()
-		pm.logger.Error("Manager state changed", "state", ManagerStateError, "error", pm.stateError.Error())
+		pm.setStateError(fmt.Errorf("ServiceID cannot be nil"))
 		return
 	}
 
@@ -180,27 +202,19 @@ func (pm *MultiPoolerManager) loadMultiPoolerFromTopo() {
 			// Successfully loaded
 			pm.mu.Lock()
 			pm.multipooler = mp
-			pm.state = ManagerStateReady
+			pm.topoLoaded = true
 			pm.mu.Unlock()
 
-			pm.logger.Info("Manager state changed", "state", ManagerStateReady, "service_id", pm.serviceID.String(), "database", mp.Database)
+			pm.logger.Info("Loaded multipooler record from topology", "service_id", pm.serviceID.String(), "database", mp.Database)
+			pm.checkAndSetReady()
 			return
 
 		case <-timeoutCtx.Done():
-			pm.mu.Lock()
-			pm.state = ManagerStateError
-			pm.stateError = fmt.Errorf("timeout waiting for multipooler record to be available in topology after %v", pm.loadTimeout)
-			pm.mu.Unlock()
-			pm.logger.Error("Manager state changed", "state", ManagerStateError, "service_id", pm.serviceID.String(), "error", pm.stateError.Error())
+			pm.setStateError(fmt.Errorf("timeout waiting for multipooler record to be available in topology after %v", pm.loadTimeout))
 			return
 
 		case <-pm.ctx.Done():
-			// Parent context cancelled - treat as error
-			pm.mu.Lock()
-			pm.state = ManagerStateError
-			pm.stateError = fmt.Errorf("manager context cancelled while loading multipooler record")
-			pm.mu.Unlock()
-			pm.logger.Error("Manager state changed", "state", ManagerStateError, "service_id", pm.serviceID.String(), "error", pm.stateError.Error())
+			pm.setStateError(fmt.Errorf("manager context cancelled while loading multipooler record"))
 			return
 		}
 	}
@@ -233,8 +247,59 @@ func (pm *MultiPoolerManager) IsReadOnly(ctx context.Context) (bool, error) {
 	return false, mterrors.New(mtrpcpb.Code_UNIMPLEMENTED, "method IsReadOnly not implemented")
 }
 
+// loadConsensusTermFromPgctld loads the consensus term from pgctld asynchronously
+func (pm *MultiPoolerManager) loadConsensusTermFromPgctld() {
+	ticker := timertools.NewBackoffTicker(100*time.Millisecond, 30*time.Second)
+	defer ticker.Stop()
+
+	// Set timeout for the entire loading process
+	timeoutCtx, timeoutCancel := context.WithTimeout(pm.ctx, pm.loadTimeout)
+	defer timeoutCancel()
+
+	for {
+		select {
+		case <-ticker.C:
+			ctx, cancel := context.WithTimeout(pm.ctx, 5*time.Second)
+			conn, err := pm.createPgctldClient()
+			if err != nil {
+				cancel()
+				pm.logger.Debug("Failed to create pgctld client, retrying", "error", err)
+				continue
+			}
+
+			client := pgctldpb.NewPgCtldClient(conn)
+			resp, err := client.GetTerm(ctx, &pgctldpb.GetTermRequest{})
+			conn.Close()
+			cancel()
+
+			if err != nil {
+				pm.logger.Debug("Failed to get consensus term from pgctld, retrying", "error", err)
+				continue
+			}
+
+			// Successfully loaded (nil/empty term is OK)
+			pm.mu.Lock()
+			pm.consensusTerm = resp.Term
+			pm.consensusLoaded = true
+			pm.mu.Unlock()
+
+			pm.logger.Info("Loaded consensus term from pgctld", "current_term", resp.Term.GetCurrentTerm())
+			pm.checkAndSetReady()
+			return
+
+		case <-timeoutCtx.Done():
+			pm.setStateError(fmt.Errorf("timeout waiting for consensus term from pgctld after %v", pm.loadTimeout))
+			return
+
+		case <-pm.ctx.Done():
+			pm.setStateError(fmt.Errorf("manager context cancelled while loading consensus term"))
+			return
+		}
+	}
+}
+
 // SetPrimaryConnInfo sets the primary connection info for a standby server
-func (pm *MultiPoolerManager) SetPrimaryConnInfo(ctx context.Context, host string, port int32, heartbeatInterval time.Duration, stopReplicationBefore, startReplicationAfter bool) error {
+func (pm *MultiPoolerManager) SetPrimaryConnInfo(ctx context.Context, host string, port int32, heartbeatInterval time.Duration, stopReplicationBefore, startReplicationAfter bool, currentTerm int64, force bool) error {
 	if err := pm.checkReady(); err != nil {
 		return err
 	}
@@ -243,7 +308,26 @@ func (pm *MultiPoolerManager) SetPrimaryConnInfo(ctx context.Context, host strin
 		"port", port,
 		"heartbeat_interval", heartbeatInterval,
 		"stop_replication_before", stopReplicationBefore,
-		"start_replication_after", startReplicationAfter)
+		"start_replication_after", startReplicationAfter,
+		"current_term", currentTerm,
+		"force", force)
+
+	// Validate consensus term unless force is set
+	if !force {
+		pm.mu.RLock()
+		cachedTerm := pm.consensusTerm
+		pm.mu.RUnlock()
+
+		if cachedTerm == nil || cachedTerm.GetCurrentTerm() != currentTerm {
+			pm.logger.Error("Consensus term mismatch",
+				"request_term", currentTerm,
+				"cached_term", cachedTerm.GetCurrentTerm(),
+				"service_id", pm.serviceID.String())
+			return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
+				fmt.Sprintf("consensus term mismatch: request term %d does not match current term %d (use force=true to bypass)",
+					currentTerm, cachedTerm.GetCurrentTerm()))
+		}
+	}
 
 	// Guardrail: Check pooler type - only REPLICA poolers can set primary_conninfo
 	pm.mu.RLock()
@@ -581,10 +665,47 @@ func (pm *MultiPoolerManager) Promote(ctx context.Context) error {
 	return mterrors.New(mtrpcpb.Code_UNIMPLEMENTED, "method Promote not implemented")
 }
 
+// SetTerm sets the consensus term information by forwarding to pgctld
+func (pm *MultiPoolerManager) SetTerm(ctx context.Context, term *pgctldpb.ConsensusTerm) error {
+	if err := pm.checkReady(); err != nil {
+		return err
+	}
+
+	pm.logger.Info("SetTerm called", "current_term", term.GetCurrentTerm())
+
+	// Create pgctld client
+	conn, err := pm.createPgctldClient()
+	if err != nil {
+		pm.logger.Error("Failed to create pgctld client", "error", err)
+		return mterrors.Wrap(err, "failed to create pgctld client")
+	}
+	defer conn.Close()
+
+	// Forward request to pgctld
+	client := pgctldpb.NewPgCtldClient(conn)
+	_, err = client.SetTerm(ctx, &pgctldpb.SetTermRequest{
+		Term: term,
+	})
+	if err != nil {
+		pm.logger.Error("Failed to set consensus term in pgctld", "error", err)
+		return mterrors.Wrap(err, "failed to set consensus term")
+	}
+
+	// Update our cached term
+	pm.mu.Lock()
+	pm.consensusTerm = term
+	pm.mu.Unlock()
+
+	pm.logger.Info("SetTerm completed successfully", "current_term", term.GetCurrentTerm())
+	return nil
+}
+
 // Start initializes the MultiPoolerManager
 func (pm *MultiPoolerManager) Start() {
 	// Start loading multipooler record from topology asynchronously
 	go pm.loadMultiPoolerFromTopo()
+	// Start loading consensus term from pgctld asynchronously
+	go pm.loadConsensusTermFromPgctld()
 
 	servenv.OnRun(func() {
 		pm.logger.Info("MultiPoolerManager started")

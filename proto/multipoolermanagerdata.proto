@@ -18,6 +18,7 @@ package multipoolermanagerdata;
 
 import "clustermetadata.proto";
 import "google/protobuf/duration.proto";
+import "pgctldservice.proto";
 
 option go_package = "github.com/multigres/multigres/go/pb/multipoolermanagerdata";
 
@@ -90,6 +91,12 @@ message SetPrimaryConnInfoRequest {
 
   // Whether to start replication after making changes
   bool start_replication_after = 5;
+
+  // Current term for consensus (used by MultiOrch during initialization)
+  int64 current_term = 6;
+
+  // Force the operation even if the term doesn't match
+  bool force = 7;
 }
 
 message SetPrimaryConnInfoResponse {
@@ -265,4 +272,13 @@ message StatusResponse {
 
   // Error message if state is error
   string error_message = 2;
+}
+
+// SetTerm sets the consensus term information
+message SetTermRequest {
+  // Consensus term information to set
+  pgctldservice.ConsensusTerm term = 1;
+}
+
+message SetTermResponse {
 }

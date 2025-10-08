@@ -21,9 +21,11 @@
 package pgctldservice
 
 import (
+	clustermetadata "github.com/multigres/multigres/go/pb/clustermetadata"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	durationpb "google.golang.org/protobuf/types/known/durationpb"
+	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
 	reflect "reflect"
 	sync "sync"
 	unsafe "unsafe"
@@ -1000,11 +1002,249 @@ func (*PgRewindResponse) Descriptor() ([]byte, []int) {
 	return file_pgctldservice_proto_rawDescGZIP(), []int{15}
 }
 
+// ConsensusTerm represents the consensus term information for the pooler
+// This is persisted to disk at $PGDATA/consensus/consensus_term.json
+type ConsensusTerm struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Current consensus term
+	CurrentTerm int64 `protobuf:"varint,1,opt,name=current_term,json=currentTerm,proto3" json:"current_term,omitempty"`
+	// ID of the pooler this replica voted for
+	VotedFor *clustermetadata.ID `protobuf:"bytes,2,opt,name=voted_for,json=votedFor,proto3" json:"voted_for,omitempty"`
+	// Timestamp of the last vote
+	LastVoteTime *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=last_vote_time,json=lastVoteTime,proto3" json:"last_vote_time,omitempty"`
+	// ID of the leader of the current term
+	LeaderId      *clustermetadata.ID `protobuf:"bytes,4,opt,name=leader_id,json=leaderId,proto3" json:"leader_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ConsensusTerm) Reset() {
+	*x = ConsensusTerm{}
+	mi := &file_pgctldservice_proto_msgTypes[16]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ConsensusTerm) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ConsensusTerm) ProtoMessage() {}
+
+func (x *ConsensusTerm) ProtoReflect() protoreflect.Message {
+	mi := &file_pgctldservice_proto_msgTypes[16]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ConsensusTerm.ProtoReflect.Descriptor instead.
+func (*ConsensusTerm) Descriptor() ([]byte, []int) {
+	return file_pgctldservice_proto_rawDescGZIP(), []int{16}
+}
+
+func (x *ConsensusTerm) GetCurrentTerm() int64 {
+	if x != nil {
+		return x.CurrentTerm
+	}
+	return 0
+}
+
+func (x *ConsensusTerm) GetVotedFor() *clustermetadata.ID {
+	if x != nil {
+		return x.VotedFor
+	}
+	return nil
+}
+
+func (x *ConsensusTerm) GetLastVoteTime() *timestamppb.Timestamp {
+	if x != nil {
+		return x.LastVoteTime
+	}
+	return nil
+}
+
+func (x *ConsensusTerm) GetLeaderId() *clustermetadata.ID {
+	if x != nil {
+		return x.LeaderId
+	}
+	return nil
+}
+
+// GetTerm retrieves the current consensus term information
+type GetTermRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetTermRequest) Reset() {
+	*x = GetTermRequest{}
+	mi := &file_pgctldservice_proto_msgTypes[17]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetTermRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetTermRequest) ProtoMessage() {}
+
+func (x *GetTermRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_pgctldservice_proto_msgTypes[17]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetTermRequest.ProtoReflect.Descriptor instead.
+func (*GetTermRequest) Descriptor() ([]byte, []int) {
+	return file_pgctldservice_proto_rawDescGZIP(), []int{17}
+}
+
+type GetTermResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Current consensus term information
+	Term          *ConsensusTerm `protobuf:"bytes,1,opt,name=term,proto3" json:"term,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetTermResponse) Reset() {
+	*x = GetTermResponse{}
+	mi := &file_pgctldservice_proto_msgTypes[18]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetTermResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetTermResponse) ProtoMessage() {}
+
+func (x *GetTermResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_pgctldservice_proto_msgTypes[18]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetTermResponse.ProtoReflect.Descriptor instead.
+func (*GetTermResponse) Descriptor() ([]byte, []int) {
+	return file_pgctldservice_proto_rawDescGZIP(), []int{18}
+}
+
+func (x *GetTermResponse) GetTerm() *ConsensusTerm {
+	if x != nil {
+		return x.Term
+	}
+	return nil
+}
+
+// SetTerm sets the consensus term information
+type SetTermRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Consensus term information to set
+	Term          *ConsensusTerm `protobuf:"bytes,1,opt,name=term,proto3" json:"term,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SetTermRequest) Reset() {
+	*x = SetTermRequest{}
+	mi := &file_pgctldservice_proto_msgTypes[19]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SetTermRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SetTermRequest) ProtoMessage() {}
+
+func (x *SetTermRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_pgctldservice_proto_msgTypes[19]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SetTermRequest.ProtoReflect.Descriptor instead.
+func (*SetTermRequest) Descriptor() ([]byte, []int) {
+	return file_pgctldservice_proto_rawDescGZIP(), []int{19}
+}
+
+func (x *SetTermRequest) GetTerm() *ConsensusTerm {
+	if x != nil {
+		return x.Term
+	}
+	return nil
+}
+
+type SetTermResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SetTermResponse) Reset() {
+	*x = SetTermResponse{}
+	mi := &file_pgctldservice_proto_msgTypes[20]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SetTermResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SetTermResponse) ProtoMessage() {}
+
+func (x *SetTermResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_pgctldservice_proto_msgTypes[20]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SetTermResponse.ProtoReflect.Descriptor instead.
+func (*SetTermResponse) Descriptor() ([]byte, []int) {
+	return file_pgctldservice_proto_rawDescGZIP(), []int{20}
+}
+
 var File_pgctldservice_proto protoreflect.FileDescriptor
 
 const file_pgctldservice_proto_rawDesc = "" +
 	"\n" +
-	"\x13pgctldservice.proto\x12\rpgctldservice\x1a\x1egoogle/protobuf/duration.proto\"A\n" +
+	"\x13pgctldservice.proto\x12\rpgctldservice\x1a\x1egoogle/protobuf/duration.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x15clustermetadata.proto\"A\n" +
 	"\fStartRequest\x12\x12\n" +
 	"\x04port\x18\x01 \x01(\x05R\x04port\x12\x1d\n" +
 	"\n" +
@@ -1061,14 +1301,25 @@ const file_pgctldservice_proto_rawDesc = "" +
 	"\adry_run\x18\x02 \x01(\bR\x06dryRun\x12\x1d\n" +
 	"\n" +
 	"extra_args\x18\x03 \x03(\tR\textraArgs\"\x12\n" +
-	"\x10PgRewindResponse*f\n" +
+	"\x10PgRewindResponse\"\xd8\x01\n" +
+	"\rConsensusTerm\x12!\n" +
+	"\fcurrent_term\x18\x01 \x01(\x03R\vcurrentTerm\x120\n" +
+	"\tvoted_for\x18\x02 \x01(\v2\x13.clustermetadata.IDR\bvotedFor\x12@\n" +
+	"\x0elast_vote_time\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\flastVoteTime\x120\n" +
+	"\tleader_id\x18\x04 \x01(\v2\x13.clustermetadata.IDR\bleaderId\"\x10\n" +
+	"\x0eGetTermRequest\"C\n" +
+	"\x0fGetTermResponse\x120\n" +
+	"\x04term\x18\x01 \x01(\v2\x1c.pgctldservice.ConsensusTermR\x04term\"B\n" +
+	"\x0eSetTermRequest\x120\n" +
+	"\x04term\x18\x01 \x01(\v2\x1c.pgctldservice.ConsensusTermR\x04term\"\x11\n" +
+	"\x0fSetTermResponse*f\n" +
 	"\fServerStatus\x12\v\n" +
 	"\aUNKNOWN\x10\x00\x12\v\n" +
 	"\aSTOPPED\x10\x01\x12\f\n" +
 	"\bSTARTING\x10\x02\x12\v\n" +
 	"\aRUNNING\x10\x03\x12\f\n" +
 	"\bSTOPPING\x10\x04\x12\x13\n" +
-	"\x0fNOT_INITIALIZED\x10\x052\xe4\x04\n" +
+	"\x0fNOT_INITIALIZED\x10\x052\xf8\x05\n" +
 	"\x06PgCtld\x12B\n" +
 	"\x05Start\x12\x1b.pgctldservice.StartRequest\x1a\x1c.pgctldservice.StartResponse\x12?\n" +
 	"\x04Stop\x12\x1a.pgctldservice.StopRequest\x1a\x1b.pgctldservice.StopResponse\x12H\n" +
@@ -1077,7 +1328,9 @@ const file_pgctldservice_proto_rawDesc = "" +
 	"\x06Status\x12\x1c.pgctldservice.StatusRequest\x1a\x1d.pgctldservice.StatusResponse\x12H\n" +
 	"\aVersion\x12\x1d.pgctldservice.VersionRequest\x1a\x1e.pgctldservice.VersionResponse\x12T\n" +
 	"\vInitDataDir\x12!.pgctldservice.InitDataDirRequest\x1a\".pgctldservice.InitDataDirResponse\x12K\n" +
-	"\bPgRewind\x12\x1e.pgctldservice.PgRewindRequest\x1a\x1f.pgctldservice.PgRewindResponseB4Z2github.com/multigres/multigres/go/pb/pgctldserviceb\x06proto3"
+	"\bPgRewind\x12\x1e.pgctldservice.PgRewindRequest\x1a\x1f.pgctldservice.PgRewindResponse\x12H\n" +
+	"\aGetTerm\x12\x1d.pgctldservice.GetTermRequest\x1a\x1e.pgctldservice.GetTermResponse\x12H\n" +
+	"\aSetTerm\x12\x1d.pgctldservice.SetTermRequest\x1a\x1e.pgctldservice.SetTermResponseB4Z2github.com/multigres/multigres/go/pb/pgctldserviceb\x06proto3"
 
 var (
 	file_pgctldservice_proto_rawDescOnce sync.Once
@@ -1092,53 +1345,69 @@ func file_pgctldservice_proto_rawDescGZIP() []byte {
 }
 
 var file_pgctldservice_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_pgctldservice_proto_msgTypes = make([]protoimpl.MessageInfo, 16)
+var file_pgctldservice_proto_msgTypes = make([]protoimpl.MessageInfo, 21)
 var file_pgctldservice_proto_goTypes = []any{
-	(ServerStatus)(0),            // 0: pgctldservice.ServerStatus
-	(*StartRequest)(nil),         // 1: pgctldservice.StartRequest
-	(*StartResponse)(nil),        // 2: pgctldservice.StartResponse
-	(*StopRequest)(nil),          // 3: pgctldservice.StopRequest
-	(*StopResponse)(nil),         // 4: pgctldservice.StopResponse
-	(*RestartRequest)(nil),       // 5: pgctldservice.RestartRequest
-	(*RestartResponse)(nil),      // 6: pgctldservice.RestartResponse
-	(*ReloadConfigRequest)(nil),  // 7: pgctldservice.ReloadConfigRequest
-	(*ReloadConfigResponse)(nil), // 8: pgctldservice.ReloadConfigResponse
-	(*StatusRequest)(nil),        // 9: pgctldservice.StatusRequest
-	(*StatusResponse)(nil),       // 10: pgctldservice.StatusResponse
-	(*VersionRequest)(nil),       // 11: pgctldservice.VersionRequest
-	(*VersionResponse)(nil),      // 12: pgctldservice.VersionResponse
-	(*InitDataDirRequest)(nil),   // 13: pgctldservice.InitDataDirRequest
-	(*InitDataDirResponse)(nil),  // 14: pgctldservice.InitDataDirResponse
-	(*PgRewindRequest)(nil),      // 15: pgctldservice.PgRewindRequest
-	(*PgRewindResponse)(nil),     // 16: pgctldservice.PgRewindResponse
-	(*durationpb.Duration)(nil),  // 17: google.protobuf.Duration
+	(ServerStatus)(0),             // 0: pgctldservice.ServerStatus
+	(*StartRequest)(nil),          // 1: pgctldservice.StartRequest
+	(*StartResponse)(nil),         // 2: pgctldservice.StartResponse
+	(*StopRequest)(nil),           // 3: pgctldservice.StopRequest
+	(*StopResponse)(nil),          // 4: pgctldservice.StopResponse
+	(*RestartRequest)(nil),        // 5: pgctldservice.RestartRequest
+	(*RestartResponse)(nil),       // 6: pgctldservice.RestartResponse
+	(*ReloadConfigRequest)(nil),   // 7: pgctldservice.ReloadConfigRequest
+	(*ReloadConfigResponse)(nil),  // 8: pgctldservice.ReloadConfigResponse
+	(*StatusRequest)(nil),         // 9: pgctldservice.StatusRequest
+	(*StatusResponse)(nil),        // 10: pgctldservice.StatusResponse
+	(*VersionRequest)(nil),        // 11: pgctldservice.VersionRequest
+	(*VersionResponse)(nil),       // 12: pgctldservice.VersionResponse
+	(*InitDataDirRequest)(nil),    // 13: pgctldservice.InitDataDirRequest
+	(*InitDataDirResponse)(nil),   // 14: pgctldservice.InitDataDirResponse
+	(*PgRewindRequest)(nil),       // 15: pgctldservice.PgRewindRequest
+	(*PgRewindResponse)(nil),      // 16: pgctldservice.PgRewindResponse
+	(*ConsensusTerm)(nil),         // 17: pgctldservice.ConsensusTerm
+	(*GetTermRequest)(nil),        // 18: pgctldservice.GetTermRequest
+	(*GetTermResponse)(nil),       // 19: pgctldservice.GetTermResponse
+	(*SetTermRequest)(nil),        // 20: pgctldservice.SetTermRequest
+	(*SetTermResponse)(nil),       // 21: pgctldservice.SetTermResponse
+	(*durationpb.Duration)(nil),   // 22: google.protobuf.Duration
+	(*clustermetadata.ID)(nil),    // 23: clustermetadata.ID
+	(*timestamppb.Timestamp)(nil), // 24: google.protobuf.Timestamp
 }
 var file_pgctldservice_proto_depIdxs = []int32{
-	17, // 0: pgctldservice.StopRequest.timeout:type_name -> google.protobuf.Duration
-	17, // 1: pgctldservice.RestartRequest.timeout:type_name -> google.protobuf.Duration
+	22, // 0: pgctldservice.StopRequest.timeout:type_name -> google.protobuf.Duration
+	22, // 1: pgctldservice.RestartRequest.timeout:type_name -> google.protobuf.Duration
 	0,  // 2: pgctldservice.StatusResponse.status:type_name -> pgctldservice.ServerStatus
-	17, // 3: pgctldservice.StatusResponse.uptime:type_name -> google.protobuf.Duration
-	1,  // 4: pgctldservice.PgCtld.Start:input_type -> pgctldservice.StartRequest
-	3,  // 5: pgctldservice.PgCtld.Stop:input_type -> pgctldservice.StopRequest
-	5,  // 6: pgctldservice.PgCtld.Restart:input_type -> pgctldservice.RestartRequest
-	7,  // 7: pgctldservice.PgCtld.ReloadConfig:input_type -> pgctldservice.ReloadConfigRequest
-	9,  // 8: pgctldservice.PgCtld.Status:input_type -> pgctldservice.StatusRequest
-	11, // 9: pgctldservice.PgCtld.Version:input_type -> pgctldservice.VersionRequest
-	13, // 10: pgctldservice.PgCtld.InitDataDir:input_type -> pgctldservice.InitDataDirRequest
-	15, // 11: pgctldservice.PgCtld.PgRewind:input_type -> pgctldservice.PgRewindRequest
-	2,  // 12: pgctldservice.PgCtld.Start:output_type -> pgctldservice.StartResponse
-	4,  // 13: pgctldservice.PgCtld.Stop:output_type -> pgctldservice.StopResponse
-	6,  // 14: pgctldservice.PgCtld.Restart:output_type -> pgctldservice.RestartResponse
-	8,  // 15: pgctldservice.PgCtld.ReloadConfig:output_type -> pgctldservice.ReloadConfigResponse
-	10, // 16: pgctldservice.PgCtld.Status:output_type -> pgctldservice.StatusResponse
-	12, // 17: pgctldservice.PgCtld.Version:output_type -> pgctldservice.VersionResponse
-	14, // 18: pgctldservice.PgCtld.InitDataDir:output_type -> pgctldservice.InitDataDirResponse
-	16, // 19: pgctldservice.PgCtld.PgRewind:output_type -> pgctldservice.PgRewindResponse
-	12, // [12:20] is the sub-list for method output_type
-	4,  // [4:12] is the sub-list for method input_type
-	4,  // [4:4] is the sub-list for extension type_name
-	4,  // [4:4] is the sub-list for extension extendee
-	0,  // [0:4] is the sub-list for field type_name
+	22, // 3: pgctldservice.StatusResponse.uptime:type_name -> google.protobuf.Duration
+	23, // 4: pgctldservice.ConsensusTerm.voted_for:type_name -> clustermetadata.ID
+	24, // 5: pgctldservice.ConsensusTerm.last_vote_time:type_name -> google.protobuf.Timestamp
+	23, // 6: pgctldservice.ConsensusTerm.leader_id:type_name -> clustermetadata.ID
+	17, // 7: pgctldservice.GetTermResponse.term:type_name -> pgctldservice.ConsensusTerm
+	17, // 8: pgctldservice.SetTermRequest.term:type_name -> pgctldservice.ConsensusTerm
+	1,  // 9: pgctldservice.PgCtld.Start:input_type -> pgctldservice.StartRequest
+	3,  // 10: pgctldservice.PgCtld.Stop:input_type -> pgctldservice.StopRequest
+	5,  // 11: pgctldservice.PgCtld.Restart:input_type -> pgctldservice.RestartRequest
+	7,  // 12: pgctldservice.PgCtld.ReloadConfig:input_type -> pgctldservice.ReloadConfigRequest
+	9,  // 13: pgctldservice.PgCtld.Status:input_type -> pgctldservice.StatusRequest
+	11, // 14: pgctldservice.PgCtld.Version:input_type -> pgctldservice.VersionRequest
+	13, // 15: pgctldservice.PgCtld.InitDataDir:input_type -> pgctldservice.InitDataDirRequest
+	15, // 16: pgctldservice.PgCtld.PgRewind:input_type -> pgctldservice.PgRewindRequest
+	18, // 17: pgctldservice.PgCtld.GetTerm:input_type -> pgctldservice.GetTermRequest
+	20, // 18: pgctldservice.PgCtld.SetTerm:input_type -> pgctldservice.SetTermRequest
+	2,  // 19: pgctldservice.PgCtld.Start:output_type -> pgctldservice.StartResponse
+	4,  // 20: pgctldservice.PgCtld.Stop:output_type -> pgctldservice.StopResponse
+	6,  // 21: pgctldservice.PgCtld.Restart:output_type -> pgctldservice.RestartResponse
+	8,  // 22: pgctldservice.PgCtld.ReloadConfig:output_type -> pgctldservice.ReloadConfigResponse
+	10, // 23: pgctldservice.PgCtld.Status:output_type -> pgctldservice.StatusResponse
+	12, // 24: pgctldservice.PgCtld.Version:output_type -> pgctldservice.VersionResponse
+	14, // 25: pgctldservice.PgCtld.InitDataDir:output_type -> pgctldservice.InitDataDirResponse
+	16, // 26: pgctldservice.PgCtld.PgRewind:output_type -> pgctldservice.PgRewindResponse
+	19, // 27: pgctldservice.PgCtld.GetTerm:output_type -> pgctldservice.GetTermResponse
+	21, // 28: pgctldservice.PgCtld.SetTerm:output_type -> pgctldservice.SetTermResponse
+	19, // [19:29] is the sub-list for method output_type
+	9,  // [9:19] is the sub-list for method input_type
+	9,  // [9:9] is the sub-list for extension type_name
+	9,  // [9:9] is the sub-list for extension extendee
+	0,  // [0:9] is the sub-list for field type_name
 }
 
 func init() { file_pgctldservice_proto_init() }
@@ -1152,7 +1421,7 @@ func file_pgctldservice_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_pgctldservice_proto_rawDesc), len(file_pgctldservice_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   16,
+			NumMessages:   21,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

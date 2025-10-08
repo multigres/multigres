@@ -85,7 +85,9 @@ func (s *managerService) SetPrimaryConnInfo(ctx context.Context, req *multipoole
 		req.Port,
 		heartbeatInterval,
 		req.StopReplicationBefore,
-		req.StartReplicationAfter)
+		req.StartReplicationAfter,
+		req.CurrentTerm,
+		req.Force)
 	if err != nil {
 		return nil, err
 	}
@@ -218,4 +220,12 @@ func (s *managerService) Promote(ctx context.Context, req *multipoolermanagerdat
 // Status gets the current status of the manager
 func (s *managerService) Status(ctx context.Context, req *multipoolermanagerdata.StatusRequest) (*multipoolermanagerdata.StatusResponse, error) {
 	return s.manager.Status(ctx)
+}
+
+// SetTerm sets the consensus term information
+func (s *managerService) SetTerm(ctx context.Context, req *multipoolermanagerdata.SetTermRequest) (*multipoolermanagerdata.SetTermResponse, error) {
+	if err := s.manager.SetTerm(ctx, req.Term); err != nil {
+		return nil, err
+	}
+	return &multipoolermanagerdata.SetTermResponse{}, nil
 }

@@ -17,6 +17,8 @@ syntax = "proto3";
 package pgctldservice;
 
 import "google/protobuf/duration.proto";
+import "google/protobuf/timestamp.proto";
+import "clustermetadata.proto";
 
 option go_package = "github.com/multigres/multigres/go/pb/pgctldservice";
 
@@ -51,6 +53,12 @@ service PgCtld {
   rpc PgRewind(PgRewindRequest) returns (PgRewindResponse);
 
   // HA and Replication Methods. Main consumer of this is MultiOrch
+
+  // GetTerm retrieves the current consensus term information
+  rpc GetTerm(GetTermRequest) returns (GetTermResponse);
+
+  // SetTerm sets the consensus term information. Used by MultiOrch for consensus operations.
+  rpc SetTerm(SetTermRequest) returns (SetTermResponse);
 }
 
 // Start PostgreSQL server
@@ -206,4 +214,38 @@ message PgRewindRequest {
 }
 
 message PgRewindResponse {
+}
+
+// ConsensusTerm represents the consensus term information for the pooler
+// This is persisted to disk at $PGDATA/consensus/consensus_term.json
+message ConsensusTerm {
+  // Current consensus term
+  int64 current_term = 1;
+
+  // ID of the pooler this replica voted for
+  clustermetadata.ID voted_for = 2;
+
+  // Timestamp of the last vote
+  google.protobuf.Timestamp last_vote_time = 3;
+
+  // ID of the leader of the current term
+  clustermetadata.ID leader_id = 4;
+}
+
+// GetTerm retrieves the current consensus term information
+message GetTermRequest {
+}
+
+message GetTermResponse {
+  // Current consensus term information
+  ConsensusTerm term = 1;
+}
+
+// SetTerm sets the consensus term information
+message SetTermRequest {
+  // Consensus term information to set
+  ConsensusTerm term = 1;
+}
+
+message SetTermResponse {
 }

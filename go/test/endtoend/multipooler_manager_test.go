@@ -410,6 +410,55 @@ func getSharedTestSetup(t *testing.T) *MultipoolerTestSetup {
 			return
 		}
 
+		// Initialize consensus term to 1 for both primary and standby
+		t.Logf("Initializing consensus term to 1 for primary and standby...")
+		initialTerm := &pgctldpb.ConsensusTerm{
+			CurrentTerm:  1,
+			VotedFor:     nil,
+			LastVoteTime: nil,
+			LeaderId:     nil,
+		}
+
+		// Set term for primary
+		primaryPgctldConn, err := grpc.NewClient(
+			primaryGrpcAddr,
+			grpc.WithTransportCredentials(insecure.NewCredentials()),
+		)
+		if err != nil {
+			setupError = fmt.Errorf("failed to connect to primary pgctld: %w", err)
+			return
+		}
+		primaryPgctldClient := pgctldpb.NewPgCtldClient(primaryPgctldConn)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		_, err = primaryPgctldClient.SetTerm(ctx, &pgctldpb.SetTermRequest{Term: initialTerm})
+		cancel()
+		primaryPgctldConn.Close()
+		if err != nil {
+			setupError = fmt.Errorf("failed to set term for primary: %w", err)
+			return
+		}
+		t.Logf("Primary consensus term set to 1")
+
+		// Set term for standby
+		standbyPgctldConn, err := grpc.NewClient(
+			standbyGrpcAddr,
+			grpc.WithTransportCredentials(insecure.NewCredentials()),
+		)
+		if err != nil {
+			setupError = fmt.Errorf("failed to connect to standby pgctld: %w", err)
+			return
+		}
+		standbyPgctldClient := pgctldpb.NewPgCtldClient(standbyPgctldConn)
+		ctx, cancel = context.WithTimeout(context.Background(), 5*time.Second)
+		_, err = standbyPgctldClient.SetTerm(ctx, &pgctldpb.SetTermRequest{Term: initialTerm})
+		cancel()
+		standbyPgctldConn.Close()
+		if err != nil {
+			setupError = fmt.Errorf("failed to set term for standby: %w", err)
+			return
+		}
+		t.Logf("Standby consensus term set to 1")
+
 		// Start multipooler instances
 		if err := primaryMultipooler.Start(t); err != nil {
 			setupError = fmt.Errorf("failed to start primary multipooler: %w", err)
@@ -433,7 +482,7 @@ func getSharedTestSetup(t *testing.T) *MultipoolerTestSetup {
 		t.Cleanup(func() { conn.Close() })
 
 		client := multipoolermanagerpb.NewMultiPoolerManagerClient(conn)
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		ctx, cancel = context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 
 		// First, set the pooler type to PRIMARY
@@ -763,6 +812,8 @@ func TestSetPrimaryConnInfo(t *testing.T) {
 			Port:                  int32(setup.PrimaryPgctld.PgPort),
 			StartReplicationAfter: true,
 			StopReplicationBefore: false,
+			CurrentTerm:           1,
+			Force:                 false,
 		}
 		_, err = standbyManagerClient.SetPrimaryConnInfo(ctx, setPrimaryReq)
 		require.NoError(t, err, "SetPrimaryConnInfo should succeed")
@@ -803,5 +854,37 @@ func TestSetPrimaryConnInfo(t *testing.T) {
 		// Cleanup: Drop the test table from primary
 		_, err = primaryPoolerClient.ExecuteQuery("DROP TABLE IF EXISTS test_replication", 0)
 		require.NoError(t, err)
+	})
+
+	t.Run("TermMismatchRejected", func(t *testing.T) {
+		// Connect to standby manager
+		standbyConn, err := grpc.NewClient(
+			fmt.Sprintf("localhost:%d", setup.StandbyMultipooler.GrpcPort),
+			grpc.WithTransportCredentials(insecure.NewCredentials()),
+		)
+		require.NoError(t, err)
+		defer standbyConn.Close()
+		standbyManagerClient := multipoolermanagerpb.NewMultiPoolerManagerClient(standbyConn)
+
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		// Try to set primary conn info with wrong term (current term is 1, we'll try with 99)
+		setPrimaryReq := &multipoolermanagerdata.SetPrimaryConnInfoRequest{
+			Host:                  "localhost",
+			Port:                  int32(setup.PrimaryPgctld.PgPort),
+			StartReplicationAfter: true,
+			StopReplicationBefore: false,
+			CurrentTerm:           99, // Wrong term
+			Force:                 false,
+		}
+		_, err = standbyManagerClient.SetPrimaryConnInfo(ctx, setPrimaryReq)
+		require.Error(t, err, "SetPrimaryConnInfo should fail with wrong term")
+		assert.Contains(t, err.Error(), "consensus term mismatch", "Error should mention term mismatch")
+
+		// Try again with force=true, should succeed
+		setPrimaryReq.Force = true
+		_, err = standbyManagerClient.SetPrimaryConnInfo(ctx, setPrimaryReq)
+		require.NoError(t, err, "SetPrimaryConnInfo should succeed with force=true")
 	})
 }
