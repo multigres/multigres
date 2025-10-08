@@ -900,18 +900,18 @@ func TestSetPrimaryConnInfo(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 
-		// Try to set primary conn info with wrong term (current term is 1, we'll try with 99)
+		// Try to set primary conn info with stale term (current term is 1, we'll try with 0)
 		setPrimaryReq := &multipoolermanagerdata.SetPrimaryConnInfoRequest{
 			Host:                  "localhost",
 			Port:                  int32(setup.PrimaryPgctld.PgPort),
 			StartReplicationAfter: true,
 			StopReplicationBefore: false,
-			CurrentTerm:           99, // Wrong term
+			CurrentTerm:           0, // Stale term (lower than current term 1)
 			Force:                 false,
 		}
 		_, err = standbyManagerClient.SetPrimaryConnInfo(ctx, setPrimaryReq)
-		require.Error(t, err, "SetPrimaryConnInfo should fail with wrong term")
-		assert.Contains(t, err.Error(), "consensus term mismatch", "Error should mention term mismatch")
+		require.Error(t, err, "SetPrimaryConnInfo should fail with stale term")
+		assert.Contains(t, err.Error(), "consensus term too old", "Error should mention term is too old")
 
 		// Try again with force=true, should succeed
 		setPrimaryReq.Force = true
