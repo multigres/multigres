@@ -387,7 +387,7 @@ func (pm *MultiPoolerManager) SetPrimaryConnInfo(ctx context.Context, host strin
 		"current_term", currentTerm,
 		"force", force)
 
-	// Validate and update consensus term following Raft rules
+	// Validate and update consensus term following consensus rules
 	if err := pm.validateAndUpdateTerm(ctx, currentTerm, force); err != nil {
 		return err
 	}
