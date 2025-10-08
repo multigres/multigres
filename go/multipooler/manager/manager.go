@@ -471,7 +471,9 @@ func (pm *MultiPoolerManager) SetPrimaryConnInfo(ctx context.Context, host strin
 		return mterrors.Wrap(err, "failed to reload PostgreSQL configuration")
 	}
 
-	// Optionally start replication after making changes
+	// Optionally start replication after making changes.
+	// Note: If replication was already running when calling SetPrimaryConnInfo,
+	// even if we don't set startReplicationAfter to true, replication will be running.
 	if startReplicationAfter {
 		// Reconnect to database after restart
 		if err := pm.connectDB(); err != nil {
