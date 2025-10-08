@@ -447,6 +447,7 @@ func (p *localProvisioner) provisionMultigateway(ctx context.Context, req *provi
 		"--cell", cell,
 		"--log-level", logLevel,
 		"--log-output", logFile,
+		"--hostname", "localhost",
 	}
 
 	// Start multigateway process
@@ -580,6 +581,7 @@ func (p *localProvisioner) provisionMultiadmin(ctx context.Context, req *provisi
 		"--log-level", logLevel,
 		"--log-output", logFile,
 		"--service-map", "grpc-multiadmin",
+		"--hostname", "localhost",
 	}
 
 	// Start multiadmin process
@@ -769,6 +771,7 @@ func (p *localProvisioner) provisionMultipooler(ctx context.Context, req *provis
 		"--log-output", logFile,
 		"--pooler-dir", poolerDir,
 		"--pg-port", fmt.Sprintf("%d", pgPort),
+		"--hostname", "localhost",
 	}
 
 	// Add socket file if configured
@@ -923,6 +926,7 @@ func (p *localProvisioner) provisionMultiOrch(ctx context.Context, req *provisio
 		"--cell", cell,
 		"--log-level", logLevel,
 		"--log-output", logFile,
+		"--hostname", "localhost",
 	}
 
 	// Start multiorch process
@@ -1046,6 +1050,8 @@ func (p *localProvisioner) stopService(ctx context.Context, req *provisioner.Dep
 	case "multipooler":
 		fallthrough
 	case "multiorch":
+		fallthrough
+	case "multiadmin":
 		return p.deprovisionService(ctx, req)
 	case "pgctld":
 		// pgctld requires special handling to stop PostgreSQL first

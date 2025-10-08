@@ -33,7 +33,7 @@ var (
 	adminServer *server.MultiAdminServer
 )
 
-// Register flags that are specific to multiadmin.
+// RegisterFlags registers flags specific to multiadmin.
 func RegisterFlags(fs *pflag.FlagSet) {
 	// Nothing to register for now.
 }
