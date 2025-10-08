@@ -247,6 +247,81 @@ func (pm *MultiPoolerManager) IsReadOnly(ctx context.Context) (bool, error) {
 	return false, mterrors.New(mtrpcpb.Code_UNIMPLEMENTED, "method IsReadOnly not implemented")
 }
 
+// validateAndUpdateTerm validates the request term against the current term following Consensus rules.
+// Returns an error if the request term is stale (less than current term).
+// If the request term is higher, it updates the term in pgctld and the cache.
+// If force is true, validation is skipped.
+func (pm *MultiPoolerManager) validateAndUpdateTerm(ctx context.Context, requestTerm int64, force bool) error {
+	if force {
+		return nil // Skip validation if force is set
+	}
+
+	pm.mu.RLock()
+	currentTerm := int64(0)
+	if pm.consensusTerm != nil {
+		currentTerm = pm.consensusTerm.GetCurrentTerm()
+	}
+	pm.mu.RUnlock()
+
+	// Check if consensus term has been initialized (term 0 means uninitialized)
+	if currentTerm == 0 {
+		pm.logger.Error("Consensus term not initialized",
+			"service_id", pm.serviceID.String())
+		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
+			"consensus term not initialized, must be explicitly set via SetTerm (use force=true to bypass)")
+	}
+
+	// If request term == current term: ACCEPT (same term, execute)
+	// If request term < current term: REJECT (stale request)
+	// If request term > current term: UPDATE term and ACCEPT (new term discovered)
+	if requestTerm < currentTerm {
+		// Request has stale term, reject
+		pm.logger.Error("Consensus term too old, rejecting request",
+			"request_term", requestTerm,
+			"current_term", currentTerm,
+			"service_id", pm.serviceID.String())
+		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
+			fmt.Sprintf("consensus term too old: request term %d is less than current term %d (use force=true to bypass)",
+				requestTerm, currentTerm))
+	} else if requestTerm > currentTerm {
+		// Request has newer term, update our term
+		pm.logger.Info("Discovered newer term, updating",
+			"request_term", requestTerm,
+			"old_term", currentTerm,
+			"service_id", pm.serviceID.String())
+
+		newTerm := &pgctldpb.ConsensusTerm{
+			CurrentTerm:  requestTerm,
+			VotedFor:     nil,
+			LastVoteTime: nil,
+			LeaderId:     nil,
+		}
+
+		// Update term in pgctld
+		conn, err := pm.createPgctldClient()
+		if err != nil {
+			pm.logger.Error("Failed to create pgctld client for term update", "error", err)
+			return mterrors.Wrap(err, "failed to create pgctld client for term update")
+		}
+		client := pgctldpb.NewPgCtldClient(conn)
+		_, err = client.SetTerm(ctx, &pgctldpb.SetTermRequest{Term: newTerm})
+		conn.Close()
+		if err != nil {
+			pm.logger.Error("Failed to update term in pgctld", "error", err)
+			return mterrors.Wrap(err, "failed to update consensus term")
+		}
+
+		// Update our cached term
+		pm.mu.Lock()
+		pm.consensusTerm = newTerm
+		pm.mu.Unlock()
+
+		pm.logger.Info("Consensus term updated successfully", "new_term", requestTerm)
+	}
+	// If requestTerm == currentCachedTerm, just continue (same term is OK)
+	return nil
+}
+
 // loadConsensusTermFromPgctld loads the consensus term from pgctld asynchronously
 func (pm *MultiPoolerManager) loadConsensusTermFromPgctld() {
 	ticker := timertools.NewBackoffTicker(100*time.Millisecond, 30*time.Second)
@@ -312,21 +387,9 @@ func (pm *MultiPoolerManager) SetPrimaryConnInfo(ctx context.Context, host strin
 		"current_term", currentTerm,
 		"force", force)
 
-	// Validate consensus term unless force is set
-	if !force {
-		pm.mu.RLock()
-		cachedTerm := pm.consensusTerm
-		pm.mu.RUnlock()
-
-		if cachedTerm == nil || cachedTerm.GetCurrentTerm() != currentTerm {
-			pm.logger.Error("Consensus term mismatch",
-				"request_term", currentTerm,
-				"cached_term", cachedTerm.GetCurrentTerm(),
-				"service_id", pm.serviceID.String())
-			return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
-				fmt.Sprintf("consensus term mismatch: request term %d does not match current term %d (use force=true to bypass)",
-					currentTerm, cachedTerm.GetCurrentTerm()))
-		}
+	// Validate and update consensus term following Raft rules
+	if err := pm.validateAndUpdateTerm(ctx, currentTerm, force); err != nil {
+		return err
 	}
 
 	// Guardrail: Check pooler type - only REPLICA poolers can set primary_conninfo

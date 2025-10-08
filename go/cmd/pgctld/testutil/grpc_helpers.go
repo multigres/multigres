@@ -314,6 +314,12 @@ ready:
 // StartMockPgctldServer starts a mock pgctld server with consensus term support
 // Returns the server address and a cleanup function
 func StartMockPgctldServer(t *testing.T) (string, func()) {
+	return StartMockPgctldServerWithTerm(t, 1)
+}
+
+// StartMockPgctldServerWithTerm starts a mock pgctld server with a specific initial consensus term
+// Returns the server address and a cleanup function
+func StartMockPgctldServerWithTerm(t *testing.T, initialTerm int64) (string, func()) {
 	t.Helper()
 
 	// Create a listener on a random port
@@ -326,7 +332,7 @@ func StartMockPgctldServer(t *testing.T) (string, func()) {
 	grpcServer := grpc.NewServer()
 	mockService := &MockPgCtldService{
 		ConsensusTerm: &pb.ConsensusTerm{
-			CurrentTerm: 1,
+			CurrentTerm: initialTerm,
 		},
 	}
 	pb.RegisterPgCtldServer(grpcServer, mockService)
@@ -337,7 +343,7 @@ func StartMockPgctldServer(t *testing.T) (string, func()) {
 	}()
 
 	addr := lis.Addr().String()
-	t.Logf("Mock pgctld server started at %s", addr)
+	t.Logf("Mock pgctld server started at %s with term %d", addr, initialTerm)
 
 	cleanup := func() {
 		grpcServer.Stop()
