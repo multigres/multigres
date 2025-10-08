@@ -16,9 +16,9 @@ syntax = "proto3";
 
 package pgctldservice;
 
+import "clustermetadata.proto";
 import "google/protobuf/duration.proto";
 import "google/protobuf/timestamp.proto";
-import "clustermetadata.proto";
 
 option go_package = "github.com/multigres/multigres/go/pb/pgctldservice";
 
