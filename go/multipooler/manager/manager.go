@@ -27,12 +27,12 @@ import (
 
 	"github.com/multigres/multigres/go/clustermetadata/topo"
 	"github.com/multigres/multigres/go/mterrors"
+	"github.com/multigres/multigres/go/servenv"
+	"github.com/multigres/multigres/go/tools/timertools"
+
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multipoolermanagerdata "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
-	pgctldpb "github.com/multigres/multigres/go/pb/pgctldservice"
-	"github.com/multigres/multigres/go/servenv"
-	"github.com/multigres/multigres/go/tools/timertools"
 )
 
 // ManagerState represents the state of the MultiPoolerManager
@@ -324,13 +324,6 @@ func (pm *MultiPoolerManager) SetPrimaryConnInfo(ctx context.Context, host strin
 		return mterrors.Wrap(err, "failed to reload PostgreSQL configuration")
 	}
 
-	// Restart PostgreSQL to start the WAL receiver process
-	// The WAL receiver won't start automatically when primary_conninfo is set dynamically
-	if err := pm.restartPostgreSQL(ctx); err != nil {
-		pm.logger.Error("Failed to restart PostgreSQL", "error", err)
-		return mterrors.Wrap(err, "failed to restart PostgreSQL")
-	}
-
 	// Optionally start replication after making changes
 	if startReplicationAfter {
 		// Reconnect to database after restart
@@ -375,41 +368,6 @@ func (pm *MultiPoolerManager) createPgctldClient() (*grpc.ClientConn, error) {
 	}
 
 	return conn, nil
-}
-
-// restartPostgreSQL restarts PostgreSQL via pgctld
-func (pm *MultiPoolerManager) restartPostgreSQL(ctx context.Context) error {
-	pm.logger.Info("Restarting PostgreSQL via pgctld")
-
-	// Create pgctld client
-	conn, err := pm.createPgctldClient()
-	if err != nil {
-		return err
-	}
-	defer conn.Close()
-
-	pgctldClient := pgctldpb.NewPgCtldClient(conn)
-
-	// Close the database connection before restarting
-	if pm.db != nil {
-		pm.db.Close()
-		pm.db = nil
-	}
-
-	// Restart PostgreSQL with fast mode
-	restartCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-
-	_, err = pgctldClient.Restart(restartCtx, &pgctldpb.RestartRequest{
-		Mode: "fast",
-	})
-	if err != nil {
-		pm.logger.Error("Failed to restart PostgreSQL via pgctld", "error", err)
-		return mterrors.Wrap(err, "failed to restart PostgreSQL")
-	}
-
-	pm.logger.Info("PostgreSQL restarted successfully")
-	return nil
 }
 
 // StartReplication starts WAL replay on standby (calls pg_wal_replay_resume)
