@@ -51,6 +51,45 @@ var (
 	setupError      error
 )
 
+// cleanupSharedTestSetup cleans up the shared test infrastructure
+func cleanupSharedTestSetup() {
+	if sharedTestSetup == nil {
+		return
+	}
+
+	// Stop multipooler instances
+	if sharedTestSetup.StandbyMultipooler != nil {
+		sharedTestSetup.StandbyMultipooler.Stop()
+	}
+	if sharedTestSetup.PrimaryMultipooler != nil {
+		sharedTestSetup.PrimaryMultipooler.Stop()
+	}
+
+	// Stop pgctld instances
+	if sharedTestSetup.StandbyPgctld != nil {
+		sharedTestSetup.StandbyPgctld.Stop()
+	}
+	if sharedTestSetup.PrimaryPgctld != nil {
+		sharedTestSetup.PrimaryPgctld.Stop()
+	}
+
+	// Close topology server
+	if sharedTestSetup.TopoServer != nil {
+		sharedTestSetup.TopoServer.Close()
+	}
+
+	// Stop etcd
+	if sharedTestSetup.EtcdCmd != nil && sharedTestSetup.EtcdCmd.Process != nil {
+		_ = sharedTestSetup.EtcdCmd.Process.Kill()
+		_ = sharedTestSetup.EtcdCmd.Wait()
+	}
+
+	// Clean up temp directory
+	if sharedTestSetup.TempDir != "" {
+		_ = os.RemoveAll(sharedTestSetup.TempDir)
+	}
+}
+
 // ProcessInstance represents a process instance for testing (pgctld or multipooler)
 type ProcessInstance struct {
 	Name        string
@@ -316,17 +355,13 @@ func getSharedTestSetup(t *testing.T) *MultipoolerTestSetup {
 			return
 		}
 
-		tempDir, cleanupTempDir := testutil.TempDir(t, "multipooler_shared_test")
-		t.Cleanup(cleanupTempDir)
+		tempDir, _ := testutil.TempDir(t, "multipooler_shared_test")
+		// Note: cleanup will be handled by TestMain to ensure it runs after all tests
 
 		// Start etcd for topology
 		t.Logf("Starting etcd for topology...")
 		etcdClientAddr, etcdCmd := etcdtopo.StartEtcd(t, 0)
-		t.Cleanup(func() {
-			if etcdCmd != nil && etcdCmd.Process != nil {
-				_ = etcdCmd.Process.Kill()
-			}
-		})
+		// Note: cleanup will be handled by TestMain
 
 		// Create topology server and cell
 		testRoot := "/multigres"
@@ -339,7 +374,7 @@ func getSharedTestSetup(t *testing.T) *MultipoolerTestSetup {
 			setupError = fmt.Errorf("failed to open topology server: %w", err)
 			return
 		}
-		t.Cleanup(func() { ts.Close() })
+		// Note: cleanup will be handled by TestMain
 
 		// Create the cell
 		err = ts.CreateCell(context.Background(), cellName, &clustermetadatapb.Cell{
@@ -378,13 +413,13 @@ func getSharedTestSetup(t *testing.T) *MultipoolerTestSetup {
 			setupError = fmt.Errorf("failed to start primary pgctld: %w", err)
 			return
 		}
-		t.Cleanup(func() { primaryPgctld.Stop() })
+		// Note: cleanup will be handled by TestMain
 
 		if err := standbyPgctld.Start(t); err != nil {
 			setupError = fmt.Errorf("failed to start standby pgctld: %w", err)
 			return
 		}
-		t.Cleanup(func() { standbyPgctld.Stop() })
+		// Note: cleanup will be handled by TestMain
 
 		// Initialize and start primary PostgreSQL (normal flow)
 		primaryGrpcAddr := fmt.Sprintf("localhost:%d", primaryPgctld.GrpcPort)
@@ -464,13 +499,13 @@ func getSharedTestSetup(t *testing.T) *MultipoolerTestSetup {
 			setupError = fmt.Errorf("failed to start primary multipooler: %w", err)
 			return
 		}
-		t.Cleanup(func() { primaryMultipooler.Stop() })
+		// Note: cleanup will be handled by TestMain
 
 		if err := standbyMultipooler.Start(t); err != nil {
 			setupError = fmt.Errorf("failed to start standby multipooler: %w", err)
 			return
 		}
-		t.Cleanup(func() { standbyMultipooler.Stop() })
+		// Note: cleanup will be handled by TestMain
 
 		// Note: this is something that would probably be wired the first time on bootstrap.
 		//  but we'll do it here for now as those parte are not implemented yet.
@@ -479,7 +514,7 @@ func getSharedTestSetup(t *testing.T) *MultipoolerTestSetup {
 			grpc.WithTransportCredentials(insecure.NewCredentials()),
 		)
 		require.NoError(t, err)
-		t.Cleanup(func() { conn.Close() })
+		defer conn.Close()
 
 		client := multipoolermanagerpb.NewMultiPoolerManagerClient(conn)
 		ctx, cancel = context.WithTimeout(context.Background(), 5*time.Second)
@@ -498,26 +533,26 @@ func getSharedTestSetup(t *testing.T) *MultipoolerTestSetup {
 		t.Logf("Verifying standby is in recovery mode...")
 		standbyPoolerClient, err := NewMultiPoolerTestClient(fmt.Sprintf("localhost:%d", standbyMultipooler.GrpcPort))
 		require.NoError(t, err)
-		t.Cleanup(func() { standbyPoolerClient.Close() })
 		queryResp, err := standbyPoolerClient.ExecuteQuery("SELECT pg_is_in_recovery()", 1)
 		require.NoError(t, err)
 		require.NotNil(t, queryResp)
 		require.Len(t, queryResp.Rows, 1)
 		require.Len(t, queryResp.Rows[0].Values, 1)
 		require.Equal(t, "true", string(queryResp.Rows[0].Values[0]))
+		standbyPoolerClient.Close() // Close immediately after use
 
 		changeTypeReq = &multipoolermanagerdata.ChangeTypeRequest{
 			PoolerType: clustermetadatapb.PoolerType_REPLICA,
 		}
 
-		conn, err = grpc.NewClient(
+		standbyConn, err := grpc.NewClient(
 			fmt.Sprintf("localhost:%d", standbyMultipooler.GrpcPort),
 			grpc.WithTransportCredentials(insecure.NewCredentials()),
 		)
 		require.NoError(t, err)
-		t.Cleanup(func() { conn.Close() })
+		defer standbyConn.Close()
 
-		standbyPoolerManagerClient := multipoolermanagerpb.NewMultiPoolerManagerClient(conn)
+		standbyPoolerManagerClient := multipoolermanagerpb.NewMultiPoolerManagerClient(standbyConn)
 		_, err = standbyPoolerManagerClient.ChangeType(ctx, changeTypeReq)
 		require.NoError(t, err)
 
@@ -686,10 +721,6 @@ func TestMultipoolerPrimaryPosition(t *testing.T) {
 		}
 
 		// Assert that it succeeds and returns a valid LSN
-		if err != nil {
-			t.Logf("Error getting primary position: %v", err)
-			setup.PrimaryMultipooler.logRecentOutput(t, "Debug - error getting primary position")
-		}
 		require.NoError(t, err)
 		require.NotNil(t, resp)
 		assert.NotEmpty(t, resp.LsnPosition, "LSN should not be empty")

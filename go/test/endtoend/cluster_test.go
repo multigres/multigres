@@ -621,6 +621,9 @@ func TestMain(m *testing.M) {
 		os.RemoveAll(filepath.Dir(multigresBinary))
 	}
 
+	// Clean up shared multipooler test infrastructure
+	cleanupSharedTestSetup()
+
 	// Exit with the test result code
 	os.Exit(exitCode)
 }
