@@ -29,6 +29,7 @@ type PgCtlCommand struct {
 	pgUser     viperutil.Value[string]
 	poolerDir  viperutil.Value[string]
 	timeout    viperutil.Value[int]
+	vc         *viperutil.ViperConfig
 }
 
 // GetRootCommand creates and returns the root command for pgctld with all subcommands
@@ -54,6 +55,7 @@ func GetRootCommand() *cobra.Command {
 			FlagName: "pooler-dir",
 			Dynamic:  false,
 		}),
+		vc: viperutil.NewViperConfig(),
 	}
 
 	root := &cobra.Command{
@@ -68,7 +70,8 @@ management for PostgreSQL servers.`,
 	root.PersistentFlags().StringP("pg-database", "D", pc.pgDatabase.Default(), "PostgreSQL database name")
 	root.PersistentFlags().StringP("pg-user", "U", pc.pgUser.Default(), "PostgreSQL username")
 	root.PersistentFlags().IntP("timeout", "t", pc.timeout.Default(), "Operation timeout in seconds")
-	root.PersistentFlags().StringP("pooler-dir", "p", pc.poolerDir.Default(), "The directory to multipooler data")
+	root.PersistentFlags().String("pooler-dir", pc.poolerDir.Default(), "The directory to multipooler data")
+	pc.vc.RegisterFlags(root.PersistentFlags())
 
 	viperutil.BindFlags(root.PersistentFlags(),
 		pc.pgDatabase,

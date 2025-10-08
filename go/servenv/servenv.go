@@ -52,6 +52,7 @@ type ServEnv struct {
 	MaxStackSize    int
 	InitStartTime   time.Time
 	TableRefreshInt int
+	vc              *viperutil.ViperConfig
 
 	// Hooks
 	OnInitHooks     event.Hooks
@@ -107,6 +108,7 @@ func NewServEnv() *ServEnv {
 			OnTermTimeout:  10 * time.Second,
 			OnCloseTimeout: 10 * time.Second,
 		},
+		vc:           viperutil.NewViperConfig(),
 		MaxStackSize: 64 * 1024 * 1024,
 		mux:          http.NewServeMux(),
 		lg:           NewLogger(),
@@ -306,7 +308,7 @@ func (sv *ServEnv) CobraPreRunE(cmd *cobra.Command) error {
 		}
 	}()
 
-	watchCancel, err := viperutil.LoadConfig()
+	watchCancel, err := sv.vc.LoadConfig()
 	if err != nil {
 		return fmt.Errorf("%s: failed to read in config: %s", cmd.Name(), err)
 	}
@@ -363,7 +365,7 @@ func (se *ServEnv) RegisterFlags(fs *pflag.FlagSet) {
 	}
 
 	se.lg.RegisterFlags(fs)
-	viperutil.RegisterFlags(fs)
+	se.vc.RegisterFlags(fs)
 
 	// Service Map
 	// OnParse(func(fs *pflag.FlagSet) {

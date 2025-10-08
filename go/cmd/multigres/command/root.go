@@ -24,13 +24,13 @@ import (
 
 // MultigresCommand holds the configuration for multigres commands
 type MultigresCommand struct {
-	// Add any shared configuration values here if needed in the future
+	vc *viperutil.ViperConfig
 }
 
 // GetRootCommand creates and returns the root command for multigres with all subcommands
 func GetRootCommand() *cobra.Command {
 	mc := &MultigresCommand{
-		// Initialize any shared configuration here
+		vc: viperutil.NewViperConfig(),
 	}
 
 	root := &cobra.Command{
@@ -63,12 +63,13 @@ Configuration:
 			viper.SetConfigName("multigres")
 
 			// Load config (without the full servenv setup)
-			_, err := viperutil.LoadConfig()
+			_, err := mc.vc.LoadConfig()
 			return err
 		},
 	}
 
 	// Add any other servenv flags
+	mc.vc.RegisterFlags(root.PersistentFlags())
 	servenv.AddFlagSetToCobraCommand(root)
 
 	// Override the default display value for multigres
