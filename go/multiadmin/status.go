@@ -50,9 +50,9 @@ var serverStatus = Status{
 
 func init() {
 	servenv.HTTPHandleFunc("/", handleIndex)
-	servenv.HTTPHandleFunc("/services", handleServices)
-	servenv.HTTPHandleFunc("/ready", handleReady)
 	servenv.HTTPHandleFunc("/proxy/", handleProxy)
+	servenv.HTTPHandleFunc("/ready", handleReady)
+	servenv.HTTPHandleFunc("/services", handleServices)
 }
 
 // handleIndex serves the index page
