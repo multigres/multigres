@@ -341,6 +341,174 @@ func createMultipoolerInstance(t *testing.T, name, baseDir string, grpcPort int,
 	}
 }
 
+// initializePrimary sets up the primary pgctld, PostgreSQL, consensus term, and multipooler
+func initializePrimary(t *testing.T, pgctld *ProcessInstance, multipooler *ProcessInstance) error {
+	t.Helper()
+
+	// Start primary pgctld server
+	if err := pgctld.Start(t); err != nil {
+		return fmt.Errorf("failed to start primary pgctld: %w", err)
+	}
+
+	// Initialize and start primary PostgreSQL
+	primaryGrpcAddr := fmt.Sprintf("localhost:%d", pgctld.GrpcPort)
+	if err := InitAndStartPostgreSQL(t, primaryGrpcAddr); err != nil {
+		return fmt.Errorf("failed to init and start primary PostgreSQL: %w", err)
+	}
+
+	// Initialize consensus term to 1
+	t.Logf("Initializing consensus term to 1 for primary...")
+	initialTerm := &pgctldpb.ConsensusTerm{
+		CurrentTerm:  1,
+		VotedFor:     nil,
+		LastVoteTime: nil,
+		LeaderId:     nil,
+	}
+
+	primaryPgctldConn, err := grpc.NewClient(
+		primaryGrpcAddr,
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	)
+	if err != nil {
+		return fmt.Errorf("failed to connect to primary pgctld: %w", err)
+	}
+	primaryPgctldClient := pgctldpb.NewPgCtldClient(primaryPgctldConn)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	_, err = primaryPgctldClient.SetTerm(ctx, &pgctldpb.SetTermRequest{Term: initialTerm})
+	cancel()
+	primaryPgctldConn.Close()
+	if err != nil {
+		return fmt.Errorf("failed to set term for primary: %w", err)
+	}
+	t.Logf("Primary consensus term set to 1")
+
+	// Start primary multipooler
+	if err := multipooler.Start(t); err != nil {
+		return fmt.Errorf("failed to start primary multipooler: %w", err)
+	}
+
+	// Set pooler type to PRIMARY
+	conn, err := grpc.NewClient(
+		fmt.Sprintf("localhost:%d", multipooler.GrpcPort),
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	)
+	if err != nil {
+		return fmt.Errorf("failed to connect to primary multipooler: %w", err)
+	}
+	defer conn.Close()
+
+	client := multipoolermanagerpb.NewMultiPoolerManagerClient(conn)
+	ctx, cancel = context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	changeTypeReq := &multipoolermanagerdata.ChangeTypeRequest{
+		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
+	}
+	_, err = client.ChangeType(ctx, changeTypeReq)
+	if err != nil {
+		return fmt.Errorf("failed to set primary pooler type: %w", err)
+	}
+
+	t.Logf("Primary initialized successfully")
+	return nil
+}
+
+// initializeStandby sets up the standby pgctld, PostgreSQL (with replication), consensus term, and multipooler
+func initializeStandby(t *testing.T, primaryPgctld *ProcessInstance, standbyPgctld *ProcessInstance, standbyMultipooler *ProcessInstance) error {
+	t.Helper()
+
+	// Start standby pgctld server
+	if err := standbyPgctld.Start(t); err != nil {
+		return fmt.Errorf("failed to start standby pgctld: %w", err)
+	}
+
+	// Initialize standby data directory (but don't start yet)
+	standbyGrpcAddr := fmt.Sprintf("localhost:%d", standbyPgctld.GrpcPort)
+	if err := InitPostgreSQLDataDir(t, standbyGrpcAddr); err != nil {
+		return fmt.Errorf("failed to init standby data dir: %w", err)
+	}
+
+	// Configure standby as a replica using pg_basebackup
+	t.Logf("Configuring standby as replica of primary...")
+	setupStandbyReplication(t, primaryPgctld, standbyPgctld)
+
+	// Start standby PostgreSQL (now configured as replica)
+	if err := StartPostgreSQL(t, standbyGrpcAddr); err != nil {
+		return fmt.Errorf("failed to start standby PostgreSQL: %w", err)
+	}
+
+	// Initialize consensus term to 1
+	t.Logf("Initializing consensus term to 1 for standby...")
+	initialTerm := &pgctldpb.ConsensusTerm{
+		CurrentTerm:  1,
+		VotedFor:     nil,
+		LastVoteTime: nil,
+		LeaderId:     nil,
+	}
+
+	standbyPgctldConn, err := grpc.NewClient(
+		standbyGrpcAddr,
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	)
+	if err != nil {
+		return fmt.Errorf("failed to connect to standby pgctld: %w", err)
+	}
+	standbyPgctldClient := pgctldpb.NewPgCtldClient(standbyPgctldConn)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	_, err = standbyPgctldClient.SetTerm(ctx, &pgctldpb.SetTermRequest{Term: initialTerm})
+	cancel()
+	standbyPgctldConn.Close()
+	if err != nil {
+		return fmt.Errorf("failed to set term for standby: %w", err)
+	}
+	t.Logf("Standby consensus term set to 1")
+
+	// Start standby multipooler
+	if err := standbyMultipooler.Start(t); err != nil {
+		return fmt.Errorf("failed to start standby multipooler: %w", err)
+	}
+
+	// Verify standby is in recovery mode
+	t.Logf("Verifying standby is in recovery mode...")
+	standbyPoolerClient, err := NewMultiPoolerTestClient(fmt.Sprintf("localhost:%d", standbyMultipooler.GrpcPort))
+	if err != nil {
+		return fmt.Errorf("failed to create standby pooler client: %w", err)
+	}
+	queryResp, err := standbyPoolerClient.ExecuteQuery("SELECT pg_is_in_recovery()", 1)
+	standbyPoolerClient.Close()
+	if err != nil {
+		return fmt.Errorf("failed to check standby recovery status: %w", err)
+	}
+	if len(queryResp.Rows) == 0 || len(queryResp.Rows[0].Values) == 0 || string(queryResp.Rows[0].Values[0]) != "true" {
+		return fmt.Errorf("standby is not in recovery mode")
+	}
+
+	// Set pooler type to REPLICA
+	standbyConn, err := grpc.NewClient(
+		fmt.Sprintf("localhost:%d", standbyMultipooler.GrpcPort),
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	)
+	if err != nil {
+		return fmt.Errorf("failed to connect to standby multipooler: %w", err)
+	}
+	defer standbyConn.Close()
+
+	standbyClient := multipoolermanagerpb.NewMultiPoolerManagerClient(standbyConn)
+	ctx, cancel = context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	changeTypeReq := &multipoolermanagerdata.ChangeTypeRequest{
+		PoolerType: clustermetadatapb.PoolerType_REPLICA,
+	}
+	_, err = standbyClient.ChangeType(ctx, changeTypeReq)
+	if err != nil {
+		return fmt.Errorf("failed to set standby pooler type: %w", err)
+	}
+
+	t.Logf("Standby initialized successfully")
+	return nil
+}
+
 // getSharedTestSetup creates or returns the shared test infrastructure
 func getSharedTestSetup(t *testing.T) *MultipoolerTestSetup {
 	t.Helper()
@@ -408,153 +576,17 @@ func getSharedTestSetup(t *testing.T) *MultipoolerTestSetup {
 		standbyMultipooler := createMultipoolerInstance(t, "standby-multipooler", tempDir, standbyMultipoolerPort,
 			fmt.Sprintf("localhost:%d", standbyGrpcPort), standbyPgctld.DataDir, standbyPgctld.PgPort, etcdClientAddr)
 
-		// Start pgctld servers
-		if err := primaryPgctld.Start(t); err != nil {
-			setupError = fmt.Errorf("failed to start primary pgctld: %w", err)
-			return
-		}
-		// Note: cleanup will be handled by TestMain
-
-		if err := standbyPgctld.Start(t); err != nil {
-			setupError = fmt.Errorf("failed to start standby pgctld: %w", err)
-			return
-		}
-		// Note: cleanup will be handled by TestMain
-
-		// Initialize and start primary PostgreSQL (normal flow)
-		primaryGrpcAddr := fmt.Sprintf("localhost:%d", primaryPgctld.GrpcPort)
-		if err := InitAndStartPostgreSQL(t, primaryGrpcAddr); err != nil {
-			setupError = fmt.Errorf("failed to init and start primary PostgreSQL: %w", err)
+		// Initialize primary (pgctld, PostgreSQL, consensus term, multipooler, type)
+		if err := initializePrimary(t, primaryPgctld, primaryMultipooler); err != nil {
+			setupError = err
 			return
 		}
 
-		// Initialize standby data directory (but don't start yet)
-		standbyGrpcAddr := fmt.Sprintf("localhost:%d", standbyPgctld.GrpcPort)
-		if err := InitPostgreSQLDataDir(t, standbyGrpcAddr); err != nil {
-			setupError = fmt.Errorf("failed to init standby data dir: %w", err)
+		// Initialize standby (pgctld, PostgreSQL with replication, consensus term, multipooler, type)
+		if err := initializeStandby(t, primaryPgctld, standbyPgctld, standbyMultipooler); err != nil {
+			setupError = err
 			return
 		}
-
-		// Configure standby as a replica using pg_basebackup
-		t.Logf("Configuring standby as replica of primary...")
-		setupStandbyReplication(t, primaryPgctld, standbyPgctld)
-
-		// Start standby PostgreSQL (now configured as replica)
-		if err := StartPostgreSQL(t, standbyGrpcAddr); err != nil {
-			setupError = fmt.Errorf("failed to start standby PostgreSQL: %w", err)
-			return
-		}
-
-		// Initialize consensus term to 1 for both primary and standby
-		t.Logf("Initializing consensus term to 1 for primary and standby...")
-		initialTerm := &pgctldpb.ConsensusTerm{
-			CurrentTerm:  1,
-			VotedFor:     nil,
-			LastVoteTime: nil,
-			LeaderId:     nil,
-		}
-
-		// Set term for primary
-		primaryPgctldConn, err := grpc.NewClient(
-			primaryGrpcAddr,
-			grpc.WithTransportCredentials(insecure.NewCredentials()),
-		)
-		if err != nil {
-			setupError = fmt.Errorf("failed to connect to primary pgctld: %w", err)
-			return
-		}
-		primaryPgctldClient := pgctldpb.NewPgCtldClient(primaryPgctldConn)
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		_, err = primaryPgctldClient.SetTerm(ctx, &pgctldpb.SetTermRequest{Term: initialTerm})
-		cancel()
-		primaryPgctldConn.Close()
-		if err != nil {
-			setupError = fmt.Errorf("failed to set term for primary: %w", err)
-			return
-		}
-		t.Logf("Primary consensus term set to 1")
-
-		// Set term for standby
-		standbyPgctldConn, err := grpc.NewClient(
-			standbyGrpcAddr,
-			grpc.WithTransportCredentials(insecure.NewCredentials()),
-		)
-		if err != nil {
-			setupError = fmt.Errorf("failed to connect to standby pgctld: %w", err)
-			return
-		}
-		standbyPgctldClient := pgctldpb.NewPgCtldClient(standbyPgctldConn)
-		ctx, cancel = context.WithTimeout(context.Background(), 5*time.Second)
-		_, err = standbyPgctldClient.SetTerm(ctx, &pgctldpb.SetTermRequest{Term: initialTerm})
-		cancel()
-		standbyPgctldConn.Close()
-		if err != nil {
-			setupError = fmt.Errorf("failed to set term for standby: %w", err)
-			return
-		}
-		t.Logf("Standby consensus term set to 1")
-
-		// Start multipooler instances
-		if err := primaryMultipooler.Start(t); err != nil {
-			setupError = fmt.Errorf("failed to start primary multipooler: %w", err)
-			return
-		}
-		// Note: cleanup will be handled by TestMain
-
-		if err := standbyMultipooler.Start(t); err != nil {
-			setupError = fmt.Errorf("failed to start standby multipooler: %w", err)
-			return
-		}
-		// Note: cleanup will be handled by TestMain
-
-		// Note: this is something that would probably be wired the first time on bootstrap.
-		//  but we'll do it here for now as those parte are not implemented yet.
-		conn, err := grpc.NewClient(
-			fmt.Sprintf("localhost:%d", primaryMultipooler.GrpcPort),
-			grpc.WithTransportCredentials(insecure.NewCredentials()),
-		)
-		require.NoError(t, err)
-		defer conn.Close()
-
-		client := multipoolermanagerpb.NewMultiPoolerManagerClient(conn)
-		ctx, cancel = context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-
-		// First, set the pooler type to PRIMARY
-		changeTypeReq := &multipoolermanagerdata.ChangeTypeRequest{
-			PoolerType: clustermetadatapb.PoolerType_PRIMARY,
-		}
-		_, err = client.ChangeType(ctx, changeTypeReq)
-		require.NoError(t, err)
-
-		// Verify standby is in recovery mode
-		// Note: Standby should be in recovery, but replication is not configured yet
-		// (we'll configure it via SetPrimaryConnInfo RPC in the tests)
-		t.Logf("Verifying standby is in recovery mode...")
-		standbyPoolerClient, err := NewMultiPoolerTestClient(fmt.Sprintf("localhost:%d", standbyMultipooler.GrpcPort))
-		require.NoError(t, err)
-		queryResp, err := standbyPoolerClient.ExecuteQuery("SELECT pg_is_in_recovery()", 1)
-		require.NoError(t, err)
-		require.NotNil(t, queryResp)
-		require.Len(t, queryResp.Rows, 1)
-		require.Len(t, queryResp.Rows[0].Values, 1)
-		require.Equal(t, "true", string(queryResp.Rows[0].Values[0]))
-		standbyPoolerClient.Close() // Close immediately after use
-
-		changeTypeReq = &multipoolermanagerdata.ChangeTypeRequest{
-			PoolerType: clustermetadatapb.PoolerType_REPLICA,
-		}
-
-		standbyConn, err := grpc.NewClient(
-			fmt.Sprintf("localhost:%d", standbyMultipooler.GrpcPort),
-			grpc.WithTransportCredentials(insecure.NewCredentials()),
-		)
-		require.NoError(t, err)
-		defer standbyConn.Close()
-
-		standbyPoolerManagerClient := multipoolermanagerpb.NewMultiPoolerManagerClient(standbyConn)
-		_, err = standbyPoolerManagerClient.ChangeType(ctx, changeTypeReq)
-		require.NoError(t, err)
 
 		sharedTestSetup = &MultipoolerTestSetup{
 			TempDir:            tempDir,
@@ -807,6 +839,7 @@ func TestSetPrimaryConnInfo(t *testing.T) {
 		t.Log("Validating data is NOT in standby (replication not configured)...")
 
 		// Get initial standby LSN
+		// TODO: Once we implement more RPC methods, we should get this from the multipooler manager.
 		queryResp, err := standbyPoolerClient.ExecuteQuery("SELECT pg_last_wal_replay_lsn()::text", 1)
 		require.NoError(t, err)
 		require.Len(t, queryResp.Rows, 1)
