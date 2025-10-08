@@ -110,6 +110,7 @@ func Init() {
 		Database:       database,
 		TopoClient:     ts,
 		ServiceID:      multipooler.Id,
+		PgctldAddr:     pgctldAddr,
 	})
 
 	// Start the MultiPoolerManager

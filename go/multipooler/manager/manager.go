@@ -22,11 +22,15 @@ import (
 	"sync"
 	"time"
 
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
+
 	"github.com/multigres/multigres/go/clustermetadata/topo"
 	"github.com/multigres/multigres/go/mterrors"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multipoolermanagerdata "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
+	pgctldpb "github.com/multigres/multigres/go/pb/pgctldservice"
 	"github.com/multigres/multigres/go/servenv"
 	"github.com/multigres/multigres/go/tools/timertools"
 )
@@ -292,8 +296,8 @@ func (pm *MultiPoolerManager) SetPrimaryConnInfo(ctx context.Context, host strin
 	database := pm.multipooler.Database
 	pm.mu.RUnlock()
 
-	connInfo := fmt.Sprintf("host=%s port=%d user=%s application_name=%s",
-		host, port, database, pm.serviceID.String())
+	connInfo := fmt.Sprintf("host=%s port=%d user=%s application_name=%s_%s",
+		host, port, database, pm.serviceID.Cell, pm.serviceID.Name)
 
 	// Add keepalive settings if heartbeat interval is specified
 	if heartbeatInterval > 0 {
@@ -320,8 +324,21 @@ func (pm *MultiPoolerManager) SetPrimaryConnInfo(ctx context.Context, host strin
 		return mterrors.Wrap(err, "failed to reload PostgreSQL configuration")
 	}
 
+	// Restart PostgreSQL to start the WAL receiver process
+	// The WAL receiver won't start automatically when primary_conninfo is set dynamically
+	if err := pm.restartPostgreSQL(ctx); err != nil {
+		pm.logger.Error("Failed to restart PostgreSQL", "error", err)
+		return mterrors.Wrap(err, "failed to restart PostgreSQL")
+	}
+
 	// Optionally start replication after making changes
 	if startReplicationAfter {
+		// Reconnect to database after restart
+		if err := pm.connectDB(); err != nil {
+			pm.logger.Error("Failed to reconnect to database after restart", "error", err)
+			return mterrors.Wrap(err, "failed to reconnect to database")
+		}
+
 		pm.logger.Info("Starting replication after setting primary_conninfo")
 		_, err := pm.db.ExecContext(ctx, "SELECT pg_wal_replay_resume()")
 		if err != nil {
@@ -331,6 +348,67 @@ func (pm *MultiPoolerManager) SetPrimaryConnInfo(ctx context.Context, host strin
 	}
 
 	pm.logger.Info("SetPrimaryConnInfo completed successfully")
+	return nil
+}
+
+// createPgctldClient creates a gRPC client connection to pgctld
+// Handles both Unix socket and TCP connections
+func (pm *MultiPoolerManager) createPgctldClient() (*grpc.ClientConn, error) {
+	if pm.config.PgctldAddr == "" {
+		return nil, mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION, "pgctld address not configured")
+	}
+
+	pgctldTarget := pm.config.PgctldAddr
+
+	// Check if it's a Unix socket (starts with "unix://" or "/")
+	if len(pgctldTarget) > 0 && (pgctldTarget[0] == '/' || (len(pgctldTarget) > 7 && pgctldTarget[:7] == "unix://")) {
+		pm.logger.Info("Connecting to pgctld via Unix socket", "socket", pgctldTarget)
+	} else {
+		pm.logger.Info("Connecting to pgctld via TCP", "address", pgctldTarget)
+	}
+
+	// Connect to pgctld
+	conn, err := grpc.NewClient(pgctldTarget, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		pm.logger.Error("Failed to connect to pgctld", "error", err, "pgctld_addr", pgctldTarget)
+		return nil, mterrors.Wrap(err, "failed to connect to pgctld")
+	}
+
+	return conn, nil
+}
+
+// restartPostgreSQL restarts PostgreSQL via pgctld
+func (pm *MultiPoolerManager) restartPostgreSQL(ctx context.Context) error {
+	pm.logger.Info("Restarting PostgreSQL via pgctld")
+
+	// Create pgctld client
+	conn, err := pm.createPgctldClient()
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+
+	pgctldClient := pgctldpb.NewPgCtldClient(conn)
+
+	// Close the database connection before restarting
+	if pm.db != nil {
+		pm.db.Close()
+		pm.db = nil
+	}
+
+	// Restart PostgreSQL with fast mode
+	restartCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	_, err = pgctldClient.Restart(restartCtx, &pgctldpb.RestartRequest{
+		Mode: "fast",
+	})
+	if err != nil {
+		pm.logger.Error("Failed to restart PostgreSQL via pgctld", "error", err)
+		return mterrors.Wrap(err, "failed to restart PostgreSQL")
+	}
+
+	pm.logger.Info("PostgreSQL restarted successfully")
 	return nil
 }
 

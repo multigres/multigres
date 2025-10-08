@@ -424,18 +424,18 @@ func getSharedTestSetup(t *testing.T) *MultipoolerTestSetup {
 		t.Cleanup(func() { standbyMultipooler.Stop() })
 
 		// Verify standby is in recovery mode
+		// Note: Standby should be in recovery, but replication is not configured yet
+		// (we'll configure it via SetPrimaryConnInfo RPC in the tests)
 		t.Logf("Verifying standby is in recovery mode...")
 		standbyPoolerClient, err := NewMultiPoolerTestClient(fmt.Sprintf("localhost:%d", standbyMultipooler.GrpcPort))
-		if err == nil {
-			queryResp, err := standbyPoolerClient.ExecuteQuery("SELECT pg_is_in_recovery()", 1)
-			if err == nil && queryResp != nil && len(queryResp.Rows) == 1 && len(queryResp.Rows[0].Values) == 1 {
-				if string(queryResp.Rows[0].Values[0]) == "true" {
-					t.Logf("✓ Standby verified in recovery mode")
-				} else {
-					t.Logf("WARNING: Standby is not in recovery mode!")
-				}
-			}
-		}
+		require.NoError(t, err)
+		t.Cleanup(func() { standbyPoolerClient.Close() })
+		queryResp, err := standbyPoolerClient.ExecuteQuery("SELECT pg_is_in_recovery()", 1)
+		require.NoError(t, err)
+		require.NotNil(t, queryResp)
+		require.Len(t, queryResp.Rows, 1)
+		require.Len(t, queryResp.Rows[0].Values, 1)
+		require.Equal(t, "true", string(queryResp.Rows[0].Values[0]))
 
 		sharedTestSetup = &MultipoolerTestSetup{
 			TempDir:            tempDir,
@@ -447,7 +447,6 @@ func getSharedTestSetup(t *testing.T) *MultipoolerTestSetup {
 			PrimaryMultipooler: primaryMultipooler,
 			StandbyMultipooler: standbyMultipooler,
 		}
-
 		t.Logf("Shared test infrastructure started successfully")
 	})
 
@@ -525,6 +524,7 @@ func setupStandbyReplication(t *testing.T, primaryPgctld *ProcessInstance, stand
 
 	// Create base backup from primary using pg_basebackup
 	// Note: pg_basebackup needs to write to the pg_data subdirectory, not the pooler-dir
+	// We do NOT use -R flag because we want to test SetPrimaryConnInfo RPC method later
 	t.Logf("Creating base backup from primary (port %d) to standby pg_data dir...", primaryPgctld.PgPort)
 	basebackupCmd := exec.Command("pg_basebackup",
 		"-h", "localhost",
@@ -532,8 +532,7 @@ func setupStandbyReplication(t *testing.T, primaryPgctld *ProcessInstance, stand
 		"-U", "postgres",
 		"-D", standbyPgDataDir,
 		"-X", "stream",
-		"-c", "fast",
-		"-R") // -R creates standby.signal and configures primary_conninfo
+		"-c", "fast")
 
 	basebackupCmd.Env = append(os.Environ(), "PGPASSWORD=postgres")
 	output, err := basebackupCmd.CombinedOutput()
@@ -661,16 +660,115 @@ func TestSetPrimaryConnInfo(t *testing.T) {
 	waitForManagerReady(t, setup, setup.PrimaryMultipooler)
 	waitForManagerReady(t, setup, setup.StandbyMultipooler)
 
-	t.Run("VerifyStandbySetup", func(t *testing.T) {
-		// Standby is already configured as replica in shared setup
-		// Just verify it's in recovery mode
-		poolerClient, err := NewMultiPoolerTestClient(fmt.Sprintf("localhost:%d", setup.StandbyMultipooler.GrpcPort))
+	t.Run("ConfigureReplicationAndValidate", func(t *testing.T) {
+		// Connect to primary and standby poolers
+		primaryPoolerClient, err := NewMultiPoolerTestClient(fmt.Sprintf("localhost:%d", setup.PrimaryMultipooler.GrpcPort))
 		require.NoError(t, err)
+		t.Cleanup(func() { primaryPoolerClient.Close() })
+		defer primaryPoolerClient.Close()
 
-		queryResp, err := poolerClient.ExecuteQuery("SELECT pg_is_in_recovery()", 1)
-		require.NoError(t, err, "Should be able to query standby")
-		require.NotNil(t, queryResp)
-		require.Len(t, queryResp.Rows, 1, "Should get one row")
-		require.Equal(t, "true", string(queryResp.Rows[0].Values[0]), "Standby should be in recovery mode")
+		standbyPoolerClient, err := NewMultiPoolerTestClient(fmt.Sprintf("localhost:%d", setup.StandbyMultipooler.GrpcPort))
+		require.NoError(t, err)
+		t.Cleanup(func() { standbyPoolerClient.Close() })
+
+		// Step 1: Create table and insert row in primary
+		t.Log("Step 1: Creating table and inserting data in primary...")
+		_, err = primaryPoolerClient.ExecuteQuery("CREATE TABLE IF NOT EXISTS test_replication (id SERIAL PRIMARY KEY, data TEXT)", 0)
+		require.NoError(t, err, "Should be able to create table in primary")
+
+		_, err = primaryPoolerClient.ExecuteQuery("INSERT INTO test_replication (data) VALUES ('test data')", 0)
+		require.NoError(t, err, "Should be able to insert data in primary")
+
+		// Get LSN from primary
+		queryResp, err := primaryPoolerClient.ExecuteQuery("SELECT pg_current_wal_lsn()::text", 1)
+		require.NoError(t, err)
+		require.Len(t, queryResp.Rows, 1)
+		primaryLSN := string(queryResp.Rows[0].Values[0])
+		t.Logf("Primary LSN after insert: %s", primaryLSN)
+
+		// Get initial standby LSN
+		queryResp, err = standbyPoolerClient.ExecuteQuery("SELECT pg_last_wal_replay_lsn()::text", 1)
+		require.NoError(t, err)
+		require.Len(t, queryResp.Rows, 1)
+		initialStandbyLSN := string(queryResp.Rows[0].Values[0])
+		t.Logf("Initial standby LSN: %s", initialStandbyLSN)
+
+		// Wait a bit and check that LSN hasn't moved
+		time.Sleep(2 * time.Second)
+		queryResp, err = standbyPoolerClient.ExecuteQuery("SELECT pg_last_wal_replay_lsn()::text", 1)
+		require.NoError(t, err)
+		require.Len(t, queryResp.Rows, 1)
+		afterWaitStandbyLSN := string(queryResp.Rows[0].Values[0])
+		t.Logf("Standby LSN after wait: %s", afterWaitStandbyLSN)
+		assert.Equal(t, initialStandbyLSN, afterWaitStandbyLSN, "Standby LSN should not have moved without replication configured")
+
+		// Verify table doesn't exist in standby
+		queryResp, err = standbyPoolerClient.ExecuteQuery("SELECT COUNT(*) FROM pg_tables WHERE tablename = 'test_replication'", 1)
+		require.NoError(t, err)
+		require.Len(t, queryResp.Rows, 1)
+		tableCount := string(queryResp.Rows[0].Values[0])
+		assert.Equal(t, "0", tableCount, "Table should not exist in standby yet")
+
+		// Configure replication using SetPrimaryConnInfo RPC
+		t.Log(" Configuring replication via SetPrimaryConnInfo RPC...")
+
+		// Connect to standby manager
+		conn, err := grpc.NewClient(
+			fmt.Sprintf("localhost:%d", setup.StandbyMultipooler.GrpcPort),
+			grpc.WithTransportCredentials(insecure.NewCredentials()),
+		)
+		require.NoError(t, err)
+		t.Cleanup(func() { conn.Close() })
+
+		managerClient := multipoolermanagerpb.NewMultiPoolerManagerClient(conn)
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+
+		// Call SetPrimaryConnInfo with StartReplicationAfter=true
+		setPrimaryReq := &multipoolermanagerdata.SetPrimaryConnInfoRequest{
+			Host:                  "localhost",
+			Port:                  int32(setup.PrimaryPgctld.PgPort),
+			StartReplicationAfter: true,
+			StopReplicationBefore: false,
+		}
+		_, err = managerClient.SetPrimaryConnInfo(ctx, setPrimaryReq)
+		require.NoError(t, err, "SetPrimaryConnInfo should succeed")
+		t.Log("Replication configured successfully")
+
+		// Validate LSN starts moving and data appears
+		t.Log("Validating LSN moves and data replicates...")
+
+		// Wait for replication to catch up
+		require.Eventually(t, func() bool {
+			queryResp, err := standbyPoolerClient.ExecuteQuery("SELECT pg_last_wal_replay_lsn()::text", 1)
+			if err != nil || len(queryResp.Rows) == 0 {
+				return false
+			}
+			currentStandbyLSN := string(queryResp.Rows[0].Values[0])
+			return currentStandbyLSN != initialStandbyLSN
+		}, 15*time.Second, 500*time.Millisecond, "Standby LSN should advance after replication is configured")
+
+		// Verify the table now exists in standby
+		require.Eventually(t, func() bool {
+			queryResp, err := standbyPoolerClient.ExecuteQuery("SELECT COUNT(*) FROM pg_tables WHERE tablename = 'test_replication'", 1)
+			if err != nil || len(queryResp.Rows) == 0 {
+				return false
+			}
+			tableCount := string(queryResp.Rows[0].Values[0])
+			return tableCount == "1"
+		}, 15*time.Second, 500*time.Millisecond, "Table should exist in standby after replication")
+
+		// Verify the data replicated
+		queryResp, err = standbyPoolerClient.ExecuteQuery("SELECT COUNT(*) FROM test_replication", 1)
+		require.NoError(t, err)
+		require.Len(t, queryResp.Rows, 1)
+		rowCount := string(queryResp.Rows[0].Values[0])
+		assert.Equal(t, "1", rowCount, "Should have 1 row in standby")
+
+		t.Log("Replication is working! Data successfully replicated from primary to standby")
+
+		// Cleanup: Drop the test table from primary
+		_, err = primaryPoolerClient.ExecuteQuery("DROP TABLE IF EXISTS test_replication", 0)
+		require.NoError(t, err)
 	})
 }
