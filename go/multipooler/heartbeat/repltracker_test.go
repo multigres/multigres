@@ -76,6 +76,12 @@ func TestReplTrackerMakeNonPrimary(t *testing.T) {
 		Columns: []string{"pg_backend_pid"},
 		Rows:    [][]interface{}{{int64(12345)}},
 	})
+	db.AddQuery("SELECT ts FROM multigres.heartbeat WHERE shard_id = $1", &fakepgdb.ExpectedResult{
+		Columns: []string{"ts"},
+		Rows: [][]interface{}{
+			{time.Now().Add(-5 * time.Second).UnixNano()},
+		},
+	})
 
 	logger := slog.Default()
 	shardID := []byte("test-shard")
