@@ -26,14 +26,18 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
 	"github.com/multigres/multigres/go/clustermetadata/topo"
 	"github.com/multigres/multigres/go/provisioner"
-	"github.com/multigres/multigres/go/tools/appendpath"
+	"github.com/multigres/multigres/go/provisioner/local/ports"
+	"github.com/multigres/multigres/go/tools/pathutil"
 	"github.com/multigres/multigres/go/tools/semver"
 	"github.com/multigres/multigres/go/tools/stringutil"
+	"github.com/multigres/multigres/go/tools/timertools"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 
@@ -134,9 +138,9 @@ func (p *localProvisioner) provisionEtcd(ctx context.Context, req *provisioner.P
 		}, nil
 	}
 
-	// Get port from config (default 2379)
-	port := 2379
-	if p, ok := etcdConfig["port"].(int); ok {
+	// Get port from config or use default
+	port := ports.DefaultEtcdPort
+	if p, ok := etcdConfig["port"].(int); ok && p > 0 {
 		port = p
 	}
 
@@ -401,14 +405,14 @@ func (p *localProvisioner) provisionMultigateway(ctx context.Context, req *provi
 	}
 
 	// Get HTTP port from cell-specific config
-	httpPort := 15001
-	if p, ok := multigatewayConfig["http_port"].(int); ok {
+	httpPort := ports.DefaultMultigatewayHTTP
+	if p, ok := multigatewayConfig["http_port"].(int); ok && p > 0 {
 		httpPort = p
 	}
 
 	// Get gRPC port from cell-specific config
-	grpcPort := 15991
-	if p, ok := multigatewayConfig["grpc_port"].(int); ok {
+	grpcPort := ports.DefaultMultigatewayGRPC
+	if p, ok := multigatewayConfig["grpc_port"].(int); ok && p > 0 {
 		grpcPort = p
 	}
 
@@ -443,6 +447,7 @@ func (p *localProvisioner) provisionMultigateway(ctx context.Context, req *provi
 		"--cell", cell,
 		"--log-level", logLevel,
 		"--log-output", logFile,
+		"--hostname", "localhost",
 	}
 
 	// Start multigateway process
@@ -529,14 +534,14 @@ func (p *localProvisioner) provisionMultiadmin(ctx context.Context, req *provisi
 	multiadminConfig := p.getServiceConfig("multiadmin")
 
 	// Get HTTP port from config
-	httpPort := 15000
-	if p, ok := multiadminConfig["http_port"].(int); ok {
+	httpPort := ports.DefaultMultiadminHTTP
+	if p, ok := multiadminConfig["http_port"].(int); ok && p > 0 {
 		httpPort = p
 	}
 
 	// Get gRPC port from config
-	grpcPort := 15990
-	if p, ok := multiadminConfig["grpc_port"].(int); ok {
+	grpcPort := ports.DefaultMultiadminGRPC
+	if p, ok := multiadminConfig["grpc_port"].(int); ok && p > 0 {
 		grpcPort = p
 	}
 
@@ -576,6 +581,7 @@ func (p *localProvisioner) provisionMultiadmin(ctx context.Context, req *provisi
 		"--log-level", logLevel,
 		"--log-output", logFile,
 		"--service-map", "grpc-multiadmin",
+		"--hostname", "localhost",
 	}
 
 	// Start multiadmin process
@@ -671,14 +677,14 @@ func (p *localProvisioner) provisionMultipooler(ctx context.Context, req *provis
 	}
 
 	// Get HTTP port from cell-specific config
-	httpPort := 15001
-	if p, ok := multipoolerConfig["http_port"].(int); ok {
+	httpPort := ports.DefaultMultipoolerHTTP
+	if p, ok := multipoolerConfig["http_port"].(int); ok && p > 0 {
 		httpPort = p
 	}
 
 	// Get grpc port from cell-specific config
-	grpcPort := 16001
-	if port, ok := multipoolerConfig["grpc_port"].(int); ok {
+	grpcPort := ports.DefaultMultipoolerGRPC
+	if port, ok := multipoolerConfig["grpc_port"].(int); ok && port > 0 {
 		grpcPort = port
 	}
 
@@ -709,9 +715,18 @@ func (p *localProvisioner) provisionMultipooler(ctx context.Context, req *provis
 	}
 
 	// Get PostgreSQL port from config or use default
-	pgPort := 5432
-	if port, ok := multipoolerConfig["pg_port"].(int); ok {
+	pgPort := ports.DefaultPostgresPort
+	if port, ok := multipoolerConfig["pg_port"].(int); ok && port > 0 {
 		pgPort = port
+	}
+
+	// Get gRPC socket file if configured
+	socketFile, err := getGRPCSocketFile(multipoolerConfig)
+	if err != nil {
+		return nil, fmt.Errorf("failed to configure gRPC socket file: %w", err)
+	}
+	if socketFile != "" {
+		fmt.Printf("▶️  - Configuring multipooler gRPC Unix socket: %s\n", socketFile)
 	}
 
 	// Find multipooler binary
@@ -756,6 +771,12 @@ func (p *localProvisioner) provisionMultipooler(ctx context.Context, req *provis
 		"--log-output", logFile,
 		"--pooler-dir", poolerDir,
 		"--pg-port", fmt.Sprintf("%d", pgPort),
+		"--hostname", "localhost",
+	}
+
+	// Add socket file if configured
+	if socketFile != "" {
+		args = append(args, "--grpc-socket-file", socketFile)
 	}
 
 	// Add service map configuration to enable grpc-pooler service
@@ -863,14 +884,14 @@ func (p *localProvisioner) provisionMultiOrch(ctx context.Context, req *provisio
 	}
 
 	// Get HTTP port from cell-specific config
-	httpPort := 15301
-	if p, ok := multiorchConfig["http_port"].(int); ok {
+	httpPort := ports.DefaultMultiorchHTTP
+	if p, ok := multiorchConfig["http_port"].(int); ok && p > 0 {
 		httpPort = p
 	}
 
 	// Get grpc port from cell-specific config
-	grpcPort := 16000
-	if port, ok := multiorchConfig["grpc_port"].(int); ok {
+	grpcPort := ports.DefaultMultiorchGRPC
+	if port, ok := multiorchConfig["grpc_port"].(int); ok && port > 0 {
 		grpcPort = port
 	}
 
@@ -905,6 +926,7 @@ func (p *localProvisioner) provisionMultiOrch(ctx context.Context, req *provisio
 		"--cell", cell,
 		"--log-level", logLevel,
 		"--log-output", logFile,
+		"--hostname", "localhost",
 	}
 
 	// Start multiorch process
@@ -1028,6 +1050,8 @@ func (p *localProvisioner) stopService(ctx context.Context, req *provisioner.Dep
 	case "multipooler":
 		fallthrough
 	case "multiorch":
+		fallthrough
+	case "multiadmin":
 		return p.deprovisionService(ctx, req)
 	case "pgctld":
 		// pgctld requires special handling to stop PostgreSQL first
@@ -1059,7 +1083,7 @@ func (p *localProvisioner) deprovisionService(ctx context.Context, req *provisio
 	// Stop the process if it's running
 	if service.PID > 0 {
 		if err := p.stopProcessByPID(service.PID); err != nil {
-			return fmt.Errorf("failed to stop multiorch process: %w", err)
+			return fmt.Errorf("failed to stop process: %w", err)
 		}
 	}
 
@@ -1115,15 +1139,47 @@ func (p *localProvisioner) stopProcessByPID(pid int) error {
 		}
 	}
 
-	// Wait a bit for the process to exit
-	time.Sleep(2 * time.Second)
+	// Wait for the process to actually exit
+	p.waitForProcessExit(process, 2*time.Second)
 
-	fmt.Printf("Process %d stopped successfully\n", pid)
 	return nil
+}
+
+// waitForProcessExit waits for a process to exit by polling with Signal(0)
+func (p *localProvisioner) waitForProcessExit(process *os.Process, timeout time.Duration) {
+	ticker := timertools.NewBackoffTicker(10*time.Millisecond, 1*time.Second)
+	defer ticker.Stop()
+	timeoutch := time.After(timeout)
+	for {
+		select {
+		case <-ticker.C:
+			// Send null signal to test if process exists
+			err := process.Signal(syscall.Signal(0))
+			if err != nil {
+				fmt.Printf("Process %d stopped successfully\n", process.Pid)
+				// Process has exited or doesn't exist
+				return
+			}
+		case <-timeoutch:
+			fmt.Printf("Process %d still running after SIGTERM\n", process.Pid)
+			// No need to wait further
+			return
+		}
+	}
 }
 
 // Bootstrap sets up etcd and creates the default database
 func (p *localProvisioner) Bootstrap(ctx context.Context) ([]*provisioner.ProvisionResult, error) {
+	// Validate binary paths before starting
+	if err := p.validateBinaryPaths(p.config); err != nil {
+		return nil, err
+	}
+
+	// Validate required system binaries before starting
+	if err := p.validateSystemBinaries(); err != nil {
+		return nil, err
+	}
+
 	fmt.Println("=== Bootstrapping Multigres cluster ===")
 	fmt.Println("")
 
@@ -1287,6 +1343,11 @@ func (p *localProvisioner) Teardown(ctx context.Context, clean bool) error {
 		if err := p.cleanupDataDirectory(dataDir); err != nil {
 			fmt.Printf("Warning: failed to clean up data directory: %v\n", err)
 		}
+
+		socketsDir := filepath.Join(p.config.RootWorkingDir, "sockets")
+		if err := p.cleanupSocketsDirectory(socketsDir); err != nil {
+			fmt.Printf("Warning: failed to clean up sockets directory: %v\n", err)
+		}
 	}
 
 	fmt.Println("Teardown completed successfully")
@@ -1339,6 +1400,44 @@ func (p *localProvisioner) cleanupDataDirectory(dataDir string) error {
 
 	fmt.Printf("Cleaned up data directory: %s\n", dataDir)
 	return nil
+}
+
+// cleanupSocketsDirectory removes the entire sockets directory and all its contents
+func (p *localProvisioner) cleanupSocketsDirectory(socketsDir string) error {
+	if _, err := os.Stat(socketsDir); os.IsNotExist(err) {
+		return nil // Directory doesn't exist, nothing to clean up
+	}
+
+	if err := os.RemoveAll(socketsDir); err != nil {
+		return fmt.Errorf("failed to remove sockets directory %s: %w", socketsDir, err)
+	}
+
+	fmt.Printf("Cleaned up sockets directory: %s\n", socketsDir)
+	return nil
+}
+
+// getGRPCSocketFile extracts and prepares the gRPC socket file path from a service config.
+// It returns the absolute path to the socket file and ensures the socket directory exists.
+// Returns empty string if no socket file is configured.
+func getGRPCSocketFile(serviceConfig map[string]any) (string, error) {
+	sf, ok := serviceConfig["grpc_socket_file"].(string)
+	if !ok || sf == "" {
+		return "", nil // No socket file configured
+	}
+
+	// Convert to absolute path since the working directory may change
+	socketFile, err := filepath.Abs(sf)
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve socket file path: %w", err)
+	}
+
+	// Ensure socket directory exists
+	socketDir := filepath.Dir(socketFile)
+	if err := os.MkdirAll(socketDir, 0o755); err != nil {
+		return "", fmt.Errorf("failed to create socket directory: %w", err)
+	}
+
+	return socketFile, nil
 }
 
 // getDefaultDatabaseName returns the default database name from config
@@ -1543,8 +1642,9 @@ func (p *localProvisioner) DeprovisionDatabase(ctx context.Context, databaseName
 		return fmt.Errorf("failed to load service states for database %s: %w", databaseName, err)
 	}
 
-	servicesStopped := 0
+	var servicesStopped atomic.Int64
 
+	var wg sync.WaitGroup
 	for _, service := range services {
 		fmt.Printf("Stopping %s service (ID: %s) for database %s...\n", service.Service, service.ID, databaseName)
 
@@ -1555,19 +1655,20 @@ func (p *localProvisioner) DeprovisionDatabase(ctx context.Context, databaseName
 			Clean:        true, // Clean up data when deprovisioning database
 		}
 
-		if err := p.stopService(ctx, req); err != nil {
-			fmt.Printf("Warning: failed to stop %s service: %v\n", service.Service, err)
-			continue
-		}
-		// Remove state file
-		if err := p.removeServiceState(service.ID, req.Service, req.DatabaseName); err != nil {
-			fmt.Printf("Warning: failed to remove state file: %v\n", err)
-		}
-
-		servicesStopped++
+		wg.Go(func() {
+			if err := p.stopService(ctx, req); err != nil {
+				fmt.Printf("Warning: failed to stop %s service: %v\n", service.Service, err)
+			}
+			// Remove state file
+			if err := p.removeServiceState(service.ID, req.Service, req.DatabaseName); err != nil {
+				fmt.Printf("Warning: failed to remove state file: %v\n", err)
+			}
+			servicesStopped.Add(1)
+		})
 	}
+	wg.Wait()
 
-	fmt.Printf("Database %s deprovisioned successfully (%d services stopped)\n", databaseName, servicesStopped)
+	fmt.Printf("Database %s deprovisioned successfully (%d services stopped)\n", databaseName, servicesStopped.Load())
 	return nil
 }
 
@@ -1680,6 +1781,164 @@ func (p *localProvisioner) ValidateConfig(config map[string]any) error {
 		}
 	}
 
+	// Validate Unix socket path length limits
+	if err := p.validateUnixSocketPathLength(typedConfig); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// UnixPathMax returns the maximum Unix socket path length for the current platform.
+func UnixPathMax() int {
+	var addr syscall.RawSockaddrUnix
+	return len(addr.Path)
+}
+
+// validateUnixSocketPathLength validates that Unix socket paths won't exceed system limits
+func (p *localProvisioner) validateUnixSocketPathLength(config *LocalProvisionerConfig) error {
+	maxSocketPathLength := UnixPathMax()
+
+	// Convert root working dir to absolute path for accurate length calculation
+	absRootWorkingDir, err := filepath.Abs(config.RootWorkingDir)
+	if err != nil {
+		return fmt.Errorf("failed to convert root working dir to absolute path: %w", err)
+	}
+
+	// Calculate the maximum possible path length for Unix sockets
+	// Path structure: <rootWorkingDir>/data/pooler_<serviceID>/pg_sockets/.s.PGSQL.5432
+	// We use a worst-case service ID length (8 chars) to be safe
+	maxServiceIDLength := 8
+	worstCasePoolerSocketPath := []string{
+		"data",
+		fmt.Sprintf("pooler_%s", strings.Repeat("x", maxServiceIDLength)),
+		"pg_sockets",
+		".s.PGSQL.5432",
+	}
+	worstCaseCurrentSocketPath := filepath.Join(append([]string{absRootWorkingDir}, worstCasePoolerSocketPath...)...)
+
+	worstCaseProposedSocketPath := filepath.Join(append([]string{"/tmp/mt"}, worstCasePoolerSocketPath...)...)
+
+	if len(worstCaseCurrentSocketPath) > maxSocketPathLength {
+		return fmt.Errorf("unix socket path would exceed system limit (%d bytes): %s\n\n"+
+			"To fix this issue:\n"+
+			"1. Initialize multigres from a directory with a shorter path\n"+
+			"2. Provide config-path to multigres (--config-path target_dir) that has a shorter length\n\n"+
+			"Example:\n"+
+			"  Current: multigres cluster init --config-path %s\n"+
+			"  Better:  multigres cluster init --config-path /tmp/mt/\n\n"+
+			"This will generate socket paths like:\n"+
+			"  %s (%d bytes)\n\n"+
+			"Current path length: %d bytes (limit: %d bytes)",
+			maxSocketPathLength, worstCaseCurrentSocketPath, config.RootWorkingDir, worstCaseProposedSocketPath, len(worstCaseProposedSocketPath), len(worstCaseCurrentSocketPath), maxSocketPathLength)
+	}
+
+	return nil
+}
+
+// validateBinaryPaths validates that all configured binary paths exist and are executable
+func (p *localProvisioner) validateBinaryPaths(config *LocalProvisionerConfig) error {
+	var errors []string
+
+	// Validate global service binaries
+	if config.Multiadmin.Path != "" {
+		if err := p.validateBinaryExists(config.Multiadmin.Path, "multiadmin"); err != nil {
+			errors = append(errors, err.Error())
+		}
+	}
+
+	// Validate cell service binaries
+	for cellName, cellConfig := range config.Cells {
+		// Validate multigateway
+		if cellConfig.Multigateway.Path != "" {
+			if err := p.validateBinaryExists(cellConfig.Multigateway.Path, fmt.Sprintf("multigateway (cell %s)", cellName)); err != nil {
+				errors = append(errors, err.Error())
+			}
+		}
+
+		// Validate multipooler
+		if cellConfig.Multipooler.Path != "" {
+			if err := p.validateBinaryExists(cellConfig.Multipooler.Path, fmt.Sprintf("multipooler (cell %s)", cellName)); err != nil {
+				errors = append(errors, err.Error())
+			}
+		}
+
+		// Validate multiorch
+		if cellConfig.Multiorch.Path != "" {
+			if err := p.validateBinaryExists(cellConfig.Multiorch.Path, fmt.Sprintf("multiorch (cell %s)", cellName)); err != nil {
+				errors = append(errors, err.Error())
+			}
+		}
+
+		// Validate pgctld
+		if cellConfig.Pgctld.Path != "" {
+			if err := p.validateBinaryExists(cellConfig.Pgctld.Path, fmt.Sprintf("pgctld (cell %s)", cellName)); err != nil {
+				errors = append(errors, err.Error())
+			}
+		}
+	}
+
+	if len(errors) > 0 {
+		return fmt.Errorf("binary validation failed:\n%s", strings.Join(errors, "\n"))
+	}
+
+	return nil
+}
+
+// validateBinaryExists checks if a binary path exists and is executable
+func (p *localProvisioner) validateBinaryExists(binaryPath, serviceName string) error {
+	// Convert to absolute path if it's relative
+	var fullPath string
+	if filepath.IsAbs(binaryPath) {
+		fullPath = binaryPath
+	} else {
+		// Make it relative to current directory
+		fullPath = filepath.Join(".", binaryPath)
+	}
+
+	// Check if the binary exists and is executable
+	info, err := os.Stat(fullPath)
+	if err != nil {
+		return fmt.Errorf("  %s binary not found at %s: %w", serviceName, binaryPath, err)
+	}
+
+	if info.IsDir() {
+		return fmt.Errorf("  %s path is a directory, not a binary: %s", serviceName, binaryPath)
+	}
+
+	// Check if it's executable (on Unix systems)
+	if info.Mode()&0o111 == 0 {
+		return fmt.Errorf("  %s binary is not executable: %s", serviceName, binaryPath)
+	}
+
+	return nil
+}
+
+// validateSystemBinaries validates that required system binaries are available in PATH
+func (p *localProvisioner) validateSystemBinaries() error {
+	requiredBinaries := []string{
+		"etcd",
+		"pg_ctl",
+		"postgres",
+		"pg_isready",
+	}
+
+	var missingBinaries []string
+
+	for _, binary := range requiredBinaries {
+		if _, err := exec.LookPath(binary); err != nil {
+			missingBinaries = append(missingBinaries, binary)
+		}
+	}
+
+	if len(missingBinaries) > 0 {
+		return fmt.Errorf("required system binaries not found in PATH: %s\n\n"+
+			"Please ensure PostgreSQL and etcd are installed and available in your PATH.\n"+
+			"For PostgreSQL: Install PostgreSQL client tools (pg_ctl, postgres, pg_isready)\n"+
+			"For etcd: Install etcd client binary",
+			strings.Join(missingBinaries, ", "))
+	}
+
 	return nil
 }
 
@@ -1707,7 +1966,7 @@ func init() {
 	// Add the executable directory to the PATH. We're expecting
 	// to find the other executables in the same directory.
 	if binDir, err := getExecutablePath(); err == nil {
-		appendpath.AppendPath(binDir)
+		pathutil.PrependPath(binDir)
 	} else {
 		slog.Error(fmt.Sprintf("Local Provisioner failed to get executable path: %v", err))
 		os.Exit(1)

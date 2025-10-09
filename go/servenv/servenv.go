@@ -47,6 +47,7 @@ type ServEnv struct {
 	// Configuration
 	HTTPPort        viperutil.Value[int]
 	BindAddress     viperutil.Value[string]
+	Hostname        viperutil.Value[string]
 	Timeouts        *TimeoutFlags
 	CatchSigpipe    bool
 	MaxStackSize    int
@@ -98,6 +99,11 @@ func NewServEnvWithConfig(lg *Logger, vc *viperutil.ViperConfig) *ServEnv {
 			FlagName: "http-port",
 			Dynamic:  false,
 		}),
+		Hostname: viperutil.Configure("hostname", viperutil.Options[string]{
+			Default:  "",
+			FlagName: "hostname",
+			Dynamic:  false,
+		}),
 		BindAddress: viperutil.Configure("bind-address", viperutil.Options[string]{
 			Default:  "",
 			FlagName: "bind-address",
@@ -141,7 +147,7 @@ func (se *ServEnv) PopulateListeningURL(port int32) {
 	}
 	se.ListeningURL = url.URL{
 		Scheme: "http",
-		Host:   netutil.JoinHostPort(host, port),
+		Host:   netutil.JoinHostPort(se.Hostname.Get(), port),
 		Path:   "/",
 	}
 }
@@ -314,10 +320,11 @@ func (se *ServEnv) registerFlags(fs *pflag.FlagSet, includeLoggerAndConfig bool)
 	// Default flags
 	fs.Int("http-port", se.HTTPPort.Default(), "HTTP port for the server")
 	fs.String("bind-address", se.BindAddress.Default(), "Bind address for the server. If empty, the server will listen on all available unicast and anycast IP addresses of the local system.")
+	fs.String("hostname", se.Hostname.Default(), "Hostname to use for service registration. If not set, will auto-detect using FQDN or os.Hostname()")
 	fs.BoolVar(&se.httpPprof, "pprof-http", se.httpPprof, "enable pprof http endpoints")
 	fs.StringSliceVar(&se.pprofFlag, "pprof", se.pprofFlag, "enable profiling")
 	fs.StringSliceVar(&se.serviceMapFlag, "service-map", se.serviceMapFlag, "comma separated list of services to enable (or disable if prefixed with '-') Example: grpc-queryservice")
-	viperutil.BindFlags(fs, se.HTTPPort, se.BindAddress)
+	viperutil.BindFlags(fs, se.HTTPPort, se.BindAddress, se.Hostname)
 
 	// Timeout flags
 	fs.DurationVar(&se.Timeouts.LameduckPeriod, "lameduck-period", se.Timeouts.LameduckPeriod, "keep running at least this long after SIGTERM before stopping")

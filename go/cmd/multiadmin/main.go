@@ -17,39 +17,16 @@
 package main
 
 import (
-	"encoding/json"
 	"log/slog"
-	"net/http"
 	"os"
-	"time"
 
-	"github.com/multigres/multigres/go/admin/server"
-	"github.com/multigres/multigres/go/clustermetadata/topo"
-	"github.com/multigres/multigres/go/servenv"
+	"github.com/multigres/multigres/go/multiadmin"
 
 	"github.com/spf13/cobra"
 )
 
-type MultiAdmin struct {
-	// adminServer holds the gRPC admin server instance
-	adminServer *server.MultiAdminServer
-
-	// grpcServer is the grpc server
-	grpcServer *servenv.GrpcServer
-
-	// senv is the serving environment
-	senv *servenv.ServEnv
-
-	// topoConfig holds topology configuration
-	topoConfig *topo.TopoConfig
-}
-
 func main() {
-	ma := &MultiAdmin{
-		grpcServer: servenv.NewGrpcServer(),
-		senv:       servenv.NewServEnv(),
-		topoConfig: topo.NewTopoConfig(),
-	}
+	ma := multiadmin.NewMultiAdmin()
 
 	main := &cobra.Command{
 		Use:   "multiadmin",
@@ -57,16 +34,14 @@ func main() {
 		Long:  "Multiadmin provides administrative services for the multigres cluster, exposing both HTTP and gRPC endpoints for cluster management operations.",
 		Args:  cobra.NoArgs,
 		PreRunE: func(cmd *cobra.Command, args []string) error {
-			return ma.senv.CobraPreRunE(cmd)
+			return ma.CobraPreRunE(cmd)
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return run(cmd, args, ma)
+			return run(ma)
 		},
 	}
 
-	ma.senv.RegisterFlags(main.Flags())
-	ma.grpcServer.RegisterFlags(main.Flags())
-	ma.topoConfig.RegisterFlags(main.Flags())
+	ma.RegisterFlags(main.Flags())
 
 	if err := main.Execute(); err != nil {
 		slog.Error(err.Error())
@@ -74,99 +49,8 @@ func main() {
 	}
 }
 
-func run(cmd *cobra.Command, args []string, ma *MultiAdmin) error {
-	ma.senv.Init()
-
-	// Get the configured logger
-	logger := ma.senv.GetLogger()
-
-	// Open topo connection to discover other components
-	ts := ma.topoConfig.Open()
-	defer func() { _ = ts.Close() }()
-
-	ma.senv.OnRun(func() {
-		// Flags are parsed now.
-		logger.Info("multiadmin starting up",
-			"http_port", ma.senv.HTTPPort.Get(),
-			"grpc_port", ma.grpcServer.Port(),
-		)
-
-		// Register multiadmin gRPC service with servenv's GRPCServer
-		if ma.grpcServer.CheckServiceMap("multiadmin", ma.senv) {
-			ma.adminServer = server.NewMultiAdminServer(ts, logger)
-			ma.adminServer.RegisterWithGRPCServer(ma.grpcServer.Server)
-			logger.Info("MultiAdmin gRPC service registered with servenv")
-		}
-
-		// Add HTTP endpoints for cluster management
-		ma.senv.HTTPHandleFunc("/admin/status", getHandleStatusEndpoint(ma))
-		ma.senv.HTTPHandleFunc("/admin/clusters", getHandleClustersEndpoint(ma))
-		logger.Info("Admin HTTP endpoints available at /admin/status and /admin/clusters")
-	})
-
-	ma.senv.OnClose(func() {
-		logger.Info("multiadmin shutting down")
-	})
-
-	ma.senv.RunDefault(ma.grpcServer)
-
+func run(ma *multiadmin.MultiAdmin) error {
+	ma.Init()
+	ma.RunDefault()
 	return nil
-}
-
-// AdminStatusResponse represents the response from the admin status endpoint
-type AdminStatusResponse struct {
-	ServiceType string        `json:"service_type"`
-	Status      string        `json:"status"`
-	HTTPPort    int           `json:"http_port"`
-	GRPCPort    int           `json:"grpc_port"`
-	Uptime      time.Duration `json:"uptime"`
-}
-
-// AdminClustersResponse represents the response from the admin clusters endpoint
-type AdminClustersResponse struct {
-	Clusters []string `json:"clusters"`
-	Count    int      `json:"count"`
-}
-
-// getHandleStatusEndpoint handles the HTTP endpoint that shows multiadmin status
-func getHandleStatusEndpoint(ma *MultiAdmin) func(http.ResponseWriter, *http.Request) {
-	return func(w http.ResponseWriter, r *http.Request) {
-		response := AdminStatusResponse{
-			ServiceType: "multiadmin",
-			Status:      "running",
-			HTTPPort:    ma.senv.HTTPPort.Get(),
-			GRPCPort:    ma.grpcServer.Port(),
-			Uptime:      time.Since(ma.senv.GetInitStartTime()),
-		}
-
-		w.Header().Set("Content-Type", "application/json")
-		if err := json.NewEncoder(w).Encode(response); err != nil {
-			http.Error(w, "Failed to encode response", http.StatusInternalServerError)
-			return
-		}
-	}
-}
-
-// getHandleClustersEndpoint handles the HTTP endpoint that shows cluster information
-func getHandleClustersEndpoint(ma *MultiAdmin) func(http.ResponseWriter, *http.Request) {
-	return func(w http.ResponseWriter, r *http.Request) {
-		// For now, return a simple response - this would be enhanced to use the admin server
-		// to get actual cluster information
-		if ma.adminServer == nil {
-			http.Error(w, "Admin server not initialized", http.StatusServiceUnavailable)
-			return
-		}
-
-		// TODO: Use adminServer to get actual cluster list
-		response := AdminClustersResponse{
-			Clusters: []string{}, // Will be populated with actual cluster data
-			Count:    0,
-		}
-
-		w.Header().Set("Content-Type", "application/json")
-		if err := json.NewEncoder(w).Encode(response); err != nil {
-			http.Error(w, "Failed to encode response", http.StatusInternalServerError)
-			return
-		}
-	}
 }

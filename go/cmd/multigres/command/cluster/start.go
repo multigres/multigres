@@ -108,7 +108,8 @@ func (s *ServiceSummary) PrintSummary() {
 		}
 	}
 	fmt.Println("- 🐘 Connect to PostgreSQL via Multigateway: TODO")
-	fmt.Println("- 🛑 Run \"multigres cluster stop\" to stop the cluster")
+	fmt.Println("- 🟢 Cluster started successfully. Enjoy!")
+	fmt.Println("- To stop the cluster: \"multigres cluster stop\"")
 	fmt.Println(strings.Repeat("=", 65))
 }
 

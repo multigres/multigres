@@ -78,6 +78,11 @@ func createConfigFile(cmd *cobra.Command, configPaths []string) (string, error) 
 		return "", err
 	}
 
+	// Validate the configuration before writing it
+	if err := validateConfig(config); err != nil {
+		return "", fmt.Errorf("configuration validation failed: %w", err)
+	}
+
 	// Marshal to YAML
 	yamlData, err := yaml.Marshal(config)
 	if err != nil {
@@ -152,6 +157,22 @@ func createDefaultConfig(provisionerName string, configPaths []string) (*Multigr
 		Provisioner:       provisionerName,
 		ProvisionerConfig: defaultConfig,
 	}, nil
+}
+
+// validateConfig validates the configuration using the appropriate provisioner
+func validateConfig(config *MultigresConfig) error {
+	// Get the provisioner instance
+	p, err := provisioner.GetProvisioner(config.Provisioner)
+	if err != nil {
+		return fmt.Errorf("failed to get provisioner '%s': %w", config.Provisioner, err)
+	}
+
+	// Validate the provisioner-specific configuration
+	if err := p.ValidateConfig(config.ProvisionerConfig); err != nil {
+		return fmt.Errorf("provisioner validation failed: %w", err)
+	}
+
+	return nil
 }
 
 // AddInitCommand adds the init subcommand to the cluster command

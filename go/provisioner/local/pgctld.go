@@ -22,9 +22,10 @@ import (
 	"time"
 
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 
+	"github.com/multigres/multigres/go/grpccommon"
 	pb "github.com/multigres/multigres/go/pb/pgctldservice"
+	"github.com/multigres/multigres/go/provisioner/local/ports"
 )
 
 // startPostgreSQLViaPgctld starts PostgreSQL via pgctld gRPC and verifies it's running
@@ -32,7 +33,7 @@ func (p *localProvisioner) startPostgreSQLViaPgctld(address string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	conn, err := grpc.NewClient(address, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	conn, err := grpc.NewClient(address, grpccommon.LocalClientDialOptions()...)
 	if err != nil {
 		return fmt.Errorf("failed to connect to pgctld gRPC server: %w", err)
 	}
@@ -92,7 +93,7 @@ func (p *localProvisioner) stopPostgreSQLViaPgctld(address string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	conn, err := grpc.NewClient(address, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	conn, err := grpc.NewClient(address, grpccommon.LocalClientDialOptions()...)
 	if err != nil {
 		return fmt.Errorf("failed to connect to pgctld gRPC server: %w", err)
 	}
@@ -181,14 +182,14 @@ func (p *localProvisioner) provisionPgctld(ctx context.Context, dbName, tableGro
 	}
 
 	// Get gRPC port from config or use default
-	grpcPort := 17000
-	if port, ok := pgctldConfig["grpc_port"].(int); ok {
+	grpcPort := ports.DefaultPgctldGRPC
+	if port, ok := pgctldConfig["grpc_port"].(int); ok && port > 0 {
 		grpcPort = port
 	}
 
 	// Get PostgreSQL port from config or use default
-	pgPort := 5432
-	if port, ok := pgctldConfig["pg_port"].(int); ok {
+	pgPort := ports.DefaultPostgresPort
+	if port, ok := pgctldConfig["pg_port"].(int); ok && port > 0 {
 		pgPort = port
 	}
 
@@ -219,6 +220,15 @@ func (p *localProvisioner) provisionPgctld(ctx context.Context, dbName, tableGro
 		return nil, fmt.Errorf("pooler_dir not found in config")
 	}
 	poolerDir = dir
+
+	// Get gRPC socket file if configured
+	socketFile, err := getGRPCSocketFile(pgctldConfig)
+	if err != nil {
+		return nil, fmt.Errorf("failed to configure gRPC socket file: %w", err)
+	}
+	if socketFile != "" {
+		fmt.Printf("▶️  - Configuring pgctld gRPC Unix socket: %s\n", socketFile)
+	}
 
 	// Create pgctld log file
 	pgctldLogFile, err := p.createLogFile("pgctld", serviceID, dbName)
@@ -263,6 +273,11 @@ func (p *localProvisioner) provisionPgctld(ctx context.Context, dbName, tableGro
 		"--timeout", fmt.Sprintf("%d", timeout),
 		"--log-level", logLevel,
 		"--log-output", pgctldLogFile,
+	}
+
+	// Add socket file if configured
+	if socketFile != "" {
+		serverArgs = append(serverArgs, "--grpc-socket-file", socketFile)
 	}
 
 	pgctldCmd := exec.CommandContext(ctx, pgctldBinary, serverArgs...)

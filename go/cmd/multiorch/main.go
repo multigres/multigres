@@ -17,83 +17,16 @@
 package main
 
 import (
-	"context"
-	"fmt"
 	"log/slog"
 	"os"
-	"slices"
-	"strings"
-	"time"
 
-	"github.com/multigres/multigres/go/clustermetadata/topo"
-	"github.com/multigres/multigres/go/netutil"
-	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
-	"github.com/multigres/multigres/go/servenv"
-	"github.com/multigres/multigres/go/viperutil"
+	"github.com/multigres/multigres/go/multiorch"
 
 	"github.com/spf13/cobra"
 )
 
-type MultiOrch struct {
-	cell viperutil.Value[string]
-	// multiorchID stores the ID for deregistration during shutdown
-	multiorchID *clustermetadatapb.ID
-	// grpcServer is the grpc server
-	grpcServer *servenv.GrpcServer
-	// senv is the serving environment
-	senv *servenv.ServEnv
-	// topoConfig holds topology configuration
-	topoConfig *topo.TopoConfig
-}
-
-// CheckCellFlags validates the cell flag against available cells in the topology.
-// It helps avoid strange behaviors when multiorch runs but actually does not work
-// due to referencing non-existent cells.
-func CheckCellFlags(ts topo.Store, cell string) error {
-	if ts == nil {
-		return fmt.Errorf("topo server cannot be nil")
-	}
-
-	// Validate cell flag is set
-	if cell == "" {
-		return fmt.Errorf("cell flag must be set")
-	}
-
-	// Create context with timeout for topology operations
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-
-	// Get all known cells from topology.
-	cellsInTopo, err := ts.GetCellNames(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to get cells from topology (timeout after 2s): %w", err)
-	}
-	if len(cellsInTopo) == 0 {
-		return fmt.Errorf("topo server should have at least one cell configured")
-	}
-
-	// Check if the specified cell exists in topology
-	hasCell := slices.Contains(cellsInTopo, cell)
-	if !hasCell {
-		return fmt.Errorf("cell '%s' does not exist in topology. Available cells: [%s]",
-			cell, strings.Join(cellsInTopo, ", "))
-	}
-
-	return nil
-}
-
 func main() {
-	mo := &MultiOrch{
-		cell: viperutil.Configure("cell", viperutil.Options[string]{
-			Default:  "",
-			FlagName: "cell",
-			Dynamic:  false,
-			EnvVars:  []string{"MT_CELL"},
-		}),
-		grpcServer: servenv.NewGrpcServer(),
-		senv:       servenv.NewServEnv(),
-		topoConfig: topo.NewTopoConfig(),
-	}
+	mo := multiorch.NewMultiOrch()
 
 	main := &cobra.Command{
 		Use:   "multiorch",
@@ -101,18 +34,14 @@ func main() {
 		Long:  "Multiorch orchestrates cluster operations including consensus protocol management, failover detection and repair, and health monitoring of multipooler instances.",
 		Args:  cobra.NoArgs,
 		PreRunE: func(cmd *cobra.Command, args []string) error {
-			return mo.senv.CobraPreRunE(cmd)
+			return mo.CobraPreRunE(cmd)
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return run(cmd, args, mo)
 		},
 	}
 
-	main.Flags().String("cell", mo.cell.Default(), "cell to use")
-	viperutil.BindFlags(main.Flags(), mo.cell)
-	mo.senv.RegisterFlags(main.Flags())
-	mo.grpcServer.RegisterFlags(main.Flags())
-	mo.topoConfig.RegisterFlags(main.Flags())
+	mo.RegisterFlags(main.Flags())
 
 	if err := main.Execute(); err != nil {
 		slog.Error(err.Error())
@@ -120,78 +49,8 @@ func main() {
 	}
 }
 
-func run(cmd *cobra.Command, args []string, mo *MultiOrch) error {
-	mo.senv.Init()
-
-	// Get the configured logger
-	logger := mo.senv.GetLogger()
-
-	ts := mo.topoConfig.Open()
-	defer func() { _ = ts.Close() }()
-
-	// Validate cell configuration early to fail fast if misconfigured
-	if err := CheckCellFlags(ts, mo.cell.Get()); err != nil {
-		logger.Error("Cell validation failed", "error", err)
-		return fmt.Errorf("cell validation failed: %w", err)
-	}
-	logger.Info("Cell validation passed", "cell", mo.cell)
-
-	mo.senv.OnRun(func() {
-		// Flags are parsed now.
-		logger.Info("multiorch starting up",
-			"cell", mo.cell,
-			"grpc_port", mo.grpcServer.Port(),
-		)
-
-		// Register with topology service
-		hostname, err := netutil.FullyQualifiedHostname()
-		if err != nil {
-			logger.Warn("Failed to get fully qualified hostname, falling back to simple hostname", "error", err)
-			hostname, err = os.Hostname()
-			if err != nil {
-				logger.Error("Failed to get hostname", "error", err)
-				return
-			}
-		}
-
-		// Create MultiOrch instance for topo registration
-		multiorch := topo.NewMultiOrch("", mo.cell.Get(), hostname)
-		multiorch.PortMap["grpc"] = int32(mo.grpcServer.Port())
-
-		// Store ID for deregistration during shutdown
-		mo.multiorchID = multiorch.Id
-
-		// Register with topology
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-
-		if err := ts.InitMultiOrch(ctx, multiorch, true); err != nil {
-			logger.Error("Failed to register multiorch with topology", "error", err)
-		} else {
-			logger.Info("Successfully registered multiorch with topology", "id", multiorch.Id)
-		}
-	})
-
-	mo.senv.OnClose(func() {
-		logger.Info("multiorch shutting down")
-
-		// Deregister from topology service
-		if mo.multiorchID != nil {
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer cancel()
-
-			if err := ts.DeleteMultiOrch(ctx, mo.multiorchID); err != nil {
-				logger.Error("Failed to deregister multiorch from topology", "error", err, "id", mo.multiorchID)
-			} else {
-				logger.Info("Successfully deregistered multiorch from topology", "id", mo.multiorchID)
-			}
-		}
-	})
-
-	// TODO: Setup consensus protocol management
-	// TODO: Implement failover detection and repair
-	// TODO: Setup health monitoring of multipooler instances
-	mo.senv.RunDefault(mo.grpcServer)
-
+func run(cmd *cobra.Command, args []string, mo *multiorch.MultiOrch) error {
+	mo.Init()
+	mo.RunDefault()
 	return nil
 }

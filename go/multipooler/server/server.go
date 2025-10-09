@@ -20,36 +20,14 @@ import (
 	"database/sql"
 	"fmt"
 	"log/slog"
-	"path/filepath"
 	"strings"
 
-	"github.com/multigres/multigres/go/clustermetadata/topo"
-	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	"github.com/multigres/multigres/go/multipooler/manager"
 	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
 	querypb "github.com/multigres/multigres/go/pb/query"
-	"github.com/multigres/multigres/go/servenv"
-	"github.com/multigres/multigres/go/viperutil"
 
-	"github.com/spf13/pflag"
 	"google.golang.org/grpc"
 )
-
-// RegisterService registers the MultiPooler gRPC service with the given configuration
-func RegisterService(mp *MultiPooler, config *Config) {
-	mp.Senv.OnRun(func() {
-		if mp.GrpcServer == nil {
-			return
-		}
-
-		// Check if the pooler service should be registered
-		if mp.GrpcServer.CheckServiceMap("pooler", mp.Senv) {
-			logger := mp.Senv.GetLogger()
-			server := NewMultiPoolerServer(logger, config)
-			multipoolerpb.RegisterMultiPoolerServiceServer(mp.GrpcServer.Server, server)
-			logger.Info("MultiPooler gRPC service registered")
-		}
-	})
-}
 
 // Config holds configuration for the MultiPooler server
 type Config struct {
@@ -59,118 +37,16 @@ type Config struct {
 	Database       string
 }
 
-// MultiPooler represents the main multipooler instance with all configuration and state
-type MultiPooler struct {
-	PgctldAddr     viperutil.Value[string]
-	Cell           viperutil.Value[string]
-	Database       viperutil.Value[string]
-	TableGroup     viperutil.Value[string]
-	ServiceID      viperutil.Value[string]
-	SocketFilePath viperutil.Value[string]
-	PoolerDir      viperutil.Value[string]
-	PgPort         viperutil.Value[int]
-	// MultipoolerID stores the ID for deregistration during shutdown
-	MultipoolerID *clustermetadatapb.ID
-	// PoolerServer holds the gRPC multipooler server instance
-	PoolerServer *MultiPoolerServer
-	// GrpcServer is the grpc server
-	GrpcServer *servenv.GrpcServer
-	// Senv is the serving environment
-	Senv *servenv.ServEnv
-	// TopoConfig holds topology configuration
-	TopoConfig *topo.TopoConfig
-}
-
-// NewMultiPooler creates a new MultiPooler instance with default configuration
-func NewMultiPooler() *MultiPooler {
-	mp := &MultiPooler{
-		PgctldAddr: viperutil.Configure("pgctld-addr", viperutil.Options[string]{
-			Default:  "localhost:15200",
-			FlagName: "pgctld-addr",
-			Dynamic:  false,
-		}),
-		Cell: viperutil.Configure("cell", viperutil.Options[string]{
-			Default:  "",
-			FlagName: "cell",
-			Dynamic:  false,
-			EnvVars:  []string{"MT_CELL"},
-		}),
-		Database: viperutil.Configure("database", viperutil.Options[string]{
-			Default:  "",
-			FlagName: "database",
-			Dynamic:  false,
-		}),
-		TableGroup: viperutil.Configure("table-group", viperutil.Options[string]{
-			Default:  "",
-			FlagName: "table-group",
-			Dynamic:  false,
-		}),
-		ServiceID: viperutil.Configure("service-id", viperutil.Options[string]{
-			Default:  "",
-			FlagName: "service-id",
-			Dynamic:  false,
-			EnvVars:  []string{"MT_SERVICE_ID"},
-		}),
-		SocketFilePath: viperutil.Configure("socket-file", viperutil.Options[string]{
-			Default:  "",
-			FlagName: "socket-file",
-			Dynamic:  false,
-		}),
-		PoolerDir: viperutil.Configure("pooler-dir", viperutil.Options[string]{
-			Default:  "",
-			FlagName: "pooler-dir",
-			Dynamic:  false,
-		}),
-		PgPort: viperutil.Configure("pg-port", viperutil.Options[int]{
-			Default:  5432,
-			FlagName: "pg-port",
-			Dynamic:  false,
-		}),
-		GrpcServer: servenv.NewGrpcServer(),
-		Senv:       servenv.NewServEnv(),
-		TopoConfig: topo.NewTopoConfig(),
-	}
-	mp.Senv.InitServiceMap("grpc", "pooler")
-	return mp
-}
-
-// RegisterFlags registers all multipooler flags with the given FlagSet
-func (mp *MultiPooler) RegisterFlags(flags *pflag.FlagSet) {
-	flags.String("pgctld-addr", mp.PgctldAddr.Default(), "Address of pgctld gRPC service")
-	flags.String("cell", mp.Cell.Default(), "cell to use")
-	flags.String("database", mp.Database.Default(), "database name this multipooler serves (required)")
-	flags.String("table-group", mp.TableGroup.Default(), "table group this multipooler serves (required)")
-	flags.String("service-id", mp.ServiceID.Default(), "optional service ID (if empty, a random ID will be generated)")
-	flags.String("socket-file", mp.SocketFilePath.Default(), "PostgreSQL Unix socket file path (if empty, TCP connection will be used)")
-	flags.String("pooler-dir", mp.PoolerDir.Default(), "pooler directory path (if empty, socket-file path will be used as-is)")
-	flags.Int("pg-port", mp.PgPort.Default(), "PostgreSQL port number")
-
-	viperutil.BindFlags(flags,
-		mp.PgctldAddr,
-		mp.Cell,
-		mp.Database,
-		mp.TableGroup,
-		mp.ServiceID,
-		mp.SocketFilePath,
-		mp.PoolerDir,
-		mp.PgPort,
-	)
-
-	mp.GrpcServer.RegisterFlags(flags)
-	mp.Senv.RegisterFlags(flags)
-	mp.TopoConfig.RegisterFlags(flags)
-}
-
 // MultiPoolerServer implements the MultiPoolerService gRPC interface
 type MultiPoolerServer struct {
 	multipoolerpb.UnimplementedMultiPoolerServiceServer
 	logger *slog.Logger
-	config *Config
+	config *manager.Config
 	db     *sql.DB
 }
 
 // NewMultiPoolerServer creates a new multipooler gRPC server
-func NewMultiPoolerServer(logger *slog.Logger, config *Config) *MultiPoolerServer {
+func NewMultiPoolerServer(logger *slog.Logger, config *manager.Config) *MultiPoolerServer {
 	return &MultiPoolerServer{
 		logger: logger,
 		config: config,
@@ -189,70 +65,11 @@ func (s *MultiPoolerServer) connectDB() error {
 		return nil // Already connected
 	}
 
-	// Debug: Log the configuration we received
-	s.logger.Info("connectDB: Configuration received",
-		"pooler_dir", s.config.PoolerDir,
-		"pg_port", s.config.PgPort,
-		"socket_file_path", s.config.SocketFilePath,
-		"database", s.config.Database)
-
-	var dsn string
-	if s.config.PoolerDir != "" && s.config.PgPort != 0 {
-		// Use pooler directory and port to construct socket path
-		// PostgreSQL creates socket files as: {poolerDir}/pg_sockets/.s.PGSQL.{port}
-		socketDir := filepath.Join(s.config.PoolerDir, "pg_sockets")
-		port := fmt.Sprintf("%d", s.config.PgPort)
-
-		dsn = fmt.Sprintf("user=postgres dbname=%s host=%s port=%s sslmode=disable",
-			s.config.Database, socketDir, port)
-
-		s.logger.Info("Unix socket connection via pooler directory",
-			"pooler_dir", s.config.PoolerDir,
-			"socket_dir", socketDir,
-			"pg_port", s.config.PgPort,
-			"dsn", dsn)
-	} else if s.config.SocketFilePath != "" {
-		// Fallback: use socket file path directly
-		socketDir := filepath.Dir(s.config.SocketFilePath)
-		socketFile := filepath.Base(s.config.SocketFilePath)
-
-		// Extract port from socket filename (.s.PGSQL.PORT)
-		port := "5432" // default
-		if strings.HasPrefix(socketFile, ".s.PGSQL.") {
-			if portStr := strings.TrimPrefix(socketFile, ".s.PGSQL."); portStr != "" {
-				port = portStr
-			}
-		}
-
-		dsn = fmt.Sprintf("user=postgres dbname=%s host=%s port=%s sslmode=disable",
-			s.config.Database, socketDir, port)
-
-		s.logger.Info("Unix socket connection via socket file path (fallback)",
-			"original_socket_path", s.config.SocketFilePath,
-			"socket_dir", socketDir,
-			"socket_file", socketFile,
-			"extracted_port", port,
-			"dsn", dsn)
-	} else {
-		// Use TCP connection (fallback)
-		dsn = fmt.Sprintf("user=postgres dbname=%s host=localhost port=5432 sslmode=disable",
-			s.config.Database)
-	}
-
-	var err error
-	s.db, err = sql.Open("postgres", dsn)
+	db, err := manager.CreateDBConnection(s.logger, s.config)
 	if err != nil {
-		return fmt.Errorf("failed to open database connection: %w", err)
+		return err
 	}
-
-	// Test the connection
-	if err := s.db.Ping(); err != nil {
-		s.db.Close()
-		s.db = nil
-		return fmt.Errorf("failed to ping database: %w", err)
-	}
-
-	s.logger.Info("Connected to PostgreSQL", "socket_path", s.config.SocketFilePath, "database", s.config.Database)
+	s.db = db
 	return nil
 }
 

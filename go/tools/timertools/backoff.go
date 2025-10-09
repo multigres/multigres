@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package ticker provides a ticker implementation with exponential backoff and jitter.
-package ticker
+// Package timertools provides various timer tools
+package timertools
 
 import (
 	"math"
@@ -38,25 +38,33 @@ type BackoffTicker struct {
 	rand         *rand.Rand
 }
 
-// NewBackoffTicker creates a new BackoffTicker with the given initial and maximum intervals.
-// The ticker will start with initialInterval and double on each tick until it reaches maxInterval.
-// A 10% jitter is added to each interval to prevent synchronized behavior across multiple tickers.
-func NewBackoffTicker(initialInterval, maxInterval time.Duration) *BackoffTicker {
-	if initialInterval <= 0 {
+// NewBackoffTicker creates a new BackoffTicker with the given initial delay and maximum interval.
+// The ticker will send an immediate tick. Following this, it will start with initialDelay and
+// double on each tick until it reaches maxInterval. A 10% jitter is added to each interval
+// to prevent synchronized behavior across multiple tickers.
+func NewBackoffTicker(initialDelay, maxInterval time.Duration) *BackoffTicker {
+	if initialDelay <= 0 {
 		panic("ticker: non-positive interval for NewBackoffTicker")
 	}
-	if maxInterval < initialInterval {
+	if maxInterval < initialDelay {
 		panic("ticker: maxInterval must be >= initialInterval")
 	}
 
 	bt := &BackoffTicker{
 		C:            make(chan time.Time, 1),
-		initialDelay: initialInterval,
+		initialDelay: initialDelay,
 		maxDelay:     maxInterval,
-		currentDelay: initialInterval,
+		currentDelay: initialDelay,
 		rand:         rand.New(rand.NewPCG(uint64(time.Now().UnixNano()), uint64(time.Now().UnixNano()))),
 	}
+	// Send an immediate tick.
+	bt.C <- time.Now()
 
+	// The race detector wants us to lock the mutex before scheduling the timer.
+	// This is because time.AfterFunc calls back bt.tick, which updates
+	// bt.timer.
+	bt.mu.Lock()
+	defer bt.mu.Unlock()
 	bt.schedule()
 	return bt
 }
@@ -81,6 +89,7 @@ func (bt *BackoffTicker) Stop() {
 
 // Reset resets the ticker back to its initial interval.
 // This is useful when you want to restart the backoff sequence.
+// Reset does not send an immediate tick.
 func (bt *BackoffTicker) Reset() {
 	bt.mu.Lock()
 	defer bt.mu.Unlock()

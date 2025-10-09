@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package main
+package multigateway
 
 import (
 	"context"
@@ -63,10 +63,7 @@ func NewPoolerDiscovery(ctx context.Context, topoStore topo.Store, cell string, 
 
 // Start begins the discovery process using topology watch.
 func (pd *PoolerDiscovery) Start() {
-	pd.wg.Add(1)
-	go func() {
-		defer pd.wg.Done()
-
+	pd.wg.Go(func() {
 		pd.logger.Info("Starting pooler discovery with topology watch", "cell", pd.cell)
 
 		// Get connection for the cell
@@ -108,7 +105,7 @@ func (pd *PoolerDiscovery) Start() {
 				pd.processPoolerChange(watchData)
 			}
 		}
-	}()
+	})
 }
 
 // Stop stops the discovery service.
@@ -204,15 +201,15 @@ func (pd *PoolerDiscovery) processPoolerChange(watchData *topo.WatchDataRecursiv
 }
 
 // GetPoolersName returns a list of all discovered pooler names.
-func (pd *PoolerDiscovery) GetPoolersName() []string {
+func (pd *PoolerDiscovery) GetPoolers() []*clustermetadatapb.MultiPooler {
 	pd.mu.RLock()
 	defer pd.mu.RUnlock()
 
-	names := make([]string, 0, len(pd.poolers))
+	poolers := make([]*clustermetadatapb.MultiPooler, 0, len(pd.poolers))
 	for _, pooler := range pd.poolers {
-		names = append(names, pooler.Id.Name)
+		poolers = append(poolers, proto.Clone(pooler).(*clustermetadatapb.MultiPooler))
 	}
-	return names
+	return poolers
 }
 
 // LastRefresh returns the timestamp of the last successful refresh.

@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package ticker
+package timertools
 
 import (
 	"sync"
@@ -57,11 +57,14 @@ func TestBackoffTicker_BasicTicking(t *testing.T) {
 	max := 50 * time.Millisecond
 	ticker := NewBackoffTicker(initial, max)
 	defer ticker.Stop()
+	// Get the first immediate tick
+	tick := <-ticker.C
+	assert.WithinDuration(t, time.Now(), tick, 1*time.Millisecond, "First tick should arrive immediately")
 
-	// Wait for first tick
+	// Wait for next tick
 	select {
 	case tick := <-ticker.C:
-		assert.WithinDuration(t, time.Now(), tick, 20*time.Millisecond, "First tick should arrive quickly")
+		assert.WithinDuration(t, time.Now(), tick, 20*time.Millisecond, "Second tick should arrive quickly")
 	case <-time.After(50 * time.Millisecond):
 		require.Fail(t, "First tick should arrive within 50ms")
 	}
@@ -80,6 +83,9 @@ func TestBackoffTicker_ExponentialBackoff(t *testing.T) {
 	max := 32 * time.Millisecond
 	ticker := NewBackoffTicker(initial, max)
 	defer ticker.Stop()
+
+	// Eat the immediate tick
+	<-ticker.C
 
 	expectedIntervals := []time.Duration{
 		2 * time.Millisecond,  // Initial
@@ -137,60 +143,51 @@ func TestBackoffTicker_Jitter(t *testing.T) {
 	max := 500 * time.Millisecond
 
 	// Create multiple tickers and measure their first tick timing
-	numTickers := 20 // Increased number of tickers
+	numTickers := 100 // Increased number of tickers
 	tickTimes := make([]time.Duration, numTickers)
 	var wg sync.WaitGroup
 	startTime := time.Now()
 
 	for i := range numTickers {
-		wg.Add(1)
-		go func(idx int) {
-			defer wg.Done()
+		wg.Go(func() {
 			ticker := NewBackoffTicker(initial, max)
 			defer ticker.Stop()
 
+			// Eat the immediate tick
+			<-ticker.C
+
 			select {
 			case tickTime := <-ticker.C:
-				tickTimes[idx] = tickTime.Sub(startTime)
+				tickTimes[i] = tickTime.Sub(startTime)
 			case <-time.After(200 * time.Millisecond):
-				// Timeout case
+				require.Fail(t, "Tick %d should arrive within 200ms", i)
 			}
-		}(i)
+		})
 	}
 
 	// Wait for all tickers to complete
 	wg.Wait()
 
-	// Verify that we have jitter by checking the range of tick times
-	validTimes := make([]time.Duration, 0, numTickers)
-	for _, tickTime := range tickTimes {
-		if tickTime > 0 {
-			validTimes = append(validTimes, tickTime)
-		}
-	}
-
-	require.Greater(t, len(validTimes), numTickers/2, "Should have received most ticks")
+	require.Greater(t, len(tickTimes), numTickers/2, "Should have received most ticks")
 
 	// Calculate min and max tick times
-	if len(validTimes) > 1 {
-		minTime := validTimes[0]
-		maxTime := validTimes[0]
-		for _, t := range validTimes {
-			if t < minTime {
-				minTime = t
-			}
-			if t > maxTime {
-				maxTime = t
-			}
+	minTime := tickTimes[0]
+	maxTime := tickTimes[0]
+	for _, t := range tickTimes {
+		if t < minTime {
+			minTime = t
 		}
-
-		// With 10% jitter, we should see at least 5ms variation for 50ms base interval
-		timeDiff := maxTime - minTime
-		expectedMinVariation := 5 * time.Millisecond
-		assert.GreaterOrEqual(t, timeDiff, expectedMinVariation,
-			"Jitter should cause at least %v variation in tick timing, got %v (min: %v, max: %v)",
-			expectedMinVariation, timeDiff, minTime, maxTime)
+		if t > maxTime {
+			maxTime = t
+		}
 	}
+
+	// With 10% jitter, we should see at least 5ms variation for 50ms base interval
+	timeDiff := maxTime - minTime
+	expectedMinVariation := 5 * time.Millisecond
+	assert.GreaterOrEqual(t, timeDiff, expectedMinVariation,
+		"Jitter should cause at least %v variation in tick timing, got %v (min: %v, max: %v)",
+		expectedMinVariation, timeDiff, minTime, maxTime)
 }
 
 func TestBackoffTicker_Stop(t *testing.T) {
@@ -254,6 +251,9 @@ func TestBackoffTicker_ResetAfterStop(t *testing.T) {
 	initial := 5 * time.Millisecond
 	max := 50 * time.Millisecond
 	ticker := NewBackoffTicker(initial, max)
+
+	// Eat the immediate tick
+	<-ticker.C
 
 	ticker.Stop()
 

@@ -103,6 +103,7 @@ func (s *PgCtldServerCmd) runServer(cmd *cobra.Command, args []string) error {
 		if s.grpcServer.CheckServiceMap("pgctld", s.senv) {
 			pb.RegisterPgCtldServer(s.grpcServer.Server, pgctldService)
 		}
+		// TODO(sougou): Add http server
 	})
 
 	s.senv.OnClose(func() {

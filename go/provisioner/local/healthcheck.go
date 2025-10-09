@@ -24,14 +24,15 @@ import (
 	"time"
 
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 
+	"github.com/multigres/multigres/go/grpccommon"
 	pb "github.com/multigres/multigres/go/pb/pgctldservice"
+	"github.com/multigres/multigres/go/tools/timertools"
 )
 
 // waitForServiceReady waits for a service to become ready by checking appropriate endpoints
 func (p *localProvisioner) waitForServiceReady(serviceName string, host string, servicePorts map[string]int, timeout time.Duration) error {
-	ticker := time.NewTicker(1 * time.Second)
+	ticker := timertools.NewBackoffTicker(10*time.Millisecond, time.Second)
 	defer ticker.Stop()
 	deadline := time.After(timeout)
 	for {
@@ -81,11 +82,36 @@ func (p *localProvisioner) checkMultigresServiceHealth(serviceName string, host 
 					return err
 				}
 			}
+		case "etcd_port":
+			// Run etcd health check
+			if serviceName == "etcd" {
+				etcdAddress := net.JoinHostPort(host, fmt.Sprintf("%d", port))
+				if err := p.checkEtcdHealth(etcdAddress); err != nil {
+					return err
+				}
+			}
 			// Future: Add other gRPC services
 		default:
 			// No health check implemented for this port type, skip
 			continue
 		}
+	}
+	return nil
+}
+
+// checkEtcdHealth checks if etcd is ready by querying its health endpoint
+func (p *localProvisioner) checkEtcdHealth(address string) error {
+	url := fmt.Sprintf("http://%s/health", address)
+	client := &http.Client{
+		Timeout: 5 * time.Second,
+	}
+	resp, err := client.Get(url)
+	if err != nil {
+		return fmt.Errorf("failed to reach etcd health endpoint: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("etcd health endpoint returned status %d", resp.StatusCode)
 	}
 	return nil
 }
@@ -112,7 +138,7 @@ func (p *localProvisioner) checkPgctldGrpcHealth(address string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	conn, err := grpc.NewClient(address, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	conn, err := grpc.NewClient(address, grpccommon.LocalClientDialOptions()...)
 	if err != nil {
 		return fmt.Errorf("failed to connect to pgctld gRPC server: %w", err)
 	}
