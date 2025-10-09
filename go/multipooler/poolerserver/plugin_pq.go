@@ -12,9 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package main
+package poolerserver
 
 import (
-	_ "github.com/multigres/multigres/go/multipooler/grpcmanagerservice"
-	_ "github.com/multigres/multigres/go/multipooler/grpcpoolerservice"
+	_ "github.com/lib/pq" // PostgreSQL driver
 )
