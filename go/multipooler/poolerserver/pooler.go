@@ -72,7 +72,6 @@ func (s *MultiPooler) connectDB() error {
 	}
 
 	// Start heartbeat tracking if not already started
-	s.logger.Info("BEFORE")
 	if s.replTracker == nil {
 		s.logger.Info("Starting database heartbeat")
 		ctx := context.Background()
