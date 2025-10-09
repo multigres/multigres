@@ -25,6 +25,7 @@ import (
 
 	"github.com/multigres/multigres/go/grpccommon"
 	pb "github.com/multigres/multigres/go/pb/pgctldservice"
+	"github.com/multigres/multigres/go/provisioner/local/ports"
 )
 
 // startPostgreSQLViaPgctld starts PostgreSQL via pgctld gRPC and verifies it's running
@@ -181,14 +182,14 @@ func (p *localProvisioner) provisionPgctld(ctx context.Context, dbName, tableGro
 	}
 
 	// Get gRPC port from config or use default
-	grpcPort := 17000
-	if port, ok := pgctldConfig["grpc_port"].(int); ok {
+	grpcPort := ports.DefaultPgctldGRPC
+	if port, ok := pgctldConfig["grpc_port"].(int); ok && port > 0 {
 		grpcPort = port
 	}
 
 	// Get PostgreSQL port from config or use default
-	pgPort := 5432
-	if port, ok := pgctldConfig["pg_port"].(int); ok {
+	pgPort := ports.DefaultPostgresPort
+	if port, ok := pgctldConfig["pg_port"].(int); ok && port > 0 {
 		pgPort = port
 	}
 
