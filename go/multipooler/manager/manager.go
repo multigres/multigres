@@ -22,9 +22,6 @@ import (
 	"sync"
 	"time"
 
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
-
 	"github.com/multigres/multigres/go/clustermetadata/topo"
 	"github.com/multigres/multigres/go/mterrors"
 	"github.com/multigres/multigres/go/servenv"
@@ -226,7 +223,72 @@ func (pm *MultiPoolerManager) WaitForLSN(ctx context.Context, targetLsn string) 
 		return err
 	}
 	pm.logger.Info("WaitForLSN called", "target_lsn", targetLsn)
-	return mterrors.New(mtrpcpb.Code_UNIMPLEMENTED, "method WaitForLSN not implemented")
+
+	// Guardrail: Check pooler type - only REPLICA poolers can wait for LSN
+	pm.mu.RLock()
+	poolerType := pm.multipooler.Type
+	pm.mu.RUnlock()
+
+	if poolerType != clustermetadatapb.PoolerType_REPLICA {
+		pm.logger.Error("WaitForLSN called on non-replica pooler",
+			"service_id", pm.serviceID.String(),
+			"pooler_type", poolerType.String())
+		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
+			fmt.Sprintf("operation not allowed: pooler type is %s, must be REPLICA (service_id: %s)",
+				poolerType.String(), pm.serviceID.String()))
+	}
+
+	// Ensure database connection
+	if err := pm.connectDB(); err != nil {
+		pm.logger.Error("Failed to connect to database", "error", err)
+		return mterrors.Wrap(err, "database connection failed")
+	}
+
+	// Guardrail: Check if the PostgreSQL instance is in recovery (standby mode)
+	var isInRecovery bool
+	err := pm.db.QueryRowContext(ctx, "SELECT pg_is_in_recovery()").Scan(&isInRecovery)
+	if err != nil {
+		pm.logger.Error("Failed to check if instance is in recovery", "error", err)
+		return mterrors.Wrap(err, "failed to check recovery status")
+	}
+
+	if !isInRecovery {
+		pm.logger.Error("WaitForLSN called on non-standby instance", "service_id", pm.serviceID.String())
+		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
+			fmt.Sprintf("operation not allowed: the PostgreSQL instance is not in standby mode (service_id: %s)", pm.serviceID.String()))
+	}
+
+	// Wait for the standby to replay WAL up to the target LSN
+	// We use a polling approach to check if the replay LSN has reached the target
+	pm.logger.Info("Waiting for standby to reach target LSN", "target_lsn", targetLsn)
+
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			pm.logger.Error("WaitForLSN context cancelled or timed out",
+				"target_lsn", targetLsn,
+				"error", ctx.Err())
+			return mterrors.Wrap(ctx.Err(), "context cancelled or timed out while waiting for LSN")
+
+		case <-ticker.C:
+			// Check if the standby has replayed up to the target LSN
+			var reachedTarget bool
+			query := fmt.Sprintf("SELECT pg_last_wal_replay_lsn() >= '%s'::pg_lsn", targetLsn)
+			err := pm.db.QueryRowContext(ctx, query).Scan(&reachedTarget)
+			if err != nil {
+				pm.logger.Error("Failed to check replay LSN", "error", err)
+				return mterrors.Wrap(err, "failed to check replay LSN")
+			}
+
+			if reachedTarget {
+				pm.logger.Info("Standby reached target LSN", "target_lsn", targetLsn)
+				return nil
+			}
+		}
+	}
 }
 
 // SetReadOnly makes the PostgreSQL instance read-only
@@ -463,32 +525,6 @@ func (pm *MultiPoolerManager) SetPrimaryConnInfo(ctx context.Context, host strin
 
 	pm.logger.Info("SetPrimaryConnInfo completed successfully")
 	return nil
-}
-
-// createPgctldClient creates a gRPC client connection to pgctld
-// Handles both Unix socket and TCP connections
-func (pm *MultiPoolerManager) createPgctldClient() (*grpc.ClientConn, error) {
-	if pm.config.PgctldAddr == "" {
-		return nil, mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION, "pgctld address not configured")
-	}
-
-	pgctldTarget := pm.config.PgctldAddr
-
-	// Check if it's a Unix socket (starts with "unix://" or "/")
-	if len(pgctldTarget) > 0 && (pgctldTarget[0] == '/' || (len(pgctldTarget) > 7 && pgctldTarget[:7] == "unix://")) {
-		pm.logger.Info("Connecting to pgctld via Unix socket", "socket", pgctldTarget)
-	} else {
-		pm.logger.Info("Connecting to pgctld via TCP", "address", pgctldTarget)
-	}
-
-	// Connect to pgctld
-	conn, err := grpc.NewClient(pgctldTarget, grpc.WithTransportCredentials(insecure.NewCredentials()))
-	if err != nil {
-		pm.logger.Error("Failed to connect to pgctld", "error", err, "pgctld_addr", pgctldTarget)
-		return nil, mterrors.Wrap(err, "failed to connect to pgctld")
-	}
-
-	return conn, nil
 }
 
 // StartReplication starts WAL replay on standby (calls pg_wal_replay_resume)

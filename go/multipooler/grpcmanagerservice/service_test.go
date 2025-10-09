@@ -34,8 +34,6 @@ import (
 	clustermetadata "github.com/multigres/multigres/go/pb/clustermetadata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multipoolermanagerdata "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
-
-	durationpb "google.golang.org/protobuf/types/known/durationpb"
 )
 
 func TestManagerServiceMethods_NotImplemented(t *testing.T) {
@@ -89,18 +87,6 @@ func TestManagerServiceMethods_NotImplemented(t *testing.T) {
 		method         func() error
 		expectedMethod string
 	}{
-		{
-			name: "WaitForLSN",
-			method: func() error {
-				req := &multipoolermanagerdata.WaitForLSNRequest{
-					TargetLsn: "0/1000000",
-					Timeout:   &durationpb.Duration{Seconds: 30},
-				}
-				_, err := svc.WaitForLSN(ctx, req)
-				return err
-			},
-			expectedMethod: "WaitForLSN",
-		},
 		{
 			name: "SetReadOnly",
 			method: func() error {
@@ -275,17 +261,6 @@ func TestManagerServiceMethods_ManagerNotReady(t *testing.T) {
 		name   string
 		method func() error
 	}{
-		{
-			name: "WaitForLSN",
-			method: func() error {
-				req := &multipoolermanagerdata.WaitForLSNRequest{
-					TargetLsn: "0/1000000",
-					Timeout:   &durationpb.Duration{Seconds: 30},
-				}
-				_, err := svc.WaitForLSN(ctx, req)
-				return err
-			},
-		},
 		{
 			name: "SetReadOnly",
 			method: func() error {

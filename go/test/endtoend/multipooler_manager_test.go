@@ -773,8 +773,8 @@ func TestMultipoolerPrimaryPosition(t *testing.T) {
 	})
 }
 
-// TestSetPrimaryConnInfo tests the SetPrimaryConnInfo API functionality
-func TestSetPrimaryConnInfo(t *testing.T) {
+// TestReplicationAPIs tests the replication-related API functionality (SetPrimaryConnInfo, WaitForLSN, etc.)
+func TestReplicationAPIs(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping end-to-end tests in short mode")
 	}
@@ -830,25 +830,21 @@ func TestSetPrimaryConnInfo(t *testing.T) {
 		// Validate data is NOT in standby yet (no replication configured)
 		t.Log("Validating data is NOT in standby (replication not configured)...")
 
-		// Get initial standby LSN
-		// TODO: Once we implement more RPC methods, we should get this from the multipooler manager.
-		queryResp, err := standbyPoolerClient.ExecuteQuery("SELECT pg_last_wal_replay_lsn()::text", 1)
-		require.NoError(t, err)
-		require.Len(t, queryResp.Rows, 1)
-		initialStandbyLSN := string(queryResp.Rows[0].Values[0])
-		t.Logf("Initial standby LSN: %s", initialStandbyLSN)
+		// Use WaitForLSN to verify standby cannot reach primary's LSN without replication
+		// This should timeout since replication is not configured
+		ctx, cancel = context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
 
-		// Wait a bit and check that LSN hasn't moved
-		time.Sleep(2 * time.Second)
-		queryResp, err = standbyPoolerClient.ExecuteQuery("SELECT pg_last_wal_replay_lsn()::text", 1)
-		require.NoError(t, err)
-		require.Len(t, queryResp.Rows, 1)
-		afterWaitStandbyLSN := string(queryResp.Rows[0].Values[0])
-		t.Logf("Standby LSN after wait: %s", afterWaitStandbyLSN)
-		assert.Equal(t, initialStandbyLSN, afterWaitStandbyLSN, "Standby LSN should not have moved without replication configured")
+		waitReq := &multipoolermanagerdata.WaitForLSNRequest{
+			TargetLsn: primaryLSN,
+		}
+		_, err = standbyManagerClient.WaitForLSN(ctx, waitReq)
+		require.Error(t, err, "WaitForLSN should timeout without replication configured")
+		assert.Contains(t, err.Error(), "context", "Error should indicate context timeout")
+		t.Log("Confirmed: standby cannot reach primary LSN without replication configured")
 
 		// Verify table doesn't exist in standby
-		queryResp, err = standbyPoolerClient.ExecuteQuery("SELECT COUNT(*) FROM pg_tables WHERE tablename = 'test_replication'", 1)
+		queryResp, err := standbyPoolerClient.ExecuteQuery("SELECT COUNT(*) FROM pg_tables WHERE tablename = 'test_replication'", 1)
 		require.NoError(t, err)
 		require.Len(t, queryResp.Rows, 1)
 		tableCount := string(queryResp.Rows[0].Values[0])
@@ -873,41 +869,33 @@ func TestSetPrimaryConnInfo(t *testing.T) {
 		require.NoError(t, err, "SetPrimaryConnInfo should succeed")
 		t.Log("Replication configured successfully")
 
-		// Validate LSN starts moving and data appears
-		t.Logf("Validating standby catches up to primary LSN: %s", primaryLSN)
+		// Wait for standby to catch up to primary's LSN using WaitForLSN API
+		t.Logf("Waiting for standby to catch up to primary LSN: %s", primaryLSN)
 
-		// Wait for replication to catch up to primary's LSN
-		// Use >= comparison since heartbeat writes may advance the LSN past the captured value
-		require.Eventually(t, func() bool {
-			queryResp, err := standbyPoolerClient.ExecuteQuery(fmt.Sprintf("SELECT pg_last_wal_replay_lsn() >= '%s'::pg_lsn", primaryLSN), 1)
-			if err != nil || len(queryResp.Rows) == 0 {
-				return false
-			}
-			caughtUp := string(queryResp.Rows[0].Values[0])
-			if caughtUp != "true" {
-				// Log current standby LSN for debugging
-				if debugResp, err := standbyPoolerClient.ExecuteQuery("SELECT pg_last_wal_replay_lsn()::text", 1); err == nil && len(debugResp.Rows) > 0 {
-					t.Logf("Standby LSN: %s (target: >= %s)", string(debugResp.Rows[0].Values[0]), primaryLSN)
-				}
-			}
-			return caughtUp == "true"
-		}, 15*time.Second, 500*time.Millisecond, "Standby should catch up to primary LSN after replication is configured")
+		ctx, cancel = context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+
+		waitReq = &multipoolermanagerdata.WaitForLSNRequest{
+			TargetLsn: primaryLSN,
+		}
+		_, err = standbyManagerClient.WaitForLSN(ctx, waitReq)
+		require.NoError(t, err, "Standby should catch up to primary LSN after replication is configured")
 
 		// Verify the table now exists in standby
 		require.Eventually(t, func() bool {
-			queryResp, err := standbyPoolerClient.ExecuteQuery("SELECT COUNT(*) FROM pg_tables WHERE tablename = 'test_replication'", 1)
-			if err != nil || len(queryResp.Rows) == 0 {
+			resp, err := standbyPoolerClient.ExecuteQuery("SELECT COUNT(*) FROM pg_tables WHERE tablename = 'test_replication'", 1)
+			if err != nil || len(resp.Rows) == 0 {
 				return false
 			}
-			tableCount := string(queryResp.Rows[0].Values[0])
+			tableCount := string(resp.Rows[0].Values[0])
 			return tableCount == "1"
 		}, 15*time.Second, 500*time.Millisecond, "Table should exist in standby after replication")
 
 		// Verify the data replicated
-		queryResp, err = standbyPoolerClient.ExecuteQuery("SELECT COUNT(*) FROM test_replication", 1)
+		dataResp, err := standbyPoolerClient.ExecuteQuery("SELECT COUNT(*) FROM test_replication", 1)
 		require.NoError(t, err)
-		require.Len(t, queryResp.Rows, 1)
-		rowCount := string(queryResp.Rows[0].Values[0])
+		require.Len(t, dataResp.Rows, 1)
+		rowCount := string(dataResp.Rows[0].Values[0])
 		assert.Equal(t, "1", rowCount, "Should have 1 row in standby")
 
 		t.Log("Replication is working! Data successfully replicated from primary to standby")
@@ -1044,5 +1032,80 @@ func TestSetPrimaryConnInfo(t *testing.T) {
 		assert.Equal(t, "false", isPaused, "WAL replay should be running after StartReplicationAfter=true")
 
 		t.Log("Replication successfully started with StartReplicationAfter flag")
+	})
+
+	t.Run("WaitForLSN_Standby_Success", func(t *testing.T) {
+		// Insert data on primary to generate a new LSN
+		t.Log("Creating table and inserting data on primary...")
+		_, err = primaryPoolerClient.ExecuteQuery("CREATE TABLE IF NOT EXISTS test_wait_lsn (id SERIAL PRIMARY KEY, data TEXT)", 0)
+		require.NoError(t, err, "Should be able to create table in primary")
+
+		_, err = primaryPoolerClient.ExecuteQuery("INSERT INTO test_wait_lsn (data) VALUES ('test data for wait lsn')", 0)
+		require.NoError(t, err, "Should be able to insert data in primary")
+
+		// Get LSN from primary
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		primaryPosResp, err := primaryManagerClient.PrimaryPosition(ctx, &multipoolermanagerdata.PrimaryPositionRequest{})
+		require.NoError(t, err)
+		targetLSN := primaryPosResp.LsnPosition
+		t.Logf("Target LSN from primary: %s", targetLSN)
+
+		// Wait for standby to reach the target LSN
+		t.Log("Waiting for standby to reach target LSN...")
+		ctx, cancel = context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		waitReq := &multipoolermanagerdata.WaitForLSNRequest{
+			TargetLsn: targetLSN,
+		}
+		_, err = standbyManagerClient.WaitForLSN(ctx, waitReq)
+		require.NoError(t, err, "WaitForLSN should succeed on standby")
+
+		t.Log("Standby successfully reached target LSN")
+
+		// Verify the data replicated
+		queryResp, err := standbyPoolerClient.ExecuteQuery("SELECT COUNT(*) FROM test_wait_lsn", 1)
+		require.NoError(t, err)
+		require.Len(t, queryResp.Rows, 1)
+		rowCount := string(queryResp.Rows[0].Values[0])
+		assert.Equal(t, "1", rowCount, "Should have 1 row in standby")
+
+		// Cleanup
+		_, err = primaryPoolerClient.ExecuteQuery("DROP TABLE IF EXISTS test_wait_lsn", 0)
+		require.NoError(t, err)
+	})
+
+	t.Run("WaitForLSN_Primary_Fails", func(t *testing.T) {
+		// WaitForLSN should fail on PRIMARY pooler type
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		waitReq := &multipoolermanagerdata.WaitForLSNRequest{
+			TargetLsn: "0/1000000",
+		}
+		_, err = primaryManagerClient.WaitForLSN(ctx, waitReq)
+		require.Error(t, err, "WaitForLSN should fail on primary")
+		assert.Contains(t, err.Error(), "operation not allowed", "Error should indicate operation not allowed on PRIMARY")
+	})
+
+	t.Run("WaitForLSN_Timeout", func(t *testing.T) {
+		// Test timeout behavior by waiting for a very high LSN that won't be reached
+		t.Log("Testing timeout with unreachable LSN...")
+
+		// Use a very high LSN that won't be reached in the timeout period
+		unreachableLSN := "FF/FFFFFFFF"
+
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+
+		waitReq := &multipoolermanagerdata.WaitForLSNRequest{
+			TargetLsn: unreachableLSN,
+		}
+		_, err = standbyManagerClient.WaitForLSN(ctx, waitReq)
+		require.Error(t, err, "WaitForLSN should timeout")
+		assert.Contains(t, err.Error(), "context", "Error should indicate context timeout")
+		t.Log("WaitForLSN correctly timed out")
 	})
 }
