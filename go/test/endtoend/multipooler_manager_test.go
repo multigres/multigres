@@ -877,15 +877,20 @@ func TestSetPrimaryConnInfo(t *testing.T) {
 		t.Logf("Validating standby catches up to primary LSN: %s", primaryLSN)
 
 		// Wait for replication to catch up to primary's LSN
+		// Use >= comparison since heartbeat writes may advance the LSN past the captured value
 		require.Eventually(t, func() bool {
-			queryResp, err := standbyPoolerClient.ExecuteQuery("SELECT pg_last_wal_replay_lsn()::text", 1)
+			queryResp, err := standbyPoolerClient.ExecuteQuery(fmt.Sprintf("SELECT pg_last_wal_replay_lsn() >= '%s'::pg_lsn", primaryLSN), 1)
 			if err != nil || len(queryResp.Rows) == 0 {
 				return false
 			}
-			currentStandbyLSN := string(queryResp.Rows[0].Values[0])
-			t.Logf("Standby LSN: %s (target: %s)", currentStandbyLSN, primaryLSN)
-			// Standby should catch up to exactly the primary LSN (no new writes happening)
-			return currentStandbyLSN == primaryLSN
+			caughtUp := string(queryResp.Rows[0].Values[0])
+			if caughtUp != "true" {
+				// Log current standby LSN for debugging
+				if debugResp, err := standbyPoolerClient.ExecuteQuery("SELECT pg_last_wal_replay_lsn()::text", 1); err == nil && len(debugResp.Rows) > 0 {
+					t.Logf("Standby LSN: %s (target: >= %s)", string(debugResp.Rows[0].Values[0]), primaryLSN)
+				}
+			}
+			return caughtUp == "true"
 		}, 15*time.Second, 500*time.Millisecond, "Standby should catch up to primary LSN after replication is configured")
 
 		// Verify the table now exists in standby
