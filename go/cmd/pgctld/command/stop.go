@@ -96,7 +96,7 @@ func (s *PgCtlStopCmd) runStop(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	result, err := StopPostgreSQLWithResult(config, s.mode.Get())
+	result, err := StopPostgreSQLWithResult(s.pgCtlCmd.lg.GetLogger(), config, s.mode.Get())
 	if err != nil {
 		return err
 	}
@@ -112,8 +112,7 @@ func (s *PgCtlStopCmd) runStop(cmd *cobra.Command, args []string) error {
 }
 
 // StopPostgreSQLWithResult stops PostgreSQL with the given configuration and returns detailed result information
-func StopPostgreSQLWithResult(config *pgctld.PostgresCtlConfig, mode string) (*StopResult, error) {
-	logger := slog.Default()
+func StopPostgreSQLWithResult(logger *slog.Logger, config *pgctld.PostgresCtlConfig, mode string) (*StopResult, error) {
 	result := &StopResult{}
 
 	// Default mode to "fast" if not specified
@@ -132,7 +131,7 @@ func StopPostgreSQLWithResult(config *pgctld.PostgresCtlConfig, mode string) (*S
 	result.WasRunning = true
 	logger.Info("Stopping PostgreSQL server", "data_dir", config.PostgresDataDir, "mode", mode)
 
-	if err := stopPostgreSQLWithConfig(config, mode); err != nil {
+	if err := stopPostgreSQLWithConfig(logger, config, mode); err != nil {
 		return nil, fmt.Errorf("failed to stop PostgreSQL: %w", err)
 	}
 
@@ -142,33 +141,33 @@ func StopPostgreSQLWithResult(config *pgctld.PostgresCtlConfig, mode string) (*S
 }
 
 // StopPostgreSQLWithConfig stops PostgreSQL with the given configuration and mode
-func StopPostgreSQLWithConfig(config *pgctld.PostgresCtlConfig, mode string) error {
-	result, err := StopPostgreSQLWithResult(config, mode)
+func StopPostgreSQLWithConfig(logger *slog.Logger, config *pgctld.PostgresCtlConfig, mode string) error {
+	result, err := StopPostgreSQLWithResult(logger, config, mode)
 	if err != nil {
 		return err
 	}
 
 	// For backward compatibility, log the message if PostgreSQL was actually stopped
 	if result.WasRunning && result.Message != "" {
-		slog.Info(result.Message)
+		logger.Info(result.Message)
 	}
 
 	return nil
 }
 
-func stopPostgreSQLWithConfig(config *pgctld.PostgresCtlConfig, mode string) error {
+func stopPostgreSQLWithConfig(logger *slog.Logger, config *pgctld.PostgresCtlConfig, mode string) error {
 	// First try using pg_ctl
-	if err := stopWithPgCtlWithConfig(config, mode); err != nil {
-		slog.Error("pg_ctl stop failed,", "error", err)
+	if err := stopWithPgCtlWithConfig(logger, config, mode); err != nil {
+		logger.Error("pg_ctl stop failed,", "error", err)
 		return err
 	}
 	return nil
 }
 
-func stopWithPgCtlWithConfig(config *pgctld.PostgresCtlConfig, mode string) error {
+func stopWithPgCtlWithConfig(logger *slog.Logger, config *pgctld.PostgresCtlConfig, mode string) error {
 	// Take a checkpoint before stopping PostgreSQL for clean shutdown
-	if err := takeCheckpoint(config); err != nil {
-		slog.Warn("Failed to take checkpoint before stop", "error", err, "data_dir", config.PostgresDataDir)
+	if err := takeCheckpoint(logger, config); err != nil {
+		logger.Warn("Failed to take checkpoint before stop", "error", err, "data_dir", config.PostgresDataDir)
 		// Continue with stop even if checkpoint fails - it's not critical
 	}
 
@@ -187,8 +186,8 @@ func stopWithPgCtlWithConfig(config *pgctld.PostgresCtlConfig, mode string) erro
 }
 
 // takeCheckpoint executes a CHECKPOINT command to ensure all data is written to disk before shutdown
-func takeCheckpoint(config *pgctld.PostgresCtlConfig) error {
-	slog.Info("Taking checkpoint before stopping PostgreSQL", "data_dir", config.PostgresDataDir)
+func takeCheckpoint(logger *slog.Logger, config *pgctld.PostgresCtlConfig) error {
+	logger.Info("Taking checkpoint before stopping PostgreSQL", "data_dir", config.PostgresDataDir)
 
 	// Use Unix socket connection for psql
 	socketDir := pgctld.PostgresSocketDir(config.PoolerDir)
@@ -209,6 +208,6 @@ func takeCheckpoint(config *pgctld.PostgresCtlConfig) error {
 		return fmt.Errorf("checkpoint command failed: %w, output: %s", err, string(output))
 	}
 
-	slog.Info("Checkpoint completed successfully", "data_dir", config.PostgresDataDir)
+	logger.Info("Checkpoint completed successfully", "data_dir", config.PostgresDataDir)
 	return nil
 }

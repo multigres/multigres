@@ -85,8 +85,7 @@ Examples:
 }
 
 // GetStatusWithResult gets PostgreSQL status with the given configuration and returns detailed result information
-func GetStatusWithResult(config *pgctld.PostgresCtlConfig) (*StatusResult, error) {
-	logger := slog.Default()
+func GetStatusWithResult(logger *slog.Logger, config *pgctld.PostgresCtlConfig) (*StatusResult, error) {
 	result := &StatusResult{
 		DataDir: config.PostgresDataDir,
 		Port:    config.Port,
@@ -132,7 +131,7 @@ func (s *PgCtlStatusCmd) runStatus(cmd *cobra.Command, args []string) error {
 	}
 	// No local flag overrides needed - all flags are global now
 
-	result, err := GetStatusWithResult(config)
+	result, err := GetStatusWithResult(s.pgCtlCmd.lg.GetLogger(), config)
 	if err != nil {
 		return err
 	}

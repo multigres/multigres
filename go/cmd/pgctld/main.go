@@ -17,17 +17,17 @@
 package main
 
 import (
-	"log/slog"
 	"os"
 
 	"github.com/multigres/multigres/go/cmd/pgctld/command"
 )
 
 func main() {
-	root := command.GetRootCommand()
+	root, pgctlCmd := command.GetRootCommand()
 
 	if err := root.Execute(); err != nil {
-		slog.Error("Command execution failed", "error", err)
+		logger := pgctlCmd.GetLogger()
+		logger.Error("Command execution failed", "error", err)
 		os.Exit(1)
 	}
 }

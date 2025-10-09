@@ -15,6 +15,8 @@
 package command
 
 import (
+	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"testing"
@@ -122,7 +124,8 @@ func TestStopPostgreSQLWithResult(t *testing.T) {
 			config, err := pgctld.NewPostgresCtlConfig(5432, "postgres", "postgres", 30, pgDataDir, pgConfigFile, poolerDir)
 			require.NoError(t, err)
 
-			result, err := StopPostgreSQLWithResult(config, tt.mode)
+			logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+			result, err := StopPostgreSQLWithResult(logger, config, tt.mode)
 
 			if tt.expectError {
 				assert.Error(t, err)
@@ -212,7 +215,7 @@ func TestRunStop(t *testing.T) {
 			}
 
 			// Create a fresh root command for each test
-			cmd := GetRootCommand()
+			cmd, _ := GetRootCommand()
 
 			// Set up the command arguments
 			args := []string{"stop", "--mode", tt.mode}
@@ -291,7 +294,8 @@ func TestStopPostgreSQLWithConfig(t *testing.T) {
 			config, err := pgctld.NewPostgresCtlConfig(5432, "postgres", "postgres", 30, pgDataDir, pgConfigFile, poolerDir)
 			require.NoError(t, err)
 
-			err = StopPostgreSQLWithConfig(config, tt.mode)
+			logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+			err = StopPostgreSQLWithConfig(logger, config, tt.mode)
 
 			if tt.expectError {
 				assert.Error(t, err)
@@ -358,7 +362,8 @@ func TestTakeCheckpoint(t *testing.T) {
 				defer os.Setenv("PATH", originalPath)
 			}
 
-			err := takeCheckpoint(tt.config(baseDir))
+			logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+			err := takeCheckpoint(logger, tt.config(baseDir))
 
 			if tt.expectError {
 				assert.Error(t, err)

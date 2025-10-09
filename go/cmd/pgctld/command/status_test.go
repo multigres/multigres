@@ -48,7 +48,7 @@ func TestRunStatus(t *testing.T) {
 		os.Stdout = w
 
 		// Create a fresh root command for each test
-		cmd := GetRootCommand()
+		cmd, _ := GetRootCommand()
 		cmd.SetArgs([]string{"status", "--pooler-dir", baseDir})
 		err := cmd.Execute()
 
@@ -92,7 +92,7 @@ func TestRunStatus(t *testing.T) {
 
 	// Test 4: No pooler directory - should get an error
 	t.Run("no_pooler_dir", func(t *testing.T) {
-		cmd := GetRootCommand()
+		cmd, _ := GetRootCommand()
 		cmd.SetArgs([]string{"status", "--pooler-dir", ""})
 		err := cmd.Execute()
 

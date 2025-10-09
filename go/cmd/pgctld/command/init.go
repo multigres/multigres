@@ -94,8 +94,7 @@ Examples:
 }
 
 // InitDataDirWithResult initializes PostgreSQL data directory and returns detailed result information
-func InitDataDirWithResult(poolerDir string, pgPort int, pgUser string, pgPwfile string) (*InitResult, error) {
-	logger := slog.Default()
+func InitDataDirWithResult(logger *slog.Logger, poolerDir string, pgPort int, pgUser string, pgPwfile string) (*InitResult, error) {
 	result := &InitResult{}
 	dataDir := pgctld.PostgresDataDir(poolerDir)
 
@@ -108,7 +107,7 @@ func InitDataDirWithResult(poolerDir string, pgPort int, pgUser string, pgPwfile
 	}
 
 	logger.Info("Initializing PostgreSQL data directory", "data_dir", dataDir)
-	if err := initializeDataDir(dataDir, pgUser, pgPwfile); err != nil {
+	if err := initializeDataDir(logger, dataDir, pgUser, pgPwfile); err != nil {
 		return nil, fmt.Errorf("failed to initialize data directory: %w", err)
 	}
 	// create server config using the pooler directory
@@ -125,7 +124,7 @@ func InitDataDirWithResult(poolerDir string, pgPort int, pgUser string, pgPwfile
 
 func (i *PgCtldInitCmd) runInit(cmd *cobra.Command, args []string) error {
 	poolerDir := i.pgCtlCmd.GetPoolerDir()
-	result, err := InitDataDirWithResult(poolerDir, i.pgPort.Get(), i.pgCtlCmd.pgUser.Get(), i.pgPwfile.Get())
+	result, err := InitDataDirWithResult(i.pgCtlCmd.lg.GetLogger(), poolerDir, i.pgPort.Get(), i.pgCtlCmd.pgUser.Get(), i.pgPwfile.Get())
 	if err != nil {
 		return err
 	}
@@ -140,7 +139,7 @@ func (i *PgCtldInitCmd) runInit(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func initializeDataDir(dataDir string, pgUser string, pgPwfile string) error {
+func initializeDataDir(logger *slog.Logger, dataDir string, pgUser string, pgPwfile string) error {
 	// Create data directory if it doesn't exist
 	if err := os.MkdirAll(dataDir, 0o700); err != nil {
 		return fmt.Errorf("failed to create data directory: %w", err)
@@ -163,8 +162,8 @@ func initializeDataDir(dataDir string, pgUser string, pgPwfile string) error {
 
 	// Skip password setup if password is empty and warn user
 	if effectivePassword == "" {
-		slog.Warn("No password provided - skipping password setup", "user", pgUser, "warning", "PostgreSQL user will not have password authentication enabled")
-		slog.Info("PostgreSQL data directory initialized successfully")
+		logger.Warn("No password provided - skipping password setup", "user", pgUser, "warning", "PostgreSQL user will not have password authentication enabled")
+		logger.Info("PostgreSQL data directory initialized successfully")
 		return nil
 	}
 
@@ -181,7 +180,7 @@ func initializeDataDir(dataDir string, pgUser string, pgPwfile string) error {
 		passwordSource = "PGPASSWORD environment variable"
 	}
 
-	slog.Info("User password set successfully", "user", pgUser, "password_source", passwordSource)
+	logger.Info("User password set successfully", "user", pgUser, "password_source", passwordSource)
 
 	return nil
 }

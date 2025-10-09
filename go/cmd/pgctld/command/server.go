@@ -220,7 +220,7 @@ func (s *PgCtldService) Start(ctx context.Context, req *pb.StartRequest) (*pb.St
 	}
 
 	// Use the pre-configured PostgreSQL config for start operation
-	result, err := StartPostgreSQLWithResult(s.config)
+	result, err := StartPostgreSQLWithResult(s.logger, s.config)
 	if err != nil {
 		return nil, fmt.Errorf("failed to start PostgreSQL: %w", err)
 	}
@@ -241,7 +241,7 @@ func (s *PgCtldService) Stop(ctx context.Context, req *pb.StopRequest) (*pb.Stop
 	}
 
 	// Use the pre-configured PostgreSQL config for stop operation
-	result, err := StopPostgreSQLWithResult(s.config, req.Mode)
+	result, err := StopPostgreSQLWithResult(s.logger, s.config, req.Mode)
 	if err != nil {
 		return nil, fmt.Errorf("failed to stop PostgreSQL: %w", err)
 	}
@@ -261,7 +261,7 @@ func (s *PgCtldService) Restart(ctx context.Context, req *pb.RestartRequest) (*p
 	}
 
 	// Use the pre-configured PostgreSQL config for restart operation
-	result, err := RestartPostgreSQLWithResult(s.config, req.Mode)
+	result, err := RestartPostgreSQLWithResult(s.logger, s.config, req.Mode)
 	if err != nil {
 		return nil, fmt.Errorf("failed to restart PostgreSQL: %w", err)
 	}
@@ -282,7 +282,7 @@ func (s *PgCtldService) ReloadConfig(ctx context.Context, req *pb.ReloadConfigRe
 	}
 
 	// Use the pre-configured PostgreSQL config for reload operation
-	result, err := ReloadPostgreSQLConfigWithResult(s.config)
+	result, err := ReloadPostgreSQLConfigWithResult(s.logger, s.config)
 	if err != nil {
 		return nil, fmt.Errorf("failed to reload PostgreSQL configuration: %w", err)
 	}
@@ -306,7 +306,7 @@ func (s *PgCtldService) Status(ctx context.Context, req *pb.StatusRequest) (*pb.
 	}
 
 	// Use the pre-configured PostgreSQL config for status operation
-	result, err := GetStatusWithResult(s.config)
+	result, err := GetStatusWithResult(s.logger, s.config)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get status: %w", err)
 	}
@@ -351,7 +351,7 @@ func (s *PgCtldService) InitDataDir(ctx context.Context, req *pb.InitDataDirRequ
 	s.logger.Info("gRPC InitDataDir request")
 
 	// Use the shared init function with detailed result
-	result, err := InitDataDirWithResult(s.poolerDir, s.pgPort, s.pgUser, req.PgPwfile)
+	result, err := InitDataDirWithResult(s.logger, s.poolerDir, s.pgPort, s.pgUser, req.PgPwfile)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize data directory: %w", err)
 	}

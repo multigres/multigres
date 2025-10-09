@@ -16,8 +16,10 @@ package command
 
 import (
 	"fmt"
+	"log/slog"
 
 	"github.com/multigres/multigres/go/pgctld"
+	"github.com/multigres/multigres/go/servenv"
 	"github.com/multigres/multigres/go/viperutil"
 
 	"github.com/spf13/cobra"
@@ -30,10 +32,11 @@ type PgCtlCommand struct {
 	poolerDir  viperutil.Value[string]
 	timeout    viperutil.Value[int]
 	vc         *viperutil.ViperConfig
+	lg         *servenv.Logger
 }
 
 // GetRootCommand creates and returns the root command for pgctld with all subcommands
-func GetRootCommand() *cobra.Command {
+func GetRootCommand() (*cobra.Command, *PgCtlCommand) {
 	pc := &PgCtlCommand{
 		pgDatabase: viperutil.Configure("pg-database", viperutil.Options[string]{
 			Default:  "postgres",
@@ -56,6 +59,7 @@ func GetRootCommand() *cobra.Command {
 			Dynamic:  false,
 		}),
 		vc: viperutil.NewViperConfig(),
+		lg: servenv.NewLogger(),
 	}
 
 	root := &cobra.Command{
@@ -65,6 +69,9 @@ func GetRootCommand() *cobra.Command {
 It provides lifecycle management including start, stop, restart, and configuration
 management for PostgreSQL servers.`,
 		Args: cobra.NoArgs,
+		PreRun: func(cmd *cobra.Command, args []string) {
+			pc.lg.SetupLogging()
+		},
 	}
 
 	root.PersistentFlags().StringP("pg-database", "D", pc.pgDatabase.Default(), "PostgreSQL database name")
@@ -72,6 +79,7 @@ management for PostgreSQL servers.`,
 	root.PersistentFlags().IntP("timeout", "t", pc.timeout.Default(), "Operation timeout in seconds")
 	root.PersistentFlags().String("pooler-dir", pc.poolerDir.Default(), "The directory to multipooler data")
 	pc.vc.RegisterFlags(root.PersistentFlags())
+	pc.lg.RegisterFlags(root.PersistentFlags())
 
 	viperutil.BindFlags(root.PersistentFlags(),
 		pc.pgDatabase,
@@ -90,7 +98,7 @@ management for PostgreSQL servers.`,
 	AddVersionCommand(root, pc)
 	AddReloadCommand(root, pc)
 
-	return root
+	return root, pc
 }
 
 // validateGlobalFlags validates required global flags for all pgctld commands
@@ -102,6 +110,11 @@ func (pc *PgCtlCommand) validateGlobalFlags(cmd *cobra.Command, args []string) e
 	}
 
 	return nil
+}
+
+// GetLogger returns the configured logger instance
+func (pc *PgCtlCommand) GetLogger() *slog.Logger {
+	return pc.lg.GetLogger()
 }
 
 // GetPoolerDir returns the configured pooler directory as an absolute path

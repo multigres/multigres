@@ -85,8 +85,7 @@ Examples:
 }
 
 // RestartPostgreSQLWithResult restarts PostgreSQL with the given configuration and returns detailed result information
-func RestartPostgreSQLWithResult(config *pgctld.PostgresCtlConfig, mode string) (*RestartResult, error) {
-	logger := slog.Default()
+func RestartPostgreSQLWithResult(logger *slog.Logger, config *pgctld.PostgresCtlConfig, mode string) (*RestartResult, error) {
 	result := &RestartResult{}
 
 	logger.Info("Restarting PostgreSQL server", "data_dir", config.PostgresDataDir, "mode", mode)
@@ -94,7 +93,7 @@ func RestartPostgreSQLWithResult(config *pgctld.PostgresCtlConfig, mode string) 
 	// Stop the server if it's running
 	if isPostgreSQLRunning(config.PostgresDataDir) {
 		logger.Info("Stopping PostgreSQL server")
-		stopResult, err := StopPostgreSQLWithResult(config, mode)
+		stopResult, err := StopPostgreSQLWithResult(logger, config, mode)
 		if err != nil {
 			return nil, fmt.Errorf("failed to stop PostgreSQL during restart: %w", err)
 		}
@@ -106,7 +105,7 @@ func RestartPostgreSQLWithResult(config *pgctld.PostgresCtlConfig, mode string) 
 
 	// Start the server
 	logger.Info("Starting PostgreSQL server")
-	startResult, err := StartPostgreSQLWithResult(config)
+	startResult, err := StartPostgreSQLWithResult(logger, config)
 	if err != nil {
 		return nil, fmt.Errorf("failed to start PostgreSQL during restart: %w", err)
 	}
@@ -123,7 +122,7 @@ func (r *PgCtlRestartCmd) runRestart(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	result, err := RestartPostgreSQLWithResult(config, r.mode.Get())
+	result, err := RestartPostgreSQLWithResult(r.pgCtlCmd.lg.GetLogger(), config, r.mode.Get())
 	if err != nil {
 		return err
 	}
