@@ -24,6 +24,7 @@ import (
 
 	"github.com/multigres/multigres/go/clustermetadata/topo"
 	"github.com/multigres/multigres/go/mterrors"
+	"github.com/multigres/multigres/go/multipooler/heartbeat"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multipoolermanagerdata "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
@@ -45,11 +46,12 @@ const (
 
 // MultiPoolerManager manages the pooler lifecycle and PostgreSQL operations
 type MultiPoolerManager struct {
-	logger     *slog.Logger
-	config     *Config
-	db         *sql.DB
-	topoClient topo.Store
-	serviceID  *clustermetadatapb.ID
+	logger      *slog.Logger
+	config      *Config
+	db          *sql.DB
+	topoClient  topo.Store
+	serviceID   *clustermetadatapb.ID
+	replTracker *heartbeat.ReplTracker
 
 	// Multipooler record from topology
 	mu          sync.RWMutex
@@ -92,12 +94,87 @@ func (pm *MultiPoolerManager) connectDB() error {
 		return err
 	}
 	pm.db = db
+
+	// Test the connection
+	if err := pm.db.Ping(); err != nil {
+		pm.db.Close()
+		pm.db = nil
+		return fmt.Errorf("failed to ping database: %w", err)
+	}
+
+	pm.logger.Info("MultiPoolerManager: Connected to PostgreSQL", "socket_path", pm.config.SocketFilePath, "database", pm.config.Database)
+
+	// Create the multigres sidecar schema if it doesn't exist
+	pm.logger.Info("MultiPoolerManager: Creating sidecar database")
+	if err := CreateSidecarSchema(pm.db); err != nil {
+		return fmt.Errorf("failed to create sidecar schema: %w", err)
+	}
+
+	// Start heartbeat tracking if not already started
+	if pm.replTracker == nil {
+		pm.logger.Info("MultiPoolerManager: Starting database heartbeat")
+		ctx := context.Background()
+		// TODO: populate shard ID
+		shardID := []byte("0") // default shard ID
+
+		// Use the multipooler name from serviceID as the pooler ID
+		poolerID := pm.serviceID.Name
+
+		if err := pm.startHeartbeat(ctx, shardID, poolerID); err != nil {
+			pm.logger.Error("Failed to start heartbeat", "error", err)
+			// Don't fail the connection if heartbeat fails
+		}
+	}
+
+	return nil
+}
+
+// isPrimary checks if the connected database is a primary (not in recovery)
+//
+// TODO: replace with ReplicationStatus() when it's implemented
+func (pm *MultiPoolerManager) isPrimary(ctx context.Context) (bool, error) {
+	if pm.db == nil {
+		return false, fmt.Errorf("database connection not established")
+	}
+
+	var inRecovery bool
+	err := pm.db.QueryRowContext(ctx, "SELECT pg_is_in_recovery()").Scan(&inRecovery)
+	if err != nil {
+		return false, fmt.Errorf("failed to query pg_is_in_recovery: %w", err)
+	}
+
+	// pg_is_in_recovery() returns true if standby, false if primary
+	return !inRecovery, nil
+}
+
+// startHeartbeat starts the replication tracker and heartbeat writer if connected to a primary database
+func (pm *MultiPoolerManager) startHeartbeat(ctx context.Context, shardID []byte, poolerID string) error {
+	// Create the replication tracker
+	pm.replTracker = heartbeat.NewReplTracker(pm.db, pm.logger, shardID, poolerID)
+
+	// Check if we're connected to a primary
+	isPrimary, err := pm.isPrimary(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to check if database is primary: %w", err)
+	}
+
+	if isPrimary {
+		pm.logger.Info("Starting heartbeat writer - connected to primary database")
+		pm.replTracker.MakePrimary()
+	} else {
+		pm.logger.Info("Not starting heartbeat writer - connected to standby database")
+		pm.replTracker.MakeNonPrimary()
+	}
+
 	return nil
 }
 
 // Close closes the database connection and stops the async loader
 func (pm *MultiPoolerManager) Close() error {
 	pm.cancel()
+	if pm.replTracker != nil {
+		pm.replTracker.Close()
+	}
 	if pm.db != nil {
 		return pm.db.Close()
 	}
@@ -413,6 +490,19 @@ func (pm *MultiPoolerManager) Status(ctx context.Context) (*multipoolermanagerda
 	}, nil
 }
 
+// ReplicationLag returns the current replication lag from the heartbeat reader
+func (pm *MultiPoolerManager) ReplicationLag(ctx context.Context) (time.Duration, error) {
+	if err := pm.checkReady(); err != nil {
+		return 0, err
+	}
+
+	if pm.replTracker == nil {
+		return 0, mterrors.New(mtrpcpb.Code_UNAVAILABLE, "replication tracker not initialized")
+	}
+
+	return pm.replTracker.HeartbeatReader().Status()
+}
+
 // GetFollowers gets the list of follower servers
 func (pm *MultiPoolerManager) GetFollowers(ctx context.Context) ([]string, error) {
 	if err := pm.checkReady(); err != nil {
@@ -457,6 +547,12 @@ func (pm *MultiPoolerManager) Start() {
 	servenv.OnRun(func() {
 		pm.logger.Info("MultiPoolerManager started")
 		// Additional manager-specific initialization can happen here
+
+		// Connect to database and start heartbeats
+		if err := pm.connectDB(); err != nil {
+			pm.logger.Error("Failed to connect to database during startup", "error", err)
+			// Don't fail startup if DB connection fails - will retry on demand
+		}
 
 		// Register all gRPC services that have registered themselves
 		pm.registerGRPCServices()
