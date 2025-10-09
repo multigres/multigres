@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package server implements the multipooler gRPC server
-package server
+// Package pooler implements the multipooler gRPC server
+package poolerserver
 
 import (
 	"context"
@@ -23,44 +23,27 @@ import (
 	"strings"
 
 	"github.com/multigres/multigres/go/multipooler/manager"
-	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
 	querypb "github.com/multigres/multigres/go/pb/query"
-
-	"google.golang.org/grpc"
+	"github.com/multigres/multigres/go/servenv"
 )
 
-// Config holds configuration for the MultiPooler server
-type Config struct {
-	SocketFilePath string
-	PoolerDir      string
-	PgPort         int
-	Database       string
-}
-
-// MultiPoolerServer implements the MultiPoolerService gRPC interface
-type MultiPoolerServer struct {
-	multipoolerpb.UnimplementedMultiPoolerServiceServer
+// MultiPooler is the core pooler implementation
+type MultiPooler struct {
 	logger *slog.Logger
 	config *manager.Config
 	db     *sql.DB
 }
 
-// NewMultiPoolerServer creates a new multipooler gRPC server
-func NewMultiPoolerServer(logger *slog.Logger, config *manager.Config) *MultiPoolerServer {
-	return &MultiPoolerServer{
+// NewMultiPooler creates a new multipooler instance
+func NewMultiPooler(logger *slog.Logger, config *manager.Config) *MultiPooler {
+	return &MultiPooler{
 		logger: logger,
 		config: config,
 	}
 }
 
-// RegisterWithGRPCServer registers the MultiPooler service with the provided gRPC server
-func (s *MultiPoolerServer) RegisterWithGRPCServer(grpcServer *grpc.Server) {
-	multipoolerpb.RegisterMultiPoolerServiceServer(grpcServer, s)
-	s.logger.Info("MultiPooler service registered with gRPC server")
-}
-
 // connectDB establishes a connection to PostgreSQL
-func (s *MultiPoolerServer) connectDB() error {
+func (s *MultiPooler) connectDB() error {
 	if s.db != nil {
 		return nil // Already connected
 	}
@@ -74,21 +57,30 @@ func (s *MultiPoolerServer) connectDB() error {
 }
 
 // Close closes the database connection
-func (s *MultiPoolerServer) Close() error {
+func (s *MultiPooler) Close() error {
 	if s.db != nil {
 		return s.db.Close()
 	}
 	return nil
 }
 
-// ExecuteQuery implements the ExecuteQuery RPC method
-func (s *MultiPoolerServer) ExecuteQuery(ctx context.Context, req *multipoolerpb.ExecuteQueryRequest) (*multipoolerpb.ExecuteQueryResponse, error) {
+// Start initializes the MultiPooler
+func (s *MultiPooler) Start(senv *servenv.ServEnv) {
+	senv.OnRun(func() {
+		s.logger.Info("MultiPooler started")
+
+		// Register all gRPC services that have registered themselves
+		s.registerGRPCServices()
+		s.logger.Info("MultiPooler gRPC services registered")
+	})
+}
+
+// ExecuteQuery executes a SQL query
+func (s *MultiPooler) ExecuteQuery(ctx context.Context, query []byte, maxRows uint64) (*querypb.QueryResult, error) {
 	// Log the incoming request
 	s.logger.Info("ExecuteQuery called",
-		"query_length", len(req.Query),
-		"max_rows", req.MaxRows,
-		"caller_principal", req.CallerId.GetPrincipal(),
-		"caller_component", req.CallerId.GetComponent(),
+		"query_length", len(query),
+		"max_rows", maxRows,
 	)
 
 	// Ensure database connection
@@ -98,25 +90,23 @@ func (s *MultiPoolerServer) ExecuteQuery(ctx context.Context, req *multipoolerpb
 	}
 
 	// Convert query bytes to string
-	queryString := string(req.Query)
+	queryString := string(query)
 
 	// Log the actual query (be careful with sensitive data in production)
 	s.logger.Debug("Executing query", "query", queryString)
 
 	// Execute the query
-	result, err := s.executeQuery(ctx, queryString, req.MaxRows)
+	result, err := s.executeQuery(ctx, queryString, maxRows)
 	if err != nil {
 		s.logger.Error("Query execution failed", "error", err, "query", queryString)
 		return nil, fmt.Errorf("query execution failed: %w", err)
 	}
 
-	return &multipoolerpb.ExecuteQueryResponse{
-		Result: result,
-	}, nil
+	return result, nil
 }
 
 // executeQuery executes a SQL query and returns the result
-func (s *MultiPoolerServer) executeQuery(ctx context.Context, query string, maxRows uint64) (*querypb.QueryResult, error) {
+func (s *MultiPooler) executeQuery(ctx context.Context, query string, maxRows uint64) (*querypb.QueryResult, error) {
 	// Determine if this is a SELECT query or a modification query
 	trimmedQuery := strings.TrimSpace(strings.ToUpper(query))
 	isSelect := strings.HasPrefix(trimmedQuery, "SELECT") ||
@@ -132,7 +122,7 @@ func (s *MultiPoolerServer) executeQuery(ctx context.Context, query string, maxR
 }
 
 // executeSelectQuery executes a SELECT query and returns rows
-func (s *MultiPoolerServer) executeSelectQuery(ctx context.Context, query string, maxRows uint64) (*querypb.QueryResult, error) {
+func (s *MultiPooler) executeSelectQuery(ctx context.Context, query string, maxRows uint64) (*querypb.QueryResult, error) {
 	rows, err := s.db.QueryContext(ctx, query)
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute query: %w", err)
@@ -200,7 +190,7 @@ func (s *MultiPoolerServer) executeSelectQuery(ctx context.Context, query string
 }
 
 // executeModifyQuery executes an INSERT, UPDATE, DELETE, or other modification query
-func (s *MultiPoolerServer) executeModifyQuery(ctx context.Context, query string) (*querypb.QueryResult, error) {
+func (s *MultiPooler) executeModifyQuery(ctx context.Context, query string) (*querypb.QueryResult, error) {
 	result, err := s.db.ExecContext(ctx, query)
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute query: %w", err)

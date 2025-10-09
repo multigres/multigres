@@ -12,8 +12,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package server
+package poolerserver
 
-import (
-	_ "github.com/lib/pq" // PostgreSQL driver
-)
+// RegisterPoolerServiceFunc is used to delay registration of pooler gRPC servers until we have all the objects.
+type RegisterPoolerServiceFunc func(*MultiPooler)
+
+// RegisterPoolerServices is a list of functions to call when the delayed gRPC registration is triggered.
+var RegisterPoolerServices []RegisterPoolerServiceFunc
+
+// registerGRPCServices will register all the pooler gRPC service instances.
+func (s *MultiPooler) registerGRPCServices() {
+	for _, f := range RegisterPoolerServices {
+		f(s)
+	}
+}

@@ -25,8 +25,9 @@ import (
 	"github.com/multigres/multigres/go/clustermetadata/topo"
 	"github.com/multigres/multigres/go/clustermetadata/toporeg"
 	"github.com/multigres/multigres/go/multipooler/grpcmanagerservice"
+	"github.com/multigres/multigres/go/multipooler/grpcpoolerservice"
 	"github.com/multigres/multigres/go/multipooler/manager"
-	"github.com/multigres/multigres/go/multipooler/server"
+	"github.com/multigres/multigres/go/multipooler/poolerserver"
 	"github.com/multigres/multigres/go/servenv"
 	"github.com/multigres/multigres/go/viperutil"
 
@@ -52,9 +53,7 @@ type MultiPooler struct {
 	// TopoConfig holds topology configuration
 	topoConfig *topo.TopoConfig
 
-	ts topo.Store
-	// poolerServer holds the gRPC multipooler server instance
-	poolerServer *server.MultiPoolerServer
+	ts           topo.Store
 	tr           *toporeg.TopoReg
 	serverStatus Status
 }
@@ -214,25 +213,24 @@ func (mp *MultiPooler) Init() {
 	// Start the MultiPoolerManager
 	poolerManager.Start(mp.senv)
 	grpcmanagerservice.RegisterPoolerManagerServices(mp.senv, mp.grpcServer)
+	grpcpoolerservice.RegisterPoolerServices(mp.senv, mp.grpcServer)
 
 	mp.senv.HTTPHandleFunc("/", mp.getHandleIndex())
 	mp.senv.HTTPHandleFunc("/ready", mp.getHandleReady())
 
+	// Initialize and start the MultiPooler
+	pooler := poolerserver.NewMultiPooler(logger, &manager.Config{
+		SocketFilePath: mp.socketFilePath.Get(),
+		PoolerDir:      mp.poolerDir.Get(),
+		PgPort:         mp.pgPort.Get(),
+		Database:       mp.database.Get(),
+		TopoClient:     mp.ts,
+		ServiceID:      multipooler.Id,
+	})
+	pooler.Start(mp.senv)
+
 	mp.senv.OnRun(
 		func() {
-			// Register multipooler gRPC service with servenv's GRPCServer
-			if mp.grpcServer.CheckServiceMap("pooler", mp.senv) {
-				mp.poolerServer = server.NewMultiPoolerServer(logger, &manager.Config{
-					SocketFilePath: mp.socketFilePath.Get(),
-					PoolerDir:      mp.poolerDir.Get(),
-					PgPort:         mp.pgPort.Get(),
-					Database:       mp.database.Get(),
-					TopoClient:     mp.ts,
-					ServiceID:      multipooler.Id,
-				})
-				mp.poolerServer.RegisterWithGRPCServer(mp.grpcServer.Server)
-				logger.Info("MultiPooler gRPC service registered with servenv")
-			}
 			registerFunc := func(ctx context.Context) error {
 				return mp.ts.RegisterMultiPooler(ctx, multipooler, true /* allowUpdate */)
 			}

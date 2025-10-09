@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package server
+package poolerserver
 
 import (
 	"context"
@@ -26,11 +26,9 @@ import (
 
 	"github.com/multigres/multigres/go/multipooler/manager"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
-	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
-	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
 )
 
-func TestNewMultiPoolerServer(t *testing.T) {
+func TestNewMultiPooler(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	config := &manager.Config{
 		SocketFilePath: "/tmp/test.sock",
@@ -43,12 +41,12 @@ func TestNewMultiPoolerServer(t *testing.T) {
 		},
 	}
 
-	server := NewMultiPoolerServer(logger, config)
+	pooler := NewMultiPooler(logger, config)
 
-	assert.NotNil(t, server)
-	assert.Equal(t, config, server.config)
-	assert.Equal(t, logger, server.logger)
-	assert.Nil(t, server.db) // Should be nil until connectDB is called
+	assert.NotNil(t, pooler)
+	assert.Equal(t, config, pooler.config)
+	assert.Equal(t, logger, pooler.logger)
+	assert.Nil(t, pooler.db) // Should be nil until connectDB is called
 }
 
 func TestConfig(t *testing.T) {
@@ -100,17 +98,12 @@ func TestExecuteQuery_InvalidInput(t *testing.T) {
 			Name:      "test-service",
 		},
 	}
-	server := NewMultiPoolerServer(logger, config)
+	pooler := NewMultiPooler(logger, config)
 
 	ctx := context.Background()
-	req := &multipoolerpb.ExecuteQueryRequest{
-		Query:    []byte("SELECT 1"),
-		MaxRows:  10,
-		CallerId: &mtrpcpb.CallerID{Principal: "test"},
-	}
 
 	// This should fail because the socket doesn't exist
-	resp, err := server.ExecuteQuery(ctx, req)
+	resp, err := pooler.ExecuteQuery(ctx, []byte("SELECT 1"), 10)
 	assert.Error(t, err)
 	assert.Nil(t, resp)
 	assert.Contains(t, err.Error(), "database connection failed")
@@ -196,17 +189,12 @@ func TestExecuteQuery_EmptyQuery(t *testing.T) {
 			Name:      "test-service",
 		},
 	}
-	server := NewMultiPoolerServer(logger, config)
+	pooler := NewMultiPooler(logger, config)
 
 	ctx := context.Background()
-	req := &multipoolerpb.ExecuteQueryRequest{
-		Query:    []byte(""),
-		MaxRows:  10,
-		CallerId: &mtrpcpb.CallerID{Principal: "test"},
-	}
 
 	// Should fail due to connection error, but we can test the request structure
-	resp, err := server.ExecuteQuery(ctx, req)
+	resp, err := pooler.ExecuteQuery(ctx, []byte(""), 10)
 	assert.Error(t, err)
 	assert.Nil(t, resp)
 }
@@ -223,48 +211,13 @@ func TestExecuteQuery_CallerIDLogging(t *testing.T) {
 			Name:      "test-service",
 		},
 	}
-	server := NewMultiPoolerServer(logger, config)
+	pooler := NewMultiPooler(logger, config)
 
 	ctx := context.Background()
 
-	tests := []struct {
-		name     string
-		callerId *mtrpcpb.CallerID
-	}{
-		{
-			name: "Complete caller ID",
-			callerId: &mtrpcpb.CallerID{
-				Principal:    "user@example.com",
-				Component:    "test-service",
-				Subcomponent: "api-endpoint",
-			},
-		},
-		{
-			name: "Partial caller ID",
-			callerId: &mtrpcpb.CallerID{
-				Principal: "system",
-			},
-		},
-		{
-			name:     "Nil caller ID",
-			callerId: nil,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			req := &multipoolerpb.ExecuteQueryRequest{
-				Query:    []byte("SELECT 1"),
-				MaxRows:  10,
-				CallerId: tt.callerId,
-			}
-
-			// This will fail due to connection, but we're testing that it doesn't panic
-			// with different CallerID configurations
-			_, err := server.ExecuteQuery(ctx, req)
-			assert.Error(t, err) // Expected to fail due to no real DB connection
-		})
-	}
+	// This will fail due to connection, but we're testing that it doesn't panic
+	_, err := pooler.ExecuteQuery(ctx, []byte("SELECT 1"), 10)
+	assert.Error(t, err) // Expected to fail due to no real DB connection
 }
 
 func TestClose(t *testing.T) {
@@ -279,10 +232,10 @@ func TestClose(t *testing.T) {
 			Name:      "test-service",
 		},
 	}
-	server := NewMultiPoolerServer(logger, config)
+	pooler := NewMultiPooler(logger, config)
 
 	// Test closing when no connection exists
-	err := server.Close()
+	err := pooler.Close()
 	assert.NoError(t, err)
 
 	// Note: Testing with actual database connection would require integration test
