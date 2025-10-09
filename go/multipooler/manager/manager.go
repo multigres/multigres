@@ -355,14 +355,13 @@ func (pm *MultiPoolerManager) loadConsensusTermFromDisk() {
 }
 
 // SetPrimaryConnInfo sets the primary connection info for a standby server
-func (pm *MultiPoolerManager) SetPrimaryConnInfo(ctx context.Context, host string, port int32, heartbeatInterval time.Duration, stopReplicationBefore, startReplicationAfter bool, currentTerm int64, force bool) error {
+func (pm *MultiPoolerManager) SetPrimaryConnInfo(ctx context.Context, host string, port int32, stopReplicationBefore, startReplicationAfter bool, currentTerm int64, force bool) error {
 	if err := pm.checkReady(); err != nil {
 		return err
 	}
 	pm.logger.Info("SetPrimaryConnInfo called",
 		"host", host,
 		"port", port,
-		"heartbeat_interval", heartbeatInterval,
 		"stop_replication_before", stopReplicationBefore,
 		"start_replication_after", startReplicationAfter,
 		"current_term", currentTerm,
@@ -426,14 +425,6 @@ func (pm *MultiPoolerManager) SetPrimaryConnInfo(ctx context.Context, host strin
 
 	connInfo := fmt.Sprintf("host=%s port=%d user=%s application_name=%s_%s",
 		host, port, database, pm.serviceID.Cell, pm.serviceID.Name)
-
-	// Add keepalive settings if heartbeat interval is specified
-	if heartbeatInterval > 0 {
-		// Convert heartbeat to seconds for PostgreSQL keepalive settings
-		keepaliveSeconds := int(heartbeatInterval.Seconds())
-		connInfo = fmt.Sprintf("%s keepalives_idle=%d keepalives_interval=%d keepalives_count=3",
-			connInfo, keepaliveSeconds, keepaliveSeconds)
-	}
 
 	// Set primary_conninfo using ALTER SYSTEM
 	pm.logger.Info("Setting primary_conninfo", "conninfo", connInfo)

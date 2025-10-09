@@ -560,16 +560,14 @@ type SetPrimaryConnInfoRequest struct {
 	Host string `protobuf:"bytes,1,opt,name=host,proto3" json:"host,omitempty"`
 	// Primary server port
 	Port int32 `protobuf:"varint,2,opt,name=port,proto3" json:"port,omitempty"`
-	// Heartbeat interval
-	HeartbeatInterval *durationpb.Duration `protobuf:"bytes,3,opt,name=heartbeat_interval,json=heartbeatInterval,proto3" json:"heartbeat_interval,omitempty"`
 	// Whether to stop replication before making changes
-	StopReplicationBefore bool `protobuf:"varint,4,opt,name=stop_replication_before,json=stopReplicationBefore,proto3" json:"stop_replication_before,omitempty"`
+	StopReplicationBefore bool `protobuf:"varint,3,opt,name=stop_replication_before,json=stopReplicationBefore,proto3" json:"stop_replication_before,omitempty"`
 	// Whether to start replication after making changes
-	StartReplicationAfter bool `protobuf:"varint,5,opt,name=start_replication_after,json=startReplicationAfter,proto3" json:"start_replication_after,omitempty"`
+	StartReplicationAfter bool `protobuf:"varint,4,opt,name=start_replication_after,json=startReplicationAfter,proto3" json:"start_replication_after,omitempty"`
 	// Current term for consensus (used by MultiOrch during initialization)
-	CurrentTerm int64 `protobuf:"varint,6,opt,name=current_term,json=currentTerm,proto3" json:"current_term,omitempty"`
+	CurrentTerm int64 `protobuf:"varint,5,opt,name=current_term,json=currentTerm,proto3" json:"current_term,omitempty"`
 	// Force the operation even if the term doesn't match
-	Force         bool `protobuf:"varint,7,opt,name=force,proto3" json:"force,omitempty"`
+	Force         bool `protobuf:"varint,6,opt,name=force,proto3" json:"force,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -616,13 +614,6 @@ func (x *SetPrimaryConnInfoRequest) GetPort() int32 {
 		return x.Port
 	}
 	return 0
-}
-
-func (x *SetPrimaryConnInfoRequest) GetHeartbeatInterval() *durationpb.Duration {
-	if x != nil {
-		return x.HeartbeatInterval
-	}
-	return nil
 }
 
 func (x *SetPrimaryConnInfoRequest) GetStopReplicationBefore() bool {
@@ -1959,15 +1950,14 @@ const file_multipoolermanagerdata_proto_rawDesc = "" +
 	"\x13SetReadOnlyResponse\"\x13\n" +
 	"\x11IsReadOnlyRequest\"1\n" +
 	"\x12IsReadOnlyResponse\x12\x1b\n" +
-	"\tread_only\x18\x01 \x01(\bR\breadOnly\"\xb6\x02\n" +
+	"\tread_only\x18\x01 \x01(\bR\breadOnly\"\xec\x01\n" +
 	"\x19SetPrimaryConnInfoRequest\x12\x12\n" +
 	"\x04host\x18\x01 \x01(\tR\x04host\x12\x12\n" +
-	"\x04port\x18\x02 \x01(\x05R\x04port\x12H\n" +
-	"\x12heartbeat_interval\x18\x03 \x01(\v2\x19.google.protobuf.DurationR\x11heartbeatInterval\x126\n" +
-	"\x17stop_replication_before\x18\x04 \x01(\bR\x15stopReplicationBefore\x126\n" +
-	"\x17start_replication_after\x18\x05 \x01(\bR\x15startReplicationAfter\x12!\n" +
-	"\fcurrent_term\x18\x06 \x01(\x03R\vcurrentTerm\x12\x14\n" +
-	"\x05force\x18\a \x01(\bR\x05force\"\x1c\n" +
+	"\x04port\x18\x02 \x01(\x05R\x04port\x126\n" +
+	"\x17stop_replication_before\x18\x03 \x01(\bR\x15stopReplicationBefore\x126\n" +
+	"\x17start_replication_after\x18\x04 \x01(\bR\x15startReplicationAfter\x12!\n" +
+	"\fcurrent_term\x18\x05 \x01(\x03R\vcurrentTerm\x12\x14\n" +
+	"\x05force\x18\x06 \x01(\bR\x05force\"\x1c\n" +
 	"\x1aSetPrimaryConnInfoResponse\"\x18\n" +
 	"\x16StopReplicationRequest\"\\\n" +
 	"\x17StopReplicationResponse\x12A\n" +
@@ -2095,22 +2085,21 @@ var file_multipoolermanagerdata_proto_goTypes = []any{
 var file_multipoolermanagerdata_proto_depIdxs = []int32{
 	42, // 0: multipoolermanagerdata.ReplicationStatus.lag:type_name -> google.protobuf.Duration
 	42, // 1: multipoolermanagerdata.WaitForLSNRequest.timeout:type_name -> google.protobuf.Duration
-	42, // 2: multipoolermanagerdata.SetPrimaryConnInfoRequest.heartbeat_interval:type_name -> google.protobuf.Duration
-	2,  // 3: multipoolermanagerdata.StopReplicationResponse.status:type_name -> multipoolermanagerdata.ReplicationStatus
-	2,  // 4: multipoolermanagerdata.ReplicationStatusResponse.status:type_name -> multipoolermanagerdata.ReplicationStatus
-	17, // 5: multipoolermanagerdata.PrimaryStatusResponse.status:type_name -> multipoolermanagerdata.PrimaryStatus
-	17, // 6: multipoolermanagerdata.DemoteResponse.leader_status:type_name -> multipoolermanagerdata.PrimaryStatus
-	2,  // 7: multipoolermanagerdata.StopReplicationAndGetStatusResponse.status:type_name -> multipoolermanagerdata.ReplicationStatus
-	43, // 8: multipoolermanagerdata.ChangeTypeRequest.pooler_type:type_name -> clustermetadata.PoolerType
-	2,  // 9: multipoolermanagerdata.ResetReplicationResponse.status:type_name -> multipoolermanagerdata.ReplicationStatus
-	1,  // 10: multipoolermanagerdata.ConfigureSynchronousReplicationRequest.synchronous_commit:type_name -> multipoolermanagerdata.SynchronousCommitLevel
-	0,  // 11: multipoolermanagerdata.ConfigureSynchronousReplicationRequest.synchronous_method:type_name -> multipoolermanagerdata.SynchronousMethod
-	44, // 12: multipoolermanagerdata.SetTermRequest.term:type_name -> pgctldservice.ConsensusTerm
-	13, // [13:13] is the sub-list for method output_type
-	13, // [13:13] is the sub-list for method input_type
-	13, // [13:13] is the sub-list for extension type_name
-	13, // [13:13] is the sub-list for extension extendee
-	0,  // [0:13] is the sub-list for field type_name
+	2,  // 2: multipoolermanagerdata.StopReplicationResponse.status:type_name -> multipoolermanagerdata.ReplicationStatus
+	2,  // 3: multipoolermanagerdata.ReplicationStatusResponse.status:type_name -> multipoolermanagerdata.ReplicationStatus
+	17, // 4: multipoolermanagerdata.PrimaryStatusResponse.status:type_name -> multipoolermanagerdata.PrimaryStatus
+	17, // 5: multipoolermanagerdata.DemoteResponse.leader_status:type_name -> multipoolermanagerdata.PrimaryStatus
+	2,  // 6: multipoolermanagerdata.StopReplicationAndGetStatusResponse.status:type_name -> multipoolermanagerdata.ReplicationStatus
+	43, // 7: multipoolermanagerdata.ChangeTypeRequest.pooler_type:type_name -> clustermetadata.PoolerType
+	2,  // 8: multipoolermanagerdata.ResetReplicationResponse.status:type_name -> multipoolermanagerdata.ReplicationStatus
+	1,  // 9: multipoolermanagerdata.ConfigureSynchronousReplicationRequest.synchronous_commit:type_name -> multipoolermanagerdata.SynchronousCommitLevel
+	0,  // 10: multipoolermanagerdata.ConfigureSynchronousReplicationRequest.synchronous_method:type_name -> multipoolermanagerdata.SynchronousMethod
+	44, // 11: multipoolermanagerdata.SetTermRequest.term:type_name -> pgctldservice.ConsensusTerm
+	12, // [12:12] is the sub-list for method output_type
+	12, // [12:12] is the sub-list for method input_type
+	12, // [12:12] is the sub-list for extension type_name
+	12, // [12:12] is the sub-list for extension extendee
+	0,  // [0:12] is the sub-list for field type_name
 }
 
 func init() { file_multipoolermanagerdata_proto_init() }
