@@ -473,6 +473,54 @@ func checkServiceConnectivity(service string, state local.LocalProvisionedServic
 	return nil
 }
 
+// checkHeartbeatsWritten checks if at least one heartbeat was written to the heartbeat table
+func checkHeartbeatsWritten(multipoolerAddr string) (bool, error) {
+	// Connect to multipooler via gRPC
+	time.Sleep(2 * time.Second)
+	count, err := queryHeartbeatCount(multipoolerAddr)
+	if err != nil {
+		return false, fmt.Errorf("failed to query heartbeat table: %w", err)
+	}
+
+	return count > 0, nil
+}
+
+// queryHeartbeatCount queries the number of heartbeats in the heartbeat table via
+// the multipooler gRPC service
+func queryHeartbeatCount(addr string) (int, error) {
+	// Create gRPC client
+	client, err := NewMultiPoolerTestClient(addr)
+	if err != nil {
+		return 0, fmt.Errorf("failed to connect to multipooler gRPC at %s: %w", addr, err)
+	}
+	defer client.Close()
+
+	// Execute query to count heartbeats
+	result, err := client.ExecuteQuery("SELECT COUNT(*) FROM multigres.heartbeat", 1)
+	if err != nil {
+		return 0, fmt.Errorf("failed to execute heartbeat count query: %w", err)
+	}
+
+	// Parse the result
+	if len(result.Rows) != 1 {
+		return 0, fmt.Errorf("expected 1 row, got %d", len(result.Rows))
+	}
+
+	if len(result.Rows[0].Values) != 1 {
+		return 0, fmt.Errorf("expected 1 column, got %d", len(result.Rows[0].Values))
+	}
+
+	// Convert the count value from bytes to int
+	countStr := string(result.Rows[0].Values[0])
+	var count int
+	_, err = fmt.Sscanf(countStr, "%d", &count)
+	if err != nil {
+		return 0, fmt.Errorf("failed to parse count value '%s': %w", countStr, err)
+	}
+
+	return count, nil
+}
+
 // buildMultigresBinary builds the multigres binary and returns its path
 func buildMultigresBinary() (string, error) {
 	// Create a temporary directory for the multigres binary
@@ -999,6 +1047,14 @@ func TestClusterLifecycle(t *testing.T) {
 		assert.Contains(t, upOutput, "Multigres — Distributed Postgres made easy")
 		assert.Contains(t, upOutput, "is already running")
 
+		// Verify heartbeats were written before stopping cluster
+		t.Log("Verifying heartbeats were written...")
+		multipoolerAddr := fmt.Sprintf("localhost:%d", testPorts.MultipoolerGRPCPort)
+		heartbeatsWritten, err := checkHeartbeatsWritten(multipoolerAddr)
+		require.NoError(t, err, "should be able to check heartbeats")
+		assert.True(t, heartbeatsWritten, "at least one heartbeat should have been written before cluster stopped")
+		t.Log("Heartbeats verified successfully!")
+
 		// Stop cluster (down)
 		t.Log("Stopping cluster...")
 		downOutput, err := executeStopCommand(t, []string{"--config-path", tempDir})
@@ -1208,6 +1264,21 @@ func testMultipoolerGRPC(t *testing.T, addr string) {
 
 	// Clean up
 	TestDropTable(t, client, tableName)
+
+	// Test that the multigres schema exists
+	TestMultigresSchemaExists(t, client)
+
+	// Test that the heartbeat table exists with expected columns
+	TestHeartbeatTableExists(t, client)
+
+	// Test primary detection
+	TestPrimaryDetection(t, client)
+
+	// Test that the multigres schema exists
+	TestMultigresSchemaExists(t, client)
+
+	// Test that the heartbeat table exists with expected columns
+	TestHeartbeatTableExists(t, client)
 
 	t.Logf("Multipooler gRPC test completed successfully for %s", addr)
 }
