@@ -22,7 +22,6 @@ import (
 
 	"github.com/multigres/multigres/go/pgctld"
 	"github.com/multigres/multigres/go/servenv"
-	"github.com/multigres/multigres/go/viperutil"
 
 	"github.com/spf13/cobra"
 
@@ -36,7 +35,6 @@ type PgCtldServerCmd struct {
 	pgCtlCmd   *PgCtlCommand
 	grpcServer *servenv.GrpcServer
 	senv       *servenv.ServEnv
-	pgPort     viperutil.Value[int]
 }
 
 // AddServerCommand adds the server subcommand to the root command
@@ -44,12 +42,7 @@ func AddServerCommand(root *cobra.Command, pc *PgCtlCommand) {
 	serverCmd := &PgCtldServerCmd{
 		pgCtlCmd:   pc,
 		grpcServer: servenv.NewGrpcServer(),
-		senv:       servenv.NewServEnv(),
-		pgPort: viperutil.Configure("pg-port", viperutil.Options[int]{
-			Default:  5432,
-			FlagName: "pg-port",
-			Dynamic:  false,
-		}),
+		senv:       servenv.NewServEnvWithConfig(pc.lg, pc.vc),
 	}
 	serverCmd.senv.InitServiceMap("grpc", "pgctld")
 	root.AddCommand(serverCmd.createCommand())
@@ -57,6 +50,9 @@ func AddServerCommand(root *cobra.Command, pc *PgCtlCommand) {
 
 // validateServerFlags validates required flags for the server command
 func (s *PgCtldServerCmd) validateServerFlags(cmd *cobra.Command, args []string) error {
+	// Setup logging using the shared logger instance from root command
+	s.pgCtlCmd.lg.SetupLogging()
+
 	// First run the standard servenv validation
 	if err := s.senv.CobraPreRunE(cmd); err != nil {
 		return err
@@ -77,10 +73,10 @@ func (s *PgCtldServerCmd) createCommand() *cobra.Command {
 		PreRunE: s.validateServerFlags,
 	}
 
-	cmd.Flags().Int("pg-port", s.pgPort.Default(), "PostgreSQL port")
-	viperutil.BindFlags(cmd.Flags(), s.pgPort)
 	s.grpcServer.RegisterFlags(cmd.Flags())
-	s.senv.RegisterFlags(cmd.Flags())
+	// Don't register logger and viper config flags since they're already registered
+	// as persistent flags in the root command and we're sharing those instances
+	s.senv.RegisterFlagsWithoutLoggerAndConfig(cmd.Flags())
 
 	return cmd
 }
@@ -93,7 +89,7 @@ func (s *PgCtldServerCmd) runServer(cmd *cobra.Command, args []string) error {
 
 	// Create and register our service
 	poolerDir := s.pgCtlCmd.GetPoolerDir()
-	pgctldService, err := NewPgCtldService(logger, s.pgPort.Get(), s.pgCtlCmd.pgUser.Get(), s.pgCtlCmd.pgDatabase.Get(), s.pgCtlCmd.timeout.Get(), poolerDir)
+	pgctldService, err := NewPgCtldService(logger, s.pgCtlCmd.pgPort.Get(), s.pgCtlCmd.pgUser.Get(), s.pgCtlCmd.pgDatabase.Get(), s.pgCtlCmd.timeout.Get(), poolerDir)
 	if err != nil {
 		return err
 	}

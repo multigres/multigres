@@ -31,6 +31,7 @@ type PgCtlCommand struct {
 	pgUser     viperutil.Value[string]
 	poolerDir  viperutil.Value[string]
 	timeout    viperutil.Value[int]
+	pgPort     viperutil.Value[int]
 	vc         *viperutil.ViperConfig
 	lg         *servenv.Logger
 }
@@ -58,6 +59,11 @@ func GetRootCommand() (*cobra.Command, *PgCtlCommand) {
 			FlagName: "pooler-dir",
 			Dynamic:  false,
 		}),
+		pgPort: viperutil.Configure("pg-port", viperutil.Options[int]{
+			Default:  5432,
+			FlagName: "pg-port",
+			Dynamic:  false,
+		}),
 		vc: viperutil.NewViperConfig(),
 		lg: servenv.NewLogger(),
 	}
@@ -78,6 +84,7 @@ management for PostgreSQL servers.`,
 	root.PersistentFlags().StringP("pg-user", "U", pc.pgUser.Default(), "PostgreSQL username")
 	root.PersistentFlags().IntP("timeout", "t", pc.timeout.Default(), "Operation timeout in seconds")
 	root.PersistentFlags().String("pooler-dir", pc.poolerDir.Default(), "The directory to multipooler data")
+	root.PersistentFlags().IntP("pg-port", "p", pc.pgPort.Default(), "PostgreSQL port")
 	pc.vc.RegisterFlags(root.PersistentFlags())
 	pc.lg.RegisterFlags(root.PersistentFlags())
 
@@ -86,6 +93,7 @@ management for PostgreSQL servers.`,
 		pc.pgUser,
 		pc.timeout,
 		pc.poolerDir,
+		pc.pgPort,
 	)
 
 	// Add all subcommands

@@ -85,6 +85,13 @@ type ServEnv struct {
 
 // NewServEnv creates a new ServEnv instance with default configuration
 func NewServEnv() *ServEnv {
+	return NewServEnvWithConfig(NewLogger(), viperutil.NewViperConfig())
+}
+
+// NewServEnvWithConfig creates a new ServEnv instance with external logger and viper config.
+// This allows sharing logger and viper config instances across multiple components
+// to avoid duplicate flag registrations and binding conflicts.
+func NewServEnvWithConfig(lg *Logger, vc *viperutil.ViperConfig) *ServEnv {
 	return &ServEnv{
 		HTTPPort: viperutil.Configure("http-port", viperutil.Options[int]{
 			Default:  0,
@@ -101,10 +108,10 @@ func NewServEnv() *ServEnv {
 			OnTermTimeout:  10 * time.Second,
 			OnCloseTimeout: 10 * time.Second,
 		},
-		vc:           viperutil.NewViperConfig(),
+		vc:           vc,
 		MaxStackSize: 64 * 1024 * 1024,
 		mux:          http.NewServeMux(),
-		lg:           NewLogger(),
+		lg:           lg,
 		serviceMap:   make(map[string]bool),
 	}
 }
@@ -294,6 +301,16 @@ func init() {
 }
 
 func (se *ServEnv) RegisterFlags(fs *pflag.FlagSet) {
+	se.registerFlags(fs, true)
+}
+
+// RegisterFlagsWithoutLoggerAndConfig registers servenv flags but skips logger and viper config flags.
+// Use this when the logger and viper config are managed externally (e.g., as persistent flags in a root command).
+func (se *ServEnv) RegisterFlagsWithoutLoggerAndConfig(fs *pflag.FlagSet) {
+	se.registerFlags(fs, false)
+}
+
+func (se *ServEnv) registerFlags(fs *pflag.FlagSet, includeLoggerAndConfig bool) {
 	// Default flags
 	fs.Int("http-port", se.HTTPPort.Default(), "HTTP port for the server")
 	fs.String("bind-address", se.BindAddress.Default(), "Bind address for the server. If empty, the server will listen on all available unicast and anycast IP addresses of the local system.")
@@ -313,8 +330,12 @@ func (se *ServEnv) RegisterFlags(fs *pflag.FlagSet) {
 		fn(fs)
 	}
 
-	se.lg.RegisterFlags(fs)
-	se.vc.RegisterFlags(fs)
+	// Only register logger and viper config flags if requested
+	// Skip if these are managed externally (e.g., as persistent flags in root command)
+	if includeLoggerAndConfig {
+		se.lg.RegisterFlags(fs)
+		se.vc.RegisterFlags(fs)
+	}
 
 	// Global and command flag hooks
 	sync.OnceFunc(func() {
