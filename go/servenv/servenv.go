@@ -159,6 +159,13 @@ func (se *ServEnv) OnRun(f func()) {
 	se.OnRunHooks.Add(f)
 }
 
+// OnClose registers f to be run at the end of the app lifecycle.
+// This happens after the lameduck period just before the program exits.
+// All hooks are run in parallel.
+func (sv *ServEnv) OnClose(f func()) {
+	sv.onCloseHooks.Add(f)
+}
+
 // FireRunHooks fires the hooks registered by OnRun
 func (se *ServEnv) FireRunHooks() {
 	se.OnRunHooks.Fire()
@@ -172,7 +179,7 @@ func (se *ServEnv) fireOnTermSyncHooks(timeout time.Duration) bool {
 // fireOnCloseHooks returns true iff all the hooks finish before the timeout
 func (se *ServEnv) fireOnCloseHooks(timeout time.Duration) bool {
 	return se.fireHooksWithTimeout(timeout, "OnClose", func() {
-		onCloseHooks.Fire()
+		se.onCloseHooks.Fire()
 		se.ListeningURL = url.URL{}
 	})
 }
@@ -198,24 +205,6 @@ func (se *ServEnv) fireHooksWithTimeout(timeout time.Duration, name string, hook
 		slog.Info(fmt.Sprintf("%s hooks timed out", name))
 		return false
 	}
-}
-
-// RegisterDefaultFlags registers the HTTP port and bind address flags
-func (se *ServEnv) RegisterDefaultFlags(fs *pflag.FlagSet) {
-	fs.Int("http-port", se.HTTPPort.Default(), "HTTP port for the server")
-	fs.String("bind-address", se.BindAddress.Default(), "Bind address for the server. If empty, the server will listen on all available unicast and anycast IP addresses of the local system.")
-	fs.BoolVar(&se.httpPprof, "pprof-http", se.httpPprof, "enable pprof http endpoints")
-	fs.StringSliceVar(&se.pprofFlag, "pprof", se.pprofFlag, "enable profiling")
-	fs.StringSliceVar(&se.serviceMapFlag, "service-map", se.serviceMapFlag, "comma separated list of services to enable (or disable if prefixed with '-') Example: grpc-queryservice")
-	viperutil.BindFlags(fs, se.HTTPPort, se.BindAddress)
-}
-
-// RegisterTimeoutFlags registers timeout-related flags
-func (se *ServEnv) RegisterTimeoutFlags(fs *pflag.FlagSet) {
-	fs.DurationVar(&se.Timeouts.LameduckPeriod, "lameduck-period", se.Timeouts.LameduckPeriod, "keep running at least this long after SIGTERM before stopping")
-	fs.DurationVar(&se.Timeouts.OnTermTimeout, "onterm-timeout", se.Timeouts.OnTermTimeout, "wait no more than this for OnTermSync handlers before stopping")
-	fs.DurationVar(&se.Timeouts.OnCloseTimeout, "onclose-timeout", se.Timeouts.OnCloseTimeout, "wait no more than this for OnClose handlers before stopping")
-	fs.StringVar(&se.pidFile, "pid-file", "", "If set, the process will write its pid to the named file, and delete it on graceful shutdown.")
 }
 
 // RunDefault calls Run() with the parameters from the flags
@@ -308,6 +297,9 @@ func (se *ServEnv) RegisterFlags(fs *pflag.FlagSet) {
 	// Default flags
 	fs.Int("http-port", se.HTTPPort.Default(), "HTTP port for the server")
 	fs.String("bind-address", se.BindAddress.Default(), "Bind address for the server. If empty, the server will listen on all available unicast and anycast IP addresses of the local system.")
+	fs.BoolVar(&se.httpPprof, "pprof-http", se.httpPprof, "enable pprof http endpoints")
+	fs.StringSliceVar(&se.pprofFlag, "pprof", se.pprofFlag, "enable profiling")
+	fs.StringSliceVar(&se.serviceMapFlag, "service-map", se.serviceMapFlag, "comma separated list of services to enable (or disable if prefixed with '-') Example: grpc-queryservice")
 	viperutil.BindFlags(fs, se.HTTPPort, se.BindAddress)
 
 	// Timeout flags
