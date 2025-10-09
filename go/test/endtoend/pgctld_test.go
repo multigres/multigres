@@ -444,7 +444,7 @@ func TestPostgreSQLAuthentication(t *testing.T) {
 		)
 		output, err := initCmd.CombinedOutput()
 		require.NoError(t, err, "pgctld init should succeed, output: %s", string(output))
-		assert.Contains(t, string(output), "password_source=\"PGPASSWORD environment variable\"", "Should use PGPASSWORD")
+		assert.Contains(t, string(output), "\"password_source\":\"PGPASSWORD environment variable\"", "Should use PGPASSWORD")
 
 		// Start the PostgreSQL server
 		t.Logf("Starting PostgreSQL server")
@@ -584,7 +584,7 @@ func TestPostgreSQLAuthentication(t *testing.T) {
 		initCmd.Env = append(os.Environ(), "PGCONNECT_TIMEOUT=5")
 		output, err := initCmd.CombinedOutput()
 		require.NoError(t, err, "pgctld init should succeed, output: %s", string(output))
-		assert.Contains(t, string(output), "password_source=\"password file\"", "Should use password file")
+		assert.Contains(t, string(output), "\"password_source\":\"password file\"", "Should use password file")
 
 		// Start the PostgreSQL server
 		t.Logf("Starting PostgreSQL server")
