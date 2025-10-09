@@ -232,30 +232,13 @@ func (w *Writer) killWrite() error {
 	ctx, cancel := context.WithTimeout(context.Background(), w.interval)
 	defer cancel()
 
-	// First try pg_cancel_backend (graceful cancellation)
-	_, err := w.db.ExecContext(ctx, "SELECT pg_cancel_backend($1)", writeID)
-	if err != nil {
-		return fmt.Errorf("failed to cancel backend %d: %w", writeID, err)
-	}
-
-	w.logger.Debug("Cancelled write connection", "pid", writeID)
-
-	// Wait briefly to see if the cancellation worked
-	time.Sleep(200 * time.Millisecond)
-
-	// Check if the write is still in progress.
-	//
-	// pg_cancel_backend attempts to gracefully cancel the running query
-	// associated with writeID. If the cancellation is successful, the
-	// earlier call to write() will set w.writeConnID to -1. If the write
-	// finished anyway, there is no query left to kill.
-	if w.writeConnID.Load() != writeID {
-		return nil
-	}
-
 	// If cancel didn't work, escalate to pg_terminate_backend
-	w.logger.Debug("Cancel didn't stop write, terminating connection", "pid", writeID)
-	_, err = w.db.ExecContext(ctx, "SELECT pg_terminate_backend($1)", writeID)
+	//
+	// In the future, we could try pg_cancel_backend first, and if that doesn't
+	// work, then pg_terminate_backend. There are possible concerns that
+	// pg_cancel_backend could interact badly with pipelined queries. To keep
+	// things simple and conservative, we only use pg_terminate_backend for now.
+	_, err := w.db.ExecContext(ctx, "SELECT pg_terminate_backend($1)", writeID)
 	if err != nil {
 		return fmt.Errorf("failed to terminate backend %d: %w", writeID, err)
 	}
