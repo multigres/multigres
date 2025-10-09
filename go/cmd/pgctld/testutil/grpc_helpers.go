@@ -38,8 +38,6 @@ type MockPgCtldService struct {
 	StatusCalls  []*pb.StatusRequest
 	VersionCalls []*pb.VersionRequest
 	InitDirCalls []*pb.InitDataDirRequest
-	GetTermCalls []*pb.GetTermRequest
-	SetTermCalls []*pb.SetTermRequest
 
 	// Response configurations
 	StartResponse   *pb.StartResponse
@@ -49,8 +47,6 @@ type MockPgCtldService struct {
 	StatusResponse  *pb.StatusResponse
 	VersionResponse *pb.VersionResponse
 	InitDirResponse *pb.InitDataDirResponse
-	GetTermResponse *pb.GetTermResponse
-	SetTermResponse *pb.SetTermResponse
 
 	// Error configurations
 	StartError   error
@@ -60,11 +56,6 @@ type MockPgCtldService struct {
 	StatusError  error
 	VersionError error
 	InitDirError error
-	GetTermError error
-	SetTermError error
-
-	// Mutable state for consensus term
-	ConsensusTerm *pb.ConsensusTerm
 }
 
 func (m *MockPgCtldService) Start(ctx context.Context, req *pb.StartRequest) (*pb.StartResponse, error) {
@@ -151,38 +142,6 @@ func (m *MockPgCtldService) InitDataDir(ctx context.Context, req *pb.InitDataDir
 		return m.InitDirResponse, nil
 	}
 	return &pb.InitDataDirResponse{Message: "Mock data directory initialized"}, nil
-}
-
-func (m *MockPgCtldService) GetTerm(ctx context.Context, req *pb.GetTermRequest) (*pb.GetTermResponse, error) {
-	m.GetTermCalls = append(m.GetTermCalls, req)
-	if m.GetTermError != nil {
-		return nil, m.GetTermError
-	}
-	if m.GetTermResponse != nil {
-		return m.GetTermResponse, nil
-	}
-	// Return the mutable state if set, otherwise return a default term
-	if m.ConsensusTerm != nil {
-		return &pb.GetTermResponse{Term: m.ConsensusTerm}, nil
-	}
-	return &pb.GetTermResponse{
-		Term: &pb.ConsensusTerm{
-			CurrentTerm: 1,
-		},
-	}, nil
-}
-
-func (m *MockPgCtldService) SetTerm(ctx context.Context, req *pb.SetTermRequest) (*pb.SetTermResponse, error) {
-	m.SetTermCalls = append(m.SetTermCalls, req)
-	if m.SetTermError != nil {
-		return nil, m.SetTermError
-	}
-	if m.SetTermResponse != nil {
-		return m.SetTermResponse, nil
-	}
-	// Update the mutable state
-	m.ConsensusTerm = req.Term
-	return &pb.SetTermResponse{}, nil
 }
 
 // TestGRPCServer provides utilities for testing gRPC services
@@ -311,15 +270,9 @@ ready:
 	return client, cleanup
 }
 
-// StartMockPgctldServer starts a mock pgctld server with consensus term support
+// StartMockPgctldServer starts a mock pgctld server
 // Returns the server address and a cleanup function
 func StartMockPgctldServer(t *testing.T) (string, func()) {
-	return StartMockPgctldServerWithTerm(t, 1)
-}
-
-// StartMockPgctldServerWithTerm starts a mock pgctld server with a specific initial consensus term
-// Returns the server address and a cleanup function
-func StartMockPgctldServerWithTerm(t *testing.T, initialTerm int64) (string, func()) {
 	t.Helper()
 
 	// Create a listener on a random port
@@ -330,11 +283,7 @@ func StartMockPgctldServerWithTerm(t *testing.T, initialTerm int64) (string, fun
 
 	// Create gRPC server with mock service
 	grpcServer := grpc.NewServer()
-	mockService := &MockPgCtldService{
-		ConsensusTerm: &pb.ConsensusTerm{
-			CurrentTerm: initialTerm,
-		},
-	}
+	mockService := &MockPgCtldService{}
 	pb.RegisterPgCtldServer(grpcServer, mockService)
 
 	// Start serving in background
@@ -343,7 +292,7 @@ func StartMockPgctldServerWithTerm(t *testing.T, initialTerm int64) (string, fun
 	}()
 
 	addr := lis.Addr().String()
-	t.Logf("Mock pgctld server started at %s with term %d", addr, initialTerm)
+	t.Logf("Mock pgctld server started at %s", addr)
 
 	cleanup := func() {
 		grpcServer.Stop()

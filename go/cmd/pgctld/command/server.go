@@ -18,8 +18,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"os"
-	"path/filepath"
 	"time"
 
 	"github.com/multigres/multigres/go/pgctld"
@@ -27,7 +25,6 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/types/known/durationpb"
 
 	pb "github.com/multigres/multigres/go/pb/pgctldservice"
@@ -336,90 +333,4 @@ func (s *PgCtldService) InitDataDir(ctx context.Context, req *pb.InitDataDirRequ
 	return &pb.InitDataDirResponse{
 		Message: result.Message,
 	}, nil
-}
-
-// consensusTermPath returns the path to the consensus term file
-func (s *PgCtldService) consensusTermPath() string {
-	dataDir := pgctld.PostgresDataDir(s.poolerDir)
-	return filepath.Join(dataDir, "consensus", "consensus_term.json")
-}
-
-// GetTerm retrieves the current consensus term information from disk
-func (s *PgCtldService) GetTerm(ctx context.Context, req *pb.GetTermRequest) (*pb.GetTermResponse, error) {
-	s.logger.Debug("gRPC GetTerm request")
-
-	// Check if data directory is initialized
-	if !pgctld.IsDataDirInitialized(s.poolerDir) {
-		dataDir := pgctld.PostgresDataDir(s.poolerDir)
-		return nil, fmt.Errorf("data directory not initialized: %s. Run 'pgctld init' first", dataDir)
-	}
-
-	termPath := s.consensusTermPath()
-
-	// Check if consensus term file exists
-	if _, err := os.Stat(termPath); os.IsNotExist(err) {
-		// Return empty term if file doesn't exist
-		return &pb.GetTermResponse{
-			Term: &pb.ConsensusTerm{},
-		}, nil
-	}
-
-	// Read the file
-	data, err := os.ReadFile(termPath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read consensus term file: %w", err)
-	}
-
-	// Unmarshal JSON to protobuf
-	term := &pb.ConsensusTerm{}
-	if err := protojson.Unmarshal(data, term); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal consensus term: %w", err)
-	}
-
-	return &pb.GetTermResponse{
-		Term: term,
-	}, nil
-}
-
-// SetTerm sets the consensus term information to disk
-func (s *PgCtldService) SetTerm(ctx context.Context, req *pb.SetTermRequest) (*pb.SetTermResponse, error) {
-	s.logger.Info("gRPC SetTerm request", "current_term", req.Term.GetCurrentTerm())
-
-	// Check if data directory is initialized
-	if !pgctld.IsDataDirInitialized(s.poolerDir) {
-		dataDir := pgctld.PostgresDataDir(s.poolerDir)
-		return nil, fmt.Errorf("data directory not initialized: %s. Run 'pgctld init' first", dataDir)
-	}
-
-	termPath := s.consensusTermPath()
-	consensusDir := filepath.Dir(termPath)
-
-	// Create consensus directory if it doesn't exist
-	if err := os.MkdirAll(consensusDir, 0o755); err != nil {
-		return nil, fmt.Errorf("failed to create consensus directory: %w", err)
-	}
-
-	// Marshal protobuf to JSON
-	data, err := protojson.MarshalOptions{
-		Indent: "  ",
-	}.Marshal(req.Term)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal consensus term: %w", err)
-	}
-
-	// Write to file atomically using a temporary file
-	tmpPath := termPath + ".tmp"
-	if err := os.WriteFile(tmpPath, data, 0o644); err != nil {
-		return nil, fmt.Errorf("failed to write consensus term file: %w", err)
-	}
-
-	// Rename to final path (atomic operation)
-	if err := os.Rename(tmpPath, termPath); err != nil {
-		os.Remove(tmpPath) // Clean up temp file on error
-		return nil, fmt.Errorf("failed to rename consensus term file: %w", err)
-	}
-
-	s.logger.Info("Consensus term updated successfully", "path", termPath)
-
-	return &pb.SetTermResponse{}, nil
 }

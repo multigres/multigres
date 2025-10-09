@@ -297,17 +297,9 @@ func (pm *MultiPoolerManager) validateAndUpdateTerm(ctx context.Context, request
 			LeaderId:     nil,
 		}
 
-		// Update term in pgctld
-		conn, err := pm.createPgctldClient()
-		if err != nil {
-			pm.logger.Error("Failed to create pgctld client for term update", "error", err)
-			return mterrors.Wrap(err, "failed to create pgctld client for term update")
-		}
-		client := pgctldpb.NewPgCtldClient(conn)
-		_, err = client.SetTerm(ctx, &pgctldpb.SetTermRequest{Term: newTerm})
-		conn.Close()
-		if err != nil {
-			pm.logger.Error("Failed to update term in pgctld", "error", err)
+		// Update term to local disk using the term_storage functions
+		if err := SetTerm(pm.config.PoolerDir, newTerm); err != nil {
+			pm.logger.Error("Failed to update term to disk", "error", err)
 			return mterrors.Wrap(err, "failed to update consensus term")
 		}
 
@@ -322,8 +314,8 @@ func (pm *MultiPoolerManager) validateAndUpdateTerm(ctx context.Context, request
 	return nil
 }
 
-// loadConsensusTermFromPgctld loads the consensus term from pgctld asynchronously
-func (pm *MultiPoolerManager) loadConsensusTermFromPgctld() {
+// loadConsensusTermFromDisk loads the consensus term from local disk asynchronously
+func (pm *MultiPoolerManager) loadConsensusTermFromDisk() {
 	ticker := timertools.NewBackoffTicker(100*time.Millisecond, 30*time.Second)
 	defer ticker.Stop()
 
@@ -334,36 +326,25 @@ func (pm *MultiPoolerManager) loadConsensusTermFromPgctld() {
 	for {
 		select {
 		case <-ticker.C:
-			ctx, cancel := context.WithTimeout(pm.ctx, 5*time.Second)
-			conn, err := pm.createPgctldClient()
+			// Load term from local disk using the term_storage functions
+			term, err := GetTerm(pm.config.PoolerDir)
 			if err != nil {
-				cancel()
-				pm.logger.Debug("Failed to create pgctld client, retrying", "error", err)
-				continue
-			}
-
-			client := pgctldpb.NewPgCtldClient(conn)
-			resp, err := client.GetTerm(ctx, &pgctldpb.GetTermRequest{})
-			conn.Close()
-			cancel()
-
-			if err != nil {
-				pm.logger.Debug("Failed to get consensus term from pgctld, retrying", "error", err)
+				pm.logger.Debug("Failed to get consensus term from disk, retrying", "error", err)
 				continue
 			}
 
 			// Successfully loaded (nil/empty term is OK)
 			pm.mu.Lock()
-			pm.consensusTerm = resp.Term
+			pm.consensusTerm = term
 			pm.consensusLoaded = true
 			pm.mu.Unlock()
 
-			pm.logger.Info("Loaded consensus term from pgctld", "current_term", resp.Term.GetCurrentTerm())
+			pm.logger.Info("Loaded consensus term from disk", "current_term", term.GetCurrentTerm())
 			pm.checkAndSetReady()
 			return
 
 		case <-timeoutCtx.Done():
-			pm.setStateError(fmt.Errorf("timeout waiting for consensus term from pgctld after %v", pm.loadTimeout))
+			pm.setStateError(fmt.Errorf("timeout waiting for consensus term from disk after %v", pm.loadTimeout))
 			return
 
 		case <-pm.ctx.Done():
@@ -730,7 +711,7 @@ func (pm *MultiPoolerManager) Promote(ctx context.Context) error {
 	return mterrors.New(mtrpcpb.Code_UNIMPLEMENTED, "method Promote not implemented")
 }
 
-// SetTerm sets the consensus term information by forwarding to pgctld
+// SetTerm sets the consensus term information to local disk
 func (pm *MultiPoolerManager) SetTerm(ctx context.Context, term *pgctldpb.ConsensusTerm) error {
 	if err := pm.checkReady(); err != nil {
 		return err
@@ -738,21 +719,9 @@ func (pm *MultiPoolerManager) SetTerm(ctx context.Context, term *pgctldpb.Consen
 
 	pm.logger.Info("SetTerm called", "current_term", term.GetCurrentTerm())
 
-	// Create pgctld client
-	conn, err := pm.createPgctldClient()
-	if err != nil {
-		pm.logger.Error("Failed to create pgctld client", "error", err)
-		return mterrors.Wrap(err, "failed to create pgctld client")
-	}
-	defer conn.Close()
-
-	// Forward request to pgctld
-	client := pgctldpb.NewPgCtldClient(conn)
-	_, err = client.SetTerm(ctx, &pgctldpb.SetTermRequest{
-		Term: term,
-	})
-	if err != nil {
-		pm.logger.Error("Failed to set consensus term in pgctld", "error", err)
+	// Write term to local disk using the term_storage functions
+	if err := SetTerm(pm.config.PoolerDir, term); err != nil {
+		pm.logger.Error("Failed to set consensus term to disk", "error", err)
 		return mterrors.Wrap(err, "failed to set consensus term")
 	}
 
@@ -769,8 +738,8 @@ func (pm *MultiPoolerManager) SetTerm(ctx context.Context, term *pgctldpb.Consen
 func (pm *MultiPoolerManager) Start() {
 	// Start loading multipooler record from topology asynchronously
 	go pm.loadMultiPoolerFromTopo()
-	// Start loading consensus term from pgctld asynchronously
-	go pm.loadConsensusTermFromPgctld()
+	// Start loading consensus term from local disk asynchronously
+	go pm.loadConsensusTermFromDisk()
 
 	servenv.OnRun(func() {
 		pm.logger.Info("MultiPoolerManager started")

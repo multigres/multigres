@@ -51,14 +51,6 @@ service PgCtld {
   // PgRewind rewinds a PostgreSQL data directory to an earlier point in the timeline
   // This is used to resynchronize a server that diverged from the primary after a failback
   rpc PgRewind(PgRewindRequest) returns (PgRewindResponse);
-
-  // HA and Replication Methods. Main consumer of this is MultiOrch
-
-  // GetTerm retrieves the current consensus term information
-  rpc GetTerm(GetTermRequest) returns (GetTermResponse);
-
-  // SetTerm sets the consensus term information. Used by MultiOrch for consensus operations.
-  rpc SetTerm(SetTermRequest) returns (SetTermResponse);
 }
 
 // Start PostgreSQL server
@@ -230,22 +222,4 @@ message ConsensusTerm {
 
   // ID of the leader of the current term
   clustermetadata.ID leader_id = 4;
-}
-
-// GetTerm retrieves the current consensus term information
-message GetTermRequest {
-}
-
-message GetTermResponse {
-  // Current consensus term information
-  ConsensusTerm term = 1;
-}
-
-// SetTerm sets the consensus term information
-message SetTermRequest {
-  // Consensus term information to set
-  ConsensusTerm term = 1;
-}
-
-message SetTermResponse {
 }

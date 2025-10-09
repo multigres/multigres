@@ -41,8 +41,6 @@ const (
 	PgCtld_Version_FullMethodName      = "/pgctldservice.PgCtld/Version"
 	PgCtld_InitDataDir_FullMethodName  = "/pgctldservice.PgCtld/InitDataDir"
 	PgCtld_PgRewind_FullMethodName     = "/pgctldservice.PgCtld/PgRewind"
-	PgCtld_GetTerm_FullMethodName      = "/pgctldservice.PgCtld/GetTerm"
-	PgCtld_SetTerm_FullMethodName      = "/pgctldservice.PgCtld/SetTerm"
 )
 
 // PgCtldClient is the client API for PgCtld service.
@@ -66,10 +64,6 @@ type PgCtldClient interface {
 	// PgRewind rewinds a PostgreSQL data directory to an earlier point in the timeline
 	// This is used to resynchronize a server that diverged from the primary after a failback
 	PgRewind(ctx context.Context, in *PgRewindRequest, opts ...grpc.CallOption) (*PgRewindResponse, error)
-	// GetTerm retrieves the current consensus term information
-	GetTerm(ctx context.Context, in *GetTermRequest, opts ...grpc.CallOption) (*GetTermResponse, error)
-	// SetTerm sets the consensus term information. Used by MultiOrch for consensus operations.
-	SetTerm(ctx context.Context, in *SetTermRequest, opts ...grpc.CallOption) (*SetTermResponse, error)
 }
 
 type pgCtldClient struct {
@@ -152,24 +146,6 @@ func (c *pgCtldClient) PgRewind(ctx context.Context, in *PgRewindRequest, opts .
 	return out, nil
 }
 
-func (c *pgCtldClient) GetTerm(ctx context.Context, in *GetTermRequest, opts ...grpc.CallOption) (*GetTermResponse, error) {
-	out := new(GetTermResponse)
-	err := c.cc.Invoke(ctx, PgCtld_GetTerm_FullMethodName, in, out, opts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *pgCtldClient) SetTerm(ctx context.Context, in *SetTermRequest, opts ...grpc.CallOption) (*SetTermResponse, error) {
-	out := new(SetTermResponse)
-	err := c.cc.Invoke(ctx, PgCtld_SetTerm_FullMethodName, in, out, opts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
 // PgCtldServer is the server API for PgCtld service.
 // All implementations must embed UnimplementedPgCtldServer
 // for forward compatibility
@@ -191,10 +167,6 @@ type PgCtldServer interface {
 	// PgRewind rewinds a PostgreSQL data directory to an earlier point in the timeline
 	// This is used to resynchronize a server that diverged from the primary after a failback
 	PgRewind(context.Context, *PgRewindRequest) (*PgRewindResponse, error)
-	// GetTerm retrieves the current consensus term information
-	GetTerm(context.Context, *GetTermRequest) (*GetTermResponse, error)
-	// SetTerm sets the consensus term information. Used by MultiOrch for consensus operations.
-	SetTerm(context.Context, *SetTermRequest) (*SetTermResponse, error)
 	mustEmbedUnimplementedPgCtldServer()
 }
 
@@ -225,12 +197,6 @@ func (UnimplementedPgCtldServer) InitDataDir(context.Context, *InitDataDirReques
 }
 func (UnimplementedPgCtldServer) PgRewind(context.Context, *PgRewindRequest) (*PgRewindResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method PgRewind not implemented")
-}
-func (UnimplementedPgCtldServer) GetTerm(context.Context, *GetTermRequest) (*GetTermResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method GetTerm not implemented")
-}
-func (UnimplementedPgCtldServer) SetTerm(context.Context, *SetTermRequest) (*SetTermResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method SetTerm not implemented")
 }
 func (UnimplementedPgCtldServer) mustEmbedUnimplementedPgCtldServer() {}
 
@@ -389,42 +355,6 @@ func _PgCtld_PgRewind_Handler(srv interface{}, ctx context.Context, dec func(int
 	return interceptor(ctx, in, info, handler)
 }
 
-func _PgCtld_GetTerm_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(GetTermRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(PgCtldServer).GetTerm(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: PgCtld_GetTerm_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(PgCtldServer).GetTerm(ctx, req.(*GetTermRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _PgCtld_SetTerm_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(SetTermRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(PgCtldServer).SetTerm(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: PgCtld_SetTerm_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(PgCtldServer).SetTerm(ctx, req.(*SetTermRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
 // PgCtld_ServiceDesc is the grpc.ServiceDesc for PgCtld service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -463,14 +393,6 @@ var PgCtld_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "PgRewind",
 			Handler:    _PgCtld_PgRewind_Handler,
-		},
-		{
-			MethodName: "GetTerm",
-			Handler:    _PgCtld_GetTerm_Handler,
-		},
-		{
-			MethodName: "SetTerm",
-			Handler:    _PgCtld_SetTerm_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

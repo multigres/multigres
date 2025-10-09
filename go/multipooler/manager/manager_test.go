@@ -18,6 +18,7 @@ import (
 	"context"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -26,10 +27,10 @@ import (
 
 	"github.com/multigres/multigres/go/clustermetadata/topo"
 	"github.com/multigres/multigres/go/clustermetadata/topo/memorytopo"
-	"github.com/multigres/multigres/go/cmd/pgctld/testutil"
 	"github.com/multigres/multigres/go/mterrors"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
+	pgctldpb "github.com/multigres/multigres/go/pb/pgctldservice"
 )
 
 func TestManagerState_InitialState(t *testing.T) {
@@ -65,9 +66,8 @@ func TestManagerState_SuccessfulLoad(t *testing.T) {
 	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
 	defer ts.Close()
 
-	// Start mock pgctld server
-	pgctldAddr, cleanupPgctld := testutil.StartMockPgctldServer(t)
-	defer cleanupPgctld()
+	// Create temp directory for pooler-dir
+	poolerDir := t.TempDir()
 
 	// Create the multipooler in topology
 	serviceID := &clustermetadatapb.ID{
@@ -88,7 +88,7 @@ func TestManagerState_SuccessfulLoad(t *testing.T) {
 	config := &Config{
 		TopoClient: ts,
 		ServiceID:  serviceID,
-		PgctldAddr: pgctldAddr,
+		PoolerDir:  poolerDir,
 	}
 
 	manager := NewMultiPoolerManager(logger, config)
@@ -96,7 +96,7 @@ func TestManagerState_SuccessfulLoad(t *testing.T) {
 
 	// Start both async loaders (topo and consensus term)
 	go manager.loadMultiPoolerFromTopo()
-	go manager.loadConsensusTermFromPgctld()
+	go manager.loadConsensusTermFromDisk()
 
 	// Wait for the state to become Ready
 	require.Eventually(t, func() bool {
@@ -201,9 +201,8 @@ func TestManagerState_RetryUntilSuccess(t *testing.T) {
 	ts, factory := memorytopo.NewServerAndFactory(ctx, "zone1")
 	defer ts.Close()
 
-	// Start mock pgctld server
-	pgctldAddr, cleanupPgctld := testutil.StartMockPgctldServer(t)
-	defer cleanupPgctld()
+	// Create temp directory for pooler-dir
+	poolerDir := t.TempDir()
 
 	// Create the multipooler in topology
 	serviceID := &clustermetadatapb.ID{
@@ -229,7 +228,7 @@ func TestManagerState_RetryUntilSuccess(t *testing.T) {
 	config := &Config{
 		TopoClient: ts,
 		ServiceID:  serviceID,
-		PgctldAddr: pgctldAddr,
+		PoolerDir:  poolerDir,
 	}
 
 	manager := NewMultiPoolerManager(logger, config)
@@ -237,7 +236,7 @@ func TestManagerState_RetryUntilSuccess(t *testing.T) {
 
 	// Start both async loaders (topo and consensus term)
 	go manager.loadMultiPoolerFromTopo()
-	go manager.loadConsensusTermFromPgctld()
+	go manager.loadConsensusTermFromDisk()
 
 	// Wait for the state to become Ready after retries
 	require.Eventually(t, func() bool {
@@ -347,9 +346,21 @@ func TestValidateAndUpdateTerm(t *testing.T) {
 			ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
 			defer ts.Close()
 
-			// Start mock pgctld server with the initial term
-			pgctldAddr, cleanupPgctld := testutil.StartMockPgctldServerWithTerm(t, tt.currentTerm)
-			defer cleanupPgctld()
+			// Create temp directory for pooler-dir
+			poolerDir := t.TempDir()
+
+			// Create a minimal data directory structure to satisfy IsDataDirInitialized check
+			dataDir := postgresDataDir(poolerDir)
+			require.NoError(t, os.MkdirAll(dataDir, 0o755))
+			require.NoError(t, os.WriteFile(filepath.Join(dataDir, "PG_VERSION"), []byte("15\n"), 0o644))
+
+			// Set initial consensus term on disk if currentTerm > 0
+			if tt.currentTerm > 0 {
+				initialTerm := &pgctldpb.ConsensusTerm{
+					CurrentTerm: tt.currentTerm,
+				}
+				require.NoError(t, SetTerm(poolerDir, initialTerm))
+			}
 
 			multipooler := &clustermetadatapb.MultiPooler{
 				Id:            serviceID,
@@ -364,7 +375,7 @@ func TestValidateAndUpdateTerm(t *testing.T) {
 			config := &Config{
 				TopoClient: ts,
 				ServiceID:  serviceID,
-				PgctldAddr: pgctldAddr,
+				PoolerDir:  poolerDir,
 			}
 			manager := NewMultiPoolerManager(logger, config)
 			defer manager.Close()
@@ -430,9 +441,8 @@ func TestPrimaryPosition(t *testing.T) {
 			ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
 			defer ts.Close()
 
-			// Start mock pgctld server
-			pgctldAddr, cleanupPgctld := testutil.StartMockPgctldServer(t)
-			defer cleanupPgctld()
+			// Create temp directory for pooler-dir
+			poolerDir := t.TempDir()
 
 			multipooler := &clustermetadatapb.MultiPooler{
 				Id:            serviceID,
@@ -447,7 +457,7 @@ func TestPrimaryPosition(t *testing.T) {
 			config := &Config{
 				TopoClient: ts,
 				ServiceID:  serviceID,
-				PgctldAddr: pgctldAddr,
+				PoolerDir:  poolerDir,
 			}
 			manager := NewMultiPoolerManager(logger, config)
 			defer manager.Close()
