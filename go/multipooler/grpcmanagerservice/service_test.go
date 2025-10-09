@@ -26,6 +26,7 @@ import (
 	"github.com/multigres/multigres/go/clustermetadata/topo/memorytopo"
 	"github.com/multigres/multigres/go/mterrors"
 	"github.com/multigres/multigres/go/multipooler/manager"
+	"github.com/multigres/multigres/go/servenv"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -67,7 +68,8 @@ func TestManagerServiceMethods_NotImplemented(t *testing.T) {
 	defer pm.Close()
 
 	// Start the async loader
-	go pm.Start()
+	senv := servenv.NewServEnv()
+	go pm.Start(senv)
 
 	// Wait for the manager to become ready
 	require.Eventually(t, func() bool {
