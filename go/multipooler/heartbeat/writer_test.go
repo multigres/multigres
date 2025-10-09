@@ -145,6 +145,12 @@ func TestCloseWhileStuckWriting(t *testing.T) {
 	})
 
 	// When we receive a kill query, we want to finish running the wait group to unblock the insert query
+	db.AddQueryPatternWithCallback("SELECT pg_cancel_backend.*", &fakepgdb.ExpectedResult{
+		Columns: []string{},
+		Rows:    [][]interface{}{},
+	}, func(s string) {
+		killWg.Done()
+	})
 	db.AddQueryPatternWithCallback("SELECT pg_terminate_backend.*", &fakepgdb.ExpectedResult{
 		Columns: []string{},
 		Rows:    [][]interface{}{},

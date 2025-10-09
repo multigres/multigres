@@ -36,7 +36,9 @@ var (
 // Writer runs on primary databases and writes heartbeats to the heartbeat
 // table at regular intervals.
 type Writer struct {
-	db       *sql.DB // TODO: use connection pooling when it's implemented
+	db *sql.DB // TODO: use connection pooling when it's implemented
+	// TODO: this has the potential to be spammy, so we need to throttle this
+	// or convert these into alerts.
 	logger   *slog.Logger
 	shardID  []byte
 	poolerID string
@@ -131,7 +133,7 @@ func (w *Writer) enableWrites() {
 
 // disableWrites deactivates heartbeat writes
 func (w *Writer) disableWrites() {
-	// We stop the ticks in a separate go routine because it can block if the write is stuck on semi-sync ACKs.
+	// We stop the ticks in a separate go routine because it can block if the write is stuck on full-sync ACKs.
 	// At the same time we try and kill the write that is in progress. We use the context and its cancellation
 	// for coordination between the two go-routines. In the end we will have guaranteed that the ticks have stopped
 	// and no write is in progress.
@@ -203,6 +205,9 @@ func (w *Writer) killWritesUntilStopped(ctx context.Context) {
 
 	for {
 		// Try to kill the query
+		// TODO: There is a possible race condition that cause the wrong query
+		// to be killed. The Vitess connection pool handles this race condition,
+		// so we need to make sure we port that behavior.
 		err := w.killWrite()
 		w.recordError(err)
 
@@ -227,13 +232,35 @@ func (w *Writer) killWrite() error {
 	ctx, cancel := context.WithTimeout(context.Background(), w.interval)
 	defer cancel()
 
-	// Execute pg_terminate_backend to kill the connection
-	_, err := w.db.ExecContext(ctx, "SELECT pg_terminate_backend($1)", writeID)
+	// First try pg_cancel_backend (graceful cancellation)
+	_, err := w.db.ExecContext(ctx, "SELECT pg_cancel_backend($1)", writeID)
 	if err != nil {
-		return fmt.Errorf("failed to kill backend %d: %w", writeID, err)
+		return fmt.Errorf("failed to cancel backend %d: %w", writeID, err)
 	}
 
-	w.logger.Debug("Killed write connection", "pid", writeID)
+	w.logger.Debug("Cancelled write connection", "pid", writeID)
+
+	// Wait briefly to see if the cancellation worked
+	time.Sleep(200 * time.Millisecond)
+
+	// Check if the write is still in progress.
+	//
+	// pg_cancel_backend attempts to gracefully cancel the running query
+	// associated with writeID. If the cancellation is successful, the
+	// earlier call to write() will set w.writeConnID to -1. If the write
+	// finished anyway, there is no query left to kill.
+	if w.writeConnID.Load() != writeID {
+		return nil
+	}
+
+	// If cancel didn't work, escalate to pg_terminate_backend
+	w.logger.Debug("Cancel didn't stop write, terminating connection", "pid", writeID)
+	_, err = w.db.ExecContext(ctx, "SELECT pg_terminate_backend($1)", writeID)
+	if err != nil {
+		return fmt.Errorf("failed to terminate backend %d: %w", writeID, err)
+	}
+
+	w.logger.Debug("Terminated write connection", "pid", writeID)
 	return nil
 }
 
