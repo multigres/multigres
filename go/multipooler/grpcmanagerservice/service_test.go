@@ -99,15 +99,6 @@ func TestManagerServiceMethods_NotImplemented(t *testing.T) {
 			expectedMethod: "ReplicationStatus",
 		},
 		{
-			name: "ResetReplication",
-			method: func() error {
-				req := &multipoolermanagerdata.ResetReplicationRequest{}
-				_, err := svc.ResetReplication(ctx, req)
-				return err
-			},
-			expectedMethod: "ResetReplication",
-		},
-		{
 			name: "ConfigureSynchronousReplication",
 			method: func() error {
 				req := &multipoolermanagerdata.ConfigureSynchronousReplicationRequest{

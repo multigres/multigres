@@ -595,13 +595,39 @@ func (pm *MultiPoolerManager) ReplicationStatus(ctx context.Context) (map[string
 	return nil, mterrors.New(mtrpcpb.Code_UNIMPLEMENTED, "method ReplicationStatus not implemented")
 }
 
-// ResetReplication resets the standby's connection to its primary
+// ResetReplication resets the standby's connection to its primary by clearing primary_conninfo
+// and reloading PostgreSQL configuration. This effectively disconnects the replica from the primary
+// and prevents it from acknowledging commits, making it unavailable for synchronous replication
+// until reconfigured.
 func (pm *MultiPoolerManager) ResetReplication(ctx context.Context) error {
 	if err := pm.checkReady(); err != nil {
 		return err
 	}
 	pm.logger.Info("ResetReplication called")
-	return mterrors.New(mtrpcpb.Code_UNIMPLEMENTED, "method ResetReplication not implemented")
+
+	// Check REPLICA guardrails (pooler type and recovery mode)
+	if err := pm.checkReplicaGuardrails(ctx); err != nil {
+		return err
+	}
+
+	// Step 1: Clear primary_conninfo using ALTER SYSTEM
+	pm.logger.Info("Clearing primary_conninfo")
+	_, err := pm.db.ExecContext(ctx, "ALTER SYSTEM RESET primary_conninfo")
+	if err != nil {
+		pm.logger.Error("Failed to clear primary_conninfo", "error", err)
+		return mterrors.Wrap(err, "failed to clear primary_conninfo")
+	}
+
+	// Step 2: Reload PostgreSQL configuration to apply changes
+	pm.logger.Info("Reloading PostgreSQL configuration")
+	_, err = pm.db.ExecContext(ctx, "SELECT pg_reload_conf()")
+	if err != nil {
+		pm.logger.Error("Failed to reload configuration", "error", err)
+		return mterrors.Wrap(err, "failed to reload PostgreSQL configuration")
+	}
+
+	pm.logger.Info("ResetReplication completed successfully - standby disconnected from primary")
+	return nil
 }
 
 // ConfigureSynchronousReplication configures PostgreSQL synchronous replication settings

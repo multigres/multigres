@@ -1231,4 +1231,140 @@ func TestReplicationAPIs(t *testing.T) {
 		assert.Contains(t, err.Error(), "operation not allowed", "Error should indicate operation not allowed on PRIMARY")
 		t.Log("Confirmed: StopReplication correctly rejected on PRIMARY pooler")
 	})
+
+	t.Run("ResetReplication_Success", func(t *testing.T) {
+		// This test verifies that ResetReplication successfully disconnects the standby from the primary
+		// and that data inserted after reset does not replicate until replication is re-enabled
+
+		// First ensure replication is configured
+		t.Log("Ensuring replication is configured...")
+		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+		setPrimaryReq := &multipoolermanagerdata.SetPrimaryConnInfoRequest{
+			Host:                  "localhost",
+			Port:                  int32(setup.PrimaryPgctld.PgPort),
+			StartReplicationAfter: true,
+			StopReplicationBefore: false,
+			CurrentTerm:           1,
+			Force:                 false,
+		}
+		_, err = standbyManagerClient.SetPrimaryConnInfo(ctx, setPrimaryReq)
+		require.NoError(t, err, "SetPrimaryConnInfo should succeed")
+		cancel()
+
+		// Verify replication is working by checking pg_stat_wal_receiver
+		t.Log("Verifying replication is working...")
+		require.Eventually(t, func() bool {
+			queryResp, err := standbyPoolerClient.ExecuteQuery("SELECT COUNT(*) FROM pg_stat_wal_receiver WHERE status = 'streaming'", 1)
+			if err != nil || len(queryResp.Rows) == 0 {
+				return false
+			}
+			count := string(queryResp.Rows[0].Values[0])
+			return count == "1"
+		}, 10*time.Second, 500*time.Millisecond, "Replication should be streaming")
+		t.Log("Confirmed: Replication is streaming")
+
+		// Call ResetReplication RPC
+		t.Log("Calling ResetReplication RPC...")
+		ctx, cancel = context.WithTimeout(context.Background(), 1*time.Second)
+		defer cancel()
+
+		resetReq := &multipoolermanagerdata.ResetReplicationRequest{}
+		_, err = standbyManagerClient.ResetReplication(ctx, resetReq)
+		require.NoError(t, err, "ResetReplication should succeed on standby")
+
+		// Verify that primary_conninfo is cleared by checking pg_stat_wal_receiver
+		// After resetting, the WAL receiver should eventually disconnect
+		t.Log("Verifying replication is disconnected after ResetReplication...")
+		require.Eventually(t, func() bool {
+			queryResp, err := standbyPoolerClient.ExecuteQuery("SELECT COUNT(*) FROM pg_stat_wal_receiver", 1)
+			if err != nil || len(queryResp.Rows) == 0 {
+				return false
+			}
+			count := string(queryResp.Rows[0].Values[0])
+			return count == "0"
+		}, 10*time.Second, 500*time.Millisecond, "WAL receiver should disconnect after ResetReplication")
+
+		t.Log("ResetReplication successfully disconnected standby from primary")
+
+		// Sanity check: Insert a row on primary, verify it does NOT replicate to standby
+		t.Log("Sanity check: Inserting data on primary after ResetReplication...")
+		_, err = primaryPoolerClient.ExecuteQuery("CREATE TABLE IF NOT EXISTS test_reset_replication (id SERIAL PRIMARY KEY, data TEXT)", 0)
+		require.NoError(t, err, "Should be able to create table on primary")
+
+		_, err = primaryPoolerClient.ExecuteQuery("INSERT INTO test_reset_replication (data) VALUES ('should not replicate')", 0)
+		require.NoError(t, err, "Should be able to insert data on primary")
+
+		// Get LSN from primary after the insert
+		ctx, cancel = context.WithTimeout(context.Background(), 1*time.Second)
+		primaryPosResp, err := primaryManagerClient.PrimaryPosition(ctx, &multipoolermanagerdata.PrimaryPositionRequest{})
+		require.NoError(t, err)
+		primaryLSNAfterInsert := primaryPosResp.LsnPosition
+		t.Logf("Primary LSN after insert: %s", primaryLSNAfterInsert)
+		cancel()
+
+		// Verify standby CANNOT reach the primary LSN (replication is disconnected)
+		t.Log("Verifying standby cannot reach primary LSN (replication disconnected)...")
+		ctx, cancel = context.WithTimeout(context.Background(), 2*time.Second)
+		waitReq := &multipoolermanagerdata.WaitForLSNRequest{
+			TargetLsn: primaryLSNAfterInsert,
+		}
+		_, err = standbyManagerClient.WaitForLSN(ctx, waitReq)
+		cancel()
+		require.Error(t, err, "WaitForLSN should timeout since replication is disconnected")
+		t.Log("Confirmed: Standby cannot reach primary LSN (data did NOT replicate)")
+
+		// Re-enable replication using SetPrimaryConnInfo
+		t.Log("Re-enabling replication...")
+		ctx, cancel = context.WithTimeout(context.Background(), 1*time.Second)
+		setPrimaryReq = &multipoolermanagerdata.SetPrimaryConnInfoRequest{
+			Host:                  "localhost",
+			Port:                  int32(setup.PrimaryPgctld.PgPort),
+			StartReplicationAfter: true,
+			StopReplicationBefore: false,
+			CurrentTerm:           1,
+			Force:                 false,
+		}
+		_, err = standbyManagerClient.SetPrimaryConnInfo(ctx, setPrimaryReq)
+		require.NoError(t, err, "SetPrimaryConnInfo should succeed")
+		cancel()
+
+		// Wait for standby to catch up to primary's LSN
+		t.Logf("Waiting for standby to catch up to primary LSN: %s", primaryLSNAfterInsert)
+		ctx, cancel = context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		waitReq = &multipoolermanagerdata.WaitForLSNRequest{
+			TargetLsn: primaryLSNAfterInsert,
+		}
+		_, err = standbyManagerClient.WaitForLSN(ctx, waitReq)
+		require.NoError(t, err, "Standby should catch up after re-enabling replication")
+
+		// Verify the table now exists on standby
+		t.Log("Verifying data replicated after re-enabling replication...")
+		dataResp, err := standbyPoolerClient.ExecuteQuery("SELECT COUNT(*) FROM test_reset_replication", 1)
+		require.NoError(t, err)
+		require.Len(t, dataResp.Rows, 1)
+		rowCount := string(dataResp.Rows[0].Values[0])
+		assert.Equal(t, "1", rowCount, "Should have 1 row on standby after re-enabling replication")
+
+		t.Log("Confirmed: Data successfully replicated after re-enabling replication")
+
+		// Cleanup: Drop the test table from primary
+		_, err = primaryPoolerClient.ExecuteQuery("DROP TABLE IF EXISTS test_reset_replication", 0)
+		require.NoError(t, err)
+	})
+
+	t.Run("ResetReplication_Primary_Fails", func(t *testing.T) {
+		// ResetReplication should fail on PRIMARY pooler type
+		t.Log("Testing ResetReplication on PRIMARY pooler (should fail)...")
+
+		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+		defer cancel()
+
+		resetReq := &multipoolermanagerdata.ResetReplicationRequest{}
+		_, err = primaryManagerClient.ResetReplication(ctx, resetReq)
+		require.Error(t, err, "ResetReplication should fail on primary")
+		assert.Contains(t, err.Error(), "operation not allowed", "Error should indicate operation not allowed on PRIMARY")
+		t.Log("Confirmed: ResetReplication correctly rejected on PRIMARY pooler")
+	})
 }
