@@ -385,7 +385,7 @@ func initializePrimary(t *testing.T, pgctld *ProcessInstance, multipooler *Proce
 		LeaderId:     nil,
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 	_, err = client.SetTerm(ctx, &multipoolermanagerdata.SetTermRequest{Term: initialTerm})
 	cancel()
 	if err != nil {
@@ -394,7 +394,7 @@ func initializePrimary(t *testing.T, pgctld *ProcessInstance, multipooler *Proce
 	t.Logf("Primary consensus term set to 1")
 
 	// Set pooler type to PRIMARY
-	ctx, cancel = context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel = context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
 
 	changeTypeReq := &multipoolermanagerdata.ChangeTypeRequest{
@@ -462,7 +462,7 @@ func initializeStandby(t *testing.T, primaryPgctld *ProcessInstance, standbyPgct
 		LeaderId:     nil,
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 	_, err = standbyClient.SetTerm(ctx, &multipoolermanagerdata.SetTermRequest{Term: initialTerm})
 	cancel()
 	if err != nil {
@@ -486,7 +486,7 @@ func initializeStandby(t *testing.T, primaryPgctld *ProcessInstance, standbyPgct
 	}
 
 	// Set pooler type to REPLICA
-	ctx, cancel = context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel = context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
 
 	changeTypeReq := &multipoolermanagerdata.ChangeTypeRequest{
@@ -616,7 +616,7 @@ func waitForManagerReady(t *testing.T, setup *MultipoolerTestSetup, manager *Pro
 
 	// Use require.Eventually to wait for manager to be ready
 	require.Eventually(t, func() bool {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 		defer cancel()
 
 		req := &multipoolermanagerdata.StatusRequest{}
@@ -731,7 +731,7 @@ func TestMultipoolerPrimaryPosition(t *testing.T) {
 		defer conn.Close()
 
 		client := multipoolermanagerpb.NewMultiPoolerManagerClient(conn)
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 		defer cancel()
 
 		req := &multipoolermanagerdata.PrimaryPositionRequest{}
@@ -763,7 +763,7 @@ func TestMultipoolerPrimaryPosition(t *testing.T) {
 		defer conn.Close()
 
 		client := multipoolermanagerpb.NewMultiPoolerManagerClient(conn)
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 		defer cancel()
 
 		req := &multipoolermanagerdata.PrimaryPositionRequest{}
@@ -819,7 +819,7 @@ func TestReplicationAPIs(t *testing.T) {
 		require.NoError(t, err, "Should be able to insert data in primary")
 
 		// Get LSN from primary using PrimaryPosition RPC
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 		defer cancel()
 
 		primaryPosResp, err := primaryManagerClient.PrimaryPosition(ctx, &multipoolermanagerdata.PrimaryPositionRequest{})
@@ -832,7 +832,7 @@ func TestReplicationAPIs(t *testing.T) {
 
 		// Use WaitForLSN to verify standby cannot reach primary's LSN without replication
 		// This should timeout since replication is not configured
-		ctx, cancel = context.WithTimeout(context.Background(), 2*time.Second)
+		ctx, cancel = context.WithTimeout(context.Background(), 1*time.Second)
 		defer cancel()
 
 		waitReq := &multipoolermanagerdata.WaitForLSNRequest{
@@ -857,7 +857,7 @@ func TestReplicationAPIs(t *testing.T) {
 		// Configure replication using SetPrimaryConnInfo RPC
 		t.Log("Configuring replication via SetPrimaryConnInfo RPC...")
 
-		ctx, cancel = context.WithTimeout(context.Background(), 30*time.Second)
+		ctx, cancel = context.WithTimeout(context.Background(), 1*time.Second)
 		defer cancel()
 
 		// Call SetPrimaryConnInfo with StartReplicationAfter=true
@@ -876,7 +876,7 @@ func TestReplicationAPIs(t *testing.T) {
 		// Wait for standby to catch up to primary's LSN using WaitForLSN API
 		t.Logf("Waiting for standby to catch up to primary LSN: %s", primaryLSN)
 
-		ctx, cancel = context.WithTimeout(context.Background(), 15*time.Second)
+		ctx, cancel = context.WithTimeout(context.Background(), 1*time.Second)
 		defer cancel()
 
 		waitReq = &multipoolermanagerdata.WaitForLSNRequest{
@@ -910,7 +910,7 @@ func TestReplicationAPIs(t *testing.T) {
 	})
 
 	t.Run("TermMismatchRejected", func(t *testing.T) {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 		defer cancel()
 
 		// Try to set primary conn info with stale term (current term is 1, we'll try with 0)
@@ -952,7 +952,7 @@ func TestReplicationAPIs(t *testing.T) {
 		assert.Equal(t, "false", isPaused, "WAL replay should not be paused initially")
 
 		// Call SetPrimaryConnInfo with StopReplicationBefore=true and StartReplicationAfter=false
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 		defer cancel()
 
 		t.Log("Calling SetPrimaryConnInfo with StopReplicationBefore=true, StartReplicationAfter=false...")
@@ -977,18 +977,24 @@ func TestReplicationAPIs(t *testing.T) {
 
 		t.Log("Replication successfully stopped with StopReplicationBefore flag")
 
-		// Resume replication for cleanup
-		_, err = standbyPoolerClient.ExecuteQuery("SELECT pg_wal_replay_resume()", 1)
+		// Resume replication for cleanup using StartReplication RPC
+		ctx, cancel = context.WithTimeout(context.Background(), 1*time.Second)
+		defer cancel()
+		startReq := &multipoolermanagerdata.StartReplicationRequest{}
+		_, err = standbyManagerClient.StartReplication(ctx, startReq)
 		require.NoError(t, err)
 	})
 
 	t.Run("StartReplicationAfterFlag", func(t *testing.T) {
 		// This test verifies that replication only starts if StartReplicationAfter=true
 
-		// Manually stop replication outside the SetPrimaryConnInfo method
-		t.Log("Manually stopping replication...")
-		_, err = standbyPoolerClient.ExecuteQuery("SELECT pg_wal_replay_pause()", 1)
+		// Stop replication using StopReplication RPC
+		t.Log("Stopping replication using StopReplication RPC...")
+		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+		stopReq := &multipoolermanagerdata.StopReplicationRequest{}
+		_, err = standbyManagerClient.StopReplication(ctx, stopReq)
 		require.NoError(t, err)
+		cancel()
 
 		// Verify replication is paused
 		queryResp, err := standbyPoolerClient.ExecuteQuery("SELECT pg_is_wal_replay_paused()", 1)
@@ -998,7 +1004,7 @@ func TestReplicationAPIs(t *testing.T) {
 		assert.Equal(t, "true", isPaused, "WAL replay should be paused")
 
 		// Call SetPrimaryConnInfo with StartReplicationAfter=false
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		ctx, cancel = context.WithTimeout(context.Background(), 1*time.Second)
 		defer cancel()
 
 		t.Log("Calling SetPrimaryConnInfo with StartReplicationAfter=false...")
@@ -1048,7 +1054,7 @@ func TestReplicationAPIs(t *testing.T) {
 		require.NoError(t, err, "Should be able to insert data in primary")
 
 		// Get LSN from primary
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 		defer cancel()
 
 		primaryPosResp, err := primaryManagerClient.PrimaryPosition(ctx, &multipoolermanagerdata.PrimaryPositionRequest{})
@@ -1058,7 +1064,7 @@ func TestReplicationAPIs(t *testing.T) {
 
 		// Wait for standby to reach the target LSN
 		t.Log("Waiting for standby to reach target LSN...")
-		ctx, cancel = context.WithTimeout(context.Background(), 10*time.Second)
+		ctx, cancel = context.WithTimeout(context.Background(), 1*time.Second)
 		defer cancel()
 
 		waitReq := &multipoolermanagerdata.WaitForLSNRequest{
@@ -1083,7 +1089,7 @@ func TestReplicationAPIs(t *testing.T) {
 
 	t.Run("WaitForLSN_Primary_Fails", func(t *testing.T) {
 		// WaitForLSN should fail on PRIMARY pooler type
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 		defer cancel()
 
 		waitReq := &multipoolermanagerdata.WaitForLSNRequest{
@@ -1101,7 +1107,7 @@ func TestReplicationAPIs(t *testing.T) {
 		// Use a very high LSN that won't be reached in the timeout period
 		unreachableLSN := "FF/FFFFFFFF"
 
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 		defer cancel()
 
 		waitReq := &multipoolermanagerdata.WaitForLSNRequest{
@@ -1116,10 +1122,13 @@ func TestReplicationAPIs(t *testing.T) {
 	t.Run("StartReplication_Success", func(t *testing.T) {
 		// This test verifies that StartReplication successfully resumes WAL replay on standby
 
-		// First stop replication manually
-		t.Log("Manually stopping replication...")
-		_, err = standbyPoolerClient.ExecuteQuery("SELECT pg_wal_replay_pause()", 1)
+		// First stop replication using StopReplication RPC
+		t.Log("Stopping replication using StopReplication RPC...")
+		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+		stopReq := &multipoolermanagerdata.StopReplicationRequest{}
+		_, err = standbyManagerClient.StopReplication(ctx, stopReq)
 		require.NoError(t, err)
+		cancel()
 
 		// Verify replication is paused
 		queryResp, err := standbyPoolerClient.ExecuteQuery("SELECT pg_is_wal_replay_paused()", 1)
@@ -1131,7 +1140,7 @@ func TestReplicationAPIs(t *testing.T) {
 
 		// Call StartReplication RPC
 		t.Log("Calling StartReplication RPC...")
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		ctx, cancel = context.WithTimeout(context.Background(), 1*time.Second)
 		defer cancel()
 
 		startReq := &multipoolermanagerdata.StartReplicationRequest{}
@@ -1153,7 +1162,7 @@ func TestReplicationAPIs(t *testing.T) {
 		// StartReplication should fail on PRIMARY pooler type
 		t.Log("Testing StartReplication on PRIMARY pooler (should fail)...")
 
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 		defer cancel()
 
 		startReq := &multipoolermanagerdata.StartReplicationRequest{}
@@ -1173,15 +1182,18 @@ func TestReplicationAPIs(t *testing.T) {
 		require.Len(t, queryResp.Rows, 1)
 		isPaused := string(queryResp.Rows[0].Values[0])
 		if isPaused == "true" {
-			// Resume it first
-			_, err = standbyPoolerClient.ExecuteQuery("SELECT pg_wal_replay_resume()", 1)
+			// Resume it first using StartReplication RPC
+			ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+			startReq := &multipoolermanagerdata.StartReplicationRequest{}
+			_, err = standbyManagerClient.StartReplication(ctx, startReq)
 			require.NoError(t, err)
+			cancel()
 		}
 		t.Log("Confirmed: WAL replay is running")
 
 		// Call StopReplication RPC
 		t.Log("Calling StopReplication RPC...")
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 		defer cancel()
 
 		stopReq := &multipoolermanagerdata.StopReplicationRequest{}
@@ -1198,8 +1210,11 @@ func TestReplicationAPIs(t *testing.T) {
 
 		t.Log("StopReplication successfully paused WAL replay")
 
-		// Resume replication for cleanup
-		_, err = standbyPoolerClient.ExecuteQuery("SELECT pg_wal_replay_resume()", 1)
+		// Resume replication for cleanup using StartReplication RPC
+		ctx, cancel = context.WithTimeout(context.Background(), 1*time.Second)
+		defer cancel()
+		startReq := &multipoolermanagerdata.StartReplicationRequest{}
+		_, err = standbyManagerClient.StartReplication(ctx, startReq)
 		require.NoError(t, err)
 	})
 
@@ -1207,7 +1222,7 @@ func TestReplicationAPIs(t *testing.T) {
 		// StopReplication should fail on PRIMARY pooler type
 		t.Log("Testing StopReplication on PRIMARY pooler (should fail)...")
 
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 		defer cancel()
 
 		stopReq := &multipoolermanagerdata.StopReplicationRequest{}
