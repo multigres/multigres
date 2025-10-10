@@ -104,5 +104,9 @@ service MultiPoolerManager {
   // Status gets the current status of the manager
   rpc Status(multipoolermanagerdata.StatusRequest)
     returns (multipoolermanagerdata.StatusResponse);
+
+  // SetTerm sets the consensus term information. Used by MultiOrch for consensus operations.
+  rpc SetTerm(multipoolermanagerdata.SetTermRequest)
+    returns (multipoolermanagerdata.SetTermResponse);
 }
 

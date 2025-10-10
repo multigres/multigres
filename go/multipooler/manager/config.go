@@ -29,4 +29,5 @@ type Config struct {
 	Database       string
 	TopoClient     topo.Store
 	ServiceID      *clustermetadatapb.ID
+	PgctldAddr     string // Address of pgctld gRPC service
 }

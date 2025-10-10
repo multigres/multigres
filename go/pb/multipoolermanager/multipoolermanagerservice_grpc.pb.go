@@ -52,6 +52,7 @@ const (
 	MultiPoolerManager_UndoDemote_FullMethodName                      = "/multipoolermanager.MultiPoolerManager/UndoDemote"
 	MultiPoolerManager_Promote_FullMethodName                         = "/multipoolermanager.MultiPoolerManager/Promote"
 	MultiPoolerManager_Status_FullMethodName                          = "/multipoolermanager.MultiPoolerManager/Status"
+	MultiPoolerManager_SetTerm_FullMethodName                         = "/multipoolermanager.MultiPoolerManager/SetTerm"
 )
 
 // MultiPoolerManagerClient is the client API for MultiPoolerManager service.
@@ -98,6 +99,8 @@ type MultiPoolerManagerClient interface {
 	Promote(ctx context.Context, in *multipoolermanagerdata.PromoteRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.PromoteResponse, error)
 	// Status gets the current status of the manager
 	Status(ctx context.Context, in *multipoolermanagerdata.StatusRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.StatusResponse, error)
+	// SetTerm sets the consensus term information. Used by MultiOrch for consensus operations.
+	SetTerm(ctx context.Context, in *multipoolermanagerdata.SetTermRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.SetTermResponse, error)
 }
 
 type multiPoolerManagerClient struct {
@@ -270,6 +273,15 @@ func (c *multiPoolerManagerClient) Status(ctx context.Context, in *multipoolerma
 	return out, nil
 }
 
+func (c *multiPoolerManagerClient) SetTerm(ctx context.Context, in *multipoolermanagerdata.SetTermRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.SetTermResponse, error) {
+	out := new(multipoolermanagerdata.SetTermResponse)
+	err := c.cc.Invoke(ctx, MultiPoolerManager_SetTerm_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // MultiPoolerManagerServer is the server API for MultiPoolerManager service.
 // All implementations must embed UnimplementedMultiPoolerManagerServer
 // for forward compatibility
@@ -314,6 +326,8 @@ type MultiPoolerManagerServer interface {
 	Promote(context.Context, *multipoolermanagerdata.PromoteRequest) (*multipoolermanagerdata.PromoteResponse, error)
 	// Status gets the current status of the manager
 	Status(context.Context, *multipoolermanagerdata.StatusRequest) (*multipoolermanagerdata.StatusResponse, error)
+	// SetTerm sets the consensus term information. Used by MultiOrch for consensus operations.
+	SetTerm(context.Context, *multipoolermanagerdata.SetTermRequest) (*multipoolermanagerdata.SetTermResponse, error)
 	mustEmbedUnimplementedMultiPoolerManagerServer()
 }
 
@@ -374,6 +388,9 @@ func (UnimplementedMultiPoolerManagerServer) Promote(context.Context, *multipool
 }
 func (UnimplementedMultiPoolerManagerServer) Status(context.Context, *multipoolermanagerdata.StatusRequest) (*multipoolermanagerdata.StatusResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Status not implemented")
+}
+func (UnimplementedMultiPoolerManagerServer) SetTerm(context.Context, *multipoolermanagerdata.SetTermRequest) (*multipoolermanagerdata.SetTermResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method SetTerm not implemented")
 }
 func (UnimplementedMultiPoolerManagerServer) mustEmbedUnimplementedMultiPoolerManagerServer() {}
 
@@ -712,6 +729,24 @@ func _MultiPoolerManager_Status_Handler(srv interface{}, ctx context.Context, de
 	return interceptor(ctx, in, info, handler)
 }
 
+func _MultiPoolerManager_SetTerm_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(multipoolermanagerdata.SetTermRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MultiPoolerManagerServer).SetTerm(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MultiPoolerManager_SetTerm_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MultiPoolerManagerServer).SetTerm(ctx, req.(*multipoolermanagerdata.SetTermRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // MultiPoolerManager_ServiceDesc is the grpc.ServiceDesc for MultiPoolerManager service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -790,6 +825,10 @@ var MultiPoolerManager_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Status",
 			Handler:    _MultiPoolerManager_Status_Handler,
+		},
+		{
+			MethodName: "SetTerm",
+			Handler:    _MultiPoolerManager_SetTerm_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

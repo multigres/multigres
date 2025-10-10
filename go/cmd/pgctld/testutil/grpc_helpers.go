@@ -269,3 +269,35 @@ ready:
 
 	return client, cleanup
 }
+
+// StartMockPgctldServer starts a mock pgctld server
+// Returns the server address and a cleanup function
+func StartMockPgctldServer(t *testing.T) (string, func()) {
+	t.Helper()
+
+	// Create a listener on a random port
+	lis, err := net.Listen("tcp", "localhost:0")
+	if err != nil {
+		t.Fatalf("Failed to listen: %v", err)
+	}
+
+	// Create gRPC server with mock service
+	grpcServer := grpc.NewServer()
+	mockService := &MockPgCtldService{}
+	pb.RegisterPgCtldServer(grpcServer, mockService)
+
+	// Start serving in background
+	go func() {
+		_ = grpcServer.Serve(lis)
+	}()
+
+	addr := lis.Addr().String()
+	t.Logf("Mock pgctld server started at %s", addr)
+
+	cleanup := func() {
+		grpcServer.Stop()
+		lis.Close()
+	}
+
+	return addr, cleanup
+}
