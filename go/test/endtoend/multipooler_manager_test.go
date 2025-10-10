@@ -1114,8 +1114,10 @@ func TestReplicationAPIs(t *testing.T) {
 			TargetLsn: unreachableLSN,
 		}
 		_, err = standbyManagerClient.WaitForLSN(ctx, waitReq)
-		require.Error(t, err, "WaitForLSN should timeout")
-		assert.Contains(t, err.Error(), "context", "Error should indicate context timeout")
+		st, ok := status.FromError(err)
+		require.True(t, ok, "Error should be a gRPC status error")
+		assert.Contains(t, []string{"DeadlineExceeded", "Canceled"}, st.Code().String(),
+			"Error should be a timeout error code, got: %s", st.Code().String())
 		t.Log("WaitForLSN correctly timed out")
 	})
 
