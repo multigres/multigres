@@ -22,6 +22,7 @@ import (
 	"strings"
 
 	"github.com/multigres/multigres/go/pgctld"
+	"github.com/multigres/multigres/go/viperutil"
 
 	"github.com/spf13/cobra"
 )
@@ -32,23 +33,31 @@ type InitResult struct {
 	Message            string
 }
 
-var (
-	pgPort   = 5432
-	pgPwfile = ""
-)
-
-func init() {
-	Root.AddCommand(initCmd)
-
-	// Add init-specific flags
-	initCmd.Flags().IntVarP(&pgPort, "pg-port", "p", pgPort, "PostgreSQL port")
-	initCmd.Flags().StringVar(&pgPwfile, "pg-pwfile", pgPwfile, "PostgreSQL password file path")
+// PgCtldInitCmd holds the init command configuration
+type PgCtldInitCmd struct {
+	pgCtlCmd *PgCtlCommand
+	pgPwfile viperutil.Value[string]
 }
 
-var initCmd = &cobra.Command{
-	Use:   "init",
-	Short: "Initialize PostgreSQL data directory",
-	Long: `Initialize a PostgreSQL data directory with initdb.
+// AddInitCommand adds the init subcommand to the root command
+func AddInitCommand(root *cobra.Command, pc *PgCtlCommand) {
+	initCmd := &PgCtldInitCmd{
+		pgCtlCmd: pc,
+		pgPwfile: viperutil.Configure("pg-pwfile", viperutil.Options[string]{
+			Default:  "",
+			FlagName: "pg-pwfile",
+			Dynamic:  false,
+		}),
+	}
+
+	root.AddCommand(initCmd.createCommand())
+}
+
+func (i *PgCtldInitCmd) createCommand() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "init",
+		Short: "Initialize PostgreSQL data directory",
+		Long: `Initialize a PostgreSQL data directory with initdb.
 
 The init command creates and initializes a new PostgreSQL data directory
 using initdb. This command only initializes the data directory and does not
@@ -65,13 +74,21 @@ Examples:
 
   # Initialize using config file settings
   pgctld init --config-file /etc/pgctld/config.yaml`,
-	PreRunE: validateGlobalFlags,
-	RunE:    runInit,
+		PreRunE: func(cmd *cobra.Command, args []string) error {
+			i.pgCtlCmd.lg.SetupLogging()
+			return i.pgCtlCmd.validateGlobalFlags(cmd, args)
+		},
+		RunE: i.runInit,
+	}
+
+	cmd.Flags().String("pg-pwfile", i.pgPwfile.Default(), "PostgreSQL password file path")
+	viperutil.BindFlags(cmd.Flags(), i.pgPwfile)
+
+	return cmd
 }
 
 // InitDataDirWithResult initializes PostgreSQL data directory and returns detailed result information
-func InitDataDirWithResult(poolerDir string) (*InitResult, error) {
-	logger := slog.Default()
+func InitDataDirWithResult(logger *slog.Logger, poolerDir string, pgPort int, pgUser string, pgPwfile string) (*InitResult, error) {
 	result := &InitResult{}
 	dataDir := pgctld.PostgresDataDir(poolerDir)
 
@@ -84,7 +101,7 @@ func InitDataDirWithResult(poolerDir string) (*InitResult, error) {
 	}
 
 	logger.Info("Initializing PostgreSQL data directory", "data_dir", dataDir)
-	if err := initializeDataDir(dataDir); err != nil {
+	if err := initializeDataDir(logger, dataDir, pgUser, pgPwfile); err != nil {
 		return nil, fmt.Errorf("failed to initialize data directory: %w", err)
 	}
 	// create server config using the pooler directory
@@ -99,9 +116,9 @@ func InitDataDirWithResult(poolerDir string) (*InitResult, error) {
 	return result, nil
 }
 
-func runInit(cmd *cobra.Command, args []string) error {
-	poolerDir := pgctld.GetPoolerDir()
-	result, err := InitDataDirWithResult(poolerDir)
+func (i *PgCtldInitCmd) runInit(cmd *cobra.Command, args []string) error {
+	poolerDir := i.pgCtlCmd.GetPoolerDir()
+	result, err := InitDataDirWithResult(i.pgCtlCmd.lg.GetLogger(), poolerDir, i.pgCtlCmd.pgPort.Get(), i.pgCtlCmd.pgUser.Get(), i.pgPwfile.Get())
 	if err != nil {
 		return err
 	}
@@ -116,7 +133,7 @@ func runInit(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func initializeDataDir(dataDir string) error {
+func initializeDataDir(logger *slog.Logger, dataDir string, pgUser string, pgPwfile string) error {
 	// Create data directory if it doesn't exist
 	if err := os.MkdirAll(dataDir, 0o700); err != nil {
 		return fmt.Errorf("failed to create data directory: %w", err)
@@ -132,20 +149,20 @@ func initializeDataDir(dataDir string) error {
 	}
 
 	// Get the effective password and validate it
-	effectivePassword, err := resolvePassword()
+	effectivePassword, err := resolvePassword(pgPwfile)
 	if err != nil {
 		return fmt.Errorf("failed to resolve password: %w", err)
 	}
 
 	// Skip password setup if password is empty and warn user
 	if effectivePassword == "" {
-		slog.Warn("No password provided - skipping password setup", "user", pgUser, "warning", "PostgreSQL user will not have password authentication enabled")
-		slog.Info("PostgreSQL data directory initialized successfully")
+		logger.Warn("No password provided - skipping password setup", "user", pgUser, "warning", "PostgreSQL user will not have password authentication enabled")
+		logger.Info("PostgreSQL data directory initialized successfully")
 		return nil
 	}
 
 	// Set up user password for authentication
-	if err := setPostgresPassword(dataDir); err != nil {
+	if err := setPostgresPassword(dataDir, pgUser, pgPwfile); err != nil {
 		return fmt.Errorf("failed to set user password: %w", err)
 	}
 
@@ -157,14 +174,14 @@ func initializeDataDir(dataDir string) error {
 		passwordSource = "PGPASSWORD environment variable"
 	}
 
-	slog.Info("User password set successfully", "user", pgUser, "password_source", passwordSource)
+	logger.Info("User password set successfully", "user", pgUser, "password_source", passwordSource)
 
 	return nil
 }
 
-func setPostgresPassword(dataDir string) error {
+func setPostgresPassword(dataDir string, pgUser string, pgPwfile string) error {
 	// Get the effective password
-	effectivePassword, err := resolvePassword()
+	effectivePassword, err := resolvePassword(pgPwfile)
 	if err != nil {
 		return fmt.Errorf("failed to resolve password: %w", err)
 	}

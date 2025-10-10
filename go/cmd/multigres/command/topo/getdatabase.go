@@ -27,21 +27,23 @@ import (
 	multiadminpb "github.com/multigres/multigres/go/pb/multiadmin"
 )
 
-// GetDatabaseCommand implements the getdatabase CLI command
-var GetDatabaseCommand = &cobra.Command{
-	Use:   "getdatabase",
-	Short: "Get information about a specific database",
-	Long:  "Retrieve detailed information about a database from the multiadmin server.",
-	RunE:  runGetDatabase,
-}
+// AddGetDatabaseCommand adds the getdatabase subcommand
+func AddGetDatabaseCommand() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "getdatabase",
+		Short: "Get information about a specific database",
+		Long:  "Retrieve detailed information about a database from the multiadmin server.",
+		RunE:  runGetDatabase,
+	}
 
-func init() {
 	// Add command-specific flags
-	GetDatabaseCommand.Flags().String("name", "", "Name of the database to retrieve (required)")
-	GetDatabaseCommand.Flags().String("admin-server", "", "gRPC address of the multiadmin server (e.g., localhost:15990)")
+	cmd.Flags().String("name", "", "Name of the database to retrieve (required)")
+	cmd.Flags().String("admin-server", "", "gRPC address of the multiadmin server (e.g., localhost:15990)")
 
 	// Mark the name flag as required
-	_ = GetDatabaseCommand.MarkFlagRequired("name")
+	_ = cmd.MarkFlagRequired("name")
+
+	return cmd
 }
 
 // runGetDatabase executes the getdatabase command

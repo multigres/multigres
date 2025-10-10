@@ -30,14 +30,14 @@ type managerService struct {
 	manager *manager.MultiPoolerManager
 }
 
-func init() {
+func RegisterPoolerManagerServices(senv *servenv.ServEnv, grpc *servenv.GrpcServer) {
 	// Register ourselves to be invoked when the manager starts
 	manager.RegisterPoolerManagerServices = append(manager.RegisterPoolerManagerServices, func(pm *manager.MultiPoolerManager) {
-		if servenv.GRPCCheckServiceMap("poolermanager") {
+		if grpc.CheckServiceMap("poolermanager", senv) {
 			srv := &managerService{
 				manager: pm,
 			}
-			multipoolermanagerpb.RegisterMultiPoolerManagerServer(servenv.GRPCServer, srv)
+			multipoolermanagerpb.RegisterMultiPoolerManagerServer(grpc.Server, srv)
 		}
 	})
 }

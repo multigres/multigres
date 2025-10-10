@@ -30,6 +30,7 @@ import (
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 
 	"github.com/multigres/multigres/go/grpccommon"
+	"github.com/multigres/multigres/go/viperutil"
 
 	"github.com/spf13/pflag"
 
@@ -52,152 +53,258 @@ import (
 //
 // Note servenv.GRPCServer can only be used in servenv.OnRun,
 // and not before, as it is initialized right before calling OnRun.
-var (
-	// gRPCAuth specifies which auth plugin to use. Currently only "static" and
-	// "mtls" are supported.
-	//
-	// To expose this flag, call RegisterGRPCAuthServerFlags before ParseFlags.
-	gRPCAuth string
 
-	// GRPCServer is the global server to serve gRPC.
-	GRPCServer *grpc.Server
+// GrpcServer holds all gRPC server configuration and the server instance
+type GrpcServer struct {
+	// auth specifies which auth plugin to use. Currently only "static" and "mtls" are supported.
+	auth viperutil.Value[string]
 
+	// port is the port to listen on for gRPC. If zero, don't listen.
+	port viperutil.Value[int]
+
+	// bindAddress is the address to bind to for gRPC. If empty, bind to all addresses.
+	bindAddress viperutil.Value[string]
+
+	// maxConnectionAge is the maximum age of a client connection, before GoAway is sent.
+	maxConnectionAge viperutil.Value[time.Duration]
+
+	// maxConnectionAgeGrace is an additional grace period after maxConnectionAge
+	maxConnectionAgeGrace viperutil.Value[time.Duration]
+
+	// initialConnWindowSize sets window size for a connection.
+	initialConnWindowSize viperutil.Value[int]
+
+	// initialWindowSize sets window size for stream.
+	initialWindowSize viperutil.Value[int]
+
+	// keepAliveEnforcementPolicyMinTime sets the keepalive enforcement policy on the server.
+	keepAliveEnforcementPolicyMinTime viperutil.Value[time.Duration]
+
+	// keepAliveEnforcementPolicyPermitWithoutStream allows keepalive pings even when there are no active streams
+	keepAliveEnforcementPolicyPermitWithoutStream viperutil.Value[bool]
+
+	// keepaliveTime is the time after which the server pings the client if no activity is seen
+	keepaliveTime viperutil.Value[time.Duration]
+
+	// keepaliveTimeout is the wait time after keepalive ping before closing the connection
+	keepaliveTimeout viperutil.Value[time.Duration]
+
+	// cert is the certificate file path for TLS
+	cert viperutil.Value[string]
+
+	// key is the private key file path for TLS
+	key viperutil.Value[string]
+
+	// ca is the CA file path for TLS
+	ca viperutil.Value[string]
+
+	// crl is the Certificate Revocation List file path
+	crl viperutil.Value[string]
+
+	// enableOptionalTLS enables optional TLS mode
+	enableOptionalTLS viperutil.Value[bool]
+
+	// serverCA is the server CA file path
+	serverCA viperutil.Value[string]
+
+	// Server is the actual gRPC server instance
+	Server *grpc.Server
+
+	// authPlugin is the authenticator plugin
 	authPlugin Authenticator
-)
 
-// Misc. server variables.
-var (
-	// gRPCPort is the port to listen on for gRPC. If zero, don't listen.
-	gRPCPort int
-
-	// gRPCBindAddress is the address to bind to for gRPC. If empty, bind to all addresses.
-	gRPCBindAddress string
-
-	// gRPCMaxConnectionAge is the maximum age of a client connection, before GoAway is sent.
-	// This is useful for L4 loadbalancing to ensure rebalancing after scaling.
-	gRPCMaxConnectionAge = time.Duration(math.MaxInt64)
-
-	// gRPCMaxConnectionAgeGrace is an additional grace period after GRPCMaxConnectionAge, after which
-	// connections are forcibly closed.
-	gRPCMaxConnectionAgeGrace = time.Duration(math.MaxInt64)
-
-	// gRPCInitialConnWindowSize ServerOption that sets window size for a connection.
-	// The lower bound for window size is 64K and any value smaller than that will be ignored.
-	gRPCInitialConnWindowSize int
-
-	// gRPCInitialWindowSize ServerOption that sets window size for stream.
-	// The lower bound for window size is 64K and any value smaller than that will be ignored.
-	gRPCInitialWindowSize int
-
-	// gRPCKeepAliveEnforcementPolicyMinTime sets the keepalive enforcement policy on the server.
-	// This is the minimum amount of time a client should wait before sending a keepalive ping.
-	gRPCKeepAliveEnforcementPolicyMinTime = 10 * time.Second
-
-	// gRPCKeepAliveEnforcementPolicyPermitWithoutStream, if true, instructs the server to allow keepalive pings
-	// even when there are no active streams (RPCs). If false, and client sends ping when
-	// there are no active streams, server will send GOAWAY and close the connection.
-	gRPCKeepAliveEnforcementPolicyPermitWithoutStream bool
-
-	gRPCKeepaliveTime    = 10 * time.Second
-	gRPCKeepaliveTimeout = 10 * time.Second
-)
-
-// TLS variables.
-var (
-	// gRPCCert is the cert to use if TLS is enabled.
-	gRPCCert string
-	// gRPCKey is the key to use if TLS is enabled.
-	gRPCKey string
-	// gRPCCA is the CA to use if TLS is enabled.
-	gRPCCA string
-	// gRPCCRL is the CRL (Certificate Revocation List) to use if TLS is
-	// enabled.
-	gRPCCRL string
-	// gRPCEnableOptionalTLS enables an optional TLS mode when a server accepts
-	// both TLS and plain-text connections on the same port.
-	gRPCEnableOptionalTLS bool
-	// gRPCServerCA if specified will combine server cert and server CA.
-	gRPCServerCA string
-)
-
-// RegisterGRPCServerFlags registers flags required to run a gRPC server via Run
-// or RunDefault.
-//
-// `go/cmd/*` entrypoints should call this function before
-// ParseFlags(WithArgs)? if they wish to run a gRPC server.
-func RegisterGRPCServerFlags() {
-	OnParse(func(fs *pflag.FlagSet) {
-		fs.IntVar(&gRPCPort, "grpc-port", gRPCPort, "Port to listen on for gRPC calls. If zero, do not listen.")
-		fs.StringVar(&gRPCBindAddress, "grpc-bind-address", gRPCBindAddress, "Bind address for gRPC calls. If empty, listen on all addresses.")
-		fs.DurationVar(&gRPCMaxConnectionAge, "grpc-max-connection-age", gRPCMaxConnectionAge, "Maximum age of a client connection before GoAway is sent.")
-		fs.DurationVar(&gRPCMaxConnectionAgeGrace, "grpc-max-connection-age-grace", gRPCMaxConnectionAgeGrace, "Additional grace period after grpc-max-connection-age, after which connections are forcibly closed.")
-		fs.IntVar(&gRPCInitialConnWindowSize, "grpc-server-initial-conn-window-size", gRPCInitialConnWindowSize, "gRPC server initial connection window size")
-		fs.IntVar(&gRPCInitialWindowSize, "grpc-server-initial-window-size", gRPCInitialWindowSize, "gRPC server initial window size")
-		fs.DurationVar(&gRPCKeepAliveEnforcementPolicyMinTime, "grpc-server-keepalive-enforcement-policy-min-time", gRPCKeepAliveEnforcementPolicyMinTime, "gRPC server minimum keepalive time")
-		fs.BoolVar(&gRPCKeepAliveEnforcementPolicyPermitWithoutStream, "grpc-server-keepalive-enforcement-policy-permit-without-stream", gRPCKeepAliveEnforcementPolicyPermitWithoutStream, "gRPC server permit client keepalive pings even when there are no active streams (RPCs)")
-
-		fs.StringVar(&gRPCCert, "grpc-cert", gRPCCert, "server certificate to use for gRPC connections, requires grpc-key, enables TLS")
-		fs.StringVar(&gRPCKey, "grpc-key", gRPCKey, "server private key to use for gRPC connections, requires grpc-cert, enables TLS")
-		fs.StringVar(&gRPCCA, "grpc-ca", gRPCCA, "server CA to use for gRPC connections, requires TLS, and enforces client certificate check")
-		fs.StringVar(&gRPCCRL, "grpc-crl", gRPCCRL, "path to a certificate revocation list in PEM format, client certificates will be further verified against this file during TLS handshake")
-		fs.BoolVar(&gRPCEnableOptionalTLS, "grpc-enable-optional-tls", gRPCEnableOptionalTLS, "enable optional TLS mode when a server accepts both TLS and plain-text connections on the same port")
-		fs.StringVar(&gRPCServerCA, "grpc-server-ca", gRPCServerCA, "path to server CA in PEM format, which will be combine with server cert, return full certificate chain to clients")
-		fs.DurationVar(&gRPCKeepaliveTime, "grpc-server-keepalive-time", gRPCKeepaliveTime, "After a duration of this time, if the server doesn't see any activity, it pings the client to see if the transport is still alive.")
-		fs.DurationVar(&gRPCKeepaliveTimeout, "grpc-server-keepalive-timeout", gRPCKeepaliveTimeout, "After having pinged for keepalive check, the server waits for a duration of Timeout and if no activity is seen even after that the connection is closed.")
-		fs.StringVar(&gRPCSocketFile, "grpc-socket-file", gRPCSocketFile, "Local unix socket file to listen on")
-	})
+	// socketFile is the named socket for RPCs
+	socketFile viperutil.Value[string]
 }
 
-// GRPCCert returns the value of the `--grpc_cert` flag.
-func GRPCCert() string {
-	return gRPCCert
+// NewGrpcServer creates and initializes a new GrpcServer with viperutil values
+func NewGrpcServer() *GrpcServer {
+	return &GrpcServer{
+		auth: viperutil.Configure("grpc-auth-mode", viperutil.Options[string]{
+			Default:  "",
+			FlagName: "grpc-auth-mode",
+			Dynamic:  false,
+		}),
+		port: viperutil.Configure("grpc-port", viperutil.Options[int]{
+			Default:  0,
+			FlagName: "grpc-port",
+			Dynamic:  false,
+		}),
+		bindAddress: viperutil.Configure("grpc-bind-address", viperutil.Options[string]{
+			Default:  "",
+			FlagName: "grpc-bind-address",
+			Dynamic:  false,
+		}),
+		maxConnectionAge: viperutil.Configure("grpc-max-connection-age", viperutil.Options[time.Duration]{
+			Default:  time.Duration(math.MaxInt64),
+			FlagName: "grpc-max-connection-age",
+			Dynamic:  false,
+		}),
+		maxConnectionAgeGrace: viperutil.Configure("grpc-max-connection-age-grace", viperutil.Options[time.Duration]{
+			Default:  time.Duration(math.MaxInt64),
+			FlagName: "grpc-max-connection-age-grace",
+			Dynamic:  false,
+		}),
+		initialConnWindowSize: viperutil.Configure("grpc-server-initial-conn-window-size", viperutil.Options[int]{
+			Default:  0,
+			FlagName: "grpc-server-initial-conn-window-size",
+			Dynamic:  false,
+		}),
+		initialWindowSize: viperutil.Configure("grpc-server-initial-window-size", viperutil.Options[int]{
+			Default:  0,
+			FlagName: "grpc-server-initial-window-size",
+			Dynamic:  false,
+		}),
+		keepAliveEnforcementPolicyMinTime: viperutil.Configure("grpc-server-keepalive-enforcement-policy-min-time", viperutil.Options[time.Duration]{
+			Default:  10 * time.Second,
+			FlagName: "grpc-server-keepalive-enforcement-policy-min-time",
+			Dynamic:  false,
+		}),
+		keepAliveEnforcementPolicyPermitWithoutStream: viperutil.Configure("grpc-server-keepalive-enforcement-policy-permit-without-stream", viperutil.Options[bool]{
+			Default:  false,
+			FlagName: "grpc-server-keepalive-enforcement-policy-permit-without-stream",
+			Dynamic:  false,
+		}),
+		keepaliveTime: viperutil.Configure("grpc-server-keepalive-time", viperutil.Options[time.Duration]{
+			Default:  10 * time.Second,
+			FlagName: "grpc-server-keepalive-time",
+			Dynamic:  false,
+		}),
+		keepaliveTimeout: viperutil.Configure("grpc-server-keepalive-timeout", viperutil.Options[time.Duration]{
+			Default:  10 * time.Second,
+			FlagName: "grpc-server-keepalive-timeout",
+			Dynamic:  false,
+		}),
+		cert: viperutil.Configure("grpc-cert", viperutil.Options[string]{
+			Default:  "",
+			FlagName: "grpc-cert",
+			Dynamic:  false,
+		}),
+		key: viperutil.Configure("grpc-key", viperutil.Options[string]{
+			Default:  "",
+			FlagName: "grpc-key",
+			Dynamic:  false,
+		}),
+		ca: viperutil.Configure("grpc-ca", viperutil.Options[string]{
+			Default:  "",
+			FlagName: "grpc-ca",
+			Dynamic:  false,
+		}),
+		crl: viperutil.Configure("grpc-crl", viperutil.Options[string]{
+			Default:  "",
+			FlagName: "grpc-crl",
+			Dynamic:  false,
+		}),
+		enableOptionalTLS: viperutil.Configure("grpc-enable-optional-tls", viperutil.Options[bool]{
+			Default:  false,
+			FlagName: "grpc-enable-optional-tls",
+			Dynamic:  false,
+		}),
+		serverCA: viperutil.Configure("grpc-server-ca", viperutil.Options[string]{
+			Default:  "",
+			FlagName: "grpc-server-ca",
+			Dynamic:  false,
+		}),
+		socketFile: viperutil.Configure("grpc-socket-file", viperutil.Options[string]{
+			Default:  "",
+			FlagName: "grpc-socket-file",
+			Dynamic:  false,
+		}),
+	}
 }
 
-// GRPCCertificateAuthority returns the value of the `--grpc_ca` flag.
-func GRPCCertificateAuthority() string {
-	return gRPCCA
+// RegisterFlags registers all gRPC server flags with the given FlagSet
+func (g *GrpcServer) RegisterFlags(fs *pflag.FlagSet) {
+	fs.String("grpc-auth-mode", g.auth.Default(), "gRPC auth plugin to use (e.g., 'static', 'mtls')")
+	fs.Int("grpc-port", g.port.Default(), "Port to listen on for gRPC calls. If zero, do not listen.")
+	fs.String("grpc-bind-address", g.bindAddress.Default(), "Bind address for gRPC calls. If empty, listen on all addresses.")
+	fs.Duration("grpc-max-connection-age", g.maxConnectionAge.Default(), "Maximum age of a client connection before GoAway is sent.")
+	fs.Duration("grpc-max-connection-age-grace", g.maxConnectionAgeGrace.Default(), "Additional grace period after grpc-max-connection-age, after which connections are forcibly closed.")
+	fs.Int("grpc-server-initial-conn-window-size", g.initialConnWindowSize.Default(), "gRPC server initial connection window size")
+	fs.Int("grpc-server-initial-window-size", g.initialWindowSize.Default(), "gRPC server initial window size")
+	fs.Duration("grpc-server-keepalive-enforcement-policy-min-time", g.keepAliveEnforcementPolicyMinTime.Default(), "gRPC server minimum keepalive time")
+	fs.Bool("grpc-server-keepalive-enforcement-policy-permit-without-stream", g.keepAliveEnforcementPolicyPermitWithoutStream.Default(), "gRPC server permit client keepalive pings even when there are no active streams (RPCs)")
+	fs.String("grpc-cert", g.cert.Default(), "server certificate to use for gRPC connections, requires grpc-key, enables TLS")
+	fs.String("grpc-key", g.key.Default(), "server private key to use for gRPC connections, requires grpc-cert, enables TLS")
+	fs.String("grpc-ca", g.ca.Default(), "server CA to use for gRPC connections, requires TLS, and enforces client certificate check")
+	fs.String("grpc-crl", g.crl.Default(), "path to a certificate revocation list in PEM format, client certificates will be further verified against this file during TLS handshake")
+	fs.Bool("grpc-enable-optional-tls", g.enableOptionalTLS.Default(), "enable optional TLS mode when a server accepts both TLS and plain-text connections on the same port")
+	fs.String("grpc-server-ca", g.serverCA.Default(), "path to server CA in PEM format, which will be combine with server cert, return full certificate chain to clients")
+	fs.Duration("grpc-server-keepalive-time", g.keepaliveTime.Default(), "After a duration of this time, if the server doesn't see any activity, it pings the client to see if the transport is still alive.")
+	fs.Duration("grpc-server-keepalive-timeout", g.keepaliveTimeout.Default(), "After having pinged for keepalive check, the server waits for a duration of Timeout and if no activity is seen even after that the connection is closed.")
+	fs.String("grpc-socket-file", g.socketFile.Default(), "Local unix socket file to listen on")
+
+	viperutil.BindFlags(fs,
+		g.auth,
+		g.port,
+		g.bindAddress,
+		g.maxConnectionAge,
+		g.maxConnectionAgeGrace,
+		g.initialConnWindowSize,
+		g.initialWindowSize,
+		g.keepAliveEnforcementPolicyMinTime,
+		g.keepAliveEnforcementPolicyPermitWithoutStream,
+		g.keepaliveTime,
+		g.keepaliveTimeout,
+		g.cert,
+		g.key,
+		g.ca,
+		g.crl,
+		g.enableOptionalTLS,
+		g.serverCA,
+		g.socketFile,
+	)
 }
 
-// GRPCKey returns the value of the `--grpc_key` flag.
-func GRPCKey() string {
-	return gRPCKey
+// Cert returns the certificate path
+func (g *GrpcServer) Cert() string {
+	return g.cert.Get()
 }
 
-// GRPCPort returns the value of the `--grpc_port` flag.
-func GRPCPort() int {
-	return gRPCPort
+// CA returns the CA path
+func (g *GrpcServer) CA() string {
+	return g.ca.Get()
 }
 
-// GRPCBindAddress returns the value of the `--grpc-bind-address` flag.
-func GRPCBindAddress() string {
-	return gRPCBindAddress
+// Key returns the key path
+func (g *GrpcServer) Key() string {
+	return g.key.Get()
 }
 
-// isGRPCEnabled returns true if gRPC server is set
-func isGRPCEnabled() bool {
-	if gRPCPort != 0 {
+// Port returns the gRPC port
+func (g *GrpcServer) Port() int {
+	return g.port.Get()
+}
+
+// BindAddress returns the bind address
+func (g *GrpcServer) BindAddress() string {
+	return g.bindAddress.Get()
+}
+
+// IsEnabled returns true if gRPC server is enabled
+func (g *GrpcServer) IsEnabled() bool {
+	if g.port.Get() != 0 {
 		return true
 	}
 
-	if gRPCSocketFile != "" {
+	if g.socketFile.Get() != "" {
 		return true
 	}
 
 	return false
 }
 
-// createGRPCServer creates the gRPC server we will be using.
-// It has to be called after flags are parsed, but before
-// services register themselves.
-func createGRPCServer() {
-	// skip if not registered
-	if !isGRPCEnabled() {
+// Create creates the gRPC server instance.
+// It has to be called after flags are parsed, but before services register themselves.
+func (g *GrpcServer) Create() {
+	// skip if not enabled
+	if !g.IsEnabled() {
 		slog.Info("GRPC is not enabled (no grpc-port or socket-file set), skipping gRPC server creation")
 		return
 	}
 
 	var opts []grpc.ServerOption
-	if gRPCCert != "" && gRPCKey != "" {
+	if g.cert.Get() != "" && g.key.Get() != "" {
 		slog.Error("TLS is not implemented yet")
 		os.Exit(1)
 	}
@@ -213,49 +320,56 @@ func createGRPCServer() {
 	opts = append(opts, grpc.MaxRecvMsgSize(msgSize))
 	opts = append(opts, grpc.MaxSendMsgSize(msgSize))
 
-	if gRPCInitialConnWindowSize != 0 {
-		slog.Info("Setting grpc server initial conn window size", "gRPCInitialConnWindowSize", int32(gRPCInitialConnWindowSize))
-		opts = append(opts, grpc.InitialConnWindowSize(int32(gRPCInitialConnWindowSize)))
+	if g.initialConnWindowSize.Get() != 0 {
+		slog.Info("Setting grpc server initial conn window size", "gRPCInitialConnWindowSize", int32(g.initialConnWindowSize.Get()))
+		opts = append(opts, grpc.InitialConnWindowSize(int32(g.initialConnWindowSize.Get())))
 	}
 
-	if gRPCInitialWindowSize != 0 {
-		slog.Info("Setting grpc server initial window size", "gRPCInitialWindowSize", int32(gRPCInitialWindowSize))
-		opts = append(opts, grpc.InitialWindowSize(int32(gRPCInitialWindowSize)))
+	if g.initialWindowSize.Get() != 0 {
+		slog.Info("Setting grpc server initial window size", "gRPCInitialWindowSize", int32(g.initialWindowSize.Get()))
+		opts = append(opts, grpc.InitialWindowSize(int32(g.initialWindowSize.Get())))
 	}
 
 	ep := keepalive.EnforcementPolicy{
-		MinTime:             gRPCKeepAliveEnforcementPolicyMinTime,
-		PermitWithoutStream: gRPCKeepAliveEnforcementPolicyPermitWithoutStream,
+		MinTime:             g.keepAliveEnforcementPolicyMinTime.Get(),
+		PermitWithoutStream: g.keepAliveEnforcementPolicyPermitWithoutStream.Get(),
 	}
 	opts = append(opts, grpc.KeepaliveEnforcementPolicy(ep))
 
 	ka := keepalive.ServerParameters{
-		MaxConnectionAge:      gRPCMaxConnectionAge,
-		MaxConnectionAgeGrace: gRPCMaxConnectionAgeGrace,
-		Time:                  gRPCKeepaliveTime,
-		Timeout:               gRPCKeepaliveTimeout,
+		MaxConnectionAge:      g.maxConnectionAge.Get(),
+		MaxConnectionAgeGrace: g.maxConnectionAgeGrace.Get(),
+		Time:                  g.keepaliveTime.Get(),
+		Timeout:               g.keepaliveTimeout.Get(),
 	}
 	opts = append(opts, grpc.KeepaliveParams(ka))
 
-	opts = append(opts, interceptors()...)
+	opts = append(opts, g.interceptors()...)
 
-	GRPCServer = grpc.NewServer(opts...)
+	g.Server = grpc.NewServer(opts...)
 }
 
-// We can only set a ServerInterceptor once, so we chain multiple interceptors into one
-func interceptors() []grpc.ServerOption {
+// interceptors builds the list of interceptors for the gRPC server
+func (g *GrpcServer) interceptors() []grpc.ServerOption {
 	interceptors := &serverInterceptorBuilder{}
 
-	if gRPCAuth != "" {
-		slog.Info("enabling auth plugin", "plugin", gRPCAuth)
-		pluginInitializer := GetAuthenticator(gRPCAuth)
+	if g.auth.Get() != "" {
+		slog.Info("enabling auth plugin", "plugin", g.auth.Get())
+		pluginInitializer := GetAuthenticator(g.auth.Get())
 		authPluginImpl, err := pluginInitializer()
 		if err != nil {
 			slog.Error("Failed to load auth plugin", "err", err)
 			os.Exit(1)
 		}
-		authPlugin = authPluginImpl
-		interceptors.Add(authenticatingStreamInterceptor, authenticatingUnaryInterceptor)
+		g.authPlugin = authPluginImpl
+		interceptors.Add(
+			func(srv any, stream grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
+				return g.authenticatingStreamInterceptor(srv, stream, info, handler)
+			},
+			func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
+				return g.authenticatingUnaryInterceptor(ctx, req, info, handler)
+			},
+		)
 	}
 
 	// TODO (@rafael) hook stats and tracing
@@ -263,26 +377,27 @@ func interceptors() []grpc.ServerOption {
 	return interceptors.Build()
 }
 
-func serveGRPC() {
-	// skip if not registered
-	if gRPCPort == 0 {
+// Serve starts the gRPC server and begins listening for requests
+func (g *GrpcServer) Serve(sv *ServEnv) {
+	// skip if not enabled
+	if g.port.Get() == 0 {
 		return
 	}
 
 	// register reflection to support list calls :)
-	reflection.Register(GRPCServer)
+	reflection.Register(g.Server)
 
 	// register health service to support health checks
 	healthServer := health.NewServer()
-	healthpb.RegisterHealthServer(GRPCServer, healthServer)
+	healthpb.RegisterHealthServer(g.Server, healthServer)
 
-	for service := range GRPCServer.GetServiceInfo() {
+	for service := range g.Server.GetServiceInfo() {
 		healthServer.SetServingStatus(service, healthpb.HealthCheckResponse_SERVING)
 	}
 
 	// listen on the port
-	slog.Info("Listening for gRPC calls on port", "grpcPort", gRPCPort)
-	listener, err := net.Listen("tcp", net.JoinHostPort(gRPCBindAddress, strconv.Itoa(gRPCPort)))
+	slog.Info("Listening for gRPC calls on port", "grpcPort", g.port.Get())
+	listener, err := net.Listen("tcp", net.JoinHostPort(g.bindAddress.Get(), strconv.Itoa(g.port.Get())))
 	if err != nil {
 		slog.Error("Cannot listen on the provided grpc port", "err", err)
 		os.Exit(1)
@@ -290,40 +405,43 @@ func serveGRPC() {
 
 	// and serve on it
 	// NOTE: Before we call Serve(), all services must have registered themselves
-	//       with "GRPCServer". This is the case because go/servenv/run.go
-	//       runs all OnRun() hooks after createGRPCServer() and before
-	//       serveGRPC(). If this was not the case, the binary would crash with
+	//       with the Server. This is the case because go/servenv/run.go
+	//       runs all OnRun() hooks after Create() and before Serve().
+	//       If this was not the case, the binary would crash with
 	//       the error "grpc: Server.RegisterService after Server.Serve".
 	go func() {
-		err := GRPCServer.Serve(listener)
+		err := g.Server.Serve(listener)
 		if err != nil {
 			slog.Error("Failed to start grpc server", "err", err)
 			os.Exit(1)
 		}
 	}()
 
-	OnTermSync(func() {
+	sv.OnTermSync(func() {
 		slog.Info("Initiated graceful stop of gRPC server")
-		GRPCServer.GracefulStop()
+		g.Server.GracefulStop()
 		slog.Info("gRPC server stopped")
 	})
 }
 
-// GRPCCheckServiceMap returns if we should register a gRPC service
-// (and also logs how to enable / disable it)
-func GRPCCheckServiceMap(name string) bool {
+// CheckServiceMap returns if we should register a gRPC service
+func (g *GrpcServer) CheckServiceMap(name string, sv *ServEnv) bool {
 	// Silently fail individual services if gRPC is not enabled in
 	// the first place (either on a grpc port or on the socket file)
-	if !isGRPCEnabled() {
+	if !g.IsEnabled() {
 		return false
 	}
 
 	// then check ServiceMap
-	return checkServiceMap("grpc", name)
+	return sv.checkServiceMap("grpc", name)
 }
 
-func authenticatingStreamInterceptor(srv any, stream grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
-	newCtx, err := authPlugin.Authenticate(stream.Context(), info.FullMethod)
+func (g *GrpcServer) authenticatingStreamInterceptor(srv any, stream grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
+	if g.authPlugin == nil {
+		return handler(srv, stream)
+	}
+
+	newCtx, err := g.authPlugin.Authenticate(stream.Context(), info.FullMethod)
 	if err != nil {
 		return err
 	}
@@ -333,8 +451,12 @@ func authenticatingStreamInterceptor(srv any, stream grpc.ServerStream, info *gr
 	return handler(srv, wrapped)
 }
 
-func authenticatingUnaryInterceptor(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
-	newCtx, err := authPlugin.Authenticate(ctx, info.FullMethod)
+func (g *GrpcServer) authenticatingUnaryInterceptor(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
+	if g.authPlugin == nil {
+		return handler(ctx, req)
+	}
+
+	newCtx, err := g.authPlugin.Authenticate(ctx, info.FullMethod)
 	if err != nil {
 		return nil, err
 	}

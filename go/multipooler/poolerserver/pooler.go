@@ -170,8 +170,8 @@ func (s *MultiPooler) Close() error {
 }
 
 // Start initializes the MultiPooler
-func (s *MultiPooler) Start() {
-	servenv.OnRun(func() {
+func (s *MultiPooler) Start(senv *servenv.ServEnv) {
+	senv.OnRun(func() {
 		s.logger.Info("MultiPooler started")
 
 		// Register all gRPC services that have registered themselves

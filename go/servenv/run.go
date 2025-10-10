@@ -26,24 +26,16 @@ import (
 	"strconv"
 	"syscall"
 	"time"
-
-	"github.com/multigres/multigres/go/event"
-)
-
-var (
-	onCloseHooks event.Hooks
-	// ExitChan waits for a signal that tells the process to terminate
-	ExitChan chan os.Signal
 )
 
 // Run starts listening for RPC and HTTP requests,
 // and blocks until it the process gets a signal.
-func Run(bindAddress string, port int) {
-	populateListeningURL(int32(port))
-	createGRPCServer()
-	onRunHooks.Fire()
-	serveGRPC()
-	serveSocketFile()
+func (sv *ServEnv) Run(bindAddress string, port int, grpcServer *GrpcServer) {
+	sv.PopulateListeningURL(int32(port))
+	grpcServer.Create()
+	sv.FireRunHooks()
+	grpcServer.Serve(sv)
+	grpcServer.serveSocketFile()
 
 	l, err := net.Listen("tcp", net.JoinHostPort(bindAddress, strconv.Itoa(port)))
 	if err != nil {
@@ -57,42 +49,35 @@ func Run(bindAddress string, port int) {
 			actualPort := addr.Port
 			slog.Info("HTTP port was dynamically allocated", "requested_port", port, "actual_port", actualPort)
 			// Update the ListeningURL with the actual port
-			populateListeningURL(int32(actualPort))
+			sv.PopulateListeningURL(int32(actualPort))
 		}
 	}
 	go func() {
-		err := HTTPServe(l)
+		err := sv.HTTPServe(l)
 		if err != nil {
 			slog.Error("http serve returned unexpected error", "err", err)
 		}
 	}()
 
-	ExitChan = make(chan os.Signal, 1)
-	signal.Notify(ExitChan, syscall.SIGTERM, syscall.SIGINT)
+	sv.exitChan = make(chan os.Signal, 1)
+	signal.Notify(sv.exitChan, syscall.SIGTERM, syscall.SIGINT)
 	slog.Info("service successfully started", "port", port)
 	// Wait for signal
-	<-ExitChan
+	<-sv.exitChan
 
 	startTime := time.Now()
-	slog.Info("entering lameduck mode", "period", timeouts.LameduckPeriod)
+	slog.Info("entering lameduck mode", "period", sv.lameduckPeriod.Get())
 	slog.Info("firing asynchronous OnTerm hooks")
-	go onTermHooks.Fire()
+	go sv.onTermHooks.Fire()
 
-	fireOnTermSyncHooks(timeouts.OnTermTimeout)
-	if remain := timeouts.LameduckPeriod - time.Since(startTime); remain > 0 {
+	sv.fireOnTermSyncHooks(sv.onTermTimeout.Get())
+	if remain := sv.lameduckPeriod.Get() - time.Since(startTime); remain > 0 {
 		slog.Info(fmt.Sprintf("sleeping an extra %v after OnTermSync to finish lameduck period", remain))
 		time.Sleep(remain)
 	}
 	_ = l.Close()
 
 	slog.Info("shutting down gracefully")
-	fireOnCloseHooks(timeouts.OnCloseTimeout)
-	ListeningURL = url.URL{}
-}
-
-// OnClose registers f to be run at the end of the app lifecycle.
-// This happens after the lameduck period just before the program exits.
-// All hooks are run in parallel.
-func OnClose(f func()) {
-	onCloseHooks.Add(f)
+	sv.fireOnCloseHooks(sv.onCloseTimeout.Get())
+	sv.SetListeningURL(url.URL{})
 }

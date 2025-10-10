@@ -21,38 +21,36 @@ import (
 	"os"
 
 	"github.com/multigres/multigres/go/multiadmin"
-	"github.com/multigres/multigres/go/servenv"
 
 	"github.com/spf13/cobra"
 )
 
-var Main = &cobra.Command{
-	Use:     "multiadmin",
-	Short:   "Multiadmin provides administrative services for the multigres cluster, exposing both HTTP and gRPC endpoints for cluster management operations.",
-	Long:    "Multiadmin provides administrative services for the multigres cluster, exposing both HTTP and gRPC endpoints for cluster management operations.",
-	Args:    cobra.NoArgs,
-	PreRunE: servenv.CobraPreRunE,
-	RunE:    run,
-}
-
 func main() {
-	if err := Main.Execute(); err != nil {
+	ma := multiadmin.NewMultiAdmin()
+
+	main := &cobra.Command{
+		Use:   "multiadmin",
+		Short: "Multiadmin provides administrative services for the multigres cluster, exposing both HTTP and gRPC endpoints for cluster management operations.",
+		Long:  "Multiadmin provides administrative services for the multigres cluster, exposing both HTTP and gRPC endpoints for cluster management operations.",
+		Args:  cobra.NoArgs,
+		PreRunE: func(cmd *cobra.Command, args []string) error {
+			return ma.CobraPreRunE(cmd)
+		},
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return run(ma)
+		},
+	}
+
+	ma.RegisterFlags(main.Flags())
+
+	if err := main.Execute(); err != nil {
 		slog.Error(err.Error())
 		os.Exit(1)
 	}
 }
 
-func run(cmd *cobra.Command, args []string) error {
-	servenv.Init()
-	servenv.OnRun(multiadmin.Init)
-	servenv.OnClose(multiadmin.Shutdown)
-	servenv.RunDefault()
-
+func run(ma *multiadmin.MultiAdmin) error {
+	ma.Init()
+	ma.RunDefault()
 	return nil
-}
-
-func init() {
-	servenv.OnParseFor("multiadmin", multiadmin.RegisterFlags)
-	servenv.RegisterServiceCmd(Main)
-	servenv.RegisterGRPCServerFlags()
 }

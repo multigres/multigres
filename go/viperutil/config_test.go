@@ -50,57 +50,54 @@ duration: 10h
 
 // TestLoadConfig tests that LoadConfig behaves in the way expected when the config file doesn't exist.
 func TestLoadConfig(t *testing.T) {
-	origConfigFile := configFile.Get()
-	origConfigName := configName.Get()
-	origConfigFileNotFoundHandling := configFileNotFoundHandling.Get()
-	defer func() {
-		configFile.Set(origConfigFile)
-		configName.Set(origConfigName)
-		configFileNotFoundHandling.Set(origConfigFileNotFoundHandling)
-	}()
-
 	t.Run("Ignore file not found error", func(t *testing.T) {
-		configFile.Set("notfound.yaml")
-		configFileNotFoundHandling.Set(IgnoreConfigFileNotFound)
-		_, err := LoadConfig()
+		vc := NewViperConfig()
+		vc.configFile.Set("notfound.yaml")
+		vc.configFileNotFoundHandling.Set(IgnoreConfigFileNotFound)
+		_, err := vc.LoadConfig()
 		require.NoError(t, err)
 	})
 
 	t.Run("Ignore file not found error from config name", func(t *testing.T) {
-		configFile.Set("")
-		configName.Set("notfound")
-		configFileNotFoundHandling.Set(IgnoreConfigFileNotFound)
-		_, err := LoadConfig()
+		vc := NewViperConfig()
+		vc.configFile.Set("")
+		vc.configName.Set("notfound")
+		vc.configFileNotFoundHandling.Set(IgnoreConfigFileNotFound)
+		_, err := vc.LoadConfig()
 		require.NoError(t, err)
 	})
 
 	t.Run("Warn file not found error", func(t *testing.T) {
-		configFile.Set("notfound.yaml")
-		configFileNotFoundHandling.Set(WarnOnConfigFileNotFound)
-		_, err := LoadConfig()
+		vc := NewViperConfig()
+		vc.configFile.Set("notfound.yaml")
+		vc.configFileNotFoundHandling.Set(WarnOnConfigFileNotFound)
+		_, err := vc.LoadConfig()
 		require.NoError(t, err)
 	})
 
 	t.Run("Ignore file not found error from config name", func(t *testing.T) {
-		configFile.Set("")
-		configName.Set("notfound")
-		configFileNotFoundHandling.Set(WarnOnConfigFileNotFound)
-		_, err := LoadConfig()
+		vc := NewViperConfig()
+		vc.configFile.Set("")
+		vc.configName.Set("notfound")
+		vc.configFileNotFoundHandling.Set(WarnOnConfigFileNotFound)
+		_, err := vc.LoadConfig()
 		require.NoError(t, err)
 	})
 
 	t.Run("Error file not found error", func(t *testing.T) {
-		configFile.Set("notfound.yaml")
-		configFileNotFoundHandling.Set(ErrorOnConfigFileNotFound)
-		_, err := LoadConfig()
+		vc := NewViperConfig()
+		vc.configFile.Set("notfound.yaml")
+		vc.configFileNotFoundHandling.Set(ErrorOnConfigFileNotFound)
+		_, err := vc.LoadConfig()
 		require.Error(t, err)
 	})
 
 	t.Run("Ignore file not found error from config name", func(t *testing.T) {
-		configFile.Set("")
-		configName.Set("notfound")
-		configFileNotFoundHandling.Set(ErrorOnConfigFileNotFound)
-		_, err := LoadConfig()
+		vc := NewViperConfig()
+		vc.configFile.Set("")
+		vc.configName.Set("notfound")
+		vc.configFileNotFoundHandling.Set(ErrorOnConfigFileNotFound)
+		_, err := vc.LoadConfig()
 		require.Error(t, err)
 	})
 }

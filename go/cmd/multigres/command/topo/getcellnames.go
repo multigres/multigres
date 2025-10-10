@@ -1,18 +1,16 @@
-/*
-Copyright 2025 The Multigres Authors.
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-*/
+// Copyright 2025 Supabase, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 
 package topo
 
@@ -62,14 +60,16 @@ func runGetCellNames(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// GetCellNamesCommand represents the getcellnames command
-var GetCellNamesCommand = &cobra.Command{
-	Use:   "getcellnames",
-	Short: "Get all cell names in the cluster",
-	Long:  "Retrieve a list of all cell names in the Multigres cluster.",
-	RunE:  runGetCellNames,
-}
+// AddGetCellNamesCommand adds the getcellnames subcommand
+func AddGetCellNamesCommand() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "getcellnames",
+		Short: "Get all cell names in the cluster",
+		Long:  "Retrieve a list of all cell names in the Multigres cluster.",
+		RunE:  runGetCellNames,
+	}
 
-func init() {
-	GetCellNamesCommand.Flags().String("admin-server", "", "Address of the multiadmin server (overrides config)")
+	cmd.Flags().String("admin-server", "", "Address of the multiadmin server (overrides config)")
+
+	return cmd
 }

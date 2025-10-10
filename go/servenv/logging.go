@@ -21,6 +21,8 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/multigres/multigres/go/viperutil"
+
 	"github.com/spf13/pflag"
 )
 
@@ -41,14 +43,50 @@ var (
 	loggingHooksMu     sync.RWMutex
 )
 
-// RegisterLoggingFlags registers logging-related command line flags.
+type Logger struct {
+	// Logging configuration flags
+	logLevel  viperutil.Value[string]
+	logFormat viperutil.Value[string]
+	logOutput viperutil.Value[string]
+
+	// Internal state
+	loggerOnce sync.Once
+	logger     *slog.Logger
+	loggerMu   sync.RWMutex
+
+	// Hooks for customizing logging behavior
+	loggingSetupHooks  []func(*slog.Logger)
+	loggingChangeHooks []func(*slog.Logger)
+	loggingHooksMu     sync.RWMutex
+}
+
+func NewLogger() *Logger {
+	return &Logger{
+		logLevel: viperutil.Configure("log-level", viperutil.Options[string]{
+			Default:  "info",
+			FlagName: "log-level",
+			Dynamic:  false,
+		}),
+		logFormat: viperutil.Configure("log-format", viperutil.Options[string]{
+			Default:  "json",
+			FlagName: "log-format",
+			Dynamic:  false,
+		}),
+		logOutput: viperutil.Configure("log-output", viperutil.Options[string]{
+			Default:  "stdout",
+			FlagName: "log-output",
+			Dynamic:  false,
+		}),
+	}
+}
+
+// RegisterFlags registers logging-related command line flags.
 // This must be called before ParseFlags if using the logging system.
-func RegisterLoggingFlags() {
-	OnParse(func(fs *pflag.FlagSet) {
-		fs.StringVar(&logLevel, "log-level", "info", "Log level (debug, info, warn, error)")
-		fs.StringVar(&logFormat, "log-format", "json", "Log format (json, text)")
-		fs.StringVar(&logOutput, "log-output", "stdout", "Log output (stdout, stderr, or file path)")
-	})
+func (lg *Logger) RegisterFlags(fs *pflag.FlagSet) {
+	fs.String("log-level", lg.logLevel.Default(), "Log level (debug, info, warn, error)")
+	fs.String("log-format", lg.logFormat.Default(), "Log format (json, text)")
+	fs.String("log-output", lg.logOutput.Default(), "Log output (stdout, stderr, or file path)")
+	viperutil.BindFlags(fs, lg.logLevel, lg.logFormat, lg.logOutput)
 }
 
 // OnLoggingSetup registers a callback function to be called after the logger is created.
@@ -212,4 +250,172 @@ func GetLogFormat() string {
 // GetLogOutput returns the current log output setting.
 func GetLogOutput() string {
 	return logOutput
+}
+
+// OnLoggingSetup registers a callback function to be called after the logger is created.
+// This allows applications to customize the logger behavior.
+func (lg *Logger) OnLoggingSetup(f func(*slog.Logger)) {
+	lg.loggingHooksMu.Lock()
+	defer lg.loggingHooksMu.Unlock()
+	lg.loggingSetupHooks = append(lg.loggingSetupHooks, f)
+}
+
+// OnLoggingChange registers a callback function to be called when logging configuration changes.
+func (lg *Logger) OnLoggingChange(f func(*slog.Logger)) {
+	lg.loggingHooksMu.Lock()
+	defer lg.loggingHooksMu.Unlock()
+	lg.loggingChangeHooks = append(lg.loggingChangeHooks, f)
+}
+
+// SetupLogging initializes the logger based on the configured flags.
+// This should be called after flags are parsed but before any logging occurs.
+func (lg *Logger) SetupLogging() {
+	lg.loggerOnce.Do(func() {
+		// Parse log level with fallback to default
+		var level slog.Level
+		levelStr := lg.logLevel.Get()
+		if levelStr == "" {
+			levelStr = "info" // Default fallback
+		}
+		switch strings.ToLower(levelStr) {
+		case "debug":
+			level = slog.LevelDebug
+		case "info":
+			level = slog.LevelInfo
+		case "warn":
+			level = slog.LevelWarn
+		case "error":
+			level = slog.LevelError
+		default:
+			level = slog.LevelInfo
+		}
+
+		// Determine output writer with fallback to stdout
+		var output io.Writer
+		outputStr := lg.logOutput.Get()
+		if outputStr == "" {
+			outputStr = "stdout" // Default fallback
+		}
+		switch strings.ToLower(outputStr) {
+		case "stdout":
+			output = os.Stdout
+		case "stderr":
+			output = os.Stderr
+		default:
+			// Treat as file path
+			file, err := os.OpenFile(outputStr, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+			if err != nil {
+				// Fallback to stdout if file creation fails
+				output = os.Stdout
+			} else {
+				output = file
+			}
+		}
+
+		// Create handler based on format with fallback to json
+		var handler slog.Handler
+		formatStr := lg.logFormat.Get()
+		if formatStr == "" {
+			formatStr = "json" // Default fallback
+		}
+		switch strings.ToLower(formatStr) {
+		case "text":
+			handler = slog.NewTextHandler(output, &slog.HandlerOptions{
+				Level: level,
+			})
+		case "json":
+			handler = slog.NewJSONHandler(output, &slog.HandlerOptions{
+				Level: level,
+			})
+		default:
+			handler = slog.NewJSONHandler(output, &slog.HandlerOptions{
+				Level: level,
+			})
+		}
+
+		// Ensure we have a valid handler
+		if handler == nil {
+			// Ultimate fallback: create a basic JSON handler
+			handler = slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+				Level: slog.LevelInfo,
+			})
+		}
+
+		// Create logger
+		newLogger := slog.New(handler)
+
+		// Set as default slog logger
+		slog.SetDefault(newLogger)
+
+		// Store logger
+		lg.loggerMu.Lock()
+		lg.logger = newLogger
+		lg.loggerMu.Unlock()
+
+		// Fire setup hooks
+		lg.fireLoggingSetupHooks(newLogger)
+
+		// Log initial configuration
+		newLogger.Info("logging initialized",
+			"level", levelStr,
+			"format", formatStr,
+			"output", outputStr,
+		)
+	})
+}
+
+// GetLogger returns the configured logger instance.
+// SetupLogging must be called before this function.
+func (lg *Logger) GetLogger() *slog.Logger {
+	lg.loggerMu.RLock()
+	defer lg.loggerMu.RUnlock()
+	if lg.logger == nil {
+		// Return default slog logger if our logger hasn't been set up yet
+		return slog.Default()
+	}
+	return lg.logger
+}
+
+// GetLogger returns the configured logger instance.
+func (sv *ServEnv) GetLogger() *slog.Logger {
+	return sv.lg.GetLogger()
+}
+
+// fireLoggingSetupHooks calls all registered logging setup hooks.
+func (lg *Logger) fireLoggingSetupHooks(l *slog.Logger) {
+	lg.loggingHooksMu.RLock()
+	hooks := make([]func(*slog.Logger), len(lg.loggingSetupHooks))
+	copy(hooks, lg.loggingSetupHooks)
+	lg.loggingHooksMu.RUnlock()
+
+	for _, hook := range hooks {
+		hook(l)
+	}
+}
+
+// fireLoggingChangeHooks calls all registered logging change hooks.
+func (lg *Logger) fireLoggingChangeHooks(l *slog.Logger) {
+	lg.loggingHooksMu.RLock()
+	hooks := make([]func(*slog.Logger), len(lg.loggingChangeHooks))
+	copy(hooks, lg.loggingChangeHooks)
+	lg.loggingHooksMu.RUnlock()
+
+	for _, hook := range hooks {
+		hook(l)
+	}
+}
+
+// GetLogLevel returns the current log level setting.
+func (lg *Logger) GetLogLevel() string {
+	return lg.logLevel.Get()
+}
+
+// GetLogFormat returns the current log format setting.
+func (lg *Logger) GetLogFormat() string {
+	return lg.logFormat.Get()
+}
+
+// GetLogOutput returns the current log output setting.
+func (lg *Logger) GetLogOutput() string {
+	return lg.logOutput.Get()
 }

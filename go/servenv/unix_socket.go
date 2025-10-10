@@ -22,17 +22,13 @@ import (
 	"os"
 )
 
-// gRPCSocketFile has the flag used when calling
-// RegisterGRPCServerFlags.
-var gRPCSocketFile string
-
 // serveSocketFile listen to the named socket and serves RPCs on it.
-func serveSocketFile() {
-	if gRPCSocketFile == "" {
+func (g *GrpcServer) serveSocketFile() {
+	if g.socketFile.Get() == "" {
 		slog.Info("Not listening on socket file")
 		return
 	}
-	name := gRPCSocketFile
+	name := g.socketFile.Get()
 
 	// try to delete if file exists
 	if _, err := os.Stat(name); err == nil {
@@ -49,7 +45,7 @@ func serveSocketFile() {
 	}
 	slog.Info("Listening on socket file for gRPC", "name", name)
 	go func() {
-		if err := GRPCServer.Serve(l); err != nil {
+		if err := g.Server.Serve(l); err != nil {
 			slog.Error("grpc server failed", "err", err)
 		}
 	}()

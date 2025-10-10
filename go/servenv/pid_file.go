@@ -22,13 +22,12 @@ import (
 	"os"
 )
 
-var pidFile string // registered in RegisterFlags as --pid_file
-
-func init() {
+func (sv *ServEnv) registerPidFile() {
 	pidFileCreated := false
 
 	// Create pid file after flags are parsed.
-	OnInit(func() {
+	sv.OnInit(func() {
+		pidFile := sv.pidFile.Get()
 		if pidFile == "" {
 			return
 		}
@@ -44,7 +43,8 @@ func init() {
 	})
 
 	// Remove pid file on graceful shutdown.
-	OnClose(func() {
+	sv.OnClose(func() {
+		pidFile := sv.pidFile.Get()
 		if pidFile == "" {
 			return
 		}

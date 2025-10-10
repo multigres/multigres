@@ -30,65 +30,88 @@ import (
 	pb "github.com/multigres/multigres/go/pb/pgctldservice"
 )
 
-func init() {
-	servenv.RegisterServiceCmd(Root)
-	servenv.InitServiceMap("grpc", "pgctld")
-	Root.AddCommand(ServerCmd)
-	ServerCmd.Flags().IntVar(&pgPort, "pg-port", pgPort, "PostgreSQL port")
+// PgCtldServerCmd holds the server command configuration
+type PgCtldServerCmd struct {
+	pgCtlCmd   *PgCtlCommand
+	grpcServer *servenv.GrpcServer
+	senv       *servenv.ServEnv
+}
+
+// AddServerCommand adds the server subcommand to the root command
+func AddServerCommand(root *cobra.Command, pc *PgCtlCommand) {
+	serverCmd := &PgCtldServerCmd{
+		pgCtlCmd:   pc,
+		grpcServer: servenv.NewGrpcServer(),
+		senv:       servenv.NewServEnvWithConfig(pc.lg, pc.vc),
+	}
+	serverCmd.senv.InitServiceMap("grpc", "pgctld")
+	root.AddCommand(serverCmd.createCommand())
 }
 
 // validateServerFlags validates required flags for the server command
-func validateServerFlags(cmd *cobra.Command, args []string) error {
+func (s *PgCtldServerCmd) validateServerFlags(cmd *cobra.Command, args []string) error {
+	// Setup logging using the shared logger instance from root command
+	s.pgCtlCmd.lg.SetupLogging()
+
 	// First run the standard servenv validation
-	if err := servenv.CobraPreRunE(cmd, args); err != nil {
+	if err := s.senv.CobraPreRunE(cmd); err != nil {
 		return err
 	}
 
 	// Then run our global validation (but not initialization validation -
 	// the gRPC server should start and validate initialization per method)
-	return validateGlobalFlags(cmd, args)
+	return s.pgCtlCmd.validateGlobalFlags(cmd, args)
 }
 
-var ServerCmd = &cobra.Command{
-	Use:     "server",
-	Short:   "Run pgctld as a gRPC server daemon",
-	Long:    `Run pgctld as a background gRPC server daemon to handle PostgreSQL management requests.`,
-	RunE:    runServer,
-	Args:    cobra.NoArgs,
-	PreRunE: validateServerFlags,
+func (s *PgCtldServerCmd) createCommand() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:     "server",
+		Short:   "Run pgctld as a gRPC server daemon",
+		Long:    `Run pgctld as a background gRPC server daemon to handle PostgreSQL management requests.`,
+		RunE:    s.runServer,
+		Args:    cobra.NoArgs,
+		PreRunE: s.validateServerFlags,
+	}
+
+	s.grpcServer.RegisterFlags(cmd.Flags())
+	// Don't register logger and viper config flags since they're already registered
+	// as persistent flags in the root command and we're sharing those instances
+	s.senv.RegisterFlagsWithoutLoggerAndConfig(cmd.Flags())
+
+	return cmd
 }
 
-func runServer(cmd *cobra.Command, args []string) error {
-	servenv.Init()
+func (s *PgCtldServerCmd) runServer(cmd *cobra.Command, args []string) error {
+	s.senv.Init()
 
 	// Get the configured logger
-	logger := servenv.GetLogger()
+	logger := s.senv.GetLogger()
 
 	// Create and register our service
-	poolerDir := pgctld.GetPoolerDir()
-	pgctldService, err := NewPgCtldService(logger, pgPort, pgUser, pgDatabase, timeout, poolerDir)
+	poolerDir := s.pgCtlCmd.GetPoolerDir()
+	pgctldService, err := NewPgCtldService(logger, s.pgCtlCmd.pgPort.Get(), s.pgCtlCmd.pgUser.Get(), s.pgCtlCmd.pgDatabase.Get(), s.pgCtlCmd.timeout.Get(), poolerDir)
 	if err != nil {
 		return err
 	}
 
-	servenv.OnRun(func() {
+	s.senv.OnRun(func() {
 		logger.Info("pgctld server starting up",
-			"grpc_port", servenv.GRPCPort(),
+			"grpc_port", s.grpcServer.Port(),
 		)
 
 		// Register gRPC service with the global GRPCServer
-		if servenv.GRPCCheckServiceMap("pgctld") {
-			pb.RegisterPgCtldServer(servenv.GRPCServer, pgctldService)
+		if s.grpcServer.CheckServiceMap("pgctld", s.senv) {
+			pb.RegisterPgCtldServer(s.grpcServer.Server, pgctldService)
 		}
 		// TODO(sougou): Add http server
 	})
 
-	servenv.OnClose(func() {
+	s.senv.OnClose(func() {
 		logger.Info("pgctld server shutting down")
 		// TODO: add closing hooks
 	})
 
-	servenv.RunDefault()
+	s.senv.RunDefault(s.grpcServer)
 
 	return nil
 }
@@ -194,7 +217,7 @@ func (s *PgCtldService) Start(ctx context.Context, req *pb.StartRequest) (*pb.St
 	}
 
 	// Use the pre-configured PostgreSQL config for start operation
-	result, err := StartPostgreSQLWithResult(s.config)
+	result, err := StartPostgreSQLWithResult(s.logger, s.config)
 	if err != nil {
 		return nil, fmt.Errorf("failed to start PostgreSQL: %w", err)
 	}
@@ -215,7 +238,7 @@ func (s *PgCtldService) Stop(ctx context.Context, req *pb.StopRequest) (*pb.Stop
 	}
 
 	// Use the pre-configured PostgreSQL config for stop operation
-	result, err := StopPostgreSQLWithResult(s.config, req.Mode)
+	result, err := StopPostgreSQLWithResult(s.logger, s.config, req.Mode)
 	if err != nil {
 		return nil, fmt.Errorf("failed to stop PostgreSQL: %w", err)
 	}
@@ -235,7 +258,7 @@ func (s *PgCtldService) Restart(ctx context.Context, req *pb.RestartRequest) (*p
 	}
 
 	// Use the pre-configured PostgreSQL config for restart operation
-	result, err := RestartPostgreSQLWithResult(s.config, req.Mode)
+	result, err := RestartPostgreSQLWithResult(s.logger, s.config, req.Mode)
 	if err != nil {
 		return nil, fmt.Errorf("failed to restart PostgreSQL: %w", err)
 	}
@@ -256,7 +279,7 @@ func (s *PgCtldService) ReloadConfig(ctx context.Context, req *pb.ReloadConfigRe
 	}
 
 	// Use the pre-configured PostgreSQL config for reload operation
-	result, err := ReloadPostgreSQLConfigWithResult(s.config)
+	result, err := ReloadPostgreSQLConfigWithResult(s.logger, s.config)
 	if err != nil {
 		return nil, fmt.Errorf("failed to reload PostgreSQL configuration: %w", err)
 	}
@@ -280,7 +303,7 @@ func (s *PgCtldService) Status(ctx context.Context, req *pb.StatusRequest) (*pb.
 	}
 
 	// Use the pre-configured PostgreSQL config for status operation
-	result, err := GetStatusWithResult(s.config)
+	result, err := GetStatusWithResult(s.logger, s.config)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get status: %w", err)
 	}
@@ -325,7 +348,7 @@ func (s *PgCtldService) InitDataDir(ctx context.Context, req *pb.InitDataDirRequ
 	s.logger.Info("gRPC InitDataDir request")
 
 	// Use the shared init function with detailed result
-	result, err := InitDataDirWithResult(s.poolerDir)
+	result, err := InitDataDirWithResult(s.logger, s.poolerDir, s.pgPort, s.pgUser, req.PgPwfile)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize data directory: %w", err)
 	}

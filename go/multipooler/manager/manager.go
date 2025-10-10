@@ -762,13 +762,14 @@ func (pm *MultiPoolerManager) SetTerm(ctx context.Context, term *pgctldpb.Consen
 }
 
 // Start initializes the MultiPoolerManager
-func (pm *MultiPoolerManager) Start() {
+// This method follows the Vitess pattern similar to TabletManager.Start() in tm_init.go
+func (pm *MultiPoolerManager) Start(senv *servenv.ServEnv) {
 	// Start loading multipooler record from topology asynchronously
 	go pm.loadMultiPoolerFromTopo()
 	// Start loading consensus term from local disk asynchronously
 	go pm.loadConsensusTermFromDisk()
 
-	servenv.OnRun(func() {
+	senv.OnRun(func() {
 		pm.logger.Info("MultiPoolerManager started")
 		// Additional manager-specific initialization can happen here
 

@@ -20,75 +20,136 @@ package multigateway
 
 import (
 	"context"
-	"log/slog"
 
+	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 
 	"github.com/multigres/multigres/go/clustermetadata/topo"
 	"github.com/multigres/multigres/go/clustermetadata/toporeg"
 	"github.com/multigres/multigres/go/servenv"
+	"github.com/multigres/multigres/go/viperutil"
 )
 
-var (
-	cell      string
-	serviceID string
+type MultiGateway struct {
+	cell viperutil.Value[string]
+	// serviceID string
+	serviceID viperutil.Value[string]
+	// poolerDiscovery handles discovery of multipoolers
+	poolerDiscovery *PoolerDiscovery
+	// grpcServer is the grpc server
+	grpcServer *servenv.GrpcServer
+	// senv is the serving environment
+	senv *servenv.ServEnv
+	// topoConfig holds topology configuration
+	topoConfig   *topo.TopoConfig
+	ts           topo.Store
+	tr           *toporeg.TopoReg
+	serverStatus Status
+}
 
-	ts     topo.Store
-	logger *slog.Logger
+func NewMultiGateway() *MultiGateway {
+	mg := &MultiGateway{
+		cell: viperutil.Configure("cell", viperutil.Options[string]{
+			Default:  "",
+			FlagName: "cell",
+			Dynamic:  false,
+			EnvVars:  []string{"MT_CELL"},
+		}),
+		serviceID: viperutil.Configure("service-id", viperutil.Options[string]{
+			Default:  "",
+			FlagName: "service-id",
+			Dynamic:  false,
+			EnvVars:  []string{"MT_SERVICE_ID"},
+		}),
+		grpcServer: servenv.NewGrpcServer(),
+		senv:       servenv.NewServEnv(),
+		topoConfig: topo.NewTopoConfig(),
+		serverStatus: Status{
+			Title: "Multigateway",
+			Links: []Link{
+				{"Config", "Server configuration details", "/config"},
+				{"Live", "URL for liveness check", "/live"},
+				{"Ready", "URL for readiness check", "/ready"},
+			},
+		},
+	}
 
-	tr *toporeg.TopoReg
-)
+	return mg
+}
 
-// Register flags that are specific to multigateway.
-func RegisterFlags(fs *pflag.FlagSet) {
-	fs.StringVar(&cell, "cell", cell, "cell to use")
-	fs.StringVar(&serviceID, "service-id", "", "optional service ID (if empty, a random ID will be generated)")
+func (mg *MultiGateway) RegisterFlags(fs *pflag.FlagSet) {
+	fs.String("cell", mg.cell.Default(), "cell to use")
+	fs.String("service-id", mg.serviceID.Default(), "optional service ID (if empty, a random ID will be generated)")
+	viperutil.BindFlags(fs,
+		mg.cell,
+		mg.serviceID,
+	)
+	mg.senv.RegisterFlags(fs)
+	mg.grpcServer.RegisterFlags(fs)
+	mg.topoConfig.RegisterFlags(fs)
 }
 
 // Init initializes the multigateway. If any services fail to start,
 // or if some connections fail, it launches goroutines that retry
 // until successful.
-func Init() {
-	logger = servenv.GetLogger()
-	ts = topo.Open()
+func (mg *MultiGateway) Init() {
+	mg.senv.Init()
+	logger := mg.senv.GetLogger()
+
+	mg.ts = mg.topoConfig.Open()
 
 	// This doesn't change
-	serverStatus.Cell = cell
-	serverStatus.ServiceID = serviceID
+	mg.serverStatus.Cell = mg.cell.Get()
+	mg.serverStatus.ServiceID = mg.serviceID.Get()
 
 	logger.Info("multigateway starting up",
-		"cell", cell,
-		"service_id", serviceID,
-		"http_port", servenv.HTTPPort(),
-		"grpc_port", servenv.GRPCPort(),
+		"cell", mg.cell.Get(),
+		"service_id", mg.serviceID.Get(),
+		"http_port", mg.senv.GetHTTPPort(),
+		"grpc_port", mg.grpcServer.Port(),
 	)
 
 	// Create MultiGateway instance for topo registration
-	multigateway := topo.NewMultiGateway(serviceID, cell, servenv.Hostname)
-	multigateway.PortMap["grpc"] = int32(servenv.GRPCPort())
-	multigateway.PortMap["http"] = int32(servenv.HTTPPort())
+	multigateway := topo.NewMultiGateway(mg.serviceID.Get(), mg.cell.Get(), mg.senv.GetHostname())
+	multigateway.PortMap["grpc"] = int32(mg.grpcServer.Port())
+	multigateway.PortMap["http"] = int32(mg.senv.GetHTTPPort())
 
-	tr = toporeg.Register(
-		func(ctx context.Context) error { return ts.RegisterMultiGateway(ctx, multigateway, true) },
-		func(ctx context.Context) error { return ts.UnregisterMultiGateway(ctx, multigateway.Id) },
-		func(s string) { serverStatus.InitError = s },
+	mg.tr = toporeg.Register(
+		func(ctx context.Context) error { return mg.ts.RegisterMultiGateway(ctx, multigateway, true) },
+		func(ctx context.Context) error { return mg.ts.UnregisterMultiGateway(ctx, multigateway.Id) },
+		func(s string) { mg.serverStatus.InitError = s },
 	)
 
 	// Start pooler discovery
-	poolerDiscovery = NewPoolerDiscovery(context.Background(), ts, cell, logger)
-	poolerDiscovery.Start()
-	logger.Info("Pooler discovery started with topology watch", "cell", cell)
+	mg.poolerDiscovery = NewPoolerDiscovery(context.Background(), mg.ts, mg.cell.Get(), logger)
+	mg.poolerDiscovery.Start()
+	logger.Info("Pooler discovery started with topology watch", "cell", mg.cell.Get())
+
+	mg.senv.HTTPHandleFunc("/", mg.getHandleIndex())
+	mg.senv.HTTPHandleFunc("/ready", mg.getHandleReady())
+
+	mg.senv.OnClose(func() {
+		mg.Shutdown()
+	})
 }
 
-func Shutdown() {
-	logger.Info("multigateway shutting down")
+func (mg *MultiGateway) RunDefault() {
+	mg.senv.RunDefault(mg.grpcServer)
+}
+
+func (mg *MultiGateway) CobraPreRunE(cmd *cobra.Command) error {
+	return mg.senv.CobraPreRunE(cmd)
+}
+
+func (mg *MultiGateway) Shutdown() {
+	mg.senv.GetLogger().Info("multigateway shutting down")
 
 	// Stop pooler discovery
-	if poolerDiscovery != nil {
-		poolerDiscovery.Stop()
-		logger.Info("Pooler discovery stopped")
+	if mg.poolerDiscovery != nil {
+		mg.poolerDiscovery.Stop()
+		mg.senv.GetLogger().Info("Pooler discovery stopped")
 	}
 
-	tr.Unregister()
-	ts.Close()
+	mg.tr.Unregister()
+	mg.ts.Close()
 }

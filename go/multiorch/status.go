@@ -18,7 +18,6 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/multigres/multigres/go/servenv"
 	"github.com/multigres/multigres/go/web"
 )
 
@@ -40,36 +39,26 @@ type Status struct {
 	Links []Link `json:"links"`
 }
 
-var serverStatus = Status{
-	Title: "Multiorch",
-	Links: []Link{
-		{"Config", "Server configuration details", "/config"},
-		{"Live", "URL for liveness check", "/live"},
-		{"Ready", "URL for readiness check", "/ready"},
-	},
-}
-
-func init() {
-	servenv.HTTPHandleFunc("/", handleIndex)
-	servenv.HTTPHandleFunc("/ready", handleReady)
-}
-
 // handleIndex serves the index page
-func handleIndex(w http.ResponseWriter, r *http.Request) {
-	err := web.Templates.ExecuteTemplate(w, "orch_index.html", serverStatus)
-	if err != nil {
-		http.Error(w, fmt.Sprintf("Failed to execute template: %v", err), http.StatusInternalServerError)
-		return
+func (mo *MultiOrch) getHandleIndex() func(http.ResponseWriter, *http.Request) {
+	return func(w http.ResponseWriter, r *http.Request) {
+		err := web.Templates.ExecuteTemplate(w, "orch_index.html", mo.serverStatus)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Failed to execute template: %v", err), http.StatusInternalServerError)
+			return
+		}
 	}
 }
 
-func handleReady(w http.ResponseWriter, r *http.Request) {
-	isReady := (len(serverStatus.InitError) == 0)
-	if !isReady {
-		w.WriteHeader(http.StatusServiceUnavailable)
-	}
-	if err := web.Templates.ExecuteTemplate(w, "isok.html", isReady); err != nil {
-		http.Error(w, fmt.Sprintf("Failed to execute template: %v", err), http.StatusInternalServerError)
-		return
+func (mo *MultiOrch) getHandleReady() func(http.ResponseWriter, *http.Request) {
+	return func(w http.ResponseWriter, r *http.Request) {
+		isReady := (len(mo.serverStatus.InitError) == 0)
+		if !isReady {
+			w.WriteHeader(http.StatusServiceUnavailable)
+		}
+		if err := web.Templates.ExecuteTemplate(w, "isok.html", isReady); err != nil {
+			http.Error(w, fmt.Sprintf("Failed to execute template: %v", err), http.StatusInternalServerError)
+			return
+		}
 	}
 }
