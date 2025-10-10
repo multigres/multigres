@@ -65,12 +65,12 @@ parser:
 build:
 	mkdir -p bin/
 	cp external/pico/pico.* go/web/templates/css/
-	go build -o bin/multigateway ./go/cmd/multigateway
-	go build -o bin/multipooler ./go/cmd/multipooler
-	go build -o bin/pgctld ./go/cmd/pgctld
-	go build -o bin/multiorch ./go/cmd/multiorch
-	go build -o bin/multigres ./go/cmd/multigres
-	go build -o bin/multiadmin ./go/cmd/multiadmin
+	CGO_ENABLED=0 go build -ldflags="-w -s" -o bin/multigateway ./go/cmd/multigateway
+	CGO_ENABLED=0 go build -ldflags="-w -s" -o bin/multipooler ./go/cmd/multipooler
+	CGO_ENABLED=0 go build -ldflags="-w -s" -o bin/pgctld ./go/cmd/pgctld
+	CGO_ENABLED=0 go build -ldflags="-w -s" -o bin/multiorch ./go/cmd/multiorch
+	CGO_ENABLED=0 go build -ldflags="-w -s" -o bin/multigres ./go/cmd/multigres
+	CGO_ENABLED=0 go build -ldflags="-w -s" -o bin/multiadmin ./go/cmd/multiadmin
 
 # Build everything (proto + parser + binaries)
 build-all: proto parser build
