@@ -92,12 +92,14 @@ func TestReplTrackerMakeNonPrimary(t *testing.T) {
 
 	// Wait for some heartbeats
 	time.Sleep(1 * time.Second)
-	lastWrites := rt.Writes()
-	assert.Greater(t, lastWrites, int64(0))
+	assert.Greater(t, rt.Writes(), int64(0))
 
 	rt.MakeNonPrimary()
 	assert.False(t, rt.IsPrimary())
 	assert.False(t, rt.hw.IsOpen())
+
+	// Capture writes count immediately after stopping to avoid race
+	lastWrites := rt.Writes()
 
 	// Wait and verify no more writes happen
 	time.Sleep(1 * time.Second)
@@ -133,11 +135,13 @@ func TestReplTrackerEnableHeartbeat(t *testing.T) {
 
 	// Wait for heartbeats
 	time.Sleep(1 * time.Second)
-	lastWrites := rt.Writes()
-	assert.Greater(t, lastWrites, int64(0))
+	assert.Greater(t, rt.Writes(), int64(0))
 
 	// Disable writes
 	rt.EnableHeartbeat(false)
+
+	// Capture writes count immediately after stopping to avoid race
+	lastWrites := rt.Writes()
 
 	// Wait and verify no more writes
 	time.Sleep(1 * time.Second)
