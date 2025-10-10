@@ -293,3 +293,104 @@ func TestDataTypes(t *testing.T, client *MultiPoolerTestClient) {
 		})
 	}
 }
+
+// TestMultigresSchemaExists verifies that the multigres schema exists
+func TestMultigresSchemaExists(t *testing.T, client *MultiPoolerTestClient) {
+	t.Helper()
+
+	query := "SELECT nspname::text FROM pg_catalog.pg_namespace WHERE nspname = 'multigres'"
+	result, err := client.ExecuteQuery(query, 10)
+	require.NoError(t, err, "Schema existence check should succeed")
+	require.NotNil(t, result, "Result should not be nil")
+
+	assert.Len(t, result.Rows, 1, "multigres schema should exist")
+	if len(result.Rows) > 0 {
+		schemaName := string(result.Rows[0].Values[0])
+		assert.Equal(t, "multigres", schemaName, "Schema name should be 'multigres'")
+	}
+}
+
+// TestHeartbeatTableExists verifies that the heartbeat table exists with expected columns
+func TestHeartbeatTableExists(t *testing.T, client *MultiPoolerTestClient) {
+	t.Helper()
+
+	// Check that the table exists
+	tableQuery := `
+		SELECT c.relname::text
+		FROM pg_catalog.pg_class c
+		JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+		WHERE n.nspname = 'multigres' AND c.relname = 'heartbeat' AND c.relkind = 'r'
+	`
+	result, err := client.ExecuteQuery(tableQuery, 10)
+	require.NoError(t, err, "Table existence check should succeed")
+	require.NotNil(t, result, "Result should not be nil")
+	assert.Len(t, result.Rows, 1, "heartbeat table should exist in multigres schema")
+
+	// Check the columns
+	columnsQuery := `
+		SELECT a.attname::text
+		FROM pg_catalog.pg_attribute a
+		JOIN pg_catalog.pg_class c ON a.attrelid = c.oid
+		JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+		WHERE n.nspname = 'multigres'
+		  AND c.relname = 'heartbeat'
+		  AND a.attnum > 0
+		  AND NOT a.attisdropped
+		ORDER BY a.attname
+	`
+	result, err = client.ExecuteQuery(columnsQuery, 10)
+	require.NoError(t, err, "Columns check should succeed")
+	require.NotNil(t, result, "Result should not be nil")
+	assert.Len(t, result.Rows, 3, "heartbeat table should have 3 columns")
+
+	// Verify column details - check that we have the expected columns
+	columnNames := make(map[string]bool)
+	for _, row := range result.Rows {
+		columnName := string(row.Values[0])
+		columnNames[columnName] = true
+	}
+
+	expectedColumns := []string{"shard_id", "pooler_id", "ts"}
+	for _, expected := range expectedColumns {
+		assert.True(t, columnNames[expected], "Column %s should exist in heartbeat table", expected)
+	}
+
+	// Verify primary key constraint exists on shard_id
+	pkQuery := `
+		SELECT a.attname::text
+		FROM pg_catalog.pg_constraint con
+		JOIN pg_catalog.pg_class c ON con.conrelid = c.oid
+		JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+		JOIN pg_catalog.pg_attribute a ON a.attrelid = c.oid AND a.attnum = ANY(con.conkey)
+		WHERE n.nspname = 'multigres'
+		  AND c.relname = 'heartbeat'
+		  AND con.contype = 'p'
+	`
+	result, err = client.ExecuteQuery(pkQuery, 10)
+	require.NoError(t, err, "Primary key check should succeed")
+	require.NotNil(t, result, "Result should not be nil")
+	assert.Len(t, result.Rows, 1, "heartbeat table should have a primary key")
+	if len(result.Rows) > 0 {
+		pkColumnName := string(result.Rows[0].Values[0])
+		assert.Equal(t, "shard_id", pkColumnName, "Primary key should be on shard_id column")
+	}
+}
+
+// TestPrimaryDetection verifies that pg_is_in_recovery() can detect primary vs standby
+func TestPrimaryDetection(t *testing.T, client *MultiPoolerTestClient) {
+	t.Helper()
+
+	// Query pg_is_in_recovery() to check if connected to primary or standby
+	query := "SELECT pg_is_in_recovery()"
+	result, err := client.ExecuteQuery(query, 1)
+	require.NoError(t, err, "pg_is_in_recovery() check should succeed")
+	require.NotNil(t, result, "Result should not be nil")
+	require.Len(t, result.Rows, 1, "Should return one row")
+
+	inRecovery := string(result.Rows[0].Values[0])
+	t.Logf("pg_is_in_recovery() returned: %s", inRecovery)
+
+	// In test environments, we're typically connected to a primary
+	// so pg_is_in_recovery() should return false
+	assert.Equal(t, "false", inRecovery, "Test database should be primary (not in recovery)")
+}
