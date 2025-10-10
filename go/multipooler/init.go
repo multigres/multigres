@@ -209,7 +209,7 @@ func (mp *MultiPooler) Init() {
 		Database:       mp.database.Get(),
 		TopoClient:     mp.ts,
 		ServiceID:      multipooler.Id,
-		PgctldAddr:     pgctldAddr,
+		PgctldAddr:     mp.pgctldAddr.Get(),
 	})
 
 	// Start the MultiPoolerManager
