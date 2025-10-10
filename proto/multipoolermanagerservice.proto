@@ -29,13 +29,6 @@ service MultiPoolerManager {
   // WaitForLSN waits for PostgreSQL server to reach a specific LSN position
   rpc WaitForLSN(multipoolermanagerdata.WaitForLSNRequest) returns (multipoolermanagerdata.WaitForLSNResponse);
 
-  // SetReadOnly makes the PostgreSQL instance read-only
-  rpc SetReadOnly(multipoolermanagerdata.SetReadOnlyRequest) returns (multipoolermanagerdata.SetReadOnlyResponse);
-
-  // IsReadOnly checks if PostgreSQL instance is in read-only mode
-  rpc IsReadOnly(multipoolermanagerdata.IsReadOnlyRequest)
-    returns (multipoolermanagerdata.IsReadOnlyResponse);
-
   // SetPrimaryConnInfo sets the primary connection info for a standby server
   rpc SetPrimaryConnInfo(multipoolermanagerdata.SetPrimaryConnInfoRequest)
     returns (multipoolermanagerdata.SetPrimaryConnInfoResponse);

@@ -39,13 +39,10 @@ var File_multipoolermanagerservice_proto protoreflect.FileDescriptor
 
 const file_multipoolermanagerservice_proto_rawDesc = "" +
 	"\n" +
-	"\x1fmultipoolermanagerservice.proto\x12\x12multipoolermanager\x1a\x1cmultipoolermanagerdata.proto2\xde\x10\n" +
+	"\x1fmultipoolermanagerservice.proto\x12\x12multipoolermanager\x1a\x1cmultipoolermanagerdata.proto2\x91\x0f\n" +
 	"\x12MultiPoolerManager\x12c\n" +
 	"\n" +
-	"WaitForLSN\x12).multipoolermanagerdata.WaitForLSNRequest\x1a*.multipoolermanagerdata.WaitForLSNResponse\x12f\n" +
-	"\vSetReadOnly\x12*.multipoolermanagerdata.SetReadOnlyRequest\x1a+.multipoolermanagerdata.SetReadOnlyResponse\x12c\n" +
-	"\n" +
-	"IsReadOnly\x12).multipoolermanagerdata.IsReadOnlyRequest\x1a*.multipoolermanagerdata.IsReadOnlyResponse\x12{\n" +
+	"WaitForLSN\x12).multipoolermanagerdata.WaitForLSNRequest\x1a*.multipoolermanagerdata.WaitForLSNResponse\x12{\n" +
 	"\x12SetPrimaryConnInfo\x121.multipoolermanagerdata.SetPrimaryConnInfoRequest\x1a2.multipoolermanagerdata.SetPrimaryConnInfoResponse\x12u\n" +
 	"\x10StartReplication\x12/.multipoolermanagerdata.StartReplicationRequest\x1a0.multipoolermanagerdata.StartReplicationResponse\x12r\n" +
 	"\x0fStopReplication\x12..multipoolermanagerdata.StopReplicationRequest\x1a/.multipoolermanagerdata.StopReplicationResponse\x12x\n" +
@@ -67,85 +64,77 @@ const file_multipoolermanagerservice_proto_rawDesc = "" +
 
 var file_multipoolermanagerservice_proto_goTypes = []any{
 	(*multipoolermanagerdata.WaitForLSNRequest)(nil),                       // 0: multipoolermanagerdata.WaitForLSNRequest
-	(*multipoolermanagerdata.SetReadOnlyRequest)(nil),                      // 1: multipoolermanagerdata.SetReadOnlyRequest
-	(*multipoolermanagerdata.IsReadOnlyRequest)(nil),                       // 2: multipoolermanagerdata.IsReadOnlyRequest
-	(*multipoolermanagerdata.SetPrimaryConnInfoRequest)(nil),               // 3: multipoolermanagerdata.SetPrimaryConnInfoRequest
-	(*multipoolermanagerdata.StartReplicationRequest)(nil),                 // 4: multipoolermanagerdata.StartReplicationRequest
-	(*multipoolermanagerdata.StopReplicationRequest)(nil),                  // 5: multipoolermanagerdata.StopReplicationRequest
-	(*multipoolermanagerdata.ReplicationStatusRequest)(nil),                // 6: multipoolermanagerdata.ReplicationStatusRequest
-	(*multipoolermanagerdata.ResetReplicationRequest)(nil),                 // 7: multipoolermanagerdata.ResetReplicationRequest
-	(*multipoolermanagerdata.ConfigureSynchronousReplicationRequest)(nil),  // 8: multipoolermanagerdata.ConfigureSynchronousReplicationRequest
-	(*multipoolermanagerdata.PrimaryStatusRequest)(nil),                    // 9: multipoolermanagerdata.PrimaryStatusRequest
-	(*multipoolermanagerdata.PrimaryPositionRequest)(nil),                  // 10: multipoolermanagerdata.PrimaryPositionRequest
-	(*multipoolermanagerdata.StopReplicationAndGetStatusRequest)(nil),      // 11: multipoolermanagerdata.StopReplicationAndGetStatusRequest
-	(*multipoolermanagerdata.ChangeTypeRequest)(nil),                       // 12: multipoolermanagerdata.ChangeTypeRequest
-	(*multipoolermanagerdata.GetFollowersRequest)(nil),                     // 13: multipoolermanagerdata.GetFollowersRequest
-	(*multipoolermanagerdata.DemoteRequest)(nil),                           // 14: multipoolermanagerdata.DemoteRequest
-	(*multipoolermanagerdata.UndoDemoteRequest)(nil),                       // 15: multipoolermanagerdata.UndoDemoteRequest
-	(*multipoolermanagerdata.PromoteRequest)(nil),                          // 16: multipoolermanagerdata.PromoteRequest
-	(*multipoolermanagerdata.StatusRequest)(nil),                           // 17: multipoolermanagerdata.StatusRequest
-	(*multipoolermanagerdata.SetTermRequest)(nil),                          // 18: multipoolermanagerdata.SetTermRequest
-	(*multipoolermanagerdata.WaitForLSNResponse)(nil),                      // 19: multipoolermanagerdata.WaitForLSNResponse
-	(*multipoolermanagerdata.SetReadOnlyResponse)(nil),                     // 20: multipoolermanagerdata.SetReadOnlyResponse
-	(*multipoolermanagerdata.IsReadOnlyResponse)(nil),                      // 21: multipoolermanagerdata.IsReadOnlyResponse
-	(*multipoolermanagerdata.SetPrimaryConnInfoResponse)(nil),              // 22: multipoolermanagerdata.SetPrimaryConnInfoResponse
-	(*multipoolermanagerdata.StartReplicationResponse)(nil),                // 23: multipoolermanagerdata.StartReplicationResponse
-	(*multipoolermanagerdata.StopReplicationResponse)(nil),                 // 24: multipoolermanagerdata.StopReplicationResponse
-	(*multipoolermanagerdata.ReplicationStatusResponse)(nil),               // 25: multipoolermanagerdata.ReplicationStatusResponse
-	(*multipoolermanagerdata.ResetReplicationResponse)(nil),                // 26: multipoolermanagerdata.ResetReplicationResponse
-	(*multipoolermanagerdata.ConfigureSynchronousReplicationResponse)(nil), // 27: multipoolermanagerdata.ConfigureSynchronousReplicationResponse
-	(*multipoolermanagerdata.PrimaryStatusResponse)(nil),                   // 28: multipoolermanagerdata.PrimaryStatusResponse
-	(*multipoolermanagerdata.PrimaryPositionResponse)(nil),                 // 29: multipoolermanagerdata.PrimaryPositionResponse
-	(*multipoolermanagerdata.StopReplicationAndGetStatusResponse)(nil),     // 30: multipoolermanagerdata.StopReplicationAndGetStatusResponse
-	(*multipoolermanagerdata.ChangeTypeResponse)(nil),                      // 31: multipoolermanagerdata.ChangeTypeResponse
-	(*multipoolermanagerdata.GetFollowersResponse)(nil),                    // 32: multipoolermanagerdata.GetFollowersResponse
-	(*multipoolermanagerdata.DemoteResponse)(nil),                          // 33: multipoolermanagerdata.DemoteResponse
-	(*multipoolermanagerdata.UndoDemoteResponse)(nil),                      // 34: multipoolermanagerdata.UndoDemoteResponse
-	(*multipoolermanagerdata.PromoteResponse)(nil),                         // 35: multipoolermanagerdata.PromoteResponse
-	(*multipoolermanagerdata.StatusResponse)(nil),                          // 36: multipoolermanagerdata.StatusResponse
-	(*multipoolermanagerdata.SetTermResponse)(nil),                         // 37: multipoolermanagerdata.SetTermResponse
+	(*multipoolermanagerdata.SetPrimaryConnInfoRequest)(nil),               // 1: multipoolermanagerdata.SetPrimaryConnInfoRequest
+	(*multipoolermanagerdata.StartReplicationRequest)(nil),                 // 2: multipoolermanagerdata.StartReplicationRequest
+	(*multipoolermanagerdata.StopReplicationRequest)(nil),                  // 3: multipoolermanagerdata.StopReplicationRequest
+	(*multipoolermanagerdata.ReplicationStatusRequest)(nil),                // 4: multipoolermanagerdata.ReplicationStatusRequest
+	(*multipoolermanagerdata.ResetReplicationRequest)(nil),                 // 5: multipoolermanagerdata.ResetReplicationRequest
+	(*multipoolermanagerdata.ConfigureSynchronousReplicationRequest)(nil),  // 6: multipoolermanagerdata.ConfigureSynchronousReplicationRequest
+	(*multipoolermanagerdata.PrimaryStatusRequest)(nil),                    // 7: multipoolermanagerdata.PrimaryStatusRequest
+	(*multipoolermanagerdata.PrimaryPositionRequest)(nil),                  // 8: multipoolermanagerdata.PrimaryPositionRequest
+	(*multipoolermanagerdata.StopReplicationAndGetStatusRequest)(nil),      // 9: multipoolermanagerdata.StopReplicationAndGetStatusRequest
+	(*multipoolermanagerdata.ChangeTypeRequest)(nil),                       // 10: multipoolermanagerdata.ChangeTypeRequest
+	(*multipoolermanagerdata.GetFollowersRequest)(nil),                     // 11: multipoolermanagerdata.GetFollowersRequest
+	(*multipoolermanagerdata.DemoteRequest)(nil),                           // 12: multipoolermanagerdata.DemoteRequest
+	(*multipoolermanagerdata.UndoDemoteRequest)(nil),                       // 13: multipoolermanagerdata.UndoDemoteRequest
+	(*multipoolermanagerdata.PromoteRequest)(nil),                          // 14: multipoolermanagerdata.PromoteRequest
+	(*multipoolermanagerdata.StatusRequest)(nil),                           // 15: multipoolermanagerdata.StatusRequest
+	(*multipoolermanagerdata.SetTermRequest)(nil),                          // 16: multipoolermanagerdata.SetTermRequest
+	(*multipoolermanagerdata.WaitForLSNResponse)(nil),                      // 17: multipoolermanagerdata.WaitForLSNResponse
+	(*multipoolermanagerdata.SetPrimaryConnInfoResponse)(nil),              // 18: multipoolermanagerdata.SetPrimaryConnInfoResponse
+	(*multipoolermanagerdata.StartReplicationResponse)(nil),                // 19: multipoolermanagerdata.StartReplicationResponse
+	(*multipoolermanagerdata.StopReplicationResponse)(nil),                 // 20: multipoolermanagerdata.StopReplicationResponse
+	(*multipoolermanagerdata.ReplicationStatusResponse)(nil),               // 21: multipoolermanagerdata.ReplicationStatusResponse
+	(*multipoolermanagerdata.ResetReplicationResponse)(nil),                // 22: multipoolermanagerdata.ResetReplicationResponse
+	(*multipoolermanagerdata.ConfigureSynchronousReplicationResponse)(nil), // 23: multipoolermanagerdata.ConfigureSynchronousReplicationResponse
+	(*multipoolermanagerdata.PrimaryStatusResponse)(nil),                   // 24: multipoolermanagerdata.PrimaryStatusResponse
+	(*multipoolermanagerdata.PrimaryPositionResponse)(nil),                 // 25: multipoolermanagerdata.PrimaryPositionResponse
+	(*multipoolermanagerdata.StopReplicationAndGetStatusResponse)(nil),     // 26: multipoolermanagerdata.StopReplicationAndGetStatusResponse
+	(*multipoolermanagerdata.ChangeTypeResponse)(nil),                      // 27: multipoolermanagerdata.ChangeTypeResponse
+	(*multipoolermanagerdata.GetFollowersResponse)(nil),                    // 28: multipoolermanagerdata.GetFollowersResponse
+	(*multipoolermanagerdata.DemoteResponse)(nil),                          // 29: multipoolermanagerdata.DemoteResponse
+	(*multipoolermanagerdata.UndoDemoteResponse)(nil),                      // 30: multipoolermanagerdata.UndoDemoteResponse
+	(*multipoolermanagerdata.PromoteResponse)(nil),                         // 31: multipoolermanagerdata.PromoteResponse
+	(*multipoolermanagerdata.StatusResponse)(nil),                          // 32: multipoolermanagerdata.StatusResponse
+	(*multipoolermanagerdata.SetTermResponse)(nil),                         // 33: multipoolermanagerdata.SetTermResponse
 }
 var file_multipoolermanagerservice_proto_depIdxs = []int32{
 	0,  // 0: multipoolermanager.MultiPoolerManager.WaitForLSN:input_type -> multipoolermanagerdata.WaitForLSNRequest
-	1,  // 1: multipoolermanager.MultiPoolerManager.SetReadOnly:input_type -> multipoolermanagerdata.SetReadOnlyRequest
-	2,  // 2: multipoolermanager.MultiPoolerManager.IsReadOnly:input_type -> multipoolermanagerdata.IsReadOnlyRequest
-	3,  // 3: multipoolermanager.MultiPoolerManager.SetPrimaryConnInfo:input_type -> multipoolermanagerdata.SetPrimaryConnInfoRequest
-	4,  // 4: multipoolermanager.MultiPoolerManager.StartReplication:input_type -> multipoolermanagerdata.StartReplicationRequest
-	5,  // 5: multipoolermanager.MultiPoolerManager.StopReplication:input_type -> multipoolermanagerdata.StopReplicationRequest
-	6,  // 6: multipoolermanager.MultiPoolerManager.ReplicationStatus:input_type -> multipoolermanagerdata.ReplicationStatusRequest
-	7,  // 7: multipoolermanager.MultiPoolerManager.ResetReplication:input_type -> multipoolermanagerdata.ResetReplicationRequest
-	8,  // 8: multipoolermanager.MultiPoolerManager.ConfigureSynchronousReplication:input_type -> multipoolermanagerdata.ConfigureSynchronousReplicationRequest
-	9,  // 9: multipoolermanager.MultiPoolerManager.PrimaryStatus:input_type -> multipoolermanagerdata.PrimaryStatusRequest
-	10, // 10: multipoolermanager.MultiPoolerManager.PrimaryPosition:input_type -> multipoolermanagerdata.PrimaryPositionRequest
-	11, // 11: multipoolermanager.MultiPoolerManager.StopReplicationAndGetStatus:input_type -> multipoolermanagerdata.StopReplicationAndGetStatusRequest
-	12, // 12: multipoolermanager.MultiPoolerManager.ChangeType:input_type -> multipoolermanagerdata.ChangeTypeRequest
-	13, // 13: multipoolermanager.MultiPoolerManager.GetFollowers:input_type -> multipoolermanagerdata.GetFollowersRequest
-	14, // 14: multipoolermanager.MultiPoolerManager.Demote:input_type -> multipoolermanagerdata.DemoteRequest
-	15, // 15: multipoolermanager.MultiPoolerManager.UndoDemote:input_type -> multipoolermanagerdata.UndoDemoteRequest
-	16, // 16: multipoolermanager.MultiPoolerManager.Promote:input_type -> multipoolermanagerdata.PromoteRequest
-	17, // 17: multipoolermanager.MultiPoolerManager.Status:input_type -> multipoolermanagerdata.StatusRequest
-	18, // 18: multipoolermanager.MultiPoolerManager.SetTerm:input_type -> multipoolermanagerdata.SetTermRequest
-	19, // 19: multipoolermanager.MultiPoolerManager.WaitForLSN:output_type -> multipoolermanagerdata.WaitForLSNResponse
-	20, // 20: multipoolermanager.MultiPoolerManager.SetReadOnly:output_type -> multipoolermanagerdata.SetReadOnlyResponse
-	21, // 21: multipoolermanager.MultiPoolerManager.IsReadOnly:output_type -> multipoolermanagerdata.IsReadOnlyResponse
-	22, // 22: multipoolermanager.MultiPoolerManager.SetPrimaryConnInfo:output_type -> multipoolermanagerdata.SetPrimaryConnInfoResponse
-	23, // 23: multipoolermanager.MultiPoolerManager.StartReplication:output_type -> multipoolermanagerdata.StartReplicationResponse
-	24, // 24: multipoolermanager.MultiPoolerManager.StopReplication:output_type -> multipoolermanagerdata.StopReplicationResponse
-	25, // 25: multipoolermanager.MultiPoolerManager.ReplicationStatus:output_type -> multipoolermanagerdata.ReplicationStatusResponse
-	26, // 26: multipoolermanager.MultiPoolerManager.ResetReplication:output_type -> multipoolermanagerdata.ResetReplicationResponse
-	27, // 27: multipoolermanager.MultiPoolerManager.ConfigureSynchronousReplication:output_type -> multipoolermanagerdata.ConfigureSynchronousReplicationResponse
-	28, // 28: multipoolermanager.MultiPoolerManager.PrimaryStatus:output_type -> multipoolermanagerdata.PrimaryStatusResponse
-	29, // 29: multipoolermanager.MultiPoolerManager.PrimaryPosition:output_type -> multipoolermanagerdata.PrimaryPositionResponse
-	30, // 30: multipoolermanager.MultiPoolerManager.StopReplicationAndGetStatus:output_type -> multipoolermanagerdata.StopReplicationAndGetStatusResponse
-	31, // 31: multipoolermanager.MultiPoolerManager.ChangeType:output_type -> multipoolermanagerdata.ChangeTypeResponse
-	32, // 32: multipoolermanager.MultiPoolerManager.GetFollowers:output_type -> multipoolermanagerdata.GetFollowersResponse
-	33, // 33: multipoolermanager.MultiPoolerManager.Demote:output_type -> multipoolermanagerdata.DemoteResponse
-	34, // 34: multipoolermanager.MultiPoolerManager.UndoDemote:output_type -> multipoolermanagerdata.UndoDemoteResponse
-	35, // 35: multipoolermanager.MultiPoolerManager.Promote:output_type -> multipoolermanagerdata.PromoteResponse
-	36, // 36: multipoolermanager.MultiPoolerManager.Status:output_type -> multipoolermanagerdata.StatusResponse
-	37, // 37: multipoolermanager.MultiPoolerManager.SetTerm:output_type -> multipoolermanagerdata.SetTermResponse
-	19, // [19:38] is the sub-list for method output_type
-	0,  // [0:19] is the sub-list for method input_type
+	1,  // 1: multipoolermanager.MultiPoolerManager.SetPrimaryConnInfo:input_type -> multipoolermanagerdata.SetPrimaryConnInfoRequest
+	2,  // 2: multipoolermanager.MultiPoolerManager.StartReplication:input_type -> multipoolermanagerdata.StartReplicationRequest
+	3,  // 3: multipoolermanager.MultiPoolerManager.StopReplication:input_type -> multipoolermanagerdata.StopReplicationRequest
+	4,  // 4: multipoolermanager.MultiPoolerManager.ReplicationStatus:input_type -> multipoolermanagerdata.ReplicationStatusRequest
+	5,  // 5: multipoolermanager.MultiPoolerManager.ResetReplication:input_type -> multipoolermanagerdata.ResetReplicationRequest
+	6,  // 6: multipoolermanager.MultiPoolerManager.ConfigureSynchronousReplication:input_type -> multipoolermanagerdata.ConfigureSynchronousReplicationRequest
+	7,  // 7: multipoolermanager.MultiPoolerManager.PrimaryStatus:input_type -> multipoolermanagerdata.PrimaryStatusRequest
+	8,  // 8: multipoolermanager.MultiPoolerManager.PrimaryPosition:input_type -> multipoolermanagerdata.PrimaryPositionRequest
+	9,  // 9: multipoolermanager.MultiPoolerManager.StopReplicationAndGetStatus:input_type -> multipoolermanagerdata.StopReplicationAndGetStatusRequest
+	10, // 10: multipoolermanager.MultiPoolerManager.ChangeType:input_type -> multipoolermanagerdata.ChangeTypeRequest
+	11, // 11: multipoolermanager.MultiPoolerManager.GetFollowers:input_type -> multipoolermanagerdata.GetFollowersRequest
+	12, // 12: multipoolermanager.MultiPoolerManager.Demote:input_type -> multipoolermanagerdata.DemoteRequest
+	13, // 13: multipoolermanager.MultiPoolerManager.UndoDemote:input_type -> multipoolermanagerdata.UndoDemoteRequest
+	14, // 14: multipoolermanager.MultiPoolerManager.Promote:input_type -> multipoolermanagerdata.PromoteRequest
+	15, // 15: multipoolermanager.MultiPoolerManager.Status:input_type -> multipoolermanagerdata.StatusRequest
+	16, // 16: multipoolermanager.MultiPoolerManager.SetTerm:input_type -> multipoolermanagerdata.SetTermRequest
+	17, // 17: multipoolermanager.MultiPoolerManager.WaitForLSN:output_type -> multipoolermanagerdata.WaitForLSNResponse
+	18, // 18: multipoolermanager.MultiPoolerManager.SetPrimaryConnInfo:output_type -> multipoolermanagerdata.SetPrimaryConnInfoResponse
+	19, // 19: multipoolermanager.MultiPoolerManager.StartReplication:output_type -> multipoolermanagerdata.StartReplicationResponse
+	20, // 20: multipoolermanager.MultiPoolerManager.StopReplication:output_type -> multipoolermanagerdata.StopReplicationResponse
+	21, // 21: multipoolermanager.MultiPoolerManager.ReplicationStatus:output_type -> multipoolermanagerdata.ReplicationStatusResponse
+	22, // 22: multipoolermanager.MultiPoolerManager.ResetReplication:output_type -> multipoolermanagerdata.ResetReplicationResponse
+	23, // 23: multipoolermanager.MultiPoolerManager.ConfigureSynchronousReplication:output_type -> multipoolermanagerdata.ConfigureSynchronousReplicationResponse
+	24, // 24: multipoolermanager.MultiPoolerManager.PrimaryStatus:output_type -> multipoolermanagerdata.PrimaryStatusResponse
+	25, // 25: multipoolermanager.MultiPoolerManager.PrimaryPosition:output_type -> multipoolermanagerdata.PrimaryPositionResponse
+	26, // 26: multipoolermanager.MultiPoolerManager.StopReplicationAndGetStatus:output_type -> multipoolermanagerdata.StopReplicationAndGetStatusResponse
+	27, // 27: multipoolermanager.MultiPoolerManager.ChangeType:output_type -> multipoolermanagerdata.ChangeTypeResponse
+	28, // 28: multipoolermanager.MultiPoolerManager.GetFollowers:output_type -> multipoolermanagerdata.GetFollowersResponse
+	29, // 29: multipoolermanager.MultiPoolerManager.Demote:output_type -> multipoolermanagerdata.DemoteResponse
+	30, // 30: multipoolermanager.MultiPoolerManager.UndoDemote:output_type -> multipoolermanagerdata.UndoDemoteResponse
+	31, // 31: multipoolermanager.MultiPoolerManager.Promote:output_type -> multipoolermanagerdata.PromoteResponse
+	32, // 32: multipoolermanager.MultiPoolerManager.Status:output_type -> multipoolermanagerdata.StatusResponse
+	33, // 33: multipoolermanager.MultiPoolerManager.SetTerm:output_type -> multipoolermanagerdata.SetTermResponse
+	17, // [17:34] is the sub-list for method output_type
+	0,  // [0:17] is the sub-list for method input_type
 	0,  // [0:0] is the sub-list for extension type_name
 	0,  // [0:0] is the sub-list for extension extendee
 	0,  // [0:0] is the sub-list for field type_name

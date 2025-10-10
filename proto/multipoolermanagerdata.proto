@@ -59,21 +59,6 @@ message StartReplicationRequest {
 message StartReplicationResponse {
 }
 
-// SetReadOnly makes the PostgreSQL instance read-only
-message SetReadOnlyRequest {
-}
-
-message SetReadOnlyResponse {
-}
-
-// IsReadOnly checks if PostgreSQL instance is in read-only mode
-message IsReadOnlyRequest {
-}
-
-message IsReadOnlyResponse {
-  // Whether the instance is in read-only mode
-  bool read_only = 1;
-}
 
 // SetPrimaryConnInfo sets the primary connection info for a standby server
 message SetPrimaryConnInfoRequest {

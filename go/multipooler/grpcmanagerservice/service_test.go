@@ -90,24 +90,6 @@ func TestManagerServiceMethods_NotImplemented(t *testing.T) {
 		expectedMethod string
 	}{
 		{
-			name: "SetReadOnly",
-			method: func() error {
-				req := &multipoolermanagerdata.SetReadOnlyRequest{}
-				_, err := svc.SetReadOnly(ctx, req)
-				return err
-			},
-			expectedMethod: "SetReadOnly",
-		},
-		{
-			name: "IsReadOnly",
-			method: func() error {
-				req := &multipoolermanagerdata.IsReadOnlyRequest{}
-				_, err := svc.IsReadOnly(ctx, req)
-				return err
-			},
-			expectedMethod: "IsReadOnly",
-		},
-		{
 			name: "ReplicationStatus",
 			method: func() error {
 				req := &multipoolermanagerdata.ReplicationStatusRequest{}
@@ -245,22 +227,6 @@ func TestManagerServiceMethods_ManagerNotReady(t *testing.T) {
 		name   string
 		method func() error
 	}{
-		{
-			name: "SetReadOnly",
-			method: func() error {
-				req := &multipoolermanagerdata.SetReadOnlyRequest{}
-				_, err := svc.SetReadOnly(ctx, req)
-				return err
-			},
-		},
-		{
-			name: "IsReadOnly",
-			method: func() error {
-				req := &multipoolermanagerdata.IsReadOnlyRequest{}
-				_, err := svc.IsReadOnly(ctx, req)
-				return err
-			},
-		},
 		{
 			name: "SetPrimaryConnInfo",
 			method: func() error {
