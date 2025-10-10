@@ -244,31 +244,31 @@ type cellConn struct {
 
 // TopoConfig holds topology configuration using viperutil values
 type TopoConfig struct {
-	Implementation        viperutil.Value[string]
-	GlobalServerAddresses viperutil.Value[[]string]
-	GlobalRoot            viperutil.Value[string]
-	ReadConcurrency       viperutil.Value[int64]
+	implementation        viperutil.Value[string]
+	globalServerAddresses viperutil.Value[[]string]
+	globalRoot            viperutil.Value[string]
+	readConcurrency       viperutil.Value[int64]
 }
 
 // NewTopoConfig creates a new TopoConfig with default values
 func NewTopoConfig() *TopoConfig {
 	return &TopoConfig{
-		Implementation: viperutil.Configure("topo-implementation", viperutil.Options[string]{
+		implementation: viperutil.Configure("topo-implementation", viperutil.Options[string]{
 			Default:  "",
 			FlagName: "topo-implementation",
 			Dynamic:  false,
 		}),
-		GlobalServerAddresses: viperutil.Configure("topo-global-server-addresses", viperutil.Options[[]string]{
+		globalServerAddresses: viperutil.Configure("topo-global-server-addresses", viperutil.Options[[]string]{
 			Default:  []string{},
 			FlagName: "topo-global-server-addresses",
 			Dynamic:  false,
 		}),
-		GlobalRoot: viperutil.Configure("topo-global-root", viperutil.Options[string]{
+		globalRoot: viperutil.Configure("topo-global-root", viperutil.Options[string]{
 			Default:  "",
 			FlagName: "topo-global-root",
 			Dynamic:  false,
 		}),
-		ReadConcurrency: viperutil.Configure("topo-read-concurrency", viperutil.Options[int64]{
+		readConcurrency: viperutil.Configure("topo-read-concurrency", viperutil.Options[int64]{
 			Default:  32,
 			FlagName: "topo-read-concurrency",
 			Dynamic:  false,
@@ -278,16 +278,16 @@ func NewTopoConfig() *TopoConfig {
 
 // RegisterFlags registers all topo flags with the given FlagSet
 func (tc *TopoConfig) RegisterFlags(fs *pflag.FlagSet) {
-	fs.String("topo-implementation", tc.Implementation.Default(), "the topology implementation to use")
-	fs.StringSlice("topo-global-server-addresses", tc.GlobalServerAddresses.Default(), "the address of the global topology server")
-	fs.String("topo-global-root", tc.GlobalRoot.Default(), "the path of the global topology data in the global topology server")
-	fs.Int64("topo-read-concurrency", tc.ReadConcurrency.Default(), "Maximum concurrency of topo reads per global or local cell.")
+	fs.String("topo-implementation", tc.implementation.Default(), "the topology implementation to use")
+	fs.StringSlice("topo-global-server-addresses", tc.globalServerAddresses.Default(), "the address of the global topology server")
+	fs.String("topo-global-root", tc.globalRoot.Default(), "the path of the global topology data in the global topology server")
+	fs.Int64("topo-read-concurrency", tc.readConcurrency.Default(), "Maximum concurrency of topo reads per global or local cell.")
 
 	viperutil.BindFlags(fs,
-		tc.Implementation,
-		tc.GlobalServerAddresses,
-		tc.GlobalRoot,
-		tc.ReadConcurrency,
+		tc.implementation,
+		tc.globalServerAddresses,
+		tc.globalRoot,
+		tc.readConcurrency,
 	)
 }
 
@@ -357,9 +357,9 @@ func OpenServer(implementation, root string, serverAddrs []string) (Store, error
 // for implementation, address, and root. It will log.Error and exit if
 // required configuration is missing or if an error occurs.
 func (config *TopoConfig) Open() Store {
-	addresses := config.GlobalServerAddresses.Get()
-	root := config.GlobalRoot.Get()
-	implementation := config.Implementation.Get()
+	addresses := config.globalServerAddresses.Get()
+	root := config.globalRoot.Get()
+	implementation := config.implementation.Get()
 
 	if len(addresses) == 0 {
 		slog.Error("topo-global-server-addresses must be configured")

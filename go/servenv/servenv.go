@@ -38,21 +38,20 @@ import (
 // ServEnv holds the service environment configuration and state
 type ServEnv struct {
 	// Configuration
-	httpPort        viperutil.Value[int]
-	bindAddress     viperutil.Value[string]
-	hostname        viperutil.Value[string]
-	lameduckPeriod  viperutil.Value[time.Duration]
-	onTermTimeout   viperutil.Value[time.Duration]
-	onCloseTimeout  viperutil.Value[time.Duration]
-	pidFile         viperutil.Value[string]
-	httpPprof       viperutil.Value[bool]
-	pprofFlag       viperutil.Value[[]string]
-	serviceMapFlag  viperutil.Value[[]string]
-	catchSigpipe    bool
-	maxStackSize    int
-	initStartTime   time.Time
-	tableRefreshInt int
-	vc              *viperutil.ViperConfig
+	httpPort       viperutil.Value[int]
+	bindAddress    viperutil.Value[string]
+	hostname       viperutil.Value[string]
+	lameduckPeriod viperutil.Value[time.Duration]
+	onTermTimeout  viperutil.Value[time.Duration]
+	onCloseTimeout viperutil.Value[time.Duration]
+	pidFile        viperutil.Value[string]
+	httpPprof      viperutil.Value[bool]
+	pprofFlag      viperutil.Value[[]string]
+	serviceMapFlag viperutil.Value[[]string]
+	catchSigpipe   bool
+	maxStackSize   int
+	initStartTime  time.Time
+	vc             *viperutil.ViperConfig
 
 	// Hooks
 	onInitHooks     event.Hooks
