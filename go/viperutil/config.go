@@ -38,70 +38,80 @@ import (
 	"github.com/multigres/multigres/go/viperutil/internal/value"
 )
 
-var (
-	configPaths = Configure(
-		"config.paths",
-		Options[[]string]{
-			GetFunc:  funcs.GetPath,
-			EnvVars:  []string{"VT_CONFIG_PATH"},
-			FlagName: "config-path",
-		},
-	)
-	configType = Configure(
-		"config.type",
-		Options[string]{
-			EnvVars:  []string{"MT_CONFIG_TYPE"},
-			FlagName: "config-type",
-		},
-	)
-	configName = Configure(
-		"config.name",
-		Options[string]{
-			Default:  "mtconfig",
-			EnvVars:  []string{"MT_CONFIG_NAME"},
-			FlagName: "config-name",
-		},
-	)
-	configFile = Configure(
-		"config.file",
-		Options[string]{
-			EnvVars:  []string{"MT_CONFIG_FILE"},
-			FlagName: "config-file",
-		},
-	)
-	configFileNotFoundHandling = Configure(
-		"config.notfound.handling",
-		Options[ConfigFileNotFoundHandling]{
-			Default:  WarnOnConfigFileNotFound,
-			GetFunc:  getHandlingValue,
-			FlagName: "config-file-not-found-handling",
-		},
-	)
-	configPersistenceMinInterval = Configure(
-		"config.persistence.min_interval",
-		Options[time.Duration]{
-			Default:  time.Second,
-			EnvVars:  []string{"MT_CONFIG_PERSISTENCE_MIN_INTERVAL"},
-			FlagName: "config-persistence-min-interval",
-		},
-	)
-)
+type ViperConfig struct {
+	configPaths                  Value[[]string]
+	configType                   Value[string]
+	configName                   Value[string]
+	configFile                   Value[string]
+	configFileNotFoundHandling   Value[ConfigFileNotFoundHandling]
+	configPersistenceMinInterval Value[time.Duration]
+}
 
-func init() {
+func NewViperConfig() *ViperConfig {
+	vc := &ViperConfig{
+		configPaths: Configure(
+			"config.paths",
+			Options[[]string]{
+				GetFunc:  funcs.GetPath,
+				EnvVars:  []string{"VT_CONFIG_PATH"},
+				FlagName: "config-path",
+			},
+		),
+		configType: Configure(
+			"config.type",
+			Options[string]{
+				EnvVars:  []string{"MT_CONFIG_TYPE"},
+				FlagName: "config-type",
+			},
+		),
+		configName: Configure(
+			"config.name",
+			Options[string]{
+				Default:  "mtconfig",
+				EnvVars:  []string{"MT_CONFIG_NAME"},
+				FlagName: "config-name",
+			},
+		),
+		configFile: Configure(
+			"config.file",
+			Options[string]{
+				EnvVars:  []string{"MT_CONFIG_FILE"},
+				FlagName: "config-file",
+			},
+		),
+		configFileNotFoundHandling: Configure(
+			"config.notfound.handling",
+			Options[ConfigFileNotFoundHandling]{
+				Default:  WarnOnConfigFileNotFound,
+				GetFunc:  getHandlingValue,
+				FlagName: "config-file-not-found-handling",
+			},
+		),
+		configPersistenceMinInterval: Configure(
+			"config.persistence.min_interval",
+			Options[time.Duration]{
+				Default:  time.Second,
+				EnvVars:  []string{"MT_CONFIG_PERSISTENCE_MIN_INTERVAL"},
+				FlagName: "config-persistence-min-interval",
+			},
+		),
+	}
+
 	// Use MTDATAROOT environment variable if set, otherwise fall back to pwd/multigres_local
 	baseDir := os.Getenv("MTDATAROOT")
 	if baseDir == "" {
 		if cur, err := os.Getwd(); err != nil {
 			slog.Warn("failed to get working directory", "err", err)
-			return
+			return vc
 		} else {
 			baseDir = filepath.Join(cur, "multigres_local")
 		}
 	}
 
-	configPaths.(*value.Static[[]string]).DefaultVal = []string{baseDir}
+	vc.configPaths.(*value.Static[[]string]).DefaultVal = []string{baseDir}
 	// Need to re-trigger the SetDefault call done during Configure.
-	registry.Static.SetDefault(configPaths.Key(), configPaths.Default())
+	registry.Static.SetDefault(vc.configPaths.Key(), vc.configPaths.Default())
+	return vc
 }
 
 // RegisterFlags installs the flags that control viper config-loading behavior.
@@ -109,17 +119,17 @@ func init() {
 //
 // It cannot be registered here via servenv.OnParse since this causes an import
 // cycle.
-func RegisterFlags(fs *pflag.FlagSet) {
-	fs.StringSlice("config-path", configPaths.Default(), "Paths to search for config files in.")
-	fs.String("config-type", configType.Default(), "Config file type (omit to infer config type from file extension).")
-	fs.String("config-name", configName.Default(), "Name of the config file (without extension) to search for.")
-	fs.String("config-file", configFile.Default(), "Full path of the config file (with extension) to use. If set, --config-path, --config-type, and --config-name are ignored.")
-	fs.Duration("config-persistence-min-interval", configPersistenceMinInterval.Default(), "minimum interval between persisting dynamic config changes back to disk (if no change has occurred, nothing is done).")
+func (vc *ViperConfig) RegisterFlags(fs *pflag.FlagSet) {
+	fs.StringSlice("config-path", vc.configPaths.Default(), "Paths to search for config files in.")
+	fs.String("config-type", vc.configType.Default(), "Config file type (omit to infer config type from file extension).")
+	fs.String("config-name", vc.configName.Default(), "Name of the config file (without extension) to search for.")
+	fs.String("config-file", vc.configFile.Default(), "Full path of the config file (with extension) to use. If set, --config-path, --config-type, and --config-name are ignored.")
+	fs.Duration("config-persistence-min-interval", vc.configPersistenceMinInterval.Default(), "minimum interval between persisting dynamic config changes back to disk (if no change has occurred, nothing is done).")
 
-	h := configFileNotFoundHandling.Default()
+	h := vc.configFileNotFoundHandling.Default()
 	fs.Var(&h, "config-file-not-found-handling", fmt.Sprintf("Behavior when a config file is not found. (Options: %s)", strings.Join(handlingNames, ", ")))
 
-	BindFlags(fs, configPaths, configType, configName, configFile, configFileNotFoundHandling, configPersistenceMinInterval)
+	BindFlags(fs, vc.configPaths, vc.configType, vc.configName, vc.configFile, vc.configFileNotFoundHandling, vc.configPersistenceMinInterval)
 }
 
 // LoadConfig attempts to find, and then load, a config file for viper-backed
@@ -147,18 +157,18 @@ func RegisterFlags(fs *pflag.FlagSet) {
 // if one was started.
 //
 // [1]: https://github.com/spf13/viper#reading-config-files.
-func LoadConfig() (context.CancelFunc, error) {
+func (vc *ViperConfig) LoadConfig() (context.CancelFunc, error) {
 	var err error
-	switch file := configFile.Get(); file {
+	switch file := vc.configFile.Get(); file {
 	case "":
-		if name := configName.Get(); name != "" {
+		if name := vc.configName.Get(); name != "" {
 			registry.Static.SetConfigName(name)
 
-			for _, path := range configPaths.Get() {
+			for _, path := range vc.configPaths.Get() {
 				registry.Static.AddConfigPath(path)
 			}
 
-			if cfgType := configType.Get(); cfgType != "" {
+			if cfgType := vc.configType.Get(); cfgType != "" {
 				registry.Static.SetConfigType(cfgType)
 			}
 
@@ -172,7 +182,7 @@ func LoadConfig() (context.CancelFunc, error) {
 	if err != nil {
 		if isConfigFileNotFoundError(err) {
 			msg := "Failed to read in config %s: %s"
-			switch configFileNotFoundHandling.Get() {
+			switch vc.configFileNotFoundHandling.Get() {
 			case WarnOnConfigFileNotFound:
 				// TODO: @rafael (add warning and point to docs)
 				fallthrough // after warning, ignore the error
@@ -190,7 +200,7 @@ func LoadConfig() (context.CancelFunc, error) {
 		return nil, err
 	}
 
-	return registry.Dynamic.Watch(context.Background(), registry.Static, configPersistenceMinInterval.Get())
+	return registry.Dynamic.Watch(context.Background(), registry.Static, vc.configPersistenceMinInterval.Get())
 }
 
 // isConfigFileNotFoundError checks if the error is caused because the file wasn't found.

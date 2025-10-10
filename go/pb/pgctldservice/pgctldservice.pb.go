@@ -798,7 +798,9 @@ type InitDataDirRequest struct {
 	// Authentication method for host connections
 	AuthHost string `protobuf:"bytes,2,opt,name=auth_host,json=authHost,proto3" json:"auth_host,omitempty"`
 	// Additional initdb arguments
-	ExtraArgs     []string `protobuf:"bytes,3,rep,name=extra_args,json=extraArgs,proto3" json:"extra_args,omitempty"`
+	ExtraArgs []string `protobuf:"bytes,3,rep,name=extra_args,json=extraArgs,proto3" json:"extra_args,omitempty"`
+	// Path to password file for PostgreSQL user authentication
+	PgPwfile      string `protobuf:"bytes,4,opt,name=pg_pwfile,json=pgPwfile,proto3" json:"pg_pwfile,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -852,6 +854,13 @@ func (x *InitDataDirRequest) GetExtraArgs() []string {
 		return x.ExtraArgs
 	}
 	return nil
+}
+
+func (x *InitDataDirRequest) GetPgPwfile() string {
+	if x != nil {
+		return x.PgPwfile
+	}
+	return ""
 }
 
 type InitDataDirResponse struct {
@@ -1047,13 +1056,14 @@ const file_pgctldservice_proto_rawDesc = "" +
 	"\x04user\x18\x04 \x01(\tR\x04user\"E\n" +
 	"\x0fVersionResponse\x12\x18\n" +
 	"\aversion\x18\x01 \x01(\tR\aversion\x12\x18\n" +
-	"\amessage\x18\x02 \x01(\tR\amessage\"o\n" +
+	"\amessage\x18\x02 \x01(\tR\amessage\"\x8c\x01\n" +
 	"\x12InitDataDirRequest\x12\x1d\n" +
 	"\n" +
 	"auth_local\x18\x01 \x01(\tR\tauthLocal\x12\x1b\n" +
 	"\tauth_host\x18\x02 \x01(\tR\bauthHost\x12\x1d\n" +
 	"\n" +
-	"extra_args\x18\x03 \x03(\tR\textraArgs\"/\n" +
+	"extra_args\x18\x03 \x03(\tR\textraArgs\x12\x1b\n" +
+	"\tpg_pwfile\x18\x04 \x01(\tR\bpgPwfile\"/\n" +
 	"\x13InitDataDirResponse\x12\x18\n" +
 	"\amessage\x18\x01 \x01(\tR\amessage\"n\n" +
 	"\x0fPgRewindRequest\x12#\n" +

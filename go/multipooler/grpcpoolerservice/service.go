@@ -29,14 +29,14 @@ type poolerService struct {
 	pooler *poolerserver.MultiPooler
 }
 
-func init() {
+func RegisterPoolerServices(senv *servenv.ServEnv, grpc *servenv.GrpcServer) {
 	// Register ourselves to be invoked when the pooler starts
 	poolerserver.RegisterPoolerServices = append(poolerserver.RegisterPoolerServices, func(p *poolerserver.MultiPooler) {
-		if servenv.GRPCCheckServiceMap("pooler") {
+		if grpc.CheckServiceMap("pooler", senv) {
 			srv := &poolerService{
 				pooler: p,
 			}
-			multipoolerpb.RegisterMultiPoolerServiceServer(servenv.GRPCServer, srv)
+			multipoolerpb.RegisterMultiPoolerServiceServer(grpc.Server, srv)
 		}
 	})
 }

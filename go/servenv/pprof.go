@@ -29,13 +29,6 @@ import (
 	"strconv"
 	"strings"
 	"sync/atomic"
-
-	"github.com/spf13/pflag"
-)
-
-var (
-	pprofFlag []string
-	httpPprof bool
 )
 
 type profmode string
@@ -63,7 +56,7 @@ type profile struct {
 	waitSig bool
 }
 
-func parseProfileFlag(pf []string) (*profile, error) {
+func (sv *ServEnv) parseProfileFlag(pf []string) (*profile, error) {
 	if len(pf) == 0 {
 		return nil, nil
 	}
@@ -311,13 +304,4 @@ func (prof *profile) init() (start func(), stop func()) {
 	default:
 		panic("unsupported profile mode")
 	}
-}
-
-func init() {
-	OnParse(func(fs *pflag.FlagSet) {
-		fs.BoolVar(&httpPprof, "pprof-http", httpPprof, "enable pprof http endpoints")
-		fs.StringSliceVar(&pprofFlag, "pprof", pprofFlag, "enable profiling")
-	})
-	OnInit(pprofInit)
-	OnInit(HTTPRegisterProfile)
 }

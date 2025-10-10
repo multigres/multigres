@@ -450,11 +450,12 @@ func (pm *MultiPoolerManager) Promote(ctx context.Context) error {
 }
 
 // Start initializes the MultiPoolerManager
-func (pm *MultiPoolerManager) Start() {
+// This method follows the Vitess pattern similar to TabletManager.Start() in tm_init.go
+func (pm *MultiPoolerManager) Start(senv *servenv.ServEnv) {
 	// Start loading multipooler record from topology asynchronously
 	go pm.loadMultiPoolerFromTopo()
 
-	servenv.OnRun(func() {
+	senv.OnRun(func() {
 		pm.logger.Info("MultiPoolerManager started")
 		// Additional manager-specific initialization can happen here
 

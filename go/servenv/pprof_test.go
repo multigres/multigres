@@ -68,7 +68,9 @@ func TestParseProfileFlag(t *testing.T) {
 			if tt.arg != "" {
 				profileFlag = strings.Split(tt.arg, ",")
 			}
-			got, err := parseProfileFlag(profileFlag)
+			// Create a ServEnv instance to call the method
+			sv := NewServEnv()
+			got, err := sv.parseProfileFlag(profileFlag)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("parseProfileFlag() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -83,9 +85,12 @@ func TestParseProfileFlag(t *testing.T) {
 // with waitSig, we should start with profiling off and toggle on-off-on-off
 func TestPProfInitWithWaitSig(t *testing.T) {
 	signal.Reset(syscall.SIGUSR1)
-	pprofFlag = strings.Split("cpu,waitSig", ",")
 
-	pprofInit()
+	// Create a ServEnv instance and set pprofFlag
+	sv := NewServEnv()
+	sv.pprofFlag.Set(strings.Split("cpu,waitSig", ","))
+
+	sv.pprofInit()
 	time.Sleep(1 * time.Second)
 	assert.Equal(t, uint32(0), profileStarted)
 
@@ -113,9 +118,12 @@ func TestPProfInitWithWaitSig(t *testing.T) {
 // without waitSig, we should start with profiling on and toggle off-on-off
 func TestPProfInitWithoutWaitSig(t *testing.T) {
 	signal.Reset(syscall.SIGUSR1)
-	pprofFlag = strings.Split("cpu", ",")
 
-	pprofInit()
+	// Create a ServEnv instance and set pprofFlag
+	sv := NewServEnv()
+	sv.pprofFlag.Set(strings.Split("cpu", ","))
+
+	sv.pprofInit()
 	time.Sleep(1 * time.Second)
 	assert.Equal(t, uint32(1), profileStarted)
 

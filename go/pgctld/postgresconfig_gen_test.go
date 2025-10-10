@@ -22,11 +22,7 @@ import (
 )
 
 func TestNewPostgresServerConfig(t *testing.T) {
-	// Set up poolerDir for testing using temporary directory
 	tempDir := t.TempDir()
-	originalPoolerDir := poolerDir
-	defer func() { poolerDir = originalPoolerDir }()
-	poolerDir = tempDir
 
 	tests := []struct {
 		name          string
@@ -76,11 +72,7 @@ func TestNewPostgresServerConfig(t *testing.T) {
 }
 
 func TestPostgresBaseDir(t *testing.T) {
-	// Set up poolerDir for testing using temporary directory
 	tempDir := t.TempDir()
-	originalPoolerDir := poolerDir
-	defer func() { poolerDir = originalPoolerDir }()
-	poolerDir = tempDir
 
 	expected := tempDir + "/pg_data"
 	result := PostgresDataDir(tempDir)
@@ -89,11 +81,7 @@ func TestPostgresBaseDir(t *testing.T) {
 }
 
 func TestPostgresConfigFile(t *testing.T) {
-	// Set up poolerDir for testing using temporary directory
 	tempDir := t.TempDir()
-	originalPoolerDir := poolerDir
-	defer func() { poolerDir = originalPoolerDir }()
-	poolerDir = tempDir
 
 	expected := tempDir + "/pg_data/postgresql.conf"
 	result := PostgresConfigFile(tempDir)
@@ -102,11 +90,7 @@ func TestPostgresConfigFile(t *testing.T) {
 }
 
 func TestMakePostgresConf(t *testing.T) {
-	// Set up poolerDir for testing using temporary directory
 	tempDir := t.TempDir()
-	originalPoolerDir := poolerDir
-	defer func() { poolerDir = originalPoolerDir }()
-	poolerDir = tempDir
 
 	config, err := GeneratePostgresServerConfig(tempDir, 5432, "postgres")
 	require.NoError(t, err, "GeneratePostgresServerConfig should not return error")
@@ -187,11 +171,7 @@ unix_socket_directories = '{{.UnixSocketDirectories}}'`,
 }
 
 func TestMakePostgresConfInvalidTemplate(t *testing.T) {
-	// Set up poolerDir for testing using temporary directory
 	tempDir := t.TempDir()
-	originalPoolerDir := poolerDir
-	defer func() { poolerDir = originalPoolerDir }()
-	poolerDir = tempDir
 
 	config, err := GeneratePostgresServerConfig(tempDir, 5432, "postgres")
 	require.NoError(t, err, "GeneratePostgresServerConfig should not return error")
@@ -216,21 +196,4 @@ func TestMakePostgresConfInvalidTemplate(t *testing.T) {
 			assert.Error(t, err, "MakePostgresConf should return error for invalid template")
 		})
 	}
-}
-
-func TestGetPoolerDir(t *testing.T) {
-	// Set up poolerDir for testing using temporary directory
-	tempDir := t.TempDir()
-	originalPoolerDir := poolerDir
-	defer func() { poolerDir = originalPoolerDir }()
-
-	poolerDir = tempDir
-
-	result := GetPoolerDir()
-	assert.Equal(t, tempDir, result, "GetPoolerDir should return configured directory")
-
-	// Test empty case
-	poolerDir = ""
-	result = GetPoolerDir()
-	assert.Equal(t, "", result, "GetPoolerDir should return empty string when not configured")
 }
