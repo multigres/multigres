@@ -86,12 +86,14 @@ func (ma *MultiAdmin) Init() {
 		"grpc_port", ma.grpcServer.Port(),
 	)
 
-	// Register multiadmin gRPC service with servenv's GRPCServer
-	if ma.grpcServer.CheckServiceMap("multiadmin", ma.senv) {
-		ma.adminServer = server.NewMultiAdminServer(ma.ts, logger)
-		ma.adminServer.RegisterWithGRPCServer(ma.grpcServer.Server)
-		logger.Info("MultiAdmin gRPC service registered with servenv")
-	}
+	ma.senv.OnRun(func() {
+		// Register multiadmin gRPC service with servenv's GRPCServer
+		if ma.grpcServer.CheckServiceMap("multiadmin", ma.senv) {
+			ma.adminServer = server.NewMultiAdminServer(ma.ts, logger)
+			ma.adminServer.RegisterWithGRPCServer(ma.grpcServer.Server)
+			logger.Info("MultiAdmin gRPC service registered with servenv")
+		}
+	})
 
 	ma.senv.HTTPHandleFunc("/", ma.getHandleIndex())
 	ma.senv.HTTPHandleFunc("/proxy/", ma.getHandleProxy())
