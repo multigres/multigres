@@ -185,6 +185,9 @@ message InitDataDirRequest {
 
   // Additional initdb arguments
   repeated string extra_args = 3;
+
+  // Path to password file for PostgreSQL user authentication
+  string pg_pwfile = 4;
 }
 
 message InitDataDirResponse {

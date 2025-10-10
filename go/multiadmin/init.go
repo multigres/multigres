@@ -16,8 +16,7 @@
 package multiadmin
 
 import (
-	"log/slog"
-
+	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 
 	"github.com/multigres/multigres/go/admin/server"
@@ -25,40 +24,88 @@ import (
 	"github.com/multigres/multigres/go/servenv"
 )
 
-var (
-	ts     topo.Store
-	logger *slog.Logger
-
+type MultiAdmin struct {
 	// adminServer holds the gRPC admin server instance
 	adminServer *server.MultiAdminServer
-)
+
+	// grpcServer is the grpc server
+	grpcServer *servenv.GrpcServer
+
+	// senv is the serving environment
+	senv *servenv.ServEnv
+
+	// topoConfig holds topology configuration
+	topoConfig   *topo.TopoConfig
+	ts           topo.Store
+	serverStatus Status
+}
+
+func (ma *MultiAdmin) RunDefault() {
+	ma.senv.RunDefault(ma.grpcServer)
+}
+
+func (ma *MultiAdmin) CobraPreRunE(cmd *cobra.Command) error {
+	return ma.senv.CobraPreRunE(cmd)
+}
+
+func NewMultiAdmin() *MultiAdmin {
+	return &MultiAdmin{
+		grpcServer: servenv.NewGrpcServer(),
+		senv:       servenv.NewServEnv(),
+		topoConfig: topo.NewTopoConfig(),
+		serverStatus: Status{
+			Title: "Multiadmin",
+			Links: []Link{
+				{"Services", "Discover and navigate to cluster services", "/services"},
+				{"Config", "Server configuration details", "/config"},
+				{"Live", "URL for liveness check", "/live"},
+				{"Ready", "URL for readiness check", "/ready"},
+			},
+		},
+	}
+}
 
 // RegisterFlags registers flags specific to multiadmin.
-func RegisterFlags(fs *pflag.FlagSet) {
-	// Nothing to register for now.
+func (ma *MultiAdmin) RegisterFlags(fs *pflag.FlagSet) {
+	ma.senv.RegisterFlags(fs)
+	ma.grpcServer.RegisterFlags(fs)
+	ma.topoConfig.RegisterFlags(fs)
 }
 
 // Init initializes the multiadmin. If any services fail to start,
 // or if some connections fail, it launches goroutines that retry
 // until successful.
-func Init() {
-	logger = servenv.GetLogger()
-	ts = topo.Open()
+func (ma *MultiAdmin) Init() {
+	ma.senv.Init()
+	// Get the configured logger
+	logger := ma.senv.GetLogger()
+	ma.ts = ma.topoConfig.Open()
 
 	logger.Info("multiadmin starting up",
-		"http_port", servenv.HTTPPort(),
-		"grpc_port", servenv.GRPCPort(),
+		"http_port", ma.senv.GetHTTPPort(),
+		"grpc_port", ma.grpcServer.Port(),
 	)
 
-	// Register multiadmin gRPC service with servenv's GRPCServer
-	if servenv.GRPCCheckServiceMap("multiadmin") {
-		adminServer = server.NewMultiAdminServer(ts, logger)
-		adminServer.RegisterWithGRPCServer(servenv.GRPCServer)
-		logger.Info("MultiAdmin gRPC service registered with servenv")
-	}
+	ma.senv.OnRun(func() {
+		// Register multiadmin gRPC service with servenv's GRPCServer
+		if ma.grpcServer.CheckServiceMap("multiadmin", ma.senv) {
+			ma.adminServer = server.NewMultiAdminServer(ma.ts, logger)
+			ma.adminServer.RegisterWithGRPCServer(ma.grpcServer.Server)
+			logger.Info("MultiAdmin gRPC service registered with servenv")
+		}
+	})
+
+	ma.senv.HTTPHandleFunc("/", ma.getHandleIndex())
+	ma.senv.HTTPHandleFunc("/proxy/", ma.getHandleProxy())
+	ma.senv.HTTPHandleFunc("/ready", ma.getHandleReady())
+	ma.senv.HTTPHandleFunc("/services", ma.getHandleServices())
+
+	ma.senv.OnClose(func() {
+		ma.Shutdown()
+	})
 }
 
-func Shutdown() {
-	logger.Info("multiadmin shutting down")
-	ts.Close()
+func (ma *MultiAdmin) Shutdown() {
+	ma.senv.GetLogger().Info("multiadmin shutting down")
+	ma.ts.Close()
 }

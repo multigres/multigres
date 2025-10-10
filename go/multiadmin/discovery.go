@@ -20,7 +20,6 @@ import (
 	"sort"
 
 	"github.com/multigres/multigres/go/clustermetadata/topo"
-	"github.com/multigres/multigres/go/servenv"
 )
 
 // ServiceInfo represents a discoverable service in the cluster
@@ -42,7 +41,7 @@ type ServiceList struct {
 // in the cluster. It returns a ServiceList with services organized by scope.
 // This function may be slow (topo queries), so it should be called from a
 // dedicated endpoint, not the fast-path root handler.
-func DiscoverServices(ctx context.Context, ts topo.Store) (*ServiceList, error) {
+func (ma *MultiAdmin) DiscoverServices(ctx context.Context) (*ServiceList, error) {
 	result := &ServiceList{
 		GlobalServices: []ServiceInfo{},
 		CellServices:   make(map[string][]ServiceInfo),
@@ -52,8 +51,8 @@ func DiscoverServices(ctx context.Context, ts topo.Store) (*ServiceList, error) 
 	// Multiadmin is always available if this code is running
 	multiadminProxyURL := fmt.Sprintf("/proxy/admin/%s/multiadmin", topo.GlobalCell)
 	multiadminDirectURL := ""
-	if httpPort := servenv.HTTPPort(); httpPort > 0 && servenv.Hostname != "" {
-		multiadminDirectURL = fmt.Sprintf("http://%s:%d/", servenv.Hostname, httpPort)
+	if httpPort := ma.senv.GetHTTPPort(); httpPort > 0 && ma.senv.GetHostname() != "" {
+		multiadminDirectURL = fmt.Sprintf("http://%s:%d/", ma.senv.GetHostname(), httpPort)
 	}
 	result.GlobalServices = append(result.GlobalServices, ServiceInfo{
 		Name:       "multiadmin",
@@ -63,7 +62,7 @@ func DiscoverServices(ctx context.Context, ts topo.Store) (*ServiceList, error) 
 	})
 
 	// Discover cells from topology
-	cells, err := ts.GetCellNames(ctx)
+	cells, err := ma.ts.GetCellNames(ctx)
 	if err != nil {
 		// If we can't get cells, still return multiadmin but note the error
 		result.Error = fmt.Sprintf("Failed to discover cells: %v", err)
@@ -75,7 +74,7 @@ func DiscoverServices(ctx context.Context, ts topo.Store) (*ServiceList, error) 
 		result.CellServices[cell] = []ServiceInfo{}
 
 		// Discover multigateway services
-		gateways, err := ts.GetMultiGatewaysByCell(ctx, cell)
+		gateways, err := ma.ts.GetMultiGatewaysByCell(ctx, cell)
 		if err == nil && len(gateways) > 0 {
 			// Use the first registered gateway
 			gw := gateways[0].MultiGateway
@@ -94,7 +93,7 @@ func DiscoverServices(ctx context.Context, ts topo.Store) (*ServiceList, error) 
 		}
 
 		// Discover multipooler services
-		poolers, err := ts.GetMultiPoolersByCell(ctx, cell, nil)
+		poolers, err := ma.ts.GetMultiPoolersByCell(ctx, cell, nil)
 		if err == nil && len(poolers) > 0 {
 			// Use the first registered pooler
 			mp := poolers[0].MultiPooler
@@ -113,7 +112,7 @@ func DiscoverServices(ctx context.Context, ts topo.Store) (*ServiceList, error) 
 		}
 
 		// Discover multiorch services
-		orchs, err := ts.GetMultiOrchsByCell(ctx, cell)
+		orchs, err := ma.ts.GetMultiOrchsByCell(ctx, cell)
 		if err == nil && len(orchs) > 0 {
 			// Use the first registered orch
 			mo := orchs[0].MultiOrch

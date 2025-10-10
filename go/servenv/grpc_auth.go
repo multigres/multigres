@@ -37,17 +37,15 @@ var grpcAuthServerFlagHooks []func(*pflag.FlagSet)
 // ParseFlags(WithArgs)? if they wish to expose Authenticator functionality.
 func RegisterGRPCServerAuthFlags() {
 	OnParse(func(fs *pflag.FlagSet) {
-		fs.StringVar(&gRPCAuth, "grpc-auth-mode", gRPCAuth, "Which auth plugin implementation to use (eg: mtls)")
-
 		for _, fn := range grpcAuthServerFlagHooks {
 			fn(fs)
 		}
 	})
 }
 
-// GRPCAuth returns the value of the `--grpc-auth-mode` flag.
-func GRPCAuth() string {
-	return gRPCAuth
+// Auth returns the auth mode
+func (g *GrpcServer) Auth() string {
+	return g.auth.Get()
 }
 
 // Authenticator provides an interface to implement auth in Multigres in

@@ -32,16 +32,24 @@ type ReloadResult struct {
 	Message    string
 }
 
-func init() {
-	Root.AddCommand(reloadCmd)
-
-	// Add reload-config-specific flags
+// PgCtlReloadCmd holds the reload command configuration
+type PgCtlReloadCmd struct {
+	pgCtlCmd *PgCtlCommand
 }
 
-var reloadCmd = &cobra.Command{
-	Use:   "reload-config",
-	Short: "Reload PostgreSQL configuration",
-	Long: `Reload the PostgreSQL server configuration without restarting.
+// AddReloadCommand adds the reload subcommand to the root command
+func AddReloadCommand(root *cobra.Command, pc *PgCtlCommand) {
+	reloadCmd := &PgCtlReloadCmd{
+		pgCtlCmd: pc,
+	}
+	root.AddCommand(reloadCmd.createCommand())
+}
+
+func (r *PgCtlReloadCmd) createCommand() *cobra.Command {
+	return &cobra.Command{
+		Use:   "reload-config",
+		Short: "Reload PostgreSQL configuration",
+		Long: `Reload the PostgreSQL server configuration without restarting.
 
 This command sends a SIGHUP signal to the PostgreSQL process, causing it to re-read
 its configuration files. This allows configuration changes to take effect without
@@ -55,13 +63,15 @@ Examples:
 
   # Reload configuration for specific instance
   pgctld reload-config -d /var/lib/postgresql/instance2/data`,
-	PreRunE: validateInitialized,
-	RunE:    runReload,
+		PreRunE: func(cmd *cobra.Command, args []string) error {
+			return r.pgCtlCmd.validateInitialized(cmd, args)
+		},
+		RunE: r.runReload,
+	}
 }
 
 // ReloadPostgreSQLConfigWithResult reloads PostgreSQL configuration and returns detailed result information
-func ReloadPostgreSQLConfigWithResult(config *pgctld.PostgresCtlConfig) (*ReloadResult, error) {
-	logger := slog.Default()
+func ReloadPostgreSQLConfigWithResult(logger *slog.Logger, config *pgctld.PostgresCtlConfig) (*ReloadResult, error) {
 	result := &ReloadResult{}
 
 	// Check if PostgreSQL is running
@@ -74,7 +84,7 @@ func ReloadPostgreSQLConfigWithResult(config *pgctld.PostgresCtlConfig) (*Reload
 	result.WasRunning = true
 	logger.Info("Reloading PostgreSQL configuration", "data_dir", config.PostgresDataDir)
 
-	if err := reloadPostgreSQLConfig(config.PostgresDataDir); err != nil {
+	if err := reloadPostgreSQLConfig(logger, config.PostgresDataDir); err != nil {
 		return nil, fmt.Errorf("failed to reload PostgreSQL configuration: %w", err)
 	}
 
@@ -83,13 +93,13 @@ func ReloadPostgreSQLConfigWithResult(config *pgctld.PostgresCtlConfig) (*Reload
 	return result, nil
 }
 
-func runReload(cmd *cobra.Command, args []string) error {
-	config, err := NewPostgresCtlConfigFromDefaults()
+func (r *PgCtlReloadCmd) runReload(cmd *cobra.Command, args []string) error {
+	config, err := NewPostgresCtlConfigFromDefaults(r.pgCtlCmd.GetPoolerDir(), r.pgCtlCmd.pgUser.Get(), r.pgCtlCmd.pgDatabase.Get(), r.pgCtlCmd.timeout.Get())
 	if err != nil {
 		return err
 	}
 
-	result, err := ReloadPostgreSQLConfigWithResult(config)
+	result, err := ReloadPostgreSQLConfigWithResult(r.pgCtlCmd.lg.GetLogger(), config)
 	if err != nil {
 		return err
 	}
@@ -104,10 +114,10 @@ func runReload(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func reloadPostgreSQLConfig(dataDir string) error {
+func reloadPostgreSQLConfig(logger *slog.Logger, dataDir string) error {
 	// First try using pg_ctl
 	if err := reloadWithPgCtl(dataDir); err != nil {
-		slog.Warn("pg_ctl reload failed, trying direct signal approach", "error", err)
+		logger.Warn("pg_ctl reload failed, trying direct signal approach", "error", err)
 		return reloadWithSignal(dataDir)
 	}
 	return nil

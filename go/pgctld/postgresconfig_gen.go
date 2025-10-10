@@ -22,32 +22,12 @@ import (
 	"strings"
 	"text/template"
 
-	"github.com/spf13/pflag"
-
 	"github.com/multigres/multigres/config"
-	"github.com/multigres/multigres/go/servenv"
 )
 
-// This file handles the creation of PostgresServerConfig objects for the default
-// file structure. These paths are used by the pgctld commands.
-
-var poolerDir string
-
-var FlagBinaries = []string{"pgctld", "multipooler"}
-
-func init() {
-	for _, cmd := range FlagBinaries {
-		servenv.OnParseFor(cmd, registerPostgresConfigFlags)
-	}
-}
-
-func registerPostgresConfigFlags(fs *pflag.FlagSet) {
-	fs.StringVar(&poolerDir, "pooler-dir", poolerDir, "The directory to multipooler data")
-}
-
-// expandToAbsolutePath converts a relative path to an absolute path.
+// ExpandToAbsolutePath converts a relative path to an absolute path.
 // If the path is already absolute, it returns the path unchanged.
-func expandToAbsolutePath(dir string) (string, error) {
+func ExpandToAbsolutePath(dir string) (string, error) {
 	if dir == "" {
 		return "", fmt.Errorf("directory path cannot be empty")
 	}
@@ -66,22 +46,6 @@ func expandToAbsolutePath(dir string) (string, error) {
 	return absPath, nil
 }
 
-// GetPoolerDir returns the configured pooler directory as an absolute path
-func GetPoolerDir() string {
-	if poolerDir == "" {
-		return ""
-	}
-
-	absPath, err := expandToAbsolutePath(poolerDir)
-	if err != nil {
-		// If we can't expand the path, return the original to avoid breaking existing behavior
-		// This should rarely happen in practice
-		return poolerDir
-	}
-
-	return absPath
-}
-
 // GeneratePostgresServerConfig generates a new PostgreSQL server configuration
 // and writes it to disk using the embedded template, then reads it back.
 // poolerId is used for the cluster name and path generation.
@@ -94,7 +58,7 @@ func GeneratePostgresServerConfig(poolerDir string, port int, pgUser string) (*P
 	}
 
 	// Expand relative path to absolute path for consistent path handling
-	absPoolerDir, err := expandToAbsolutePath(poolerDir)
+	absPoolerDir, err := ExpandToAbsolutePath(poolerDir)
 	if err != nil {
 		return nil, fmt.Errorf("failed to expand pooler directory path: %w", err)
 	}
@@ -158,7 +122,7 @@ func GeneratePostgresServerConfig(poolerDir string, port int, pgUser string) (*P
 // pgUser is the PostgreSQL user name for authentication.
 func LoadOrCreatePostgresServerConfig(poolerDir string, port int, pgUser string) (*PostgresServerConfig, error) {
 	// Expand relative path to absolute path for consistent path handling
-	absPoolerDir, err := expandToAbsolutePath(poolerDir)
+	absPoolerDir, err := ExpandToAbsolutePath(poolerDir)
 	if err != nil {
 		return nil, fmt.Errorf("failed to expand pooler directory path: %w", err)
 	}

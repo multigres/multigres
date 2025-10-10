@@ -33,15 +33,16 @@ import (
 )
 
 // Init is the first phase of the server startup.
-func Init() {
-	mu.Lock()
-	defer mu.Unlock()
-	initStartTime = time.Now()
+func (sv *ServEnv) Init() {
+	sv.mu.Lock()
+	sv.initStartTime = time.Now()
+	sv.mu.Unlock()
+	sv.lg.SetupLogging()
 
 	// Ignore SIGPIPE if specified
 	// The Go runtime catches SIGPIPE for us on all fds except stdout/stderr
 	// See https://golang.org/pkg/os/signal/#hdr-SIGPIPE
-	if catchSigpipe {
+	if sv.catchSigpipe {
 		sigChan := make(chan os.Signal, 1)
 		signal.Notify(sigChan, syscall.SIGPIPE)
 		go func() {
@@ -52,10 +53,13 @@ func Init() {
 	}
 
 	// Add version tag to every info log
-	if inited {
+	sv.mu.Lock()
+	if sv.inited {
+		sv.mu.Unlock()
 		log.Fatal("servenv.Init called second time")
 	}
-	inited = true
+	sv.inited = true
+	sv.mu.Unlock()
 
 	// Once you run as root, you pretty much destroy the chances of a
 	// non-privileged user starting the program correctly.
@@ -77,18 +81,23 @@ func Init() {
 	// Limit the stack size. We don't need huge stacks and smaller limits mean
 	// any infinite recursion fires earlier and on low memory systems avoids
 	// out of memory issues in favor of a stack overflow error.
-	debug.SetMaxStack(maxStackSize)
+	debug.SetMaxStack(sv.maxStackSize)
 
 	// Get hostname upfront so we can crash early if it fails.
-	populateHostname()
+	sv.populateHostname()
 
-	onInitHooks.Fire()
+	sv.onInitHooks.Fire()
+	sv.registerPidFile()
+	sv.RegisterCommonHTTPEndpoints()
+	sv.HTTPRegisterPprofProfile()
+	sv.pprofInit()
+	sv.updateServiceMap()
 }
 
-func populateHostname() {
+func (sv *ServEnv) populateHostname() {
 	// If hostname was explicitly set via --hostname flag, use that
-	if Hostname != "" {
-		slog.Info("Using explicitly configured hostname for service URL", "hostname", Hostname)
+	if sv.hostname.Get() != "" {
+		slog.Info("Using explicitly configured hostname for service URL", "hostname", sv.hostname.Get())
 		return
 	}
 
@@ -107,5 +116,5 @@ func populateHostname() {
 	} else {
 		slog.Info("Using fully qualified hostname for service URL", "hostname", host)
 	}
-	Hostname = host
+	sv.hostname.Set(host)
 }

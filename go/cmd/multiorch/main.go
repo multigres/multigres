@@ -21,41 +21,36 @@ import (
 	"os"
 
 	"github.com/multigres/multigres/go/multiorch"
-	"github.com/multigres/multigres/go/servenv"
 
 	"github.com/spf13/cobra"
 )
 
-var Main = &cobra.Command{
-	Use:     "multiorch",
-	Short:   "Multiorch orchestrates cluster operations including consensus protocol management, failover detection and repair, and health monitoring of multipooler instances.",
-	Long:    "Multiorch orchestrates cluster operations including consensus protocol management, failover detection and repair, and health monitoring of multipooler instances.",
-	Args:    cobra.NoArgs,
-	PreRunE: servenv.CobraPreRunE,
-	RunE:    run,
-}
-
 func main() {
-	if err := Main.Execute(); err != nil {
+	mo := multiorch.NewMultiOrch()
+
+	main := &cobra.Command{
+		Use:   "multiorch",
+		Short: "Multiorch orchestrates cluster operations including consensus protocol management, failover detection and repair, and health monitoring of multipooler instances.",
+		Long:  "Multiorch orchestrates cluster operations including consensus protocol management, failover detection and repair, and health monitoring of multipooler instances.",
+		Args:  cobra.NoArgs,
+		PreRunE: func(cmd *cobra.Command, args []string) error {
+			return mo.CobraPreRunE(cmd)
+		},
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return run(cmd, args, mo)
+		},
+	}
+
+	mo.RegisterFlags(main.Flags())
+
+	if err := main.Execute(); err != nil {
 		slog.Error(err.Error())
 		os.Exit(1)
 	}
 }
 
-func run(cmd *cobra.Command, args []string) error {
-	servenv.Init()
-	servenv.OnRun(multiorch.Init)
-	servenv.OnClose(multiorch.Shutdown)
-
-	// TODO: Setup consensus protocol management
-	// TODO: Implement failover detection and repair
-	// TODO: Setup health monitoring of multipooler instances
-	servenv.RunDefault()
-
+func run(cmd *cobra.Command, args []string, mo *multiorch.MultiOrch) error {
+	mo.Init()
+	mo.RunDefault()
 	return nil
-}
-
-func init() {
-	servenv.OnParseFor("multiorch", multiorch.RegisterFlags)
-	servenv.RegisterServiceCmd(Main)
 }

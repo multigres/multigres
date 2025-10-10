@@ -47,8 +47,6 @@ type PoolerDiscovery struct {
 	lastRefresh time.Time
 }
 
-var poolerDiscovery *PoolerDiscovery
-
 // NewPoolerDiscovery creates a new pooler discovery service.
 func NewPoolerDiscovery(ctx context.Context, topoStore topo.Store, cell string, logger *slog.Logger) *PoolerDiscovery {
 	discoveryCtx, cancel := context.WithCancel(ctx)

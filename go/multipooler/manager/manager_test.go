@@ -29,6 +29,7 @@ import (
 	"github.com/multigres/multigres/go/mterrors"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
+	"github.com/multigres/multigres/go/servenv"
 )
 
 func TestManagerState_InitialState(t *testing.T) {
@@ -324,7 +325,8 @@ func TestPrimaryPosition(t *testing.T) {
 			defer manager.Close()
 
 			// Start and wait for ready
-			go manager.Start()
+			senv := servenv.NewServEnv()
+			go manager.Start(senv)
 			require.Eventually(t, func() bool {
 				return manager.GetState() == ManagerStateReady
 			}, 5*time.Second, 100*time.Millisecond, "Manager should reach Ready state")

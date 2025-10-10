@@ -29,11 +29,6 @@ import (
 	"github.com/multigres/multigres/go/parser/ast"
 )
 
-// Parser state for handling complex grammar constructs
-var parserState struct {
-	// Future parser state variables can be added here
-}
-
 // SelectLimit - Private struct for the result of opt_select_limit production
 // Mirrors PostgreSQL's SelectLimit from gram.y:126-132
 type selectLimit struct {

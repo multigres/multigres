@@ -26,7 +26,6 @@ import (
 	"golang.org/x/net/html"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
-	"github.com/multigres/multigres/go/servenv"
 )
 
 type proxyPathInfo struct {
@@ -58,7 +57,7 @@ func parseProxyPath(path string) (*proxyPathInfo, error) {
 }
 
 // lookupCellService retrieves service information from topology service
-func lookupCellService(r *http.Request, pathInfo proxyPathInfo) (hostname string, httpPort int, err error) {
+func (ma *MultiAdmin) lookupCellService(r *http.Request, pathInfo proxyPathInfo) (hostname string, httpPort int, err error) {
 	id := &clustermetadatapb.ID{
 		Cell: pathInfo.cellName,
 		Name: pathInfo.serviceName,
@@ -69,7 +68,7 @@ func lookupCellService(r *http.Request, pathInfo proxyPathInfo) (hostname string
 	switch pathInfo.serviceType {
 	case "gate":
 		id.Component = clustermetadatapb.ID_MULTIGATEWAY
-		gwInfo, lookupErr := ts.GetMultiGateway(r.Context(), id)
+		gwInfo, lookupErr := ma.ts.GetMultiGateway(r.Context(), id)
 		if lookupErr != nil {
 			return "", 0, lookupErr
 		}
@@ -77,7 +76,7 @@ func lookupCellService(r *http.Request, pathInfo proxyPathInfo) (hostname string
 		portMap = gwInfo.PortMap
 	case "pool":
 		id.Component = clustermetadatapb.ID_MULTIPOOLER
-		poolerInfo, lookupErr := ts.GetMultiPooler(r.Context(), id)
+		poolerInfo, lookupErr := ma.ts.GetMultiPooler(r.Context(), id)
 		if lookupErr != nil {
 			return "", 0, lookupErr
 		}
@@ -85,7 +84,7 @@ func lookupCellService(r *http.Request, pathInfo proxyPathInfo) (hostname string
 		portMap = poolerInfo.PortMap
 	case "orch":
 		id.Component = clustermetadatapb.ID_MULTIORCH
-		orchInfo, lookupErr := ts.GetMultiOrch(r.Context(), id)
+		orchInfo, lookupErr := ma.ts.GetMultiOrch(r.Context(), id)
 		if lookupErr != nil {
 			return "", 0, lookupErr
 		}
@@ -110,19 +109,19 @@ func lookupCellService(r *http.Request, pathInfo proxyPathInfo) (hostname string
 }
 
 // resolveServiceTarget determines the target host, port, and base path for the proxy
-func resolveServiceTarget(r *http.Request, pathInfo proxyPathInfo) (*serviceTarget, error) {
+func (ma *MultiAdmin) resolveServiceTarget(r *http.Request, pathInfo proxyPathInfo) (*serviceTarget, error) {
 	switch pathInfo.serviceType {
 	case "admin":
 		// Global service - multiadmin proxying to itself
 		return &serviceTarget{
-			host:          servenv.Hostname,
-			port:          servenv.HTTPPort(),
+			host:          ma.senv.GetHostname(),
+			port:          ma.senv.GetHTTPPort(),
 			proxyBasePath: fmt.Sprintf("/proxy/admin/%s", pathInfo.cellName),
 		}, nil
 
 	case "gate", "pool", "orch":
 		// Cell services - multigateway, multipooler, multiorch
-		hostname, httpPort, err := lookupCellService(r, pathInfo)
+		hostname, httpPort, err := ma.lookupCellService(r, pathInfo)
 		if err != nil {
 			return nil, fmt.Errorf("service not found: %w", err)
 		}
@@ -143,69 +142,71 @@ func resolveServiceTarget(r *http.Request, pathInfo proxyPathInfo) (*serviceTarg
 // /proxy/gate/{cell}/{name} -> routes to multigateway
 // /proxy/pool/{cell}/{name} -> routes to multipooler
 // /proxy/orch/{cell}/{name} -> routes to multiorch
-func handleProxy(w http.ResponseWriter, r *http.Request) {
-	pathInfo, err := parseProxyPath(r.URL.Path)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-
-	target, err := resolveServiceTarget(r, *pathInfo)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusNotFound)
-		return
-	}
-
-	// Create reverse proxy to the target service
-	targetURL, err := url.Parse(fmt.Sprintf("http://%s:%d", target.host, target.port))
-	if err != nil {
-		http.Error(w, "Failed to parse target URL", http.StatusInternalServerError)
-		return
-	}
-	proxy := httputil.NewSingleHostReverseProxy(targetURL)
-
-	// Modify the director to strip the proxy prefix from the request path
-	originalDirector := proxy.Director
-	proxy.Director = func(req *http.Request) {
-		originalDirector(req)
-		// Strip the proxy prefix to get the actual path the backend expects
-		req.URL.Path = strings.TrimPrefix(r.URL.Path, target.proxyBasePath)
-		if req.URL.Path == "" {
-			req.URL.Path = "/"
-		}
-		req.Host = targetURL.Host
-	}
-
-	// Intercept the response to rewrite HTML content
-	proxy.ModifyResponse = func(resp *http.Response) error {
-		contentType := resp.Header.Get("Content-Type")
-
-		// Only rewrite HTML responses
-		if strings.Contains(contentType, "text/html") {
-			body, err := io.ReadAll(resp.Body)
-			resp.Body.Close()
-			if err != nil {
-				return err
-			}
-
-			// Rewrite HTML to fix asset and link paths
-			rewrittenHTML, err := rewriteHTML(body, target.proxyBasePath)
-			if err != nil {
-				// If rewriting fails, return original content
-				logger.Error("Failed to rewrite HTML", "error", err)
-				resp.Body = io.NopCloser(bytes.NewReader(body))
-				return nil
-			}
-
-			// Update response body
-			resp.Body = io.NopCloser(bytes.NewReader(rewrittenHTML))
-			resp.Header.Set("Content-Length", fmt.Sprintf("%d", len(rewrittenHTML)))
+func (ma *MultiAdmin) getHandleProxy() func(http.ResponseWriter, *http.Request) {
+	return func(w http.ResponseWriter, r *http.Request) {
+		pathInfo, err := parseProxyPath(r.URL.Path)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
 		}
 
-		return nil
-	}
+		target, err := ma.resolveServiceTarget(r, *pathInfo)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusNotFound)
+			return
+		}
 
-	proxy.ServeHTTP(w, r)
+		// Create reverse proxy to the target service
+		targetURL, err := url.Parse(fmt.Sprintf("http://%s:%d", target.host, target.port))
+		if err != nil {
+			http.Error(w, "Failed to parse target URL", http.StatusInternalServerError)
+			return
+		}
+		proxy := httputil.NewSingleHostReverseProxy(targetURL)
+
+		// Modify the director to strip the proxy prefix from the request path
+		originalDirector := proxy.Director
+		proxy.Director = func(req *http.Request) {
+			originalDirector(req)
+			// Strip the proxy prefix to get the actual path the backend expects
+			req.URL.Path = strings.TrimPrefix(r.URL.Path, target.proxyBasePath)
+			if req.URL.Path == "" {
+				req.URL.Path = "/"
+			}
+			req.Host = targetURL.Host
+		}
+
+		// Intercept the response to rewrite HTML content
+		proxy.ModifyResponse = func(resp *http.Response) error {
+			contentType := resp.Header.Get("Content-Type")
+
+			// Only rewrite HTML responses
+			if strings.Contains(contentType, "text/html") {
+				body, err := io.ReadAll(resp.Body)
+				resp.Body.Close()
+				if err != nil {
+					return err
+				}
+
+				// Rewrite HTML to fix asset and link paths
+				rewrittenHTML, err := rewriteHTML(body, target.proxyBasePath)
+				if err != nil {
+					// If rewriting fails, return original content
+					ma.senv.GetLogger().Error("Failed to rewrite HTML", "error", err)
+					resp.Body = io.NopCloser(bytes.NewReader(body))
+					return nil
+				}
+
+				// Update response body
+				resp.Body = io.NopCloser(bytes.NewReader(rewrittenHTML))
+				resp.Header.Set("Content-Length", fmt.Sprintf("%d", len(rewrittenHTML)))
+			}
+
+			return nil
+		}
+
+		proxy.ServeHTTP(w, r)
+	}
 }
 
 // rewriteHTML injects a <base> tag and rewrites absolute URLs in HTML content

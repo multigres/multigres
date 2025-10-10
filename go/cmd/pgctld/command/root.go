@@ -16,23 +16,103 @@ package command
 
 import (
 	"fmt"
+	"log/slog"
 
 	"github.com/multigres/multigres/go/pgctld"
+	"github.com/multigres/multigres/go/servenv"
+	"github.com/multigres/multigres/go/viperutil"
 
 	"github.com/spf13/cobra"
 )
 
-// Flag variables for root command (shared across all commands)
-var (
-	pgDatabase = "postgres"
-	pgUser     = "postgres"
-	timeout    = 30
-)
+// PgCtlCommand holds the configuration for pgctld commands
+type PgCtlCommand struct {
+	pgDatabase viperutil.Value[string]
+	pgUser     viperutil.Value[string]
+	poolerDir  viperutil.Value[string]
+	timeout    viperutil.Value[int]
+	pgPort     viperutil.Value[int]
+	vc         *viperutil.ViperConfig
+	lg         *servenv.Logger
+}
+
+// GetRootCommand creates and returns the root command for pgctld with all subcommands
+func GetRootCommand() (*cobra.Command, *PgCtlCommand) {
+	pc := &PgCtlCommand{
+		pgDatabase: viperutil.Configure("pg-database", viperutil.Options[string]{
+			Default:  "postgres",
+			FlagName: "pg-database",
+			Dynamic:  false,
+		}),
+		pgUser: viperutil.Configure("pg-user", viperutil.Options[string]{
+			Default:  "postgres",
+			FlagName: "pg-user",
+			Dynamic:  false,
+		}),
+		timeout: viperutil.Configure("timeout", viperutil.Options[int]{
+			Default:  30,
+			FlagName: "timeout",
+			Dynamic:  false,
+		}),
+		poolerDir: viperutil.Configure("pooler-dir", viperutil.Options[string]{
+			Default:  "",
+			FlagName: "pooler-dir",
+			Dynamic:  false,
+		}),
+		pgPort: viperutil.Configure("pg-port", viperutil.Options[int]{
+			Default:  5432,
+			FlagName: "pg-port",
+			Dynamic:  false,
+		}),
+		vc: viperutil.NewViperConfig(),
+		lg: servenv.NewLogger(),
+	}
+
+	root := &cobra.Command{
+		Use:   "pgctld",
+		Short: "PostgreSQL control daemon for Multigres",
+		Long: `pgctld manages PostgreSQL server instances within the Multigres cluster.
+It provides lifecycle management including start, stop, restart, and configuration
+management for PostgreSQL servers.`,
+		Args: cobra.NoArgs,
+		PreRun: func(cmd *cobra.Command, args []string) {
+			pc.lg.SetupLogging()
+		},
+	}
+
+	root.PersistentFlags().StringP("pg-database", "D", pc.pgDatabase.Default(), "PostgreSQL database name")
+	root.PersistentFlags().StringP("pg-user", "U", pc.pgUser.Default(), "PostgreSQL username")
+	root.PersistentFlags().IntP("timeout", "t", pc.timeout.Default(), "Operation timeout in seconds")
+	root.PersistentFlags().String("pooler-dir", pc.poolerDir.Default(), "The directory to multipooler data")
+	root.PersistentFlags().IntP("pg-port", "p", pc.pgPort.Default(), "PostgreSQL port")
+	pc.vc.RegisterFlags(root.PersistentFlags())
+	pc.lg.RegisterFlags(root.PersistentFlags())
+
+	viperutil.BindFlags(root.PersistentFlags(),
+		pc.pgDatabase,
+		pc.pgUser,
+		pc.timeout,
+		pc.poolerDir,
+		pc.pgPort,
+	)
+
+	// Add all subcommands
+	AddServerCommand(root, pc)
+	AddInitCommand(root, pc)
+	AddStartCommand(root, pc)
+	AddStopCommand(root, pc)
+	AddRestartCommand(root, pc)
+	AddStatusCommand(root, pc)
+	AddVersionCommand(root, pc)
+	AddReloadCommand(root, pc)
+
+	return root, pc
+}
 
 // validateGlobalFlags validates required global flags for all pgctld commands
-func validateGlobalFlags(cmd *cobra.Command, args []string) error {
+func (pc *PgCtlCommand) validateGlobalFlags(cmd *cobra.Command, args []string) error {
 	// Validate pooler-dir is required and non-empty for all commands
-	poolerDir := pgctld.GetPoolerDir()
+	poolerDir := pc.GetPoolerDir()
 	if poolerDir == "" {
 		return fmt.Errorf("pooler-dir needs to be set")
 	}
@@ -40,16 +120,38 @@ func validateGlobalFlags(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+// GetLogger returns the configured logger instance
+func (pc *PgCtlCommand) GetLogger() *slog.Logger {
+	return pc.lg.GetLogger()
+}
+
+// GetPoolerDir returns the configured pooler directory as an absolute path
+func (pc *PgCtlCommand) GetPoolerDir() string {
+	poolerDir := pc.poolerDir.Get()
+	if poolerDir == "" {
+		return ""
+	}
+
+	absPath, err := pgctld.ExpandToAbsolutePath(poolerDir)
+	if err != nil {
+		// If we can't expand the path, return the original to avoid breaking existing behavior
+		// This should rarely happen in practice
+		return poolerDir
+	}
+
+	return absPath
+}
+
 // validateInitialized validates that the PostgreSQL data directory has been initialized
 // This should be called by all commands except 'init'
-func validateInitialized(cmd *cobra.Command, args []string) error {
+func (pc *PgCtlCommand) validateInitialized(cmd *cobra.Command, args []string) error {
 	// First run the standard global validation
-	if err := validateGlobalFlags(cmd, args); err != nil {
+	if err := pc.validateGlobalFlags(cmd, args); err != nil {
 		return err
 	}
 
 	// Check if data directory is initialized
-	poolerDir := pgctld.GetPoolerDir()
+	poolerDir := pc.GetPoolerDir()
 
 	if !pgctld.IsDataDirInitialized(poolerDir) {
 		dataDir := pgctld.PostgresDataDir(poolerDir)
@@ -57,20 +159,4 @@ func validateInitialized(cmd *cobra.Command, args []string) error {
 	}
 
 	return nil
-}
-
-// Root represents the base command when called without any subcommands
-var Root = &cobra.Command{
-	Use:   "pgctld",
-	Short: "PostgreSQL control daemon for Multigres",
-	Long: `pgctld manages PostgreSQL server instances within the Multigres cluster.
-It provides lifecycle management including start, stop, restart, and configuration
-management for PostgreSQL servers.`,
-	Args: cobra.NoArgs,
-}
-
-func init() {
-	Root.PersistentFlags().StringVarP(&pgDatabase, "pg-database", "D", pgDatabase, "PostgreSQL database name")
-	Root.PersistentFlags().StringVarP(&pgUser, "pg-user", "U", pgUser, "PostgreSQL username")
-	Root.PersistentFlags().IntVarP(&timeout, "timeout", "t", timeout, "Operation timeout in seconds")
 }

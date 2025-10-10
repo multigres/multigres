@@ -141,8 +141,11 @@ provisioner-config:
 
 func TestGetCellCommandFlags(t *testing.T) {
 	t.Run("name flag is required", func(t *testing.T) {
+		// Create the command
+		cmd := AddGetCellCommand()
+
 		// Check that the name flag is marked as required
-		nameFlag := GetCellCommand.Flag("name")
+		nameFlag := cmd.Flag("name")
 		assert.NotNil(t, nameFlag)
 
 		// Check if the flag is in the required flags list
@@ -155,8 +158,11 @@ func TestGetCellCommandFlags(t *testing.T) {
 	})
 
 	t.Run("admin-server flag is optional", func(t *testing.T) {
+		// Create the command
+		cmd := AddGetCellCommand()
+
 		// Check that the admin-server flag exists but is not required
-		adminServerFlag := GetCellCommand.Flag("admin-server")
+		adminServerFlag := cmd.Flag("admin-server")
 		assert.NotNil(t, adminServerFlag)
 		assert.Equal(t, "", adminServerFlag.DefValue)
 	})

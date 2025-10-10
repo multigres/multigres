@@ -21,38 +21,43 @@ import (
 	"os"
 
 	"github.com/multigres/multigres/go/multipooler"
-	"github.com/multigres/multigres/go/servenv"
 
 	"github.com/spf13/cobra"
 )
 
-var Main = &cobra.Command{
-	Use:     "multipooler",
-	Short:   "Multipooler provides connection pooling and communicates with pgctld via gRPC to serve queries from multigateway instances.",
-	Long:    "Multipooler provides connection pooling and communicates with pgctld via gRPC to serve queries from multigateway instances.",
-	Args:    cobra.NoArgs,
-	PreRunE: servenv.CobraPreRunE,
-	RunE:    run,
+// CreateMultiPoolerCommand creates a cobra command with a MultiPooler instance and registers its flags
+func CreateMultiPoolerCommand() (*cobra.Command, *multipooler.MultiPooler) {
+	mp := multipooler.NewMultiPooler()
+
+	cmd := &cobra.Command{
+		Use:   "multipooler",
+		Short: "Multipooler provides connection pooling and communicates with pgctld via gRPC to serve queries from multigateway instances.",
+		Long:  "Multipooler provides connection pooling and communicates with pgctld via gRPC to serve queries from multigateway instances.",
+		Args:  cobra.NoArgs,
+		PreRunE: func(cmd *cobra.Command, args []string) error {
+			return mp.CobraPreRunE(cmd)
+		},
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return run(cmd, args, mp)
+		},
+	}
+
+	mp.RegisterFlags(cmd.Flags())
+
+	return cmd, mp
 }
 
 func main() {
-	if err := Main.Execute(); err != nil {
+	cmd, _ := CreateMultiPoolerCommand()
+
+	if err := cmd.Execute(); err != nil {
 		slog.Error(err.Error())
 		os.Exit(1)
 	}
 }
 
-func run(cmd *cobra.Command, args []string) error {
-	servenv.Init()
-	multipooler.Init()
-	servenv.OnClose(multipooler.Shutdown)
-	servenv.RunDefault()
-
+func run(cmd *cobra.Command, args []string, mp *multipooler.MultiPooler) error {
+	mp.Init()
+	mp.RunDefault()
 	return nil
-}
-
-func init() {
-	servenv.OnParseFor("multipooler", multipooler.RegisterFlags)
-	servenv.RegisterServiceCmd(Main)
-	servenv.RegisterGRPCServerFlags()
 }
