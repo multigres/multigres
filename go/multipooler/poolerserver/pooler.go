@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"time"
 
 	"github.com/multigres/multigres/go/multipooler/heartbeat"
 	"github.com/multigres/multigres/go/multipooler/manager"
@@ -89,7 +90,17 @@ func (s *MultiPooler) connectDB() error {
 
 // createSidecarDB creates the multigres sidecar schema if it doesn't exist
 func (s *MultiPooler) createSidecarDB() error {
-	_, err := s.db.Exec("CREATE SCHEMA IF NOT EXISTS multigres")
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	primary, err := s.isPrimary(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to check if database is primary: %w", err)
+	}
+	if !primary {
+		return nil
+	}
+
+	_, err = s.db.Exec("CREATE SCHEMA IF NOT EXISTS multigres")
 	if err != nil {
 		return fmt.Errorf("failed to create multigres schema: %w", err)
 	}
