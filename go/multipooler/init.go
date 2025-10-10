@@ -154,6 +154,7 @@ func (mp *MultiPooler) RegisterFlags(flags *pflag.FlagSet) {
 // or if some connections fail, it launches goroutines that retry
 // until successful.
 func (mp *MultiPooler) Init() {
+	mp.senv.Init()
 	// Get the configured logger
 	logger := mp.senv.GetLogger()
 
