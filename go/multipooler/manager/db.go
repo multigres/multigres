@@ -90,3 +90,25 @@ func CreateDBConnection(logger *slog.Logger, config *Config) (*sql.DB, error) {
 	logger.Info("Connected to PostgreSQL", "socket_path", config.SocketFilePath, "database", config.Database)
 	return db, nil
 }
+
+// CreateSidecarSchema creates the multigres sidecar schema and heartbeat table if they don't exist
+func CreateSidecarSchema(db *sql.DB) error {
+	_, err := db.Exec("CREATE SCHEMA IF NOT EXISTS multigres")
+	if err != nil {
+		return fmt.Errorf("failed to create multigres schema: %w", err)
+	}
+
+	// Create the heartbeat table
+	_, err = db.Exec(`
+		CREATE TABLE IF NOT EXISTS multigres.heartbeat (
+			shard_id BYTEA PRIMARY KEY,
+			pooler_id TEXT NOT NULL,
+			ts BIGINT NOT NULL
+		)
+	`)
+	if err != nil {
+		return fmt.Errorf("failed to create heartbeat table: %w", err)
+	}
+
+	return nil
+}
