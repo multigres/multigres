@@ -7,7 +7,7 @@
 #     http://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
+# distributed under the License is a distributed on an "AS IS" BASIS,
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
@@ -24,7 +24,10 @@ export ADDLICENSE_VER
 ETCD_VER = v3.6.4
 export ETCD_VER
 
-.PHONY: all build build-all clean install test proto tools parser
+CMDS = multigateway multipooler pgctld multiorch multigres multiadmin
+OUTPUT_DIR = bin
+
+.PHONY: all build build-release build-all clean install test proto tools parser
 
 # Default target
 all: build
@@ -61,16 +64,23 @@ parser:
 	go generate ./go/parser/...
 	@echo "Parser generation completed"
 
-# Build Go binaries only
+# Build Go binaries only (debug, with symbols)
 build:
-	mkdir -p bin/
+	mkdir -p $(OUTPUT_DIR)
 	cp external/pico/pico.* go/web/templates/css/
-	CGO_ENABLED=0 go build -ldflags="-w -s" -o bin/multigateway ./go/cmd/multigateway
-	CGO_ENABLED=0 go build -ldflags="-w -s" -o bin/multipooler ./go/cmd/multipooler
-	CGO_ENABLED=0 go build -ldflags="-w -s" -o bin/pgctld ./go/cmd/pgctld
-	CGO_ENABLED=0 go build -ldflags="-w -s" -o bin/multiorch ./go/cmd/multiorch
-	CGO_ENABLED=0 go build -ldflags="-w -s" -o bin/multigres ./go/cmd/multigres
-	CGO_ENABLED=0 go build -ldflags="-w -s" -o bin/multiadmin ./go/cmd/multiadmin
+	@for cmd in $(CMDS); do \
+		echo "Building $$cmd (debug)"; \
+		go build -o $(OUTPUT_DIR)/$$cmd ./go/cmd/$$cmd; \
+	done
+
+# Build Go binaries only (release, static, stripped)
+build-release:
+	mkdir -p $(OUTPUT_DIR)
+	cp external/pico/pico.* go/web/templates/css/
+	@for cmd in $(CMDS); do \
+		echo "Building $$cmd (release)"; \
+		CGO_ENABLED=0 go build -ldflags="-w -s" -o $(OUTPUT_DIR)/$$cmd ./go/cmd/$$cmd; \
+	done
 
 # Build everything (proto + parser + binaries)
 build-all: proto parser build
@@ -79,16 +89,13 @@ build-all: proto parser build
 clean:
 	rm -f go/web/templates/css/pico.*
 	go clean -i ./go/...
-	rm -f bin/*
+	rm -f $(OUTPUT_DIR)/*
 
 # Install binaries to GOPATH/bin
 install:
-	go install ./go/cmd/multigateway
-	go install ./go/cmd/multipooler
-	go install ./go/cmd/pgctld
-	go install ./go/cmd/multiorch
-	go install ./go/cmd/multigres
-	go install ./go/cmd/multiadmin
+	@for cmd in $(CMDS); do \
+		go install ./go/cmd/$$cmd; \
+	done
 
 # Run tests
 test: pb build
@@ -115,5 +122,4 @@ validate-generated-files: clean build-all
 		echo "Please run 'make build-all' and commit the changes"; \
 		exit 1; \
 	else \
-		echo "Generated files are up-to-date."; \
-	fi
+		echo "Generated files are up-to-date.";

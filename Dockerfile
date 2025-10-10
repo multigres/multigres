@@ -14,7 +14,7 @@ RUN go mod download
 
 # Copy source and build static binaries using Makefile
 COPY . .
-RUN make build
+RUN make build-release
 
 # =========================================================================
 # Stage 2: The Final Production Stage
