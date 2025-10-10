@@ -108,24 +108,6 @@ func TestManagerServiceMethods_NotImplemented(t *testing.T) {
 			expectedMethod: "IsReadOnly",
 		},
 		{
-			name: "StartReplication",
-			method: func() error {
-				req := &multipoolermanagerdata.StartReplicationRequest{}
-				_, err := svc.StartReplication(ctx, req)
-				return err
-			},
-			expectedMethod: "StartReplication",
-		},
-		{
-			name: "StopReplication",
-			method: func() error {
-				req := &multipoolermanagerdata.StopReplicationRequest{}
-				_, err := svc.StopReplication(ctx, req)
-				return err
-			},
-			expectedMethod: "StopReplication",
-		},
-		{
 			name: "ReplicationStatus",
 			method: func() error {
 				req := &multipoolermanagerdata.ReplicationStatusRequest{}
@@ -287,22 +269,6 @@ func TestManagerServiceMethods_ManagerNotReady(t *testing.T) {
 					Port: 5432,
 				}
 				_, err := svc.SetPrimaryConnInfo(ctx, req)
-				return err
-			},
-		},
-		{
-			name: "StartReplication",
-			method: func() error {
-				req := &multipoolermanagerdata.StartReplicationRequest{}
-				_, err := svc.StartReplication(ctx, req)
-				return err
-			},
-		},
-		{
-			name: "StopReplication",
-			method: func() error {
-				req := &multipoolermanagerdata.StopReplicationRequest{}
-				_, err := svc.StopReplication(ctx, req)
 				return err
 			},
 		},

@@ -147,6 +147,46 @@ func (pm *MultiPoolerManager) checkReady() error {
 	}
 }
 
+// checkReplicaGuardrails verifies that the pooler is a REPLICA and PostgreSQL is in recovery mode
+// This is a common guardrail for replication-related operations on standby servers
+func (pm *MultiPoolerManager) checkReplicaGuardrails(ctx context.Context) error {
+	// Guardrail: Check pooler type - only REPLICA poolers can perform replication operations
+	pm.mu.RLock()
+	poolerType := pm.multipooler.Type
+	pm.mu.RUnlock()
+
+	if poolerType != clustermetadatapb.PoolerType_REPLICA {
+		pm.logger.Error("Replication operation called on non-replica pooler",
+			"service_id", pm.serviceID.String(),
+			"pooler_type", poolerType.String())
+		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
+			fmt.Sprintf("operation not allowed: pooler type is %s, must be REPLICA (service_id: %s)",
+				poolerType.String(), pm.serviceID.String()))
+	}
+
+	// Ensure database connection
+	if err := pm.connectDB(); err != nil {
+		pm.logger.Error("Failed to connect to database", "error", err)
+		return mterrors.Wrap(err, "database connection failed")
+	}
+
+	// Guardrail: Check if the PostgreSQL instance is in recovery (standby mode)
+	var isInRecovery bool
+	err := pm.db.QueryRowContext(ctx, "SELECT pg_is_in_recovery()").Scan(&isInRecovery)
+	if err != nil {
+		pm.logger.Error("Failed to check if instance is in recovery", "error", err)
+		return mterrors.Wrap(err, "failed to check recovery status")
+	}
+
+	if !isInRecovery {
+		pm.logger.Error("Replication operation called on non-standby instance", "service_id", pm.serviceID.String())
+		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
+			fmt.Sprintf("operation not allowed: the PostgreSQL instance is not in standby mode (service_id: %s)", pm.serviceID.String()))
+	}
+
+	return nil
+}
+
 // setStateError sets the manager state to error with the given error message
 // Must be called without holding the mutex
 func (pm *MultiPoolerManager) setStateError(err error) {
@@ -224,38 +264,9 @@ func (pm *MultiPoolerManager) WaitForLSN(ctx context.Context, targetLsn string) 
 	}
 	pm.logger.Info("WaitForLSN called", "target_lsn", targetLsn)
 
-	// Guardrail: Check pooler type - only REPLICA poolers can wait for LSN
-	pm.mu.RLock()
-	poolerType := pm.multipooler.Type
-	pm.mu.RUnlock()
-
-	if poolerType != clustermetadatapb.PoolerType_REPLICA {
-		pm.logger.Error("WaitForLSN called on non-replica pooler",
-			"service_id", pm.serviceID.String(),
-			"pooler_type", poolerType.String())
-		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
-			fmt.Sprintf("operation not allowed: pooler type is %s, must be REPLICA (service_id: %s)",
-				poolerType.String(), pm.serviceID.String()))
-	}
-
-	// Ensure database connection
-	if err := pm.connectDB(); err != nil {
-		pm.logger.Error("Failed to connect to database", "error", err)
-		return mterrors.Wrap(err, "database connection failed")
-	}
-
-	// Guardrail: Check if the PostgreSQL instance is in recovery (standby mode)
-	var isInRecovery bool
-	err := pm.db.QueryRowContext(ctx, "SELECT pg_is_in_recovery()").Scan(&isInRecovery)
-	if err != nil {
-		pm.logger.Error("Failed to check if instance is in recovery", "error", err)
-		return mterrors.Wrap(err, "failed to check recovery status")
-	}
-
-	if !isInRecovery {
-		pm.logger.Error("WaitForLSN called on non-standby instance", "service_id", pm.serviceID.String())
-		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
-			fmt.Sprintf("operation not allowed: the PostgreSQL instance is not in standby mode (service_id: %s)", pm.serviceID.String()))
+	// Check REPLICA guardrails (pooler type and recovery mode)
+	if err := pm.checkReplicaGuardrails(ctx); err != nil {
+		return err
 	}
 
 	// Wait for the standby to replay WAL up to the target LSN
@@ -533,7 +544,22 @@ func (pm *MultiPoolerManager) StartReplication(ctx context.Context) error {
 		return err
 	}
 	pm.logger.Info("StartReplication called")
-	return mterrors.New(mtrpcpb.Code_UNIMPLEMENTED, "method StartReplication not implemented")
+
+	// Check REPLICA guardrails (pooler type and recovery mode)
+	if err := pm.checkReplicaGuardrails(ctx); err != nil {
+		return err
+	}
+
+	// Resume WAL replay on the standby
+	pm.logger.Info("Resuming WAL replay on standby")
+	_, err := pm.db.ExecContext(ctx, "SELECT pg_wal_replay_resume()")
+	if err != nil {
+		pm.logger.Error("Failed to resume WAL replay", "error", err)
+		return mterrors.Wrap(err, "failed to resume WAL replay")
+	}
+
+	pm.logger.Info("StartReplication completed successfully")
+	return nil
 }
 
 // StopReplication stops WAL replay on standby (calls pg_wal_replay_pause)
@@ -542,7 +568,22 @@ func (pm *MultiPoolerManager) StopReplication(ctx context.Context) error {
 		return err
 	}
 	pm.logger.Info("StopReplication called")
-	return mterrors.New(mtrpcpb.Code_UNIMPLEMENTED, "method StopReplication not implemented")
+
+	// Check REPLICA guardrails (pooler type and recovery mode)
+	if err := pm.checkReplicaGuardrails(ctx); err != nil {
+		return err
+	}
+
+	// Pause WAL replay on the standby
+	pm.logger.Info("Pausing WAL replay on standby")
+	_, err := pm.db.ExecContext(ctx, "SELECT pg_wal_replay_pause()")
+	if err != nil {
+		pm.logger.Error("Failed to pause WAL replay", "error", err)
+		return mterrors.Wrap(err, "failed to pause WAL replay")
+	}
+
+	pm.logger.Info("StopReplication completed successfully")
+	return nil
 }
 
 // ReplicationStatus gets the current replication status of the standby

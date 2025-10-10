@@ -840,7 +840,11 @@ func TestReplicationAPIs(t *testing.T) {
 		}
 		_, err = standbyManagerClient.WaitForLSN(ctx, waitReq)
 		require.Error(t, err, "WaitForLSN should timeout without replication configured")
-		assert.Contains(t, err.Error(), "context", "Error should indicate context timeout")
+		// Check that the error is a timeout (gRPC code DEADLINE_EXCEEDED or CANCELED)
+		st, ok := status.FromError(err)
+		require.True(t, ok, "Error should be a gRPC status error")
+		assert.Contains(t, []string{"DeadlineExceeded", "Canceled"}, st.Code().String(),
+			"Error should be a timeout error code, got: %s", st.Code().String())
 		t.Log("Confirmed: standby cannot reach primary LSN without replication configured")
 
 		// Verify table doesn't exist in standby
@@ -1107,5 +1111,109 @@ func TestReplicationAPIs(t *testing.T) {
 		require.Error(t, err, "WaitForLSN should timeout")
 		assert.Contains(t, err.Error(), "context", "Error should indicate context timeout")
 		t.Log("WaitForLSN correctly timed out")
+	})
+
+	t.Run("StartReplication_Success", func(t *testing.T) {
+		// This test verifies that StartReplication successfully resumes WAL replay on standby
+
+		// First stop replication manually
+		t.Log("Manually stopping replication...")
+		_, err = standbyPoolerClient.ExecuteQuery("SELECT pg_wal_replay_pause()", 1)
+		require.NoError(t, err)
+
+		// Verify replication is paused
+		queryResp, err := standbyPoolerClient.ExecuteQuery("SELECT pg_is_wal_replay_paused()", 1)
+		require.NoError(t, err)
+		require.Len(t, queryResp.Rows, 1)
+		isPaused := string(queryResp.Rows[0].Values[0])
+		assert.Equal(t, "true", isPaused, "WAL replay should be paused")
+		t.Log("Confirmed: WAL replay is paused")
+
+		// Call StartReplication RPC
+		t.Log("Calling StartReplication RPC...")
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		startReq := &multipoolermanagerdata.StartReplicationRequest{}
+		_, err = standbyManagerClient.StartReplication(ctx, startReq)
+		require.NoError(t, err, "StartReplication should succeed on standby")
+
+		// Verify replication is now running
+		t.Log("Verifying replication is running after StartReplication...")
+		queryResp, err = standbyPoolerClient.ExecuteQuery("SELECT pg_is_wal_replay_paused()", 1)
+		require.NoError(t, err)
+		require.Len(t, queryResp.Rows, 1)
+		isPaused = string(queryResp.Rows[0].Values[0])
+		assert.Equal(t, "false", isPaused, "WAL replay should be running after StartReplication")
+
+		t.Log("StartReplication successfully resumed WAL replay")
+	})
+
+	t.Run("StartReplication_Primary_Fails", func(t *testing.T) {
+		// StartReplication should fail on PRIMARY pooler type
+		t.Log("Testing StartReplication on PRIMARY pooler (should fail)...")
+
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		startReq := &multipoolermanagerdata.StartReplicationRequest{}
+		_, err = primaryManagerClient.StartReplication(ctx, startReq)
+		require.Error(t, err, "StartReplication should fail on primary")
+		assert.Contains(t, err.Error(), "operation not allowed", "Error should indicate operation not allowed on PRIMARY")
+		t.Log("Confirmed: StartReplication correctly rejected on PRIMARY pooler")
+	})
+
+	t.Run("StopReplication_Success", func(t *testing.T) {
+		// This test verifies that StopReplication successfully pauses WAL replay on standby
+
+		// First ensure replication is running
+		t.Log("Ensuring replication is running...")
+		queryResp, err := standbyPoolerClient.ExecuteQuery("SELECT pg_is_wal_replay_paused()", 1)
+		require.NoError(t, err)
+		require.Len(t, queryResp.Rows, 1)
+		isPaused := string(queryResp.Rows[0].Values[0])
+		if isPaused == "true" {
+			// Resume it first
+			_, err = standbyPoolerClient.ExecuteQuery("SELECT pg_wal_replay_resume()", 1)
+			require.NoError(t, err)
+		}
+		t.Log("Confirmed: WAL replay is running")
+
+		// Call StopReplication RPC
+		t.Log("Calling StopReplication RPC...")
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		stopReq := &multipoolermanagerdata.StopReplicationRequest{}
+		_, err = standbyManagerClient.StopReplication(ctx, stopReq)
+		require.NoError(t, err, "StopReplication should succeed on standby")
+
+		// Verify replication is now paused
+		t.Log("Verifying replication is paused after StopReplication...")
+		queryResp, err = standbyPoolerClient.ExecuteQuery("SELECT pg_is_wal_replay_paused()", 1)
+		require.NoError(t, err)
+		require.Len(t, queryResp.Rows, 1)
+		isPaused = string(queryResp.Rows[0].Values[0])
+		assert.Equal(t, "true", isPaused, "WAL replay should be paused after StopReplication")
+
+		t.Log("StopReplication successfully paused WAL replay")
+
+		// Resume replication for cleanup
+		_, err = standbyPoolerClient.ExecuteQuery("SELECT pg_wal_replay_resume()", 1)
+		require.NoError(t, err)
+	})
+
+	t.Run("StopReplication_Primary_Fails", func(t *testing.T) {
+		// StopReplication should fail on PRIMARY pooler type
+		t.Log("Testing StopReplication on PRIMARY pooler (should fail)...")
+
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		stopReq := &multipoolermanagerdata.StopReplicationRequest{}
+		_, err = primaryManagerClient.StopReplication(ctx, stopReq)
+		require.Error(t, err, "StopReplication should fail on primary")
+		assert.Contains(t, err.Error(), "operation not allowed", "Error should indicate operation not allowed on PRIMARY")
+		t.Log("Confirmed: StopReplication correctly rejected on PRIMARY pooler")
 	})
 }
