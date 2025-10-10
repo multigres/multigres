@@ -64,16 +64,6 @@
       </section>
     </main>
 
-    <footer>
-      <small class="timestamp">
-        <script>
-          document.write(new Date().toISOString());
-        </script>
-        <br />Local:
-        <script>
-          document.write(new Date().toLocaleString());
-        </script>
-      </small>
-    </footer>
+    <footer>{{template "timestamp.tmpl"}}</footer>
   </body>
 </html>
