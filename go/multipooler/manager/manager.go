@@ -159,7 +159,7 @@ func (pm *MultiPoolerManager) isPrimary(ctx context.Context) (bool, error) {
 // startHeartbeat starts the replication tracker and heartbeat writer if connected to a primary database
 func (pm *MultiPoolerManager) startHeartbeat(ctx context.Context, shardID []byte, poolerID string) error {
 	// Create the replication tracker
-	pm.replTracker = heartbeat.NewReplTracker(pm.db, pm.logger, shardID, poolerID)
+	pm.replTracker = heartbeat.NewReplTracker(pm.db, pm.logger, shardID, poolerID, pm.config.HeartbeatIntervalMs)
 
 	// Check if we're connected to a primary
 	isPrimary, err := pm.isPrimary(ctx)

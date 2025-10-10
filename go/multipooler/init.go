@@ -32,14 +32,15 @@ import (
 )
 
 var (
-	pgctldAddr     string
-	cell           string
-	database       string
-	tableGroup     string
-	serviceID      string
-	socketFilePath string
-	poolerDir      string
-	pgPort         int
+	pgctldAddr               string
+	cell                     string
+	database                 string
+	tableGroup               string
+	serviceID                string
+	socketFilePath           string
+	poolerDir                string
+	pgPort                   int
+	heartbeatIntervalMs      int
 
 	ts     topo.Store
 	logger *slog.Logger
@@ -56,6 +57,7 @@ func RegisterFlags(fs *pflag.FlagSet) {
 	fs.StringVar(&socketFilePath, "socket-file", "", "PostgreSQL Unix socket file path (if empty, TCP connection will be used)")
 	fs.StringVar(&poolerDir, "pooler-dir", "", "pooler directory path (if empty, socket-file path will be used as-is)")
 	fs.IntVar(&pgPort, "pg-port", 5432, "PostgreSQL port number")
+	fs.IntVar(&heartbeatIntervalMs, "heartbeat-interval-milliseconds", 1000, "interval in milliseconds between heartbeat writes")
 }
 
 // Init initializes the multipooler. If any services fail to start,
@@ -104,12 +106,13 @@ func Init() {
 	// Initialize the MultiPoolerManager (following Vitess tm_init.go pattern)
 	logger.Info("Initializing MultiPoolerManager")
 	poolerManager := manager.NewMultiPoolerManager(logger, &manager.Config{
-		SocketFilePath: socketFilePath,
-		PoolerDir:      poolerDir,
-		PgPort:         pgPort,
-		Database:       database,
-		TopoClient:     ts,
-		ServiceID:      multipooler.Id,
+		SocketFilePath:      socketFilePath,
+		PoolerDir:           poolerDir,
+		PgPort:              pgPort,
+		Database:            database,
+		TopoClient:          ts,
+		ServiceID:           multipooler.Id,
+		HeartbeatIntervalMs: heartbeatIntervalMs,
 	})
 
 	// Start the MultiPoolerManager
@@ -117,12 +120,13 @@ func Init() {
 
 	// Initialize and start the MultiPooler
 	pooler := poolerserver.NewMultiPooler(logger, &manager.Config{
-		SocketFilePath: socketFilePath,
-		PoolerDir:      poolerDir,
-		PgPort:         pgPort,
-		Database:       database,
-		TopoClient:     ts,
-		ServiceID:      multipooler.Id,
+		SocketFilePath:      socketFilePath,
+		PoolerDir:           poolerDir,
+		PgPort:              pgPort,
+		Database:            database,
+		TopoClient:          ts,
+		ServiceID:           multipooler.Id,
+		HeartbeatIntervalMs: heartbeatIntervalMs,
 	})
 	pooler.Start()
 

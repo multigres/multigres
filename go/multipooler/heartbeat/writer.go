@@ -57,16 +57,20 @@ type Writer struct {
 // NewWriter creates a new heartbeat writer.
 //
 // We do not support on-demand or disabled heartbeats at this time.
-func NewWriter(db *sql.DB, logger *slog.Logger, shardID []byte, poolerID string) *Writer {
+func NewWriter(db *sql.DB, logger *slog.Logger, shardID []byte, poolerID string, intervalMs int) *Writer {
 	// TODO: use a connection pool when it's implemented
+	interval := time.Duration(intervalMs) * time.Millisecond
+	if intervalMs <= 0 {
+		interval = defaultHeartbeatInterval
+	}
 	w := &Writer{
 		db:       db,
 		logger:   logger,
 		shardID:  shardID,
 		poolerID: poolerID,
-		interval: defaultHeartbeatInterval,
+		interval: interval,
 		now:      time.Now,
-		ticks:    timer.NewTimer(defaultHeartbeatInterval),
+		ticks:    timer.NewTimer(interval),
 	}
 	w.writeConnID.Store(-1)
 	return w
