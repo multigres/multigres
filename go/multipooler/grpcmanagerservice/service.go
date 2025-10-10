@@ -51,26 +51,6 @@ func (s *managerService) WaitForLSN(ctx context.Context, req *multipoolermanager
 	return &multipoolermanagerdata.WaitForLSNResponse{}, nil
 }
 
-// SetReadOnly makes the PostgreSQL instance read-only
-func (s *managerService) SetReadOnly(ctx context.Context, req *multipoolermanagerdata.SetReadOnlyRequest) (*multipoolermanagerdata.SetReadOnlyResponse, error) {
-	err := s.manager.SetReadOnly(ctx)
-	if err != nil {
-		return nil, err
-	}
-	return &multipoolermanagerdata.SetReadOnlyResponse{}, nil
-}
-
-// IsReadOnly checks if PostgreSQL instance is in read-only mode
-func (s *managerService) IsReadOnly(ctx context.Context, req *multipoolermanagerdata.IsReadOnlyRequest) (*multipoolermanagerdata.IsReadOnlyResponse, error) {
-	readOnly, err := s.manager.IsReadOnly(ctx)
-	if err != nil {
-		return nil, err
-	}
-	return &multipoolermanagerdata.IsReadOnlyResponse{
-		ReadOnly: readOnly,
-	}, nil
-}
-
 // SetPrimaryConnInfo sets the primary connection info for a standby server
 func (s *managerService) SetPrimaryConnInfo(ctx context.Context, req *multipoolermanagerdata.SetPrimaryConnInfoRequest) (*multipoolermanagerdata.SetPrimaryConnInfoResponse, error) {
 	err := s.manager.SetPrimaryConnInfo(ctx,

@@ -90,42 +90,6 @@ func TestManagerServiceMethods_NotImplemented(t *testing.T) {
 		expectedMethod string
 	}{
 		{
-			name: "SetReadOnly",
-			method: func() error {
-				req := &multipoolermanagerdata.SetReadOnlyRequest{}
-				_, err := svc.SetReadOnly(ctx, req)
-				return err
-			},
-			expectedMethod: "SetReadOnly",
-		},
-		{
-			name: "IsReadOnly",
-			method: func() error {
-				req := &multipoolermanagerdata.IsReadOnlyRequest{}
-				_, err := svc.IsReadOnly(ctx, req)
-				return err
-			},
-			expectedMethod: "IsReadOnly",
-		},
-		{
-			name: "StartReplication",
-			method: func() error {
-				req := &multipoolermanagerdata.StartReplicationRequest{}
-				_, err := svc.StartReplication(ctx, req)
-				return err
-			},
-			expectedMethod: "StartReplication",
-		},
-		{
-			name: "StopReplication",
-			method: func() error {
-				req := &multipoolermanagerdata.StopReplicationRequest{}
-				_, err := svc.StopReplication(ctx, req)
-				return err
-			},
-			expectedMethod: "StopReplication",
-		},
-		{
 			name: "ReplicationStatus",
 			method: func() error {
 				req := &multipoolermanagerdata.ReplicationStatusRequest{}
@@ -133,15 +97,6 @@ func TestManagerServiceMethods_NotImplemented(t *testing.T) {
 				return err
 			},
 			expectedMethod: "ReplicationStatus",
-		},
-		{
-			name: "ResetReplication",
-			method: func() error {
-				req := &multipoolermanagerdata.ResetReplicationRequest{}
-				_, err := svc.ResetReplication(ctx, req)
-				return err
-			},
-			expectedMethod: "ResetReplication",
 		},
 		{
 			name: "ConfigureSynchronousReplication",
@@ -263,22 +218,6 @@ func TestManagerServiceMethods_ManagerNotReady(t *testing.T) {
 		name   string
 		method func() error
 	}{
-		{
-			name: "SetReadOnly",
-			method: func() error {
-				req := &multipoolermanagerdata.SetReadOnlyRequest{}
-				_, err := svc.SetReadOnly(ctx, req)
-				return err
-			},
-		},
-		{
-			name: "IsReadOnly",
-			method: func() error {
-				req := &multipoolermanagerdata.IsReadOnlyRequest{}
-				_, err := svc.IsReadOnly(ctx, req)
-				return err
-			},
-		},
 		{
 			name: "SetPrimaryConnInfo",
 			method: func() error {
