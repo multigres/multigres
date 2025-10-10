@@ -104,12 +104,6 @@ func (pm *MultiPoolerManager) connectDB() error {
 
 	pm.logger.Info("MultiPoolerManager: Connected to PostgreSQL", "socket_path", pm.config.SocketFilePath, "database", pm.config.Database)
 
-	// Create the multigres sidecar schema if it doesn't exist
-	pm.logger.Info("MultiPoolerManager: Creating sidecar database")
-	if err := CreateSidecarSchema(pm.db); err != nil {
-		return fmt.Errorf("failed to create sidecar schema: %w", err)
-	}
-
 	// Start heartbeat tracking if not already started
 	if pm.replTracker == nil {
 		pm.logger.Info("MultiPoolerManager: Starting database heartbeat")
@@ -119,6 +113,21 @@ func (pm *MultiPoolerManager) connectDB() error {
 
 		// Use the multipooler name from serviceID as the pooler ID
 		poolerID := pm.serviceID.Name
+
+		// Check if connected to a primary database
+		isPrimary, err := pm.isPrimary(ctx)
+		if err != nil {
+			pm.logger.Error("Failed to check if database is primary", "error", err)
+			// Don't fail the connection if primary check fails
+		} else if isPrimary {
+			// Only create the sidecar schema on primary databases
+			pm.logger.Info("MultiPoolerManager: Creating sidecar schema on primary database")
+			if err := CreateSidecarSchema(pm.db); err != nil {
+				return fmt.Errorf("failed to create sidecar schema: %w", err)
+			}
+		} else {
+			pm.logger.Info("MultiPoolerManager: Skipping sidecar schema creation on replica")
+		}
 
 		if err := pm.startHeartbeat(ctx, shardID, poolerID); err != nil {
 			pm.logger.Error("Failed to start heartbeat", "error", err)
