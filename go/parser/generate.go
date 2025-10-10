@@ -19,6 +19,8 @@ package parser
 // This will process postgres.y grammar file and generate postgres.go parser
 
 //go:generate goyacc -o postgres.go postgres.y
+//go:generate go tool goimports -w postgres.go
+//go:generate go tool gofumpt -w postgres.go
 
 // TODO: In Phase 3, add additional generation directives for:
 // - AST helper generation
