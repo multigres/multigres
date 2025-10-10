@@ -35,47 +35,41 @@ import (
 	"github.com/spf13/pflag"
 )
 
-// TimeoutFlags holds timeout configuration
-type TimeoutFlags struct {
-	LameduckPeriod time.Duration
-	OnTermTimeout  time.Duration
-	OnCloseTimeout time.Duration
-}
-
 // ServEnv holds the service environment configuration and state
 type ServEnv struct {
 	// Configuration
-	HTTPPort        viperutil.Value[int]
-	BindAddress     viperutil.Value[string]
-	Hostname        viperutil.Value[string]
-	Timeouts        *TimeoutFlags
-	CatchSigpipe    bool
-	MaxStackSize    int
-	InitStartTime   time.Time
-	TableRefreshInt int
+	httpPort        viperutil.Value[int]
+	bindAddress     viperutil.Value[string]
+	hostname        viperutil.Value[string]
+	lameduckPeriod  viperutil.Value[time.Duration]
+	onTermTimeout   viperutil.Value[time.Duration]
+	onCloseTimeout  viperutil.Value[time.Duration]
+	pidFile         viperutil.Value[string]
+	httpPprof       viperutil.Value[bool]
+	pprofFlag       viperutil.Value[[]string]
+	serviceMapFlag  viperutil.Value[[]string]
+	catchSigpipe    bool
+	maxStackSize    int
+	initStartTime   time.Time
+	tableRefreshInt int
 	vc              *viperutil.ViperConfig
 
 	// Hooks
-	OnInitHooks     event.Hooks
-	OnTermHooks     event.Hooks
-	OnTermSyncHooks event.Hooks
-	OnRunHooks      event.Hooks
+	onInitHooks     event.Hooks
+	onTermHooks     event.Hooks
+	onTermSyncHooks event.Hooks
+	onRunHooks      event.Hooks
 
 	// State
 	mu           sync.Mutex
 	inited       bool
-	ListeningURL url.URL
+	listeningURL url.URL
 
 	mux          *http.ServeMux
 	onCloseHooks event.Hooks
 	// exitChan waits for a signal that tells the process to terminate
 	exitChan chan os.Signal
 	lg       *Logger
-	pidFile  string // registered in RegisterFlags as --pid_file
-
-	pprofFlag      []string
-	httpPprof      bool
-	serviceMapFlag []string
 
 	// serviceMap is the used version of the service map.
 	// init() functions can add default values to it (using InitServiceMap).
@@ -94,28 +88,58 @@ func NewServEnv() *ServEnv {
 // to avoid duplicate flag registrations and binding conflicts.
 func NewServEnvWithConfig(lg *Logger, vc *viperutil.ViperConfig) *ServEnv {
 	return &ServEnv{
-		HTTPPort: viperutil.Configure("http-port", viperutil.Options[int]{
+		httpPort: viperutil.Configure("http-port", viperutil.Options[int]{
 			Default:  0,
 			FlagName: "http-port",
 			Dynamic:  false,
 		}),
-		Hostname: viperutil.Configure("hostname", viperutil.Options[string]{
+		hostname: viperutil.Configure("hostname", viperutil.Options[string]{
 			Default:  "",
 			FlagName: "hostname",
 			Dynamic:  false,
 		}),
-		BindAddress: viperutil.Configure("bind-address", viperutil.Options[string]{
+		bindAddress: viperutil.Configure("bind-address", viperutil.Options[string]{
 			Default:  "",
 			FlagName: "bind-address",
 			Dynamic:  false,
 		}),
-		Timeouts: &TimeoutFlags{
-			LameduckPeriod: 50 * time.Millisecond,
-			OnTermTimeout:  10 * time.Second,
-			OnCloseTimeout: 10 * time.Second,
-		},
+		lameduckPeriod: viperutil.Configure("lameduck-period", viperutil.Options[time.Duration]{
+			Default:  50 * time.Millisecond,
+			FlagName: "lameduck-period",
+			Dynamic:  false,
+		}),
+		onTermTimeout: viperutil.Configure("onterm-timeout", viperutil.Options[time.Duration]{
+			Default:  10 * time.Second,
+			FlagName: "onterm-timeout",
+			Dynamic:  false,
+		}),
+		onCloseTimeout: viperutil.Configure("onclose-timeout", viperutil.Options[time.Duration]{
+			Default:  10 * time.Second,
+			FlagName: "onclose-timeout",
+			Dynamic:  false,
+		}),
+		pidFile: viperutil.Configure("pid-file", viperutil.Options[string]{
+			Default:  "",
+			FlagName: "pid-file",
+			Dynamic:  false,
+		}),
+		httpPprof: viperutil.Configure("pprof-http", viperutil.Options[bool]{
+			Default:  false,
+			FlagName: "pprof-http",
+			Dynamic:  false,
+		}),
+		pprofFlag: viperutil.Configure("pprof", viperutil.Options[[]string]{
+			Default:  []string{},
+			FlagName: "pprof",
+			Dynamic:  false,
+		}),
+		serviceMapFlag: viperutil.Configure("service-map", viperutil.Options[[]string]{
+			Default:  []string{},
+			FlagName: "service-map",
+			Dynamic:  false,
+		}),
 		vc:           vc,
-		MaxStackSize: 64 * 1024 * 1024,
+		maxStackSize: 64 * 1024 * 1024,
 		mux:          http.NewServeMux(),
 		lg:           lg,
 		serviceMap:   make(map[string]bool),
@@ -126,7 +150,12 @@ func NewServEnvWithConfig(lg *Logger, vc *viperutil.ViperConfig) *ServEnv {
 func (se *ServEnv) GetInitStartTime() time.Time {
 	se.mu.Lock()
 	defer se.mu.Unlock()
-	return se.InitStartTime
+	return se.initStartTime
+}
+
+// SetListeningURL sets the listening URL
+func (se *ServEnv) SetListeningURL(u url.URL) {
+	se.listeningURL = u
 }
 
 // PopulateListeningURL sets the listening URL based on hostname and port
@@ -145,31 +174,51 @@ func (se *ServEnv) PopulateListeningURL(port int32) {
 	} else {
 		slog.Info("Using fully qualified hostname for service URL", "hostname", host)
 	}
-	se.ListeningURL = url.URL{
+	se.SetListeningURL(url.URL{
 		Scheme: "http",
-		Host:   netutil.JoinHostPort(se.Hostname.Get(), port),
+		Host:   netutil.JoinHostPort(se.hostname.Get(), port),
 		Path:   "/",
-	}
+	})
+}
+
+// GetHTTPPort returns the HTTP port value
+func (se *ServEnv) GetHTTPPort() int {
+	return se.httpPort.Get()
+}
+
+// GetBindAddress returns the bind address value
+func (se *ServEnv) GetBindAddress() string {
+	return se.bindAddress.Get()
+}
+
+// GetHostname returns the hostname value
+func (se *ServEnv) GetHostname() string {
+	return se.hostname.Get()
+}
+
+// Hostname returns the hostname viperutil.Value for advanced usage
+func (se *ServEnv) Hostname() viperutil.Value[string] {
+	return se.hostname
 }
 
 // OnInit registers f to be run at the beginning of the app lifecycle
 func (se *ServEnv) OnInit(f func()) {
-	se.OnInitHooks.Add(f)
+	se.onInitHooks.Add(f)
 }
 
 // OnTerm registers a function to be run when the process receives a SIGTERM
 func (se *ServEnv) OnTerm(f func()) {
-	se.OnTermHooks.Add(f)
+	se.onTermHooks.Add(f)
 }
 
 // OnTermSync registers a function to be run when the process receives SIGTERM
 func (se *ServEnv) OnTermSync(f func()) {
-	se.OnTermSyncHooks.Add(f)
+	se.onTermSyncHooks.Add(f)
 }
 
 // OnRun registers f to be run right at the beginning of Run
 func (se *ServEnv) OnRun(f func()) {
-	se.OnRunHooks.Add(f)
+	se.onRunHooks.Add(f)
 }
 
 // OnClose registers f to be run at the end of the app lifecycle.
@@ -181,19 +230,19 @@ func (sv *ServEnv) OnClose(f func()) {
 
 // FireRunHooks fires the hooks registered by OnRun
 func (se *ServEnv) FireRunHooks() {
-	se.OnRunHooks.Fire()
+	se.onRunHooks.Fire()
 }
 
 // fireOnTermSyncHooks returns true iff all the hooks finish before the timeout
 func (se *ServEnv) fireOnTermSyncHooks(timeout time.Duration) bool {
-	return se.fireHooksWithTimeout(timeout, "OnTermSync", se.OnTermSyncHooks.Fire)
+	return se.fireHooksWithTimeout(timeout, "OnTermSync", se.onTermSyncHooks.Fire)
 }
 
 // fireOnCloseHooks returns true iff all the hooks finish before the timeout
 func (se *ServEnv) fireOnCloseHooks(timeout time.Duration) bool {
 	return se.fireHooksWithTimeout(timeout, "OnClose", func() {
 		se.onCloseHooks.Fire()
-		se.ListeningURL = url.URL{}
+		se.SetListeningURL(url.URL{})
 	})
 }
 
@@ -222,7 +271,7 @@ func (se *ServEnv) fireHooksWithTimeout(timeout time.Duration, name string, hook
 
 // RunDefault calls Run() with the parameters from the flags
 func (se *ServEnv) RunDefault(grpcServer *GrpcServer) {
-	se.Run(se.BindAddress.Get(), se.HTTPPort.Get(), grpcServer)
+	se.Run(se.bindAddress.Get(), se.httpPort.Get(), grpcServer)
 }
 
 var (
@@ -230,7 +279,6 @@ var (
 	globalFlagHooks = []func(*pflag.FlagSet){
 		mterrors.RegisterFlags,
 	}
-	commandFlagHooks = map[string][]func(*pflag.FlagSet){}
 )
 
 // OnParse registers a callback function to register flags on the flagset that are
@@ -240,19 +288,6 @@ func OnParse(f func(fs *pflag.FlagSet)) {
 	defer flagHooksM.Unlock()
 
 	globalFlagHooks = append(globalFlagHooks, f)
-}
-
-func getFlagHooksFor(cmd string) (hooks []func(fs *pflag.FlagSet)) {
-	flagHooksM.Lock()
-	defer flagHooksM.Unlock()
-
-	hooks = append(hooks, globalFlagHooks...) // done deliberately to copy the slice
-
-	if commandHooks, ok := commandFlagHooks[cmd]; ok {
-		hooks = append(hooks, commandHooks...)
-	}
-
-	return hooks
 }
 
 func getGlobalFlagHooks() (hooks []func(fs *pflag.FlagSet)) {
@@ -288,17 +323,6 @@ func (sv *ServEnv) CobraPreRunE(cmd *cobra.Command) error {
 	return nil
 }
 
-// GetFlagSetFor returns the flag set for a given command.
-// This has to exported for the Multigres-operator to use
-func GetFlagSetFor(cmd string) *pflag.FlagSet {
-	fs := pflag.NewFlagSet(cmd, pflag.ExitOnError)
-	for _, hook := range getFlagHooksFor(cmd) {
-		hook(fs)
-	}
-
-	return fs
-}
-
 // TestingEndtoend is true when this Multigres binary is being run as part of an endtoend test suite
 var TestingEndtoend = false
 
@@ -318,19 +342,20 @@ func (se *ServEnv) RegisterFlagsWithoutLoggerAndConfig(fs *pflag.FlagSet) {
 
 func (se *ServEnv) registerFlags(fs *pflag.FlagSet, includeLoggerAndConfig bool) {
 	// Default flags
-	fs.Int("http-port", se.HTTPPort.Default(), "HTTP port for the server")
-	fs.String("bind-address", se.BindAddress.Default(), "Bind address for the server. If empty, the server will listen on all available unicast and anycast IP addresses of the local system.")
-	fs.String("hostname", se.Hostname.Default(), "Hostname to use for service registration. If not set, will auto-detect using FQDN or os.Hostname()")
-	fs.BoolVar(&se.httpPprof, "pprof-http", se.httpPprof, "enable pprof http endpoints")
-	fs.StringSliceVar(&se.pprofFlag, "pprof", se.pprofFlag, "enable profiling")
-	fs.StringSliceVar(&se.serviceMapFlag, "service-map", se.serviceMapFlag, "comma separated list of services to enable (or disable if prefixed with '-') Example: grpc-queryservice")
-	viperutil.BindFlags(fs, se.HTTPPort, se.BindAddress, se.Hostname)
+	fs.Int("http-port", se.httpPort.Default(), "HTTP port for the server")
+	fs.String("bind-address", se.bindAddress.Default(), "Bind address for the server. If empty, the server will listen on all available unicast and anycast IP addresses of the local system.")
+	fs.String("hostname", se.hostname.Default(), "Hostname to use for service registration. If not set, will auto-detect using FQDN or os.Hostname()")
+	fs.Bool("pprof-http", se.httpPprof.Default(), "enable pprof http endpoints")
+	fs.StringSlice("pprof", se.pprofFlag.Default(), "enable profiling")
+	fs.StringSlice("service-map", se.serviceMapFlag.Default(), "comma separated list of services to enable (or disable if prefixed with '-') Example: grpc-queryservice")
 
 	// Timeout flags
-	fs.DurationVar(&se.Timeouts.LameduckPeriod, "lameduck-period", se.Timeouts.LameduckPeriod, "keep running at least this long after SIGTERM before stopping")
-	fs.DurationVar(&se.Timeouts.OnTermTimeout, "onterm-timeout", se.Timeouts.OnTermTimeout, "wait no more than this for OnTermSync handlers before stopping")
-	fs.DurationVar(&se.Timeouts.OnCloseTimeout, "onclose-timeout", se.Timeouts.OnCloseTimeout, "wait no more than this for OnClose handlers before stopping")
-	fs.StringVar(&se.pidFile, "pid-file", "", "If set, the process will write its pid to the named file, and delete it on graceful shutdown.")
+	fs.Duration("lameduck-period", se.lameduckPeriod.Default(), "keep running at least this long after SIGTERM before stopping")
+	fs.Duration("onterm-timeout", se.onTermTimeout.Default(), "wait no more than this for OnTermSync handlers before stopping")
+	fs.Duration("onclose-timeout", se.onCloseTimeout.Default(), "wait no more than this for OnClose handlers before stopping")
+	fs.String("pid-file", se.pidFile.Default(), "If set, the process will write its pid to the named file, and delete it on graceful shutdown.")
+
+	viperutil.BindFlags(fs, se.httpPort, se.bindAddress, se.hostname, se.lameduckPeriod, se.onTermTimeout, se.onCloseTimeout, se.pidFile, se.httpPprof, se.pprofFlag, se.serviceMapFlag)
 
 	// Server auth flags
 	for _, fn := range grpcAuthServerFlagHooks {
@@ -345,9 +370,7 @@ func (se *ServEnv) registerFlags(fs *pflag.FlagSet, includeLoggerAndConfig bool)
 	}
 
 	// Global and command flag hooks
-	sync.OnceFunc(func() {
-		for _, hook := range getGlobalFlagHooks() {
-			hook(fs)
-		}
-	})
+	for _, hook := range getGlobalFlagHooks() {
+		hook(fs)
+	}
 }

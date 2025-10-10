@@ -180,7 +180,7 @@ func (mp *MultiPooler) Init() {
 		"socket_file_path", mp.socketFilePath.Get(),
 		"pooler_dir", mp.poolerDir.Get(),
 		"pg_port", mp.pgPort.Get(),
-		"http_port", mp.senv.HTTPPort.Get(),
+		"http_port", mp.senv.GetHTTPPort(),
 		"grpc_port", mp.grpcServer.Port(),
 	)
 
@@ -194,9 +194,9 @@ func (mp *MultiPooler) Init() {
 		os.Exit(1)
 	}
 	// Create MultiPooler instance for topo registration
-	multipooler := topo.NewMultiPooler(mp.serviceID.Get(), mp.cell.Get(), mp.senv.Hostname.Get(), mp.tableGroup.Get())
+	multipooler := topo.NewMultiPooler(mp.serviceID.Get(), mp.cell.Get(), mp.senv.GetHostname(), mp.tableGroup.Get())
 	multipooler.PortMap["grpc"] = int32(mp.grpcServer.Port())
-	multipooler.PortMap["http"] = int32(mp.senv.HTTPPort.Get())
+	multipooler.PortMap["http"] = int32(mp.senv.GetHTTPPort())
 	multipooler.Database = mp.database.Get()
 	multipooler.ServingStatus = clustermetadatapb.PoolerServingStatus_NOT_SERVING
 

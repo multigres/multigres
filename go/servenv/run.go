@@ -66,18 +66,18 @@ func (sv *ServEnv) Run(bindAddress string, port int, grpcServer *GrpcServer) {
 	<-sv.exitChan
 
 	startTime := time.Now()
-	slog.Info("entering lameduck mode", "period", sv.Timeouts.LameduckPeriod)
+	slog.Info("entering lameduck mode", "period", sv.lameduckPeriod.Get())
 	slog.Info("firing asynchronous OnTerm hooks")
-	go sv.OnTermHooks.Fire()
+	go sv.onTermHooks.Fire()
 
-	sv.fireOnTermSyncHooks(sv.Timeouts.OnTermTimeout)
-	if remain := sv.Timeouts.LameduckPeriod - time.Since(startTime); remain > 0 {
+	sv.fireOnTermSyncHooks(sv.onTermTimeout.Get())
+	if remain := sv.lameduckPeriod.Get() - time.Since(startTime); remain > 0 {
 		slog.Info(fmt.Sprintf("sleeping an extra %v after OnTermSync to finish lameduck period", remain))
 		time.Sleep(remain)
 	}
 	_ = l.Close()
 
 	slog.Info("shutting down gracefully")
-	sv.fireOnCloseHooks(sv.Timeouts.OnCloseTimeout)
-	sv.ListeningURL = url.URL{}
+	sv.fireOnCloseHooks(sv.onCloseTimeout.Get())
+	sv.SetListeningURL(url.URL{})
 }

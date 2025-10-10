@@ -114,8 +114,8 @@ func (ma *MultiAdmin) resolveServiceTarget(r *http.Request, pathInfo proxyPathIn
 	case "admin":
 		// Global service - multiadmin proxying to itself
 		return &serviceTarget{
-			host:          ma.senv.Hostname.Get(),
-			port:          ma.senv.HTTPPort.Get(),
+			host:          ma.senv.GetHostname(),
+			port:          ma.senv.GetHTTPPort(),
 			proxyBasePath: fmt.Sprintf("/proxy/admin/%s", pathInfo.cellName),
 		}, nil
 

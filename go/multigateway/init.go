@@ -105,14 +105,14 @@ func (mg *MultiGateway) Init() {
 	logger.Info("multigateway starting up",
 		"cell", mg.cell.Get(),
 		"service_id", mg.serviceID.Get(),
-		"http_port", mg.senv.HTTPPort.Get(),
+		"http_port", mg.senv.GetHTTPPort(),
 		"grpc_port", mg.grpcServer.Port(),
 	)
 
 	// Create MultiGateway instance for topo registration
-	multigateway := topo.NewMultiGateway(mg.serviceID.Get(), mg.cell.Get(), mg.senv.Hostname.Get())
+	multigateway := topo.NewMultiGateway(mg.serviceID.Get(), mg.cell.Get(), mg.senv.GetHostname())
 	multigateway.PortMap["grpc"] = int32(mg.grpcServer.Port())
-	multigateway.PortMap["http"] = int32(mg.senv.HTTPPort.Get())
+	multigateway.PortMap["http"] = int32(mg.senv.GetHTTPPort())
 
 	mg.tr = toporeg.Register(
 		func(ctx context.Context) error { return mg.ts.RegisterMultiGateway(ctx, multigateway, true) },

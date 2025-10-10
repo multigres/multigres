@@ -51,8 +51,8 @@ func (ma *MultiAdmin) DiscoverServices(ctx context.Context) (*ServiceList, error
 	// Multiadmin is always available if this code is running
 	multiadminProxyURL := fmt.Sprintf("/proxy/admin/%s/multiadmin", topo.GlobalCell)
 	multiadminDirectURL := ""
-	if httpPort := ma.senv.HTTPPort.Get(); httpPort > 0 && ma.senv.Hostname.Get() != "" {
-		multiadminDirectURL = fmt.Sprintf("http://%s:%d/", ma.senv.Hostname.Get(), httpPort)
+	if httpPort := ma.senv.GetHTTPPort(); httpPort > 0 && ma.senv.GetHostname() != "" {
+		multiadminDirectURL = fmt.Sprintf("http://%s:%d/", ma.senv.GetHostname(), httpPort)
 	}
 	result.GlobalServices = append(result.GlobalServices, ServiceInfo{
 		Name:       "multiadmin",

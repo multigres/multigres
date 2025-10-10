@@ -82,7 +82,7 @@ func (ma *MultiAdmin) Init() {
 	ma.ts = ma.topoConfig.Open()
 
 	logger.Info("multiadmin starting up",
-		"http_port", ma.senv.HTTPPort.Get(),
+		"http_port", ma.senv.GetHTTPPort(),
 		"grpc_port", ma.grpcServer.Port(),
 	)
 

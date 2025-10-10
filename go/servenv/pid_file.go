@@ -27,13 +27,14 @@ func (sv *ServEnv) registerPidFile() {
 
 	// Create pid file after flags are parsed.
 	sv.OnInit(func() {
-		if sv.pidFile == "" {
+		pidFile := sv.pidFile.Get()
+		if pidFile == "" {
 			return
 		}
 
-		file, err := os.OpenFile(sv.pidFile, os.O_RDWR|os.O_CREATE|os.O_EXCL, 0o666)
+		file, err := os.OpenFile(pidFile, os.O_RDWR|os.O_CREATE|os.O_EXCL, 0o666)
 		if err != nil {
-			slog.Error(fmt.Sprintf("Unable to create pid file '%s': %v", sv.pidFile, err))
+			slog.Error(fmt.Sprintf("Unable to create pid file '%s': %v", pidFile, err))
 			return
 		}
 		pidFileCreated = true
@@ -43,15 +44,16 @@ func (sv *ServEnv) registerPidFile() {
 
 	// Remove pid file on graceful shutdown.
 	sv.OnClose(func() {
-		if sv.pidFile == "" {
+		pidFile := sv.pidFile.Get()
+		if pidFile == "" {
 			return
 		}
 		if !pidFileCreated {
 			return
 		}
 
-		if err := os.Remove(sv.pidFile); err != nil {
-			slog.Error(fmt.Sprintf("Unable to remove pid file '%s': %v", sv.pidFile, err))
+		if err := os.Remove(pidFile); err != nil {
+			slog.Error(fmt.Sprintf("Unable to remove pid file '%s': %v", pidFile, err))
 		}
 	})
 }

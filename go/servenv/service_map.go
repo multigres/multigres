@@ -29,7 +29,7 @@ func (sv *ServEnv) InitServiceMap(protocol, name string) {
 // updateServiceMap takes the command line parameter, and updates the
 // ServiceMap accordingly
 func (sv *ServEnv) updateServiceMap() {
-	for _, s := range sv.serviceMapFlag {
+	for _, s := range sv.serviceMapFlag.Get() {
 		if s[0] == '-' {
 			delete(sv.serviceMap, s[1:])
 		} else {

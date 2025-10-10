@@ -36,7 +36,7 @@ func (sv *ServEnv) HTTPHandleFunc(pattern string, handler func(http.ResponseWrit
 
 // HTTPServe starts the HTTP server for the internal servenv mux on the listener.
 func (sv *ServEnv) HTTPServe(l net.Listener) error {
-	slog.Info("Listening for HTTP calls on port", "httpPort", sv.HTTPPort.Get())
+	slog.Info("Listening for HTTP calls on port", "httpPort", sv.httpPort.Get())
 	err := http.Serve(l, sv.mux)
 	if errors.Is(err, http.ErrServerClosed) || errors.Is(err, net.ErrClosed) {
 		return nil
@@ -46,7 +46,7 @@ func (sv *ServEnv) HTTPServe(l net.Listener) error {
 
 // HTTPRegisterProfile registers the default pprof HTTP endpoints with the internal servenv mux.
 func (sv *ServEnv) HTTPRegisterPprofProfile() {
-	if !sv.httpPprof {
+	if !sv.httpPprof.Get() {
 		return
 	}
 

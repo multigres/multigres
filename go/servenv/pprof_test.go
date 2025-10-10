@@ -88,7 +88,7 @@ func TestPProfInitWithWaitSig(t *testing.T) {
 
 	// Create a ServEnv instance and set pprofFlag
 	sv := NewServEnv()
-	sv.pprofFlag = strings.Split("cpu,waitSig", ",")
+	sv.pprofFlag.Set(strings.Split("cpu,waitSig", ","))
 
 	sv.pprofInit()
 	time.Sleep(1 * time.Second)
@@ -121,7 +121,7 @@ func TestPProfInitWithoutWaitSig(t *testing.T) {
 
 	// Create a ServEnv instance and set pprofFlag
 	sv := NewServEnv()
-	sv.pprofFlag = strings.Split("cpu", ",")
+	sv.pprofFlag.Set(strings.Split("cpu", ","))
 
 	sv.pprofInit()
 	time.Sleep(1 * time.Second)

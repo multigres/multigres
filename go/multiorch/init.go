@@ -93,15 +93,15 @@ func (mo *MultiOrch) Init() {
 
 	logger.Info("multiorch starting up",
 		"cell", mo.cell.Get(),
-		"http_port", mo.senv.HTTPPort.Get(),
+		"http_port", mo.senv.GetHTTPPort(),
 		"grpc_port", mo.grpcServer.Port(),
 	)
 
 	// Create MultiOrch instance for topo registration
 	// TODO(sougou): Is serviceID needed? It's sent as empty string for now.
-	multiorch := topo.NewMultiOrch("", mo.cell.Get(), mo.senv.Hostname.Get())
+	multiorch := topo.NewMultiOrch("", mo.cell.Get(), mo.senv.GetHostname())
 	multiorch.PortMap["grpc"] = int32(mo.grpcServer.Port())
-	multiorch.PortMap["http"] = int32(mo.senv.HTTPPort.Get())
+	multiorch.PortMap["http"] = int32(mo.senv.GetHTTPPort())
 
 	mo.tr = toporeg.Register(
 		func(ctx context.Context) error { return mo.ts.RegisterMultiOrch(ctx, multiorch, true) },

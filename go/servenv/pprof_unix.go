@@ -28,7 +28,7 @@ import (
 )
 
 func (sv *ServEnv) pprofInit() {
-	prof, err := sv.parseProfileFlag(sv.pprofFlag)
+	prof, err := sv.parseProfileFlag(sv.pprofFlag.Get())
 	if err != nil {
 		slog.Error("error parsing pprof flags", "err", err)
 		os.Exit(1)
