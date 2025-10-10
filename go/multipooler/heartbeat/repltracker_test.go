@@ -42,12 +42,8 @@ func TestReplTrackerMakePrimary(t *testing.T) {
 	shardID := []byte("test-shard")
 	poolerID := "test-pooler"
 
-	rt := NewReplTracker(sqlDB, logger, shardID, poolerID)
+	rt := NewReplTracker(sqlDB, logger, shardID, poolerID, 250)
 	defer rt.Close()
-
-	// Use shorter interval for testing
-	rt.hw.interval = 250 * time.Millisecond
-	rt.hw.ticks.SetInterval(250 * time.Millisecond)
 
 	assert.False(t, rt.IsPrimary())
 	assert.False(t, rt.hw.IsOpen())
@@ -87,12 +83,8 @@ func TestReplTrackerMakeNonPrimary(t *testing.T) {
 	shardID := []byte("test-shard")
 	poolerID := "test-pooler"
 
-	rt := NewReplTracker(sqlDB, logger, shardID, poolerID)
+	rt := NewReplTracker(sqlDB, logger, shardID, poolerID, 250)
 	defer rt.Close()
-
-	// Use shorter interval for testing
-	rt.hw.interval = 250 * time.Millisecond
-	rt.hw.ticks.SetInterval(250 * time.Millisecond)
 
 	rt.MakePrimary()
 	assert.True(t, rt.IsPrimary())
@@ -130,12 +122,8 @@ func TestReplTrackerEnableHeartbeat(t *testing.T) {
 	shardID := []byte("test-shard")
 	poolerID := "test-pooler"
 
-	rt := NewReplTracker(sqlDB, logger, shardID, poolerID)
+	rt := NewReplTracker(sqlDB, logger, shardID, poolerID, 250)
 	defer rt.Close()
-
-	// Use shorter interval for testing
-	rt.hw.interval = 250 * time.Millisecond
-	rt.hw.ticks.SetInterval(250 * time.Millisecond)
 
 	rt.hw.Open()
 	defer rt.hw.Close()
@@ -188,12 +176,10 @@ func TestReplTrackerMakePrimaryAndNonPrimary(t *testing.T) {
 	shardID := []byte("test-shard")
 	poolerID := "test-pooler"
 
-	rt := NewReplTracker(sqlDB, logger, shardID, poolerID)
+	rt := NewReplTracker(sqlDB, logger, shardID, poolerID, 250)
 	defer rt.Close()
 
 	// Use shorter intervals for testing
-	rt.hw.interval = 250 * time.Millisecond
-	rt.hw.ticks.SetInterval(250 * time.Millisecond)
 	rt.hr.interval = 250 * time.Millisecond
 	rt.hr.ticks.SetInterval(250 * time.Millisecond)
 

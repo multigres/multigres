@@ -23,10 +23,11 @@ import (
 
 // Config holds configuration for the MultiPoolerManager
 type Config struct {
-	SocketFilePath string
-	PoolerDir      string
-	PgPort         int
-	Database       string
-	TopoClient     topo.Store
-	ServiceID      *clustermetadatapb.ID
+	SocketFilePath      string
+	PoolerDir           string
+	PgPort              int
+	Database            string
+	TopoClient          topo.Store
+	ServiceID           *clustermetadatapb.ID
+	HeartbeatIntervalMs int
 }
