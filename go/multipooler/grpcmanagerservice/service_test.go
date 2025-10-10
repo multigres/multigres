@@ -267,6 +267,22 @@ func TestManagerServiceMethods_ManagerNotReady(t *testing.T) {
 			},
 		},
 		{
+			name: "StartReplication",
+			method: func() error {
+				req := &multipoolermanagerdata.StartReplicationRequest{}
+				_, err := svc.StartReplication(ctx, req)
+				return err
+			},
+		},
+		{
+			name: "StopReplication",
+			method: func() error {
+				req := &multipoolermanagerdata.StopReplicationRequest{}
+				_, err := svc.StopReplication(ctx, req)
+				return err
+			},
+		},
+		{
 			name: "StopReplicationAndGetStatus",
 			method: func() error {
 				req := &multipoolermanagerdata.StopReplicationAndGetStatusRequest{}
