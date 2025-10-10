@@ -66,6 +66,7 @@ generate: parser
 # Build Go binaries only
 build:
 	mkdir -p bin/
+<<<<<<< HEAD
 	cp external/pico/pico.* go/common/web/templates/css/
 	go build -o bin/multigateway ./go/cmd/multigateway
 	go build -o bin/multipooler ./go/cmd/multipooler
@@ -73,6 +74,15 @@ build:
 	go build -o bin/multiorch ./go/cmd/multiorch
 	go build -o bin/multigres ./go/cmd/multigres
 	go build -o bin/multiadmin ./go/cmd/multiadmin
+=======
+	cp external/pico/pico.* go/web/templates/css/
+	CGO_ENABLED=0 go build -ldflags="-w -s" -o bin/multigateway ./go/cmd/multigateway
+	CGO_ENABLED=0 go build -ldflags="-w -s" -o bin/multipooler ./go/cmd/multipooler
+	CGO_ENABLED=0 go build -ldflags="-w -s" -o bin/pgctld ./go/cmd/pgctld
+	CGO_ENABLED=0 go build -ldflags="-w -s" -o bin/multiorch ./go/cmd/multiorch
+	CGO_ENABLED=0 go build -ldflags="-w -s" -o bin/multigres ./go/cmd/multigres
+	CGO_ENABLED=0 go build -ldflags="-w -s" -o bin/multiadmin ./go/cmd/multiadmin
+>>>>>>> 212e3ed (Fixing linter issues and moving the build logic to the makefile)
 
 # Build everything (proto + parser + binaries)
 build-all: proto parser build

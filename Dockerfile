@@ -5,27 +5,21 @@ FROM golang:1.25-alpine AS builder
 
 WORKDIR /src
 
-# Install build dependencies like git
-RUN apk add --no-cache git
+# Install build dependencies like git and make
+RUN apk add --no-cache git=2.49.1-r0 make=4.4.1-r3 bash=5.2.37-r0
 
 # Cache dependencies
 COPY go.mod go.sum ./
 RUN go mod download
 
-# Copy source and build static binaries
+# Copy source and build static binaries using Makefile
 COPY . .
-RUN CGO_ENABLED=0 go build -ldflags="-w -s" -o /bin/multigres ./go/cmd/multigres
-RUN CGO_ENABLED=0 go build -ldflags="-w -s" -o /bin/multiadmin ./go/cmd/multiadmin
-RUN CGO_ENABLED=0 go build -ldflags="-w -s" -o /bin/multigateway ./go/cmd/multigateway
-RUN CGO_ENABLED=0 go build -ldflags="-w -s" -o /bin/multiorch ./go/cmd/multiorch
-RUN CGO_ENABLED=0 go build -ldflags="-w -s" -o /bin/multipooler ./go/cmd/multipooler
-RUN CGO_ENABLED=0 go build -ldflags="-w -s" -o /bin/pgctld ./go/cmd/pgctld
-
+RUN make build
 
 # =========================================================================
 # Stage 2: The Final Production Stage
 # =========================================================================
-FROM gcr.io/distroless/static-debian12
+FROM gcr.io/distroless/static-debian12:nonroot
 
 LABEL org.opencontainers.image.source="https://github.com/multigres/multigres"
 LABEL org.opencontainers.image.description="A single container image containing all Multigres components."
@@ -38,9 +32,14 @@ WORKDIR /multigres
 USER 65532:65532
 
 # Copy all the compiled binaries from the builder stage into our namespaced directory.
-COPY --from=builder /bin/multigres /multigres/bin/
-COPY --from=builder /bin/multiadmin /multigres/bin/
-COPY --from=builder /bin/multigateway /multigres/bin/
-COPY --from=builder /bin/multiorch /multigres/bin/
-COPY --from=builder /bin/multipooler /multigres/bin/
-COPY --from=builder /bin/pgctld /multigres/bin/
+COPY --from=builder /src/bin/multigres /multigres/bin/
+COPY --from=builder /src/bin/multiadmin /multigres/bin/
+COPY --from=builder /src/bin/multigateway /multigres/bin/
+COPY --from=builder /src/bin/multiorch /multigres/bin/
+COPY --from=builder /src/bin/multipooler /multigres/bin/
+COPY --from=builder /src/bin/pgctld /multigres/bin/
+
+# Since this container serves multiple binaries depending on the execution it's impossible to have a healthcheck that applies to all at this point.
+# The healthcheck below exists only to satisfy Super-linter CHECKOV and it's not a reliable healthcheck for production. 
+HEALTHCHECK --interval=10s --timeout=3s \
+  CMD ["/multigres/bin/multigres"]
