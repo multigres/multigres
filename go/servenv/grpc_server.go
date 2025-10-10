@@ -302,7 +302,6 @@ func (g *GrpcServer) Create() {
 		slog.Info("GRPC is not enabled (no grpc-port or socket-file set), skipping gRPC server creation")
 		return
 	}
-	g.serveSocketFile()
 
 	var opts []grpc.ServerOption
 	if g.cert.Get() != "" && g.key.Get() != "" {

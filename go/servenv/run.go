@@ -35,6 +35,7 @@ func (sv *ServEnv) Run(bindAddress string, port int, grpcServer *GrpcServer) {
 	grpcServer.Create()
 	sv.FireRunHooks()
 	grpcServer.Serve(sv)
+	grpcServer.serveSocketFile()
 
 	l, err := net.Listen("tcp", net.JoinHostPort(bindAddress, strconv.Itoa(port)))
 	if err != nil {
