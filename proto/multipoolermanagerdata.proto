@@ -18,6 +18,7 @@ package multipoolermanagerdata;
 
 import "clustermetadata.proto";
 import "google/protobuf/duration.proto";
+import "pgctldservice.proto";
 
 option go_package = "github.com/multigres/multigres/go/pb/multipoolermanagerdata";
 
@@ -58,21 +59,6 @@ message StartReplicationRequest {
 message StartReplicationResponse {
 }
 
-// SetReadOnly makes the PostgreSQL instance read-only
-message SetReadOnlyRequest {
-}
-
-message SetReadOnlyResponse {
-}
-
-// IsReadOnly checks if PostgreSQL instance is in read-only mode
-message IsReadOnlyRequest {
-}
-
-message IsReadOnlyResponse {
-  // Whether the instance is in read-only mode
-  bool read_only = 1;
-}
 
 // SetPrimaryConnInfo sets the primary connection info for a standby server
 message SetPrimaryConnInfoRequest {
@@ -82,14 +68,17 @@ message SetPrimaryConnInfoRequest {
   // Primary server port
   int32 port = 2;
 
-  // Heartbeat interval
-  google.protobuf.Duration heartbeat_interval = 3;
-
   // Whether to stop replication before making changes
-  bool stop_replication_before = 4;
+  bool stop_replication_before = 3;
 
   // Whether to start replication after making changes
-  bool start_replication_after = 5;
+  bool start_replication_after = 4;
+
+  // Current term for consensus (used by MultiOrch during initialization)
+  int64 current_term = 5;
+
+  // Force the operation even if the term doesn't match
+  bool force = 6;
 }
 
 message SetPrimaryConnInfoResponse {
@@ -265,4 +254,13 @@ message StatusResponse {
 
   // Error message if state is error
   string error_message = 2;
+}
+
+// SetTerm sets the consensus term information
+message SetTermRequest {
+  // Consensus term information to set
+  pgctldservice.ConsensusTerm term = 1;
+}
+
+message SetTermResponse {
 }

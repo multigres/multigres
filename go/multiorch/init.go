@@ -17,60 +17,108 @@ package multiorch
 
 import (
 	"context"
-	"log/slog"
 
+	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 
 	"github.com/multigres/multigres/go/clustermetadata/topo"
 	"github.com/multigres/multigres/go/clustermetadata/toporeg"
 	"github.com/multigres/multigres/go/servenv"
+	"github.com/multigres/multigres/go/viperutil"
 )
 
-var (
-	cell string
+type MultiOrch struct {
+	cell viperutil.Value[string]
+	// grpcServer is the grpc server
+	grpcServer *servenv.GrpcServer
+	// senv is the serving environment
+	senv *servenv.ServEnv
+	// topoConfig holds topology configuration
+	topoConfig   *topo.TopoConfig
+	ts           topo.Store
+	tr           *toporeg.TopoReg
+	serverStatus Status
+}
 
-	ts     topo.Store
-	logger *slog.Logger
+func (mo *MultiOrch) CobraPreRunE(cmd *cobra.Command) error {
+	return mo.senv.CobraPreRunE(cmd)
+}
 
-	tr *toporeg.TopoReg
-)
+func (mo *MultiOrch) RunDefault() {
+	mo.senv.RunDefault(mo.grpcServer)
+}
 
 // Register flags that are specific to multiorch.
-func RegisterFlags(fs *pflag.FlagSet) {
-	fs.StringVar(&cell, "cell", cell, "cell to use")
+func (mo *MultiOrch) RegisterFlags(fs *pflag.FlagSet) {
+	fs.String("cell", mo.cell.Default(), "cell to use")
+	viperutil.BindFlags(fs, mo.cell)
+	mo.senv.RegisterFlags(fs)
+	mo.grpcServer.RegisterFlags(fs)
+	mo.topoConfig.RegisterFlags(fs)
+}
+
+func NewMultiOrch() *MultiOrch {
+	return &MultiOrch{
+		cell: viperutil.Configure("cell", viperutil.Options[string]{
+			Default:  "",
+			FlagName: "cell",
+			Dynamic:  false,
+			EnvVars:  []string{"MT_CELL"},
+		}),
+		grpcServer: servenv.NewGrpcServer(),
+		senv:       servenv.NewServEnv(),
+		topoConfig: topo.NewTopoConfig(),
+		serverStatus: Status{
+			Title: "Multiorch",
+			Links: []Link{
+				{"Config", "Server configuration details", "/config"},
+				{"Live", "URL for liveness check", "/live"},
+				{"Ready", "URL for readiness check", "/ready"},
+			},
+		},
+	}
 }
 
 // Init initializes the multiorch. If any services fail to start,
 // or if some connections fail, it launches goroutines that retry
 // until successful.
-func Init() {
-	logger = servenv.GetLogger()
-	ts = topo.Open()
+func (mo *MultiOrch) Init() {
+	mo.senv.Init()
+	// Get the configured logger
+	logger := mo.senv.GetLogger()
+	mo.ts = mo.topoConfig.Open()
 
 	// This doesn't change
-	serverStatus.Cell = cell
+	mo.serverStatus.Cell = mo.cell.Get()
 
 	logger.Info("multiorch starting up",
-		"cell", cell,
-		"http_port", servenv.HTTPPort(),
-		"grpc_port", servenv.GRPCPort(),
+		"cell", mo.cell.Get(),
+		"http_port", mo.senv.GetHTTPPort(),
+		"grpc_port", mo.grpcServer.Port(),
 	)
 
 	// Create MultiOrch instance for topo registration
 	// TODO(sougou): Is serviceID needed? It's sent as empty string for now.
-	multiorch := topo.NewMultiOrch("", cell, servenv.Hostname)
-	multiorch.PortMap["grpc"] = int32(servenv.GRPCPort())
-	multiorch.PortMap["http"] = int32(servenv.HTTPPort())
+	multiorch := topo.NewMultiOrch("", mo.cell.Get(), mo.senv.GetHostname())
+	multiorch.PortMap["grpc"] = int32(mo.grpcServer.Port())
+	multiorch.PortMap["http"] = int32(mo.senv.GetHTTPPort())
 
-	tr = toporeg.Register(
-		func(ctx context.Context) error { return ts.RegisterMultiOrch(ctx, multiorch, true) },
-		func(ctx context.Context) error { return ts.UnregisterMultiOrch(ctx, multiorch.Id) },
-		func(s string) { serverStatus.InitError = s },
+	mo.tr = toporeg.Register(
+		func(ctx context.Context) error { return mo.ts.RegisterMultiOrch(ctx, multiorch, true) },
+		func(ctx context.Context) error { return mo.ts.UnregisterMultiOrch(ctx, multiorch.Id) },
+		func(s string) { mo.serverStatus.InitError = s },
 	)
+
+	mo.senv.HTTPHandleFunc("/", mo.getHandleIndex())
+	mo.senv.HTTPHandleFunc("/ready", mo.getHandleReady())
+
+	mo.senv.OnClose(func() {
+		mo.Shutdown()
+	})
 }
 
-func Shutdown() {
-	logger.Info("multiorch shutting down")
-	tr.Unregister()
-	ts.Close()
+func (mo *MultiOrch) Shutdown() {
+	mo.senv.GetLogger().Info("multiorch shutting down")
+	mo.tr.Unregister()
+	mo.ts.Close()
 }

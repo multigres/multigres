@@ -18,6 +18,7 @@ import (
 	"context"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -27,8 +28,11 @@ import (
 	"github.com/multigres/multigres/go/clustermetadata/topo"
 	"github.com/multigres/multigres/go/clustermetadata/topo/memorytopo"
 	"github.com/multigres/multigres/go/mterrors"
+	"github.com/multigres/multigres/go/servenv"
+
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
+	pgctldpb "github.com/multigres/multigres/go/pb/pgctldservice"
 )
 
 func TestManagerState_InitialState(t *testing.T) {
@@ -64,6 +68,9 @@ func TestManagerState_SuccessfulLoad(t *testing.T) {
 	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
 	defer ts.Close()
 
+	// Create temp directory for pooler-dir
+	poolerDir := t.TempDir()
+
 	// Create the multipooler in topology
 	serviceID := &clustermetadatapb.ID{
 		Component: clustermetadatapb.ID_MULTIPOOLER,
@@ -83,13 +90,15 @@ func TestManagerState_SuccessfulLoad(t *testing.T) {
 	config := &Config{
 		TopoClient: ts,
 		ServiceID:  serviceID,
+		PoolerDir:  poolerDir,
 	}
 
 	manager := NewMultiPoolerManager(logger, config)
 	defer manager.Close()
 
-	// Start the async loader
+	// Start both async loaders (topo and consensus term)
 	go manager.loadMultiPoolerFromTopo()
+	go manager.loadConsensusTermFromDisk()
 
 	// Wait for the state to become Ready
 	require.Eventually(t, func() bool {
@@ -194,6 +203,9 @@ func TestManagerState_RetryUntilSuccess(t *testing.T) {
 	ts, factory := memorytopo.NewServerAndFactory(ctx, "zone1")
 	defer ts.Close()
 
+	// Create temp directory for pooler-dir
+	poolerDir := t.TempDir()
+
 	// Create the multipooler in topology
 	serviceID := &clustermetadatapb.ID{
 		Component: clustermetadatapb.ID_MULTIPOOLER,
@@ -218,13 +230,15 @@ func TestManagerState_RetryUntilSuccess(t *testing.T) {
 	config := &Config{
 		TopoClient: ts,
 		ServiceID:  serviceID,
+		PoolerDir:  poolerDir,
 	}
 
 	manager := NewMultiPoolerManager(logger, config)
 	defer manager.Close()
 
-	// Start the async loader
+	// Start both async loaders (topo and consensus term)
 	go manager.loadMultiPoolerFromTopo()
+	go manager.loadConsensusTermFromDisk()
 
 	// Wait for the state to become Ready after retries
 	require.Eventually(t, func() bool {
@@ -269,6 +283,130 @@ func TestManagerState_NilServiceID(t *testing.T) {
 	assert.Contains(t, err.Error(), "ServiceID cannot be nil")
 }
 
+func TestValidateAndUpdateTerm(t *testing.T) {
+	ctx := context.Background()
+	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+
+	serviceID := &clustermetadatapb.ID{
+		Component: clustermetadatapb.ID_MULTIPOOLER,
+		Cell:      "zone1",
+		Name:      "test-service",
+	}
+
+	tests := []struct {
+		name          string
+		currentTerm   int64
+		requestTerm   int64
+		force         bool
+		expectError   bool
+		expectedCode  mtrpcpb.Code
+		errorContains string
+	}{
+		{
+			name:        "Equal term should accept",
+			currentTerm: 5,
+			requestTerm: 5,
+			force:       false,
+			expectError: false,
+		},
+		{
+			name:        "Higher term should update and accept",
+			currentTerm: 5,
+			requestTerm: 10,
+			force:       false,
+			expectError: false,
+		},
+		{
+			name:          "Lower term should reject",
+			currentTerm:   10,
+			requestTerm:   5,
+			force:         false,
+			expectError:   true,
+			expectedCode:  mtrpcpb.Code_FAILED_PRECONDITION,
+			errorContains: "consensus term too old",
+		},
+		{
+			name:        "Force flag bypasses validation",
+			currentTerm: 10,
+			requestTerm: 5,
+			force:       true,
+			expectError: false,
+		},
+		{
+			name:          "Zero cached term rejects (uninitialized)",
+			currentTerm:   0,
+			requestTerm:   5,
+			force:         false,
+			expectError:   true,
+			expectedCode:  mtrpcpb.Code_FAILED_PRECONDITION,
+			errorContains: "not initialized",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
+			defer ts.Close()
+
+			// Create temp directory for pooler-dir
+			poolerDir := t.TempDir()
+
+			// Create a minimal data directory structure to satisfy IsDataDirInitialized check
+			dataDir := postgresDataDir(poolerDir)
+			require.NoError(t, os.MkdirAll(dataDir, 0o755))
+			require.NoError(t, os.WriteFile(filepath.Join(dataDir, "PG_VERSION"), []byte("15\n"), 0o644))
+
+			// Set initial consensus term on disk if currentTerm > 0
+			if tt.currentTerm > 0 {
+				initialTerm := &pgctldpb.ConsensusTerm{
+					CurrentTerm: tt.currentTerm,
+				}
+				require.NoError(t, SetTerm(poolerDir, initialTerm))
+			}
+
+			multipooler := &clustermetadatapb.MultiPooler{
+				Id:            serviceID,
+				Database:      "testdb",
+				Hostname:      "localhost",
+				PortMap:       map[string]int32{"grpc": 8080},
+				Type:          clustermetadatapb.PoolerType_PRIMARY,
+				ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
+			}
+			require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
+
+			config := &Config{
+				TopoClient: ts,
+				ServiceID:  serviceID,
+				PoolerDir:  poolerDir,
+			}
+			manager := NewMultiPoolerManager(logger, config)
+			defer manager.Close()
+
+			// Start and wait for ready
+			senv := servenv.NewServEnv()
+			go manager.Start(senv)
+			require.Eventually(t, func() bool {
+				return manager.GetState() == ManagerStateReady
+			}, 5*time.Second, 100*time.Millisecond, "Manager should reach Ready state")
+
+			// Call validateAndUpdateTerm
+			err := manager.validateAndUpdateTerm(ctx, tt.requestTerm, tt.force)
+
+			if tt.expectError {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.errorContains)
+
+				if tt.expectedCode != 0 {
+					code := mterrors.Code(err)
+					assert.Equal(t, tt.expectedCode, code)
+				}
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
 func TestPrimaryPosition(t *testing.T) {
 	ctx := context.Background()
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
@@ -306,6 +444,9 @@ func TestPrimaryPosition(t *testing.T) {
 			ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
 			defer ts.Close()
 
+			// Create temp directory for pooler-dir
+			poolerDir := t.TempDir()
+
 			multipooler := &clustermetadatapb.MultiPooler{
 				Id:            serviceID,
 				Database:      "testdb",
@@ -319,12 +460,14 @@ func TestPrimaryPosition(t *testing.T) {
 			config := &Config{
 				TopoClient: ts,
 				ServiceID:  serviceID,
+				PoolerDir:  poolerDir,
 			}
 			manager := NewMultiPoolerManager(logger, config)
 			defer manager.Close()
 
 			// Start and wait for ready
-			go manager.Start()
+			senv := servenv.NewServEnv()
+			go manager.Start(senv)
 			require.Eventually(t, func() bool {
 				return manager.GetState() == ManagerStateReady
 			}, 5*time.Second, 100*time.Millisecond, "Manager should reach Ready state")

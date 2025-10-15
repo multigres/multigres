@@ -175,13 +175,16 @@ func validateConfig(config *MultigresConfig) error {
 	return nil
 }
 
-var InitCommand = &cobra.Command{
-	Use:   "init",
-	Short: "Create a local cluster configuration",
-	Long:  "Initialize a new local Multigres cluster configuration that can be used with 'multigres cluster up'.",
-	RunE:  runInit,
-}
+// AddInitCommand adds the init subcommand to the cluster command
+func AddInitCommand(clusterCmd *cobra.Command) {
+	initCmd := &cobra.Command{
+		Use:   "init",
+		Short: "Create a local cluster configuration",
+		Long:  "Initialize a new local Multigres cluster configuration that can be used with 'multigres cluster up'.",
+		RunE:  runInit,
+	}
 
-func init() {
-	InitCommand.Flags().String("provisioner", "local", "Provisioner to use (only 'local' is supported)")
+	initCmd.Flags().String("provisioner", "local", "Provisioner to use (only 'local' is supported)")
+
+	clusterCmd.AddCommand(initCmd)
 }

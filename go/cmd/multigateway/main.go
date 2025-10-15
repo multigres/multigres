@@ -21,37 +21,36 @@ import (
 	"os"
 
 	"github.com/multigres/multigres/go/multigateway"
-	"github.com/multigres/multigres/go/servenv"
 
 	"github.com/spf13/cobra"
 )
 
-var Main = &cobra.Command{
-	Use:     "multigateway",
-	Short:   "Multigateway is a stateless proxy responsible for accepting requests from applications and routing them to the appropriate multipooler server(s) for query execution. It speaks both the PostgresSQL Protocol and a gRPC protocol.",
-	Long:    "Multigateway is a stateless proxy responsible for accepting requests from applications and routing them to the appropriate multipooler server(s) for query execution. It speaks both the PostgresSQL Protocol and a gRPC protocol.",
-	Args:    cobra.NoArgs,
-	PreRunE: servenv.CobraPreRunE,
-	RunE:    run,
-}
-
 func main() {
-	if err := Main.Execute(); err != nil {
+	mg := multigateway.NewMultiGateway()
+
+	main := &cobra.Command{
+		Use:   "multigateway",
+		Short: "Multigateway is a stateless proxy responsible for accepting requests from applications and routing them to the appropriate multipooler server(s) for query execution. It speaks both the PostgresSQL Protocol and a gRPC protocol.",
+		Long:  "Multigateway is a stateless proxy responsible for accepting requests from applications and routing them to the appropriate multipooler server(s) for query execution. It speaks both the PostgresSQL Protocol and a gRPC protocol.",
+		Args:  cobra.NoArgs,
+		PreRunE: func(cmd *cobra.Command, args []string) error {
+			return mg.CobraPreRunE(cmd)
+		},
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return run(mg)
+		},
+	}
+
+	mg.RegisterFlags(main.Flags())
+
+	if err := main.Execute(); err != nil {
 		slog.Error(err.Error())
 		os.Exit(1)
 	}
 }
 
-func run(cmd *cobra.Command, args []string) error {
-	servenv.Init()
-	servenv.OnRun(multigateway.Init)
-	servenv.OnClose(multigateway.Shutdown)
-	servenv.RunDefault()
-
+func run(mg *multigateway.MultiGateway) error {
+	mg.Init()
+	mg.RunDefault()
 	return nil
-}
-
-func init() {
-	servenv.OnParseFor("multigateway", multigateway.RegisterFlags)
-	servenv.RegisterServiceCmd(Main)
 }

@@ -30,4 +30,5 @@ type Config struct {
 	TopoClient          topo.Store
 	ServiceID           *clustermetadatapb.ID
 	HeartbeatIntervalMs int
+	PgctldAddr          string // Address of pgctld gRPC service
 }

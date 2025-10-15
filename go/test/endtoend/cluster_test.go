@@ -616,13 +616,13 @@ func TestMain(m *testing.M) {
 	// Run all tests
 	exitCode := m.Run()
 
-	// Clean up shared multipooler test resources
-	cleanupSharedResources()
-
 	// Clean up multigres binary after all tests if it was built
 	if multigresBinary != "" {
 		os.RemoveAll(filepath.Dir(multigresBinary))
 	}
+
+	// Clean up shared multipooler test infrastructure
+	cleanupSharedTestSetup()
 
 	// Exit with the test result code
 	os.Exit(exitCode)

@@ -35,8 +35,6 @@ const _ = grpc.SupportPackageIsVersion7
 
 const (
 	MultiPoolerManager_WaitForLSN_FullMethodName                      = "/multipoolermanager.MultiPoolerManager/WaitForLSN"
-	MultiPoolerManager_SetReadOnly_FullMethodName                     = "/multipoolermanager.MultiPoolerManager/SetReadOnly"
-	MultiPoolerManager_IsReadOnly_FullMethodName                      = "/multipoolermanager.MultiPoolerManager/IsReadOnly"
 	MultiPoolerManager_SetPrimaryConnInfo_FullMethodName              = "/multipoolermanager.MultiPoolerManager/SetPrimaryConnInfo"
 	MultiPoolerManager_StartReplication_FullMethodName                = "/multipoolermanager.MultiPoolerManager/StartReplication"
 	MultiPoolerManager_StopReplication_FullMethodName                 = "/multipoolermanager.MultiPoolerManager/StopReplication"
@@ -52,6 +50,7 @@ const (
 	MultiPoolerManager_UndoDemote_FullMethodName                      = "/multipoolermanager.MultiPoolerManager/UndoDemote"
 	MultiPoolerManager_Promote_FullMethodName                         = "/multipoolermanager.MultiPoolerManager/Promote"
 	MultiPoolerManager_Status_FullMethodName                          = "/multipoolermanager.MultiPoolerManager/Status"
+	MultiPoolerManager_SetTerm_FullMethodName                         = "/multipoolermanager.MultiPoolerManager/SetTerm"
 )
 
 // MultiPoolerManagerClient is the client API for MultiPoolerManager service.
@@ -60,10 +59,6 @@ const (
 type MultiPoolerManagerClient interface {
 	// WaitForLSN waits for PostgreSQL server to reach a specific LSN position
 	WaitForLSN(ctx context.Context, in *multipoolermanagerdata.WaitForLSNRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.WaitForLSNResponse, error)
-	// SetReadOnly makes the PostgreSQL instance read-only
-	SetReadOnly(ctx context.Context, in *multipoolermanagerdata.SetReadOnlyRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.SetReadOnlyResponse, error)
-	// IsReadOnly checks if PostgreSQL instance is in read-only mode
-	IsReadOnly(ctx context.Context, in *multipoolermanagerdata.IsReadOnlyRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.IsReadOnlyResponse, error)
 	// SetPrimaryConnInfo sets the primary connection info for a standby server
 	SetPrimaryConnInfo(ctx context.Context, in *multipoolermanagerdata.SetPrimaryConnInfoRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.SetPrimaryConnInfoResponse, error)
 	// StartReplication starts WAL replay on standby (calls pg_wal_replay_resume)
@@ -98,6 +93,8 @@ type MultiPoolerManagerClient interface {
 	Promote(ctx context.Context, in *multipoolermanagerdata.PromoteRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.PromoteResponse, error)
 	// Status gets the current status of the manager
 	Status(ctx context.Context, in *multipoolermanagerdata.StatusRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.StatusResponse, error)
+	// SetTerm sets the consensus term information. Used by MultiOrch for consensus operations.
+	SetTerm(ctx context.Context, in *multipoolermanagerdata.SetTermRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.SetTermResponse, error)
 }
 
 type multiPoolerManagerClient struct {
@@ -111,24 +108,6 @@ func NewMultiPoolerManagerClient(cc grpc.ClientConnInterface) MultiPoolerManager
 func (c *multiPoolerManagerClient) WaitForLSN(ctx context.Context, in *multipoolermanagerdata.WaitForLSNRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.WaitForLSNResponse, error) {
 	out := new(multipoolermanagerdata.WaitForLSNResponse)
 	err := c.cc.Invoke(ctx, MultiPoolerManager_WaitForLSN_FullMethodName, in, out, opts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *multiPoolerManagerClient) SetReadOnly(ctx context.Context, in *multipoolermanagerdata.SetReadOnlyRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.SetReadOnlyResponse, error) {
-	out := new(multipoolermanagerdata.SetReadOnlyResponse)
-	err := c.cc.Invoke(ctx, MultiPoolerManager_SetReadOnly_FullMethodName, in, out, opts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *multiPoolerManagerClient) IsReadOnly(ctx context.Context, in *multipoolermanagerdata.IsReadOnlyRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.IsReadOnlyResponse, error) {
-	out := new(multipoolermanagerdata.IsReadOnlyResponse)
-	err := c.cc.Invoke(ctx, MultiPoolerManager_IsReadOnly_FullMethodName, in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -270,16 +249,21 @@ func (c *multiPoolerManagerClient) Status(ctx context.Context, in *multipoolerma
 	return out, nil
 }
 
+func (c *multiPoolerManagerClient) SetTerm(ctx context.Context, in *multipoolermanagerdata.SetTermRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.SetTermResponse, error) {
+	out := new(multipoolermanagerdata.SetTermResponse)
+	err := c.cc.Invoke(ctx, MultiPoolerManager_SetTerm_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // MultiPoolerManagerServer is the server API for MultiPoolerManager service.
 // All implementations must embed UnimplementedMultiPoolerManagerServer
 // for forward compatibility
 type MultiPoolerManagerServer interface {
 	// WaitForLSN waits for PostgreSQL server to reach a specific LSN position
 	WaitForLSN(context.Context, *multipoolermanagerdata.WaitForLSNRequest) (*multipoolermanagerdata.WaitForLSNResponse, error)
-	// SetReadOnly makes the PostgreSQL instance read-only
-	SetReadOnly(context.Context, *multipoolermanagerdata.SetReadOnlyRequest) (*multipoolermanagerdata.SetReadOnlyResponse, error)
-	// IsReadOnly checks if PostgreSQL instance is in read-only mode
-	IsReadOnly(context.Context, *multipoolermanagerdata.IsReadOnlyRequest) (*multipoolermanagerdata.IsReadOnlyResponse, error)
 	// SetPrimaryConnInfo sets the primary connection info for a standby server
 	SetPrimaryConnInfo(context.Context, *multipoolermanagerdata.SetPrimaryConnInfoRequest) (*multipoolermanagerdata.SetPrimaryConnInfoResponse, error)
 	// StartReplication starts WAL replay on standby (calls pg_wal_replay_resume)
@@ -314,6 +298,8 @@ type MultiPoolerManagerServer interface {
 	Promote(context.Context, *multipoolermanagerdata.PromoteRequest) (*multipoolermanagerdata.PromoteResponse, error)
 	// Status gets the current status of the manager
 	Status(context.Context, *multipoolermanagerdata.StatusRequest) (*multipoolermanagerdata.StatusResponse, error)
+	// SetTerm sets the consensus term information. Used by MultiOrch for consensus operations.
+	SetTerm(context.Context, *multipoolermanagerdata.SetTermRequest) (*multipoolermanagerdata.SetTermResponse, error)
 	mustEmbedUnimplementedMultiPoolerManagerServer()
 }
 
@@ -323,12 +309,6 @@ type UnimplementedMultiPoolerManagerServer struct {
 
 func (UnimplementedMultiPoolerManagerServer) WaitForLSN(context.Context, *multipoolermanagerdata.WaitForLSNRequest) (*multipoolermanagerdata.WaitForLSNResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method WaitForLSN not implemented")
-}
-func (UnimplementedMultiPoolerManagerServer) SetReadOnly(context.Context, *multipoolermanagerdata.SetReadOnlyRequest) (*multipoolermanagerdata.SetReadOnlyResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method SetReadOnly not implemented")
-}
-func (UnimplementedMultiPoolerManagerServer) IsReadOnly(context.Context, *multipoolermanagerdata.IsReadOnlyRequest) (*multipoolermanagerdata.IsReadOnlyResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method IsReadOnly not implemented")
 }
 func (UnimplementedMultiPoolerManagerServer) SetPrimaryConnInfo(context.Context, *multipoolermanagerdata.SetPrimaryConnInfoRequest) (*multipoolermanagerdata.SetPrimaryConnInfoResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SetPrimaryConnInfo not implemented")
@@ -375,6 +355,9 @@ func (UnimplementedMultiPoolerManagerServer) Promote(context.Context, *multipool
 func (UnimplementedMultiPoolerManagerServer) Status(context.Context, *multipoolermanagerdata.StatusRequest) (*multipoolermanagerdata.StatusResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Status not implemented")
 }
+func (UnimplementedMultiPoolerManagerServer) SetTerm(context.Context, *multipoolermanagerdata.SetTermRequest) (*multipoolermanagerdata.SetTermResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method SetTerm not implemented")
+}
 func (UnimplementedMultiPoolerManagerServer) mustEmbedUnimplementedMultiPoolerManagerServer() {}
 
 // UnsafeMultiPoolerManagerServer may be embedded to opt out of forward compatibility for this service.
@@ -402,42 +385,6 @@ func _MultiPoolerManager_WaitForLSN_Handler(srv interface{}, ctx context.Context
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(MultiPoolerManagerServer).WaitForLSN(ctx, req.(*multipoolermanagerdata.WaitForLSNRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _MultiPoolerManager_SetReadOnly_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(multipoolermanagerdata.SetReadOnlyRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(MultiPoolerManagerServer).SetReadOnly(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: MultiPoolerManager_SetReadOnly_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(MultiPoolerManagerServer).SetReadOnly(ctx, req.(*multipoolermanagerdata.SetReadOnlyRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _MultiPoolerManager_IsReadOnly_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(multipoolermanagerdata.IsReadOnlyRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(MultiPoolerManagerServer).IsReadOnly(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: MultiPoolerManager_IsReadOnly_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(MultiPoolerManagerServer).IsReadOnly(ctx, req.(*multipoolermanagerdata.IsReadOnlyRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -712,6 +659,24 @@ func _MultiPoolerManager_Status_Handler(srv interface{}, ctx context.Context, de
 	return interceptor(ctx, in, info, handler)
 }
 
+func _MultiPoolerManager_SetTerm_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(multipoolermanagerdata.SetTermRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MultiPoolerManagerServer).SetTerm(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MultiPoolerManager_SetTerm_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MultiPoolerManagerServer).SetTerm(ctx, req.(*multipoolermanagerdata.SetTermRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // MultiPoolerManager_ServiceDesc is the grpc.ServiceDesc for MultiPoolerManager service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -722,14 +687,6 @@ var MultiPoolerManager_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "WaitForLSN",
 			Handler:    _MultiPoolerManager_WaitForLSN_Handler,
-		},
-		{
-			MethodName: "SetReadOnly",
-			Handler:    _MultiPoolerManager_SetReadOnly_Handler,
-		},
-		{
-			MethodName: "IsReadOnly",
-			Handler:    _MultiPoolerManager_IsReadOnly_Handler,
 		},
 		{
 			MethodName: "SetPrimaryConnInfo",
@@ -790,6 +747,10 @@ var MultiPoolerManager_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Status",
 			Handler:    _MultiPoolerManager_Status_Handler,
+		},
+		{
+			MethodName: "SetTerm",
+			Handler:    _MultiPoolerManager_SetTerm_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

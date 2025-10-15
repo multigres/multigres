@@ -30,14 +30,14 @@ type managerService struct {
 	manager *manager.MultiPoolerManager
 }
 
-func init() {
+func RegisterPoolerManagerServices(senv *servenv.ServEnv, grpc *servenv.GrpcServer) {
 	// Register ourselves to be invoked when the manager starts
 	manager.RegisterPoolerManagerServices = append(manager.RegisterPoolerManagerServices, func(pm *manager.MultiPoolerManager) {
-		if servenv.GRPCCheckServiceMap("poolermanager") {
+		if grpc.CheckServiceMap("poolermanager", senv) {
 			srv := &managerService{
 				manager: pm,
 			}
-			multipoolermanagerpb.RegisterMultiPoolerManagerServer(servenv.GRPCServer, srv)
+			multipoolermanagerpb.RegisterMultiPoolerManagerServer(grpc.Server, srv)
 		}
 	})
 }
@@ -51,29 +51,15 @@ func (s *managerService) WaitForLSN(ctx context.Context, req *multipoolermanager
 	return &multipoolermanagerdata.WaitForLSNResponse{}, nil
 }
 
-// SetReadOnly makes the PostgreSQL instance read-only
-func (s *managerService) SetReadOnly(ctx context.Context, req *multipoolermanagerdata.SetReadOnlyRequest) (*multipoolermanagerdata.SetReadOnlyResponse, error) {
-	err := s.manager.SetReadOnly(ctx)
-	if err != nil {
-		return nil, err
-	}
-	return &multipoolermanagerdata.SetReadOnlyResponse{}, nil
-}
-
-// IsReadOnly checks if PostgreSQL instance is in read-only mode
-func (s *managerService) IsReadOnly(ctx context.Context, req *multipoolermanagerdata.IsReadOnlyRequest) (*multipoolermanagerdata.IsReadOnlyResponse, error) {
-	readOnly, err := s.manager.IsReadOnly(ctx)
-	if err != nil {
-		return nil, err
-	}
-	return &multipoolermanagerdata.IsReadOnlyResponse{
-		ReadOnly: readOnly,
-	}, nil
-}
-
 // SetPrimaryConnInfo sets the primary connection info for a standby server
 func (s *managerService) SetPrimaryConnInfo(ctx context.Context, req *multipoolermanagerdata.SetPrimaryConnInfoRequest) (*multipoolermanagerdata.SetPrimaryConnInfoResponse, error) {
-	err := s.manager.SetPrimaryConnInfo(ctx, req.Host, req.Port)
+	err := s.manager.SetPrimaryConnInfo(ctx,
+		req.Host,
+		req.Port,
+		req.StopReplicationBefore,
+		req.StartReplicationAfter,
+		req.CurrentTerm,
+		req.Force)
 	if err != nil {
 		return nil, err
 	}
@@ -206,4 +192,12 @@ func (s *managerService) Promote(ctx context.Context, req *multipoolermanagerdat
 // Status gets the current status of the manager
 func (s *managerService) Status(ctx context.Context, req *multipoolermanagerdata.StatusRequest) (*multipoolermanagerdata.StatusResponse, error) {
 	return s.manager.Status(ctx)
+}
+
+// SetTerm sets the consensus term information
+func (s *managerService) SetTerm(ctx context.Context, req *multipoolermanagerdata.SetTermRequest) (*multipoolermanagerdata.SetTermResponse, error) {
+	if err := s.manager.SetTerm(ctx, req.Term); err != nil {
+		return nil, err
+	}
+	return &multipoolermanagerdata.SetTermResponse{}, nil
 }

@@ -23,8 +23,11 @@ import (
 
 func TestGetDatabaseCommandFlags(t *testing.T) {
 	t.Run("name flag is required", func(t *testing.T) {
+		// Create the command
+		cmd := AddGetDatabaseCommand()
+
 		// Check that the name flag is marked as required
-		nameFlag := GetDatabaseCommand.Flag("name")
+		nameFlag := cmd.Flag("name")
 		assert.NotNil(t, nameFlag)
 
 		// Check if the flag is in the required flags list
@@ -37,15 +40,21 @@ func TestGetDatabaseCommandFlags(t *testing.T) {
 	})
 
 	t.Run("admin-server flag is optional", func(t *testing.T) {
+		// Create the command
+		cmd := AddGetDatabaseCommand()
+
 		// Check that the admin-server flag exists but is not required
-		adminServerFlag := GetDatabaseCommand.Flag("admin-server")
+		adminServerFlag := cmd.Flag("admin-server")
 		assert.NotNil(t, adminServerFlag)
 		assert.Equal(t, "", adminServerFlag.DefValue)
 	})
 
 	t.Run("command has correct metadata", func(t *testing.T) {
-		assert.Equal(t, "getdatabase", GetDatabaseCommand.Use)
-		assert.Equal(t, "Get information about a specific database", GetDatabaseCommand.Short)
-		assert.Contains(t, GetDatabaseCommand.Long, "Retrieve detailed information about a database")
+		// Create the command
+		cmd := AddGetDatabaseCommand()
+
+		assert.Equal(t, "getdatabase", cmd.Use)
+		assert.Equal(t, "Get information about a specific database", cmd.Short)
+		assert.Contains(t, cmd.Long, "Retrieve detailed information about a database")
 	})
 }

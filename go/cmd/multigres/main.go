@@ -22,7 +22,8 @@ import (
 )
 
 func main() {
-	if err := command.Root.Execute(); err != nil {
+	root := command.GetRootCommand()
+	if err := root.Execute(); err != nil {
 		os.Exit(1)
 	}
 }

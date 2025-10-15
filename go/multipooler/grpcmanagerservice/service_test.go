@@ -24,8 +24,10 @@ import (
 	"time"
 
 	"github.com/multigres/multigres/go/clustermetadata/topo/memorytopo"
+	"github.com/multigres/multigres/go/cmd/pgctld/testutil"
 	"github.com/multigres/multigres/go/mterrors"
 	"github.com/multigres/multigres/go/multipooler/manager"
+	"github.com/multigres/multigres/go/servenv"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -33,8 +35,6 @@ import (
 	clustermetadata "github.com/multigres/multigres/go/pb/clustermetadata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multipoolermanagerdata "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
-
-	durationpb "google.golang.org/protobuf/types/known/durationpb"
 )
 
 func TestManagerServiceMethods_NotImplemented(t *testing.T) {
@@ -42,6 +42,10 @@ func TestManagerServiceMethods_NotImplemented(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
 	defer ts.Close()
+
+	// Start mock pgctld server
+	pgctldAddr, cleanupPgctld := testutil.StartMockPgctldServer(t)
+	defer cleanupPgctld()
 
 	// Create the multipooler in topology so manager can reach ready state
 	serviceID := &clustermetadata.ID{
@@ -62,12 +66,14 @@ func TestManagerServiceMethods_NotImplemented(t *testing.T) {
 	config := &manager.Config{
 		TopoClient: ts,
 		ServiceID:  serviceID,
+		PgctldAddr: pgctldAddr,
 	}
 	pm := manager.NewMultiPoolerManager(logger, config)
 	defer pm.Close()
 
 	// Start the async loader
-	go pm.Start()
+	senv := servenv.NewServEnv()
+	go pm.Start(senv)
 
 	// Wait for the manager to become ready
 	require.Eventually(t, func() bool {
@@ -84,66 +90,6 @@ func TestManagerServiceMethods_NotImplemented(t *testing.T) {
 		expectedMethod string
 	}{
 		{
-			name: "WaitForLSN",
-			method: func() error {
-				req := &multipoolermanagerdata.WaitForLSNRequest{
-					TargetLsn: "0/1000000",
-					Timeout:   &durationpb.Duration{Seconds: 30},
-				}
-				_, err := svc.WaitForLSN(ctx, req)
-				return err
-			},
-			expectedMethod: "WaitForLSN",
-		},
-		{
-			name: "SetReadOnly",
-			method: func() error {
-				req := &multipoolermanagerdata.SetReadOnlyRequest{}
-				_, err := svc.SetReadOnly(ctx, req)
-				return err
-			},
-			expectedMethod: "SetReadOnly",
-		},
-		{
-			name: "IsReadOnly",
-			method: func() error {
-				req := &multipoolermanagerdata.IsReadOnlyRequest{}
-				_, err := svc.IsReadOnly(ctx, req)
-				return err
-			},
-			expectedMethod: "IsReadOnly",
-		},
-		{
-			name: "SetPrimaryConnInfo",
-			method: func() error {
-				req := &multipoolermanagerdata.SetPrimaryConnInfoRequest{
-					Host: "primary.example.com",
-					Port: 5432,
-				}
-				_, err := svc.SetPrimaryConnInfo(ctx, req)
-				return err
-			},
-			expectedMethod: "SetPrimaryConnInfo",
-		},
-		{
-			name: "StartReplication",
-			method: func() error {
-				req := &multipoolermanagerdata.StartReplicationRequest{}
-				_, err := svc.StartReplication(ctx, req)
-				return err
-			},
-			expectedMethod: "StartReplication",
-		},
-		{
-			name: "StopReplication",
-			method: func() error {
-				req := &multipoolermanagerdata.StopReplicationRequest{}
-				_, err := svc.StopReplication(ctx, req)
-				return err
-			},
-			expectedMethod: "StopReplication",
-		},
-		{
 			name: "ReplicationStatus",
 			method: func() error {
 				req := &multipoolermanagerdata.ReplicationStatusRequest{}
@@ -151,15 +97,6 @@ func TestManagerServiceMethods_NotImplemented(t *testing.T) {
 				return err
 			},
 			expectedMethod: "ReplicationStatus",
-		},
-		{
-			name: "ResetReplication",
-			method: func() error {
-				req := &multipoolermanagerdata.ResetReplicationRequest{}
-				_, err := svc.ResetReplication(ctx, req)
-				return err
-			},
-			expectedMethod: "ResetReplication",
 		},
 		{
 			name: "ConfigureSynchronousReplication",
@@ -281,33 +218,6 @@ func TestManagerServiceMethods_ManagerNotReady(t *testing.T) {
 		name   string
 		method func() error
 	}{
-		{
-			name: "WaitForLSN",
-			method: func() error {
-				req := &multipoolermanagerdata.WaitForLSNRequest{
-					TargetLsn: "0/1000000",
-					Timeout:   &durationpb.Duration{Seconds: 30},
-				}
-				_, err := svc.WaitForLSN(ctx, req)
-				return err
-			},
-		},
-		{
-			name: "SetReadOnly",
-			method: func() error {
-				req := &multipoolermanagerdata.SetReadOnlyRequest{}
-				_, err := svc.SetReadOnly(ctx, req)
-				return err
-			},
-		},
-		{
-			name: "IsReadOnly",
-			method: func() error {
-				req := &multipoolermanagerdata.IsReadOnlyRequest{}
-				_, err := svc.IsReadOnly(ctx, req)
-				return err
-			},
-		},
 		{
 			name: "SetPrimaryConnInfo",
 			method: func() error {

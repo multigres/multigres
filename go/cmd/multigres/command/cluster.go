@@ -20,19 +20,20 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var clusterCmd = &cobra.Command{
-	Use:   "cluster",
-	Short: "Manage cluster lifecycle",
-	Long:  "Commands for managing the Multigres cluster lifecycle including initialization, startup, shutdown, and status monitoring.",
-}
+// AddClusterCommand adds the cluster subcommand and its subcommands to the root command
+func AddClusterCommand(root *cobra.Command, mc *MultigresCommand) {
+	clusterCmd := &cobra.Command{
+		Use:   "cluster",
+		Short: "Manage cluster lifecycle",
+		Long:  "Commands for managing the Multigres cluster lifecycle including initialization, startup, shutdown, and status monitoring.",
+	}
 
-func init() {
 	// Register cluster subcommands
-	clusterCmd.AddCommand(cluster.InitCommand)
-	clusterCmd.AddCommand(cluster.StartCommand)
-	clusterCmd.AddCommand(cluster.StopCommand)
-	clusterCmd.AddCommand(cluster.StatusCommand)
+	cluster.AddInitCommand(clusterCmd)
+	cluster.AddStartCommand(clusterCmd)
+	cluster.AddStopCommand(clusterCmd)
+	cluster.AddStatusCommand(clusterCmd)
 
 	// Register cluster command with root
-	Root.AddCommand(clusterCmd)
+	root.AddCommand(clusterCmd)
 }

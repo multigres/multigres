@@ -47,7 +47,8 @@ func TestRunStatus(t *testing.T) {
 		r, w, _ := os.Pipe()
 		os.Stdout = w
 
-		cmd := Root
+		// Create a fresh root command for each test
+		cmd, _ := GetRootCommand()
 		cmd.SetArgs([]string{"status", "--pooler-dir", baseDir})
 		err := cmd.Execute()
 
@@ -88,16 +89,16 @@ func TestRunStatus(t *testing.T) {
 		assert.Contains(t, output, "PID:")
 		assert.Contains(t, output, "Port: 5432")
 	})
-}
 
-func TestRunStatusNoPoolerDir(t *testing.T) {
-	// Don't set pooler directory - should get an error
-	cmd := Root
-	cmd.SetArgs([]string{"status", "--pooler-dir", ""})
-	err := cmd.Execute()
+	// Test 4: No pooler directory - should get an error
+	t.Run("no_pooler_dir", func(t *testing.T) {
+		cmd, _ := GetRootCommand()
+		cmd.SetArgs([]string{"status", "--pooler-dir", ""})
+		err := cmd.Execute()
 
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "pooler-dir needs to be set")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "pooler-dir needs to be set")
+	})
 }
 
 func TestIsServerReady(t *testing.T) {

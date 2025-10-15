@@ -63,14 +63,39 @@ func (s *MultiPooler) connectDB() error {
 
 	s.logger.Info("Connected to PostgreSQL", "socket_path", s.config.SocketFilePath, "database", s.config.Database)
 
-	// Create the multigres sidecar schema if it doesn't exist
+	// Create the multigres sidecar schema if it doesn't exist, but only on primary databases
 	// Note: Manager also creates this, but poolerserver might connect first
-	s.logger.Info("Creating sidecar database")
-	if err := manager.CreateSidecarSchema(s.db); err != nil {
-		return fmt.Errorf("failed to create sidecar schema: %w", err)
+	ctx := context.Background()
+	isPrimary, err := s.isPrimary(ctx)
+	if err != nil {
+		s.logger.Error("Failed to check if database is primary", "error", err)
+		// Don't fail the connection if primary check fails
+	} else if isPrimary {
+		s.logger.Info("Creating sidecar schema on primary database")
+		if err := manager.CreateSidecarSchema(s.db); err != nil {
+			return fmt.Errorf("failed to create sidecar schema: %w", err)
+		}
+	} else {
+		s.logger.Info("Skipping sidecar schema creation on replica")
 	}
 
 	return nil
+}
+
+// isPrimary checks if the connected database is a primary (not in recovery)
+func (s *MultiPooler) isPrimary(ctx context.Context) (bool, error) {
+	if s.db == nil {
+		return false, fmt.Errorf("database connection not established")
+	}
+
+	var inRecovery bool
+	err := s.db.QueryRowContext(ctx, "SELECT pg_is_in_recovery()").Scan(&inRecovery)
+	if err != nil {
+		return false, fmt.Errorf("failed to query pg_is_in_recovery: %w", err)
+	}
+
+	// pg_is_in_recovery() returns true if standby, false if primary
+	return !inRecovery, nil
 }
 
 // Close closes the database connection
@@ -82,8 +107,8 @@ func (s *MultiPooler) Close() error {
 }
 
 // Start initializes the MultiPooler
-func (s *MultiPooler) Start() {
-	servenv.OnRun(func() {
+func (s *MultiPooler) Start(senv *servenv.ServEnv) {
+	senv.OnRun(func() {
 		s.logger.Info("MultiPooler started")
 
 		// Register all gRPC services that have registered themselves

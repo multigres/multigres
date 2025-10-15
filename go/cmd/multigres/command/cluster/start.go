@@ -20,7 +20,6 @@ import (
 	"strings"
 
 	"github.com/multigres/multigres/go/provisioner"
-	"github.com/multigres/multigres/go/servenv"
 
 	"github.com/spf13/cobra"
 )
@@ -116,8 +115,6 @@ func (s *ServiceSummary) PrintSummary() {
 
 // start handles the cluster up command
 func start(cmd *cobra.Command, args []string) error {
-	servenv.FireRunHooks()
-
 	fmt.Println("Multigres — Distributed Postgres made easy")
 	fmt.Println("=================================================================")
 	fmt.Println("✨ Bootstrapping your local Multigres cluster — this may take a few moments ✨")
@@ -178,13 +175,16 @@ func start(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-var StartCommand = &cobra.Command{
-	Use:   "start",
-	Short: "Start local cluster",
-	Long:  "Start a local Multigres cluster using the configuration created with 'multigres cluster init'.",
-	RunE:  start,
-}
+// AddStartCommand adds the start subcommand to the cluster command
+func AddStartCommand(clusterCmd *cobra.Command) {
+	startCmd := &cobra.Command{
+		Use:   "start",
+		Short: "Start local cluster",
+		Long:  "Start a local Multigres cluster using the configuration created with 'multigres cluster init'.",
+		RunE:  start,
+	}
 
-func init() {
 	// No additional flags needed - config-path is provided by viperutil via root command
+
+	clusterCmd.AddCommand(startCmd)
 }

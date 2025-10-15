@@ -19,7 +19,6 @@ import (
 	"fmt"
 
 	"github.com/multigres/multigres/go/provisioner"
-	"github.com/multigres/multigres/go/servenv"
 
 	"github.com/spf13/cobra"
 )
@@ -47,7 +46,6 @@ func teardownAllServices(ctx context.Context, provisionerName string, configPath
 
 // down handles the cluster down command
 func down(cmd *cobra.Command, args []string) error {
-	servenv.FireRunHooks()
 	fmt.Println("Stopping Multigres cluster...")
 
 	// Get the clean flag
@@ -89,13 +87,16 @@ func down(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-var StopCommand = &cobra.Command{
-	Use:   "stop",
-	Short: "Stop local cluster",
-	Long:  "Stop the local Multigres cluster. Use --clean to fully tear down all resources.",
-	RunE:  down,
-}
+// AddStopCommand adds the stop subcommand to the cluster command
+func AddStopCommand(clusterCmd *cobra.Command) {
+	stopCmd := &cobra.Command{
+		Use:   "stop",
+		Short: "Stop local cluster",
+		Long:  "Stop the local Multigres cluster. Use --clean to fully tear down all resources.",
+		RunE:  down,
+	}
 
-func init() {
-	StopCommand.Flags().Bool("clean", false, "Fully tear down all cluster resources")
+	stopCmd.Flags().Bool("clean", false, "Fully tear down all cluster resources")
+
+	clusterCmd.AddCommand(stopCmd)
 }
