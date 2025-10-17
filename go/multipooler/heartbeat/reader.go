@@ -19,12 +19,13 @@ package heartbeat
 import (
 	"context"
 	"database/sql"
-	"fmt"
 	"log/slog"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	"github.com/multigres/multigres/go/mterrors"
+	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	"github.com/multigres/multigres/go/timer"
 )
 
@@ -116,7 +117,7 @@ func (r *Reader) Status() (time.Duration, error) {
 
 	// Return an error if we didn't receive a heartbeat for more than two intervals
 	if !r.lastKnownTime.IsZero() && r.now().Sub(r.lastKnownTime) > 2*r.interval {
-		return 0, fmt.Errorf("no heartbeat received in over 2x the heartbeat interval")
+		return 0, mterrors.New(mtrpcpb.Code_UNAVAILABLE, "no heartbeat received in over 2x the heartbeat interval")
 	}
 
 	return r.lastKnownLag, nil
@@ -130,7 +131,7 @@ func (r *Reader) readHeartbeat() {
 
 	ts, err := r.fetchMostRecentHeartbeat(ctx)
 	if err != nil {
-		r.recordError(fmt.Errorf("failed to read most recent heartbeat: %w", err))
+		r.recordError(mterrors.Wrap(err, "failed to read most recent heartbeat"))
 		return
 	}
 
@@ -158,7 +159,7 @@ func (r *Reader) fetchMostRecentHeartbeat(ctx context.Context) (int64, error) {
 		"SELECT ts FROM multigres.heartbeat WHERE shard_id = $1",
 		r.shardID).Scan(&ts)
 	if err != nil {
-		return 0, fmt.Errorf("failed to fetch heartbeat: %w", err)
+		return 0, mterrors.Wrap(err, "failed to fetch heartbeat")
 	}
 	return ts, nil
 }

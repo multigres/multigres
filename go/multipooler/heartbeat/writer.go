@@ -25,6 +25,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/multigres/multigres/go/mterrors"
 	"github.com/multigres/multigres/go/timer"
 )
 
@@ -56,16 +57,20 @@ type Writer struct {
 // NewWriter creates a new heartbeat writer.
 //
 // We do not support on-demand or disabled heartbeats at this time.
-func NewWriter(db *sql.DB, logger *slog.Logger, shardID []byte, poolerID string) *Writer {
+func NewWriter(db *sql.DB, logger *slog.Logger, shardID []byte, poolerID string, intervalMs int) *Writer {
 	// TODO: use a connection pool when it's implemented
+	interval := time.Duration(intervalMs) * time.Millisecond
+	if intervalMs <= 0 {
+		interval = defaultHeartbeatInterval
+	}
 	w := &Writer{
 		db:       db,
 		logger:   logger,
 		shardID:  shardID,
 		poolerID: poolerID,
-		interval: defaultHeartbeatInterval,
+		interval: interval,
 		now:      time.Now,
-		ticks:    timer.NewTimer(defaultHeartbeatInterval),
+		ticks:    timer.NewTimer(interval),
 	}
 	w.writeConnID.Store(-1)
 	return w
@@ -169,7 +174,7 @@ func (w *Writer) write() error {
 	// TODO: get connection from pool when we have pools
 	conn, err := w.db.Conn(ctx)
 	if err != nil {
-		return fmt.Errorf("failed to get connection: %w", err)
+		return mterrors.Wrap(err, "failed to get connection")
 	}
 	defer conn.Close()
 
@@ -177,7 +182,7 @@ func (w *Writer) write() error {
 	var pid int64
 	err = conn.QueryRowContext(ctx, "SELECT pg_backend_pid()").Scan(&pid)
 	if err != nil {
-		return fmt.Errorf("failed to get backend pid: %w", err)
+		return mterrors.Wrap(err, "failed to get backend pid")
 	}
 	w.writeConnID.Store(pid)
 
@@ -192,7 +197,7 @@ func (w *Writer) write() error {
 		    ts = EXCLUDED.ts
 	`, w.shardID, w.poolerID, timestampNs)
 	if err != nil {
-		return fmt.Errorf("failed to write heartbeat: %w", err)
+		return mterrors.Wrap(err, "failed to write heartbeat")
 	}
 
 	return nil
@@ -240,7 +245,7 @@ func (w *Writer) killWrite() error {
 	// things simple and conservative, we only use pg_terminate_backend for now.
 	_, err := w.db.ExecContext(ctx, "SELECT pg_terminate_backend($1)", writeID)
 	if err != nil {
-		return fmt.Errorf("failed to terminate backend %d: %w", writeID, err)
+		return mterrors.Wrap(err, fmt.Sprintf("failed to terminate backend %d", writeID))
 	}
 
 	w.logger.Debug("Terminated write connection", "pid", writeID)

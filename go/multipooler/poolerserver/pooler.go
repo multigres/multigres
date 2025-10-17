@@ -21,9 +21,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
-	"time"
 
-	"github.com/multigres/multigres/go/multipooler/heartbeat"
 	"github.com/multigres/multigres/go/multipooler/manager"
 	querypb "github.com/multigres/multigres/go/pb/query"
 	"github.com/multigres/multigres/go/servenv"
@@ -31,10 +29,9 @@ import (
 
 // MultiPooler is the core pooler implementation
 type MultiPooler struct {
-	logger      *slog.Logger
-	config      *manager.Config
-	db          *sql.DB
-	replTracker *heartbeat.ReplTracker
+	logger *slog.Logger
+	config *manager.Config
+	db     *sql.DB
 }
 
 // NewMultiPooler creates a new multipooler instance
@@ -66,55 +63,20 @@ func (s *MultiPooler) connectDB() error {
 
 	s.logger.Info("Connected to PostgreSQL", "socket_path", s.config.SocketFilePath, "database", s.config.Database)
 
-	// Create the multigres sidecar schema if it doesn't exist
-	s.logger.Info("Creating sidecar database")
-	if err := s.createSidecarDB(); err != nil {
-		return fmt.Errorf("failed to create sidecar schema: %w", err)
-	}
-
-	// Start heartbeat tracking if not already started
-	if s.replTracker == nil {
-		s.logger.Info("Starting database heartbeat")
-		ctx := context.Background()
-		shardID := []byte("0") // default shard ID
-		// TODO: populate this with a unique ID for the pooler
-		poolerID := fmt.Sprintf("pooler-%d", s.config.PgPort)
-		if err := s.startHeartbeat(ctx, shardID, poolerID); err != nil {
-			s.logger.Error("Failed to start heartbeat", "error", err)
-			// Don't fail the connection if heartbeat fails
+	// Create the multigres sidecar schema if it doesn't exist, but only on primary databases
+	// Note: Manager also creates this, but poolerserver might connect first
+	ctx := context.Background()
+	isPrimary, err := s.isPrimary(ctx)
+	if err != nil {
+		s.logger.Error("Failed to check if database is primary", "error", err)
+		// Don't fail the connection if primary check fails
+	} else if isPrimary {
+		s.logger.Info("Creating sidecar schema on primary database")
+		if err := manager.CreateSidecarSchema(s.db); err != nil {
+			return fmt.Errorf("failed to create sidecar schema: %w", err)
 		}
-	}
-
-	return nil
-}
-
-// createSidecarDB creates the multigres sidecar schema if it doesn't exist
-func (s *MultiPooler) createSidecarDB() error {
-	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
-	defer cancel()
-	primary, err := s.isPrimary(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to check if database is primary: %w", err)
-	}
-	if !primary {
-		return nil
-	}
-
-	_, err = s.db.Exec("CREATE SCHEMA IF NOT EXISTS multigres")
-	if err != nil {
-		return fmt.Errorf("failed to create multigres schema: %w", err)
-	}
-
-	// Create the heartbeat table
-	_, err = s.db.Exec(`
-		CREATE TABLE IF NOT EXISTS multigres.heartbeat (
-			shard_id BYTEA PRIMARY KEY,
-			pooler_id TEXT NOT NULL,
-			ts BIGINT NOT NULL
-		)
-	`)
-	if err != nil {
-		return fmt.Errorf("failed to create heartbeat table: %w", err)
+	} else {
+		s.logger.Info("Skipping sidecar schema creation on replica")
 	}
 
 	return nil
@@ -136,33 +98,8 @@ func (s *MultiPooler) isPrimary(ctx context.Context) (bool, error) {
 	return !inRecovery, nil
 }
 
-// startHeartbeat starts the replication tracker and heartbeat writer if connected to a primary database
-func (s *MultiPooler) startHeartbeat(ctx context.Context, shardID []byte, poolerID string) error {
-	// Create the replication tracker
-	s.replTracker = heartbeat.NewReplTracker(s.db, s.logger, shardID, poolerID)
-
-	// Check if we're connected to a primary
-	isPrimary, err := s.isPrimary(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to check if database is primary: %w", err)
-	}
-
-	if isPrimary {
-		s.logger.Info("Starting heartbeat writer - connected to primary database")
-		s.replTracker.MakePrimary()
-	} else {
-		s.logger.Info("Not starting heartbeat writer - connected to standby database")
-		s.replTracker.MakeNonPrimary()
-	}
-
-	return nil
-}
-
 // Close closes the database connection
 func (s *MultiPooler) Close() error {
-	if s.replTracker != nil {
-		s.replTracker.Close()
-	}
 	if s.db != nil {
 		return s.db.Close()
 	}
