@@ -784,10 +784,10 @@ func (pm *MultiPoolerManager) setSynchronousCommit(ctx context.Context, synchron
 //
 //	FIRST 2 (standby1, standby2, standby3)
 //	ANY 1 (standby1, standby2)
+//
+// Note: Use '*' to match all connected standbys, or specify explicit standby application_name values
 func (pm *MultiPoolerManager) setSynchronousStandbyNames(ctx context.Context, synchronousMethod multipoolermanagerdata.SynchronousMethod, numSync int32, standbyNames []string) error {
-	// If the list is empty, do nothing
 	if len(standbyNames) == 0 {
-		pm.logger.Info("No standby names provided, skipping synchronous_standby_names configuration")
 		return nil
 	}
 
@@ -796,10 +796,16 @@ func (pm *MultiPoolerManager) setSynchronousStandbyNames(ctx context.Context, sy
 		numSync = 1
 	}
 
-	// Build the standby names list using strings.Join
-	standbyList := strings.Join(standbyNames, ", ")
+	// Quote each standby name with double quotes (required by PostgreSQL for names with special characters)
+	// This produces: "standby-name-1", "standby-name-2"
+	quotedNames := make([]string, len(standbyNames))
+	for i, name := range standbyNames {
+		quotedNames[i] = fmt.Sprintf(`"%s"`, name)
+	}
+	standbyList := strings.Join(quotedNames, ", ")
 
 	// Build the final value with method prefix
+	// This produces: FIRST 1 ("standby-1", "standby-2") or ANY 1 ("standby-1", "standby-2")
 	var standbyNamesValue string
 	switch synchronousMethod {
 	case multipoolermanagerdata.SynchronousMethod_SYNCHRONOUS_METHOD_FIRST:
@@ -812,7 +818,14 @@ func (pm *MultiPoolerManager) setSynchronousStandbyNames(ctx context.Context, sy
 	}
 
 	pm.logger.Info("Setting synchronous_standby_names", "value", standbyNamesValue)
-	_, err := pm.db.ExecContext(ctx, fmt.Sprintf("ALTER SYSTEM SET synchronous_standby_names = '%s'", standbyNamesValue))
+
+	// Escape single quotes in the value by doubling them (PostgreSQL standard)
+	escapedValue := strings.ReplaceAll(standbyNamesValue, "'", "''")
+
+	// ALTER SYSTEM SET doesn't support parameterized queries, so we use string formatting
+	// Final query: ALTER SYSTEM SET synchronous_standby_names = 'FIRST 1 ("standby-1", "standby-2")'
+	query := fmt.Sprintf("ALTER SYSTEM SET synchronous_standby_names = '%s'", escapedValue)
+	_, err := pm.db.ExecContext(ctx, query)
 	if err != nil {
 		pm.logger.Error("Failed to set synchronous_standby_names", "error", err)
 		return mterrors.Wrap(err, "failed to set synchronous_standby_names")

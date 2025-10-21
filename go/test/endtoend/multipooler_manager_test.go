@@ -1342,3 +1342,184 @@ func TestReplicationAPIs(t *testing.T) {
 		t.Log("Confirmed: ResetReplication correctly rejected on PRIMARY pooler")
 	})
 }
+
+// TestConfigureSynchronousReplication tests the ConfigureSynchronousReplication API
+func TestConfigureSynchronousReplication(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping end-to-end tests in short mode")
+	}
+
+	setup := getSharedTestSetup(t)
+
+	// Wait for both managers to be ready before running tests
+	waitForManagerReady(t, setup, setup.PrimaryMultipooler)
+	waitForManagerReady(t, setup, setup.StandbyMultipooler)
+
+	// Create shared clients for all subtests
+	primaryConn, err := grpc.NewClient(
+		fmt.Sprintf("localhost:%d", setup.PrimaryMultipooler.GrpcPort),
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	)
+	require.NoError(t, err)
+	t.Cleanup(func() { primaryConn.Close() })
+	primaryManagerClient := multipoolermanagerpb.NewMultiPoolerManagerClient(primaryConn)
+
+	standbyConn, err := grpc.NewClient(
+		fmt.Sprintf("localhost:%d", setup.StandbyMultipooler.GrpcPort),
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	)
+	require.NoError(t, err)
+	t.Cleanup(func() { standbyConn.Close() })
+	standbyManagerClient := multipoolermanagerpb.NewMultiPoolerManagerClient(standbyConn)
+
+	primaryPoolerClient, err := NewMultiPoolerTestClient(fmt.Sprintf("localhost:%d", setup.PrimaryMultipooler.GrpcPort))
+	require.NoError(t, err)
+	t.Cleanup(func() { primaryPoolerClient.Close() })
+
+	t.Run("ConfigureSynchronousReplication_Primary_Success", func(t *testing.T) {
+		// This test verifies that ConfigureSynchronousReplication successfully configures
+		// synchronous replication on the primary
+		t.Log("Testing ConfigureSynchronousReplication on PRIMARY...")
+
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+
+		// The application_name used by standby is: {cell}_{name}
+		// For test purposes, we'll use a simple standby name
+		standbyAppName := "test-standby"
+
+		// Configure synchronous replication with FIRST method
+		req := &multipoolermanagerdata.ConfigureSynchronousReplicationRequest{
+			SynchronousCommit: multipoolermanagerdata.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_ON,
+			SynchronousMethod: multipoolermanagerdata.SynchronousMethod_SYNCHRONOUS_METHOD_FIRST,
+			NumSync:           1,
+			StandbyNames:      []string{standbyAppName},
+			ReloadConfig:      true,
+		}
+		_, err := primaryManagerClient.ConfigureSynchronousReplication(ctx, req)
+		require.NoError(t, err, "ConfigureSynchronousReplication should succeed on primary")
+
+		t.Log("ConfigureSynchronousReplication completed successfully")
+
+		// Close the old connection and create a new one to pick up the reloaded settings
+		primaryPoolerClient.Close()
+		primaryPoolerClient, err = NewMultiPoolerTestClient(fmt.Sprintf("localhost:%d", setup.PrimaryMultipooler.GrpcPort))
+		require.NoError(t, err)
+		t.Cleanup(func() { primaryPoolerClient.Close() })
+
+		// Verify the configuration was applied by querying PostgreSQL settings
+		t.Log("Verifying synchronous_commit is set to 'on'...")
+		queryResp, err := primaryPoolerClient.ExecuteQuery("SHOW synchronous_commit", 1)
+		require.NoError(t, err)
+		require.Len(t, queryResp.Rows, 1)
+		syncCommit := string(queryResp.Rows[0].Values[0])
+		assert.Equal(t, "on", syncCommit, "synchronous_commit should be 'on'")
+
+		t.Log("Verifying synchronous_standby_names is configured...")
+		queryResp, err = primaryPoolerClient.ExecuteQuery("SHOW synchronous_standby_names", 1)
+		require.NoError(t, err)
+		require.Len(t, queryResp.Rows, 1)
+		syncStandbyNames := string(queryResp.Rows[0].Values[0])
+		assert.Contains(t, syncStandbyNames, "FIRST 1", "synchronous_standby_names should contain 'FIRST 1'")
+		assert.Contains(t, syncStandbyNames, standbyAppName, "synchronous_standby_names should contain standby name")
+
+		t.Log("Synchronous replication configured and verified successfully")
+
+		// Clean up: Reset synchronous replication configuration
+		t.Log("Cleaning up: Resetting synchronous replication configuration...")
+		ctx, cancel = context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+
+		resetReq := &multipoolermanagerdata.ConfigureSynchronousReplicationRequest{
+			SynchronousCommit: multipoolermanagerdata.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_LOCAL,
+			SynchronousMethod: multipoolermanagerdata.SynchronousMethod_SYNCHRONOUS_METHOD_FIRST,
+			NumSync:           0,
+			StandbyNames:      []string{},
+			ReloadConfig:      true,
+		}
+		_, err = primaryManagerClient.ConfigureSynchronousReplication(ctx, resetReq)
+		require.NoError(t, err, "Reset configuration should succeed")
+	})
+
+	t.Run("ConfigureSynchronousReplication_Primary_AnyMethod", func(t *testing.T) {
+		// This test verifies that ConfigureSynchronousReplication works with ANY method
+		t.Log("Testing ConfigureSynchronousReplication with ANY method on PRIMARY...")
+
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+
+		// Use multiple standby names to test the ANY method with multiple standbys
+		standbyAppNames := []string{"test-standby-1", "test-standby-2"}
+
+		// Configure synchronous replication with ANY method
+		req := &multipoolermanagerdata.ConfigureSynchronousReplicationRequest{
+			SynchronousCommit: multipoolermanagerdata.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_REMOTE_APPLY,
+			SynchronousMethod: multipoolermanagerdata.SynchronousMethod_SYNCHRONOUS_METHOD_ANY,
+			NumSync:           1,
+			StandbyNames:      standbyAppNames,
+			ReloadConfig:      true,
+		}
+		_, err := primaryManagerClient.ConfigureSynchronousReplication(ctx, req)
+		require.NoError(t, err, "ConfigureSynchronousReplication should succeed on primary")
+
+		t.Log("ConfigureSynchronousReplication with ANY method completed successfully")
+
+		// Close the old connection and create a new one to pick up the reloaded settings
+		primaryPoolerClient.Close()
+		primaryPoolerClient, err = NewMultiPoolerTestClient(fmt.Sprintf("localhost:%d", setup.PrimaryMultipooler.GrpcPort))
+		require.NoError(t, err)
+		t.Cleanup(func() { primaryPoolerClient.Close() })
+
+		// Verify the configuration was applied
+		t.Log("Verifying synchronous_commit is set to 'remote_apply'...")
+		queryResp, err := primaryPoolerClient.ExecuteQuery("SHOW synchronous_commit", 1)
+		require.NoError(t, err)
+		require.Len(t, queryResp.Rows, 1)
+		syncCommit := string(queryResp.Rows[0].Values[0])
+		assert.Equal(t, "remote_apply", syncCommit, "synchronous_commit should be 'remote_apply'")
+
+		t.Log("Verifying synchronous_standby_names is configured with ANY method...")
+		queryResp, err = primaryPoolerClient.ExecuteQuery("SHOW synchronous_standby_names", 1)
+		require.NoError(t, err)
+		require.Len(t, queryResp.Rows, 1)
+		syncStandbyNames := string(queryResp.Rows[0].Values[0])
+		assert.Contains(t, syncStandbyNames, "ANY 1", "synchronous_standby_names should contain 'ANY 1'")
+
+		t.Log("Synchronous replication with ANY method configured and verified successfully")
+
+		// Clean up
+		t.Log("Cleaning up: Resetting synchronous replication configuration...")
+		ctx, cancel = context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+
+		resetReq := &multipoolermanagerdata.ConfigureSynchronousReplicationRequest{
+			SynchronousCommit: multipoolermanagerdata.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_LOCAL,
+			SynchronousMethod: multipoolermanagerdata.SynchronousMethod_SYNCHRONOUS_METHOD_FIRST,
+			NumSync:           0,
+			StandbyNames:      []string{},
+			ReloadConfig:      true,
+		}
+		_, err = primaryManagerClient.ConfigureSynchronousReplication(ctx, resetReq)
+		require.NoError(t, err, "Reset configuration should succeed")
+	})
+
+	t.Run("ConfigureSynchronousReplication_Standby_Fails", func(t *testing.T) {
+		// ConfigureSynchronousReplication should fail on REPLICA pooler type
+		t.Log("Testing ConfigureSynchronousReplication on REPLICA pooler (should fail)...")
+
+		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+		defer cancel()
+
+		req := &multipoolermanagerdata.ConfigureSynchronousReplicationRequest{
+			SynchronousCommit: multipoolermanagerdata.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_ON,
+			SynchronousMethod: multipoolermanagerdata.SynchronousMethod_SYNCHRONOUS_METHOD_FIRST,
+			NumSync:           1,
+			StandbyNames:      []string{"standby1"},
+			ReloadConfig:      true,
+		}
+		_, err := standbyManagerClient.ConfigureSynchronousReplication(ctx, req)
+		require.Error(t, err, "ConfigureSynchronousReplication should fail on standby")
+		assert.Contains(t, err.Error(), "operation not allowed", "Error should indicate operation not allowed on REPLICA")
+		t.Log("Confirmed: ConfigureSynchronousReplication correctly rejected on REPLICA pooler")
+	})
+}
