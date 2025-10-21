@@ -647,7 +647,7 @@ func setupStandbyReplication(t *testing.T, primaryPgctld *ProcessInstance, stand
 	require.NoError(t, err)
 
 	// Backup important config files
-	configFiles := []string{"postgresql.conf", "postgresql.auto.conf", "pg_hba.conf", "pg_ident.conf"}
+	configFiles := []string{"postgresql.auto.conf", "pg_hba.conf", "pg_ident.conf"}
 	for _, configFile := range configFiles {
 		srcPath := filepath.Join(standbyPgDataDir, configFile)
 		dstPath := filepath.Join(configBackupDir, configFile)

@@ -402,13 +402,13 @@ func TestGRPCUninitializedDatabase(t *testing.T) {
 	})
 }
 
-// TestGRPCPortMismatchValidation tests that server fails when pg-port doesn't match config
-func TestGRPCPortMismatchValidation(t *testing.T) {
+// TestGRPCPortableConfig tests that configs are portable across different ports
+func TestGRPCPortableConfig(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping gRPC integration tests in short mode")
 	}
 
-	tempDir, cleanup := testutil.TempDir(t, "pgctld_grpc_port_mismatch_test")
+	tempDir, cleanup := testutil.TempDir(t, "pgctld_grpc_portable_config_test")
 	defer cleanup()
 
 	dataDir := filepath.Join(tempDir, "data")
@@ -419,7 +419,7 @@ func TestGRPCPortMismatchValidation(t *testing.T) {
 	require.NoError(t, err)
 	testutil.CreateMockPostgreSQLBinaries(t, binDir)
 
-	t.Run("port_mismatch_after_initialization", func(t *testing.T) {
+	t.Run("portable_config_with_different_ports", func(t *testing.T) {
 		// First, create a service with port 5432 and initialize
 		initialPort := 5432
 		service, err := command.NewPgCtldService(
@@ -429,6 +429,7 @@ func TestGRPCPortMismatchValidation(t *testing.T) {
 			"postgres",
 			30,
 			dataDir,
+			"localhost",
 		)
 		require.NoError(t, err)
 
@@ -442,20 +443,19 @@ func TestGRPCPortMismatchValidation(t *testing.T) {
 		require.NoError(t, err)
 
 		// Now try to create a service with a different port (5433)
-		// This should fail because the config file has port 5432
+		// This should succeed because port is now passed as a CLI parameter, making configs portable
 		differentPort := 5433
-		_, err = command.NewPgCtldService(
+		service2, err := command.NewPgCtldService(
 			slog.Default(),
 			differentPort,
 			"postgres",
 			"postgres",
 			30,
 			dataDir,
+			"localhost",
 		)
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "port validation failed")
-		assert.Contains(t, err.Error(), "pg-port flag (5433) does not match port in config file (5432)")
-		assert.Contains(t, err.Error(), "The port may have been changed after initialization")
+		require.NoError(t, err)
+		assert.NotNil(t, service2, "Should be able to create service with different port for portability")
 	})
 }
 
@@ -479,6 +479,7 @@ func createTestGRPCServer(t *testing.T, dataDir, binDir string) (net.Listener, f
 		"postgres",
 		30,
 		dataDir,
+		"localhost",
 	)
 
 	require.NoError(t, err)

@@ -149,6 +149,8 @@ func TestIsServerReady(t *testing.T) {
 				pgctld.PostgresDataDir(baseDir),
 				pgctld.PostgresConfigFile(baseDir),
 				baseDir,
+				"localhost",
+				pgctld.PostgresSocketDir(baseDir),
 			)
 			require.NoError(t, err)
 
@@ -205,6 +207,8 @@ func TestGetServerVersion(t *testing.T) {
 				pgctld.PostgresDataDir(baseDir),
 				pgctld.PostgresConfigFile(baseDir),
 				baseDir,
+				"localhost",
+				pgctld.PostgresSocketDir(baseDir),
 			)
 			require.NoError(t, err)
 

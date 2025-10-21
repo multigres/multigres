@@ -199,29 +199,19 @@ func ReadPostgresServerConfig(pgConfig *PostgresServerConfig, waitTime time.Dura
 	var parseErr error
 
 	// Connection settings
-	if pgConfig.Port, parseErr = pgConfig.lookupInt("port"); parseErr != nil {
-		pgConfig.Port = 5432 // default
-	}
+	// Port and unix_socket_directories are NOT read from config file
+	// They are only set via flags/code and passed as PostgreSQL command-line parameters
+	// This ensures backups remain portable across different environments
 	if pgConfig.MaxConnections, parseErr = pgConfig.lookupInt("max_connections"); parseErr != nil {
 		pgConfig.MaxConnections = 100 // default
 	}
 	if val, err := pgConfig.lookupWithDefault("listen_addresses", pgConfig.ListenAddresses); err == nil {
 		pgConfig.ListenAddresses = val
 	}
-	if val, err := pgConfig.lookupWithDefault("unix_socket_directories", pgConfig.UnixSocketDirectories); err == nil {
-		pgConfig.UnixSocketDirectories = val
-	}
 
-	// File locations
-	if val, err := pgConfig.lookupWithDefault("data_directory", pgConfig.DataDir); err == nil {
-		pgConfig.DataDir = val
-	}
-	if val, err := pgConfig.lookupWithDefault("hba_file", pgConfig.HbaFile); err == nil {
-		pgConfig.HbaFile = val
-	}
-	if val, err := pgConfig.lookupWithDefault("ident_file", pgConfig.IdentFile); err == nil {
-		pgConfig.IdentFile = val
-	}
+	// data_directory is NOT read from config file
+	// They are only set via flags and passed as PostgreSQL command-line parameters
+	// This ensures backups remain portable across different directory paths
 
 	// Memory settings - required in our controlled config
 	if val, err := pgConfig.lookupWithDefault("shared_buffers", ""); err != nil {

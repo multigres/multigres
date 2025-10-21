@@ -24,17 +24,19 @@ import (
 // It contains a PostgresServerConfig for all PostgreSQL-specific settings
 // plus additional connection parameters for control operations
 type PostgresCtlConfig struct {
-	Port               int
-	User               string
-	Database           string
-	PostgresDataDir    string
-	PostgresConfigFile string
-	Timeout            int
-	PoolerDir          string
+	Port                  int
+	User                  string
+	Database              string
+	PostgresDataDir       string
+	PostgresConfigFile    string
+	Timeout               int
+	PoolerDir             string
+	ListenAddresses       string
+	UnixSocketDirectories string
 }
 
 // NewPostgresCtlConfig creates a PostgresCtlConfig with the given parameters
-func NewPostgresCtlConfig(port int, user string, database string, timeout int, postgresDataDir string, postgresConfigFile string, poolerDir string) (*PostgresCtlConfig, error) {
+func NewPostgresCtlConfig(port int, user string, database string, timeout int, postgresDataDir string, postgresConfigFile string, poolerDir string, listenAddresses string, unixSocketDirectories string) (*PostgresCtlConfig, error) {
 	if postgresDataDir == "" {
 		return nil, fmt.Errorf("postgres-data-dir needs to be set")
 	}
@@ -51,13 +53,15 @@ func NewPostgresCtlConfig(port int, user string, database string, timeout int, p
 	}
 
 	return &PostgresCtlConfig{
-		Port:               port,
-		User:               user,
-		Database:           database,
-		PostgresDataDir:    postgresDataDir,
-		Timeout:            timeout,
-		PostgresConfigFile: postgresConfigFile,
-		PoolerDir:          poolerDir,
+		Port:                  port,
+		User:                  user,
+		Database:              database,
+		PostgresDataDir:       postgresDataDir,
+		Timeout:               timeout,
+		PostgresConfigFile:    postgresConfigFile,
+		PoolerDir:             poolerDir,
+		ListenAddresses:       listenAddresses,
+		UnixSocketDirectories: unixSocketDirectories,
 	}, nil
 }
 

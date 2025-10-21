@@ -89,7 +89,7 @@ func (s *PgCtldServerCmd) runServer(cmd *cobra.Command, args []string) error {
 
 	// Create and register our service
 	poolerDir := s.pgCtlCmd.GetPoolerDir()
-	pgctldService, err := NewPgCtldService(logger, s.pgCtlCmd.pgPort.Get(), s.pgCtlCmd.pgUser.Get(), s.pgCtlCmd.pgDatabase.Get(), s.pgCtlCmd.timeout.Get(), poolerDir)
+	pgctldService, err := NewPgCtldService(logger, s.pgCtlCmd.pgPort.Get(), s.pgCtlCmd.pgUser.Get(), s.pgCtlCmd.pgDatabase.Get(), s.pgCtlCmd.timeout.Get(), poolerDir, s.pgCtlCmd.pgListenAddresses.Get())
 	if err != nil {
 		return err
 	}
@@ -129,32 +129,12 @@ type PgCtldService struct {
 	config     *pgctld.PostgresCtlConfig
 }
 
-// validatePortConsistency checks that the provided port matches the port in the PostgreSQL config file
-func validatePortConsistency(expectedPort int, configFilePath string) error {
-	// Create a minimal PostgresServerConfig just to read the config file
-	tempConfig := &pgctld.PostgresServerConfig{
-		Path: configFilePath,
-	}
-
-	// Read the configuration from file (no wait time since this is validation)
-	readConfig, err := pgctld.ReadPostgresServerConfig(tempConfig, 0)
-	if err != nil {
-		return fmt.Errorf("failed to read PostgreSQL config file %s: %w", configFilePath, err)
-	}
-
-	// Check if the port from config matches the expected port
-	if readConfig.Port != expectedPort {
-		return fmt.Errorf("pg-port flag (%d) does not match port in config file (%d). "+
-			"The port may have been changed after initialization. "+
-			"Either update the config file or re-initialize with the correct port",
-			expectedPort, readConfig.Port)
-	}
-
-	return nil
-}
+// validatePortConsistency is no longer needed because port, listen_addresses, and unix_socket_directories
+// are now passed as command-line parameters and not stored in the config file.
+// This makes backups portable across different environments.
 
 // NewPgCtldService creates a new PgCtldService with validation
-func NewPgCtldService(logger *slog.Logger, pgPort int, pgUser string, pgDatabase string, timeout int, poolerDir string) (*PgCtldService, error) {
+func NewPgCtldService(logger *slog.Logger, pgPort int, pgUser string, pgDatabase string, timeout int, poolerDir string, listenAddresses string) (*PgCtldService, error) {
 	// Validate essential parameters for service creation
 	// Note: We don't validate postgresDataDir or postgresConfigFile existence here
 	// because the server should be able to start even with uninitialized data directory
@@ -173,6 +153,9 @@ func NewPgCtldService(logger *slog.Logger, pgPort int, pgUser string, pgDatabase
 	if timeout == 0 {
 		return nil, fmt.Errorf("timeout needs to be set")
 	}
+	if listenAddresses == "" {
+		return nil, fmt.Errorf("listen-addresses needs to be set")
+	}
 
 	// Create the PostgreSQL config once during service initialization
 	config, err := pgctld.NewPostgresCtlConfig(
@@ -183,17 +166,11 @@ func NewPgCtldService(logger *slog.Logger, pgPort int, pgUser string, pgDatabase
 		pgctld.PostgresDataDir(poolerDir),
 		pgctld.PostgresConfigFile(poolerDir),
 		poolerDir,
+		listenAddresses,
+		pgctld.PostgresSocketDir(poolerDir),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create PostgreSQL config: %w", err)
-	}
-
-	// If data directory is initialized, validate that pg-port matches the config
-	if pgctld.IsDataDirInitialized(poolerDir) {
-		configFilePath := pgctld.PostgresConfigFile(poolerDir)
-		if err := validatePortConsistency(pgPort, configFilePath); err != nil {
-			return nil, fmt.Errorf("port validation failed: %w", err)
-		}
 	}
 
 	return &PgCtldService{
