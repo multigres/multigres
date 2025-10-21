@@ -18,6 +18,7 @@ package grpcmanagerservice
 import (
 	"context"
 
+	"github.com/multigres/multigres/go/mterrors"
 	"github.com/multigres/multigres/go/multipooler/manager"
 	multipoolermanagerpb "github.com/multigres/multigres/go/pb/multipoolermanager"
 	multipoolermanagerdata "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
@@ -46,7 +47,7 @@ func RegisterPoolerManagerServices(senv *servenv.ServEnv, grpc *servenv.GrpcServ
 func (s *managerService) WaitForLSN(ctx context.Context, req *multipoolermanagerdata.WaitForLSNRequest) (*multipoolermanagerdata.WaitForLSNResponse, error) {
 	err := s.manager.WaitForLSN(ctx, req.TargetLsn)
 	if err != nil {
-		return nil, err
+		return nil, mterrors.ToGRPC(err)
 	}
 	return &multipoolermanagerdata.WaitForLSNResponse{}, nil
 }
@@ -61,7 +62,7 @@ func (s *managerService) SetPrimaryConnInfo(ctx context.Context, req *multipoole
 		req.CurrentTerm,
 		req.Force)
 	if err != nil {
-		return nil, err
+		return nil, mterrors.ToGRPC(err)
 	}
 	return &multipoolermanagerdata.SetPrimaryConnInfoResponse{}, nil
 }
@@ -70,7 +71,7 @@ func (s *managerService) SetPrimaryConnInfo(ctx context.Context, req *multipoole
 func (s *managerService) StartReplication(ctx context.Context, req *multipoolermanagerdata.StartReplicationRequest) (*multipoolermanagerdata.StartReplicationResponse, error) {
 	err := s.manager.StartReplication(ctx)
 	if err != nil {
-		return nil, err
+		return nil, mterrors.ToGRPC(err)
 	}
 	return &multipoolermanagerdata.StartReplicationResponse{}, nil
 }
@@ -79,7 +80,7 @@ func (s *managerService) StartReplication(ctx context.Context, req *multipoolerm
 func (s *managerService) StopReplication(ctx context.Context, req *multipoolermanagerdata.StopReplicationRequest) (*multipoolermanagerdata.StopReplicationResponse, error) {
 	err := s.manager.StopReplication(ctx)
 	if err != nil {
-		return nil, err
+		return nil, mterrors.ToGRPC(err)
 	}
 	return &multipoolermanagerdata.StopReplicationResponse{}, nil
 }
@@ -88,7 +89,7 @@ func (s *managerService) StopReplication(ctx context.Context, req *multipoolerma
 func (s *managerService) ReplicationStatus(ctx context.Context, req *multipoolermanagerdata.ReplicationStatusRequest) (*multipoolermanagerdata.ReplicationStatusResponse, error) {
 	_, err := s.manager.ReplicationStatus(ctx)
 	if err != nil {
-		return nil, err
+		return nil, mterrors.ToGRPC(err)
 	}
 	// TODO: Convert map to proper response structure
 	return &multipoolermanagerdata.ReplicationStatusResponse{}, nil
@@ -98,7 +99,7 @@ func (s *managerService) ReplicationStatus(ctx context.Context, req *multipooler
 func (s *managerService) ResetReplication(ctx context.Context, req *multipoolermanagerdata.ResetReplicationRequest) (*multipoolermanagerdata.ResetReplicationResponse, error) {
 	err := s.manager.ResetReplication(ctx)
 	if err != nil {
-		return nil, err
+		return nil, mterrors.ToGRPC(err)
 	}
 	return &multipoolermanagerdata.ResetReplicationResponse{}, nil
 }
@@ -107,7 +108,7 @@ func (s *managerService) ResetReplication(ctx context.Context, req *multipoolerm
 func (s *managerService) ConfigureSynchronousReplication(ctx context.Context, req *multipoolermanagerdata.ConfigureSynchronousReplicationRequest) (*multipoolermanagerdata.ConfigureSynchronousReplicationResponse, error) {
 	err := s.manager.ConfigureSynchronousReplication(ctx, req.SynchronousCommit.String())
 	if err != nil {
-		return nil, err
+		return nil, mterrors.ToGRPC(err)
 	}
 	return &multipoolermanagerdata.ConfigureSynchronousReplicationResponse{}, nil
 }
@@ -116,7 +117,7 @@ func (s *managerService) ConfigureSynchronousReplication(ctx context.Context, re
 func (s *managerService) PrimaryStatus(ctx context.Context, req *multipoolermanagerdata.PrimaryStatusRequest) (*multipoolermanagerdata.PrimaryStatusResponse, error) {
 	_, err := s.manager.PrimaryStatus(ctx)
 	if err != nil {
-		return nil, err
+		return nil, mterrors.ToGRPC(err)
 	}
 	// TODO: Convert map to proper response structure
 	return &multipoolermanagerdata.PrimaryStatusResponse{}, nil
@@ -126,7 +127,7 @@ func (s *managerService) PrimaryStatus(ctx context.Context, req *multipoolermana
 func (s *managerService) PrimaryPosition(ctx context.Context, req *multipoolermanagerdata.PrimaryPositionRequest) (*multipoolermanagerdata.PrimaryPositionResponse, error) {
 	position, err := s.manager.PrimaryPosition(ctx)
 	if err != nil {
-		return nil, err
+		return nil, mterrors.ToGRPC(err)
 	}
 	return &multipoolermanagerdata.PrimaryPositionResponse{
 		LsnPosition: position,
@@ -137,7 +138,7 @@ func (s *managerService) PrimaryPosition(ctx context.Context, req *multipoolerma
 func (s *managerService) StopReplicationAndGetStatus(ctx context.Context, req *multipoolermanagerdata.StopReplicationAndGetStatusRequest) (*multipoolermanagerdata.StopReplicationAndGetStatusResponse, error) {
 	_, err := s.manager.StopReplicationAndGetStatus(ctx)
 	if err != nil {
-		return nil, err
+		return nil, mterrors.ToGRPC(err)
 	}
 	// TODO: Convert map to proper response structure
 	return &multipoolermanagerdata.StopReplicationAndGetStatusResponse{}, nil
@@ -147,7 +148,7 @@ func (s *managerService) StopReplicationAndGetStatus(ctx context.Context, req *m
 func (s *managerService) ChangeType(ctx context.Context, req *multipoolermanagerdata.ChangeTypeRequest) (*multipoolermanagerdata.ChangeTypeResponse, error) {
 	err := s.manager.ChangeType(ctx, req.PoolerType.String())
 	if err != nil {
-		return nil, err
+		return nil, mterrors.ToGRPC(err)
 	}
 	return &multipoolermanagerdata.ChangeTypeResponse{}, nil
 }
@@ -156,7 +157,7 @@ func (s *managerService) ChangeType(ctx context.Context, req *multipoolermanager
 func (s *managerService) GetFollowers(ctx context.Context, req *multipoolermanagerdata.GetFollowersRequest) (*multipoolermanagerdata.GetFollowersResponse, error) {
 	_, err := s.manager.GetFollowers(ctx)
 	if err != nil {
-		return nil, err
+		return nil, mterrors.ToGRPC(err)
 	}
 	// TODO: Convert []string to proper response structure
 	return &multipoolermanagerdata.GetFollowersResponse{}, nil
@@ -166,7 +167,7 @@ func (s *managerService) GetFollowers(ctx context.Context, req *multipoolermanag
 func (s *managerService) Demote(ctx context.Context, req *multipoolermanagerdata.DemoteRequest) (*multipoolermanagerdata.DemoteResponse, error) {
 	err := s.manager.Demote(ctx)
 	if err != nil {
-		return nil, err
+		return nil, mterrors.ToGRPC(err)
 	}
 	return &multipoolermanagerdata.DemoteResponse{}, nil
 }
@@ -175,7 +176,7 @@ func (s *managerService) Demote(ctx context.Context, req *multipoolermanagerdata
 func (s *managerService) UndoDemote(ctx context.Context, req *multipoolermanagerdata.UndoDemoteRequest) (*multipoolermanagerdata.UndoDemoteResponse, error) {
 	err := s.manager.UndoDemote(ctx)
 	if err != nil {
-		return nil, err
+		return nil, mterrors.ToGRPC(err)
 	}
 	return &multipoolermanagerdata.UndoDemoteResponse{}, nil
 }
@@ -184,7 +185,7 @@ func (s *managerService) UndoDemote(ctx context.Context, req *multipoolermanager
 func (s *managerService) Promote(ctx context.Context, req *multipoolermanagerdata.PromoteRequest) (*multipoolermanagerdata.PromoteResponse, error) {
 	err := s.manager.Promote(ctx)
 	if err != nil {
-		return nil, err
+		return nil, mterrors.ToGRPC(err)
 	}
 	return &multipoolermanagerdata.PromoteResponse{}, nil
 }
@@ -197,7 +198,7 @@ func (s *managerService) Status(ctx context.Context, req *multipoolermanagerdata
 // SetTerm sets the consensus term information
 func (s *managerService) SetTerm(ctx context.Context, req *multipoolermanagerdata.SetTermRequest) (*multipoolermanagerdata.SetTermResponse, error) {
 	if err := s.manager.SetTerm(ctx, req.Term); err != nil {
-		return nil, err
+		return nil, mterrors.ToGRPC(err)
 	}
 	return &multipoolermanagerdata.SetTermResponse{}, nil
 }
