@@ -22,7 +22,6 @@ import (
 	"time"
 
 	"github.com/multigres/multigres/go/fakepgdb"
-	"github.com/multigres/multigres/go/timer"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -250,10 +249,8 @@ func newTestWriter(t *testing.T, db *fakepgdb.DB, frozenTime *time.Time) *Writer
 	sqlDB := db.OpenDB()
 	t.Cleanup(func() { sqlDB.Close() })
 
-	tw := NewWriter(sqlDB, logger, shardID, poolerID)
 	// Use 250ms interval for tests to oversample our 1s test ticker
-	tw.interval = 250 * time.Millisecond
-	tw.ticks = timer.NewTimer(250 * time.Millisecond)
+	tw := NewWriter(sqlDB, logger, shardID, poolerID, 250)
 
 	if frozenTime != nil {
 		tw.now = func() time.Time {

@@ -36,14 +36,15 @@ import (
 
 // MultiPooler represents the main multipooler instance with all configuration and state
 type MultiPooler struct {
-	pgctldAddr     viperutil.Value[string]
-	cell           viperutil.Value[string]
-	database       viperutil.Value[string]
-	tableGroup     viperutil.Value[string]
-	serviceID      viperutil.Value[string]
-	socketFilePath viperutil.Value[string]
-	poolerDir      viperutil.Value[string]
-	pgPort         viperutil.Value[int]
+	pgctldAddr          viperutil.Value[string]
+	cell                viperutil.Value[string]
+	database            viperutil.Value[string]
+	tableGroup          viperutil.Value[string]
+	serviceID           viperutil.Value[string]
+	socketFilePath      viperutil.Value[string]
+	poolerDir           viperutil.Value[string]
+	pgPort              viperutil.Value[int]
+	heartbeatIntervalMs viperutil.Value[int]
 	// MultipoolerID stores the ID for deregistration during shutdown
 	multipoolerID *clustermetadatapb.ID
 	// GrpcServer is the grpc server
@@ -107,6 +108,11 @@ func NewMultiPooler() *MultiPooler {
 			FlagName: "pg-port",
 			Dynamic:  false,
 		}),
+		heartbeatIntervalMs: viperutil.Configure("heartbeat-interval-milliseconds", viperutil.Options[int]{
+			Default:  1000,
+			FlagName: "heartbeat-interval-milliseconds",
+			Dynamic:  false,
+		}),
 		grpcServer: servenv.NewGrpcServer(),
 		senv:       servenv.NewServEnv(),
 		topoConfig: topo.NewTopoConfig(),
@@ -133,6 +139,7 @@ func (mp *MultiPooler) RegisterFlags(flags *pflag.FlagSet) {
 	flags.String("socket-file", mp.socketFilePath.Default(), "PostgreSQL Unix socket file path (if empty, TCP connection will be used)")
 	flags.String("pooler-dir", mp.poolerDir.Default(), "pooler directory path (if empty, socket-file path will be used as-is)")
 	flags.Int("pg-port", mp.pgPort.Default(), "PostgreSQL port number")
+	flags.Int("heartbeat-interval-milliseconds", mp.heartbeatIntervalMs.Default(), "interval in milliseconds between heartbeat writes")
 
 	viperutil.BindFlags(flags,
 		mp.pgctldAddr,
@@ -143,6 +150,7 @@ func (mp *MultiPooler) RegisterFlags(flags *pflag.FlagSet) {
 		mp.socketFilePath,
 		mp.poolerDir,
 		mp.pgPort,
+		mp.heartbeatIntervalMs,
 	)
 
 	mp.grpcServer.RegisterFlags(flags)
@@ -203,13 +211,14 @@ func (mp *MultiPooler) Init() {
 	// Initialize the MultiPoolerManager (following Vitess tm_init.go pattern)
 	logger.Info("Initializing MultiPoolerManager")
 	poolerManager := manager.NewMultiPoolerManager(logger, &manager.Config{
-		SocketFilePath: mp.socketFilePath.Get(),
-		PoolerDir:      mp.poolerDir.Get(),
-		PgPort:         mp.pgPort.Get(),
-		Database:       mp.database.Get(),
-		TopoClient:     mp.ts,
-		ServiceID:      multipooler.Id,
-		PgctldAddr:     mp.pgctldAddr.Get(),
+		SocketFilePath:      mp.socketFilePath.Get(),
+		PoolerDir:           mp.poolerDir.Get(),
+		PgPort:              mp.pgPort.Get(),
+		Database:            mp.database.Get(),
+		TopoClient:          mp.ts,
+		ServiceID:           multipooler.Id,
+		HeartbeatIntervalMs: mp.heartbeatIntervalMs.Get(),
+		PgctldAddr:          mp.pgctldAddr.Get(),
 	})
 
 	// Start the MultiPoolerManager
@@ -222,12 +231,14 @@ func (mp *MultiPooler) Init() {
 
 	// Initialize and start the MultiPooler
 	pooler := poolerserver.NewMultiPooler(logger, &manager.Config{
-		SocketFilePath: mp.socketFilePath.Get(),
-		PoolerDir:      mp.poolerDir.Get(),
-		PgPort:         mp.pgPort.Get(),
-		Database:       mp.database.Get(),
-		TopoClient:     mp.ts,
-		ServiceID:      multipooler.Id,
+		SocketFilePath:      mp.socketFilePath.Get(),
+		PoolerDir:           mp.poolerDir.Get(),
+		PgPort:              mp.pgPort.Get(),
+		Database:            mp.database.Get(),
+		TopoClient:          mp.ts,
+		ServiceID:           multipooler.Id,
+		HeartbeatIntervalMs: mp.heartbeatIntervalMs.Get(),
+		PgctldAddr:          mp.pgctldAddr.Get(),
 	})
 	pooler.Start(mp.senv)
 

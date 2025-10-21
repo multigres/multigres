@@ -32,9 +32,9 @@ type ReplTracker struct {
 }
 
 // NewReplTracker creates a new ReplTracker.
-func NewReplTracker(db *sql.DB, logger *slog.Logger, shardID []byte, poolerID string) *ReplTracker {
+func NewReplTracker(db *sql.DB, logger *slog.Logger, shardID []byte, poolerID string, intervalMs int) *ReplTracker {
 	return &ReplTracker{
-		hw: NewWriter(db, logger, shardID, poolerID),
+		hw: NewWriter(db, logger, shardID, poolerID, intervalMs),
 		hr: NewReader(db, logger, shardID),
 	}
 }
