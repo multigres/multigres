@@ -19,6 +19,7 @@ import (
 	"database/sql"
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
 	"time"
 
@@ -233,21 +234,30 @@ func (pm *MultiPoolerManager) checkReady() error {
 	}
 }
 
-// checkReplicaGuardrails verifies that the pooler is a REPLICA and PostgreSQL is in recovery mode
-// This is a common guardrail for replication-related operations on standby servers
-func (pm *MultiPoolerManager) checkReplicaGuardrails(ctx context.Context) error {
-	// Guardrail: Check pooler type - only REPLICA poolers can perform replication operations
+// checkPoolerType verifies that the pooler matches the expected type
+func (pm *MultiPoolerManager) checkPoolerType(expectedType clustermetadatapb.PoolerType, operationName string) error {
 	pm.mu.RLock()
 	poolerType := pm.multipooler.Type
 	pm.mu.RUnlock()
 
-	if poolerType != clustermetadatapb.PoolerType_REPLICA {
-		pm.logger.Error("Replication operation called on non-replica pooler",
+	if poolerType != expectedType {
+		pm.logger.Error(fmt.Sprintf("%s called on incorrect pooler type", operationName),
 			"service_id", pm.serviceID.String(),
-			"pooler_type", poolerType.String())
+			"pooler_type", poolerType.String(),
+			"expected_type", expectedType.String())
 		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
-			fmt.Sprintf("operation not allowed: pooler type is %s, must be REPLICA (service_id: %s)",
-				poolerType.String(), pm.serviceID.String()))
+			fmt.Sprintf("operation not allowed: pooler type is %s, must be %s (service_id: %s)",
+				poolerType.String(), expectedType.String(), pm.serviceID.String()))
+	}
+	return nil
+}
+
+// checkReplicaGuardrails verifies that the pooler is a REPLICA and PostgreSQL is in recovery mode
+// This is a common guardrail for replication-related operations on standby servers
+func (pm *MultiPoolerManager) checkReplicaGuardrails(ctx context.Context) error {
+	// Guardrail: Check pooler type - only REPLICA poolers can perform replication operations
+	if err := pm.checkPoolerType(clustermetadatapb.PoolerType_REPLICA, "Replication operation"); err != nil {
+		return err
 	}
 
 	// Ensure database connection
@@ -268,6 +278,37 @@ func (pm *MultiPoolerManager) checkReplicaGuardrails(ctx context.Context) error 
 		pm.logger.Error("Replication operation called on non-standby instance", "service_id", pm.serviceID.String())
 		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
 			fmt.Sprintf("operation not allowed: the PostgreSQL instance is not in standby mode (service_id: %s)", pm.serviceID.String()))
+	}
+
+	return nil
+}
+
+// checkPrimaryGuardrails verifies that the pooler is a PRIMARY and PostgreSQL is not in recovery mode
+// This is a common guardrail for primary-only operations
+func (pm *MultiPoolerManager) checkPrimaryGuardrails(ctx context.Context) error {
+	// Guardrail: Check pooler type - only PRIMARY poolers can perform primary operations
+	if err := pm.checkPoolerType(clustermetadatapb.PoolerType_PRIMARY, "Primary operation"); err != nil {
+		return err
+	}
+
+	// Ensure database connection
+	if err := pm.connectDB(); err != nil {
+		pm.logger.Error("Failed to connect to database", "error", err)
+		return mterrors.Wrap(err, "database connection failed")
+	}
+
+	// Guardrail: Check if the PostgreSQL instance is in standby mode
+	var isInRecovery bool
+	err := pm.db.QueryRowContext(ctx, "SELECT pg_is_in_recovery()").Scan(&isInRecovery)
+	if err != nil {
+		pm.logger.Error("Failed to check if instance is in recovery", "error", err)
+		return mterrors.Wrap(err, "failed to check recovery status")
+	}
+
+	if isInRecovery {
+		pm.logger.Error("Primary operation called on standby instance", "service_id", pm.serviceID.String())
+		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
+			fmt.Sprintf("operation not allowed: the PostgreSQL instance is in standby mode (service_id: %s)", pm.serviceID.String()))
 	}
 
 	return nil
@@ -532,17 +573,8 @@ func (pm *MultiPoolerManager) SetPrimaryConnInfo(ctx context.Context, host strin
 	}
 
 	// Guardrail: Check pooler type - only REPLICA poolers can set primary_conninfo
-	pm.mu.RLock()
-	poolerType := pm.multipooler.Type
-	pm.mu.RUnlock()
-
-	if poolerType != clustermetadatapb.PoolerType_REPLICA {
-		pm.logger.Error("SetPrimaryConnInfo called on non-replica pooler",
-			"service_id", pm.serviceID.String(),
-			"pooler_type", poolerType.String())
-		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
-			fmt.Sprintf("operation not allowed: pooler type is %s, must be REPLICA (service_id: %s)",
-				poolerType.String(), pm.serviceID.String()))
+	if err := pm.checkPoolerType(clustermetadatapb.PoolerType_REPLICA, "SetPrimaryConnInfo"); err != nil {
+		return err
 	}
 
 	// Ensure database connection
@@ -716,13 +748,119 @@ func (pm *MultiPoolerManager) ResetReplication(ctx context.Context) error {
 	return nil
 }
 
+// setSynchronousCommit sets the PostgreSQL synchronous_commit level
+func (pm *MultiPoolerManager) setSynchronousCommit(ctx context.Context, synchronousCommit multipoolermanagerdata.SynchronousCommitLevel) error {
+	// Convert enum to PostgreSQL string value
+	var syncCommitValue string
+	switch synchronousCommit {
+	case multipoolermanagerdata.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_OFF:
+		syncCommitValue = "off"
+	case multipoolermanagerdata.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_LOCAL:
+		syncCommitValue = "local"
+	case multipoolermanagerdata.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_REMOTE_WRITE:
+		syncCommitValue = "remote_write"
+	case multipoolermanagerdata.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_ON:
+		syncCommitValue = "on"
+	case multipoolermanagerdata.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_REMOTE_APPLY:
+		syncCommitValue = "remote_apply"
+	default:
+		return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT,
+			fmt.Sprintf("invalid synchronous_commit level: %s", synchronousCommit.String()))
+	}
+
+	pm.logger.Info("Setting synchronous_commit", "value", syncCommitValue)
+	_, err := pm.db.ExecContext(ctx, fmt.Sprintf("ALTER SYSTEM SET synchronous_commit = '%s'", syncCommitValue))
+	if err != nil {
+		pm.logger.Error("Failed to set synchronous_commit", "error", err)
+		return mterrors.Wrap(err, "failed to set synchronous_commit")
+	}
+
+	return nil
+}
+
+// setSynchronousStandbyNames builds and sets the PostgreSQL synchronous_standby_names configuration
+// Format: https://www.postgresql.org/docs/current/runtime-config-replication.html#GUC-SYNCHRONOUS-STANDBY-NAMES
+// Examples:
+//
+//	FIRST 2 (standby1, standby2, standby3)
+//	ANY 1 (standby1, standby2)
+func (pm *MultiPoolerManager) setSynchronousStandbyNames(ctx context.Context, synchronousMethod multipoolermanagerdata.SynchronousMethod, numSync int32, standbyNames []string) error {
+	// If the list is empty, do nothing
+	if len(standbyNames) == 0 {
+		pm.logger.Info("No standby names provided, skipping synchronous_standby_names configuration")
+		return nil
+	}
+
+	// If numSync was not provided, default to 1
+	if numSync == 0 {
+		numSync = 1
+	}
+
+	// Build the standby names list using strings.Join
+	standbyList := strings.Join(standbyNames, ", ")
+
+	// Build the final value with method prefix
+	var standbyNamesValue string
+	switch synchronousMethod {
+	case multipoolermanagerdata.SynchronousMethod_SYNCHRONOUS_METHOD_FIRST:
+		standbyNamesValue = fmt.Sprintf("FIRST %d (%s)", numSync, standbyList)
+	case multipoolermanagerdata.SynchronousMethod_SYNCHRONOUS_METHOD_ANY:
+		standbyNamesValue = fmt.Sprintf("ANY %d (%s)", numSync, standbyList)
+	default:
+		return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT,
+			fmt.Sprintf("invalid synchronous method: %s, must be FIRST or ANY", synchronousMethod.String()))
+	}
+
+	pm.logger.Info("Setting synchronous_standby_names", "value", standbyNamesValue)
+	_, err := pm.db.ExecContext(ctx, fmt.Sprintf("ALTER SYSTEM SET synchronous_standby_names = '%s'", standbyNamesValue))
+	if err != nil {
+		pm.logger.Error("Failed to set synchronous_standby_names", "error", err)
+		return mterrors.Wrap(err, "failed to set synchronous_standby_names")
+	}
+
+	return nil
+}
+
 // ConfigureSynchronousReplication configures PostgreSQL synchronous replication settings
-func (pm *MultiPoolerManager) ConfigureSynchronousReplication(ctx context.Context, synchronousCommit string) error {
+func (pm *MultiPoolerManager) ConfigureSynchronousReplication(ctx context.Context, synchronousCommit multipoolermanagerdata.SynchronousCommitLevel, synchronousMethod multipoolermanagerdata.SynchronousMethod, numSync int32, standbyNames []string, reloadConfig bool) error {
 	if err := pm.checkReady(); err != nil {
 		return err
 	}
-	pm.logger.Info("ConfigureSynchronousReplication called", "synchronous_commit", synchronousCommit)
-	return mterrors.New(mtrpcpb.Code_UNIMPLEMENTED, "method ConfigureSynchronousReplication not implemented")
+
+	pm.logger.Info("ConfigureSynchronousReplication called",
+		"synchronous_commit", synchronousCommit,
+		"synchronous_method", synchronousMethod,
+		"num_sync", numSync,
+		"standby_names", standbyNames,
+		"reload_config", reloadConfig)
+
+	// Check PRIMARY guardrails (pooler type and non-recovery mode)
+	if err := pm.checkPrimaryGuardrails(ctx); err != nil {
+		return err
+	}
+
+	// Step 1: Set synchronous_commit level
+	if err := pm.setSynchronousCommit(ctx, synchronousCommit); err != nil {
+		return err
+	}
+
+	// Step 2: Build and set synchronous_standby_names
+	if err := pm.setSynchronousStandbyNames(ctx, synchronousMethod, numSync, standbyNames); err != nil {
+		return err
+	}
+
+	// Step 3: Reload configuration if requested
+	if reloadConfig {
+		pm.logger.Info("Reloading PostgreSQL configuration")
+		_, err := pm.db.ExecContext(ctx, "SELECT pg_reload_conf()")
+		if err != nil {
+			pm.logger.Error("Failed to reload configuration", "error", err)
+			return mterrors.Wrap(err, "failed to reload PostgreSQL configuration")
+		}
+	}
+
+	pm.logger.Info("ConfigureSynchronousReplication completed successfully")
+	return nil
 }
 
 // PrimaryStatus gets the status of the leader server
@@ -740,46 +878,17 @@ func (pm *MultiPoolerManager) PrimaryPosition(ctx context.Context) (string, erro
 		return "", err
 	}
 
-	// Check pooler type - only PRIMARY poolers can report primary position
-	pm.mu.RLock()
-	poolerType := pm.multipooler.Type
-	pm.mu.RUnlock()
-
-	if poolerType != clustermetadatapb.PoolerType_PRIMARY {
-		pm.logger.Error("PrimaryPosition called on non-primary pooler",
-			"service_id", pm.serviceID.String(),
-			"pooler_type", poolerType.String())
-		return "", mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
-			fmt.Sprintf("operation not allowed: pooler type is %s, must be PRIMARY (service_id: %s)",
-				poolerType.String(), pm.serviceID.String()))
-	}
-
 	pm.logger.Info("PrimaryPosition called")
 
-	// Ensure database connection
-	if err := pm.connectDB(); err != nil {
-		pm.logger.Error("Failed to connect to database", "error", err)
-		return "", mterrors.Wrap(err, "database connection failed")
-	}
-
-	// Guardrail: Check if the PostgreSQL instance is in standby mode
-	var isInRecovery bool
-	err := pm.db.QueryRowContext(ctx, "SELECT pg_is_in_recovery()").Scan(&isInRecovery)
-	if err != nil {
-		pm.logger.Error("Failed to check if instance is in recovery", "error", err)
-		return "", mterrors.Wrap(err, "failed to check recovery status")
-	}
-
-	if isInRecovery {
-		pm.logger.Error("PrimaryPosition called on standby instance", "service_id", pm.serviceID.String())
-		return "", mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
-			fmt.Sprintf("operation not allowed: the PostgreSQL instance is in standby mode (service_id: %s)", pm.serviceID.String()))
+	// Check PRIMARY guardrails (pooler type and non-recovery mode)
+	if err := pm.checkPrimaryGuardrails(ctx); err != nil {
+		return "", err
 	}
 
 	// Query PostgreSQL for the current LSN position
 	// pg_current_wal_lsn() returns the current write-ahead log write location
 	var lsn string
-	err = pm.db.QueryRowContext(ctx, "SELECT pg_current_wal_lsn()::text").Scan(&lsn)
+	err := pm.db.QueryRowContext(ctx, "SELECT pg_current_wal_lsn()::text").Scan(&lsn)
 	if err != nil {
 		pm.logger.Error("Failed to query LSN", "error", err)
 		return "", mterrors.Wrap(err, "failed to query LSN")

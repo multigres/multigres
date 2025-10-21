@@ -106,7 +106,12 @@ func (s *managerService) ResetReplication(ctx context.Context, req *multipoolerm
 
 // ConfigureSynchronousReplication configures PostgreSQL synchronous replication settings
 func (s *managerService) ConfigureSynchronousReplication(ctx context.Context, req *multipoolermanagerdata.ConfigureSynchronousReplicationRequest) (*multipoolermanagerdata.ConfigureSynchronousReplicationResponse, error) {
-	err := s.manager.ConfigureSynchronousReplication(ctx, req.SynchronousCommit.String())
+	err := s.manager.ConfigureSynchronousReplication(ctx,
+		req.SynchronousCommit,
+		req.SynchronousMethod,
+		req.NumSync,
+		req.StandbyNames,
+		req.ReloadConfig)
 	if err != nil {
 		return nil, mterrors.ToGRPC(err)
 	}
