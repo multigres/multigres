@@ -252,11 +252,12 @@ func TestWaitForPostgreSQL(t *testing.T) {
 			5432,
 			"postgres",
 			"postgres",
-
 			30, // timeout
 			pgctld.PostgresDataDir(baseDir),
 			pgctld.PostgresConfigFile(baseDir),
 			baseDir,
+			"localhost",
+			pgctld.PostgresSocketDir(baseDir),
 		)
 		require.NoError(t, err)
 
@@ -289,6 +290,8 @@ func TestWaitForPostgreSQL(t *testing.T) {
 			pgctld.PostgresDataDir(baseDir),
 			pgctld.PostgresConfigFile(baseDir),
 			baseDir,
+			"localhost",
+			pgctld.PostgresSocketDir(baseDir),
 		)
 		require.NoError(t, err)
 

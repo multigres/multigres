@@ -12,18 +12,13 @@
 # ╚══════════════════════════════════════════════════════════════════════════════╝
 
 
-data_directory = '{{.DataDir}}'
-hba_file = '{{.HbaFile}}'
-ident_file = '{{.IdentFile}}'
-
 #------------------------------------------------------------------------------
 # CONNECTIONS AND AUTHENTICATION
 #------------------------------------------------------------------------------
 
 # - Connection Settings -
-port = {{.Port}}
-listen_addresses = '{{.ListenAddresses}}'
-unix_socket_directories = '{{.UnixSocketDirectories}}'
+# Port, listen_addresses, and unix_socket_directories are passed as command-line parameters
+# This ensures backups remain portable across different environments
 max_connections = {{.MaxConnections}}
 
 # - Authentication -

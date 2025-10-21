@@ -646,20 +646,6 @@ func setupStandbyReplication(t *testing.T, primaryPgctld *ProcessInstance, stand
 	err := os.MkdirAll(configBackupDir, 0o755)
 	require.NoError(t, err)
 
-	// Backup important config files
-	configFiles := []string{"postgresql.conf", "postgresql.auto.conf", "pg_hba.conf", "pg_ident.conf"}
-	for _, configFile := range configFiles {
-		srcPath := filepath.Join(standbyPgDataDir, configFile)
-		dstPath := filepath.Join(configBackupDir, configFile)
-
-		// Copy file if it exists
-		if data, err := os.ReadFile(srcPath); err == nil {
-			err = os.WriteFile(dstPath, data, 0o644)
-			require.NoError(t, err, "Should be able to backup %s", configFile)
-			t.Logf("Backed up %s", configFile)
-		}
-	}
-
 	// Remove the standby pg_data directory to prepare for pg_basebackup
 	t.Logf("Removing standby pg_data directory: %s", standbyPgDataDir)
 	err = os.RemoveAll(standbyPgDataDir)
@@ -685,20 +671,6 @@ func setupStandbyReplication(t *testing.T, primaryPgctld *ProcessInstance, stand
 	require.NoError(t, err, "pg_basebackup should succeed")
 
 	t.Logf("Base backup completed successfully")
-
-	// Restore standby's original configuration files
-	t.Logf("Restoring standby's original configuration files...")
-	for _, configFile := range configFiles {
-		srcPath := filepath.Join(configBackupDir, configFile)
-		dstPath := filepath.Join(standbyPgDataDir, configFile)
-
-		// Restore file if backup exists
-		if data, err := os.ReadFile(srcPath); err == nil {
-			err = os.WriteFile(dstPath, data, 0o644)
-			require.NoError(t, err, "Should be able to restore %s", configFile)
-			t.Logf("Restored %s", configFile)
-		}
-	}
 
 	// Create standby.signal to put the server in recovery mode
 	standbySignalPath := filepath.Join(standbyPgDataDir, "standby.signal")

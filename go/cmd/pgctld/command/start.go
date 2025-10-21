@@ -37,21 +37,16 @@ type StartResult struct {
 	Message        string
 }
 
-// NewPostgresCtlConfigFromDefaults creates a PostgresCtlConfig by reading from existing postgresql.conf
-func NewPostgresCtlConfigFromDefaults(poolerDir string, pgUser string, pgDatabase string, timeout int) (*pgctld.PostgresCtlConfig, error) {
+// NewPostgresCtlConfigFromDefaults creates a PostgresCtlConfig using command-line parameters
+// Port, listen_addresses, and unix_socket_directories come from CLI flags, not from the config file
+func NewPostgresCtlConfigFromDefaults(poolerDir string, pgPort int, pgListenAddresses string, pgUser string, pgDatabase string, timeout int) (*pgctld.PostgresCtlConfig, error) {
 	postgresConfigFile := pgctld.PostgresConfigFile(poolerDir)
 
-	// Read existing port from postgresql.conf - file must exist
-	existingConfig, err := pgctld.ReadPostgresServerConfig(&pgctld.PostgresServerConfig{
-		Path: postgresConfigFile,
-	}, 0)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read existing postgresql.conf at %s: %w", postgresConfigFile, err)
-	}
+	effectivePort := pgPort
+	effectiveListenAddresses := pgListenAddresses
+	effectiveUnixSocketDirectories := pgctld.PostgresSocketDir(poolerDir)
 
-	effectivePort := existingConfig.Port
-
-	config, err := pgctld.NewPostgresCtlConfig(effectivePort, pgUser, pgDatabase, timeout, pgctld.PostgresDataDir(poolerDir), postgresConfigFile, poolerDir)
+	config, err := pgctld.NewPostgresCtlConfig(effectivePort, pgUser, pgDatabase, timeout, pgctld.PostgresDataDir(poolerDir), postgresConfigFile, poolerDir, effectiveListenAddresses, effectiveUnixSocketDirectories)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create config: %w", err)
 	}
@@ -129,7 +124,7 @@ Examples:
 }
 
 func (s *PgCtlStartCmd) runStart(cmd *cobra.Command, args []string) error {
-	config, err := NewPostgresCtlConfigFromDefaults(s.pgCtlCmd.GetPoolerDir(), s.pgCtlCmd.pgUser.Get(), s.pgCtlCmd.pgDatabase.Get(), s.pgCtlCmd.timeout.Get())
+	config, err := NewPostgresCtlConfigFromDefaults(s.pgCtlCmd.GetPoolerDir(), s.pgCtlCmd.pgPort.Get(), s.pgCtlCmd.pgListenAddresses.Get(), s.pgCtlCmd.pgUser.Get(), s.pgCtlCmd.pgDatabase.Get(), s.pgCtlCmd.timeout.Get())
 	if err != nil {
 		return err
 	}
@@ -222,10 +217,14 @@ func isPostgreSQLRunning(dataDir string) bool {
 
 func startPostgreSQLWithConfig(logger *slog.Logger, config *pgctld.PostgresCtlConfig) error {
 	// Use pg_ctl to start PostgreSQL properly as a daemon
+	// Pass port, listen_addresses, and unix_socket_directories as command-line parameters for portability
+	postgresOpts := fmt.Sprintf("-c config_file=%s -c port=%d -c listen_addresses=%s -c unix_socket_directories=%s",
+		config.PostgresConfigFile, config.Port, config.ListenAddresses, config.UnixSocketDirectories)
+
 	args := []string{
 		"start",
 		"-D", config.PostgresDataDir,
-		"-o", fmt.Sprintf("-c config_file=%s", config.PostgresConfigFile),
+		"-o", postgresOpts,
 		"-l", filepath.Join(config.PostgresDataDir, "postgresql.log"),
 		"-W", // don't wait - we'll check readiness ourselves
 	}

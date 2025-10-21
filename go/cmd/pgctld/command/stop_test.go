@@ -121,7 +121,7 @@ func TestStopPostgreSQLWithResult(t *testing.T) {
 			poolerDir := baseDir
 			pgDataDir := pgctld.PostgresDataDir(poolerDir)
 			pgConfigFile := pgctld.PostgresConfigFile(poolerDir)
-			config, err := pgctld.NewPostgresCtlConfig(5432, "postgres", "postgres", 30, pgDataDir, pgConfigFile, poolerDir)
+			config, err := pgctld.NewPostgresCtlConfig(5432, "postgres", "postgres", 30, pgDataDir, pgConfigFile, poolerDir, "localhost", pgctld.PostgresSocketDir(poolerDir))
 			require.NoError(t, err)
 
 			logger := slog.New(slog.NewTextHandler(io.Discard, nil))
@@ -291,7 +291,7 @@ func TestStopPostgreSQLWithConfig(t *testing.T) {
 			pgDataDir := pgctld.PostgresDataDir(poolerDir)
 			pgConfigFile := pgctld.PostgresConfigFile(poolerDir)
 
-			config, err := pgctld.NewPostgresCtlConfig(5432, "postgres", "postgres", 30, pgDataDir, pgConfigFile, poolerDir)
+			config, err := pgctld.NewPostgresCtlConfig(5432, "postgres", "postgres", 30, pgDataDir, pgConfigFile, poolerDir, "localhost", pgctld.PostgresSocketDir(poolerDir))
 			require.NoError(t, err)
 
 			logger := slog.New(slog.NewTextHandler(io.Discard, nil))
@@ -320,7 +320,7 @@ func TestTakeCheckpoint(t *testing.T) {
 			config: func(baseDir string) *pgctld.PostgresCtlConfig {
 				pgDataDir := pgctld.PostgresDataDir(baseDir)
 				pgConfigFile := pgctld.PostgresConfigFile(baseDir)
-				config, err := pgctld.NewPostgresCtlConfig(5432, "postgres", "postgres", 30, pgDataDir, pgConfigFile, baseDir)
+				config, err := pgctld.NewPostgresCtlConfig(5432, "postgres", "postgres", 30, pgDataDir, pgConfigFile, baseDir, "localhost", pgctld.PostgresSocketDir(baseDir))
 				require.NoError(t, err)
 				return config
 			},
@@ -332,7 +332,7 @@ func TestTakeCheckpoint(t *testing.T) {
 			config: func(baseDir string) *pgctld.PostgresCtlConfig {
 				pgDataDir := pgctld.PostgresDataDir(baseDir)
 				pgConfigFile := pgctld.PostgresConfigFile(baseDir)
-				config, err := pgctld.NewPostgresCtlConfig(5432, "postgres", "postgres", 30, pgDataDir, pgConfigFile, baseDir)
+				config, err := pgctld.NewPostgresCtlConfig(5432, "postgres", "postgres", 30, pgDataDir, pgConfigFile, baseDir, "localhost", pgctld.PostgresSocketDir(baseDir))
 				require.NoError(t, err)
 				return config
 			},

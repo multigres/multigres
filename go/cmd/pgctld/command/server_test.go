@@ -93,7 +93,7 @@ func TestPgCtldServiceStart(t *testing.T) {
 				t.Setenv("PATH", binDir+":"+os.Getenv("PATH"))
 			}
 
-			service, err := NewPgCtldService(testLogger(), 5432, "postgres", "postgres", 30, poolerDir)
+			service, err := NewPgCtldService(testLogger(), 5432, "postgres", "postgres", 30, poolerDir, "localhost")
 			require.NoError(t, err)
 
 			resp, err := service.Start(context.Background(), tt.request)
@@ -117,7 +117,7 @@ func TestPgCtldServiceStart(t *testing.T) {
 
 func TestPgCtldServiceStart_MissingPoolerDir(t *testing.T) {
 	t.Run("missing pooler-dir", func(t *testing.T) {
-		_, err := NewPgCtldService(testLogger(), 0, "", "", 0, "")
+		_, err := NewPgCtldService(testLogger(), 0, "", "", 0, "", "")
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "pooler-dir needs to be set")
 	})
@@ -182,7 +182,7 @@ func TestPgCtldServiceStop(t *testing.T) {
 				t.Setenv("PATH", binDir+":"+os.Getenv("PATH"))
 			}
 
-			service, err := NewPgCtldService(testLogger(), 5432, "postgres", "postgres", 30, poolerDir)
+			service, err := NewPgCtldService(testLogger(), 5432, "postgres", "postgres", 30, poolerDir, "localhost")
 			require.NoError(t, err)
 
 			resp, err := service.Stop(context.Background(), tt.request)
@@ -247,7 +247,7 @@ func TestPgCtldServiceStatus(t *testing.T) {
 
 			_ = tt.setupDataDir(baseDir)
 
-			service, err := NewPgCtldService(testLogger(), 5432, "postgres", "postgres", 30, poolerDir)
+			service, err := NewPgCtldService(testLogger(), 5432, "postgres", "postgres", 30, poolerDir, "localhost")
 			require.NoError(t, err)
 
 			resp, err := service.Status(context.Background(), tt.request)
@@ -276,7 +276,7 @@ func TestPgCtldServiceRestart(t *testing.T) {
 
 		poolerDir := baseDir
 
-		service, err := NewPgCtldService(testLogger(), 5432, "postgres", "postgres", 30, poolerDir)
+		service, err := NewPgCtldService(testLogger(), 5432, "postgres", "postgres", 30, poolerDir, "localhost")
 		require.NoError(t, err)
 
 		request := &pb.RestartRequest{
@@ -308,7 +308,7 @@ func TestPgCtldServiceReloadConfig(t *testing.T) {
 		dataDir := testutil.CreateDataDir(t, baseDir, true)
 		testutil.CreatePIDFile(t, dataDir, 12345)
 
-		service, err := NewPgCtldService(testLogger(), 5432, "postgres", "postgres", 30, poolerDir)
+		service, err := NewPgCtldService(testLogger(), 5432, "postgres", "postgres", 30, poolerDir, "localhost")
 		require.NoError(t, err)
 
 		request := &pb.ReloadConfigRequest{}
@@ -329,7 +329,7 @@ func TestPgCtldServiceReloadConfig(t *testing.T) {
 		testutil.CreateDataDir(t, baseDir, true)
 		// No PID file = not running
 
-		service, err := NewPgCtldService(testLogger(), 5432, "postgres", "postgres", 30, poolerDir)
+		service, err := NewPgCtldService(testLogger(), 5432, "postgres", "postgres", 30, poolerDir, "localhost")
 		require.NoError(t, err)
 
 		request := &pb.ReloadConfigRequest{}
@@ -352,7 +352,7 @@ func TestPgCtldServiceVersion(t *testing.T) {
 		t.Setenv("PATH", binDir+":"+os.Getenv("PATH"))
 
 		poolerDir := baseDir
-		service, err := NewPgCtldService(testLogger(), 5432, "postgres", "postgres", 30, poolerDir)
+		service, err := NewPgCtldService(testLogger(), 5432, "postgres", "postgres", 30, poolerDir, "localhost")
 		require.NoError(t, err)
 
 		request := &pb.VersionRequest{
@@ -380,7 +380,7 @@ func TestPgCtldServiceInitDataDir(t *testing.T) {
 		t.Setenv("PATH", binDir+":"+os.Getenv("PATH"))
 
 		poolerDir := baseDir
-		service, err := NewPgCtldService(testLogger(), 5432, "postgres", "postgres", 30, poolerDir)
+		service, err := NewPgCtldService(testLogger(), 5432, "postgres", "postgres", 30, poolerDir, "localhost")
 		require.NoError(t, err)
 
 		request := &pb.InitDataDirRequest{
@@ -402,7 +402,7 @@ func TestPgCtldServiceInitDataDir(t *testing.T) {
 		_ = testutil.CreateDataDir(t, baseDir, true)
 
 		poolerDir := baseDir
-		service, err := NewPgCtldService(testLogger(), 5432, "postgres", "postgres", 30, poolerDir)
+		service, err := NewPgCtldService(testLogger(), 5432, "postgres", "postgres", 30, poolerDir, "localhost")
 		require.NoError(t, err)
 
 		request := &pb.InitDataDirRequest{}

@@ -207,14 +207,11 @@ func TestReadPostgresServerConfig(t *testing.T) {
 	}
 
 	// Test that extracted struct fields were populated correctly
-	assert.Equal(t, 5432, result.Port, "Port should be extracted correctly")
 	assert.Equal(t, 100, result.MaxConnections, "MaxConnections should be extracted correctly")
-	assert.Equal(t, configSettings["listen_addresses"], result.ListenAddresses, "ListenAddresses should be extracted correctly")
-	assert.Equal(t, configSettings["unix_socket_directories"], result.UnixSocketDirectories, "UnixSocketDirectories should be extracted correctly")
-	assert.Equal(t, configSettings["data_directory"], result.DataDir, "DataDir should be extracted correctly")
-	assert.Equal(t, configSettings["hba_file"], result.HbaFile, "HbaFile should be extracted correctly")
-	assert.Equal(t, configSettings["ident_file"], result.IdentFile, "IdentFile should be extracted correctly")
 	assert.Equal(t, configSettings["cluster_name"], result.ClusterName, "ClusterName should be extracted correctly")
+
+	// Port, listen_addresses, unix_socket_directories, data_directory, hba_file, and ident_file
+	// are NOT read from config files - they are set via flags/code and passed as command-line parameters
 }
 
 func TestReadPostgresServerConfigEmptyFile(t *testing.T) {
@@ -273,7 +270,7 @@ data_directory = 'multigres_local/test-rafa/pg_data'
 cluster_name = 'test_cluster'
 listen_addresses = 'localhost'
 
-# Test double quotes  
+# Test double quotes
 hba_file = "/etc/postgresql/pg_hba.conf"
 ident_file = "/etc/postgresql/pg_ident.conf"
 unix_socket_directories = "/var/run/postgresql"
@@ -318,18 +315,13 @@ shared_preload_libraries 'pg_stat_statements, auto_explain'
 	require.NoError(t, err, "ReadPostgresServerConfig should not return error")
 
 	// Test that single quotes were removed
-	assert.Equal(t, "multigres_local/test-rafa/pg_data", result.DataDir, "Single quotes should be removed from data_directory")
 	assert.Equal(t, "test_cluster", result.ClusterName, "Single quotes should be removed from cluster_name")
-	assert.Equal(t, "localhost", result.ListenAddresses, "Single quotes should be removed from listen_addresses")
-
-	// Test that double quotes were removed
-	assert.Equal(t, "/etc/postgresql/pg_hba.conf", result.HbaFile, "Double quotes should be removed from hba_file")
-	assert.Equal(t, "/etc/postgresql/pg_ident.conf", result.IdentFile, "Double quotes should be removed from ident_file")
-	assert.Equal(t, "/var/run/postgresql", result.UnixSocketDirectories, "Double quotes should be removed from unix_socket_directories")
 
 	// Test that unquoted values remain unchanged
-	assert.Equal(t, 5432, result.Port, "Unquoted port should remain unchanged")
 	assert.Equal(t, 200, result.MaxConnections, "Unquoted max_connections should remain unchanged")
+
+	// Port, listen_addresses, unix_socket_directories, data_directory, hba_file, and ident_file
+	// are NOT read from config files - they are set via flags/code and passed as command-line parameters
 
 	// Test mixed quote types
 	assert.Equal(t, "server.crt", result.lookup("ssl_cert_file"), "Single quotes should be removed from ssl_cert_file")
@@ -354,11 +346,9 @@ func TestGenerateAndReadConfigRoundTrip(t *testing.T) {
 	require.NoError(t, err, "ReadPostgresServerConfig should not return error for generated config")
 
 	// Validate that all required template fields are populated (not empty/zero values)
-
-	assert.Equal(t, 5433, result.Port, "Port should match the value passed to generator")
+	// Port, ListenAddresses, and UnixSocketDirectories are set during generation and preserved in memory
+	// but are NOT read back from the config file (they're passed as CLI parameters)
 	assert.NotZero(t, result.MaxConnections, "MaxConnections should be set")
-	assert.NotEmpty(t, result.ListenAddresses, "ListenAddresses should be set")
-	assert.NotEmpty(t, result.UnixSocketDirectories, "UnixSocketDirectories should be set")
 	assert.NotEmpty(t, result.SharedBuffers, "SharedBuffers should be set")
 	assert.NotEmpty(t, result.MaintenanceWorkMem, "MaintenanceWorkMem should be set")
 	assert.NotEmpty(t, result.WorkMem, "WorkMem should be set")
@@ -377,17 +367,20 @@ func TestGenerateAndReadConfigRoundTrip(t *testing.T) {
 	assert.NotEmpty(t, result.EffectiveCacheSize, "EffectiveCacheSize should be set")
 	assert.NotZero(t, result.RandomPageCost, "RandomPageCost should be set")
 	assert.NotZero(t, result.DefaultStatisticsTarget, "DefaultStatisticsTarget should be set")
-	expectedDataDir := tmpDir + "/pg_data"
-	assert.Equal(t, expectedDataDir, result.DataDir, "DataDir should match expected path")
-	assert.Equal(t, expectedDataDir+"/pg_hba.conf", result.HbaFile, "HbaFile should match expected path")
-	assert.Equal(t, expectedDataDir+"/pg_ident.conf", result.IdentFile, "IdentFile should match expected path")
+
 	// Other settings
 	assert.NotEmpty(t, result.ClusterName, "ClusterName should be set")
 	configFileContent, err := os.ReadFile(generatedConfig.Path)
 	require.NoError(t, err, "Should be able to read generated config file")
 	configString := string(configFileContent)
-	// Validate that key templated values are present in the file (showing template was processed)
-	assert.Contains(t, configString, "port = 5433", "Config file should contain templated port")
-	assert.Contains(t, configString, "data_directory = '"+expectedDataDir+"'", "Config file should contain templated data_directory")
+
+	// These should NOT be in the config file - they're passed as command-line parameters
+	assert.NotContains(t, configString, "port =", "Config file should NOT contain port")
+	assert.NotContains(t, configString, "listen_addresses =", "Config file should NOT contain listen_addresses")
+	assert.NotContains(t, configString, "unix_socket_directories =", "Config file should NOT contain unix_socket_directories")
+	assert.NotContains(t, configString, "data_directory =", "Config file should NOT contain data_directory")
+	assert.NotContains(t, configString, "hba_file =", "Config file should NOT contain hba_file")
+	assert.NotContains(t, configString, "ident_file =", "Config file should NOT contain ident_file")
+
 	assert.NotContains(t, configString, "{{.", "Config file should not contain unprocessed template variables")
 }

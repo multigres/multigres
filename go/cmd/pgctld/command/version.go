@@ -86,7 +86,7 @@ func GetVersionWithResult(config *pgctld.PostgresCtlConfig) (*VersionResult, err
 }
 
 func (v *PgCtlVersionCmd) runVersion(cmd *cobra.Command, args []string) error {
-	config, err := NewPostgresCtlConfigFromDefaults(v.pgCtlCmd.GetPoolerDir(), v.pgCtlCmd.pgUser.Get(), v.pgCtlCmd.pgDatabase.Get(), v.pgCtlCmd.timeout.Get())
+	config, err := NewPostgresCtlConfigFromDefaults(v.pgCtlCmd.GetPoolerDir(), v.pgCtlCmd.pgPort.Get(), v.pgCtlCmd.pgListenAddresses.Get(), v.pgCtlCmd.pgUser.Get(), v.pgCtlCmd.pgDatabase.Get(), v.pgCtlCmd.timeout.Get())
 	if err != nil {
 		return err
 	}
