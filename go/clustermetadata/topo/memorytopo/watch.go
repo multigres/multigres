@@ -53,10 +53,16 @@ func (c *conn) Watch(ctx context.Context, filePath string) (*topo.WatchData, <-c
 	}
 
 	notifications := make(chan *topo.WatchData, 100)
-	watchIndex := n.addWatch(watch{contents: notifications})
+
+	// Create a cancellable context so we can forcibly close the watch
+	watchCtx, watchCancel := context.WithCancel(ctx)
+	watchIndex := n.addWatch(watch{
+		contents: notifications,
+		cancel:   watchCancel,
+	})
 
 	go func() {
-		<-ctx.Done()
+		<-watchCtx.Done()
 		// This function can be called at any point, so we first need
 		// to make sure the watch is still valid.
 		c.factory.Lock()
@@ -102,7 +108,7 @@ func (c *conn) WatchRecursive(ctx context.Context, dirpath string) ([]*topo.Watc
 	var initialwd []*topo.WatchDataRecursive
 	n.recurseContents(func(n *node) {
 		initialwd = append(initialwd, &topo.WatchDataRecursive{
-			Path: n.name,
+			Path: n.fullPath(),
 			WatchData: topo.WatchData{
 				Contents: n.contents,
 				Version:  NodeVersion(n.version),
@@ -111,12 +117,18 @@ func (c *conn) WatchRecursive(ctx context.Context, dirpath string) ([]*topo.Watc
 	})
 
 	notifications := make(chan *topo.WatchDataRecursive, 100)
-	watchIndex := n.addWatch(watch{recursive: notifications})
+
+	// Create a cancellable context so we can forcibly close the watch
+	watchCtx, watchCancel := context.WithCancel(ctx)
+	watchIndex := n.addWatch(watch{
+		recursive: notifications,
+		cancel:    watchCancel,
+	})
 
 	go func() {
 		defer close(notifications)
 
-		<-ctx.Done()
+		<-watchCtx.Done()
 
 		c.factory.Lock()
 		f := c.factory
