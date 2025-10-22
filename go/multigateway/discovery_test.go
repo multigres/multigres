@@ -178,8 +178,12 @@ func TestPoolerDiscovery_EmptyInitialState(t *testing.T) {
 	pd.Start()
 	defer pd.Stop()
 
-	// Give it a moment to process (should remain at 0)
-	time.Sleep(100 * time.Millisecond)
+	require.Eventually(t, func() bool {
+		return !pd.LastRefresh().IsZero()
+	}, testTimeout, testPollInterval,
+		"Expected lastRefresh to be set after starting discovery")
+
+	// After initial discovery completes, count should still be 0
 	assert.Equal(t, 0, pd.PoolerCount())
 
 	// Now add a pooler via watch
