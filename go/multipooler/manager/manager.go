@@ -19,6 +19,7 @@ import (
 	"database/sql"
 	"fmt"
 	"log/slog"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -563,6 +564,55 @@ func generateApplicationName(id *clustermetadatapb.ID) string {
 	return fmt.Sprintf("%s_%s", id.Cell, id.Name)
 }
 
+// parsePrimaryConnInfo parses a PostgreSQL primary_conninfo connection string into structured fields
+// Example input: "host=localhost port=5432 user=postgres application_name=cell_name"
+// Returns a PrimaryConnInfo message with parsed fields
+// Note: Passwords are redacted in the raw field for security
+func parsePrimaryConnInfo(connInfoStr string) *multipoolermanagerdata.PrimaryConnInfo {
+	connInfo := &multipoolermanagerdata.PrimaryConnInfo{}
+
+	// Simple space-based parsing of key=value pairs
+	// Note: This is a basic parser that handles simple key=value pairs separated by spaces.
+	parts := strings.Split(connInfoStr, " ")
+	redactedParts := make([]string, 0, len(parts))
+
+	for _, part := range parts {
+		kv := strings.SplitN(part, "=", 2)
+		if len(kv) != 2 {
+			redactedParts = append(redactedParts, part)
+			continue
+		}
+		key := strings.TrimSpace(kv[0])
+		value := strings.TrimSpace(kv[1])
+
+		// Redact sensitive fields in the raw string
+		if key == "password" || key == "passfile" {
+			redactedParts = append(redactedParts, key+"=[REDACTED]")
+		} else {
+			redactedParts = append(redactedParts, part)
+		}
+
+		// Parse specific fields we care about
+		switch key {
+		case "host":
+			connInfo.Host = value
+		case "port":
+			if port, err := strconv.ParseInt(value, 10, 32); err == nil {
+				connInfo.Port = int32(port)
+			}
+		case "user":
+			connInfo.User = value
+		case "application_name":
+			connInfo.ApplicationName = value
+		}
+	}
+
+	// Set the redacted raw string
+	connInfo.Raw = strings.Join(redactedParts, " ")
+
+	return connInfo
+}
+
 // SetPrimaryConnInfo sets the primary connection info for a standby server
 func (pm *MultiPoolerManager) SetPrimaryConnInfo(ctx context.Context, host string, port int32, stopReplicationBefore, startReplicationAfter bool, currentTerm int64, force bool) error {
 	if err := pm.checkReady(); err != nil {
@@ -761,13 +811,15 @@ func (pm *MultiPoolerManager) ReplicationStatus(ctx context.Context) (*multipool
 	if lastXactTime.Valid {
 		status.LastXactReplayTimestamp = lastXactTime.String
 	}
-	status.PrimaryConninfo = primaryConnInfo
+
+	// Parse primary_conninfo into structured format
+	status.PrimaryConnInfo = parsePrimaryConnInfo(primaryConnInfo)
 
 	pm.logger.Info("ReplicationStatus completed",
 		"lsn", status.Lsn,
 		"is_paused", status.IsWalReplayPaused,
 		"pause_state", status.WalReplayPauseState,
-		"primary_conninfo", status.PrimaryConninfo)
+		"primary_conn_info", status.PrimaryConnInfo)
 
 	return status, nil
 }
@@ -895,6 +947,43 @@ func (pm *MultiPoolerManager) setSynchronousStandbyNames(ctx context.Context, sy
 	return nil
 }
 
+// validateSyncReplicationParams validates the parameters for ConfigureSynchronousReplication
+func validateSyncReplicationParams(numSync int32, standbyIDs []*clustermetadatapb.ID) error {
+	// Validate numSync is non-negative
+	if numSync < 0 {
+		return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT,
+			fmt.Sprintf("num_sync must be non-negative, got: %d", numSync))
+	}
+
+	// If standbyIDs are provided, validate them
+	if len(standbyIDs) > 0 {
+		// Validate that numSync doesn't exceed the number of standbys (PostgreSQL requirement)
+		// Note: numSync=0 is allowed and will be defaulted to 1 in setSynchronousStandbyNames
+		if numSync > int32(len(standbyIDs)) {
+			return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT,
+				fmt.Sprintf("num_sync (%d) cannot exceed number of standby_ids (%d)", numSync, len(standbyIDs)))
+		}
+
+		// Validate each standby ID
+		for i, id := range standbyIDs {
+			if id == nil {
+				return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT,
+					fmt.Sprintf("standby_ids[%d] is nil", i))
+			}
+			if id.Cell == "" {
+				return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT,
+					fmt.Sprintf("standby_ids[%d] has empty cell", i))
+			}
+			if id.Name == "" {
+				return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT,
+					fmt.Sprintf("standby_ids[%d] has empty name", i))
+			}
+		}
+	}
+
+	return nil
+}
+
 // ConfigureSynchronousReplication configures PostgreSQL synchronous replication settings
 func (pm *MultiPoolerManager) ConfigureSynchronousReplication(ctx context.Context, synchronousCommit multipoolermanagerdata.SynchronousCommitLevel, synchronousMethod multipoolermanagerdata.SynchronousMethod, numSync int32, standbyIDs []*clustermetadatapb.ID, reloadConfig bool) error {
 	if err := pm.checkReady(); err != nil {
@@ -908,22 +997,27 @@ func (pm *MultiPoolerManager) ConfigureSynchronousReplication(ctx context.Contex
 		"standby_ids", standbyIDs,
 		"reload_config", reloadConfig)
 
+	// Validate input parameters
+	if err := validateSyncReplicationParams(numSync, standbyIDs); err != nil {
+		return err
+	}
+
 	// Check PRIMARY guardrails (pooler type and non-recovery mode)
 	if err := pm.checkPrimaryGuardrails(ctx); err != nil {
 		return err
 	}
 
-	// Step 1: Set synchronous_commit level
+	// Set synchronous_commit level
 	if err := pm.setSynchronousCommit(ctx, synchronousCommit); err != nil {
 		return err
 	}
 
-	// Step 2: Build and set synchronous_standby_names
+	// Build and set synchronous_standby_names
 	if err := pm.setSynchronousStandbyNames(ctx, synchronousMethod, numSync, standbyIDs); err != nil {
 		return err
 	}
 
-	// Step 3: Reload configuration if requested
+	// Reload configuration if requested
 	if reloadConfig {
 		pm.logger.Info("Reloading PostgreSQL configuration")
 		_, err := pm.db.ExecContext(ctx, "SELECT pg_reload_conf()")

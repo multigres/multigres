@@ -22,6 +22,24 @@ import "pgctldservice.proto";
 
 option go_package = "github.com/multigres/multigres/go/pb/multipoolermanagerdata";
 
+// Primary connection information parsed from PostgreSQL's primary_conninfo setting
+message PrimaryConnInfo {
+  // Primary server hostname
+  string host = 1;
+
+  // Primary server port
+  int32 port = 2;
+
+  // Database user for replication connection
+  string user = 3;
+
+  // Application name for this standby
+  string application_name = 4;
+
+  // Raw connection string (includes all parameters)
+  string raw = 5;
+}
+
 // PostgreSQL replication status information
 message ReplicationStatus {
   // Current replication LSN position (PostgreSQL format: X/XXXXXXXX)
@@ -39,9 +57,8 @@ message ReplicationStatus {
   // Result of pg_last_xact_replay_timestamp()
   string last_xact_replay_timestamp = 5;
 
-  // Primary connection info string (from primary_conninfo setting)
-  // Example: "host=localhost port=5432 user=postgres application_name=cell_name"
-  string primary_conninfo = 6;
+  // Primary connection info parsed from primary_conninfo setting
+  PrimaryConnInfo primary_conn_info = 6;
 }
 
 // Wait for PostgreSQL server to reach a specific LSN position

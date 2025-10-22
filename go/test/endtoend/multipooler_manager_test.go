@@ -1766,8 +1766,8 @@ func TestConfigureSynchronousReplication(t *testing.T) {
 		standbyAppName := fmt.Sprintf("test-cell_%s", setup.StandbyMultipooler.ServiceID)
 		t.Logf("Using standby application_name from setup: %s", standbyAppName)
 
-		// Step 1: Configure synchronous replication on primary with remote_apply and actual standby
-		t.Log("Step 1: Configuring synchronous replication on primary with remote_apply...")
+		// Configure synchronous replication on primary with remote_apply and actual standby
+		t.Log("Configuring synchronous replication on primary with remote_apply...")
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
 
@@ -1781,8 +1781,8 @@ func TestConfigureSynchronousReplication(t *testing.T) {
 		_, err := primaryManagerClient.ConfigureSynchronousReplication(ctx, configReq)
 		require.NoError(t, err, "ConfigureSynchronousReplication should succeed on primary")
 
-		// Step 2: Ensure standby is connected and replicating
-		t.Log("Step 2: Ensuring standby is connected to primary and replicating...")
+		// Ensure standby is connected and replicating
+		t.Log("Ensuring standby is connected to primary and replicating...")
 		ctx, cancel = context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
 
@@ -1800,26 +1800,27 @@ func TestConfigureSynchronousReplication(t *testing.T) {
 		// Wait a bit for replication to establish
 		time.Sleep(500 * time.Millisecond)
 
-		// Step 2.5: Verify standby is connected and replicating using ReplicationStatus API
-		t.Log("Step 2.5: Verifying standby is connected and replicating...")
+		// Verify standby is connected and replicating using ReplicationStatus API
+		t.Log("Verifying standby is connected and replicating...")
 		ctx, cancel = context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
 
 		statusResp, err := standbyManagerClient.ReplicationStatus(ctx, &multipoolermanagerdata.ReplicationStatusRequest{})
 		require.NoError(t, err, "ReplicationStatus should succeed")
 		require.NotNil(t, statusResp.Status, "Status should not be nil")
-		t.Logf("Standby replication status: LSN=%s, is_paused=%v, pause_state=%s, primary_conninfo=%s",
-			statusResp.Status.Lsn, statusResp.Status.IsWalReplayPaused, statusResp.Status.WalReplayPauseState, statusResp.Status.PrimaryConninfo)
+		require.NotNil(t, statusResp.Status.PrimaryConnInfo, "PrimaryConnInfo should not be nil")
+		t.Logf("Standby replication status: LSN=%s, is_paused=%v, pause_state=%s, primary_conn_info=%s",
+			statusResp.Status.Lsn, statusResp.Status.IsWalReplayPaused, statusResp.Status.WalReplayPauseState, statusResp.Status.PrimaryConnInfo.Raw)
 
 		// Verify standby is not paused
 		require.False(t, statusResp.Status.IsWalReplayPaused, "Standby should be actively replicating (not paused)")
 
 		// Verify primary_conninfo contains the expected application_name
-		require.Contains(t, statusResp.Status.PrimaryConninfo, fmt.Sprintf("application_name=%s", standbyAppName),
-			"primary_conninfo should contain the expected application_name")
+		require.Equal(t, standbyAppName, statusResp.Status.PrimaryConnInfo.ApplicationName,
+			"PrimaryConnInfo.ApplicationName should match expected standby application name")
 
-		// Step 3: Verify writes succeed with synchronous replication
-		t.Log("Step 3: Testing write with synchronous replication enabled...")
+		// Test write with synchronous replication enabled
+		t.Log("Testing write with synchronous replication enabled...")
 
 		// Reconnect to pick up the new synchronous_standby_names configuration
 		primaryPoolerClient.Close()
@@ -1835,8 +1836,8 @@ func TestConfigureSynchronousReplication(t *testing.T) {
 		require.NoError(t, err, "Insert should succeed with standby connected and replicating")
 		t.Log("Write succeeded with synchronous replication enabled")
 
-		// Step 4: Disconnect standby using ResetReplication
-		t.Log("Step 4: Disconnecting standby using ResetReplication...")
+		// Disconnect standby using ResetReplication
+		t.Log("Disconnecting standby using ResetReplication...")
 		ctx, cancel = context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
 
@@ -1860,8 +1861,8 @@ func TestConfigureSynchronousReplication(t *testing.T) {
 		}, 10*time.Second, 500*time.Millisecond, "Standby should disconnect after ResetReplication")
 		t.Log("Standby disconnected successfully")
 
-		// Step 5: Verify writes timeout without standby
-		t.Log("Step 5: Testing write timeout without standby available...")
+		// Test write timeout without standby
+		t.Log("Testing write timeout without standby available...")
 		// Create a new connection for this test
 		primaryPoolerClient.Close()
 		primaryPoolerClient, err = NewMultiPoolerTestClient(fmt.Sprintf("localhost:%d", setup.PrimaryMultipooler.GrpcPort))
