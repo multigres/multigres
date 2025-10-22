@@ -41,16 +41,36 @@ func checkPortAvailable(port int) error {
 	return nil
 }
 
-// StartEtcd starts an etcd subprocess, and waits for it to be ready.
+// EtcdOptions contains optional configuration for starting etcd.
+type EtcdOptions struct {
+	// Port is the client port to listen on (peer port will be port+1).
+	// If 0, a port will be automatically assigned.
+	Port int
+
+	// DataDir is the directory for etcd data storage.
+	// If empty, a temporary directory will be created and cleaned up after the test.
+	DataDir string
+}
+
+// StartEtcd starts an etcd subprocess with default options, and waits for it to be ready.
 func StartEtcd(t *testing.T, port int) (string, *exec.Cmd) {
+	return StartEtcdWithOptions(t, EtcdOptions{Port: port})
+}
+
+// StartEtcdWithOptions starts an etcd subprocess with custom options, and waits for it to be ready.
+func StartEtcdWithOptions(t *testing.T, opts EtcdOptions) (string, *exec.Cmd) {
 	// Check if etcd is available in PATH
 	_, err := exec.LookPath("etcd")
 	require.NoError(t, err, "etcd not found in PATH")
 
-	// Create a temporary directory.
-	dataDir := t.TempDir()
+	// Create a temporary directory if not specified.
+	dataDir := opts.DataDir
+	if dataDir == "" {
+		dataDir = t.TempDir()
+	}
 
 	// Get our two ports to listen to.
+	port := opts.Port
 	if port == 0 {
 		port = utils.GetNextEtcd2Port()
 	}

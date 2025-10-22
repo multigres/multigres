@@ -189,6 +189,7 @@ type watch struct {
 	contents  chan *topo.WatchData
 	recursive chan *topo.WatchDataRecursive
 	lock      chan string
+	cancel    context.CancelFunc // Used to forcibly close the watch
 }
 
 // node contains a directory or a file entry.
@@ -218,6 +219,19 @@ type node struct {
 
 func (n *node) isDirectory() bool {
 	return n.children != nil
+}
+
+// fullPath returns the full path of this node from the cell root.
+// It builds the path by walking up the parent chain.
+func (n *node) fullPath() string {
+	if n.parent == nil {
+		return ""
+	}
+	parts := []string{n.name}
+	for p := n.parent; p != nil && p.parent != nil; p = p.parent {
+		parts = append([]string{p.name}, parts...)
+	}
+	return strings.Join(parts, "/")
 }
 
 func (n *node) recurseContents(callback func(n *node)) {
@@ -269,6 +283,33 @@ func (n *node) PropagateWatchError(err error) {
 	for _, c := range n.children {
 		c.PropagateWatchError(err)
 	}
+}
+
+// CloseWatches closes all watch channels for the given path and its children.
+// This simulates what happens when etcd compacts history or a watch is forcibly cancelled.
+// It's useful for testing how clients handle watch channel closures.
+func (f *Factory) CloseWatches(cell, path string) {
+	f.Lock()
+	defer f.Unlock()
+
+	n := f.nodeByPath(cell, path)
+	if n == nil {
+		return
+	}
+
+	// Cancel all watches on this node and its children
+	var cancelWatches func(*node)
+	cancelWatches = func(node *node) {
+		for _, w := range node.watches {
+			if w.cancel != nil {
+				w.cancel()
+			}
+		}
+		for _, child := range node.children {
+			cancelWatches(child)
+		}
+	}
+	cancelWatches(n)
 }
 
 // NewServerAndFactory returns a new MemoryTopo and the backing factory for all
