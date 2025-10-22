@@ -852,7 +852,7 @@ func (pm *MultiPoolerManager) ResetReplication(ctx context.Context) error {
 		return err
 	}
 
-	// Step 1: Clear primary_conninfo using ALTER SYSTEM
+	//  Clear primary_conninfo using ALTER SYSTEM
 	pm.logger.Info("Clearing primary_conninfo")
 	_, err := pm.db.ExecContext(ctx, "ALTER SYSTEM RESET primary_conninfo")
 	if err != nil {
@@ -860,7 +860,7 @@ func (pm *MultiPoolerManager) ResetReplication(ctx context.Context) error {
 		return mterrors.Wrap(err, "failed to clear primary_conninfo")
 	}
 
-	// Step 2: Reload PostgreSQL configuration to apply changes
+	//  Reload PostgreSQL configuration to apply changes
 	pm.logger.Info("Reloading PostgreSQL configuration")
 	_, err = pm.db.ExecContext(ctx, "SELECT pg_reload_conf()")
 	if err != nil {

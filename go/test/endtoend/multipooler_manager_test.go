@@ -1402,7 +1402,20 @@ func TestReplicationStatus(t *testing.T) {
 		_, err := standbyManagerClient.ResetReplication(utils.WithShortDeadline(t), &multipoolermanagerdata.ResetReplicationRequest{})
 		require.NoError(t, err, "ResetReplication should succeed")
 
-		// Get status
+		// Wait for config to take effect (pg_reload_conf is async)
+		t.Log("Waiting for primary_conninfo to be cleared...")
+		require.Eventually(t, func() bool {
+			statusResp, err := standbyManagerClient.ReplicationStatus(utils.WithShortDeadline(t), &multipoolermanagerdata.ReplicationStatusRequest{})
+			if err != nil {
+				t.Logf("ReplicationStatus error: %v", err)
+				return false
+			}
+			// Config cleared when PrimaryConnInfo is nil or Host is empty
+			return statusResp.Status.PrimaryConnInfo == nil ||
+				statusResp.Status.PrimaryConnInfo.Host == ""
+		}, 5*time.Second, 200*time.Millisecond, "primary_conninfo should be cleared after ResetReplication")
+
+		// Get final status
 		statusResp, err := standbyManagerClient.ReplicationStatus(utils.WithShortDeadline(t), &multipoolermanagerdata.ReplicationStatusRequest{})
 		require.NoError(t, err, "ReplicationStatus should succeed on standby")
 		require.NotNil(t, statusResp.Status, "Status should not be nil")
@@ -1431,8 +1444,20 @@ func TestReplicationStatus(t *testing.T) {
 		_, err := standbyManagerClient.SetPrimaryConnInfo(utils.WithShortDeadline(t), setPrimaryReq)
 		require.NoError(t, err, "SetPrimaryConnInfo should succeed")
 
-		// Get status
-		t.Log("Getting replication status...")
+		// Wait for config to take effect (pg_reload_conf is async)
+		t.Log("Waiting for primary_conninfo to be set...")
+		require.Eventually(t, func() bool {
+			statusResp, err := standbyManagerClient.ReplicationStatus(utils.WithShortDeadline(t), &multipoolermanagerdata.ReplicationStatusRequest{})
+			if err != nil {
+				t.Logf("ReplicationStatus error: %v", err)
+				return false
+			}
+			// Config set when PrimaryConnInfo is not nil and Host is populated
+			return statusResp.Status.PrimaryConnInfo != nil &&
+				statusResp.Status.PrimaryConnInfo.Host != ""
+		}, 5*time.Second, 200*time.Millisecond, "primary_conninfo should be set after SetPrimaryConnInfo")
+
+		// Get final status
 		statusResp, err := standbyManagerClient.ReplicationStatus(utils.WithShortDeadline(t), &multipoolermanagerdata.ReplicationStatusRequest{})
 		require.NoError(t, err, "ReplicationStatus should succeed")
 		require.NotNil(t, statusResp.Status, "Status should not be nil")
@@ -1465,8 +1490,18 @@ func TestReplicationStatus(t *testing.T) {
 		_, err := standbyManagerClient.SetPrimaryConnInfo(utils.WithShortDeadline(t), setPrimaryReq)
 		require.NoError(t, err, "SetPrimaryConnInfo should succeed")
 
-		// Get status
-		t.Log("Getting replication status while paused...")
+		// Wait for config to take effect and WAL replay to be paused
+		t.Log("Waiting for WAL replay to be paused...")
+		require.Eventually(t, func() bool {
+			statusResp, err := standbyManagerClient.ReplicationStatus(utils.WithShortDeadline(t), &multipoolermanagerdata.ReplicationStatusRequest{})
+			if err != nil {
+				t.Logf("ReplicationStatus error: %v", err)
+				return false
+			}
+			return statusResp.Status.IsWalReplayPaused
+		}, 5*time.Second, 200*time.Millisecond, "WAL replay should be paused after SetPrimaryConnInfo with StopReplicationBefore")
+
+		// Get final status
 		statusResp, err := standbyManagerClient.ReplicationStatus(utils.WithShortDeadline(t), &multipoolermanagerdata.ReplicationStatusRequest{})
 		require.NoError(t, err, "ReplicationStatus should succeed")
 		require.NotNil(t, statusResp.Status, "Status should not be nil")
@@ -1893,8 +1928,17 @@ func TestConfigureSynchronousReplication(t *testing.T) {
 		_, err = standbyManagerClient.SetPrimaryConnInfo(utils.WithShortDeadline(t), setPrimaryReq)
 		require.NoError(t, err, "SetPrimaryConnInfo should succeed")
 
-		// Wait a bit for replication to establish
-		time.Sleep(500 * time.Millisecond)
+		// Wait for config to take effect and replication to establish (pg_reload_conf is async)
+		t.Log("Waiting for replication to be configured...")
+		require.Eventually(t, func() bool {
+			statusResp, err := standbyManagerClient.ReplicationStatus(utils.WithShortDeadline(t), &multipoolermanagerdata.ReplicationStatusRequest{})
+			if err != nil {
+				return false
+			}
+			return statusResp.Status.PrimaryConnInfo != nil &&
+				statusResp.Status.PrimaryConnInfo.Host != "" &&
+				!statusResp.Status.IsWalReplayPaused
+		}, 5*time.Second, 200*time.Millisecond, "Replication should be configured and active")
 
 		// Verify standby is connected and replicating using ReplicationStatus API
 		t.Log("Verifying standby is connected and replicating...")
