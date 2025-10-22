@@ -623,11 +623,12 @@ func TestValidateSyncReplicationParams(t *testing.T) {
 	}
 }
 
-func TestParsePrimaryConnInfo(t *testing.T) {
+func TestParseAndRedactPrimaryConnInfo(t *testing.T) {
 	tests := []struct {
-		name     string
-		connInfo string
-		expected *multipoolermanagerdata.PrimaryConnInfo
+		name        string
+		connInfo    string
+		expected    *multipoolermanagerdata.PrimaryConnInfo
+		expectError bool
 	}{
 		{
 			name:     "Complete connection string",
@@ -718,14 +719,14 @@ func TestParsePrimaryConnInfo(t *testing.T) {
 			},
 		},
 		{
-			name:     "Connection with passfile (redacted)",
+			name:     "Connection with passfile",
 			connInfo: "host=localhost port=5432 user=postgres passfile=/home/user/.pgpass",
 			expected: &multipoolermanagerdata.PrimaryConnInfo{
 				Host:            "localhost",
 				Port:            5432,
 				User:            "postgres",
 				ApplicationName: "",
-				Raw:             "host=localhost port=5432 user=postgres passfile=[REDACTED]",
+				Raw:             "host=localhost port=5432 user=postgres passfile=/home/user/.pgpass",
 			},
 		},
 		{
@@ -904,17 +905,63 @@ func TestParsePrimaryConnInfo(t *testing.T) {
 				Raw:             "host=prod.db.com port=5433 user=repl_user password=[REDACTED] application_name=standby1 sslmode=verify-full sslcert=/certs/client.pem sslkey=/certs/client.key keepalives_idle=30 connect_timeout=10",
 			},
 		},
+		{
+			name:        "Invalid format - space-separated without equals",
+			connInfo:    "host localhost port 5432",
+			expectError: true,
+		},
+		{
+			name:        "Invalid format - missing equals sign in one parameter",
+			connInfo:    "host=localhost port 5432 user=postgres",
+			expectError: true,
+		},
+		{
+			name:        "Invalid format - empty key",
+			connInfo:    "host=localhost =5432 user=postgres",
+			expectError: true,
+		},
+		{
+			name:     "Connection with multiple spaces between parameters",
+			connInfo: "host=localhost   port=5432  user=postgres",
+			expected: &multipoolermanagerdata.PrimaryConnInfo{
+				Host:            "localhost",
+				Port:            5432,
+				User:            "postgres",
+				ApplicationName: "",
+				Raw:             "host=localhost port=5432 user=postgres", // Spaces normalized due to split/join
+			},
+		},
+		{
+			name:     "Connection with leading and trailing spaces",
+			connInfo: "  host=localhost port=5432 user=postgres  ",
+			expected: &multipoolermanagerdata.PrimaryConnInfo{
+				Host:            "localhost",
+				Port:            5432,
+				User:            "postgres",
+				ApplicationName: "",
+				Raw:             "host=localhost port=5432 user=postgres", // Leading/trailing spaces trimmed
+			},
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := parsePrimaryConnInfo(tt.connInfo)
+			result, err := parseAndRedactPrimaryConnInfo(tt.connInfo)
 
-			assert.Equal(t, tt.expected.Host, result.Host, "Host should match")
-			assert.Equal(t, tt.expected.Port, result.Port, "Port should match")
-			assert.Equal(t, tt.expected.User, result.User, "User should match")
-			assert.Equal(t, tt.expected.ApplicationName, result.ApplicationName, "ApplicationName should match")
-			assert.Equal(t, tt.expected.Raw, result.Raw, "Raw should match")
+			if tt.expectError {
+				// Expect parsing to fail for invalid formats
+				require.Error(t, err, "Should return error for invalid format")
+				assert.Nil(t, result, "Result should be nil when parsing fails")
+			} else {
+				// Expect parsing to succeed
+				require.NoError(t, err, "Should not return error for valid format")
+				require.NotNil(t, result, "Result should not be nil")
+				assert.Equal(t, tt.expected.Host, result.Host, "Host should match")
+				assert.Equal(t, tt.expected.Port, result.Port, "Port should match")
+				assert.Equal(t, tt.expected.User, result.User, "User should match")
+				assert.Equal(t, tt.expected.ApplicationName, result.ApplicationName, "ApplicationName should match")
+				assert.Equal(t, tt.expected.Raw, result.Raw, "Raw should match")
+			}
 		})
 	}
 }

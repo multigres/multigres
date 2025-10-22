@@ -564,29 +564,38 @@ func generateApplicationName(id *clustermetadatapb.ID) string {
 	return fmt.Sprintf("%s_%s", id.Cell, id.Name)
 }
 
-// parsePrimaryConnInfo parses a PostgreSQL primary_conninfo connection string into structured fields
+// parseAndRedactPrimaryConnInfo parses a PostgreSQL primary_conninfo connection string into structured fields
 // Example input: "host=localhost port=5432 user=postgres application_name=cell_name"
-// Returns a PrimaryConnInfo message with parsed fields
+// Returns a PrimaryConnInfo message with parsed fields, or an error if parsing fails
 // Note: Passwords are redacted in the raw field for security
-func parsePrimaryConnInfo(connInfoStr string) *multipoolermanagerdata.PrimaryConnInfo {
+func parseAndRedactPrimaryConnInfo(connInfoStr string) (*multipoolermanagerdata.PrimaryConnInfo, error) {
 	connInfo := &multipoolermanagerdata.PrimaryConnInfo{}
 
 	// Simple space-based parsing of key=value pairs
-	// Note: This is a basic parser that handles simple key=value pairs separated by spaces.
 	parts := strings.Split(connInfoStr, " ")
 	redactedParts := make([]string, 0, len(parts))
 
 	for _, part := range parts {
-		kv := strings.SplitN(part, "=", 2)
-		if len(kv) != 2 {
-			redactedParts = append(redactedParts, part)
+		part = strings.TrimSpace(part)
+		if part == "" {
 			continue
 		}
+
+		kv := strings.SplitN(part, "=", 2)
+		if len(kv) != 2 {
+			// Not a key=value pair - parsing failed
+			return nil, fmt.Errorf("invalid key=value format in primary_conninfo: %q", part)
+		}
+
 		key := strings.TrimSpace(kv[0])
 		value := strings.TrimSpace(kv[1])
 
+		if key == "" {
+			return nil, fmt.Errorf("empty key in primary_conninfo: %q", part)
+		}
+
 		// Redact sensitive fields in the raw string
-		if key == "password" || key == "passfile" {
+		if key == "password" {
 			redactedParts = append(redactedParts, key+"=[REDACTED]")
 		} else {
 			redactedParts = append(redactedParts, part)
@@ -610,7 +619,7 @@ func parsePrimaryConnInfo(connInfoStr string) *multipoolermanagerdata.PrimaryCon
 	// Set the redacted raw string
 	connInfo.Raw = strings.Join(redactedParts, " ")
 
-	return connInfo
+	return connInfo, nil
 }
 
 // SetPrimaryConnInfo sets the primary connection info for a standby server
@@ -813,7 +822,11 @@ func (pm *MultiPoolerManager) ReplicationStatus(ctx context.Context) (*multipool
 	}
 
 	// Parse primary_conninfo into structured format
-	status.PrimaryConnInfo = parsePrimaryConnInfo(primaryConnInfo)
+	parsedConnInfo, err := parseAndRedactPrimaryConnInfo(primaryConnInfo)
+	if err != nil {
+		return nil, mterrors.Wrap(err, "failed to parse primary_conninfo")
+	}
+	status.PrimaryConnInfo = parsedConnInfo
 
 	pm.logger.Info("ReplicationStatus completed",
 		"lsn", status.Lsn,

@@ -36,6 +36,7 @@ import (
 	"github.com/multigres/multigres/go/clustermetadata/topo"
 	"github.com/multigres/multigres/go/clustermetadata/topo/etcdtopo"
 	"github.com/multigres/multigres/go/cmd/pgctld/testutil"
+	"github.com/multigres/multigres/go/test/utils"
 	"github.com/multigres/multigres/go/tools/pathutil"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
@@ -479,7 +480,7 @@ func initializeStandby(t *testing.T, primaryPgctld *ProcessInstance, standbyPgct
 	if err != nil {
 		return fmt.Errorf("failed to create standby pooler client: %w", err)
 	}
-	queryResp, err := standbyPoolerClient.ExecuteQuery(context.Background(), "SELECT pg_is_in_recovery()", 1)
+	queryResp, err := standbyPoolerClient.ExecuteQuery(utils.WithShortDeadline(t), "SELECT pg_is_in_recovery()", 1)
 	standbyPoolerClient.Close()
 	if err != nil {
 		return fmt.Errorf("failed to check standby recovery status: %w", err)
@@ -1290,12 +1291,10 @@ func TestReplicationAPIs(t *testing.T) {
 
 		// Verify standby CANNOT reach the primary LSN (replication is disconnected)
 		t.Log("Verifying standby cannot reach primary LSN (replication disconnected)...")
-		ctx, cancel = context.WithTimeout(context.Background(), 2*time.Second)
 		waitReq := &multipoolermanagerdata.WaitForLSNRequest{
 			TargetLsn: primaryLSNAfterInsert,
 		}
-		_, err = standbyManagerClient.WaitForLSN(ctx, waitReq)
-		cancel()
+		_, err = standbyManagerClient.WaitForLSN(utils.WithShortDeadline(t), waitReq)
 		require.Error(t, err, "WaitForLSN should timeout since replication is disconnected")
 		t.Log("Confirmed: Standby cannot reach primary LSN (data did NOT replicate)")
 
@@ -1393,9 +1392,6 @@ func TestConfigureSynchronousReplication(t *testing.T) {
 		// synchronous replication on the primary
 		t.Log("Testing ConfigureSynchronousReplication on PRIMARY...")
 
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-		defer cancel()
-
 		// The application_name used by standby is: {cell}_{name}
 		// For test purposes, we'll use a simple standby name
 		standbyAppName := "test-standby"
@@ -1408,7 +1404,7 @@ func TestConfigureSynchronousReplication(t *testing.T) {
 			StandbyIds:        []*clustermetadatapb.ID{makeMultipoolerID("test-cell", "test-standby")},
 			ReloadConfig:      true,
 		}
-		_, err := primaryManagerClient.ConfigureSynchronousReplication(ctx, req)
+		_, err := primaryManagerClient.ConfigureSynchronousReplication(utils.WithShortDeadline(t), req)
 		require.NoError(t, err, "ConfigureSynchronousReplication should succeed on primary")
 
 		t.Log("ConfigureSynchronousReplication completed successfully")
@@ -1439,9 +1435,6 @@ func TestConfigureSynchronousReplication(t *testing.T) {
 
 		// Clean up: Reset synchronous replication configuration to PostgreSQL defaults
 		t.Log("Cleaning up: Resetting synchronous replication configuration...")
-		ctx, cancel = context.WithTimeout(context.Background(), 2*time.Second)
-		defer cancel()
-
 		resetReq := &multipoolermanagerdata.ConfigureSynchronousReplicationRequest{
 			SynchronousCommit: multipoolermanagerdata.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_ON,
 			SynchronousMethod: multipoolermanagerdata.SynchronousMethod_SYNCHRONOUS_METHOD_FIRST,
@@ -1449,16 +1442,13 @@ func TestConfigureSynchronousReplication(t *testing.T) {
 			StandbyIds:        []*clustermetadatapb.ID{},
 			ReloadConfig:      true,
 		}
-		_, err = primaryManagerClient.ConfigureSynchronousReplication(ctx, resetReq)
+		_, err = primaryManagerClient.ConfigureSynchronousReplication(utils.WithShortDeadline(t), resetReq)
 		require.NoError(t, err, "Reset configuration should succeed")
 	})
 
 	t.Run("ConfigureSynchronousReplication_Primary_AnyMethod", func(t *testing.T) {
 		// This test verifies that ConfigureSynchronousReplication works with ANY method
 		t.Log("Testing ConfigureSynchronousReplication with ANY method on PRIMARY...")
-
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-		defer cancel()
 
 		// Use multiple standby IDs to test the ANY method with multiple standbys
 		standbyIDs := []*clustermetadatapb.ID{
@@ -1474,7 +1464,7 @@ func TestConfigureSynchronousReplication(t *testing.T) {
 			StandbyIds:        standbyIDs,
 			ReloadConfig:      true,
 		}
-		_, err := primaryManagerClient.ConfigureSynchronousReplication(ctx, req)
+		_, err := primaryManagerClient.ConfigureSynchronousReplication(utils.WithShortDeadline(t), req)
 		require.NoError(t, err, "ConfigureSynchronousReplication should succeed on primary")
 
 		t.Log("ConfigureSynchronousReplication with ANY method completed successfully")
@@ -1504,9 +1494,6 @@ func TestConfigureSynchronousReplication(t *testing.T) {
 
 		// Clean up
 		t.Log("Cleaning up: Resetting synchronous replication configuration...")
-		ctx, cancel = context.WithTimeout(context.Background(), 2*time.Second)
-		defer cancel()
-
 		resetReq := &multipoolermanagerdata.ConfigureSynchronousReplicationRequest{
 			SynchronousCommit: multipoolermanagerdata.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_ON,
 			SynchronousMethod: multipoolermanagerdata.SynchronousMethod_SYNCHRONOUS_METHOD_FIRST,
@@ -1514,7 +1501,7 @@ func TestConfigureSynchronousReplication(t *testing.T) {
 			StandbyIds:        []*clustermetadatapb.ID{},
 			ReloadConfig:      true,
 		}
-		_, err = primaryManagerClient.ConfigureSynchronousReplication(ctx, resetReq)
+		_, err = primaryManagerClient.ConfigureSynchronousReplication(utils.WithShortDeadline(t), resetReq)
 		require.NoError(t, err, "Reset configuration should succeed")
 	})
 
@@ -1550,9 +1537,6 @@ func TestConfigureSynchronousReplication(t *testing.T) {
 
 		for _, tc := range testCases {
 			t.Run(tc.level.String(), func(t *testing.T) {
-				ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-				defer cancel()
-
 				// Configure with this commit level
 				req := &multipoolermanagerdata.ConfigureSynchronousReplicationRequest{
 					SynchronousCommit: tc.level,
@@ -1561,7 +1545,7 @@ func TestConfigureSynchronousReplication(t *testing.T) {
 					StandbyIds:        []*clustermetadatapb.ID{makeMultipoolerID("test-cell", "test-standby")},
 					ReloadConfig:      true,
 				}
-				_, err := primaryManagerClient.ConfigureSynchronousReplication(ctx, req)
+				_, err := primaryManagerClient.ConfigureSynchronousReplication(utils.WithShortDeadline(t), req)
 				require.NoError(t, err, "ConfigureSynchronousReplication should succeed for %s", tc.level.String())
 
 				t.Logf("ConfigureSynchronousReplication with %s completed successfully", tc.level.String())
@@ -1586,9 +1570,6 @@ func TestConfigureSynchronousReplication(t *testing.T) {
 
 		// Clean up: Reset to PostgreSQL defaults
 		t.Log("Cleaning up: Resetting synchronous replication configuration...")
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-		defer cancel()
-
 		resetReq := &multipoolermanagerdata.ConfigureSynchronousReplicationRequest{
 			SynchronousCommit: multipoolermanagerdata.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_ON,
 			SynchronousMethod: multipoolermanagerdata.SynchronousMethod_SYNCHRONOUS_METHOD_FIRST,
@@ -1596,7 +1577,7 @@ func TestConfigureSynchronousReplication(t *testing.T) {
 			StandbyIds:        []*clustermetadatapb.ID{},
 			ReloadConfig:      true,
 		}
-		_, err := primaryManagerClient.ConfigureSynchronousReplication(ctx, resetReq)
+		_, err := primaryManagerClient.ConfigureSynchronousReplication(utils.WithShortDeadline(t), resetReq)
 		require.NoError(t, err, "Reset configuration should succeed")
 	})
 
@@ -1701,9 +1682,6 @@ func TestConfigureSynchronousReplication(t *testing.T) {
 
 		for _, tc := range testCases {
 			t.Run(tc.name, func(t *testing.T) {
-				ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-				defer cancel()
-
 				// Configure with this synchronous method
 				req := &multipoolermanagerdata.ConfigureSynchronousReplicationRequest{
 					SynchronousCommit: multipoolermanagerdata.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_ON,
@@ -1712,7 +1690,7 @@ func TestConfigureSynchronousReplication(t *testing.T) {
 					StandbyIds:        tc.standbyIDs,
 					ReloadConfig:      true,
 				}
-				_, err := primaryManagerClient.ConfigureSynchronousReplication(ctx, req)
+				_, err := primaryManagerClient.ConfigureSynchronousReplication(utils.WithShortDeadline(t), req)
 				require.NoError(t, err, "ConfigureSynchronousReplication should succeed for %s", tc.name)
 
 				t.Logf("ConfigureSynchronousReplication with %s completed successfully", tc.name)
@@ -1737,9 +1715,6 @@ func TestConfigureSynchronousReplication(t *testing.T) {
 
 		// Clean up: Reset to PostgreSQL defaults
 		t.Log("Cleaning up: Resetting synchronous replication configuration...")
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-		defer cancel()
-
 		resetReq := &multipoolermanagerdata.ConfigureSynchronousReplicationRequest{
 			SynchronousCommit: multipoolermanagerdata.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_ON,
 			SynchronousMethod: multipoolermanagerdata.SynchronousMethod_SYNCHRONOUS_METHOD_FIRST,
@@ -1747,7 +1722,7 @@ func TestConfigureSynchronousReplication(t *testing.T) {
 			StandbyIds:        []*clustermetadatapb.ID{},
 			ReloadConfig:      true,
 		}
-		_, err := primaryManagerClient.ConfigureSynchronousReplication(ctx, resetReq)
+		_, err := primaryManagerClient.ConfigureSynchronousReplication(utils.WithShortDeadline(t), resetReq)
 		require.NoError(t, err, "Reset configuration should succeed")
 	})
 
@@ -1768,9 +1743,6 @@ func TestConfigureSynchronousReplication(t *testing.T) {
 
 		// Configure synchronous replication on primary with remote_apply and actual standby
 		t.Log("Configuring synchronous replication on primary with remote_apply...")
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-		defer cancel()
-
 		configReq := &multipoolermanagerdata.ConfigureSynchronousReplicationRequest{
 			SynchronousCommit: multipoolermanagerdata.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_REMOTE_APPLY,
 			SynchronousMethod: multipoolermanagerdata.SynchronousMethod_SYNCHRONOUS_METHOD_FIRST,
@@ -1778,14 +1750,11 @@ func TestConfigureSynchronousReplication(t *testing.T) {
 			StandbyIds:        []*clustermetadatapb.ID{standbyID},
 			ReloadConfig:      true,
 		}
-		_, err := primaryManagerClient.ConfigureSynchronousReplication(ctx, configReq)
+		_, err := primaryManagerClient.ConfigureSynchronousReplication(utils.WithShortDeadline(t), configReq)
 		require.NoError(t, err, "ConfigureSynchronousReplication should succeed on primary")
 
 		// Ensure standby is connected and replicating
 		t.Log("Ensuring standby is connected to primary and replicating...")
-		ctx, cancel = context.WithTimeout(context.Background(), 2*time.Second)
-		defer cancel()
-
 		setPrimaryReq := &multipoolermanagerdata.SetPrimaryConnInfoRequest{
 			Host:                  "localhost",
 			Port:                  int32(setup.PrimaryPgctld.PgPort),
@@ -1794,7 +1763,7 @@ func TestConfigureSynchronousReplication(t *testing.T) {
 			CurrentTerm:           1,
 			Force:                 false,
 		}
-		_, err = standbyManagerClient.SetPrimaryConnInfo(ctx, setPrimaryReq)
+		_, err = standbyManagerClient.SetPrimaryConnInfo(utils.WithShortDeadline(t), setPrimaryReq)
 		require.NoError(t, err, "SetPrimaryConnInfo should succeed")
 
 		// Wait a bit for replication to establish
@@ -1802,10 +1771,7 @@ func TestConfigureSynchronousReplication(t *testing.T) {
 
 		// Verify standby is connected and replicating using ReplicationStatus API
 		t.Log("Verifying standby is connected and replicating...")
-		ctx, cancel = context.WithTimeout(context.Background(), 2*time.Second)
-		defer cancel()
-
-		statusResp, err := standbyManagerClient.ReplicationStatus(ctx, &multipoolermanagerdata.ReplicationStatusRequest{})
+		statusResp, err := standbyManagerClient.ReplicationStatus(utils.WithShortDeadline(t), &multipoolermanagerdata.ReplicationStatusRequest{})
 		require.NoError(t, err, "ReplicationStatus should succeed")
 		require.NotNil(t, statusResp.Status, "Status should not be nil")
 		require.NotNil(t, statusResp.Status.PrimaryConnInfo, "PrimaryConnInfo should not be nil")
@@ -1838,10 +1804,7 @@ func TestConfigureSynchronousReplication(t *testing.T) {
 
 		// Disconnect standby using ResetReplication
 		t.Log("Disconnecting standby using ResetReplication...")
-		ctx, cancel = context.WithTimeout(context.Background(), 2*time.Second)
-		defer cancel()
-
-		_, err = standbyManagerClient.ResetReplication(ctx, &multipoolermanagerdata.ResetReplicationRequest{})
+		_, err = standbyManagerClient.ResetReplication(utils.WithShortDeadline(t), &multipoolermanagerdata.ResetReplicationRequest{})
 		require.NoError(t, err, "ResetReplication should succeed")
 
 		// Wait for standby to fully disconnect
@@ -1880,9 +1843,6 @@ func TestConfigureSynchronousReplication(t *testing.T) {
 
 		// Cleanup: Reconnect standby and reset synchronous replication
 		t.Log("Cleanup: Reconnecting standby and resetting synchronous replication...")
-		ctx, cancel = context.WithTimeout(context.Background(), 2*time.Second)
-		defer cancel()
-
 		setPrimaryReq = &multipoolermanagerdata.SetPrimaryConnInfoRequest{
 			Host:                  "localhost",
 			Port:                  int32(setup.PrimaryPgctld.PgPort),
@@ -1891,13 +1851,10 @@ func TestConfigureSynchronousReplication(t *testing.T) {
 			CurrentTerm:           1,
 			Force:                 false,
 		}
-		_, err = standbyManagerClient.SetPrimaryConnInfo(ctx, setPrimaryReq)
+		_, err = standbyManagerClient.SetPrimaryConnInfo(utils.WithShortDeadline(t), setPrimaryReq)
 		require.NoError(t, err, "SetPrimaryConnInfo should succeed during cleanup")
 
 		// Reset synchronous replication to defaults
-		ctx, cancel = context.WithTimeout(context.Background(), 2*time.Second)
-		defer cancel()
-
 		resetReq := &multipoolermanagerdata.ConfigureSynchronousReplicationRequest{
 			SynchronousCommit: multipoolermanagerdata.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_ON,
 			SynchronousMethod: multipoolermanagerdata.SynchronousMethod_SYNCHRONOUS_METHOD_FIRST,
@@ -1905,7 +1862,7 @@ func TestConfigureSynchronousReplication(t *testing.T) {
 			StandbyIds:        []*clustermetadatapb.ID{},
 			ReloadConfig:      true,
 		}
-		_, err = primaryManagerClient.ConfigureSynchronousReplication(ctx, resetReq)
+		_, err = primaryManagerClient.ConfigureSynchronousReplication(utils.WithShortDeadline(t), resetReq)
 		require.NoError(t, err, "Reset configuration should succeed")
 
 		// Drop test table
