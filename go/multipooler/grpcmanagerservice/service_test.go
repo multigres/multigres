@@ -90,15 +90,6 @@ func TestManagerServiceMethods_NotImplemented(t *testing.T) {
 		expectedMethod string
 	}{
 		{
-			name: "ReplicationStatus",
-			method: func() error {
-				req := &multipoolermanagerdata.ReplicationStatusRequest{}
-				_, err := svc.ReplicationStatus(ctx, req)
-				return err
-			},
-			expectedMethod: "ReplicationStatus",
-		},
-		{
 			name: "PrimaryStatus",
 			method: func() error {
 				req := &multipoolermanagerdata.PrimaryStatusRequest{}
@@ -255,7 +246,13 @@ func TestManagerServiceMethods_ManagerNotReady(t *testing.T) {
 					SynchronousCommit: multipoolermanagerdata.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_ON,
 					SynchronousMethod: multipoolermanagerdata.SynchronousMethod_SYNCHRONOUS_METHOD_FIRST,
 					NumSync:           1,
-					StandbyNames:      []string{"standby1"},
+					StandbyIds: []*clustermetadata.ID{
+						{
+							Component: clustermetadata.ID_MULTIPOOLER,
+							Cell:      "zone1",
+							Name:      "standby1",
+						},
+					},
 				}
 				_, err := svc.ConfigureSynchronousReplication(ctx, req)
 				return err

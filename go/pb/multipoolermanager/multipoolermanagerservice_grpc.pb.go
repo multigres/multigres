@@ -67,8 +67,8 @@ type MultiPoolerManagerClient interface {
 	StopReplication(ctx context.Context, in *multipoolermanagerdata.StopReplicationRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.StopReplicationResponse, error)
 	// ReplicationStatus gets the current replication status of the standby
 	ReplicationStatus(ctx context.Context, in *multipoolermanagerdata.ReplicationStatusRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.ReplicationStatusResponse, error)
-	// ResetReplication resets the standby's connection to its primary by clearing primary_conninfo,
-	// reloading PostgreSQL configuration, and terminating the WAL receiver process. This effectively
+	// ResetReplication resets the standby's connection to its primary by clearing primary_conninfo
+	// and reloading PostgreSQL configuration. This effectively
 	// disconnects the replica from the primary and prevents it from acknowledging commits, making it
 	// unavailable for synchronous replication until reconfigured.
 	ResetReplication(ctx context.Context, in *multipoolermanagerdata.ResetReplicationRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.ResetReplicationResponse, error)
@@ -272,8 +272,8 @@ type MultiPoolerManagerServer interface {
 	StopReplication(context.Context, *multipoolermanagerdata.StopReplicationRequest) (*multipoolermanagerdata.StopReplicationResponse, error)
 	// ReplicationStatus gets the current replication status of the standby
 	ReplicationStatus(context.Context, *multipoolermanagerdata.ReplicationStatusRequest) (*multipoolermanagerdata.ReplicationStatusResponse, error)
-	// ResetReplication resets the standby's connection to its primary by clearing primary_conninfo,
-	// reloading PostgreSQL configuration, and terminating the WAL receiver process. This effectively
+	// ResetReplication resets the standby's connection to its primary by clearing primary_conninfo
+	// and reloading PostgreSQL configuration. This effectively
 	// disconnects the replica from the primary and prevents it from acknowledging commits, making it
 	// unavailable for synchronous replication until reconfigured.
 	ResetReplication(context.Context, *multipoolermanagerdata.ResetReplicationRequest) (*multipoolermanagerdata.ResetReplicationResponse, error)

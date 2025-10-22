@@ -87,12 +87,13 @@ func (s *managerService) StopReplication(ctx context.Context, req *multipoolerma
 
 // ReplicationStatus gets the current replication status of the standby
 func (s *managerService) ReplicationStatus(ctx context.Context, req *multipoolermanagerdata.ReplicationStatusRequest) (*multipoolermanagerdata.ReplicationStatusResponse, error) {
-	_, err := s.manager.ReplicationStatus(ctx)
+	status, err := s.manager.ReplicationStatus(ctx)
 	if err != nil {
 		return nil, mterrors.ToGRPC(err)
 	}
-	// TODO: Convert map to proper response structure
-	return &multipoolermanagerdata.ReplicationStatusResponse{}, nil
+	return &multipoolermanagerdata.ReplicationStatusResponse{
+		Status: status,
+	}, nil
 }
 
 // ResetReplication resets the standby's connection to its primary
@@ -110,7 +111,7 @@ func (s *managerService) ConfigureSynchronousReplication(ctx context.Context, re
 		req.SynchronousCommit,
 		req.SynchronousMethod,
 		req.NumSync,
-		req.StandbyNames,
+		req.StandbyIds,
 		req.ReloadConfig)
 	if err != nil {
 		return nil, mterrors.ToGRPC(err)

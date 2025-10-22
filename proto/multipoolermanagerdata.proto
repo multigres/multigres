@@ -38,6 +38,10 @@ message ReplicationStatus {
 
   // Result of pg_last_xact_replay_timestamp()
   string last_xact_replay_timestamp = 5;
+
+  // Primary connection info string (from primary_conninfo setting)
+  // Example: "host=localhost port=5432 user=postgres application_name=cell_name"
+  string primary_conninfo = 6;
 }
 
 // Wait for PostgreSQL server to reach a specific LSN position
@@ -234,8 +238,9 @@ message ConfigureSynchronousReplicationRequest {
   // Number of standby servers to wait for (quorum count)
   int32 num_sync = 3;
 
-  // List of standby server names that can participate in synchronous replication
-  repeated string standby_names = 4;
+  // List of standby multipooler IDs that can participate in synchronous replication
+  // The application names will be generated as {cell}_{name} from these IDs
+  repeated clustermetadata.ID standby_ids = 4;
 
   // Whether to reload configuration immediately
   bool reload_config = 5;

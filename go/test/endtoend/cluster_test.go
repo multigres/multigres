@@ -496,7 +496,9 @@ func queryHeartbeatCount(addr string) (int, error) {
 	defer client.Close()
 
 	// Execute query to count heartbeats
-	result, err := client.ExecuteQuery("SELECT COUNT(*) FROM multigres.heartbeat", 1)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	result, err := client.ExecuteQuery(ctx, "SELECT COUNT(*) FROM multigres.heartbeat", 1)
 	if err != nil {
 		return 0, fmt.Errorf("failed to execute heartbeat count query: %w", err)
 	}

@@ -554,6 +554,15 @@ func (pm *MultiPoolerManager) loadConsensusTermFromDisk() {
 	}
 }
 
+// generateApplicationName generates the application_name for a multipooler from its ID
+// Format: {cell}_{name}
+// This is used consistently for:
+// - SetPrimaryConnInfo: standby's application_name when connecting to primary
+// - ConfigureSynchronousReplication: standby names in synchronous_standby_names
+func generateApplicationName(id *clustermetadatapb.ID) string {
+	return fmt.Sprintf("%s_%s", id.Cell, id.Name)
+}
+
 // SetPrimaryConnInfo sets the primary connection info for a standby server
 func (pm *MultiPoolerManager) SetPrimaryConnInfo(ctx context.Context, host string, port int32, stopReplicationBefore, startReplicationAfter bool, currentTerm int64, force bool) error {
 	if err := pm.checkReady(); err != nil {
@@ -614,8 +623,10 @@ func (pm *MultiPoolerManager) SetPrimaryConnInfo(ctx context.Context, host strin
 	database := pm.multipooler.Database
 	pm.mu.RUnlock()
 
-	connInfo := fmt.Sprintf("host=%s port=%d user=%s application_name=%s_%s",
-		host, port, database, pm.serviceID.Cell, pm.serviceID.Name)
+	// Generate application name using the shared helper
+	appName := generateApplicationName(pm.serviceID)
+	connInfo := fmt.Sprintf("host=%s port=%d user=%s application_name=%s",
+		host, port, database, appName)
 
 	// Set primary_conninfo using ALTER SYSTEM
 	pm.logger.Info("Setting primary_conninfo", "conninfo", connInfo)
@@ -705,12 +716,60 @@ func (pm *MultiPoolerManager) StopReplication(ctx context.Context) error {
 }
 
 // ReplicationStatus gets the current replication status of the standby
-func (pm *MultiPoolerManager) ReplicationStatus(ctx context.Context) (map[string]interface{}, error) {
+func (pm *MultiPoolerManager) ReplicationStatus(ctx context.Context) (*multipoolermanagerdata.ReplicationStatus, error) {
 	if err := pm.checkReady(); err != nil {
 		return nil, err
 	}
 	pm.logger.Info("ReplicationStatus called")
-	return nil, mterrors.New(mtrpcpb.Code_UNIMPLEMENTED, "method ReplicationStatus not implemented")
+
+	// Check REPLICA guardrails (pooler type and recovery mode)
+	if err := pm.checkReplicaGuardrails(ctx); err != nil {
+		return nil, err
+	}
+
+	status := &multipoolermanagerdata.ReplicationStatus{}
+
+	// Get all replication status information in a single query
+	var lsn string
+	var isPaused bool
+	var pauseState string
+	var lastXactTime sql.NullString
+	var primaryConnInfo string
+
+	query := `SELECT
+		pg_last_wal_replay_lsn(),
+		pg_is_wal_replay_paused(),
+		pg_get_wal_replay_pause_state(),
+		pg_last_xact_replay_timestamp(),
+		current_setting('primary_conninfo')`
+
+	err := pm.db.QueryRowContext(ctx, query).Scan(
+		&lsn,
+		&isPaused,
+		&pauseState,
+		&lastXactTime,
+		&primaryConnInfo,
+	)
+	if err != nil {
+		pm.logger.Error("Failed to get replication status", "error", err)
+		return nil, mterrors.Wrap(err, "failed to get replication status")
+	}
+
+	status.Lsn = lsn
+	status.IsWalReplayPaused = isPaused
+	status.WalReplayPauseState = pauseState
+	if lastXactTime.Valid {
+		status.LastXactReplayTimestamp = lastXactTime.String
+	}
+	status.PrimaryConninfo = primaryConnInfo
+
+	pm.logger.Info("ReplicationStatus completed",
+		"lsn", status.Lsn,
+		"is_paused", status.IsWalReplayPaused,
+		"pause_state", status.WalReplayPauseState,
+		"primary_conninfo", status.PrimaryConninfo)
+
+	return status, nil
 }
 
 // ResetReplication resets the standby's connection to its primary by clearing primary_conninfo
@@ -786,8 +845,9 @@ func (pm *MultiPoolerManager) setSynchronousCommit(ctx context.Context, synchron
 //	ANY 1 (standby1, standby2)
 //
 // Note: Use '*' to match all connected standbys, or specify explicit standby application_name values
-func (pm *MultiPoolerManager) setSynchronousStandbyNames(ctx context.Context, synchronousMethod multipoolermanagerdata.SynchronousMethod, numSync int32, standbyNames []string) error {
-	if len(standbyNames) == 0 {
+// Application names are generated from multipooler IDs using the shared generateApplicationName helper
+func (pm *MultiPoolerManager) setSynchronousStandbyNames(ctx context.Context, synchronousMethod multipoolermanagerdata.SynchronousMethod, numSync int32, standbyIDs []*clustermetadatapb.ID) error {
+	if len(standbyIDs) == 0 {
 		return nil
 	}
 
@@ -796,11 +856,12 @@ func (pm *MultiPoolerManager) setSynchronousStandbyNames(ctx context.Context, sy
 		numSync = 1
 	}
 
-	// Quote each standby name with double quotes (required by PostgreSQL for names with special characters)
-	// This produces: "standby-name-1", "standby-name-2"
-	quotedNames := make([]string, len(standbyNames))
-	for i, name := range standbyNames {
-		quotedNames[i] = fmt.Sprintf(`"%s"`, name)
+	// Convert multipooler IDs to quoted application names using the shared helper
+	// This ensures consistency with SetPrimaryConnInfo
+	// Produces: "cell_name1", "cell_name2"
+	quotedNames := make([]string, len(standbyIDs))
+	for i, id := range standbyIDs {
+		quotedNames[i] = fmt.Sprintf(`"%s"`, generateApplicationName(id))
 	}
 	standbyList := strings.Join(quotedNames, ", ")
 
@@ -835,7 +896,7 @@ func (pm *MultiPoolerManager) setSynchronousStandbyNames(ctx context.Context, sy
 }
 
 // ConfigureSynchronousReplication configures PostgreSQL synchronous replication settings
-func (pm *MultiPoolerManager) ConfigureSynchronousReplication(ctx context.Context, synchronousCommit multipoolermanagerdata.SynchronousCommitLevel, synchronousMethod multipoolermanagerdata.SynchronousMethod, numSync int32, standbyNames []string, reloadConfig bool) error {
+func (pm *MultiPoolerManager) ConfigureSynchronousReplication(ctx context.Context, synchronousCommit multipoolermanagerdata.SynchronousCommitLevel, synchronousMethod multipoolermanagerdata.SynchronousMethod, numSync int32, standbyIDs []*clustermetadatapb.ID, reloadConfig bool) error {
 	if err := pm.checkReady(); err != nil {
 		return err
 	}
@@ -844,7 +905,7 @@ func (pm *MultiPoolerManager) ConfigureSynchronousReplication(ctx context.Contex
 		"synchronous_commit", synchronousCommit,
 		"synchronous_method", synchronousMethod,
 		"num_sync", numSync,
-		"standby_names", standbyNames,
+		"standby_ids", standbyIDs,
 		"reload_config", reloadConfig)
 
 	// Check PRIMARY guardrails (pooler type and non-recovery mode)
@@ -858,7 +919,7 @@ func (pm *MultiPoolerManager) ConfigureSynchronousReplication(ctx context.Contex
 	}
 
 	// Step 2: Build and set synchronous_standby_names
-	if err := pm.setSynchronousStandbyNames(ctx, synchronousMethod, numSync, standbyNames); err != nil {
+	if err := pm.setSynchronousStandbyNames(ctx, synchronousMethod, numSync, standbyIDs); err != nil {
 		return err
 	}
 

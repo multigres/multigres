@@ -165,8 +165,11 @@ type ReplicationStatus struct {
 	Lag *durationpb.Duration `protobuf:"bytes,4,opt,name=lag,proto3" json:"lag,omitempty"`
 	// Result of pg_last_xact_replay_timestamp()
 	LastXactReplayTimestamp string `protobuf:"bytes,5,opt,name=last_xact_replay_timestamp,json=lastXactReplayTimestamp,proto3" json:"last_xact_replay_timestamp,omitempty"`
-	unknownFields           protoimpl.UnknownFields
-	sizeCache               protoimpl.SizeCache
+	// Primary connection info string (from primary_conninfo setting)
+	// Example: "host=localhost port=5432 user=postgres application_name=cell_name"
+	PrimaryConninfo string `protobuf:"bytes,6,opt,name=primary_conninfo,json=primaryConninfo,proto3" json:"primary_conninfo,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *ReplicationStatus) Reset() {
@@ -230,6 +233,13 @@ func (x *ReplicationStatus) GetLag() *durationpb.Duration {
 func (x *ReplicationStatus) GetLastXactReplayTimestamp() string {
 	if x != nil {
 		return x.LastXactReplayTimestamp
+	}
+	return ""
+}
+
+func (x *ReplicationStatus) GetPrimaryConninfo() string {
+	if x != nil {
+		return x.PrimaryConninfo
 	}
 	return ""
 }
@@ -1491,8 +1501,9 @@ type ConfigureSynchronousReplicationRequest struct {
 	SynchronousMethod SynchronousMethod `protobuf:"varint,2,opt,name=synchronous_method,json=synchronousMethod,proto3,enum=multipoolermanagerdata.SynchronousMethod" json:"synchronous_method,omitempty"`
 	// Number of standby servers to wait for (quorum count)
 	NumSync int32 `protobuf:"varint,3,opt,name=num_sync,json=numSync,proto3" json:"num_sync,omitempty"`
-	// List of standby server names that can participate in synchronous replication
-	StandbyNames []string `protobuf:"bytes,4,rep,name=standby_names,json=standbyNames,proto3" json:"standby_names,omitempty"`
+	// List of standby multipooler IDs that can participate in synchronous replication
+	// The application names will be generated as {cell}_{name} from these IDs
+	StandbyIds []*clustermetadata.ID `protobuf:"bytes,4,rep,name=standby_ids,json=standbyIds,proto3" json:"standby_ids,omitempty"`
 	// Whether to reload configuration immediately
 	ReloadConfig  bool `protobuf:"varint,5,opt,name=reload_config,json=reloadConfig,proto3" json:"reload_config,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -1550,9 +1561,9 @@ func (x *ConfigureSynchronousReplicationRequest) GetNumSync() int32 {
 	return 0
 }
 
-func (x *ConfigureSynchronousReplicationRequest) GetStandbyNames() []string {
+func (x *ConfigureSynchronousReplicationRequest) GetStandbyIds() []*clustermetadata.ID {
 	if x != nil {
-		return x.StandbyNames
+		return x.StandbyIds
 	}
 	return nil
 }
@@ -1777,13 +1788,14 @@ var File_multipoolermanagerdata_proto protoreflect.FileDescriptor
 
 const file_multipoolermanagerdata_proto_rawDesc = "" +
 	"\n" +
-	"\x1cmultipoolermanagerdata.proto\x12\x16multipoolermanagerdata\x1a\x15clustermetadata.proto\x1a\x1egoogle/protobuf/duration.proto\x1a\x13pgctldservice.proto\"\xf5\x01\n" +
+	"\x1cmultipoolermanagerdata.proto\x12\x16multipoolermanagerdata\x1a\x15clustermetadata.proto\x1a\x1egoogle/protobuf/duration.proto\x1a\x13pgctldservice.proto\"\xa0\x02\n" +
 	"\x11ReplicationStatus\x12\x10\n" +
 	"\x03lsn\x18\x01 \x01(\tR\x03lsn\x12/\n" +
 	"\x14is_wal_replay_paused\x18\x02 \x01(\bR\x11isWalReplayPaused\x123\n" +
 	"\x16wal_replay_pause_state\x18\x03 \x01(\tR\x13walReplayPauseState\x12+\n" +
 	"\x03lag\x18\x04 \x01(\v2\x19.google.protobuf.DurationR\x03lag\x12;\n" +
-	"\x1alast_xact_replay_timestamp\x18\x05 \x01(\tR\x17lastXactReplayTimestamp\"g\n" +
+	"\x1alast_xact_replay_timestamp\x18\x05 \x01(\tR\x17lastXactReplayTimestamp\x12)\n" +
+	"\x10primary_conninfo\x18\x06 \x01(\tR\x0fprimaryConninfo\"g\n" +
 	"\x11WaitForLSNRequest\x12\x1d\n" +
 	"\n" +
 	"target_lsn\x18\x01 \x01(\tR\ttargetLsn\x123\n" +
@@ -1835,12 +1847,13 @@ const file_multipoolermanagerdata_proto_rawDesc = "" +
 	"\flsn_position\x18\x01 \x01(\tR\vlsnPosition\"\x19\n" +
 	"\x17ResetReplicationRequest\"]\n" +
 	"\x18ResetReplicationResponse\x12A\n" +
-	"\x06status\x18\x01 \x01(\v2).multipoolermanagerdata.ReplicationStatusR\x06status\"\xc6\x02\n" +
+	"\x06status\x18\x01 \x01(\v2).multipoolermanagerdata.ReplicationStatusR\x06status\"\xd7\x02\n" +
 	"&ConfigureSynchronousReplicationRequest\x12]\n" +
 	"\x12synchronous_commit\x18\x01 \x01(\x0e2..multipoolermanagerdata.SynchronousCommitLevelR\x11synchronousCommit\x12X\n" +
 	"\x12synchronous_method\x18\x02 \x01(\x0e2).multipoolermanagerdata.SynchronousMethodR\x11synchronousMethod\x12\x19\n" +
-	"\bnum_sync\x18\x03 \x01(\x05R\anumSync\x12#\n" +
-	"\rstandby_names\x18\x04 \x03(\tR\fstandbyNames\x12#\n" +
+	"\bnum_sync\x18\x03 \x01(\x05R\anumSync\x124\n" +
+	"\vstandby_ids\x18\x04 \x03(\v2\x13.clustermetadata.IDR\n" +
+	"standbyIds\x12#\n" +
 	"\rreload_config\x18\x05 \x01(\bR\freloadConfig\")\n" +
 	"'ConfigureSynchronousReplicationResponse\"\x0f\n" +
 	"\rStatusRequest\"K\n" +
@@ -1916,7 +1929,8 @@ var file_multipoolermanagerdata_proto_goTypes = []any{
 	(*SetTermResponse)(nil),                         // 37: multipoolermanagerdata.SetTermResponse
 	(*durationpb.Duration)(nil),                     // 38: google.protobuf.Duration
 	(clustermetadata.PoolerType)(0),                 // 39: clustermetadata.PoolerType
-	(*pgctldservice.ConsensusTerm)(nil),             // 40: pgctldservice.ConsensusTerm
+	(*clustermetadata.ID)(nil),                      // 40: clustermetadata.ID
+	(*pgctldservice.ConsensusTerm)(nil),             // 41: pgctldservice.ConsensusTerm
 }
 var file_multipoolermanagerdata_proto_depIdxs = []int32{
 	38, // 0: multipoolermanagerdata.ReplicationStatus.lag:type_name -> google.protobuf.Duration
@@ -1930,12 +1944,13 @@ var file_multipoolermanagerdata_proto_depIdxs = []int32{
 	2,  // 8: multipoolermanagerdata.ResetReplicationResponse.status:type_name -> multipoolermanagerdata.ReplicationStatus
 	1,  // 9: multipoolermanagerdata.ConfigureSynchronousReplicationRequest.synchronous_commit:type_name -> multipoolermanagerdata.SynchronousCommitLevel
 	0,  // 10: multipoolermanagerdata.ConfigureSynchronousReplicationRequest.synchronous_method:type_name -> multipoolermanagerdata.SynchronousMethod
-	40, // 11: multipoolermanagerdata.SetTermRequest.term:type_name -> pgctldservice.ConsensusTerm
-	12, // [12:12] is the sub-list for method output_type
-	12, // [12:12] is the sub-list for method input_type
-	12, // [12:12] is the sub-list for extension type_name
-	12, // [12:12] is the sub-list for extension extendee
-	0,  // [0:12] is the sub-list for field type_name
+	40, // 11: multipoolermanagerdata.ConfigureSynchronousReplicationRequest.standby_ids:type_name -> clustermetadata.ID
+	41, // 12: multipoolermanagerdata.SetTermRequest.term:type_name -> pgctldservice.ConsensusTerm
+	13, // [13:13] is the sub-list for method output_type
+	13, // [13:13] is the sub-list for method input_type
+	13, // [13:13] is the sub-list for extension type_name
+	13, // [13:13] is the sub-list for extension extendee
+	0,  // [0:13] is the sub-list for field type_name
 }
 
 func init() { file_multipoolermanagerdata_proto_init() }
