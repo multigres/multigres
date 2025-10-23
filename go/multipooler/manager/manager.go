@@ -853,7 +853,15 @@ func (pm *MultiPoolerManager) setSynchronousCommit(ctx context.Context, synchron
 // Note: Use '*' to match all connected standbys, or specify explicit standby application_name values
 // Application names are generated from multipooler IDs using the shared generateApplicationName helper
 func (pm *MultiPoolerManager) setSynchronousStandbyNames(ctx context.Context, synchronousMethod multipoolermanagerdata.SynchronousMethod, numSync int32, standbyIDs []*clustermetadatapb.ID) error {
+	// If standby list is empty, clear synchronous_standby_names
 	if len(standbyIDs) == 0 {
+		pm.logger.Info("Clearing synchronous_standby_names (empty standby list)")
+		query := "ALTER SYSTEM SET synchronous_standby_names = ''"
+		_, err := pm.db.ExecContext(ctx, query)
+		if err != nil {
+			pm.logger.Error("Failed to clear synchronous_standby_names", "error", err)
+			return mterrors.Wrap(err, "failed to clear synchronous_standby_names")
+		}
 		return nil
 	}
 

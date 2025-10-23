@@ -23,6 +23,7 @@ import (
 	"path"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -2076,6 +2077,68 @@ func TestConfigureSynchronousReplication(t *testing.T) {
 		t.Log("End-to-end synchronous replication test completed successfully")
 	})
 
+	t.Run("ConfigureSynchronousReplication_ClearConfig", func(t *testing.T) {
+		// This test verifies that ConfigureSynchronousReplication can clear the configuration
+		// by providing an empty standby list
+		t.Log("Testing ConfigureSynchronousReplication can clear configuration...")
+
+		// First, configure synchronous replication with some standbys
+		configReq := &multipoolermanagerdata.ConfigureSynchronousReplicationRequest{
+			SynchronousCommit: multipoolermanagerdata.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_ON,
+			SynchronousMethod: multipoolermanagerdata.SynchronousMethod_SYNCHRONOUS_METHOD_FIRST,
+			NumSync:           1,
+			StandbyIds: []*clustermetadatapb.ID{
+				makeMultipoolerID("test-cell", "standby1"),
+				makeMultipoolerID("test-cell", "standby2"),
+			},
+			ReloadConfig: true,
+		}
+		_, err := primaryManagerClient.ConfigureSynchronousReplication(utils.WithShortDeadline(t), configReq)
+		require.NoError(t, err, "ConfigureSynchronousReplication should succeed")
+
+		// Reconnect to pick up configuration
+		primaryPoolerClient.Close()
+		primaryPoolerClient, err = NewMultiPoolerTestClient(fmt.Sprintf("localhost:%d", setup.PrimaryMultipooler.GrpcPort))
+		require.NoError(t, err)
+		t.Cleanup(func() { primaryPoolerClient.Close() })
+
+		// Verify configuration is set
+		t.Log("Verifying synchronous_standby_names is configured...")
+		queryResp, err := primaryPoolerClient.ExecuteQuery(context.Background(), "SHOW synchronous_standby_names", 1)
+		require.NoError(t, err)
+		require.Len(t, queryResp.Rows, 1)
+		syncStandbyNames := string(queryResp.Rows[0].Values[0])
+		assert.Contains(t, syncStandbyNames, "FIRST 1", "synchronous_standby_names should be configured")
+		t.Logf("Initial synchronous_standby_names: %s", syncStandbyNames)
+
+		// Now clear the configuration by providing empty standby list
+		t.Log("Clearing synchronous_standby_names configuration...")
+		clearReq := &multipoolermanagerdata.ConfigureSynchronousReplicationRequest{
+			SynchronousCommit: multipoolermanagerdata.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_ON,
+			SynchronousMethod: multipoolermanagerdata.SynchronousMethod_SYNCHRONOUS_METHOD_FIRST,
+			NumSync:           0,
+			StandbyIds:        []*clustermetadatapb.ID{},
+			ReloadConfig:      true,
+		}
+		_, err = primaryManagerClient.ConfigureSynchronousReplication(utils.WithShortDeadline(t), clearReq)
+		require.NoError(t, err, "ConfigureSynchronousReplication should succeed with empty config")
+
+		// Reconnect to pick up cleared configuration
+		primaryPoolerClient.Close()
+		primaryPoolerClient, err = NewMultiPoolerTestClient(fmt.Sprintf("localhost:%d", setup.PrimaryMultipooler.GrpcPort))
+		require.NoError(t, err)
+		t.Cleanup(func() { primaryPoolerClient.Close() })
+
+		// Verify configuration is cleared
+		t.Log("Verifying synchronous_standby_names is cleared...")
+		queryResp, err = primaryPoolerClient.ExecuteQuery(context.Background(), "SHOW synchronous_standby_names", 1)
+		require.NoError(t, err)
+		require.Len(t, queryResp.Rows, 1)
+		clearedValue := string(queryResp.Rows[0].Values[0])
+		assert.Equal(t, "", clearedValue, "synchronous_standby_names should be empty")
+		t.Log("Successfully verified synchronous_standby_names is cleared")
+	})
+
 	t.Run("ConfigureSynchronousReplication_Standby_Fails", func(t *testing.T) {
 		// ConfigureSynchronousReplication should fail on REPLICA pooler type
 		t.Log("Testing ConfigureSynchronousReplication on REPLICA pooler (should fail)...")
@@ -2096,5 +2159,363 @@ func TestConfigureSynchronousReplication(t *testing.T) {
 		require.Error(t, err, "ConfigureSynchronousReplication should fail on standby")
 		assert.Contains(t, err.Error(), "operation not allowed", "Error should indicate operation not allowed on REPLICA")
 		t.Log("Confirmed: ConfigureSynchronousReplication correctly rejected on REPLICA pooler")
+	})
+}
+
+func TestUpdateSynchronousStandbyList(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping end-to-end tests in short mode")
+	}
+
+	setup := getSharedTestSetup(t)
+
+	// Wait for both managers to be ready before running tests
+	waitForManagerReady(t, setup, setup.PrimaryMultipooler)
+	waitForManagerReady(t, setup, setup.StandbyMultipooler)
+
+	// Create shared clients for all subtests
+	primaryConn, err := grpc.NewClient(
+		fmt.Sprintf("localhost:%d", setup.PrimaryMultipooler.GrpcPort),
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	)
+	require.NoError(t, err)
+	t.Cleanup(func() { primaryConn.Close() })
+	primaryManagerClient := multipoolermanagerpb.NewMultiPoolerManagerClient(primaryConn)
+
+	standbyConn, err := grpc.NewClient(
+		fmt.Sprintf("localhost:%d", setup.StandbyMultipooler.GrpcPort),
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	)
+	require.NoError(t, err)
+	t.Cleanup(func() { standbyConn.Close() })
+	standbyManagerClient := multipoolermanagerpb.NewMultiPoolerManagerClient(standbyConn)
+
+	primaryPoolerClient, err := NewMultiPoolerTestClient(fmt.Sprintf("localhost:%d", setup.PrimaryMultipooler.GrpcPort))
+	require.NoError(t, err)
+	t.Cleanup(func() { primaryPoolerClient.Close() })
+
+	// Helper function to wait for synchronous_standby_names to converge to expected value
+	// NOTE: Once PrimaryStatus is implemented, we should use that instead of directly
+	// querying PostgreSQL, as it will provide a more reliable way to check config state.
+	waitForSyncStandbyNamesConvergence := func(t *testing.T, checkFunc func(string) bool, message string) {
+		t.Helper()
+		require.Eventually(t, func() bool {
+			queryResp, err := primaryPoolerClient.ExecuteQuery(context.Background(), "SHOW synchronous_standby_names", 1)
+			if err != nil {
+				t.Logf("Query error: %v", err)
+				return false
+			}
+			if len(queryResp.Rows) == 0 {
+				return false
+			}
+			syncStandbyNames := string(queryResp.Rows[0].Values[0])
+			return checkFunc(syncStandbyNames)
+		}, 5*time.Second, 200*time.Millisecond, message)
+	}
+
+	// Helper function to get current synchronous_standby_names (after convergence)
+	getSyncStandbyNames := func(t *testing.T) string {
+		t.Helper()
+		queryResp, err := primaryPoolerClient.ExecuteQuery(context.Background(), "SHOW synchronous_standby_names", 1)
+		require.NoError(t, err)
+		require.Len(t, queryResp.Rows, 1)
+		return string(queryResp.Rows[0].Values[0])
+	}
+
+	t.Run("UpdateSynchronousStandbyList_Add_Success", func(t *testing.T) {
+		t.Log("Testing UpdateSynchronousStandbyList ADD operation...")
+
+		// First, configure initial synchronous replication with one standby
+		configReq := &multipoolermanagerdata.ConfigureSynchronousReplicationRequest{
+			SynchronousCommit: multipoolermanagerdata.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_ON,
+			SynchronousMethod: multipoolermanagerdata.SynchronousMethod_SYNCHRONOUS_METHOD_FIRST,
+			NumSync:           1,
+			StandbyIds:        []*clustermetadatapb.ID{makeMultipoolerID("test-cell", "standby1")},
+			ReloadConfig:      true,
+		}
+		_, err := primaryManagerClient.ConfigureSynchronousReplication(utils.WithShortDeadline(t), configReq)
+		require.NoError(t, err, "Initial configuration should succeed")
+
+		// Wait for config to converge
+		waitForSyncStandbyNamesConvergence(t, func(value string) bool {
+			return strings.Contains(value, "test-cell_standby1") && strings.Contains(value, "FIRST 1")
+		}, "Initial config should converge")
+
+		// Verify initial configuration
+		syncStandbyNames := getSyncStandbyNames(t)
+		t.Logf("Initial synchronous_standby_names: %s", syncStandbyNames)
+		assert.Contains(t, syncStandbyNames, "FIRST 1")
+		assert.Contains(t, syncStandbyNames, "test-cell_standby1")
+
+		// Now ADD a second standby
+		updateReq := &multipoolermanagerdata.UpdateSynchronousStandbyListRequest{
+			Operation:    multipoolermanagerdata.StandbyUpdateOperation_STANDBY_UPDATE_OPERATION_ADD,
+			StandbyIds:   []*clustermetadatapb.ID{makeMultipoolerID("test-cell", "standby2")},
+			ReloadConfig: true,
+		}
+		_, err = primaryManagerClient.UpdateSynchronousStandbyList(utils.WithShortDeadline(t), updateReq)
+		require.NoError(t, err, "ADD operation should succeed")
+
+		// Wait for config to converge with both standbys
+		waitForSyncStandbyNamesConvergence(t, func(value string) bool {
+			return strings.Contains(value, "test-cell_standby1") && strings.Contains(value, "test-cell_standby2")
+		}, "Config should converge with both standbys")
+
+		// Verify both standbys are now in the list
+		syncStandbyNames = getSyncStandbyNames(t)
+		t.Logf("After ADD: synchronous_standby_names: %s", syncStandbyNames)
+		assert.Contains(t, syncStandbyNames, "FIRST 1") // Method and num_sync should be preserved
+		assert.Contains(t, syncStandbyNames, "test-cell_standby1")
+		assert.Contains(t, syncStandbyNames, "test-cell_standby2")
+
+		t.Log("ADD operation verified successfully")
+
+		// Cleanup
+		resetReq := &multipoolermanagerdata.ConfigureSynchronousReplicationRequest{
+			SynchronousCommit: multipoolermanagerdata.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_ON,
+			SynchronousMethod: multipoolermanagerdata.SynchronousMethod_SYNCHRONOUS_METHOD_FIRST,
+			NumSync:           0,
+			StandbyIds:        []*clustermetadatapb.ID{},
+			ReloadConfig:      true,
+		}
+		_, err = primaryManagerClient.ConfigureSynchronousReplication(utils.WithShortDeadline(t), resetReq)
+		require.NoError(t, err)
+	})
+
+	t.Run("UpdateSynchronousStandbyList_Add_Idempotent", func(t *testing.T) {
+		t.Log("Testing UpdateSynchronousStandbyList ADD operation is idempotent...")
+
+		// Configure with two standbys
+		configReq := &multipoolermanagerdata.ConfigureSynchronousReplicationRequest{
+			SynchronousCommit: multipoolermanagerdata.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_ON,
+			SynchronousMethod: multipoolermanagerdata.SynchronousMethod_SYNCHRONOUS_METHOD_FIRST,
+			NumSync:           1,
+			StandbyIds: []*clustermetadatapb.ID{
+				makeMultipoolerID("test-cell", "standby1"),
+				makeMultipoolerID("test-cell", "standby2"),
+			},
+			ReloadConfig: true,
+		}
+		_, err := primaryManagerClient.ConfigureSynchronousReplication(utils.WithShortDeadline(t), configReq)
+		require.NoError(t, err)
+
+		// Wait for config to converge
+		waitForSyncStandbyNamesConvergence(t, func(value string) bool {
+			return strings.Contains(value, "test-cell_standby1") && strings.Contains(value, "test-cell_standby2")
+		}, "Initial config should converge")
+
+		initialConfig := getSyncStandbyNames(t)
+		t.Logf("Initial: %s", initialConfig)
+
+		// Try to ADD a standby that already exists
+		updateReq := &multipoolermanagerdata.UpdateSynchronousStandbyListRequest{
+			Operation:    multipoolermanagerdata.StandbyUpdateOperation_STANDBY_UPDATE_OPERATION_ADD,
+			StandbyIds:   []*clustermetadatapb.ID{makeMultipoolerID("test-cell", "standby1")},
+			ReloadConfig: true,
+		}
+		_, err = primaryManagerClient.UpdateSynchronousStandbyList(utils.WithShortDeadline(t), updateReq)
+		require.NoError(t, err, "ADD should be idempotent")
+
+		// Brief wait to ensure no config change happens
+		time.Sleep(500 * time.Millisecond)
+
+		// Configuration should be unchanged (idempotent)
+		afterConfig := getSyncStandbyNames(t)
+		t.Logf("After idempotent ADD: %s", afterConfig)
+		assert.Equal(t, initialConfig, afterConfig, "Configuration should be unchanged")
+
+		t.Log("ADD idempotency verified successfully")
+
+		// Cleanup
+		resetReq := &multipoolermanagerdata.ConfigureSynchronousReplicationRequest{
+			SynchronousCommit: multipoolermanagerdata.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_ON,
+			SynchronousMethod: multipoolermanagerdata.SynchronousMethod_SYNCHRONOUS_METHOD_FIRST,
+			NumSync:           0,
+			StandbyIds:        []*clustermetadatapb.ID{},
+			ReloadConfig:      true,
+		}
+		_, err = primaryManagerClient.ConfigureSynchronousReplication(utils.WithShortDeadline(t), resetReq)
+		require.NoError(t, err)
+	})
+
+	t.Run("UpdateSynchronousStandbyList_Remove_Success", func(t *testing.T) {
+		t.Log("Testing UpdateSynchronousStandbyList REMOVE operation...")
+
+		// Configure with three standbys
+		configReq := &multipoolermanagerdata.ConfigureSynchronousReplicationRequest{
+			SynchronousCommit: multipoolermanagerdata.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_ON,
+			SynchronousMethod: multipoolermanagerdata.SynchronousMethod_SYNCHRONOUS_METHOD_ANY,
+			NumSync:           2,
+			StandbyIds: []*clustermetadatapb.ID{
+				makeMultipoolerID("test-cell", "standby1"),
+				makeMultipoolerID("test-cell", "standby2"),
+				makeMultipoolerID("test-cell", "standby3"),
+			},
+			ReloadConfig: true,
+		}
+		_, err := primaryManagerClient.ConfigureSynchronousReplication(utils.WithShortDeadline(t), configReq)
+		require.NoError(t, err)
+
+		// Wait for config to converge
+		waitForSyncStandbyNamesConvergence(t, func(value string) bool {
+			return strings.Contains(value, "test-cell_standby2") && strings.Contains(value, "ANY 2")
+		}, "Initial config with 3 standbys should converge")
+
+		initialConfig := getSyncStandbyNames(t)
+		t.Logf("Initial: %s", initialConfig)
+		assert.Contains(t, initialConfig, "test-cell_standby2")
+
+		// REMOVE standby2
+		updateReq := &multipoolermanagerdata.UpdateSynchronousStandbyListRequest{
+			Operation:    multipoolermanagerdata.StandbyUpdateOperation_STANDBY_UPDATE_OPERATION_REMOVE,
+			StandbyIds:   []*clustermetadatapb.ID{makeMultipoolerID("test-cell", "standby2")},
+			ReloadConfig: true,
+		}
+		_, err = primaryManagerClient.UpdateSynchronousStandbyList(utils.WithShortDeadline(t), updateReq)
+		require.NoError(t, err, "REMOVE operation should succeed")
+
+		// Wait for config to converge without standby2
+		waitForSyncStandbyNamesConvergence(t, func(value string) bool {
+			return !strings.Contains(value, "test-cell_standby2") &&
+				strings.Contains(value, "test-cell_standby1") &&
+				strings.Contains(value, "test-cell_standby3")
+		}, "Config should converge without standby2")
+
+		// Verify standby2 was removed
+		afterConfig := getSyncStandbyNames(t)
+		t.Logf("After REMOVE: %s", afterConfig)
+		assert.Contains(t, afterConfig, "ANY 2") // Method and num_sync preserved
+		assert.Contains(t, afterConfig, "test-cell_standby1")
+		assert.NotContains(t, afterConfig, "test-cell_standby2")
+		assert.Contains(t, afterConfig, "test-cell_standby3")
+
+		t.Log("REMOVE operation verified successfully")
+
+		// Cleanup
+		resetReq := &multipoolermanagerdata.ConfigureSynchronousReplicationRequest{
+			SynchronousCommit: multipoolermanagerdata.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_ON,
+			SynchronousMethod: multipoolermanagerdata.SynchronousMethod_SYNCHRONOUS_METHOD_FIRST,
+			NumSync:           0,
+			StandbyIds:        []*clustermetadatapb.ID{},
+			ReloadConfig:      true,
+		}
+		_, err = primaryManagerClient.ConfigureSynchronousReplication(utils.WithShortDeadline(t), resetReq)
+		require.NoError(t, err)
+	})
+
+	t.Run("UpdateSynchronousStandbyList_Replace_Success", func(t *testing.T) {
+		t.Log("Testing UpdateSynchronousStandbyList REPLACE operation...")
+
+		// Configure initial set
+		configReq := &multipoolermanagerdata.ConfigureSynchronousReplicationRequest{
+			SynchronousCommit: multipoolermanagerdata.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_ON,
+			SynchronousMethod: multipoolermanagerdata.SynchronousMethod_SYNCHRONOUS_METHOD_FIRST,
+			NumSync:           1,
+			StandbyIds: []*clustermetadatapb.ID{
+				makeMultipoolerID("test-cell", "standby1"),
+				makeMultipoolerID("test-cell", "standby2"),
+			},
+			ReloadConfig: true,
+		}
+		_, err := primaryManagerClient.ConfigureSynchronousReplication(utils.WithShortDeadline(t), configReq)
+		require.NoError(t, err)
+
+		// Wait for config to converge
+		waitForSyncStandbyNamesConvergence(t, func(value string) bool {
+			return strings.Contains(value, "test-cell_standby1") && strings.Contains(value, "test-cell_standby2")
+		}, "Initial config should converge")
+
+		initialConfig := getSyncStandbyNames(t)
+		t.Logf("Initial: %s", initialConfig)
+
+		// REPLACE with completely different set
+		updateReq := &multipoolermanagerdata.UpdateSynchronousStandbyListRequest{
+			Operation: multipoolermanagerdata.StandbyUpdateOperation_STANDBY_UPDATE_OPERATION_REPLACE,
+			StandbyIds: []*clustermetadatapb.ID{
+				makeMultipoolerID("test-cell", "standby3"),
+				makeMultipoolerID("test-cell", "standby4"),
+			},
+			ReloadConfig: true,
+		}
+		_, err = primaryManagerClient.UpdateSynchronousStandbyList(utils.WithShortDeadline(t), updateReq)
+		require.NoError(t, err, "REPLACE operation should succeed")
+
+		// Wait for config to converge with new standbys
+		waitForSyncStandbyNamesConvergence(t, func(value string) bool {
+			return strings.Contains(value, "test-cell_standby3") && strings.Contains(value, "test-cell_standby4") &&
+				!strings.Contains(value, "test-cell_standby1") && !strings.Contains(value, "test-cell_standby2")
+		}, "Config should converge with replaced standbys")
+
+		// Verify list was completely replaced
+		afterConfig := getSyncStandbyNames(t)
+		t.Logf("After REPLACE: %s", afterConfig)
+		assert.Contains(t, afterConfig, "FIRST 1") // Method and num_sync preserved
+		assert.NotContains(t, afterConfig, "test-cell_standby1")
+		assert.NotContains(t, afterConfig, "test-cell_standby2")
+		assert.Contains(t, afterConfig, "test-cell_standby3")
+		assert.Contains(t, afterConfig, "test-cell_standby4")
+
+		t.Log("REPLACE operation verified successfully")
+
+		// Cleanup
+		resetReq := &multipoolermanagerdata.ConfigureSynchronousReplicationRequest{
+			SynchronousCommit: multipoolermanagerdata.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_ON,
+			SynchronousMethod: multipoolermanagerdata.SynchronousMethod_SYNCHRONOUS_METHOD_FIRST,
+			NumSync:           0,
+			StandbyIds:        []*clustermetadatapb.ID{},
+			ReloadConfig:      true,
+		}
+		_, err = primaryManagerClient.ConfigureSynchronousReplication(utils.WithShortDeadline(t), resetReq)
+		require.NoError(t, err)
+	})
+
+	t.Run("UpdateSynchronousStandbyList_NoSyncReplication_Fails", func(t *testing.T) {
+		t.Log("Testing UpdateSynchronousStandbyList fails when sync replication not configured...")
+
+		// Ensure synchronous replication is not configured
+		resetReq := &multipoolermanagerdata.ConfigureSynchronousReplicationRequest{
+			SynchronousCommit: multipoolermanagerdata.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_ON,
+			SynchronousMethod: multipoolermanagerdata.SynchronousMethod_SYNCHRONOUS_METHOD_FIRST,
+			NumSync:           0,
+			StandbyIds:        []*clustermetadatapb.ID{},
+			ReloadConfig:      true,
+		}
+		_, err := primaryManagerClient.ConfigureSynchronousReplication(utils.WithShortDeadline(t), resetReq)
+		require.NoError(t, err)
+
+		// Wait for config to be cleared
+		waitForSyncStandbyNamesConvergence(t, func(value string) bool {
+			return value == ""
+		}, "Config should be cleared")
+
+		// Try to update when no sync replication is configured
+		updateReq := &multipoolermanagerdata.UpdateSynchronousStandbyListRequest{
+			Operation:    multipoolermanagerdata.StandbyUpdateOperation_STANDBY_UPDATE_OPERATION_ADD,
+			StandbyIds:   []*clustermetadatapb.ID{makeMultipoolerID("test-cell", "standby1")},
+			ReloadConfig: true,
+		}
+		_, err = primaryManagerClient.UpdateSynchronousStandbyList(utils.WithShortDeadline(t), updateReq)
+		require.Error(t, err, "Should fail when sync replication not configured")
+		assert.Contains(t, err.Error(), "not configured", "Error should mention sync replication not configured")
+
+		t.Log("Verified: UpdateSynchronousStandbyList correctly fails when sync replication not configured")
+	})
+
+	t.Run("UpdateSynchronousStandbyList_Standby_Fails", func(t *testing.T) {
+		t.Log("Testing UpdateSynchronousStandbyList on REPLICA pooler (should fail)...")
+
+		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+		defer cancel()
+
+		updateReq := &multipoolermanagerdata.UpdateSynchronousStandbyListRequest{
+			Operation:    multipoolermanagerdata.StandbyUpdateOperation_STANDBY_UPDATE_OPERATION_ADD,
+			StandbyIds:   []*clustermetadatapb.ID{makeMultipoolerID("test-cell", "standby1")},
+			ReloadConfig: true,
+		}
+		_, err := standbyManagerClient.UpdateSynchronousStandbyList(ctx, updateReq)
+		require.Error(t, err, "UpdateSynchronousStandbyList should fail on standby")
+		assert.Contains(t, err.Error(), "operation not allowed", "Error should indicate operation not allowed on REPLICA")
+
+		t.Log("Confirmed: UpdateSynchronousStandbyList correctly rejected on REPLICA pooler")
 	})
 }

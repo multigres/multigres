@@ -119,6 +119,18 @@ func (s *managerService) ConfigureSynchronousReplication(ctx context.Context, re
 	return &multipoolermanagerdata.ConfigureSynchronousReplicationResponse{}, nil
 }
 
+// UpdateSynchronousStandbyList updates the synchronous standby list
+func (s *managerService) UpdateSynchronousStandbyList(ctx context.Context, req *multipoolermanagerdata.UpdateSynchronousStandbyListRequest) (*multipoolermanagerdata.UpdateSynchronousStandbyListResponse, error) {
+	err := s.manager.UpdateSynchronousStandbyList(ctx,
+		req.Operation,
+		req.StandbyIds,
+		req.ReloadConfig)
+	if err != nil {
+		return nil, mterrors.ToGRPC(err)
+	}
+	return &multipoolermanagerdata.UpdateSynchronousStandbyListResponse{}, nil
+}
+
 // PrimaryStatus gets the status of the leader server
 func (s *managerService) PrimaryStatus(ctx context.Context, req *multipoolermanagerdata.PrimaryStatusRequest) (*multipoolermanagerdata.PrimaryStatusResponse, error) {
 	_, err := s.manager.PrimaryStatus(ctx)
