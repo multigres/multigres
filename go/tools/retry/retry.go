@@ -20,14 +20,14 @@ import (
 )
 
 // Retry manages exponential backoff state for retry loops.
-// Use the iterator-style StartAttempt method to implement retry logic.
+// Use the iterator-style Attempts method to implement retry logic.
 //
 // Example usage:
 //
 //	r := retry.New(100*time.Millisecond, 30*time.Second)
-//	for {
-//	    if err := r.StartAttempt(ctx); err != nil {
-//	        return err // Context cancelled or timed out
+//	for attempt, err := range r.Attempts(ctx) {
+//	    if err != nil {
+//	        return fmt.Errorf("failed after %d attempts: %w", attempt, err)
 //	    }
 //	    result, err := makeAPICall()
 //	    if err == nil {
@@ -55,7 +55,7 @@ type retryConfig struct {
 	MaxDelay time.Duration
 
 	// InitialDelay adds a delay before the first attempt (attempt 0).
-	// Useful when you've already tried once before calling StartAttempt().
+	// Useful when you've already tried once before calling Attempts().
 	// Default: false (call operation immediately)
 	InitialDelay bool
 
@@ -68,7 +68,7 @@ type retryConfig struct {
 type Option func(*retryConfig)
 
 // WithInitialDelay configures the retry to add a delay before the first attempt.
-// Use this when you've already tried once before calling StartAttempt().
+// Use this when you've already tried once before calling Attempts().
 func WithInitialDelay() Option {
 	return func(c *retryConfig) { c.InitialDelay = true }
 }
@@ -112,28 +112,14 @@ func New(baseDelay, maxDelay time.Duration, opts ...Option) *Retry {
 	}
 }
 
-// StartAttempt prepares for the next retry attempt by waiting for the backoff delay.
+// startAttempt prepares for the next retry attempt by waiting for the backoff delay.
 // On the first call (attempt 0), it returns immediately unless WithInitialDelay was configured.
 // On subsequent calls, it waits for the exponentially increasing backoff delay.
 //
 // Returns:
 //   - nil if the caller should proceed with the next attempt
 //   - ctx.Err() if the context was cancelled or timed out during the wait
-//
-// Usage pattern:
-//
-//	r := retry.New(100*time.Millisecond, 30*time.Second)
-//	for {
-//	    if err := r.StartAttempt(ctx); err != nil {
-//	        return err // Context error
-//	    }
-//	    // Perform operation
-//	    if success {
-//	        return nil
-//	    }
-//	    // continue will backoff on next iteration
-//	}
-func (r *Retry) StartAttempt(ctx context.Context) error {
+func (r *Retry) startAttempt(ctx context.Context) error {
 	// Check context first
 	if err := ctx.Err(); err != nil {
 		return err
@@ -161,12 +147,6 @@ func (r *Retry) StartAttempt(ctx context.Context) error {
 	return nil
 }
 
-// Attempt returns the current attempt number (1-indexed after first StartAttempt call).
-// Returns 0 before the first call to StartAttempt.
-func (r *Retry) Attempt() int {
-	return r.attempt
-}
-
 // Reset resets the backoff state to the initial delay.
 // Use this when you've determined the system is healthy and future errors
 // should start from the minimum backoff.
@@ -182,9 +162,9 @@ func (r *Retry) Attempt() int {
 // Example:
 //
 //	r := retry.New(500*time.Millisecond, 30*time.Second)
-//	for {
-//	    if err := r.StartAttempt(ctx); err != nil {
-//	        return err
+//	for attempt, err := range r.Attempts(ctx) {
+//	    if err != nil {
+//	        return fmt.Errorf("failed after %d attempts: %w", attempt, err)
 //	    }
 //	    watcher, err := establishWatch()
 //	    if err != nil {
@@ -224,22 +204,10 @@ func (r *Retry) Reset() {
 //	    }
 //	    log.Printf("Attempt %d failed: %v", attempt, err)
 //	}
-//
-// The range form is equivalent to the explicit form:
-//
-//	for {
-//	    if err := r.StartAttempt(ctx); err != nil {
-//	        return fmt.Errorf("retry failed after %d attempts: %w", r.Attempt(), err)
-//	    }
-//	    result, err := makeAPICall()
-//	    if err == nil {
-//	        return result
-//	    }
-//	}
 func (r *Retry) Attempts(ctx context.Context) func(yield func(int, error) bool) {
 	return func(yield func(int, error) bool) {
 		for {
-			err := r.StartAttempt(ctx)
+			err := r.startAttempt(ctx)
 			if !yield(r.attempt, err) {
 				return
 			}

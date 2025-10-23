@@ -92,7 +92,7 @@ func TestNew_CreatesRetry(t *testing.T) {
 	assert.Equal(t, time.Minute, r.cfg.MaxDelay)
 	assert.NotNil(t, r.cfg.backoff, "backoff strategy should be set")
 	assert.IsType(t, &exponentialFullJitterBackoff{}, r.cfg.backoff, "should use exponential full jitter by default")
-	assert.Equal(t, 0, r.Attempt(), "should start at attempt 0")
+	assert.Equal(t, 0, r.attempt, "should start at attempt 0")
 }
 
 func TestNew_PanicsOnInvalidConfig(t *testing.T) {
@@ -164,53 +164,53 @@ func TestNew_PanicsOnInvalidConfig(t *testing.T) {
 	}
 }
 
-// Tests for StartAttempt method
+// Tests for startAttempt method (internal)
 
-func TestRetry_StartAttempt_FirstAttemptNoDelay(t *testing.T) {
+func TestRetry_startAttempt_FirstAttemptNoDelay(t *testing.T) {
 	delays := []time.Duration{10 * time.Millisecond, 20 * time.Millisecond}
 	r, ft, _ := newRetryWithFakeBackoff(delays)
 
 	// First call should return immediately without waiting
-	err := r.StartAttempt(context.Background())
+	err := r.startAttempt(context.Background())
 	assert.NoError(t, err)
-	assert.Equal(t, 1, r.Attempt())
+	assert.Equal(t, 1, r.attempt)
 	assert.Empty(t, ft.delays, "first attempt should not wait")
 
 	// Second call should wait with backoff
-	err = r.StartAttempt(context.Background())
+	err = r.startAttempt(context.Background())
 	assert.NoError(t, err)
-	assert.Equal(t, 2, r.Attempt())
+	assert.Equal(t, 2, r.attempt)
 	require.Len(t, ft.delays, 1)
 	assert.Equal(t, delays[0], ft.delays[0])
 
 	// Third call should wait with larger backoff
-	err = r.StartAttempt(context.Background())
+	err = r.startAttempt(context.Background())
 	assert.NoError(t, err)
-	assert.Equal(t, 3, r.Attempt())
+	assert.Equal(t, 3, r.attempt)
 	require.Len(t, ft.delays, 2)
 	assert.Equal(t, delays[1], ft.delays[1])
 }
 
-func TestRetry_StartAttempt_WithInitialDelay(t *testing.T) {
+func TestRetry_startAttempt_WithInitialDelay(t *testing.T) {
 	delays := []time.Duration{10 * time.Millisecond, 20 * time.Millisecond}
 	r, ft, _ := newRetryWithFakeBackoff(delays, WithInitialDelay())
 
 	// First call should wait when WithInitialDelay is set
-	err := r.StartAttempt(context.Background())
+	err := r.startAttempt(context.Background())
 	assert.NoError(t, err)
-	assert.Equal(t, 1, r.Attempt())
+	assert.Equal(t, 1, r.attempt)
 	require.Len(t, ft.delays, 1)
 	assert.Equal(t, delays[0], ft.delays[0])
 
 	// Second call should also wait
-	err = r.StartAttempt(context.Background())
+	err = r.startAttempt(context.Background())
 	assert.NoError(t, err)
-	assert.Equal(t, 2, r.Attempt())
+	assert.Equal(t, 2, r.attempt)
 	require.Len(t, ft.delays, 2)
 	assert.Equal(t, delays[1], ft.delays[1])
 }
 
-func TestRetry_StartAttempt_ContextCancelled(t *testing.T) {
+func TestRetry_startAttempt_ContextCancelled(t *testing.T) {
 	delays := []time.Duration{10 * time.Millisecond}
 	r, _, _ := newRetryWithFakeBackoff(delays)
 
@@ -218,33 +218,33 @@ func TestRetry_StartAttempt_ContextCancelled(t *testing.T) {
 	cancel() // Cancel immediately
 
 	// First attempt should check context and return error
-	err := r.StartAttempt(ctx)
+	err := r.startAttempt(ctx)
 	assert.Error(t, err)
 	assert.ErrorIs(t, err, context.Canceled)
-	assert.Equal(t, 0, r.Attempt(), "should not increment attempt on context error")
+	assert.Equal(t, 0, r.attempt, "should not increment attempt on context error")
 }
 
-func TestRetry_StartAttempt_ContextCancelledDuringWait(t *testing.T) {
+func TestRetry_startAttempt_ContextCancelledDuringWait(t *testing.T) {
 	// Use real timer for this test since we need actual timing
 	r := New(10*time.Millisecond, time.Minute, withBackoff(newExponentialBackoffNoJitter(10*time.Millisecond, time.Minute)))
 
 	ctx, cancel := context.WithCancel(context.Background())
 
 	// First attempt succeeds
-	err := r.StartAttempt(ctx)
+	err := r.startAttempt(ctx)
 	assert.NoError(t, err)
-	assert.Equal(t, 1, r.Attempt())
+	assert.Equal(t, 1, r.attempt)
 
 	// Cancel context then try second attempt (which would wait)
 	cancel()
-	err = r.StartAttempt(ctx)
+	err = r.startAttempt(ctx)
 	assert.Error(t, err)
 	assert.ErrorIs(t, err, context.Canceled)
 	// Attempt should still be 1 since we didn't complete the second attempt
-	assert.Equal(t, 1, r.Attempt())
+	assert.Equal(t, 1, r.attempt)
 }
 
-func TestRetry_StartAttempt_ContextTimeout(t *testing.T) {
+func TestRetry_startAttempt_ContextTimeout(t *testing.T) {
 	delays := []time.Duration{10 * time.Millisecond}
 	r, _, _ := newRetryWithFakeBackoff(delays)
 
@@ -254,10 +254,10 @@ func TestRetry_StartAttempt_ContextTimeout(t *testing.T) {
 	// Manually expire the context
 	cancel()
 
-	err := r.StartAttempt(ctx)
+	err := r.startAttempt(ctx)
 	assert.Error(t, err)
 	assert.ErrorIs(t, err, context.Canceled)
-	assert.Equal(t, 0, r.Attempt())
+	assert.Equal(t, 0, r.attempt)
 }
 
 // Tests for Reset method
@@ -268,9 +268,9 @@ func TestRetry_Reset(t *testing.T) {
 	ctx := context.Background()
 
 	// Make a few attempts
-	require.NoError(t, r.StartAttempt(ctx)) // No wait (first attempt), attempt 1
-	require.NoError(t, r.StartAttempt(ctx)) // Wait 10ms (calls nextDelay #1), attempt 2
-	require.NoError(t, r.StartAttempt(ctx)) // Wait 20ms (calls nextDelay #2), attempt 3
+	require.NoError(t, r.startAttempt(ctx)) // No wait (first attempt), attempt 1
+	require.NoError(t, r.startAttempt(ctx)) // Wait 10ms (calls nextDelay #1), attempt 2
+	require.NoError(t, r.startAttempt(ctx)) // Wait 20ms (calls nextDelay #2), attempt 3
 
 	require.Len(t, ft.delays, 2)
 	assert.Equal(t, delays[0], ft.delays[0])
@@ -280,7 +280,7 @@ func TestRetry_Reset(t *testing.T) {
 	r.Reset()
 
 	// Next attempt should use first delay again
-	require.NoError(t, r.StartAttempt(ctx)) // Wait 10ms (calls nextDelay #3, after reset), attempt 4
+	require.NoError(t, r.startAttempt(ctx)) // Wait 10ms (calls nextDelay #3, after reset), attempt 4
 	require.Len(t, ft.delays, 3)
 	assert.Equal(t, delays[2], ft.delays[2], "after reset, should use first delay")
 
@@ -290,7 +290,7 @@ func TestRetry_Reset(t *testing.T) {
 	assert.Equal(t, 2, fb.resetsAt[0], "reset called after 2nd nextDelay()")
 
 	// Verify Attempt() counter is NOT reset (monotonic)
-	assert.Equal(t, 4, r.Attempt())
+	assert.Equal(t, 4, r.attempt)
 }
 
 // Tests for Attempt method
@@ -299,19 +299,19 @@ func TestRetry_Attempt(t *testing.T) {
 	r := New(100*time.Millisecond, 30*time.Second)
 	ctx := context.Background()
 
-	assert.Equal(t, 0, r.Attempt(), "should start at 0")
+	assert.Equal(t, 0, r.attempt, "should start at 0")
 
-	require.NoError(t, r.StartAttempt(ctx))
-	assert.Equal(t, 1, r.Attempt())
+	require.NoError(t, r.startAttempt(ctx))
+	assert.Equal(t, 1, r.attempt)
 
-	require.NoError(t, r.StartAttempt(ctx))
-	assert.Equal(t, 2, r.Attempt())
+	require.NoError(t, r.startAttempt(ctx))
+	assert.Equal(t, 2, r.attempt)
 
 	r.Reset()
-	assert.Equal(t, 2, r.Attempt(), "Reset() should not affect Attempt() counter")
+	assert.Equal(t, 2, r.attempt, "Reset() should not affect Attempt() counter")
 
-	require.NoError(t, r.StartAttempt(ctx))
-	assert.Equal(t, 3, r.Attempt())
+	require.NoError(t, r.startAttempt(ctx))
+	assert.Equal(t, 3, r.attempt)
 }
 
 // Integration tests
@@ -322,7 +322,7 @@ func TestRetry_IntegrationExample(t *testing.T) {
 
 	attempts := 0
 	for {
-		if err := r.StartAttempt(ctx); err != nil {
+		if err := r.startAttempt(ctx); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 
@@ -335,7 +335,7 @@ func TestRetry_IntegrationExample(t *testing.T) {
 	}
 
 	assert.Equal(t, 3, attempts)
-	assert.Equal(t, 3, r.Attempt())
+	assert.Equal(t, 3, r.attempt)
 }
 
 func TestRetry_IntegrationWithContextTimeout(t *testing.T) {
@@ -346,7 +346,7 @@ func TestRetry_IntegrationWithContextTimeout(t *testing.T) {
 	attempts := 0
 	var lastErr error
 	for {
-		if err := r.StartAttempt(ctx); err != nil {
+		if err := r.startAttempt(ctx); err != nil {
 			lastErr = err
 			break
 		}
@@ -368,7 +368,7 @@ func Example() {
 	ctx := context.Background()
 
 	for {
-		if err := r.StartAttempt(ctx); err != nil {
+		if err := r.startAttempt(ctx); err != nil {
 			// Handle context cancellation/timeout
 			return
 		}
@@ -393,7 +393,7 @@ func Example_withTimeout() {
 	r := New(100*time.Millisecond, 5*time.Second)
 
 	for {
-		if err := r.StartAttempt(ctx); err != nil {
+		if err := r.startAttempt(ctx); err != nil {
 			// Timeout reached or context cancelled
 			if errors.Is(err, context.DeadlineExceeded) {
 				// Handle timeout
