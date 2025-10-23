@@ -324,6 +324,12 @@ message UpdateSynchronousStandbyListRequest {
 
   // Whether to reload configuration immediately
   bool reload_config = 3;
+
+  // Consensus term (used by MultiOrch for term validation)
+  int64 consensus_term = 4;
+
+  // Force the operation even if the term doesn't match
+  bool force = 5;
 }
 
 message UpdateSynchronousStandbyListResponse {

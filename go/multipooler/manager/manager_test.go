@@ -776,7 +776,7 @@ func TestActionLock_MutationMethodsTimeout(t *testing.T) {
 			name:       "UpdateSynchronousStandbyList times out when lock is held",
 			poolerType: clustermetadatapb.PoolerType_PRIMARY,
 			callMethod: func(ctx context.Context) error {
-				return manager.UpdateSynchronousStandbyList(ctx, multipoolermanagerdata.StandbyUpdateOperation_STANDBY_UPDATE_OPERATION_ADD, []*clustermetadatapb.ID{serviceID}, true)
+				return manager.UpdateSynchronousStandbyList(ctx, multipoolermanagerdata.StandbyUpdateOperation_STANDBY_UPDATE_OPERATION_ADD, []*clustermetadatapb.ID{serviceID}, true, 0, true)
 			},
 		},
 	}

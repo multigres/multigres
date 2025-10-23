@@ -2228,14 +2228,31 @@ func TestUpdateSynchronousStandbyList(t *testing.T) {
 		assert.True(t, containsStandbyIDInConfig(status.SyncReplicationConfig, "test-cell", "standby1"))
 		t.Log("Initial configuration verified")
 
-		// Now ADD a second standby
+		// Test term validation: Set term to 2
+		_, err = primaryManagerClient.SetTerm(utils.WithShortDeadline(t), &multipoolermanagerdata.SetTermRequest{
+			Term: &pgctldpb.ConsensusTerm{CurrentTerm: 2},
+		})
+		require.NoError(t, err, "SetTerm to 2 should succeed")
+		t.Log("Set term to 2")
+
+		// Try to ADD with stale term 1 (should fail)
 		updateReq := &multipoolermanagerdata.UpdateSynchronousStandbyListRequest{
-			Operation:    multipoolermanagerdata.StandbyUpdateOperation_STANDBY_UPDATE_OPERATION_ADD,
-			StandbyIds:   []*clustermetadatapb.ID{makeMultipoolerID("test-cell", "standby2")},
-			ReloadConfig: true,
+			Operation:     multipoolermanagerdata.StandbyUpdateOperation_STANDBY_UPDATE_OPERATION_ADD,
+			StandbyIds:    []*clustermetadatapb.ID{makeMultipoolerID("test-cell", "standby2")},
+			ReloadConfig:  true,
+			ConsensusTerm: 1,
+			Force:         false,
 		}
 		_, err = primaryManagerClient.UpdateSynchronousStandbyList(utils.WithShortDeadline(t), updateReq)
-		require.NoError(t, err, "ADD operation should succeed")
+		require.Error(t, err, "ADD with stale term should fail")
+		assert.Contains(t, err.Error(), "consensus term too old", "Error should mention stale term")
+		t.Log("Confirmed: ADD correctly rejected with stale term 1")
+
+		// Now ADD a second standby with correct term 2 (should succeed)
+		updateReq.ConsensusTerm = 2
+		_, err = primaryManagerClient.UpdateSynchronousStandbyList(utils.WithShortDeadline(t), updateReq)
+		require.NoError(t, err, "ADD operation with correct term should succeed")
+		t.Log("Confirmed: ADD succeeded with correct term 2")
 
 		// Wait for config to converge with both standbys
 		waitForSyncConfigConvergenceWithClient(t, primaryManagerClient, func(config *multipoolermanagerdata.SynchronousReplicationConfiguration) bool {
@@ -2295,9 +2312,11 @@ func TestUpdateSynchronousStandbyList(t *testing.T) {
 
 		// Try to ADD a standby that already exists
 		updateReq := &multipoolermanagerdata.UpdateSynchronousStandbyListRequest{
-			Operation:    multipoolermanagerdata.StandbyUpdateOperation_STANDBY_UPDATE_OPERATION_ADD,
-			StandbyIds:   []*clustermetadatapb.ID{makeMultipoolerID("test-cell", "standby1")},
-			ReloadConfig: true,
+			Operation:     multipoolermanagerdata.StandbyUpdateOperation_STANDBY_UPDATE_OPERATION_ADD,
+			StandbyIds:    []*clustermetadatapb.ID{makeMultipoolerID("test-cell", "standby1")},
+			ReloadConfig:  true,
+			ConsensusTerm: 0,
+			Force:         true,
 		}
 		_, err = primaryManagerClient.UpdateSynchronousStandbyList(utils.WithShortDeadline(t), updateReq)
 		require.NoError(t, err, "ADD should be idempotent")
@@ -2360,9 +2379,11 @@ func TestUpdateSynchronousStandbyList(t *testing.T) {
 
 		// REMOVE standby2
 		updateReq := &multipoolermanagerdata.UpdateSynchronousStandbyListRequest{
-			Operation:    multipoolermanagerdata.StandbyUpdateOperation_STANDBY_UPDATE_OPERATION_REMOVE,
-			StandbyIds:   []*clustermetadatapb.ID{makeMultipoolerID("test-cell", "standby2")},
-			ReloadConfig: true,
+			Operation:     multipoolermanagerdata.StandbyUpdateOperation_STANDBY_UPDATE_OPERATION_REMOVE,
+			StandbyIds:    []*clustermetadatapb.ID{makeMultipoolerID("test-cell", "standby2")},
+			ReloadConfig:  true,
+			ConsensusTerm: 0,
+			Force:         true,
 		}
 		_, err = primaryManagerClient.UpdateSynchronousStandbyList(utils.WithShortDeadline(t), updateReq)
 		require.NoError(t, err, "REMOVE operation should succeed")
@@ -2431,7 +2452,9 @@ func TestUpdateSynchronousStandbyList(t *testing.T) {
 				makeMultipoolerID("test-cell", "standby3"),
 				makeMultipoolerID("test-cell", "standby4"),
 			},
-			ReloadConfig: true,
+			ReloadConfig:  true,
+			ConsensusTerm: 0,
+			Force:         true,
 		}
 		_, err = primaryManagerClient.UpdateSynchronousStandbyList(utils.WithShortDeadline(t), updateReq)
 		require.NoError(t, err, "REPLACE operation should succeed")
@@ -2490,9 +2513,11 @@ func TestUpdateSynchronousStandbyList(t *testing.T) {
 
 		// Try to update when no sync replication is configured
 		updateReq := &multipoolermanagerdata.UpdateSynchronousStandbyListRequest{
-			Operation:    multipoolermanagerdata.StandbyUpdateOperation_STANDBY_UPDATE_OPERATION_ADD,
-			StandbyIds:   []*clustermetadatapb.ID{makeMultipoolerID("test-cell", "standby1")},
-			ReloadConfig: true,
+			Operation:     multipoolermanagerdata.StandbyUpdateOperation_STANDBY_UPDATE_OPERATION_ADD,
+			StandbyIds:    []*clustermetadatapb.ID{makeMultipoolerID("test-cell", "standby1")},
+			ReloadConfig:  true,
+			ConsensusTerm: 0,
+			Force:         true,
 		}
 		_, err = primaryManagerClient.UpdateSynchronousStandbyList(utils.WithShortDeadline(t), updateReq)
 		require.Error(t, err, "Should fail when sync replication not configured")
@@ -2508,9 +2533,11 @@ func TestUpdateSynchronousStandbyList(t *testing.T) {
 		defer cancel()
 
 		updateReq := &multipoolermanagerdata.UpdateSynchronousStandbyListRequest{
-			Operation:    multipoolermanagerdata.StandbyUpdateOperation_STANDBY_UPDATE_OPERATION_ADD,
-			StandbyIds:   []*clustermetadatapb.ID{makeMultipoolerID("test-cell", "standby1")},
-			ReloadConfig: true,
+			Operation:     multipoolermanagerdata.StandbyUpdateOperation_STANDBY_UPDATE_OPERATION_ADD,
+			StandbyIds:    []*clustermetadatapb.ID{makeMultipoolerID("test-cell", "standby1")},
+			ReloadConfig:  true,
+			ConsensusTerm: 0,
+			Force:         true,
 		}
 		_, err := standbyManagerClient.UpdateSynchronousStandbyList(ctx, updateReq)
 		require.Error(t, err, "UpdateSynchronousStandbyList should fail on standby")

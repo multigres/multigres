@@ -261,7 +261,9 @@ func TestManagerServiceMethods_ManagerNotReady(t *testing.T) {
 							Name:      "standby1",
 						},
 					},
-					ReloadConfig: true,
+					ReloadConfig:  true,
+					ConsensusTerm: 0,
+					Force:         true,
 				}
 				_, err := svc.UpdateSynchronousStandbyList(ctx, req)
 				return err

@@ -1108,7 +1108,7 @@ func applyReplaceOperation(newStandbys []*clustermetadatapb.ID) []*clustermetada
 // UpdateSynchronousStandbyList updates PostgreSQL synchronous_standby_names by adding,
 // removing, or replacing members. It is idempotent and only valid when synchronous
 // replication is already configured.
-func (pm *MultiPoolerManager) UpdateSynchronousStandbyList(ctx context.Context, operation multipoolermanagerdata.StandbyUpdateOperation, standbyIDs []*clustermetadatapb.ID, reloadConfig bool) error {
+func (pm *MultiPoolerManager) UpdateSynchronousStandbyList(ctx context.Context, operation multipoolermanagerdata.StandbyUpdateOperation, standbyIDs []*clustermetadatapb.ID, reloadConfig bool, consensusTerm int64, force bool) error {
 	if err := pm.checkReady(); err != nil {
 		return err
 	}
@@ -1121,7 +1121,14 @@ func (pm *MultiPoolerManager) UpdateSynchronousStandbyList(ctx context.Context, 
 	pm.logger.Info("UpdateSynchronousStandbyList called",
 		"operation", operation,
 		"standby_ids", standbyIDs,
-		"reload_config", reloadConfig)
+		"reload_config", reloadConfig,
+		"consensus_term", consensusTerm,
+		"force", force)
+
+	// Validate and update consensus term following consensus rules
+	if err := pm.validateAndUpdateTerm(ctx, consensusTerm, force); err != nil {
+		return err
+	}
 
 	// === Validation ===
 

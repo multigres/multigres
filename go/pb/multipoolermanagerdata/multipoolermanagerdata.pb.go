@@ -2009,7 +2009,11 @@ type UpdateSynchronousStandbyListRequest struct {
 	// The application names will be generated as {cell}_{name} from these IDs
 	StandbyIds []*clustermetadata.ID `protobuf:"bytes,2,rep,name=standby_ids,json=standbyIds,proto3" json:"standby_ids,omitempty"`
 	// Whether to reload configuration immediately
-	ReloadConfig  bool `protobuf:"varint,3,opt,name=reload_config,json=reloadConfig,proto3" json:"reload_config,omitempty"`
+	ReloadConfig bool `protobuf:"varint,3,opt,name=reload_config,json=reloadConfig,proto3" json:"reload_config,omitempty"`
+	// Consensus term (used by MultiOrch for term validation)
+	ConsensusTerm int64 `protobuf:"varint,4,opt,name=consensus_term,json=consensusTerm,proto3" json:"consensus_term,omitempty"`
+	// Force the operation even if the term doesn't match
+	Force         bool `protobuf:"varint,5,opt,name=force,proto3" json:"force,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2061,6 +2065,20 @@ func (x *UpdateSynchronousStandbyListRequest) GetStandbyIds() []*clustermetadata
 func (x *UpdateSynchronousStandbyListRequest) GetReloadConfig() bool {
 	if x != nil {
 		return x.ReloadConfig
+	}
+	return false
+}
+
+func (x *UpdateSynchronousStandbyListRequest) GetConsensusTerm() int64 {
+	if x != nil {
+		return x.ConsensusTerm
+	}
+	return 0
+}
+
+func (x *UpdateSynchronousStandbyListRequest) GetForce() bool {
+	if x != nil {
+		return x.Force
 	}
 	return false
 }
@@ -2192,12 +2210,14 @@ const file_multipoolermanagerdata_proto_rawDesc = "" +
 	"\rerror_message\x18\x02 \x01(\tR\ferrorMessage\"B\n" +
 	"\x0eSetTermRequest\x120\n" +
 	"\x04term\x18\x01 \x01(\v2\x1c.pgctldservice.ConsensusTermR\x04term\"\x11\n" +
-	"\x0fSetTermResponse\"\xce\x01\n" +
+	"\x0fSetTermResponse\"\x8b\x02\n" +
 	"#UpdateSynchronousStandbyListRequest\x12L\n" +
 	"\toperation\x18\x01 \x01(\x0e2..multipoolermanagerdata.StandbyUpdateOperationR\toperation\x124\n" +
 	"\vstandby_ids\x18\x02 \x03(\v2\x13.clustermetadata.IDR\n" +
 	"standbyIds\x12#\n" +
-	"\rreload_config\x18\x03 \x01(\bR\freloadConfig\"&\n" +
+	"\rreload_config\x18\x03 \x01(\bR\freloadConfig\x12%\n" +
+	"\x0econsensus_term\x18\x04 \x01(\x03R\rconsensusTerm\x12\x14\n" +
+	"\x05force\x18\x05 \x01(\bR\x05force\"&\n" +
 	"$UpdateSynchronousStandbyListResponse*q\n" +
 	"\x11SynchronousMethod\x12\"\n" +
 	"\x1eSYNCHRONOUS_METHOD_UNSPECIFIED\x10\x00\x12\x1c\n" +
