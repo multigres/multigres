@@ -1174,13 +1174,123 @@ func (pm *MultiPoolerManager) UpdateSynchronousStandbyList(ctx context.Context, 
 	return nil
 }
 
+// getSynchronousReplicationConfig retrieves and parses the current synchronous replication configuration
+func (pm *MultiPoolerManager) getSynchronousReplicationConfig(ctx context.Context) (*multipoolermanagerdata.SynchronousReplicationConfiguration, error) {
+	config := &multipoolermanagerdata.SynchronousReplicationConfiguration{}
+
+	// Query synchronous_standby_names
+	var syncStandbyNamesStr string
+	err := pm.db.QueryRowContext(ctx, "SHOW synchronous_standby_names").Scan(&syncStandbyNamesStr)
+	if err != nil {
+		return nil, mterrors.Wrap(err, "failed to query synchronous_standby_names")
+	}
+
+	// Only parse standby names if not empty
+	syncStandbyNamesStr = strings.TrimSpace(syncStandbyNamesStr)
+	if syncStandbyNamesStr != "" {
+		syncConfig, err := parseSynchronousStandbyNames(syncStandbyNamesStr)
+		if err != nil {
+			return nil, err
+		}
+		config.SynchronousMethod = syncConfig.Method
+		config.NumSync = syncConfig.NumSync
+		config.StandbyIds = syncConfig.StandbyIDs
+	}
+
+	// Query synchronous_commit
+	var syncCommitStr string
+	err = pm.db.QueryRowContext(ctx, "SHOW synchronous_commit").Scan(&syncCommitStr)
+	if err != nil {
+		return nil, mterrors.Wrap(err, "failed to query synchronous_commit")
+	}
+
+	// Map string to enum
+	var syncCommitLevel multipoolermanagerdata.SynchronousCommitLevel
+	switch strings.ToLower(syncCommitStr) {
+	case "off":
+		syncCommitLevel = multipoolermanagerdata.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_OFF
+	case "local":
+		syncCommitLevel = multipoolermanagerdata.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_LOCAL
+	case "remote_write":
+		syncCommitLevel = multipoolermanagerdata.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_REMOTE_WRITE
+	case "on":
+		syncCommitLevel = multipoolermanagerdata.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_ON
+	case "remote_apply":
+		syncCommitLevel = multipoolermanagerdata.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_REMOTE_APPLY
+	default:
+		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT,
+			fmt.Sprintf("unknown synchronous_commit value: %q", syncCommitStr))
+	}
+	config.SynchronousCommit = syncCommitLevel
+
+	return config, nil
+}
+
 // PrimaryStatus gets the status of the leader server
-func (pm *MultiPoolerManager) PrimaryStatus(ctx context.Context) (map[string]interface{}, error) {
+func (pm *MultiPoolerManager) PrimaryStatus(ctx context.Context) (*multipoolermanagerdata.PrimaryStatus, error) {
 	if err := pm.checkReady(); err != nil {
 		return nil, err
 	}
+
 	pm.logger.Info("PrimaryStatus called")
-	return nil, mterrors.New(mtrpcpb.Code_UNIMPLEMENTED, "method PrimaryStatus not implemented")
+
+	// Check PRIMARY guardrails (pooler type and non-recovery mode)
+	if err := pm.checkPrimaryGuardrails(ctx); err != nil {
+		return nil, err
+	}
+
+	status := &multipoolermanagerdata.PrimaryStatus{}
+
+	// Get current LSN
+	var lsn string
+	err := pm.db.QueryRowContext(ctx, "SELECT pg_current_wal_lsn()::text").Scan(&lsn)
+	if err != nil {
+		pm.logger.Error("Failed to query LSN", "error", err)
+		return nil, mterrors.Wrap(err, "failed to query LSN")
+	}
+	status.Lsn = lsn
+
+	// Check if server is ready (if we got this far, it's accepting connections)
+	status.Ready = true
+
+	// Get connected followers from pg_stat_replication
+	rows, err := pm.db.QueryContext(ctx, "SELECT application_name FROM pg_stat_replication WHERE application_name IS NOT NULL AND application_name != ''")
+	if err != nil {
+		pm.logger.Error("Failed to query pg_stat_replication", "error", err)
+		return nil, mterrors.Wrap(err, "failed to query connected followers")
+	}
+	defer rows.Close()
+
+	followers := []*clustermetadatapb.ID{}
+	for rows.Next() {
+		var appName string
+		if err := rows.Scan(&appName); err != nil {
+			pm.logger.Error("Failed to scan application_name", "error", err)
+			continue
+		}
+		// Parse application_name back to cluster ID
+		followerID, err := parseApplicationName(appName)
+		if err != nil {
+			pm.logger.Warn("Failed to parse application_name, skipping", "application_name", appName, "error", err)
+			continue
+		}
+		followers = append(followers, followerID)
+	}
+	if err := rows.Err(); err != nil {
+		pm.logger.Error("Error iterating pg_stat_replication rows", "error", err)
+		return nil, mterrors.Wrap(err, "failed to read connected followers")
+	}
+	status.Followers = followers
+
+	// Get synchronous replication configuration
+	syncConfig, err := pm.getSynchronousReplicationConfig(ctx)
+	if err != nil {
+		return nil, err
+	}
+	status.SyncReplicationConfig = syncConfig
+
+	pm.logger.Info("PrimaryStatus completed", "lsn", lsn, "followers_count", len(followers))
+	return status, nil
 }
 
 // PrimaryPosition gets the current LSN position of the leader

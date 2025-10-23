@@ -2519,3 +2519,186 @@ func TestUpdateSynchronousStandbyList(t *testing.T) {
 		t.Log("Confirmed: UpdateSynchronousStandbyList correctly rejected on REPLICA pooler")
 	})
 }
+
+func TestPrimaryStatus(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping end-to-end tests in short mode")
+	}
+
+	setup := getSharedTestSetup(t)
+
+	// Wait for both managers to be ready before running tests
+	waitForManagerReady(t, setup, setup.PrimaryMultipooler)
+	waitForManagerReady(t, setup, setup.StandbyMultipooler)
+
+	// Create shared clients for all subtests
+	primaryConn, err := grpc.NewClient(
+		fmt.Sprintf("localhost:%d", setup.PrimaryMultipooler.GrpcPort),
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	)
+	require.NoError(t, err)
+	t.Cleanup(func() { primaryConn.Close() })
+	primaryManagerClient := multipoolermanagerpb.NewMultiPoolerManagerClient(primaryConn)
+
+	standbyConn, err := grpc.NewClient(
+		fmt.Sprintf("localhost:%d", setup.StandbyMultipooler.GrpcPort),
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	)
+	require.NoError(t, err)
+	t.Cleanup(func() { standbyConn.Close() })
+	standbyManagerClient := multipoolermanagerpb.NewMultiPoolerManagerClient(standbyConn)
+
+	t.Run("PrimaryStatus_NoSyncReplication", func(t *testing.T) {
+		t.Log("Testing PrimaryStatus without synchronous replication configured...")
+
+		// Clear any existing sync replication configuration
+		clearReq := &multipoolermanagerdata.ConfigureSynchronousReplicationRequest{
+			SynchronousCommit: multipoolermanagerdata.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_ON,
+			SynchronousMethod: multipoolermanagerdata.SynchronousMethod_SYNCHRONOUS_METHOD_FIRST,
+			NumSync:           0,
+			StandbyIds:        []*clustermetadatapb.ID{},
+			ReloadConfig:      true,
+		}
+		_, err := primaryManagerClient.ConfigureSynchronousReplication(utils.WithShortDeadline(t), clearReq)
+		require.NoError(t, err)
+
+		// Get primary status
+		statusResp, err := primaryManagerClient.PrimaryStatus(utils.WithShortDeadline(t), &multipoolermanagerdata.PrimaryStatusRequest{})
+		require.NoError(t, err, "PrimaryStatus should succeed")
+		require.NotNil(t, statusResp.Status, "Status should not be nil")
+
+		// Verify LSN is present and valid format
+		assert.NotEmpty(t, statusResp.Status.Lsn, "LSN should be present")
+		assert.Regexp(t, `^[0-9A-F]+/[0-9A-F]+$`, statusResp.Status.Lsn, "LSN should be in PostgreSQL format (X/XXXXXXXX)")
+		t.Logf("Primary LSN: %s", statusResp.Status.Lsn)
+
+		// Verify ready status
+		assert.True(t, statusResp.Status.Ready, "Primary should be ready")
+
+		// Verify sync replication config is present but with empty standby list
+		require.NotNil(t, statusResp.Status.SyncReplicationConfig, "Sync replication config should be present")
+		assert.Equal(t, multipoolermanagerdata.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_ON,
+			statusResp.Status.SyncReplicationConfig.SynchronousCommit, "Should have synchronous_commit level")
+		assert.Empty(t, statusResp.Status.SyncReplicationConfig.StandbyIds, "StandbyIds should be empty when not configured")
+		assert.Equal(t, int32(0), statusResp.Status.SyncReplicationConfig.NumSync, "NumSync should be 0")
+
+		t.Log("PrimaryStatus without sync replication verified successfully")
+	})
+
+	t.Run("PrimaryStatus_WithSyncReplication", func(t *testing.T) {
+		t.Log("Testing PrimaryStatus with synchronous replication configured...")
+
+		// Configure synchronous replication
+		standbyIDs := []*clustermetadatapb.ID{
+			makeMultipoolerID("test-cell", "standby1"),
+			makeMultipoolerID("test-cell", "standby2"),
+		}
+		configReq := &multipoolermanagerdata.ConfigureSynchronousReplicationRequest{
+			SynchronousCommit: multipoolermanagerdata.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_REMOTE_APPLY,
+			SynchronousMethod: multipoolermanagerdata.SynchronousMethod_SYNCHRONOUS_METHOD_ANY,
+			NumSync:           2,
+			StandbyIds:        standbyIDs,
+			ReloadConfig:      true,
+		}
+		_, err := primaryManagerClient.ConfigureSynchronousReplication(utils.WithShortDeadline(t), configReq)
+		require.NoError(t, err)
+
+		// Get primary status
+		statusResp, err := primaryManagerClient.PrimaryStatus(utils.WithShortDeadline(t), &multipoolermanagerdata.PrimaryStatusRequest{})
+		require.NoError(t, err, "PrimaryStatus should succeed")
+		require.NotNil(t, statusResp.Status, "Status should not be nil")
+
+		// Verify sync replication config is present and correct
+		require.NotNil(t, statusResp.Status.SyncReplicationConfig, "Sync replication config should be present")
+		assert.Equal(t, multipoolermanagerdata.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_REMOTE_APPLY,
+			statusResp.Status.SyncReplicationConfig.SynchronousCommit, "Synchronous commit level should match")
+		assert.Equal(t, multipoolermanagerdata.SynchronousMethod_SYNCHRONOUS_METHOD_ANY,
+			statusResp.Status.SyncReplicationConfig.SynchronousMethod, "Synchronous method should match")
+		assert.Equal(t, int32(2), statusResp.Status.SyncReplicationConfig.NumSync, "NumSync should match")
+		assert.Len(t, statusResp.Status.SyncReplicationConfig.StandbyIds, 2, "Should have 2 standby IDs")
+
+		// Verify standby IDs
+		standbyIDMap := make(map[string]bool)
+		for _, id := range statusResp.Status.SyncReplicationConfig.StandbyIds {
+			key := fmt.Sprintf("%s_%s", id.Cell, id.Name)
+			standbyIDMap[key] = true
+		}
+		assert.True(t, standbyIDMap["test-cell_standby1"], "standby1 should be in the list")
+		assert.True(t, standbyIDMap["test-cell_standby2"], "standby2 should be in the list")
+
+		t.Log("PrimaryStatus with sync replication verified successfully")
+
+		// Cleanup
+		clearReq := &multipoolermanagerdata.ConfigureSynchronousReplicationRequest{
+			SynchronousCommit: multipoolermanagerdata.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_ON,
+			SynchronousMethod: multipoolermanagerdata.SynchronousMethod_SYNCHRONOUS_METHOD_FIRST,
+			NumSync:           0,
+			StandbyIds:        []*clustermetadatapb.ID{},
+			ReloadConfig:      true,
+		}
+		_, err = primaryManagerClient.ConfigureSynchronousReplication(utils.WithShortDeadline(t), clearReq)
+		require.NoError(t, err)
+	})
+
+	t.Run("PrimaryStatus_WithConnectedFollower", func(t *testing.T) {
+		t.Log("Testing PrimaryStatus with connected follower...")
+
+		// Ensure standby is connected and replicating
+		setPrimaryReq := &multipoolermanagerdata.SetPrimaryConnInfoRequest{
+			Host:                  "localhost",
+			Port:                  int32(setup.PrimaryPgctld.PgPort),
+			StartReplicationAfter: true,
+			StopReplicationBefore: false,
+			CurrentTerm:           1,
+			Force:                 false,
+		}
+		_, err := standbyManagerClient.SetPrimaryConnInfo(utils.WithShortDeadline(t), setPrimaryReq)
+		require.NoError(t, err)
+
+		// Wait for replication to be established
+		require.Eventually(t, func() bool {
+			statusResp, err := standbyManagerClient.ReplicationStatus(utils.WithShortDeadline(t), &multipoolermanagerdata.ReplicationStatusRequest{})
+			if err != nil {
+				return false
+			}
+			return statusResp.Status.PrimaryConnInfo != nil &&
+				statusResp.Status.PrimaryConnInfo.Host != "" &&
+				!statusResp.Status.IsWalReplayPaused
+		}, 5*time.Second, 200*time.Millisecond, "Replication should be established")
+
+		// Get primary status
+		statusResp, err := primaryManagerClient.PrimaryStatus(utils.WithShortDeadline(t), &multipoolermanagerdata.PrimaryStatusRequest{})
+		require.NoError(t, err, "PrimaryStatus should succeed")
+		require.NotNil(t, statusResp.Status, "Status should not be nil")
+
+		// Verify followers list contains the standby
+		require.NotEmpty(t, statusResp.Status.Followers, "Should have at least one follower")
+
+		// Find our standby in the followers list
+		expectedAppName := fmt.Sprintf("test-cell_%s", setup.StandbyMultipooler.ServiceID)
+		foundStandby := false
+		for _, follower := range statusResp.Status.Followers {
+			if follower.Cell == "test-cell" && follower.Name == setup.StandbyMultipooler.ServiceID {
+				foundStandby = true
+				break
+			}
+		}
+		assert.True(t, foundStandby, "Standby should be in followers list with application_name: %s", expectedAppName)
+		t.Logf("Found %d connected follower(s)", len(statusResp.Status.Followers))
+
+		t.Log("PrimaryStatus with connected follower verified successfully")
+	})
+
+	t.Run("PrimaryStatus_Standby_Fails", func(t *testing.T) {
+		t.Log("Testing PrimaryStatus on REPLICA pooler (should fail)...")
+
+		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+		defer cancel()
+
+		_, err := standbyManagerClient.PrimaryStatus(ctx, &multipoolermanagerdata.PrimaryStatusRequest{})
+		require.Error(t, err, "PrimaryStatus should fail on standby")
+		assert.Contains(t, err.Error(), "operation not allowed", "Error should indicate operation not allowed on REPLICA")
+
+		t.Log("Confirmed: PrimaryStatus correctly rejected on REPLICA pooler")
+	})
+}

@@ -133,12 +133,13 @@ func (s *managerService) UpdateSynchronousStandbyList(ctx context.Context, req *
 
 // PrimaryStatus gets the status of the leader server
 func (s *managerService) PrimaryStatus(ctx context.Context, req *multipoolermanagerdata.PrimaryStatusRequest) (*multipoolermanagerdata.PrimaryStatusResponse, error) {
-	_, err := s.manager.PrimaryStatus(ctx)
+	status, err := s.manager.PrimaryStatus(ctx)
 	if err != nil {
 		return nil, mterrors.ToGRPC(err)
 	}
-	// TODO: Convert map to proper response structure
-	return &multipoolermanagerdata.PrimaryStatusResponse{}, nil
+	return &multipoolermanagerdata.PrimaryStatusResponse{
+		Status: status,
+	}, nil
 }
 
 // PrimaryPosition gets the current LSN position of the leader
