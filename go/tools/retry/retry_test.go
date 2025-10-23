@@ -293,48 +293,23 @@ func TestRetry_Reset(t *testing.T) {
 	assert.Equal(t, 4, r.attempt)
 }
 
-// Tests for Attempt method
-
-func TestRetry_Attempt(t *testing.T) {
-	r := New(100*time.Millisecond, 30*time.Second)
-	ctx := context.Background()
-
-	assert.Equal(t, 0, r.attempt, "should start at 0")
-
-	require.NoError(t, r.startAttempt(ctx))
-	assert.Equal(t, 1, r.attempt)
-
-	require.NoError(t, r.startAttempt(ctx))
-	assert.Equal(t, 2, r.attempt)
-
-	r.Reset()
-	assert.Equal(t, 2, r.attempt, "Reset() should not affect Attempt() counter")
-
-	require.NoError(t, r.startAttempt(ctx))
-	assert.Equal(t, 3, r.attempt)
-}
-
 // Integration tests
 
 func TestRetry_IntegrationExample(t *testing.T) {
 	r := New(100*time.Millisecond, 30*time.Second, withBackoff(newExponentialBackoffNoJitter(100*time.Millisecond, 30*time.Second)))
 	ctx := context.Background()
 
-	attempts := 0
-	for {
-		if err := r.startAttempt(ctx); err != nil {
+	for attempt, err := range r.Attempts(ctx) {
+		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 
-		attempts++
-
 		// Simulate success on 3rd attempt
-		if attempts == 3 {
+		if attempt == 3 {
 			break
 		}
 	}
 
-	assert.Equal(t, 3, attempts)
 	assert.Equal(t, 3, r.attempt)
 }
 
@@ -343,15 +318,12 @@ func TestRetry_IntegrationWithContextTimeout(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
 
-	attempts := 0
 	var lastErr error
-	for {
-		if err := r.startAttempt(ctx); err != nil {
+	for _, err := range r.Attempts(ctx) {
+		if err != nil {
 			lastErr = err
 			break
 		}
-
-		attempts++
 
 		// Simulate operation that always fails
 		// Will eventually timeout
@@ -359,7 +331,7 @@ func TestRetry_IntegrationWithContextTimeout(t *testing.T) {
 
 	assert.Error(t, lastErr)
 	assert.True(t, errors.Is(lastErr, context.DeadlineExceeded) || errors.Is(lastErr, context.Canceled))
-	assert.Greater(t, attempts, 0, "should have made at least one attempt")
+	assert.Greater(t, r.attempt, 0, "should have made at least one attempt")
 }
 
 // Example demonstrates basic backoff usage with exponential backoff and full jitter.
@@ -367,8 +339,8 @@ func Example() {
 	r := New(500*time.Millisecond, 30*time.Second)
 	ctx := context.Background()
 
-	for {
-		if err := r.startAttempt(ctx); err != nil {
+	for _, err := range r.Attempts(ctx) {
+		if err != nil {
 			// Handle context cancellation/timeout
 			return
 		}
@@ -392,8 +364,8 @@ func Example_withTimeout() {
 
 	r := New(100*time.Millisecond, 5*time.Second)
 
-	for {
-		if err := r.startAttempt(ctx); err != nil {
+	for _, err := range r.Attempts(ctx) {
+		if err != nil {
 			// Timeout reached or context cancelled
 			if errors.Is(err, context.DeadlineExceeded) {
 				// Handle timeout
@@ -485,8 +457,9 @@ func TestRetry_Attempts_ContextTimeout(t *testing.T) {
 }
 
 func TestRetry_Attempts_EarlyBreak(t *testing.T) {
+	ft := &fakeTimer{}
 	r := New(10*time.Millisecond, 100*time.Millisecond)
-	r.timer = &fakeTimer{}
+	r.timer = ft
 
 	ctx := context.Background()
 	attemptCount := 0
@@ -503,6 +476,7 @@ func TestRetry_Attempts_EarlyBreak(t *testing.T) {
 	}
 
 	assert.Equal(t, 2, attemptCount, "Should stop after 2 attempts")
+	assert.Len(t, ft.delays, 1, "Should have 1 delay (first attempt has no delay)")
 }
 
 func TestRetry_Attempts_WithInitialDelay(t *testing.T) {
