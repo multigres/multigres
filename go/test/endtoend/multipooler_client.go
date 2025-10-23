@@ -78,10 +78,7 @@ func NewMultiPoolerTestClient(addr string) (*MultiPoolerTestClient, error) {
 }
 
 // ExecuteQuery executes a SQL query via the multipooler gRPC service
-func (c *MultiPoolerTestClient) ExecuteQuery(query string, maxRows uint64) (*querypb.QueryResult, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
+func (c *MultiPoolerTestClient) ExecuteQuery(ctx context.Context, query string, maxRows uint64) (*querypb.QueryResult, error) {
 	req := &multipoolerpb.ExecuteQueryRequest{
 		Query:   []byte(query),
 		MaxRows: maxRows,
@@ -117,9 +114,11 @@ func (c *MultiPoolerTestClient) Address() string {
 
 // TestBasicSelect tests a basic SELECT query
 func TestBasicSelect(t *testing.T, client *MultiPoolerTestClient) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
 	t.Helper()
 
-	result, err := client.ExecuteQuery("SELECT 1 as test_column", 10)
+	result, err := client.ExecuteQuery(ctx, "SELECT 1 as test_column", 10)
 	require.NoError(t, err, "Basic SELECT query should succeed")
 	require.NotNil(t, result, "Result should not be nil")
 
@@ -134,6 +133,8 @@ func TestBasicSelect(t *testing.T, client *MultiPoolerTestClient) {
 // TestCreateTable tests creating a table
 func TestCreateTable(t *testing.T, client *MultiPoolerTestClient, tableName string) {
 	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
 
 	createSQL := fmt.Sprintf(`
 		CREATE TABLE IF NOT EXISTS %s (
@@ -143,7 +144,7 @@ func TestCreateTable(t *testing.T, client *MultiPoolerTestClient, tableName stri
 			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 		)`, tableName)
 
-	result, err := client.ExecuteQuery(createSQL, 0)
+	result, err := client.ExecuteQuery(ctx, createSQL, 0)
 	require.NoError(t, err, "CREATE TABLE should succeed")
 	require.NotNil(t, result, "Result should not be nil")
 
@@ -155,12 +156,14 @@ func TestCreateTable(t *testing.T, client *MultiPoolerTestClient, tableName stri
 // TestInsertData tests inserting data into a table
 func TestInsertData(t *testing.T, client *MultiPoolerTestClient, tableName string, testData []map[string]interface{}) {
 	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
 
 	for i, data := range testData {
 		insertSQL := fmt.Sprintf("INSERT INTO %s (name, value) VALUES ('%s', %v)",
 			tableName, data["name"], data["value"])
 
-		result, err := client.ExecuteQuery(insertSQL, 0)
+		result, err := client.ExecuteQuery(ctx, insertSQL, 0)
 		require.NoError(t, err, "INSERT should succeed for row %d", i)
 		require.NotNil(t, result, "Result should not be nil")
 
@@ -176,8 +179,10 @@ func TestSelectData(t *testing.T, client *MultiPoolerTestClient, tableName strin
 	t.Helper()
 
 	selectSQL := fmt.Sprintf("SELECT id, name, value FROM %s ORDER BY id", tableName)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
 
-	result, err := client.ExecuteQuery(selectSQL, 0)
+	result, err := client.ExecuteQuery(ctx, selectSQL, 0)
 	require.NoError(t, err, "SELECT should succeed")
 	require.NotNil(t, result, "Result should not be nil")
 
@@ -199,11 +204,13 @@ func TestSelectData(t *testing.T, client *MultiPoolerTestClient, tableName strin
 // TestQueryLimits tests the max_rows parameter
 func TestQueryLimits(t *testing.T, client *MultiPoolerTestClient, tableName string) {
 	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
 
 	selectSQL := fmt.Sprintf("SELECT * FROM %s", tableName)
 
 	// Test with limit
-	result, err := client.ExecuteQuery(selectSQL, 2)
+	result, err := client.ExecuteQuery(ctx, selectSQL, 2)
 	require.NoError(t, err, "SELECT with limit should succeed")
 	require.NotNil(t, result, "Result should not be nil")
 
@@ -216,7 +223,9 @@ func TestUpdateData(t *testing.T, client *MultiPoolerTestClient, tableName strin
 
 	updateSQL := fmt.Sprintf("UPDATE %s SET value = value * 2 WHERE id = 1", tableName)
 
-	result, err := client.ExecuteQuery(updateSQL, 0)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	result, err := client.ExecuteQuery(ctx, updateSQL, 0)
 	require.NoError(t, err, "UPDATE should succeed")
 	require.NotNil(t, result, "Result should not be nil")
 
@@ -231,8 +240,10 @@ func TestDeleteData(t *testing.T, client *MultiPoolerTestClient, tableName strin
 	t.Helper()
 
 	deleteSQL := fmt.Sprintf("DELETE FROM %s WHERE id = 1", tableName)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
 
-	result, err := client.ExecuteQuery(deleteSQL, 0)
+	result, err := client.ExecuteQuery(ctx, deleteSQL, 0)
 	require.NoError(t, err, "DELETE should succeed")
 	require.NotNil(t, result, "Result should not be nil")
 
@@ -247,8 +258,10 @@ func TestDropTable(t *testing.T, client *MultiPoolerTestClient, tableName string
 	t.Helper()
 
 	dropSQL := fmt.Sprintf("DROP TABLE IF EXISTS %s", tableName)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
 
-	result, err := client.ExecuteQuery(dropSQL, 0)
+	result, err := client.ExecuteQuery(ctx, dropSQL, 0)
 	require.NoError(t, err, "DROP TABLE should succeed")
 	require.NotNil(t, result, "Result should not be nil")
 
@@ -282,9 +295,12 @@ func TestDataTypes(t *testing.T, client *MultiPoolerTestClient) {
 		{"UUID", "SELECT gen_random_uuid()", "UUID"},
 	}
 
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result, err := client.ExecuteQuery(tt.query, 1)
+			result, err := client.ExecuteQuery(ctx, tt.query, 1)
 			require.NoError(t, err, "Query should succeed for %s", tt.name)
 			require.NotNil(t, result, "Result should not be nil")
 			assert.Len(t, result.Fields, 1, "Should have one field")
@@ -299,7 +315,10 @@ func TestMultigresSchemaExists(t *testing.T, client *MultiPoolerTestClient) {
 	t.Helper()
 
 	query := "SELECT nspname::text FROM pg_catalog.pg_namespace WHERE nspname = 'multigres'"
-	result, err := client.ExecuteQuery(query, 10)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	result, err := client.ExecuteQuery(ctx, query, 10)
 	require.NoError(t, err, "Schema existence check should succeed")
 	require.NotNil(t, result, "Result should not be nil")
 
@@ -321,7 +340,11 @@ func TestHeartbeatTableExists(t *testing.T, client *MultiPoolerTestClient) {
 		JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
 		WHERE n.nspname = 'multigres' AND c.relname = 'heartbeat' AND c.relkind = 'r'
 	`
-	result, err := client.ExecuteQuery(tableQuery, 10)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	result, err := client.ExecuteQuery(ctx, tableQuery, 10)
 	require.NoError(t, err, "Table existence check should succeed")
 	require.NotNil(t, result, "Result should not be nil")
 	assert.Len(t, result.Rows, 1, "heartbeat table should exist in multigres schema")
@@ -338,7 +361,8 @@ func TestHeartbeatTableExists(t *testing.T, client *MultiPoolerTestClient) {
 		  AND NOT a.attisdropped
 		ORDER BY a.attname
 	`
-	result, err = client.ExecuteQuery(columnsQuery, 10)
+
+	result, err = client.ExecuteQuery(ctx, columnsQuery, 10)
 	require.NoError(t, err, "Columns check should succeed")
 	require.NotNil(t, result, "Result should not be nil")
 	assert.Len(t, result.Rows, 3, "heartbeat table should have 3 columns")
@@ -366,7 +390,8 @@ func TestHeartbeatTableExists(t *testing.T, client *MultiPoolerTestClient) {
 		  AND c.relname = 'heartbeat'
 		  AND con.contype = 'p'
 	`
-	result, err = client.ExecuteQuery(pkQuery, 10)
+
+	result, err = client.ExecuteQuery(ctx, pkQuery, 10)
 	require.NoError(t, err, "Primary key check should succeed")
 	require.NotNil(t, result, "Result should not be nil")
 	assert.Len(t, result.Rows, 1, "heartbeat table should have a primary key")
@@ -382,7 +407,10 @@ func TestPrimaryDetection(t *testing.T, client *MultiPoolerTestClient) {
 
 	// Query pg_is_in_recovery() to check if connected to primary or standby
 	query := "SELECT pg_is_in_recovery()"
-	result, err := client.ExecuteQuery(query, 1)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	result, err := client.ExecuteQuery(ctx, query, 1)
 	require.NoError(t, err, "pg_is_in_recovery() check should succeed")
 	require.NotNil(t, result, "Result should not be nil")
 	require.Len(t, result.Rows, 1, "Should return one row")

@@ -23,7 +23,7 @@ option go_package = "github.com/multigres/multigres/go/pb/multipoolermanager";
 // MultiPoolerManager provides management APIs for PostgreSQL connection poolers
 service MultiPoolerManager {
   //
-  // PG Replication API wrappers. 
+  // PG Replication API wrappers.
   //
 
   // WaitForLSN waits for PostgreSQL server to reach a specific LSN position
@@ -45,8 +45,8 @@ service MultiPoolerManager {
   rpc ReplicationStatus(multipoolermanagerdata.ReplicationStatusRequest)
     returns (multipoolermanagerdata.ReplicationStatusResponse);
 
-  // ResetReplication resets the standby's connection to its primary by clearing primary_conninfo,
-  // reloading PostgreSQL configuration, and terminating the WAL receiver process. This effectively
+  // ResetReplication resets the standby's connection to its primary by clearing primary_conninfo
+  // and reloading PostgreSQL configuration. This effectively
   // disconnects the replica from the primary and prevents it from acknowledging commits, making it
   // unavailable for synchronous replication until reconfigured.
   rpc ResetReplication(multipoolermanagerdata.ResetReplicationRequest)
@@ -70,8 +70,8 @@ service MultiPoolerManager {
     returns (multipoolermanagerdata.StopReplicationAndGetStatusResponse);
 
 
-  // Multigres HA 
-  // The following methods are used by MultiOrch to 
+  // Multigres HA
+  // The following methods are used by MultiOrch to
   // perform HA operations (reparents and failovers)
 
   // ChangeType changes the pooler type (LEADER/FOLLOWER)
@@ -102,4 +102,3 @@ service MultiPoolerManager {
   rpc SetTerm(multipoolermanagerdata.SetTermRequest)
     returns (multipoolermanagerdata.SetTermResponse);
 }
-
