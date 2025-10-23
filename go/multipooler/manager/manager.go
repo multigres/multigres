@@ -1081,12 +1081,6 @@ func (pm *MultiPoolerManager) UpdateSynchronousStandbyList(ctx context.Context, 
 		return err
 	}
 
-	// Handle wildcard case - only REPLACE allowed
-	if cfg.IsWildcard && operation != multipoolermanagerdata.StandbyUpdateOperation_STANDBY_UPDATE_OPERATION_REPLACE {
-		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
-			"only REPLACE operation is allowed when synchronous_standby_names is set to '*'")
-	}
-
 	// === Apply Operation ===
 
 	// Apply the requested operation

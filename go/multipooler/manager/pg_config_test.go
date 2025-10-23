@@ -115,7 +115,6 @@ func TestParseSynchronousStandbyNames(t *testing.T) {
 				StandbyIDs: []*clustermetadatapb.ID{
 					{Cell: "cell1", Name: "replica1"},
 				},
-				IsWildcard: false,
 			},
 		},
 		{
@@ -129,7 +128,6 @@ func TestParseSynchronousStandbyNames(t *testing.T) {
 					{Cell: "us-west", Name: "replica2"},
 					{Cell: "us-east", Name: "replica1"},
 				},
-				IsWildcard: false,
 			},
 		},
 		{
@@ -142,18 +140,22 @@ func TestParseSynchronousStandbyNames(t *testing.T) {
 					{Cell: "zone1", Name: "standby1"},
 					{Cell: "zone2", Name: "standby1"},
 				},
-				IsWildcard: false,
 			},
 		},
 		{
-			name:  "Wildcard configuration",
-			value: "*",
-			expected: &SyncStandbyConfig{
-				Method:     multipoolermanagerdata.SynchronousMethod_SYNCHRONOUS_METHOD_UNSPECIFIED,
-				NumSync:    1,
-				StandbyIDs: nil,
-				IsWildcard: true,
-			},
+			name:        "Wildcard configuration not supported",
+			value:       "*",
+			expectError: true,
+		},
+		{
+			name:        "Wildcard in FIRST not supported",
+			value:       "FIRST 1 (*)",
+			expectError: true,
+		},
+		{
+			name:        "Wildcard in ANY not supported",
+			value:       "ANY 2 (*)",
+			expectError: true,
 		},
 		{
 			name:  "FIRST with spaces around members",
@@ -165,7 +167,6 @@ func TestParseSynchronousStandbyNames(t *testing.T) {
 					{Cell: "cell", Name: "name1"},
 					{Cell: "cell", Name: "name2"},
 				},
-				IsWildcard: false,
 			},
 		},
 		{
@@ -180,7 +181,6 @@ func TestParseSynchronousStandbyNames(t *testing.T) {
 					{Cell: "e", Name: "f"},
 					{Cell: "g", Name: "h"},
 				},
-				IsWildcard: false,
 			},
 		},
 		{
@@ -232,7 +232,6 @@ func TestParseSynchronousStandbyNames(t *testing.T) {
 				StandbyIDs: []*clustermetadatapb.ID{
 					{Cell: "cell", Name: "replica1"},
 				},
-				IsWildcard: false,
 			},
 		},
 		{
@@ -245,7 +244,6 @@ func TestParseSynchronousStandbyNames(t *testing.T) {
 					{Cell: "cell1", Name: "name1"},
 					{Cell: "cell2", Name: "name2"},
 				},
-				IsWildcard: false,
 			},
 		},
 	}
@@ -262,7 +260,6 @@ func TestParseSynchronousStandbyNames(t *testing.T) {
 				require.NotNil(t, result, "Result should not be nil")
 				assert.Equal(t, tt.expected.Method, result.Method, "Method should match")
 				assert.Equal(t, tt.expected.NumSync, result.NumSync, "NumSync should match")
-				assert.Equal(t, tt.expected.IsWildcard, result.IsWildcard, "IsWildcard should match")
 
 				if tt.expected.StandbyIDs == nil {
 					assert.Nil(t, result.StandbyIDs, "StandbyIDs should be nil")

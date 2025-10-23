@@ -28,10 +28,9 @@ import (
 
 // SyncStandbyConfig represents a parsed synchronous_standby_names configuration
 type SyncStandbyConfig struct {
-	Method     multipoolermanagerdata.SynchronousMethod // FIRST, ANY, or special UNSPECIFIED for wildcard
+	Method     multipoolermanagerdata.SynchronousMethod // FIRST or ANY
 	NumSync    int32                                    // Number of synchronous standbys
 	StandbyIDs []*clustermetadatapb.ID                  // List of standby IDs
-	IsWildcard bool                                     // True if configuration is "*"
 }
 
 // parseApplicationName parses an application name back into a clustermetadata ID
@@ -61,8 +60,8 @@ func parseApplicationName(appName string) (*clustermetadatapb.ID, error) {
 
 // parseSynchronousStandbyNames parses a PostgreSQL synchronous_standby_names string
 // Examples:
-//   - "FIRST 2 (\"cell_replica1\", \"cell_replica2\", \"cell_replica3\")"
-//   - "ANY 1 (\"cell_replica1\", \"cell_replica2\")"
+//   - "FIRST 2 ("cell_replica1", "cell_replica2", "cell_replica3")"
+//   - "ANY 1 ("cell_replica1", "cell_replica2")"
 //   - "*" (wildcard - all connected standbys)
 //   - "" (empty - no synchronous replication)
 func parseSynchronousStandbyNames(value string) (*SyncStandbyConfig, error) {
@@ -73,18 +72,17 @@ func parseSynchronousStandbyNames(value string) (*SyncStandbyConfig, error) {
 		return nil, mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION, "synchronous replication not configured")
 	}
 
-	// Handle wildcard case
-	if value == "*" {
-		return &SyncStandbyConfig{
-			Method:     multipoolermanagerdata.SynchronousMethod_SYNCHRONOUS_METHOD_UNSPECIFIED,
-			NumSync:    1,
-			StandbyIDs: nil,
-			IsWildcard: true,
-		}, nil
+	// Handle wildcard case - not supported in Multigres context
+	if value == "*" || strings.Contains(value, "(*)") {
+		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT,
+			"wildcard (*) is not supported in Multigres - standby list must be explicit")
 	}
 
 	// Parse format: METHOD NUM (member1, member2, ...)
 	// Regex: ^(FIRST|ANY)\s+(\d+)\s*\(([^)]*)\)$
+	// Note: this regex assumes standby_names are being controlled by multigres
+	// and will have the format we expect (i.e cell_name). We are not validating
+	// for this format here.
 	re := regexp.MustCompile(`^(FIRST|ANY)\s+(\d+)\s*\(([^)]*)\)$`)
 	matches := re.FindStringSubmatch(value)
 	if matches == nil {
@@ -144,7 +142,6 @@ func parseSynchronousStandbyNames(value string) (*SyncStandbyConfig, error) {
 		Method:     method,
 		NumSync:    int32(numSync),
 		StandbyIDs: standbyIDs,
-		IsWildcard: false,
 	}, nil
 }
 
