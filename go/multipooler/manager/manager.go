@@ -1113,6 +1113,11 @@ func (pm *MultiPoolerManager) UpdateSynchronousStandbyList(ctx context.Context, 
 		return err
 	}
 
+	if err := pm.lock(ctx); err != nil {
+		return err
+	}
+	defer pm.unlock()
+
 	pm.logger.Info("UpdateSynchronousStandbyList called",
 		"operation", operation,
 		"standby_ids", standbyIDs,
