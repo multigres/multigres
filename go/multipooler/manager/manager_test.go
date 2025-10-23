@@ -29,6 +29,7 @@ import (
 	"github.com/multigres/multigres/go/clustermetadata/topo/memorytopo"
 	"github.com/multigres/multigres/go/mterrors"
 	"github.com/multigres/multigres/go/servenv"
+	"github.com/multigres/multigres/go/test/utils"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
@@ -1135,12 +1136,8 @@ func TestActionLock_MutationMethodsTimeout(t *testing.T) {
 			cancel := holdLock(2 * time.Second)
 			defer cancel()
 
-			// Create a context with a short timeout (500ms)
-			callCtx, callCancel := context.WithTimeout(ctx, 500*time.Millisecond)
-			defer callCancel()
-
 			// Try to call the method - it should timeout because lock is held
-			err := tt.callMethod(callCtx)
+			err := tt.callMethod(utils.WithTimeout(t, 500*time.Millisecond))
 
 			// Verify the error is a timeout/context error
 			require.Error(t, err, "Method should fail when lock is held")
