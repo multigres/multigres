@@ -226,6 +226,14 @@ enum SynchronousMethod {
   SYNCHRONOUS_METHOD_ANY = 2;
 }
 
+// Enum representing the type of standby list modification
+enum StandbyUpdateOperation {
+  STANDBY_UPDATE_OPERATION_UNSPECIFIED = 0;
+  STANDBY_UPDATE_OPERATION_ADD = 1;
+  STANDBY_UPDATE_OPERATION_REMOVE = 2;
+  STANDBY_UPDATE_OPERATION_REPLACE = 3;
+}
+
 // Synchronous commit level
 enum SynchronousCommitLevel {
   // OFF disables synchronous commit
@@ -285,4 +293,20 @@ message SetTermRequest {
 }
 
 message SetTermResponse {
+}
+
+// UpdateSynchronousStandbyList updates the synchronous standby list
+message UpdateSynchronousStandbyListRequest {
+  // Operation to perform (add, remove, or replace)
+  StandbyUpdateOperation operation = 1;
+
+  // List of standby multipooler IDs to add/remove/replace
+  // The application names will be generated as {cell}_{name} from these IDs
+  repeated clustermetadata.ID standby_ids = 2;
+
+  // Whether to reload configuration immediately
+  bool reload_config = 3;
+}
+
+message UpdateSynchronousStandbyListResponse {
 }

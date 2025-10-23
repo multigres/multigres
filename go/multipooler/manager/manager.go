@@ -19,7 +19,6 @@ import (
 	"database/sql"
 	"fmt"
 	"log/slog"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -564,64 +563,6 @@ func generateApplicationName(id *clustermetadatapb.ID) string {
 	return fmt.Sprintf("%s_%s", id.Cell, id.Name)
 }
 
-// parseAndRedactPrimaryConnInfo parses a PostgreSQL primary_conninfo connection string into structured fields
-// Example input: "host=localhost port=5432 user=postgres application_name=cell_name"
-// Returns a PrimaryConnInfo message with parsed fields, or an error if parsing fails
-// Note: Passwords are redacted in the raw field for security
-func parseAndRedactPrimaryConnInfo(connInfoStr string) (*multipoolermanagerdata.PrimaryConnInfo, error) {
-	connInfo := &multipoolermanagerdata.PrimaryConnInfo{}
-
-	// Simple space-based parsing of key=value pairs
-	parts := strings.Split(connInfoStr, " ")
-	redactedParts := make([]string, 0, len(parts))
-
-	for _, part := range parts {
-		part = strings.TrimSpace(part)
-		if part == "" {
-			continue
-		}
-
-		kv := strings.SplitN(part, "=", 2)
-		if len(kv) != 2 {
-			// Not a key=value pair - parsing failed
-			return nil, fmt.Errorf("invalid key=value format in primary_conninfo: %q", part)
-		}
-
-		key := strings.TrimSpace(kv[0])
-		value := strings.TrimSpace(kv[1])
-
-		if key == "" {
-			return nil, fmt.Errorf("empty key in primary_conninfo: %q", part)
-		}
-
-		// Redact sensitive fields in the raw string
-		if key == "password" {
-			redactedParts = append(redactedParts, key+"=[REDACTED]")
-		} else {
-			redactedParts = append(redactedParts, part)
-		}
-
-		// Parse specific fields we care about
-		switch key {
-		case "host":
-			connInfo.Host = value
-		case "port":
-			if port, err := strconv.ParseInt(value, 10, 32); err == nil {
-				connInfo.Port = int32(port)
-			}
-		case "user":
-			connInfo.User = value
-		case "application_name":
-			connInfo.ApplicationName = value
-		}
-	}
-
-	// Set the redacted raw string
-	connInfo.Raw = strings.Join(redactedParts, " ")
-
-	return connInfo, nil
-}
-
 // SetPrimaryConnInfo sets the primary connection info for a standby server
 func (pm *MultiPoolerManager) SetPrimaryConnInfo(ctx context.Context, host string, port int32, stopReplicationBefore, startReplicationAfter bool, currentTerm int64, force bool) error {
 	if err := pm.checkReady(); err != nil {
@@ -960,6 +901,30 @@ func (pm *MultiPoolerManager) setSynchronousStandbyNames(ctx context.Context, sy
 	return nil
 }
 
+// validateStandbyIDs validates a list of standby IDs
+func validateStandbyIDs(standbyIDs []*clustermetadatapb.ID) error {
+	if len(standbyIDs) == 0 {
+		return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "standby_ids cannot be empty")
+	}
+
+	for i, id := range standbyIDs {
+		if id == nil {
+			return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT,
+				fmt.Sprintf("standby_ids[%d] is nil", i))
+		}
+		if id.Cell == "" {
+			return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT,
+				fmt.Sprintf("standby_ids[%d] has empty cell", i))
+		}
+		if id.Name == "" {
+			return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT,
+				fmt.Sprintf("standby_ids[%d] has empty name", i))
+		}
+	}
+
+	return nil
+}
+
 // validateSyncReplicationParams validates the parameters for ConfigureSynchronousReplication
 func validateSyncReplicationParams(numSync int32, standbyIDs []*clustermetadatapb.ID) error {
 	// Validate numSync is non-negative
@@ -978,19 +943,8 @@ func validateSyncReplicationParams(numSync int32, standbyIDs []*clustermetadatap
 		}
 
 		// Validate each standby ID
-		for i, id := range standbyIDs {
-			if id == nil {
-				return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT,
-					fmt.Sprintf("standby_ids[%d] is nil", i))
-			}
-			if id.Cell == "" {
-				return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT,
-					fmt.Sprintf("standby_ids[%d] has empty cell", i))
-			}
-			if id.Name == "" {
-				return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT,
-					fmt.Sprintf("standby_ids[%d] has empty name", i))
-			}
+		if err := validateStandbyIDs(standbyIDs); err != nil {
+			return err
 		}
 	}
 
@@ -1041,6 +995,180 @@ func (pm *MultiPoolerManager) ConfigureSynchronousReplication(ctx context.Contex
 	}
 
 	pm.logger.Info("ConfigureSynchronousReplication completed successfully")
+	return nil
+}
+
+// applyAddOperation adds new standbys to the standby list (idempotent)
+func applyAddOperation(currentStandbys []*clustermetadatapb.ID, newStandbys []*clustermetadatapb.ID) []*clustermetadatapb.ID {
+	updatedStandbys := append([]*clustermetadatapb.ID{}, currentStandbys...)
+	existingMap := make(map[string]bool)
+	for _, standby := range currentStandbys {
+		existingMap[generateApplicationName(standby)] = true
+	}
+	for _, newStandby := range newStandbys {
+		if !existingMap[generateApplicationName(newStandby)] {
+			updatedStandbys = append(updatedStandbys, newStandby)
+		}
+	}
+	return updatedStandbys
+}
+
+// applyRemoveOperation removes standbys from the standby list (idempotent)
+func applyRemoveOperation(currentStandbys []*clustermetadatapb.ID, standbysToRemove []*clustermetadatapb.ID) []*clustermetadatapb.ID {
+	removeMap := make(map[string]bool)
+	for _, standby := range standbysToRemove {
+		removeMap[generateApplicationName(standby)] = true
+	}
+	var updatedStandbys []*clustermetadatapb.ID
+	for _, standby := range currentStandbys {
+		if !removeMap[generateApplicationName(standby)] {
+			updatedStandbys = append(updatedStandbys, standby)
+		}
+	}
+	return updatedStandbys
+}
+
+// applyReplaceOperation replaces the entire standby list
+func applyReplaceOperation(newStandbys []*clustermetadatapb.ID) []*clustermetadatapb.ID {
+	return newStandbys
+}
+
+// UpdateSynchronousStandbyList updates PostgreSQL synchronous_standby_names by adding,
+// removing, or replacing members. It is idempotent and only valid when synchronous
+// replication is already configured.
+func (pm *MultiPoolerManager) UpdateSynchronousStandbyList(ctx context.Context, operation multipoolermanagerdata.StandbyUpdateOperation, standbyIDs []*clustermetadatapb.ID, reloadConfig bool) error {
+	if err := pm.checkReady(); err != nil {
+		return err
+	}
+
+	pm.logger.Info("UpdateSynchronousStandbyList called",
+		"operation", operation,
+		"standby_ids", standbyIDs,
+		"reload_config", reloadConfig)
+
+	// === Validation ===
+
+	// Validate operation
+	if operation == multipoolermanagerdata.StandbyUpdateOperation_STANDBY_UPDATE_OPERATION_UNSPECIFIED {
+		return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "operation must be specified")
+	}
+
+	// Validate standby IDs using the shared validation function
+	if err := validateStandbyIDs(standbyIDs); err != nil {
+		return err
+	}
+
+	// Check PRIMARY guardrails (pooler type and non-recovery mode)
+	if err := pm.checkPrimaryGuardrails(ctx); err != nil {
+		return err
+	}
+
+	// === Parse Current Configuration ===
+
+	// Get current synchronous_standby_names value
+	var currentValue string
+	err := pm.db.QueryRowContext(ctx, "SHOW synchronous_standby_names").Scan(&currentValue)
+	if err != nil {
+		pm.logger.Error("Failed to get current synchronous_standby_names", "error", err)
+		return mterrors.Wrap(err, "failed to get current synchronous_standby_names")
+	}
+
+	pm.logger.Info("Current synchronous_standby_names", "value", currentValue)
+
+	// Parse current configuration
+	cfg, err := parseSynchronousStandbyNames(currentValue)
+	if err != nil {
+		return err
+	}
+
+	// Handle wildcard case - only REPLACE allowed
+	if cfg.IsWildcard && operation != multipoolermanagerdata.StandbyUpdateOperation_STANDBY_UPDATE_OPERATION_REPLACE {
+		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
+			"only REPLACE operation is allowed when synchronous_standby_names is set to '*'")
+	}
+
+	// === Apply Operation ===
+
+	// Apply the requested operation
+	var updatedStandbys []*clustermetadatapb.ID
+	switch operation {
+	case multipoolermanagerdata.StandbyUpdateOperation_STANDBY_UPDATE_OPERATION_ADD:
+		updatedStandbys = applyAddOperation(cfg.StandbyIDs, standbyIDs)
+
+	case multipoolermanagerdata.StandbyUpdateOperation_STANDBY_UPDATE_OPERATION_REMOVE:
+		updatedStandbys = applyRemoveOperation(cfg.StandbyIDs, standbyIDs)
+
+	case multipoolermanagerdata.StandbyUpdateOperation_STANDBY_UPDATE_OPERATION_REPLACE:
+		updatedStandbys = applyReplaceOperation(standbyIDs)
+
+	default:
+		return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT,
+			fmt.Sprintf("unsupported operation: %s", operation.String()))
+	}
+
+	// Validate that the final list is not empty
+	if len(updatedStandbys) == 0 {
+		return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT,
+			"resulting standby list cannot be empty after operation")
+	}
+
+	// === Build and Apply New Configuration ===
+
+	// Build new synchronous_standby_names value
+	// Convert standby IDs to quoted application names
+	quotedNames := make([]string, len(updatedStandbys))
+	for i, id := range updatedStandbys {
+		appName := generateApplicationName(id)
+		quotedNames[i] = fmt.Sprintf(`"%s"`, appName)
+	}
+	standbyList := strings.Join(quotedNames, ", ")
+
+	// Convert method enum back to string
+	var methodStr string
+	switch cfg.Method {
+	case multipoolermanagerdata.SynchronousMethod_SYNCHRONOUS_METHOD_FIRST:
+		methodStr = "FIRST"
+	case multipoolermanagerdata.SynchronousMethod_SYNCHRONOUS_METHOD_ANY:
+		methodStr = "ANY"
+	default:
+		return mterrors.New(mtrpcpb.Code_INTERNAL,
+			fmt.Sprintf("unexpected synchronous method: %s", cfg.Method.String()))
+	}
+
+	newValue := fmt.Sprintf("%s %d (%s)", methodStr, cfg.NumSync, standbyList)
+
+	// Check if there are any changes (idempotent)
+	if currentValue == newValue {
+		pm.logger.Info("No changes needed - configuration already matches desired state")
+		return nil
+	}
+
+	pm.logger.Info("Updating synchronous_standby_names",
+		"old_value", currentValue,
+		"new_value", newValue)
+
+	// Escape single quotes in the value by doubling them (PostgreSQL standard)
+	escapedValue := strings.ReplaceAll(newValue, "'", "''")
+
+	// ALTER SYSTEM SET doesn't support parameterized queries, so we use string formatting
+	query := fmt.Sprintf("ALTER SYSTEM SET synchronous_standby_names = '%s'", escapedValue)
+	_, err = pm.db.ExecContext(ctx, query)
+	if err != nil {
+		pm.logger.Error("Failed to update synchronous_standby_names", "error", err)
+		return mterrors.Wrap(err, "failed to update synchronous_standby_names")
+	}
+
+	// Reload configuration if requested
+	if reloadConfig {
+		pm.logger.Info("Reloading PostgreSQL configuration")
+		_, err := pm.db.ExecContext(ctx, "SELECT pg_reload_conf()")
+		if err != nil {
+			pm.logger.Error("Failed to reload configuration", "error", err)
+			return mterrors.Wrap(err, "failed to reload PostgreSQL configuration")
+		}
+	}
+
+	pm.logger.Info("UpdateSynchronousStandbyList completed successfully")
 	return nil
 }
 
