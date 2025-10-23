@@ -351,9 +351,9 @@ func (pm *MultiPoolerManager) loadMultiPoolerFromTopo() {
 	defer timeoutCancel()
 
 	// Use WithInitialDelay to preserve the old behavior where the first tick was discarded
-	b := retry.New(100*time.Millisecond, 30*time.Second, retry.WithInitialDelay())
-	for {
-		if err := b.StartAttempt(timeoutCtx); err != nil {
+	r := retry.New(100*time.Millisecond, 30*time.Second, retry.WithInitialDelay())
+	for _, err := range r.Attempts(timeoutCtx) {
+		if err != nil {
 			if errors.Is(err, context.DeadlineExceeded) {
 				pm.setStateError(fmt.Errorf("timeout waiting for multipooler record to be available in topology after %v", pm.loadTimeout))
 			} else {
@@ -518,9 +518,9 @@ func (pm *MultiPoolerManager) loadConsensusTermFromDisk() {
 	timeoutCtx, timeoutCancel := context.WithTimeout(pm.ctx, pm.loadTimeout)
 	defer timeoutCancel()
 
-	b := retry.New(100*time.Millisecond, 30*time.Second)
-	for {
-		if err := b.StartAttempt(timeoutCtx); err != nil {
+	r := retry.New(100*time.Millisecond, 30*time.Second)
+	for _, err := range r.Attempts(timeoutCtx) {
+		if err != nil {
 			if errors.Is(err, context.DeadlineExceeded) {
 				pm.setStateError(fmt.Errorf("timeout waiting for consensus term from disk after %v", pm.loadTimeout))
 			} else {

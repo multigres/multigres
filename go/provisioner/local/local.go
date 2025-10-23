@@ -1150,9 +1150,9 @@ func (p *localProvisioner) waitForProcessExit(process *os.Process, timeout time.
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
-	b := retry.New(10*time.Millisecond, 1*time.Second)
-	for {
-		if err := b.StartAttempt(ctx); err != nil {
+	r := retry.New(10*time.Millisecond, 1*time.Second)
+	for _, err := range r.Attempts(ctx) {
+		if err != nil {
 			// Timeout reached
 			fmt.Printf("Process %d still running after SIGTERM\n", process.Pid)
 			return

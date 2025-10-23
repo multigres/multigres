@@ -35,10 +35,10 @@ func (p *localProvisioner) waitForServiceReady(serviceName string, host string, 
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
-	b := retry.New(10*time.Millisecond, time.Second)
-	for {
-		if err := b.StartAttempt(ctx); err != nil {
-			return fmt.Errorf("%s did not become ready within %v: %w", serviceName, timeout, err)
+	r := retry.New(10*time.Millisecond, time.Second)
+	for attempt, err := range r.Attempts(ctx) {
+		if err != nil {
+			return fmt.Errorf("%s did not become ready within %v after %d attempts: %w", serviceName, timeout, attempt, err)
 		}
 
 		// First check TCP connectivity on all advertised ports
@@ -63,6 +63,7 @@ func (p *localProvisioner) waitForServiceReady(serviceName string, host string, 
 
 		return nil // Service is ready
 	}
+	panic("unreachable")
 }
 
 // checkMultigresServiceHealth checks health for all supported service port types

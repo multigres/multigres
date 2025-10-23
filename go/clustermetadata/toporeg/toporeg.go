@@ -59,9 +59,9 @@ func Register(register func(ctx context.Context) error, unregister func(ctx cont
 	}
 	tp.wg.Go(func() {
 		// We've already tried once. Use WithInitialDelay to wait before retrying.
-		b := retry.New(10*time.Millisecond, 30*time.Second, retry.WithInitialDelay())
-		for {
-			if err := b.StartAttempt(tp.ctx); err != nil {
+		r := retry.New(10*time.Millisecond, 30*time.Second, retry.WithInitialDelay())
+		for _, err := range r.Attempts(tp.ctx) {
+			if err != nil {
 				// Context cancelled
 				return
 			}

@@ -67,9 +67,9 @@ func (pd *PoolerDiscovery) Start() {
 	pd.wg.Go(func() {
 		pd.logger.Info("Starting pooler discovery with topology watch", "cell", pd.cell)
 
-		b := retry.New(100*time.Millisecond, 30*time.Second)
-		for {
-			if err := b.StartAttempt(pd.ctx); err != nil {
+		r := retry.New(100*time.Millisecond, 30*time.Second)
+		for _, err := range r.Attempts(pd.ctx) {
+			if err != nil {
 				// Context cancelled
 				pd.logger.Info("Pooler discovery shutting down")
 				return
@@ -97,7 +97,7 @@ func (pd *PoolerDiscovery) Start() {
 
 				// Reset backoff after watch has been stable for 30s
 				resetTimer := time.AfterFunc(30*time.Second, func() {
-					b.Reset()
+					r.Reset()
 				})
 				defer resetTimer.Stop()
 
