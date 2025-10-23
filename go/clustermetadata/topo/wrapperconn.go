@@ -122,8 +122,7 @@ func (c *WrapperConn) retryConnection() {
 
 	r := retry.New(10*time.Millisecond, 30*time.Second)
 	// Use background context since this retry loop runs until explicitly stopped
-	for attempt, err := range r.Attempts(context.Background()) {
-		_ = attempt // attempt number available if needed for logging
+	for _, err := range r.Attempts(context.Background()) {
 		if err != nil {
 			return
 		}
