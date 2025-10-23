@@ -42,9 +42,20 @@ func parseApplicationName(appName string) (*clustermetadatapb.ID, error) {
 	if len(parts) != 2 {
 		return nil, fmt.Errorf("invalid application name format: %q (expected cell_name)", appName)
 	}
+
+	cell := parts[0]
+	name := parts[1]
+
+	if cell == "" {
+		return nil, fmt.Errorf("invalid application name: cell cannot be empty in %q", appName)
+	}
+	if name == "" {
+		return nil, fmt.Errorf("invalid application name: name cannot be empty in %q", appName)
+	}
+
 	return &clustermetadatapb.ID{
-		Cell: parts[0],
-		Name: parts[1],
+		Cell: cell,
+		Name: name,
 	}, nil
 }
 
