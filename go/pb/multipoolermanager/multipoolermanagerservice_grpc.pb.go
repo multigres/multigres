@@ -41,6 +41,7 @@ const (
 	MultiPoolerManager_ReplicationStatus_FullMethodName               = "/multipoolermanager.MultiPoolerManager/ReplicationStatus"
 	MultiPoolerManager_ResetReplication_FullMethodName                = "/multipoolermanager.MultiPoolerManager/ResetReplication"
 	MultiPoolerManager_ConfigureSynchronousReplication_FullMethodName = "/multipoolermanager.MultiPoolerManager/ConfigureSynchronousReplication"
+	MultiPoolerManager_UpdateSynchronousStandbyList_FullMethodName    = "/multipoolermanager.MultiPoolerManager/UpdateSynchronousStandbyList"
 	MultiPoolerManager_PrimaryStatus_FullMethodName                   = "/multipoolermanager.MultiPoolerManager/PrimaryStatus"
 	MultiPoolerManager_PrimaryPosition_FullMethodName                 = "/multipoolermanager.MultiPoolerManager/PrimaryPosition"
 	MultiPoolerManager_StopReplicationAndGetStatus_FullMethodName     = "/multipoolermanager.MultiPoolerManager/StopReplicationAndGetStatus"
@@ -75,6 +76,8 @@ type MultiPoolerManagerClient interface {
 	// ConfigureSynchronousReplication configures PostgreSQL synchronous replication settings
 	// including synchronous_commit, synchronous_standby_names, and synchronization method (ANY/FIRST/quorum)
 	ConfigureSynchronousReplication(ctx context.Context, in *multipoolermanagerdata.ConfigureSynchronousReplicationRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.ConfigureSynchronousReplicationResponse, error)
+	// UpdateSynchronousStandbyList updates the synchronous standby list by adding, removing, or replacing members
+	UpdateSynchronousStandbyList(ctx context.Context, in *multipoolermanagerdata.UpdateSynchronousStandbyListRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.UpdateSynchronousStandbyListResponse, error)
 	// PrimaryStatus gets the status of the leader server
 	PrimaryStatus(ctx context.Context, in *multipoolermanagerdata.PrimaryStatusRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.PrimaryStatusResponse, error)
 	// PrimaryPosition gets the current LSN position of the leader
@@ -162,6 +165,15 @@ func (c *multiPoolerManagerClient) ResetReplication(ctx context.Context, in *mul
 func (c *multiPoolerManagerClient) ConfigureSynchronousReplication(ctx context.Context, in *multipoolermanagerdata.ConfigureSynchronousReplicationRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.ConfigureSynchronousReplicationResponse, error) {
 	out := new(multipoolermanagerdata.ConfigureSynchronousReplicationResponse)
 	err := c.cc.Invoke(ctx, MultiPoolerManager_ConfigureSynchronousReplication_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *multiPoolerManagerClient) UpdateSynchronousStandbyList(ctx context.Context, in *multipoolermanagerdata.UpdateSynchronousStandbyListRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.UpdateSynchronousStandbyListResponse, error) {
+	out := new(multipoolermanagerdata.UpdateSynchronousStandbyListResponse)
+	err := c.cc.Invoke(ctx, MultiPoolerManager_UpdateSynchronousStandbyList_FullMethodName, in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -280,6 +292,8 @@ type MultiPoolerManagerServer interface {
 	// ConfigureSynchronousReplication configures PostgreSQL synchronous replication settings
 	// including synchronous_commit, synchronous_standby_names, and synchronization method (ANY/FIRST/quorum)
 	ConfigureSynchronousReplication(context.Context, *multipoolermanagerdata.ConfigureSynchronousReplicationRequest) (*multipoolermanagerdata.ConfigureSynchronousReplicationResponse, error)
+	// UpdateSynchronousStandbyList updates the synchronous standby list by adding, removing, or replacing members
+	UpdateSynchronousStandbyList(context.Context, *multipoolermanagerdata.UpdateSynchronousStandbyListRequest) (*multipoolermanagerdata.UpdateSynchronousStandbyListResponse, error)
 	// PrimaryStatus gets the status of the leader server
 	PrimaryStatus(context.Context, *multipoolermanagerdata.PrimaryStatusRequest) (*multipoolermanagerdata.PrimaryStatusResponse, error)
 	// PrimaryPosition gets the current LSN position of the leader
@@ -327,6 +341,9 @@ func (UnimplementedMultiPoolerManagerServer) ResetReplication(context.Context, *
 }
 func (UnimplementedMultiPoolerManagerServer) ConfigureSynchronousReplication(context.Context, *multipoolermanagerdata.ConfigureSynchronousReplicationRequest) (*multipoolermanagerdata.ConfigureSynchronousReplicationResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ConfigureSynchronousReplication not implemented")
+}
+func (UnimplementedMultiPoolerManagerServer) UpdateSynchronousStandbyList(context.Context, *multipoolermanagerdata.UpdateSynchronousStandbyListRequest) (*multipoolermanagerdata.UpdateSynchronousStandbyListResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method UpdateSynchronousStandbyList not implemented")
 }
 func (UnimplementedMultiPoolerManagerServer) PrimaryStatus(context.Context, *multipoolermanagerdata.PrimaryStatusRequest) (*multipoolermanagerdata.PrimaryStatusResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method PrimaryStatus not implemented")
@@ -493,6 +510,24 @@ func _MultiPoolerManager_ConfigureSynchronousReplication_Handler(srv interface{}
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(MultiPoolerManagerServer).ConfigureSynchronousReplication(ctx, req.(*multipoolermanagerdata.ConfigureSynchronousReplicationRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _MultiPoolerManager_UpdateSynchronousStandbyList_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(multipoolermanagerdata.UpdateSynchronousStandbyListRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MultiPoolerManagerServer).UpdateSynchronousStandbyList(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MultiPoolerManager_UpdateSynchronousStandbyList_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MultiPoolerManagerServer).UpdateSynchronousStandbyList(ctx, req.(*multipoolermanagerdata.UpdateSynchronousStandbyListRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -711,6 +746,10 @@ var MultiPoolerManager_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ConfigureSynchronousReplication",
 			Handler:    _MultiPoolerManager_ConfigureSynchronousReplication_Handler,
+		},
+		{
+			MethodName: "UpdateSynchronousStandbyList",
+			Handler:    _MultiPoolerManager_UpdateSynchronousStandbyList_Handler,
 		},
 		{
 			MethodName: "PrimaryStatus",

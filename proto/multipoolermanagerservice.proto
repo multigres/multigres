@@ -57,6 +57,10 @@ service MultiPoolerManager {
   rpc ConfigureSynchronousReplication(multipoolermanagerdata.ConfigureSynchronousReplicationRequest)
     returns (multipoolermanagerdata.ConfigureSynchronousReplicationResponse);
 
+  // UpdateSynchronousStandbyList updates the synchronous standby list by adding, removing, or replacing members
+  rpc UpdateSynchronousStandbyList(multipoolermanagerdata.UpdateSynchronousStandbyListRequest)
+    returns (multipoolermanagerdata.UpdateSynchronousStandbyListResponse);
+
   // PrimaryStatus gets the status of the leader server
   rpc PrimaryStatus(multipoolermanagerdata.PrimaryStatusRequest)
     returns (multipoolermanagerdata.PrimaryStatusResponse);
