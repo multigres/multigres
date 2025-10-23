@@ -68,11 +68,15 @@ func (pd *PoolerDiscovery) Start() {
 		pd.logger.Info("Starting pooler discovery with topology watch", "cell", pd.cell)
 
 		r := retry.New(100*time.Millisecond, 30*time.Second)
-		for _, err := range r.Attempts(pd.ctx) {
+		for attempt, err := range r.Attempts(pd.ctx) {
 			if err != nil {
 				// Context cancelled
 				pd.logger.Info("Pooler discovery shutting down")
 				return
+			}
+
+			if attempt > 0 {
+				pd.logger.Info("Restarting pooler discovery with topology watch", "cell", pd.cell)
 			}
 
 			// Establish watch and process changes
@@ -108,7 +112,7 @@ func (pd *PoolerDiscovery) Start() {
 						return
 					case watchData, ok := <-changes:
 						if !ok {
-							pd.logger.Info("Watch channel closed, will reconnect with backoff")
+							pd.logger.Info("Watch channel closed, will reconnect")
 							return
 						}
 
