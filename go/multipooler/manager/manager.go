@@ -30,6 +30,8 @@ import (
 	"github.com/multigres/multigres/go/servenv"
 	"github.com/multigres/multigres/go/tools/timertools"
 
+	"golang.org/x/sync/semaphore"
+
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multipoolermanagerdata "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
@@ -57,6 +59,12 @@ type MultiPoolerManager struct {
 	serviceID   *clustermetadatapb.ID
 	replTracker *heartbeat.ReplTracker
 
+	// actionSema is there to run only one action at a time.
+	// This semaphore can be held for long periods of time (hours),
+	// like in the case of a restore. This semaphore must be obtained
+	// first before other mutexes.
+	actionSema *semaphore.Weighted
+
 	// Multipooler record from topology and startup state
 	mu              sync.RWMutex
 	multipooler     *topo.MultiPoolerInfo
@@ -83,11 +91,26 @@ func NewMultiPoolerManagerWithTimeout(logger *slog.Logger, config *Config, loadT
 		config:      config,
 		topoClient:  config.TopoClient,
 		serviceID:   config.ServiceID,
+		actionSema:  semaphore.NewWeighted(1),
 		state:       ManagerStateStarting,
 		ctx:         ctx,
 		cancel:      cancel,
 		loadTimeout: loadTimeout,
 	}
+}
+
+// lock is used at the beginning of an RPC call, to acquire the
+// action semaphore. It returns ctx.Err() if the context expires.
+func (pm *MultiPoolerManager) lock(ctx context.Context) error {
+	if err := pm.actionSema.Acquire(ctx, 1); err != nil {
+		return mterrors.Wrap(err, "failed to acquire action lock")
+	}
+	return nil
+}
+
+// unlock is the symmetrical action to lock.
+func (pm *MultiPoolerManager) unlock() {
+	pm.actionSema.Release(1)
 }
 
 // connectDB establishes a connection to PostgreSQL (reuses the shared logic)
@@ -435,6 +458,13 @@ func (pm *MultiPoolerManager) SetReadOnly(ctx context.Context) error {
 	if err := pm.checkReady(); err != nil {
 		return err
 	}
+
+	// Acquire the action lock to ensure only one mutation runs at a time
+	if err := pm.lock(ctx); err != nil {
+		return err
+	}
+	defer pm.unlock()
+
 	pm.logger.Info("SetReadOnly called")
 	return mterrors.New(mtrpcpb.Code_UNIMPLEMENTED, "method SetReadOnly not implemented")
 }
@@ -627,6 +657,13 @@ func (pm *MultiPoolerManager) SetPrimaryConnInfo(ctx context.Context, host strin
 	if err := pm.checkReady(); err != nil {
 		return err
 	}
+
+	// Acquire the action lock to ensure only one mutation runs at a time
+	if err := pm.lock(ctx); err != nil {
+		return err
+	}
+	defer pm.unlock()
+
 	pm.logger.Info("SetPrimaryConnInfo called",
 		"host", host,
 		"port", port,
@@ -731,6 +768,13 @@ func (pm *MultiPoolerManager) StartReplication(ctx context.Context) error {
 	if err := pm.checkReady(); err != nil {
 		return err
 	}
+
+	// Acquire the action lock to ensure only one mutation runs at a time
+	if err := pm.lock(ctx); err != nil {
+		return err
+	}
+	defer pm.unlock()
+
 	pm.logger.Info("StartReplication called")
 
 	// Check REPLICA guardrails (pooler type and recovery mode)
@@ -755,6 +799,13 @@ func (pm *MultiPoolerManager) StopReplication(ctx context.Context) error {
 	if err := pm.checkReady(); err != nil {
 		return err
 	}
+
+	// Acquire the action lock to ensure only one mutation runs at a time
+	if err := pm.lock(ctx); err != nil {
+		return err
+	}
+	defer pm.unlock()
+
 	pm.logger.Info("StopReplication called")
 
 	// Check REPLICA guardrails (pooler type and recovery mode)
@@ -845,6 +896,13 @@ func (pm *MultiPoolerManager) ResetReplication(ctx context.Context) error {
 	if err := pm.checkReady(); err != nil {
 		return err
 	}
+
+	// Acquire the action lock to ensure only one mutation runs at a time
+	if err := pm.lock(ctx); err != nil {
+		return err
+	}
+	defer pm.unlock()
+
 	pm.logger.Info("ResetReplication called")
 
 	// Check REPLICA guardrails (pooler type and recovery mode)
@@ -1003,6 +1061,12 @@ func (pm *MultiPoolerManager) ConfigureSynchronousReplication(ctx context.Contex
 		return err
 	}
 
+	// Acquire the action lock to ensure only one mutation runs at a time
+	if err := pm.lock(ctx); err != nil {
+		return err
+	}
+	defer pm.unlock()
+
 	pm.logger.Info("ConfigureSynchronousReplication called",
 		"synchronous_commit", synchronousCommit,
 		"synchronous_method", synchronousMethod,
@@ -1093,6 +1157,12 @@ func (pm *MultiPoolerManager) ChangeType(ctx context.Context, poolerType string)
 		return err
 	}
 
+	// Acquire the action lock to ensure only one mutation runs at a time
+	if err := pm.lock(ctx); err != nil {
+		return err
+	}
+	defer pm.unlock()
+
 	// Validate pooler type
 	var newType clustermetadatapb.PoolerType
 	// TODO: For now allow to change type to PRIMARY, this is to make it easier
@@ -1172,6 +1242,13 @@ func (pm *MultiPoolerManager) Demote(ctx context.Context) error {
 	if err := pm.checkReady(); err != nil {
 		return err
 	}
+
+	// Acquire the action lock to ensure only one mutation runs at a time
+	if err := pm.lock(ctx); err != nil {
+		return err
+	}
+	defer pm.unlock()
+
 	pm.logger.Info("Demote called")
 	return mterrors.New(mtrpcpb.Code_UNIMPLEMENTED, "method Demote not implemented")
 }
@@ -1181,6 +1258,13 @@ func (pm *MultiPoolerManager) UndoDemote(ctx context.Context) error {
 	if err := pm.checkReady(); err != nil {
 		return err
 	}
+
+	// Acquire the action lock to ensure only one mutation runs at a time
+	if err := pm.lock(ctx); err != nil {
+		return err
+	}
+	defer pm.unlock()
+
 	pm.logger.Info("UndoDemote called")
 	return mterrors.New(mtrpcpb.Code_UNIMPLEMENTED, "method UndoDemote not implemented")
 }
@@ -1190,6 +1274,13 @@ func (pm *MultiPoolerManager) Promote(ctx context.Context) error {
 	if err := pm.checkReady(); err != nil {
 		return err
 	}
+
+	// Acquire the action lock to ensure only one mutation runs at a time
+	if err := pm.lock(ctx); err != nil {
+		return err
+	}
+	defer pm.unlock()
+
 	pm.logger.Info("Promote called")
 	return mterrors.New(mtrpcpb.Code_UNIMPLEMENTED, "method Promote not implemented")
 }
@@ -1199,6 +1290,12 @@ func (pm *MultiPoolerManager) SetTerm(ctx context.Context, term *pgctldpb.Consen
 	if err := pm.checkReady(); err != nil {
 		return err
 	}
+
+	// Acquire the action lock to ensure only one mutation runs at a time
+	if err := pm.lock(ctx); err != nil {
+		return err
+	}
+	defer pm.unlock()
 
 	pm.logger.Info("SetTerm called", "current_term", term.GetCurrentTerm())
 

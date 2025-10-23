@@ -29,6 +29,7 @@ import (
 	"github.com/multigres/multigres/go/clustermetadata/topo/memorytopo"
 	"github.com/multigres/multigres/go/mterrors"
 	"github.com/multigres/multigres/go/servenv"
+	"github.com/multigres/multigres/go/test/utils"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
@@ -962,6 +963,187 @@ func TestParseAndRedactPrimaryConnInfo(t *testing.T) {
 				assert.Equal(t, tt.expected.ApplicationName, result.ApplicationName, "ApplicationName should match")
 				assert.Equal(t, tt.expected.Raw, result.Raw, "Raw should match")
 			}
+		})
+	}
+}
+
+func TestActionLock_MutationMethodsTimeout(t *testing.T) {
+	ctx := context.Background()
+	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+
+	serviceID := &clustermetadatapb.ID{
+		Component: clustermetadatapb.ID_MULTIPOOLER,
+		Cell:      "zone1",
+		Name:      "test-service",
+	}
+
+	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
+	defer ts.Close()
+
+	poolerDir := t.TempDir()
+
+	// Create PRIMARY multipooler for testing
+	multipooler := &clustermetadatapb.MultiPooler{
+		Id:            serviceID,
+		Database:      "testdb",
+		Hostname:      "localhost",
+		PortMap:       map[string]int32{"grpc": 8080},
+		Type:          clustermetadatapb.PoolerType_PRIMARY,
+		ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
+	}
+	require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
+
+	config := &Config{
+		TopoClient: ts,
+		ServiceID:  serviceID,
+		PoolerDir:  poolerDir,
+	}
+	manager := NewMultiPoolerManager(logger, config)
+	defer manager.Close()
+
+	// Start and wait for ready
+	senv := servenv.NewServEnv()
+	go manager.Start(senv)
+	require.Eventually(t, func() bool {
+		return manager.GetState() == ManagerStateReady
+	}, 5*time.Second, 100*time.Millisecond, "Manager should reach Ready state")
+
+	// Helper function to hold the lock for a duration
+	holdLock := func(duration time.Duration) context.CancelFunc {
+		lockCtx, cancel := context.WithDeadline(context.Background(), time.Now().Add(duration))
+		lockAcquired := make(chan struct{})
+		go func() {
+			if err := manager.lock(lockCtx); err == nil {
+				// Signal that the lock was acquired
+				close(lockAcquired)
+				// Hold the lock for the duration or until cancelled
+				<-lockCtx.Done()
+				manager.unlock()
+			}
+		}()
+		// Wait for the lock to be acquired
+		<-lockAcquired
+		return cancel
+	}
+
+	tests := []struct {
+		name       string
+		poolerType clustermetadatapb.PoolerType
+		callMethod func(context.Context) error
+	}{
+		{
+			name:       "SetPrimaryConnInfo times out when lock is held",
+			poolerType: clustermetadatapb.PoolerType_REPLICA,
+			callMethod: func(ctx context.Context) error {
+				return manager.SetPrimaryConnInfo(ctx, "localhost", 5432, false, false, 1, true)
+			},
+		},
+		{
+			name:       "StartReplication times out when lock is held",
+			poolerType: clustermetadatapb.PoolerType_REPLICA,
+			callMethod: func(ctx context.Context) error {
+				return manager.StartReplication(ctx)
+			},
+		},
+		{
+			name:       "StopReplication times out when lock is held",
+			poolerType: clustermetadatapb.PoolerType_REPLICA,
+			callMethod: func(ctx context.Context) error {
+				return manager.StopReplication(ctx)
+			},
+		},
+		{
+			name:       "ResetReplication times out when lock is held",
+			poolerType: clustermetadatapb.PoolerType_REPLICA,
+			callMethod: func(ctx context.Context) error {
+				return manager.ResetReplication(ctx)
+			},
+		},
+		{
+			name:       "ConfigureSynchronousReplication times out when lock is held",
+			poolerType: clustermetadatapb.PoolerType_PRIMARY,
+			callMethod: func(ctx context.Context) error {
+				return manager.ConfigureSynchronousReplication(
+					ctx,
+					multipoolermanagerdata.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_ON,
+					multipoolermanagerdata.SynchronousMethod_SYNCHRONOUS_METHOD_FIRST,
+					1,
+					[]*clustermetadatapb.ID{serviceID},
+					true,
+				)
+			},
+		},
+		{
+			name:       "SetReadOnly times out when lock is held",
+			poolerType: clustermetadatapb.PoolerType_PRIMARY,
+			callMethod: func(ctx context.Context) error {
+				return manager.SetReadOnly(ctx)
+			},
+		},
+		{
+			name:       "ChangeType times out when lock is held",
+			poolerType: clustermetadatapb.PoolerType_PRIMARY,
+			callMethod: func(ctx context.Context) error {
+				return manager.ChangeType(ctx, "REPLICA")
+			},
+		},
+		{
+			name:       "Demote times out when lock is held",
+			poolerType: clustermetadatapb.PoolerType_PRIMARY,
+			callMethod: func(ctx context.Context) error {
+				return manager.Demote(ctx)
+			},
+		},
+		{
+			name:       "UndoDemote times out when lock is held",
+			poolerType: clustermetadatapb.PoolerType_PRIMARY,
+			callMethod: func(ctx context.Context) error {
+				return manager.UndoDemote(ctx)
+			},
+		},
+		{
+			name:       "Promote times out when lock is held",
+			poolerType: clustermetadatapb.PoolerType_REPLICA,
+			callMethod: func(ctx context.Context) error {
+				return manager.Promote(ctx)
+			},
+		},
+		{
+			name:       "SetTerm times out when lock is held",
+			poolerType: clustermetadatapb.PoolerType_PRIMARY,
+			callMethod: func(ctx context.Context) error {
+				return manager.SetTerm(ctx, &pgctldpb.ConsensusTerm{CurrentTerm: 5})
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Update the pooler type if needed for this test
+			if tt.poolerType != multipooler.Type {
+				updatedMultipooler, err := ts.UpdateMultiPoolerFields(ctx, serviceID, func(mp *clustermetadatapb.MultiPooler) error {
+					mp.Type = tt.poolerType
+					return nil
+				})
+				require.NoError(t, err)
+				manager.mu.Lock()
+				manager.multipooler.MultiPooler = updatedMultipooler
+				manager.mu.Unlock()
+			}
+
+			// Hold the lock for 2 seconds
+			cancel := holdLock(2 * time.Second)
+			defer cancel()
+
+			// Try to call the method - it should timeout because lock is held
+			err := tt.callMethod(utils.WithTimeout(t, 500*time.Millisecond))
+
+			// Verify the error is a timeout/context error
+			require.Error(t, err, "Method should fail when lock is held")
+			assert.Contains(t, err.Error(), "failed to acquire action lock", "Error should mention lock acquisition failure")
+
+			// Verify the underlying error is context deadline exceeded
+			assert.ErrorIs(t, err, context.DeadlineExceeded, "Should be a deadline exceeded error")
 		})
 	}
 }
