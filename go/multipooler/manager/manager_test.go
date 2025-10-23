@@ -1011,8 +1011,11 @@ func TestActionLock_MutationMethodsTimeout(t *testing.T) {
 	// Helper function to hold the lock for a duration
 	holdLock := func(duration time.Duration) context.CancelFunc {
 		lockCtx, cancel := context.WithCancel(context.Background())
+		lockAcquired := make(chan struct{})
 		go func() {
 			if err := manager.lock(lockCtx); err == nil {
+				// Signal that the lock was acquired
+				close(lockAcquired)
 				// Hold the lock for the duration or until cancelled
 				select {
 				case <-time.After(duration):
@@ -1022,8 +1025,8 @@ func TestActionLock_MutationMethodsTimeout(t *testing.T) {
 				}
 			}
 		}()
-		// Give it time to acquire the lock
-		time.Sleep(50 * time.Millisecond)
+		// Wait for the lock to be acquired
+		<-lockAcquired
 		return cancel
 	}
 
