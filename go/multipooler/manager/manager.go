@@ -102,7 +102,10 @@ func NewMultiPoolerManagerWithTimeout(logger *slog.Logger, config *Config, loadT
 // lock is used at the beginning of an RPC call, to acquire the
 // action semaphore. It returns ctx.Err() if the context expires.
 func (pm *MultiPoolerManager) lock(ctx context.Context) error {
-	return pm.actionSema.Acquire(ctx, 1)
+	if err := pm.actionSema.Acquire(ctx, 1); err != nil {
+		return mterrors.Wrap(err, "failed to acquire action lock")
+	}
+	return nil
 }
 
 // unlock is the symmetrical action to lock.
@@ -458,7 +461,7 @@ func (pm *MultiPoolerManager) SetReadOnly(ctx context.Context) error {
 
 	// Acquire the action lock to ensure only one mutation runs at a time
 	if err := pm.lock(ctx); err != nil {
-		return mterrors.Wrap(err, "failed to acquire action lock")
+		return err
 	}
 	defer pm.unlock()
 
@@ -657,7 +660,7 @@ func (pm *MultiPoolerManager) SetPrimaryConnInfo(ctx context.Context, host strin
 
 	// Acquire the action lock to ensure only one mutation runs at a time
 	if err := pm.lock(ctx); err != nil {
-		return mterrors.Wrap(err, "failed to acquire action lock")
+		return err
 	}
 	defer pm.unlock()
 
@@ -768,7 +771,7 @@ func (pm *MultiPoolerManager) StartReplication(ctx context.Context) error {
 
 	// Acquire the action lock to ensure only one mutation runs at a time
 	if err := pm.lock(ctx); err != nil {
-		return mterrors.Wrap(err, "failed to acquire action lock")
+		return err
 	}
 	defer pm.unlock()
 
@@ -799,7 +802,7 @@ func (pm *MultiPoolerManager) StopReplication(ctx context.Context) error {
 
 	// Acquire the action lock to ensure only one mutation runs at a time
 	if err := pm.lock(ctx); err != nil {
-		return mterrors.Wrap(err, "failed to acquire action lock")
+		return err
 	}
 	defer pm.unlock()
 
@@ -896,7 +899,7 @@ func (pm *MultiPoolerManager) ResetReplication(ctx context.Context) error {
 
 	// Acquire the action lock to ensure only one mutation runs at a time
 	if err := pm.lock(ctx); err != nil {
-		return mterrors.Wrap(err, "failed to acquire action lock")
+		return err
 	}
 	defer pm.unlock()
 
@@ -1060,7 +1063,7 @@ func (pm *MultiPoolerManager) ConfigureSynchronousReplication(ctx context.Contex
 
 	// Acquire the action lock to ensure only one mutation runs at a time
 	if err := pm.lock(ctx); err != nil {
-		return mterrors.Wrap(err, "failed to acquire action lock")
+		return err
 	}
 	defer pm.unlock()
 
@@ -1156,7 +1159,7 @@ func (pm *MultiPoolerManager) ChangeType(ctx context.Context, poolerType string)
 
 	// Acquire the action lock to ensure only one mutation runs at a time
 	if err := pm.lock(ctx); err != nil {
-		return mterrors.Wrap(err, "failed to acquire action lock")
+		return err
 	}
 	defer pm.unlock()
 
@@ -1242,7 +1245,7 @@ func (pm *MultiPoolerManager) Demote(ctx context.Context) error {
 
 	// Acquire the action lock to ensure only one mutation runs at a time
 	if err := pm.lock(ctx); err != nil {
-		return mterrors.Wrap(err, "failed to acquire action lock")
+		return err
 	}
 	defer pm.unlock()
 
@@ -1258,7 +1261,7 @@ func (pm *MultiPoolerManager) UndoDemote(ctx context.Context) error {
 
 	// Acquire the action lock to ensure only one mutation runs at a time
 	if err := pm.lock(ctx); err != nil {
-		return mterrors.Wrap(err, "failed to acquire action lock")
+		return err
 	}
 	defer pm.unlock()
 
@@ -1274,7 +1277,7 @@ func (pm *MultiPoolerManager) Promote(ctx context.Context) error {
 
 	// Acquire the action lock to ensure only one mutation runs at a time
 	if err := pm.lock(ctx); err != nil {
-		return mterrors.Wrap(err, "failed to acquire action lock")
+		return err
 	}
 	defer pm.unlock()
 
@@ -1290,7 +1293,7 @@ func (pm *MultiPoolerManager) SetTerm(ctx context.Context, term *pgctldpb.Consen
 
 	// Acquire the action lock to ensure only one mutation runs at a time
 	if err := pm.lock(ctx); err != nil {
-		return mterrors.Wrap(err, "failed to acquire action lock")
+		return err
 	}
 	defer pm.unlock()
 
