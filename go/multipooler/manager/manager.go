@@ -1241,17 +1241,16 @@ func (pm *MultiPoolerManager) PrimaryStatus(ctx context.Context) (*multipoolerma
 
 	status := &multipoolermanagerdata.PrimaryStatus{}
 
-	// Get current LSN
+	// Get current LSN and recovery status in a single query
 	var lsn string
-	err := pm.db.QueryRowContext(ctx, "SELECT pg_current_wal_lsn()::text").Scan(&lsn)
+	var isInRecovery bool
+	err := pm.db.QueryRowContext(ctx, "SELECT pg_current_wal_lsn()::text, pg_is_in_recovery()").Scan(&lsn, &isInRecovery)
 	if err != nil {
-		pm.logger.Error("Failed to query LSN", "error", err)
-		return nil, mterrors.Wrap(err, "failed to query LSN")
+		pm.logger.Error("Failed to query LSN and recovery status", "error", err)
+		return nil, mterrors.Wrap(err, "failed to query LSN and recovery status")
 	}
 	status.Lsn = lsn
-
-	// Check if server is ready (if we got this far, it's accepting connections)
-	status.Ready = true
+	status.Ready = !isInRecovery
 
 	// Get connected followers from pg_stat_replication
 	rows, err := pm.db.QueryContext(ctx, "SELECT application_name FROM pg_stat_replication WHERE application_name IS NOT NULL AND application_name != ''")

@@ -2302,8 +2302,13 @@ func TestUpdateSynchronousStandbyList(t *testing.T) {
 		_, err = primaryManagerClient.UpdateSynchronousStandbyList(utils.WithShortDeadline(t), updateReq)
 		require.NoError(t, err, "ADD should be idempotent")
 
-		// Brief wait to ensure no config change happens
-		time.Sleep(500 * time.Millisecond)
+		// Wait for config to settle - should remain unchanged (idempotent)
+		// We wait for the same configuration to ensure pg_reload_conf() completes
+		waitForSyncConfigConvergenceWithClient(t, primaryManagerClient, func(config *multipoolermanagerdata.SynchronousReplicationConfiguration) bool {
+			return config != nil && len(config.StandbyIds) == 2 &&
+				containsStandbyIDInConfig(config, "test-cell", "standby1") &&
+				containsStandbyIDInConfig(config, "test-cell", "standby2")
+		}, "Config should remain unchanged (idempotent)")
 
 		// Configuration should be unchanged (idempotent)
 		afterStatus := getPrimaryStatusFromClient(t, primaryManagerClient)
@@ -2598,7 +2603,17 @@ func TestPrimaryStatus(t *testing.T) {
 		_, err := primaryManagerClient.ConfigureSynchronousReplication(utils.WithShortDeadline(t), configReq)
 		require.NoError(t, err)
 
-		// Get primary status
+		// Wait for configuration to converge - pg_reload_conf() is asynchronous
+		t.Log("Waiting for configuration to converge...")
+		waitForSyncConfigConvergenceWithClient(t, primaryManagerClient, func(config *multipoolermanagerdata.SynchronousReplicationConfiguration) bool {
+			return config != nil &&
+				config.SynchronousCommit == multipoolermanagerdata.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_REMOTE_APPLY &&
+				config.SynchronousMethod == multipoolermanagerdata.SynchronousMethod_SYNCHRONOUS_METHOD_ANY &&
+				config.NumSync == 2 &&
+				len(config.StandbyIds) == 2
+		}, "Configuration should converge to expected values")
+
+		// Get primary status and verify
 		statusResp, err := primaryManagerClient.PrimaryStatus(utils.WithShortDeadline(t), &multipoolermanagerdata.PrimaryStatusRequest{})
 		require.NoError(t, err, "PrimaryStatus should succeed")
 		require.NotNil(t, statusResp.Status, "Status should not be nil")
