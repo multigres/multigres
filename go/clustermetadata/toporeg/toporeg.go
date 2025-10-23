@@ -23,7 +23,7 @@ import (
 	"time"
 
 	"github.com/multigres/multigres/go/servenv"
-	"github.com/multigres/multigres/go/tools/timertools"
+	"github.com/multigres/multigres/go/tools/retry"
 )
 
 // TopoReg contains the metadata of the component being registered.
@@ -58,26 +58,25 @@ func Register(register func(ctx context.Context) error, unregister func(ctx cont
 		tp.logger.Error("Failed to register component with topology", "error", err)
 	}
 	tp.wg.Go(func() {
-		ticker := timertools.NewBackoffTicker(10*time.Millisecond, 30*time.Second)
-		// We've already tried once. No need to retry immediately.
-		<-ticker.C
+		// We've already tried once. Use WithInitialDelay to wait before retrying.
+		b := retry.New(10*time.Millisecond, 30*time.Second, retry.WithInitialDelay())
 		for {
-			select {
-			case <-ticker.C:
-				ctx, cancel := context.WithTimeout(tp.ctx, time.Second)
-				if err := register(ctx); err == nil {
-					tp.logger.Info("Successfully registered component with topology")
-					alarm("")
-					cancel()
-					return
-				} else {
-					// Just call alarm. No need to spam logs.
-					alarm(fmt.Sprintf("Failed to register component with topology: %v", err))
-				}
-				cancel()
-			case <-tp.ctx.Done():
+			if err := b.StartAttempt(tp.ctx); err != nil {
+				// Context cancelled
 				return
 			}
+
+			ctx, cancel := context.WithTimeout(tp.ctx, time.Second)
+			if err := register(ctx); err == nil {
+				tp.logger.Info("Successfully registered component with topology")
+				alarm("")
+				cancel()
+				return
+			} else {
+				// Just call alarm. No need to spam logs.
+				alarm(fmt.Sprintf("Failed to register component with topology: %v", err))
+			}
+			cancel()
 		}
 	})
 	return tp

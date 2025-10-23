@@ -17,6 +17,7 @@ package manager
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strconv"
@@ -28,7 +29,7 @@ import (
 	"github.com/multigres/multigres/go/mterrors"
 	"github.com/multigres/multigres/go/multipooler/heartbeat"
 	"github.com/multigres/multigres/go/servenv"
-	"github.com/multigres/multigres/go/tools/timertools"
+	"github.com/multigres/multigres/go/tools/retry"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
@@ -345,43 +346,39 @@ func (pm *MultiPoolerManager) loadMultiPoolerFromTopo() {
 		return
 	}
 
-	ticker := timertools.NewBackoffTicker(100*time.Millisecond, 30*time.Second)
-	<-ticker.C
-	defer ticker.Stop()
-
 	// Set timeout for the entire loading process
 	timeoutCtx, timeoutCancel := context.WithTimeout(pm.ctx, pm.loadTimeout)
 	defer timeoutCancel()
 
+	// Use WithInitialDelay to preserve the old behavior where the first tick was discarded
+	b := retry.New(100*time.Millisecond, 30*time.Second, retry.WithInitialDelay())
 	for {
-		select {
-		case <-ticker.C:
-			ctx, cancel := context.WithTimeout(pm.ctx, 5*time.Second)
-			mp, err := pm.topoClient.GetMultiPooler(ctx, pm.serviceID)
-			cancel()
-
-			if err != nil {
-				continue
+		if err := b.StartAttempt(timeoutCtx); err != nil {
+			if errors.Is(err, context.DeadlineExceeded) {
+				pm.setStateError(fmt.Errorf("timeout waiting for multipooler record to be available in topology after %v", pm.loadTimeout))
+			} else {
+				pm.setStateError(fmt.Errorf("manager context cancelled while loading multipooler record"))
 			}
-
-			// Successfully loaded
-			pm.mu.Lock()
-			pm.multipooler = mp
-			pm.topoLoaded = true
-			pm.mu.Unlock()
-
-			pm.logger.Info("Loaded multipooler record from topology", "service_id", pm.serviceID.String(), "database", mp.Database)
-			pm.checkAndSetReady()
-			return
-
-		case <-timeoutCtx.Done():
-			pm.setStateError(fmt.Errorf("timeout waiting for multipooler record to be available in topology after %v", pm.loadTimeout))
-			return
-
-		case <-pm.ctx.Done():
-			pm.setStateError(fmt.Errorf("manager context cancelled while loading multipooler record"))
 			return
 		}
+
+		ctx, cancel := context.WithTimeout(pm.ctx, 5*time.Second)
+		mp, err := pm.topoClient.GetMultiPooler(ctx, pm.serviceID)
+		cancel()
+
+		if err != nil {
+			continue // Will retry with backoff
+		}
+
+		// Successfully loaded
+		pm.mu.Lock()
+		pm.multipooler = mp
+		pm.topoLoaded = true
+		pm.mu.Unlock()
+
+		pm.logger.Info("Loaded multipooler record from topology", "service_id", pm.serviceID.String(), "database", mp.Database)
+		pm.checkAndSetReady()
+		return
 	}
 }
 
@@ -517,41 +514,37 @@ func (pm *MultiPoolerManager) validateAndUpdateTerm(ctx context.Context, request
 
 // loadConsensusTermFromDisk loads the consensus term from local disk asynchronously
 func (pm *MultiPoolerManager) loadConsensusTermFromDisk() {
-	ticker := timertools.NewBackoffTicker(100*time.Millisecond, 30*time.Second)
-	defer ticker.Stop()
-
 	// Set timeout for the entire loading process
 	timeoutCtx, timeoutCancel := context.WithTimeout(pm.ctx, pm.loadTimeout)
 	defer timeoutCancel()
 
+	b := retry.New(100*time.Millisecond, 30*time.Second)
 	for {
-		select {
-		case <-ticker.C:
-			// Load term from local disk using the term_storage functions
-			term, err := GetTerm(pm.config.PoolerDir)
-			if err != nil {
-				pm.logger.Debug("Failed to get consensus term from disk, retrying", "error", err)
-				continue
+		if err := b.StartAttempt(timeoutCtx); err != nil {
+			if errors.Is(err, context.DeadlineExceeded) {
+				pm.setStateError(fmt.Errorf("timeout waiting for consensus term from disk after %v", pm.loadTimeout))
+			} else {
+				pm.setStateError(fmt.Errorf("manager context cancelled while loading consensus term"))
 			}
-
-			// Successfully loaded (nil/empty term is OK)
-			pm.mu.Lock()
-			pm.consensusTerm = term
-			pm.consensusLoaded = true
-			pm.mu.Unlock()
-
-			pm.logger.Info("Loaded consensus term from disk", "current_term", term.GetCurrentTerm())
-			pm.checkAndSetReady()
-			return
-
-		case <-timeoutCtx.Done():
-			pm.setStateError(fmt.Errorf("timeout waiting for consensus term from disk after %v", pm.loadTimeout))
-			return
-
-		case <-pm.ctx.Done():
-			pm.setStateError(fmt.Errorf("manager context cancelled while loading consensus term"))
 			return
 		}
+
+		// Load term from local disk using the term_storage functions
+		term, err := GetTerm(pm.config.PoolerDir)
+		if err != nil {
+			pm.logger.Debug("Failed to get consensus term from disk, retrying", "error", err)
+			continue // Will retry with backoff
+		}
+
+		// Successfully loaded (nil/empty term is OK)
+		pm.mu.Lock()
+		pm.consensusTerm = term
+		pm.consensusLoaded = true
+		pm.mu.Unlock()
+
+		pm.logger.Info("Loaded consensus term from disk", "current_term", term.GetCurrentTerm())
+		pm.checkAndSetReady()
+		return
 	}
 }
 
