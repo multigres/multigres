@@ -350,8 +350,7 @@ func (pm *MultiPoolerManager) loadMultiPoolerFromTopo() {
 	timeoutCtx, timeoutCancel := context.WithTimeout(pm.ctx, pm.loadTimeout)
 	defer timeoutCancel()
 
-	// Use WithInitialDelay to preserve the old behavior where the first tick was discarded
-	r := retry.New(100*time.Millisecond, 30*time.Second, retry.WithInitialDelay())
+	r := retry.New(100*time.Millisecond, 30*time.Second)
 	for _, err := range r.Attempts(timeoutCtx) {
 		if err != nil {
 			if errors.Is(err, context.DeadlineExceeded) {
