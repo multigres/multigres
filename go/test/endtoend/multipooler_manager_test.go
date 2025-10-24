@@ -1604,7 +1604,7 @@ func TestStopReplicationAndGetStatus(t *testing.T) {
 
 		// Verify LSN is populated
 		assert.NotEmpty(t, stopResp.Status.Lsn, "LSN should not be empty")
-		assert.Contains(t, stopResp.Status.Lsn, "/", "LSN should be in PostgreSQL format (e.g., 0/1234ABCD)")
+		assert.Contains(t, stopResp.Status.Lsn, "/", "LSN should be in PostgreSQL format")
 
 		// Verify PrimaryConnInfo is populated (should still be set even though replication is paused)
 		require.NotNil(t, stopResp.Status.PrimaryConnInfo, "PrimaryConnInfo should not be nil")
