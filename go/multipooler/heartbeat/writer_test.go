@@ -249,6 +249,12 @@ func newTestWriter(t *testing.T, db *fakepgdb.DB, frozenTime *time.Time) *Writer
 	sqlDB := db.OpenDB()
 	t.Cleanup(func() { sqlDB.Close() })
 
+	// Add pg_current_wal_lsn mock for all writer tests
+	db.AddQueryPattern("SELECT pg_current_wal_lsn\\(\\)", &fakepgdb.ExpectedResult{
+		Columns: []string{"pg_current_wal_lsn"},
+		Rows:    [][]interface{}{{"0/1A2B3C4D"}},
+	})
+
 	// Use 250ms interval for tests to oversample our 1s test ticker
 	tw := NewWriter(sqlDB, logger, shardID, poolerID, 250)
 
