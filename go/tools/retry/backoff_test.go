@@ -29,9 +29,7 @@ type testSeed struct {
 
 // Test seeds for deterministic jitter testing.
 var (
-	// seed1x1 produces Float64() ≈ 0.340286, giving ~34% of max delay
 	seed1x1 = testSeed{1, 1}
-	// seed2x2 produces Float64() ≈ 0.078291, giving ~8% of max delay (low value)
 	seed2x2 = testSeed{2, 2}
 )
 
@@ -45,14 +43,27 @@ func multiDelay(b backoff, attempt int) time.Duration {
 	return delay
 }
 
-// Jitter test values
+// jittered calculates the expected jittered delay by applying a jitter multiplier
+// to an exponential backoff delay.
+func jittered(exponentialDelay time.Duration, multiplier float64) time.Duration {
+	return time.Duration(float64(exponentialDelay) * multiplier)
+}
+
+// Jitter multipliers for deterministic testing.
+// These are the Float64() values produced by the RNG at each attempt.
+// To calculate expected jittered delay: exponentialDelay * jitterMultiplier
 const (
-	jitter_seed1x1_10ms   = 3402859 * time.Nanosecond
-	jitter_seed1x1_100ms  = 34028597 * time.Nanosecond
-	jitter_seed2x2_100ms  = 7829106 * time.Nanosecond
-	jitter_seed1x1_200ms  = 181991587 * time.Nanosecond
-	jitter_seed1x1_200ms2 = 165756971 * time.Nanosecond
-	jitter_seed1x1_150ms  = 142925804 * time.Nanosecond
+	// Multipliers for seed1x1 at each attempt number
+	jitterMultiplier_seed1x1_attempt0  = 0.34028597866062338
+	jitterMultiplier_seed1x1_attempt1  = 0.90995793802250213
+	jitterMultiplier_seed1x1_attempt2  = 0.82878485641042721
+	jitterMultiplier_seed1x1_attempt3  = 0.82333574682334243
+	jitterMultiplier_seed1x1_attempt5  = 0.95283869536511179
+	jitterMultiplier_seed1x1_attempt7  = 0.78522993566828136
+	jitterMultiplier_seed1x1_attempt50 = 0.15272518374477251
+
+	// Multipliers for seed2x2
+	jitterMultiplier_seed2x2_attempt0 = 0.07829106836655642
 )
 
 // Tests for backoff strategy implementations
@@ -106,7 +117,7 @@ func TestCalculateDelay(t *testing.T) {
 			attempt:    0,
 			withJitter: true,
 			seed:       seed1x1,
-			expected:   jitter_seed1x1_100ms,
+			expected:   jittered(100*time.Millisecond, jitterMultiplier_seed1x1_attempt0), // 100ms * 0.34
 		},
 		{
 			name:       "with full jitter seed2x2 (low value)",
@@ -115,7 +126,7 @@ func TestCalculateDelay(t *testing.T) {
 			attempt:    0,
 			withJitter: true,
 			seed:       seed2x2,
-			expected:   jitter_seed2x2_100ms,
+			expected:   jittered(100*time.Millisecond, jitterMultiplier_seed2x2_attempt0), // 100ms * 0.078
 		},
 		{
 			name:       "jitter on second attempt",
@@ -124,7 +135,7 @@ func TestCalculateDelay(t *testing.T) {
 			attempt:    1,
 			withJitter: true,
 			seed:       seed1x1,
-			expected:   jitter_seed1x1_200ms, // 100ms * 2^1 = 200ms base
+			expected:   jittered(200*time.Millisecond, jitterMultiplier_seed1x1_attempt1), // 100ms * 2^1 = 200ms * 0.91
 		},
 		{
 			name:       "jitter on third attempt",
@@ -133,7 +144,16 @@ func TestCalculateDelay(t *testing.T) {
 			attempt:    2,
 			withJitter: true,
 			seed:       seed1x1,
-			expected:   jitter_seed1x1_200ms2, // 50ms * 2^2 = 200ms base
+			expected:   jittered(200*time.Millisecond, jitterMultiplier_seed1x1_attempt2), // 50ms * 2^2 = 200ms * 0.83
+		},
+		{
+			name:       "jitter on fourth attempt",
+			baseDelay:  100 * time.Millisecond,
+			maxDelay:   time.Minute,
+			attempt:    3,
+			withJitter: true,
+			seed:       seed1x1,
+			expected:   jittered(800*time.Millisecond, jitterMultiplier_seed1x1_attempt3), // 100ms * 2^3 = 800ms * 0.82
 		},
 		{
 			name:       "jitter with max delay cap",
@@ -142,7 +162,25 @@ func TestCalculateDelay(t *testing.T) {
 			attempt:    5,
 			withJitter: true,
 			seed:       seed1x1,
-			expected:   jitter_seed1x1_150ms, // 100ms * 2^5 = 3200ms, capped to 150ms
+			expected:   jittered(150*time.Millisecond, jitterMultiplier_seed1x1_attempt5), // 100ms * 2^5 = 3200ms, capped to 150ms * 0.95
+		},
+		{
+			name:       "jitter on eighth attempt (high value, no cap)",
+			baseDelay:  100 * time.Millisecond,
+			maxDelay:   time.Minute,
+			attempt:    7,
+			withJitter: true,
+			seed:       seed1x1,
+			expected:   jittered(12800*time.Millisecond, jitterMultiplier_seed1x1_attempt7), // 100ms * 2^7 = 12800ms * 0.79
+		},
+		{
+			name:       "jitter with very high attempt number (overflow protection)",
+			baseDelay:  100 * time.Millisecond,
+			maxDelay:   time.Minute,
+			attempt:    50,
+			withJitter: true,
+			seed:       seed1x1,
+			expected:   jittered(time.Minute, jitterMultiplier_seed1x1_attempt50), // Would overflow, capped at 60s * 0.15
 		},
 		{
 			name:       "jitter with small delays",
@@ -151,7 +189,7 @@ func TestCalculateDelay(t *testing.T) {
 			attempt:    0,
 			withJitter: true,
 			seed:       seed1x1,
-			expected:   jitter_seed1x1_10ms,
+			expected:   jittered(10*time.Millisecond, jitterMultiplier_seed1x1_attempt0), // 10ms * 0.34
 		},
 	}
 
@@ -277,7 +315,7 @@ func TestCalculateDelay_JitterVariesAroundTarget(t *testing.T) {
 	}
 }
 
-func TestBackoff_Reset_OnBackoffStrategy(t *testing.T) {
+func TestBackoff_Reset(t *testing.T) {
 	b := newExponentialBackoffNoJitter(10*time.Millisecond, time.Minute)
 
 	delay1 := b.nextDelay()
