@@ -23,7 +23,7 @@ import (
 
 	"github.com/multigres/multigres/go/mterrors"
 	"github.com/multigres/multigres/go/pb/mtrpc"
-	"github.com/multigres/multigres/go/tools/timertools"
+	"github.com/multigres/multigres/go/tools/retry"
 )
 
 // WrapperConn wraps a Conn with automatic reconnection and error handling.
@@ -120,10 +120,10 @@ func (c *WrapperConn) retryConnection() {
 		c.retrying = false
 	}()
 
-	ticker := timertools.NewBackoffTicker(10*time.Millisecond, 30*time.Second)
-	defer ticker.Stop()
+	r := retry.New(10*time.Millisecond, 30*time.Second)
+	// Use background context since this retry loop runs until explicitly stopped
+	for range r.Attempts(context.Background()) {
 
-	for range ticker.C {
 		conn, err := c.newFunc()
 		mustContinue := func() bool {
 			// We have to do this entire operation within a lock:
