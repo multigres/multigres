@@ -1143,12 +1143,82 @@ func (pm *MultiPoolerManager) PrimaryPosition(ctx context.Context) (string, erro
 }
 
 // StopReplicationAndGetStatus stops PostgreSQL replication and returns the status
-func (pm *MultiPoolerManager) StopReplicationAndGetStatus(ctx context.Context) (map[string]interface{}, error) {
+func (pm *MultiPoolerManager) StopReplicationAndGetStatus(ctx context.Context) (*multipoolermanagerdata.ReplicationStatus, error) {
 	if err := pm.checkReady(); err != nil {
 		return nil, err
 	}
+
+	// Acquire the action lock to ensure only one mutation runs at a time
+	if err := pm.lock(ctx); err != nil {
+		return nil, err
+	}
+	defer pm.unlock()
+
 	pm.logger.Info("StopReplicationAndGetStatus called")
-	return nil, mterrors.New(mtrpcpb.Code_UNIMPLEMENTED, "method StopReplicationAndGetStatus not implemented")
+
+	// Check REPLICA guardrails (pooler type and recovery mode)
+	if err := pm.checkReplicaGuardrails(ctx); err != nil {
+		return nil, err
+	}
+
+	// Pause WAL replay on the standby
+	pm.logger.Info("Pausing WAL replay on standby")
+	_, err := pm.db.ExecContext(ctx, "SELECT pg_wal_replay_pause()")
+	if err != nil {
+		pm.logger.Error("Failed to pause WAL replay", "error", err)
+		return nil, mterrors.Wrap(err, "failed to pause WAL replay")
+	}
+
+	// Get replication status after stopping
+	status := &multipoolermanagerdata.ReplicationStatus{}
+
+	// Get all replication status information in a single query
+	var lsn string
+	var isPaused bool
+	var pauseState string
+	var lastXactTime sql.NullString
+	var primaryConnInfo string
+
+	query := `SELECT
+		pg_last_wal_replay_lsn(),
+		pg_is_wal_replay_paused(),
+		pg_get_wal_replay_pause_state(),
+		pg_last_xact_replay_timestamp(),
+		current_setting('primary_conninfo')`
+
+	err = pm.db.QueryRowContext(ctx, query).Scan(
+		&lsn,
+		&isPaused,
+		&pauseState,
+		&lastXactTime,
+		&primaryConnInfo,
+	)
+	if err != nil {
+		pm.logger.Error("Failed to get replication status", "error", err)
+		return nil, mterrors.Wrap(err, "failed to get replication status")
+	}
+
+	status.Lsn = lsn
+	status.IsWalReplayPaused = isPaused
+	status.WalReplayPauseState = pauseState
+	if lastXactTime.Valid {
+		status.LastXactReplayTimestamp = lastXactTime.String
+	}
+
+	// Parse primary_conninfo into structured format
+	parsedConnInfo, err := parseAndRedactPrimaryConnInfo(primaryConnInfo)
+	if err != nil {
+		return nil, mterrors.Wrap(err, "failed to parse primary_conninfo")
+	}
+	status.PrimaryConnInfo = parsedConnInfo
+
+	pm.logger.Info("StopReplicationAndGetStatus completed",
+		"lsn", status.Lsn,
+		"is_paused", status.IsWalReplayPaused,
+		"pause_state", status.WalReplayPauseState,
+		"primary_conn_info", status.PrimaryConnInfo)
+
+	return status, nil
 }
 
 // ChangeType changes the pooler type (PRIMARY/REPLICA)

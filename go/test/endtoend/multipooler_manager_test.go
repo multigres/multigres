@@ -1516,6 +1516,198 @@ func TestReplicationStatus(t *testing.T) {
 	})
 }
 
+// TestStopReplicationAndGetStatus tests the StopReplicationAndGetStatus API
+func TestStopReplicationAndGetStatus(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping end-to-end tests in short mode")
+	}
+
+	setup := getSharedTestSetup(t)
+
+	// Connect to manager clients
+	primaryManagerConn, err := grpc.NewClient(
+		fmt.Sprintf("localhost:%d", setup.PrimaryMultipooler.GrpcPort),
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	)
+	require.NoError(t, err)
+	t.Cleanup(func() { primaryManagerConn.Close() })
+
+	primaryManagerClient := multipoolermanagerpb.NewMultiPoolerManagerClient(primaryManagerConn)
+
+	standbyManagerConn, err := grpc.NewClient(
+		fmt.Sprintf("localhost:%d", setup.StandbyMultipooler.GrpcPort),
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	)
+	require.NoError(t, err)
+	t.Cleanup(func() { standbyManagerConn.Close() })
+	standbyManagerClient := multipoolermanagerpb.NewMultiPoolerManagerClient(standbyManagerConn)
+
+	// Ensure managers are ready
+	waitForManagerReady(t, setup, setup.PrimaryMultipooler)
+	waitForManagerReady(t, setup, setup.StandbyMultipooler)
+
+	t.Run("StopReplicationAndGetStatus_Primary_Fails", func(t *testing.T) {
+		// StopReplicationAndGetStatus should fail on PRIMARY pooler type
+		t.Log("Testing StopReplicationAndGetStatus on PRIMARY (should fail)...")
+
+		_, err := primaryManagerClient.StopReplicationAndGetStatus(utils.WithShortDeadline(t), &multipoolermanagerdata.StopReplicationAndGetStatusRequest{})
+		require.Error(t, err, "StopReplicationAndGetStatus should fail on PRIMARY")
+		assert.Contains(t, err.Error(), "operation not allowed", "Error should indicate operation not allowed on PRIMARY")
+		t.Log("Confirmed: StopReplicationAndGetStatus correctly rejected on PRIMARY pooler")
+	})
+
+	t.Run("StopReplicationAndGetStatus_Standby_Success", func(t *testing.T) {
+		// This test verifies that StopReplicationAndGetStatus stops replication and returns correct status
+		t.Log("Testing StopReplicationAndGetStatus on standby with running replication...")
+
+		// Connect to primary pooler to write test data
+		primaryPoolerClient, err := NewMultiPoolerTestClient(fmt.Sprintf("localhost:%d", setup.PrimaryMultipooler.GrpcPort))
+		require.NoError(t, err)
+		defer primaryPoolerClient.Close()
+
+		// First, configure and start replication
+		t.Log("Configuring replication on standby...")
+		setPrimaryReq := &multipoolermanagerdata.SetPrimaryConnInfoRequest{
+			Host:                  "localhost",
+			Port:                  int32(setup.PrimaryPgctld.PgPort),
+			StartReplicationAfter: true,
+			StopReplicationBefore: false,
+			CurrentTerm:           1,
+			Force:                 false,
+		}
+		_, err = standbyManagerClient.SetPrimaryConnInfo(utils.WithShortDeadline(t), setPrimaryReq)
+		require.NoError(t, err, "SetPrimaryConnInfo should succeed")
+
+		// Wait for replication to be running
+		t.Log("Waiting for replication to be running...")
+		require.Eventually(t, func() bool {
+			statusResp, err := standbyManagerClient.ReplicationStatus(utils.WithShortDeadline(t), &multipoolermanagerdata.ReplicationStatusRequest{})
+			if err != nil {
+				return false
+			}
+			return statusResp.Status.PrimaryConnInfo != nil &&
+				statusResp.Status.PrimaryConnInfo.Host != "" &&
+				!statusResp.Status.IsWalReplayPaused
+		}, 5*time.Second, 200*time.Millisecond, "Replication should be running")
+
+		// Call StopReplicationAndGetStatus
+		t.Log("Calling StopReplicationAndGetStatus...")
+		stopResp, err := standbyManagerClient.StopReplicationAndGetStatus(utils.WithShortDeadline(t), &multipoolermanagerdata.StopReplicationAndGetStatusRequest{})
+		require.NoError(t, err, "StopReplicationAndGetStatus should succeed on standby")
+		require.NotNil(t, stopResp, "Response should not be nil")
+		require.NotNil(t, stopResp.Status, "Status should not be nil")
+
+		// Verify the status shows replication is paused
+		t.Log("Verifying status shows replication is paused...")
+		assert.True(t, stopResp.Status.IsWalReplayPaused, "WAL replay should be paused after StopReplicationAndGetStatus")
+		assert.NotEmpty(t, stopResp.Status.WalReplayPauseState, "Pause state should not be empty")
+
+		// Verify LSN is populated
+		assert.NotEmpty(t, stopResp.Status.Lsn, "LSN should not be empty")
+		assert.Contains(t, stopResp.Status.Lsn, "/", "LSN should be in PostgreSQL format (e.g., 0/1234ABCD)")
+
+		// Verify PrimaryConnInfo is populated (should still be set even though replication is paused)
+		require.NotNil(t, stopResp.Status.PrimaryConnInfo, "PrimaryConnInfo should not be nil")
+		assert.Equal(t, "localhost", stopResp.Status.PrimaryConnInfo.Host, "Host should match")
+		assert.Equal(t, int32(setup.PrimaryPgctld.PgPort), stopResp.Status.PrimaryConnInfo.Port, "Port should match")
+		assert.NotEmpty(t, stopResp.Status.PrimaryConnInfo.Raw, "Raw connection string should not be empty")
+
+		// Store the LSN after stopping
+		lsnAfterStop := stopResp.Status.Lsn
+		t.Logf("Standby LSN after stopping replication: %s", lsnAfterStop)
+
+		// Write data to primary (this should NOT replicate to standby since replication is stopped)
+		t.Log("Writing data to primary after stopping standby replication...")
+		_, err = primaryPoolerClient.ExecuteQuery(utils.WithShortDeadline(t), "CREATE TABLE IF NOT EXISTS stop_repl_test (id SERIAL PRIMARY KEY, value TEXT)", 1)
+		require.NoError(t, err, "Should be able to create test table on primary")
+
+		_, err = primaryPoolerClient.ExecuteQuery(utils.WithShortDeadline(t), "INSERT INTO stop_repl_test (value) VALUES ('test_row_1')", 1)
+		require.NoError(t, err, "Should be able to write to primary")
+
+		_, err = primaryPoolerClient.ExecuteQuery(utils.WithShortDeadline(t), "INSERT INTO stop_repl_test (value) VALUES ('test_row_2')", 1)
+		require.NoError(t, err, "Should be able to write to primary")
+
+		// Wait a bit to ensure writes would have replicated if replication was running
+		time.Sleep(500 * time.Millisecond)
+
+		// Verify standby LSN hasn't advanced (replication is truly stopped)
+		t.Log("Verifying standby LSN hasn't advanced...")
+		statusAfterWrite, err := standbyManagerClient.ReplicationStatus(utils.WithShortDeadline(t), &multipoolermanagerdata.ReplicationStatusRequest{})
+		require.NoError(t, err, "ReplicationStatus should succeed")
+		lsnAfterWrite := statusAfterWrite.Status.Lsn
+		t.Logf("Standby LSN after writes to primary: %s", lsnAfterWrite)
+
+		assert.Equal(t, lsnAfterStop, lsnAfterWrite, "Standby LSN should not have advanced after primary writes (replication is stopped)")
+		t.Log("Confirmed: Standby LSN did not advance, replication is truly stopped")
+
+		t.Log("StopReplicationAndGetStatus successfully stopped replication and returned correct status")
+
+		// Clean up: resume replication for next tests
+		startReq := &multipoolermanagerdata.StartReplicationRequest{}
+		_, err = standbyManagerClient.StartReplication(utils.WithShortDeadline(t), startReq)
+		require.NoError(t, err, "StartReplication should succeed during cleanup")
+
+		// Wait for replication to actually resume (pg_wal_replay_resume is also async)
+		t.Log("Waiting for WAL replay to resume after cleanup...")
+		require.Eventually(t, func() bool {
+			statusResp, err := standbyManagerClient.ReplicationStatus(utils.WithShortDeadline(t), &multipoolermanagerdata.ReplicationStatusRequest{})
+			if err != nil {
+				return false
+			}
+			return !statusResp.Status.IsWalReplayPaused
+		}, 5*time.Second, 100*time.Millisecond, "WAL replay should resume after StartReplication")
+	})
+
+	t.Run("StopReplicationAndGetStatus_Standby_AlreadyPaused", func(t *testing.T) {
+		// This test verifies that StopReplicationAndGetStatus works even when replication is already paused
+		t.Log("Testing StopReplicationAndGetStatus when replication is already paused...")
+
+		// First, stop replication
+		t.Log("Stopping replication first...")
+		_, err := standbyManagerClient.StopReplication(utils.WithShortDeadline(t), &multipoolermanagerdata.StopReplicationRequest{})
+		require.NoError(t, err, "StopReplication should succeed")
+
+		// Wait for replication to actually be paused (pg_wal_replay_pause is async)
+		t.Log("Waiting for WAL replay to actually be paused...")
+		require.Eventually(t, func() bool {
+			statusResp, err := standbyManagerClient.ReplicationStatus(utils.WithShortDeadline(t), &multipoolermanagerdata.ReplicationStatusRequest{})
+			if err != nil {
+				t.Logf("ReplicationStatus error: %v", err)
+				return false
+			}
+			return statusResp.Status.IsWalReplayPaused
+		}, 5*time.Second, 100*time.Millisecond, "WAL replay should be paused after StopReplication")
+
+		// Call StopReplicationAndGetStatus (should succeed even though already paused)
+		t.Log("Calling StopReplicationAndGetStatus on already paused replication...")
+		stopResp, err := standbyManagerClient.StopReplicationAndGetStatus(utils.WithShortDeadline(t), &multipoolermanagerdata.StopReplicationAndGetStatusRequest{})
+		require.NoError(t, err, "StopReplicationAndGetStatus should succeed even when already paused")
+		require.NotNil(t, stopResp, "Response should not be nil")
+		require.NotNil(t, stopResp.Status, "Status should not be nil")
+
+		// Verify the status shows replication is paused
+		assert.True(t, stopResp.Status.IsWalReplayPaused, "WAL replay should be paused")
+		assert.NotEmpty(t, stopResp.Status.Lsn, "LSN should not be empty")
+
+		t.Log("StopReplicationAndGetStatus successfully handled already-paused replication")
+
+		// Clean up: resume replication
+		startReq := &multipoolermanagerdata.StartReplicationRequest{}
+		_, err = standbyManagerClient.StartReplication(utils.WithShortDeadline(t), startReq)
+		require.NoError(t, err, "StartReplication should succeed during cleanup")
+
+		// Wait for replication to actually resume (pg_wal_replay_resume is also async)
+		t.Log("Waiting for WAL replay to resume...")
+		require.Eventually(t, func() bool {
+			statusResp, err := standbyManagerClient.ReplicationStatus(utils.WithShortDeadline(t), &multipoolermanagerdata.ReplicationStatusRequest{})
+			if err != nil {
+				return false
+			}
+			return !statusResp.Status.IsWalReplayPaused
+		}, 5*time.Second, 100*time.Millisecond, "WAL replay should resume after StartReplication")
+	})
+}
+
 // TestConfigureSynchronousReplication tests the ConfigureSynchronousReplication API
 func TestConfigureSynchronousReplication(t *testing.T) {
 	if testing.Short() {
