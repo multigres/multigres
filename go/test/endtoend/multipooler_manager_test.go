@@ -1591,13 +1591,13 @@ func TestStopReplicationAndGetStatus(t *testing.T) {
 		}, 5*time.Second, 200*time.Millisecond, "Replication should be running")
 
 		// Call StopReplicationAndGetStatus
+		// Note: This method waits internally for pause to complete, so status is guaranteed to be paused when it returns
 		t.Log("Calling StopReplicationAndGetStatus...")
 		stopResp, err := standbyManagerClient.StopReplicationAndGetStatus(utils.WithShortDeadline(t), &multipoolermanagerdata.StopReplicationAndGetStatusRequest{})
 		require.NoError(t, err, "StopReplicationAndGetStatus should succeed on standby")
 		require.NotNil(t, stopResp, "Response should not be nil")
 		require.NotNil(t, stopResp.Status, "Status should not be nil")
 
-		// Verify the status shows replication is paused
 		t.Log("Verifying status shows replication is paused...")
 		assert.True(t, stopResp.Status.IsWalReplayPaused, "WAL replay should be paused after StopReplicationAndGetStatus")
 		assert.NotEmpty(t, stopResp.Status.WalReplayPauseState, "Pause state should not be empty")
@@ -1679,13 +1679,13 @@ func TestStopReplicationAndGetStatus(t *testing.T) {
 		}, 5*time.Second, 100*time.Millisecond, "WAL replay should be paused after StopReplication")
 
 		// Call StopReplicationAndGetStatus (should succeed even though already paused)
+		// Note: This method waits internally for pause to complete, so status is guaranteed to be paused when it returns
 		t.Log("Calling StopReplicationAndGetStatus on already paused replication...")
 		stopResp, err := standbyManagerClient.StopReplicationAndGetStatus(utils.WithShortDeadline(t), &multipoolermanagerdata.StopReplicationAndGetStatusRequest{})
 		require.NoError(t, err, "StopReplicationAndGetStatus should succeed even when already paused")
 		require.NotNil(t, stopResp, "Response should not be nil")
 		require.NotNil(t, stopResp.Status, "Status should not be nil")
 
-		// Verify the status shows replication is paused
 		assert.True(t, stopResp.Status.IsWalReplayPaused, "WAL replay should be paused")
 		assert.NotEmpty(t, stopResp.Status.Lsn, "LSN should not be empty")
 
