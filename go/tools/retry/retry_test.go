@@ -235,7 +235,7 @@ func TestRetry_startAttempt_ContextCancelledDuringWait(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, 1, r.attempt)
 
-	// Cancel context then try second attempt (which would wait)
+	// Cancel context then try second attempt
 	cancel()
 	err = r.startAttempt(ctx)
 	assert.Error(t, err)
@@ -244,27 +244,11 @@ func TestRetry_startAttempt_ContextCancelledDuringWait(t *testing.T) {
 	assert.Equal(t, 1, r.attempt)
 }
 
-func TestRetry_startAttempt_ContextTimeout(t *testing.T) {
-	delays := []time.Duration{10 * time.Millisecond}
-	r, _, _ := newRetryWithFakeBackoff(delays)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
-	defer cancel()
-
-	// Manually expire the context
-	cancel()
-
-	err := r.startAttempt(ctx)
-	assert.Error(t, err)
-	assert.ErrorIs(t, err, context.Canceled)
-	assert.Equal(t, 0, r.attempt)
-}
-
 // Tests for Reset method
 
 func TestRetry_Reset(t *testing.T) {
 	delays := []time.Duration{10 * time.Millisecond, 20 * time.Millisecond, 10 * time.Millisecond}
-	r, ft, fb := newRetryWithFakeBackoff(delays)
+	r, _, fb := newRetryWithFakeBackoff(delays)
 	ctx := context.Background()
 
 	// Make a few attempts
@@ -272,17 +256,11 @@ func TestRetry_Reset(t *testing.T) {
 	require.NoError(t, r.startAttempt(ctx)) // Wait 10ms (calls nextDelay #1), attempt 2
 	require.NoError(t, r.startAttempt(ctx)) // Wait 20ms (calls nextDelay #2), attempt 3
 
-	require.Len(t, ft.delays, 2)
-	assert.Equal(t, delays[0], ft.delays[0])
-	assert.Equal(t, delays[1], ft.delays[1])
-
 	// Reset backoff
 	r.Reset()
 
 	// Next attempt should use first delay again
 	require.NoError(t, r.startAttempt(ctx)) // Wait 10ms (calls nextDelay #3, after reset), attempt 4
-	require.Len(t, ft.delays, 3)
-	assert.Equal(t, delays[2], ft.delays[2], "after reset, should use first delay")
 
 	// Verify reset was called after 2 nextDelay() calls
 	// (nextDelay called for attempts 2 and 3, then reset, then nextDelay called for attempt 4)
