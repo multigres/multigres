@@ -40,10 +40,13 @@ const (
 
 // QueryResult represents the result of executing a query
 type QueryResult struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Fields        []*Field               `protobuf:"bytes,1,rep,name=fields,proto3" json:"fields,omitempty"`
-	RowsAffected  uint64                 `protobuf:"varint,2,opt,name=rows_affected,json=rowsAffected,proto3" json:"rows_affected,omitempty"`
-	Rows          []*Row                 `protobuf:"bytes,3,rep,name=rows,proto3" json:"rows,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// fields describes the columns in the result set (nil if no rows returned)
+	Fields []*Field `protobuf:"bytes,1,rep,name=fields,proto3" json:"fields,omitempty"`
+	// rows_affected is the number of rows affected (INSERT, UPDATE, DELETE, etc.)
+	RowsAffected uint64 `protobuf:"varint,2,opt,name=rows_affected,json=rowsAffected,proto3" json:"rows_affected,omitempty"`
+	// rows contains the actual data rows
+	Rows          []*Row `protobuf:"bytes,3,rep,name=rows,proto3" json:"rows,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -99,11 +102,26 @@ func (x *QueryResult) GetRows() []*Row {
 	return nil
 }
 
-// Field represents metadata about a column in the result set
+// Field represents metadata about a column in the result set.
+// This includes all PostgreSQL wire protocol metadata needed for RowDescription messages.
 type Field struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
-	Type          string                 `protobuf:"bytes,2,opt,name=type,proto3" json:"type,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// name is the column name
+	Name string `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	// type is a human-readable type name (for logging/debugging)
+	Type string `protobuf:"bytes,2,opt,name=type,proto3" json:"type,omitempty"`
+	// table_oid is the object ID of the table (0 if not a table column)
+	TableOid uint32 `protobuf:"varint,3,opt,name=table_oid,json=tableOid,proto3" json:"table_oid,omitempty"`
+	// table_attribute_number is the column number in the table (0 if not a table column)
+	TableAttributeNumber int32 `protobuf:"varint,4,opt,name=table_attribute_number,json=tableAttributeNumber,proto3" json:"table_attribute_number,omitempty"`
+	// data_type_oid is the object ID of the data type
+	DataTypeOid uint32 `protobuf:"varint,5,opt,name=data_type_oid,json=dataTypeOid,proto3" json:"data_type_oid,omitempty"`
+	// data_type_size is the size of the data type (-1 for variable length)
+	DataTypeSize int32 `protobuf:"varint,6,opt,name=data_type_size,json=dataTypeSize,proto3" json:"data_type_size,omitempty"`
+	// type_modifier is the type modifier (-1 for no modifier)
+	TypeModifier int32 `protobuf:"varint,7,opt,name=type_modifier,json=typeModifier,proto3" json:"type_modifier,omitempty"`
+	// format is the format code (0=text, 1=binary)
+	Format        int32 `protobuf:"varint,8,opt,name=format,proto3" json:"format,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -152,10 +170,54 @@ func (x *Field) GetType() string {
 	return ""
 }
 
-// Row represents a single row of data in the result set
+func (x *Field) GetTableOid() uint32 {
+	if x != nil {
+		return x.TableOid
+	}
+	return 0
+}
+
+func (x *Field) GetTableAttributeNumber() int32 {
+	if x != nil {
+		return x.TableAttributeNumber
+	}
+	return 0
+}
+
+func (x *Field) GetDataTypeOid() uint32 {
+	if x != nil {
+		return x.DataTypeOid
+	}
+	return 0
+}
+
+func (x *Field) GetDataTypeSize() int32 {
+	if x != nil {
+		return x.DataTypeSize
+	}
+	return 0
+}
+
+func (x *Field) GetTypeModifier() int32 {
+	if x != nil {
+		return x.TypeModifier
+	}
+	return 0
+}
+
+func (x *Field) GetFormat() int32 {
+	if x != nil {
+		return x.Format
+	}
+	return 0
+}
+
+// Row represents a single row of data in the result set.
+// Each value is represented as bytes (can be NULL).
 type Row struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Values        [][]byte               `protobuf:"bytes,1,rep,name=values,proto3" json:"values,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// values contains the column values (nil entry for NULL)
+	Values        [][]byte `protobuf:"bytes,1,rep,name=values,proto3" json:"values,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -197,6 +259,110 @@ func (x *Row) GetValues() [][]byte {
 	return nil
 }
 
+// StatementDescription describes a prepared statement or portal.
+// Used for the Describe message ('D') response in the extended query protocol.
+type StatementDescription struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// parameters describes the parameters of the statement (for statement describe)
+	// Nil for portal describe.
+	Parameters []*ParameterDescription `protobuf:"bytes,1,rep,name=parameters,proto3" json:"parameters,omitempty"`
+	// fields describes the result columns
+	// Nil if the statement doesn't return rows.
+	Fields        []*Field `protobuf:"bytes,2,rep,name=fields,proto3" json:"fields,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *StatementDescription) Reset() {
+	*x = StatementDescription{}
+	mi := &file_query_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *StatementDescription) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*StatementDescription) ProtoMessage() {}
+
+func (x *StatementDescription) ProtoReflect() protoreflect.Message {
+	mi := &file_query_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use StatementDescription.ProtoReflect.Descriptor instead.
+func (*StatementDescription) Descriptor() ([]byte, []int) {
+	return file_query_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *StatementDescription) GetParameters() []*ParameterDescription {
+	if x != nil {
+		return x.Parameters
+	}
+	return nil
+}
+
+func (x *StatementDescription) GetFields() []*Field {
+	if x != nil {
+		return x.Fields
+	}
+	return nil
+}
+
+// ParameterDescription describes a parameter in a prepared statement.
+type ParameterDescription struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// data_type_oid is the OID of the parameter's data type
+	DataTypeOid   uint32 `protobuf:"varint,1,opt,name=data_type_oid,json=dataTypeOid,proto3" json:"data_type_oid,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ParameterDescription) Reset() {
+	*x = ParameterDescription{}
+	mi := &file_query_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ParameterDescription) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ParameterDescription) ProtoMessage() {}
+
+func (x *ParameterDescription) ProtoReflect() protoreflect.Message {
+	mi := &file_query_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ParameterDescription.ProtoReflect.Descriptor instead.
+func (*ParameterDescription) Descriptor() ([]byte, []int) {
+	return file_query_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *ParameterDescription) GetDataTypeOid() uint32 {
+	if x != nil {
+		return x.DataTypeOid
+	}
+	return 0
+}
+
 var File_query_proto protoreflect.FileDescriptor
 
 const file_query_proto_rawDesc = "" +
@@ -206,12 +372,25 @@ const file_query_proto_rawDesc = "" +
 	"\x06fields\x18\x01 \x03(\v2\f.query.FieldR\x06fields\x12#\n" +
 	"\rrows_affected\x18\x02 \x01(\x04R\frowsAffected\x12\x1e\n" +
 	"\x04rows\x18\x03 \x03(\v2\n" +
-	".query.RowR\x04rows\"/\n" +
+	".query.RowR\x04rows\"\x89\x02\n" +
 	"\x05Field\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x12\n" +
-	"\x04type\x18\x02 \x01(\tR\x04type\"\x1d\n" +
+	"\x04type\x18\x02 \x01(\tR\x04type\x12\x1b\n" +
+	"\ttable_oid\x18\x03 \x01(\rR\btableOid\x124\n" +
+	"\x16table_attribute_number\x18\x04 \x01(\x05R\x14tableAttributeNumber\x12\"\n" +
+	"\rdata_type_oid\x18\x05 \x01(\rR\vdataTypeOid\x12$\n" +
+	"\x0edata_type_size\x18\x06 \x01(\x05R\fdataTypeSize\x12#\n" +
+	"\rtype_modifier\x18\a \x01(\x05R\ftypeModifier\x12\x16\n" +
+	"\x06format\x18\b \x01(\x05R\x06format\"\x1d\n" +
 	"\x03Row\x12\x16\n" +
-	"\x06values\x18\x01 \x03(\fR\x06valuesB,Z*github.com/multigres/multigres/go/pb/queryb\x06proto3"
+	"\x06values\x18\x01 \x03(\fR\x06values\"y\n" +
+	"\x14StatementDescription\x12;\n" +
+	"\n" +
+	"parameters\x18\x01 \x03(\v2\x1b.query.ParameterDescriptionR\n" +
+	"parameters\x12$\n" +
+	"\x06fields\x18\x02 \x03(\v2\f.query.FieldR\x06fields\":\n" +
+	"\x14ParameterDescription\x12\"\n" +
+	"\rdata_type_oid\x18\x01 \x01(\rR\vdataTypeOidB,Z*github.com/multigres/multigres/go/pb/queryb\x06proto3"
 
 var (
 	file_query_proto_rawDescOnce sync.Once
@@ -225,20 +404,24 @@ func file_query_proto_rawDescGZIP() []byte {
 	return file_query_proto_rawDescData
 }
 
-var file_query_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
+var file_query_proto_msgTypes = make([]protoimpl.MessageInfo, 5)
 var file_query_proto_goTypes = []any{
-	(*QueryResult)(nil), // 0: query.QueryResult
-	(*Field)(nil),       // 1: query.Field
-	(*Row)(nil),         // 2: query.Row
+	(*QueryResult)(nil),          // 0: query.QueryResult
+	(*Field)(nil),                // 1: query.Field
+	(*Row)(nil),                  // 2: query.Row
+	(*StatementDescription)(nil), // 3: query.StatementDescription
+	(*ParameterDescription)(nil), // 4: query.ParameterDescription
 }
 var file_query_proto_depIdxs = []int32{
 	1, // 0: query.QueryResult.fields:type_name -> query.Field
 	2, // 1: query.QueryResult.rows:type_name -> query.Row
-	2, // [2:2] is the sub-list for method output_type
-	2, // [2:2] is the sub-list for method input_type
-	2, // [2:2] is the sub-list for extension type_name
-	2, // [2:2] is the sub-list for extension extendee
-	0, // [0:2] is the sub-list for field type_name
+	4, // 2: query.StatementDescription.parameters:type_name -> query.ParameterDescription
+	1, // 3: query.StatementDescription.fields:type_name -> query.Field
+	4, // [4:4] is the sub-list for method output_type
+	4, // [4:4] is the sub-list for method input_type
+	4, // [4:4] is the sub-list for extension type_name
+	4, // [4:4] is the sub-list for extension extendee
+	0, // [0:4] is the sub-list for field type_name
 }
 
 func init() { file_query_proto_init() }
@@ -252,7 +435,7 @@ func file_query_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_query_proto_rawDesc), len(file_query_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   3,
+			NumMessages:   5,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

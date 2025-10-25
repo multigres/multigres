@@ -24,18 +24,65 @@ option go_package = "github.com/multigres/multigres/go/pb/query";
 
 // QueryResult represents the result of executing a query
 message QueryResult {
+  // fields describes the columns in the result set (nil if no rows returned)
   repeated Field fields = 1;
+
+  // rows_affected is the number of rows affected (INSERT, UPDATE, DELETE, etc.)
   uint64 rows_affected = 2;
+
+  // rows contains the actual data rows
   repeated Row rows = 3;
 }
 
-// Field represents metadata about a column in the result set
+// Field represents metadata about a column in the result set.
+// This includes all PostgreSQL wire protocol metadata needed for RowDescription messages.
 message Field {
+  // name is the column name
   string name = 1;
+
+  // type is a human-readable type name (for logging/debugging)
   string type = 2;
+
+  // table_oid is the object ID of the table (0 if not a table column)
+  uint32 table_oid = 3;
+
+  // table_attribute_number is the column number in the table (0 if not a table column)
+  int32 table_attribute_number = 4;
+
+  // data_type_oid is the object ID of the data type
+  uint32 data_type_oid = 5;
+
+  // data_type_size is the size of the data type (-1 for variable length)
+  int32 data_type_size = 6;
+
+  // type_modifier is the type modifier (-1 for no modifier)
+  int32 type_modifier = 7;
+
+  // format is the format code (0=text, 1=binary)
+  int32 format = 8;
 }
 
-// Row represents a single row of data in the result set
+// Row represents a single row of data in the result set.
+// Each value is represented as bytes (can be NULL).
 message Row {
+  // values contains the column values (nil entry for NULL)
   repeated bytes values = 1;
+}
+
+// StatementDescription describes a prepared statement or portal.
+// Used for the Describe message ('D') response in the extended query protocol.
+message StatementDescription {
+  // parameters describes the parameters of the statement (for statement describe)
+  // Nil for portal describe.
+  repeated ParameterDescription parameters = 1;
+
+  // fields describes the result columns
+  // Nil if the statement doesn't return rows.
+  repeated Field fields = 2;
+}
+
+// ParameterDescription describes a parameter in a prepared statement.
+message ParameterDescription {
+  // data_type_oid is the OID of the parameter's data type
+  uint32 data_type_oid = 1;
 }
