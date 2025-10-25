@@ -25,12 +25,38 @@ import (
 // allowing the protocol implementation to be decoupled from routing/execution logic.
 //
 // Implementations of this interface should handle routing queries to the appropriate
-// backend (e.g., multipooler via gRPC), and return results using proto-generated types
-// that can be efficiently serialized and transmitted.
+// backend (e.g., multipooler via gRPC), and stream results back via the callback function.
+//
+// The callback-based approach allows for efficient streaming of large result sets
+// without needing to buffer all results in memory before sending to the client.
+//
+// Supports multiple statements in a single query (e.g., "SELECT 1; SELECT 2;") where
+// each statement can have a large streaming result set, using the CommandTag field
+// to indicate result set boundaries.
 type Handler interface {
 	// HandleQuery processes a simple query protocol message ('Q').
-	// Returns the query result or an error.
-	HandleQuery(ctx context.Context, query string) (*query.QueryResult, error)
+	// The callback function is called with the query result.
+	//
+	// The handler should set result.CommandTag when a result set is complete:
+	// - If CommandTag is empty: More packets coming (continuing current result set)
+	// - If CommandTag is set: This is the last packet of this result set, triggers CommandComplete
+	//
+	// For streaming a single large result set:
+	//   callback(chunk1)           // Fields + rows, CommandTag=""
+	//   callback(chunk2)           // More rows, CommandTag=""
+	//   callback(chunk3)           // Final rows, CommandTag="SELECT 42"
+	//
+	// For multiple statements with streaming (e.g., "SELECT * FROM big_table1; SELECT * FROM big_table2;"):
+	//   callback(chunk1_q1)        // Query 1, chunk 1, CommandTag=""
+	//   callback(chunk2_q1)        // Query 1, chunk 2, CommandTag=""
+	//   callback(chunk3_q1)        // Query 1, final chunk, CommandTag="SELECT 100" → CommandComplete
+	//   callback(chunk1_q2)        // Query 2, chunk 1, CommandTag=""
+	//   callback(chunk2_q2)        // Query 2, final chunk, CommandTag="SELECT 200" → CommandComplete
+	//
+	// After all callbacks complete, ReadyForQuery ('Z') is sent once.
+	//
+	// Returns an error if query execution or result streaming fails.
+	HandleQuery(ctx context.Context, query string, callback func(result *query.QueryResult) error) error
 
 	// HandleParse processes a Parse message ('P') for the extended query protocol.
 	// Prepares a statement with the given name and parameter types.

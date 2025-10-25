@@ -18,6 +18,7 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"sync"
@@ -114,7 +115,7 @@ func NewListener(config ListenerConfig) (*Listener, error) {
 				return bufio.NewWriterSize(nil, connBufferSize)
 			},
 		}
-		l.bufPool = bufpool.New(connBufferSize, 64*1024*1024) // 64 MB max packet size
+		l.bufPool = bufpool.New(16*1024, 64*1024*1024) // 16 KB to 64 MB
 	}
 
 	logger.Info("PostgreSQL listener started", "address", config.Address)
@@ -154,7 +155,15 @@ func (l *Listener) Serve() error {
 
 // handleConnection handles a single client connection.
 func (l *Listener) handleConnection(conn *Conn) {
+	// Catch panics and ensure cleanup happens in all cases.
 	defer func() {
+		if x := recover(); x != nil {
+			conn.logger.Error("panic in connection handler",
+				"panic", x,
+				"remote_addr", conn.RemoteAddr())
+		}
+
+		// Clean up connection resources.
 		if err := conn.Close(); err != nil {
 			conn.logger.Error("error closing connection", "error", err)
 		}
@@ -162,8 +171,13 @@ func (l *Listener) handleConnection(conn *Conn) {
 
 	conn.logger.Info("connection accepted", "remote_addr", conn.RemoteAddr())
 
-	// TODO: Implement connection handling (startup, authentication, command loop).
-	// For now, just log and close.
+	// Serve the connection (startup + command loop).
+	if err := conn.serve(); err != nil {
+		if err != io.EOF {
+			conn.logger.Error("connection error", "error", err)
+		}
+	}
+
 	conn.logger.Info("connection closed")
 }
 

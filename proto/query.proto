@@ -32,6 +32,12 @@ message QueryResult {
 
   // rows contains the actual data rows
   repeated Row rows = 3;
+
+  // command_tag is the PostgreSQL command tag for this result set.
+  // When streaming results, this should only be set on the final packet of a result set.
+  // When set, the protocol layer will send CommandComplete and reset state for the next result set.
+  // Examples: "SELECT 42", "INSERT 0 5", "UPDATE 10", "DELETE 3", "CREATE TABLE"
+  string command_tag = 4;
 }
 
 // Field represents metadata about a column in the result set.
