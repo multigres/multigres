@@ -414,36 +414,36 @@ func (c *Conn) handleQuery() error {
 
 // handleParse handles a 'P' (Parse) message - extended query protocol.
 func (c *Conn) handleParse() error {
-	// TODO: Implement extended query protocol Parse.
+	// TODO(GuptaManan100): Implement extended query protocol Parse.
 	return fmt.Errorf("extended query protocol not yet implemented")
 }
 
 // handleBind handles a 'B' (Bind) message - extended query protocol.
 func (c *Conn) handleBind() error {
-	// TODO: Implement extended query protocol Bind.
+	// TODO(GuptaManan100): Implement extended query protocol Bind.
 	return fmt.Errorf("extended query protocol not yet implemented")
 }
 
 // handleExecute handles an 'E' (Execute) message - extended query protocol.
 func (c *Conn) handleExecute() error {
-	// TODO: Implement extended query protocol Execute.
+	// TODO(GuptaManan100): Implement extended query protocol Execute.
 	return fmt.Errorf("extended query protocol not yet implemented")
 }
 
 // handleDescribe handles a 'D' (Describe) message - extended query protocol.
 func (c *Conn) handleDescribe() error {
-	// TODO: Implement extended query protocol Describe.
+	// TODO(GuptaManan100): Implement extended query protocol Describe.
 	return fmt.Errorf("extended query protocol not yet implemented")
 }
 
 // handleClose handles a 'C' (Close) message - extended query protocol.
 func (c *Conn) handleClose() error {
-	// TODO: Implement extended query protocol Close.
+	// TODO(GuptaManan100): Implement extended query protocol Close.
 	return fmt.Errorf("extended query protocol not yet implemented")
 }
 
 // handleSync handles an 'S' (Sync) message - extended query protocol.
 func (c *Conn) handleSync() error {
-	// TODO: Implement extended query protocol Sync.
+	// TODO(GuptaManan100): Implement extended query protocol Sync.
 	return fmt.Errorf("extended query protocol not yet implemented")
 }

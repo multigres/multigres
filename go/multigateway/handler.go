@@ -43,7 +43,7 @@ func NewMultiGatewayHandler(mg *MultiGateway) *MultiGatewayHandler {
 func (h *MultiGatewayHandler) HandleQuery(ctx context.Context, queryStr string, callback func(result *query.QueryResult) error) error {
 	h.logger.Debug("handling query", "query", queryStr)
 
-	// TODO: Route to multipooler via gRPC
+	// TODO(GuptaManan100): Route to multipooler via gRPC
 	// For now, return a simple stub result
 	result := &query.QueryResult{
 		Fields: []*query.Field{

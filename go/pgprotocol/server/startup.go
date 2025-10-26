@@ -158,7 +158,7 @@ func (c *Conn) handleCancelRequest(reader *MessageReader) error {
 
 	c.logger.Info("received cancel request", "process_id", processID, "secret_key", secretKey)
 
-	// TODO: Implement query cancellation.
+	// TODO(GuptaManan100): Implement query cancellation.
 	// For now, we just close the connection as per protocol spec.
 	// The client should not expect a response to a cancel request.
 	return c.Close()
