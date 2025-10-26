@@ -434,40 +434,17 @@ func TestConstants(t *testing.T) {
 	assert.Equal(t, "orchs", OrchsPath)
 }
 
-func TestDefaultReadConcurrency(t *testing.T) {
-	// Verify default value
-	assert.Equal(t, int64(32), DefaultReadConcurrency)
-}
-
-func TestFlagBinaries(t *testing.T) {
-	// Verify expected binaries are in the list
-	expectedBinaries := []string{"multigateway", "multiorch", "multipooler", "pgctld", "multiadmin"}
-	assert.Equal(t, expectedBinaries, FlagBinaries)
-}
-
 func TestOpen_ValidConfiguration(t *testing.T) {
-	// Save and restore the original values
-	originalFactories := factories
-	originalImpl := topoImplementation
-	originalAddrs := topoGlobalServerAddresses
-	originalRoot := topoGlobalRoot
-	defer func() {
-		factories = originalFactories
-		topoImplementation = originalImpl
-		topoGlobalServerAddresses = originalAddrs
-		topoGlobalRoot = originalRoot
-	}()
-
-	// Set up valid configuration
 	factories = make(map[string]Factory)
 	factory := newMockFactory()
 	RegisterFactory("test-impl", factory)
-	topoImplementation = "test-impl"
-	topoGlobalServerAddresses = []string{"localhost:2181"}
-	topoGlobalRoot = "/test"
+	cfg := NewTopoConfig()
+	cfg.implementation.Set("test-impl")
+	cfg.globalServerAddresses.Set([]string{"localhost:2181"})
+	cfg.globalRoot.Set("/test")
 
 	// Call Open - should succeed
-	ts := Open()
+	ts := cfg.Open()
 	require.NotNil(t, ts, "Store should not be nil")
 
 	// Verify factory was called

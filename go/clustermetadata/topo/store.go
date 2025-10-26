@@ -70,7 +70,6 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/gogo/protobuf/proto"
 	"github.com/spf13/pflag"
 	"golang.org/x/sync/errgroup"
 
@@ -432,7 +431,7 @@ func (ts *store) ConnForCell(ctx context.Context, cell string) (Conn, error) {
 	cc, ok := ts.cellConns[cell]
 	if ok {
 		// Verify that the connection parameters match.
-		if proto.Equal(ci, cc.Cell) {
+		if cellsEqual(ci, cc.Cell) {
 			return cc.conn, nil
 		}
 		// Connections parameters have changed,
@@ -456,10 +455,29 @@ func (ts *store) ConnForCell(ctx context.Context, cell string) (Conn, error) {
 		},
 	)
 	ts.cellConns[cell] = cellConn{
-		Cell: proto.Clone(ci).(*clustermetadatapb.Cell),
+		Cell: &clustermetadatapb.Cell{
+			Name:            ci.Name,
+			ServerAddresses: slices.Clone(ci.ServerAddresses),
+			Root:            ci.Root,
+		},
 		conn: conn,
 	}
 	return conn, nil
+}
+
+// cellsEqual compares two Cell protos for equality.
+// This is needed because gogo/protobuf's proto.Equal doesn't work
+// with protobuf v1 generated messages.
+func cellsEqual(a, b *clustermetadatapb.Cell) bool {
+	if a == nil && b == nil {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	return a.Name == b.Name &&
+		a.Root == b.Root &&
+		slices.Equal(a.ServerAddresses, b.ServerAddresses)
 }
 
 func (ts *store) setStatus(cell string, status string) {
