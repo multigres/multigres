@@ -40,11 +40,12 @@ type Writer struct {
 	db *sql.DB // TODO: use connection pooling when it's implemented
 	// TODO: this has the potential to be spammy, so we need to throttle this
 	// or convert these into alerts.
-	logger   *slog.Logger
-	shardID  []byte
-	poolerID string
-	interval time.Duration
-	now      func() time.Time
+	logger     *slog.Logger
+	shardID    []byte
+	poolerID   string
+	leaderTerm atomic.Int64
+	interval   time.Duration
+	now        func() time.Time
 
 	mu          sync.Mutex
 	isOpen      bool
@@ -168,7 +169,11 @@ func (w *Writer) write() error {
 	ctx, cancel := context.WithDeadline(context.Background(), w.now().Add(w.interval))
 	defer cancel()
 
-	timestampNs := w.now().UnixNano()
+	// Get WAL position (only works on primary)
+	walPosition, err := w.getWALPosition(ctx)
+	if err != nil {
+		return mterrors.Wrap(err, "failed to get WAL position")
+	}
 
 	// Get connection for tracking (for potential kill)
 	// TODO: get connection from pool when we have pools
@@ -189,18 +194,36 @@ func (w *Writer) write() error {
 	// Clear the connection ID when done
 	defer w.writeConnID.Store(-1)
 
+	// Get current leader term
+	leaderTerm := w.leaderTerm.Load()
+
+	// Get current timestamp in nanoseconds
+	tsNano := w.now().UnixNano()
+
 	_, err = conn.ExecContext(ctx, `
-		INSERT INTO multigres.heartbeat (shard_id, pooler_id, ts)
-		VALUES ($1, $2, $3)
+		INSERT INTO multigres.heartbeat (shard_id, pooler_id, ts, leader_term, leader_wal_position)
+		VALUES ($1, $2, $3, $4, $5)
 		ON CONFLICT (shard_id) DO UPDATE
 		SET pooler_id = EXCLUDED.pooler_id,
-		    ts = EXCLUDED.ts
-	`, w.shardID, w.poolerID, timestampNs)
+		    ts = EXCLUDED.ts,
+		    leader_term = EXCLUDED.leader_term,
+		    leader_wal_position = EXCLUDED.leader_wal_position
+	`, w.shardID, w.poolerID, tsNano, leaderTerm, walPosition)
 	if err != nil {
 		return mterrors.Wrap(err, "failed to write heartbeat")
 	}
 
 	return nil
+}
+
+// getWALPosition returns the current WAL LSN position
+func (w *Writer) getWALPosition(ctx context.Context) (string, error) {
+	var lsn string
+	err := w.db.QueryRowContext(ctx, "SELECT pg_current_wal_lsn()").Scan(&lsn)
+	if err != nil {
+		return "", mterrors.Wrap(err, "failed to get WAL position")
+	}
+	return lsn, nil
 }
 
 // killWritesUntilStopped tries to kill the write in progress until the ticks have stopped.
