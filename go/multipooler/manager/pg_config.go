@@ -26,6 +26,10 @@ import (
 	multipoolermanagerdata "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
 
+// Regex for parsing synchronous_standby_names format: METHOD NUM (member1, member2, ...)
+// Case-insensitive to accept both "FIRST"/"ANY" and "first"/"any"
+var syncStandbyNamesRegex = regexp.MustCompile(`(?i)^(FIRST|ANY)\s+(\d+)\s*\(([^)]*)\)$`)
+
 // SyncStandbyConfig represents a parsed synchronous_standby_names configuration
 type SyncStandbyConfig struct {
 	Method     multipoolermanagerdata.SynchronousMethod // FIRST or ANY
@@ -79,18 +83,16 @@ func parseSynchronousStandbyNames(value string) (*SyncStandbyConfig, error) {
 	}
 
 	// Parse format: METHOD NUM (member1, member2, ...)
-	// Regex: ^(FIRST|ANY)\s+(\d+)\s*\(([^)]*)\)$
 	// Note: this regex assumes standby_names are being controlled by multigres
 	// and will have the format we expect (i.e cell_name). We are not validating
 	// for this format here.
-	re := regexp.MustCompile(`^(FIRST|ANY)\s+(\d+)\s*\(([^)]*)\)$`)
-	matches := re.FindStringSubmatch(value)
+	matches := syncStandbyNamesRegex.FindStringSubmatch(value)
 	if matches == nil {
 		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT,
 			fmt.Sprintf("invalid synchronous_standby_names format: %q", value))
 	}
 
-	methodStr := matches[1]
+	methodStr := strings.ToUpper(matches[1]) // Normalize to uppercase
 	numSync, err := strconv.Atoi(matches[2])
 	if err != nil {
 		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT,
