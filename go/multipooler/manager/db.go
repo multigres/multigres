@@ -101,9 +101,9 @@ func CreateSidecarSchema(db *sql.DB) error {
 	// Create the heartbeat table
 	_, err = db.Exec(`
 		CREATE TABLE IF NOT EXISTS multigres.heartbeat (
-			shard_id TEXT PRIMARY KEY,
+			shard_id BYTEA PRIMARY KEY,
 			pooler_id TEXT NOT NULL,
-			ts TIMESTAMP NOT NULL,
+			ts BIGINT NOT NULL,
 			leader_term BIGINT NOT NULL DEFAULT 0,
 			leader_wal_position TEXT
 		)

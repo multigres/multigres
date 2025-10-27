@@ -197,15 +197,18 @@ func (w *Writer) write() error {
 	// Get current leader term
 	leaderTerm := w.leaderTerm.Load()
 
+	// Get current timestamp in nanoseconds
+	tsNano := w.now().UnixNano()
+
 	_, err = conn.ExecContext(ctx, `
 		INSERT INTO multigres.heartbeat (shard_id, pooler_id, ts, leader_term, leader_wal_position)
-		VALUES ($1, $2, NOW(), $3, $4)
+		VALUES ($1, $2, $3, $4, $5)
 		ON CONFLICT (shard_id) DO UPDATE
 		SET pooler_id = EXCLUDED.pooler_id,
-		    ts = NOW(),
+		    ts = EXCLUDED.ts,
 		    leader_term = EXCLUDED.leader_term,
 		    leader_wal_position = EXCLUDED.leader_wal_position
-	`, w.shardID, w.poolerID, leaderTerm, walPosition)
+	`, w.shardID, w.poolerID, tsNano, leaderTerm, walPosition)
 	if err != nil {
 		return mterrors.Wrap(err, "failed to write heartbeat")
 	}
@@ -221,11 +224,6 @@ func (w *Writer) getWALPosition(ctx context.Context) (string, error) {
 		return "", mterrors.Wrap(err, "failed to get WAL position")
 	}
 	return lsn, nil
-}
-
-// SetLeaderTerm updates the leader term for consensus tracking
-func (w *Writer) SetLeaderTerm(term int64) {
-	w.leaderTerm.Store(term)
 }
 
 // killWritesUntilStopped tries to kill the write in progress until the ticks have stopped.

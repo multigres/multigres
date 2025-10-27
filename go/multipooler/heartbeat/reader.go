@@ -151,17 +151,17 @@ func (r *Reader) readHeartbeat() {
 }
 
 // fetchMostRecentHeartbeat fetches the most recently recorded heartbeat from the heartbeat table,
-// returning the timestamp of the heartbeat.
+// returning the timestamp of the heartbeat in nanoseconds.
 func (r *Reader) fetchMostRecentHeartbeat(ctx context.Context) (int64, error) {
-	var ts time.Time
+	var tsNano int64
 	// TODO: get connection from pool when we have pools
 	err := r.db.QueryRowContext(ctx,
 		"SELECT ts FROM multigres.heartbeat WHERE shard_id = $1",
-		r.shardID).Scan(&ts)
+		r.shardID).Scan(&tsNano)
 	if err != nil {
 		return 0, mterrors.Wrap(err, "failed to fetch heartbeat")
 	}
-	return ts.UnixNano(), nil
+	return tsNano, nil
 }
 
 // recordError keeps track of the lastKnown error for reporting to Status().
@@ -198,15 +198,19 @@ func (r *Reader) GetLeadershipView() (*LeadershipView, error) {
 	defer cancel()
 
 	var view LeadershipView
+	var tsNano int64
 
 	err := r.db.QueryRowContext(ctx, `
 		SELECT pooler_id, ts, leader_term, leader_wal_position
 		FROM multigres.heartbeat
 		WHERE shard_id = $1
-	`, r.shardID).Scan(&view.PoolerID, &view.LastHeartbeat, &view.LeaderTerm, &view.LeaderWALPosition)
+	`, r.shardID).Scan(&view.PoolerID, &tsNano, &view.LeaderTerm, &view.LeaderWALPosition)
 	if err != nil {
 		return nil, mterrors.Wrap(err, "failed to read leadership view")
 	}
+
+	// Convert nanoseconds to time.Time
+	view.LastHeartbeat = time.Unix(0, tsNano)
 
 	// Calculate replication lag
 	view.ReplicationLag = r.now().Sub(view.LastHeartbeat)

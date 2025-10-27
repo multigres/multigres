@@ -83,7 +83,7 @@ func TestReplTrackerMakeNonPrimary(t *testing.T) {
 	db.AddQuery("SELECT ts FROM multigres.heartbeat WHERE shard_id = $1", &fakepgdb.ExpectedResult{
 		Columns: []string{"ts"},
 		Rows: [][]interface{}{
-			{time.Now().Add(-5 * time.Second)},
+			{time.Now().Add(-5 * time.Second).UnixNano()},
 		},
 	})
 
@@ -188,7 +188,7 @@ func TestReplTrackerMakePrimaryAndNonPrimary(t *testing.T) {
 	db.AddQuery("SELECT ts FROM multigres.heartbeat WHERE shard_id = $1", &fakepgdb.ExpectedResult{
 		Columns: []string{"ts"},
 		Rows: [][]interface{}{
-			{time.Now().Add(-5 * time.Second)},
+			{time.Now().Add(-5 * time.Second).UnixNano()},
 		},
 	})
 
