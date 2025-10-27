@@ -385,10 +385,7 @@ func TestPoolerDiscovery_ContextCancellation(t *testing.T) {
 
 // TestPoolerDiscovery_ReconnectsAfterWatchClosed tests that discovery reconnects
 // when the watch channel is closed (e.g., due to etcd compaction).
-// This test demonstrates a bug: discovery currently stops instead of reconnecting.
 func TestPoolerDiscovery_ReconnectsAfterWatchClosed(t *testing.T) {
-	t.Skip("Skipping test that demonstrates reconnection bug - discovery should reconnect but currently stops")
-
 	ctx := context.Background()
 	store, factory := memorytopo.NewServerAndFactory(ctx, "test-cell")
 	defer store.Close()
@@ -420,8 +417,7 @@ func TestPoolerDiscovery_ReconnectsAfterWatchClosed(t *testing.T) {
 	pooler2 := createTestPooler("pooler2", "test-cell", "host2", "db2", "shard2", clustermetadatapb.PoolerType_REPLICA)
 	require.NoError(t, store.CreateMultiPooler(ctx, pooler2))
 
-	// EXPECTATION: Discovery should reconnect and see the new pooler
-	// REALITY: Discovery stops when watch closes (bug demonstrated by test failure)
+	// Discovery should reconnect and see the new pooler
 	waitForCondition(t, func() bool {
 		return pd.PoolerCount() == 2
 	}, "Discovery should reconnect and see 2 poolers after watch closure")

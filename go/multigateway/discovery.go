@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/multigres/multigres/go/clustermetadata/topo"
+	"github.com/multigres/multigres/go/tools/retry"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 
@@ -66,44 +67,65 @@ func (pd *PoolerDiscovery) Start() {
 	pd.wg.Go(func() {
 		pd.logger.Info("Starting pooler discovery with topology watch", "cell", pd.cell)
 
-		// Get connection for the cell
-		conn, err := pd.topoStore.ConnForCell(pd.ctx, pd.cell)
-		if err != nil {
-			pd.logger.Error("Failed to get connection for cell", "cell", pd.cell, "error", err)
-			return
-		}
-
-		// Start watching the poolers directory
-		poolersPath := "poolers" // This matches the PoolersPath constant from store.go
-		initial, changes, err := conn.WatchRecursive(pd.ctx, poolersPath)
-		if err != nil {
-			pd.logger.Error("Failed to start recursive watch on poolers", "path", poolersPath, "error", err)
-			return
-		}
-
-		// Process initial values
-		pd.processInitialPoolers(initial)
-
-		// Process changes as they come in
-		for {
-			select {
-			case <-pd.ctx.Done():
+		r := retry.New(100*time.Millisecond, 30*time.Second)
+		for attempt, err := range r.Attempts(pd.ctx) {
+			if err != nil {
+				// Context cancelled
 				pd.logger.Info("Pooler discovery shutting down")
 				return
-			case watchData, ok := <-changes:
-				if !ok {
-					pd.logger.Info("Watch channel closed, pooler discovery stopping")
+			}
+
+			if attempt > 0 {
+				pd.logger.Info("Restarting pooler discovery with topology watch", "cell", pd.cell)
+			}
+
+			// Establish watch and process changes
+			func() {
+				// Get connection for the cell
+				conn, err := pd.topoStore.ConnForCell(pd.ctx, pd.cell)
+				if err != nil {
+					pd.logger.Error("Failed to get connection for cell", "cell", pd.cell, "error", err)
 					return
 				}
 
-				if watchData.Err != nil {
-					pd.logger.Error("Watch error received", "error", watchData.Err)
-					// Continue watching despite the error
-					continue
+				// Start watching the poolers directory
+				poolersPath := "poolers" // This matches the PoolersPath constant from store.go
+				initial, changes, err := conn.WatchRecursive(pd.ctx, poolersPath)
+				if err != nil {
+					pd.logger.Error("Failed to start recursive watch on poolers", "path", poolersPath, "error", err)
+					return
 				}
 
-				pd.processPoolerChange(watchData)
-			}
+				// Process initial values
+				pd.processInitialPoolers(initial)
+
+				// Reset backoff after watch has been stable for 30s
+				resetTimer := time.AfterFunc(30*time.Second, func() {
+					r.Reset()
+				})
+				defer resetTimer.Stop()
+
+				// Process changes as they come in
+				for {
+					select {
+					case <-pd.ctx.Done():
+						return
+					case watchData, ok := <-changes:
+						if !ok {
+							pd.logger.Info("Watch channel closed, will reconnect")
+							return
+						}
+
+						if watchData.Err != nil {
+							pd.logger.Error("Watch error received", "error", watchData.Err)
+							// Continue watching despite the error
+							continue
+						}
+
+						pd.processPoolerChange(watchData)
+					}
+				}
+			}()
 		}
 	})
 }
