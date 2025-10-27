@@ -90,15 +90,6 @@ func TestManagerServiceMethods_NotImplemented(t *testing.T) {
 		expectedMethod string
 	}{
 		{
-			name: "PrimaryStatus",
-			method: func() error {
-				req := &multipoolermanagerdata.PrimaryStatusRequest{}
-				_, err := svc.PrimaryStatus(ctx, req)
-				return err
-			},
-			expectedMethod: "PrimaryStatus",
-		},
-		{
 			name: "GetFollowers",
 			method: func() error {
 				req := &multipoolermanagerdata.GetFollowersRequest{}
@@ -246,6 +237,26 @@ func TestManagerServiceMethods_ManagerNotReady(t *testing.T) {
 					},
 				}
 				_, err := svc.ConfigureSynchronousReplication(ctx, req)
+				return err
+			},
+		},
+		{
+			name: "UpdateSynchronousStandbyList",
+			method: func() error {
+				req := &multipoolermanagerdata.UpdateSynchronousStandbyListRequest{
+					Operation: multipoolermanagerdata.StandbyUpdateOperation_STANDBY_UPDATE_OPERATION_ADD,
+					StandbyIds: []*clustermetadata.ID{
+						{
+							Component: clustermetadata.ID_MULTIPOOLER,
+							Cell:      "zone1",
+							Name:      "standby1",
+						},
+					},
+					ReloadConfig:  true,
+					ConsensusTerm: 0,
+					Force:         true,
+				}
+				_, err := svc.UpdateSynchronousStandbyList(ctx, req)
 				return err
 			},
 		},

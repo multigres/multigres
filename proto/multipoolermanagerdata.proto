@@ -123,6 +123,21 @@ message ReplicationStatusResponse {
   ReplicationStatus status = 1;
 }
 
+// Synchronous replication configuration
+message SynchronousReplicationConfiguration {
+  // Synchronous commit level
+  SynchronousCommitLevel synchronous_commit = 1;
+
+  // Synchronous method (FIRST or ANY)
+  SynchronousMethod synchronous_method = 2;
+
+  // Number of synchronous standbys
+  int32 num_sync = 3;
+
+  // List of standby IDs that can participate in synchronous replication
+  repeated clustermetadata.ID standby_ids = 4;
+}
+
 // PostgreSQL primary server status
 message PrimaryStatus {
   // Current WAL LSN position (PostgreSQL format: X/XXXXXXXX)
@@ -131,8 +146,11 @@ message PrimaryStatus {
   // Whether server is accepting connections
   bool ready = 2;
 
-  // Connected follower servers
-  repeated string followers = 3;
+  // Connected follower servers (as cluster IDs parsed from application_name)
+  repeated clustermetadata.ID followers = 3;
+
+  // Synchronous replication configuration (parsed from synchronous_standby_names and synchronous_commit)
+  SynchronousReplicationConfiguration sync_replication_config = 4;
 }
 
 // PrimaryStatus gets the status of the primary server
@@ -226,6 +244,14 @@ enum SynchronousMethod {
   SYNCHRONOUS_METHOD_ANY = 2;
 }
 
+// Enum representing the type of standby list modification
+enum StandbyUpdateOperation {
+  STANDBY_UPDATE_OPERATION_UNSPECIFIED = 0;
+  STANDBY_UPDATE_OPERATION_ADD = 1;
+  STANDBY_UPDATE_OPERATION_REMOVE = 2;
+  STANDBY_UPDATE_OPERATION_REPLACE = 3;
+}
+
 // Synchronous commit level
 enum SynchronousCommitLevel {
   // OFF disables synchronous commit
@@ -285,4 +311,26 @@ message SetTermRequest {
 }
 
 message SetTermResponse {
+}
+
+// UpdateSynchronousStandbyList updates the synchronous standby list
+message UpdateSynchronousStandbyListRequest {
+  // Operation to perform (add, remove, or replace)
+  StandbyUpdateOperation operation = 1;
+
+  // List of standby multipooler IDs to add/remove/replace
+  // The application names will be generated as {cell}_{name} from these IDs
+  repeated clustermetadata.ID standby_ids = 2;
+
+  // Whether to reload configuration immediately
+  bool reload_config = 3;
+
+  // Consensus term (used by MultiOrch for term validation)
+  int64 consensus_term = 4;
+
+  // Force the operation even if the term doesn't match
+  bool force = 5;
+}
+
+message UpdateSynchronousStandbyListResponse {
 }
