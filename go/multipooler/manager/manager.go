@@ -1316,7 +1316,10 @@ func (pm *MultiPoolerManager) PrimaryStatus(ctx context.Context) (*multipoolerma
 		return nil, mterrors.Wrap(err, "failed to query LSN and recovery status")
 	}
 	status.Lsn = lsn
-	status.Ready = !isInRecovery
+	// If we got to this point, checkPrimaryGuardrails passed, so this is a
+	// PRIMARY server from the PG perspective
+	// and should be ready to serve traffic.
+	status.Ready = true
 
 	// Get connected followers from pg_stat_replication
 	rows, err := pm.db.QueryContext(ctx, "SELECT application_name FROM pg_stat_replication WHERE application_name IS NOT NULL AND application_name != ''")
