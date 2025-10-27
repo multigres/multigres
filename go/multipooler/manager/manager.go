@@ -1147,7 +1147,7 @@ func (pm *MultiPoolerManager) UpdateSynchronousStandbyList(ctx context.Context, 
 		"force", force)
 
 	// === Validation ===
-	// TODO: We need to validate consesnsus term here.
+	// TODO: We need to validate consensus term here.
 	// We should check if the request is a valid term.
 	// If it's a newer term and probably we need to demote
 	// ourself. But details yet to be implemented
