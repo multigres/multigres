@@ -17,24 +17,34 @@ package executor
 import (
 	"log/slog"
 
+	"github.com/multigres/multigres/go/multigateway/planner"
 	"github.com/multigres/multigres/go/pb/query"
 	"github.com/multigres/multigres/go/pgprotocol/server"
 	"github.com/multigres/multigres/go/servenv"
 )
 
+const (
+	// TODO(GuptaManan100): Remove this and use discovery to find the table group and use that.
+	DefaultTableGroup = "default"
+)
+
 // Executor is the query execution engine for multigateway.
-// It handles query routing to appropriate multipooler instances and manages
-// result streaming back to clients.
+// It handles query planning, routing to appropriate multipooler instances,
+// and result streaming back to clients.
 type Executor struct {
-	senv   *servenv.ServEnv
-	logger *slog.Logger
+	senv    *servenv.ServEnv
+	planner *planner.Planner
+	logger  *slog.Logger
 }
 
 // NewExecutor creates a new executor instance.
 func NewExecutor(senv *servenv.ServEnv) *Executor {
+	logger := senv.GetLogger().With("component", "multigateway_executor")
+
 	return &Executor{
-		senv:   senv,
-		logger: senv.GetLogger().With("component", "multigateway_executor"),
+		senv:    senv,
+		planner: planner.NewPlanner(DefaultTableGroup, logger),
+		logger:  logger,
 	}
 }
 
@@ -54,27 +64,32 @@ func (e *Executor) StreamExecute(
 		"database", conn.Database(),
 		"connection_id", conn.ConnectionID())
 
-	// TODO(GuptaManan100): Implement actual query routing to multipooler
-	// For now, return a stub result to demonstrate the pattern
-	result := &query.QueryResult{
-		Fields: []*query.Field{
-			{
-				Name:         "message",
-				Type:         "text",
-				DataTypeOid:  25, // text type OID
-				DataTypeSize: -1, // variable length
-				Format:       0,  // text format
-			},
-		},
-		Rows: []*query.Row{
-			{
-				Values: [][]byte{
-					[]byte("Hello from multigateway!"),
-				},
-			},
-		},
-		CommandTag: "SELECT 1",
+	// Step 1: Plan the query
+	plan, err := e.planner.Plan(sql, conn)
+	if err != nil {
+		e.logger.Error("query planning failed",
+			"query", sql,
+			"error", err)
+		return err
 	}
 
-	return callback(result)
+	e.logger.Debug("query plan created",
+		"plan", plan.String(),
+		"tablegroup", plan.GetTableGroup())
+
+	// Step 2: Execute the plan
+	err = plan.StreamExecute(conn, callback)
+	if err != nil {
+		e.logger.Error("query execution failed",
+			"query", sql,
+			"plan", plan.String(),
+			"error", err)
+		return err
+	}
+
+	e.logger.Debug("query execution completed",
+		"query", sql,
+		"tablegroup", plan.GetTableGroup())
+
+	return nil
 }

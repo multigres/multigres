@@ -66,7 +66,10 @@ func TestMultiGateway_PostgreSQLConnection(t *testing.T) {
 	var message string
 	err = rows.Scan(&message)
 	require.NoError(t, err, "failed to scan row")
-	assert.Equal(t, "Hello from multigateway!", message, "unexpected message - handler not working correctly")
+	// Phase 1: Route primitive returns information about the route
+	assert.Contains(t, message, "Route:", "unexpected message - should contain route info")
+	assert.Contains(t, message, "tablegroup=default", "unexpected message - should show default tablegroup")
+	assert.Contains(t, message, "SELECT * FROM test", "unexpected message - should show original query")
 
 	// Verify no more rows
 	assert.False(t, rows.Next(), "expected only one row")
