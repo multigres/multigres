@@ -35,9 +35,9 @@ import (
 	"github.com/multigres/multigres/go/provisioner"
 	"github.com/multigres/multigres/go/provisioner/local/ports"
 	"github.com/multigres/multigres/go/tools/pathutil"
+	"github.com/multigres/multigres/go/tools/retry"
 	"github.com/multigres/multigres/go/tools/semver"
 	"github.com/multigres/multigres/go/tools/stringutil"
-	"github.com/multigres/multigres/go/tools/timertools"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 
@@ -1155,22 +1155,22 @@ func (p *localProvisioner) stopProcessByPID(pid int) error {
 
 // waitForProcessExit waits for a process to exit by polling with Signal(0)
 func (p *localProvisioner) waitForProcessExit(process *os.Process, timeout time.Duration) {
-	ticker := timertools.NewBackoffTicker(10*time.Millisecond, 1*time.Second)
-	defer ticker.Stop()
-	timeoutch := time.After(timeout)
-	for {
-		select {
-		case <-ticker.C:
-			// Send null signal to test if process exists
-			err := process.Signal(syscall.Signal(0))
-			if err != nil {
-				fmt.Printf("Process %d stopped successfully\n", process.Pid)
-				// Process has exited or doesn't exist
-				return
-			}
-		case <-timeoutch:
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	r := retry.New(10*time.Millisecond, 1*time.Second)
+	for _, err := range r.Attempts(ctx) {
+		if err != nil {
+			// Timeout reached
 			fmt.Printf("Process %d still running after SIGTERM\n", process.Pid)
-			// No need to wait further
+			return
+		}
+
+		// Send null signal to test if process exists
+		err := process.Signal(syscall.Signal(0))
+		if err != nil {
+			fmt.Printf("Process %d stopped successfully\n", process.Pid)
+			// Process has exited or doesn't exist
 			return
 		}
 	}
