@@ -27,6 +27,7 @@ import (
 
 	"github.com/multigres/multigres/go/clustermetadata/topo"
 	"github.com/multigres/multigres/go/clustermetadata/toporeg"
+	"github.com/multigres/multigres/go/multigateway/executor"
 	"github.com/multigres/multigres/go/pgprotocol/server"
 	"github.com/multigres/multigres/go/servenv"
 	"github.com/multigres/multigres/go/viperutil"
@@ -44,6 +45,8 @@ type MultiGateway struct {
 	grpcServer *servenv.GrpcServer
 	// pgListener is the PostgreSQL protocol listener
 	pgListener *server.Listener
+	// executor handles query execution and routing
+	executor *executor.Executor
 	// senv is the serving environment
 	senv *servenv.ServEnv
 	// topoConfig holds topology configuration
@@ -115,6 +118,9 @@ func (mg *MultiGateway) Init() {
 	// This doesn't change
 	mg.serverStatus.Cell = mg.cell.Get()
 	mg.serverStatus.ServiceID = mg.serviceID.Get()
+
+	// Initialize the executor for query routing
+	mg.executor = executor.NewExecutor(mg.senv)
 
 	// Create and start PostgreSQL protocol listener
 	pgHandler := NewMultiGatewayHandler(mg)
