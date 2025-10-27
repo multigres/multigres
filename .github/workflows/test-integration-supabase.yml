@@ -1,0 +1,88 @@
+# Copyright 2025 Supabase, Inc.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+name: Multigres Integration Supabase Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions: {}
+
+jobs:
+  test-integration:
+    name: Run full integration test suite
+    runs-on: ubuntu-24.04
+    container:
+      image: supabase/postgres
+
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: "1.25.0"
+
+      - name: Install PostgreSQL
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql postgresql-contrib postgresql-client-common postgresql-common
+          # Set up postgres user password for tests
+          sudo -u postgres psql -c "ALTER USER postgres PASSWORD 'postgres';" || true
+
+      - name: Verify PostgreSQL Installation
+        run: |
+          # Add PostgreSQL binaries to PATH
+          # shellcheck disable=SC2012
+          PATH="/usr/lib/postgresql/$(ls /usr/lib/postgresql/ | head -1)/bin:$PATH"
+          export PATH
+          # Now verify the binaries
+          postgres --version
+          initdb --version
+          pg_ctl --version
+          pg_isready --version
+          psql --version
+
+      - name: Install etcd binary
+        run: |
+          curl -L https://github.com/etcd-io/etcd/releases/download/v3.5.0/etcd-v3.5.0-linux-amd64.tar.gz | tar xz
+          sudo cp etcd-v3.5.0-linux-amd64/etcd /usr/local/bin/
+          rm -rf etcd-v3.5.0-linux-amd64
+
+      - name: Build
+        run: make build
+
+      - name: Run integration tests
+        run: |
+          # Add PostgreSQL binaries to PATH
+          # shellcheck disable=SC2012
+          PATH="/usr/lib/postgresql/$(ls /usr/lib/postgresql/ | head -1)/bin:$PATH"
+          export PATH
+          # Set environment variables for tests
+          export PGCONNECT_TIMEOUT=5
+          # Run tests with verbose output
+          go test -json -v ./... | tee integration-test-results.jsonl | go tool tparse -follow
+
+      - name: Test Report
+        uses: dorny/test-reporter@dc3a92680fcc15842eef52e8c4606ea7ce6bd3f3 # v2.1.1
+        if: ${{ !cancelled() }}
+        with:
+          name: Unit Tests
+          path: integration-test-results.jsonl
+          reporter: golang-json
