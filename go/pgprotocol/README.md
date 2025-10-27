@@ -1,14 +1,18 @@
 # pgprotocol - PostgreSQL Wire Protocol Implementation
 
-This package provides a complete implementation of the PostgreSQL wire protocol for Go, enabling PostgreSQL clients to connect to multigres and execute queries.
+This package provides a complete implementation of the PostgreSQL wire
+protocol for Go, enabling PostgreSQL clients to connect to multigres and
+execute queries.
 
 ## Overview
 
-The `pgprotocol` package is designed as a standalone, reusable library that handles all aspects of the PostgreSQL wire protocol, including connection establishment, authentication, query execution, and result streaming.
+The `pgprotocol` package is designed as a standalone, reusable library that
+handles all aspects of the PostgreSQL wire protocol, including connection
+establishment, authentication, query execution, and result streaming.
 
 ## Package Structure
 
-```
+```text
 pgprotocol/
 ├── protocol/          # Protocol constants and message types
 ├── bufpool/           # High-performance buffer pooling
@@ -101,8 +105,10 @@ messageBody := w.Bytes()
 ## Performance Optimizations
 
 1. **Buffer Pooling**: Reduces GC pressure by reusing buffers
-2. **Bucket Strategy**: Exponential sizing (1KB → 2KB → 4KB → ...) minimizes wasted space
-3. **Reader/Writer Pooling**: Reuses `bufio.Reader` and `bufio.Writer` instances
+2. **Bucket Strategy**: Exponential sizing (1KB → 2KB → 4KB → ...)
+   minimizes wasted space
+3. **Reader/Writer Pooling**: Reuses `bufio.Reader` and `bufio.Writer`
+   instances
 4. **Zero-Copy**: Direct writes to network buffers where possible
 5. **Batched Writes**: Buffered writer with configurable flush delay
 
