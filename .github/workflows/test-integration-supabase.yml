@@ -27,7 +27,7 @@ jobs:
     name: Run full integration test suite
     runs-on: ubuntu-24.04
     container:
-      image: supabase/postgres
+      image: supabase/postgres:17.6.1.029
 
     steps:
       - uses: actions/checkout@v5
