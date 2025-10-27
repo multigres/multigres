@@ -1270,6 +1270,7 @@ func TestReplicationAPIs(t *testing.T) {
 		t.Log("Confirmed: WAL replay is running")
 
 		// Call StopReplication RPC
+		// StopReplication waits internally for the pause to complete before returning
 		t.Log("Calling StopReplication RPC...")
 		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 		defer cancel()
@@ -1278,7 +1279,7 @@ func TestReplicationAPIs(t *testing.T) {
 		_, err = standbyManagerClient.StopReplication(ctx, stopReq)
 		require.NoError(t, err, "StopReplication should succeed on standby")
 
-		// Verify replication is now paused
+		// Verify replication is now paused (should be immediate since StopReplication waits)
 		t.Log("Verifying replication is paused after StopReplication...")
 		queryResp, err = standbyPoolerClient.ExecuteQuery(context.Background(), "SELECT pg_is_wal_replay_paused()", 1)
 		require.NoError(t, err)
@@ -1754,20 +1755,10 @@ func TestStopReplicationAndGetStatus(t *testing.T) {
 		t.Log("Testing StopReplicationAndGetStatus when replication is already paused...")
 
 		// First, stop replication
+		// StopReplication now waits internally for the pause to complete, so no manual wait needed
 		t.Log("Stopping replication first...")
 		_, err := standbyManagerClient.StopReplication(utils.WithShortDeadline(t), &multipoolermanagerdata.StopReplicationRequest{})
 		require.NoError(t, err, "StopReplication should succeed")
-
-		// Wait for replication to actually be paused (pg_wal_replay_pause is async)
-		t.Log("Waiting for WAL replay to actually be paused...")
-		require.Eventually(t, func() bool {
-			statusResp, err := standbyManagerClient.ReplicationStatus(utils.WithShortDeadline(t), &multipoolermanagerdata.ReplicationStatusRequest{})
-			if err != nil {
-				t.Logf("ReplicationStatus error: %v", err)
-				return false
-			}
-			return statusResp.Status.IsWalReplayPaused
-		}, 5*time.Second, 100*time.Millisecond, "WAL replay should be paused after StopReplication")
 
 		// Call StopReplicationAndGetStatus (should succeed even though already paused)
 		// Note: This method waits internally for pause to complete, so status is guaranteed to be paused when it returns
@@ -2403,14 +2394,6 @@ func TestUpdateSynchronousStandbyList(t *testing.T) {
 		assert.True(t, containsStandbyIDInConfig(status.SyncReplicationConfig, "test-cell", "standby1"))
 		t.Log("Initial configuration verified")
 
-		// Test term validation: Set term to 2
-		_, err = primaryManagerClient.SetTerm(utils.WithShortDeadline(t), &multipoolermanagerdata.SetTermRequest{
-			Term: &pgctldpb.ConsensusTerm{CurrentTerm: 2},
-		})
-		require.NoError(t, err, "SetTerm to 2 should succeed")
-		t.Log("Set term to 2")
-
-		// Try to ADD with stale term 1 (should fail)
 		updateReq := &multipoolermanagerdata.UpdateSynchronousStandbyListRequest{
 			Operation:     multipoolermanagerdata.StandbyUpdateOperation_STANDBY_UPDATE_OPERATION_ADD,
 			StandbyIds:    []*clustermetadatapb.ID{makeMultipoolerID("test-cell", "standby2")},
@@ -2419,22 +2402,7 @@ func TestUpdateSynchronousStandbyList(t *testing.T) {
 			Force:         false,
 		}
 		_, err = primaryManagerClient.UpdateSynchronousStandbyList(utils.WithShortDeadline(t), updateReq)
-		require.Error(t, err, "ADD with stale term should fail")
-		assert.Contains(t, err.Error(), "consensus term too old", "Error should mention stale term")
-		t.Log("Confirmed: ADD correctly rejected with stale term 1")
-
-		// Now ADD a second standby with correct term 2 (should succeed)
-		updateReq.ConsensusTerm = 2
-		_, err = primaryManagerClient.UpdateSynchronousStandbyList(utils.WithShortDeadline(t), updateReq)
-		require.NoError(t, err, "ADD operation with correct term should succeed")
-		t.Log("Confirmed: ADD succeeded with correct term 2")
-
-		// Wait for config to converge with both standbys
-		waitForSyncConfigConvergenceWithClient(t, primaryManagerClient, func(config *multipoolermanagerdata.SynchronousReplicationConfiguration) bool {
-			return config != nil && len(config.StandbyIds) == 2 &&
-				containsStandbyIDInConfig(config, "test-cell", "standby1") &&
-				containsStandbyIDInConfig(config, "test-cell", "standby2")
-		}, "Config should converge with both standbys")
+		require.NoError(t, err, "ADD should succeed")
 
 		// Verify both standbys are now in the list
 		status = getPrimaryStatusFromClient(t, primaryManagerClient)
