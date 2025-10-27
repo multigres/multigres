@@ -38,9 +38,6 @@ type Listener struct {
 	// logger for logging.
 	logger *slog.Logger
 
-	// connBufferPooling enables buffer pooling for connections.
-	connBufferPooling bool
-
 	// readersPool pools bufio.Reader objects.
 	readersPool *sync.Pool
 
@@ -71,9 +68,6 @@ type ListenerConfig struct {
 
 	// Logger for logging (optional, defaults to slog.Default()).
 	Logger *slog.Logger
-
-	// ConnBufferPooling enables buffer pooling for connections.
-	ConnBufferPooling bool
 }
 
 // NewListener creates a new PostgreSQL protocol listener.
@@ -95,28 +89,25 @@ func NewListener(config ListenerConfig) (*Listener, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	l := &Listener{
-		listener:          netListener,
-		handler:           config.Handler,
-		logger:            logger,
-		connBufferPooling: config.ConnBufferPooling,
-		ctx:               ctx,
-		cancel:            cancel,
+		listener: netListener,
+		handler:  config.Handler,
+		logger:   logger,
+		ctx:      ctx,
+		cancel:   cancel,
 	}
 
-	// Initialize buffer pools if pooling is enabled.
-	if config.ConnBufferPooling {
-		l.readersPool = &sync.Pool{
-			New: func() interface{} {
-				return bufio.NewReaderSize(nil, connBufferSize)
-			},
-		}
-		l.writersPool = &sync.Pool{
-			New: func() interface{} {
-				return bufio.NewWriterSize(nil, connBufferSize)
-			},
-		}
-		l.bufPool = bufpool.New(16*1024, 64*1024*1024) // 16 KB to 64 MB
+	// Initialize buffer pools.
+	l.readersPool = &sync.Pool{
+		New: func() interface{} {
+			return bufio.NewReaderSize(nil, connBufferSize)
+		},
 	}
+	l.writersPool = &sync.Pool{
+		New: func() interface{} {
+			return bufio.NewWriterSize(nil, connBufferSize)
+		},
+	}
+	l.bufPool = bufpool.New(16*1024, 64*1024*1024) // 16 KB to 64 MB
 
 	logger.Info("PostgreSQL listener started", "address", config.Address)
 

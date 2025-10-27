@@ -17,6 +17,7 @@ package server
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/binary"
 	"log/slog"
 	"net"
@@ -27,6 +28,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/multigres/multigres/go/pb/query"
 	"github.com/multigres/multigres/go/pgprotocol/protocol"
 )
 
@@ -72,6 +74,51 @@ func testLogger(t *testing.T) *slog.Logger {
 	return slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
 		Level: slog.LevelDebug,
 	}))
+}
+
+// testListener creates a test listener using NewListener.
+func testListener(t *testing.T) *Listener {
+	listener, err := NewListener(ListenerConfig{
+		Address: "localhost:0", // Use random available port
+		Handler: &mockHandler{},
+		Logger:  testLogger(t),
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		listener.Close()
+	})
+	return listener
+}
+
+// mockHandler is a simple handler for testing.
+type mockHandler struct{}
+
+func (m *mockHandler) HandleQuery(ctx context.Context, queryStr string, callback func(result *query.QueryResult) error) error {
+	return nil
+}
+
+func (m *mockHandler) HandleParse(ctx context.Context, name, queryStr string, paramTypes []uint32) error {
+	return nil
+}
+
+func (m *mockHandler) HandleBind(ctx context.Context, portalName, stmtName string, params [][]byte, paramFormats, resultFormats []int16) error {
+	return nil
+}
+
+func (m *mockHandler) HandleExecute(ctx context.Context, portalName string, maxRows int32) (*query.QueryResult, error) {
+	return nil, nil
+}
+
+func (m *mockHandler) HandleDescribe(ctx context.Context, typ byte, name string) (*query.StatementDescription, error) {
+	return nil, nil
+}
+
+func (m *mockHandler) HandleClose(ctx context.Context, typ byte, name string) error {
+	return nil
+}
+
+func (m *mockHandler) HandleSync(ctx context.Context) error {
+	return nil
 }
 
 // writeStartupPacket writes a startup packet to the buffer.
@@ -160,10 +207,8 @@ func TestHandleStartupMessage(t *testing.T) {
 			// Write startup packet.
 			writeStartupPacket(mock.readBuf, protocol.ProtocolVersionNumber, tt.params)
 
-			// Create a test connection.
-			listener := &Listener{
-				connBufferPooling: false,
-			}
+			// Create a test listener.
+			listener := testListener(t)
 			c := &Conn{
 				conn:           mock,
 				listener:       listener,
@@ -205,10 +250,8 @@ func TestSSLRequest(t *testing.T) {
 	}
 	writeStartupPacket(mock.readBuf, protocol.ProtocolVersionNumber, params)
 
-	// Create a test connection.
-	listener := &Listener{
-		connBufferPooling: false,
-	}
+	// Create a test listener.
+	listener := testListener(t)
 	c := &Conn{
 		conn:           mock,
 		listener:       listener,
@@ -247,10 +290,8 @@ func TestGSSENCRequest(t *testing.T) {
 	}
 	writeStartupPacket(mock.readBuf, protocol.ProtocolVersionNumber, params)
 
-	// Create a test connection.
-	listener := &Listener{
-		connBufferPooling: false,
-	}
+	// Create a test listener.
+	listener := testListener(t)
 	c := &Conn{
 		conn:           mock,
 		listener:       listener,
@@ -279,10 +320,8 @@ func TestAuthenticationMessages(t *testing.T) {
 	// Create mock connection.
 	mock := newMockConn()
 
-	// Create a test connection.
-	listener := &Listener{
-		connBufferPooling: false,
-	}
+	// Create a test listener.
+	listener := testListener(t)
 	c := &Conn{
 		conn:           mock,
 		listener:       listener,
@@ -354,10 +393,7 @@ func TestCancelRequest(t *testing.T) {
 	_ = binary.Write(mock.readBuf, binary.BigEndian, uint32(67890)) // Secret key
 
 	// Create a test connection - use newConn to properly initialize context.
-	listener := &Listener{
-		connBufferPooling: false,
-		logger:            testLogger(t),
-	}
+	listener := testListener(t)
 	c := newConn(mock, listener, 1)
 
 	// Test handleCancelRequest through handleStartup.

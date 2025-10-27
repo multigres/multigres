@@ -121,10 +121,9 @@ func (mg *MultiGateway) Init() {
 	pgAddr := fmt.Sprintf("localhost:%d", mg.pgPort.Get())
 	var err error
 	mg.pgListener, err = server.NewListener(server.ListenerConfig{
-		Address:           pgAddr,
-		Handler:           pgHandler,
-		Logger:            logger,
-		ConnBufferPooling: true, // Enable buffer pooling for efficiency
+		Address: pgAddr,
+		Handler: pgHandler,
+		Logger:  logger,
 	})
 	if err != nil {
 		logger.Error("failed to create PostgreSQL listener", "error", err, "port", mg.pgPort.Get())

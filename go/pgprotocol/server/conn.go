@@ -112,13 +112,9 @@ func newConn(netConn net.Conn, listener *Listener, connectionID uint32) *Conn {
 		params:         make(map[string]string),
 	}
 
-	// Use pooled readers/writers if enabled, otherwise create new ones.
-	if listener.connBufferPooling {
-		c.bufferedReader = listener.readersPool.Get().(*bufio.Reader)
-		c.bufferedReader.Reset(netConn)
-	} else {
-		c.bufferedReader = bufio.NewReaderSize(netConn, connBufferSize)
-	}
+	// Use pooled readers.
+	c.bufferedReader = listener.readersPool.Get().(*bufio.Reader)
+	c.bufferedReader.Reset(netConn)
 
 	return c
 }
@@ -132,10 +128,8 @@ func (c *Conn) Close() error {
 
 	c.cancel()
 
-	// Return pooled resources if pooling is enabled.
-	if c.listener.connBufferPooling {
-		c.returnReader()
-	}
+	// Return pooled resources.
+	c.returnReader()
 	// End writer buffering (flushes and returns to pool).
 	c.endWriterBuffering()
 
@@ -185,12 +179,8 @@ func (c *Conn) startWriterBuffering() {
 	defer c.bufMu.Unlock()
 
 	if c.bufferedWriter == nil {
-		if c.listener.connBufferPooling {
-			c.bufferedWriter = c.listener.writersPool.Get().(*bufio.Writer)
-			c.bufferedWriter.Reset(c.conn)
-		} else {
-			c.bufferedWriter = bufio.NewWriterSize(c.conn, connBufferSize)
-		}
+		c.bufferedWriter = c.listener.writersPool.Get().(*bufio.Writer)
+		c.bufferedWriter.Reset(c.conn)
 	}
 }
 
@@ -226,11 +216,9 @@ func (c *Conn) endWriterBuffering() {
 		// Flush any remaining buffered data.
 		_ = c.bufferedWriter.Flush()
 
-		// Return to pool if pooling is enabled.
-		if c.listener.connBufferPooling {
-			c.bufferedWriter.Reset(nil)
-			c.listener.writersPool.Put(c.bufferedWriter)
-		}
+		// Return to pool.
+		c.bufferedWriter.Reset(nil)
+		c.listener.writersPool.Put(c.bufferedWriter)
 		c.bufferedWriter = nil
 	}
 }
