@@ -754,6 +754,14 @@ func (pm *MultiPoolerManager) StopReplication(ctx context.Context) error {
 		return mterrors.Wrap(err, "failed to pause WAL replay")
 	}
 
+	// Wait for WAL replay to actually be paused
+	// pg_wal_replay_pause() is asynchronous, so we need to wait for it to complete
+	pm.logger.Info("Waiting for WAL replay to complete pausing")
+	_, err = pm.waitForReplicationPause(ctx)
+	if err != nil {
+		return err
+	}
+
 	pm.logger.Info("StopReplication completed successfully")
 	return nil
 }
@@ -1138,12 +1146,11 @@ func (pm *MultiPoolerManager) UpdateSynchronousStandbyList(ctx context.Context, 
 		"consensus_term", consensusTerm,
 		"force", force)
 
-	// Validate and update consensus term following consensus rules
-	if err := pm.validateAndUpdateTerm(ctx, consensusTerm, force); err != nil {
-		return err
-	}
-
 	// === Validation ===
+	// TODO: We need to validate consesnsus term here.
+	// We should check if the request is a valid term.
+	// If it's a newer term and probably we need to demote
+	// ourself. But details yet to be implemented
 
 	// Validate operation
 	if operation == multipoolermanagerdata.StandbyUpdateOperation_STANDBY_UPDATE_OPERATION_UNSPECIFIED {
