@@ -1475,9 +1475,6 @@ func TestReplicationStatus(t *testing.T) {
 	waitForManagerReady(t, setup, setup.PrimaryMultipooler)
 	waitForManagerReady(t, setup, setup.StandbyMultipooler)
 
-	// Register cleanup to reset replication config after test
-	setupReplicationTestCleanup(t, setup)
-
 	t.Run("ReplicationStatus_Primary_Fails", func(t *testing.T) {
 		// ReplicationStatus should fail on PRIMARY pooler type
 		t.Log("Testing ReplicationStatus on PRIMARY (should fail)...")
@@ -1639,9 +1636,6 @@ func TestStopReplicationAndGetStatus(t *testing.T) {
 	// Ensure managers are ready
 	waitForManagerReady(t, setup, setup.PrimaryMultipooler)
 	waitForManagerReady(t, setup, setup.StandbyMultipooler)
-
-	// Register cleanup to reset replication config after test
-	setupReplicationTestCleanup(t, setup)
 
 	t.Run("StopReplicationAndGetStatus_Primary_Fails", func(t *testing.T) {
 		// StopReplicationAndGetStatus should fail on PRIMARY pooler type
