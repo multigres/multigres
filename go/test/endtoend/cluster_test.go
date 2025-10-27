@@ -1317,3 +1317,94 @@ func stringHash(s string) int {
 	}
 	return h
 }
+
+// testClusterSetup holds the resources for a test cluster
+type testClusterSetup struct {
+	TempDir    string
+	PortConfig *testPortConfig
+	ConfigFile string
+	Cleanup    func()
+}
+
+// setupTestCluster sets up a complete test cluster with all services running.
+// This includes building binaries, creating configuration, starting the cluster,
+// and verifying all services are up and responding. Returns a testClusterSetup
+// with resources and a cleanup function that must be called when done.
+func setupTestCluster(t *testing.T) *testClusterSetup {
+	t.Helper()
+
+	// Setup test directory
+	tempDir, err := os.MkdirTemp("/tmp", "mlt")
+	require.NoError(t, err)
+
+	// Create cleanup function
+	cleanup := func() {
+		if cleanupErr := cleanupTestProcesses(tempDir); cleanupErr != nil {
+			t.Logf("Warning: cleanup failed: %v", cleanupErr)
+		}
+		os.RemoveAll(tempDir)
+	}
+
+	t.Logf("Testing cluster lifecycle in directory: %s", tempDir)
+
+	// Build service binaries in the test directory
+	t.Log("Building service binaries...")
+	require.NoError(t, buildServiceBinaries(tempDir), "Failed to build service binaries")
+
+	// Setup test ports and sanity checks
+	t.Log("Setting up test ports and performing sanity checks...")
+	testPorts := getTestPortConfig()
+	require.NoError(t, checkAllPortsAvailable(testPorts),
+		"Test ports should be available before starting cluster")
+
+	t.Logf("Using test ports - etcd:%d, multiadmin-http:%d, multiadmin-grpc:%d, multigateway-http:%d, multigateway-grpc:%d, multigateway-pg:%d, multipooler-http:%d, multipooler-grpc:%d, multiorch-http:%d, multiorch-grpc:%d",
+		testPorts.EtcdPort, testPorts.MultiadminHTTPPort, testPorts.MultiadminGRPCPort, testPorts.MultigatewayHTTPPort, testPorts.MultigatewayGRPCPort, testPorts.MultigatewayPGPort,
+		testPorts.MultipoolerHTTPPort, testPorts.MultipoolerGRPCPort, testPorts.MultiorchHTTPPort, testPorts.MultiorchGRPCPort)
+
+	// Create cluster configuration with test ports
+	t.Log("Creating cluster configuration with test ports...")
+	configFile, err := createTestConfigWithPorts(tempDir, testPorts)
+	require.NoError(t, err, "Failed to create test configuration")
+	t.Logf("Created test configuration: %s", configFile)
+
+	// Start cluster (up)
+	t.Log("Starting cluster...")
+	upOutput, err := executeStartCommand(t, []string{"--config-path", tempDir})
+	require.NoError(t, err, "Start command should succeed and start the cluster: %v", upOutput)
+
+	// Verify we got expected output
+	assert.Contains(t, upOutput, "Multigres — Distributed Postgres made easy")
+
+	// Verify all services connectivity using state files
+	t.Log("Verifying all services connectivity...")
+
+	// Read all service states from the state files
+	serviceStates, err := getServiceStates(tempDir)
+	require.NoError(t, err, "should be able to read service states")
+	require.NotEmpty(t, serviceStates, "should have at least one service running")
+
+	// Check connectivity for each service
+	expectedServices := []string{"etcd", "multiadmin", "multigateway", "multipooler", "multiorch"}
+	for _, serviceName := range expectedServices {
+		state, exists := serviceStates[serviceName]
+		require.True(t, exists, "service %s should have a state file", serviceName)
+
+		t.Logf("Checking %s connectivity at %s with ports %v", serviceName, state.FQDN, state.Ports)
+		require.NoError(t, checkServiceConnectivity(serviceName, state),
+			"%s should be reachable on its configured ports", serviceName)
+
+		// If service has a datadir defined, verify it exists
+		if state.DataDir != "" {
+			assert.DirExists(t, state.DataDir, "service %s datadir should exist at %s", serviceName, state.DataDir)
+		}
+	}
+
+	t.Log("Test cluster setup completed successfully")
+
+	return &testClusterSetup{
+		TempDir:    tempDir,
+		PortConfig: testPorts,
+		ConfigFile: configFile,
+		Cleanup:    cleanup,
+	}
+}
