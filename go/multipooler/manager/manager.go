@@ -893,6 +893,56 @@ func (pm *MultiPoolerManager) setSynchronousCommit(ctx context.Context, synchron
 	return nil
 }
 
+// formatStandbyList converts standby IDs to a comma-separated list of quoted application names
+func formatStandbyList(standbyIDs []*clustermetadatapb.ID) string {
+	quotedNames := make([]string, len(standbyIDs))
+	for i, id := range standbyIDs {
+		quotedNames[i] = fmt.Sprintf(`"%s"`, generateApplicationName(id))
+	}
+	return strings.Join(quotedNames, ", ")
+}
+
+// buildSynchronousStandbyNamesValue constructs the synchronous_standby_names value string
+// This produces values like: FIRST 1 ("standby-1", "standby-2") or ANY 1 ("standby-1", "standby-2")
+func buildSynchronousStandbyNamesValue(method multipoolermanagerdata.SynchronousMethod, numSync int32, standbyIDs []*clustermetadatapb.ID) (string, error) {
+	if len(standbyIDs) == 0 {
+		return "", nil
+	}
+
+	standbyList := formatStandbyList(standbyIDs)
+
+	var methodStr string
+	switch method {
+	case multipoolermanagerdata.SynchronousMethod_SYNCHRONOUS_METHOD_FIRST:
+		methodStr = "FIRST"
+	case multipoolermanagerdata.SynchronousMethod_SYNCHRONOUS_METHOD_ANY:
+		methodStr = "ANY"
+	default:
+		return "", mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT,
+			fmt.Sprintf("invalid synchronous method: %s, must be FIRST or ANY", method.String()))
+	}
+
+	return fmt.Sprintf("%s %d (%s)", methodStr, numSync, standbyList), nil
+}
+
+// applySynchronousStandbyNames applies the synchronous_standby_names setting to PostgreSQL
+func applySynchronousStandbyNames(ctx context.Context, db *sql.DB, logger *slog.Logger, value string) error {
+	logger.Info("Setting synchronous_standby_names", "value", value)
+
+	// Escape single quotes in the value by doubling them (PostgreSQL standard)
+	escapedValue := strings.ReplaceAll(value, "'", "''")
+
+	// ALTER SYSTEM SET doesn't support parameterized queries, so we use string formatting
+	query := fmt.Sprintf("ALTER SYSTEM SET synchronous_standby_names = '%s'", escapedValue)
+	_, err := db.ExecContext(ctx, query)
+	if err != nil {
+		logger.Error("Failed to set synchronous_standby_names", "error", err)
+		return mterrors.Wrap(err, "failed to set synchronous_standby_names")
+	}
+
+	return nil
+}
+
 // setSynchronousStandbyNames builds and sets the PostgreSQL synchronous_standby_names configuration
 // Format: https://www.postgresql.org/docs/current/runtime-config-replication.html#GUC-SYNCHRONOUS-STANDBY-NAMES
 // Examples:
@@ -920,43 +970,14 @@ func (pm *MultiPoolerManager) setSynchronousStandbyNames(ctx context.Context, sy
 		numSync = 1
 	}
 
-	// Convert multipooler IDs to quoted application names using the shared helper
-	// This ensures consistency with SetPrimaryConnInfo
-	// Produces: "cell_name1", "cell_name2"
-	quotedNames := make([]string, len(standbyIDs))
-	for i, id := range standbyIDs {
-		quotedNames[i] = fmt.Sprintf(`"%s"`, generateApplicationName(id))
-	}
-	standbyList := strings.Join(quotedNames, ", ")
-
-	// Build the final value with method prefix
-	// This produces: FIRST 1 ("standby-1", "standby-2") or ANY 1 ("standby-1", "standby-2")
-	var standbyNamesValue string
-	switch synchronousMethod {
-	case multipoolermanagerdata.SynchronousMethod_SYNCHRONOUS_METHOD_FIRST:
-		standbyNamesValue = fmt.Sprintf("FIRST %d (%s)", numSync, standbyList)
-	case multipoolermanagerdata.SynchronousMethod_SYNCHRONOUS_METHOD_ANY:
-		standbyNamesValue = fmt.Sprintf("ANY %d (%s)", numSync, standbyList)
-	default:
-		return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT,
-			fmt.Sprintf("invalid synchronous method: %s, must be FIRST or ANY", synchronousMethod.String()))
-	}
-
-	pm.logger.Info("Setting synchronous_standby_names", "value", standbyNamesValue)
-
-	// Escape single quotes in the value by doubling them (PostgreSQL standard)
-	escapedValue := strings.ReplaceAll(standbyNamesValue, "'", "''")
-
-	// ALTER SYSTEM SET doesn't support parameterized queries, so we use string formatting
-	// Final query: ALTER SYSTEM SET synchronous_standby_names = 'FIRST 1 ("standby-1", "standby-2")'
-	query := fmt.Sprintf("ALTER SYSTEM SET synchronous_standby_names = '%s'", escapedValue)
-	_, err := pm.db.ExecContext(ctx, query)
+	// Build the synchronous_standby_names value using the shared helper
+	standbyNamesValue, err := buildSynchronousStandbyNamesValue(synchronousMethod, numSync, standbyIDs)
 	if err != nil {
-		pm.logger.Error("Failed to set synchronous_standby_names", "error", err)
-		return mterrors.Wrap(err, "failed to set synchronous_standby_names")
+		return err
 	}
 
-	return nil
+	// Apply the setting using the shared helper
+	return applySynchronousStandbyNames(ctx, pm.db, pm.logger, standbyNamesValue)
 }
 
 // validateStandbyIDs validates a list of standby IDs
@@ -1184,28 +1205,11 @@ func (pm *MultiPoolerManager) UpdateSynchronousStandbyList(ctx context.Context, 
 
 	// === Build and Apply New Configuration ===
 
-	// Build new synchronous_standby_names value
-	// Convert standby IDs to quoted application names
-	quotedNames := make([]string, len(updatedStandbys))
-	for i, id := range updatedStandbys {
-		appName := generateApplicationName(id)
-		quotedNames[i] = fmt.Sprintf(`"%s"`, appName)
+	// Build new synchronous_standby_names value using shared helper
+	newValue, err := buildSynchronousStandbyNamesValue(cfg.Method, cfg.NumSync, updatedStandbys)
+	if err != nil {
+		return err
 	}
-	standbyList := strings.Join(quotedNames, ", ")
-
-	// Convert method enum back to string
-	var methodStr string
-	switch cfg.Method {
-	case multipoolermanagerdata.SynchronousMethod_SYNCHRONOUS_METHOD_FIRST:
-		methodStr = "FIRST"
-	case multipoolermanagerdata.SynchronousMethod_SYNCHRONOUS_METHOD_ANY:
-		methodStr = "ANY"
-	default:
-		return mterrors.New(mtrpcpb.Code_INTERNAL,
-			fmt.Sprintf("unexpected synchronous method: %s", cfg.Method.String()))
-	}
-
-	newValue := fmt.Sprintf("%s %d (%s)", methodStr, cfg.NumSync, standbyList)
 
 	// Check if there are any changes (idempotent)
 	if currentValue == newValue {
@@ -1217,15 +1221,9 @@ func (pm *MultiPoolerManager) UpdateSynchronousStandbyList(ctx context.Context, 
 		"old_value", currentValue,
 		"new_value", newValue)
 
-	// Escape single quotes in the value by doubling them (PostgreSQL standard)
-	escapedValue := strings.ReplaceAll(newValue, "'", "''")
-
-	// ALTER SYSTEM SET doesn't support parameterized queries, so we use string formatting
-	query := fmt.Sprintf("ALTER SYSTEM SET synchronous_standby_names = '%s'", escapedValue)
-	_, err = pm.db.ExecContext(ctx, query)
-	if err != nil {
-		pm.logger.Error("Failed to update synchronous_standby_names", "error", err)
-		return mterrors.Wrap(err, "failed to update synchronous_standby_names")
+	// Apply the setting using shared helper
+	if err = applySynchronousStandbyNames(ctx, pm.db, pm.logger, newValue); err != nil {
+		return err
 	}
 
 	// Reload configuration if requested
