@@ -41,26 +41,23 @@ type Status struct {
 }
 
 // handleIndex serves the index page
-func (mo *MultiOrch) getHandleIndex() func(http.ResponseWriter, *http.Request) {
-	return func(w http.ResponseWriter, r *http.Request) {
-		mo.serverStatus.TopoStatus = mo.ts.Status()
-		err := web.Templates.ExecuteTemplate(w, "orch_index.html", mo.serverStatus)
-		if err != nil {
-			http.Error(w, fmt.Sprintf("Failed to execute template: %v", err), http.StatusInternalServerError)
-			return
-		}
+func (mo *MultiOrch) handleIndex(w http.ResponseWriter, r *http.Request) {
+	mo.serverStatus.TopoStatus = mo.ts.Status()
+	err := web.Templates.ExecuteTemplate(w, "orch_index.html", mo.serverStatus)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to execute template: %v", err), http.StatusInternalServerError)
+		return
 	}
 }
 
-func (mo *MultiOrch) getHandleReady() func(http.ResponseWriter, *http.Request) {
-	return func(w http.ResponseWriter, r *http.Request) {
-		isReady := (len(mo.serverStatus.InitError) == 0)
-		if !isReady {
-			w.WriteHeader(http.StatusServiceUnavailable)
-		}
-		if err := web.Templates.ExecuteTemplate(w, "isok.html", isReady); err != nil {
-			http.Error(w, fmt.Sprintf("Failed to execute template: %v", err), http.StatusInternalServerError)
-			return
-		}
+// handleReady serves the readiness check
+func (mo *MultiOrch) handleReady(w http.ResponseWriter, r *http.Request) {
+	isReady := (len(mo.serverStatus.InitError) == 0)
+	if !isReady {
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}
+	if err := web.Templates.ExecuteTemplate(w, "isok.html", isReady); err != nil {
+		http.Error(w, fmt.Sprintf("Failed to execute template: %v", err), http.StatusInternalServerError)
+		return
 	}
 }

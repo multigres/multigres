@@ -55,39 +55,36 @@ type Status struct {
 	Links []Link `json:"links"`
 }
 
-// getHandleIndex serves the index page
-func (mg *MultiGateway) getHandleIndex() func(http.ResponseWriter, *http.Request) {
-	return func(w http.ResponseWriter, r *http.Request) {
-		mg.serverStatus.TopoStatus = mg.ts.Status()
-		mg.serverStatus.PoolerCount = mg.poolerDiscovery.PoolerCount()
-		mg.serverStatus.LastRefresh = mg.poolerDiscovery.LastRefresh()
-		poolers := mg.poolerDiscovery.GetPoolers()
-		mg.serverStatus.Poolers = make([]PoolerStatus, 0, len(poolers))
-		for _, pooler := range poolers {
-			mg.serverStatus.Poolers = append(mg.serverStatus.Poolers, PoolerStatus{
-				Name:     pooler.Id.GetName(),
-				Database: pooler.GetDatabase(),
-				Type:     pooler.GetType().String(),
-			})
-		}
+// handleIndex serves the index page
+func (mg *MultiGateway) handleIndex(w http.ResponseWriter, r *http.Request) {
+	mg.serverStatus.TopoStatus = mg.ts.Status()
+	mg.serverStatus.PoolerCount = mg.poolerDiscovery.PoolerCount()
+	mg.serverStatus.LastRefresh = mg.poolerDiscovery.LastRefresh()
+	poolers := mg.poolerDiscovery.GetPoolers()
+	mg.serverStatus.Poolers = make([]PoolerStatus, 0, len(poolers))
+	for _, pooler := range poolers {
+		mg.serverStatus.Poolers = append(mg.serverStatus.Poolers, PoolerStatus{
+			Name:     pooler.Id.GetName(),
+			Database: pooler.GetDatabase(),
+			Type:     pooler.GetType().String(),
+		})
+	}
 
-		err := web.Templates.ExecuteTemplate(w, "gateway_index.html", mg.serverStatus)
-		if err != nil {
-			http.Error(w, fmt.Sprintf("Failed to execute template: %v", err), http.StatusInternalServerError)
-			return
-		}
+	err := web.Templates.ExecuteTemplate(w, "gateway_index.html", mg.serverStatus)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to execute template: %v", err), http.StatusInternalServerError)
+		return
 	}
 }
 
-func (mg *MultiGateway) getHandleReady() func(http.ResponseWriter, *http.Request) {
-	return func(w http.ResponseWriter, r *http.Request) {
-		isReady := (len(mg.serverStatus.InitError) == 0)
-		if !isReady {
-			w.WriteHeader(http.StatusServiceUnavailable)
-		}
-		if err := web.Templates.ExecuteTemplate(w, "isok.html", isReady); err != nil {
-			http.Error(w, fmt.Sprintf("Failed to execute template: %v", err), http.StatusInternalServerError)
-			return
-		}
+// handleReady serves the readiness check
+func (mg *MultiGateway) handleReady(w http.ResponseWriter, r *http.Request) {
+	isReady := (len(mg.serverStatus.InitError) == 0)
+	if !isReady {
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}
+	if err := web.Templates.ExecuteTemplate(w, "isok.html", isReady); err != nil {
+		http.Error(w, fmt.Sprintf("Failed to execute template: %v", err), http.StatusInternalServerError)
+		return
 	}
 }

@@ -109,8 +109,8 @@ func (mo *MultiOrch) Init() {
 		func(s string) { mo.serverStatus.InitError = s },
 	)
 
-	mo.senv.HTTPHandleFunc("/", mo.getHandleIndex())
-	mo.senv.HTTPHandleFunc("/ready", mo.getHandleReady())
+	mo.senv.HTTPHandleFunc("/", mo.handleIndex)
+	mo.senv.HTTPHandleFunc("/ready", mo.handleReady)
 
 	mo.senv.OnClose(func() {
 		mo.Shutdown()

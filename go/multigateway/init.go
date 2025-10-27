@@ -163,8 +163,8 @@ func (mg *MultiGateway) Init() {
 	mg.poolerDiscovery.Start()
 	logger.Info("Pooler discovery started with topology watch", "cell", mg.cell.Get())
 
-	mg.senv.HTTPHandleFunc("/", mg.getHandleIndex())
-	mg.senv.HTTPHandleFunc("/ready", mg.getHandleReady())
+	mg.senv.HTTPHandleFunc("/", mg.handleIndex)
+	mg.senv.HTTPHandleFunc("/ready", mg.handleReady)
 
 	mg.senv.OnClose(func() {
 		mg.Shutdown()

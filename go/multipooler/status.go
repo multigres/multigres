@@ -46,27 +46,24 @@ type Status struct {
 	Links []Link `json:"links"`
 }
 
-// getHandleIndex serves the index page
-func (mp *MultiPooler) getHandleIndex() func(http.ResponseWriter, *http.Request) {
-	return func(w http.ResponseWriter, r *http.Request) {
-		mp.serverStatus.TopoStatus = mp.ts.Status()
-		err := web.Templates.ExecuteTemplate(w, "pooler_index.html", mp.serverStatus)
-		if err != nil {
-			http.Error(w, fmt.Sprintf("Failed to execute template: %v", err), http.StatusInternalServerError)
-			return
-		}
+// handleIndex serves the index page
+func (mp *MultiPooler) handleIndex(w http.ResponseWriter, r *http.Request) {
+	mp.serverStatus.TopoStatus = mp.ts.Status()
+	err := web.Templates.ExecuteTemplate(w, "pooler_index.html", mp.serverStatus)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to execute template: %v", err), http.StatusInternalServerError)
+		return
 	}
 }
 
-func (mp *MultiPooler) getHandleReady() func(http.ResponseWriter, *http.Request) {
-	return func(w http.ResponseWriter, r *http.Request) {
-		isReady := (len(mp.serverStatus.InitError) == 0)
-		if !isReady {
-			w.WriteHeader(http.StatusServiceUnavailable)
-		}
-		if err := web.Templates.ExecuteTemplate(w, "isok.html", isReady); err != nil {
-			http.Error(w, fmt.Sprintf("Failed to execute template: %v", err), http.StatusInternalServerError)
-			return
-		}
+// handleReady serves the readiness check
+func (mp *MultiPooler) handleReady(w http.ResponseWriter, r *http.Request) {
+	isReady := (len(mp.serverStatus.InitError) == 0)
+	if !isReady {
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}
+	if err := web.Templates.ExecuteTemplate(w, "isok.html", isReady); err != nil {
+		http.Error(w, fmt.Sprintf("Failed to execute template: %v", err), http.StatusInternalServerError)
+		return
 	}
 }

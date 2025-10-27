@@ -226,8 +226,8 @@ func (mp *MultiPooler) Init() {
 	grpcmanagerservice.RegisterPoolerManagerServices(mp.senv, mp.grpcServer)
 	grpcpoolerservice.RegisterPoolerServices(mp.senv, mp.grpcServer)
 
-	mp.senv.HTTPHandleFunc("/", mp.getHandleIndex())
-	mp.senv.HTTPHandleFunc("/ready", mp.getHandleReady())
+	mp.senv.HTTPHandleFunc("/", mp.handleIndex)
+	mp.senv.HTTPHandleFunc("/ready", mp.handleReady)
 
 	// Initialize and start the MultiPooler
 	pooler := poolerserver.NewMultiPooler(logger, &manager.Config{
