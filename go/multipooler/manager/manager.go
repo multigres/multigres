@@ -17,6 +17,7 @@ package manager
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -27,7 +28,7 @@ import (
 	"github.com/multigres/multigres/go/mterrors"
 	"github.com/multigres/multigres/go/multipooler/heartbeat"
 	"github.com/multigres/multigres/go/servenv"
-	"github.com/multigres/multigres/go/tools/timertools"
+	"github.com/multigres/multigres/go/tools/retry"
 
 	"golang.org/x/sync/semaphore"
 
@@ -367,43 +368,38 @@ func (pm *MultiPoolerManager) loadMultiPoolerFromTopo() {
 		return
 	}
 
-	ticker := timertools.NewBackoffTicker(100*time.Millisecond, 30*time.Second)
-	<-ticker.C
-	defer ticker.Stop()
-
 	// Set timeout for the entire loading process
 	timeoutCtx, timeoutCancel := context.WithTimeout(pm.ctx, pm.loadTimeout)
 	defer timeoutCancel()
 
-	for {
-		select {
-		case <-ticker.C:
-			ctx, cancel := context.WithTimeout(pm.ctx, 5*time.Second)
-			mp, err := pm.topoClient.GetMultiPooler(ctx, pm.serviceID)
-			cancel()
-
-			if err != nil {
-				continue
+	r := retry.New(100*time.Millisecond, 30*time.Second)
+	for _, err := range r.Attempts(timeoutCtx) {
+		if err != nil {
+			if errors.Is(err, context.DeadlineExceeded) {
+				pm.setStateError(fmt.Errorf("timeout waiting for multipooler record to be available in topology after %v", pm.loadTimeout))
+			} else {
+				pm.setStateError(fmt.Errorf("manager context cancelled while loading multipooler record"))
 			}
-
-			// Successfully loaded
-			pm.mu.Lock()
-			pm.multipooler = mp
-			pm.topoLoaded = true
-			pm.mu.Unlock()
-
-			pm.logger.Info("Loaded multipooler record from topology", "service_id", pm.serviceID.String(), "database", mp.Database)
-			pm.checkAndSetReady()
-			return
-
-		case <-timeoutCtx.Done():
-			pm.setStateError(fmt.Errorf("timeout waiting for multipooler record to be available in topology after %v", pm.loadTimeout))
-			return
-
-		case <-pm.ctx.Done():
-			pm.setStateError(fmt.Errorf("manager context cancelled while loading multipooler record"))
 			return
 		}
+
+		ctx, cancel := context.WithTimeout(pm.ctx, 5*time.Second)
+		mp, err := pm.topoClient.GetMultiPooler(ctx, pm.serviceID)
+		cancel()
+
+		if err != nil {
+			continue // Will retry with backoff
+		}
+
+		// Successfully loaded
+		pm.mu.Lock()
+		pm.multipooler = mp
+		pm.topoLoaded = true
+		pm.mu.Unlock()
+
+		pm.logger.Info("Loaded multipooler record from topology", "service_id", pm.serviceID.String(), "database", mp.Database)
+		pm.checkAndSetReady()
+		return
 	}
 }
 
@@ -546,41 +542,37 @@ func (pm *MultiPoolerManager) validateAndUpdateTerm(ctx context.Context, request
 
 // loadConsensusTermFromDisk loads the consensus term from local disk asynchronously
 func (pm *MultiPoolerManager) loadConsensusTermFromDisk() {
-	ticker := timertools.NewBackoffTicker(100*time.Millisecond, 30*time.Second)
-	defer ticker.Stop()
-
 	// Set timeout for the entire loading process
 	timeoutCtx, timeoutCancel := context.WithTimeout(pm.ctx, pm.loadTimeout)
 	defer timeoutCancel()
 
-	for {
-		select {
-		case <-ticker.C:
-			// Load term from local disk using the term_storage functions
-			term, err := GetTerm(pm.config.PoolerDir)
-			if err != nil {
-				pm.logger.Debug("Failed to get consensus term from disk, retrying", "error", err)
-				continue
+	r := retry.New(100*time.Millisecond, 30*time.Second)
+	for _, err := range r.Attempts(timeoutCtx) {
+		if err != nil {
+			if errors.Is(err, context.DeadlineExceeded) {
+				pm.setStateError(fmt.Errorf("timeout waiting for consensus term from disk after %v", pm.loadTimeout))
+			} else {
+				pm.setStateError(fmt.Errorf("manager context cancelled while loading consensus term"))
 			}
-
-			// Successfully loaded (nil/empty term is OK)
-			pm.mu.Lock()
-			pm.consensusTerm = term
-			pm.consensusLoaded = true
-			pm.mu.Unlock()
-
-			pm.logger.Info("Loaded consensus term from disk", "current_term", term.GetCurrentTerm())
-			pm.checkAndSetReady()
-			return
-
-		case <-timeoutCtx.Done():
-			pm.setStateError(fmt.Errorf("timeout waiting for consensus term from disk after %v", pm.loadTimeout))
-			return
-
-		case <-pm.ctx.Done():
-			pm.setStateError(fmt.Errorf("manager context cancelled while loading consensus term"))
 			return
 		}
+
+		// Load term from local disk using the term_storage functions
+		term, err := GetTerm(pm.config.PoolerDir)
+		if err != nil {
+			pm.logger.Debug("Failed to get consensus term from disk, retrying", "error", err)
+			continue // Will retry with backoff
+		}
+
+		// Successfully loaded (nil/empty term is OK)
+		pm.mu.Lock()
+		pm.consensusTerm = term
+		pm.consensusLoaded = true
+		pm.mu.Unlock()
+
+		pm.logger.Info("Loaded consensus term from disk", "current_term", term.GetCurrentTerm())
+		pm.checkAndSetReady()
+		return
 	}
 }
 
@@ -1394,12 +1386,121 @@ func (pm *MultiPoolerManager) PrimaryPosition(ctx context.Context) (string, erro
 }
 
 // StopReplicationAndGetStatus stops PostgreSQL replication and returns the status
-func (pm *MultiPoolerManager) StopReplicationAndGetStatus(ctx context.Context) (map[string]interface{}, error) {
+func (pm *MultiPoolerManager) StopReplicationAndGetStatus(ctx context.Context) (*multipoolermanagerdata.ReplicationStatus, error) {
 	if err := pm.checkReady(); err != nil {
 		return nil, err
 	}
+
+	// Acquire the action lock to ensure only one mutation runs at a time
+	if err := pm.lock(ctx); err != nil {
+		return nil, err
+	}
+	defer pm.unlock()
+
 	pm.logger.Info("StopReplicationAndGetStatus called")
-	return nil, mterrors.New(mtrpcpb.Code_UNIMPLEMENTED, "method StopReplicationAndGetStatus not implemented")
+
+	// Check REPLICA guardrails (pooler type and recovery mode)
+	if err := pm.checkReplicaGuardrails(ctx); err != nil {
+		return nil, err
+	}
+
+	// Pause WAL replay on the standby
+	pm.logger.Info("Pausing WAL replay on standby")
+	_, err := pm.db.ExecContext(ctx, "SELECT pg_wal_replay_pause()")
+	if err != nil {
+		pm.logger.Error("Failed to pause WAL replay", "error", err)
+		return nil, mterrors.Wrap(err, "failed to pause WAL replay")
+	}
+
+	// Wait for WAL replay to actually be paused and capture status at that moment
+	pm.logger.Info("Waiting for WAL replay to complete pausing")
+	status, err := pm.waitForReplicationPause(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	pm.logger.Info("StopReplicationAndGetStatus completed",
+		"lsn", status.Lsn,
+		"is_paused", status.IsWalReplayPaused,
+		"pause_state", status.WalReplayPauseState,
+		"primary_conn_info", status.PrimaryConnInfo)
+
+	return status, nil
+}
+
+// waitForReplicationPause polls until WAL replay is paused and returns the status at that moment.
+// This ensures the LSN returned represents the exact point at which replication stopped.
+func (pm *MultiPoolerManager) waitForReplicationPause(ctx context.Context) (*multipoolermanagerdata.ReplicationStatus, error) {
+	// Create a context with timeout for the polling loop
+	waitCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+
+	query := `SELECT
+		pg_last_wal_replay_lsn(),
+		pg_is_wal_replay_paused(),
+		pg_get_wal_replay_pause_state(),
+		pg_last_xact_replay_timestamp(),
+		current_setting('primary_conninfo')`
+
+	for {
+		select {
+		case <-waitCtx.Done():
+			if waitCtx.Err() == context.DeadlineExceeded {
+				pm.logger.Error("Timeout waiting for WAL replay to pause")
+				return nil, mterrors.New(mtrpcpb.Code_DEADLINE_EXCEEDED, "timeout waiting for WAL replay to pause")
+			}
+			pm.logger.Error("Context cancelled while waiting for WAL replay to pause")
+			return nil, mterrors.Wrap(waitCtx.Err(), "context cancelled while waiting for WAL replay to pause")
+
+		case <-ticker.C:
+			var lsn string
+			var isPaused bool
+			var pauseState string
+			var lastXactTime sql.NullString
+			var primaryConnInfo string
+
+			// Query all status fields in each iteration
+			err := pm.db.QueryRowContext(waitCtx, query).Scan(
+				&lsn,
+				&isPaused,
+				&pauseState,
+				&lastXactTime,
+				&primaryConnInfo,
+			)
+			if err != nil {
+				pm.logger.Error("Failed to get replication status", "error", err)
+				return nil, mterrors.Wrap(err, "failed to get replication status")
+			}
+
+			// Once paused, we have the exact state at the moment replication stopped
+			if isPaused {
+				pm.logger.Info("WAL replay is now paused", "lsn", lsn, "pause_state", pauseState)
+
+				// Build and return the status
+				status := &multipoolermanagerdata.ReplicationStatus{
+					Lsn:                 lsn,
+					IsWalReplayPaused:   isPaused,
+					WalReplayPauseState: pauseState,
+				}
+
+				if lastXactTime.Valid {
+					status.LastXactReplayTimestamp = lastXactTime.String
+				}
+
+				// Parse primary_conninfo into structured format
+				parsedConnInfo, err := parseAndRedactPrimaryConnInfo(primaryConnInfo)
+				if err != nil {
+					return nil, mterrors.Wrap(err, "failed to parse primary_conninfo")
+				}
+				status.PrimaryConnInfo = parsedConnInfo
+
+				return status, nil
+			}
+		}
+	}
 }
 
 // ChangeType changes the pooler type (PRIMARY/REPLICA)

@@ -35,9 +35,9 @@ import (
 	"github.com/multigres/multigres/go/provisioner"
 	"github.com/multigres/multigres/go/provisioner/local/ports"
 	"github.com/multigres/multigres/go/tools/pathutil"
+	"github.com/multigres/multigres/go/tools/retry"
 	"github.com/multigres/multigres/go/tools/semver"
 	"github.com/multigres/multigres/go/tools/stringutil"
-	"github.com/multigres/multigres/go/tools/timertools"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 
@@ -416,6 +416,12 @@ func (p *localProvisioner) provisionMultigateway(ctx context.Context, req *provi
 		grpcPort = p
 	}
 
+	// Get pg port from cell-specific config
+	pgPort := ports.DefaultMultigatewayPG
+	if p, ok := multigatewayConfig["pg_port"].(int); ok && p > 0 {
+		pgPort = p
+	}
+
 	// Get log level
 	logLevel := "info"
 	if level, ok := multigatewayConfig["log_level"].(string); ok {
@@ -441,6 +447,7 @@ func (p *localProvisioner) provisionMultigateway(ctx context.Context, req *provi
 	args := []string{
 		"--http-port", fmt.Sprintf("%d", httpPort),
 		"--grpc-port", fmt.Sprintf("%d", grpcPort),
+		"--pg-port", fmt.Sprintf("%d", pgPort),
 		"--topo-global-server-addresses", etcdAddress,
 		"--topo-global-root", topoGlobalRoot,
 		"--topo-implementation", topoBackend,
@@ -453,7 +460,7 @@ func (p *localProvisioner) provisionMultigateway(ctx context.Context, req *provi
 	// Start multigateway process
 	multigatewayCmd := exec.CommandContext(ctx, multigatewayBinary, args...)
 
-	fmt.Printf("▶️  - Launching multigateway (HTTP:%d, gRPC:%d)...", httpPort, grpcPort)
+	fmt.Printf("▶️  - Launching multigateway (HTTP:%d, gRPC:%d, pg:%d)...", httpPort, grpcPort, pgPort)
 
 	if err := multigatewayCmd.Start(); err != nil {
 		return nil, fmt.Errorf("failed to start multigateway: %w", err)
@@ -470,7 +477,7 @@ func (p *localProvisioner) provisionMultigateway(ctx context.Context, req *provi
 		Service:    "multigateway",
 		PID:        multigatewayCmd.Process.Pid,
 		BinaryPath: multigatewayBinary,
-		Ports:      map[string]int{"http_port": httpPort, "grpc_port": grpcPort},
+		Ports:      map[string]int{"http_port": httpPort, "grpc_port": grpcPort, "pg_port": pgPort},
 		FQDN:       "localhost",
 		LogFile:    logFile,
 		StartedAt:  time.Now(),
@@ -483,7 +490,7 @@ func (p *localProvisioner) provisionMultigateway(ctx context.Context, req *provi
 	}
 
 	// Wait for multigateway to be ready
-	servicePorts := map[string]int{"http_port": httpPort, "grpc_port": grpcPort}
+	servicePorts := map[string]int{"http_port": httpPort, "grpc_port": grpcPort, "pg_port": pgPort}
 	if err := p.waitForServiceReady("multigateway", "localhost", servicePorts, 10*time.Second); err != nil {
 		logs := p.readServiceLogs(logFile, 20)
 		return nil, fmt.Errorf("multigateway readiness check failed: %w\n\nLast 20 lines from multigateway logs:\n%s", err, logs)
@@ -496,6 +503,7 @@ func (p *localProvisioner) provisionMultigateway(ctx context.Context, req *provi
 		Ports: map[string]int{
 			"http_port": httpPort,
 			"grpc_port": grpcPort,
+			"pg_port":   pgPort,
 		},
 		Metadata: map[string]any{
 			"service_id": serviceID,
@@ -1147,22 +1155,22 @@ func (p *localProvisioner) stopProcessByPID(pid int) error {
 
 // waitForProcessExit waits for a process to exit by polling with Signal(0)
 func (p *localProvisioner) waitForProcessExit(process *os.Process, timeout time.Duration) {
-	ticker := timertools.NewBackoffTicker(10*time.Millisecond, 1*time.Second)
-	defer ticker.Stop()
-	timeoutch := time.After(timeout)
-	for {
-		select {
-		case <-ticker.C:
-			// Send null signal to test if process exists
-			err := process.Signal(syscall.Signal(0))
-			if err != nil {
-				fmt.Printf("Process %d stopped successfully\n", process.Pid)
-				// Process has exited or doesn't exist
-				return
-			}
-		case <-timeoutch:
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	r := retry.New(10*time.Millisecond, 1*time.Second)
+	for _, err := range r.Attempts(ctx) {
+		if err != nil {
+			// Timeout reached
 			fmt.Printf("Process %d still running after SIGTERM\n", process.Pid)
-			// No need to wait further
+			return
+		}
+
+		// Send null signal to test if process exists
+		err := process.Signal(syscall.Signal(0))
+		if err != nil {
+			fmt.Printf("Process %d stopped successfully\n", process.Pid)
+			// Process has exited or doesn't exist
 			return
 		}
 	}

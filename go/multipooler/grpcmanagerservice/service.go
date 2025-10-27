@@ -157,12 +157,13 @@ func (s *managerService) PrimaryPosition(ctx context.Context, req *multipoolerma
 
 // StopReplicationAndGetStatus stops PostgreSQL replication and returns the status
 func (s *managerService) StopReplicationAndGetStatus(ctx context.Context, req *multipoolermanagerdata.StopReplicationAndGetStatusRequest) (*multipoolermanagerdata.StopReplicationAndGetStatusResponse, error) {
-	_, err := s.manager.StopReplicationAndGetStatus(ctx)
+	status, err := s.manager.StopReplicationAndGetStatus(ctx)
 	if err != nil {
 		return nil, mterrors.ToGRPC(err)
 	}
-	// TODO: Convert map to proper response structure
-	return &multipoolermanagerdata.StopReplicationAndGetStatusResponse{}, nil
+	return &multipoolermanagerdata.StopReplicationAndGetStatusResponse{
+		Status: status,
+	}, nil
 }
 
 // ChangeType changes the pooler type (LEADER/FOLLOWER)
