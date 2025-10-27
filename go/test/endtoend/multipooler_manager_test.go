@@ -3004,10 +3004,19 @@ func TestPrimaryStatus(t *testing.T) {
 				!statusResp.Status.IsWalReplayPaused
 		}, 5*time.Second, 200*time.Millisecond, "Replication should be established")
 
-		// Get primary status
-		statusResp, err := primaryManagerClient.PrimaryStatus(utils.WithShortDeadline(t), &multipoolermanagerdata.PrimaryStatusRequest{})
-		require.NoError(t, err, "PrimaryStatus should succeed")
-		require.NotNil(t, statusResp.Status, "Status should not be nil")
+		// Wait for primary to register the follower in pg_stat_replication
+		// There can be a delay between standby connection and primary's view update
+		t.Log("Waiting for primary to register the follower...")
+		var statusResp *multipoolermanagerdata.PrimaryStatusResponse
+		require.Eventually(t, func() bool {
+			var err error
+			statusResp, err = primaryManagerClient.PrimaryStatus(utils.WithShortDeadline(t), &multipoolermanagerdata.PrimaryStatusRequest{})
+			if err != nil {
+				t.Logf("PrimaryStatus error: %v", err)
+				return false
+			}
+			return statusResp.Status != nil && len(statusResp.Status.Followers) > 0
+		}, 10*time.Second, 200*time.Millisecond, "Primary should register the follower")
 
 		// Verify followers list contains the standby
 		require.NotEmpty(t, statusResp.Status.Followers, "Should have at least one follower")
