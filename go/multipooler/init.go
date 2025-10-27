@@ -172,14 +172,6 @@ func (mp *MultiPooler) Init() {
 	// at that point.
 	mp.ts = mp.topoConfig.Open()
 
-	// This doen't change
-	mp.serverStatus.Cell = mp.cell.Get()
-	mp.serverStatus.ServiceID = mp.serviceID.Get()
-	mp.serverStatus.Database = mp.database.Get()
-	mp.serverStatus.TableGroup = mp.tableGroup.Get()
-	mp.serverStatus.PgctldAddr = mp.pgctldAddr.Get()
-	mp.serverStatus.SocketFilePath = mp.socketFilePath.Get()
-
 	logger.Info("multipooler starting up",
 		"pgctld_addr", mp.pgctldAddr.Get(),
 		"cell", mp.cell.Get(),
@@ -261,7 +253,11 @@ func (mp *MultiPooler) Init() {
 			mp.tr = toporeg.Register(
 				registerFunc,
 				unregisterFunc,
-				func(s string) { mp.serverStatus.InitError = s }, /* alarm */
+				func(s string) {
+					mp.serverStatus.mu.Lock()
+					defer mp.serverStatus.mu.Unlock()
+					mp.serverStatus.InitError = s
+				}, /* alarm */
 			)
 		},
 	)

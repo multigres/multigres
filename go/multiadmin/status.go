@@ -17,6 +17,7 @@ package multiadmin
 import (
 	"fmt"
 	"net/http"
+	"sync"
 
 	"github.com/multigres/multigres/go/web"
 )
@@ -30,9 +31,10 @@ type Link struct {
 
 // Status represents the response from the temporary status endpoint
 type Status struct {
+	mu sync.Mutex
+
 	Title string `json:"title"`
 
-	InitError  string            `json:"init_error"`
 	TopoStatus map[string]string `json:"topo_status"`
 
 	Links []Link `json:"links"`
@@ -40,8 +42,11 @@ type Status struct {
 
 // handleIndex serves the index page
 func (ma *MultiAdmin) handleIndex(w http.ResponseWriter, r *http.Request) {
+	ma.serverStatus.mu.Lock()
+	defer ma.serverStatus.mu.Unlock()
+
 	ma.serverStatus.TopoStatus = ma.ts.Status()
-	err := web.Templates.ExecuteTemplate(w, "admin_index.html", ma.serverStatus)
+	err := web.Templates.ExecuteTemplate(w, "admin_index.html", &ma.serverStatus)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Failed to execute template: %v", err), http.StatusInternalServerError)
 		return
@@ -70,13 +75,9 @@ func (ma *MultiAdmin) handleServices(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// handleReady serves the readiness check
+// handleReady serves the readiness check. For now, it's always ready.
 func (ma *MultiAdmin) handleReady(w http.ResponseWriter, r *http.Request) {
-	isReady := (len(ma.serverStatus.InitError) == 0)
-	if !isReady {
-		w.WriteHeader(http.StatusServiceUnavailable)
-	}
-	if err := web.Templates.ExecuteTemplate(w, "isok.html", isReady); err != nil {
+	if err := web.Templates.ExecuteTemplate(w, "isok.html", true); err != nil {
 		http.Error(w, fmt.Sprintf("Failed to execute template: %v", err), http.StatusInternalServerError)
 		return
 	}

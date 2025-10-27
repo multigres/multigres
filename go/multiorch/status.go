@@ -17,6 +17,7 @@ package multiorch
 import (
 	"fmt"
 	"net/http"
+	"sync"
 
 	"github.com/multigres/multigres/go/web"
 )
@@ -30,6 +31,8 @@ type Link struct {
 
 // Status contains information for serving the HTML status page.
 type Status struct {
+	mu sync.Mutex
+
 	Title string `json:"title"`
 
 	InitError  string            `json:"init_error"`
@@ -42,8 +45,12 @@ type Status struct {
 
 // handleIndex serves the index page
 func (mo *MultiOrch) handleIndex(w http.ResponseWriter, r *http.Request) {
+	mo.serverStatus.mu.Lock()
+	defer mo.serverStatus.mu.Unlock()
+
+	mo.serverStatus.Cell = mo.cell.Get()
 	mo.serverStatus.TopoStatus = mo.ts.Status()
-	err := web.Templates.ExecuteTemplate(w, "orch_index.html", mo.serverStatus)
+	err := web.Templates.ExecuteTemplate(w, "orch_index.html", &mo.serverStatus)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Failed to execute template: %v", err), http.StatusInternalServerError)
 		return
@@ -52,6 +59,9 @@ func (mo *MultiOrch) handleIndex(w http.ResponseWriter, r *http.Request) {
 
 // handleReady serves the readiness check
 func (mo *MultiOrch) handleReady(w http.ResponseWriter, r *http.Request) {
+	mo.serverStatus.mu.Lock()
+	defer mo.serverStatus.mu.Unlock()
+
 	isReady := (len(mo.serverStatus.InitError) == 0)
 	if !isReady {
 		w.WriteHeader(http.StatusServiceUnavailable)

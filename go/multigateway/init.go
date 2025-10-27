@@ -155,7 +155,11 @@ func (mg *MultiGateway) Init() {
 	mg.tr = toporeg.Register(
 		func(ctx context.Context) error { return mg.ts.RegisterMultiGateway(ctx, multigateway, true) },
 		func(ctx context.Context) error { return mg.ts.UnregisterMultiGateway(ctx, multigateway.Id) },
-		func(s string) { mg.serverStatus.InitError = s },
+		func(s string) {
+			mg.serverStatus.mu.Lock()
+			defer mg.serverStatus.mu.Unlock()
+			mg.serverStatus.InitError = s
+		},
 	)
 
 	// Start pooler discovery

@@ -88,9 +88,6 @@ func (mo *MultiOrch) Init() {
 	logger := mo.senv.GetLogger()
 	mo.ts = mo.topoConfig.Open()
 
-	// This doesn't change
-	mo.serverStatus.Cell = mo.cell.Get()
-
 	logger.Info("multiorch starting up",
 		"cell", mo.cell.Get(),
 		"http_port", mo.senv.GetHTTPPort(),
@@ -106,7 +103,11 @@ func (mo *MultiOrch) Init() {
 	mo.tr = toporeg.Register(
 		func(ctx context.Context) error { return mo.ts.RegisterMultiOrch(ctx, multiorch, true) },
 		func(ctx context.Context) error { return mo.ts.UnregisterMultiOrch(ctx, multiorch.Id) },
-		func(s string) { mo.serverStatus.InitError = s },
+		func(s string) {
+			mo.serverStatus.mu.Lock()
+			defer mo.serverStatus.mu.Unlock()
+			mo.serverStatus.InitError = s
+		},
 	)
 
 	mo.senv.HTTPHandleFunc("/", mo.handleIndex)
