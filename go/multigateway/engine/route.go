@@ -45,35 +45,22 @@ func NewRoute(tableGroup, database, query string) *Route {
 }
 
 // StreamExecute executes the route by sending the query to the target tablegroup.
+// It uses the IExecute interface to perform the actual execution, allowing for
+// easy testing and decoupling from concrete execution implementations.
 func (r *Route) StreamExecute(
+	exec IExecute,
 	conn *server.Conn,
 	callback func(*query.QueryResult) error,
 ) error {
-	// TODO(Phase 2): Replace stub with actual ScatterConn execution
-	// return r.scatterConn.StreamExecute(conn.ctx, r.TableGroup, r.Query, callback)
-
-	// For now, return a stub result indicating we reached the Route primitive
-	result := &query.QueryResult{
-		Fields: []*query.Field{
-			{
-				Name:         "message",
-				Type:         "text",
-				DataTypeOid:  25, // text type OID
-				DataTypeSize: -1, // variable length
-				Format:       0,  // text format
-			},
-		},
-		Rows: []*query.Row{
-			{
-				Values: [][]byte{
-					[]byte(fmt.Sprintf("Route: tablegroup=%s, query=%s", r.TableGroup, r.Query)),
-				},
-			},
-		},
-		CommandTag: "SELECT 1",
-	}
-
-	return callback(result)
+	// Execute the query through the execution interface
+	// This will call ScatterConn in Phase 2+, or a stub/mock in testing
+	return exec.StreamExecute(
+		conn.Context(),
+		r.TableGroup,
+		r.Database,
+		r.Query,
+		callback,
+	)
 }
 
 // GetTableGroup returns the target tablegroup.

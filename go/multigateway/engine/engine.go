@@ -18,17 +18,48 @@
 package engine
 
 import (
+	"context"
+
 	"github.com/multigres/multigres/go/pb/query"
 	"github.com/multigres/multigres/go/pgprotocol/server"
 )
 
+// IExecute is the execution interface that provides access to execution
+// resources like ScatterConn. It's passed to primitives during execution,
+// allowing them to execute queries without directly depending on concrete types.
+//
+// This design (inspired by Vitess's VCursor) makes primitives much easier to test
+// by allowing mock implementations to be passed in.
+type IExecute interface {
+	// StreamExecute executes a query on the specified tablegroup and streams results.
+	// This is the main execution method that primitives call to actually run queries.
+	//
+	// Parameters:
+	//   ctx: Context for cancellation and timeouts
+	//   tableGroup: Target tablegroup for the query
+	//   database: Target database name
+	//   sql: SQL query to execute
+	//   callback: Function called for each result chunk
+	StreamExecute(
+		ctx context.Context,
+		tableGroup string,
+		database string,
+		sql string,
+		callback func(*query.QueryResult) error,
+	) error
+}
+
 // Primitive is the building block of the query execution plan.
 // Each primitive represents an operation in the query execution tree
 // (e.g., route to tablegroup, join, aggregate, etc.).
+//
+// Primitives receive an IExecute interface during execution, which provides
+// access to execution resources without tight coupling.
 type Primitive interface {
 	// StreamExecute executes the primitive and streams results via callback.
-	// This is the main execution method for all primitives.
+	// The IExecute interface provides access to execution resources.
 	StreamExecute(
+		exec IExecute,
 		conn *server.Conn,
 		callback func(*query.QueryResult) error,
 	) error

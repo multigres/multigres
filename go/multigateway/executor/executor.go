@@ -17,10 +17,10 @@ package executor
 import (
 	"log/slog"
 
+	"github.com/multigres/multigres/go/multigateway/engine"
 	"github.com/multigres/multigres/go/multigateway/planner"
 	"github.com/multigres/multigres/go/pb/query"
 	"github.com/multigres/multigres/go/pgprotocol/server"
-	"github.com/multigres/multigres/go/servenv"
 )
 
 const (
@@ -31,19 +31,23 @@ const (
 // Executor is the query execution engine for multigateway.
 // It handles query planning, routing to appropriate multipooler instances,
 // and result streaming back to clients.
+//
+// The Executor depends only on the IExecute interface, not on concrete
+// implementations like ScatterConn. This makes it easy to test by passing
+// mock implementations.
 type Executor struct {
-	senv    *servenv.ServEnv
 	planner *planner.Planner
+	exec    engine.IExecute
 	logger  *slog.Logger
 }
 
 // NewExecutor creates a new executor instance.
-func NewExecutor(senv *servenv.ServEnv) *Executor {
-	logger := senv.GetLogger().With("component", "multigateway_executor")
-
+// The IExecute parameter provides the execution backend (typically ScatterConn).
+// This dependency injection pattern makes testing much easier.
+func NewExecutor(exec engine.IExecute, logger *slog.Logger) *Executor {
 	return &Executor{
-		senv:    senv,
 		planner: planner.NewPlanner(DefaultTableGroup, logger),
+		exec:    exec,
 		logger:  logger,
 	}
 }
@@ -78,7 +82,8 @@ func (e *Executor) StreamExecute(
 		"tablegroup", plan.GetTableGroup())
 
 	// Step 2: Execute the plan
-	err = plan.StreamExecute(conn, callback)
+	// Pass the IExecute implementation to the plan, which will pass it to the primitive
+	err = plan.StreamExecute(e.exec, conn, callback)
 	if err != nil {
 		e.logger.Error("query execution failed",
 			"query", sql,

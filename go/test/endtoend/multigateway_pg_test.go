@@ -66,9 +66,10 @@ func TestMultiGateway_PostgreSQLConnection(t *testing.T) {
 	var message string
 	err = rows.Scan(&message)
 	require.NoError(t, err, "failed to scan row")
-	// Phase 1: Route primitive returns information about the route
-	assert.Contains(t, message, "Route:", "unexpected message - should contain route info")
+	// Phase 2: ScatterConn returns information about the execution
+	assert.Contains(t, message, "ScatterConn:", "unexpected message - should contain ScatterConn info")
 	assert.Contains(t, message, "tablegroup=default", "unexpected message - should show default tablegroup")
+	assert.Contains(t, message, "database=postgres", "unexpected message - should show database")
 	assert.Contains(t, message, "SELECT * FROM test", "unexpected message - should show original query")
 
 	// Verify no more rows

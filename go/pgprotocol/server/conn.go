@@ -161,6 +161,11 @@ func (c *Conn) Database() string {
 	return c.database
 }
 
+// Context returns the connection's context.
+func (c *Conn) Context() context.Context {
+	return c.ctx
+}
+
 // returnReader returns the buffered reader to the pool.
 func (c *Conn) returnReader() {
 	c.bufMu.Lock()

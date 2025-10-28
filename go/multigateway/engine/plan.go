@@ -42,10 +42,11 @@ func NewPlan(original string, primitive Primitive) *Plan {
 
 // StreamExecute executes the plan by calling the root primitive's StreamExecute.
 func (p *Plan) StreamExecute(
+	exec IExecute,
 	conn *server.Conn,
 	callback func(*query.QueryResult) error,
 ) error {
-	return p.Primitive.StreamExecute(conn, callback)
+	return p.Primitive.StreamExecute(exec, conn, callback)
 }
 
 // GetTableGroup returns the target tablegroup from the primitive.
