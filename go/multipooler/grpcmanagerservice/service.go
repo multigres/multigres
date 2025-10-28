@@ -205,11 +205,15 @@ func (s *managerService) UndoDemote(ctx context.Context, req *multipoolermanager
 
 // Promote promotes a replica to leader (Multigres-level operation)
 func (s *managerService) Promote(ctx context.Context, req *multipoolermanagerdata.PromoteRequest) (*multipoolermanagerdata.PromoteResponse, error) {
-	err := s.manager.Promote(ctx)
+	resp, err := s.manager.Promote(ctx,
+		req.ConsensusTerm,
+		req.ExpectedLsn,
+		req.SyncReplicationConfig,
+		req.Force)
 	if err != nil {
 		return nil, mterrors.ToGRPC(err)
 	}
-	return &multipoolermanagerdata.PromoteResponse{}, nil
+	return resp, nil
 }
 
 // Status gets the current status of the manager

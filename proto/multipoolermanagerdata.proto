@@ -215,12 +215,38 @@ message ChangeTypeResponse {
 }
 
 // Promote promotes a replica to leader (Multigres-level operation)
+// This is called during the Propagate stage of generalized consensus
+// to safely transition a standby to primary and reconfigure replication.
 message PromoteRequest {
+  // Consensus term for this promotion operation
+  // Used to ensure this promotion corresponds to the correct term
+  int64 consensus_term = 1;
+
+  // Expected LSN position before promotion (optional, for validation)
+  // By the Propagate stage, replication should already be stopped and the LSN frozen.
+  // This is an assertion to verify the node has the expected durable state.
+  // If the actual LSN doesn't match, this indicates an error in an earlier consensus stage.
+  // If empty, skip LSN validation.
+  string expected_lsn = 2;
+
+  // Synchronous replication configuration to apply after promotion
+  // This rewires the cohort for the new topology
+  ConfigureSynchronousReplicationRequest sync_replication_config = 3;
+
+  // Force the operation even if term validation fails
+  // Should only be used in recovery scenarios
+  bool force = 4;
 }
 
 message PromoteResponse {
   // LSN position after promotion
   string lsn_position = 1;
+
+  // Whether the node was already promoted (idempotent check)
+  bool was_already_primary = 2;
+
+  // Consensus term at the time of promotion
+  int64 consensus_term = 3;
 }
 
 // ResetReplication resets the standby's connection to its primary

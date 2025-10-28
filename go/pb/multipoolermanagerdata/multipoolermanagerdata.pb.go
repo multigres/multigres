@@ -1545,8 +1545,25 @@ func (*ChangeTypeResponse) Descriptor() ([]byte, []int) {
 }
 
 // Promote promotes a replica to leader (Multigres-level operation)
+// This is called during the Propagate stage of generalized consensus
+// to safely transition a standby to primary and reconfigure replication.
 type PromoteRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Consensus term for this promotion operation
+	// Used to ensure this promotion corresponds to the correct term
+	ConsensusTerm int64 `protobuf:"varint,1,opt,name=consensus_term,json=consensusTerm,proto3" json:"consensus_term,omitempty"`
+	// Expected LSN position before promotion (optional, for validation)
+	// By the Propagate stage, replication should already be stopped and the LSN frozen.
+	// This is an assertion to verify the node has the expected durable state.
+	// If the actual LSN doesn't match, this indicates an error in an earlier consensus stage.
+	// If empty, skip LSN validation.
+	ExpectedLsn string `protobuf:"bytes,2,opt,name=expected_lsn,json=expectedLsn,proto3" json:"expected_lsn,omitempty"`
+	// Synchronous replication configuration to apply after promotion
+	// This rewires the cohort for the new topology
+	SyncReplicationConfig *ConfigureSynchronousReplicationRequest `protobuf:"bytes,3,opt,name=sync_replication_config,json=syncReplicationConfig,proto3" json:"sync_replication_config,omitempty"`
+	// Force the operation even if term validation fails
+	// Should only be used in recovery scenarios
+	Force         bool `protobuf:"varint,4,opt,name=force,proto3" json:"force,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1581,10 +1598,42 @@ func (*PromoteRequest) Descriptor() ([]byte, []int) {
 	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{28}
 }
 
+func (x *PromoteRequest) GetConsensusTerm() int64 {
+	if x != nil {
+		return x.ConsensusTerm
+	}
+	return 0
+}
+
+func (x *PromoteRequest) GetExpectedLsn() string {
+	if x != nil {
+		return x.ExpectedLsn
+	}
+	return ""
+}
+
+func (x *PromoteRequest) GetSyncReplicationConfig() *ConfigureSynchronousReplicationRequest {
+	if x != nil {
+		return x.SyncReplicationConfig
+	}
+	return nil
+}
+
+func (x *PromoteRequest) GetForce() bool {
+	if x != nil {
+		return x.Force
+	}
+	return false
+}
+
 type PromoteResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// LSN position after promotion
-	LsnPosition   string `protobuf:"bytes,1,opt,name=lsn_position,json=lsnPosition,proto3" json:"lsn_position,omitempty"`
+	LsnPosition string `protobuf:"bytes,1,opt,name=lsn_position,json=lsnPosition,proto3" json:"lsn_position,omitempty"`
+	// Whether the node was already promoted (idempotent check)
+	WasAlreadyPrimary bool `protobuf:"varint,2,opt,name=was_already_primary,json=wasAlreadyPrimary,proto3" json:"was_already_primary,omitempty"`
+	// Consensus term at the time of promotion
+	ConsensusTerm int64 `protobuf:"varint,3,opt,name=consensus_term,json=consensusTerm,proto3" json:"consensus_term,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1624,6 +1673,20 @@ func (x *PromoteResponse) GetLsnPosition() string {
 		return x.LsnPosition
 	}
 	return ""
+}
+
+func (x *PromoteResponse) GetWasAlreadyPrimary() bool {
+	if x != nil {
+		return x.WasAlreadyPrimary
+	}
+	return false
+}
+
+func (x *PromoteResponse) GetConsensusTerm() int64 {
+	if x != nil {
+		return x.ConsensusTerm
+	}
+	return 0
 }
 
 // ResetReplication resets the standby's connection to its primary
@@ -2189,10 +2252,16 @@ const file_multipoolermanagerdata_proto_rawDesc = "" +
 	"\x11ChangeTypeRequest\x12<\n" +
 	"\vpooler_type\x18\x01 \x01(\x0e2\x1b.clustermetadata.PoolerTypeR\n" +
 	"poolerType\"\x14\n" +
-	"\x12ChangeTypeResponse\"\x10\n" +
-	"\x0ePromoteRequest\"4\n" +
+	"\x12ChangeTypeResponse\"\xe8\x01\n" +
+	"\x0ePromoteRequest\x12%\n" +
+	"\x0econsensus_term\x18\x01 \x01(\x03R\rconsensusTerm\x12!\n" +
+	"\fexpected_lsn\x18\x02 \x01(\tR\vexpectedLsn\x12v\n" +
+	"\x17sync_replication_config\x18\x03 \x01(\v2>.multipoolermanagerdata.ConfigureSynchronousReplicationRequestR\x15syncReplicationConfig\x12\x14\n" +
+	"\x05force\x18\x04 \x01(\bR\x05force\"\x8b\x01\n" +
 	"\x0fPromoteResponse\x12!\n" +
-	"\flsn_position\x18\x01 \x01(\tR\vlsnPosition\"\x19\n" +
+	"\flsn_position\x18\x01 \x01(\tR\vlsnPosition\x12.\n" +
+	"\x13was_already_primary\x18\x02 \x01(\bR\x11wasAlreadyPrimary\x12%\n" +
+	"\x0econsensus_term\x18\x03 \x01(\x03R\rconsensusTerm\"\x19\n" +
 	"\x17ResetReplicationRequest\"]\n" +
 	"\x18ResetReplicationResponse\x12A\n" +
 	"\x06status\x18\x01 \x01(\v2).multipoolermanagerdata.ReplicationStatusR\x06status\"\xd7\x02\n" +
@@ -2313,18 +2382,19 @@ var file_multipoolermanagerdata_proto_depIdxs = []int32{
 	16, // 11: multipoolermanagerdata.DemoteResponse.leader_status:type_name -> multipoolermanagerdata.PrimaryStatus
 	4,  // 12: multipoolermanagerdata.StopReplicationAndGetStatusResponse.status:type_name -> multipoolermanagerdata.ReplicationStatus
 	45, // 13: multipoolermanagerdata.ChangeTypeRequest.pooler_type:type_name -> clustermetadata.PoolerType
-	4,  // 14: multipoolermanagerdata.ResetReplicationResponse.status:type_name -> multipoolermanagerdata.ReplicationStatus
-	2,  // 15: multipoolermanagerdata.ConfigureSynchronousReplicationRequest.synchronous_commit:type_name -> multipoolermanagerdata.SynchronousCommitLevel
-	0,  // 16: multipoolermanagerdata.ConfigureSynchronousReplicationRequest.synchronous_method:type_name -> multipoolermanagerdata.SynchronousMethod
-	44, // 17: multipoolermanagerdata.ConfigureSynchronousReplicationRequest.standby_ids:type_name -> clustermetadata.ID
-	46, // 18: multipoolermanagerdata.SetTermRequest.term:type_name -> pgctldservice.ConsensusTerm
-	1,  // 19: multipoolermanagerdata.UpdateSynchronousStandbyListRequest.operation:type_name -> multipoolermanagerdata.StandbyUpdateOperation
-	44, // 20: multipoolermanagerdata.UpdateSynchronousStandbyListRequest.standby_ids:type_name -> clustermetadata.ID
-	21, // [21:21] is the sub-list for method output_type
-	21, // [21:21] is the sub-list for method input_type
-	21, // [21:21] is the sub-list for extension type_name
-	21, // [21:21] is the sub-list for extension extendee
-	0,  // [0:21] is the sub-list for field type_name
+	35, // 14: multipoolermanagerdata.PromoteRequest.sync_replication_config:type_name -> multipoolermanagerdata.ConfigureSynchronousReplicationRequest
+	4,  // 15: multipoolermanagerdata.ResetReplicationResponse.status:type_name -> multipoolermanagerdata.ReplicationStatus
+	2,  // 16: multipoolermanagerdata.ConfigureSynchronousReplicationRequest.synchronous_commit:type_name -> multipoolermanagerdata.SynchronousCommitLevel
+	0,  // 17: multipoolermanagerdata.ConfigureSynchronousReplicationRequest.synchronous_method:type_name -> multipoolermanagerdata.SynchronousMethod
+	44, // 18: multipoolermanagerdata.ConfigureSynchronousReplicationRequest.standby_ids:type_name -> clustermetadata.ID
+	46, // 19: multipoolermanagerdata.SetTermRequest.term:type_name -> pgctldservice.ConsensusTerm
+	1,  // 20: multipoolermanagerdata.UpdateSynchronousStandbyListRequest.operation:type_name -> multipoolermanagerdata.StandbyUpdateOperation
+	44, // 21: multipoolermanagerdata.UpdateSynchronousStandbyListRequest.standby_ids:type_name -> clustermetadata.ID
+	22, // [22:22] is the sub-list for method output_type
+	22, // [22:22] is the sub-list for method input_type
+	22, // [22:22] is the sub-list for extension type_name
+	22, // [22:22] is the sub-list for extension extendee
+	0,  // [0:22] is the sub-list for field type_name
 }
 
 func init() { file_multipoolermanagerdata_proto_init() }

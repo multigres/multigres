@@ -20,6 +20,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -76,6 +77,14 @@ type MultiPoolerManager struct {
 	ctx             context.Context
 	cancel          context.CancelFunc
 	loadTimeout     time.Duration
+}
+
+// promotionState tracks which parts of the promotion are complete
+type promotionState struct {
+	isPrimaryInPostgres    bool
+	isPrimaryInTopology    bool
+	syncReplicationMatches bool
+	currentLSN             string
 }
 
 // NewMultiPoolerManager creates a new MultiPoolerManager instance
@@ -274,6 +283,17 @@ func (pm *MultiPoolerManager) checkPoolerType(expectedType clustermetadatapb.Poo
 				poolerType.String(), expectedType.String(), pm.serviceID.String()))
 	}
 	return nil
+}
+
+// getCurrentTerm returns the current consensus term in a thread-safe manner
+func (pm *MultiPoolerManager) getCurrentTerm() int64 {
+	pm.mu.RLock()
+	defer pm.mu.RUnlock()
+
+	if pm.consensusTerm == nil {
+		return 0
+	}
+	return pm.consensusTerm.GetCurrentTerm()
 }
 
 // checkReplicaGuardrails verifies that the pooler is a REPLICA and PostgreSQL is in recovery mode
@@ -482,12 +502,7 @@ func (pm *MultiPoolerManager) validateAndUpdateTerm(ctx context.Context, request
 		return nil // Skip validation if force is set
 	}
 
-	pm.mu.RLock()
-	currentTerm := int64(0)
-	if pm.consensusTerm != nil {
-		currentTerm = pm.consensusTerm.GetCurrentTerm()
-	}
-	pm.mu.RUnlock()
+	currentTerm := pm.getCurrentTerm()
 
 	// Check if consensus term has been initialized (term 0 means uninitialized)
 	if currentTerm == 0 {
@@ -537,6 +552,39 @@ func (pm *MultiPoolerManager) validateAndUpdateTerm(ctx context.Context, request
 		pm.logger.Info("Consensus term updated successfully", "new_term", requestTerm)
 	}
 	// If requestTerm == currentCachedTerm, just continue (same term is OK)
+	return nil
+}
+
+// validateTermExactMatch validates that the request term exactly matches the current term.
+// Unlike validateAndUpdateTerm, this does NOT update the term automatically.
+// This is used for Promote to ensure the node was properly recruited before promotion.
+func (pm *MultiPoolerManager) validateTermExactMatch(ctx context.Context, requestTerm int64, force bool) error {
+	if force {
+		return nil // Skip validation if force is set
+	}
+
+	currentTerm := pm.getCurrentTerm()
+
+	// Check if consensus term has been initialized
+	if currentTerm == 0 {
+		pm.logger.Error("Consensus term not initialized - node not recruited",
+			"service_id", pm.serviceID.String())
+		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
+			"consensus term not initialized - node must be recruited via SetTerm first")
+	}
+
+	// Require exact match - do not update term automatically
+	if requestTerm != currentTerm {
+		pm.logger.Error("Promote term mismatch - node not recruited for this term",
+			"request_term", requestTerm,
+			"current_term", currentTerm,
+			"service_id", pm.serviceID.String())
+		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
+			fmt.Sprintf("term mismatch: node not recruited for term %d (current term is %d). "+
+				"Coordinator must call SetTerm first to recruit this node",
+				requestTerm, currentTerm))
+	}
+
 	return nil
 }
 
@@ -1622,20 +1670,351 @@ func (pm *MultiPoolerManager) UndoDemote(ctx context.Context) error {
 	return mterrors.New(mtrpcpb.Code_UNIMPLEMENTED, "method UndoDemote not implemented")
 }
 
-// Promote promotes a follower to leader
-func (pm *MultiPoolerManager) Promote(ctx context.Context) error {
+// checkPromotionState checks the current state to determine what steps remain
+func (pm *MultiPoolerManager) checkPromotionState(ctx context.Context, syncReplicationConfig *multipoolermanagerdata.ConfigureSynchronousReplicationRequest) (*promotionState, error) {
+	state := &promotionState{}
+
+	// Check PostgreSQL promotion state
+	var isInRecovery bool
+	err := pm.db.QueryRowContext(ctx, "SELECT pg_is_in_recovery()").Scan(&isInRecovery)
+	if err != nil {
+		pm.logger.Error("Failed to check recovery status", "error", err)
+		return nil, mterrors.Wrap(err, "failed to check recovery status")
+	}
+
+	state.isPrimaryInPostgres = !isInRecovery
+
+	if state.isPrimaryInPostgres {
+		// Get current LSN
+		err := pm.db.QueryRowContext(ctx, "SELECT pg_current_wal_lsn()::text").Scan(&state.currentLSN)
+		if err != nil {
+			pm.logger.Error("Failed to get current LSN", "error", err)
+			return nil, mterrors.Wrap(err, "failed to get current LSN")
+		}
+	}
+
+	// Check topology state
+	pm.mu.RLock()
+	poolerType := pm.multipooler.Type
+	pm.mu.RUnlock()
+
+	state.isPrimaryInTopology = (poolerType == clustermetadatapb.PoolerType_PRIMARY)
+
+	// Check sync replication state
+	if syncReplicationConfig != nil && state.isPrimaryInPostgres {
+		state.syncReplicationMatches = false
+		currentConfig, err := pm.getSynchronousReplicationConfig(ctx)
+		if err != nil {
+			pm.logger.Warn("Failed to get current sync replication config", "error", err)
+		}
+		if err == nil {
+			state.syncReplicationMatches = pm.syncReplicationConfigMatches(currentConfig, syncReplicationConfig)
+		}
+	}
+
+	pm.logger.Info("Checked promotion state",
+		"is_primary_in_postgres", state.isPrimaryInPostgres,
+		"is_primary_in_topology", state.isPrimaryInTopology,
+		"sync_replication_matches", state.syncReplicationMatches)
+
+	return state, nil
+}
+
+// syncReplicationConfigMatches checks if the current sync replication config matches the requested config
+func (pm *MultiPoolerManager) syncReplicationConfigMatches(current *multipoolermanagerdata.SynchronousReplicationConfiguration, requested *multipoolermanagerdata.ConfigureSynchronousReplicationRequest) bool {
+	// Check synchronous commit level
+	if current.SynchronousCommit != requested.SynchronousCommit {
+		return false
+	}
+
+	// Check synchronous method
+	if current.SynchronousMethod != requested.SynchronousMethod {
+		return false
+	}
+
+	// Check num_sync
+	if current.NumSync != requested.NumSync {
+		return false
+	}
+
+	// Check standby IDs (must match exactly 1:1, so sort and compare)
+	if len(current.StandbyIds) != len(requested.StandbyIds) {
+		return false
+	}
+
+	// Sort both lists by cell_name for comparison
+	currentSorted := make([]string, len(current.StandbyIds))
+	for i, id := range current.StandbyIds {
+		currentSorted[i] = fmt.Sprintf("%s_%s", id.Cell, id.Name)
+	}
+	sort.Strings(currentSorted)
+
+	requestedSorted := make([]string, len(requested.StandbyIds))
+	for i, id := range requested.StandbyIds {
+		requestedSorted[i] = fmt.Sprintf("%s_%s", id.Cell, id.Name)
+	}
+	sort.Strings(requestedSorted)
+
+	// Compare sorted lists element by element
+	for i := range currentSorted {
+		if currentSorted[i] != requestedSorted[i] {
+			return false
+		}
+	}
+
+	return true
+}
+
+// validateExpectedLSN validates that the current replay LSN matches the expected LSN
+func (pm *MultiPoolerManager) validateExpectedLSN(ctx context.Context, expectedLSN string) error {
+	if expectedLSN == "" {
+		return nil // No validation requested
+	}
+
+	var currentLSN string
+	var isPaused bool
+	query := "SELECT pg_last_wal_replay_lsn()::text, pg_is_wal_replay_paused()"
+	err := pm.db.QueryRowContext(ctx, query).Scan(&currentLSN, &isPaused)
+	if err != nil {
+		pm.logger.Error("Failed to get current replay LSN and pause state", "error", err)
+		return mterrors.Wrap(err, "failed to get current replay LSN and pause state")
+	}
+
+	// Best practice: WAL replay should be paused before promotion
+	// The coordinator should have called StopReplication during Discovery stage
+	if !isPaused {
+		pm.logger.Warn("WAL replay is not paused before promotion - coordinator may have skipped Discovery stage",
+			"current_lsn", currentLSN,
+			"expected_lsn", expectedLSN)
+		// Note: We don't fail here as this is a soft check, but it indicates
+		// a potential issue in the consensus flow
+	}
+
+	if currentLSN != expectedLSN {
+		pm.logger.Error("LSN mismatch - node does not have expected durable state",
+			"expected_lsn", expectedLSN,
+			"current_lsn", currentLSN)
+		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
+			fmt.Sprintf("LSN mismatch: expected %s, current %s. "+
+				"This indicates an error in an earlier consensus stage.",
+				expectedLSN, currentLSN))
+	}
+
+	pm.logger.Info("LSN validation passed",
+		"lsn", currentLSN,
+		"wal_replay_paused", isPaused)
+	return nil
+}
+
+// promoteStandbyToPrimary calls pg_promote() and waits for promotion to complete
+func (pm *MultiPoolerManager) promoteStandbyToPrimary(ctx context.Context, state *promotionState) error {
+	// Return early if already promoted
+	if state.isPrimaryInPostgres {
+		pm.logger.Info("PostgreSQL already promoted, skipping")
+		return nil
+	}
+
+	// Call pg_promote() to promote standby to primary
+	pm.logger.Info("PostgreSQL promotion needed")
+	pm.logger.Info("Calling pg_promote() to promote standby to primary")
+	_, err := pm.db.ExecContext(ctx, "SELECT pg_promote()")
+	if err != nil {
+		pm.logger.Error("Failed to call pg_promote()", "error", err)
+		return mterrors.Wrap(err, "failed to promote standby")
+	}
+
+	// Wait for promotion to complete by polling pg_is_in_recovery()
+	pm.logger.Info("Waiting for promotion to complete")
+	return pm.waitForPromotionComplete(ctx)
+}
+
+// waitForPromotionComplete polls pg_is_in_recovery() until promotion is complete
+func (pm *MultiPoolerManager) waitForPromotionComplete(ctx context.Context) error {
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+
+	promotionTimeout := 30 * time.Second
+	promotionCtx, cancel := context.WithTimeout(ctx, promotionTimeout)
+	defer cancel()
+
+	for {
+		select {
+		case <-promotionCtx.Done():
+			pm.logger.Error("Timeout waiting for promotion to complete")
+			return mterrors.New(mtrpcpb.Code_DEADLINE_EXCEEDED,
+				fmt.Sprintf("timeout waiting for promotion to complete after %v", promotionTimeout))
+
+		case <-ticker.C:
+			var isInRecovery bool
+			err := pm.db.QueryRowContext(promotionCtx, "SELECT pg_is_in_recovery()").Scan(&isInRecovery)
+			if err != nil {
+				pm.logger.Error("Failed to check recovery status during promotion", "error", err)
+				return mterrors.Wrap(err, "failed to check recovery status")
+			}
+
+			if !isInRecovery {
+				pm.logger.Info("Promotion completed successfully - node is now primary")
+				return nil
+			}
+		}
+	}
+}
+
+// updateTopologyAfterPromotion updates the pooler type in topology from REPLICA to PRIMARY
+func (pm *MultiPoolerManager) updateTopologyAfterPromotion(ctx context.Context, state *promotionState) error {
+	// Return early if already updated
+	if state.isPrimaryInTopology {
+		pm.logger.Info("Topology already updated, skipping")
+		return nil
+	}
+
+	pm.logger.Info("Topology update needed")
+	pm.logger.Info("Updating pooler type in topology to PRIMARY")
+	updatedMultipooler, err := pm.topoClient.UpdateMultiPoolerFields(ctx, pm.serviceID, func(mp *clustermetadatapb.MultiPooler) error {
+		mp.Type = clustermetadatapb.PoolerType_PRIMARY
+		return nil
+	})
+	if err != nil {
+		pm.logger.Error("Failed to update pooler type in topology", "error", err)
+		return mterrors.Wrap(err, "promotion succeeded but failed to update topology")
+	}
+
+	pm.mu.Lock()
+	pm.multipooler.MultiPooler = updatedMultipooler
+	pm.mu.Unlock()
+
+	// Update heartbeat tracker to primary mode
+	if pm.replTracker != nil {
+		pm.logger.Info("Updating heartbeat tracker to primary mode")
+		pm.replTracker.MakePrimary()
+	}
+
+	return nil
+}
+
+// configureReplicationAfterPromotion applies synchronous replication configuration
+func (pm *MultiPoolerManager) configureReplicationAfterPromotion(ctx context.Context, state *promotionState, syncReplicationConfig *multipoolermanagerdata.ConfigureSynchronousReplicationRequest) error {
+	if syncReplicationConfig == nil {
+		return nil // No configuration requested
+	}
+
+	// Return early if already configured
+	if state.syncReplicationMatches {
+		pm.logger.Info("Sync replication already configured, skipping")
+		return nil
+	}
+
+	pm.logger.Info("Sync replication configuration needed")
+	pm.logger.Info("Configuring synchronous replication for new cohort")
+	err := pm.ConfigureSynchronousReplication(ctx,
+		syncReplicationConfig.SynchronousCommit,
+		syncReplicationConfig.SynchronousMethod,
+		syncReplicationConfig.NumSync,
+		syncReplicationConfig.StandbyIds,
+		syncReplicationConfig.ReloadConfig)
+	if err != nil {
+		pm.logger.Error("Failed to configure synchronous replication", "error", err)
+		return mterrors.Wrap(err, "promotion succeeded but failed to configure synchronous replication")
+	}
+
+	return nil
+}
+
+// Promote promotes a standby to primary
+// This is called during the Propagate stage of generalized consensus to safely
+// transition a standby to primary and reconfigure replication.
+// This operation is fully idempotent - it checks what steps are already complete
+// and only executes the missing steps.
+func (pm *MultiPoolerManager) Promote(ctx context.Context, consensusTerm int64, expectedLSN string, syncReplicationConfig *multipoolermanagerdata.ConfigureSynchronousReplicationRequest, force bool) (*multipoolermanagerdata.PromoteResponse, error) {
 	if err := pm.checkReady(); err != nil {
-		return err
+		return nil, err
 	}
 
 	// Acquire the action lock to ensure only one mutation runs at a time
 	if err := pm.lock(ctx); err != nil {
-		return err
+		return nil, err
 	}
 	defer pm.unlock()
 
-	pm.logger.Info("Promote called")
-	return mterrors.New(mtrpcpb.Code_UNIMPLEMENTED, "method Promote not implemented")
+	pm.logger.Info("Promote called",
+		"consensus_term", consensusTerm,
+		"expected_lsn", expectedLSN,
+		"force", force)
+
+	// Validation & Readiness
+
+	// Validate term - strict equality, no automatic updates
+	if err := pm.validateTermExactMatch(ctx, consensusTerm, force); err != nil {
+		return nil, err
+	}
+
+	// Ensure database connection
+	if err := pm.connectDB(); err != nil {
+		pm.logger.Error("Failed to connect to database", "error", err)
+		return nil, mterrors.Wrap(err, "database connection failed")
+	}
+
+	// Check current promotion state to determine what needs to be done
+	state, err := pm.checkPromotionState(ctx, syncReplicationConfig)
+	if err != nil {
+		return nil, err
+	}
+
+	// If everything is already complete, return early (fully idempotent)
+	if state.isPrimaryInPostgres && state.isPrimaryInTopology && state.syncReplicationMatches {
+		pm.logger.Info("Promotion already complete (idempotent)",
+			"lsn", state.currentLSN)
+		return &multipoolermanagerdata.PromoteResponse{
+			LsnPosition:       state.currentLSN,
+			WasAlreadyPrimary: true,
+			ConsensusTerm:     consensusTerm,
+		}, nil
+	}
+
+	// If PostgreSQL is not promoted yet, validate expected LSN before promotion
+	if !state.isPrimaryInPostgres {
+		if err := pm.validateExpectedLSN(ctx, expectedLSN); err != nil {
+			return nil, err
+		}
+	}
+
+	// Execute missing steps
+
+	// Promote PostgreSQL if needed
+	if err := pm.promoteStandbyToPrimary(ctx, state); err != nil {
+		return nil, err
+	}
+
+	// Update topology if needed
+	if err := pm.updateTopologyAfterPromotion(ctx, state); err != nil {
+		return nil, err
+	}
+
+	// Configure sync replication if needed
+	if err := pm.configureReplicationAfterPromotion(ctx, state, syncReplicationConfig); err != nil {
+		return nil, err
+	}
+
+	// TODO: Populate consensus metadata tables.
+
+	// Get final LSN position
+	var finalLSN string
+	err = pm.db.QueryRowContext(ctx, "SELECT pg_current_wal_lsn()::text").Scan(&finalLSN)
+	if err != nil {
+		pm.logger.Error("Failed to get final LSN", "error", err)
+		return nil, mterrors.Wrap(err, "failed to get final LSN")
+	}
+
+	pm.logger.Info("Promote completed successfully",
+		"final_lsn", finalLSN,
+		"consensus_term", consensusTerm,
+		"was_already_primary", state.isPrimaryInPostgres)
+
+	return &multipoolermanagerdata.PromoteResponse{
+		LsnPosition:       finalLSN,
+		WasAlreadyPrimary: state.isPrimaryInPostgres && state.isPrimaryInTopology && state.syncReplicationMatches,
+		ConsensusTerm:     consensusTerm,
+	}, nil
 }
 
 // SetTerm sets the consensus term information to local disk
