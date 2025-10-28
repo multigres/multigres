@@ -31,6 +31,7 @@ import (
 	"github.com/multigres/multigres/go/tools/retry"
 
 	"golang.org/x/sync/semaphore"
+	"google.golang.org/protobuf/types/known/durationpb"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
@@ -1355,7 +1356,7 @@ func (pm *MultiPoolerManager) PrimaryStatus(ctx context.Context) (*multipoolerma
 		pm.logger.Error("Error iterating pg_stat_replication rows", "error", err)
 		return nil, mterrors.Wrap(err, "failed to read connected followers")
 	}
-	status.Followers = followers
+	status.ConnectedFollowers = followers
 
 	// Get synchronous replication configuration
 	syncConfig, err := pm.getSynchronousReplicationConfig(ctx)
@@ -1588,13 +1589,143 @@ func (pm *MultiPoolerManager) ReplicationLag(ctx context.Context) (time.Duration
 	return pm.replTracker.HeartbeatReader().Status()
 }
 
-// GetFollowers gets the list of follower servers
-func (pm *MultiPoolerManager) GetFollowers(ctx context.Context) ([]string, error) {
+// GetFollowers gets the list of follower servers with detailed replication status
+func (pm *MultiPoolerManager) GetFollowers(ctx context.Context) (*multipoolermanagerdata.GetFollowersResponse, error) {
 	if err := pm.checkReady(); err != nil {
 		return nil, err
 	}
+
 	pm.logger.Info("GetFollowers called")
-	return nil, mterrors.New(mtrpcpb.Code_UNIMPLEMENTED, "method GetFollowers not implemented")
+
+	// Check PRIMARY guardrails (only primary can have followers)
+	if err := pm.checkPrimaryGuardrails(ctx); err != nil {
+		return nil, err
+	}
+
+	// Get current synchronous replication configuration
+	syncConfig, err := pm.getSynchronousReplicationConfig(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	// Query pg_stat_replication for all connected followers with full details
+	query := `SELECT
+		pid,
+		application_name,
+		client_addr::text,
+		state,
+		sync_state,
+		sent_lsn::text,
+		write_lsn::text,
+		flush_lsn::text,
+		replay_lsn::text,
+		EXTRACT(EPOCH FROM write_lag),
+		EXTRACT(EPOCH FROM flush_lag),
+		EXTRACT(EPOCH FROM replay_lag)
+	FROM pg_stat_replication
+	WHERE application_name IS NOT NULL AND application_name != ''`
+
+	rows, err := pm.db.QueryContext(ctx, query)
+	if err != nil {
+		pm.logger.Error("Failed to query pg_stat_replication", "error", err)
+		return nil, mterrors.Wrap(err, "failed to query replication status")
+	}
+	defer rows.Close()
+
+	// Build a map of connected followers by application_name
+	connectedMap := make(map[string]*multipoolermanagerdata.ReplicationStats)
+	for rows.Next() {
+		var pid int32
+		var appName string
+		var clientAddr string
+		var state string
+		var syncState string
+		var sentLsn string
+		var writeLsn string
+		var flushLsn string
+		var replayLsn string
+		var writeLagSecs sql.NullFloat64
+		var flushLagSecs sql.NullFloat64
+		var replayLagSecs sql.NullFloat64
+
+		err := rows.Scan(
+			&pid,
+			&appName,
+			&clientAddr,
+			&state,
+			&syncState,
+			&sentLsn,
+			&writeLsn,
+			&flushLsn,
+			&replayLsn,
+			&writeLagSecs,
+			&flushLagSecs,
+			&replayLagSecs,
+		)
+		if err != nil {
+			pm.logger.Error("Failed to scan replication row", "error", err)
+			continue
+		}
+
+		stats := &multipoolermanagerdata.ReplicationStats{
+			Pid:        pid,
+			ClientAddr: clientAddr,
+			State:      state,
+			SyncState:  syncState,
+			SentLsn:    sentLsn,
+			WriteLsn:   writeLsn,
+			FlushLsn:   flushLsn,
+			ReplayLsn:  replayLsn,
+		}
+
+		// Convert lag values from seconds to Duration (only if not null)
+		if writeLagSecs.Valid {
+			stats.WriteLag = durationpb.New(time.Duration(writeLagSecs.Float64 * float64(time.Second)))
+		}
+		if flushLagSecs.Valid {
+			stats.FlushLag = durationpb.New(time.Duration(flushLagSecs.Float64 * float64(time.Second)))
+		}
+		if replayLagSecs.Valid {
+			stats.ReplayLag = durationpb.New(time.Duration(replayLagSecs.Float64 * float64(time.Second)))
+		}
+
+		connectedMap[appName] = stats
+	}
+	if err := rows.Err(); err != nil {
+		pm.logger.Error("Error iterating pg_stat_replication rows", "error", err)
+		return nil, mterrors.Wrap(err, "failed to read replication status")
+	}
+
+	// Build the response with all configured standbys
+	followers := make([]*multipoolermanagerdata.FollowerInfo, 0, len(syncConfig.StandbyIds))
+	for _, standbyID := range syncConfig.StandbyIds {
+		appName := generateApplicationName(standbyID)
+
+		followerInfo := &multipoolermanagerdata.FollowerInfo{
+			FollowerId:      standbyID,
+			ApplicationName: appName,
+		}
+
+		// Check if this standby is currently connected
+		if stats, connected := connectedMap[appName]; connected {
+			followerInfo.IsConnected = true
+			followerInfo.ReplicationStats = stats
+		} else {
+			followerInfo.IsConnected = false
+			// ReplicationStats remains nil for disconnected followers
+		}
+
+		followers = append(followers, followerInfo)
+	}
+
+	pm.logger.Info("GetFollowers completed",
+		"total_configured", len(followers),
+		"connected_count", len(connectedMap))
+
+	return &multipoolermanagerdata.GetFollowersResponse{
+		Followers:  followers,
+		SyncConfig: syncConfig,
+	}, nil
 }
 
 // Demote demotes the current leader server
