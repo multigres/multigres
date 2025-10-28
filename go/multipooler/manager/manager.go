@@ -77,6 +77,12 @@ type MultiPoolerManager struct {
 	ctx             context.Context
 	cancel          context.CancelFunc
 	loadTimeout     time.Duration
+
+	// Query serving state management
+	servingStateMu      sync.RWMutex
+	targetServingState  clustermetadatapb.PoolerServingStatus
+	currentServingState clustermetadatapb.PoolerServingStatus
+	servingStateChanged chan struct{}
 }
 
 // promotionState tracks which parts of the promotion are complete
@@ -85,6 +91,14 @@ type promotionState struct {
 	isPrimaryInTopology    bool
 	syncReplicationMatches bool
 	currentLSN             string
+}
+
+// demotionState tracks which parts of the demotion are complete
+type demotionState struct {
+	isServingReadOnly   bool   // PoolerServingStatus == SERVING_RDONLY (includes heartbeat stopped)
+	isReplicaInTopology bool   // PoolerType == REPLICA
+	isReadOnly          bool   // default_transaction_read_only = on
+	finalLSN            string // Captured LSN before demotion
 }
 
 // NewMultiPoolerManager creates a new MultiPoolerManager instance
@@ -96,15 +110,18 @@ func NewMultiPoolerManager(logger *slog.Logger, config *Config) *MultiPoolerMana
 func NewMultiPoolerManagerWithTimeout(logger *slog.Logger, config *Config, loadTimeout time.Duration) *MultiPoolerManager {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &MultiPoolerManager{
-		logger:      logger,
-		config:      config,
-		topoClient:  config.TopoClient,
-		serviceID:   config.ServiceID,
-		actionSema:  semaphore.NewWeighted(1),
-		state:       ManagerStateStarting,
-		ctx:         ctx,
-		cancel:      cancel,
-		loadTimeout: loadTimeout,
+		logger:              logger,
+		config:              config,
+		topoClient:          config.TopoClient,
+		serviceID:           config.ServiceID,
+		actionSema:          semaphore.NewWeighted(1),
+		state:               ManagerStateStarting,
+		ctx:                 ctx,
+		cancel:              cancel,
+		loadTimeout:         loadTimeout,
+		targetServingState:  clustermetadatapb.PoolerServingStatus_NOT_SERVING,
+		currentServingState: clustermetadatapb.PoolerServingStatus_NOT_SERVING,
+		servingStateChanged: make(chan struct{}, 1),
 	}
 }
 
@@ -1638,20 +1655,412 @@ func (pm *MultiPoolerManager) GetFollowers(ctx context.Context) ([]string, error
 	return nil, mterrors.New(mtrpcpb.Code_UNIMPLEMENTED, "method GetFollowers not implemented")
 }
 
-// Demote demotes the current leader server
-func (pm *MultiPoolerManager) Demote(ctx context.Context) error {
+// checkDemotionState checks the current state to determine what steps remain
+func (pm *MultiPoolerManager) checkDemotionState(ctx context.Context) (*demotionState, error) {
+	state := &demotionState{}
+
+	// Check topology state
+	pm.mu.RLock()
+	poolerType := pm.multipooler.Type
+	servingStatus := pm.multipooler.ServingStatus
+	pm.mu.RUnlock()
+
+	state.isReplicaInTopology = (poolerType == clustermetadatapb.PoolerType_REPLICA)
+	state.isServingReadOnly = (servingStatus == clustermetadatapb.PoolerServingStatus_SERVING_RDONLY)
+
+	// Check if PostgreSQL is read-only
+	var readOnly bool
+	err := pm.db.QueryRowContext(ctx, "SHOW default_transaction_read_only").Scan(&readOnly)
+	if err != nil {
+		pm.logger.Warn("Failed to check read-only status", "error", err)
+		state.isReadOnly = false
+	} else {
+		state.isReadOnly = readOnly
+	}
+
+	// Capture current LSN if not already captured
+	if !state.isReadOnly {
+		err := pm.db.QueryRowContext(ctx, "SELECT pg_current_wal_lsn()::text").Scan(&state.finalLSN)
+		if err != nil {
+			pm.logger.Warn("Failed to get current LSN", "error", err)
+		}
+	}
+
+	pm.logger.Info("Checked demotion state",
+		"is_serving_read_only", state.isServingReadOnly,
+		"is_replica_in_topology", state.isReplicaInTopology,
+		"is_read_only", state.isReadOnly)
+
+	return state, nil
+}
+
+// setServingReadOnly transitions the pooler to SERVING_RDONLY status
+// This atomically updates the serving status and stops the heartbeat writer
+func (pm *MultiPoolerManager) setServingReadOnly(ctx context.Context, state *demotionState) error {
+	if state.isServingReadOnly {
+		pm.logger.Info("Already in SERVING_RDONLY state, skipping")
+		return nil
+	}
+
+	pm.logger.Info("Transitioning to SERVING_RDONLY")
+
+	// Update serving status in topology
+	updatedMultipooler, err := pm.topoClient.UpdateMultiPoolerFields(ctx, pm.serviceID, func(mp *clustermetadatapb.MultiPooler) error {
+		mp.ServingStatus = clustermetadatapb.PoolerServingStatus_SERVING_RDONLY
+		return nil
+	})
+	if err != nil {
+		pm.logger.Error("Failed to update serving status in topology", "error", err)
+		return mterrors.Wrap(err, "failed to transition to SERVING_RDONLY")
+	}
+
+	pm.mu.Lock()
+	pm.multipooler.MultiPooler = updatedMultipooler
+	pm.mu.Unlock()
+
+	// Stop heartbeat writer
+	if pm.replTracker != nil {
+		pm.logger.Info("Stopping heartbeat writer")
+		pm.replTracker.MakeNonPrimary()
+	}
+
+	// TODO: Configure QueryService to reject writes
+
+	pm.logger.Info("Transitioned to SERVING_RDONLY successfully")
+	return nil
+}
+
+// runCheckpointAsync runs a CHECKPOINT in a background goroutine
+func (pm *MultiPoolerManager) runCheckpointAsync(ctx context.Context) chan error {
+	checkpointDone := make(chan error, 1)
+	go func() {
+		pm.logger.Info("Starting checkpoint")
+		_, err := pm.db.ExecContext(ctx, "CHECKPOINT")
+		if err != nil {
+			pm.logger.Warn("Checkpoint failed", "error", err)
+			checkpointDone <- err
+		} else {
+			pm.logger.Info("Checkpoint completed")
+			checkpointDone <- nil
+		}
+	}()
+	return checkpointDone
+}
+
+// makePostgreSQLReadOnly sets PostgreSQL to read-only mode
+func (pm *MultiPoolerManager) makePostgreSQLReadOnly(ctx context.Context, state *demotionState) error {
+	if state.isReadOnly {
+		pm.logger.Info("PostgreSQL already in read-only mode, skipping")
+		return nil
+	}
+
+	pm.logger.Info("Setting PostgreSQL to read-only mode")
+
+	// Set default_transaction_read_only to on
+	_, err := pm.db.ExecContext(ctx, "ALTER SYSTEM SET default_transaction_read_only = on")
+	if err != nil {
+		pm.logger.Error("Failed to set default_transaction_read_only", "error", err)
+		return mterrors.Wrap(err, "failed to set read-only mode")
+	}
+
+	// Reload configuration
+	_, err = pm.db.ExecContext(ctx, "SELECT pg_reload_conf()")
+	if err != nil {
+		pm.logger.Error("Failed to reload configuration", "error", err)
+		return mterrors.Wrap(err, "failed to reload configuration")
+	}
+
+	// Verify read-only is active
+	var readOnly bool
+	err = pm.db.QueryRowContext(ctx, "SHOW default_transaction_read_only").Scan(&readOnly)
+	if err != nil {
+		pm.logger.Error("Failed to verify read-only status", "error", err)
+		return mterrors.Wrap(err, "failed to verify read-only status")
+	}
+
+	if !readOnly {
+		pm.logger.Error("Read-only mode not active after configuration")
+		return mterrors.New(mtrpcpb.Code_INTERNAL, "read-only mode not active after configuration")
+	}
+
+	pm.logger.Info("PostgreSQL is now in read-only mode")
+	return nil
+}
+
+// updateTopologyAfterDemotion updates the pooler type in topology from PRIMARY to REPLICA
+func (pm *MultiPoolerManager) updateTopologyAfterDemotion(ctx context.Context, state *demotionState) error {
+	if state.isReplicaInTopology {
+		pm.logger.Info("Topology already updated to REPLICA, skipping")
+		return nil
+	}
+
+	pm.logger.Info("Updating pooler type in topology to REPLICA")
+	updatedMultipooler, err := pm.topoClient.UpdateMultiPoolerFields(ctx, pm.serviceID, func(mp *clustermetadatapb.MultiPooler) error {
+		mp.Type = clustermetadatapb.PoolerType_REPLICA
+		return nil
+	})
+	if err != nil {
+		pm.logger.Error("Failed to update pooler type in topology", "error", err)
+		return mterrors.Wrap(err, "demotion succeeded but failed to update topology")
+	}
+
+	pm.mu.Lock()
+	pm.multipooler.MultiPooler = updatedMultipooler
+	pm.mu.Unlock()
+
+	pm.logger.Info("Topology updated to REPLICA successfully")
+	return nil
+}
+
+// getActiveWriteConnections returns connections that are performing write operations
+func (pm *MultiPoolerManager) getActiveWriteConnections(ctx context.Context) ([]int32, error) {
+	// Query for connections doing write operations
+	// We exclude: SELECT, idle connections, and our own connection
+	query := `
+		SELECT array_agg(pid)
+		FROM pg_stat_activity
+		WHERE pid != pg_backend_pid()
+		  AND datname IS NOT NULL
+		  AND backend_type = 'client backend'
+		  AND state = 'active'
+		  AND query NOT ILIKE 'SELECT%'
+		  AND query NOT ILIKE 'SHOW%'
+		  AND query NOT ILIKE 'BEGIN%'
+		  AND query NOT ILIKE 'COMMIT%'
+		  AND query NOT ILIKE 'ROLLBACK%'
+		  AND query != '<IDLE>'`
+
+	var pids []int32
+	err := pm.db.QueryRowContext(ctx, query).Scan(&pids)
+	if err != nil {
+		// If no rows (NULL result), that's fine - no write connections
+		if err.Error() == "sql: Scan error on column index 0, name \"array_agg\": converting NULL to slice: invalid type" {
+			return nil, nil
+		}
+		return nil, err
+	}
+
+	return pids, nil
+}
+
+// terminateWriteConnections terminates connections performing write operations
+func (pm *MultiPoolerManager) terminateWriteConnections(ctx context.Context) (int32, error) {
+	pids, err := pm.getActiveWriteConnections(ctx)
+	if err != nil {
+		pm.logger.Error("Failed to get active write connections", "error", err)
+		return 0, mterrors.Wrap(err, "failed to get active write connections")
+	}
+
+	if len(pids) == 0 {
+		pm.logger.Info("No active write connections to terminate")
+		return 0, nil
+	}
+
+	pm.logger.Warn("Terminating connections still performing writes after drain",
+		"count", len(pids),
+		"pids", pids)
+
+	// Terminate each write connection
+	for _, pid := range pids {
+		_, err := pm.db.ExecContext(ctx, "SELECT pg_terminate_backend($1)", pid)
+		if err != nil {
+			pm.logger.Warn("Failed to terminate write connection", "pid", pid, "error", err)
+		}
+	}
+
+	return int32(len(pids)), nil
+}
+
+// drainAndCheckpoint handles the drain timeout and checkpoint in parallel
+// During the drain, it monitors for write activity every 100ms
+// If 2 consecutive checks show no writes, exits early
+func (pm *MultiPoolerManager) drainAndCheckpoint(ctx context.Context, drainTimeout time.Duration) error {
+	// Start checkpoint in background
+	checkpointDone := pm.runCheckpointAsync(ctx)
+
+	// Monitor for write activity during drain
+	pm.logger.Info("Monitoring for write activity during drain", "duration", drainTimeout)
+	drainCtx, cancel := context.WithTimeout(ctx, drainTimeout)
+	defer cancel()
+
+	monitorTicker := time.NewTicker(100 * time.Millisecond)
+	defer monitorTicker.Stop()
+
+	consecutiveNoWrites := 0
+	drainComplete := false
+
+	for !drainComplete {
+		select {
+		case <-drainCtx.Done():
+			pm.logger.Info("Drain timeout completed")
+			drainComplete = true
+
+		case err := <-checkpointDone:
+			if err != nil {
+				pm.logger.Warn("Checkpoint completed with error during drain", "error", err)
+			} else {
+				pm.logger.Info("Checkpoint completed during drain")
+			}
+
+		case <-monitorTicker.C:
+			// Check for write activity
+			pids, err := pm.getActiveWriteConnections(ctx)
+			if err != nil {
+				pm.logger.Warn("Failed to check for write activity during drain", "error", err)
+				consecutiveNoWrites = 0 // Reset on error
+			} else if len(pids) > 0 {
+				pm.logger.Warn("Detected write activity during drain",
+					"count", len(pids),
+					"pids", pids)
+				consecutiveNoWrites = 0 // Reset counter
+			} else {
+				// No writes detected
+				consecutiveNoWrites++
+				if consecutiveNoWrites >= 2 {
+					pm.logger.Info("No write activity detected for 2 consecutive checks, exiting drain early")
+					drainComplete = true
+				}
+			}
+		}
+	}
+
+	// Wait for checkpoint if it's still running
+	select {
+	case err := <-checkpointDone:
+		if err != nil {
+			pm.logger.Warn("Checkpoint failed", "error", err)
+			// Don't fail - checkpoint is an optimization
+		}
+	default:
+		// Checkpoint still running, continue
+		pm.logger.Info("Checkpoint still running, continuing with demotion")
+	}
+
+	return nil
+}
+
+// captureFinalLSN captures the final LSN position before going read-only
+func (pm *MultiPoolerManager) captureFinalLSN(ctx context.Context, state *demotionState) (string, error) {
+	if state.isReadOnly && state.finalLSN != "" {
+		pm.logger.Info("Using previously captured LSN", "lsn", state.finalLSN)
+		return state.finalLSN, nil
+	}
+
+	var finalLSN string
+	err := pm.db.QueryRowContext(ctx, "SELECT pg_current_wal_lsn()::text").Scan(&finalLSN)
+	if err != nil {
+		pm.logger.Error("Failed to capture final LSN", "error", err)
+		return "", mterrors.Wrap(err, "failed to capture final LSN")
+	}
+
+	pm.logger.Info("Captured final LSN", "lsn", finalLSN)
+	return finalLSN, nil
+}
+
+// Demote demotes the current primary server
+// This can be called for any of the following use cases:
+// - By orchestrator when fixing a broken shard.
+// - When performing a Planned demotion.
+// - When receiving a SIGTERM and the pooler needs to shutdown.
+func (pm *MultiPoolerManager) Demote(ctx context.Context, consensusTerm int64, drainTimeout time.Duration, force bool) (*multipoolermanagerdata.DemoteResponse, error) {
 	if err := pm.checkReady(); err != nil {
-		return err
+		return nil, err
 	}
 
 	// Acquire the action lock to ensure only one mutation runs at a time
 	if err := pm.lock(ctx); err != nil {
-		return err
+		return nil, err
 	}
 	defer pm.unlock()
 
-	pm.logger.Info("Demote called")
-	return mterrors.New(mtrpcpb.Code_UNIMPLEMENTED, "method Demote not implemented")
+	pm.logger.Info("Demote called",
+		"consensus_term", consensusTerm,
+		"drain_timeout", drainTimeout,
+		"force", force)
+
+	// === Validation & State Check ===
+
+	// Demote is an operational cleanup, not a leadership change.
+	// Accept if term >= currentTerm to ensure the request isn’t stale.
+	// Equal or higher terms are safe.
+	// Note: we still update the term, as this may arrive after an election
+	// this (now old) primary missed due to a network partition.
+	if err := pm.validateAndUpdateTerm(ctx, consensusTerm, force); err != nil {
+		return nil, err
+	}
+
+	// Ensure database connection
+	if err := pm.connectDB(); err != nil {
+		pm.logger.Error("Failed to connect to database", "error", err)
+		return nil, mterrors.Wrap(err, "database connection failed")
+	}
+
+	// Check current demotion state
+	state, err := pm.checkDemotionState(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	// If everything is already complete, return early (fully idempotent)
+	if state.isServingReadOnly && state.isReplicaInTopology && state.isReadOnly {
+		pm.logger.Info("Demotion already complete (idempotent)",
+			"lsn", state.finalLSN)
+		return &multipoolermanagerdata.DemoteResponse{
+			WasAlreadyDemoted:     true,
+			ConsensusTerm:         consensusTerm,
+			LsnPosition:           state.finalLSN,
+			ConnectionsTerminated: 0,
+		}, nil
+	}
+
+	// Transition to Read-Only Serving
+
+	if err := pm.setServingReadOnly(ctx, state); err != nil {
+		return nil, err
+	}
+
+	// Phase 3: Drain & Checkpoint (Parallel)
+
+	if err := pm.drainAndCheckpoint(ctx, drainTimeout); err != nil {
+		return nil, err
+	}
+
+	// Phase 4: Terminate Remaining Write Connections
+
+	connectionsTerminated, err := pm.terminateWriteConnections(ctx)
+	if err != nil {
+		// Log but don't fail - connections will eventually timeout
+		pm.logger.Warn("Failed to terminate write connections", "error", err)
+	}
+
+	// Phase 5: Capture State & Make PostgreSQL Read-Only
+
+	finalLSN, err := pm.captureFinalLSN(ctx, state)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := pm.makePostgreSQLReadOnly(ctx, state); err != nil {
+		return nil, err
+	}
+
+	// Phase 6: Update Topology
+
+	if err := pm.updateTopologyAfterDemotion(ctx, state); err != nil {
+		return nil, err
+	}
+
+	pm.logger.Info("Demote completed successfully",
+		"final_lsn", finalLSN,
+		"consensus_term", consensusTerm,
+		"connections_terminated", connectionsTerminated)
+
+	return &multipoolermanagerdata.DemoteResponse{
+		WasAlreadyDemoted:     false,
+		ConsensusTerm:         consensusTerm,
+		LsnPosition:           finalLSN,
+		ConnectionsTerminated: connectionsTerminated,
+	}, nil
 }
 
 // UndoDemote undoes a demotion

@@ -17,6 +17,7 @@ package grpcmanagerservice
 
 import (
 	"context"
+	"time"
 
 	"github.com/multigres/multigres/go/mterrors"
 	"github.com/multigres/multigres/go/multipooler/manager"
@@ -187,11 +188,20 @@ func (s *managerService) GetFollowers(ctx context.Context, req *multipoolermanag
 
 // Demote demotes the current leader server
 func (s *managerService) Demote(ctx context.Context, req *multipoolermanagerdata.DemoteRequest) (*multipoolermanagerdata.DemoteResponse, error) {
-	err := s.manager.Demote(ctx)
+	// Default drain timeout if not specified
+	drainTimeout := 5 * time.Second
+	if req.DrainTimeout != nil {
+		drainTimeout = req.DrainTimeout.AsDuration()
+	}
+
+	resp, err := s.manager.Demote(ctx,
+		req.ConsensusTerm,
+		drainTimeout,
+		req.Force)
 	if err != nil {
 		return nil, mterrors.ToGRPC(err)
 	}
-	return &multipoolermanagerdata.DemoteResponse{}, nil
+	return resp, nil
 }
 
 // UndoDemote undoes a demotion

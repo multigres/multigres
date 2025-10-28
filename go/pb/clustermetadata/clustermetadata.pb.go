@@ -111,6 +111,10 @@ const (
 	// to route queries from Multigres users. In this state,
 	// this multipooler is dedicated to the process that uses it.
 	PoolerServingStatus_DRAINED PoolerServingStatus = 4
+	// SERVING_RDONLY is the status of a server in read-only mode.
+	// This is used during demotion when the server transitions from PRIMARY to REPLICA,
+	// or for read-only replicas. The server accepts connections but only serves read queries.
+	PoolerServingStatus_SERVING_RDONLY PoolerServingStatus = 5
 )
 
 // Enum value maps for PoolerServingStatus.
@@ -121,13 +125,15 @@ var (
 		2: "BACKUP",
 		3: "RESTORE",
 		4: "DRAINED",
+		5: "SERVING_RDONLY",
 	}
 	PoolerServingStatus_value = map[string]int32{
-		"SERVING":     0,
-		"NOT_SERVING": 1,
-		"BACKUP":      2,
-		"RESTORE":     3,
-		"DRAINED":     4,
+		"SERVING":        0,
+		"NOT_SERVING":    1,
+		"BACKUP":         2,
+		"RESTORE":        3,
+		"DRAINED":        4,
+		"SERVING_RDONLY": 5,
 	}
 )
 
@@ -853,14 +859,15 @@ const file_clustermetadata_proto_rawDesc = "" +
 	"PoolerType\x12\v\n" +
 	"\aUNKNOWN\x10\x00\x12\v\n" +
 	"\aPRIMARY\x10\x01\x12\v\n" +
-	"\aREPLICA\x10\x02*Y\n" +
+	"\aREPLICA\x10\x02*m\n" +
 	"\x13PoolerServingStatus\x12\v\n" +
 	"\aSERVING\x10\x00\x12\x0f\n" +
 	"\vNOT_SERVING\x10\x01\x12\n" +
 	"\n" +
 	"\x06BACKUP\x10\x02\x12\v\n" +
 	"\aRESTORE\x10\x03\x12\v\n" +
-	"\aDRAINED\x10\x04B6Z4github.com/multigres/multigres/go/pb/clustermetadatab\x06proto3"
+	"\aDRAINED\x10\x04\x12\x12\n" +
+	"\x0eSERVING_RDONLY\x10\x05B6Z4github.com/multigres/multigres/go/pb/clustermetadatab\x06proto3"
 
 var (
 	file_clustermetadata_proto_rawDescOnce sync.Once

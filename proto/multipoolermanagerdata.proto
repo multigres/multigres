@@ -181,12 +181,31 @@ message GetFollowersResponse {
 }
 
 // Demote demotes the current leader server
+// This is called during the Revocation stage of generalized consensus to safely
+// transition a primary to read-only mode and prevent it from making further progress.
 message DemoteRequest {
+  // Consensus term for this demotion operation
+  int64 consensus_term = 1;
+
+  // Drain timeout - how long to wait for in-flight queries (default: 5s)
+  google.protobuf.Duration drain_timeout = 2;
+
+  // Force the operation even if term validation fails
+  bool force = 3;
 }
 
 message DemoteResponse {
-  // Leader status after demotion
-  PrimaryStatus leader_status = 1;
+  // Whether the node was already demoted (idempotent check)
+  bool was_already_demoted = 1;
+
+  // Consensus term at the time of demotion
+  int64 consensus_term = 2;
+
+  // LSN position at the time of demotion (final position as primary)
+  string lsn_position = 3;
+
+  // Number of connections that were terminated
+  int32 connections_terminated = 4;
 }
 
 // UndoDemote undoes a demotion
