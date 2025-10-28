@@ -78,11 +78,11 @@ type MultiPoolerManager struct {
 	cancel          context.CancelFunc
 	loadTimeout     time.Duration
 
-	// Query serving state management
-	servingStateMu      sync.RWMutex
-	targetServingState  clustermetadatapb.PoolerServingStatus
-	currentServingState clustermetadatapb.PoolerServingStatus
-	servingStateChanged chan struct{}
+	// TODO: Implement async query serving state management system
+	// This should include: target state, current state, convergence goroutine,
+	// and state-specific handlers (setServing, setServingReadOnly, setNotServing, setDrained)
+	// See design discussion for full details.
+	queryServingState clustermetadatapb.PoolerServingStatus
 }
 
 // promotionState tracks which parts of the promotion are complete
@@ -110,18 +110,16 @@ func NewMultiPoolerManager(logger *slog.Logger, config *Config) *MultiPoolerMana
 func NewMultiPoolerManagerWithTimeout(logger *slog.Logger, config *Config, loadTimeout time.Duration) *MultiPoolerManager {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &MultiPoolerManager{
-		logger:              logger,
-		config:              config,
-		topoClient:          config.TopoClient,
-		serviceID:           config.ServiceID,
-		actionSema:          semaphore.NewWeighted(1),
-		state:               ManagerStateStarting,
-		ctx:                 ctx,
-		cancel:              cancel,
-		loadTimeout:         loadTimeout,
-		targetServingState:  clustermetadatapb.PoolerServingStatus_NOT_SERVING,
-		currentServingState: clustermetadatapb.PoolerServingStatus_NOT_SERVING,
-		servingStateChanged: make(chan struct{}, 1),
+		logger:            logger,
+		config:            config,
+		topoClient:        config.TopoClient,
+		serviceID:         config.ServiceID,
+		actionSema:        semaphore.NewWeighted(1),
+		state:             ManagerStateStarting,
+		ctx:               ctx,
+		cancel:            cancel,
+		loadTimeout:       loadTimeout,
+		queryServingState: clustermetadatapb.PoolerServingStatus_NOT_SERVING,
 	}
 }
 
@@ -1695,7 +1693,14 @@ func (pm *MultiPoolerManager) checkDemotionState(ctx context.Context) (*demotion
 }
 
 // setServingReadOnly transitions the pooler to SERVING_RDONLY status
-// This atomically updates the serving status and stops the heartbeat writer
+// Note: the following code should be refactored to be async and work
+// a state transita desired state that the manager converges, makes
+// the pooler converge.
+// Similar to how ManagerState works today.
+// At the moment, setServingReadOnly means:
+// - The heartbeat writer is stopped.
+// - We update the topology serving state for the pooler record.
+// - TODO: QueryPooler should stop accepting write traffic.
 func (pm *MultiPoolerManager) setServingReadOnly(ctx context.Context, state *demotionState) error {
 	if state.isServingReadOnly {
 		pm.logger.Info("Already in SERVING_RDONLY state, skipping")
@@ -1716,6 +1721,7 @@ func (pm *MultiPoolerManager) setServingReadOnly(ctx context.Context, state *dem
 
 	pm.mu.Lock()
 	pm.multipooler.MultiPooler = updatedMultipooler
+	pm.queryServingState = clustermetadatapb.PoolerServingStatus_SERVING_RDONLY
 	pm.mu.Unlock()
 
 	// Stop heartbeat writer
