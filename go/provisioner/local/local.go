@@ -1131,7 +1131,8 @@ func (p *localProvisioner) stopProcessByPID(pid int) error {
 	// Send SIGTERM to gracefully stop the process
 	if err := process.Signal(syscall.SIGTERM); err != nil {
 		// Process might already be dead, check errno
-		if err.Error() == "no such process" || err.Error() == "process already finished" {
+		errMsg := err.Error()
+		if strings.Contains(errMsg, "no such process") || strings.Contains(errMsg, "process already finished") {
 			fmt.Printf("Process %d already stopped\n", pid)
 			return nil
 		}
@@ -1139,7 +1140,8 @@ func (p *localProvisioner) stopProcessByPID(pid int) error {
 		// If SIGTERM fails for other reasons, try SIGKILL
 		if err := process.Kill(); err != nil {
 			// If kill also fails and it's because process doesn't exist, that's ok
-			if err.Error() == "no such process" || err.Error() == "process already finished" {
+			errMsg := err.Error()
+			if strings.Contains(errMsg, "no such process") || strings.Contains(errMsg, "process already finished") {
 				fmt.Printf("Process %d already stopped\n", pid)
 				return nil
 			}
@@ -1330,8 +1332,6 @@ func (p *localProvisioner) Teardown(ctx context.Context, clean bool) error {
 			if err := p.deprovisionService(ctx, req); err != nil {
 				fmt.Printf("Warning: failed to deprovision etcd: %v\n", err)
 			}
-			// There is a single etcd, we can break now
-			break
 		}
 	}
 
