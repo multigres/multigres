@@ -1821,7 +1821,10 @@ func (pm *MultiPoolerManager) updateTopologyAfterDemotion(ctx context.Context, s
 // getActiveWriteConnections returns connections that are performing write operations
 func (pm *MultiPoolerManager) getActiveWriteConnections(ctx context.Context) ([]int32, error) {
 	// Query for connections doing write operations
-	// We exclude: SELECT, idle connections, and our own connection
+	// Note: this is temporary, we can refactor this once we
+	// have the query pool. Thinking that we should have a
+	// specific user for the write pool and we can kill all connections
+	// associated with that user.
 	query := `
 		SELECT array_agg(pid)
 		FROM pg_stat_activity
