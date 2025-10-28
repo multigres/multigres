@@ -226,6 +226,16 @@ func (w *Writer) getWALPosition(ctx context.Context) (string, error) {
 	return lsn, nil
 }
 
+// SetLeaderTerm updates the leader term for consensus tracking
+func (w *Writer) SetLeaderTerm(term int64) {
+	w.leaderTerm.Store(term)
+}
+
+// GetLeaderTerm returns the current leader term
+func (w *Writer) GetLeaderTerm() int64 {
+	return w.leaderTerm.Load()
+}
+
 // killWritesUntilStopped tries to kill the write in progress until the ticks have stopped.
 func (w *Writer) killWritesUntilStopped(ctx context.Context) {
 	ticker := time.NewTicker(100 * time.Millisecond)

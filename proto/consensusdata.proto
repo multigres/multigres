@@ -1,0 +1,155 @@
+// Copyright 2025 Supabase, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+syntax = "proto3";
+
+package consensusdata;
+
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/multigres/multigres/go/pb/consensusdata";
+
+// WAL position for Raft-style log matching
+message WALPosition {
+  // PostgreSQL LSN (e.g., "0/1A2B3C4D")
+  string lsn = 1;
+
+  // Monotonic index for comparison (converted from LSN)
+  int64 log_index = 2;
+
+  // Term when this WAL position was written
+  int64 log_term = 3;
+
+  // Timestamp when this position was recorded
+  google.protobuf.Timestamp timestamp = 4;
+}
+
+// RequestVote is sent by candidates during elections
+message RequestVoteRequest {
+  // Term of the candidate
+  int64 term = 1;
+
+  // ID of the candidate requesting vote
+  string candidate_id = 2;
+
+  // Shard ID for this election
+  string shard_id = 3;
+
+  // Index of candidate's last log entry
+  int64 last_log_index = 4;
+
+  // Term of candidate's last log entry
+  int64 last_log_term = 5;
+
+  // Version of the durability policy (for safety)
+  int64 policy_version = 6;
+}
+
+message RequestVoteResponse {
+  // Current term, for candidate to update itself
+  int64 term = 1;
+
+  // True if candidate received vote
+  bool vote_granted = 2;
+
+  // ID of the responding node
+  string node_id = 3;
+}
+
+// GetNodeStatus returns the current status of a node
+message NodeStatusRequest {
+  // Optional term to include in response
+  int64 term = 1;
+
+  // Shard ID to query status for
+  string shard_id = 2;
+}
+
+message NodeStatusResponse {
+  // Node ID
+  string node_id = 1;
+
+  // Current term from local file (may be inflated after partition)
+  int64 current_term = 2;
+
+  // Last successful leader term from Postgres (committed reality)
+  int64 postgres_leader_term = 3;
+
+  // Current WAL position
+  WALPosition wal_position = 4;
+
+  // Whether Postgres is healthy and reachable
+  bool is_healthy = 5;
+
+  // Whether this node is eligible to be a leader
+  bool is_eligible = 6;
+
+  // Health score (0-100)
+  int32 health_score = 7;
+
+  // Zone/region identifier
+  string zone = 8;
+
+  // Current role (primary/replica)
+  string role = 9;
+}
+
+// GetLeadershipView returns leadership information from the heartbeat table
+message LeadershipViewRequest {
+  // Shard ID to query
+  string shard_id = 1;
+}
+
+message LeadershipViewResponse {
+  // ID of the current leader
+  string pooler_id = 1;
+
+  // Leader's consensus term
+  int64 leader_term = 2;
+
+  // Leader's WAL position
+  string leader_wal_position = 3;
+
+  // Last heartbeat timestamp
+  google.protobuf.Timestamp last_heartbeat = 4;
+
+  // Calculated replication lag in nanoseconds
+  int64 replication_lag_ns = 5;
+}
+
+// GetWALPosition returns the current WAL position
+message GetWALPositionRequest {
+}
+
+message GetWALPositionResponse {
+  // Current WAL position
+  WALPosition wal_position = 1;
+}
+
+// CanReachPrimary checks if this node can reach the primary
+message CanReachPrimaryRequest {
+  // Primary host
+  string primary_host = 1;
+
+  // Primary port
+  int32 primary_port = 2;
+}
+
+message CanReachPrimaryResponse {
+  // Whether primary is reachable
+  bool reachable = 1;
+
+  // Error message if not reachable
+  string error_message = 2;
+}

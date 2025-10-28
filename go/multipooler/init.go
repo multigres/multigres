@@ -24,6 +24,7 @@ import (
 
 	"github.com/multigres/multigres/go/clustermetadata/topo"
 	"github.com/multigres/multigres/go/clustermetadata/toporeg"
+	"github.com/multigres/multigres/go/multipooler/grpcconsensusservice"
 	"github.com/multigres/multigres/go/multipooler/grpcmanagerservice"
 	"github.com/multigres/multigres/go/multipooler/grpcpoolerservice"
 	"github.com/multigres/multigres/go/multipooler/manager"
@@ -126,6 +127,8 @@ func NewMultiPooler() *MultiPooler {
 		},
 	}
 	mp.senv.InitServiceMap("grpc", "pooler")
+	mp.senv.InitServiceMap("grpc", "poolermanager")
+	mp.senv.InitServiceMap("grpc", "consensus")
 	return mp
 }
 
@@ -224,6 +227,7 @@ func (mp *MultiPooler) Init() {
 	// Start the MultiPoolerManager
 	poolerManager.Start(mp.senv)
 	grpcmanagerservice.RegisterPoolerManagerServices(mp.senv, mp.grpcServer)
+	grpcconsensusservice.RegisterConsensusServices(mp.senv, mp.grpcServer)
 	grpcpoolerservice.RegisterPoolerServices(mp.senv, mp.grpcServer)
 
 	mp.senv.HTTPHandleFunc("/", mp.getHandleIndex())
