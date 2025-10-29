@@ -22,6 +22,7 @@ set -euo pipefail
 PROTOC_VERSION="$PROTOC_VER"
 ADDLICENSE_VERSION="$ADDLICENSE_VER"
 ETCD_VERSION="$ETCD_VER"
+PGBACKREST_VERSION="${PGBACKREST_VER:-2.57.0}"
 
 get_platform() {
   case $(uname) in
@@ -78,6 +79,9 @@ install_dep() {
     ;;
   "etcd")
     install_etcd "$version" "$dist"
+    ;;
+  "pgbackrest")
+    install_pgbackrest "$version" "$dist"
     ;;
   *)
     echo "ERROR: unknown dependency $name"
@@ -170,6 +174,204 @@ install_etcd() {
   cd - >/dev/null
 }
 
+# Compare versions (returns 0 if installed >= required, 1 otherwise)
+version_compare() {
+  local installed="$1"
+  local required="$2"
+
+  # Remove 'v' prefix if present
+  installed="${installed#v}"
+  required="${required#v}"
+
+  # Split versions into arrays
+  IFS='.' read -ra installed_parts <<< "$installed"
+  IFS='.' read -ra required_parts <<< "$required"
+
+  # Compare each part
+  for i in 0 1 2; do
+    local installed_part="${installed_parts[$i]:-0}"
+    local required_part="${required_parts[$i]:-0}"
+
+    if [ "$installed_part" -gt "$required_part" ]; then
+      return 0
+    elif [ "$installed_part" -lt "$required_part" ]; then
+      return 1
+    fi
+  done
+
+  return 0
+}
+
+# Use the appropriate method to install pgBackRest based on the platform.
+install_pgbackrest() {
+  local version="$1"
+  local dist="$2"
+
+  local platform
+  platform=$(get_platform)
+
+  case "$platform" in
+  linux)
+    install_pgbackrest_linux "$version" "$dist"
+    ;;
+  osx)
+    install_pgbackrest_macos "$version" "$dist"
+    ;;
+  *)
+    echo "ERROR: unsupported platform for pgBackRest"
+    exit 1
+    ;;
+  esac
+
+  # Verify installation succeeded
+  if [ ! -f "$MTROOT/bin/pgbackrest" ]; then
+    echo "ERROR: pgBackRest installation failed"
+    exit 1
+  fi
+
+  # Display and verify installed version
+  local installed_version
+  installed_version=$("$MTROOT/bin/pgbackrest" version | head -n1 | awk '{print $2}')
+
+  if ! version_compare "$installed_version" "$version"; then
+    echo "ERROR: pgBackRest version ${installed_version} is older than required version ${version}"
+    echo "Please upgrade pgBackRest to at least version ${version}"
+    exit 1
+  fi
+
+  echo "pgBackRest ${installed_version} is now available"
+}
+
+# If there's already a pgbackrest binary in the system, use it. Otherwise,
+# install it via package manager.
+install_pgbackrest_linux() {
+  local version="$1"
+  local dist="$2"
+
+  mkdir -p "$MTROOT/bin"
+
+  # First, check if already installed on system
+  if command -v pgbackrest >/dev/null 2>&1; then
+    echo "pgBackRest found on system, creating symlink..."
+    ln -snf "$(command -v pgbackrest)" "$MTROOT/bin/pgbackrest"
+    return 0
+  fi
+
+  # Try to detect package manager and install
+  echo "Attempting to install pgBackRest via package manager..."
+
+  if command -v apt-get >/dev/null 2>&1; then
+    # Debian/Ubuntu
+    echo "Detected apt package manager"
+    if sudo apt-get update && sudo apt-get install -y pgbackrest; then
+      ln -snf "$(command -v pgbackrest)" "$MTROOT/bin/pgbackrest"
+      return 0
+    fi
+  elif command -v yum >/dev/null 2>&1; then
+    # RHEL/CentOS/Fedora
+    echo "Detected yum package manager"
+    if sudo yum install -y pgbackrest; then
+      ln -snf "$(command -v pgbackrest)" "$MTROOT/bin/pgbackrest"
+      return 0
+    fi
+  elif command -v dnf >/dev/null 2>&1; then
+    # Fedora/RHEL 8+
+    echo "Detected dnf package manager"
+    if sudo dnf install -y pgbackrest; then
+      ln -snf "$(command -v pgbackrest)" "$MTROOT/bin/pgbackrest"
+      return 0
+    fi
+  elif command -v zypper >/dev/null 2>&1; then
+    # openSUSE
+    echo "Detected zypper package manager"
+    if sudo zypper install -y pgbackrest; then
+      ln -snf "$(command -v pgbackrest)" "$MTROOT/bin/pgbackrest"
+      return 0
+    fi
+  fi
+
+  # If we get here, package manager installation failed or wasn't available
+  echo "ERROR: Could not install pgBackRest automatically"
+  echo ""
+  echo "Please install pgBackRest manually using one of these methods:"
+  echo ""
+  echo "Debian/Ubuntu:"
+  echo "  sudo apt-get update"
+  echo "  sudo apt-get install pgbackrest"
+  echo ""
+  echo "RHEL/CentOS/Fedora:"
+  echo "  sudo dnf install pgbackrest"
+  echo "  # or: sudo yum install pgbackrest"
+  echo ""
+  echo "From source:"
+  echo "  # Install dependencies first:"
+  echo "  sudo apt-get install libpq-dev libxml2-dev libssl-dev zlib1g-dev"
+  echo "  # Then download and build from: https://github.com/pgbackrest/pgbackrest/releases"
+  echo ""
+  exit 1
+}
+
+# If there's already a pgbackrest binary in the system, use it. Otherwise,
+# install it via Homebrew.
+install_pgbackrest_macos() {
+  local version="$1"
+  local dist="$2"
+
+  mkdir -p "$MTROOT/bin"
+
+  # First, check if already installed on system
+  if command -v pgbackrest >/dev/null 2>&1; then
+    echo "pgBackRest found on system, checking version..."
+    local installed_version
+    installed_version=$(pgbackrest version | head -n1 | awk '{print $2}')
+
+    if version_compare "$installed_version" "$version"; then
+      echo "System pgBackRest ${installed_version} meets requirement (>= ${version}), creating symlink..."
+      ln -snf "$(command -v pgbackrest)" "$MTROOT/bin/pgbackrest"
+      return 0
+    else
+      echo "System pgBackRest ${installed_version} is older than required ${version}"
+      echo "Will attempt to install/upgrade via Homebrew..."
+    fi
+  fi
+
+  # Try Homebrew installation
+  if command -v brew >/dev/null 2>&1; then
+    echo "Installing pgBackRest ${version} via Homebrew..."
+
+    # Try to install specific version using @version syntax
+    # First check if pgbackrest is available in homebrew
+    if brew install "pgbackrest@${version}" 2>/dev/null; then
+      echo "Installed pgbackrest@${version}"
+      ln -snf "$(brew --prefix)/bin/pgbackrest" "$MTROOT/bin/pgbackrest"
+      return 0
+    elif brew install pgbackrest; then
+      # Fall back to latest version if specific version not available
+      echo "Specific version unavailable, installed latest from Homebrew"
+      ln -snf "$(brew --prefix)/bin/pgbackrest" "$MTROOT/bin/pgbackrest"
+      return 0
+    fi
+  fi
+
+  # If Homebrew installation failed or isn't available
+  echo "ERROR: Could not install pgBackRest automatically"
+  echo ""
+  echo "Please install pgBackRest manually using one of these methods:"
+  echo ""
+  echo "Homebrew (recommended):"
+  echo "  brew install pgbackrest"
+  echo ""
+  echo "MacPorts:"
+  echo "  sudo port install pgbackrest"
+  echo ""
+  echo "From source:"
+  echo "  # Install dependencies first:"
+  echo "  brew install postgresql openssl libxml2"
+  echo "  # Then download and build from: https://github.com/pgbackrest/pgbackrest/releases"
+  echo ""
+  exit 1
+}
+
 install_go_plugins() {
   # Reinstall protoc-gen-go and protoc-gen-go-grpc
   GOBIN=$MTROOT/bin go install google.golang.org/protobuf/cmd/protoc-gen-go google.golang.org/grpc/cmd/protoc-gen-go-grpc
@@ -192,6 +394,9 @@ install_all() {
 
   # Install etcd
   install_dep "etcd" "$ETCD_VERSION" "$MTROOT/dist/etcd"
+
+  # Install pgBackRest
+  install_dep "pgbackrest" "$PGBACKREST_VERSION" "$MTROOT/dist/pgbackrest"
 
   # Install Go dependencies
   install_go_plugins
