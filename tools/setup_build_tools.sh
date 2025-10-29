@@ -234,9 +234,8 @@ install_pgbackrest() {
   installed_version=$("$MTROOT/bin/pgbackrest" version | head -n1 | awk '{print $2}')
 
   if ! version_compare "$installed_version" "$version"; then
-    echo "ERROR: pgBackRest version ${installed_version} is older than required version ${version}"
-    echo "Please upgrade pgBackRest to at least version ${version}"
-    exit 1
+    echo "WARNING: pgBackRest version ${installed_version} is older than recommended version ${version}"
+    echo "Consider upgrading pgBackRest to at least version ${version}"
   fi
 
   echo "pgBackRest ${installed_version} is now available"
