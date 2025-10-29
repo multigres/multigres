@@ -16,6 +16,7 @@ package manager
 
 import (
 	"context"
+	"database/sql"
 	"log/slog"
 	"os"
 	"testing"
@@ -274,4 +275,506 @@ func setupManagerWithMockDB(t *testing.T) (*MultiPoolerManager, sqlmock.Sqlmock,
 	require.NoError(t, err)
 
 	return pm, mock, tmpDir
+}
+
+// ============================================================================
+// CanReachPrimary Tests
+// ============================================================================
+
+func TestCanReachPrimary_Success_MatchingHostPort(t *testing.T) {
+	ctx := context.Background()
+	pm, mock, _ := setupManagerWithMockDB(t)
+
+	// Mock expectations for pg_stat_wal_receiver query
+	conninfo := "host=localhost port=5432 user=replicator application_name=test-cell_standby-1"
+	mock.ExpectQuery("SELECT status, conninfo FROM pg_stat_wal_receiver").
+		WillReturnRows(sqlmock.NewRows([]string{"status", "conninfo"}).
+			AddRow("streaming", conninfo))
+
+	req := &consensusdatapb.CanReachPrimaryRequest{
+		PrimaryHost: "localhost",
+		PrimaryPort: 5432,
+	}
+
+	resp, err := pm.CanReachPrimary(ctx, req)
+
+	require.NoError(t, err)
+	require.NotNil(t, resp)
+	assert.True(t, resp.Reachable, "Should be reachable when WAL receiver is active and connected to correct host/port")
+	assert.Empty(t, resp.ErrorMessage)
+
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestCanReachPrimary_NoWALReceiver(t *testing.T) {
+	ctx := context.Background()
+	pm, mock, _ := setupManagerWithMockDB(t)
+
+	// Mock expectations - query returns no rows (no WAL receiver)
+	mock.ExpectQuery("SELECT status, conninfo FROM pg_stat_wal_receiver").
+		WillReturnError(sql.ErrNoRows)
+
+	req := &consensusdatapb.CanReachPrimaryRequest{
+		PrimaryHost: "localhost",
+		PrimaryPort: 5432,
+	}
+
+	resp, err := pm.CanReachPrimary(ctx, req)
+
+	require.NoError(t, err)
+	require.NotNil(t, resp)
+	assert.False(t, resp.Reachable, "Should not be reachable when there is no WAL receiver")
+	assert.Contains(t, resp.ErrorMessage, "no active WAL receiver")
+
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestCanReachPrimary_WALReceiverStopping(t *testing.T) {
+	ctx := context.Background()
+	pm, mock, _ := setupManagerWithMockDB(t)
+
+	// Mock expectations - WAL receiver is stopping
+	conninfo := "host=localhost port=5432 user=replicator"
+	mock.ExpectQuery("SELECT status, conninfo FROM pg_stat_wal_receiver").
+		WillReturnRows(sqlmock.NewRows([]string{"status", "conninfo"}).
+			AddRow("stopping", conninfo))
+
+	req := &consensusdatapb.CanReachPrimaryRequest{
+		PrimaryHost: "localhost",
+		PrimaryPort: 5432,
+	}
+
+	resp, err := pm.CanReachPrimary(ctx, req)
+
+	require.NoError(t, err)
+	require.NotNil(t, resp)
+	assert.False(t, resp.Reachable, "Should not be reachable when WAL receiver is stopping")
+	assert.Contains(t, resp.ErrorMessage, "WAL receiver is stopping")
+
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestCanReachPrimary_HostMismatch(t *testing.T) {
+	ctx := context.Background()
+	pm, mock, _ := setupManagerWithMockDB(t)
+
+	// Mock expectations - connected to different host
+	conninfo := "host=other-host port=5432 user=replicator"
+	mock.ExpectQuery("SELECT status, conninfo FROM pg_stat_wal_receiver").
+		WillReturnRows(sqlmock.NewRows([]string{"status", "conninfo"}).
+			AddRow("streaming", conninfo))
+
+	req := &consensusdatapb.CanReachPrimaryRequest{
+		PrimaryHost: "localhost",
+		PrimaryPort: 5432,
+	}
+
+	resp, err := pm.CanReachPrimary(ctx, req)
+
+	require.NoError(t, err)
+	require.NotNil(t, resp)
+	assert.False(t, resp.Reachable, "Should not be reachable when connected to different host")
+	assert.Contains(t, resp.ErrorMessage, "expected localhost, got other-host")
+
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestCanReachPrimary_PortMismatch(t *testing.T) {
+	ctx := context.Background()
+	pm, mock, _ := setupManagerWithMockDB(t)
+
+	// Mock expectations - connected to different port
+	conninfo := "host=localhost port=5433 user=replicator"
+	mock.ExpectQuery("SELECT status, conninfo FROM pg_stat_wal_receiver").
+		WillReturnRows(sqlmock.NewRows([]string{"status", "conninfo"}).
+			AddRow("streaming", conninfo))
+
+	req := &consensusdatapb.CanReachPrimaryRequest{
+		PrimaryHost: "localhost",
+		PrimaryPort: 5432,
+	}
+
+	resp, err := pm.CanReachPrimary(ctx, req)
+
+	require.NoError(t, err)
+	require.NotNil(t, resp)
+	assert.False(t, resp.Reachable, "Should not be reachable when connected to different port")
+	assert.Contains(t, resp.ErrorMessage, "expected 5432, got 5433")
+
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestCanReachPrimary_NoDatabaseConnection(t *testing.T) {
+	ctx := context.Background()
+	pm, _, _ := setupManagerWithMockDB(t)
+
+	// Set db to nil to simulate no connection
+	pm.db = nil
+
+	req := &consensusdatapb.CanReachPrimaryRequest{
+		PrimaryHost: "localhost",
+		PrimaryPort: 5432,
+	}
+
+	resp, err := pm.CanReachPrimary(ctx, req)
+
+	require.NoError(t, err)
+	require.NotNil(t, resp)
+	assert.False(t, resp.Reachable, "Should not be reachable when database connection is not available")
+	assert.Contains(t, resp.ErrorMessage, "database connection not available")
+}
+
+func TestCanReachPrimary_InvalidConnInfo(t *testing.T) {
+	ctx := context.Background()
+	pm, mock, _ := setupManagerWithMockDB(t)
+
+	// Mock expectations - invalid conninfo format
+	conninfo := "invalid format without equals"
+	mock.ExpectQuery("SELECT status, conninfo FROM pg_stat_wal_receiver").
+		WillReturnRows(sqlmock.NewRows([]string{"status", "conninfo"}).
+			AddRow("streaming", conninfo))
+
+	req := &consensusdatapb.CanReachPrimaryRequest{
+		PrimaryHost: "localhost",
+		PrimaryPort: 5432,
+	}
+
+	resp, err := pm.CanReachPrimary(ctx, req)
+
+	require.NoError(t, err)
+	require.NotNil(t, resp)
+	assert.False(t, resp.Reachable, "Should not be reachable when conninfo parsing fails")
+	assert.Contains(t, resp.ErrorMessage, "failed to parse conninfo")
+
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+// ============================================================================
+// GetWALPosition Tests
+// ============================================================================
+
+func TestGetWALPosition_Primary(t *testing.T) {
+	ctx := context.Background()
+	pm, mock, _ := setupManagerWithMockDB(t)
+
+	// Mock expectations for primary (not in recovery)
+	mock.ExpectQuery("SELECT pg_is_in_recovery\\(\\)").
+		WillReturnRows(sqlmock.NewRows([]string{"pg_is_in_recovery"}).AddRow(false))
+
+	// Mock pg_current_wal_lsn for primary
+	mock.ExpectQuery("SELECT pg_current_wal_lsn\\(\\)").
+		WillReturnRows(sqlmock.NewRows([]string{"pg_current_wal_lsn"}).AddRow("0/3000000"))
+
+	req := &consensusdatapb.GetWALPositionRequest{}
+
+	resp, err := pm.GetWALPosition(ctx, req)
+
+	require.NoError(t, err)
+	require.NotNil(t, resp)
+	require.NotNil(t, resp.WalPosition)
+	assert.Equal(t, "0/3000000", resp.WalPosition.CurrentLsn)
+	assert.Empty(t, resp.WalPosition.LastReceiveLsn, "Primary should not have LastReceiveLsn")
+	assert.Empty(t, resp.WalPosition.LastReplayLsn, "Primary should not have LastReplayLsn")
+
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestGetWALPosition_Standby(t *testing.T) {
+	ctx := context.Background()
+	pm, mock, _ := setupManagerWithMockDB(t)
+
+	// Mock expectations for standby (in recovery)
+	mock.ExpectQuery("SELECT pg_is_in_recovery\\(\\)").
+		WillReturnRows(sqlmock.NewRows([]string{"pg_is_in_recovery"}).AddRow(true))
+
+	// Mock pg_last_wal_receive_lsn and pg_last_wal_replay_lsn for standby
+	mock.ExpectQuery("SELECT pg_last_wal_receive_lsn\\(\\), pg_last_wal_replay_lsn\\(\\)").
+		WillReturnRows(sqlmock.NewRows([]string{"pg_last_wal_receive_lsn", "pg_last_wal_replay_lsn"}).
+			AddRow("0/3000000", "0/2FFFFFF"))
+
+	req := &consensusdatapb.GetWALPositionRequest{}
+
+	resp, err := pm.GetWALPosition(ctx, req)
+
+	require.NoError(t, err)
+	require.NotNil(t, resp)
+	require.NotNil(t, resp.WalPosition)
+	assert.Empty(t, resp.WalPosition.CurrentLsn, "Standby should not have CurrentLsn")
+	assert.Equal(t, "0/3000000", resp.WalPosition.LastReceiveLsn)
+	assert.Equal(t, "0/2FFFFFF", resp.WalPosition.LastReplayLsn)
+
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestGetWALPosition_NoDatabaseConnection(t *testing.T) {
+	ctx := context.Background()
+	pm, _, _ := setupManagerWithMockDB(t)
+
+	// Set db to nil to simulate no connection
+	pm.db = nil
+
+	req := &consensusdatapb.GetWALPositionRequest{}
+
+	resp, err := pm.GetWALPosition(ctx, req)
+
+	require.Error(t, err)
+	assert.Nil(t, resp)
+	assert.Contains(t, err.Error(), "database connection not available")
+}
+
+func TestGetWALPosition_QueryError(t *testing.T) {
+	ctx := context.Background()
+	pm, mock, _ := setupManagerWithMockDB(t)
+
+	// Mock pg_is_in_recovery query failure
+	mock.ExpectQuery("SELECT pg_is_in_recovery\\(\\)").
+		WillReturnError(assert.AnError)
+
+	req := &consensusdatapb.GetWALPositionRequest{}
+
+	resp, err := pm.GetWALPosition(ctx, req)
+
+	require.Error(t, err)
+	assert.Nil(t, resp)
+	assert.Contains(t, err.Error(), "failed to check recovery status")
+
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+// ============================================================================
+// ConsensusStatus Tests
+// ============================================================================
+
+func TestConsensusStatus_HealthyPrimary(t *testing.T) {
+	ctx := context.Background()
+	pm, mock, tmpDir := setupManagerWithMockDB(t)
+
+	// Setup: Initialize term file
+	initialTerm := &pgctldpb.ConsensusTerm{
+		CurrentTerm: 5,
+		VotedFor: &clustermetadatapb.ID{
+			Cell: "zone1",
+			Name: "leader-node",
+		},
+	}
+	err := SetTerm(tmpDir, initialTerm)
+	require.NoError(t, err)
+
+	pm.mu.Lock()
+	pm.consensusTerm = initialTerm
+	pm.mu.Unlock()
+
+	// Mock expectations for heartbeat query
+	mock.ExpectQuery("SELECT COALESCE\\(MAX\\(leader_term\\), 0\\)").
+		WillReturnRows(sqlmock.NewRows([]string{"leader_term"}).AddRow(5))
+
+	// Mock expectations for WAL position (primary)
+	mock.ExpectQuery("SELECT pg_is_in_recovery\\(\\)").
+		WillReturnRows(sqlmock.NewRows([]string{"pg_is_in_recovery"}).AddRow(false))
+	mock.ExpectQuery("SELECT pg_current_wal_lsn\\(\\)").
+		WillReturnRows(sqlmock.NewRows([]string{"pg_current_wal_lsn"}).AddRow("0/4000000"))
+
+	// Mock expectations for role determination
+	mock.ExpectQuery("SELECT pg_is_in_recovery\\(\\)").
+		WillReturnRows(sqlmock.NewRows([]string{"pg_is_in_recovery"}).AddRow(false))
+
+	req := &consensusdatapb.StatusRequest{
+		ShardId: "test-shard",
+	}
+
+	resp, err := pm.ConsensusStatus(ctx, req)
+
+	require.NoError(t, err)
+	require.NotNil(t, resp)
+	assert.Equal(t, "test-voter", resp.NodeId)
+	assert.Equal(t, int64(5), resp.CurrentTerm)
+	assert.Equal(t, int64(5), resp.LeaderTerm)
+	assert.True(t, resp.IsHealthy)
+	assert.True(t, resp.IsEligible)
+	assert.Equal(t, "zone1", resp.Cell)
+	assert.Equal(t, "primary", resp.Role)
+	require.NotNil(t, resp.WalPosition)
+	assert.Equal(t, "0/4000000", resp.WalPosition.CurrentLsn)
+
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestConsensusStatus_HealthyStandby(t *testing.T) {
+	ctx := context.Background()
+	pm, mock, tmpDir := setupManagerWithMockDB(t)
+
+	// Setup: Initialize term file
+	initialTerm := &pgctldpb.ConsensusTerm{
+		CurrentTerm: 3,
+		VotedFor:    nil,
+	}
+	err := SetTerm(tmpDir, initialTerm)
+	require.NoError(t, err)
+
+	pm.mu.Lock()
+	pm.consensusTerm = initialTerm
+	pm.mu.Unlock()
+
+	// Mock expectations for heartbeat query
+	mock.ExpectQuery("SELECT COALESCE\\(MAX\\(leader_term\\), 0\\)").
+		WillReturnRows(sqlmock.NewRows([]string{"leader_term"}).AddRow(5))
+
+	// Mock expectations for WAL position (standby)
+	mock.ExpectQuery("SELECT pg_is_in_recovery\\(\\)").
+		WillReturnRows(sqlmock.NewRows([]string{"pg_is_in_recovery"}).AddRow(true))
+	mock.ExpectQuery("SELECT pg_last_wal_receive_lsn\\(\\), pg_last_wal_replay_lsn\\(\\)").
+		WillReturnRows(sqlmock.NewRows([]string{"pg_last_wal_receive_lsn", "pg_last_wal_replay_lsn"}).
+			AddRow("0/5000000", "0/4FFFFFF"))
+
+	// Mock expectations for role determination
+	mock.ExpectQuery("SELECT pg_is_in_recovery\\(\\)").
+		WillReturnRows(sqlmock.NewRows([]string{"pg_is_in_recovery"}).AddRow(true))
+
+	req := &consensusdatapb.StatusRequest{
+		ShardId: "test-shard",
+	}
+
+	resp, err := pm.ConsensusStatus(ctx, req)
+
+	require.NoError(t, err)
+	require.NotNil(t, resp)
+	assert.Equal(t, "test-voter", resp.NodeId)
+	assert.Equal(t, int64(3), resp.CurrentTerm)
+	assert.Equal(t, int64(5), resp.LeaderTerm)
+	assert.True(t, resp.IsHealthy)
+	assert.True(t, resp.IsEligible)
+	assert.Equal(t, "zone1", resp.Cell)
+	assert.Equal(t, "replica", resp.Role)
+	require.NotNil(t, resp.WalPosition)
+	assert.Equal(t, "0/5000000", resp.WalPosition.LastReceiveLsn)
+	assert.Equal(t, "0/4FFFFFF", resp.WalPosition.LastReplayLsn)
+
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestConsensusStatus_NoDatabaseConnection(t *testing.T) {
+	ctx := context.Background()
+	pm, _, tmpDir := setupManagerWithMockDB(t)
+
+	// Setup: Initialize term file
+	initialTerm := &pgctldpb.ConsensusTerm{
+		CurrentTerm: 7,
+		VotedFor:    nil,
+	}
+	err := SetTerm(tmpDir, initialTerm)
+	require.NoError(t, err)
+
+	pm.mu.Lock()
+	pm.consensusTerm = initialTerm
+	pm.mu.Unlock()
+
+	// Set db to nil to simulate no connection
+	pm.db = nil
+
+	req := &consensusdatapb.StatusRequest{
+		ShardId: "test-shard",
+	}
+
+	resp, err := pm.ConsensusStatus(ctx, req)
+
+	require.NoError(t, err)
+	require.NotNil(t, resp)
+	assert.Equal(t, "test-voter", resp.NodeId)
+	assert.Equal(t, int64(7), resp.CurrentTerm)
+	assert.Equal(t, int64(0), resp.LeaderTerm, "LeaderTerm should be 0 when DB is unavailable")
+	assert.False(t, resp.IsHealthy, "Should be unhealthy when DB is unavailable")
+	assert.True(t, resp.IsEligible)
+	assert.Equal(t, "zone1", resp.Cell)
+	assert.Equal(t, "replica", resp.Role, "Role should default to replica when DB is unavailable")
+	require.NotNil(t, resp.WalPosition)
+	assert.Empty(t, resp.WalPosition.CurrentLsn)
+}
+
+func TestConsensusStatus_DatabaseQueryFailure(t *testing.T) {
+	ctx := context.Background()
+	pm, mock, tmpDir := setupManagerWithMockDB(t)
+
+	// Setup: Initialize term file
+	initialTerm := &pgctldpb.ConsensusTerm{
+		CurrentTerm: 4,
+		VotedFor:    nil,
+	}
+	err := SetTerm(tmpDir, initialTerm)
+	require.NoError(t, err)
+
+	pm.mu.Lock()
+	pm.consensusTerm = initialTerm
+	pm.mu.Unlock()
+
+	// Mock expectations - heartbeat query fails
+	mock.ExpectQuery("SELECT COALESCE\\(MAX\\(leader_term\\), 0\\)").
+		WillReturnError(assert.AnError)
+
+	req := &consensusdatapb.StatusRequest{
+		ShardId: "test-shard",
+	}
+
+	resp, err := pm.ConsensusStatus(ctx, req)
+
+	require.NoError(t, err, "ConsensusStatus should not return error even if DB query fails")
+	require.NotNil(t, resp)
+	assert.Equal(t, "test-voter", resp.NodeId)
+	assert.Equal(t, int64(4), resp.CurrentTerm)
+	assert.Equal(t, int64(0), resp.LeaderTerm, "LeaderTerm should be 0 when query fails")
+	assert.False(t, resp.IsHealthy, "Should be unhealthy when query fails")
+	assert.True(t, resp.IsEligible)
+
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestConsensusStatus_TermNotLoadedYet(t *testing.T) {
+	ctx := context.Background()
+	pm, mock, tmpDir := setupManagerWithMockDB(t)
+
+	// Setup: Initialize term file on disk but not in memory
+	initialTerm := &pgctldpb.ConsensusTerm{
+		CurrentTerm: 8,
+		VotedFor:    nil,
+	}
+	err := SetTerm(tmpDir, initialTerm)
+	require.NoError(t, err)
+
+	// Set consensusTerm to nil to simulate it not being loaded yet
+	pm.mu.Lock()
+	pm.consensusTerm = nil
+	pm.mu.Unlock()
+
+	// Mock expectations for heartbeat query
+	mock.ExpectQuery("SELECT COALESCE\\(MAX\\(leader_term\\), 0\\)").
+		WillReturnRows(sqlmock.NewRows([]string{"leader_term"}).AddRow(8))
+
+	// Mock expectations for WAL position (primary)
+	mock.ExpectQuery("SELECT pg_is_in_recovery\\(\\)").
+		WillReturnRows(sqlmock.NewRows([]string{"pg_is_in_recovery"}).AddRow(false))
+	mock.ExpectQuery("SELECT pg_current_wal_lsn\\(\\)").
+		WillReturnRows(sqlmock.NewRows([]string{"pg_current_wal_lsn"}).AddRow("0/6000000"))
+
+	// Mock expectations for role determination
+	mock.ExpectQuery("SELECT pg_is_in_recovery\\(\\)").
+		WillReturnRows(sqlmock.NewRows([]string{"pg_is_in_recovery"}).AddRow(false))
+
+	req := &consensusdatapb.StatusRequest{
+		ShardId: "test-shard",
+	}
+
+	resp, err := pm.ConsensusStatus(ctx, req)
+
+	require.NoError(t, err)
+	require.NotNil(t, resp)
+	assert.Equal(t, int64(8), resp.CurrentTerm, "Should load term from disk if not in memory")
+	assert.Equal(t, int64(8), resp.LeaderTerm)
+	assert.True(t, resp.IsHealthy)
+
+	// Verify term was loaded into memory
+	pm.mu.Lock()
+	assert.NotNil(t, pm.consensusTerm, "Term should be loaded into memory")
+	assert.Equal(t, int64(8), pm.consensusTerm.CurrentTerm)
+	pm.mu.Unlock()
+
+	assert.NoError(t, mock.ExpectationsWereMet())
 }
