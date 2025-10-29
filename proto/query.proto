@@ -20,6 +20,8 @@ syntax = "proto3";
 
 package query;
 
+import "clustermetadata.proto";
+
 option go_package = "github.com/multigres/multigres/go/pb/query";
 
 // QueryResult represents the result of executing a query
@@ -91,4 +93,21 @@ message StatementDescription {
 message ParameterDescription {
   // data_type_oid is the OID of the parameter's data type
   uint32 data_type_oid = 1;
+}
+
+// Target identifies the target for query execution.
+// It specifies which tablegroup, shard, and pooler type to route the query to.
+// - Route to PRIMARY for writes
+// - Route to REPLICA for reads
+// - Route to specific shards (future)
+message Target {
+  // table_group is the target tablegroup name
+  string table_group = 1;
+
+  // shard is the target shard name (empty for unsharded or to route to any shard)
+  string shard = 2;
+
+  // pooler_type is the type of pooler to route to (PRIMARY, REPLICA)
+  // If not specified (UNKNOWN), defaults to PRIMARY
+  clustermetadata.PoolerType pooler_type = 3;
 }

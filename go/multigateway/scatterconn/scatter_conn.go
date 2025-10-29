@@ -27,6 +27,8 @@ import (
 	"log/slog"
 
 	"github.com/multigres/multigres/go/multigateway/engine"
+	"github.com/multigres/multigres/go/multipooler/queryservice"
+	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/pb/query"
 )
 
@@ -35,72 +37,61 @@ import (
 type ScatterConn struct {
 	logger *slog.Logger
 
-	// TODO(Phase 3): Add PoolerGateway reference
-	// gateway *poolergateway.PoolerGateway
+	// queryService is used for executing queries (typically a PoolerGateway)
+	queryService queryservice.QueryService
 }
 
 // NewScatterConn creates a new ScatterConn instance.
-func NewScatterConn(logger *slog.Logger) *ScatterConn {
+func NewScatterConn(queryService queryservice.QueryService, logger *slog.Logger) *ScatterConn {
 	return &ScatterConn{
-		logger: logger,
+		logger:       logger,
+		queryService: queryService,
 	}
 }
 
 // StreamExecute executes a query on the specified tablegroup and streams results.
 // This is the implementation of engine.IExecute.StreamExecute().
-//
-// Phase 2 Implementation:
-// - Returns stub results showing that ScatterConn was reached
-// - Logs execution parameters for debugging
-//
-// Phase 3 will:
-// - Use PoolerGateway to select a healthy multipooler
-// - Execute query via gRPC to the pooler
-// - Stream actual results back
+// - Creates Target with tablegroup, shard, and PRIMARY pooler type
+// - Uses PoolerGateway to select matching pooler
+// - Executes query via gRPC to the pooler
+// - Streams actual results back via callback
 func (sc *ScatterConn) StreamExecute(
 	ctx context.Context,
 	tableGroup string,
-	database string,
+	shard string,
 	sql string,
 	callback func(*query.QueryResult) error,
 ) error {
 	sc.logger.Debug("scatter conn executing query",
 		"tablegroup", tableGroup,
-		"database", database,
+		"shard", shard,
 		"query", sql)
 
-	// TODO(Phase 3): Replace with actual pooler gateway execution
-	// pooler, err := sc.gateway.GetPooler(ctx, tableGroup)
-	// if err != nil {
-	//     return fmt.Errorf("failed to get pooler for tablegroup %s: %w", tableGroup, err)
-	// }
-	//
-	// return sc.executeOnPooler(ctx, pooler, database, sql, callback)
-
-	// Phase 2: Return stub result showing ScatterConn was reached
-	result := &query.QueryResult{
-		Fields: []*query.Field{
-			{
-				Name:         "message",
-				Type:         "text",
-				DataTypeOid:  25, // text type OID
-				DataTypeSize: -1, // variable length
-				Format:       0,  // text format
-			},
-		},
-		Rows: []*query.Row{
-			{
-				Values: [][]byte{
-					[]byte(fmt.Sprintf("ScatterConn: tablegroup=%s, database=%s, query=%s",
-						tableGroup, database, sql)),
-				},
-			},
-		},
-		CommandTag: "SELECT 1",
+	// Create target for routing
+	// TODO: Add query analysis to determine if this is a read or write query
+	// For now, always route to PRIMARY (safe default)
+	target := &query.Target{
+		TableGroup: tableGroup,
+		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
+		Shard:      shard,
 	}
 
-	sc.logger.Debug("scatter conn returning stub result")
-	return callback(result)
+	// Execute query via QueryService (PoolerGateway) and stream results
+	// PoolerGateway will use the target to find the right pooler
+	sc.logger.Debug("executing query via query service",
+		"tablegroup", tableGroup,
+		"shard", shard,
+		"pooler_type", target.PoolerType.String())
+
+	if err := sc.queryService.StreamExecute(ctx, target, sql, callback); err != nil {
+		return fmt.Errorf("query execution failed: %w", err)
+	}
+
+	sc.logger.Debug("query execution completed successfully",
+		"tablegroup", tableGroup,
+		"shard", shard)
+
+	return nil
 }
 
 // Ensure ScatterConn implements engine.IExecute interface.

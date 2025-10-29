@@ -31,15 +31,15 @@ type Route struct {
 	// Query is the SQL query string to execute.
 	Query string
 
-	// Database is the target database name.
-	Database string
+	// Shard is the target shard (empty string for unsharded or any shard).
+	Shard string
 }
 
 // NewRoute creates a new Route primitive.
-func NewRoute(tableGroup, database, query string) *Route {
+func NewRoute(tableGroup, shard, query string) *Route {
 	return &Route{
 		TableGroup: tableGroup,
-		Database:   database,
+		Shard:      shard,
 		Query:      query,
 	}
 }
@@ -57,7 +57,7 @@ func (r *Route) StreamExecute(
 	return exec.StreamExecute(
 		conn.Context(),
 		r.TableGroup,
-		r.Database,
+		r.Shard,
 		r.Query,
 		callback,
 	)

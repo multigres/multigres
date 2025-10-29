@@ -60,12 +60,12 @@ func (p *Planner) Plan(sql string, conn *server.Conn) (*engine.Plan, error) {
 
 	// Phase 1: Create a simple route to default tablegroup
 	// TODO(Phase 2): Parse SQL and analyze query structure
-	// TODO(Phase 2): Determine actual target tablegroup(s)
+	// TODO(Phase 2): Determine actual target tablegroup(s) and shards
 	// TODO(Phase 3): Create complex primitives for joins, aggregates, etc.
 
 	route := engine.NewRoute(
 		p.defaultTableGroup,
-		conn.Database(),
+		"", // Empty shard for unsharded/any shard
 		sql,
 	)
 

@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/multigres/multigres/go/clustermetadata/topo"
+	"github.com/multigres/multigres/go/pb/query"
 	"github.com/multigres/multigres/go/tools/retry"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
@@ -222,16 +223,62 @@ func (pd *PoolerDiscovery) processPoolerChange(watchData *topo.WatchDataRecursiv
 	}
 }
 
-// GetPoolersName returns a list of all discovered pooler names.
+// GetPoolers returns a list of all discovered poolers.
 func (pd *PoolerDiscovery) GetPoolers() []*clustermetadatapb.MultiPooler {
 	pd.mu.RLock()
 	defer pd.mu.RUnlock()
 
 	poolers := make([]*clustermetadatapb.MultiPooler, 0, len(pd.poolers))
 	for _, pooler := range pd.poolers {
-		poolers = append(poolers, proto.Clone(pooler).(*clustermetadatapb.MultiPooler))
+		poolers = append(poolers, proto.Clone(pooler.MultiPooler).(*clustermetadatapb.MultiPooler))
 	}
 	return poolers
+}
+
+// GetPooler returns a pooler matching the target specification.
+// Target specifies the tablegroup, shard, and pooler type to route to.
+// Returns nil if no matching pooler is found.
+//
+// Filtering logic:
+// - TableGroup: Required, must match exactly
+// - PoolerType: If not specified (UNKNOWN), defaults to PRIMARY
+// - Shard: If empty, matches any shard; otherwise must match exactly
+func (pd *PoolerDiscovery) GetPooler(target *query.Target) *clustermetadatapb.MultiPooler {
+	pd.mu.RLock()
+	defer pd.mu.RUnlock()
+
+	// Default to PRIMARY if not specified
+	targetType := target.PoolerType
+	if targetType == clustermetadatapb.PoolerType_UNKNOWN {
+		targetType = clustermetadatapb.PoolerType_PRIMARY
+	}
+
+	// Find matching pooler
+	for _, pooler := range pd.poolers {
+		// TableGroup must match
+		if pooler.TableGroup != target.TableGroup {
+			continue
+		}
+
+		// PoolerType must match
+		if pooler.Type != targetType {
+			continue
+		}
+
+		// Shard must match if specified
+		if target.Shard != "" && pooler.Shard != target.Shard {
+			continue
+		}
+
+		// Found a match!
+		return proto.Clone(pooler.MultiPooler).(*clustermetadatapb.MultiPooler)
+	}
+
+	pd.logger.Warn("no matching pooler found",
+		"tablegroup", target.TableGroup,
+		"shard", target.Shard,
+		"pooler_type", targetType.String())
+	return nil
 }
 
 // LastRefresh returns the timestamp of the last successful refresh.

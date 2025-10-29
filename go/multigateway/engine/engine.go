@@ -37,13 +37,13 @@ type IExecute interface {
 	// Parameters:
 	//   ctx: Context for cancellation and timeouts
 	//   tableGroup: Target tablegroup for the query
-	//   database: Target database name
+	//   shard: Target shard (empty string for unsharded or any shard)
 	//   sql: SQL query to execute
 	//   callback: Function called for each result chunk
 	StreamExecute(
 		ctx context.Context,
 		tableGroup string,
-		database string,
+		shard string,
 		sql string,
 		callback func(*query.QueryResult) error,
 	) error
