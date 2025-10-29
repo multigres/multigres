@@ -21,7 +21,6 @@
 package consensusdata
 
 import (
-	_ "github.com/multigres/multigres/go/pb/clustermetadata"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
@@ -264,8 +263,8 @@ func (x *RequestVoteResponse) GetNodeId() string {
 	return ""
 }
 
-// GetNodeStatus returns the current status of a node
-type NodeStatusRequest struct {
+// Status returns the current status of a node
+type StatusRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Optional term to include in response
 	Term int64 `protobuf:"varint,1,opt,name=term,proto3" json:"term,omitempty"`
@@ -275,20 +274,20 @@ type NodeStatusRequest struct {
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *NodeStatusRequest) Reset() {
-	*x = NodeStatusRequest{}
+func (x *StatusRequest) Reset() {
+	*x = StatusRequest{}
 	mi := &file_consensusdata_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *NodeStatusRequest) String() string {
+func (x *StatusRequest) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*NodeStatusRequest) ProtoMessage() {}
+func (*StatusRequest) ProtoMessage() {}
 
-func (x *NodeStatusRequest) ProtoReflect() protoreflect.Message {
+func (x *StatusRequest) ProtoReflect() protoreflect.Message {
 	mi := &file_consensusdata_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -300,63 +299,61 @@ func (x *NodeStatusRequest) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use NodeStatusRequest.ProtoReflect.Descriptor instead.
-func (*NodeStatusRequest) Descriptor() ([]byte, []int) {
+// Deprecated: Use StatusRequest.ProtoReflect.Descriptor instead.
+func (*StatusRequest) Descriptor() ([]byte, []int) {
 	return file_consensusdata_proto_rawDescGZIP(), []int{3}
 }
 
-func (x *NodeStatusRequest) GetTerm() int64 {
+func (x *StatusRequest) GetTerm() int64 {
 	if x != nil {
 		return x.Term
 	}
 	return 0
 }
 
-func (x *NodeStatusRequest) GetShardId() string {
+func (x *StatusRequest) GetShardId() string {
 	if x != nil {
 		return x.ShardId
 	}
 	return ""
 }
 
-type NodeStatusResponse struct {
+type StatusResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Node ID
 	NodeId string `protobuf:"bytes,1,opt,name=node_id,json=nodeId,proto3" json:"node_id,omitempty"`
 	// Current term from local file (may be inflated after partition)
 	CurrentTerm int64 `protobuf:"varint,2,opt,name=current_term,json=currentTerm,proto3" json:"current_term,omitempty"`
 	// Last successful leader term from Postgres (committed reality)
-	PostgresLeaderTerm int64 `protobuf:"varint,3,opt,name=postgres_leader_term,json=postgresLeaderTerm,proto3" json:"postgres_leader_term,omitempty"`
+	LeaderTerm int64 `protobuf:"varint,3,opt,name=leader_term,json=leaderTerm,proto3" json:"leader_term,omitempty"`
 	// Current WAL position
 	WalPosition *WALPosition `protobuf:"bytes,4,opt,name=wal_position,json=walPosition,proto3" json:"wal_position,omitempty"`
 	// Whether Postgres is healthy and reachable
 	IsHealthy bool `protobuf:"varint,5,opt,name=is_healthy,json=isHealthy,proto3" json:"is_healthy,omitempty"`
 	// Whether this node is eligible to be a leader
 	IsEligible bool `protobuf:"varint,6,opt,name=is_eligible,json=isEligible,proto3" json:"is_eligible,omitempty"`
-	// Health score (0-100)
-	HealthScore int32 `protobuf:"varint,7,opt,name=health_score,json=healthScore,proto3" json:"health_score,omitempty"`
-	// Zone/region identifier
-	Zone string `protobuf:"bytes,8,opt,name=zone,proto3" json:"zone,omitempty"`
+	// Cell/region identifier
+	Cell string `protobuf:"bytes,7,opt,name=cell,proto3" json:"cell,omitempty"`
 	// Current role (primary/replica)
 	Role          string `protobuf:"bytes,9,opt,name=role,proto3" json:"role,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *NodeStatusResponse) Reset() {
-	*x = NodeStatusResponse{}
+func (x *StatusResponse) Reset() {
+	*x = StatusResponse{}
 	mi := &file_consensusdata_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *NodeStatusResponse) String() string {
+func (x *StatusResponse) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*NodeStatusResponse) ProtoMessage() {}
+func (*StatusResponse) ProtoMessage() {}
 
-func (x *NodeStatusResponse) ProtoReflect() protoreflect.Message {
+func (x *StatusResponse) ProtoReflect() protoreflect.Message {
 	mi := &file_consensusdata_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -368,68 +365,61 @@ func (x *NodeStatusResponse) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use NodeStatusResponse.ProtoReflect.Descriptor instead.
-func (*NodeStatusResponse) Descriptor() ([]byte, []int) {
+// Deprecated: Use StatusResponse.ProtoReflect.Descriptor instead.
+func (*StatusResponse) Descriptor() ([]byte, []int) {
 	return file_consensusdata_proto_rawDescGZIP(), []int{4}
 }
 
-func (x *NodeStatusResponse) GetNodeId() string {
+func (x *StatusResponse) GetNodeId() string {
 	if x != nil {
 		return x.NodeId
 	}
 	return ""
 }
 
-func (x *NodeStatusResponse) GetCurrentTerm() int64 {
+func (x *StatusResponse) GetCurrentTerm() int64 {
 	if x != nil {
 		return x.CurrentTerm
 	}
 	return 0
 }
 
-func (x *NodeStatusResponse) GetPostgresLeaderTerm() int64 {
+func (x *StatusResponse) GetLeaderTerm() int64 {
 	if x != nil {
-		return x.PostgresLeaderTerm
+		return x.LeaderTerm
 	}
 	return 0
 }
 
-func (x *NodeStatusResponse) GetWalPosition() *WALPosition {
+func (x *StatusResponse) GetWalPosition() *WALPosition {
 	if x != nil {
 		return x.WalPosition
 	}
 	return nil
 }
 
-func (x *NodeStatusResponse) GetIsHealthy() bool {
+func (x *StatusResponse) GetIsHealthy() bool {
 	if x != nil {
 		return x.IsHealthy
 	}
 	return false
 }
 
-func (x *NodeStatusResponse) GetIsEligible() bool {
+func (x *StatusResponse) GetIsEligible() bool {
 	if x != nil {
 		return x.IsEligible
 	}
 	return false
 }
 
-func (x *NodeStatusResponse) GetHealthScore() int32 {
+func (x *StatusResponse) GetCell() string {
 	if x != nil {
-		return x.HealthScore
-	}
-	return 0
-}
-
-func (x *NodeStatusResponse) GetZone() string {
-	if x != nil {
-		return x.Zone
+		return x.Cell
 	}
 	return ""
 }
 
-func (x *NodeStatusResponse) GetRole() string {
+func (x *StatusResponse) GetRole() string {
 	if x != nil {
 		return x.Role
 	}
@@ -485,7 +475,7 @@ func (x *LeadershipViewRequest) GetShardId() string {
 type LeadershipViewResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// ID of the current leader
-	PoolerId string `protobuf:"bytes,1,opt,name=pooler_id,json=poolerId,proto3" json:"pooler_id,omitempty"`
+	LeaderId string `protobuf:"bytes,1,opt,name=leader_id,json=leaderId,proto3" json:"leader_id,omitempty"`
 	// Leader's consensus term
 	LeaderTerm int64 `protobuf:"varint,2,opt,name=leader_term,json=leaderTerm,proto3" json:"leader_term,omitempty"`
 	// Leader's WAL position
@@ -494,10 +484,8 @@ type LeadershipViewResponse struct {
 	LastHeartbeat *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=last_heartbeat,json=lastHeartbeat,proto3" json:"last_heartbeat,omitempty"`
 	// Calculated replication lag in nanoseconds
 	ReplicationLagNs int64 `protobuf:"varint,5,opt,name=replication_lag_ns,json=replicationLagNs,proto3" json:"replication_lag_ns,omitempty"`
-	// Whether we believe the leader is alive
-	BelievesLeaderAlive bool `protobuf:"varint,6,opt,name=believes_leader_alive,json=believesLeaderAlive,proto3" json:"believes_leader_alive,omitempty"`
-	unknownFields       protoimpl.UnknownFields
-	sizeCache           protoimpl.SizeCache
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *LeadershipViewResponse) Reset() {
@@ -530,9 +518,9 @@ func (*LeadershipViewResponse) Descriptor() ([]byte, []int) {
 	return file_consensusdata_proto_rawDescGZIP(), []int{6}
 }
 
-func (x *LeadershipViewResponse) GetPoolerId() string {
+func (x *LeadershipViewResponse) GetLeaderId() string {
 	if x != nil {
-		return x.PoolerId
+		return x.LeaderId
 	}
 	return ""
 }
@@ -563,13 +551,6 @@ func (x *LeadershipViewResponse) GetReplicationLagNs() int64 {
 		return x.ReplicationLagNs
 	}
 	return 0
-}
-
-func (x *LeadershipViewResponse) GetBelievesLeaderAlive() bool {
-	if x != nil {
-		return x.BelievesLeaderAlive
-	}
-	return false
 }
 
 // GetWALPosition returns the current WAL position
@@ -767,7 +748,7 @@ var File_consensusdata_proto protoreflect.FileDescriptor
 
 const file_consensusdata_proto_rawDesc = "" +
 	"\n" +
-	"\x13consensusdata.proto\x12\rconsensusdata\x1a\x15clustermetadata.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\x91\x01\n" +
+	"\x13consensusdata.proto\x12\rconsensusdata\x1a\x1fgoogle/protobuf/timestamp.proto\"\x91\x01\n" +
 	"\vWALPosition\x12\x10\n" +
 	"\x03lsn\x18\x01 \x01(\tR\x03lsn\x12\x1b\n" +
 	"\tlog_index\x18\x02 \x01(\x03R\blogIndex\x12\x19\n" +
@@ -783,32 +764,31 @@ const file_consensusdata_proto_rawDesc = "" +
 	"\x13RequestVoteResponse\x12\x12\n" +
 	"\x04term\x18\x01 \x01(\x03R\x04term\x12!\n" +
 	"\fvote_granted\x18\x02 \x01(\bR\vvoteGranted\x12\x17\n" +
-	"\anode_id\x18\x03 \x01(\tR\x06nodeId\"B\n" +
-	"\x11NodeStatusRequest\x12\x12\n" +
+	"\anode_id\x18\x03 \x01(\tR\x06nodeId\">\n" +
+	"\rStatusRequest\x12\x12\n" +
 	"\x04term\x18\x01 \x01(\x03R\x04term\x12\x19\n" +
-	"\bshard_id\x18\x02 \x01(\tR\ashardId\"\xcc\x02\n" +
-	"\x12NodeStatusResponse\x12\x17\n" +
+	"\bshard_id\x18\x02 \x01(\tR\ashardId\"\x94\x02\n" +
+	"\x0eStatusResponse\x12\x17\n" +
 	"\anode_id\x18\x01 \x01(\tR\x06nodeId\x12!\n" +
-	"\fcurrent_term\x18\x02 \x01(\x03R\vcurrentTerm\x120\n" +
-	"\x14postgres_leader_term\x18\x03 \x01(\x03R\x12postgresLeaderTerm\x12=\n" +
+	"\fcurrent_term\x18\x02 \x01(\x03R\vcurrentTerm\x12\x1f\n" +
+	"\vleader_term\x18\x03 \x01(\x03R\n" +
+	"leaderTerm\x12=\n" +
 	"\fwal_position\x18\x04 \x01(\v2\x1a.consensusdata.WALPositionR\vwalPosition\x12\x1d\n" +
 	"\n" +
 	"is_healthy\x18\x05 \x01(\bR\tisHealthy\x12\x1f\n" +
 	"\vis_eligible\x18\x06 \x01(\bR\n" +
-	"isEligible\x12!\n" +
-	"\fhealth_score\x18\a \x01(\x05R\vhealthScore\x12\x12\n" +
-	"\x04zone\x18\b \x01(\tR\x04zone\x12\x12\n" +
+	"isEligible\x12\x12\n" +
+	"\x04cell\x18\a \x01(\tR\x04cell\x12\x12\n" +
 	"\x04role\x18\t \x01(\tR\x04role\"2\n" +
 	"\x15LeadershipViewRequest\x12\x19\n" +
-	"\bshard_id\x18\x01 \x01(\tR\ashardId\"\xab\x02\n" +
+	"\bshard_id\x18\x01 \x01(\tR\ashardId\"\xf7\x01\n" +
 	"\x16LeadershipViewResponse\x12\x1b\n" +
-	"\tpooler_id\x18\x01 \x01(\tR\bpoolerId\x12\x1f\n" +
+	"\tleader_id\x18\x01 \x01(\tR\bleaderId\x12\x1f\n" +
 	"\vleader_term\x18\x02 \x01(\x03R\n" +
 	"leaderTerm\x12.\n" +
 	"\x13leader_wal_position\x18\x03 \x01(\tR\x11leaderWalPosition\x12A\n" +
 	"\x0elast_heartbeat\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\rlastHeartbeat\x12,\n" +
-	"\x12replication_lag_ns\x18\x05 \x01(\x03R\x10replicationLagNs\x122\n" +
-	"\x15believes_leader_alive\x18\x06 \x01(\bR\x13believesLeaderAlive\"\x17\n" +
+	"\x12replication_lag_ns\x18\x05 \x01(\x03R\x10replicationLagNs\"\x17\n" +
 	"\x15GetWALPositionRequest\"W\n" +
 	"\x16GetWALPositionResponse\x12=\n" +
 	"\fwal_position\x18\x01 \x01(\v2\x1a.consensusdata.WALPositionR\vwalPosition\"^\n" +
@@ -836,8 +816,8 @@ var file_consensusdata_proto_goTypes = []any{
 	(*WALPosition)(nil),             // 0: consensusdata.WALPosition
 	(*RequestVoteRequest)(nil),      // 1: consensusdata.RequestVoteRequest
 	(*RequestVoteResponse)(nil),     // 2: consensusdata.RequestVoteResponse
-	(*NodeStatusRequest)(nil),       // 3: consensusdata.NodeStatusRequest
-	(*NodeStatusResponse)(nil),      // 4: consensusdata.NodeStatusResponse
+	(*StatusRequest)(nil),           // 3: consensusdata.StatusRequest
+	(*StatusResponse)(nil),          // 4: consensusdata.StatusResponse
 	(*LeadershipViewRequest)(nil),   // 5: consensusdata.LeadershipViewRequest
 	(*LeadershipViewResponse)(nil),  // 6: consensusdata.LeadershipViewResponse
 	(*GetWALPositionRequest)(nil),   // 7: consensusdata.GetWALPositionRequest
@@ -848,7 +828,7 @@ var file_consensusdata_proto_goTypes = []any{
 }
 var file_consensusdata_proto_depIdxs = []int32{
 	11, // 0: consensusdata.WALPosition.timestamp:type_name -> google.protobuf.Timestamp
-	0,  // 1: consensusdata.NodeStatusResponse.wal_position:type_name -> consensusdata.WALPosition
+	0,  // 1: consensusdata.StatusResponse.wal_position:type_name -> consensusdata.WALPosition
 	11, // 2: consensusdata.LeadershipViewResponse.last_heartbeat:type_name -> google.protobuf.Timestamp
 	0,  // 3: consensusdata.GetWALPositionResponse.wal_position:type_name -> consensusdata.WALPosition
 	4,  // [4:4] is the sub-list for method output_type

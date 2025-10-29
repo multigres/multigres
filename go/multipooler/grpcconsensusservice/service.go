@@ -52,9 +52,9 @@ func (s *consensusService) RequestVote(ctx context.Context, req *consensusdata.R
 	return resp, nil
 }
 
-// GetNodeStatus returns the current status of this node
-func (s *consensusService) GetNodeStatus(ctx context.Context, req *consensusdata.NodeStatusRequest) (*consensusdata.NodeStatusResponse, error) {
-	resp, err := s.manager.GetNodeStatus(ctx, req)
+// Status returns the current status of this node
+func (s *consensusService) Status(ctx context.Context, req *consensusdata.StatusRequest) (*consensusdata.StatusResponse, error) {
+	resp, err := s.manager.ConsensusStatus(ctx, req)
 	if err != nil {
 		return nil, mterrors.ToGRPC(err)
 	}

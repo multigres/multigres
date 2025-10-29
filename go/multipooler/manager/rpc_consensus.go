@@ -17,6 +17,7 @@ package manager
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"google.golang.org/protobuf/types/known/timestamppb"
 
@@ -85,14 +86,19 @@ func (pm *MultiPoolerManager) RequestVote(ctx context.Context, req *consensusdat
 	votedFor = nil
 	response.Term = currentTerm
 
-	// Validate candidate's WAL position (query Postgres)
-	ourWAL, err := pm.GetCurrentWALPosition(ctx)
+	// TODO: Use pooler serving state to decide whether to vote
+	// Check if we're caught up with replication (within 30 seconds)
+	var lastMsgReceiptTime *time.Time
+	err := pm.db.QueryRowContext(ctx, "SELECT last_msg_receipt_time FROM pg_stat_wal_receiver").Scan(&lastMsgReceiptTime)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get WAL position: %w", err)
-	}
-
-	if !IsWALPositionUpToDate(req.LastLogIndex, req.LastLogTerm, ourWAL) {
-		return response, nil
+		// No WAL receiver (could be primary or disconnected standby)
+		// Don't reject the vote - let it proceed
+	} else if lastMsgReceiptTime != nil {
+		timeSinceLastMessage := time.Since(*lastMsgReceiptTime)
+		if timeSinceLastMessage > 30*time.Second {
+			// We're too far behind in replication, don't vote
+			return response, nil
+		}
 	}
 
 	// Grant vote and persist decision to LOCAL FILE (not Postgres!)
@@ -114,8 +120,8 @@ func (pm *MultiPoolerManager) RequestVote(ctx context.Context, req *consensusdat
 	return response, nil
 }
 
-// GetNodeStatus returns the current status of this node for consensus
-func (pm *MultiPoolerManager) GetNodeStatus(ctx context.Context, req *consensusdatapb.NodeStatusRequest) (*consensusdatapb.NodeStatusResponse, error) {
+// ConsensusStatus returns the current status of this node for consensus
+func (pm *MultiPoolerManager) ConsensusStatus(ctx context.Context, req *consensusdatapb.StatusRequest) (*consensusdatapb.StatusResponse, error) {
 	// Load consensus term from disk if not already loaded
 	pm.mu.Lock()
 	if pm.consensusTerm == nil {
@@ -132,7 +138,7 @@ func (pm *MultiPoolerManager) GetNodeStatus(ctx context.Context, req *consensusd
 	pm.mu.Unlock()
 
 	// Get last successful leader term from Postgres (replicated data)
-	var postgresLeaderTerm int64
+	var leaderTerm int64
 	isHealthy := false
 
 	if pm.db != nil {
@@ -140,11 +146,11 @@ func (pm *MultiPoolerManager) GetNodeStatus(ctx context.Context, req *consensusd
 			SELECT COALESCE(MAX(leader_term), 0)
 			FROM multigres.heartbeat
 			WHERE shard_id = $1
-		`, []byte(req.ShardId)).Scan(&postgresLeaderTerm)
+		`, []byte(req.ShardId)).Scan(&leaderTerm)
 
 		if err != nil {
 			pm.logger.Warn("Failed to query postgres leader term", "error", err)
-			postgresLeaderTerm = 0
+			leaderTerm = 0
 		} else {
 			isHealthy = true
 		}
@@ -170,16 +176,15 @@ func (pm *MultiPoolerManager) GetNodeStatus(ctx context.Context, req *consensusd
 		}
 	}
 
-	return &consensusdatapb.NodeStatusResponse{
-		NodeId:             pm.serviceID.GetName(),
-		CurrentTerm:        localTerm,
-		PostgresLeaderTerm: postgresLeaderTerm,
-		WalPosition:        walPosition,
-		IsHealthy:          isHealthy,
-		IsEligible:         true, // TODO: implement eligibility logic based on policy
-		HealthScore:        100,  // TODO: implement health scoring
-		Zone:               pm.serviceID.GetCell(),
-		Role:               role,
+	return &consensusdatapb.StatusResponse{
+		NodeId:      pm.serviceID.GetName(),
+		CurrentTerm: localTerm,
+		LeaderTerm:  leaderTerm,
+		WalPosition: walPosition,
+		IsHealthy:   isHealthy,
+		IsEligible:  true, // TODO: implement eligibility logic based on policy
+		Cell:        pm.serviceID.GetCell(),
+		Role:        role,
 	}, nil
 }
 
@@ -197,7 +202,7 @@ func (pm *MultiPoolerManager) GetLeadershipView(ctx context.Context, req *consen
 	}
 
 	return &consensusdatapb.LeadershipViewResponse{
-		PoolerId:          view.PoolerID,
+		LeaderId:          view.LeaderID,
 		LeaderTerm:        view.LeaderTerm,
 		LeaderWalPosition: view.LeaderWALPosition,
 		LastHeartbeat:     timestamppb.New(view.LastHeartbeat),
@@ -218,9 +223,35 @@ func (pm *MultiPoolerManager) GetWALPosition(ctx context.Context, req *consensus
 }
 
 // CanReachPrimary checks if this node can reach the specified primary
+// by querying the pg_stat_wal_receiver view to check the WAL receiver status
 func (pm *MultiPoolerManager) CanReachPrimary(ctx context.Context, req *consensusdatapb.CanReachPrimaryRequest) (*consensusdatapb.CanReachPrimaryResponse, error) {
-	// TODO: Implement actual connectivity check
-	// For now, just return a placeholder
+	if pm.db == nil {
+		return &consensusdatapb.CanReachPrimaryResponse{
+			Reachable:    false,
+			ErrorMessage: "database connection not available",
+		}, nil
+	}
+
+	// Query pg_stat_wal_receiver to check if we can reach the primary
+	var status string
+	err := pm.db.QueryRowContext(ctx, "SELECT status FROM pg_stat_wal_receiver").Scan(&status)
+	if err != nil {
+		// No rows returned means we're not receiving WAL (likely not a replica or not connected)
+		return &consensusdatapb.CanReachPrimaryResponse{
+			Reachable:    false,
+			ErrorMessage: "no active WAL receiver",
+		}, nil
+	}
+
+	// If status is "stopping", the connection is not healthy
+	if status == "stopping" {
+		return &consensusdatapb.CanReachPrimaryResponse{
+			Reachable:    false,
+			ErrorMessage: "WAL receiver is stopping",
+		}, nil
+	}
+
+	// WAL receiver is active and in a good state
 	return &consensusdatapb.CanReachPrimaryResponse{
 		Reachable:    true,
 		ErrorMessage: "",

@@ -201,10 +201,10 @@ func (w *Writer) write() error {
 	tsNano := w.now().UnixNano()
 
 	_, err = conn.ExecContext(ctx, `
-		INSERT INTO multigres.heartbeat (shard_id, pooler_id, ts, leader_term, leader_wal_position)
+		INSERT INTO multigres.heartbeat (shard_id, leader_id, ts, leader_term, leader_wal_position)
 		VALUES ($1, $2, $3, $4, $5)
 		ON CONFLICT (shard_id) DO UPDATE
-		SET pooler_id = EXCLUDED.pooler_id,
+		SET leader_id = EXCLUDED.leader_id,
 		    ts = EXCLUDED.ts,
 		    leader_term = EXCLUDED.leader_term,
 		    leader_wal_position = EXCLUDED.leader_wal_position

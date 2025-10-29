@@ -26,7 +26,7 @@ service MultiPoolerConsensus {
   rpc RequestVote(consensusdata.RequestVoteRequest) returns (consensusdata.RequestVoteResponse);
 
   // Status and Health
-  rpc GetNodeStatus(consensusdata.NodeStatusRequest) returns (consensusdata.NodeStatusResponse);
+  rpc Status(consensusdata.StatusRequest) returns (consensusdata.StatusResponse);
   rpc GetLeadershipView(consensusdata.LeadershipViewRequest) returns (consensusdata.LeadershipViewResponse);
 
   // WAL and Replication

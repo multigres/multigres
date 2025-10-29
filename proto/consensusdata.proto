@@ -67,8 +67,8 @@ message RequestVoteResponse {
   string node_id = 3;
 }
 
-// GetNodeStatus returns the current status of a node
-message NodeStatusRequest {
+// Status returns the current status of a node
+message StatusRequest {
   // Optional term to include in response
   int64 term = 1;
 
@@ -76,7 +76,7 @@ message NodeStatusRequest {
   string shard_id = 2;
 }
 
-message NodeStatusResponse {
+message StatusResponse {
   // Node ID
   string node_id = 1;
 
@@ -84,7 +84,7 @@ message NodeStatusResponse {
   int64 current_term = 2;
 
   // Last successful leader term from Postgres (committed reality)
-  int64 postgres_leader_term = 3;
+  int64 leader_term = 3;
 
   // Current WAL position
   WALPosition wal_position = 4;
@@ -95,11 +95,8 @@ message NodeStatusResponse {
   // Whether this node is eligible to be a leader
   bool is_eligible = 6;
 
-  // Health score (0-100)
-  int32 health_score = 7;
-
-  // Zone/region identifier
-  string zone = 8;
+  // Cell/region identifier
+  string cell = 7;
 
   // Current role (primary/replica)
   string role = 9;
@@ -113,7 +110,7 @@ message LeadershipViewRequest {
 
 message LeadershipViewResponse {
   // ID of the current leader
-  string pooler_id = 1;
+  string leader_id = 1;
 
   // Leader's consensus term
   int64 leader_term = 2;

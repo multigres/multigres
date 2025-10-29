@@ -30,7 +30,7 @@ import (
 	consensusdata "github.com/multigres/multigres/go/pb/consensusdata"
 )
 
-func TestConsensus_GetNodeStatus(t *testing.T) {
+func TestConsensus_Status(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping end-to-end tests in short mode")
 	}
@@ -58,21 +58,21 @@ func TestConsensus_GetNodeStatus(t *testing.T) {
 	t.Cleanup(func() { standbyConn.Close() })
 	standbyConsensusClient := consensuspb.NewMultiPoolerConsensusClient(standbyConn)
 
-	t.Run("GetNodeStatus_Primary", func(t *testing.T) {
-		t.Log("Testing GetNodeStatus on primary multipooler...")
+	t.Run("Status_Primary", func(t *testing.T) {
+		t.Log("Testing Status on primary multipooler...")
 
-		req := &consensusdata.NodeStatusRequest{
+		req := &consensusdata.StatusRequest{
 			ShardId: "test-shard",
 		}
-		resp, err := primaryConsensusClient.GetNodeStatus(utils.WithShortDeadline(t), req)
-		require.NoError(t, err, "GetNodeStatus should succeed on primary")
+		resp, err := primaryConsensusClient.Status(utils.WithShortDeadline(t), req)
+		require.NoError(t, err, "Status should succeed on primary")
 		require.NotNil(t, resp, "Response should not be nil")
 
 		// Verify node ID
 		assert.Equal(t, "primary-multipooler", resp.NodeId, "NodeId should match")
 
-		// Verify zone/cell
-		assert.Equal(t, "test-cell", resp.Zone, "Zone should match")
+		// Verify cell
+		assert.Equal(t, "test-cell", resp.Cell, "Cell should match")
 
 		// Verify role (should be primary)
 		assert.Equal(t, "primary", resp.Role, "Role should be primary")
@@ -97,21 +97,21 @@ func TestConsensus_GetNodeStatus(t *testing.T) {
 			resp.Role, resp.IsHealthy, resp.WalPosition.Lsn)
 	})
 
-	t.Run("GetNodeStatus_Standby", func(t *testing.T) {
-		t.Log("Testing GetNodeStatus on standby multipooler...")
+	t.Run("Status_Standby", func(t *testing.T) {
+		t.Log("Testing Status on standby multipooler...")
 
-		req := &consensusdata.NodeStatusRequest{
+		req := &consensusdata.StatusRequest{
 			ShardId: "test-shard",
 		}
-		resp, err := standbyConsensusClient.GetNodeStatus(utils.WithShortDeadline(t), req)
-		require.NoError(t, err, "GetNodeStatus should succeed on standby")
+		resp, err := standbyConsensusClient.Status(utils.WithShortDeadline(t), req)
+		require.NoError(t, err, "Status should succeed on standby")
 		require.NotNil(t, resp, "Response should not be nil")
 
 		// Verify node ID
 		assert.Equal(t, "standby-multipooler", resp.NodeId, "NodeId should match")
 
-		// Verify zone/cell
-		assert.Equal(t, "test-cell", resp.Zone, "Zone should match")
+		// Verify cell
+		assert.Equal(t, "test-cell", resp.Cell, "Cell should match")
 
 		// Verify role (should be replica)
 		assert.Equal(t, "replica", resp.Role, "Role should be replica")

@@ -102,7 +102,7 @@ func TestConsensusService_RequestVote(t *testing.T) {
 	})
 }
 
-func TestConsensusService_GetNodeStatus(t *testing.T) {
+func TestConsensusService_Status(t *testing.T) {
 	ctx := context.Background()
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
@@ -153,18 +153,18 @@ func TestConsensusService_GetNodeStatus(t *testing.T) {
 		manager: pm,
 	}
 
-	t.Run("GetNodeStatus returns node information", func(t *testing.T) {
-		req := &consensusdata.NodeStatusRequest{
+	t.Run("Status returns node information", func(t *testing.T) {
+		req := &consensusdata.StatusRequest{
 			ShardId: "shard-1",
 		}
 
-		resp, err := svc.GetNodeStatus(ctx, req)
+		resp, err := svc.Status(ctx, req)
 
 		// Should succeed
 		assert.NoError(t, err)
 		assert.NotNil(t, resp)
 		assert.Equal(t, "test-service", resp.NodeId)
-		assert.Equal(t, "zone1", resp.Zone)
+		assert.Equal(t, "zone1", resp.Cell)
 		// Without database, should not be healthy
 		assert.False(t, resp.IsHealthy)
 		// But should still be eligible
@@ -350,7 +350,7 @@ func TestConsensusService_CanReachPrimary(t *testing.T) {
 		manager: pm,
 	}
 
-	t.Run("CanReachPrimary returns placeholder response", func(t *testing.T) {
+	t.Run("CanReachPrimary without database connection", func(t *testing.T) {
 		req := &consensusdata.CanReachPrimaryRequest{
 			PrimaryHost: "primary.example.com",
 			PrimaryPort: 5432,
@@ -358,11 +358,11 @@ func TestConsensusService_CanReachPrimary(t *testing.T) {
 
 		resp, err := svc.CanReachPrimary(ctx, req)
 
-		// Should succeed with placeholder implementation
+		// Should succeed but indicate not reachable due to no database connection
 		assert.NoError(t, err)
 		assert.NotNil(t, resp)
-		assert.True(t, resp.Reachable) // Placeholder always returns true
-		assert.Empty(t, resp.ErrorMessage)
+		assert.False(t, resp.Reachable) // No database connection
+		assert.Equal(t, "database connection not available", resp.ErrorMessage)
 	})
 }
 
@@ -438,12 +438,12 @@ func TestConsensusService_AllMethods(t *testing.T) {
 			shouldSucceed: false, // No database connection
 		},
 		{
-			name: "GetNodeStatus",
+			name: "Status",
 			method: func() error {
-				req := &consensusdata.NodeStatusRequest{
+				req := &consensusdata.StatusRequest{
 					ShardId: "shard-1",
 				}
-				_, err := svc.GetNodeStatus(ctx, req)
+				_, err := svc.Status(ctx, req)
 				return err
 			},
 			shouldSucceed: true, // Works without database
@@ -478,7 +478,7 @@ func TestConsensusService_AllMethods(t *testing.T) {
 				_, err := svc.CanReachPrimary(ctx, req)
 				return err
 			},
-			shouldSucceed: true, // Placeholder implementation
+			shouldSucceed: true, // Returns non-error response even if not reachable
 		},
 	}
 

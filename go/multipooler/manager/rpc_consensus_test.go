@@ -63,10 +63,11 @@ func TestRequestVote_AlreadyVotedInOlderTerm(t *testing.T) {
 	// Mock expectations for Ping call (health check)
 	mock.ExpectPing()
 
-	// Mock expectations for GetCurrentWALPosition call
-	// Return a small LSN so candidate's LastLogIndex of 1000 is higher
-	mock.ExpectQuery("SELECT pg_current_wal_lsn\\(\\)").
-		WillReturnRows(sqlmock.NewRows([]string{"pg_current_wal_lsn"}).AddRow("0/100"))
+	// Mock expectations for replication status check
+	// Return recent timestamp to indicate we're caught up
+	recentTime := time.Now().Add(-5 * time.Second)
+	mock.ExpectQuery("SELECT last_msg_receipt_time FROM pg_stat_wal_receiver").
+		WillReturnRows(sqlmock.NewRows([]string{"last_msg_receipt_time"}).AddRow(recentTime))
 
 	req := &consensusdatapb.RequestVoteRequest{
 		Term:         10, // Newer term
@@ -187,10 +188,11 @@ func TestRequestVote_AlreadyVotedForSameCandidateInSameTerm(t *testing.T) {
 	// Mock expectations for Ping call (health check)
 	mock.ExpectPing()
 
-	// Mock expectations for GetCurrentWALPosition call
-	// Return a small LSN so candidate's LastLogIndex is higher
-	mock.ExpectQuery("SELECT pg_current_wal_lsn\\(\\)").
-		WillReturnRows(sqlmock.NewRows([]string{"pg_current_wal_lsn"}).AddRow("0/100"))
+	// Mock expectations for replication status check
+	// Return recent timestamp to indicate we're caught up
+	recentTime := time.Now().Add(-5 * time.Second)
+	mock.ExpectQuery("SELECT last_msg_receipt_time FROM pg_stat_wal_receiver").
+		WillReturnRows(sqlmock.NewRows([]string{"last_msg_receipt_time"}).AddRow(recentTime))
 
 	req := &consensusdatapb.RequestVoteRequest{
 		Term:         5, // Same term

@@ -35,7 +35,7 @@ const _ = grpc.SupportPackageIsVersion7
 
 const (
 	MultiPoolerConsensus_RequestVote_FullMethodName       = "/consensus.MultiPoolerConsensus/RequestVote"
-	MultiPoolerConsensus_GetNodeStatus_FullMethodName     = "/consensus.MultiPoolerConsensus/GetNodeStatus"
+	MultiPoolerConsensus_Status_FullMethodName            = "/consensus.MultiPoolerConsensus/Status"
 	MultiPoolerConsensus_GetLeadershipView_FullMethodName = "/consensus.MultiPoolerConsensus/GetLeadershipView"
 	MultiPoolerConsensus_GetWALPosition_FullMethodName    = "/consensus.MultiPoolerConsensus/GetWALPosition"
 	MultiPoolerConsensus_CanReachPrimary_FullMethodName   = "/consensus.MultiPoolerConsensus/CanReachPrimary"
@@ -48,7 +48,7 @@ type MultiPoolerConsensusClient interface {
 	// Election Protocol
 	RequestVote(ctx context.Context, in *consensusdata.RequestVoteRequest, opts ...grpc.CallOption) (*consensusdata.RequestVoteResponse, error)
 	// Status and Health
-	GetNodeStatus(ctx context.Context, in *consensusdata.NodeStatusRequest, opts ...grpc.CallOption) (*consensusdata.NodeStatusResponse, error)
+	Status(ctx context.Context, in *consensusdata.StatusRequest, opts ...grpc.CallOption) (*consensusdata.StatusResponse, error)
 	GetLeadershipView(ctx context.Context, in *consensusdata.LeadershipViewRequest, opts ...grpc.CallOption) (*consensusdata.LeadershipViewResponse, error)
 	// WAL and Replication
 	GetWALPosition(ctx context.Context, in *consensusdata.GetWALPositionRequest, opts ...grpc.CallOption) (*consensusdata.GetWALPositionResponse, error)
@@ -72,9 +72,9 @@ func (c *multiPoolerConsensusClient) RequestVote(ctx context.Context, in *consen
 	return out, nil
 }
 
-func (c *multiPoolerConsensusClient) GetNodeStatus(ctx context.Context, in *consensusdata.NodeStatusRequest, opts ...grpc.CallOption) (*consensusdata.NodeStatusResponse, error) {
-	out := new(consensusdata.NodeStatusResponse)
-	err := c.cc.Invoke(ctx, MultiPoolerConsensus_GetNodeStatus_FullMethodName, in, out, opts...)
+func (c *multiPoolerConsensusClient) Status(ctx context.Context, in *consensusdata.StatusRequest, opts ...grpc.CallOption) (*consensusdata.StatusResponse, error) {
+	out := new(consensusdata.StatusResponse)
+	err := c.cc.Invoke(ctx, MultiPoolerConsensus_Status_FullMethodName, in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -115,7 +115,7 @@ type MultiPoolerConsensusServer interface {
 	// Election Protocol
 	RequestVote(context.Context, *consensusdata.RequestVoteRequest) (*consensusdata.RequestVoteResponse, error)
 	// Status and Health
-	GetNodeStatus(context.Context, *consensusdata.NodeStatusRequest) (*consensusdata.NodeStatusResponse, error)
+	Status(context.Context, *consensusdata.StatusRequest) (*consensusdata.StatusResponse, error)
 	GetLeadershipView(context.Context, *consensusdata.LeadershipViewRequest) (*consensusdata.LeadershipViewResponse, error)
 	// WAL and Replication
 	GetWALPosition(context.Context, *consensusdata.GetWALPositionRequest) (*consensusdata.GetWALPositionResponse, error)
@@ -130,8 +130,8 @@ type UnimplementedMultiPoolerConsensusServer struct {
 func (UnimplementedMultiPoolerConsensusServer) RequestVote(context.Context, *consensusdata.RequestVoteRequest) (*consensusdata.RequestVoteResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method RequestVote not implemented")
 }
-func (UnimplementedMultiPoolerConsensusServer) GetNodeStatus(context.Context, *consensusdata.NodeStatusRequest) (*consensusdata.NodeStatusResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method GetNodeStatus not implemented")
+func (UnimplementedMultiPoolerConsensusServer) Status(context.Context, *consensusdata.StatusRequest) (*consensusdata.StatusResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method Status not implemented")
 }
 func (UnimplementedMultiPoolerConsensusServer) GetLeadershipView(context.Context, *consensusdata.LeadershipViewRequest) (*consensusdata.LeadershipViewResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetLeadershipView not implemented")
@@ -173,20 +173,20 @@ func _MultiPoolerConsensus_RequestVote_Handler(srv interface{}, ctx context.Cont
 	return interceptor(ctx, in, info, handler)
 }
 
-func _MultiPoolerConsensus_GetNodeStatus_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(consensusdata.NodeStatusRequest)
+func _MultiPoolerConsensus_Status_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(consensusdata.StatusRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(MultiPoolerConsensusServer).GetNodeStatus(ctx, in)
+		return srv.(MultiPoolerConsensusServer).Status(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: MultiPoolerConsensus_GetNodeStatus_FullMethodName,
+		FullMethod: MultiPoolerConsensus_Status_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(MultiPoolerConsensusServer).GetNodeStatus(ctx, req.(*consensusdata.NodeStatusRequest))
+		return srv.(MultiPoolerConsensusServer).Status(ctx, req.(*consensusdata.StatusRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -257,8 +257,8 @@ var MultiPoolerConsensus_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _MultiPoolerConsensus_RequestVote_Handler,
 		},
 		{
-			MethodName: "GetNodeStatus",
-			Handler:    _MultiPoolerConsensus_GetNodeStatus_Handler,
+			MethodName: "Status",
+			Handler:    _MultiPoolerConsensus_Status_Handler,
 		},
 		{
 			MethodName: "GetLeadershipView",
