@@ -36,15 +36,18 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
-// WAL position for Raft-style log matching
+// WAL position for tracking replication state
 type WALPosition struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// PostgreSQL LSN (e.g., "0/1A2B3C4D")
-	Lsn string `protobuf:"bytes,1,opt,name=lsn,proto3" json:"lsn,omitempty"`
-	// Monotonic index for comparison (converted from LSN)
-	LogIndex int64 `protobuf:"varint,2,opt,name=log_index,json=logIndex,proto3" json:"log_index,omitempty"`
-	// Term when this WAL position was written
-	LogTerm int64 `protobuf:"varint,3,opt,name=log_term,json=logTerm,proto3" json:"log_term,omitempty"`
+	// For primary: current write position from pg_current_wal_lsn()
+	// For standby: empty (use last_receive_lsn and last_replay_lsn instead)
+	CurrentLsn string `protobuf:"bytes,1,opt,name=current_lsn,json=currentLsn,proto3" json:"current_lsn,omitempty"`
+	// For standby: last WAL position received from pg_last_wal_receive_lsn()
+	// For primary: empty
+	LastReceiveLsn string `protobuf:"bytes,2,opt,name=last_receive_lsn,json=lastReceiveLsn,proto3" json:"last_receive_lsn,omitempty"`
+	// For standby: last WAL position replayed from pg_last_wal_replay_lsn()
+	// For primary: empty
+	LastReplayLsn string `protobuf:"bytes,3,opt,name=last_replay_lsn,json=lastReplayLsn,proto3" json:"last_replay_lsn,omitempty"`
 	// Timestamp when this position was recorded
 	Timestamp     *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -81,25 +84,25 @@ func (*WALPosition) Descriptor() ([]byte, []int) {
 	return file_consensusdata_proto_rawDescGZIP(), []int{0}
 }
 
-func (x *WALPosition) GetLsn() string {
+func (x *WALPosition) GetCurrentLsn() string {
 	if x != nil {
-		return x.Lsn
+		return x.CurrentLsn
 	}
 	return ""
 }
 
-func (x *WALPosition) GetLogIndex() int64 {
+func (x *WALPosition) GetLastReceiveLsn() string {
 	if x != nil {
-		return x.LogIndex
+		return x.LastReceiveLsn
 	}
-	return 0
+	return ""
 }
 
-func (x *WALPosition) GetLogTerm() int64 {
+func (x *WALPosition) GetLastReplayLsn() string {
 	if x != nil {
-		return x.LogTerm
+		return x.LastReplayLsn
 	}
-	return 0
+	return ""
 }
 
 func (x *WALPosition) GetTimestamp() *timestamppb.Timestamp {
@@ -118,12 +121,8 @@ type RequestVoteRequest struct {
 	CandidateId string `protobuf:"bytes,2,opt,name=candidate_id,json=candidateId,proto3" json:"candidate_id,omitempty"`
 	// Shard ID for this election
 	ShardId string `protobuf:"bytes,3,opt,name=shard_id,json=shardId,proto3" json:"shard_id,omitempty"`
-	// Index of candidate's last log entry
-	LastLogIndex int64 `protobuf:"varint,4,opt,name=last_log_index,json=lastLogIndex,proto3" json:"last_log_index,omitempty"`
-	// Term of candidate's last log entry
-	LastLogTerm int64 `protobuf:"varint,5,opt,name=last_log_term,json=lastLogTerm,proto3" json:"last_log_term,omitempty"`
-	// Version of the durability policy (for safety)
-	PolicyVersion int64 `protobuf:"varint,6,opt,name=policy_version,json=policyVersion,proto3" json:"policy_version,omitempty"`
+	// Version of the durability policy
+	PolicyVersion int64 `protobuf:"varint,4,opt,name=policy_version,json=policyVersion,proto3" json:"policy_version,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -177,20 +176,6 @@ func (x *RequestVoteRequest) GetShardId() string {
 		return x.ShardId
 	}
 	return ""
-}
-
-func (x *RequestVoteRequest) GetLastLogIndex() int64 {
-	if x != nil {
-		return x.LastLogIndex
-	}
-	return 0
-}
-
-func (x *RequestVoteRequest) GetLastLogTerm() int64 {
-	if x != nil {
-		return x.LastLogTerm
-	}
-	return 0
 }
 
 func (x *RequestVoteRequest) GetPolicyVersion() int64 {
@@ -322,9 +307,9 @@ type StatusResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Node ID
 	NodeId string `protobuf:"bytes,1,opt,name=node_id,json=nodeId,proto3" json:"node_id,omitempty"`
-	// Current term from local file (may be inflated after partition)
+	// Current term from local file
 	CurrentTerm int64 `protobuf:"varint,2,opt,name=current_term,json=currentTerm,proto3" json:"current_term,omitempty"`
-	// Last successful leader term from Postgres (committed reality)
+	// Last successful leader term from Postgres
 	LeaderTerm int64 `protobuf:"varint,3,opt,name=leader_term,json=leaderTerm,proto3" json:"leader_term,omitempty"`
 	// Current WAL position
 	WalPosition *WALPosition `protobuf:"bytes,4,opt,name=wal_position,json=walPosition,proto3" json:"wal_position,omitempty"`
@@ -332,7 +317,7 @@ type StatusResponse struct {
 	IsHealthy bool `protobuf:"varint,5,opt,name=is_healthy,json=isHealthy,proto3" json:"is_healthy,omitempty"`
 	// Whether this node is eligible to be a leader
 	IsEligible bool `protobuf:"varint,6,opt,name=is_eligible,json=isEligible,proto3" json:"is_eligible,omitempty"`
-	// Cell/region identifier
+	// Cell identifier
 	Cell string `protobuf:"bytes,7,opt,name=cell,proto3" json:"cell,omitempty"`
 	// Current role (primary/replica)
 	Role          string `protobuf:"bytes,9,opt,name=role,proto3" json:"role,omitempty"`
@@ -748,19 +733,18 @@ var File_consensusdata_proto protoreflect.FileDescriptor
 
 const file_consensusdata_proto_rawDesc = "" +
 	"\n" +
-	"\x13consensusdata.proto\x12\rconsensusdata\x1a\x1fgoogle/protobuf/timestamp.proto\"\x91\x01\n" +
-	"\vWALPosition\x12\x10\n" +
-	"\x03lsn\x18\x01 \x01(\tR\x03lsn\x12\x1b\n" +
-	"\tlog_index\x18\x02 \x01(\x03R\blogIndex\x12\x19\n" +
-	"\blog_term\x18\x03 \x01(\x03R\alogTerm\x128\n" +
-	"\ttimestamp\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\ttimestamp\"\xd7\x01\n" +
+	"\x13consensusdata.proto\x12\rconsensusdata\x1a\x1fgoogle/protobuf/timestamp.proto\"\xba\x01\n" +
+	"\vWALPosition\x12\x1f\n" +
+	"\vcurrent_lsn\x18\x01 \x01(\tR\n" +
+	"currentLsn\x12(\n" +
+	"\x10last_receive_lsn\x18\x02 \x01(\tR\x0elastReceiveLsn\x12&\n" +
+	"\x0flast_replay_lsn\x18\x03 \x01(\tR\rlastReplayLsn\x128\n" +
+	"\ttimestamp\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\ttimestamp\"\x8d\x01\n" +
 	"\x12RequestVoteRequest\x12\x12\n" +
 	"\x04term\x18\x01 \x01(\x03R\x04term\x12!\n" +
 	"\fcandidate_id\x18\x02 \x01(\tR\vcandidateId\x12\x19\n" +
-	"\bshard_id\x18\x03 \x01(\tR\ashardId\x12$\n" +
-	"\x0elast_log_index\x18\x04 \x01(\x03R\flastLogIndex\x12\"\n" +
-	"\rlast_log_term\x18\x05 \x01(\x03R\vlastLogTerm\x12%\n" +
-	"\x0epolicy_version\x18\x06 \x01(\x03R\rpolicyVersion\"e\n" +
+	"\bshard_id\x18\x03 \x01(\tR\ashardId\x12%\n" +
+	"\x0epolicy_version\x18\x04 \x01(\x03R\rpolicyVersion\"e\n" +
 	"\x13RequestVoteResponse\x12\x12\n" +
 	"\x04term\x18\x01 \x01(\x03R\x04term\x12!\n" +
 	"\fvote_granted\x18\x02 \x01(\bR\vvoteGranted\x12\x17\n" +

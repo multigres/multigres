@@ -16,6 +16,7 @@ package manager
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"strconv"
 	"strings"
@@ -27,37 +28,55 @@ import (
 )
 
 // GetCurrentWALPosition retrieves the current WAL position from PostgreSQL
+// For primaries: returns CurrentLsn from pg_current_wal_lsn()
+// For standbys: returns LastReceiveLsn and LastReplayLsn from pg_last_wal_receive_lsn() and pg_last_wal_replay_lsn()
 func (pm *MultiPoolerManager) GetCurrentWALPosition(ctx context.Context) (*consensusdatapb.WALPosition, error) {
 	if pm.db == nil {
 		return nil, fmt.Errorf("database connection not available")
 	}
 
-	var lsn string
-	err := pm.db.QueryRowContext(ctx, "SELECT pg_current_wal_lsn()").Scan(&lsn)
+	// Check if we're in recovery (standby)
+	var inRecovery bool
+	err := pm.db.QueryRowContext(ctx, "SELECT pg_is_in_recovery()").Scan(&inRecovery)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get current WAL LSN: %w", err)
+		return nil, fmt.Errorf("failed to check recovery status: %w", err)
 	}
 
-	logIndex := ConvertLSNToIndex(lsn)
-
-	// Get current term from consensus state
-	pm.mu.RLock()
-	currentTerm := int64(0)
-	if pm.consensusTerm != nil {
-		currentTerm = pm.consensusTerm.CurrentTerm
-	}
-	pm.mu.RUnlock()
-
-	return &consensusdatapb.WALPosition{
-		Lsn:       lsn,
-		LogIndex:  logIndex,
-		LogTerm:   currentTerm,
+	walPos := &consensusdatapb.WALPosition{
 		Timestamp: timestamppb.New(time.Now()),
-	}, nil
+	}
+
+	if inRecovery {
+		// On standby: get receive and replay positions
+		var receiveLsn, replayLsn sql.NullString
+		err = pm.db.QueryRowContext(ctx,
+			"SELECT pg_last_wal_receive_lsn(), pg_last_wal_replay_lsn()").
+			Scan(&receiveLsn, &replayLsn)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get standby WAL positions: %w", err)
+		}
+
+		if receiveLsn.Valid {
+			walPos.LastReceiveLsn = receiveLsn.String
+		}
+		if replayLsn.Valid {
+			walPos.LastReplayLsn = replayLsn.String
+		}
+	} else {
+		// On primary: get current write position
+		var currentLsn string
+		err = pm.db.QueryRowContext(ctx, "SELECT pg_current_wal_lsn()").Scan(&currentLsn)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get primary WAL position: %w", err)
+		}
+		walPos.CurrentLsn = currentLsn
+	}
+
+	return walPos, nil
 }
 
 // ConvertLSNToIndex converts a PostgreSQL LSN (e.g., "0/1A2B3C4D") to a monotonic integer
-// This is used for easy comparison in Raft-style log matching
+// Note: we may or may not actually use this because timeline numbers are not reliable in split-brain situations
 func ConvertLSNToIndex(lsn string) int64 {
 	parts := strings.Split(lsn, "/")
 	if len(parts) != 2 {
@@ -75,45 +94,4 @@ func ConvertLSNToIndex(lsn string) int64 {
 	}
 
 	return (high << 32) | low
-}
-
-// IsWALPositionUpToDate implements Raft log matching rules to determine
-// if a candidate's WAL position is at least as up-to-date as ours
-func IsWALPositionUpToDate(candidateLogIndex, candidateLogTerm int64, ourWAL *consensusdatapb.WALPosition) bool {
-	// Implement Raft log matching rules:
-	// 1. If terms differ, higher term wins
-	if candidateLogTerm > ourWAL.LogTerm {
-		return true
-	}
-	if candidateLogTerm < ourWAL.LogTerm {
-		return false
-	}
-
-	// 2. If terms are equal, higher log index wins
-	return candidateLogIndex >= ourWAL.LogIndex
-}
-
-// CompareWALPositions compares two WAL positions
-// Returns:
-//
-//	-1 if pos1 < pos2
-//	 0 if pos1 == pos2
-//	 1 if pos1 > pos2
-func CompareWALPositions(pos1, pos2 *consensusdatapb.WALPosition) int {
-	if pos1.LogTerm < pos2.LogTerm {
-		return -1
-	}
-	if pos1.LogTerm > pos2.LogTerm {
-		return 1
-	}
-
-	// Same term, compare log index
-	if pos1.LogIndex < pos2.LogIndex {
-		return -1
-	}
-	if pos1.LogIndex > pos2.LogIndex {
-		return 1
-	}
-
-	return 0
 }

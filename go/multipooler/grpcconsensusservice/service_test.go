@@ -86,11 +86,9 @@ func TestConsensusService_RequestVote(t *testing.T) {
 
 	t.Run("RequestVote without database connection should fail", func(t *testing.T) {
 		req := &consensusdata.RequestVoteRequest{
-			Term:         5,
-			CandidateId:  "candidate-1",
-			ShardId:      "shard-1",
-			LastLogIndex: 100,
-			LastLogTerm:  4,
+			Term:        5,
+			CandidateId: "candidate-1",
+			ShardId:     "shard-1",
 		}
 
 		resp, err := svc.RequestVote(ctx, req)
@@ -426,11 +424,9 @@ func TestConsensusService_AllMethods(t *testing.T) {
 			name: "RequestVote",
 			method: func() error {
 				req := &consensusdata.RequestVoteRequest{
-					Term:         5,
-					CandidateId:  "candidate-1",
-					ShardId:      "shard-1",
-					LastLogIndex: 100,
-					LastLogTerm:  4,
+					Term:        5,
+					CandidateId: "candidate-1",
+					ShardId:     "shard-1",
 				}
 				_, err := svc.RequestVote(ctx, req)
 				return err

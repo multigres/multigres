@@ -88,13 +88,11 @@ func TestConsensus_Status(t *testing.T) {
 
 		// Verify WAL position is present
 		require.NotNil(t, resp.WalPosition, "WAL position should be present")
-		assert.NotEmpty(t, resp.WalPosition.Lsn, "LSN should not be empty")
-		assert.Regexp(t, `^[0-9A-F]+/[0-9A-F]+$`, resp.WalPosition.Lsn, "LSN should be in PostgreSQL format")
-		assert.Greater(t, resp.WalPosition.LogIndex, int64(0), "LogIndex should be greater than 0")
-		assert.Equal(t, int64(1), resp.WalPosition.LogTerm, "LogTerm should be 1")
+		assert.NotEmpty(t, resp.WalPosition.CurrentLsn, "CurrentLsn should not be empty on primary")
+		assert.Regexp(t, `^[0-9A-F]+/[0-9A-F]+$`, resp.WalPosition.CurrentLsn, "CurrentLsn should be in PostgreSQL format")
 
-		t.Logf("Primary node status verified: role=%s, healthy=%v, LSN=%s",
-			resp.Role, resp.IsHealthy, resp.WalPosition.Lsn)
+		t.Logf("Primary node status verified: role=%s, healthy=%v, CurrentLSN=%s",
+			resp.Role, resp.IsHealthy, resp.WalPosition.CurrentLsn)
 	})
 
 	t.Run("Status_Standby", func(t *testing.T) {
@@ -163,22 +161,19 @@ func TestConsensus_GetWALPosition(t *testing.T) {
 		require.NotNil(t, resp, "Response should not be nil")
 		require.NotNil(t, resp.WalPosition, "WAL position should be present")
 
-		// Verify LSN format
-		assert.NotEmpty(t, resp.WalPosition.Lsn, "LSN should not be empty")
-		assert.Regexp(t, `^[0-9A-F]+/[0-9A-F]+$`, resp.WalPosition.Lsn, "LSN should be in PostgreSQL format (X/XXXXXXXX)")
+		// Verify CurrentLsn format (primary should have this)
+		assert.NotEmpty(t, resp.WalPosition.CurrentLsn, "CurrentLsn should not be empty on primary")
+		assert.Regexp(t, `^[0-9A-F]+/[0-9A-F]+$`, resp.WalPosition.CurrentLsn, "CurrentLsn should be in PostgreSQL format (X/XXXXXXXX)")
 
-		// Verify LogIndex (should be monotonic integer derived from LSN)
-		assert.Greater(t, resp.WalPosition.LogIndex, int64(0), "LogIndex should be greater than 0")
-
-		// Verify LogTerm matches consensus term
-		assert.Equal(t, int64(1), resp.WalPosition.LogTerm, "LogTerm should be 1")
+		// Standby fields should be empty on primary
+		assert.Empty(t, resp.WalPosition.LastReceiveLsn, "LastReceiveLsn should be empty on primary")
+		assert.Empty(t, resp.WalPosition.LastReplayLsn, "LastReplayLsn should be empty on primary")
 
 		// Verify timestamp is recent
 		require.NotNil(t, resp.WalPosition.Timestamp, "Timestamp should be present")
 		assert.WithinDuration(t, time.Now(), resp.WalPosition.Timestamp.AsTime(), 5*time.Second, "Timestamp should be recent")
 
-		t.Logf("Primary WAL position: LSN=%s, LogIndex=%d, LogTerm=%d",
-			resp.WalPosition.Lsn, resp.WalPosition.LogIndex, resp.WalPosition.LogTerm)
+		t.Logf("Primary WAL position: CurrentLsn=%s", resp.WalPosition.CurrentLsn)
 	})
 
 	t.Run("GetWALPosition_Standby", func(t *testing.T) {
@@ -190,14 +185,21 @@ func TestConsensus_GetWALPosition(t *testing.T) {
 		require.NotNil(t, resp, "Response should not be nil")
 		require.NotNil(t, resp.WalPosition, "WAL position should be present")
 
-		// Verify LSN format
-		assert.NotEmpty(t, resp.WalPosition.Lsn, "LSN should not be empty")
+		// Verify standby LSN fields
+		// LastReplayLsn should always be present on standby
+		assert.NotEmpty(t, resp.WalPosition.LastReplayLsn, "LastReplayLsn should not be empty on standby")
 
-		// Verify LogIndex
-		assert.GreaterOrEqual(t, resp.WalPosition.LogIndex, int64(0), "LogIndex should be non-negative")
+		// LastReceiveLsn may be empty if streaming is not yet established or if there's no active receiver
+		// This is okay - just log it
+		if resp.WalPosition.LastReceiveLsn == "" {
+			t.Log("Note: LastReceiveLsn is empty (WAL receiver may not be active yet)")
+		}
 
-		t.Logf("Standby WAL position: LSN=%s, LogIndex=%d",
-			resp.WalPosition.Lsn, resp.WalPosition.LogIndex)
+		// CurrentLsn should be empty on standby
+		assert.Empty(t, resp.WalPosition.CurrentLsn, "CurrentLsn should be empty on standby")
+
+		t.Logf("Standby WAL position: LastReceiveLsn=%s, LastReplayLsn=%s",
+			resp.WalPosition.LastReceiveLsn, resp.WalPosition.LastReplayLsn)
 	})
 }
 
@@ -232,17 +234,11 @@ func TestConsensus_RequestVote(t *testing.T) {
 	t.Run("RequestVote_OldTerm_Rejected", func(t *testing.T) {
 		t.Log("Testing RequestVote with old term (should be rejected)...")
 
-		// Get current WAL position from standby
-		walResp, err := standbyConsensusClient.GetWALPosition(utils.WithShortDeadline(t), &consensusdata.GetWALPositionRequest{})
-		require.NoError(t, err)
-
 		// Request vote with term 0 (older than current term 1)
 		req := &consensusdata.RequestVoteRequest{
-			Term:         0,
-			CandidateId:  "test-candidate",
-			ShardId:      "test-shard",
-			LastLogIndex: walResp.WalPosition.LogIndex,
-			LastLogTerm:  0,
+			Term:        0,
+			CandidateId: "test-candidate",
+			ShardId:     "test-shard",
 		}
 
 		resp, err := standbyConsensusClient.RequestVote(utils.WithShortDeadline(t), req)
@@ -260,17 +256,11 @@ func TestConsensus_RequestVote(t *testing.T) {
 	t.Run("RequestVote_NewTerm_Granted", func(t *testing.T) {
 		t.Log("Testing RequestVote with new term (should be granted)...")
 
-		// Get current WAL position from primary
-		walResp, err := primaryConsensusClient.GetWALPosition(utils.WithShortDeadline(t), &consensusdata.GetWALPositionRequest{})
-		require.NoError(t, err)
-
 		// Request vote with term 2 (newer than current term 1)
 		req := &consensusdata.RequestVoteRequest{
-			Term:         2,
-			CandidateId:  "new-leader-candidate",
-			ShardId:      "test-shard",
-			LastLogIndex: walResp.WalPosition.LogIndex,
-			LastLogTerm:  1,
+			Term:        2,
+			CandidateId: "new-leader-candidate",
+			ShardId:     "test-shard",
 		}
 
 		resp, err := primaryConsensusClient.RequestVote(utils.WithShortDeadline(t), req)
@@ -291,17 +281,11 @@ func TestConsensus_RequestVote(t *testing.T) {
 	t.Run("RequestVote_SameTerm_AlreadyVoted", func(t *testing.T) {
 		t.Log("Testing RequestVote for same term after already voting (should be rejected)...")
 
-		// Get current WAL position from primary
-		walResp, err := primaryConsensusClient.GetWALPosition(utils.WithShortDeadline(t), &consensusdata.GetWALPositionRequest{})
-		require.NoError(t, err)
-
 		// Request vote with term 2 again but different candidate
 		req := &consensusdata.RequestVoteRequest{
-			Term:         2,
-			CandidateId:  "different-candidate",
-			ShardId:      "test-shard",
-			LastLogIndex: walResp.WalPosition.LogIndex,
-			LastLogTerm:  2,
+			Term:        2,
+			CandidateId: "different-candidate",
+			ShardId:     "test-shard",
 		}
 
 		resp, err := primaryConsensusClient.RequestVote(utils.WithShortDeadline(t), req)
@@ -313,28 +297,6 @@ func TestConsensus_RequestVote(t *testing.T) {
 		assert.Equal(t, int64(2), resp.Term, "Response term should remain 2")
 
 		t.Log("Confirmed: RequestVote correctly rejected when already voted in term")
-	})
-
-	t.Run("RequestVote_StaleWAL_Rejected", func(t *testing.T) {
-		t.Log("Testing RequestVote with stale WAL position (should be rejected)...")
-
-		// Request vote with term 3 but very old WAL position
-		req := &consensusdata.RequestVoteRequest{
-			Term:         3,
-			CandidateId:  "stale-candidate",
-			ShardId:      "test-shard",
-			LastLogIndex: 0, // Very old position
-			LastLogTerm:  0, // Very old term
-		}
-
-		resp, err := standbyConsensusClient.RequestVote(utils.WithShortDeadline(t), req)
-		require.NoError(t, err, "RequestVote RPC should succeed")
-		require.NotNil(t, resp, "Response should not be nil")
-
-		// Vote should be rejected because WAL position is not up-to-date
-		assert.False(t, resp.VoteGranted, "Vote should not be granted for stale WAL position")
-
-		t.Log("Confirmed: RequestVote correctly rejected stale WAL position")
 	})
 }
 
@@ -349,6 +311,9 @@ func TestConsensus_GetLeadershipView(t *testing.T) {
 	waitForManagerReady(t, setup, setup.PrimaryMultipooler)
 	waitForManagerReady(t, setup, setup.StandbyMultipooler)
 
+	t.Log("Manager primary-multipooler is ready")
+	t.Log("Manager standby-multipooler is ready")
+
 	// Create clients
 	primaryConn, err := grpc.NewClient(
 		fmt.Sprintf("localhost:%d", setup.PrimaryMultipooler.GrpcPort),
@@ -358,22 +323,83 @@ func TestConsensus_GetLeadershipView(t *testing.T) {
 	t.Cleanup(func() { primaryConn.Close() })
 	primaryConsensusClient := consensuspb.NewMultiPoolerConsensusClient(primaryConn)
 
-	t.Run("GetLeadershipView_WithoutReplicationTracker", func(t *testing.T) {
-		t.Log("Testing GetLeadershipView without replication tracker (should fail)...")
+	standbyConn, err := grpc.NewClient(
+		fmt.Sprintf("localhost:%d", setup.StandbyMultipooler.GrpcPort),
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	)
+	require.NoError(t, err)
+	t.Cleanup(func() { standbyConn.Close() })
+	standbyConsensusClient := consensuspb.NewMultiPoolerConsensusClient(standbyConn)
+
+	t.Run("GetLeadershipView_FromPrimary", func(t *testing.T) {
+		t.Log("Testing GetLeadershipView from primary...")
 
 		req := &consensusdata.LeadershipViewRequest{
 			ShardId: "test-shard",
 		}
 
 		resp, err := primaryConsensusClient.GetLeadershipView(utils.WithShortDeadline(t), req)
+		require.NoError(t, err, "GetLeadershipView RPC should succeed")
+		require.NotNil(t, resp, "Response should not be nil")
 
-		// Should fail because replication tracker is not initialized
-		// (replication tracker would normally be initialized by heartbeat writer)
-		require.Error(t, err, "GetLeadershipView should fail without replication tracker")
-		assert.Nil(t, resp, "Response should be nil")
-		assert.Contains(t, err.Error(), "replication tracker not initialized", "Error should mention replication tracker")
+		// Verify leader_id is set (should be primary-multipooler)
+		assert.NotEmpty(t, resp.LeaderId, "LeaderId should not be empty")
+		assert.Equal(t, "primary-multipooler", resp.LeaderId, "LeaderId should be primary-multipooler")
 
-		t.Log("Confirmed: GetLeadershipView correctly fails without replication tracker")
+		// Verify leader_term is set (should be 1 from test setup)
+		assert.Equal(t, int64(1), resp.LeaderTerm, "LeaderTerm should be 1")
+
+		// Verify leader_wal_position is set and in correct format
+		assert.NotEmpty(t, resp.LeaderWalPosition, "LeaderWalPosition should not be empty")
+		assert.Regexp(t, `^[0-9A-F]+/[0-9A-F]+$`, resp.LeaderWalPosition,
+			"LeaderWalPosition should be in PostgreSQL LSN format (X/XXXXXXXX)")
+
+		// Verify last_heartbeat is set and recent
+		require.NotNil(t, resp.LastHeartbeat, "LastHeartbeat should not be nil")
+		assert.True(t, resp.LastHeartbeat.IsValid(), "LastHeartbeat should be a valid timestamp")
+
+		// Heartbeat should be recent (within last 30 seconds)
+		heartbeatTime := resp.LastHeartbeat.AsTime()
+		timeSinceHeartbeat := time.Since(heartbeatTime)
+		assert.Less(t, timeSinceHeartbeat, 30*time.Second,
+			"LastHeartbeat should be recent (within 30 seconds)")
+
+		// Verify replication_lag_ns is set (should be 0 or small for primary)
+		assert.GreaterOrEqual(t, resp.ReplicationLagNs, int64(0),
+			"ReplicationLagNs should be non-negative")
+
+		t.Logf("Leadership view: leader_id=%s, term=%d, wal_position=%s, lag=%dns",
+			resp.LeaderId, resp.LeaderTerm, resp.LeaderWalPosition, resp.ReplicationLagNs)
+		t.Log("Confirmed: GetLeadershipView returns valid data from primary")
+	})
+
+	t.Run("GetLeadershipView_FromStandby", func(t *testing.T) {
+		t.Log("Testing GetLeadershipView from standby...")
+
+		req := &consensusdata.LeadershipViewRequest{
+			ShardId: "test-shard",
+		}
+
+		resp, err := standbyConsensusClient.GetLeadershipView(utils.WithShortDeadline(t), req)
+		require.NoError(t, err, "GetLeadershipView RPC should succeed")
+		require.NotNil(t, resp, "Response should not be nil")
+
+		// Standby should also see the same leader information
+		assert.NotEmpty(t, resp.LeaderId, "LeaderId should not be empty")
+		assert.Equal(t, "primary-multipooler", resp.LeaderId, "LeaderId should be primary-multipooler")
+		assert.Equal(t, int64(1), resp.LeaderTerm, "LeaderTerm should be 1")
+		assert.NotEmpty(t, resp.LeaderWalPosition, "LeaderWalPosition should not be empty")
+
+		require.NotNil(t, resp.LastHeartbeat, "LastHeartbeat should not be nil")
+		assert.True(t, resp.LastHeartbeat.IsValid(), "LastHeartbeat should be a valid timestamp")
+
+		// Replication lag on standby might be higher than on primary
+		assert.GreaterOrEqual(t, resp.ReplicationLagNs, int64(0),
+			"ReplicationLagNs should be non-negative")
+
+		t.Logf("Standby sees leadership view: leader_id=%s, term=%d, wal_position=%s, lag=%dns",
+			resp.LeaderId, resp.LeaderTerm, resp.LeaderWalPosition, resp.ReplicationLagNs)
+		t.Log("Confirmed: GetLeadershipView returns valid data from standby")
 	})
 }
 
@@ -388,6 +414,9 @@ func TestConsensus_CanReachPrimary(t *testing.T) {
 	waitForManagerReady(t, setup, setup.PrimaryMultipooler)
 	waitForManagerReady(t, setup, setup.StandbyMultipooler)
 
+	t.Log("Manager primary-multipooler is ready")
+	t.Log("Manager standby-multipooler is ready")
+
 	// Create clients
 	standbyConn, err := grpc.NewClient(
 		fmt.Sprintf("localhost:%d", setup.StandbyMultipooler.GrpcPort),
@@ -397,8 +426,22 @@ func TestConsensus_CanReachPrimary(t *testing.T) {
 	t.Cleanup(func() { standbyConn.Close() })
 	standbyConsensusClient := consensuspb.NewMultiPoolerConsensusClient(standbyConn)
 
-	t.Run("CanReachPrimary_Placeholder", func(t *testing.T) {
-		t.Log("Testing CanReachPrimary placeholder implementation...")
+	primaryConn, err := grpc.NewClient(
+		fmt.Sprintf("localhost:%d", setup.PrimaryMultipooler.GrpcPort),
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	)
+	require.NoError(t, err)
+	t.Cleanup(func() { primaryConn.Close() })
+	primaryConsensusClient := consensuspb.NewMultiPoolerConsensusClient(primaryConn)
+
+	// TODO: Add test case that verifies host/port matching when WAL receiver is active.
+	// This requires waiting for streaming replication to be fully established or having
+	// code that explicitly establishes primary/standby relationships. Currently the WAL
+	// receiver is not active immediately after setup, so we cannot test the host/port
+	// comparison logic.
+
+	t.Run("Standby_CanReachPrimary", func(t *testing.T) {
+		t.Log("Testing CanReachPrimary from standby (should detect active WAL receiver)...")
 
 		req := &consensusdata.CanReachPrimaryRequest{
 			PrimaryHost: "localhost",
@@ -406,13 +449,58 @@ func TestConsensus_CanReachPrimary(t *testing.T) {
 		}
 
 		resp, err := standbyConsensusClient.CanReachPrimary(utils.WithShortDeadline(t), req)
-		require.NoError(t, err, "CanReachPrimary should succeed")
+		require.NoError(t, err, "CanReachPrimary RPC should succeed")
 		require.NotNil(t, resp, "Response should not be nil")
 
-		// Placeholder implementation always returns true
-		assert.True(t, resp.Reachable, "Placeholder should return reachable=true")
-		assert.Empty(t, resp.ErrorMessage, "Placeholder should have no error message")
+		// Standby should be able to reach primary if WAL receiver is active
+		// However, WAL receiver might not be active immediately after setup
+		if resp.Reachable {
+			assert.Empty(t, resp.ErrorMessage, "Should have no error message when reachable")
+			t.Log("Confirmed: Standby can reach primary (WAL receiver active)")
+		} else {
+			// Acceptable failure reasons: WAL receiver not active yet
+			assert.Contains(t, resp.ErrorMessage, "no active WAL receiver",
+				"Error message should indicate no active WAL receiver")
+			t.Logf("Note: WAL receiver not yet active (%s)", resp.ErrorMessage)
+		}
+	})
 
-		t.Log("Confirmed: CanReachPrimary placeholder works as expected")
+	t.Run("Primary_CannotReachPrimary", func(t *testing.T) {
+		t.Log("Testing CanReachPrimary from primary (should return false - no WAL receiver)...")
+
+		req := &consensusdata.CanReachPrimaryRequest{
+			PrimaryHost: "localhost",
+			PrimaryPort: int32(setup.PrimaryPgctld.PgPort),
+		}
+
+		resp, err := primaryConsensusClient.CanReachPrimary(utils.WithShortDeadline(t), req)
+		require.NoError(t, err, "CanReachPrimary RPC should succeed")
+		require.NotNil(t, resp, "Response should not be nil")
+
+		// Primary should NOT have an active WAL receiver
+		assert.False(t, resp.Reachable, "Primary should not be able to reach itself via WAL receiver")
+		assert.NotEmpty(t, resp.ErrorMessage, "Should have error message explaining why")
+		assert.Contains(t, resp.ErrorMessage, "no active WAL receiver",
+			"Error message should indicate no WAL receiver")
+
+		t.Log("Confirmed: Primary correctly reports no WAL receiver")
+	})
+
+	t.Run("InvalidHost_CannotReach", func(t *testing.T) {
+		t.Log("Testing CanReachPrimary with invalid host (should return false)...")
+
+		req := &consensusdata.CanReachPrimaryRequest{
+			PrimaryHost: "invalid-host",
+			PrimaryPort: 12345,
+		}
+
+		resp, err := standbyConsensusClient.CanReachPrimary(utils.WithShortDeadline(t), req)
+		require.NoError(t, err, "CanReachPrimary RPC should succeed (even if host is invalid)")
+		require.NotNil(t, resp, "Response should not be nil")
+
+		// Note: The implementation checks pg_stat_wal_receiver and compares conninfo host/port
+		// with the requested host/port. However, since WAL receiver is not active immediately
+		// after setup, this test cannot verify the host/port mismatch detection.
+		t.Logf("Response: reachable=%v, error=%s", resp.Reachable, resp.ErrorMessage)
 	})
 }

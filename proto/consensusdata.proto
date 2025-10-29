@@ -20,16 +20,19 @@ import "google/protobuf/timestamp.proto";
 
 option go_package = "github.com/multigres/multigres/go/pb/consensusdata";
 
-// WAL position for Raft-style log matching
+// WAL position for tracking replication state
 message WALPosition {
-  // PostgreSQL LSN (e.g., "0/1A2B3C4D")
-  string lsn = 1;
+  // For primary: current write position from pg_current_wal_lsn()
+  // For standby: empty (use last_receive_lsn and last_replay_lsn instead)
+  string current_lsn = 1;
 
-  // Monotonic index for comparison (converted from LSN)
-  int64 log_index = 2;
+  // For standby: last WAL position received from pg_last_wal_receive_lsn()
+  // For primary: empty
+  string last_receive_lsn = 2;
 
-  // Term when this WAL position was written
-  int64 log_term = 3;
+  // For standby: last WAL position replayed from pg_last_wal_replay_lsn()
+  // For primary: empty
+  string last_replay_lsn = 3;
 
   // Timestamp when this position was recorded
   google.protobuf.Timestamp timestamp = 4;
@@ -46,14 +49,8 @@ message RequestVoteRequest {
   // Shard ID for this election
   string shard_id = 3;
 
-  // Index of candidate's last log entry
-  int64 last_log_index = 4;
-
-  // Term of candidate's last log entry
-  int64 last_log_term = 5;
-
-  // Version of the durability policy (for safety)
-  int64 policy_version = 6;
+  // Version of the durability policy
+  int64 policy_version = 4;
 }
 
 message RequestVoteResponse {
@@ -80,10 +77,10 @@ message StatusResponse {
   // Node ID
   string node_id = 1;
 
-  // Current term from local file (may be inflated after partition)
+  // Current term from local file
   int64 current_term = 2;
 
-  // Last successful leader term from Postgres (committed reality)
+  // Last successful leader term from Postgres
   int64 leader_term = 3;
 
   // Current WAL position
@@ -95,7 +92,7 @@ message StatusResponse {
   // Whether this node is eligible to be a leader
   bool is_eligible = 6;
 
-  // Cell/region identifier
+  // Cell identifier
   string cell = 7;
 
   // Current role (primary/replica)

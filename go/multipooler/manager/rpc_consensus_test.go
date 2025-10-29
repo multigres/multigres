@@ -70,11 +70,9 @@ func TestRequestVote_AlreadyVotedInOlderTerm(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"last_msg_receipt_time"}).AddRow(recentTime))
 
 	req := &consensusdatapb.RequestVoteRequest{
-		Term:         10, // Newer term
-		CandidateId:  "candidate-B",
-		ShardId:      "shard-1",
-		LastLogIndex: 1000, // Higher than LSN 0/100 (256)
-		LastLogTerm:  10,   // Must be at least as high as the term being voted in
+		Term:        10, // Newer term
+		CandidateId: "candidate-B",
+		ShardId:     "shard-1",
 	}
 
 	resp, err := pm.RequestVote(ctx, req)
@@ -133,11 +131,9 @@ func TestRequestVote_AlreadyVotedInSameTerm(t *testing.T) {
 	mock.ExpectPing()
 
 	req := &consensusdatapb.RequestVoteRequest{
-		Term:         5, // Same term
-		CandidateId:  "candidate-B",
-		ShardId:      "shard-1",
-		LastLogIndex: 200,
-		LastLogTerm:  4,
+		Term:        5, // Same term
+		CandidateId: "candidate-B",
+		ShardId:     "shard-1",
 	}
 
 	resp, err := pm.RequestVote(ctx, req)
@@ -195,11 +191,9 @@ func TestRequestVote_AlreadyVotedForSameCandidateInSameTerm(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"last_msg_receipt_time"}).AddRow(recentTime))
 
 	req := &consensusdatapb.RequestVoteRequest{
-		Term:         5, // Same term
-		CandidateId:  "candidate-A",
-		ShardId:      "shard-1",
-		LastLogIndex: 1000, // Higher than LSN 0/100 (256)
-		LastLogTerm:  5,    // Must match the term
+		Term:        5, // Same term
+		CandidateId: "candidate-A",
+		ShardId:     "shard-1",
 	}
 
 	resp, err := pm.RequestVote(ctx, req)

@@ -224,6 +224,7 @@ func (pm *MultiPoolerManager) GetWALPosition(ctx context.Context, req *consensus
 
 // CanReachPrimary checks if this node can reach the specified primary
 // by querying the pg_stat_wal_receiver view to check the WAL receiver status
+// and verifying it's connected to the expected primary host/port
 func (pm *MultiPoolerManager) CanReachPrimary(ctx context.Context, req *consensusdatapb.CanReachPrimaryRequest) (*consensusdatapb.CanReachPrimaryResponse, error) {
 	if pm.db == nil {
 		return &consensusdatapb.CanReachPrimaryResponse{
@@ -233,8 +234,8 @@ func (pm *MultiPoolerManager) CanReachPrimary(ctx context.Context, req *consensu
 	}
 
 	// Query pg_stat_wal_receiver to check if we can reach the primary
-	var status string
-	err := pm.db.QueryRowContext(ctx, "SELECT status FROM pg_stat_wal_receiver").Scan(&status)
+	var status, conninfo string
+	err := pm.db.QueryRowContext(ctx, "SELECT status, conninfo FROM pg_stat_wal_receiver").Scan(&status, &conninfo)
 	if err != nil {
 		// No rows returned means we're not receiving WAL (likely not a replica or not connected)
 		return &consensusdatapb.CanReachPrimaryResponse{
@@ -251,7 +252,31 @@ func (pm *MultiPoolerManager) CanReachPrimary(ctx context.Context, req *consensu
 		}, nil
 	}
 
-	// WAL receiver is active and in a good state
+	// Parse conninfo to extract host and port
+	parsedConnInfo, err := parseAndRedactPrimaryConnInfo(conninfo)
+	if err != nil {
+		return &consensusdatapb.CanReachPrimaryResponse{
+			Reachable:    false,
+			ErrorMessage: fmt.Sprintf("failed to parse conninfo: %v", err),
+		}, nil
+	}
+
+	// Compare with requested primary host and port
+	if parsedConnInfo.Host != req.PrimaryHost {
+		return &consensusdatapb.CanReachPrimaryResponse{
+			Reachable:    false,
+			ErrorMessage: fmt.Sprintf("WAL receiver connected to different host: expected %s, got %s", req.PrimaryHost, parsedConnInfo.Host),
+		}, nil
+	}
+
+	if parsedConnInfo.Port != req.PrimaryPort {
+		return &consensusdatapb.CanReachPrimaryResponse{
+			Reachable:    false,
+			ErrorMessage: fmt.Sprintf("WAL receiver connected to different port: expected %d, got %d", req.PrimaryPort, parsedConnInfo.Port),
+		}, nil
+	}
+
+	// WAL receiver is active and connected to the expected primary
 	return &consensusdatapb.CanReachPrimaryResponse{
 		Reachable:    true,
 		ErrorMessage: "",
