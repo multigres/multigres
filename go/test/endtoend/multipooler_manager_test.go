@@ -743,19 +743,19 @@ func setupReplicationTestCleanup(t *testing.T, setup *MultipoolerTestSetup) {
 			defer primaryClient.Close()
 
 			// Reset synchronous_standby_names to empty
-			_, err = primaryClient.ExecuteQuery(context.Background(), "ALTER SYSTEM SET synchronous_standby_names = ''", 1)
+			_, err = primaryClient.StreamExecute(context.Background(), "ALTER SYSTEM SET synchronous_standby_names = ''", 1)
 			if err != nil {
 				t.Logf("Warning: Failed to reset synchronous_standby_names on primary in cleanup: %v", err)
 			}
 
 			// Reset synchronous_commit to default (on)
-			_, err = primaryClient.ExecuteQuery(context.Background(), "ALTER SYSTEM SET synchronous_commit = 'on'", 1)
+			_, err = primaryClient.StreamExecute(context.Background(), "ALTER SYSTEM SET synchronous_commit = 'on'", 1)
 			if err != nil {
 				t.Logf("Warning: Failed to reset synchronous_commit on primary in cleanup: %v", err)
 			}
 
 			// Reload configuration to apply changes
-			_, err = primaryClient.ExecuteQuery(context.Background(), "SELECT pg_reload_conf()", 1)
+			_, err = primaryClient.StreamExecute(context.Background(), "SELECT pg_reload_conf()", 1)
 			if err != nil {
 				t.Logf("Warning: Failed to reload config on primary in cleanup: %v", err)
 			}
@@ -769,13 +769,13 @@ func setupReplicationTestCleanup(t *testing.T, setup *MultipoolerTestSetup) {
 			defer standbyClient.Close()
 
 			// Reset primary_conninfo to empty
-			_, err = standbyClient.ExecuteQuery(context.Background(), "ALTER SYSTEM SET primary_conninfo = ''", 1)
+			_, err = standbyClient.StreamExecute(context.Background(), "ALTER SYSTEM SET primary_conninfo = ''", 1)
 			if err != nil {
 				t.Logf("Warning: Failed to reset primary_conninfo on standby in cleanup: %v", err)
 			}
 
 			// Reload configuration to apply changes
-			_, err = standbyClient.ExecuteQuery(context.Background(), "SELECT pg_reload_conf()", 1)
+			_, err = standbyClient.StreamExecute(context.Background(), "SELECT pg_reload_conf()", 1)
 			if err != nil {
 				t.Logf("Warning: Failed to reload config on standby in cleanup: %v", err)
 			}
@@ -1710,13 +1710,13 @@ func TestStopReplicationAndGetStatus(t *testing.T) {
 
 		// Write data to primary (this should NOT replicate to standby since replication is stopped)
 		t.Log("Writing data to primary after stopping standby replication...")
-		_, err = primaryPoolerClient.ExecuteQuery(utils.WithShortDeadline(t), "CREATE TABLE IF NOT EXISTS stop_repl_test (id SERIAL PRIMARY KEY, value TEXT)", 1)
+		_, err = primaryPoolerClient.StreamExecute(utils.WithShortDeadline(t), "CREATE TABLE IF NOT EXISTS stop_repl_test (id SERIAL PRIMARY KEY, value TEXT)", 1)
 		require.NoError(t, err, "Should be able to create test table on primary")
 
-		_, err = primaryPoolerClient.ExecuteQuery(utils.WithShortDeadline(t), "INSERT INTO stop_repl_test (value) VALUES ('test_row_1')", 1)
+		_, err = primaryPoolerClient.StreamExecute(utils.WithShortDeadline(t), "INSERT INTO stop_repl_test (value) VALUES ('test_row_1')", 1)
 		require.NoError(t, err, "Should be able to write to primary")
 
-		_, err = primaryPoolerClient.ExecuteQuery(utils.WithShortDeadline(t), "INSERT INTO stop_repl_test (value) VALUES ('test_row_2')", 1)
+		_, err = primaryPoolerClient.StreamExecute(utils.WithShortDeadline(t), "INSERT INTO stop_repl_test (value) VALUES ('test_row_2')", 1)
 		require.NoError(t, err, "Should be able to write to primary")
 
 		// Wait a bit to ensure writes would have replicated if replication was running
