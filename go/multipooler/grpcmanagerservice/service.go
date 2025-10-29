@@ -119,14 +119,29 @@ func (s *managerService) ConfigureSynchronousReplication(ctx context.Context, re
 	return &multipoolermanagerdata.ConfigureSynchronousReplicationResponse{}, nil
 }
 
-// PrimaryStatus gets the status of the leader server
-func (s *managerService) PrimaryStatus(ctx context.Context, req *multipoolermanagerdata.PrimaryStatusRequest) (*multipoolermanagerdata.PrimaryStatusResponse, error) {
-	_, err := s.manager.PrimaryStatus(ctx)
+// UpdateSynchronousStandbyList updates the synchronous standby list
+func (s *managerService) UpdateSynchronousStandbyList(ctx context.Context, req *multipoolermanagerdata.UpdateSynchronousStandbyListRequest) (*multipoolermanagerdata.UpdateSynchronousStandbyListResponse, error) {
+	err := s.manager.UpdateSynchronousStandbyList(ctx,
+		req.Operation,
+		req.StandbyIds,
+		req.ReloadConfig,
+		req.ConsensusTerm,
+		req.Force)
 	if err != nil {
 		return nil, mterrors.ToGRPC(err)
 	}
-	// TODO: Convert map to proper response structure
-	return &multipoolermanagerdata.PrimaryStatusResponse{}, nil
+	return &multipoolermanagerdata.UpdateSynchronousStandbyListResponse{}, nil
+}
+
+// PrimaryStatus gets the status of the leader server
+func (s *managerService) PrimaryStatus(ctx context.Context, req *multipoolermanagerdata.PrimaryStatusRequest) (*multipoolermanagerdata.PrimaryStatusResponse, error) {
+	status, err := s.manager.PrimaryStatus(ctx)
+	if err != nil {
+		return nil, mterrors.ToGRPC(err)
+	}
+	return &multipoolermanagerdata.PrimaryStatusResponse{
+		Status: status,
+	}, nil
 }
 
 // PrimaryPosition gets the current LSN position of the leader
@@ -142,12 +157,13 @@ func (s *managerService) PrimaryPosition(ctx context.Context, req *multipoolerma
 
 // StopReplicationAndGetStatus stops PostgreSQL replication and returns the status
 func (s *managerService) StopReplicationAndGetStatus(ctx context.Context, req *multipoolermanagerdata.StopReplicationAndGetStatusRequest) (*multipoolermanagerdata.StopReplicationAndGetStatusResponse, error) {
-	_, err := s.manager.StopReplicationAndGetStatus(ctx)
+	status, err := s.manager.StopReplicationAndGetStatus(ctx)
 	if err != nil {
 		return nil, mterrors.ToGRPC(err)
 	}
-	// TODO: Convert map to proper response structure
-	return &multipoolermanagerdata.StopReplicationAndGetStatusResponse{}, nil
+	return &multipoolermanagerdata.StopReplicationAndGetStatusResponse{
+		Status: status,
+	}, nil
 }
 
 // ChangeType changes the pooler type (LEADER/FOLLOWER)
@@ -161,12 +177,11 @@ func (s *managerService) ChangeType(ctx context.Context, req *multipoolermanager
 
 // GetFollowers gets the list of follower servers
 func (s *managerService) GetFollowers(ctx context.Context, req *multipoolermanagerdata.GetFollowersRequest) (*multipoolermanagerdata.GetFollowersResponse, error) {
-	_, err := s.manager.GetFollowers(ctx)
+	response, err := s.manager.GetFollowers(ctx)
 	if err != nil {
 		return nil, mterrors.ToGRPC(err)
 	}
-	// TODO: Convert []string to proper response structure
-	return &multipoolermanagerdata.GetFollowersResponse{}, nil
+	return response, nil
 }
 
 // Demote demotes the current leader server

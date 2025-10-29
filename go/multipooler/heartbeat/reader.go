@@ -151,17 +151,17 @@ func (r *Reader) readHeartbeat() {
 }
 
 // fetchMostRecentHeartbeat fetches the most recently recorded heartbeat from the heartbeat table,
-// returning the timestamp of the heartbeat.
+// returning the timestamp of the heartbeat in nanoseconds.
 func (r *Reader) fetchMostRecentHeartbeat(ctx context.Context) (int64, error) {
-	var ts int64
+	var tsNano int64
 	// TODO: get connection from pool when we have pools
 	err := r.db.QueryRowContext(ctx,
 		"SELECT ts FROM multigres.heartbeat WHERE shard_id = $1",
-		r.shardID).Scan(&ts)
+		r.shardID).Scan(&tsNano)
 	if err != nil {
 		return 0, mterrors.Wrap(err, "failed to fetch heartbeat")
 	}
-	return ts, nil
+	return tsNano, nil
 }
 
 // recordError keeps track of the lastKnown error for reporting to Status().
@@ -181,4 +181,39 @@ func (r *Reader) Reads() int64 {
 // ReadErrors returns the number of heartbeat read errors.
 func (r *Reader) ReadErrors() int64 {
 	return r.readErrors.Load()
+}
+
+// LeadershipView contains the consensus state and replication lag information
+type LeadershipView struct {
+	PoolerID          string
+	LeaderTerm        int64
+	LeaderWALPosition string
+	LastHeartbeat     time.Time
+	ReplicationLag    time.Duration
+}
+
+// GetLeadershipView returns both replication lag and consensus state
+func (r *Reader) GetLeadershipView() (*LeadershipView, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), r.interval)
+	defer cancel()
+
+	var view LeadershipView
+	var tsNano int64
+
+	err := r.db.QueryRowContext(ctx, `
+		SELECT pooler_id, ts, leader_term, leader_wal_position
+		FROM multigres.heartbeat
+		WHERE shard_id = $1
+	`, r.shardID).Scan(&view.PoolerID, &tsNano, &view.LeaderTerm, &view.LeaderWALPosition)
+	if err != nil {
+		return nil, mterrors.Wrap(err, "failed to read leadership view")
+	}
+
+	// Convert nanoseconds to time.Time
+	view.LastHeartbeat = time.Unix(0, tsNano)
+
+	// Calculate replication lag
+	view.ReplicationLag = r.now().Sub(view.LastHeartbeat)
+
+	return &view, nil
 }

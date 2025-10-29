@@ -20,7 +20,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -32,6 +31,7 @@ import (
 	"github.com/multigres/multigres/go/tools/retry"
 
 	"golang.org/x/sync/semaphore"
+	"google.golang.org/protobuf/types/known/durationpb"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
@@ -586,64 +586,6 @@ func generateApplicationName(id *clustermetadatapb.ID) string {
 	return fmt.Sprintf("%s_%s", id.Cell, id.Name)
 }
 
-// parseAndRedactPrimaryConnInfo parses a PostgreSQL primary_conninfo connection string into structured fields
-// Example input: "host=localhost port=5432 user=postgres application_name=cell_name"
-// Returns a PrimaryConnInfo message with parsed fields, or an error if parsing fails
-// Note: Passwords are redacted in the raw field for security
-func parseAndRedactPrimaryConnInfo(connInfoStr string) (*multipoolermanagerdata.PrimaryConnInfo, error) {
-	connInfo := &multipoolermanagerdata.PrimaryConnInfo{}
-
-	// Simple space-based parsing of key=value pairs
-	parts := strings.Split(connInfoStr, " ")
-	redactedParts := make([]string, 0, len(parts))
-
-	for _, part := range parts {
-		part = strings.TrimSpace(part)
-		if part == "" {
-			continue
-		}
-
-		kv := strings.SplitN(part, "=", 2)
-		if len(kv) != 2 {
-			// Not a key=value pair - parsing failed
-			return nil, fmt.Errorf("invalid key=value format in primary_conninfo: %q", part)
-		}
-
-		key := strings.TrimSpace(kv[0])
-		value := strings.TrimSpace(kv[1])
-
-		if key == "" {
-			return nil, fmt.Errorf("empty key in primary_conninfo: %q", part)
-		}
-
-		// Redact sensitive fields in the raw string
-		if key == "password" {
-			redactedParts = append(redactedParts, key+"=[REDACTED]")
-		} else {
-			redactedParts = append(redactedParts, part)
-		}
-
-		// Parse specific fields we care about
-		switch key {
-		case "host":
-			connInfo.Host = value
-		case "port":
-			if port, err := strconv.ParseInt(value, 10, 32); err == nil {
-				connInfo.Port = int32(port)
-			}
-		case "user":
-			connInfo.User = value
-		case "application_name":
-			connInfo.ApplicationName = value
-		}
-	}
-
-	// Set the redacted raw string
-	connInfo.Raw = strings.Join(redactedParts, " ")
-
-	return connInfo, nil
-}
-
 // SetPrimaryConnInfo sets the primary connection info for a standby server
 func (pm *MultiPoolerManager) SetPrimaryConnInfo(ctx context.Context, host string, port int32, stopReplicationBefore, startReplicationAfter bool, currentTerm int64, force bool) error {
 	if err := pm.checkReady(); err != nil {
@@ -813,6 +755,14 @@ func (pm *MultiPoolerManager) StopReplication(ctx context.Context) error {
 		return mterrors.Wrap(err, "failed to pause WAL replay")
 	}
 
+	// Wait for WAL replay to actually be paused
+	// pg_wal_replay_pause() is asynchronous, so we need to wait for it to complete
+	pm.logger.Info("Waiting for WAL replay to complete pausing")
+	_, err = pm.waitForReplicationPause(ctx)
+	if err != nil {
+		return err
+	}
+
 	pm.logger.Info("StopReplication completed successfully")
 	return nil
 }
@@ -952,6 +902,56 @@ func (pm *MultiPoolerManager) setSynchronousCommit(ctx context.Context, synchron
 	return nil
 }
 
+// formatStandbyList converts standby IDs to a comma-separated list of quoted application names
+func formatStandbyList(standbyIDs []*clustermetadatapb.ID) string {
+	quotedNames := make([]string, len(standbyIDs))
+	for i, id := range standbyIDs {
+		quotedNames[i] = fmt.Sprintf(`"%s"`, generateApplicationName(id))
+	}
+	return strings.Join(quotedNames, ", ")
+}
+
+// buildSynchronousStandbyNamesValue constructs the synchronous_standby_names value string
+// This produces values like: FIRST 1 ("standby-1", "standby-2") or ANY 1 ("standby-1", "standby-2")
+func buildSynchronousStandbyNamesValue(method multipoolermanagerdata.SynchronousMethod, numSync int32, standbyIDs []*clustermetadatapb.ID) (string, error) {
+	if len(standbyIDs) == 0 {
+		return "", nil
+	}
+
+	standbyList := formatStandbyList(standbyIDs)
+
+	var methodStr string
+	switch method {
+	case multipoolermanagerdata.SynchronousMethod_SYNCHRONOUS_METHOD_FIRST:
+		methodStr = "FIRST"
+	case multipoolermanagerdata.SynchronousMethod_SYNCHRONOUS_METHOD_ANY:
+		methodStr = "ANY"
+	default:
+		return "", mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT,
+			fmt.Sprintf("invalid synchronous method: %s, must be FIRST or ANY", method.String()))
+	}
+
+	return fmt.Sprintf("%s %d (%s)", methodStr, numSync, standbyList), nil
+}
+
+// applySynchronousStandbyNames applies the synchronous_standby_names setting to PostgreSQL
+func applySynchronousStandbyNames(ctx context.Context, db *sql.DB, logger *slog.Logger, value string) error {
+	logger.Info("Setting synchronous_standby_names", "value", value)
+
+	// Escape single quotes in the value by doubling them (PostgreSQL standard)
+	escapedValue := strings.ReplaceAll(value, "'", "''")
+
+	// ALTER SYSTEM SET doesn't support parameterized queries, so we use string formatting
+	query := fmt.Sprintf("ALTER SYSTEM SET synchronous_standby_names = '%s'", escapedValue)
+	_, err := db.ExecContext(ctx, query)
+	if err != nil {
+		logger.Error("Failed to set synchronous_standby_names", "error", err)
+		return mterrors.Wrap(err, "failed to set synchronous_standby_names")
+	}
+
+	return nil
+}
+
 // setSynchronousStandbyNames builds and sets the PostgreSQL synchronous_standby_names configuration
 // Format: https://www.postgresql.org/docs/current/runtime-config-replication.html#GUC-SYNCHRONOUS-STANDBY-NAMES
 // Examples:
@@ -962,7 +962,15 @@ func (pm *MultiPoolerManager) setSynchronousCommit(ctx context.Context, synchron
 // Note: Use '*' to match all connected standbys, or specify explicit standby application_name values
 // Application names are generated from multipooler IDs using the shared generateApplicationName helper
 func (pm *MultiPoolerManager) setSynchronousStandbyNames(ctx context.Context, synchronousMethod multipoolermanagerdata.SynchronousMethod, numSync int32, standbyIDs []*clustermetadatapb.ID) error {
+	// If standby list is empty, clear synchronous_standby_names
 	if len(standbyIDs) == 0 {
+		pm.logger.Info("Clearing synchronous_standby_names (empty standby list)")
+		query := "ALTER SYSTEM SET synchronous_standby_names = ''"
+		_, err := pm.db.ExecContext(ctx, query)
+		if err != nil {
+			pm.logger.Error("Failed to clear synchronous_standby_names", "error", err)
+			return mterrors.Wrap(err, "failed to clear synchronous_standby_names")
+		}
 		return nil
 	}
 
@@ -971,40 +979,35 @@ func (pm *MultiPoolerManager) setSynchronousStandbyNames(ctx context.Context, sy
 		numSync = 1
 	}
 
-	// Convert multipooler IDs to quoted application names using the shared helper
-	// This ensures consistency with SetPrimaryConnInfo
-	// Produces: "cell_name1", "cell_name2"
-	quotedNames := make([]string, len(standbyIDs))
-	for i, id := range standbyIDs {
-		quotedNames[i] = fmt.Sprintf(`"%s"`, generateApplicationName(id))
-	}
-	standbyList := strings.Join(quotedNames, ", ")
-
-	// Build the final value with method prefix
-	// This produces: FIRST 1 ("standby-1", "standby-2") or ANY 1 ("standby-1", "standby-2")
-	var standbyNamesValue string
-	switch synchronousMethod {
-	case multipoolermanagerdata.SynchronousMethod_SYNCHRONOUS_METHOD_FIRST:
-		standbyNamesValue = fmt.Sprintf("FIRST %d (%s)", numSync, standbyList)
-	case multipoolermanagerdata.SynchronousMethod_SYNCHRONOUS_METHOD_ANY:
-		standbyNamesValue = fmt.Sprintf("ANY %d (%s)", numSync, standbyList)
-	default:
-		return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT,
-			fmt.Sprintf("invalid synchronous method: %s, must be FIRST or ANY", synchronousMethod.String()))
-	}
-
-	pm.logger.Info("Setting synchronous_standby_names", "value", standbyNamesValue)
-
-	// Escape single quotes in the value by doubling them (PostgreSQL standard)
-	escapedValue := strings.ReplaceAll(standbyNamesValue, "'", "''")
-
-	// ALTER SYSTEM SET doesn't support parameterized queries, so we use string formatting
-	// Final query: ALTER SYSTEM SET synchronous_standby_names = 'FIRST 1 ("standby-1", "standby-2")'
-	query := fmt.Sprintf("ALTER SYSTEM SET synchronous_standby_names = '%s'", escapedValue)
-	_, err := pm.db.ExecContext(ctx, query)
+	// Build the synchronous_standby_names value using the shared helper
+	standbyNamesValue, err := buildSynchronousStandbyNamesValue(synchronousMethod, numSync, standbyIDs)
 	if err != nil {
-		pm.logger.Error("Failed to set synchronous_standby_names", "error", err)
-		return mterrors.Wrap(err, "failed to set synchronous_standby_names")
+		return err
+	}
+
+	// Apply the setting using the shared helper
+	return applySynchronousStandbyNames(ctx, pm.db, pm.logger, standbyNamesValue)
+}
+
+// validateStandbyIDs validates a list of standby IDs
+func validateStandbyIDs(standbyIDs []*clustermetadatapb.ID) error {
+	if len(standbyIDs) == 0 {
+		return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "standby_ids cannot be empty")
+	}
+
+	for i, id := range standbyIDs {
+		if id == nil {
+			return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT,
+				fmt.Sprintf("standby_ids[%d] is nil", i))
+		}
+		if id.Cell == "" {
+			return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT,
+				fmt.Sprintf("standby_ids[%d] has empty cell", i))
+		}
+		if id.Name == "" {
+			return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT,
+				fmt.Sprintf("standby_ids[%d] has empty name", i))
+		}
 	}
 
 	return nil
@@ -1028,19 +1031,8 @@ func validateSyncReplicationParams(numSync int32, standbyIDs []*clustermetadatap
 		}
 
 		// Validate each standby ID
-		for i, id := range standbyIDs {
-			if id == nil {
-				return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT,
-					fmt.Sprintf("standby_ids[%d] is nil", i))
-			}
-			if id.Cell == "" {
-				return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT,
-					fmt.Sprintf("standby_ids[%d] has empty cell", i))
-			}
-			if id.Name == "" {
-				return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT,
-					fmt.Sprintf("standby_ids[%d] has empty name", i))
-			}
+		if err := validateStandbyIDs(standbyIDs); err != nil {
+			return err
 		}
 	}
 
@@ -1100,13 +1092,281 @@ func (pm *MultiPoolerManager) ConfigureSynchronousReplication(ctx context.Contex
 	return nil
 }
 
+// applyAddOperation adds new standbys to the standby list (idempotent)
+func applyAddOperation(currentStandbys []*clustermetadatapb.ID, newStandbys []*clustermetadatapb.ID) []*clustermetadatapb.ID {
+	updatedStandbys := append([]*clustermetadatapb.ID{}, currentStandbys...)
+	existingMap := make(map[string]bool)
+	for _, standby := range currentStandbys {
+		existingMap[generateApplicationName(standby)] = true
+	}
+	for _, newStandby := range newStandbys {
+		if !existingMap[generateApplicationName(newStandby)] {
+			updatedStandbys = append(updatedStandbys, newStandby)
+		}
+	}
+	return updatedStandbys
+}
+
+// applyRemoveOperation removes standbys from the standby list (idempotent)
+func applyRemoveOperation(currentStandbys []*clustermetadatapb.ID, standbysToRemove []*clustermetadatapb.ID) []*clustermetadatapb.ID {
+	removeMap := make(map[string]bool)
+	for _, standby := range standbysToRemove {
+		removeMap[generateApplicationName(standby)] = true
+	}
+	var updatedStandbys []*clustermetadatapb.ID
+	for _, standby := range currentStandbys {
+		if !removeMap[generateApplicationName(standby)] {
+			updatedStandbys = append(updatedStandbys, standby)
+		}
+	}
+	return updatedStandbys
+}
+
+// applyReplaceOperation replaces the entire standby list
+func applyReplaceOperation(newStandbys []*clustermetadatapb.ID) []*clustermetadatapb.ID {
+	return newStandbys
+}
+
+// UpdateSynchronousStandbyList updates PostgreSQL synchronous_standby_names by adding,
+// removing, or replacing members. It is idempotent and only valid when synchronous
+// replication is already configured.
+func (pm *MultiPoolerManager) UpdateSynchronousStandbyList(ctx context.Context, operation multipoolermanagerdata.StandbyUpdateOperation, standbyIDs []*clustermetadatapb.ID, reloadConfig bool, consensusTerm int64, force bool) error {
+	if err := pm.checkReady(); err != nil {
+		return err
+	}
+
+	if err := pm.lock(ctx); err != nil {
+		return err
+	}
+	defer pm.unlock()
+
+	pm.logger.Info("UpdateSynchronousStandbyList called",
+		"operation", operation,
+		"standby_ids", standbyIDs,
+		"reload_config", reloadConfig,
+		"consensus_term", consensusTerm,
+		"force", force)
+
+	// === Validation ===
+	// TODO: We need to validate consensus term here.
+	// We should check if the request is a valid term.
+	// If it's a newer term and probably we need to demote
+	// ourself. But details yet to be implemented
+
+	// Validate operation
+	if operation == multipoolermanagerdata.StandbyUpdateOperation_STANDBY_UPDATE_OPERATION_UNSPECIFIED {
+		return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "operation must be specified")
+	}
+
+	// Validate standby IDs using the shared validation function
+	if err := validateStandbyIDs(standbyIDs); err != nil {
+		return err
+	}
+
+	// Check PRIMARY guardrails (pooler type and non-recovery mode)
+	if err := pm.checkPrimaryGuardrails(ctx); err != nil {
+		return err
+	}
+
+	// === Parse Current Configuration ===
+
+	// Get current synchronous_standby_names value
+	var currentValue string
+	err := pm.db.QueryRowContext(ctx, "SHOW synchronous_standby_names").Scan(&currentValue)
+	if err != nil {
+		pm.logger.Error("Failed to get current synchronous_standby_names", "error", err)
+		return mterrors.Wrap(err, "failed to get current synchronous_standby_names")
+	}
+
+	pm.logger.Info("Current synchronous_standby_names", "value", currentValue)
+
+	// Parse current configuration
+	cfg, err := parseSynchronousStandbyNames(currentValue)
+	if err != nil {
+		return err
+	}
+
+	// === Apply Operation ===
+
+	// Apply the requested operation
+	var updatedStandbys []*clustermetadatapb.ID
+	switch operation {
+	case multipoolermanagerdata.StandbyUpdateOperation_STANDBY_UPDATE_OPERATION_ADD:
+		updatedStandbys = applyAddOperation(cfg.StandbyIDs, standbyIDs)
+
+	case multipoolermanagerdata.StandbyUpdateOperation_STANDBY_UPDATE_OPERATION_REMOVE:
+		updatedStandbys = applyRemoveOperation(cfg.StandbyIDs, standbyIDs)
+
+	case multipoolermanagerdata.StandbyUpdateOperation_STANDBY_UPDATE_OPERATION_REPLACE:
+		updatedStandbys = applyReplaceOperation(standbyIDs)
+
+	default:
+		return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT,
+			fmt.Sprintf("unsupported operation: %s", operation.String()))
+	}
+
+	// Validate that the final list is not empty
+	if len(updatedStandbys) == 0 {
+		return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT,
+			"resulting standby list cannot be empty after operation")
+	}
+
+	// === Build and Apply New Configuration ===
+
+	// Build new synchronous_standby_names value using shared helper
+	newValue, err := buildSynchronousStandbyNamesValue(cfg.Method, cfg.NumSync, updatedStandbys)
+	if err != nil {
+		return err
+	}
+
+	// Check if there are any changes (idempotent)
+	if currentValue == newValue {
+		pm.logger.Info("No changes needed - configuration already matches desired state")
+		return nil
+	}
+
+	pm.logger.Info("Updating synchronous_standby_names",
+		"old_value", currentValue,
+		"new_value", newValue)
+
+	// Apply the setting using shared helper
+	if err = applySynchronousStandbyNames(ctx, pm.db, pm.logger, newValue); err != nil {
+		return err
+	}
+
+	// Reload configuration if requested
+	if reloadConfig {
+		pm.logger.Info("Reloading PostgreSQL configuration")
+		_, err := pm.db.ExecContext(ctx, "SELECT pg_reload_conf()")
+		if err != nil {
+			pm.logger.Error("Failed to reload configuration", "error", err)
+			return mterrors.Wrap(err, "failed to reload PostgreSQL configuration")
+		}
+	}
+
+	pm.logger.Info("UpdateSynchronousStandbyList completed successfully")
+	return nil
+}
+
+// getSynchronousReplicationConfig retrieves and parses the current synchronous replication configuration
+func (pm *MultiPoolerManager) getSynchronousReplicationConfig(ctx context.Context) (*multipoolermanagerdata.SynchronousReplicationConfiguration, error) {
+	config := &multipoolermanagerdata.SynchronousReplicationConfiguration{}
+
+	// Query synchronous_standby_names
+	var syncStandbyNamesStr string
+	err := pm.db.QueryRowContext(ctx, "SHOW synchronous_standby_names").Scan(&syncStandbyNamesStr)
+	if err != nil {
+		return nil, mterrors.Wrap(err, "failed to query synchronous_standby_names")
+	}
+
+	// Only parse standby names if not empty
+	syncStandbyNamesStr = strings.TrimSpace(syncStandbyNamesStr)
+	if syncStandbyNamesStr != "" {
+		syncConfig, err := parseSynchronousStandbyNames(syncStandbyNamesStr)
+		if err != nil {
+			return nil, err
+		}
+		config.SynchronousMethod = syncConfig.Method
+		config.NumSync = syncConfig.NumSync
+		config.StandbyIds = syncConfig.StandbyIDs
+	}
+
+	// Query synchronous_commit
+	var syncCommitStr string
+	err = pm.db.QueryRowContext(ctx, "SHOW synchronous_commit").Scan(&syncCommitStr)
+	if err != nil {
+		return nil, mterrors.Wrap(err, "failed to query synchronous_commit")
+	}
+
+	// Map string to enum
+	var syncCommitLevel multipoolermanagerdata.SynchronousCommitLevel
+	switch strings.ToLower(syncCommitStr) {
+	case "off":
+		syncCommitLevel = multipoolermanagerdata.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_OFF
+	case "local":
+		syncCommitLevel = multipoolermanagerdata.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_LOCAL
+	case "remote_write":
+		syncCommitLevel = multipoolermanagerdata.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_REMOTE_WRITE
+	case "on":
+		syncCommitLevel = multipoolermanagerdata.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_ON
+	case "remote_apply":
+		syncCommitLevel = multipoolermanagerdata.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_REMOTE_APPLY
+	default:
+		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT,
+			fmt.Sprintf("unknown synchronous_commit value: %q", syncCommitStr))
+	}
+	config.SynchronousCommit = syncCommitLevel
+
+	return config, nil
+}
+
 // PrimaryStatus gets the status of the leader server
-func (pm *MultiPoolerManager) PrimaryStatus(ctx context.Context) (map[string]interface{}, error) {
+func (pm *MultiPoolerManager) PrimaryStatus(ctx context.Context) (*multipoolermanagerdata.PrimaryStatus, error) {
 	if err := pm.checkReady(); err != nil {
 		return nil, err
 	}
+
 	pm.logger.Info("PrimaryStatus called")
-	return nil, mterrors.New(mtrpcpb.Code_UNIMPLEMENTED, "method PrimaryStatus not implemented")
+
+	// Check PRIMARY guardrails (pooler type and non-recovery mode)
+	if err := pm.checkPrimaryGuardrails(ctx); err != nil {
+		return nil, err
+	}
+
+	status := &multipoolermanagerdata.PrimaryStatus{}
+
+	// Get current LSN and recovery status in a single query
+	var lsn string
+	var isInRecovery bool
+	err := pm.db.QueryRowContext(ctx, "SELECT pg_current_wal_lsn()::text, pg_is_in_recovery()").Scan(&lsn, &isInRecovery)
+	if err != nil {
+		pm.logger.Error("Failed to query LSN and recovery status", "error", err)
+		return nil, mterrors.Wrap(err, "failed to query LSN and recovery status")
+	}
+	status.Lsn = lsn
+	// If we got to this point, checkPrimaryGuardrails passed, so this is a
+	// PRIMARY server from the PG perspective
+	// and should be ready to serve traffic.
+	status.Ready = true
+
+	// Get connected followers from pg_stat_replication
+	rows, err := pm.db.QueryContext(ctx, "SELECT application_name FROM pg_stat_replication WHERE application_name IS NOT NULL AND application_name != ''")
+	if err != nil {
+		pm.logger.Error("Failed to query pg_stat_replication", "error", err)
+		return nil, mterrors.Wrap(err, "failed to query connected followers")
+	}
+	defer rows.Close()
+
+	followers := []*clustermetadatapb.ID{}
+	for rows.Next() {
+		var appName string
+		if err := rows.Scan(&appName); err != nil {
+			pm.logger.Error("Failed to scan application_name", "error", err)
+			continue
+		}
+		// Parse application_name back to cluster ID
+		followerID, err := parseApplicationName(appName)
+		if err != nil {
+			pm.logger.Warn("Failed to parse application_name, skipping", "application_name", appName, "error", err)
+			continue
+		}
+		followers = append(followers, followerID)
+	}
+	if err := rows.Err(); err != nil {
+		pm.logger.Error("Error iterating pg_stat_replication rows", "error", err)
+		return nil, mterrors.Wrap(err, "failed to read connected followers")
+	}
+	status.ConnectedFollowers = followers
+
+	// Get synchronous replication configuration
+	syncConfig, err := pm.getSynchronousReplicationConfig(ctx)
+	if err != nil {
+		return nil, err
+	}
+	status.SyncReplicationConfig = syncConfig
+
+	pm.logger.Info("PrimaryStatus completed", "lsn", lsn, "followers_count", len(followers))
+	return status, nil
 }
 
 // PrimaryPosition gets the current LSN position of the leader
@@ -1135,12 +1395,121 @@ func (pm *MultiPoolerManager) PrimaryPosition(ctx context.Context) (string, erro
 }
 
 // StopReplicationAndGetStatus stops PostgreSQL replication and returns the status
-func (pm *MultiPoolerManager) StopReplicationAndGetStatus(ctx context.Context) (map[string]interface{}, error) {
+func (pm *MultiPoolerManager) StopReplicationAndGetStatus(ctx context.Context) (*multipoolermanagerdata.ReplicationStatus, error) {
 	if err := pm.checkReady(); err != nil {
 		return nil, err
 	}
+
+	// Acquire the action lock to ensure only one mutation runs at a time
+	if err := pm.lock(ctx); err != nil {
+		return nil, err
+	}
+	defer pm.unlock()
+
 	pm.logger.Info("StopReplicationAndGetStatus called")
-	return nil, mterrors.New(mtrpcpb.Code_UNIMPLEMENTED, "method StopReplicationAndGetStatus not implemented")
+
+	// Check REPLICA guardrails (pooler type and recovery mode)
+	if err := pm.checkReplicaGuardrails(ctx); err != nil {
+		return nil, err
+	}
+
+	// Pause WAL replay on the standby
+	pm.logger.Info("Pausing WAL replay on standby")
+	_, err := pm.db.ExecContext(ctx, "SELECT pg_wal_replay_pause()")
+	if err != nil {
+		pm.logger.Error("Failed to pause WAL replay", "error", err)
+		return nil, mterrors.Wrap(err, "failed to pause WAL replay")
+	}
+
+	// Wait for WAL replay to actually be paused and capture status at that moment
+	pm.logger.Info("Waiting for WAL replay to complete pausing")
+	status, err := pm.waitForReplicationPause(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	pm.logger.Info("StopReplicationAndGetStatus completed",
+		"lsn", status.Lsn,
+		"is_paused", status.IsWalReplayPaused,
+		"pause_state", status.WalReplayPauseState,
+		"primary_conn_info", status.PrimaryConnInfo)
+
+	return status, nil
+}
+
+// waitForReplicationPause polls until WAL replay is paused and returns the status at that moment.
+// This ensures the LSN returned represents the exact point at which replication stopped.
+func (pm *MultiPoolerManager) waitForReplicationPause(ctx context.Context) (*multipoolermanagerdata.ReplicationStatus, error) {
+	// Create a context with timeout for the polling loop
+	waitCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+
+	query := `SELECT
+		pg_last_wal_replay_lsn(),
+		pg_is_wal_replay_paused(),
+		pg_get_wal_replay_pause_state(),
+		pg_last_xact_replay_timestamp(),
+		current_setting('primary_conninfo')`
+
+	for {
+		select {
+		case <-waitCtx.Done():
+			if waitCtx.Err() == context.DeadlineExceeded {
+				pm.logger.Error("Timeout waiting for WAL replay to pause")
+				return nil, mterrors.New(mtrpcpb.Code_DEADLINE_EXCEEDED, "timeout waiting for WAL replay to pause")
+			}
+			pm.logger.Error("Context cancelled while waiting for WAL replay to pause")
+			return nil, mterrors.Wrap(waitCtx.Err(), "context cancelled while waiting for WAL replay to pause")
+
+		case <-ticker.C:
+			var lsn string
+			var isPaused bool
+			var pauseState string
+			var lastXactTime sql.NullString
+			var primaryConnInfo string
+
+			// Query all status fields in each iteration
+			err := pm.db.QueryRowContext(waitCtx, query).Scan(
+				&lsn,
+				&isPaused,
+				&pauseState,
+				&lastXactTime,
+				&primaryConnInfo,
+			)
+			if err != nil {
+				pm.logger.Error("Failed to get replication status", "error", err)
+				return nil, mterrors.Wrap(err, "failed to get replication status")
+			}
+
+			// Once paused, we have the exact state at the moment replication stopped
+			if isPaused {
+				pm.logger.Info("WAL replay is now paused", "lsn", lsn, "pause_state", pauseState)
+
+				// Build and return the status
+				status := &multipoolermanagerdata.ReplicationStatus{
+					Lsn:                 lsn,
+					IsWalReplayPaused:   isPaused,
+					WalReplayPauseState: pauseState,
+				}
+
+				if lastXactTime.Valid {
+					status.LastXactReplayTimestamp = lastXactTime.String
+				}
+
+				// Parse primary_conninfo into structured format
+				parsedConnInfo, err := parseAndRedactPrimaryConnInfo(primaryConnInfo)
+				if err != nil {
+					return nil, mterrors.Wrap(err, "failed to parse primary_conninfo")
+				}
+				status.PrimaryConnInfo = parsedConnInfo
+
+				return status, nil
+			}
+		}
+	}
 }
 
 // ChangeType changes the pooler type (PRIMARY/REPLICA)
@@ -1220,13 +1589,143 @@ func (pm *MultiPoolerManager) ReplicationLag(ctx context.Context) (time.Duration
 	return pm.replTracker.HeartbeatReader().Status()
 }
 
-// GetFollowers gets the list of follower servers
-func (pm *MultiPoolerManager) GetFollowers(ctx context.Context) ([]string, error) {
+// GetFollowers gets the list of follower servers with detailed replication status
+func (pm *MultiPoolerManager) GetFollowers(ctx context.Context) (*multipoolermanagerdata.GetFollowersResponse, error) {
 	if err := pm.checkReady(); err != nil {
 		return nil, err
 	}
+
 	pm.logger.Info("GetFollowers called")
-	return nil, mterrors.New(mtrpcpb.Code_UNIMPLEMENTED, "method GetFollowers not implemented")
+
+	// Check PRIMARY guardrails (only primary can have followers)
+	if err := pm.checkPrimaryGuardrails(ctx); err != nil {
+		return nil, err
+	}
+
+	// Get current synchronous replication configuration
+	syncConfig, err := pm.getSynchronousReplicationConfig(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	// Query pg_stat_replication for all connected followers with full details
+	query := `SELECT
+		pid,
+		application_name,
+		client_addr::text,
+		state,
+		sync_state,
+		sent_lsn::text,
+		write_lsn::text,
+		flush_lsn::text,
+		replay_lsn::text,
+		EXTRACT(EPOCH FROM write_lag),
+		EXTRACT(EPOCH FROM flush_lag),
+		EXTRACT(EPOCH FROM replay_lag)
+	FROM pg_stat_replication
+	WHERE application_name IS NOT NULL AND application_name != ''`
+
+	rows, err := pm.db.QueryContext(ctx, query)
+	if err != nil {
+		pm.logger.Error("Failed to query pg_stat_replication", "error", err)
+		return nil, mterrors.Wrap(err, "failed to query replication status")
+	}
+	defer rows.Close()
+
+	// Build a map of connected followers by application_name
+	connectedMap := make(map[string]*multipoolermanagerdata.ReplicationStats)
+	for rows.Next() {
+		var pid int32
+		var appName string
+		var clientAddr string
+		var state string
+		var syncState string
+		var sentLsn string
+		var writeLsn string
+		var flushLsn string
+		var replayLsn string
+		var writeLagSecs sql.NullFloat64
+		var flushLagSecs sql.NullFloat64
+		var replayLagSecs sql.NullFloat64
+
+		err := rows.Scan(
+			&pid,
+			&appName,
+			&clientAddr,
+			&state,
+			&syncState,
+			&sentLsn,
+			&writeLsn,
+			&flushLsn,
+			&replayLsn,
+			&writeLagSecs,
+			&flushLagSecs,
+			&replayLagSecs,
+		)
+		if err != nil {
+			pm.logger.Error("Failed to scan replication row", "error", err)
+			continue
+		}
+
+		stats := &multipoolermanagerdata.ReplicationStats{
+			Pid:        pid,
+			ClientAddr: clientAddr,
+			State:      state,
+			SyncState:  syncState,
+			SentLsn:    sentLsn,
+			WriteLsn:   writeLsn,
+			FlushLsn:   flushLsn,
+			ReplayLsn:  replayLsn,
+		}
+
+		// Convert lag values from seconds to Duration (only if not null)
+		if writeLagSecs.Valid {
+			stats.WriteLag = durationpb.New(time.Duration(writeLagSecs.Float64 * float64(time.Second)))
+		}
+		if flushLagSecs.Valid {
+			stats.FlushLag = durationpb.New(time.Duration(flushLagSecs.Float64 * float64(time.Second)))
+		}
+		if replayLagSecs.Valid {
+			stats.ReplayLag = durationpb.New(time.Duration(replayLagSecs.Float64 * float64(time.Second)))
+		}
+
+		connectedMap[appName] = stats
+	}
+	if err := rows.Err(); err != nil {
+		pm.logger.Error("Error iterating pg_stat_replication rows", "error", err)
+		return nil, mterrors.Wrap(err, "failed to read replication status")
+	}
+
+	// Build the response with all configured standbys
+	followers := make([]*multipoolermanagerdata.FollowerInfo, 0, len(syncConfig.StandbyIds))
+	for _, standbyID := range syncConfig.StandbyIds {
+		appName := generateApplicationName(standbyID)
+
+		followerInfo := &multipoolermanagerdata.FollowerInfo{
+			FollowerId:      standbyID,
+			ApplicationName: appName,
+		}
+
+		// Check if this standby is currently connected
+		if stats, connected := connectedMap[appName]; connected {
+			followerInfo.IsConnected = true
+			followerInfo.ReplicationStats = stats
+		} else {
+			followerInfo.IsConnected = false
+			// ReplicationStats remains nil for disconnected followers
+		}
+
+		followers = append(followers, followerInfo)
+	}
+
+	pm.logger.Info("GetFollowers completed",
+		"total_configured", len(followers),
+		"connected_count", len(connectedMap))
+
+	return &multipoolermanagerdata.GetFollowersResponse{
+		Followers:  followers,
+		SyncConfig: syncConfig,
+	}, nil
 }
 
 // Demote demotes the current leader server

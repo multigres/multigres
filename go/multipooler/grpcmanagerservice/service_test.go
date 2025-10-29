@@ -90,33 +90,6 @@ func TestManagerServiceMethods_NotImplemented(t *testing.T) {
 		expectedMethod string
 	}{
 		{
-			name: "PrimaryStatus",
-			method: func() error {
-				req := &multipoolermanagerdata.PrimaryStatusRequest{}
-				_, err := svc.PrimaryStatus(ctx, req)
-				return err
-			},
-			expectedMethod: "PrimaryStatus",
-		},
-		{
-			name: "StopReplicationAndGetStatus",
-			method: func() error {
-				req := &multipoolermanagerdata.StopReplicationAndGetStatusRequest{}
-				_, err := svc.StopReplicationAndGetStatus(ctx, req)
-				return err
-			},
-			expectedMethod: "StopReplicationAndGetStatus",
-		},
-		{
-			name: "GetFollowers",
-			method: func() error {
-				req := &multipoolermanagerdata.GetFollowersRequest{}
-				_, err := svc.GetFollowers(ctx, req)
-				return err
-			},
-			expectedMethod: "GetFollowers",
-		},
-		{
 			name: "Demote",
 			method: func() error {
 				req := &multipoolermanagerdata.DemoteRequest{}
@@ -259,6 +232,26 @@ func TestManagerServiceMethods_ManagerNotReady(t *testing.T) {
 			},
 		},
 		{
+			name: "UpdateSynchronousStandbyList",
+			method: func() error {
+				req := &multipoolermanagerdata.UpdateSynchronousStandbyListRequest{
+					Operation: multipoolermanagerdata.StandbyUpdateOperation_STANDBY_UPDATE_OPERATION_ADD,
+					StandbyIds: []*clustermetadata.ID{
+						{
+							Component: clustermetadata.ID_MULTIPOOLER,
+							Cell:      "zone1",
+							Name:      "standby1",
+						},
+					},
+					ReloadConfig:  true,
+					ConsensusTerm: 0,
+					Force:         true,
+				}
+				_, err := svc.UpdateSynchronousStandbyList(ctx, req)
+				return err
+			},
+		},
+		{
 			name: "PrimaryStatus",
 			method: func() error {
 				req := &multipoolermanagerdata.PrimaryStatusRequest{}
@@ -281,14 +274,6 @@ func TestManagerServiceMethods_ManagerNotReady(t *testing.T) {
 					PoolerType: clustermetadata.PoolerType_PRIMARY,
 				}
 				_, err := svc.ChangeType(ctx, req)
-				return err
-			},
-		},
-		{
-			name: "GetFollowers",
-			method: func() error {
-				req := &multipoolermanagerdata.GetFollowersRequest{}
-				_, err := svc.GetFollowers(ctx, req)
 				return err
 			},
 		},
