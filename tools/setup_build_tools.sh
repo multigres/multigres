@@ -252,17 +252,42 @@ install_pgbackrest_linux() {
 
   # First, check if already installed on system
   if command -v pgbackrest >/dev/null 2>&1; then
-    echo "pgBackRest found on system, creating symlink..."
-    ln -snf "$(command -v pgbackrest)" "$MTROOT/bin/pgbackrest"
-    return 0
+    echo "pgBackRest found on system, checking version..."
+    local installed_version
+    installed_version=$(pgbackrest version | head -n1 | awk '{print $2}')
+
+    if version_compare "$installed_version" "$version"; then
+      echo "System pgBackRest ${installed_version} meets requirement (>= ${version}), creating symlink..."
+      ln -snf "$(command -v pgbackrest)" "$MTROOT/bin/pgbackrest"
+      return 0
+    else
+      echo "System pgBackRest ${installed_version} is older than required ${version}"
+      echo "Will attempt to install/upgrade via package manager..."
+    fi
   fi
 
   # Try to detect package manager and install
   echo "Attempting to install pgBackRest via package manager..."
 
   if command -v apt-get >/dev/null 2>&1; then
-    # Debian/Ubuntu
+    # Debian/Ubuntu - use PostgreSQL apt repository for latest version
     echo "Detected apt package manager"
+    echo "Setting up PostgreSQL apt repository for latest pgBackRest..."
+
+    # Install prerequisites for PostgreSQL apt repository
+    sudo apt-get install -y curl ca-certificates 2>/dev/null || true
+
+    # Check if PostgreSQL repo is already configured
+    if [ ! -f /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc ]; then
+      # Install the repository key
+      sudo apt install -y postgresql-common ca-certificates
+      sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
+      sudo apt update
+    else
+      echo "PostgreSQL apt repository already configured"
+    fi
+
+    # Update and install
     if sudo apt-get update && sudo apt-get install -y pgbackrest; then
       ln -snf "$(command -v pgbackrest)" "$MTROOT/bin/pgbackrest"
       return 0
@@ -295,7 +320,8 @@ install_pgbackrest_linux() {
   echo ""
   echo "Please install pgBackRest manually using one of these methods:"
   echo ""
-  echo "Debian/Ubuntu:"
+  echo "Debian/Ubuntu (using PostgreSQL apt repository):"
+  echo "  sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh"
   echo "  sudo apt-get update"
   echo "  sudo apt-get install pgbackrest"
   echo ""
