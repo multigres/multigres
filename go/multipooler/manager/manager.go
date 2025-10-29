@@ -32,6 +32,8 @@ import (
 	"github.com/multigres/multigres/go/tools/retry"
 
 	"golang.org/x/sync/semaphore"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
@@ -53,12 +55,13 @@ const (
 
 // MultiPoolerManager manages the pooler lifecycle and PostgreSQL operations
 type MultiPoolerManager struct {
-	logger      *slog.Logger
-	config      *Config
-	db          *sql.DB
-	topoClient  topo.Store
-	serviceID   *clustermetadatapb.ID
-	replTracker *heartbeat.ReplTracker
+	logger       *slog.Logger
+	config       *Config
+	db           *sql.DB
+	topoClient   topo.Store
+	serviceID    *clustermetadatapb.ID
+	replTracker  *heartbeat.ReplTracker
+	pgctldClient pgctldpb.PgCtldClient
 
 	// actionSema is there to run only one action at a time.
 	// This semaphore can be held for long periods of time (hours),
@@ -109,6 +112,20 @@ func NewMultiPoolerManager(logger *slog.Logger, config *Config) *MultiPoolerMana
 // NewMultiPoolerManagerWithTimeout creates a new MultiPoolerManager instance with a custom load timeout
 func NewMultiPoolerManagerWithTimeout(logger *slog.Logger, config *Config, loadTimeout time.Duration) *MultiPoolerManager {
 	ctx, cancel := context.WithCancel(context.Background())
+
+	// Create pgctld gRPC client
+	var pgctldClient pgctldpb.PgCtldClient
+	if config.PgctldAddr != "" {
+		conn, err := grpc.NewClient(config.PgctldAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+		if err != nil {
+			logger.Error("Failed to create pgctld gRPC client", "error", err, "addr", config.PgctldAddr)
+			// Continue without client - operations that need it will fail gracefully
+		} else {
+			pgctldClient = pgctldpb.NewPgCtldClient(conn)
+			logger.Info("Created pgctld gRPC client", "addr", config.PgctldAddr)
+		}
+	}
+
 	return &MultiPoolerManager{
 		logger:            logger,
 		config:            config,
@@ -120,6 +137,7 @@ func NewMultiPoolerManagerWithTimeout(logger *slog.Logger, config *Config, loadT
 		cancel:            cancel,
 		loadTimeout:       loadTimeout,
 		queryServingState: clustermetadatapb.PoolerServingStatus_NOT_SERVING,
+		pgctldClient:      pgctldClient,
 	}
 }
 
@@ -1753,43 +1771,89 @@ func (pm *MultiPoolerManager) runCheckpointAsync(ctx context.Context) chan error
 	return checkpointDone
 }
 
-// makePostgreSQLReadOnly sets PostgreSQL to read-only mode
-func (pm *MultiPoolerManager) makePostgreSQLReadOnly(ctx context.Context, state *demotionState) error {
+// restartPostgresAsStandby restarts PostgreSQL as a standby server
+// This creates standby.signal and restarts PostgreSQL via pgctld
+func (pm *MultiPoolerManager) restartPostgresAsStandby(ctx context.Context, state *demotionState) error {
 	if state.isReadOnly {
-		pm.logger.Info("PostgreSQL already in read-only mode, skipping")
+		pm.logger.Info("PostgreSQL already running as standby, skipping")
 		return nil
 	}
 
-	pm.logger.Info("Setting PostgreSQL to read-only mode")
-
-	// Set default_transaction_read_only to on
-	_, err := pm.db.ExecContext(ctx, "ALTER SYSTEM SET default_transaction_read_only = on")
-	if err != nil {
-		pm.logger.Error("Failed to set default_transaction_read_only", "error", err)
-		return mterrors.Wrap(err, "failed to set read-only mode")
+	if pm.pgctldClient == nil {
+		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION, "pgctld client not initialized")
 	}
 
-	// Reload configuration
+	pm.logger.Info("Restarting PostgreSQL as standby")
+
+	// Call pgctld to restart as standby
+	// This will create standby.signal and restart the server
+	req := &pgctldpb.RestartRequest{
+		Mode:      "fast",
+		Timeout:   nil, // Use default timeout
+		Port:      0,   // Use default port
+		ExtraArgs: nil,
+		AsStandby: true, // Create standby.signal before restart
+	}
+
+	resp, err := pm.pgctldClient.Restart(ctx, req)
+	if err != nil {
+		pm.logger.Error("Failed to restart PostgreSQL as standby", "error", err)
+		return mterrors.Wrap(err, "failed to restart as standby")
+	}
+
+	pm.logger.Info("PostgreSQL restarted as standby",
+		"pid", resp.Pid,
+		"message", resp.Message)
+
+	// Close database connection since PostgreSQL restarted
+	if pm.db != nil {
+		pm.db.Close()
+		pm.db = nil
+	}
+
+	// Reconnect to PostgreSQL
+	if err := pm.connectDB(); err != nil {
+		pm.logger.Error("Failed to reconnect to database after restart", "error", err)
+		return mterrors.Wrap(err, "failed to reconnect to database")
+	}
+
+	// Verify server is in recovery mode (standby)
+	var inRecovery bool
+	err = pm.db.QueryRowContext(ctx, "SELECT pg_is_in_recovery()").Scan(&inRecovery)
+	if err != nil {
+		pm.logger.Error("Failed to verify recovery status", "error", err)
+		return mterrors.Wrap(err, "failed to verify standby status")
+	}
+
+	if !inRecovery {
+		pm.logger.Error("PostgreSQL not in recovery mode after restart")
+		return mterrors.New(mtrpcpb.Code_INTERNAL, "server not in recovery mode after restart as standby")
+	}
+
+	pm.logger.Info("PostgreSQL is now running as a standby")
+	return nil
+}
+
+// resetSynchronousReplication clears the synchronous standby list
+// This should be called after the server is read-only to safely clear settings
+func (pm *MultiPoolerManager) resetSynchronousReplication(ctx context.Context) error {
+	pm.logger.Info("Clearing synchronous standby list")
+
+	// Clear synchronous_standby_names to remove all standbys
+	_, err := pm.db.ExecContext(ctx, "ALTER SYSTEM SET synchronous_standby_names = ''")
+	if err != nil {
+		pm.logger.Error("Failed to clear synchronous_standby_names", "error", err)
+		return mterrors.Wrap(err, "failed to clear synchronous_standby_names")
+	}
+
+	// Reload configuration to apply changes
 	_, err = pm.db.ExecContext(ctx, "SELECT pg_reload_conf()")
 	if err != nil {
 		pm.logger.Error("Failed to reload configuration", "error", err)
-		return mterrors.Wrap(err, "failed to reload configuration")
+		return mterrors.Wrap(err, "failed to reload configuration after clearing standby list")
 	}
 
-	// Verify read-only is active
-	var readOnly bool
-	err = pm.db.QueryRowContext(ctx, "SHOW default_transaction_read_only").Scan(&readOnly)
-	if err != nil {
-		pm.logger.Error("Failed to verify read-only status", "error", err)
-		return mterrors.Wrap(err, "failed to verify read-only status")
-	}
-
-	if !readOnly {
-		pm.logger.Error("Read-only mode not active after configuration")
-		return mterrors.New(mtrpcpb.Code_INTERNAL, "read-only mode not active after configuration")
-	}
-
-	pm.logger.Info("PostgreSQL is now in read-only mode")
+	pm.logger.Info("Successfully cleared synchronous standby list")
 	return nil
 }
 
@@ -2023,7 +2087,12 @@ func (pm *MultiPoolerManager) Demote(ctx context.Context, consensusTerm int64, d
 	}
 
 	// Transition to Read-Only Serving
-
+	// For now, this is not that useful as we have to restart
+	// the server anyways to make it a standby.
+	// However, we are setting the hooks to make sure that
+	// we can make the primary readonly first,
+	// drain write connections and then transition it
+	// as a replica without restarting postgres
 	if err := pm.setServingReadOnly(ctx, state); err != nil {
 		return nil, err
 	}
@@ -2049,8 +2118,16 @@ func (pm *MultiPoolerManager) Demote(ctx context.Context, consensusTerm int64, d
 		return nil, err
 	}
 
-	if err := pm.makePostgreSQLReadOnly(ctx, state); err != nil {
+	if err := pm.restartPostgresAsStandby(ctx, state); err != nil {
 		return nil, err
+	}
+
+	// Phase 5.5: Reset Synchronous Replication Configuration
+	// Now that the server is read-only, it's safe to clear sync replication settings
+	// This ensures we don't have a window where writes could be accepted with incorrect replication config
+	if err := pm.resetSynchronousReplication(ctx); err != nil {
+		// Log but don't fail - this is cleanup
+		pm.logger.Warn("Failed to reset synchronous replication configuration", "error", err)
 	}
 
 	// Phase 6: Update Topology

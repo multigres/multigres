@@ -96,6 +96,9 @@ message RestartRequest {
   int32 port = 3;
 
   repeated string extra_args = 4;
+
+  // If true, creates standby.signal before restart (for demotion to standby)
+  bool as_standby = 5;
 }
 
 message RestartResponse {
