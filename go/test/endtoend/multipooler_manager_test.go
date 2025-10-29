@@ -31,7 +31,6 @@ import (
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multipoolermanagerpb "github.com/multigres/multigres/go/pb/multipoolermanager"
 	multipoolermanagerdata "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
-	pgctldpb "github.com/multigres/multigres/go/pb/pgctldservice"
 )
 
 // TestMultipoolerPrimaryPosition tests the replication API functionality
