@@ -3123,12 +3123,7 @@ func TestDemoteAndPromote(t *testing.T) {
 		_, err = primaryManagerClient.PrimaryPosition(utils.WithShortDeadline(t), posReq)
 		require.Error(t, err, "PrimaryPosition should fail after demotion")
 
-		t.Log("Phase 1 complete: Original primary demoted to standby")
-
-		// ==================================================================
-		// Phase 2: Promote the original standby to primary
-		// ==================================================================
-		t.Log("Phase 2: Promoting original standby to primary...")
+		t.Log("Promoting original standby to primary...")
 
 		// Set term on standby
 		setTermReq2 := &multipoolermanagerdata.SetTermRequest{
@@ -3172,12 +3167,9 @@ func TestDemoteAndPromote(t *testing.T) {
 		require.NoError(t, err, "PrimaryPosition should work on new primary")
 		assert.NotEmpty(t, posResp2.LsnPosition)
 
-		t.Log("Phase 2 complete: Original standby is now primary")
+		t.Log("Original standby is now primary")
 
-		// ==================================================================
-		// Phase 3: Restore original state (demote new primary, promote original)
-		// ==================================================================
-		t.Log("Phase 3: Restoring original state...")
+		t.Log("Restoring original state...")
 
 		// Demote the new primary (original standby)
 		setTermReq3 := &multipoolermanagerdata.SetTermRequest{
@@ -3235,11 +3227,11 @@ func TestDemoteAndPromote(t *testing.T) {
 		require.NoError(t, err, "PrimaryPosition should work on restored primary")
 		assert.NotEmpty(t, posResp3.LsnPosition)
 
-		t.Log("Phase 3 complete: Original state restored - primary is primary, standby is standby")
+		t.Log("Original state restored - primary is primary, standby is standby")
 	})
 
 	t.Run("Idempotency_Demote", func(t *testing.T) {
-		t.Log("Testing Demote idempotency...")
+		t.Log("Testing that Demote cannot be called twice after completion...")
 
 		// Set term
 		setTermReq := &multipoolermanagerdata.SetTermRequest{
@@ -3259,15 +3251,13 @@ func TestDemoteAndPromote(t *testing.T) {
 		demoteResp1, err := primaryManagerClient.Demote(context.Background(), demoteReq)
 		require.NoError(t, err, "First demote should succeed")
 		assert.False(t, demoteResp1.WasAlreadyDemoted)
-		lsn1 := demoteResp1.LsnPosition
 
-		// Second demotion (idempotent)
-		demoteResp2, err := primaryManagerClient.Demote(context.Background(), demoteReq)
-		require.NoError(t, err, "Second demote should succeed (idempotent)")
-		assert.True(t, demoteResp2.WasAlreadyDemoted)
-		assert.Equal(t, lsn1, demoteResp2.LsnPosition)
+		// Second demotion should fail with guard rail error (server is now REPLICA in topology)
+		_, err = primaryManagerClient.Demote(context.Background(), demoteReq)
+		require.Error(t, err, "Second demote should fail - cannot demote a REPLICA")
+		assert.Contains(t, err.Error(), "pooler type is REPLICA")
 
-		t.Log("Demote idempotency verified")
+		t.Log("Demote guard rail verified - cannot demote a REPLICA")
 	})
 
 	t.Run("Idempotency_Promote", func(t *testing.T) {
@@ -3306,6 +3296,8 @@ func TestDemoteAndPromote(t *testing.T) {
 		// Second promotion (idempotent)
 		promoteResp2, err := primaryManagerClient.Promote(context.Background(), promoteReq)
 		require.NoError(t, err, "Second promote should succeed (idempotent)")
+
+		setup.PrimaryMultipooler.logRecentOutput(t, "Debug - unknown service error")
 		assert.True(t, promoteResp2.WasAlreadyPrimary)
 		assert.Equal(t, lsn1, promoteResp2.LsnPosition)
 
@@ -3323,17 +3315,17 @@ func TestDemoteAndPromote(t *testing.T) {
 		_, err := primaryManagerClient.SetTerm(utils.WithShortDeadline(t), setTermReq)
 		require.NoError(t, err)
 
-		// Try with wrong term (should fail)
+		// Try with stale term (should fail)
 		demoteReq := &multipoolermanagerdata.DemoteRequest{
-			ConsensusTerm: 999,
+			ConsensusTerm: 5, // Less than current term (7)
 			DrainTimeout:  nil,
 			Force:         false,
 		}
 		_, err = primaryManagerClient.Demote(context.Background(), demoteReq)
-		require.Error(t, err, "Demote with wrong term should fail")
+		require.Error(t, err, "Demote with stale term should fail")
 		assert.Contains(t, err.Error(), "term")
 
-		// Try with force flag (should succeed)
+		// Try with force flag (should succeed even with stale term)
 		demoteReq.Force = true
 		_, err = primaryManagerClient.Demote(context.Background(), demoteReq)
 		require.NoError(t, err, "Demote with force should succeed")
@@ -3451,7 +3443,7 @@ func TestDemoteAndPromote(t *testing.T) {
 		}
 		_, err = standbyManagerClient.Demote(context.Background(), demoteReq)
 		require.Error(t, err, "Demote should fail on standby")
-		assert.Contains(t, err.Error(), "not a primary")
+		assert.Contains(t, err.Error(), "pooler type is REPLICA, must be PRIMARY")
 
 		t.Log("Confirmed: Demote correctly rejected on standby")
 	})

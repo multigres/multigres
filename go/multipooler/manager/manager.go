@@ -25,6 +25,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/lib/pq"
+
 	"github.com/multigres/multigres/go/clustermetadata/topo"
 	"github.com/multigres/multigres/go/mterrors"
 	"github.com/multigres/multigres/go/multipooler/heartbeat"
@@ -32,6 +34,7 @@ import (
 	"github.com/multigres/multigres/go/tools/retry"
 
 	"golang.org/x/sync/semaphore"
+
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
@@ -1398,8 +1401,7 @@ func (pm *MultiPoolerManager) PrimaryStatus(ctx context.Context) (*multipoolerma
 	}
 	status.Lsn = lsn
 	// If we got to this point, checkPrimaryGuardrails passed, so this is a
-	// PRIMARY server from the PG perspective
-	// and should be ready to serve traffic.
+	// PRIMARY server from the PG perspective and should be ready to serve traffic.
 	status.Ready = true
 
 	// Get connected followers from pg_stat_replication
@@ -1455,16 +1457,8 @@ func (pm *MultiPoolerManager) PrimaryPosition(ctx context.Context) (string, erro
 		return "", err
 	}
 
-	// Query PostgreSQL for the current LSN position
-	// pg_current_wal_lsn() returns the current write-ahead log write location
-	var lsn string
-	err := pm.db.QueryRowContext(ctx, "SELECT pg_current_wal_lsn()::text").Scan(&lsn)
-	if err != nil {
-		pm.logger.Error("Failed to query LSN", "error", err)
-		return "", mterrors.Wrap(err, "failed to query LSN")
-	}
-
-	return lsn, nil
+	// Get current primary LSN position
+	return pm.getPrimaryLSN(ctx)
 }
 
 // StopReplicationAndGetStatus stops PostgreSQL replication and returns the status
@@ -1684,28 +1678,37 @@ func (pm *MultiPoolerManager) checkDemotionState(ctx context.Context) (*demotion
 	state.isReplicaInTopology = (poolerType == clustermetadatapb.PoolerType_REPLICA)
 	state.isServingReadOnly = (servingStatus == clustermetadatapb.PoolerServingStatus_SERVING_RDONLY)
 
-	// Check if PostgreSQL is read-only
-	var readOnly bool
-	err := pm.db.QueryRowContext(ctx, "SHOW default_transaction_read_only").Scan(&readOnly)
+	// Check if PostgreSQL is in recovery mode (canonical way to check if read-only)
+	var inRecovery bool
+	err := pm.db.QueryRowContext(ctx, "SELECT pg_is_in_recovery()").Scan(&inRecovery)
 	if err != nil {
-		pm.logger.Warn("Failed to check read-only status", "error", err)
-		state.isReadOnly = false
-	} else {
-		state.isReadOnly = readOnly
+		pm.logger.Error("Failed to check recovery status", "error", err)
+		return nil, mterrors.Wrap(err, "failed to check recovery status")
 	}
+	state.isReadOnly = inRecovery
 
-	// Capture current LSN if not already captured
-	if !state.isReadOnly {
-		err := pm.db.QueryRowContext(ctx, "SELECT pg_current_wal_lsn()::text").Scan(&state.finalLSN)
+	// Capture current LSN - this method needs to be idempotent, so it's possible
+	// it's called on a host where the primary was already changed to a standby.
+	// Therefore, we try both LSN retrieval methods and use whichever succeeds.
+
+	// Try getting current WAL LSN (works on primary)
+	state.finalLSN, err = pm.getPrimaryLSN(ctx)
+	if err != nil {
+		// If that fails, try getting replay LSN (works on standby)
+		state.finalLSN, err = pm.getStandbyReplayLSN(ctx)
 		if err != nil {
-			pm.logger.Warn("Failed to get current LSN", "error", err)
+			pm.logger.Error("Failed to get LSN (tried both primary and standby methods)", "error", err)
+			return nil, mterrors.Wrap(err, "failed to get LSN")
 		}
 	}
 
 	pm.logger.Info("Checked demotion state",
 		"is_serving_read_only", state.isServingReadOnly,
 		"is_replica_in_topology", state.isReplicaInTopology,
-		"is_read_only", state.isReadOnly)
+		"is_read_only", state.isReadOnly,
+		"in_recovery", inRecovery,
+		"pooler_type", poolerType,
+		"serving_status", servingStatus)
 
 	return state, nil
 }
@@ -1890,7 +1893,7 @@ func (pm *MultiPoolerManager) getActiveWriteConnections(ctx context.Context) ([]
 	// specific user for the write pool and we can kill all connections
 	// associated with that user.
 	query := `
-		SELECT array_agg(pid)
+		SELECT COALESCE(array_agg(pid), ARRAY[]::integer[])
 		FROM pg_stat_activity
 		WHERE pid != pg_backend_pid()
 		  AND datname IS NOT NULL
@@ -1904,12 +1907,8 @@ func (pm *MultiPoolerManager) getActiveWriteConnections(ctx context.Context) ([]
 		  AND query != '<IDLE>'`
 
 	var pids []int32
-	err := pm.db.QueryRowContext(ctx, query).Scan(&pids)
+	err := pm.db.QueryRowContext(ctx, query).Scan(pq.Array(&pids))
 	if err != nil {
-		// If no rows (NULL result), that's fine - no write connections
-		if err.Error() == "sql: Scan error on column index 0, name \"array_agg\": converting NULL to slice: invalid type" {
-			return nil, nil
-		}
 		return nil, err
 	}
 
@@ -2012,6 +2011,26 @@ func (pm *MultiPoolerManager) drainAndCheckpoint(ctx context.Context, drainTimeo
 	return nil
 }
 
+// getPrimaryLSN gets the current WAL write location (primary only)
+func (pm *MultiPoolerManager) getPrimaryLSN(ctx context.Context) (string, error) {
+	var lsn string
+	err := pm.db.QueryRowContext(ctx, "SELECT pg_current_wal_lsn()::text").Scan(&lsn)
+	if err != nil {
+		return "", mterrors.Wrap(err, "failed to get current WAL LSN")
+	}
+	return lsn, nil
+}
+
+// getStandbyReplayLSN gets the last replayed WAL location (standby only)
+func (pm *MultiPoolerManager) getStandbyReplayLSN(ctx context.Context) (string, error) {
+	var lsn string
+	err := pm.db.QueryRowContext(ctx, "SELECT pg_last_wal_replay_lsn()::text").Scan(&lsn)
+	if err != nil {
+		return "", mterrors.Wrap(err, "failed to get replay LSN")
+	}
+	return lsn, nil
+}
+
 // captureFinalLSN captures the final LSN position before going read-only
 func (pm *MultiPoolerManager) captureFinalLSN(ctx context.Context, state *demotionState) (string, error) {
 	if state.isReadOnly && state.finalLSN != "" {
@@ -2019,11 +2038,11 @@ func (pm *MultiPoolerManager) captureFinalLSN(ctx context.Context, state *demoti
 		return state.finalLSN, nil
 	}
 
-	var finalLSN string
-	err := pm.db.QueryRowContext(ctx, "SELECT pg_current_wal_lsn()::text").Scan(&finalLSN)
+	// At this point in Demote, we should still be a primary
+	finalLSN, err := pm.getPrimaryLSN(ctx)
 	if err != nil {
 		pm.logger.Error("Failed to capture final LSN", "error", err)
-		return "", mterrors.Wrap(err, "failed to capture final LSN")
+		return "", err
 	}
 
 	pm.logger.Info("Captured final LSN", "lsn", finalLSN)
@@ -2068,6 +2087,11 @@ func (pm *MultiPoolerManager) Demote(ctx context.Context, consensusTerm int64, d
 		return nil, mterrors.Wrap(err, "database connection failed")
 	}
 
+	// Guard rail: Demote can only be called on a PRIMARY
+	if err := pm.checkPrimaryGuardrails(ctx); err != nil {
+		return nil, err
+	}
+
 	// Check current demotion state
 	state, err := pm.checkDemotionState(ctx)
 	if err != nil {
@@ -2097,13 +2121,13 @@ func (pm *MultiPoolerManager) Demote(ctx context.Context, consensusTerm int64, d
 		return nil, err
 	}
 
-	// Phase 3: Drain & Checkpoint (Parallel)
+	// Drain & Checkpoint (Parallel)
 
 	if err := pm.drainAndCheckpoint(ctx, drainTimeout); err != nil {
 		return nil, err
 	}
 
-	// Phase 4: Terminate Remaining Write Connections
+	// Terminate Remaining Write Connections
 
 	connectionsTerminated, err := pm.terminateWriteConnections(ctx)
 	if err != nil {
@@ -2111,7 +2135,7 @@ func (pm *MultiPoolerManager) Demote(ctx context.Context, consensusTerm int64, d
 		pm.logger.Warn("Failed to terminate write connections", "error", err)
 	}
 
-	// Phase 5: Capture State & Make PostgreSQL Read-Only
+	// Capture State & Make PostgreSQL Read-Only
 
 	finalLSN, err := pm.captureFinalLSN(ctx, state)
 	if err != nil {
@@ -2122,7 +2146,7 @@ func (pm *MultiPoolerManager) Demote(ctx context.Context, consensusTerm int64, d
 		return nil, err
 	}
 
-	// Phase 5.5: Reset Synchronous Replication Configuration
+	// Reset Synchronous Replication Configuration
 	// Now that the server is read-only, it's safe to clear sync replication settings
 	// This ensures we don't have a window where writes could be accepted with incorrect replication config
 	if err := pm.resetSynchronousReplication(ctx); err != nil {
@@ -2130,7 +2154,7 @@ func (pm *MultiPoolerManager) Demote(ctx context.Context, consensusTerm int64, d
 		pm.logger.Warn("Failed to reset synchronous replication configuration", "error", err)
 	}
 
-	// Phase 6: Update Topology
+	// Update Topology
 
 	if err := pm.updateTopologyAfterDemotion(ctx, state); err != nil {
 		return nil, err
@@ -2180,11 +2204,11 @@ func (pm *MultiPoolerManager) checkPromotionState(ctx context.Context, syncRepli
 	state.isPrimaryInPostgres = !isInRecovery
 
 	if state.isPrimaryInPostgres {
-		// Get current LSN
-		err := pm.db.QueryRowContext(ctx, "SELECT pg_current_wal_lsn()::text").Scan(&state.currentLSN)
+		// Get current primary LSN
+		state.currentLSN, err = pm.getPrimaryLSN(ctx)
 		if err != nil {
 			pm.logger.Error("Failed to get current LSN", "error", err)
-			return nil, mterrors.Wrap(err, "failed to get current LSN")
+			return nil, err
 		}
 	}
 
@@ -2195,7 +2219,10 @@ func (pm *MultiPoolerManager) checkPromotionState(ctx context.Context, syncRepli
 
 	state.isPrimaryInTopology = (poolerType == clustermetadatapb.PoolerType_PRIMARY)
 
-	// Check sync replication state
+	// Default: if no sync config requested, consider it as matching (no requirements to check)
+	state.syncReplicationMatches = true
+
+	// Check sync replication state if config was provided
 	if syncReplicationConfig != nil && state.isPrimaryInPostgres {
 		state.syncReplicationMatches = false
 		currentConfig, err := pm.getSynchronousReplicationConfig(ctx)
@@ -2493,11 +2520,10 @@ func (pm *MultiPoolerManager) Promote(ctx context.Context, consensusTerm int64, 
 	// TODO: Populate consensus metadata tables.
 
 	// Get final LSN position
-	var finalLSN string
-	err = pm.db.QueryRowContext(ctx, "SELECT pg_current_wal_lsn()::text").Scan(&finalLSN)
+	finalLSN, err := pm.getPrimaryLSN(ctx)
 	if err != nil {
 		pm.logger.Error("Failed to get final LSN", "error", err)
-		return nil, mterrors.Wrap(err, "failed to get final LSN")
+		return nil, err
 	}
 
 	pm.logger.Info("Promote completed successfully",
