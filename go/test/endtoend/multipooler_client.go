@@ -17,6 +17,7 @@ package endtoend
 import (
 	"context"
 	"fmt"
+	"io"
 	"testing"
 	"time"
 
@@ -58,10 +59,9 @@ func NewMultiPoolerTestClient(addr string) (*MultiPoolerTestClient, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	// Try to make a basic ExecuteQuery call to test connectivity
-	_, err = client.ExecuteQuery(ctx, &multipoolerpb.ExecuteQueryRequest{
-		Query:   []byte("SELECT 1"),
-		MaxRows: 1,
+	// Try to make a basic StreamExecute call to test connectivity
+	_, err = client.StreamExecute(ctx, &multipoolerpb.StreamExecuteRequest{
+		Query: []byte("SELECT 1"),
 	})
 	// We expect this to fail for non-existent servers
 	// The specific error doesn't matter, we just want to know if we can connect
@@ -77,11 +77,10 @@ func NewMultiPoolerTestClient(addr string) (*MultiPoolerTestClient, error) {
 	}, nil
 }
 
-// ExecuteQuery executes a SQL query via the multipooler gRPC service
-func (c *MultiPoolerTestClient) ExecuteQuery(ctx context.Context, query string, maxRows uint64) (*querypb.QueryResult, error) {
-	req := &multipoolerpb.ExecuteQueryRequest{
-		Query:   []byte(query),
-		MaxRows: maxRows,
+// StreamExecute executes a SQL query via the multipooler gRPC service
+func (c *MultiPoolerTestClient) StreamExecute(ctx context.Context, query string, maxRows uint64) (*querypb.QueryResult, error) {
+	req := &multipoolerpb.StreamExecuteRequest{
+		Query: []byte(query),
 		CallerId: &mtrpcpb.CallerID{
 			Principal:    "test-user",
 			Component:    "endtoend-test",
@@ -89,12 +88,34 @@ func (c *MultiPoolerTestClient) ExecuteQuery(ctx context.Context, query string, 
 		},
 	}
 
-	resp, err := c.client.ExecuteQuery(ctx, req)
+	stream, err := c.client.StreamExecute(ctx, req)
 	if err != nil {
-		return nil, fmt.Errorf("ExecuteQuery failed: %w", err)
+		return nil, fmt.Errorf("StreamExecute failed: %w", err)
 	}
+	var res *querypb.QueryResult
 
-	return resp.Result, nil
+	// Stream results back via callback
+	for {
+		response, err := stream.Recv()
+		if err == io.EOF {
+			// Stream completed successfully
+			return res, nil
+		}
+		if err != nil {
+			return nil, fmt.Errorf("stream receive error: %w", err)
+		}
+
+		// Extract result from response
+		if response.Result == nil {
+			continue
+		}
+		if res == nil {
+			res = response.Result
+			continue
+		}
+		res.CommandTag = response.Result.CommandTag
+		res.Rows = append(res.Rows, response.Result.Rows...)
+	}
 }
 
 // Close closes the gRPC connection
@@ -118,7 +139,7 @@ func TestBasicSelect(t *testing.T, client *MultiPoolerTestClient) {
 	defer cancel()
 	t.Helper()
 
-	result, err := client.ExecuteQuery(ctx, "SELECT 1 as test_column", 10)
+	result, err := client.StreamExecute(ctx, "SELECT 1 as test_column", 10)
 	require.NoError(t, err, "Basic SELECT query should succeed")
 	require.NotNil(t, result, "Result should not be nil")
 
@@ -144,7 +165,7 @@ func TestCreateTable(t *testing.T, client *MultiPoolerTestClient, tableName stri
 			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 		)`, tableName)
 
-	result, err := client.ExecuteQuery(ctx, createSQL, 0)
+	result, err := client.StreamExecute(ctx, createSQL, 0)
 	require.NoError(t, err, "CREATE TABLE should succeed")
 	require.NotNil(t, result, "Result should not be nil")
 
@@ -163,7 +184,7 @@ func TestInsertData(t *testing.T, client *MultiPoolerTestClient, tableName strin
 		insertSQL := fmt.Sprintf("INSERT INTO %s (name, value) VALUES ('%s', %v)",
 			tableName, data["name"], data["value"])
 
-		result, err := client.ExecuteQuery(ctx, insertSQL, 0)
+		result, err := client.StreamExecute(ctx, insertSQL, 0)
 		require.NoError(t, err, "INSERT should succeed for row %d", i)
 		require.NotNil(t, result, "Result should not be nil")
 
@@ -182,7 +203,7 @@ func TestSelectData(t *testing.T, client *MultiPoolerTestClient, tableName strin
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	result, err := client.ExecuteQuery(ctx, selectSQL, 0)
+	result, err := client.StreamExecute(ctx, selectSQL, 0)
 	require.NoError(t, err, "SELECT should succeed")
 	require.NotNil(t, result, "Result should not be nil")
 
@@ -210,7 +231,7 @@ func TestQueryLimits(t *testing.T, client *MultiPoolerTestClient, tableName stri
 	selectSQL := fmt.Sprintf("SELECT * FROM %s", tableName)
 
 	// Test with limit
-	result, err := client.ExecuteQuery(ctx, selectSQL, 2)
+	result, err := client.StreamExecute(ctx, selectSQL, 2)
 	require.NoError(t, err, "SELECT with limit should succeed")
 	require.NotNil(t, result, "Result should not be nil")
 
@@ -225,7 +246,7 @@ func TestUpdateData(t *testing.T, client *MultiPoolerTestClient, tableName strin
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	result, err := client.ExecuteQuery(ctx, updateSQL, 0)
+	result, err := client.StreamExecute(ctx, updateSQL, 0)
 	require.NoError(t, err, "UPDATE should succeed")
 	require.NotNil(t, result, "Result should not be nil")
 
@@ -243,7 +264,7 @@ func TestDeleteData(t *testing.T, client *MultiPoolerTestClient, tableName strin
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	result, err := client.ExecuteQuery(ctx, deleteSQL, 0)
+	result, err := client.StreamExecute(ctx, deleteSQL, 0)
 	require.NoError(t, err, "DELETE should succeed")
 	require.NotNil(t, result, "Result should not be nil")
 
@@ -261,7 +282,7 @@ func TestDropTable(t *testing.T, client *MultiPoolerTestClient, tableName string
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	result, err := client.ExecuteQuery(ctx, dropSQL, 0)
+	result, err := client.StreamExecute(ctx, dropSQL, 0)
 	require.NoError(t, err, "DROP TABLE should succeed")
 	require.NotNil(t, result, "Result should not be nil")
 
@@ -300,7 +321,7 @@ func TestDataTypes(t *testing.T, client *MultiPoolerTestClient) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result, err := client.ExecuteQuery(ctx, tt.query, 1)
+			result, err := client.StreamExecute(ctx, tt.query, 1)
 			require.NoError(t, err, "Query should succeed for %s", tt.name)
 			require.NotNil(t, result, "Result should not be nil")
 			assert.Len(t, result.Fields, 1, "Should have one field")
@@ -318,7 +339,7 @@ func TestMultigresSchemaExists(t *testing.T, client *MultiPoolerTestClient) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	result, err := client.ExecuteQuery(ctx, query, 10)
+	result, err := client.StreamExecute(ctx, query, 10)
 	require.NoError(t, err, "Schema existence check should succeed")
 	require.NotNil(t, result, "Result should not be nil")
 
@@ -344,7 +365,7 @@ func TestHeartbeatTableExists(t *testing.T, client *MultiPoolerTestClient) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	result, err := client.ExecuteQuery(ctx, tableQuery, 10)
+	result, err := client.StreamExecute(ctx, tableQuery, 10)
 	require.NoError(t, err, "Table existence check should succeed")
 	require.NotNil(t, result, "Result should not be nil")
 	assert.Len(t, result.Rows, 1, "heartbeat table should exist in multigres schema")
@@ -362,7 +383,7 @@ func TestHeartbeatTableExists(t *testing.T, client *MultiPoolerTestClient) {
 		ORDER BY a.attname
 	`
 
-	result, err = client.ExecuteQuery(ctx, columnsQuery, 10)
+	result, err = client.StreamExecute(ctx, columnsQuery, 10)
 	require.NoError(t, err, "Columns check should succeed")
 	require.NotNil(t, result, "Result should not be nil")
 	assert.Len(t, result.Rows, 3, "heartbeat table should have 3 columns")
@@ -391,7 +412,7 @@ func TestHeartbeatTableExists(t *testing.T, client *MultiPoolerTestClient) {
 		  AND con.contype = 'p'
 	`
 
-	result, err = client.ExecuteQuery(ctx, pkQuery, 10)
+	result, err = client.StreamExecute(ctx, pkQuery, 10)
 	require.NoError(t, err, "Primary key check should succeed")
 	require.NotNil(t, result, "Result should not be nil")
 	assert.Len(t, result.Rows, 1, "heartbeat table should have a primary key")
@@ -410,7 +431,7 @@ func TestPrimaryDetection(t *testing.T, client *MultiPoolerTestClient) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	result, err := client.ExecuteQuery(ctx, query, 1)
+	result, err := client.StreamExecute(ctx, query, 1)
 	require.NoError(t, err, "pg_is_in_recovery() check should succeed")
 	require.NotNil(t, result, "Result should not be nil")
 	require.Len(t, result.Rows, 1, "Should return one row")

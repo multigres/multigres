@@ -20,26 +20,30 @@ import (
 	"database/sql"
 	"fmt"
 	"log/slog"
-	"strings"
 
+	"github.com/multigres/multigres/go/multipooler/executor"
 	"github.com/multigres/multigres/go/multipooler/manager"
-	querypb "github.com/multigres/multigres/go/pb/query"
+	"github.com/multigres/multigres/go/multipooler/queryservice"
 	"github.com/multigres/multigres/go/servenv"
 )
 
 // MultiPooler is the core pooler implementation
 type MultiPooler struct {
-	logger *slog.Logger
-	config *manager.Config
-	db     *sql.DB
+	logger   *slog.Logger
+	config   *manager.Config
+	db       *sql.DB
+	executor queryservice.QueryService
 }
 
 // NewMultiPooler creates a new multipooler instance
 func NewMultiPooler(logger *slog.Logger, config *manager.Config) *MultiPooler {
-	return &MultiPooler{
+	mp := &MultiPooler{
 		logger: logger,
 		config: config,
 	}
+	_ = mp.connectDB()
+	mp.executor = executor.NewExecutor(logger, mp.db)
+	return mp
 }
 
 // connectDB establishes a connection to PostgreSQL
@@ -117,136 +121,7 @@ func (s *MultiPooler) Start(senv *servenv.ServEnv) {
 	})
 }
 
-// ExecuteQuery executes a SQL query
-func (s *MultiPooler) ExecuteQuery(ctx context.Context, query []byte, maxRows uint64) (*querypb.QueryResult, error) {
-	// Log the incoming request
-	s.logger.Info("ExecuteQuery called",
-		"query_length", len(query),
-		"max_rows", maxRows,
-	)
-
-	// Ensure database connection
-	if err := s.connectDB(); err != nil {
-		s.logger.Error("Failed to connect to database", "error", err)
-		return nil, fmt.Errorf("database connection failed: %w", err)
-	}
-
-	// Convert query bytes to string
-	queryString := string(query)
-
-	// Log the actual query (be careful with sensitive data in production)
-	s.logger.Debug("Executing query", "query", queryString)
-
-	// Execute the query
-	result, err := s.executeQuery(ctx, queryString, maxRows)
-	if err != nil {
-		s.logger.Error("Query execution failed", "error", err, "query", queryString)
-		return nil, fmt.Errorf("query execution failed: %w", err)
-	}
-
-	return result, nil
-}
-
-// executeQuery executes a SQL query and returns the result
-func (s *MultiPooler) executeQuery(ctx context.Context, query string, maxRows uint64) (*querypb.QueryResult, error) {
-	// Determine if this is a SELECT query or a modification query
-	trimmedQuery := strings.TrimSpace(strings.ToUpper(query))
-	isSelect := strings.HasPrefix(trimmedQuery, "SELECT") ||
-		strings.HasPrefix(trimmedQuery, "WITH") ||
-		strings.HasPrefix(trimmedQuery, "SHOW") ||
-		strings.HasPrefix(trimmedQuery, "EXPLAIN")
-
-	if isSelect {
-		return s.executeSelectQuery(ctx, query, maxRows)
-	} else {
-		return s.executeModifyQuery(ctx, query)
-	}
-}
-
-// executeSelectQuery executes a SELECT query and returns rows
-func (s *MultiPooler) executeSelectQuery(ctx context.Context, query string, maxRows uint64) (*querypb.QueryResult, error) {
-	rows, err := s.db.QueryContext(ctx, query)
-	if err != nil {
-		return nil, fmt.Errorf("failed to execute query: %w", err)
-	}
-	defer rows.Close()
-
-	// Get column information
-	columns, err := rows.Columns()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get columns: %w", err)
-	}
-
-	columnTypes, err := rows.ColumnTypes()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get column types: %w", err)
-	}
-
-	// Build field information
-	fields := make([]*querypb.Field, len(columns))
-	for i, col := range columns {
-		fields[i] = &querypb.Field{
-			Name: col,
-			Type: columnTypes[i].DatabaseTypeName(),
-		}
-	}
-
-	// Read rows
-	var resultRows []*querypb.Row
-	scanValues := make([]interface{}, len(columns))
-	scanPointers := make([]interface{}, len(columns))
-
-	for i := range scanValues {
-		scanPointers[i] = &scanValues[i]
-	}
-
-	rowCount := uint64(0)
-	for rows.Next() && (maxRows == 0 || rowCount < maxRows) {
-		if err := rows.Scan(scanPointers...); err != nil {
-			return nil, fmt.Errorf("failed to scan row: %w", err)
-		}
-
-		// Convert values to bytes
-		values := make([][]byte, len(columns))
-		for i, val := range scanValues {
-			if val == nil {
-				values[i] = nil
-			} else {
-				values[i] = []byte(fmt.Sprintf("%v", val))
-			}
-		}
-
-		resultRows = append(resultRows, &querypb.Row{Values: values})
-		rowCount++
-	}
-
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("error reading rows: %w", err)
-	}
-
-	return &querypb.QueryResult{
-		Fields:       fields,
-		RowsAffected: 0, // SELECT queries don't affect rows
-		Rows:         resultRows,
-	}, nil
-}
-
-// executeModifyQuery executes an INSERT, UPDATE, DELETE, or other modification query
-func (s *MultiPooler) executeModifyQuery(ctx context.Context, query string) (*querypb.QueryResult, error) {
-	result, err := s.db.ExecContext(ctx, query)
-	if err != nil {
-		return nil, fmt.Errorf("failed to execute query: %w", err)
-	}
-
-	rowsAffected, err := result.RowsAffected()
-	if err != nil {
-		// Some queries don't support RowsAffected, that's okay
-		rowsAffected = 0
-	}
-
-	return &querypb.QueryResult{
-		Fields:       []*querypb.Field{}, // No fields for modification queries
-		RowsAffected: uint64(rowsAffected),
-		Rows:         []*querypb.Row{}, // No rows for modification queries
-	}, nil
+// GetExecutor returns the executor instance for use by gRPC service handlers.
+func (s *MultiPooler) GetExecutor() queryservice.QueryService {
+	return s.executor
 }

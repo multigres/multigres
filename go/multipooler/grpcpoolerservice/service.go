@@ -16,10 +16,11 @@
 package grpcpoolerservice
 
 import (
-	"context"
+	"fmt"
 
 	"github.com/multigres/multigres/go/multipooler/poolerserver"
 	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
+	querypb "github.com/multigres/multigres/go/pb/query"
 	"github.com/multigres/multigres/go/servenv"
 )
 
@@ -41,13 +42,26 @@ func RegisterPoolerServices(senv *servenv.ServEnv, grpc *servenv.GrpcServer) {
 	})
 }
 
-// ExecuteQuery executes a SQL query and returns the result
-func (s *poolerService) ExecuteQuery(ctx context.Context, req *multipoolerpb.ExecuteQueryRequest) (*multipoolerpb.ExecuteQueryResponse, error) {
-	result, err := s.pooler.ExecuteQuery(ctx, req.Query, req.MaxRows)
-	if err != nil {
-		return nil, err
+// StreamExecute executes a SQL query and streams the results back to the client.
+// This is the main execution method used by multigateway.
+func (s *poolerService) StreamExecute(req *multipoolerpb.StreamExecuteRequest, stream multipoolerpb.MultiPoolerService_StreamExecuteServer) error {
+	// Get the executor from the pooler
+	executor := s.pooler.GetExecutor()
+	if executor == nil {
+		return fmt.Errorf("executor not initialized")
 	}
-	return &multipoolerpb.ExecuteQueryResponse{
-		Result: result,
-	}, nil
+
+	// Convert query bytes to string
+	queryString := string(req.Query)
+
+	// Execute the query and stream results
+	err := executor.StreamExecute(stream.Context(), req.Target, queryString, func(result *querypb.QueryResult) error {
+		// Send the result back to the client
+		response := &multipoolerpb.StreamExecuteResponse{
+			Result: result,
+		}
+		return stream.Send(response)
+	})
+
+	return err
 }

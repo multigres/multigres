@@ -26,6 +26,7 @@ import (
 
 	"github.com/multigres/multigres/go/multipooler/manager"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	"github.com/multigres/multigres/go/pb/query"
 )
 
 func TestNewMultiPooler(t *testing.T) {
@@ -103,10 +104,28 @@ func TestExecuteQuery_InvalidInput(t *testing.T) {
 	ctx := context.Background()
 
 	// This should fail because the socket doesn't exist
-	resp, err := pooler.ExecuteQuery(ctx, []byte("SELECT 1"), 10)
+	resp, err := execQuery(ctx, pooler, "SELECT 1")
 	assert.Error(t, err)
 	assert.Nil(t, resp)
 	assert.Contains(t, err.Error(), "database connection failed")
+}
+
+func execQuery(ctx context.Context, pooler *MultiPooler, sql string) (*query.QueryResult, error) {
+	var res *query.QueryResult
+	err := pooler.GetExecutor().StreamExecute(ctx, nil, sql, func(qr *query.QueryResult) error {
+		// Extract result from response
+		if qr == nil {
+			return nil
+		}
+		if res == nil {
+			res = qr
+			return nil
+		}
+		res.CommandTag = qr.CommandTag
+		res.Rows = append(res.Rows, qr.Rows...)
+		return nil
+	})
+	return res, err
 }
 
 func TestExecuteQuery_QueryTypeDetection(t *testing.T) {
@@ -194,7 +213,7 @@ func TestExecuteQuery_EmptyQuery(t *testing.T) {
 	ctx := context.Background()
 
 	// Should fail due to connection error, but we can test the request structure
-	resp, err := pooler.ExecuteQuery(ctx, []byte(""), 10)
+	resp, err := execQuery(ctx, pooler, "")
 	assert.Error(t, err)
 	assert.Nil(t, resp)
 }
@@ -216,7 +235,7 @@ func TestExecuteQuery_CallerIDLogging(t *testing.T) {
 	ctx := context.Background()
 
 	// This will fail due to connection, but we're testing that it doesn't panic
-	_, err := pooler.ExecuteQuery(ctx, []byte("SELECT 1"), 10)
+	_, err := execQuery(ctx, pooler, "SELECT 1")
 	assert.Error(t, err) // Expected to fail due to no real DB connection
 }
 

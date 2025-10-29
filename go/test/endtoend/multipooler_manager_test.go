@@ -480,7 +480,7 @@ func initializeStandby(t *testing.T, primaryPgctld *ProcessInstance, standbyPgct
 	if err != nil {
 		return fmt.Errorf("failed to create standby pooler client: %w", err)
 	}
-	queryResp, err := standbyPoolerClient.ExecuteQuery(utils.WithShortDeadline(t), "SELECT pg_is_in_recovery()", 1)
+	queryResp, err := standbyPoolerClient.StreamExecute(utils.WithShortDeadline(t), "SELECT pg_is_in_recovery()", 1)
 	standbyPoolerClient.Close()
 	if err != nil {
 		return fmt.Errorf("failed to check standby recovery status: %w", err)
@@ -797,10 +797,10 @@ func TestReplicationAPIs(t *testing.T) {
 
 	t.Run("ConfigureReplicationAndValidate", func(t *testing.T) {
 		t.Log("Creating table and inserting data in primary...")
-		_, err = primaryPoolerClient.ExecuteQuery(context.Background(), "CREATE TABLE IF NOT EXISTS test_replication (id SERIAL PRIMARY KEY, data TEXT)", 0)
+		_, err = primaryPoolerClient.StreamExecute(context.Background(), "CREATE TABLE IF NOT EXISTS test_replication (id SERIAL PRIMARY KEY, data TEXT)", 0)
 		require.NoError(t, err, "Should be able to create table in primary")
 
-		_, err = primaryPoolerClient.ExecuteQuery(context.Background(), "INSERT INTO test_replication (data) VALUES ('test data')", 0)
+		_, err = primaryPoolerClient.StreamExecute(context.Background(), "INSERT INTO test_replication (data) VALUES ('test data')", 0)
 		require.NoError(t, err, "Should be able to insert data in primary")
 
 		// Get LSN from primary using PrimaryPosition RPC
@@ -833,7 +833,7 @@ func TestReplicationAPIs(t *testing.T) {
 		t.Log("Confirmed: standby cannot reach primary LSN without replication configured")
 
 		// Verify table doesn't exist in standby
-		queryResp, err := standbyPoolerClient.ExecuteQuery(context.Background(), "SELECT COUNT(*) FROM pg_tables WHERE tablename = 'test_replication'", 1)
+		queryResp, err := standbyPoolerClient.StreamExecute(context.Background(), "SELECT COUNT(*) FROM pg_tables WHERE tablename = 'test_replication'", 1)
 		require.NoError(t, err)
 		require.Len(t, queryResp.Rows, 1)
 		tableCount := string(queryResp.Rows[0].Values[0])
@@ -872,7 +872,7 @@ func TestReplicationAPIs(t *testing.T) {
 
 		// Verify the table now exists in standby
 		require.Eventually(t, func() bool {
-			resp, err := standbyPoolerClient.ExecuteQuery(context.Background(), "SELECT COUNT(*) FROM pg_tables WHERE tablename = 'test_replication'", 1)
+			resp, err := standbyPoolerClient.StreamExecute(context.Background(), "SELECT COUNT(*) FROM pg_tables WHERE tablename = 'test_replication'", 1)
 			if err != nil || len(resp.Rows) == 0 {
 				return false
 			}
@@ -881,7 +881,7 @@ func TestReplicationAPIs(t *testing.T) {
 		}, 15*time.Second, 500*time.Millisecond, "Table should exist in standby after replication")
 
 		// Verify the data replicated
-		dataResp, err := standbyPoolerClient.ExecuteQuery(context.Background(), "SELECT COUNT(*) FROM test_replication", 1)
+		dataResp, err := standbyPoolerClient.StreamExecute(context.Background(), "SELECT COUNT(*) FROM test_replication", 1)
 		require.NoError(t, err)
 		require.Len(t, dataResp.Rows, 1)
 		rowCount := string(dataResp.Rows[0].Values[0])
@@ -890,7 +890,7 @@ func TestReplicationAPIs(t *testing.T) {
 		t.Log("Replication is working! Data successfully replicated from primary to standby")
 
 		// Cleanup: Drop the test table from primary
-		_, err = primaryPoolerClient.ExecuteQuery(context.Background(), "DROP TABLE IF EXISTS test_replication", 0)
+		_, err = primaryPoolerClient.StreamExecute(context.Background(), "DROP TABLE IF EXISTS test_replication", 0)
 		require.NoError(t, err)
 	})
 
@@ -922,7 +922,7 @@ func TestReplicationAPIs(t *testing.T) {
 
 		// First ensure replication is running by checking pg_stat_wal_receiver
 		t.Log("Verifying replication is running...")
-		queryResp, err := standbyPoolerClient.ExecuteQuery(context.Background(), "SELECT status FROM pg_stat_wal_receiver", 1)
+		queryResp, err := standbyPoolerClient.StreamExecute(context.Background(), "SELECT status FROM pg_stat_wal_receiver", 1)
 		require.NoError(t, err)
 		require.Len(t, queryResp.Rows, 1)
 		initialStatus := string(queryResp.Rows[0].Values[0])
@@ -930,7 +930,7 @@ func TestReplicationAPIs(t *testing.T) {
 		assert.Equal(t, "streaming", initialStatus, "Replication should be streaming")
 
 		// Check if WAL replay is not paused
-		queryResp, err = standbyPoolerClient.ExecuteQuery(context.Background(), "SELECT pg_is_wal_replay_paused()", 1)
+		queryResp, err = standbyPoolerClient.StreamExecute(context.Background(), "SELECT pg_is_wal_replay_paused()", 1)
 		require.NoError(t, err)
 		require.Len(t, queryResp.Rows, 1)
 		isPaused := string(queryResp.Rows[0].Values[0])
@@ -954,7 +954,7 @@ func TestReplicationAPIs(t *testing.T) {
 
 		// Verify that WAL replay is now paused
 		t.Log("Verifying replication is paused after StopReplicationBefore...")
-		queryResp, err = standbyPoolerClient.ExecuteQuery(context.Background(), "SELECT pg_is_wal_replay_paused()", 1)
+		queryResp, err = standbyPoolerClient.StreamExecute(context.Background(), "SELECT pg_is_wal_replay_paused()", 1)
 		require.NoError(t, err)
 		require.Len(t, queryResp.Rows, 1)
 		isPaused = string(queryResp.Rows[0].Values[0])
@@ -982,7 +982,7 @@ func TestReplicationAPIs(t *testing.T) {
 		cancel()
 
 		// Verify replication is paused
-		queryResp, err := standbyPoolerClient.ExecuteQuery(context.Background(), "SELECT pg_is_wal_replay_paused()", 1)
+		queryResp, err := standbyPoolerClient.StreamExecute(context.Background(), "SELECT pg_is_wal_replay_paused()", 1)
 		require.NoError(t, err)
 		require.Len(t, queryResp.Rows, 1)
 		isPaused := string(queryResp.Rows[0].Values[0])
@@ -1006,7 +1006,7 @@ func TestReplicationAPIs(t *testing.T) {
 
 		// Verify replication is still paused (not started)
 		t.Log("Verifying replication remains paused when StartReplicationAfter=false...")
-		queryResp, err = standbyPoolerClient.ExecuteQuery(context.Background(), "SELECT pg_is_wal_replay_paused()", 1)
+		queryResp, err = standbyPoolerClient.StreamExecute(context.Background(), "SELECT pg_is_wal_replay_paused()", 1)
 		require.NoError(t, err)
 		require.Len(t, queryResp.Rows, 1)
 		isPaused = string(queryResp.Rows[0].Values[0])
@@ -1020,7 +1020,7 @@ func TestReplicationAPIs(t *testing.T) {
 
 		// Verify replication is now running
 		t.Log("Verifying replication started when StartReplicationAfter=true...")
-		queryResp, err = standbyPoolerClient.ExecuteQuery(context.Background(), "SELECT pg_is_wal_replay_paused()", 1)
+		queryResp, err = standbyPoolerClient.StreamExecute(context.Background(), "SELECT pg_is_wal_replay_paused()", 1)
 		require.NoError(t, err)
 		require.Len(t, queryResp.Rows, 1)
 		isPaused = string(queryResp.Rows[0].Values[0])
@@ -1032,10 +1032,10 @@ func TestReplicationAPIs(t *testing.T) {
 	t.Run("WaitForLSN_Standby_Success", func(t *testing.T) {
 		// Insert data on primary to generate a new LSN
 		t.Log("Creating table and inserting data on primary...")
-		_, err = primaryPoolerClient.ExecuteQuery(context.Background(), "CREATE TABLE IF NOT EXISTS test_wait_lsn (id SERIAL PRIMARY KEY, data TEXT)", 0)
+		_, err = primaryPoolerClient.StreamExecute(context.Background(), "CREATE TABLE IF NOT EXISTS test_wait_lsn (id SERIAL PRIMARY KEY, data TEXT)", 0)
 		require.NoError(t, err, "Should be able to create table in primary")
 
-		_, err = primaryPoolerClient.ExecuteQuery(context.Background(), "INSERT INTO test_wait_lsn (data) VALUES ('test data for wait lsn')", 0)
+		_, err = primaryPoolerClient.StreamExecute(context.Background(), "INSERT INTO test_wait_lsn (data) VALUES ('test data for wait lsn')", 0)
 		require.NoError(t, err, "Should be able to insert data in primary")
 
 		// Get LSN from primary
@@ -1061,14 +1061,14 @@ func TestReplicationAPIs(t *testing.T) {
 		t.Log("Standby successfully reached target LSN")
 
 		// Verify the data replicated
-		queryResp, err := standbyPoolerClient.ExecuteQuery(context.Background(), "SELECT COUNT(*) FROM test_wait_lsn", 1)
+		queryResp, err := standbyPoolerClient.StreamExecute(context.Background(), "SELECT COUNT(*) FROM test_wait_lsn", 1)
 		require.NoError(t, err)
 		require.Len(t, queryResp.Rows, 1)
 		rowCount := string(queryResp.Rows[0].Values[0])
 		assert.Equal(t, "1", rowCount, "Should have 1 row in standby")
 
 		// Cleanup
-		_, err = primaryPoolerClient.ExecuteQuery(context.Background(), "DROP TABLE IF EXISTS test_wait_lsn", 0)
+		_, err = primaryPoolerClient.StreamExecute(context.Background(), "DROP TABLE IF EXISTS test_wait_lsn", 0)
 		require.NoError(t, err)
 	})
 
@@ -1118,7 +1118,7 @@ func TestReplicationAPIs(t *testing.T) {
 		cancel()
 
 		// Verify replication is paused
-		queryResp, err := standbyPoolerClient.ExecuteQuery(context.Background(), "SELECT pg_is_wal_replay_paused()", 1)
+		queryResp, err := standbyPoolerClient.StreamExecute(context.Background(), "SELECT pg_is_wal_replay_paused()", 1)
 		require.NoError(t, err)
 		require.Len(t, queryResp.Rows, 1)
 		isPaused := string(queryResp.Rows[0].Values[0])
@@ -1136,7 +1136,7 @@ func TestReplicationAPIs(t *testing.T) {
 
 		// Verify replication is now running
 		t.Log("Verifying replication is running after StartReplication...")
-		queryResp, err = standbyPoolerClient.ExecuteQuery(context.Background(), "SELECT pg_is_wal_replay_paused()", 1)
+		queryResp, err = standbyPoolerClient.StreamExecute(context.Background(), "SELECT pg_is_wal_replay_paused()", 1)
 		require.NoError(t, err)
 		require.Len(t, queryResp.Rows, 1)
 		isPaused = string(queryResp.Rows[0].Values[0])
@@ -1164,7 +1164,7 @@ func TestReplicationAPIs(t *testing.T) {
 
 		// First ensure replication is running
 		t.Log("Ensuring replication is running...")
-		queryResp, err := standbyPoolerClient.ExecuteQuery(context.Background(), "SELECT pg_is_wal_replay_paused()", 1)
+		queryResp, err := standbyPoolerClient.StreamExecute(context.Background(), "SELECT pg_is_wal_replay_paused()", 1)
 		require.NoError(t, err)
 		require.Len(t, queryResp.Rows, 1)
 		isPaused := string(queryResp.Rows[0].Values[0])
@@ -1189,7 +1189,7 @@ func TestReplicationAPIs(t *testing.T) {
 
 		// Verify replication is now paused
 		t.Log("Verifying replication is paused after StopReplication...")
-		queryResp, err = standbyPoolerClient.ExecuteQuery(context.Background(), "SELECT pg_is_wal_replay_paused()", 1)
+		queryResp, err = standbyPoolerClient.StreamExecute(context.Background(), "SELECT pg_is_wal_replay_paused()", 1)
 		require.NoError(t, err)
 		require.Len(t, queryResp.Rows, 1)
 		isPaused = string(queryResp.Rows[0].Values[0])
@@ -1241,7 +1241,7 @@ func TestReplicationAPIs(t *testing.T) {
 		// Verify replication is working by checking pg_stat_wal_receiver
 		t.Log("Verifying replication is working...")
 		require.Eventually(t, func() bool {
-			queryResp, err := standbyPoolerClient.ExecuteQuery(context.Background(), "SELECT COUNT(*) FROM pg_stat_wal_receiver WHERE status = 'streaming'", 1)
+			queryResp, err := standbyPoolerClient.StreamExecute(context.Background(), "SELECT COUNT(*) FROM pg_stat_wal_receiver WHERE status = 'streaming'", 1)
 			if err != nil || len(queryResp.Rows) == 0 {
 				return false
 			}
@@ -1263,7 +1263,7 @@ func TestReplicationAPIs(t *testing.T) {
 		// After resetting, the WAL receiver should eventually disconnect
 		t.Log("Verifying replication is disconnected after ResetReplication...")
 		require.Eventually(t, func() bool {
-			queryResp, err := standbyPoolerClient.ExecuteQuery(context.Background(), "SELECT COUNT(*) FROM pg_stat_wal_receiver", 1)
+			queryResp, err := standbyPoolerClient.StreamExecute(context.Background(), "SELECT COUNT(*) FROM pg_stat_wal_receiver", 1)
 			if err != nil || len(queryResp.Rows) == 0 {
 				return false
 			}
@@ -1275,10 +1275,10 @@ func TestReplicationAPIs(t *testing.T) {
 
 		// Sanity check: Insert a row on primary, verify it does NOT replicate to standby
 		t.Log("Sanity check: Inserting data on primary after ResetReplication...")
-		_, err = primaryPoolerClient.ExecuteQuery(context.Background(), "CREATE TABLE IF NOT EXISTS test_reset_replication (id SERIAL PRIMARY KEY, data TEXT)", 0)
+		_, err = primaryPoolerClient.StreamExecute(context.Background(), "CREATE TABLE IF NOT EXISTS test_reset_replication (id SERIAL PRIMARY KEY, data TEXT)", 0)
 		require.NoError(t, err, "Should be able to create table on primary")
 
-		_, err = primaryPoolerClient.ExecuteQuery(context.Background(), "INSERT INTO test_reset_replication (data) VALUES ('should not replicate')", 0)
+		_, err = primaryPoolerClient.StreamExecute(context.Background(), "INSERT INTO test_reset_replication (data) VALUES ('should not replicate')", 0)
 		require.NoError(t, err, "Should be able to insert data on primary")
 
 		// Get LSN from primary after the insert
@@ -1326,7 +1326,7 @@ func TestReplicationAPIs(t *testing.T) {
 
 		// Verify the table now exists on standby
 		t.Log("Verifying data replicated after re-enabling replication...")
-		dataResp, err := standbyPoolerClient.ExecuteQuery(context.Background(), "SELECT COUNT(*) FROM test_reset_replication", 1)
+		dataResp, err := standbyPoolerClient.StreamExecute(context.Background(), "SELECT COUNT(*) FROM test_reset_replication", 1)
 		require.NoError(t, err)
 		require.Len(t, dataResp.Rows, 1)
 		rowCount := string(dataResp.Rows[0].Values[0])
@@ -1335,7 +1335,7 @@ func TestReplicationAPIs(t *testing.T) {
 		t.Log("Confirmed: Data successfully replicated after re-enabling replication")
 
 		// Cleanup: Drop the test table from primary
-		_, err = primaryPoolerClient.ExecuteQuery(context.Background(), "DROP TABLE IF EXISTS test_reset_replication", 0)
+		_, err = primaryPoolerClient.StreamExecute(context.Background(), "DROP TABLE IF EXISTS test_reset_replication", 0)
 		require.NoError(t, err)
 	})
 
@@ -1579,14 +1579,14 @@ func TestConfigureSynchronousReplication(t *testing.T) {
 
 		// Verify the configuration was applied by querying PostgreSQL settings
 		t.Log("Verifying synchronous_commit is set to 'on'...")
-		queryResp, err := primaryPoolerClient.ExecuteQuery(context.Background(), "SHOW synchronous_commit", 1)
+		queryResp, err := primaryPoolerClient.StreamExecute(context.Background(), "SHOW synchronous_commit", 1)
 		require.NoError(t, err)
 		require.Len(t, queryResp.Rows, 1)
 		syncCommit := string(queryResp.Rows[0].Values[0])
 		assert.Equal(t, "on", syncCommit, "synchronous_commit should be 'on'")
 
 		t.Log("Verifying synchronous_standby_names is configured...")
-		queryResp, err = primaryPoolerClient.ExecuteQuery(context.Background(), "SHOW synchronous_standby_names", 1)
+		queryResp, err = primaryPoolerClient.StreamExecute(context.Background(), "SHOW synchronous_standby_names", 1)
 		require.NoError(t, err)
 		require.Len(t, queryResp.Rows, 1)
 		syncStandbyNames := string(queryResp.Rows[0].Values[0])
@@ -1639,14 +1639,14 @@ func TestConfigureSynchronousReplication(t *testing.T) {
 
 		// Verify the configuration was applied
 		t.Log("Verifying synchronous_commit is set to 'remote_apply'...")
-		queryResp, err := primaryPoolerClient.ExecuteQuery(context.Background(), "SHOW synchronous_commit", 1)
+		queryResp, err := primaryPoolerClient.StreamExecute(context.Background(), "SHOW synchronous_commit", 1)
 		require.NoError(t, err)
 		require.Len(t, queryResp.Rows, 1)
 		syncCommit := string(queryResp.Rows[0].Values[0])
 		assert.Equal(t, "remote_apply", syncCommit, "synchronous_commit should be 'remote_apply'")
 
 		t.Log("Verifying synchronous_standby_names is configured with ANY method...")
-		queryResp, err = primaryPoolerClient.ExecuteQuery(context.Background(), "SHOW synchronous_standby_names", 1)
+		queryResp, err = primaryPoolerClient.StreamExecute(context.Background(), "SHOW synchronous_standby_names", 1)
 		require.NoError(t, err)
 		require.Len(t, queryResp.Rows, 1)
 		syncStandbyNames := string(queryResp.Rows[0].Values[0])
@@ -1720,7 +1720,7 @@ func TestConfigureSynchronousReplication(t *testing.T) {
 
 				// Verify the configuration was applied
 				t.Logf("Verifying synchronous_commit is set to '%s'...", tc.expectedShow)
-				queryResp, err := primaryPoolerClient.ExecuteQuery(context.Background(), "SHOW synchronous_commit", 1)
+				queryResp, err := primaryPoolerClient.StreamExecute(context.Background(), "SHOW synchronous_commit", 1)
 				require.NoError(t, err)
 				require.Len(t, queryResp.Rows, 1)
 				syncCommit := string(queryResp.Rows[0].Values[0])
@@ -1865,7 +1865,7 @@ func TestConfigureSynchronousReplication(t *testing.T) {
 
 				// Verify the configuration was applied
 				t.Logf("Verifying synchronous_standby_names contains '%s'...", tc.expectedContains)
-				queryResp, err := primaryPoolerClient.ExecuteQuery(context.Background(), "SHOW synchronous_standby_names", 1)
+				queryResp, err := primaryPoolerClient.StreamExecute(context.Background(), "SHOW synchronous_standby_names", 1)
 				require.NoError(t, err)
 				require.Len(t, queryResp.Rows, 1)
 				syncStandbyNames := string(queryResp.Rows[0].Values[0])
@@ -1966,10 +1966,10 @@ func TestConfigureSynchronousReplication(t *testing.T) {
 		t.Cleanup(func() { primaryPoolerClient.Close() })
 
 		// Create a test table and insert data - this should succeed because standby is available
-		_, err = primaryPoolerClient.ExecuteQuery(context.Background(), "CREATE TABLE IF NOT EXISTS test_sync_repl (id SERIAL PRIMARY KEY, data TEXT)", 0)
+		_, err = primaryPoolerClient.StreamExecute(context.Background(), "CREATE TABLE IF NOT EXISTS test_sync_repl (id SERIAL PRIMARY KEY, data TEXT)", 0)
 		require.NoError(t, err, "Table creation should succeed with standby available")
 
-		_, err = primaryPoolerClient.ExecuteQuery(context.Background(), "INSERT INTO test_sync_repl (data) VALUES ('test-with-standby')", 0)
+		_, err = primaryPoolerClient.StreamExecute(context.Background(), "INSERT INTO test_sync_repl (data) VALUES ('test-with-standby')", 0)
 		require.NoError(t, err, "Insert should succeed with standby connected and replicating")
 		t.Log("Write succeeded with synchronous replication enabled")
 
@@ -2000,7 +2000,7 @@ func TestConfigureSynchronousReplication(t *testing.T) {
 				return false
 			}
 			defer standbyPoolerClient.Close()
-			queryResp, err := standbyPoolerClient.ExecuteQuery(context.Background(), "SELECT COUNT(*) FROM pg_stat_wal_receiver", 1)
+			queryResp, err := standbyPoolerClient.StreamExecute(context.Background(), "SELECT COUNT(*) FROM pg_stat_wal_receiver", 1)
 			if err != nil || len(queryResp.Rows) == 0 {
 				return false
 			}
@@ -2028,7 +2028,7 @@ func TestConfigureSynchronousReplication(t *testing.T) {
 		// Use a 3-second context timeout so the test doesn't wait too long
 		timeoutCtx, timeoutCancel := context.WithTimeout(context.Background(), 3*time.Second)
 		defer timeoutCancel()
-		_, err = primaryPoolerClient.ExecuteQuery(timeoutCtx, "INSERT INTO test_sync_repl (data) VALUES ('test-without-standby')", 0)
+		_, err = primaryPoolerClient.StreamExecute(timeoutCtx, "INSERT INTO test_sync_repl (data) VALUES ('test-without-standby')", 0)
 		require.Error(t, err, "Insert should timeout without standby available")
 		assert.Contains(t, err.Error(), "DeadlineExceeded", "Error should indicate a deadline exceeded")
 		t.Log("Write correctly timed out without standby available")
@@ -2070,7 +2070,7 @@ func TestConfigureSynchronousReplication(t *testing.T) {
 		primaryPoolerClient, err = NewMultiPoolerTestClient(fmt.Sprintf("localhost:%d", setup.PrimaryMultipooler.GrpcPort))
 		require.NoError(t, err)
 		t.Cleanup(func() { primaryPoolerClient.Close() })
-		_, err = primaryPoolerClient.ExecuteQuery(context.Background(), "DROP TABLE IF EXISTS test_sync_repl", 0)
+		_, err = primaryPoolerClient.StreamExecute(context.Background(), "DROP TABLE IF EXISTS test_sync_repl", 0)
 		require.NoError(t, err)
 
 		t.Log("End-to-end synchronous replication test completed successfully")

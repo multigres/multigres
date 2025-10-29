@@ -203,12 +203,18 @@ func (pd *PoolerDiscovery) processPoolerChange(watchData *topo.WatchDataRecursiv
 	_, existed := pd.poolers[poolerID]
 	pd.poolers[poolerID] = pooler
 	pd.lastRefresh = time.Now()
+	// TODO: Remove this. Currently a hack, poolers not registering as the correct
+	// type in the topo, so making do with this for now.
+	if pooler.Type == clustermetadatapb.PoolerType_UNKNOWN {
+		pooler.Type = clustermetadatapb.PoolerType_PRIMARY
+	}
 
 	if !existed {
 		pd.logger.Info("New pooler discovered",
 			"id", poolerID,
 			"hostname", pooler.Hostname,
 			"addr", pooler.Addr(),
+			"tableGroup", pooler.TableGroup,
 			"database", pooler.Database,
 			"shard", pooler.Shard,
 			"type", pooler.Type.String())
@@ -217,6 +223,7 @@ func (pd *PoolerDiscovery) processPoolerChange(watchData *topo.WatchDataRecursiv
 			"id", poolerID,
 			"hostname", pooler.Hostname,
 			"addr", pooler.Addr(),
+			"tableGroup", pooler.TableGroup,
 			"database", pooler.Database,
 			"shard", pooler.Shard,
 			"type", pooler.Type.String())

@@ -36,7 +36,6 @@ import (
 const _ = grpc.SupportPackageIsVersion7
 
 const (
-	MultiPoolerService_ExecuteQuery_FullMethodName  = "/multipoolerservice.MultiPoolerService/ExecuteQuery"
 	MultiPoolerService_StreamExecute_FullMethodName = "/multipoolerservice.MultiPoolerService/StreamExecute"
 )
 
@@ -44,8 +43,6 @@ const (
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type MultiPoolerServiceClient interface {
-	// ExecuteQuery executes a SQL query and returns the result
-	ExecuteQuery(ctx context.Context, in *ExecuteQueryRequest, opts ...grpc.CallOption) (*ExecuteQueryResponse, error)
 	// StreamExecute executes a SQL query and streams the results back
 	StreamExecute(ctx context.Context, in *StreamExecuteRequest, opts ...grpc.CallOption) (MultiPoolerService_StreamExecuteClient, error)
 }
@@ -56,15 +53,6 @@ type multiPoolerServiceClient struct {
 
 func NewMultiPoolerServiceClient(cc grpc.ClientConnInterface) MultiPoolerServiceClient {
 	return &multiPoolerServiceClient{cc}
-}
-
-func (c *multiPoolerServiceClient) ExecuteQuery(ctx context.Context, in *ExecuteQueryRequest, opts ...grpc.CallOption) (*ExecuteQueryResponse, error) {
-	out := new(ExecuteQueryResponse)
-	err := c.cc.Invoke(ctx, MultiPoolerService_ExecuteQuery_FullMethodName, in, out, opts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
 }
 
 func (c *multiPoolerServiceClient) StreamExecute(ctx context.Context, in *StreamExecuteRequest, opts ...grpc.CallOption) (MultiPoolerService_StreamExecuteClient, error) {
@@ -103,8 +91,6 @@ func (x *multiPoolerServiceStreamExecuteClient) Recv() (*StreamExecuteResponse, 
 // All implementations must embed UnimplementedMultiPoolerServiceServer
 // for forward compatibility
 type MultiPoolerServiceServer interface {
-	// ExecuteQuery executes a SQL query and returns the result
-	ExecuteQuery(context.Context, *ExecuteQueryRequest) (*ExecuteQueryResponse, error)
 	// StreamExecute executes a SQL query and streams the results back
 	StreamExecute(*StreamExecuteRequest, MultiPoolerService_StreamExecuteServer) error
 	mustEmbedUnimplementedMultiPoolerServiceServer()
@@ -114,9 +100,6 @@ type MultiPoolerServiceServer interface {
 type UnimplementedMultiPoolerServiceServer struct {
 }
 
-func (UnimplementedMultiPoolerServiceServer) ExecuteQuery(context.Context, *ExecuteQueryRequest) (*ExecuteQueryResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method ExecuteQuery not implemented")
-}
 func (UnimplementedMultiPoolerServiceServer) StreamExecute(*StreamExecuteRequest, MultiPoolerService_StreamExecuteServer) error {
 	return status.Errorf(codes.Unimplemented, "method StreamExecute not implemented")
 }
@@ -131,24 +114,6 @@ type UnsafeMultiPoolerServiceServer interface {
 
 func RegisterMultiPoolerServiceServer(s grpc.ServiceRegistrar, srv MultiPoolerServiceServer) {
 	s.RegisterService(&MultiPoolerService_ServiceDesc, srv)
-}
-
-func _MultiPoolerService_ExecuteQuery_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(ExecuteQueryRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(MultiPoolerServiceServer).ExecuteQuery(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: MultiPoolerService_ExecuteQuery_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(MultiPoolerServiceServer).ExecuteQuery(ctx, req.(*ExecuteQueryRequest))
-	}
-	return interceptor(ctx, in, info, handler)
 }
 
 func _MultiPoolerService_StreamExecute_Handler(srv interface{}, stream grpc.ServerStream) error {
@@ -178,12 +143,7 @@ func (x *multiPoolerServiceStreamExecuteServer) Send(m *StreamExecuteResponse) e
 var MultiPoolerService_ServiceDesc = grpc.ServiceDesc{
 	ServiceName: "multipoolerservice.MultiPoolerService",
 	HandlerType: (*MultiPoolerServiceServer)(nil),
-	Methods: []grpc.MethodDesc{
-		{
-			MethodName: "ExecuteQuery",
-			Handler:    _MultiPoolerService_ExecuteQuery_Handler,
-		},
-	},
+	Methods:     []grpc.MethodDesc{},
 	Streams: []grpc.StreamDesc{
 		{
 			StreamName:    "StreamExecute",
