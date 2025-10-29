@@ -177,12 +177,11 @@ func (s *managerService) ChangeType(ctx context.Context, req *multipoolermanager
 
 // GetFollowers gets the list of follower servers
 func (s *managerService) GetFollowers(ctx context.Context, req *multipoolermanagerdata.GetFollowersRequest) (*multipoolermanagerdata.GetFollowersResponse, error) {
-	_, err := s.manager.GetFollowers(ctx)
+	response, err := s.manager.GetFollowers(ctx)
 	if err != nil {
 		return nil, mterrors.ToGRPC(err)
 	}
-	// TODO: Convert []string to proper response structure
-	return &multipoolermanagerdata.GetFollowersResponse{}, nil
+	return response, nil
 }
 
 // Demote demotes the current leader server
