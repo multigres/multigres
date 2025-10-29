@@ -58,32 +58,32 @@ func (pm *MultiPoolerManager) RequestVote(ctx context.Context, req *consensusdat
 		NodeId:      pm.serviceID.GetName(),
 	}
 
-	// If request term is newer, update our term and reset vote
-	if req.Term > currentTerm {
-		newTerm := &pgctldpb.ConsensusTerm{
-			CurrentTerm: req.Term,
-			VotedFor:    nil,
-		}
-		if err := SetTerm(pm.config.PoolerDir, newTerm); err != nil {
-			return nil, fmt.Errorf("failed to update term: %w", err)
-		}
-		pm.mu.Lock()
-		pm.consensusTerm = newTerm
-		pm.mu.Unlock()
-
-		currentTerm = req.Term
-		votedFor = nil
-	}
-
 	// Reject if term is outdated
 	if req.Term < currentTerm {
 		return response, nil
 	}
 
 	// Check if we've already voted in this term
-	if votedFor != nil && votedFor.GetName() != req.CandidateId {
+	if req.Term == currentTerm && votedFor != nil && votedFor.GetName() != req.CandidateId {
 		return response, nil
 	}
+
+	// At this point, req.Term must be > currentTerm (since we've already handled < and == cases above)
+	// Update our term and reset vote
+	newTerm := &pgctldpb.ConsensusTerm{
+		CurrentTerm: req.Term,
+		VotedFor:    nil,
+	}
+	if err := SetTerm(pm.config.PoolerDir, newTerm); err != nil {
+		return nil, fmt.Errorf("failed to update term: %w", err)
+	}
+	pm.mu.Lock()
+	pm.consensusTerm = newTerm
+	pm.mu.Unlock()
+
+	currentTerm = req.Term
+	votedFor = nil
+	response.Term = currentTerm
 
 	// Validate candidate's WAL position (query Postgres)
 	ourWAL, err := pm.GetCurrentWALPosition(ctx)
