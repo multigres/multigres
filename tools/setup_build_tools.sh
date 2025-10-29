@@ -184,8 +184,8 @@ version_compare() {
   required="${required#v}"
 
   # Split versions into arrays
-  IFS='.' read -ra installed_parts <<< "$installed"
-  IFS='.' read -ra required_parts <<< "$required"
+  IFS='.' read -ra installed_parts <<<"$installed"
+  IFS='.' read -ra required_parts <<<"$required"
 
   # Compare each part
   for i in 0 1 2; do
