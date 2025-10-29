@@ -44,6 +44,14 @@ jobs:
           # Set up postgres user password for tests
           sudo -u postgres psql -c "ALTER USER postgres PASSWORD 'postgres';" || true
 
+      - name: Install pgBackRest
+        run: |
+          # Set up PostgreSQL apt repository for latest pgBackRest
+          sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
+          sudo apt-get update
+          sudo apt-get install -y pgbackrest
+          pgbackrest version
+
       - name: Verify PostgreSQL Installation
         run: |
           # Add PostgreSQL binaries to PATH
