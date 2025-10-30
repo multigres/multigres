@@ -201,10 +201,10 @@ func (w *Writer) write() error {
 	tsNano := w.now().UnixNano()
 
 	_, err = conn.ExecContext(ctx, `
-		INSERT INTO multigres.heartbeat (shard_id, pooler_id, ts, leader_term, leader_wal_position)
+		INSERT INTO multigres.heartbeat (shard_id, leader_id, ts, leader_term, leader_wal_position)
 		VALUES ($1, $2, $3, $4, $5)
 		ON CONFLICT (shard_id) DO UPDATE
-		SET pooler_id = EXCLUDED.pooler_id,
+		SET leader_id = EXCLUDED.leader_id,
 		    ts = EXCLUDED.ts,
 		    leader_term = EXCLUDED.leader_term,
 		    leader_wal_position = EXCLUDED.leader_wal_position
@@ -224,6 +224,16 @@ func (w *Writer) getWALPosition(ctx context.Context) (string, error) {
 		return "", mterrors.Wrap(err, "failed to get WAL position")
 	}
 	return lsn, nil
+}
+
+// SetLeaderTerm updates the leader term for consensus tracking
+func (w *Writer) SetLeaderTerm(term int64) {
+	w.leaderTerm.Store(term)
+}
+
+// GetLeaderTerm returns the current leader term
+func (w *Writer) GetLeaderTerm() int64 {
+	return w.leaderTerm.Load()
 }
 
 // killWritesUntilStopped tries to kill the write in progress until the ticks have stopped.

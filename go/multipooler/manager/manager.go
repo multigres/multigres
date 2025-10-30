@@ -535,6 +535,12 @@ func (pm *MultiPoolerManager) validateAndUpdateTerm(ctx context.Context, request
 		pm.consensusTerm = newTerm
 		pm.mu.Unlock()
 
+		// Synchronize term to heartbeat writer if it exists
+		if pm.replTracker != nil {
+			pm.replTracker.HeartbeatWriter().SetLeaderTerm(newTerm.GetCurrentTerm())
+			pm.logger.Info("Synchronized term to heartbeat writer", "term", newTerm.GetCurrentTerm())
+		}
+
 		pm.logger.Info("Consensus term updated successfully", "new_term", requestTerm)
 	}
 	// If requestTerm == currentCachedTerm, just continue (same term is OK)
@@ -570,6 +576,12 @@ func (pm *MultiPoolerManager) loadConsensusTermFromDisk() {
 		pm.consensusTerm = term
 		pm.consensusLoaded = true
 		pm.mu.Unlock()
+
+		// Synchronize term to heartbeat writer if it exists
+		if pm.replTracker != nil && term != nil {
+			pm.replTracker.HeartbeatWriter().SetLeaderTerm(term.GetCurrentTerm())
+			pm.logger.Info("Synchronized loaded term to heartbeat writer", "term", term.GetCurrentTerm())
+		}
 
 		pm.logger.Info("Loaded consensus term from disk", "current_term", term.GetCurrentTerm())
 		pm.checkAndSetReady()
@@ -1800,6 +1812,12 @@ func (pm *MultiPoolerManager) SetTerm(ctx context.Context, term *pgctldpb.Consen
 	pm.mu.Lock()
 	pm.consensusTerm = term
 	pm.mu.Unlock()
+
+	// Synchronize term to heartbeat writer if it exists
+	if pm.replTracker != nil {
+		pm.replTracker.HeartbeatWriter().SetLeaderTerm(term.GetCurrentTerm())
+		pm.logger.Info("Synchronized term to heartbeat writer", "term", term.GetCurrentTerm())
+	}
 
 	pm.logger.Info("SetTerm completed successfully", "current_term", term.GetCurrentTerm())
 	return nil

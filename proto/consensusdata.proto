@@ -1,0 +1,149 @@
+// Copyright 2025 Supabase, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+syntax = "proto3";
+
+package consensusdata;
+
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/multigres/multigres/go/pb/consensusdata";
+
+// WAL position for tracking replication state
+message WALPosition {
+  // For primary: current write position from pg_current_wal_lsn()
+  // For standby: empty (use last_receive_lsn and last_replay_lsn instead)
+  string current_lsn = 1;
+
+  // For standby: last WAL position received from pg_last_wal_receive_lsn()
+  // For primary: empty
+  string last_receive_lsn = 2;
+
+  // For standby: last WAL position replayed from pg_last_wal_replay_lsn()
+  // For primary: empty
+  string last_replay_lsn = 3;
+
+  // Timestamp when this position was recorded
+  google.protobuf.Timestamp timestamp = 4;
+}
+
+// BeginTerm is sent by coordinators during leader appointments
+message BeginTermRequest {
+  // Term of the candidate
+  int64 term = 1;
+
+  // ID of the candidate requesting vote
+  string candidate_id = 2;
+
+  // Shard ID for this appointment
+  string shard_id = 3;
+
+  // Version of the durability policy
+  int64 policy_version = 4;
+}
+
+message BeginTermResponse {
+  // Current term, for candidate to update itself
+  int64 term = 1;
+
+  // True if the term was accepted
+  bool accepted = 2;
+
+  // ID of the responding pooler
+  string pooler_id = 3;
+}
+
+// Status returns the current status of a node
+message StatusRequest {
+  // Optional term to include in response
+  int64 term = 1;
+
+  // Shard ID to query status for
+  string shard_id = 2;
+}
+
+message StatusResponse {
+  // Pooler ID
+  string pooler_id = 1;
+
+  // Current term from local file
+  int64 current_term = 2;
+
+  // Last successful leader term from Postgres
+  int64 leader_term = 3;
+
+  // Current WAL position
+  WALPosition wal_position = 4;
+
+  // Whether Postgres is healthy and reachable
+  bool is_healthy = 5;
+
+  // Whether this pooler is eligible to be a leader
+  bool is_eligible = 6;
+
+  // Cell identifier
+  string cell = 7;
+
+  // Current role (primary/replica)
+  string role = 9;
+}
+
+// GetLeadershipView returns leadership information from the heartbeat table
+message LeadershipViewRequest {
+  // Shard ID to query
+  string shard_id = 1;
+}
+
+message LeadershipViewResponse {
+  // ID of the current leader
+  string leader_id = 1;
+
+  // Leader's consensus term
+  int64 leader_term = 2;
+
+  // Leader's WAL position
+  string leader_wal_position = 3;
+
+  // Last heartbeat timestamp
+  google.protobuf.Timestamp last_heartbeat = 4;
+
+  // Calculated replication lag in nanoseconds
+  int64 replication_lag_ns = 5;
+}
+
+// GetWALPosition returns the current WAL position
+message GetWALPositionRequest {
+}
+
+message GetWALPositionResponse {
+  // Current WAL position
+  WALPosition wal_position = 1;
+}
+
+// CanReachPrimary checks if this node can reach the primary
+message CanReachPrimaryRequest {
+  // Primary host
+  string primary_host = 1;
+
+  // Primary port
+  int32 primary_port = 2;
+}
+
+message CanReachPrimaryResponse {
+  // Whether primary is reachable
+  bool reachable = 1;
+
+  // Error message if not reachable
+  string error_message = 2;
+}
