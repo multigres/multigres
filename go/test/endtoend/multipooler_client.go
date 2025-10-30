@@ -365,7 +365,7 @@ func TestHeartbeatTableExists(t *testing.T, client *MultiPoolerTestClient) {
 	result, err = client.ExecuteQuery(ctx, columnsQuery, 10)
 	require.NoError(t, err, "Columns check should succeed")
 	require.NotNil(t, result, "Result should not be nil")
-	assert.Len(t, result.Rows, 5, "heartbeat table should have 5 columns")
+	assert.Len(t, result.Rows, 4, "heartbeat table should have 4 columns")
 
 	// Verify column details - check that we have the expected columns
 	columnNames := make(map[string]bool)
