@@ -31,6 +31,7 @@ import (
 
 	"github.com/multigres/multigres/go/cmd/pgctld/testutil"
 	"github.com/multigres/multigres/go/pgctld"
+	"github.com/multigres/multigres/go/test/utils"
 )
 
 var (
@@ -85,7 +86,7 @@ func TestEndToEndWithRealPostgreSQL(t *testing.T) {
 	}
 
 	// Check if PostgreSQL binaries are available
-	if !hasPostgreSQLBinaries() {
+	if !utils.HasPostgreSQLBinaries() {
 		t.Fatal("PostgreSQL binaries not found, make sure to install PostgreSQL and add it to the PATH")
 	}
 
@@ -156,7 +157,7 @@ func TestEndToEndGRPCWithRealPostgreSQL(t *testing.T) {
 	}
 
 	// Check if PostgreSQL binaries are available
-	if !hasPostgreSQLBinaries() {
+	if !utils.HasPostgreSQLBinaries() {
 		t.Fatal("PostgreSQL binaries not found, make sure to install PostgreSQL and add it to the PATH")
 	}
 
@@ -233,7 +234,7 @@ func TestEndToEndPerformance(t *testing.T) {
 	}
 
 	// Check if PostgreSQL binaries are available
-	if !hasPostgreSQLBinaries() {
+	if !utils.HasPostgreSQLBinaries() {
 		t.Fatal("PostgreSQL binaries not found, make sure to install PostgreSQL and add it to the PATH")
 	}
 
@@ -328,7 +329,7 @@ func TestEndToEndSystemIntegration(t *testing.T) {
 	}
 
 	// Check if PostgreSQL binaries are available
-	if !hasPostgreSQLBinaries() {
+	if !utils.HasPostgreSQLBinaries() {
 		t.Fatal("PostgreSQL binaries not found, make sure to install PostgreSQL and add it to the PATH")
 	}
 
@@ -399,7 +400,7 @@ func TestRestartAsStandbyWithRealPostgreSQL(t *testing.T) {
 	}
 
 	// Check if PostgreSQL binaries are available
-	if !hasPostgreSQLBinaries() {
+	if !utils.HasPostgreSQLBinaries() {
 		t.Skip("PostgreSQL binaries not found, skipping real PostgreSQL test")
 	}
 
@@ -500,7 +501,7 @@ func TestPostgreSQLAuthentication(t *testing.T) {
 	}
 
 	// Check if PostgreSQL binaries are available
-	if !hasPostgreSQLBinaries() {
+	if !utils.HasPostgreSQLBinaries() {
 		t.Fatal("PostgreSQL binaries not found, skipping authentication test")
 	}
 

@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package endtoend
+package multipooler
 
 import (
 	"context"
@@ -33,6 +33,7 @@ import (
 
 	"github.com/multigres/multigres/go/clustermetadata/topo"
 	"github.com/multigres/multigres/go/cmd/pgctld/testutil"
+	"github.com/multigres/multigres/go/test/endtoend"
 	"github.com/multigres/multigres/go/test/utils"
 	"github.com/multigres/multigres/go/tools/pathutil"
 
@@ -40,21 +41,10 @@ import (
 	multipoolermanagerpb "github.com/multigres/multigres/go/pb/multipoolermanager"
 	multipoolermanagerdata "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	pgctldpb "github.com/multigres/multigres/go/pb/pgctldservice"
+
+	// Register topo plugins
+	_ "github.com/multigres/multigres/go/plugins/topo"
 )
-
-// hasPostgreSQLBinaries checks if required PostgreSQL binaries are available
-func hasPostgreSQLBinaries() bool {
-	requiredBinaries := []string{"initdb", "postgres", "pg_ctl", "pg_isready"}
-
-	for _, binary := range requiredBinaries {
-		_, err := exec.LookPath(binary)
-		if err != nil {
-			return false
-		}
-	}
-
-	return true
-}
 
 var (
 	// Shared test infrastructure
@@ -62,6 +52,21 @@ var (
 	setupOnce       sync.Once
 	setupError      error
 )
+
+// TestMain sets the path and cleans up after all tests
+func TestMain(m *testing.M) {
+	// Set the PATH so etcd can be found
+	pathutil.PrependPath("../../../../bin")
+
+	// Run all tests
+	exitCode := m.Run()
+
+	// Clean up shared multipooler test infrastructure
+	cleanupSharedTestSetup()
+
+	// Exit with the test result code
+	os.Exit(exitCode)
+}
 
 // cleanupSharedTestSetup cleans up the shared test infrastructure
 func cleanupSharedTestSetup() {
@@ -368,7 +373,7 @@ func initializePrimary(t *testing.T, pgctld *ProcessInstance, multipooler *Proce
 
 	// Initialize and start primary PostgreSQL
 	primaryGrpcAddr := fmt.Sprintf("localhost:%d", pgctld.GrpcPort)
-	if err := InitAndStartPostgreSQL(t, primaryGrpcAddr); err != nil {
+	if err := endtoend.InitAndStartPostgreSQL(t, primaryGrpcAddr); err != nil {
 		return fmt.Errorf("failed to init and start primary PostgreSQL: %w", err)
 	}
 
@@ -436,7 +441,7 @@ func initializeStandby(t *testing.T, primaryPgctld *ProcessInstance, standbyPgct
 
 	// Initialize standby data directory (but don't start yet)
 	standbyGrpcAddr := fmt.Sprintf("localhost:%d", standbyPgctld.GrpcPort)
-	if err := InitPostgreSQLDataDir(t, standbyGrpcAddr); err != nil {
+	if err := endtoend.InitPostgreSQLDataDir(t, standbyGrpcAddr); err != nil {
 		return fmt.Errorf("failed to init standby data dir: %w", err)
 	}
 
@@ -445,7 +450,7 @@ func initializeStandby(t *testing.T, primaryPgctld *ProcessInstance, standbyPgct
 	setupStandbyReplication(t, primaryPgctld, standbyPgctld)
 
 	// Start standby PostgreSQL (now configured as replica)
-	if err := StartPostgreSQL(t, standbyGrpcAddr); err != nil {
+	if err := endtoend.StartPostgreSQL(t, standbyGrpcAddr); err != nil {
 		return fmt.Errorf("failed to start standby PostgreSQL: %w", err)
 	}
 
@@ -488,7 +493,7 @@ func initializeStandby(t *testing.T, primaryPgctld *ProcessInstance, standbyPgct
 
 	// Verify standby is in recovery mode
 	t.Logf("Verifying standby is in recovery mode...")
-	standbyPoolerClient, err := NewMultiPoolerTestClient(fmt.Sprintf("localhost:%d", standbyMultipooler.GrpcPort))
+	standbyPoolerClient, err := endtoend.NewMultiPoolerTestClient(fmt.Sprintf("localhost:%d", standbyMultipooler.GrpcPort))
 	if err != nil {
 		return fmt.Errorf("failed to create standby pooler client: %w", err)
 	}
@@ -523,10 +528,10 @@ func getSharedTestSetup(t *testing.T) *MultipoolerTestSetup {
 	setupOnce.Do(func() {
 		// Set the PATH so our binaries can be found (like cluster_test.go does)
 		// Use PrependPath to ensure our project binaries take precedence over system ones
-		pathutil.PrependPath("../../../bin")
+		pathutil.PrependPath("../../../../bin")
 
 		// Check if PostgreSQL binaries are available
-		if !hasPostgreSQLBinaries() {
+		if !utils.HasPostgreSQLBinaries() {
 			setupError = fmt.Errorf("PostgreSQL binaries not found, make sure to install PostgreSQL and add it to the PATH")
 			return
 		}
@@ -797,7 +802,7 @@ func setupReplicationTestCleanup(t *testing.T, setup *MultipoolerTestSetup) {
 		t.Log("Cleanup: Resetting replication configuration via SQL...")
 
 		// Reset primary: clear synchronous replication settings
-		primaryClient, err := NewMultiPoolerTestClient(fmt.Sprintf("localhost:%d", setup.PrimaryMultipooler.GrpcPort))
+		primaryClient, err := endtoend.NewMultiPoolerTestClient(fmt.Sprintf("localhost:%d", setup.PrimaryMultipooler.GrpcPort))
 		if err == nil {
 			defer primaryClient.Close()
 
@@ -823,7 +828,7 @@ func setupReplicationTestCleanup(t *testing.T, setup *MultipoolerTestSetup) {
 		}
 
 		// Reset standby: clear primary_conninfo
-		standbyClient, err := NewMultiPoolerTestClient(fmt.Sprintf("localhost:%d", setup.StandbyMultipooler.GrpcPort))
+		standbyClient, err := endtoend.NewMultiPoolerTestClient(fmt.Sprintf("localhost:%d", setup.StandbyMultipooler.GrpcPort))
 		if err == nil {
 			defer standbyClient.Close()
 

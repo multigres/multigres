@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package endtoend
+package multipooler
 
 import (
 	"context"
@@ -26,6 +26,7 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
 
+	"github.com/multigres/multigres/go/test/endtoend"
 	"github.com/multigres/multigres/go/test/utils"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
@@ -111,11 +112,11 @@ func TestReplicationAPIs(t *testing.T) {
 	waitForManagerReady(t, setup, setup.StandbyMultipooler)
 
 	// Create shared clients for all subtests
-	primaryPoolerClient, err := NewMultiPoolerTestClient(fmt.Sprintf("localhost:%d", setup.PrimaryMultipooler.GrpcPort))
+	primaryPoolerClient, err := endtoend.NewMultiPoolerTestClient(fmt.Sprintf("localhost:%d", setup.PrimaryMultipooler.GrpcPort))
 	require.NoError(t, err)
 	t.Cleanup(func() { primaryPoolerClient.Close() })
 
-	standbyPoolerClient, err := NewMultiPoolerTestClient(fmt.Sprintf("localhost:%d", setup.StandbyMultipooler.GrpcPort))
+	standbyPoolerClient, err := endtoend.NewMultiPoolerTestClient(fmt.Sprintf("localhost:%d", setup.StandbyMultipooler.GrpcPort))
 	require.NoError(t, err)
 	t.Cleanup(func() { standbyPoolerClient.Close() })
 
@@ -902,7 +903,7 @@ func TestStopReplicationAndGetStatus(t *testing.T) {
 		t.Log("Testing StopReplicationAndGetStatus on standby with running replication...")
 
 		// Connect to primary pooler to write test data
-		primaryPoolerClient, err := NewMultiPoolerTestClient(fmt.Sprintf("localhost:%d", setup.PrimaryMultipooler.GrpcPort))
+		primaryPoolerClient, err := endtoend.NewMultiPoolerTestClient(fmt.Sprintf("localhost:%d", setup.PrimaryMultipooler.GrpcPort))
 		require.NoError(t, err)
 		defer primaryPoolerClient.Close()
 
@@ -1068,7 +1069,7 @@ func TestConfigureSynchronousReplication(t *testing.T) {
 	t.Cleanup(func() { standbyConn.Close() })
 	standbyManagerClient := multipoolermanagerpb.NewMultiPoolerManagerClient(standbyConn)
 
-	primaryPoolerClient, err := NewMultiPoolerTestClient(fmt.Sprintf("localhost:%d", setup.PrimaryMultipooler.GrpcPort))
+	primaryPoolerClient, err := endtoend.NewMultiPoolerTestClient(fmt.Sprintf("localhost:%d", setup.PrimaryMultipooler.GrpcPort))
 	require.NoError(t, err)
 	t.Cleanup(func() { primaryPoolerClient.Close() })
 
@@ -1404,8 +1405,9 @@ func TestConfigureSynchronousReplication(t *testing.T) {
 		t.Log("Testing write with synchronous replication enabled...")
 
 		// Reconnect to pick up the new synchronous_standby_names configuration
-		primaryPoolerClient.Close()
-		primaryPoolerClient, err = NewMultiPoolerTestClient(fmt.Sprintf("localhost:%d", setup.PrimaryMultipooler.GrpcPort))
+		err = primaryPoolerClient.Close()
+		require.NoError(t, err)
+		primaryPoolerClient, err = endtoend.NewMultiPoolerTestClient(fmt.Sprintf("localhost:%d", setup.PrimaryMultipooler.GrpcPort))
 		require.NoError(t, err)
 		t.Cleanup(func() { primaryPoolerClient.Close() })
 
@@ -1439,7 +1441,7 @@ func TestConfigureSynchronousReplication(t *testing.T) {
 		// Wait for standby to fully disconnect
 		t.Log("Waiting for standby to disconnect...")
 		require.Eventually(t, func() bool {
-			standbyPoolerClient, err := NewMultiPoolerTestClient(fmt.Sprintf("localhost:%d", setup.StandbyMultipooler.GrpcPort))
+			standbyPoolerClient, err := endtoend.NewMultiPoolerTestClient(fmt.Sprintf("localhost:%d", setup.StandbyMultipooler.GrpcPort))
 			if err != nil {
 				return false
 			}
@@ -1464,7 +1466,7 @@ func TestConfigureSynchronousReplication(t *testing.T) {
 		t.Log("Testing write timeout without standby available...")
 		// Create a new connection for this test
 		primaryPoolerClient.Close()
-		primaryPoolerClient, err = NewMultiPoolerTestClient(fmt.Sprintf("localhost:%d", setup.PrimaryMultipooler.GrpcPort))
+		primaryPoolerClient, err = endtoend.NewMultiPoolerTestClient(fmt.Sprintf("localhost:%d", setup.PrimaryMultipooler.GrpcPort))
 		require.NoError(t, err)
 		t.Cleanup(func() { primaryPoolerClient.Close() })
 
@@ -1498,7 +1500,7 @@ func TestConfigureSynchronousReplication(t *testing.T) {
 
 		// Drop test table
 		primaryPoolerClient.Close()
-		primaryPoolerClient, err = NewMultiPoolerTestClient(fmt.Sprintf("localhost:%d", setup.PrimaryMultipooler.GrpcPort))
+		primaryPoolerClient, err = endtoend.NewMultiPoolerTestClient(fmt.Sprintf("localhost:%d", setup.PrimaryMultipooler.GrpcPort))
 		require.NoError(t, err)
 		t.Cleanup(func() { primaryPoolerClient.Close() })
 		_, err = primaryPoolerClient.ExecuteQuery(context.Background(), "DROP TABLE IF EXISTS test_sync_repl", 0)
@@ -1611,7 +1613,7 @@ func TestUpdateSynchronousStandbyList(t *testing.T) {
 	t.Cleanup(func() { standbyConn.Close() })
 	standbyManagerClient := multipoolermanagerpb.NewMultiPoolerManagerClient(standbyConn)
 
-	primaryPoolerClient, err := NewMultiPoolerTestClient(fmt.Sprintf("localhost:%d", setup.PrimaryMultipooler.GrpcPort))
+	primaryPoolerClient, err := endtoend.NewMultiPoolerTestClient(fmt.Sprintf("localhost:%d", setup.PrimaryMultipooler.GrpcPort))
 	require.NoError(t, err)
 	t.Cleanup(func() { primaryPoolerClient.Close() })
 
