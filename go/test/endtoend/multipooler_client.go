@@ -374,7 +374,7 @@ func TestHeartbeatTableExists(t *testing.T, client *MultiPoolerTestClient) {
 		columnNames[columnName] = true
 	}
 
-	expectedColumns := []string{"shard_id", "leader_id", "ts", "leader_term", "leader_wal_position"}
+	expectedColumns := []string{"shard_id", "leader_id", "ts", "leader_term"}
 	for _, expected := range expectedColumns {
 		assert.True(t, columnNames[expected], "Column %s should exist in heartbeat table", expected)
 	}

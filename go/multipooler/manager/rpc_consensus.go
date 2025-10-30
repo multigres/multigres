@@ -52,12 +52,11 @@ func (pm *MultiPoolerManager) BeginTerm(ctx context.Context, req *consensusdatap
 	}
 
 	// If request term is newer, update our term and reset accepted leader
+	// NOTE: We update in memory but don't persist yet - we only persist after
+	// checking replication lag and deciding to accept the appointment
 	if req.Term > currentTerm {
 		if err := pm.consensusState.UpdateTerm(req.Term, ""); err != nil {
 			return nil, fmt.Errorf("failed to update term: %w", err)
-		}
-		if err := pm.consensusState.Save(); err != nil {
-			return nil, fmt.Errorf("failed to save term: %w", err)
 		}
 		currentTerm = req.Term
 		acceptedLeader = ""
@@ -96,6 +95,11 @@ func (pm *MultiPoolerManager) BeginTerm(ctx context.Context, req *consensusdatap
 
 	if err := pm.consensusState.Save(); err != nil {
 		return nil, fmt.Errorf("failed to persist acceptance: %w", err)
+	}
+
+	// Synchronize term to heartbeat writer if it exists
+	if pm.replTracker != nil {
+		pm.replTracker.HeartbeatWriter().SetLeaderTerm(currentTerm)
 	}
 
 	response.Accepted = true
@@ -177,11 +181,10 @@ func (pm *MultiPoolerManager) GetLeadershipView(ctx context.Context, req *consen
 	}
 
 	return &consensusdatapb.LeadershipViewResponse{
-		LeaderId:          view.LeaderID,
-		LeaderTerm:        view.LeaderTerm,
-		LeaderWalPosition: view.LeaderWALPosition,
-		LastHeartbeat:     timestamppb.New(view.LastHeartbeat),
-		ReplicationLagNs:  view.ReplicationLag.Nanoseconds(),
+		LeaderId:         view.LeaderID,
+		LeaderTerm:       view.LeaderTerm,
+		LastHeartbeat:    timestamppb.New(view.LastHeartbeat),
+		ReplicationLagNs: view.ReplicationLag.Nanoseconds(),
 	}, nil
 }
 

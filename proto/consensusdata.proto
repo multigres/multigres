@@ -112,9 +112,6 @@ message LeadershipViewResponse {
   // Leader's consensus term
   int64 leader_term = 2;
 
-  // Leader's WAL position
-  string leader_wal_position = 3;
-
   // Last heartbeat timestamp
   google.protobuf.Timestamp last_heartbeat = 4;
 
