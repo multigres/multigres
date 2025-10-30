@@ -16,9 +16,7 @@ syntax = "proto3";
 
 package pgctldservice;
 
-import "clustermetadata.proto";
 import "google/protobuf/duration.proto";
-import "google/protobuf/timestamp.proto";
 
 option go_package = "github.com/multigres/multigres/go/pb/pgctldservice";
 
@@ -214,18 +212,3 @@ message PgRewindRequest {
 message PgRewindResponse {
 }
 
-// ConsensusTerm represents the consensus term information for the pooler
-// This is persisted to disk at $PGDATA/consensus/consensus_term.json
-message ConsensusTerm {
-  // Current consensus term
-  int64 current_term = 1;
-
-  // ID of the pooler this replica voted for
-  clustermetadata.ID voted_for = 2;
-
-  // Timestamp of the last vote
-  google.protobuf.Timestamp last_vote_time = 3;
-
-  // ID of the leader of the current term
-  clustermetadata.ID leader_id = 4;
-}

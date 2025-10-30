@@ -23,7 +23,7 @@ import (
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	consensusdatapb "github.com/multigres/multigres/go/pb/consensusdata"
-	pgctldpb "github.com/multigres/multigres/go/pb/pgctldservice"
+	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
 
 // BeginTerm handles coordinator requests during leader appointments
@@ -71,7 +71,7 @@ func (pm *MultiPoolerManager) BeginTerm(ctx context.Context, req *consensusdatap
 
 	// At this point, req.Term must be > currentTerm (since we've already handled < and == cases above)
 	// Update our term and reset vote
-	newTerm := &pgctldpb.ConsensusTerm{
+	newTerm := &multipoolermanagerdatapb.ConsensusTerm{
 		CurrentTerm: req.Term,
 		VotedFor:    nil,
 	}

@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package endtoend
+package multipooler
 
 import (
 	"context"
@@ -33,28 +33,18 @@ import (
 
 	"github.com/multigres/multigres/go/clustermetadata/topo"
 	"github.com/multigres/multigres/go/cmd/pgctld/testutil"
+	"github.com/multigres/multigres/go/test/endtoend"
 	"github.com/multigres/multigres/go/test/utils"
 	"github.com/multigres/multigres/go/tools/pathutil"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multipoolermanagerpb "github.com/multigres/multigres/go/pb/multipoolermanager"
-	multipoolermanagerdata "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
-	pgctldpb "github.com/multigres/multigres/go/pb/pgctldservice"
+	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
+	"github.com/multigres/multigres/go/pb/pgctldservice"
+
+	// Register topo plugins
+	_ "github.com/multigres/multigres/go/plugins/topo"
 )
-
-// hasPostgreSQLBinaries checks if required PostgreSQL binaries are available
-func hasPostgreSQLBinaries() bool {
-	requiredBinaries := []string{"initdb", "postgres", "pg_ctl", "pg_isready"}
-
-	for _, binary := range requiredBinaries {
-		_, err := exec.LookPath(binary)
-		if err != nil {
-			return false
-		}
-	}
-
-	return true
-}
 
 var (
 	// Shared test infrastructure
@@ -62,6 +52,21 @@ var (
 	setupOnce       sync.Once
 	setupError      error
 )
+
+// TestMain sets the path and cleans up after all tests
+func TestMain(m *testing.M) {
+	// Set the PATH so etcd can be found
+	pathutil.PrependPath("../../../../bin")
+
+	// Run all tests
+	exitCode := m.Run()
+
+	// Clean up shared multipooler test infrastructure
+	cleanupSharedTestSetup()
+
+	// Exit with the test result code
+	os.Exit(exitCode)
+}
 
 // cleanupSharedTestSetup cleans up the shared test infrastructure
 func cleanupSharedTestSetup() {
@@ -303,13 +308,13 @@ func (p *ProcessInstance) stopPostgreSQL() {
 	}
 	defer conn.Close()
 
-	client := pgctldpb.NewPgCtldClient(conn)
+	client := pgctldservice.NewPgCtldClient(conn)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
 	// Stop PostgreSQL
-	_, _ = client.Stop(ctx, &pgctldpb.StopRequest{Mode: "fast"})
+	_, _ = client.Stop(ctx, &pgctldservice.StopRequest{Mode: "fast"})
 }
 
 // createPgctldInstance creates a new pgctld instance configuration
@@ -368,7 +373,7 @@ func initializePrimary(t *testing.T, pgctld *ProcessInstance, multipooler *Proce
 
 	// Initialize and start primary PostgreSQL
 	primaryGrpcAddr := fmt.Sprintf("localhost:%d", pgctld.GrpcPort)
-	if err := InitAndStartPostgreSQL(t, primaryGrpcAddr); err != nil {
+	if err := endtoend.InitAndStartPostgreSQL(t, primaryGrpcAddr); err != nil {
 		return fmt.Errorf("failed to init and start primary PostgreSQL: %w", err)
 	}
 
@@ -394,7 +399,7 @@ func initializePrimary(t *testing.T, pgctld *ProcessInstance, multipooler *Proce
 
 	// Initialize consensus term to 1 via multipooler manager API
 	t.Logf("Initializing consensus term to 1 for primary...")
-	initialTerm := &pgctldpb.ConsensusTerm{
+	initialTerm := &multipoolermanagerdatapb.ConsensusTerm{
 		CurrentTerm:  1,
 		VotedFor:     nil,
 		LastVoteTime: nil,
@@ -402,7 +407,7 @@ func initializePrimary(t *testing.T, pgctld *ProcessInstance, multipooler *Proce
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
-	_, err = client.SetTerm(ctx, &multipoolermanagerdata.SetTermRequest{Term: initialTerm})
+	_, err = client.SetTerm(ctx, &multipoolermanagerdatapb.SetTermRequest{Term: initialTerm})
 	cancel()
 	if err != nil {
 		return fmt.Errorf("failed to set term for primary: %w", err)
@@ -413,7 +418,7 @@ func initializePrimary(t *testing.T, pgctld *ProcessInstance, multipooler *Proce
 	ctx, cancel = context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
 
-	changeTypeReq := &multipoolermanagerdata.ChangeTypeRequest{
+	changeTypeReq := &multipoolermanagerdatapb.ChangeTypeRequest{
 		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
 	}
 	_, err = client.ChangeType(ctx, changeTypeReq)
@@ -436,7 +441,7 @@ func initializeStandby(t *testing.T, primaryPgctld *ProcessInstance, standbyPgct
 
 	// Initialize standby data directory (but don't start yet)
 	standbyGrpcAddr := fmt.Sprintf("localhost:%d", standbyPgctld.GrpcPort)
-	if err := InitPostgreSQLDataDir(t, standbyGrpcAddr); err != nil {
+	if err := endtoend.InitPostgreSQLDataDir(t, standbyGrpcAddr); err != nil {
 		return fmt.Errorf("failed to init standby data dir: %w", err)
 	}
 
@@ -445,7 +450,7 @@ func initializeStandby(t *testing.T, primaryPgctld *ProcessInstance, standbyPgct
 	setupStandbyReplication(t, primaryPgctld, standbyPgctld)
 
 	// Start standby PostgreSQL (now configured as replica)
-	if err := StartPostgreSQL(t, standbyGrpcAddr); err != nil {
+	if err := endtoend.StartPostgreSQL(t, standbyGrpcAddr); err != nil {
 		return fmt.Errorf("failed to start standby PostgreSQL: %w", err)
 	}
 
@@ -471,7 +476,7 @@ func initializeStandby(t *testing.T, primaryPgctld *ProcessInstance, standbyPgct
 
 	// Initialize consensus term to 1 via multipooler manager API
 	t.Logf("Initializing consensus term to 1 for standby...")
-	initialTerm := &pgctldpb.ConsensusTerm{
+	initialTerm := &multipoolermanagerdatapb.ConsensusTerm{
 		CurrentTerm:  1,
 		VotedFor:     nil,
 		LastVoteTime: nil,
@@ -479,7 +484,7 @@ func initializeStandby(t *testing.T, primaryPgctld *ProcessInstance, standbyPgct
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
-	_, err = standbyClient.SetTerm(ctx, &multipoolermanagerdata.SetTermRequest{Term: initialTerm})
+	_, err = standbyClient.SetTerm(ctx, &multipoolermanagerdatapb.SetTermRequest{Term: initialTerm})
 	cancel()
 	if err != nil {
 		return fmt.Errorf("failed to set term for standby: %w", err)
@@ -488,7 +493,7 @@ func initializeStandby(t *testing.T, primaryPgctld *ProcessInstance, standbyPgct
 
 	// Verify standby is in recovery mode
 	t.Logf("Verifying standby is in recovery mode...")
-	standbyPoolerClient, err := NewMultiPoolerTestClient(fmt.Sprintf("localhost:%d", standbyMultipooler.GrpcPort))
+	standbyPoolerClient, err := endtoend.NewMultiPoolerTestClient(fmt.Sprintf("localhost:%d", standbyMultipooler.GrpcPort))
 	if err != nil {
 		return fmt.Errorf("failed to create standby pooler client: %w", err)
 	}
@@ -505,7 +510,7 @@ func initializeStandby(t *testing.T, primaryPgctld *ProcessInstance, standbyPgct
 	ctx, cancel = context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
 
-	changeTypeReq := &multipoolermanagerdata.ChangeTypeRequest{
+	changeTypeReq := &multipoolermanagerdatapb.ChangeTypeRequest{
 		PoolerType: clustermetadatapb.PoolerType_REPLICA,
 	}
 	_, err = standbyClient.ChangeType(ctx, changeTypeReq)
@@ -523,10 +528,10 @@ func getSharedTestSetup(t *testing.T) *MultipoolerTestSetup {
 	setupOnce.Do(func() {
 		// Set the PATH so our binaries can be found (like cluster_test.go does)
 		// Use PrependPath to ensure our project binaries take precedence over system ones
-		pathutil.PrependPath("../../../bin")
+		pathutil.PrependPath("../../../../bin")
 
 		// Check if PostgreSQL binaries are available
-		if !hasPostgreSQLBinaries() {
+		if !utils.HasPostgreSQLBinaries() {
 			setupError = fmt.Errorf("PostgreSQL binaries not found, make sure to install PostgreSQL and add it to the PATH")
 			return
 		}
@@ -682,7 +687,7 @@ func waitForManagerReady(t *testing.T, setup *MultipoolerTestSetup, manager *Pro
 		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 		defer cancel()
 
-		req := &multipoolermanagerdata.StatusRequest{}
+		req := &multipoolermanagerdatapb.StatusRequest{}
 		resp, err := client.Status(ctx, req)
 		if err != nil {
 			return false
@@ -754,16 +759,16 @@ func makeMultipoolerID(cell, name string) *clustermetadatapb.ID {
 }
 
 // Helper function to get PrimaryStatus from a manager client
-func getPrimaryStatusFromClient(t *testing.T, client multipoolermanagerpb.MultiPoolerManagerClient) *multipoolermanagerdata.PrimaryStatus {
+func getPrimaryStatusFromClient(t *testing.T, client multipoolermanagerpb.MultiPoolerManagerClient) *multipoolermanagerdatapb.PrimaryStatus {
 	t.Helper()
-	statusResp, err := client.PrimaryStatus(utils.WithShortDeadline(t), &multipoolermanagerdata.PrimaryStatusRequest{})
+	statusResp, err := client.PrimaryStatus(utils.WithShortDeadline(t), &multipoolermanagerdatapb.PrimaryStatusRequest{})
 	require.NoError(t, err, "PrimaryStatus should succeed")
 	require.NotNil(t, statusResp.Status, "Status should not be nil")
 	return statusResp.Status
 }
 
 // Helper function to wait for synchronous replication config to converge to expected value
-func waitForSyncConfigConvergenceWithClient(t *testing.T, client multipoolermanagerpb.MultiPoolerManagerClient, checkFunc func(*multipoolermanagerdata.SynchronousReplicationConfiguration) bool, message string) {
+func waitForSyncConfigConvergenceWithClient(t *testing.T, client multipoolermanagerpb.MultiPoolerManagerClient, checkFunc func(*multipoolermanagerdatapb.SynchronousReplicationConfiguration) bool, message string) {
 	t.Helper()
 	require.Eventually(t, func() bool {
 		status := getPrimaryStatusFromClient(t, client)
@@ -772,7 +777,7 @@ func waitForSyncConfigConvergenceWithClient(t *testing.T, client multipoolermana
 }
 
 // Helper function to check if a standby ID is in the config
-func containsStandbyIDInConfig(config *multipoolermanagerdata.SynchronousReplicationConfiguration, cell, name string) bool {
+func containsStandbyIDInConfig(config *multipoolermanagerdatapb.SynchronousReplicationConfiguration, cell, name string) bool {
 	if config == nil {
 		return false
 	}
@@ -797,7 +802,7 @@ func setupReplicationTestCleanup(t *testing.T, setup *MultipoolerTestSetup) {
 		t.Log("Cleanup: Resetting replication configuration via SQL...")
 
 		// Reset primary: clear synchronous replication settings
-		primaryClient, err := NewMultiPoolerTestClient(fmt.Sprintf("localhost:%d", setup.PrimaryMultipooler.GrpcPort))
+		primaryClient, err := endtoend.NewMultiPoolerTestClient(fmt.Sprintf("localhost:%d", setup.PrimaryMultipooler.GrpcPort))
 		if err == nil {
 			defer primaryClient.Close()
 
@@ -823,7 +828,7 @@ func setupReplicationTestCleanup(t *testing.T, setup *MultipoolerTestSetup) {
 		}
 
 		// Reset standby: clear primary_conninfo
-		standbyClient, err := NewMultiPoolerTestClient(fmt.Sprintf("localhost:%d", setup.StandbyMultipooler.GrpcPort))
+		standbyClient, err := endtoend.NewMultiPoolerTestClient(fmt.Sprintf("localhost:%d", setup.StandbyMultipooler.GrpcPort))
 		if err == nil {
 			defer standbyClient.Close()
 
