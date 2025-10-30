@@ -1026,10 +1026,10 @@ type ConsensusTerm struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Current consensus term
 	CurrentTerm int64 `protobuf:"varint,1,opt,name=current_term,json=currentTerm,proto3" json:"current_term,omitempty"`
-	// ID of the pooler this replica voted for
-	VotedFor *clustermetadata.ID `protobuf:"bytes,2,opt,name=voted_for,json=votedFor,proto3" json:"voted_for,omitempty"`
-	// Timestamp of the last vote
-	LastVoteTime *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=last_vote_time,json=lastVoteTime,proto3" json:"last_vote_time,omitempty"`
+	// ID of the leader this pooler accepted for this term
+	AcceptedLeader *clustermetadata.ID `protobuf:"bytes,2,opt,name=accepted_leader,json=acceptedLeader,proto3" json:"accepted_leader,omitempty"`
+	// Timestamp of the last acceptance
+	LastAcceptanceTime *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=last_acceptance_time,json=lastAcceptanceTime,proto3" json:"last_acceptance_time,omitempty"`
 	// ID of the leader of the current term
 	LeaderId      *clustermetadata.ID `protobuf:"bytes,4,opt,name=leader_id,json=leaderId,proto3" json:"leader_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -1073,16 +1073,16 @@ func (x *ConsensusTerm) GetCurrentTerm() int64 {
 	return 0
 }
 
-func (x *ConsensusTerm) GetVotedFor() *clustermetadata.ID {
+func (x *ConsensusTerm) GetAcceptedLeader() *clustermetadata.ID {
 	if x != nil {
-		return x.VotedFor
+		return x.AcceptedLeader
 	}
 	return nil
 }
 
-func (x *ConsensusTerm) GetLastVoteTime() *timestamppb.Timestamp {
+func (x *ConsensusTerm) GetLastAcceptanceTime() *timestamppb.Timestamp {
 	if x != nil {
-		return x.LastVoteTime
+		return x.LastAcceptanceTime
 	}
 	return nil
 }
@@ -1158,11 +1158,11 @@ const file_pgctldservice_proto_rawDesc = "" +
 	"\adry_run\x18\x02 \x01(\bR\x06dryRun\x12\x1d\n" +
 	"\n" +
 	"extra_args\x18\x03 \x03(\tR\textraArgs\"\x12\n" +
-	"\x10PgRewindResponse\"\xd8\x01\n" +
+	"\x10PgRewindResponse\"\xf0\x01\n" +
 	"\rConsensusTerm\x12!\n" +
-	"\fcurrent_term\x18\x01 \x01(\x03R\vcurrentTerm\x120\n" +
-	"\tvoted_for\x18\x02 \x01(\v2\x13.clustermetadata.IDR\bvotedFor\x12@\n" +
-	"\x0elast_vote_time\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\flastVoteTime\x120\n" +
+	"\fcurrent_term\x18\x01 \x01(\x03R\vcurrentTerm\x12<\n" +
+	"\x0faccepted_leader\x18\x02 \x01(\v2\x13.clustermetadata.IDR\x0eacceptedLeader\x12L\n" +
+	"\x14last_acceptance_time\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\x12lastAcceptanceTime\x120\n" +
 	"\tleader_id\x18\x04 \x01(\v2\x13.clustermetadata.IDR\bleaderId*f\n" +
 	"\fServerStatus\x12\v\n" +
 	"\aUNKNOWN\x10\x00\x12\v\n" +
@@ -1223,8 +1223,8 @@ var file_pgctldservice_proto_depIdxs = []int32{
 	18, // 1: pgctldservice.RestartRequest.timeout:type_name -> google.protobuf.Duration
 	0,  // 2: pgctldservice.StatusResponse.status:type_name -> pgctldservice.ServerStatus
 	18, // 3: pgctldservice.StatusResponse.uptime:type_name -> google.protobuf.Duration
-	19, // 4: pgctldservice.ConsensusTerm.voted_for:type_name -> clustermetadata.ID
-	20, // 5: pgctldservice.ConsensusTerm.last_vote_time:type_name -> google.protobuf.Timestamp
+	19, // 4: pgctldservice.ConsensusTerm.accepted_leader:type_name -> clustermetadata.ID
+	20, // 5: pgctldservice.ConsensusTerm.last_acceptance_time:type_name -> google.protobuf.Timestamp
 	19, // 6: pgctldservice.ConsensusTerm.leader_id:type_name -> clustermetadata.ID
 	1,  // 7: pgctldservice.PgCtld.Start:input_type -> pgctldservice.StartRequest
 	3,  // 8: pgctldservice.PgCtld.Stop:input_type -> pgctldservice.StopRequest

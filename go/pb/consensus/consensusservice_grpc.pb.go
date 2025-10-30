@@ -45,7 +45,7 @@ const (
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type MultiPoolerConsensusClient interface {
-	// Election Protocol
+	// Appointment Protocol
 	BeginTerm(ctx context.Context, in *consensusdata.BeginTermRequest, opts ...grpc.CallOption) (*consensusdata.BeginTermResponse, error)
 	// Status and Health
 	Status(ctx context.Context, in *consensusdata.StatusRequest, opts ...grpc.CallOption) (*consensusdata.StatusResponse, error)
@@ -112,7 +112,7 @@ func (c *multiPoolerConsensusClient) CanReachPrimary(ctx context.Context, in *co
 // All implementations must embed UnimplementedMultiPoolerConsensusServer
 // for forward compatibility
 type MultiPoolerConsensusServer interface {
-	// Election Protocol
+	// Appointment Protocol
 	BeginTerm(context.Context, *consensusdata.BeginTermRequest) (*consensusdata.BeginTermResponse, error)
 	// Status and Health
 	Status(context.Context, *consensusdata.StatusRequest) (*consensusdata.StatusResponse, error)

@@ -176,7 +176,7 @@ func (pm *MultiPoolerManager) InitializeConsensusState() {
 		} else {
 			pm.logger.Info("Consensus state initialized and loaded from disk",
 				"current_term", pm.consensusState.GetCurrentTerm(),
-				"voted_for", pm.consensusState.GetVotedFor())
+				"accepted_leader", pm.consensusState.GetAcceptedLeader())
 		}
 	}
 }

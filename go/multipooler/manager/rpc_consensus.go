@@ -43,7 +43,7 @@ func (pm *MultiPoolerManager) BeginTerm(ctx context.Context, req *consensusdatap
 
 	// Get current consensus state
 	currentTerm := pm.consensusState.GetCurrentTerm()
-	votedFor := pm.consensusState.GetVotedFor()
+	acceptedLeader := pm.consensusState.GetAcceptedLeader()
 
 	response := &consensusdatapb.BeginTermResponse{
 		Term:     currentTerm,
@@ -51,7 +51,7 @@ func (pm *MultiPoolerManager) BeginTerm(ctx context.Context, req *consensusdatap
 		PoolerId: pm.serviceID.GetName(),
 	}
 
-	// If request term is newer, update our term and reset vote
+	// If request term is newer, update our term and reset accepted leader
 	if req.Term > currentTerm {
 		if err := pm.consensusState.UpdateTerm(req.Term, ""); err != nil {
 			return nil, fmt.Errorf("failed to update term: %w", err)
@@ -60,7 +60,7 @@ func (pm *MultiPoolerManager) BeginTerm(ctx context.Context, req *consensusdatap
 			return nil, fmt.Errorf("failed to save term: %w", err)
 		}
 		currentTerm = req.Term
-		votedFor = ""
+		acceptedLeader = ""
 		response.Term = currentTerm
 	}
 
@@ -69,33 +69,33 @@ func (pm *MultiPoolerManager) BeginTerm(ctx context.Context, req *consensusdatap
 		return response, nil
 	}
 
-	// Check if we've already voted for someone else in this term
-	if req.Term == currentTerm && votedFor != "" && votedFor != req.CandidateId {
+	// Check if we've already accepted a different leader in this term
+	if req.Term == currentTerm && acceptedLeader != "" && acceptedLeader != req.CandidateId {
 		return response, nil
 	}
 
-	// TODO: Use pooler serving state to decide whether to vote
+	// TODO: Use pooler serving state to decide whether to accept
 	// Check if we're caught up with replication (within 30 seconds)
 	var lastMsgReceiptTime *time.Time
 	err := pm.db.QueryRowContext(ctx, "SELECT last_msg_receipt_time FROM pg_stat_wal_receiver").Scan(&lastMsgReceiptTime)
 	if err != nil {
 		// No WAL receiver (could be primary or disconnected standby)
-		// Don't reject the vote - let it proceed
+		// Don't reject the appointment - let it proceed
 	} else if lastMsgReceiptTime != nil {
 		timeSinceLastMessage := time.Since(*lastMsgReceiptTime)
 		if timeSinceLastMessage > 30*time.Second {
-			// We're too far behind in replication, don't vote
+			// We're too far behind in replication, don't accept
 			return response, nil
 		}
 	}
 
-	// Grant vote and persist decision to LOCAL FILE (not Postgres!)
-	if err := pm.consensusState.GrantVote(req.CandidateId); err != nil {
-		return nil, fmt.Errorf("failed to grant vote: %w", err)
+	// Accept appointment and persist decision to LOCAL FILE (not Postgres!)
+	if err := pm.consensusState.AcceptAppointment(req.CandidateId); err != nil {
+		return nil, fmt.Errorf("failed to accept appointment: %w", err)
 	}
 
 	if err := pm.consensusState.Save(); err != nil {
-		return nil, fmt.Errorf("failed to persist vote: %w", err)
+		return nil, fmt.Errorf("failed to persist acceptance: %w", err)
 	}
 
 	response.Accepted = true
@@ -109,7 +109,7 @@ func (pm *MultiPoolerManager) ConsensusStatus(ctx context.Context, req *consensu
 		return nil, fmt.Errorf("consensus service not enabled")
 	}
 
-	// Get local voting term from consensus state
+	// Get local term from consensus state
 	localTerm := pm.consensusState.GetCurrentTerm()
 
 	// Get last successful leader term from Postgres (replicated data)

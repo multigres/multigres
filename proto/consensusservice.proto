@@ -20,9 +20,9 @@ import "consensusdata.proto";
 
 option go_package = "github.com/multigres/multigres/go/pb/consensus";
 
-// MultiPoolerConsensus provides consensus APIs for leader election
+// MultiPoolerConsensus provides consensus APIs for leader appointment
 service MultiPoolerConsensus {
-  // Election Protocol
+  // Appointment Protocol
   rpc BeginTerm(consensusdata.BeginTermRequest) returns (consensusdata.BeginTermResponse);
 
   // Status and Health

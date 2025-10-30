@@ -47,7 +47,7 @@ func TestBeginTerm_AlreadyVotedInOlderTerm(t *testing.T) {
 	// Step 1: Initialize term to 5 and vote for "candidate-A"
 	initialTerm := &pgctldpb.ConsensusTerm{
 		CurrentTerm: 5,
-		VotedFor: &clustermetadatapb.ID{
+		AcceptedLeader: &clustermetadatapb.ID{
 			Cell: "zone1",
 			Name: "candidate-A",
 		},
@@ -97,7 +97,7 @@ func TestBeginTerm_AlreadyVotedInOlderTerm(t *testing.T) {
 	loadedTerm, err := GetTerm(tmpDir)
 	require.NoError(t, err)
 	assert.Equal(t, int64(10), loadedTerm.CurrentTerm)
-	assert.Equal(t, "candidate-B", loadedTerm.VotedFor.GetName())
+	assert.Equal(t, "candidate-B", loadedTerm.AcceptedLeader.GetName())
 
 	// Verify all expectations were met
 	assert.NoError(t, mock.ExpectationsWereMet())
@@ -114,7 +114,7 @@ func TestBeginTerm_AlreadyVotedInSameTerm(t *testing.T) {
 	// Step 1: Initialize term to 5 and vote for "candidate-A"
 	initialTerm := &pgctldpb.ConsensusTerm{
 		CurrentTerm: 5,
-		VotedFor: &clustermetadatapb.ID{
+		AcceptedLeader: &clustermetadatapb.ID{
 			Cell: "zone1",
 			Name: "candidate-A",
 		},
@@ -151,7 +151,7 @@ func TestBeginTerm_AlreadyVotedInSameTerm(t *testing.T) {
 	loadedTerm, err := GetTerm(tmpDir)
 	require.NoError(t, err)
 	assert.Equal(t, int64(5), loadedTerm.CurrentTerm)
-	assert.Equal(t, "candidate-A", loadedTerm.VotedFor.GetName(), "Vote should remain for candidate-A")
+	assert.Equal(t, "candidate-A", loadedTerm.AcceptedLeader.GetName(), "Vote should remain for candidate-A")
 
 	// Verify no database calls were made (early rejection)
 	assert.NoError(t, mock.ExpectationsWereMet())
@@ -168,7 +168,7 @@ func TestBeginTerm_AlreadyVotedForSameCandidateInSameTerm(t *testing.T) {
 	// Step 1: Initialize term to 5 and vote for "candidate-A"
 	initialTerm := &pgctldpb.ConsensusTerm{
 		CurrentTerm: 5,
-		VotedFor: &clustermetadatapb.ID{
+		AcceptedLeader: &clustermetadatapb.ID{
 			Cell: "zone1",
 			Name: "candidate-A",
 		},
@@ -211,7 +211,7 @@ func TestBeginTerm_AlreadyVotedForSameCandidateInSameTerm(t *testing.T) {
 	loadedTerm, err := GetTerm(tmpDir)
 	require.NoError(t, err)
 	assert.Equal(t, int64(5), loadedTerm.CurrentTerm)
-	assert.Equal(t, "candidate-A", loadedTerm.VotedFor.GetName())
+	assert.Equal(t, "candidate-A", loadedTerm.AcceptedLeader.GetName())
 
 	// Verify all expectations were met
 	assert.NoError(t, mock.ExpectationsWereMet())
@@ -552,7 +552,7 @@ func TestConsensusStatus_HealthyPrimary(t *testing.T) {
 	// Setup: Initialize term file
 	initialTerm := &pgctldpb.ConsensusTerm{
 		CurrentTerm: 5,
-		VotedFor: &clustermetadatapb.ID{
+		AcceptedLeader: &clustermetadatapb.ID{
 			Cell: "zone1",
 			Name: "leader-node",
 		},
@@ -606,8 +606,8 @@ func TestConsensusStatus_HealthyStandby(t *testing.T) {
 
 	// Setup: Initialize term file
 	initialTerm := &pgctldpb.ConsensusTerm{
-		CurrentTerm: 3,
-		VotedFor:    nil,
+		CurrentTerm:    3,
+		AcceptedLeader: nil,
 	}
 	err := SetTerm(tmpDir, initialTerm)
 	require.NoError(t, err)
@@ -660,8 +660,8 @@ func TestConsensusStatus_NoDatabaseConnection(t *testing.T) {
 
 	// Setup: Initialize term file
 	initialTerm := &pgctldpb.ConsensusTerm{
-		CurrentTerm: 7,
-		VotedFor:    nil,
+		CurrentTerm:    7,
+		AcceptedLeader: nil,
 	}
 	err := SetTerm(tmpDir, initialTerm)
 	require.NoError(t, err)
@@ -699,8 +699,8 @@ func TestConsensusStatus_DatabaseQueryFailure(t *testing.T) {
 
 	// Setup: Initialize term file
 	initialTerm := &pgctldpb.ConsensusTerm{
-		CurrentTerm: 4,
-		VotedFor:    nil,
+		CurrentTerm:    4,
+		AcceptedLeader: nil,
 	}
 	err := SetTerm(tmpDir, initialTerm)
 	require.NoError(t, err)
@@ -737,8 +737,8 @@ func TestConsensusStatus_ServiceNotEnabled(t *testing.T) {
 
 	// Setup: Initialize term file on disk
 	initialTerm := &pgctldpb.ConsensusTerm{
-		CurrentTerm: 8,
-		VotedFor:    nil,
+		CurrentTerm:    8,
+		AcceptedLeader: nil,
 	}
 	err := SetTerm(tmpDir, initialTerm)
 	require.NoError(t, err)
