@@ -95,10 +95,10 @@ func (ma *MultiAdmin) Init() {
 		}
 	})
 
-	ma.senv.HTTPHandleFunc("/", ma.getHandleIndex())
-	ma.senv.HTTPHandleFunc("/proxy/", ma.getHandleProxy())
-	ma.senv.HTTPHandleFunc("/ready", ma.getHandleReady())
-	ma.senv.HTTPHandleFunc("/services", ma.getHandleServices())
+	ma.senv.HTTPHandleFunc("/", ma.handleIndex)
+	ma.senv.HTTPHandleFunc("/proxy/", ma.handleProxy)
+	ma.senv.HTTPHandleFunc("/ready", ma.handleReady)
+	ma.senv.HTTPHandleFunc("/services", ma.handleServices)
 
 	ma.senv.OnClose(func() {
 		ma.Shutdown()
