@@ -112,14 +112,14 @@ func (x *WALPosition) GetTimestamp() *timestamppb.Timestamp {
 	return nil
 }
 
-// BeginTerm is sent by candidates during elections
+// BeginTerm is sent by coordinators during leader appointments
 type BeginTermRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Term of the candidate
 	Term int64 `protobuf:"varint,1,opt,name=term,proto3" json:"term,omitempty"`
 	// ID of the candidate requesting vote
 	CandidateId string `protobuf:"bytes,2,opt,name=candidate_id,json=candidateId,proto3" json:"candidate_id,omitempty"`
-	// Shard ID for this election
+	// Shard ID for this appointment
 	ShardId string `protobuf:"bytes,3,opt,name=shard_id,json=shardId,proto3" json:"shard_id,omitempty"`
 	// Version of the durability policy
 	PolicyVersion int64 `protobuf:"varint,4,opt,name=policy_version,json=policyVersion,proto3" json:"policy_version,omitempty"`

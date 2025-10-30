@@ -26,16 +26,16 @@ import (
 	pgctldpb "github.com/multigres/multigres/go/pb/pgctldservice"
 )
 
-// BeginTerm handles vote requests during leader election (Raft-style)
+// BeginTerm handles coordinator requests during leader appointments
 func (pm *MultiPoolerManager) BeginTerm(ctx context.Context, req *consensusdatapb.BeginTermRequest) (*consensusdatapb.BeginTermResponse, error) {
-	// CRITICAL: Must be able to reach Postgres to participate in election
+	// CRITICAL: Must be able to reach Postgres to participate in cohort
 	if pm.db == nil {
-		return nil, fmt.Errorf("postgres unreachable, cannot vote")
+		return nil, fmt.Errorf("postgres unreachable, cannot accept new term")
 	}
 
 	// Test database connectivity
 	if err := pm.db.PingContext(ctx); err != nil {
-		return nil, fmt.Errorf("postgres unhealthy, cannot vote: %w", err)
+		return nil, fmt.Errorf("postgres unhealthy, cannot accept new term: %w", err)
 	}
 
 	// Load consensus term from disk if not already loaded

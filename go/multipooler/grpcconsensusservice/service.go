@@ -43,7 +43,7 @@ func RegisterConsensusServices(senv *servenv.ServEnv, grpc *servenv.GrpcServer) 
 	})
 }
 
-// BeginTerm handles vote requests during leader election
+// BeginTerm handles coordinator requests during leader appointments
 func (s *consensusService) BeginTerm(ctx context.Context, req *consensusdata.BeginTermRequest) (*consensusdata.BeginTermResponse, error) {
 	resp, err := s.manager.BeginTerm(ctx, req)
 	if err != nil {

@@ -38,7 +38,7 @@ message WALPosition {
   google.protobuf.Timestamp timestamp = 4;
 }
 
-// BeginTerm is sent by candidates during elections
+// BeginTerm is sent by coordinators during leader appointments
 message BeginTermRequest {
   // Term of the candidate
   int64 term = 1;
@@ -46,7 +46,7 @@ message BeginTermRequest {
   // ID of the candidate requesting vote
   string candidate_id = 2;
 
-  // Shard ID for this election
+  // Shard ID for this appointment
   string shard_id = 3;
 
   // Version of the durability policy
