@@ -20,9 +20,12 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sort"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/lib/pq"
 
 	"github.com/multigres/multigres/go/clustermetadata/topo"
 	"github.com/multigres/multigres/go/mterrors"
@@ -32,6 +35,9 @@ import (
 
 	"golang.org/x/sync/semaphore"
 	"google.golang.org/protobuf/types/known/durationpb"
+
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
@@ -53,12 +59,13 @@ const (
 
 // MultiPoolerManager manages the pooler lifecycle and PostgreSQL operations
 type MultiPoolerManager struct {
-	logger      *slog.Logger
-	config      *Config
-	db          *sql.DB
-	topoClient  topo.Store
-	serviceID   *clustermetadatapb.ID
-	replTracker *heartbeat.ReplTracker
+	logger       *slog.Logger
+	config       *Config
+	db           *sql.DB
+	topoClient   topo.Store
+	serviceID    *clustermetadatapb.ID
+	replTracker  *heartbeat.ReplTracker
+	pgctldClient pgctldpb.PgCtldClient
 
 	// actionSema is there to run only one action at a time.
 	// This semaphore can be held for long periods of time (hours),
@@ -77,6 +84,28 @@ type MultiPoolerManager struct {
 	ctx             context.Context
 	cancel          context.CancelFunc
 	loadTimeout     time.Duration
+
+	// TODO: Implement async query serving state management system
+	// This should include: target state, current state, convergence goroutine,
+	// and state-specific handlers (setServing, setServingReadOnly, setNotServing, setDrained)
+	// See design discussion for full details.
+	queryServingState clustermetadatapb.PoolerServingStatus
+}
+
+// promotionState tracks which parts of the promotion are complete
+type promotionState struct {
+	isPrimaryInPostgres    bool
+	isPrimaryInTopology    bool
+	syncReplicationMatches bool
+	currentLSN             string
+}
+
+// demotionState tracks which parts of the demotion are complete
+type demotionState struct {
+	isServingReadOnly   bool   // PoolerServingStatus == SERVING_RDONLY (includes heartbeat stopped)
+	isReplicaInTopology bool   // PoolerType == REPLICA
+	isReadOnly          bool   // default_transaction_read_only = on
+	finalLSN            string // Captured LSN before demotion
 }
 
 // NewMultiPoolerManager creates a new MultiPoolerManager instance
@@ -87,16 +116,32 @@ func NewMultiPoolerManager(logger *slog.Logger, config *Config) *MultiPoolerMana
 // NewMultiPoolerManagerWithTimeout creates a new MultiPoolerManager instance with a custom load timeout
 func NewMultiPoolerManagerWithTimeout(logger *slog.Logger, config *Config, loadTimeout time.Duration) *MultiPoolerManager {
 	ctx, cancel := context.WithCancel(context.Background())
+
+	// Create pgctld gRPC client
+	var pgctldClient pgctldpb.PgCtldClient
+	if config.PgctldAddr != "" {
+		conn, err := grpc.NewClient(config.PgctldAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+		if err != nil {
+			logger.Error("Failed to create pgctld gRPC client", "error", err, "addr", config.PgctldAddr)
+			// Continue without client - operations that need it will fail gracefully
+		} else {
+			pgctldClient = pgctldpb.NewPgCtldClient(conn)
+			logger.Info("Created pgctld gRPC client", "addr", config.PgctldAddr)
+		}
+	}
+
 	return &MultiPoolerManager{
-		logger:      logger,
-		config:      config,
-		topoClient:  config.TopoClient,
-		serviceID:   config.ServiceID,
-		actionSema:  semaphore.NewWeighted(1),
-		state:       ManagerStateStarting,
-		ctx:         ctx,
-		cancel:      cancel,
-		loadTimeout: loadTimeout,
+		logger:            logger,
+		config:            config,
+		topoClient:        config.TopoClient,
+		serviceID:         config.ServiceID,
+		actionSema:        semaphore.NewWeighted(1),
+		state:             ManagerStateStarting,
+		ctx:               ctx,
+		cancel:            cancel,
+		loadTimeout:       loadTimeout,
+		queryServingState: clustermetadatapb.PoolerServingStatus_NOT_SERVING,
+		pgctldClient:      pgctldClient,
 	}
 }
 
@@ -275,6 +320,17 @@ func (pm *MultiPoolerManager) checkPoolerType(expectedType clustermetadatapb.Poo
 				poolerType.String(), expectedType.String(), pm.serviceID.String()))
 	}
 	return nil
+}
+
+// getCurrentTerm returns the current consensus term in a thread-safe manner
+func (pm *MultiPoolerManager) getCurrentTerm() int64 {
+	pm.mu.RLock()
+	defer pm.mu.RUnlock()
+
+	if pm.consensusTerm == nil {
+		return 0
+	}
+	return pm.consensusTerm.GetCurrentTerm()
 }
 
 // checkReplicaGuardrails verifies that the pooler is a REPLICA and PostgreSQL is in recovery mode
@@ -483,12 +539,7 @@ func (pm *MultiPoolerManager) validateAndUpdateTerm(ctx context.Context, request
 		return nil // Skip validation if force is set
 	}
 
-	pm.mu.RLock()
-	currentTerm := int64(0)
-	if pm.consensusTerm != nil {
-		currentTerm = pm.consensusTerm.GetCurrentTerm()
-	}
-	pm.mu.RUnlock()
+	currentTerm := pm.getCurrentTerm()
 
 	// Check if consensus term has been initialized (term 0 means uninitialized)
 	if currentTerm == 0 {
@@ -544,6 +595,39 @@ func (pm *MultiPoolerManager) validateAndUpdateTerm(ctx context.Context, request
 		pm.logger.Info("Consensus term updated successfully", "new_term", requestTerm)
 	}
 	// If requestTerm == currentCachedTerm, just continue (same term is OK)
+	return nil
+}
+
+// validateTermExactMatch validates that the request term exactly matches the current term.
+// Unlike validateAndUpdateTerm, this does NOT update the term automatically.
+// This is used for Promote to ensure the node was properly recruited before promotion.
+func (pm *MultiPoolerManager) validateTermExactMatch(ctx context.Context, requestTerm int64, force bool) error {
+	if force {
+		return nil // Skip validation if force is set
+	}
+
+	currentTerm := pm.getCurrentTerm()
+
+	// Check if consensus term has been initialized
+	if currentTerm == 0 {
+		pm.logger.Error("Consensus term not initialized - node not recruited",
+			"service_id", pm.serviceID.String())
+		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
+			"consensus term not initialized - node must be recruited via SetTerm first")
+	}
+
+	// Require exact match - do not update term automatically
+	if requestTerm != currentTerm {
+		pm.logger.Error("Promote term mismatch - node not recruited for this term",
+			"request_term", requestTerm,
+			"current_term", currentTerm,
+			"service_id", pm.serviceID.String())
+		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
+			fmt.Sprintf("term mismatch: node not recruited for term %d (current term is %d). "+
+				"Coordinator must call SetTerm first to recruit this node",
+				requestTerm, currentTerm))
+	}
+
 	return nil
 }
 
@@ -1337,8 +1421,7 @@ func (pm *MultiPoolerManager) PrimaryStatus(ctx context.Context) (*multipoolerma
 	}
 	status.Lsn = lsn
 	// If we got to this point, checkPrimaryGuardrails passed, so this is a
-	// PRIMARY server from the PG perspective
-	// and should be ready to serve traffic.
+	// PRIMARY server from the PG perspective and should be ready to serve traffic.
 	status.Ready = true
 
 	// Get connected followers from pg_stat_replication
@@ -1394,16 +1477,8 @@ func (pm *MultiPoolerManager) PrimaryPosition(ctx context.Context) (string, erro
 		return "", err
 	}
 
-	// Query PostgreSQL for the current LSN position
-	// pg_current_wal_lsn() returns the current write-ahead log write location
-	var lsn string
-	err := pm.db.QueryRowContext(ctx, "SELECT pg_current_wal_lsn()::text").Scan(&lsn)
-	if err != nil {
-		pm.logger.Error("Failed to query LSN", "error", err)
-		return "", mterrors.Wrap(err, "failed to query LSN")
-	}
-
-	return lsn, nil
+	// Get current primary LSN position
+	return pm.getPrimaryLSN(ctx)
 }
 
 // StopReplicationAndGetStatus stops PostgreSQL replication and returns the status
@@ -1740,20 +1815,512 @@ func (pm *MultiPoolerManager) GetFollowers(ctx context.Context) (*multipoolerman
 	}, nil
 }
 
-// Demote demotes the current leader server
-func (pm *MultiPoolerManager) Demote(ctx context.Context) error {
+// checkDemotionState checks the current state to determine what steps remain
+func (pm *MultiPoolerManager) checkDemotionState(ctx context.Context) (*demotionState, error) {
+	state := &demotionState{}
+
+	// Check topology state
+	pm.mu.RLock()
+	poolerType := pm.multipooler.Type
+	servingStatus := pm.multipooler.ServingStatus
+	pm.mu.RUnlock()
+
+	state.isReplicaInTopology = (poolerType == clustermetadatapb.PoolerType_REPLICA)
+	state.isServingReadOnly = (servingStatus == clustermetadatapb.PoolerServingStatus_SERVING_RDONLY)
+
+	// Check if PostgreSQL is in recovery mode (canonical way to check if read-only)
+	var inRecovery bool
+	err := pm.db.QueryRowContext(ctx, "SELECT pg_is_in_recovery()").Scan(&inRecovery)
+	if err != nil {
+		pm.logger.Error("Failed to check recovery status", "error", err)
+		return nil, mterrors.Wrap(err, "failed to check recovery status")
+	}
+	state.isReadOnly = inRecovery
+
+	// Capture current LSN - this method needs to be idempotent, so it's possible
+	// it's called on a host where the primary was already changed to a standby.
+	// Therefore, we try both LSN retrieval methods and use whichever succeeds.
+
+	// Try getting current WAL LSN (works on primary)
+	state.finalLSN, err = pm.getPrimaryLSN(ctx)
+	if err != nil {
+		// If that fails, try getting replay LSN (works on standby)
+		state.finalLSN, err = pm.getStandbyReplayLSN(ctx)
+		if err != nil {
+			pm.logger.Error("Failed to get LSN (tried both primary and standby methods)", "error", err)
+			return nil, mterrors.Wrap(err, "failed to get LSN")
+		}
+	}
+
+	pm.logger.Info("Checked demotion state",
+		"is_serving_read_only", state.isServingReadOnly,
+		"is_replica_in_topology", state.isReplicaInTopology,
+		"is_read_only", state.isReadOnly,
+		"in_recovery", inRecovery,
+		"pooler_type", poolerType,
+		"serving_status", servingStatus)
+
+	return state, nil
+}
+
+// setServingReadOnly transitions the pooler to SERVING_RDONLY status
+// Note: the following code should be refactored to be async and work
+// a state transita desired state that the manager converges, makes
+// the pooler converge.
+// Similar to how ManagerState works today.
+// At the moment, setServingReadOnly means:
+// - The heartbeat writer is stopped.
+// - We update the topology serving state for the pooler record.
+// - TODO: QueryPooler should stop accepting write traffic.
+func (pm *MultiPoolerManager) setServingReadOnly(ctx context.Context, state *demotionState) error {
+	if state.isServingReadOnly {
+		pm.logger.Info("Already in SERVING_RDONLY state, skipping")
+		return nil
+	}
+
+	pm.logger.Info("Transitioning to SERVING_RDONLY")
+
+	// Update serving status in topology
+	updatedMultipooler, err := pm.topoClient.UpdateMultiPoolerFields(ctx, pm.serviceID, func(mp *clustermetadatapb.MultiPooler) error {
+		mp.ServingStatus = clustermetadatapb.PoolerServingStatus_SERVING_RDONLY
+		return nil
+	})
+	if err != nil {
+		pm.logger.Error("Failed to update serving status in topology", "error", err)
+		return mterrors.Wrap(err, "failed to transition to SERVING_RDONLY")
+	}
+
+	pm.mu.Lock()
+	pm.multipooler.MultiPooler = updatedMultipooler
+	pm.queryServingState = clustermetadatapb.PoolerServingStatus_SERVING_RDONLY
+	pm.mu.Unlock()
+
+	// Stop heartbeat writer
+	if pm.replTracker != nil {
+		pm.logger.Info("Stopping heartbeat writer")
+		pm.replTracker.MakeNonPrimary()
+	}
+
+	// TODO: Configure QueryService to reject writes
+
+	pm.logger.Info("Transitioned to SERVING_RDONLY successfully")
+	return nil
+}
+
+// runCheckpointAsync runs a CHECKPOINT in a background goroutine
+func (pm *MultiPoolerManager) runCheckpointAsync(ctx context.Context) chan error {
+	checkpointDone := make(chan error, 1)
+	go func() {
+		pm.logger.Info("Starting checkpoint")
+		_, err := pm.db.ExecContext(ctx, "CHECKPOINT")
+		if err != nil {
+			pm.logger.Warn("Checkpoint failed", "error", err)
+			checkpointDone <- err
+		} else {
+			pm.logger.Info("Checkpoint completed")
+			checkpointDone <- nil
+		}
+	}()
+	return checkpointDone
+}
+
+// restartPostgresAsStandby restarts PostgreSQL as a standby server
+// This creates standby.signal and restarts PostgreSQL via pgctld
+func (pm *MultiPoolerManager) restartPostgresAsStandby(ctx context.Context, state *demotionState) error {
+	if state.isReadOnly {
+		pm.logger.Info("PostgreSQL already running as standby, skipping")
+		return nil
+	}
+
+	if pm.pgctldClient == nil {
+		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION, "pgctld client not initialized")
+	}
+
+	pm.logger.Info("Restarting PostgreSQL as standby")
+
+	// Call pgctld to restart as standby
+	// This will create standby.signal and restart the server
+	req := &pgctldpb.RestartRequest{
+		Mode:      "fast",
+		Timeout:   nil, // Use default timeout
+		Port:      0,   // Use default port
+		ExtraArgs: nil,
+		AsStandby: true, // Create standby.signal before restart
+	}
+
+	resp, err := pm.pgctldClient.Restart(ctx, req)
+	if err != nil {
+		pm.logger.Error("Failed to restart PostgreSQL as standby", "error", err)
+		return mterrors.Wrap(err, "failed to restart as standby")
+	}
+
+	pm.logger.Info("PostgreSQL restarted as standby",
+		"pid", resp.Pid,
+		"message", resp.Message)
+
+	// Close database connection since PostgreSQL restarted
+	if pm.db != nil {
+		pm.db.Close()
+		pm.db = nil
+	}
+
+	// Reconnect to PostgreSQL
+	if err := pm.connectDB(); err != nil {
+		pm.logger.Error("Failed to reconnect to database after restart", "error", err)
+		return mterrors.Wrap(err, "failed to reconnect to database")
+	}
+
+	// Verify server is in recovery mode (standby)
+	var inRecovery bool
+	err = pm.db.QueryRowContext(ctx, "SELECT pg_is_in_recovery()").Scan(&inRecovery)
+	if err != nil {
+		pm.logger.Error("Failed to verify recovery status", "error", err)
+		return mterrors.Wrap(err, "failed to verify standby status")
+	}
+
+	if !inRecovery {
+		pm.logger.Error("PostgreSQL not in recovery mode after restart")
+		return mterrors.New(mtrpcpb.Code_INTERNAL, "server not in recovery mode after restart as standby")
+	}
+
+	pm.logger.Info("PostgreSQL is now running as a standby")
+	return nil
+}
+
+// resetSynchronousReplication clears the synchronous standby list
+// This should be called after the server is read-only to safely clear settings
+func (pm *MultiPoolerManager) resetSynchronousReplication(ctx context.Context) error {
+	pm.logger.Info("Clearing synchronous standby list")
+
+	// Clear synchronous_standby_names to remove all standbys
+	_, err := pm.db.ExecContext(ctx, "ALTER SYSTEM SET synchronous_standby_names = ''")
+	if err != nil {
+		pm.logger.Error("Failed to clear synchronous_standby_names", "error", err)
+		return mterrors.Wrap(err, "failed to clear synchronous_standby_names")
+	}
+
+	// Reload configuration to apply changes
+	_, err = pm.db.ExecContext(ctx, "SELECT pg_reload_conf()")
+	if err != nil {
+		pm.logger.Error("Failed to reload configuration", "error", err)
+		return mterrors.Wrap(err, "failed to reload configuration after clearing standby list")
+	}
+
+	pm.logger.Info("Successfully cleared synchronous standby list")
+	return nil
+}
+
+// updateTopologyAfterDemotion updates the pooler type in topology from PRIMARY to REPLICA
+func (pm *MultiPoolerManager) updateTopologyAfterDemotion(ctx context.Context, state *demotionState) error {
+	if state.isReplicaInTopology {
+		pm.logger.Info("Topology already updated to REPLICA, skipping")
+		return nil
+	}
+
+	pm.logger.Info("Updating pooler type in topology to REPLICA")
+	updatedMultipooler, err := pm.topoClient.UpdateMultiPoolerFields(ctx, pm.serviceID, func(mp *clustermetadatapb.MultiPooler) error {
+		mp.Type = clustermetadatapb.PoolerType_REPLICA
+		return nil
+	})
+	if err != nil {
+		pm.logger.Error("Failed to update pooler type in topology", "error", err)
+		return mterrors.Wrap(err, "demotion succeeded but failed to update topology")
+	}
+
+	pm.mu.Lock()
+	pm.multipooler.MultiPooler = updatedMultipooler
+	pm.mu.Unlock()
+
+	pm.logger.Info("Topology updated to REPLICA successfully")
+	return nil
+}
+
+// getActiveWriteConnections returns connections that are performing write operations
+func (pm *MultiPoolerManager) getActiveWriteConnections(ctx context.Context) ([]int32, error) {
+	// Query for connections doing write operations
+	// Note: this is temporary, we can refactor this once we
+	// have the query pool. Thinking that we should have a
+	// specific user for the write pool and we can kill all connections
+	// associated with that user.
+	query := `
+		SELECT COALESCE(array_agg(pid), ARRAY[]::integer[])
+		FROM pg_stat_activity
+		WHERE pid != pg_backend_pid()
+		  AND datname IS NOT NULL
+		  AND backend_type = 'client backend'
+		  AND state = 'active'
+		  AND query NOT ILIKE 'SELECT%'
+		  AND query NOT ILIKE 'SHOW%'
+		  AND query NOT ILIKE 'BEGIN%'
+		  AND query NOT ILIKE 'COMMIT%'
+		  AND query NOT ILIKE 'ROLLBACK%'
+		  AND query != '<IDLE>'`
+
+	var pids []int32
+	err := pm.db.QueryRowContext(ctx, query).Scan(pq.Array(&pids))
+	if err != nil {
+		return nil, err
+	}
+
+	return pids, nil
+}
+
+// terminateWriteConnections terminates connections performing write operations
+func (pm *MultiPoolerManager) terminateWriteConnections(ctx context.Context) (int32, error) {
+	pids, err := pm.getActiveWriteConnections(ctx)
+	if err != nil {
+		pm.logger.Error("Failed to get active write connections", "error", err)
+		return 0, mterrors.Wrap(err, "failed to get active write connections")
+	}
+
+	if len(pids) == 0 {
+		pm.logger.Info("No active write connections to terminate")
+		return 0, nil
+	}
+
+	pm.logger.Warn("Terminating connections still performing writes after drain",
+		"count", len(pids),
+		"pids", pids)
+
+	// Terminate each write connection
+	for _, pid := range pids {
+		_, err := pm.db.ExecContext(ctx, "SELECT pg_terminate_backend($1)", pid)
+		if err != nil {
+			pm.logger.Warn("Failed to terminate write connection", "pid", pid, "error", err)
+		}
+	}
+
+	return int32(len(pids)), nil
+}
+
+// drainAndCheckpoint handles the drain timeout and checkpoint in parallel
+// During the drain, it monitors for write activity every 100ms
+// If 2 consecutive checks show no writes, exits early
+func (pm *MultiPoolerManager) drainAndCheckpoint(ctx context.Context, drainTimeout time.Duration) error {
+	// Start checkpoint in background
+	checkpointDone := pm.runCheckpointAsync(ctx)
+
+	// Monitor for write activity during drain
+	pm.logger.Info("Monitoring for write activity during drain", "duration", drainTimeout)
+	drainCtx, cancel := context.WithTimeout(ctx, drainTimeout)
+	defer cancel()
+
+	monitorTicker := time.NewTicker(100 * time.Millisecond)
+	defer monitorTicker.Stop()
+
+	consecutiveNoWrites := 0
+	drainComplete := false
+
+	for !drainComplete {
+		select {
+		case <-drainCtx.Done():
+			pm.logger.Info("Drain timeout completed")
+			drainComplete = true
+
+		case err := <-checkpointDone:
+			if err != nil {
+				pm.logger.Warn("Checkpoint completed with error during drain", "error", err)
+			} else {
+				pm.logger.Info("Checkpoint completed during drain")
+			}
+
+		case <-monitorTicker.C:
+			// Check for write activity
+			pids, err := pm.getActiveWriteConnections(ctx)
+			if err != nil {
+				pm.logger.Warn("Failed to check for write activity during drain", "error", err)
+				consecutiveNoWrites = 0 // Reset on error
+			} else if len(pids) > 0 {
+				pm.logger.Warn("Detected write activity during drain",
+					"count", len(pids),
+					"pids", pids)
+				consecutiveNoWrites = 0 // Reset counter
+			} else {
+				// No writes detected
+				consecutiveNoWrites++
+				if consecutiveNoWrites >= 2 {
+					pm.logger.Info("No write activity detected for 2 consecutive checks, exiting drain early")
+					drainComplete = true
+				}
+			}
+		}
+	}
+
+	// Wait for checkpoint if it's still running
+	select {
+	case err := <-checkpointDone:
+		if err != nil {
+			pm.logger.Warn("Checkpoint failed", "error", err)
+			// Don't fail - checkpoint is an optimization
+		}
+	default:
+		// Checkpoint still running, continue
+		pm.logger.Info("Checkpoint still running, continuing with demotion")
+	}
+
+	return nil
+}
+
+// getPrimaryLSN gets the current WAL write location (primary only)
+func (pm *MultiPoolerManager) getPrimaryLSN(ctx context.Context) (string, error) {
+	var lsn string
+	err := pm.db.QueryRowContext(ctx, "SELECT pg_current_wal_lsn()::text").Scan(&lsn)
+	if err != nil {
+		return "", mterrors.Wrap(err, "failed to get current WAL LSN")
+	}
+	return lsn, nil
+}
+
+// getStandbyReplayLSN gets the last replayed WAL location (standby only)
+func (pm *MultiPoolerManager) getStandbyReplayLSN(ctx context.Context) (string, error) {
+	var lsn string
+	err := pm.db.QueryRowContext(ctx, "SELECT pg_last_wal_replay_lsn()::text").Scan(&lsn)
+	if err != nil {
+		return "", mterrors.Wrap(err, "failed to get replay LSN")
+	}
+	return lsn, nil
+}
+
+// captureFinalLSN captures the final LSN position before going read-only
+func (pm *MultiPoolerManager) captureFinalLSN(ctx context.Context, state *demotionState) (string, error) {
+	if state.isReadOnly && state.finalLSN != "" {
+		pm.logger.Info("Using previously captured LSN", "lsn", state.finalLSN)
+		return state.finalLSN, nil
+	}
+
+	// At this point in Demote, we should still be a primary
+	finalLSN, err := pm.getPrimaryLSN(ctx)
+	if err != nil {
+		pm.logger.Error("Failed to capture final LSN", "error", err)
+		return "", err
+	}
+
+	pm.logger.Info("Captured final LSN", "lsn", finalLSN)
+	return finalLSN, nil
+}
+
+// Demote demotes the current primary server
+// This can be called for any of the following use cases:
+// - By orchestrator when fixing a broken shard.
+// - When performing a Planned demotion.
+// - When receiving a SIGTERM and the pooler needs to shutdown.
+func (pm *MultiPoolerManager) Demote(ctx context.Context, consensusTerm int64, drainTimeout time.Duration, force bool) (*multipoolermanagerdata.DemoteResponse, error) {
 	if err := pm.checkReady(); err != nil {
-		return err
+		return nil, err
 	}
 
 	// Acquire the action lock to ensure only one mutation runs at a time
 	if err := pm.lock(ctx); err != nil {
-		return err
+		return nil, err
 	}
 	defer pm.unlock()
 
-	pm.logger.Info("Demote called")
-	return mterrors.New(mtrpcpb.Code_UNIMPLEMENTED, "method Demote not implemented")
+	pm.logger.Info("Demote called",
+		"consensus_term", consensusTerm,
+		"drain_timeout", drainTimeout,
+		"force", force)
+
+	// === Validation & State Check ===
+
+	// Demote is an operational cleanup, not a leadership change.
+	// Accept if term >= currentTerm to ensure the request isn’t stale.
+	// Equal or higher terms are safe.
+	// Note: we still update the term, as this may arrive after an election
+	// this (now old) primary missed due to a network partition.
+	if err := pm.validateAndUpdateTerm(ctx, consensusTerm, force); err != nil {
+		return nil, err
+	}
+
+	// Ensure database connection
+	if err := pm.connectDB(); err != nil {
+		pm.logger.Error("Failed to connect to database", "error", err)
+		return nil, mterrors.Wrap(err, "database connection failed")
+	}
+
+	// Guard rail: Demote can only be called on a PRIMARY
+	if err := pm.checkPrimaryGuardrails(ctx); err != nil {
+		return nil, err
+	}
+
+	// Check current demotion state
+	state, err := pm.checkDemotionState(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	// If everything is already complete, return early (fully idempotent)
+	if state.isServingReadOnly && state.isReplicaInTopology && state.isReadOnly {
+		pm.logger.Info("Demotion already complete (idempotent)",
+			"lsn", state.finalLSN)
+		return &multipoolermanagerdata.DemoteResponse{
+			WasAlreadyDemoted:     true,
+			ConsensusTerm:         consensusTerm,
+			LsnPosition:           state.finalLSN,
+			ConnectionsTerminated: 0,
+		}, nil
+	}
+
+	// Transition to Read-Only Serving
+	// For now, this is not that useful as we have to restart
+	// the server anyways to make it a standby.
+	// However, we are setting the hooks to make sure that
+	// we can make the primary readonly first,
+	// drain write connections and then transition it
+	// as a replica without restarting postgres
+	if err := pm.setServingReadOnly(ctx, state); err != nil {
+		return nil, err
+	}
+
+	// Drain & Checkpoint (Parallel)
+
+	if err := pm.drainAndCheckpoint(ctx, drainTimeout); err != nil {
+		return nil, err
+	}
+
+	// Terminate Remaining Write Connections
+
+	connectionsTerminated, err := pm.terminateWriteConnections(ctx)
+	if err != nil {
+		// Log but don't fail - connections will eventually timeout
+		pm.logger.Warn("Failed to terminate write connections", "error", err)
+	}
+
+	// Capture State & Make PostgreSQL Read-Only
+
+	finalLSN, err := pm.captureFinalLSN(ctx, state)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := pm.restartPostgresAsStandby(ctx, state); err != nil {
+		return nil, err
+	}
+
+	// Reset Synchronous Replication Configuration
+	// Now that the server is read-only, it's safe to clear sync replication settings
+	// This ensures we don't have a window where writes could be accepted with incorrect replication config
+	if err := pm.resetSynchronousReplication(ctx); err != nil {
+		// Log but don't fail - this is cleanup
+		pm.logger.Warn("Failed to reset synchronous replication configuration", "error", err)
+	}
+
+	// Update Topology
+
+	if err := pm.updateTopologyAfterDemotion(ctx, state); err != nil {
+		return nil, err
+	}
+
+	pm.logger.Info("Demote completed successfully",
+		"final_lsn", finalLSN,
+		"consensus_term", consensusTerm,
+		"connections_terminated", connectionsTerminated)
+
+	return &multipoolermanagerdata.DemoteResponse{
+		WasAlreadyDemoted:     false,
+		ConsensusTerm:         consensusTerm,
+		LsnPosition:           finalLSN,
+		ConnectionsTerminated: connectionsTerminated,
+	}, nil
 }
 
 // UndoDemote undoes a demotion
@@ -1772,20 +2339,358 @@ func (pm *MultiPoolerManager) UndoDemote(ctx context.Context) error {
 	return mterrors.New(mtrpcpb.Code_UNIMPLEMENTED, "method UndoDemote not implemented")
 }
 
-// Promote promotes a follower to leader
-func (pm *MultiPoolerManager) Promote(ctx context.Context) error {
+// checkPromotionState checks the current state to determine what steps remain
+func (pm *MultiPoolerManager) checkPromotionState(ctx context.Context, syncReplicationConfig *multipoolermanagerdata.ConfigureSynchronousReplicationRequest) (*promotionState, error) {
+	state := &promotionState{}
+
+	// Check PostgreSQL promotion state
+	var isInRecovery bool
+	err := pm.db.QueryRowContext(ctx, "SELECT pg_is_in_recovery()").Scan(&isInRecovery)
+	if err != nil {
+		pm.logger.Error("Failed to check recovery status", "error", err)
+		return nil, mterrors.Wrap(err, "failed to check recovery status")
+	}
+
+	state.isPrimaryInPostgres = !isInRecovery
+
+	if state.isPrimaryInPostgres {
+		// Get current primary LSN
+		state.currentLSN, err = pm.getPrimaryLSN(ctx)
+		if err != nil {
+			pm.logger.Error("Failed to get current LSN", "error", err)
+			return nil, err
+		}
+	}
+
+	// Check topology state
+	pm.mu.RLock()
+	poolerType := pm.multipooler.Type
+	pm.mu.RUnlock()
+
+	state.isPrimaryInTopology = (poolerType == clustermetadatapb.PoolerType_PRIMARY)
+
+	// Default: if no sync config requested, consider it as matching (no requirements to check)
+	state.syncReplicationMatches = true
+
+	// Check sync replication state if config was provided
+	if syncReplicationConfig != nil && state.isPrimaryInPostgres {
+		state.syncReplicationMatches = false
+		currentConfig, err := pm.getSynchronousReplicationConfig(ctx)
+		if err != nil {
+			pm.logger.Warn("Failed to get current sync replication config", "error", err)
+		}
+		if err == nil {
+			state.syncReplicationMatches = pm.syncReplicationConfigMatches(currentConfig, syncReplicationConfig)
+		}
+	}
+
+	pm.logger.Info("Checked promotion state",
+		"is_primary_in_postgres", state.isPrimaryInPostgres,
+		"is_primary_in_topology", state.isPrimaryInTopology,
+		"sync_replication_matches", state.syncReplicationMatches)
+
+	return state, nil
+}
+
+// syncReplicationConfigMatches checks if the current sync replication config matches the requested config
+func (pm *MultiPoolerManager) syncReplicationConfigMatches(current *multipoolermanagerdata.SynchronousReplicationConfiguration, requested *multipoolermanagerdata.ConfigureSynchronousReplicationRequest) bool {
+	// Check synchronous commit level
+	if current.SynchronousCommit != requested.SynchronousCommit {
+		return false
+	}
+
+	// Check synchronous method
+	if current.SynchronousMethod != requested.SynchronousMethod {
+		return false
+	}
+
+	// Check num_sync
+	if current.NumSync != requested.NumSync {
+		return false
+	}
+
+	// Check standby IDs (must match exactly 1:1, so sort and compare)
+	if len(current.StandbyIds) != len(requested.StandbyIds) {
+		return false
+	}
+
+	// Sort both lists by cell_name for comparison
+	currentSorted := make([]string, len(current.StandbyIds))
+	for i, id := range current.StandbyIds {
+		currentSorted[i] = fmt.Sprintf("%s_%s", id.Cell, id.Name)
+	}
+	sort.Strings(currentSorted)
+
+	requestedSorted := make([]string, len(requested.StandbyIds))
+	for i, id := range requested.StandbyIds {
+		requestedSorted[i] = fmt.Sprintf("%s_%s", id.Cell, id.Name)
+	}
+	sort.Strings(requestedSorted)
+
+	// Compare sorted lists element by element
+	for i := range currentSorted {
+		if currentSorted[i] != requestedSorted[i] {
+			return false
+		}
+	}
+
+	return true
+}
+
+// validateExpectedLSN validates that the current replay LSN matches the expected LSN
+func (pm *MultiPoolerManager) validateExpectedLSN(ctx context.Context, expectedLSN string) error {
+	if expectedLSN == "" {
+		return nil // No validation requested
+	}
+
+	var currentLSN string
+	var isPaused bool
+	query := "SELECT pg_last_wal_replay_lsn()::text, pg_is_wal_replay_paused()"
+	err := pm.db.QueryRowContext(ctx, query).Scan(&currentLSN, &isPaused)
+	if err != nil {
+		pm.logger.Error("Failed to get current replay LSN and pause state", "error", err)
+		return mterrors.Wrap(err, "failed to get current replay LSN and pause state")
+	}
+
+	// Best practice: WAL replay should be paused before promotion
+	// The coordinator should have called StopReplication during Discovery stage
+	if !isPaused {
+		pm.logger.Warn("WAL replay is not paused before promotion - coordinator may have skipped Discovery stage",
+			"current_lsn", currentLSN,
+			"expected_lsn", expectedLSN)
+		// Note: We don't fail here as this is a soft check, but it indicates
+		// a potential issue in the consensus flow
+	}
+
+	if currentLSN != expectedLSN {
+		pm.logger.Error("LSN mismatch - node does not have expected durable state",
+			"expected_lsn", expectedLSN,
+			"current_lsn", currentLSN)
+		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
+			fmt.Sprintf("LSN mismatch: expected %s, current %s. "+
+				"This indicates an error in an earlier consensus stage.",
+				expectedLSN, currentLSN))
+	}
+
+	pm.logger.Info("LSN validation passed",
+		"lsn", currentLSN,
+		"wal_replay_paused", isPaused)
+	return nil
+}
+
+// promoteStandbyToPrimary calls pg_promote() and waits for promotion to complete
+func (pm *MultiPoolerManager) promoteStandbyToPrimary(ctx context.Context, state *promotionState) error {
+	// Return early if already promoted
+	if state.isPrimaryInPostgres {
+		pm.logger.Info("PostgreSQL already promoted, skipping")
+		return nil
+	}
+
+	// Call pg_promote() to promote standby to primary
+	pm.logger.Info("PostgreSQL promotion needed")
+	pm.logger.Info("Calling pg_promote() to promote standby to primary")
+	_, err := pm.db.ExecContext(ctx, "SELECT pg_promote()")
+	if err != nil {
+		pm.logger.Error("Failed to call pg_promote()", "error", err)
+		return mterrors.Wrap(err, "failed to promote standby")
+	}
+
+	// Wait for promotion to complete by polling pg_is_in_recovery()
+	pm.logger.Info("Waiting for promotion to complete")
+	return pm.waitForPromotionComplete(ctx)
+}
+
+// waitForPromotionComplete polls pg_is_in_recovery() until promotion is complete
+func (pm *MultiPoolerManager) waitForPromotionComplete(ctx context.Context) error {
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+
+	promotionTimeout := 30 * time.Second
+	promotionCtx, cancel := context.WithTimeout(ctx, promotionTimeout)
+	defer cancel()
+
+	for {
+		select {
+		case <-promotionCtx.Done():
+			pm.logger.Error("Timeout waiting for promotion to complete")
+			return mterrors.New(mtrpcpb.Code_DEADLINE_EXCEEDED,
+				fmt.Sprintf("timeout waiting for promotion to complete after %v", promotionTimeout))
+
+		case <-ticker.C:
+			var isInRecovery bool
+			err := pm.db.QueryRowContext(promotionCtx, "SELECT pg_is_in_recovery()").Scan(&isInRecovery)
+			if err != nil {
+				pm.logger.Error("Failed to check recovery status during promotion", "error", err)
+				return mterrors.Wrap(err, "failed to check recovery status")
+			}
+
+			if !isInRecovery {
+				pm.logger.Info("Promotion completed successfully - node is now primary")
+				return nil
+			}
+		}
+	}
+}
+
+// updateTopologyAfterPromotion updates the pooler type in topology from REPLICA to PRIMARY
+func (pm *MultiPoolerManager) updateTopologyAfterPromotion(ctx context.Context, state *promotionState) error {
+	// Return early if already updated
+	if state.isPrimaryInTopology {
+		pm.logger.Info("Topology already updated, skipping")
+		return nil
+	}
+
+	pm.logger.Info("Topology update needed")
+	pm.logger.Info("Updating pooler type in topology to PRIMARY")
+	updatedMultipooler, err := pm.topoClient.UpdateMultiPoolerFields(ctx, pm.serviceID, func(mp *clustermetadatapb.MultiPooler) error {
+		mp.Type = clustermetadatapb.PoolerType_PRIMARY
+		return nil
+	})
+	if err != nil {
+		pm.logger.Error("Failed to update pooler type in topology", "error", err)
+		return mterrors.Wrap(err, "promotion succeeded but failed to update topology")
+	}
+
+	pm.mu.Lock()
+	pm.multipooler.MultiPooler = updatedMultipooler
+	pm.mu.Unlock()
+
+	// Update heartbeat tracker to primary mode
+	if pm.replTracker != nil {
+		pm.logger.Info("Updating heartbeat tracker to primary mode")
+		pm.replTracker.MakePrimary()
+	}
+
+	return nil
+}
+
+// configureReplicationAfterPromotion applies synchronous replication configuration
+func (pm *MultiPoolerManager) configureReplicationAfterPromotion(ctx context.Context, state *promotionState, syncReplicationConfig *multipoolermanagerdata.ConfigureSynchronousReplicationRequest) error {
+	if syncReplicationConfig == nil {
+		return nil // No configuration requested
+	}
+
+	// Return early if already configured
+	if state.syncReplicationMatches {
+		pm.logger.Info("Sync replication already configured, skipping")
+		return nil
+	}
+
+	pm.logger.Info("Sync replication configuration needed")
+	pm.logger.Info("Configuring synchronous replication for new cohort")
+	err := pm.ConfigureSynchronousReplication(ctx,
+		syncReplicationConfig.SynchronousCommit,
+		syncReplicationConfig.SynchronousMethod,
+		syncReplicationConfig.NumSync,
+		syncReplicationConfig.StandbyIds,
+		syncReplicationConfig.ReloadConfig)
+	if err != nil {
+		pm.logger.Error("Failed to configure synchronous replication", "error", err)
+		return mterrors.Wrap(err, "promotion succeeded but failed to configure synchronous replication")
+	}
+
+	return nil
+}
+
+// Promote promotes a standby to primary
+// This is called during the Propagate stage of generalized consensus to safely
+// transition a standby to primary and reconfigure replication.
+// This operation is fully idempotent - it checks what steps are already complete
+// and only executes the missing steps.
+func (pm *MultiPoolerManager) Promote(ctx context.Context, consensusTerm int64, expectedLSN string, syncReplicationConfig *multipoolermanagerdata.ConfigureSynchronousReplicationRequest, force bool) (*multipoolermanagerdata.PromoteResponse, error) {
 	if err := pm.checkReady(); err != nil {
-		return err
+		return nil, err
 	}
 
 	// Acquire the action lock to ensure only one mutation runs at a time
 	if err := pm.lock(ctx); err != nil {
-		return err
+		return nil, err
 	}
 	defer pm.unlock()
 
-	pm.logger.Info("Promote called")
-	return mterrors.New(mtrpcpb.Code_UNIMPLEMENTED, "method Promote not implemented")
+	// Guard rail: Promote can only be called on a REPLICA
+	if err := pm.checkReplicaGuardrails(ctx); err != nil {
+		return nil, err
+	}
+
+	pm.logger.Info("Promote called",
+		"consensus_term", consensusTerm,
+		"expected_lsn", expectedLSN,
+		"force", force)
+
+	// Validation & Readiness
+
+	// Validate term - strict equality, no automatic updates
+	if err := pm.validateTermExactMatch(ctx, consensusTerm, force); err != nil {
+		return nil, err
+	}
+
+	// Ensure database connection
+	if err := pm.connectDB(); err != nil {
+		pm.logger.Error("Failed to connect to database", "error", err)
+		return nil, mterrors.Wrap(err, "database connection failed")
+	}
+
+	// Check current promotion state to determine what needs to be done
+	state, err := pm.checkPromotionState(ctx, syncReplicationConfig)
+	if err != nil {
+		return nil, err
+	}
+
+	// If everything is already complete, return early (fully idempotent)
+	if state.isPrimaryInPostgres && state.isPrimaryInTopology && state.syncReplicationMatches {
+		pm.logger.Info("Promotion already complete (idempotent)",
+			"lsn", state.currentLSN)
+		return &multipoolermanagerdata.PromoteResponse{
+			LsnPosition:       state.currentLSN,
+			WasAlreadyPrimary: true,
+			ConsensusTerm:     consensusTerm,
+		}, nil
+	}
+
+	// If PostgreSQL is not promoted yet, validate expected LSN before promotion
+	if !state.isPrimaryInPostgres {
+		if err := pm.validateExpectedLSN(ctx, expectedLSN); err != nil {
+			return nil, err
+		}
+	}
+
+	// Execute missing steps
+
+	// Promote PostgreSQL if needed
+	if err := pm.promoteStandbyToPrimary(ctx, state); err != nil {
+		return nil, err
+	}
+
+	// Update topology if needed
+	if err := pm.updateTopologyAfterPromotion(ctx, state); err != nil {
+		return nil, err
+	}
+
+	// Configure sync replication if needed
+	if err := pm.configureReplicationAfterPromotion(ctx, state, syncReplicationConfig); err != nil {
+		return nil, err
+	}
+
+	// TODO: Populate consensus metadata tables.
+
+	// Get final LSN position
+	finalLSN, err := pm.getPrimaryLSN(ctx)
+	if err != nil {
+		pm.logger.Error("Failed to get final LSN", "error", err)
+		return nil, err
+	}
+
+	pm.logger.Info("Promote completed successfully",
+		"final_lsn", finalLSN,
+		"consensus_term", consensusTerm,
+		"was_already_primary", state.isPrimaryInPostgres)
+
+	return &multipoolermanagerdata.PromoteResponse{
+		LsnPosition:       finalLSN,
+		WasAlreadyPrimary: state.isPrimaryInPostgres && state.isPrimaryInTopology && state.syncReplicationMatches,
+		ConsensusTerm:     consensusTerm,
+	}, nil
 }
 
 // SetTerm sets the consensus term information to local disk

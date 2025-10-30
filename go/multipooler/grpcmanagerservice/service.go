@@ -17,6 +17,7 @@ package grpcmanagerservice
 
 import (
 	"context"
+	"time"
 
 	"github.com/multigres/multigres/go/mterrors"
 	"github.com/multigres/multigres/go/multipooler/manager"
@@ -186,11 +187,20 @@ func (s *managerService) GetFollowers(ctx context.Context, req *multipoolermanag
 
 // Demote demotes the current leader server
 func (s *managerService) Demote(ctx context.Context, req *multipoolermanagerdata.DemoteRequest) (*multipoolermanagerdata.DemoteResponse, error) {
-	err := s.manager.Demote(ctx)
+	// Default drain timeout if not specified
+	drainTimeout := 5 * time.Second
+	if req.DrainTimeout != nil {
+		drainTimeout = req.DrainTimeout.AsDuration()
+	}
+
+	resp, err := s.manager.Demote(ctx,
+		req.ConsensusTerm,
+		drainTimeout,
+		req.Force)
 	if err != nil {
 		return nil, mterrors.ToGRPC(err)
 	}
-	return &multipoolermanagerdata.DemoteResponse{}, nil
+	return resp, nil
 }
 
 // UndoDemote undoes a demotion
@@ -204,11 +214,15 @@ func (s *managerService) UndoDemote(ctx context.Context, req *multipoolermanager
 
 // Promote promotes a replica to leader (Multigres-level operation)
 func (s *managerService) Promote(ctx context.Context, req *multipoolermanagerdata.PromoteRequest) (*multipoolermanagerdata.PromoteResponse, error) {
-	err := s.manager.Promote(ctx)
+	resp, err := s.manager.Promote(ctx,
+		req.ConsensusTerm,
+		req.ExpectedLsn,
+		req.SyncReplicationConfig,
+		req.Force)
 	if err != nil {
 		return nil, mterrors.ToGRPC(err)
 	}
-	return &multipoolermanagerdata.PromoteResponse{}, nil
+	return resp, nil
 }
 
 // Status gets the current status of the manager

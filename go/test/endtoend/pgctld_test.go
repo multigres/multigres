@@ -392,6 +392,107 @@ timeout: 30
 	})
 }
 
+// TestRestartAsStandbyWithRealPostgreSQL tests restart --as-standby with real PostgreSQL
+func TestRestartAsStandbyWithRealPostgreSQL(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration tests in short mode")
+	}
+
+	// Check if PostgreSQL binaries are available
+	if !hasPostgreSQLBinaries() {
+		t.Skip("PostgreSQL binaries not found, skipping real PostgreSQL test")
+	}
+
+	pgctldBinary := getCachedPgctldBinary(t)
+	tempDir, cleanup := testutil.TempDir(t, "pgctld_restart_standby_real_test")
+	defer cleanup()
+
+	dataDir := filepath.Join(tempDir, "data")
+
+	// Create a pgctld config file
+	pgctldConfigFile := filepath.Join(tempDir, ".pgctld.yaml")
+	err := os.WriteFile(pgctldConfigFile, []byte(`
+# Test pgctld configuration
+log-level: info
+timeout: 30
+`), 0o644)
+	require.NoError(t, err)
+
+	// Generate random port for this test
+	testPort := testutil.GenerateRandomPort()
+	t.Logf("Using port: %d", testPort)
+
+	// Initialize database
+	initCmd := exec.Command(pgctldBinary, "init", "--pooler-dir", dataDir, "--pg-port", strconv.Itoa(testPort), "--config-file", pgctldConfigFile)
+	setupTestEnv(initCmd)
+	initOutput, err := initCmd.CombinedOutput()
+	if err != nil {
+		t.Logf("pgctld init failed with output: %s", string(initOutput))
+	}
+	require.NoError(t, err)
+
+	// Start PostgreSQL
+	startCmd := exec.Command(pgctldBinary, "start", "--pooler-dir", dataDir, "--pg-port", strconv.Itoa(testPort), "--config-file", pgctldConfigFile)
+	setupTestEnv(startCmd)
+	startOutput, err := startCmd.CombinedOutput()
+	if err != nil {
+		t.Logf("pgctld start failed with output: %s", string(startOutput))
+	}
+	require.NoError(t, err)
+
+	// Verify it's running
+	statusCmd := exec.Command(pgctldBinary, "status", "--pooler-dir", dataDir, "--pg-port", strconv.Itoa(testPort), "--config-file", pgctldConfigFile)
+	setupTestEnv(statusCmd)
+	output, err := statusCmd.Output()
+	require.NoError(t, err)
+	assert.Contains(t, string(output), "Running")
+
+	// Restart as standby
+	restartCmd := exec.Command(pgctldBinary, "restart", "--pooler-dir", dataDir, "--pg-port", strconv.Itoa(testPort), "--as-standby", "--config-file", pgctldConfigFile)
+	setupTestEnv(restartCmd)
+	output, err = restartCmd.CombinedOutput()
+	if err != nil {
+		t.Logf("restart --as-standby output: %s", string(output))
+	}
+	require.NoError(t, err)
+	assert.Contains(t, string(output), "restarted as standby successfully")
+
+	// Verify standby.signal was created
+	standbySignalPath := filepath.Join(pgctld.PostgresDataDir(dataDir), "standby.signal")
+	_, err = os.Stat(standbySignalPath)
+	assert.NoError(t, err, "standby.signal file should exist after restart --as-standby")
+
+	// Verify server is still running
+	statusCmd = exec.Command(pgctldBinary, "status", "--pooler-dir", dataDir, "--pg-port", strconv.Itoa(testPort), "--config-file", pgctldConfigFile)
+	setupTestEnv(statusCmd)
+	output, err = statusCmd.Output()
+	require.NoError(t, err)
+	assert.Contains(t, string(output), "Running")
+
+	// Verify PostgreSQL is in recovery mode (standby mode) by querying pg_is_in_recovery()
+	t.Logf("Verifying PostgreSQL is in recovery mode")
+	socketDir := pgctld.PostgresSocketDir(dataDir)
+	recoveryCheckCmd := exec.Command("psql",
+		"-h", socketDir,
+		"-p", strconv.Itoa(testPort),
+		"-U", "postgres",
+		"-d", "postgres",
+		"-t", "-c", "SELECT pg_is_in_recovery();",
+	)
+	setupTestEnv(recoveryCheckCmd)
+	output, err = recoveryCheckCmd.CombinedOutput()
+	require.NoError(t, err, "Recovery check should succeed, output: %s", string(output))
+	t.Logf("Recovery mode check result: %s", string(output))
+	// The output should contain 't' for true indicating recovery mode
+	assert.Contains(t, strings.TrimSpace(string(output)), "t", "PostgreSQL should be in recovery mode after restart --as-standby")
+
+	// Clean stop
+	stopCmd := exec.Command(pgctldBinary, "stop", "--pooler-dir", dataDir, "--pg-port", strconv.Itoa(testPort), "--config-file", pgctldConfigFile)
+	setupTestEnv(stopCmd)
+	err = stopCmd.Run()
+	require.NoError(t, err)
+}
+
 // TestPostgreSQLAuthentication tests PostgreSQL authentication with PGPASSWORD
 func TestPostgreSQLAuthentication(t *testing.T) {
 	if testing.Short() {

@@ -748,7 +748,8 @@ func TestActionLock_MutationMethodsTimeout(t *testing.T) {
 			name:       "Demote times out when lock is held",
 			poolerType: clustermetadatapb.PoolerType_PRIMARY,
 			callMethod: func(ctx context.Context) error {
-				return manager.Demote(ctx)
+				_, err := manager.Demote(ctx, 1, 5*time.Second, false)
+				return err
 			},
 		},
 		{
@@ -762,7 +763,8 @@ func TestActionLock_MutationMethodsTimeout(t *testing.T) {
 			name:       "Promote times out when lock is held",
 			poolerType: clustermetadatapb.PoolerType_REPLICA,
 			callMethod: func(ctx context.Context) error {
-				return manager.Promote(ctx)
+				_, err := manager.Promote(ctx, 1, "", nil, false)
+				return err
 			},
 		},
 		{

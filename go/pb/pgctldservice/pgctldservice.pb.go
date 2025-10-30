@@ -314,8 +314,10 @@ type RestartRequest struct {
 	// Timeout for stop phase
 	Timeout *durationpb.Duration `protobuf:"bytes,2,opt,name=timeout,proto3" json:"timeout,omitempty"`
 	// Override default port for start phase
-	Port          int32    `protobuf:"varint,3,opt,name=port,proto3" json:"port,omitempty"`
-	ExtraArgs     []string `protobuf:"bytes,4,rep,name=extra_args,json=extraArgs,proto3" json:"extra_args,omitempty"`
+	Port      int32    `protobuf:"varint,3,opt,name=port,proto3" json:"port,omitempty"`
+	ExtraArgs []string `protobuf:"bytes,4,rep,name=extra_args,json=extraArgs,proto3" json:"extra_args,omitempty"`
+	// If true, creates standby.signal before restart (for demotion to standby)
+	AsStandby     bool `protobuf:"varint,5,opt,name=as_standby,json=asStandby,proto3" json:"as_standby,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -376,6 +378,13 @@ func (x *RestartRequest) GetExtraArgs() []string {
 		return x.ExtraArgs
 	}
 	return nil
+}
+
+func (x *RestartRequest) GetAsStandby() bool {
+	if x != nil {
+		return x.AsStandby
+	}
+	return false
 }
 
 type RestartResponse struct {
@@ -1101,13 +1110,15 @@ const file_pgctldservice_proto_rawDesc = "" +
 	"\x04mode\x18\x01 \x01(\tR\x04mode\x123\n" +
 	"\atimeout\x18\x02 \x01(\v2\x19.google.protobuf.DurationR\atimeout\"(\n" +
 	"\fStopResponse\x12\x18\n" +
-	"\amessage\x18\x01 \x01(\tR\amessage\"\x8c\x01\n" +
+	"\amessage\x18\x01 \x01(\tR\amessage\"\xab\x01\n" +
 	"\x0eRestartRequest\x12\x12\n" +
 	"\x04mode\x18\x01 \x01(\tR\x04mode\x123\n" +
 	"\atimeout\x18\x02 \x01(\v2\x19.google.protobuf.DurationR\atimeout\x12\x12\n" +
 	"\x04port\x18\x03 \x01(\x05R\x04port\x12\x1d\n" +
 	"\n" +
-	"extra_args\x18\x04 \x03(\tR\textraArgs\"=\n" +
+	"extra_args\x18\x04 \x03(\tR\textraArgs\x12\x1d\n" +
+	"\n" +
+	"as_standby\x18\x05 \x01(\bR\tasStandby\"=\n" +
 	"\x0fRestartResponse\x12\x10\n" +
 	"\x03pid\x18\x01 \x01(\x05R\x03pid\x12\x18\n" +
 	"\amessage\x18\x02 \x01(\tR\amessage\"\x15\n" +

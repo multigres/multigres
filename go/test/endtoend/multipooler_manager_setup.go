@@ -32,7 +32,6 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 
 	"github.com/multigres/multigres/go/clustermetadata/topo"
-	"github.com/multigres/multigres/go/clustermetadata/topo/etcdtopo"
 	"github.com/multigres/multigres/go/cmd/pgctld/testutil"
 	"github.com/multigres/multigres/go/test/utils"
 	"github.com/multigres/multigres/go/tools/pathutil"
@@ -98,8 +97,8 @@ func cleanupSharedTestSetup() {
 	}
 
 	// Clean up temp directory
-	if sharedTestSetup.TempDir != "" {
-		_ = os.RemoveAll(sharedTestSetup.TempDir)
+	if sharedTestSetup.TempDirCleanup != nil {
+		sharedTestSetup.TempDirCleanup()
 	}
 }
 
@@ -122,6 +121,7 @@ type ProcessInstance struct {
 // MultipoolerTestSetup holds shared test infrastructure
 type MultipoolerTestSetup struct {
 	TempDir            string
+	TempDirCleanup     func()
 	EtcdClientAddr     string
 	EtcdCmd            *exec.Cmd
 	TopoServer         topo.Store
@@ -531,12 +531,22 @@ func getSharedTestSetup(t *testing.T) *MultipoolerTestSetup {
 			return
 		}
 
-		tempDir, _ := testutil.TempDir(t, "multipooler_shared_test")
+		tempDir, tempDirCleanup := testutil.TempDir(t, "multipooler_shared_test")
 		// Note: cleanup will be handled by TestMain to ensure it runs after all tests
 
 		// Start etcd for topology
 		t.Logf("Starting etcd for topology...")
-		etcdClientAddr, etcdCmd := etcdtopo.StartEtcd(t, 0)
+
+		etcdDataDir := filepath.Join(tempDir, "etcd_data")
+		if err := os.MkdirAll(etcdDataDir, 0o755); err != nil {
+			setupError = fmt.Errorf("failed to create etcd data directory: %w", err)
+			return
+		}
+		etcdClientAddr, etcdCmd, err := startEtcdForSharedSetup(etcdDataDir)
+		if err != nil {
+			setupError = fmt.Errorf("failed to start etcd: %w", err)
+			return
+		}
 		// Note: cleanup will be handled by TestMain
 
 		// Create topology server and cell
@@ -598,6 +608,7 @@ func getSharedTestSetup(t *testing.T) *MultipoolerTestSetup {
 
 		sharedTestSetup = &MultipoolerTestSetup{
 			TempDir:            tempDir,
+			TempDirCleanup:     tempDirCleanup,
 			EtcdClientAddr:     etcdClientAddr,
 			EtcdCmd:            etcdCmd,
 			TopoServer:         ts,
@@ -614,6 +625,42 @@ func getSharedTestSetup(t *testing.T) *MultipoolerTestSetup {
 	}
 
 	return sharedTestSetup
+}
+
+// startEtcdForSharedSetup starts etcd without registering t.Cleanup() handlers
+// since cleanup is handled manually by TestMain via cleanupSharedTestSetup()
+func startEtcdForSharedSetup(dataDir string) (string, *exec.Cmd, error) {
+	// Check if etcd is available in PATH
+	_, err := exec.LookPath("etcd")
+	if err != nil {
+		return "", nil, fmt.Errorf("etcd not found in PATH: %w", err)
+	}
+
+	// Get port for etcd using the same mechanism as other tests to avoid conflicts
+	port := utils.GetNextEtcd2Port()
+
+	name := "multigres_shared_test"
+	clientAddr := fmt.Sprintf("http://localhost:%v", port)
+	peerAddr := fmt.Sprintf("http://localhost:%v", port+1)
+	initialCluster := fmt.Sprintf("%v=%v", name, peerAddr)
+
+	cmd := exec.Command("etcd",
+		"-name", name,
+		"-advertise-client-urls", clientAddr,
+		"-initial-advertise-peer-urls", peerAddr,
+		"-listen-client-urls", clientAddr,
+		"-listen-peer-urls", peerAddr,
+		"-initial-cluster", initialCluster,
+		"-data-dir", dataDir)
+
+	if err := cmd.Start(); err != nil {
+		return "", nil, fmt.Errorf("failed to start etcd: %w", err)
+	}
+
+	// Wait for etcd to be ready
+	time.Sleep(500 * time.Millisecond)
+
+	return clientAddr, cmd, nil
 }
 
 // waitForManagerReady waits for the manager to be in ready state

@@ -240,12 +240,31 @@ message GetFollowersResponse {
 }
 
 // Demote demotes the current leader server
+// This is called during the Revocation stage of generalized consensus to safely
+// transition a primary to read-only mode and prevent it from making further progress.
 message DemoteRequest {
+  // Consensus term for this demotion operation
+  int64 consensus_term = 1;
+
+  // Drain timeout - how long to wait for in-flight queries (default: 5s)
+  google.protobuf.Duration drain_timeout = 2;
+
+  // Force the operation even if term validation fails
+  bool force = 3;
 }
 
 message DemoteResponse {
-  // Leader status after demotion
-  PrimaryStatus leader_status = 1;
+  // Whether the node was already demoted (idempotent check)
+  bool was_already_demoted = 1;
+
+  // Consensus term at the time of demotion
+  int64 consensus_term = 2;
+
+  // LSN position at the time of demotion (final position as primary)
+  string lsn_position = 3;
+
+  // Number of connections that were terminated
+  int32 connections_terminated = 4;
 }
 
 // UndoDemote undoes a demotion
@@ -274,12 +293,38 @@ message ChangeTypeResponse {
 }
 
 // Promote promotes a replica to leader (Multigres-level operation)
+// This is called during the Propagate stage of generalized consensus
+// to safely transition a standby to primary and reconfigure replication.
 message PromoteRequest {
+  // Consensus term for this promotion operation
+  // Used to ensure this promotion corresponds to the correct term
+  int64 consensus_term = 1;
+
+  // Expected LSN position before promotion (optional, for validation)
+  // By the Propagate stage, replication should already be stopped and the LSN frozen.
+  // This is an assertion to verify the node has the expected durable state.
+  // If the actual LSN doesn't match, this indicates an error in an earlier consensus stage.
+  // If empty, skip LSN validation.
+  string expected_lsn = 2;
+
+  // Synchronous replication configuration to apply after promotion
+  // This rewires the cohort for the new topology
+  ConfigureSynchronousReplicationRequest sync_replication_config = 3;
+
+  // Force the operation even if term validation fails
+  // Should only be used in recovery scenarios
+  bool force = 4;
 }
 
 message PromoteResponse {
   // LSN position after promotion
   string lsn_position = 1;
+
+  // Whether the node was already promoted (idempotent check)
+  bool was_already_primary = 2;
+
+  // Consensus term at the time of promotion
+  int64 consensus_term = 3;
 }
 
 // ResetReplication resets the standby's connection to its primary

@@ -210,4 +210,9 @@ enum PoolerServingStatus {
   // to route queries from Multigres users. In this state,
   // this multipooler is dedicated to the process that uses it.
   DRAINED = 4;
+
+  // SERVING_RDONLY is the status of a server in read-only mode.
+  // This is used during demotion when the server transitions from PRIMARY to REPLICA,
+  // or for read-only replicas. The server accepts connections but only serves read queries.
+  SERVING_RDONLY = 5;
 }
