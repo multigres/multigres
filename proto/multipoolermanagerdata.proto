@@ -146,8 +146,10 @@ message PrimaryStatus {
   // Whether server is accepting connections
   bool ready = 2;
 
-  // Connected follower servers (as cluster IDs parsed from application_name)
-  repeated clustermetadata.ID followers = 3;
+  // Follower servers that are currently connected to the primary (parsed from pg_stat_replication).
+  // This only includes followers that have an active replication connection, not all configured standbys.
+  // For a complete view of all configured standbys (connected and disconnected), use GetFollowers.
+  repeated clustermetadata.ID connected_followers = 3;
 
   // Synchronous replication configuration (parsed from synchronous_standby_names and synchronous_commit)
   SynchronousReplicationConfiguration sync_replication_config = 4;
@@ -171,13 +173,70 @@ message PrimaryPositionResponse {
   string lsn_position = 1;
 }
 
-// GetFollowers gets the list of follower servers
+// Replication statistics for a connected follower from pg_stat_replication
+message ReplicationStats {
+  // PostgreSQL backend process ID for this replication connection
+  int32 pid = 1;
+
+  // Client IP address of the follower
+  string client_addr = 2;
+
+  // Current WAL sender state (startup, catchup, streaming, backup, stopping)
+  string state = 3;
+
+  // Synchronous state (async, potential, sync, quorum)
+  string sync_state = 4;
+
+  // LSN of the last WAL location sent to this standby
+  string sent_lsn = 5;
+
+  // LSN of the last WAL location written to disk on this standby
+  string write_lsn = 6;
+
+  // LSN of the last WAL location flushed to disk on this standby
+  string flush_lsn = 7;
+
+  // LSN of the last WAL location replayed on this standby
+  string replay_lsn = 8;
+
+  // Time taken to write recent WAL locally (may be null)
+  google.protobuf.Duration write_lag = 9;
+
+  // Time taken to flush recent WAL locally (may be null)
+  google.protobuf.Duration flush_lag = 10;
+
+  // Time taken to replay recent WAL on standby (may be null)
+  google.protobuf.Duration replay_lag = 11;
+}
+
+// Information about a follower that is part of the current cohort (configured in
+// synchronous_standby_names). Includes connection status and replication stats if connected.
+message FollowerInfo {
+  // Cluster ID of the follower from synchronous_standby_names configuration
+  clustermetadata.ID follower_id = 1;
+
+  // Application name (format: {cell}_{name})
+  string application_name = 2;
+
+  // Whether this follower is currently connected to the primary
+  bool is_connected = 3;
+
+  // Replication statistics (only populated if is_connected is true)
+  ReplicationStats replication_stats = 4;
+}
+
+// GetFollowers gets the list of follower servers with detailed replication status
 message GetFollowersRequest {
 }
 
 message GetFollowersResponse {
-  // List of follower server addresses
-  repeated string follower_addresses = 1;
+  // Information about all followers configured in synchronous_standby_names.
+  // Each entry indicates whether the follower is connected and includes replication
+  // statistics if available. This provides a complete view of the expected cohort.
+  repeated FollowerInfo followers = 1;
+
+  // Current synchronous replication configuration for context
+  SynchronousReplicationConfiguration sync_config = 2;
 }
 
 // Demote demotes the current leader server

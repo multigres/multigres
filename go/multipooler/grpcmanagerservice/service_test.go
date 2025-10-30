@@ -90,15 +90,6 @@ func TestManagerServiceMethods_NotImplemented(t *testing.T) {
 		expectedMethod string
 	}{
 		{
-			name: "GetFollowers",
-			method: func() error {
-				req := &multipoolermanagerdata.GetFollowersRequest{}
-				_, err := svc.GetFollowers(ctx, req)
-				return err
-			},
-			expectedMethod: "GetFollowers",
-		},
-		{
 			name: "UndoDemote",
 			method: func() error {
 				req := &multipoolermanagerdata.UndoDemoteRequest{}
@@ -265,14 +256,6 @@ func TestManagerServiceMethods_ManagerNotReady(t *testing.T) {
 					PoolerType: clustermetadata.PoolerType_PRIMARY,
 				}
 				_, err := svc.ChangeType(ctx, req)
-				return err
-			},
-		},
-		{
-			name: "GetFollowers",
-			method: func() error {
-				req := &multipoolermanagerdata.GetFollowersRequest{}
-				_, err := svc.GetFollowers(ctx, req)
 				return err
 			},
 		},

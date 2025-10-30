@@ -1,26 +1,30 @@
-/*
- * PostgreSQL Grammar File - Foundation and Expression Implementation
- * Ported from postgres/src/backend/parser/gram.y
- *
- * This implements the core grammar structure and foundational rules
- * following PostgreSQL patterns and Go/goyacc conventions
- */
-
 %{
-// Copyright 2025 Supabase, Inc.
+// PostgreSQL Database Management System
+// (also known as Postgres, formerly known as Postgres95)
 //
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
+//  Portions Copyright (c) 2025, Supabase, Inc
 //
-//     http://www.apache.org/licenses/LICENSE-2.0
+//  Portions Copyright (c) 1996-2025, PostgreSQL Global Development Group
 //
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-
+//  Portions Copyright (c) 1994, The Regents of the University of California
+//
+// Permission to use, copy, modify, and distribute this software and its
+// documentation for any purpose, without fee, and without a written agreement
+// is hereby granted, provided that the above copyright notice and this
+// paragraph and the following two paragraphs appear in all copies.
+//
+// IN NO EVENT SHALL THE UNIVERSITY OF CALIFORNIA BE LIABLE TO ANY PARTY FOR
+// DIRECT, INDIRECT, SPECIAL, INCIDENTAL, OR CONSEQUENTIAL DAMAGES, INCLUDING
+// LOST PROFITS, ARISING OUT OF THE USE OF THIS SOFTWARE AND ITS
+// DOCUMENTATION, EVEN IF THE UNIVERSITY OF CALIFORNIA HAS BEEN ADVISED OF THE
+// POSSIBILITY OF SUCH DAMAGE.
+//
+// THE UNIVERSITY OF CALIFORNIA SPECIFICALLY DISCLAIMS ANY WARRANTIES,
+// INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY
+// AND FITNESS FOR A PARTICULAR PURPOSE.  THE SOFTWARE PROVIDED HEREUNDER IS
+// ON AN "AS IS" BASIS, AND THE UNIVERSITY OF CALIFORNIA HAS NO OBLIGATIONS TO
+// PROVIDE MAINTENANCE, SUPPORT, UPDATES, ENHANCEMENTS, OR MODIFICATIONS.
+//
 package parser
 
 import (
@@ -334,7 +338,7 @@ type ImportQual struct {
 %type <str>          all_Op MathOp
 %type <node>         in_expr
 %type <ival>         opt_asymmetric opt_asc_desc opt_nulls_order sub_type json_predicate_type_constraint
-%type <str>          unicode_normal_form  
+%type <str>          unicode_normal_form
 %type <bval>         json_key_uniqueness_constraint_opt
 
 %type <list>         group_by_list sort_clause sortby_list
@@ -417,7 +421,7 @@ type ImportQual struct {
 %type <node>         json_value_expr
 %type <list>         json_arguments
 %type <node>         json_argument
-%type <list>         json_value_expr_list  
+%type <list>         json_value_expr_list
 %type <node>         json_aggregate_func
 %type <node>         json_name_and_value
 %type <list>         json_name_and_value_list
@@ -2890,34 +2894,34 @@ opt_indirection: /* EMPTY */						{ $$ = nil }
 func_expr:	func_application within_group_clause filter_clause over_clause
 			{
 				funcCall := $1.(*ast.FuncCall)
-				
+
 				// Apply within_group_clause if present
 				if $2 != nil {
 					// WITHIN GROUP (ORDER BY ...) - store the sort list
 					funcCall.AggOrder = $2
 					funcCall.AggWithinGroup = true
 				}
-				
-				// Apply filter_clause if present  
+
+				// Apply filter_clause if present
 				if $3 != nil {
 					// FILTER (WHERE condition) - store the filter expression
 					funcCall.AggFilter = $3
 				}
-				
+
 				// Apply over_clause if present (window functions)
 				if $4 != nil {
 					funcCall.Over = $4
 				}
-				
+
 				$$ = funcCall
 			}
 		|	json_aggregate_func filter_clause over_clause
 			{
 				jsonAgg := $1
-				
+
 				// Create or get the Constructor
 				var constructor *ast.JsonAggConstructor
-				
+
 				// Handle the filter_clause and over_clause by setting them in the Constructor
 				switch jsonFunc := jsonAgg.(type) {
 				case *ast.JsonObjectAgg:
@@ -2931,7 +2935,7 @@ func_expr:	func_application within_group_clause filter_clause over_clause
 					}
 					constructor = jsonFunc.Constructor
 				}
-				
+
 				// Set filter and over clauses outside the switch (DRY)
 				if constructor != nil {
 					if $2 != nil {
@@ -2941,7 +2945,7 @@ func_expr:	func_application within_group_clause filter_clause over_clause
 						constructor.Over = $3
 					}
 				}
-				
+
 				$$ = jsonAgg
 			}
 		|	func_expr_common_subexpr
@@ -2952,7 +2956,7 @@ func_expr:	func_application within_group_clause filter_clause over_clause
 func_expr_common_subexpr:
 			COLLATION FOR '(' a_expr ')'
 			{
-				// SystemFuncName("pg_collation_for") 
+				// SystemFuncName("pg_collation_for")
 				funcName := ast.NewNodeList(ast.NewString("pg_catalog"), ast.NewString("pg_collation_for"))
 				funcCall := ast.NewFuncCall(funcName, ast.NewNodeList($4), 0)
 				funcCall.Funcformat = ast.COERCE_SQL_SYNTAX
@@ -4266,7 +4270,7 @@ any_operator: all_Op
 		;
 
 /* Supporting rules for expression grammar */
-opt_sort_clause: 
+opt_sort_clause:
 		sort_clause							{ $$ = $1 }
 	|	/* EMPTY */							{ $$ = nil }
 		;
@@ -5405,7 +5409,7 @@ xmltable_column_el:
 		|	ColId Typename xmltable_column_option_list
 			{
 				rangeTableFuncCol := ast.NewRangeTableFuncCol($1, $2, false, false, nil, nil, 0)
-				
+
 				// Process column options from $3, matching PostgreSQL's implementation
 				optionsList := $3
 				if optionsList != nil {
@@ -5423,7 +5427,7 @@ xmltable_column_el:
 						}
 					}
 				}
-				
+
 				$$ = rangeTableFuncCol
 			}
 		;
@@ -5546,12 +5550,12 @@ json_value_expr_list:
 /* JSON name and value rules - exact PostgreSQL grammar match */
 json_name_and_value_list:
 			json_name_and_value
-			{ 
-				$$ = ast.NewNodeList($1) 
+			{
+				$$ = ast.NewNodeList($1)
 			}
 		|	json_name_and_value_list ',' json_name_and_value
-			{ 
-				$1.Append($3); $$ = $1 
+			{
+				$1.Append($3); $$ = $1
 			}
 		;
 
@@ -5604,7 +5608,7 @@ json_aggregate_func:
 					jsonOutput = $6.(*ast.JsonOutput)
 				}
 				constructor := ast.NewJsonAggConstructor(jsonOutput)
-				
+
 				$$ = ast.NewJsonObjectAgg(constructor, $3.(*ast.JsonKeyValue), $4, $5)
 			}
 		|	JSON_ARRAYAGG '('
@@ -6117,7 +6121,7 @@ CopyStmt:
 				}
 				// Assign column list directly as NodeList
 				copyStmt.Attlist = $4
-				
+
 				// Initialize Options as empty NodeList and add options
 				copyStmt.Options = ast.NewNodeList()
 				if $2 != nil {
@@ -7309,7 +7313,7 @@ ColConstraintElem:
 						constraint.FkUpdAction = actions.UpdateAction.Action
 						constraint.FkDelAction = actions.DeleteAction.Action
 						// Copy column list for SET NULL/SET DEFAULT on DELETE
-						if actions.DeleteAction.Action == ast.FKCONSTR_ACTION_SETNULL || 
+						if actions.DeleteAction.Action == ast.FKCONSTR_ACTION_SETNULL ||
 						   actions.DeleteAction.Action == ast.FKCONSTR_ACTION_SETDEFAULT {
 							constraint.FkDelSetCols = actions.DeleteAction.Cols
 						}
@@ -7405,7 +7409,7 @@ ConstraintElem:
 						constraint.FkUpdAction = actions.UpdateAction.Action
 						constraint.FkDelAction = actions.DeleteAction.Action
 						// Copy column list for SET NULL/SET DEFAULT on DELETE
-						if actions.DeleteAction.Action == ast.FKCONSTR_ACTION_SETNULL || 
+						if actions.DeleteAction.Action == ast.FKCONSTR_ACTION_SETNULL ||
 						   actions.DeleteAction.Action == ast.FKCONSTR_ACTION_SETDEFAULT {
 							constraint.FkDelSetCols = actions.DeleteAction.Cols
 						}
@@ -7930,7 +7934,7 @@ alter_table_cmds:
 				}
 		;
 
-/* Optional NOWAIT - for ALTER TABLE */  
+/* Optional NOWAIT - for ALTER TABLE */
 opt_nowait:
 			NOWAIT				{ $$ = true }
 		|	/* EMPTY */			{ $$ = false }
@@ -8958,7 +8962,7 @@ constraints_set_mode:
  * PL/pgSQL Assignment Statement - Phase 3J PostgreSQL Extensions
  * Ported from postgres/src/backend/parser/gram.y
  */
-PLpgSQL_Expr: 
+PLpgSQL_Expr:
 		opt_distinct_clause opt_target_list
 		from_clause where_clause
 		group_clause having_clause window_clause
@@ -8986,7 +8990,7 @@ PLpgSQL_Expr:
 			}
 	;
 
-PLAssignStmt: 
+PLAssignStmt:
 		plassign_target opt_indirection plassign_equals PLpgSQL_Expr
 			{
 				n := ast.NewPLAssignStmt($1, $4.(*ast.SelectStmt))
@@ -8995,12 +8999,12 @@ PLAssignStmt:
 			}
 	;
 
-plassign_target: 
+plassign_target:
 		ColId							{ $$ = $1 }
 	|	PARAM							{ $$ = fmt.Sprintf("$%d", $1) }
 	;
 
-plassign_equals: 
+plassign_equals:
 		COLON_EQUALS
 	|	'='
 	;
@@ -9100,7 +9104,7 @@ VacuumStmt:
 						optionsList.Append(ast.NewDefElem("analyze", ast.NewBoolean(true)))
 					}
 				}
-				
+
 				$$ = ast.NewVacuumStmt(optionsList, $6)
 			}
 	|	VACUUM '(' utility_option_list ')' opt_vacuum_relation_list
@@ -9116,7 +9120,7 @@ AnalyzeStmt:
 				if $2 != 0 {
 					optionsList = ast.NewNodeList(ast.NewDefElem("verbose", ast.NewBoolean(true)))
 				}
-				
+
 				$$ = ast.NewAnalyzeStmt(optionsList, $3)
 			}
 	|	analyze_keyword '(' utility_option_list ')' opt_vacuum_relation_list
@@ -10392,7 +10396,7 @@ createfunc_opt_item:
 		;
 
 func_as:
-			Sconst								
+			Sconst
 				{
 					list := ast.NewNodeList()
 					list.Append(ast.NewString($1))
@@ -10481,7 +10485,7 @@ FunctionSetResetClause:
 			| VariableResetStmt
 				{
 					$$ = $1.(*ast.VariableSetStmt)
-				} 
+				}
 		;
 
 /*****************************************************************************
@@ -10503,7 +10507,7 @@ CreateTrigStmt:
 					if eventsList.Items[1] != nil {
 						columns = eventsList.Items[1].(*ast.NodeList)
 					}
-					
+
 					stmt := &ast.CreateTriggerStmt{
 						Replace: $2,
 						IsConstraint: false,
@@ -10535,7 +10539,7 @@ CreateTrigStmt:
 					if eventsList.Items[1] != nil {
 						columns = eventsList.Items[1].(*ast.NodeList)
 					}
-					
+
 					stmt := &ast.CreateTriggerStmt{
 						Replace: $2,
 						IsConstraint: true,
@@ -10573,16 +10577,16 @@ TriggerEvents:
 					events2 := $3.Items[0].(*ast.Integer).IVal
 					columns1 := $1.Items[1]
 					columns2 := $3.Items[1]
-					
+
 					// Check for duplicate events
 					if events1 & events2 != 0 {
 						// TODO: Generate parse error for duplicate trigger events
 					}
-					
-					// Create combined result [events1|events2, combined_columns] 
+
+					// Create combined result [events1|events2, combined_columns]
 					list := ast.NewNodeList()
 					list.Append(ast.NewInteger(events1 | events2))
-					
+
 					// Concatenate column lists (if any)
 					if columns1 != nil && columns2 != nil {
 						// Both have columns - concatenate
@@ -10596,46 +10600,46 @@ TriggerEvents:
 					} else if columns1 != nil {
 						list.Append(columns1)
 					} else if columns2 != nil {
-						list.Append(columns2) 
+						list.Append(columns2)
 					} else {
 						list.Append(nil)
 					}
-					
+
 					$$ = list
 				}
 		;
 
 TriggerOneEvent:
 			INSERT
-				{ 
+				{
 					list := ast.NewNodeList()
 					list.Append(ast.NewInteger(int(ast.TRIGGER_TYPE_INSERT)))
 					list.Append(nil) // No columns for INSERT
 					$$ = list
 				}
 		|	DELETE_P
-				{ 
+				{
 					list := ast.NewNodeList()
 					list.Append(ast.NewInteger(int(ast.TRIGGER_TYPE_DELETE)))
 					list.Append(nil) // No columns for DELETE
 					$$ = list
 				}
 		|	UPDATE
-				{ 
+				{
 					list := ast.NewNodeList()
 					list.Append(ast.NewInteger(int(ast.TRIGGER_TYPE_UPDATE)))
 					list.Append(nil) // No columns for UPDATE
 					$$ = list
 				}
 		|	UPDATE OF columnList
-				{ 
+				{
 					list := ast.NewNodeList()
 					list.Append(ast.NewInteger(int(ast.TRIGGER_TYPE_UPDATE)))
 					list.Append($3) // Column list for UPDATE OF
 					$$ = list
 				}
 		|	TRUNCATE
-				{ 
+				{
 					list := ast.NewNodeList()
 					list.Append(ast.NewInteger(int(ast.TRIGGER_TYPE_TRUNCATE)))
 					list.Append(nil) // No columns for TRUNCATE
@@ -10649,12 +10653,12 @@ TriggerReferencing:
 		;
 
 TriggerTransitions:
-			TriggerTransition					{ 
+			TriggerTransition					{
 				list := ast.NewNodeList()
 				list.Append($1)
 				$$ = list
 			}
-		|	TriggerTransitions TriggerTransition	{ 
+		|	TriggerTransitions TriggerTransition	{
 				$1.Append($2)
 				$$ = $1
 			}
@@ -10719,12 +10723,12 @@ FUNCTION_or_PROCEDURE:
 		;
 
 TriggerFuncArgs:
-			TriggerFuncArg					{ 
+			TriggerFuncArg					{
 				list := ast.NewNodeList()
 				list.Append($1)
 				$$ = list
 			}
-		|	TriggerFuncArgs ',' TriggerFuncArg	{ 
+		|	TriggerFuncArgs ',' TriggerFuncArg	{
 				$1.Append($3)
 				$$ = $1
 			}
@@ -10748,7 +10752,7 @@ OptConstrFromTable:
 
 /*****************************************************************************
  *
- *		CREATE VIEW statements - Phase 3G  
+ *		CREATE VIEW statements - Phase 3G
  *
  * Exactly matches PostgreSQL CREATE VIEW grammar from gram.y
  *****************************************************************************/
@@ -10773,7 +10777,7 @@ ViewStmt:
 		|	CREATE OR REPLACE OptTemp VIEW qualified_name opt_column_list opt_reloptions
 			AS SelectStmt opt_check_option
 				{
-					// Apply OptTemp persistence to the view RangeVar  
+					// Apply OptTemp persistence to the view RangeVar
 					view := $6
 					view.RelPersistence = rune($4)
 					stmt := &ast.ViewStmt{
@@ -11113,7 +11117,7 @@ DefineStmt:
 					yylex.Error(fmt.Sprintf("invalid type name: %v", err))
 					return 1
 				}
-				
+
 				n := ast.NewCompositeTypeStmt(typevar, $6)
 				$$ = n
 			}
@@ -11302,7 +11306,7 @@ AlterExtensionContentsStmt:
 			}
 	|	ALTER EXTENSION name add_drop OPERATOR CLASS any_name USING name
 			{
-				// OPERATOR CLASS takes method name + class name as NodeList  
+				// OPERATOR CLASS takes method name + class name as NodeList
 				list := ast.NewNodeList(ast.NewString($9)) // method first
 				for _, item := range $7.Items {
 					list.Append(item) // then class name parts
@@ -11314,7 +11318,7 @@ AlterExtensionContentsStmt:
 				// OPERATOR FAMILY takes method name + family name as NodeList
 				list := ast.NewNodeList(ast.NewString($9)) // method first
 				for _, item := range $7.Items {
-					list.Append(item) // then family name parts  
+					list.Append(item) // then family name parts
 				}
 				$$ = ast.NewAlterExtensionContentsStmt($3, $4 != 0, int(ast.OBJECT_OPFAMILY), list)
 			}
@@ -11378,7 +11382,7 @@ opt_fdw_options:
 
 handler_name:
 		name							{ $$ = ast.NewNodeList(ast.NewString($1)) }
-	|	name attrs						{ 
+	|	name attrs						{
 										result := ast.NewNodeList(ast.NewString($1))
 										for _, item := range $2.Items {
 											result.Append(item)
@@ -11545,7 +11549,7 @@ DropUserMappingStmt: DROP USER MAPPING FOR auth_ident SERVER name
 			}
 		;
 
-auth_ident: 
+auth_ident:
 		RoleSpec					{ $$ = $1 }
 	|	USER						{ $$ = ast.NewRoleSpec(ast.ROLESPEC_CURRENT_USER, "") }
 	;
@@ -11765,7 +11769,7 @@ RefreshMatViewStmt:
 
 /*****************************************************************************
  *
- *		CREATE ASSERTION statement 
+ *		CREATE ASSERTION statement
  *		Note: Not yet implemented in PostgreSQL, returns error
  *
  *****************************************************************************/
@@ -11841,7 +11845,7 @@ RuleActionList:
 
 RuleActionMulti:
 			RuleActionMulti ';' RuleActionStmtOrEmpty
-				{ 
+				{
 					if $3 != nil {
 						if $1 != nil {
 							$1.Items = append($1.Items, $3)
@@ -11852,7 +11856,7 @@ RuleActionMulti:
 					}
 				}
 			| RuleActionStmtOrEmpty
-				{ 
+				{
 					if $1 != nil {
 						$$ = ast.NewNodeList($1)
 					} else {
@@ -12005,7 +12009,7 @@ generic_set:
 		;
 
 var_name:
-			ColId									
+			ColId
 				{
 					$$ = $1
 				}
@@ -12016,7 +12020,7 @@ var_name:
 		;
 
 var_list:
-			var_value								
+			var_value
 				{
 					list := ast.NewNodeList()
 					list.Append($1)
@@ -12323,7 +12327,7 @@ AlterTblSpcStmt:
 
 /*****************************************************************************
  *
- * CREATE/ALTER POLICY support  
+ * CREATE/ALTER POLICY support
  *
  *****************************************************************************/
 
@@ -12376,7 +12380,7 @@ row_security_cmd:
 
 RowSecurityDefaultToRole:
 		TO role_list				{ $$ = $2 }
-		| /* EMPTY */				{ 
+		| /* EMPTY */				{
 			// Default to PUBLIC when no TO clause is specified
 			publicRole := ast.NewRoleSpec(ast.ROLESPEC_PUBLIC, "")
 			$$ = ast.NewNodeList(publicRole)
@@ -12987,7 +12991,7 @@ window_specification:
 				n.Refname = $2
 				n.PartitionClause = $3
 				n.OrderClause = $4
-				
+
 				n.FrameOptions = $5.FrameOptions
 				n.StartOffset = $5.StartOffset
 				n.EndOffset = $5.EndOffset
@@ -13048,7 +13052,7 @@ frame_extent:
 				} else if (n.FrameOptions & ast.FRAMEOPTION_START_OFFSET_FOLLOWING) != 0 {
 					yylex.Error("frame starting from following row cannot end with current row")
 					return 1
-				} 
+				}
 				n.FrameOptions |= ast.FRAMEOPTION_END_CURRENT_ROW
 				$$ = n
 			}
@@ -13056,13 +13060,13 @@ frame_extent:
 			{
 				n1 := $2
 				n2 := $4
-				
+
 				// form merged options
 				frameOptions := n1.FrameOptions
 				// shift converts START_ options to END_ options
 				frameOptions |= (n2.FrameOptions << 1)
 				frameOptions |= ast.FRAMEOPTION_BETWEEN
-				
+
 				// reject invalid cases
 				if (frameOptions & ast.FRAMEOPTION_START_UNBOUNDED_FOLLOWING) != 0 {
 					yylex.Error("frame start cannot be UNBOUNDED FOLLOWING")
@@ -13079,7 +13083,7 @@ frame_extent:
 						   (frameOptions & ast.FRAMEOPTION_END_CURRENT_ROW) != 0) {
 					yylex.Error("frame starting from following row cannot have preceding rows")
 					return 1;
-				} 
+				}
 				n1.FrameOptions = frameOptions
 				n1.EndOffset = n2.StartOffset
 				$$ = n1
@@ -13254,11 +13258,11 @@ select_offset_value:
 select_fetch_first_value:
 		c_expr									{ $$ = $1 }
 	|	'+' I_or_F_const
-			{ 
+			{
 				$$ = ast.NewA_Expr(ast.AEXPR_OP, &ast.NodeList{Items: []ast.Node{ast.NewString("+")}}, nil, $2, -1)
 			}
 	|	'-' I_or_F_const
-			{ 
+			{
 				// Create a unary minus expression
 				$$ = ast.NewA_Expr(ast.AEXPR_OP, &ast.NodeList{Items: []ast.Node{ast.NewString("-")}}, nil, $2, -1)
 			}
@@ -13270,12 +13274,12 @@ I_or_F_const:
 	;
 
 /* noise words */
-row_or_rows: 
+row_or_rows:
 		ROW										{ $$ = 0 }
 	|	ROWS									{ $$ = 0 }
 	;
 
-first_or_next: 
+first_or_next:
 		FIRST_P									{ $$ = 0 }
 	|	NEXT									{ $$ = 0 }
 	;
@@ -13416,7 +13420,7 @@ CreateGroupStmt:
 AlterRoleStmt:
 			ALTER ROLE RoleSpec opt_with AlterOptRoleList
 				{
-					as := ast.NewAlterRoleStmt($3, $5) 
+					as := ast.NewAlterRoleStmt($3, $5)
 					as.Action = +1
 					$$ = as
 				}
@@ -14075,9 +14079,9 @@ opt_repeatable_clause:
 		;
 
 /*****************************************************************************
- * 
+ *
  * ALTER FUNCTION statement
- * 
+ *
  * Ported from postgres/src/backend/parser/gram.y AlterFunctionStmt
  *****************************************************************************/
 
@@ -14267,9 +14271,9 @@ operator_with_argtypes_list:
 		;
 
 /*****************************************************************************
- * 
+ *
  * ALTER TYPE statements
- * 
+ *
  * Ported from postgres/src/backend/parser/gram.y
  *****************************************************************************/
 
@@ -14341,9 +14345,9 @@ alter_type_cmd:
 		;
 
 /*****************************************************************************
- * 
+ *
  * EVENT specification for rules
- * 
+ *
  * Ported from postgres/src/backend/parser/gram.y
  *****************************************************************************/
 
@@ -14779,7 +14783,7 @@ CommentStmt:
 			}
 		|	COMMENT ON OPERATOR FAMILY any_name USING name IS comment_text
 			{
-				// Operator family: access method + family name  
+				// Operator family: access method + family name
 				opfamilyObj := ast.NewNodeList()
 				opfamilyObj.Append(ast.NewString($7))  // Access method name first
 				for _, item := range $5.Items {
