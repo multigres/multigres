@@ -42,12 +42,6 @@ func NewPlanner(defaultTableGroup string, logger *slog.Logger) *Planner {
 
 // Plan creates an execution plan for the given SQL query.
 //
-// Phase 1 Implementation:
-// - Does NOT parse the query (just passes SQL through)
-// - Routes ALL queries to the default tablegroup
-// - Creates a simple Route primitive
-//
-// Future phases will:
 // - Parse SQL to understand query structure
 // - Analyze which tablegroups are needed
 // - Create more complex primitives (joins, aggregates, etc.)
@@ -58,10 +52,8 @@ func (p *Planner) Plan(sql string, conn *server.Conn) (*engine.Plan, error) {
 		"database", conn.Database(),
 		"default_tablegroup", p.defaultTableGroup)
 
-	// Phase 1: Create a simple route to default tablegroup
-	// TODO(Phase 2): Parse SQL and analyze query structure
-	// TODO(Phase 2): Determine actual target tablegroup(s) and shards
-	// TODO(Phase 3): Create complex primitives for joins, aggregates, etc.
+	// For now create a simple route to default tablegroup
+	// TODO: Parse SQL and analyze query structure, Determine actual target tablegroup(s) and shards, Create complex primitives for joins, aggregates, etc.
 
 	route := engine.NewRoute(
 		p.defaultTableGroup,
