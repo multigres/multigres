@@ -514,8 +514,8 @@ func startEtcdForSharedSetup(dataDir string) (string, *exec.Cmd, error) {
 		return "", nil, fmt.Errorf("etcd not found in PATH: %w", err)
 	}
 
-	// Get port for etcd
-	port := testutil.GenerateRandomPort()
+	// Get port for etcd using the same mechanism as other tests to avoid conflicts
+	port := utils.GetNextEtcd2Port()
 
 	name := "multigres_shared_test"
 	clientAddr := fmt.Sprintf("http://localhost:%v", port)
