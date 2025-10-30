@@ -44,6 +44,9 @@ func NewExecutor(logger *slog.Logger, db *sql.DB) *Executor {
 
 // ExecuteQuery implements queryservice.QueryService.
 func (e *Executor) ExecuteQuery(ctx context.Context, target *query.Target, sql string, maxRows uint64) (*query.QueryResult, error) {
+	if target == nil {
+		target = &query.Target{}
+	}
 	e.logger.Debug("executing query",
 		"tablegroup", target.TableGroup,
 		"shard", target.Shard,

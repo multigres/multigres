@@ -52,11 +52,8 @@ func (s *poolerService) StreamExecute(req *multipoolerpb.StreamExecuteRequest, s
 		return fmt.Errorf("executor not initialized")
 	}
 
-	// Convert query bytes to string
-	queryString := string(req.Query)
-
 	// Execute the query and stream results
-	err = executor.StreamExecute(stream.Context(), req.Target, queryString, func(ctx context.Context, result *querypb.QueryResult) error {
+	err = executor.StreamExecute(stream.Context(), req.Target, req.Query, func(ctx context.Context, result *querypb.QueryResult) error {
 		// Send the result back to the client
 		response := &multipoolerpb.StreamExecuteResponse{
 			Result: result,
@@ -65,4 +62,24 @@ func (s *poolerService) StreamExecute(req *multipoolerpb.StreamExecuteRequest, s
 	})
 
 	return err
+}
+
+// ExecuteQuery executes a SQL query and returns the result
+// This should be used sparingly only when we know the result set is small,
+// otherwise StreamExecute should be used.
+func (s *poolerService) ExecuteQuery(ctx context.Context, req *multipoolerpb.ExecuteQueryRequest) (*multipoolerpb.ExecuteQueryResponse, error) {
+	// Get the executor from the pooler
+	executor, err := s.pooler.GetExecutor()
+	if err != nil {
+		return nil, fmt.Errorf("executor not initialized")
+	}
+
+	// Execute the query and stream results
+	res, err := executor.ExecuteQuery(ctx, req.Target, req.Query, req.MaxRows)
+	if err != nil {
+		return nil, err
+	}
+	return &multipoolerpb.ExecuteQueryResponse{
+		Result: res,
+	}, nil
 }
