@@ -37,13 +37,10 @@ type MultiPooler struct {
 
 // NewMultiPooler creates a new multipooler instance
 func NewMultiPooler(logger *slog.Logger, config *manager.Config) *MultiPooler {
-	mp := &MultiPooler{
+	return &MultiPooler{
 		logger: logger,
 		config: config,
 	}
-	_ = mp.connectDB()
-	mp.executor = executor.NewExecutor(logger, mp.db)
-	return mp
 }
 
 // connectDB establishes a connection to PostgreSQL
@@ -122,6 +119,17 @@ func (s *MultiPooler) Start(senv *servenv.ServEnv) {
 }
 
 // GetExecutor returns the executor instance for use by gRPC service handlers.
-func (s *MultiPooler) GetExecutor() queryservice.QueryService {
-	return s.executor
+func (s *MultiPooler) GetExecutor() (queryservice.QueryService, error) {
+	if s.executor == nil {
+		// TODO: We should initialize the executor in the NewPooler codepath,
+		// but we need the db connection which might not be up at the moment the pooler starts
+		// When we have connection pooling, it should be resilient to db not being up, and at that point,
+		// we can move the executor initalization as well to NewPooler.
+		err := s.connectDB()
+		if err != nil {
+			return nil, err
+		}
+		s.executor = executor.NewExecutor(s.logger, s.db)
+	}
+	return s.executor, nil
 }

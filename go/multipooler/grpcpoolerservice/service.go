@@ -47,8 +47,8 @@ func RegisterPoolerServices(senv *servenv.ServEnv, grpc *servenv.GrpcServer) {
 // This is the main execution method used by multigateway.
 func (s *poolerService) StreamExecute(req *multipoolerpb.StreamExecuteRequest, stream multipoolerpb.MultiPoolerService_StreamExecuteServer) error {
 	// Get the executor from the pooler
-	executor := s.pooler.GetExecutor()
-	if executor == nil {
+	executor, err := s.pooler.GetExecutor()
+	if err != nil {
 		return fmt.Errorf("executor not initialized")
 	}
 
@@ -56,7 +56,7 @@ func (s *poolerService) StreamExecute(req *multipoolerpb.StreamExecuteRequest, s
 	queryString := string(req.Query)
 
 	// Execute the query and stream results
-	err := executor.StreamExecute(stream.Context(), req.Target, queryString, func(ctx context.Context, result *querypb.QueryResult) error {
+	err = executor.StreamExecute(stream.Context(), req.Target, queryString, func(ctx context.Context, result *querypb.QueryResult) error {
 		// Send the result back to the client
 		response := &multipoolerpb.StreamExecuteResponse{
 			Result: result,
