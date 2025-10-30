@@ -33,6 +33,16 @@ import (
 //
 // All methods must be safe to be called concurrently.
 type QueryService interface {
+	// ExecuteQuery executes a query and returns the results.
+	// This should be used sparingly only when we know the result set is small,
+	// otherwise StreamExecute should be used.
+	ExecuteQuery(
+		ctx context.Context,
+		target *query.Target,
+		sql string,
+		maxRows uint64,
+	) (*query.QueryResult, error)
+
 	// StreamExecute executes a query and streams results back via callback.
 	// The callback will be called for each QueryResult. If the callback returns
 	// an error, streaming stops and that error is returned.

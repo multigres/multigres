@@ -42,6 +42,18 @@ func NewExecutor(logger *slog.Logger, db *sql.DB) *Executor {
 	}
 }
 
+// ExecuteQuery implements queryservice.QueryService.
+func (e *Executor) ExecuteQuery(ctx context.Context, target *query.Target, sql string, maxRows uint64) (*query.QueryResult, error) {
+	e.logger.Debug("executing query",
+		"tablegroup", target.TableGroup,
+		"shard", target.Shard,
+		"pooler_type", target.PoolerType.String(),
+		"query", sql)
+
+	// Execute the query and stream results
+	return e.executeQuery(ctx, sql, maxRows)
+}
+
 // StreamExecute executes a query and streams results back via callback.
 // This implements the queryservice.QueryService interface.
 func (e *Executor) StreamExecute(
@@ -50,15 +62,9 @@ func (e *Executor) StreamExecute(
 	sql string,
 	callback func(*query.QueryResult) error,
 ) error {
-	e.logger.Debug("executing query",
-		"tablegroup", target.TableGroup,
-		"shard", target.Shard,
-		"pooler_type", target.PoolerType.String(),
-		"query", sql)
-
 	// Execute the query and stream results
 	// TODO(GuptaManan100): Actually stream the results from postgres.
-	result, err := e.executeQuery(ctx, sql, 0) // 0 = no max rows limit
+	result, err := e.ExecuteQuery(ctx, target, sql, 0) // 0 = no max rows limit
 	if err != nil {
 		e.logger.Error("query execution failed", "error", err, "query", sql)
 		return fmt.Errorf("query execution failed: %w", err)

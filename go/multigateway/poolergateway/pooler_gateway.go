@@ -110,9 +110,19 @@ func (pg *PoolerGateway) StreamExecute(
 	callback func(*query.QueryResult) error,
 ) error {
 	// Get a pooler matching the target
+	queryService, err := pg.getQueryServiceForTarget(ctx, target)
+	if err != nil {
+		return err
+	}
+
+	// Delegate to the pooler's QueryService
+	return queryService.StreamExecute(ctx, target, sql, callback)
+}
+
+func (pg *PoolerGateway) getQueryServiceForTarget(ctx context.Context, target *query.Target) (queryservice.QueryService, error) {
 	pooler := pg.discovery.GetPooler(target)
 	if pooler == nil {
-		return fmt.Errorf("no pooler found for target: tablegroup=%s, shard=%s, type=%s",
+		return nil, fmt.Errorf("no pooler found for target: tablegroup=%s, shard=%s, type=%s",
 			target.TableGroup, target.Shard, target.PoolerType.String())
 	}
 
@@ -128,11 +138,24 @@ func (pg *PoolerGateway) StreamExecute(
 	// Get or create connection to this pooler
 	queryService, err := pg.getOrCreateConnection(ctx, pooler)
 	if err != nil {
-		return fmt.Errorf("failed to get connection to pooler %s: %w", poolerID, err)
+		return nil, fmt.Errorf("failed to get connection to pooler %s: %w", poolerID, err)
+	}
+	return queryService, nil
+}
+
+// ExecuteQuery implements queryservice.QueryService.
+// It routes the query to the appropriate multipooler instance based on the target.
+// This should be used sparingly only when we know the result set is small,
+// otherwise StreamExecute should be used.
+func (pg *PoolerGateway) ExecuteQuery(ctx context.Context, target *query.Target, sql string, maxRows uint64) (*query.QueryResult, error) {
+	// Get a pooler matching the target
+	queryService, err := pg.getQueryServiceForTarget(ctx, target)
+	if err != nil {
+		return nil, err
 	}
 
 	// Delegate to the pooler's QueryService
-	return queryService.StreamExecute(ctx, target, sql, callback)
+	return queryService.ExecuteQuery(ctx, target, sql, maxRows)
 }
 
 // getOrCreateConnection returns an existing connection or creates a new one.

@@ -74,7 +74,7 @@ func (g *grpcQueryService) StreamExecute(
 
 	// Create the request
 	req := &multipoolerservice.StreamExecuteRequest{
-		Query:  []byte(sql),
+		Query:  sql,
 		Target: target,
 		// TODO: Add caller_id when we have authentication
 	}
@@ -112,6 +112,31 @@ func (g *grpcQueryService) StreamExecute(
 			return err
 		}
 	}
+}
+
+// ExecuteQuery implements queryservice.QueryService.
+// This should be used sparingly only when we know the result set is small,
+// otherwise StreamExecute should be used.
+func (g *grpcQueryService) ExecuteQuery(ctx context.Context, target *query.Target, sql string, maxRows uint64) (*query.QueryResult, error) {
+	g.logger.Debug("Executing query",
+		"pooler_id", g.poolerID,
+		"tablegroup", target.TableGroup,
+		"shard", target.Shard,
+		"pooler_type", target.PoolerType.String(),
+		"max_rows", maxRows,
+		"query", sql)
+
+	// Create the request
+	req := &multipoolerservice.ExecuteQueryRequest{
+		Query:   sql,
+		Target:  target,
+		MaxRows: maxRows,
+		// TODO: Add caller_id when we have authentication
+	}
+
+	// Call the gRPC ExecuteQuery
+	res, err := g.client.ExecuteQuery(ctx, req)
+	return res.GetResult(), err
 }
 
 // Close closes the gRPC connection.
