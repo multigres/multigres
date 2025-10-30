@@ -21,7 +21,7 @@ import (
 
 	"google.golang.org/protobuf/encoding/protojson"
 
-	pgctldpb "github.com/multigres/multigres/go/pb/pgctldservice"
+	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
 
 // postgresDataDir returns the PostgreSQL data directory path
@@ -44,13 +44,13 @@ func consensusTermPath(poolerDir string) string {
 }
 
 // GetTerm retrieves the current consensus term information from disk
-func GetTerm(poolerDir string) (*pgctldpb.ConsensusTerm, error) {
+func GetTerm(poolerDir string) (*multipoolermanagerdatapb.ConsensusTerm, error) {
 	termPath := consensusTermPath(poolerDir)
 
 	// Check if consensus term file exists
 	if _, err := os.Stat(termPath); os.IsNotExist(err) {
 		// Return empty term if file doesn't exist
-		return &pgctldpb.ConsensusTerm{}, nil
+		return &multipoolermanagerdatapb.ConsensusTerm{}, nil
 	}
 
 	// Read the file
@@ -60,7 +60,7 @@ func GetTerm(poolerDir string) (*pgctldpb.ConsensusTerm, error) {
 	}
 
 	// Unmarshal JSON to protobuf
-	term := &pgctldpb.ConsensusTerm{}
+	term := &multipoolermanagerdatapb.ConsensusTerm{}
 	if err := protojson.Unmarshal(data, term); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal consensus term: %w", err)
 	}
@@ -69,7 +69,7 @@ func GetTerm(poolerDir string) (*pgctldpb.ConsensusTerm, error) {
 }
 
 // SetTerm sets the consensus term information to disk
-func SetTerm(poolerDir string, term *pgctldpb.ConsensusTerm) error {
+func SetTerm(poolerDir string, term *multipoolermanagerdatapb.ConsensusTerm) error {
 	// Check if data directory is initialized
 	if !isDataDirInitialized(poolerDir) {
 		dataDir := postgresDataDir(poolerDir)

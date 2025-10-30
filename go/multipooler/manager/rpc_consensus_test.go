@@ -32,7 +32,7 @@ import (
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	consensusdatapb "github.com/multigres/multigres/go/pb/consensusdata"
-	pgctldpb "github.com/multigres/multigres/go/pb/pgctldservice"
+	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
 
 // TestBeginTerm_AlreadyVotedInOlderTerm tests the scenario where:
@@ -45,7 +45,7 @@ func TestBeginTerm_AlreadyVotedInOlderTerm(t *testing.T) {
 	pm, mock, tmpDir := setupManagerWithMockDB(t)
 
 	// Step 1: Initialize term to 5 and vote for "candidate-A"
-	initialTerm := &pgctldpb.ConsensusTerm{
+	initialTerm := &multipoolermanagerdatapb.ConsensusTerm{
 		CurrentTerm: 5,
 		VotedFor: &clustermetadatapb.ID{
 			Cell: "zone1",
@@ -112,7 +112,7 @@ func TestBeginTerm_AlreadyVotedInSameTerm(t *testing.T) {
 	pm, mock, tmpDir := setupManagerWithMockDB(t)
 
 	// Step 1: Initialize term to 5 and vote for "candidate-A"
-	initialTerm := &pgctldpb.ConsensusTerm{
+	initialTerm := &multipoolermanagerdatapb.ConsensusTerm{
 		CurrentTerm: 5,
 		VotedFor: &clustermetadatapb.ID{
 			Cell: "zone1",
@@ -166,7 +166,7 @@ func TestBeginTerm_AlreadyVotedForSameCandidateInSameTerm(t *testing.T) {
 	pm, mock, tmpDir := setupManagerWithMockDB(t)
 
 	// Step 1: Initialize term to 5 and vote for "candidate-A"
-	initialTerm := &pgctldpb.ConsensusTerm{
+	initialTerm := &multipoolermanagerdatapb.ConsensusTerm{
 		CurrentTerm: 5,
 		VotedFor: &clustermetadatapb.ID{
 			Cell: "zone1",
@@ -550,7 +550,7 @@ func TestConsensusStatus_HealthyPrimary(t *testing.T) {
 	pm, mock, tmpDir := setupManagerWithMockDB(t)
 
 	// Setup: Initialize term file
-	initialTerm := &pgctldpb.ConsensusTerm{
+	initialTerm := &multipoolermanagerdatapb.ConsensusTerm{
 		CurrentTerm: 5,
 		VotedFor: &clustermetadatapb.ID{
 			Cell: "zone1",
@@ -604,7 +604,7 @@ func TestConsensusStatus_HealthyStandby(t *testing.T) {
 	pm, mock, tmpDir := setupManagerWithMockDB(t)
 
 	// Setup: Initialize term file
-	initialTerm := &pgctldpb.ConsensusTerm{
+	initialTerm := &multipoolermanagerdatapb.ConsensusTerm{
 		CurrentTerm: 3,
 		VotedFor:    nil,
 	}
@@ -657,7 +657,7 @@ func TestConsensusStatus_NoDatabaseConnection(t *testing.T) {
 	pm, _, tmpDir := setupManagerWithMockDB(t)
 
 	// Setup: Initialize term file
-	initialTerm := &pgctldpb.ConsensusTerm{
+	initialTerm := &multipoolermanagerdatapb.ConsensusTerm{
 		CurrentTerm: 7,
 		VotedFor:    nil,
 	}
@@ -695,7 +695,7 @@ func TestConsensusStatus_DatabaseQueryFailure(t *testing.T) {
 	pm, mock, tmpDir := setupManagerWithMockDB(t)
 
 	// Setup: Initialize term file
-	initialTerm := &pgctldpb.ConsensusTerm{
+	initialTerm := &multipoolermanagerdatapb.ConsensusTerm{
 		CurrentTerm: 4,
 		VotedFor:    nil,
 	}
@@ -732,7 +732,7 @@ func TestConsensusStatus_TermNotLoadedYet(t *testing.T) {
 	pm, mock, tmpDir := setupManagerWithMockDB(t)
 
 	// Setup: Initialize term file on disk but not in memory
-	initialTerm := &pgctldpb.ConsensusTerm{
+	initialTerm := &multipoolermanagerdatapb.ConsensusTerm{
 		CurrentTerm: 8,
 		VotedFor:    nil,
 	}

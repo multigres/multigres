@@ -39,8 +39,8 @@ import (
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multipoolermanagerpb "github.com/multigres/multigres/go/pb/multipoolermanager"
-	multipoolermanagerdata "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
-	pgctldpb "github.com/multigres/multigres/go/pb/pgctldservice"
+	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
+	"github.com/multigres/multigres/go/pb/pgctldservice"
 
 	// Register topo plugins
 	_ "github.com/multigres/multigres/go/plugins/topo"
@@ -308,13 +308,13 @@ func (p *ProcessInstance) stopPostgreSQL() {
 	}
 	defer conn.Close()
 
-	client := pgctldpb.NewPgCtldClient(conn)
+	client := pgctldservice.NewPgCtldClient(conn)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
 	// Stop PostgreSQL
-	_, _ = client.Stop(ctx, &pgctldpb.StopRequest{Mode: "fast"})
+	_, _ = client.Stop(ctx, &pgctldservice.StopRequest{Mode: "fast"})
 }
 
 // createPgctldInstance creates a new pgctld instance configuration
@@ -399,7 +399,7 @@ func initializePrimary(t *testing.T, pgctld *ProcessInstance, multipooler *Proce
 
 	// Initialize consensus term to 1 via multipooler manager API
 	t.Logf("Initializing consensus term to 1 for primary...")
-	initialTerm := &pgctldpb.ConsensusTerm{
+	initialTerm := &multipoolermanagerdatapb.ConsensusTerm{
 		CurrentTerm:  1,
 		VotedFor:     nil,
 		LastVoteTime: nil,
@@ -407,7 +407,7 @@ func initializePrimary(t *testing.T, pgctld *ProcessInstance, multipooler *Proce
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
-	_, err = client.SetTerm(ctx, &multipoolermanagerdata.SetTermRequest{Term: initialTerm})
+	_, err = client.SetTerm(ctx, &multipoolermanagerdatapb.SetTermRequest{Term: initialTerm})
 	cancel()
 	if err != nil {
 		return fmt.Errorf("failed to set term for primary: %w", err)
@@ -418,7 +418,7 @@ func initializePrimary(t *testing.T, pgctld *ProcessInstance, multipooler *Proce
 	ctx, cancel = context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
 
-	changeTypeReq := &multipoolermanagerdata.ChangeTypeRequest{
+	changeTypeReq := &multipoolermanagerdatapb.ChangeTypeRequest{
 		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
 	}
 	_, err = client.ChangeType(ctx, changeTypeReq)
@@ -476,7 +476,7 @@ func initializeStandby(t *testing.T, primaryPgctld *ProcessInstance, standbyPgct
 
 	// Initialize consensus term to 1 via multipooler manager API
 	t.Logf("Initializing consensus term to 1 for standby...")
-	initialTerm := &pgctldpb.ConsensusTerm{
+	initialTerm := &multipoolermanagerdatapb.ConsensusTerm{
 		CurrentTerm:  1,
 		VotedFor:     nil,
 		LastVoteTime: nil,
@@ -484,7 +484,7 @@ func initializeStandby(t *testing.T, primaryPgctld *ProcessInstance, standbyPgct
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
-	_, err = standbyClient.SetTerm(ctx, &multipoolermanagerdata.SetTermRequest{Term: initialTerm})
+	_, err = standbyClient.SetTerm(ctx, &multipoolermanagerdatapb.SetTermRequest{Term: initialTerm})
 	cancel()
 	if err != nil {
 		return fmt.Errorf("failed to set term for standby: %w", err)
@@ -510,7 +510,7 @@ func initializeStandby(t *testing.T, primaryPgctld *ProcessInstance, standbyPgct
 	ctx, cancel = context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
 
-	changeTypeReq := &multipoolermanagerdata.ChangeTypeRequest{
+	changeTypeReq := &multipoolermanagerdatapb.ChangeTypeRequest{
 		PoolerType: clustermetadatapb.PoolerType_REPLICA,
 	}
 	_, err = standbyClient.ChangeType(ctx, changeTypeReq)
@@ -687,7 +687,7 @@ func waitForManagerReady(t *testing.T, setup *MultipoolerTestSetup, manager *Pro
 		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 		defer cancel()
 
-		req := &multipoolermanagerdata.StatusRequest{}
+		req := &multipoolermanagerdatapb.StatusRequest{}
 		resp, err := client.Status(ctx, req)
 		if err != nil {
 			return false
@@ -759,16 +759,16 @@ func makeMultipoolerID(cell, name string) *clustermetadatapb.ID {
 }
 
 // Helper function to get PrimaryStatus from a manager client
-func getPrimaryStatusFromClient(t *testing.T, client multipoolermanagerpb.MultiPoolerManagerClient) *multipoolermanagerdata.PrimaryStatus {
+func getPrimaryStatusFromClient(t *testing.T, client multipoolermanagerpb.MultiPoolerManagerClient) *multipoolermanagerdatapb.PrimaryStatus {
 	t.Helper()
-	statusResp, err := client.PrimaryStatus(utils.WithShortDeadline(t), &multipoolermanagerdata.PrimaryStatusRequest{})
+	statusResp, err := client.PrimaryStatus(utils.WithShortDeadline(t), &multipoolermanagerdatapb.PrimaryStatusRequest{})
 	require.NoError(t, err, "PrimaryStatus should succeed")
 	require.NotNil(t, statusResp.Status, "Status should not be nil")
 	return statusResp.Status
 }
 
 // Helper function to wait for synchronous replication config to converge to expected value
-func waitForSyncConfigConvergenceWithClient(t *testing.T, client multipoolermanagerpb.MultiPoolerManagerClient, checkFunc func(*multipoolermanagerdata.SynchronousReplicationConfiguration) bool, message string) {
+func waitForSyncConfigConvergenceWithClient(t *testing.T, client multipoolermanagerpb.MultiPoolerManagerClient, checkFunc func(*multipoolermanagerdatapb.SynchronousReplicationConfiguration) bool, message string) {
 	t.Helper()
 	require.Eventually(t, func() bool {
 		status := getPrimaryStatusFromClient(t, client)
@@ -777,7 +777,7 @@ func waitForSyncConfigConvergenceWithClient(t *testing.T, client multipoolermana
 }
 
 // Helper function to check if a standby ID is in the config
-func containsStandbyIDInConfig(config *multipoolermanagerdata.SynchronousReplicationConfiguration, cell, name string) bool {
+func containsStandbyIDInConfig(config *multipoolermanagerdatapb.SynchronousReplicationConfiguration, cell, name string) bool {
 	if config == nil {
 		return false
 	}

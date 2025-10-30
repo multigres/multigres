@@ -41,7 +41,7 @@ import (
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
-	multipoolermanagerdata "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
+	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	pgctldpb "github.com/multigres/multigres/go/pb/pgctldservice"
 )
 
@@ -78,7 +78,7 @@ type MultiPoolerManager struct {
 	multipooler     *topo.MultiPoolerInfo
 	state           ManagerState
 	stateError      error
-	consensusTerm   *pgctldpb.ConsensusTerm
+	consensusTerm   *multipoolermanagerdatapb.ConsensusTerm
 	topoLoaded      bool
 	consensusLoaded bool
 	ctx             context.Context
@@ -568,7 +568,7 @@ func (pm *MultiPoolerManager) validateAndUpdateTerm(ctx context.Context, request
 			"old_term", currentTerm,
 			"service_id", pm.serviceID.String())
 
-		newTerm := &pgctldpb.ConsensusTerm{
+		newTerm := &multipoolermanagerdatapb.ConsensusTerm{
 			CurrentTerm:  requestTerm,
 			VotedFor:     nil,
 			LastVoteTime: nil,
@@ -864,7 +864,7 @@ func (pm *MultiPoolerManager) StopReplication(ctx context.Context) error {
 }
 
 // ReplicationStatus gets the current replication status of the standby
-func (pm *MultiPoolerManager) ReplicationStatus(ctx context.Context) (*multipoolermanagerdata.ReplicationStatus, error) {
+func (pm *MultiPoolerManager) ReplicationStatus(ctx context.Context) (*multipoolermanagerdatapb.ReplicationStatus, error) {
 	if err := pm.checkReady(); err != nil {
 		return nil, err
 	}
@@ -875,7 +875,7 @@ func (pm *MultiPoolerManager) ReplicationStatus(ctx context.Context) (*multipool
 		return nil, err
 	}
 
-	status := &multipoolermanagerdata.ReplicationStatus{}
+	status := &multipoolermanagerdatapb.ReplicationStatus{}
 
 	// Get all replication status information in a single query
 	var lsn string
@@ -969,19 +969,19 @@ func (pm *MultiPoolerManager) ResetReplication(ctx context.Context) error {
 }
 
 // setSynchronousCommit sets the PostgreSQL synchronous_commit level
-func (pm *MultiPoolerManager) setSynchronousCommit(ctx context.Context, synchronousCommit multipoolermanagerdata.SynchronousCommitLevel) error {
+func (pm *MultiPoolerManager) setSynchronousCommit(ctx context.Context, synchronousCommit multipoolermanagerdatapb.SynchronousCommitLevel) error {
 	// Convert enum to PostgreSQL string value
 	var syncCommitValue string
 	switch synchronousCommit {
-	case multipoolermanagerdata.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_OFF:
+	case multipoolermanagerdatapb.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_OFF:
 		syncCommitValue = "off"
-	case multipoolermanagerdata.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_LOCAL:
+	case multipoolermanagerdatapb.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_LOCAL:
 		syncCommitValue = "local"
-	case multipoolermanagerdata.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_REMOTE_WRITE:
+	case multipoolermanagerdatapb.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_REMOTE_WRITE:
 		syncCommitValue = "remote_write"
-	case multipoolermanagerdata.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_ON:
+	case multipoolermanagerdatapb.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_ON:
 		syncCommitValue = "on"
-	case multipoolermanagerdata.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_REMOTE_APPLY:
+	case multipoolermanagerdatapb.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_REMOTE_APPLY:
 		syncCommitValue = "remote_apply"
 	default:
 		return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT,
@@ -1009,7 +1009,7 @@ func formatStandbyList(standbyIDs []*clustermetadatapb.ID) string {
 
 // buildSynchronousStandbyNamesValue constructs the synchronous_standby_names value string
 // This produces values like: FIRST 1 ("standby-1", "standby-2") or ANY 1 ("standby-1", "standby-2")
-func buildSynchronousStandbyNamesValue(method multipoolermanagerdata.SynchronousMethod, numSync int32, standbyIDs []*clustermetadatapb.ID) (string, error) {
+func buildSynchronousStandbyNamesValue(method multipoolermanagerdatapb.SynchronousMethod, numSync int32, standbyIDs []*clustermetadatapb.ID) (string, error) {
 	if len(standbyIDs) == 0 {
 		return "", nil
 	}
@@ -1018,9 +1018,9 @@ func buildSynchronousStandbyNamesValue(method multipoolermanagerdata.Synchronous
 
 	var methodStr string
 	switch method {
-	case multipoolermanagerdata.SynchronousMethod_SYNCHRONOUS_METHOD_FIRST:
+	case multipoolermanagerdatapb.SynchronousMethod_SYNCHRONOUS_METHOD_FIRST:
 		methodStr = "FIRST"
-	case multipoolermanagerdata.SynchronousMethod_SYNCHRONOUS_METHOD_ANY:
+	case multipoolermanagerdatapb.SynchronousMethod_SYNCHRONOUS_METHOD_ANY:
 		methodStr = "ANY"
 	default:
 		return "", mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT,
@@ -1057,7 +1057,7 @@ func applySynchronousStandbyNames(ctx context.Context, db *sql.DB, logger *slog.
 //
 // Note: Use '*' to match all connected standbys, or specify explicit standby application_name values
 // Application names are generated from multipooler IDs using the shared generateApplicationName helper
-func (pm *MultiPoolerManager) setSynchronousStandbyNames(ctx context.Context, synchronousMethod multipoolermanagerdata.SynchronousMethod, numSync int32, standbyIDs []*clustermetadatapb.ID) error {
+func (pm *MultiPoolerManager) setSynchronousStandbyNames(ctx context.Context, synchronousMethod multipoolermanagerdatapb.SynchronousMethod, numSync int32, standbyIDs []*clustermetadatapb.ID) error {
 	// If standby list is empty, clear synchronous_standby_names
 	if len(standbyIDs) == 0 {
 		pm.logger.Info("Clearing synchronous_standby_names (empty standby list)")
@@ -1136,7 +1136,7 @@ func validateSyncReplicationParams(numSync int32, standbyIDs []*clustermetadatap
 }
 
 // ConfigureSynchronousReplication configures PostgreSQL synchronous replication settings
-func (pm *MultiPoolerManager) ConfigureSynchronousReplication(ctx context.Context, synchronousCommit multipoolermanagerdata.SynchronousCommitLevel, synchronousMethod multipoolermanagerdata.SynchronousMethod, numSync int32, standbyIDs []*clustermetadatapb.ID, reloadConfig bool) error {
+func (pm *MultiPoolerManager) ConfigureSynchronousReplication(ctx context.Context, synchronousCommit multipoolermanagerdatapb.SynchronousCommitLevel, synchronousMethod multipoolermanagerdatapb.SynchronousMethod, numSync int32, standbyIDs []*clustermetadatapb.ID, reloadConfig bool) error {
 	if err := pm.checkReady(); err != nil {
 		return err
 	}
@@ -1226,7 +1226,7 @@ func applyReplaceOperation(newStandbys []*clustermetadatapb.ID) []*clustermetada
 // UpdateSynchronousStandbyList updates PostgreSQL synchronous_standby_names by adding,
 // removing, or replacing members. It is idempotent and only valid when synchronous
 // replication is already configured.
-func (pm *MultiPoolerManager) UpdateSynchronousStandbyList(ctx context.Context, operation multipoolermanagerdata.StandbyUpdateOperation, standbyIDs []*clustermetadatapb.ID, reloadConfig bool, consensusTerm int64, force bool) error {
+func (pm *MultiPoolerManager) UpdateSynchronousStandbyList(ctx context.Context, operation multipoolermanagerdatapb.StandbyUpdateOperation, standbyIDs []*clustermetadatapb.ID, reloadConfig bool, consensusTerm int64, force bool) error {
 	if err := pm.checkReady(); err != nil {
 		return err
 	}
@@ -1250,7 +1250,7 @@ func (pm *MultiPoolerManager) UpdateSynchronousStandbyList(ctx context.Context, 
 	// ourself. But details yet to be implemented
 
 	// Validate operation
-	if operation == multipoolermanagerdata.StandbyUpdateOperation_STANDBY_UPDATE_OPERATION_UNSPECIFIED {
+	if operation == multipoolermanagerdatapb.StandbyUpdateOperation_STANDBY_UPDATE_OPERATION_UNSPECIFIED {
 		return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "operation must be specified")
 	}
 
@@ -1287,13 +1287,13 @@ func (pm *MultiPoolerManager) UpdateSynchronousStandbyList(ctx context.Context, 
 	// Apply the requested operation
 	var updatedStandbys []*clustermetadatapb.ID
 	switch operation {
-	case multipoolermanagerdata.StandbyUpdateOperation_STANDBY_UPDATE_OPERATION_ADD:
+	case multipoolermanagerdatapb.StandbyUpdateOperation_STANDBY_UPDATE_OPERATION_ADD:
 		updatedStandbys = applyAddOperation(cfg.StandbyIDs, standbyIDs)
 
-	case multipoolermanagerdata.StandbyUpdateOperation_STANDBY_UPDATE_OPERATION_REMOVE:
+	case multipoolermanagerdatapb.StandbyUpdateOperation_STANDBY_UPDATE_OPERATION_REMOVE:
 		updatedStandbys = applyRemoveOperation(cfg.StandbyIDs, standbyIDs)
 
-	case multipoolermanagerdata.StandbyUpdateOperation_STANDBY_UPDATE_OPERATION_REPLACE:
+	case multipoolermanagerdatapb.StandbyUpdateOperation_STANDBY_UPDATE_OPERATION_REPLACE:
 		updatedStandbys = applyReplaceOperation(standbyIDs)
 
 	default:
@@ -1345,8 +1345,8 @@ func (pm *MultiPoolerManager) UpdateSynchronousStandbyList(ctx context.Context, 
 }
 
 // getSynchronousReplicationConfig retrieves and parses the current synchronous replication configuration
-func (pm *MultiPoolerManager) getSynchronousReplicationConfig(ctx context.Context) (*multipoolermanagerdata.SynchronousReplicationConfiguration, error) {
-	config := &multipoolermanagerdata.SynchronousReplicationConfiguration{}
+func (pm *MultiPoolerManager) getSynchronousReplicationConfig(ctx context.Context) (*multipoolermanagerdatapb.SynchronousReplicationConfiguration, error) {
+	config := &multipoolermanagerdatapb.SynchronousReplicationConfiguration{}
 
 	// Query synchronous_standby_names
 	var syncStandbyNamesStr string
@@ -1375,18 +1375,18 @@ func (pm *MultiPoolerManager) getSynchronousReplicationConfig(ctx context.Contex
 	}
 
 	// Map string to enum
-	var syncCommitLevel multipoolermanagerdata.SynchronousCommitLevel
+	var syncCommitLevel multipoolermanagerdatapb.SynchronousCommitLevel
 	switch strings.ToLower(syncCommitStr) {
 	case "off":
-		syncCommitLevel = multipoolermanagerdata.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_OFF
+		syncCommitLevel = multipoolermanagerdatapb.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_OFF
 	case "local":
-		syncCommitLevel = multipoolermanagerdata.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_LOCAL
+		syncCommitLevel = multipoolermanagerdatapb.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_LOCAL
 	case "remote_write":
-		syncCommitLevel = multipoolermanagerdata.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_REMOTE_WRITE
+		syncCommitLevel = multipoolermanagerdatapb.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_REMOTE_WRITE
 	case "on":
-		syncCommitLevel = multipoolermanagerdata.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_ON
+		syncCommitLevel = multipoolermanagerdatapb.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_ON
 	case "remote_apply":
-		syncCommitLevel = multipoolermanagerdata.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_REMOTE_APPLY
+		syncCommitLevel = multipoolermanagerdatapb.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_REMOTE_APPLY
 	default:
 		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT,
 			fmt.Sprintf("unknown synchronous_commit value: %q", syncCommitStr))
@@ -1397,7 +1397,7 @@ func (pm *MultiPoolerManager) getSynchronousReplicationConfig(ctx context.Contex
 }
 
 // PrimaryStatus gets the status of the leader server
-func (pm *MultiPoolerManager) PrimaryStatus(ctx context.Context) (*multipoolermanagerdata.PrimaryStatus, error) {
+func (pm *MultiPoolerManager) PrimaryStatus(ctx context.Context) (*multipoolermanagerdatapb.PrimaryStatus, error) {
 	if err := pm.checkReady(); err != nil {
 		return nil, err
 	}
@@ -1409,7 +1409,7 @@ func (pm *MultiPoolerManager) PrimaryStatus(ctx context.Context) (*multipoolerma
 		return nil, err
 	}
 
-	status := &multipoolermanagerdata.PrimaryStatus{}
+	status := &multipoolermanagerdatapb.PrimaryStatus{}
 
 	// Get current LSN and recovery status in a single query
 	var lsn string
@@ -1482,7 +1482,7 @@ func (pm *MultiPoolerManager) PrimaryPosition(ctx context.Context) (string, erro
 }
 
 // StopReplicationAndGetStatus stops PostgreSQL replication and returns the status
-func (pm *MultiPoolerManager) StopReplicationAndGetStatus(ctx context.Context) (*multipoolermanagerdata.ReplicationStatus, error) {
+func (pm *MultiPoolerManager) StopReplicationAndGetStatus(ctx context.Context) (*multipoolermanagerdatapb.ReplicationStatus, error) {
 	if err := pm.checkReady(); err != nil {
 		return nil, err
 	}
@@ -1526,7 +1526,7 @@ func (pm *MultiPoolerManager) StopReplicationAndGetStatus(ctx context.Context) (
 
 // waitForReplicationPause polls until WAL replay is paused and returns the status at that moment.
 // This ensures the LSN returned represents the exact point at which replication stopped.
-func (pm *MultiPoolerManager) waitForReplicationPause(ctx context.Context) (*multipoolermanagerdata.ReplicationStatus, error) {
+func (pm *MultiPoolerManager) waitForReplicationPause(ctx context.Context) (*multipoolermanagerdatapb.ReplicationStatus, error) {
 	// Create a context with timeout for the polling loop
 	waitCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
@@ -1576,7 +1576,7 @@ func (pm *MultiPoolerManager) waitForReplicationPause(ctx context.Context) (*mul
 				pm.logger.Info("WAL replay is now paused", "lsn", lsn, "pause_state", pauseState)
 
 				// Build and return the status
-				status := &multipoolermanagerdata.ReplicationStatus{
+				status := &multipoolermanagerdatapb.ReplicationStatus{
 					Lsn:                 lsn,
 					IsWalReplayPaused:   isPaused,
 					WalReplayPauseState: pauseState,
@@ -1647,7 +1647,7 @@ func (pm *MultiPoolerManager) ChangeType(ctx context.Context, poolerType string)
 }
 
 // Status returns the current manager status and error information
-func (pm *MultiPoolerManager) Status(ctx context.Context) (*multipoolermanagerdata.StatusResponse, error) {
+func (pm *MultiPoolerManager) Status(ctx context.Context) (*multipoolermanagerdatapb.StatusResponse, error) {
 	pm.mu.RLock()
 	defer pm.mu.RUnlock()
 
@@ -1657,7 +1657,7 @@ func (pm *MultiPoolerManager) Status(ctx context.Context) (*multipoolermanagerda
 		errorMessage = pm.stateError.Error()
 	}
 
-	return &multipoolermanagerdata.StatusResponse{
+	return &multipoolermanagerdatapb.StatusResponse{
 		State:        state,
 		ErrorMessage: errorMessage,
 	}, nil
@@ -1677,7 +1677,7 @@ func (pm *MultiPoolerManager) ReplicationLag(ctx context.Context) (time.Duration
 }
 
 // GetFollowers gets the list of follower servers with detailed replication status
-func (pm *MultiPoolerManager) GetFollowers(ctx context.Context) (*multipoolermanagerdata.GetFollowersResponse, error) {
+func (pm *MultiPoolerManager) GetFollowers(ctx context.Context) (*multipoolermanagerdatapb.GetFollowersResponse, error) {
 	if err := pm.checkReady(); err != nil {
 		return nil, err
 	}
@@ -1720,7 +1720,7 @@ func (pm *MultiPoolerManager) GetFollowers(ctx context.Context) (*multipoolerman
 	defer rows.Close()
 
 	// Build a map of connected followers by application_name
-	connectedMap := make(map[string]*multipoolermanagerdata.ReplicationStats)
+	connectedMap := make(map[string]*multipoolermanagerdatapb.ReplicationStats)
 	for rows.Next() {
 		var pid int32
 		var appName string
@@ -1754,7 +1754,7 @@ func (pm *MultiPoolerManager) GetFollowers(ctx context.Context) (*multipoolerman
 			continue
 		}
 
-		stats := &multipoolermanagerdata.ReplicationStats{
+		stats := &multipoolermanagerdatapb.ReplicationStats{
 			Pid:        pid,
 			ClientAddr: clientAddr,
 			State:      state,
@@ -1784,11 +1784,11 @@ func (pm *MultiPoolerManager) GetFollowers(ctx context.Context) (*multipoolerman
 	}
 
 	// Build the response with all configured standbys
-	followers := make([]*multipoolermanagerdata.FollowerInfo, 0, len(syncConfig.StandbyIds))
+	followers := make([]*multipoolermanagerdatapb.FollowerInfo, 0, len(syncConfig.StandbyIds))
 	for _, standbyID := range syncConfig.StandbyIds {
 		appName := generateApplicationName(standbyID)
 
-		followerInfo := &multipoolermanagerdata.FollowerInfo{
+		followerInfo := &multipoolermanagerdatapb.FollowerInfo{
 			FollowerId:      standbyID,
 			ApplicationName: appName,
 		}
@@ -1809,7 +1809,7 @@ func (pm *MultiPoolerManager) GetFollowers(ctx context.Context) (*multipoolerman
 		"total_configured", len(followers),
 		"connected_count", len(connectedMap))
 
-	return &multipoolermanagerdata.GetFollowersResponse{
+	return &multipoolermanagerdatapb.GetFollowersResponse{
 		Followers:  followers,
 		SyncConfig: syncConfig,
 	}, nil
@@ -2204,7 +2204,7 @@ func (pm *MultiPoolerManager) captureFinalLSN(ctx context.Context, state *demoti
 // - By orchestrator when fixing a broken shard.
 // - When performing a Planned demotion.
 // - When receiving a SIGTERM and the pooler needs to shutdown.
-func (pm *MultiPoolerManager) Demote(ctx context.Context, consensusTerm int64, drainTimeout time.Duration, force bool) (*multipoolermanagerdata.DemoteResponse, error) {
+func (pm *MultiPoolerManager) Demote(ctx context.Context, consensusTerm int64, drainTimeout time.Duration, force bool) (*multipoolermanagerdatapb.DemoteResponse, error) {
 	if err := pm.checkReady(); err != nil {
 		return nil, err
 	}
@@ -2252,7 +2252,7 @@ func (pm *MultiPoolerManager) Demote(ctx context.Context, consensusTerm int64, d
 	if state.isServingReadOnly && state.isReplicaInTopology && state.isReadOnly {
 		pm.logger.Info("Demotion already complete (idempotent)",
 			"lsn", state.finalLSN)
-		return &multipoolermanagerdata.DemoteResponse{
+		return &multipoolermanagerdatapb.DemoteResponse{
 			WasAlreadyDemoted:     true,
 			ConsensusTerm:         consensusTerm,
 			LsnPosition:           state.finalLSN,
@@ -2315,7 +2315,7 @@ func (pm *MultiPoolerManager) Demote(ctx context.Context, consensusTerm int64, d
 		"consensus_term", consensusTerm,
 		"connections_terminated", connectionsTerminated)
 
-	return &multipoolermanagerdata.DemoteResponse{
+	return &multipoolermanagerdatapb.DemoteResponse{
 		WasAlreadyDemoted:     false,
 		ConsensusTerm:         consensusTerm,
 		LsnPosition:           finalLSN,
@@ -2340,7 +2340,7 @@ func (pm *MultiPoolerManager) UndoDemote(ctx context.Context) error {
 }
 
 // checkPromotionState checks the current state to determine what steps remain
-func (pm *MultiPoolerManager) checkPromotionState(ctx context.Context, syncReplicationConfig *multipoolermanagerdata.ConfigureSynchronousReplicationRequest) (*promotionState, error) {
+func (pm *MultiPoolerManager) checkPromotionState(ctx context.Context, syncReplicationConfig *multipoolermanagerdatapb.ConfigureSynchronousReplicationRequest) (*promotionState, error) {
 	state := &promotionState{}
 
 	// Check PostgreSQL promotion state
@@ -2393,7 +2393,7 @@ func (pm *MultiPoolerManager) checkPromotionState(ctx context.Context, syncRepli
 }
 
 // syncReplicationConfigMatches checks if the current sync replication config matches the requested config
-func (pm *MultiPoolerManager) syncReplicationConfigMatches(current *multipoolermanagerdata.SynchronousReplicationConfiguration, requested *multipoolermanagerdata.ConfigureSynchronousReplicationRequest) bool {
+func (pm *MultiPoolerManager) syncReplicationConfigMatches(current *multipoolermanagerdatapb.SynchronousReplicationConfiguration, requested *multipoolermanagerdatapb.ConfigureSynchronousReplicationRequest) bool {
 	// Check synchronous commit level
 	if current.SynchronousCommit != requested.SynchronousCommit {
 		return false
@@ -2565,7 +2565,7 @@ func (pm *MultiPoolerManager) updateTopologyAfterPromotion(ctx context.Context, 
 }
 
 // configureReplicationAfterPromotion applies synchronous replication configuration
-func (pm *MultiPoolerManager) configureReplicationAfterPromotion(ctx context.Context, state *promotionState, syncReplicationConfig *multipoolermanagerdata.ConfigureSynchronousReplicationRequest) error {
+func (pm *MultiPoolerManager) configureReplicationAfterPromotion(ctx context.Context, state *promotionState, syncReplicationConfig *multipoolermanagerdatapb.ConfigureSynchronousReplicationRequest) error {
 	if syncReplicationConfig == nil {
 		return nil // No configuration requested
 	}
@@ -2597,7 +2597,7 @@ func (pm *MultiPoolerManager) configureReplicationAfterPromotion(ctx context.Con
 // transition a standby to primary and reconfigure replication.
 // This operation is fully idempotent - it checks what steps are already complete
 // and only executes the missing steps.
-func (pm *MultiPoolerManager) Promote(ctx context.Context, consensusTerm int64, expectedLSN string, syncReplicationConfig *multipoolermanagerdata.ConfigureSynchronousReplicationRequest, force bool) (*multipoolermanagerdata.PromoteResponse, error) {
+func (pm *MultiPoolerManager) Promote(ctx context.Context, consensusTerm int64, expectedLSN string, syncReplicationConfig *multipoolermanagerdatapb.ConfigureSynchronousReplicationRequest, force bool) (*multipoolermanagerdatapb.PromoteResponse, error) {
 	if err := pm.checkReady(); err != nil {
 		return nil, err
 	}
@@ -2641,7 +2641,7 @@ func (pm *MultiPoolerManager) Promote(ctx context.Context, consensusTerm int64, 
 	if state.isPrimaryInPostgres && state.isPrimaryInTopology && state.syncReplicationMatches {
 		pm.logger.Info("Promotion already complete (idempotent)",
 			"lsn", state.currentLSN)
-		return &multipoolermanagerdata.PromoteResponse{
+		return &multipoolermanagerdatapb.PromoteResponse{
 			LsnPosition:       state.currentLSN,
 			WasAlreadyPrimary: true,
 			ConsensusTerm:     consensusTerm,
@@ -2686,7 +2686,7 @@ func (pm *MultiPoolerManager) Promote(ctx context.Context, consensusTerm int64, 
 		"consensus_term", consensusTerm,
 		"was_already_primary", state.isPrimaryInPostgres)
 
-	return &multipoolermanagerdata.PromoteResponse{
+	return &multipoolermanagerdatapb.PromoteResponse{
 		LsnPosition:       finalLSN,
 		WasAlreadyPrimary: state.isPrimaryInPostgres && state.isPrimaryInTopology && state.syncReplicationMatches,
 		ConsensusTerm:     consensusTerm,
@@ -2694,7 +2694,7 @@ func (pm *MultiPoolerManager) Promote(ctx context.Context, consensusTerm int64, 
 }
 
 // SetTerm sets the consensus term information to local disk
-func (pm *MultiPoolerManager) SetTerm(ctx context.Context, term *pgctldpb.ConsensusTerm) error {
+func (pm *MultiPoolerManager) SetTerm(ctx context.Context, term *multipoolermanagerdatapb.ConsensusTerm) error {
 	if err := pm.checkReady(); err != nil {
 		return err
 	}
