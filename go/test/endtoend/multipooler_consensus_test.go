@@ -234,7 +234,7 @@ func TestConsensus_BeginTerm(t *testing.T) {
 	t.Run("BeginTerm_OldTerm_Rejected", func(t *testing.T) {
 		t.Log("Testing BeginTerm with old term (should be rejected)...")
 
-		// Request vote with term 0 (older than current term 1)
+		// Attempt to begin term 0 (older than current term 1)
 		req := &consensusdata.BeginTermRequest{
 			Term:        0,
 			CandidateId: "test-candidate",
@@ -245,18 +245,18 @@ func TestConsensus_BeginTerm(t *testing.T) {
 		require.NoError(t, err, "BeginTerm RPC should succeed")
 		require.NotNil(t, resp, "Response should not be nil")
 
-		// Vote should be rejected because term is old
-		assert.False(t, resp.Accepted, "Vote should not be granted for old term")
+		// Term should be rejected because it is too old
+		assert.False(t, resp.Accepted, "Old term should not be accepted")
 		assert.Equal(t, int64(1), resp.Term, "Response term should be current term (1)")
 		assert.Equal(t, "standby-multipooler", resp.PoolerId, "PoolerId should match")
 
-		t.Log("Confirmed: BeginTerm correctly rejected old term")
+		t.Log("BeginTerm correctly rejected old term")
 	})
 
-	t.Run("BeginTerm_NewTerm_Granted", func(t *testing.T) {
-		t.Log("Testing BeginTerm with new term (should be granted)...")
+	t.Run("BeginTerm_NewTerm_Accepted", func(t *testing.T) {
+		t.Log("Testing BeginTerm with new term (should be accepted)...")
 
-		// Request vote with term 2 (newer than current term 1)
+		// Begin term 2 (newer than current term 1)
 		req := &consensusdata.BeginTermRequest{
 			Term:        2,
 			CandidateId: "new-leader-candidate",
@@ -267,21 +267,20 @@ func TestConsensus_BeginTerm(t *testing.T) {
 		require.NoError(t, err, "BeginTerm RPC should succeed")
 		require.NotNil(t, resp, "Response should not be nil")
 
-		// Vote should be granted because:
+		// Term 2 should be accepted because:
 		// 1. Term is newer (2 > 1)
-		// 2. WAL position is up-to-date
-		// 3. Haven't voted yet in this term
-		assert.True(t, resp.Accepted, "Vote should be granted for new term with up-to-date WAL")
+		// 3. Haven't accepted any other leader yet in this term
+		assert.True(t, resp.Accepted, "New term should be accepted")
 		assert.Equal(t, int64(2), resp.Term, "Response term should be updated to new term")
 		assert.Equal(t, "primary-multipooler", resp.PoolerId, "PoolerId should match")
 
-		t.Log("Confirmed: BeginTerm correctly granted for new term")
+		t.Log("BeginTerm correctly granted for new term")
 	})
 
-	t.Run("BeginTerm_SameTerm_AlreadyVoted", func(t *testing.T) {
-		t.Log("Testing BeginTerm for same term after already voting (should be rejected)...")
+	t.Run("BeginTerm_SameTerm_AlreadyAccepted", func(t *testing.T) {
+		t.Log("Testing BeginTerm for same term after already accepting (should be rejected)...")
 
-		// Request vote with term 2 again but different candidate
+		// Begin term 2 again but different candidate
 		req := &consensusdata.BeginTermRequest{
 			Term:        2,
 			CandidateId: "different-candidate",
@@ -292,11 +291,11 @@ func TestConsensus_BeginTerm(t *testing.T) {
 		require.NoError(t, err, "BeginTerm RPC should succeed")
 		require.NotNil(t, resp, "Response should not be nil")
 
-		// Vote should be rejected because already voted for someone else in this term
-		assert.False(t, resp.Accepted, "Vote should not be granted when already voted in this term")
+		// Candidate should be rejected because already accepted another leader in this term
+		assert.False(t, resp.Accepted, "BeginTerm should not be accepted when already accepted this term for another leader")
 		assert.Equal(t, int64(2), resp.Term, "Response term should remain 2")
 
-		t.Log("Confirmed: BeginTerm correctly rejected when already voted in term")
+		t.Log("BeginTerm correctly rejected when already accepted a leader in term")
 	})
 }
 
@@ -370,7 +369,7 @@ func TestConsensus_GetLeadershipView(t *testing.T) {
 
 		t.Logf("Leadership view: leader_id=%s, term=%d, wal_position=%s, lag=%dns",
 			resp.LeaderId, resp.LeaderTerm, resp.LeaderWalPosition, resp.ReplicationLagNs)
-		t.Log("Confirmed: GetLeadershipView returns valid data from primary")
+		t.Log("GetLeadershipView returns valid data from primary")
 	})
 
 	t.Run("GetLeadershipView_FromStandby", func(t *testing.T) {
@@ -397,9 +396,7 @@ func TestConsensus_GetLeadershipView(t *testing.T) {
 		assert.GreaterOrEqual(t, resp.ReplicationLagNs, int64(0),
 			"ReplicationLagNs should be non-negative")
 
-		t.Logf("Standby sees leadership view: leader_id=%s, term=%d, wal_position=%s, lag=%dns",
-			resp.LeaderId, resp.LeaderTerm, resp.LeaderWalPosition, resp.ReplicationLagNs)
-		t.Log("Confirmed: GetLeadershipView returns valid data from standby")
+		t.Log("GetLeadershipView returns valid data from standby")
 	})
 }
 
@@ -456,7 +453,7 @@ func TestConsensus_CanReachPrimary(t *testing.T) {
 		// However, WAL receiver might not be active immediately after setup
 		if resp.Reachable {
 			assert.Empty(t, resp.ErrorMessage, "Should have no error message when reachable")
-			t.Log("Confirmed: Standby can reach primary (WAL receiver active)")
+			t.Log("Standby can reach primary (WAL receiver active)")
 		} else {
 			// Acceptable failure reasons: WAL receiver not active yet
 			assert.Contains(t, resp.ErrorMessage, "no active WAL receiver",
@@ -483,7 +480,7 @@ func TestConsensus_CanReachPrimary(t *testing.T) {
 		assert.Contains(t, resp.ErrorMessage, "no active WAL receiver",
 			"Error message should indicate no WAL receiver")
 
-		t.Log("Confirmed: Primary correctly reports no WAL receiver")
+		t.Log("Primary correctly reports no WAL receiver")
 	})
 
 	t.Run("InvalidHost_CannotReach", func(t *testing.T) {
@@ -501,6 +498,7 @@ func TestConsensus_CanReachPrimary(t *testing.T) {
 		// Note: The implementation checks pg_stat_wal_receiver and compares conninfo host/port
 		// with the requested host/port. However, since WAL receiver is not active immediately
 		// after setup, this test cannot verify the host/port mismatch detection.
+		// TODO: fix after implementing full cluster initialization
 		t.Logf("Response: reachable=%v, error=%s", resp.Reachable, resp.ErrorMessage)
 	})
 }
