@@ -16,6 +16,7 @@ package manager
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"time"
 
@@ -51,18 +52,6 @@ func (pm *MultiPoolerManager) BeginTerm(ctx context.Context, req *consensusdatap
 		PoolerId: pm.serviceID.GetName(),
 	}
 
-	// If request term is newer, update our term and reset accepted leader
-	// NOTE: We update in memory but don't persist yet - we only persist after
-	// checking replication lag and deciding to accept the appointment
-	if req.Term > currentTerm {
-		if err := pm.consensusState.UpdateTerm(req.Term, ""); err != nil {
-			return nil, fmt.Errorf("failed to update term: %w", err)
-		}
-		currentTerm = req.Term
-		acceptedLeader = ""
-		response.Term = currentTerm
-	}
-
 	// Reject if term is outdated
 	if req.Term < currentTerm {
 		return response, nil
@@ -74,12 +63,14 @@ func (pm *MultiPoolerManager) BeginTerm(ctx context.Context, req *consensusdatap
 	}
 
 	// TODO: Use pooler serving state to decide whether to accept
+
 	// Check if we're caught up with replication (within 30 seconds)
 	var lastMsgReceiptTime *time.Time
 	err := pm.db.QueryRowContext(ctx, "SELECT last_msg_receipt_time FROM pg_stat_wal_receiver").Scan(&lastMsgReceiptTime)
 	if err != nil {
 		// No WAL receiver (could be primary or disconnected standby)
 		// Don't reject the appointment - let it proceed
+		// TODO: check explicitly for PRIMARY and allow
 	} else if lastMsgReceiptTime != nil {
 		timeSinceLastMessage := time.Since(*lastMsgReceiptTime)
 		if timeSinceLastMessage > 30*time.Second {
@@ -88,18 +79,22 @@ func (pm *MultiPoolerManager) BeginTerm(ctx context.Context, req *consensusdatap
 		}
 	}
 
-	// Accept appointment and persist decision to LOCAL FILE (not Postgres!)
+	// Update term if needed (only if req.Term > currentTerm)
+	// This handles term update, persistence, and heartbeat writer sync
+	if req.Term > currentTerm {
+		if err := pm.validateAndUpdateTerm(ctx, req.Term, false); err != nil {
+			return nil, fmt.Errorf("failed to update term: %w", err)
+		}
+		response.Term = req.Term
+	}
+
+	// Accept appointment and persist decision to local file
 	if err := pm.consensusState.AcceptAppointment(req.CandidateId); err != nil {
 		return nil, fmt.Errorf("failed to accept appointment: %w", err)
 	}
 
 	if err := pm.consensusState.Save(); err != nil {
 		return nil, fmt.Errorf("failed to persist acceptance: %w", err)
-	}
-
-	// Synchronize term to heartbeat writer if it exists
-	if pm.replTracker != nil {
-		pm.replTracker.HeartbeatWriter().SetLeaderTerm(currentTerm)
 	}
 
 	response.Accepted = true
@@ -136,12 +131,36 @@ func (pm *MultiPoolerManager) ConsensusStatus(ctx context.Context, req *consensu
 	}
 
 	// Get current WAL position
-	walPosition := &consensusdatapb.WALPosition{}
+	walPosition := &consensusdatapb.WALPosition{
+		Timestamp: timestamppb.New(time.Now()),
+	}
 	if isHealthy {
-		var err error
-		walPosition, err = pm.GetCurrentWALPosition(ctx)
-		if err != nil {
-			pm.logger.Warn("Failed to get WAL position", "error", err)
+		// Check if we're in recovery (standby)
+		var inRecovery bool
+		err := pm.db.QueryRowContext(ctx, "SELECT pg_is_in_recovery()").Scan(&inRecovery)
+		if err == nil {
+			if inRecovery {
+				// On standby: get receive and replay positions
+				var receiveLsn, replayLsn sql.NullString
+				err = pm.db.QueryRowContext(ctx,
+					"SELECT pg_last_wal_receive_lsn(), pg_last_wal_replay_lsn()").
+					Scan(&receiveLsn, &replayLsn)
+				if err == nil {
+					if receiveLsn.Valid {
+						walPosition.LastReceiveLsn = receiveLsn.String
+					}
+					if replayLsn.Valid {
+						walPosition.LastReplayLsn = replayLsn.String
+					}
+				}
+			} else {
+				// On primary: get current write position
+				var currentLsn string
+				err = pm.db.QueryRowContext(ctx, "SELECT pg_current_wal_lsn()").Scan(&currentLsn)
+				if err == nil {
+					walPosition.CurrentLsn = currentLsn
+				}
+			}
 		}
 	}
 
@@ -185,18 +204,6 @@ func (pm *MultiPoolerManager) GetLeadershipView(ctx context.Context, req *consen
 		LeaderTerm:       view.LeaderTerm,
 		LastHeartbeat:    timestamppb.New(view.LastHeartbeat),
 		ReplicationLagNs: view.ReplicationLag.Nanoseconds(),
-	}, nil
-}
-
-// GetWALPosition returns the current WAL position
-func (pm *MultiPoolerManager) GetWALPosition(ctx context.Context, req *consensusdatapb.GetWALPositionRequest) (*consensusdatapb.GetWALPositionResponse, error) {
-	walPosition, err := pm.GetCurrentWALPosition(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	return &consensusdatapb.GetWALPositionResponse{
-		WalPosition: walPosition,
 	}, nil
 }
 

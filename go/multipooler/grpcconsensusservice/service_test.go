@@ -170,23 +170,6 @@ func TestConsensusService_GetLeadershipView(t *testing.T) {
 	})
 }
 
-func TestConsensusService_GetWALPosition(t *testing.T) {
-	svc, cleanup := setupConsensusService(t)
-	defer cleanup()
-
-	ctx := context.Background()
-
-	t.Run("GetWALPosition without database should fail", func(t *testing.T) {
-		req := &consensusdata.GetWALPositionRequest{}
-
-		resp, err := svc.GetWALPosition(ctx, req)
-
-		// Should fail because no database connection
-		assert.Error(t, err)
-		assert.Nil(t, resp)
-	})
-}
-
 func TestConsensusService_CanReachPrimary(t *testing.T) {
 	svc, cleanup := setupConsensusService(t)
 	defer cleanup()
@@ -254,15 +237,6 @@ func TestConsensusService_AllMethods(t *testing.T) {
 				return err
 			},
 			shouldSucceed: false, // No replication tracker
-		},
-		{
-			name: "GetWALPosition",
-			method: func() error {
-				req := &consensusdata.GetWALPositionRequest{}
-				_, err := svc.GetWALPosition(ctx, req)
-				return err
-			},
-			shouldSucceed: false, // No database connection
 		},
 		{
 			name: "CanReachPrimary",
