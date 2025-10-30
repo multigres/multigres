@@ -23,7 +23,7 @@ option go_package = "github.com/multigres/multigres/go/pb/consensus";
 // MultiPoolerConsensus provides consensus APIs for leader election
 service MultiPoolerConsensus {
   // Election Protocol
-  rpc RequestVote(consensusdata.RequestVoteRequest) returns (consensusdata.RequestVoteResponse);
+  rpc BeginTerm(consensusdata.BeginTermRequest) returns (consensusdata.BeginTermResponse);
 
   // Status and Health
   rpc Status(consensusdata.StatusRequest) returns (consensusdata.StatusResponse);

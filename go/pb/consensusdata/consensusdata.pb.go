@@ -112,8 +112,8 @@ func (x *WALPosition) GetTimestamp() *timestamppb.Timestamp {
 	return nil
 }
 
-// RequestVote is sent by candidates during elections
-type RequestVoteRequest struct {
+// BeginTerm is sent by candidates during elections
+type BeginTermRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Term of the candidate
 	Term int64 `protobuf:"varint,1,opt,name=term,proto3" json:"term,omitempty"`
@@ -127,20 +127,20 @@ type RequestVoteRequest struct {
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *RequestVoteRequest) Reset() {
-	*x = RequestVoteRequest{}
+func (x *BeginTermRequest) Reset() {
+	*x = BeginTermRequest{}
 	mi := &file_consensusdata_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *RequestVoteRequest) String() string {
+func (x *BeginTermRequest) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*RequestVoteRequest) ProtoMessage() {}
+func (*BeginTermRequest) ProtoMessage() {}
 
-func (x *RequestVoteRequest) ProtoReflect() protoreflect.Message {
+func (x *BeginTermRequest) ProtoReflect() protoreflect.Message {
 	mi := &file_consensusdata_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -152,65 +152,65 @@ func (x *RequestVoteRequest) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use RequestVoteRequest.ProtoReflect.Descriptor instead.
-func (*RequestVoteRequest) Descriptor() ([]byte, []int) {
+// Deprecated: Use BeginTermRequest.ProtoReflect.Descriptor instead.
+func (*BeginTermRequest) Descriptor() ([]byte, []int) {
 	return file_consensusdata_proto_rawDescGZIP(), []int{1}
 }
 
-func (x *RequestVoteRequest) GetTerm() int64 {
+func (x *BeginTermRequest) GetTerm() int64 {
 	if x != nil {
 		return x.Term
 	}
 	return 0
 }
 
-func (x *RequestVoteRequest) GetCandidateId() string {
+func (x *BeginTermRequest) GetCandidateId() string {
 	if x != nil {
 		return x.CandidateId
 	}
 	return ""
 }
 
-func (x *RequestVoteRequest) GetShardId() string {
+func (x *BeginTermRequest) GetShardId() string {
 	if x != nil {
 		return x.ShardId
 	}
 	return ""
 }
 
-func (x *RequestVoteRequest) GetPolicyVersion() int64 {
+func (x *BeginTermRequest) GetPolicyVersion() int64 {
 	if x != nil {
 		return x.PolicyVersion
 	}
 	return 0
 }
 
-type RequestVoteResponse struct {
+type BeginTermResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Current term, for candidate to update itself
 	Term int64 `protobuf:"varint,1,opt,name=term,proto3" json:"term,omitempty"`
-	// True if candidate received vote
-	VoteGranted bool `protobuf:"varint,2,opt,name=vote_granted,json=voteGranted,proto3" json:"vote_granted,omitempty"`
-	// ID of the responding node
-	NodeId        string `protobuf:"bytes,3,opt,name=node_id,json=nodeId,proto3" json:"node_id,omitempty"`
+	// True if the term was accepted
+	Accepted bool `protobuf:"varint,2,opt,name=accepted,proto3" json:"accepted,omitempty"`
+	// ID of the responding pooler
+	PoolerId      string `protobuf:"bytes,3,opt,name=pooler_id,json=poolerId,proto3" json:"pooler_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *RequestVoteResponse) Reset() {
-	*x = RequestVoteResponse{}
+func (x *BeginTermResponse) Reset() {
+	*x = BeginTermResponse{}
 	mi := &file_consensusdata_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *RequestVoteResponse) String() string {
+func (x *BeginTermResponse) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*RequestVoteResponse) ProtoMessage() {}
+func (*BeginTermResponse) ProtoMessage() {}
 
-func (x *RequestVoteResponse) ProtoReflect() protoreflect.Message {
+func (x *BeginTermResponse) ProtoReflect() protoreflect.Message {
 	mi := &file_consensusdata_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -222,28 +222,28 @@ func (x *RequestVoteResponse) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use RequestVoteResponse.ProtoReflect.Descriptor instead.
-func (*RequestVoteResponse) Descriptor() ([]byte, []int) {
+// Deprecated: Use BeginTermResponse.ProtoReflect.Descriptor instead.
+func (*BeginTermResponse) Descriptor() ([]byte, []int) {
 	return file_consensusdata_proto_rawDescGZIP(), []int{2}
 }
 
-func (x *RequestVoteResponse) GetTerm() int64 {
+func (x *BeginTermResponse) GetTerm() int64 {
 	if x != nil {
 		return x.Term
 	}
 	return 0
 }
 
-func (x *RequestVoteResponse) GetVoteGranted() bool {
+func (x *BeginTermResponse) GetAccepted() bool {
 	if x != nil {
-		return x.VoteGranted
+		return x.Accepted
 	}
 	return false
 }
 
-func (x *RequestVoteResponse) GetNodeId() string {
+func (x *BeginTermResponse) GetPoolerId() string {
 	if x != nil {
-		return x.NodeId
+		return x.PoolerId
 	}
 	return ""
 }
@@ -305,8 +305,8 @@ func (x *StatusRequest) GetShardId() string {
 
 type StatusResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Node ID
-	NodeId string `protobuf:"bytes,1,opt,name=node_id,json=nodeId,proto3" json:"node_id,omitempty"`
+	// Pooler ID
+	PoolerId string `protobuf:"bytes,1,opt,name=pooler_id,json=poolerId,proto3" json:"pooler_id,omitempty"`
 	// Current term from local file
 	CurrentTerm int64 `protobuf:"varint,2,opt,name=current_term,json=currentTerm,proto3" json:"current_term,omitempty"`
 	// Last successful leader term from Postgres
@@ -315,7 +315,7 @@ type StatusResponse struct {
 	WalPosition *WALPosition `protobuf:"bytes,4,opt,name=wal_position,json=walPosition,proto3" json:"wal_position,omitempty"`
 	// Whether Postgres is healthy and reachable
 	IsHealthy bool `protobuf:"varint,5,opt,name=is_healthy,json=isHealthy,proto3" json:"is_healthy,omitempty"`
-	// Whether this node is eligible to be a leader
+	// Whether this pooler is eligible to be a leader
 	IsEligible bool `protobuf:"varint,6,opt,name=is_eligible,json=isEligible,proto3" json:"is_eligible,omitempty"`
 	// Cell identifier
 	Cell string `protobuf:"bytes,7,opt,name=cell,proto3" json:"cell,omitempty"`
@@ -355,9 +355,9 @@ func (*StatusResponse) Descriptor() ([]byte, []int) {
 	return file_consensusdata_proto_rawDescGZIP(), []int{4}
 }
 
-func (x *StatusResponse) GetNodeId() string {
+func (x *StatusResponse) GetPoolerId() string {
 	if x != nil {
-		return x.NodeId
+		return x.PoolerId
 	}
 	return ""
 }
@@ -739,21 +739,21 @@ const file_consensusdata_proto_rawDesc = "" +
 	"currentLsn\x12(\n" +
 	"\x10last_receive_lsn\x18\x02 \x01(\tR\x0elastReceiveLsn\x12&\n" +
 	"\x0flast_replay_lsn\x18\x03 \x01(\tR\rlastReplayLsn\x128\n" +
-	"\ttimestamp\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\ttimestamp\"\x8d\x01\n" +
-	"\x12RequestVoteRequest\x12\x12\n" +
+	"\ttimestamp\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\ttimestamp\"\x8b\x01\n" +
+	"\x10BeginTermRequest\x12\x12\n" +
 	"\x04term\x18\x01 \x01(\x03R\x04term\x12!\n" +
 	"\fcandidate_id\x18\x02 \x01(\tR\vcandidateId\x12\x19\n" +
 	"\bshard_id\x18\x03 \x01(\tR\ashardId\x12%\n" +
-	"\x0epolicy_version\x18\x04 \x01(\x03R\rpolicyVersion\"e\n" +
-	"\x13RequestVoteResponse\x12\x12\n" +
-	"\x04term\x18\x01 \x01(\x03R\x04term\x12!\n" +
-	"\fvote_granted\x18\x02 \x01(\bR\vvoteGranted\x12\x17\n" +
-	"\anode_id\x18\x03 \x01(\tR\x06nodeId\">\n" +
+	"\x0epolicy_version\x18\x04 \x01(\x03R\rpolicyVersion\"`\n" +
+	"\x11BeginTermResponse\x12\x12\n" +
+	"\x04term\x18\x01 \x01(\x03R\x04term\x12\x1a\n" +
+	"\baccepted\x18\x02 \x01(\bR\baccepted\x12\x1b\n" +
+	"\tpooler_id\x18\x03 \x01(\tR\bpoolerId\">\n" +
 	"\rStatusRequest\x12\x12\n" +
 	"\x04term\x18\x01 \x01(\x03R\x04term\x12\x19\n" +
-	"\bshard_id\x18\x02 \x01(\tR\ashardId\"\x94\x02\n" +
-	"\x0eStatusResponse\x12\x17\n" +
-	"\anode_id\x18\x01 \x01(\tR\x06nodeId\x12!\n" +
+	"\bshard_id\x18\x02 \x01(\tR\ashardId\"\x98\x02\n" +
+	"\x0eStatusResponse\x12\x1b\n" +
+	"\tpooler_id\x18\x01 \x01(\tR\bpoolerId\x12!\n" +
 	"\fcurrent_term\x18\x02 \x01(\x03R\vcurrentTerm\x12\x1f\n" +
 	"\vleader_term\x18\x03 \x01(\x03R\n" +
 	"leaderTerm\x12=\n" +
@@ -798,8 +798,8 @@ func file_consensusdata_proto_rawDescGZIP() []byte {
 var file_consensusdata_proto_msgTypes = make([]protoimpl.MessageInfo, 11)
 var file_consensusdata_proto_goTypes = []any{
 	(*WALPosition)(nil),             // 0: consensusdata.WALPosition
-	(*RequestVoteRequest)(nil),      // 1: consensusdata.RequestVoteRequest
-	(*RequestVoteResponse)(nil),     // 2: consensusdata.RequestVoteResponse
+	(*BeginTermRequest)(nil),        // 1: consensusdata.BeginTermRequest
+	(*BeginTermResponse)(nil),       // 2: consensusdata.BeginTermResponse
 	(*StatusRequest)(nil),           // 3: consensusdata.StatusRequest
 	(*StatusResponse)(nil),          // 4: consensusdata.StatusResponse
 	(*LeadershipViewRequest)(nil),   // 5: consensusdata.LeadershipViewRequest

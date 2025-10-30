@@ -38,8 +38,8 @@ message WALPosition {
   google.protobuf.Timestamp timestamp = 4;
 }
 
-// RequestVote is sent by candidates during elections
-message RequestVoteRequest {
+// BeginTerm is sent by candidates during elections
+message BeginTermRequest {
   // Term of the candidate
   int64 term = 1;
 
@@ -53,15 +53,15 @@ message RequestVoteRequest {
   int64 policy_version = 4;
 }
 
-message RequestVoteResponse {
+message BeginTermResponse {
   // Current term, for candidate to update itself
   int64 term = 1;
 
-  // True if candidate received vote
-  bool vote_granted = 2;
+  // True if the term was accepted
+  bool accepted = 2;
 
-  // ID of the responding node
-  string node_id = 3;
+  // ID of the responding pooler
+  string pooler_id = 3;
 }
 
 // Status returns the current status of a node
@@ -74,8 +74,8 @@ message StatusRequest {
 }
 
 message StatusResponse {
-  // Node ID
-  string node_id = 1;
+  // Pooler ID
+  string pooler_id = 1;
 
   // Current term from local file
   int64 current_term = 2;
@@ -89,7 +89,7 @@ message StatusResponse {
   // Whether Postgres is healthy and reachable
   bool is_healthy = 5;
 
-  // Whether this node is eligible to be a leader
+  // Whether this pooler is eligible to be a leader
   bool is_eligible = 6;
 
   // Cell identifier

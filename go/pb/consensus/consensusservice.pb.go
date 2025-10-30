@@ -39,33 +39,33 @@ var File_consensusservice_proto protoreflect.FileDescriptor
 
 const file_consensusservice_proto_rawDesc = "" +
 	"\n" +
-	"\x16consensusservice.proto\x12\tconsensus\x1a\x13consensusdata.proto2\xd6\x03\n" +
-	"\x14MultiPoolerConsensus\x12T\n" +
-	"\vRequestVote\x12!.consensusdata.RequestVoteRequest\x1a\".consensusdata.RequestVoteResponse\x12E\n" +
+	"\x16consensusservice.proto\x12\tconsensus\x1a\x13consensusdata.proto2\xd0\x03\n" +
+	"\x14MultiPoolerConsensus\x12N\n" +
+	"\tBeginTerm\x12\x1f.consensusdata.BeginTermRequest\x1a .consensusdata.BeginTermResponse\x12E\n" +
 	"\x06Status\x12\x1c.consensusdata.StatusRequest\x1a\x1d.consensusdata.StatusResponse\x12`\n" +
 	"\x11GetLeadershipView\x12$.consensusdata.LeadershipViewRequest\x1a%.consensusdata.LeadershipViewResponse\x12]\n" +
 	"\x0eGetWALPosition\x12$.consensusdata.GetWALPositionRequest\x1a%.consensusdata.GetWALPositionResponse\x12`\n" +
 	"\x0fCanReachPrimary\x12%.consensusdata.CanReachPrimaryRequest\x1a&.consensusdata.CanReachPrimaryResponseB0Z.github.com/multigres/multigres/go/pb/consensusb\x06proto3"
 
 var file_consensusservice_proto_goTypes = []any{
-	(*consensusdata.RequestVoteRequest)(nil),      // 0: consensusdata.RequestVoteRequest
+	(*consensusdata.BeginTermRequest)(nil),        // 0: consensusdata.BeginTermRequest
 	(*consensusdata.StatusRequest)(nil),           // 1: consensusdata.StatusRequest
 	(*consensusdata.LeadershipViewRequest)(nil),   // 2: consensusdata.LeadershipViewRequest
 	(*consensusdata.GetWALPositionRequest)(nil),   // 3: consensusdata.GetWALPositionRequest
 	(*consensusdata.CanReachPrimaryRequest)(nil),  // 4: consensusdata.CanReachPrimaryRequest
-	(*consensusdata.RequestVoteResponse)(nil),     // 5: consensusdata.RequestVoteResponse
+	(*consensusdata.BeginTermResponse)(nil),       // 5: consensusdata.BeginTermResponse
 	(*consensusdata.StatusResponse)(nil),          // 6: consensusdata.StatusResponse
 	(*consensusdata.LeadershipViewResponse)(nil),  // 7: consensusdata.LeadershipViewResponse
 	(*consensusdata.GetWALPositionResponse)(nil),  // 8: consensusdata.GetWALPositionResponse
 	(*consensusdata.CanReachPrimaryResponse)(nil), // 9: consensusdata.CanReachPrimaryResponse
 }
 var file_consensusservice_proto_depIdxs = []int32{
-	0, // 0: consensus.MultiPoolerConsensus.RequestVote:input_type -> consensusdata.RequestVoteRequest
+	0, // 0: consensus.MultiPoolerConsensus.BeginTerm:input_type -> consensusdata.BeginTermRequest
 	1, // 1: consensus.MultiPoolerConsensus.Status:input_type -> consensusdata.StatusRequest
 	2, // 2: consensus.MultiPoolerConsensus.GetLeadershipView:input_type -> consensusdata.LeadershipViewRequest
 	3, // 3: consensus.MultiPoolerConsensus.GetWALPosition:input_type -> consensusdata.GetWALPositionRequest
 	4, // 4: consensus.MultiPoolerConsensus.CanReachPrimary:input_type -> consensusdata.CanReachPrimaryRequest
-	5, // 5: consensus.MultiPoolerConsensus.RequestVote:output_type -> consensusdata.RequestVoteResponse
+	5, // 5: consensus.MultiPoolerConsensus.BeginTerm:output_type -> consensusdata.BeginTermResponse
 	6, // 6: consensus.MultiPoolerConsensus.Status:output_type -> consensusdata.StatusResponse
 	7, // 7: consensus.MultiPoolerConsensus.GetLeadershipView:output_type -> consensusdata.LeadershipViewResponse
 	8, // 8: consensus.MultiPoolerConsensus.GetWALPosition:output_type -> consensusdata.GetWALPositionResponse

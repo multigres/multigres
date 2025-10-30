@@ -35,12 +35,12 @@ import (
 	pgctldpb "github.com/multigres/multigres/go/pb/pgctldservice"
 )
 
-// TestRequestVote_AlreadyVotedInOlderTerm tests the scenario where:
+// TestBeginTerm_AlreadyVotedInOlderTerm tests the scenario where:
 // 1. Node has voted for candidate A in term 5
 // 2. Candidate B requests vote in term 10 (newer term)
-// Expected: Vote should be granted because the newer term should reset the vote
+// Expected: Vote should be accepted because the newer term should reset the vote
 // Bug: Currently the code checks votedFor before updating the term, which would reject the vote
-func TestRequestVote_AlreadyVotedInOlderTerm(t *testing.T) {
+func TestBeginTerm_AlreadyVotedInOlderTerm(t *testing.T) {
 	ctx := context.Background()
 	pm, mock, tmpDir := setupManagerWithMockDB(t)
 
@@ -70,19 +70,19 @@ func TestRequestVote_AlreadyVotedInOlderTerm(t *testing.T) {
 	mock.ExpectQuery("SELECT last_msg_receipt_time FROM pg_stat_wal_receiver").
 		WillReturnRows(sqlmock.NewRows([]string{"last_msg_receipt_time"}).AddRow(recentTime))
 
-	req := &consensusdatapb.RequestVoteRequest{
+	req := &consensusdatapb.BeginTermRequest{
 		Term:        10, // Newer term
 		CandidateId: "candidate-B",
 		ShardId:     "shard-1",
 	}
 
-	resp, err := pm.RequestVote(ctx, req)
+	resp, err := pm.BeginTerm(ctx, req)
 
 	// Should succeed
 	require.NoError(t, err)
 	require.NotNil(t, resp)
 
-	// BUG EXPOSED: The vote should be granted because term 10 is newer than term 5
+	// BUG EXPOSED: The vote should be accepted because term 10 is newer than term 5
 	// The code should:
 	// 1. See that req.Term (10) > currentTerm (5)
 	// 2. Update the term to 10 and reset votedFor to nil
@@ -90,7 +90,7 @@ func TestRequestVote_AlreadyVotedInOlderTerm(t *testing.T) {
 	//
 	// However, with the current bug, the code checks votedFor != nil && votedFor != "candidate-B"
 	// BEFORE updating the term, so it incorrectly rejects the vote.
-	assert.True(t, resp.VoteGranted, "Vote should be granted when request term is newer than current term, even if already voted in older term")
+	assert.True(t, resp.Accepted, "Vote should be accepted when request term is newer than current term, even if already voted in older term")
 	assert.Equal(t, int64(10), resp.Term)
 
 	// Verify the vote was persisted
@@ -103,11 +103,11 @@ func TestRequestVote_AlreadyVotedInOlderTerm(t *testing.T) {
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
 
-// TestRequestVote_AlreadyVotedInSameTerm tests the scenario where:
+// TestBeginTerm_AlreadyVotedInSameTerm tests the scenario where:
 // 1. Node has voted for candidate A in term 5
 // 2. Candidate B requests vote in term 5 (same term)
 // Expected: Vote should be rejected
-func TestRequestVote_AlreadyVotedInSameTerm(t *testing.T) {
+func TestBeginTerm_AlreadyVotedInSameTerm(t *testing.T) {
 	ctx := context.Background()
 	pm, mock, tmpDir := setupManagerWithMockDB(t)
 
@@ -131,20 +131,20 @@ func TestRequestVote_AlreadyVotedInSameTerm(t *testing.T) {
 	// Mock expectations for Ping call (health check) - will reject early, no WAL check needed
 	mock.ExpectPing()
 
-	req := &consensusdatapb.RequestVoteRequest{
+	req := &consensusdatapb.BeginTermRequest{
 		Term:        5, // Same term
 		CandidateId: "candidate-B",
 		ShardId:     "shard-1",
 	}
 
-	resp, err := pm.RequestVote(ctx, req)
+	resp, err := pm.BeginTerm(ctx, req)
 
 	// Should succeed (no error)
 	require.NoError(t, err)
 	require.NotNil(t, resp)
 
 	// Vote should be rejected because already voted for candidate-A in this term
-	assert.False(t, resp.VoteGranted, "Vote should be rejected when already voted for different candidate in same term")
+	assert.False(t, resp.Accepted, "Vote should be rejected when already voted for different candidate in same term")
 	assert.Equal(t, int64(5), resp.Term)
 
 	// Verify the vote was NOT changed
@@ -157,11 +157,11 @@ func TestRequestVote_AlreadyVotedInSameTerm(t *testing.T) {
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
 
-// TestRequestVote_AlreadyVotedForSameCandidateInSameTerm tests the scenario where:
+// TestBeginTerm_AlreadyVotedForSameCandidateInSameTerm tests the scenario where:
 // 1. Node has voted for candidate A in term 5
 // 2. Candidate A requests vote again in term 5 (same candidate, same term)
-// Expected: Vote should be granted (idempotent)
-func TestRequestVote_AlreadyVotedForSameCandidateInSameTerm(t *testing.T) {
+// Expected: Vote should be accepted (idempotent)
+func TestBeginTerm_AlreadyVotedForSameCandidateInSameTerm(t *testing.T) {
 	ctx := context.Background()
 	pm, mock, tmpDir := setupManagerWithMockDB(t)
 
@@ -191,20 +191,20 @@ func TestRequestVote_AlreadyVotedForSameCandidateInSameTerm(t *testing.T) {
 	mock.ExpectQuery("SELECT last_msg_receipt_time FROM pg_stat_wal_receiver").
 		WillReturnRows(sqlmock.NewRows([]string{"last_msg_receipt_time"}).AddRow(recentTime))
 
-	req := &consensusdatapb.RequestVoteRequest{
+	req := &consensusdatapb.BeginTermRequest{
 		Term:        5, // Same term
 		CandidateId: "candidate-A",
 		ShardId:     "shard-1",
 	}
 
-	resp, err := pm.RequestVote(ctx, req)
+	resp, err := pm.BeginTerm(ctx, req)
 
 	// Should succeed
 	require.NoError(t, err)
 	require.NotNil(t, resp)
 
-	// Vote should be granted (idempotent - already voted for this candidate)
-	assert.True(t, resp.VoteGranted, "Vote should be granted when already voted for same candidate in same term (idempotent)")
+	// Vote should be accepted (idempotent - already voted for this candidate)
+	assert.True(t, resp.Accepted, "Vote should be accepted when already voted for same candidate in same term (idempotent)")
 	assert.Equal(t, int64(5), resp.Term)
 
 	// Verify the vote remains the same
@@ -586,7 +586,7 @@ func TestConsensusStatus_HealthyPrimary(t *testing.T) {
 
 	require.NoError(t, err)
 	require.NotNil(t, resp)
-	assert.Equal(t, "test-voter", resp.NodeId)
+	assert.Equal(t, "test-voter", resp.PoolerId)
 	assert.Equal(t, int64(5), resp.CurrentTerm)
 	assert.Equal(t, int64(5), resp.LeaderTerm)
 	assert.True(t, resp.IsHealthy)
@@ -638,7 +638,7 @@ func TestConsensusStatus_HealthyStandby(t *testing.T) {
 
 	require.NoError(t, err)
 	require.NotNil(t, resp)
-	assert.Equal(t, "test-voter", resp.NodeId)
+	assert.Equal(t, "test-voter", resp.PoolerId)
 	assert.Equal(t, int64(3), resp.CurrentTerm)
 	assert.Equal(t, int64(5), resp.LeaderTerm)
 	assert.True(t, resp.IsHealthy)
@@ -679,7 +679,7 @@ func TestConsensusStatus_NoDatabaseConnection(t *testing.T) {
 
 	require.NoError(t, err)
 	require.NotNil(t, resp)
-	assert.Equal(t, "test-voter", resp.NodeId)
+	assert.Equal(t, "test-voter", resp.PoolerId)
 	assert.Equal(t, int64(7), resp.CurrentTerm)
 	assert.Equal(t, int64(0), resp.LeaderTerm, "LeaderTerm should be 0 when DB is unavailable")
 	assert.False(t, resp.IsHealthy, "Should be unhealthy when DB is unavailable")
@@ -718,7 +718,7 @@ func TestConsensusStatus_DatabaseQueryFailure(t *testing.T) {
 
 	require.NoError(t, err, "ConsensusStatus should not return error even if DB query fails")
 	require.NotNil(t, resp)
-	assert.Equal(t, "test-voter", resp.NodeId)
+	assert.Equal(t, "test-voter", resp.PoolerId)
 	assert.Equal(t, int64(4), resp.CurrentTerm)
 	assert.Equal(t, int64(0), resp.LeaderTerm, "LeaderTerm should be 0 when query fails")
 	assert.False(t, resp.IsHealthy, "Should be unhealthy when query fails")

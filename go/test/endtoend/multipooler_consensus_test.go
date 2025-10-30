@@ -69,7 +69,7 @@ func TestConsensus_Status(t *testing.T) {
 		require.NotNil(t, resp, "Response should not be nil")
 
 		// Verify node ID
-		assert.Equal(t, "primary-multipooler", resp.NodeId, "NodeId should match")
+		assert.Equal(t, "primary-multipooler", resp.PoolerId, "PoolerId should match")
 
 		// Verify cell
 		assert.Equal(t, "test-cell", resp.Cell, "Cell should match")
@@ -106,7 +106,7 @@ func TestConsensus_Status(t *testing.T) {
 		require.NotNil(t, resp, "Response should not be nil")
 
 		// Verify node ID
-		assert.Equal(t, "standby-multipooler", resp.NodeId, "NodeId should match")
+		assert.Equal(t, "standby-multipooler", resp.PoolerId, "PoolerId should match")
 
 		// Verify cell
 		assert.Equal(t, "test-cell", resp.Cell, "Cell should match")
@@ -203,7 +203,7 @@ func TestConsensus_GetWALPosition(t *testing.T) {
 	})
 }
 
-func TestConsensus_RequestVote(t *testing.T) {
+func TestConsensus_BeginTerm(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping end-to-end tests in short mode")
 	}
@@ -231,72 +231,72 @@ func TestConsensus_RequestVote(t *testing.T) {
 	t.Cleanup(func() { standbyConn.Close() })
 	standbyConsensusClient := consensuspb.NewMultiPoolerConsensusClient(standbyConn)
 
-	t.Run("RequestVote_OldTerm_Rejected", func(t *testing.T) {
-		t.Log("Testing RequestVote with old term (should be rejected)...")
+	t.Run("BeginTerm_OldTerm_Rejected", func(t *testing.T) {
+		t.Log("Testing BeginTerm with old term (should be rejected)...")
 
 		// Request vote with term 0 (older than current term 1)
-		req := &consensusdata.RequestVoteRequest{
+		req := &consensusdata.BeginTermRequest{
 			Term:        0,
 			CandidateId: "test-candidate",
 			ShardId:     "test-shard",
 		}
 
-		resp, err := standbyConsensusClient.RequestVote(utils.WithShortDeadline(t), req)
-		require.NoError(t, err, "RequestVote RPC should succeed")
+		resp, err := standbyConsensusClient.BeginTerm(utils.WithShortDeadline(t), req)
+		require.NoError(t, err, "BeginTerm RPC should succeed")
 		require.NotNil(t, resp, "Response should not be nil")
 
 		// Vote should be rejected because term is old
-		assert.False(t, resp.VoteGranted, "Vote should not be granted for old term")
+		assert.False(t, resp.Accepted, "Vote should not be granted for old term")
 		assert.Equal(t, int64(1), resp.Term, "Response term should be current term (1)")
-		assert.Equal(t, "standby-multipooler", resp.NodeId, "NodeId should match")
+		assert.Equal(t, "standby-multipooler", resp.PoolerId, "PoolerId should match")
 
-		t.Log("Confirmed: RequestVote correctly rejected old term")
+		t.Log("Confirmed: BeginTerm correctly rejected old term")
 	})
 
-	t.Run("RequestVote_NewTerm_Granted", func(t *testing.T) {
-		t.Log("Testing RequestVote with new term (should be granted)...")
+	t.Run("BeginTerm_NewTerm_Granted", func(t *testing.T) {
+		t.Log("Testing BeginTerm with new term (should be granted)...")
 
 		// Request vote with term 2 (newer than current term 1)
-		req := &consensusdata.RequestVoteRequest{
+		req := &consensusdata.BeginTermRequest{
 			Term:        2,
 			CandidateId: "new-leader-candidate",
 			ShardId:     "test-shard",
 		}
 
-		resp, err := primaryConsensusClient.RequestVote(utils.WithShortDeadline(t), req)
-		require.NoError(t, err, "RequestVote RPC should succeed")
+		resp, err := primaryConsensusClient.BeginTerm(utils.WithShortDeadline(t), req)
+		require.NoError(t, err, "BeginTerm RPC should succeed")
 		require.NotNil(t, resp, "Response should not be nil")
 
 		// Vote should be granted because:
 		// 1. Term is newer (2 > 1)
 		// 2. WAL position is up-to-date
 		// 3. Haven't voted yet in this term
-		assert.True(t, resp.VoteGranted, "Vote should be granted for new term with up-to-date WAL")
+		assert.True(t, resp.Accepted, "Vote should be granted for new term with up-to-date WAL")
 		assert.Equal(t, int64(2), resp.Term, "Response term should be updated to new term")
-		assert.Equal(t, "primary-multipooler", resp.NodeId, "NodeId should match")
+		assert.Equal(t, "primary-multipooler", resp.PoolerId, "PoolerId should match")
 
-		t.Log("Confirmed: RequestVote correctly granted for new term")
+		t.Log("Confirmed: BeginTerm correctly granted for new term")
 	})
 
-	t.Run("RequestVote_SameTerm_AlreadyVoted", func(t *testing.T) {
-		t.Log("Testing RequestVote for same term after already voting (should be rejected)...")
+	t.Run("BeginTerm_SameTerm_AlreadyVoted", func(t *testing.T) {
+		t.Log("Testing BeginTerm for same term after already voting (should be rejected)...")
 
 		// Request vote with term 2 again but different candidate
-		req := &consensusdata.RequestVoteRequest{
+		req := &consensusdata.BeginTermRequest{
 			Term:        2,
 			CandidateId: "different-candidate",
 			ShardId:     "test-shard",
 		}
 
-		resp, err := primaryConsensusClient.RequestVote(utils.WithShortDeadline(t), req)
-		require.NoError(t, err, "RequestVote RPC should succeed")
+		resp, err := primaryConsensusClient.BeginTerm(utils.WithShortDeadline(t), req)
+		require.NoError(t, err, "BeginTerm RPC should succeed")
 		require.NotNil(t, resp, "Response should not be nil")
 
 		// Vote should be rejected because already voted for someone else in this term
-		assert.False(t, resp.VoteGranted, "Vote should not be granted when already voted in this term")
+		assert.False(t, resp.Accepted, "Vote should not be granted when already voted in this term")
 		assert.Equal(t, int64(2), resp.Term, "Response term should remain 2")
 
-		t.Log("Confirmed: RequestVote correctly rejected when already voted in term")
+		t.Log("Confirmed: BeginTerm correctly rejected when already voted in term")
 	})
 }
 

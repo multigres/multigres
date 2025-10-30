@@ -43,9 +43,9 @@ func RegisterConsensusServices(senv *servenv.ServEnv, grpc *servenv.GrpcServer) 
 	})
 }
 
-// RequestVote handles vote requests during leader election
-func (s *consensusService) RequestVote(ctx context.Context, req *consensusdata.RequestVoteRequest) (*consensusdata.RequestVoteResponse, error) {
-	resp, err := s.manager.RequestVote(ctx, req)
+// BeginTerm handles vote requests during leader election
+func (s *consensusService) BeginTerm(ctx context.Context, req *consensusdata.BeginTermRequest) (*consensusdata.BeginTermResponse, error) {
+	resp, err := s.manager.BeginTerm(ctx, req)
 	if err != nil {
 		return nil, mterrors.ToGRPC(err)
 	}

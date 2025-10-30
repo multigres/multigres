@@ -26,8 +26,8 @@ import (
 	pgctldpb "github.com/multigres/multigres/go/pb/pgctldservice"
 )
 
-// RequestVote handles vote requests during leader election (Raft-style)
-func (pm *MultiPoolerManager) RequestVote(ctx context.Context, req *consensusdatapb.RequestVoteRequest) (*consensusdatapb.RequestVoteResponse, error) {
+// BeginTerm handles vote requests during leader election (Raft-style)
+func (pm *MultiPoolerManager) BeginTerm(ctx context.Context, req *consensusdatapb.BeginTermRequest) (*consensusdatapb.BeginTermResponse, error) {
 	// CRITICAL: Must be able to reach Postgres to participate in election
 	if pm.db == nil {
 		return nil, fmt.Errorf("postgres unreachable, cannot vote")
@@ -53,10 +53,10 @@ func (pm *MultiPoolerManager) RequestVote(ctx context.Context, req *consensusdat
 	votedFor := pm.consensusTerm.GetVotedFor()
 	pm.mu.Unlock()
 
-	response := &consensusdatapb.RequestVoteResponse{
-		Term:        currentTerm,
-		VoteGranted: false,
-		NodeId:      pm.serviceID.GetName(),
+	response := &consensusdatapb.BeginTermResponse{
+		Term:     currentTerm,
+		Accepted: false,
+		PoolerId: pm.serviceID.GetName(),
 	}
 
 	// Reject if term is outdated
@@ -116,7 +116,7 @@ func (pm *MultiPoolerManager) RequestVote(ctx context.Context, req *consensusdat
 		return nil, fmt.Errorf("failed to persist vote: %w", err)
 	}
 
-	response.VoteGranted = true
+	response.Accepted = true
 	return response, nil
 }
 
@@ -177,7 +177,7 @@ func (pm *MultiPoolerManager) ConsensusStatus(ctx context.Context, req *consensu
 	}
 
 	return &consensusdatapb.StatusResponse{
-		NodeId:      pm.serviceID.GetName(),
+		PoolerId:    pm.serviceID.GetName(),
 		CurrentTerm: localTerm,
 		LeaderTerm:  leaderTerm,
 		WalPosition: walPosition,

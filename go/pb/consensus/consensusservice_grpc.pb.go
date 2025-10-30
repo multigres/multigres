@@ -34,7 +34,7 @@ import (
 const _ = grpc.SupportPackageIsVersion7
 
 const (
-	MultiPoolerConsensus_RequestVote_FullMethodName       = "/consensus.MultiPoolerConsensus/RequestVote"
+	MultiPoolerConsensus_BeginTerm_FullMethodName         = "/consensus.MultiPoolerConsensus/BeginTerm"
 	MultiPoolerConsensus_Status_FullMethodName            = "/consensus.MultiPoolerConsensus/Status"
 	MultiPoolerConsensus_GetLeadershipView_FullMethodName = "/consensus.MultiPoolerConsensus/GetLeadershipView"
 	MultiPoolerConsensus_GetWALPosition_FullMethodName    = "/consensus.MultiPoolerConsensus/GetWALPosition"
@@ -46,7 +46,7 @@ const (
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type MultiPoolerConsensusClient interface {
 	// Election Protocol
-	RequestVote(ctx context.Context, in *consensusdata.RequestVoteRequest, opts ...grpc.CallOption) (*consensusdata.RequestVoteResponse, error)
+	BeginTerm(ctx context.Context, in *consensusdata.BeginTermRequest, opts ...grpc.CallOption) (*consensusdata.BeginTermResponse, error)
 	// Status and Health
 	Status(ctx context.Context, in *consensusdata.StatusRequest, opts ...grpc.CallOption) (*consensusdata.StatusResponse, error)
 	GetLeadershipView(ctx context.Context, in *consensusdata.LeadershipViewRequest, opts ...grpc.CallOption) (*consensusdata.LeadershipViewResponse, error)
@@ -63,9 +63,9 @@ func NewMultiPoolerConsensusClient(cc grpc.ClientConnInterface) MultiPoolerConse
 	return &multiPoolerConsensusClient{cc}
 }
 
-func (c *multiPoolerConsensusClient) RequestVote(ctx context.Context, in *consensusdata.RequestVoteRequest, opts ...grpc.CallOption) (*consensusdata.RequestVoteResponse, error) {
-	out := new(consensusdata.RequestVoteResponse)
-	err := c.cc.Invoke(ctx, MultiPoolerConsensus_RequestVote_FullMethodName, in, out, opts...)
+func (c *multiPoolerConsensusClient) BeginTerm(ctx context.Context, in *consensusdata.BeginTermRequest, opts ...grpc.CallOption) (*consensusdata.BeginTermResponse, error) {
+	out := new(consensusdata.BeginTermResponse)
+	err := c.cc.Invoke(ctx, MultiPoolerConsensus_BeginTerm_FullMethodName, in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -113,7 +113,7 @@ func (c *multiPoolerConsensusClient) CanReachPrimary(ctx context.Context, in *co
 // for forward compatibility
 type MultiPoolerConsensusServer interface {
 	// Election Protocol
-	RequestVote(context.Context, *consensusdata.RequestVoteRequest) (*consensusdata.RequestVoteResponse, error)
+	BeginTerm(context.Context, *consensusdata.BeginTermRequest) (*consensusdata.BeginTermResponse, error)
 	// Status and Health
 	Status(context.Context, *consensusdata.StatusRequest) (*consensusdata.StatusResponse, error)
 	GetLeadershipView(context.Context, *consensusdata.LeadershipViewRequest) (*consensusdata.LeadershipViewResponse, error)
@@ -127,8 +127,8 @@ type MultiPoolerConsensusServer interface {
 type UnimplementedMultiPoolerConsensusServer struct {
 }
 
-func (UnimplementedMultiPoolerConsensusServer) RequestVote(context.Context, *consensusdata.RequestVoteRequest) (*consensusdata.RequestVoteResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method RequestVote not implemented")
+func (UnimplementedMultiPoolerConsensusServer) BeginTerm(context.Context, *consensusdata.BeginTermRequest) (*consensusdata.BeginTermResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method BeginTerm not implemented")
 }
 func (UnimplementedMultiPoolerConsensusServer) Status(context.Context, *consensusdata.StatusRequest) (*consensusdata.StatusResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Status not implemented")
@@ -155,20 +155,20 @@ func RegisterMultiPoolerConsensusServer(s grpc.ServiceRegistrar, srv MultiPooler
 	s.RegisterService(&MultiPoolerConsensus_ServiceDesc, srv)
 }
 
-func _MultiPoolerConsensus_RequestVote_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(consensusdata.RequestVoteRequest)
+func _MultiPoolerConsensus_BeginTerm_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(consensusdata.BeginTermRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(MultiPoolerConsensusServer).RequestVote(ctx, in)
+		return srv.(MultiPoolerConsensusServer).BeginTerm(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: MultiPoolerConsensus_RequestVote_FullMethodName,
+		FullMethod: MultiPoolerConsensus_BeginTerm_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(MultiPoolerConsensusServer).RequestVote(ctx, req.(*consensusdata.RequestVoteRequest))
+		return srv.(MultiPoolerConsensusServer).BeginTerm(ctx, req.(*consensusdata.BeginTermRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -253,8 +253,8 @@ var MultiPoolerConsensus_ServiceDesc = grpc.ServiceDesc{
 	HandlerType: (*MultiPoolerConsensusServer)(nil),
 	Methods: []grpc.MethodDesc{
 		{
-			MethodName: "RequestVote",
-			Handler:    _MultiPoolerConsensus_RequestVote_Handler,
+			MethodName: "BeginTerm",
+			Handler:    _MultiPoolerConsensus_BeginTerm_Handler,
 		},
 		{
 			MethodName: "Status",

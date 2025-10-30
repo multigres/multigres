@@ -33,7 +33,7 @@ import (
 	consensusdata "github.com/multigres/multigres/go/pb/consensusdata"
 )
 
-func TestConsensusService_RequestVote(t *testing.T) {
+func TestConsensusService_BeginTerm(t *testing.T) {
 	ctx := context.Background()
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
@@ -84,14 +84,14 @@ func TestConsensusService_RequestVote(t *testing.T) {
 		manager: pm,
 	}
 
-	t.Run("RequestVote without database connection should fail", func(t *testing.T) {
-		req := &consensusdata.RequestVoteRequest{
+	t.Run("BeginTerm without database connection should fail", func(t *testing.T) {
+		req := &consensusdata.BeginTermRequest{
 			Term:        5,
 			CandidateId: "candidate-1",
 			ShardId:     "shard-1",
 		}
 
-		resp, err := svc.RequestVote(ctx, req)
+		resp, err := svc.BeginTerm(ctx, req)
 
 		// Should fail because no database connection
 		assert.Error(t, err)
@@ -161,7 +161,7 @@ func TestConsensusService_Status(t *testing.T) {
 		// Should succeed
 		assert.NoError(t, err)
 		assert.NotNil(t, resp)
-		assert.Equal(t, "test-service", resp.NodeId)
+		assert.Equal(t, "test-service", resp.PoolerId)
 		assert.Equal(t, "zone1", resp.Cell)
 		// Without database, should not be healthy
 		assert.False(t, resp.IsHealthy)
@@ -421,14 +421,14 @@ func TestConsensusService_AllMethods(t *testing.T) {
 		shouldSucceed bool
 	}{
 		{
-			name: "RequestVote",
+			name: "BeginTerm",
 			method: func() error {
-				req := &consensusdata.RequestVoteRequest{
+				req := &consensusdata.BeginTermRequest{
 					Term:        5,
 					CandidateId: "candidate-1",
 					ShardId:     "shard-1",
 				}
-				_, err := svc.RequestVote(ctx, req)
+				_, err := svc.BeginTerm(ctx, req)
 				return err
 			},
 			shouldSucceed: false, // No database connection
