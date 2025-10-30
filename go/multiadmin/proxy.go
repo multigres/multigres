@@ -142,71 +142,69 @@ func (ma *MultiAdmin) resolveServiceTarget(r *http.Request, pathInfo proxyPathIn
 // /proxy/gate/{cell}/{name} -> routes to multigateway
 // /proxy/pool/{cell}/{name} -> routes to multipooler
 // /proxy/orch/{cell}/{name} -> routes to multiorch
-func (ma *MultiAdmin) getHandleProxy() func(http.ResponseWriter, *http.Request) {
-	return func(w http.ResponseWriter, r *http.Request) {
-		pathInfo, err := parseProxyPath(r.URL.Path)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
-
-		target, err := ma.resolveServiceTarget(r, *pathInfo)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusNotFound)
-			return
-		}
-
-		// Create reverse proxy to the target service
-		targetURL, err := url.Parse(fmt.Sprintf("http://%s:%d", target.host, target.port))
-		if err != nil {
-			http.Error(w, "Failed to parse target URL", http.StatusInternalServerError)
-			return
-		}
-		proxy := httputil.NewSingleHostReverseProxy(targetURL)
-
-		// Modify the director to strip the proxy prefix from the request path
-		originalDirector := proxy.Director
-		proxy.Director = func(req *http.Request) {
-			originalDirector(req)
-			// Strip the proxy prefix to get the actual path the backend expects
-			req.URL.Path = strings.TrimPrefix(r.URL.Path, target.proxyBasePath)
-			if req.URL.Path == "" {
-				req.URL.Path = "/"
-			}
-			req.Host = targetURL.Host
-		}
-
-		// Intercept the response to rewrite HTML content
-		proxy.ModifyResponse = func(resp *http.Response) error {
-			contentType := resp.Header.Get("Content-Type")
-
-			// Only rewrite HTML responses
-			if strings.Contains(contentType, "text/html") {
-				body, err := io.ReadAll(resp.Body)
-				resp.Body.Close()
-				if err != nil {
-					return err
-				}
-
-				// Rewrite HTML to fix asset and link paths
-				rewrittenHTML, err := rewriteHTML(body, target.proxyBasePath)
-				if err != nil {
-					// If rewriting fails, return original content
-					ma.senv.GetLogger().Error("Failed to rewrite HTML", "error", err)
-					resp.Body = io.NopCloser(bytes.NewReader(body))
-					return nil
-				}
-
-				// Update response body
-				resp.Body = io.NopCloser(bytes.NewReader(rewrittenHTML))
-				resp.Header.Set("Content-Length", fmt.Sprintf("%d", len(rewrittenHTML)))
-			}
-
-			return nil
-		}
-
-		proxy.ServeHTTP(w, r)
+func (ma *MultiAdmin) handleProxy(w http.ResponseWriter, r *http.Request) {
+	pathInfo, err := parseProxyPath(r.URL.Path)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
 	}
+
+	target, err := ma.resolveServiceTarget(r, *pathInfo)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+
+	// Create reverse proxy to the target service
+	targetURL, err := url.Parse(fmt.Sprintf("http://%s:%d", target.host, target.port))
+	if err != nil {
+		http.Error(w, "Failed to parse target URL", http.StatusInternalServerError)
+		return
+	}
+	proxy := httputil.NewSingleHostReverseProxy(targetURL)
+
+	// Modify the director to strip the proxy prefix from the request path
+	originalDirector := proxy.Director
+	proxy.Director = func(req *http.Request) {
+		originalDirector(req)
+		// Strip the proxy prefix to get the actual path the backend expects
+		req.URL.Path = strings.TrimPrefix(r.URL.Path, target.proxyBasePath)
+		if req.URL.Path == "" {
+			req.URL.Path = "/"
+		}
+		req.Host = targetURL.Host
+	}
+
+	// Intercept the response to rewrite HTML content
+	proxy.ModifyResponse = func(resp *http.Response) error {
+		contentType := resp.Header.Get("Content-Type")
+
+		// Only rewrite HTML responses
+		if strings.Contains(contentType, "text/html") {
+			body, err := io.ReadAll(resp.Body)
+			resp.Body.Close()
+			if err != nil {
+				return err
+			}
+
+			// Rewrite HTML to fix asset and link paths
+			rewrittenHTML, err := rewriteHTML(body, target.proxyBasePath)
+			if err != nil {
+				// If rewriting fails, return original content
+				ma.senv.GetLogger().Error("Failed to rewrite HTML", "error", err)
+				resp.Body = io.NopCloser(bytes.NewReader(body))
+				return nil
+			}
+
+			// Update response body
+			resp.Body = io.NopCloser(bytes.NewReader(rewrittenHTML))
+			resp.Header.Set("Content-Length", fmt.Sprintf("%d", len(rewrittenHTML)))
+		}
+
+		return nil
+	}
+
+	proxy.ServeHTTP(w, r)
 }
 
 // rewriteHTML injects a <base> tag and rewrites absolute URLs in HTML content

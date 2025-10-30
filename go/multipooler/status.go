@@ -18,6 +18,7 @@ package multipooler
 import (
 	"fmt"
 	"net/http"
+	"sync"
 
 	"github.com/multigres/multigres/go/web"
 )
@@ -31,9 +32,12 @@ type Link struct {
 
 // Status represents the response from the temporary status endpoint
 type Status struct {
+	mu sync.Mutex
+
 	Title string `json:"title"`
 
-	InitError string `json:"init_error"`
+	InitError  string            `json:"init_error"`
+	TopoStatus map[string]string `json:"topo_status"`
 
 	Cell           string `json:"cell"`
 	ServiceID      string `json:"service_id"`
@@ -45,26 +49,36 @@ type Status struct {
 	Links []Link `json:"links"`
 }
 
-// getHandleIndex serves the index page
-func (mp *MultiPooler) getHandleIndex() func(http.ResponseWriter, *http.Request) {
-	return func(w http.ResponseWriter, r *http.Request) {
-		err := web.Templates.ExecuteTemplate(w, "pooler_index.html", mp.serverStatus)
-		if err != nil {
-			http.Error(w, fmt.Sprintf("Failed to execute template: %v", err), http.StatusInternalServerError)
-			return
-		}
+// handleIndex serves the index page
+func (mp *MultiPooler) handleIndex(w http.ResponseWriter, r *http.Request) {
+	mp.serverStatus.mu.Lock()
+	defer mp.serverStatus.mu.Unlock()
+
+	mp.serverStatus.Cell = mp.cell.Get()
+	mp.serverStatus.ServiceID = mp.serviceID.Get()
+	mp.serverStatus.Database = mp.database.Get()
+	mp.serverStatus.TableGroup = mp.tableGroup.Get()
+	mp.serverStatus.PgctldAddr = mp.pgctldAddr.Get()
+	mp.serverStatus.SocketFilePath = mp.socketFilePath.Get()
+	mp.serverStatus.TopoStatus = mp.ts.Status()
+	err := web.Templates.ExecuteTemplate(w, "pooler_index.html", &mp.serverStatus)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to execute template: %v", err), http.StatusInternalServerError)
+		return
 	}
 }
 
-func (mp *MultiPooler) getHandleReady() func(http.ResponseWriter, *http.Request) {
-	return func(w http.ResponseWriter, r *http.Request) {
-		isReady := (len(mp.serverStatus.InitError) == 0)
-		if !isReady {
-			w.WriteHeader(http.StatusServiceUnavailable)
-		}
-		if err := web.Templates.ExecuteTemplate(w, "isok.html", isReady); err != nil {
-			http.Error(w, fmt.Sprintf("Failed to execute template: %v", err), http.StatusInternalServerError)
-			return
-		}
+// handleReady serves the readiness check
+func (mp *MultiPooler) handleReady(w http.ResponseWriter, r *http.Request) {
+	mp.serverStatus.mu.Lock()
+	defer mp.serverStatus.mu.Unlock()
+
+	isReady := (len(mp.serverStatus.InitError) == 0)
+	if !isReady {
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}
+	if err := web.Templates.ExecuteTemplate(w, "isok.html", isReady); err != nil {
+		http.Error(w, fmt.Sprintf("Failed to execute template: %v", err), http.StatusInternalServerError)
+		return
 	}
 }
