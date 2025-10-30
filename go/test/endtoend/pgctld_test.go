@@ -321,20 +321,6 @@ timeout: 30
 	})
 }
 
-// hasPostgreSQLBinaries checks if PostgreSQL binaries are available in PATH
-func hasPostgreSQLBinaries() bool {
-	requiredBinaries := []string{"initdb", "postgres", "pg_ctl", "pg_isready"}
-
-	for _, binary := range requiredBinaries {
-		_, err := exec.LookPath(binary)
-		if err != nil {
-			return false
-		}
-	}
-
-	return true
-}
-
 // TestEndToEndSystemIntegration tests integration with system PostgreSQL
 func TestEndToEndSystemIntegration(t *testing.T) {
 	if testing.Short() {
