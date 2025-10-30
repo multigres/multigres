@@ -34,7 +34,6 @@ import (
 	"google.golang.org/grpc/status"
 
 	"github.com/multigres/multigres/go/clustermetadata/topo"
-	"github.com/multigres/multigres/go/clustermetadata/topo/etcdtopo"
 	"github.com/multigres/multigres/go/cmd/pgctld/testutil"
 	"github.com/multigres/multigres/go/test/utils"
 	"github.com/multigres/multigres/go/tools/pathutil"
@@ -85,9 +84,9 @@ func cleanupSharedTestSetup() {
 		_ = sharedTestSetup.EtcdCmd.Wait()
 	}
 
-	// Clean up temp directory
-	if sharedTestSetup.TempDir != "" {
-		_ = os.RemoveAll(sharedTestSetup.TempDir)
+	// Clean up temp directory (calls testutil cleanup which handles mock processes too)
+	if sharedTestSetup.TempDirCleanup != nil {
+		sharedTestSetup.TempDirCleanup()
 	}
 }
 
@@ -110,6 +109,7 @@ type ProcessInstance struct {
 // MultipoolerTestSetup holds shared test infrastructure
 type MultipoolerTestSetup struct {
 	TempDir            string
+	TempDirCleanup     func() // Cleanup function from testutil.TempDir
 	EtcdClientAddr     string
 	EtcdCmd            *exec.Cmd
 	TopoServer         topo.Store
@@ -505,6 +505,42 @@ func initializeStandby(t *testing.T, primaryPgctld *ProcessInstance, standbyPgct
 	return nil
 }
 
+// startEtcdForSharedSetup starts etcd without registering t.Cleanup() handlers
+// since cleanup is handled manually by TestMain via cleanupSharedTestSetup()
+func startEtcdForSharedSetup(dataDir string) (string, *exec.Cmd, error) {
+	// Check if etcd is available in PATH
+	_, err := exec.LookPath("etcd")
+	if err != nil {
+		return "", nil, fmt.Errorf("etcd not found in PATH: %w", err)
+	}
+
+	// Get port for etcd
+	port := testutil.GenerateRandomPort()
+
+	name := "multigres_shared_test"
+	clientAddr := fmt.Sprintf("http://localhost:%v", port)
+	peerAddr := fmt.Sprintf("http://localhost:%v", port+1)
+	initialCluster := fmt.Sprintf("%v=%v", name, peerAddr)
+
+	cmd := exec.Command("etcd",
+		"-name", name,
+		"-advertise-client-urls", clientAddr,
+		"-initial-advertise-peer-urls", peerAddr,
+		"-listen-client-urls", clientAddr,
+		"-listen-peer-urls", peerAddr,
+		"-initial-cluster", initialCluster,
+		"-data-dir", dataDir)
+
+	if err := cmd.Start(); err != nil {
+		return "", nil, fmt.Errorf("failed to start etcd: %w", err)
+	}
+
+	// Wait for etcd to be ready
+	time.Sleep(500 * time.Millisecond)
+
+	return clientAddr, cmd, nil
+}
+
 // getSharedTestSetup creates or returns the shared test infrastructure
 func getSharedTestSetup(t *testing.T) *MultipoolerTestSetup {
 	t.Helper()
@@ -519,13 +555,24 @@ func getSharedTestSetup(t *testing.T) *MultipoolerTestSetup {
 			return
 		}
 
-		tempDir, _ := testutil.TempDir(t, "multipooler_shared_test")
+		tempDir, tempDirCleanup := testutil.TempDir(t, "multipooler_shared_test")
 		// Note: cleanup will be handled by TestMain to ensure it runs after all tests
 
 		// Start etcd for topology
 		t.Logf("Starting etcd for topology...")
-		etcdClientAddr, etcdCmd := etcdtopo.StartEtcd(t, 0)
-		// Note: cleanup will be handled by TestMain
+		etcdDataDir := filepath.Join(tempDir, "etcd_data")
+		if err := os.MkdirAll(etcdDataDir, 0o755); err != nil {
+			setupError = fmt.Errorf("failed to create etcd data directory: %w", err)
+			return
+		}
+
+		// Start etcd process without using StartEtcdWithOptions to avoid t.Cleanup() registration
+		etcdClientAddr, etcdCmd, err := startEtcdForSharedSetup(etcdDataDir)
+		if err != nil {
+			setupError = fmt.Errorf("failed to start etcd: %w", err)
+			return
+		}
+		// Note: cleanup will be handled by TestMain via cleanupSharedTestSetup()
 
 		// Create topology server and cell
 		testRoot := "/multigres"
@@ -586,6 +633,7 @@ func getSharedTestSetup(t *testing.T) *MultipoolerTestSetup {
 
 		sharedTestSetup = &MultipoolerTestSetup{
 			TempDir:            tempDir,
+			TempDirCleanup:     tempDirCleanup,
 			EtcdClientAddr:     etcdClientAddr,
 			EtcdCmd:            etcdCmd,
 			TopoServer:         ts,
@@ -3109,7 +3157,7 @@ func TestDemoteAndPromote(t *testing.T) {
 			DrainTimeout:  nil,
 			Force:         false,
 		}
-		demoteResp, err := primaryManagerClient.Demote(context.Background(), demoteReq)
+		demoteResp, err := primaryManagerClient.Demote(utils.WithTimeout(t, 10*time.Second), demoteReq)
 		require.NoError(t, err, "Demote should succeed")
 		require.NotNil(t, demoteResp)
 
@@ -3153,7 +3201,7 @@ func TestDemoteAndPromote(t *testing.T) {
 			SyncReplicationConfig: nil, // Don't configure sync replication for now
 			Force:                 false,
 		}
-		promoteResp, err := standbyManagerClient.Promote(context.Background(), promoteReq)
+		promoteResp, err := standbyManagerClient.Promote(utils.WithTimeout(t, 10*time.Second), promoteReq)
 		require.NoError(t, err, "Promote should succeed")
 		require.NotNil(t, promoteResp)
 
@@ -3185,7 +3233,7 @@ func TestDemoteAndPromote(t *testing.T) {
 			DrainTimeout:  nil,
 			Force:         false,
 		}
-		demoteResp2, err := standbyManagerClient.Demote(context.Background(), demoteReq2)
+		demoteResp2, err := standbyManagerClient.Demote(utils.WithTimeout(t, 10*time.Second), demoteReq2)
 		require.NoError(t, err, "Demote should succeed on new primary")
 		assert.False(t, demoteResp2.WasAlreadyDemoted)
 		t.Logf("New primary demoted. LSN: %s", demoteResp2.LsnPosition)
@@ -3217,7 +3265,7 @@ func TestDemoteAndPromote(t *testing.T) {
 			SyncReplicationConfig: nil,
 			Force:                 false,
 		}
-		promoteResp2, err := primaryManagerClient.Promote(context.Background(), promoteReq2)
+		promoteResp2, err := primaryManagerClient.Promote(utils.WithTimeout(t, 10*time.Second), promoteReq2)
 		require.NoError(t, err, "Promote should succeed")
 		assert.False(t, promoteResp2.WasAlreadyPrimary)
 		t.Logf("Original primary restored. LSN: %s", promoteResp2.LsnPosition)
@@ -3232,6 +3280,10 @@ func TestDemoteAndPromote(t *testing.T) {
 
 	t.Run("Idempotency_Demote", func(t *testing.T) {
 		t.Log("Testing that Demote cannot be called twice after completion...")
+		// TODO: This test needs to be hardened to actually
+		// test that a promote that fail halfhway through
+		// can be retried and successfully completes
+		// in an idempotent way.
 
 		// Set term
 		setTermReq := &multipoolermanagerdata.SetTermRequest{
@@ -3248,12 +3300,12 @@ func TestDemoteAndPromote(t *testing.T) {
 			DrainTimeout:  nil,
 			Force:         false,
 		}
-		demoteResp1, err := primaryManagerClient.Demote(context.Background(), demoteReq)
+		demoteResp1, err := primaryManagerClient.Demote(utils.WithTimeout(t, 20*time.Second), demoteReq)
 		require.NoError(t, err, "First demote should succeed")
 		assert.False(t, demoteResp1.WasAlreadyDemoted)
 
 		// Second demotion should fail with guard rail error (server is now REPLICA in topology)
-		_, err = primaryManagerClient.Demote(context.Background(), demoteReq)
+		_, err = primaryManagerClient.Demote(utils.WithTimeout(t, 10*time.Second), demoteReq)
 		require.Error(t, err, "Second demote should fail - cannot demote a REPLICA")
 		assert.Contains(t, err.Error(), "pooler type is REPLICA")
 
@@ -3261,8 +3313,11 @@ func TestDemoteAndPromote(t *testing.T) {
 	})
 
 	t.Run("Idempotency_Promote", func(t *testing.T) {
+		// TODO: This test needs to be hardened to actually
+		// test that a promote that fail halfhway through
+		// can be retried and successfully completes
+		// in an idempotent way.
 		t.Log("Testing Promote idempotency...")
-
 		// Promote original primary back (it's currently demoted)
 		setTermReq := &multipoolermanagerdata.SetTermRequest{
 			Term: &pgctldpb.ConsensusTerm{
@@ -3288,20 +3343,16 @@ func TestDemoteAndPromote(t *testing.T) {
 			SyncReplicationConfig: nil,
 			Force:                 false,
 		}
-		promoteResp1, err := primaryManagerClient.Promote(context.Background(), promoteReq)
+		promoteResp1, err := primaryManagerClient.Promote(utils.WithTimeout(t, 10*time.Second), promoteReq)
 		require.NoError(t, err, "First promote should succeed")
 		assert.False(t, promoteResp1.WasAlreadyPrimary)
-		lsn1 := promoteResp1.LsnPosition
 
-		// Second promotion (idempotent)
-		promoteResp2, err := primaryManagerClient.Promote(context.Background(), promoteReq)
-		require.NoError(t, err, "Second promote should succeed (idempotent)")
+		// Second promotion should fail with guard rail error (server is now PRIMARY in topology)
+		_, err = primaryManagerClient.Promote(utils.WithTimeout(t, 10*time.Second), promoteReq)
+		require.Error(t, err, "Second promote should fail - cannot promote a PRIMARY")
+		assert.Contains(t, err.Error(), "pooler type is PRIMARY")
 
-		setup.PrimaryMultipooler.logRecentOutput(t, "Debug - unknown service error")
-		assert.True(t, promoteResp2.WasAlreadyPrimary)
-		assert.Equal(t, lsn1, promoteResp2.LsnPosition)
-
-		t.Log("Promote idempotency verified")
+		t.Log("Promote guard rail verified - cannot promote a PRIMARY")
 	})
 
 	t.Run("TermValidation_Demote", func(t *testing.T) {
@@ -3321,13 +3372,13 @@ func TestDemoteAndPromote(t *testing.T) {
 			DrainTimeout:  nil,
 			Force:         false,
 		}
-		_, err = primaryManagerClient.Demote(context.Background(), demoteReq)
+		_, err = primaryManagerClient.Demote(utils.WithTimeout(t, 10*time.Second), demoteReq)
 		require.Error(t, err, "Demote with stale term should fail")
 		assert.Contains(t, err.Error(), "term")
 
 		// Try with force flag (should succeed even with stale term)
 		demoteReq.Force = true
-		_, err = primaryManagerClient.Demote(context.Background(), demoteReq)
+		_, err = primaryManagerClient.Demote(utils.WithTimeout(t, 10*time.Second), demoteReq)
 		require.NoError(t, err, "Demote with force should succeed")
 
 		t.Log("Demote term validation verified")
@@ -3356,13 +3407,13 @@ func TestDemoteAndPromote(t *testing.T) {
 			SyncReplicationConfig: nil,
 			Force:                 false,
 		}
-		_, err = primaryManagerClient.Promote(context.Background(), promoteReq)
+		_, err = primaryManagerClient.Promote(utils.WithTimeout(t, 10*time.Second), promoteReq)
 		require.Error(t, err, "Promote with wrong term should fail")
 		assert.Contains(t, err.Error(), "term")
 
 		// Try with force flag (should succeed)
 		promoteReq.Force = true
-		_, err = primaryManagerClient.Promote(context.Background(), promoteReq)
+		_, err = primaryManagerClient.Promote(utils.WithTimeout(t, 10*time.Second), promoteReq)
 		require.NoError(t, err, "Promote with force should succeed")
 
 		t.Log("Promote term validation verified")
@@ -3385,7 +3436,7 @@ func TestDemoteAndPromote(t *testing.T) {
 			DrainTimeout:  nil,
 			Force:         false,
 		}
-		_, err = primaryManagerClient.Demote(context.Background(), demoteReq)
+		_, err = primaryManagerClient.Demote(utils.WithTimeout(t, 10*time.Second), demoteReq)
 		require.NoError(t, err)
 
 		// Now test LSN validation during promote
@@ -3413,13 +3464,13 @@ func TestDemoteAndPromote(t *testing.T) {
 			SyncReplicationConfig: nil,
 			Force:                 false,
 		}
-		_, err = primaryManagerClient.Promote(context.Background(), promoteReq)
+		_, err = primaryManagerClient.Promote(utils.WithTimeout(t, 10*time.Second), promoteReq)
 		require.Error(t, err, "Promote with wrong LSN should fail")
 		assert.Contains(t, err.Error(), "LSN")
 
 		// Try with correct LSN (should succeed)
 		promoteReq.ExpectedLsn = currentLSN
-		_, err = primaryManagerClient.Promote(context.Background(), promoteReq)
+		_, err = primaryManagerClient.Promote(utils.WithTimeout(t, 10*time.Second), promoteReq)
 		require.NoError(t, err, "Promote with correct LSN should succeed")
 
 		t.Log("Promote LSN validation verified")

@@ -99,15 +99,6 @@ func TestManagerServiceMethods_NotImplemented(t *testing.T) {
 			expectedMethod: "GetFollowers",
 		},
 		{
-			name: "Demote",
-			method: func() error {
-				req := &multipoolermanagerdata.DemoteRequest{}
-				_, err := svc.Demote(ctx, req)
-				return err
-			},
-			expectedMethod: "Demote",
-		},
-		{
 			name: "UndoDemote",
 			method: func() error {
 				req := &multipoolermanagerdata.UndoDemoteRequest{}
@@ -115,15 +106,6 @@ func TestManagerServiceMethods_NotImplemented(t *testing.T) {
 				return err
 			},
 			expectedMethod: "UndoDemote",
-		},
-		{
-			name: "Promote",
-			method: func() error {
-				req := &multipoolermanagerdata.PromoteRequest{}
-				_, err := svc.Promote(ctx, req)
-				return err
-			},
-			expectedMethod: "Promote",
 		},
 	}
 

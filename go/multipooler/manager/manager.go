@@ -2458,6 +2458,11 @@ func (pm *MultiPoolerManager) Promote(ctx context.Context, consensusTerm int64, 
 	}
 	defer pm.unlock()
 
+	// Guard rail: Promote can only be called on a REPLICA
+	if err := pm.checkReplicaGuardrails(ctx); err != nil {
+		return nil, err
+	}
+
 	pm.logger.Info("Promote called",
 		"consensus_term", consensusTerm,
 		"expected_lsn", expectedLSN,
