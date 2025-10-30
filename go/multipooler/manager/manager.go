@@ -601,12 +601,6 @@ func (pm *MultiPoolerManager) validateAndUpdateTerm(ctx context.Context, request
 			return mterrors.Wrap(err, "failed to save consensus term")
 		}
 
-		// Synchronize term to heartbeat writer if it exists
-		if pm.replTracker != nil {
-			pm.replTracker.HeartbeatWriter().SetLeaderTerm(requestTerm)
-			pm.logger.Info("Synchronized term to heartbeat writer", "term", requestTerm)
-		}
-
 		pm.logger.Info("Consensus term updated successfully", "new_term", requestTerm)
 	}
 	// If requestTerm == currentCachedTerm, just continue (same term is OK)
@@ -683,14 +677,7 @@ func (pm *MultiPoolerManager) loadConsensusTermFromDisk() {
 		pm.consensusLoaded = true
 		pm.mu.Unlock()
 
-		// Synchronize term to heartbeat writer if it exists
-		currentTerm := pm.consensusState.GetCurrentTerm()
-		if pm.replTracker != nil && currentTerm > 0 {
-			pm.replTracker.HeartbeatWriter().SetLeaderTerm(currentTerm)
-			pm.logger.Info("Synchronized loaded term to heartbeat writer", "term", currentTerm)
-		}
-
-		pm.logger.Info("Loaded consensus term from disk", "current_term", currentTerm)
+		pm.logger.Info("Loaded consensus term from disk", "current_term", pm.consensusState.GetCurrentTerm())
 		pm.checkAndSetReady()
 		return
 	}

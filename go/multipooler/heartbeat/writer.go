@@ -92,6 +92,18 @@ func (w *Writer) Open() {
 
 	// TODO: open connection pools here
 
+	// Initialize leaderTerm from database if a heartbeat row already exists
+	var existingTerm sql.NullInt64
+	err := w.db.QueryRow("SELECT leader_term FROM multigres.heartbeat WHERE shard_id = $1", w.shardID).Scan(&existingTerm)
+	if err != nil && err != sql.ErrNoRows {
+		w.logger.Warn("Failed to read existing leader_term from database", "error", err)
+	} else if existingTerm.Valid {
+		w.leaderTerm.Store(existingTerm.Int64)
+		w.logger.Info("Initialized leader_term from database", "leader_term", existingTerm.Int64)
+	} else {
+		w.logger.Info("No existing heartbeat row found, starting with leader_term = 0")
+	}
+
 	w.enableWrites()
 }
 
