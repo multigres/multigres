@@ -15,6 +15,7 @@
 package executor
 
 import (
+	"context"
 	"log/slog"
 
 	"github.com/multigres/multigres/go/multigateway/engine"
@@ -58,9 +59,10 @@ func NewExecutor(exec engine.IExecute, logger *slog.Logger) *Executor {
 // The callback function is invoked for each chunk of results. For large result sets,
 // the callback may be invoked multiple times with partial results.
 func (e *Executor) StreamExecute(
+	ctx context.Context,
 	conn *server.Conn,
 	sql string,
-	callback func(*query.QueryResult) error,
+	callback func(ctx context.Context, res *query.QueryResult) error,
 ) error {
 	e.logger.Debug("executing query",
 		"query", sql,
@@ -83,7 +85,7 @@ func (e *Executor) StreamExecute(
 
 	// Step 2: Execute the plan
 	// Pass the IExecute implementation to the plan, which will pass it to the primitive
-	err = plan.StreamExecute(e.exec, conn, callback)
+	err = plan.StreamExecute(ctx, e.exec, conn, callback)
 	if err != nil {
 		e.logger.Error("query execution failed",
 			"query", sql,

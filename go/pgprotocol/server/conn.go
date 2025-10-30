@@ -360,7 +360,7 @@ func (c *Conn) handleQuery() error {
 	// The callback will be invoked multiple times for:
 	// 1. Large result sets (streamed in chunks)
 	// 2. Multiple statements in a single query (each potentially with large result sets)
-	err = c.handler.HandleQuery(c, queryStr, func(result *query.QueryResult) error {
+	err = c.handler.HandleQuery(c.ctx, c, queryStr, func(ctx context.Context, result *query.QueryResult) error {
 		// On first callback with fields for this result set, send RowDescription.
 		if !sentRowDescription && len(result.Fields) > 0 {
 			if err := c.writeRowDescription(result.Fields); err != nil {

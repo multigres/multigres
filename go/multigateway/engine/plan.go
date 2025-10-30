@@ -15,6 +15,7 @@
 package engine
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/multigres/multigres/go/pb/query"
@@ -42,11 +43,12 @@ func NewPlan(original string, primitive Primitive) *Plan {
 
 // StreamExecute executes the plan by calling the root primitive's StreamExecute.
 func (p *Plan) StreamExecute(
+	ctx context.Context,
 	exec IExecute,
 	conn *server.Conn,
-	callback func(*query.QueryResult) error,
+	callback func(context.Context, *query.QueryResult) error,
 ) error {
-	return p.Primitive.StreamExecute(exec, conn, callback)
+	return p.Primitive.StreamExecute(ctx, exec, conn, callback)
 }
 
 // GetTableGroup returns the target tablegroup from the primitive.

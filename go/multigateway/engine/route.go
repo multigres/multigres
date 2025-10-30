@@ -15,6 +15,7 @@
 package engine
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/multigres/multigres/go/pb/query"
@@ -48,9 +49,10 @@ func NewRoute(tableGroup, shard, query string) *Route {
 // It uses the IExecute interface to perform the actual execution, allowing for
 // easy testing and decoupling from concrete execution implementations.
 func (r *Route) StreamExecute(
+	ctx context.Context,
 	exec IExecute,
 	conn *server.Conn,
-	callback func(*query.QueryResult) error,
+	callback func(context.Context, *query.QueryResult) error,
 ) error {
 	// Execute the query through the execution interface
 	// This will call ScatterConn in Phase 2+, or a stub/mock in testing

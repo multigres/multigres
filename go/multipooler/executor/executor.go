@@ -60,7 +60,7 @@ func (e *Executor) StreamExecute(
 	ctx context.Context,
 	target *query.Target,
 	sql string,
-	callback func(*query.QueryResult) error,
+	callback func(context.Context, *query.QueryResult) error,
 ) error {
 	// Execute the query and stream results
 	// TODO(GuptaManan100): Actually stream the results from postgres.
@@ -71,7 +71,7 @@ func (e *Executor) StreamExecute(
 	}
 
 	// Stream the result via callback
-	if err := callback(result); err != nil {
+	if err := callback(ctx, result); err != nil {
 		return err
 	}
 

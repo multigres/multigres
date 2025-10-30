@@ -45,7 +45,7 @@ type IExecute interface {
 		tableGroup string,
 		shard string,
 		sql string,
-		callback func(*query.QueryResult) error,
+		callback func(context.Context, *query.QueryResult) error,
 	) error
 }
 
@@ -59,9 +59,10 @@ type Primitive interface {
 	// StreamExecute executes the primitive and streams results via callback.
 	// The IExecute interface provides access to execution resources.
 	StreamExecute(
+		ctx context.Context,
 		exec IExecute,
 		conn *server.Conn,
-		callback func(*query.QueryResult) error,
+		callback func(context.Context, *query.QueryResult) error,
 	) error
 
 	// GetTableGroup returns the target tablegroup for this primitive.

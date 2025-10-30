@@ -60,7 +60,7 @@ func (sc *ScatterConn) StreamExecute(
 	tableGroup string,
 	shard string,
 	sql string,
-	callback func(*query.QueryResult) error,
+	callback func(context.Context, *query.QueryResult) error,
 ) error {
 	sc.logger.Debug("scatter conn executing query",
 		"tablegroup", tableGroup,

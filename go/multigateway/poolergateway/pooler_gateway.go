@@ -107,7 +107,7 @@ func (pg *PoolerGateway) StreamExecute(
 	ctx context.Context,
 	target *query.Target,
 	sql string,
-	callback func(*query.QueryResult) error,
+	callback func(context.Context, *query.QueryResult) error,
 ) error {
 	// Get a pooler matching the target
 	queryService, err := pg.getQueryServiceForTarget(ctx, target)

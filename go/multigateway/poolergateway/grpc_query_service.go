@@ -63,7 +63,7 @@ func (g *grpcQueryService) StreamExecute(
 	ctx context.Context,
 	target *query.Target,
 	sql string,
-	callback func(*query.QueryResult) error,
+	callback func(context.Context, *query.QueryResult) error,
 ) error {
 	g.logger.Debug("streaming query execution",
 		"pooler_id", g.poolerID,
@@ -104,7 +104,7 @@ func (g *grpcQueryService) StreamExecute(
 		}
 
 		// Call the callback with the result
-		if err := callback(response.Result); err != nil {
+		if err := callback(ctx, response.Result); err != nil {
 			// Callback returned error, stop streaming
 			g.logger.Debug("callback returned error, stopping stream",
 				"pooler_id", g.poolerID,

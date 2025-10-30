@@ -17,6 +17,7 @@ package server
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/binary"
 	"log/slog"
 	"net"
@@ -92,31 +93,31 @@ func testListener(t *testing.T) *Listener {
 // mockHandler is a simple handler for testing.
 type mockHandler struct{}
 
-func (m *mockHandler) HandleQuery(conn *Conn, queryStr string, callback func(result *query.QueryResult) error) error {
+func (m *mockHandler) HandleQuery(ctx context.Context, conn *Conn, queryStr string, callback func(ctx context.Context, result *query.QueryResult) error) error {
 	return nil
 }
 
-func (m *mockHandler) HandleParse(conn *Conn, name, queryStr string, paramTypes []uint32) error {
+func (m *mockHandler) HandleParse(ctx context.Context, conn *Conn, name, queryStr string, paramTypes []uint32) error {
 	return nil
 }
 
-func (m *mockHandler) HandleBind(conn *Conn, portalName, stmtName string, params [][]byte, paramFormats, resultFormats []int16) error {
+func (m *mockHandler) HandleBind(ctx context.Context, conn *Conn, portalName, stmtName string, params [][]byte, paramFormats, resultFormats []int16) error {
 	return nil
 }
 
-func (m *mockHandler) HandleExecute(conn *Conn, portalName string, maxRows int32) (*query.QueryResult, error) {
+func (m *mockHandler) HandleExecute(ctx context.Context, conn *Conn, portalName string, maxRows int32) (*query.QueryResult, error) {
 	return nil, nil
 }
 
-func (m *mockHandler) HandleDescribe(conn *Conn, typ byte, name string) (*query.StatementDescription, error) {
+func (m *mockHandler) HandleDescribe(ctx context.Context, conn *Conn, typ byte, name string) (*query.StatementDescription, error) {
 	return nil, nil
 }
 
-func (m *mockHandler) HandleClose(conn *Conn, typ byte, name string) error {
+func (m *mockHandler) HandleClose(ctx context.Context, conn *Conn, typ byte, name string) error {
 	return nil
 }
 
-func (m *mockHandler) HandleSync(conn *Conn) error {
+func (m *mockHandler) HandleSync(ctx context.Context, conn *Conn) error {
 	return nil
 }
 

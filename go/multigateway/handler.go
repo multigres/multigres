@@ -15,6 +15,7 @@
 package multigateway
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 
@@ -39,45 +40,45 @@ func NewMultiGatewayHandler(mg *MultiGateway) *MultiGatewayHandler {
 
 // HandleQuery processes a simple query protocol message ('Q').
 // Routes the query to an appropriate multipooler instance and streams results back.
-func (h *MultiGatewayHandler) HandleQuery(conn *server.Conn, queryStr string, callback func(result *query.QueryResult) error) error {
+func (h *MultiGatewayHandler) HandleQuery(ctx context.Context, conn *server.Conn, queryStr string, callback func(ctx context.Context, result *query.QueryResult) error) error {
 	h.logger.Debug("handling query", "query", queryStr, "user", conn.User(), "database", conn.Database())
 
 	// Route the query through the executor which will eventually call multipooler
-	return h.mg.executor.StreamExecute(conn, queryStr, callback)
+	return h.mg.executor.StreamExecute(ctx, conn, queryStr, callback)
 }
 
 // HandleParse processes a Parse message ('P') for the extended query protocol.
-func (h *MultiGatewayHandler) HandleParse(conn *server.Conn, name, queryStr string, paramTypes []uint32) error {
+func (h *MultiGatewayHandler) HandleParse(ctx context.Context, conn *server.Conn, name, queryStr string, paramTypes []uint32) error {
 	h.logger.Debug("parse not yet implemented", "name", name, "query", queryStr)
 	return fmt.Errorf("extended query protocol not yet implemented")
 }
 
 // HandleBind processes a Bind message ('B') for the extended query protocol.
-func (h *MultiGatewayHandler) HandleBind(conn *server.Conn, portalName, stmtName string, params [][]byte, paramFormats, resultFormats []int16) error {
+func (h *MultiGatewayHandler) HandleBind(ctx context.Context, conn *server.Conn, portalName, stmtName string, params [][]byte, paramFormats, resultFormats []int16) error {
 	h.logger.Debug("bind not yet implemented", "portal", portalName, "statement", stmtName)
 	return fmt.Errorf("extended query protocol not yet implemented")
 }
 
 // HandleExecute processes an Execute message ('E') for the extended query protocol.
-func (h *MultiGatewayHandler) HandleExecute(conn *server.Conn, portalName string, maxRows int32) (*query.QueryResult, error) {
+func (h *MultiGatewayHandler) HandleExecute(ctx context.Context, conn *server.Conn, portalName string, maxRows int32) (*query.QueryResult, error) {
 	h.logger.Debug("execute not yet implemented", "portal", portalName, "max_rows", maxRows)
 	return nil, fmt.Errorf("extended query protocol not yet implemented")
 }
 
 // HandleDescribe processes a Describe message ('D').
-func (h *MultiGatewayHandler) HandleDescribe(conn *server.Conn, typ byte, name string) (*query.StatementDescription, error) {
+func (h *MultiGatewayHandler) HandleDescribe(ctx context.Context, conn *server.Conn, typ byte, name string) (*query.StatementDescription, error) {
 	h.logger.Debug("describe not yet implemented", "type", string(typ), "name", name)
 	return nil, fmt.Errorf("extended query protocol not yet implemented")
 }
 
 // HandleClose processes a Close message ('C').
-func (h *MultiGatewayHandler) HandleClose(conn *server.Conn, typ byte, name string) error {
+func (h *MultiGatewayHandler) HandleClose(ctx context.Context, conn *server.Conn, typ byte, name string) error {
 	h.logger.Debug("close not yet implemented", "type", string(typ), "name", name)
 	return fmt.Errorf("extended query protocol not yet implemented")
 }
 
 // HandleSync processes a Sync message ('S').
-func (h *MultiGatewayHandler) HandleSync(conn *server.Conn) error {
+func (h *MultiGatewayHandler) HandleSync(ctx context.Context, conn *server.Conn) error {
 	h.logger.Debug("sync not yet implemented")
 	return fmt.Errorf("extended query protocol not yet implemented")
 }

@@ -16,6 +16,7 @@
 package grpcpoolerservice
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/multigres/multigres/go/multipooler/poolerserver"
@@ -55,7 +56,7 @@ func (s *poolerService) StreamExecute(req *multipoolerpb.StreamExecuteRequest, s
 	queryString := string(req.Query)
 
 	// Execute the query and stream results
-	err := executor.StreamExecute(stream.Context(), req.Target, queryString, func(result *querypb.QueryResult) error {
+	err := executor.StreamExecute(stream.Context(), req.Target, queryString, func(ctx context.Context, result *querypb.QueryResult) error {
 		// Send the result back to the client
 		response := &multipoolerpb.StreamExecuteResponse{
 			Result: result,

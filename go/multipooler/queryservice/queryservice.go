@@ -52,7 +52,7 @@ type QueryService interface {
 		ctx context.Context,
 		target *query.Target,
 		sql string,
-		callback func(*query.QueryResult) error,
+		callback func(context.Context, *query.QueryResult) error,
 	) error
 
 	// Close closes the query service and releases resources.
