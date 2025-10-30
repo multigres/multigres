@@ -21,13 +21,16 @@ import (
 
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	consensusdatapb "github.com/multigres/multigres/go/pb/consensusdata"
-	pgctldpb "github.com/multigres/multigres/go/pb/pgctldservice"
 )
 
 // BeginTerm handles coordinator requests during leader appointments
 func (pm *MultiPoolerManager) BeginTerm(ctx context.Context, req *consensusdatapb.BeginTermRequest) (*consensusdatapb.BeginTermResponse, error) {
+	// Check if consensus service is enabled
+	if pm.consensusState == nil {
+		return nil, fmt.Errorf("consensus service not enabled")
+	}
+
 	// CRITICAL: Must be able to reach Postgres to participate in cohort
 	if pm.db == nil {
 		return nil, fmt.Errorf("postgres unreachable, cannot accept new term")
@@ -38,20 +41,9 @@ func (pm *MultiPoolerManager) BeginTerm(ctx context.Context, req *consensusdatap
 		return nil, fmt.Errorf("postgres unhealthy, cannot accept new term: %w", err)
 	}
 
-	// Load consensus term from disk if not already loaded
-	pm.mu.Lock()
-	if pm.consensusTerm == nil {
-		term, err := GetTerm(pm.config.PoolerDir)
-		if err != nil {
-			pm.mu.Unlock()
-			return nil, fmt.Errorf("failed to load consensus state: %w", err)
-		}
-		pm.consensusTerm = term
-	}
-
-	currentTerm := pm.consensusTerm.GetCurrentTerm()
-	votedFor := pm.consensusTerm.GetVotedFor()
-	pm.mu.Unlock()
+	// Get current consensus state
+	currentTerm := pm.consensusState.GetCurrentTerm()
+	votedFor := pm.consensusState.GetVotedFor()
 
 	response := &consensusdatapb.BeginTermResponse{
 		Term:     currentTerm,
@@ -59,32 +51,28 @@ func (pm *MultiPoolerManager) BeginTerm(ctx context.Context, req *consensusdatap
 		PoolerId: pm.serviceID.GetName(),
 	}
 
+	// If request term is newer, update our term and reset vote
+	if req.Term > currentTerm {
+		if err := pm.consensusState.UpdateTerm(req.Term, ""); err != nil {
+			return nil, fmt.Errorf("failed to update term: %w", err)
+		}
+		if err := pm.consensusState.Save(); err != nil {
+			return nil, fmt.Errorf("failed to save term: %w", err)
+		}
+		currentTerm = req.Term
+		votedFor = ""
+		response.Term = currentTerm
+	}
+
 	// Reject if term is outdated
 	if req.Term < currentTerm {
 		return response, nil
 	}
 
-	// Check if we've already voted in this term
-	if req.Term == currentTerm && votedFor != nil && votedFor.GetName() != req.CandidateId {
+	// Check if we've already voted for someone else in this term
+	if req.Term == currentTerm && votedFor != "" && votedFor != req.CandidateId {
 		return response, nil
 	}
-
-	// At this point, req.Term must be > currentTerm (since we've already handled < and == cases above)
-	// Update our term and reset vote
-	newTerm := &pgctldpb.ConsensusTerm{
-		CurrentTerm: req.Term,
-		VotedFor:    nil,
-	}
-	if err := SetTerm(pm.config.PoolerDir, newTerm); err != nil {
-		return nil, fmt.Errorf("failed to update term: %w", err)
-	}
-	pm.mu.Lock()
-	pm.consensusTerm = newTerm
-	pm.mu.Unlock()
-
-	currentTerm = req.Term
-	votedFor = nil
-	response.Term = currentTerm
 
 	// TODO: Use pooler serving state to decide whether to vote
 	// Check if we're caught up with replication (within 30 seconds)
@@ -102,17 +90,11 @@ func (pm *MultiPoolerManager) BeginTerm(ctx context.Context, req *consensusdatap
 	}
 
 	// Grant vote and persist decision to LOCAL FILE (not Postgres!)
-	candidateID := &clustermetadatapb.ID{
-		Cell: pm.serviceID.GetCell(),
-		Name: req.CandidateId,
+	if err := pm.consensusState.GrantVote(req.CandidateId); err != nil {
+		return nil, fmt.Errorf("failed to grant vote: %w", err)
 	}
 
-	pm.mu.Lock()
-	pm.consensusTerm.VotedFor = candidateID
-	termToSave := pm.consensusTerm
-	pm.mu.Unlock()
-
-	if err := SetTerm(pm.config.PoolerDir, termToSave); err != nil {
+	if err := pm.consensusState.Save(); err != nil {
 		return nil, fmt.Errorf("failed to persist vote: %w", err)
 	}
 
@@ -122,20 +104,13 @@ func (pm *MultiPoolerManager) BeginTerm(ctx context.Context, req *consensusdatap
 
 // ConsensusStatus returns the current status of this node for consensus
 func (pm *MultiPoolerManager) ConsensusStatus(ctx context.Context, req *consensusdatapb.StatusRequest) (*consensusdatapb.StatusResponse, error) {
-	// Load consensus term from disk if not already loaded
-	pm.mu.Lock()
-	if pm.consensusTerm == nil {
-		term, err := GetTerm(pm.config.PoolerDir)
-		if err != nil {
-			pm.mu.Unlock()
-			return nil, fmt.Errorf("failed to load consensus state: %w", err)
-		}
-		pm.consensusTerm = term
+	// Check if consensus service is enabled
+	if pm.consensusState == nil {
+		return nil, fmt.Errorf("consensus service not enabled")
 	}
 
-	// Get local voting term from file
-	localTerm := pm.consensusTerm.GetCurrentTerm()
-	pm.mu.Unlock()
+	// Get local voting term from consensus state
+	localTerm := pm.consensusState.GetCurrentTerm()
 
 	// Get last successful leader term from Postgres (replicated data)
 	var leaderTerm int64

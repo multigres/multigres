@@ -391,6 +391,13 @@ func TestValidateAndUpdateTerm(t *testing.T) {
 				return manager.GetState() == ManagerStateReady
 			}, 5*time.Second, 100*time.Millisecond, "Manager should reach Ready state")
 
+			// Initialize consensus state since validateAndUpdateTerm requires it
+			manager.InitializeConsensusState()
+			if tt.currentTerm > 0 {
+				err := manager.consensusState.Load()
+				require.NoError(t, err)
+			}
+
 			// Call validateAndUpdateTerm
 			err := manager.validateAndUpdateTerm(ctx, tt.requestTerm, tt.force)
 
@@ -664,6 +671,9 @@ func TestActionLock_MutationMethodsTimeout(t *testing.T) {
 	require.Eventually(t, func() bool {
 		return manager.GetState() == ManagerStateReady
 	}, 5*time.Second, 100*time.Millisecond, "Manager should reach Ready state")
+
+	// Initialize consensus state for SetTerm test
+	manager.InitializeConsensusState()
 
 	// Helper function to hold the lock for a duration
 	holdLock := func(duration time.Duration) context.CancelFunc {

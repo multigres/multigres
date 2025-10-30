@@ -35,6 +35,9 @@ func RegisterConsensusServices(senv *servenv.ServEnv, grpc *servenv.GrpcServer) 
 	// Register ourselves to be invoked when the manager starts
 	manager.RegisterPoolerManagerServices = append(manager.RegisterPoolerManagerServices, func(pm *manager.MultiPoolerManager) {
 		if grpc.CheckServiceMap("consensus", senv) {
+			// Initialize consensus state since the consensus service is enabled
+			pm.InitializeConsensusState()
+
 			srv := &consensusService{
 				manager: pm,
 			}

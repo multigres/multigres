@@ -55,10 +55,10 @@ func TestBeginTerm_AlreadyVotedInOlderTerm(t *testing.T) {
 	err := SetTerm(tmpDir, initialTerm)
 	require.NoError(t, err)
 
-	// Reload the term in the manager
-	pm.mu.Lock()
-	pm.consensusTerm = initialTerm
-	pm.mu.Unlock()
+	// Initialize consensus state and load the term
+	pm.InitializeConsensusState()
+	err = pm.consensusState.Load()
+	require.NoError(t, err)
 
 	// Step 2: Candidate B requests vote in term 10 (newer term)
 	// Mock expectations for Ping call (health check)
@@ -122,10 +122,10 @@ func TestBeginTerm_AlreadyVotedInSameTerm(t *testing.T) {
 	err := SetTerm(tmpDir, initialTerm)
 	require.NoError(t, err)
 
-	// Reload the term in the manager
-	pm.mu.Lock()
-	pm.consensusTerm = initialTerm
-	pm.mu.Unlock()
+	// Initialize consensus state and load the term
+	pm.InitializeConsensusState()
+	err = pm.consensusState.Load()
+	require.NoError(t, err)
 
 	// Step 2: Candidate B requests vote in term 5 (same term)
 	// Mock expectations for Ping call (health check) - will reject early, no WAL check needed
@@ -176,10 +176,10 @@ func TestBeginTerm_AlreadyVotedForSameCandidateInSameTerm(t *testing.T) {
 	err := SetTerm(tmpDir, initialTerm)
 	require.NoError(t, err)
 
-	// Reload the term in the manager
-	pm.mu.Lock()
-	pm.consensusTerm = initialTerm
-	pm.mu.Unlock()
+	// Initialize consensus state and load the term
+	pm.InitializeConsensusState()
+	err = pm.consensusState.Load()
+	require.NoError(t, err)
 
 	// Step 2: Candidate A requests vote again in term 5 (same candidate, same term)
 	// Mock expectations for Ping call (health check)
@@ -560,9 +560,10 @@ func TestConsensusStatus_HealthyPrimary(t *testing.T) {
 	err := SetTerm(tmpDir, initialTerm)
 	require.NoError(t, err)
 
-	pm.mu.Lock()
-	pm.consensusTerm = initialTerm
-	pm.mu.Unlock()
+	// Initialize consensus state and load the term
+	pm.InitializeConsensusState()
+	err = pm.consensusState.Load()
+	require.NoError(t, err)
 
 	// Mock expectations for heartbeat query
 	mock.ExpectQuery("SELECT COALESCE\\(MAX\\(leader_term\\), 0\\)").
@@ -611,9 +612,10 @@ func TestConsensusStatus_HealthyStandby(t *testing.T) {
 	err := SetTerm(tmpDir, initialTerm)
 	require.NoError(t, err)
 
-	pm.mu.Lock()
-	pm.consensusTerm = initialTerm
-	pm.mu.Unlock()
+	// Initialize consensus state and load the term
+	pm.InitializeConsensusState()
+	err = pm.consensusState.Load()
+	require.NoError(t, err)
 
 	// Mock expectations for heartbeat query
 	mock.ExpectQuery("SELECT COALESCE\\(MAX\\(leader_term\\), 0\\)").
@@ -664,9 +666,10 @@ func TestConsensusStatus_NoDatabaseConnection(t *testing.T) {
 	err := SetTerm(tmpDir, initialTerm)
 	require.NoError(t, err)
 
-	pm.mu.Lock()
-	pm.consensusTerm = initialTerm
-	pm.mu.Unlock()
+	// Initialize consensus state and load the term
+	pm.InitializeConsensusState()
+	err = pm.consensusState.Load()
+	require.NoError(t, err)
 
 	// Set db to nil to simulate no connection
 	pm.db = nil
@@ -702,9 +705,10 @@ func TestConsensusStatus_DatabaseQueryFailure(t *testing.T) {
 	err := SetTerm(tmpDir, initialTerm)
 	require.NoError(t, err)
 
-	pm.mu.Lock()
-	pm.consensusTerm = initialTerm
-	pm.mu.Unlock()
+	// Initialize consensus state and load the term
+	pm.InitializeConsensusState()
+	err = pm.consensusState.Load()
+	require.NoError(t, err)
 
 	// Mock expectations - heartbeat query fails
 	mock.ExpectQuery("SELECT COALESCE\\(MAX\\(leader_term\\), 0\\)").
@@ -727,11 +731,11 @@ func TestConsensusStatus_DatabaseQueryFailure(t *testing.T) {
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
 
-func TestConsensusStatus_TermNotLoadedYet(t *testing.T) {
+func TestConsensusStatus_ServiceNotEnabled(t *testing.T) {
 	ctx := context.Background()
-	pm, mock, tmpDir := setupManagerWithMockDB(t)
+	pm, _, tmpDir := setupManagerWithMockDB(t)
 
-	// Setup: Initialize term file on disk but not in memory
+	// Setup: Initialize term file on disk
 	initialTerm := &pgctldpb.ConsensusTerm{
 		CurrentTerm: 8,
 		VotedFor:    nil,
@@ -739,24 +743,10 @@ func TestConsensusStatus_TermNotLoadedYet(t *testing.T) {
 	err := SetTerm(tmpDir, initialTerm)
 	require.NoError(t, err)
 
-	// Set consensusTerm to nil to simulate it not being loaded yet
+	// Set consensusState to nil to simulate consensus service not being enabled
 	pm.mu.Lock()
-	pm.consensusTerm = nil
+	pm.consensusState = nil
 	pm.mu.Unlock()
-
-	// Mock expectations for heartbeat query
-	mock.ExpectQuery("SELECT COALESCE\\(MAX\\(leader_term\\), 0\\)").
-		WillReturnRows(sqlmock.NewRows([]string{"leader_term"}).AddRow(8))
-
-	// Mock expectations for WAL position (primary)
-	mock.ExpectQuery("SELECT pg_is_in_recovery\\(\\)").
-		WillReturnRows(sqlmock.NewRows([]string{"pg_is_in_recovery"}).AddRow(false))
-	mock.ExpectQuery("SELECT pg_current_wal_lsn\\(\\)").
-		WillReturnRows(sqlmock.NewRows([]string{"pg_current_wal_lsn"}).AddRow("0/6000000"))
-
-	// Mock expectations for role determination
-	mock.ExpectQuery("SELECT pg_is_in_recovery\\(\\)").
-		WillReturnRows(sqlmock.NewRows([]string{"pg_is_in_recovery"}).AddRow(false))
 
 	req := &consensusdatapb.StatusRequest{
 		ShardId: "test-shard",
@@ -764,17 +754,8 @@ func TestConsensusStatus_TermNotLoadedYet(t *testing.T) {
 
 	resp, err := pm.ConsensusStatus(ctx, req)
 
-	require.NoError(t, err)
-	require.NotNil(t, resp)
-	assert.Equal(t, int64(8), resp.CurrentTerm, "Should load term from disk if not in memory")
-	assert.Equal(t, int64(8), resp.LeaderTerm)
-	assert.True(t, resp.IsHealthy)
-
-	// Verify term was loaded into memory
-	pm.mu.Lock()
-	assert.NotNil(t, pm.consensusTerm, "Term should be loaded into memory")
-	assert.Equal(t, int64(8), pm.consensusTerm.CurrentTerm)
-	pm.mu.Unlock()
-
-	assert.NoError(t, mock.ExpectationsWereMet())
+	// Should return error when consensus service is not enabled
+	require.Error(t, err)
+	assert.Nil(t, resp)
+	assert.Contains(t, err.Error(), "consensus service not enabled")
 }

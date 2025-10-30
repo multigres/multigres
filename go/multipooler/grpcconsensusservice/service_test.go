@@ -33,15 +33,16 @@ import (
 	consensusdata "github.com/multigres/multigres/go/pb/consensusdata"
 )
 
-func TestConsensusService_BeginTerm(t *testing.T) {
+// setupConsensusService creates a test manager with consensus service initialized
+func setupConsensusService(t *testing.T) (*consensusService, func()) {
+	t.Helper()
+
 	ctx := context.Background()
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
-	defer ts.Close()
 
 	// Start mock pgctld server
 	pgctldAddr, cleanupPgctld := testutil.StartMockPgctldServer(t)
-	defer cleanupPgctld()
 
 	// Create the multipooler in topology so manager can reach ready state
 	serviceID := &clustermetadata.ID{
@@ -69,7 +70,6 @@ func TestConsensusService_BeginTerm(t *testing.T) {
 		PoolerDir:  tmpDir,
 	}
 	pm := manager.NewMultiPoolerManager(logger, config)
-	defer pm.Close()
 
 	// Start the async loader
 	senv := servenv.NewServEnv()
@@ -80,9 +80,34 @@ func TestConsensusService_BeginTerm(t *testing.T) {
 		return pm.GetState() == manager.ManagerStateReady
 	}, 5*time.Second, 100*time.Millisecond, "Manager should reach Ready state")
 
+	// Initialize consensus state (simulates --service-map grpc-consensus)
+	// Create the pg_data directory to simulate initialized data directory
+	pgDataDir := tmpDir + "/pg_data"
+	err := os.MkdirAll(pgDataDir, 0o755)
+	require.NoError(t, err)
+	// Create PG_VERSION file to mark it as initialized
+	err = os.WriteFile(pgDataDir+"/PG_VERSION", []byte("18\n"), 0o644)
+	require.NoError(t, err)
+	pm.InitializeConsensusState()
+
 	svc := &consensusService{
 		manager: pm,
 	}
+
+	cleanup := func() {
+		pm.Close()
+		cleanupPgctld()
+		ts.Close()
+	}
+
+	return svc, cleanup
+}
+
+func TestConsensusService_BeginTerm(t *testing.T) {
+	svc, cleanup := setupConsensusService(t)
+	defer cleanup()
+
+	ctx := context.Background()
 
 	t.Run("BeginTerm without database connection should fail", func(t *testing.T) {
 		req := &consensusdata.BeginTermRequest{
@@ -101,55 +126,10 @@ func TestConsensusService_BeginTerm(t *testing.T) {
 }
 
 func TestConsensusService_Status(t *testing.T) {
+	svc, cleanup := setupConsensusService(t)
+	defer cleanup()
+
 	ctx := context.Background()
-	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
-	defer ts.Close()
-
-	// Start mock pgctld server
-	pgctldAddr, cleanupPgctld := testutil.StartMockPgctldServer(t)
-	defer cleanupPgctld()
-
-	// Create the multipooler in topology
-	serviceID := &clustermetadata.ID{
-		Component: clustermetadata.ID_MULTIPOOLER,
-		Cell:      "zone1",
-		Name:      "test-service",
-	}
-	multipooler := &clustermetadata.MultiPooler{
-		Id:            serviceID,
-		Database:      "testdb",
-		Hostname:      "localhost",
-		PortMap:       map[string]int32{"grpc": 8080},
-		Type:          clustermetadata.PoolerType_REPLICA,
-		ServingStatus: clustermetadata.PoolerServingStatus_SERVING,
-	}
-	require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
-
-	// Create temporary directory for pooler
-	tmpDir := t.TempDir()
-
-	config := &manager.Config{
-		TopoClient: ts,
-		ServiceID:  serviceID,
-		PgctldAddr: pgctldAddr,
-		PoolerDir:  tmpDir,
-	}
-	pm := manager.NewMultiPoolerManager(logger, config)
-	defer pm.Close()
-
-	// Start the async loader
-	senv := servenv.NewServEnv()
-	go pm.Start(senv)
-
-	// Wait for the manager to become ready
-	require.Eventually(t, func() bool {
-		return pm.GetState() == manager.ManagerStateReady
-	}, 5*time.Second, 100*time.Millisecond, "Manager should reach Ready state")
-
-	svc := &consensusService{
-		manager: pm,
-	}
 
 	t.Run("Status returns node information", func(t *testing.T) {
 		req := &consensusdata.StatusRequest{
@@ -171,55 +151,10 @@ func TestConsensusService_Status(t *testing.T) {
 }
 
 func TestConsensusService_GetLeadershipView(t *testing.T) {
+	svc, cleanup := setupConsensusService(t)
+	defer cleanup()
+
 	ctx := context.Background()
-	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
-	defer ts.Close()
-
-	// Start mock pgctld server
-	pgctldAddr, cleanupPgctld := testutil.StartMockPgctldServer(t)
-	defer cleanupPgctld()
-
-	// Create the multipooler in topology
-	serviceID := &clustermetadata.ID{
-		Component: clustermetadata.ID_MULTIPOOLER,
-		Cell:      "zone1",
-		Name:      "test-service",
-	}
-	multipooler := &clustermetadata.MultiPooler{
-		Id:            serviceID,
-		Database:      "testdb",
-		Hostname:      "localhost",
-		PortMap:       map[string]int32{"grpc": 8080},
-		Type:          clustermetadata.PoolerType_REPLICA,
-		ServingStatus: clustermetadata.PoolerServingStatus_SERVING,
-	}
-	require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
-
-	// Create temporary directory for pooler
-	tmpDir := t.TempDir()
-
-	config := &manager.Config{
-		TopoClient: ts,
-		ServiceID:  serviceID,
-		PgctldAddr: pgctldAddr,
-		PoolerDir:  tmpDir,
-	}
-	pm := manager.NewMultiPoolerManager(logger, config)
-	defer pm.Close()
-
-	// Start the async loader
-	senv := servenv.NewServEnv()
-	go pm.Start(senv)
-
-	// Wait for the manager to become ready
-	require.Eventually(t, func() bool {
-		return pm.GetState() == manager.ManagerStateReady
-	}, 5*time.Second, 100*time.Millisecond, "Manager should reach Ready state")
-
-	svc := &consensusService{
-		manager: pm,
-	}
 
 	t.Run("GetLeadershipView without replication tracker should fail", func(t *testing.T) {
 		req := &consensusdata.LeadershipViewRequest{
@@ -236,55 +171,10 @@ func TestConsensusService_GetLeadershipView(t *testing.T) {
 }
 
 func TestConsensusService_GetWALPosition(t *testing.T) {
+	svc, cleanup := setupConsensusService(t)
+	defer cleanup()
+
 	ctx := context.Background()
-	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
-	defer ts.Close()
-
-	// Start mock pgctld server
-	pgctldAddr, cleanupPgctld := testutil.StartMockPgctldServer(t)
-	defer cleanupPgctld()
-
-	// Create the multipooler in topology
-	serviceID := &clustermetadata.ID{
-		Component: clustermetadata.ID_MULTIPOOLER,
-		Cell:      "zone1",
-		Name:      "test-service",
-	}
-	multipooler := &clustermetadata.MultiPooler{
-		Id:            serviceID,
-		Database:      "testdb",
-		Hostname:      "localhost",
-		PortMap:       map[string]int32{"grpc": 8080},
-		Type:          clustermetadata.PoolerType_REPLICA,
-		ServingStatus: clustermetadata.PoolerServingStatus_SERVING,
-	}
-	require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
-
-	// Create temporary directory for pooler
-	tmpDir := t.TempDir()
-
-	config := &manager.Config{
-		TopoClient: ts,
-		ServiceID:  serviceID,
-		PgctldAddr: pgctldAddr,
-		PoolerDir:  tmpDir,
-	}
-	pm := manager.NewMultiPoolerManager(logger, config)
-	defer pm.Close()
-
-	// Start the async loader
-	senv := servenv.NewServEnv()
-	go pm.Start(senv)
-
-	// Wait for the manager to become ready
-	require.Eventually(t, func() bool {
-		return pm.GetState() == manager.ManagerStateReady
-	}, 5*time.Second, 100*time.Millisecond, "Manager should reach Ready state")
-
-	svc := &consensusService{
-		manager: pm,
-	}
 
 	t.Run("GetWALPosition without database should fail", func(t *testing.T) {
 		req := &consensusdata.GetWALPositionRequest{}
@@ -298,55 +188,10 @@ func TestConsensusService_GetWALPosition(t *testing.T) {
 }
 
 func TestConsensusService_CanReachPrimary(t *testing.T) {
+	svc, cleanup := setupConsensusService(t)
+	defer cleanup()
+
 	ctx := context.Background()
-	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
-	defer ts.Close()
-
-	// Start mock pgctld server
-	pgctldAddr, cleanupPgctld := testutil.StartMockPgctldServer(t)
-	defer cleanupPgctld()
-
-	// Create the multipooler in topology
-	serviceID := &clustermetadata.ID{
-		Component: clustermetadata.ID_MULTIPOOLER,
-		Cell:      "zone1",
-		Name:      "test-service",
-	}
-	multipooler := &clustermetadata.MultiPooler{
-		Id:            serviceID,
-		Database:      "testdb",
-		Hostname:      "localhost",
-		PortMap:       map[string]int32{"grpc": 8080},
-		Type:          clustermetadata.PoolerType_REPLICA,
-		ServingStatus: clustermetadata.PoolerServingStatus_SERVING,
-	}
-	require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
-
-	// Create temporary directory for pooler
-	tmpDir := t.TempDir()
-
-	config := &manager.Config{
-		TopoClient: ts,
-		ServiceID:  serviceID,
-		PgctldAddr: pgctldAddr,
-		PoolerDir:  tmpDir,
-	}
-	pm := manager.NewMultiPoolerManager(logger, config)
-	defer pm.Close()
-
-	// Start the async loader
-	senv := servenv.NewServEnv()
-	go pm.Start(senv)
-
-	// Wait for the manager to become ready
-	require.Eventually(t, func() bool {
-		return pm.GetState() == manager.ManagerStateReady
-	}, 5*time.Second, 100*time.Millisecond, "Manager should reach Ready state")
-
-	svc := &consensusService{
-		manager: pm,
-	}
 
 	t.Run("CanReachPrimary without database connection", func(t *testing.T) {
 		req := &consensusdata.CanReachPrimaryRequest{
@@ -365,55 +210,10 @@ func TestConsensusService_CanReachPrimary(t *testing.T) {
 }
 
 func TestConsensusService_AllMethods(t *testing.T) {
+	svc, cleanup := setupConsensusService(t)
+	defer cleanup()
+
 	ctx := context.Background()
-	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
-	defer ts.Close()
-
-	// Start mock pgctld server
-	pgctldAddr, cleanupPgctld := testutil.StartMockPgctldServer(t)
-	defer cleanupPgctld()
-
-	// Create the multipooler in topology
-	serviceID := &clustermetadata.ID{
-		Component: clustermetadata.ID_MULTIPOOLER,
-		Cell:      "zone1",
-		Name:      "test-service",
-	}
-	multipooler := &clustermetadata.MultiPooler{
-		Id:            serviceID,
-		Database:      "testdb",
-		Hostname:      "localhost",
-		PortMap:       map[string]int32{"grpc": 8080},
-		Type:          clustermetadata.PoolerType_REPLICA,
-		ServingStatus: clustermetadata.PoolerServingStatus_SERVING,
-	}
-	require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
-
-	// Create temporary directory for pooler
-	tmpDir := t.TempDir()
-
-	config := &manager.Config{
-		TopoClient: ts,
-		ServiceID:  serviceID,
-		PgctldAddr: pgctldAddr,
-		PoolerDir:  tmpDir,
-	}
-	pm := manager.NewMultiPoolerManager(logger, config)
-	defer pm.Close()
-
-	// Start the async loader
-	senv := servenv.NewServEnv()
-	go pm.Start(senv)
-
-	// Wait for the manager to become ready
-	require.Eventually(t, func() bool {
-		return pm.GetState() == manager.ManagerStateReady
-	}, 5*time.Second, 100*time.Millisecond, "Manager should reach Ready state")
-
-	svc := &consensusService{
-		manager: pm,
-	}
 
 	tests := []struct {
 		name          string
