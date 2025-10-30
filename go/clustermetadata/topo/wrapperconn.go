@@ -143,12 +143,12 @@ func (c *WrapperConn) retryConnection(err error) {
 				// If the wrapper was closed, we have to close this extra
 				// connection and stop retrying.
 				if conn != nil {
-					_ = conn.Close()
+					// No need to hold the lock while closing the connection.
+					go conn.Close()
 				}
 				return false
 			}
 			if err != nil {
-				c.alarm(err.Error())
 				return true
 			}
 			c.wrapped = conn

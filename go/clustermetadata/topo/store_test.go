@@ -416,7 +416,7 @@ func TestConnForCell_ConcurrentAccess(t *testing.T) {
 		}
 	}
 	// Most should be the same (allowing for some race conditions during initialization)
-	assert.Greater(t, sameCount, numGoroutines-3, "Most connections should be the same cached instance")
+	assert.Equal(t, sameCount, numGoroutines-1, "Connections should be the same cached instance")
 }
 
 func TestConstants(t *testing.T) {
@@ -565,7 +565,7 @@ func TestStatus_MultipleCells(t *testing.T) {
 	ctx := context.Background()
 
 	// Create multiple cells
-	for i := 1; i <= 3; i++ {
+	for i := 1; i < 4; i++ {
 		cellName := fmt.Sprintf("cell%d", i)
 		cellInfo := &clustermetadatapb.Cell{
 			ServerAddresses: []string{fmt.Sprintf("%s:2181", cellName)},
@@ -582,7 +582,7 @@ func TestStatus_MultipleCells(t *testing.T) {
 	status := ts.Status()
 	assert.Len(t, status, 4, "Status should contain global + 3 cells")
 
-	for i := 1; i <= 3; i++ {
+	for i := 1; i < 4; i++ {
 		cellName := fmt.Sprintf("cell%d", i)
 		cellStatus, ok := status[cellName]
 		assert.True(t, ok, "Status should contain %s", cellName)

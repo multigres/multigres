@@ -231,8 +231,8 @@ type store struct {
 	// These connections should be accessed through the ConnForCell() method, which
 	// will read the cell configuration from the global cluster and create clients
 	// as needed.
-	cellMu    sync.Mutex
-	cellConns map[string]cellConn
+	cellConnsMu sync.Mutex
+	cellConns   map[string]cellConn
 
 	// status contains information about each connection.
 	// If the string for a cell is empty, the connection
@@ -426,8 +426,8 @@ func (ts *store) ConnForCell(ctx context.Context, cell string) (Conn, error) {
 		return nil, err
 	}
 
-	ts.cellMu.Lock()
-	defer ts.cellMu.Unlock()
+	ts.cellConnsMu.Lock()
+	defer ts.cellConnsMu.Unlock()
 	cc, ok := ts.cellConns[cell]
 	if ok {
 		// Verify that the connection parameters match.
@@ -513,8 +513,8 @@ func (ts *store) Close() error {
 	// Close all cell connections
 
 	g.Go(func() error {
-		ts.cellMu.Lock()
-		defer ts.cellMu.Unlock()
+		ts.cellConnsMu.Lock()
+		defer ts.cellConnsMu.Unlock()
 
 		for cell, cc := range ts.cellConns {
 			if cc.conn != nil {
@@ -527,13 +527,17 @@ func (ts *store) Close() error {
 	})
 	err := g.Wait()
 
-	ts.cellMu.Lock()
-	defer ts.cellMu.Unlock()
-	ts.cellConns = make(map[string]cellConn)
+	func() {
+		ts.cellConnsMu.Lock()
+		defer ts.cellConnsMu.Unlock()
+		ts.cellConns = make(map[string]cellConn)
+	}()
 
-	ts.statusMu.Lock()
-	defer ts.statusMu.Unlock()
-	ts.status = make(map[string]string)
+	func() {
+		ts.statusMu.Lock()
+		defer ts.statusMu.Unlock()
+		ts.status = make(map[string]string)
+	}()
 
 	return err
 }
