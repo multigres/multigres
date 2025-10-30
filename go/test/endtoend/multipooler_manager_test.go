@@ -552,13 +552,13 @@ func getSharedTestSetup(t *testing.T) *MultipoolerTestSetup {
 
 		t.Logf("Created topology cell '%s' at etcd %s", cellName, etcdClientAddr)
 
-		// Generate ports for shared instances
-		primaryGrpcPort := testutil.GenerateRandomPort()
-		primaryPgPort := testutil.GenerateRandomPort()
-		standbyGrpcPort := testutil.GenerateRandomPort()
-		standbyPgPort := testutil.GenerateRandomPort()
-		primaryMultipoolerPort := testutil.GenerateRandomPort()
-		standbyMultipoolerPort := testutil.GenerateRandomPort()
+		// Generate ports for shared instances using systematic allocation to avoid conflicts
+		primaryGrpcPort := utils.GetNextPort()
+		primaryPgPort := utils.GetNextPort()
+		standbyGrpcPort := utils.GetNextPort()
+		standbyPgPort := utils.GetNextPort()
+		primaryMultipoolerPort := utils.GetNextPort()
+		standbyMultipoolerPort := utils.GetNextPort()
 
 		t.Logf("Shared test setup - Primary pgctld gRPC: %d, Primary PG: %d, Standby pgctld gRPC: %d, Standby PG: %d, Primary multipooler: %d, Standby multipooler: %d",
 			primaryGrpcPort, primaryPgPort, standbyGrpcPort, standbyPgPort, primaryMultipoolerPort, standbyMultipoolerPort)
@@ -632,7 +632,7 @@ func waitForManagerReady(t *testing.T, setup *MultipoolerTestSetup, manager *Pro
 			t.Fatalf("Manager failed to initialize: %s", resp.ErrorMessage)
 		}
 		return resp.State == "ready"
-	}, 5*time.Second, 100*time.Millisecond, "Manager should become ready within 30 seconds")
+	}, 30*time.Second, 100*time.Millisecond, "Manager should become ready within 30 seconds")
 
 	t.Logf("Manager %s is ready", manager.Name)
 }
