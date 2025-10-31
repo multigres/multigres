@@ -176,6 +176,8 @@ func TestReplicationAPIs(t *testing.T) {
 	})
 
 	t.Run("TermMismatchRejected", func(t *testing.T) {
+		setupPoolerTest(t, setup)
+
 		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 		defer cancel()
 
@@ -248,6 +250,8 @@ func TestReplicationAPIs(t *testing.T) {
 	})
 
 	t.Run("StartReplicationAfterFlag", func(t *testing.T) {
+		setupPoolerTest(t, setup)
+
 		// This test verifies that replication only starts if StartReplicationAfter=true
 
 		// Stop replication using StopReplication RPC
@@ -355,6 +359,8 @@ func TestReplicationAPIs(t *testing.T) {
 	})
 
 	t.Run("WaitForLSN_Primary_Fails", func(t *testing.T) {
+		setupPoolerTest(t, setup)
+
 		// WaitForLSN should fail on PRIMARY pooler type
 		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 		defer cancel()
@@ -368,6 +374,8 @@ func TestReplicationAPIs(t *testing.T) {
 	})
 
 	t.Run("WaitForLSN_Timeout", func(t *testing.T) {
+		setupPoolerTest(t, setup)
+
 		// Test timeout behavior by waiting for a very high LSN that won't be reached
 		t.Log("Testing timeout with unreachable LSN...")
 
@@ -389,6 +397,8 @@ func TestReplicationAPIs(t *testing.T) {
 	})
 
 	t.Run("StartReplication_Success", func(t *testing.T) {
+		setupPoolerTest(t, setup)
+
 		// This test verifies that StartReplication successfully resumes WAL replay on standby
 
 		// First stop replication using StopReplication RPC
@@ -428,6 +438,8 @@ func TestReplicationAPIs(t *testing.T) {
 	})
 
 	t.Run("StartReplication_Primary_Fails", func(t *testing.T) {
+		setupPoolerTest(t, setup)
+
 		// StartReplication should fail on PRIMARY pooler type
 		t.Log("Testing StartReplication on PRIMARY pooler (should fail)...")
 
@@ -485,6 +497,8 @@ func TestReplicationAPIs(t *testing.T) {
 	})
 
 	t.Run("StopReplication_Primary_Fails", func(t *testing.T) {
+		setupPoolerTest(t, setup)
+
 		// StopReplication should fail on PRIMARY pooler type
 		t.Log("Testing StopReplication on PRIMARY pooler (should fail)...")
 
@@ -623,6 +637,8 @@ func TestReplicationAPIs(t *testing.T) {
 	})
 
 	t.Run("ResetReplication_Primary_Fails", func(t *testing.T) {
+		setupPoolerTest(t, setup)
+
 		// ResetReplication should fail on PRIMARY pooler type
 		t.Log("Testing ResetReplication on PRIMARY pooler (should fail)...")
 
@@ -668,6 +684,8 @@ func TestReplicationStatus(t *testing.T) {
 	waitForManagerReady(t, setup, setup.StandbyMultipooler)
 
 	t.Run("ReplicationStatus_Primary_Fails", func(t *testing.T) {
+		setupPoolerTest(t, setup)
+
 		// ReplicationStatus should fail on PRIMARY pooler type
 		t.Log("Testing ReplicationStatus on PRIMARY (should fail)...")
 
@@ -678,6 +696,8 @@ func TestReplicationStatus(t *testing.T) {
 	})
 
 	t.Run("ReplicationStatus_Standby_NoReplication", func(t *testing.T) {
+		setupPoolerTest(t, setup)
+
 		// Test ReplicationStatus on standby when replication is not configured
 		t.Log("Testing ReplicationStatus on standby with no replication configured...")
 
@@ -714,6 +734,8 @@ func TestReplicationStatus(t *testing.T) {
 	})
 
 	t.Run("ReplicationStatus_Standby_WithReplication", func(t *testing.T) {
+		setupPoolerTest(t, setup)
+
 		// Configure replication
 		t.Log("Configuring replication on standby...")
 		setPrimaryReq := &multipoolermanagerdatapb.SetPrimaryConnInfoRequest{
@@ -760,6 +782,8 @@ func TestReplicationStatus(t *testing.T) {
 	})
 
 	t.Run("ReplicationStatus_Standby_PausedReplication", func(t *testing.T) {
+		setupPoolerTest(t, setup)
+
 		// Configure replication but stop it
 		t.Log("Configuring replication and then stopping it...")
 		_, err := standbyManagerClient.SetTerm(utils.WithShortDeadline(t), &multipoolermanagerdatapb.SetTermRequest{
@@ -837,6 +861,8 @@ func TestStopReplicationAndGetStatus(t *testing.T) {
 	waitForManagerReady(t, setup, setup.StandbyMultipooler)
 
 	t.Run("StopReplicationAndGetStatus_Primary_Fails", func(t *testing.T) {
+		setupPoolerTest(t, setup)
+
 		// StopReplicationAndGetStatus should fail on PRIMARY pooler type
 		t.Log("Testing StopReplicationAndGetStatus on PRIMARY (should fail)...")
 
@@ -1430,6 +1456,8 @@ func TestConfigureSynchronousReplication(t *testing.T) {
 	})
 
 	t.Run("ConfigureSynchronousReplication_ClearConfig", func(t *testing.T) {
+		setupPoolerTest(t, setup)
+
 		// This test verifies that ConfigureSynchronousReplication can clear the configuration
 		// by providing an empty standby list
 		t.Log("Testing ConfigureSynchronousReplication can clear configuration...")
@@ -1483,6 +1511,8 @@ func TestConfigureSynchronousReplication(t *testing.T) {
 	})
 
 	t.Run("ConfigureSynchronousReplication_Standby_Fails", func(t *testing.T) {
+		setupPoolerTest(t, setup)
+
 		// ConfigureSynchronousReplication should fail on REPLICA pooler type
 		t.Log("Testing ConfigureSynchronousReplication on REPLICA pooler (should fail)...")
 
@@ -1940,6 +1970,8 @@ func TestUpdateSynchronousStandbyList(t *testing.T) {
 	})
 
 	t.Run("UpdateSynchronousStandbyList_NoSyncReplication_Fails", func(t *testing.T) {
+		setupPoolerTest(t, setup)
+
 		t.Log("Testing UpdateSynchronousStandbyList fails when sync replication not configured...")
 
 		// Ensure synchronous replication is not configured
@@ -1974,6 +2006,8 @@ func TestUpdateSynchronousStandbyList(t *testing.T) {
 	})
 
 	t.Run("UpdateSynchronousStandbyList_Standby_Fails", func(t *testing.T) {
+		setupPoolerTest(t, setup)
+
 		t.Log("Testing UpdateSynchronousStandbyList on REPLICA pooler (should fail)...")
 
 		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)

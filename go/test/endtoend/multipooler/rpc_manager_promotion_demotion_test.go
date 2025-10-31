@@ -63,6 +63,8 @@ func TestDemoteAndPromote(t *testing.T) {
 	standbyManagerClient := multipoolermanagerpb.NewMultiPoolerManagerClient(standbyConn)
 
 	t.Run("FullCycle_DemoteAndPromote", func(t *testing.T) {
+		setupPoolerTest(t, setup)
+
 		t.Log("=== Testing full Demote/Promote cycle ===")
 
 		// Demote the original primary
@@ -99,6 +101,19 @@ func TestDemoteAndPromote(t *testing.T) {
 		assert.NotEmpty(t, demoteResp.LsnPosition)
 		t.Logf("Demotion complete. LSN: %s, connections terminated: %d",
 			demoteResp.LsnPosition, demoteResp.ConnectionsTerminated)
+
+		// Now configure the demoted server to replicate from the standby (which will be promoted)
+		t.Log("Configuring demoted primary to replicate from standby...")
+		setPrimaryConnInfoReq := &multipoolermanagerdatapb.SetPrimaryConnInfoRequest{
+			Host:                  "localhost",
+			Port:                  int32(setup.StandbyMultipooler.PgPort),
+			StopReplicationBefore: false,
+			StartReplicationAfter: true, // Start replication immediately
+			CurrentTerm:           1,
+			Force:                 false,
+		}
+		_, err = primaryManagerClient.SetPrimaryConnInfo(utils.WithShortDeadline(t), setPrimaryConnInfoReq)
+		require.NoError(t, err, "SetPrimaryConnInfo should succeed after demotion")
 
 		// Verify primary operations no longer work
 		_, err = primaryManagerClient.PrimaryPosition(utils.WithShortDeadline(t), posReq)
@@ -212,6 +227,8 @@ func TestDemoteAndPromote(t *testing.T) {
 	})
 
 	t.Run("Idempotency_Demote", func(t *testing.T) {
+		setupPoolerTest(t, setup)
+
 		t.Log("Testing that Demote cannot be called twice after completion...")
 		// TODO: This test needs to be hardened to actually
 		// test that a promote that fail halfhway through
@@ -236,6 +253,18 @@ func TestDemoteAndPromote(t *testing.T) {
 		demoteResp1, err := primaryManagerClient.Demote(utils.WithTimeout(t, 20*time.Second), demoteReq)
 		require.NoError(t, err, "First demote should succeed")
 		assert.False(t, demoteResp1.WasAlreadyDemoted)
+
+		// Configure demoted primary to replicate from standby
+		setPrimaryConnInfoReq := &multipoolermanagerdatapb.SetPrimaryConnInfoRequest{
+			Host:                  "localhost",
+			Port:                  int32(setup.StandbyMultipooler.PgPort),
+			StopReplicationBefore: false,
+			StartReplicationAfter: true,
+			CurrentTerm:           5,
+			Force:                 false,
+		}
+		_, err = primaryManagerClient.SetPrimaryConnInfo(utils.WithShortDeadline(t), setPrimaryConnInfoReq)
+		require.NoError(t, err)
 
 		// Second demotion should fail with guard rail error (server is now REPLICA in topology)
 		_, err = primaryManagerClient.Demote(utils.WithTimeout(t, 10*time.Second), demoteReq)
@@ -289,6 +318,8 @@ func TestDemoteAndPromote(t *testing.T) {
 	})
 
 	t.Run("TermValidation_Demote", func(t *testing.T) {
+		setupPoolerTest(t, setup)
+
 		t.Log("Testing Demote term validation...")
 
 		setTermReq := &multipoolermanagerdatapb.SetTermRequest{
@@ -353,6 +384,8 @@ func TestDemoteAndPromote(t *testing.T) {
 	})
 
 	t.Run("LSNValidation_Promote", func(t *testing.T) {
+		setupPoolerTest(t, setup)
+
 		t.Log("Testing Promote LSN validation...")
 
 		// Demote primary first
@@ -371,6 +404,19 @@ func TestDemoteAndPromote(t *testing.T) {
 		}
 		_, err = primaryManagerClient.Demote(utils.WithTimeout(t, 10*time.Second), demoteReq)
 		require.NoError(t, err)
+
+		// Configure the demoted server to replicate from the standby
+		t.Log("Configuring demoted primary to replicate from standby...")
+		setPrimaryConnInfoReq := &multipoolermanagerdatapb.SetPrimaryConnInfoRequest{
+			Host:                  "localhost",
+			Port:                  int32(setup.StandbyMultipooler.PgPort),
+			StopReplicationBefore: false,
+			StartReplicationAfter: true,
+			CurrentTerm:           9,
+			Force:                 false,
+		}
+		_, err = primaryManagerClient.SetPrimaryConnInfo(utils.WithShortDeadline(t), setPrimaryConnInfoReq)
+		require.NoError(t, err, "SetPrimaryConnInfo should succeed after demotion")
 
 		// Now test LSN validation during promote
 		setTermReq2 := &multipoolermanagerdatapb.SetTermRequest{
