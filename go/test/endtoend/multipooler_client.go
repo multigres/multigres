@@ -60,8 +60,7 @@ func NewMultiPoolerTestClient(addr string) (*MultiPoolerTestClient, error) {
 
 	// Try to make a basic ExecuteQuery call to test connectivity
 	_, err = client.ExecuteQuery(ctx, &multipoolerpb.ExecuteQueryRequest{
-		Query:   []byte("SELECT 1"),
-		MaxRows: 1,
+		Query: "SELECT 1",
 	})
 	// We expect this to fail for non-existent servers
 	// The specific error doesn't matter, we just want to know if we can connect
@@ -80,13 +79,14 @@ func NewMultiPoolerTestClient(addr string) (*MultiPoolerTestClient, error) {
 // ExecuteQuery executes a SQL query via the multipooler gRPC service
 func (c *MultiPoolerTestClient) ExecuteQuery(ctx context.Context, query string, maxRows uint64) (*querypb.QueryResult, error) {
 	req := &multipoolerpb.ExecuteQueryRequest{
-		Query:   []byte(query),
+		Query:   query,
 		MaxRows: maxRows,
 		CallerId: &mtrpcpb.CallerID{
 			Principal:    "test-user",
 			Component:    "endtoend-test",
 			Subcomponent: "multipooler-test",
 		},
+		Target: &querypb.Target{},
 	}
 
 	resp, err := c.client.ExecuteQuery(ctx, req)

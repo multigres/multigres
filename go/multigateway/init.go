@@ -27,6 +27,9 @@ import (
 
 	"github.com/multigres/multigres/go/clustermetadata/topo"
 	"github.com/multigres/multigres/go/clustermetadata/toporeg"
+	"github.com/multigres/multigres/go/multigateway/executor"
+	"github.com/multigres/multigres/go/multigateway/poolergateway"
+	"github.com/multigres/multigres/go/multigateway/scatterconn"
 	"github.com/multigres/multigres/go/pgprotocol/server"
 	"github.com/multigres/multigres/go/servenv"
 	"github.com/multigres/multigres/go/viperutil"
@@ -40,10 +43,16 @@ type MultiGateway struct {
 	pgPort viperutil.Value[int]
 	// poolerDiscovery handles discovery of multipoolers
 	poolerDiscovery *PoolerDiscovery
+	// poolerGateway manages connections to poolers
+	poolerGateway *poolergateway.PoolerGateway
 	// grpcServer is the grpc server
 	grpcServer *servenv.GrpcServer
 	// pgListener is the PostgreSQL protocol listener
 	pgListener *server.Listener
+	// scatterConn coordinates query execution across poolers
+	scatterConn *scatterconn.ScatterConn
+	// executor handles query execution and routing
+	executor *executor.Executor
 	// senv is the serving environment
 	senv *servenv.ServEnv
 	// topoConfig holds topology configuration
@@ -116,6 +125,21 @@ func (mg *MultiGateway) Init() {
 	mg.serverStatus.Cell = mg.cell.Get()
 	mg.serverStatus.ServiceID = mg.serviceID.Get()
 
+	// Start pooler discovery first
+	mg.poolerDiscovery = NewPoolerDiscovery(context.Background(), mg.ts, mg.cell.Get(), logger)
+	mg.poolerDiscovery.Start()
+	logger.Info("Pooler discovery started with topology watch", "cell", mg.cell.Get())
+
+	// Initialize PoolerGateway for managing pooler connections
+	mg.poolerGateway = poolergateway.NewPoolerGateway(mg.poolerDiscovery, logger)
+
+	// Initialize ScatterConn for query coordination
+	mg.scatterConn = scatterconn.NewScatterConn(mg.poolerGateway, logger)
+
+	// Initialize the executor for query routing
+	// Pass ScatterConn as the IExecute implementation
+	mg.executor = executor.NewExecutor(mg.scatterConn, logger)
+
 	// Create and start PostgreSQL protocol listener
 	pgHandler := NewMultiGatewayHandler(mg)
 	pgAddr := fmt.Sprintf("localhost:%d", mg.pgPort.Get())
@@ -162,11 +186,6 @@ func (mg *MultiGateway) Init() {
 		},
 	)
 
-	// Start pooler discovery
-	mg.poolerDiscovery = NewPoolerDiscovery(context.Background(), mg.ts, mg.cell.Get(), logger)
-	mg.poolerDiscovery.Start()
-	logger.Info("Pooler discovery started with topology watch", "cell", mg.cell.Get())
-
 	mg.senv.HTTPHandleFunc("/", mg.handleIndex)
 	mg.senv.HTTPHandleFunc("/ready", mg.handleReady)
 
@@ -192,6 +211,15 @@ func (mg *MultiGateway) Shutdown() {
 			mg.senv.GetLogger().Error("error closing PostgreSQL listener", "error", err)
 		} else {
 			mg.senv.GetLogger().Info("PostgreSQL listener stopped")
+		}
+	}
+
+	// Close pooler gateway connections
+	if mg.poolerGateway != nil {
+		if err := mg.poolerGateway.Close(context.Background()); err != nil {
+			mg.senv.GetLogger().Error("error closing pooler gateway", "error", err)
+		} else {
+			mg.senv.GetLogger().Info("Pooler gateway closed")
 		}
 	}
 

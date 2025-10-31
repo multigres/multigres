@@ -42,12 +42,14 @@ const (
 
 // ExecuteQueryRequest represents a request to execute a SQL query
 type ExecuteQueryRequest struct {
-	state   protoimpl.MessageState `protogen:"open.v1"`
-	Query   []byte                 `protobuf:"bytes,1,opt,name=query,proto3" json:"query,omitempty"`
-	MaxRows uint64                 `protobuf:"varint,2,opt,name=max_rows,json=maxRows,proto3" json:"max_rows,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Query string                 `protobuf:"bytes,1,opt,name=query,proto3" json:"query,omitempty"`
+	// target specifies the routing destination (tablegroup, shard, pooler type)
+	Target  *query.Target `protobuf:"bytes,2,opt,name=target,proto3" json:"target,omitempty"`
+	MaxRows uint64        `protobuf:"varint,3,opt,name=max_rows,json=maxRows,proto3" json:"max_rows,omitempty"`
 	// caller_id identifies the caller. This is the effective caller ID,
 	// set by the application to further identify the caller.
-	CallerId      *mtrpc.CallerID `protobuf:"bytes,3,opt,name=caller_id,json=callerId,proto3" json:"caller_id,omitempty"`
+	CallerId      *mtrpc.CallerID `protobuf:"bytes,4,opt,name=caller_id,json=callerId,proto3" json:"caller_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -82,9 +84,16 @@ func (*ExecuteQueryRequest) Descriptor() ([]byte, []int) {
 	return file_multipoolerservice_proto_rawDescGZIP(), []int{0}
 }
 
-func (x *ExecuteQueryRequest) GetQuery() []byte {
+func (x *ExecuteQueryRequest) GetQuery() string {
 	if x != nil {
 		return x.Query
+	}
+	return ""
+}
+
+func (x *ExecuteQueryRequest) GetTarget() *query.Target {
+	if x != nil {
+		return x.Target
 	}
 	return nil
 }
@@ -148,19 +157,138 @@ func (x *ExecuteQueryResponse) GetResult() *query.QueryResult {
 	return nil
 }
 
+// StreamExecuteRequest represents a request to execute a SQL query with streaming results
+type StreamExecuteRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// query is the SQL query to execute
+	Query string `protobuf:"bytes,1,opt,name=query,proto3" json:"query,omitempty"`
+	// target specifies the routing destination (tablegroup, shard, pooler type)
+	Target *query.Target `protobuf:"bytes,2,opt,name=target,proto3" json:"target,omitempty"`
+	// caller_id identifies the caller. This is the effective caller ID,
+	// set by the application to further identify the caller.
+	CallerId      *mtrpc.CallerID `protobuf:"bytes,3,opt,name=caller_id,json=callerId,proto3" json:"caller_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *StreamExecuteRequest) Reset() {
+	*x = StreamExecuteRequest{}
+	mi := &file_multipoolerservice_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *StreamExecuteRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*StreamExecuteRequest) ProtoMessage() {}
+
+func (x *StreamExecuteRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_multipoolerservice_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use StreamExecuteRequest.ProtoReflect.Descriptor instead.
+func (*StreamExecuteRequest) Descriptor() ([]byte, []int) {
+	return file_multipoolerservice_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *StreamExecuteRequest) GetQuery() string {
+	if x != nil {
+		return x.Query
+	}
+	return ""
+}
+
+func (x *StreamExecuteRequest) GetTarget() *query.Target {
+	if x != nil {
+		return x.Target
+	}
+	return nil
+}
+
+func (x *StreamExecuteRequest) GetCallerId() *mtrpc.CallerID {
+	if x != nil {
+		return x.CallerId
+	}
+	return nil
+}
+
+// StreamExecuteResponse represents a single response in the stream of query results
+type StreamExecuteResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// result contains the query result data (rows, fields, etc.)
+	Result        *query.QueryResult `protobuf:"bytes,1,opt,name=result,proto3" json:"result,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *StreamExecuteResponse) Reset() {
+	*x = StreamExecuteResponse{}
+	mi := &file_multipoolerservice_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *StreamExecuteResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*StreamExecuteResponse) ProtoMessage() {}
+
+func (x *StreamExecuteResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_multipoolerservice_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use StreamExecuteResponse.ProtoReflect.Descriptor instead.
+func (*StreamExecuteResponse) Descriptor() ([]byte, []int) {
+	return file_multipoolerservice_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *StreamExecuteResponse) GetResult() *query.QueryResult {
+	if x != nil {
+		return x.Result
+	}
+	return nil
+}
+
 var File_multipoolerservice_proto protoreflect.FileDescriptor
 
 const file_multipoolerservice_proto_rawDesc = "" +
 	"\n" +
-	"\x18multipoolerservice.proto\x12\x12multipoolerservice\x1a\vmtrpc.proto\x1a\vquery.proto\"t\n" +
+	"\x18multipoolerservice.proto\x12\x12multipoolerservice\x1a\vmtrpc.proto\x1a\vquery.proto\"\x9b\x01\n" +
 	"\x13ExecuteQueryRequest\x12\x14\n" +
-	"\x05query\x18\x01 \x01(\fR\x05query\x12\x19\n" +
-	"\bmax_rows\x18\x02 \x01(\x04R\amaxRows\x12,\n" +
-	"\tcaller_id\x18\x03 \x01(\v2\x0f.mtrpc.CallerIDR\bcallerId\"B\n" +
+	"\x05query\x18\x01 \x01(\tR\x05query\x12%\n" +
+	"\x06target\x18\x02 \x01(\v2\r.query.TargetR\x06target\x12\x19\n" +
+	"\bmax_rows\x18\x03 \x01(\x04R\amaxRows\x12,\n" +
+	"\tcaller_id\x18\x04 \x01(\v2\x0f.mtrpc.CallerIDR\bcallerId\"B\n" +
 	"\x14ExecuteQueryResponse\x12*\n" +
-	"\x06result\x18\x01 \x01(\v2\x12.query.QueryResultR\x06result2w\n" +
+	"\x06result\x18\x01 \x01(\v2\x12.query.QueryResultR\x06result\"\x81\x01\n" +
+	"\x14StreamExecuteRequest\x12\x14\n" +
+	"\x05query\x18\x01 \x01(\tR\x05query\x12%\n" +
+	"\x06target\x18\x02 \x01(\v2\r.query.TargetR\x06target\x12,\n" +
+	"\tcaller_id\x18\x03 \x01(\v2\x0f.mtrpc.CallerIDR\bcallerId\"C\n" +
+	"\x15StreamExecuteResponse\x12*\n" +
+	"\x06result\x18\x01 \x01(\v2\x12.query.QueryResultR\x06result2\xdf\x01\n" +
 	"\x12MultiPoolerService\x12a\n" +
-	"\fExecuteQuery\x12'.multipoolerservice.ExecuteQueryRequest\x1a(.multipoolerservice.ExecuteQueryResponseB9Z7github.com/multigres/multigres/go/pb/multipoolerserviceb\x06proto3"
+	"\fExecuteQuery\x12'.multipoolerservice.ExecuteQueryRequest\x1a(.multipoolerservice.ExecuteQueryResponse\x12f\n" +
+	"\rStreamExecute\x12(.multipoolerservice.StreamExecuteRequest\x1a).multipoolerservice.StreamExecuteResponse0\x01B9Z7github.com/multigres/multigres/go/pb/multipoolerserviceb\x06proto3"
 
 var (
 	file_multipoolerservice_proto_rawDescOnce sync.Once
@@ -174,23 +302,32 @@ func file_multipoolerservice_proto_rawDescGZIP() []byte {
 	return file_multipoolerservice_proto_rawDescData
 }
 
-var file_multipoolerservice_proto_msgTypes = make([]protoimpl.MessageInfo, 2)
+var file_multipoolerservice_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
 var file_multipoolerservice_proto_goTypes = []any{
-	(*ExecuteQueryRequest)(nil),  // 0: multipoolerservice.ExecuteQueryRequest
-	(*ExecuteQueryResponse)(nil), // 1: multipoolerservice.ExecuteQueryResponse
-	(*mtrpc.CallerID)(nil),       // 2: mtrpc.CallerID
-	(*query.QueryResult)(nil),    // 3: query.QueryResult
+	(*ExecuteQueryRequest)(nil),   // 0: multipoolerservice.ExecuteQueryRequest
+	(*ExecuteQueryResponse)(nil),  // 1: multipoolerservice.ExecuteQueryResponse
+	(*StreamExecuteRequest)(nil),  // 2: multipoolerservice.StreamExecuteRequest
+	(*StreamExecuteResponse)(nil), // 3: multipoolerservice.StreamExecuteResponse
+	(*query.Target)(nil),          // 4: query.Target
+	(*mtrpc.CallerID)(nil),        // 5: mtrpc.CallerID
+	(*query.QueryResult)(nil),     // 6: query.QueryResult
 }
 var file_multipoolerservice_proto_depIdxs = []int32{
-	2, // 0: multipoolerservice.ExecuteQueryRequest.caller_id:type_name -> mtrpc.CallerID
-	3, // 1: multipoolerservice.ExecuteQueryResponse.result:type_name -> query.QueryResult
-	0, // 2: multipoolerservice.MultiPoolerService.ExecuteQuery:input_type -> multipoolerservice.ExecuteQueryRequest
-	1, // 3: multipoolerservice.MultiPoolerService.ExecuteQuery:output_type -> multipoolerservice.ExecuteQueryResponse
-	3, // [3:4] is the sub-list for method output_type
-	2, // [2:3] is the sub-list for method input_type
-	2, // [2:2] is the sub-list for extension type_name
-	2, // [2:2] is the sub-list for extension extendee
-	0, // [0:2] is the sub-list for field type_name
+	4, // 0: multipoolerservice.ExecuteQueryRequest.target:type_name -> query.Target
+	5, // 1: multipoolerservice.ExecuteQueryRequest.caller_id:type_name -> mtrpc.CallerID
+	6, // 2: multipoolerservice.ExecuteQueryResponse.result:type_name -> query.QueryResult
+	4, // 3: multipoolerservice.StreamExecuteRequest.target:type_name -> query.Target
+	5, // 4: multipoolerservice.StreamExecuteRequest.caller_id:type_name -> mtrpc.CallerID
+	6, // 5: multipoolerservice.StreamExecuteResponse.result:type_name -> query.QueryResult
+	0, // 6: multipoolerservice.MultiPoolerService.ExecuteQuery:input_type -> multipoolerservice.ExecuteQueryRequest
+	2, // 7: multipoolerservice.MultiPoolerService.StreamExecute:input_type -> multipoolerservice.StreamExecuteRequest
+	1, // 8: multipoolerservice.MultiPoolerService.ExecuteQuery:output_type -> multipoolerservice.ExecuteQueryResponse
+	3, // 9: multipoolerservice.MultiPoolerService.StreamExecute:output_type -> multipoolerservice.StreamExecuteResponse
+	8, // [8:10] is the sub-list for method output_type
+	6, // [6:8] is the sub-list for method input_type
+	6, // [6:6] is the sub-list for extension type_name
+	6, // [6:6] is the sub-list for extension extendee
+	0, // [0:6] is the sub-list for field type_name
 }
 
 func init() { file_multipoolerservice_proto_init() }
@@ -204,7 +341,7 @@ func file_multipoolerservice_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_multipoolerservice_proto_rawDesc), len(file_multipoolerservice_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   2,
+			NumMessages:   4,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

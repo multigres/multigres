@@ -24,6 +24,7 @@
 package query
 
 import (
+	clustermetadata "github.com/multigres/multigres/go/pb/clustermetadata"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
@@ -375,11 +376,80 @@ func (x *ParameterDescription) GetDataTypeOid() uint32 {
 	return 0
 }
 
+// Target identifies the target for query execution.
+// It specifies which tablegroup, shard, and pooler type to route the query to.
+// - Route to PRIMARY for writes
+// - Route to REPLICA for reads
+// - Route to specific shards (future)
+type Target struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// table_group is the target tablegroup name
+	TableGroup string `protobuf:"bytes,1,opt,name=table_group,json=tableGroup,proto3" json:"table_group,omitempty"`
+	// shard is the target shard name (empty for unsharded or to route to any shard)
+	Shard string `protobuf:"bytes,2,opt,name=shard,proto3" json:"shard,omitempty"`
+	// pooler_type is the type of pooler to route to (PRIMARY, REPLICA)
+	// If not specified (UNKNOWN), defaults to PRIMARY
+	PoolerType    clustermetadata.PoolerType `protobuf:"varint,3,opt,name=pooler_type,json=poolerType,proto3,enum=clustermetadata.PoolerType" json:"pooler_type,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Target) Reset() {
+	*x = Target{}
+	mi := &file_query_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Target) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Target) ProtoMessage() {}
+
+func (x *Target) ProtoReflect() protoreflect.Message {
+	mi := &file_query_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Target.ProtoReflect.Descriptor instead.
+func (*Target) Descriptor() ([]byte, []int) {
+	return file_query_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *Target) GetTableGroup() string {
+	if x != nil {
+		return x.TableGroup
+	}
+	return ""
+}
+
+func (x *Target) GetShard() string {
+	if x != nil {
+		return x.Shard
+	}
+	return ""
+}
+
+func (x *Target) GetPoolerType() clustermetadata.PoolerType {
+	if x != nil {
+		return x.PoolerType
+	}
+	return clustermetadata.PoolerType(0)
+}
+
 var File_query_proto protoreflect.FileDescriptor
 
 const file_query_proto_rawDesc = "" +
 	"\n" +
-	"\vquery.proto\x12\x05query\"\x99\x01\n" +
+	"\vquery.proto\x12\x05query\x1a\x15clustermetadata.proto\"\x99\x01\n" +
 	"\vQueryResult\x12$\n" +
 	"\x06fields\x18\x01 \x03(\v2\f.query.FieldR\x06fields\x12#\n" +
 	"\rrows_affected\x18\x02 \x01(\x04R\frowsAffected\x12\x1e\n" +
@@ -404,7 +474,13 @@ const file_query_proto_rawDesc = "" +
 	"parameters\x12$\n" +
 	"\x06fields\x18\x02 \x03(\v2\f.query.FieldR\x06fields\":\n" +
 	"\x14ParameterDescription\x12\"\n" +
-	"\rdata_type_oid\x18\x01 \x01(\rR\vdataTypeOidB,Z*github.com/multigres/multigres/go/pb/queryb\x06proto3"
+	"\rdata_type_oid\x18\x01 \x01(\rR\vdataTypeOid\"}\n" +
+	"\x06Target\x12\x1f\n" +
+	"\vtable_group\x18\x01 \x01(\tR\n" +
+	"tableGroup\x12\x14\n" +
+	"\x05shard\x18\x02 \x01(\tR\x05shard\x12<\n" +
+	"\vpooler_type\x18\x03 \x01(\x0e2\x1b.clustermetadata.PoolerTypeR\n" +
+	"poolerTypeB,Z*github.com/multigres/multigres/go/pb/queryb\x06proto3"
 
 var (
 	file_query_proto_rawDescOnce sync.Once
@@ -418,24 +494,27 @@ func file_query_proto_rawDescGZIP() []byte {
 	return file_query_proto_rawDescData
 }
 
-var file_query_proto_msgTypes = make([]protoimpl.MessageInfo, 5)
+var file_query_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
 var file_query_proto_goTypes = []any{
-	(*QueryResult)(nil),          // 0: query.QueryResult
-	(*Field)(nil),                // 1: query.Field
-	(*Row)(nil),                  // 2: query.Row
-	(*StatementDescription)(nil), // 3: query.StatementDescription
-	(*ParameterDescription)(nil), // 4: query.ParameterDescription
+	(*QueryResult)(nil),             // 0: query.QueryResult
+	(*Field)(nil),                   // 1: query.Field
+	(*Row)(nil),                     // 2: query.Row
+	(*StatementDescription)(nil),    // 3: query.StatementDescription
+	(*ParameterDescription)(nil),    // 4: query.ParameterDescription
+	(*Target)(nil),                  // 5: query.Target
+	(clustermetadata.PoolerType)(0), // 6: clustermetadata.PoolerType
 }
 var file_query_proto_depIdxs = []int32{
 	1, // 0: query.QueryResult.fields:type_name -> query.Field
 	2, // 1: query.QueryResult.rows:type_name -> query.Row
 	4, // 2: query.StatementDescription.parameters:type_name -> query.ParameterDescription
 	1, // 3: query.StatementDescription.fields:type_name -> query.Field
-	4, // [4:4] is the sub-list for method output_type
-	4, // [4:4] is the sub-list for method input_type
-	4, // [4:4] is the sub-list for extension type_name
-	4, // [4:4] is the sub-list for extension extendee
-	0, // [0:4] is the sub-list for field type_name
+	6, // 4: query.Target.pooler_type:type_name -> clustermetadata.PoolerType
+	5, // [5:5] is the sub-list for method output_type
+	5, // [5:5] is the sub-list for method input_type
+	5, // [5:5] is the sub-list for extension type_name
+	5, // [5:5] is the sub-list for extension extendee
+	0, // [0:5] is the sub-list for field type_name
 }
 
 func init() { file_query_proto_init() }
@@ -449,7 +528,7 @@ func file_query_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_query_proto_rawDesc), len(file_query_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   5,
+			NumMessages:   6,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

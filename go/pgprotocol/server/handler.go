@@ -56,12 +56,12 @@ type Handler interface {
 	// After all callbacks complete, ReadyForQuery ('Z') is sent once.
 	//
 	// Returns an error if query execution or result streaming fails.
-	HandleQuery(ctx context.Context, query string, callback func(result *query.QueryResult) error) error
+	HandleQuery(ctx context.Context, conn *Conn, query string, callback func(ctx context.Context, result *query.QueryResult) error) error
 
 	// HandleParse processes a Parse message ('P') for the extended query protocol.
 	// Prepares a statement with the given name and parameter types.
 	// An empty name indicates an unnamed statement.
-	HandleParse(ctx context.Context, name, queryStr string, paramTypes []uint32) error
+	HandleParse(ctx context.Context, conn *Conn, name, queryStr string, paramTypes []uint32) error
 
 	// HandleBind processes a Bind message ('B') for the extended query protocol.
 	// Binds parameters to a prepared statement, creating a portal.
@@ -70,27 +70,27 @@ type Handler interface {
 	// params: parameter values in the format specified by paramFormats
 	// paramFormats: format codes for parameters (0=text, 1=binary)
 	// resultFormats: desired format codes for result columns (0=text, 1=binary)
-	HandleBind(ctx context.Context, portalName, stmtName string, params [][]byte, paramFormats, resultFormats []int16) error
+	HandleBind(ctx context.Context, conn *Conn, portalName, stmtName string, params [][]byte, paramFormats, resultFormats []int16) error
 
 	// HandleExecute processes an Execute message ('E') for the extended query protocol.
 	// Executes a bound portal and returns results.
 	// portalName: name of the portal to execute (empty for unnamed portal)
 	// maxRows: maximum number of rows to return (0 for no limit)
-	HandleExecute(ctx context.Context, portalName string, maxRows int32) (*query.QueryResult, error)
+	HandleExecute(ctx context.Context, conn *Conn, portalName string, maxRows int32) (*query.QueryResult, error)
 
 	// HandleDescribe processes a Describe message ('D').
 	// Returns description of a prepared statement or portal.
 	// typ: 'S' for statement, 'P' for portal
 	// name: name of the statement or portal
-	HandleDescribe(ctx context.Context, typ byte, name string) (*query.StatementDescription, error)
+	HandleDescribe(ctx context.Context, conn *Conn, typ byte, name string) (*query.StatementDescription, error)
 
 	// HandleClose processes a Close message ('C').
 	// Closes a prepared statement or portal.
 	// typ: 'S' for statement, 'P' for portal
 	// name: name of the statement or portal to close
-	HandleClose(ctx context.Context, typ byte, name string) error
+	HandleClose(ctx context.Context, conn *Conn, typ byte, name string) error
 
 	// HandleSync processes a Sync message ('S').
 	// Called at the end of an extended query cycle to indicate transaction boundary.
-	HandleSync(ctx context.Context) error
+	HandleSync(ctx context.Context, conn *Conn) error
 }
