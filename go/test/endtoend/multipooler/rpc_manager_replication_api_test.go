@@ -203,6 +203,9 @@ func TestReplicationAPIs(t *testing.T) {
 	t.Run("StopReplicationBeforeFlag", func(t *testing.T) {
 		// This test verifies that StopReplicationBefore flag stops replication before setting primary_conninfo
 
+		// Setup cleanup to restore replication state after test
+		setupReplicationTestCleanup(t, setup)
+
 		// First ensure replication is running by checking pg_stat_wal_receiver
 		t.Log("Verifying replication is running...")
 		queryResp, err := standbyPoolerClient.ExecuteQuery(context.Background(), "SELECT status FROM pg_stat_wal_receiver", 1)
@@ -244,13 +247,6 @@ func TestReplicationAPIs(t *testing.T) {
 		assert.Equal(t, "true", isPaused, "WAL replay should be paused after StopReplicationBefore=true")
 
 		t.Log("Replication successfully stopped with StopReplicationBefore flag")
-
-		// Resume replication for cleanup using StartReplication RPC
-		ctx, cancel = context.WithTimeout(context.Background(), 1*time.Second)
-		defer cancel()
-		startReq := &multipoolermanagerdatapb.StartReplicationRequest{}
-		_, err = standbyManagerClient.StartReplication(ctx, startReq)
-		require.NoError(t, err)
 	})
 
 	t.Run("StartReplicationAfterFlag", func(t *testing.T) {
@@ -452,6 +448,9 @@ func TestReplicationAPIs(t *testing.T) {
 	t.Run("StopReplication_Success", func(t *testing.T) {
 		// This test verifies that StopReplication successfully pauses WAL replay on standby
 
+		// Setup cleanup to restore replication state after test
+		setupReplicationTestCleanup(t, setup)
+
 		// First ensure replication is running
 		t.Log("Ensuring replication is running...")
 		queryResp, err := standbyPoolerClient.ExecuteQuery(context.Background(), "SELECT pg_is_wal_replay_paused()", 1)
@@ -487,13 +486,6 @@ func TestReplicationAPIs(t *testing.T) {
 		assert.Equal(t, "true", isPaused, "WAL replay should be paused after StopReplication")
 
 		t.Log("StopReplication successfully paused WAL replay")
-
-		// Resume replication for cleanup using StartReplication RPC
-		ctx, cancel = context.WithTimeout(context.Background(), 1*time.Second)
-		defer cancel()
-		startReq := &multipoolermanagerdatapb.StartReplicationRequest{}
-		_, err = standbyManagerClient.StartReplication(ctx, startReq)
-		require.NoError(t, err)
 	})
 
 	t.Run("StopReplication_Primary_Fails", func(t *testing.T) {
@@ -864,6 +856,9 @@ func TestStopReplicationAndGetStatus(t *testing.T) {
 		// This test verifies that StopReplicationAndGetStatus stops replication and returns correct status
 		t.Log("Testing StopReplicationAndGetStatus on standby with running replication...")
 
+		// Setup cleanup to restore replication state after test
+		setupReplicationTestCleanup(t, setup)
+
 		// Connect to primary pooler to write test data
 		primaryPoolerClient, err := endtoend.NewMultiPoolerTestClient(fmt.Sprintf("localhost:%d", setup.PrimaryMultipooler.GrpcPort))
 		require.NoError(t, err)
@@ -952,26 +947,14 @@ func TestStopReplicationAndGetStatus(t *testing.T) {
 		t.Log("Confirmed: Standby LSN did not advance, replication is truly stopped")
 
 		t.Log("StopReplicationAndGetStatus successfully stopped replication and returned correct status")
-
-		// Clean up: resume replication for next tests
-		startReq := &multipoolermanagerdatapb.StartReplicationRequest{}
-		_, err = standbyManagerClient.StartReplication(utils.WithShortDeadline(t), startReq)
-		require.NoError(t, err, "StartReplication should succeed during cleanup")
-
-		// Wait for replication to actually resume (pg_wal_replay_resume is also async)
-		t.Log("Waiting for WAL replay to resume after cleanup...")
-		require.Eventually(t, func() bool {
-			statusResp, err := standbyManagerClient.ReplicationStatus(utils.WithShortDeadline(t), &multipoolermanagerdatapb.ReplicationStatusRequest{})
-			if err != nil {
-				return false
-			}
-			return !statusResp.Status.IsWalReplayPaused
-		}, 5*time.Second, 100*time.Millisecond, "WAL replay should resume after StartReplication")
 	})
 
 	t.Run("StopReplicationAndGetStatus_Standby_AlreadyPaused", func(t *testing.T) {
 		// This test verifies that StopReplicationAndGetStatus works even when replication is already paused
 		t.Log("Testing StopReplicationAndGetStatus when replication is already paused...")
+
+		// Setup cleanup to restore replication state after test
+		setupReplicationTestCleanup(t, setup)
 
 		// First, stop replication
 		// StopReplication now waits internally for the pause to complete, so no manual wait needed
@@ -991,21 +974,6 @@ func TestStopReplicationAndGetStatus(t *testing.T) {
 		assert.NotEmpty(t, stopResp.Status.Lsn, "LSN should not be empty")
 
 		t.Log("StopReplicationAndGetStatus successfully handled already-paused replication")
-
-		// Clean up: resume replication
-		startReq := &multipoolermanagerdatapb.StartReplicationRequest{}
-		_, err = standbyManagerClient.StartReplication(utils.WithShortDeadline(t), startReq)
-		require.NoError(t, err, "StartReplication should succeed during cleanup")
-
-		// Wait for replication to actually resume (pg_wal_replay_resume is also async)
-		t.Log("Waiting for WAL replay to resume...")
-		require.Eventually(t, func() bool {
-			statusResp, err := standbyManagerClient.ReplicationStatus(utils.WithShortDeadline(t), &multipoolermanagerdatapb.ReplicationStatusRequest{})
-			if err != nil {
-				return false
-			}
-			return !statusResp.Status.IsWalReplayPaused
-		}, 5*time.Second, 100*time.Millisecond, "WAL replay should resume after StartReplication")
 	})
 }
 
@@ -1463,17 +1431,6 @@ func TestConfigureSynchronousReplication(t *testing.T) {
 		standbyLSNAfter := standbyStatusAfter.Status.Lsn
 		t.Logf("Standby LSN after failed write: %s", standbyLSNAfter)
 		assert.Equal(t, standbyLSNBefore, standbyLSNAfter, "Standby LSN should not have advanced since replication is disconnected and write failed")
-
-		// Reset synchronous replication to defaults
-		resetReq := &multipoolermanagerdatapb.ConfigureSynchronousReplicationRequest{
-			SynchronousCommit: multipoolermanagerdatapb.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_ON,
-			SynchronousMethod: multipoolermanagerdatapb.SynchronousMethod_SYNCHRONOUS_METHOD_FIRST,
-			NumSync:           0,
-			StandbyIds:        []*clustermetadatapb.ID{},
-			ReloadConfig:      true,
-		}
-		_, err = primaryManagerClient.ConfigureSynchronousReplication(utils.WithShortDeadline(t), resetReq)
-		require.NoError(t, err, "Reset configuration should succeed")
 
 		// Drop test table
 		primaryPoolerClient.Close()

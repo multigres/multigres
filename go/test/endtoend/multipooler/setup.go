@@ -843,6 +843,11 @@ func setupReplicationTestCleanup(t *testing.T, setup *MultipoolerTestSetup) {
 			if err != nil {
 				t.Logf("Warning: Failed to reload config on standby in cleanup: %v", err)
 			}
+
+			_, err := standbyClient.ExecuteQuery(context.Background(), "SELECT pg_wal_replay_resume()", 1)
+			if err != nil {
+				t.Logf("Cleanup: Failed to resume replication: %v", err)
+			}
 		} else {
 			t.Logf("Warning: Failed to connect to standby in cleanup: %v", err)
 		}
