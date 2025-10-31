@@ -22,7 +22,7 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
-	pgctldpb "github.com/multigres/multigres/go/pb/pgctldservice"
+	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
 
 // ConsensusState manages the in-memory and on-disk consensus state for this node.
@@ -33,7 +33,7 @@ type ConsensusState struct {
 	serviceID *clustermetadatapb.ID
 
 	mu    sync.RWMutex
-	term  *pgctldpb.ConsensusTerm
+	term  *multipoolermanagerdatapb.ConsensusTerm
 	dirty bool // true if in-memory state differs from disk
 }
 
@@ -114,7 +114,7 @@ func (cs *ConsensusState) GetAcceptedLeader() string {
 
 // GetTerm returns a copy of the current consensus term.
 // Returns nil if state has not been loaded.
-func (cs *ConsensusState) GetTerm() *pgctldpb.ConsensusTerm {
+func (cs *ConsensusState) GetTerm() *multipoolermanagerdatapb.ConsensusTerm {
 	cs.mu.RLock()
 	defer cs.mu.RUnlock()
 
@@ -136,7 +136,7 @@ func (cs *ConsensusState) UpdateTerm(newTerm int64, acceptedLeader string) error
 	defer cs.mu.Unlock()
 
 	if cs.term == nil {
-		cs.term = &pgctldpb.ConsensusTerm{}
+		cs.term = &multipoolermanagerdatapb.ConsensusTerm{}
 	}
 
 	currentTerm := cs.term.GetCurrentTerm()
@@ -176,7 +176,7 @@ func (cs *ConsensusState) UpdateTerm(newTerm int64, acceptedLeader string) error
 
 // SetTerm replaces the entire consensus term state.
 // Changes are marked dirty but not persisted - call Save() to persist.
-func (cs *ConsensusState) SetTerm(term *pgctldpb.ConsensusTerm) {
+func (cs *ConsensusState) SetTerm(term *multipoolermanagerdatapb.ConsensusTerm) {
 	cs.mu.Lock()
 	defer cs.mu.Unlock()
 
@@ -220,12 +220,12 @@ func (cs *ConsensusState) AcceptAppointment(leaderID string) error {
 }
 
 // cloneTerm creates a deep copy of a ConsensusTerm
-func cloneTerm(term *pgctldpb.ConsensusTerm) *pgctldpb.ConsensusTerm {
+func cloneTerm(term *multipoolermanagerdatapb.ConsensusTerm) *multipoolermanagerdatapb.ConsensusTerm {
 	if term == nil {
 		return nil
 	}
 
-	clone := &pgctldpb.ConsensusTerm{
+	clone := &multipoolermanagerdatapb.ConsensusTerm{
 		CurrentTerm:        term.CurrentTerm,
 		LastAcceptanceTime: term.LastAcceptanceTime,
 	}

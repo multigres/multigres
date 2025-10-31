@@ -33,8 +33,7 @@ import (
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
-	multipoolermanagerdata "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
-	pgctldpb "github.com/multigres/multigres/go/pb/pgctldservice"
+	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
 
 func TestManagerState_InitialState(t *testing.T) {
@@ -360,7 +359,7 @@ func TestValidateAndUpdateTerm(t *testing.T) {
 
 			// Set initial consensus term on disk if currentTerm > 0
 			if tt.currentTerm > 0 {
-				initialTerm := &pgctldpb.ConsensusTerm{
+				initialTerm := &multipoolermanagerdatapb.ConsensusTerm{
 					CurrentTerm: tt.currentTerm,
 				}
 				require.NoError(t, SetTerm(poolerDir, initialTerm))
@@ -732,8 +731,8 @@ func TestActionLock_MutationMethodsTimeout(t *testing.T) {
 			callMethod: func(ctx context.Context) error {
 				return manager.ConfigureSynchronousReplication(
 					ctx,
-					multipoolermanagerdata.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_ON,
-					multipoolermanagerdata.SynchronousMethod_SYNCHRONOUS_METHOD_FIRST,
+					multipoolermanagerdatapb.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_ON,
+					multipoolermanagerdatapb.SynchronousMethod_SYNCHRONOUS_METHOD_FIRST,
 					1,
 					[]*clustermetadatapb.ID{serviceID},
 					true,
@@ -781,14 +780,14 @@ func TestActionLock_MutationMethodsTimeout(t *testing.T) {
 			name:       "SetTerm times out when lock is held",
 			poolerType: clustermetadatapb.PoolerType_PRIMARY,
 			callMethod: func(ctx context.Context) error {
-				return manager.SetTerm(ctx, &pgctldpb.ConsensusTerm{CurrentTerm: 5})
+				return manager.SetTerm(ctx, &multipoolermanagerdatapb.ConsensusTerm{CurrentTerm: 5})
 			},
 		},
 		{
 			name:       "UpdateSynchronousStandbyList times out when lock is held",
 			poolerType: clustermetadatapb.PoolerType_PRIMARY,
 			callMethod: func(ctx context.Context) error {
-				return manager.UpdateSynchronousStandbyList(ctx, multipoolermanagerdata.StandbyUpdateOperation_STANDBY_UPDATE_OPERATION_ADD, []*clustermetadatapb.ID{serviceID}, true, 0, true)
+				return manager.UpdateSynchronousStandbyList(ctx, multipoolermanagerdatapb.StandbyUpdateOperation_STANDBY_UPDATE_OPERATION_ADD, []*clustermetadatapb.ID{serviceID}, true, 0, true)
 			},
 		},
 	}

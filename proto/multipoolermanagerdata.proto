@@ -18,7 +18,7 @@ package multipoolermanagerdata;
 
 import "clustermetadata.proto";
 import "google/protobuf/duration.proto";
-import "pgctldservice.proto";
+import "google/protobuf/timestamp.proto";
 
 option go_package = "github.com/multigres/multigres/go/pb/multipoolermanagerdata";
 
@@ -411,7 +411,7 @@ message StatusResponse {
 // SetTerm sets the consensus term information
 message SetTermRequest {
   // Consensus term information to set
-  pgctldservice.ConsensusTerm term = 1;
+  ConsensusTerm term = 1;
 }
 
 message SetTermResponse {
@@ -437,4 +437,20 @@ message UpdateSynchronousStandbyListRequest {
 }
 
 message UpdateSynchronousStandbyListResponse {
+}
+
+// ConsensusTerm represents the consensus term information for the pooler
+// This is persisted to disk at $PGDATA/consensus/consensus_term.json
+message ConsensusTerm {
+  // Current consensus term
+  int64 current_term = 1;
+
+  // ID of the leader this pooler accepted for this term
+  clustermetadata.ID accepted_leader = 2;
+
+  // Timestamp of the last acceptance
+  google.protobuf.Timestamp last_acceptance_time = 3;
+
+  // ID of the leader of the current term
+  clustermetadata.ID leader_id = 4;
 }

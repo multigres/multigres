@@ -32,7 +32,7 @@ import (
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	consensusdatapb "github.com/multigres/multigres/go/pb/consensusdata"
-	pgctldpb "github.com/multigres/multigres/go/pb/pgctldservice"
+	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
 
 func TestBeginTerm(t *testing.T) {
@@ -92,7 +92,7 @@ func TestBeginTerm(t *testing.T) {
 			pm, mock, tmpDir := setupManagerWithMockDB(t)
 
 			// Step 1: Initialize term and vote for initial leader
-			initialTerm := &pgctldpb.ConsensusTerm{
+			initialTerm := &multipoolermanagerdatapb.ConsensusTerm{
 				CurrentTerm: tt.initialTerm,
 				AcceptedLeader: &clustermetadatapb.ID{
 					Cell: "zone1",
@@ -470,7 +470,7 @@ func TestConsensusStatus(t *testing.T) {
 			pm, mock, tmpDir := setupManagerWithMockDB(t)
 
 			// Setup: Initialize term file
-			initialTerm := &pgctldpb.ConsensusTerm{
+			initialTerm := &multipoolermanagerdatapb.ConsensusTerm{
 				CurrentTerm:    tt.initialTerm,
 				AcceptedLeader: nil,
 			}
