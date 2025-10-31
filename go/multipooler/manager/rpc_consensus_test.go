@@ -103,7 +103,8 @@ func TestBeginTerm(t *testing.T) {
 			require.NoError(t, err)
 
 			// Initialize consensus state and load the term
-			pm.InitializeConsensusState()
+			err = pm.InitializeConsensusState()
+			require.NoError(t, err)
 			err = pm.consensusState.Load()
 			require.NoError(t, err)
 
@@ -131,6 +132,12 @@ func TestBeginTerm(t *testing.T) {
 			require.NotNil(t, resp)
 			assert.Equal(t, tt.expectedAccepted, resp.Accepted, tt.description)
 			assert.Equal(t, tt.expectedTerm, resp.Term)
+
+			// Wait for async persistence to complete
+			waitCtx, cancel := context.WithTimeout(ctx, 1*time.Second)
+			defer cancel()
+			err = pm.consensusState.WaitForPersistence(waitCtx)
+			require.NoError(t, err, "Failed to wait for persistence")
 
 			// Step 5: Verify persisted state
 			loadedTerm, err := GetTerm(tmpDir)
@@ -479,7 +486,8 @@ func TestConsensusStatus(t *testing.T) {
 
 			// Initialize consensus state unless disabled
 			if !tt.disableConsensus {
-				pm.InitializeConsensusState()
+				err = pm.InitializeConsensusState()
+				require.NoError(t, err)
 				err = pm.consensusState.Load()
 				require.NoError(t, err)
 			} else {

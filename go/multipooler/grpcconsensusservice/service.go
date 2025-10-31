@@ -17,6 +17,7 @@ package grpcconsensusservice
 
 import (
 	"context"
+	"os"
 
 	"github.com/multigres/multigres/go/mterrors"
 	"github.com/multigres/multigres/go/multipooler/manager"
@@ -36,8 +37,10 @@ func RegisterConsensusServices(senv *servenv.ServEnv, grpc *servenv.GrpcServer) 
 	manager.RegisterPoolerManagerServices = append(manager.RegisterPoolerManagerServices, func(pm *manager.MultiPoolerManager) {
 		if grpc.CheckServiceMap("consensus", senv) {
 			// Initialize consensus state since the consensus service is enabled
-			pm.InitializeConsensusState()
-
+			if err := pm.InitializeConsensusState(); err != nil {
+				senv.GetLogger().Error("file system error")
+				os.Exit(1)
+			}
 			srv := &consensusService{
 				manager: pm,
 			}

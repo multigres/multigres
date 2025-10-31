@@ -34,15 +34,21 @@ import (
 )
 
 // setupConsensusService creates a test manager with consensus service initialized
-func setupConsensusService(t *testing.T) (*consensusService, func()) {
+func setupConsensusService(t *testing.T) *consensusService {
 	t.Helper()
 
 	ctx := context.Background()
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
+	t.Cleanup(func() {
+		ts.Close()
+	})
 
 	// Start mock pgctld server
 	pgctldAddr, cleanupPgctld := testutil.StartMockPgctldServer(t)
+	t.Cleanup(func() {
+		cleanupPgctld()
+	})
 
 	// Create the multipooler in topology so manager can reach ready state
 	serviceID := &clustermetadata.ID{
@@ -70,6 +76,9 @@ func setupConsensusService(t *testing.T) (*consensusService, func()) {
 		PoolerDir:  tmpDir,
 	}
 	pm := manager.NewMultiPoolerManager(logger, config)
+	t.Cleanup(func() {
+		pm.Close()
+	})
 
 	// Start the async loader
 	senv := servenv.NewServEnv()
@@ -88,24 +97,17 @@ func setupConsensusService(t *testing.T) (*consensusService, func()) {
 	// Create PG_VERSION file to mark it as initialized
 	err = os.WriteFile(pgDataDir+"/PG_VERSION", []byte("18\n"), 0o644)
 	require.NoError(t, err)
-	pm.InitializeConsensusState()
+	require.NoError(t, pm.InitializeConsensusState())
 
 	svc := &consensusService{
 		manager: pm,
 	}
 
-	cleanup := func() {
-		pm.Close()
-		cleanupPgctld()
-		ts.Close()
-	}
-
-	return svc, cleanup
+	return svc
 }
 
 func TestConsensusService_BeginTerm(t *testing.T) {
-	svc, cleanup := setupConsensusService(t)
-	defer cleanup()
+	svc := setupConsensusService(t)
 
 	ctx := context.Background()
 
@@ -126,8 +128,7 @@ func TestConsensusService_BeginTerm(t *testing.T) {
 }
 
 func TestConsensusService_Status(t *testing.T) {
-	svc, cleanup := setupConsensusService(t)
-	defer cleanup()
+	svc := setupConsensusService(t)
 
 	ctx := context.Background()
 
@@ -151,8 +152,7 @@ func TestConsensusService_Status(t *testing.T) {
 }
 
 func TestConsensusService_GetLeadershipView(t *testing.T) {
-	svc, cleanup := setupConsensusService(t)
-	defer cleanup()
+	svc := setupConsensusService(t)
 
 	ctx := context.Background()
 
@@ -171,8 +171,7 @@ func TestConsensusService_GetLeadershipView(t *testing.T) {
 }
 
 func TestConsensusService_CanReachPrimary(t *testing.T) {
-	svc, cleanup := setupConsensusService(t)
-	defer cleanup()
+	svc := setupConsensusService(t)
 
 	ctx := context.Background()
 
@@ -193,8 +192,7 @@ func TestConsensusService_CanReachPrimary(t *testing.T) {
 }
 
 func TestConsensusService_AllMethods(t *testing.T) {
-	svc, cleanup := setupConsensusService(t)
-	defer cleanup()
+	svc := setupConsensusService(t)
 
 	ctx := context.Background()
 

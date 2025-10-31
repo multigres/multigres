@@ -80,13 +80,11 @@ func NewWriter(db *sql.DB, logger *slog.Logger, shardID []byte, poolerID string,
 // Open starts the heartbeat writer.
 func (w *Writer) Open() {
 	w.mu.Lock()
-	defer w.mu.Unlock()
-	if w.isOpen {
+	open := w.isOpen
+	w.mu.Unlock()
+	if open {
 		return
 	}
-	defer func() {
-		w.isOpen = true
-	}()
 
 	w.logger.Info("Heartbeat Writer: opening")
 
@@ -95,16 +93,26 @@ func (w *Writer) Open() {
 	// Initialize leaderTerm from database if a heartbeat row already exists
 	var existingTerm sql.NullInt64
 	err := w.db.QueryRow("SELECT leader_term FROM multigres.heartbeat WHERE shard_id = $1", w.shardID).Scan(&existingTerm)
+
+	w.mu.Lock()
+	defer w.mu.Unlock()
 	if err != nil && err != sql.ErrNoRows {
 		w.logger.Warn("Failed to read existing leader_term from database", "error", err)
 	} else if existingTerm.Valid {
-		w.leaderTerm.Store(existingTerm.Int64)
-		w.logger.Info("Initialized leader_term from database", "leader_term", existingTerm.Int64)
+		if existingTerm.Int64 > w.GetLeaderTerm() {
+			w.SetLeaderTerm(existingTerm.Int64)
+			w.logger.Info("Initialized leader_term from database", "leader_term", existingTerm.Int64)
+		} else {
+			w.logger.Error("In memory leader_term %d > database_term %d, something is seriously wrong", "leader_term", w.GetLeaderTerm(), "database_term", existingTerm.Int64)
+			return
+			// TODO: fail entire primary transition if we detect this inconsistency
+		}
 	} else {
 		w.logger.Info("No existing heartbeat row found, starting with leader_term = 0")
 	}
 
 	w.enableWrites()
+	w.isOpen = true
 }
 
 // Close stops the heartbeat writer and periodic ticket.
@@ -137,7 +145,7 @@ func (w *Writer) IsOpen() bool {
 // enableWrites activates heartbeat writes
 func (w *Writer) enableWrites() {
 	// We must combat a potential race condition: the writer is Open, and a request comes
-	// to enableWrites(), but simultaneously the writes gets Close()d.
+	// to enableWrites(), but simultaneously the writer gets Close()d.
 	// We must not send any more ticks while the writer is closed.
 	go func() {
 		w.mu.Lock()
