@@ -878,7 +878,8 @@ func (pm *MultiPoolerManager) ReplicationStatus(ctx context.Context) (*multipool
 	status := &multipoolermanagerdatapb.ReplicationStatus{}
 
 	// Get all replication status information in a single query
-	var lsn string
+	var replayLsn string
+	var receiveLsn string
 	var isPaused bool
 	var pauseState string
 	var lastXactTime sql.NullString
@@ -886,13 +887,15 @@ func (pm *MultiPoolerManager) ReplicationStatus(ctx context.Context) (*multipool
 
 	query := `SELECT
 		pg_last_wal_replay_lsn(),
+		pg_last_wal_receive_lsn(),
 		pg_is_wal_replay_paused(),
 		pg_get_wal_replay_pause_state(),
 		pg_last_xact_replay_timestamp(),
 		current_setting('primary_conninfo')`
 
 	err := pm.db.QueryRowContext(ctx, query).Scan(
-		&lsn,
+		&replayLsn,
+		&receiveLsn,
 		&isPaused,
 		&pauseState,
 		&lastXactTime,
@@ -903,7 +906,8 @@ func (pm *MultiPoolerManager) ReplicationStatus(ctx context.Context) (*multipool
 		return nil, mterrors.Wrap(err, "failed to get replication status")
 	}
 
-	status.Lsn = lsn
+	status.LastReplayLsn = replayLsn
+	status.LastReceiveLsn = receiveLsn
 	status.IsWalReplayPaused = isPaused
 	status.WalReplayPauseState = pauseState
 	if lastXactTime.Valid {
@@ -918,7 +922,8 @@ func (pm *MultiPoolerManager) ReplicationStatus(ctx context.Context) (*multipool
 	status.PrimaryConnInfo = parsedConnInfo
 
 	pm.logger.Info("ReplicationStatus completed",
-		"lsn", status.Lsn,
+		"last_replay_lsn", status.LastReplayLsn,
+		"last_receive_lsn", status.LastReceiveLsn,
 		"is_paused", status.IsWalReplayPaused,
 		"pause_state", status.WalReplayPauseState,
 		"primary_conn_info", status.PrimaryConnInfo)
@@ -1516,7 +1521,8 @@ func (pm *MultiPoolerManager) StopReplicationAndGetStatus(ctx context.Context) (
 	}
 
 	pm.logger.Info("StopReplicationAndGetStatus completed",
-		"lsn", status.Lsn,
+		"last_replay_lsn", status.LastReplayLsn,
+		"last_receive_lsn", status.LastReceiveLsn,
 		"is_paused", status.IsWalReplayPaused,
 		"pause_state", status.WalReplayPauseState,
 		"primary_conn_info", status.PrimaryConnInfo)
@@ -1536,6 +1542,7 @@ func (pm *MultiPoolerManager) waitForReplicationPause(ctx context.Context) (*mul
 
 	query := `SELECT
 		pg_last_wal_replay_lsn(),
+		pg_last_wal_receive_lsn(),
 		pg_is_wal_replay_paused(),
 		pg_get_wal_replay_pause_state(),
 		pg_last_xact_replay_timestamp(),
@@ -1552,7 +1559,8 @@ func (pm *MultiPoolerManager) waitForReplicationPause(ctx context.Context) (*mul
 			return nil, mterrors.Wrap(waitCtx.Err(), "context cancelled while waiting for WAL replay to pause")
 
 		case <-ticker.C:
-			var lsn string
+			var replayLsn string
+			var receiveLsn string
 			var isPaused bool
 			var pauseState string
 			var lastXactTime sql.NullString
@@ -1560,7 +1568,8 @@ func (pm *MultiPoolerManager) waitForReplicationPause(ctx context.Context) (*mul
 
 			// Query all status fields in each iteration
 			err := pm.db.QueryRowContext(waitCtx, query).Scan(
-				&lsn,
+				&replayLsn,
+				&receiveLsn,
 				&isPaused,
 				&pauseState,
 				&lastXactTime,
@@ -1573,11 +1582,15 @@ func (pm *MultiPoolerManager) waitForReplicationPause(ctx context.Context) (*mul
 
 			// Once paused, we have the exact state at the moment replication stopped
 			if isPaused {
-				pm.logger.Info("WAL replay is now paused", "lsn", lsn, "pause_state", pauseState)
+				pm.logger.Info("WAL replay is now paused",
+					"last_replay_lsn", replayLsn,
+					"last_receive_lsn", receiveLsn,
+					"pause_state", pauseState)
 
 				// Build and return the status
 				status := &multipoolermanagerdatapb.ReplicationStatus{
-					Lsn:                 lsn,
+					LastReplayLsn:       replayLsn,
+					LastReceiveLsn:      receiveLsn,
 					IsWalReplayPaused:   isPaused,
 					WalReplayPauseState: pauseState,
 				}
