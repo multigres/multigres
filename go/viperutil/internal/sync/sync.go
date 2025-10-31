@@ -45,7 +45,7 @@ type Viper struct {
 	m    sync.Mutex // prevents races between loadFromDisk and AllSettings
 	disk *viper.Viper
 	live *viper.Viper
-	keys map[string]*sync.RWMutex
+	keys map[string]*sync.Mutex
 
 	subscribers    []chan<- struct{}
 	watchingConfig bool
@@ -68,7 +68,7 @@ func New() *Viper {
 	return &Viper{
 		disk:  viper.New(),
 		live:  viper.New(),
-		keys:  map[string]*sync.RWMutex{},
+		keys:  map[string]*sync.Mutex{},
 		fs:    afero.NewOsFs(), // default Fs used by viper, but we need this set so loadFromDisk doesn't accidentally nil-out the live fs
 		setCh: make(chan struct{}, 1),
 	}
@@ -334,12 +334,12 @@ func AdaptGetter[T any](key string, getter func(v *viper.Viper) func(key string)
 		panic(fmt.Sprintf("already adapted a getter for key %s", key))
 	}
 
-	var m sync.RWMutex
+	var m sync.Mutex
 	v.keys[key] = &m
 
 	return func(key string) T {
-		m.RLock()
-		defer m.RUnlock()
+		m.Lock()
+		defer m.Unlock()
 
 		return getter(v.live)(key)
 	}
