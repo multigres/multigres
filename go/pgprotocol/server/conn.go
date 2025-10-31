@@ -161,6 +161,11 @@ func (c *Conn) Database() string {
 	return c.database
 }
 
+// Context returns the connection's context.
+func (c *Conn) Context() context.Context {
+	return c.ctx
+}
+
 // returnReader returns the buffered reader to the pool.
 func (c *Conn) returnReader() {
 	c.bufMu.Lock()
@@ -355,7 +360,7 @@ func (c *Conn) handleQuery() error {
 	// The callback will be invoked multiple times for:
 	// 1. Large result sets (streamed in chunks)
 	// 2. Multiple statements in a single query (each potentially with large result sets)
-	err = c.handler.HandleQuery(c.ctx, queryStr, func(result *query.QueryResult) error {
+	err = c.handler.HandleQuery(c.ctx, c, queryStr, func(ctx context.Context, result *query.QueryResult) error {
 		// On first callback with fields for this result set, send RowDescription.
 		if !sentRowDescription && len(result.Fields) > 0 {
 			if err := c.writeRowDescription(result.Fields); err != nil {

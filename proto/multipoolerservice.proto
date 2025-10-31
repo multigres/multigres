@@ -28,19 +28,48 @@ option go_package = "github.com/multigres/multigres/go/pb/multipoolerservice";
 // MultiPoolerService provides connection pooling and query execution
 service MultiPoolerService {
   // ExecuteQuery executes a SQL query and returns the result
+  // This should be used sparingly only when we know the result set is small,
+  // otherwise StreamExecute should be used.
   rpc ExecuteQuery(ExecuteQueryRequest) returns (ExecuteQueryResponse);
+
+  // StreamExecute executes a SQL query and streams the results back
+  rpc StreamExecute(StreamExecuteRequest) returns (stream StreamExecuteResponse);
 }
 
 // ExecuteQueryRequest represents a request to execute a SQL query
 message ExecuteQueryRequest {
-  bytes query = 1;
-  uint64 max_rows = 2;
+  string query = 1;
+
+  // target specifies the routing destination (tablegroup, shard, pooler type)
+  query.Target target = 2;
+
+  uint64 max_rows = 3;
+
+  // caller_id identifies the caller. This is the effective caller ID,
+  // set by the application to further identify the caller.
+  mtrpc.CallerID caller_id = 4;
+}
+
+// ExecuteQueryResponse represents the response from executing a SQL query
+message ExecuteQueryResponse {
+  query.QueryResult result = 1;
+}
+
+// StreamExecuteRequest represents a request to execute a SQL query with streaming results
+message StreamExecuteRequest {
+  // query is the SQL query to execute
+  string query = 1;
+
+  // target specifies the routing destination (tablegroup, shard, pooler type)
+  query.Target target = 2;
+
   // caller_id identifies the caller. This is the effective caller ID,
   // set by the application to further identify the caller.
   mtrpc.CallerID caller_id = 3;
 }
 
-// ExecuteQueryResponse represents the response from executing a SQL query
-message ExecuteQueryResponse {
+// StreamExecuteResponse represents a single response in the stream of query results
+message StreamExecuteResponse {
+  // result contains the query result data (rows, fields, etc.)
   query.QueryResult result = 1;
 }

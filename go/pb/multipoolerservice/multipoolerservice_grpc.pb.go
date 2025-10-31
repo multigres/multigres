@@ -36,7 +36,8 @@ import (
 const _ = grpc.SupportPackageIsVersion7
 
 const (
-	MultiPoolerService_ExecuteQuery_FullMethodName = "/multipoolerservice.MultiPoolerService/ExecuteQuery"
+	MultiPoolerService_ExecuteQuery_FullMethodName  = "/multipoolerservice.MultiPoolerService/ExecuteQuery"
+	MultiPoolerService_StreamExecute_FullMethodName = "/multipoolerservice.MultiPoolerService/StreamExecute"
 )
 
 // MultiPoolerServiceClient is the client API for MultiPoolerService service.
@@ -44,7 +45,11 @@ const (
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type MultiPoolerServiceClient interface {
 	// ExecuteQuery executes a SQL query and returns the result
+	// This should be used sparingly only when we know the result set is small,
+	// otherwise StreamExecute should be used.
 	ExecuteQuery(ctx context.Context, in *ExecuteQueryRequest, opts ...grpc.CallOption) (*ExecuteQueryResponse, error)
+	// StreamExecute executes a SQL query and streams the results back
+	StreamExecute(ctx context.Context, in *StreamExecuteRequest, opts ...grpc.CallOption) (MultiPoolerService_StreamExecuteClient, error)
 }
 
 type multiPoolerServiceClient struct {
@@ -64,12 +69,48 @@ func (c *multiPoolerServiceClient) ExecuteQuery(ctx context.Context, in *Execute
 	return out, nil
 }
 
+func (c *multiPoolerServiceClient) StreamExecute(ctx context.Context, in *StreamExecuteRequest, opts ...grpc.CallOption) (MultiPoolerService_StreamExecuteClient, error) {
+	stream, err := c.cc.NewStream(ctx, &MultiPoolerService_ServiceDesc.Streams[0], MultiPoolerService_StreamExecute_FullMethodName, opts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &multiPoolerServiceStreamExecuteClient{stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+type MultiPoolerService_StreamExecuteClient interface {
+	Recv() (*StreamExecuteResponse, error)
+	grpc.ClientStream
+}
+
+type multiPoolerServiceStreamExecuteClient struct {
+	grpc.ClientStream
+}
+
+func (x *multiPoolerServiceStreamExecuteClient) Recv() (*StreamExecuteResponse, error) {
+	m := new(StreamExecuteResponse)
+	if err := x.ClientStream.RecvMsg(m); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
 // MultiPoolerServiceServer is the server API for MultiPoolerService service.
 // All implementations must embed UnimplementedMultiPoolerServiceServer
 // for forward compatibility
 type MultiPoolerServiceServer interface {
 	// ExecuteQuery executes a SQL query and returns the result
+	// This should be used sparingly only when we know the result set is small,
+	// otherwise StreamExecute should be used.
 	ExecuteQuery(context.Context, *ExecuteQueryRequest) (*ExecuteQueryResponse, error)
+	// StreamExecute executes a SQL query and streams the results back
+	StreamExecute(*StreamExecuteRequest, MultiPoolerService_StreamExecuteServer) error
 	mustEmbedUnimplementedMultiPoolerServiceServer()
 }
 
@@ -79,6 +120,9 @@ type UnimplementedMultiPoolerServiceServer struct {
 
 func (UnimplementedMultiPoolerServiceServer) ExecuteQuery(context.Context, *ExecuteQueryRequest) (*ExecuteQueryResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ExecuteQuery not implemented")
+}
+func (UnimplementedMultiPoolerServiceServer) StreamExecute(*StreamExecuteRequest, MultiPoolerService_StreamExecuteServer) error {
+	return status.Errorf(codes.Unimplemented, "method StreamExecute not implemented")
 }
 func (UnimplementedMultiPoolerServiceServer) mustEmbedUnimplementedMultiPoolerServiceServer() {}
 
@@ -111,6 +155,27 @@ func _MultiPoolerService_ExecuteQuery_Handler(srv interface{}, ctx context.Conte
 	return interceptor(ctx, in, info, handler)
 }
 
+func _MultiPoolerService_StreamExecute_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(StreamExecuteRequest)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(MultiPoolerServiceServer).StreamExecute(m, &multiPoolerServiceStreamExecuteServer{stream})
+}
+
+type MultiPoolerService_StreamExecuteServer interface {
+	Send(*StreamExecuteResponse) error
+	grpc.ServerStream
+}
+
+type multiPoolerServiceStreamExecuteServer struct {
+	grpc.ServerStream
+}
+
+func (x *multiPoolerServiceStreamExecuteServer) Send(m *StreamExecuteResponse) error {
+	return x.ServerStream.SendMsg(m)
+}
+
 // MultiPoolerService_ServiceDesc is the grpc.ServiceDesc for MultiPoolerService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -123,6 +188,12 @@ var MultiPoolerService_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _MultiPoolerService_ExecuteQuery_Handler,
 		},
 	},
-	Streams:  []grpc.StreamDesc{},
+	Streams: []grpc.StreamDesc{
+		{
+			StreamName:    "StreamExecute",
+			Handler:       _MultiPoolerService_StreamExecute_Handler,
+			ServerStreams: true,
+		},
+	},
 	Metadata: "multipoolerservice.proto",
 }

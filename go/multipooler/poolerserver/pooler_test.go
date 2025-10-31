@@ -15,7 +15,6 @@
 package poolerserver
 
 import (
-	"context"
 	"fmt"
 	"log/slog"
 	"os"
@@ -100,13 +99,11 @@ func TestExecuteQuery_InvalidInput(t *testing.T) {
 	}
 	pooler := NewMultiPooler(logger, config)
 
-	ctx := context.Background()
-
 	// This should fail because the socket doesn't exist
-	resp, err := pooler.ExecuteQuery(ctx, []byte("SELECT 1"), 10)
+	exec, err := pooler.GetExecutor()
 	assert.Error(t, err)
-	assert.Nil(t, resp)
-	assert.Contains(t, err.Error(), "database connection failed")
+	assert.Nil(t, exec)
+	assert.Contains(t, err.Error(), "failed to ping database")
 }
 
 func TestExecuteQuery_QueryTypeDetection(t *testing.T) {
@@ -175,49 +172,6 @@ func TestResultTranslation_NullValues(t *testing.T) {
 			}
 		})
 	}
-}
-
-func TestExecuteQuery_EmptyQuery(t *testing.T) {
-	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	config := &manager.Config{
-		SocketFilePath: "/nonexistent/socket",
-		Database:       "testdb",
-		TopoClient:     nil,
-		ServiceID: &clustermetadatapb.ID{
-			Component: clustermetadatapb.ID_MULTIPOOLER,
-			Cell:      "zone1",
-			Name:      "test-service",
-		},
-	}
-	pooler := NewMultiPooler(logger, config)
-
-	ctx := context.Background()
-
-	// Should fail due to connection error, but we can test the request structure
-	resp, err := pooler.ExecuteQuery(ctx, []byte(""), 10)
-	assert.Error(t, err)
-	assert.Nil(t, resp)
-}
-
-func TestExecuteQuery_CallerIDLogging(t *testing.T) {
-	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	config := &manager.Config{
-		SocketFilePath: "/nonexistent/socket",
-		Database:       "testdb",
-		TopoClient:     nil,
-		ServiceID: &clustermetadatapb.ID{
-			Component: clustermetadatapb.ID_MULTIPOOLER,
-			Cell:      "zone1",
-			Name:      "test-service",
-		},
-	}
-	pooler := NewMultiPooler(logger, config)
-
-	ctx := context.Background()
-
-	// This will fail due to connection, but we're testing that it doesn't panic
-	_, err := pooler.ExecuteQuery(ctx, []byte("SELECT 1"), 10)
-	assert.Error(t, err) // Expected to fail due to no real DB connection
 }
 
 func TestClose(t *testing.T) {
