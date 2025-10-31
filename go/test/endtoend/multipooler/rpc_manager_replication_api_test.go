@@ -72,7 +72,7 @@ func TestReplicationAPIs(t *testing.T) {
 	standbyManagerClient := multipoolermanagerpb.NewMultiPoolerManagerClient(standbyConn)
 
 	t.Run("ConfigureReplicationAndValidate", func(t *testing.T) {
-		setupPoolerTestCleanup(t, setup, WithoutReplication(), WithDropTables("test_replication"))
+		setupPoolerTest(t, setup, WithoutReplication(), WithDropTables("test_replication"))
 
 		t.Log("Creating table and inserting data in primary...")
 		_, err = primaryPoolerClient.ExecuteQuery(context.Background(), "CREATE TABLE IF NOT EXISTS test_replication (id SERIAL PRIMARY KEY, data TEXT)", 0)
@@ -202,7 +202,7 @@ func TestReplicationAPIs(t *testing.T) {
 		// This test verifies that StopReplicationBefore flag stops replication before setting primary_conninfo
 
 		// Setup cleanup - default behavior starts replication
-		setupPoolerTestCleanup(t, setup)
+		setupPoolerTest(t, setup)
 
 		// First ensure replication is running by checking pg_stat_wal_receiver
 		t.Log("Verifying replication is running...")
@@ -314,7 +314,7 @@ func TestReplicationAPIs(t *testing.T) {
 	})
 
 	t.Run("WaitForLSN_Standby_Success", func(t *testing.T) {
-		setupPoolerTestCleanup(t, setup, WithDropTables("test_wait_lsn"))
+		setupPoolerTest(t, setup, WithDropTables("test_wait_lsn"))
 
 		// Insert data on primary to generate a new LSN
 		t.Log("Creating table and inserting data on primary...")
@@ -445,7 +445,7 @@ func TestReplicationAPIs(t *testing.T) {
 		// This test verifies that StopReplication successfully pauses WAL replay on standby
 
 		// Setup cleanup - default behavior starts replication
-		setupPoolerTestCleanup(t, setup)
+		setupPoolerTest(t, setup)
 
 		// First ensure replication is running
 		t.Log("Ensuring replication is running...")
@@ -499,7 +499,7 @@ func TestReplicationAPIs(t *testing.T) {
 	})
 
 	t.Run("ResetReplication_Success", func(t *testing.T) {
-		setupPoolerTestCleanup(t, setup, WithDropTables("test_reset_replication"))
+		setupPoolerTest(t, setup, WithDropTables("test_reset_replication"))
 
 		// This test verifies that ResetReplication successfully disconnects the standby from the primary
 		// and that data inserted after reset does not replicate until replication is re-enabled
@@ -851,7 +851,7 @@ func TestStopReplicationAndGetStatus(t *testing.T) {
 		t.Log("Testing StopReplicationAndGetStatus on standby with running replication...")
 
 		// Setup cleanup to restore replication state after test
-		setupPoolerTestCleanup(t, setup, WithoutReplication(), WithDropTables("stop_repl_test"))
+		setupPoolerTest(t, setup, WithoutReplication(), WithDropTables("stop_repl_test"))
 
 		// Connect to primary pooler to write test data
 		primaryPoolerClient, err := endtoend.NewMultiPoolerTestClient(fmt.Sprintf("localhost:%d", setup.PrimaryMultipooler.GrpcPort))
@@ -948,7 +948,7 @@ func TestStopReplicationAndGetStatus(t *testing.T) {
 		t.Log("Testing StopReplicationAndGetStatus when replication is already paused...")
 
 		// Setup cleanup to restore replication state after test
-		setupPoolerTestCleanup(t, setup, WithoutReplication())
+		setupPoolerTest(t, setup, WithoutReplication())
 
 		// First, stop replication
 		// StopReplication now waits internally for the pause to complete, so no manual wait needed
@@ -1006,7 +1006,7 @@ func TestConfigureSynchronousReplication(t *testing.T) {
 
 	t.Run("ConfigureSynchronousReplication_Primary_Success", func(t *testing.T) {
 		// Register cleanup to reset replication config
-		setupPoolerTestCleanup(t, setup, WithoutReplication())
+		setupPoolerTest(t, setup, WithoutReplication())
 
 		// This test verifies that ConfigureSynchronousReplication successfully configures
 		// synchronous replication on the primary
@@ -1044,7 +1044,7 @@ func TestConfigureSynchronousReplication(t *testing.T) {
 
 	t.Run("ConfigureSynchronousReplication_Primary_AnyMethod", func(t *testing.T) {
 		// Register cleanup to reset replication config
-		setupPoolerTestCleanup(t, setup, WithoutReplication())
+		setupPoolerTest(t, setup, WithoutReplication())
 
 		// This test verifies that ConfigureSynchronousReplication works with ANY method
 		t.Log("Testing ConfigureSynchronousReplication with ANY method on PRIMARY...")
@@ -1082,7 +1082,7 @@ func TestConfigureSynchronousReplication(t *testing.T) {
 	})
 
 	t.Run("ConfigureSynchronousReplication_AllCommitLevels", func(t *testing.T) {
-		setupPoolerTestCleanup(t, setup, WithoutReplication())
+		setupPoolerTest(t, setup, WithoutReplication())
 		// This test verifies that all SynchronousCommitLevel values work correctly
 		t.Log("Testing ConfigureSynchronousReplication with all commit levels...")
 
@@ -1137,7 +1137,7 @@ func TestConfigureSynchronousReplication(t *testing.T) {
 	})
 
 	t.Run("ConfigureSynchronousReplication_AllSynchronousMethods", func(t *testing.T) {
-		setupPoolerTestCleanup(t, setup, WithoutReplication())
+		setupPoolerTest(t, setup, WithoutReplication())
 		// This test verifies that FIRST and ANY methods work correctly with different num_sync values
 		t.Log("Testing ConfigureSynchronousReplication with all synchronous methods...")
 
@@ -1227,7 +1227,7 @@ func TestConfigureSynchronousReplication(t *testing.T) {
 			},
 		}
 
-		setupPoolerTestCleanup(t, setup, WithoutReplication())
+		setupPoolerTest(t, setup, WithoutReplication())
 		for _, tc := range testCases {
 			t.Run(tc.name, func(t *testing.T) {
 				// Configure with this synchronous method
@@ -1264,7 +1264,7 @@ func TestConfigureSynchronousReplication(t *testing.T) {
 	})
 
 	t.Run("ConfigureSynchronousReplication_EndToEnd_WithRealStandby", func(t *testing.T) {
-		setupPoolerTestCleanup(t, setup, WithoutReplication(), WithDropTables("test_sync_repl"))
+		setupPoolerTest(t, setup, WithoutReplication(), WithDropTables("test_sync_repl"))
 		// This test validates the complete synchronous replication flow:
 		// 1. Configure primary with remote_apply and the actual standby name
 		// 2. Ensure standby is connected and replicating
@@ -1538,7 +1538,7 @@ func TestUpdateSynchronousStandbyList(t *testing.T) {
 	t.Cleanup(func() { primaryPoolerClient.Close() })
 
 	t.Run("UpdateSynchronousStandbyList_Add_Success", func(t *testing.T) {
-		setupPoolerTestCleanup(t, setup, WithoutReplication())
+		setupPoolerTest(t, setup, WithoutReplication())
 		t.Log("Testing UpdateSynchronousStandbyList ADD operation...")
 
 		// First, configure initial synchronous replication with one standby
@@ -1594,7 +1594,7 @@ func TestUpdateSynchronousStandbyList(t *testing.T) {
 	})
 
 	t.Run("UpdateSynchronousStandbyList_Add_Idempotent", func(t *testing.T) {
-		setupPoolerTestCleanup(t, setup, WithoutReplication())
+		setupPoolerTest(t, setup, WithoutReplication())
 		t.Log("Testing UpdateSynchronousStandbyList ADD operation is idempotent...")
 
 		// Configure with two standbys
@@ -1642,7 +1642,7 @@ func TestUpdateSynchronousStandbyList(t *testing.T) {
 	})
 
 	t.Run("UpdateSynchronousStandbyList_Add_MixedExistingAndNew", func(t *testing.T) {
-		setupPoolerTestCleanup(t, setup, WithoutReplication())
+		setupPoolerTest(t, setup, WithoutReplication())
 		t.Log("Testing UpdateSynchronousStandbyList ADD with both existing and new standbys...")
 
 		// Configure with two standbys
@@ -1692,7 +1692,7 @@ func TestUpdateSynchronousStandbyList(t *testing.T) {
 	})
 
 	t.Run("UpdateSynchronousStandbyList_Add_Then_Remove_Sequence", func(t *testing.T) {
-		setupPoolerTestCleanup(t, setup, WithoutReplication())
+		setupPoolerTest(t, setup, WithoutReplication())
 		t.Log("Testing UpdateSynchronousStandbyList ADD followed by REMOVE in sequence...")
 
 		// Configure with initial standbys
@@ -1770,7 +1770,7 @@ func TestUpdateSynchronousStandbyList(t *testing.T) {
 	})
 
 	t.Run("UpdateSynchronousStandbyList_Remove_Success", func(t *testing.T) {
-		setupPoolerTestCleanup(t, setup, WithoutReplication())
+		setupPoolerTest(t, setup, WithoutReplication())
 		t.Log("Testing UpdateSynchronousStandbyList REMOVE operation...")
 
 		// Configure with three standbys
@@ -1825,7 +1825,7 @@ func TestUpdateSynchronousStandbyList(t *testing.T) {
 	})
 
 	t.Run("UpdateSynchronousStandbyList_Remove_NonExistent_Idempotent", func(t *testing.T) {
-		setupPoolerTestCleanup(t, setup, WithoutReplication())
+		setupPoolerTest(t, setup, WithoutReplication())
 		t.Log("Testing UpdateSynchronousStandbyList REMOVE operation with non-existent standby (idempotency)...")
 
 		// Configure with two standbys
@@ -1877,7 +1877,7 @@ func TestUpdateSynchronousStandbyList(t *testing.T) {
 	})
 
 	t.Run("UpdateSynchronousStandbyList_Replace_Success", func(t *testing.T) {
-		setupPoolerTestCleanup(t, setup, WithoutReplication())
+		setupPoolerTest(t, setup, WithoutReplication())
 		t.Log("Testing UpdateSynchronousStandbyList REPLACE operation...")
 
 		// Configure initial set

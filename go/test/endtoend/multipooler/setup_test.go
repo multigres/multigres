@@ -844,7 +844,7 @@ func WithDropTables(tables ...string) cleanupOption {
 	}
 }
 
-// setupPoolerTestCleanup registers cleanup functions based on the provided options.
+// setupPoolerTest registers cleanup functions based on the provided options.
 //
 // DEFAULT BEHAVIOR (no options):
 //   - Configures replication: Sets primary_conninfo, standby connects to primary
@@ -865,7 +865,7 @@ func WithDropTables(tables ...string) cleanupOption {
 //   - Use for tests that need to test pg_wal_replay_resume()
 //
 // Other options: WithResetGuc(), WithDropTables()
-func setupPoolerTestCleanup(t *testing.T, setup *MultipoolerTestSetup, opts ...cleanupOption) {
+func setupPoolerTest(t *testing.T, setup *MultipoolerTestSetup, opts ...cleanupOption) {
 	t.Helper()
 
 	// Build cleanup configuration from options

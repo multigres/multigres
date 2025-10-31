@@ -126,7 +126,7 @@ func TestPrimaryStatus(t *testing.T) {
 	standbyManagerClient := multipoolermanagerpb.NewMultiPoolerManagerClient(standbyConn)
 
 	t.Run("PrimaryStatus_NoSyncReplication", func(t *testing.T) {
-		setupPoolerTestCleanup(t, setup, WithoutReplication())
+		setupPoolerTest(t, setup, WithoutReplication())
 
 		t.Log("Testing PrimaryStatus without synchronous replication configured...")
 
@@ -165,7 +165,7 @@ func TestPrimaryStatus(t *testing.T) {
 	})
 
 	t.Run("PrimaryStatus_WithSyncReplication", func(t *testing.T) {
-		setupPoolerTestCleanup(t, setup, WithoutReplication())
+		setupPoolerTest(t, setup, WithoutReplication())
 
 		t.Log("Testing PrimaryStatus with synchronous replication configured...")
 
@@ -232,7 +232,7 @@ func TestPrimaryStatus(t *testing.T) {
 	})
 
 	t.Run("PrimaryStatus_WithConnectedFollower", func(t *testing.T) {
-		setupPoolerTestCleanup(t, setup, WithoutReplication())
+		setupPoolerTest(t, setup, WithoutReplication())
 
 		t.Log("Testing PrimaryStatus with connected follower...")
 
@@ -292,7 +292,7 @@ func TestPrimaryStatus(t *testing.T) {
 	})
 
 	t.Run("PrimaryStatus_Standby_Fails", func(t *testing.T) {
-		setupPoolerTestCleanup(t, setup, WithoutReplication())
+		setupPoolerTest(t, setup, WithoutReplication())
 
 		t.Log("Testing PrimaryStatus on REPLICA pooler (should fail)...")
 
@@ -336,7 +336,7 @@ func TestGetFollowers(t *testing.T) {
 	standbyManagerClient := multipoolermanagerpb.NewMultiPoolerManagerClient(standbyConn)
 
 	t.Run("GetFollowers_NoSyncReplication", func(t *testing.T) {
-		setupPoolerTestCleanup(t, setup, WithoutReplication())
+		setupPoolerTest(t, setup, WithoutReplication())
 
 		t.Log("Testing GetFollowers without synchronous replication configured...")
 
@@ -368,7 +368,7 @@ func TestGetFollowers(t *testing.T) {
 
 	t.Run("GetFollowers_WithConnectedFollower", func(t *testing.T) {
 		// Default behavior: replication already configured and streaming
-		setupPoolerTestCleanup(t, setup)
+		setupPoolerTest(t, setup)
 
 		t.Log("Testing GetFollowers with connected follower...")
 
@@ -437,7 +437,7 @@ func TestGetFollowers(t *testing.T) {
 
 	t.Run("GetFollowers_FollowerDisconnects", func(t *testing.T) {
 		// Default behavior: replication already configured and streaming
-		setupPoolerTestCleanup(t, setup)
+		setupPoolerTest(t, setup)
 
 		t.Log("Testing GetFollowers when connected follower disconnects...")
 
@@ -521,7 +521,7 @@ func TestGetFollowers(t *testing.T) {
 
 	t.Run("GetFollowers_MixedConnectedDisconnected", func(t *testing.T) {
 		// Default behavior: replication already configured and streaming
-		setupPoolerTestCleanup(t, setup)
+		setupPoolerTest(t, setup)
 
 		t.Log("Testing GetFollowers with mix of connected and disconnected followers...")
 
@@ -593,7 +593,7 @@ func TestGetFollowers(t *testing.T) {
 	})
 
 	t.Run("GetFollowers_Standby_Fails", func(t *testing.T) {
-		setupPoolerTestCleanup(t, setup, WithoutReplication())
+		setupPoolerTest(t, setup, WithoutReplication())
 
 		t.Log("Testing GetFollowers on REPLICA pooler (should fail)...")
 
