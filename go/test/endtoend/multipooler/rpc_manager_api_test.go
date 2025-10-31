@@ -126,6 +126,8 @@ func TestPrimaryStatus(t *testing.T) {
 	standbyManagerClient := multipoolermanagerpb.NewMultiPoolerManagerClient(standbyConn)
 
 	t.Run("PrimaryStatus_NoSyncReplication", func(t *testing.T) {
+		setupPoolerTestCleanup(t, setup, WithoutReplication())
+
 		t.Log("Testing PrimaryStatus without synchronous replication configured...")
 
 		// Clear any existing sync replication configuration
@@ -163,6 +165,8 @@ func TestPrimaryStatus(t *testing.T) {
 	})
 
 	t.Run("PrimaryStatus_WithSyncReplication", func(t *testing.T) {
+		setupPoolerTestCleanup(t, setup, WithoutReplication())
+
 		t.Log("Testing PrimaryStatus with synchronous replication configured...")
 
 		// Configure synchronous replication
@@ -228,6 +232,8 @@ func TestPrimaryStatus(t *testing.T) {
 	})
 
 	t.Run("PrimaryStatus_WithConnectedFollower", func(t *testing.T) {
+		setupPoolerTestCleanup(t, setup, WithoutReplication())
+
 		t.Log("Testing PrimaryStatus with connected follower...")
 
 		// Ensure standby is connected and replicating
@@ -286,6 +292,8 @@ func TestPrimaryStatus(t *testing.T) {
 	})
 
 	t.Run("PrimaryStatus_Standby_Fails", func(t *testing.T) {
+		setupPoolerTestCleanup(t, setup, WithoutReplication())
+
 		t.Log("Testing PrimaryStatus on REPLICA pooler (should fail)...")
 
 		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
@@ -310,9 +318,6 @@ func TestGetFollowers(t *testing.T) {
 	waitForManagerReady(t, setup, setup.PrimaryMultipooler)
 	waitForManagerReady(t, setup, setup.StandbyMultipooler)
 
-	// Register cleanup to reset replication config after all subtests
-	setupReplicationTestCleanup(t, setup)
-
 	// Create shared clients for all subtests
 	primaryConn, err := grpc.NewClient(
 		fmt.Sprintf("localhost:%d", setup.PrimaryMultipooler.GrpcPort),
@@ -331,6 +336,8 @@ func TestGetFollowers(t *testing.T) {
 	standbyManagerClient := multipoolermanagerpb.NewMultiPoolerManagerClient(standbyConn)
 
 	t.Run("GetFollowers_NoSyncReplication", func(t *testing.T) {
+		setupPoolerTestCleanup(t, setup, WithoutReplication())
+
 		t.Log("Testing GetFollowers without synchronous replication configured...")
 
 		// Clear any existing sync replication configuration
@@ -360,28 +367,19 @@ func TestGetFollowers(t *testing.T) {
 	})
 
 	t.Run("GetFollowers_WithConnectedFollower", func(t *testing.T) {
+		// Default behavior: replication already configured and streaming
+		setupPoolerTestCleanup(t, setup)
+
 		t.Log("Testing GetFollowers with connected follower...")
 
-		// Configure standby to connect to primary
-		setPrimaryReq := &multipoolermanagerdata.SetPrimaryConnInfoRequest{
-			Host:                  "localhost",
-			Port:                  int32(setup.PrimaryPgctld.PgPort),
-			StartReplicationAfter: true,
-			StopReplicationBefore: false,
-			CurrentTerm:           1,
-			Force:                 false,
-		}
-		_, err := standbyManagerClient.SetPrimaryConnInfo(utils.WithShortDeadline(t), setPrimaryReq)
-		require.NoError(t, err)
-
-		// Wait for replication to be established
+		// Replication is already running (default behavior), verify standby is connected
 		require.Eventually(t, func() bool {
 			statusResp, err := standbyManagerClient.ReplicationStatus(utils.WithShortDeadline(t), &multipoolermanagerdata.ReplicationStatusRequest{})
 			if err != nil {
 				return false
 			}
 			return statusResp.Status != nil && statusResp.Status.PrimaryConnInfo != nil
-		}, 10*time.Second, 500*time.Millisecond, "Standby should establish replication")
+		}, 10*time.Second, 500*time.Millisecond, "Standby should be connected (from default setup)")
 
 		// Configure synchronous replication with the standby
 		standbyID := makeMultipoolerID("test-cell", setup.StandbyMultipooler.ServiceID)
@@ -438,28 +436,19 @@ func TestGetFollowers(t *testing.T) {
 	})
 
 	t.Run("GetFollowers_FollowerDisconnects", func(t *testing.T) {
+		// Default behavior: replication already configured and streaming
+		setupPoolerTestCleanup(t, setup)
+
 		t.Log("Testing GetFollowers when connected follower disconnects...")
 
-		// Configure standby to connect to primary
-		setPrimaryReq := &multipoolermanagerdata.SetPrimaryConnInfoRequest{
-			Host:                  "localhost",
-			Port:                  int32(setup.PrimaryPgctld.PgPort),
-			StartReplicationAfter: true,
-			StopReplicationBefore: false,
-			CurrentTerm:           1,
-			Force:                 false,
-		}
-		_, err := standbyManagerClient.SetPrimaryConnInfo(utils.WithShortDeadline(t), setPrimaryReq)
-		require.NoError(t, err)
-
-		// Wait for replication to be established
+		// Replication is already running (default behavior), verify standby is connected
 		require.Eventually(t, func() bool {
 			statusResp, err := standbyManagerClient.ReplicationStatus(utils.WithShortDeadline(t), &multipoolermanagerdata.ReplicationStatusRequest{})
 			if err != nil {
 				return false
 			}
 			return statusResp.Status != nil && statusResp.Status.PrimaryConnInfo != nil
-		}, 10*time.Second, 500*time.Millisecond, "Standby should establish replication")
+		}, 10*time.Second, 500*time.Millisecond, "Standby should be connected (from default setup)")
 
 		// Configure synchronous replication with the standby
 		standbyID := makeMultipoolerID("test-cell", setup.StandbyMultipooler.ServiceID)
@@ -531,28 +520,19 @@ func TestGetFollowers(t *testing.T) {
 	})
 
 	t.Run("GetFollowers_MixedConnectedDisconnected", func(t *testing.T) {
+		// Default behavior: replication already configured and streaming
+		setupPoolerTestCleanup(t, setup)
+
 		t.Log("Testing GetFollowers with mix of connected and disconnected followers...")
 
-		// Ensure standby is connected
-		setPrimaryReq := &multipoolermanagerdata.SetPrimaryConnInfoRequest{
-			Host:                  "localhost",
-			Port:                  int32(setup.PrimaryPgctld.PgPort),
-			StartReplicationAfter: true,
-			StopReplicationBefore: false,
-			CurrentTerm:           1,
-			Force:                 false,
-		}
-		_, err := standbyManagerClient.SetPrimaryConnInfo(utils.WithShortDeadline(t), setPrimaryReq)
-		require.NoError(t, err)
-
-		// Wait for replication to be established
+		// Replication is already running (default behavior), verify standby is connected
 		require.Eventually(t, func() bool {
 			statusResp, err := standbyManagerClient.ReplicationStatus(utils.WithShortDeadline(t), &multipoolermanagerdata.ReplicationStatusRequest{})
 			if err != nil {
 				return false
 			}
 			return statusResp.Status != nil && statusResp.Status.PrimaryConnInfo != nil
-		}, 10*time.Second, 500*time.Millisecond, "Standby should establish replication")
+		}, 10*time.Second, 500*time.Millisecond, "Standby should be connected (from default setup)")
 
 		// Configure synchronous replication with real standby + fake standby
 		connectedID := makeMultipoolerID("test-cell", setup.StandbyMultipooler.ServiceID)
@@ -613,6 +593,8 @@ func TestGetFollowers(t *testing.T) {
 	})
 
 	t.Run("GetFollowers_Standby_Fails", func(t *testing.T) {
+		setupPoolerTestCleanup(t, setup, WithoutReplication())
+
 		t.Log("Testing GetFollowers on REPLICA pooler (should fail)...")
 
 		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
