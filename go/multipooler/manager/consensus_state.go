@@ -32,7 +32,7 @@ type ConsensusState struct {
 	poolerDir string
 	serviceID *clustermetadatapb.ID
 
-	mu    sync.RWMutex
+	mu    sync.Mutex
 	term  *multipoolermanagerdatapb.ConsensusTerm
 	dirty bool // true if in-memory state differs from disk
 }
@@ -91,8 +91,8 @@ func (cs *ConsensusState) Save() error {
 // GetCurrentTerm returns the current term.
 // Returns 0 if state has not been loaded.
 func (cs *ConsensusState) GetCurrentTerm() int64 {
-	cs.mu.RLock()
-	defer cs.mu.RUnlock()
+	cs.mu.Lock()
+	defer cs.mu.Unlock()
 
 	if cs.term == nil {
 		return 0
@@ -103,8 +103,8 @@ func (cs *ConsensusState) GetCurrentTerm() int64 {
 // GetAcceptedLeader returns the candidate ID this node voted for in the current term.
 // Returns empty string if no vote has been cast.
 func (cs *ConsensusState) GetAcceptedLeader() string {
-	cs.mu.RLock()
-	defer cs.mu.RUnlock()
+	cs.mu.Lock()
+	defer cs.mu.Unlock()
 
 	if cs.term == nil || cs.term.AcceptedLeader == nil {
 		return ""
@@ -115,8 +115,8 @@ func (cs *ConsensusState) GetAcceptedLeader() string {
 // GetTerm returns a copy of the current consensus term.
 // Returns nil if state has not been loaded.
 func (cs *ConsensusState) GetTerm() *multipoolermanagerdatapb.ConsensusTerm {
-	cs.mu.RLock()
-	defer cs.mu.RUnlock()
+	cs.mu.Lock()
+	defer cs.mu.Unlock()
 
 	if cs.term == nil {
 		return nil

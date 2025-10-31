@@ -74,7 +74,7 @@ type MultiPoolerManager struct {
 	actionSema *semaphore.Weighted
 
 	// Multipooler record from topology and startup state
-	mu              sync.RWMutex
+	mu              sync.Mutex
 	multipooler     *topo.MultiPoolerInfo
 	state           ManagerState
 	stateError      error
@@ -290,29 +290,29 @@ func (pm *MultiPoolerManager) Close() error {
 
 // GetState returns the current state of the manager
 func (pm *MultiPoolerManager) GetState() ManagerState {
-	pm.mu.RLock()
-	defer pm.mu.RUnlock()
+	pm.mu.Lock()
+	defer pm.mu.Unlock()
 	return pm.state
 }
 
 // GetStateError returns the error that caused the manager to enter error state
 func (pm *MultiPoolerManager) GetStateError() error {
-	pm.mu.RLock()
-	defer pm.mu.RUnlock()
+	pm.mu.Lock()
+	defer pm.mu.Unlock()
 	return pm.stateError
 }
 
 // GetMultiPooler returns the current multipooler record and state
 func (pm *MultiPoolerManager) GetMultiPooler() (*topo.MultiPoolerInfo, ManagerState, error) {
-	pm.mu.RLock()
-	defer pm.mu.RUnlock()
+	pm.mu.Lock()
+	defer pm.mu.Unlock()
 	return pm.multipooler, pm.state, pm.stateError
 }
 
 // checkReady returns an error if the manager is not in Ready state
 func (pm *MultiPoolerManager) checkReady() error {
-	pm.mu.RLock()
-	defer pm.mu.RUnlock()
+	pm.mu.Lock()
+	defer pm.mu.Unlock()
 
 	switch pm.state {
 	case ManagerStateReady:
@@ -328,9 +328,9 @@ func (pm *MultiPoolerManager) checkReady() error {
 
 // checkPoolerType verifies that the pooler matches the expected type
 func (pm *MultiPoolerManager) checkPoolerType(expectedType clustermetadatapb.PoolerType, operationName string) error {
-	pm.mu.RLock()
+	pm.mu.Lock()
 	poolerType := pm.multipooler.Type
-	pm.mu.RUnlock()
+	pm.mu.Unlock()
 
 	if poolerType != expectedType {
 		pm.logger.Error(fmt.Sprintf("%s called on incorrect pooler type", operationName),
@@ -643,13 +643,13 @@ func (pm *MultiPoolerManager) validateTermExactMatch(ctx context.Context, reques
 // loadConsensusTermFromDisk loads the consensus term from local disk asynchronously
 func (pm *MultiPoolerManager) loadConsensusTermFromDisk() {
 	// Check if consensus service is enabled
-	pm.mu.RLock()
+	pm.mu.Lock()
 	if pm.consensusState == nil {
-		pm.mu.RUnlock()
+		pm.mu.Unlock()
 		pm.logger.Debug("Consensus service not enabled, skipping consensus term load")
 		return
 	}
-	pm.mu.RUnlock()
+	pm.mu.Unlock()
 
 	// Set timeout for the entire loading process
 	timeoutCtx, timeoutCancel := context.WithTimeout(pm.ctx, pm.loadTimeout)
@@ -755,9 +755,9 @@ func (pm *MultiPoolerManager) SetPrimaryConnInfo(ctx context.Context, host strin
 	// Build primary_conninfo connection string
 	// Format: host=<host> port=<port> user=<user> application_name=<name>
 	// The heartbeat_interval is converted to keepalives_interval/keepalives_idle
-	pm.mu.RLock()
+	pm.mu.Lock()
 	database := pm.multipooler.Database
-	pm.mu.RUnlock()
+	pm.mu.Unlock()
 
 	// Generate application name using the shared helper
 	appName := generateApplicationName(pm.serviceID)
@@ -1658,8 +1658,8 @@ func (pm *MultiPoolerManager) ChangeType(ctx context.Context, poolerType string)
 
 // Status returns the current manager status and error information
 func (pm *MultiPoolerManager) Status(ctx context.Context) (*multipoolermanagerdatapb.StatusResponse, error) {
-	pm.mu.RLock()
-	defer pm.mu.RUnlock()
+	pm.mu.Lock()
+	defer pm.mu.Unlock()
 
 	state := string(pm.state)
 	var errorMessage string
@@ -1830,10 +1830,10 @@ func (pm *MultiPoolerManager) checkDemotionState(ctx context.Context) (*demotion
 	state := &demotionState{}
 
 	// Check topology state
-	pm.mu.RLock()
+	pm.mu.Lock()
 	poolerType := pm.multipooler.Type
 	servingStatus := pm.multipooler.ServingStatus
-	pm.mu.RUnlock()
+	pm.mu.Unlock()
 
 	state.isReplicaInTopology = (poolerType == clustermetadatapb.PoolerType_REPLICA)
 	state.isServingReadOnly = (servingStatus == clustermetadatapb.PoolerServingStatus_SERVING_RDONLY)
@@ -2373,9 +2373,9 @@ func (pm *MultiPoolerManager) checkPromotionState(ctx context.Context, syncRepli
 	}
 
 	// Check topology state
-	pm.mu.RLock()
+	pm.mu.Lock()
 	poolerType := pm.multipooler.Type
-	pm.mu.RUnlock()
+	pm.mu.Unlock()
 
 	state.isPrimaryInTopology = (poolerType == clustermetadatapb.PoolerType_PRIMARY)
 
@@ -2764,9 +2764,9 @@ func (pm *MultiPoolerManager) Start(senv *servenv.ServEnv) {
 
 		// Start loading consensus term from local disk asynchronously
 		// This must happen after service registration so we know if consensus is enabled
-		pm.mu.RLock()
+		pm.mu.Lock()
 		consensusEnabled := pm.consensusState != nil
-		pm.mu.RUnlock()
+		pm.mu.Unlock()
 
 		if consensusEnabled {
 			go pm.loadConsensusTermFromDisk()
