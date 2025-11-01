@@ -24,6 +24,7 @@ import (
 	"path"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"syscall"
 	"testing"
@@ -55,10 +56,88 @@ var (
 	setupError      error
 )
 
+// cleanupOrphanedProcesses finds and kills any orphaned test processes from previous runs.
+// This handles the case where a test was killed ungracefully (SIGKILL, crash, etc.)
+// and left processes running.
+func cleanupOrphanedProcesses() {
+	// Look for processes with our temp directory pattern in their command line
+	// This catches etcd, pgctld, multipooler, and postgres processes from previous test runs
+	patterns := []string{
+		"multipooler_shared_test", // Our temp dir pattern
+		"multigres_shared_test",   // etcd name pattern
+	}
+
+	for _, pattern := range patterns {
+		cmd := exec.Command("pgrep", "-f", pattern)
+		output, err := cmd.Output()
+		if err != nil {
+			// pgrep returns exit code 1 if no processes found, which is fine
+			continue
+		}
+
+		// Parse PIDs from output
+		pidStrs := string(output)
+		if pidStrs == "" {
+			continue
+		}
+
+		// Split into lines and kill each PID
+		lines := strings.Split(strings.TrimSpace(pidStrs), "\n")
+		for _, pidStr := range lines {
+			pidStr = strings.TrimSpace(pidStr)
+			if pidStr == "" {
+				continue
+			}
+
+			pid, err := strconv.Atoi(pidStr)
+			if err != nil {
+				continue
+			}
+
+			// Don't kill ourselves!
+			if pid == os.Getpid() {
+				continue
+			}
+
+			// Try to kill the orphaned process
+			// Use negative PID to kill process group if it's a group leader
+			_ = syscall.Kill(-pid, syscall.SIGTERM)
+			// Also try positive PID in case it's not a group leader
+			_ = syscall.Kill(pid, syscall.SIGTERM)
+		}
+
+		// Give processes a moment to exit
+		time.Sleep(1 * time.Second)
+
+		// Force kill any that didn't respond to SIGTERM
+		for _, pidStr := range lines {
+			pidStr = strings.TrimSpace(pidStr)
+			if pidStr == "" {
+				continue
+			}
+
+			pid, err := strconv.Atoi(pidStr)
+			if err != nil {
+				continue
+			}
+
+			if pid == os.Getpid() {
+				continue
+			}
+
+			_ = syscall.Kill(-pid, syscall.SIGKILL)
+			_ = syscall.Kill(pid, syscall.SIGKILL)
+		}
+	}
+}
+
 // TestMain sets the path and cleans up after all tests
 func TestMain(m *testing.M) {
 	// Set the PATH so etcd can be found
 	pathutil.PrependPath("../../../../bin")
+
+	// Clean up any orphaned processes from previous crashed test runs
+	cleanupOrphanedProcesses()
 
 	// Set up signal handler to ensure cleanup on interrupt
 	sigChan := make(chan os.Signal, 1)
@@ -106,10 +185,9 @@ func cleanupSharedTestSetup() {
 		sharedTestSetup.TopoServer.Close()
 	}
 
-	// Stop etcd
+	// Stop etcd (kill entire process group)
 	if sharedTestSetup.EtcdCmd != nil && sharedTestSetup.EtcdCmd.Process != nil {
-		_ = sharedTestSetup.EtcdCmd.Process.Kill()
-		_ = sharedTestSetup.EtcdCmd.Wait()
+		killProcessGroup(sharedTestSetup.EtcdCmd.Process.Pid, 3*time.Second, sharedTestSetup.EtcdCmd)
 	}
 
 	// Clean up temp directory
@@ -174,6 +252,10 @@ func (p *ProcessInstance) startPgctld(t *testing.T) error {
 		"--pg-port", strconv.Itoa(p.PgPort),
 		"--log-output", p.LogFile)
 	p.Process.Env = p.Environment
+	// Create new process group so we can kill all descendants (postgres + children)
+	p.Process.SysProcAttr = &syscall.SysProcAttr{
+		Setpgid: true,
+	}
 
 	t.Logf("Running server command: %v", p.Process.Args)
 	if err := p.waitForStartup(t, 20*time.Second, 50); err != nil {
@@ -205,6 +287,10 @@ func (p *ProcessInstance) startMultipooler(t *testing.T) error {
 		"--service-id", p.ServiceID,
 		"--log-output", p.LogFile)
 	p.Process.Env = p.Environment
+	// Create new process group so we can kill all descendants
+	p.Process.SysProcAttr = &syscall.SysProcAttr{
+		Setpgid: true,
+	}
 
 	t.Logf("Running multipooler command: %v", p.Process.Args)
 	return p.waitForStartup(t, 15*time.Second, 30)
@@ -292,20 +378,43 @@ func (p *ProcessInstance) logRecentOutput(t *testing.T, context string) {
 	t.Logf("%s %s - Recent log output from %s:\n%s", p.Name, context, p.LogFile, logContent)
 }
 
-// Stop stops the process instance
+// killProcessGroup kills a process group (the process and all its descendants).
+// Sends SIGTERM first, then SIGKILL if the process doesn't exit within the timeout.
+// The cmd parameter is used to wait for the process to exit.
+func killProcessGroup(pid int, timeout time.Duration, cmd *exec.Cmd) {
+	// Send SIGTERM to the entire process group (negative PID kills the group)
+	_ = syscall.Kill(-pid, syscall.SIGTERM)
+
+	// Wait for process to exit with timeout
+	done := make(chan error, 1)
+	go func() {
+		done <- cmd.Wait()
+	}()
+
+	select {
+	case <-done:
+		// Process exited cleanly
+		return
+	case <-time.After(timeout):
+		// Process didn't exit in time, force kill the entire group
+		_ = syscall.Kill(-pid, syscall.SIGKILL)
+		_ = cmd.Wait()
+	}
+}
+
+// Stop stops the process instance and all its descendants
 func (p *ProcessInstance) Stop() {
 	if p.Process == nil || p.Process.ProcessState != nil {
 		return // Process not running
 	}
 
-	// If this is pgctld, stop PostgreSQL first via gRPC
+	// If this is pgctld, try graceful PostgreSQL shutdown first via gRPC
 	if p.Binary == "pgctld" {
 		p.stopPostgreSQL()
 	}
 
-	// Then kill the process
-	_ = p.Process.Process.Kill()
-	_ = p.Process.Wait()
+	// Kill the process group (process + all descendants)
+	killProcessGroup(p.Process.Process.Pid, 5*time.Second, p.Process)
 }
 
 // stopPostgreSQL stops PostgreSQL via gRPC (best effort, no error handling)
@@ -668,6 +777,10 @@ func startEtcdForSharedSetup(dataDir string) (string, *exec.Cmd, error) {
 		"-listen-peer-urls", peerAddr,
 		"-initial-cluster", initialCluster,
 		"-data-dir", dataDir)
+	// Create new process group so we can kill all descendants
+	cmd.SysProcAttr = &syscall.SysProcAttr{
+		Setpgid: true,
+	}
 
 	if err := cmd.Start(); err != nil {
 		return "", nil, fmt.Errorf("failed to start etcd: %w", err)
