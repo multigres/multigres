@@ -43,7 +43,7 @@ message BeginTermRequest {
   // Term of the candidate
   int64 term = 1;
 
-  // ID of the candidate requesting vote
+  // ID of the candidate for appointment
   string candidate_id = 2;
 
   // Shard ID for this appointment
@@ -112,23 +112,11 @@ message LeadershipViewResponse {
   // Leader's consensus term
   int64 leader_term = 2;
 
-  // Leader's WAL position
-  string leader_wal_position = 3;
-
   // Last heartbeat timestamp
   google.protobuf.Timestamp last_heartbeat = 4;
 
   // Calculated replication lag in nanoseconds
   int64 replication_lag_ns = 5;
-}
-
-// GetWALPosition returns the current WAL position
-message GetWALPositionRequest {
-}
-
-message GetWALPositionResponse {
-  // Current WAL position
-  WALPosition wal_position = 1;
 }
 
 // CanReachPrimary checks if this node can reach the primary

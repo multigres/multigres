@@ -17,6 +17,7 @@ package grpcconsensusservice
 
 import (
 	"context"
+	"os"
 
 	"github.com/multigres/multigres/go/mterrors"
 	"github.com/multigres/multigres/go/multipooler/manager"
@@ -35,6 +36,11 @@ func RegisterConsensusServices(senv *servenv.ServEnv, grpc *servenv.GrpcServer) 
 	// Register ourselves to be invoked when the manager starts
 	manager.RegisterPoolerManagerServices = append(manager.RegisterPoolerManagerServices, func(pm *manager.MultiPoolerManager) {
 		if grpc.CheckServiceMap("consensus", senv) {
+			// Initialize consensus state since the consensus service is enabled
+			if err := pm.InitializeConsensusState(); err != nil {
+				senv.GetLogger().Error("file system error")
+				os.Exit(1)
+			}
 			srv := &consensusService{
 				manager: pm,
 			}
@@ -64,15 +70,6 @@ func (s *consensusService) Status(ctx context.Context, req *consensusdata.Status
 // GetLeadershipView returns leadership information from the heartbeat table
 func (s *consensusService) GetLeadershipView(ctx context.Context, req *consensusdata.LeadershipViewRequest) (*consensusdata.LeadershipViewResponse, error) {
 	resp, err := s.manager.GetLeadershipView(ctx, req)
-	if err != nil {
-		return nil, mterrors.ToGRPC(err)
-	}
-	return resp, nil
-}
-
-// GetWALPosition returns the current WAL position
-func (s *consensusService) GetWALPosition(ctx context.Context, req *consensusdata.GetWALPositionRequest) (*consensusdata.GetWALPositionResponse, error) {
-	resp, err := s.manager.GetWALPosition(ctx, req)
 	if err != nil {
 		return nil, mterrors.ToGRPC(err)
 	}
