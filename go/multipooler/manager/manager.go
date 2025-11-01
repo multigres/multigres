@@ -175,14 +175,11 @@ func (pm *MultiPoolerManager) InitializeConsensusState() error {
 		if err := pm.consensusState.Load(); err != nil {
 			pm.logger.Error("Failed to load consensus state from disk", "error", err)
 			return err
+		} else {
+			pm.logger.Info("Consensus state initialized and loaded from disk",
+				"current_term", pm.consensusState.GetCurrentTerm(),
+				"accepted_leader", pm.consensusState.GetAcceptedLeader())
 		}
-
-		pm.logger.Info("Consensus state initialized and loaded from disk",
-			"current_term", pm.consensusState.GetCurrentTerm(),
-			"accepted_leader", pm.consensusState.GetAcceptedLeader())
-
-		// Start the background persister goroutine
-		pm.consensusState.StartPersister()
 	}
 	return nil
 }
@@ -287,9 +284,6 @@ func (pm *MultiPoolerManager) Close() error {
 	pm.cancel()
 	if pm.replTracker != nil {
 		pm.replTracker.Close()
-	}
-	if pm.consensusState != nil {
-		pm.consensusState.Close()
 	}
 	if pm.db != nil {
 		return pm.db.Close()

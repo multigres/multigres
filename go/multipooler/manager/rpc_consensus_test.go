@@ -133,12 +133,6 @@ func TestBeginTerm(t *testing.T) {
 			assert.Equal(t, tt.expectedAccepted, resp.Accepted, tt.description)
 			assert.Equal(t, tt.expectedTerm, resp.Term)
 
-			// Wait for async persistence to complete
-			waitCtx, cancel := context.WithTimeout(ctx, 1*time.Second)
-			defer cancel()
-			err = pm.consensusState.WaitForPersistence(waitCtx)
-			require.NoError(t, err, "Failed to wait for persistence")
-
 			// Step 5: Verify persisted state
 			loadedTerm, err := GetTerm(tmpDir)
 			require.NoError(t, err)

@@ -15,9 +15,7 @@
 package manager
 
 import (
-	"context"
 	"fmt"
-	"strings"
 	"sync"
 	"time"
 
@@ -29,8 +27,7 @@ import (
 
 // ConsensusState manages the in-memory and on-disk consensus state for this node.
 // It provides thread-safe access to voting state and caches the state in memory
-// to avoid repeated disk reads. It also runs a background goroutine to persist
-// dirty state to disk asynchronously with automatic retries.
+// to avoid repeated disk reads.
 type ConsensusState struct {
 	poolerDir string
 	serviceID *clustermetadatapb.ID
@@ -38,26 +35,16 @@ type ConsensusState struct {
 	mu    sync.Mutex
 	term  *multipoolermanagerdatapb.ConsensusTerm
 	dirty bool // true if in-memory state differs from disk
-
-	persistCh chan struct{} // Signal that persistence is needed
-	ctx       context.Context
-	cancel    context.CancelFunc
-	wg        sync.WaitGroup
 }
 
 // NewConsensusState creates a new ConsensusState manager.
 // It does not load state from disk - call Load() to initialize.
-// It does not start the background persister - call StartPersister() after Load().
 func NewConsensusState(poolerDir string, serviceID *clustermetadatapb.ID) *ConsensusState {
-	ctx, cancel := context.WithCancel(context.Background())
 	return &ConsensusState{
 		poolerDir: poolerDir,
 		serviceID: serviceID,
 		term:      nil,
 		dirty:     false,
-		persistCh: make(chan struct{}, 1), // Buffered to avoid blocking
-		ctx:       ctx,
-		cancel:    cancel,
 	}
 }
 
@@ -78,135 +65,27 @@ func (cs *ConsensusState) Load() error {
 	return nil
 }
 
-// Save signals the background persister to persist dirty state to disk.
-// This method is non-blocking and returns immediately.
-// The actual persistence happens asynchronously in the background with automatic retries.
+// Save persists the current in-memory state to disk using atomic write.
+// Only writes if the state has been modified (dirty flag is set).
 func (cs *ConsensusState) Save() error {
-	// Signal persistence needed (non-blocking due to buffered channel)
-	select {
-	case cs.persistCh <- struct{}{}:
-	default:
-		// Already signaled, no need to signal again
-	}
-	return nil
-}
-
-// WaitForPersistence waits until all dirty state has been persisted to disk.
-// This is primarily useful for testing. Returns when dirty flag is cleared or context is cancelled.
-func (cs *ConsensusState) WaitForPersistence(ctx context.Context) error {
-	ticker := time.NewTicker(10 * time.Millisecond)
-	defer ticker.Stop()
-
-	for {
-		cs.mu.Lock()
-		isDirty := cs.dirty
-		cs.mu.Unlock()
-
-		if !isDirty {
-			return nil
-		}
-
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-ticker.C:
-			// Continue checking
-		}
-	}
-}
-
-// StartPersister starts the background goroutine that persists dirty state to disk.
-// Call this after Load() to enable automatic persistence.
-func (cs *ConsensusState) StartPersister() {
-	cs.wg.Add(1)
-	go cs.persistLoop()
-}
-
-// Close stops the background persister and waits for it to finish.
-func (cs *ConsensusState) Close() {
-	cs.cancel()
-	cs.wg.Wait()
-}
-
-// persistLoop runs in the background and periodically persists dirty state to disk.
-func (cs *ConsensusState) persistLoop() {
-	defer cs.wg.Done()
-
-	ticker := time.NewTicker(100 * time.Millisecond)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-cs.ctx.Done():
-			// Final persist attempt before shutdown
-			cs.tryPersist()
-			return
-		case <-ticker.C:
-			cs.tryPersist()
-		case <-cs.persistCh:
-			cs.tryPersist()
-		}
-	}
-}
-
-// tryPersist attempts to persist dirty state to disk with indefinite retries for transient errors.
-// It copies the term while holding the lock, then releases the lock during I/O.
-// For permanent errors (like "data directory not initialized"), it gives up immediately.
-func (cs *ConsensusState) tryPersist() {
 	cs.mu.Lock()
+	defer cs.mu.Unlock()
+
 	if !cs.dirty {
-		cs.mu.Unlock()
-		return
+		// No changes to persist
+		return nil
 	}
-	termCopy := cloneTerm(cs.term)
-	cs.mu.Unlock()
 
-	// Retry indefinitely for transient errors, give up immediately for permanent errors
-	for {
-		select {
-		case <-cs.ctx.Done():
-			// Shutdown requested, give up
-			return
-		default:
-		}
-
-		err := SetTerm(cs.poolerDir, termCopy)
-		if err == nil {
-			// Success - clear dirty flag
-			cs.mu.Lock()
-			// Only clear dirty if term hasn't changed since we copied it
-			if cs.dirty && termEquals(cs.term, termCopy) {
-				cs.dirty = false
-			}
-			cs.mu.Unlock()
-			return
-		}
-
-		// Check if this is a permanent error (data directory not initialized)
-		if isPermanentError(err) {
-			// Don't retry permanent errors - just leave dirty flag set
-			// The state will be persisted later when the data directory is initialized
-			return
-		}
-
-		// Failed with transient error, wait and retry
-		select {
-		case <-cs.ctx.Done():
-			return
-		case <-time.After(100 * time.Millisecond):
-			// Continue retry loop
-		}
+	if cs.term == nil {
+		return fmt.Errorf("cannot save nil consensus term")
 	}
-}
 
-// isPermanentError checks if an error is permanent and should not be retried
-func isPermanentError(err error) bool {
-	if err == nil {
-		return false
+	if err := SetTerm(cs.poolerDir, cs.term); err != nil {
+		return fmt.Errorf("failed to save consensus term: %w", err)
 	}
-	// Check for "data directory not initialized" error
-	errMsg := err.Error()
-	return strings.Contains(errMsg, "data directory not initialized")
+
+	cs.dirty = false
+	return nil
 }
 
 // GetCurrentTerm returns the current term.
@@ -360,30 +239,4 @@ func cloneTerm(term *multipoolermanagerdatapb.ConsensusTerm) *multipoolermanager
 	}
 
 	return clone
-}
-
-// termEquals checks if two ConsensusTerm instances are equal
-func termEquals(a, b *multipoolermanagerdatapb.ConsensusTerm) bool {
-	if a == nil && b == nil {
-		return true
-	}
-	if a == nil || b == nil {
-		return false
-	}
-
-	if a.CurrentTerm != b.CurrentTerm {
-		return false
-	}
-
-	// Compare AcceptedLeader
-	if a.AcceptedLeader == nil && b.AcceptedLeader == nil {
-		return true
-	}
-	if a.AcceptedLeader == nil || b.AcceptedLeader == nil {
-		return false
-	}
-
-	return a.AcceptedLeader.Component == b.AcceptedLeader.Component &&
-		a.AcceptedLeader.Cell == b.AcceptedLeader.Cell &&
-		a.AcceptedLeader.Name == b.AcceptedLeader.Name
 }
