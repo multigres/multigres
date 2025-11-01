@@ -60,7 +60,7 @@ type PoolerGateway struct {
 
 	// connections maintains gRPC connections to poolers
 	// Key is pooler ID (hostname:port)
-	mu          sync.RWMutex
+	mu          sync.Mutex
 	connections map[string]*poolerConnection
 }
 
@@ -166,13 +166,13 @@ func (pg *PoolerGateway) getOrCreateConnection(
 	poolerID := topo.MultiPoolerIDString(pooler.Id)
 
 	// Check if we already have a connection
-	pg.mu.RLock()
+	pg.mu.Lock()
 	if conn, ok := pg.connections[poolerID]; ok {
-		pg.mu.RUnlock()
+		pg.mu.Unlock()
 		conn.lastUsed = time.Now()
 		return conn.queryService, nil
 	}
-	pg.mu.RUnlock()
+	pg.mu.Unlock()
 
 	// Need to create a new connection
 	pg.mu.Lock()
@@ -248,8 +248,8 @@ var _ queryservice.QueryService = (*PoolerGateway)(nil)
 
 // Stats returns statistics about the gateway.
 func (pg *PoolerGateway) Stats() map[string]any {
-	pg.mu.RLock()
-	defer pg.mu.RUnlock()
+	pg.mu.Lock()
+	defer pg.mu.Unlock()
 
 	return map[string]any{
 		"active_connections": len(pg.connections),

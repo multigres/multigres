@@ -44,7 +44,7 @@ type PoolerDiscovery struct {
 	wg         sync.WaitGroup
 
 	// State
-	mu          sync.RWMutex
+	mu          sync.Mutex
 	poolers     map[string]*topo.MultiPoolerInfo // pooler ID -> pooler info
 	lastRefresh time.Time
 }
@@ -232,8 +232,8 @@ func (pd *PoolerDiscovery) processPoolerChange(watchData *topo.WatchDataRecursiv
 
 // GetPoolers returns a list of all discovered poolers.
 func (pd *PoolerDiscovery) GetPoolers() []*clustermetadatapb.MultiPooler {
-	pd.mu.RLock()
-	defer pd.mu.RUnlock()
+	pd.mu.Lock()
+	defer pd.mu.Unlock()
 
 	poolers := make([]*clustermetadatapb.MultiPooler, 0, len(pd.poolers))
 	for _, pooler := range pd.poolers {
@@ -251,8 +251,8 @@ func (pd *PoolerDiscovery) GetPoolers() []*clustermetadatapb.MultiPooler {
 // - PoolerType: If not specified (UNKNOWN), defaults to PRIMARY
 // - Shard: If empty, matches any shard; otherwise must match exactly
 func (pd *PoolerDiscovery) GetPooler(target *query.Target) *clustermetadatapb.MultiPooler {
-	pd.mu.RLock()
-	defer pd.mu.RUnlock()
+	pd.mu.Lock()
+	defer pd.mu.Unlock()
 
 	// Default to PRIMARY if not specified
 	targetType := target.PoolerType
@@ -290,15 +290,15 @@ func (pd *PoolerDiscovery) GetPooler(target *query.Target) *clustermetadatapb.Mu
 
 // LastRefresh returns the timestamp of the last successful refresh.
 func (pd *PoolerDiscovery) LastRefresh() time.Time {
-	pd.mu.RLock()
-	defer pd.mu.RUnlock()
+	pd.mu.Lock()
+	defer pd.mu.Unlock()
 	return pd.lastRefresh
 }
 
 // PoolerCount returns the current number of discovered poolers.
 func (pd *PoolerDiscovery) PoolerCount() int {
-	pd.mu.RLock()
-	defer pd.mu.RUnlock()
+	pd.mu.Lock()
+	defer pd.mu.Unlock()
 	return len(pd.poolers)
 }
 

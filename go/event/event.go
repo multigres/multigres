@@ -81,7 +81,7 @@ import (
 )
 
 var (
-	listenersMutex sync.RWMutex // protects listeners and interfaces
+	listenersMutex sync.Mutex // protects listeners and interfaces
 	listeners      = make(map[reflect.Type][]any)
 	interfaces     = make([]reflect.Type, 0)
 )
@@ -128,26 +128,28 @@ func AddListener(fn any) {
 // Dispatch sends an event to all registered listeners that were declared
 // to accept values of the event's type, or interfaces that the value implements.
 func Dispatch(ev any) {
-	listenersMutex.RLock()
-	defer listenersMutex.RUnlock()
-
 	evType := reflect.TypeOf(ev)
-	vals := []reflect.Value{reflect.ValueOf(ev)}
+	listenersMap := make(map[reflect.Type][]any)
 
-	// call listeners for the actual static type
-	callListeners(evType, vals)
+	// Build a map of listeners to be called while holding the lock
+	func() {
+		listenersMutex.Lock()
+		defer listenersMutex.Unlock()
 
-	// also check if the type implements any of the registered interfaces
-	for _, in := range interfaces {
-		if evType.Implements(in) {
-			callListeners(in, vals)
+		listenersMap[evType] = append(listenersMap[evType], listeners[evType]...)
+
+		// also check if the type implements any of the registered interfaces
+		for _, in := range interfaces {
+			if evType.Implements(in) {
+				listenersMap[in] = append(listenersMap[in], listeners[in]...)
+			}
 		}
-	}
-}
+	}()
 
-func callListeners(t reflect.Type, vals []reflect.Value) {
-	for _, fn := range listeners[t] {
-		reflect.ValueOf(fn).Call(vals)
+	for _, list := range listenersMap {
+		for _, fn := range list {
+			reflect.ValueOf(fn).Call([]reflect.Value{reflect.ValueOf(ev)})
+		}
 	}
 }
 
