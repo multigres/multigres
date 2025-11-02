@@ -119,15 +119,6 @@ message LeadershipViewResponse {
   int64 replication_lag_ns = 5;
 }
 
-// GetWALPosition returns the current WAL position
-message GetWALPositionRequest {
-}
-
-message GetWALPositionResponse {
-  // Current WAL position
-  WALPosition wal_position = 1;
-}
-
 // CanReachPrimary checks if this node can reach the primary
 message CanReachPrimaryRequest {
   // Primary host

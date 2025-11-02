@@ -16,6 +16,7 @@ package manager
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"time"
 
@@ -156,23 +157,40 @@ func (pm *MultiPoolerManager) ConsensusStatus(ctx context.Context, req *consensu
 		}
 	}
 
-	// Get current WAL position
-	walPosition := &consensusdatapb.WALPosition{}
-	if isHealthy {
-		var err error
-		walPosition, err = pm.GetCurrentWALPosition(ctx)
-		if err != nil {
-			pm.logger.Warn("Failed to get WAL position", "error", err)
-		}
+	// Get WAL position and determine role (primary/replica)
+	walPosition := &consensusdatapb.WALPosition{
+		Timestamp: timestamppb.New(time.Now()),
 	}
-
-	// Determine role (primary/replica)
 	role := "replica"
+
 	if isHealthy {
+		// Check if we're in recovery (standby)
 		var inRecovery bool
 		err := pm.db.QueryRowContext(ctx, "SELECT pg_is_in_recovery()").Scan(&inRecovery)
-		if err == nil && !inRecovery {
-			role = "primary"
+		if err == nil {
+			if inRecovery {
+				// On standby: get receive and replay positions
+				var receiveLsn, replayLsn sql.NullString
+				err = pm.db.QueryRowContext(ctx,
+					"SELECT pg_last_wal_receive_lsn(), pg_last_wal_replay_lsn()").
+					Scan(&receiveLsn, &replayLsn)
+				if err == nil {
+					if receiveLsn.Valid {
+						walPosition.LastReceiveLsn = receiveLsn.String
+					}
+					if replayLsn.Valid {
+						walPosition.LastReplayLsn = replayLsn.String
+					}
+				}
+			} else {
+				// On primary: get current write position
+				role = "primary"
+				var currentLsn string
+				err = pm.db.QueryRowContext(ctx, "SELECT pg_current_wal_lsn()").Scan(&currentLsn)
+				if err == nil {
+					walPosition.CurrentLsn = currentLsn
+				}
+			}
 		}
 	}
 
@@ -206,18 +224,6 @@ func (pm *MultiPoolerManager) GetLeadershipView(ctx context.Context, req *consen
 		LeaderTerm:       view.LeaderTerm,
 		LastHeartbeat:    timestamppb.New(view.LastHeartbeat),
 		ReplicationLagNs: view.ReplicationLag.Nanoseconds(),
-	}, nil
-}
-
-// GetWALPosition returns the current WAL position
-func (pm *MultiPoolerManager) GetWALPosition(ctx context.Context, req *consensusdatapb.GetWALPositionRequest) (*consensusdatapb.GetWALPositionResponse, error) {
-	walPosition, err := pm.GetCurrentWALPosition(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	return &consensusdatapb.GetWALPositionResponse{
-		WalPosition: walPosition,
 	}, nil
 }
 

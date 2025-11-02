@@ -235,68 +235,6 @@ func TestConsensusService_GetLeadershipView(t *testing.T) {
 	})
 }
 
-func TestConsensusService_GetWALPosition(t *testing.T) {
-	ctx := context.Background()
-	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
-	defer ts.Close()
-
-	// Start mock pgctld server
-	pgctldAddr, cleanupPgctld := testutil.StartMockPgctldServer(t)
-	defer cleanupPgctld()
-
-	// Create the multipooler in topology
-	serviceID := &clustermetadata.ID{
-		Component: clustermetadata.ID_MULTIPOOLER,
-		Cell:      "zone1",
-		Name:      "test-service",
-	}
-	multipooler := &clustermetadata.MultiPooler{
-		Id:            serviceID,
-		Database:      "testdb",
-		Hostname:      "localhost",
-		PortMap:       map[string]int32{"grpc": 8080},
-		Type:          clustermetadata.PoolerType_REPLICA,
-		ServingStatus: clustermetadata.PoolerServingStatus_SERVING,
-	}
-	require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
-
-	// Create temporary directory for pooler
-	tmpDir := t.TempDir()
-
-	config := &manager.Config{
-		TopoClient: ts,
-		ServiceID:  serviceID,
-		PgctldAddr: pgctldAddr,
-		PoolerDir:  tmpDir,
-	}
-	pm := manager.NewMultiPoolerManager(logger, config)
-	defer pm.Close()
-
-	// Start the async loader
-	senv := servenv.NewServEnv()
-	go pm.Start(senv)
-
-	// Wait for the manager to become ready
-	require.Eventually(t, func() bool {
-		return pm.GetState() == manager.ManagerStateReady
-	}, 5*time.Second, 100*time.Millisecond, "Manager should reach Ready state")
-
-	svc := &consensusService{
-		manager: pm,
-	}
-
-	t.Run("GetWALPosition without database should fail", func(t *testing.T) {
-		req := &consensusdata.GetWALPositionRequest{}
-
-		resp, err := svc.GetWALPosition(ctx, req)
-
-		// Should fail because no database connection
-		assert.Error(t, err)
-		assert.Nil(t, resp)
-	})
-}
-
 func TestConsensusService_CanReachPrimary(t *testing.T) {
 	ctx := context.Background()
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
@@ -454,15 +392,6 @@ func TestConsensusService_AllMethods(t *testing.T) {
 				return err
 			},
 			shouldSucceed: false, // No replication tracker
-		},
-		{
-			name: "GetWALPosition",
-			method: func() error {
-				req := &consensusdata.GetWALPositionRequest{}
-				_, err := svc.GetWALPosition(ctx, req)
-				return err
-			},
-			shouldSucceed: false, // No database connection
 		},
 		{
 			name: "CanReachPrimary",

@@ -29,7 +29,6 @@ service MultiPoolerConsensus {
   rpc Status(consensusdata.StatusRequest) returns (consensusdata.StatusResponse);
   rpc GetLeadershipView(consensusdata.LeadershipViewRequest) returns (consensusdata.LeadershipViewResponse);
 
-  // WAL and Replication
-  rpc GetWALPosition(consensusdata.GetWALPositionRequest) returns (consensusdata.GetWALPositionResponse);
+  // Replication
   rpc CanReachPrimary(consensusdata.CanReachPrimaryRequest) returns (consensusdata.CanReachPrimaryResponse);
 }

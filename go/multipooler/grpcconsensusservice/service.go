@@ -70,15 +70,6 @@ func (s *consensusService) GetLeadershipView(ctx context.Context, req *consensus
 	return resp, nil
 }
 
-// GetWALPosition returns the current WAL position
-func (s *consensusService) GetWALPosition(ctx context.Context, req *consensusdata.GetWALPositionRequest) (*consensusdata.GetWALPositionResponse, error) {
-	resp, err := s.manager.GetWALPosition(ctx, req)
-	if err != nil {
-		return nil, mterrors.ToGRPC(err)
-	}
-	return resp, nil
-}
-
 // CanReachPrimary checks if this node can reach the primary
 func (s *consensusService) CanReachPrimary(ctx context.Context, req *consensusdata.CanReachPrimaryRequest) (*consensusdata.CanReachPrimaryResponse, error) {
 	resp, err := s.manager.CanReachPrimary(ctx, req)
