@@ -37,11 +37,11 @@ func TestConsensusService_BeginTerm(t *testing.T) {
 	ctx := context.Background()
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
-	defer ts.Close()
+	t.Cleanup(func() { ts.Close() })
 
 	// Start mock pgctld server
 	pgctldAddr, cleanupPgctld := testutil.StartMockPgctldServer(t)
-	defer cleanupPgctld()
+	t.Cleanup(cleanupPgctld)
 
 	// Create the multipooler in topology so manager can reach ready state
 	serviceID := &clustermetadata.ID{
@@ -69,7 +69,7 @@ func TestConsensusService_BeginTerm(t *testing.T) {
 		PoolerDir:  tmpDir,
 	}
 	pm := manager.NewMultiPoolerManager(logger, config)
-	defer pm.Close()
+	t.Cleanup(func() { pm.Close() })
 
 	// Start the async loader
 	senv := servenv.NewServEnv()
@@ -104,11 +104,11 @@ func TestConsensusService_Status(t *testing.T) {
 	ctx := context.Background()
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
-	defer ts.Close()
+	t.Cleanup(func() { ts.Close() })
 
 	// Start mock pgctld server
 	pgctldAddr, cleanupPgctld := testutil.StartMockPgctldServer(t)
-	defer cleanupPgctld()
+	t.Cleanup(cleanupPgctld)
 
 	// Create the multipooler in topology
 	serviceID := &clustermetadata.ID{
@@ -136,7 +136,7 @@ func TestConsensusService_Status(t *testing.T) {
 		PoolerDir:  tmpDir,
 	}
 	pm := manager.NewMultiPoolerManager(logger, config)
-	defer pm.Close()
+	t.Cleanup(func() { pm.Close() })
 
 	// Start the async loader
 	senv := servenv.NewServEnv()
@@ -174,11 +174,11 @@ func TestConsensusService_GetLeadershipView(t *testing.T) {
 	ctx := context.Background()
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
-	defer ts.Close()
+	t.Cleanup(func() { ts.Close() })
 
 	// Start mock pgctld server
 	pgctldAddr, cleanupPgctld := testutil.StartMockPgctldServer(t)
-	defer cleanupPgctld()
+	t.Cleanup(cleanupPgctld)
 
 	// Create the multipooler in topology
 	serviceID := &clustermetadata.ID{
@@ -206,7 +206,7 @@ func TestConsensusService_GetLeadershipView(t *testing.T) {
 		PoolerDir:  tmpDir,
 	}
 	pm := manager.NewMultiPoolerManager(logger, config)
-	defer pm.Close()
+	t.Cleanup(func() { pm.Close() })
 
 	// Start the async loader
 	senv := servenv.NewServEnv()
@@ -239,11 +239,11 @@ func TestConsensusService_CanReachPrimary(t *testing.T) {
 	ctx := context.Background()
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
-	defer ts.Close()
+	t.Cleanup(func() { ts.Close() })
 
 	// Start mock pgctld server
 	pgctldAddr, cleanupPgctld := testutil.StartMockPgctldServer(t)
-	defer cleanupPgctld()
+	t.Cleanup(cleanupPgctld)
 
 	// Create the multipooler in topology
 	serviceID := &clustermetadata.ID{
@@ -271,7 +271,7 @@ func TestConsensusService_CanReachPrimary(t *testing.T) {
 		PoolerDir:  tmpDir,
 	}
 	pm := manager.NewMultiPoolerManager(logger, config)
-	defer pm.Close()
+	t.Cleanup(func() { pm.Close() })
 
 	// Start the async loader
 	senv := servenv.NewServEnv()
@@ -306,11 +306,11 @@ func TestConsensusService_AllMethods(t *testing.T) {
 	ctx := context.Background()
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
-	defer ts.Close()
+	t.Cleanup(func() { ts.Close() })
 
 	// Start mock pgctld server
 	pgctldAddr, cleanupPgctld := testutil.StartMockPgctldServer(t)
-	defer cleanupPgctld()
+	t.Cleanup(cleanupPgctld)
 
 	// Create the multipooler in topology
 	serviceID := &clustermetadata.ID{
@@ -338,7 +338,7 @@ func TestConsensusService_AllMethods(t *testing.T) {
 		PoolerDir:  tmpDir,
 	}
 	pm := manager.NewMultiPoolerManager(logger, config)
-	defer pm.Close()
+	t.Cleanup(func() { pm.Close() })
 
 	// Start the async loader
 	senv := servenv.NewServEnv()
