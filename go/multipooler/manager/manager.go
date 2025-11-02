@@ -569,10 +569,10 @@ func (pm *MultiPoolerManager) validateAndUpdateTerm(ctx context.Context, request
 			"service_id", pm.serviceID.String())
 
 		newTerm := &multipoolermanagerdatapb.ConsensusTerm{
-			CurrentTerm:  requestTerm,
-			VotedFor:     nil,
-			LastVoteTime: nil,
-			LeaderId:     nil,
+			CurrentTerm:        requestTerm,
+			AcceptedLeader:     nil,
+			LastAcceptanceTime: nil,
+			LeaderId:           nil,
 		}
 
 		// Update term to local disk using the term_storage functions
@@ -2225,8 +2225,8 @@ func (pm *MultiPoolerManager) Demote(ctx context.Context, consensusTerm int64, d
 	// Demote is an operational cleanup, not a leadership change.
 	// Accept if term >= currentTerm to ensure the request isn’t stale.
 	// Equal or higher terms are safe.
-	// Note: we still update the term, as this may arrive after an election
-	// this (now old) primary missed due to a network partition.
+	// Note: we still update the term, as this may arrive after a leader
+	// appointment that this (now old) primary missed due to a network partition.
 	if err := pm.validateAndUpdateTerm(ctx, consensusTerm, force); err != nil {
 		return nil, err
 	}

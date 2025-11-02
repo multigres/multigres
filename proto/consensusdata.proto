@@ -43,7 +43,7 @@ message BeginTermRequest {
   // Term of the candidate
   int64 term = 1;
 
-  // ID of the candidate requesting vote
+  // ID of the candidate for appointment
   string candidate_id = 2;
 
   // Shard ID for this appointment

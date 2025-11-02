@@ -38,10 +38,10 @@ func (pm *MultiPoolerManager) BeginTerm(ctx context.Context, req *consensusdatap
 		return nil, fmt.Errorf("postgres unhealthy, cannot accept new term: %w", err)
 	}
 
-	// Get current term and votedFor before validation
+	// Get current term and accepted leader before validation
 	currentTerm := pm.getCurrentTerm()
 	pm.mu.Lock()
-	votedFor := pm.consensusTerm.GetVotedFor()
+	acceptedLeader := pm.consensusTerm.GetAcceptedLeader()
 	pm.mu.Unlock()
 
 	response := &consensusdatapb.BeginTermResponse{
@@ -55,14 +55,14 @@ func (pm *MultiPoolerManager) BeginTerm(ctx context.Context, req *consensusdatap
 		return response, nil
 	}
 
-	// Check if we've already voted in this term for a different candidate
-	if req.Term == currentTerm && votedFor != nil && votedFor.GetName() != req.CandidateId {
+	// Check if we've already accepted a different candidate in this term
+	if req.Term == currentTerm && acceptedLeader != nil && acceptedLeader.GetName() != req.CandidateId {
 		return response, nil
 	}
 
 	// Validate and update term if needed (handles req.Term >= currentTerm)
-	// This will update the term to req.Term if req.Term > currentTerm, resetting VotedFor to nil
-	// If req.Term == currentTerm, it does nothing (which is correct for idempotent voting)
+	// This will update the term to req.Term if req.Term > currentTerm, resetting AcceptedLeader to nil
+	// If req.Term == currentTerm, it does nothing (which is correct for idempotent acceptance)
 	if err := pm.validateAndUpdateTerm(ctx, req.Term, false); err != nil {
 		return nil, fmt.Errorf("failed to validate term: %w", err)
 	}
@@ -70,34 +70,34 @@ func (pm *MultiPoolerManager) BeginTerm(ctx context.Context, req *consensusdatap
 	// Update response with potentially new term
 	response.Term = req.Term
 
-	// TODO: Use pooler serving state to decide whether to vote
+	// TODO: Use pooler serving state to decide whether to accept
 	// Check if we're caught up with replication (within 30 seconds)
 	var lastMsgReceiptTime *time.Time
 	err := pm.db.QueryRowContext(ctx, "SELECT last_msg_receipt_time FROM pg_stat_wal_receiver").Scan(&lastMsgReceiptTime)
 	if err != nil {
 		// No WAL receiver (could be primary or disconnected standby)
-		// Don't reject the vote - let it proceed
+		// Don't reject the acceptance - let it proceed
 	} else if lastMsgReceiptTime != nil {
 		timeSinceLastMessage := time.Since(*lastMsgReceiptTime)
 		if timeSinceLastMessage > 30*time.Second {
-			// We're too far behind in replication, don't vote
+			// We're too far behind in replication, don't accept
 			return response, nil
 		}
 	}
 
-	// Grant vote and persist decision to LOCAL FILE (not Postgres!)
+	// Accept leader and persist decision to LOCAL FILE (not Postgres!)
 	candidateID := &clustermetadatapb.ID{
 		Cell: pm.serviceID.GetCell(),
 		Name: req.CandidateId,
 	}
 
 	pm.mu.Lock()
-	pm.consensusTerm.VotedFor = candidateID
+	pm.consensusTerm.AcceptedLeader = candidateID
 	termToSave := pm.consensusTerm
 	pm.mu.Unlock()
 
 	if err := SetTerm(pm.config.PoolerDir, termToSave); err != nil {
-		return nil, fmt.Errorf("failed to persist vote: %w", err)
+		return nil, fmt.Errorf("failed to persist acceptance: %w", err)
 	}
 
 	response.Accepted = true

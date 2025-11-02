@@ -48,7 +48,7 @@ func setupManagerWithMockDB(t *testing.T) (*MultiPoolerManager, sqlmock.Sqlmock,
 	serviceID := &clustermetadatapb.ID{
 		Component: clustermetadatapb.ID_MULTIPOOLER,
 		Cell:      "zone1",
-		Name:      "test-voter",
+		Name:      "test-pooler",
 	}
 	multipooler := &clustermetadatapb.MultiPooler{
 		Id:            serviceID,
@@ -101,21 +101,21 @@ func setupManagerWithMockDB(t *testing.T) (*MultiPoolerManager, sqlmock.Sqlmock,
 
 func TestBeginTerm(t *testing.T) {
 	tests := []struct {
-		name             string
-		initialTerm      *multipoolermanagerdatapb.ConsensusTerm
-		requestTerm      int64
-		requestCandidate string
-		setupMocks       func(mock sqlmock.Sqlmock)
-		expectedAccepted bool
-		expectedTerm     int64
-		expectedVotedFor string
-		description      string
+		name                   string
+		initialTerm            *multipoolermanagerdatapb.ConsensusTerm
+		requestTerm            int64
+		requestCandidate       string
+		setupMocks             func(mock sqlmock.Sqlmock)
+		expectedAccepted       bool
+		expectedTerm           int64
+		expectedAcceptedLeader string
+		description            string
 	}{
 		{
-			name: "AlreadyVotedInOlderTerm",
+			name: "AlreadyAcceptedLeaderInOlderTerm",
 			initialTerm: &multipoolermanagerdatapb.ConsensusTerm{
 				CurrentTerm: 5,
-				VotedFor: &clustermetadatapb.ID{
+				AcceptedLeader: &clustermetadatapb.ID{
 					Cell: "zone1",
 					Name: "candidate-A",
 				},
@@ -128,16 +128,16 @@ func TestBeginTerm(t *testing.T) {
 				mock.ExpectQuery("SELECT last_msg_receipt_time FROM pg_stat_wal_receiver").
 					WillReturnRows(sqlmock.NewRows([]string{"last_msg_receipt_time"}).AddRow(recentTime))
 			},
-			expectedAccepted: true,
-			expectedTerm:     10,
-			expectedVotedFor: "candidate-B",
-			description:      "Vote should be accepted when request term is newer than current term, even if already voted in older term",
+			expectedAccepted:       true,
+			expectedTerm:           10,
+			expectedAcceptedLeader: "candidate-B",
+			description:            "Acceptance should succeed when request term is newer than current term, even if already accepted leader in older term",
 		},
 		{
-			name: "AlreadyVotedInSameTerm",
+			name: "AlreadyAcceptedLeaderInSameTerm",
 			initialTerm: &multipoolermanagerdatapb.ConsensusTerm{
 				CurrentTerm: 5,
-				VotedFor: &clustermetadatapb.ID{
+				AcceptedLeader: &clustermetadatapb.ID{
 					Cell: "zone1",
 					Name: "candidate-A",
 				},
@@ -147,16 +147,16 @@ func TestBeginTerm(t *testing.T) {
 			setupMocks: func(mock sqlmock.Sqlmock) {
 				mock.ExpectPing()
 			},
-			expectedAccepted: false,
-			expectedTerm:     5,
-			expectedVotedFor: "candidate-A",
-			description:      "Vote should be rejected when already voted for different candidate in same term",
+			expectedAccepted:       false,
+			expectedTerm:           5,
+			expectedAcceptedLeader: "candidate-A",
+			description:            "Acceptance should be rejected when already accepted different candidate in same term",
 		},
 		{
-			name: "AlreadyVotedForSameCandidateInSameTerm",
+			name: "AlreadyAcceptedSameCandidateInSameTerm",
 			initialTerm: &multipoolermanagerdatapb.ConsensusTerm{
 				CurrentTerm: 5,
-				VotedFor: &clustermetadatapb.ID{
+				AcceptedLeader: &clustermetadatapb.ID{
 					Cell: "zone1",
 					Name: "candidate-A",
 				},
@@ -169,10 +169,10 @@ func TestBeginTerm(t *testing.T) {
 				mock.ExpectQuery("SELECT last_msg_receipt_time FROM pg_stat_wal_receiver").
 					WillReturnRows(sqlmock.NewRows([]string{"last_msg_receipt_time"}).AddRow(recentTime))
 			},
-			expectedAccepted: true,
-			expectedTerm:     5,
-			expectedVotedFor: "candidate-A",
-			description:      "Vote should be accepted when already voted for same candidate in same term (idempotent)",
+			expectedAccepted:       true,
+			expectedTerm:           5,
+			expectedAcceptedLeader: "candidate-A",
+			description:            "Acceptance should succeed when already accepted same candidate in same term (idempotent)",
 		},
 	}
 
@@ -211,7 +211,7 @@ func TestBeginTerm(t *testing.T) {
 			loadedTerm, err := GetTerm(tmpDir)
 			require.NoError(t, err)
 			assert.Equal(t, tt.expectedTerm, loadedTerm.CurrentTerm)
-			assert.Equal(t, tt.expectedVotedFor, loadedTerm.VotedFor.GetName())
+			assert.Equal(t, tt.expectedAcceptedLeader, loadedTerm.AcceptedLeader.GetName())
 
 			assert.NoError(t, mock.ExpectationsWereMet())
 		})
@@ -382,7 +382,7 @@ func TestConsensusStatus(t *testing.T) {
 			name: "HealthyPrimary",
 			initialTerm: &multipoolermanagerdatapb.ConsensusTerm{
 				CurrentTerm: 5,
-				VotedFor: &clustermetadatapb.ID{
+				AcceptedLeader: &clustermetadatapb.ID{
 					Cell: "zone1",
 					Name: "leader-node",
 				},
@@ -407,8 +407,8 @@ func TestConsensusStatus(t *testing.T) {
 		{
 			name: "HealthyStandby",
 			initialTerm: &multipoolermanagerdatapb.ConsensusTerm{
-				CurrentTerm: 3,
-				VotedFor:    nil,
+				CurrentTerm:    3,
+				AcceptedLeader: nil,
 			},
 			termInMemory: true,
 			setupMocks: func(mock sqlmock.Sqlmock) {
@@ -431,8 +431,8 @@ func TestConsensusStatus(t *testing.T) {
 		{
 			name: "NoDatabaseConnection",
 			initialTerm: &multipoolermanagerdatapb.ConsensusTerm{
-				CurrentTerm: 7,
-				VotedFor:    nil,
+				CurrentTerm:    7,
+				AcceptedLeader: nil,
 			},
 			termInMemory:        true,
 			nilDB:               true,
@@ -445,8 +445,8 @@ func TestConsensusStatus(t *testing.T) {
 		{
 			name: "DatabaseQueryFailure",
 			initialTerm: &multipoolermanagerdatapb.ConsensusTerm{
-				CurrentTerm: 4,
-				VotedFor:    nil,
+				CurrentTerm:    4,
+				AcceptedLeader: nil,
 			},
 			termInMemory: true,
 			setupMocks: func(mock sqlmock.Sqlmock) {
@@ -462,8 +462,8 @@ func TestConsensusStatus(t *testing.T) {
 		{
 			name: "TermNotLoadedYet",
 			initialTerm: &multipoolermanagerdatapb.ConsensusTerm{
-				CurrentTerm: 8,
-				VotedFor:    nil,
+				CurrentTerm:    8,
+				AcceptedLeader: nil,
 			},
 			termInMemory: false,
 			setupMocks: func(mock sqlmock.Sqlmock) {
@@ -518,7 +518,7 @@ func TestConsensusStatus(t *testing.T) {
 			// Verify response
 			require.NoError(t, err, tt.description)
 			require.NotNil(t, resp)
-			assert.Equal(t, "test-voter", resp.PoolerId)
+			assert.Equal(t, "test-pooler", resp.PoolerId)
 			assert.Equal(t, tt.expectedCurrentTerm, resp.CurrentTerm)
 			assert.Equal(t, tt.expectedLeaderTerm, resp.LeaderTerm)
 			assert.Equal(t, tt.expectedIsHealthy, resp.IsHealthy, tt.description)
