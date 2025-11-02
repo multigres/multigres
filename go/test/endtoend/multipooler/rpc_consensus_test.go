@@ -348,11 +348,6 @@ func TestConsensus_GetLeadershipView(t *testing.T) {
 		// Verify leader_term is set (should be 1 from test setup)
 		assert.Equal(t, int64(1), resp.LeaderTerm, "LeaderTerm should be 1")
 
-		// Verify leader_wal_position is set and in correct format
-		assert.NotEmpty(t, resp.LeaderWalPosition, "LeaderWalPosition should not be empty")
-		assert.Regexp(t, `^[0-9A-F]+/[0-9A-F]+$`, resp.LeaderWalPosition,
-			"LeaderWalPosition should be in PostgreSQL LSN format (X/XXXXXXXX)")
-
 		// Verify last_heartbeat is set and recent
 		require.NotNil(t, resp.LastHeartbeat, "LastHeartbeat should not be nil")
 		assert.True(t, resp.LastHeartbeat.IsValid(), "LastHeartbeat should be a valid timestamp")
@@ -367,8 +362,8 @@ func TestConsensus_GetLeadershipView(t *testing.T) {
 		assert.GreaterOrEqual(t, resp.ReplicationLagNs, int64(0),
 			"ReplicationLagNs should be non-negative")
 
-		t.Logf("Leadership view: leader_id=%s, term=%d, wal_position=%s, lag=%dns",
-			resp.LeaderId, resp.LeaderTerm, resp.LeaderWalPosition, resp.ReplicationLagNs)
+		t.Logf("Leadership view: leader_id=%s, term=%d, lag=%dns",
+			resp.LeaderId, resp.LeaderTerm, resp.ReplicationLagNs)
 		t.Log("GetLeadershipView returns valid data from primary")
 	})
 
@@ -387,7 +382,6 @@ func TestConsensus_GetLeadershipView(t *testing.T) {
 		assert.NotEmpty(t, resp.LeaderId, "LeaderId should not be empty")
 		assert.Equal(t, "primary-multipooler", resp.LeaderId, "LeaderId should be primary-multipooler")
 		assert.Equal(t, int64(1), resp.LeaderTerm, "LeaderTerm should be 1")
-		assert.NotEmpty(t, resp.LeaderWalPosition, "LeaderWalPosition should not be empty")
 
 		require.NotNil(t, resp.LastHeartbeat, "LastHeartbeat should not be nil")
 		assert.True(t, resp.LastHeartbeat.IsValid(), "LastHeartbeat should be a valid timestamp")

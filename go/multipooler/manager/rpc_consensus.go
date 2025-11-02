@@ -202,11 +202,10 @@ func (pm *MultiPoolerManager) GetLeadershipView(ctx context.Context, req *consen
 	}
 
 	return &consensusdatapb.LeadershipViewResponse{
-		LeaderId:          view.LeaderID,
-		LeaderTerm:        view.LeaderTerm,
-		LeaderWalPosition: view.LeaderWALPosition,
-		LastHeartbeat:     timestamppb.New(view.LastHeartbeat),
-		ReplicationLagNs:  view.ReplicationLag.Nanoseconds(),
+		LeaderId:         view.LeaderID,
+		LeaderTerm:       view.LeaderTerm,
+		LastHeartbeat:    timestamppb.New(view.LastHeartbeat),
+		ReplicationLagNs: view.ReplicationLag.Nanoseconds(),
 	}, nil
 }
 

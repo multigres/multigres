@@ -185,11 +185,10 @@ func (r *Reader) ReadErrors() int64 {
 
 // LeadershipView contains the consensus state and replication lag information
 type LeadershipView struct {
-	LeaderID          string
-	LeaderTerm        int64
-	LeaderWALPosition string
-	LastHeartbeat     time.Time
-	ReplicationLag    time.Duration
+	LeaderID       string
+	LeaderTerm     int64
+	LastHeartbeat  time.Time
+	ReplicationLag time.Duration
 }
 
 // GetLeadershipView returns both replication lag and consensus state
@@ -201,10 +200,10 @@ func (r *Reader) GetLeadershipView() (*LeadershipView, error) {
 	var tsNano int64
 
 	err := r.db.QueryRowContext(ctx, `
-		SELECT leader_id, ts, leader_term, leader_wal_position
+		SELECT leader_id, ts, leader_term
 		FROM multigres.heartbeat
 		WHERE shard_id = $1
-	`, r.shardID).Scan(&view.LeaderID, &tsNano, &view.LeaderTerm, &view.LeaderWALPosition)
+	`, r.shardID).Scan(&view.LeaderID, &tsNano, &view.LeaderTerm)
 	if err != nil {
 		return nil, mterrors.Wrap(err, "failed to read leadership view")
 	}

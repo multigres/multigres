@@ -463,8 +463,6 @@ type LeadershipViewResponse struct {
 	LeaderId string `protobuf:"bytes,1,opt,name=leader_id,json=leaderId,proto3" json:"leader_id,omitempty"`
 	// Leader's consensus term
 	LeaderTerm int64 `protobuf:"varint,2,opt,name=leader_term,json=leaderTerm,proto3" json:"leader_term,omitempty"`
-	// Leader's WAL position
-	LeaderWalPosition string `protobuf:"bytes,3,opt,name=leader_wal_position,json=leaderWalPosition,proto3" json:"leader_wal_position,omitempty"`
 	// Last heartbeat timestamp
 	LastHeartbeat *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=last_heartbeat,json=lastHeartbeat,proto3" json:"last_heartbeat,omitempty"`
 	// Calculated replication lag in nanoseconds
@@ -515,13 +513,6 @@ func (x *LeadershipViewResponse) GetLeaderTerm() int64 {
 		return x.LeaderTerm
 	}
 	return 0
-}
-
-func (x *LeadershipViewResponse) GetLeaderWalPosition() string {
-	if x != nil {
-		return x.LeaderWalPosition
-	}
-	return ""
 }
 
 func (x *LeadershipViewResponse) GetLastHeartbeat() *timestamppb.Timestamp {
@@ -765,12 +756,11 @@ const file_consensusdata_proto_rawDesc = "" +
 	"\x04cell\x18\a \x01(\tR\x04cell\x12\x12\n" +
 	"\x04role\x18\t \x01(\tR\x04role\"2\n" +
 	"\x15LeadershipViewRequest\x12\x19\n" +
-	"\bshard_id\x18\x01 \x01(\tR\ashardId\"\xf7\x01\n" +
+	"\bshard_id\x18\x01 \x01(\tR\ashardId\"\xc7\x01\n" +
 	"\x16LeadershipViewResponse\x12\x1b\n" +
 	"\tleader_id\x18\x01 \x01(\tR\bleaderId\x12\x1f\n" +
 	"\vleader_term\x18\x02 \x01(\x03R\n" +
-	"leaderTerm\x12.\n" +
-	"\x13leader_wal_position\x18\x03 \x01(\tR\x11leaderWalPosition\x12A\n" +
+	"leaderTerm\x12A\n" +
 	"\x0elast_heartbeat\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\rlastHeartbeat\x12,\n" +
 	"\x12replication_lag_ns\x18\x05 \x01(\x03R\x10replicationLagNs\"\x17\n" +
 	"\x15GetWALPositionRequest\"W\n" +
