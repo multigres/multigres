@@ -24,7 +24,6 @@ import (
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	consensusdatapb "github.com/multigres/multigres/go/pb/consensusdata"
-	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
 
 // BeginTerm handles coordinator requests during leader appointments
@@ -39,18 +38,9 @@ func (pm *MultiPoolerManager) BeginTerm(ctx context.Context, req *consensusdatap
 		return nil, fmt.Errorf("postgres unhealthy, cannot accept new term: %w", err)
 	}
 
-	// Load consensus term from disk if not already loaded
+	// Get current term and votedFor before validation
+	currentTerm := pm.getCurrentTerm()
 	pm.mu.Lock()
-	if pm.consensusTerm == nil {
-		term, err := GetTerm(pm.config.PoolerDir)
-		if err != nil {
-			pm.mu.Unlock()
-			return nil, fmt.Errorf("failed to load consensus state: %w", err)
-		}
-		pm.consensusTerm = term
-	}
-
-	currentTerm := pm.consensusTerm.GetCurrentTerm()
 	votedFor := pm.consensusTerm.GetVotedFor()
 	pm.mu.Unlock()
 
@@ -65,27 +55,20 @@ func (pm *MultiPoolerManager) BeginTerm(ctx context.Context, req *consensusdatap
 		return response, nil
 	}
 
-	// Check if we've already voted in this term
+	// Check if we've already voted in this term for a different candidate
 	if req.Term == currentTerm && votedFor != nil && votedFor.GetName() != req.CandidateId {
 		return response, nil
 	}
 
-	// At this point, req.Term must be > currentTerm (since we've already handled < and == cases above)
-	// Update our term and reset vote
-	newTerm := &multipoolermanagerdatapb.ConsensusTerm{
-		CurrentTerm: req.Term,
-		VotedFor:    nil,
+	// Validate and update term if needed (handles req.Term >= currentTerm)
+	// This will update the term to req.Term if req.Term > currentTerm, resetting VotedFor to nil
+	// If req.Term == currentTerm, it does nothing (which is correct for idempotent voting)
+	if err := pm.validateAndUpdateTerm(ctx, req.Term, false); err != nil {
+		return nil, fmt.Errorf("failed to validate term: %w", err)
 	}
-	if err := SetTerm(pm.config.PoolerDir, newTerm); err != nil {
-		return nil, fmt.Errorf("failed to update term: %w", err)
-	}
-	pm.mu.Lock()
-	pm.consensusTerm = newTerm
-	pm.mu.Unlock()
 
-	currentTerm = req.Term
-	votedFor = nil
-	response.Term = currentTerm
+	// Update response with potentially new term
+	response.Term = req.Term
 
 	// TODO: Use pooler serving state to decide whether to vote
 	// Check if we're caught up with replication (within 30 seconds)
