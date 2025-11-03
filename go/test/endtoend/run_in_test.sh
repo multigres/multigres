@@ -41,7 +41,7 @@ cleanup() {
     kill -TERM $child_pid 2>/dev/null || true
 
     # Wait up to 5 seconds for graceful shutdown
-    for i in {1..50}; do
+    for _ in {1..50}; do
       if ! kill -0 $child_pid 2>/dev/null; then
         echo "run_in_test: Child process terminated gracefully" >&2
         return

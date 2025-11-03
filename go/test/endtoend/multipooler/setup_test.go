@@ -57,7 +57,7 @@ var (
 func TestMain(m *testing.M) {
 	// Set the PATH so etcd and run_in_test.sh can be found
 	pathutil.PrependPath("../../../../bin")
-	pathutil.PrependPath("../")  // Add test/endtoend directory for run_in_test.sh
+	pathutil.PrependPath("../") // Add test/endtoend directory for run_in_test.sh
 
 	// Run all tests
 	exitCode := m.Run()
