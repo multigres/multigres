@@ -1087,16 +1087,19 @@ func (pm *MultiPoolerManager) SetTerm(ctx context.Context, term *multipoolermana
 
 	pm.logger.Info("SetTerm called", "current_term", term.GetCurrentTerm())
 
-	// Write term to local disk using the term_storage functions
-	if err := SetTerm(pm.config.PoolerDir, term); err != nil {
-		pm.logger.Error("Failed to set consensus term to disk", "error", err)
+	// Initialize consensus state if needed
+	pm.mu.Lock()
+	if pm.consensusState == nil {
+		pm.consensusState = NewConsensusState(pm.config.PoolerDir, pm.serviceID)
+	}
+	cs := pm.consensusState
+	pm.mu.Unlock()
+
+	// Save to disk and update memory atomically using pessimistic pattern
+	if err := cs.SaveAndUpdate(term); err != nil {
+		pm.logger.Error("Failed to save consensus term", "error", err)
 		return mterrors.Wrap(err, "failed to set consensus term")
 	}
-
-	// Update our cached term
-	pm.mu.Lock()
-	pm.consensusTerm = term
-	pm.mu.Unlock()
 
 	// Synchronize term to heartbeat writer if it exists
 	if pm.replTracker != nil {

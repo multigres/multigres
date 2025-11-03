@@ -21,7 +21,6 @@ import (
 
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	consensusdatapb "github.com/multigres/multigres/go/pb/consensusdata"
 )
 
@@ -37,11 +36,17 @@ func (pm *MultiPoolerManager) BeginTerm(ctx context.Context, req *consensusdatap
 		return nil, fmt.Errorf("postgres unhealthy, cannot accept new term: %w", err)
 	}
 
-	// Get current term and accepted leader before validation
-	currentTerm := pm.getCurrentTerm()
+	// Get current consensus state
 	pm.mu.Lock()
-	acceptedLeader := pm.consensusTerm.GetAcceptedLeader()
+	cs := pm.consensusState
 	pm.mu.Unlock()
+
+	if cs == nil {
+		return nil, fmt.Errorf("consensus state not initialized")
+	}
+
+	currentTerm := cs.GetCurrentTerm()
+	acceptedLeader := cs.GetAcceptedLeader()
 
 	response := &consensusdatapb.BeginTermResponse{
 		Term:     currentTerm,
@@ -55,19 +60,18 @@ func (pm *MultiPoolerManager) BeginTerm(ctx context.Context, req *consensusdatap
 	}
 
 	// Check if we've already accepted a different candidate in this term
-	if req.Term == currentTerm && acceptedLeader != nil && acceptedLeader.GetName() != req.CandidateId {
+	if req.Term == currentTerm && acceptedLeader != "" && acceptedLeader != req.CandidateId {
 		return response, nil
 	}
 
-	// Validate and update term if needed (handles req.Term >= currentTerm)
-	// This will update the term to req.Term if req.Term > currentTerm, resetting AcceptedLeader to nil
-	// If req.Term == currentTerm, it does nothing (which is correct for idempotent acceptance)
-	if err := pm.validateAndUpdateTerm(ctx, req.Term, false); err != nil {
-		return nil, fmt.Errorf("failed to validate term: %w", err)
+	// Update term if needed (only if req.Term > currentTerm)
+	// This will reset AcceptedLeader to nil
+	if req.Term > currentTerm {
+		if err := pm.validateAndUpdateTerm(ctx, req.Term, false); err != nil {
+			return nil, fmt.Errorf("failed to update term: %w", err)
+		}
+		response.Term = req.Term
 	}
-
-	// Update response with potentially new term
-	response.Term = req.Term
 
 	// TODO: Use pooler serving state to decide whether to accept
 	// Check if we're caught up with replication (within 30 seconds)
@@ -84,18 +88,15 @@ func (pm *MultiPoolerManager) BeginTerm(ctx context.Context, req *consensusdatap
 		}
 	}
 
-	// Accept leader and persist decision to LOCAL FILE (not Postgres!)
-	candidateID := &clustermetadatapb.ID{
-		Cell: pm.serviceID.GetCell(),
-		Name: req.CandidateId,
+	// Prepare acceptance (doesn't modify memory yet)
+	newTerm, err := cs.PrepareAcceptance(req.CandidateId)
+	if err != nil {
+		return nil, fmt.Errorf("failed to prepare acceptance: %w", err)
 	}
 
-	pm.mu.Lock()
-	pm.consensusTerm.AcceptedLeader = candidateID
-	termToSave := pm.consensusTerm
-	pm.mu.Unlock()
-
-	if err := SetTerm(pm.config.PoolerDir, termToSave); err != nil {
+	// Save to disk and update memory atomically
+	if err := cs.SaveAndUpdate(newTerm); err != nil {
+		// Save failed - memory unchanged, error propagates
 		return nil, fmt.Errorf("failed to persist acceptance: %w", err)
 	}
 
@@ -105,20 +106,17 @@ func (pm *MultiPoolerManager) BeginTerm(ctx context.Context, req *consensusdatap
 
 // ConsensusStatus returns the current status of this node for consensus
 func (pm *MultiPoolerManager) ConsensusStatus(ctx context.Context, req *consensusdatapb.StatusRequest) (*consensusdatapb.StatusResponse, error) {
-	// Load consensus term from disk if not already loaded
+	// Get consensus state
 	pm.mu.Lock()
-	if pm.consensusTerm == nil {
-		term, err := GetTerm(pm.config.PoolerDir)
-		if err != nil {
-			pm.mu.Unlock()
-			return nil, fmt.Errorf("failed to load consensus state: %w", err)
-		}
-		pm.consensusTerm = term
+	cs := pm.consensusState
+	pm.mu.Unlock()
+
+	if cs == nil {
+		return nil, fmt.Errorf("consensus state not initialized")
 	}
 
-	// Get local voting term from file
-	localTerm := pm.consensusTerm.GetCurrentTerm()
-	pm.mu.Unlock()
+	// Get local term from consensus state
+	localTerm := cs.GetCurrentTerm()
 
 	// Get last successful leader term from Postgres (replicated data)
 	var leaderTerm int64
