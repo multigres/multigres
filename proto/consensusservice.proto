@@ -22,14 +22,13 @@ option go_package = "github.com/multigres/multigres/go/pb/consensus";
 
 // MultiPoolerConsensus provides consensus APIs for leader election
 service MultiPoolerConsensus {
-  // Election Protocol
+  // Leader Appointment Protocol
   rpc BeginTerm(consensusdata.BeginTermRequest) returns (consensusdata.BeginTermResponse);
 
   // Status and Health
   rpc Status(consensusdata.StatusRequest) returns (consensusdata.StatusResponse);
   rpc GetLeadershipView(consensusdata.LeadershipViewRequest) returns (consensusdata.LeadershipViewResponse);
 
-  // WAL and Replication
-  rpc GetWALPosition(consensusdata.GetWALPositionRequest) returns (consensusdata.GetWALPositionResponse);
+  // Replication
   rpc CanReachPrimary(consensusdata.CanReachPrimaryRequest) returns (consensusdata.CanReachPrimaryResponse);
 }

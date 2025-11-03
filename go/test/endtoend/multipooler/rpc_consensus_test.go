@@ -124,85 +124,6 @@ func TestConsensus_Status(t *testing.T) {
 	})
 }
 
-func TestConsensus_GetWALPosition(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping end-to-end tests in short mode")
-	}
-
-	setup := getSharedTestSetup(t)
-
-	// Wait for both managers to be ready before running tests
-	waitForManagerReady(t, setup, setup.PrimaryMultipooler)
-	waitForManagerReady(t, setup, setup.StandbyMultipooler)
-
-	// Create clients
-	primaryConn, err := grpc.NewClient(
-		fmt.Sprintf("localhost:%d", setup.PrimaryMultipooler.GrpcPort),
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-	)
-	require.NoError(t, err)
-	t.Cleanup(func() { primaryConn.Close() })
-	primaryConsensusClient := consensuspb.NewMultiPoolerConsensusClient(primaryConn)
-
-	standbyConn, err := grpc.NewClient(
-		fmt.Sprintf("localhost:%d", setup.StandbyMultipooler.GrpcPort),
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-	)
-	require.NoError(t, err)
-	t.Cleanup(func() { standbyConn.Close() })
-	standbyConsensusClient := consensuspb.NewMultiPoolerConsensusClient(standbyConn)
-
-	t.Run("GetWALPosition_Primary", func(t *testing.T) {
-		t.Log("Testing GetWALPosition on primary multipooler...")
-
-		req := &consensusdata.GetWALPositionRequest{}
-		resp, err := primaryConsensusClient.GetWALPosition(utils.WithShortDeadline(t), req)
-		require.NoError(t, err, "GetWALPosition should succeed on primary")
-		require.NotNil(t, resp, "Response should not be nil")
-		require.NotNil(t, resp.WalPosition, "WAL position should be present")
-
-		// Verify CurrentLsn format (primary should have this)
-		assert.NotEmpty(t, resp.WalPosition.CurrentLsn, "CurrentLsn should not be empty on primary")
-		assert.Regexp(t, `^[0-9A-F]+/[0-9A-F]+$`, resp.WalPosition.CurrentLsn, "CurrentLsn should be in PostgreSQL format (X/XXXXXXXX)")
-
-		// Standby fields should be empty on primary
-		assert.Empty(t, resp.WalPosition.LastReceiveLsn, "LastReceiveLsn should be empty on primary")
-		assert.Empty(t, resp.WalPosition.LastReplayLsn, "LastReplayLsn should be empty on primary")
-
-		// Verify timestamp is recent
-		require.NotNil(t, resp.WalPosition.Timestamp, "Timestamp should be present")
-		assert.WithinDuration(t, time.Now(), resp.WalPosition.Timestamp.AsTime(), 5*time.Second, "Timestamp should be recent")
-
-		t.Logf("Primary WAL position: CurrentLsn=%s", resp.WalPosition.CurrentLsn)
-	})
-
-	t.Run("GetWALPosition_Standby", func(t *testing.T) {
-		t.Log("Testing GetWALPosition on standby multipooler...")
-
-		req := &consensusdata.GetWALPositionRequest{}
-		resp, err := standbyConsensusClient.GetWALPosition(utils.WithShortDeadline(t), req)
-		require.NoError(t, err, "GetWALPosition should succeed on standby")
-		require.NotNil(t, resp, "Response should not be nil")
-		require.NotNil(t, resp.WalPosition, "WAL position should be present")
-
-		// Verify standby LSN fields
-		// LastReplayLsn should always be present on standby
-		assert.NotEmpty(t, resp.WalPosition.LastReplayLsn, "LastReplayLsn should not be empty on standby")
-
-		// LastReceiveLsn may be empty if streaming is not yet established or if there's no active receiver
-		// This is okay - just log it
-		if resp.WalPosition.LastReceiveLsn == "" {
-			t.Log("Note: LastReceiveLsn is empty (WAL receiver may not be active yet)")
-		}
-
-		// CurrentLsn should be empty on standby
-		assert.Empty(t, resp.WalPosition.CurrentLsn, "CurrentLsn should be empty on standby")
-
-		t.Logf("Standby WAL position: LastReceiveLsn=%s, LastReplayLsn=%s",
-			resp.WalPosition.LastReceiveLsn, resp.WalPosition.LastReplayLsn)
-	})
-}
-
 func TestConsensus_BeginTerm(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping end-to-end tests in short mode")
@@ -348,11 +269,6 @@ func TestConsensus_GetLeadershipView(t *testing.T) {
 		// Verify leader_term is set (should be 1 from test setup)
 		assert.Equal(t, int64(1), resp.LeaderTerm, "LeaderTerm should be 1")
 
-		// Verify leader_wal_position is set and in correct format
-		assert.NotEmpty(t, resp.LeaderWalPosition, "LeaderWalPosition should not be empty")
-		assert.Regexp(t, `^[0-9A-F]+/[0-9A-F]+$`, resp.LeaderWalPosition,
-			"LeaderWalPosition should be in PostgreSQL LSN format (X/XXXXXXXX)")
-
 		// Verify last_heartbeat is set and recent
 		require.NotNil(t, resp.LastHeartbeat, "LastHeartbeat should not be nil")
 		assert.True(t, resp.LastHeartbeat.IsValid(), "LastHeartbeat should be a valid timestamp")
@@ -367,8 +283,8 @@ func TestConsensus_GetLeadershipView(t *testing.T) {
 		assert.GreaterOrEqual(t, resp.ReplicationLagNs, int64(0),
 			"ReplicationLagNs should be non-negative")
 
-		t.Logf("Leadership view: leader_id=%s, term=%d, wal_position=%s, lag=%dns",
-			resp.LeaderId, resp.LeaderTerm, resp.LeaderWalPosition, resp.ReplicationLagNs)
+		t.Logf("Leadership view: leader_id=%s, term=%d, lag=%dns",
+			resp.LeaderId, resp.LeaderTerm, resp.ReplicationLagNs)
 		t.Log("GetLeadershipView returns valid data from primary")
 	})
 
@@ -387,7 +303,6 @@ func TestConsensus_GetLeadershipView(t *testing.T) {
 		assert.NotEmpty(t, resp.LeaderId, "LeaderId should not be empty")
 		assert.Equal(t, "primary-multipooler", resp.LeaderId, "LeaderId should be primary-multipooler")
 		assert.Equal(t, int64(1), resp.LeaderTerm, "LeaderTerm should be 1")
-		assert.NotEmpty(t, resp.LeaderWalPosition, "LeaderWalPosition should not be empty")
 
 		require.NotNil(t, resp.LastHeartbeat, "LastHeartbeat should not be nil")
 		assert.True(t, resp.LastHeartbeat.IsValid(), "LastHeartbeat should be a valid timestamp")
