@@ -120,15 +120,15 @@ func (s *PgCtldServerCmd) runServer(cmd *cobra.Command, args []string) error {
 // PgCtldService implements the pgctld gRPC service
 type PgCtldService struct {
 	pb.UnimplementedPgCtldServer
-	logger          *slog.Logger
-	pgPort          int
-	pgUser          string
-	pgDatabase      string
-	pgPassword      string
-	timeout         int
-	poolerDir       string
-	config          *pgctld.PostgresCtlConfig
-	postgresManager PostgresManager
+	logger              *slog.Logger
+	pgPort              int
+	pgUser              string
+	pgDatabase          string
+	pgPassword          string
+	timeout             int
+	poolerDir           string
+	config              *pgctld.PostgresCtlConfig
+	testOrphanDetection bool
 }
 
 // validatePortConsistency is no longer needed because port, listen_addresses, and unix_socket_directories
@@ -175,23 +175,15 @@ func NewPgCtldService(logger *slog.Logger, pgPort int, pgUser string, pgDatabase
 		return nil, fmt.Errorf("failed to create PostgreSQL config: %w", err)
 	}
 
-	// Choose the appropriate PostgresManager based on test mode
-	var pgManager PostgresManager
-	if testOrphanDetection {
-		pgManager = &SubprocessPostgresManager{}
-	} else {
-		pgManager = &DaemonPostgresManager{}
-	}
-
 	return &PgCtldService{
-		logger:          logger,
-		pgPort:          pgPort,
-		pgUser:          pgUser,
-		pgDatabase:      pgDatabase,
-		timeout:         timeout,
-		poolerDir:       poolerDir,
-		config:          config,
-		postgresManager: pgManager,
+		logger:              logger,
+		pgPort:              pgPort,
+		pgUser:              pgUser,
+		pgDatabase:          pgDatabase,
+		timeout:             timeout,
+		poolerDir:           poolerDir,
+		config:              config,
+		testOrphanDetection: testOrphanDetection,
 	}, nil
 }
 
@@ -205,7 +197,7 @@ func (s *PgCtldService) Start(ctx context.Context, req *pb.StartRequest) (*pb.St
 	}
 
 	// Use the pre-configured PostgreSQL config for start operation
-	result, err := StartPostgreSQLWithResult(s.logger, s.postgresManager, s.config)
+	result, err := StartPostgreSQLWithResult(s.logger, s.config, s.testOrphanDetection)
 	if err != nil {
 		return nil, fmt.Errorf("failed to start PostgreSQL: %w", err)
 	}
@@ -226,7 +218,7 @@ func (s *PgCtldService) Stop(ctx context.Context, req *pb.StopRequest) (*pb.Stop
 	}
 
 	// Use the pre-configured PostgreSQL config for stop operation
-	result, err := StopPostgreSQLWithResult(s.logger, s.postgresManager, s.config, req.Mode)
+	result, err := StopPostgreSQLWithResult(s.logger, s.config, req.Mode)
 	if err != nil {
 		return nil, fmt.Errorf("failed to stop PostgreSQL: %w", err)
 	}
@@ -246,7 +238,7 @@ func (s *PgCtldService) Restart(ctx context.Context, req *pb.RestartRequest) (*p
 	}
 
 	// Use the pre-configured PostgreSQL config for restart operation
-	result, err := RestartPostgreSQL(s.logger, s.postgresManager, s.config, req.Mode, req.AsStandby)
+	result, err := RestartPostgreSQLWithResult(s.logger, s.config, req.Mode, req.AsStandby)
 	if err != nil {
 		return nil, fmt.Errorf("failed to restart PostgreSQL: %w", err)
 	}
