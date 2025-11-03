@@ -98,14 +98,18 @@ func (d *DaemonPostgresManager) ReadPID(config *pgctld.PostgresCtlConfig) (int, 
 	return readPostmasterPID(config.PostgresDataDir)
 }
 
-// ForegroundPostgresManager manages PostgreSQL as a foreground process with run_in_test (test mode)
-type ForegroundPostgresManager struct {
+// SubprocessPostgresManager manages PostgreSQL as a subprocess with run_in_test (test mode)
+// The purpose is to help defend against orphan processes that outlive a test run. If we start postgres
+// as a daemon and a test run fails or test interrupted (a panic, for example) then the daemon process
+// might keep running forever. By starting as a subprocess using the run_in_test.sh wrapper we can
+// make sure the postgres process will kill itself after the parent test process dies.
+type SubprocessPostgresManager struct {
 	cmd     *exec.Cmd // Tracks the running postgres process
 	dataDir string    // Tracks which data directory this process is managing
 }
 
 // matchesDataDir checks if the manager's tracked data directory matches the requested one
-func (f *ForegroundPostgresManager) matchesDataDir(requestedDataDir string) bool {
+func (f *SubprocessPostgresManager) matchesDataDir(requestedDataDir string) bool {
 	if f.cmd == nil || f.dataDir == "" {
 		return false
 	}
@@ -118,7 +122,7 @@ func (f *ForegroundPostgresManager) matchesDataDir(requestedDataDir string) bool
 	return abs1 == abs2
 }
 
-func (f *ForegroundPostgresManager) Start(logger *slog.Logger, config *pgctld.PostgresCtlConfig) error {
+func (f *SubprocessPostgresManager) Start(logger *slog.Logger, config *pgctld.PostgresCtlConfig) error {
 	// Check if we already have a process running for a different data directory
 	if f.cmd != nil && !f.matchesDataDir(config.PostgresDataDir) {
 		return fmt.Errorf("manager already managing a different postgres instance")
@@ -137,7 +141,7 @@ func (f *ForegroundPostgresManager) Start(logger *slog.Logger, config *pgctld.Po
 	wrapperPath := "run_in_test.sh"
 	cmdArgs := append([]string{"postgres"}, postgresArgs...)
 
-	logger.Info("Starting PostgreSQL in foreground test mode", "wrapper", wrapperPath, "port", config.Port)
+	logger.Info("Starting PostgreSQL in subprocess test mode", "wrapper", wrapperPath, "port", config.Port)
 
 	f.cmd = exec.Command(wrapperPath, cmdArgs...)
 	f.dataDir = config.PostgresDataDir
@@ -155,14 +159,14 @@ func (f *ForegroundPostgresManager) Start(logger *slog.Logger, config *pgctld.Po
 		logFile.Close()
 		f.cmd = nil
 		f.dataDir = ""
-		return fmt.Errorf("failed to start PostgreSQL in foreground mode: %w", err)
+		return fmt.Errorf("failed to start PostgreSQL in subprocess mode: %w", err)
 	}
 
-	logger.Info("PostgreSQL started in foreground mode", "pid", f.cmd.Process.Pid, "dataDir", f.dataDir)
+	logger.Info("PostgreSQL started in subprocess mode", "pid", f.cmd.Process.Pid, "dataDir", f.dataDir)
 	return nil
 }
 
-func (f *ForegroundPostgresManager) Stop(logger *slog.Logger, config *pgctld.PostgresCtlConfig, mode string) error {
+func (f *SubprocessPostgresManager) Stop(logger *slog.Logger, config *pgctld.PostgresCtlConfig, mode string) error {
 	// Validate data directory matches
 	if !f.matchesDataDir(config.PostgresDataDir) {
 		// No matching process to stop
@@ -170,10 +174,10 @@ func (f *ForegroundPostgresManager) Stop(logger *slog.Logger, config *pgctld.Pos
 	}
 
 	if f.cmd == nil || f.cmd.Process == nil {
-		return fmt.Errorf("no foreground postgres process to stop")
+		return fmt.Errorf("no subprocess postgres process to stop")
 	}
 
-	logger.Info("Stopping foreground PostgreSQL process", "pid", f.cmd.Process.Pid, "mode", mode, "dataDir", f.dataDir)
+	logger.Info("Stopping subprocess PostgreSQL process", "pid", f.cmd.Process.Pid, "mode", mode, "dataDir", f.dataDir)
 
 	// Send appropriate signal based on mode
 	var sig syscall.Signal
@@ -197,11 +201,11 @@ func (f *ForegroundPostgresManager) Stop(logger *slog.Logger, config *pgctld.Pos
 	f.cmd = nil
 	f.dataDir = ""
 
-	logger.Info("Foreground PostgreSQL process stopped")
+	logger.Info("Subprocess PostgreSQL process stopped")
 	return nil
 }
 
-func (f *ForegroundPostgresManager) IsRunning(config *pgctld.PostgresCtlConfig) bool {
+func (f *SubprocessPostgresManager) IsRunning(config *pgctld.PostgresCtlConfig) bool {
 	// Only report as running if data directory matches
 	if !f.matchesDataDir(config.PostgresDataDir) {
 		return false
@@ -220,7 +224,7 @@ func (f *ForegroundPostgresManager) IsRunning(config *pgctld.PostgresCtlConfig) 
 	return false
 }
 
-func (f *ForegroundPostgresManager) ReadPID(config *pgctld.PostgresCtlConfig) (int, error) {
+func (f *SubprocessPostgresManager) ReadPID(config *pgctld.PostgresCtlConfig) (int, error) {
 	// Only return PID if data directory matches
 	if !f.matchesDataDir(config.PostgresDataDir) {
 		return 0, fmt.Errorf("no postgres process running for data directory: %s", config.PostgresDataDir)
@@ -231,7 +235,7 @@ func (f *ForegroundPostgresManager) ReadPID(config *pgctld.PostgresCtlConfig) (i
 		return f.cmd.Process.Pid, nil
 	}
 
-	return 0, fmt.Errorf("no foreground postgres process")
+	return 0, fmt.Errorf("no subprocess postgres process")
 }
 
 // Helper functions used by both implementations

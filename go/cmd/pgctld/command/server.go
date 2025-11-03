@@ -178,7 +178,7 @@ func NewPgCtldService(logger *slog.Logger, pgPort int, pgUser string, pgDatabase
 	// Choose the appropriate PostgresManager based on test mode
 	var pgManager PostgresManager
 	if testOrphanDetection {
-		pgManager = &ForegroundPostgresManager{}
+		pgManager = &SubprocessPostgresManager{}
 	} else {
 		pgManager = &DaemonPostgresManager{}
 	}
