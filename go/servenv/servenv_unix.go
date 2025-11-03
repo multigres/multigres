@@ -132,40 +132,41 @@ func (sv *ServEnv) startOrphanDetection() {
 	parentPID := os.Getppid()
 	slog.Info("Starting orphan detection", "parent_pid", parentPID)
 
+	// Channel to signal when close hooks have completed
+	closeComplete := make(chan struct{})
+	sv.OnClose(func() {
+		close(closeComplete)
+	})
+
 	go func() {
 		ticker := time.NewTicker(1 * time.Second)
 		defer ticker.Stop()
 
-		forceKillTimer := time.NewTimer(0)
-		forceKillTimer.Stop()
-		defer forceKillTimer.Stop()
-
-		gracefulShutdownStarted := false
-
 		for {
 			select {
 			case <-ticker.C:
-				currentParentPID := os.Getppid()
-				if currentParentPID != parentPID {
+				if os.Getppid() != parentPID {
 					slog.Warn("Parent process died, initiating graceful shutdown",
 						"original_parent_pid", parentPID,
-						"current_parent_pid", currentParentPID)
+						"current_parent_pid", os.Getppid())
 
-					if !gracefulShutdownStarted {
-						gracefulShutdownStarted = true
-						// Trigger graceful shutdown by sending signal to exitChan
-						if sv.exitChan != nil {
-							sv.exitChan <- syscall.SIGTERM
-						}
-						// Start force-kill timer as backup
-						forceKillTimer.Reset(10 * time.Second)
+					// Trigger graceful shutdown
+					if sv.exitChan != nil {
+						sv.exitChan <- syscall.SIGTERM
+					}
+
+					// Wait for close hooks to complete or 10 second timeout
+					select {
+					case <-closeComplete:
+						return
+					case <-time.After(10 * time.Second):
+						slog.Error("Graceful shutdown timed out after orphan detection, force killing")
+						os.Exit(1)
 					}
 				}
-			case <-forceKillTimer.C:
-				if gracefulShutdownStarted {
-					slog.Error("Graceful shutdown timed out after orphan detection, force killing")
-					os.Exit(1)
-				}
+			case <-closeComplete:
+				// Normal shutdown - stop orphan detection
+				return
 			}
 		}
 	}()
