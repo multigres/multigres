@@ -92,6 +92,7 @@ func (sv *ServEnv) Init() {
 	sv.HTTPRegisterPprofProfile()
 	sv.pprofInit()
 	sv.updateServiceMap()
+	sv.startOrphanDetection()
 }
 
 func (sv *ServEnv) populateHostname() {
@@ -117,4 +118,55 @@ func (sv *ServEnv) populateHostname() {
 		slog.Info("Using fully qualified hostname for service URL", "hostname", host)
 	}
 	sv.hostname.Set(host)
+}
+
+// startOrphanDetection starts a goroutine that monitors the parent process ID.
+// If the parent PID changes (indicating the parent died and this process was reparented),
+// the process will initiate graceful shutdown. This is used in integration tests to
+// ensure child processes don't become orphans if the test runner is killed.
+func (sv *ServEnv) startOrphanDetection() {
+	if !sv.testOrphanDetection.Get() {
+		return
+	}
+
+	parentPID := os.Getppid()
+	slog.Info("Starting orphan detection", "parent_pid", parentPID)
+
+	go func() {
+		ticker := time.NewTicker(1 * time.Second)
+		defer ticker.Stop()
+
+		forceKillTimer := time.NewTimer(0)
+		forceKillTimer.Stop()
+		defer forceKillTimer.Stop()
+
+		gracefulShutdownStarted := false
+
+		for {
+			select {
+			case <-ticker.C:
+				currentParentPID := os.Getppid()
+				if currentParentPID != parentPID {
+					slog.Warn("Parent process died, initiating graceful shutdown",
+						"original_parent_pid", parentPID,
+						"current_parent_pid", currentParentPID)
+
+					if !gracefulShutdownStarted {
+						gracefulShutdownStarted = true
+						// Trigger graceful shutdown by sending signal to exitChan
+						if sv.exitChan != nil {
+							sv.exitChan <- syscall.SIGTERM
+						}
+						// Start force-kill timer as backup
+						forceKillTimer.Reset(10 * time.Second)
+					}
+				}
+			case <-forceKillTimer.C:
+				if gracefulShutdownStarted {
+					slog.Error("Graceful shutdown timed out after orphan detection, force killing")
+					os.Exit(1)
+				}
+			}
+		}
+	}()
 }

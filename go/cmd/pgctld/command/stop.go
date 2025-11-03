@@ -17,7 +17,6 @@ package command
 import (
 	"fmt"
 	"log/slog"
-	"os"
 	"os/exec"
 
 	"github.com/multigres/multigres/go/pgctld"
@@ -25,12 +24,6 @@ import (
 
 	"github.com/spf13/cobra"
 )
-
-// StopResult contains the result of stopping PostgreSQL
-type StopResult struct {
-	WasRunning bool
-	Message    string
-}
 
 // PgCtlStopCmd holds the stop command configuration
 type PgCtlStopCmd struct {
@@ -96,93 +89,27 @@ func (s *PgCtlStopCmd) runStop(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	result, err := StopPostgreSQLWithResult(s.pgCtlCmd.lg.GetLogger(), config, s.mode.Get())
+	// Default mode to "fast" if not specified
+	mode := s.mode.Get()
+	if mode == "" {
+		mode = "fast"
+	}
+
+	// Use daemon manager for CLI commands (production mode)
+	manager := &DaemonPostgresManager{}
+	result, err := StopPostgreSQLWithResult(s.pgCtlCmd.lg.GetLogger(), manager, config, mode)
 	if err != nil {
 		return err
 	}
 
 	// Display appropriate message for CLI users
 	if result.WasRunning {
-		fmt.Printf("PostgreSQL server stopped successfully (mode: %s)\n", s.mode.Get())
+		fmt.Printf("PostgreSQL server stopped successfully (mode: %s)\n", mode)
 	} else {
 		fmt.Println("PostgreSQL is not running")
 	}
 
 	return nil
-}
-
-// StopPostgreSQLWithResult stops PostgreSQL with the given configuration and returns detailed result information
-func StopPostgreSQLWithResult(logger *slog.Logger, config *pgctld.PostgresCtlConfig, mode string) (*StopResult, error) {
-	result := &StopResult{}
-
-	// Default mode to "fast" if not specified
-	if mode == "" {
-		mode = "fast"
-	}
-
-	// Check if PostgreSQL is running
-	if !isPostgreSQLRunning(config.PostgresDataDir) {
-		logger.Info("PostgreSQL is not running")
-		result.WasRunning = false
-		result.Message = "PostgreSQL is not running"
-		return result, nil
-	}
-
-	result.WasRunning = true
-	logger.Info("Stopping PostgreSQL server", "data_dir", config.PostgresDataDir, "mode", mode)
-
-	if err := stopPostgreSQLWithConfig(logger, config, mode); err != nil {
-		return nil, fmt.Errorf("failed to stop PostgreSQL: %w", err)
-	}
-
-	result.Message = "PostgreSQL server stopped successfully\n"
-	logger.Info("PostgreSQL server stopped successfully")
-	return result, nil
-}
-
-// StopPostgreSQLWithConfig stops PostgreSQL with the given configuration and mode
-func StopPostgreSQLWithConfig(logger *slog.Logger, config *pgctld.PostgresCtlConfig, mode string) error {
-	result, err := StopPostgreSQLWithResult(logger, config, mode)
-	if err != nil {
-		return err
-	}
-
-	// For backward compatibility, log the message if PostgreSQL was actually stopped
-	if result.WasRunning && result.Message != "" {
-		logger.Info(result.Message)
-	}
-
-	return nil
-}
-
-func stopPostgreSQLWithConfig(logger *slog.Logger, config *pgctld.PostgresCtlConfig, mode string) error {
-	// First try using pg_ctl
-	if err := stopWithPgCtlWithConfig(logger, config, mode); err != nil {
-		logger.Error("pg_ctl stop failed,", "error", err)
-		return err
-	}
-	return nil
-}
-
-func stopWithPgCtlWithConfig(logger *slog.Logger, config *pgctld.PostgresCtlConfig, mode string) error {
-	// Take a checkpoint before stopping PostgreSQL for clean shutdown
-	if err := takeCheckpoint(logger, config); err != nil {
-		logger.Warn("Failed to take checkpoint before stop", "error", err, "data_dir", config.PostgresDataDir)
-		// Continue with stop even if checkpoint fails - it's not critical
-	}
-
-	args := []string{
-		"stop",
-		"-D", config.PostgresDataDir,
-		"-m", mode,
-		"-t", fmt.Sprintf("%d", config.Timeout),
-	}
-
-	cmd := exec.Command("pg_ctl", args...)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-
-	return cmd.Run()
 }
 
 // takeCheckpoint executes a CHECKPOINT command to ensure all data is written to disk before shutdown

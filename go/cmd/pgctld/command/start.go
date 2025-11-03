@@ -16,26 +16,13 @@ package command
 
 import (
 	"fmt"
-	"log/slog"
 	"os"
-	"os/exec"
-	"path/filepath"
-	"strconv"
 	"strings"
-	"syscall"
-	"time"
 
 	"github.com/spf13/cobra"
 
 	"github.com/multigres/multigres/go/pgctld"
 )
-
-// StartResult contains the result of starting PostgreSQL
-type StartResult struct {
-	PID            int
-	AlreadyRunning bool
-	Message        string
-}
 
 // NewPostgresCtlConfigFromDefaults creates a PostgresCtlConfig using command-line parameters
 // Port, listen_addresses, and unix_socket_directories come from CLI flags, not from the config file
@@ -129,7 +116,9 @@ func (s *PgCtlStartCmd) runStart(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	result, err := StartPostgreSQLWithResult(s.pgCtlCmd.lg.GetLogger(), config)
+	// Use daemon manager for CLI commands (production mode)
+	manager := &DaemonPostgresManager{}
+	result, err := StartPostgreSQLWithResult(s.pgCtlCmd.lg.GetLogger(), manager, config)
 	if err != nil {
 		return err
 	}
@@ -142,156 +131,4 @@ func (s *PgCtlStartCmd) runStart(cmd *cobra.Command, args []string) error {
 	}
 
 	return nil
-}
-
-// StartPostgreSQLWithResult starts PostgreSQL with the given configuration and returns detailed result information
-func StartPostgreSQLWithResult(logger *slog.Logger, config *pgctld.PostgresCtlConfig) (*StartResult, error) {
-	result := &StartResult{}
-
-	// Check if PostgreSQL is already running
-	if isPostgreSQLRunning(config.PostgresDataDir) {
-		logger.Info("PostgreSQL is already running")
-		result.AlreadyRunning = true
-		result.Message = "PostgreSQL is already running"
-
-		// Get PID of running instance
-		if pid, err := readPostmasterPID(config.PostgresDataDir); err == nil {
-			result.PID = pid
-		}
-
-		return result, nil
-	}
-
-	// Start PostgreSQL
-	logger.Info("Starting PostgreSQL server", "data_dir", config.PostgresDataDir)
-	if err := startPostgreSQLWithConfig(logger, config); err != nil {
-		return nil, fmt.Errorf("failed to start PostgreSQL: %w", err)
-	}
-
-	// Wait for server to be ready
-	logger.Info("Waiting for PostgreSQL to be ready")
-	if err := waitForPostgreSQLWithConfig(config); err != nil {
-		return nil, fmt.Errorf("PostgreSQL failed to become ready: %w", err)
-	}
-
-	// Get PID of started instance
-	if pid, err := readPostmasterPID(config.PostgresDataDir); err == nil {
-		result.PID = pid
-	}
-
-	result.Message = "PostgreSQL server started successfully"
-	logger.Info("PostgreSQL server started successfully")
-	return result, nil
-}
-
-// StartPostgreSQLWithConfig starts PostgreSQL with the given configuration
-func StartPostgreSQLWithConfig(logger *slog.Logger, config *pgctld.PostgresCtlConfig) error {
-	result, err := StartPostgreSQLWithResult(logger, config)
-	if err != nil {
-		return err
-	}
-
-	// For backward compatibility, log the message if provided
-	if result.Message != "" && !result.AlreadyRunning {
-		logger.Info(result.Message)
-	}
-
-	return nil
-}
-
-func isPostgreSQLRunning(dataDir string) bool {
-	// Check if postmaster.pid file exists and process is running
-	pidFile := filepath.Join(dataDir, "postmaster.pid")
-	if _, err := os.Stat(pidFile); err != nil {
-		return false
-	}
-
-	// Read PID from file and check if process is actually running
-	pid, err := readPostmasterPID(dataDir)
-	if err != nil {
-		return false
-	}
-
-	return isProcessRunning(pid)
-}
-
-func startPostgreSQLWithConfig(logger *slog.Logger, config *pgctld.PostgresCtlConfig) error {
-	// Use pg_ctl to start PostgreSQL properly as a daemon
-	// Pass port, listen_addresses, and unix_socket_directories as command-line parameters for portability
-	postgresOpts := fmt.Sprintf("-c config_file=%s -c port=%d -c listen_addresses=%s -c unix_socket_directories=%s",
-		config.PostgresConfigFile, config.Port, config.ListenAddresses, config.UnixSocketDirectories)
-
-	args := []string{
-		"start",
-		"-D", config.PostgresDataDir,
-		"-o", postgresOpts,
-		"-l", filepath.Join(config.PostgresDataDir, "postgresql.log"),
-		"-W", // don't wait - we'll check readiness ourselves
-	}
-
-	logger.Info("Starting PostgreSQL with configuration", "port", config.Port, "dataDir", config.PostgresDataDir, "configFile", config.PostgresConfigFile)
-
-	cmd := exec.Command("pg_ctl", args...)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("failed to start PostgreSQL with pg_ctl: %w", err)
-	}
-
-	// Wait for PostgreSQL to be ready using pg_isready
-	return waitForPostgreSQLWithConfig(config)
-}
-
-func waitForPostgreSQLWithConfig(config *pgctld.PostgresCtlConfig) error {
-	// Try to connect using pg_isready
-	socketDir := pgctld.PostgresSocketDir(config.PoolerDir)
-	for i := 0; i < config.Timeout; i++ {
-		cmd := exec.Command("pg_isready",
-			"-h", socketDir,
-			"-p", fmt.Sprintf("%d", config.Port), // Need port even for socket connections
-			"-U", config.User,
-			"-d", config.Database,
-		)
-
-		if err := cmd.Run(); err == nil {
-			return nil
-		}
-
-		time.Sleep(1 * time.Second)
-	}
-
-	return fmt.Errorf("PostgreSQL did not become ready within %d seconds", config.Timeout)
-}
-
-func readPostmasterPID(dataDir string) (int, error) {
-	pidFile := filepath.Join(dataDir, "postmaster.pid")
-	content, err := os.ReadFile(pidFile)
-	if err != nil {
-		return 0, err
-	}
-
-	// First line contains the PID
-	lines := strings.Split(string(content), "\n")
-	if len(lines) == 0 {
-		return 0, fmt.Errorf("empty postmaster.pid file")
-	}
-
-	pid, err := strconv.Atoi(strings.TrimSpace(lines[0]))
-	if err != nil {
-		return 0, fmt.Errorf("invalid PID in postmaster.pid: %s", lines[0])
-	}
-
-	return pid, nil
-}
-
-func isProcessRunning(pid int) bool {
-	process, err := os.FindProcess(pid)
-	if err != nil {
-		return false
-	}
-
-	// On Unix, sending signal 0 checks if process exists
-	err = process.Signal(syscall.Signal(0))
-	return err == nil
 }

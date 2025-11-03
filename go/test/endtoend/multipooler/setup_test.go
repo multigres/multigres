@@ -55,8 +55,9 @@ var (
 
 // TestMain sets the path and cleans up after all tests
 func TestMain(m *testing.M) {
-	// Set the PATH so etcd can be found
+	// Set the PATH so etcd and run_in_test.sh can be found
 	pathutil.PrependPath("../../../../bin")
+	pathutil.PrependPath("../")  // Add test/endtoend directory for run_in_test.sh
 
 	// Run all tests
 	exitCode := m.Run()
@@ -161,7 +162,8 @@ func (p *ProcessInstance) startPgctld(t *testing.T) error {
 		"--pooler-dir", p.DataDir,
 		"--grpc-port", strconv.Itoa(p.GrpcPort),
 		"--pg-port", strconv.Itoa(p.PgPort),
-		"--log-output", p.LogFile)
+		"--log-output", p.LogFile,
+		"--test-orphan-detection")
 	p.Process.Env = p.Environment
 
 	t.Logf("Running server command: %v", p.Process.Args)
@@ -192,7 +194,8 @@ func (p *ProcessInstance) startMultipooler(t *testing.T) error {
 		"--topo-implementation", "etcd2",
 		"--cell", "test-cell",
 		"--service-id", p.ServiceID,
-		"--log-output", p.LogFile)
+		"--log-output", p.LogFile,
+		"--test-orphan-detection")
 	p.Process.Env = p.Environment
 
 	t.Logf("Running multipooler command: %v", p.Process.Args)
@@ -649,7 +652,8 @@ func startEtcdForSharedSetup(dataDir string) (string, *exec.Cmd, error) {
 	peerAddr := fmt.Sprintf("http://localhost:%v", port+1)
 	initialCluster := fmt.Sprintf("%v=%v", name, peerAddr)
 
-	cmd := exec.Command("etcd",
+	// Wrap etcd with run_in_test to ensure cleanup if test process dies
+	cmd := exec.Command("run_in_test.sh", "etcd",
 		"-name", name,
 		"-advertise-client-urls", clientAddr,
 		"-initial-advertise-peer-urls", peerAddr,
