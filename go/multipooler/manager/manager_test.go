@@ -16,12 +16,14 @@ package manager
 
 import (
 	"context"
+	"database/sql"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
+	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -535,6 +537,184 @@ func TestValidateSyncReplicationParams(t *testing.T) {
 			} else {
 				require.NoError(t, err)
 			}
+		})
+	}
+}
+
+func TestQueryReplicationStatus(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+
+	tests := []struct {
+		name           string
+		setupMock      func(mock sqlmock.Sqlmock)
+		expectError    bool
+		validateResult func(t *testing.T, status *multipoolermanagerdatapb.ReplicationStatus)
+	}{
+		{
+			name: "All fields with valid values",
+			setupMock: func(mock sqlmock.Sqlmock) {
+				rows := sqlmock.NewRows([]string{
+					"pg_last_wal_replay_lsn",
+					"pg_last_wal_receive_lsn",
+					"pg_is_wal_replay_paused",
+					"pg_get_wal_replay_pause_state",
+					"pg_last_xact_replay_timestamp",
+					"current_setting",
+				}).AddRow(
+					"0/3000000",              // replay_lsn
+					"0/3000100",              // receive_lsn
+					false,                    // is_paused
+					"not paused",             // pause_state
+					"2025-01-15 10:00:00+00", // last_xact_time
+					"host=primary port=5432", // primary_conninfo
+				)
+				mock.ExpectQuery("SELECT").WillReturnRows(rows)
+			},
+			expectError: false,
+			validateResult: func(t *testing.T, status *multipoolermanagerdatapb.ReplicationStatus) {
+				assert.Equal(t, "0/3000000", status.LastReplayLsn)
+				assert.Equal(t, "0/3000100", status.LastReceiveLsn)
+				assert.False(t, status.IsWalReplayPaused)
+				assert.Equal(t, "not paused", status.WalReplayPauseState)
+				assert.Equal(t, "2025-01-15 10:00:00+00", status.LastXactReplayTimestamp)
+				assert.NotNil(t, status.PrimaryConnInfo)
+				assert.Equal(t, "primary", status.PrimaryConnInfo.Host)
+			},
+		},
+		{
+			name: "NULL LSN values (primary server case)",
+			setupMock: func(mock sqlmock.Sqlmock) {
+				rows := sqlmock.NewRows([]string{
+					"pg_last_wal_replay_lsn",
+					"pg_last_wal_receive_lsn",
+					"pg_is_wal_replay_paused",
+					"pg_get_wal_replay_pause_state",
+					"pg_last_xact_replay_timestamp",
+					"current_setting",
+				}).AddRow(
+					nil,          // replay_lsn is NULL on primary
+					nil,          // receive_lsn is NULL on primary
+					false,        // is_paused
+					"not paused", // pause_state
+					nil,          // last_xact_time is NULL on primary
+					"",           // empty primary_conninfo on primary
+				)
+				mock.ExpectQuery("SELECT").WillReturnRows(rows)
+			},
+			expectError: false,
+			validateResult: func(t *testing.T, status *multipoolermanagerdatapb.ReplicationStatus) {
+				assert.Empty(t, status.LastReplayLsn, "LastReplayLsn should be empty when NULL")
+				assert.Empty(t, status.LastReceiveLsn, "LastReceiveLsn should be empty when NULL")
+				assert.False(t, status.IsWalReplayPaused)
+				assert.Equal(t, "not paused", status.WalReplayPauseState)
+				assert.Empty(t, status.LastXactReplayTimestamp, "LastXactReplayTimestamp should be empty when NULL")
+			},
+		},
+		{
+			name: "Paused replication with valid LSNs",
+			setupMock: func(mock sqlmock.Sqlmock) {
+				rows := sqlmock.NewRows([]string{
+					"pg_last_wal_replay_lsn",
+					"pg_last_wal_receive_lsn",
+					"pg_is_wal_replay_paused",
+					"pg_get_wal_replay_pause_state",
+					"pg_last_xact_replay_timestamp",
+					"current_setting",
+				}).AddRow(
+					"0/4000000",              // replay_lsn
+					"0/4000200",              // receive_lsn
+					true,                     // is_paused
+					"paused",                 // pause_state
+					"2025-01-15 11:00:00+00", // last_xact_time
+					"host=primary port=5432 user=replicator application_name=standby1",
+				)
+				mock.ExpectQuery("SELECT").WillReturnRows(rows)
+			},
+			expectError: false,
+			validateResult: func(t *testing.T, status *multipoolermanagerdatapb.ReplicationStatus) {
+				assert.Equal(t, "0/4000000", status.LastReplayLsn)
+				assert.Equal(t, "0/4000200", status.LastReceiveLsn)
+				assert.True(t, status.IsWalReplayPaused)
+				assert.Equal(t, "paused", status.WalReplayPauseState)
+				assert.Equal(t, "2025-01-15 11:00:00+00", status.LastXactReplayTimestamp)
+				assert.NotNil(t, status.PrimaryConnInfo)
+				assert.Equal(t, "primary", status.PrimaryConnInfo.Host)
+				assert.Equal(t, int32(5432), status.PrimaryConnInfo.Port)
+				assert.Equal(t, "replicator", status.PrimaryConnInfo.User)
+				assert.Equal(t, "standby1", status.PrimaryConnInfo.ApplicationName)
+			},
+		},
+		{
+			name: "Mixed NULL and valid values",
+			setupMock: func(mock sqlmock.Sqlmock) {
+				rows := sqlmock.NewRows([]string{
+					"pg_last_wal_replay_lsn",
+					"pg_last_wal_receive_lsn",
+					"pg_is_wal_replay_paused",
+					"pg_get_wal_replay_pause_state",
+					"pg_last_xact_replay_timestamp",
+					"current_setting",
+				}).AddRow(
+					"0/5000000",              // replay_lsn is valid
+					nil,                      // receive_lsn is NULL (e.g., no active connection)
+					false,                    // is_paused
+					"not paused",             // pause_state
+					nil,                      // last_xact_time is NULL
+					"host=primary port=5432", // primary_conninfo
+				)
+				mock.ExpectQuery("SELECT").WillReturnRows(rows)
+			},
+			expectError: false,
+			validateResult: func(t *testing.T, status *multipoolermanagerdatapb.ReplicationStatus) {
+				assert.Equal(t, "0/5000000", status.LastReplayLsn, "LastReplayLsn should be populated")
+				assert.Empty(t, status.LastReceiveLsn, "LastReceiveLsn should be empty when NULL")
+				assert.False(t, status.IsWalReplayPaused)
+				assert.Empty(t, status.LastXactReplayTimestamp, "LastXactReplayTimestamp should be empty when NULL")
+			},
+		},
+		{
+			name: "Query error",
+			setupMock: func(mock sqlmock.Sqlmock) {
+				mock.ExpectQuery("SELECT").WillReturnError(sql.ErrConnDone)
+			},
+			expectError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Create mock database
+			mockDB, mock, err := sqlmock.New()
+			require.NoError(t, err)
+			defer mockDB.Close()
+
+			// Setup mock expectations
+			tt.setupMock(mock)
+
+			// Create minimal manager with mock DB
+			pm := &MultiPoolerManager{
+				logger: logger,
+				db:     mockDB,
+			}
+
+			// Call the method
+			ctx := context.Background()
+			status, err := pm.queryReplicationStatus(ctx)
+
+			// Validate results
+			if tt.expectError {
+				assert.Error(t, err)
+				assert.Nil(t, status)
+			} else {
+				require.NoError(t, err)
+				require.NotNil(t, status)
+				if tt.validateResult != nil {
+					tt.validateResult(t, status)
+				}
+			}
+
+			// Ensure all expectations were met
+			assert.NoError(t, mock.ExpectationsWereMet())
 		})
 	}
 }

@@ -718,7 +718,8 @@ func TestReplicationStatus(t *testing.T) {
 		require.NotNil(t, statusResp.Status, "Status should not be nil")
 
 		// Verify fields
-		assert.NotEmpty(t, statusResp.Status.Lsn, "LSN should not be empty")
+		assert.NotEmpty(t, statusResp.Status.LastReplayLsn, "Last replay LSN should not be empty")
+		assert.NotEmpty(t, statusResp.Status.LastReceiveLsn, "Last receive LSN should not be empty")
 		assert.False(t, statusResp.Status.IsWalReplayPaused, "WAL replay should not be paused by default")
 
 		// PrimaryConnInfo should be nil or empty when no replication is configured
@@ -760,8 +761,10 @@ func TestReplicationStatus(t *testing.T) {
 		require.NotNil(t, statusResp.Status, "Status should not be nil")
 
 		// Verify LSN
-		assert.NotEmpty(t, statusResp.Status.Lsn, "LSN should not be empty")
-		assert.Contains(t, statusResp.Status.Lsn, "/", "LSN should be in PostgreSQL format (e.g., 0/1234ABCD)")
+		assert.NotEmpty(t, statusResp.Status.LastReplayLsn, "Last replay LSN should not be empty")
+		assert.Contains(t, statusResp.Status.LastReplayLsn, "/", "Last replay LSN should be in PostgreSQL format (e.g., 0/1234ABCD)")
+		assert.NotEmpty(t, statusResp.Status.LastReceiveLsn, "Last receive LSN should not be empty")
+		assert.Contains(t, statusResp.Status.LastReceiveLsn, "/", "Last receive LSN should be in PostgreSQL format (e.g., 0/1234ABCD)")
 
 		// Verify replication is not paused
 		assert.False(t, statusResp.Status.IsWalReplayPaused, "WAL replay should not be paused")
@@ -914,8 +917,10 @@ func TestStopReplicationAndGetStatus(t *testing.T) {
 		assert.NotEmpty(t, stopResp.Status.WalReplayPauseState, "Pause state should not be empty")
 
 		// Verify LSN is populated
-		assert.NotEmpty(t, stopResp.Status.Lsn, "LSN should not be empty")
-		assert.Contains(t, stopResp.Status.Lsn, "/", "LSN should be in PostgreSQL format")
+		assert.NotEmpty(t, stopResp.Status.LastReplayLsn, "Last replay LSN should not be empty")
+		assert.Contains(t, stopResp.Status.LastReplayLsn, "/", "Last replay LSN should be in PostgreSQL format")
+		assert.NotEmpty(t, stopResp.Status.LastReceiveLsn, "Last receive LSN should not be empty")
+		assert.Contains(t, stopResp.Status.LastReceiveLsn, "/", "Last receive LSN should be in PostgreSQL format")
 
 		// Verify PrimaryConnInfo is populated (should still be set even though replication is paused)
 		require.NotNil(t, stopResp.Status.PrimaryConnInfo, "PrimaryConnInfo should not be nil")
@@ -924,7 +929,7 @@ func TestStopReplicationAndGetStatus(t *testing.T) {
 		assert.NotEmpty(t, stopResp.Status.PrimaryConnInfo.Raw, "Raw connection string should not be empty")
 
 		// Store the LSN after stopping
-		lsnAfterStop := stopResp.Status.Lsn
+		lsnAfterStop := stopResp.Status.LastReplayLsn
 		t.Logf("Standby LSN after stopping replication: %s", lsnAfterStop)
 
 		// Write data to primary (this should NOT replicate to standby since replication is stopped)
@@ -945,10 +950,10 @@ func TestStopReplicationAndGetStatus(t *testing.T) {
 		t.Log("Verifying standby LSN hasn't advanced...")
 		statusAfterWrite, err := standbyManagerClient.ReplicationStatus(utils.WithShortDeadline(t), &multipoolermanagerdatapb.ReplicationStatusRequest{})
 		require.NoError(t, err, "ReplicationStatus should succeed")
-		lsnAfterWrite := statusAfterWrite.Status.Lsn
+		lsnAfterWrite := statusAfterWrite.Status.LastReplayLsn
 		t.Logf("Standby LSN after writes to primary: %s", lsnAfterWrite)
 
-		assert.Equal(t, lsnAfterStop, lsnAfterWrite, "Standby LSN should not have advanced after primary writes (replication is stopped)")
+		assert.Equal(t, lsnAfterStop, lsnAfterWrite, "Standby replay LSN should not have advanced after primary writes (replication is stopped)")
 		t.Log("Confirmed: Standby LSN did not advance, replication is truly stopped")
 
 		t.Log("StopReplicationAndGetStatus successfully stopped replication and returned correct status")
@@ -988,7 +993,8 @@ func TestStopReplicationAndGetStatus(t *testing.T) {
 		require.NotNil(t, stopResp.Status, "Status should not be nil")
 
 		assert.True(t, stopResp.Status.IsWalReplayPaused, "WAL replay should be paused")
-		assert.NotEmpty(t, stopResp.Status.Lsn, "LSN should not be empty")
+		assert.NotEmpty(t, stopResp.Status.LastReplayLsn, "Last replay LSN should not be empty")
+		assert.NotEmpty(t, stopResp.Status.LastReceiveLsn, "Last receive LSN should not be empty")
 
 		t.Log("StopReplicationAndGetStatus successfully handled already-paused replication")
 
@@ -1368,8 +1374,8 @@ func TestConfigureSynchronousReplication(t *testing.T) {
 		require.NoError(t, err, "ReplicationStatus should succeed")
 		require.NotNil(t, statusResp.Status, "Status should not be nil")
 		require.NotNil(t, statusResp.Status.PrimaryConnInfo, "PrimaryConnInfo should not be nil")
-		t.Logf("Standby replication status: LSN=%s, is_paused=%v, pause_state=%s, primary_conn_info=%s",
-			statusResp.Status.Lsn, statusResp.Status.IsWalReplayPaused, statusResp.Status.WalReplayPauseState, statusResp.Status.PrimaryConnInfo.Raw)
+		t.Logf("Standby replication status: replay_lsn=%s, receive_lsn=%s, is_paused=%v, pause_state=%s, primary_conn_info=%s",
+			statusResp.Status.LastReplayLsn, statusResp.Status.LastReceiveLsn, statusResp.Status.IsWalReplayPaused, statusResp.Status.WalReplayPauseState, statusResp.Status.PrimaryConnInfo.Raw)
 
 		// Verify standby is not paused
 		require.False(t, statusResp.Status.IsWalReplayPaused, "Standby should be actively replicating (not paused)")
@@ -1436,8 +1442,8 @@ func TestConfigureSynchronousReplication(t *testing.T) {
 		t.Log("Getting standby LSN before failed write attempt...")
 		standbyStatusBefore, err := standbyManagerClient.ReplicationStatus(utils.WithShortDeadline(t), &multipoolermanagerdatapb.ReplicationStatusRequest{})
 		require.NoError(t, err, "Should be able to get standby status")
-		standbyLSNBefore := standbyStatusBefore.Status.Lsn
-		t.Logf("Standby LSN before write attempt: %s", standbyLSNBefore)
+		standbyLSNBefore := standbyStatusBefore.Status.LastReplayLsn
+		t.Logf("Standby replay LSN before write attempt: %s", standbyLSNBefore)
 
 		// Test write timeout without standby
 		t.Log("Testing write timeout without standby available...")
@@ -1460,7 +1466,7 @@ func TestConfigureSynchronousReplication(t *testing.T) {
 		t.Log("Verifying standby LSN did not advance after failed write...")
 		standbyStatusAfter, err := standbyManagerClient.ReplicationStatus(utils.WithShortDeadline(t), &multipoolermanagerdatapb.ReplicationStatusRequest{})
 		require.NoError(t, err, "Should be able to get standby status")
-		standbyLSNAfter := standbyStatusAfter.Status.Lsn
+		standbyLSNAfter := standbyStatusAfter.Status.LastReplayLsn
 		t.Logf("Standby LSN after failed write: %s", standbyLSNAfter)
 		assert.Equal(t, standbyLSNBefore, standbyLSNAfter, "Standby LSN should not have advanced since replication is disconnected and write failed")
 

@@ -267,50 +267,16 @@ func (pm *MultiPoolerManager) ReplicationStatus(ctx context.Context) (*multipool
 		return nil, err
 	}
 
-	status := &multipoolermanagerdatapb.ReplicationStatus{}
-
-	// Get all replication status information in a single query
-	var lsn string
-	var isPaused bool
-	var pauseState string
-	var lastXactTime sql.NullString
-	var primaryConnInfo string
-
-	query := `SELECT
-		pg_last_wal_replay_lsn(),
-		pg_is_wal_replay_paused(),
-		pg_get_wal_replay_pause_state(),
-		pg_last_xact_replay_timestamp(),
-		current_setting('primary_conninfo')`
-
-	err := pm.db.QueryRowContext(ctx, query).Scan(
-		&lsn,
-		&isPaused,
-		&pauseState,
-		&lastXactTime,
-		&primaryConnInfo,
-	)
+	// Query all replication status fields
+	status, err := pm.queryReplicationStatus(ctx)
 	if err != nil {
 		pm.logger.Error("Failed to get replication status", "error", err)
-		return nil, mterrors.Wrap(err, "failed to get replication status")
+		return nil, err
 	}
-
-	status.Lsn = lsn
-	status.IsWalReplayPaused = isPaused
-	status.WalReplayPauseState = pauseState
-	if lastXactTime.Valid {
-		status.LastXactReplayTimestamp = lastXactTime.String
-	}
-
-	// Parse primary_conninfo into structured format
-	parsedConnInfo, err := parseAndRedactPrimaryConnInfo(primaryConnInfo)
-	if err != nil {
-		return nil, mterrors.Wrap(err, "failed to parse primary_conninfo")
-	}
-	status.PrimaryConnInfo = parsedConnInfo
 
 	pm.logger.Info("ReplicationStatus completed",
-		"lsn", status.Lsn,
+		"last_replay_lsn", status.LastReplayLsn,
+		"last_receive_lsn", status.LastReceiveLsn,
 		"is_paused", status.IsWalReplayPaused,
 		"pause_state", status.WalReplayPauseState,
 		"primary_conn_info", status.PrimaryConnInfo)
@@ -654,7 +620,8 @@ func (pm *MultiPoolerManager) StopReplicationAndGetStatus(ctx context.Context) (
 	}
 
 	pm.logger.Info("StopReplicationAndGetStatus completed",
-		"lsn", status.Lsn,
+		"last_replay_lsn", status.LastReplayLsn,
+		"last_receive_lsn", status.LastReceiveLsn,
 		"is_paused", status.IsWalReplayPaused,
 		"pause_state", status.WalReplayPauseState,
 		"primary_conn_info", status.PrimaryConnInfo)
