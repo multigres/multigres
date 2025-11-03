@@ -56,7 +56,11 @@ var (
 // TestMain sets the path and cleans up after all tests
 func TestMain(m *testing.M) {
 	// Set the PATH so etcd can be found
-	pathutil.PrependPath("../../../../bin")
+	// Use automatic module root detection instead of hard-coded relative paths
+	if err := pathutil.PrependBinToPath(); err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to add bin to PATH: %v\n", err)
+		os.Exit(1)
+	}
 
 	// Run all tests
 	exitCode := m.Run()
@@ -527,8 +531,11 @@ func getSharedTestSetup(t *testing.T) *MultipoolerTestSetup {
 	t.Helper()
 	setupOnce.Do(func() {
 		// Set the PATH so our binaries can be found (like cluster_test.go does)
-		// Use PrependPath to ensure our project binaries take precedence over system ones
-		pathutil.PrependPath("../../../../bin")
+		// Use automatic module root detection instead of hard-coded relative paths
+		if err := pathutil.PrependBinToPath(); err != nil {
+			setupError = fmt.Errorf("failed to add bin to PATH: %w", err)
+			return
+		}
 
 		// Check if PostgreSQL binaries are available
 		if !utils.HasPostgreSQLBinaries() {

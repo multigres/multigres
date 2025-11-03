@@ -16,6 +16,7 @@
 package pathutil
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 )
@@ -28,4 +29,51 @@ func PrependPath(path string) {
 		return
 	}
 	_ = os.Setenv("PATH", absPath+string(os.PathListSeparator)+os.Getenv("PATH"))
+}
+
+// findModuleRoot finds the root directory of the Go module by walking up
+// the directory tree looking for go.mod. It starts from the current working
+// directory and walks up until it finds go.mod or reaches the filesystem root.
+// Returns the directory containing go.mod, or an error if not found.
+//
+// This approach is borrowed from the Go standard library's module loading logic:
+// https://github.com/golang/go/blob/9e3b1d53a012e98cfd02de2de8b1bd53522464d4/src/cmd/go/internal/modload/init.go#L1504-L1522
+func findModuleRoot() (string, error) {
+	dir, err := os.Getwd()
+	if err != nil {
+		return "", fmt.Errorf("cannot get working directory: %w", err)
+	}
+
+	dir = filepath.Clean(dir)
+
+	// Look for enclosing go.mod
+	for {
+		goModPath := filepath.Join(dir, "go.mod")
+		if fi, err := os.Stat(goModPath); err == nil && !fi.IsDir() {
+			return dir, nil
+		}
+
+		// Move to parent directory
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			// Reached the filesystem root
+			break
+		}
+		dir = parent
+	}
+
+	return "", fmt.Errorf("go.mod not found in any parent directory")
+}
+
+// PrependBinToPath finds the module root and prepends the bin directory to PATH.
+// This is useful for tests that need to use binaries built in the project.
+func PrependBinToPath() error {
+	moduleRoot, err := findModuleRoot()
+	if err != nil {
+		return fmt.Errorf("failed to find module root: %w", err)
+	}
+
+	binPath := filepath.Join(moduleRoot, "bin")
+	PrependPath(binPath)
+	return nil
 }
