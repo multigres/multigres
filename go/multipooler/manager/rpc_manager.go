@@ -270,8 +270,8 @@ func (pm *MultiPoolerManager) ReplicationStatus(ctx context.Context) (*multipool
 	status := &multipoolermanagerdatapb.ReplicationStatus{}
 
 	// Get all replication status information in a single query
-	var replayLsn string
-	var receiveLsn string
+	var replayLsn sql.NullString
+	var receiveLsn sql.NullString
 	var isPaused bool
 	var pauseState string
 	var lastXactTime sql.NullString
@@ -279,6 +279,7 @@ func (pm *MultiPoolerManager) ReplicationStatus(ctx context.Context) (*multipool
 
 	query := `SELECT
 		pg_last_wal_replay_lsn(),
+		pg_last_wal_receive_lsn(),
 		pg_is_wal_replay_paused(),
 		pg_get_wal_replay_pause_state(),
 		pg_last_xact_replay_timestamp(),
@@ -297,8 +298,12 @@ func (pm *MultiPoolerManager) ReplicationStatus(ctx context.Context) (*multipool
 		return nil, mterrors.Wrap(err, "failed to get replication status")
 	}
 
-	status.LastReplayLsn = replayLsn
-	status.LastReceiveLsn = receiveLsn
+	if replayLsn.Valid {
+		status.LastReplayLsn = replayLsn.String
+	}
+	if receiveLsn.Valid {
+		status.LastReceiveLsn = receiveLsn.String
+	}
 	status.IsWalReplayPaused = isPaused
 	status.WalReplayPauseState = pauseState
 	if lastXactTime.Valid {

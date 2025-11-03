@@ -894,8 +894,8 @@ func (pm *MultiPoolerManager) waitForReplicationPause(ctx context.Context) (*mul
 			return nil, mterrors.Wrap(waitCtx.Err(), "context cancelled while waiting for WAL replay to pause")
 
 		case <-ticker.C:
-			var replayLsn string
-			var receiveLsn string
+			var replayLsn sql.NullString
+			var receiveLsn sql.NullString
 			var isPaused bool
 			var pauseState string
 			var lastXactTime sql.NullString
@@ -918,18 +918,22 @@ func (pm *MultiPoolerManager) waitForReplicationPause(ctx context.Context) (*mul
 			// Once paused, we have the exact state at the moment replication stopped
 			if isPaused {
 				pm.logger.Info("WAL replay is now paused",
-					"last_replay_lsn", replayLsn,
-					"last_receive_lsn", receiveLsn,
+					"last_replay_lsn", replayLsn.String,
+					"last_receive_lsn", receiveLsn.String,
 					"pause_state", pauseState)
 
 				// Build and return the status
 				status := &multipoolermanagerdatapb.ReplicationStatus{
-					LastReplayLsn:       replayLsn,
-					LastReceiveLsn:      receiveLsn,
 					IsWalReplayPaused:   isPaused,
 					WalReplayPauseState: pauseState,
 				}
 
+				if replayLsn.Valid {
+					status.LastReplayLsn = replayLsn.String
+				}
+				if receiveLsn.Valid {
+					status.LastReceiveLsn = receiveLsn.String
+				}
 				if lastXactTime.Valid {
 					status.LastXactReplayTimestamp = lastXactTime.String
 				}
