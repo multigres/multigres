@@ -23,6 +23,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -1096,4 +1097,110 @@ timeout: 30
 			"PATH="+filepath.Join(tempDir, "bin")+":"+os.Getenv("PATH"))
 		_ = stopCmd.Run()
 	})
+}
+
+// TestOrphanDetectionWithRealPostgreSQL tests that orphan detection stops PostgreSQL
+// when the parent pgctld server process dies unexpectedly
+func TestOrphanDetectionWithRealPostgreSQL(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping orphan detection tests in short mode")
+	}
+
+	if !utils.HasPostgreSQLBinaries() {
+		t.Fatal("PostgreSQL binaries not found")
+	}
+
+	tempDir, cleanup := testutil.TempDir(t, "pgctld_orphan_test")
+	defer cleanup()
+
+	dataDir := filepath.Join(tempDir, "data")
+	pgctldConfigFile := filepath.Join(tempDir, ".pgctld.yaml")
+	err := os.WriteFile(pgctldConfigFile, []byte("log-level: info\ntimeout: 30\n"), 0o644)
+	require.NoError(t, err)
+
+	pgctldBinary := getCachedPgctldBinary(t)
+	grpcPort := testutil.GenerateRandomPort()
+	pgPort := testutil.GenerateRandomPort()
+
+	// Initialize data directory
+	initCmd := exec.Command(pgctldBinary, "init", "--pooler-dir", dataDir, "--pg-port", strconv.Itoa(pgPort), "--config-file", pgctldConfigFile)
+	setupTestEnv(initCmd)
+	require.NoError(t, initCmd.Run())
+
+	// Start pgctld server subprocess with orphan detection enabled
+	serverCmd := exec.Command(pgctldBinary, "server",
+		"--pooler-dir", dataDir,
+		"--grpc-port", strconv.Itoa(grpcPort),
+		"--pg-port", strconv.Itoa(pgPort),
+		"--test-orphan-detection",
+		"--config-file", pgctldConfigFile)
+	// Add endtoend directory to PATH so run_command_if_parent_dies.sh can be found
+	endtoendDir, err := filepath.Abs(".")
+	require.NoError(t, err)
+	serverCmd.Env = append(os.Environ(),
+		"PGCONNECT_TIMEOUT=5",
+		"PATH="+endtoendDir+":"+os.Getenv("PATH"))
+	require.NoError(t, serverCmd.Start())
+
+	// Wait for gRPC server to be ready
+	require.Eventually(t, func() bool {
+		conn, err := net.DialTimeout("tcp", fmt.Sprintf("localhost:%d", grpcPort), 100*time.Millisecond)
+		if err == nil {
+			conn.Close()
+			return true
+		}
+		return false
+	}, 10*time.Second, 100*time.Millisecond)
+
+	// Start postgres via gRPC (this will use server's orphan detection setting)
+	grpcAddr := fmt.Sprintf("localhost:%d", grpcPort)
+	err = InitAndStartPostgreSQL(t, grpcAddr)
+	require.NoError(t, err)
+
+	// Wait for postgres PID
+	var pgPID int
+	require.Eventually(t, func() bool {
+		pid, err := readPostmasterPID(pgctld.PostgresDataDir(dataDir))
+		if err == nil {
+			pgPID = pid
+			return true
+		}
+		return false
+	}, 10*time.Second, 100*time.Millisecond)
+
+	// Verify postgres is running
+	pgProcess, err := os.FindProcess(pgPID)
+	require.NoError(t, err)
+	require.NoError(t, pgProcess.Signal(syscall.Signal(0)))
+
+	// Kill the pgctld server subprocess abruptly
+	require.NoError(t, serverCmd.Process.Kill())
+	_, _ = serverCmd.Process.Wait()
+
+	// Wait for orphan detection to stop postgres
+	time.Sleep(2 * time.Second)
+
+	// Verify postgres is stopped
+	err = pgProcess.Signal(syscall.Signal(0))
+	assert.Error(t, err, "PostgreSQL should have been stopped by orphan detection")
+}
+
+func readPostmasterPID(dataDir string) (int, error) {
+	pidFile := filepath.Join(dataDir, "postmaster.pid")
+	content, err := os.ReadFile(pidFile)
+	if err != nil {
+		return 0, err
+	}
+
+	lines := strings.Split(string(content), "\n")
+	if len(lines) == 0 {
+		return 0, fmt.Errorf("empty postmaster.pid file")
+	}
+
+	pid, err := strconv.Atoi(strings.TrimSpace(lines[0]))
+	if err != nil {
+		return 0, fmt.Errorf("invalid PID in postmaster.pid: %s", lines[0])
+	}
+
+	return pid, nil
 }
