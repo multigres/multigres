@@ -16,7 +16,6 @@ package manager
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"time"
 
@@ -153,17 +152,10 @@ func (pm *MultiPoolerManager) ConsensusStatus(ctx context.Context, req *consensu
 		if err == nil {
 			if inRecovery {
 				// On standby: get receive and replay positions
-				var receiveLsn, replayLsn sql.NullString
-				err = pm.db.QueryRowContext(ctx,
-					"SELECT pg_last_wal_receive_lsn(), pg_last_wal_replay_lsn()").
-					Scan(&receiveLsn, &replayLsn)
+				status, err := pm.queryReplicationStatus(ctx)
 				if err == nil {
-					if receiveLsn.Valid {
-						walPosition.LastReceiveLsn = receiveLsn.String
-					}
-					if replayLsn.Valid {
-						walPosition.LastReplayLsn = replayLsn.String
-					}
+					walPosition.LastReceiveLsn = status.LastReceiveLsn
+					walPosition.LastReplayLsn = status.LastReplayLsn
 				}
 			} else {
 				// On primary: get current write position

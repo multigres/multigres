@@ -417,9 +417,16 @@ func TestConsensusStatus(t *testing.T) {
 				// Single pg_is_in_recovery check determines both role and which WAL position to query
 				mock.ExpectQuery("SELECT pg_is_in_recovery\\(\\)").
 					WillReturnRows(sqlmock.NewRows([]string{"pg_is_in_recovery"}).AddRow(true))
-				mock.ExpectQuery("SELECT pg_last_wal_receive_lsn\\(\\), pg_last_wal_replay_lsn\\(\\)").
-					WillReturnRows(sqlmock.NewRows([]string{"pg_last_wal_receive_lsn", "pg_last_wal_replay_lsn"}).
-						AddRow("0/5000000", "0/4FFFFFF"))
+				// queryReplicationStatus() expects full replication status query
+				mock.ExpectQuery("SELECT").
+					WillReturnRows(sqlmock.NewRows([]string{
+						"pg_last_wal_replay_lsn",
+						"pg_last_wal_receive_lsn",
+						"pg_is_wal_replay_paused",
+						"pg_get_wal_replay_pause_state",
+						"pg_last_xact_replay_timestamp",
+						"current_setting",
+					}).AddRow("0/4FFFFFF", "0/5000000", false, "not paused", nil, ""))
 			},
 			expectedCurrentTerm: 3,
 			expectedLeaderTerm:  5,
