@@ -445,11 +445,11 @@ message ConsensusTerm {
   // Current consensus term
   int64 current_term = 1;
 
-  // ID of the pooler this replica voted for
-  clustermetadata.ID voted_for = 2;
+  // ID of the pooler this replica accepted as leader
+  clustermetadata.ID accepted_leader = 2;
 
-  // Timestamp of the last vote
-  google.protobuf.Timestamp last_vote_time = 3;
+  // Timestamp of the last acceptance
+  google.protobuf.Timestamp last_acceptance_time = 3;
 
   // ID of the leader of the current term
   clustermetadata.ID leader_id = 4;
