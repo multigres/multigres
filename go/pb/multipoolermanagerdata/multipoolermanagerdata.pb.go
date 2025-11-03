@@ -2467,10 +2467,10 @@ type ConsensusTerm struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Current consensus term
 	CurrentTerm int64 `protobuf:"varint,1,opt,name=current_term,json=currentTerm,proto3" json:"current_term,omitempty"`
-	// ID of the pooler this replica voted for
-	VotedFor *clustermetadata.ID `protobuf:"bytes,2,opt,name=voted_for,json=votedFor,proto3" json:"voted_for,omitempty"`
-	// Timestamp of the last vote
-	LastVoteTime *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=last_vote_time,json=lastVoteTime,proto3" json:"last_vote_time,omitempty"`
+	// ID of the pooler this replica accepted as leader
+	AcceptedLeader *clustermetadata.ID `protobuf:"bytes,2,opt,name=accepted_leader,json=acceptedLeader,proto3" json:"accepted_leader,omitempty"`
+	// Timestamp of the last acceptance
+	LastAcceptanceTime *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=last_acceptance_time,json=lastAcceptanceTime,proto3" json:"last_acceptance_time,omitempty"`
 	// ID of the leader of the current term
 	LeaderId      *clustermetadata.ID `protobuf:"bytes,4,opt,name=leader_id,json=leaderId,proto3" json:"leader_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -2514,16 +2514,16 @@ func (x *ConsensusTerm) GetCurrentTerm() int64 {
 	return 0
 }
 
-func (x *ConsensusTerm) GetVotedFor() *clustermetadata.ID {
+func (x *ConsensusTerm) GetAcceptedLeader() *clustermetadata.ID {
 	if x != nil {
-		return x.VotedFor
+		return x.AcceptedLeader
 	}
 	return nil
 }
 
-func (x *ConsensusTerm) GetLastVoteTime() *timestamppb.Timestamp {
+func (x *ConsensusTerm) GetLastAcceptanceTime() *timestamppb.Timestamp {
 	if x != nil {
-		return x.LastVoteTime
+		return x.LastAcceptanceTime
 	}
 	return nil
 }
@@ -2671,11 +2671,11 @@ const file_multipoolermanagerdata_proto_rawDesc = "" +
 	"\rreload_config\x18\x03 \x01(\bR\freloadConfig\x12%\n" +
 	"\x0econsensus_term\x18\x04 \x01(\x03R\rconsensusTerm\x12\x14\n" +
 	"\x05force\x18\x05 \x01(\bR\x05force\"&\n" +
-	"$UpdateSynchronousStandbyListResponse\"\xd8\x01\n" +
+	"$UpdateSynchronousStandbyListResponse\"\xf0\x01\n" +
 	"\rConsensusTerm\x12!\n" +
-	"\fcurrent_term\x18\x01 \x01(\x03R\vcurrentTerm\x120\n" +
-	"\tvoted_for\x18\x02 \x01(\v2\x13.clustermetadata.IDR\bvotedFor\x12@\n" +
-	"\x0elast_vote_time\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\flastVoteTime\x120\n" +
+	"\fcurrent_term\x18\x01 \x01(\x03R\vcurrentTerm\x12<\n" +
+	"\x0faccepted_leader\x18\x02 \x01(\v2\x13.clustermetadata.IDR\x0eacceptedLeader\x12L\n" +
+	"\x14last_acceptance_time\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\x12lastAcceptanceTime\x120\n" +
 	"\tleader_id\x18\x04 \x01(\v2\x13.clustermetadata.IDR\bleaderId*q\n" +
 	"\x11SynchronousMethod\x12\"\n" +
 	"\x1eSYNCHRONOUS_METHOD_UNSPECIFIED\x10\x00\x12\x1c\n" +
@@ -2789,8 +2789,8 @@ var file_multipoolermanagerdata_proto_depIdxs = []int32{
 	45, // 26: multipoolermanagerdata.SetTermRequest.term:type_name -> multipoolermanagerdata.ConsensusTerm
 	1,  // 27: multipoolermanagerdata.UpdateSynchronousStandbyListRequest.operation:type_name -> multipoolermanagerdata.StandbyUpdateOperation
 	47, // 28: multipoolermanagerdata.UpdateSynchronousStandbyListRequest.standby_ids:type_name -> clustermetadata.ID
-	47, // 29: multipoolermanagerdata.ConsensusTerm.voted_for:type_name -> clustermetadata.ID
-	49, // 30: multipoolermanagerdata.ConsensusTerm.last_vote_time:type_name -> google.protobuf.Timestamp
+	47, // 29: multipoolermanagerdata.ConsensusTerm.accepted_leader:type_name -> clustermetadata.ID
+	49, // 30: multipoolermanagerdata.ConsensusTerm.last_acceptance_time:type_name -> google.protobuf.Timestamp
 	47, // 31: multipoolermanagerdata.ConsensusTerm.leader_id:type_name -> clustermetadata.ID
 	32, // [32:32] is the sub-list for method output_type
 	32, // [32:32] is the sub-list for method input_type

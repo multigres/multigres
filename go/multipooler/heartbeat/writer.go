@@ -169,12 +169,6 @@ func (w *Writer) write() error {
 	ctx, cancel := context.WithDeadline(context.Background(), w.now().Add(w.interval))
 	defer cancel()
 
-	// Get WAL position (only works on primary)
-	walPosition, err := w.getWALPosition(ctx)
-	if err != nil {
-		return mterrors.Wrap(err, "failed to get WAL position")
-	}
-
 	// Get connection for tracking (for potential kill)
 	// TODO: get connection from pool when we have pools
 	conn, err := w.db.Conn(ctx)
@@ -201,14 +195,13 @@ func (w *Writer) write() error {
 	tsNano := w.now().UnixNano()
 
 	_, err = conn.ExecContext(ctx, `
-		INSERT INTO multigres.heartbeat (shard_id, leader_id, ts, leader_term, leader_wal_position)
-		VALUES ($1, $2, $3, $4, $5)
+		INSERT INTO multigres.heartbeat (shard_id, leader_id, ts, leader_term)
+		VALUES ($1, $2, $3, $4)
 		ON CONFLICT (shard_id) DO UPDATE
 		SET leader_id = EXCLUDED.leader_id,
 		    ts = EXCLUDED.ts,
-		    leader_term = EXCLUDED.leader_term,
-		    leader_wal_position = EXCLUDED.leader_wal_position
-	`, w.shardID, w.poolerID, tsNano, leaderTerm, walPosition)
+		    leader_term = EXCLUDED.leader_term
+	`, w.shardID, w.poolerID, tsNano, leaderTerm)
 	if err != nil {
 		return mterrors.Wrap(err, "failed to write heartbeat")
 	}
