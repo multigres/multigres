@@ -37,7 +37,7 @@ func TestConsensusService_BeginTerm(t *testing.T) {
 	ctx := context.Background()
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
-	t.Cleanup(func() { ts.Close() })
+	defer ts.Close()
 
 	// Start mock pgctld server
 	pgctldAddr, cleanupPgctld := testutil.StartMockPgctldServer(t)
@@ -69,7 +69,7 @@ func TestConsensusService_BeginTerm(t *testing.T) {
 		PoolerDir:  tmpDir,
 	}
 	pm := manager.NewMultiPoolerManager(logger, config)
-	t.Cleanup(func() { pm.Close() })
+	defer pm.Close()
 
 	// Start the async loader
 	senv := servenv.NewServEnv()
@@ -104,7 +104,7 @@ func TestConsensusService_Status(t *testing.T) {
 	ctx := context.Background()
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
-	t.Cleanup(func() { ts.Close() })
+	defer ts.Close()
 
 	// Start mock pgctld server
 	pgctldAddr, cleanupPgctld := testutil.StartMockPgctldServer(t)
@@ -136,7 +136,7 @@ func TestConsensusService_Status(t *testing.T) {
 		PoolerDir:  tmpDir,
 	}
 	pm := manager.NewMultiPoolerManager(logger, config)
-	t.Cleanup(func() { pm.Close() })
+	defer pm.Close()
 
 	// Start the async loader
 	senv := servenv.NewServEnv()
@@ -174,7 +174,7 @@ func TestConsensusService_GetLeadershipView(t *testing.T) {
 	ctx := context.Background()
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
-	t.Cleanup(func() { ts.Close() })
+	defer ts.Close()
 
 	// Start mock pgctld server
 	pgctldAddr, cleanupPgctld := testutil.StartMockPgctldServer(t)
@@ -206,7 +206,7 @@ func TestConsensusService_GetLeadershipView(t *testing.T) {
 		PoolerDir:  tmpDir,
 	}
 	pm := manager.NewMultiPoolerManager(logger, config)
-	t.Cleanup(func() { pm.Close() })
+	defer pm.Close()
 
 	// Start the async loader
 	senv := servenv.NewServEnv()
@@ -239,7 +239,7 @@ func TestConsensusService_CanReachPrimary(t *testing.T) {
 	ctx := context.Background()
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
-	t.Cleanup(func() { ts.Close() })
+	defer ts.Close()
 
 	// Start mock pgctld server
 	pgctldAddr, cleanupPgctld := testutil.StartMockPgctldServer(t)
@@ -271,7 +271,7 @@ func TestConsensusService_CanReachPrimary(t *testing.T) {
 		PoolerDir:  tmpDir,
 	}
 	pm := manager.NewMultiPoolerManager(logger, config)
-	t.Cleanup(func() { pm.Close() })
+	defer pm.Close()
 
 	// Start the async loader
 	senv := servenv.NewServEnv()
@@ -306,7 +306,7 @@ func TestConsensusService_AllMethods(t *testing.T) {
 	ctx := context.Background()
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
-	t.Cleanup(func() { ts.Close() })
+	defer ts.Close()
 
 	// Start mock pgctld server
 	pgctldAddr, cleanupPgctld := testutil.StartMockPgctldServer(t)
@@ -338,7 +338,7 @@ func TestConsensusService_AllMethods(t *testing.T) {
 		PoolerDir:  tmpDir,
 	}
 	pm := manager.NewMultiPoolerManager(logger, config)
-	t.Cleanup(func() { pm.Close() })
+	defer pm.Close()
 
 	// Start the async loader
 	senv := servenv.NewServEnv()
