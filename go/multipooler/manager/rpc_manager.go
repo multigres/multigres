@@ -267,55 +267,12 @@ func (pm *MultiPoolerManager) ReplicationStatus(ctx context.Context) (*multipool
 		return nil, err
 	}
 
-	status := &multipoolermanagerdatapb.ReplicationStatus{}
-
-	// Get all replication status information in a single query
-	var replayLsn sql.NullString
-	var receiveLsn sql.NullString
-	var isPaused bool
-	var pauseState string
-	var lastXactTime sql.NullString
-	var primaryConnInfo string
-
-	query := `SELECT
-		pg_last_wal_replay_lsn(),
-		pg_last_wal_receive_lsn(),
-		pg_is_wal_replay_paused(),
-		pg_get_wal_replay_pause_state(),
-		pg_last_xact_replay_timestamp(),
-		current_setting('primary_conninfo')`
-
-	err := pm.db.QueryRowContext(ctx, query).Scan(
-		&replayLsn,
-		&receiveLsn,
-		&isPaused,
-		&pauseState,
-		&lastXactTime,
-		&primaryConnInfo,
-	)
+	// Query all replication status fields
+	status, err := pm.queryReplicationStatus(ctx)
 	if err != nil {
 		pm.logger.Error("Failed to get replication status", "error", err)
-		return nil, mterrors.Wrap(err, "failed to get replication status")
+		return nil, err
 	}
-
-	if replayLsn.Valid {
-		status.LastReplayLsn = replayLsn.String
-	}
-	if receiveLsn.Valid {
-		status.LastReceiveLsn = receiveLsn.String
-	}
-	status.IsWalReplayPaused = isPaused
-	status.WalReplayPauseState = pauseState
-	if lastXactTime.Valid {
-		status.LastXactReplayTimestamp = lastXactTime.String
-	}
-
-	// Parse primary_conninfo into structured format
-	parsedConnInfo, err := parseAndRedactPrimaryConnInfo(primaryConnInfo)
-	if err != nil {
-		return nil, mterrors.Wrap(err, "failed to parse primary_conninfo")
-	}
-	status.PrimaryConnInfo = parsedConnInfo
 
 	pm.logger.Info("ReplicationStatus completed",
 		"last_replay_lsn", status.LastReplayLsn,

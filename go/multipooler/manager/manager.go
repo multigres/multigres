@@ -875,14 +875,6 @@ func (pm *MultiPoolerManager) waitForReplicationPause(ctx context.Context) (*mul
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
 
-	query := `SELECT
-		pg_last_wal_replay_lsn(),
-		pg_last_wal_receive_lsn(),
-		pg_is_wal_replay_paused(),
-		pg_get_wal_replay_pause_state(),
-		pg_last_xact_replay_timestamp(),
-		current_setting('primary_conninfo')`
-
 	for {
 		select {
 		case <-waitCtx.Done():
@@ -894,56 +886,19 @@ func (pm *MultiPoolerManager) waitForReplicationPause(ctx context.Context) (*mul
 			return nil, mterrors.Wrap(waitCtx.Err(), "context cancelled while waiting for WAL replay to pause")
 
 		case <-ticker.C:
-			var replayLsn sql.NullString
-			var receiveLsn sql.NullString
-			var isPaused bool
-			var pauseState string
-			var lastXactTime sql.NullString
-			var primaryConnInfo string
-
-			// Query all status fields in each iteration
-			err := pm.db.QueryRowContext(waitCtx, query).Scan(
-				&replayLsn,
-				&receiveLsn,
-				&isPaused,
-				&pauseState,
-				&lastXactTime,
-				&primaryConnInfo,
-			)
+			// Query all replication status fields
+			status, err := pm.queryReplicationStatus(waitCtx)
 			if err != nil {
 				pm.logger.Error("Failed to get replication status", "error", err)
-				return nil, mterrors.Wrap(err, "failed to get replication status")
+				return nil, err
 			}
 
 			// Once paused, we have the exact state at the moment replication stopped
-			if isPaused {
+			if status.IsWalReplayPaused {
 				pm.logger.Info("WAL replay is now paused",
-					"last_replay_lsn", replayLsn.String,
-					"last_receive_lsn", receiveLsn.String,
-					"pause_state", pauseState)
-
-				// Build and return the status
-				status := &multipoolermanagerdatapb.ReplicationStatus{
-					IsWalReplayPaused:   isPaused,
-					WalReplayPauseState: pauseState,
-				}
-
-				if replayLsn.Valid {
-					status.LastReplayLsn = replayLsn.String
-				}
-				if receiveLsn.Valid {
-					status.LastReceiveLsn = receiveLsn.String
-				}
-				if lastXactTime.Valid {
-					status.LastXactReplayTimestamp = lastXactTime.String
-				}
-
-				// Parse primary_conninfo into structured format
-				parsedConnInfo, err := parseAndRedactPrimaryConnInfo(primaryConnInfo)
-				if err != nil {
-					return nil, mterrors.Wrap(err, "failed to parse primary_conninfo")
-				}
-				status.PrimaryConnInfo = parsedConnInfo
+					"last_replay_lsn", status.LastReplayLsn,
+					"last_receive_lsn", status.LastReceiveLsn,
+					"pause_state", status.WalReplayPauseState)
 
 				return status, nil
 			}
@@ -1315,6 +1270,62 @@ func (pm *MultiPoolerManager) getStandbyReplayLSN(ctx context.Context) (string, 
 		return "", mterrors.Wrap(err, "failed to get replay LSN")
 	}
 	return lsn, nil
+}
+
+// queryReplicationStatus queries PostgreSQL for all replication status fields.
+// This method handles NULL values properly for LSN fields that may be NULL
+// when not in recovery mode or when no WAL has been received/replayed.
+func (pm *MultiPoolerManager) queryReplicationStatus(ctx context.Context) (*multipoolermanagerdatapb.ReplicationStatus, error) {
+	var replayLsn sql.NullString
+	var receiveLsn sql.NullString
+	var isPaused bool
+	var pauseState string
+	var lastXactTime sql.NullString
+	var primaryConnInfo string
+
+	query := `SELECT
+		pg_last_wal_replay_lsn(),
+		pg_last_wal_receive_lsn(),
+		pg_is_wal_replay_paused(),
+		pg_get_wal_replay_pause_state(),
+		pg_last_xact_replay_timestamp(),
+		current_setting('primary_conninfo')`
+
+	err := pm.db.QueryRowContext(ctx, query).Scan(
+		&replayLsn,
+		&receiveLsn,
+		&isPaused,
+		&pauseState,
+		&lastXactTime,
+		&primaryConnInfo,
+	)
+	if err != nil {
+		return nil, mterrors.Wrap(err, "failed to query replication status")
+	}
+
+	status := &multipoolermanagerdatapb.ReplicationStatus{
+		IsWalReplayPaused:   isPaused,
+		WalReplayPauseState: pauseState,
+	}
+
+	if replayLsn.Valid {
+		status.LastReplayLsn = replayLsn.String
+	}
+	if receiveLsn.Valid {
+		status.LastReceiveLsn = receiveLsn.String
+	}
+	if lastXactTime.Valid {
+		status.LastXactReplayTimestamp = lastXactTime.String
+	}
+
+	// Parse primary_conninfo into structured format
+	parsedConnInfo, err := parseAndRedactPrimaryConnInfo(primaryConnInfo)
+	if err != nil {
+		return nil, mterrors.Wrap(err, "failed to parse primary_conninfo")
+	}
+	status.PrimaryConnInfo = parsedConnInfo
+
+	return status, nil
 }
 
 // captureFinalLSN captures the final LSN position before going read-only
