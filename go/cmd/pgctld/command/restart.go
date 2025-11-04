@@ -135,7 +135,7 @@ func RestartPostgreSQLWithResult(logger *slog.Logger, config *pgctld.PostgresCtl
 	} else {
 		logger.Info("Starting PostgreSQL server")
 	}
-	startResult, err := StartPostgreSQLWithResult(logger, config, false)
+	startResult, err := StartPostgreSQLWithResult(logger, config, false /* testOrphanDetection */)
 	if err != nil {
 		return nil, fmt.Errorf("failed to start PostgreSQL during restart: %w", err)
 	}

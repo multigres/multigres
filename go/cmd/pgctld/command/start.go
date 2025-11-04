@@ -129,7 +129,7 @@ func (s *PgCtlStartCmd) runStart(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	result, err := StartPostgreSQLWithResult(s.pgCtlCmd.lg.GetLogger(), config, false)
+	result, err := StartPostgreSQLWithResult(s.pgCtlCmd.lg.GetLogger(), config, false /* testOrphanDetection */)
 	if err != nil {
 		return err
 	}
@@ -186,7 +186,7 @@ func StartPostgreSQLWithResult(logger *slog.Logger, config *pgctld.PostgresCtlCo
 
 // StartPostgreSQLWithConfig starts PostgreSQL with the given configuration
 func StartPostgreSQLWithConfig(logger *slog.Logger, config *pgctld.PostgresCtlConfig) error {
-	result, err := StartPostgreSQLWithResult(logger, config, false)
+	result, err := StartPostgreSQLWithResult(logger, config, false /* testOrphanDetection */)
 	if err != nil {
 		return err
 	}
