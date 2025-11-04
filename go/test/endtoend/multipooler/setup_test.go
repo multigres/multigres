@@ -1006,23 +1006,29 @@ func setupPoolerTest(t *testing.T, setup *MultipoolerTestSetup, opts ...cleanupO
 		config.gucsToReset = append(config.gucsToReset, "synchronous_standby_names", "synchronous_commit", "primary_conninfo")
 	}
 
+	// Create pooler clients once and reuse throughout setup and cleanup
+	var primaryPoolerClient, standbyPoolerClient *endtoend.MultiPoolerTestClient
+	if setup != nil && setup.PrimaryMultipooler != nil {
+		var err error
+		primaryPoolerClient, err = endtoend.NewMultiPoolerTestClient(fmt.Sprintf("localhost:%d", setup.PrimaryMultipooler.GrpcPort))
+		require.NoError(t, err, "Failed to connect to primary pooler")
+	}
+	if setup != nil && setup.StandbyMultipooler != nil {
+		var err error
+		standbyPoolerClient, err = endtoend.NewMultiPoolerTestClient(fmt.Sprintf("localhost:%d", setup.StandbyMultipooler.GrpcPort))
+		require.NoError(t, err, "Failed to connect to standby pooler")
+	}
+
 	// Save GUC values BEFORE configuring replication (so we save the clean state)
 	// This way cleanup will restore to clean state
 	var savedPrimaryGucs, savedStandbyGucs map[string]string
 
-	if len(config.gucsToReset) > 0 && setup != nil && setup.PrimaryMultipooler != nil {
-		// Save GUC values from primary
-		if primaryClient, err := endtoend.NewMultiPoolerTestClient(fmt.Sprintf("localhost:%d", setup.PrimaryMultipooler.GrpcPort)); err == nil {
-			savedPrimaryGucs = saveGUCs(primaryClient, config.gucsToReset)
-			primaryClient.Close()
+	if len(config.gucsToReset) > 0 {
+		if primaryPoolerClient != nil {
+			savedPrimaryGucs = saveGUCs(primaryPoolerClient, config.gucsToReset)
 		}
-
-		// Save GUC values from standby
-		if setup.StandbyMultipooler != nil {
-			if standbyClient, err := endtoend.NewMultiPoolerTestClient(fmt.Sprintf("localhost:%d", setup.StandbyMultipooler.GrpcPort)); err == nil {
-				savedStandbyGucs = saveGUCs(standbyClient, config.gucsToReset)
-				standbyClient.Close()
-			}
+		if standbyPoolerClient != nil {
+			savedStandbyGucs = saveGUCs(standbyPoolerClient, config.gucsToReset)
 		}
 	}
 
@@ -1034,9 +1040,8 @@ func setupPoolerTest(t *testing.T, setup *MultipoolerTestSetup, opts ...cleanupO
 			t.Log("Test setup: Configuring replication (setting primary_conninfo, starting WAL streaming)...")
 
 			// SAFETY: Disable synchronous replication to prevent write hangs
-			primaryPoolerClient, err := endtoend.NewMultiPoolerTestClient(fmt.Sprintf("localhost:%d", setup.PrimaryMultipooler.GrpcPort))
-			if err == nil {
-				_, err = primaryPoolerClient.ExecuteQuery(context.Background(), "ALTER SYSTEM SET synchronous_standby_names = ''", 0)
+			if primaryPoolerClient != nil {
+				_, err := primaryPoolerClient.ExecuteQuery(context.Background(), "ALTER SYSTEM SET synchronous_standby_names = ''", 0)
 				if err == nil {
 					_, err = primaryPoolerClient.ExecuteQuery(context.Background(), "SELECT pg_reload_conf()", 0)
 					if err == nil {
@@ -1046,99 +1051,91 @@ func setupPoolerTest(t *testing.T, setup *MultipoolerTestSetup, opts ...cleanupO
 				if err != nil {
 					t.Logf("Warning: Failed to disable synchronous replication: %v", err)
 				}
-				primaryPoolerClient.Close()
 			}
 
 			standbyConn, err := grpc.NewClient(
 				fmt.Sprintf("localhost:%d", setup.StandbyMultipooler.GrpcPort),
 				grpc.WithTransportCredentials(insecure.NewCredentials()),
 			)
-			if err == nil {
-				standbyClient := multipoolermanagerpb.NewMultiPoolerManagerClient(standbyConn)
+			require.NoError(t, err, "Failed to connect to standby multipooler")
+			defer standbyConn.Close()
 
-				// Set consensus term
-				_, err = standbyClient.SetTerm(utils.WithShortDeadline(t), &multipoolermanagerdatapb.SetTermRequest{
-					Term: &multipoolermanagerdatapb.ConsensusTerm{
-						CurrentTerm: 1,
-					},
-				})
-				if err != nil {
-					t.Logf("Warning: Failed to set term on standby: %v", err)
-				}
+			standbyClient := multipoolermanagerpb.NewMultiPoolerManagerClient(standbyConn)
 
-				// Configure replication
-				setPrimaryReq := &multipoolermanagerdatapb.SetPrimaryConnInfoRequest{
-					Host:                  "localhost",
-					Port:                  int32(setup.PrimaryPgctld.PgPort),
-					StartReplicationAfter: true,
-					StopReplicationBefore: false,
-					CurrentTerm:           1,
-					Force:                 false,
-				}
-				ctxSetPrimary, cancelSetPrimary := context.WithTimeout(context.Background(), 5*time.Second)
-				_, err = standbyClient.SetPrimaryConnInfo(ctxSetPrimary, setPrimaryReq)
-				cancelSetPrimary()
-				standbyConn.Close()
+			// Set consensus term
+			_, err = standbyClient.SetTerm(utils.WithShortDeadline(t), &multipoolermanagerdatapb.SetTermRequest{
+				Term: &multipoolermanagerdatapb.ConsensusTerm{
+					CurrentTerm: 1,
+				},
+			})
+			if err != nil {
+				t.Logf("Warning: Failed to set term on standby: %v", err)
+			}
 
-				if err != nil {
-					t.Logf("Warning: Failed to configure replication: %v", err)
-				} else {
-					// Wait for replication to actually start streaming before the test begins
-					standbyPoolerClient, err := endtoend.NewMultiPoolerTestClient(fmt.Sprintf("localhost:%d", setup.StandbyMultipooler.GrpcPort))
-					if err == nil {
-						defer standbyPoolerClient.Close()
+			// Configure replication
+			setPrimaryReq := &multipoolermanagerdatapb.SetPrimaryConnInfoRequest{
+				Host:                  "localhost",
+				Port:                  int32(setup.PrimaryPgctld.PgPort),
+				StartReplicationAfter: true,
+				StopReplicationBefore: false,
+				CurrentTerm:           1,
+				Force:                 false,
+			}
+			ctxSetPrimary, cancelSetPrimary := context.WithTimeout(context.Background(), 5*time.Second)
+			_, err = standbyClient.SetPrimaryConnInfo(ctxSetPrimary, setPrimaryReq)
+			cancelSetPrimary()
 
-						require.Eventually(t, func() bool {
-							resp, err := standbyPoolerClient.ExecuteQuery(context.Background(), "SELECT status FROM pg_stat_wal_receiver", 1)
-							if err != nil || len(resp.Rows) == 0 {
-								return false
-							}
-							return string(resp.Rows[0].Values[0]) == "streaming"
-						}, 5*time.Second, 100*time.Millisecond, "Replication should be streaming after setup")
-
-						if config.pauseReplication {
-							// Pause WAL replay (WAL receiver keeps streaming, but changes aren't applied)
-							_, err = standbyPoolerClient.ExecuteQuery(context.Background(), "SELECT pg_wal_replay_pause()", 1)
-							if err != nil {
-								t.Logf("Warning: Failed to pause WAL replay: %v", err)
-							} else {
-								t.Log("Test setup: Replication configured and streaming, WAL replay PAUSED")
-							}
-						} else {
-							t.Log("Test setup: Replication configured and streaming, WAL replay ACTIVE")
-						}
+			if err != nil {
+				t.Logf("Warning: Failed to configure replication: %v", err)
+			} else if standbyPoolerClient != nil {
+				// Wait for replication to actually start streaming before the test begins
+				require.Eventually(t, func() bool {
+					resp, err := standbyPoolerClient.ExecuteQuery(context.Background(), "SELECT status FROM pg_stat_wal_receiver", 1)
+					if err != nil || len(resp.Rows) == 0 {
+						return false
 					}
+					return string(resp.Rows[0].Values[0]) == "streaming"
+				}, 5*time.Second, 100*time.Millisecond, "Replication should be streaming after setup")
+
+				if config.pauseReplication {
+					// Pause WAL replay (WAL receiver keeps streaming, but changes aren't applied)
+					_, err = standbyPoolerClient.ExecuteQuery(context.Background(), "SELECT pg_wal_replay_pause()", 1)
+					if err != nil {
+						t.Logf("Warning: Failed to pause WAL replay: %v", err)
+					} else {
+						t.Log("Test setup: Replication configured and streaming, WAL replay PAUSED")
+					}
+				} else {
+					t.Log("Test setup: Replication configured and streaming, WAL replay ACTIVE")
 				}
-			} else {
-				t.Logf("Warning: Failed to connect to standby to configure replication: %v", err)
 			}
 		}
 	}
 
 	// Register cleanup handler
 	t.Cleanup(func() {
+		// Close pooler clients at the end
+		defer func() {
+			if primaryPoolerClient != nil {
+				primaryPoolerClient.Close()
+			}
+			if standbyPoolerClient != nil {
+				standbyPoolerClient.Close()
+			}
+		}()
+
 		// Early return if setup is nil or multipoolers are nil
 		if setup == nil || setup.PrimaryMultipooler == nil {
 			return
 		}
 
 		// Step 1: Restore GUC values if specified (must be done first to fix replication)
-		if len(savedPrimaryGucs) > 0 {
-			if primaryClient, err := endtoend.NewMultiPoolerTestClient(fmt.Sprintf("localhost:%d", setup.PrimaryMultipooler.GrpcPort)); err == nil {
-				defer primaryClient.Close()
-				restoreGUCs(t, primaryClient, savedPrimaryGucs, "primary")
-			} else {
-				t.Logf("Warning: Failed to connect to primary for GUC restoration: %v", err)
-			}
+		if len(savedPrimaryGucs) > 0 && primaryPoolerClient != nil {
+			restoreGUCs(t, primaryPoolerClient, savedPrimaryGucs, "primary")
 		}
 
-		if len(savedStandbyGucs) > 0 && setup.StandbyMultipooler != nil {
-			if standbyClient, err := endtoend.NewMultiPoolerTestClient(fmt.Sprintf("localhost:%d", setup.StandbyMultipooler.GrpcPort)); err == nil {
-				defer standbyClient.Close()
-				restoreGUCs(t, standbyClient, savedStandbyGucs, "standby")
-			} else {
-				t.Logf("Warning: Failed to connect to standby for GUC restoration: %v", err)
-			}
+		if len(savedStandbyGucs) > 0 && standbyPoolerClient != nil {
+			restoreGUCs(t, standbyPoolerClient, savedStandbyGucs, "standby")
 		}
 
 		// Step 2: Always resume WAL replay (must be after GUC restoration)
@@ -1146,34 +1143,20 @@ func setupPoolerTest(t *testing.T, setup *MultipoolerTestSetup, opts ...cleanupO
 		// We always do this regardless of WithoutReplication flag because pause state persists
 		// NOTE: We don't wait for streaming because we just restored GUCs to clean state
 		// (primary_conninfo=''), so there's no replication source configured.
-		if setup.StandbyMultipooler != nil {
-			standbyClient, err := endtoend.NewMultiPoolerTestClient(fmt.Sprintf("localhost:%d", setup.StandbyMultipooler.GrpcPort))
-			if err == nil {
-				defer standbyClient.Close()
-
-				_, err = standbyClient.ExecuteQuery(context.Background(), "SELECT pg_wal_replay_resume()", 1)
-				if err != nil {
-					t.Logf("Cleanup: Failed to resume WAL replay: %v", err)
-				}
-			} else {
-				t.Logf("Warning: Failed to connect to standby to resume WAL replay: %v", err)
+		if standbyPoolerClient != nil {
+			_, err := standbyPoolerClient.ExecuteQuery(context.Background(), "SELECT pg_wal_replay_resume()", 1)
+			if err != nil {
+				t.Logf("Cleanup: Failed to resume WAL replay: %v", err)
 			}
 		}
 
 		// Step 3: Drop tables if specified (must be last, requires working replication)
-		if len(config.tablesToDrop) > 0 {
-			primaryClient, err := endtoend.NewMultiPoolerTestClient(fmt.Sprintf("localhost:%d", setup.PrimaryMultipooler.GrpcPort))
-			if err == nil {
-				defer primaryClient.Close()
-
-				for _, table := range config.tablesToDrop {
-					_, err = primaryClient.ExecuteQuery(context.Background(), fmt.Sprintf("DROP TABLE IF EXISTS %s", table), 1)
-					if err != nil {
-						t.Logf("Warning: Failed to drop table %s in cleanup: %v", table, err)
-					}
+		if len(config.tablesToDrop) > 0 && primaryPoolerClient != nil {
+			for _, table := range config.tablesToDrop {
+				_, err := primaryPoolerClient.ExecuteQuery(context.Background(), fmt.Sprintf("DROP TABLE IF EXISTS %s", table), 1)
+				if err != nil {
+					t.Logf("Warning: Failed to drop table %s in cleanup: %v", table, err)
 				}
-			} else {
-				t.Logf("Warning: Failed to connect to primary for table cleanup: %v", err)
 			}
 		}
 	})
