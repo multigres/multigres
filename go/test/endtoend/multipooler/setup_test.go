@@ -964,14 +964,13 @@ func validateCleanState(t *testing.T, setup *MultipoolerTestSetup) {
 	}
 }
 
-// setupPoolerTest registers cleanup functions based on the provided options.
+// setupPoolerTest provides test isolation by validating clean state, optionally configuring
+// replication, and automatically restoring any state changes at test cleanup.
 //
 // DEFAULT BEHAVIOR (no options):
 //   - Configures replication: Sets primary_conninfo, standby connects to primary
 //   - Starts WAL streaming: WAL receiver active, WAL replay applying changes
 //   - Disables synchronous replication (safe - writes won't hang)
-//   - Saves/restores: synchronous_standby_names, synchronous_commit, primary_conninfo
-//   - At cleanup: restores to the saved state, resumes WAL replay if paused
 //
 // WithoutReplication():
 //   - Does NOT configure replication: primary_conninfo stays empty
