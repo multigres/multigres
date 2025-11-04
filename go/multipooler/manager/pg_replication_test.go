@@ -1331,6 +1331,368 @@ func TestValidateSyncReplicationParams(t *testing.T) {
 	}
 }
 
+func TestPauseReplication(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+
+	tests := []struct {
+		name           string
+		mode           ReplicationPauseMode
+		wait           bool
+		setupMock      func(mock sqlmock.Sqlmock)
+		expectError    bool
+		errorContains  string
+		expectStatus   bool // true if we expect a non-nil status to be returned
+		validateResult func(t *testing.T, status *multipoolermanagerdatapb.ReplicationStatus)
+	}{
+		{
+			name: "PauseReplayOnly with wait=true",
+			mode: PauseReplayOnly,
+			wait: true,
+			setupMock: func(mock sqlmock.Sqlmock) {
+				// Expect pg_wal_replay_pause() call
+				mock.ExpectExec(regexp.QuoteMeta("SELECT pg_wal_replay_pause()")).
+					WillReturnResult(sqlmock.NewResult(0, 0))
+
+				// Expect waitForReplicationPause query
+				rows := sqlmock.NewRows([]string{
+					"pg_last_wal_replay_lsn",
+					"pg_last_wal_receive_lsn",
+					"pg_is_wal_replay_paused",
+					"pg_get_wal_replay_pause_state",
+					"pg_last_xact_replay_timestamp",
+					"current_setting",
+				}).AddRow(
+					"0/3000000",
+					"0/3000100",
+					true,
+					"paused",
+					"2025-01-15 10:00:00+00",
+					"host=primary port=5432",
+				)
+				mock.ExpectQuery("SELECT").WillReturnRows(rows)
+			},
+			expectError:  false,
+			expectStatus: true,
+			validateResult: func(t *testing.T, status *multipoolermanagerdatapb.ReplicationStatus) {
+				assert.Equal(t, "0/3000000", status.LastReplayLsn)
+				assert.True(t, status.IsWalReplayPaused)
+			},
+		},
+		{
+			name: "PauseReplayOnly with wait=false",
+			mode: PauseReplayOnly,
+			wait: false,
+			setupMock: func(mock sqlmock.Sqlmock) {
+				// Expect pg_wal_replay_pause() call only
+				mock.ExpectExec(regexp.QuoteMeta("SELECT pg_wal_replay_pause()")).
+					WillReturnResult(sqlmock.NewResult(0, 0))
+				// No wait query expected
+			},
+			expectError:  false,
+			expectStatus: false, // Should return nil when not waiting
+		},
+		{
+			name: "PauseReplayOnly fails on pause command",
+			mode: PauseReplayOnly,
+			wait: true,
+			setupMock: func(mock sqlmock.Sqlmock) {
+				mock.ExpectExec(regexp.QuoteMeta("SELECT pg_wal_replay_pause()")).
+					WillReturnError(fmt.Errorf("permission denied"))
+			},
+			expectError:   true,
+			errorContains: "failed to pause WAL replay",
+		},
+		{
+			name: "PauseReceiverOnly with wait=true",
+			mode: PauseReceiverOnly,
+			wait: true,
+			setupMock: func(mock sqlmock.Sqlmock) {
+				// Expect ALTER SYSTEM RESET primary_conninfo
+				mock.ExpectExec(regexp.QuoteMeta("ALTER SYSTEM RESET primary_conninfo")).
+					WillReturnResult(sqlmock.NewResult(0, 0))
+
+				// Expect pg_reload_conf()
+				mock.ExpectExec(regexp.QuoteMeta("SELECT pg_reload_conf()")).
+					WillReturnResult(sqlmock.NewResult(0, 0))
+
+				// Expect queryReplicationStatus
+				rows := sqlmock.NewRows([]string{
+					"pg_last_wal_replay_lsn",
+					"pg_last_wal_receive_lsn",
+					"pg_is_wal_replay_paused",
+					"pg_get_wal_replay_pause_state",
+					"pg_last_xact_replay_timestamp",
+					"current_setting",
+				}).AddRow(
+					"0/4000000",
+					nil, // receiver stopped, so receive_lsn might be null
+					false,
+					"not paused",
+					"2025-01-15 11:00:00+00",
+					"", // empty primary_conninfo after reset
+				)
+				mock.ExpectQuery("SELECT").WillReturnRows(rows)
+			},
+			expectError:  false,
+			expectStatus: true,
+			validateResult: func(t *testing.T, status *multipoolermanagerdatapb.ReplicationStatus) {
+				assert.Equal(t, "0/4000000", status.LastReplayLsn)
+				assert.False(t, status.IsWalReplayPaused)
+				assert.Empty(t, status.LastReceiveLsn)
+			},
+		},
+		{
+			name: "PauseReceiverOnly with wait=false",
+			mode: PauseReceiverOnly,
+			wait: false,
+			setupMock: func(mock sqlmock.Sqlmock) {
+				// Expect ALTER SYSTEM RESET primary_conninfo
+				mock.ExpectExec(regexp.QuoteMeta("ALTER SYSTEM RESET primary_conninfo")).
+					WillReturnResult(sqlmock.NewResult(0, 0))
+
+				// Expect pg_reload_conf()
+				mock.ExpectExec(regexp.QuoteMeta("SELECT pg_reload_conf()")).
+					WillReturnResult(sqlmock.NewResult(0, 0))
+
+				// No status query expected
+			},
+			expectError:  false,
+			expectStatus: false,
+		},
+		{
+			name: "PauseReceiverOnly fails on ALTER SYSTEM",
+			mode: PauseReceiverOnly,
+			wait: false,
+			setupMock: func(mock sqlmock.Sqlmock) {
+				mock.ExpectExec(regexp.QuoteMeta("ALTER SYSTEM RESET primary_conninfo")).
+					WillReturnError(fmt.Errorf("permission denied"))
+			},
+			expectError:   true,
+			errorContains: "failed to clear primary_conninfo",
+		},
+		{
+			name: "PauseReceiverOnly fails on reload",
+			mode: PauseReceiverOnly,
+			wait: false,
+			setupMock: func(mock sqlmock.Sqlmock) {
+				mock.ExpectExec(regexp.QuoteMeta("ALTER SYSTEM RESET primary_conninfo")).
+					WillReturnResult(sqlmock.NewResult(0, 0))
+				mock.ExpectExec(regexp.QuoteMeta("SELECT pg_reload_conf()")).
+					WillReturnError(fmt.Errorf("reload failed"))
+			},
+			expectError:   true,
+			errorContains: "failed to reload PostgreSQL configuration",
+		},
+		{
+			name: "PauseReplayAndReceiver with wait=true",
+			mode: PauseReplayAndReceiver,
+			wait: true,
+			setupMock: func(mock sqlmock.Sqlmock) {
+				// Expect pg_wal_replay_pause() call
+				mock.ExpectExec(regexp.QuoteMeta("SELECT pg_wal_replay_pause()")).
+					WillReturnResult(sqlmock.NewResult(0, 0))
+
+				// Expect ALTER SYSTEM RESET primary_conninfo
+				mock.ExpectExec(regexp.QuoteMeta("ALTER SYSTEM RESET primary_conninfo")).
+					WillReturnResult(sqlmock.NewResult(0, 0))
+
+				// Expect pg_reload_conf()
+				mock.ExpectExec(regexp.QuoteMeta("SELECT pg_reload_conf()")).
+					WillReturnResult(sqlmock.NewResult(0, 0))
+
+				// Expect waitForReplicationPause query
+				rows := sqlmock.NewRows([]string{
+					"pg_last_wal_replay_lsn",
+					"pg_last_wal_receive_lsn",
+					"pg_is_wal_replay_paused",
+					"pg_get_wal_replay_pause_state",
+					"pg_last_xact_replay_timestamp",
+					"current_setting",
+				}).AddRow(
+					"0/5000000",
+					nil,
+					true,
+					"paused",
+					"2025-01-15 12:00:00+00",
+					"",
+				)
+				mock.ExpectQuery("SELECT").WillReturnRows(rows)
+			},
+			expectError:  false,
+			expectStatus: true,
+			validateResult: func(t *testing.T, status *multipoolermanagerdatapb.ReplicationStatus) {
+				assert.Equal(t, "0/5000000", status.LastReplayLsn)
+				assert.True(t, status.IsWalReplayPaused)
+			},
+		},
+		{
+			name: "PauseReplayAndReceiver with wait=false",
+			mode: PauseReplayAndReceiver,
+			wait: false,
+			setupMock: func(mock sqlmock.Sqlmock) {
+				// Expect pg_wal_replay_pause() call
+				mock.ExpectExec(regexp.QuoteMeta("SELECT pg_wal_replay_pause()")).
+					WillReturnResult(sqlmock.NewResult(0, 0))
+
+				// Expect ALTER SYSTEM RESET primary_conninfo
+				mock.ExpectExec(regexp.QuoteMeta("ALTER SYSTEM RESET primary_conninfo")).
+					WillReturnResult(sqlmock.NewResult(0, 0))
+
+				// Expect pg_reload_conf()
+				mock.ExpectExec(regexp.QuoteMeta("SELECT pg_reload_conf()")).
+					WillReturnResult(sqlmock.NewResult(0, 0))
+
+				// No wait query expected
+			},
+			expectError:  false,
+			expectStatus: false,
+		},
+		{
+			name: "PauseReplayAndReceiver fails on pause",
+			mode: PauseReplayAndReceiver,
+			wait: false,
+			setupMock: func(mock sqlmock.Sqlmock) {
+				mock.ExpectExec(regexp.QuoteMeta("SELECT pg_wal_replay_pause()")).
+					WillReturnError(fmt.Errorf("pause failed"))
+			},
+			expectError:   true,
+			errorContains: "failed to pause WAL replay",
+		},
+		{
+			name: "PauseReplayAndReceiver fails on clearing conninfo",
+			mode: PauseReplayAndReceiver,
+			wait: false,
+			setupMock: func(mock sqlmock.Sqlmock) {
+				mock.ExpectExec(regexp.QuoteMeta("SELECT pg_wal_replay_pause()")).
+					WillReturnResult(sqlmock.NewResult(0, 0))
+				mock.ExpectExec(regexp.QuoteMeta("ALTER SYSTEM RESET primary_conninfo")).
+					WillReturnError(fmt.Errorf("reset failed"))
+			},
+			expectError:   true,
+			errorContains: "failed to clear primary_conninfo",
+		},
+		{
+			name: "Invalid mode",
+			mode: ReplicationPauseMode(999),
+			wait: false,
+			setupMock: func(mock sqlmock.Sqlmock) {
+				// No expectations - should fail before any DB calls
+			},
+			expectError:   true,
+			errorContains: "invalid replication pause mode",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mockDB, mock, err := sqlmock.New()
+			require.NoError(t, err)
+			defer mockDB.Close()
+
+			tt.setupMock(mock)
+
+			pm := &MultiPoolerManager{
+				logger: logger,
+				db:     mockDB,
+			}
+
+			ctx := context.Background()
+			status, err := pm.pauseReplication(ctx, tt.mode, tt.wait)
+
+			if tt.expectError {
+				assert.Error(t, err)
+				if tt.errorContains != "" {
+					assert.Contains(t, err.Error(), tt.errorContains)
+				}
+				assert.Nil(t, status)
+			} else {
+				require.NoError(t, err)
+				if tt.expectStatus {
+					require.NotNil(t, status, "Expected non-nil status when wait=true")
+					if tt.validateResult != nil {
+						tt.validateResult(t, status)
+					}
+				} else {
+					assert.Nil(t, status, "Expected nil status when wait=false")
+				}
+			}
+
+			assert.NoError(t, mock.ExpectationsWereMet())
+		})
+	}
+}
+
+func TestResetPrimaryConnInfo(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+
+	tests := []struct {
+		name          string
+		setupMock     func(mock sqlmock.Sqlmock)
+		expectError   bool
+		errorContains string
+	}{
+		{
+			name: "successful reset",
+			setupMock: func(mock sqlmock.Sqlmock) {
+				mock.ExpectExec(regexp.QuoteMeta("ALTER SYSTEM RESET primary_conninfo")).
+					WillReturnResult(sqlmock.NewResult(0, 0))
+				mock.ExpectExec(regexp.QuoteMeta("SELECT pg_reload_conf()")).
+					WillReturnResult(sqlmock.NewResult(0, 0))
+			},
+			expectError: false,
+		},
+		{
+			name: "ALTER SYSTEM fails",
+			setupMock: func(mock sqlmock.Sqlmock) {
+				mock.ExpectExec(regexp.QuoteMeta("ALTER SYSTEM RESET primary_conninfo")).
+					WillReturnError(fmt.Errorf("permission denied"))
+			},
+			expectError:   true,
+			errorContains: "failed to clear primary_conninfo",
+		},
+		{
+			name: "pg_reload_conf fails",
+			setupMock: func(mock sqlmock.Sqlmock) {
+				mock.ExpectExec(regexp.QuoteMeta("ALTER SYSTEM RESET primary_conninfo")).
+					WillReturnResult(sqlmock.NewResult(0, 0))
+				mock.ExpectExec(regexp.QuoteMeta("SELECT pg_reload_conf()")).
+					WillReturnError(fmt.Errorf("reload failed"))
+			},
+			expectError:   true,
+			errorContains: "failed to reload PostgreSQL configuration",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mockDB, mock, err := sqlmock.New()
+			require.NoError(t, err)
+			defer mockDB.Close()
+
+			tt.setupMock(mock)
+
+			pm := &MultiPoolerManager{
+				logger: logger,
+				db:     mockDB,
+			}
+
+			ctx := context.Background()
+			err = pm.resetPrimaryConnInfo(ctx)
+
+			if tt.expectError {
+				assert.Error(t, err)
+				if tt.errorContains != "" {
+					assert.Contains(t, err.Error(), tt.errorContains)
+				}
+			} else {
+				assert.NoError(t, err)
+			}
+
+			assert.NoError(t, mock.ExpectationsWereMet())
+		})
+	}
+}
+
 func TestQueryReplicationStatus(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 

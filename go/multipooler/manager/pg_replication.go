@@ -40,6 +40,23 @@ import (
 // manager.go and rpc_manager.go.
 // ============================================================================
 
+// ReplicationPauseMode defines what aspect of replication to pause
+type ReplicationPauseMode int
+
+const (
+	// PauseReplayOnly pauses WAL replay only (using pg_wal_replay_pause)
+	// The WAL receiver continues to receive data from the primary
+	PauseReplayOnly ReplicationPauseMode = iota
+
+	// PauseReceiverOnly stops the WAL receiver by clearing primary_conninfo
+	// Already replayed WAL remains, but no new WAL is received
+	PauseReceiverOnly
+
+	// PauseReplayAndReceiver pauses both WAL replay and stops the WAL receiver
+	// This is the most complete pause - no new WAL is received and nothing is replayed
+	PauseReplayAndReceiver
+)
+
 // ----------------------------------------------------------------------------
 // Application Name Helpers
 // ----------------------------------------------------------------------------
@@ -196,6 +213,106 @@ func (pm *MultiPoolerManager) waitForReplicationPause(ctx context.Context) (*mul
 				return status, nil
 			}
 		}
+	}
+}
+
+// resetPrimaryConnInfo clears primary_conninfo and reloads PostgreSQL configuration.
+// This effectively disconnects the replica from the primary.
+func (pm *MultiPoolerManager) resetPrimaryConnInfo(ctx context.Context) error {
+	// Clear primary_conninfo using ALTER SYSTEM
+	pm.logger.Info("Clearing primary_conninfo")
+	_, err := pm.db.ExecContext(ctx, "ALTER SYSTEM RESET primary_conninfo")
+	if err != nil {
+		pm.logger.Error("Failed to clear primary_conninfo", "error", err)
+		return mterrors.Wrap(err, "failed to clear primary_conninfo")
+	}
+
+	// Reload PostgreSQL configuration to apply changes
+	pm.logger.Info("Reloading PostgreSQL configuration")
+	_, err = pm.db.ExecContext(ctx, "SELECT pg_reload_conf()")
+	if err != nil {
+		pm.logger.Error("Failed to reload configuration", "error", err)
+		return mterrors.Wrap(err, "failed to reload PostgreSQL configuration")
+	}
+
+	return nil
+}
+
+// pauseReplication pauses replication based on the specified mode.
+// If wait is true, it waits for the pause operation to complete before returning.
+// Returns the replication status after pausing (if wait is true) or nil (if wait is false).
+func (pm *MultiPoolerManager) pauseReplication(ctx context.Context, mode ReplicationPauseMode, wait bool) (*multipoolermanagerdatapb.ReplicationStatus, error) {
+	switch mode {
+	case PauseReplayOnly:
+		// Pause WAL replay on the standby
+		pm.logger.Info("Pausing WAL replay on standby")
+		_, err := pm.db.ExecContext(ctx, "SELECT pg_wal_replay_pause()")
+		if err != nil {
+			pm.logger.Error("Failed to pause WAL replay", "error", err)
+			return nil, mterrors.Wrap(err, "failed to pause WAL replay")
+		}
+
+		if wait {
+			// Wait for WAL replay to actually be paused
+			// pg_wal_replay_pause() is asynchronous, so we need to wait for it to complete
+			pm.logger.Info("Waiting for WAL replay to complete pausing")
+			status, err := pm.waitForReplicationPause(ctx)
+			if err != nil {
+				return nil, err
+			}
+			return status, nil
+		}
+
+		return nil, nil
+
+	case PauseReceiverOnly:
+		// Stop the WAL receiver by clearing primary_conninfo
+		pm.logger.Info("Stopping WAL receiver")
+		if err := pm.resetPrimaryConnInfo(ctx); err != nil {
+			return nil, err
+		}
+
+		if wait {
+			// Query replication status after stopping receiver
+			pm.logger.Info("Querying replication status after stopping receiver")
+			status, err := pm.queryReplicationStatus(ctx)
+			if err != nil {
+				return nil, err
+			}
+			return status, nil
+		}
+
+		return nil, nil
+
+	case PauseReplayAndReceiver:
+		// First pause replay
+		pm.logger.Info("Pausing both WAL replay and receiver")
+		_, err := pm.db.ExecContext(ctx, "SELECT pg_wal_replay_pause()")
+		if err != nil {
+			pm.logger.Error("Failed to pause WAL replay", "error", err)
+			return nil, mterrors.Wrap(err, "failed to pause WAL replay")
+		}
+
+		// Then stop receiver
+		if err := pm.resetPrimaryConnInfo(ctx); err != nil {
+			return nil, err
+		}
+
+		if wait {
+			// Wait for replay pause to complete
+			pm.logger.Info("Waiting for WAL replay to complete pausing")
+			status, err := pm.waitForReplicationPause(ctx)
+			if err != nil {
+				return nil, err
+			}
+			return status, nil
+		}
+
+		return nil, nil
+
+	default:
+		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT,
+			fmt.Sprintf("invalid replication pause mode: %d", mode))
 	}
 }
 

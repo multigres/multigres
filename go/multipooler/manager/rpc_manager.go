@@ -235,18 +235,7 @@ func (pm *MultiPoolerManager) StopReplication(ctx context.Context) error {
 		return err
 	}
 
-	// Pause WAL replay on the standby
-	pm.logger.InfoContext(ctx, "Pausing WAL replay on standby")
-	_, err := pm.db.ExecContext(ctx, "SELECT pg_wal_replay_pause()")
-	if err != nil {
-		pm.logger.ErrorContext(ctx, "Failed to pause WAL replay", "error", err)
-		return mterrors.Wrap(err, "failed to pause WAL replay")
-	}
-
-	// Wait for WAL replay to actually be paused
-	// pg_wal_replay_pause() is asynchronous, so we need to wait for it to complete
-	pm.logger.InfoContext(ctx, "Waiting for WAL replay to complete pausing")
-	_, err = pm.waitForReplicationPause(ctx)
+	_, err := pm.pauseReplication(ctx, PauseReplayOnly, true /* wait */)
 	if err != nil {
 		return err
 	}
@@ -306,20 +295,10 @@ func (pm *MultiPoolerManager) ResetReplication(ctx context.Context) error {
 		return err
 	}
 
-	//  Clear primary_conninfo using ALTER SYSTEM
-	pm.logger.InfoContext(ctx, "Clearing primary_conninfo")
-	_, err := pm.db.ExecContext(ctx, "ALTER SYSTEM RESET primary_conninfo")
+	// Pause the receiver (clear primary_conninfo) and wait for disconnect
+	_, err := pm.pauseReplication(ctx, PauseReceiverOnly, true /* wait */)
 	if err != nil {
-		pm.logger.ErrorContext(ctx, "Failed to clear primary_conninfo", "error", err)
-		return mterrors.Wrap(err, "failed to clear primary_conninfo")
-	}
-
-	//  Reload PostgreSQL configuration to apply changes
-	pm.logger.InfoContext(ctx, "Reloading PostgreSQL configuration")
-	_, err = pm.db.ExecContext(ctx, "SELECT pg_reload_conf()")
-	if err != nil {
-		pm.logger.ErrorContext(ctx, "Failed to reload configuration", "error", err)
-		return mterrors.Wrap(err, "failed to reload PostgreSQL configuration")
+		return err
 	}
 
 	pm.logger.InfoContext(ctx, "ResetReplication completed successfully - standby disconnected from primary")
@@ -604,17 +583,7 @@ func (pm *MultiPoolerManager) StopReplicationAndGetStatus(ctx context.Context) (
 		return nil, err
 	}
 
-	// Pause WAL replay on the standby
-	pm.logger.InfoContext(ctx, "Pausing WAL replay on standby")
-	_, err := pm.db.ExecContext(ctx, "SELECT pg_wal_replay_pause()")
-	if err != nil {
-		pm.logger.ErrorContext(ctx, "Failed to pause WAL replay", "error", err)
-		return nil, mterrors.Wrap(err, "failed to pause WAL replay")
-	}
-
-	// Wait for WAL replay to actually be paused and capture status at that moment
-	pm.logger.InfoContext(ctx, "Waiting for WAL replay to complete pausing")
-	status, err := pm.waitForReplicationPause(ctx)
+	status, err := pm.pauseReplication(ctx, PauseReplayOnly, true /* wait */)
 	if err != nil {
 		return nil, err
 	}
