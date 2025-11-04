@@ -47,7 +47,7 @@ func (e *Executor) ExecuteQuery(ctx context.Context, target *query.Target, sql s
 	if target == nil {
 		target = &query.Target{}
 	}
-	e.logger.Debug("executing query",
+	e.logger.DebugContext(ctx, "executing query",
 		"tablegroup", target.TableGroup,
 		"shard", target.Shard,
 		"pooler_type", target.PoolerType.String(),
@@ -69,7 +69,7 @@ func (e *Executor) StreamExecute(
 	// TODO(GuptaManan100): Actually stream the results from postgres.
 	result, err := e.ExecuteQuery(ctx, target, sql, 0) // 0 = no max rows limit
 	if err != nil {
-		e.logger.Error("query execution failed", "error", err, "query", sql)
+		e.logger.ErrorContext(ctx, "query execution failed", "error", err, "query", sql)
 		return fmt.Errorf("query execution failed: %w", err)
 	}
 

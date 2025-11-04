@@ -185,7 +185,7 @@ func NewPgCtldService(logger *slog.Logger, pgPort int, pgUser string, pgDatabase
 }
 
 func (s *PgCtldService) Start(ctx context.Context, req *pb.StartRequest) (*pb.StartResponse, error) {
-	s.logger.Info("gRPC Start request", "port", req.Port)
+	s.logger.InfoContext(ctx, "gRPC Start request", "port", req.Port)
 
 	// Check if data directory is initialized
 	if !pgctld.IsDataDirInitialized(s.poolerDir) {
@@ -206,7 +206,7 @@ func (s *PgCtldService) Start(ctx context.Context, req *pb.StartRequest) (*pb.St
 }
 
 func (s *PgCtldService) Stop(ctx context.Context, req *pb.StopRequest) (*pb.StopResponse, error) {
-	s.logger.Info("gRPC Stop request", "mode", req.Mode)
+	s.logger.InfoContext(ctx, "gRPC Stop request", "mode", req.Mode)
 
 	// Check if data directory is initialized
 	if !pgctld.IsDataDirInitialized(s.poolerDir) {
@@ -226,7 +226,7 @@ func (s *PgCtldService) Stop(ctx context.Context, req *pb.StopRequest) (*pb.Stop
 }
 
 func (s *PgCtldService) Restart(ctx context.Context, req *pb.RestartRequest) (*pb.RestartResponse, error) {
-	s.logger.Info("gRPC Restart request", "mode", req.Mode, "port", req.Port, "as_standby", req.AsStandby)
+	s.logger.InfoContext(ctx, "gRPC Restart request", "mode", req.Mode, "port", req.Port, "as_standby", req.AsStandby)
 
 	// Check if data directory is initialized
 	if !pgctld.IsDataDirInitialized(s.poolerDir) {
@@ -247,7 +247,7 @@ func (s *PgCtldService) Restart(ctx context.Context, req *pb.RestartRequest) (*p
 }
 
 func (s *PgCtldService) ReloadConfig(ctx context.Context, req *pb.ReloadConfigRequest) (*pb.ReloadConfigResponse, error) {
-	s.logger.Info("gRPC ReloadConfig request")
+	s.logger.InfoContext(ctx, "gRPC ReloadConfig request")
 
 	// Check if data directory is initialized
 	if !pgctld.IsDataDirInitialized(s.poolerDir) {
@@ -267,7 +267,7 @@ func (s *PgCtldService) ReloadConfig(ctx context.Context, req *pb.ReloadConfigRe
 }
 
 func (s *PgCtldService) Status(ctx context.Context, req *pb.StatusRequest) (*pb.StatusResponse, error) {
-	s.logger.Debug("gRPC Status request")
+	s.logger.DebugContext(ctx, "gRPC Status request")
 
 	// First check if data directory is initialized
 	if !pgctld.IsDataDirInitialized(s.poolerDir) {
@@ -309,7 +309,7 @@ func (s *PgCtldService) Status(ctx context.Context, req *pb.StatusRequest) (*pb.
 }
 
 func (s *PgCtldService) Version(ctx context.Context, req *pb.VersionRequest) (*pb.VersionResponse, error) {
-	s.logger.Debug("gRPC Version request")
+	s.logger.DebugContext(ctx, "gRPC Version request")
 	result, err := GetVersionWithResult(s.config)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get version: %w", err)
@@ -322,7 +322,7 @@ func (s *PgCtldService) Version(ctx context.Context, req *pb.VersionRequest) (*p
 }
 
 func (s *PgCtldService) InitDataDir(ctx context.Context, req *pb.InitDataDirRequest) (*pb.InitDataDirResponse, error) {
-	s.logger.Info("gRPC InitDataDir request")
+	s.logger.InfoContext(ctx, "gRPC InitDataDir request")
 
 	// Use the shared init function with detailed result
 	result, err := InitDataDirWithResult(s.logger, s.poolerDir, s.pgPort, s.pgUser, req.PgPwfile)

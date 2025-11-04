@@ -58,6 +58,7 @@ linters:
             - pkg: "math/rand$"
               desc: "Please use math/rand/v2"
     sloglint:
+      context: scope
     govet:
     disable:
       - nilness
