@@ -361,7 +361,7 @@ func TestValidateAndUpdateTerm(t *testing.T) {
 				initialTerm := &multipoolermanagerdatapb.ConsensusTerm{
 					TermNumber: tt.currentTerm,
 				}
-				require.NoError(t, SetConsensusTerm(poolerDir, initialTerm))
+				require.NoError(t, setConsensusTerm(poolerDir, initialTerm))
 			}
 
 			multipooler := &clustermetadatapb.MultiPooler{

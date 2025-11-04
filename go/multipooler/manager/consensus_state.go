@@ -50,7 +50,7 @@ func NewConsensusState(poolerDir string, serviceID *clustermetadatapb.ID) *Conse
 // If the file doesn't exist, initializes with default values (term 0, no accepted leader).
 // This method is idempotent - subsequent calls will reload from disk.
 func (cs *ConsensusState) Load() error {
-	term, err := GetConsensusTerm(cs.poolerDir)
+	term, err := getConsensusTerm(cs.poolerDir)
 	if err != nil {
 		return fmt.Errorf("failed to load consensus term: %w", err)
 	}
@@ -171,7 +171,7 @@ func (cs *ConsensusState) PrepareTermUpdate(newTerm int64) (*multipoolermanagerd
 // If the save fails, memory remains unchanged and the error is returned.
 func (cs *ConsensusState) SaveAndUpdate(newTerm *multipoolermanagerdatapb.ConsensusTerm) error {
 	// Save to disk FIRST (outside of lock to allow concurrent reads)
-	if err := SetConsensusTerm(cs.poolerDir, newTerm); err != nil {
+	if err := setConsensusTerm(cs.poolerDir, newTerm); err != nil {
 		// Save failed - don't update memory, propagate error
 		return fmt.Errorf("failed to save consensus term: %w", err)
 	}

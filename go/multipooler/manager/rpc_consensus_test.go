@@ -225,7 +225,7 @@ func TestBeginTerm(t *testing.T) {
 			pm, mock, tmpDir := setupManagerWithMockDB(t)
 
 			// Initialize term on disk
-			err := SetConsensusTerm(tmpDir, tt.initialTerm)
+			err := setConsensusTerm(tmpDir, tt.initialTerm)
 			require.NoError(t, err)
 
 			// Load into consensus state
@@ -251,7 +251,7 @@ func TestBeginTerm(t *testing.T) {
 			assert.Equal(t, tt.expectedTerm, resp.Term)
 
 			// Verify persisted state
-			loadedTerm, err := GetConsensusTerm(tmpDir)
+			loadedTerm, err := getConsensusTerm(tmpDir)
 			require.NoError(t, err)
 			assert.Equal(t, tt.expectedTerm, loadedTerm.TermNumber)
 			assert.Equal(t, tt.expectedAcceptedLeader, loadedTerm.AcceptedLeader.GetName())
@@ -267,7 +267,7 @@ func TestBeginTerm(t *testing.T) {
 			pm, mock, tmpDir := setupManagerWithMockDB(t)
 
 			// Initialize term on disk
-			err := SetConsensusTerm(tmpDir, tt.initialTerm)
+			err := setConsensusTerm(tmpDir, tt.initialTerm)
 			require.NoError(t, err)
 
 			// Load into consensus state
@@ -308,7 +308,7 @@ func TestBeginTerm(t *testing.T) {
 				assert.Equal(t, tt.expectedMemoryLeader, pm.consensusState.GetAcceptedLeader(), "Memory leader should be unchanged after save failure")
 
 				// Verify disk is unchanged
-				loadedTerm, loadErr := GetConsensusTerm(tmpDir)
+				loadedTerm, loadErr := getConsensusTerm(tmpDir)
 				require.NoError(t, loadErr)
 				assert.Equal(t, tt.expectedMemoryTerm, loadedTerm.TermNumber, "Disk term should match initial state after save failure")
 				if tt.expectedMemoryLeader != "" {
@@ -577,7 +577,7 @@ func TestConsensusStatus(t *testing.T) {
 			pm, mock, tmpDir := setupManagerWithMockDB(t)
 
 			// Initialize term on disk
-			err := SetConsensusTerm(tmpDir, tt.initialTerm)
+			err := setConsensusTerm(tmpDir, tt.initialTerm)
 			require.NoError(t, err)
 
 			// Load term into consensus state if term should be in memory
