@@ -19,6 +19,7 @@ import (
 	"log/slog"
 
 	"github.com/multigres/multigres/go/multigateway/engine"
+	"github.com/multigres/multigres/go/multigateway/handler"
 	"github.com/multigres/multigres/go/multigateway/planner"
 	"github.com/multigres/multigres/go/pb/query"
 	"github.com/multigres/multigres/go/pgprotocol/server"
@@ -100,3 +101,6 @@ func (e *Executor) StreamExecute(
 
 	return nil
 }
+
+// Ensure Executor implements handler.Executor interface.
+var _ handler.Executor = (*Executor)(nil)

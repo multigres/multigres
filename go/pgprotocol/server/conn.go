@@ -81,6 +81,11 @@ type Conn struct {
 	// Current transaction state.
 	txnStatus byte
 
+	// state holds handler-specific connection state.
+	// Handlers can store their own state here by calling SetConnectionState.
+	// This allows different handler implementations to maintain their own state.
+	state any
+
 	// closed indicates whether the connection has been closed.
 	closed atomic.Bool
 
@@ -110,6 +115,7 @@ func newConn(netConn net.Conn, listener *Listener, connectionID uint32) *Conn {
 		ctx:            ctx,
 		cancel:         cancel,
 		params:         make(map[string]string),
+		state:          nil, // Handler will initialize its own state
 	}
 
 	// Use pooled readers.
@@ -127,6 +133,10 @@ func (c *Conn) Close() error {
 	}
 
 	c.cancel()
+
+	// Clean up handler-specific state (if any).
+	// The state is set to nil so handlers should handle nil-checking.
+	c.state = nil
 
 	// Return pooled resources.
 	c.returnReader()
@@ -164,6 +174,18 @@ func (c *Conn) Database() string {
 // Context returns the connection's context.
 func (c *Conn) Context() context.Context {
 	return c.ctx
+}
+
+// GetConnectionState returns the handler-specific connection state.
+// Returns nil if no state has been set.
+func (c *Conn) GetConnectionState() any {
+	return c.state
+}
+
+// SetConnectionState sets the handler-specific connection state.
+// This allows handlers to store their own state per connection.
+func (c *Conn) SetConnectionState(state any) {
+	c.state = state
 }
 
 // returnReader returns the buffered reader to the pool.
@@ -406,21 +428,238 @@ func (c *Conn) handleQuery() error {
 }
 
 // handleParse handles a 'P' (Parse) message - extended query protocol.
+// Parse message format:
+// - Statement name (string, null-terminated)
+// - Query string (string, null-terminated)
+// - Number of parameter data types (int16)
+// - Parameter data type OIDs ([]uint32)
 func (c *Conn) handleParse() error {
-	// TODO(GuptaManan100): Implement extended query protocol Parse.
-	return fmt.Errorf("extended query protocol not yet implemented")
+	c.startWriterBuffering()
+	defer c.endWriterBuffering()
+
+	// Read message length.
+	bodyLen, err := c.readMessageLength()
+	if err != nil {
+		return fmt.Errorf("failed to read Parse message length: %w", err)
+	}
+
+	// Read message body.
+	buf, err := c.readMessageBody(bodyLen)
+	if err != nil {
+		return fmt.Errorf("failed to read Parse message body: %w", err)
+	}
+	defer c.returnReadBuffer(buf)
+
+	// Parse the message.
+	reader := NewMessageReader(buf)
+
+	stmtName, err := reader.ReadString()
+	if err != nil {
+		return fmt.Errorf("failed to read statement name: %w", err)
+	}
+
+	queryStr, err := reader.ReadString()
+	if err != nil {
+		return fmt.Errorf("failed to read query string: %w", err)
+	}
+
+	paramCount, err := reader.ReadInt16()
+	if err != nil {
+		return fmt.Errorf("failed to read parameter count: %w", err)
+	}
+
+	paramTypes := make([]uint32, paramCount)
+	for i := range paramCount {
+		oid, err := reader.ReadUint32()
+		if err != nil {
+			return fmt.Errorf("failed to read parameter type %d: %w", i, err)
+		}
+		paramTypes[i] = oid
+	}
+
+	c.logger.Debug("parse", "name", stmtName, "query", queryStr, "param_count", paramCount)
+
+	// Call the handler to validate and prepare the statement.
+	// The handler is responsible for storing any state it needs.
+	if err := c.handler.HandleParse(c.ctx, c, stmtName, queryStr, paramTypes); err != nil {
+		if writeErr := c.writeErrorResponse("ERROR", "42000", "parse failed", err.Error(), ""); writeErr != nil {
+			return writeErr
+		}
+		if writeErr := c.writeReadyForQuery(); writeErr != nil {
+			return writeErr
+		}
+		return c.flush()
+	}
+
+	// Send ParseComplete message.
+	if err := c.writeMessage(protocol.MsgParseComplete, nil); err != nil {
+		return fmt.Errorf("failed to write ParseComplete: %w", err)
+	}
+
+	return c.flush()
 }
 
 // handleBind handles a 'B' (Bind) message - extended query protocol.
 func (c *Conn) handleBind() error {
-	// TODO(GuptaManan100): Implement extended query protocol Bind.
-	return fmt.Errorf("extended query protocol not yet implemented")
+	c.startWriterBuffering()
+	defer c.endWriterBuffering()
+
+	// Read message length.
+	bodyLen, err := c.readMessageLength()
+	if err != nil {
+		return fmt.Errorf("failed to read Bind message length: %w", err)
+	}
+
+	// Read message body.
+	buf, err := c.readMessageBody(bodyLen)
+	if err != nil {
+		return fmt.Errorf("failed to read Bind message body: %w", err)
+	}
+	defer c.returnReadBuffer(buf)
+
+	// Parse the message.
+	reader := NewMessageReader(buf)
+
+	portalName, err := reader.ReadString()
+	if err != nil {
+		return fmt.Errorf("failed to read portal name: %w", err)
+	}
+
+	stmtName, err := reader.ReadString()
+	if err != nil {
+		return fmt.Errorf("failed to read statement name: %w", err)
+	}
+
+	// Read and discard parameter format codes
+	paramFormatCount, err := reader.ReadInt16()
+	if err != nil {
+		return fmt.Errorf("failed to read parameter format count: %w", err)
+	}
+	for i := int16(0); i < paramFormatCount; i++ {
+		if _, err := reader.ReadInt16(); err != nil {
+			return fmt.Errorf("failed to read parameter format: %w", err)
+		}
+	}
+
+	// Read and discard parameters
+	paramCount, err := reader.ReadInt16()
+	if err != nil {
+		return fmt.Errorf("failed to read parameter count: %w", err)
+	}
+	for i := int16(0); i < paramCount; i++ {
+		if _, err := reader.ReadByteString(); err != nil {
+			return fmt.Errorf("failed to read parameter: %w", err)
+		}
+	}
+
+	// Read and discard result format codes
+	resultFormatCount, err := reader.ReadInt16()
+	if err != nil {
+		return fmt.Errorf("failed to read result format count: %w", err)
+	}
+	for i := int16(0); i < resultFormatCount; i++ {
+		if _, err := reader.ReadInt16(); err != nil {
+			return fmt.Errorf("failed to read result format: %w", err)
+		}
+	}
+
+	c.logger.Debug("bind", "portal", portalName, "statement", stmtName)
+
+	// Call the handler to create and bind the portal.
+	// TODO: Handle parameters and return format
+	if err := c.handler.HandleBind(c.ctx, c, portalName, stmtName, nil, nil, nil); err != nil {
+		if writeErr := c.writeErrorResponse("ERROR", "42000", "bind failed", err.Error(), ""); writeErr != nil {
+			return writeErr
+		}
+		if writeErr := c.writeReadyForQuery(); writeErr != nil {
+			return writeErr
+		}
+		return c.flush()
+	}
+
+	// Send BindComplete message.
+	if err := c.writeMessage(protocol.MsgBindComplete, nil); err != nil {
+		return fmt.Errorf("failed to write BindComplete: %w", err)
+	}
+
+	return c.flush()
 }
 
 // handleExecute handles an 'E' (Execute) message - extended query protocol.
+// Execute message format:
+// - Portal name (string, null-terminated)
+// - Max rows to return (int32, 0 = no limit)
 func (c *Conn) handleExecute() error {
-	// TODO(GuptaManan100): Implement extended query protocol Execute.
-	return fmt.Errorf("extended query protocol not yet implemented")
+	c.startWriterBuffering()
+	defer c.endWriterBuffering()
+
+	// Read message length.
+	bodyLen, err := c.readMessageLength()
+	if err != nil {
+		return fmt.Errorf("failed to read Execute message length: %w", err)
+	}
+
+	// Read message body.
+	buf, err := c.readMessageBody(bodyLen)
+	if err != nil {
+		return fmt.Errorf("failed to read Execute message body: %w", err)
+	}
+	defer c.returnReadBuffer(buf)
+
+	// Parse the message.
+	reader := NewMessageReader(buf)
+
+	portalName, err := reader.ReadString()
+	if err != nil {
+		return fmt.Errorf("failed to read portal name: %w", err)
+	}
+
+	maxRows, err := reader.ReadInt32()
+	if err != nil {
+		return fmt.Errorf("failed to read max rows: %w", err)
+	}
+
+	c.logger.Debug("execute", "portal", portalName, "max_rows", maxRows)
+
+	// Track state for streaming results.
+	sentRowDescription := false
+
+	// Call the handler to execute the portal with streaming callback.
+	// The handler is responsible for retrieving the portal and executing it.
+	err = c.handler.HandleExecute(c.ctx, c, portalName, maxRows, func(ctx context.Context, result *query.QueryResult) error {
+		// On first callback with fields, send RowDescription.
+		if !sentRowDescription && len(result.Fields) > 0 {
+			if err := c.writeRowDescription(result.Fields); err != nil {
+				return fmt.Errorf("writing row description: %w", err)
+			}
+			sentRowDescription = true
+		}
+
+		// Send all data rows in this chunk.
+		for _, row := range result.Rows {
+			if err := c.writeDataRow(row); err != nil {
+				return fmt.Errorf("writing data row: %w", err)
+			}
+		}
+
+		// If CommandTag is set, this is the last packet.
+		// Send CommandComplete.
+		if result.CommandTag != "" {
+			if err := c.writeCommandComplete(result.CommandTag); err != nil {
+				return fmt.Errorf("writing command complete: %w", err)
+			}
+		}
+
+		return nil
+	})
+	if err != nil {
+		if writeErr := c.writeErrorResponse("ERROR", "42000", "execution failed", err.Error(), ""); writeErr != nil {
+			return writeErr
+		}
+		return c.flush()
+	}
+
+	return c.flush()
 }
 
 // handleDescribe handles a 'D' (Describe) message - extended query protocol.
@@ -436,7 +675,31 @@ func (c *Conn) handleClose() error {
 }
 
 // handleSync handles an 'S' (Sync) message - extended query protocol.
+// Sync indicates the end of an extended query cycle and transaction boundary.
+// Always sends ReadyForQuery in response.
 func (c *Conn) handleSync() error {
-	// TODO(GuptaManan100): Implement extended query protocol Sync.
-	return fmt.Errorf("extended query protocol not yet implemented")
+	c.startWriterBuffering()
+	defer c.endWriterBuffering()
+
+	// Read (and discard) message length.
+	if _, err := c.readMessageLength(); err != nil {
+		return fmt.Errorf("failed to read Sync message length: %w", err)
+	}
+
+	c.logger.Debug("sync")
+
+	// Call the handler.
+	if err := c.handler.HandleSync(c.ctx, c); err != nil {
+		// Even if handler returns error, we still send ReadyForQuery after Sync.
+		if writeErr := c.writeErrorResponse("ERROR", "42000", "sync failed", err.Error(), ""); writeErr != nil {
+			return writeErr
+		}
+	}
+
+	// Always send ReadyForQuery after Sync.
+	if err := c.writeReadyForQuery(); err != nil {
+		return fmt.Errorf("failed to write ReadyForQuery: %w", err)
+	}
+
+	return c.flush()
 }
