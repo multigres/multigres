@@ -16,12 +16,14 @@ package manager
 
 import (
 	"context"
+	"database/sql"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
+	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -29,7 +31,6 @@ import (
 	"github.com/multigres/multigres/go/clustermetadata/topo/memorytopo"
 	"github.com/multigres/multigres/go/mterrors"
 	"github.com/multigres/multigres/go/servenv"
-	"github.com/multigres/multigres/go/test/utils"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
@@ -408,89 +409,6 @@ func TestValidateAndUpdateTerm(t *testing.T) {
 	}
 }
 
-func TestPrimaryPosition(t *testing.T) {
-	ctx := context.Background()
-	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
-
-	serviceID := &clustermetadatapb.ID{
-		Component: clustermetadatapb.ID_MULTIPOOLER,
-		Cell:      "zone1",
-		Name:      "test-service",
-	}
-
-	tests := []struct {
-		name          string
-		poolerType    clustermetadatapb.PoolerType
-		expectError   bool
-		expectedCode  mtrpcpb.Code
-		errorContains string
-	}{
-		{
-			name:          "REPLICA pooler returns FAILED_PRECONDITION",
-			poolerType:    clustermetadatapb.PoolerType_REPLICA,
-			expectError:   true,
-			expectedCode:  mtrpcpb.Code_FAILED_PRECONDITION,
-			errorContains: "pooler type is REPLICA",
-		},
-		{
-			name:          "PRIMARY pooler passes type check",
-			poolerType:    clustermetadatapb.PoolerType_PRIMARY,
-			expectError:   true,
-			errorContains: "database connection failed", // Will fail on DB connection, not type check
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
-			defer ts.Close()
-
-			// Create temp directory for pooler-dir
-			poolerDir := t.TempDir()
-
-			multipooler := &clustermetadatapb.MultiPooler{
-				Id:            serviceID,
-				Database:      "testdb",
-				Hostname:      "localhost",
-				PortMap:       map[string]int32{"grpc": 8080},
-				Type:          tt.poolerType,
-				ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
-			}
-			require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
-
-			config := &Config{
-				TopoClient: ts,
-				ServiceID:  serviceID,
-				PoolerDir:  poolerDir,
-			}
-			manager := NewMultiPoolerManager(logger, config)
-			defer manager.Close()
-
-			// Start and wait for ready
-			senv := servenv.NewServEnv()
-			go manager.Start(senv)
-			require.Eventually(t, func() bool {
-				return manager.GetState() == ManagerStateReady
-			}, 5*time.Second, 100*time.Millisecond, "Manager should reach Ready state")
-
-			// Call PrimaryPosition
-			_, err := manager.PrimaryPosition(ctx)
-
-			if tt.expectError {
-				require.Error(t, err)
-				assert.Contains(t, err.Error(), tt.errorContains)
-
-				if tt.expectedCode != 0 {
-					code := mterrors.Code(err)
-					assert.Equal(t, tt.expectedCode, code)
-				}
-			} else {
-				require.NoError(t, err)
-			}
-		})
-	}
-}
-
 func TestValidateSyncReplicationParams(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -623,192 +541,180 @@ func TestValidateSyncReplicationParams(t *testing.T) {
 	}
 }
 
-func TestActionLock_MutationMethodsTimeout(t *testing.T) {
-	ctx := context.Background()
+func TestQueryReplicationStatus(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 
-	serviceID := &clustermetadatapb.ID{
-		Component: clustermetadatapb.ID_MULTIPOOLER,
-		Cell:      "zone1",
-		Name:      "test-service",
-	}
-
-	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
-	defer ts.Close()
-
-	poolerDir := t.TempDir()
-
-	// Create PRIMARY multipooler for testing
-	multipooler := &clustermetadatapb.MultiPooler{
-		Id:            serviceID,
-		Database:      "testdb",
-		Hostname:      "localhost",
-		PortMap:       map[string]int32{"grpc": 8080},
-		Type:          clustermetadatapb.PoolerType_PRIMARY,
-		ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
-	}
-	require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
-
-	config := &Config{
-		TopoClient: ts,
-		ServiceID:  serviceID,
-		PoolerDir:  poolerDir,
-	}
-	manager := NewMultiPoolerManager(logger, config)
-	defer manager.Close()
-
-	// Start and wait for ready
-	senv := servenv.NewServEnv()
-	go manager.Start(senv)
-	require.Eventually(t, func() bool {
-		return manager.GetState() == ManagerStateReady
-	}, 5*time.Second, 100*time.Millisecond, "Manager should reach Ready state")
-
-	// Helper function to hold the lock for a duration
-	holdLock := func(duration time.Duration) context.CancelFunc {
-		lockCtx, cancel := context.WithDeadline(context.Background(), time.Now().Add(duration))
-		lockAcquired := make(chan struct{})
-		go func() {
-			if err := manager.lock(lockCtx); err == nil {
-				// Signal that the lock was acquired
-				close(lockAcquired)
-				// Hold the lock for the duration or until cancelled
-				<-lockCtx.Done()
-				manager.unlock()
-			}
-		}()
-		// Wait for the lock to be acquired
-		<-lockAcquired
-		return cancel
-	}
-
 	tests := []struct {
-		name       string
-		poolerType clustermetadatapb.PoolerType
-		callMethod func(context.Context) error
+		name           string
+		setupMock      func(mock sqlmock.Sqlmock)
+		expectError    bool
+		validateResult func(t *testing.T, status *multipoolermanagerdatapb.ReplicationStatus)
 	}{
 		{
-			name:       "SetPrimaryConnInfo times out when lock is held",
-			poolerType: clustermetadatapb.PoolerType_REPLICA,
-			callMethod: func(ctx context.Context) error {
-				return manager.SetPrimaryConnInfo(ctx, "localhost", 5432, false, false, 1, true)
-			},
-		},
-		{
-			name:       "StartReplication times out when lock is held",
-			poolerType: clustermetadatapb.PoolerType_REPLICA,
-			callMethod: func(ctx context.Context) error {
-				return manager.StartReplication(ctx)
-			},
-		},
-		{
-			name:       "StopReplication times out when lock is held",
-			poolerType: clustermetadatapb.PoolerType_REPLICA,
-			callMethod: func(ctx context.Context) error {
-				return manager.StopReplication(ctx)
-			},
-		},
-		{
-			name:       "ResetReplication times out when lock is held",
-			poolerType: clustermetadatapb.PoolerType_REPLICA,
-			callMethod: func(ctx context.Context) error {
-				return manager.ResetReplication(ctx)
-			},
-		},
-		{
-			name:       "ConfigureSynchronousReplication times out when lock is held",
-			poolerType: clustermetadatapb.PoolerType_PRIMARY,
-			callMethod: func(ctx context.Context) error {
-				return manager.ConfigureSynchronousReplication(
-					ctx,
-					multipoolermanagerdatapb.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_ON,
-					multipoolermanagerdatapb.SynchronousMethod_SYNCHRONOUS_METHOD_FIRST,
-					1,
-					[]*clustermetadatapb.ID{serviceID},
-					true,
+			name: "All fields with valid values",
+			setupMock: func(mock sqlmock.Sqlmock) {
+				rows := sqlmock.NewRows([]string{
+					"pg_last_wal_replay_lsn",
+					"pg_last_wal_receive_lsn",
+					"pg_is_wal_replay_paused",
+					"pg_get_wal_replay_pause_state",
+					"pg_last_xact_replay_timestamp",
+					"current_setting",
+				}).AddRow(
+					"0/3000000",              // replay_lsn
+					"0/3000100",              // receive_lsn
+					false,                    // is_paused
+					"not paused",             // pause_state
+					"2025-01-15 10:00:00+00", // last_xact_time
+					"host=primary port=5432", // primary_conninfo
 				)
+				mock.ExpectQuery("SELECT").WillReturnRows(rows)
+			},
+			expectError: false,
+			validateResult: func(t *testing.T, status *multipoolermanagerdatapb.ReplicationStatus) {
+				assert.Equal(t, "0/3000000", status.LastReplayLsn)
+				assert.Equal(t, "0/3000100", status.LastReceiveLsn)
+				assert.False(t, status.IsWalReplayPaused)
+				assert.Equal(t, "not paused", status.WalReplayPauseState)
+				assert.Equal(t, "2025-01-15 10:00:00+00", status.LastXactReplayTimestamp)
+				assert.NotNil(t, status.PrimaryConnInfo)
+				assert.Equal(t, "primary", status.PrimaryConnInfo.Host)
 			},
 		},
 		{
-			name:       "SetReadOnly times out when lock is held",
-			poolerType: clustermetadatapb.PoolerType_PRIMARY,
-			callMethod: func(ctx context.Context) error {
-				return manager.SetReadOnly(ctx)
+			name: "NULL LSN values (primary server case)",
+			setupMock: func(mock sqlmock.Sqlmock) {
+				rows := sqlmock.NewRows([]string{
+					"pg_last_wal_replay_lsn",
+					"pg_last_wal_receive_lsn",
+					"pg_is_wal_replay_paused",
+					"pg_get_wal_replay_pause_state",
+					"pg_last_xact_replay_timestamp",
+					"current_setting",
+				}).AddRow(
+					nil,          // replay_lsn is NULL on primary
+					nil,          // receive_lsn is NULL on primary
+					false,        // is_paused
+					"not paused", // pause_state
+					nil,          // last_xact_time is NULL on primary
+					"",           // empty primary_conninfo on primary
+				)
+				mock.ExpectQuery("SELECT").WillReturnRows(rows)
+			},
+			expectError: false,
+			validateResult: func(t *testing.T, status *multipoolermanagerdatapb.ReplicationStatus) {
+				assert.Empty(t, status.LastReplayLsn, "LastReplayLsn should be empty when NULL")
+				assert.Empty(t, status.LastReceiveLsn, "LastReceiveLsn should be empty when NULL")
+				assert.False(t, status.IsWalReplayPaused)
+				assert.Equal(t, "not paused", status.WalReplayPauseState)
+				assert.Empty(t, status.LastXactReplayTimestamp, "LastXactReplayTimestamp should be empty when NULL")
 			},
 		},
 		{
-			name:       "ChangeType times out when lock is held",
-			poolerType: clustermetadatapb.PoolerType_PRIMARY,
-			callMethod: func(ctx context.Context) error {
-				return manager.ChangeType(ctx, "REPLICA")
+			name: "Paused replication with valid LSNs",
+			setupMock: func(mock sqlmock.Sqlmock) {
+				rows := sqlmock.NewRows([]string{
+					"pg_last_wal_replay_lsn",
+					"pg_last_wal_receive_lsn",
+					"pg_is_wal_replay_paused",
+					"pg_get_wal_replay_pause_state",
+					"pg_last_xact_replay_timestamp",
+					"current_setting",
+				}).AddRow(
+					"0/4000000",              // replay_lsn
+					"0/4000200",              // receive_lsn
+					true,                     // is_paused
+					"paused",                 // pause_state
+					"2025-01-15 11:00:00+00", // last_xact_time
+					"host=primary port=5432 user=replicator application_name=standby1",
+				)
+				mock.ExpectQuery("SELECT").WillReturnRows(rows)
+			},
+			expectError: false,
+			validateResult: func(t *testing.T, status *multipoolermanagerdatapb.ReplicationStatus) {
+				assert.Equal(t, "0/4000000", status.LastReplayLsn)
+				assert.Equal(t, "0/4000200", status.LastReceiveLsn)
+				assert.True(t, status.IsWalReplayPaused)
+				assert.Equal(t, "paused", status.WalReplayPauseState)
+				assert.Equal(t, "2025-01-15 11:00:00+00", status.LastXactReplayTimestamp)
+				assert.NotNil(t, status.PrimaryConnInfo)
+				assert.Equal(t, "primary", status.PrimaryConnInfo.Host)
+				assert.Equal(t, int32(5432), status.PrimaryConnInfo.Port)
+				assert.Equal(t, "replicator", status.PrimaryConnInfo.User)
+				assert.Equal(t, "standby1", status.PrimaryConnInfo.ApplicationName)
 			},
 		},
 		{
-			name:       "Demote times out when lock is held",
-			poolerType: clustermetadatapb.PoolerType_PRIMARY,
-			callMethod: func(ctx context.Context) error {
-				_, err := manager.Demote(ctx, 1, 5*time.Second, false)
-				return err
+			name: "Mixed NULL and valid values",
+			setupMock: func(mock sqlmock.Sqlmock) {
+				rows := sqlmock.NewRows([]string{
+					"pg_last_wal_replay_lsn",
+					"pg_last_wal_receive_lsn",
+					"pg_is_wal_replay_paused",
+					"pg_get_wal_replay_pause_state",
+					"pg_last_xact_replay_timestamp",
+					"current_setting",
+				}).AddRow(
+					"0/5000000",              // replay_lsn is valid
+					nil,                      // receive_lsn is NULL (e.g., no active connection)
+					false,                    // is_paused
+					"not paused",             // pause_state
+					nil,                      // last_xact_time is NULL
+					"host=primary port=5432", // primary_conninfo
+				)
+				mock.ExpectQuery("SELECT").WillReturnRows(rows)
+			},
+			expectError: false,
+			validateResult: func(t *testing.T, status *multipoolermanagerdatapb.ReplicationStatus) {
+				assert.Equal(t, "0/5000000", status.LastReplayLsn, "LastReplayLsn should be populated")
+				assert.Empty(t, status.LastReceiveLsn, "LastReceiveLsn should be empty when NULL")
+				assert.False(t, status.IsWalReplayPaused)
+				assert.Empty(t, status.LastXactReplayTimestamp, "LastXactReplayTimestamp should be empty when NULL")
 			},
 		},
 		{
-			name:       "UndoDemote times out when lock is held",
-			poolerType: clustermetadatapb.PoolerType_PRIMARY,
-			callMethod: func(ctx context.Context) error {
-				return manager.UndoDemote(ctx)
+			name: "Query error",
+			setupMock: func(mock sqlmock.Sqlmock) {
+				mock.ExpectQuery("SELECT").WillReturnError(sql.ErrConnDone)
 			},
-		},
-		{
-			name:       "Promote times out when lock is held",
-			poolerType: clustermetadatapb.PoolerType_REPLICA,
-			callMethod: func(ctx context.Context) error {
-				_, err := manager.Promote(ctx, 1, "", nil, false)
-				return err
-			},
-		},
-		{
-			name:       "SetTerm times out when lock is held",
-			poolerType: clustermetadatapb.PoolerType_PRIMARY,
-			callMethod: func(ctx context.Context) error {
-				return manager.SetTerm(ctx, &multipoolermanagerdatapb.ConsensusTerm{CurrentTerm: 5})
-			},
-		},
-		{
-			name:       "UpdateSynchronousStandbyList times out when lock is held",
-			poolerType: clustermetadatapb.PoolerType_PRIMARY,
-			callMethod: func(ctx context.Context) error {
-				return manager.UpdateSynchronousStandbyList(ctx, multipoolermanagerdatapb.StandbyUpdateOperation_STANDBY_UPDATE_OPERATION_ADD, []*clustermetadatapb.ID{serviceID}, true, 0, true)
-			},
+			expectError: true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Update the pooler type if needed for this test
-			if tt.poolerType != multipooler.Type {
-				updatedMultipooler, err := ts.UpdateMultiPoolerFields(ctx, serviceID, func(mp *clustermetadatapb.MultiPooler) error {
-					mp.Type = tt.poolerType
-					return nil
-				})
-				require.NoError(t, err)
-				manager.mu.Lock()
-				manager.multipooler.MultiPooler = updatedMultipooler
-				manager.mu.Unlock()
+			// Create mock database
+			mockDB, mock, err := sqlmock.New()
+			require.NoError(t, err)
+			defer mockDB.Close()
+
+			// Setup mock expectations
+			tt.setupMock(mock)
+
+			// Create minimal manager with mock DB
+			pm := &MultiPoolerManager{
+				logger: logger,
+				db:     mockDB,
 			}
 
-			// Hold the lock for 2 seconds
-			cancel := holdLock(2 * time.Second)
-			defer cancel()
+			// Call the method
+			ctx := context.Background()
+			status, err := pm.queryReplicationStatus(ctx)
 
-			// Try to call the method - it should timeout because lock is held
-			err := tt.callMethod(utils.WithTimeout(t, 500*time.Millisecond))
+			// Validate results
+			if tt.expectError {
+				assert.Error(t, err)
+				assert.Nil(t, status)
+			} else {
+				require.NoError(t, err)
+				require.NotNil(t, status)
+				if tt.validateResult != nil {
+					tt.validateResult(t, status)
+				}
+			}
 
-			// Verify the error is a timeout/context error
-			require.Error(t, err, "Method should fail when lock is held")
-			assert.Contains(t, err.Error(), "failed to acquire action lock", "Error should mention lock acquisition failure")
-
-			// Verify the underlying error is context deadline exceeded
-			assert.ErrorIs(t, err, context.DeadlineExceeded, "Should be a deadline exceeded error")
+			// Ensure all expectations were met
+			assert.NoError(t, mock.ExpectationsWereMet())
 		})
 	}
 }

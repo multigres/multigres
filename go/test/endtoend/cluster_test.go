@@ -613,7 +613,11 @@ func ensureBinaryBuilt(t *testing.T) {
 // TestMain sets the path and cleans up after all tests
 func TestMain(m *testing.M) {
 	// Set the PATH so etcd can be found
-	pathutil.PrependPath("../../../bin")
+	// Use automatic module root detection instead of hard-coded relative paths
+	if err := pathutil.PrependBinToPath(); err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to add bin to PATH: %v\n", err)
+		os.Exit(1)
+	}
 
 	// Run all tests
 	exitCode := m.Run()
