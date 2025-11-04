@@ -139,7 +139,7 @@ func TestDemoteAndPromote(t *testing.T) {
 		statusReq := &multipoolermanagerdatapb.ReplicationStatusRequest{}
 		statusResp, err := standbyManagerClient.ReplicationStatus(utils.WithShortDeadline(t), statusReq)
 		require.NoError(t, err, "ReplicationStatus should succeed")
-		currentLSN := statusResp.Status.Lsn
+		currentLSN := statusResp.Status.LastReplayLsn
 		t.Logf("Current LSN before promotion: %s", currentLSN)
 
 		// Perform promotion
@@ -204,7 +204,7 @@ func TestDemoteAndPromote(t *testing.T) {
 		statusReq2 := &multipoolermanagerdatapb.ReplicationStatusRequest{}
 		statusResp2, err := primaryManagerClient.ReplicationStatus(utils.WithShortDeadline(t), statusReq2)
 		require.NoError(t, err, "ReplicationStatus should succeed")
-		currentLSN2 := statusResp2.Status.Lsn
+		currentLSN2 := statusResp2.Status.LastReplayLsn
 
 		// Promote original primary back
 		promoteReq2 := &multipoolermanagerdatapb.PromoteRequest{
@@ -296,7 +296,7 @@ func TestDemoteAndPromote(t *testing.T) {
 		statusReq := &multipoolermanagerdatapb.ReplicationStatusRequest{}
 		statusResp, err := primaryManagerClient.ReplicationStatus(utils.WithShortDeadline(t), statusReq)
 		require.NoError(t, err)
-		currentLSN := statusResp.Status.Lsn
+		currentLSN := statusResp.Status.LastReplayLsn
 
 		// First promotion
 		promoteReq := &multipoolermanagerdatapb.PromoteRequest{
@@ -434,7 +434,7 @@ func TestDemoteAndPromote(t *testing.T) {
 		statusReq := &multipoolermanagerdatapb.ReplicationStatusRequest{}
 		statusResp, err := primaryManagerClient.ReplicationStatus(utils.WithShortDeadline(t), statusReq)
 		require.NoError(t, err)
-		currentLSN := statusResp.Status.Lsn
+		currentLSN := statusResp.Status.LastReplayLsn
 
 		// Try with wrong LSN (should fail)
 		promoteReq := &multipoolermanagerdatapb.PromoteRequest{

@@ -35,12 +35,12 @@ var (
 	// Internal state
 	loggerOnce sync.Once
 	logger     *slog.Logger
-	loggerMu   sync.RWMutex
+	loggerMu   sync.Mutex
 
 	// Hooks for customizing logging behavior
 	loggingSetupHooks  []func(*slog.Logger)
 	loggingChangeHooks []func(*slog.Logger)
-	loggingHooksMu     sync.RWMutex
+	loggingHooksMu     sync.Mutex
 )
 
 type Logger struct {
@@ -52,12 +52,12 @@ type Logger struct {
 	// Internal state
 	loggerOnce sync.Once
 	logger     *slog.Logger
-	loggerMu   sync.RWMutex
+	loggerMu   sync.Mutex
 
 	// Hooks for customizing logging behavior
 	loggingSetupHooks  []func(*slog.Logger)
 	loggingChangeHooks []func(*slog.Logger)
-	loggingHooksMu     sync.RWMutex
+	loggingHooksMu     sync.Mutex
 }
 
 func NewLogger() *Logger {
@@ -204,8 +204,8 @@ func SetupLogging() {
 // GetLogger returns the configured logger instance.
 // SetupLogging must be called before this function.
 func GetLogger() *slog.Logger {
-	loggerMu.RLock()
-	defer loggerMu.RUnlock()
+	loggerMu.Lock()
+	defer loggerMu.Unlock()
 	if logger == nil {
 		// Return default slog logger if our logger hasn't been set up yet
 		return slog.Default()
@@ -215,10 +215,10 @@ func GetLogger() *slog.Logger {
 
 // fireLoggingSetupHooks calls all registered logging setup hooks.
 func fireLoggingSetupHooks(l *slog.Logger) {
-	loggingHooksMu.RLock()
+	loggingHooksMu.Lock()
 	hooks := make([]func(*slog.Logger), len(loggingSetupHooks))
 	copy(hooks, loggingSetupHooks)
-	loggingHooksMu.RUnlock()
+	loggingHooksMu.Unlock()
 
 	for _, hook := range hooks {
 		hook(l)
@@ -227,10 +227,10 @@ func fireLoggingSetupHooks(l *slog.Logger) {
 
 // fireLoggingChangeHooks calls all registered logging change hooks.
 func fireLoggingChangeHooks(l *slog.Logger) {
-	loggingHooksMu.RLock()
+	loggingHooksMu.Lock()
 	hooks := make([]func(*slog.Logger), len(loggingChangeHooks))
 	copy(hooks, loggingChangeHooks)
-	loggingHooksMu.RUnlock()
+	loggingHooksMu.Unlock()
 
 	for _, hook := range hooks {
 		hook(l)
@@ -367,8 +367,8 @@ func (lg *Logger) SetupLogging() {
 // GetLogger returns the configured logger instance.
 // SetupLogging must be called before this function.
 func (lg *Logger) GetLogger() *slog.Logger {
-	lg.loggerMu.RLock()
-	defer lg.loggerMu.RUnlock()
+	lg.loggerMu.Lock()
+	defer lg.loggerMu.Unlock()
 	if lg.logger == nil {
 		// Return default slog logger if our logger hasn't been set up yet
 		return slog.Default()
@@ -383,10 +383,10 @@ func (sv *ServEnv) GetLogger() *slog.Logger {
 
 // fireLoggingSetupHooks calls all registered logging setup hooks.
 func (lg *Logger) fireLoggingSetupHooks(l *slog.Logger) {
-	lg.loggingHooksMu.RLock()
+	lg.loggingHooksMu.Lock()
 	hooks := make([]func(*slog.Logger), len(lg.loggingSetupHooks))
 	copy(hooks, lg.loggingSetupHooks)
-	lg.loggingHooksMu.RUnlock()
+	lg.loggingHooksMu.Unlock()
 
 	for _, hook := range hooks {
 		hook(l)
@@ -395,10 +395,10 @@ func (lg *Logger) fireLoggingSetupHooks(l *slog.Logger) {
 
 // fireLoggingChangeHooks calls all registered logging change hooks.
 func (lg *Logger) fireLoggingChangeHooks(l *slog.Logger) {
-	lg.loggingHooksMu.RLock()
+	lg.loggingHooksMu.Lock()
 	hooks := make([]func(*slog.Logger), len(lg.loggingChangeHooks))
 	copy(hooks, lg.loggingChangeHooks)
-	lg.loggingHooksMu.RUnlock()
+	lg.loggingHooksMu.Unlock()
 
 	for _, hook := range hooks {
 		hook(l)

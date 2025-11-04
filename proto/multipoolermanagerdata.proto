@@ -42,23 +42,28 @@ message PrimaryConnInfo {
 
 // PostgreSQL replication status information
 message ReplicationStatus {
-  // Current replication LSN position (PostgreSQL format: X/XXXXXXXX)
-  string lsn = 1;
+  // Last WAL position replayed during recovery (PostgreSQL format: X/XXXXXXXX)
+  // Obtained from pg_last_wal_replay_lsn()
+  string last_replay_lsn = 1;
+
+  // Last WAL position received and synced to disk by standby (PostgreSQL format: X/XXXXXXXX)
+  // Obtained from pg_last_wal_receive_lsn()
+  string last_receive_lsn = 2;
 
   // Result of pg_is_wal_replay_paused()
-  bool is_wal_replay_paused = 2;
+  bool is_wal_replay_paused = 3;
 
   // Result of pg_get_wal_replay_pause_state()
-  string wal_replay_pause_state = 3;
+  string wal_replay_pause_state = 4;
 
   // Replication lag (optional, may not always be available)
-  google.protobuf.Duration lag = 4;
+  google.protobuf.Duration lag = 5;
 
   // Result of pg_last_xact_replay_timestamp()
-  string last_xact_replay_timestamp = 5;
+  string last_xact_replay_timestamp = 6;
 
   // Primary connection info parsed from primary_conninfo setting
-  PrimaryConnInfo primary_conn_info = 6;
+  PrimaryConnInfo primary_conn_info = 7;
 }
 
 // Wait for PostgreSQL server to reach a specific LSN position
@@ -445,11 +450,11 @@ message ConsensusTerm {
   // Current consensus term
   int64 current_term = 1;
 
-  // ID of the pooler this replica voted for
-  clustermetadata.ID voted_for = 2;
+  // ID of the pooler this replica accepted as leader
+  clustermetadata.ID accepted_leader = 2;
 
-  // Timestamp of the last vote
-  google.protobuf.Timestamp last_vote_time = 3;
+  // Timestamp of the last acceptance
+  google.protobuf.Timestamp last_acceptance_time = 3;
 
   // ID of the leader of the current term
   clustermetadata.ID leader_id = 4;

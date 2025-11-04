@@ -36,7 +36,11 @@ import (
 // TestMain sets the path before running tests
 func TestMain(m *testing.M) {
 	// Set the PATH so etcd can be found
-	pathutil.PrependPath("../../../../bin")
+	// Use automatic module root detection instead of hard-coded relative paths
+	if err := pathutil.PrependBinToPath(); err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to add bin to PATH: %v\n", err)
+		os.Exit(1)
+	}
 
 	os.Exit(m.Run())
 }

@@ -92,6 +92,7 @@ func (sv *ServEnv) Init() {
 	sv.HTTPRegisterPprofProfile()
 	sv.pprofInit()
 	sv.updateServiceMap()
+	sv.startOrphanDetection()
 }
 
 func (sv *ServEnv) populateHostname() {
@@ -117,4 +118,54 @@ func (sv *ServEnv) populateHostname() {
 		slog.Info("Using fully qualified hostname for service URL", "hostname", host)
 	}
 	sv.hostname.Set(host)
+}
+
+// startOrphanDetection starts a goroutine that monitors the parent process ID.
+// If the parent PID changes (indicating the parent died and this process was reparented),
+// the process will initiate graceful shutdown. This is used in integration tests to
+// ensure child processes don't become orphans if the test runner is killed.
+func (sv *ServEnv) startOrphanDetection() {
+	if !sv.testOrphanDetection.Get() {
+		return
+	}
+
+	parentPID := os.Getppid()
+	slog.Info("Starting orphan detection", "parent_pid", parentPID)
+
+	// Channel to signal when close hooks have completed
+	closeComplete := make(chan struct{})
+	sv.OnClose(func() {
+		close(closeComplete)
+	})
+
+	go func() {
+		ticker := time.NewTicker(1 * time.Second)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-ticker.C:
+				if os.Getppid() != parentPID {
+					slog.Warn("Parent process died, initiating graceful shutdown",
+						"original_parent_pid", parentPID,
+						"current_parent_pid", os.Getppid())
+
+					// Trigger graceful shutdown
+					sv.exitChan <- syscall.SIGTERM
+
+					// Wait for close hooks to complete or 10 second timeout
+					select {
+					case <-closeComplete:
+						return
+					case <-time.After(10 * time.Second):
+						slog.Error("Graceful shutdown timed out after orphan detection, force killing")
+						os.Exit(1)
+					}
+				}
+			case <-closeComplete:
+				// Normal shutdown - stop orphan detection
+				return
+			}
+		}
+	}()
 }

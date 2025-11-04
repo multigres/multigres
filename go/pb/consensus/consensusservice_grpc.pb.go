@@ -37,7 +37,6 @@ const (
 	MultiPoolerConsensus_BeginTerm_FullMethodName         = "/consensus.MultiPoolerConsensus/BeginTerm"
 	MultiPoolerConsensus_Status_FullMethodName            = "/consensus.MultiPoolerConsensus/Status"
 	MultiPoolerConsensus_GetLeadershipView_FullMethodName = "/consensus.MultiPoolerConsensus/GetLeadershipView"
-	MultiPoolerConsensus_GetWALPosition_FullMethodName    = "/consensus.MultiPoolerConsensus/GetWALPosition"
 	MultiPoolerConsensus_CanReachPrimary_FullMethodName   = "/consensus.MultiPoolerConsensus/CanReachPrimary"
 )
 
@@ -45,13 +44,12 @@ const (
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type MultiPoolerConsensusClient interface {
-	// Election Protocol
+	// Leader Appointment Protocol
 	BeginTerm(ctx context.Context, in *consensusdata.BeginTermRequest, opts ...grpc.CallOption) (*consensusdata.BeginTermResponse, error)
 	// Status and Health
 	Status(ctx context.Context, in *consensusdata.StatusRequest, opts ...grpc.CallOption) (*consensusdata.StatusResponse, error)
 	GetLeadershipView(ctx context.Context, in *consensusdata.LeadershipViewRequest, opts ...grpc.CallOption) (*consensusdata.LeadershipViewResponse, error)
-	// WAL and Replication
-	GetWALPosition(ctx context.Context, in *consensusdata.GetWALPositionRequest, opts ...grpc.CallOption) (*consensusdata.GetWALPositionResponse, error)
+	// Replication
 	CanReachPrimary(ctx context.Context, in *consensusdata.CanReachPrimaryRequest, opts ...grpc.CallOption) (*consensusdata.CanReachPrimaryResponse, error)
 }
 
@@ -90,15 +88,6 @@ func (c *multiPoolerConsensusClient) GetLeadershipView(ctx context.Context, in *
 	return out, nil
 }
 
-func (c *multiPoolerConsensusClient) GetWALPosition(ctx context.Context, in *consensusdata.GetWALPositionRequest, opts ...grpc.CallOption) (*consensusdata.GetWALPositionResponse, error) {
-	out := new(consensusdata.GetWALPositionResponse)
-	err := c.cc.Invoke(ctx, MultiPoolerConsensus_GetWALPosition_FullMethodName, in, out, opts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
 func (c *multiPoolerConsensusClient) CanReachPrimary(ctx context.Context, in *consensusdata.CanReachPrimaryRequest, opts ...grpc.CallOption) (*consensusdata.CanReachPrimaryResponse, error) {
 	out := new(consensusdata.CanReachPrimaryResponse)
 	err := c.cc.Invoke(ctx, MultiPoolerConsensus_CanReachPrimary_FullMethodName, in, out, opts...)
@@ -112,13 +101,12 @@ func (c *multiPoolerConsensusClient) CanReachPrimary(ctx context.Context, in *co
 // All implementations must embed UnimplementedMultiPoolerConsensusServer
 // for forward compatibility
 type MultiPoolerConsensusServer interface {
-	// Election Protocol
+	// Leader Appointment Protocol
 	BeginTerm(context.Context, *consensusdata.BeginTermRequest) (*consensusdata.BeginTermResponse, error)
 	// Status and Health
 	Status(context.Context, *consensusdata.StatusRequest) (*consensusdata.StatusResponse, error)
 	GetLeadershipView(context.Context, *consensusdata.LeadershipViewRequest) (*consensusdata.LeadershipViewResponse, error)
-	// WAL and Replication
-	GetWALPosition(context.Context, *consensusdata.GetWALPositionRequest) (*consensusdata.GetWALPositionResponse, error)
+	// Replication
 	CanReachPrimary(context.Context, *consensusdata.CanReachPrimaryRequest) (*consensusdata.CanReachPrimaryResponse, error)
 	mustEmbedUnimplementedMultiPoolerConsensusServer()
 }
@@ -135,9 +123,6 @@ func (UnimplementedMultiPoolerConsensusServer) Status(context.Context, *consensu
 }
 func (UnimplementedMultiPoolerConsensusServer) GetLeadershipView(context.Context, *consensusdata.LeadershipViewRequest) (*consensusdata.LeadershipViewResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetLeadershipView not implemented")
-}
-func (UnimplementedMultiPoolerConsensusServer) GetWALPosition(context.Context, *consensusdata.GetWALPositionRequest) (*consensusdata.GetWALPositionResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method GetWALPosition not implemented")
 }
 func (UnimplementedMultiPoolerConsensusServer) CanReachPrimary(context.Context, *consensusdata.CanReachPrimaryRequest) (*consensusdata.CanReachPrimaryResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method CanReachPrimary not implemented")
@@ -209,24 +194,6 @@ func _MultiPoolerConsensus_GetLeadershipView_Handler(srv interface{}, ctx contex
 	return interceptor(ctx, in, info, handler)
 }
 
-func _MultiPoolerConsensus_GetWALPosition_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(consensusdata.GetWALPositionRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(MultiPoolerConsensusServer).GetWALPosition(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: MultiPoolerConsensus_GetWALPosition_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(MultiPoolerConsensusServer).GetWALPosition(ctx, req.(*consensusdata.GetWALPositionRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
 func _MultiPoolerConsensus_CanReachPrimary_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(consensusdata.CanReachPrimaryRequest)
 	if err := dec(in); err != nil {
@@ -263,10 +230,6 @@ var MultiPoolerConsensus_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetLeadershipView",
 			Handler:    _MultiPoolerConsensus_GetLeadershipView_Handler,
-		},
-		{
-			MethodName: "GetWALPosition",
-			Handler:    _MultiPoolerConsensus_GetWALPosition_Handler,
 		},
 		{
 			MethodName: "CanReachPrimary",
