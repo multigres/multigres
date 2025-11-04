@@ -612,12 +612,17 @@ func ensureBinaryBuilt(t *testing.T) {
 
 // TestMain sets the path and cleans up after all tests
 func TestMain(m *testing.M) {
-	// Set the PATH so etcd can be found
+	// Set the PATH so etcd and orphan detection scripts can be found
 	// Use automatic module root detection instead of hard-coded relative paths
-	if err := pathutil.PrependBinToPath(); err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to add bin to PATH: %v\n", err)
+	if err := pathutil.PrependModuleSubdirsToPath("bin", "go/test/endtoend"); err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to add directories to PATH: %v\n", err)
 		os.Exit(1)
 	}
+
+	// Set orphan detection environment variable so postgres processes
+	// started by in-process services will have watchdogs that monitor
+	// the test process and kill postgres if the test crashes
+	os.Setenv("MULTIGRES_TEST_PARENT_PID", fmt.Sprintf("%d", os.Getpid()))
 
 	// Run all tests
 	exitCode := m.Run()
@@ -626,6 +631,9 @@ func TestMain(m *testing.M) {
 	if multigresBinary != "" {
 		os.RemoveAll(filepath.Dir(multigresBinary))
 	}
+
+	// Cleanup environment variable
+	os.Unsetenv("MULTIGRES_TEST_PARENT_PID")
 
 	// Exit with the test result code
 	os.Exit(exitCode)
@@ -812,7 +820,7 @@ func TestInitCommandConfigFileCreation(t *testing.T) {
 	// Now try to start the cluster without building the binaries
 	// This should fail with binary validation errors
 	t.Log("Attempting to start cluster without binaries (should fail)...")
-	output, err = executeStartCommand(t, []string{"--config-path", tempDir})
+	output, err = executeStartCommand(t, []string{"--config-path", tempDir}, tempDir)
 	require.Error(t, err, "Start should fail when binaries are not present")
 	errorOutput := err.Error() + "\n" + output
 	assert.Contains(t, errorOutput, "binary validation failed", "error should mention binary validation failure. Got: %s", errorOutput)
@@ -841,11 +849,16 @@ func TestInitCommandConfigFileAlreadyExists(t *testing.T) {
 	assert.Contains(t, errorOutput, existingConfig)
 }
 
-// executeStartCommand runs the actual multigres binary with "cluster up" command
-func executeStartCommand(t *testing.T, args []string) (string, error) {
-	// Prepare the full command: "multigres cluster up <args>"
+// executeStartCommand runs the actual multigres binary with "cluster start" command
+func executeStartCommand(t *testing.T, args []string, tempDir string) (string, error) {
+	// Prepare the full command: "multigres cluster start <args>"
 	cmdArgs := append([]string{"cluster", "start"}, args...)
 	cmd := exec.Command(multigresBinary, cmdArgs...)
+
+	// Set MULTIGRES_TESTDATA_DIR for directory-deletion triggered cleanup
+	cmd.Env = append(os.Environ(),
+		"MULTIGRES_TESTDATA_DIR="+tempDir,
+	)
 
 	output, err := cmd.CombinedOutput()
 	return string(output), err
@@ -930,7 +943,7 @@ func TestClusterLifecycle(t *testing.T) {
 
 		// Start cluster (up)
 		t.Log("Starting cluster...")
-		upOutput, err := executeStartCommand(t, []string{"--config-path", tempDir})
+		upOutput, err := executeStartCommand(t, []string{"--config-path", tempDir}, tempDir)
 		require.NoError(t, err, "Start command should succeed and start the cluster: %v", upOutput)
 
 		// Verify we got expected output
@@ -1045,7 +1058,7 @@ func TestClusterLifecycle(t *testing.T) {
 
 		// Start cluster is idempotent
 		t.Log("Attempting to start running cluster...")
-		upOutput, err = executeStartCommand(t, []string{"--config-path", tempDir})
+		upOutput, err = executeStartCommand(t, []string{"--config-path", tempDir}, tempDir)
 		require.NoError(t, err, "Start command failed with output: %s", upOutput)
 		assert.Contains(t, upOutput, "Multigres — Distributed Postgres made easy")
 		assert.Contains(t, upOutput, "is already running")
@@ -1082,7 +1095,7 @@ func TestClusterLifecycle(t *testing.T) {
 
 		// Start and stop with --clean flag
 		t.Log("Testing clean stop behavior...")
-		_, err = executeStartCommand(t, []string{"--config-path", tempDir})
+		_, err = executeStartCommand(t, []string{"--config-path", tempDir}, tempDir)
 		require.NoError(t, err, "Second start should succeed")
 
 		// Stop with --clean flag
@@ -1203,7 +1216,7 @@ func TestClusterLifecycle(t *testing.T) {
 
 		// Attempt to start cluster — should fail due to port conflict
 		t.Log("Starting cluster (expected to fail due to port conflict)...")
-		upOutput, err := executeStartCommand(t, []string{"--config-path", tempDir})
+		upOutput, err := executeStartCommand(t, []string{"--config-path", tempDir}, tempDir)
 		require.Error(t, err, "Start should fail when a configured port is already in use. Output: %s", upOutput)
 
 		combined := err.Error() + "\n" + upOutput
@@ -1370,7 +1383,7 @@ func setupTestCluster(t *testing.T) *testClusterSetup {
 
 	// Start cluster (up)
 	t.Log("Starting cluster...")
-	upOutput, err := executeStartCommand(t, []string{"--config-path", tempDir})
+	upOutput, err := executeStartCommand(t, []string{"--config-path", tempDir}, tempDir)
 	require.NoError(t, err, "Start command should succeed and start the cluster: %v", upOutput)
 
 	// Verify we got expected output

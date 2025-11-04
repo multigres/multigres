@@ -62,11 +62,21 @@ func TestMain(m *testing.M) {
 		os.Exit(1)
 	}
 
+	// Set orphan detection environment variable as baseline protection.
+	// This ensures postgres processes started by in-process services will
+	// have watchdogs that monitor the test process and kill postgres if
+	// the test crashes. Individual tests can additionally set
+	// MULTIGRES_TESTDATA_DIR for directory-deletion triggered cleanup.
+	os.Setenv("MULTIGRES_TEST_PARENT_PID", fmt.Sprintf("%d", os.Getpid()))
+
 	// Run all tests
 	exitCode := m.Run()
 
 	// Clean up shared multipooler test infrastructure
 	cleanupSharedTestSetup()
+
+	// Cleanup environment variable
+	os.Unsetenv("MULTIGRES_TEST_PARENT_PID")
 
 	// Exit with the test result code
 	os.Exit(exitCode)
@@ -165,9 +175,12 @@ func (p *ProcessInstance) startPgctld(t *testing.T) error {
 		"--pooler-dir", p.DataDir,
 		"--grpc-port", strconv.Itoa(p.GrpcPort),
 		"--pg-port", strconv.Itoa(p.PgPort),
-		"--log-output", p.LogFile,
-		"--test-orphan-detection")
-	p.Process.Env = p.Environment
+		"--log-output", p.LogFile)
+
+	// Set MULTIGRES_TESTDATA_DIR for directory-deletion triggered cleanup
+	p.Process.Env = append(p.Environment,
+		"MULTIGRES_TESTDATA_DIR="+filepath.Dir(p.DataDir),
+	)
 
 	t.Logf("Running server command: %v", p.Process.Args)
 	if err := p.waitForStartup(t, 20*time.Second, 50); err != nil {
@@ -197,9 +210,12 @@ func (p *ProcessInstance) startMultipooler(t *testing.T) error {
 		"--topo-implementation", "etcd2",
 		"--cell", "test-cell",
 		"--service-id", p.ServiceID,
-		"--log-output", p.LogFile,
-		"--test-orphan-detection")
-	p.Process.Env = p.Environment
+		"--log-output", p.LogFile)
+
+	// Set MULTIGRES_TESTDATA_DIR for directory-deletion triggered cleanup
+	p.Process.Env = append(p.Environment,
+		"MULTIGRES_TESTDATA_DIR="+filepath.Dir(p.DataDir),
+	)
 
 	t.Logf("Running multipooler command: %v", p.Process.Args)
 	return p.waitForStartup(t, 15*time.Second, 30)
@@ -667,6 +683,11 @@ func startEtcdForSharedSetup(dataDir string) (string, *exec.Cmd, error) {
 		"-listen-peer-urls", peerAddr,
 		"-initial-cluster", initialCluster,
 		"-data-dir", dataDir)
+
+	// Set MULTIGRES_TESTDATA_DIR for directory-deletion triggered cleanup
+	cmd.Env = append(os.Environ(),
+		"MULTIGRES_TESTDATA_DIR="+dataDir,
+	)
 
 	if err := cmd.Start(); err != nil {
 		return "", nil, fmt.Errorf("failed to start etcd: %w", err)

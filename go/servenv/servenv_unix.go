@@ -26,6 +26,7 @@ import (
 	"os"
 	"os/signal"
 	"runtime/debug"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -120,17 +121,35 @@ func (sv *ServEnv) populateHostname() {
 	sv.hostname.Set(host)
 }
 
-// startOrphanDetection starts a goroutine that monitors the parent process ID.
-// If the parent PID changes (indicating the parent died and this process was reparented),
-// the process will initiate graceful shutdown. This is used in integration tests to
-// ensure child processes don't become orphans if the test runner is killed.
+// startOrphanDetection starts a goroutine that monitors for orphan conditions.
+// It checks:
+// 1. If MULTIGRES_TESTDATA_DIR is set and the directory is deleted
+// 2. If MULTIGRES_TEST_PARENT_PID is set and that process no longer exists
+// If either condition is true, initiates graceful shutdown.
+// This is used in integration tests to ensure child processes don't become
+// orphans if the test runner is killed.
 func (sv *ServEnv) startOrphanDetection() {
-	if !sv.testOrphanDetection.Get() {
+	// Only run if orphan detection environment variables are set
+	if !IsTestOrphanDetectionEnabled() {
 		return
 	}
 
-	parentPID := os.Getppid()
-	slog.Info("Starting orphan detection", "parent_pid", parentPID)
+	testDataDir := os.Getenv("MULTIGRES_TESTDATA_DIR")
+	testParentPIDStr := os.Getenv("MULTIGRES_TEST_PARENT_PID")
+
+	var testParentPID int
+	if testParentPIDStr != "" {
+		var err error
+		testParentPID, err = strconv.Atoi(testParentPIDStr)
+		if err != nil {
+			slog.Warn("Invalid MULTIGRES_TEST_PARENT_PID", "value", testParentPIDStr)
+			testParentPID = 0
+		}
+	}
+
+	slog.Info("Starting orphan detection",
+		"testdata_dir", testDataDir,
+		"test_parent_pid", testParentPID)
 
 	// Channel to signal when close hooks have completed
 	closeComplete := make(chan struct{})
@@ -145,10 +164,31 @@ func (sv *ServEnv) startOrphanDetection() {
 		for {
 			select {
 			case <-ticker.C:
-				if os.Getppid() != parentPID {
-					slog.Warn("Parent process died, initiating graceful shutdown",
-						"original_parent_pid", parentPID,
-						"current_parent_pid", os.Getppid())
+				shouldShutdown := false
+				reason := ""
+
+				// Check if testdata directory was deleted
+				if testDataDir != "" {
+					if _, err := os.Stat(testDataDir); os.IsNotExist(err) {
+						shouldShutdown = true
+						reason = "testdata directory deleted"
+					}
+				}
+
+				// Check if test parent process died
+				if testParentPID > 0 && !shouldShutdown {
+					process, err := os.FindProcess(testParentPID)
+					if err != nil || process.Signal(syscall.Signal(0)) != nil {
+						shouldShutdown = true
+						reason = "test parent process died"
+					}
+				}
+
+				if shouldShutdown {
+					slog.Warn("Orphan condition detected, initiating graceful shutdown",
+						"reason", reason,
+						"testdata_dir", testDataDir,
+						"test_parent_pid", testParentPID)
 
 					// Trigger graceful shutdown
 					sv.exitChan <- syscall.SIGTERM
