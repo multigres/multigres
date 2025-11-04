@@ -23,6 +23,7 @@ linters:
     - errcheck
     - govet
     - ineffassign
+    - sloglint
     - staticcheck
   settings:
     depguard:
@@ -56,6 +57,7 @@ linters:
           deny:
             - pkg: "math/rand$"
               desc: "Please use math/rand/v2"
+    sloglint:
     govet:
     disable:
       - nilness
