@@ -1336,7 +1336,7 @@ func TestPauseReplication(t *testing.T) {
 
 	tests := []struct {
 		name           string
-		mode           ReplicationPauseMode
+		mode           multipoolermanagerdatapb.ReplicationPauseMode
 		wait           bool
 		setupMock      func(mock sqlmock.Sqlmock)
 		expectError    bool
@@ -1346,7 +1346,7 @@ func TestPauseReplication(t *testing.T) {
 	}{
 		{
 			name: "PauseReplayOnly with wait=true",
-			mode: PauseReplayOnly,
+			mode: multipoolermanagerdatapb.ReplicationPauseMode_REPLICATION_PAUSE_MODE_REPLAY_ONLY,
 			wait: true,
 			setupMock: func(mock sqlmock.Sqlmock) {
 				// Expect pg_wal_replay_pause() call
@@ -1380,7 +1380,7 @@ func TestPauseReplication(t *testing.T) {
 		},
 		{
 			name: "PauseReplayOnly with wait=false",
-			mode: PauseReplayOnly,
+			mode: multipoolermanagerdatapb.ReplicationPauseMode_REPLICATION_PAUSE_MODE_REPLAY_ONLY,
 			wait: false,
 			setupMock: func(mock sqlmock.Sqlmock) {
 				// Expect pg_wal_replay_pause() call only
@@ -1393,7 +1393,7 @@ func TestPauseReplication(t *testing.T) {
 		},
 		{
 			name: "PauseReplayOnly fails on pause command",
-			mode: PauseReplayOnly,
+			mode: multipoolermanagerdatapb.ReplicationPauseMode_REPLICATION_PAUSE_MODE_REPLAY_ONLY,
 			wait: true,
 			setupMock: func(mock sqlmock.Sqlmock) {
 				mock.ExpectExec(regexp.QuoteMeta("SELECT pg_wal_replay_pause()")).
@@ -1404,7 +1404,7 @@ func TestPauseReplication(t *testing.T) {
 		},
 		{
 			name: "PauseReceiverOnly with wait=true",
-			mode: PauseReceiverOnly,
+			mode: multipoolermanagerdatapb.ReplicationPauseMode_REPLICATION_PAUSE_MODE_RECEIVER_ONLY,
 			wait: true,
 			setupMock: func(mock sqlmock.Sqlmock) {
 				// Expect ALTER SYSTEM RESET primary_conninfo
@@ -1443,7 +1443,7 @@ func TestPauseReplication(t *testing.T) {
 		},
 		{
 			name: "PauseReceiverOnly with wait=false",
-			mode: PauseReceiverOnly,
+			mode: multipoolermanagerdatapb.ReplicationPauseMode_REPLICATION_PAUSE_MODE_RECEIVER_ONLY,
 			wait: false,
 			setupMock: func(mock sqlmock.Sqlmock) {
 				// Expect ALTER SYSTEM RESET primary_conninfo
@@ -1461,7 +1461,7 @@ func TestPauseReplication(t *testing.T) {
 		},
 		{
 			name: "PauseReceiverOnly fails on ALTER SYSTEM",
-			mode: PauseReceiverOnly,
+			mode: multipoolermanagerdatapb.ReplicationPauseMode_REPLICATION_PAUSE_MODE_RECEIVER_ONLY,
 			wait: false,
 			setupMock: func(mock sqlmock.Sqlmock) {
 				mock.ExpectExec(regexp.QuoteMeta("ALTER SYSTEM RESET primary_conninfo")).
@@ -1472,7 +1472,7 @@ func TestPauseReplication(t *testing.T) {
 		},
 		{
 			name: "PauseReceiverOnly fails on reload",
-			mode: PauseReceiverOnly,
+			mode: multipoolermanagerdatapb.ReplicationPauseMode_REPLICATION_PAUSE_MODE_RECEIVER_ONLY,
 			wait: false,
 			setupMock: func(mock sqlmock.Sqlmock) {
 				mock.ExpectExec(regexp.QuoteMeta("ALTER SYSTEM RESET primary_conninfo")).
@@ -1485,7 +1485,7 @@ func TestPauseReplication(t *testing.T) {
 		},
 		{
 			name: "PauseReplayAndReceiver with wait=true",
-			mode: PauseReplayAndReceiver,
+			mode: multipoolermanagerdatapb.ReplicationPauseMode_REPLICATION_PAUSE_MODE_REPLAY_AND_RECEIVER,
 			wait: true,
 			setupMock: func(mock sqlmock.Sqlmock) {
 				// Expect pg_wal_replay_pause() call
@@ -1527,7 +1527,7 @@ func TestPauseReplication(t *testing.T) {
 		},
 		{
 			name: "PauseReplayAndReceiver with wait=false",
-			mode: PauseReplayAndReceiver,
+			mode: multipoolermanagerdatapb.ReplicationPauseMode_REPLICATION_PAUSE_MODE_REPLAY_AND_RECEIVER,
 			wait: false,
 			setupMock: func(mock sqlmock.Sqlmock) {
 				// Expect pg_wal_replay_pause() call
@@ -1549,7 +1549,7 @@ func TestPauseReplication(t *testing.T) {
 		},
 		{
 			name: "PauseReplayAndReceiver fails on pause",
-			mode: PauseReplayAndReceiver,
+			mode: multipoolermanagerdatapb.ReplicationPauseMode_REPLICATION_PAUSE_MODE_REPLAY_AND_RECEIVER,
 			wait: false,
 			setupMock: func(mock sqlmock.Sqlmock) {
 				mock.ExpectExec(regexp.QuoteMeta("SELECT pg_wal_replay_pause()")).
@@ -1560,7 +1560,7 @@ func TestPauseReplication(t *testing.T) {
 		},
 		{
 			name: "PauseReplayAndReceiver fails on clearing conninfo",
-			mode: PauseReplayAndReceiver,
+			mode: multipoolermanagerdatapb.ReplicationPauseMode_REPLICATION_PAUSE_MODE_REPLAY_AND_RECEIVER,
 			wait: false,
 			setupMock: func(mock sqlmock.Sqlmock) {
 				mock.ExpectExec(regexp.QuoteMeta("SELECT pg_wal_replay_pause()")).
@@ -1570,16 +1570,6 @@ func TestPauseReplication(t *testing.T) {
 			},
 			expectError:   true,
 			errorContains: "failed to clear primary_conninfo",
-		},
-		{
-			name: "Invalid mode",
-			mode: ReplicationPauseMode(999),
-			wait: false,
-			setupMock: func(mock sqlmock.Sqlmock) {
-				// No expectations - should fail before any DB calls
-			},
-			expectError:   true,
-			errorContains: "invalid replication pause mode",
 		},
 	}
 

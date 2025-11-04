@@ -216,8 +216,8 @@ func (pm *MultiPoolerManager) StartReplication(ctx context.Context) error {
 	return nil
 }
 
-// StopReplication stops WAL replay on standby (calls pg_wal_replay_pause)
-func (pm *MultiPoolerManager) StopReplication(ctx context.Context) error {
+// StopReplication stops replication based on the specified mode
+func (pm *MultiPoolerManager) StopReplication(ctx context.Context, mode multipoolermanagerdatapb.ReplicationPauseMode, wait bool) error {
 	if err := pm.checkReady(); err != nil {
 		return err
 	}
@@ -228,14 +228,14 @@ func (pm *MultiPoolerManager) StopReplication(ctx context.Context) error {
 	}
 	defer pm.unlock()
 
-	pm.logger.InfoContext(ctx, "StopReplication called")
+	pm.logger.InfoContext(ctx, "StopReplication called", "mode", mode, "wait", wait)
 
 	// Check REPLICA guardrails (pooler type and recovery mode)
 	if err := pm.checkReplicaGuardrails(ctx); err != nil {
 		return err
 	}
 
-	_, err := pm.pauseReplication(ctx, PauseReplayOnly, true /* wait */)
+	_, err := pm.pauseReplication(ctx, mode, wait)
 	if err != nil {
 		return err
 	}
@@ -295,8 +295,8 @@ func (pm *MultiPoolerManager) ResetReplication(ctx context.Context) error {
 		return err
 	}
 
-	// Pause the receiver (clear primary_conninfo) and wait for disconnect
-	_, err := pm.pauseReplication(ctx, PauseReceiverOnly, true /* wait */)
+	// Pause the receiver (clear primary_conninfo) without waiting
+	_, err := pm.pauseReplication(ctx, multipoolermanagerdatapb.ReplicationPauseMode_REPLICATION_PAUSE_MODE_RECEIVER_ONLY, false /* wait */)
 	if err != nil {
 		return err
 	}
@@ -583,7 +583,7 @@ func (pm *MultiPoolerManager) StopReplicationAndGetStatus(ctx context.Context) (
 		return nil, err
 	}
 
-	status, err := pm.pauseReplication(ctx, PauseReplayOnly, true /* wait */)
+	status, err := pm.pauseReplication(ctx, multipoolermanagerdatapb.ReplicationPauseMode_REPLICATION_PAUSE_MODE_REPLAY_ONLY, true /* wait */)
 	if err != nil {
 		return nil, err
 	}

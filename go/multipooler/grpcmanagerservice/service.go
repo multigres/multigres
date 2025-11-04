@@ -77,9 +77,9 @@ func (s *managerService) StartReplication(ctx context.Context, req *multipoolerm
 	return &multipoolermanagerdata.StartReplicationResponse{}, nil
 }
 
-// StopReplication stops WAL replay on standby (calls pg_wal_replay_pause)
+// StopReplication stops replication based on the specified mode
 func (s *managerService) StopReplication(ctx context.Context, req *multipoolermanagerdata.StopReplicationRequest) (*multipoolermanagerdata.StopReplicationResponse, error) {
-	err := s.manager.StopReplication(ctx)
+	err := s.manager.StopReplication(ctx, req.Mode, req.Wait)
 	if err != nil {
 		return nil, mterrors.ToGRPC(err)
 	}

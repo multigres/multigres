@@ -112,10 +112,17 @@ message SetPrimaryConnInfoResponse {
 
 // StopReplication stops WAL replay on standby
 message StopReplicationRequest {
+  // Mode specifying what aspect of replication to pause
+  ReplicationPauseMode mode = 1;
+
+  // Whether to wait for the pause operation to complete before returning
+  // If true, the response will include the replication status after pausing
+  // If false, the operation is asynchronous and status will be null
+  bool wait = 2;
 }
 
 message StopReplicationResponse {
-  // Replication status when replication was stopped
+  // Replication status when replication was stopped (only populated if wait=true)
   ReplicationStatus status = 1;
 }
 
@@ -339,6 +346,21 @@ message ResetReplicationRequest {
 message ResetReplicationResponse {
   // Replication status when replication was reset
   ReplicationStatus status = 1;
+}
+
+// Replication pause mode - defines what aspect of replication to pause
+enum ReplicationPauseMode {
+  // PAUSE_REPLAY_ONLY pauses WAL replay only (using pg_wal_replay_pause)
+  // The WAL receiver continues to receive data from the primary
+  REPLICATION_PAUSE_MODE_REPLAY_ONLY = 0;
+
+  // PAUSE_RECEIVER_ONLY stops the WAL receiver by clearing primary_conninfo
+  // Already replayed WAL remains, but no new WAL is received
+  REPLICATION_PAUSE_MODE_RECEIVER_ONLY = 1;
+
+  // PAUSE_REPLAY_AND_RECEIVER pauses both WAL replay and stops the WAL receiver
+  // This is the most complete pause - no new WAL is received and nothing is replayed
+  REPLICATION_PAUSE_MODE_REPLAY_AND_RECEIVER = 2;
 }
 
 // Synchronization method for standby servers
