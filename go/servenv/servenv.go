@@ -148,6 +148,7 @@ func NewServEnvWithConfig(lg *Logger, vc *viperutil.ViperConfig) *ServEnv {
 		mux:          http.NewServeMux(),
 		lg:           lg,
 		serviceMap:   make(map[string]bool),
+		exitChan:     make(chan os.Signal, 1),
 	}
 }
 

@@ -59,7 +59,6 @@ func (sv *ServEnv) Run(bindAddress string, port int, grpcServer *GrpcServer) {
 		}
 	}()
 
-	sv.exitChan = make(chan os.Signal, 1)
 	signal.Notify(sv.exitChan, syscall.SIGTERM, syscall.SIGINT)
 	slog.Info("service successfully started", "port", port)
 	// Wait for signal

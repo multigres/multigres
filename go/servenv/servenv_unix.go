@@ -151,9 +151,7 @@ func (sv *ServEnv) startOrphanDetection() {
 						"current_parent_pid", os.Getppid())
 
 					// Trigger graceful shutdown
-					if sv.exitChan != nil {
-						sv.exitChan <- syscall.SIGTERM
-					}
+					sv.exitChan <- syscall.SIGTERM
 
 					// Wait for close hooks to complete or 10 second timeout
 					select {
