@@ -126,7 +126,7 @@ func TestReplicationAPIs(t *testing.T) {
 		// Call SetPrimaryConnInfo with StartReplicationAfter=true
 		_, err = standbyManagerClient.SetTerm(utils.WithShortDeadline(t), &multipoolermanagerdatapb.SetTermRequest{
 			Term: &multipoolermanagerdatapb.ConsensusTerm{
-				CurrentTerm: 1,
+				TermNumber: 1,
 			},
 		})
 		require.NoError(t, err, "SetTerm should succeed on standby")
@@ -276,7 +276,7 @@ func TestReplicationAPIs(t *testing.T) {
 		t.Log("Calling SetPrimaryConnInfo with StartReplicationAfter=false...")
 		_, err = standbyManagerClient.SetTerm(utils.WithShortDeadline(t), &multipoolermanagerdatapb.SetTermRequest{
 			Term: &multipoolermanagerdatapb.ConsensusTerm{
-				CurrentTerm: 1,
+				TermNumber: 1,
 			},
 		})
 		require.NoError(t, err, "SetTerm should succeed on standby")
@@ -523,7 +523,7 @@ func TestReplicationAPIs(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 		_, err = standbyManagerClient.SetTerm(utils.WithShortDeadline(t), &multipoolermanagerdatapb.SetTermRequest{
 			Term: &multipoolermanagerdatapb.ConsensusTerm{
-				CurrentTerm: 1,
+				TermNumber: 1,
 			},
 		})
 		require.NoError(t, err, "SetTerm should succeed on standby")
@@ -791,7 +791,7 @@ func TestReplicationStatus(t *testing.T) {
 		t.Log("Configuring replication and then stopping it...")
 		_, err := standbyManagerClient.SetTerm(utils.WithShortDeadline(t), &multipoolermanagerdatapb.SetTermRequest{
 			Term: &multipoolermanagerdatapb.ConsensusTerm{
-				CurrentTerm: 1,
+				TermNumber: 1,
 			},
 		})
 		require.NoError(t, err, "SetTerm should succeed on standby")
@@ -890,7 +890,7 @@ func TestStopReplicationAndGetStatus(t *testing.T) {
 		// First, configure and start replication
 		_, err = standbyManagerClient.SetTerm(utils.WithShortDeadline(t), &multipoolermanagerdatapb.SetTermRequest{
 			Term: &multipoolermanagerdatapb.ConsensusTerm{
-				CurrentTerm: 1,
+				TermNumber: 1,
 			},
 		})
 		require.NoError(t, err, "SetTerm should succeed on standby")
@@ -1327,7 +1327,7 @@ func TestConfigureSynchronousReplication(t *testing.T) {
 
 		_, err = standbyManagerClient.SetTerm(utils.WithShortDeadline(t), &multipoolermanagerdatapb.SetTermRequest{
 			Term: &multipoolermanagerdatapb.ConsensusTerm{
-				CurrentTerm: 1,
+				TermNumber: 1,
 			},
 		})
 		require.NoError(t, err, "SetTerm should succeed")
@@ -1603,7 +1603,7 @@ func TestUpdateSynchronousStandbyList(t *testing.T) {
 
 		_, err = primaryManagerClient.SetTerm(utils.WithShortDeadline(t), &multipoolermanagerdatapb.SetTermRequest{
 			Term: &multipoolermanagerdatapb.ConsensusTerm{
-				CurrentTerm: 1,
+				TermNumber: 1,
 			},
 		})
 		require.NoError(t, err, "SetTerm should succeed on primary")

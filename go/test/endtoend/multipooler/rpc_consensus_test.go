@@ -78,7 +78,7 @@ func TestConsensus_Status(t *testing.T) {
 		assert.Equal(t, "primary", resp.Role, "Role should be primary")
 
 		// Verify term (should be 1 from setup)
-		assert.Equal(t, int64(1), resp.CurrentTerm, "CurrentTerm should be 1")
+		assert.Equal(t, int64(1), resp.CurrentTerm, "TermNumber should be 1")
 
 		// Verify health (should be healthy with database connection)
 		assert.True(t, resp.IsHealthy, "Primary should be healthy")

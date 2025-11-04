@@ -45,7 +45,7 @@ func (pm *MultiPoolerManager) BeginTerm(ctx context.Context, req *consensusdatap
 		return nil, fmt.Errorf("consensus state not initialized")
 	}
 
-	currentTerm := cs.GetCurrentTerm()
+	currentTerm := cs.GetCurrentTermNumber()
 	acceptedLeader := cs.GetAcceptedLeader()
 
 	response := &consensusdatapb.BeginTermResponse{
@@ -116,7 +116,7 @@ func (pm *MultiPoolerManager) ConsensusStatus(ctx context.Context, req *consensu
 	}
 
 	// Get local term from consensus state
-	localTerm := cs.GetCurrentTerm()
+	localTerm := cs.GetCurrentTermNumber()
 
 	// Get last successful leader term from Postgres (replicated data)
 	var leaderTerm int64

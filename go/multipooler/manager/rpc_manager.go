@@ -1085,7 +1085,7 @@ func (pm *MultiPoolerManager) SetTerm(ctx context.Context, term *multipoolermana
 	}
 	defer pm.unlock()
 
-	pm.logger.Info("SetTerm called", "current_term", term.GetCurrentTerm())
+	pm.logger.Info("SetTerm called", "current_term", term.GetTermNumber())
 
 	// Initialize consensus state if needed
 	pm.mu.Lock()
@@ -1103,10 +1103,10 @@ func (pm *MultiPoolerManager) SetTerm(ctx context.Context, term *multipoolermana
 
 	// Synchronize term to heartbeat writer if it exists
 	if pm.replTracker != nil {
-		pm.replTracker.HeartbeatWriter().SetLeaderTerm(term.GetCurrentTerm())
-		pm.logger.Info("Synchronized term to heartbeat writer", "term", term.GetCurrentTerm())
+		pm.replTracker.HeartbeatWriter().SetLeaderTerm(term.GetTermNumber())
+		pm.logger.Info("Synchronized term to heartbeat writer", "term", term.GetTermNumber())
 	}
 
-	pm.logger.Info("SetTerm completed successfully", "current_term", term.GetCurrentTerm())
+	pm.logger.Info("SetTerm completed successfully", "current_term", term.GetTermNumber())
 	return nil
 }

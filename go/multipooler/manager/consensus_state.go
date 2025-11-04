@@ -50,7 +50,7 @@ func NewConsensusState(poolerDir string, serviceID *clustermetadatapb.ID) *Conse
 // If the file doesn't exist, initializes with default values (term 0, no accepted leader).
 // This method is idempotent - subsequent calls will reload from disk.
 func (cs *ConsensusState) Load() error {
-	term, err := GetTerm(cs.poolerDir)
+	term, err := GetConsensusTerm(cs.poolerDir)
 	if err != nil {
 		return fmt.Errorf("failed to load consensus term: %w", err)
 	}
@@ -62,16 +62,16 @@ func (cs *ConsensusState) Load() error {
 	return nil
 }
 
-// GetCurrentTerm returns the current term.
+// GetCurrentTermNumber returns the current term.
 // Returns 0 if state has not been loaded.
-func (cs *ConsensusState) GetCurrentTerm() int64 {
+func (cs *ConsensusState) GetCurrentTermNumber() int64 {
 	cs.mu.Lock()
 	defer cs.mu.Unlock()
 
 	if cs.term == nil {
 		return 0
 	}
-	return cs.term.GetCurrentTerm()
+	return cs.term.GetTermNumber()
 }
 
 // GetAcceptedLeader returns the candidate ID this pooler accepted as leader in the current term.
@@ -114,7 +114,7 @@ func (cs *ConsensusState) PrepareAcceptance(candidateID string) (*multipoolerman
 	// Check if already accepted someone else in this term
 	if cs.term.AcceptedLeader != nil && cs.term.AcceptedLeader.GetName() != candidateID {
 		return nil, fmt.Errorf("already accepted %s as leader in term %d",
-			cs.term.AcceptedLeader.GetName(), cs.term.CurrentTerm)
+			cs.term.AcceptedLeader.GetName(), cs.term.TermNumber)
 	}
 
 	// Create NEW term (don't modify existing in-memory state)
@@ -148,7 +148,7 @@ func (cs *ConsensusState) PrepareTermUpdate(newTerm int64) (*multipoolermanagerd
 
 	currentTerm := int64(0)
 	if cs.term != nil {
-		currentTerm = cs.term.GetCurrentTerm()
+		currentTerm = cs.term.GetTermNumber()
 	}
 
 	if newTerm < currentTerm {
@@ -157,7 +157,7 @@ func (cs *ConsensusState) PrepareTermUpdate(newTerm int64) (*multipoolermanagerd
 
 	// Create new term with reset acceptance
 	term := &multipoolermanagerdatapb.ConsensusTerm{
-		CurrentTerm:        newTerm,
+		TermNumber:         newTerm,
 		AcceptedLeader:     nil,
 		LastAcceptanceTime: nil,
 		LeaderId:           nil,
@@ -171,7 +171,7 @@ func (cs *ConsensusState) PrepareTermUpdate(newTerm int64) (*multipoolermanagerd
 // If the save fails, memory remains unchanged and the error is returned.
 func (cs *ConsensusState) SaveAndUpdate(newTerm *multipoolermanagerdatapb.ConsensusTerm) error {
 	// Save to disk FIRST (outside of lock to allow concurrent reads)
-	if err := SetTerm(cs.poolerDir, newTerm); err != nil {
+	if err := SetConsensusTerm(cs.poolerDir, newTerm); err != nil {
 		// Save failed - don't update memory, propagate error
 		return fmt.Errorf("failed to save consensus term: %w", err)
 	}
@@ -191,7 +191,7 @@ func cloneTerm(term *multipoolermanagerdatapb.ConsensusTerm) *multipoolermanager
 	}
 
 	clone := &multipoolermanagerdatapb.ConsensusTerm{
-		CurrentTerm:        term.CurrentTerm,
+		TermNumber:         term.TermNumber,
 		LastAcceptanceTime: term.LastAcceptanceTime,
 		LeaderId:           term.LeaderId,
 	}

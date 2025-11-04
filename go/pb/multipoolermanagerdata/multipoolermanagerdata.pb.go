@@ -2476,8 +2476,8 @@ func (*UpdateSynchronousStandbyListResponse) Descriptor() ([]byte, []int) {
 // This is persisted to disk at $PGDATA/consensus/consensus_term.json
 type ConsensusTerm struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Current consensus term
-	CurrentTerm int64 `protobuf:"varint,1,opt,name=current_term,json=currentTerm,proto3" json:"current_term,omitempty"`
+	// Term number for this consensus term
+	TermNumber int64 `protobuf:"varint,1,opt,name=term_number,json=termNumber,proto3" json:"term_number,omitempty"`
 	// ID of the pooler this replica accepted as leader
 	AcceptedLeader *clustermetadata.ID `protobuf:"bytes,2,opt,name=accepted_leader,json=acceptedLeader,proto3" json:"accepted_leader,omitempty"`
 	// Timestamp of the last acceptance
@@ -2518,9 +2518,9 @@ func (*ConsensusTerm) Descriptor() ([]byte, []int) {
 	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{42}
 }
 
-func (x *ConsensusTerm) GetCurrentTerm() int64 {
+func (x *ConsensusTerm) GetTermNumber() int64 {
 	if x != nil {
-		return x.CurrentTerm
+		return x.TermNumber
 	}
 	return 0
 }
@@ -2683,9 +2683,10 @@ const file_multipoolermanagerdata_proto_rawDesc = "" +
 	"\rreload_config\x18\x03 \x01(\bR\freloadConfig\x12%\n" +
 	"\x0econsensus_term\x18\x04 \x01(\x03R\rconsensusTerm\x12\x14\n" +
 	"\x05force\x18\x05 \x01(\bR\x05force\"&\n" +
-	"$UpdateSynchronousStandbyListResponse\"\xf0\x01\n" +
-	"\rConsensusTerm\x12!\n" +
-	"\fcurrent_term\x18\x01 \x01(\x03R\vcurrentTerm\x12<\n" +
+	"$UpdateSynchronousStandbyListResponse\"\xee\x01\n" +
+	"\rConsensusTerm\x12\x1f\n" +
+	"\vterm_number\x18\x01 \x01(\x03R\n" +
+	"termNumber\x12<\n" +
 	"\x0faccepted_leader\x18\x02 \x01(\v2\x13.clustermetadata.IDR\x0eacceptedLeader\x12L\n" +
 	"\x14last_acceptance_time\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\x12lastAcceptanceTime\x120\n" +
 	"\tleader_id\x18\x04 \x01(\v2\x13.clustermetadata.IDR\bleaderId*q\n" +

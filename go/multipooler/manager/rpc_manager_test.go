@@ -257,7 +257,7 @@ func TestActionLock_MutationMethodsTimeout(t *testing.T) {
 			name:       "SetTerm times out when lock is held",
 			poolerType: clustermetadatapb.PoolerType_PRIMARY,
 			callMethod: func(ctx context.Context) error {
-				return manager.SetTerm(ctx, &multipoolermanagerdatapb.ConsensusTerm{CurrentTerm: 5})
+				return manager.SetTerm(ctx, &multipoolermanagerdatapb.ConsensusTerm{TermNumber: 5})
 			},
 		},
 		{

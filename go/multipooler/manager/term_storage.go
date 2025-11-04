@@ -43,8 +43,8 @@ func consensusTermPath(poolerDir string) string {
 	return filepath.Join(dataDir, "consensus", "consensus_term.json")
 }
 
-// GetTerm retrieves the current consensus term information from disk
-func GetTerm(poolerDir string) (*multipoolermanagerdatapb.ConsensusTerm, error) {
+// GetConsensusTerm retrieves the current consensus term information from disk
+func GetConsensusTerm(poolerDir string) (*multipoolermanagerdatapb.ConsensusTerm, error) {
 	termPath := consensusTermPath(poolerDir)
 
 	// Check if consensus term file exists
@@ -68,8 +68,8 @@ func GetTerm(poolerDir string) (*multipoolermanagerdatapb.ConsensusTerm, error) 
 	return term, nil
 }
 
-// SetTerm sets the consensus term information to disk
-func SetTerm(poolerDir string, term *multipoolermanagerdatapb.ConsensusTerm) error {
+// SetConsensusTerm saves the consensus term information to disk
+func SetConsensusTerm(poolerDir string, term *multipoolermanagerdatapb.ConsensusTerm) error {
 	// Check if data directory is initialized
 	if !isDataDirInitialized(poolerDir) {
 		dataDir := postgresDataDir(poolerDir)

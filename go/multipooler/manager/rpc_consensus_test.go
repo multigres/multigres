@@ -119,7 +119,7 @@ func TestBeginTerm(t *testing.T) {
 		{
 			name: "AlreadyAcceptedLeaderInOlderTerm",
 			initialTerm: &multipoolermanagerdatapb.ConsensusTerm{
-				CurrentTerm: 5,
+				TermNumber: 5,
 				AcceptedLeader: &clustermetadatapb.ID{
 					Cell: "zone1",
 					Name: "candidate-A",
@@ -141,7 +141,7 @@ func TestBeginTerm(t *testing.T) {
 		{
 			name: "AlreadyAcceptedLeaderInSameTerm",
 			initialTerm: &multipoolermanagerdatapb.ConsensusTerm{
-				CurrentTerm: 5,
+				TermNumber: 5,
 				AcceptedLeader: &clustermetadatapb.ID{
 					Cell: "zone1",
 					Name: "candidate-A",
@@ -160,7 +160,7 @@ func TestBeginTerm(t *testing.T) {
 		{
 			name: "AlreadyAcceptedSameCandidateInSameTerm",
 			initialTerm: &multipoolermanagerdatapb.ConsensusTerm{
-				CurrentTerm: 5,
+				TermNumber: 5,
 				AcceptedLeader: &clustermetadatapb.ID{
 					Cell: "zone1",
 					Name: "candidate-A",
@@ -197,7 +197,7 @@ func TestBeginTerm(t *testing.T) {
 		{
 			name: "SaveFailureDuringAcceptance_MemoryUnchanged",
 			initialTerm: &multipoolermanagerdatapb.ConsensusTerm{
-				CurrentTerm: 5,
+				TermNumber: 5,
 				AcceptedLeader: &clustermetadatapb.ID{
 					Cell: "zone1",
 					Name: "candidate-A",
@@ -225,7 +225,7 @@ func TestBeginTerm(t *testing.T) {
 			pm, mock, tmpDir := setupManagerWithMockDB(t)
 
 			// Initialize term on disk
-			err := SetTerm(tmpDir, tt.initialTerm)
+			err := SetConsensusTerm(tmpDir, tt.initialTerm)
 			require.NoError(t, err)
 
 			// Load into consensus state
@@ -251,9 +251,9 @@ func TestBeginTerm(t *testing.T) {
 			assert.Equal(t, tt.expectedTerm, resp.Term)
 
 			// Verify persisted state
-			loadedTerm, err := GetTerm(tmpDir)
+			loadedTerm, err := GetConsensusTerm(tmpDir)
 			require.NoError(t, err)
-			assert.Equal(t, tt.expectedTerm, loadedTerm.CurrentTerm)
+			assert.Equal(t, tt.expectedTerm, loadedTerm.TermNumber)
 			assert.Equal(t, tt.expectedAcceptedLeader, loadedTerm.AcceptedLeader.GetName())
 
 			assert.NoError(t, mock.ExpectationsWereMet())
@@ -267,7 +267,7 @@ func TestBeginTerm(t *testing.T) {
 			pm, mock, tmpDir := setupManagerWithMockDB(t)
 
 			// Initialize term on disk
-			err := SetTerm(tmpDir, tt.initialTerm)
+			err := SetConsensusTerm(tmpDir, tt.initialTerm)
 			require.NoError(t, err)
 
 			// Load into consensus state
@@ -304,13 +304,13 @@ func TestBeginTerm(t *testing.T) {
 				assert.Nil(t, resp)
 
 				// CRITICAL: Verify memory is unchanged despite save failure
-				assert.Equal(t, tt.expectedMemoryTerm, pm.consensusState.GetCurrentTerm(), "Memory term should be unchanged after save failure")
+				assert.Equal(t, tt.expectedMemoryTerm, pm.consensusState.GetCurrentTermNumber(), "Memory term should be unchanged after save failure")
 				assert.Equal(t, tt.expectedMemoryLeader, pm.consensusState.GetAcceptedLeader(), "Memory leader should be unchanged after save failure")
 
 				// Verify disk is unchanged
-				loadedTerm, loadErr := GetTerm(tmpDir)
+				loadedTerm, loadErr := GetConsensusTerm(tmpDir)
 				require.NoError(t, loadErr)
-				assert.Equal(t, tt.expectedMemoryTerm, loadedTerm.CurrentTerm, "Disk term should match initial state after save failure")
+				assert.Equal(t, tt.expectedMemoryTerm, loadedTerm.TermNumber, "Disk term should match initial state after save failure")
 				if tt.expectedMemoryLeader != "" {
 					assert.Equal(t, tt.expectedMemoryLeader, loadedTerm.AcceptedLeader.GetName(), "Disk leader should match initial state after save failure")
 				}
@@ -484,7 +484,7 @@ func TestConsensusStatus(t *testing.T) {
 		{
 			name: "HealthyPrimary",
 			initialTerm: &multipoolermanagerdatapb.ConsensusTerm{
-				CurrentTerm: 5,
+				TermNumber: 5,
 				AcceptedLeader: &clustermetadatapb.ID{
 					Cell: "zone1",
 					Name: "leader-node",
@@ -510,7 +510,7 @@ func TestConsensusStatus(t *testing.T) {
 		{
 			name: "HealthyStandby",
 			initialTerm: &multipoolermanagerdatapb.ConsensusTerm{
-				CurrentTerm:    3,
+				TermNumber:     3,
 				AcceptedLeader: nil,
 			},
 			termInMemory: true,
@@ -541,7 +541,7 @@ func TestConsensusStatus(t *testing.T) {
 		{
 			name: "NoDatabaseConnection",
 			initialTerm: &multipoolermanagerdatapb.ConsensusTerm{
-				CurrentTerm:    7,
+				TermNumber:     7,
 				AcceptedLeader: nil,
 			},
 			termInMemory:        true,
@@ -555,7 +555,7 @@ func TestConsensusStatus(t *testing.T) {
 		{
 			name: "DatabaseQueryFailure",
 			initialTerm: &multipoolermanagerdatapb.ConsensusTerm{
-				CurrentTerm:    4,
+				TermNumber:     4,
 				AcceptedLeader: nil,
 			},
 			termInMemory: true,
@@ -577,7 +577,7 @@ func TestConsensusStatus(t *testing.T) {
 			pm, mock, tmpDir := setupManagerWithMockDB(t)
 
 			// Initialize term on disk
-			err := SetTerm(tmpDir, tt.initialTerm)
+			err := SetConsensusTerm(tmpDir, tt.initialTerm)
 			require.NoError(t, err)
 
 			// Load term into consensus state if term should be in memory
@@ -622,7 +622,7 @@ func TestConsensusStatus(t *testing.T) {
 
 			// Verify term was loaded if applicable
 			if !tt.termInMemory && !tt.nilDB {
-				assert.Equal(t, tt.expectedCurrentTerm, pm.consensusState.GetCurrentTerm(), "Term should be loaded into memory")
+				assert.Equal(t, tt.expectedCurrentTerm, pm.consensusState.GetCurrentTermNumber(), "Term should be loaded into memory")
 			}
 
 			if !tt.nilDB {

@@ -447,8 +447,8 @@ message UpdateSynchronousStandbyListResponse {
 // ConsensusTerm represents the consensus term information for the pooler
 // This is persisted to disk at $PGDATA/consensus/consensus_term.json
 message ConsensusTerm {
-  // Current consensus term
-  int64 current_term = 1;
+  // Term number for this consensus term
+  int64 term_number = 1;
 
   // ID of the pooler this replica accepted as leader
   clustermetadata.ID accepted_leader = 2;

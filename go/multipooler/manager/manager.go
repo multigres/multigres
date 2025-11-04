@@ -301,15 +301,15 @@ func (pm *MultiPoolerManager) checkPoolerType(expectedType clustermetadatapb.Poo
 	return nil
 }
 
-// getCurrentTerm returns the current consensus term in a thread-safe manner
-func (pm *MultiPoolerManager) getCurrentTerm() int64 {
+// getCurrentTermNumber returns the current consensus term number in a thread-safe manner
+func (pm *MultiPoolerManager) getCurrentTermNumber() int64 {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
 
 	if pm.consensusState == nil {
 		return 0
 	}
-	return pm.consensusState.GetCurrentTerm()
+	return pm.consensusState.GetCurrentTermNumber()
 }
 
 // checkReplicaGuardrails verifies that the pooler is a REPLICA and PostgreSQL is in recovery mode
@@ -448,7 +448,7 @@ func (pm *MultiPoolerManager) validateAndUpdateTerm(ctx context.Context, request
 		return nil // Skip validation if force is set
 	}
 
-	currentTerm := pm.getCurrentTerm()
+	currentTerm := pm.getCurrentTermNumber()
 
 	// Check if consensus term has been initialized (term 0 means uninitialized)
 	if currentTerm == 0 {
@@ -500,8 +500,8 @@ func (pm *MultiPoolerManager) validateAndUpdateTerm(ctx context.Context, request
 
 		// Synchronize term to heartbeat writer if it exists
 		if pm.replTracker != nil {
-			pm.replTracker.HeartbeatWriter().SetLeaderTerm(newTerm.GetCurrentTerm())
-			pm.logger.Info("Synchronized term to heartbeat writer", "term", newTerm.GetCurrentTerm())
+			pm.replTracker.HeartbeatWriter().SetLeaderTerm(newTerm.GetTermNumber())
+			pm.logger.Info("Synchronized term to heartbeat writer", "term", newTerm.GetTermNumber())
 		}
 
 		pm.logger.Info("Consensus term updated successfully", "new_term", requestTerm)
@@ -518,7 +518,7 @@ func (pm *MultiPoolerManager) validateTermExactMatch(ctx context.Context, reques
 		return nil // Skip validation if force is set
 	}
 
-	currentTerm := pm.getCurrentTerm()
+	currentTerm := pm.getCurrentTermNumber()
 
 	// Check if consensus term has been initialized
 	if currentTerm == 0 {
@@ -579,7 +579,7 @@ func (pm *MultiPoolerManager) loadConsensusTermFromDisk() {
 		pm.consensusLoaded = true
 		pm.mu.Unlock()
 
-		currentTerm := cs.GetCurrentTerm()
+		currentTerm := cs.GetCurrentTermNumber()
 
 		// Synchronize term to heartbeat writer if it exists
 		if pm.replTracker != nil && currentTerm > 0 {
