@@ -89,7 +89,8 @@ func (s *PgCtldServerCmd) runServer(cmd *cobra.Command, args []string) error {
 
 	// Create and register our service
 	poolerDir := s.pgCtlCmd.GetPoolerDir()
-	pgctldService, err := NewPgCtldService(logger, s.pgCtlCmd.pgPort.Get(), s.pgCtlCmd.pgUser.Get(), s.pgCtlCmd.pgDatabase.Get(), s.pgCtlCmd.timeout.Get(), poolerDir, s.pgCtlCmd.pgListenAddresses.Get())
+	testOrphanDetection := s.senv.GetTestOrphanDetection()
+	pgctldService, err := NewPgCtldService(logger, s.pgCtlCmd.pgPort.Get(), s.pgCtlCmd.pgUser.Get(), s.pgCtlCmd.pgDatabase.Get(), s.pgCtlCmd.timeout.Get(), poolerDir, s.pgCtlCmd.pgListenAddresses.Get(), testOrphanDetection)
 	if err != nil {
 		return err
 	}
@@ -119,14 +120,15 @@ func (s *PgCtldServerCmd) runServer(cmd *cobra.Command, args []string) error {
 // PgCtldService implements the pgctld gRPC service
 type PgCtldService struct {
 	pb.UnimplementedPgCtldServer
-	logger     *slog.Logger
-	pgPort     int
-	pgUser     string
-	pgDatabase string
-	pgPassword string
-	timeout    int
-	poolerDir  string
-	config     *pgctld.PostgresCtlConfig
+	logger              *slog.Logger
+	pgPort              int
+	pgUser              string
+	pgDatabase          string
+	pgPassword          string
+	timeout             int
+	poolerDir           string
+	config              *pgctld.PostgresCtlConfig
+	testOrphanDetection bool
 }
 
 // validatePortConsistency is no longer needed because port, listen_addresses, and unix_socket_directories
@@ -134,7 +136,7 @@ type PgCtldService struct {
 // This makes backups portable across different environments.
 
 // NewPgCtldService creates a new PgCtldService with validation
-func NewPgCtldService(logger *slog.Logger, pgPort int, pgUser string, pgDatabase string, timeout int, poolerDir string, listenAddresses string) (*PgCtldService, error) {
+func NewPgCtldService(logger *slog.Logger, pgPort int, pgUser string, pgDatabase string, timeout int, poolerDir string, listenAddresses string, testOrphanDetection bool) (*PgCtldService, error) {
 	// Validate essential parameters for service creation
 	// Note: We don't validate postgresDataDir or postgresConfigFile existence here
 	// because the server should be able to start even with uninitialized data directory
@@ -174,13 +176,14 @@ func NewPgCtldService(logger *slog.Logger, pgPort int, pgUser string, pgDatabase
 	}
 
 	return &PgCtldService{
-		logger:     logger,
-		pgPort:     pgPort,
-		pgUser:     pgUser,
-		pgDatabase: pgDatabase,
-		timeout:    timeout,
-		poolerDir:  poolerDir,
-		config:     config,
+		logger:              logger,
+		pgPort:              pgPort,
+		pgUser:              pgUser,
+		pgDatabase:          pgDatabase,
+		timeout:             timeout,
+		poolerDir:           poolerDir,
+		config:              config,
+		testOrphanDetection: testOrphanDetection,
 	}, nil
 }
 
@@ -194,7 +197,7 @@ func (s *PgCtldService) Start(ctx context.Context, req *pb.StartRequest) (*pb.St
 	}
 
 	// Use the pre-configured PostgreSQL config for start operation
-	result, err := StartPostgreSQLWithResult(s.logger, s.config)
+	result, err := StartPostgreSQLWithResult(s.logger, s.config, s.testOrphanDetection)
 	if err != nil {
 		return nil, fmt.Errorf("failed to start PostgreSQL: %w", err)
 	}
