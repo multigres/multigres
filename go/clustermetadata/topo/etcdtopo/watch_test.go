@@ -37,7 +37,7 @@ import (
 func TestMain(m *testing.M) {
 	// Set the PATH so etcd and run_in_test.sh can be found
 	// Use automatic module root detection instead of hard-coded relative paths
-	if err := pathutil.PrependModuleSubdirsToPath("bin", "go/test/endtoend"); err != nil {
+	if err := pathutil.PrependBinToPath(); err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to add directories to PATH: %v\n", err)
 		os.Exit(1)
 	}

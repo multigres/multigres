@@ -59,7 +59,7 @@ var (
 func TestMain(m *testing.M) {
 	// Set the PATH so dependencies like etcd and run_in_test.sh can be found
 	// Use automatic module root detection instead of hard-coded relative paths
-	if err := pathutil.PrependModuleSubdirsToPath("bin", "go/test/endtoend"); err != nil {
+	if err := pathutil.PrependBinToPath(); err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to add bin to PATH: %v\n", err)
 		os.Exit(1)
 	}
@@ -1032,11 +1032,17 @@ func setupPoolerTest(t *testing.T, setup *MultipoolerTestSetup, opts ...cleanupO
 		var err error
 		primaryPoolerClient, err = endtoend.NewMultiPoolerTestClient(fmt.Sprintf("localhost:%d", setup.PrimaryMultipooler.GrpcPort))
 		require.NoError(t, err, "Failed to connect to primary pooler")
+
+		_, err = primaryPoolerClient.ExecuteQuery(context.Background(), "SELECT 1", 0)
+		require.NoError(t, err, "Failed to query primary pooler")
 	}
 	if setup != nil && setup.StandbyMultipooler != nil {
 		var err error
 		standbyPoolerClient, err = endtoend.NewMultiPoolerTestClient(fmt.Sprintf("localhost:%d", setup.StandbyMultipooler.GrpcPort))
 		require.NoError(t, err, "Failed to connect to standby pooler")
+
+		_, err = standbyPoolerClient.ExecuteQuery(context.Background(), "SELECT 1", 0)
+		require.NoError(t, err, "Failed to query primary pooler")
 	}
 
 	// Save GUC values BEFORE configuring replication (so we save the clean state)
@@ -1134,6 +1140,17 @@ func setupPoolerTest(t *testing.T, setup *MultipoolerTestSetup, opts ...cleanupO
 
 	// Register cleanup handler
 	t.Cleanup(func() {
+		// if t.Failed() {
+		// 	if setup.PrimaryPgctld != nil {
+
+		// 		logFile := filepath.Join(setup.PrimaryPgctld.DataDir, "primary-multipooler", "multipooler.log")
+		// 		contentBytes, err := os.ReadFile(setup.PrimaryPgctld.DataDir)
+		// 		if err != nil {
+		// 			t.Logf("Multipooler log is: ")
+		// 		}
+		// 	}
+		// }
+
 		// Close pooler clients at the end
 		defer func() {
 			if primaryPoolerClient != nil {
