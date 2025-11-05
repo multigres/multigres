@@ -72,6 +72,8 @@ func TestReplicationAPIs(t *testing.T) {
 	standbyManagerClient := multipoolermanagerpb.NewMultiPoolerManagerClient(standbyConn)
 
 	t.Run("ConfigureReplicationAndValidate", func(t *testing.T) {
+		setupPoolerTest(t, setup, WithoutReplication(), WithDropTables("test_replication"))
+
 		t.Log("Creating table and inserting data in primary...")
 		_, err = primaryPoolerClient.ExecuteQuery(context.Background(), "CREATE TABLE IF NOT EXISTS test_replication (id SERIAL PRIMARY KEY, data TEXT)", 0)
 		require.NoError(t, err, "Should be able to create table in primary")
@@ -171,13 +173,11 @@ func TestReplicationAPIs(t *testing.T) {
 		assert.Equal(t, "1", rowCount, "Should have 1 row in standby")
 
 		t.Log("Replication is working! Data successfully replicated from primary to standby")
-
-		// Cleanup: Drop the test table from primary
-		_, err = primaryPoolerClient.ExecuteQuery(context.Background(), "DROP TABLE IF EXISTS test_replication", 0)
-		require.NoError(t, err)
 	})
 
 	t.Run("TermMismatchRejected", func(t *testing.T) {
+		setupPoolerTest(t, setup)
+
 		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 		defer cancel()
 
@@ -202,6 +202,9 @@ func TestReplicationAPIs(t *testing.T) {
 
 	t.Run("StopReplicationBeforeFlag", func(t *testing.T) {
 		// This test verifies that StopReplicationBefore flag stops replication before setting primary_conninfo
+
+		// Setup cleanup - default behavior starts replication
+		setupPoolerTest(t, setup)
 
 		// First ensure replication is running by checking pg_stat_wal_receiver
 		t.Log("Verifying replication is running...")
@@ -244,16 +247,11 @@ func TestReplicationAPIs(t *testing.T) {
 		assert.Equal(t, "true", isPaused, "WAL replay should be paused after StopReplicationBefore=true")
 
 		t.Log("Replication successfully stopped with StopReplicationBefore flag")
-
-		// Resume replication for cleanup using StartReplication RPC
-		ctx, cancel = context.WithTimeout(context.Background(), 1*time.Second)
-		defer cancel()
-		startReq := &multipoolermanagerdatapb.StartReplicationRequest{}
-		_, err = standbyManagerClient.StartReplication(ctx, startReq)
-		require.NoError(t, err)
 	})
 
 	t.Run("StartReplicationAfterFlag", func(t *testing.T) {
+		setupPoolerTest(t, setup)
+
 		// This test verifies that replication only starts if StartReplicationAfter=true
 
 		// Stop replication using StopReplication RPC
@@ -320,6 +318,8 @@ func TestReplicationAPIs(t *testing.T) {
 	})
 
 	t.Run("WaitForLSN_Standby_Success", func(t *testing.T) {
+		setupPoolerTest(t, setup, WithDropTables("test_wait_lsn"))
+
 		// Insert data on primary to generate a new LSN
 		t.Log("Creating table and inserting data on primary...")
 		_, err = primaryPoolerClient.ExecuteQuery(context.Background(), "CREATE TABLE IF NOT EXISTS test_wait_lsn (id SERIAL PRIMARY KEY, data TEXT)", 0)
@@ -356,13 +356,11 @@ func TestReplicationAPIs(t *testing.T) {
 		require.Len(t, queryResp.Rows, 1)
 		rowCount := string(queryResp.Rows[0].Values[0])
 		assert.Equal(t, "1", rowCount, "Should have 1 row in standby")
-
-		// Cleanup
-		_, err = primaryPoolerClient.ExecuteQuery(context.Background(), "DROP TABLE IF EXISTS test_wait_lsn", 0)
-		require.NoError(t, err)
 	})
 
 	t.Run("WaitForLSN_Primary_Fails", func(t *testing.T) {
+		setupPoolerTest(t, setup)
+
 		// WaitForLSN should fail on PRIMARY pooler type
 		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 		defer cancel()
@@ -376,6 +374,8 @@ func TestReplicationAPIs(t *testing.T) {
 	})
 
 	t.Run("WaitForLSN_Timeout", func(t *testing.T) {
+		setupPoolerTest(t, setup)
+
 		// Test timeout behavior by waiting for a very high LSN that won't be reached
 		t.Log("Testing timeout with unreachable LSN...")
 
@@ -397,6 +397,8 @@ func TestReplicationAPIs(t *testing.T) {
 	})
 
 	t.Run("StartReplication_Success", func(t *testing.T) {
+		setupPoolerTest(t, setup)
+
 		// This test verifies that StartReplication successfully resumes WAL replay on standby
 
 		// First stop replication using StopReplication RPC
@@ -436,6 +438,8 @@ func TestReplicationAPIs(t *testing.T) {
 	})
 
 	t.Run("StartReplication_Primary_Fails", func(t *testing.T) {
+		setupPoolerTest(t, setup)
+
 		// StartReplication should fail on PRIMARY pooler type
 		t.Log("Testing StartReplication on PRIMARY pooler (should fail)...")
 
@@ -451,6 +455,9 @@ func TestReplicationAPIs(t *testing.T) {
 
 	t.Run("StopReplication_Success", func(t *testing.T) {
 		// This test verifies that StopReplication successfully pauses WAL replay on standby
+
+		// Setup cleanup - default behavior starts replication
+		setupPoolerTest(t, setup)
 
 		// First ensure replication is running
 		t.Log("Ensuring replication is running...")
@@ -487,16 +494,11 @@ func TestReplicationAPIs(t *testing.T) {
 		assert.Equal(t, "true", isPaused, "WAL replay should be paused after StopReplication")
 
 		t.Log("StopReplication successfully paused WAL replay")
-
-		// Resume replication for cleanup using StartReplication RPC
-		ctx, cancel = context.WithTimeout(context.Background(), 1*time.Second)
-		defer cancel()
-		startReq := &multipoolermanagerdatapb.StartReplicationRequest{}
-		_, err = standbyManagerClient.StartReplication(ctx, startReq)
-		require.NoError(t, err)
 	})
 
 	t.Run("StopReplication_Primary_Fails", func(t *testing.T) {
+		setupPoolerTest(t, setup)
+
 		// StopReplication should fail on PRIMARY pooler type
 		t.Log("Testing StopReplication on PRIMARY pooler (should fail)...")
 
@@ -511,6 +513,8 @@ func TestReplicationAPIs(t *testing.T) {
 	})
 
 	t.Run("ResetReplication_Success", func(t *testing.T) {
+		setupPoolerTest(t, setup, WithDropTables("test_reset_replication"))
+
 		// This test verifies that ResetReplication successfully disconnects the standby from the primary
 		// and that data inserted after reset does not replicate until replication is re-enabled
 
@@ -630,13 +634,11 @@ func TestReplicationAPIs(t *testing.T) {
 		assert.Equal(t, "1", rowCount, "Should have 1 row on standby after re-enabling replication")
 
 		t.Log("Confirmed: Data successfully replicated after re-enabling replication")
-
-		// Cleanup: Drop the test table from primary
-		_, err = primaryPoolerClient.ExecuteQuery(context.Background(), "DROP TABLE IF EXISTS test_reset_replication", 0)
-		require.NoError(t, err)
 	})
 
 	t.Run("ResetReplication_Primary_Fails", func(t *testing.T) {
+		setupPoolerTest(t, setup)
+
 		// ResetReplication should fail on PRIMARY pooler type
 		t.Log("Testing ResetReplication on PRIMARY pooler (should fail)...")
 
@@ -682,6 +684,8 @@ func TestReplicationStatus(t *testing.T) {
 	waitForManagerReady(t, setup, setup.StandbyMultipooler)
 
 	t.Run("ReplicationStatus_Primary_Fails", func(t *testing.T) {
+		setupPoolerTest(t, setup)
+
 		// ReplicationStatus should fail on PRIMARY pooler type
 		t.Log("Testing ReplicationStatus on PRIMARY (should fail)...")
 
@@ -692,6 +696,8 @@ func TestReplicationStatus(t *testing.T) {
 	})
 
 	t.Run("ReplicationStatus_Standby_NoReplication", func(t *testing.T) {
+		setupPoolerTest(t, setup)
+
 		// Test ReplicationStatus on standby when replication is not configured
 		t.Log("Testing ReplicationStatus on standby with no replication configured...")
 
@@ -729,6 +735,8 @@ func TestReplicationStatus(t *testing.T) {
 	})
 
 	t.Run("ReplicationStatus_Standby_WithReplication", func(t *testing.T) {
+		setupPoolerTest(t, setup)
+
 		// Configure replication
 		t.Log("Configuring replication on standby...")
 		setPrimaryReq := &multipoolermanagerdatapb.SetPrimaryConnInfoRequest{
@@ -777,6 +785,8 @@ func TestReplicationStatus(t *testing.T) {
 	})
 
 	t.Run("ReplicationStatus_Standby_PausedReplication", func(t *testing.T) {
+		setupPoolerTest(t, setup)
+
 		// Configure replication but stop it
 		t.Log("Configuring replication and then stopping it...")
 		_, err := standbyManagerClient.SetTerm(utils.WithShortDeadline(t), &multipoolermanagerdatapb.SetTermRequest{
@@ -854,6 +864,8 @@ func TestStopReplicationAndGetStatus(t *testing.T) {
 	waitForManagerReady(t, setup, setup.StandbyMultipooler)
 
 	t.Run("StopReplicationAndGetStatus_Primary_Fails", func(t *testing.T) {
+		setupPoolerTest(t, setup)
+
 		// StopReplicationAndGetStatus should fail on PRIMARY pooler type
 		t.Log("Testing StopReplicationAndGetStatus on PRIMARY (should fail)...")
 
@@ -866,6 +878,9 @@ func TestStopReplicationAndGetStatus(t *testing.T) {
 	t.Run("StopReplicationAndGetStatus_Standby_Success", func(t *testing.T) {
 		// This test verifies that StopReplicationAndGetStatus stops replication and returns correct status
 		t.Log("Testing StopReplicationAndGetStatus on standby with running replication...")
+
+		// Setup cleanup to restore replication state after test
+		setupPoolerTest(t, setup, WithoutReplication(), WithDropTables("stop_repl_test"))
 
 		// Connect to primary pooler to write test data
 		primaryPoolerClient, err := endtoend.NewMultiPoolerTestClient(fmt.Sprintf("localhost:%d", setup.PrimaryMultipooler.GrpcPort))
@@ -957,26 +972,14 @@ func TestStopReplicationAndGetStatus(t *testing.T) {
 		t.Log("Confirmed: Standby LSN did not advance, replication is truly stopped")
 
 		t.Log("StopReplicationAndGetStatus successfully stopped replication and returned correct status")
-
-		// Clean up: resume replication for next tests
-		startReq := &multipoolermanagerdatapb.StartReplicationRequest{}
-		_, err = standbyManagerClient.StartReplication(utils.WithShortDeadline(t), startReq)
-		require.NoError(t, err, "StartReplication should succeed during cleanup")
-
-		// Wait for replication to actually resume (pg_wal_replay_resume is also async)
-		t.Log("Waiting for WAL replay to resume after cleanup...")
-		require.Eventually(t, func() bool {
-			statusResp, err := standbyManagerClient.ReplicationStatus(utils.WithShortDeadline(t), &multipoolermanagerdatapb.ReplicationStatusRequest{})
-			if err != nil {
-				return false
-			}
-			return !statusResp.Status.IsWalReplayPaused
-		}, 5*time.Second, 100*time.Millisecond, "WAL replay should resume after StartReplication")
 	})
 
 	t.Run("StopReplicationAndGetStatus_Standby_AlreadyPaused", func(t *testing.T) {
 		// This test verifies that StopReplicationAndGetStatus works even when replication is already paused
 		t.Log("Testing StopReplicationAndGetStatus when replication is already paused...")
+
+		// Setup cleanup to restore replication state after test
+		setupPoolerTest(t, setup, WithoutReplication())
 
 		// First, stop replication
 		// StopReplication now waits internally for the pause to complete, so no manual wait needed
@@ -997,21 +1000,6 @@ func TestStopReplicationAndGetStatus(t *testing.T) {
 		assert.NotEmpty(t, stopResp.Status.LastReceiveLsn, "Last receive LSN should not be empty")
 
 		t.Log("StopReplicationAndGetStatus successfully handled already-paused replication")
-
-		// Clean up: resume replication
-		startReq := &multipoolermanagerdatapb.StartReplicationRequest{}
-		_, err = standbyManagerClient.StartReplication(utils.WithShortDeadline(t), startReq)
-		require.NoError(t, err, "StartReplication should succeed during cleanup")
-
-		// Wait for replication to actually resume (pg_wal_replay_resume is also async)
-		t.Log("Waiting for WAL replay to resume...")
-		require.Eventually(t, func() bool {
-			statusResp, err := standbyManagerClient.ReplicationStatus(utils.WithShortDeadline(t), &multipoolermanagerdatapb.ReplicationStatusRequest{})
-			if err != nil {
-				return false
-			}
-			return !statusResp.Status.IsWalReplayPaused
-		}, 5*time.Second, 100*time.Millisecond, "WAL replay should resume after StartReplication")
 	})
 }
 
@@ -1050,7 +1038,7 @@ func TestConfigureSynchronousReplication(t *testing.T) {
 
 	t.Run("ConfigureSynchronousReplication_Primary_Success", func(t *testing.T) {
 		// Register cleanup to reset replication config
-		setupReplicationTestCleanup(t, setup)
+		setupPoolerTest(t, setup, WithoutReplication())
 
 		// This test verifies that ConfigureSynchronousReplication successfully configures
 		// synchronous replication on the primary
@@ -1088,7 +1076,7 @@ func TestConfigureSynchronousReplication(t *testing.T) {
 
 	t.Run("ConfigureSynchronousReplication_Primary_AnyMethod", func(t *testing.T) {
 		// Register cleanup to reset replication config
-		setupReplicationTestCleanup(t, setup)
+		setupPoolerTest(t, setup, WithoutReplication())
 
 		// This test verifies that ConfigureSynchronousReplication works with ANY method
 		t.Log("Testing ConfigureSynchronousReplication with ANY method on PRIMARY...")
@@ -1126,7 +1114,7 @@ func TestConfigureSynchronousReplication(t *testing.T) {
 	})
 
 	t.Run("ConfigureSynchronousReplication_AllCommitLevels", func(t *testing.T) {
-		setupReplicationTestCleanup(t, setup)
+		setupPoolerTest(t, setup, WithoutReplication())
 		// This test verifies that all SynchronousCommitLevel values work correctly
 		t.Log("Testing ConfigureSynchronousReplication with all commit levels...")
 
@@ -1181,7 +1169,7 @@ func TestConfigureSynchronousReplication(t *testing.T) {
 	})
 
 	t.Run("ConfigureSynchronousReplication_AllSynchronousMethods", func(t *testing.T) {
-		setupReplicationTestCleanup(t, setup)
+		setupPoolerTest(t, setup, WithoutReplication())
 		// This test verifies that FIRST and ANY methods work correctly with different num_sync values
 		t.Log("Testing ConfigureSynchronousReplication with all synchronous methods...")
 
@@ -1271,7 +1259,7 @@ func TestConfigureSynchronousReplication(t *testing.T) {
 			},
 		}
 
-		setupReplicationTestCleanup(t, setup)
+		setupPoolerTest(t, setup, WithoutReplication())
 		for _, tc := range testCases {
 			t.Run(tc.name, func(t *testing.T) {
 				// Configure with this synchronous method
@@ -1308,7 +1296,7 @@ func TestConfigureSynchronousReplication(t *testing.T) {
 	})
 
 	t.Run("ConfigureSynchronousReplication_EndToEnd_WithRealStandby", func(t *testing.T) {
-		setupReplicationTestCleanup(t, setup)
+		setupPoolerTest(t, setup, WithoutReplication(), WithDropTables("test_sync_repl"))
 		// This test validates the complete synchronous replication flow:
 		// 1. Configure primary with remote_apply and the actual standby name
 		// 2. Ensure standby is connected and replicating
@@ -1470,29 +1458,12 @@ func TestConfigureSynchronousReplication(t *testing.T) {
 		t.Logf("Standby LSN after failed write: %s", standbyLSNAfter)
 		assert.Equal(t, standbyLSNBefore, standbyLSNAfter, "Standby LSN should not have advanced since replication is disconnected and write failed")
 
-		// Reset synchronous replication to defaults
-		resetReq := &multipoolermanagerdatapb.ConfigureSynchronousReplicationRequest{
-			SynchronousCommit: multipoolermanagerdatapb.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_ON,
-			SynchronousMethod: multipoolermanagerdatapb.SynchronousMethod_SYNCHRONOUS_METHOD_FIRST,
-			NumSync:           0,
-			StandbyIds:        []*clustermetadatapb.ID{},
-			ReloadConfig:      true,
-		}
-		_, err = primaryManagerClient.ConfigureSynchronousReplication(utils.WithShortDeadline(t), resetReq)
-		require.NoError(t, err, "Reset configuration should succeed")
-
-		// Drop test table
-		primaryPoolerClient.Close()
-		primaryPoolerClient, err = endtoend.NewMultiPoolerTestClient(fmt.Sprintf("localhost:%d", setup.PrimaryMultipooler.GrpcPort))
-		require.NoError(t, err)
-		t.Cleanup(func() { primaryPoolerClient.Close() })
-		_, err = primaryPoolerClient.ExecuteQuery(context.Background(), "DROP TABLE IF EXISTS test_sync_repl", 0)
-		require.NoError(t, err)
-
 		t.Log("End-to-end synchronous replication test completed successfully")
 	})
 
 	t.Run("ConfigureSynchronousReplication_ClearConfig", func(t *testing.T) {
+		setupPoolerTest(t, setup)
+
 		// This test verifies that ConfigureSynchronousReplication can clear the configuration
 		// by providing an empty standby list
 		t.Log("Testing ConfigureSynchronousReplication can clear configuration...")
@@ -1546,6 +1517,8 @@ func TestConfigureSynchronousReplication(t *testing.T) {
 	})
 
 	t.Run("ConfigureSynchronousReplication_Standby_Fails", func(t *testing.T) {
+		setupPoolerTest(t, setup)
+
 		// ConfigureSynchronousReplication should fail on REPLICA pooler type
 		t.Log("Testing ConfigureSynchronousReplication on REPLICA pooler (should fail)...")
 
@@ -1601,7 +1574,7 @@ func TestUpdateSynchronousStandbyList(t *testing.T) {
 	t.Cleanup(func() { primaryPoolerClient.Close() })
 
 	t.Run("UpdateSynchronousStandbyList_Add_Success", func(t *testing.T) {
-		setupReplicationTestCleanup(t, setup)
+		setupPoolerTest(t, setup, WithoutReplication())
 		t.Log("Testing UpdateSynchronousStandbyList ADD operation...")
 
 		// First, configure initial synchronous replication with one standby
@@ -1657,7 +1630,7 @@ func TestUpdateSynchronousStandbyList(t *testing.T) {
 	})
 
 	t.Run("UpdateSynchronousStandbyList_Add_Idempotent", func(t *testing.T) {
-		setupReplicationTestCleanup(t, setup)
+		setupPoolerTest(t, setup, WithoutReplication())
 		t.Log("Testing UpdateSynchronousStandbyList ADD operation is idempotent...")
 
 		// Configure with two standbys
@@ -1705,7 +1678,7 @@ func TestUpdateSynchronousStandbyList(t *testing.T) {
 	})
 
 	t.Run("UpdateSynchronousStandbyList_Add_MixedExistingAndNew", func(t *testing.T) {
-		setupReplicationTestCleanup(t, setup)
+		setupPoolerTest(t, setup, WithoutReplication())
 		t.Log("Testing UpdateSynchronousStandbyList ADD with both existing and new standbys...")
 
 		// Configure with two standbys
@@ -1755,7 +1728,7 @@ func TestUpdateSynchronousStandbyList(t *testing.T) {
 	})
 
 	t.Run("UpdateSynchronousStandbyList_Add_Then_Remove_Sequence", func(t *testing.T) {
-		setupReplicationTestCleanup(t, setup)
+		setupPoolerTest(t, setup, WithoutReplication())
 		t.Log("Testing UpdateSynchronousStandbyList ADD followed by REMOVE in sequence...")
 
 		// Configure with initial standbys
@@ -1833,7 +1806,7 @@ func TestUpdateSynchronousStandbyList(t *testing.T) {
 	})
 
 	t.Run("UpdateSynchronousStandbyList_Remove_Success", func(t *testing.T) {
-		setupReplicationTestCleanup(t, setup)
+		setupPoolerTest(t, setup, WithoutReplication())
 		t.Log("Testing UpdateSynchronousStandbyList REMOVE operation...")
 
 		// Configure with three standbys
@@ -1888,7 +1861,7 @@ func TestUpdateSynchronousStandbyList(t *testing.T) {
 	})
 
 	t.Run("UpdateSynchronousStandbyList_Remove_NonExistent_Idempotent", func(t *testing.T) {
-		setupReplicationTestCleanup(t, setup)
+		setupPoolerTest(t, setup, WithoutReplication())
 		t.Log("Testing UpdateSynchronousStandbyList REMOVE operation with non-existent standby (idempotency)...")
 
 		// Configure with two standbys
@@ -1940,7 +1913,7 @@ func TestUpdateSynchronousStandbyList(t *testing.T) {
 	})
 
 	t.Run("UpdateSynchronousStandbyList_Replace_Success", func(t *testing.T) {
-		setupReplicationTestCleanup(t, setup)
+		setupPoolerTest(t, setup, WithoutReplication())
 		t.Log("Testing UpdateSynchronousStandbyList REPLACE operation...")
 
 		// Configure initial set
@@ -2003,6 +1976,8 @@ func TestUpdateSynchronousStandbyList(t *testing.T) {
 	})
 
 	t.Run("UpdateSynchronousStandbyList_NoSyncReplication_Fails", func(t *testing.T) {
+		setupPoolerTest(t, setup)
+
 		t.Log("Testing UpdateSynchronousStandbyList fails when sync replication not configured...")
 
 		// Ensure synchronous replication is not configured
@@ -2037,6 +2012,8 @@ func TestUpdateSynchronousStandbyList(t *testing.T) {
 	})
 
 	t.Run("UpdateSynchronousStandbyList_Standby_Fails", func(t *testing.T) {
+		setupPoolerTest(t, setup)
+
 		t.Log("Testing UpdateSynchronousStandbyList on REPLICA pooler (should fail)...")
 
 		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)

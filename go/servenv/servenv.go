@@ -38,20 +38,21 @@ import (
 // ServEnv holds the service environment configuration and state
 type ServEnv struct {
 	// Configuration
-	httpPort       viperutil.Value[int]
-	bindAddress    viperutil.Value[string]
-	hostname       viperutil.Value[string]
-	lameduckPeriod viperutil.Value[time.Duration]
-	onTermTimeout  viperutil.Value[time.Duration]
-	onCloseTimeout viperutil.Value[time.Duration]
-	pidFile        viperutil.Value[string]
-	httpPprof      viperutil.Value[bool]
-	pprofFlag      viperutil.Value[[]string]
-	serviceMapFlag viperutil.Value[[]string]
-	catchSigpipe   bool
-	maxStackSize   int
-	initStartTime  time.Time
-	vc             *viperutil.ViperConfig
+	httpPort            viperutil.Value[int]
+	bindAddress         viperutil.Value[string]
+	hostname            viperutil.Value[string]
+	lameduckPeriod      viperutil.Value[time.Duration]
+	onTermTimeout       viperutil.Value[time.Duration]
+	onCloseTimeout      viperutil.Value[time.Duration]
+	pidFile             viperutil.Value[string]
+	httpPprof           viperutil.Value[bool]
+	pprofFlag           viperutil.Value[[]string]
+	serviceMapFlag      viperutil.Value[[]string]
+	testOrphanDetection viperutil.Value[bool]
+	catchSigpipe        bool
+	maxStackSize        int
+	initStartTime       time.Time
+	vc                  *viperutil.ViperConfig
 
 	// Hooks
 	onInitHooks     event.Hooks
@@ -137,11 +138,17 @@ func NewServEnvWithConfig(lg *Logger, vc *viperutil.ViperConfig) *ServEnv {
 			FlagName: "service-map",
 			Dynamic:  false,
 		}),
+		testOrphanDetection: viperutil.Configure("test-orphan-detection", viperutil.Options[bool]{
+			Default:  false,
+			FlagName: "test-orphan-detection",
+			Dynamic:  false,
+		}),
 		vc:           vc,
 		maxStackSize: 64 * 1024 * 1024,
 		mux:          http.NewServeMux(),
 		lg:           lg,
 		serviceMap:   make(map[string]bool),
+		exitChan:     make(chan os.Signal, 1),
 	}
 }
 
@@ -198,6 +205,11 @@ func (se *ServEnv) GetHostname() string {
 // Hostname returns the hostname viperutil.Value for advanced usage
 func (se *ServEnv) Hostname() viperutil.Value[string] {
 	return se.hostname
+}
+
+// GetTestOrphanDetection returns whether test orphan detection is enabled
+func (se *ServEnv) GetTestOrphanDetection() bool {
+	return se.testOrphanDetection.Get()
 }
 
 // OnInit registers f to be run at the beginning of the app lifecycle
@@ -354,7 +366,11 @@ func (se *ServEnv) registerFlags(fs *pflag.FlagSet, includeLoggerAndConfig bool)
 	fs.Duration("onclose-timeout", se.onCloseTimeout.Default(), "wait no more than this for OnClose handlers before stopping")
 	fs.String("pid-file", se.pidFile.Default(), "If set, the process will write its pid to the named file, and delete it on graceful shutdown.")
 
-	viperutil.BindFlags(fs, se.httpPort, se.bindAddress, se.hostname, se.lameduckPeriod, se.onTermTimeout, se.onCloseTimeout, se.pidFile, se.httpPprof, se.pprofFlag, se.serviceMapFlag)
+	// Hidden test-only flag for orphan detection
+	fs.Bool("test-orphan-detection", se.testOrphanDetection.Default(), "")
+	_ = fs.MarkHidden("test-orphan-detection")
+
+	viperutil.BindFlags(fs, se.httpPort, se.bindAddress, se.hostname, se.lameduckPeriod, se.onTermTimeout, se.onCloseTimeout, se.pidFile, se.httpPprof, se.pprofFlag, se.serviceMapFlag, se.testOrphanDetection)
 
 	// Server auth flags
 	for _, fn := range grpcAuthServerFlagHooks {

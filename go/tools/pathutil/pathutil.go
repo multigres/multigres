@@ -65,15 +65,24 @@ func findModuleRoot() (string, error) {
 	return "", fmt.Errorf("go.mod not found in any parent directory")
 }
 
-// PrependBinToPath finds the module root and prepends the bin directory to PATH.
-// This is useful for tests that need to use binaries built in the project.
-func PrependBinToPath() error {
+// PrependModuleSubdirsToPath finds the module root and prepends multiple
+// subdirectories to PATH. Each subdir is joined with the module root and
+// prepended to PATH in order (last argument will have highest precedence).
+func PrependModuleSubdirsToPath(subdirs ...string) error {
 	moduleRoot, err := findModuleRoot()
 	if err != nil {
 		return fmt.Errorf("failed to find module root: %w", err)
 	}
 
-	binPath := filepath.Join(moduleRoot, "bin")
-	PrependPath(binPath)
+	for _, subdir := range subdirs {
+		targetPath := filepath.Join(moduleRoot, subdir)
+		PrependPath(targetPath)
+	}
 	return nil
+}
+
+// PrependBinToPath finds the module root and prepends the bin directory to PATH.
+// This is useful for tests that need to use binaries built in the project.
+func PrependBinToPath() error {
+	return PrependModuleSubdirsToPath("bin")
 }

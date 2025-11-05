@@ -129,7 +129,7 @@ func (s *PgCtlStartCmd) runStart(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	result, err := StartPostgreSQLWithResult(s.pgCtlCmd.lg.GetLogger(), config)
+	result, err := StartPostgreSQLWithResult(s.pgCtlCmd.lg.GetLogger(), config, false /* testOrphanDetection */)
 	if err != nil {
 		return err
 	}
@@ -145,7 +145,7 @@ func (s *PgCtlStartCmd) runStart(cmd *cobra.Command, args []string) error {
 }
 
 // StartPostgreSQLWithResult starts PostgreSQL with the given configuration and returns detailed result information
-func StartPostgreSQLWithResult(logger *slog.Logger, config *pgctld.PostgresCtlConfig) (*StartResult, error) {
+func StartPostgreSQLWithResult(logger *slog.Logger, config *pgctld.PostgresCtlConfig, testOrphanDetection bool) (*StartResult, error) {
 	result := &StartResult{}
 
 	// Check if PostgreSQL is already running
@@ -164,7 +164,7 @@ func StartPostgreSQLWithResult(logger *slog.Logger, config *pgctld.PostgresCtlCo
 
 	// Start PostgreSQL
 	logger.Info("Starting PostgreSQL server", "data_dir", config.PostgresDataDir)
-	if err := startPostgreSQLWithConfig(logger, config); err != nil {
+	if err := startPostgreSQLWithConfig(logger, config, testOrphanDetection); err != nil {
 		return nil, fmt.Errorf("failed to start PostgreSQL: %w", err)
 	}
 
@@ -186,7 +186,7 @@ func StartPostgreSQLWithResult(logger *slog.Logger, config *pgctld.PostgresCtlCo
 
 // StartPostgreSQLWithConfig starts PostgreSQL with the given configuration
 func StartPostgreSQLWithConfig(logger *slog.Logger, config *pgctld.PostgresCtlConfig) error {
-	result, err := StartPostgreSQLWithResult(logger, config)
+	result, err := StartPostgreSQLWithResult(logger, config, false /* testOrphanDetection */)
 	if err != nil {
 		return err
 	}
@@ -215,7 +215,7 @@ func isPostgreSQLRunning(dataDir string) bool {
 	return isProcessRunning(pid)
 }
 
-func startPostgreSQLWithConfig(logger *slog.Logger, config *pgctld.PostgresCtlConfig) error {
+func startPostgreSQLWithConfig(logger *slog.Logger, config *pgctld.PostgresCtlConfig, testOrphanDetection bool) error {
 	// Use pg_ctl to start PostgreSQL properly as a daemon
 	// Pass port, listen_addresses, and unix_socket_directories as command-line parameters for portability
 	postgresOpts := fmt.Sprintf("-c config_file=%s -c port=%d -c listen_addresses=%s -c unix_socket_directories=%s",
@@ -237,6 +237,23 @@ func startPostgreSQLWithConfig(logger *slog.Logger, config *pgctld.PostgresCtlCo
 
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("failed to start PostgreSQL with pg_ctl: %w", err)
+	}
+
+	// If test orphan detection is enabled, spawn a watchdog process that will stop postgres if parent dies
+	if testOrphanDetection {
+		logger.Info("Spawning watchdog process for orphan detection")
+		watchdogCmd := exec.Command(
+			"run_command_if_parent_dies.sh",
+			"pg_ctl", "stop",
+			"-D", config.PostgresDataDir,
+			"-m", "fast",
+		)
+		if err := watchdogCmd.Start(); err != nil {
+			logger.Warn("Failed to start watchdog process", "error", err)
+			// Don't fail the start operation if watchdog fails to start
+		} else {
+			logger.Info("Watchdog process started", "pid", watchdogCmd.Process.Pid)
+		}
 	}
 
 	// Wait for PostgreSQL to be ready using pg_isready

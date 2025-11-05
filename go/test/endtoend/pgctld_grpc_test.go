@@ -430,6 +430,7 @@ func TestGRPCPortableConfig(t *testing.T) {
 			30,
 			dataDir,
 			"localhost",
+			true, /* testOrphanDetection */
 		)
 		require.NoError(t, err)
 
@@ -453,6 +454,7 @@ func TestGRPCPortableConfig(t *testing.T) {
 			30,
 			dataDir,
 			"localhost",
+			true, /* testOrphanDetection */
 		)
 		require.NoError(t, err)
 		assert.NotNil(t, service2, "Should be able to create service with different port for portability")
@@ -480,6 +482,7 @@ func createTestGRPCServer(t *testing.T, dataDir, binDir string) (net.Listener, f
 		30,
 		dataDir,
 		"localhost",
+		false, /* testOrphanDetection */
 	)
 
 	require.NoError(t, err)
