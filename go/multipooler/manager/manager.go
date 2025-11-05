@@ -238,9 +238,12 @@ func (pm *MultiPoolerManager) Close() error {
 	pm.cancel()
 	if pm.replTracker != nil {
 		pm.replTracker.Close()
+		pm.replTracker = nil
 	}
 	if pm.db != nil {
-		return pm.db.Close()
+		err := pm.db.Close()
+		pm.db = nil
+		return err
 	}
 	return nil
 }
@@ -715,7 +718,13 @@ func (pm *MultiPoolerManager) restartPostgresAsStandby(ctx context.Context, stat
 		AsStandby: true, // Create standby.signal before restart
 	}
 
+	// Connections won't surivive the restart, but doing db.Close() is awkward because
+	// replTracker is sharding the same DB instance. Rather than closing, we can just make
+	// an effort to strongly encourage recycling all the connections by reducing the pool
+	// size.
+	pm.db.SetMaxOpenConns(1)
 	resp, err := pm.pgctldClient.Restart(ctx, req)
+	pm.db.SetMaxOpenConns(0)
 	if err != nil {
 		pm.logger.Error("Failed to restart PostgreSQL as standby", "error", err)
 		return mterrors.Wrap(err, "failed to restart as standby")
@@ -724,18 +733,6 @@ func (pm *MultiPoolerManager) restartPostgresAsStandby(ctx context.Context, stat
 	pm.logger.Info("PostgreSQL restarted as standby",
 		"pid", resp.Pid,
 		"message", resp.Message)
-
-	// Close database connection since PostgreSQL restarted
-	if pm.db != nil {
-		pm.db.Close()
-		pm.db = nil
-	}
-
-	// Reconnect to PostgreSQL
-	if err := pm.connectDB(); err != nil {
-		pm.logger.Error("Failed to reconnect to database after restart", "error", err)
-		return mterrors.Wrap(err, "failed to reconnect to database")
-	}
 
 	// Verify server is in recovery mode (standby)
 	var inRecovery bool
