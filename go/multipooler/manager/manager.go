@@ -31,8 +31,6 @@ import (
 	"github.com/multigres/multigres/go/servenv"
 	"github.com/multigres/multigres/go/tools/retry"
 
-	"golang.org/x/sync/semaphore"
-
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
@@ -64,11 +62,11 @@ type MultiPoolerManager struct {
 	replTracker  *heartbeat.ReplTracker
 	pgctldClient pgctldpb.PgCtldClient
 
-	// actionSema is there to run only one action at a time.
-	// This semaphore can be held for long periods of time (hours),
-	// like in the case of a restore. This semaphore must be obtained
+	// actionLock is there to run only one action at a time.
+	// This lock can be held for long periods of time (hours),
+	// like in the case of a restore. This lock must be obtained
 	// first before other mutexes.
-	actionSema *semaphore.Weighted
+	actionLock *ActionLock
 
 	// Multipooler record from topology and startup state
 	mu              sync.Mutex
@@ -132,7 +130,7 @@ func NewMultiPoolerManagerWithTimeout(logger *slog.Logger, config *Config, loadT
 		config:            config,
 		topoClient:        config.TopoClient,
 		serviceID:         config.ServiceID,
-		actionSema:        semaphore.NewWeighted(1),
+		actionLock:        NewActionLock(),
 		state:             ManagerStateStarting,
 		ctx:               ctx,
 		cancel:            cancel,
@@ -140,20 +138,6 @@ func NewMultiPoolerManagerWithTimeout(logger *slog.Logger, config *Config, loadT
 		queryServingState: clustermetadatapb.PoolerServingStatus_NOT_SERVING,
 		pgctldClient:      pgctldClient,
 	}
-}
-
-// lock is used at the beginning of an RPC call, to acquire the
-// action semaphore. It returns ctx.Err() if the context expires.
-func (pm *MultiPoolerManager) lock(ctx context.Context) error {
-	if err := pm.actionSema.Acquire(ctx, 1); err != nil {
-		return mterrors.Wrap(err, "failed to acquire action lock")
-	}
-	return nil
-}
-
-// unlock is the symmetrical action to lock.
-func (pm *MultiPoolerManager) unlock() {
-	pm.actionSema.Release(1)
 }
 
 // connectDB establishes a connection to PostgreSQL (reuses the shared logic)

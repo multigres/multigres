@@ -81,10 +81,12 @@ func (pm *MultiPoolerManager) SetPrimaryConnInfo(ctx context.Context, host strin
 	}
 
 	// Acquire the action lock to ensure only one mutation runs at a time
-	if err := pm.lock(ctx); err != nil {
+	var err error
+	ctx, err = pm.actionLock.Acquire(ctx, "SetPrimaryConnInfo")
+	if err != nil {
 		return err
 	}
-	defer pm.unlock()
+	defer pm.actionLock.Release(ctx)
 
 	pm.logger.Info("SetPrimaryConnInfo called",
 		"host", host,
@@ -95,24 +97,24 @@ func (pm *MultiPoolerManager) SetPrimaryConnInfo(ctx context.Context, host strin
 		"force", force)
 
 	// Validate and update consensus term following consensus rules
-	if err := pm.validateAndUpdateTerm(ctx, currentTerm, force); err != nil {
+	if err = pm.validateAndUpdateTerm(ctx, currentTerm, force); err != nil {
 		return err
 	}
 
 	// Guardrail: Check pooler type - only REPLICA poolers can set primary_conninfo
-	if err := pm.checkPoolerType(clustermetadatapb.PoolerType_REPLICA, "SetPrimaryConnInfo"); err != nil {
+	if err = pm.checkPoolerType(clustermetadatapb.PoolerType_REPLICA, "SetPrimaryConnInfo"); err != nil {
 		return err
 	}
 
 	// Ensure database connection
-	if err := pm.connectDB(); err != nil {
+	if err = pm.connectDB(); err != nil {
 		pm.logger.Error("Failed to connect to database", "error", err)
 		return mterrors.Wrap(err, "database connection failed")
 	}
 
 	// Guardrail: Check if the PostgreSQL instance is in recovery (standby mode)
 	var isInRecovery bool
-	err := pm.db.QueryRowContext(ctx, "SELECT pg_is_in_recovery()").Scan(&isInRecovery)
+	err = pm.db.QueryRowContext(ctx, "SELECT pg_is_in_recovery()").Scan(&isInRecovery)
 	if err != nil {
 		pm.logger.Error("Failed to check if instance is in recovery", "error", err)
 		return mterrors.Wrap(err, "failed to check recovery status")
@@ -192,21 +194,23 @@ func (pm *MultiPoolerManager) StartReplication(ctx context.Context) error {
 	}
 
 	// Acquire the action lock to ensure only one mutation runs at a time
-	if err := pm.lock(ctx); err != nil {
+	var err error
+	ctx, err = pm.actionLock.Acquire(ctx, "StartReplication")
+	if err != nil {
 		return err
 	}
-	defer pm.unlock()
+	defer pm.actionLock.Release(ctx)
 
 	pm.logger.Info("StartReplication called")
 
 	// Check REPLICA guardrails (pooler type and recovery mode)
-	if err := pm.checkReplicaGuardrails(ctx); err != nil {
+	if err = pm.checkReplicaGuardrails(ctx); err != nil {
 		return err
 	}
 
 	// Resume WAL replay on the standby
 	pm.logger.Info("Resuming WAL replay on standby")
-	_, err := pm.db.ExecContext(ctx, "SELECT pg_wal_replay_resume()")
+	_, err = pm.db.ExecContext(ctx, "SELECT pg_wal_replay_resume()")
 	if err != nil {
 		pm.logger.Error("Failed to resume WAL replay", "error", err)
 		return mterrors.Wrap(err, "failed to resume WAL replay")
@@ -223,21 +227,23 @@ func (pm *MultiPoolerManager) StopReplication(ctx context.Context) error {
 	}
 
 	// Acquire the action lock to ensure only one mutation runs at a time
-	if err := pm.lock(ctx); err != nil {
+	var err error
+	ctx, err = pm.actionLock.Acquire(ctx, "StopReplication")
+	if err != nil {
 		return err
 	}
-	defer pm.unlock()
+	defer pm.actionLock.Release(ctx)
 
 	pm.logger.Info("StopReplication called")
 
 	// Check REPLICA guardrails (pooler type and recovery mode)
-	if err := pm.checkReplicaGuardrails(ctx); err != nil {
+	if err = pm.checkReplicaGuardrails(ctx); err != nil {
 		return err
 	}
 
 	// Pause WAL replay on the standby
 	pm.logger.Info("Pausing WAL replay on standby")
-	_, err := pm.db.ExecContext(ctx, "SELECT pg_wal_replay_pause()")
+	_, err = pm.db.ExecContext(ctx, "SELECT pg_wal_replay_pause()")
 	if err != nil {
 		pm.logger.Error("Failed to pause WAL replay", "error", err)
 		return mterrors.Wrap(err, "failed to pause WAL replay")
@@ -294,21 +300,23 @@ func (pm *MultiPoolerManager) ResetReplication(ctx context.Context) error {
 	}
 
 	// Acquire the action lock to ensure only one mutation runs at a time
-	if err := pm.lock(ctx); err != nil {
+	var err error
+	ctx, err = pm.actionLock.Acquire(ctx, "ResetReplication")
+	if err != nil {
 		return err
 	}
-	defer pm.unlock()
+	defer pm.actionLock.Release(ctx)
 
 	pm.logger.Info("ResetReplication called")
 
 	// Check REPLICA guardrails (pooler type and recovery mode)
-	if err := pm.checkReplicaGuardrails(ctx); err != nil {
+	if err = pm.checkReplicaGuardrails(ctx); err != nil {
 		return err
 	}
 
 	//  Clear primary_conninfo using ALTER SYSTEM
 	pm.logger.Info("Clearing primary_conninfo")
-	_, err := pm.db.ExecContext(ctx, "ALTER SYSTEM RESET primary_conninfo")
+	_, err = pm.db.ExecContext(ctx, "ALTER SYSTEM RESET primary_conninfo")
 	if err != nil {
 		pm.logger.Error("Failed to clear primary_conninfo", "error", err)
 		return mterrors.Wrap(err, "failed to clear primary_conninfo")
@@ -333,10 +341,12 @@ func (pm *MultiPoolerManager) ConfigureSynchronousReplication(ctx context.Contex
 	}
 
 	// Acquire the action lock to ensure only one mutation runs at a time
-	if err := pm.lock(ctx); err != nil {
+	var err error
+	ctx, err = pm.actionLock.Acquire(ctx, "ConfigureSynchronousReplication")
+	if err != nil {
 		return err
 	}
-	defer pm.unlock()
+	defer pm.actionLock.Release(ctx)
 
 	pm.logger.Info("ConfigureSynchronousReplication called",
 		"synchronous_commit", synchronousCommit,
@@ -346,12 +356,12 @@ func (pm *MultiPoolerManager) ConfigureSynchronousReplication(ctx context.Contex
 		"reload_config", reloadConfig)
 
 	// Validate input parameters
-	if err := validateSyncReplicationParams(numSync, standbyIDs); err != nil {
+	if err = validateSyncReplicationParams(numSync, standbyIDs); err != nil {
 		return err
 	}
 
 	// Check PRIMARY guardrails (pooler type and non-recovery mode)
-	if err := pm.checkPrimaryGuardrails(ctx); err != nil {
+	if err = pm.checkPrimaryGuardrails(ctx); err != nil {
 		return err
 	}
 
@@ -387,10 +397,12 @@ func (pm *MultiPoolerManager) UpdateSynchronousStandbyList(ctx context.Context, 
 		return err
 	}
 
-	if err := pm.lock(ctx); err != nil {
+	var err error
+	ctx, err = pm.actionLock.Acquire(ctx, "UpdateSynchronousStandbyList")
+	if err != nil {
 		return err
 	}
-	defer pm.unlock()
+	defer pm.actionLock.Release(ctx)
 
 	pm.logger.Info("UpdateSynchronousStandbyList called",
 		"operation", operation,
@@ -411,12 +423,12 @@ func (pm *MultiPoolerManager) UpdateSynchronousStandbyList(ctx context.Context, 
 	}
 
 	// Validate standby IDs using the shared validation function
-	if err := validateStandbyIDs(standbyIDs); err != nil {
+	if err = validateStandbyIDs(standbyIDs); err != nil {
 		return err
 	}
 
 	// Check PRIMARY guardrails (pooler type and non-recovery mode)
-	if err := pm.checkPrimaryGuardrails(ctx); err != nil {
+	if err = pm.checkPrimaryGuardrails(ctx); err != nil {
 		return err
 	}
 
@@ -424,7 +436,7 @@ func (pm *MultiPoolerManager) UpdateSynchronousStandbyList(ctx context.Context, 
 
 	// Get current synchronous_standby_names value
 	var currentValue string
-	err := pm.db.QueryRowContext(ctx, "SHOW synchronous_standby_names").Scan(&currentValue)
+	err = pm.db.QueryRowContext(ctx, "SHOW synchronous_standby_names").Scan(&currentValue)
 	if err != nil {
 		pm.logger.Error("Failed to get current synchronous_standby_names", "error", err)
 		return mterrors.Wrap(err, "failed to get current synchronous_standby_names")
@@ -592,21 +604,23 @@ func (pm *MultiPoolerManager) StopReplicationAndGetStatus(ctx context.Context) (
 	}
 
 	// Acquire the action lock to ensure only one mutation runs at a time
-	if err := pm.lock(ctx); err != nil {
+	var err error
+	ctx, err = pm.actionLock.Acquire(ctx, "StopReplicationAndGetStatus")
+	if err != nil {
 		return nil, err
 	}
-	defer pm.unlock()
+	defer pm.actionLock.Release(ctx)
 
 	pm.logger.Info("StopReplicationAndGetStatus called")
 
 	// Check REPLICA guardrails (pooler type and recovery mode)
-	if err := pm.checkReplicaGuardrails(ctx); err != nil {
+	if err = pm.checkReplicaGuardrails(ctx); err != nil {
 		return nil, err
 	}
 
 	// Pause WAL replay on the standby
 	pm.logger.Info("Pausing WAL replay on standby")
-	_, err := pm.db.ExecContext(ctx, "SELECT pg_wal_replay_pause()")
+	_, err = pm.db.ExecContext(ctx, "SELECT pg_wal_replay_pause()")
 	if err != nil {
 		pm.logger.Error("Failed to pause WAL replay", "error", err)
 		return nil, mterrors.Wrap(err, "failed to pause WAL replay")
@@ -636,10 +650,12 @@ func (pm *MultiPoolerManager) ChangeType(ctx context.Context, poolerType string)
 	}
 
 	// Acquire the action lock to ensure only one mutation runs at a time
-	if err := pm.lock(ctx); err != nil {
+	var err error
+	ctx, err = pm.actionLock.Acquire(ctx, "ChangeType")
+	if err != nil {
 		return err
 	}
-	defer pm.unlock()
+	defer pm.actionLock.Release(ctx)
 
 	// Validate pooler type
 	var newType clustermetadatapb.PoolerType
@@ -843,10 +859,12 @@ func (pm *MultiPoolerManager) Demote(ctx context.Context, consensusTerm int64, d
 	}
 
 	// Acquire the action lock to ensure only one mutation runs at a time
-	if err := pm.lock(ctx); err != nil {
+	var err error
+	ctx, err = pm.actionLock.Acquire(ctx, "Demote")
+	if err != nil {
 		return nil, err
 	}
-	defer pm.unlock()
+	defer pm.actionLock.Release(ctx)
 
 	pm.logger.Info("Demote called",
 		"consensus_term", consensusTerm,
@@ -856,16 +874,16 @@ func (pm *MultiPoolerManager) Demote(ctx context.Context, consensusTerm int64, d
 	// === Validation & State Check ===
 
 	// Demote is an operational cleanup, not a leadership change.
-	// Accept if term >= currentTerm to ensure the request isn’t stale.
+	// Accept if term >= currentTerm to ensure the request isn't stale.
 	// Equal or higher terms are safe.
 	// Note: we still update the term, as this may arrive after a leader
 	// appointment that this (now old) primary missed due to a network partition.
-	if err := pm.validateAndUpdateTerm(ctx, consensusTerm, force); err != nil {
+	if err = pm.validateAndUpdateTerm(ctx, consensusTerm, force); err != nil {
 		return nil, err
 	}
 
 	// Ensure database connection
-	if err := pm.connectDB(); err != nil {
+	if err = pm.connectDB(); err != nil {
 		pm.logger.Error("Failed to connect to database", "error", err)
 		return nil, mterrors.Wrap(err, "database connection failed")
 	}
@@ -963,10 +981,12 @@ func (pm *MultiPoolerManager) UndoDemote(ctx context.Context) error {
 	}
 
 	// Acquire the action lock to ensure only one mutation runs at a time
-	if err := pm.lock(ctx); err != nil {
+	var err error
+	ctx, err = pm.actionLock.Acquire(ctx, "UndoDemote")
+	if err != nil {
 		return err
 	}
-	defer pm.unlock()
+	defer pm.actionLock.Release(ctx)
 
 	pm.logger.Info("UndoDemote called")
 	return mterrors.New(mtrpcpb.Code_UNIMPLEMENTED, "method UndoDemote not implemented")
@@ -983,10 +1003,12 @@ func (pm *MultiPoolerManager) Promote(ctx context.Context, consensusTerm int64, 
 	}
 
 	// Acquire the action lock to ensure only one mutation runs at a time
-	if err := pm.lock(ctx); err != nil {
+	var err error
+	ctx, err = pm.actionLock.Acquire(ctx, "Promote")
+	if err != nil {
 		return nil, err
 	}
-	defer pm.unlock()
+	defer pm.actionLock.Release(ctx)
 
 	pm.logger.Info("Promote called",
 		"consensus_term", consensusTerm,
@@ -996,12 +1018,12 @@ func (pm *MultiPoolerManager) Promote(ctx context.Context, consensusTerm int64, 
 	// Validation & Readiness
 
 	// Validate term - strict equality, no automatic updates
-	if err := pm.validateTermExactMatch(ctx, consensusTerm, force); err != nil {
+	if err = pm.validateTermExactMatch(ctx, consensusTerm, force); err != nil {
 		return nil, err
 	}
 
 	// Ensure database connection
-	if err := pm.connectDB(); err != nil {
+	if err = pm.connectDB(); err != nil {
 		pm.logger.Error("Failed to connect to database", "error", err)
 		return nil, mterrors.Wrap(err, "database connection failed")
 	}
@@ -1101,15 +1123,17 @@ func (pm *MultiPoolerManager) SetTerm(ctx context.Context, term *multipoolermana
 	}
 
 	// Acquire the action lock to ensure only one mutation runs at a time
-	if err := pm.lock(ctx); err != nil {
+	var err error
+	ctx, err = pm.actionLock.Acquire(ctx, "SetTerm")
+	if err != nil {
 		return err
 	}
-	defer pm.unlock()
+	defer pm.actionLock.Release(ctx)
 
 	pm.logger.Info("SetTerm called", "current_term", term.GetCurrentTerm())
 
 	// Write term to local disk using the term_storage functions
-	if err := SetTerm(pm.config.PoolerDir, term); err != nil {
+	if err = SetTerm(pm.config.PoolerDir, term); err != nil {
 		pm.logger.Error("Failed to set consensus term to disk", "error", err)
 		return mterrors.Wrap(err, "failed to set consensus term")
 	}

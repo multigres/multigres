@@ -166,12 +166,13 @@ func TestActionLock_MutationMethodsTimeout(t *testing.T) {
 		lockCtx, cancel := context.WithDeadline(context.Background(), time.Now().Add(duration))
 		lockAcquired := make(chan struct{})
 		go func() {
-			if err := manager.lock(lockCtx); err == nil {
+			newCtx, err := manager.actionLock.Acquire(lockCtx, "test-lock-holder")
+			if err == nil {
 				// Signal that the lock was acquired
 				close(lockAcquired)
 				// Hold the lock for the duration or until cancelled
 				<-lockCtx.Done()
-				manager.unlock()
+				manager.actionLock.Release(newCtx)
 			}
 		}()
 		// Wait for the lock to be acquired
