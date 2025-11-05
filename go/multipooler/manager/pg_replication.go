@@ -199,6 +199,180 @@ func (pm *MultiPoolerManager) waitForReplicationPause(ctx context.Context) (*mul
 	}
 }
 
+// resetPrimaryConnInfo clears primary_conninfo and reloads PostgreSQL configuration.
+// This effectively disconnects the replica from the primary.
+func (pm *MultiPoolerManager) resetPrimaryConnInfo(ctx context.Context) error {
+	// Clear primary_conninfo using ALTER SYSTEM (should be quick)
+	pm.logger.InfoContext(ctx, "Clearing primary_conninfo")
+
+	execCtx, execCancel := context.WithTimeout(ctx, 500*time.Millisecond)
+	defer execCancel()
+
+	_, err := pm.db.ExecContext(execCtx, "ALTER SYSTEM RESET primary_conninfo")
+	if err != nil {
+		pm.logger.ErrorContext(ctx, "Failed to clear primary_conninfo", "error", err)
+		return mterrors.Wrap(err, "failed to clear primary_conninfo")
+	}
+
+	// Reload PostgreSQL configuration to apply changes (should be quick)
+	pm.logger.InfoContext(ctx, "Reloading PostgreSQL configuration")
+
+	reloadCtx, reloadCancel := context.WithTimeout(ctx, 500*time.Millisecond)
+	defer reloadCancel()
+
+	_, err = pm.db.ExecContext(reloadCtx, "SELECT pg_reload_conf()")
+	if err != nil {
+		pm.logger.ErrorContext(ctx, "Failed to reload configuration", "error", err)
+		return mterrors.Wrap(err, "failed to reload PostgreSQL configuration")
+	}
+
+	return nil
+}
+
+// waitForReceiverDisconnect waits for the WAL receiver to fully disconnect after clearing primary_conninfo.
+// It polls pg_stat_wal_receiver to confirm the receiver has stopped.
+func (pm *MultiPoolerManager) waitForReceiverDisconnect(ctx context.Context) (*multipoolermanagerdatapb.ReplicationStatus, error) {
+	// Create a context with timeout for the polling loop
+	waitCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	ticker := time.NewTicker(500 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-waitCtx.Done():
+			if waitCtx.Err() == context.DeadlineExceeded {
+				pm.logger.ErrorContext(ctx, "Timeout waiting for WAL receiver to disconnect")
+				return nil, mterrors.New(mtrpcpb.Code_DEADLINE_EXCEEDED, "timeout waiting for WAL receiver to disconnect")
+			}
+			pm.logger.ErrorContext(ctx, "Context cancelled while waiting for WAL receiver to disconnect")
+			return nil, mterrors.Wrap(waitCtx.Err(), "context cancelled while waiting for WAL receiver to disconnect")
+
+		case <-ticker.C:
+			// Check if WAL receiver has disconnected by counting rows in pg_stat_wal_receiver
+			var receiverCount int
+			query := "SELECT COUNT(*) FROM pg_stat_wal_receiver"
+			err := pm.db.QueryRowContext(waitCtx, query).Scan(&receiverCount)
+			if err != nil {
+				pm.logger.ErrorContext(ctx, "Failed to query pg_stat_wal_receiver", "error", err)
+				return nil, mterrors.Wrap(err, "failed to query pg_stat_wal_receiver")
+			}
+
+			// Once receiver is disconnected, query final replication status
+			if receiverCount == 0 {
+				pm.logger.InfoContext(ctx, "WAL receiver has disconnected")
+
+				// Get the final replication status
+				status, err := pm.queryReplicationStatus(waitCtx)
+				if err != nil {
+					pm.logger.ErrorContext(ctx, "Failed to get replication status", "error", err)
+					return nil, err
+				}
+
+				return status, nil
+			}
+		}
+	}
+}
+
+// pauseReplication pauses replication based on the specified mode.
+// If wait is true, it waits for the pause operation to complete before returning.
+// Returns the replication status after pausing (if wait is true) or nil (if wait is false).
+func (pm *MultiPoolerManager) pauseReplication(ctx context.Context, mode multipoolermanagerdatapb.ReplicationPauseMode, wait bool) (*multipoolermanagerdatapb.ReplicationStatus, error) {
+	switch mode {
+	case multipoolermanagerdatapb.ReplicationPauseMode_REPLICATION_PAUSE_MODE_REPLAY_ONLY:
+		// Pause WAL replay on the standby
+		pm.logger.InfoContext(ctx, "Pausing WAL replay on standby")
+
+		// Set tight timeout for the pause command itself (should be quick)
+		execCtx, execCancel := context.WithTimeout(ctx, 500*time.Millisecond)
+		defer execCancel()
+
+		_, err := pm.db.ExecContext(execCtx, "SELECT pg_wal_replay_pause()")
+		if err != nil {
+			pm.logger.ErrorContext(ctx, "Failed to pause WAL replay", "error", err)
+			return nil, mterrors.Wrap(err, "failed to pause WAL replay")
+		}
+
+		if wait {
+			// Wait for WAL replay to actually be paused
+			// pg_wal_replay_pause() is asynchronous, so we need to wait for it to complete
+			pm.logger.InfoContext(ctx, "Waiting for WAL replay to complete pausing")
+			status, err := pm.waitForReplicationPause(ctx)
+			if err != nil {
+				return nil, err
+			}
+			return status, nil
+		}
+
+		return nil, nil
+
+	case multipoolermanagerdatapb.ReplicationPauseMode_REPLICATION_PAUSE_MODE_RECEIVER_ONLY:
+		// Stop the WAL receiver by clearing primary_conninfo
+		pm.logger.InfoContext(ctx, "Stopping WAL receiver")
+
+		if err := pm.resetPrimaryConnInfo(ctx); err != nil {
+			return nil, err
+		}
+
+		if wait {
+			// Wait for receiver to fully disconnect
+			pm.logger.InfoContext(ctx, "Waiting for WAL receiver to disconnect")
+			status, err := pm.waitForReceiverDisconnect(ctx)
+			if err != nil {
+				return nil, err
+			}
+			return status, nil
+		}
+
+		return nil, nil
+
+	case multipoolermanagerdatapb.ReplicationPauseMode_REPLICATION_PAUSE_MODE_REPLAY_AND_RECEIVER:
+		// IMPORTANT: Must stop receiver BEFORE pausing replay
+		// Reason: When replay is paused, the WAL receiver won't disconnect even if we clear primary_conninfo
+		// So we must clear primary_conninfo while replay is still running
+		pm.logger.InfoContext(ctx, "Pausing both WAL replay and receiver")
+
+		// First stop receiver (while replay is still running)
+		if err := pm.resetPrimaryConnInfo(ctx); err != nil {
+			return nil, err
+		}
+
+		// Wait for receiver to disconnect before pausing replay
+		_, err := pm.waitForReceiverDisconnect(ctx)
+		if err != nil {
+			return nil, err
+		}
+
+		// Now that receiver is disconnected, pause replay
+		execCtx, execCancel := context.WithTimeout(ctx, 500*time.Millisecond)
+		defer execCancel()
+
+		_, err = pm.db.ExecContext(execCtx, "SELECT pg_wal_replay_pause()")
+		if err != nil {
+			pm.logger.ErrorContext(ctx, "Failed to pause WAL replay", "error", err)
+			return nil, mterrors.Wrap(err, "failed to pause WAL replay")
+		}
+
+		if wait {
+			// Wait for replay pause to complete
+			pm.logger.InfoContext(ctx, "Waiting for WAL replay to complete pausing")
+			status, err := pm.waitForReplicationPause(ctx)
+			if err != nil {
+				return nil, err
+			}
+			return status, nil
+		}
+
+		return nil, nil
+
+	default:
+		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT,
+			fmt.Sprintf("invalid replication pause mode: %d", mode))
+	}
+}
+
 // validateExpectedLSN validates that the current replay LSN matches the expected LSN
 func (pm *MultiPoolerManager) validateExpectedLSN(ctx context.Context, expectedLSN string) error {
 	if expectedLSN == "" {

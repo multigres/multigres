@@ -202,7 +202,7 @@ func TestActionLock_MutationMethodsTimeout(t *testing.T) {
 			name:       "StopReplication times out when lock is held",
 			poolerType: clustermetadatapb.PoolerType_REPLICA,
 			callMethod: func(ctx context.Context) error {
-				return manager.StopReplication(ctx)
+				return manager.StopReplication(ctx, multipoolermanagerdatapb.ReplicationPauseMode_REPLICATION_PAUSE_MODE_REPLAY_ONLY, true /* wait */)
 			},
 		},
 		{
