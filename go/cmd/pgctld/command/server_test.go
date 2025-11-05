@@ -17,7 +17,6 @@ package command
 import (
 	"context"
 	"fmt"
-	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -444,5 +443,5 @@ func TestGetPoolerDir(t *testing.T) {
 
 // testLogger returns a no-op logger for testing
 func testLogger() *slog.Logger {
-	return slog.New(slog.NewTextHandler(io.Discard, nil))
+	return slog.New(slog.DiscardHandler)
 }

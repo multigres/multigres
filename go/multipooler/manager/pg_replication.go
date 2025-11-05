@@ -172,23 +172,23 @@ func (pm *MultiPoolerManager) waitForReplicationPause(ctx context.Context) (*mul
 		select {
 		case <-waitCtx.Done():
 			if waitCtx.Err() == context.DeadlineExceeded {
-				pm.logger.Error("Timeout waiting for WAL replay to pause")
+				pm.logger.ErrorContext(ctx, "Timeout waiting for WAL replay to pause")
 				return nil, mterrors.New(mtrpcpb.Code_DEADLINE_EXCEEDED, "timeout waiting for WAL replay to pause")
 			}
-			pm.logger.Error("Context cancelled while waiting for WAL replay to pause")
+			pm.logger.ErrorContext(ctx, "Context cancelled while waiting for WAL replay to pause")
 			return nil, mterrors.Wrap(waitCtx.Err(), "context cancelled while waiting for WAL replay to pause")
 
 		case <-ticker.C:
 			// Query all replication status fields
 			status, err := pm.queryReplicationStatus(waitCtx)
 			if err != nil {
-				pm.logger.Error("Failed to get replication status", "error", err)
+				pm.logger.ErrorContext(ctx, "Failed to get replication status", "error", err)
 				return nil, err
 			}
 
 			// Once paused, we have the exact state at the moment replication stopped
 			if status.IsWalReplayPaused {
-				pm.logger.Info("WAL replay is now paused",
+				pm.logger.InfoContext(ctx, "WAL replay is now paused",
 					"last_replay_lsn", status.LastReplayLsn,
 					"last_receive_lsn", status.LastReceiveLsn,
 					"pause_state", status.WalReplayPauseState)
@@ -210,14 +210,14 @@ func (pm *MultiPoolerManager) validateExpectedLSN(ctx context.Context, expectedL
 	query := "SELECT pg_last_wal_replay_lsn()::text, pg_is_wal_replay_paused()"
 	err := pm.db.QueryRowContext(ctx, query).Scan(&currentLSN, &isPaused)
 	if err != nil {
-		pm.logger.Error("Failed to get current replay LSN and pause state", "error", err)
+		pm.logger.ErrorContext(ctx, "Failed to get current replay LSN and pause state", "error", err)
 		return mterrors.Wrap(err, "failed to get current replay LSN and pause state")
 	}
 
 	// Best practice: WAL replay should be paused before promotion
 	// The coordinator should have called StopReplication during Discovery stage
 	if !isPaused {
-		pm.logger.Warn("WAL replay is not paused before promotion - coordinator may have skipped Discovery stage",
+		pm.logger.WarnContext(ctx, "WAL replay is not paused before promotion - coordinator may have skipped Discovery stage",
 			"current_lsn", currentLSN,
 			"expected_lsn", expectedLSN)
 		// Note: We don't fail here as this is a soft check, but it indicates
@@ -225,7 +225,7 @@ func (pm *MultiPoolerManager) validateExpectedLSN(ctx context.Context, expectedL
 	}
 
 	if currentLSN != expectedLSN {
-		pm.logger.Error("LSN mismatch - node does not have expected durable state",
+		pm.logger.ErrorContext(ctx, "LSN mismatch - node does not have expected durable state",
 			"expected_lsn", expectedLSN,
 			"current_lsn", currentLSN)
 		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
@@ -234,7 +234,7 @@ func (pm *MultiPoolerManager) validateExpectedLSN(ctx context.Context, expectedL
 				expectedLSN, currentLSN))
 	}
 
-	pm.logger.Info("LSN validation passed",
+	pm.logger.InfoContext(ctx, "LSN validation passed",
 		"lsn", currentLSN,
 		"wal_replay_paused", isPaused)
 	return nil
@@ -264,10 +264,10 @@ func (pm *MultiPoolerManager) setSynchronousCommit(ctx context.Context, synchron
 			fmt.Sprintf("invalid synchronous_commit level: %s", synchronousCommit.String()))
 	}
 
-	pm.logger.Info("Setting synchronous_commit", "value", syncCommitValue)
+	pm.logger.InfoContext(ctx, "Setting synchronous_commit", "value", syncCommitValue)
 	_, err := pm.db.ExecContext(ctx, fmt.Sprintf("ALTER SYSTEM SET synchronous_commit = '%s'", syncCommitValue))
 	if err != nil {
-		pm.logger.Error("Failed to set synchronous_commit", "error", err)
+		pm.logger.ErrorContext(ctx, "Failed to set synchronous_commit", "error", err)
 		return mterrors.Wrap(err, "failed to set synchronous_commit")
 	}
 
@@ -299,7 +299,7 @@ func buildSynchronousStandbyNamesValue(method multipoolermanagerdatapb.Synchrono
 
 // applySynchronousStandbyNames applies the synchronous_standby_names setting to PostgreSQL
 func applySynchronousStandbyNames(ctx context.Context, db *sql.DB, logger *slog.Logger, value string) error {
-	logger.Info("Setting synchronous_standby_names", "value", value)
+	logger.InfoContext(ctx, "Setting synchronous_standby_names", "value", value)
 
 	// Escape single quotes in the value by doubling them (PostgreSQL standard)
 	escapedValue := strings.ReplaceAll(value, "'", "''")
@@ -308,7 +308,7 @@ func applySynchronousStandbyNames(ctx context.Context, db *sql.DB, logger *slog.
 	query := fmt.Sprintf("ALTER SYSTEM SET synchronous_standby_names = '%s'", escapedValue)
 	_, err := db.ExecContext(ctx, query)
 	if err != nil {
-		logger.Error("Failed to set synchronous_standby_names", "error", err)
+		logger.ErrorContext(ctx, "Failed to set synchronous_standby_names", "error", err)
 		return mterrors.Wrap(err, "failed to set synchronous_standby_names")
 	}
 
@@ -327,11 +327,11 @@ func applySynchronousStandbyNames(ctx context.Context, db *sql.DB, logger *slog.
 func (pm *MultiPoolerManager) setSynchronousStandbyNames(ctx context.Context, synchronousMethod multipoolermanagerdatapb.SynchronousMethod, numSync int32, standbyIDs []*clustermetadatapb.ID) error {
 	// If standby list is empty, clear synchronous_standby_names
 	if len(standbyIDs) == 0 {
-		pm.logger.Info("Clearing synchronous_standby_names (empty standby list)")
+		pm.logger.InfoContext(ctx, "Clearing synchronous_standby_names (empty standby list)")
 		query := "ALTER SYSTEM SET synchronous_standby_names = ''"
 		_, err := pm.db.ExecContext(ctx, query)
 		if err != nil {
-			pm.logger.Error("Failed to clear synchronous_standby_names", "error", err)
+			pm.logger.ErrorContext(ctx, "Failed to clear synchronous_standby_names", "error", err)
 			return mterrors.Wrap(err, "failed to clear synchronous_standby_names")
 		}
 		return nil
@@ -407,23 +407,23 @@ func (pm *MultiPoolerManager) getSynchronousReplicationConfig(ctx context.Contex
 // resetSynchronousReplication clears the synchronous standby list
 // This should be called after the server is read-only to safely clear settings
 func (pm *MultiPoolerManager) resetSynchronousReplication(ctx context.Context) error {
-	pm.logger.Info("Clearing synchronous standby list")
+	pm.logger.InfoContext(ctx, "Clearing synchronous standby list")
 
 	// Clear synchronous_standby_names to remove all standbys
 	_, err := pm.db.ExecContext(ctx, "ALTER SYSTEM SET synchronous_standby_names = ''")
 	if err != nil {
-		pm.logger.Error("Failed to clear synchronous_standby_names", "error", err)
+		pm.logger.ErrorContext(ctx, "Failed to clear synchronous_standby_names", "error", err)
 		return mterrors.Wrap(err, "failed to clear synchronous_standby_names")
 	}
 
 	// Reload configuration to apply changes
 	_, err = pm.db.ExecContext(ctx, "SELECT pg_reload_conf()")
 	if err != nil {
-		pm.logger.Error("Failed to reload configuration", "error", err)
+		pm.logger.ErrorContext(ctx, "Failed to reload configuration", "error", err)
 		return mterrors.Wrap(err, "failed to reload configuration after clearing standby list")
 	}
 
-	pm.logger.Info("Successfully cleared synchronous standby list")
+	pm.logger.InfoContext(ctx, "Successfully cleared synchronous standby list")
 	return nil
 }
 

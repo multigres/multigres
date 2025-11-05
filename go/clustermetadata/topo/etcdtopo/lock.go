@@ -66,7 +66,7 @@ func (s *Server) newUniqueEphemeralKV(ctx context.Context, cli *clientv3.Client,
 			// node behind for *leaseTTL time.
 
 			if _, err := cli.Delete(context.Background(), newKey); err != nil {
-				slog.Info("cli.Delete(context.Background(), newKey) failed", "error", err)
+				slog.InfoContext(ctx, "cli.Delete(context.Background(), newKey) failed", "error", err)
 			}
 		}
 		return "", 0, convertError(err, newKey)
@@ -220,7 +220,7 @@ func (s *Server) lock(ctx context.Context, nodePath, contents string, ttl int) (
 			// We had an error waiting on the last node.
 			// Revoke our lease, this will delete the file.
 			if _, rerr := s.cli.Revoke(context.Background(), lease.ID); rerr != nil {
-				slog.Info(fmt.Sprintf("Revoke(%d) failed, may have left %v behind: %v", lease.ID, key, rerr))
+				slog.InfoContext(ctx, fmt.Sprintf("Revoke(%d) failed, may have left %v behind: %v", lease.ID, key, rerr))
 			}
 			return nil, err
 		}
