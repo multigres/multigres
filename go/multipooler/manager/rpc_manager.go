@@ -988,11 +988,6 @@ func (pm *MultiPoolerManager) Promote(ctx context.Context, consensusTerm int64, 
 	}
 	defer pm.unlock()
 
-	// Guard rail: Promote can only be called on a REPLICA
-	if err := pm.checkReplicaGuardrails(ctx); err != nil {
-		return nil, err
-	}
-
 	pm.logger.Info("Promote called",
 		"consensus_term", consensusTerm,
 		"expected_lsn", expectedLSN,
@@ -1017,15 +1012,41 @@ func (pm *MultiPoolerManager) Promote(ctx context.Context, consensusTerm int64, 
 		return nil, err
 	}
 
-	// If everything is already complete, return early (fully idempotent)
-	if state.isPrimaryInPostgres && state.isPrimaryInTopology && state.syncReplicationMatches {
-		pm.logger.Info("Promotion already complete (idempotent)",
-			"lsn", state.currentLSN)
-		return &multipoolermanagerdatapb.PromoteResponse{
-			LsnPosition:       state.currentLSN,
-			WasAlreadyPrimary: true,
-			ConsensusTerm:     consensusTerm,
-		}, nil
+	// Guard rail: Check topology type and validate state consistency
+	// If topology is PRIMARY, verify everything is in expected state (idempotency check)
+	// If topology is REPLICA, proceed with promotion
+	if state.isPrimaryInTopology {
+		// Topology shows PRIMARY - validate that everything is consistent
+		pm.logger.Info("Promote called but topology already shows PRIMARY - validating state consistency")
+
+		// Check if everything is in expected state
+		if state.isPrimaryInPostgres && state.syncReplicationMatches {
+			// Everything is consistent and complete - idempotent success
+			pm.logger.Info("Promotion already complete and consistent (idempotent)",
+				"lsn", state.currentLSN)
+			return &multipoolermanagerdatapb.PromoteResponse{
+				LsnPosition:       state.currentLSN,
+				WasAlreadyPrimary: true,
+				ConsensusTerm:     consensusTerm,
+			}, nil
+		}
+
+		// Inconsistent state detected
+		pm.logger.Error("Inconsistent state detected - topology is PRIMARY but state is incomplete",
+			"is_primary_in_postgres", state.isPrimaryInPostgres,
+			"sync_replication_matches", state.syncReplicationMatches,
+			"force", force)
+
+		if !force {
+			// Without force flag, require manual intervention
+			return nil, mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
+				fmt.Sprintf("inconsistent state: topology is PRIMARY but PostgreSQL state doesn't match (pg_primary=%v, sync_matches=%v). Manual intervention required or use force=true.",
+					state.isPrimaryInPostgres, state.syncReplicationMatches))
+		}
+
+		// With force flag, attempt to fix the inconsistency by completing missing steps
+		pm.logger.Warn("Force flag set - attempting to fix inconsistent state by completing missing steps")
+		// Fall through to execute missing promotion steps below
 	}
 
 	// If PostgreSQL is not promoted yet, validate expected LSN before promotion
