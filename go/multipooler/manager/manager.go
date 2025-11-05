@@ -285,15 +285,21 @@ func (pm *MultiPoolerManager) checkPoolerType(expectedType clustermetadatapb.Poo
 	return nil
 }
 
-// getCurrentTerm returns the current consensus term in a thread-safe manner
-func (pm *MultiPoolerManager) getCurrentTerm() int64 {
+// getCurrentTerm returns the current consensus term in a thread-safe manner.
+// This method must only be called while holding the action lock.
+func (pm *MultiPoolerManager) getCurrentTerm(ctx context.Context) (int64, error) {
+	// Assert that the action lock is held by the caller
+	if err := AssertActionLockHeld(ctx); err != nil {
+		return 0, fmt.Errorf("getCurrentTerm called without holding action lock: %w", err)
+	}
+
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
 
 	if pm.consensusTerm == nil {
-		return 0
+		return 0, nil
 	}
-	return pm.consensusTerm.GetCurrentTerm()
+	return pm.consensusTerm.GetCurrentTerm(), nil
 }
 
 // checkReplicaGuardrails verifies that the pooler is a REPLICA and PostgreSQL is in recovery mode
@@ -432,7 +438,10 @@ func (pm *MultiPoolerManager) validateAndUpdateTerm(ctx context.Context, request
 		return nil // Skip validation if force is set
 	}
 
-	currentTerm := pm.getCurrentTerm()
+	currentTerm, err := pm.getCurrentTerm(ctx)
+	if err != nil {
+		return err
+	}
 
 	// Check if consensus term has been initialized (term 0 means uninitialized)
 	if currentTerm == 0 {
@@ -499,7 +508,10 @@ func (pm *MultiPoolerManager) validateTermExactMatch(ctx context.Context, reques
 		return nil // Skip validation if force is set
 	}
 
-	currentTerm := pm.getCurrentTerm()
+	currentTerm, err := pm.getCurrentTerm(ctx)
+	if err != nil {
+		return err
+	}
 
 	// Check if consensus term has been initialized
 	if currentTerm == 0 {
