@@ -26,6 +26,7 @@ import (
 
 	"github.com/multigres/multigres/go/test/utils"
 
+	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	consensuspb "github.com/multigres/multigres/go/pb/consensus"
 	consensusdata "github.com/multigres/multigres/go/pb/consensusdata"
 )
@@ -157,9 +158,13 @@ func TestConsensus_BeginTerm(t *testing.T) {
 
 		// Attempt to begin term 0 (older than current term 1)
 		req := &consensusdata.BeginTermRequest{
-			Term:        0,
-			CandidateId: "test-candidate",
-			ShardId:     "test-shard",
+			Term: 0,
+			CandidateId: &clustermetadatapb.ID{
+				Component: clustermetadatapb.ID_MULTIPOOLER,
+				Cell:      "zone1",
+				Name:      "test-candidate",
+			},
+			ShardId: "test-shard",
 		}
 
 		resp, err := standbyConsensusClient.BeginTerm(utils.WithShortDeadline(t), req)
@@ -179,9 +184,13 @@ func TestConsensus_BeginTerm(t *testing.T) {
 
 		// Begin term 2 (newer than current term 1)
 		req := &consensusdata.BeginTermRequest{
-			Term:        2,
-			CandidateId: "new-leader-candidate",
-			ShardId:     "test-shard",
+			Term: 2,
+			CandidateId: &clustermetadatapb.ID{
+				Component: clustermetadatapb.ID_MULTIPOOLER,
+				Cell:      "zone1",
+				Name:      "new-leader-candidate",
+			},
+			ShardId: "test-shard",
 		}
 
 		resp, err := primaryConsensusClient.BeginTerm(utils.WithShortDeadline(t), req)
@@ -203,9 +212,13 @@ func TestConsensus_BeginTerm(t *testing.T) {
 
 		// Begin term 2 again but different candidate
 		req := &consensusdata.BeginTermRequest{
-			Term:        2,
-			CandidateId: "different-candidate",
-			ShardId:     "test-shard",
+			Term: 2,
+			CandidateId: &clustermetadatapb.ID{
+				Component: clustermetadatapb.ID_MULTIPOOLER,
+				Cell:      "zone1",
+				Name:      "different-candidate",
+			},
+			ShardId: "test-shard",
 		}
 
 		resp, err := primaryConsensusClient.BeginTerm(utils.WithShortDeadline(t), req)

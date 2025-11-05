@@ -109,7 +109,7 @@ func TestBeginTerm(t *testing.T) {
 		name                   string
 		initialTerm            *multipoolermanagerdatapb.ConsensusTerm
 		requestTerm            int64
-		requestCandidate       string
+		requestCandidate       *clustermetadatapb.ID
 		setupMocks             func(mock sqlmock.Sqlmock)
 		expectedAccepted       bool
 		expectedTerm           int64
@@ -121,12 +121,17 @@ func TestBeginTerm(t *testing.T) {
 			initialTerm: &multipoolermanagerdatapb.ConsensusTerm{
 				TermNumber: 5,
 				AcceptedLeader: &clustermetadatapb.ID{
-					Cell: "zone1",
-					Name: "candidate-A",
+					Component: clustermetadatapb.ID_MULTIPOOLER,
+					Cell:      "zone1",
+					Name:      "candidate-A",
 				},
 			},
-			requestTerm:      10,
-			requestCandidate: "candidate-B",
+			requestTerm: 10,
+			requestCandidate: &clustermetadatapb.ID{
+				Component: clustermetadatapb.ID_MULTIPOOLER,
+				Cell:      "zone1",
+				Name:      "candidate-B",
+			},
 			setupMocks: func(mock sqlmock.Sqlmock) {
 				mock.ExpectPing()
 				recentTime := time.Now().Add(-5 * time.Second)
@@ -143,12 +148,17 @@ func TestBeginTerm(t *testing.T) {
 			initialTerm: &multipoolermanagerdatapb.ConsensusTerm{
 				TermNumber: 5,
 				AcceptedLeader: &clustermetadatapb.ID{
-					Cell: "zone1",
-					Name: "candidate-A",
+					Component: clustermetadatapb.ID_MULTIPOOLER,
+					Cell:      "zone1",
+					Name:      "candidate-A",
 				},
 			},
-			requestTerm:      5,
-			requestCandidate: "candidate-B",
+			requestTerm: 5,
+			requestCandidate: &clustermetadatapb.ID{
+				Component: clustermetadatapb.ID_MULTIPOOLER,
+				Cell:      "zone1",
+				Name:      "candidate-B",
+			},
 			setupMocks: func(mock sqlmock.Sqlmock) {
 				mock.ExpectPing()
 			},
@@ -162,12 +172,17 @@ func TestBeginTerm(t *testing.T) {
 			initialTerm: &multipoolermanagerdatapb.ConsensusTerm{
 				TermNumber: 5,
 				AcceptedLeader: &clustermetadatapb.ID{
-					Cell: "zone1",
-					Name: "candidate-A",
+					Component: clustermetadatapb.ID_MULTIPOOLER,
+					Cell:      "zone1",
+					Name:      "candidate-A",
 				},
 			},
-			requestTerm:      5,
-			requestCandidate: "candidate-A",
+			requestTerm: 5,
+			requestCandidate: &clustermetadatapb.ID{
+				Component: clustermetadatapb.ID_MULTIPOOLER,
+				Cell:      "zone1",
+				Name:      "candidate-A",
+			},
 			setupMocks: func(mock sqlmock.Sqlmock) {
 				mock.ExpectPing()
 				recentTime := time.Now().Add(-5 * time.Second)
@@ -186,7 +201,7 @@ func TestBeginTerm(t *testing.T) {
 		name                   string
 		initialTerm            *multipoolermanagerdatapb.ConsensusTerm
 		requestTerm            int64
-		requestCandidate       string
+		requestCandidate       *clustermetadatapb.ID
 		setupMocks             func(mock sqlmock.Sqlmock)
 		makeFilesystemReadOnly bool
 		expectedError          bool
@@ -197,14 +212,15 @@ func TestBeginTerm(t *testing.T) {
 		{
 			name: "SaveFailureDuringAcceptance_MemoryUnchanged",
 			initialTerm: &multipoolermanagerdatapb.ConsensusTerm{
-				TermNumber: 5,
-				AcceptedLeader: &clustermetadatapb.ID{
-					Cell: "zone1",
-					Name: "candidate-A",
-				},
+				TermNumber:     5,
+				AcceptedLeader: nil, // No leader accepted yet
 			},
-			requestTerm:            5,
-			requestCandidate:       "candidate-A",
+			requestTerm: 5,
+			requestCandidate: &clustermetadatapb.ID{
+				Component: clustermetadatapb.ID_MULTIPOOLER,
+				Cell:      "zone1",
+				Name:      "candidate-B",
+			},
 			makeFilesystemReadOnly: true,
 			setupMocks: func(mock sqlmock.Sqlmock) {
 				mock.ExpectPing()
@@ -214,7 +230,7 @@ func TestBeginTerm(t *testing.T) {
 			},
 			expectedError:        true,
 			expectedMemoryTerm:   5,
-			expectedMemoryLeader: "candidate-A",
+			expectedMemoryLeader: "", // Should remain empty after save failure
 			description:          "Save failure should leave memory unchanged with original term and leader",
 		},
 	}

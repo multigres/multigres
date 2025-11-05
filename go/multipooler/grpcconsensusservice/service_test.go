@@ -87,9 +87,13 @@ func TestConsensusService_BeginTerm(t *testing.T) {
 
 	t.Run("BeginTerm without database connection should fail", func(t *testing.T) {
 		req := &consensusdata.BeginTermRequest{
-			Term:        5,
-			CandidateId: "candidate-1",
-			ShardId:     "shard-1",
+			Term: 5,
+			CandidateId: &clustermetadata.ID{
+				Component: clustermetadata.ID_MULTIPOOLER,
+				Cell:      "zone1",
+				Name:      "candidate-1",
+			},
+			ShardId: "shard-1",
 		}
 
 		resp, err := svc.BeginTerm(ctx, req)
@@ -367,9 +371,13 @@ func TestConsensusService_AllMethods(t *testing.T) {
 			name: "BeginTerm",
 			method: func() error {
 				req := &consensusdata.BeginTermRequest{
-					Term:        5,
-					CandidateId: "candidate-1",
-					ShardId:     "shard-1",
+					Term: 5,
+					CandidateId: &clustermetadata.ID{
+						Component: clustermetadata.ID_MULTIPOOLER,
+						Cell:      "zone1",
+						Name:      "candidate-1",
+					},
+					ShardId: "shard-1",
 				}
 				_, err := svc.BeginTerm(ctx, req)
 				return err

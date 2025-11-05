@@ -19,6 +19,7 @@ import (
 	"sync"
 	"time"
 
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
@@ -100,49 +101,52 @@ func (cs *ConsensusState) GetTerm() *multipoolermanagerdatapb.ConsensusTerm {
 	return cloneTerm(cs.term)
 }
 
-// PrepareAcceptance creates a new term with the acceptance recorded.
-// This does NOT modify in-memory state - the caller must call SaveAndUpdate.
-// Returns an error if already accepted a different candidate in this term.
-func (cs *ConsensusState) PrepareAcceptance(candidateID string) (*multipoolermanagerdatapb.ConsensusTerm, error) {
+// AcceptCandidateAndSave atomically records acceptance of a candidate in the current term.
+// This is called when a node accepts a candidate during BeginTerm.
+// Returns error if already accepted a different candidate in this term.
+// Idempotent: succeeds if already accepted the same candidate.
+func (cs *ConsensusState) AcceptCandidateAndSave(candidateID *clustermetadatapb.ID) error {
 	cs.mu.Lock()
 	defer cs.mu.Unlock()
 
 	if cs.term == nil {
-		return nil, fmt.Errorf("consensus term not initialized")
+		return fmt.Errorf("consensus term not initialized")
+	}
+
+	if candidateID == nil {
+		return fmt.Errorf("candidate ID cannot be nil")
+	}
+
+	// If already accepted this candidate, idempotent success
+	if cs.term.AcceptedLeader != nil && proto.Equal(cs.term.AcceptedLeader, candidateID) {
+		return nil
 	}
 
 	// Check if already accepted someone else in this term
-	if cs.term.AcceptedLeader != nil && cs.term.AcceptedLeader.GetName() != candidateID {
-		return nil, fmt.Errorf("already accepted %s as leader in term %d",
+	if cs.term.AcceptedLeader != nil {
+		return fmt.Errorf("already accepted %s as leader in term %d",
 			cs.term.AcceptedLeader.GetName(), cs.term.TermNumber)
 	}
 
-	// Create NEW term (don't modify existing in-memory state)
+	// Prepare acceptance
 	newTerm := cloneTerm(cs.term)
 
-	// Update acceptance
-	if newTerm.AcceptedLeader == nil {
-		newTerm.AcceptedLeader = &clustermetadatapb.ID{
-			Component: cs.serviceID.Component,
-			Cell:      cs.serviceID.Cell,
-			Name:      candidateID,
-		}
-	} else {
-		newTerm.AcceptedLeader.Name = candidateID
-	}
+	// Update acceptance - use proto.Clone to ensure deep copy
+	newTerm.AcceptedLeader = proto.Clone(candidateID).(*clustermetadatapb.ID)
 
 	// Update last acceptance time
 	now := time.Now()
 	newTerm.LastAcceptanceTime = timestamppb.New(now)
 
-	return newTerm, nil
+	// Save and update under lock
+	return cs.saveAndUpdateLocked(newTerm)
 }
 
-// PrepareTermUpdate creates a new term with updated term number.
-// This does NOT modify in-memory state - the caller must call SaveAndUpdate.
-// If newTerm > currentTerm, resets accepted leader to nil.
-// Returns an error if newTerm < currentTerm.
-func (cs *ConsensusState) PrepareTermUpdate(newTerm int64) (*multipoolermanagerdatapb.ConsensusTerm, error) {
+// UpdateTermAndSave atomically updates the term number, resetting accepted leader.
+// This is called when discovering a newer term from another node.
+// Returns error if newTerm < currentTerm.
+// Idempotent: succeeds without changes if newTerm == currentTerm.
+func (cs *ConsensusState) UpdateTermAndSave(newTerm int64) error {
 	cs.mu.Lock()
 	defer cs.mu.Unlock()
 
@@ -152,10 +156,15 @@ func (cs *ConsensusState) PrepareTermUpdate(newTerm int64) (*multipoolermanagerd
 	}
 
 	if newTerm < currentTerm {
-		return nil, fmt.Errorf("cannot update to older term: current=%d, new=%d", currentTerm, newTerm)
+		return fmt.Errorf("cannot update to older term: current=%d, new=%d", currentTerm, newTerm)
 	}
 
-	// Create new term with reset acceptance
+	// If same term, nothing to do (idempotent success)
+	if newTerm == currentTerm {
+		return nil
+	}
+
+	// Only if newTerm > currentTerm: create new term with reset acceptance
 	term := &multipoolermanagerdatapb.ConsensusTerm{
 		TermNumber:         newTerm,
 		AcceptedLeader:     nil,
@@ -163,24 +172,33 @@ func (cs *ConsensusState) PrepareTermUpdate(newTerm int64) (*multipoolermanagerd
 		LeaderId:           nil,
 	}
 
-	return term, nil
+	// Save and update under lock
+	return cs.saveAndUpdateLocked(term)
 }
 
-// SaveAndUpdate atomically saves the term to disk, then updates memory ONLY on success.
+// SetTermDirectly directly sets the consensus term to the provided value.
+// This is used for initialization or explicit term setting (e.g., by coordinator after leader appointment).
+// Unlike UpdateTermAndSave, this does NOT validate or reset fields - it saves exactly what's provided.
+func (cs *ConsensusState) SetTermDirectly(term *multipoolermanagerdatapb.ConsensusTerm) error {
+	cs.mu.Lock()
+	defer cs.mu.Unlock()
+
+	return cs.saveAndUpdateLocked(term)
+}
+
+// saveAndUpdateLocked saves the term to disk and updates memory.
+// MUST be called with cs.mu held.
 // This is the key method that ensures memory never diverges from disk.
 // If the save fails, memory remains unchanged and the error is returned.
-func (cs *ConsensusState) SaveAndUpdate(newTerm *multipoolermanagerdatapb.ConsensusTerm) error {
-	// Save to disk FIRST (outside of lock to allow concurrent reads)
+func (cs *ConsensusState) saveAndUpdateLocked(newTerm *multipoolermanagerdatapb.ConsensusTerm) error {
+	// Save to disk (lock still held)
 	if err := setConsensusTerm(cs.poolerDir, newTerm); err != nil {
 		// Save failed - don't update memory, propagate error
 		return fmt.Errorf("failed to save consensus term: %w", err)
 	}
 
 	// Save succeeded - NOW update memory
-	cs.mu.Lock()
 	cs.term = cloneTerm(newTerm)
-	cs.mu.Unlock()
-
 	return nil
 }
 
@@ -189,20 +207,5 @@ func cloneTerm(term *multipoolermanagerdatapb.ConsensusTerm) *multipoolermanager
 	if term == nil {
 		return nil
 	}
-
-	clone := &multipoolermanagerdatapb.ConsensusTerm{
-		TermNumber:         term.TermNumber,
-		LastAcceptanceTime: term.LastAcceptanceTime,
-		LeaderId:           term.LeaderId,
-	}
-
-	if term.AcceptedLeader != nil {
-		clone.AcceptedLeader = &clustermetadatapb.ID{
-			Component: term.AcceptedLeader.Component,
-			Cell:      term.AcceptedLeader.Cell,
-			Name:      term.AcceptedLeader.Name,
-		}
-	}
-
-	return clone
+	return proto.Clone(term).(*multipoolermanagerdatapb.ConsensusTerm)
 }

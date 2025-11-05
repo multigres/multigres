@@ -1095,8 +1095,8 @@ func (pm *MultiPoolerManager) SetTerm(ctx context.Context, term *multipoolermana
 	cs := pm.consensusState
 	pm.mu.Unlock()
 
-	// Save to disk and update memory atomically using pessimistic pattern
-	if err := cs.SaveAndUpdate(term); err != nil {
+	// Save to disk and update memory atomically
+	if err := cs.SetTermDirectly(term); err != nil {
 		pm.logger.Error("Failed to save consensus term", "error", err)
 		return mterrors.Wrap(err, "failed to set consensus term")
 	}

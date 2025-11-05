@@ -487,23 +487,16 @@ func (pm *MultiPoolerManager) validateAndUpdateTerm(ctx context.Context, request
 			return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION, "consensus state not initialized")
 		}
 
-		// Prepare new term (doesn't modify memory)
-		newTerm, err := cs.PrepareTermUpdate(requestTerm)
-		if err != nil {
-			pm.logger.Error("Failed to prepare term update", "error", err)
-			return mterrors.Wrap(err, "failed to prepare term update")
-		}
-
-		// Save to disk and update memory atomically
-		if err := cs.SaveAndUpdate(newTerm); err != nil {
-			pm.logger.Error("Failed to save term update", "error", err)
+		// Update term atomically (resets accepted leader)
+		if err := cs.UpdateTermAndSave(requestTerm); err != nil {
+			pm.logger.Error("Failed to update term", "error", err)
 			return mterrors.Wrap(err, "failed to update consensus term")
 		}
 
 		// Synchronize term to heartbeat writer if it exists
 		if pm.replTracker != nil {
-			pm.replTracker.HeartbeatWriter().SetLeaderTerm(newTerm.GetTermNumber())
-			pm.logger.Info("Synchronized term to heartbeat writer", "term", newTerm.GetTermNumber())
+			pm.replTracker.HeartbeatWriter().SetLeaderTerm(requestTerm)
+			pm.logger.Info("Synchronized term to heartbeat writer", "term", requestTerm)
 		}
 
 		pm.logger.Info("Consensus term updated successfully", "new_term", requestTerm)

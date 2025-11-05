@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"time"
 
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	consensusdatapb "github.com/multigres/multigres/go/pb/consensusdata"
@@ -26,6 +27,13 @@ import (
 
 // BeginTerm handles coordinator requests during leader appointments
 func (pm *MultiPoolerManager) BeginTerm(ctx context.Context, req *consensusdatapb.BeginTermRequest) (*consensusdatapb.BeginTermResponse, error) {
+	// Acquire the action lock to ensure only one consensus operation runs at a time
+	// This prevents split-brain acceptance and ensures term updates are serialized
+	if err := pm.lock(ctx); err != nil {
+		return nil, err
+	}
+	defer pm.unlock()
+
 	// CRITICAL: Must be able to reach Postgres to participate in cohort
 	if pm.db == nil {
 		return nil, fmt.Errorf("postgres unreachable, cannot accept new term")
@@ -46,7 +54,7 @@ func (pm *MultiPoolerManager) BeginTerm(ctx context.Context, req *consensusdatap
 	}
 
 	currentTerm := cs.GetCurrentTermNumber()
-	acceptedLeader := cs.GetAcceptedLeader()
+	term := cs.GetTerm()
 
 	response := &consensusdatapb.BeginTermResponse{
 		Term:     currentTerm,
@@ -60,8 +68,11 @@ func (pm *MultiPoolerManager) BeginTerm(ctx context.Context, req *consensusdatap
 	}
 
 	// Check if we've already accepted a different candidate in this term
-	if req.Term == currentTerm && acceptedLeader != "" && acceptedLeader != req.CandidateId {
-		return response, nil
+	if req.Term == currentTerm && term != nil && term.AcceptedLeader != nil {
+		// Compare full ID (component, cell, name) not just name
+		if !proto.Equal(term.AcceptedLeader, req.CandidateId) {
+			return response, nil
+		}
 	}
 
 	// Update term if needed (only if req.Term > currentTerm)
@@ -88,16 +99,9 @@ func (pm *MultiPoolerManager) BeginTerm(ctx context.Context, req *consensusdatap
 		}
 	}
 
-	// Prepare acceptance (doesn't modify memory yet)
-	newTerm, err := cs.PrepareAcceptance(req.CandidateId)
-	if err != nil {
-		return nil, fmt.Errorf("failed to prepare acceptance: %w", err)
-	}
-
-	// Save to disk and update memory atomically
-	if err := cs.SaveAndUpdate(newTerm); err != nil {
-		// Save failed - memory unchanged, error propagates
-		return nil, fmt.Errorf("failed to persist acceptance: %w", err)
+	// Accept candidate atomically (checks, saves to disk, updates memory)
+	if err := cs.AcceptCandidateAndSave(req.CandidateId); err != nil {
+		return nil, fmt.Errorf("failed to accept candidate: %w", err)
 	}
 
 	response.Accepted = true
