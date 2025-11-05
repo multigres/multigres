@@ -14,7 +14,11 @@
 
 package handler
 
-import "sync"
+import (
+	"sync"
+
+	"github.com/multigres/multigres/go/parser/ast"
+)
 
 // PreparedStatement represents a prepared statement in the extended query protocol.
 // Prepared statements are created by the Parse message and can be executed
@@ -25,7 +29,7 @@ type PreparedStatement struct {
 	Name string
 
 	// Query is the SQL query string.
-	Query string
+	Query ast.Stmt
 
 	// ParamTypes contains the OIDs of the parameter types.
 	// This is sent by the client in the Parse message.
@@ -33,7 +37,7 @@ type PreparedStatement struct {
 }
 
 // NewPreparedStatement creates a new PreparedStatement.
-func NewPreparedStatement(name, query string, paramTypes []uint32) *PreparedStatement {
+func NewPreparedStatement(name string, query ast.Stmt, paramTypes []uint32) *PreparedStatement {
 	return &PreparedStatement{
 		Name:       name,
 		Query:      query,

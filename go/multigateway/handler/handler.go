@@ -19,13 +19,15 @@ import (
 	"fmt"
 	"log/slog"
 
+	"github.com/multigres/multigres/go/parser"
+	"github.com/multigres/multigres/go/parser/ast"
 	"github.com/multigres/multigres/go/pb/query"
 	"github.com/multigres/multigres/go/pgprotocol/server"
 )
 
 // Executor defines the interface for query execution.
 type Executor interface {
-	StreamExecute(ctx context.Context, conn *server.Conn, queryStr string, callback func(ctx context.Context, result *query.QueryResult) error) error
+	StreamExecute(ctx context.Context, conn *server.Conn, queryStr string, astStmt ast.Stmt, callback func(ctx context.Context, result *query.QueryResult) error) error
 }
 
 // MultiGatewayHandler implements the pgprotocol Handler interface for multigateway.
@@ -48,8 +50,19 @@ func NewMultiGatewayHandler(executor Executor, logger *slog.Logger) *MultiGatewa
 func (h *MultiGatewayHandler) HandleQuery(ctx context.Context, conn *server.Conn, queryStr string, callback func(ctx context.Context, result *query.QueryResult) error) error {
 	h.logger.Debug("handling query", "query", queryStr, "user", conn.User(), "database", conn.Database())
 
-	// Route the query through the executor which will eventually call multipooler
-	return h.executor.StreamExecute(ctx, conn, queryStr, callback)
+	asts, err := parser.ParseSQL(queryStr)
+	if err != nil {
+		return err
+	}
+
+	for _, astStmt := range asts {
+		// Route the query through the executor which will eventually call multipooler
+		err = h.executor.StreamExecute(ctx, conn, queryStr, astStmt, callback)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // getConnectionState retrieves and typecasts the connection state for this handler.
@@ -74,8 +87,16 @@ func (h *MultiGatewayHandler) HandleParse(ctx context.Context, conn *server.Conn
 		return fmt.Errorf("query string cannot be empty")
 	}
 
+	asts, err := parser.ParseSQL(queryStr)
+	if err != nil {
+		return err
+	}
+	if len(asts) != 1 {
+		return fmt.Errorf("more than 1 query in prepare statement")
+	}
+
 	// Create and store the prepared statement.
-	stmt := NewPreparedStatement(name, queryStr, paramTypes)
+	stmt := NewPreparedStatement(name, asts[0], paramTypes)
 
 	state := h.getConnectionState(conn)
 	state.StorePreparedStatement(stmt)
@@ -105,7 +126,7 @@ func (h *MultiGatewayHandler) HandleBind(ctx context.Context, conn *server.Conn,
 }
 
 // HandleExecute processes an Execute message ('E') for the extended query protocol.
-// Executes the specified portal's query and streams results via callback.
+// Executes the specified portal's query with bound parameters and streams results via callback.
 func (h *MultiGatewayHandler) HandleExecute(ctx context.Context, conn *server.Conn, portalName string, maxRows int32, callback func(ctx context.Context, result *query.QueryResult) error) error {
 	h.logger.Debug("execute", "portal", portalName, "max_rows", maxRows)
 
@@ -118,14 +139,28 @@ func (h *MultiGatewayHandler) HandleExecute(ctx context.Context, conn *server.Co
 		return fmt.Errorf("portal \"%s\" does not exist", portalName)
 	}
 
-	// Get the query from the portal's statement.
-	queryStr := portal.Statement.Query
+	// Get the query AST from the portal's statement.
+	qry := portal.Statement.Query
 
-	// TODO: Handle Parameters
-	// TODO: Handle maxRows limitation
+	// Substitute parameters if any are bound
+	if len(portal.Params) > 0 {
+		substitutedQuery, err := ast.SubstituteParameters(
+			qry,
+			portal.Params,
+			portal.ParamFormats,
+			portal.Statement.ParamTypes,
+		)
+		if err != nil {
+			return fmt.Errorf("parameter substitution failed: %w", err)
+		}
+		qry = substitutedQuery
+		h.logger.Debug("substituted query", "query", qry.SqlString())
+	}
+
+	// TODO: Handle maxRows limitation (cursor support for partial fetches)
 
 	// Stream execute and pass results directly through callback.
-	return h.executor.StreamExecute(ctx, conn, queryStr, callback)
+	return h.executor.StreamExecute(ctx, conn, qry.SqlString(), qry, callback)
 }
 
 // HandleDescribe processes a Describe message ('D').
