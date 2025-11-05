@@ -65,7 +65,7 @@ func (g *grpcQueryService) StreamExecute(
 	sql string,
 	callback func(context.Context, *query.QueryResult) error,
 ) error {
-	g.logger.Debug("streaming query execution",
+	g.logger.DebugContext(ctx, "streaming query execution",
 		"pooler_id", g.poolerID,
 		"tablegroup", target.TableGroup,
 		"shard", target.Shard,
@@ -90,7 +90,7 @@ func (g *grpcQueryService) StreamExecute(
 		response, err := stream.Recv()
 		if err == io.EOF {
 			// Stream completed successfully
-			g.logger.Debug("stream completed", "pooler_id", g.poolerID)
+			g.logger.DebugContext(ctx, "stream completed", "pooler_id", g.poolerID)
 			return nil
 		}
 		if err != nil {
@@ -99,14 +99,14 @@ func (g *grpcQueryService) StreamExecute(
 
 		// Extract result from response
 		if response.Result == nil {
-			g.logger.Warn("received response with nil result", "pooler_id", g.poolerID)
+			g.logger.WarnContext(ctx, "received response with nil result", "pooler_id", g.poolerID)
 			continue
 		}
 
 		// Call the callback with the result
 		if err := callback(ctx, response.Result); err != nil {
 			// Callback returned error, stop streaming
-			g.logger.Debug("callback returned error, stopping stream",
+			g.logger.DebugContext(ctx, "callback returned error, stopping stream",
 				"pooler_id", g.poolerID,
 				"error", err)
 			return err
@@ -118,7 +118,7 @@ func (g *grpcQueryService) StreamExecute(
 // This should be used sparingly only when we know the result set is small,
 // otherwise StreamExecute should be used.
 func (g *grpcQueryService) ExecuteQuery(ctx context.Context, target *query.Target, sql string, maxRows uint64) (*query.QueryResult, error) {
-	g.logger.Debug("Executing query",
+	g.logger.DebugContext(ctx, "Executing query",
 		"pooler_id", g.poolerID,
 		"tablegroup", target.TableGroup,
 		"shard", target.Shard,
@@ -141,7 +141,7 @@ func (g *grpcQueryService) ExecuteQuery(ctx context.Context, target *query.Targe
 
 // Close closes the gRPC connection.
 func (g *grpcQueryService) Close(ctx context.Context) error {
-	g.logger.Debug("closing gRPC query service", "pooler_id", g.poolerID)
+	g.logger.DebugContext(ctx, "closing gRPC query service", "pooler_id", g.poolerID)
 	if g.conn != nil {
 		return g.conn.Close()
 	}

@@ -15,7 +15,6 @@
 package command
 
 import (
-	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -124,7 +123,7 @@ func TestStopPostgreSQLWithResult(t *testing.T) {
 			config, err := pgctld.NewPostgresCtlConfig(5432, "postgres", "postgres", 30, pgDataDir, pgConfigFile, poolerDir, "localhost", pgctld.PostgresSocketDir(poolerDir))
 			require.NoError(t, err)
 
-			logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+			logger := slog.New(slog.DiscardHandler)
 			result, err := StopPostgreSQLWithResult(logger, config, tt.mode)
 
 			if tt.expectError {
@@ -294,7 +293,7 @@ func TestStopPostgreSQLWithConfig(t *testing.T) {
 			config, err := pgctld.NewPostgresCtlConfig(5432, "postgres", "postgres", 30, pgDataDir, pgConfigFile, poolerDir, "localhost", pgctld.PostgresSocketDir(poolerDir))
 			require.NoError(t, err)
 
-			logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+			logger := slog.New(slog.DiscardHandler)
 			err = StopPostgreSQLWithConfig(logger, config, tt.mode)
 
 			if tt.expectError {
@@ -362,7 +361,7 @@ func TestTakeCheckpoint(t *testing.T) {
 				defer os.Setenv("PATH", originalPath)
 			}
 
-			logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+			logger := slog.New(slog.DiscardHandler)
 			err := takeCheckpoint(logger, tt.config(baseDir))
 
 			if tt.expectError {

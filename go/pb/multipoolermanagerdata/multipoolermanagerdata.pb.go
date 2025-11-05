@@ -38,6 +38,62 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+// Replication pause mode - defines what aspect of replication to pause
+type ReplicationPauseMode int32
+
+const (
+	// PAUSE_REPLAY_ONLY pauses WAL replay only (using pg_wal_replay_pause)
+	// The WAL receiver continues to receive data from the primary
+	ReplicationPauseMode_REPLICATION_PAUSE_MODE_REPLAY_ONLY ReplicationPauseMode = 0
+	// PAUSE_RECEIVER_ONLY stops the WAL receiver by clearing primary_conninfo
+	// Already replayed WAL remains, but no new WAL is received
+	ReplicationPauseMode_REPLICATION_PAUSE_MODE_RECEIVER_ONLY ReplicationPauseMode = 1
+	// PAUSE_REPLAY_AND_RECEIVER pauses both WAL replay and stops the WAL receiver
+	// This is the most complete pause - no new WAL is received and nothing is replayed
+	ReplicationPauseMode_REPLICATION_PAUSE_MODE_REPLAY_AND_RECEIVER ReplicationPauseMode = 2
+)
+
+// Enum value maps for ReplicationPauseMode.
+var (
+	ReplicationPauseMode_name = map[int32]string{
+		0: "REPLICATION_PAUSE_MODE_REPLAY_ONLY",
+		1: "REPLICATION_PAUSE_MODE_RECEIVER_ONLY",
+		2: "REPLICATION_PAUSE_MODE_REPLAY_AND_RECEIVER",
+	}
+	ReplicationPauseMode_value = map[string]int32{
+		"REPLICATION_PAUSE_MODE_REPLAY_ONLY":         0,
+		"REPLICATION_PAUSE_MODE_RECEIVER_ONLY":       1,
+		"REPLICATION_PAUSE_MODE_REPLAY_AND_RECEIVER": 2,
+	}
+)
+
+func (x ReplicationPauseMode) Enum() *ReplicationPauseMode {
+	p := new(ReplicationPauseMode)
+	*p = x
+	return p
+}
+
+func (x ReplicationPauseMode) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (ReplicationPauseMode) Descriptor() protoreflect.EnumDescriptor {
+	return file_multipoolermanagerdata_proto_enumTypes[0].Descriptor()
+}
+
+func (ReplicationPauseMode) Type() protoreflect.EnumType {
+	return &file_multipoolermanagerdata_proto_enumTypes[0]
+}
+
+func (x ReplicationPauseMode) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use ReplicationPauseMode.Descriptor instead.
+func (ReplicationPauseMode) EnumDescriptor() ([]byte, []int) {
+	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{0}
+}
+
 // Synchronization method for standby servers
 type SynchronousMethod int32
 
@@ -75,11 +131,11 @@ func (x SynchronousMethod) String() string {
 }
 
 func (SynchronousMethod) Descriptor() protoreflect.EnumDescriptor {
-	return file_multipoolermanagerdata_proto_enumTypes[0].Descriptor()
+	return file_multipoolermanagerdata_proto_enumTypes[1].Descriptor()
 }
 
 func (SynchronousMethod) Type() protoreflect.EnumType {
-	return &file_multipoolermanagerdata_proto_enumTypes[0]
+	return &file_multipoolermanagerdata_proto_enumTypes[1]
 }
 
 func (x SynchronousMethod) Number() protoreflect.EnumNumber {
@@ -88,7 +144,7 @@ func (x SynchronousMethod) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use SynchronousMethod.Descriptor instead.
 func (SynchronousMethod) EnumDescriptor() ([]byte, []int) {
-	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{0}
+	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{1}
 }
 
 // Enum representing the type of standby list modification
@@ -128,11 +184,11 @@ func (x StandbyUpdateOperation) String() string {
 }
 
 func (StandbyUpdateOperation) Descriptor() protoreflect.EnumDescriptor {
-	return file_multipoolermanagerdata_proto_enumTypes[1].Descriptor()
+	return file_multipoolermanagerdata_proto_enumTypes[2].Descriptor()
 }
 
 func (StandbyUpdateOperation) Type() protoreflect.EnumType {
-	return &file_multipoolermanagerdata_proto_enumTypes[1]
+	return &file_multipoolermanagerdata_proto_enumTypes[2]
 }
 
 func (x StandbyUpdateOperation) Number() protoreflect.EnumNumber {
@@ -141,7 +197,7 @@ func (x StandbyUpdateOperation) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use StandbyUpdateOperation.Descriptor instead.
 func (StandbyUpdateOperation) EnumDescriptor() ([]byte, []int) {
-	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{1}
+	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{2}
 }
 
 // Synchronous commit level
@@ -189,11 +245,11 @@ func (x SynchronousCommitLevel) String() string {
 }
 
 func (SynchronousCommitLevel) Descriptor() protoreflect.EnumDescriptor {
-	return file_multipoolermanagerdata_proto_enumTypes[2].Descriptor()
+	return file_multipoolermanagerdata_proto_enumTypes[3].Descriptor()
 }
 
 func (SynchronousCommitLevel) Type() protoreflect.EnumType {
-	return &file_multipoolermanagerdata_proto_enumTypes[2]
+	return &file_multipoolermanagerdata_proto_enumTypes[3]
 }
 
 func (x SynchronousCommitLevel) Number() protoreflect.EnumNumber {
@@ -202,7 +258,7 @@ func (x SynchronousCommitLevel) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use SynchronousCommitLevel.Descriptor instead.
 func (SynchronousCommitLevel) EnumDescriptor() ([]byte, []int) {
-	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{2}
+	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{3}
 }
 
 // Primary connection information parsed from PostgreSQL's primary_conninfo setting
@@ -682,7 +738,13 @@ func (*SetPrimaryConnInfoResponse) Descriptor() ([]byte, []int) {
 
 // StopReplication stops WAL replay on standby
 type StopReplicationRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Mode specifying what aspect of replication to pause
+	Mode ReplicationPauseMode `protobuf:"varint,1,opt,name=mode,proto3,enum=multipoolermanagerdata.ReplicationPauseMode" json:"mode,omitempty"`
+	// Whether to wait for the pause operation to complete before returning
+	// If true, the response will include the replication status after pausing
+	// If false, the operation is asynchronous and status will be null
+	Wait          bool `protobuf:"varint,2,opt,name=wait,proto3" json:"wait,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -717,9 +779,23 @@ func (*StopReplicationRequest) Descriptor() ([]byte, []int) {
 	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{8}
 }
 
+func (x *StopReplicationRequest) GetMode() ReplicationPauseMode {
+	if x != nil {
+		return x.Mode
+	}
+	return ReplicationPauseMode_REPLICATION_PAUSE_MODE_REPLAY_ONLY
+}
+
+func (x *StopReplicationRequest) GetWait() bool {
+	if x != nil {
+		return x.Wait
+	}
+	return false
+}
+
 type StopReplicationResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Replication status when replication was stopped
+	// Replication status when replication was stopped (only populated if wait=true)
 	Status        *ReplicationStatus `protobuf:"bytes,1,opt,name=status,proto3" json:"status,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -1670,9 +1746,16 @@ func (*UndoDemoteResponse) Descriptor() ([]byte, []int) {
 	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{25}
 }
 
-// StopReplicationAndGetStatus stops PostgreSQL replication and returns the status
+// StopReplicationAndGetStatus stops PostgreSQL replication (replay and/or receiver based on mode)
+// and returns the status
 type StopReplicationAndGetStatusRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Mode specifying what aspect of replication to pause
+	Mode ReplicationPauseMode `protobuf:"varint,1,opt,name=mode,proto3,enum=multipoolermanagerdata.ReplicationPauseMode" json:"mode,omitempty"`
+	// Whether to wait for the pause operation to complete before returning
+	// If true, the response will include the replication status after pausing
+	// If false, the operation is asynchronous and status reflects state when call was made
+	Wait          bool `protobuf:"varint,2,opt,name=wait,proto3" json:"wait,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1707,9 +1790,23 @@ func (*StopReplicationAndGetStatusRequest) Descriptor() ([]byte, []int) {
 	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{26}
 }
 
+func (x *StopReplicationAndGetStatusRequest) GetMode() ReplicationPauseMode {
+	if x != nil {
+		return x.Mode
+	}
+	return ReplicationPauseMode_REPLICATION_PAUSE_MODE_REPLAY_ONLY
+}
+
+func (x *StopReplicationAndGetStatusRequest) GetWait() bool {
+	if x != nil {
+		return x.Wait
+	}
+	return false
+}
+
 type StopReplicationAndGetStatusResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Replication status before and after stopping
+	// Replication status after stopping
 	Status        *ReplicationStatus `protobuf:"bytes,1,opt,name=status,proto3" json:"status,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -2579,8 +2676,10 @@ const file_multipoolermanagerdata_proto_rawDesc = "" +
 	"\x17start_replication_after\x18\x04 \x01(\bR\x15startReplicationAfter\x12!\n" +
 	"\fcurrent_term\x18\x05 \x01(\x03R\vcurrentTerm\x12\x14\n" +
 	"\x05force\x18\x06 \x01(\bR\x05force\"\x1c\n" +
-	"\x1aSetPrimaryConnInfoResponse\"\x18\n" +
-	"\x16StopReplicationRequest\"\\\n" +
+	"\x1aSetPrimaryConnInfoResponse\"n\n" +
+	"\x16StopReplicationRequest\x12@\n" +
+	"\x04mode\x18\x01 \x01(\x0e2,.multipoolermanagerdata.ReplicationPauseModeR\x04mode\x12\x12\n" +
+	"\x04wait\x18\x02 \x01(\bR\x04wait\"\\\n" +
 	"\x17StopReplicationResponse\x12A\n" +
 	"\x06status\x18\x01 \x01(\v2).multipoolermanagerdata.ReplicationStatusR\x06status\"\x1a\n" +
 	"\x18ReplicationStatusRequest\"^\n" +
@@ -2641,8 +2740,10 @@ const file_multipoolermanagerdata_proto_rawDesc = "" +
 	"\flsn_position\x18\x03 \x01(\tR\vlsnPosition\x125\n" +
 	"\x16connections_terminated\x18\x04 \x01(\x05R\x15connectionsTerminated\"\x13\n" +
 	"\x11UndoDemoteRequest\"\x14\n" +
-	"\x12UndoDemoteResponse\"$\n" +
-	"\"StopReplicationAndGetStatusRequest\"h\n" +
+	"\x12UndoDemoteResponse\"z\n" +
+	"\"StopReplicationAndGetStatusRequest\x12@\n" +
+	"\x04mode\x18\x01 \x01(\x0e2,.multipoolermanagerdata.ReplicationPauseModeR\x04mode\x12\x12\n" +
+	"\x04wait\x18\x02 \x01(\bR\x04wait\"h\n" +
 	"#StopReplicationAndGetStatusResponse\x12A\n" +
 	"\x06status\x18\x01 \x01(\v2).multipoolermanagerdata.ReplicationStatusR\x06status\"Q\n" +
 	"\x11ChangeTypeRequest\x12<\n" +
@@ -2689,7 +2790,11 @@ const file_multipoolermanagerdata_proto_rawDesc = "" +
 	"termNumber\x12<\n" +
 	"\x0faccepted_leader\x18\x02 \x01(\v2\x13.clustermetadata.IDR\x0eacceptedLeader\x12L\n" +
 	"\x14last_acceptance_time\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\x12lastAcceptanceTime\x120\n" +
-	"\tleader_id\x18\x04 \x01(\v2\x13.clustermetadata.IDR\bleaderId*q\n" +
+	"\tleader_id\x18\x04 \x01(\v2\x13.clustermetadata.IDR\bleaderId*\x98\x01\n" +
+	"\x14ReplicationPauseMode\x12&\n" +
+	"\"REPLICATION_PAUSE_MODE_REPLAY_ONLY\x10\x00\x12(\n" +
+	"$REPLICATION_PAUSE_MODE_RECEIVER_ONLY\x10\x01\x12.\n" +
+	"*REPLICATION_PAUSE_MODE_REPLAY_AND_RECEIVER\x10\x02*q\n" +
 	"\x11SynchronousMethod\x12\"\n" +
 	"\x1eSYNCHRONOUS_METHOD_UNSPECIFIED\x10\x00\x12\x1c\n" +
 	"\x18SYNCHRONOUS_METHOD_FIRST\x10\x01\x12\x1a\n" +
@@ -2718,98 +2823,101 @@ func file_multipoolermanagerdata_proto_rawDescGZIP() []byte {
 	return file_multipoolermanagerdata_proto_rawDescData
 }
 
-var file_multipoolermanagerdata_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
+var file_multipoolermanagerdata_proto_enumTypes = make([]protoimpl.EnumInfo, 4)
 var file_multipoolermanagerdata_proto_msgTypes = make([]protoimpl.MessageInfo, 43)
 var file_multipoolermanagerdata_proto_goTypes = []any{
-	(SynchronousMethod)(0),                          // 0: multipoolermanagerdata.SynchronousMethod
-	(StandbyUpdateOperation)(0),                     // 1: multipoolermanagerdata.StandbyUpdateOperation
-	(SynchronousCommitLevel)(0),                     // 2: multipoolermanagerdata.SynchronousCommitLevel
-	(*PrimaryConnInfo)(nil),                         // 3: multipoolermanagerdata.PrimaryConnInfo
-	(*ReplicationStatus)(nil),                       // 4: multipoolermanagerdata.ReplicationStatus
-	(*WaitForLSNRequest)(nil),                       // 5: multipoolermanagerdata.WaitForLSNRequest
-	(*WaitForLSNResponse)(nil),                      // 6: multipoolermanagerdata.WaitForLSNResponse
-	(*StartReplicationRequest)(nil),                 // 7: multipoolermanagerdata.StartReplicationRequest
-	(*StartReplicationResponse)(nil),                // 8: multipoolermanagerdata.StartReplicationResponse
-	(*SetPrimaryConnInfoRequest)(nil),               // 9: multipoolermanagerdata.SetPrimaryConnInfoRequest
-	(*SetPrimaryConnInfoResponse)(nil),              // 10: multipoolermanagerdata.SetPrimaryConnInfoResponse
-	(*StopReplicationRequest)(nil),                  // 11: multipoolermanagerdata.StopReplicationRequest
-	(*StopReplicationResponse)(nil),                 // 12: multipoolermanagerdata.StopReplicationResponse
-	(*ReplicationStatusRequest)(nil),                // 13: multipoolermanagerdata.ReplicationStatusRequest
-	(*ReplicationStatusResponse)(nil),               // 14: multipoolermanagerdata.ReplicationStatusResponse
-	(*SynchronousReplicationConfiguration)(nil),     // 15: multipoolermanagerdata.SynchronousReplicationConfiguration
-	(*PrimaryStatus)(nil),                           // 16: multipoolermanagerdata.PrimaryStatus
-	(*PrimaryStatusRequest)(nil),                    // 17: multipoolermanagerdata.PrimaryStatusRequest
-	(*PrimaryStatusResponse)(nil),                   // 18: multipoolermanagerdata.PrimaryStatusResponse
-	(*PrimaryPositionRequest)(nil),                  // 19: multipoolermanagerdata.PrimaryPositionRequest
-	(*PrimaryPositionResponse)(nil),                 // 20: multipoolermanagerdata.PrimaryPositionResponse
-	(*ReplicationStats)(nil),                        // 21: multipoolermanagerdata.ReplicationStats
-	(*FollowerInfo)(nil),                            // 22: multipoolermanagerdata.FollowerInfo
-	(*GetFollowersRequest)(nil),                     // 23: multipoolermanagerdata.GetFollowersRequest
-	(*GetFollowersResponse)(nil),                    // 24: multipoolermanagerdata.GetFollowersResponse
-	(*DemoteRequest)(nil),                           // 25: multipoolermanagerdata.DemoteRequest
-	(*DemoteResponse)(nil),                          // 26: multipoolermanagerdata.DemoteResponse
-	(*UndoDemoteRequest)(nil),                       // 27: multipoolermanagerdata.UndoDemoteRequest
-	(*UndoDemoteResponse)(nil),                      // 28: multipoolermanagerdata.UndoDemoteResponse
-	(*StopReplicationAndGetStatusRequest)(nil),      // 29: multipoolermanagerdata.StopReplicationAndGetStatusRequest
-	(*StopReplicationAndGetStatusResponse)(nil),     // 30: multipoolermanagerdata.StopReplicationAndGetStatusResponse
-	(*ChangeTypeRequest)(nil),                       // 31: multipoolermanagerdata.ChangeTypeRequest
-	(*ChangeTypeResponse)(nil),                      // 32: multipoolermanagerdata.ChangeTypeResponse
-	(*PromoteRequest)(nil),                          // 33: multipoolermanagerdata.PromoteRequest
-	(*PromoteResponse)(nil),                         // 34: multipoolermanagerdata.PromoteResponse
-	(*ResetReplicationRequest)(nil),                 // 35: multipoolermanagerdata.ResetReplicationRequest
-	(*ResetReplicationResponse)(nil),                // 36: multipoolermanagerdata.ResetReplicationResponse
-	(*ConfigureSynchronousReplicationRequest)(nil),  // 37: multipoolermanagerdata.ConfigureSynchronousReplicationRequest
-	(*ConfigureSynchronousReplicationResponse)(nil), // 38: multipoolermanagerdata.ConfigureSynchronousReplicationResponse
-	(*StatusRequest)(nil),                           // 39: multipoolermanagerdata.StatusRequest
-	(*StatusResponse)(nil),                          // 40: multipoolermanagerdata.StatusResponse
-	(*SetTermRequest)(nil),                          // 41: multipoolermanagerdata.SetTermRequest
-	(*SetTermResponse)(nil),                         // 42: multipoolermanagerdata.SetTermResponse
-	(*UpdateSynchronousStandbyListRequest)(nil),     // 43: multipoolermanagerdata.UpdateSynchronousStandbyListRequest
-	(*UpdateSynchronousStandbyListResponse)(nil),    // 44: multipoolermanagerdata.UpdateSynchronousStandbyListResponse
-	(*ConsensusTerm)(nil),                           // 45: multipoolermanagerdata.ConsensusTerm
-	(*durationpb.Duration)(nil),                     // 46: google.protobuf.Duration
-	(*clustermetadata.ID)(nil),                      // 47: clustermetadata.ID
-	(clustermetadata.PoolerType)(0),                 // 48: clustermetadata.PoolerType
-	(*timestamppb.Timestamp)(nil),                   // 49: google.protobuf.Timestamp
+	(ReplicationPauseMode)(0),                       // 0: multipoolermanagerdata.ReplicationPauseMode
+	(SynchronousMethod)(0),                          // 1: multipoolermanagerdata.SynchronousMethod
+	(StandbyUpdateOperation)(0),                     // 2: multipoolermanagerdata.StandbyUpdateOperation
+	(SynchronousCommitLevel)(0),                     // 3: multipoolermanagerdata.SynchronousCommitLevel
+	(*PrimaryConnInfo)(nil),                         // 4: multipoolermanagerdata.PrimaryConnInfo
+	(*ReplicationStatus)(nil),                       // 5: multipoolermanagerdata.ReplicationStatus
+	(*WaitForLSNRequest)(nil),                       // 6: multipoolermanagerdata.WaitForLSNRequest
+	(*WaitForLSNResponse)(nil),                      // 7: multipoolermanagerdata.WaitForLSNResponse
+	(*StartReplicationRequest)(nil),                 // 8: multipoolermanagerdata.StartReplicationRequest
+	(*StartReplicationResponse)(nil),                // 9: multipoolermanagerdata.StartReplicationResponse
+	(*SetPrimaryConnInfoRequest)(nil),               // 10: multipoolermanagerdata.SetPrimaryConnInfoRequest
+	(*SetPrimaryConnInfoResponse)(nil),              // 11: multipoolermanagerdata.SetPrimaryConnInfoResponse
+	(*StopReplicationRequest)(nil),                  // 12: multipoolermanagerdata.StopReplicationRequest
+	(*StopReplicationResponse)(nil),                 // 13: multipoolermanagerdata.StopReplicationResponse
+	(*ReplicationStatusRequest)(nil),                // 14: multipoolermanagerdata.ReplicationStatusRequest
+	(*ReplicationStatusResponse)(nil),               // 15: multipoolermanagerdata.ReplicationStatusResponse
+	(*SynchronousReplicationConfiguration)(nil),     // 16: multipoolermanagerdata.SynchronousReplicationConfiguration
+	(*PrimaryStatus)(nil),                           // 17: multipoolermanagerdata.PrimaryStatus
+	(*PrimaryStatusRequest)(nil),                    // 18: multipoolermanagerdata.PrimaryStatusRequest
+	(*PrimaryStatusResponse)(nil),                   // 19: multipoolermanagerdata.PrimaryStatusResponse
+	(*PrimaryPositionRequest)(nil),                  // 20: multipoolermanagerdata.PrimaryPositionRequest
+	(*PrimaryPositionResponse)(nil),                 // 21: multipoolermanagerdata.PrimaryPositionResponse
+	(*ReplicationStats)(nil),                        // 22: multipoolermanagerdata.ReplicationStats
+	(*FollowerInfo)(nil),                            // 23: multipoolermanagerdata.FollowerInfo
+	(*GetFollowersRequest)(nil),                     // 24: multipoolermanagerdata.GetFollowersRequest
+	(*GetFollowersResponse)(nil),                    // 25: multipoolermanagerdata.GetFollowersResponse
+	(*DemoteRequest)(nil),                           // 26: multipoolermanagerdata.DemoteRequest
+	(*DemoteResponse)(nil),                          // 27: multipoolermanagerdata.DemoteResponse
+	(*UndoDemoteRequest)(nil),                       // 28: multipoolermanagerdata.UndoDemoteRequest
+	(*UndoDemoteResponse)(nil),                      // 29: multipoolermanagerdata.UndoDemoteResponse
+	(*StopReplicationAndGetStatusRequest)(nil),      // 30: multipoolermanagerdata.StopReplicationAndGetStatusRequest
+	(*StopReplicationAndGetStatusResponse)(nil),     // 31: multipoolermanagerdata.StopReplicationAndGetStatusResponse
+	(*ChangeTypeRequest)(nil),                       // 32: multipoolermanagerdata.ChangeTypeRequest
+	(*ChangeTypeResponse)(nil),                      // 33: multipoolermanagerdata.ChangeTypeResponse
+	(*PromoteRequest)(nil),                          // 34: multipoolermanagerdata.PromoteRequest
+	(*PromoteResponse)(nil),                         // 35: multipoolermanagerdata.PromoteResponse
+	(*ResetReplicationRequest)(nil),                 // 36: multipoolermanagerdata.ResetReplicationRequest
+	(*ResetReplicationResponse)(nil),                // 37: multipoolermanagerdata.ResetReplicationResponse
+	(*ConfigureSynchronousReplicationRequest)(nil),  // 38: multipoolermanagerdata.ConfigureSynchronousReplicationRequest
+	(*ConfigureSynchronousReplicationResponse)(nil), // 39: multipoolermanagerdata.ConfigureSynchronousReplicationResponse
+	(*StatusRequest)(nil),                           // 40: multipoolermanagerdata.StatusRequest
+	(*StatusResponse)(nil),                          // 41: multipoolermanagerdata.StatusResponse
+	(*SetTermRequest)(nil),                          // 42: multipoolermanagerdata.SetTermRequest
+	(*SetTermResponse)(nil),                         // 43: multipoolermanagerdata.SetTermResponse
+	(*UpdateSynchronousStandbyListRequest)(nil),     // 44: multipoolermanagerdata.UpdateSynchronousStandbyListRequest
+	(*UpdateSynchronousStandbyListResponse)(nil),    // 45: multipoolermanagerdata.UpdateSynchronousStandbyListResponse
+	(*ConsensusTerm)(nil),                           // 46: multipoolermanagerdata.ConsensusTerm
+	(*durationpb.Duration)(nil),                     // 47: google.protobuf.Duration
+	(*clustermetadata.ID)(nil),                      // 48: clustermetadata.ID
+	(clustermetadata.PoolerType)(0),                 // 49: clustermetadata.PoolerType
+	(*timestamppb.Timestamp)(nil),                   // 50: google.protobuf.Timestamp
 }
 var file_multipoolermanagerdata_proto_depIdxs = []int32{
-	46, // 0: multipoolermanagerdata.ReplicationStatus.lag:type_name -> google.protobuf.Duration
-	3,  // 1: multipoolermanagerdata.ReplicationStatus.primary_conn_info:type_name -> multipoolermanagerdata.PrimaryConnInfo
-	46, // 2: multipoolermanagerdata.WaitForLSNRequest.timeout:type_name -> google.protobuf.Duration
-	4,  // 3: multipoolermanagerdata.StopReplicationResponse.status:type_name -> multipoolermanagerdata.ReplicationStatus
-	4,  // 4: multipoolermanagerdata.ReplicationStatusResponse.status:type_name -> multipoolermanagerdata.ReplicationStatus
-	2,  // 5: multipoolermanagerdata.SynchronousReplicationConfiguration.synchronous_commit:type_name -> multipoolermanagerdata.SynchronousCommitLevel
-	0,  // 6: multipoolermanagerdata.SynchronousReplicationConfiguration.synchronous_method:type_name -> multipoolermanagerdata.SynchronousMethod
-	47, // 7: multipoolermanagerdata.SynchronousReplicationConfiguration.standby_ids:type_name -> clustermetadata.ID
-	47, // 8: multipoolermanagerdata.PrimaryStatus.connected_followers:type_name -> clustermetadata.ID
-	15, // 9: multipoolermanagerdata.PrimaryStatus.sync_replication_config:type_name -> multipoolermanagerdata.SynchronousReplicationConfiguration
-	16, // 10: multipoolermanagerdata.PrimaryStatusResponse.status:type_name -> multipoolermanagerdata.PrimaryStatus
-	46, // 11: multipoolermanagerdata.ReplicationStats.write_lag:type_name -> google.protobuf.Duration
-	46, // 12: multipoolermanagerdata.ReplicationStats.flush_lag:type_name -> google.protobuf.Duration
-	46, // 13: multipoolermanagerdata.ReplicationStats.replay_lag:type_name -> google.protobuf.Duration
-	47, // 14: multipoolermanagerdata.FollowerInfo.follower_id:type_name -> clustermetadata.ID
-	21, // 15: multipoolermanagerdata.FollowerInfo.replication_stats:type_name -> multipoolermanagerdata.ReplicationStats
-	22, // 16: multipoolermanagerdata.GetFollowersResponse.followers:type_name -> multipoolermanagerdata.FollowerInfo
-	15, // 17: multipoolermanagerdata.GetFollowersResponse.sync_config:type_name -> multipoolermanagerdata.SynchronousReplicationConfiguration
-	46, // 18: multipoolermanagerdata.DemoteRequest.drain_timeout:type_name -> google.protobuf.Duration
-	4,  // 19: multipoolermanagerdata.StopReplicationAndGetStatusResponse.status:type_name -> multipoolermanagerdata.ReplicationStatus
-	48, // 20: multipoolermanagerdata.ChangeTypeRequest.pooler_type:type_name -> clustermetadata.PoolerType
-	37, // 21: multipoolermanagerdata.PromoteRequest.sync_replication_config:type_name -> multipoolermanagerdata.ConfigureSynchronousReplicationRequest
-	4,  // 22: multipoolermanagerdata.ResetReplicationResponse.status:type_name -> multipoolermanagerdata.ReplicationStatus
-	2,  // 23: multipoolermanagerdata.ConfigureSynchronousReplicationRequest.synchronous_commit:type_name -> multipoolermanagerdata.SynchronousCommitLevel
-	0,  // 24: multipoolermanagerdata.ConfigureSynchronousReplicationRequest.synchronous_method:type_name -> multipoolermanagerdata.SynchronousMethod
-	47, // 25: multipoolermanagerdata.ConfigureSynchronousReplicationRequest.standby_ids:type_name -> clustermetadata.ID
-	45, // 26: multipoolermanagerdata.SetTermRequest.term:type_name -> multipoolermanagerdata.ConsensusTerm
-	1,  // 27: multipoolermanagerdata.UpdateSynchronousStandbyListRequest.operation:type_name -> multipoolermanagerdata.StandbyUpdateOperation
-	47, // 28: multipoolermanagerdata.UpdateSynchronousStandbyListRequest.standby_ids:type_name -> clustermetadata.ID
-	47, // 29: multipoolermanagerdata.ConsensusTerm.accepted_leader:type_name -> clustermetadata.ID
-	49, // 30: multipoolermanagerdata.ConsensusTerm.last_acceptance_time:type_name -> google.protobuf.Timestamp
-	47, // 31: multipoolermanagerdata.ConsensusTerm.leader_id:type_name -> clustermetadata.ID
-	32, // [32:32] is the sub-list for method output_type
-	32, // [32:32] is the sub-list for method input_type
-	32, // [32:32] is the sub-list for extension type_name
-	32, // [32:32] is the sub-list for extension extendee
-	0,  // [0:32] is the sub-list for field type_name
+	47, // 0: multipoolermanagerdata.ReplicationStatus.lag:type_name -> google.protobuf.Duration
+	4,  // 1: multipoolermanagerdata.ReplicationStatus.primary_conn_info:type_name -> multipoolermanagerdata.PrimaryConnInfo
+	47, // 2: multipoolermanagerdata.WaitForLSNRequest.timeout:type_name -> google.protobuf.Duration
+	0,  // 3: multipoolermanagerdata.StopReplicationRequest.mode:type_name -> multipoolermanagerdata.ReplicationPauseMode
+	5,  // 4: multipoolermanagerdata.StopReplicationResponse.status:type_name -> multipoolermanagerdata.ReplicationStatus
+	5,  // 5: multipoolermanagerdata.ReplicationStatusResponse.status:type_name -> multipoolermanagerdata.ReplicationStatus
+	3,  // 6: multipoolermanagerdata.SynchronousReplicationConfiguration.synchronous_commit:type_name -> multipoolermanagerdata.SynchronousCommitLevel
+	1,  // 7: multipoolermanagerdata.SynchronousReplicationConfiguration.synchronous_method:type_name -> multipoolermanagerdata.SynchronousMethod
+	48, // 8: multipoolermanagerdata.SynchronousReplicationConfiguration.standby_ids:type_name -> clustermetadata.ID
+	48, // 9: multipoolermanagerdata.PrimaryStatus.connected_followers:type_name -> clustermetadata.ID
+	16, // 10: multipoolermanagerdata.PrimaryStatus.sync_replication_config:type_name -> multipoolermanagerdata.SynchronousReplicationConfiguration
+	17, // 11: multipoolermanagerdata.PrimaryStatusResponse.status:type_name -> multipoolermanagerdata.PrimaryStatus
+	47, // 12: multipoolermanagerdata.ReplicationStats.write_lag:type_name -> google.protobuf.Duration
+	47, // 13: multipoolermanagerdata.ReplicationStats.flush_lag:type_name -> google.protobuf.Duration
+	47, // 14: multipoolermanagerdata.ReplicationStats.replay_lag:type_name -> google.protobuf.Duration
+	48, // 15: multipoolermanagerdata.FollowerInfo.follower_id:type_name -> clustermetadata.ID
+	22, // 16: multipoolermanagerdata.FollowerInfo.replication_stats:type_name -> multipoolermanagerdata.ReplicationStats
+	23, // 17: multipoolermanagerdata.GetFollowersResponse.followers:type_name -> multipoolermanagerdata.FollowerInfo
+	16, // 18: multipoolermanagerdata.GetFollowersResponse.sync_config:type_name -> multipoolermanagerdata.SynchronousReplicationConfiguration
+	47, // 19: multipoolermanagerdata.DemoteRequest.drain_timeout:type_name -> google.protobuf.Duration
+	0,  // 20: multipoolermanagerdata.StopReplicationAndGetStatusRequest.mode:type_name -> multipoolermanagerdata.ReplicationPauseMode
+	5,  // 21: multipoolermanagerdata.StopReplicationAndGetStatusResponse.status:type_name -> multipoolermanagerdata.ReplicationStatus
+	49, // 22: multipoolermanagerdata.ChangeTypeRequest.pooler_type:type_name -> clustermetadata.PoolerType
+	38, // 23: multipoolermanagerdata.PromoteRequest.sync_replication_config:type_name -> multipoolermanagerdata.ConfigureSynchronousReplicationRequest
+	5,  // 24: multipoolermanagerdata.ResetReplicationResponse.status:type_name -> multipoolermanagerdata.ReplicationStatus
+	3,  // 25: multipoolermanagerdata.ConfigureSynchronousReplicationRequest.synchronous_commit:type_name -> multipoolermanagerdata.SynchronousCommitLevel
+	1,  // 26: multipoolermanagerdata.ConfigureSynchronousReplicationRequest.synchronous_method:type_name -> multipoolermanagerdata.SynchronousMethod
+	48, // 27: multipoolermanagerdata.ConfigureSynchronousReplicationRequest.standby_ids:type_name -> clustermetadata.ID
+	46, // 28: multipoolermanagerdata.SetTermRequest.term:type_name -> multipoolermanagerdata.ConsensusTerm
+	2,  // 29: multipoolermanagerdata.UpdateSynchronousStandbyListRequest.operation:type_name -> multipoolermanagerdata.StandbyUpdateOperation
+	48, // 30: multipoolermanagerdata.UpdateSynchronousStandbyListRequest.standby_ids:type_name -> clustermetadata.ID
+	48, // 31: multipoolermanagerdata.ConsensusTerm.accepted_leader:type_name -> clustermetadata.ID
+	50, // 32: multipoolermanagerdata.ConsensusTerm.last_acceptance_time:type_name -> google.protobuf.Timestamp
+	48, // 33: multipoolermanagerdata.ConsensusTerm.leader_id:type_name -> clustermetadata.ID
+	34, // [34:34] is the sub-list for method output_type
+	34, // [34:34] is the sub-list for method input_type
+	34, // [34:34] is the sub-list for extension type_name
+	34, // [34:34] is the sub-list for extension extendee
+	0,  // [0:34] is the sub-list for field type_name
 }
 
 func init() { file_multipoolermanagerdata_proto_init() }
@@ -2822,7 +2930,7 @@ func file_multipoolermanagerdata_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_multipoolermanagerdata_proto_rawDesc), len(file_multipoolermanagerdata_proto_rawDesc)),
-			NumEnums:      3,
+			NumEnums:      4,
 			NumMessages:   43,
 			NumExtensions: 0,
 			NumServices:   0,
