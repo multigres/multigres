@@ -838,3 +838,126 @@ func TestHandleClose(t *testing.T) {
 		})
 	}
 }
+
+// TestExtendedQueryProtocolWithParameters tests parameterized queries end-to-end.
+func TestExtendedQueryProtocolWithParameters(t *testing.T) {
+	var readBuf bytes.Buffer
+	var writeBuf bytes.Buffer
+	handler := &testHandlerWithState{}
+	conn := createExtendedQueryTestConn(t, &readBuf, &writeBuf, handler)
+
+	// Step 1: Parse with parameter types
+	stmtName := "param_stmt"
+	query := "SELECT $1 + $2"
+	paramTypes := []uint32{23, 23} // INT4, INT4
+
+	parseLength := int32(4 + len(stmtName) + 1 + len(query) + 1 + 2 + len(paramTypes)*4)
+	writeTestInt32(&readBuf, parseLength)
+	writeTestString(&readBuf, stmtName)
+	writeTestString(&readBuf, query)
+	writeTestInt16(&readBuf, int16(len(paramTypes)))
+	for _, oid := range paramTypes {
+		writeTestInt32(&readBuf, int32(oid))
+	}
+
+	err := conn.handleParse()
+	require.NoError(t, err)
+
+	// Verify ParseComplete
+	msgType, _, _ := readMessageTypeAndLength(t, &writeBuf)
+	assert.Equal(t, byte(protocol.MsgParseComplete), msgType)
+
+	// Step 2: Bind with parameter values
+	portalName := "param_portal"
+	param1 := []byte("10")
+	param2 := []byte("32")
+
+	// Build Bind message with parameters
+	// Length: portal name + stmt name + param format count + param count + params + result format count
+	paramLength := int32(len(param1)) + int32(len(param2))
+	bindLength := int32(4) + int32(len(portalName)) + 1 + int32(len(stmtName)) + 1 + 2 + 2 + 8 + paramLength + 2
+	writeTestInt32(&readBuf, bindLength)
+	writeTestString(&readBuf, portalName)
+	writeTestString(&readBuf, stmtName)
+	writeTestInt16(&readBuf, 0) // No parameter formats (defaults to text)
+	writeTestInt16(&readBuf, 2) // 2 parameters
+	writeTestInt32(&readBuf, int32(len(param1)))
+	readBuf.Write(param1)
+	writeTestInt32(&readBuf, int32(len(param2)))
+	readBuf.Write(param2)
+	writeTestInt16(&readBuf, 0) // No result formats
+
+	err = conn.handleBind()
+	require.NoError(t, err)
+
+	// Verify BindComplete
+	msgType, _, _ = readMessageTypeAndLength(t, &writeBuf)
+	assert.Equal(t, byte(protocol.MsgBindComplete), msgType)
+
+	// Verify portal was stored with parameters
+	state := getTestConnectionState(conn)
+	require.NotNil(t, state)
+	state.mu.Lock()
+	portal := state.portals[portalName]
+	state.mu.Unlock()
+	require.NotNil(t, portal)
+	assert.Equal(t, 2, len(portal.Parameters))
+	assert.Equal(t, param1, portal.Parameters[0])
+	assert.Equal(t, param2, portal.Parameters[1])
+}
+
+// TestExtendedQueryProtocolWithNullParameter tests NULL parameter handling.
+func TestExtendedQueryProtocolWithNullParameter(t *testing.T) {
+	var readBuf bytes.Buffer
+	var writeBuf bytes.Buffer
+	handler := &testHandlerWithState{}
+	conn := createExtendedQueryTestConn(t, &readBuf, &writeBuf, handler)
+
+	// Parse
+	stmtName := "null_stmt"
+	query := "SELECT $1, $2"
+	paramTypes := []uint32{23, 25} // INT4, TEXT
+
+	parseLength := int32(4 + len(stmtName) + 1 + len(query) + 1 + 2 + len(paramTypes)*4)
+	writeTestInt32(&readBuf, parseLength)
+	writeTestString(&readBuf, stmtName)
+	writeTestString(&readBuf, query)
+	writeTestInt16(&readBuf, int16(len(paramTypes)))
+	for _, oid := range paramTypes {
+		writeTestInt32(&readBuf, int32(oid))
+	}
+
+	err := conn.handleParse()
+	require.NoError(t, err)
+	readMessageTypeAndLength(t, &writeBuf) // ParseComplete
+
+	// Bind with NULL parameter
+	portalName := "null_portal"
+	param1 := []byte("42")
+
+	bindLength := int32(4 + len(portalName) + 1 + len(stmtName) + 1 + 2 + 2 + 4 + len(param1) + 4 + 2)
+	writeTestInt32(&readBuf, bindLength)
+	writeTestString(&readBuf, portalName)
+	writeTestString(&readBuf, stmtName)
+	writeTestInt16(&readBuf, 0) // No parameter formats
+	writeTestInt16(&readBuf, 2) // 2 parameters
+	writeTestInt32(&readBuf, int32(len(param1)))
+	readBuf.Write(param1)
+	writeTestInt32(&readBuf, -1) // NULL parameter (length = -1)
+	writeTestInt16(&readBuf, 0)  // No result formats
+
+	err = conn.handleBind()
+	require.NoError(t, err)
+	readMessageTypeAndLength(t, &writeBuf) // BindComplete
+
+	// Verify portal was stored with NULL parameter
+	state := getTestConnectionState(conn)
+	require.NotNil(t, state)
+	state.mu.Lock()
+	portal := state.portals[portalName]
+	state.mu.Unlock()
+	require.NotNil(t, portal)
+	assert.Equal(t, 2, len(portal.Parameters))
+	assert.Equal(t, param1, portal.Parameters[0])
+	assert.Nil(t, portal.Parameters[1]) // NULL parameter
+}

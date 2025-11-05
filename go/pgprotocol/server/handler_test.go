@@ -31,8 +31,9 @@ type testPreparedStatement struct {
 
 // testPortal represents a portal for testing.
 type testPortal struct {
-	Name      string
-	Statement *testPreparedStatement
+	Name       string
+	Statement  *testPreparedStatement
+	Parameters [][]byte // Bound parameter values
 }
 
 // testConnectionState holds test connection state.
@@ -99,8 +100,9 @@ func (h *testHandlerWithState) HandleBind(ctx context.Context, conn *Conn, porta
 	}
 
 	portal := &testPortal{
-		Name:      portalName,
-		Statement: stmt,
+		Name:       portalName,
+		Statement:  stmt,
+		Parameters: params,
 	}
 
 	state.mu.Lock()

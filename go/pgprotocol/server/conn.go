@@ -530,44 +530,52 @@ func (c *Conn) handleBind() error {
 		return fmt.Errorf("failed to read statement name: %w", err)
 	}
 
-	// Read and discard parameter format codes
+	// Read parameter format codes
 	paramFormatCount, err := reader.ReadInt16()
 	if err != nil {
 		return fmt.Errorf("failed to read parameter format count: %w", err)
 	}
+	paramFormats := make([]int16, paramFormatCount)
 	for i := int16(0); i < paramFormatCount; i++ {
-		if _, err := reader.ReadInt16(); err != nil {
+		format, err := reader.ReadInt16()
+		if err != nil {
 			return fmt.Errorf("failed to read parameter format: %w", err)
 		}
+		paramFormats[i] = format
 	}
 
-	// Read and discard parameters
+	// Read parameters
 	paramCount, err := reader.ReadInt16()
 	if err != nil {
 		return fmt.Errorf("failed to read parameter count: %w", err)
 	}
+	params := make([][]byte, paramCount)
 	for i := int16(0); i < paramCount; i++ {
-		if _, err := reader.ReadByteString(); err != nil {
+		param, err := reader.ReadByteString()
+		if err != nil {
 			return fmt.Errorf("failed to read parameter: %w", err)
 		}
+		params[i] = param
 	}
 
-	// Read and discard result format codes
+	// Read result format codes
 	resultFormatCount, err := reader.ReadInt16()
 	if err != nil {
 		return fmt.Errorf("failed to read result format count: %w", err)
 	}
+	resultFormats := make([]int16, resultFormatCount)
 	for i := int16(0); i < resultFormatCount; i++ {
-		if _, err := reader.ReadInt16(); err != nil {
+		format, err := reader.ReadInt16()
+		if err != nil {
 			return fmt.Errorf("failed to read result format: %w", err)
 		}
+		resultFormats[i] = format
 	}
 
-	c.logger.Debug("bind", "portal", portalName, "statement", stmtName)
+	c.logger.Debug("bind", "portal", portalName, "statement", stmtName, "param_count", len(params))
 
-	// Call the handler to create and bind the portal.
-	// TODO: Handle parameters and return format
-	if err := c.handler.HandleBind(c.ctx, c, portalName, stmtName, nil, nil, nil); err != nil {
+	// Call the handler to create and bind the portal with parameters.
+	if err := c.handler.HandleBind(c.ctx, c, portalName, stmtName, params, paramFormats, resultFormats); err != nil {
 		if writeErr := c.writeErrorResponse("ERROR", "42000", "bind failed", err.Error(), ""); writeErr != nil {
 			return writeErr
 		}
