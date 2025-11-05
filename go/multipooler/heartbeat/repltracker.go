@@ -54,9 +54,9 @@ func (rt *ReplTracker) MakePrimary() {
 	rt.mu.Lock()
 	defer rt.mu.Unlock()
 
-	rt.isPrimary = true
 	rt.hr.Close()
 	rt.hw.Open()
+	rt.isPrimary = true
 }
 
 // MakeNonPrimary must be called if the database becomes a non-primary (standby).

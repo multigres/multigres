@@ -16,14 +16,17 @@ package heartbeat
 
 import (
 	"context"
+	"database/sql"
 	"log/slog"
 	"sync"
 	"testing"
 	"time"
 
-	"github.com/multigres/multigres/go/fakepgdb"
-
+	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/multigres/multigres/go/fakepgdb"
 )
 
 func TestWriteHeartbeat(t *testing.T) {
@@ -265,4 +268,197 @@ func newTestWriter(t *testing.T, db *fakepgdb.DB, frozenTime *time.Time) *Writer
 	}
 
 	return tw
+}
+
+// TestWriterOpen tests various scenarios when opening the heartbeat writer
+func TestWriterOpen(t *testing.T) {
+	logger := slog.Default()
+	shardID := []byte("test-shard")
+	poolerID := "test-pooler"
+
+	tests := []struct {
+		name           string
+		initialTerm    int64
+		dbTerm         *int64 // nil means error
+		dbError        error
+		expectedTerm   int64
+		expectedIsOpen bool
+	}{
+		{
+			name:           "TermFromDatabase",
+			initialTerm:    0,
+			dbTerm:         ptr(int64(10)),
+			dbError:        nil,
+			expectedTerm:   10,
+			expectedIsOpen: true,
+		},
+		{
+			name:           "EqualTerms",
+			initialTerm:    5,
+			dbTerm:         ptr(int64(5)),
+			dbError:        nil,
+			expectedTerm:   5,
+			expectedIsOpen: true,
+		},
+		{
+			name:           "NoRow",
+			initialTerm:    0,
+			dbTerm:         nil,
+			dbError:        sql.ErrNoRows,
+			expectedTerm:   0,
+			expectedIsOpen: true,
+		},
+		{
+			name:           "QueryError",
+			initialTerm:    0,
+			dbTerm:         nil,
+			dbError:        assert.AnError,
+			expectedTerm:   0,
+			expectedIsOpen: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Create mock database
+			db, mock, err := sqlmock.New()
+			require.NoError(t, err)
+			defer db.Close()
+
+			// Create writer
+			w := NewWriter(db, logger, shardID, poolerID, 1000)
+			if tt.initialTerm != 0 {
+				w.SetLeaderTerm(tt.initialTerm)
+			}
+
+			// Setup mock expectation
+			if tt.dbError != nil {
+				mock.ExpectQuery("SELECT leader_term FROM multigres.heartbeat WHERE shard_id = \\$1").
+					WithArgs(shardID).
+					WillReturnError(tt.dbError)
+			} else if tt.dbTerm != nil {
+				rows := sqlmock.NewRows([]string{"leader_term"}).AddRow(*tt.dbTerm)
+				mock.ExpectQuery("SELECT leader_term FROM multigres.heartbeat WHERE shard_id = \\$1").
+					WithArgs(shardID).
+					WillReturnRows(rows)
+			}
+
+			// Call Open()
+			w.Open()
+
+			// Verify state
+			assert.Equal(t, tt.expectedIsOpen, w.IsOpen())
+			assert.Equal(t, tt.expectedTerm, w.GetLeaderTerm())
+
+			// Verify all expectations met
+			assert.NoError(t, mock.ExpectationsWereMet())
+		})
+	}
+}
+
+// ptr is a helper to get pointer to int64
+func ptr(i int64) *int64 {
+	return &i
+}
+
+// TestWriterOpen_AlreadyOpen tests that Open() is idempotent
+func TestWriterOpen_AlreadyOpen(t *testing.T) {
+	// Create mock database
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close()
+
+	logger := slog.Default()
+	shardID := []byte("test-shard")
+	poolerID := "test-pooler"
+
+	w := NewWriter(db, logger, shardID, poolerID, 1000)
+
+	// Setup expectation for first Open()
+	rows := sqlmock.NewRows([]string{"leader_term"}).AddRow(int64(5))
+	mock.ExpectQuery("SELECT leader_term FROM multigres.heartbeat WHERE shard_id = \\$1").
+		WithArgs(shardID).
+		WillReturnRows(rows)
+
+	// First Open() should query database
+	w.Open()
+	assert.True(t, w.IsOpen())
+
+	// Second Open() should return immediately without querying (no more expectations)
+	w.Open()
+	assert.True(t, w.IsOpen())
+
+	// Verify all expectations met (only one query)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestWriterClose_ResetsLeaderTerm tests that Close() resets leader_term to 0
+func TestWriterClose_ResetsLeaderTerm(t *testing.T) {
+	// Create mock database
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close()
+
+	logger := slog.Default()
+	shardID := []byte("test-shard")
+	poolerID := "test-pooler"
+
+	w := NewWriter(db, logger, shardID, poolerID, 1000)
+
+	// Setup expectation: database returns term = 5
+	rows := sqlmock.NewRows([]string{"leader_term"}).AddRow(int64(5))
+	mock.ExpectQuery("SELECT leader_term FROM multigres.heartbeat WHERE shard_id = \\$1").
+		WithArgs(shardID).
+		WillReturnRows(rows)
+
+	// Open should initialize term from database
+	w.Open()
+	assert.Equal(t, int64(5), w.GetLeaderTerm())
+
+	// Close should reset term to 0
+	w.Close()
+	assert.False(t, w.IsOpen())
+	assert.Equal(t, int64(0), w.GetLeaderTerm())
+
+	// Verify all expectations met
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestWriterReopenAfterClose tests that reopening after close initializes from database
+func TestWriterReopenAfterClose(t *testing.T) {
+	// Create mock database
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close()
+
+	logger := slog.Default()
+	shardID := []byte("test-shard")
+	poolerID := "test-pooler"
+
+	w := NewWriter(db, logger, shardID, poolerID, 1000)
+
+	// First Open: database returns term = 5
+	rows1 := sqlmock.NewRows([]string{"leader_term"}).AddRow(int64(5))
+	mock.ExpectQuery("SELECT leader_term FROM multigres.heartbeat WHERE shard_id = \\$1").
+		WithArgs(shardID).
+		WillReturnRows(rows1)
+
+	w.Open()
+	assert.Equal(t, int64(5), w.GetLeaderTerm())
+
+	// Close (resets term to 0)
+	w.Close()
+	assert.Equal(t, int64(0), w.GetLeaderTerm())
+
+	// Reopen: database now returns term = 10
+	rows2 := sqlmock.NewRows([]string{"leader_term"}).AddRow(int64(10))
+	mock.ExpectQuery("SELECT leader_term FROM multigres.heartbeat WHERE shard_id = \\$1").
+		WithArgs(shardID).
+		WillReturnRows(rows2)
+
+	w.Open()
+	assert.Equal(t, int64(10), w.GetLeaderTerm())
+
+	// Verify all expectations met
+	assert.NoError(t, mock.ExpectationsWereMet())
 }

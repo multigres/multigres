@@ -84,18 +84,46 @@ func (w *Writer) Open() {
 	if w.isOpen {
 		return
 	}
+
+	success := false
 	defer func() {
-		w.isOpen = true
+		if success {
+			w.isOpen = true
+		}
 	}()
 
 	w.logger.Info("Heartbeat Writer: opening")
 
 	// TODO: open connection pools here
 
+	// Initialize leader_term from the database (source of truth for actual leader appointment)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	var existingTerm sql.NullInt64
+	err := w.db.QueryRowContext(ctx, "SELECT leader_term FROM multigres.heartbeat WHERE shard_id = $1", w.shardID).Scan(&existingTerm)
+
+	if err != nil && err != sql.ErrNoRows {
+		w.logger.Warn("Failed to read existing leader_term from database", "error", err)
+	} else if err == sql.ErrNoRows {
+		w.logger.Info("No existing heartbeat row found, starting with leader_term = 0")
+	} else if existingTerm.Valid {
+		currentMemoryTerm := w.GetLeaderTerm()
+		if existingTerm.Int64 != currentMemoryTerm {
+			w.logger.Info("Initializing leader_term from database",
+				"database_term", existingTerm.Int64,
+				"memory_term", currentMemoryTerm)
+			w.SetLeaderTerm(existingTerm.Int64)
+		} else {
+			w.logger.Info("Leader_term already matches database", "leader_term", existingTerm.Int64)
+		}
+	}
+
 	w.enableWrites()
+	success = true
 }
 
-// Close stops the heartbeat writer and periodic ticket.
+// Close stops the heartbeat writer and periodic ticker.
 func (w *Writer) Close() {
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -111,6 +139,9 @@ func (w *Writer) Close() {
 	w.logger.Info("Heartbeat Writer: closing")
 
 	w.disableWrites()
+
+	// Reset leader_term when closing so reopening initializes fresh from database
+	w.leaderTerm.Store(0)
 
 	w.logger.Info("Heartbeat Writer: closed")
 }
