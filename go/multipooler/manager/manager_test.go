@@ -375,9 +375,10 @@ func TestValidateAndUpdateTerm(t *testing.T) {
 			require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
 
 			config := &Config{
-				TopoClient: ts,
-				ServiceID:  serviceID,
-				PoolerDir:  poolerDir,
+				TopoClient:       ts,
+				ServiceID:        serviceID,
+				PoolerDir:        poolerDir,
+				ConsensusEnabled: true,
 			}
 			manager := NewMultiPoolerManager(logger, config)
 			defer manager.Close()

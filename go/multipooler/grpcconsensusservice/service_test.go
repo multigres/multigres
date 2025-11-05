@@ -63,10 +63,11 @@ func TestConsensusService_BeginTerm(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	config := &manager.Config{
-		TopoClient: ts,
-		ServiceID:  serviceID,
-		PgctldAddr: pgctldAddr,
-		PoolerDir:  tmpDir,
+		TopoClient:       ts,
+		ServiceID:        serviceID,
+		PgctldAddr:       pgctldAddr,
+		PoolerDir:        tmpDir,
+		ConsensusEnabled: true,
 	}
 	pm := manager.NewMultiPoolerManager(logger, config)
 	defer pm.Close()
@@ -130,10 +131,11 @@ func TestConsensusService_Status(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	config := &manager.Config{
-		TopoClient: ts,
-		ServiceID:  serviceID,
-		PgctldAddr: pgctldAddr,
-		PoolerDir:  tmpDir,
+		TopoClient:       ts,
+		ServiceID:        serviceID,
+		PgctldAddr:       pgctldAddr,
+		PoolerDir:        tmpDir,
+		ConsensusEnabled: true,
 	}
 	pm := manager.NewMultiPoolerManager(logger, config)
 	defer pm.Close()
@@ -200,10 +202,11 @@ func TestConsensusService_GetLeadershipView(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	config := &manager.Config{
-		TopoClient: ts,
-		ServiceID:  serviceID,
-		PgctldAddr: pgctldAddr,
-		PoolerDir:  tmpDir,
+		TopoClient:       ts,
+		ServiceID:        serviceID,
+		PgctldAddr:       pgctldAddr,
+		PoolerDir:        tmpDir,
+		ConsensusEnabled: true,
 	}
 	pm := manager.NewMultiPoolerManager(logger, config)
 	defer pm.Close()
@@ -265,10 +268,11 @@ func TestConsensusService_CanReachPrimary(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	config := &manager.Config{
-		TopoClient: ts,
-		ServiceID:  serviceID,
-		PgctldAddr: pgctldAddr,
-		PoolerDir:  tmpDir,
+		TopoClient:       ts,
+		ServiceID:        serviceID,
+		PgctldAddr:       pgctldAddr,
+		PoolerDir:        tmpDir,
+		ConsensusEnabled: true,
 	}
 	pm := manager.NewMultiPoolerManager(logger, config)
 	defer pm.Close()
@@ -332,10 +336,11 @@ func TestConsensusService_AllMethods(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	config := &manager.Config{
-		TopoClient: ts,
-		ServiceID:  serviceID,
-		PgctldAddr: pgctldAddr,
-		PoolerDir:  tmpDir,
+		TopoClient:       ts,
+		ServiceID:        serviceID,
+		PgctldAddr:       pgctldAddr,
+		PoolerDir:        tmpDir,
+		ConsensusEnabled: true,
 	}
 	pm := manager.NewMultiPoolerManager(logger, config)
 	defer pm.Close()

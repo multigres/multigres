@@ -390,7 +390,9 @@ func (pm *MultiPoolerManager) checkAndSetReady() {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
 
-	if pm.topoLoaded && pm.consensusLoaded {
+	// Check that topo is loaded and consensus is loaded (if enabled)
+	consensusReady := !pm.config.ConsensusEnabled || pm.consensusLoaded
+	if pm.topoLoaded && consensusReady {
 		pm.state = ManagerStateReady
 		pm.logger.Info("Manager state changed", "state", ManagerStateReady, "service_id", pm.serviceID.String())
 	}
@@ -1101,8 +1103,10 @@ func (pm *MultiPoolerManager) ReplicationLag(ctx context.Context) (time.Duration
 func (pm *MultiPoolerManager) Start(senv *servenv.ServEnv) {
 	// Start loading multipooler record from topology asynchronously
 	go pm.loadMultiPoolerFromTopo()
-	// Start loading consensus term from local disk asynchronously
-	go pm.loadConsensusTermFromDisk()
+	// Start loading consensus term from local disk asynchronously (only if consensus is enabled)
+	if pm.config.ConsensusEnabled {
+		go pm.loadConsensusTermFromDisk()
+	}
 
 	senv.OnRun(func() {
 		pm.logger.Info("MultiPoolerManager started")
