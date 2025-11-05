@@ -1208,7 +1208,10 @@ func TestStopReplicationAndGetStatus(t *testing.T) {
 		// StopReplicationAndGetStatus should fail on PRIMARY pooler type
 		t.Log("Testing StopReplicationAndGetStatus on PRIMARY (should fail)...")
 
-		_, err := primaryManagerClient.StopReplicationAndGetStatus(utils.WithShortDeadline(t), &multipoolermanagerdatapb.StopReplicationAndGetStatusRequest{})
+		_, err := primaryManagerClient.StopReplicationAndGetStatus(utils.WithShortDeadline(t), &multipoolermanagerdatapb.StopReplicationAndGetStatusRequest{
+			Mode: multipoolermanagerdatapb.ReplicationPauseMode_REPLICATION_PAUSE_MODE_REPLAY_ONLY,
+			Wait: true,
+		})
 		require.Error(t, err, "StopReplicationAndGetStatus should fail on PRIMARY")
 		assert.Contains(t, err.Error(), "operation not allowed", "Error should indicate operation not allowed on PRIMARY")
 		t.Log("Confirmed: StopReplicationAndGetStatus correctly rejected on PRIMARY pooler")
@@ -1261,7 +1264,10 @@ func TestStopReplicationAndGetStatus(t *testing.T) {
 		// Call StopReplicationAndGetStatus
 		// Note: This method waits internally for pause to complete, so status is guaranteed to be paused when it returns
 		t.Log("Calling StopReplicationAndGetStatus...")
-		stopResp, err := standbyManagerClient.StopReplicationAndGetStatus(utils.WithShortDeadline(t), &multipoolermanagerdatapb.StopReplicationAndGetStatusRequest{})
+		stopResp, err := standbyManagerClient.StopReplicationAndGetStatus(utils.WithShortDeadline(t), &multipoolermanagerdatapb.StopReplicationAndGetStatusRequest{
+			Mode: multipoolermanagerdatapb.ReplicationPauseMode_REPLICATION_PAUSE_MODE_REPLAY_ONLY,
+			Wait: true,
+		})
 		require.NoError(t, err, "StopReplicationAndGetStatus should succeed on standby")
 		require.NotNil(t, stopResp, "Response should not be nil")
 		require.NotNil(t, stopResp.Status, "Status should not be nil")
@@ -1332,7 +1338,10 @@ func TestStopReplicationAndGetStatus(t *testing.T) {
 		// Call StopReplicationAndGetStatus (should succeed even though already paused)
 		// Note: This method waits internally for pause to complete, so status is guaranteed to be paused when it returns
 		t.Log("Calling StopReplicationAndGetStatus on already paused replication...")
-		stopResp, err := standbyManagerClient.StopReplicationAndGetStatus(utils.WithShortDeadline(t), &multipoolermanagerdatapb.StopReplicationAndGetStatusRequest{})
+		stopResp, err := standbyManagerClient.StopReplicationAndGetStatus(utils.WithShortDeadline(t), &multipoolermanagerdatapb.StopReplicationAndGetStatusRequest{
+			Mode: multipoolermanagerdatapb.ReplicationPauseMode_REPLICATION_PAUSE_MODE_REPLAY_ONLY,
+			Wait: true,
+		})
 		require.NoError(t, err, "StopReplicationAndGetStatus should succeed even when already paused")
 		require.NotNil(t, stopResp, "Response should not be nil")
 		require.NotNil(t, stopResp.Status, "Status should not be nil")

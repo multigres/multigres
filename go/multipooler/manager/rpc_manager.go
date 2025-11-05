@@ -564,8 +564,8 @@ func (pm *MultiPoolerManager) PrimaryPosition(ctx context.Context) (string, erro
 	return pm.getPrimaryLSN(ctx)
 }
 
-// StopReplicationAndGetStatus stops PostgreSQL replication and returns the status
-func (pm *MultiPoolerManager) StopReplicationAndGetStatus(ctx context.Context) (*multipoolermanagerdatapb.ReplicationStatus, error) {
+// StopReplicationAndGetStatus stops PostgreSQL replication (replay and/or receiver based on mode) and returns the status
+func (pm *MultiPoolerManager) StopReplicationAndGetStatus(ctx context.Context, mode multipoolermanagerdatapb.ReplicationPauseMode, wait bool) (*multipoolermanagerdatapb.ReplicationStatus, error) {
 	if err := pm.checkReady(); err != nil {
 		return nil, err
 	}
@@ -576,14 +576,14 @@ func (pm *MultiPoolerManager) StopReplicationAndGetStatus(ctx context.Context) (
 	}
 	defer pm.unlock()
 
-	pm.logger.InfoContext(ctx, "StopReplicationAndGetStatus called")
+	pm.logger.InfoContext(ctx, "StopReplicationAndGetStatus called", "mode", mode, "wait", wait)
 
 	// Check REPLICA guardrails (pooler type and recovery mode)
 	if err := pm.checkReplicaGuardrails(ctx); err != nil {
 		return nil, err
 	}
 
-	status, err := pm.pauseReplication(ctx, multipoolermanagerdatapb.ReplicationPauseMode_REPLICATION_PAUSE_MODE_REPLAY_ONLY, true /* wait */)
+	status, err := pm.pauseReplication(ctx, mode, wait)
 	if err != nil {
 		return nil, err
 	}

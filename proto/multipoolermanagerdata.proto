@@ -286,12 +286,20 @@ message UndoDemoteRequest {
 message UndoDemoteResponse {
 }
 
-// StopReplicationAndGetStatus stops PostgreSQL replication and returns the status
+// StopReplicationAndGetStatus stops PostgreSQL replication (replay and/or receiver based on mode)
+// and returns the status
 message StopReplicationAndGetStatusRequest {
+  // Mode specifying what aspect of replication to pause
+  ReplicationPauseMode mode = 1;
+
+  // Whether to wait for the pause operation to complete before returning
+  // If true, the response will include the replication status after pausing
+  // If false, the operation is asynchronous and status reflects state when call was made
+  bool wait = 2;
 }
 
 message StopReplicationAndGetStatusResponse {
-  // Replication status before and after stopping
+  // Replication status after stopping
   ReplicationStatus status = 1;
 }
 

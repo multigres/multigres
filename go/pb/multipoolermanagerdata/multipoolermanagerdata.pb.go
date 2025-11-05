@@ -1746,9 +1746,16 @@ func (*UndoDemoteResponse) Descriptor() ([]byte, []int) {
 	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{25}
 }
 
-// StopReplicationAndGetStatus stops PostgreSQL replication and returns the status
+// StopReplicationAndGetStatus stops PostgreSQL replication (replay and/or receiver based on mode)
+// and returns the status
 type StopReplicationAndGetStatusRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Mode specifying what aspect of replication to pause
+	Mode ReplicationPauseMode `protobuf:"varint,1,opt,name=mode,proto3,enum=multipoolermanagerdata.ReplicationPauseMode" json:"mode,omitempty"`
+	// Whether to wait for the pause operation to complete before returning
+	// If true, the response will include the replication status after pausing
+	// If false, the operation is asynchronous and status reflects state when call was made
+	Wait          bool `protobuf:"varint,2,opt,name=wait,proto3" json:"wait,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1783,9 +1790,23 @@ func (*StopReplicationAndGetStatusRequest) Descriptor() ([]byte, []int) {
 	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{26}
 }
 
+func (x *StopReplicationAndGetStatusRequest) GetMode() ReplicationPauseMode {
+	if x != nil {
+		return x.Mode
+	}
+	return ReplicationPauseMode_REPLICATION_PAUSE_MODE_REPLAY_ONLY
+}
+
+func (x *StopReplicationAndGetStatusRequest) GetWait() bool {
+	if x != nil {
+		return x.Wait
+	}
+	return false
+}
+
 type StopReplicationAndGetStatusResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Replication status before and after stopping
+	// Replication status after stopping
 	Status        *ReplicationStatus `protobuf:"bytes,1,opt,name=status,proto3" json:"status,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -2719,8 +2740,10 @@ const file_multipoolermanagerdata_proto_rawDesc = "" +
 	"\flsn_position\x18\x03 \x01(\tR\vlsnPosition\x125\n" +
 	"\x16connections_terminated\x18\x04 \x01(\x05R\x15connectionsTerminated\"\x13\n" +
 	"\x11UndoDemoteRequest\"\x14\n" +
-	"\x12UndoDemoteResponse\"$\n" +
-	"\"StopReplicationAndGetStatusRequest\"h\n" +
+	"\x12UndoDemoteResponse\"z\n" +
+	"\"StopReplicationAndGetStatusRequest\x12@\n" +
+	"\x04mode\x18\x01 \x01(\x0e2,.multipoolermanagerdata.ReplicationPauseModeR\x04mode\x12\x12\n" +
+	"\x04wait\x18\x02 \x01(\bR\x04wait\"h\n" +
 	"#StopReplicationAndGetStatusResponse\x12A\n" +
 	"\x06status\x18\x01 \x01(\v2).multipoolermanagerdata.ReplicationStatusR\x06status\"Q\n" +
 	"\x11ChangeTypeRequest\x12<\n" +
@@ -2875,24 +2898,25 @@ var file_multipoolermanagerdata_proto_depIdxs = []int32{
 	23, // 17: multipoolermanagerdata.GetFollowersResponse.followers:type_name -> multipoolermanagerdata.FollowerInfo
 	16, // 18: multipoolermanagerdata.GetFollowersResponse.sync_config:type_name -> multipoolermanagerdata.SynchronousReplicationConfiguration
 	47, // 19: multipoolermanagerdata.DemoteRequest.drain_timeout:type_name -> google.protobuf.Duration
-	5,  // 20: multipoolermanagerdata.StopReplicationAndGetStatusResponse.status:type_name -> multipoolermanagerdata.ReplicationStatus
-	49, // 21: multipoolermanagerdata.ChangeTypeRequest.pooler_type:type_name -> clustermetadata.PoolerType
-	38, // 22: multipoolermanagerdata.PromoteRequest.sync_replication_config:type_name -> multipoolermanagerdata.ConfigureSynchronousReplicationRequest
-	5,  // 23: multipoolermanagerdata.ResetReplicationResponse.status:type_name -> multipoolermanagerdata.ReplicationStatus
-	3,  // 24: multipoolermanagerdata.ConfigureSynchronousReplicationRequest.synchronous_commit:type_name -> multipoolermanagerdata.SynchronousCommitLevel
-	1,  // 25: multipoolermanagerdata.ConfigureSynchronousReplicationRequest.synchronous_method:type_name -> multipoolermanagerdata.SynchronousMethod
-	48, // 26: multipoolermanagerdata.ConfigureSynchronousReplicationRequest.standby_ids:type_name -> clustermetadata.ID
-	46, // 27: multipoolermanagerdata.SetTermRequest.term:type_name -> multipoolermanagerdata.ConsensusTerm
-	2,  // 28: multipoolermanagerdata.UpdateSynchronousStandbyListRequest.operation:type_name -> multipoolermanagerdata.StandbyUpdateOperation
-	48, // 29: multipoolermanagerdata.UpdateSynchronousStandbyListRequest.standby_ids:type_name -> clustermetadata.ID
-	48, // 30: multipoolermanagerdata.ConsensusTerm.accepted_leader:type_name -> clustermetadata.ID
-	50, // 31: multipoolermanagerdata.ConsensusTerm.last_acceptance_time:type_name -> google.protobuf.Timestamp
-	48, // 32: multipoolermanagerdata.ConsensusTerm.leader_id:type_name -> clustermetadata.ID
-	33, // [33:33] is the sub-list for method output_type
-	33, // [33:33] is the sub-list for method input_type
-	33, // [33:33] is the sub-list for extension type_name
-	33, // [33:33] is the sub-list for extension extendee
-	0,  // [0:33] is the sub-list for field type_name
+	0,  // 20: multipoolermanagerdata.StopReplicationAndGetStatusRequest.mode:type_name -> multipoolermanagerdata.ReplicationPauseMode
+	5,  // 21: multipoolermanagerdata.StopReplicationAndGetStatusResponse.status:type_name -> multipoolermanagerdata.ReplicationStatus
+	49, // 22: multipoolermanagerdata.ChangeTypeRequest.pooler_type:type_name -> clustermetadata.PoolerType
+	38, // 23: multipoolermanagerdata.PromoteRequest.sync_replication_config:type_name -> multipoolermanagerdata.ConfigureSynchronousReplicationRequest
+	5,  // 24: multipoolermanagerdata.ResetReplicationResponse.status:type_name -> multipoolermanagerdata.ReplicationStatus
+	3,  // 25: multipoolermanagerdata.ConfigureSynchronousReplicationRequest.synchronous_commit:type_name -> multipoolermanagerdata.SynchronousCommitLevel
+	1,  // 26: multipoolermanagerdata.ConfigureSynchronousReplicationRequest.synchronous_method:type_name -> multipoolermanagerdata.SynchronousMethod
+	48, // 27: multipoolermanagerdata.ConfigureSynchronousReplicationRequest.standby_ids:type_name -> clustermetadata.ID
+	46, // 28: multipoolermanagerdata.SetTermRequest.term:type_name -> multipoolermanagerdata.ConsensusTerm
+	2,  // 29: multipoolermanagerdata.UpdateSynchronousStandbyListRequest.operation:type_name -> multipoolermanagerdata.StandbyUpdateOperation
+	48, // 30: multipoolermanagerdata.UpdateSynchronousStandbyListRequest.standby_ids:type_name -> clustermetadata.ID
+	48, // 31: multipoolermanagerdata.ConsensusTerm.accepted_leader:type_name -> clustermetadata.ID
+	50, // 32: multipoolermanagerdata.ConsensusTerm.last_acceptance_time:type_name -> google.protobuf.Timestamp
+	48, // 33: multipoolermanagerdata.ConsensusTerm.leader_id:type_name -> clustermetadata.ID
+	34, // [34:34] is the sub-list for method output_type
+	34, // [34:34] is the sub-list for method input_type
+	34, // [34:34] is the sub-list for extension type_name
+	34, // [34:34] is the sub-list for extension extendee
+	0,  // [0:34] is the sub-list for field type_name
 }
 
 func init() { file_multipoolermanagerdata_proto_init() }

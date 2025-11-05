@@ -158,7 +158,7 @@ func (s *managerService) PrimaryPosition(ctx context.Context, req *multipoolerma
 
 // StopReplicationAndGetStatus stops PostgreSQL replication and returns the status
 func (s *managerService) StopReplicationAndGetStatus(ctx context.Context, req *multipoolermanagerdata.StopReplicationAndGetStatusRequest) (*multipoolermanagerdata.StopReplicationAndGetStatusResponse, error) {
-	status, err := s.manager.StopReplicationAndGetStatus(ctx)
+	status, err := s.manager.StopReplicationAndGetStatus(ctx, req.Mode, req.Wait)
 	if err != nil {
 		return nil, mterrors.ToGRPC(err)
 	}
