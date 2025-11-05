@@ -84,7 +84,7 @@ func (h *MultiGatewayHandler) HandleParse(ctx context.Context, conn *server.Conn
 }
 
 // HandleBind processes a Bind message ('B') for the extended query protocol.
-// Creates and stores a portal for the specified prepared statement.
+// Creates and stores a portal for the specified prepared statement with bound parameters.
 func (h *MultiGatewayHandler) HandleBind(ctx context.Context, conn *server.Conn, portalName, stmtName string, params [][]byte, paramFormats, resultFormats []int16) error {
 	h.logger.Debug("bind", "portal", portalName, "statement", stmtName, "param_count", len(params))
 
@@ -97,8 +97,8 @@ func (h *MultiGatewayHandler) HandleBind(ctx context.Context, conn *server.Conn,
 		return fmt.Errorf("prepared statement \"%s\" does not exist", stmtName)
 	}
 
-	// TODO: Store parameters.
-	portal := NewPortal(portalName, stmt)
+	// Create portal with bound parameters and format codes.
+	portal := NewPortal(portalName, stmt, params, paramFormats, resultFormats)
 	state.StorePortal(portal)
 
 	return nil
@@ -129,15 +129,80 @@ func (h *MultiGatewayHandler) HandleExecute(ctx context.Context, conn *server.Co
 }
 
 // HandleDescribe processes a Describe message ('D').
+// Describes either a prepared statement ('S') or a portal ('P').
 func (h *MultiGatewayHandler) HandleDescribe(ctx context.Context, conn *server.Conn, typ byte, name string) (*query.StatementDescription, error) {
-	h.logger.Debug("describe not yet implemented", "type", string(typ), "name", name)
-	return nil, fmt.Errorf("extended query protocol not yet implemented")
+	h.logger.Debug("describe", "type", string(typ), "name", name)
+
+	state := h.getConnectionState(conn)
+
+	switch typ {
+	case 'S': // Describe prepared statement
+		stmt := state.GetPreparedStatement(name)
+		if stmt == nil {
+			return nil, fmt.Errorf("prepared statement \"%s\" does not exist", name)
+		}
+
+		// Convert param types to parameter descriptions.
+		params := make([]*query.ParameterDescription, len(stmt.ParamTypes))
+		for i, oid := range stmt.ParamTypes {
+			params[i] = &query.ParameterDescription{
+				DataTypeOid: oid,
+			}
+		}
+
+		// Return a statement description.
+		// TODO: For now, we return empty fields since we don't parse the query to determine result columns.
+		// The client will get actual field information when executing.
+		return &query.StatementDescription{
+			Parameters: params,
+			Fields:     nil, // Would require query parsing to determine result columns
+		}, nil
+
+	case 'P': // Describe portal
+		portal := state.GetPortal(name)
+		if portal == nil {
+			return nil, fmt.Errorf("portal \"%s\" does not exist", name)
+		}
+
+		// Convert param types to parameter descriptions.
+		params := make([]*query.ParameterDescription, len(portal.Statement.ParamTypes))
+		for i, oid := range portal.Statement.ParamTypes {
+			params[i] = &query.ParameterDescription{
+				DataTypeOid: oid,
+			}
+		}
+
+		// Return a statement description for the portal's query.
+		// TODO: Similar to above, we don't have field information without executing.
+		return &query.StatementDescription{
+			Parameters: params,
+			Fields:     nil, // Would require query parsing/execution to determine result columns
+		}, nil
+
+	default:
+		return nil, fmt.Errorf("invalid describe type: %c (expected 'S' or 'P')", typ)
+	}
 }
 
 // HandleClose processes a Close message ('C').
+// Closes either a prepared statement ('S') or a portal ('P').
 func (h *MultiGatewayHandler) HandleClose(ctx context.Context, conn *server.Conn, typ byte, name string) error {
-	h.logger.Debug("close not yet implemented", "type", string(typ), "name", name)
-	return fmt.Errorf("extended query protocol not yet implemented")
+	h.logger.Debug("close", "type", string(typ), "name", name)
+
+	state := h.getConnectionState(conn)
+
+	switch typ {
+	case 'S': // Close prepared statement
+		state.DeletePreparedStatement(name)
+		return nil
+
+	case 'P': // Close portal
+		state.DeletePortal(name)
+		return nil
+
+	default:
+		return fmt.Errorf("invalid close type: %c (expected 'S' or 'P')", typ)
+	}
 }
 
 // HandleSync processes a Sync message ('S').

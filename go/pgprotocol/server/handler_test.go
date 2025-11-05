@@ -135,11 +135,76 @@ func (h *testHandlerWithState) HandleExecute(ctx context.Context, conn *Conn, po
 }
 
 func (h *testHandlerWithState) HandleDescribe(ctx context.Context, conn *Conn, typ byte, name string) (*query.StatementDescription, error) {
-	return nil, fmt.Errorf("not implemented")
+	state := h.getConnectionState(conn)
+
+	switch typ {
+	case 'S': // Describe prepared statement
+		state.mu.Lock()
+		stmt := state.preparedStatements[name]
+		state.mu.Unlock()
+
+		if stmt == nil {
+			return nil, fmt.Errorf("prepared statement \"%s\" does not exist", name)
+		}
+
+		// Convert param types to parameter descriptions.
+		params := make([]*query.ParameterDescription, len(stmt.ParamTypes))
+		for i, oid := range stmt.ParamTypes {
+			params[i] = &query.ParameterDescription{
+				DataTypeOid: oid,
+			}
+		}
+
+		return &query.StatementDescription{
+			Parameters: params,
+			Fields:     nil,
+		}, nil
+
+	case 'P': // Describe portal
+		state.mu.Lock()
+		portal := state.portals[name]
+		state.mu.Unlock()
+
+		if portal == nil {
+			return nil, fmt.Errorf("portal \"%s\" does not exist", name)
+		}
+
+		// Convert param types to parameter descriptions.
+		params := make([]*query.ParameterDescription, len(portal.Statement.ParamTypes))
+		for i, oid := range portal.Statement.ParamTypes {
+			params[i] = &query.ParameterDescription{
+				DataTypeOid: oid,
+			}
+		}
+
+		return &query.StatementDescription{
+			Parameters: params,
+			Fields:     nil,
+		}, nil
+
+	default:
+		return nil, fmt.Errorf("invalid describe type: %c", typ)
+	}
 }
 
 func (h *testHandlerWithState) HandleClose(ctx context.Context, conn *Conn, typ byte, name string) error {
-	return fmt.Errorf("not implemented")
+	state := h.getConnectionState(conn)
+
+	state.mu.Lock()
+	defer state.mu.Unlock()
+
+	switch typ {
+	case 'S': // Close prepared statement
+		delete(state.preparedStatements, name)
+		return nil
+
+	case 'P': // Close portal
+		delete(state.portals, name)
+		return nil
+
+	default:
+		return fmt.Errorf("invalid close type: %c", typ)
+	}
 }
 
 func (h *testHandlerWithState) HandleSync(ctx context.Context, conn *Conn) error {

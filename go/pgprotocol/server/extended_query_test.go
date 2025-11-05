@@ -578,3 +578,263 @@ func TestExtendedQueryProtocolUnnamedStatements(t *testing.T) {
 	assert.Equal(t, "", portal.Name)
 	assert.Equal(t, stmt, portal.Statement)
 }
+
+// TestHandleDescribe tests the Describe message handler.
+func TestHandleDescribe(t *testing.T) {
+	tests := []struct {
+		name          string
+		describeType  byte
+		targetName    string
+		setupStmt     bool
+		setupPortal   bool
+		paramTypes    []uint32
+		expectError   bool
+		errorContains string
+	}{
+		{
+			name:         "describe prepared statement without parameters",
+			describeType: 'S',
+			targetName:   "stmt1",
+			setupStmt:    true,
+			paramTypes:   nil,
+			expectError:  false,
+		},
+		{
+			name:         "describe prepared statement with parameters",
+			describeType: 'S',
+			targetName:   "stmt2",
+			setupStmt:    true,
+			paramTypes:   []uint32{23, 25}, // INT4, TEXT
+			expectError:  false,
+		},
+		{
+			name:         "describe portal",
+			describeType: 'P',
+			targetName:   "portal1",
+			setupStmt:    true,
+			setupPortal:  true,
+			paramTypes:   []uint32{23},
+			expectError:  false,
+		},
+		{
+			name:          "describe non-existent prepared statement",
+			describeType:  'S',
+			targetName:    "nonexistent",
+			expectError:   true,
+			errorContains: "does not exist",
+		},
+		{
+			name:          "describe non-existent portal",
+			describeType:  'P',
+			targetName:    "nonexistent",
+			expectError:   true,
+			errorContains: "does not exist",
+		},
+		{
+			name:          "invalid describe type",
+			describeType:  'X',
+			targetName:    "test",
+			expectError:   true,
+			errorContains: "invalid describe type",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var readBuf bytes.Buffer
+			var writeBuf bytes.Buffer
+			handler := &testHandlerWithState{}
+			conn := createExtendedQueryTestConn(t, &readBuf, &writeBuf, handler)
+
+			// Setup statement if needed.
+			if tt.setupStmt {
+				stmt := &testPreparedStatement{
+					Name:       tt.targetName,
+					Query:      "SELECT $1",
+					ParamTypes: tt.paramTypes,
+				}
+				state := handler.getConnectionState(conn)
+				state.mu.Lock()
+				state.preparedStatements[tt.targetName] = stmt
+				state.mu.Unlock()
+
+				// Setup portal if needed.
+				if tt.setupPortal {
+					portal := &testPortal{
+						Name:      tt.targetName,
+						Statement: stmt,
+					}
+					state.mu.Lock()
+					state.portals[tt.targetName] = portal
+					state.mu.Unlock()
+				}
+			}
+
+			// Build Describe message.
+			// Length: type (1 byte) + name
+			length := int32(4 + 1 + len(tt.targetName) + 1)
+			writeTestInt32(&readBuf, length)
+			readBuf.WriteByte(tt.describeType)
+			writeTestString(&readBuf, tt.targetName)
+
+			// Call handleDescribe.
+			err := conn.handleDescribe()
+			require.NoError(t, err) // handleDescribe writes errors to client, doesn't return them
+
+			if tt.expectError {
+				// Should have sent an ErrorResponse message.
+				msgType, _, _ := readMessageTypeAndLength(t, &writeBuf)
+				assert.Equal(t, byte(protocol.MsgErrorResponse), msgType, "should send error response")
+				return
+			}
+
+			// Verify ParameterDescription message was sent (if statement has parameters).
+			msgType, _, body := readMessageTypeAndLength(t, &writeBuf)
+
+			if len(tt.paramTypes) > 0 {
+				// ParameterDescription message
+				assert.Equal(t, byte(protocol.MsgParameterDescription), msgType)
+
+				// Parse parameter count (first 2 bytes of body).
+				paramCount := binary.BigEndian.Uint16(body[0:2])
+				assert.Equal(t, uint16(len(tt.paramTypes)), paramCount)
+
+				// Verify each parameter OID.
+				for i, expectedOid := range tt.paramTypes {
+					offset := 2 + (i * 4)
+					actualOid := binary.BigEndian.Uint32(body[offset : offset+4])
+					assert.Equal(t, expectedOid, actualOid)
+				}
+
+				// NoData message should follow (since we don't return field descriptions yet).
+				msgType, _, _ = readMessageTypeAndLength(t, &writeBuf)
+			}
+
+			// Should send NoData since we don't return field descriptions yet.
+			assert.Equal(t, byte(protocol.MsgNoData), msgType)
+		})
+	}
+}
+
+// TestHandleClose tests the Close message handler.
+func TestHandleClose(t *testing.T) {
+	tests := []struct {
+		name          string
+		closeType     byte
+		targetName    string
+		setupStmt     bool
+		setupPortal   bool
+		expectError   bool
+		errorContains string
+	}{
+		{
+			name:        "close prepared statement",
+			closeType:   'S',
+			targetName:  "stmt1",
+			setupStmt:   true,
+			expectError: false,
+		},
+		{
+			name:        "close portal",
+			closeType:   'P',
+			targetName:  "portal1",
+			setupPortal: true,
+			expectError: false,
+		},
+		{
+			name:        "close non-existent prepared statement (should not error)",
+			closeType:   'S',
+			targetName:  "nonexistent",
+			expectError: false,
+		},
+		{
+			name:        "close non-existent portal (should not error)",
+			closeType:   'P',
+			targetName:  "nonexistent",
+			expectError: false,
+		},
+		{
+			name:          "invalid close type",
+			closeType:     'X',
+			targetName:    "test",
+			expectError:   true,
+			errorContains: "invalid close type",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var readBuf bytes.Buffer
+			var writeBuf bytes.Buffer
+			handler := &testHandlerWithState{}
+			conn := createExtendedQueryTestConn(t, &readBuf, &writeBuf, handler)
+
+			state := handler.getConnectionState(conn)
+
+			// Setup statement if needed.
+			if tt.setupStmt {
+				stmt := &testPreparedStatement{
+					Name:       tt.targetName,
+					Query:      "SELECT 1",
+					ParamTypes: nil,
+				}
+				state.mu.Lock()
+				state.preparedStatements[tt.targetName] = stmt
+				state.mu.Unlock()
+			}
+
+			// Setup portal if needed.
+			if tt.setupPortal {
+				stmt := &testPreparedStatement{
+					Name:       "stmt_for_portal",
+					Query:      "SELECT 1",
+					ParamTypes: nil,
+				}
+				portal := &testPortal{
+					Name:      tt.targetName,
+					Statement: stmt,
+				}
+				state.mu.Lock()
+				state.portals[tt.targetName] = portal
+				state.mu.Unlock()
+			}
+
+			// Build Close message.
+			// Length: type (1 byte) + name
+			length := int32(4 + 1 + len(tt.targetName) + 1)
+			writeTestInt32(&readBuf, length)
+			readBuf.WriteByte(tt.closeType)
+			writeTestString(&readBuf, tt.targetName)
+
+			// Call handleClose.
+			err := conn.handleClose()
+			require.NoError(t, err) // handleClose writes errors to client, doesn't return them
+
+			if tt.expectError {
+				// Should have sent an ErrorResponse message.
+				msgType, _, _ := readMessageTypeAndLength(t, &writeBuf)
+				assert.Equal(t, byte(protocol.MsgErrorResponse), msgType, "should send error response")
+				return
+			}
+
+			// Verify CloseComplete message was sent.
+			msgType, bodyLen, _ := readMessageTypeAndLength(t, &writeBuf)
+			assert.Equal(t, byte(protocol.MsgCloseComplete), msgType)
+			assert.Equal(t, int32(0), bodyLen) // CloseComplete has no body
+
+			// Verify the item was actually removed from state.
+			state.mu.Lock()
+			defer state.mu.Unlock()
+
+			if tt.closeType == 'S' && tt.setupStmt {
+				_, exists := state.preparedStatements[tt.targetName]
+				assert.False(t, exists, "prepared statement should be deleted")
+			}
+
+			if tt.closeType == 'P' && tt.setupPortal {
+				_, exists := state.portals[tt.targetName]
+				assert.False(t, exists, "portal should be deleted")
+			}
+		})
+	}
+}

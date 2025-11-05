@@ -663,15 +663,116 @@ func (c *Conn) handleExecute() error {
 }
 
 // handleDescribe handles a 'D' (Describe) message - extended query protocol.
+// Describes either a prepared statement ('S') or a portal ('P').
 func (c *Conn) handleDescribe() error {
-	// TODO(GuptaManan100): Implement extended query protocol Describe.
-	return fmt.Errorf("extended query protocol not yet implemented")
+	c.startWriterBuffering()
+	defer c.endWriterBuffering()
+
+	// Read message length.
+	msgLen, err := c.readMessageLength()
+	if err != nil {
+		return fmt.Errorf("failed to read Describe message length: %w", err)
+	}
+
+	// Read describe type (1 byte): 'S' for statement, 'P' for portal.
+	typ, err := c.bufferedReader.ReadByte()
+	if err != nil {
+		return fmt.Errorf("failed to read describe type: %w", err)
+	}
+
+	// Calculate remaining length for name.
+	// msgLen is already the body length (excluding the 4-byte length field).
+	nameLen := msgLen - 1 // Subtract only the type byte.
+
+	// Read name (null-terminated string).
+	nameBuf := make([]byte, nameLen)
+	if _, err := c.bufferedReader.Read(nameBuf); err != nil {
+		return fmt.Errorf("failed to read describe name: %w", err)
+	}
+
+	// Remove null terminator.
+	name := string(nameBuf[:len(nameBuf)-1])
+
+	c.logger.Debug("describe", "type", string(typ), "name", name)
+
+	// Call the handler.
+	desc, err := c.handler.HandleDescribe(c.ctx, c, typ, name)
+	if err != nil {
+		if writeErr := c.writeErrorResponse("ERROR", "42P03", "describe failed", err.Error(), ""); writeErr != nil {
+			return writeErr
+		}
+		return c.flush()
+	}
+
+	// Send ParameterDescription if there are parameters.
+	if len(desc.Parameters) > 0 {
+		if err := c.writeParameterDescription(desc.Parameters); err != nil {
+			return fmt.Errorf("failed to write parameter description: %w", err)
+		}
+	}
+
+	// Send RowDescription or NoData based on whether we have field info.
+	if len(desc.Fields) > 0 {
+		if err := c.writeRowDescription(desc.Fields); err != nil {
+			return fmt.Errorf("failed to write row description: %w", err)
+		}
+	} else {
+		// Send NoData when there are no fields.
+		if err := c.writeMessage(protocol.MsgNoData, nil); err != nil {
+			return fmt.Errorf("failed to write NoData: %w", err)
+		}
+	}
+
+	return c.flush()
 }
 
 // handleClose handles a 'C' (Close) message - extended query protocol.
+// Closes either a prepared statement ('S') or a portal ('P').
 func (c *Conn) handleClose() error {
-	// TODO(GuptaManan100): Implement extended query protocol Close.
-	return fmt.Errorf("extended query protocol not yet implemented")
+	c.startWriterBuffering()
+	defer c.endWriterBuffering()
+
+	// Read message length.
+	msgLen, err := c.readMessageLength()
+	if err != nil {
+		return fmt.Errorf("failed to read Close message length: %w", err)
+	}
+
+	// Read close type (1 byte): 'S' for statement, 'P' for portal.
+	typ, err := c.bufferedReader.ReadByte()
+	if err != nil {
+		return fmt.Errorf("failed to read close type: %w", err)
+	}
+
+	// Calculate remaining length for name.
+	// msgLen is already the body length (excluding the 4-byte length field).
+	nameLen := msgLen - 1 // Subtract only the type byte.
+
+	// Read name (null-terminated string).
+	nameBuf := make([]byte, nameLen)
+	if _, err := c.bufferedReader.Read(nameBuf); err != nil {
+		return fmt.Errorf("failed to read close name: %w", err)
+	}
+
+	// Remove null terminator.
+	name := string(nameBuf[:len(nameBuf)-1])
+
+	c.logger.Debug("close", "type", string(typ), "name", name)
+
+	// Call the handler.
+	if err := c.handler.HandleClose(c.ctx, c, typ, name); err != nil {
+		if writeErr := c.writeErrorResponse("ERROR", "42P03", "close failed", err.Error(), ""); writeErr != nil {
+			return writeErr
+		}
+		return c.flush()
+	}
+
+	// Send CloseComplete.
+	if err := c.writeMessage(protocol.MsgCloseComplete, nil); err != nil {
+		return fmt.Errorf("failed to write CloseComplete: %w", err)
+	}
+
+	return c.flush()
 }
 
 // handleSync handles an 'S' (Sync) message - extended query protocol.

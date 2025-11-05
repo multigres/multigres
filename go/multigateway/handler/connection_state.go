@@ -42,16 +42,40 @@ func NewPreparedStatement(name, query string, paramTypes []uint32) *PreparedStat
 }
 
 // Portal represents a bound prepared statement with parameters.
+// Portals are created by the Bind message and can be executed via Execute.
 type Portal struct {
-	Name      string
+	// Name is the client-provided name for the portal.
+	// An empty name indicates the unnamed portal.
+	Name string
+
+	// Statement is the prepared statement this portal is bound to.
 	Statement *PreparedStatement
+
+	// Params contains the parameter values sent by the client in the Bind message.
+	// Each parameter is a byte slice, with nil indicating NULL.
+	Params [][]byte
+
+	// ParamFormats specifies the format code for each parameter.
+	// 0 = text, 1 = binary.
+	// If empty, all parameters are text format.
+	// If a single element, that format applies to all parameters.
+	ParamFormats []int16
+
+	// ResultFormats specifies the format code for each result column.
+	// 0 = text, 1 = binary.
+	// If empty, all results are text format.
+	// If a single element, that format applies to all result columns.
+	ResultFormats []int16
 }
 
 // NewPortal creates a new Portal.
-func NewPortal(name string, statement *PreparedStatement) *Portal {
+func NewPortal(name string, statement *PreparedStatement, params [][]byte, paramFormats, resultFormats []int16) *Portal {
 	return &Portal{
-		Name:      name,
-		Statement: statement,
+		Name:          name,
+		Statement:     statement,
+		Params:        params,
+		ParamFormats:  paramFormats,
+		ResultFormats: resultFormats,
 	}
 }
 
@@ -122,4 +146,20 @@ func (cs *ConnectionState) GetPortal(name string) *Portal {
 	defer cs.mu.Unlock()
 
 	return cs.portals[name]
+}
+
+// DeletePreparedStatement removes a prepared statement by name.
+// Does nothing if the statement doesn't exist (PostgreSQL-compliant behavior).
+func (cs *ConnectionState) DeletePreparedStatement(name string) {
+	cs.mu.Lock()
+	defer cs.mu.Unlock()
+	delete(cs.preparedStatements, name)
+}
+
+// DeletePortal removes a portal by name.
+// Does nothing if the portal doesn't exist (PostgreSQL-compliant behavior).
+func (cs *ConnectionState) DeletePortal(name string) {
+	cs.mu.Lock()
+	defer cs.mu.Unlock()
+	delete(cs.portals, name)
 }
