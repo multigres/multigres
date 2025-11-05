@@ -295,8 +295,8 @@ func (pm *MultiPoolerManager) ResetReplication(ctx context.Context) error {
 		return err
 	}
 
-	// Pause the receiver (clear primary_conninfo) without waiting
-	_, err := pm.pauseReplication(ctx, multipoolermanagerdatapb.ReplicationPauseMode_REPLICATION_PAUSE_MODE_RECEIVER_ONLY, false /* wait */)
+	// Pause the receiver (clear primary_conninfo) and wait for disconnect
+	_, err := pm.pauseReplication(ctx, multipoolermanagerdatapb.ReplicationPauseMode_REPLICATION_PAUSE_MODE_RECEIVER_ONLY, true /* wait */)
 	if err != nil {
 		return err
 	}

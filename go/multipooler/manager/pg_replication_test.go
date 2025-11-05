@@ -1415,7 +1415,12 @@ func TestPauseReplication(t *testing.T) {
 				mock.ExpectExec(regexp.QuoteMeta("SELECT pg_reload_conf()")).
 					WillReturnResult(sqlmock.NewResult(0, 0))
 
-				// Expect queryReplicationStatus
+				// Expect waitForReceiverDisconnect (COUNT query)
+				countRows := sqlmock.NewRows([]string{"count"}).AddRow(0)
+				mock.ExpectQuery(regexp.QuoteMeta("SELECT COUNT(*) FROM pg_stat_wal_receiver")).
+					WillReturnRows(countRows)
+
+				// Then expect queryReplicationStatus
 				rows := sqlmock.NewRows([]string{
 					"pg_last_wal_replay_lsn",
 					"pg_last_wal_receive_lsn",
@@ -1488,10 +1493,6 @@ func TestPauseReplication(t *testing.T) {
 			mode: multipoolermanagerdatapb.ReplicationPauseMode_REPLICATION_PAUSE_MODE_REPLAY_AND_RECEIVER,
 			wait: true,
 			setupMock: func(mock sqlmock.Sqlmock) {
-				// Expect pg_wal_replay_pause() call
-				mock.ExpectExec(regexp.QuoteMeta("SELECT pg_wal_replay_pause()")).
-					WillReturnResult(sqlmock.NewResult(0, 0))
-
 				// Expect ALTER SYSTEM RESET primary_conninfo
 				mock.ExpectExec(regexp.QuoteMeta("ALTER SYSTEM RESET primary_conninfo")).
 					WillReturnResult(sqlmock.NewResult(0, 0))
@@ -1500,8 +1501,35 @@ func TestPauseReplication(t *testing.T) {
 				mock.ExpectExec(regexp.QuoteMeta("SELECT pg_reload_conf()")).
 					WillReturnResult(sqlmock.NewResult(0, 0))
 
+				// Expect waitForReceiverDisconnect (COUNT query)
+				countRows := sqlmock.NewRows([]string{"count"}).AddRow(0)
+				mock.ExpectQuery(regexp.QuoteMeta("SELECT COUNT(*) FROM pg_stat_wal_receiver")).
+					WillReturnRows(countRows)
+
+				// waitForReceiverDisconnect calls queryReplicationStatus when count is 0
+				statusRows1 := sqlmock.NewRows([]string{
+					"pg_last_wal_replay_lsn",
+					"pg_last_wal_receive_lsn",
+					"pg_is_wal_replay_paused",
+					"pg_get_wal_replay_pause_state",
+					"pg_last_xact_replay_timestamp",
+					"current_setting",
+				}).AddRow(
+					"0/5000000",
+					nil,
+					false, // not paused yet
+					"not paused",
+					"2025-01-15 12:00:00+00",
+					"",
+				)
+				mock.ExpectQuery("SELECT").WillReturnRows(statusRows1)
+
+				// Then expect pg_wal_replay_pause() call
+				mock.ExpectExec(regexp.QuoteMeta("SELECT pg_wal_replay_pause()")).
+					WillReturnResult(sqlmock.NewResult(0, 0))
+
 				// Expect waitForReplicationPause query
-				rows := sqlmock.NewRows([]string{
+				statusRows2 := sqlmock.NewRows([]string{
 					"pg_last_wal_replay_lsn",
 					"pg_last_wal_receive_lsn",
 					"pg_is_wal_replay_paused",
@@ -1516,7 +1544,7 @@ func TestPauseReplication(t *testing.T) {
 					"2025-01-15 12:00:00+00",
 					"",
 				)
-				mock.ExpectQuery("SELECT").WillReturnRows(rows)
+				mock.ExpectQuery("SELECT").WillReturnRows(statusRows2)
 			},
 			expectError:  false,
 			expectStatus: true,
@@ -1530,10 +1558,6 @@ func TestPauseReplication(t *testing.T) {
 			mode: multipoolermanagerdatapb.ReplicationPauseMode_REPLICATION_PAUSE_MODE_REPLAY_AND_RECEIVER,
 			wait: false,
 			setupMock: func(mock sqlmock.Sqlmock) {
-				// Expect pg_wal_replay_pause() call
-				mock.ExpectExec(regexp.QuoteMeta("SELECT pg_wal_replay_pause()")).
-					WillReturnResult(sqlmock.NewResult(0, 0))
-
 				// Expect ALTER SYSTEM RESET primary_conninfo
 				mock.ExpectExec(regexp.QuoteMeta("ALTER SYSTEM RESET primary_conninfo")).
 					WillReturnResult(sqlmock.NewResult(0, 0))
@@ -1542,34 +1566,101 @@ func TestPauseReplication(t *testing.T) {
 				mock.ExpectExec(regexp.QuoteMeta("SELECT pg_reload_conf()")).
 					WillReturnResult(sqlmock.NewResult(0, 0))
 
-				// No wait query expected
+				// Expect waitForReceiverDisconnect (COUNT query) - always waits even with wait=false
+				countRows := sqlmock.NewRows([]string{"count"}).AddRow(0)
+				mock.ExpectQuery(regexp.QuoteMeta("SELECT COUNT(*) FROM pg_stat_wal_receiver")).
+					WillReturnRows(countRows)
+
+				// waitForReceiverDisconnect calls queryReplicationStatus when count is 0
+				statusRows := sqlmock.NewRows([]string{
+					"pg_last_wal_replay_lsn",
+					"pg_last_wal_receive_lsn",
+					"pg_is_wal_replay_paused",
+					"pg_get_wal_replay_pause_state",
+					"pg_last_xact_replay_timestamp",
+					"current_setting",
+				}).AddRow(
+					"0/5000000",
+					nil,
+					false,
+					"not paused",
+					"2025-01-15 12:00:00+00",
+					"",
+				)
+				mock.ExpectQuery("SELECT").WillReturnRows(statusRows)
+
+				// Then expect pg_wal_replay_pause() call
+				mock.ExpectExec(regexp.QuoteMeta("SELECT pg_wal_replay_pause()")).
+					WillReturnResult(sqlmock.NewResult(0, 0))
+
+				// No final status query expected for wait=false
 			},
 			expectError:  false,
 			expectStatus: false,
-		},
-		{
-			name: "PauseReplayAndReceiver fails on pause",
-			mode: multipoolermanagerdatapb.ReplicationPauseMode_REPLICATION_PAUSE_MODE_REPLAY_AND_RECEIVER,
-			wait: false,
-			setupMock: func(mock sqlmock.Sqlmock) {
-				mock.ExpectExec(regexp.QuoteMeta("SELECT pg_wal_replay_pause()")).
-					WillReturnError(fmt.Errorf("pause failed"))
-			},
-			expectError:   true,
-			errorContains: "failed to pause WAL replay",
 		},
 		{
 			name: "PauseReplayAndReceiver fails on clearing conninfo",
 			mode: multipoolermanagerdatapb.ReplicationPauseMode_REPLICATION_PAUSE_MODE_REPLAY_AND_RECEIVER,
 			wait: false,
 			setupMock: func(mock sqlmock.Sqlmock) {
-				mock.ExpectExec(regexp.QuoteMeta("SELECT pg_wal_replay_pause()")).
-					WillReturnResult(sqlmock.NewResult(0, 0))
+				// Fails on first operation now (clearing primary_conninfo)
 				mock.ExpectExec(regexp.QuoteMeta("ALTER SYSTEM RESET primary_conninfo")).
 					WillReturnError(fmt.Errorf("reset failed"))
 			},
 			expectError:   true,
 			errorContains: "failed to clear primary_conninfo",
+		},
+		{
+			name: "PauseReplayAndReceiver fails on receiver disconnect wait",
+			mode: multipoolermanagerdatapb.ReplicationPauseMode_REPLICATION_PAUSE_MODE_REPLAY_AND_RECEIVER,
+			wait: false,
+			setupMock: func(mock sqlmock.Sqlmock) {
+				mock.ExpectExec(regexp.QuoteMeta("ALTER SYSTEM RESET primary_conninfo")).
+					WillReturnResult(sqlmock.NewResult(0, 0))
+				mock.ExpectExec(regexp.QuoteMeta("SELECT pg_reload_conf()")).
+					WillReturnResult(sqlmock.NewResult(0, 0))
+				// Fail on receiver disconnect check
+				mock.ExpectQuery(regexp.QuoteMeta("SELECT COUNT(*) FROM pg_stat_wal_receiver")).
+					WillReturnError(fmt.Errorf("query failed"))
+			},
+			expectError:   true,
+			errorContains: "failed to query pg_stat_wal_receiver",
+		},
+		{
+			name: "PauseReplayAndReceiver fails on pause",
+			mode: multipoolermanagerdatapb.ReplicationPauseMode_REPLICATION_PAUSE_MODE_REPLAY_AND_RECEIVER,
+			wait: false,
+			setupMock: func(mock sqlmock.Sqlmock) {
+				mock.ExpectExec(regexp.QuoteMeta("ALTER SYSTEM RESET primary_conninfo")).
+					WillReturnResult(sqlmock.NewResult(0, 0))
+				mock.ExpectExec(regexp.QuoteMeta("SELECT pg_reload_conf()")).
+					WillReturnResult(sqlmock.NewResult(0, 0))
+				countRows := sqlmock.NewRows([]string{"count"}).AddRow(0)
+				mock.ExpectQuery(regexp.QuoteMeta("SELECT COUNT(*) FROM pg_stat_wal_receiver")).
+					WillReturnRows(countRows)
+				// waitForReceiverDisconnect calls queryReplicationStatus when count is 0
+				statusRows := sqlmock.NewRows([]string{
+					"pg_last_wal_replay_lsn",
+					"pg_last_wal_receive_lsn",
+					"pg_is_wal_replay_paused",
+					"pg_get_wal_replay_pause_state",
+					"pg_last_xact_replay_timestamp",
+					"current_setting",
+				}).AddRow(
+					"0/5000000",
+					nil,
+					false,
+					"not paused",
+					"2025-01-15 12:00:00+00",
+					"",
+				)
+				mock.ExpectQuery("SELECT").WillReturnRows(statusRows)
+				// Now fail on pause
+				mock.ExpectExec(regexp.QuoteMeta("SELECT pg_wal_replay_pause()")).
+					WillReturnError(fmt.Errorf("pause failed"))
+			},
+			expectError:   true,
+			errorContains: "failed to pause WAL replay",
 		},
 	}
 

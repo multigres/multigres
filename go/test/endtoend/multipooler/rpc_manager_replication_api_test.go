@@ -870,9 +870,9 @@ func TestReplicationAPIs(t *testing.T) {
 		}, 10*time.Second, 500*time.Millisecond, "Replication should be streaming")
 		t.Log("Confirmed: Replication is streaming")
 
-		// Call ResetReplication RPC
+		// Call ResetReplication RPC (it waits for receiver to disconnect)
 		t.Log("Calling ResetReplication RPC...")
-		ctx, cancel = context.WithTimeout(context.Background(), 1*time.Second)
+		ctx, cancel = context.WithTimeout(context.Background(), 3*time.Second)
 		defer cancel()
 
 		resetReq := &multipoolermanagerdatapb.ResetReplicationRequest{}
@@ -880,16 +880,13 @@ func TestReplicationAPIs(t *testing.T) {
 		require.NoError(t, err, "ResetReplication should succeed on standby")
 
 		// Verify that primary_conninfo is cleared by checking pg_stat_wal_receiver
-		// After resetting, the WAL receiver should eventually disconnect
+		// ResetReplication now waits for disconnect, so it should be immediate
 		t.Log("Verifying replication is disconnected after ResetReplication...")
-		require.Eventually(t, func() bool {
-			queryResp, err := standbyPoolerClient.ExecuteQuery(context.Background(), "SELECT COUNT(*) FROM pg_stat_wal_receiver", 1)
-			if err != nil || len(queryResp.Rows) == 0 {
-				return false
-			}
-			count := string(queryResp.Rows[0].Values[0])
-			return count == "0"
-		}, 10*time.Second, 500*time.Millisecond, "WAL receiver should disconnect after ResetReplication")
+		queryResp, err := standbyPoolerClient.ExecuteQuery(context.Background(), "SELECT COUNT(*) FROM pg_stat_wal_receiver", 1)
+		require.NoError(t, err, "Query should succeed")
+		require.NotEmpty(t, queryResp.Rows, "Query should return a row")
+		count := string(queryResp.Rows[0].Values[0])
+		require.Equal(t, "0", count, "WAL receiver should be disconnected after ResetReplication")
 
 		t.Log("ResetReplication successfully disconnected standby from primary")
 
