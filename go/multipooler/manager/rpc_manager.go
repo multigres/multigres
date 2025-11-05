@@ -919,9 +919,9 @@ func (pm *MultiPoolerManager) Demote(ctx context.Context, consensusTerm int64, d
 	}
 
 	// Capture State & Make PostgreSQL Read-Only
-
-	finalLSN, err := pm.captureFinalLSN(ctx, state)
+	finalLSN, err := pm.getPrimaryLSN(ctx)
 	if err != nil {
+		pm.logger.Error("Failed to capture final LSN", "error", err)
 		return nil, err
 	}
 
