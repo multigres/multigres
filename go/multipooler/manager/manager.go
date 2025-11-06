@@ -76,7 +76,7 @@ type MultiPoolerManager struct {
 	multipooler     *topo.MultiPoolerInfo
 	state           ManagerState
 	stateError      error
-	consensusTerm   *multipoolermanagerdatapb.ConsensusTerm
+	consensusState  *ConsensusState
 	topoLoaded      bool
 	consensusLoaded bool
 	ctx             context.Context
@@ -321,15 +321,15 @@ func (pm *MultiPoolerManager) checkPoolerType(expectedType clustermetadatapb.Poo
 	return nil
 }
 
-// getCurrentTerm returns the current consensus term in a thread-safe manner
-func (pm *MultiPoolerManager) getCurrentTerm() int64 {
+// getCurrentTermNumber returns the current consensus term number in a thread-safe manner
+func (pm *MultiPoolerManager) getCurrentTermNumber() int64 {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
 
-	if pm.consensusTerm == nil {
+	if pm.consensusState == nil {
 		return 0
 	}
-	return pm.consensusTerm.GetCurrentTerm()
+	return pm.consensusState.GetCurrentTermNumber()
 }
 
 // checkReplicaGuardrails verifies that the pooler is a REPLICA and PostgreSQL is in recovery mode
@@ -410,7 +410,9 @@ func (pm *MultiPoolerManager) checkAndSetReady() {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
 
-	if pm.topoLoaded && pm.consensusLoaded {
+	// Check that topo is loaded and consensus is loaded (if enabled)
+	consensusReady := !pm.config.ConsensusEnabled || pm.consensusLoaded
+	if pm.topoLoaded && consensusReady {
 		pm.state = ManagerStateReady
 		pm.logger.Info("Manager state changed", "state", ManagerStateReady, "service_id", pm.serviceID.String())
 	}
@@ -468,7 +470,7 @@ func (pm *MultiPoolerManager) validateAndUpdateTerm(ctx context.Context, request
 		return nil // Skip validation if force is set
 	}
 
-	currentTerm := pm.getCurrentTerm()
+	currentTerm := pm.getCurrentTermNumber()
 
 	// Check if consensus term has been initialized (term 0 means uninitialized)
 	if currentTerm == 0 {
@@ -497,28 +499,24 @@ func (pm *MultiPoolerManager) validateAndUpdateTerm(ctx context.Context, request
 			"old_term", currentTerm,
 			"service_id", pm.serviceID.String())
 
-		newTerm := &multipoolermanagerdatapb.ConsensusTerm{
-			CurrentTerm:        requestTerm,
-			AcceptedLeader:     nil,
-			LastAcceptanceTime: nil,
-			LeaderId:           nil,
+		pm.mu.Lock()
+		cs := pm.consensusState
+		pm.mu.Unlock()
+
+		if cs == nil {
+			return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION, "consensus state not initialized")
 		}
 
-		// Update term to local disk using the term_storage functions
-		if err := SetTerm(pm.config.PoolerDir, newTerm); err != nil {
-			pm.logger.ErrorContext(ctx, "Failed to update term to disk", "error", err)
+		// Update term atomically (resets accepted leader)
+		if err := cs.UpdateTermAndSave(requestTerm); err != nil {
+			pm.logger.ErrorContext(ctx, "Failed to update term", "error", err)
 			return mterrors.Wrap(err, "failed to update consensus term")
 		}
 
-		// Update our cached term
-		pm.mu.Lock()
-		pm.consensusTerm = newTerm
-		pm.mu.Unlock()
-
 		// Synchronize term to heartbeat writer if it exists
 		if pm.replTracker != nil {
-			pm.replTracker.HeartbeatWriter().SetLeaderTerm(newTerm.GetCurrentTerm())
-			pm.logger.InfoContext(ctx, "Synchronized term to heartbeat writer", "term", newTerm.GetCurrentTerm())
+			pm.replTracker.HeartbeatWriter().SetLeaderTerm(requestTerm)
+			pm.logger.InfoContext(ctx, "Synchronized term to heartbeat writer", "term", requestTerm)
 		}
 
 		pm.logger.InfoContext(ctx, "Consensus term updated successfully", "new_term", requestTerm)
@@ -535,7 +533,7 @@ func (pm *MultiPoolerManager) validateTermExactMatch(ctx context.Context, reques
 		return nil // Skip validation if force is set
 	}
 
-	currentTerm := pm.getCurrentTerm()
+	currentTerm := pm.getCurrentTermNumber()
 
 	// Check if consensus term has been initialized
 	if currentTerm == 0 {
@@ -577,26 +575,34 @@ func (pm *MultiPoolerManager) loadConsensusTermFromDisk() {
 			return
 		}
 
-		// Load term from local disk using the term_storage functions
-		term, err := GetTerm(pm.config.PoolerDir)
-		if err != nil {
-			pm.logger.Debug("Failed to get consensus term from disk, retrying", "error", err)
+		// Initialize consensus state if not already done
+		pm.mu.Lock()
+		if pm.consensusState == nil {
+			pm.consensusState = NewConsensusState(pm.config.PoolerDir, pm.serviceID)
+		}
+		cs := pm.consensusState
+		pm.mu.Unlock()
+
+		// Load term from local disk using the ConsensusState
+		if err := cs.Load(); err != nil {
+			pm.logger.Debug("Failed to load consensus term from disk, retrying", "error", err)
 			continue // Will retry with backoff
 		}
 
 		// Successfully loaded (nil/empty term is OK)
 		pm.mu.Lock()
-		pm.consensusTerm = term
 		pm.consensusLoaded = true
 		pm.mu.Unlock()
 
+		currentTerm := cs.GetCurrentTermNumber()
+
 		// Synchronize term to heartbeat writer if it exists
-		if pm.replTracker != nil && term != nil {
-			pm.replTracker.HeartbeatWriter().SetLeaderTerm(term.GetCurrentTerm())
-			pm.logger.Info("Synchronized loaded term to heartbeat writer", "term", term.GetCurrentTerm())
+		if pm.replTracker != nil && currentTerm > 0 {
+			pm.replTracker.HeartbeatWriter().SetLeaderTerm(currentTerm)
+			pm.logger.Info("Synchronized loaded term to heartbeat writer", "term", currentTerm)
 		}
 
-		pm.logger.Info("Loaded consensus term from disk", "current_term", term.GetCurrentTerm())
+		pm.logger.Info("Loaded consensus term from disk", "current_term", currentTerm)
 		pm.checkAndSetReady()
 		return
 	}
@@ -1110,8 +1116,10 @@ func (pm *MultiPoolerManager) ReplicationLag(ctx context.Context) (time.Duration
 func (pm *MultiPoolerManager) Start(senv *servenv.ServEnv) {
 	// Start loading multipooler record from topology asynchronously
 	go pm.loadMultiPoolerFromTopo()
-	// Start loading consensus term from local disk asynchronously
-	go pm.loadConsensusTermFromDisk()
+	// Start loading consensus term from local disk asynchronously (only if consensus is enabled)
+	if pm.config.ConsensusEnabled {
+		go pm.loadConsensusTermFromDisk()
+	}
 
 	senv.OnRun(func() {
 		pm.logger.Info("MultiPoolerManager started")
