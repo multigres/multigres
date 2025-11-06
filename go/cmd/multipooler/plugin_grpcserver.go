@@ -15,6 +15,7 @@
 package main
 
 import (
+	_ "github.com/multigres/multigres/go/multipooler/grpcbackupservice"
 	_ "github.com/multigres/multigres/go/multipooler/grpcmanagerservice"
 	_ "github.com/multigres/multigres/go/multipooler/grpcpoolerservice"
 )

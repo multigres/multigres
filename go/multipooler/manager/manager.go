@@ -20,6 +20,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -264,6 +265,30 @@ func (pm *MultiPoolerManager) GetMultiPooler() (*topo.MultiPoolerInfo, ManagerSt
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
 	return pm.multipooler, pm.state, pm.stateError
+}
+
+// GetBackupConfigPath returns the path to the pgbackrest config file
+func (pm *MultiPoolerManager) GetBackupConfigPath() string {
+	return filepath.Join(pm.config.PoolerDir, "pgbackrest.conf")
+}
+
+// GetBackupStanzaName returns the pgbackrest stanza name
+func (pm *MultiPoolerManager) GetBackupStanzaName() string {
+	// Use configured stanza name if set, otherwise fallback to service ID
+	if pm.config.PgBackRestStanza != "" {
+		return pm.config.PgBackRestStanza
+	}
+	return pm.serviceID.Name
+}
+
+// GetPgCtldClient returns the pgctld gRPC client
+func (pm *MultiPoolerManager) GetPgCtldClient() pgctldpb.PgCtldClient {
+	return pm.pgctldClient
+}
+
+// IsPrimary returns true if this instance is running as a primary (not standby)
+func (pm *MultiPoolerManager) IsPrimary() bool {
+	return pm.replTracker.IsPrimary()
 }
 
 // checkReady returns an error if the manager is not in Ready state

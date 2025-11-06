@@ -780,6 +780,7 @@ func (p *localProvisioner) provisionMultipooler(ctx context.Context, req *provis
 		"--pooler-dir", poolerDir,
 		"--pg-port", fmt.Sprintf("%d", pgPort),
 		"--hostname", "localhost",
+		"--pgbackrest-stanza", "multigres",
 	}
 
 	// Add socket file if configured
@@ -1055,12 +1056,13 @@ func (p *localProvisioner) stopService(ctx context.Context, req *provisioner.Dep
 		fallthrough
 	case "multigateway":
 		fallthrough
-	case "multipooler":
-		fallthrough
 	case "multiorch":
 		fallthrough
 	case "multiadmin":
 		return p.deprovisionService(ctx, req)
+	case "multipooler":
+		// multipooler requires special handling to clean up pgbackrest logs
+		return p.deprovisionMultipooler(ctx, req)
 	case "pgctld":
 		// pgctld requires special handling to stop PostgreSQL first
 		service, err := p.loadServiceState(req)
@@ -1113,6 +1115,22 @@ func (p *localProvisioner) deprovisionService(ctx context.Context, req *provisio
 		if err := os.RemoveAll(service.DataDir); err != nil {
 			return fmt.Errorf("failed to remove etcd data directory: %w", err)
 		}
+	}
+
+	return nil
+}
+
+// deprovisionMultipooler stops a multipooler service instance with special cleanup for pgbackrest logs
+func (p *localProvisioner) deprovisionMultipooler(ctx context.Context, req *provisioner.DeprovisionRequest) error {
+	// First, perform standard service deprovisioning
+	if err := p.deprovisionService(ctx, req); err != nil {
+		return err
+	}
+
+	// Clean up pgbackrest logs (specific to multipooler)
+	pgBackRestLogPath := filepath.Join(p.config.RootWorkingDir, "logs", "dbs", "postgres", "pgbackrest")
+	if err := os.RemoveAll(pgBackRestLogPath); err != nil && !os.IsNotExist(err) {
+		fmt.Printf("Warning: failed to clean up pgbackrest logs: %v\n", err)
 	}
 
 	return nil
@@ -1215,6 +1233,13 @@ func (p *localProvisioner) Bootstrap(ctx context.Context) ([]*provisioner.Provis
 	fmt.Println("=== Setting up pgctld directories ===")
 	if err := p.initializePgctldDirectories(); err != nil {
 		return nil, fmt.Errorf("failed to initialize pgctld directories: %w", err)
+	}
+	fmt.Println("")
+
+	// Generate pgBackRest configurations for all poolers
+	fmt.Println("=== Generating pgBackRest configurations ===")
+	if err := p.GeneratePgBackRestConfigs(); err != nil {
+		return nil, fmt.Errorf("failed to generate pgBackRest configurations: %w", err)
 	}
 	fmt.Println("")
 
@@ -1584,6 +1609,13 @@ func (p *localProvisioner) ProvisionDatabase(ctx context.Context, databaseName s
 
 		fmt.Printf("\n✓ Cell %s provisioned successfully\n\n", cellName)
 	}
+
+	// Initialize pgBackRest stanzas now that PostgreSQL is running in all cells
+	fmt.Println("=== Initializing pgBackRest stanzas ===")
+	if err := p.InitializePgBackRestStanzas(); err != nil {
+		return nil, fmt.Errorf("failed to initialize pgBackRest stanzas: %w", err)
+	}
+	fmt.Println("")
 
 	fmt.Printf("Database %s provisioned successfully across %d cells with %d total services\n", databaseName, len(cellNames), len(results))
 	return results, nil

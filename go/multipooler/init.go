@@ -24,6 +24,7 @@ import (
 
 	"github.com/multigres/multigres/go/clustermetadata/topo"
 	"github.com/multigres/multigres/go/clustermetadata/toporeg"
+	"github.com/multigres/multigres/go/multipooler/grpcbackupservice"
 	"github.com/multigres/multigres/go/multipooler/grpcconsensusservice"
 	"github.com/multigres/multigres/go/multipooler/grpcmanagerservice"
 	"github.com/multigres/multigres/go/multipooler/grpcpoolerservice"
@@ -46,6 +47,7 @@ type MultiPooler struct {
 	poolerDir           viperutil.Value[string]
 	pgPort              viperutil.Value[int]
 	heartbeatIntervalMs viperutil.Value[int]
+	pgBackRestStanza    viperutil.Value[string]
 	// MultipoolerID stores the ID for deregistration during shutdown
 	multipoolerID *clustermetadatapb.ID
 	// GrpcServer is the grpc server
@@ -114,6 +116,11 @@ func NewMultiPooler() *MultiPooler {
 			FlagName: "heartbeat-interval-milliseconds",
 			Dynamic:  false,
 		}),
+		pgBackRestStanza: viperutil.Configure("pgbackrest-stanza", viperutil.Options[string]{
+			Default:  "",
+			FlagName: "pgbackrest-stanza",
+			Dynamic:  false,
+		}),
 		grpcServer: servenv.NewGrpcServer(),
 		senv:       servenv.NewServEnv(),
 		topoConfig: topo.NewTopoConfig(),
@@ -129,6 +136,7 @@ func NewMultiPooler() *MultiPooler {
 	mp.senv.InitServiceMap("grpc", "pooler")
 	mp.senv.InitServiceMap("grpc", "poolermanager")
 	mp.senv.InitServiceMap("grpc", "consensus")
+	mp.senv.InitServiceMap("grpc", "backup")
 	return mp
 }
 
@@ -143,6 +151,7 @@ func (mp *MultiPooler) RegisterFlags(flags *pflag.FlagSet) {
 	flags.String("pooler-dir", mp.poolerDir.Default(), "pooler directory path (if empty, socket-file path will be used as-is)")
 	flags.Int("pg-port", mp.pgPort.Default(), "PostgreSQL port number")
 	flags.Int("heartbeat-interval-milliseconds", mp.heartbeatIntervalMs.Default(), "interval in milliseconds between heartbeat writes")
+	flags.String("pgbackrest-stanza", mp.pgBackRestStanza.Default(), "pgBackRest stanza name (defaults to service ID if empty)")
 
 	viperutil.BindFlags(flags,
 		mp.pgctldAddr,
@@ -154,6 +163,7 @@ func (mp *MultiPooler) RegisterFlags(flags *pflag.FlagSet) {
 		mp.poolerDir,
 		mp.pgPort,
 		mp.heartbeatIntervalMs,
+		mp.pgBackRestStanza,
 	)
 
 	mp.grpcServer.RegisterFlags(flags)
@@ -214,6 +224,7 @@ func (mp *MultiPooler) Init() {
 		ServiceID:           multipooler.Id,
 		HeartbeatIntervalMs: mp.heartbeatIntervalMs.Get(),
 		PgctldAddr:          mp.pgctldAddr.Get(),
+		PgBackRestStanza:    mp.pgBackRestStanza.Get(),
 	})
 
 	// Start the MultiPoolerManager
@@ -221,6 +232,7 @@ func (mp *MultiPooler) Init() {
 	grpcmanagerservice.RegisterPoolerManagerServices(mp.senv, mp.grpcServer)
 	grpcconsensusservice.RegisterConsensusServices(mp.senv, mp.grpcServer)
 	grpcpoolerservice.RegisterPoolerServices(mp.senv, mp.grpcServer)
+	grpcbackupservice.RegisterBackupServices(mp.senv, mp.grpcServer)
 
 	mp.senv.HTTPHandleFunc("/", mp.handleIndex)
 	mp.senv.HTTPHandleFunc("/ready", mp.handleReady)
@@ -235,6 +247,7 @@ func (mp *MultiPooler) Init() {
 		ServiceID:           multipooler.Id,
 		HeartbeatIntervalMs: mp.heartbeatIntervalMs.Get(),
 		PgctldAddr:          mp.pgctldAddr.Get(),
+		PgBackRestStanza:    mp.pgBackRestStanza.Get(),
 	})
 	pooler.Start(mp.senv)
 

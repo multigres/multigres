@@ -1,0 +1,93 @@
+/*
+Copyright 2025 Supabase, Inc.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+// This file contains the RPC service definition for multipooler backup operations.
+
+syntax = "proto3";
+
+package multipoolerbackupservice;
+
+option go_package = "github.com/multigres/multigres/go/pb/multipoolerbackupservice";
+
+// MultiPoolerBackupService provides backup and restore operations for shards
+service MultiPoolerBackupService {
+  // BackupShard performs a backup on a specific shard
+  rpc BackupShard(BackupShardRequest) returns (BackupShardResponse);
+
+  // RestoreShardFromBackup restores a shard from a backup
+  rpc RestoreShardFromBackup(RestoreShardFromBackupRequest) returns (RestoreShardFromBackupResponse);
+
+  // GetShardBackups retrieves backup information for a shard
+  rpc GetShardBackups(GetShardBackupsRequest) returns (GetShardBackupsResponse);
+}
+
+// BackupShardRequest requests a backup of a specific shard
+message BackupShardRequest {
+  string table_group = 1;
+  string shard = 2;
+
+  // force_primary should typically be false, because backups should be done on
+  // replicas to reduce load on the primary cluster. This is dangerous.
+  bool force_primary = 3;
+
+  // type indicates the type of backup that should be done. "full", "differential",
+  // and "incremental" are examples that are appropriate for pgBackRest.
+  string type = 4;
+}
+
+// BackupShardResponse contains the result of a backup operation
+message BackupShardResponse {
+  // backup_id uniquely identifies a backup and can be used to restore this
+  // backup in the future.
+  string backup_id = 1;
+}
+
+// RestoreShardFromBackupRequest requests a restore of a shard from a backup
+message RestoreShardFromBackupRequest {
+  // Backup to restore from. If this is empty, we restore from the latest
+  // backup.
+  string backup_id = 1;
+}
+
+// RestoreShardFromBackupResponse contains the result of a restore operation
+message RestoreShardFromBackupResponse {
+}
+
+// GetShardBackupsRequest requests backup information for a shard
+message GetShardBackupsRequest {
+  uint32 limit = 1;
+}
+
+// GetShardBackupsResponse contains the list of backups
+message GetShardBackupsResponse {
+  repeated BackupMetadata backups = 1;
+}
+
+// BackupMetadata contains metadata about a backup
+message BackupMetadata {
+  string table_group = 1;
+  string shard = 2;
+  Status status = 3;
+  string backup_id = 4;
+
+  // Status represents the state of a backup
+  enum Status {
+    UNKNOWN = 0;
+    INCOMPLETE = 1;
+    COMPLETE = 2;
+    // TODO: add VALID/INVALID states
+  }
+}
