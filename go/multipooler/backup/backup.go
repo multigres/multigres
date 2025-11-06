@@ -107,6 +107,23 @@ func Backup(ctx context.Context, configPath, stanzaName string, opts BackupOptio
 			fmt.Sprintf("failed to extract backup ID from output: %v\nOutput: %s", err, string(output)))
 	}
 
+	// Verify the backup to ensure it's valid
+	verifyCtx, verifyCancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer verifyCancel()
+
+	verifyCmd := exec.CommandContext(verifyCtx, "pgbackrest",
+		"--stanza="+stanzaName,
+		"--config="+configPath,
+		"--set="+backupID,
+		"--log-level-console=info",
+		"verify")
+
+	verifyOutput, verifyErr := verifyCmd.CombinedOutput()
+	if verifyErr != nil {
+		return nil, mterrors.New(mtrpcpb.Code_INTERNAL,
+			fmt.Sprintf("pgbackrest verify failed for backup %s: %v\nOutput: %s", backupID, verifyErr, string(verifyOutput)))
+	}
+
 	return &BackupResult{
 		BackupID: backupID,
 	}, nil
