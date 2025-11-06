@@ -115,8 +115,6 @@ func TestBackup_CreateListAndRestore(t *testing.T) {
 		t.Log("Step 2: Creating full backup...")
 
 		req := &backupservicepb.BackupRequest{
-			TableGroup:   "test",
-			Shard:        "default",
 			ForcePrimary: false,
 			Type:         "full",
 		}
@@ -339,8 +337,6 @@ func TestBackup_CreateListAndRestore(t *testing.T) {
 		t.Log("Creating differential backup...")
 
 		req := &backupservicepb.BackupRequest{
-			TableGroup:   "test",
-			Shard:        "default",
 			ForcePrimary: false,
 			Type:         "differential",
 		}
@@ -381,8 +377,6 @@ func TestBackup_CreateListAndRestore(t *testing.T) {
 		t.Log("Creating incremental backup...")
 
 		req := &backupservicepb.BackupRequest{
-			TableGroup:   "test",
-			Shard:        "default",
 			ForcePrimary: false,
 			Type:         "incremental",
 		}
@@ -440,42 +434,8 @@ func TestBackup_ValidationErrors(t *testing.T) {
 	t.Cleanup(func() { conn.Close() })
 	backupClient := backupservicepb.NewMultiPoolerBackupServiceClient(conn)
 
-	t.Run("MissingTableGroup", func(t *testing.T) {
-		req := &backupservicepb.BackupRequest{
-			TableGroup:   "", // Missing
-			Shard:        "default",
-			ForcePrimary: false,
-			Type:         "full",
-		}
-
-		ctx := utils.WithShortDeadline(t)
-		resp, err := backupClient.Backup(ctx, req)
-
-		assert.Error(t, err, "Should return error for missing table_group")
-		assert.Nil(t, resp, "Response should be nil on error")
-		assert.Contains(t, err.Error(), "table_group", "Error should mention table_group")
-	})
-
-	t.Run("MissingShard", func(t *testing.T) {
-		req := &backupservicepb.BackupRequest{
-			TableGroup:   "test",
-			Shard:        "", // Missing
-			ForcePrimary: false,
-			Type:         "full",
-		}
-
-		ctx := utils.WithShortDeadline(t)
-		resp, err := backupClient.Backup(ctx, req)
-
-		assert.Error(t, err, "Should return error for missing shard")
-		assert.Nil(t, resp, "Response should be nil on error")
-		assert.Contains(t, err.Error(), "shard", "Error should mention shard")
-	})
-
 	t.Run("MissingType", func(t *testing.T) {
 		req := &backupservicepb.BackupRequest{
-			TableGroup:   "test",
-			Shard:        "default",
 			ForcePrimary: false,
 			Type:         "", // Missing
 		}
@@ -490,8 +450,6 @@ func TestBackup_ValidationErrors(t *testing.T) {
 
 	t.Run("InvalidType", func(t *testing.T) {
 		req := &backupservicepb.BackupRequest{
-			TableGroup:   "test",
-			Shard:        "default",
 			ForcePrimary: false,
 			Type:         "invalid", // Invalid type
 		}
@@ -529,8 +487,6 @@ func TestBackup_FromStandby(t *testing.T) {
 		t.Log("Creating full backup from standby...")
 
 		req := &backupservicepb.BackupRequest{
-			TableGroup:   "test",
-			Shard:        "default",
 			ForcePrimary: false, // Should use standby since we're connected to standby
 			Type:         "full",
 		}
@@ -587,8 +543,6 @@ func TestBackup_FromStandby(t *testing.T) {
 		t.Log("Creating incremental backup from standby...")
 
 		req := &backupservicepb.BackupRequest{
-			TableGroup:   "test",
-			Shard:        "default",
 			ForcePrimary: false,
 			Type:         "incremental",
 		}

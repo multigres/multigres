@@ -90,15 +90,13 @@ func (BackupMetadata_Status) EnumDescriptor() ([]byte, []int) {
 
 // BackupRequest requests a backup
 type BackupRequest struct {
-	state      protoimpl.MessageState `protogen:"open.v1"`
-	TableGroup string                 `protobuf:"bytes,1,opt,name=table_group,json=tableGroup,proto3" json:"table_group,omitempty"`
-	Shard      string                 `protobuf:"bytes,2,opt,name=shard,proto3" json:"shard,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
 	// force_primary should typically be false, because backups should be done on
 	// replicas to reduce load on the primary cluster. This is dangerous.
-	ForcePrimary bool `protobuf:"varint,3,opt,name=force_primary,json=forcePrimary,proto3" json:"force_primary,omitempty"`
+	ForcePrimary bool `protobuf:"varint,1,opt,name=force_primary,json=forcePrimary,proto3" json:"force_primary,omitempty"`
 	// type indicates the type of backup that should be done. "full", "differential",
 	// and "incremental" are examples that are appropriate for pgBackRest.
-	Type          string `protobuf:"bytes,4,opt,name=type,proto3" json:"type,omitempty"`
+	Type          string `protobuf:"bytes,2,opt,name=type,proto3" json:"type,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -131,20 +129,6 @@ func (x *BackupRequest) ProtoReflect() protoreflect.Message {
 // Deprecated: Use BackupRequest.ProtoReflect.Descriptor instead.
 func (*BackupRequest) Descriptor() ([]byte, []int) {
 	return file_multipoolerbackupservice_proto_rawDescGZIP(), []int{0}
-}
-
-func (x *BackupRequest) GetTableGroup() string {
-	if x != nil {
-		return x.TableGroup
-	}
-	return ""
-}
-
-func (x *BackupRequest) GetShard() string {
-	if x != nil {
-		return x.Shard
-	}
-	return ""
 }
 
 func (x *BackupRequest) GetForcePrimary() bool {
@@ -455,13 +439,10 @@ var File_multipoolerbackupservice_proto protoreflect.FileDescriptor
 
 const file_multipoolerbackupservice_proto_rawDesc = "" +
 	"\n" +
-	"\x1emultipoolerbackupservice.proto\x12\x18multipoolerbackupservice\"\x7f\n" +
-	"\rBackupRequest\x12\x1f\n" +
-	"\vtable_group\x18\x01 \x01(\tR\n" +
-	"tableGroup\x12\x14\n" +
-	"\x05shard\x18\x02 \x01(\tR\x05shard\x12#\n" +
-	"\rforce_primary\x18\x03 \x01(\bR\fforcePrimary\x12\x12\n" +
-	"\x04type\x18\x04 \x01(\tR\x04type\"-\n" +
+	"\x1emultipoolerbackupservice.proto\x12\x18multipoolerbackupservice\"H\n" +
+	"\rBackupRequest\x12#\n" +
+	"\rforce_primary\x18\x01 \x01(\bR\fforcePrimary\x12\x12\n" +
+	"\x04type\x18\x02 \x01(\tR\x04type\"-\n" +
 	"\x0eBackupResponse\x12\x1b\n" +
 	"\tbackup_id\x18\x01 \x01(\tR\bbackupId\"7\n" +
 	"\x18RestoreFromBackupRequest\x12\x1b\n" +

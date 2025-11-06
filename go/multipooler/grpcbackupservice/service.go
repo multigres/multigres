@@ -53,8 +53,6 @@ func (s *backupService) Backup(ctx context.Context, req *backupservicepb.BackupR
 	stanzaName := s.manager.GetBackupStanza()
 
 	result, err := backup.BackupShard(ctx, configPath, stanzaName, backup.BackupOptions{
-		TableGroup:   req.TableGroup,
-		Shard:        req.Shard,
 		ForcePrimary: req.ForcePrimary,
 		Type:         req.Type,
 	})

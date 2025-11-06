@@ -29,8 +29,6 @@ import (
 
 // BackupOptions contains options for performing a backup
 type BackupOptions struct {
-	TableGroup   string
-	Shard        string
 	ForcePrimary bool
 	Type         string // "full", "differential", "incremental"
 }
@@ -43,12 +41,6 @@ type BackupResult struct {
 // BackupShard performs a backup on a specific shard
 func BackupShard(ctx context.Context, configPath, stanzaName string, opts BackupOptions) (*BackupResult, error) {
 	// Validation
-	if opts.TableGroup == "" {
-		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "table_group is required")
-	}
-	if opts.Shard == "" {
-		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "shard is required")
-	}
 	if opts.Type == "" {
 		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "type is required")
 	}

@@ -115,42 +115,15 @@ func TestBackupOptions_Validation(t *testing.T) {
 		{
 			name: "Valid full backup options",
 			opts: BackupOptions{
-				TableGroup: "tg-1",
-				Shard:      "shard-1",
-				Type:       "full",
+				Type: "full",
 			},
 			configPath:  "/tmp/test.conf",
 			stanzaName:  "test-stanza",
 			expectError: false,
 		},
 		{
-			name: "Missing table_group",
-			opts: BackupOptions{
-				Shard: "shard-1",
-				Type:  "full",
-			},
-			configPath:  "/tmp/test.conf",
-			stanzaName:  "test-stanza",
-			expectError: true,
-			errorMsg:    "table_group is required",
-		},
-		{
-			name: "Missing shard",
-			opts: BackupOptions{
-				TableGroup: "tg-1",
-				Type:       "full",
-			},
-			configPath:  "/tmp/test.conf",
-			stanzaName:  "test-stanza",
-			expectError: true,
-			errorMsg:    "shard is required",
-		},
-		{
-			name: "Missing type",
-			opts: BackupOptions{
-				TableGroup: "tg-1",
-				Shard:      "shard-1",
-			},
+			name:        "Missing type",
+			opts:        BackupOptions{},
 			configPath:  "/tmp/test.conf",
 			stanzaName:  "test-stanza",
 			expectError: true,
@@ -159,9 +132,7 @@ func TestBackupOptions_Validation(t *testing.T) {
 		{
 			name: "Invalid backup type",
 			opts: BackupOptions{
-				TableGroup: "tg-1",
-				Shard:      "shard-1",
-				Type:       "invalid",
+				Type: "invalid",
 			},
 			configPath:  "/tmp/test.conf",
 			stanzaName:  "test-stanza",
@@ -171,9 +142,7 @@ func TestBackupOptions_Validation(t *testing.T) {
 		{
 			name: "Missing config_path",
 			opts: BackupOptions{
-				TableGroup: "tg-1",
-				Shard:      "shard-1",
-				Type:       "full",
+				Type: "full",
 			},
 			configPath:  "",
 			stanzaName:  "test-stanza",
@@ -183,9 +152,7 @@ func TestBackupOptions_Validation(t *testing.T) {
 		{
 			name: "Missing stanza_name",
 			opts: BackupOptions{
-				TableGroup: "tg-1",
-				Shard:      "shard-1",
-				Type:       "full",
+				Type: "full",
 			},
 			configPath:  "/tmp/test.conf",
 			stanzaName:  "",
@@ -195,9 +162,7 @@ func TestBackupOptions_Validation(t *testing.T) {
 		{
 			name: "Valid differential backup",
 			opts: BackupOptions{
-				TableGroup: "tg-1",
-				Shard:      "shard-1",
-				Type:       "differential",
+				Type: "differential",
 			},
 			configPath:  "/tmp/test.conf",
 			stanzaName:  "test-stanza",
@@ -206,9 +171,7 @@ func TestBackupOptions_Validation(t *testing.T) {
 		{
 			name: "Valid incremental backup",
 			opts: BackupOptions{
-				TableGroup: "tg-1",
-				Shard:      "shard-1",
-				Type:       "incremental",
+				Type: "incremental",
 			},
 			configPath:  "/tmp/test.conf",
 			stanzaName:  "test-stanza",

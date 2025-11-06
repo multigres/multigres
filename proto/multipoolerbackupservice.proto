@@ -36,16 +36,13 @@ service MultiPoolerBackupService {
 
 // BackupRequest requests a backup
 message BackupRequest {
-  string table_group = 1;
-  string shard = 2;
-
   // force_primary should typically be false, because backups should be done on
   // replicas to reduce load on the primary cluster. This is dangerous.
-  bool force_primary = 3;
+  bool force_primary = 1;
 
   // type indicates the type of backup that should be done. "full", "differential",
   // and "incremental" are examples that are appropriate for pgBackRest.
-  string type = 4;
+  string type = 2;
 }
 
 // BackupResponse contains the result of a backup operation

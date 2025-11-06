@@ -86,44 +86,8 @@ func TestBackupService_Backup(t *testing.T) {
 		manager: pm,
 	}
 
-	t.Run("Backup with missing table_group", func(t *testing.T) {
-		req := &backupservicepb.BackupRequest{
-			TableGroup:   "",
-			Shard:        "shard-1",
-			ForcePrimary: false,
-			Type:         "full",
-		}
-
-		resp, err := svc.Backup(ctx, req)
-
-		assert.Error(t, err)
-		assert.Nil(t, resp)
-		mterr := mterrors.FromGRPC(err)
-		assert.Equal(t, mtrpcpb.Code_INVALID_ARGUMENT, mterrors.Code(mterr))
-		assert.Contains(t, err.Error(), "table_group is required")
-	})
-
-	t.Run("Backup with missing shard", func(t *testing.T) {
-		req := &backupservicepb.BackupRequest{
-			TableGroup:   "tg-1",
-			Shard:        "",
-			ForcePrimary: false,
-			Type:         "full",
-		}
-
-		resp, err := svc.Backup(ctx, req)
-
-		assert.Error(t, err)
-		assert.Nil(t, resp)
-		mterr := mterrors.FromGRPC(err)
-		assert.Equal(t, mtrpcpb.Code_INVALID_ARGUMENT, mterrors.Code(mterr))
-		assert.Contains(t, err.Error(), "shard is required")
-	})
-
 	t.Run("Backup with missing type", func(t *testing.T) {
 		req := &backupservicepb.BackupRequest{
-			TableGroup:   "tg-1",
-			Shard:        "shard-1",
 			ForcePrimary: false,
 			Type:         "",
 		}
@@ -139,8 +103,6 @@ func TestBackupService_Backup(t *testing.T) {
 
 	t.Run("Backup with invalid type", func(t *testing.T) {
 		req := &backupservicepb.BackupRequest{
-			TableGroup:   "tg-1",
-			Shard:        "shard-1",
 			ForcePrimary: false,
 			Type:         "invalid",
 		}
@@ -156,8 +118,6 @@ func TestBackupService_Backup(t *testing.T) {
 
 	t.Run("Backup with valid request fails without PostgreSQL", func(t *testing.T) {
 		req := &backupservicepb.BackupRequest{
-			TableGroup:   "tg-1",
-			Shard:        "shard-1",
 			ForcePrimary: false,
 			Type:         "full",
 		}
@@ -173,8 +133,6 @@ func TestBackupService_Backup(t *testing.T) {
 
 	t.Run("Backup with differential type", func(t *testing.T) {
 		req := &backupservicepb.BackupRequest{
-			TableGroup:   "tg-1",
-			Shard:        "shard-1",
 			ForcePrimary: true,
 			Type:         "differential",
 		}
@@ -189,8 +147,6 @@ func TestBackupService_Backup(t *testing.T) {
 
 	t.Run("Backup with incremental type", func(t *testing.T) {
 		req := &backupservicepb.BackupRequest{
-			TableGroup:   "tg-1",
-			Shard:        "shard-1",
 			ForcePrimary: false,
 			Type:         "incremental",
 		}
@@ -418,8 +374,6 @@ func TestBackupService_AllMethods(t *testing.T) {
 			name: "Backup with valid params",
 			method: func() error {
 				req := &backupservicepb.BackupRequest{
-					TableGroup:   "tg-1",
-					Shard:        "shard-1",
 					ForcePrimary: false,
 					Type:         "full",
 				}
@@ -432,8 +386,6 @@ func TestBackupService_AllMethods(t *testing.T) {
 			name: "Backup with invalid type",
 			method: func() error {
 				req := &backupservicepb.BackupRequest{
-					TableGroup:   "tg-1",
-					Shard:        "shard-1",
 					ForcePrimary: false,
 					Type:         "invalid",
 				}
