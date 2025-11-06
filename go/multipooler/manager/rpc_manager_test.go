@@ -260,7 +260,7 @@ func TestActionLock_MutationMethodsTimeout(t *testing.T) {
 			name:       "SetTerm times out when lock is held",
 			poolerType: clustermetadatapb.PoolerType_PRIMARY,
 			callMethod: func(ctx context.Context) error {
-				return manager.SetTerm(ctx, &multipoolermanagerdatapb.ConsensusTerm{CurrentTerm: 5})
+				return manager.SetTerm(ctx, &multipoolermanagerdatapb.ConsensusTerm{TermNumber: 5})
 			},
 		},
 		{
@@ -363,11 +363,11 @@ func setupPromoteTestManager(t *testing.T) (*MultiPoolerManager, sqlmock.Sqlmock
 	require.NoError(t, err)
 
 	// Set consensus term to expected value (10) for testing using SetTerm
-	term := &multipoolermanagerdatapb.ConsensusTerm{CurrentTerm: 10}
+	term := &multipoolermanagerdatapb.ConsensusTerm{TermNumber: 10}
 	err = pm.SetTerm(ctx, term)
 	require.NoError(t, err)
 	pm.mu.Lock()
-	currentTerm := pm.consensusTerm.GetCurrentTerm()
+	currentTerm := pm.consensusState.GetCurrentTermNumber()
 	pm.mu.Unlock()
 	assert.Equal(t, int64(10), currentTerm, "Term should be set to 10")
 
@@ -375,8 +375,6 @@ func setupPromoteTestManager(t *testing.T) (*MultiPoolerManager, sqlmock.Sqlmock
 }
 
 // These tests verify that the Promote method is truly idempotent and can handle partial failures.
-// The guard rail logic checks topology type and validates state consistency for proper idempotency.
-
 // TestPromoteIdempotency_PostgreSQLPromotedButTopologyNotUpdated tests the critical idempotency scenario:
 // PostgreSQL was promoted but topology update failed. The retry should succeed and only update topology.
 func TestPromoteIdempotency_PostgreSQLPromotedButTopologyNotUpdated(t *testing.T) {
@@ -620,7 +618,7 @@ func TestPromoteIdempotency_TermMismatch(t *testing.T) {
 	pm, mock, _ := setupPromoteTestManager(t)
 
 	// Explicitly set the term to 10 to ensure we have the expected value using SetTerm
-	term := &multipoolermanagerdatapb.ConsensusTerm{CurrentTerm: 10}
+	term := &multipoolermanagerdatapb.ConsensusTerm{TermNumber: 10}
 	err := pm.SetTerm(ctx, term)
 	require.NoError(t, err)
 

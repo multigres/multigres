@@ -1075,25 +1075,28 @@ func (pm *MultiPoolerManager) SetTerm(ctx context.Context, term *multipoolermana
 	}
 	defer pm.unlock()
 
-	pm.logger.InfoContext(ctx, "SetTerm called", "current_term", term.GetCurrentTerm())
+	pm.logger.InfoContext(ctx, "SetTerm called", "current_term", term.GetTermNumber())
 
-	// Write term to local disk using the term_storage functions
-	if err := SetTerm(pm.config.PoolerDir, term); err != nil {
-		pm.logger.ErrorContext(ctx, "Failed to set consensus term to disk", "error", err)
+	// Initialize consensus state if needed
+	pm.mu.Lock()
+	if pm.consensusState == nil {
+		pm.consensusState = NewConsensusState(pm.config.PoolerDir, pm.serviceID)
+	}
+	cs := pm.consensusState
+	pm.mu.Unlock()
+
+	// Save to disk and update memory atomically
+	if err := cs.SetTermDirectly(term); err != nil {
+		pm.logger.ErrorContext(ctx, "Failed to save consensus term", "error", err)
 		return mterrors.Wrap(err, "failed to set consensus term")
 	}
 
-	// Update our cached term
-	pm.mu.Lock()
-	pm.consensusTerm = term
-	pm.mu.Unlock()
-
 	// Synchronize term to heartbeat writer if it exists
 	if pm.replTracker != nil {
-		pm.replTracker.HeartbeatWriter().SetLeaderTerm(term.GetCurrentTerm())
-		pm.logger.InfoContext(ctx, "Synchronized term to heartbeat writer", "term", term.GetCurrentTerm())
+		pm.replTracker.HeartbeatWriter().SetLeaderTerm(term.GetTermNumber())
+		pm.logger.InfoContext(ctx, "Synchronized term to heartbeat writer", "term", term.GetTermNumber())
 	}
 
-	pm.logger.InfoContext(ctx, "SetTerm completed successfully", "current_term", term.GetCurrentTerm())
+	pm.logger.InfoContext(ctx, "SetTerm completed successfully", "current_term", term.GetTermNumber())
 	return nil
 }
