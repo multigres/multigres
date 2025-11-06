@@ -719,9 +719,9 @@ func (pm *MultiPoolerManager) restartPostgresAsStandby(ctx context.Context, stat
 	}
 
 	// Connections won't surivive the restart, but doing db.Close() is awkward because
-	// replTracker is sharding the same DB instance. Rather than closing, we can just make
-	// an effort to strongly encourage recycling all the connections by reducing the pool
-	// size.
+	// replTracker is sharing the same DB instance. Rather than closing it, we can just make
+	// an effort to strongly encourage replacing all the connections in the pool by reducing
+	// the size temporarily.
 	pm.db.SetMaxOpenConns(1)
 	resp, err := pm.pgctldClient.Restart(ctx, req)
 	pm.db.SetMaxOpenConns(0)
