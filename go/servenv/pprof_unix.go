@@ -41,8 +41,6 @@ func (sv *ServEnv) pprofInit() {
 			start()
 		}
 
-		// Use a single channel and goroutine to handle signal toggling
-		// This avoids race conditions from switching between two channels
 		sigChan := make(chan os.Signal, 1)
 		signal.Notify(sigChan, syscall.SIGUSR1)
 
