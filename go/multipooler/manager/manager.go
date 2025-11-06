@@ -722,6 +722,11 @@ func (pm *MultiPoolerManager) restartPostgresAsStandby(ctx context.Context, stat
 	// replTracker is sharing the same DB instance. Rather than closing it, we can just make
 	// an effort to strongly encourage replacing all the connections in the pool by reducing
 	// the size temporarily.
+	//
+	// This hack should become obsolete once we implement our own connection pools. We
+	// can add an API to force the pool to invalidate all connections after a restart.
+	// For example, in Vitess connection pools can be configured to proactively refresh
+	// all connections when the DNS resolution of a particular hostname changes.
 	pm.db.SetMaxOpenConns(1)
 	resp, err := pm.pgctldClient.Restart(ctx, req)
 	pm.db.SetMaxOpenConns(0)
