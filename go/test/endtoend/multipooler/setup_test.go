@@ -1140,17 +1140,6 @@ func setupPoolerTest(t *testing.T, setup *MultipoolerTestSetup, opts ...cleanupO
 
 	// Register cleanup handler
 	t.Cleanup(func() {
-		// if t.Failed() {
-		// 	if setup.PrimaryPgctld != nil {
-
-		// 		logFile := filepath.Join(setup.PrimaryPgctld.DataDir, "primary-multipooler", "multipooler.log")
-		// 		contentBytes, err := os.ReadFile(setup.PrimaryPgctld.DataDir)
-		// 		if err != nil {
-		// 			t.Logf("Multipooler log is: ")
-		// 		}
-		// 	}
-		// }
-
 		// Close pooler clients at the end
 		defer func() {
 			if primaryPoolerClient != nil {
