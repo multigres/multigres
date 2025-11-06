@@ -82,7 +82,8 @@ type MultiPoolerManagerClient interface {
 	PrimaryStatus(ctx context.Context, in *multipoolermanagerdata.PrimaryStatusRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.PrimaryStatusResponse, error)
 	// PrimaryPosition gets the current LSN position of the leader
 	PrimaryPosition(ctx context.Context, in *multipoolermanagerdata.PrimaryPositionRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.PrimaryPositionResponse, error)
-	// StopReplicationAndGetStatus stops PostgreSQL replication and returns the status
+	// StopReplicationAndGetStatus stops PostgreSQL replication (replay and/or receiver based on mode)
+	// and returns the status
 	StopReplicationAndGetStatus(ctx context.Context, in *multipoolermanagerdata.StopReplicationAndGetStatusRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.StopReplicationAndGetStatusResponse, error)
 	// ChangeType changes the pooler type (LEADER/FOLLOWER)
 	ChangeType(ctx context.Context, in *multipoolermanagerdata.ChangeTypeRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.ChangeTypeResponse, error)
@@ -298,7 +299,8 @@ type MultiPoolerManagerServer interface {
 	PrimaryStatus(context.Context, *multipoolermanagerdata.PrimaryStatusRequest) (*multipoolermanagerdata.PrimaryStatusResponse, error)
 	// PrimaryPosition gets the current LSN position of the leader
 	PrimaryPosition(context.Context, *multipoolermanagerdata.PrimaryPositionRequest) (*multipoolermanagerdata.PrimaryPositionResponse, error)
-	// StopReplicationAndGetStatus stops PostgreSQL replication and returns the status
+	// StopReplicationAndGetStatus stops PostgreSQL replication (replay and/or receiver based on mode)
+	// and returns the status
 	StopReplicationAndGetStatus(context.Context, *multipoolermanagerdata.StopReplicationAndGetStatusRequest) (*multipoolermanagerdata.StopReplicationAndGetStatusResponse, error)
 	// ChangeType changes the pooler type (LEADER/FOLLOWER)
 	ChangeType(context.Context, *multipoolermanagerdata.ChangeTypeRequest) (*multipoolermanagerdata.ChangeTypeResponse, error)

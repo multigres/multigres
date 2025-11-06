@@ -73,7 +73,7 @@ func TestDemoteAndPromote(t *testing.T) {
 		// Set term on primary
 		setTermReq := &multipoolermanagerdatapb.SetTermRequest{
 			Term: &multipoolermanagerdatapb.ConsensusTerm{
-				CurrentTerm: 1,
+				TermNumber: 1,
 			},
 		}
 		_, err := primaryManagerClient.SetTerm(utils.WithShortDeadline(t), setTermReq)
@@ -124,7 +124,7 @@ func TestDemoteAndPromote(t *testing.T) {
 		// Set term on standby
 		setTermReq2 := &multipoolermanagerdatapb.SetTermRequest{
 			Term: &multipoolermanagerdatapb.ConsensusTerm{
-				CurrentTerm: 2,
+				TermNumber: 2,
 			},
 		}
 		_, err = standbyManagerClient.SetTerm(utils.WithShortDeadline(t), setTermReq2)
@@ -170,7 +170,7 @@ func TestDemoteAndPromote(t *testing.T) {
 		// Demote the new primary (original standby)
 		setTermReq3 := &multipoolermanagerdatapb.SetTermRequest{
 			Term: &multipoolermanagerdatapb.ConsensusTerm{
-				CurrentTerm: 3,
+				TermNumber: 3,
 			},
 		}
 		_, err = standbyManagerClient.SetTerm(utils.WithShortDeadline(t), setTermReq3)
@@ -189,7 +189,7 @@ func TestDemoteAndPromote(t *testing.T) {
 		// Promote the original primary back
 		setTermReq4 := &multipoolermanagerdatapb.SetTermRequest{
 			Term: &multipoolermanagerdatapb.ConsensusTerm{
-				CurrentTerm: 4,
+				TermNumber: 4,
 			},
 		}
 		_, err = primaryManagerClient.SetTerm(utils.WithShortDeadline(t), setTermReq4)
@@ -238,7 +238,7 @@ func TestDemoteAndPromote(t *testing.T) {
 		// Set term
 		setTermReq := &multipoolermanagerdatapb.SetTermRequest{
 			Term: &multipoolermanagerdatapb.ConsensusTerm{
-				CurrentTerm: 5,
+				TermNumber: 5,
 			},
 		}
 		_, err := primaryManagerClient.SetTerm(utils.WithShortDeadline(t), setTermReq)
@@ -279,7 +279,7 @@ func TestDemoteAndPromote(t *testing.T) {
 		// Promote original primary back (it's currently demoted)
 		setTermReq := &multipoolermanagerdatapb.SetTermRequest{
 			Term: &multipoolermanagerdatapb.ConsensusTerm{
-				CurrentTerm: 6,
+				TermNumber: 6,
 			},
 		}
 		_, err := primaryManagerClient.SetTerm(utils.WithShortDeadline(t), setTermReq)
@@ -322,7 +322,7 @@ func TestDemoteAndPromote(t *testing.T) {
 
 		setTermReq := &multipoolermanagerdatapb.SetTermRequest{
 			Term: &multipoolermanagerdatapb.ConsensusTerm{
-				CurrentTerm: 7,
+				TermNumber: 7,
 			},
 		}
 		_, err := primaryManagerClient.SetTerm(utils.WithShortDeadline(t), setTermReq)
@@ -352,7 +352,7 @@ func TestDemoteAndPromote(t *testing.T) {
 		// Promote back to restore state
 		setTermReq := &multipoolermanagerdatapb.SetTermRequest{
 			Term: &multipoolermanagerdatapb.ConsensusTerm{
-				CurrentTerm: 8,
+				TermNumber: 8,
 			},
 		}
 		_, err := primaryManagerClient.SetTerm(utils.WithShortDeadline(t), setTermReq)
@@ -389,7 +389,7 @@ func TestDemoteAndPromote(t *testing.T) {
 		// Demote primary first
 		setTermReq := &multipoolermanagerdatapb.SetTermRequest{
 			Term: &multipoolermanagerdatapb.ConsensusTerm{
-				CurrentTerm: 9,
+				TermNumber: 9,
 			},
 		}
 		_, err := primaryManagerClient.SetTerm(utils.WithShortDeadline(t), setTermReq)
@@ -419,7 +419,7 @@ func TestDemoteAndPromote(t *testing.T) {
 		// Now test LSN validation during promote
 		setTermReq2 := &multipoolermanagerdatapb.SetTermRequest{
 			Term: &multipoolermanagerdatapb.ConsensusTerm{
-				CurrentTerm: 10,
+				TermNumber: 10,
 			},
 		}
 		_, err = primaryManagerClient.SetTerm(utils.WithShortDeadline(t), setTermReq2)
@@ -458,7 +458,7 @@ func TestDemoteAndPromote(t *testing.T) {
 
 		setTermReq := &multipoolermanagerdatapb.SetTermRequest{
 			Term: &multipoolermanagerdatapb.ConsensusTerm{
-				CurrentTerm: 11,
+				TermNumber: 11,
 			},
 		}
 		_, err := standbyManagerClient.SetTerm(utils.WithShortDeadline(t), setTermReq)

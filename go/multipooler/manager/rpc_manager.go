@@ -216,8 +216,8 @@ func (pm *MultiPoolerManager) StartReplication(ctx context.Context) error {
 	return nil
 }
 
-// StopReplication stops WAL replay on standby (calls pg_wal_replay_pause)
-func (pm *MultiPoolerManager) StopReplication(ctx context.Context) error {
+// StopReplication stops replication based on the specified mode
+func (pm *MultiPoolerManager) StopReplication(ctx context.Context, mode multipoolermanagerdatapb.ReplicationPauseMode, wait bool) error {
 	if err := pm.checkReady(); err != nil {
 		return err
 	}
@@ -228,25 +228,14 @@ func (pm *MultiPoolerManager) StopReplication(ctx context.Context) error {
 	}
 	defer pm.unlock()
 
-	pm.logger.InfoContext(ctx, "StopReplication called")
+	pm.logger.InfoContext(ctx, "StopReplication called", "mode", mode, "wait", wait)
 
 	// Check REPLICA guardrails (pooler type and recovery mode)
 	if err := pm.checkReplicaGuardrails(ctx); err != nil {
 		return err
 	}
 
-	// Pause WAL replay on the standby
-	pm.logger.InfoContext(ctx, "Pausing WAL replay on standby")
-	_, err := pm.db.ExecContext(ctx, "SELECT pg_wal_replay_pause()")
-	if err != nil {
-		pm.logger.ErrorContext(ctx, "Failed to pause WAL replay", "error", err)
-		return mterrors.Wrap(err, "failed to pause WAL replay")
-	}
-
-	// Wait for WAL replay to actually be paused
-	// pg_wal_replay_pause() is asynchronous, so we need to wait for it to complete
-	pm.logger.InfoContext(ctx, "Waiting for WAL replay to complete pausing")
-	_, err = pm.waitForReplicationPause(ctx)
+	_, err := pm.pauseReplication(ctx, mode, wait)
 	if err != nil {
 		return err
 	}
@@ -306,20 +295,10 @@ func (pm *MultiPoolerManager) ResetReplication(ctx context.Context) error {
 		return err
 	}
 
-	//  Clear primary_conninfo using ALTER SYSTEM
-	pm.logger.InfoContext(ctx, "Clearing primary_conninfo")
-	_, err := pm.db.ExecContext(ctx, "ALTER SYSTEM RESET primary_conninfo")
+	// Pause the receiver (clear primary_conninfo) and wait for disconnect
+	_, err := pm.pauseReplication(ctx, multipoolermanagerdatapb.ReplicationPauseMode_REPLICATION_PAUSE_MODE_RECEIVER_ONLY, true /* wait */)
 	if err != nil {
-		pm.logger.ErrorContext(ctx, "Failed to clear primary_conninfo", "error", err)
-		return mterrors.Wrap(err, "failed to clear primary_conninfo")
-	}
-
-	//  Reload PostgreSQL configuration to apply changes
-	pm.logger.InfoContext(ctx, "Reloading PostgreSQL configuration")
-	_, err = pm.db.ExecContext(ctx, "SELECT pg_reload_conf()")
-	if err != nil {
-		pm.logger.ErrorContext(ctx, "Failed to reload configuration", "error", err)
-		return mterrors.Wrap(err, "failed to reload PostgreSQL configuration")
+		return err
 	}
 
 	pm.logger.InfoContext(ctx, "ResetReplication completed successfully - standby disconnected from primary")
@@ -585,8 +564,8 @@ func (pm *MultiPoolerManager) PrimaryPosition(ctx context.Context) (string, erro
 	return pm.getPrimaryLSN(ctx)
 }
 
-// StopReplicationAndGetStatus stops PostgreSQL replication and returns the status
-func (pm *MultiPoolerManager) StopReplicationAndGetStatus(ctx context.Context) (*multipoolermanagerdatapb.ReplicationStatus, error) {
+// StopReplicationAndGetStatus stops PostgreSQL replication (replay and/or receiver based on mode) and returns the status
+func (pm *MultiPoolerManager) StopReplicationAndGetStatus(ctx context.Context, mode multipoolermanagerdatapb.ReplicationPauseMode, wait bool) (*multipoolermanagerdatapb.ReplicationStatus, error) {
 	if err := pm.checkReady(); err != nil {
 		return nil, err
 	}
@@ -597,24 +576,14 @@ func (pm *MultiPoolerManager) StopReplicationAndGetStatus(ctx context.Context) (
 	}
 	defer pm.unlock()
 
-	pm.logger.InfoContext(ctx, "StopReplicationAndGetStatus called")
+	pm.logger.InfoContext(ctx, "StopReplicationAndGetStatus called", "mode", mode, "wait", wait)
 
 	// Check REPLICA guardrails (pooler type and recovery mode)
 	if err := pm.checkReplicaGuardrails(ctx); err != nil {
 		return nil, err
 	}
 
-	// Pause WAL replay on the standby
-	pm.logger.InfoContext(ctx, "Pausing WAL replay on standby")
-	_, err := pm.db.ExecContext(ctx, "SELECT pg_wal_replay_pause()")
-	if err != nil {
-		pm.logger.ErrorContext(ctx, "Failed to pause WAL replay", "error", err)
-		return nil, mterrors.Wrap(err, "failed to pause WAL replay")
-	}
-
-	// Wait for WAL replay to actually be paused and capture status at that moment
-	pm.logger.InfoContext(ctx, "Waiting for WAL replay to complete pausing")
-	status, err := pm.waitForReplicationPause(ctx)
+	status, err := pm.pauseReplication(ctx, mode, wait)
 	if err != nil {
 		return nil, err
 	}
@@ -1106,25 +1075,28 @@ func (pm *MultiPoolerManager) SetTerm(ctx context.Context, term *multipoolermana
 	}
 	defer pm.unlock()
 
-	pm.logger.InfoContext(ctx, "SetTerm called", "current_term", term.GetCurrentTerm())
+	pm.logger.InfoContext(ctx, "SetTerm called", "current_term", term.GetTermNumber())
 
-	// Write term to local disk using the term_storage functions
-	if err := SetTerm(pm.config.PoolerDir, term); err != nil {
-		pm.logger.ErrorContext(ctx, "Failed to set consensus term to disk", "error", err)
+	// Initialize consensus state if needed
+	pm.mu.Lock()
+	if pm.consensusState == nil {
+		pm.consensusState = NewConsensusState(pm.config.PoolerDir, pm.serviceID)
+	}
+	cs := pm.consensusState
+	pm.mu.Unlock()
+
+	// Save to disk and update memory atomically
+	if err := cs.SetTermDirectly(term); err != nil {
+		pm.logger.ErrorContext(ctx, "Failed to save consensus term", "error", err)
 		return mterrors.Wrap(err, "failed to set consensus term")
 	}
 
-	// Update our cached term
-	pm.mu.Lock()
-	pm.consensusTerm = term
-	pm.mu.Unlock()
-
 	// Synchronize term to heartbeat writer if it exists
 	if pm.replTracker != nil {
-		pm.replTracker.HeartbeatWriter().SetLeaderTerm(term.GetCurrentTerm())
-		pm.logger.InfoContext(ctx, "Synchronized term to heartbeat writer", "term", term.GetCurrentTerm())
+		pm.replTracker.HeartbeatWriter().SetLeaderTerm(term.GetTermNumber())
+		pm.logger.InfoContext(ctx, "Synchronized term to heartbeat writer", "term", term.GetTermNumber())
 	}
 
-	pm.logger.InfoContext(ctx, "SetTerm completed successfully", "current_term", term.GetCurrentTerm())
+	pm.logger.InfoContext(ctx, "SetTerm completed successfully", "current_term", term.GetTermNumber())
 	return nil
 }

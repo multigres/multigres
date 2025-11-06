@@ -359,9 +359,9 @@ func TestValidateAndUpdateTerm(t *testing.T) {
 			// Set initial consensus term on disk if currentTerm > 0
 			if tt.currentTerm > 0 {
 				initialTerm := &multipoolermanagerdatapb.ConsensusTerm{
-					CurrentTerm: tt.currentTerm,
+					TermNumber: tt.currentTerm,
 				}
-				require.NoError(t, SetTerm(poolerDir, initialTerm))
+				require.NoError(t, setConsensusTerm(poolerDir, initialTerm))
 			}
 
 			multipooler := &clustermetadatapb.MultiPooler{
@@ -375,9 +375,10 @@ func TestValidateAndUpdateTerm(t *testing.T) {
 			require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
 
 			config := &Config{
-				TopoClient: ts,
-				ServiceID:  serviceID,
-				PoolerDir:  poolerDir,
+				TopoClient:       ts,
+				ServiceID:        serviceID,
+				PoolerDir:        poolerDir,
+				ConsensusEnabled: true,
 			}
 			manager := NewMultiPoolerManager(logger, config)
 			defer manager.Close()
