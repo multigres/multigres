@@ -88,8 +88,8 @@ func (BackupMetadata_Status) EnumDescriptor() ([]byte, []int) {
 	return file_multipoolerbackupservice_proto_rawDescGZIP(), []int{6, 0}
 }
 
-// BackupShardRequest requests a backup of a specific shard
-type BackupShardRequest struct {
+// BackupRequest requests a backup
+type BackupRequest struct {
 	state      protoimpl.MessageState `protogen:"open.v1"`
 	TableGroup string                 `protobuf:"bytes,1,opt,name=table_group,json=tableGroup,proto3" json:"table_group,omitempty"`
 	Shard      string                 `protobuf:"bytes,2,opt,name=shard,proto3" json:"shard,omitempty"`
@@ -103,20 +103,20 @@ type BackupShardRequest struct {
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *BackupShardRequest) Reset() {
-	*x = BackupShardRequest{}
+func (x *BackupRequest) Reset() {
+	*x = BackupRequest{}
 	mi := &file_multipoolerbackupservice_proto_msgTypes[0]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *BackupShardRequest) String() string {
+func (x *BackupRequest) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*BackupShardRequest) ProtoMessage() {}
+func (*BackupRequest) ProtoMessage() {}
 
-func (x *BackupShardRequest) ProtoReflect() protoreflect.Message {
+func (x *BackupRequest) ProtoReflect() protoreflect.Message {
 	mi := &file_multipoolerbackupservice_proto_msgTypes[0]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -128,41 +128,41 @@ func (x *BackupShardRequest) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use BackupShardRequest.ProtoReflect.Descriptor instead.
-func (*BackupShardRequest) Descriptor() ([]byte, []int) {
+// Deprecated: Use BackupRequest.ProtoReflect.Descriptor instead.
+func (*BackupRequest) Descriptor() ([]byte, []int) {
 	return file_multipoolerbackupservice_proto_rawDescGZIP(), []int{0}
 }
 
-func (x *BackupShardRequest) GetTableGroup() string {
+func (x *BackupRequest) GetTableGroup() string {
 	if x != nil {
 		return x.TableGroup
 	}
 	return ""
 }
 
-func (x *BackupShardRequest) GetShard() string {
+func (x *BackupRequest) GetShard() string {
 	if x != nil {
 		return x.Shard
 	}
 	return ""
 }
 
-func (x *BackupShardRequest) GetForcePrimary() bool {
+func (x *BackupRequest) GetForcePrimary() bool {
 	if x != nil {
 		return x.ForcePrimary
 	}
 	return false
 }
 
-func (x *BackupShardRequest) GetType() string {
+func (x *BackupRequest) GetType() string {
 	if x != nil {
 		return x.Type
 	}
 	return ""
 }
 
-// BackupShardResponse contains the result of a backup operation
-type BackupShardResponse struct {
+// BackupResponse contains the result of a backup operation
+type BackupResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// backup_id uniquely identifies a backup and can be used to restore this
 	// backup in the future.
@@ -171,20 +171,20 @@ type BackupShardResponse struct {
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *BackupShardResponse) Reset() {
-	*x = BackupShardResponse{}
+func (x *BackupResponse) Reset() {
+	*x = BackupResponse{}
 	mi := &file_multipoolerbackupservice_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *BackupShardResponse) String() string {
+func (x *BackupResponse) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*BackupShardResponse) ProtoMessage() {}
+func (*BackupResponse) ProtoMessage() {}
 
-func (x *BackupShardResponse) ProtoReflect() protoreflect.Message {
+func (x *BackupResponse) ProtoReflect() protoreflect.Message {
 	mi := &file_multipoolerbackupservice_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -196,20 +196,20 @@ func (x *BackupShardResponse) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use BackupShardResponse.ProtoReflect.Descriptor instead.
-func (*BackupShardResponse) Descriptor() ([]byte, []int) {
+// Deprecated: Use BackupResponse.ProtoReflect.Descriptor instead.
+func (*BackupResponse) Descriptor() ([]byte, []int) {
 	return file_multipoolerbackupservice_proto_rawDescGZIP(), []int{1}
 }
 
-func (x *BackupShardResponse) GetBackupId() string {
+func (x *BackupResponse) GetBackupId() string {
 	if x != nil {
 		return x.BackupId
 	}
 	return ""
 }
 
-// RestoreShardFromBackupRequest requests a restore of a shard from a backup
-type RestoreShardFromBackupRequest struct {
+// RestoreFromBackupRequest requests a restore from a backup
+type RestoreFromBackupRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Backup to restore from. If this is empty, we restore from the latest
 	// backup.
@@ -218,20 +218,20 @@ type RestoreShardFromBackupRequest struct {
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *RestoreShardFromBackupRequest) Reset() {
-	*x = RestoreShardFromBackupRequest{}
+func (x *RestoreFromBackupRequest) Reset() {
+	*x = RestoreFromBackupRequest{}
 	mi := &file_multipoolerbackupservice_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *RestoreShardFromBackupRequest) String() string {
+func (x *RestoreFromBackupRequest) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*RestoreShardFromBackupRequest) ProtoMessage() {}
+func (*RestoreFromBackupRequest) ProtoMessage() {}
 
-func (x *RestoreShardFromBackupRequest) ProtoReflect() protoreflect.Message {
+func (x *RestoreFromBackupRequest) ProtoReflect() protoreflect.Message {
 	mi := &file_multipoolerbackupservice_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -243,39 +243,39 @@ func (x *RestoreShardFromBackupRequest) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use RestoreShardFromBackupRequest.ProtoReflect.Descriptor instead.
-func (*RestoreShardFromBackupRequest) Descriptor() ([]byte, []int) {
+// Deprecated: Use RestoreFromBackupRequest.ProtoReflect.Descriptor instead.
+func (*RestoreFromBackupRequest) Descriptor() ([]byte, []int) {
 	return file_multipoolerbackupservice_proto_rawDescGZIP(), []int{2}
 }
 
-func (x *RestoreShardFromBackupRequest) GetBackupId() string {
+func (x *RestoreFromBackupRequest) GetBackupId() string {
 	if x != nil {
 		return x.BackupId
 	}
 	return ""
 }
 
-// RestoreShardFromBackupResponse contains the result of a restore operation
-type RestoreShardFromBackupResponse struct {
+// RestoreFromBackupResponse contains the result of a restore operation
+type RestoreFromBackupResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *RestoreShardFromBackupResponse) Reset() {
-	*x = RestoreShardFromBackupResponse{}
+func (x *RestoreFromBackupResponse) Reset() {
+	*x = RestoreFromBackupResponse{}
 	mi := &file_multipoolerbackupservice_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *RestoreShardFromBackupResponse) String() string {
+func (x *RestoreFromBackupResponse) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*RestoreShardFromBackupResponse) ProtoMessage() {}
+func (*RestoreFromBackupResponse) ProtoMessage() {}
 
-func (x *RestoreShardFromBackupResponse) ProtoReflect() protoreflect.Message {
+func (x *RestoreFromBackupResponse) ProtoReflect() protoreflect.Message {
 	mi := &file_multipoolerbackupservice_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -287,33 +287,33 @@ func (x *RestoreShardFromBackupResponse) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use RestoreShardFromBackupResponse.ProtoReflect.Descriptor instead.
-func (*RestoreShardFromBackupResponse) Descriptor() ([]byte, []int) {
+// Deprecated: Use RestoreFromBackupResponse.ProtoReflect.Descriptor instead.
+func (*RestoreFromBackupResponse) Descriptor() ([]byte, []int) {
 	return file_multipoolerbackupservice_proto_rawDescGZIP(), []int{3}
 }
 
-// GetShardBackupsRequest requests backup information for a shard
-type GetShardBackupsRequest struct {
+// GetBackupsRequest requests backup information
+type GetBackupsRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Limit         uint32                 `protobuf:"varint,1,opt,name=limit,proto3" json:"limit,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *GetShardBackupsRequest) Reset() {
-	*x = GetShardBackupsRequest{}
+func (x *GetBackupsRequest) Reset() {
+	*x = GetBackupsRequest{}
 	mi := &file_multipoolerbackupservice_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *GetShardBackupsRequest) String() string {
+func (x *GetBackupsRequest) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*GetShardBackupsRequest) ProtoMessage() {}
+func (*GetBackupsRequest) ProtoMessage() {}
 
-func (x *GetShardBackupsRequest) ProtoReflect() protoreflect.Message {
+func (x *GetBackupsRequest) ProtoReflect() protoreflect.Message {
 	mi := &file_multipoolerbackupservice_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -325,40 +325,40 @@ func (x *GetShardBackupsRequest) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use GetShardBackupsRequest.ProtoReflect.Descriptor instead.
-func (*GetShardBackupsRequest) Descriptor() ([]byte, []int) {
+// Deprecated: Use GetBackupsRequest.ProtoReflect.Descriptor instead.
+func (*GetBackupsRequest) Descriptor() ([]byte, []int) {
 	return file_multipoolerbackupservice_proto_rawDescGZIP(), []int{4}
 }
 
-func (x *GetShardBackupsRequest) GetLimit() uint32 {
+func (x *GetBackupsRequest) GetLimit() uint32 {
 	if x != nil {
 		return x.Limit
 	}
 	return 0
 }
 
-// GetShardBackupsResponse contains the list of backups
-type GetShardBackupsResponse struct {
+// GetBackupsResponse contains the list of backups
+type GetBackupsResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Backups       []*BackupMetadata      `protobuf:"bytes,1,rep,name=backups,proto3" json:"backups,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *GetShardBackupsResponse) Reset() {
-	*x = GetShardBackupsResponse{}
+func (x *GetBackupsResponse) Reset() {
+	*x = GetBackupsResponse{}
 	mi := &file_multipoolerbackupservice_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *GetShardBackupsResponse) String() string {
+func (x *GetBackupsResponse) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*GetShardBackupsResponse) ProtoMessage() {}
+func (*GetBackupsResponse) ProtoMessage() {}
 
-func (x *GetShardBackupsResponse) ProtoReflect() protoreflect.Message {
+func (x *GetBackupsResponse) ProtoReflect() protoreflect.Message {
 	mi := &file_multipoolerbackupservice_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -370,12 +370,12 @@ func (x *GetShardBackupsResponse) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use GetShardBackupsResponse.ProtoReflect.Descriptor instead.
-func (*GetShardBackupsResponse) Descriptor() ([]byte, []int) {
+// Deprecated: Use GetBackupsResponse.ProtoReflect.Descriptor instead.
+func (*GetBackupsResponse) Descriptor() ([]byte, []int) {
 	return file_multipoolerbackupservice_proto_rawDescGZIP(), []int{5}
 }
 
-func (x *GetShardBackupsResponse) GetBackups() []*BackupMetadata {
+func (x *GetBackupsResponse) GetBackups() []*BackupMetadata {
 	if x != nil {
 		return x.Backups
 	}
@@ -455,21 +455,21 @@ var File_multipoolerbackupservice_proto protoreflect.FileDescriptor
 
 const file_multipoolerbackupservice_proto_rawDesc = "" +
 	"\n" +
-	"\x1emultipoolerbackupservice.proto\x12\x18multipoolerbackupservice\"\x84\x01\n" +
-	"\x12BackupShardRequest\x12\x1f\n" +
+	"\x1emultipoolerbackupservice.proto\x12\x18multipoolerbackupservice\"\x7f\n" +
+	"\rBackupRequest\x12\x1f\n" +
 	"\vtable_group\x18\x01 \x01(\tR\n" +
 	"tableGroup\x12\x14\n" +
 	"\x05shard\x18\x02 \x01(\tR\x05shard\x12#\n" +
 	"\rforce_primary\x18\x03 \x01(\bR\fforcePrimary\x12\x12\n" +
-	"\x04type\x18\x04 \x01(\tR\x04type\"2\n" +
-	"\x13BackupShardResponse\x12\x1b\n" +
-	"\tbackup_id\x18\x01 \x01(\tR\bbackupId\"<\n" +
-	"\x1dRestoreShardFromBackupRequest\x12\x1b\n" +
-	"\tbackup_id\x18\x01 \x01(\tR\bbackupId\" \n" +
-	"\x1eRestoreShardFromBackupResponse\".\n" +
-	"\x16GetShardBackupsRequest\x12\x14\n" +
-	"\x05limit\x18\x01 \x01(\rR\x05limit\"]\n" +
-	"\x17GetShardBackupsResponse\x12B\n" +
+	"\x04type\x18\x04 \x01(\tR\x04type\"-\n" +
+	"\x0eBackupResponse\x12\x1b\n" +
+	"\tbackup_id\x18\x01 \x01(\tR\bbackupId\"7\n" +
+	"\x18RestoreFromBackupRequest\x12\x1b\n" +
+	"\tbackup_id\x18\x01 \x01(\tR\bbackupId\"\x1b\n" +
+	"\x19RestoreFromBackupResponse\")\n" +
+	"\x11GetBackupsRequest\x12\x14\n" +
+	"\x05limit\x18\x01 \x01(\rR\x05limit\"X\n" +
+	"\x12GetBackupsResponse\x12B\n" +
 	"\abackups\x18\x01 \x03(\v2(.multipoolerbackupservice.BackupMetadataR\abackups\"\xe2\x01\n" +
 	"\x0eBackupMetadata\x12\x1f\n" +
 	"\vtable_group\x18\x01 \x01(\tR\n" +
@@ -481,11 +481,12 @@ const file_multipoolerbackupservice_proto_rawDesc = "" +
 	"\aUNKNOWN\x10\x00\x12\x0e\n" +
 	"\n" +
 	"INCOMPLETE\x10\x01\x12\f\n" +
-	"\bCOMPLETE\x10\x022\x8c\x03\n" +
-	"\x18MultiPoolerBackupService\x12j\n" +
-	"\vBackupShard\x12,.multipoolerbackupservice.BackupShardRequest\x1a-.multipoolerbackupservice.BackupShardResponse\x12\x8b\x01\n" +
-	"\x16RestoreShardFromBackup\x127.multipoolerbackupservice.RestoreShardFromBackupRequest\x1a8.multipoolerbackupservice.RestoreShardFromBackupResponse\x12v\n" +
-	"\x0fGetShardBackups\x120.multipoolerbackupservice.GetShardBackupsRequest\x1a1.multipoolerbackupservice.GetShardBackupsResponseB?Z=github.com/multigres/multigres/go/pb/multipoolerbackupserviceb\x06proto3"
+	"\bCOMPLETE\x10\x022\xde\x02\n" +
+	"\x18MultiPoolerBackupService\x12[\n" +
+	"\x06Backup\x12'.multipoolerbackupservice.BackupRequest\x1a(.multipoolerbackupservice.BackupResponse\x12|\n" +
+	"\x11RestoreFromBackup\x122.multipoolerbackupservice.RestoreFromBackupRequest\x1a3.multipoolerbackupservice.RestoreFromBackupResponse\x12g\n" +
+	"\n" +
+	"GetBackups\x12+.multipoolerbackupservice.GetBackupsRequest\x1a,.multipoolerbackupservice.GetBackupsResponseB?Z=github.com/multigres/multigres/go/pb/multipoolerbackupserviceb\x06proto3"
 
 var (
 	file_multipoolerbackupservice_proto_rawDescOnce sync.Once
@@ -502,24 +503,24 @@ func file_multipoolerbackupservice_proto_rawDescGZIP() []byte {
 var file_multipoolerbackupservice_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
 var file_multipoolerbackupservice_proto_msgTypes = make([]protoimpl.MessageInfo, 7)
 var file_multipoolerbackupservice_proto_goTypes = []any{
-	(BackupMetadata_Status)(0),             // 0: multipoolerbackupservice.BackupMetadata.Status
-	(*BackupShardRequest)(nil),             // 1: multipoolerbackupservice.BackupShardRequest
-	(*BackupShardResponse)(nil),            // 2: multipoolerbackupservice.BackupShardResponse
-	(*RestoreShardFromBackupRequest)(nil),  // 3: multipoolerbackupservice.RestoreShardFromBackupRequest
-	(*RestoreShardFromBackupResponse)(nil), // 4: multipoolerbackupservice.RestoreShardFromBackupResponse
-	(*GetShardBackupsRequest)(nil),         // 5: multipoolerbackupservice.GetShardBackupsRequest
-	(*GetShardBackupsResponse)(nil),        // 6: multipoolerbackupservice.GetShardBackupsResponse
-	(*BackupMetadata)(nil),                 // 7: multipoolerbackupservice.BackupMetadata
+	(BackupMetadata_Status)(0),        // 0: multipoolerbackupservice.BackupMetadata.Status
+	(*BackupRequest)(nil),             // 1: multipoolerbackupservice.BackupRequest
+	(*BackupResponse)(nil),            // 2: multipoolerbackupservice.BackupResponse
+	(*RestoreFromBackupRequest)(nil),  // 3: multipoolerbackupservice.RestoreFromBackupRequest
+	(*RestoreFromBackupResponse)(nil), // 4: multipoolerbackupservice.RestoreFromBackupResponse
+	(*GetBackupsRequest)(nil),         // 5: multipoolerbackupservice.GetBackupsRequest
+	(*GetBackupsResponse)(nil),        // 6: multipoolerbackupservice.GetBackupsResponse
+	(*BackupMetadata)(nil),            // 7: multipoolerbackupservice.BackupMetadata
 }
 var file_multipoolerbackupservice_proto_depIdxs = []int32{
-	7, // 0: multipoolerbackupservice.GetShardBackupsResponse.backups:type_name -> multipoolerbackupservice.BackupMetadata
+	7, // 0: multipoolerbackupservice.GetBackupsResponse.backups:type_name -> multipoolerbackupservice.BackupMetadata
 	0, // 1: multipoolerbackupservice.BackupMetadata.status:type_name -> multipoolerbackupservice.BackupMetadata.Status
-	1, // 2: multipoolerbackupservice.MultiPoolerBackupService.BackupShard:input_type -> multipoolerbackupservice.BackupShardRequest
-	3, // 3: multipoolerbackupservice.MultiPoolerBackupService.RestoreShardFromBackup:input_type -> multipoolerbackupservice.RestoreShardFromBackupRequest
-	5, // 4: multipoolerbackupservice.MultiPoolerBackupService.GetShardBackups:input_type -> multipoolerbackupservice.GetShardBackupsRequest
-	2, // 5: multipoolerbackupservice.MultiPoolerBackupService.BackupShard:output_type -> multipoolerbackupservice.BackupShardResponse
-	4, // 6: multipoolerbackupservice.MultiPoolerBackupService.RestoreShardFromBackup:output_type -> multipoolerbackupservice.RestoreShardFromBackupResponse
-	6, // 7: multipoolerbackupservice.MultiPoolerBackupService.GetShardBackups:output_type -> multipoolerbackupservice.GetShardBackupsResponse
+	1, // 2: multipoolerbackupservice.MultiPoolerBackupService.Backup:input_type -> multipoolerbackupservice.BackupRequest
+	3, // 3: multipoolerbackupservice.MultiPoolerBackupService.RestoreFromBackup:input_type -> multipoolerbackupservice.RestoreFromBackupRequest
+	5, // 4: multipoolerbackupservice.MultiPoolerBackupService.GetBackups:input_type -> multipoolerbackupservice.GetBackupsRequest
+	2, // 5: multipoolerbackupservice.MultiPoolerBackupService.Backup:output_type -> multipoolerbackupservice.BackupResponse
+	4, // 6: multipoolerbackupservice.MultiPoolerBackupService.RestoreFromBackup:output_type -> multipoolerbackupservice.RestoreFromBackupResponse
+	6, // 7: multipoolerbackupservice.MultiPoolerBackupService.GetBackups:output_type -> multipoolerbackupservice.GetBackupsResponse
 	5, // [5:8] is the sub-list for method output_type
 	2, // [2:5] is the sub-list for method input_type
 	2, // [2:2] is the sub-list for extension type_name

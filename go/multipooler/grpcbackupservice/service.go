@@ -47,8 +47,8 @@ func RegisterBackupServices(senv *servenv.ServEnv, grpc *servenv.GrpcServer) {
 	})
 }
 
-// BackupShard performs a backup on a specific shard
-func (s *backupService) BackupShard(ctx context.Context, req *backupservicepb.BackupShardRequest) (*backupservicepb.BackupShardResponse, error) {
+// Backup performs a backup
+func (s *backupService) Backup(ctx context.Context, req *backupservicepb.BackupRequest) (*backupservicepb.BackupResponse, error) {
 	configPath := s.manager.GetBackupConfigPath()
 	stanzaName := s.manager.GetBackupStanza()
 
@@ -62,14 +62,14 @@ func (s *backupService) BackupShard(ctx context.Context, req *backupservicepb.Ba
 		return nil, mterrors.ToGRPC(err)
 	}
 
-	return &backupservicepb.BackupShardResponse{
+	return &backupservicepb.BackupResponse{
 		BackupId: result.BackupID,
 	}, nil
 }
 
-// RestoreShardFromBackup restores a shard from a backup
-func (s *backupService) RestoreShardFromBackup(ctx context.Context, req *backupservicepb.RestoreShardFromBackupRequest) (*backupservicepb.RestoreShardFromBackupResponse, error) {
-	slog.InfoContext(ctx, "RestoreShardFromBackup called", "backup_id", req.BackupId)
+// RestoreFromBackup restores from a backup
+func (s *backupService) RestoreFromBackup(ctx context.Context, req *backupservicepb.RestoreFromBackupRequest) (*backupservicepb.RestoreFromBackupResponse, error) {
+	slog.InfoContext(ctx, "RestoreFromBackup called", "backup_id", req.BackupId)
 
 	pgctldClient := s.manager.GetPgCtldClient()
 	configPath := s.manager.GetBackupConfigPath()
@@ -125,11 +125,11 @@ func (s *backupService) RestoreShardFromBackup(ctx context.Context, req *backups
 		return nil, mterrors.ToGRPC(err)
 	}
 
-	return &backupservicepb.RestoreShardFromBackupResponse{}, nil
+	return &backupservicepb.RestoreFromBackupResponse{}, nil
 }
 
-// GetShardBackups retrieves backup information for a shard
-func (s *backupService) GetShardBackups(ctx context.Context, req *backupservicepb.GetShardBackupsRequest) (*backupservicepb.GetShardBackupsResponse, error) {
+// GetBackups retrieves backup information
+func (s *backupService) GetBackups(ctx context.Context, req *backupservicepb.GetBackupsRequest) (*backupservicepb.GetBackupsResponse, error) {
 	configPath := s.manager.GetBackupConfigPath()
 	stanzaName := s.manager.GetBackupStanza()
 
@@ -140,7 +140,7 @@ func (s *backupService) GetShardBackups(ctx context.Context, req *backupservicep
 		return nil, mterrors.ToGRPC(err)
 	}
 
-	return &backupservicepb.GetShardBackupsResponse{
+	return &backupservicepb.GetBackupsResponse{
 		Backups: result.Backups,
 	}, nil
 }

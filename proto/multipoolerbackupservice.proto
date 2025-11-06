@@ -22,20 +22,20 @@ package multipoolerbackupservice;
 
 option go_package = "github.com/multigres/multigres/go/pb/multipoolerbackupservice";
 
-// MultiPoolerBackupService provides backup and restore operations for shards
+// MultiPoolerBackupService provides backup and restore operations
 service MultiPoolerBackupService {
-  // BackupShard performs a backup on a specific shard
-  rpc BackupShard(BackupShardRequest) returns (BackupShardResponse);
+  // Backup performs a backup
+  rpc Backup(BackupRequest) returns (BackupResponse);
 
-  // RestoreShardFromBackup restores a shard from a backup
-  rpc RestoreShardFromBackup(RestoreShardFromBackupRequest) returns (RestoreShardFromBackupResponse);
+  // RestoreFromBackup restores from a backup
+  rpc RestoreFromBackup(RestoreFromBackupRequest) returns (RestoreFromBackupResponse);
 
-  // GetShardBackups retrieves backup information for a shard
-  rpc GetShardBackups(GetShardBackupsRequest) returns (GetShardBackupsResponse);
+  // GetBackups retrieves backup information
+  rpc GetBackups(GetBackupsRequest) returns (GetBackupsResponse);
 }
 
-// BackupShardRequest requests a backup of a specific shard
-message BackupShardRequest {
+// BackupRequest requests a backup
+message BackupRequest {
   string table_group = 1;
   string shard = 2;
 
@@ -48,31 +48,31 @@ message BackupShardRequest {
   string type = 4;
 }
 
-// BackupShardResponse contains the result of a backup operation
-message BackupShardResponse {
+// BackupResponse contains the result of a backup operation
+message BackupResponse {
   // backup_id uniquely identifies a backup and can be used to restore this
   // backup in the future.
   string backup_id = 1;
 }
 
-// RestoreShardFromBackupRequest requests a restore of a shard from a backup
-message RestoreShardFromBackupRequest {
+// RestoreFromBackupRequest requests a restore from a backup
+message RestoreFromBackupRequest {
   // Backup to restore from. If this is empty, we restore from the latest
   // backup.
   string backup_id = 1;
 }
 
-// RestoreShardFromBackupResponse contains the result of a restore operation
-message RestoreShardFromBackupResponse {
+// RestoreFromBackupResponse contains the result of a restore operation
+message RestoreFromBackupResponse {
 }
 
-// GetShardBackupsRequest requests backup information for a shard
-message GetShardBackupsRequest {
+// GetBackupsRequest requests backup information
+message GetBackupsRequest {
   uint32 limit = 1;
 }
 
-// GetShardBackupsResponse contains the list of backups
-message GetShardBackupsResponse {
+// GetBackupsResponse contains the list of backups
+message GetBackupsResponse {
   repeated BackupMetadata backups = 1;
 }
 

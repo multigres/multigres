@@ -35,7 +35,7 @@ import (
 	backupservicepb "github.com/multigres/multigres/go/pb/multipoolerbackupservice"
 )
 
-func TestBackupService_BackupShard(t *testing.T) {
+func TestBackupService_Backup(t *testing.T) {
 	ctx := context.Background()
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
@@ -86,15 +86,15 @@ func TestBackupService_BackupShard(t *testing.T) {
 		manager: pm,
 	}
 
-	t.Run("BackupShard with missing table_group", func(t *testing.T) {
-		req := &backupservicepb.BackupShardRequest{
+	t.Run("Backup with missing table_group", func(t *testing.T) {
+		req := &backupservicepb.BackupRequest{
 			TableGroup:   "",
 			Shard:        "shard-1",
 			ForcePrimary: false,
 			Type:         "full",
 		}
 
-		resp, err := svc.BackupShard(ctx, req)
+		resp, err := svc.Backup(ctx, req)
 
 		assert.Error(t, err)
 		assert.Nil(t, resp)
@@ -103,15 +103,15 @@ func TestBackupService_BackupShard(t *testing.T) {
 		assert.Contains(t, err.Error(), "table_group is required")
 	})
 
-	t.Run("BackupShard with missing shard", func(t *testing.T) {
-		req := &backupservicepb.BackupShardRequest{
+	t.Run("Backup with missing shard", func(t *testing.T) {
+		req := &backupservicepb.BackupRequest{
 			TableGroup:   "tg-1",
 			Shard:        "",
 			ForcePrimary: false,
 			Type:         "full",
 		}
 
-		resp, err := svc.BackupShard(ctx, req)
+		resp, err := svc.Backup(ctx, req)
 
 		assert.Error(t, err)
 		assert.Nil(t, resp)
@@ -120,15 +120,15 @@ func TestBackupService_BackupShard(t *testing.T) {
 		assert.Contains(t, err.Error(), "shard is required")
 	})
 
-	t.Run("BackupShard with missing type", func(t *testing.T) {
-		req := &backupservicepb.BackupShardRequest{
+	t.Run("Backup with missing type", func(t *testing.T) {
+		req := &backupservicepb.BackupRequest{
 			TableGroup:   "tg-1",
 			Shard:        "shard-1",
 			ForcePrimary: false,
 			Type:         "",
 		}
 
-		resp, err := svc.BackupShard(ctx, req)
+		resp, err := svc.Backup(ctx, req)
 
 		assert.Error(t, err)
 		assert.Nil(t, resp)
@@ -137,15 +137,15 @@ func TestBackupService_BackupShard(t *testing.T) {
 		assert.Contains(t, err.Error(), "type is required")
 	})
 
-	t.Run("BackupShard with invalid type", func(t *testing.T) {
-		req := &backupservicepb.BackupShardRequest{
+	t.Run("Backup with invalid type", func(t *testing.T) {
+		req := &backupservicepb.BackupRequest{
 			TableGroup:   "tg-1",
 			Shard:        "shard-1",
 			ForcePrimary: false,
 			Type:         "invalid",
 		}
 
-		resp, err := svc.BackupShard(ctx, req)
+		resp, err := svc.Backup(ctx, req)
 
 		assert.Error(t, err)
 		assert.Nil(t, resp)
@@ -154,15 +154,15 @@ func TestBackupService_BackupShard(t *testing.T) {
 		assert.Contains(t, err.Error(), "invalid backup type")
 	})
 
-	t.Run("BackupShard with valid request fails without PostgreSQL", func(t *testing.T) {
-		req := &backupservicepb.BackupShardRequest{
+	t.Run("Backup with valid request fails without PostgreSQL", func(t *testing.T) {
+		req := &backupservicepb.BackupRequest{
 			TableGroup:   "tg-1",
 			Shard:        "shard-1",
 			ForcePrimary: false,
 			Type:         "full",
 		}
 
-		resp, err := svc.BackupShard(ctx, req)
+		resp, err := svc.Backup(ctx, req)
 
 		assert.Error(t, err)
 		assert.Nil(t, resp)
@@ -171,15 +171,15 @@ func TestBackupService_BackupShard(t *testing.T) {
 		assert.Contains(t, err.Error(), "pgbackrest")
 	})
 
-	t.Run("BackupShard with differential type", func(t *testing.T) {
-		req := &backupservicepb.BackupShardRequest{
+	t.Run("Backup with differential type", func(t *testing.T) {
+		req := &backupservicepb.BackupRequest{
 			TableGroup:   "tg-1",
 			Shard:        "shard-1",
 			ForcePrimary: true,
 			Type:         "differential",
 		}
 
-		resp, err := svc.BackupShard(ctx, req)
+		resp, err := svc.Backup(ctx, req)
 
 		assert.Error(t, err)
 		assert.Nil(t, resp)
@@ -187,15 +187,15 @@ func TestBackupService_BackupShard(t *testing.T) {
 		assert.Equal(t, mtrpcpb.Code_INTERNAL, mterrors.Code(mterr))
 	})
 
-	t.Run("BackupShard with incremental type", func(t *testing.T) {
-		req := &backupservicepb.BackupShardRequest{
+	t.Run("Backup with incremental type", func(t *testing.T) {
+		req := &backupservicepb.BackupRequest{
 			TableGroup:   "tg-1",
 			Shard:        "shard-1",
 			ForcePrimary: false,
 			Type:         "incremental",
 		}
 
-		resp, err := svc.BackupShard(ctx, req)
+		resp, err := svc.Backup(ctx, req)
 
 		assert.Error(t, err)
 		assert.Nil(t, resp)
@@ -204,7 +204,7 @@ func TestBackupService_BackupShard(t *testing.T) {
 	})
 }
 
-func TestBackupService_RestoreShardFromBackup(t *testing.T) {
+func TestBackupService_RestoreFromBackup(t *testing.T) {
 	ctx := context.Background()
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
@@ -255,12 +255,12 @@ func TestBackupService_RestoreShardFromBackup(t *testing.T) {
 		manager: pm,
 	}
 
-	t.Run("RestoreShardFromBackup with specific backup_id fails without PostgreSQL", func(t *testing.T) {
-		req := &backupservicepb.RestoreShardFromBackupRequest{
+	t.Run("RestoreFromBackup with specific backup_id fails without PostgreSQL", func(t *testing.T) {
+		req := &backupservicepb.RestoreFromBackupRequest{
 			BackupId: "20250104-100000F",
 		}
 
-		resp, err := svc.RestoreShardFromBackup(ctx, req)
+		resp, err := svc.RestoreFromBackup(ctx, req)
 
 		assert.Error(t, err)
 		assert.Nil(t, resp)
@@ -268,12 +268,12 @@ func TestBackupService_RestoreShardFromBackup(t *testing.T) {
 		assert.Contains(t, err.Error(), "database connection not established")
 	})
 
-	t.Run("RestoreShardFromBackup with empty backup_id fails without PostgreSQL", func(t *testing.T) {
-		req := &backupservicepb.RestoreShardFromBackupRequest{
+	t.Run("RestoreFromBackup with empty backup_id fails without PostgreSQL", func(t *testing.T) {
+		req := &backupservicepb.RestoreFromBackupRequest{
 			BackupId: "",
 		}
 
-		resp, err := svc.RestoreShardFromBackup(ctx, req)
+		resp, err := svc.RestoreFromBackup(ctx, req)
 
 		assert.Error(t, err)
 		assert.Nil(t, resp)
@@ -282,7 +282,7 @@ func TestBackupService_RestoreShardFromBackup(t *testing.T) {
 	})
 }
 
-func TestBackupService_GetShardBackups(t *testing.T) {
+func TestBackupService_GetBackups(t *testing.T) {
 	ctx := context.Background()
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
@@ -333,24 +333,24 @@ func TestBackupService_GetShardBackups(t *testing.T) {
 		manager: pm,
 	}
 
-	t.Run("GetShardBackups with no limit returns empty list when stanza doesn't exist", func(t *testing.T) {
-		req := &backupservicepb.GetShardBackupsRequest{
+	t.Run("GetBackups with no limit returns empty list when stanza doesn't exist", func(t *testing.T) {
+		req := &backupservicepb.GetBackupsRequest{
 			Limit: 0,
 		}
 
-		resp, err := svc.GetShardBackups(ctx, req)
+		resp, err := svc.GetBackups(ctx, req)
 
 		assert.NoError(t, err)
 		assert.NotNil(t, resp)
 		assert.Empty(t, resp.Backups)
 	})
 
-	t.Run("GetShardBackups with limit returns empty list when stanza doesn't exist", func(t *testing.T) {
-		req := &backupservicepb.GetShardBackupsRequest{
+	t.Run("GetBackups with limit returns empty list when stanza doesn't exist", func(t *testing.T) {
+		req := &backupservicepb.GetBackupsRequest{
 			Limit: 10,
 		}
 
-		resp, err := svc.GetShardBackups(ctx, req)
+		resp, err := svc.GetBackups(ctx, req)
 
 		assert.NoError(t, err)
 		assert.NotNil(t, resp)
@@ -415,40 +415,40 @@ func TestBackupService_AllMethods(t *testing.T) {
 		expectedCode mtrpcpb.Code
 	}{
 		{
-			name: "BackupShard with valid params",
+			name: "Backup with valid params",
 			method: func() error {
-				req := &backupservicepb.BackupShardRequest{
+				req := &backupservicepb.BackupRequest{
 					TableGroup:   "tg-1",
 					Shard:        "shard-1",
 					ForcePrimary: false,
 					Type:         "full",
 				}
-				_, err := svc.BackupShard(ctx, req)
+				_, err := svc.Backup(ctx, req)
 				return err
 			},
 			expectedCode: mtrpcpb.Code_INTERNAL,
 		},
 		{
-			name: "BackupShard with invalid type",
+			name: "Backup with invalid type",
 			method: func() error {
-				req := &backupservicepb.BackupShardRequest{
+				req := &backupservicepb.BackupRequest{
 					TableGroup:   "tg-1",
 					Shard:        "shard-1",
 					ForcePrimary: false,
 					Type:         "invalid",
 				}
-				_, err := svc.BackupShard(ctx, req)
+				_, err := svc.Backup(ctx, req)
 				return err
 			},
 			expectedCode: mtrpcpb.Code_INVALID_ARGUMENT,
 		},
 		{
-			name: "RestoreShardFromBackup",
+			name: "RestoreFromBackup",
 			method: func() error {
-				req := &backupservicepb.RestoreShardFromBackupRequest{
+				req := &backupservicepb.RestoreFromBackupRequest{
 					BackupId: "20250104-100000F",
 				}
-				_, err := svc.RestoreShardFromBackup(ctx, req)
+				_, err := svc.RestoreFromBackup(ctx, req)
 				return err
 			},
 			// Now fails when checking recovery status (no DB connection), not at pgbackrest execution

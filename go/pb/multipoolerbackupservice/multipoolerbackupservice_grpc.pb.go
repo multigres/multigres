@@ -36,21 +36,21 @@ import (
 const _ = grpc.SupportPackageIsVersion7
 
 const (
-	MultiPoolerBackupService_BackupShard_FullMethodName            = "/multipoolerbackupservice.MultiPoolerBackupService/BackupShard"
-	MultiPoolerBackupService_RestoreShardFromBackup_FullMethodName = "/multipoolerbackupservice.MultiPoolerBackupService/RestoreShardFromBackup"
-	MultiPoolerBackupService_GetShardBackups_FullMethodName        = "/multipoolerbackupservice.MultiPoolerBackupService/GetShardBackups"
+	MultiPoolerBackupService_Backup_FullMethodName            = "/multipoolerbackupservice.MultiPoolerBackupService/Backup"
+	MultiPoolerBackupService_RestoreFromBackup_FullMethodName = "/multipoolerbackupservice.MultiPoolerBackupService/RestoreFromBackup"
+	MultiPoolerBackupService_GetBackups_FullMethodName        = "/multipoolerbackupservice.MultiPoolerBackupService/GetBackups"
 )
 
 // MultiPoolerBackupServiceClient is the client API for MultiPoolerBackupService service.
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type MultiPoolerBackupServiceClient interface {
-	// BackupShard performs a backup on a specific shard
-	BackupShard(ctx context.Context, in *BackupShardRequest, opts ...grpc.CallOption) (*BackupShardResponse, error)
-	// RestoreShardFromBackup restores a shard from a backup
-	RestoreShardFromBackup(ctx context.Context, in *RestoreShardFromBackupRequest, opts ...grpc.CallOption) (*RestoreShardFromBackupResponse, error)
-	// GetShardBackups retrieves backup information for a shard
-	GetShardBackups(ctx context.Context, in *GetShardBackupsRequest, opts ...grpc.CallOption) (*GetShardBackupsResponse, error)
+	// Backup performs a backup
+	Backup(ctx context.Context, in *BackupRequest, opts ...grpc.CallOption) (*BackupResponse, error)
+	// RestoreFromBackup restores from a backup
+	RestoreFromBackup(ctx context.Context, in *RestoreFromBackupRequest, opts ...grpc.CallOption) (*RestoreFromBackupResponse, error)
+	// GetBackups retrieves backup information
+	GetBackups(ctx context.Context, in *GetBackupsRequest, opts ...grpc.CallOption) (*GetBackupsResponse, error)
 }
 
 type multiPoolerBackupServiceClient struct {
@@ -61,27 +61,27 @@ func NewMultiPoolerBackupServiceClient(cc grpc.ClientConnInterface) MultiPoolerB
 	return &multiPoolerBackupServiceClient{cc}
 }
 
-func (c *multiPoolerBackupServiceClient) BackupShard(ctx context.Context, in *BackupShardRequest, opts ...grpc.CallOption) (*BackupShardResponse, error) {
-	out := new(BackupShardResponse)
-	err := c.cc.Invoke(ctx, MultiPoolerBackupService_BackupShard_FullMethodName, in, out, opts...)
+func (c *multiPoolerBackupServiceClient) Backup(ctx context.Context, in *BackupRequest, opts ...grpc.CallOption) (*BackupResponse, error) {
+	out := new(BackupResponse)
+	err := c.cc.Invoke(ctx, MultiPoolerBackupService_Backup_FullMethodName, in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *multiPoolerBackupServiceClient) RestoreShardFromBackup(ctx context.Context, in *RestoreShardFromBackupRequest, opts ...grpc.CallOption) (*RestoreShardFromBackupResponse, error) {
-	out := new(RestoreShardFromBackupResponse)
-	err := c.cc.Invoke(ctx, MultiPoolerBackupService_RestoreShardFromBackup_FullMethodName, in, out, opts...)
+func (c *multiPoolerBackupServiceClient) RestoreFromBackup(ctx context.Context, in *RestoreFromBackupRequest, opts ...grpc.CallOption) (*RestoreFromBackupResponse, error) {
+	out := new(RestoreFromBackupResponse)
+	err := c.cc.Invoke(ctx, MultiPoolerBackupService_RestoreFromBackup_FullMethodName, in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *multiPoolerBackupServiceClient) GetShardBackups(ctx context.Context, in *GetShardBackupsRequest, opts ...grpc.CallOption) (*GetShardBackupsResponse, error) {
-	out := new(GetShardBackupsResponse)
-	err := c.cc.Invoke(ctx, MultiPoolerBackupService_GetShardBackups_FullMethodName, in, out, opts...)
+func (c *multiPoolerBackupServiceClient) GetBackups(ctx context.Context, in *GetBackupsRequest, opts ...grpc.CallOption) (*GetBackupsResponse, error) {
+	out := new(GetBackupsResponse)
+	err := c.cc.Invoke(ctx, MultiPoolerBackupService_GetBackups_FullMethodName, in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -92,12 +92,12 @@ func (c *multiPoolerBackupServiceClient) GetShardBackups(ctx context.Context, in
 // All implementations must embed UnimplementedMultiPoolerBackupServiceServer
 // for forward compatibility
 type MultiPoolerBackupServiceServer interface {
-	// BackupShard performs a backup on a specific shard
-	BackupShard(context.Context, *BackupShardRequest) (*BackupShardResponse, error)
-	// RestoreShardFromBackup restores a shard from a backup
-	RestoreShardFromBackup(context.Context, *RestoreShardFromBackupRequest) (*RestoreShardFromBackupResponse, error)
-	// GetShardBackups retrieves backup information for a shard
-	GetShardBackups(context.Context, *GetShardBackupsRequest) (*GetShardBackupsResponse, error)
+	// Backup performs a backup
+	Backup(context.Context, *BackupRequest) (*BackupResponse, error)
+	// RestoreFromBackup restores from a backup
+	RestoreFromBackup(context.Context, *RestoreFromBackupRequest) (*RestoreFromBackupResponse, error)
+	// GetBackups retrieves backup information
+	GetBackups(context.Context, *GetBackupsRequest) (*GetBackupsResponse, error)
 	mustEmbedUnimplementedMultiPoolerBackupServiceServer()
 }
 
@@ -105,14 +105,14 @@ type MultiPoolerBackupServiceServer interface {
 type UnimplementedMultiPoolerBackupServiceServer struct {
 }
 
-func (UnimplementedMultiPoolerBackupServiceServer) BackupShard(context.Context, *BackupShardRequest) (*BackupShardResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method BackupShard not implemented")
+func (UnimplementedMultiPoolerBackupServiceServer) Backup(context.Context, *BackupRequest) (*BackupResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method Backup not implemented")
 }
-func (UnimplementedMultiPoolerBackupServiceServer) RestoreShardFromBackup(context.Context, *RestoreShardFromBackupRequest) (*RestoreShardFromBackupResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method RestoreShardFromBackup not implemented")
+func (UnimplementedMultiPoolerBackupServiceServer) RestoreFromBackup(context.Context, *RestoreFromBackupRequest) (*RestoreFromBackupResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method RestoreFromBackup not implemented")
 }
-func (UnimplementedMultiPoolerBackupServiceServer) GetShardBackups(context.Context, *GetShardBackupsRequest) (*GetShardBackupsResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method GetShardBackups not implemented")
+func (UnimplementedMultiPoolerBackupServiceServer) GetBackups(context.Context, *GetBackupsRequest) (*GetBackupsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetBackups not implemented")
 }
 func (UnimplementedMultiPoolerBackupServiceServer) mustEmbedUnimplementedMultiPoolerBackupServiceServer() {
 }
@@ -128,56 +128,56 @@ func RegisterMultiPoolerBackupServiceServer(s grpc.ServiceRegistrar, srv MultiPo
 	s.RegisterService(&MultiPoolerBackupService_ServiceDesc, srv)
 }
 
-func _MultiPoolerBackupService_BackupShard_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(BackupShardRequest)
+func _MultiPoolerBackupService_Backup_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(BackupRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(MultiPoolerBackupServiceServer).BackupShard(ctx, in)
+		return srv.(MultiPoolerBackupServiceServer).Backup(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: MultiPoolerBackupService_BackupShard_FullMethodName,
+		FullMethod: MultiPoolerBackupService_Backup_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(MultiPoolerBackupServiceServer).BackupShard(ctx, req.(*BackupShardRequest))
+		return srv.(MultiPoolerBackupServiceServer).Backup(ctx, req.(*BackupRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _MultiPoolerBackupService_RestoreShardFromBackup_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(RestoreShardFromBackupRequest)
+func _MultiPoolerBackupService_RestoreFromBackup_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RestoreFromBackupRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(MultiPoolerBackupServiceServer).RestoreShardFromBackup(ctx, in)
+		return srv.(MultiPoolerBackupServiceServer).RestoreFromBackup(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: MultiPoolerBackupService_RestoreShardFromBackup_FullMethodName,
+		FullMethod: MultiPoolerBackupService_RestoreFromBackup_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(MultiPoolerBackupServiceServer).RestoreShardFromBackup(ctx, req.(*RestoreShardFromBackupRequest))
+		return srv.(MultiPoolerBackupServiceServer).RestoreFromBackup(ctx, req.(*RestoreFromBackupRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _MultiPoolerBackupService_GetShardBackups_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(GetShardBackupsRequest)
+func _MultiPoolerBackupService_GetBackups_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetBackupsRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(MultiPoolerBackupServiceServer).GetShardBackups(ctx, in)
+		return srv.(MultiPoolerBackupServiceServer).GetBackups(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: MultiPoolerBackupService_GetShardBackups_FullMethodName,
+		FullMethod: MultiPoolerBackupService_GetBackups_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(MultiPoolerBackupServiceServer).GetShardBackups(ctx, req.(*GetShardBackupsRequest))
+		return srv.(MultiPoolerBackupServiceServer).GetBackups(ctx, req.(*GetBackupsRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -190,16 +190,16 @@ var MultiPoolerBackupService_ServiceDesc = grpc.ServiceDesc{
 	HandlerType: (*MultiPoolerBackupServiceServer)(nil),
 	Methods: []grpc.MethodDesc{
 		{
-			MethodName: "BackupShard",
-			Handler:    _MultiPoolerBackupService_BackupShard_Handler,
+			MethodName: "Backup",
+			Handler:    _MultiPoolerBackupService_Backup_Handler,
 		},
 		{
-			MethodName: "RestoreShardFromBackup",
-			Handler:    _MultiPoolerBackupService_RestoreShardFromBackup_Handler,
+			MethodName: "RestoreFromBackup",
+			Handler:    _MultiPoolerBackupService_RestoreFromBackup_Handler,
 		},
 		{
-			MethodName: "GetShardBackups",
-			Handler:    _MultiPoolerBackupService_GetShardBackups_Handler,
+			MethodName: "GetBackups",
+			Handler:    _MultiPoolerBackupService_GetBackups_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

@@ -114,7 +114,7 @@ func TestBackup_CreateListAndRestore(t *testing.T) {
 	t.Run("CreateFullBackup", func(t *testing.T) {
 		t.Log("Step 2: Creating full backup...")
 
-		req := &backupservicepb.BackupShardRequest{
+		req := &backupservicepb.BackupRequest{
 			TableGroup:   "test",
 			Shard:        "default",
 			ForcePrimary: false,
@@ -124,7 +124,7 @@ func TestBackup_CreateListAndRestore(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 		defer cancel()
 
-		resp, err := backupClient.BackupShard(ctx, req)
+		resp, err := backupClient.Backup(ctx, req)
 		require.NoError(t, err, "Full backup should succeed")
 		require.NotNil(t, resp, "Response should not be nil")
 
@@ -143,12 +143,12 @@ func TestBackup_CreateListAndRestore(t *testing.T) {
 		t.Run("ListBackups_VerifyFullBackup", func(t *testing.T) {
 			t.Log("Step 3: Listing backups to verify full backup...")
 
-			listReq := &backupservicepb.GetShardBackupsRequest{
+			listReq := &backupservicepb.GetBackupsRequest{
 				Limit: 10,
 			}
 
 			listCtx := utils.WithShortDeadline(t)
-			listResp, err := backupClient.GetShardBackups(listCtx, listReq)
+			listResp, err := backupClient.GetBackups(listCtx, listReq)
 			require.NoError(t, err, "Listing backups should succeed")
 			require.NotNil(t, listResp, "List response should not be nil")
 
@@ -196,12 +196,12 @@ func TestBackup_CreateListAndRestore(t *testing.T) {
 
 			t.Log("Step 5: Verifying backup exists in standby's list...")
 
-			listReq := &backupservicepb.GetShardBackupsRequest{
+			listReq := &backupservicepb.GetBackupsRequest{
 				Limit: 20,
 			}
 
 			listCtx := utils.WithShortDeadline(t)
-			listResp, err := standbyBackupClient.GetShardBackups(listCtx, listReq)
+			listResp, err := standbyBackupClient.GetBackups(listCtx, listReq)
 			require.NoError(t, err, "Listing backups should succeed")
 			require.NotNil(t, listResp, "List response should not be nil")
 
@@ -221,14 +221,14 @@ func TestBackup_CreateListAndRestore(t *testing.T) {
 
 			t.Log("Step 6: Restoring from backup to standby...")
 
-			restoreReq := &backupservicepb.RestoreShardFromBackupRequest{
+			restoreReq := &backupservicepb.RestoreFromBackupRequest{
 				BackupId: fullBackupID,
 			}
 
 			restoreCtx, restoreCancel := context.WithTimeout(context.Background(), 10*time.Minute)
 			defer restoreCancel()
 
-			_, err = standbyBackupClient.RestoreShardFromBackup(restoreCtx, restoreReq)
+			_, err = standbyBackupClient.RestoreFromBackup(restoreCtx, restoreReq)
 			require.NoError(t, err, "Restore to standby should succeed")
 			t.Log("Restore to standby completed successfully")
 
@@ -300,12 +300,12 @@ func TestBackup_CreateListAndRestore(t *testing.T) {
 		t.Run("ListBackups_WithoutLimit", func(t *testing.T) {
 			t.Log("Listing backups without limit...")
 
-			listReq := &backupservicepb.GetShardBackupsRequest{
+			listReq := &backupservicepb.GetBackupsRequest{
 				Limit: 0, // No limit
 			}
 
 			listCtx := utils.WithShortDeadline(t)
-			listResp, err := backupClient.GetShardBackups(listCtx, listReq)
+			listResp, err := backupClient.GetBackups(listCtx, listReq)
 			require.NoError(t, err, "Listing backups without limit should succeed")
 			require.NotNil(t, listResp, "List response should not be nil")
 
@@ -318,12 +318,12 @@ func TestBackup_CreateListAndRestore(t *testing.T) {
 		t.Run("ListBackups_WithSmallLimit", func(t *testing.T) {
 			t.Log("Listing backups with limit=1...")
 
-			listReq := &backupservicepb.GetShardBackupsRequest{
+			listReq := &backupservicepb.GetBackupsRequest{
 				Limit: 1,
 			}
 
 			listCtx := utils.WithShortDeadline(t)
-			listResp, err := backupClient.GetShardBackups(listCtx, listReq)
+			listResp, err := backupClient.GetBackups(listCtx, listReq)
 			require.NoError(t, err, "Listing backups with limit should succeed")
 			require.NotNil(t, listResp, "List response should not be nil")
 
@@ -338,7 +338,7 @@ func TestBackup_CreateListAndRestore(t *testing.T) {
 	t.Run("CreateDifferentialBackup", func(t *testing.T) {
 		t.Log("Creating differential backup...")
 
-		req := &backupservicepb.BackupShardRequest{
+		req := &backupservicepb.BackupRequest{
 			TableGroup:   "test",
 			Shard:        "default",
 			ForcePrimary: false,
@@ -348,7 +348,7 @@ func TestBackup_CreateListAndRestore(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 		defer cancel()
 
-		resp, err := backupClient.BackupShard(ctx, req)
+		resp, err := backupClient.Backup(ctx, req)
 		require.NoError(t, err, "Differential backup should succeed")
 		require.NotNil(t, resp, "Response should not be nil")
 
@@ -362,12 +362,12 @@ func TestBackup_CreateListAndRestore(t *testing.T) {
 		t.Logf("Differential backup created successfully with ID: %s", resp.BackupId)
 
 		// Verify differential backup appears in list
-		listReq := &backupservicepb.GetShardBackupsRequest{
+		listReq := &backupservicepb.GetBackupsRequest{
 			Limit: 10,
 		}
 
 		listCtx := utils.WithShortDeadline(t)
-		listResp, err := backupClient.GetShardBackups(listCtx, listReq)
+		listResp, err := backupClient.GetBackups(listCtx, listReq)
 		require.NoError(t, err, "Listing backups should succeed")
 
 		// Should now have at least 2 backups (full + differential)
@@ -380,7 +380,7 @@ func TestBackup_CreateListAndRestore(t *testing.T) {
 	t.Run("CreateIncrementalBackup", func(t *testing.T) {
 		t.Log("Creating incremental backup...")
 
-		req := &backupservicepb.BackupShardRequest{
+		req := &backupservicepb.BackupRequest{
 			TableGroup:   "test",
 			Shard:        "default",
 			ForcePrimary: false,
@@ -390,7 +390,7 @@ func TestBackup_CreateListAndRestore(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 		defer cancel()
 
-		resp, err := backupClient.BackupShard(ctx, req)
+		resp, err := backupClient.Backup(ctx, req)
 		require.NoError(t, err, "Incremental backup should succeed")
 		require.NotNil(t, resp, "Response should not be nil")
 
@@ -404,12 +404,12 @@ func TestBackup_CreateListAndRestore(t *testing.T) {
 		t.Logf("Incremental backup created successfully with ID: %s", resp.BackupId)
 
 		// Verify incremental backup appears in list
-		listReq := &backupservicepb.GetShardBackupsRequest{
+		listReq := &backupservicepb.GetBackupsRequest{
 			Limit: 10,
 		}
 
 		listCtx := utils.WithShortDeadline(t)
-		listResp, err := backupClient.GetShardBackups(listCtx, listReq)
+		listResp, err := backupClient.GetBackups(listCtx, listReq)
 		require.NoError(t, err, "Listing backups should succeed")
 
 		// Should now have at least 3 backups (full + differential + incremental)
@@ -441,7 +441,7 @@ func TestBackup_ValidationErrors(t *testing.T) {
 	backupClient := backupservicepb.NewMultiPoolerBackupServiceClient(conn)
 
 	t.Run("MissingTableGroup", func(t *testing.T) {
-		req := &backupservicepb.BackupShardRequest{
+		req := &backupservicepb.BackupRequest{
 			TableGroup:   "", // Missing
 			Shard:        "default",
 			ForcePrimary: false,
@@ -449,7 +449,7 @@ func TestBackup_ValidationErrors(t *testing.T) {
 		}
 
 		ctx := utils.WithShortDeadline(t)
-		resp, err := backupClient.BackupShard(ctx, req)
+		resp, err := backupClient.Backup(ctx, req)
 
 		assert.Error(t, err, "Should return error for missing table_group")
 		assert.Nil(t, resp, "Response should be nil on error")
@@ -457,7 +457,7 @@ func TestBackup_ValidationErrors(t *testing.T) {
 	})
 
 	t.Run("MissingShard", func(t *testing.T) {
-		req := &backupservicepb.BackupShardRequest{
+		req := &backupservicepb.BackupRequest{
 			TableGroup:   "test",
 			Shard:        "", // Missing
 			ForcePrimary: false,
@@ -465,7 +465,7 @@ func TestBackup_ValidationErrors(t *testing.T) {
 		}
 
 		ctx := utils.WithShortDeadline(t)
-		resp, err := backupClient.BackupShard(ctx, req)
+		resp, err := backupClient.Backup(ctx, req)
 
 		assert.Error(t, err, "Should return error for missing shard")
 		assert.Nil(t, resp, "Response should be nil on error")
@@ -473,7 +473,7 @@ func TestBackup_ValidationErrors(t *testing.T) {
 	})
 
 	t.Run("MissingType", func(t *testing.T) {
-		req := &backupservicepb.BackupShardRequest{
+		req := &backupservicepb.BackupRequest{
 			TableGroup:   "test",
 			Shard:        "default",
 			ForcePrimary: false,
@@ -481,7 +481,7 @@ func TestBackup_ValidationErrors(t *testing.T) {
 		}
 
 		ctx := utils.WithShortDeadline(t)
-		resp, err := backupClient.BackupShard(ctx, req)
+		resp, err := backupClient.Backup(ctx, req)
 
 		assert.Error(t, err, "Should return error for missing type")
 		assert.Nil(t, resp, "Response should be nil on error")
@@ -489,7 +489,7 @@ func TestBackup_ValidationErrors(t *testing.T) {
 	})
 
 	t.Run("InvalidType", func(t *testing.T) {
-		req := &backupservicepb.BackupShardRequest{
+		req := &backupservicepb.BackupRequest{
 			TableGroup:   "test",
 			Shard:        "default",
 			ForcePrimary: false,
@@ -497,7 +497,7 @@ func TestBackup_ValidationErrors(t *testing.T) {
 		}
 
 		ctx := utils.WithShortDeadline(t)
-		resp, err := backupClient.BackupShard(ctx, req)
+		resp, err := backupClient.Backup(ctx, req)
 
 		assert.Error(t, err, "Should return error for invalid type")
 		assert.Nil(t, resp, "Response should be nil on error")
@@ -528,7 +528,7 @@ func TestBackup_FromStandby(t *testing.T) {
 	t.Run("CreateFullBackupFromStandby", func(t *testing.T) {
 		t.Log("Creating full backup from standby...")
 
-		req := &backupservicepb.BackupShardRequest{
+		req := &backupservicepb.BackupRequest{
 			TableGroup:   "test",
 			Shard:        "default",
 			ForcePrimary: false, // Should use standby since we're connected to standby
@@ -538,7 +538,7 @@ func TestBackup_FromStandby(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 		defer cancel()
 
-		resp, err := backupClient.BackupShard(ctx, req)
+		resp, err := backupClient.Backup(ctx, req)
 		require.NoError(t, err, "Full backup from standby should succeed")
 		require.NotNil(t, resp, "Response should not be nil")
 
@@ -553,12 +553,12 @@ func TestBackup_FromStandby(t *testing.T) {
 		t.Logf("Full backup from standby created successfully with ID: %s", resp.BackupId)
 
 		// Verify backup appears in standby's backup list
-		listReq := &backupservicepb.GetShardBackupsRequest{
+		listReq := &backupservicepb.GetBackupsRequest{
 			Limit: 10,
 		}
 
 		listCtx := utils.WithShortDeadline(t)
-		listResp, err := backupClient.GetShardBackups(listCtx, listReq)
+		listResp, err := backupClient.GetBackups(listCtx, listReq)
 		require.NoError(t, err, "Listing backups from standby should succeed")
 		require.NotNil(t, listResp, "List response should not be nil")
 
@@ -586,7 +586,7 @@ func TestBackup_FromStandby(t *testing.T) {
 	t.Run("CreateIncrementalBackupFromStandby", func(t *testing.T) {
 		t.Log("Creating incremental backup from standby...")
 
-		req := &backupservicepb.BackupShardRequest{
+		req := &backupservicepb.BackupRequest{
 			TableGroup:   "test",
 			Shard:        "default",
 			ForcePrimary: false,
@@ -596,7 +596,7 @@ func TestBackup_FromStandby(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 		defer cancel()
 
-		resp, err := backupClient.BackupShard(ctx, req)
+		resp, err := backupClient.Backup(ctx, req)
 		require.NoError(t, err, "Incremental backup from standby should succeed")
 		require.NotNil(t, resp, "Response should not be nil")
 
