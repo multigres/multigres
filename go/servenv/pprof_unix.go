@@ -35,31 +35,23 @@ func (sv *ServEnv) pprofInit() {
 	}
 	if prof != nil {
 		start, stop := prof.init()
-		startSignal := make(chan os.Signal, 1)
-		stopSignal := make(chan os.Signal, 1)
 
-		if prof.waitSig {
-			signal.Notify(startSignal, syscall.SIGUSR1)
-		} else {
+		// Start profiling immediately if waitSig is false
+		if !prof.waitSig {
 			start()
-			signal.Notify(stopSignal, syscall.SIGUSR1)
 		}
 
-		go func() {
-			for {
-				<-startSignal
-				start()
-				signal.Reset(syscall.SIGUSR1)
-				signal.Notify(stopSignal, syscall.SIGUSR1)
-			}
-		}()
+		sigChan := make(chan os.Signal, 1)
+		signal.Notify(sigChan, syscall.SIGUSR1)
 
 		go func() {
-			for {
-				<-stopSignal
-				stop()
-				signal.Reset(syscall.SIGUSR1)
-				signal.Notify(startSignal, syscall.SIGUSR1)
+			for range sigChan {
+				// Check current state and toggle
+				if isProfileStarted() {
+					stop()
+				} else {
+					start()
+				}
 			}
 		}()
 
