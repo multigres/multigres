@@ -433,7 +433,7 @@ func initializePrimary(t *testing.T, pgctld *ProcessInstance, multipooler *Proce
 	// Initialize consensus term to 1 via multipooler manager API
 	t.Logf("Initializing consensus term to 1 for primary...")
 	initialTerm := &multipoolermanagerdatapb.ConsensusTerm{
-		CurrentTerm:        1,
+		TermNumber:         1,
 		AcceptedLeader:     nil,
 		LastAcceptanceTime: nil,
 		LeaderId:           nil,
@@ -510,7 +510,7 @@ func initializeStandby(t *testing.T, primaryPgctld *ProcessInstance, standbyPgct
 	// Initialize consensus term to 1 via multipooler manager API
 	t.Logf("Initializing consensus term to 1 for standby...")
 	initialTerm := &multipoolermanagerdatapb.ConsensusTerm{
-		CurrentTerm:        1,
+		TermNumber:         1,
 		AcceptedLeader:     nil,
 		LastAcceptanceTime: nil,
 		LeaderId:           nil,
@@ -1091,7 +1091,7 @@ func setupPoolerTest(t *testing.T, setup *MultipoolerTestSetup, opts ...cleanupO
 			// Set consensus term
 			_, err = standbyClient.SetTerm(utils.WithShortDeadline(t), &multipoolermanagerdatapb.SetTermRequest{
 				Term: &multipoolermanagerdatapb.ConsensusTerm{
-					CurrentTerm: 1,
+					TermNumber: 1,
 				},
 			})
 			if err != nil {

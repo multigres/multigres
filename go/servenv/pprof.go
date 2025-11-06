@@ -137,6 +137,12 @@ func (sv *ServEnv) parseProfileFlag(pf []string) (*profile, error) {
 
 var profileStarted uint32
 
+// isProfileStarted returns true if profiling is currently active.
+// This function uses atomic.LoadUint32 to safely read the profile state.
+func isProfileStarted() bool {
+	return atomic.LoadUint32(&profileStarted) == 1
+}
+
 func startCallback(start func()) func() {
 	return func() {
 		if atomic.CompareAndSwapUint32(&profileStarted, 0, 1) {

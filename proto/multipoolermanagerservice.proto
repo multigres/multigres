@@ -69,7 +69,8 @@ service MultiPoolerManager {
   rpc PrimaryPosition(multipoolermanagerdata.PrimaryPositionRequest)
     returns (multipoolermanagerdata.PrimaryPositionResponse);
 
-  // StopReplicationAndGetStatus stops PostgreSQL replication and returns the status
+  // StopReplicationAndGetStatus stops PostgreSQL replication (replay and/or receiver based on mode) 
+  // and returns the status
   rpc StopReplicationAndGetStatus(multipoolermanagerdata.StopReplicationAndGetStatusRequest)
     returns (multipoolermanagerdata.StopReplicationAndGetStatusResponse);
 

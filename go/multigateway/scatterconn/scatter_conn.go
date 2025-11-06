@@ -62,7 +62,7 @@ func (sc *ScatterConn) StreamExecute(
 	sql string,
 	callback func(context.Context, *query.QueryResult) error,
 ) error {
-	sc.logger.Debug("scatter conn executing query",
+	sc.logger.DebugContext(ctx, "scatter conn executing query",
 		"tablegroup", tableGroup,
 		"shard", shard,
 		"query", sql)
@@ -78,7 +78,7 @@ func (sc *ScatterConn) StreamExecute(
 
 	// Execute query via QueryService (PoolerGateway) and stream results
 	// PoolerGateway will use the target to find the right pooler
-	sc.logger.Debug("executing query via query service",
+	sc.logger.DebugContext(ctx, "executing query via query service",
 		"tablegroup", tableGroup,
 		"shard", shard,
 		"pooler_type", target.PoolerType.String())
@@ -87,7 +87,7 @@ func (sc *ScatterConn) StreamExecute(
 		return fmt.Errorf("query execution failed: %w", err)
 	}
 
-	sc.logger.Debug("query execution completed successfully",
+	sc.logger.DebugContext(ctx, "query execution completed successfully",
 		"tablegroup", tableGroup,
 		"shard", shard)
 
