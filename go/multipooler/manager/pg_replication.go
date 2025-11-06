@@ -172,23 +172,23 @@ func (pm *MultiPoolerManager) waitForReplicationPause(ctx context.Context) (*mul
 		select {
 		case <-waitCtx.Done():
 			if waitCtx.Err() == context.DeadlineExceeded {
-				pm.logger.Error("Timeout waiting for WAL replay to pause")
+				pm.logger.ErrorContext(ctx, "Timeout waiting for WAL replay to pause")
 				return nil, mterrors.New(mtrpcpb.Code_DEADLINE_EXCEEDED, "timeout waiting for WAL replay to pause")
 			}
-			pm.logger.Error("Context cancelled while waiting for WAL replay to pause")
+			pm.logger.ErrorContext(ctx, "Context cancelled while waiting for WAL replay to pause")
 			return nil, mterrors.Wrap(waitCtx.Err(), "context cancelled while waiting for WAL replay to pause")
 
 		case <-ticker.C:
 			// Query all replication status fields
 			status, err := pm.queryReplicationStatus(waitCtx)
 			if err != nil {
-				pm.logger.Error("Failed to get replication status", "error", err)
+				pm.logger.ErrorContext(ctx, "Failed to get replication status", "error", err)
 				return nil, err
 			}
 
 			// Once paused, we have the exact state at the moment replication stopped
 			if status.IsWalReplayPaused {
-				pm.logger.Info("WAL replay is now paused",
+				pm.logger.InfoContext(ctx, "WAL replay is now paused",
 					"last_replay_lsn", status.LastReplayLsn,
 					"last_receive_lsn", status.LastReceiveLsn,
 					"pause_state", status.WalReplayPauseState)
@@ -196,6 +196,180 @@ func (pm *MultiPoolerManager) waitForReplicationPause(ctx context.Context) (*mul
 				return status, nil
 			}
 		}
+	}
+}
+
+// resetPrimaryConnInfo clears primary_conninfo and reloads PostgreSQL configuration.
+// This effectively disconnects the replica from the primary.
+func (pm *MultiPoolerManager) resetPrimaryConnInfo(ctx context.Context) error {
+	// Clear primary_conninfo using ALTER SYSTEM (should be quick)
+	pm.logger.InfoContext(ctx, "Clearing primary_conninfo")
+
+	execCtx, execCancel := context.WithTimeout(ctx, 500*time.Millisecond)
+	defer execCancel()
+
+	_, err := pm.db.ExecContext(execCtx, "ALTER SYSTEM RESET primary_conninfo")
+	if err != nil {
+		pm.logger.ErrorContext(ctx, "Failed to clear primary_conninfo", "error", err)
+		return mterrors.Wrap(err, "failed to clear primary_conninfo")
+	}
+
+	// Reload PostgreSQL configuration to apply changes (should be quick)
+	pm.logger.InfoContext(ctx, "Reloading PostgreSQL configuration")
+
+	reloadCtx, reloadCancel := context.WithTimeout(ctx, 500*time.Millisecond)
+	defer reloadCancel()
+
+	_, err = pm.db.ExecContext(reloadCtx, "SELECT pg_reload_conf()")
+	if err != nil {
+		pm.logger.ErrorContext(ctx, "Failed to reload configuration", "error", err)
+		return mterrors.Wrap(err, "failed to reload PostgreSQL configuration")
+	}
+
+	return nil
+}
+
+// waitForReceiverDisconnect waits for the WAL receiver to fully disconnect after clearing primary_conninfo.
+// It polls pg_stat_wal_receiver to confirm the receiver has stopped.
+func (pm *MultiPoolerManager) waitForReceiverDisconnect(ctx context.Context) (*multipoolermanagerdatapb.ReplicationStatus, error) {
+	// Create a context with timeout for the polling loop
+	waitCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	ticker := time.NewTicker(500 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-waitCtx.Done():
+			if waitCtx.Err() == context.DeadlineExceeded {
+				pm.logger.ErrorContext(ctx, "Timeout waiting for WAL receiver to disconnect")
+				return nil, mterrors.New(mtrpcpb.Code_DEADLINE_EXCEEDED, "timeout waiting for WAL receiver to disconnect")
+			}
+			pm.logger.ErrorContext(ctx, "Context cancelled while waiting for WAL receiver to disconnect")
+			return nil, mterrors.Wrap(waitCtx.Err(), "context cancelled while waiting for WAL receiver to disconnect")
+
+		case <-ticker.C:
+			// Check if WAL receiver has disconnected by counting rows in pg_stat_wal_receiver
+			var receiverCount int
+			query := "SELECT COUNT(*) FROM pg_stat_wal_receiver"
+			err := pm.db.QueryRowContext(waitCtx, query).Scan(&receiverCount)
+			if err != nil {
+				pm.logger.ErrorContext(ctx, "Failed to query pg_stat_wal_receiver", "error", err)
+				return nil, mterrors.Wrap(err, "failed to query pg_stat_wal_receiver")
+			}
+
+			// Once receiver is disconnected, query final replication status
+			if receiverCount == 0 {
+				pm.logger.InfoContext(ctx, "WAL receiver has disconnected")
+
+				// Get the final replication status
+				status, err := pm.queryReplicationStatus(waitCtx)
+				if err != nil {
+					pm.logger.ErrorContext(ctx, "Failed to get replication status", "error", err)
+					return nil, err
+				}
+
+				return status, nil
+			}
+		}
+	}
+}
+
+// pauseReplication pauses replication based on the specified mode.
+// If wait is true, it waits for the pause operation to complete before returning.
+// Returns the replication status after pausing (if wait is true) or nil (if wait is false).
+func (pm *MultiPoolerManager) pauseReplication(ctx context.Context, mode multipoolermanagerdatapb.ReplicationPauseMode, wait bool) (*multipoolermanagerdatapb.ReplicationStatus, error) {
+	switch mode {
+	case multipoolermanagerdatapb.ReplicationPauseMode_REPLICATION_PAUSE_MODE_REPLAY_ONLY:
+		// Pause WAL replay on the standby
+		pm.logger.InfoContext(ctx, "Pausing WAL replay on standby")
+
+		// Set tight timeout for the pause command itself (should be quick)
+		execCtx, execCancel := context.WithTimeout(ctx, 500*time.Millisecond)
+		defer execCancel()
+
+		_, err := pm.db.ExecContext(execCtx, "SELECT pg_wal_replay_pause()")
+		if err != nil {
+			pm.logger.ErrorContext(ctx, "Failed to pause WAL replay", "error", err)
+			return nil, mterrors.Wrap(err, "failed to pause WAL replay")
+		}
+
+		if wait {
+			// Wait for WAL replay to actually be paused
+			// pg_wal_replay_pause() is asynchronous, so we need to wait for it to complete
+			pm.logger.InfoContext(ctx, "Waiting for WAL replay to complete pausing")
+			status, err := pm.waitForReplicationPause(ctx)
+			if err != nil {
+				return nil, err
+			}
+			return status, nil
+		}
+
+		return nil, nil
+
+	case multipoolermanagerdatapb.ReplicationPauseMode_REPLICATION_PAUSE_MODE_RECEIVER_ONLY:
+		// Stop the WAL receiver by clearing primary_conninfo
+		pm.logger.InfoContext(ctx, "Stopping WAL receiver")
+
+		if err := pm.resetPrimaryConnInfo(ctx); err != nil {
+			return nil, err
+		}
+
+		if wait {
+			// Wait for receiver to fully disconnect
+			pm.logger.InfoContext(ctx, "Waiting for WAL receiver to disconnect")
+			status, err := pm.waitForReceiverDisconnect(ctx)
+			if err != nil {
+				return nil, err
+			}
+			return status, nil
+		}
+
+		return nil, nil
+
+	case multipoolermanagerdatapb.ReplicationPauseMode_REPLICATION_PAUSE_MODE_REPLAY_AND_RECEIVER:
+		// IMPORTANT: Must stop receiver BEFORE pausing replay
+		// Reason: When replay is paused, the WAL receiver won't disconnect even if we clear primary_conninfo
+		// So we must clear primary_conninfo while replay is still running
+		pm.logger.InfoContext(ctx, "Pausing both WAL replay and receiver")
+
+		// First stop receiver (while replay is still running)
+		if err := pm.resetPrimaryConnInfo(ctx); err != nil {
+			return nil, err
+		}
+
+		// Wait for receiver to disconnect before pausing replay
+		_, err := pm.waitForReceiverDisconnect(ctx)
+		if err != nil {
+			return nil, err
+		}
+
+		// Now that receiver is disconnected, pause replay
+		execCtx, execCancel := context.WithTimeout(ctx, 500*time.Millisecond)
+		defer execCancel()
+
+		_, err = pm.db.ExecContext(execCtx, "SELECT pg_wal_replay_pause()")
+		if err != nil {
+			pm.logger.ErrorContext(ctx, "Failed to pause WAL replay", "error", err)
+			return nil, mterrors.Wrap(err, "failed to pause WAL replay")
+		}
+
+		if wait {
+			// Wait for replay pause to complete
+			pm.logger.InfoContext(ctx, "Waiting for WAL replay to complete pausing")
+			status, err := pm.waitForReplicationPause(ctx)
+			if err != nil {
+				return nil, err
+			}
+			return status, nil
+		}
+
+		return nil, nil
+
+	default:
+		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT,
+			fmt.Sprintf("invalid replication pause mode: %d", mode))
 	}
 }
 
@@ -210,14 +384,14 @@ func (pm *MultiPoolerManager) validateExpectedLSN(ctx context.Context, expectedL
 	query := "SELECT pg_last_wal_replay_lsn()::text, pg_is_wal_replay_paused()"
 	err := pm.db.QueryRowContext(ctx, query).Scan(&currentLSN, &isPaused)
 	if err != nil {
-		pm.logger.Error("Failed to get current replay LSN and pause state", "error", err)
+		pm.logger.ErrorContext(ctx, "Failed to get current replay LSN and pause state", "error", err)
 		return mterrors.Wrap(err, "failed to get current replay LSN and pause state")
 	}
 
 	// Best practice: WAL replay should be paused before promotion
 	// The coordinator should have called StopReplication during Discovery stage
 	if !isPaused {
-		pm.logger.Warn("WAL replay is not paused before promotion - coordinator may have skipped Discovery stage",
+		pm.logger.WarnContext(ctx, "WAL replay is not paused before promotion - coordinator may have skipped Discovery stage",
 			"current_lsn", currentLSN,
 			"expected_lsn", expectedLSN)
 		// Note: We don't fail here as this is a soft check, but it indicates
@@ -225,7 +399,7 @@ func (pm *MultiPoolerManager) validateExpectedLSN(ctx context.Context, expectedL
 	}
 
 	if currentLSN != expectedLSN {
-		pm.logger.Error("LSN mismatch - node does not have expected durable state",
+		pm.logger.ErrorContext(ctx, "LSN mismatch - node does not have expected durable state",
 			"expected_lsn", expectedLSN,
 			"current_lsn", currentLSN)
 		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
@@ -234,7 +408,7 @@ func (pm *MultiPoolerManager) validateExpectedLSN(ctx context.Context, expectedL
 				expectedLSN, currentLSN))
 	}
 
-	pm.logger.Info("LSN validation passed",
+	pm.logger.InfoContext(ctx, "LSN validation passed",
 		"lsn", currentLSN,
 		"wal_replay_paused", isPaused)
 	return nil
@@ -264,10 +438,10 @@ func (pm *MultiPoolerManager) setSynchronousCommit(ctx context.Context, synchron
 			fmt.Sprintf("invalid synchronous_commit level: %s", synchronousCommit.String()))
 	}
 
-	pm.logger.Info("Setting synchronous_commit", "value", syncCommitValue)
+	pm.logger.InfoContext(ctx, "Setting synchronous_commit", "value", syncCommitValue)
 	_, err := pm.db.ExecContext(ctx, fmt.Sprintf("ALTER SYSTEM SET synchronous_commit = '%s'", syncCommitValue))
 	if err != nil {
-		pm.logger.Error("Failed to set synchronous_commit", "error", err)
+		pm.logger.ErrorContext(ctx, "Failed to set synchronous_commit", "error", err)
 		return mterrors.Wrap(err, "failed to set synchronous_commit")
 	}
 
@@ -299,7 +473,7 @@ func buildSynchronousStandbyNamesValue(method multipoolermanagerdatapb.Synchrono
 
 // applySynchronousStandbyNames applies the synchronous_standby_names setting to PostgreSQL
 func applySynchronousStandbyNames(ctx context.Context, db *sql.DB, logger *slog.Logger, value string) error {
-	logger.Info("Setting synchronous_standby_names", "value", value)
+	logger.InfoContext(ctx, "Setting synchronous_standby_names", "value", value)
 
 	// Escape single quotes in the value by doubling them (PostgreSQL standard)
 	escapedValue := strings.ReplaceAll(value, "'", "''")
@@ -308,7 +482,7 @@ func applySynchronousStandbyNames(ctx context.Context, db *sql.DB, logger *slog.
 	query := fmt.Sprintf("ALTER SYSTEM SET synchronous_standby_names = '%s'", escapedValue)
 	_, err := db.ExecContext(ctx, query)
 	if err != nil {
-		logger.Error("Failed to set synchronous_standby_names", "error", err)
+		logger.ErrorContext(ctx, "Failed to set synchronous_standby_names", "error", err)
 		return mterrors.Wrap(err, "failed to set synchronous_standby_names")
 	}
 
@@ -327,11 +501,11 @@ func applySynchronousStandbyNames(ctx context.Context, db *sql.DB, logger *slog.
 func (pm *MultiPoolerManager) setSynchronousStandbyNames(ctx context.Context, synchronousMethod multipoolermanagerdatapb.SynchronousMethod, numSync int32, standbyIDs []*clustermetadatapb.ID) error {
 	// If standby list is empty, clear synchronous_standby_names
 	if len(standbyIDs) == 0 {
-		pm.logger.Info("Clearing synchronous_standby_names (empty standby list)")
+		pm.logger.InfoContext(ctx, "Clearing synchronous_standby_names (empty standby list)")
 		query := "ALTER SYSTEM SET synchronous_standby_names = ''"
 		_, err := pm.db.ExecContext(ctx, query)
 		if err != nil {
-			pm.logger.Error("Failed to clear synchronous_standby_names", "error", err)
+			pm.logger.ErrorContext(ctx, "Failed to clear synchronous_standby_names", "error", err)
 			return mterrors.Wrap(err, "failed to clear synchronous_standby_names")
 		}
 		return nil
@@ -407,23 +581,23 @@ func (pm *MultiPoolerManager) getSynchronousReplicationConfig(ctx context.Contex
 // resetSynchronousReplication clears the synchronous standby list
 // This should be called after the server is read-only to safely clear settings
 func (pm *MultiPoolerManager) resetSynchronousReplication(ctx context.Context) error {
-	pm.logger.Info("Clearing synchronous standby list")
+	pm.logger.InfoContext(ctx, "Clearing synchronous standby list")
 
 	// Clear synchronous_standby_names to remove all standbys
 	_, err := pm.db.ExecContext(ctx, "ALTER SYSTEM SET synchronous_standby_names = ''")
 	if err != nil {
-		pm.logger.Error("Failed to clear synchronous_standby_names", "error", err)
+		pm.logger.ErrorContext(ctx, "Failed to clear synchronous_standby_names", "error", err)
 		return mterrors.Wrap(err, "failed to clear synchronous_standby_names")
 	}
 
 	// Reload configuration to apply changes
 	_, err = pm.db.ExecContext(ctx, "SELECT pg_reload_conf()")
 	if err != nil {
-		pm.logger.Error("Failed to reload configuration", "error", err)
+		pm.logger.ErrorContext(ctx, "Failed to reload configuration", "error", err)
 		return mterrors.Wrap(err, "failed to reload configuration after clearing standby list")
 	}
 
-	pm.logger.Info("Successfully cleared synchronous standby list")
+	pm.logger.InfoContext(ctx, "Successfully cleared synchronous standby list")
 	return nil
 }
 

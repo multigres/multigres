@@ -275,10 +275,6 @@ func TestDemoteAndPromote(t *testing.T) {
 	})
 
 	t.Run("Idempotency_Promote", func(t *testing.T) {
-		// TODO: This test needs to be hardened to actually
-		// test that a promote that fail halfhway through
-		// can be retried and successfully completes
-		// in an idempotent way.
 		t.Log("Testing Promote idempotency...")
 		// Promote original primary back (it's currently demoted)
 		setTermReq := &multipoolermanagerdatapb.SetTermRequest{
@@ -309,12 +305,14 @@ func TestDemoteAndPromote(t *testing.T) {
 		require.NoError(t, err, "First promote should succeed")
 		assert.False(t, promoteResp1.WasAlreadyPrimary)
 
-		// Second promotion should fail with guard rail error (server is now PRIMARY in topology)
-		_, err = primaryManagerClient.Promote(utils.WithTimeout(t, 10*time.Second), promoteReq)
-		require.Error(t, err, "Second promote should fail - cannot promote a PRIMARY")
-		assert.Contains(t, err.Error(), "pooler type is PRIMARY")
+		// Second promotion should SUCCEED with idempotent behavior (server is now PRIMARY in topology)
+		// The new guard rail logic detects that everything is already complete and returns success
+		promoteResp2, err := primaryManagerClient.Promote(utils.WithTimeout(t, 10*time.Second), promoteReq)
+		require.NoError(t, err, "Second promote should succeed - idempotent operation")
+		assert.True(t, promoteResp2.WasAlreadyPrimary, "Should report as already primary")
+		assert.Equal(t, int64(6), promoteResp2.ConsensusTerm)
 
-		t.Log("Promote guard rail verified - cannot promote a PRIMARY")
+		t.Log("Promote idempotency verified - second call succeeds and reports WasAlreadyPrimary=true")
 	})
 
 	t.Run("TermValidation_Demote", func(t *testing.T) {

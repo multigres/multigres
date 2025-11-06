@@ -132,7 +132,7 @@ func (pm *MultiPoolerManager) ConsensusStatus(ctx context.Context, req *consensu
 		`, []byte(req.ShardId)).Scan(&leaderTerm)
 
 		if err != nil {
-			pm.logger.Warn("Failed to query postgres leader term", "error", err)
+			pm.logger.WarnContext(ctx, "Failed to query postgres leader term", "error", err)
 			leaderTerm = 0
 		} else {
 			isHealthy = true
