@@ -81,6 +81,7 @@ When a MultiGateway executes a prepared statement that targets a single shard:
 ### Connection Pool Tracking
 
 Each connection in the MultiPooler's pool must track:
+
 - Which prepared statements exist on that connection
 - The mapping between logical statement names and physical statement names
 
@@ -125,8 +126,8 @@ When processing a PREPARE request like `PREPARE stmt1 AS body1`:
 ### Name Translation
 
 Since multiple clients may use different names for the same logical prepared statement:
+
 - **Client-facing names**: Stored in the `Incoming` map (e.g., `stmt1`, `myquery`)
 - **Backend names**: Stored in the `Outgoing` map (e.g., `ppstmt1`, `ppstmt2`)
 
 This allows clients to use their own naming conventions while sharing the underlying prepared statement.
-
