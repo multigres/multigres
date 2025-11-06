@@ -75,8 +75,11 @@ func (pm *MultiPoolerManager) isPrimary(ctx context.Context) (bool, error) {
 		return false, fmt.Errorf("database connection not established")
 	}
 
+	queryCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
+	defer cancel()
+
 	var inRecovery bool
-	err := pm.db.QueryRowContext(ctx, "SELECT pg_is_in_recovery()").Scan(&inRecovery)
+	err := pm.db.QueryRowContext(queryCtx, "SELECT pg_is_in_recovery()").Scan(&inRecovery)
 	if err != nil {
 		return false, fmt.Errorf("failed to query pg_is_in_recovery: %w", err)
 	}
@@ -87,8 +90,11 @@ func (pm *MultiPoolerManager) isPrimary(ctx context.Context) (bool, error) {
 
 // getPrimaryLSN gets the current WAL write location (primary only)
 func (pm *MultiPoolerManager) getPrimaryLSN(ctx context.Context) (string, error) {
+	queryCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
+	defer cancel()
+
 	var lsn string
-	err := pm.db.QueryRowContext(ctx, "SELECT pg_current_wal_lsn()::text").Scan(&lsn)
+	err := pm.db.QueryRowContext(queryCtx, "SELECT pg_current_wal_lsn()::text").Scan(&lsn)
 	if err != nil {
 		return "", mterrors.Wrap(err, "failed to get current WAL LSN")
 	}
@@ -97,8 +103,11 @@ func (pm *MultiPoolerManager) getPrimaryLSN(ctx context.Context) (string, error)
 
 // getStandbyReplayLSN gets the last replayed WAL location (standby only)
 func (pm *MultiPoolerManager) getStandbyReplayLSN(ctx context.Context) (string, error) {
+	queryCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
+	defer cancel()
+
 	var lsn string
-	err := pm.db.QueryRowContext(ctx, "SELECT pg_last_wal_replay_lsn()::text").Scan(&lsn)
+	err := pm.db.QueryRowContext(queryCtx, "SELECT pg_last_wal_replay_lsn()::text").Scan(&lsn)
 	if err != nil {
 		return "", mterrors.Wrap(err, "failed to get replay LSN")
 	}
@@ -107,9 +116,12 @@ func (pm *MultiPoolerManager) getStandbyReplayLSN(ctx context.Context) (string, 
 
 // checkLSNReached checks if the standby has replayed up to or past the target LSN
 func (pm *MultiPoolerManager) checkLSNReached(ctx context.Context, targetLsn string) (bool, error) {
+	queryCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
+	defer cancel()
+
 	var reachedTarget bool
 	query := fmt.Sprintf("SELECT pg_last_wal_replay_lsn() >= '%s'::pg_lsn", targetLsn)
-	err := pm.db.QueryRowContext(ctx, query).Scan(&reachedTarget)
+	err := pm.db.QueryRowContext(queryCtx, query).Scan(&reachedTarget)
 	if err != nil {
 		return false, mterrors.Wrap(err, "failed to check if replay LSN reached target")
 	}
@@ -135,7 +147,10 @@ func (pm *MultiPoolerManager) queryReplicationStatus(ctx context.Context) (*mult
 		pg_last_xact_replay_timestamp(),
 		current_setting('primary_conninfo')`
 
-	err := pm.db.QueryRowContext(ctx, query).Scan(
+	queryCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
+	defer cancel()
+
+	err := pm.db.QueryRowContext(queryCtx, query).Scan(
 		&replayLsn,
 		&receiveLsn,
 		&isPaused,
@@ -220,8 +235,11 @@ func (pm *MultiPoolerManager) setPrimaryConnInfo(ctx context.Context, connInfo s
 	// Escape single quotes in the connection string by doubling them (PostgreSQL standard)
 	escapedConnInfo := strings.ReplaceAll(connInfo, "'", "''")
 
+	execCtx, execCancel := context.WithTimeout(ctx, 500*time.Millisecond)
+	defer execCancel()
+
 	alterQuery := fmt.Sprintf("ALTER SYSTEM SET primary_conninfo = '%s'", escapedConnInfo)
-	_, err := pm.db.ExecContext(ctx, alterQuery)
+	_, err := pm.db.ExecContext(execCtx, alterQuery)
 	if err != nil {
 		pm.logger.ErrorContext(ctx, "Failed to set primary_conninfo", "error", err)
 		return mterrors.Wrap(err, "failed to set primary_conninfo")
@@ -442,10 +460,13 @@ func (pm *MultiPoolerManager) validateExpectedLSN(ctx context.Context, expectedL
 		return nil // No validation requested
 	}
 
+	queryCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
+	defer cancel()
+
 	var currentLSN string
 	var isPaused bool
 	query := "SELECT pg_last_wal_replay_lsn()::text, pg_is_wal_replay_paused()"
-	err := pm.db.QueryRowContext(ctx, query).Scan(&currentLSN, &isPaused)
+	err := pm.db.QueryRowContext(queryCtx, query).Scan(&currentLSN, &isPaused)
 	if err != nil {
 		pm.logger.ErrorContext(ctx, "Failed to get current replay LSN and pause state", "error", err)
 		return mterrors.Wrap(err, "failed to get current replay LSN and pause state")
@@ -501,8 +522,11 @@ func (pm *MultiPoolerManager) setSynchronousCommit(ctx context.Context, synchron
 			fmt.Sprintf("invalid synchronous_commit level: %s", synchronousCommit.String()))
 	}
 
+	execCtx, execCancel := context.WithTimeout(ctx, 500*time.Millisecond)
+	defer execCancel()
+
 	pm.logger.InfoContext(ctx, "Setting synchronous_commit", "value", syncCommitValue)
-	_, err := pm.db.ExecContext(ctx, fmt.Sprintf("ALTER SYSTEM SET synchronous_commit = '%s'", syncCommitValue))
+	_, err := pm.db.ExecContext(execCtx, fmt.Sprintf("ALTER SYSTEM SET synchronous_commit = '%s'", syncCommitValue))
 	if err != nil {
 		pm.logger.ErrorContext(ctx, "Failed to set synchronous_commit", "error", err)
 		return mterrors.Wrap(err, "failed to set synchronous_commit")
@@ -541,9 +565,12 @@ func applySynchronousStandbyNames(ctx context.Context, db *sql.DB, logger *slog.
 	// Escape single quotes in the value by doubling them (PostgreSQL standard)
 	escapedValue := strings.ReplaceAll(value, "'", "''")
 
+	execCtx, execCancel := context.WithTimeout(ctx, 500*time.Millisecond)
+	defer execCancel()
+
 	// ALTER SYSTEM SET doesn't support parameterized queries, so we use string formatting
 	query := fmt.Sprintf("ALTER SYSTEM SET synchronous_standby_names = '%s'", escapedValue)
-	_, err := db.ExecContext(ctx, query)
+	_, err := db.ExecContext(execCtx, query)
 	if err != nil {
 		logger.ErrorContext(ctx, "Failed to set synchronous_standby_names", "error", err)
 		return mterrors.Wrap(err, "failed to set synchronous_standby_names")
@@ -564,9 +591,12 @@ func applySynchronousStandbyNames(ctx context.Context, db *sql.DB, logger *slog.
 func (pm *MultiPoolerManager) setSynchronousStandbyNames(ctx context.Context, synchronousMethod multipoolermanagerdatapb.SynchronousMethod, numSync int32, standbyIDs []*clustermetadatapb.ID) error {
 	// If standby list is empty, clear synchronous_standby_names
 	if len(standbyIDs) == 0 {
+		execCtx, execCancel := context.WithTimeout(ctx, 500*time.Millisecond)
+		defer execCancel()
+
 		pm.logger.InfoContext(ctx, "Clearing synchronous_standby_names (empty standby list)")
 		query := "ALTER SYSTEM SET synchronous_standby_names = ''"
-		_, err := pm.db.ExecContext(ctx, query)
+		_, err := pm.db.ExecContext(execCtx, query)
 		if err != nil {
 			pm.logger.ErrorContext(ctx, "Failed to clear synchronous_standby_names", "error", err)
 			return mterrors.Wrap(err, "failed to clear synchronous_standby_names")
@@ -593,9 +623,12 @@ func (pm *MultiPoolerManager) setSynchronousStandbyNames(ctx context.Context, sy
 func (pm *MultiPoolerManager) getSynchronousReplicationConfig(ctx context.Context) (*multipoolermanagerdatapb.SynchronousReplicationConfiguration, error) {
 	config := &multipoolermanagerdatapb.SynchronousReplicationConfiguration{}
 
+	queryCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
+	defer cancel()
+
 	// Query synchronous_standby_names
 	var syncStandbyNamesStr string
-	err := pm.db.QueryRowContext(ctx, "SHOW synchronous_standby_names").Scan(&syncStandbyNamesStr)
+	err := pm.db.QueryRowContext(queryCtx, "SHOW synchronous_standby_names").Scan(&syncStandbyNamesStr)
 	if err != nil {
 		return nil, mterrors.Wrap(err, "failed to query synchronous_standby_names")
 	}
@@ -614,7 +647,7 @@ func (pm *MultiPoolerManager) getSynchronousReplicationConfig(ctx context.Contex
 
 	// Query synchronous_commit
 	var syncCommitStr string
-	err = pm.db.QueryRowContext(ctx, "SHOW synchronous_commit").Scan(&syncCommitStr)
+	err = pm.db.QueryRowContext(queryCtx, "SHOW synchronous_commit").Scan(&syncCommitStr)
 	if err != nil {
 		return nil, mterrors.Wrap(err, "failed to query synchronous_commit")
 	}
@@ -646,15 +679,18 @@ func (pm *MultiPoolerManager) getSynchronousReplicationConfig(ctx context.Contex
 func (pm *MultiPoolerManager) resetSynchronousReplication(ctx context.Context) error {
 	pm.logger.InfoContext(ctx, "Clearing synchronous standby list")
 
+	execCtx, execCancel := context.WithTimeout(ctx, 500*time.Millisecond)
+	defer execCancel()
+
 	// Clear synchronous_standby_names to remove all standbys
-	_, err := pm.db.ExecContext(ctx, "ALTER SYSTEM SET synchronous_standby_names = ''")
+	_, err := pm.db.ExecContext(execCtx, "ALTER SYSTEM SET synchronous_standby_names = ''")
 	if err != nil {
 		pm.logger.ErrorContext(ctx, "Failed to clear synchronous_standby_names", "error", err)
 		return mterrors.Wrap(err, "failed to clear synchronous_standby_names")
 	}
 
 	// Reload configuration to apply changes
-	_, err = pm.db.ExecContext(ctx, "SELECT pg_reload_conf()")
+	_, err = pm.db.ExecContext(execCtx, "SELECT pg_reload_conf()")
 	if err != nil {
 		pm.logger.ErrorContext(ctx, "Failed to reload configuration", "error", err)
 		return mterrors.Wrap(err, "failed to reload configuration after clearing standby list")
@@ -817,8 +853,11 @@ func applyReplaceOperation(newStandbys []*clustermetadatapb.ID) []*clustermetada
 
 // getConnectedFollowerIDs queries pg_stat_replication for connected followers and returns their IDs
 func (pm *MultiPoolerManager) getConnectedFollowerIDs(ctx context.Context) ([]*clustermetadatapb.ID, error) {
+	queryCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
+	defer cancel()
+
 	query := "SELECT application_name FROM pg_stat_replication WHERE application_name IS NOT NULL AND application_name != ''"
-	rows, err := pm.db.QueryContext(ctx, query)
+	rows, err := pm.db.QueryContext(queryCtx, query)
 	if err != nil {
 		pm.logger.ErrorContext(ctx, "Failed to query pg_stat_replication", "error", err)
 		return nil, mterrors.Wrap(err, "failed to query connected followers")
@@ -851,6 +890,9 @@ func (pm *MultiPoolerManager) getConnectedFollowerIDs(ctx context.Context) ([]*c
 // queryFollowerReplicationStats queries pg_stat_replication for detailed replication statistics
 // Returns a map of application_name -> ReplicationStats
 func (pm *MultiPoolerManager) queryFollowerReplicationStats(ctx context.Context) (map[string]*multipoolermanagerdatapb.ReplicationStats, error) {
+	queryCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
+	defer cancel()
+
 	query := `SELECT
 		pid,
 		application_name,
@@ -867,7 +909,7 @@ func (pm *MultiPoolerManager) queryFollowerReplicationStats(ctx context.Context)
 	FROM pg_stat_replication
 	WHERE application_name IS NOT NULL AND application_name != ''`
 
-	rows, err := pm.db.QueryContext(ctx, query)
+	rows, err := pm.db.QueryContext(queryCtx, query)
 	if err != nil {
 		pm.logger.ErrorContext(ctx, "Failed to query pg_stat_replication", "error", err)
 		return nil, mterrors.Wrap(err, "failed to query replication status")
