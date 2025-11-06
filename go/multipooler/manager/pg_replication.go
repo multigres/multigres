@@ -23,7 +23,10 @@ import (
 	"strings"
 	"time"
 
+	"google.golang.org/protobuf/types/known/durationpb"
+
 	"github.com/multigres/multigres/go/mterrors"
+
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
@@ -100,6 +103,17 @@ func (pm *MultiPoolerManager) getStandbyReplayLSN(ctx context.Context) (string, 
 		return "", mterrors.Wrap(err, "failed to get replay LSN")
 	}
 	return lsn, nil
+}
+
+// checkLSNReached checks if the standby has replayed up to or past the target LSN
+func (pm *MultiPoolerManager) checkLSNReached(ctx context.Context, targetLsn string) (bool, error) {
+	var reachedTarget bool
+	query := fmt.Sprintf("SELECT pg_last_wal_replay_lsn() >= '%s'::pg_lsn", targetLsn)
+	err := pm.db.QueryRowContext(ctx, query).Scan(&reachedTarget)
+	if err != nil {
+		return false, mterrors.Wrap(err, "failed to check if replay LSN reached target")
+	}
+	return reachedTarget, nil
 }
 
 // queryReplicationStatus queries PostgreSQL for all replication status fields.
@@ -197,6 +211,23 @@ func (pm *MultiPoolerManager) waitForReplicationPause(ctx context.Context) (*mul
 			}
 		}
 	}
+}
+
+// setPrimaryConnInfo sets the primary_conninfo connection string
+func (pm *MultiPoolerManager) setPrimaryConnInfo(ctx context.Context, connInfo string) error {
+	pm.logger.InfoContext(ctx, "Setting primary_conninfo", "conninfo", connInfo)
+
+	// Escape single quotes in the connection string by doubling them (PostgreSQL standard)
+	escapedConnInfo := strings.ReplaceAll(connInfo, "'", "''")
+
+	alterQuery := fmt.Sprintf("ALTER SYSTEM SET primary_conninfo = '%s'", escapedConnInfo)
+	_, err := pm.db.ExecContext(ctx, alterQuery)
+	if err != nil {
+		pm.logger.ErrorContext(ctx, "Failed to set primary_conninfo", "error", err)
+		return mterrors.Wrap(err, "failed to set primary_conninfo")
+	}
+
+	return nil
 }
 
 // resetPrimaryConnInfo clears primary_conninfo and reloads PostgreSQL configuration.
@@ -371,6 +402,38 @@ func (pm *MultiPoolerManager) pauseReplication(ctx context.Context, mode multipo
 		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT,
 			fmt.Sprintf("invalid replication pause mode: %d", mode))
 	}
+}
+
+// resumeWALReplay resumes WAL replay on a standby server
+func (pm *MultiPoolerManager) resumeWALReplay(ctx context.Context) error {
+	pm.logger.InfoContext(ctx, "Resuming WAL replay")
+
+	execCtx, execCancel := context.WithTimeout(ctx, 500*time.Millisecond)
+	defer execCancel()
+
+	_, err := pm.db.ExecContext(execCtx, "SELECT pg_wal_replay_resume()")
+	if err != nil {
+		pm.logger.ErrorContext(ctx, "Failed to resume WAL replay", "error", err)
+		return mterrors.Wrap(err, "failed to resume WAL replay")
+	}
+
+	return nil
+}
+
+// reloadPostgresConfig reloads PostgreSQL configuration to apply changes made via ALTER SYSTEM
+func (pm *MultiPoolerManager) reloadPostgresConfig(ctx context.Context) error {
+	pm.logger.InfoContext(ctx, "Reloading PostgreSQL configuration")
+
+	reloadCtx, reloadCancel := context.WithTimeout(ctx, 500*time.Millisecond)
+	defer reloadCancel()
+
+	_, err := pm.db.ExecContext(reloadCtx, "SELECT pg_reload_conf()")
+	if err != nil {
+		pm.logger.ErrorContext(ctx, "Failed to reload configuration", "error", err)
+		return mterrors.Wrap(err, "failed to reload PostgreSQL configuration")
+	}
+
+	return nil
 }
 
 // validateExpectedLSN validates that the current replay LSN matches the expected LSN
@@ -746,4 +809,134 @@ func applyRemoveOperation(currentStandbys []*clustermetadatapb.ID, standbysToRem
 // applyReplaceOperation replaces the entire standby list
 func applyReplaceOperation(newStandbys []*clustermetadatapb.ID) []*clustermetadatapb.ID {
 	return newStandbys
+}
+
+// ----------------------------------------------------------------------------
+// Primary-side Replication Queries
+// ----------------------------------------------------------------------------
+
+// getConnectedFollowerIDs queries pg_stat_replication for connected followers and returns their IDs
+func (pm *MultiPoolerManager) getConnectedFollowerIDs(ctx context.Context) ([]*clustermetadatapb.ID, error) {
+	query := "SELECT application_name FROM pg_stat_replication WHERE application_name IS NOT NULL AND application_name != ''"
+	rows, err := pm.db.QueryContext(ctx, query)
+	if err != nil {
+		pm.logger.ErrorContext(ctx, "Failed to query pg_stat_replication", "error", err)
+		return nil, mterrors.Wrap(err, "failed to query connected followers")
+	}
+	defer rows.Close()
+
+	followers := []*clustermetadatapb.ID{}
+	for rows.Next() {
+		var appName string
+		if err := rows.Scan(&appName); err != nil {
+			pm.logger.ErrorContext(ctx, "Failed to scan application_name", "error", err)
+			return nil, mterrors.Wrap(err, "failed to scan application_name from pg_stat_replication")
+		}
+		// Parse application_name back to cluster ID
+		followerID, err := parseApplicationName(appName)
+		if err != nil {
+			pm.logger.ErrorContext(ctx, "Failed to parse application_name", "application_name", appName, "error", err)
+			return nil, mterrors.Wrap(err, fmt.Sprintf("failed to parse application_name: %s", appName))
+		}
+		followers = append(followers, followerID)
+	}
+	if err := rows.Err(); err != nil {
+		pm.logger.ErrorContext(ctx, "Error iterating pg_stat_replication rows", "error", err)
+		return nil, mterrors.Wrap(err, "failed to read connected followers")
+	}
+
+	return followers, nil
+}
+
+// queryFollowerReplicationStats queries pg_stat_replication for detailed replication statistics
+// Returns a map of application_name -> ReplicationStats
+func (pm *MultiPoolerManager) queryFollowerReplicationStats(ctx context.Context) (map[string]*multipoolermanagerdatapb.ReplicationStats, error) {
+	query := `SELECT
+		pid,
+		application_name,
+		client_addr::text,
+		state,
+		sync_state,
+		sent_lsn::text,
+		write_lsn::text,
+		flush_lsn::text,
+		replay_lsn::text,
+		EXTRACT(EPOCH FROM write_lag),
+		EXTRACT(EPOCH FROM flush_lag),
+		EXTRACT(EPOCH FROM replay_lag)
+	FROM pg_stat_replication
+	WHERE application_name IS NOT NULL AND application_name != ''`
+
+	rows, err := pm.db.QueryContext(ctx, query)
+	if err != nil {
+		pm.logger.ErrorContext(ctx, "Failed to query pg_stat_replication", "error", err)
+		return nil, mterrors.Wrap(err, "failed to query replication status")
+	}
+	defer rows.Close()
+
+	// Build a map of connected followers by application_name
+	connectedMap := make(map[string]*multipoolermanagerdatapb.ReplicationStats)
+	for rows.Next() {
+		var pid int32
+		var appName string
+		var clientAddr string
+		var state string
+		var syncState string
+		var sentLsn string
+		var writeLsn string
+		var flushLsn string
+		var replayLsn string
+		var writeLagSecs sql.NullFloat64
+		var flushLagSecs sql.NullFloat64
+		var replayLagSecs sql.NullFloat64
+
+		err := rows.Scan(
+			&pid,
+			&appName,
+			&clientAddr,
+			&state,
+			&syncState,
+			&sentLsn,
+			&writeLsn,
+			&flushLsn,
+			&replayLsn,
+			&writeLagSecs,
+			&flushLagSecs,
+			&replayLagSecs,
+		)
+		if err != nil {
+			pm.logger.ErrorContext(ctx, "Failed to scan replication row", "error", err)
+			return nil, mterrors.Wrap(err, "failed to scan replication statistics")
+		}
+
+		stats := &multipoolermanagerdatapb.ReplicationStats{
+			Pid:        pid,
+			ClientAddr: clientAddr,
+			State:      state,
+			SyncState:  syncState,
+			SentLsn:    sentLsn,
+			WriteLsn:   writeLsn,
+			FlushLsn:   flushLsn,
+			ReplayLsn:  replayLsn,
+		}
+
+		// Convert lag values from seconds to Duration (only if not null)
+		if writeLagSecs.Valid {
+			stats.WriteLag = durationpb.New(time.Duration(writeLagSecs.Float64 * float64(time.Second)))
+		}
+		if flushLagSecs.Valid {
+			stats.FlushLag = durationpb.New(time.Duration(flushLagSecs.Float64 * float64(time.Second)))
+		}
+		if replayLagSecs.Valid {
+			stats.ReplayLag = durationpb.New(time.Duration(replayLagSecs.Float64 * float64(time.Second)))
+		}
+
+		connectedMap[appName] = stats
+	}
+	if err := rows.Err(); err != nil {
+		pm.logger.ErrorContext(ctx, "Error iterating pg_stat_replication rows", "error", err)
+		return nil, mterrors.Wrap(err, "failed to read replication status")
+	}
+
+	return connectedMap, nil
 }
