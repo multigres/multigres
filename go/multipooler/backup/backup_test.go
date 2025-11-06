@@ -185,7 +185,7 @@ func TestBackupOptions_Validation(t *testing.T) {
 			// to avoid actually running pgbackrest
 			ctx := t.Context()
 
-			result, err := BackupShard(ctx, tt.configPath, tt.stanzaName, tt.opts)
+			result, err := Backup(ctx, tt.configPath, tt.stanzaName, tt.opts)
 
 			if tt.expectError {
 				assert.Error(t, err)

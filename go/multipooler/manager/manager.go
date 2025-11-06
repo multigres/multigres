@@ -286,6 +286,26 @@ func (pm *MultiPoolerManager) GetPgCtldClient() pgctldpb.PgCtldClient {
 	return pm.pgctldClient
 }
 
+// GetTableGroup returns the table group from the multipooler record
+func (pm *MultiPoolerManager) GetTableGroup() string {
+	pm.mu.Lock()
+	defer pm.mu.Unlock()
+	if pm.multipooler != nil && pm.multipooler.MultiPooler != nil {
+		return pm.multipooler.TableGroup
+	}
+	return ""
+}
+
+// GetShard returns the shard from the multipooler record
+func (pm *MultiPoolerManager) GetShard() string {
+	pm.mu.Lock()
+	defer pm.mu.Unlock()
+	if pm.multipooler != nil && pm.multipooler.MultiPooler != nil {
+		return pm.multipooler.Shard
+	}
+	return ""
+}
+
 // checkReady returns an error if the manager is not in Ready state
 func (pm *MultiPoolerManager) checkReady() error {
 	pm.mu.Lock()

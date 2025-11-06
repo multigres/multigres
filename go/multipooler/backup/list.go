@@ -135,10 +135,19 @@ func GetShardBackups(ctx context.Context, configPath, stanzaName string, opts Li
 				status = backupservicepb.BackupMetadata_INCOMPLETE
 			}
 
+			// Extract table_group and shard from annotations
+			tableGroup := ""
+			shard := ""
+			if pgBackup.Annotation != nil {
+				tableGroup = pgBackup.Annotation["table_group"]
+				shard = pgBackup.Annotation["shard"]
+			}
+
 			backups = append(backups, &backupservicepb.BackupMetadata{
-				BackupId: pgBackup.Label,
-				Status:   status,
-				// TODO: Add table_group and shard fields when we have access to them
+				BackupId:   pgBackup.Label,
+				Status:     status,
+				TableGroup: tableGroup,
+				Shard:      shard,
 			})
 		}
 	}
@@ -159,10 +168,11 @@ type pgBackRestInfo struct {
 
 // pgBackRestBackup represents a single backup in the info output
 type pgBackRestBackup struct {
-	Label     string              `json:"label"`
-	Type      string              `json:"type"`
-	Error     bool                `json:"error"`
-	Timestamp pgBackRestTimestamp `json:"timestamp"`
+	Label      string              `json:"label"`
+	Type       string              `json:"type"`
+	Error      bool                `json:"error"`
+	Timestamp  pgBackRestTimestamp `json:"timestamp"`
+	Annotation map[string]string   `json:"annotation,omitempty"`
 }
 
 // pgBackRestTimestamp represents backup timestamps

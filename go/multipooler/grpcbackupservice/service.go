@@ -51,10 +51,14 @@ func RegisterBackupServices(senv *servenv.ServEnv, grpc *servenv.GrpcServer) {
 func (s *backupService) Backup(ctx context.Context, req *backupservicepb.BackupRequest) (*backupservicepb.BackupResponse, error) {
 	configPath := s.manager.GetBackupConfigPath()
 	stanzaName := s.manager.GetBackupStanza()
+	tableGroup := s.manager.GetTableGroup()
+	shard := s.manager.GetShard()
 
-	result, err := backup.BackupShard(ctx, configPath, stanzaName, backup.BackupOptions{
+	result, err := backup.Backup(ctx, configPath, stanzaName, backup.BackupOptions{
 		ForcePrimary: req.ForcePrimary,
 		Type:         req.Type,
+		TableGroup:   tableGroup,
+		Shard:        shard,
 	})
 	if err != nil {
 		return nil, mterrors.ToGRPC(err)

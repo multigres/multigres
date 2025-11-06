@@ -31,6 +31,8 @@ import (
 type BackupOptions struct {
 	ForcePrimary bool
 	Type         string // "full", "differential", "incremental"
+	TableGroup   string // for annotations
+	Shard        string // for annotations
 }
 
 // BackupResult contains the result of a backup operation
@@ -38,8 +40,8 @@ type BackupResult struct {
 	BackupID string
 }
 
-// BackupShard performs a backup on a specific shard
-func BackupShard(ctx context.Context, configPath, stanzaName string, opts BackupOptions) (*BackupResult, error) {
+// Backup performs a backup on a specific shard
+func Backup(ctx context.Context, configPath, stanzaName string, opts BackupOptions) (*BackupResult, error) {
 	// Validation
 	if opts.Type == "" {
 		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "type is required")
@@ -72,12 +74,24 @@ func BackupShard(ctx context.Context, configPath, stanzaName string, opts Backup
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Minute) // Backups can take a long time
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, "pgbackrest",
-		"--stanza="+stanzaName,
-		"--config="+configPath,
-		"--type="+pgBackRestType,
+	args := []string{
+		"--stanza=" + stanzaName,
+		"--config=" + configPath,
+		"--type=" + pgBackRestType,
 		"--log-level-console=info",
-		"backup")
+	}
+
+	// Add annotations if table_group and shard are provided
+	if opts.TableGroup != "" {
+		args = append(args, "--annotation=table_group="+opts.TableGroup)
+	}
+	if opts.Shard != "" {
+		args = append(args, "--annotation=shard="+opts.Shard)
+	}
+
+	args = append(args, "backup")
+
+	cmd := exec.CommandContext(ctx, "pgbackrest", args...)
 
 	// Capture output for logging and to extract backup ID
 	output, err := cmd.CombinedOutput()
