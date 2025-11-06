@@ -85,31 +85,31 @@ func TestPProfInitWithWaitSig(t *testing.T) {
 	sv.pprofInit()
 	require.Eventually(t, func() bool {
 		return !isProfileStarted()
-	}, 2*time.Second, 50*time.Millisecond)
+	}, 2*time.Second, 10*time.Millisecond)
 
 	err := syscall.Kill(syscall.Getpid(), syscall.SIGUSR1)
 	require.NoError(t, err)
 	require.Eventually(t, func() bool {
 		return isProfileStarted()
-	}, 2*time.Second, 50*time.Millisecond)
+	}, 2*time.Second, 10*time.Millisecond)
 
 	err = syscall.Kill(syscall.Getpid(), syscall.SIGUSR1)
 	require.NoError(t, err)
 	require.Eventually(t, func() bool {
 		return !isProfileStarted()
-	}, 2*time.Second, 50*time.Millisecond)
+	}, 2*time.Second, 10*time.Millisecond)
 
 	err = syscall.Kill(syscall.Getpid(), syscall.SIGUSR1)
 	require.NoError(t, err)
 	require.Eventually(t, func() bool {
 		return isProfileStarted()
-	}, 2*time.Second, 50*time.Millisecond)
+	}, 2*time.Second, 10*time.Millisecond)
 
 	err = syscall.Kill(syscall.Getpid(), syscall.SIGUSR1)
 	require.NoError(t, err)
 	require.Eventually(t, func() bool {
 		return !isProfileStarted()
-	}, 2*time.Second, 50*time.Millisecond)
+	}, 2*time.Second, 10*time.Millisecond)
 }
 
 // without waitSig, we should start with profiling on and toggle off-on-off
@@ -123,23 +123,23 @@ func TestPProfInitWithoutWaitSig(t *testing.T) {
 	sv.pprofInit()
 	require.Eventually(t, func() bool {
 		return isProfileStarted()
-	}, 2*time.Second, 50*time.Millisecond)
+	}, 2*time.Second, 10*time.Millisecond)
 
 	err := syscall.Kill(syscall.Getpid(), syscall.SIGUSR1)
 	require.NoError(t, err)
 	require.Eventually(t, func() bool {
 		return !isProfileStarted()
-	}, 2*time.Second, 50*time.Millisecond)
+	}, 2*time.Second, 10*time.Millisecond)
 
 	err = syscall.Kill(syscall.Getpid(), syscall.SIGUSR1)
 	require.NoError(t, err)
 	require.Eventually(t, func() bool {
 		return isProfileStarted()
-	}, 2*time.Second, 50*time.Millisecond)
+	}, 2*time.Second, 10*time.Millisecond)
 
 	err = syscall.Kill(syscall.Getpid(), syscall.SIGUSR1)
 	require.NoError(t, err)
 	require.Eventually(t, func() bool {
 		return !isProfileStarted()
-	}, 2*time.Second, 50*time.Millisecond)
+	}, 2*time.Second, 10*time.Millisecond)
 }
