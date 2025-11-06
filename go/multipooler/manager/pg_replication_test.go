@@ -733,7 +733,7 @@ func TestIsPrimary(t *testing.T) {
 			}
 
 			ctx := context.Background()
-			result, err := pm.isPrimary(ctx)
+			result, err := pm.IsPrimary(ctx)
 
 			if tt.expectError {
 				assert.Error(t, err)

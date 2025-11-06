@@ -66,9 +66,9 @@ func formatStandbyList(standbyIDs []*clustermetadatapb.ID) string {
 // Replication Status Query Methods
 // ----------------------------------------------------------------------------
 
-// IsPrimaryDB checks if the connected database is a primary (not in recovery)
+// IsPrimary checks if the connected database is a primary (not in recovery)
 // This queries PostgreSQL directly and returns the current state.
-func (pm *MultiPoolerManager) IsPrimaryDB(ctx context.Context) (bool, error) {
+func (pm *MultiPoolerManager) IsPrimary(ctx context.Context) (bool, error) {
 	if pm.db == nil {
 		return false, fmt.Errorf("database connection not established")
 	}
@@ -81,11 +81,6 @@ func (pm *MultiPoolerManager) IsPrimaryDB(ctx context.Context) (bool, error) {
 
 	// pg_is_in_recovery() returns true if standby, false if primary
 	return !inRecovery, nil
-}
-
-// isPrimary is the internal version that checks if the connected database is a primary (not in recovery)
-func (pm *MultiPoolerManager) isPrimary(ctx context.Context) (bool, error) {
-	return pm.IsPrimaryDB(ctx)
 }
 
 // getPrimaryLSN gets the current WAL write location (primary only)

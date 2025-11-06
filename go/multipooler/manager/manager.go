@@ -189,7 +189,7 @@ func (pm *MultiPoolerManager) connectDB() error {
 		poolerID := pm.serviceID.Name
 
 		// Check if connected to a primary database
-		isPrimary, err := pm.isPrimary(ctx)
+		isPrimary, err := pm.IsPrimary(ctx)
 		if err != nil {
 			pm.logger.ErrorContext(ctx, "Failed to check if database is primary", "error", err)
 			// Don't fail the connection if primary check fails
@@ -218,7 +218,7 @@ func (pm *MultiPoolerManager) startHeartbeat(ctx context.Context, shardID []byte
 	pm.replTracker = heartbeat.NewReplTracker(pm.db, pm.logger, shardID, poolerID, pm.config.HeartbeatIntervalMs)
 
 	// Check if we're connected to a primary
-	isPrimary, err := pm.isPrimary(ctx)
+	isPrimary, err := pm.IsPrimary(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to check if database is primary: %w", err)
 	}
@@ -272,8 +272,8 @@ func (pm *MultiPoolerManager) GetBackupConfigPath() string {
 	return filepath.Join(pm.config.PoolerDir, "pgbackrest.conf")
 }
 
-// GetBackupStanzaName returns the pgbackrest stanza name
-func (pm *MultiPoolerManager) GetBackupStanzaName() string {
+// GetBackupStanza returns the pgbackrest stanza name
+func (pm *MultiPoolerManager) GetBackupStanza() string {
 	// Use configured stanza name if set, otherwise fallback to service ID
 	if pm.config.PgBackRestStanza != "" {
 		return pm.config.PgBackRestStanza
@@ -284,11 +284,6 @@ func (pm *MultiPoolerManager) GetBackupStanzaName() string {
 // GetPgCtldClient returns the pgctld gRPC client
 func (pm *MultiPoolerManager) GetPgCtldClient() pgctldpb.PgCtldClient {
 	return pm.pgctldClient
-}
-
-// IsPrimary returns true if this instance is running as a primary (not standby)
-func (pm *MultiPoolerManager) IsPrimary() bool {
-	return pm.replTracker.IsPrimary()
 }
 
 // checkReady returns an error if the manager is not in Ready state

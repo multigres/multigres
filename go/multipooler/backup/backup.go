@@ -42,32 +42,6 @@ type BackupResult struct {
 
 // BackupShard performs a backup on a specific shard
 func BackupShard(ctx context.Context, configPath, stanzaName string, opts BackupOptions) (*BackupResult, error) {
-	// TODO: Implement backup logic
-	// This should:
-	// 1. Validate the request
-	//    - Ensure table_group and shard are not empty
-	//    - Ensure type is one of: "full", "differential", "incremental"
-	//
-	// 2. Determine the target server for backup
-	//    - If force_primary is false (default), prefer replica to reduce load on primary
-	//    - If force_primary is true, use the primary server
-	//    - Query topology to find available servers
-	//
-	// 3. Execute pgBackRest backup command
-	//    - Construct pgbackrest command with appropriate flags:
-	//      pgbackrest --stanza=<stanza_name> --type=<type> backup
-	//    - Execute the command using exec.CommandContext
-	//    - Capture stdout/stderr for logging
-	//    - Handle errors and timeouts appropriately
-	//
-	// 4. Parse the backup output to extract the backup ID
-	//    - pgBackRest outputs backup labels like "20250104-100000F"
-	//    - Extract and return this as the backup_id
-	//
-	// 5. Verify the backup completed successfully
-	//    - Check the exit code of the pgbackrest command
-	//    - Optionally run "pgbackrest info" to verify the backup exists
-
 	// Validation
 	if opts.TableGroup == "" {
 		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "table_group is required")
@@ -121,8 +95,6 @@ func BackupShard(ctx context.Context, configPath, stanzaName string, opts Backup
 	}
 
 	// Parse the backup ID from the output
-	// TODO: Find a less fragile way to extract backup ID - text matching is fragile
-	// Consider using pgbackrest info --output=json after backup completes
 	backupID, err := extractBackupID(string(output))
 	if err != nil {
 		return nil, mterrors.New(mtrpcpb.Code_INTERNAL,
@@ -135,6 +107,8 @@ func BackupShard(ctx context.Context, configPath, stanzaName string, opts Backup
 }
 
 // extractBackupID extracts the backup label from pgbackrest output
+//
+// TODO: find a way of of doing this that does that does not rely on text matching
 func extractBackupID(output string) (string, error) {
 	// First, try to find "new backup label" in the output (most reliable)
 	lines := strings.Split(output, "\n")

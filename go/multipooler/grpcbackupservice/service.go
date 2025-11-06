@@ -50,7 +50,7 @@ func RegisterBackupServices(senv *servenv.ServEnv, grpc *servenv.GrpcServer) {
 // BackupShard performs a backup on a specific shard
 func (s *backupService) BackupShard(ctx context.Context, req *backupservicepb.BackupShardRequest) (*backupservicepb.BackupShardResponse, error) {
 	configPath := s.manager.GetBackupConfigPath()
-	stanzaName := s.manager.GetBackupStanzaName()
+	stanzaName := s.manager.GetBackupStanza()
 
 	result, err := backup.BackupShard(ctx, configPath, stanzaName, backup.BackupOptions{
 		TableGroup:   req.TableGroup,
@@ -73,7 +73,7 @@ func (s *backupService) RestoreShardFromBackup(ctx context.Context, req *backups
 
 	pgctldClient := s.manager.GetPgCtldClient()
 	configPath := s.manager.GetBackupConfigPath()
-	stanzaName := s.manager.GetBackupStanzaName()
+	stanzaName := s.manager.GetBackupStanza()
 
 	// Get pg_data directory from the backup config path
 	// configPath is like /path/to/pooler_dir/pgbackrest.conf, so we get the dir and append pg_data
@@ -82,9 +82,8 @@ func (s *backupService) RestoreShardFromBackup(ctx context.Context, req *backups
 
 	// Determine if we should maintain standby status after restore
 	// We query PostgreSQL directly to get the current recovery status
-	// (checking the cached IsPrimary() value is unreliable as it doesn't update after restore)
 	slog.InfoContext(ctx, "Checking recovery status before restore")
-	isPrimary, err := s.manager.IsPrimaryDB(ctx)
+	isPrimary, err := s.manager.IsPrimary(ctx)
 	if err != nil {
 		slog.ErrorContext(ctx, "Failed to check recovery status before restore", "error", err)
 		return nil, mterrors.ToGRPC(mterrors.Wrap(err, "failed to check recovery status"))
@@ -132,7 +131,7 @@ func (s *backupService) RestoreShardFromBackup(ctx context.Context, req *backups
 // GetShardBackups retrieves backup information for a shard
 func (s *backupService) GetShardBackups(ctx context.Context, req *backupservicepb.GetShardBackupsRequest) (*backupservicepb.GetShardBackupsResponse, error) {
 	configPath := s.manager.GetBackupConfigPath()
-	stanzaName := s.manager.GetBackupStanzaName()
+	stanzaName := s.manager.GetBackupStanza()
 
 	result, err := backup.GetShardBackups(ctx, configPath, stanzaName, backup.ListOptions{
 		Limit: req.Limit,
