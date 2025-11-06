@@ -31,4 +31,5 @@ type Config struct {
 	ServiceID           *clustermetadatapb.ID
 	HeartbeatIntervalMs int
 	PgctldAddr          string // Address of pgctld gRPC service
+	ConsensusEnabled    bool   // Whether consensus gRPC service is enabled
 }

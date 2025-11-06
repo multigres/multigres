@@ -244,7 +244,10 @@ func TestManagerServiceMethods_ManagerNotReady(t *testing.T) {
 		{
 			name: "StopReplicationAndGetStatus",
 			method: func() error {
-				req := &multipoolermanagerdata.StopReplicationAndGetStatusRequest{}
+				req := &multipoolermanagerdata.StopReplicationAndGetStatusRequest{
+					Mode: multipoolermanagerdata.ReplicationPauseMode_REPLICATION_PAUSE_MODE_REPLAY_ONLY,
+					Wait: true,
+				}
 				_, err := svc.StopReplicationAndGetStatus(ctx, req)
 				return err
 			},

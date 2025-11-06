@@ -16,6 +16,7 @@ syntax = "proto3";
 
 package consensusdata;
 
+import "clustermetadata.proto";
 import "google/protobuf/timestamp.proto";
 
 option go_package = "github.com/multigres/multigres/go/pb/consensusdata";
@@ -44,7 +45,7 @@ message BeginTermRequest {
   int64 term = 1;
 
   // ID of the candidate for appointment
-  string candidate_id = 2;
+  clustermetadata.ID candidate_id = 2;
 
   // Shard ID for this appointment
   string shard_id = 3;

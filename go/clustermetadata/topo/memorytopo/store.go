@@ -333,7 +333,7 @@ func NewServerAndFactory(ctx context.Context, cells ...string) (topo.Store, *Fac
 			Root:            fmt.Sprintf("/multigres/%s", cell),
 		}
 		if err := ts.CreateCell(ctx, cell, cellInfo); err != nil {
-			slog.Error("ts.CreateCellInfo failed", "cell", cell, "error", err)
+			slog.ErrorContext(ctx, "ts.CreateCellInfo failed", "cell", cell, "error", err)
 		}
 	}
 	return ts, f

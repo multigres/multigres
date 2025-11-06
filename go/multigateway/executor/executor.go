@@ -64,7 +64,7 @@ func (e *Executor) StreamExecute(
 	sql string,
 	callback func(ctx context.Context, res *query.QueryResult) error,
 ) error {
-	e.logger.Debug("executing query",
+	e.logger.DebugContext(ctx, "executing query",
 		"query", sql,
 		"user", conn.User(),
 		"database", conn.Database(),
@@ -73,13 +73,13 @@ func (e *Executor) StreamExecute(
 	// Step 1: Plan the query
 	plan, err := e.planner.Plan(sql, conn)
 	if err != nil {
-		e.logger.Error("query planning failed",
+		e.logger.ErrorContext(ctx, "query planning failed",
 			"query", sql,
 			"error", err)
 		return err
 	}
 
-	e.logger.Debug("query plan created",
+	e.logger.DebugContext(ctx, "query plan created",
 		"plan", plan.String(),
 		"tablegroup", plan.GetTableGroup())
 
@@ -87,14 +87,14 @@ func (e *Executor) StreamExecute(
 	// Pass the IExecute implementation to the plan, which will pass it to the primitive
 	err = plan.StreamExecute(ctx, e.exec, conn, callback)
 	if err != nil {
-		e.logger.Error("query execution failed",
+		e.logger.ErrorContext(ctx, "query execution failed",
 			"query", sql,
 			"plan", plan.String(),
 			"error", err)
 		return err
 	}
 
-	e.logger.Debug("query execution completed",
+	e.logger.DebugContext(ctx, "query execution completed",
 		"query", sql,
 		"tablegroup", plan.GetTableGroup())
 
