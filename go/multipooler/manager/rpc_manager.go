@@ -384,6 +384,13 @@ func (pm *MultiPoolerManager) UpdateSynchronousStandbyList(ctx context.Context, 
 		return err
 	}
 
+	// Check if synchronous replication is configured
+	if len(syncConfig.StandbyIds) == 0 {
+		pm.logger.ErrorContext(ctx, "UpdateSynchronousStandbyList requires synchronous replication to be configured")
+		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
+			"synchronous replication is not configured - use ConfigureSynchronousReplication first")
+	}
+
 	// Build the current value string for comparison
 	currentValue, err := buildSynchronousStandbyNamesValue(syncConfig.SynchronousMethod, syncConfig.NumSync, syncConfig.StandbyIds)
 	if err != nil {
