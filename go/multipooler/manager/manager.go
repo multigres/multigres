@@ -554,7 +554,8 @@ func (pm *MultiPoolerManager) loadConsensusTermFromDisk() {
 		pm.mu.Unlock()
 
 		// Load term from local disk using the ConsensusState
-		if err := cs.Load(); err != nil {
+		var currentTerm int64
+		if currentTerm, err = cs.Load(); err != nil {
 			pm.logger.Debug("Failed to load consensus term from disk, retrying", "error", err)
 			continue // Will retry with backoff
 		}
@@ -563,15 +564,6 @@ func (pm *MultiPoolerManager) loadConsensusTermFromDisk() {
 		pm.mu.Lock()
 		pm.consensusLoaded = true
 		pm.mu.Unlock()
-
-		lockCtx, err := pm.actionLock.Acquire(timeoutCtx, "loadConsensusTermFromDisk")
-		if err != nil {
-			pm.logger.Debug("Failed to get action lock to load consensus term from disk, retrying", "error", err)
-			continue
-		}
-
-		currentTerm, err := cs.GetCurrentTermNumber(lockCtx)
-		pm.actionLock.Release(lockCtx)
 
 		if err != nil {
 			pm.logger.ErrorContext(timeoutCtx, "Failed to get current term number after loading", "error", err)

@@ -245,8 +245,9 @@ func TestBeginTerm(t *testing.T) {
 			require.NoError(t, err)
 
 			// Load into consensus state
-			err = pm.consensusState.Load()
+			loadedTermNumber, err := pm.consensusState.Load()
 			require.NoError(t, err)
+			assert.Equal(t, tt.initialTerm.TermNumber, loadedTermNumber, "Loaded term number should match initial term")
 
 			// Setup mocks
 			tt.setupMocks(mock)
@@ -267,10 +268,10 @@ func TestBeginTerm(t *testing.T) {
 			assert.Equal(t, tt.expectedTerm, resp.Term)
 
 			// Verify persisted state
-			loadedTerm, err := getConsensusTerm(tmpDir)
+			persistedTerm, err := getConsensusTerm(tmpDir)
 			require.NoError(t, err)
-			assert.Equal(t, tt.expectedTerm, loadedTerm.TermNumber)
-			assert.Equal(t, tt.expectedAcceptedLeader, loadedTerm.AcceptedLeader.GetName())
+			assert.Equal(t, tt.expectedTerm, persistedTerm.TermNumber)
+			assert.Equal(t, tt.expectedAcceptedLeader, persistedTerm.AcceptedLeader.GetName())
 
 			assert.NoError(t, mock.ExpectationsWereMet())
 		})
@@ -287,8 +288,9 @@ func TestBeginTerm(t *testing.T) {
 			require.NoError(t, err)
 
 			// Load into consensus state
-			err = pm.consensusState.Load()
+			loadedTermNumber, err := pm.consensusState.Load()
 			require.NoError(t, err)
+			assert.Equal(t, tt.initialTerm.TermNumber, loadedTermNumber, "Loaded term number should match initial term")
 
 			// Make filesystem read-only to simulate save failure
 			if tt.makeFilesystemReadOnly {
@@ -607,8 +609,9 @@ func TestConsensusStatus(t *testing.T) {
 
 			// Load term into consensus state if term should be in memory
 			if tt.termInMemory {
-				err = pm.consensusState.Load()
+				loadedTerm, err := pm.consensusState.Load()
 				require.NoError(t, err)
+				assert.Equal(t, tt.expectedCurrentTerm, loadedTerm, "Loaded term should match expected current term")
 			}
 
 			// Handle nil DB case

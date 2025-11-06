@@ -51,17 +51,17 @@ func NewConsensusState(poolerDir string, serviceID *clustermetadatapb.ID) *Conse
 // Load loads consensus state from disk into memory.
 // If the file doesn't exist, initializes with default values (term 0, no accepted leader).
 // This method is idempotent - subsequent calls will reload from disk.
-func (cs *ConsensusState) Load() error {
+func (cs *ConsensusState) Load() (int64, error) {
 	term, err := getConsensusTerm(cs.poolerDir)
 	if err != nil {
-		return fmt.Errorf("failed to load consensus term: %w", err)
+		return 0, fmt.Errorf("failed to load consensus term: %w", err)
 	}
 
 	cs.mu.Lock()
 	cs.term = term
 	cs.mu.Unlock()
 
-	return nil
+	return term.TermNumber, nil
 }
 
 // GetCurrentTermNumber returns the current term.
