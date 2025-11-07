@@ -58,5 +58,5 @@ func (sv *ServEnv) RegisterCommonHTTPEndpoints() {
 		_ = web.Templates.ExecuteTemplate(w, "isok.html", true)
 	})
 
-	sv.HTTPHandleFunc("/config", viperdebug.HandlerFunc)
+	sv.HTTPHandleFunc("/config", viperdebug.HandlerFunc(sv.reg))
 }

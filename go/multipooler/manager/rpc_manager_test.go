@@ -31,6 +31,7 @@ import (
 	"github.com/multigres/multigres/go/mterrors"
 	"github.com/multigres/multigres/go/servenv"
 	"github.com/multigres/multigres/go/test/utils"
+	"github.com/multigres/multigres/go/viperutil"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
@@ -96,7 +97,7 @@ func TestPrimaryPosition(t *testing.T) {
 			defer manager.Close()
 
 			// Start and wait for ready
-			senv := servenv.NewServEnv()
+			senv := servenv.NewServEnv(viperutil.NewRegistry())
 			go manager.Start(senv)
 			require.Eventually(t, func() bool {
 				return manager.GetState() == ManagerStateReady
@@ -155,7 +156,7 @@ func TestActionLock_MutationMethodsTimeout(t *testing.T) {
 	defer manager.Close()
 
 	// Start and wait for ready
-	senv := servenv.NewServEnv()
+	senv := servenv.NewServEnv(viperutil.NewRegistry())
 	go manager.Start(senv)
 	require.Eventually(t, func() bool {
 		return manager.GetState() == ManagerStateReady
@@ -340,7 +341,7 @@ func setupPromoteTestManager(t *testing.T) (*MultiPoolerManager, sqlmock.Sqlmock
 	pm := NewMultiPoolerManager(logger, config)
 	t.Cleanup(func() { pm.Close() })
 
-	senv := servenv.NewServEnv()
+	senv := servenv.NewServEnv(viperutil.NewRegistry())
 	go pm.Start(senv)
 
 	require.Eventually(t, func() bool {

@@ -260,24 +260,24 @@ type TopoConfig struct {
 }
 
 // NewTopoConfig creates a new TopoConfig with default values
-func NewTopoConfig() *TopoConfig {
+func NewTopoConfig(reg *viperutil.Registry) *TopoConfig {
 	return &TopoConfig{
-		implementation: viperutil.Configure("topo-implementation", viperutil.Options[string]{
+		implementation: viperutil.Configure(reg, "topo-implementation", viperutil.Options[string]{
 			Default:  "",
 			FlagName: "topo-implementation",
 			Dynamic:  false,
 		}),
-		globalServerAddresses: viperutil.Configure("topo-global-server-addresses", viperutil.Options[[]string]{
+		globalServerAddresses: viperutil.Configure(reg, "topo-global-server-addresses", viperutil.Options[[]string]{
 			Default:  []string{},
 			FlagName: "topo-global-server-addresses",
 			Dynamic:  false,
 		}),
-		globalRoot: viperutil.Configure("topo-global-root", viperutil.Options[string]{
+		globalRoot: viperutil.Configure(reg, "topo-global-root", viperutil.Options[string]{
 			Default:  "",
 			FlagName: "topo-global-root",
 			Dynamic:  false,
 		}),
-		readConcurrency: viperutil.Configure("topo-read-concurrency", viperutil.Options[int64]{
+		readConcurrency: viperutil.Configure(reg, "topo-read-concurrency", viperutil.Options[int64]{
 			Default:  32,
 			FlagName: "topo-read-concurrency",
 			Dynamic:  false,

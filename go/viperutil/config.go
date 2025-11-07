@@ -34,7 +34,6 @@ import (
 	"github.com/mitchellh/mapstructure"
 
 	"github.com/multigres/multigres/go/viperutil/funcs"
-	"github.com/multigres/multigres/go/viperutil/internal/registry"
 	"github.com/multigres/multigres/go/viperutil/internal/value"
 )
 
@@ -47,9 +46,10 @@ type ViperConfig struct {
 	configPersistenceMinInterval Value[time.Duration]
 }
 
-func NewViperConfig() *ViperConfig {
+func NewViperConfig(reg *Registry) *ViperConfig {
 	vc := &ViperConfig{
 		configPaths: Configure(
+			reg,
 			"config.paths",
 			Options[[]string]{
 				GetFunc:  funcs.GetPath,
@@ -58,6 +58,7 @@ func NewViperConfig() *ViperConfig {
 			},
 		),
 		configType: Configure(
+			reg,
 			"config.type",
 			Options[string]{
 				EnvVars:  []string{"MT_CONFIG_TYPE"},
@@ -65,6 +66,7 @@ func NewViperConfig() *ViperConfig {
 			},
 		),
 		configName: Configure(
+			reg,
 			"config.name",
 			Options[string]{
 				Default:  "mtconfig",
@@ -73,6 +75,7 @@ func NewViperConfig() *ViperConfig {
 			},
 		),
 		configFile: Configure(
+			reg,
 			"config.file",
 			Options[string]{
 				EnvVars:  []string{"MT_CONFIG_FILE"},
@@ -80,6 +83,7 @@ func NewViperConfig() *ViperConfig {
 			},
 		),
 		configFileNotFoundHandling: Configure(
+			reg,
 			"config.notfound.handling",
 			Options[ConfigFileNotFoundHandling]{
 				Default:  WarnOnConfigFileNotFound,
@@ -88,6 +92,7 @@ func NewViperConfig() *ViperConfig {
 			},
 		),
 		configPersistenceMinInterval: Configure(
+			reg,
 			"config.persistence.min_interval",
 			Options[time.Duration]{
 				Default:  time.Second,
@@ -110,7 +115,7 @@ func NewViperConfig() *ViperConfig {
 
 	vc.configPaths.(*value.Static[[]string]).DefaultVal = []string{baseDir}
 	// Need to re-trigger the SetDefault call done during Configure.
-	registry.Static.SetDefault(vc.configPaths.Key(), vc.configPaths.Default())
+	reg.Static.SetDefault(vc.configPaths.Key(), vc.configPaths.Default())
 	return vc
 }
 
@@ -157,26 +162,26 @@ func (vc *ViperConfig) RegisterFlags(fs *pflag.FlagSet) {
 // if one was started.
 //
 // [1]: https://github.com/spf13/viper#reading-config-files.
-func (vc *ViperConfig) LoadConfig() (context.CancelFunc, error) {
+func (vc *ViperConfig) LoadConfig(reg *Registry) (context.CancelFunc, error) {
 	var err error
 	switch file := vc.configFile.Get(); file {
 	case "":
 		if name := vc.configName.Get(); name != "" {
-			registry.Static.SetConfigName(name)
+			reg.Static.SetConfigName(name)
 
 			for _, path := range vc.configPaths.Get() {
-				registry.Static.AddConfigPath(path)
+				reg.Static.AddConfigPath(path)
 			}
 
 			if cfgType := vc.configType.Get(); cfgType != "" {
-				registry.Static.SetConfigType(cfgType)
+				reg.Static.SetConfigType(cfgType)
 			}
 
-			err = registry.Static.ReadInConfig()
+			err = reg.Static.ReadInConfig()
 		}
 	default:
-		registry.Static.SetConfigFile(file)
-		err = registry.Static.ReadInConfig()
+		reg.Static.SetConfigFile(file)
+		err = reg.Static.ReadInConfig()
 	}
 
 	if err != nil {
@@ -189,9 +194,9 @@ func (vc *ViperConfig) LoadConfig() (context.CancelFunc, error) {
 			case IgnoreConfigFileNotFound:
 				return func() {}, nil
 			case ErrorOnConfigFileNotFound:
-				slog.Error(fmt.Sprintf(msg, registry.Static.ConfigFileUsed(), err.Error()))
+				slog.Error(fmt.Sprintf(msg, reg.Static.ConfigFileUsed(), err.Error()))
 			case ExitOnConfigFileNotFound:
-				slog.Error(fmt.Sprintf(msg, registry.Static.ConfigFileUsed(), err.Error()))
+				slog.Error(fmt.Sprintf(msg, reg.Static.ConfigFileUsed(), err.Error()))
 			}
 		}
 	}
@@ -200,7 +205,7 @@ func (vc *ViperConfig) LoadConfig() (context.CancelFunc, error) {
 		return nil, err
 	}
 
-	return registry.Dynamic.Watch(context.Background(), registry.Static, vc.configPersistenceMinInterval.Get())
+	return reg.Dynamic.Watch(context.Background(), reg.Static, vc.configPersistenceMinInterval.Get())
 }
 
 // isConfigFileNotFoundError checks if the error is caused because the file wasn't found.
@@ -220,8 +225,8 @@ func isConfigFileNotFoundError(err error) bool {
 //
 // This function must be called prior to LoadConfig; it will panic if called
 // after the dynamic registry has started watching the loaded config.
-func NotifyConfigReload(ch chan<- struct{}) {
-	registry.Dynamic.Notify(ch)
+func NotifyConfigReload(reg *Registry, ch chan<- struct{}) {
+	reg.Dynamic.Notify(ch)
 }
 
 // ConfigFileNotFoundHandling is an enum to control how LoadConfig treats errors

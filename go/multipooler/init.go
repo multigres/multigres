@@ -66,57 +66,58 @@ func (mp *MultiPooler) CobraPreRunE(cmd *cobra.Command) error {
 
 // NewMultiPooler creates a new MultiPooler instance with default configuration
 func NewMultiPooler() *MultiPooler {
+	reg := viperutil.NewRegistry()
 	mp := &MultiPooler{
-		pgctldAddr: viperutil.Configure("pgctld-addr", viperutil.Options[string]{
+		pgctldAddr: viperutil.Configure(reg, "pgctld-addr", viperutil.Options[string]{
 			Default:  "localhost:15200",
 			FlagName: "pgctld-addr",
 			Dynamic:  false,
 		}),
-		cell: viperutil.Configure("cell", viperutil.Options[string]{
+		cell: viperutil.Configure(reg, "cell", viperutil.Options[string]{
 			Default:  "",
 			FlagName: "cell",
 			Dynamic:  false,
 			EnvVars:  []string{"MT_CELL"},
 		}),
-		database: viperutil.Configure("database", viperutil.Options[string]{
+		database: viperutil.Configure(reg, "database", viperutil.Options[string]{
 			Default:  "",
 			FlagName: "database",
 			Dynamic:  false,
 		}),
-		tableGroup: viperutil.Configure("table-group", viperutil.Options[string]{
+		tableGroup: viperutil.Configure(reg, "table-group", viperutil.Options[string]{
 			Default:  "",
 			FlagName: "table-group",
 			Dynamic:  false,
 		}),
-		serviceID: viperutil.Configure("service-id", viperutil.Options[string]{
+		serviceID: viperutil.Configure(reg, "service-id", viperutil.Options[string]{
 			Default:  "",
 			FlagName: "service-id",
 			Dynamic:  false,
 			EnvVars:  []string{"MT_SERVICE_ID"},
 		}),
-		socketFilePath: viperutil.Configure("socket-file", viperutil.Options[string]{
+		socketFilePath: viperutil.Configure(reg, "socket-file", viperutil.Options[string]{
 			Default:  "",
 			FlagName: "socket-file",
 			Dynamic:  false,
 		}),
-		poolerDir: viperutil.Configure("pooler-dir", viperutil.Options[string]{
+		poolerDir: viperutil.Configure(reg, "pooler-dir", viperutil.Options[string]{
 			Default:  "",
 			FlagName: "pooler-dir",
 			Dynamic:  false,
 		}),
-		pgPort: viperutil.Configure("pg-port", viperutil.Options[int]{
+		pgPort: viperutil.Configure(reg, "pg-port", viperutil.Options[int]{
 			Default:  5432,
 			FlagName: "pg-port",
 			Dynamic:  false,
 		}),
-		heartbeatIntervalMs: viperutil.Configure("heartbeat-interval-milliseconds", viperutil.Options[int]{
+		heartbeatIntervalMs: viperutil.Configure(reg, "heartbeat-interval-milliseconds", viperutil.Options[int]{
 			Default:  1000,
 			FlagName: "heartbeat-interval-milliseconds",
 			Dynamic:  false,
 		}),
-		grpcServer: servenv.NewGrpcServer(),
-		senv:       servenv.NewServEnv(),
-		topoConfig: topo.NewTopoConfig(),
+		grpcServer: servenv.NewGrpcServer(reg),
+		senv:       servenv.NewServEnv(reg),
+		topoConfig: topo.NewTopoConfig(reg),
 		serverStatus: Status{
 			Title: "Multipooler",
 			Links: []Link{

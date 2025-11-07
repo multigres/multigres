@@ -41,8 +41,8 @@ type PgCtldServerCmd struct {
 func AddServerCommand(root *cobra.Command, pc *PgCtlCommand) {
 	serverCmd := &PgCtldServerCmd{
 		pgCtlCmd:   pc,
-		grpcServer: servenv.NewGrpcServer(),
-		senv:       servenv.NewServEnvWithConfig(pc.lg, pc.vc),
+		grpcServer: servenv.NewGrpcServer(pc.reg),
+		senv:       servenv.NewServEnvWithConfig(pc.reg, pc.lg, pc.vc),
 	}
 	serverCmd.senv.InitServiceMap("grpc", "pgctld")
 	root.AddCommand(serverCmd.createCommand())

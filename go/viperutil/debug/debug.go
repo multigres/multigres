@@ -17,21 +17,21 @@
 package debug
 
 import (
-	"github.com/multigres/multigres/go/viperutil/internal/registry"
+	"github.com/multigres/multigres/go/viperutil"
 )
 
 // Debug provides the Debug functionality normally accessible to a given viper
-// instance, but for a combination of the private static and dynamic registries.
-func Debug() {
-	registry.Combined().Debug()
+// instance, but for a combination of the static and dynamic registries.
+func Debug(reg *viperutil.Registry) {
+	viperutil.Combined(reg).Debug()
 }
 
 // WriteConfigAs writes the config into the given filename.
-func WriteConfigAs(filename string) error {
-	return registry.Combined().WriteConfigAs(filename)
+func WriteConfigAs(reg *viperutil.Registry, filename string) error {
+	return viperutil.Combined(reg).WriteConfigAs(filename)
 }
 
 // AllSettings gets all the settings in the configuration.
-func AllSettings() map[string]any {
-	return registry.Combined().AllSettings()
+func AllSettings(reg *viperutil.Registry) map[string]any {
+	return viperutil.Combined(reg).AllSettings()
 }
