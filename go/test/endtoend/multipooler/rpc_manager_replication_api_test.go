@@ -1969,6 +1969,11 @@ func TestUpdateSynchronousStandbyList(t *testing.T) {
 		_, err = primaryManagerClient.UpdateSynchronousStandbyList(utils.WithShortDeadline(t), updateReq)
 		require.NoError(t, err, "ADD should succeed")
 
+		require.Eventually(t, func() bool {
+			numStandbys := getPrimaryStatusFromClient(t, primaryManagerClient).SyncReplicationConfig.StandbyIds
+			return len(numStandbys) == 2
+		}, 5*time.Second, 50*time.Millisecond)
+
 		// Verify both standbys are now in the list
 		status = getPrimaryStatusFromClient(t, primaryManagerClient)
 		assert.Equal(t, multipoolermanagerdatapb.SynchronousMethod_SYNCHRONOUS_METHOD_FIRST, status.SyncReplicationConfig.SynchronousMethod)

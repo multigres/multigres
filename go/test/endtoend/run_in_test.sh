@@ -21,14 +21,26 @@ set -euo pipefail
 # This script is used in integration tests to ensure child processes are cleaned up
 # if the parent test process dies or is killed. It monitors the parent PID and
 # sends SIGTERM (then SIGKILL after 5s) to the child if the parent changes.
+#
+# Environment variables:
+#   MULTIGRES_TESTDATA_DIR - If set and directory is deleted, cleanup child
+#   MULTIGRES_TEST_PARENT_PID - If set, monitor this PID instead of parent
 
 if [ $# -eq 0 ]; then
   echo "Usage: run_in_test <command> [args...]" >&2
   exit 1
 fi
 
-# Get current parent PID
-parent_pid=$(ps -o ppid= -p $$ | tr -d ' ')
+# Get orphan detection environment variables
+testdata_dir="${MULTIGRES_TESTDATA_DIR:-}"
+test_parent_pid="${MULTIGRES_TEST_PARENT_PID:-}"
+
+# Determine which PID to monitor (prefer TEST_PARENT_PID, fallback to parent)
+if [ -n "$test_parent_pid" ]; then
+  monitor_pid="$test_parent_pid"
+else
+  monitor_pid=$(ps -o ppid= -p $$ | tr -d ' ')
+fi
 
 # Start the child process in background
 "$@" &
@@ -63,13 +75,20 @@ trap 'cleanup; exit 130' SIGINT
 
 # Monitor parent PID every second
 while kill -0 $child_pid 2>/dev/null; do
-  # Check if parent changed (orphaned)
-  current_parent=$(ps -o ppid= -p $$ | tr -d ' ')
-  if [ "$current_parent" != "$parent_pid" ]; then
-    echo "run_in_test: Parent process died (was $parent_pid, now $current_parent), terminating child" >&2
+  # Check if testdata directory was deleted
+  if [ -n "$testdata_dir" ] && [ ! -d "$testdata_dir" ]; then
+    echo "run_in_test: Testdata directory deleted ($testdata_dir), terminating child" >&2
     cleanup
     exit 0
   fi
+
+  # Check if monitored process died
+  if ! kill -0 "$monitor_pid" 2>/dev/null; then
+    echo "run_in_test: Monitored process died (PID $monitor_pid), terminating child" >&2
+    cleanup
+    exit 0
+  fi
+
   sleep 1
 done
 

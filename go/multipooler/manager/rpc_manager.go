@@ -16,13 +16,10 @@ package manager
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"time"
 
 	"github.com/multigres/multigres/go/mterrors"
-
-	"google.golang.org/protobuf/types/known/durationpb"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
@@ -58,12 +55,10 @@ func (pm *MultiPoolerManager) WaitForLSN(ctx context.Context, targetLsn string) 
 
 		case <-ticker.C:
 			// Check if the standby has replayed up to the target LSN
-			var reachedTarget bool
-			query := fmt.Sprintf("SELECT pg_last_wal_replay_lsn() >= '%s'::pg_lsn", targetLsn)
-			err := pm.db.QueryRowContext(ctx, query).Scan(&reachedTarget)
+			reachedTarget, err := pm.checkLSNReached(ctx, targetLsn)
 			if err != nil {
 				pm.logger.ErrorContext(ctx, "Failed to check replay LSN", "error", err)
-				return mterrors.Wrap(err, "failed to check replay LSN")
+				return err
 			}
 
 			if reachedTarget {
@@ -112,14 +107,13 @@ func (pm *MultiPoolerManager) SetPrimaryConnInfo(ctx context.Context, host strin
 	}
 
 	// Guardrail: Check if the PostgreSQL instance is in recovery (standby mode)
-	var isInRecovery bool
-	err = pm.db.QueryRowContext(ctx, "SELECT pg_is_in_recovery()").Scan(&isInRecovery)
+	isPrimary, err := pm.isPrimary(ctx)
 	if err != nil {
 		pm.logger.ErrorContext(ctx, "Failed to check if instance is in recovery", "error", err)
 		return mterrors.Wrap(err, "failed to check recovery status")
 	}
 
-	if !isInRecovery {
+	if isPrimary {
 		pm.logger.ErrorContext(ctx, "SetPrimaryConnInfo called on non-standby instance", "service_id", pm.serviceID.String())
 		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
 			fmt.Sprintf("operation not allowed: the PostgreSQL instance is not in standby mode (service_id: %s)", pm.serviceID.String()))
@@ -127,11 +121,9 @@ func (pm *MultiPoolerManager) SetPrimaryConnInfo(ctx context.Context, host strin
 
 	// Optionally stop replication before making changes
 	if stopReplicationBefore {
-		pm.logger.InfoContext(ctx, "Stopping replication before setting primary_conninfo")
-		_, err := pm.db.ExecContext(ctx, "SELECT pg_wal_replay_pause()")
+		_, err := pm.pauseReplication(ctx, multipoolermanagerdatapb.ReplicationPauseMode_REPLICATION_PAUSE_MODE_REPLAY_ONLY, false)
 		if err != nil {
-			pm.logger.ErrorContext(ctx, "Failed to pause WAL replay", "error", err)
-			return mterrors.Wrap(err, "failed to pause WAL replay")
+			return err
 		}
 	}
 
@@ -148,20 +140,13 @@ func (pm *MultiPoolerManager) SetPrimaryConnInfo(ctx context.Context, host strin
 		host, port, database, appName)
 
 	// Set primary_conninfo using ALTER SYSTEM
-	pm.logger.InfoContext(ctx, "Setting primary_conninfo", "conninfo", connInfo)
-	alterQuery := fmt.Sprintf("ALTER SYSTEM SET primary_conninfo = '%s'", connInfo)
-	_, err = pm.db.ExecContext(ctx, alterQuery)
-	if err != nil {
-		pm.logger.ErrorContext(ctx, "Failed to set primary_conninfo", "error", err)
-		return mterrors.Wrap(err, "failed to set primary_conninfo")
+	if err = pm.setPrimaryConnInfo(ctx, connInfo); err != nil {
+		return err
 	}
 
 	// Reload PostgreSQL configuration to apply changes
-	pm.logger.InfoContext(ctx, "Reloading PostgreSQL configuration")
-	_, err = pm.db.ExecContext(ctx, "SELECT pg_reload_conf()")
-	if err != nil {
-		pm.logger.ErrorContext(ctx, "Failed to reload configuration", "error", err)
-		return mterrors.Wrap(err, "failed to reload PostgreSQL configuration")
+	if err = pm.reloadPostgresConfig(ctx); err != nil {
+		return err
 	}
 
 	// Optionally start replication after making changes.
@@ -175,10 +160,8 @@ func (pm *MultiPoolerManager) SetPrimaryConnInfo(ctx context.Context, host strin
 		}
 
 		pm.logger.InfoContext(ctx, "Starting replication after setting primary_conninfo")
-		_, err := pm.db.ExecContext(ctx, "SELECT pg_wal_replay_resume()")
-		if err != nil {
-			pm.logger.ErrorContext(ctx, "Failed to resume WAL replay", "error", err)
-			return mterrors.Wrap(err, "failed to resume WAL replay")
+		if err := pm.resumeWALReplay(ctx); err != nil {
+			return err
 		}
 	}
 
@@ -207,11 +190,8 @@ func (pm *MultiPoolerManager) StartReplication(ctx context.Context) error {
 	}
 
 	// Resume WAL replay on the standby
-	pm.logger.InfoContext(ctx, "Resuming WAL replay on standby")
-	_, err = pm.db.ExecContext(ctx, "SELECT pg_wal_replay_resume()")
-	if err != nil {
-		pm.logger.ErrorContext(ctx, "Failed to resume WAL replay", "error", err)
-		return mterrors.Wrap(err, "failed to resume WAL replay")
+	if err := pm.resumeWALReplay(ctx); err != nil {
+		return err
 	}
 
 	pm.logger.InfoContext(ctx, "StartReplication completed successfully")
@@ -351,11 +331,8 @@ func (pm *MultiPoolerManager) ConfigureSynchronousReplication(ctx context.Contex
 
 	// Reload configuration if requested
 	if reloadConfig {
-		pm.logger.InfoContext(ctx, "Reloading PostgreSQL configuration")
-		_, err := pm.db.ExecContext(ctx, "SELECT pg_reload_conf()")
-		if err != nil {
-			pm.logger.ErrorContext(ctx, "Failed to reload configuration", "error", err)
-			return mterrors.Wrap(err, "failed to reload PostgreSQL configuration")
+		if err := pm.reloadPostgresConfig(ctx); err != nil {
+			return err
 		}
 	}
 
@@ -407,32 +384,37 @@ func (pm *MultiPoolerManager) UpdateSynchronousStandbyList(ctx context.Context, 
 
 	// === Parse Current Configuration ===
 
-	// Get current synchronous_standby_names value
-	var currentValue string
-	err = pm.db.QueryRowContext(ctx, "SHOW synchronous_standby_names").Scan(&currentValue)
-	if err != nil {
-		pm.logger.ErrorContext(ctx, "Failed to get current synchronous_standby_names", "error", err)
-		return mterrors.Wrap(err, "failed to get current synchronous_standby_names")
-	}
-
-	pm.logger.InfoContext(ctx, "Current synchronous_standby_names", "value", currentValue)
-
-	// Parse current configuration
-	cfg, err := parseSynchronousStandbyNames(currentValue)
+	// Get current synchronous replication configuration
+	syncConfig, err := pm.getSynchronousReplicationConfig(ctx)
 	if err != nil {
 		return err
 	}
 
+	// Check if synchronous replication is configured
+	if len(syncConfig.StandbyIds) == 0 {
+		pm.logger.ErrorContext(ctx, "UpdateSynchronousStandbyList requires synchronous replication to be configured")
+		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
+			"synchronous replication is not configured - use ConfigureSynchronousReplication first")
+	}
+
+	// Build the current value string for comparison
+	currentValue, err := buildSynchronousStandbyNamesValue(syncConfig.SynchronousMethod, syncConfig.NumSync, syncConfig.StandbyIds)
+	if err != nil {
+		return err
+	}
+
+	pm.logger.InfoContext(ctx, "Current synchronous_standby_names", "value", currentValue)
+
 	// === Apply Operation ===
 
-	// Apply the requested operation
+	// Apply the requested operation using the current standby list
 	var updatedStandbys []*clustermetadatapb.ID
 	switch operation {
 	case multipoolermanagerdatapb.StandbyUpdateOperation_STANDBY_UPDATE_OPERATION_ADD:
-		updatedStandbys = applyAddOperation(cfg.StandbyIDs, standbyIDs)
+		updatedStandbys = applyAddOperation(syncConfig.StandbyIds, standbyIDs)
 
 	case multipoolermanagerdatapb.StandbyUpdateOperation_STANDBY_UPDATE_OPERATION_REMOVE:
-		updatedStandbys = applyRemoveOperation(cfg.StandbyIDs, standbyIDs)
+		updatedStandbys = applyRemoveOperation(syncConfig.StandbyIds, standbyIDs)
 
 	case multipoolermanagerdatapb.StandbyUpdateOperation_STANDBY_UPDATE_OPERATION_REPLACE:
 		updatedStandbys = applyReplaceOperation(standbyIDs)
@@ -451,7 +433,7 @@ func (pm *MultiPoolerManager) UpdateSynchronousStandbyList(ctx context.Context, 
 	// === Build and Apply New Configuration ===
 
 	// Build new synchronous_standby_names value using shared helper
-	newValue, err := buildSynchronousStandbyNamesValue(cfg.Method, cfg.NumSync, updatedStandbys)
+	newValue, err := buildSynchronousStandbyNamesValue(syncConfig.SynchronousMethod, syncConfig.NumSync, updatedStandbys)
 	if err != nil {
 		return err
 	}
@@ -473,11 +455,8 @@ func (pm *MultiPoolerManager) UpdateSynchronousStandbyList(ctx context.Context, 
 
 	// Reload configuration if requested
 	if reloadConfig {
-		pm.logger.InfoContext(ctx, "Reloading PostgreSQL configuration")
-		_, err := pm.db.ExecContext(ctx, "SELECT pg_reload_conf()")
-		if err != nil {
-			pm.logger.ErrorContext(ctx, "Failed to reload configuration", "error", err)
-			return mterrors.Wrap(err, "failed to reload PostgreSQL configuration")
+		if err := pm.reloadPostgresConfig(ctx); err != nil {
+			return err
 		}
 	}
 
@@ -500,13 +479,11 @@ func (pm *MultiPoolerManager) PrimaryStatus(ctx context.Context) (*multipoolerma
 
 	status := &multipoolermanagerdatapb.PrimaryStatus{}
 
-	// Get current LSN and recovery status in a single query
-	var lsn string
-	var isInRecovery bool
-	err := pm.db.QueryRowContext(ctx, "SELECT pg_current_wal_lsn()::text, pg_is_in_recovery()").Scan(&lsn, &isInRecovery)
+	// Get current LSN
+	// Note: checkPrimaryGuardrails already validated this is a PRIMARY
+	lsn, err := pm.getPrimaryLSN(ctx)
 	if err != nil {
-		pm.logger.ErrorContext(ctx, "Failed to query LSN and recovery status", "error", err)
-		return nil, mterrors.Wrap(err, "failed to query LSN and recovery status")
+		return nil, err
 	}
 	status.Lsn = lsn
 	// If we got to this point, checkPrimaryGuardrails passed, so this is a
@@ -514,31 +491,9 @@ func (pm *MultiPoolerManager) PrimaryStatus(ctx context.Context) (*multipoolerma
 	status.Ready = true
 
 	// Get connected followers from pg_stat_replication
-	rows, err := pm.db.QueryContext(ctx, "SELECT application_name FROM pg_stat_replication WHERE application_name IS NOT NULL AND application_name != ''")
+	followers, err := pm.getConnectedFollowerIDs(ctx)
 	if err != nil {
-		pm.logger.ErrorContext(ctx, "Failed to query pg_stat_replication", "error", err)
-		return nil, mterrors.Wrap(err, "failed to query connected followers")
-	}
-	defer rows.Close()
-
-	followers := []*clustermetadatapb.ID{}
-	for rows.Next() {
-		var appName string
-		if err := rows.Scan(&appName); err != nil {
-			pm.logger.ErrorContext(ctx, "Failed to scan application_name", "error", err)
-			continue
-		}
-		// Parse application_name back to cluster ID
-		followerID, err := parseApplicationName(appName)
-		if err != nil {
-			pm.logger.WarnContext(ctx, "Failed to parse application_name, skipping", "application_name", appName, "error", err)
-			continue
-		}
-		followers = append(followers, followerID)
-	}
-	if err := rows.Err(); err != nil {
-		pm.logger.ErrorContext(ctx, "Error iterating pg_stat_replication rows", "error", err)
-		return nil, mterrors.Wrap(err, "failed to read connected followers")
+		return nil, err
 	}
 	status.ConnectedFollowers = followers
 
@@ -690,91 +645,9 @@ func (pm *MultiPoolerManager) GetFollowers(ctx context.Context) (*multipoolerman
 	}
 
 	// Query pg_stat_replication for all connected followers with full details
-	query := `SELECT
-		pid,
-		application_name,
-		client_addr::text,
-		state,
-		sync_state,
-		sent_lsn::text,
-		write_lsn::text,
-		flush_lsn::text,
-		replay_lsn::text,
-		EXTRACT(EPOCH FROM write_lag),
-		EXTRACT(EPOCH FROM flush_lag),
-		EXTRACT(EPOCH FROM replay_lag)
-	FROM pg_stat_replication
-	WHERE application_name IS NOT NULL AND application_name != ''`
-
-	rows, err := pm.db.QueryContext(ctx, query)
+	connectedMap, err := pm.queryFollowerReplicationStats(ctx)
 	if err != nil {
-		pm.logger.ErrorContext(ctx, "Failed to query pg_stat_replication", "error", err)
-		return nil, mterrors.Wrap(err, "failed to query replication status")
-	}
-	defer rows.Close()
-
-	// Build a map of connected followers by application_name
-	connectedMap := make(map[string]*multipoolermanagerdatapb.ReplicationStats)
-	for rows.Next() {
-		var pid int32
-		var appName string
-		var clientAddr string
-		var state string
-		var syncState string
-		var sentLsn string
-		var writeLsn string
-		var flushLsn string
-		var replayLsn string
-		var writeLagSecs sql.NullFloat64
-		var flushLagSecs sql.NullFloat64
-		var replayLagSecs sql.NullFloat64
-
-		err := rows.Scan(
-			&pid,
-			&appName,
-			&clientAddr,
-			&state,
-			&syncState,
-			&sentLsn,
-			&writeLsn,
-			&flushLsn,
-			&replayLsn,
-			&writeLagSecs,
-			&flushLagSecs,
-			&replayLagSecs,
-		)
-		if err != nil {
-			pm.logger.ErrorContext(ctx, "Failed to scan replication row", "error", err)
-			continue
-		}
-
-		stats := &multipoolermanagerdatapb.ReplicationStats{
-			Pid:        pid,
-			ClientAddr: clientAddr,
-			State:      state,
-			SyncState:  syncState,
-			SentLsn:    sentLsn,
-			WriteLsn:   writeLsn,
-			FlushLsn:   flushLsn,
-			ReplayLsn:  replayLsn,
-		}
-
-		// Convert lag values from seconds to Duration (only if not null)
-		if writeLagSecs.Valid {
-			stats.WriteLag = durationpb.New(time.Duration(writeLagSecs.Float64 * float64(time.Second)))
-		}
-		if flushLagSecs.Valid {
-			stats.FlushLag = durationpb.New(time.Duration(flushLagSecs.Float64 * float64(time.Second)))
-		}
-		if replayLagSecs.Valid {
-			stats.ReplayLag = durationpb.New(time.Duration(replayLagSecs.Float64 * float64(time.Second)))
-		}
-
-		connectedMap[appName] = stats
-	}
-	if err := rows.Err(); err != nil {
-		pm.logger.ErrorContext(ctx, "Error iterating pg_stat_replication rows", "error", err)
-		return nil, mterrors.Wrap(err, "failed to read replication status")
+		return nil, err
 	}
 
 	// Build the response with all configured standbys

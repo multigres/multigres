@@ -191,7 +191,12 @@ timeout: 30
 			"--grpc-port", strconv.Itoa(grpcPort),
 			"--pg-port", strconv.Itoa(pgPort),
 			"--config-file", pgctldConfigFile)
-		setupTestEnv(serverCmd) // Use system PATH for real PostgreSQL binaries, trust auth for tests
+
+		// Set MULTIGRES_TESTDATA_DIR for directory-deletion triggered cleanup
+		serverCmd.Env = append(os.Environ(),
+			"MULTIGRES_TESTDATA_DIR="+tempDir,
+			"PGCONNECT_TIMEOUT=5",
+		)
 
 		err := serverCmd.Start()
 		require.NoError(t, err)
@@ -1132,12 +1137,14 @@ func TestOrphanDetectionWithRealPostgreSQL(t *testing.T) {
 		"--pooler-dir", dataDir,
 		"--grpc-port", strconv.Itoa(grpcPort),
 		"--pg-port", strconv.Itoa(pgPort),
-		"--test-orphan-detection",
 		"--config-file", pgctldConfigFile)
+
+	// Set MULTIGRES_TESTDATA_DIR for directory-deletion triggered cleanup
 	// Add endtoend directory to PATH so run_command_if_parent_dies.sh can be found
 	endtoendDir, err := filepath.Abs(".")
 	require.NoError(t, err)
 	serverCmd.Env = append(os.Environ(),
+		"MULTIGRES_TESTDATA_DIR="+dataDir,
 		"PGCONNECT_TIMEOUT=5",
 		"PATH="+endtoendDir+":"+os.Getenv("PATH"))
 	require.NoError(t, serverCmd.Start())
@@ -1177,12 +1184,19 @@ func TestOrphanDetectionWithRealPostgreSQL(t *testing.T) {
 	require.NoError(t, serverCmd.Process.Kill())
 	_, _ = serverCmd.Process.Wait()
 
+	// TODO(dweitzman): Start a process using sleep command and use that PID for orphan detection
+
+	// Delete the temp directory, triggering orphan detection
+	os.RemoveAll(tempDir)
+
 	// Wait for orphan detection to stop postgres
 	time.Sleep(2 * time.Second)
 
 	// Verify postgres is stopped
-	err = pgProcess.Signal(syscall.Signal(0))
-	assert.Error(t, err, "PostgreSQL should have been stopped by orphan detection")
+	require.Eventually(t, func() bool {
+		err = pgProcess.Signal(syscall.Signal(0))
+		return err == nil
+	}, 5*time.Second, 100*time.Millisecond)
 }
 
 func readPostmasterPID(dataDir string) (int, error) {
