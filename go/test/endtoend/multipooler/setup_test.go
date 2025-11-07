@@ -60,10 +60,17 @@ var (
 func TestMain(m *testing.M) {
 	// Set the PATH so dependencies like etcd and run_in_test.sh can be found
 	// Use automatic module root detection instead of hard-coded relative paths
-	if err := pathutil.PrependModuleSubdirsToPath("bin", "go/test/endtoend"); err != nil {
+	if err := pathutil.PrependBinToPath(); err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to add bin to PATH: %v\n", err)
 		os.Exit(1)
 	}
+
+	// Set orphan detection environment variable as baseline protection.
+	// This ensures postgres processes started by in-process services will
+	// have watchdogs that monitor the test process and kill postgres if
+	// the test crashes. Individual tests can additionally set
+	// MULTIGRES_TESTDATA_DIR for directory-deletion triggered cleanup.
+	os.Setenv("MULTIGRES_TEST_PARENT_PID", fmt.Sprintf("%d", os.Getpid()))
 
 	// Set up signal handler to ensure cleanup on interrupt
 	sigChan := make(chan os.Signal, 1)
@@ -79,6 +86,9 @@ func TestMain(m *testing.M) {
 
 	// Clean up shared multipooler test infrastructure
 	cleanupSharedTestSetup()
+
+	// Cleanup environment variable
+	os.Unsetenv("MULTIGRES_TEST_PARENT_PID")
 
 	// Exit with the test result code
 	os.Exit(exitCode)
@@ -178,9 +188,12 @@ func (p *ProcessInstance) startPgctld(t *testing.T) error {
 		"--pooler-dir", p.DataDir,
 		"--grpc-port", strconv.Itoa(p.GrpcPort),
 		"--pg-port", strconv.Itoa(p.PgPort),
-		"--log-output", p.LogFile,
-		"--test-orphan-detection")
-	p.Process.Env = p.Environment
+		"--log-output", p.LogFile)
+
+	// Set MULTIGRES_TESTDATA_DIR for directory-deletion triggered cleanup
+	p.Process.Env = append(p.Environment,
+		"MULTIGRES_TESTDATA_DIR="+filepath.Dir(p.DataDir),
+	)
 
 	t.Logf("Running server command: %v", p.Process.Args)
 	if err := p.waitForStartup(t, 20*time.Second, 50); err != nil {
@@ -211,7 +224,6 @@ func (p *ProcessInstance) startMultipooler(t *testing.T) error {
 		"--cell", "test-cell",
 		"--service-id", p.ServiceID,
 		"--log-output", p.LogFile,
-		"--test-orphan-detection",
 	}
 
 	// Add stanza name if configured
@@ -221,7 +233,11 @@ func (p *ProcessInstance) startMultipooler(t *testing.T) error {
 
 	// Start the multipooler server
 	p.Process = exec.Command(p.Binary, args...)
-	p.Process.Env = p.Environment
+
+	// Set MULTIGRES_TESTDATA_DIR for directory-deletion triggered cleanup
+	p.Process.Env = append(p.Environment,
+		"MULTIGRES_TESTDATA_DIR="+filepath.Dir(p.DataDir),
+	)
 
 	t.Logf("Running multipooler command: %v", p.Process.Args)
 	return p.waitForStartup(t, 15*time.Second, 30)
@@ -851,6 +867,11 @@ func startEtcdForSharedSetup(dataDir string) (string, *exec.Cmd, error) {
 		"-initial-cluster", initialCluster,
 		"-data-dir", dataDir)
 
+	// Set MULTIGRES_TESTDATA_DIR for directory-deletion triggered cleanup
+	cmd.Env = append(os.Environ(),
+		"MULTIGRES_TESTDATA_DIR="+dataDir,
+	)
+
 	if err := cmd.Start(); err != nil {
 		return "", nil, fmt.Errorf("failed to start etcd: %w", err)
 	}
@@ -1183,11 +1204,17 @@ func setupPoolerTest(t *testing.T, setup *MultipoolerTestSetup, opts ...cleanupO
 		var err error
 		primaryPoolerClient, err = endtoend.NewMultiPoolerTestClient(fmt.Sprintf("localhost:%d", setup.PrimaryMultipooler.GrpcPort))
 		require.NoError(t, err, "Failed to connect to primary pooler")
+
+		_, err = primaryPoolerClient.ExecuteQuery(context.Background(), "SELECT 1", 0)
+		require.NoError(t, err, "Failed to query primary pooler")
 	}
 	if setup != nil && setup.StandbyMultipooler != nil {
 		var err error
 		standbyPoolerClient, err = endtoend.NewMultiPoolerTestClient(fmt.Sprintf("localhost:%d", setup.StandbyMultipooler.GrpcPort))
 		require.NoError(t, err, "Failed to connect to standby pooler")
+
+		_, err = standbyPoolerClient.ExecuteQuery(context.Background(), "SELECT 1", 0)
+		require.NoError(t, err, "Failed to query primary pooler")
 	}
 
 	// Save GUC values BEFORE configuring replication (so we save the clean state)
