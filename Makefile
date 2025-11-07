@@ -41,6 +41,7 @@ tools:
 	ln -sf "$(MTROOT)/misc/git/commit-msg" .git/hooks/commit-msg
 	./tools/setup_build_tools.sh
 	go install golang.org/x/tools/cmd/goyacc@latest
+	go install golang.org/x/tools/cmd/goimports@latest
 
 # Generate protobuf files
 proto: tools $(PROTO_GO_OUTS)
