@@ -30,7 +30,6 @@ func TestGenerateConfig(t *testing.T) {
 		cfg := Config{
 			StanzaName:    "test-stanza",
 			PgDataPath:    "/var/lib/postgresql/data",
-			PgHost:        "localhost",
 			PgPort:        5432,
 			PgSocketDir:   "/var/run/postgresql",
 			PgUser:        "postgres",
@@ -48,8 +47,8 @@ func TestGenerateConfig(t *testing.T) {
 		assert.Contains(t, result, "log-path=/var/log/pgbackrest")
 		assert.Contains(t, result, "[test-stanza]")
 		assert.Contains(t, result, "pg1-path=/var/lib/postgresql/data")
-		assert.Contains(t, result, "pg1-host=localhost")
-		assert.Contains(t, result, "pg1-host-type=tcp")
+		// pg1 is always local ("self"), so no pg1-host or pg1-host-type
+		// Both socket-path and port are needed (port determines socket filename)
 		assert.Contains(t, result, "pg1-port=5432")
 		assert.Contains(t, result, "pg1-socket-path=/var/run/postgresql")
 		assert.Contains(t, result, "pg1-user=postgres")
@@ -121,6 +120,88 @@ func TestGenerateConfig(t *testing.T) {
 
 		assert.True(t, foundGlobal, "should have [global] section")
 		assert.True(t, foundStanza, "should have stanza section")
+	})
+
+	t.Run("includes both socket-path and port for Unix sockets", func(t *testing.T) {
+		// Test with socket-path: both socket-path and port should be included
+		// Port determines the socket filename (e.g., .s.PGSQL.5432)
+		cfgWithSocket := Config{
+			StanzaName:  "test-socket",
+			PgDataPath:  "/data/pg",
+			PgPort:      5432,
+			PgSocketDir: "/var/run/postgresql",
+			RepoPath:    "/backups",
+			LogPath:     "/logs",
+		}
+
+		resultWithSocket := GenerateConfig(cfgWithSocket)
+		assert.Contains(t, resultWithSocket, "pg1-socket-path=/var/run/postgresql")
+		assert.Contains(t, resultWithSocket, "pg1-port=5432")
+
+		// Test without socket-path: only port should be included
+		cfgWithoutSocket := Config{
+			StanzaName: "test-port",
+			PgDataPath: "/data/pg",
+			PgPort:     5432,
+			RepoPath:   "/backups",
+			LogPath:    "/logs",
+		}
+
+		resultWithoutSocket := GenerateConfig(cfgWithoutSocket)
+		assert.NotContains(t, resultWithoutSocket, "pg1-socket-path=")
+		assert.Contains(t, resultWithoutSocket, "pg1-port=5432")
+	})
+
+	t.Run("generates symmetric configs with additional hosts", func(t *testing.T) {
+		cfg := Config{
+			StanzaName:  "multigres",
+			PgDataPath:  "/data/pg1",
+			PgSocketDir: "/var/run/pg1",
+			PgPort:      5432,
+			PgUser:      "postgres",
+			PgDatabase:  "postgres",
+			AdditionalHosts: []PgHost{
+				{
+					DataPath:  "/data/pg2",
+					SocketDir: "/var/run/pg2",
+					Port:      5433,
+					User:      "postgres",
+					Database:  "postgres",
+				},
+				{
+					DataPath:  "/data/pg3",
+					SocketDir: "/var/run/pg3",
+					Port:      5434,
+					User:      "postgres",
+					Database:  "postgres",
+				},
+			},
+			RepoPath:      "/backups",
+			LogPath:       "/logs",
+			RetentionFull: 2,
+		}
+
+		result := GenerateConfig(cfg)
+
+		// Verify pg1 has both socket-path and port (port determines socket filename)
+		assert.Contains(t, result, "pg1-path=/data/pg1")
+		assert.Contains(t, result, "pg1-socket-path=/var/run/pg1")
+		assert.Contains(t, result, "pg1-port=5432")
+
+		// Verify pg2 has both socket-path and port
+		assert.Contains(t, result, "pg2-path=/data/pg2")
+		assert.Contains(t, result, "pg2-socket-path=/var/run/pg2")
+		assert.Contains(t, result, "pg2-port=5433")
+
+		// Verify pg3 has both socket-path and port
+		assert.Contains(t, result, "pg3-path=/data/pg3")
+		assert.Contains(t, result, "pg3-socket-path=/var/run/pg3")
+		assert.Contains(t, result, "pg3-port=5434")
+
+		// Verify all have proper user and database settings
+		assert.Contains(t, result, "pg1-user=postgres")
+		assert.Contains(t, result, "pg2-user=postgres")
+		assert.Contains(t, result, "pg3-user=postgres")
 	})
 }
 

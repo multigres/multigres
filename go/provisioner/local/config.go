@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 
 	"github.com/multigres/multigres/go/provisioner/local/pgbackrest"
 	"github.com/multigres/multigres/go/provisioner/local/ports"
@@ -414,25 +415,55 @@ func (p *localProvisioner) GeneratePgBackRestConfigs() error {
 		return fmt.Errorf("failed to create pgBackRest log directory %s: %w", pgBackRestLogPath, err)
 	}
 
-	for cellName, cellServices := range p.config.Cells {
+	// Get sorted list of all cell names for consistent ordering
+	var allCells []string
+	for cellName := range p.config.Cells {
+		allCells = append(allCells, cellName)
+	}
+	sort.Strings(allCells)
+
+	for _, cellName := range allCells {
+		cellServices := p.config.Cells[cellName]
+
 		// Use default backup config path if not specified in config
 		backupConfPath := cellServices.Multipooler.BackupConf
 		if backupConfPath == "" {
 			backupConfPath = filepath.Join(cellServices.Multipooler.PoolerDir, "pgbackrest.conf")
 		}
 
+		// Build AdditionalHosts with all other clusters
+		// Each cluster treats itself as pg1 and others as pg2, pg3, etc.
+		var additionalHosts []pgbackrest.PgHost
+		for _, otherCellName := range allCells {
+			if otherCellName == cellName {
+				// Skip self - this is pg1
+				continue
+			}
+			otherCellServices := p.config.Cells[otherCellName]
+			additionalHosts = append(additionalHosts, pgbackrest.PgHost{
+				DataPath:  filepath.Join(otherCellServices.Multipooler.PoolerDir, "pg_data"),
+				Host:      "", // Empty for local Unix socket connections
+				Port:      otherCellServices.Multipooler.PgPort,
+				SocketDir: filepath.Join(otherCellServices.Multipooler.PoolerDir, "pg_sockets"),
+				User:      "postgres",
+				Database:  "postgres",
+			})
+		}
+
 		// Generate pgBackRest config for this pooler
+		// Use a shared stanza name for all clusters in the HA setup
 		backupCfg := pgbackrest.Config{
-			StanzaName:    cellServices.Multipooler.ServiceID,
-			PgDataPath:    filepath.Join(cellServices.Multipooler.PoolerDir, "pg_data"),
-			PgPort:        cellServices.Multipooler.PgPort,
-			PgSocketDir:   filepath.Join(cellServices.Multipooler.PoolerDir, "pg_sockets"),
-			PgUser:        "postgres",
-			PgPassword:    "postgres", // For local development only
-			PgDatabase:    "postgres",
-			RepoPath:      p.config.BackupRepoPath,
-			LogPath:       pgBackRestLogPath,
-			RetentionFull: 2, // Keep 2 full backups by default
+			StanzaName:      "multigres",
+			PgDataPath:      filepath.Join(cellServices.Multipooler.PoolerDir, "pg_data"),
+			PgPort:          cellServices.Multipooler.PgPort,
+			PgSocketDir:     filepath.Join(cellServices.Multipooler.PoolerDir, "pg_sockets"),
+			PgUser:          "postgres",
+			PgPassword:      "postgres", // For local development only
+			PgDatabase:      "postgres",
+			AdditionalHosts: additionalHosts,
+			RepoPath:        p.config.BackupRepoPath,
+			LogPath:         pgBackRestLogPath,
+			RetentionFull:   2, // Keep 2 full backups by default
 		}
 
 		// Write the pgBackRest config file
@@ -448,6 +479,7 @@ func (p *localProvisioner) GeneratePgBackRestConfigs() error {
 
 // InitializePgBackRestStanzas initializes pgBackRest stanzas for all poolers
 // This should be called after PostgreSQL is running in each pooler
+// For HA setups, the shared stanza "multigres" is created from each cluster's perspective
 func (p *localProvisioner) InitializePgBackRestStanzas() error {
 	if p.config == nil {
 		return fmt.Errorf("configuration not loaded")
@@ -462,11 +494,13 @@ func (p *localProvisioner) InitializePgBackRestStanzas() error {
 			backupConfPath = filepath.Join(cellServices.Multipooler.PoolerDir, "pgbackrest.conf")
 		}
 
-		// Create the stanza for this pooler
-		if err := pgbackrest.StanzaCreate(ctx, cellServices.Multipooler.ServiceID, backupConfPath); err != nil {
+		// Create the shared stanza for this pooler
+		// Each cluster will attempt to create the stanza from its perspective (with itself as pg1)
+		// This is idempotent - subsequent calls will validate/update the stanza
+		if err := pgbackrest.StanzaCreate(ctx, "multigres", backupConfPath); err != nil {
 			return fmt.Errorf("failed to create stanza for cell %s: %w", cellName, err)
 		}
-		fmt.Printf("✓ - pgBackRest stanza created for cell %s\n", cellName)
+		fmt.Printf("✓ - pgBackRest stanza initialized for cell %s\n", cellName)
 	}
 
 	return nil

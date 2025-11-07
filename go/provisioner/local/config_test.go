@@ -72,17 +72,19 @@ func TestGeneratePgBackRestConfigs(t *testing.T) {
 		content1, err := os.ReadFile(config1)
 		require.NoError(t, err)
 		assert.Contains(t, string(content1), "[global]")
-		assert.Contains(t, string(content1), "[test-service-1]")
+		assert.Contains(t, string(content1), "[multigres]") // Shared stanza for HA
 		assert.Contains(t, string(content1), "repo1-path="+backupDir)
-		assert.Contains(t, string(content1), "pg1-port=5432")
+		assert.Contains(t, string(content1), "pg1-socket-path=") // Using socket connections
+		assert.Contains(t, string(content1), "pg2-path=")        // Has zone2 as pg2
 
 		config2 := filepath.Join(tmpDir, "pooler2", "pgbackrest.conf")
 		content2, err := os.ReadFile(config2)
 		require.NoError(t, err)
 		assert.Contains(t, string(content2), "[global]")
-		assert.Contains(t, string(content2), "[test-service-2]")
+		assert.Contains(t, string(content2), "[multigres]") // Shared stanza for HA
 		assert.Contains(t, string(content2), "repo1-path="+backupDir)
-		assert.Contains(t, string(content2), "pg1-port=5433")
+		assert.Contains(t, string(content2), "pg1-socket-path=") // Using socket connections
+		assert.Contains(t, string(content2), "pg2-path=")        // Has zone1 as pg2
 	})
 
 	t.Run("uses default paths when BackupConf is empty", func(t *testing.T) {
@@ -127,7 +129,7 @@ func TestGeneratePgBackRestConfigs(t *testing.T) {
 		content, err := os.ReadFile(defaultConfigPath)
 		require.NoError(t, err)
 		assert.Contains(t, string(content), "[global]")
-		assert.Contains(t, string(content), "[test-service]")
+		assert.Contains(t, string(content), "[multigres]") // Shared stanza for HA
 	})
 
 	t.Run("handles multiple cells correctly", func(t *testing.T) {
@@ -210,5 +212,125 @@ func TestGeneratePgBackRestConfigs(t *testing.T) {
 		require.NoError(t, err)
 		assert.True(t, stat.IsDir())
 		assert.Equal(t, os.FileMode(0o755)|os.ModeDir, stat.Mode())
+	})
+
+	t.Run("generates symmetric configs for 3-cluster HA deployment", func(t *testing.T) {
+		tmpDir := t.TempDir()
+
+		// Create 3 cells with predictable names (alphabetically sorted)
+		// to ensure consistent pg2/pg3 ordering
+		p := &localProvisioner{
+			config: &LocalProvisionerConfig{
+				RootWorkingDir: tmpDir,
+				BackupRepoPath: filepath.Join(tmpDir, "data", "backups"),
+				Cells: map[string]CellServicesConfig{
+					"cell-a": {
+						Multipooler: MultipoolerConfig{
+							ServiceID:  "service-a",
+							PoolerDir:  filepath.Join(tmpDir, "pooler-a"),
+							PgPort:     5432,
+							BackupConf: filepath.Join(tmpDir, "pooler-a", "pgbackrest.conf"),
+						},
+					},
+					"cell-b": {
+						Multipooler: MultipoolerConfig{
+							ServiceID:  "service-b",
+							PoolerDir:  filepath.Join(tmpDir, "pooler-b"),
+							PgPort:     5433,
+							BackupConf: filepath.Join(tmpDir, "pooler-b", "pgbackrest.conf"),
+						},
+					},
+					"cell-c": {
+						Multipooler: MultipoolerConfig{
+							ServiceID:  "service-c",
+							PoolerDir:  filepath.Join(tmpDir, "pooler-c"),
+							PgPort:     5434,
+							BackupConf: filepath.Join(tmpDir, "pooler-c", "pgbackrest.conf"),
+						},
+					},
+				},
+			},
+		}
+
+		// Create pooler directories
+		for _, cell := range []string{"a", "b", "c"} {
+			require.NoError(t, os.MkdirAll(filepath.Join(tmpDir, "pooler-"+cell), 0o755))
+		}
+
+		// Generate configs
+		err := p.GeneratePgBackRestConfigs()
+		require.NoError(t, err)
+
+		// Read all config files
+		configA, err := os.ReadFile(filepath.Join(tmpDir, "pooler-a", "pgbackrest.conf"))
+		require.NoError(t, err)
+		configB, err := os.ReadFile(filepath.Join(tmpDir, "pooler-b", "pgbackrest.conf"))
+		require.NoError(t, err)
+		configC, err := os.ReadFile(filepath.Join(tmpDir, "pooler-c", "pgbackrest.conf"))
+		require.NoError(t, err)
+
+		contentA := string(configA)
+		contentB := string(configB)
+		contentC := string(configC)
+
+		// Verify all configs use the shared stanza name for HA
+		assert.Contains(t, contentA, "[multigres]")
+		assert.Contains(t, contentB, "[multigres]")
+		assert.Contains(t, contentC, "[multigres]")
+
+		// Verify each cluster treats itself as pg1
+		assert.Contains(t, contentA, "pg1-path="+filepath.Join(tmpDir, "pooler-a", "pg_data"))
+		assert.Contains(t, contentA, "pg1-socket-path="+filepath.Join(tmpDir, "pooler-a", "pg_sockets"))
+		assert.Contains(t, contentB, "pg1-path="+filepath.Join(tmpDir, "pooler-b", "pg_data"))
+		assert.Contains(t, contentB, "pg1-socket-path="+filepath.Join(tmpDir, "pooler-b", "pg_sockets"))
+		assert.Contains(t, contentC, "pg1-path="+filepath.Join(tmpDir, "pooler-c", "pg_data"))
+		assert.Contains(t, contentC, "pg1-socket-path="+filepath.Join(tmpDir, "pooler-c", "pg_sockets"))
+
+		// Verify socket-path takes precedence: pg1-port should NOT be present when socket-path is used
+		assert.NotContains(t, contentA, "pg1-port=")
+		assert.NotContains(t, contentB, "pg1-port=")
+		assert.NotContains(t, contentC, "pg1-port=")
+
+		// Verify cluster A has B and C as pg2 and pg3 (sorted order)
+		assert.Contains(t, contentA, "pg2-path="+filepath.Join(tmpDir, "pooler-b", "pg_data"))
+		assert.Contains(t, contentA, "pg2-socket-path="+filepath.Join(tmpDir, "pooler-b", "pg_sockets"))
+		assert.Contains(t, contentA, "pg3-path="+filepath.Join(tmpDir, "pooler-c", "pg_data"))
+		assert.Contains(t, contentA, "pg3-socket-path="+filepath.Join(tmpDir, "pooler-c", "pg_sockets"))
+		assert.NotContains(t, contentA, "pg2-port=")
+		assert.NotContains(t, contentA, "pg3-port=")
+
+		// Verify cluster B has A and C as pg2 and pg3 (sorted order)
+		assert.Contains(t, contentB, "pg2-path="+filepath.Join(tmpDir, "pooler-a", "pg_data"))
+		assert.Contains(t, contentB, "pg2-socket-path="+filepath.Join(tmpDir, "pooler-a", "pg_sockets"))
+		assert.Contains(t, contentB, "pg3-path="+filepath.Join(tmpDir, "pooler-c", "pg_data"))
+		assert.Contains(t, contentB, "pg3-socket-path="+filepath.Join(tmpDir, "pooler-c", "pg_sockets"))
+		assert.NotContains(t, contentB, "pg2-port=")
+		assert.NotContains(t, contentB, "pg3-port=")
+
+		// Verify cluster C has A and B as pg2 and pg3 (sorted order)
+		assert.Contains(t, contentC, "pg2-path="+filepath.Join(tmpDir, "pooler-a", "pg_data"))
+		assert.Contains(t, contentC, "pg2-socket-path="+filepath.Join(tmpDir, "pooler-a", "pg_sockets"))
+		assert.Contains(t, contentC, "pg3-path="+filepath.Join(tmpDir, "pooler-b", "pg_data"))
+		assert.Contains(t, contentC, "pg3-socket-path="+filepath.Join(tmpDir, "pooler-b", "pg_sockets"))
+		assert.NotContains(t, contentC, "pg2-port=")
+		assert.NotContains(t, contentC, "pg3-port=")
+
+		// Verify symmetry: each cluster should be in exactly the right position
+		// in other clusters' configs
+		// A should NOT appear in its own additional hosts
+		assert.NotContains(t, contentA, "pg2-path="+filepath.Join(tmpDir, "pooler-a", "pg_data"))
+		assert.NotContains(t, contentA, "pg3-path="+filepath.Join(tmpDir, "pooler-a", "pg_data"))
+		// B should NOT appear in its own additional hosts
+		assert.NotContains(t, contentB, "pg2-path="+filepath.Join(tmpDir, "pooler-b", "pg_data"))
+		assert.NotContains(t, contentB, "pg3-path="+filepath.Join(tmpDir, "pooler-b", "pg_data"))
+		// C should NOT appear in its own additional hosts
+		assert.NotContains(t, contentC, "pg2-path="+filepath.Join(tmpDir, "pooler-c", "pg_data"))
+		assert.NotContains(t, contentC, "pg3-path="+filepath.Join(tmpDir, "pooler-c", "pg_data"))
+
+		// Verify all share the same backup repository
+		backupPath := filepath.Join(tmpDir, "data", "backups")
+		assert.Contains(t, contentA, "repo1-path="+backupPath)
+		assert.Contains(t, contentB, "repo1-path="+backupPath)
+		assert.Contains(t, contentC, "repo1-path="+backupPath)
 	})
 }

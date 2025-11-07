@@ -379,7 +379,7 @@ func createPgctldInstance(t *testing.T, name, baseDir string, grpcPort, pgPort i
 		GrpcPort:    grpcPort,
 		PgPort:      pgPort,
 		Binary:      "pgctld", // Assume binary is in PATH
-		Environment: append(os.Environ(), "PGCONNECT_TIMEOUT=5"),
+		Environment: append(os.Environ(), "PGCONNECT_TIMEOUT=5", "LC_ALL=en_US.UTF-8"),
 	}
 }
 
@@ -457,7 +457,7 @@ func setupPgBackRestConfig(t *testing.T, baseDir string, pgctld *ProcessInstance
 }
 
 // initializePrimary sets up the primary pgctld, PostgreSQL, consensus term, and multipooler
-func initializePrimary(t *testing.T, baseDir string, pgctld *ProcessInstance, multipooler *ProcessInstance, stanzaName string) error {
+func initializePrimary(t *testing.T, baseDir string, pgctld *ProcessInstance, multipooler *ProcessInstance, standbyPgctld *ProcessInstance, stanzaName string) error {
 	t.Helper()
 
 	// Start primary pgctld server
@@ -482,15 +482,28 @@ func initializePrimary(t *testing.T, baseDir string, pgctld *ProcessInstance, mu
 		return fmt.Errorf("failed to create pgbackrest log dir: %w", err)
 	}
 
+	// Create symmetric pgbackrest configuration:
+	// - pg1: this cluster (primary in this case)
+	// - pg2: other cluster (standby in this case)
+	// Each cluster treats itself as pg1 and lists others as pg2, pg3, etc.
 	configPath := filepath.Join(pgctld.DataDir, "pgbackrest.conf")
 	backupCfg := pgbackrest.Config{
-		StanzaName:    stanzaName,
-		PgDataPath:    filepath.Join(pgctld.DataDir, "pg_data"),
-		PgPort:        pgctld.PgPort,
-		PgSocketDir:   filepath.Join(pgctld.DataDir, "pg_sockets"),
-		PgUser:        "postgres",
-		PgPassword:    "postgres",
-		PgDatabase:    "postgres",
+		StanzaName:  stanzaName,
+		PgDataPath:  filepath.Join(pgctld.DataDir, "pg_data"),
+		PgPort:      pgctld.PgPort, // Keep for fallback even though socket-path takes precedence
+		PgSocketDir: filepath.Join(pgctld.DataDir, "pg_sockets"),
+		PgUser:      "postgres",
+		PgDatabase:  "postgres",
+		// Add standby as pg2 for symmetric configuration
+		AdditionalHosts: []pgbackrest.PgHost{
+			{
+				DataPath:  filepath.Join(standbyPgctld.DataDir, "pg_data"),
+				SocketDir: filepath.Join(standbyPgctld.DataDir, "pg_sockets"),
+				Port:      standbyPgctld.PgPort,
+				User:      "postgres",
+				Database:  "postgres",
+			},
+		},
 		RepoPath:      repoPath,
 		LogPath:       logPath,
 		RetentionFull: 2,
@@ -499,7 +512,41 @@ func initializePrimary(t *testing.T, baseDir string, pgctld *ProcessInstance, mu
 	if err := pgbackrest.WriteConfigFile(configPath, backupCfg); err != nil {
 		return fmt.Errorf("failed to write pgbackrest config: %w", err)
 	}
-	t.Logf("Created pgbackrest config at %s", configPath)
+	t.Logf("Created symmetric pgbackrest config at %s (pg1=self, pg2=standby, stanza: %s)", configPath, stanzaName)
+
+	// Start PostgreSQL WITHOUT archive mode first
+	// (we need it running to create the pgbackrest stanza)
+	if err := endtoend.StartPostgreSQL(t, primaryGrpcAddr); err != nil {
+		return fmt.Errorf("failed to start PostgreSQL: %w", err)
+	}
+
+	// Initialize pgbackrest stanza (PostgreSQL must be running)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	if err := pgbackrest.StanzaCreate(ctx, stanzaName, configPath); err != nil {
+		return fmt.Errorf("failed to create pgbackrest stanza: %w", err)
+	}
+	t.Logf("Initialized pgbackrest stanza: %s", stanzaName)
+
+	// Stop PostgreSQL to configure archive mode
+	conn, err := grpc.NewClient(
+		primaryGrpcAddr,
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	)
+	if err != nil {
+		return fmt.Errorf("failed to connect to pgctld: %w", err)
+	}
+	pgctldClient := pgctldservice.NewPgCtldClient(conn)
+
+	stopCtx, stopCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	_, err = pgctldClient.Stop(stopCtx, &pgctldservice.StopRequest{Mode: "fast"})
+	stopCancel()
+	conn.Close()
+	if err != nil {
+		return fmt.Errorf("failed to stop PostgreSQL: %w", err)
+	}
+	t.Log("Stopped PostgreSQL to configure archive mode")
 
 	// Add archive_mode configuration to postgresql.auto.conf
 	pgDataDir := filepath.Join(pgctld.DataDir, "pg_data")
@@ -520,19 +567,11 @@ archive_command = 'pgbackrest --stanza=%s --config=%s archive-push %%p'
 	f.Close()
 	t.Log("Configured archive_mode in postgresql.auto.conf")
 
-	// Now start PostgreSQL
+	// Restart PostgreSQL with archive mode enabled
 	if err := endtoend.StartPostgreSQL(t, primaryGrpcAddr); err != nil {
-		return fmt.Errorf("failed to start PostgreSQL: %w", err)
+		return fmt.Errorf("failed to restart PostgreSQL with archive mode: %w", err)
 	}
-
-	// Initialize pgbackrest stanza (PostgreSQL must be running)
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	if err := pgbackrest.StanzaCreate(ctx, stanzaName, configPath); err != nil {
-		return fmt.Errorf("failed to create pgbackrest stanza: %w", err)
-	}
-	t.Logf("Initialized pgbackrest stanza: %s", stanzaName)
+	t.Log("Restarted PostgreSQL with archive mode enabled")
 
 	// Start primary multipooler
 	if err := multipooler.Start(t); err != nil {
@@ -543,7 +582,7 @@ archive_command = 'pgbackrest --stanza=%s --config=%s archive-push %%p'
 	waitForManagerReady(t, nil, multipooler)
 
 	// Connect to multipooler manager
-	conn, err := grpc.NewClient(
+	conn, err = grpc.NewClient(
 		fmt.Sprintf("localhost:%d", multipooler.GrpcPort),
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 	)
@@ -611,31 +650,31 @@ func initializeStandby(t *testing.T, baseDir string, primaryPgctld *ProcessInsta
 		return fmt.Errorf("failed to start standby PostgreSQL: %w", err)
 	}
 
-	// Create pgbackrest configuration for standby
+	// Create symmetric pgbackrest configuration for standby
 	// Note: Standby shares the same backup repository and stanza as primary
-	// since they're replicas. With the configurable stanza name, both primary
-	// and standby multipoolers will use the same stanza name.
+	// since they're replicas. Both clusters use the same stanza name.
 	//
-	// For standby backups, we need to configure both:
-	// - pg1: standby itself (for when running backups from standby)
-	// - pg2: primary (so pgBackRest knows where the primary is)
+	// Symmetric configuration:
+	// - pg1: this cluster (standby in this case)
+	// - pg2: other cluster (primary in this case)
+	// Each cluster treats itself as pg1 and lists others as pg2, pg3, etc.
 	repoPath := filepath.Join(baseDir, "backup-repo")
 	logPath := filepath.Join(baseDir, "logs", "pgbackrest")
 
 	configPath := filepath.Join(standbyPgctld.DataDir, "pgbackrest.conf")
 	backupCfg := pgbackrest.Config{
-		StanzaName:  stanzaName, // Use same stanza as primary (they're replicas)
+		StanzaName:  stanzaName, // Use same stanza (they're replicas in HA setup)
 		PgDataPath:  filepath.Join(standbyPgctld.DataDir, "pg_data"),
-		PgPort:      standbyPgctld.PgPort,
+		PgPort:      standbyPgctld.PgPort, // Keep for fallback even though socket-path takes precedence
 		PgSocketDir: filepath.Join(standbyPgctld.DataDir, "pg_sockets"),
 		PgUser:      "postgres",
 		PgDatabase:  "postgres",
-		// Add primary as pg2 for standby backup support
+		// Add primary as pg2 for symmetric configuration
 		AdditionalHosts: []pgbackrest.PgHost{
 			{
 				DataPath:  filepath.Join(primaryPgctld.DataDir, "pg_data"),
-				Port:      primaryPgctld.PgPort,
 				SocketDir: filepath.Join(primaryPgctld.DataDir, "pg_sockets"),
+				Port:      primaryPgctld.PgPort,
 				User:      "postgres",
 				Database:  "postgres",
 			},
@@ -648,7 +687,7 @@ func initializeStandby(t *testing.T, baseDir string, primaryPgctld *ProcessInsta
 	if err := pgbackrest.WriteConfigFile(configPath, backupCfg); err != nil {
 		return fmt.Errorf("failed to write standby pgbackrest config: %w", err)
 	}
-	t.Logf("Created standby pgbackrest config at %s with primary as pg2 (stanza: %s)", configPath, stanzaName)
+	t.Logf("Created symmetric pgbackrest config at %s (pg1=self, pg2=primary, stanza: %s)", configPath, stanzaName)
 
 	// Note: We don't create a new stanza for the standby because:
 	// 1. It's in recovery mode, so pgbackrest won't allow stanza creation
@@ -807,8 +846,19 @@ func getSharedTestSetup(t *testing.T) *MultipoolerTestSetup {
 		standbyMultipooler := createMultipoolerInstance(t, "standby-multipooler", tempDir, standbyMultipoolerPort,
 			fmt.Sprintf("localhost:%d", standbyGrpcPort), standbyPgctld.DataDir, standbyPgctld.PgPort, etcdClientAddr, stanzaName)
 
+		// Create standby data directories before initializing primary
+		// This is needed for symmetric pgBackRest configuration where primary references standby paths
+		if err := os.MkdirAll(filepath.Join(standbyPgctld.DataDir, "pg_data"), 0o755); err != nil {
+			setupError = fmt.Errorf("failed to create standby pg_data dir: %w", err)
+			return
+		}
+		if err := os.MkdirAll(filepath.Join(standbyPgctld.DataDir, "pg_sockets"), 0o755); err != nil {
+			setupError = fmt.Errorf("failed to create standby pg_sockets dir: %w", err)
+			return
+		}
+
 		// Initialize primary (pgctld, PostgreSQL, pgbackrest, consensus term, multipooler, type)
-		if err := initializePrimary(t, tempDir, primaryPgctld, primaryMultipooler, stanzaName); err != nil {
+		if err := initializePrimary(t, tempDir, primaryPgctld, primaryMultipooler, standbyPgctld, stanzaName); err != nil {
 			setupError = err
 			return
 		}

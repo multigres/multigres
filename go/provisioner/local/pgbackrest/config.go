@@ -65,40 +65,42 @@ func GenerateConfig(cfg Config) string {
 	sb.WriteString(fmt.Sprintf("[%s]\n", cfg.StanzaName))
 
 	// pg1 (primary host configuration from Config fields)
+	// pg1 represents "self" - pgBackRest accesses the local data directory directly
 	sb.WriteString(fmt.Sprintf("pg1-path=%s\n", cfg.PgDataPath))
-	sb.WriteString(fmt.Sprintf("pg1-port=%d\n", cfg.PgPort))
 
-	// PostgreSQL connection settings (only if host is specified for remote connections)
-	if cfg.PgHost != "" {
-		sb.WriteString(fmt.Sprintf("pg1-host=%s\n", cfg.PgHost))
-		// Force TCP connection type to avoid SSH when connecting to localhost
-		sb.WriteString("pg1-host-type=tcp\n")
-	}
+	// For Unix sockets, specify both socket-path and port
+	// Port determines the socket filename (e.g., .s.PGSQL.5432)
 	if cfg.PgSocketDir != "" {
 		sb.WriteString(fmt.Sprintf("pg1-socket-path=%s\n", cfg.PgSocketDir))
 	}
+	sb.WriteString(fmt.Sprintf("pg1-port=%d\n", cfg.PgPort))
+
 	if cfg.PgUser != "" {
 		sb.WriteString(fmt.Sprintf("pg1-user=%s\n", cfg.PgUser))
 	}
-	// Note: For local Unix socket connections, we don't need to specify password
-	// PostgreSQL trust authentication or peer authentication will be used
 	if cfg.PgDatabase != "" {
 		sb.WriteString(fmt.Sprintf("pg1-database=%s\n", cfg.PgDatabase))
 	}
 
 	// Additional hosts (pg2, pg3, etc.)
+	// For local tests with Unix sockets, specify path, socket-path, and port
 	for i, host := range cfg.AdditionalHosts {
 		pgNum := i + 2 // pg2, pg3, etc.
 		sb.WriteString(fmt.Sprintf("pg%d-path=%s\n", pgNum, host.DataPath))
-		sb.WriteString(fmt.Sprintf("pg%d-port=%d\n", pgNum, host.Port))
 
+		// For remote hosts (TCP), specify host details
 		if host.Host != "" {
 			sb.WriteString(fmt.Sprintf("pg%d-host=%s\n", pgNum, host.Host))
 			sb.WriteString(fmt.Sprintf("pg%d-host-type=tcp\n", pgNum))
 		}
+
+		// For Unix sockets, specify both socket-path and port
+		// Port determines the socket filename (e.g., .s.PGSQL.5432)
 		if host.SocketDir != "" {
 			sb.WriteString(fmt.Sprintf("pg%d-socket-path=%s\n", pgNum, host.SocketDir))
 		}
+		sb.WriteString(fmt.Sprintf("pg%d-port=%d\n", pgNum, host.Port))
+
 		if host.User != "" {
 			sb.WriteString(fmt.Sprintf("pg%d-user=%s\n", pgNum, host.User))
 		}
