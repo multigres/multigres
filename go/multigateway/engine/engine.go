@@ -28,8 +28,8 @@ import (
 // resources like ScatterConn. It's passed to primitives during execution,
 // allowing them to execute queries without directly depending on concrete types.
 //
-// This design (inspired by Vitess's VCursor) makes primitives much easier to test
-// by allowing mock implementations to be passed in.
+// This interface helps testing Planner while allowing the underlying execution framework
+// to be mocked. This interface is implemented by ScatterCon in production code.
 type IExecute interface {
 	// StreamExecute executes a query on the specified tablegroup and streams results.
 	// This is the main execution method that primitives call to actually run queries.

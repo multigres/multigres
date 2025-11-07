@@ -32,6 +32,11 @@ import (
 // and can be implemented by different backends (gRPC, local, mock, etc.).
 //
 // All methods must be safe to be called concurrently.
+//
+// This interface is implemented by the grpcQueryService which serves as the gRPC client
+// to the multipooler, and also by the executor in multipooler which is called by the server of the said
+// gRPC connection. It is also implemented by the PoolerGateway to abstract away the complexity of managing
+// gRPC pooler connections.
 type QueryService interface {
 	// ExecuteQuery executes a query and returns the results.
 	// This should be used sparingly only when we know the result set is small,
