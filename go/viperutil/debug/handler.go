@@ -37,7 +37,7 @@ import (
 //   - GET /debug/config?format=json
 func HandlerFunc(reg *viperutil.Registry) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		v := viperutil.Combined(reg)
+		v := reg.Combined()
 		format := strings.ToLower(r.URL.Query().Get("format"))
 
 		// Collect command-line flags

@@ -23,15 +23,15 @@ import (
 // Debug provides the Debug functionality normally accessible to a given viper
 // instance, but for a combination of the static and dynamic registries.
 func Debug(reg *viperutil.Registry) {
-	viperutil.Combined(reg).Debug()
+	reg.Combined().Debug()
 }
 
 // WriteConfigAs writes the config into the given filename.
 func WriteConfigAs(reg *viperutil.Registry, filename string) error {
-	return viperutil.Combined(reg).WriteConfigAs(filename)
+	return reg.Combined().WriteConfigAs(filename)
 }
 
 // AllSettings gets all the settings in the configuration.
 func AllSettings(reg *viperutil.Registry) map[string]any {
-	return viperutil.Combined(reg).AllSettings()
+	return reg.Combined().AllSettings()
 }

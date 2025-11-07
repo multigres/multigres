@@ -57,10 +57,10 @@ func NewRegistry() *Registry {
 	}
 }
 
-// Combined returns a viper instance combining the Static and Dynamic registries
-// from the given Registry. This is useful for debug handlers and other utilities
-// that need to access all configuration values.
-func Combined(reg *Registry) *viper.Viper {
+// Combined returns a viper instance combining the static and dynamic registries.
+// This is useful for debug handlers and other utilities that need to access
+// all configuration values.
+func (reg *Registry) Combined() *viper.Viper {
 	v := viper.New()
 	_ = v.MergeConfigMap(reg.static.AllSettings())
 	_ = v.MergeConfigMap(reg.dynamic.AllSettings())
