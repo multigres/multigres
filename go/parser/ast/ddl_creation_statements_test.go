@@ -691,7 +691,7 @@ func TestClosePortalStmt(t *testing.T) {
 	t.Run("close all cursors", func(t *testing.T) {
 		stmt := NewClosePortalStmt("")
 
-		assert.Nil(t, stmt.PortalName)
+		assert.Equal(t, "", stmt.PortalName, "Empty PortalName means CLOSE ALL")
 		str := stmt.SqlString()
 		assert.Equal(t, "CLOSE ALL", str)
 	})

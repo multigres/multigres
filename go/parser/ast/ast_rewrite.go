@@ -5422,6 +5422,336 @@ func (a *application) rewriteRefOfExplainStmt(parent Node, node *ExplainStmt, re
 	return true
 }
 
+// Function Generation Source: InterfaceMethod
+func (a *application) rewriteExpr(parent Node, node Expr, replacer replacerFunc) bool {
+	if node == nil {
+		return true
+	}
+	switch node := node.(type) {
+	case *A_ArrayExpr:
+		return a.rewriteRefOfA_ArrayExpr(parent, node, replacer)
+	case *A_Const:
+		return a.rewriteRefOfA_Const(parent, node, replacer)
+	case *A_Expr:
+		return a.rewriteRefOfA_Expr(parent, node, replacer)
+	case *A_Indices:
+		return a.rewriteRefOfA_Indices(parent, node, replacer)
+	case *A_Indirection:
+		return a.rewriteRefOfA_Indirection(parent, node, replacer)
+	case *A_Star:
+		return a.rewriteRefOfA_Star(parent, node, replacer)
+	case *Aggref:
+		return a.rewriteRefOfAggref(parent, node, replacer)
+	case *AlternativeSubPlan:
+		return a.rewriteRefOfAlternativeSubPlan(parent, node, replacer)
+	case *ArrayCoerceExpr:
+		return a.rewriteRefOfArrayCoerceExpr(parent, node, replacer)
+	case *ArrayExpr:
+		return a.rewriteRefOfArrayExpr(parent, node, replacer)
+	case *BoolExpr:
+		return a.rewriteRefOfBoolExpr(parent, node, replacer)
+	case *BooleanTest:
+		return a.rewriteRefOfBooleanTest(parent, node, replacer)
+	case *CaseExpr:
+		return a.rewriteRefOfCaseExpr(parent, node, replacer)
+	case *CaseTestExpr:
+		return a.rewriteRefOfCaseTestExpr(parent, node, replacer)
+	case *CaseWhen:
+		return a.rewriteRefOfCaseWhen(parent, node, replacer)
+	case *CoalesceExpr:
+		return a.rewriteRefOfCoalesceExpr(parent, node, replacer)
+	case *CoerceToDomain:
+		return a.rewriteRefOfCoerceToDomain(parent, node, replacer)
+	case *CoerceToDomainValue:
+		return a.rewriteRefOfCoerceToDomainValue(parent, node, replacer)
+	case *CoerceViaIO:
+		return a.rewriteRefOfCoerceViaIO(parent, node, replacer)
+	case *CollateExpr:
+		return a.rewriteRefOfCollateExpr(parent, node, replacer)
+	case *ColumnRef:
+		return a.rewriteRefOfColumnRef(parent, node, replacer)
+	case *Const:
+		return a.rewriteRefOfConst(parent, node, replacer)
+	case *ConvertRowtypeExpr:
+		return a.rewriteRefOfConvertRowtypeExpr(parent, node, replacer)
+	case *CurrentOfExpr:
+		return a.rewriteRefOfCurrentOfExpr(parent, node, replacer)
+	case *FieldSelect:
+		return a.rewriteRefOfFieldSelect(parent, node, replacer)
+	case *FieldStore:
+		return a.rewriteRefOfFieldStore(parent, node, replacer)
+	case *FromExpr:
+		return a.rewriteRefOfFromExpr(parent, node, replacer)
+	case *FuncCall:
+		return a.rewriteRefOfFuncCall(parent, node, replacer)
+	case *FuncExpr:
+		return a.rewriteRefOfFuncExpr(parent, node, replacer)
+	case *GroupingFunc:
+		return a.rewriteRefOfGroupingFunc(parent, node, replacer)
+	case *InferenceElem:
+		return a.rewriteRefOfInferenceElem(parent, node, replacer)
+	case *JoinExpr:
+		return a.rewriteRefOfJoinExpr(parent, node, replacer)
+	case *JsonArrayAgg:
+		return a.rewriteRefOfJsonArrayAgg(parent, node, replacer)
+	case *JsonArrayConstructor:
+		return a.rewriteRefOfJsonArrayConstructor(parent, node, replacer)
+	case *JsonArrayQueryConstructor:
+		return a.rewriteRefOfJsonArrayQueryConstructor(parent, node, replacer)
+	case *JsonConstructorExpr:
+		return a.rewriteRefOfJsonConstructorExpr(parent, node, replacer)
+	case *JsonExpr:
+		return a.rewriteRefOfJsonExpr(parent, node, replacer)
+	case *JsonFuncExpr:
+		return a.rewriteRefOfJsonFuncExpr(parent, node, replacer)
+	case *JsonObjectAgg:
+		return a.rewriteRefOfJsonObjectAgg(parent, node, replacer)
+	case *JsonObjectConstructor:
+		return a.rewriteRefOfJsonObjectConstructor(parent, node, replacer)
+	case *JsonParseExpr:
+		return a.rewriteRefOfJsonParseExpr(parent, node, replacer)
+	case *JsonScalarExpr:
+		return a.rewriteRefOfJsonScalarExpr(parent, node, replacer)
+	case *JsonSerializeExpr:
+		return a.rewriteRefOfJsonSerializeExpr(parent, node, replacer)
+	case *JsonValueExpr:
+		return a.rewriteRefOfJsonValueExpr(parent, node, replacer)
+	case *MergeSupportFunc:
+		return a.rewriteRefOfMergeSupportFunc(parent, node, replacer)
+	case *MinMaxExpr:
+		return a.rewriteRefOfMinMaxExpr(parent, node, replacer)
+	case *MultiAssignRef:
+		return a.rewriteRefOfMultiAssignRef(parent, node, replacer)
+	case *NamedArgExpr:
+		return a.rewriteRefOfNamedArgExpr(parent, node, replacer)
+	case *NextValueExpr:
+		return a.rewriteRefOfNextValueExpr(parent, node, replacer)
+	case *NullTest:
+		return a.rewriteRefOfNullTest(parent, node, replacer)
+	case *OnConflictExpr:
+		return a.rewriteRefOfOnConflictExpr(parent, node, replacer)
+	case *OpExpr:
+		return a.rewriteRefOfOpExpr(parent, node, replacer)
+	case *Param:
+		return a.rewriteRefOfParam(parent, node, replacer)
+	case *ParamRef:
+		return a.rewriteRefOfParamRef(parent, node, replacer)
+	case *ParenExpr:
+		return a.rewriteRefOfParenExpr(parent, node, replacer)
+	case *RelabelType:
+		return a.rewriteRefOfRelabelType(parent, node, replacer)
+	case *RowCompareExpr:
+		return a.rewriteRefOfRowCompareExpr(parent, node, replacer)
+	case *RowExpr:
+		return a.rewriteRefOfRowExpr(parent, node, replacer)
+	case *SQLValueFunction:
+		return a.rewriteRefOfSQLValueFunction(parent, node, replacer)
+	case *ScalarArrayOpExpr:
+		return a.rewriteRefOfScalarArrayOpExpr(parent, node, replacer)
+	case *SetToDefault:
+		return a.rewriteRefOfSetToDefault(parent, node, replacer)
+	case *SubLink:
+		return a.rewriteRefOfSubLink(parent, node, replacer)
+	case *SubPlan:
+		return a.rewriteRefOfSubPlan(parent, node, replacer)
+	case *SubscriptingRef:
+		return a.rewriteRefOfSubscriptingRef(parent, node, replacer)
+	case *TargetEntry:
+		return a.rewriteRefOfTargetEntry(parent, node, replacer)
+	case *TypeCast:
+		return a.rewriteRefOfTypeCast(parent, node, replacer)
+	case *Var:
+		return a.rewriteRefOfVar(parent, node, replacer)
+	case *WindowFunc:
+		return a.rewriteRefOfWindowFunc(parent, node, replacer)
+	case *WindowFuncRunCondition:
+		return a.rewriteRefOfWindowFuncRunCondition(parent, node, replacer)
+	case *WithClause:
+		return a.rewriteRefOfWithClause(parent, node, replacer)
+	case *XmlExpr:
+		return a.rewriteRefOfXmlExpr(parent, node, replacer)
+	case *XmlSerialize:
+		return a.rewriteRefOfXmlSerialize(parent, node, replacer)
+	default:
+		// this should never happen
+		return true
+	}
+}
+
+// Function Generation Source: InterfaceMethod
+func (a *application) rewriteExpression(parent Node, node Expression, replacer replacerFunc) bool {
+	if node == nil {
+		return true
+	}
+	switch node := node.(type) {
+	case *A_ArrayExpr:
+		return a.rewriteRefOfA_ArrayExpr(parent, node, replacer)
+	case *A_Const:
+		return a.rewriteRefOfA_Const(parent, node, replacer)
+	case *A_Expr:
+		return a.rewriteRefOfA_Expr(parent, node, replacer)
+	case *A_Indices:
+		return a.rewriteRefOfA_Indices(parent, node, replacer)
+	case *A_Indirection:
+		return a.rewriteRefOfA_Indirection(parent, node, replacer)
+	case *A_Star:
+		return a.rewriteRefOfA_Star(parent, node, replacer)
+	case *Aggref:
+		return a.rewriteRefOfAggref(parent, node, replacer)
+	case *AlternativeSubPlan:
+		return a.rewriteRefOfAlternativeSubPlan(parent, node, replacer)
+	case *ArrayCoerceExpr:
+		return a.rewriteRefOfArrayCoerceExpr(parent, node, replacer)
+	case *ArrayExpr:
+		return a.rewriteRefOfArrayExpr(parent, node, replacer)
+	case *BitString:
+		return a.rewriteRefOfBitString(parent, node, replacer)
+	case *BoolExpr:
+		return a.rewriteRefOfBoolExpr(parent, node, replacer)
+	case *Boolean:
+		return a.rewriteRefOfBoolean(parent, node, replacer)
+	case *BooleanTest:
+		return a.rewriteRefOfBooleanTest(parent, node, replacer)
+	case *CaseExpr:
+		return a.rewriteRefOfCaseExpr(parent, node, replacer)
+	case *CaseTestExpr:
+		return a.rewriteRefOfCaseTestExpr(parent, node, replacer)
+	case *CaseWhen:
+		return a.rewriteRefOfCaseWhen(parent, node, replacer)
+	case *CoalesceExpr:
+		return a.rewriteRefOfCoalesceExpr(parent, node, replacer)
+	case *CoerceToDomain:
+		return a.rewriteRefOfCoerceToDomain(parent, node, replacer)
+	case *CoerceToDomainValue:
+		return a.rewriteRefOfCoerceToDomainValue(parent, node, replacer)
+	case *CoerceViaIO:
+		return a.rewriteRefOfCoerceViaIO(parent, node, replacer)
+	case *CollateExpr:
+		return a.rewriteRefOfCollateExpr(parent, node, replacer)
+	case *ColumnRef:
+		return a.rewriteRefOfColumnRef(parent, node, replacer)
+	case *Const:
+		return a.rewriteRefOfConst(parent, node, replacer)
+	case *ConvertRowtypeExpr:
+		return a.rewriteRefOfConvertRowtypeExpr(parent, node, replacer)
+	case *CurrentOfExpr:
+		return a.rewriteRefOfCurrentOfExpr(parent, node, replacer)
+	case *FieldSelect:
+		return a.rewriteRefOfFieldSelect(parent, node, replacer)
+	case *FieldStore:
+		return a.rewriteRefOfFieldStore(parent, node, replacer)
+	case *Float:
+		return a.rewriteRefOfFloat(parent, node, replacer)
+	case *FromExpr:
+		return a.rewriteRefOfFromExpr(parent, node, replacer)
+	case *FuncCall:
+		return a.rewriteRefOfFuncCall(parent, node, replacer)
+	case *FuncExpr:
+		return a.rewriteRefOfFuncExpr(parent, node, replacer)
+	case *GroupingFunc:
+		return a.rewriteRefOfGroupingFunc(parent, node, replacer)
+	case *Identifier:
+		return a.rewriteRefOfIdentifier(parent, node, replacer)
+	case *InferenceElem:
+		return a.rewriteRefOfInferenceElem(parent, node, replacer)
+	case *Integer:
+		return a.rewriteRefOfInteger(parent, node, replacer)
+	case *JoinExpr:
+		return a.rewriteRefOfJoinExpr(parent, node, replacer)
+	case *JsonArrayAgg:
+		return a.rewriteRefOfJsonArrayAgg(parent, node, replacer)
+	case *JsonArrayConstructor:
+		return a.rewriteRefOfJsonArrayConstructor(parent, node, replacer)
+	case *JsonArrayQueryConstructor:
+		return a.rewriteRefOfJsonArrayQueryConstructor(parent, node, replacer)
+	case *JsonConstructorExpr:
+		return a.rewriteRefOfJsonConstructorExpr(parent, node, replacer)
+	case *JsonExpr:
+		return a.rewriteRefOfJsonExpr(parent, node, replacer)
+	case *JsonFuncExpr:
+		return a.rewriteRefOfJsonFuncExpr(parent, node, replacer)
+	case *JsonObjectAgg:
+		return a.rewriteRefOfJsonObjectAgg(parent, node, replacer)
+	case *JsonObjectConstructor:
+		return a.rewriteRefOfJsonObjectConstructor(parent, node, replacer)
+	case *JsonParseExpr:
+		return a.rewriteRefOfJsonParseExpr(parent, node, replacer)
+	case *JsonScalarExpr:
+		return a.rewriteRefOfJsonScalarExpr(parent, node, replacer)
+	case *JsonSerializeExpr:
+		return a.rewriteRefOfJsonSerializeExpr(parent, node, replacer)
+	case *JsonValueExpr:
+		return a.rewriteRefOfJsonValueExpr(parent, node, replacer)
+	case *MergeSupportFunc:
+		return a.rewriteRefOfMergeSupportFunc(parent, node, replacer)
+	case *MinMaxExpr:
+		return a.rewriteRefOfMinMaxExpr(parent, node, replacer)
+	case *MultiAssignRef:
+		return a.rewriteRefOfMultiAssignRef(parent, node, replacer)
+	case *NamedArgExpr:
+		return a.rewriteRefOfNamedArgExpr(parent, node, replacer)
+	case *NextValueExpr:
+		return a.rewriteRefOfNextValueExpr(parent, node, replacer)
+	case *Null:
+		return a.rewriteRefOfNull(parent, node, replacer)
+	case *NullTest:
+		return a.rewriteRefOfNullTest(parent, node, replacer)
+	case *OnConflictExpr:
+		return a.rewriteRefOfOnConflictExpr(parent, node, replacer)
+	case *OpExpr:
+		return a.rewriteRefOfOpExpr(parent, node, replacer)
+	case *Param:
+		return a.rewriteRefOfParam(parent, node, replacer)
+	case *ParamRef:
+		return a.rewriteRefOfParamRef(parent, node, replacer)
+	case *ParenExpr:
+		return a.rewriteRefOfParenExpr(parent, node, replacer)
+	case *RangeTblRef:
+		return a.rewriteRefOfRangeTblRef(parent, node, replacer)
+	case *RelabelType:
+		return a.rewriteRefOfRelabelType(parent, node, replacer)
+	case *ResTarget:
+		return a.rewriteRefOfResTarget(parent, node, replacer)
+	case *RowCompareExpr:
+		return a.rewriteRefOfRowCompareExpr(parent, node, replacer)
+	case *RowExpr:
+		return a.rewriteRefOfRowExpr(parent, node, replacer)
+	case *SQLValueFunction:
+		return a.rewriteRefOfSQLValueFunction(parent, node, replacer)
+	case *ScalarArrayOpExpr:
+		return a.rewriteRefOfScalarArrayOpExpr(parent, node, replacer)
+	case *SetToDefault:
+		return a.rewriteRefOfSetToDefault(parent, node, replacer)
+	case *String:
+		return a.rewriteRefOfString(parent, node, replacer)
+	case *SubLink:
+		return a.rewriteRefOfSubLink(parent, node, replacer)
+	case *SubPlan:
+		return a.rewriteRefOfSubPlan(parent, node, replacer)
+	case *SubscriptingRef:
+		return a.rewriteRefOfSubscriptingRef(parent, node, replacer)
+	case *TargetEntry:
+		return a.rewriteRefOfTargetEntry(parent, node, replacer)
+	case *TypeCast:
+		return a.rewriteRefOfTypeCast(parent, node, replacer)
+	case *Var:
+		return a.rewriteRefOfVar(parent, node, replacer)
+	case *WindowFunc:
+		return a.rewriteRefOfWindowFunc(parent, node, replacer)
+	case *WindowFuncRunCondition:
+		return a.rewriteRefOfWindowFuncRunCondition(parent, node, replacer)
+	case *WithClause:
+		return a.rewriteRefOfWithClause(parent, node, replacer)
+	case *XmlExpr:
+		return a.rewriteRefOfXmlExpr(parent, node, replacer)
+	case *XmlSerialize:
+		return a.rewriteRefOfXmlSerialize(parent, node, replacer)
+	default:
+		// this should never happen
+		return true
+	}
+}
+
 // Function Generation Source: PtrToStructMethod
 func (a *application) rewriteRefOfFetchStmt(parent Node, node *FetchStmt, replacer replacerFunc) bool {
 	if node == nil {
@@ -9840,6 +10170,11 @@ func (a *application) rewriteRefOfRowExpr(parent Node, node *RowExpr, replacer r
 	}) {
 		return false
 	}
+	if !a.rewriteRefOfNodeList(node, node.Colnames, func(newNode, parent Node) {
+		parent.(*RowExpr).Colnames = newNode.(*NodeList)
+	}) {
+		return false
+	}
 	if a.post != nil {
 		a.cur.replacer = replacer
 		a.cur.parent = parent
@@ -10346,6 +10681,300 @@ func (a *application) rewriteRefOfStatsElem(parent Node, node *StatsElem, replac
 		}
 	}
 	return true
+}
+
+// Function Generation Source: InterfaceMethod
+func (a *application) rewriteStmt(parent Node, node Stmt, replacer replacerFunc) bool {
+	if node == nil {
+		return true
+	}
+	switch node := node.(type) {
+	case *AlterCollationStmt:
+		return a.rewriteRefOfAlterCollationStmt(parent, node, replacer)
+	case *AlterCompositeTypeStmt:
+		return a.rewriteRefOfAlterCompositeTypeStmt(parent, node, replacer)
+	case *AlterDatabaseRefreshCollStmt:
+		return a.rewriteRefOfAlterDatabaseRefreshCollStmt(parent, node, replacer)
+	case *AlterDatabaseSetStmt:
+		return a.rewriteRefOfAlterDatabaseSetStmt(parent, node, replacer)
+	case *AlterDatabaseStmt:
+		return a.rewriteRefOfAlterDatabaseStmt(parent, node, replacer)
+	case *AlterDefaultPrivilegesStmt:
+		return a.rewriteRefOfAlterDefaultPrivilegesStmt(parent, node, replacer)
+	case *AlterDomainStmt:
+		return a.rewriteRefOfAlterDomainStmt(parent, node, replacer)
+	case *AlterEnumStmt:
+		return a.rewriteRefOfAlterEnumStmt(parent, node, replacer)
+	case *AlterEventTrigStmt:
+		return a.rewriteRefOfAlterEventTrigStmt(parent, node, replacer)
+	case *AlterExtensionContentsStmt:
+		return a.rewriteRefOfAlterExtensionContentsStmt(parent, node, replacer)
+	case *AlterExtensionStmt:
+		return a.rewriteRefOfAlterExtensionStmt(parent, node, replacer)
+	case *AlterFdwStmt:
+		return a.rewriteRefOfAlterFdwStmt(parent, node, replacer)
+	case *AlterForeignServerStmt:
+		return a.rewriteRefOfAlterForeignServerStmt(parent, node, replacer)
+	case *AlterFunctionStmt:
+		return a.rewriteRefOfAlterFunctionStmt(parent, node, replacer)
+	case *AlterObjectDependsStmt:
+		return a.rewriteRefOfAlterObjectDependsStmt(parent, node, replacer)
+	case *AlterObjectSchemaStmt:
+		return a.rewriteRefOfAlterObjectSchemaStmt(parent, node, replacer)
+	case *AlterOpFamilyStmt:
+		return a.rewriteRefOfAlterOpFamilyStmt(parent, node, replacer)
+	case *AlterOperatorStmt:
+		return a.rewriteRefOfAlterOperatorStmt(parent, node, replacer)
+	case *AlterOwnerStmt:
+		return a.rewriteRefOfAlterOwnerStmt(parent, node, replacer)
+	case *AlterPolicyStmt:
+		return a.rewriteRefOfAlterPolicyStmt(parent, node, replacer)
+	case *AlterPublicationStmt:
+		return a.rewriteRefOfAlterPublicationStmt(parent, node, replacer)
+	case *AlterRoleSetStmt:
+		return a.rewriteRefOfAlterRoleSetStmt(parent, node, replacer)
+	case *AlterRoleStmt:
+		return a.rewriteRefOfAlterRoleStmt(parent, node, replacer)
+	case *AlterSeqStmt:
+		return a.rewriteRefOfAlterSeqStmt(parent, node, replacer)
+	case *AlterStatsStmt:
+		return a.rewriteRefOfAlterStatsStmt(parent, node, replacer)
+	case *AlterSubscriptionStmt:
+		return a.rewriteRefOfAlterSubscriptionStmt(parent, node, replacer)
+	case *AlterSystemStmt:
+		return a.rewriteRefOfAlterSystemStmt(parent, node, replacer)
+	case *AlterTSConfigurationStmt:
+		return a.rewriteRefOfAlterTSConfigurationStmt(parent, node, replacer)
+	case *AlterTSDictionaryStmt:
+		return a.rewriteRefOfAlterTSDictionaryStmt(parent, node, replacer)
+	case *AlterTableMoveAllStmt:
+		return a.rewriteRefOfAlterTableMoveAllStmt(parent, node, replacer)
+	case *AlterTableSpaceStmt:
+		return a.rewriteRefOfAlterTableSpaceStmt(parent, node, replacer)
+	case *AlterTableStmt:
+		return a.rewriteRefOfAlterTableStmt(parent, node, replacer)
+	case *AlterTypeStmt:
+		return a.rewriteRefOfAlterTypeStmt(parent, node, replacer)
+	case *AlterUserMappingStmt:
+		return a.rewriteRefOfAlterUserMappingStmt(parent, node, replacer)
+	case *CallStmt:
+		return a.rewriteRefOfCallStmt(parent, node, replacer)
+	case *CheckPointStmt:
+		return a.rewriteRefOfCheckPointStmt(parent, node, replacer)
+	case *ClosePortalStmt:
+		return a.rewriteRefOfClosePortalStmt(parent, node, replacer)
+	case *ClusterStmt:
+		return a.rewriteRefOfClusterStmt(parent, node, replacer)
+	case *ColumnDef:
+		return a.rewriteRefOfColumnDef(parent, node, replacer)
+	case *CommentStmt:
+		return a.rewriteRefOfCommentStmt(parent, node, replacer)
+	case *CompositeTypeStmt:
+		return a.rewriteRefOfCompositeTypeStmt(parent, node, replacer)
+	case *ConstraintsSetStmt:
+		return a.rewriteRefOfConstraintsSetStmt(parent, node, replacer)
+	case *CopyStmt:
+		return a.rewriteRefOfCopyStmt(parent, node, replacer)
+	case *CreateAmStmt:
+		return a.rewriteRefOfCreateAmStmt(parent, node, replacer)
+	case *CreateAssertionStmt:
+		return a.rewriteRefOfCreateAssertionStmt(parent, node, replacer)
+	case *CreateCastStmt:
+		return a.rewriteRefOfCreateCastStmt(parent, node, replacer)
+	case *CreateConversionStmt:
+		return a.rewriteRefOfCreateConversionStmt(parent, node, replacer)
+	case *CreateDomainStmt:
+		return a.rewriteRefOfCreateDomainStmt(parent, node, replacer)
+	case *CreateEnumStmt:
+		return a.rewriteRefOfCreateEnumStmt(parent, node, replacer)
+	case *CreateEventTrigStmt:
+		return a.rewriteRefOfCreateEventTrigStmt(parent, node, replacer)
+	case *CreateExtensionStmt:
+		return a.rewriteRefOfCreateExtensionStmt(parent, node, replacer)
+	case *CreateFdwStmt:
+		return a.rewriteRefOfCreateFdwStmt(parent, node, replacer)
+	case *CreateForeignServerStmt:
+		return a.rewriteRefOfCreateForeignServerStmt(parent, node, replacer)
+	case *CreateForeignTableStmt:
+		return a.rewriteRefOfCreateForeignTableStmt(parent, node, replacer)
+	case *CreateFunctionStmt:
+		return a.rewriteRefOfCreateFunctionStmt(parent, node, replacer)
+	case *CreateOpClassItem:
+		return a.rewriteRefOfCreateOpClassItem(parent, node, replacer)
+	case *CreateOpClassStmt:
+		return a.rewriteRefOfCreateOpClassStmt(parent, node, replacer)
+	case *CreateOpFamilyStmt:
+		return a.rewriteRefOfCreateOpFamilyStmt(parent, node, replacer)
+	case *CreatePLangStmt:
+		return a.rewriteRefOfCreatePLangStmt(parent, node, replacer)
+	case *CreatePolicyStmt:
+		return a.rewriteRefOfCreatePolicyStmt(parent, node, replacer)
+	case *CreatePublicationStmt:
+		return a.rewriteRefOfCreatePublicationStmt(parent, node, replacer)
+	case *CreateRangeStmt:
+		return a.rewriteRefOfCreateRangeStmt(parent, node, replacer)
+	case *CreateRoleStmt:
+		return a.rewriteRefOfCreateRoleStmt(parent, node, replacer)
+	case *CreateSchemaStmt:
+		return a.rewriteRefOfCreateSchemaStmt(parent, node, replacer)
+	case *CreateSeqStmt:
+		return a.rewriteRefOfCreateSeqStmt(parent, node, replacer)
+	case *CreateStatsStmt:
+		return a.rewriteRefOfCreateStatsStmt(parent, node, replacer)
+	case *CreateStmt:
+		return a.rewriteRefOfCreateStmt(parent, node, replacer)
+	case *CreateSubscriptionStmt:
+		return a.rewriteRefOfCreateSubscriptionStmt(parent, node, replacer)
+	case *CreateTableAsStmt:
+		return a.rewriteRefOfCreateTableAsStmt(parent, node, replacer)
+	case *CreateTableSpaceStmt:
+		return a.rewriteRefOfCreateTableSpaceStmt(parent, node, replacer)
+	case *CreateTransformStmt:
+		return a.rewriteRefOfCreateTransformStmt(parent, node, replacer)
+	case *CreateTriggerStmt:
+		return a.rewriteRefOfCreateTriggerStmt(parent, node, replacer)
+	case *CreateUserMappingStmt:
+		return a.rewriteRefOfCreateUserMappingStmt(parent, node, replacer)
+	case *CreatedbStmt:
+		return a.rewriteRefOfCreatedbStmt(parent, node, replacer)
+	case *DeallocateStmt:
+		return a.rewriteRefOfDeallocateStmt(parent, node, replacer)
+	case *DeclareCursorStmt:
+		return a.rewriteRefOfDeclareCursorStmt(parent, node, replacer)
+	case *DefineStmt:
+		return a.rewriteRefOfDefineStmt(parent, node, replacer)
+	case *DeleteStmt:
+		return a.rewriteRefOfDeleteStmt(parent, node, replacer)
+	case *DiscardStmt:
+		return a.rewriteRefOfDiscardStmt(parent, node, replacer)
+	case *DoStmt:
+		return a.rewriteRefOfDoStmt(parent, node, replacer)
+	case *DropOwnedStmt:
+		return a.rewriteRefOfDropOwnedStmt(parent, node, replacer)
+	case *DropRoleStmt:
+		return a.rewriteRefOfDropRoleStmt(parent, node, replacer)
+	case *DropStmt:
+		return a.rewriteRefOfDropStmt(parent, node, replacer)
+	case *DropTableSpaceStmt:
+		return a.rewriteRefOfDropTableSpaceStmt(parent, node, replacer)
+	case *DropUserMappingStmt:
+		return a.rewriteRefOfDropUserMappingStmt(parent, node, replacer)
+	case *DropdbStmt:
+		return a.rewriteRefOfDropdbStmt(parent, node, replacer)
+	case *ExecuteStmt:
+		return a.rewriteRefOfExecuteStmt(parent, node, replacer)
+	case *ExplainStmt:
+		return a.rewriteRefOfExplainStmt(parent, node, replacer)
+	case *FetchStmt:
+		return a.rewriteRefOfFetchStmt(parent, node, replacer)
+	case *GrantRoleStmt:
+		return a.rewriteRefOfGrantRoleStmt(parent, node, replacer)
+	case *GrantStmt:
+		return a.rewriteRefOfGrantStmt(parent, node, replacer)
+	case *GroupingSet:
+		return a.rewriteRefOfGroupingSet(parent, node, replacer)
+	case *ImportForeignSchemaStmt:
+		return a.rewriteRefOfImportForeignSchemaStmt(parent, node, replacer)
+	case *IndexStmt:
+		return a.rewriteRefOfIndexStmt(parent, node, replacer)
+	case *InsertStmt:
+		return a.rewriteRefOfInsertStmt(parent, node, replacer)
+	case *IntoClause:
+		return a.rewriteRefOfIntoClause(parent, node, replacer)
+	case *ListenStmt:
+		return a.rewriteRefOfListenStmt(parent, node, replacer)
+	case *LoadStmt:
+		return a.rewriteRefOfLoadStmt(parent, node, replacer)
+	case *LockStmt:
+		return a.rewriteRefOfLockStmt(parent, node, replacer)
+	case *LockingClause:
+		return a.rewriteRefOfLockingClause(parent, node, replacer)
+	case *MergeAction:
+		return a.rewriteRefOfMergeAction(parent, node, replacer)
+	case *MergeStmt:
+		return a.rewriteRefOfMergeStmt(parent, node, replacer)
+	case *NotifyStmt:
+		return a.rewriteRefOfNotifyStmt(parent, node, replacer)
+	case *ObjectWithArgs:
+		return a.rewriteRefOfObjectWithArgs(parent, node, replacer)
+	case *PLAssignStmt:
+		return a.rewriteRefOfPLAssignStmt(parent, node, replacer)
+	case *PartitionCmd:
+		return a.rewriteRefOfPartitionCmd(parent, node, replacer)
+	case *PartitionElem:
+		return a.rewriteRefOfPartitionElem(parent, node, replacer)
+	case *PrepareStmt:
+		return a.rewriteRefOfPrepareStmt(parent, node, replacer)
+	case *Query:
+		return a.rewriteRefOfQuery(parent, node, replacer)
+	case *RTEPermissionInfo:
+		return a.rewriteRefOfRTEPermissionInfo(parent, node, replacer)
+	case *RangeFunction:
+		return a.rewriteRefOfRangeFunction(parent, node, replacer)
+	case *RangeSubselect:
+		return a.rewriteRefOfRangeSubselect(parent, node, replacer)
+	case *RangeTableFunc:
+		return a.rewriteRefOfRangeTableFunc(parent, node, replacer)
+	case *RangeTableFuncCol:
+		return a.rewriteRefOfRangeTableFuncCol(parent, node, replacer)
+	case *RangeTableSample:
+		return a.rewriteRefOfRangeTableSample(parent, node, replacer)
+	case *RangeTblEntry:
+		return a.rewriteRefOfRangeTblEntry(parent, node, replacer)
+	case *RangeTblFunction:
+		return a.rewriteRefOfRangeTblFunction(parent, node, replacer)
+	case *RangeVar:
+		return a.rewriteRefOfRangeVar(parent, node, replacer)
+	case *RawStmt:
+		return a.rewriteRefOfRawStmt(parent, node, replacer)
+	case *ReassignOwnedStmt:
+		return a.rewriteRefOfReassignOwnedStmt(parent, node, replacer)
+	case *RefreshMatViewStmt:
+		return a.rewriteRefOfRefreshMatViewStmt(parent, node, replacer)
+	case *ReindexStmt:
+		return a.rewriteRefOfReindexStmt(parent, node, replacer)
+	case *RenameStmt:
+		return a.rewriteRefOfRenameStmt(parent, node, replacer)
+	case *ReplicaIdentityStmt:
+		return a.rewriteRefOfReplicaIdentityStmt(parent, node, replacer)
+	case *ReturnStmt:
+		return a.rewriteRefOfReturnStmt(parent, node, replacer)
+	case *RuleStmt:
+		return a.rewriteRefOfRuleStmt(parent, node, replacer)
+	case *SecLabelStmt:
+		return a.rewriteRefOfSecLabelStmt(parent, node, replacer)
+	case *SelectStmt:
+		return a.rewriteRefOfSelectStmt(parent, node, replacer)
+	case *SinglePartitionSpec:
+		return a.rewriteRefOfSinglePartitionSpec(parent, node, replacer)
+	case *SortBy:
+		return a.rewriteRefOfSortBy(parent, node, replacer)
+	case *TableFunc:
+		return a.rewriteRefOfTableFunc(parent, node, replacer)
+	case *TableSampleClause:
+		return a.rewriteRefOfTableSampleClause(parent, node, replacer)
+	case *TransactionStmt:
+		return a.rewriteRefOfTransactionStmt(parent, node, replacer)
+	case *TruncateStmt:
+		return a.rewriteRefOfTruncateStmt(parent, node, replacer)
+	case *UnlistenStmt:
+		return a.rewriteRefOfUnlistenStmt(parent, node, replacer)
+	case *UpdateStmt:
+		return a.rewriteRefOfUpdateStmt(parent, node, replacer)
+	case *VacuumStmt:
+		return a.rewriteRefOfVacuumStmt(parent, node, replacer)
+	case *VariableSetStmt:
+		return a.rewriteRefOfVariableSetStmt(parent, node, replacer)
+	case *VariableShowStmt:
+		return a.rewriteRefOfVariableShowStmt(parent, node, replacer)
+	case *ViewStmt:
+		return a.rewriteRefOfViewStmt(parent, node, replacer)
+	case *WindowDef:
+		return a.rewriteRefOfWindowDef(parent, node, replacer)
+	default:
+		// this should never happen
+		return true
+	}
 }
 
 // Function Generation Source: PtrToStructMethod
@@ -11069,6 +11698,30 @@ func (a *application) rewriteRefOfVacuumStmt(parent Node, node *VacuumStmt, repl
 	return true
 }
 
+// Function Generation Source: InterfaceMethod
+func (a *application) rewriteValue(parent Node, node Value, replacer replacerFunc) bool {
+	if node == nil {
+		return true
+	}
+	switch node := node.(type) {
+	case *BitString:
+		return a.rewriteRefOfBitString(parent, node, replacer)
+	case *Boolean:
+		return a.rewriteRefOfBoolean(parent, node, replacer)
+	case *Float:
+		return a.rewriteRefOfFloat(parent, node, replacer)
+	case *Integer:
+		return a.rewriteRefOfInteger(parent, node, replacer)
+	case *Null:
+		return a.rewriteRefOfNull(parent, node, replacer)
+	case *String:
+		return a.rewriteRefOfString(parent, node, replacer)
+	default:
+		// this should never happen
+		return true
+	}
+}
+
 // Function Generation Source: PtrToStructMethod
 func (a *application) rewriteRefOfVar(parent Node, node *Var, replacer replacerFunc) bool {
 	if node == nil {
@@ -11541,650 +12194,36 @@ func (a *application) rewriteRefOfXmlSerialize(parent Node, node *XmlSerialize, 
 	return true
 }
 
-// Function Generation Source: InterfaceMethod
-func (a *application) rewriteValue(parent Node, node Value, replacer replacerFunc) bool {
+// Function Generation Source: PtrToStructMethod
+func (a *application) rewriteRefOfRootNode(parent Node, node *RootNode, replacer replacerFunc) bool {
 	if node == nil {
 		return true
 	}
-	switch node := node.(type) {
-	case *BitString:
-		return a.rewriteRefOfBitString(parent, node, replacer)
-	case *Boolean:
-		return a.rewriteRefOfBoolean(parent, node, replacer)
-	case *Float:
-		return a.rewriteRefOfFloat(parent, node, replacer)
-	case *Integer:
-		return a.rewriteRefOfInteger(parent, node, replacer)
-	case *Null:
-		return a.rewriteRefOfNull(parent, node, replacer)
-	case *String:
-		return a.rewriteRefOfString(parent, node, replacer)
-	default:
-		// this should never happen
-		return true
+	if a.pre != nil {
+		a.cur.replacer = replacer
+		a.cur.parent = parent
+		a.cur.node = node
+		kontinue := !a.pre(&a.cur)
+		if a.cur.revisit {
+			a.cur.revisit = false
+			return a.rewriteNode(parent, a.cur.node, replacer)
+		}
+		if kontinue {
+			return true
+		}
 	}
-}
-
-// Function Generation Source: InterfaceMethod
-func (a *application) rewriteExpression(parent Node, node Expression, replacer replacerFunc) bool {
-	if node == nil {
-		return true
+	if !a.rewriteNode(node, node.Node, func(newNode, parent Node) {
+		parent.(*RootNode).Node = newNode.(Node)
+	}) {
+		return false
 	}
-	switch node := node.(type) {
-	case *A_ArrayExpr:
-		return a.rewriteRefOfA_ArrayExpr(parent, node, replacer)
-	case *A_Const:
-		return a.rewriteRefOfA_Const(parent, node, replacer)
-	case *A_Expr:
-		return a.rewriteRefOfA_Expr(parent, node, replacer)
-	case *A_Indices:
-		return a.rewriteRefOfA_Indices(parent, node, replacer)
-	case *A_Indirection:
-		return a.rewriteRefOfA_Indirection(parent, node, replacer)
-	case *A_Star:
-		return a.rewriteRefOfA_Star(parent, node, replacer)
-	case *Aggref:
-		return a.rewriteRefOfAggref(parent, node, replacer)
-	case *AlternativeSubPlan:
-		return a.rewriteRefOfAlternativeSubPlan(parent, node, replacer)
-	case *ArrayCoerceExpr:
-		return a.rewriteRefOfArrayCoerceExpr(parent, node, replacer)
-	case *ArrayExpr:
-		return a.rewriteRefOfArrayExpr(parent, node, replacer)
-	case *BitString:
-		return a.rewriteRefOfBitString(parent, node, replacer)
-	case *BoolExpr:
-		return a.rewriteRefOfBoolExpr(parent, node, replacer)
-	case *Boolean:
-		return a.rewriteRefOfBoolean(parent, node, replacer)
-	case *BooleanTest:
-		return a.rewriteRefOfBooleanTest(parent, node, replacer)
-	case *CaseExpr:
-		return a.rewriteRefOfCaseExpr(parent, node, replacer)
-	case *CaseTestExpr:
-		return a.rewriteRefOfCaseTestExpr(parent, node, replacer)
-	case *CaseWhen:
-		return a.rewriteRefOfCaseWhen(parent, node, replacer)
-	case *CoalesceExpr:
-		return a.rewriteRefOfCoalesceExpr(parent, node, replacer)
-	case *CoerceToDomain:
-		return a.rewriteRefOfCoerceToDomain(parent, node, replacer)
-	case *CoerceToDomainValue:
-		return a.rewriteRefOfCoerceToDomainValue(parent, node, replacer)
-	case *CoerceViaIO:
-		return a.rewriteRefOfCoerceViaIO(parent, node, replacer)
-	case *CollateExpr:
-		return a.rewriteRefOfCollateExpr(parent, node, replacer)
-	case *ColumnRef:
-		return a.rewriteRefOfColumnRef(parent, node, replacer)
-	case *Const:
-		return a.rewriteRefOfConst(parent, node, replacer)
-	case *ConvertRowtypeExpr:
-		return a.rewriteRefOfConvertRowtypeExpr(parent, node, replacer)
-	case *CurrentOfExpr:
-		return a.rewriteRefOfCurrentOfExpr(parent, node, replacer)
-	case *FieldSelect:
-		return a.rewriteRefOfFieldSelect(parent, node, replacer)
-	case *FieldStore:
-		return a.rewriteRefOfFieldStore(parent, node, replacer)
-	case *Float:
-		return a.rewriteRefOfFloat(parent, node, replacer)
-	case *FromExpr:
-		return a.rewriteRefOfFromExpr(parent, node, replacer)
-	case *FuncCall:
-		return a.rewriteRefOfFuncCall(parent, node, replacer)
-	case *FuncExpr:
-		return a.rewriteRefOfFuncExpr(parent, node, replacer)
-	case *GroupingFunc:
-		return a.rewriteRefOfGroupingFunc(parent, node, replacer)
-	case *Identifier:
-		return a.rewriteRefOfIdentifier(parent, node, replacer)
-	case *InferenceElem:
-		return a.rewriteRefOfInferenceElem(parent, node, replacer)
-	case *Integer:
-		return a.rewriteRefOfInteger(parent, node, replacer)
-	case *JoinExpr:
-		return a.rewriteRefOfJoinExpr(parent, node, replacer)
-	case *JsonArrayAgg:
-		return a.rewriteRefOfJsonArrayAgg(parent, node, replacer)
-	case *JsonArrayConstructor:
-		return a.rewriteRefOfJsonArrayConstructor(parent, node, replacer)
-	case *JsonArrayQueryConstructor:
-		return a.rewriteRefOfJsonArrayQueryConstructor(parent, node, replacer)
-	case *JsonConstructorExpr:
-		return a.rewriteRefOfJsonConstructorExpr(parent, node, replacer)
-	case *JsonExpr:
-		return a.rewriteRefOfJsonExpr(parent, node, replacer)
-	case *JsonFuncExpr:
-		return a.rewriteRefOfJsonFuncExpr(parent, node, replacer)
-	case *JsonObjectAgg:
-		return a.rewriteRefOfJsonObjectAgg(parent, node, replacer)
-	case *JsonObjectConstructor:
-		return a.rewriteRefOfJsonObjectConstructor(parent, node, replacer)
-	case *JsonParseExpr:
-		return a.rewriteRefOfJsonParseExpr(parent, node, replacer)
-	case *JsonScalarExpr:
-		return a.rewriteRefOfJsonScalarExpr(parent, node, replacer)
-	case *JsonSerializeExpr:
-		return a.rewriteRefOfJsonSerializeExpr(parent, node, replacer)
-	case *JsonValueExpr:
-		return a.rewriteRefOfJsonValueExpr(parent, node, replacer)
-	case *MergeSupportFunc:
-		return a.rewriteRefOfMergeSupportFunc(parent, node, replacer)
-	case *MinMaxExpr:
-		return a.rewriteRefOfMinMaxExpr(parent, node, replacer)
-	case *MultiAssignRef:
-		return a.rewriteRefOfMultiAssignRef(parent, node, replacer)
-	case *NamedArgExpr:
-		return a.rewriteRefOfNamedArgExpr(parent, node, replacer)
-	case *NextValueExpr:
-		return a.rewriteRefOfNextValueExpr(parent, node, replacer)
-	case *Null:
-		return a.rewriteRefOfNull(parent, node, replacer)
-	case *NullTest:
-		return a.rewriteRefOfNullTest(parent, node, replacer)
-	case *OnConflictExpr:
-		return a.rewriteRefOfOnConflictExpr(parent, node, replacer)
-	case *OpExpr:
-		return a.rewriteRefOfOpExpr(parent, node, replacer)
-	case *Param:
-		return a.rewriteRefOfParam(parent, node, replacer)
-	case *ParamRef:
-		return a.rewriteRefOfParamRef(parent, node, replacer)
-	case *ParenExpr:
-		return a.rewriteRefOfParenExpr(parent, node, replacer)
-	case *RangeTblRef:
-		return a.rewriteRefOfRangeTblRef(parent, node, replacer)
-	case *RelabelType:
-		return a.rewriteRefOfRelabelType(parent, node, replacer)
-	case *ResTarget:
-		return a.rewriteRefOfResTarget(parent, node, replacer)
-	case *RowCompareExpr:
-		return a.rewriteRefOfRowCompareExpr(parent, node, replacer)
-	case *RowExpr:
-		return a.rewriteRefOfRowExpr(parent, node, replacer)
-	case *SQLValueFunction:
-		return a.rewriteRefOfSQLValueFunction(parent, node, replacer)
-	case *ScalarArrayOpExpr:
-		return a.rewriteRefOfScalarArrayOpExpr(parent, node, replacer)
-	case *SetToDefault:
-		return a.rewriteRefOfSetToDefault(parent, node, replacer)
-	case *String:
-		return a.rewriteRefOfString(parent, node, replacer)
-	case *SubLink:
-		return a.rewriteRefOfSubLink(parent, node, replacer)
-	case *SubPlan:
-		return a.rewriteRefOfSubPlan(parent, node, replacer)
-	case *SubscriptingRef:
-		return a.rewriteRefOfSubscriptingRef(parent, node, replacer)
-	case *TargetEntry:
-		return a.rewriteRefOfTargetEntry(parent, node, replacer)
-	case *TypeCast:
-		return a.rewriteRefOfTypeCast(parent, node, replacer)
-	case *Var:
-		return a.rewriteRefOfVar(parent, node, replacer)
-	case *WindowFunc:
-		return a.rewriteRefOfWindowFunc(parent, node, replacer)
-	case *WindowFuncRunCondition:
-		return a.rewriteRefOfWindowFuncRunCondition(parent, node, replacer)
-	case *WithClause:
-		return a.rewriteRefOfWithClause(parent, node, replacer)
-	case *XmlExpr:
-		return a.rewriteRefOfXmlExpr(parent, node, replacer)
-	case *XmlSerialize:
-		return a.rewriteRefOfXmlSerialize(parent, node, replacer)
-	default:
-		// this should never happen
-		return true
+	if a.post != nil {
+		a.cur.replacer = replacer
+		a.cur.parent = parent
+		a.cur.node = node
+		if !a.post(&a.cur) {
+			return false
+		}
 	}
-}
-
-// Function Generation Source: InterfaceMethod
-func (a *application) rewriteExpr(parent Node, node Expr, replacer replacerFunc) bool {
-	if node == nil {
-		return true
-	}
-	switch node := node.(type) {
-	case *A_ArrayExpr:
-		return a.rewriteRefOfA_ArrayExpr(parent, node, replacer)
-	case *A_Const:
-		return a.rewriteRefOfA_Const(parent, node, replacer)
-	case *A_Expr:
-		return a.rewriteRefOfA_Expr(parent, node, replacer)
-	case *A_Indices:
-		return a.rewriteRefOfA_Indices(parent, node, replacer)
-	case *A_Indirection:
-		return a.rewriteRefOfA_Indirection(parent, node, replacer)
-	case *A_Star:
-		return a.rewriteRefOfA_Star(parent, node, replacer)
-	case *Aggref:
-		return a.rewriteRefOfAggref(parent, node, replacer)
-	case *AlternativeSubPlan:
-		return a.rewriteRefOfAlternativeSubPlan(parent, node, replacer)
-	case *ArrayCoerceExpr:
-		return a.rewriteRefOfArrayCoerceExpr(parent, node, replacer)
-	case *ArrayExpr:
-		return a.rewriteRefOfArrayExpr(parent, node, replacer)
-	case *BoolExpr:
-		return a.rewriteRefOfBoolExpr(parent, node, replacer)
-	case *BooleanTest:
-		return a.rewriteRefOfBooleanTest(parent, node, replacer)
-	case *CaseExpr:
-		return a.rewriteRefOfCaseExpr(parent, node, replacer)
-	case *CaseTestExpr:
-		return a.rewriteRefOfCaseTestExpr(parent, node, replacer)
-	case *CaseWhen:
-		return a.rewriteRefOfCaseWhen(parent, node, replacer)
-	case *CoalesceExpr:
-		return a.rewriteRefOfCoalesceExpr(parent, node, replacer)
-	case *CoerceToDomain:
-		return a.rewriteRefOfCoerceToDomain(parent, node, replacer)
-	case *CoerceToDomainValue:
-		return a.rewriteRefOfCoerceToDomainValue(parent, node, replacer)
-	case *CoerceViaIO:
-		return a.rewriteRefOfCoerceViaIO(parent, node, replacer)
-	case *CollateExpr:
-		return a.rewriteRefOfCollateExpr(parent, node, replacer)
-	case *ColumnRef:
-		return a.rewriteRefOfColumnRef(parent, node, replacer)
-	case *Const:
-		return a.rewriteRefOfConst(parent, node, replacer)
-	case *ConvertRowtypeExpr:
-		return a.rewriteRefOfConvertRowtypeExpr(parent, node, replacer)
-	case *CurrentOfExpr:
-		return a.rewriteRefOfCurrentOfExpr(parent, node, replacer)
-	case *FieldSelect:
-		return a.rewriteRefOfFieldSelect(parent, node, replacer)
-	case *FieldStore:
-		return a.rewriteRefOfFieldStore(parent, node, replacer)
-	case *FromExpr:
-		return a.rewriteRefOfFromExpr(parent, node, replacer)
-	case *FuncCall:
-		return a.rewriteRefOfFuncCall(parent, node, replacer)
-	case *FuncExpr:
-		return a.rewriteRefOfFuncExpr(parent, node, replacer)
-	case *GroupingFunc:
-		return a.rewriteRefOfGroupingFunc(parent, node, replacer)
-	case *InferenceElem:
-		return a.rewriteRefOfInferenceElem(parent, node, replacer)
-	case *JoinExpr:
-		return a.rewriteRefOfJoinExpr(parent, node, replacer)
-	case *JsonArrayAgg:
-		return a.rewriteRefOfJsonArrayAgg(parent, node, replacer)
-	case *JsonArrayConstructor:
-		return a.rewriteRefOfJsonArrayConstructor(parent, node, replacer)
-	case *JsonArrayQueryConstructor:
-		return a.rewriteRefOfJsonArrayQueryConstructor(parent, node, replacer)
-	case *JsonConstructorExpr:
-		return a.rewriteRefOfJsonConstructorExpr(parent, node, replacer)
-	case *JsonExpr:
-		return a.rewriteRefOfJsonExpr(parent, node, replacer)
-	case *JsonFuncExpr:
-		return a.rewriteRefOfJsonFuncExpr(parent, node, replacer)
-	case *JsonObjectAgg:
-		return a.rewriteRefOfJsonObjectAgg(parent, node, replacer)
-	case *JsonObjectConstructor:
-		return a.rewriteRefOfJsonObjectConstructor(parent, node, replacer)
-	case *JsonParseExpr:
-		return a.rewriteRefOfJsonParseExpr(parent, node, replacer)
-	case *JsonScalarExpr:
-		return a.rewriteRefOfJsonScalarExpr(parent, node, replacer)
-	case *JsonSerializeExpr:
-		return a.rewriteRefOfJsonSerializeExpr(parent, node, replacer)
-	case *JsonValueExpr:
-		return a.rewriteRefOfJsonValueExpr(parent, node, replacer)
-	case *MergeSupportFunc:
-		return a.rewriteRefOfMergeSupportFunc(parent, node, replacer)
-	case *MinMaxExpr:
-		return a.rewriteRefOfMinMaxExpr(parent, node, replacer)
-	case *MultiAssignRef:
-		return a.rewriteRefOfMultiAssignRef(parent, node, replacer)
-	case *NamedArgExpr:
-		return a.rewriteRefOfNamedArgExpr(parent, node, replacer)
-	case *NextValueExpr:
-		return a.rewriteRefOfNextValueExpr(parent, node, replacer)
-	case *NullTest:
-		return a.rewriteRefOfNullTest(parent, node, replacer)
-	case *OnConflictExpr:
-		return a.rewriteRefOfOnConflictExpr(parent, node, replacer)
-	case *OpExpr:
-		return a.rewriteRefOfOpExpr(parent, node, replacer)
-	case *Param:
-		return a.rewriteRefOfParam(parent, node, replacer)
-	case *ParamRef:
-		return a.rewriteRefOfParamRef(parent, node, replacer)
-	case *ParenExpr:
-		return a.rewriteRefOfParenExpr(parent, node, replacer)
-	case *RelabelType:
-		return a.rewriteRefOfRelabelType(parent, node, replacer)
-	case *RowCompareExpr:
-		return a.rewriteRefOfRowCompareExpr(parent, node, replacer)
-	case *RowExpr:
-		return a.rewriteRefOfRowExpr(parent, node, replacer)
-	case *SQLValueFunction:
-		return a.rewriteRefOfSQLValueFunction(parent, node, replacer)
-	case *ScalarArrayOpExpr:
-		return a.rewriteRefOfScalarArrayOpExpr(parent, node, replacer)
-	case *SetToDefault:
-		return a.rewriteRefOfSetToDefault(parent, node, replacer)
-	case *SubLink:
-		return a.rewriteRefOfSubLink(parent, node, replacer)
-	case *SubPlan:
-		return a.rewriteRefOfSubPlan(parent, node, replacer)
-	case *SubscriptingRef:
-		return a.rewriteRefOfSubscriptingRef(parent, node, replacer)
-	case *TargetEntry:
-		return a.rewriteRefOfTargetEntry(parent, node, replacer)
-	case *TypeCast:
-		return a.rewriteRefOfTypeCast(parent, node, replacer)
-	case *Var:
-		return a.rewriteRefOfVar(parent, node, replacer)
-	case *WindowFunc:
-		return a.rewriteRefOfWindowFunc(parent, node, replacer)
-	case *WindowFuncRunCondition:
-		return a.rewriteRefOfWindowFuncRunCondition(parent, node, replacer)
-	case *WithClause:
-		return a.rewriteRefOfWithClause(parent, node, replacer)
-	case *XmlExpr:
-		return a.rewriteRefOfXmlExpr(parent, node, replacer)
-	case *XmlSerialize:
-		return a.rewriteRefOfXmlSerialize(parent, node, replacer)
-	default:
-		// this should never happen
-		return true
-	}
-}
-
-// Function Generation Source: InterfaceMethod
-func (a *application) rewriteStmt(parent Node, node Stmt, replacer replacerFunc) bool {
-	if node == nil {
-		return true
-	}
-	switch node := node.(type) {
-	case *AlterCollationStmt:
-		return a.rewriteRefOfAlterCollationStmt(parent, node, replacer)
-	case *AlterCompositeTypeStmt:
-		return a.rewriteRefOfAlterCompositeTypeStmt(parent, node, replacer)
-	case *AlterDatabaseRefreshCollStmt:
-		return a.rewriteRefOfAlterDatabaseRefreshCollStmt(parent, node, replacer)
-	case *AlterDatabaseSetStmt:
-		return a.rewriteRefOfAlterDatabaseSetStmt(parent, node, replacer)
-	case *AlterDatabaseStmt:
-		return a.rewriteRefOfAlterDatabaseStmt(parent, node, replacer)
-	case *AlterDefaultPrivilegesStmt:
-		return a.rewriteRefOfAlterDefaultPrivilegesStmt(parent, node, replacer)
-	case *AlterDomainStmt:
-		return a.rewriteRefOfAlterDomainStmt(parent, node, replacer)
-	case *AlterEnumStmt:
-		return a.rewriteRefOfAlterEnumStmt(parent, node, replacer)
-	case *AlterEventTrigStmt:
-		return a.rewriteRefOfAlterEventTrigStmt(parent, node, replacer)
-	case *AlterExtensionContentsStmt:
-		return a.rewriteRefOfAlterExtensionContentsStmt(parent, node, replacer)
-	case *AlterExtensionStmt:
-		return a.rewriteRefOfAlterExtensionStmt(parent, node, replacer)
-	case *AlterFdwStmt:
-		return a.rewriteRefOfAlterFdwStmt(parent, node, replacer)
-	case *AlterForeignServerStmt:
-		return a.rewriteRefOfAlterForeignServerStmt(parent, node, replacer)
-	case *AlterFunctionStmt:
-		return a.rewriteRefOfAlterFunctionStmt(parent, node, replacer)
-	case *AlterObjectDependsStmt:
-		return a.rewriteRefOfAlterObjectDependsStmt(parent, node, replacer)
-	case *AlterObjectSchemaStmt:
-		return a.rewriteRefOfAlterObjectSchemaStmt(parent, node, replacer)
-	case *AlterOpFamilyStmt:
-		return a.rewriteRefOfAlterOpFamilyStmt(parent, node, replacer)
-	case *AlterOperatorStmt:
-		return a.rewriteRefOfAlterOperatorStmt(parent, node, replacer)
-	case *AlterOwnerStmt:
-		return a.rewriteRefOfAlterOwnerStmt(parent, node, replacer)
-	case *AlterPolicyStmt:
-		return a.rewriteRefOfAlterPolicyStmt(parent, node, replacer)
-	case *AlterPublicationStmt:
-		return a.rewriteRefOfAlterPublicationStmt(parent, node, replacer)
-	case *AlterRoleSetStmt:
-		return a.rewriteRefOfAlterRoleSetStmt(parent, node, replacer)
-	case *AlterRoleStmt:
-		return a.rewriteRefOfAlterRoleStmt(parent, node, replacer)
-	case *AlterSeqStmt:
-		return a.rewriteRefOfAlterSeqStmt(parent, node, replacer)
-	case *AlterStatsStmt:
-		return a.rewriteRefOfAlterStatsStmt(parent, node, replacer)
-	case *AlterSubscriptionStmt:
-		return a.rewriteRefOfAlterSubscriptionStmt(parent, node, replacer)
-	case *AlterSystemStmt:
-		return a.rewriteRefOfAlterSystemStmt(parent, node, replacer)
-	case *AlterTSConfigurationStmt:
-		return a.rewriteRefOfAlterTSConfigurationStmt(parent, node, replacer)
-	case *AlterTSDictionaryStmt:
-		return a.rewriteRefOfAlterTSDictionaryStmt(parent, node, replacer)
-	case *AlterTableMoveAllStmt:
-		return a.rewriteRefOfAlterTableMoveAllStmt(parent, node, replacer)
-	case *AlterTableSpaceStmt:
-		return a.rewriteRefOfAlterTableSpaceStmt(parent, node, replacer)
-	case *AlterTableStmt:
-		return a.rewriteRefOfAlterTableStmt(parent, node, replacer)
-	case *AlterTypeStmt:
-		return a.rewriteRefOfAlterTypeStmt(parent, node, replacer)
-	case *AlterUserMappingStmt:
-		return a.rewriteRefOfAlterUserMappingStmt(parent, node, replacer)
-	case *CallStmt:
-		return a.rewriteRefOfCallStmt(parent, node, replacer)
-	case *CheckPointStmt:
-		return a.rewriteRefOfCheckPointStmt(parent, node, replacer)
-	case *ClosePortalStmt:
-		return a.rewriteRefOfClosePortalStmt(parent, node, replacer)
-	case *ClusterStmt:
-		return a.rewriteRefOfClusterStmt(parent, node, replacer)
-	case *ColumnDef:
-		return a.rewriteRefOfColumnDef(parent, node, replacer)
-	case *CommentStmt:
-		return a.rewriteRefOfCommentStmt(parent, node, replacer)
-	case *CompositeTypeStmt:
-		return a.rewriteRefOfCompositeTypeStmt(parent, node, replacer)
-	case *ConstraintsSetStmt:
-		return a.rewriteRefOfConstraintsSetStmt(parent, node, replacer)
-	case *CopyStmt:
-		return a.rewriteRefOfCopyStmt(parent, node, replacer)
-	case *CreateAmStmt:
-		return a.rewriteRefOfCreateAmStmt(parent, node, replacer)
-	case *CreateAssertionStmt:
-		return a.rewriteRefOfCreateAssertionStmt(parent, node, replacer)
-	case *CreateCastStmt:
-		return a.rewriteRefOfCreateCastStmt(parent, node, replacer)
-	case *CreateConversionStmt:
-		return a.rewriteRefOfCreateConversionStmt(parent, node, replacer)
-	case *CreateDomainStmt:
-		return a.rewriteRefOfCreateDomainStmt(parent, node, replacer)
-	case *CreateEnumStmt:
-		return a.rewriteRefOfCreateEnumStmt(parent, node, replacer)
-	case *CreateEventTrigStmt:
-		return a.rewriteRefOfCreateEventTrigStmt(parent, node, replacer)
-	case *CreateExtensionStmt:
-		return a.rewriteRefOfCreateExtensionStmt(parent, node, replacer)
-	case *CreateFdwStmt:
-		return a.rewriteRefOfCreateFdwStmt(parent, node, replacer)
-	case *CreateForeignServerStmt:
-		return a.rewriteRefOfCreateForeignServerStmt(parent, node, replacer)
-	case *CreateForeignTableStmt:
-		return a.rewriteRefOfCreateForeignTableStmt(parent, node, replacer)
-	case *CreateFunctionStmt:
-		return a.rewriteRefOfCreateFunctionStmt(parent, node, replacer)
-	case *CreateOpClassItem:
-		return a.rewriteRefOfCreateOpClassItem(parent, node, replacer)
-	case *CreateOpClassStmt:
-		return a.rewriteRefOfCreateOpClassStmt(parent, node, replacer)
-	case *CreateOpFamilyStmt:
-		return a.rewriteRefOfCreateOpFamilyStmt(parent, node, replacer)
-	case *CreatePLangStmt:
-		return a.rewriteRefOfCreatePLangStmt(parent, node, replacer)
-	case *CreatePolicyStmt:
-		return a.rewriteRefOfCreatePolicyStmt(parent, node, replacer)
-	case *CreatePublicationStmt:
-		return a.rewriteRefOfCreatePublicationStmt(parent, node, replacer)
-	case *CreateRangeStmt:
-		return a.rewriteRefOfCreateRangeStmt(parent, node, replacer)
-	case *CreateRoleStmt:
-		return a.rewriteRefOfCreateRoleStmt(parent, node, replacer)
-	case *CreateSchemaStmt:
-		return a.rewriteRefOfCreateSchemaStmt(parent, node, replacer)
-	case *CreateSeqStmt:
-		return a.rewriteRefOfCreateSeqStmt(parent, node, replacer)
-	case *CreateStatsStmt:
-		return a.rewriteRefOfCreateStatsStmt(parent, node, replacer)
-	case *CreateStmt:
-		return a.rewriteRefOfCreateStmt(parent, node, replacer)
-	case *CreateSubscriptionStmt:
-		return a.rewriteRefOfCreateSubscriptionStmt(parent, node, replacer)
-	case *CreateTableAsStmt:
-		return a.rewriteRefOfCreateTableAsStmt(parent, node, replacer)
-	case *CreateTableSpaceStmt:
-		return a.rewriteRefOfCreateTableSpaceStmt(parent, node, replacer)
-	case *CreateTransformStmt:
-		return a.rewriteRefOfCreateTransformStmt(parent, node, replacer)
-	case *CreateTriggerStmt:
-		return a.rewriteRefOfCreateTriggerStmt(parent, node, replacer)
-	case *CreateUserMappingStmt:
-		return a.rewriteRefOfCreateUserMappingStmt(parent, node, replacer)
-	case *CreatedbStmt:
-		return a.rewriteRefOfCreatedbStmt(parent, node, replacer)
-	case *DeallocateStmt:
-		return a.rewriteRefOfDeallocateStmt(parent, node, replacer)
-	case *DeclareCursorStmt:
-		return a.rewriteRefOfDeclareCursorStmt(parent, node, replacer)
-	case *DefineStmt:
-		return a.rewriteRefOfDefineStmt(parent, node, replacer)
-	case *DeleteStmt:
-		return a.rewriteRefOfDeleteStmt(parent, node, replacer)
-	case *DiscardStmt:
-		return a.rewriteRefOfDiscardStmt(parent, node, replacer)
-	case *DoStmt:
-		return a.rewriteRefOfDoStmt(parent, node, replacer)
-	case *DropOwnedStmt:
-		return a.rewriteRefOfDropOwnedStmt(parent, node, replacer)
-	case *DropRoleStmt:
-		return a.rewriteRefOfDropRoleStmt(parent, node, replacer)
-	case *DropStmt:
-		return a.rewriteRefOfDropStmt(parent, node, replacer)
-	case *DropTableSpaceStmt:
-		return a.rewriteRefOfDropTableSpaceStmt(parent, node, replacer)
-	case *DropUserMappingStmt:
-		return a.rewriteRefOfDropUserMappingStmt(parent, node, replacer)
-	case *DropdbStmt:
-		return a.rewriteRefOfDropdbStmt(parent, node, replacer)
-	case *ExecuteStmt:
-		return a.rewriteRefOfExecuteStmt(parent, node, replacer)
-	case *ExplainStmt:
-		return a.rewriteRefOfExplainStmt(parent, node, replacer)
-	case *FetchStmt:
-		return a.rewriteRefOfFetchStmt(parent, node, replacer)
-	case *GrantRoleStmt:
-		return a.rewriteRefOfGrantRoleStmt(parent, node, replacer)
-	case *GrantStmt:
-		return a.rewriteRefOfGrantStmt(parent, node, replacer)
-	case *GroupingSet:
-		return a.rewriteRefOfGroupingSet(parent, node, replacer)
-	case *ImportForeignSchemaStmt:
-		return a.rewriteRefOfImportForeignSchemaStmt(parent, node, replacer)
-	case *IndexStmt:
-		return a.rewriteRefOfIndexStmt(parent, node, replacer)
-	case *InsertStmt:
-		return a.rewriteRefOfInsertStmt(parent, node, replacer)
-	case *IntoClause:
-		return a.rewriteRefOfIntoClause(parent, node, replacer)
-	case *ListenStmt:
-		return a.rewriteRefOfListenStmt(parent, node, replacer)
-	case *LoadStmt:
-		return a.rewriteRefOfLoadStmt(parent, node, replacer)
-	case *LockStmt:
-		return a.rewriteRefOfLockStmt(parent, node, replacer)
-	case *LockingClause:
-		return a.rewriteRefOfLockingClause(parent, node, replacer)
-	case *MergeAction:
-		return a.rewriteRefOfMergeAction(parent, node, replacer)
-	case *MergeStmt:
-		return a.rewriteRefOfMergeStmt(parent, node, replacer)
-	case *NotifyStmt:
-		return a.rewriteRefOfNotifyStmt(parent, node, replacer)
-	case *ObjectWithArgs:
-		return a.rewriteRefOfObjectWithArgs(parent, node, replacer)
-	case *PLAssignStmt:
-		return a.rewriteRefOfPLAssignStmt(parent, node, replacer)
-	case *PartitionCmd:
-		return a.rewriteRefOfPartitionCmd(parent, node, replacer)
-	case *PartitionElem:
-		return a.rewriteRefOfPartitionElem(parent, node, replacer)
-	case *PrepareStmt:
-		return a.rewriteRefOfPrepareStmt(parent, node, replacer)
-	case *Query:
-		return a.rewriteRefOfQuery(parent, node, replacer)
-	case *RTEPermissionInfo:
-		return a.rewriteRefOfRTEPermissionInfo(parent, node, replacer)
-	case *RangeFunction:
-		return a.rewriteRefOfRangeFunction(parent, node, replacer)
-	case *RangeSubselect:
-		return a.rewriteRefOfRangeSubselect(parent, node, replacer)
-	case *RangeTableFunc:
-		return a.rewriteRefOfRangeTableFunc(parent, node, replacer)
-	case *RangeTableFuncCol:
-		return a.rewriteRefOfRangeTableFuncCol(parent, node, replacer)
-	case *RangeTableSample:
-		return a.rewriteRefOfRangeTableSample(parent, node, replacer)
-	case *RangeTblEntry:
-		return a.rewriteRefOfRangeTblEntry(parent, node, replacer)
-	case *RangeTblFunction:
-		return a.rewriteRefOfRangeTblFunction(parent, node, replacer)
-	case *RangeVar:
-		return a.rewriteRefOfRangeVar(parent, node, replacer)
-	case *RawStmt:
-		return a.rewriteRefOfRawStmt(parent, node, replacer)
-	case *ReassignOwnedStmt:
-		return a.rewriteRefOfReassignOwnedStmt(parent, node, replacer)
-	case *RefreshMatViewStmt:
-		return a.rewriteRefOfRefreshMatViewStmt(parent, node, replacer)
-	case *ReindexStmt:
-		return a.rewriteRefOfReindexStmt(parent, node, replacer)
-	case *RenameStmt:
-		return a.rewriteRefOfRenameStmt(parent, node, replacer)
-	case *ReplicaIdentityStmt:
-		return a.rewriteRefOfReplicaIdentityStmt(parent, node, replacer)
-	case *ReturnStmt:
-		return a.rewriteRefOfReturnStmt(parent, node, replacer)
-	case *RuleStmt:
-		return a.rewriteRefOfRuleStmt(parent, node, replacer)
-	case *SecLabelStmt:
-		return a.rewriteRefOfSecLabelStmt(parent, node, replacer)
-	case *SelectStmt:
-		return a.rewriteRefOfSelectStmt(parent, node, replacer)
-	case *SinglePartitionSpec:
-		return a.rewriteRefOfSinglePartitionSpec(parent, node, replacer)
-	case *SortBy:
-		return a.rewriteRefOfSortBy(parent, node, replacer)
-	case *TableFunc:
-		return a.rewriteRefOfTableFunc(parent, node, replacer)
-	case *TableSampleClause:
-		return a.rewriteRefOfTableSampleClause(parent, node, replacer)
-	case *TransactionStmt:
-		return a.rewriteRefOfTransactionStmt(parent, node, replacer)
-	case *TruncateStmt:
-		return a.rewriteRefOfTruncateStmt(parent, node, replacer)
-	case *UnlistenStmt:
-		return a.rewriteRefOfUnlistenStmt(parent, node, replacer)
-	case *UpdateStmt:
-		return a.rewriteRefOfUpdateStmt(parent, node, replacer)
-	case *VacuumStmt:
-		return a.rewriteRefOfVacuumStmt(parent, node, replacer)
-	case *VariableSetStmt:
-		return a.rewriteRefOfVariableSetStmt(parent, node, replacer)
-	case *VariableShowStmt:
-		return a.rewriteRefOfVariableShowStmt(parent, node, replacer)
-	case *ViewStmt:
-		return a.rewriteRefOfViewStmt(parent, node, replacer)
-	case *WindowDef:
-		return a.rewriteRefOfWindowDef(parent, node, replacer)
-	default:
-		// this should never happen
-		return true
-	}
+	return true
 }
