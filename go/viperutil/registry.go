@@ -27,16 +27,16 @@ import (
 // Static registry values never change after LoadConfig is called.
 // Dynamic registry values can be updated by watching a config file for changes.
 type Registry struct {
-	// Static is the registry for static config variables. These variables will
+	// static is the registry for static config variables. These variables will
 	// never be affected by a Watch-ed config, and maintain their original
 	// values for the lifetime of the process.
-	Static *viper.Viper
+	static *viper.Viper
 
-	// Dynamic is the registry for dynamic config variables. If a config file is
+	// dynamic is the registry for dynamic config variables. If a config file is
 	// found by viper, it will be watched by a threadsafe wrapper around a
 	// second viper (see sync.Viper), and variables registered to it will pick
 	// up changes to that config file throughout the lifetime of the process.
-	Dynamic *sync.Viper
+	dynamic *sync.Viper
 }
 
 // NewRegistry creates a new isolated configuration registry.
@@ -52,8 +52,8 @@ type Registry struct {
 //	})
 func NewRegistry() *Registry {
 	return &Registry{
-		Static:  viper.New(),
-		Dynamic: sync.New(),
+		static:  viper.New(),
+		dynamic: sync.New(),
 	}
 }
 
@@ -62,9 +62,9 @@ func NewRegistry() *Registry {
 // that need to access all configuration values.
 func Combined(reg *Registry) *viper.Viper {
 	v := viper.New()
-	_ = v.MergeConfigMap(reg.Static.AllSettings())
-	_ = v.MergeConfigMap(reg.Dynamic.AllSettings())
+	_ = v.MergeConfigMap(reg.static.AllSettings())
+	_ = v.MergeConfigMap(reg.dynamic.AllSettings())
 
-	v.SetConfigFile(reg.Static.ConfigFileUsed())
+	v.SetConfigFile(reg.static.ConfigFileUsed())
 	return v
 }

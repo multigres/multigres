@@ -115,7 +115,7 @@ func NewViperConfig(reg *Registry) *ViperConfig {
 
 	vc.configPaths.(*value.Static[[]string]).DefaultVal = []string{baseDir}
 	// Need to re-trigger the SetDefault call done during Configure.
-	reg.Static.SetDefault(vc.configPaths.Key(), vc.configPaths.Default())
+	reg.static.SetDefault(vc.configPaths.Key(), vc.configPaths.Default())
 	return vc
 }
 
@@ -167,21 +167,21 @@ func (vc *ViperConfig) LoadConfig(reg *Registry) (context.CancelFunc, error) {
 	switch file := vc.configFile.Get(); file {
 	case "":
 		if name := vc.configName.Get(); name != "" {
-			reg.Static.SetConfigName(name)
+			reg.static.SetConfigName(name)
 
 			for _, path := range vc.configPaths.Get() {
-				reg.Static.AddConfigPath(path)
+				reg.static.AddConfigPath(path)
 			}
 
 			if cfgType := vc.configType.Get(); cfgType != "" {
-				reg.Static.SetConfigType(cfgType)
+				reg.static.SetConfigType(cfgType)
 			}
 
-			err = reg.Static.ReadInConfig()
+			err = reg.static.ReadInConfig()
 		}
 	default:
-		reg.Static.SetConfigFile(file)
-		err = reg.Static.ReadInConfig()
+		reg.static.SetConfigFile(file)
+		err = reg.static.ReadInConfig()
 	}
 
 	if err != nil {
@@ -194,9 +194,9 @@ func (vc *ViperConfig) LoadConfig(reg *Registry) (context.CancelFunc, error) {
 			case IgnoreConfigFileNotFound:
 				return func() {}, nil
 			case ErrorOnConfigFileNotFound:
-				slog.Error(fmt.Sprintf(msg, reg.Static.ConfigFileUsed(), err.Error()))
+				slog.Error(fmt.Sprintf(msg, reg.static.ConfigFileUsed(), err.Error()))
 			case ExitOnConfigFileNotFound:
-				slog.Error(fmt.Sprintf(msg, reg.Static.ConfigFileUsed(), err.Error()))
+				slog.Error(fmt.Sprintf(msg, reg.static.ConfigFileUsed(), err.Error()))
 			}
 		}
 	}
@@ -205,7 +205,7 @@ func (vc *ViperConfig) LoadConfig(reg *Registry) (context.CancelFunc, error) {
 		return nil, err
 	}
 
-	return reg.Dynamic.Watch(context.Background(), reg.Static, vc.configPersistenceMinInterval.Get())
+	return reg.dynamic.Watch(context.Background(), reg.static, vc.configPersistenceMinInterval.Get())
 }
 
 // isConfigFileNotFoundError checks if the error is caused because the file wasn't found.
@@ -226,7 +226,7 @@ func isConfigFileNotFoundError(err error) bool {
 // This function must be called prior to LoadConfig; it will panic if called
 // after the dynamic registry has started watching the loaded config.
 func NotifyConfigReload(reg *Registry, ch chan<- struct{}) {
-	reg.Dynamic.Notify(ch)
+	reg.dynamic.Notify(ch)
 }
 
 // ConfigFileNotFoundHandling is an enum to control how LoadConfig treats errors

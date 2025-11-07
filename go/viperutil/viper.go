@@ -163,9 +163,9 @@ func Configure[T any](reg *Registry, key string, opts Options[T]) (v Value[T]) {
 
 	switch {
 	case opts.Dynamic:
-		v = value.NewDynamic(reg.Dynamic, base)
+		v = value.NewDynamic(reg.dynamic, base)
 	default:
-		v = value.NewStatic(reg.Static, base)
+		v = value.NewStatic(reg.static, base)
 	}
 
 	return v
