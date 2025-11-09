@@ -28,6 +28,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/multigres/multigres/go/pgctld"
+	"github.com/multigres/multigres/go/servenv"
 )
 
 // StartResult contains the result of starting PostgreSQL
@@ -237,6 +238,25 @@ func startPostgreSQLWithConfig(logger *slog.Logger, config *pgctld.PostgresCtlCo
 
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("failed to start PostgreSQL with pg_ctl: %w", err)
+	}
+
+	// If orphan detection environment variables are set, spawn a watchdog process
+	// that will stop postgres if the test parent dies or testdata dir is deleted
+	if servenv.IsTestOrphanDetectionEnabled() {
+		logger.Info("Spawning watchdog process for orphan detection")
+		watchdogCmd := exec.Command(
+			"run_command_if_parent_dies.sh",
+			"pg_ctl", "stop",
+			"-D", config.PostgresDataDir,
+			"-m", "fast",
+		)
+		// Environment variables automatically inherit
+		if err := watchdogCmd.Start(); err != nil {
+			logger.Warn("Failed to start watchdog process", "error", err)
+			// Don't fail the start operation if watchdog fails to start
+		} else {
+			logger.Info("Watchdog process started", "pid", watchdogCmd.Process.Pid)
+		}
 	}
 
 	// Wait for PostgreSQL to be ready using pg_isready

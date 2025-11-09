@@ -15,7 +15,6 @@
 package command
 
 import (
-	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -208,7 +207,7 @@ func TestInitializeDataDir(t *testing.T) {
 		os.Setenv("PATH", binDir+":"+originalPath)
 		defer os.Setenv("PATH", originalPath)
 
-		logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+		logger := slog.New(slog.DiscardHandler)
 		err := initializeDataDir(logger, dataDir, "postgres", "")
 		require.NoError(t, err)
 
@@ -223,7 +222,7 @@ func TestInitializeDataDir(t *testing.T) {
 		// Try to create data dir in a read-only location
 		dataDir := "/root/impossible_dir"
 
-		logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+		logger := slog.New(slog.DiscardHandler)
 		err := initializeDataDir(logger, dataDir, "postgres", "")
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "failed to create data directory")

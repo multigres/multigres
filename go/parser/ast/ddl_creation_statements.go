@@ -1790,7 +1790,7 @@ func NewFetchStmt(direction FetchDirection, howMany int64, portalName string, is
 // Ported from postgres/src/include/nodes/parsenodes.h:3305-3310
 type ClosePortalStmt struct {
 	BaseNode
-	PortalName *string // name of the portal (cursor); nil means CLOSE ALL
+	PortalName string // name of the portal (cursor); nil means CLOSE ALL
 }
 
 // node implements the Node interface
@@ -1802,8 +1802,8 @@ func (cps *ClosePortalStmt) stmt() {}
 // String returns string representation of ClosePortalStmt
 func (cps *ClosePortalStmt) String() string {
 	name := "ALL"
-	if cps.PortalName != nil {
-		name = *cps.PortalName
+	if cps.PortalName != "" {
+		name = cps.PortalName
 	}
 	return fmt.Sprintf("ClosePortalStmt(%s)@%d", name, cps.Location())
 }
@@ -1814,14 +1814,14 @@ func (cps *ClosePortalStmt) StatementType() string {
 
 // SqlString returns the SQL representation of the CLOSE statement
 func (cps *ClosePortalStmt) SqlString() string {
-	if cps.PortalName == nil {
+	if cps.PortalName == "" {
 		return "CLOSE ALL"
 	}
-	return fmt.Sprintf("CLOSE %s", *cps.PortalName)
+	return fmt.Sprintf("CLOSE %s", cps.PortalName)
 }
 
 // NewClosePortalStmt creates a new ClosePortalStmt node
-func NewClosePortalStmt(portalName *string) *ClosePortalStmt {
+func NewClosePortalStmt(portalName string) *ClosePortalStmt {
 	return &ClosePortalStmt{
 		BaseNode:   BaseNode{Tag: T_ClosePortalStmt},
 		PortalName: portalName,

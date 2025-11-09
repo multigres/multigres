@@ -21,6 +21,7 @@
 package consensusdata
 
 import (
+	clustermetadata "github.com/multigres/multigres/go/pb/clustermetadata"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
@@ -118,7 +119,7 @@ type BeginTermRequest struct {
 	// Term of the candidate
 	Term int64 `protobuf:"varint,1,opt,name=term,proto3" json:"term,omitempty"`
 	// ID of the candidate for appointment
-	CandidateId string `protobuf:"bytes,2,opt,name=candidate_id,json=candidateId,proto3" json:"candidate_id,omitempty"`
+	CandidateId *clustermetadata.ID `protobuf:"bytes,2,opt,name=candidate_id,json=candidateId,proto3" json:"candidate_id,omitempty"`
 	// Shard ID for this appointment
 	ShardId string `protobuf:"bytes,3,opt,name=shard_id,json=shardId,proto3" json:"shard_id,omitempty"`
 	// Version of the durability policy
@@ -164,11 +165,11 @@ func (x *BeginTermRequest) GetTerm() int64 {
 	return 0
 }
 
-func (x *BeginTermRequest) GetCandidateId() string {
+func (x *BeginTermRequest) GetCandidateId() *clustermetadata.ID {
 	if x != nil {
 		return x.CandidateId
 	}
-	return ""
+	return nil
 }
 
 func (x *BeginTermRequest) GetShardId() string {
@@ -642,16 +643,16 @@ var File_consensusdata_proto protoreflect.FileDescriptor
 
 const file_consensusdata_proto_rawDesc = "" +
 	"\n" +
-	"\x13consensusdata.proto\x12\rconsensusdata\x1a\x1fgoogle/protobuf/timestamp.proto\"\xba\x01\n" +
+	"\x13consensusdata.proto\x12\rconsensusdata\x1a\x15clustermetadata.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xba\x01\n" +
 	"\vWALPosition\x12\x1f\n" +
 	"\vcurrent_lsn\x18\x01 \x01(\tR\n" +
 	"currentLsn\x12(\n" +
 	"\x10last_receive_lsn\x18\x02 \x01(\tR\x0elastReceiveLsn\x12&\n" +
 	"\x0flast_replay_lsn\x18\x03 \x01(\tR\rlastReplayLsn\x128\n" +
-	"\ttimestamp\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\ttimestamp\"\x8b\x01\n" +
+	"\ttimestamp\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\ttimestamp\"\xa0\x01\n" +
 	"\x10BeginTermRequest\x12\x12\n" +
-	"\x04term\x18\x01 \x01(\x03R\x04term\x12!\n" +
-	"\fcandidate_id\x18\x02 \x01(\tR\vcandidateId\x12\x19\n" +
+	"\x04term\x18\x01 \x01(\x03R\x04term\x126\n" +
+	"\fcandidate_id\x18\x02 \x01(\v2\x13.clustermetadata.IDR\vcandidateId\x12\x19\n" +
 	"\bshard_id\x18\x03 \x01(\tR\ashardId\x12%\n" +
 	"\x0epolicy_version\x18\x04 \x01(\x03R\rpolicyVersion\"`\n" +
 	"\x11BeginTermResponse\x12\x12\n" +
@@ -712,16 +713,18 @@ var file_consensusdata_proto_goTypes = []any{
 	(*CanReachPrimaryRequest)(nil),  // 7: consensusdata.CanReachPrimaryRequest
 	(*CanReachPrimaryResponse)(nil), // 8: consensusdata.CanReachPrimaryResponse
 	(*timestamppb.Timestamp)(nil),   // 9: google.protobuf.Timestamp
+	(*clustermetadata.ID)(nil),      // 10: clustermetadata.ID
 }
 var file_consensusdata_proto_depIdxs = []int32{
-	9, // 0: consensusdata.WALPosition.timestamp:type_name -> google.protobuf.Timestamp
-	0, // 1: consensusdata.StatusResponse.wal_position:type_name -> consensusdata.WALPosition
-	9, // 2: consensusdata.LeadershipViewResponse.last_heartbeat:type_name -> google.protobuf.Timestamp
-	3, // [3:3] is the sub-list for method output_type
-	3, // [3:3] is the sub-list for method input_type
-	3, // [3:3] is the sub-list for extension type_name
-	3, // [3:3] is the sub-list for extension extendee
-	0, // [0:3] is the sub-list for field type_name
+	9,  // 0: consensusdata.WALPosition.timestamp:type_name -> google.protobuf.Timestamp
+	10, // 1: consensusdata.BeginTermRequest.candidate_id:type_name -> clustermetadata.ID
+	0,  // 2: consensusdata.StatusResponse.wal_position:type_name -> consensusdata.WALPosition
+	9,  // 3: consensusdata.LeadershipViewResponse.last_heartbeat:type_name -> google.protobuf.Timestamp
+	4,  // [4:4] is the sub-list for method output_type
+	4,  // [4:4] is the sub-list for method input_type
+	4,  // [4:4] is the sub-list for extension type_name
+	4,  // [4:4] is the sub-list for extension extendee
+	0,  // [0:4] is the sub-list for field type_name
 }
 
 func init() { file_consensusdata_proto_init() }

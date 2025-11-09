@@ -63,10 +63,11 @@ func TestConsensusService_BeginTerm(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	config := &manager.Config{
-		TopoClient: ts,
-		ServiceID:  serviceID,
-		PgctldAddr: pgctldAddr,
-		PoolerDir:  tmpDir,
+		TopoClient:       ts,
+		ServiceID:        serviceID,
+		PgctldAddr:       pgctldAddr,
+		PoolerDir:        tmpDir,
+		ConsensusEnabled: true,
 	}
 	pm := manager.NewMultiPoolerManager(logger, config)
 	defer pm.Close()
@@ -86,9 +87,13 @@ func TestConsensusService_BeginTerm(t *testing.T) {
 
 	t.Run("BeginTerm without database connection should fail", func(t *testing.T) {
 		req := &consensusdata.BeginTermRequest{
-			Term:        5,
-			CandidateId: "candidate-1",
-			ShardId:     "shard-1",
+			Term: 5,
+			CandidateId: &clustermetadata.ID{
+				Component: clustermetadata.ID_MULTIPOOLER,
+				Cell:      "zone1",
+				Name:      "candidate-1",
+			},
+			ShardId: "shard-1",
 		}
 
 		resp, err := svc.BeginTerm(ctx, req)
@@ -130,10 +135,11 @@ func TestConsensusService_Status(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	config := &manager.Config{
-		TopoClient: ts,
-		ServiceID:  serviceID,
-		PgctldAddr: pgctldAddr,
-		PoolerDir:  tmpDir,
+		TopoClient:       ts,
+		ServiceID:        serviceID,
+		PgctldAddr:       pgctldAddr,
+		PoolerDir:        tmpDir,
+		ConsensusEnabled: true,
 	}
 	pm := manager.NewMultiPoolerManager(logger, config)
 	defer pm.Close()
@@ -200,10 +206,11 @@ func TestConsensusService_GetLeadershipView(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	config := &manager.Config{
-		TopoClient: ts,
-		ServiceID:  serviceID,
-		PgctldAddr: pgctldAddr,
-		PoolerDir:  tmpDir,
+		TopoClient:       ts,
+		ServiceID:        serviceID,
+		PgctldAddr:       pgctldAddr,
+		PoolerDir:        tmpDir,
+		ConsensusEnabled: true,
 	}
 	pm := manager.NewMultiPoolerManager(logger, config)
 	defer pm.Close()
@@ -265,10 +272,11 @@ func TestConsensusService_CanReachPrimary(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	config := &manager.Config{
-		TopoClient: ts,
-		ServiceID:  serviceID,
-		PgctldAddr: pgctldAddr,
-		PoolerDir:  tmpDir,
+		TopoClient:       ts,
+		ServiceID:        serviceID,
+		PgctldAddr:       pgctldAddr,
+		PoolerDir:        tmpDir,
+		ConsensusEnabled: true,
 	}
 	pm := manager.NewMultiPoolerManager(logger, config)
 	defer pm.Close()
@@ -332,10 +340,11 @@ func TestConsensusService_AllMethods(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	config := &manager.Config{
-		TopoClient: ts,
-		ServiceID:  serviceID,
-		PgctldAddr: pgctldAddr,
-		PoolerDir:  tmpDir,
+		TopoClient:       ts,
+		ServiceID:        serviceID,
+		PgctldAddr:       pgctldAddr,
+		PoolerDir:        tmpDir,
+		ConsensusEnabled: true,
 	}
 	pm := manager.NewMultiPoolerManager(logger, config)
 	defer pm.Close()
@@ -362,9 +371,13 @@ func TestConsensusService_AllMethods(t *testing.T) {
 			name: "BeginTerm",
 			method: func() error {
 				req := &consensusdata.BeginTermRequest{
-					Term:        5,
-					CandidateId: "candidate-1",
-					ShardId:     "shard-1",
+					Term: 5,
+					CandidateId: &clustermetadata.ID{
+						Component: clustermetadata.ID_MULTIPOOLER,
+						Cell:      "zone1",
+						Name:      "candidate-1",
+					},
+					ShardId: "shard-1",
 				}
 				_, err := svc.BeginTerm(ctx, req)
 				return err

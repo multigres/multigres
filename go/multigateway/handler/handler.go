@@ -48,7 +48,7 @@ func NewMultiGatewayHandler(executor Executor, logger *slog.Logger) *MultiGatewa
 // HandleQuery processes a simple query protocol message ('Q').
 // Routes the query to an appropriate multipooler instance and streams results back.
 func (h *MultiGatewayHandler) HandleQuery(ctx context.Context, conn *server.Conn, queryStr string, callback func(ctx context.Context, result *query.QueryResult) error) error {
-	h.logger.Debug("handling query", "query", queryStr, "user", conn.User(), "database", conn.Database())
+	h.logger.DebugContext(ctx, "handling query", "query", queryStr, "user", conn.User(), "database", conn.Database())
 
 	asts, err := parser.ParseSQL(queryStr)
 	if err != nil {
@@ -80,7 +80,7 @@ func (h *MultiGatewayHandler) getConnectionState(conn *server.Conn) *ConnectionS
 // HandleParse processes a Parse message ('P') for the extended query protocol.
 // Creates and stores a prepared statement.
 func (h *MultiGatewayHandler) HandleParse(ctx context.Context, conn *server.Conn, name, queryStr string, paramTypes []uint32) error {
-	h.logger.Debug("parse", "name", name, "query", queryStr, "param_count", len(paramTypes))
+	h.logger.DebugContext(ctx, "parse", "name", name, "query", queryStr, "param_count", len(paramTypes))
 
 	// Basic validation: query must not be empty.
 	if queryStr == "" {
@@ -107,7 +107,7 @@ func (h *MultiGatewayHandler) HandleParse(ctx context.Context, conn *server.Conn
 // HandleBind processes a Bind message ('B') for the extended query protocol.
 // Creates and stores a portal for the specified prepared statement with bound parameters.
 func (h *MultiGatewayHandler) HandleBind(ctx context.Context, conn *server.Conn, portalName, stmtName string, params [][]byte, paramFormats, resultFormats []int16) error {
-	h.logger.Debug("bind", "portal", portalName, "statement", stmtName, "param_count", len(params))
+	h.logger.DebugContext(ctx, "bind", "portal", portalName, "statement", stmtName, "param_count", len(params))
 
 	// Get the connection state.
 	state := h.getConnectionState(conn)
@@ -128,7 +128,7 @@ func (h *MultiGatewayHandler) HandleBind(ctx context.Context, conn *server.Conn,
 // HandleExecute processes an Execute message ('E') for the extended query protocol.
 // Executes the specified portal's query with bound parameters and streams results via callback.
 func (h *MultiGatewayHandler) HandleExecute(ctx context.Context, conn *server.Conn, portalName string, maxRows int32, callback func(ctx context.Context, result *query.QueryResult) error) error {
-	h.logger.Debug("execute", "portal", portalName, "max_rows", maxRows)
+	h.logger.DebugContext(ctx, "execute", "portal", portalName, "max_rows", maxRows)
 
 	// Get the connection state.
 	state := h.getConnectionState(conn)
@@ -154,7 +154,7 @@ func (h *MultiGatewayHandler) HandleExecute(ctx context.Context, conn *server.Co
 			return fmt.Errorf("parameter substitution failed: %w", err)
 		}
 		qry = substitutedQuery
-		h.logger.Debug("substituted query", "query", qry.SqlString())
+		h.logger.DebugContext(ctx, "substituted query", "query", qry.SqlString())
 	}
 
 	// TODO: Handle maxRows limitation (cursor support for partial fetches)
@@ -166,7 +166,7 @@ func (h *MultiGatewayHandler) HandleExecute(ctx context.Context, conn *server.Co
 // HandleDescribe processes a Describe message ('D').
 // Describes either a prepared statement ('S') or a portal ('P').
 func (h *MultiGatewayHandler) HandleDescribe(ctx context.Context, conn *server.Conn, typ byte, name string) (*query.StatementDescription, error) {
-	h.logger.Debug("describe", "type", string(typ), "name", name)
+	h.logger.DebugContext(ctx, "describe", "type", string(typ), "name", name)
 
 	state := h.getConnectionState(conn)
 
@@ -222,7 +222,7 @@ func (h *MultiGatewayHandler) HandleDescribe(ctx context.Context, conn *server.C
 // HandleClose processes a Close message ('C').
 // Closes either a prepared statement ('S') or a portal ('P').
 func (h *MultiGatewayHandler) HandleClose(ctx context.Context, conn *server.Conn, typ byte, name string) error {
-	h.logger.Debug("close", "type", string(typ), "name", name)
+	h.logger.DebugContext(ctx, "close", "type", string(typ), "name", name)
 
 	state := h.getConnectionState(conn)
 
@@ -242,7 +242,7 @@ func (h *MultiGatewayHandler) HandleClose(ctx context.Context, conn *server.Conn
 
 // HandleSync processes a Sync message ('S').
 func (h *MultiGatewayHandler) HandleSync(ctx context.Context, conn *server.Conn) error {
-	h.logger.Debug("sync")
+	h.logger.DebugContext(ctx, "sync")
 
 	// TODO: Handle transaction state
 	return nil

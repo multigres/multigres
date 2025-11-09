@@ -214,6 +214,7 @@ func (mp *MultiPooler) Init() {
 		ServiceID:           multipooler.Id,
 		HeartbeatIntervalMs: mp.heartbeatIntervalMs.Get(),
 		PgctldAddr:          mp.pgctldAddr.Get(),
+		ConsensusEnabled:    mp.grpcServer.CheckServiceMap("consensus", mp.senv),
 	})
 
 	// Start the MultiPoolerManager

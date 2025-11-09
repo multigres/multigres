@@ -59,7 +59,7 @@ func (s *MultiAdminServer) RegisterWithGRPCServer(grpcServer *grpc.Server) {
 
 // GetCell retrieves information about a specific cell
 func (s *MultiAdminServer) GetCell(ctx context.Context, req *multiadminpb.GetCellRequest) (*multiadminpb.GetCellResponse, error) {
-	s.logger.Debug("GetCell request received", "cell_name", req.Name)
+	s.logger.DebugContext(ctx, "GetCell request received", "cell_name", req.Name)
 
 	// Validate request
 	if req.Name == "" {
@@ -69,7 +69,7 @@ func (s *MultiAdminServer) GetCell(ctx context.Context, req *multiadminpb.GetCel
 	// Get cell from topology
 	cell, err := s.ts.GetCell(ctx, req.Name)
 	if err != nil {
-		s.logger.Error("Failed to get cell from topology", "cell_name", req.Name, "error", err)
+		s.logger.ErrorContext(ctx, "Failed to get cell from topology", "cell_name", req.Name, "error", err)
 
 		// Check if it's a not found error
 		if errors.Is(err, &topo.TopoError{Code: topo.NoNode}) {
@@ -84,13 +84,13 @@ func (s *MultiAdminServer) GetCell(ctx context.Context, req *multiadminpb.GetCel
 		Cell: cell,
 	}
 
-	s.logger.Debug("GetCell request completed successfully", "cell_name", req.Name)
+	s.logger.DebugContext(ctx, "GetCell request completed successfully", "cell_name", req.Name)
 	return response, nil
 }
 
 // GetDatabase retrieves information about a specific database
 func (s *MultiAdminServer) GetDatabase(ctx context.Context, req *multiadminpb.GetDatabaseRequest) (*multiadminpb.GetDatabaseResponse, error) {
-	s.logger.Debug("GetDatabase request received", "database_name", req.Name)
+	s.logger.DebugContext(ctx, "GetDatabase request received", "database_name", req.Name)
 
 	// Validate request
 	if req.Name == "" {
@@ -100,7 +100,7 @@ func (s *MultiAdminServer) GetDatabase(ctx context.Context, req *multiadminpb.Ge
 	// Get database from topology
 	database, err := s.ts.GetDatabase(ctx, req.Name)
 	if err != nil {
-		s.logger.Error("Failed to get database from topology", "database_name", req.Name, "error", err)
+		s.logger.ErrorContext(ctx, "Failed to get database from topology", "database_name", req.Name, "error", err)
 
 		// Check if it's a not found error
 		if errors.Is(err, &topo.TopoError{Code: topo.NoNode}) {
@@ -115,17 +115,17 @@ func (s *MultiAdminServer) GetDatabase(ctx context.Context, req *multiadminpb.Ge
 		Database: database,
 	}
 
-	s.logger.Debug("GetDatabase request completed successfully", "database_name", req.Name)
+	s.logger.DebugContext(ctx, "GetDatabase request completed successfully", "database_name", req.Name)
 	return response, nil
 }
 
 // GetCellNames retrieves all cell names in the cluster
 func (s *MultiAdminServer) GetCellNames(ctx context.Context, req *multiadminpb.GetCellNamesRequest) (*multiadminpb.GetCellNamesResponse, error) {
-	s.logger.Debug("GetCellNames request received")
+	s.logger.DebugContext(ctx, "GetCellNames request received")
 
 	names, err := s.ts.GetCellNames(ctx)
 	if err != nil {
-		s.logger.Error("Failed to get cell names from topology", "error", err)
+		s.logger.ErrorContext(ctx, "Failed to get cell names from topology", "error", err)
 		return nil, status.Errorf(codes.Internal, "failed to retrieve cell names: %v", err)
 	}
 
@@ -133,17 +133,17 @@ func (s *MultiAdminServer) GetCellNames(ctx context.Context, req *multiadminpb.G
 		Names: names,
 	}
 
-	s.logger.Debug("GetCellNames request completed successfully", "count", len(names))
+	s.logger.DebugContext(ctx, "GetCellNames request completed successfully", "count", len(names))
 	return response, nil
 }
 
 // GetDatabaseNames retrieves all database names in the cluster
 func (s *MultiAdminServer) GetDatabaseNames(ctx context.Context, req *multiadminpb.GetDatabaseNamesRequest) (*multiadminpb.GetDatabaseNamesResponse, error) {
-	s.logger.Debug("GetDatabaseNames request received")
+	s.logger.DebugContext(ctx, "GetDatabaseNames request received")
 
 	names, err := s.ts.GetDatabaseNames(ctx)
 	if err != nil {
-		s.logger.Error("Failed to get database names from topology", "error", err)
+		s.logger.ErrorContext(ctx, "Failed to get database names from topology", "error", err)
 		return nil, status.Errorf(codes.Internal, "failed to retrieve database names: %v", err)
 	}
 
@@ -151,13 +151,13 @@ func (s *MultiAdminServer) GetDatabaseNames(ctx context.Context, req *multiadmin
 		Names: names,
 	}
 
-	s.logger.Debug("GetDatabaseNames request completed successfully", "count", len(names))
+	s.logger.DebugContext(ctx, "GetDatabaseNames request completed successfully", "count", len(names))
 	return response, nil
 }
 
 // GetGateways retrieves gateways filtered by cells
 func (s *MultiAdminServer) GetGateways(ctx context.Context, req *multiadminpb.GetGatewaysRequest) (*multiadminpb.GetGatewaysResponse, error) {
-	s.logger.Debug("GetGateways request received", "cells", req.Cells)
+	s.logger.DebugContext(ctx, "GetGateways request received", "cells", req.Cells)
 
 	// Determine which cells to query
 	cellsToQuery := req.Cells
@@ -165,7 +165,7 @@ func (s *MultiAdminServer) GetGateways(ctx context.Context, req *multiadminpb.Ge
 		// If no cells specified, get all cells
 		allCells, err := s.ts.GetCellNames(ctx)
 		if err != nil {
-			s.logger.Error("Failed to get all cell names", "error", err)
+			s.logger.ErrorContext(ctx, "Failed to get all cell names", "error", err)
 			return nil, status.Errorf(codes.Internal, "failed to retrieve cell names: %v", err)
 		}
 		cellsToQuery = allCells
@@ -178,7 +178,7 @@ func (s *MultiAdminServer) GetGateways(ctx context.Context, req *multiadminpb.Ge
 	for _, cellName := range cellsToQuery {
 		gatewayInfos, err := s.ts.GetMultiGatewaysByCell(ctx, cellName)
 		if err != nil {
-			s.logger.Error("Failed to get gateways for cell", "cell", cellName, "error", err)
+			s.logger.ErrorContext(ctx, "Failed to get gateways for cell", "cell", cellName, "error", err)
 			errors = append(errors, fmt.Errorf("failed to get gateways for cell %s: %w", cellName, err))
 			continue
 		}
@@ -196,17 +196,17 @@ func (s *MultiAdminServer) GetGateways(ctx context.Context, req *multiadminpb.Ge
 
 	// Return partial results with error if some cells failed
 	if len(errors) > 0 {
-		s.logger.Debug("GetGateways request completed with partial results", "count", len(allGateways), "errors", len(errors))
+		s.logger.DebugContext(ctx, "GetGateways request completed with partial results", "count", len(allGateways), "errors", len(errors))
 		return response, fmt.Errorf("partial results returned due to errors in %d cell(s): %v", len(errors), errors)
 	}
 
-	s.logger.Debug("GetGateways request completed successfully", "count", len(allGateways))
+	s.logger.DebugContext(ctx, "GetGateways request completed successfully", "count", len(allGateways))
 	return response, nil
 }
 
 // GetPoolers retrieves poolers filtered by cells and/or database
 func (s *MultiAdminServer) GetPoolers(ctx context.Context, req *multiadminpb.GetPoolersRequest) (*multiadminpb.GetPoolersResponse, error) {
-	s.logger.Debug("GetPoolers request received", "cells", req.Cells, "database", req.Database)
+	s.logger.DebugContext(ctx, "GetPoolers request received", "cells", req.Cells, "database", req.Database)
 
 	// Determine which cells to query
 	cellsToQuery := req.Cells
@@ -214,7 +214,7 @@ func (s *MultiAdminServer) GetPoolers(ctx context.Context, req *multiadminpb.Get
 		// If no cells specified, get all cells
 		allCells, err := s.ts.GetCellNames(ctx)
 		if err != nil {
-			s.logger.Error("Failed to get all cell names", "error", err)
+			s.logger.ErrorContext(ctx, "Failed to get all cell names", "error", err)
 			return nil, status.Errorf(codes.Internal, "failed to retrieve cell names: %v", err)
 		}
 		cellsToQuery = allCells
@@ -237,7 +237,7 @@ func (s *MultiAdminServer) GetPoolers(ctx context.Context, req *multiadminpb.Get
 		}
 		poolerInfos, err := s.ts.GetMultiPoolersByCell(ctx, cellName, opts)
 		if err != nil {
-			s.logger.Error("Failed to get poolers for cell", "cell", cellName, "error", err)
+			s.logger.ErrorContext(ctx, "Failed to get poolers for cell", "cell", cellName, "error", err)
 			errors = append(errors, fmt.Errorf("failed to get poolers for cell %s: %w", cellName, err))
 			continue
 		}
@@ -255,17 +255,17 @@ func (s *MultiAdminServer) GetPoolers(ctx context.Context, req *multiadminpb.Get
 
 	// Return partial results with error if some cells failed
 	if len(errors) > 0 {
-		s.logger.Debug("GetPoolers request completed with partial results", "count", len(allPoolers), "errors", len(errors))
+		s.logger.DebugContext(ctx, "GetPoolers request completed with partial results", "count", len(allPoolers), "errors", len(errors))
 		return response, fmt.Errorf("partial results returned due to errors in %d cell(s): %v", len(errors), errors)
 	}
 
-	s.logger.Debug("GetPoolers request completed successfully", "count", len(allPoolers))
+	s.logger.DebugContext(ctx, "GetPoolers request completed successfully", "count", len(allPoolers))
 	return response, nil
 }
 
 // GetOrchs retrieves orchestrators filtered by cells
 func (s *MultiAdminServer) GetOrchs(ctx context.Context, req *multiadminpb.GetOrchsRequest) (*multiadminpb.GetOrchsResponse, error) {
-	s.logger.Debug("GetOrchs request received", "cells", req.Cells)
+	s.logger.DebugContext(ctx, "GetOrchs request received", "cells", req.Cells)
 
 	// Determine which cells to query
 	cellsToQuery := req.Cells
@@ -273,7 +273,7 @@ func (s *MultiAdminServer) GetOrchs(ctx context.Context, req *multiadminpb.GetOr
 		// If no cells specified, get all cells
 		allCells, err := s.ts.GetCellNames(ctx)
 		if err != nil {
-			s.logger.Error("Failed to get all cell names", "error", err)
+			s.logger.ErrorContext(ctx, "Failed to get all cell names", "error", err)
 			return nil, status.Errorf(codes.Internal, "failed to retrieve cell names: %v", err)
 		}
 		cellsToQuery = allCells
@@ -286,7 +286,7 @@ func (s *MultiAdminServer) GetOrchs(ctx context.Context, req *multiadminpb.GetOr
 	for _, cellName := range cellsToQuery {
 		orchInfos, err := s.ts.GetMultiOrchsByCell(ctx, cellName)
 		if err != nil {
-			s.logger.Error("Failed to get orchestrators for cell", "cell", cellName, "error", err)
+			s.logger.ErrorContext(ctx, "Failed to get orchestrators for cell", "cell", cellName, "error", err)
 			errors = append(errors, fmt.Errorf("failed to get orchestrators for cell %s: %w", cellName, err))
 			continue
 		}
@@ -304,10 +304,10 @@ func (s *MultiAdminServer) GetOrchs(ctx context.Context, req *multiadminpb.GetOr
 
 	// Return partial results with error if some cells failed
 	if len(errors) > 0 {
-		s.logger.Debug("GetOrchs request completed with partial results", "count", len(allOrchs), "errors", len(errors))
+		s.logger.DebugContext(ctx, "GetOrchs request completed with partial results", "count", len(allOrchs), "errors", len(errors))
 		return response, fmt.Errorf("partial results returned due to errors in %d cell(s): %v", len(errors), errors)
 	}
 
-	s.logger.Debug("GetOrchs request completed successfully", "count", len(allOrchs))
+	s.logger.DebugContext(ctx, "GetOrchs request completed successfully", "count", len(allOrchs))
 	return response, nil
 }

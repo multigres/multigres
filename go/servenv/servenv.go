@@ -142,6 +142,7 @@ func NewServEnvWithConfig(lg *Logger, vc *viperutil.ViperConfig) *ServEnv {
 		mux:          http.NewServeMux(),
 		lg:           lg,
 		serviceMap:   make(map[string]bool),
+		exitChan:     make(chan os.Signal, 1),
 	}
 }
 
@@ -372,4 +373,13 @@ func (se *ServEnv) registerFlags(fs *pflag.FlagSet, includeLoggerAndConfig bool)
 	for _, hook := range getGlobalFlagHooks() {
 		hook(fs)
 	}
+}
+
+// IsTestOrphanDetectionEnabled returns true if test orphan detection environment
+// variables are set. This is used to determine if subprocesses should enable
+// orphan detection monitoring.
+func IsTestOrphanDetectionEnabled() bool {
+	testDataDir := os.Getenv("MULTIGRES_TESTDATA_DIR")
+	testParentPID := os.Getenv("MULTIGRES_TEST_PARENT_PID")
+	return testDataDir != "" || testParentPID != ""
 }

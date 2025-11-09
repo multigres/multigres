@@ -128,7 +128,7 @@ func (pg *PoolerGateway) getQueryServiceForTarget(ctx context.Context, target *q
 
 	poolerID := topo.MultiPoolerIDString(pooler.Id)
 
-	pg.logger.Debug("selected pooler for target",
+	pg.logger.DebugContext(ctx, "selected pooler for target",
 		"tablegroup", target.TableGroup,
 		"shard", target.Shard,
 		"pooler_type", target.PoolerType.String(),
@@ -188,7 +188,7 @@ func (pg *PoolerGateway) getOrCreateConnection(
 	poolerInfo := &topo.MultiPoolerInfo{MultiPooler: pooler}
 	addr := poolerInfo.Addr()
 
-	pg.logger.Info("creating new gRPC connection to pooler",
+	pg.logger.InfoContext(ctx, "creating new gRPC connection to pooler",
 		"pooler_id", poolerID,
 		"addr", addr)
 
@@ -211,7 +211,7 @@ func (pg *PoolerGateway) getOrCreateConnection(
 		lastUsed:     time.Now(),
 	}
 
-	pg.logger.Info("gRPC connection established",
+	pg.logger.InfoContext(ctx, "gRPC connection established",
 		"pooler_id", poolerID,
 		"addr", addr)
 
@@ -224,13 +224,13 @@ func (pg *PoolerGateway) Close(ctx context.Context) error {
 	pg.mu.Lock()
 	defer pg.mu.Unlock()
 
-	pg.logger.Info("closing all pooler connections", "count", len(pg.connections))
+	pg.logger.InfoContext(ctx, "closing all pooler connections", "count", len(pg.connections))
 
 	var lastErr error
 	for poolerID, conn := range pg.connections {
-		pg.logger.Debug("closing connection", "pooler_id", poolerID)
+		pg.logger.DebugContext(ctx, "closing connection", "pooler_id", poolerID)
 		if err := conn.queryService.Close(ctx); err != nil {
-			pg.logger.Error("failed to close connection",
+			pg.logger.ErrorContext(ctx, "failed to close connection",
 				"pooler_id", poolerID,
 				"error", err)
 			lastErr = err
