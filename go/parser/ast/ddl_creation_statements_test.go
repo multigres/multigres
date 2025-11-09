@@ -676,11 +676,11 @@ func TestFetchStmt(t *testing.T) {
 func TestClosePortalStmt(t *testing.T) {
 	t.Run("close specific cursor", func(t *testing.T) {
 		portalName := "test_cursor"
-		stmt := NewClosePortalStmt(&portalName)
+		stmt := NewClosePortalStmt(portalName)
 
 		assert.NotNil(t, stmt)
 		assert.NotNil(t, stmt.PortalName)
-		assert.Equal(t, portalName, *stmt.PortalName)
+		assert.Equal(t, portalName, stmt.PortalName)
 
 		// CreateOpClassStmt implements StatementType and NodeTag methods
 
@@ -689,9 +689,9 @@ func TestClosePortalStmt(t *testing.T) {
 	})
 
 	t.Run("close all cursors", func(t *testing.T) {
-		stmt := NewClosePortalStmt(nil)
+		stmt := NewClosePortalStmt("")
 
-		assert.Nil(t, stmt.PortalName)
+		assert.Equal(t, "", stmt.PortalName, "Empty PortalName means CLOSE ALL")
 		str := stmt.SqlString()
 		assert.Equal(t, "CLOSE ALL", str)
 	})
