@@ -74,7 +74,7 @@ func GoImports(fullPath string) error {
 	}
 
 	// Run goimports
-	cmd = exec.Command("goimports", "-local", "github.com/supabase/multigres", "-w", fullPath)
+	cmd = exec.Command("go", "tool", "goimports", "-local", "github.com/supabase/multigres", "-w", fullPath)
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
 		return err
