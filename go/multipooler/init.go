@@ -28,7 +28,6 @@ import (
 	"github.com/multigres/multigres/go/multipooler/grpcmanagerservice"
 	"github.com/multigres/multigres/go/multipooler/grpcpoolerservice"
 	"github.com/multigres/multigres/go/multipooler/manager"
-	"github.com/multigres/multigres/go/multipooler/poolerserver"
 	"github.com/multigres/multigres/go/servenv"
 	"github.com/multigres/multigres/go/viperutil"
 
@@ -227,18 +226,8 @@ func (mp *MultiPooler) Init() {
 	mp.senv.HTTPHandleFunc("/", mp.handleIndex)
 	mp.senv.HTTPHandleFunc("/ready", mp.handleReady)
 
-	// Initialize and start the MultiPooler
-	pooler := poolerserver.NewMultiPooler(logger, &manager.Config{
-		SocketFilePath:      mp.socketFilePath.Get(),
-		PoolerDir:           mp.poolerDir.Get(),
-		PgPort:              mp.pgPort.Get(),
-		Database:            mp.database.Get(),
-		TopoClient:          mp.ts,
-		ServiceID:           multipooler.Id,
-		HeartbeatIntervalMs: mp.heartbeatIntervalMs.Get(),
-		PgctldAddr:          mp.pgctldAddr.Get(),
-	})
-	pooler.Start(mp.senv)
+	// Note: MultiPooler is now created and managed by MultiPoolerManager
+	// The manager handles pooler initialization via the controller pattern
 
 	mp.senv.OnRun(
 		func() {

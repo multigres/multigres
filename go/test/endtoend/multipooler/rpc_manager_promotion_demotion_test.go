@@ -275,6 +275,8 @@ func TestDemoteAndPromote(t *testing.T) {
 	})
 
 	t.Run("Idempotency_Promote", func(t *testing.T) {
+		setupPoolerTest(t, setup)
+
 		t.Log("Testing Promote idempotency...")
 		// Promote original primary back (it's currently demoted)
 		setTermReq := &multipoolermanagerdatapb.SetTermRequest{
@@ -347,6 +349,8 @@ func TestDemoteAndPromote(t *testing.T) {
 	})
 
 	t.Run("TermValidation_Promote", func(t *testing.T) {
+		setupPoolerTest(t, setup)
+
 		t.Log("Testing Promote term validation...")
 
 		// Promote back to restore state
@@ -454,6 +458,8 @@ func TestDemoteAndPromote(t *testing.T) {
 	})
 
 	t.Run("ErrorCases_DemoteOnStandby", func(t *testing.T) {
+		setupPoolerTest(t, setup)
+
 		t.Log("Testing Demote on standby (should fail)...")
 
 		setTermReq := &multipoolermanagerdatapb.SetTermRequest{

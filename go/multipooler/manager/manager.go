@@ -28,6 +28,7 @@ import (
 	"github.com/multigres/multigres/go/clustermetadata/topo"
 	"github.com/multigres/multigres/go/mterrors"
 	"github.com/multigres/multigres/go/multipooler/heartbeat"
+	"github.com/multigres/multigres/go/multipooler/poolerserver"
 	"github.com/multigres/multigres/go/servenv"
 	"github.com/multigres/multigres/go/tools/retry"
 
@@ -63,6 +64,11 @@ type MultiPoolerManager struct {
 	serviceID    *clustermetadatapb.ID
 	replTracker  *heartbeat.ReplTracker
 	pgctldClient pgctldpb.PgCtldClient
+
+	// qsc is the query service controller (similar to TabletManager.QueryServiceControl in Vitess).
+	// This controller handles query serving while the manager orchestrates lifecycle,
+	// topology, consensus, and replication operations.
+	qsc poolerserver.PoolerController
 
 	// actionSema is there to run only one action at a time.
 	// This semaphore can be held for long periods of time (hours),
@@ -127,7 +133,7 @@ func NewMultiPoolerManagerWithTimeout(logger *slog.Logger, config *Config, loadT
 		}
 	}
 
-	return &MultiPoolerManager{
+	pm := &MultiPoolerManager{
 		logger:            logger,
 		config:            config,
 		topoClient:        config.TopoClient,
@@ -140,6 +146,13 @@ func NewMultiPoolerManagerWithTimeout(logger *slog.Logger, config *Config, loadT
 		queryServingState: clustermetadatapb.PoolerServingStatus_NOT_SERVING,
 		pgctldClient:      pgctldClient,
 	}
+
+	// Create the query service controller (follows Vitess pattern)
+	// Following the pattern: New->InitDBConfig->SetServingType
+	pm.qsc = poolerserver.NewMultiPooler(logger)
+	logger.Info("Created query service controller")
+
+	return pm
 }
 
 // lock is used at the beginning of an RPC call, to acquire the
@@ -177,7 +190,20 @@ func (pm *MultiPoolerManager) connectDB() error {
 
 	pm.logger.Info("MultiPoolerManager: Connected to PostgreSQL", "socket_path", pm.config.SocketFilePath, "database", pm.config.Database)
 
-	// Start heartbeat tracking if not already started
+	return nil
+}
+
+// Open opens the database connections and starts background operations.
+// TODO: Replace with proper state manager (like tm_state.go) that orchestrates
+// state transitions and manages Open/Close lifecycle.
+func (pm *MultiPoolerManager) Open() error {
+	// Connect to database if not already connected
+	if err := pm.connectDB(); err != nil {
+		return fmt.Errorf("failed to connect to database: %w", err)
+	}
+
+	// Create sidecar schema and start heartbeat BEFORE opening query service controller
+	// This ensures the schema exists before queries can be served
 	if pm.replTracker == nil {
 		pm.logger.Info("MultiPoolerManager: Starting database heartbeat")
 		ctx := context.Background()
@@ -208,6 +234,13 @@ func (pm *MultiPoolerManager) connectDB() error {
 		}
 	}
 
+	// Now open the query service controller
+	if err := pm.qsc.Open(); err != nil {
+		pm.logger.Error("Failed to open query service controller", "error", err)
+		return fmt.Errorf("failed to open controller: %w", err)
+	}
+	pm.logger.Info("Opened query service controller database connection")
+
 	return nil
 }
 
@@ -231,6 +264,12 @@ func (pm *MultiPoolerManager) startHeartbeat(ctx context.Context, shardID []byte
 	}
 
 	return nil
+}
+
+// QueryServiceControl returns the query service controller.
+// This follows the TabletManager pattern of exposing the controller.
+func (pm *MultiPoolerManager) QueryServiceControl() poolerserver.PoolerController {
+	return pm.qsc
 }
 
 // Close closes the database connection and stops the async loader
@@ -1092,7 +1131,6 @@ func (pm *MultiPoolerManager) ReplicationLag(ctx context.Context) (time.Duration
 }
 
 // Start initializes the MultiPoolerManager
-// This method follows the Vitess pattern similar to TabletManager.Start() in tm_init.go
 func (pm *MultiPoolerManager) Start(senv *servenv.ServEnv) {
 	// Start loading multipooler record from topology asynchronously
 	go pm.loadMultiPoolerFromTopo()
@@ -1101,17 +1139,36 @@ func (pm *MultiPoolerManager) Start(senv *servenv.ServEnv) {
 		go pm.loadConsensusTermFromDisk()
 	}
 
+	// Initialize query service controller with DB config
+	// Following Vitess pattern: TabletManager calls tm.QueryServiceControl.InitDBConfig()
+	dbConfig := &poolerserver.DBConfig{
+		SocketFilePath: pm.config.SocketFilePath,
+		PoolerDir:      pm.config.PoolerDir,
+		Database:       pm.config.Database,
+		PgPort:         pm.config.PgPort,
+	}
+	if err := pm.qsc.InitDBConfig(dbConfig); err != nil {
+		pm.logger.Error("Failed to initialize query service controller", "error", err)
+	} else {
+		pm.logger.Info("Initialized query service controller with database config")
+	}
+
+	// Open the database connections and start background operations
+	// This calls connectDB() internally and opens the query service controller
+	// TODO: This should be managed by a proper state manager (like tm_state.go)
+	if err := pm.Open(); err != nil {
+		pm.logger.Error("Failed to open manager during startup", "error", err)
+		// Don't fail startup if Open fails - will retry on demand
+	}
+
 	senv.OnRun(func() {
 		pm.logger.Info("MultiPoolerManager started")
-		// Additional manager-specific initialization can happen here
 
-		// Connect to database and start heartbeats
-		if err := pm.connectDB(); err != nil {
-			pm.logger.Error("Failed to connect to database during startup", "error", err)
-			// Don't fail startup if DB connection fails - will retry on demand
-		}
+		// Register query service controller gRPC services (following Vitess pattern)
+		pm.qsc.Register()
+		pm.logger.Info("Query service controller registered")
 
-		// Register all gRPC services that have registered themselves
+		// Register manager gRPC services
 		pm.registerGRPCServices()
 		pm.logger.Info("MultiPoolerManager gRPC services registered")
 	})

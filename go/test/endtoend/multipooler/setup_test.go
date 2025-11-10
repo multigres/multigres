@@ -528,6 +528,7 @@ func initializeStandby(t *testing.T, primaryPgctld *ProcessInstance, standbyPgct
 	t.Logf("Verifying standby is in recovery mode...")
 	standbyPoolerClient, err := endtoend.NewMultiPoolerTestClient(fmt.Sprintf("localhost:%d", standbyMultipooler.GrpcPort))
 	if err != nil {
+		standbyMultipooler.logRecentOutput(t, "Failed to create standby pooler client")
 		return fmt.Errorf("failed to create standby pooler client: %w", err)
 	}
 	queryResp, err := standbyPoolerClient.ExecuteQuery(utils.WithShortDeadline(t), "SELECT pg_is_in_recovery()", 1)
