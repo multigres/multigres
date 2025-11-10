@@ -27,18 +27,18 @@ import (
 	backupservicepb "github.com/multigres/multigres/go/pb/multipoolerbackupservice"
 )
 
-// ListOptions contains options for listing backups
-type ListOptions struct {
+// GetBackupsOptions contains options for listing backups
+type GetBackupsOptions struct {
 	Limit uint32 // Maximum number of backups to return, 0 means no limit
 }
 
-// ListResult contains the result of a backup listing operation
-type ListResult struct {
+// GetBackupsResult contains the result of a backup listing operation
+type GetBackupsResult struct {
 	Backups []*backupservicepb.BackupMetadata
 }
 
-// GetShardBackups retrieves backup information for a shard
-func GetShardBackups(ctx context.Context, configPath, stanzaName string, opts ListOptions) (*ListResult, error) {
+// GetBackups retrieves backup information for a shard
+func GetBackups(ctx context.Context, configPath, stanzaName string, opts GetBackupsOptions) (*GetBackupsResult, error) {
 	// TODO: Implement backup listing logic
 	// This should:
 	// 1. Query pgBackRest for available backups
@@ -112,7 +112,7 @@ func GetShardBackups(ctx context.Context, configPath, stanzaName string, opts Li
 		// Handle case where stanza doesn't exist yet or config file is missing - return empty list
 		outputStr := string(output)
 		if outputStr == "" || strings.Contains(outputStr, "does not exist") || strings.Contains(outputStr, "unable to open missing file") {
-			return &ListResult{Backups: []*backupservicepb.BackupMetadata{}}, nil
+			return &GetBackupsResult{Backups: []*backupservicepb.BackupMetadata{}}, nil
 		}
 		return nil, mterrors.New(mtrpcpb.Code_INTERNAL,
 			fmt.Sprintf("pgbackrest info failed: %v\nOutput: %s", err, outputStr))
@@ -157,7 +157,7 @@ func GetShardBackups(ctx context.Context, configPath, stanzaName string, opts Li
 		backups = backups[:opts.Limit]
 	}
 
-	return &ListResult{Backups: backups}, nil
+	return &GetBackupsResult{Backups: backups}, nil
 }
 
 // pgBackRestInfo represents the structure of pgbackrest info JSON output

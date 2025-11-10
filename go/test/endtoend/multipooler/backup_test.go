@@ -138,7 +138,7 @@ func TestBackup_CreateListAndRestore(t *testing.T) {
 		fullBackupID := resp.BackupId
 		t.Logf("Full backup created successfully with ID: %s", fullBackupID)
 
-		t.Run("ListBackups_VerifyFullBackup", func(t *testing.T) {
+		t.Run("GetBackups_VerifyFullBackup", func(t *testing.T) {
 			t.Log("Step 3: Listing backups to verify full backup...")
 
 			listReq := &backupservicepb.GetBackupsRequest{
@@ -295,7 +295,7 @@ func TestBackup_CreateListAndRestore(t *testing.T) {
 			t.Logf("✓ Standby still in recovery mode (pg_is_in_recovery() = %t)", isInRecovery)
 		})
 
-		t.Run("ListBackups_WithoutLimit", func(t *testing.T) {
+		t.Run("GetBackups_WithoutLimit", func(t *testing.T) {
 			t.Log("Listing backups without limit...")
 
 			listReq := &backupservicepb.GetBackupsRequest{
@@ -313,7 +313,7 @@ func TestBackup_CreateListAndRestore(t *testing.T) {
 			t.Logf("Listed %d backup(s) without limit", len(listResp.Backups))
 		})
 
-		t.Run("ListBackups_WithSmallLimit", func(t *testing.T) {
+		t.Run("GetBackups_WithSmallLimit", func(t *testing.T) {
 			t.Log("Listing backups with limit=1...")
 
 			listReq := &backupservicepb.GetBackupsRequest{

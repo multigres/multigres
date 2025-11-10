@@ -31,7 +31,7 @@ func TestGetShardBackups_Validation(t *testing.T) {
 		name        string
 		configPath  string
 		stanzaName  string
-		opts        ListOptions
+		opts        GetBackupsOptions
 		expectError bool
 		errorMsg    string
 	}{
@@ -39,14 +39,14 @@ func TestGetShardBackups_Validation(t *testing.T) {
 			name:        "Valid request",
 			configPath:  "/tmp/test.conf",
 			stanzaName:  "test-stanza",
-			opts:        ListOptions{Limit: 0},
+			opts:        GetBackupsOptions{Limit: 0},
 			expectError: false,
 		},
 		{
 			name:        "Missing config_path",
 			configPath:  "",
 			stanzaName:  "test-stanza",
-			opts:        ListOptions{Limit: 0},
+			opts:        GetBackupsOptions{Limit: 0},
 			expectError: true,
 			errorMsg:    "config_path is required",
 		},
@@ -54,7 +54,7 @@ func TestGetShardBackups_Validation(t *testing.T) {
 			name:        "Missing stanza_name",
 			configPath:  "/tmp/test.conf",
 			stanzaName:  "",
-			opts:        ListOptions{Limit: 0},
+			opts:        GetBackupsOptions{Limit: 0},
 			expectError: true,
 			errorMsg:    "stanza_name is required",
 		},
@@ -62,14 +62,14 @@ func TestGetShardBackups_Validation(t *testing.T) {
 			name:        "With limit",
 			configPath:  "/tmp/test.conf",
 			stanzaName:  "test-stanza",
-			opts:        ListOptions{Limit: 10},
+			opts:        GetBackupsOptions{Limit: 10},
 			expectError: false,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result, err := GetShardBackups(ctx, tt.configPath, tt.stanzaName, tt.opts)
+			result, err := GetBackups(ctx, tt.configPath, tt.stanzaName, tt.opts)
 
 			if tt.expectError {
 				assert.Error(t, err)
@@ -99,7 +99,7 @@ func TestGetShardBackups_NonExistentStanza(t *testing.T) {
 	configPath := t.TempDir() + "/pgbackrest.conf"
 	stanzaName := "non-existent-stanza"
 
-	result, err := GetShardBackups(ctx, configPath, stanzaName, ListOptions{})
+	result, err := GetBackups(ctx, configPath, stanzaName, GetBackupsOptions{})
 
 	// Should not return an error for non-existent stanza
 	require.NoError(t, err)

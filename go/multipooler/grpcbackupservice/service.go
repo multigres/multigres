@@ -135,7 +135,7 @@ func (s *backupService) GetBackups(ctx context.Context, req *backupservicepb.Get
 	configPath := s.manager.GetBackupConfigPath()
 	stanzaName := s.manager.GetBackupStanza()
 
-	result, err := backup.GetShardBackups(ctx, configPath, stanzaName, backup.ListOptions{
+	result, err := backup.GetBackups(ctx, configPath, stanzaName, backup.GetBackupsOptions{
 		Limit: req.Limit,
 	})
 	if err != nil {
