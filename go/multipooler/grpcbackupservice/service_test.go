@@ -26,6 +26,7 @@ import (
 	"github.com/multigres/multigres/go/mterrors"
 	"github.com/multigres/multigres/go/multipooler/manager"
 	"github.com/multigres/multigres/go/servenv"
+	"github.com/multigres/multigres/go/viperutil"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -74,7 +75,7 @@ func TestBackupService_Backup(t *testing.T) {
 	defer pm.Close()
 
 	// Start the async loader
-	senv := servenv.NewServEnv()
+	senv := servenv.NewServEnv(viperutil.NewRegistry())
 	go pm.Start(senv)
 
 	// Wait for the manager to become ready
@@ -199,7 +200,7 @@ func TestBackupService_RestoreFromBackup(t *testing.T) {
 	defer pm.Close()
 
 	// Start the async loader
-	senv := servenv.NewServEnv()
+	senv := servenv.NewServEnv(viperutil.NewRegistry())
 	go pm.Start(senv)
 
 	// Wait for the manager to become ready
@@ -277,7 +278,7 @@ func TestBackupService_GetBackups(t *testing.T) {
 	defer pm.Close()
 
 	// Start the async loader
-	senv := servenv.NewServEnv()
+	senv := servenv.NewServEnv(viperutil.NewRegistry())
 	go pm.Start(senv)
 
 	// Wait for the manager to become ready
@@ -353,7 +354,7 @@ func TestBackupService_AllMethods(t *testing.T) {
 	defer pm.Close()
 
 	// Start the async loader
-	senv := servenv.NewServEnv()
+	senv := servenv.NewServEnv(viperutil.NewRegistry())
 	go pm.Start(senv)
 
 	// Wait for the manager to become ready

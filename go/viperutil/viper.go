@@ -129,16 +129,24 @@ type Options[T any] struct {
 }
 
 // Configure configures a viper-backed value associated with the given key to
-// either the static or dynamic internal registries, returning the resulting
-// Value. This value is partially ready for use (it will be able to get values
-// from environment variables and defaults), but file-based configs will not
-// available until servenv calls LoadConfig, and flag-based configs will not be
-// available until a combination of BindFlags and pflag.Parse have been called,
-// usually by servenv.
+// either the static or dynamic registries of the provided Registry instance,
+// returning the resulting Value. This value is partially ready for use (it will
+// be able to get values from environment variables and defaults), but file-based
+// configs will not be available until LoadConfig is called, and flag-based configs
+// will not be available until a combination of BindFlags and pflag.Parse have been
+// called, usually by servenv.
 //
 // Exact behavior of how the key is bound to the registries depend on the
-// Options provided,
-func Configure[T any](key string, opts Options[T]) (v Value[T]) {
+// Options provided.
+//
+// Example usage:
+//
+//	reg := viperutil.NewRegistry()
+//	poolerDir := viperutil.Configure(reg, "pooler-dir", viperutil.Options[string]{
+//	    Default: "",
+//	    FlagName: "pooler-dir",
+//	})
+func Configure[T any](reg *Registry, key string, opts Options[T]) (v Value[T]) {
 	getfunc := opts.GetFunc
 	if getfunc == nil {
 		getfunc = GetFuncForType[T]()
@@ -155,9 +163,9 @@ func Configure[T any](key string, opts Options[T]) (v Value[T]) {
 
 	switch {
 	case opts.Dynamic:
-		v = value.NewDynamic(base)
+		v = value.NewDynamic(reg.dynamic, base)
 	default:
-		v = value.NewStatic(base)
+		v = value.NewStatic(reg.static, base)
 	}
 
 	return v

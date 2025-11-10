@@ -27,6 +27,7 @@ import (
 
 // PgCtlCommand holds the configuration for pgctld commands
 type PgCtlCommand struct {
+	reg               *viperutil.Registry
 	pgDatabase        viperutil.Value[string]
 	pgUser            viperutil.Value[string]
 	poolerDir         viperutil.Value[string]
@@ -39,39 +40,41 @@ type PgCtlCommand struct {
 
 // GetRootCommand creates and returns the root command for pgctld with all subcommands
 func GetRootCommand() (*cobra.Command, *PgCtlCommand) {
+	reg := viperutil.NewRegistry()
 	pc := &PgCtlCommand{
-		pgDatabase: viperutil.Configure("pg-database", viperutil.Options[string]{
+		reg: reg,
+		pgDatabase: viperutil.Configure(reg, "pg-database", viperutil.Options[string]{
 			Default:  "postgres",
 			FlagName: "pg-database",
 			Dynamic:  false,
 		}),
-		pgUser: viperutil.Configure("pg-user", viperutil.Options[string]{
+		pgUser: viperutil.Configure(reg, "pg-user", viperutil.Options[string]{
 			Default:  "postgres",
 			FlagName: "pg-user",
 			Dynamic:  false,
 		}),
-		timeout: viperutil.Configure("timeout", viperutil.Options[int]{
+		timeout: viperutil.Configure(reg, "timeout", viperutil.Options[int]{
 			Default:  30,
 			FlagName: "timeout",
 			Dynamic:  false,
 		}),
-		poolerDir: viperutil.Configure("pooler-dir", viperutil.Options[string]{
+		poolerDir: viperutil.Configure(reg, "pooler-dir", viperutil.Options[string]{
 			Default:  "",
 			FlagName: "pooler-dir",
 			Dynamic:  false,
 		}),
-		pgPort: viperutil.Configure("pg-port", viperutil.Options[int]{
+		pgPort: viperutil.Configure(reg, "pg-port", viperutil.Options[int]{
 			Default:  5432,
 			FlagName: "pg-port",
 			Dynamic:  false,
 		}),
-		pgListenAddresses: viperutil.Configure("pg-listen-addresses", viperutil.Options[string]{
+		pgListenAddresses: viperutil.Configure(reg, "pg-listen-addresses", viperutil.Options[string]{
 			Default:  "localhost",
 			FlagName: "pg-listen-addresses",
 			Dynamic:  false,
 		}),
-		vc: viperutil.NewViperConfig(),
-		lg: servenv.NewLogger(),
+		vc: viperutil.NewViperConfig(reg),
+		lg: servenv.NewLogger(reg),
 	}
 
 	root := &cobra.Command{

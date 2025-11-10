@@ -43,7 +43,7 @@ type PgCtldInitCmd struct {
 func AddInitCommand(root *cobra.Command, pc *PgCtlCommand) {
 	initCmd := &PgCtldInitCmd{
 		pgCtlCmd: pc,
-		pgPwfile: viperutil.Configure("pg-pwfile", viperutil.Options[string]{
+		pgPwfile: viperutil.Configure(pc.reg, "pg-pwfile", viperutil.Options[string]{
 			Default:  "",
 			FlagName: "pg-pwfile",
 			Dynamic:  false,

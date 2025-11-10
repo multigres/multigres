@@ -27,9 +27,10 @@ import (
 )
 
 func ExampleGetPath() {
+	reg := viperutil.NewRegistry()
 	v := viper.New()
 
-	val := viperutil.Configure("path", viperutil.Options[[]string]{
+	val := viperutil.Configure(reg, "path", viperutil.Options[[]string]{
 		GetFunc: funcs.GetPath,
 	})
 
