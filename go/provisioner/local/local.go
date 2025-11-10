@@ -1610,11 +1610,11 @@ func (p *localProvisioner) ProvisionDatabase(ctx context.Context, databaseName s
 		fmt.Printf("\n✓ Cell %s provisioned successfully\n\n", cellName)
 	}
 
-	// Initialize pgBackRest stanzas now that PostgreSQL is running in all cells
-	fmt.Println("=== Initializing pgBackRest stanzas ===")
-	if err := p.InitializePgBackRestStanzas(); err != nil {
-		return nil, fmt.Errorf("failed to initialize pgBackRest stanzas: %w", err)
-	}
+	// Skip pgBackRest stanza initialization during bootstrap
+	// Stanzas should be created after replication is configured between cells
+	// to avoid "more than one primary cluster found" errors
+	// TODO: Initialize stanzas after replication is set up
+	fmt.Println("=== Skipping pgBackRest stanza initialization (will be done after replication setup) ===")
 	fmt.Println("")
 
 	fmt.Printf("Database %s provisioned successfully across %d cells with %d total services\n", databaseName, len(cellNames), len(results))

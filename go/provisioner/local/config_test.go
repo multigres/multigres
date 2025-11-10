@@ -286,34 +286,34 @@ func TestGeneratePgBackRestConfigs(t *testing.T) {
 		assert.Contains(t, contentC, "pg1-path="+filepath.Join(tmpDir, "pooler-c", "pg_data"))
 		assert.Contains(t, contentC, "pg1-socket-path="+filepath.Join(tmpDir, "pooler-c", "pg_sockets"))
 
-		// Verify socket-path takes precedence: pg1-port should NOT be present when socket-path is used
-		assert.NotContains(t, contentA, "pg1-port=")
-		assert.NotContains(t, contentB, "pg1-port=")
-		assert.NotContains(t, contentC, "pg1-port=")
+		// Verify pg1-port is present even with socket-path (port is needed for socket filename)
+		assert.Contains(t, contentA, "pg1-port=")
+		assert.Contains(t, contentB, "pg1-port=")
+		assert.Contains(t, contentC, "pg1-port=")
 
 		// Verify cluster A has B and C as pg2 and pg3 (sorted order)
 		assert.Contains(t, contentA, "pg2-path="+filepath.Join(tmpDir, "pooler-b", "pg_data"))
 		assert.Contains(t, contentA, "pg2-socket-path="+filepath.Join(tmpDir, "pooler-b", "pg_sockets"))
 		assert.Contains(t, contentA, "pg3-path="+filepath.Join(tmpDir, "pooler-c", "pg_data"))
 		assert.Contains(t, contentA, "pg3-socket-path="+filepath.Join(tmpDir, "pooler-c", "pg_sockets"))
-		assert.NotContains(t, contentA, "pg2-port=")
-		assert.NotContains(t, contentA, "pg3-port=")
+		assert.Contains(t, contentA, "pg2-port=")
+		assert.Contains(t, contentA, "pg3-port=")
 
 		// Verify cluster B has A and C as pg2 and pg3 (sorted order)
 		assert.Contains(t, contentB, "pg2-path="+filepath.Join(tmpDir, "pooler-a", "pg_data"))
 		assert.Contains(t, contentB, "pg2-socket-path="+filepath.Join(tmpDir, "pooler-a", "pg_sockets"))
 		assert.Contains(t, contentB, "pg3-path="+filepath.Join(tmpDir, "pooler-c", "pg_data"))
 		assert.Contains(t, contentB, "pg3-socket-path="+filepath.Join(tmpDir, "pooler-c", "pg_sockets"))
-		assert.NotContains(t, contentB, "pg2-port=")
-		assert.NotContains(t, contentB, "pg3-port=")
+		assert.Contains(t, contentB, "pg2-port=")
+		assert.Contains(t, contentB, "pg3-port=")
 
 		// Verify cluster C has A and B as pg2 and pg3 (sorted order)
 		assert.Contains(t, contentC, "pg2-path="+filepath.Join(tmpDir, "pooler-a", "pg_data"))
 		assert.Contains(t, contentC, "pg2-socket-path="+filepath.Join(tmpDir, "pooler-a", "pg_sockets"))
 		assert.Contains(t, contentC, "pg3-path="+filepath.Join(tmpDir, "pooler-b", "pg_data"))
 		assert.Contains(t, contentC, "pg3-socket-path="+filepath.Join(tmpDir, "pooler-b", "pg_sockets"))
-		assert.NotContains(t, contentC, "pg2-port=")
-		assert.NotContains(t, contentC, "pg3-port=")
+		assert.Contains(t, contentC, "pg2-port=")
+		assert.Contains(t, contentC, "pg3-port=")
 
 		// Verify symmetry: each cluster should be in exactly the right position
 		// in other clusters' configs

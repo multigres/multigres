@@ -70,7 +70,6 @@ func formatStandbyList(standbyIDs []*clustermetadatapb.ID) string {
 // ----------------------------------------------------------------------------
 
 // IsPrimary checks if the connected database is a primary (not in recovery)
-// This queries PostgreSQL directly and returns the current state.
 func (pm *MultiPoolerManager) IsPrimary(ctx context.Context) (bool, error) {
 	if pm.db == nil {
 		return false, fmt.Errorf("database connection not established")
