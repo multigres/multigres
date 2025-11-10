@@ -407,55 +407,6 @@ func createMultipoolerInstance(t *testing.T, name, baseDir string, grpcPort int,
 	}
 }
 
-// setupPgBackRestConfig creates pgbackrest configuration and initializes the stanza
-func setupPgBackRestConfig(t *testing.T, baseDir string, pgctld *ProcessInstance, stanzaName string) error {
-	t.Helper()
-
-	// Create backup repository directory
-	repoPath := filepath.Join(baseDir, "backup-repo")
-	if err := os.MkdirAll(repoPath, 0o755); err != nil {
-		return fmt.Errorf("failed to create backup repo: %w", err)
-	}
-
-	// Create pgbackrest log directory
-	logPath := filepath.Join(baseDir, "logs", "pgbackrest")
-	if err := os.MkdirAll(logPath, 0o755); err != nil {
-		return fmt.Errorf("failed to create pgbackrest log dir: %w", err)
-	}
-
-	// Generate pgBackRest config
-	configPath := filepath.Join(pgctld.DataDir, "pgbackrest.conf")
-	backupCfg := pgbackrest.Config{
-		StanzaName:    stanzaName,
-		PgDataPath:    filepath.Join(pgctld.DataDir, "pg_data"),
-		PgPort:        pgctld.PgPort,
-		PgSocketDir:   filepath.Join(pgctld.DataDir, "pg_sockets"),
-		PgUser:        "postgres",
-		PgPassword:    "postgres",
-		PgDatabase:    "postgres",
-		RepoPath:      repoPath,
-		LogPath:       logPath,
-		RetentionFull: 2,
-	}
-
-	if err := pgbackrest.WriteConfigFile(configPath, backupCfg); err != nil {
-		return fmt.Errorf("failed to write pgbackrest config: %w", err)
-	}
-
-	t.Logf("Created pgbackrest config at %s", configPath)
-
-	// Initialize pgbackrest stanza
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	if err := pgbackrest.StanzaCreate(ctx, stanzaName, configPath); err != nil {
-		return fmt.Errorf("failed to create pgbackrest stanza: %w", err)
-	}
-
-	t.Logf("Initialized pgbackrest stanza: %s", stanzaName)
-	return nil
-}
-
 // initializePrimary sets up the primary pgctld, PostgreSQL, consensus term, and multipooler
 func initializePrimary(t *testing.T, baseDir string, pgctld *ProcessInstance, multipooler *ProcessInstance, standbyPgctld *ProcessInstance, stanzaName string) error {
 	t.Helper()
@@ -514,41 +465,9 @@ func initializePrimary(t *testing.T, baseDir string, pgctld *ProcessInstance, mu
 	}
 	t.Logf("Created symmetric pgbackrest config at %s (pg1=self, pg2=standby, stanza: %s)", configPath, stanzaName)
 
-	// Start PostgreSQL WITHOUT archive mode first
-	// (we need it running to create the pgbackrest stanza)
-	if err := endtoend.StartPostgreSQL(t, primaryGrpcAddr); err != nil {
-		return fmt.Errorf("failed to start PostgreSQL: %w", err)
-	}
-
-	// Initialize pgbackrest stanza (PostgreSQL must be running)
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	if err := pgbackrest.StanzaCreate(ctx, stanzaName, configPath); err != nil {
-		return fmt.Errorf("failed to create pgbackrest stanza: %w", err)
-	}
-	t.Logf("Initialized pgbackrest stanza: %s", stanzaName)
-
-	// Stop PostgreSQL to configure archive mode
-	conn, err := grpc.NewClient(
-		primaryGrpcAddr,
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-	)
-	if err != nil {
-		return fmt.Errorf("failed to connect to pgctld: %w", err)
-	}
-	pgctldClient := pgctldservice.NewPgCtldClient(conn)
-
-	stopCtx, stopCancel := context.WithTimeout(context.Background(), 10*time.Second)
-	_, err = pgctldClient.Stop(stopCtx, &pgctldservice.StopRequest{Mode: "fast"})
-	stopCancel()
-	conn.Close()
-	if err != nil {
-		return fmt.Errorf("failed to stop PostgreSQL: %w", err)
-	}
-	t.Log("Stopped PostgreSQL to configure archive mode")
-
-	// Add archive_mode configuration to postgresql.auto.conf
+	// Configure archive_mode in postgresql.auto.conf BEFORE starting PostgreSQL
+	// The archive_command will fail initially until we create the stanza, but PostgreSQL
+	// handles this gracefully by retrying. Once the stanza is created, archiving will work.
 	pgDataDir := filepath.Join(pgctld.DataDir, "pg_data")
 	autoConfPath := filepath.Join(pgDataDir, "postgresql.auto.conf")
 	archiveConfig := fmt.Sprintf(`
@@ -567,11 +486,22 @@ archive_command = 'pgbackrest --stanza=%s --config=%s archive-push %%p'
 	f.Close()
 	t.Log("Configured archive_mode in postgresql.auto.conf")
 
-	// Restart PostgreSQL with archive mode enabled
+	// Start PostgreSQL with archive mode enabled
+	// Archive commands will fail until stanza is created, but that's okay
 	if err := endtoend.StartPostgreSQL(t, primaryGrpcAddr); err != nil {
-		return fmt.Errorf("failed to restart PostgreSQL with archive mode: %w", err)
+		return fmt.Errorf("failed to start PostgreSQL: %w", err)
 	}
-	t.Log("Restarted PostgreSQL with archive mode enabled")
+	t.Log("Started PostgreSQL with archive mode enabled")
+
+	// Initialize pgbackrest stanza (PostgreSQL must be running)
+	// Once stanza is created, archiving will start working
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	if err := pgbackrest.StanzaCreate(ctx, stanzaName, configPath); err != nil {
+		return fmt.Errorf("failed to create pgbackrest stanza: %w", err)
+	}
+	t.Logf("Initialized pgbackrest stanza: %s", stanzaName)
 
 	// Start primary multipooler
 	if err := multipooler.Start(t); err != nil {
@@ -582,7 +512,7 @@ archive_command = 'pgbackrest --stanza=%s --config=%s archive-push %%p'
 	waitForManagerReady(t, nil, multipooler)
 
 	// Connect to multipooler manager
-	conn, err = grpc.NewClient(
+	conn, err := grpc.NewClient(
 		fmt.Sprintf("localhost:%d", multipooler.GrpcPort),
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 	)
