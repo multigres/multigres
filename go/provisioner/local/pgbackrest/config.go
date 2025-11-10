@@ -68,6 +68,8 @@ type Config struct {
 //
 // Symmetric configs enable important pgBackRest features:
 //  1. Backup from standby: Take backups from pg2/pg3 (replicas) to reduce load on pg1 (primary)
+//     - pgBackRest requires a primary database connection for some parts of the backup process,
+//     even for backups from standby.
 //  2. Automatic failover: If pg1 is down, pgBackRest can connect to pg2/pg3 for operations
 //  3. Multi-site backups: Configure hosts across different data centers for redundancy
 //  4. Restore flexibility: Restore operations can query any available host for WAL/backup info
