@@ -40011,13 +40011,13 @@ yydefault:
 //line postgres.y:14492
 		{
 			name := yyDollar[2].str
-			yyVAL.stmt = ast.NewClosePortalStmt(&name)
+			yyVAL.stmt = ast.NewClosePortalStmt(name)
 		}
 	case 3229:
 		yyDollar = yyS[yypt-2 : yypt+1]
 //line postgres.y:14497
 		{
-			yyVAL.stmt = ast.NewClosePortalStmt(nil)
+			yyVAL.stmt = ast.NewClosePortalStmt("")
 		}
 	case 3230:
 		yyDollar = yyS[yypt-5 : yypt+1]

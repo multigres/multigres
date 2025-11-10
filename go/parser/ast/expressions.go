@@ -665,7 +665,7 @@ type RowExpr struct {
 	Args      *NodeList    // Row field expressions - postgres/src/include/nodes/primnodes.h:1411
 	RowTypeid Oid          // Composite type OID - postgres/src/include/nodes/primnodes.h:1412
 	RowFormat CoercionForm // Display format - postgres/src/include/nodes/primnodes.h:1413
-	Colnames  []*string    // Field names (RECORD type only) - postgres/src/include/nodes/primnodes.h:1414
+	Colnames  *NodeList    // Field names (RECORD type only) - postgres/src/include/nodes/primnodes.h:1414
 }
 
 // NewRowExpr creates a new RowExpr node.
