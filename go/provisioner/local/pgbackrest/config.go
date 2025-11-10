@@ -48,6 +48,7 @@ type Config struct {
 	AdditionalHosts []PgHost // Additional PostgreSQL hosts (pg2, pg3, etc.) for multi-host setups
 	RepoPath        string   // Path to backup repository
 	LogPath         string   // Path for pgBackRest logs
+	SpoolPath       string   // Path for pgBackRest spool directory
 	RetentionFull   int      // Number of full backups to retain
 }
 
@@ -99,6 +100,9 @@ func GenerateConfig(cfg Config) string {
 	sb.WriteString("[global]\n")
 	sb.WriteString(fmt.Sprintf("repo1-path=%s\n", cfg.RepoPath))
 	sb.WriteString(fmt.Sprintf("log-path=%s\n", cfg.LogPath))
+	if cfg.SpoolPath != "" {
+		sb.WriteString(fmt.Sprintf("spool-path=%s\n", cfg.SpoolPath))
+	}
 	sb.WriteString("\n")
 
 	// Stanza section

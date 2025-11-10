@@ -433,6 +433,11 @@ func initializePrimary(t *testing.T, baseDir string, pgctld *ProcessInstance, mu
 		return fmt.Errorf("failed to create pgbackrest log dir: %w", err)
 	}
 
+	spoolPath := filepath.Join(baseDir, "pgbackrest-spool")
+	if err := os.MkdirAll(spoolPath, 0o755); err != nil {
+		return fmt.Errorf("failed to create pgbackrest spool dir: %w", err)
+	}
+
 	// Create symmetric pgbackrest configuration:
 	// - pg1: this cluster (primary in this case)
 	// - pg2: other cluster (standby in this case)
@@ -457,6 +462,7 @@ func initializePrimary(t *testing.T, baseDir string, pgctld *ProcessInstance, mu
 		},
 		RepoPath:      repoPath,
 		LogPath:       logPath,
+		SpoolPath:     spoolPath,
 		RetentionFull: 2,
 	}
 
@@ -590,6 +596,7 @@ func initializeStandby(t *testing.T, baseDir string, primaryPgctld *ProcessInsta
 	// Each cluster treats itself as pg1 and lists others as pg2, pg3, etc.
 	repoPath := filepath.Join(baseDir, "backup-repo")
 	logPath := filepath.Join(baseDir, "logs", "pgbackrest")
+	spoolPath := filepath.Join(baseDir, "pgbackrest-spool")
 
 	configPath := filepath.Join(standbyPgctld.DataDir, "pgbackrest.conf")
 	backupCfg := pgbackrest.Config{
@@ -611,6 +618,7 @@ func initializeStandby(t *testing.T, baseDir string, primaryPgctld *ProcessInsta
 		},
 		RepoPath:      repoPath,
 		LogPath:       logPath,
+		SpoolPath:     spoolPath,
 		RetentionFull: 2,
 	}
 

@@ -80,7 +80,7 @@ func TestGenerateConfig(t *testing.T) {
 			RepoPath:      "/var/lib/pgbackrest",
 			LogPath:       "/var/log/pgbackrest",
 			RetentionFull: 1,
-			// PgHost, PgSocketDir, PgUser, PgPassword, PgDatabase are empty
+			// PgHost, PgSocketDir, PgUser, PgPassword, PgDatabase, SpoolPath are empty
 		}
 
 		result := GenerateConfig(cfg)
@@ -91,7 +91,25 @@ func TestGenerateConfig(t *testing.T) {
 		assert.NotContains(t, result, "pg1-user")
 		assert.NotContains(t, result, "pg1-password")
 		assert.NotContains(t, result, "pg1-database")
+		assert.NotContains(t, result, "spool-path")
 		assert.Contains(t, result, "[test-stanza]")
+	})
+
+	t.Run("includes spool-path when specified", func(t *testing.T) {
+		cfg := Config{
+			StanzaName:    "test-stanza",
+			PgDataPath:    "/var/lib/postgresql/data",
+			PgPort:        5432,
+			RepoPath:      "/var/lib/pgbackrest",
+			LogPath:       "/var/log/pgbackrest",
+			SpoolPath:     "/tmp/pgbackrest-spool",
+			RetentionFull: 1,
+		}
+
+		result := GenerateConfig(cfg)
+
+		assert.Contains(t, result, "spool-path=/tmp/pgbackrest-spool")
+		assert.Contains(t, result, "[global]")
 	})
 
 	t.Run("generates valid INI format", func(t *testing.T) {
