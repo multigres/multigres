@@ -243,12 +243,6 @@ func (pg *PoolerGateway) Close(ctx context.Context) error {
 	return lastErr
 }
 
-// IsHealthy checks if the gateway is healthy.
-// TODO: Implement proper health check logic for gateway.
-func (pg *PoolerGateway) IsHealthy() error {
-	return nil
-}
-
 // Ensure PoolerGateway implements queryservice.QueryService
 var _ queryservice.QueryService = (*PoolerGateway)(nil)
 

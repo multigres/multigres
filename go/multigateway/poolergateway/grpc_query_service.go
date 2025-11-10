@@ -148,14 +148,5 @@ func (g *grpcQueryService) Close(ctx context.Context) error {
 	return nil
 }
 
-// IsHealthy checks if the gRPC connection is healthy.
-func (g *grpcQueryService) IsHealthy() error {
-	if g.conn == nil {
-		return fmt.Errorf("gRPC connection not initialized")
-	}
-	// TODO: Add actual health check via gRPC health protocol
-	return nil
-}
-
 // Ensure grpcQueryService implements queryservice.QueryService
 var _ queryservice.QueryService = (*grpcQueryService)(nil)

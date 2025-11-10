@@ -63,8 +63,4 @@ type QueryService interface {
 	// Close closes the query service and releases resources.
 	// After Close is called, no other methods should be called.
 	Close(ctx context.Context) error
-
-	// IsHealthy checks if the query service is healthy and ready to serve queries.
-	// Returns nil if healthy, error describing the problem otherwise.
-	IsHealthy() error
 }
