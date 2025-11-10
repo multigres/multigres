@@ -225,9 +225,6 @@ func (mp *MultiPooler) Init() {
 	mp.senv.HTTPHandleFunc("/", mp.handleIndex)
 	mp.senv.HTTPHandleFunc("/ready", mp.handleReady)
 
-	// Note: MultiPooler is now created and managed by MultiPoolerManager
-	// The manager handles pooler initialization via the controller pattern
-
 	mp.senv.OnRun(
 		func() {
 			registerFunc := func(ctx context.Context) error {
