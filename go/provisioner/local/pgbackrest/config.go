@@ -51,7 +51,45 @@ type Config struct {
 	RetentionFull   int      // Number of full backups to retain
 }
 
-// GenerateConfig creates a pgBackRest configuration file content
+// GenerateConfig creates a pgBackRest configuration file content for a backup stanza.
+//
+// The generated configuration supports both single-host and multi-host (symmetric) backup setups:
+//
+// Single-host configuration:
+//   - Only pg1 is configured, representing the local PostgreSQL instance
+//   - pgBackRest accesses the pg1 data directory directly for backups and restores
+//   - Suitable for simple deployments with one database
+//
+// Multi-host (symmetric) configuration:
+//   - Multiple hosts (pg1, pg2, pg3, ...) are configured within the same stanza
+//   - pg1 represents "self" - the local instance where pgBackRest is running
+//   - pg2, pg3, etc. represent additional PostgreSQL instances (typically replicas)
+//   - All hosts in the stanza must have the same database cluster (same timeline)
+//
+// Symmetric configs enable important pgBackRest features:
+//  1. Backup from standby: Take backups from pg2/pg3 (replicas) to reduce load on pg1 (primary)
+//  2. Automatic failover: If pg1 is down, pgBackRest can connect to pg2/pg3 for operations
+//  3. Multi-site backups: Configure hosts across different data centers for redundancy
+//  4. Restore flexibility: Restore operations can query any available host for WAL/backup info
+//
+// How pgBackRest uses multi-host configs:
+//   - pgBackRest attempts connections in order: pg1, then pg2, then pg3, etc.
+//   - For backups, you can specify which host to use (e.g., backup from standby with pg2)
+//   - For restores, pgBackRest may query multiple hosts to find required WAL segments
+//   - All hosts must be reachable from where pgBackRest runs (network/socket access required)
+//
+// The configuration structure:
+//
+//	[global]           - Settings that apply to all stanzas (repo path, log path)
+//	[stanza-name]      - Settings specific to this backup stanza
+//	  pg1-*            - Primary host configuration (data path, connection details)
+//	  pg2-*, pg3-*     - Additional host configurations (for multi-host setups)
+//	  repo1-*          - Repository and retention settings
+//
+// Connection methods:
+//   - Unix sockets: Specify socket-path and port (port determines socket filename)
+//   - TCP: Specify host and port (also set host-type=tcp)
+//   - Local: Only specify path (direct filesystem access, no PostgreSQL connection)
 func GenerateConfig(cfg Config) string {
 	var sb strings.Builder
 

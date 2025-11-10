@@ -23,6 +23,7 @@ import (
 	"github.com/multigres/multigres/go/mterrors"
 	"github.com/multigres/multigres/go/multipooler/backup"
 	"github.com/multigres/multigres/go/multipooler/manager"
+	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	backupservicepb "github.com/multigres/multigres/go/pb/multipoolerbackupservice"
 	"github.com/multigres/multigres/go/servenv"
@@ -49,6 +50,17 @@ func RegisterBackupServices(senv *servenv.ServEnv, grpc *servenv.GrpcServer) {
 
 // Backup performs a backup
 func (s *backupService) Backup(ctx context.Context, req *backupservicepb.BackupRequest) (*backupservicepb.BackupResponse, error) {
+	// Check if this is a primary pooler based on topology
+	poolerType := s.manager.GetPoolerType()
+	isPrimary := (poolerType == clustermetadatapb.PoolerType_PRIMARY)
+
+	// Prevent backups from primary databases unless ForcePrimary is set
+	if isPrimary && !req.ForcePrimary {
+		slog.WarnContext(ctx, "Backup requested on primary database without ForcePrimary flag")
+		return nil, mterrors.ToGRPC(mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
+			"backups from primary databases are not allowed unless ForcePrimary is set"))
+	}
+
 	configPath := s.manager.GetBackupConfigPath()
 	stanzaName := s.manager.GetBackupStanza()
 	tableGroup := s.manager.GetTableGroup()

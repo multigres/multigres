@@ -161,6 +161,89 @@ func TestBackupService_Backup(t *testing.T) {
 	})
 }
 
+func TestBackupService_BackupFromPrimary(t *testing.T) {
+	ctx := context.Background()
+	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
+	defer ts.Close()
+
+	// Start mock pgctld server
+	pgctldAddr, cleanupPgctld := testutil.StartMockPgctldServer(t)
+	t.Cleanup(cleanupPgctld)
+
+	// Create a PRIMARY multipooler in topology
+	serviceID := &clustermetadata.ID{
+		Component: clustermetadata.ID_MULTIPOOLER,
+		Cell:      "zone1",
+		Name:      "test-primary-service",
+	}
+	multipooler := &clustermetadata.MultiPooler{
+		Id:            serviceID,
+		Database:      "testdb",
+		Hostname:      "localhost",
+		PortMap:       map[string]int32{"grpc": 8080},
+		Type:          clustermetadata.PoolerType_PRIMARY, // This is a PRIMARY
+		ServingStatus: clustermetadata.PoolerServingStatus_SERVING,
+	}
+	require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
+
+	// Create temporary directory for pooler
+	tmpDir := t.TempDir()
+
+	config := &manager.Config{
+		TopoClient: ts,
+		ServiceID:  serviceID,
+		PgctldAddr: pgctldAddr,
+		PoolerDir:  tmpDir,
+	}
+	pm := manager.NewMultiPoolerManager(logger, config)
+	defer pm.Close()
+
+	// Start the async loader
+	senv := servenv.NewServEnv(viperutil.NewRegistry())
+	go pm.Start(senv)
+
+	// Wait for the manager to become ready
+	require.Eventually(t, func() bool {
+		return pm.GetState() == manager.ManagerStateReady
+	}, 5*time.Second, 100*time.Millisecond, "Manager should reach Ready state")
+
+	svc := &backupService{
+		manager: pm,
+	}
+
+	t.Run("Backup from primary without ForcePrimary should fail", func(t *testing.T) {
+		req := &backupservicepb.BackupRequest{
+			ForcePrimary: false,
+			Type:         "full",
+		}
+
+		resp, err := svc.Backup(ctx, req)
+
+		assert.Error(t, err)
+		assert.Nil(t, resp)
+		mterr := mterrors.FromGRPC(err)
+		assert.Equal(t, mtrpcpb.Code_FAILED_PRECONDITION, mterrors.Code(mterr))
+		assert.Contains(t, err.Error(), "backups from primary databases are not allowed")
+	})
+
+	t.Run("Backup from primary with ForcePrimary should proceed", func(t *testing.T) {
+		req := &backupservicepb.BackupRequest{
+			ForcePrimary: true,
+			Type:         "full",
+		}
+
+		resp, err := svc.Backup(ctx, req)
+
+		// Should fail with pgbackrest error (no actual PostgreSQL), not precondition
+		assert.Error(t, err)
+		assert.Nil(t, resp)
+		mterr := mterrors.FromGRPC(err)
+		assert.Equal(t, mtrpcpb.Code_INTERNAL, mterrors.Code(mterr))
+		assert.Contains(t, err.Error(), "pgbackrest")
+	})
+}
+
 func TestBackupService_RestoreFromBackup(t *testing.T) {
 	ctx := context.Background()
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))

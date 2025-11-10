@@ -15,6 +15,9 @@ limitations under the License.
 */
 
 // This file contains the RPC service definition for multipooler backup operations.
+//
+// All of these RPCs perform backups and restores in the context
+// of the TableGroup and Shard this multipooler serves.
 
 syntax = "proto3";
 

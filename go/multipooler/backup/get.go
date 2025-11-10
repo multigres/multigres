@@ -39,56 +39,6 @@ type GetBackupsResult struct {
 
 // GetBackups retrieves backup information for a shard
 func GetBackups(ctx context.Context, configPath, stanzaName string, opts GetBackupsOptions) (*GetBackupsResult, error) {
-	// TODO: Implement backup listing logic
-	// This should:
-	// 1. Query pgBackRest for available backups
-	//    - Execute: pgbackrest info --output=json --stanza=<stanza_name>
-	//    - This returns detailed information about all backups for the stanza
-	//    - Parse the JSON output to extract backup information
-	//
-	// 2. Parse the backup information from pgBackRest
-	//    - pgBackRest info JSON structure typically includes:
-	//      {
-	//        "name": "stanza-name",
-	//        "backup": [
-	//          {
-	//            "label": "20250104-100000F",
-	//            "type": "full",
-	//            "timestamp": {...},
-	//            "database": {...},
-	//            "archive": {...}
-	//          }
-	//        ]
-	//      }
-	//    - Extract relevant fields: label (backup_id), type, timestamp, status
-	//
-	// 3. Convert to BackupMetadata format
-	//    - Map pgBackRest backup info to protobuf BackupMetadata structure:
-	//      - backup_id: backup label from pgBackRest (e.g., "20250104-100000F")
-	//      - table_group: from the context/config
-	//      - shard: from the context/config
-	//      - status: determine based on backup state
-	//        - COMPLETE: backup finished successfully
-	//        - INCOMPLETE: backup is in progress or was interrupted
-	//        - UNKNOWN: unable to determine status
-	//
-	// 4. Sort backups by timestamp (most recent first)
-	//    - pgBackRest typically returns backups in order, but verify
-	//    - Ensure newest backups appear first in the list
-	//
-	// 5. Apply the limit if specified
-	//    - If opts.Limit > 0, truncate the result to at most Limit backups
-	//    - This helps with pagination and performance
-	//
-	// 6. Return the list of backups
-	//    - Return the BackupMetadata array wrapped in ListResult
-	//    - If no backups exist, return empty array (not an error)
-	//
-	// 7. Error handling
-	//    - If pgbackrest command fails, return appropriate error
-	//    - If JSON parsing fails, log and return error
-	//    - Handle "stanza not found" gracefully (return empty list)
-
 	// Validate required configuration
 	if configPath == "" {
 		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "config_path is required")

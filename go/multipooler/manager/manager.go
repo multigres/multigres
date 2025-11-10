@@ -306,6 +306,16 @@ func (pm *MultiPoolerManager) GetShard() string {
 	return ""
 }
 
+// GetPoolerType returns the pooler type from the multipooler record
+func (pm *MultiPoolerManager) GetPoolerType() clustermetadatapb.PoolerType {
+	pm.mu.Lock()
+	defer pm.mu.Unlock()
+	if pm.multipooler != nil && pm.multipooler.MultiPooler != nil {
+		return pm.multipooler.Type
+	}
+	return clustermetadatapb.PoolerType_UNKNOWN
+}
+
 // checkReady returns an error if the manager is not in Ready state
 func (pm *MultiPoolerManager) checkReady() error {
 	pm.mu.Lock()

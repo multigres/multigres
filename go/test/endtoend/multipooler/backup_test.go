@@ -115,7 +115,7 @@ func TestBackup_CreateListAndRestore(t *testing.T) {
 		t.Log("Step 2: Creating full backup...")
 
 		req := &backupservicepb.BackupRequest{
-			ForcePrimary: false,
+			ForcePrimary: true, // Required for backups from primary
 			Type:         "full",
 		}
 
@@ -337,7 +337,7 @@ func TestBackup_CreateListAndRestore(t *testing.T) {
 		t.Log("Creating differential backup...")
 
 		req := &backupservicepb.BackupRequest{
-			ForcePrimary: false,
+			ForcePrimary: true, // Required for backups from primary
 			Type:         "differential",
 		}
 
@@ -377,7 +377,7 @@ func TestBackup_CreateListAndRestore(t *testing.T) {
 		t.Log("Creating incremental backup...")
 
 		req := &backupservicepb.BackupRequest{
-			ForcePrimary: false,
+			ForcePrimary: true, // Required for backups from primary
 			Type:         "incremental",
 		}
 
@@ -436,8 +436,8 @@ func TestBackup_ValidationErrors(t *testing.T) {
 
 	t.Run("MissingType", func(t *testing.T) {
 		req := &backupservicepb.BackupRequest{
-			ForcePrimary: false,
-			Type:         "", // Missing
+			ForcePrimary: true, // Set to true to test type validation
+			Type:         "",   // Missing
 		}
 
 		ctx := utils.WithShortDeadline(t)
@@ -450,7 +450,7 @@ func TestBackup_ValidationErrors(t *testing.T) {
 
 	t.Run("InvalidType", func(t *testing.T) {
 		req := &backupservicepb.BackupRequest{
-			ForcePrimary: false,
+			ForcePrimary: true,      // Set to true to test type validation
 			Type:         "invalid", // Invalid type
 		}
 
@@ -460,6 +460,20 @@ func TestBackup_ValidationErrors(t *testing.T) {
 		assert.Error(t, err, "Should return error for invalid type")
 		assert.Nil(t, resp, "Response should be nil on error")
 		assert.Contains(t, err.Error(), "invalid", "Error should mention invalid type")
+	})
+
+	t.Run("BackupFromPrimaryWithoutForcePrimary", func(t *testing.T) {
+		req := &backupservicepb.BackupRequest{
+			ForcePrimary: false, // Not forced
+			Type:         "full",
+		}
+
+		ctx := utils.WithShortDeadline(t)
+		resp, err := backupClient.Backup(ctx, req)
+
+		assert.Error(t, err, "Should return error for backup from primary without ForcePrimary")
+		assert.Nil(t, resp, "Response should be nil on error")
+		assert.Contains(t, err.Error(), "primary", "Error should mention primary database")
 	})
 }
 
