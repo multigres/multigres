@@ -58,16 +58,17 @@ func (mo *MultiOrch) RegisterFlags(fs *pflag.FlagSet) {
 }
 
 func NewMultiOrch() *MultiOrch {
+	reg := viperutil.NewRegistry()
 	return &MultiOrch{
-		cell: viperutil.Configure("cell", viperutil.Options[string]{
+		cell: viperutil.Configure(reg, "cell", viperutil.Options[string]{
 			Default:  "",
 			FlagName: "cell",
 			Dynamic:  false,
 			EnvVars:  []string{"MT_CELL"},
 		}),
-		grpcServer: servenv.NewGrpcServer(),
-		senv:       servenv.NewServEnv(),
-		topoConfig: topo.NewTopoConfig(),
+		grpcServer: servenv.NewGrpcServer(reg),
+		senv:       servenv.NewServEnv(reg),
+		topoConfig: topo.NewTopoConfig(reg),
 		serverStatus: Status{
 			Title: "Multiorch",
 			Links: []Link{

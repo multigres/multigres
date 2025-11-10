@@ -25,6 +25,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	"github.com/multigres/multigres/go/viperutil"
 )
 
 func TestRegisterFactory(t *testing.T) {
@@ -438,7 +439,8 @@ func TestOpen_ValidConfiguration(t *testing.T) {
 	factories = make(map[string]Factory)
 	factory := newMockFactory()
 	RegisterFactory("test-impl", factory)
-	cfg := NewTopoConfig()
+	reg := viperutil.NewRegistry()
+	cfg := NewTopoConfig(reg)
 	cfg.implementation.Set("test-impl")
 	cfg.globalServerAddresses.Set([]string{"localhost:2181"})
 	cfg.globalRoot.Set("/test")

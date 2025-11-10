@@ -92,9 +92,10 @@ func TestWatchConfig(t *testing.T) {
 
 	rCh <- struct{}{}
 
+	reg := viperutil.NewRegistry()
 	sv := vipersync.New()
-	A := viperutil.Configure("a", viperutil.Options[int]{Dynamic: true})
-	B := viperutil.Configure("b", viperutil.Options[int]{FlagName: "b", Dynamic: true, Default: 5})
+	A := viperutil.Configure(reg, "a", viperutil.Options[int]{Dynamic: true})
+	B := viperutil.Configure(reg, "b", viperutil.Options[int]{FlagName: "b", Dynamic: true, Default: 5})
 
 	// Check that default values are actually used
 	require.Equal(t, B.Get(), B.Default())

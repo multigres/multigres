@@ -23,13 +23,16 @@ import (
 
 // MultigresCommand holds the configuration for multigres commands
 type MultigresCommand struct {
-	vc *viperutil.ViperConfig
+	reg *viperutil.Registry
+	vc  *viperutil.ViperConfig
 }
 
 // GetRootCommand creates and returns the root command for multigres with all subcommands
 func GetRootCommand() *cobra.Command {
+	reg := viperutil.NewRegistry()
 	mc := &MultigresCommand{
-		vc: viperutil.NewViperConfig(),
+		reg: reg,
+		vc:  viperutil.NewViperConfig(reg),
 	}
 
 	root := &cobra.Command{
@@ -62,7 +65,7 @@ Configuration:
 			viper.SetConfigName("multigres")
 
 			// Load config (without the full servenv setup)
-			_, err := mc.vc.LoadConfig()
+			_, err := mc.vc.LoadConfig(mc.reg)
 			return err
 		},
 	}
