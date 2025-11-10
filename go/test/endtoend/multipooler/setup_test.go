@@ -890,15 +890,16 @@ func queryStringValue(ctx context.Context, client *endtoend.MultiPoolerTestClien
 	return string(resp.Rows[0].Values[0]), nil
 }
 
-// validateGUCValue queries a GUC and fails the test if it doesn't match the expected value.
-func validateGUCValue(t *testing.T, client *endtoend.MultiPoolerTestClient, gucName, expected, instanceName string) {
-	t.Helper()
+// validateGUCValue queries a GUC and returns an error if it doesn't match the expected value.
+func validateGUCValue(client *endtoend.MultiPoolerTestClient, gucName, expected, instanceName string) error {
 	value, err := queryStringValue(context.Background(), client, fmt.Sprintf("SHOW %s", gucName))
-	if err == nil && value != expected {
-		t.Fatalf("setupPoolerTest: %s has %s='%s' (expected '%s'). "+
-			"Previous test leaked state. Make sure all subtests call setupPoolerTest().",
-			instanceName, gucName, value, expected)
+	if err != nil {
+		return fmt.Errorf("%s failed to query %s: %w", instanceName, gucName, err)
 	}
+	if value != expected {
+		return fmt.Errorf("%s has %s='%s' (expected '%s')", instanceName, gucName, value, expected)
+	}
+	return nil
 }
 
 // saveGUCs queries multiple GUC values and saves them to a map.
@@ -940,49 +941,64 @@ func restoreGUCs(t *testing.T, client *endtoend.MultiPoolerTestClient, savedGucs
 
 // validateCleanState checks that primary and standby are in the expected clean state.
 // Expected state:
-//   - Primary: primary_conninfo=”, synchronous_standby_names=”
-//   - Standby: pg_is_in_recovery=true, primary_conninfo=”, pg_is_wal_replay_paused=false
+//   - Primary: primary_conninfo=", synchronous_standby_names="
+//   - Standby: pg_is_in_recovery=true, primary_conninfo=", pg_is_wal_replay_paused=false
 //
-// This catches state leaks from tests that don't call setupPoolerTest().
-func validateCleanState(t *testing.T, setup *MultipoolerTestSetup) {
-	t.Helper()
+// Returns an error if state is not clean.
+func validateCleanState(setup *MultipoolerTestSetup) error {
 	if setup == nil {
-		return
+		return nil
 	}
 
 	// Validate primary state
 	if setup.PrimaryMultipooler != nil {
 		primaryClient, err := endtoend.NewMultiPoolerTestClient(fmt.Sprintf("localhost:%d", setup.PrimaryMultipooler.GrpcPort))
-		if err == nil {
-			defer primaryClient.Close()
-			validateGUCValue(t, primaryClient, "primary_conninfo", "", "Primary")
-			validateGUCValue(t, primaryClient, "synchronous_standby_names", "", "Primary")
+		if err != nil {
+			return fmt.Errorf("failed to connect to primary: %w", err)
+		}
+		defer primaryClient.Close()
+
+		if err := validateGUCValue(primaryClient, "primary_conninfo", "", "Primary"); err != nil {
+			return err
+		}
+		if err := validateGUCValue(primaryClient, "synchronous_standby_names", "", "Primary"); err != nil {
+			return err
 		}
 	}
 
 	// Validate standby state
 	if setup.StandbyMultipooler != nil {
 		standbyClient, err := endtoend.NewMultiPoolerTestClient(fmt.Sprintf("localhost:%d", setup.StandbyMultipooler.GrpcPort))
-		if err == nil {
-			defer standbyClient.Close()
+		if err != nil {
+			return fmt.Errorf("failed to connect to standby: %w", err)
+		}
+		defer standbyClient.Close()
 
-			// Verify standby is in recovery mode
-			inRecovery, err := queryStringValue(context.Background(), standbyClient, "SELECT pg_is_in_recovery()")
-			if err == nil && inRecovery != "true" {
-				t.Fatalf("setupPoolerTest: Standby pg_is_in_recovery=%s (expected true). "+
-					"Previous test leaked state. Make sure all subtests call setupPoolerTest().", inRecovery)
-			}
+		// Verify standby is in recovery mode
+		inRecovery, err := queryStringValue(context.Background(), standbyClient, "SELECT pg_is_in_recovery()")
+		if err != nil {
+			return fmt.Errorf("Standby failed to query pg_is_in_recovery: %w", err)
+		}
+		if inRecovery != "true" {
+			return fmt.Errorf("Standby pg_is_in_recovery=%s (expected true)", inRecovery)
+		}
 
-			// Verify replication not configured and WAL replay not paused
-			validateGUCValue(t, standbyClient, "primary_conninfo", "", "Standby")
+		// Verify replication not configured
+		if err := validateGUCValue(standbyClient, "primary_conninfo", "", "Standby"); err != nil {
+			return err
+		}
 
-			isPaused, err := queryStringValue(context.Background(), standbyClient, "SELECT pg_is_wal_replay_paused()")
-			if err == nil && isPaused != "false" {
-				t.Fatalf("setupPoolerTest: Standby pg_is_wal_replay_paused=%s (expected false). "+
-					"Previous test leaked state. Make sure all subtests call setupPoolerTest().", isPaused)
-			}
+		// Verify WAL replay not paused
+		isPaused, err := queryStringValue(context.Background(), standbyClient, "SELECT pg_is_wal_replay_paused()")
+		if err != nil {
+			return fmt.Errorf("Standby failed to query pg_is_wal_replay_paused: %w", err)
+		}
+		if isPaused != "false" {
+			return fmt.Errorf("Standby pg_is_wal_replay_paused=%s (expected false)", isPaused)
 		}
 	}
+
+	return nil
 }
 
 // setupPoolerTest provides test isolation by validating clean state, optionally configuring
@@ -1016,7 +1032,9 @@ func setupPoolerTest(t *testing.T, setup *MultipoolerTestSetup, opts ...cleanupO
 
 	// Validate that settings are in the expected clean state.
 	// This catches state leaks from tests that don't call setupPoolerTest().
-	validateCleanState(t, setup)
+	if err := validateCleanState(setup); err != nil {
+		t.Fatalf("setupPoolerTest: %v. Previous test leaked state. Make sure all subtests call setupPoolerTest().", err)
+	}
 
 	// Determine if we should configure replication (default: yes, unless WithoutReplication)
 	shouldConfigureReplication := !config.noReplication
@@ -1185,5 +1203,11 @@ func setupPoolerTest(t *testing.T, setup *MultipoolerTestSetup, opts ...cleanupO
 				}
 			}
 		}
+
+		// Step 4: Validate that cleanup fully applied and state is clean
+		// Use Eventually to give the system time to reach clean state
+		require.Eventually(t, func() bool {
+			return validateCleanState(setup) == nil
+		}, 2*time.Second, 50*time.Millisecond, "Test cleanup failed: state did not return to clean state after cleanup")
 	})
 }
