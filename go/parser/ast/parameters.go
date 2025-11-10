@@ -18,7 +18,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"math"
-	"reflect"
 	"strconv"
 	"strings"
 	"time"
@@ -56,17 +55,21 @@ func SubstituteParameters(stmt Stmt, params [][]byte, paramFormats []int16, para
 		return nil, err
 	}
 
-	// Walk the AST and replace ParamRef nodes
-	substitutor := &parameterSubstitutor{
-		paramValues: paramValues,
-	}
+	// Use Rewrite to walk the AST and replace ParamRef nodes
+	rewritten := Rewrite(stmt, func(cursor *Cursor) bool {
+		if paramRef, ok := cursor.Node().(*ParamRef); ok {
+			// Parameter numbers are 1-based
+			paramIndex := paramRef.Number - 1
+			if paramIndex >= 0 && paramIndex < len(paramValues) {
+				cursor.Replace(paramValues[paramIndex])
+			}
+			// If parameter index is out of bounds, leave ParamRef unchanged
+			return false // No need to traverse children of ParamRef
+		}
+		return true // Continue traversal for other nodes
+	}, nil)
 
-	return substitutor.substituteStmt(stmt)
-}
-
-// parameterSubstitutor holds the state for parameter substitution
-type parameterSubstitutor struct {
-	paramValues []*A_Const
+	return rewritten.(Stmt), nil
 }
 
 // createParameterValues converts parameter bytes to A_Const nodes
@@ -229,125 +232,5 @@ func parseBinaryParameter(data []byte, typeOID uint32) (*A_Const, error) {
 	default:
 		// Unknown binary type - try to interpret as text
 		return NewA_Const(NewString(string(data)), 0), nil
-	}
-}
-
-// substituteStmt replaces parameters in a statement
-func (s *parameterSubstitutor) substituteStmt(stmt Stmt) (Stmt, error) {
-	if stmt == nil {
-		return nil, nil
-	}
-
-	// Use reflection to walk through the statement structure
-	return s.substituteNode(stmt).(Stmt), nil
-}
-
-// substituteNode recursively walks through nodes and replaces ParamRef with A_Const
-func (s *parameterSubstitutor) substituteNode(node Node) Node {
-	if node == nil {
-		return nil
-	}
-
-	// Check if this is a ParamRef that needs substitution
-	if paramRef, ok := node.(*ParamRef); ok {
-		// Parameter numbers are 1-based
-		paramIndex := paramRef.Number - 1
-		if paramIndex >= 0 && paramIndex < len(s.paramValues) {
-			return s.paramValues[paramIndex]
-		}
-		// If parameter index is out of bounds, return the ParamRef unchanged
-		return paramRef
-	}
-
-	// For other nodes, we need to walk their fields recursively
-	// Use reflection to handle arbitrary node types
-	val := reflect.ValueOf(node)
-
-	// If it's a pointer, get the element
-	if val.Kind() == reflect.Pointer {
-		if val.IsNil() {
-			return node
-		}
-		elem := val.Elem()
-
-		// Create a new instance of the same type
-		newVal := reflect.New(elem.Type())
-		newElem := newVal.Elem()
-
-		// Copy all fields and recursively substitute
-		for i := 0; i < elem.NumField(); i++ {
-			field := elem.Field(i)
-			newField := newElem.Field(i)
-
-			if !newField.CanSet() {
-				continue
-			}
-
-			// Check if this field is a Node that might contain ParamRefs
-			fieldInterface := field.Interface()
-
-			// Handle Node fields
-			if fieldNode, ok := fieldInterface.(Node); ok {
-				substituted := s.substituteNode(fieldNode)
-				if substituted != nil {
-					newField.Set(reflect.ValueOf(substituted))
-				}
-				continue
-			}
-
-			// Handle *NodeList specially
-			if nodeList, ok := fieldInterface.(*NodeList); ok && nodeList != nil {
-				newList := s.substituteNodeList(nodeList)
-				newField.Set(reflect.ValueOf(newList))
-				continue
-			}
-
-			// Handle slices of Nodes
-			if field.Kind() == reflect.Slice && field.Len() > 0 {
-				if field.Type().Elem().Implements(reflect.TypeOf((*Node)(nil)).Elem()) {
-					newSlice := reflect.MakeSlice(field.Type(), field.Len(), field.Cap())
-					for j := 0; j < field.Len(); j++ {
-						elem := field.Index(j)
-						if !elem.IsNil() {
-							if elemNode, ok := elem.Interface().(Node); ok {
-								substituted := s.substituteNode(elemNode)
-								newSlice.Index(j).Set(reflect.ValueOf(substituted))
-								continue
-							}
-						}
-						newSlice.Index(j).Set(elem)
-					}
-					newField.Set(newSlice)
-					continue
-				}
-			}
-
-			// For all other fields, just copy the value
-			newField.Set(field)
-		}
-
-		return newVal.Interface().(Node)
-	}
-
-	// For non-pointer nodes, return as-is
-	return node
-}
-
-// substituteNodeList creates a new NodeList with substituted nodes
-func (s *parameterSubstitutor) substituteNodeList(list *NodeList) *NodeList {
-	if list == nil {
-		return nil
-	}
-
-	newItems := make([]Node, len(list.Items))
-	for i, item := range list.Items {
-		if item != nil {
-			newItems[i] = s.substituteNode(item)
-		}
-	}
-
-	return &NodeList{
-		BaseNode: list.BaseNode,
-		Items:    newItems,
 	}
 }
