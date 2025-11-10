@@ -718,12 +718,12 @@ func (pm *MultiPoolerManager) restartPostgresAsStandby(ctx context.Context, stat
 		AsStandby: true, // Create standby.signal before restart
 	}
 
-	// Connections won't surivive the restart, but doing db.Close() is awkward because
-	// replTracker is sharing the same DB instance. Rather than closing it, we can just make
+	// Connections won't survive a restart, but doing db.Close() on the pool is awkward because
+	// replTracker is sharing the same pool instance. Rather than closing it, we can just make
 	// an effort to strongly encourage replacing all the connections in the pool by reducing
 	// the size temporarily.
 	//
-	// This hack should become obsolete once we implement our own connection pools. We
+	// This hack should become obsolete once we implement our own connection pooler. We
 	// can add an API to force the pool to invalidate all connections after a restart.
 	// For example, in Vitess connection pools can be configured to proactively refresh
 	// all connections when the DNS resolution of a particular hostname changes.
