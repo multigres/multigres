@@ -23,7 +23,6 @@ import (
 	"io"
 	"log/slog"
 	"net"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -362,18 +361,6 @@ func (c *Conn) handleQuery() error {
 
 	c.logger.Debug("received query", "query", queryStr)
 
-	// Handle empty query.
-	queryStr = strings.TrimSpace(queryStr)
-	if queryStr == "" {
-		if err := c.writeEmptyQueryResponse(); err != nil {
-			return err
-		}
-		if err := c.writeReadyForQuery(); err != nil {
-			return err
-		}
-		return c.flush()
-	}
-
 	// Track state for current result set.
 	// This is reset when we complete a result set (when CommandTag is set).
 	sentRowDescription := false
@@ -383,6 +370,11 @@ func (c *Conn) handleQuery() error {
 	// 1. Large result sets (streamed in chunks)
 	// 2. Multiple statements in a single query (each potentially with large result sets)
 	err = c.handler.HandleQuery(c.ctx, c, queryStr, func(ctx context.Context, result *query.QueryResult) error {
+		// Handle empty query (nil result signals empty query).
+		if result == nil {
+			return c.writeEmptyQueryResponse()
+		}
+
 		// On first callback with fields for this result set, send RowDescription.
 		if !sentRowDescription && len(result.Fields) > 0 {
 			if err := c.writeRowDescription(result.Fields); err != nil {

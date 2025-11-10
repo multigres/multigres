@@ -55,6 +55,12 @@ func (h *MultiGatewayHandler) HandleQuery(ctx context.Context, conn *server.Conn
 		return err
 	}
 
+	// Handle empty query (e.g., just a semicolon or whitespace).
+	// Call callback with nil to signal empty query response.
+	if len(asts) == 0 {
+		return callback(ctx, nil)
+	}
+
 	for _, astStmt := range asts {
 		// Route the query through the executor which will eventually call multipooler
 		err = h.executor.StreamExecute(ctx, conn, queryStr, astStmt, callback)
