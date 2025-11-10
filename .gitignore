@@ -67,3 +67,4 @@ go/web/templates/css/pico.*
 
 # y.output file
 y.output
+vitess/
