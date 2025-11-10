@@ -47,8 +47,8 @@ type PoolerController interface {
 	// Similar to TabletManager calling QueryServiceControl.InitDBConfig(target, dbConfigs, mysqlDaemon)
 	//
 	// Following the Vitess pattern:
-	// "InitDBConfig is a continuation of New. However, the db config is not initially available.
-	//  For this reason, the initialization is done in two phases."
+	// InitDBConfig is a continuation of New. However, the db config is not initially available.
+	// For this reason, the initialization is done in two phases.
 	//
 	// The controller can create its own DB connections using this config,
 	// allowing independent connection pools for different components.
