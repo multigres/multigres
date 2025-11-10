@@ -203,7 +203,6 @@ func (mp *MultiPooler) Init() {
 	multipooler.Database = mp.database.Get()
 	multipooler.ServingStatus = clustermetadatapb.PoolerServingStatus_NOT_SERVING
 
-	// Initialize the MultiPoolerManager (following Vitess tm_init.go pattern)
 	logger.Info("Initializing MultiPoolerManager")
 	poolerManager := manager.NewMultiPoolerManager(logger, &manager.Config{
 		SocketFilePath:      mp.socketFilePath.Get(),

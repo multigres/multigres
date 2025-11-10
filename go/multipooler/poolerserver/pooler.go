@@ -29,18 +29,16 @@ import (
 
 // MultiPooler is the core pooler implementation
 // It implements the PoolerController interface
-// Following Vitess pattern: DB connection is owned by the executor
 type MultiPooler struct {
 	logger   *slog.Logger
 	dbConfig *DBConfig
-	executor queryservice.QueryService
+	executor *executor.Executor
 
 	mu            sync.Mutex
 	servingStatus clustermetadatapb.PoolerServingStatus
 }
 
 // NewMultiPooler creates a new multipooler instance.
-// Following Vitess pattern: NewTabletServer->InitDBConfig->SetServingType
 func NewMultiPooler(logger *slog.Logger) *MultiPooler {
 	return &MultiPooler{
 		logger:        logger,
@@ -50,11 +48,9 @@ func NewMultiPooler(logger *slog.Logger) *MultiPooler {
 
 // InitDBConfig initializes the controller with database configuration.
 // This is called by MultiPoolerManager after it has the DB config available.
-// Implements PoolerController interface.
-//
-// Following Vitess pattern: "InitDBConfig is a continuation of New. However,
-// the db config is not initially available. For this reason, the initialization
-// is done in two phases."
+// Implements PoolerController interface. InitDBConfig is a continuation of New.
+// However the db config is not initially available. For this reason, the initialization
+// is done in two phases.
 func (s *MultiPooler) InitDBConfig(dbConfig *DBConfig) error {
 	if dbConfig == nil {
 		return fmt.Errorf("database config cannot be nil")
@@ -91,13 +87,7 @@ func (s *MultiPooler) Open() error {
 		return fmt.Errorf("executor not initialized - call InitDBConfig first")
 	}
 
-	// Cast to concrete type to call Open
-	exec, ok := s.executor.(*executor.Executor)
-	if !ok {
-		return fmt.Errorf("unexpected executor type")
-	}
-
-	return exec.Open()
+	return s.executor.Open()
 }
 
 // SetServingType transitions the serving state.
@@ -141,9 +131,9 @@ func (s *MultiPooler) IsHealthy() error {
 	return exec.IsHealthy()
 }
 
-// Register registers gRPC services (called by manager during startup).
+// RegisterGRPCServices registers gRPC services (called by manager during startup).
 // Implements PoolerController interface.
-func (s *MultiPooler) Register() {
+func (s *MultiPooler) RegisterGRPCServices() {
 	s.registerGRPCServices()
 }
 
@@ -186,9 +176,10 @@ func (s *MultiPooler) Close() error {
 	return nil
 }
 
-// GetExecutor returns the executor instance for use by gRPC service handlers.
+// Executor returns the executor instance for use by gRPC service handlers.
 // Implements PoolerController interface.
-func (s *MultiPooler) GetExecutor() (queryservice.QueryService, error) {
+// Returns error if the pooler is not opened or unhealthy.
+func (s *MultiPooler) Executor() (queryservice.QueryService, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 

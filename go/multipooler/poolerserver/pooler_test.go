@@ -32,7 +32,7 @@ func TestNewMultiPooler(t *testing.T) {
 	assert.NotNil(t, pooler)
 	assert.Equal(t, logger, pooler.logger)
 	// Executor should be nil until InitDBConfig is called
-	exec, err := pooler.GetExecutor()
+	exec, err := pooler.Executor()
 	assert.Error(t, err)
 	assert.Nil(t, exec)
 }
@@ -93,8 +93,8 @@ func TestExecuteQuery_InvalidInput(t *testing.T) {
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to ping database")
 
-	// GetExecutor should fail since the database is not opened
-	exec, err := pooler.GetExecutor()
+	// Executor should fail since the database is not opened
+	exec, err := pooler.Executor()
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "executor not ready")
 	assert.Nil(t, exec)

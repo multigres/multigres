@@ -65,7 +65,7 @@ type MultiPoolerManager struct {
 	replTracker  *heartbeat.ReplTracker
 	pgctldClient pgctldpb.PgCtldClient
 
-	// qsc is the query service controller (similar to TabletManager.QueryServiceControl in Vitess).
+	// qsc is the query service controller
 	// This controller handles query serving while the manager orchestrates lifecycle,
 	// topology, consensus, and replication operations.
 	qsc poolerserver.PoolerController
@@ -1140,7 +1140,6 @@ func (pm *MultiPoolerManager) Start(senv *servenv.ServEnv) {
 	}
 
 	// Initialize query service controller with DB config
-	// Following Vitess pattern: TabletManager calls tm.QueryServiceControl.InitDBConfig()
 	dbConfig := &poolerserver.DBConfig{
 		SocketFilePath: pm.config.SocketFilePath,
 		PoolerDir:      pm.config.PoolerDir,
@@ -1163,9 +1162,7 @@ func (pm *MultiPoolerManager) Start(senv *servenv.ServEnv) {
 
 	senv.OnRun(func() {
 		pm.logger.Info("MultiPoolerManager started")
-
-		// Register query service controller gRPC services (following Vitess pattern)
-		pm.qsc.Register()
+		pm.qsc.RegisterGRPCServices()
 		pm.logger.Info("Query service controller registered")
 
 		// Register manager gRPC services

@@ -38,7 +38,6 @@ type DBConfig struct {
 }
 
 // Executor implements the QueryService interface for executing queries against PostgreSQL.
-// Following Vitess QueryEngine pattern: creates and owns its DB connection.
 type Executor struct {
 	logger   *slog.Logger
 	dbConfig *DBConfig
@@ -54,7 +53,6 @@ func NewExecutor(logger *slog.Logger, dbConfig *DBConfig) *Executor {
 }
 
 // Open creates the database connection.
-// Following Vitess QueryEngine.Open() pattern.
 func (e *Executor) Open() error {
 	if e.db != nil {
 		return nil // Already open

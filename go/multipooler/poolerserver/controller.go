@@ -61,7 +61,6 @@ type PoolerController interface {
 
 	// Open opens the database connection.
 	// This is called by MultiPoolerManager after InitDBConfig.
-	// Following Vitess pattern where manager explicitly controls Open/Close lifecycle.
 	Open() error
 
 	// SetServingType transitions the query service to the required serving state.
@@ -92,13 +91,13 @@ type PoolerController interface {
 	//   - No internal errors
 	IsHealthy() error
 
-	// GetExecutor returns the query executor for handling queries.
-	// Returns an error if the controller is not initialized.
-	GetExecutor() (queryservice.QueryService, error)
+	// Executor returns the query executor for handling queries.
+	// Returns an error if the controller is not initialized or not opened.
+	Executor() (queryservice.QueryService, error)
 
-	// Register registers gRPC services with the server.
+	// RegisterGRPCServices registers gRPC services with the server.
 	// This is called by MultiPoolerManager during startup.
-	Register()
+	RegisterGRPCServices()
 
 	// Close shuts down the controller and releases resources.
 	Close() error
