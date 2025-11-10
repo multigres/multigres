@@ -78,6 +78,7 @@ type MultiPoolerManager struct {
 
 	// Multipooler record from topology and startup state
 	mu              sync.Mutex
+	isOpen          bool
 	multipooler     *topo.MultiPoolerInfo
 	state           ManagerState
 	stateError      error
@@ -197,7 +198,15 @@ func (pm *MultiPoolerManager) connectDB() error {
 // TODO: Replace with proper state manager (like tm_state.go) that orchestrates
 // state transitions and manages Open/Close lifecycle.
 func (pm *MultiPoolerManager) Open() error {
-	// Connect to database if not already connected
+	pm.mu.Lock()
+	defer pm.mu.Unlock()
+
+	if pm.isOpen {
+		return nil
+	}
+
+	pm.logger.Info("MultiPoolerManager: opening")
+
 	if err := pm.connectDB(); err != nil {
 		return fmt.Errorf("failed to connect to database: %w", err)
 	}
@@ -239,7 +248,9 @@ func (pm *MultiPoolerManager) Open() error {
 		pm.logger.Error("Failed to open query service controller", "error", err)
 		return fmt.Errorf("failed to open controller: %w", err)
 	}
-	pm.logger.Info("Opened query service controller database connection")
+
+	pm.isOpen = true
+	pm.logger.Info("MultiPoolerManager opened database connection")
 
 	return nil
 }
@@ -272,15 +283,29 @@ func (pm *MultiPoolerManager) QueryServiceControl() poolerserver.PoolerControlle
 	return pm.qsc
 }
 
-// Close closes the database connection and stops the async loader
+// Close closes the database connection and stops the async loader.
+// Safe to call multiple times and safe to call even if never opened.
 func (pm *MultiPoolerManager) Close() error {
+	pm.mu.Lock()
+	defer pm.mu.Unlock()
+
+	// Always cancel context to stop async loaders
 	pm.cancel()
+
+	// Always set isOpen to false
+	pm.isOpen = false
+
+	// Close resources (safe to call even if nil/never opened)
 	if pm.replTracker != nil {
 		pm.replTracker.Close()
 	}
 	if pm.db != nil {
-		return pm.db.Close()
+		if err := pm.db.Close(); err != nil {
+			return err
+		}
 	}
+
+	pm.logger.Info("MultiPoolerManager: closed")
 	return nil
 }
 

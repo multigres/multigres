@@ -24,6 +24,7 @@ import (
 	"log/slog"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 
 	"github.com/multigres/multigres/go/multipooler/queryservice"
 	"github.com/multigres/multigres/go/pb/query"
@@ -42,6 +43,7 @@ type Executor struct {
 	logger   *slog.Logger
 	dbConfig *DBConfig
 	db       *sql.DB
+	isOpen   atomic.Bool
 }
 
 // NewExecutor creates a new Executor instance.
@@ -54,9 +56,11 @@ func NewExecutor(logger *slog.Logger, dbConfig *DBConfig) *Executor {
 
 // Open creates the database connection.
 func (e *Executor) Open() error {
-	if e.db != nil {
-		return nil // Already open
+	if e.isOpen.Load() {
+		return nil
 	}
+
+	e.logger.Info("Executor: opening")
 
 	if e.dbConfig == nil {
 		return fmt.Errorf("database config not set")
@@ -87,6 +91,7 @@ func (e *Executor) Open() error {
 	}
 
 	e.db = db
+	e.isOpen.Store(true)
 	e.logger.Info("Executor opened database connection")
 
 	return nil
@@ -133,13 +138,18 @@ func (e *Executor) StreamExecute(
 
 // Close closes the executor and releases resources.
 func (e *Executor) Close(ctx context.Context) error {
+	if !e.isOpen.Swap(false) {
+		return nil
+	}
+
 	if e.db != nil {
 		if err := e.db.Close(); err != nil {
 			return fmt.Errorf("failed to close database: %w", err)
 		}
 		e.db = nil
-		e.logger.InfoContext(ctx, "Executor closed database connection")
 	}
+
+	e.logger.InfoContext(ctx, "Executor: closed")
 	return nil
 }
 
