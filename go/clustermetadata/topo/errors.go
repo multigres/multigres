@@ -34,6 +34,7 @@ const (
 	NoImplementation
 	NoReadOnlyImplementation
 	ResourceExhausted
+	BadInput
 )
 
 // TopoError represents a topo error.
@@ -68,6 +69,8 @@ func NewError(code ErrorCode, node string) error {
 		message = fmt.Sprintf("no read-only topology implementation %s", node)
 	case ResourceExhausted:
 		message = fmt.Sprintf("server resource exhausted: %s", node)
+	case BadInput:
+		message = node
 	default:
 		message = fmt.Sprintf("unknown code: %s", node)
 	}

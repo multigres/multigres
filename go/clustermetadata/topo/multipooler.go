@@ -165,6 +165,19 @@ type DatabaseShard struct {
 // It returns ErrPartialResult if some multipoolers couldn't be read. The results in the slice are incomplete.
 // It returns (nil, nil) if the cell exists, but there are no multipoolers in it.
 func (ts *store) GetMultiPoolersByCell(ctx context.Context, cellName string, opt *GetMultiPoolersByCellOptions) ([]*MultiPoolerInfo, error) {
+	// Validate filtering hierarchy: Database -> TableGroup -> Shard
+	if opt != nil && opt.DatabaseShard != nil {
+		ds := opt.DatabaseShard
+		// If Shard is specified, TableGroup must be specified
+		if ds.Shard != "" && ds.TableGroup == "" {
+			return nil, NewError(BadInput, "cannot filter by Shard without specifying TableGroup")
+		}
+		// If TableGroup is specified, Database must be specified
+		if ds.TableGroup != "" && ds.Database == "" {
+			return nil, NewError(BadInput, "cannot filter by TableGroup without specifying Database")
+		}
+	}
+
 	// If the cell doesn't exist, this will return ErrNoNode.
 	cellConn, err := ts.ConnForCell(ctx, cellName)
 	if err != nil {

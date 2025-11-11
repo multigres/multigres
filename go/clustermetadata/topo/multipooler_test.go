@@ -210,8 +210,8 @@ func TestServerGetMultiPoolersByCell(t *testing.T) {
 		{
 			name: "filtered by database and shard",
 			databaseShards: []*topo.DatabaseShard{
-				{Database: database, Shard: shard},
-				{Database: "filtered", Shard: "-"},
+				{Database: database, TableGroup: "tg1", Shard: shard},
+				{Database: "filtered", TableGroup: "tg2", Shard: "-"},
 			},
 			createShardMultiPoolers: 2,
 			expectedMultiPoolers: []*clustermetadatapb.MultiPooler{
@@ -221,11 +221,10 @@ func TestServerGetMultiPoolersByCell(t *testing.T) {
 						Cell:      cell,
 						Name:      "hotel",
 					},
-					Hostname: "host1",
-					PortMap: map[string]int32{
-						"grpc": int32(1),
-					},
+					Hostname:      "host1",
+					PortMap:       map[string]int32{"grpc": int32(1)},
 					Database:      database,
+					TableGroup:    "tg1",
 					Shard:         shard,
 					Type:          clustermetadatapb.PoolerType_PRIMARY,
 					ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
@@ -236,11 +235,10 @@ func TestServerGetMultiPoolersByCell(t *testing.T) {
 						Cell:      cell,
 						Name:      "india",
 					},
-					Hostname: "host1",
-					PortMap: map[string]int32{
-						"grpc": int32(2),
-					},
+					Hostname:      "host1",
+					PortMap:       map[string]int32{"grpc": int32(2)},
 					Database:      database,
+					TableGroup:    "tg1",
 					Shard:         shard,
 					Type:          clustermetadatapb.PoolerType_PRIMARY,
 					ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
@@ -248,8 +246,9 @@ func TestServerGetMultiPoolersByCell(t *testing.T) {
 			},
 			opt: &topo.GetMultiPoolersByCellOptions{
 				DatabaseShard: &topo.DatabaseShard{
-					Database: database,
-					Shard:    shard,
+					Database:   database,
+					TableGroup: "tg1",
+					Shard:      shard,
 				},
 			},
 		},
@@ -408,6 +407,47 @@ func TestServerGetMultiPoolersByCell(t *testing.T) {
 		},
 	}
 
+	// Tests for validation errors
+	validationTests := []struct {
+		name      string
+		opt       *topo.GetMultiPoolersByCellOptions
+		expectErr string
+	}{
+		{
+			name: "error: shard without tablegroup",
+			opt: &topo.GetMultiPoolersByCellOptions{
+				DatabaseShard: &topo.DatabaseShard{
+					Database:   database,
+					TableGroup: "",
+					Shard:      "shard1",
+				},
+			},
+			expectErr: "cannot filter by Shard without specifying TableGroup",
+		},
+		{
+			name: "error: tablegroup without database",
+			opt: &topo.GetMultiPoolersByCellOptions{
+				DatabaseShard: &topo.DatabaseShard{
+					Database:   "",
+					TableGroup: "tg1",
+					Shard:      "",
+				},
+			},
+			expectErr: "cannot filter by TableGroup without specifying Database",
+		},
+		{
+			name: "error: shard and tablegroup without database",
+			opt: &topo.GetMultiPoolersByCellOptions{
+				DatabaseShard: &topo.DatabaseShard{
+					Database:   "",
+					TableGroup: "tg1",
+					Shard:      "shard1",
+				},
+			},
+			expectErr: "cannot filter by TableGroup without specifying Database",
+		},
+	}
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx, cancel := context.WithCancel(context.Background())
@@ -452,6 +492,22 @@ func TestServerGetMultiPoolersByCell(t *testing.T) {
 			for i, multipoolerInfo := range out {
 				checkMultiPoolersEqual(t, tt.expectedMultiPoolers[i], multipoolerInfo.MultiPooler)
 			}
+		})
+	}
+
+	// Run validation error tests
+	for _, tt := range validationTests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+
+			ts, _ := memorytopo.NewServerAndFactory(ctx, cell)
+			defer ts.Close()
+
+			_, err := ts.GetMultiPoolersByCell(ctx, cell, tt.opt)
+			require.Error(t, err)
+			require.True(t, errors.Is(err, &topo.TopoError{Code: topo.BadInput}), "expected BadInput error, got: %v", err)
+			require.Contains(t, err.Error(), tt.expectErr)
 		})
 	}
 }
