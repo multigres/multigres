@@ -27,9 +27,25 @@ import (
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 )
 
-// MultiPooler is the core pooler implementation
-// It implements the PoolerController interface
-type MultiPooler struct {
+// QueryPoolerServer is the core pooler implementation for query serving.
+// It encapsulates the components required to manage query execution
+// (e.g. pooling, execution, transactions).
+//
+// In the future, components like the transaction engine and query engine
+// should be added here. The current executor is temporary until those
+// engines are introduced.
+//
+// The lifecycle of the pooler is managed by the MultiPoolerManager.
+// New subcomponents added to QueryPoolerServer should follow one of these
+// initialization patterns: New -> InitDBConfig -> Init -> Open
+// or: New -> InitDBConfig -> Open.
+//
+// Some subcomponents define Init methods. These usually perform one-time
+// initialization and must be idempotent.
+//
+// Open and Close may be called repeatedly during the lifetime of a
+// subcomponent and must also be idempotent.
+type QueryPoolerServer struct {
 	logger   *slog.Logger
 	dbConfig *DBConfig
 	executor *executor.Executor
@@ -39,8 +55,8 @@ type MultiPooler struct {
 }
 
 // NewMultiPooler creates a new multipooler instance.
-func NewMultiPooler(logger *slog.Logger) *MultiPooler {
-	return &MultiPooler{
+func NewMultiPooler(logger *slog.Logger) *QueryPoolerServer {
+	return &QueryPoolerServer{
 		logger:        logger,
 		servingStatus: clustermetadatapb.PoolerServingStatus_NOT_SERVING,
 	}
@@ -51,7 +67,7 @@ func NewMultiPooler(logger *slog.Logger) *MultiPooler {
 // Implements PoolerController interface. InitDBConfig is a continuation of New.
 // However the db config is not initially available. For this reason, the initialization
 // is done in two phases.
-func (s *MultiPooler) InitDBConfig(dbConfig *DBConfig) error {
+func (s *QueryPoolerServer) InitDBConfig(dbConfig *DBConfig) error {
 	if dbConfig == nil {
 		return fmt.Errorf("database config cannot be nil")
 	}
@@ -79,7 +95,7 @@ func (s *MultiPooler) InitDBConfig(dbConfig *DBConfig) error {
 
 // Open opens the database connection via the executor.
 // Following Vitess pattern: manager calls Open explicitly.
-func (s *MultiPooler) Open() error {
+func (s *QueryPoolerServer) Open() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -92,7 +108,7 @@ func (s *MultiPooler) Open() error {
 
 // SetServingType transitions the serving state.
 // Implements PoolerController interface.
-func (s *MultiPooler) SetServingType(ctx context.Context, servingStatus clustermetadatapb.PoolerServingStatus) error {
+func (s *QueryPoolerServer) SetServingType(ctx context.Context, servingStatus clustermetadatapb.PoolerServingStatus) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -110,7 +126,7 @@ func (s *MultiPooler) SetServingType(ctx context.Context, servingStatus clusterm
 
 // IsServing returns true if currently serving queries.
 // Implements PoolerController interface.
-func (s *MultiPooler) IsServing() bool {
+func (s *QueryPoolerServer) IsServing() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.servingStatus == clustermetadatapb.PoolerServingStatus_SERVING ||
@@ -119,7 +135,7 @@ func (s *MultiPooler) IsServing() bool {
 
 // IsHealthy checks if the controller is healthy.
 // Implements PoolerController interface.
-func (s *MultiPooler) IsHealthy() error {
+func (s *QueryPoolerServer) IsHealthy() error {
 	s.mu.Lock()
 	exec := s.executor
 	s.mu.Unlock()
@@ -133,7 +149,7 @@ func (s *MultiPooler) IsHealthy() error {
 
 // RegisterGRPCServices registers gRPC services (called by manager during startup).
 // Implements PoolerController interface.
-func (s *MultiPooler) RegisterGRPCServices() {
+func (s *QueryPoolerServer) RegisterGRPCServices() {
 	s.registerGRPCServices()
 }
 
@@ -147,7 +163,7 @@ func (s *MultiPooler) RegisterGRPCServices() {
 //   - Open()
 //   - Register()
 //   - SetServingType()
-func (s *MultiPooler) StartServiceForTests(dbConfig *DBConfig) error {
+func (s *QueryPoolerServer) StartServiceForTests(dbConfig *DBConfig) error {
 	if err := s.InitDBConfig(dbConfig); err != nil {
 		return err
 	}
@@ -162,7 +178,7 @@ func (s *MultiPooler) StartServiceForTests(dbConfig *DBConfig) error {
 
 // Close closes the executor and releases resources.
 // Implements PoolerController interface.
-func (s *MultiPooler) Close() error {
+func (s *QueryPoolerServer) Close() error {
 	s.mu.Lock()
 	exec := s.executor
 	s.executor = nil
@@ -179,7 +195,7 @@ func (s *MultiPooler) Close() error {
 // Executor returns the executor instance for use by gRPC service handlers.
 // Implements PoolerController interface.
 // Returns error if the pooler is not opened or unhealthy.
-func (s *MultiPooler) Executor() (queryservice.QueryService, error) {
+func (s *QueryPoolerServer) Executor() (queryservice.QueryService, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 

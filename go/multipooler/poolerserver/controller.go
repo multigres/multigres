@@ -104,4 +104,4 @@ type PoolerController interface {
 }
 
 // Ensure MultiPooler implements PoolerController at compile time
-var _ PoolerController = (*MultiPooler)(nil)
+var _ PoolerController = (*QueryPoolerServer)(nil)

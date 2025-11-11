@@ -28,12 +28,12 @@ import (
 // poolerService is the gRPC wrapper for MultiPooler
 type poolerService struct {
 	multipoolerpb.UnimplementedMultiPoolerServiceServer
-	pooler *poolerserver.MultiPooler
+	pooler *poolerserver.QueryPoolerServer
 }
 
 func RegisterPoolerServices(senv *servenv.ServEnv, grpc *servenv.GrpcServer) {
 	// Register ourselves to be invoked when the pooler starts
-	poolerserver.RegisterPoolerServices = append(poolerserver.RegisterPoolerServices, func(p *poolerserver.MultiPooler) {
+	poolerserver.RegisterPoolerServices = append(poolerserver.RegisterPoolerServices, func(p *poolerserver.QueryPoolerServer) {
 		if grpc.CheckServiceMap("pooler", senv) {
 			srv := &poolerService{
 				pooler: p,
