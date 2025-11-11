@@ -1486,6 +1486,7 @@ func TestGetMultiPoolersByCell_Comprehensive(t *testing.T) {
 					Name:      "1",
 				},
 				Database:      "db2",
+				TableGroup:    "tg1",
 				Shard:         "-8",
 				Hostname:      "host1",
 				PortMap:       map[string]int32{"grpc": 8080},
@@ -1499,6 +1500,7 @@ func TestGetMultiPoolersByCell_Comprehensive(t *testing.T) {
 					Name:      "2",
 				},
 				Database:      "db2",
+				TableGroup:    "tg1",
 				Shard:         "8-",
 				Hostname:      "host2",
 				PortMap:       map[string]int32{"grpc": 8081},
@@ -1512,11 +1514,12 @@ func TestGetMultiPoolersByCell_Comprehensive(t *testing.T) {
 			require.NoError(t, ts.CreateMultiPooler(ctx, mp))
 		}
 
-		// Test: Filter by specific database and shard
+		// Test: Filter by specific database, tablegroup, and shard
 		opts := &topo.GetMultiPoolersByCellOptions{
 			DatabaseShard: &topo.DatabaseShard{
-				Database: "db2",
-				Shard:    "-8",
+				Database:   "db2",
+				TableGroup: "tg1",
+				Shard:      "-8",
 			},
 		}
 
@@ -1526,6 +1529,7 @@ func TestGetMultiPoolersByCell_Comprehensive(t *testing.T) {
 
 		// Verify correct multipooler is returned
 		require.Equal(t, "db2", multipoolerInfos[0].Database)
+		require.Equal(t, "tg1", multipoolerInfos[0].TableGroup)
 		require.Equal(t, "-8", multipoolerInfos[0].Shard)
 
 		// Verify cell boundary: multipoolers are NOT accessible from other cells
