@@ -329,6 +329,83 @@ func TestServerGetMultiPoolersByCell(t *testing.T) {
 				},
 			},
 		},
+		{
+			name: "filtered by database and tablegroup",
+			databaseShards: []*topo.DatabaseShard{
+				{Database: database, TableGroup: "tg1", Shard: "shard1"},
+				{Database: database, TableGroup: "tg1", Shard: "shard2"},
+				{Database: database, TableGroup: "tg2", Shard: "shard1"},
+			},
+			createShardMultiPoolers: 2,
+			expectedMultiPoolers: []*clustermetadatapb.MultiPooler{
+				{
+					Id: &clustermetadatapb.ID{
+						Component: clustermetadatapb.ID_MULTIPOOLER,
+						Cell:      cell,
+						Name:      "laperla",
+					},
+					Hostname:      "host1",
+					PortMap:       map[string]int32{"grpc": int32(1)},
+					Database:      database,
+					TableGroup:    "tg1",
+					Shard:         "shard1",
+					Type:          clustermetadatapb.PoolerType_PRIMARY,
+					ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
+				},
+				{
+					Id: &clustermetadatapb.ID{
+						Component: clustermetadatapb.ID_MULTIPOOLER,
+						Cell:      cell,
+						Name:      "berghain",
+					},
+					Hostname:      "host1",
+					PortMap:       map[string]int32{"grpc": int32(2)},
+					Database:      database,
+					TableGroup:    "tg1",
+					Shard:         "shard2",
+					Type:          clustermetadatapb.PoolerType_REPLICA,
+					ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
+				},
+			},
+			opt: &topo.GetMultiPoolersByCellOptions{
+				DatabaseShard: &topo.DatabaseShard{
+					Database:   database,
+					TableGroup: "tg1",
+					Shard:      "",
+				},
+			},
+		},
+		{
+			name: "filtered by database, tablegroup, and shard",
+			databaseShards: []*topo.DatabaseShard{
+				{Database: database, TableGroup: "tg1", Shard: "shard1"},
+				{Database: database, TableGroup: "tg1", Shard: "shard2"},
+			},
+			createShardMultiPoolers: 1,
+			expectedMultiPoolers: []*clustermetadatapb.MultiPooler{
+				{
+					Id: &clustermetadatapb.ID{
+						Component: clustermetadatapb.ID_MULTIPOOLER,
+						Cell:      cell,
+						Name:      "papa",
+					},
+					Hostname:      "host1",
+					PortMap:       map[string]int32{"grpc": int32(1)},
+					Database:      database,
+					TableGroup:    "tg1",
+					Shard:         "shard1",
+					Type:          clustermetadatapb.PoolerType_PRIMARY,
+					ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
+				},
+			},
+			opt: &topo.GetMultiPoolersByCellOptions{
+				DatabaseShard: &topo.DatabaseShard{
+					Database:   database,
+					TableGroup: "tg1",
+					Shard:      "shard1",
+				},
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -353,6 +430,7 @@ func TestServerGetMultiPoolersByCell(t *testing.T) {
 					Hostname:      "host1",
 					PortMap:       map[string]int32{"grpc": int32(i + 1)},
 					Database:      expectedMP.Database,
+					TableGroup:    expectedMP.TableGroup,
 					Shard:         expectedMP.Shard,
 					Type:          expectedMP.Type,
 					ServingStatus: expectedMP.ServingStatus,
