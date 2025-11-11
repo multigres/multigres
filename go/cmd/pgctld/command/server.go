@@ -41,8 +41,8 @@ type PgCtldServerCmd struct {
 func AddServerCommand(root *cobra.Command, pc *PgCtlCommand) {
 	serverCmd := &PgCtldServerCmd{
 		pgCtlCmd:   pc,
-		grpcServer: servenv.NewGrpcServer(),
-		senv:       servenv.NewServEnvWithConfig(pc.lg, pc.vc),
+		grpcServer: servenv.NewGrpcServer(pc.reg),
+		senv:       servenv.NewServEnvWithConfig(pc.reg, pc.lg, pc.vc),
 	}
 	serverCmd.senv.InitServiceMap("grpc", "pgctld")
 	root.AddCommand(serverCmd.createCommand())
@@ -89,8 +89,7 @@ func (s *PgCtldServerCmd) runServer(cmd *cobra.Command, args []string) error {
 
 	// Create and register our service
 	poolerDir := s.pgCtlCmd.GetPoolerDir()
-	testOrphanDetection := s.senv.GetTestOrphanDetection()
-	pgctldService, err := NewPgCtldService(logger, s.pgCtlCmd.pgPort.Get(), s.pgCtlCmd.pgUser.Get(), s.pgCtlCmd.pgDatabase.Get(), s.pgCtlCmd.timeout.Get(), poolerDir, s.pgCtlCmd.pgListenAddresses.Get(), testOrphanDetection)
+	pgctldService, err := NewPgCtldService(logger, s.pgCtlCmd.pgPort.Get(), s.pgCtlCmd.pgUser.Get(), s.pgCtlCmd.pgDatabase.Get(), s.pgCtlCmd.timeout.Get(), poolerDir, s.pgCtlCmd.pgListenAddresses.Get())
 	if err != nil {
 		return err
 	}
@@ -120,15 +119,14 @@ func (s *PgCtldServerCmd) runServer(cmd *cobra.Command, args []string) error {
 // PgCtldService implements the pgctld gRPC service
 type PgCtldService struct {
 	pb.UnimplementedPgCtldServer
-	logger              *slog.Logger
-	pgPort              int
-	pgUser              string
-	pgDatabase          string
-	pgPassword          string
-	timeout             int
-	poolerDir           string
-	config              *pgctld.PostgresCtlConfig
-	testOrphanDetection bool
+	logger     *slog.Logger
+	pgPort     int
+	pgUser     string
+	pgDatabase string
+	pgPassword string
+	timeout    int
+	poolerDir  string
+	config     *pgctld.PostgresCtlConfig
 }
 
 // validatePortConsistency is no longer needed because port, listen_addresses, and unix_socket_directories
@@ -136,7 +134,7 @@ type PgCtldService struct {
 // This makes backups portable across different environments.
 
 // NewPgCtldService creates a new PgCtldService with validation
-func NewPgCtldService(logger *slog.Logger, pgPort int, pgUser string, pgDatabase string, timeout int, poolerDir string, listenAddresses string, testOrphanDetection bool) (*PgCtldService, error) {
+func NewPgCtldService(logger *slog.Logger, pgPort int, pgUser string, pgDatabase string, timeout int, poolerDir string, listenAddresses string) (*PgCtldService, error) {
 	// Validate essential parameters for service creation
 	// Note: We don't validate postgresDataDir or postgresConfigFile existence here
 	// because the server should be able to start even with uninitialized data directory
@@ -176,19 +174,18 @@ func NewPgCtldService(logger *slog.Logger, pgPort int, pgUser string, pgDatabase
 	}
 
 	return &PgCtldService{
-		logger:              logger,
-		pgPort:              pgPort,
-		pgUser:              pgUser,
-		pgDatabase:          pgDatabase,
-		timeout:             timeout,
-		poolerDir:           poolerDir,
-		config:              config,
-		testOrphanDetection: testOrphanDetection,
+		logger:     logger,
+		pgPort:     pgPort,
+		pgUser:     pgUser,
+		pgDatabase: pgDatabase,
+		timeout:    timeout,
+		poolerDir:  poolerDir,
+		config:     config,
 	}, nil
 }
 
 func (s *PgCtldService) Start(ctx context.Context, req *pb.StartRequest) (*pb.StartResponse, error) {
-	s.logger.Info("gRPC Start request", "port", req.Port)
+	s.logger.InfoContext(ctx, "gRPC Start request", "port", req.Port)
 
 	// Check if data directory is initialized
 	if !pgctld.IsDataDirInitialized(s.poolerDir) {
@@ -197,7 +194,7 @@ func (s *PgCtldService) Start(ctx context.Context, req *pb.StartRequest) (*pb.St
 	}
 
 	// Use the pre-configured PostgreSQL config for start operation
-	result, err := StartPostgreSQLWithResult(s.logger, s.config, s.testOrphanDetection)
+	result, err := StartPostgreSQLWithResult(s.logger, s.config)
 	if err != nil {
 		return nil, fmt.Errorf("failed to start PostgreSQL: %w", err)
 	}
@@ -209,7 +206,7 @@ func (s *PgCtldService) Start(ctx context.Context, req *pb.StartRequest) (*pb.St
 }
 
 func (s *PgCtldService) Stop(ctx context.Context, req *pb.StopRequest) (*pb.StopResponse, error) {
-	s.logger.Info("gRPC Stop request", "mode", req.Mode)
+	s.logger.InfoContext(ctx, "gRPC Stop request", "mode", req.Mode)
 
 	// Check if data directory is initialized
 	if !pgctld.IsDataDirInitialized(s.poolerDir) {
@@ -229,7 +226,7 @@ func (s *PgCtldService) Stop(ctx context.Context, req *pb.StopRequest) (*pb.Stop
 }
 
 func (s *PgCtldService) Restart(ctx context.Context, req *pb.RestartRequest) (*pb.RestartResponse, error) {
-	s.logger.Info("gRPC Restart request", "mode", req.Mode, "port", req.Port, "as_standby", req.AsStandby)
+	s.logger.InfoContext(ctx, "gRPC Restart request", "mode", req.Mode, "port", req.Port, "as_standby", req.AsStandby)
 
 	// Check if data directory is initialized
 	if !pgctld.IsDataDirInitialized(s.poolerDir) {
@@ -250,7 +247,7 @@ func (s *PgCtldService) Restart(ctx context.Context, req *pb.RestartRequest) (*p
 }
 
 func (s *PgCtldService) ReloadConfig(ctx context.Context, req *pb.ReloadConfigRequest) (*pb.ReloadConfigResponse, error) {
-	s.logger.Info("gRPC ReloadConfig request")
+	s.logger.InfoContext(ctx, "gRPC ReloadConfig request")
 
 	// Check if data directory is initialized
 	if !pgctld.IsDataDirInitialized(s.poolerDir) {
@@ -270,7 +267,7 @@ func (s *PgCtldService) ReloadConfig(ctx context.Context, req *pb.ReloadConfigRe
 }
 
 func (s *PgCtldService) Status(ctx context.Context, req *pb.StatusRequest) (*pb.StatusResponse, error) {
-	s.logger.Debug("gRPC Status request")
+	s.logger.DebugContext(ctx, "gRPC Status request")
 
 	// First check if data directory is initialized
 	if !pgctld.IsDataDirInitialized(s.poolerDir) {
@@ -312,7 +309,7 @@ func (s *PgCtldService) Status(ctx context.Context, req *pb.StatusRequest) (*pb.
 }
 
 func (s *PgCtldService) Version(ctx context.Context, req *pb.VersionRequest) (*pb.VersionResponse, error) {
-	s.logger.Debug("gRPC Version request")
+	s.logger.DebugContext(ctx, "gRPC Version request")
 	result, err := GetVersionWithResult(s.config)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get version: %w", err)
@@ -325,7 +322,7 @@ func (s *PgCtldService) Version(ctx context.Context, req *pb.VersionRequest) (*p
 }
 
 func (s *PgCtldService) InitDataDir(ctx context.Context, req *pb.InitDataDirRequest) (*pb.InitDataDirResponse, error) {
-	s.logger.Info("gRPC InitDataDir request")
+	s.logger.InfoContext(ctx, "gRPC InitDataDir request")
 
 	// Use the shared init function with detailed result
 	result, err := InitDataDirWithResult(s.logger, s.poolerDir, s.pgPort, s.pgUser, req.PgPwfile)

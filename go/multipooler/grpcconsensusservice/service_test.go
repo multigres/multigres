@@ -25,6 +25,7 @@ import (
 	"github.com/multigres/multigres/go/cmd/pgctld/testutil"
 	"github.com/multigres/multigres/go/multipooler/manager"
 	"github.com/multigres/multigres/go/servenv"
+	"github.com/multigres/multigres/go/viperutil"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -63,16 +64,17 @@ func TestConsensusService_BeginTerm(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	config := &manager.Config{
-		TopoClient: ts,
-		ServiceID:  serviceID,
-		PgctldAddr: pgctldAddr,
-		PoolerDir:  tmpDir,
+		TopoClient:       ts,
+		ServiceID:        serviceID,
+		PgctldAddr:       pgctldAddr,
+		PoolerDir:        tmpDir,
+		ConsensusEnabled: true,
 	}
 	pm := manager.NewMultiPoolerManager(logger, config)
 	defer pm.Close()
 
 	// Start the async loader
-	senv := servenv.NewServEnv()
+	senv := servenv.NewServEnv(viperutil.NewRegistry())
 	go pm.Start(senv)
 
 	// Wait for the manager to become ready
@@ -86,9 +88,13 @@ func TestConsensusService_BeginTerm(t *testing.T) {
 
 	t.Run("BeginTerm without database connection should fail", func(t *testing.T) {
 		req := &consensusdata.BeginTermRequest{
-			Term:        5,
-			CandidateId: "candidate-1",
-			ShardId:     "shard-1",
+			Term: 5,
+			CandidateId: &clustermetadata.ID{
+				Component: clustermetadata.ID_MULTIPOOLER,
+				Cell:      "zone1",
+				Name:      "candidate-1",
+			},
+			ShardId: "shard-1",
 		}
 
 		resp, err := svc.BeginTerm(ctx, req)
@@ -130,16 +136,17 @@ func TestConsensusService_Status(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	config := &manager.Config{
-		TopoClient: ts,
-		ServiceID:  serviceID,
-		PgctldAddr: pgctldAddr,
-		PoolerDir:  tmpDir,
+		TopoClient:       ts,
+		ServiceID:        serviceID,
+		PgctldAddr:       pgctldAddr,
+		PoolerDir:        tmpDir,
+		ConsensusEnabled: true,
 	}
 	pm := manager.NewMultiPoolerManager(logger, config)
 	defer pm.Close()
 
 	// Start the async loader
-	senv := servenv.NewServEnv()
+	senv := servenv.NewServEnv(viperutil.NewRegistry())
 	go pm.Start(senv)
 
 	// Wait for the manager to become ready
@@ -200,16 +207,17 @@ func TestConsensusService_GetLeadershipView(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	config := &manager.Config{
-		TopoClient: ts,
-		ServiceID:  serviceID,
-		PgctldAddr: pgctldAddr,
-		PoolerDir:  tmpDir,
+		TopoClient:       ts,
+		ServiceID:        serviceID,
+		PgctldAddr:       pgctldAddr,
+		PoolerDir:        tmpDir,
+		ConsensusEnabled: true,
 	}
 	pm := manager.NewMultiPoolerManager(logger, config)
 	defer pm.Close()
 
 	// Start the async loader
-	senv := servenv.NewServEnv()
+	senv := servenv.NewServEnv(viperutil.NewRegistry())
 	go pm.Start(senv)
 
 	// Wait for the manager to become ready
@@ -265,16 +273,17 @@ func TestConsensusService_CanReachPrimary(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	config := &manager.Config{
-		TopoClient: ts,
-		ServiceID:  serviceID,
-		PgctldAddr: pgctldAddr,
-		PoolerDir:  tmpDir,
+		TopoClient:       ts,
+		ServiceID:        serviceID,
+		PgctldAddr:       pgctldAddr,
+		PoolerDir:        tmpDir,
+		ConsensusEnabled: true,
 	}
 	pm := manager.NewMultiPoolerManager(logger, config)
 	defer pm.Close()
 
 	// Start the async loader
-	senv := servenv.NewServEnv()
+	senv := servenv.NewServEnv(viperutil.NewRegistry())
 	go pm.Start(senv)
 
 	// Wait for the manager to become ready
@@ -332,16 +341,17 @@ func TestConsensusService_AllMethods(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	config := &manager.Config{
-		TopoClient: ts,
-		ServiceID:  serviceID,
-		PgctldAddr: pgctldAddr,
-		PoolerDir:  tmpDir,
+		TopoClient:       ts,
+		ServiceID:        serviceID,
+		PgctldAddr:       pgctldAddr,
+		PoolerDir:        tmpDir,
+		ConsensusEnabled: true,
 	}
 	pm := manager.NewMultiPoolerManager(logger, config)
 	defer pm.Close()
 
 	// Start the async loader
-	senv := servenv.NewServEnv()
+	senv := servenv.NewServEnv(viperutil.NewRegistry())
 	go pm.Start(senv)
 
 	// Wait for the manager to become ready
@@ -362,9 +372,13 @@ func TestConsensusService_AllMethods(t *testing.T) {
 			name: "BeginTerm",
 			method: func() error {
 				req := &consensusdata.BeginTermRequest{
-					Term:        5,
-					CandidateId: "candidate-1",
-					ShardId:     "shard-1",
+					Term: 5,
+					CandidateId: &clustermetadata.ID{
+						Component: clustermetadata.ID_MULTIPOOLER,
+						Cell:      "zone1",
+						Name:      "candidate-1",
+					},
+					ShardId: "shard-1",
 				}
 				_, err := svc.BeginTerm(ctx, req)
 				return err

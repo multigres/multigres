@@ -28,6 +28,7 @@ import (
 	"github.com/multigres/multigres/go/mterrors"
 	"github.com/multigres/multigres/go/multipooler/manager"
 	"github.com/multigres/multigres/go/servenv"
+	"github.com/multigres/multigres/go/viperutil"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -72,7 +73,7 @@ func TestManagerServiceMethods_NotImplemented(t *testing.T) {
 	defer pm.Close()
 
 	// Start the async loader
-	senv := servenv.NewServEnv()
+	senv := servenv.NewServEnv(viperutil.NewRegistry())
 	go pm.Start(senv)
 
 	// Wait for the manager to become ready
@@ -244,7 +245,10 @@ func TestManagerServiceMethods_ManagerNotReady(t *testing.T) {
 		{
 			name: "StopReplicationAndGetStatus",
 			method: func() error {
-				req := &multipoolermanagerdata.StopReplicationAndGetStatusRequest{}
+				req := &multipoolermanagerdata.StopReplicationAndGetStatusRequest{
+					Mode: multipoolermanagerdata.ReplicationPauseMode_REPLICATION_PAUSE_MODE_REPLAY_ONLY,
+					Wait: true,
+				}
 				_, err := svc.StopReplicationAndGetStatus(ctx, req)
 				return err
 			},

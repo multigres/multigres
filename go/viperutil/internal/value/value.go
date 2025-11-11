@@ -115,30 +115,32 @@ func BindFlags(fs *pflag.FlagSet, values ...Registerable) {
 	}
 }
 
-// Static is a static value. Static values register to the Static registry, and
+// Static is a static value. Static values register to a Static registry, and
 // do not respond to changes to config files. Their Get() method will return the
 // same value for the lifetime of the process.
 type Static[T any] struct {
 	*Base[T]
+	staticReg *viper.Viper
 }
 
 // NewStatic returns a static value derived from the given base value, after
-// binding it to the static registry.
-func NewStatic[T any](base *Base[T]) *Static[T] {
-	base.bind(registry.Static)
-	base.BoundGetFunc = base.GetFunc(registry.Static)
+// binding it to the provided static registry.
+func NewStatic[T any](staticReg *viper.Viper, base *Base[T]) *Static[T] {
+	base.bind(staticReg)
+	base.BoundGetFunc = base.GetFunc(staticReg)
 
 	return &Static[T]{
-		Base: base,
+		Base:      base,
+		staticReg: staticReg,
 	}
 }
 
 func (val *Static[T]) Registry() registry.Bindable {
-	return registry.Static
+	return val.staticReg
 }
 
 func (val *Static[T]) Set(v T) {
-	registry.Static.Set(val.KeyName, v)
+	val.staticReg.Set(val.KeyName, v)
 }
 
 // Dynamic is a dynamic value. Dynamic values register to the Dynamic registry,
@@ -147,24 +149,26 @@ func (val *Static[T]) Set(v T) {
 // manner.
 type Dynamic[T any] struct {
 	*Base[T]
+	dynamicReg *sync.Viper
 }
 
 // NewDynamic returns a dynamic value derived from the given base value, after
-// binding it to the dynamic registry and wrapping its GetFunc to be threadsafe
+// binding it to the provided dynamic registry and wrapping its GetFunc to be threadsafe
 // with respect to config reloading.
-func NewDynamic[T any](base *Base[T]) *Dynamic[T] {
-	base.bind(registry.Dynamic)
-	base.BoundGetFunc = sync.AdaptGetter(base.Key(), base.GetFunc, registry.Dynamic)
+func NewDynamic[T any](dynamicReg *sync.Viper, base *Base[T]) *Dynamic[T] {
+	base.bind(dynamicReg)
+	base.BoundGetFunc = sync.AdaptGetter(base.Key(), base.GetFunc, dynamicReg)
 
 	return &Dynamic[T]{
-		Base: base,
+		Base:       base,
+		dynamicReg: dynamicReg,
 	}
 }
 
 func (val *Dynamic[T]) Registry() registry.Bindable {
-	return registry.Dynamic
+	return val.dynamicReg
 }
 
 func (val *Dynamic[T]) Set(v T) {
-	registry.Dynamic.Set(val.KeyName, v)
+	val.dynamicReg.Set(val.KeyName, v)
 }

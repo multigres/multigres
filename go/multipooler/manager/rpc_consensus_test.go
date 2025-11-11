@@ -29,6 +29,7 @@ import (
 	"github.com/multigres/multigres/go/clustermetadata/topo/memorytopo"
 	"github.com/multigres/multigres/go/cmd/pgctld/testutil"
 	"github.com/multigres/multigres/go/servenv"
+	"github.com/multigres/multigres/go/viperutil"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	consensusdatapb "github.com/multigres/multigres/go/pb/consensusdata"
@@ -70,7 +71,7 @@ func setupManagerWithMockDB(t *testing.T) (*MultiPoolerManager, sqlmock.Sqlmock,
 	pm := NewMultiPoolerManager(logger, config)
 	t.Cleanup(func() { pm.Close() })
 
-	senv := servenv.NewServEnv()
+	senv := servenv.NewServEnv(viperutil.NewRegistry())
 	go pm.Start(senv)
 
 	require.Eventually(t, func() bool {
@@ -92,6 +93,11 @@ func setupManagerWithMockDB(t *testing.T) (*MultiPoolerManager, sqlmock.Sqlmock,
 	err = os.WriteFile(pgDataDir+"/PG_VERSION", []byte("18\n"), 0o644)
 	require.NoError(t, err)
 
+	// Initialize consensus state
+	pm.mu.Lock()
+	pm.consensusState = NewConsensusState(tmpDir, serviceID)
+	pm.mu.Unlock()
+
 	return pm, mock, tmpDir
 }
 
@@ -104,7 +110,7 @@ func TestBeginTerm(t *testing.T) {
 		name                   string
 		initialTerm            *multipoolermanagerdatapb.ConsensusTerm
 		requestTerm            int64
-		requestCandidate       string
+		requestCandidate       *clustermetadatapb.ID
 		setupMocks             func(mock sqlmock.Sqlmock)
 		expectedAccepted       bool
 		expectedTerm           int64
@@ -114,14 +120,19 @@ func TestBeginTerm(t *testing.T) {
 		{
 			name: "AlreadyAcceptedLeaderInOlderTerm",
 			initialTerm: &multipoolermanagerdatapb.ConsensusTerm{
-				CurrentTerm: 5,
+				TermNumber: 5,
 				AcceptedLeader: &clustermetadatapb.ID{
-					Cell: "zone1",
-					Name: "candidate-A",
+					Component: clustermetadatapb.ID_MULTIPOOLER,
+					Cell:      "zone1",
+					Name:      "candidate-A",
 				},
 			},
-			requestTerm:      10,
-			requestCandidate: "candidate-B",
+			requestTerm: 10,
+			requestCandidate: &clustermetadatapb.ID{
+				Component: clustermetadatapb.ID_MULTIPOOLER,
+				Cell:      "zone1",
+				Name:      "candidate-B",
+			},
 			setupMocks: func(mock sqlmock.Sqlmock) {
 				mock.ExpectPing()
 				recentTime := time.Now().Add(-5 * time.Second)
@@ -136,14 +147,19 @@ func TestBeginTerm(t *testing.T) {
 		{
 			name: "AlreadyAcceptedLeaderInSameTerm",
 			initialTerm: &multipoolermanagerdatapb.ConsensusTerm{
-				CurrentTerm: 5,
+				TermNumber: 5,
 				AcceptedLeader: &clustermetadatapb.ID{
-					Cell: "zone1",
-					Name: "candidate-A",
+					Component: clustermetadatapb.ID_MULTIPOOLER,
+					Cell:      "zone1",
+					Name:      "candidate-A",
 				},
 			},
-			requestTerm:      5,
-			requestCandidate: "candidate-B",
+			requestTerm: 5,
+			requestCandidate: &clustermetadatapb.ID{
+				Component: clustermetadatapb.ID_MULTIPOOLER,
+				Cell:      "zone1",
+				Name:      "candidate-B",
+			},
 			setupMocks: func(mock sqlmock.Sqlmock) {
 				mock.ExpectPing()
 			},
@@ -155,14 +171,19 @@ func TestBeginTerm(t *testing.T) {
 		{
 			name: "AlreadyAcceptedSameCandidateInSameTerm",
 			initialTerm: &multipoolermanagerdatapb.ConsensusTerm{
-				CurrentTerm: 5,
+				TermNumber: 5,
 				AcceptedLeader: &clustermetadatapb.ID{
-					Cell: "zone1",
-					Name: "candidate-A",
+					Component: clustermetadatapb.ID_MULTIPOOLER,
+					Cell:      "zone1",
+					Name:      "candidate-A",
 				},
 			},
-			requestTerm:      5,
-			requestCandidate: "candidate-A",
+			requestTerm: 5,
+			requestCandidate: &clustermetadatapb.ID{
+				Component: clustermetadatapb.ID_MULTIPOOLER,
+				Cell:      "zone1",
+				Name:      "candidate-A",
+			},
 			setupMocks: func(mock sqlmock.Sqlmock) {
 				mock.ExpectPing()
 				recentTime := time.Now().Add(-5 * time.Second)
@@ -176,18 +197,57 @@ func TestBeginTerm(t *testing.T) {
 		},
 	}
 
+	// Add tests for save failure scenarios
+	saveFailureTests := []struct {
+		name                   string
+		initialTerm            *multipoolermanagerdatapb.ConsensusTerm
+		requestTerm            int64
+		requestCandidate       *clustermetadatapb.ID
+		setupMocks             func(mock sqlmock.Sqlmock)
+		makeFilesystemReadOnly bool
+		expectedError          bool
+		expectedMemoryTerm     int64
+		expectedMemoryLeader   string
+		description            string
+	}{
+		{
+			name: "SaveFailureDuringAcceptance_MemoryUnchanged",
+			initialTerm: &multipoolermanagerdatapb.ConsensusTerm{
+				TermNumber:     5,
+				AcceptedLeader: nil, // No leader accepted yet
+			},
+			requestTerm: 5,
+			requestCandidate: &clustermetadatapb.ID{
+				Component: clustermetadatapb.ID_MULTIPOOLER,
+				Cell:      "zone1",
+				Name:      "candidate-B",
+			},
+			makeFilesystemReadOnly: true,
+			setupMocks: func(mock sqlmock.Sqlmock) {
+				mock.ExpectPing()
+				recentTime := time.Now().Add(-5 * time.Second)
+				mock.ExpectQuery("SELECT last_msg_receipt_time FROM pg_stat_wal_receiver").
+					WillReturnRows(sqlmock.NewRows([]string{"last_msg_receipt_time"}).AddRow(recentTime))
+			},
+			expectedError:        true,
+			expectedMemoryTerm:   5,
+			expectedMemoryLeader: "", // Should remain empty after save failure
+			description:          "Save failure should leave memory unchanged with original term and leader",
+		},
+	}
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := context.Background()
 			pm, mock, tmpDir := setupManagerWithMockDB(t)
 
-			// Initialize term
-			err := SetTerm(tmpDir, tt.initialTerm)
+			// Initialize term on disk
+			err := setConsensusTerm(tmpDir, tt.initialTerm)
 			require.NoError(t, err)
 
-			pm.mu.Lock()
-			pm.consensusTerm = tt.initialTerm
-			pm.mu.Unlock()
+			// Load into consensus state
+			err = pm.consensusState.Load()
+			require.NoError(t, err)
 
 			// Setup mocks
 			tt.setupMocks(mock)
@@ -208,10 +268,70 @@ func TestBeginTerm(t *testing.T) {
 			assert.Equal(t, tt.expectedTerm, resp.Term)
 
 			// Verify persisted state
-			loadedTerm, err := GetTerm(tmpDir)
+			loadedTerm, err := getConsensusTerm(tmpDir)
 			require.NoError(t, err)
-			assert.Equal(t, tt.expectedTerm, loadedTerm.CurrentTerm)
+			assert.Equal(t, tt.expectedTerm, loadedTerm.TermNumber)
 			assert.Equal(t, tt.expectedAcceptedLeader, loadedTerm.AcceptedLeader.GetName())
+
+			assert.NoError(t, mock.ExpectationsWereMet())
+		})
+	}
+
+	// Run save failure tests
+	for _, tt := range saveFailureTests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
+			pm, mock, tmpDir := setupManagerWithMockDB(t)
+
+			// Initialize term on disk
+			err := setConsensusTerm(tmpDir, tt.initialTerm)
+			require.NoError(t, err)
+
+			// Load into consensus state
+			err = pm.consensusState.Load()
+			require.NoError(t, err)
+
+			// Make filesystem read-only to simulate save failure
+			if tt.makeFilesystemReadOnly {
+				pgDataDir := tmpDir + "/pg_data"
+				consensusDir := pgDataDir + "/consensus"
+				err := os.Chmod(consensusDir, 0o555)
+				require.NoError(t, err)
+				// Restore permissions after test
+				t.Cleanup(func() {
+					_ = os.Chmod(consensusDir, 0o755)
+				})
+			}
+
+			// Setup mocks
+			tt.setupMocks(mock)
+
+			// Make request
+			req := &consensusdatapb.BeginTermRequest{
+				Term:        tt.requestTerm,
+				CandidateId: tt.requestCandidate,
+				ShardId:     "shard-1",
+			}
+
+			resp, err := pm.BeginTerm(ctx, req)
+
+			// Verify error behavior
+			if tt.expectedError {
+				assert.Error(t, err, tt.description)
+				assert.Nil(t, resp)
+
+				// CRITICAL: Verify memory is unchanged despite save failure
+				assert.Equal(t, tt.expectedMemoryTerm, pm.consensusState.GetCurrentTermNumber(), "Memory term should be unchanged after save failure")
+				assert.Equal(t, tt.expectedMemoryLeader, pm.consensusState.GetAcceptedLeader(), "Memory leader should be unchanged after save failure")
+
+				// Verify disk is unchanged
+				loadedTerm, loadErr := getConsensusTerm(tmpDir)
+				require.NoError(t, loadErr)
+				assert.Equal(t, tt.expectedMemoryTerm, loadedTerm.TermNumber, "Disk term should match initial state after save failure")
+				if tt.expectedMemoryLeader != "" {
+					assert.Equal(t, tt.expectedMemoryLeader, loadedTerm.AcceptedLeader.GetName(), "Disk leader should match initial state after save failure")
+				}
+			}
 
 			assert.NoError(t, mock.ExpectationsWereMet())
 		})
@@ -381,7 +501,7 @@ func TestConsensusStatus(t *testing.T) {
 		{
 			name: "HealthyPrimary",
 			initialTerm: &multipoolermanagerdatapb.ConsensusTerm{
-				CurrentTerm: 5,
+				TermNumber: 5,
 				AcceptedLeader: &clustermetadatapb.ID{
 					Cell: "zone1",
 					Name: "leader-node",
@@ -407,7 +527,7 @@ func TestConsensusStatus(t *testing.T) {
 		{
 			name: "HealthyStandby",
 			initialTerm: &multipoolermanagerdatapb.ConsensusTerm{
-				CurrentTerm:    3,
+				TermNumber:     3,
 				AcceptedLeader: nil,
 			},
 			termInMemory: true,
@@ -438,7 +558,7 @@ func TestConsensusStatus(t *testing.T) {
 		{
 			name: "NoDatabaseConnection",
 			initialTerm: &multipoolermanagerdatapb.ConsensusTerm{
-				CurrentTerm:    7,
+				TermNumber:     7,
 				AcceptedLeader: nil,
 			},
 			termInMemory:        true,
@@ -452,7 +572,7 @@ func TestConsensusStatus(t *testing.T) {
 		{
 			name: "DatabaseQueryFailure",
 			initialTerm: &multipoolermanagerdatapb.ConsensusTerm{
-				CurrentTerm:    4,
+				TermNumber:     4,
 				AcceptedLeader: nil,
 			},
 			termInMemory: true,
@@ -466,29 +586,6 @@ func TestConsensusStatus(t *testing.T) {
 			expectedRole:        "replica",
 			description:         "Should handle database query failure gracefully",
 		},
-		{
-			name: "TermNotLoadedYet",
-			initialTerm: &multipoolermanagerdatapb.ConsensusTerm{
-				CurrentTerm:    8,
-				AcceptedLeader: nil,
-			},
-			termInMemory: false,
-			setupMocks: func(mock sqlmock.Sqlmock) {
-				mock.ExpectQuery("SELECT COALESCE\\(MAX\\(leader_term\\), 0\\)").
-					WillReturnRows(sqlmock.NewRows([]string{"leader_term"}).AddRow(8))
-				// Single pg_is_in_recovery check determines both role and which WAL position to query
-				mock.ExpectQuery("SELECT pg_is_in_recovery\\(\\)").
-					WillReturnRows(sqlmock.NewRows([]string{"pg_is_in_recovery"}).AddRow(false))
-				mock.ExpectQuery("SELECT pg_current_wal_lsn\\(\\)").
-					WillReturnRows(sqlmock.NewRows([]string{"pg_current_wal_lsn"}).AddRow("0/6000000"))
-			},
-			expectedCurrentTerm: 8,
-			expectedLeaderTerm:  8,
-			expectedIsHealthy:   true,
-			expectedRole:        "primary",
-			expectedWALLsn:      "0/6000000",
-			description:         "Should load term from disk if not in memory",
-		},
 	}
 
 	for _, tt := range tests {
@@ -497,17 +594,14 @@ func TestConsensusStatus(t *testing.T) {
 			pm, mock, tmpDir := setupManagerWithMockDB(t)
 
 			// Initialize term on disk
-			err := SetTerm(tmpDir, tt.initialTerm)
+			err := setConsensusTerm(tmpDir, tt.initialTerm)
 			require.NoError(t, err)
 
-			// Set or clear in-memory term based on test case
-			pm.mu.Lock()
+			// Load term into consensus state if term should be in memory
 			if tt.termInMemory {
-				pm.consensusTerm = tt.initialTerm
-			} else {
-				pm.consensusTerm = nil
+				err = pm.consensusState.Load()
+				require.NoError(t, err)
 			}
-			pm.mu.Unlock()
 
 			// Handle nil DB case
 			if tt.nilDB {
@@ -545,10 +639,7 @@ func TestConsensusStatus(t *testing.T) {
 
 			// Verify term was loaded if applicable
 			if !tt.termInMemory && !tt.nilDB {
-				pm.mu.Lock()
-				assert.NotNil(t, pm.consensusTerm, "Term should be loaded into memory")
-				assert.Equal(t, tt.expectedCurrentTerm, pm.consensusTerm.CurrentTerm)
-				pm.mu.Unlock()
+				assert.Equal(t, tt.expectedCurrentTerm, pm.consensusState.GetCurrentTermNumber(), "Term should be loaded into memory")
 			}
 
 			if !tt.nilDB {

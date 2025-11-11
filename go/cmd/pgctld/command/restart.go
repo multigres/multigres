@@ -44,12 +44,12 @@ type PgCtlRestartCmd struct {
 func AddRestartCommand(root *cobra.Command, pc *PgCtlCommand) {
 	restartCmd := &PgCtlRestartCmd{
 		pgCtlCmd: pc,
-		mode: viperutil.Configure("restart-mode", viperutil.Options[string]{
+		mode: viperutil.Configure(pc.reg, "restart-mode", viperutil.Options[string]{
 			Default:  "fast",
 			FlagName: "mode",
 			Dynamic:  false,
 		}),
-		asStandby: viperutil.Configure("as-standby", viperutil.Options[bool]{
+		asStandby: viperutil.Configure(pc.reg, "as-standby", viperutil.Options[bool]{
 			Default:  false,
 			FlagName: "as-standby",
 			Dynamic:  false,
@@ -135,7 +135,7 @@ func RestartPostgreSQLWithResult(logger *slog.Logger, config *pgctld.PostgresCtl
 	} else {
 		logger.Info("Starting PostgreSQL server")
 	}
-	startResult, err := StartPostgreSQLWithResult(logger, config, false /* testOrphanDetection */)
+	startResult, err := StartPostgreSQLWithResult(logger, config)
 	if err != nil {
 		return nil, fmt.Errorf("failed to start PostgreSQL during restart: %w", err)
 	}

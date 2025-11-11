@@ -1,25 +1,18 @@
-//go:build !race
-
-/*
-Copyright 2019 The Vitess Authors.
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-
-Modifications Copyright 2025 Supabase, Inc.
-*/
-
-// Disabling race detector because it doesn't like TestPProfInitWithWaitSig and TestPProfInitWithoutWaitSig,
-// but the profileStarted variable is updated in response to signals invoked in the tests and works as intended.
+// Copyright 2019 The Vitess Authors.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+//
+// Modifications Copyright 2025 Supabase, Inc.
 
 package servenv
 
@@ -31,8 +24,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/multigres/multigres/go/viperutil"
 )
 
 func TestParseProfileFlag(t *testing.T) {
@@ -69,7 +63,7 @@ func TestParseProfileFlag(t *testing.T) {
 				profileFlag = strings.Split(tt.arg, ",")
 			}
 			// Create a ServEnv instance to call the method
-			sv := NewServEnv()
+			sv := NewServEnv(viperutil.NewRegistry())
 			got, err := sv.parseProfileFlag(profileFlag)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("parseProfileFlag() error = %v, wantErr %v", err, tt.wantErr)
@@ -87,32 +81,37 @@ func TestPProfInitWithWaitSig(t *testing.T) {
 	signal.Reset(syscall.SIGUSR1)
 
 	// Create a ServEnv instance and set pprofFlag
-	sv := NewServEnv()
+	sv := NewServEnv(viperutil.NewRegistry())
 	sv.pprofFlag.Set(strings.Split("cpu,waitSig", ","))
 
 	sv.pprofInit()
-	time.Sleep(1 * time.Second)
-	assert.Equal(t, uint32(0), profileStarted)
+	require.Eventually(t, func() bool {
+		return !isProfileStarted()
+	}, 2*time.Second, 10*time.Millisecond)
 
 	err := syscall.Kill(syscall.Getpid(), syscall.SIGUSR1)
 	require.NoError(t, err)
-	time.Sleep(1 * time.Second)
-	assert.Equal(t, uint32(1), profileStarted)
+	require.Eventually(t, func() bool {
+		return isProfileStarted()
+	}, 2*time.Second, 10*time.Millisecond)
 
 	err = syscall.Kill(syscall.Getpid(), syscall.SIGUSR1)
 	require.NoError(t, err)
-	time.Sleep(1 * time.Second)
-	assert.Equal(t, uint32(0), profileStarted)
+	require.Eventually(t, func() bool {
+		return !isProfileStarted()
+	}, 2*time.Second, 10*time.Millisecond)
 
 	err = syscall.Kill(syscall.Getpid(), syscall.SIGUSR1)
 	require.NoError(t, err)
-	time.Sleep(1 * time.Second)
-	assert.Equal(t, uint32(1), profileStarted)
+	require.Eventually(t, func() bool {
+		return isProfileStarted()
+	}, 2*time.Second, 10*time.Millisecond)
 
 	err = syscall.Kill(syscall.Getpid(), syscall.SIGUSR1)
 	require.NoError(t, err)
-	time.Sleep(1 * time.Second)
-	assert.Equal(t, uint32(0), profileStarted)
+	require.Eventually(t, func() bool {
+		return !isProfileStarted()
+	}, 2*time.Second, 10*time.Millisecond)
 }
 
 // without waitSig, we should start with profiling on and toggle off-on-off
@@ -120,25 +119,29 @@ func TestPProfInitWithoutWaitSig(t *testing.T) {
 	signal.Reset(syscall.SIGUSR1)
 
 	// Create a ServEnv instance and set pprofFlag
-	sv := NewServEnv()
+	sv := NewServEnv(viperutil.NewRegistry())
 	sv.pprofFlag.Set(strings.Split("cpu", ","))
 
 	sv.pprofInit()
-	time.Sleep(1 * time.Second)
-	assert.Equal(t, uint32(1), profileStarted)
+	require.Eventually(t, func() bool {
+		return isProfileStarted()
+	}, 2*time.Second, 10*time.Millisecond)
 
 	err := syscall.Kill(syscall.Getpid(), syscall.SIGUSR1)
 	require.NoError(t, err)
-	time.Sleep(1 * time.Second)
-	assert.Equal(t, uint32(0), profileStarted)
+	require.Eventually(t, func() bool {
+		return !isProfileStarted()
+	}, 2*time.Second, 10*time.Millisecond)
 
 	err = syscall.Kill(syscall.Getpid(), syscall.SIGUSR1)
 	require.NoError(t, err)
-	time.Sleep(1 * time.Second)
-	assert.Equal(t, uint32(1), profileStarted)
+	require.Eventually(t, func() bool {
+		return isProfileStarted()
+	}, 2*time.Second, 10*time.Millisecond)
 
 	err = syscall.Kill(syscall.Getpid(), syscall.SIGUSR1)
 	require.NoError(t, err)
-	time.Sleep(1 * time.Second)
-	assert.Equal(t, uint32(0), profileStarted)
+	require.Eventually(t, func() bool {
+		return !isProfileStarted()
+	}, 2*time.Second, 10*time.Millisecond)
 }

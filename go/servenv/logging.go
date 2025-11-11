@@ -60,19 +60,19 @@ type Logger struct {
 	loggingHooksMu     sync.Mutex
 }
 
-func NewLogger() *Logger {
+func NewLogger(reg *viperutil.Registry) *Logger {
 	return &Logger{
-		logLevel: viperutil.Configure("log-level", viperutil.Options[string]{
+		logLevel: viperutil.Configure(reg, "log-level", viperutil.Options[string]{
 			Default:  "info",
 			FlagName: "log-level",
 			Dynamic:  false,
 		}),
-		logFormat: viperutil.Configure("log-format", viperutil.Options[string]{
+		logFormat: viperutil.Configure(reg, "log-format", viperutil.Options[string]{
 			Default:  "json",
 			FlagName: "log-format",
 			Dynamic:  false,
 		}),
-		logOutput: viperutil.Configure("log-output", viperutil.Options[string]{
+		logOutput: viperutil.Configure(reg, "log-output", viperutil.Options[string]{
 			Default:  "stdout",
 			FlagName: "log-output",
 			Dynamic:  false,

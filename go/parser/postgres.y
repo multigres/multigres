@@ -14491,11 +14491,11 @@ ClosePortalStmt:
 			CLOSE cursor_name
 				{
 					name := $2
-					$$ = ast.NewClosePortalStmt(&name)
+					$$ = ast.NewClosePortalStmt(name)
 				}
 		|	CLOSE ALL
 				{
-					$$ = ast.NewClosePortalStmt(nil)
+					$$ = ast.NewClosePortalStmt("")
 				}
 		;
 

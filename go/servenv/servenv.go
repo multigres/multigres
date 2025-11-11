@@ -37,22 +37,24 @@ import (
 
 // ServEnv holds the service environment configuration and state
 type ServEnv struct {
+	// Configuration registry
+	reg *viperutil.Registry
+
 	// Configuration
-	httpPort            viperutil.Value[int]
-	bindAddress         viperutil.Value[string]
-	hostname            viperutil.Value[string]
-	lameduckPeriod      viperutil.Value[time.Duration]
-	onTermTimeout       viperutil.Value[time.Duration]
-	onCloseTimeout      viperutil.Value[time.Duration]
-	pidFile             viperutil.Value[string]
-	httpPprof           viperutil.Value[bool]
-	pprofFlag           viperutil.Value[[]string]
-	serviceMapFlag      viperutil.Value[[]string]
-	testOrphanDetection viperutil.Value[bool]
-	catchSigpipe        bool
-	maxStackSize        int
-	initStartTime       time.Time
-	vc                  *viperutil.ViperConfig
+	httpPort       viperutil.Value[int]
+	bindAddress    viperutil.Value[string]
+	hostname       viperutil.Value[string]
+	lameduckPeriod viperutil.Value[time.Duration]
+	onTermTimeout  viperutil.Value[time.Duration]
+	onCloseTimeout viperutil.Value[time.Duration]
+	pidFile        viperutil.Value[string]
+	httpPprof      viperutil.Value[bool]
+	pprofFlag      viperutil.Value[[]string]
+	serviceMapFlag viperutil.Value[[]string]
+	catchSigpipe   bool
+	maxStackSize   int
+	initStartTime  time.Time
+	vc             *viperutil.ViperConfig
 
 	// Hooks
 	onInitHooks     event.Hooks
@@ -78,69 +80,65 @@ type ServEnv struct {
 	serviceMap map[string]bool
 }
 
-// NewServEnv creates a new ServEnv instance with default configuration
-func NewServEnv() *ServEnv {
-	return NewServEnvWithConfig(NewLogger(), viperutil.NewViperConfig())
+// NewServEnv creates a new ServEnv instance with the given registry
+func NewServEnv(reg *viperutil.Registry) *ServEnv {
+	return NewServEnvWithConfig(reg, NewLogger(reg), viperutil.NewViperConfig(reg))
 }
 
-// NewServEnvWithConfig creates a new ServEnv instance with external logger and viper config.
-// This allows sharing logger and viper config instances across multiple components
+// NewServEnvWithConfig creates a new ServEnv instance with external registry, logger and viper config.
+// This allows sharing registry, logger and viper config instances across multiple components
 // to avoid duplicate flag registrations and binding conflicts.
-func NewServEnvWithConfig(lg *Logger, vc *viperutil.ViperConfig) *ServEnv {
+func NewServEnvWithConfig(reg *viperutil.Registry, lg *Logger, vc *viperutil.ViperConfig) *ServEnv {
 	return &ServEnv{
-		httpPort: viperutil.Configure("http-port", viperutil.Options[int]{
+		reg: reg,
+		httpPort: viperutil.Configure(reg, "http-port", viperutil.Options[int]{
 			Default:  0,
 			FlagName: "http-port",
 			Dynamic:  false,
 		}),
-		hostname: viperutil.Configure("hostname", viperutil.Options[string]{
+		hostname: viperutil.Configure(reg, "hostname", viperutil.Options[string]{
 			Default:  "",
 			FlagName: "hostname",
 			Dynamic:  false,
 		}),
-		bindAddress: viperutil.Configure("bind-address", viperutil.Options[string]{
+		bindAddress: viperutil.Configure(reg, "bind-address", viperutil.Options[string]{
 			Default:  "",
 			FlagName: "bind-address",
 			Dynamic:  false,
 		}),
-		lameduckPeriod: viperutil.Configure("lameduck-period", viperutil.Options[time.Duration]{
+		lameduckPeriod: viperutil.Configure(reg, "lameduck-period", viperutil.Options[time.Duration]{
 			Default:  50 * time.Millisecond,
 			FlagName: "lameduck-period",
 			Dynamic:  false,
 		}),
-		onTermTimeout: viperutil.Configure("onterm-timeout", viperutil.Options[time.Duration]{
+		onTermTimeout: viperutil.Configure(reg, "onterm-timeout", viperutil.Options[time.Duration]{
 			Default:  10 * time.Second,
 			FlagName: "onterm-timeout",
 			Dynamic:  false,
 		}),
-		onCloseTimeout: viperutil.Configure("onclose-timeout", viperutil.Options[time.Duration]{
+		onCloseTimeout: viperutil.Configure(reg, "onclose-timeout", viperutil.Options[time.Duration]{
 			Default:  10 * time.Second,
 			FlagName: "onclose-timeout",
 			Dynamic:  false,
 		}),
-		pidFile: viperutil.Configure("pid-file", viperutil.Options[string]{
+		pidFile: viperutil.Configure(reg, "pid-file", viperutil.Options[string]{
 			Default:  "",
 			FlagName: "pid-file",
 			Dynamic:  false,
 		}),
-		httpPprof: viperutil.Configure("pprof-http", viperutil.Options[bool]{
+		httpPprof: viperutil.Configure(reg, "pprof-http", viperutil.Options[bool]{
 			Default:  false,
 			FlagName: "pprof-http",
 			Dynamic:  false,
 		}),
-		pprofFlag: viperutil.Configure("pprof", viperutil.Options[[]string]{
+		pprofFlag: viperutil.Configure(reg, "pprof", viperutil.Options[[]string]{
 			Default:  []string{},
 			FlagName: "pprof",
 			Dynamic:  false,
 		}),
-		serviceMapFlag: viperutil.Configure("service-map", viperutil.Options[[]string]{
+		serviceMapFlag: viperutil.Configure(reg, "service-map", viperutil.Options[[]string]{
 			Default:  []string{},
 			FlagName: "service-map",
-			Dynamic:  false,
-		}),
-		testOrphanDetection: viperutil.Configure("test-orphan-detection", viperutil.Options[bool]{
-			Default:  false,
-			FlagName: "test-orphan-detection",
 			Dynamic:  false,
 		}),
 		vc:           vc,
@@ -205,11 +203,6 @@ func (se *ServEnv) GetHostname() string {
 // Hostname returns the hostname viperutil.Value for advanced usage
 func (se *ServEnv) Hostname() viperutil.Value[string] {
 	return se.hostname
-}
-
-// GetTestOrphanDetection returns whether test orphan detection is enabled
-func (se *ServEnv) GetTestOrphanDetection() bool {
-	return se.testOrphanDetection.Get()
 }
 
 // OnInit registers f to be run at the beginning of the app lifecycle
@@ -314,14 +307,14 @@ func getGlobalFlagHooks() (hooks []func(fs *pflag.FlagSet)) {
 func (sv *ServEnv) CobraPreRunE(cmd *cobra.Command) error {
 	// Register logging on config file change.
 	ch := make(chan struct{})
-	viperutil.NotifyConfigReload(ch)
+	viperutil.NotifyConfigReload(sv.reg, ch)
 	go func() {
 		for range ch {
-			slog.Info("Change in configuration", "settings", viperdebug.AllSettings())
+			slog.Info("Change in configuration", "settings", viperdebug.AllSettings(sv.reg))
 		}
 	}()
 
-	watchCancel, err := sv.vc.LoadConfig()
+	watchCancel, err := sv.vc.LoadConfig(sv.reg)
 	if err != nil {
 		return fmt.Errorf("%s: failed to read in config: %s", cmd.Name(), err)
 	}
@@ -366,11 +359,7 @@ func (se *ServEnv) registerFlags(fs *pflag.FlagSet, includeLoggerAndConfig bool)
 	fs.Duration("onclose-timeout", se.onCloseTimeout.Default(), "wait no more than this for OnClose handlers before stopping")
 	fs.String("pid-file", se.pidFile.Default(), "If set, the process will write its pid to the named file, and delete it on graceful shutdown.")
 
-	// Hidden test-only flag for orphan detection
-	fs.Bool("test-orphan-detection", se.testOrphanDetection.Default(), "")
-	_ = fs.MarkHidden("test-orphan-detection")
-
-	viperutil.BindFlags(fs, se.httpPort, se.bindAddress, se.hostname, se.lameduckPeriod, se.onTermTimeout, se.onCloseTimeout, se.pidFile, se.httpPprof, se.pprofFlag, se.serviceMapFlag, se.testOrphanDetection)
+	viperutil.BindFlags(fs, se.httpPort, se.bindAddress, se.hostname, se.lameduckPeriod, se.onTermTimeout, se.onCloseTimeout, se.pidFile, se.httpPprof, se.pprofFlag, se.serviceMapFlag)
 
 	// Server auth flags
 	for _, fn := range grpcAuthServerFlagHooks {
@@ -388,4 +377,13 @@ func (se *ServEnv) registerFlags(fs *pflag.FlagSet, includeLoggerAndConfig bool)
 	for _, hook := range getGlobalFlagHooks() {
 		hook(fs)
 	}
+}
+
+// IsTestOrphanDetectionEnabled returns true if test orphan detection environment
+// variables are set. This is used to determine if subprocesses should enable
+// orphan detection monitoring.
+func IsTestOrphanDetectionEnabled() bool {
+	testDataDir := os.Getenv("MULTIGRES_TESTDATA_DIR")
+	testParentPID := os.Getenv("MULTIGRES_TEST_PARENT_PID")
+	return testDataDir != "" || testParentPID != ""
 }

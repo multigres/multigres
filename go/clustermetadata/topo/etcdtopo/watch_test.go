@@ -35,14 +35,22 @@ import (
 
 // TestMain sets the path before running tests
 func TestMain(m *testing.M) {
-	// Set the PATH so etcd can be found
+	// Set the PATH so etcd and run_in_test.sh can be found
 	// Use automatic module root detection instead of hard-coded relative paths
 	if err := pathutil.PrependBinToPath(); err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to add bin to PATH: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Failed to add directories to PATH: %v\n", err)
 		os.Exit(1)
 	}
 
-	os.Exit(m.Run())
+	// Set orphan detection environment variable as baseline protection
+	os.Setenv("MULTIGRES_TEST_PARENT_PID", fmt.Sprintf("%d", os.Getpid()))
+
+	exitCode := m.Run()
+
+	// Cleanup environment variable
+	os.Unsetenv("MULTIGRES_TEST_PARENT_PID")
+
+	os.Exit(exitCode)
 }
 
 // TestWatchTopoVersion tests how the topo.Version values work within the etcd2topo
@@ -248,9 +256,14 @@ func TestWatchRecursiveReconnection(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, receiveUpdate("before-disconnect", 5*time.Second))
 
-	// Simulate etcd crash
-	require.NoError(t, etcdServer.Process.Kill())
+	// Simulate etcd crash - send SIGINT to allow cleanup trap to run
+	require.NoError(t, etcdServer.Process.Signal(os.Interrupt))
 	_ = etcdServer.Wait() // Ignore error - process was killed
+
+	// Wait for both ports to be released (client and peer)
+	require.Eventually(t, func() bool {
+		return checkPortAvailable(port) == nil && checkPortAvailable(port+1) == nil
+	}, 5*time.Second, 50*time.Millisecond, "ports should be released after etcd shutdown")
 
 	// Restart etcd with SAME data directory (simulates cluster recovery)
 	_, newEtcdServer := StartEtcdWithOptions(t, EtcdOptions{

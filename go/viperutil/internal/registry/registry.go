@@ -24,16 +24,6 @@ import (
 )
 
 var (
-	// Static is the registry for static config variables. These variables will
-	// never be affected by a Watch-ed config, and maintain their original
-	// values for the lifetime of the process.
-	Static = viper.New()
-	// Dynamic is the registry for dynamic config variables. If a config file is
-	// found by viper, it will be watched by a threadsafe wrapper around a
-	// second viper (see sync.Viper), and variables registered to it will pick
-	// up changes to that config file throughout the lifetime of the process.
-	Dynamic = sync.New()
-
 	_ Bindable = (*viper.Viper)(nil)
 	_ Bindable = (*sync.Viper)(nil)
 )
@@ -46,14 +36,4 @@ type Bindable interface {
 	BindPFlag(key string, flag *pflag.Flag) error
 	RegisterAlias(alias string, key string)
 	SetDefault(key string, value any)
-}
-
-// Combined returns a viper combining the Static and Dynamic registries.
-func Combined() *viper.Viper {
-	v := viper.New()
-	_ = v.MergeConfigMap(Static.AllSettings())
-	_ = v.MergeConfigMap(Dynamic.AllSettings())
-
-	v.SetConfigFile(Static.ConfigFileUsed())
-	return v
 }

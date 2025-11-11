@@ -356,12 +356,12 @@ func TestRoundTripCompatibility(t *testing.T) {
 		},
 		{
 			name:     "simple CLOSE statement",
-			node:     func() *ClosePortalStmt { name := "my_cursor"; return NewClosePortalStmt(&name) }(),
+			node:     func() *ClosePortalStmt { name := "my_cursor"; return NewClosePortalStmt(name) }(),
 			expected: "CLOSE my_cursor",
 		},
 		{
 			name:     "CLOSE ALL statement",
-			node:     NewClosePortalStmt(nil),
+			node:     NewClosePortalStmt(""),
 			expected: "CLOSE ALL",
 		},
 		// Prepared statements
