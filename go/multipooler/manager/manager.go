@@ -195,8 +195,12 @@ func (pm *MultiPoolerManager) connectDB() error {
 }
 
 // Open opens the database connections and starts background operations.
-// TODO: Replace with proper state manager (like tm_state.go) that orchestrates
-// state transitions and manages Open/Close lifecycle.
+// TODO:
+//   - Replace with proper state manager (like tm_state.go) that orchestrates
+//     state transitions and manages Open/Close lifecycle.
+//   - The replTracker is being Open/Close with a big hammer. A better approach
+//     is to call MakePrimary / MakeNonPrimary during state transitions.
+//     We can do this, once we introduce the proper state manager.
 func (pm *MultiPoolerManager) Open() error {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
@@ -211,7 +215,7 @@ func (pm *MultiPoolerManager) Open() error {
 		return fmt.Errorf("failed to connect to database: %w", err)
 	}
 
-	// Create sidecar schema and start heartbeat BEFORE opening query service controller
+	// Create sidecar schema and start heartbeat before opening query service controller
 	// This ensures the schema exists before queries can be served
 	if pm.replTracker == nil {
 		pm.logger.Info("MultiPoolerManager: Starting database heartbeat")
