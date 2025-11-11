@@ -62,6 +62,12 @@ func TestWriteHeartbeatOpen(t *testing.T) {
 
 	tw := newTestWriter(t, db, nil)
 
+	// Add mock for leader_term query during Open()
+	db.AddQuery("SELECT leader_term FROM multigres.heartbeat WHERE shard_id = $1", &fakepgdb.ExpectedResult{
+		Columns: []string{"leader_term"},
+		Rows:    [][]interface{}{{int64(0)}},
+	})
+
 	// Add expected heartbeat query pattern
 	db.AddQueryPattern("\\s*INSERT INTO multigres\\.heartbeat.*", &fakepgdb.ExpectedResult{
 		Columns: []string{},
@@ -83,7 +89,8 @@ func TestWriteHeartbeatOpen(t *testing.T) {
 		assert.EqualValues(t, 1, tw.Writes())
 	})
 
-	tw.Open()
+	err := tw.Open()
+	require.NoError(t, err)
 	defer tw.Close()
 
 	t.Run("open, heartbeats", func(t *testing.T) {
@@ -132,6 +139,12 @@ func TestCloseWhileStuckWriting(t *testing.T) {
 	startedWaitWg := sync.WaitGroup{}
 	startedWaitWg.Add(1)
 
+	// Add mock for leader_term query during Open()
+	db.AddQuery("SELECT leader_term FROM multigres.heartbeat WHERE shard_id = $1", &fakepgdb.ExpectedResult{
+		Columns: []string{"leader_term"},
+		Rows:    [][]interface{}{{int64(0)}},
+	})
+
 	// Insert a query pattern that causes the insert to block indefinitely until it has been killed
 	db.AddQueryPatternWithCallback("\\s*INSERT INTO multigres\\.heartbeat.*", &fakepgdb.ExpectedResult{
 		Columns: []string{},
@@ -155,7 +168,8 @@ func TestCloseWhileStuckWriting(t *testing.T) {
 	})
 
 	// Open the writer and enable writes
-	tw.Open()
+	err := tw.Open()
+	require.NoError(t, err)
 
 	// Wait until the write has blocked
 	startedWaitWg.Wait()
@@ -183,6 +197,12 @@ func TestOpenClose(t *testing.T) {
 
 	tw := newTestWriter(t, db, nil)
 
+	// Add mock for leader_term query during Open()
+	db.AddQuery("SELECT leader_term FROM multigres.heartbeat WHERE shard_id = $1", &fakepgdb.ExpectedResult{
+		Columns: []string{"leader_term"},
+		Rows:    [][]interface{}{{int64(0)}},
+	})
+
 	db.AddQueryPattern("\\s*INSERT INTO multigres\\.heartbeat.*", &fakepgdb.ExpectedResult{
 		Columns: []string{},
 		Rows:    [][]interface{}{},
@@ -194,11 +214,13 @@ func TestOpenClose(t *testing.T) {
 
 	assert.False(t, tw.IsOpen())
 
-	tw.Open()
+	err := tw.Open()
+	require.NoError(t, err)
 	assert.True(t, tw.IsOpen())
 
 	// Open should be idempotent
-	tw.Open()
+	err = tw.Open()
+	require.NoError(t, err)
 	assert.True(t, tw.IsOpen())
 
 	tw.Close()
@@ -215,6 +237,12 @@ func TestMultipleWriters(t *testing.T) {
 	sqlDB := db.OpenDB()
 	defer sqlDB.Close()
 
+	// Add mock for leader_term query during Open()
+	db.AddQuery("SELECT leader_term FROM multigres.heartbeat WHERE shard_id = $1", &fakepgdb.ExpectedResult{
+		Columns: []string{"leader_term"},
+		Rows:    [][]interface{}{{int64(0)}},
+	})
+
 	db.AddQueryPattern("\\s*INSERT INTO multigres\\.heartbeat.*", &fakepgdb.ExpectedResult{
 		Columns: []string{},
 		Rows:    [][]interface{}{},
@@ -227,8 +255,10 @@ func TestMultipleWriters(t *testing.T) {
 	tw1 := newTestWriter(t, db, nil)
 	tw2 := newTestWriter(t, db, nil)
 
-	tw1.Open()
-	tw2.Open()
+	err := tw1.Open()
+	require.NoError(t, err)
+	err = tw2.Open()
+	require.NoError(t, err)
 
 	defer tw1.Close()
 	defer tw2.Close()
@@ -283,6 +313,7 @@ func TestWriterOpen(t *testing.T) {
 		dbError        error
 		expectedTerm   int64
 		expectedIsOpen bool
+		expectError    bool
 	}{
 		{
 			name:           "TermFromDatabase",
@@ -291,6 +322,7 @@ func TestWriterOpen(t *testing.T) {
 			dbError:        nil,
 			expectedTerm:   10,
 			expectedIsOpen: true,
+			expectError:    false,
 		},
 		{
 			name:           "EqualTerms",
@@ -299,6 +331,7 @@ func TestWriterOpen(t *testing.T) {
 			dbError:        nil,
 			expectedTerm:   5,
 			expectedIsOpen: true,
+			expectError:    false,
 		},
 		{
 			name:           "NoRow",
@@ -307,6 +340,7 @@ func TestWriterOpen(t *testing.T) {
 			dbError:        sql.ErrNoRows,
 			expectedTerm:   0,
 			expectedIsOpen: true,
+			expectError:    false,
 		},
 		{
 			name:           "QueryError",
@@ -314,7 +348,8 @@ func TestWriterOpen(t *testing.T) {
 			dbTerm:         nil,
 			dbError:        assert.AnError,
 			expectedTerm:   0,
-			expectedIsOpen: true,
+			expectedIsOpen: false,
+			expectError:    true,
 		},
 	}
 
@@ -344,7 +379,14 @@ func TestWriterOpen(t *testing.T) {
 			}
 
 			// Call Open()
-			w.Open()
+			err = w.Open()
+
+			// Verify error expectation
+			if tt.expectError {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+			}
 
 			// Verify state
 			assert.Equal(t, tt.expectedIsOpen, w.IsOpen())
@@ -381,11 +423,13 @@ func TestWriterOpen_AlreadyOpen(t *testing.T) {
 		WillReturnRows(rows)
 
 	// First Open() should query database
-	w.Open()
+	err = w.Open()
+	require.NoError(t, err)
 	assert.True(t, w.IsOpen())
 
 	// Second Open() should return immediately without querying (no more expectations)
-	w.Open()
+	err = w.Open()
+	require.NoError(t, err)
 	assert.True(t, w.IsOpen())
 
 	// Verify all expectations met (only one query)
@@ -412,7 +456,8 @@ func TestWriterClose_ResetsLeaderTerm(t *testing.T) {
 		WillReturnRows(rows)
 
 	// Open should initialize term from database
-	w.Open()
+	err = w.Open()
+	require.NoError(t, err)
 	assert.Equal(t, int64(5), w.GetLeaderTerm())
 
 	// Close should reset term to 0
@@ -443,7 +488,8 @@ func TestWriterReopenAfterClose(t *testing.T) {
 		WithArgs(shardID).
 		WillReturnRows(rows1)
 
-	w.Open()
+	err = w.Open()
+	require.NoError(t, err)
 	assert.Equal(t, int64(5), w.GetLeaderTerm())
 
 	// Close (resets term to 0)
@@ -456,7 +502,8 @@ func TestWriterReopenAfterClose(t *testing.T) {
 		WithArgs(shardID).
 		WillReturnRows(rows2)
 
-	w.Open()
+	err = w.Open()
+	require.NoError(t, err)
 	assert.Equal(t, int64(10), w.GetLeaderTerm())
 
 	// Verify all expectations met

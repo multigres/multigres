@@ -268,7 +268,9 @@ func (pm *MultiPoolerManager) startHeartbeat(ctx context.Context, shardID []byte
 
 	if isPrimary {
 		pm.logger.InfoContext(ctx, "Starting heartbeat writer - connected to primary database")
-		pm.replTracker.MakePrimary()
+		if err := pm.replTracker.MakePrimary(); err != nil {
+			return fmt.Errorf("failed to start heartbeat writer: %w", err)
+		}
 	} else {
 		pm.logger.InfoContext(ctx, "Not starting heartbeat writer - connected to standby database")
 		pm.replTracker.MakeNonPrimary()
@@ -1103,7 +1105,9 @@ func (pm *MultiPoolerManager) updateTopologyAfterPromotion(ctx context.Context, 
 	// Update heartbeat tracker to primary mode
 	if pm.replTracker != nil {
 		pm.logger.InfoContext(ctx, "Updating heartbeat tracker to primary mode")
-		pm.replTracker.MakePrimary()
+		if err := pm.replTracker.MakePrimary(); err != nil {
+			return mterrors.Wrap(err, "failed to update heartbeat tracker to primary mode")
+		}
 	}
 
 	return nil

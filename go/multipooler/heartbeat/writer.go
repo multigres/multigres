@@ -78,11 +78,11 @@ func NewWriter(db *sql.DB, logger *slog.Logger, shardID []byte, poolerID string,
 }
 
 // Open starts the heartbeat writer.
-func (w *Writer) Open() {
+func (w *Writer) Open() error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	if w.isOpen {
-		return
+		return nil
 	}
 
 	success := false
@@ -103,10 +103,10 @@ func (w *Writer) Open() {
 	var existingTerm sql.NullInt64
 	err := w.db.QueryRowContext(ctx, "SELECT leader_term FROM multigres.heartbeat WHERE shard_id = $1", w.shardID).Scan(&existingTerm)
 
-	if err != nil && err != sql.ErrNoRows {
-		w.logger.Warn("Failed to read existing leader_term from database", "error", err)
-	} else if err == sql.ErrNoRows {
+	if err == sql.ErrNoRows {
 		w.logger.Info("No existing heartbeat row found, starting with leader_term = 0")
+	} else if err != nil {
+		return mterrors.Wrap(err, "failed to read existing leader_term from database")
 	} else if existingTerm.Valid {
 		currentMemoryTerm := w.GetLeaderTerm()
 		if existingTerm.Int64 != currentMemoryTerm {
@@ -121,6 +121,7 @@ func (w *Writer) Open() {
 
 	w.enableWrites()
 	success = true
+	return nil
 }
 
 // Close stops the heartbeat writer and periodic ticker.

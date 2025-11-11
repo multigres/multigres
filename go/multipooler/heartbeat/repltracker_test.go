@@ -22,6 +22,7 @@ import (
 	"github.com/multigres/multigres/go/fakepgdb"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestReplTrackerMakePrimary(t *testing.T) {
@@ -29,6 +30,10 @@ func TestReplTrackerMakePrimary(t *testing.T) {
 	sqlDB := db.OpenDB()
 	defer sqlDB.Close()
 
+	db.AddQuery("SELECT leader_term FROM multigres.heartbeat WHERE shard_id = $1", &fakepgdb.ExpectedResult{
+		Columns: []string{"leader_term"},
+		Rows:    [][]interface{}{{int64(0)}},
+	})
 	db.AddQueryPattern("\\s*INSERT INTO multigres\\.heartbeat.*", &fakepgdb.ExpectedResult{
 		Columns: []string{},
 		Rows:    [][]interface{}{},
@@ -52,7 +57,8 @@ func TestReplTrackerMakePrimary(t *testing.T) {
 	assert.False(t, rt.IsPrimary())
 	assert.False(t, rt.hw.IsOpen())
 
-	rt.MakePrimary()
+	err := rt.MakePrimary()
+	require.NoError(t, err)
 	assert.True(t, rt.IsPrimary())
 	assert.True(t, rt.hw.IsOpen())
 
@@ -68,6 +74,10 @@ func TestReplTrackerMakeNonPrimary(t *testing.T) {
 	sqlDB := db.OpenDB()
 	defer sqlDB.Close()
 
+	db.AddQuery("SELECT leader_term FROM multigres.heartbeat WHERE shard_id = $1", &fakepgdb.ExpectedResult{
+		Columns: []string{"leader_term"},
+		Rows:    [][]interface{}{{int64(0)}},
+	})
 	db.AddQueryPattern("\\s*INSERT INTO multigres\\.heartbeat.*", &fakepgdb.ExpectedResult{
 		Columns: []string{},
 		Rows:    [][]interface{}{},
@@ -94,7 +104,8 @@ func TestReplTrackerMakeNonPrimary(t *testing.T) {
 	rt := NewReplTracker(sqlDB, logger, shardID, poolerID, 250)
 	defer rt.Close()
 
-	rt.MakePrimary()
+	err := rt.MakePrimary()
+	require.NoError(t, err)
 	assert.True(t, rt.IsPrimary())
 	assert.True(t, rt.hw.IsOpen())
 
@@ -119,6 +130,10 @@ func TestReplTrackerEnableHeartbeat(t *testing.T) {
 	sqlDB := db.OpenDB()
 	defer sqlDB.Close()
 
+	db.AddQuery("SELECT leader_term FROM multigres.heartbeat WHERE shard_id = $1", &fakepgdb.ExpectedResult{
+		Columns: []string{"leader_term"},
+		Rows:    [][]interface{}{{int64(0)}},
+	})
 	db.AddQueryPattern("\\s*INSERT INTO multigres\\.heartbeat.*", &fakepgdb.ExpectedResult{
 		Columns: []string{},
 		Rows:    [][]interface{}{},
@@ -139,7 +154,8 @@ func TestReplTrackerEnableHeartbeat(t *testing.T) {
 	rt := NewReplTracker(sqlDB, logger, shardID, poolerID, 250)
 	defer rt.Close()
 
-	rt.hw.Open()
+	err := rt.hw.Open()
+	require.NoError(t, err)
 	defer rt.hw.Close()
 
 	// Manually enable writes
@@ -173,6 +189,10 @@ func TestReplTrackerMakePrimaryAndNonPrimary(t *testing.T) {
 	defer sqlDB.Close()
 
 	// Setup queries for both writer and reader
+	db.AddQuery("SELECT leader_term FROM multigres.heartbeat WHERE shard_id = $1", &fakepgdb.ExpectedResult{
+		Columns: []string{"leader_term"},
+		Rows:    [][]interface{}{{int64(0)}},
+	})
 	db.AddQueryPattern("\\s*INSERT INTO multigres\\.heartbeat.*", &fakepgdb.ExpectedResult{
 		Columns: []string{},
 		Rows:    [][]interface{}{},
@@ -204,7 +224,8 @@ func TestReplTrackerMakePrimaryAndNonPrimary(t *testing.T) {
 	rt.hr.ticks.SetInterval(250 * time.Millisecond)
 
 	// Start as primary
-	rt.MakePrimary()
+	err := rt.MakePrimary()
+	require.NoError(t, err)
 	assert.True(t, rt.IsPrimary())
 	assert.True(t, rt.hw.IsOpen())
 	assert.False(t, rt.hr.IsOpen())

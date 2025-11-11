@@ -50,13 +50,16 @@ func (rt *ReplTracker) HeartbeatReader() *Reader {
 }
 
 // MakePrimary must be called if the database becomes a primary.
-func (rt *ReplTracker) MakePrimary() {
+func (rt *ReplTracker) MakePrimary() error {
 	rt.mu.Lock()
 	defer rt.mu.Unlock()
 
 	rt.hr.Close()
-	rt.hw.Open()
+	if err := rt.hw.Open(); err != nil {
+		return err
+	}
 	rt.isPrimary = true
+	return nil
 }
 
 // MakeNonPrimary must be called if the database becomes a non-primary (standby).
