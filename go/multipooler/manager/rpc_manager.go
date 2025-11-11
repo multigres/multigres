@@ -946,12 +946,6 @@ func (pm *MultiPoolerManager) SetTerm(ctx context.Context, term *multipoolermana
 		return mterrors.Wrap(err, "failed to set consensus term")
 	}
 
-	// Synchronize term to heartbeat writer if it exists
-	if pm.replTracker != nil {
-		pm.replTracker.HeartbeatWriter().SetLeaderTerm(term.GetTermNumber())
-		pm.logger.InfoContext(ctx, "Synchronized term to heartbeat writer", "term", term.GetTermNumber())
-	}
-
 	pm.logger.InfoContext(ctx, "SetTerm completed successfully", "current_term", term.GetTermNumber())
 	return nil
 }
