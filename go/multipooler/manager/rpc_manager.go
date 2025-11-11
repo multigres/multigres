@@ -99,12 +99,6 @@ func (pm *MultiPoolerManager) SetPrimaryConnInfo(ctx context.Context, host strin
 		return err
 	}
 
-	// Ensure database connection
-	if err := pm.connectDB(); err != nil {
-		pm.logger.ErrorContext(ctx, "Failed to connect to database", "error", err)
-		return mterrors.Wrap(err, "database connection failed")
-	}
-
 	// Guardrail: Check if the PostgreSQL instance is in recovery (standby mode)
 	isPrimary, err := pm.isPrimary(ctx)
 	if err != nil {
@@ -706,12 +700,6 @@ func (pm *MultiPoolerManager) Demote(ctx context.Context, consensusTerm int64, d
 		return nil, err
 	}
 
-	// Ensure database connection
-	if err := pm.connectDB(); err != nil {
-		pm.logger.ErrorContext(ctx, "Failed to connect to database", "error", err)
-		return nil, mterrors.Wrap(err, "database connection failed")
-	}
-
 	// Guard rail: Demote can only be called on a PRIMARY
 	if err := pm.checkPrimaryGuardrails(ctx); err != nil {
 		return nil, err
@@ -840,12 +828,6 @@ func (pm *MultiPoolerManager) Promote(ctx context.Context, consensusTerm int64, 
 	// Validate term - strict equality, no automatic updates
 	if err := pm.validateTermExactMatch(ctx, consensusTerm, force); err != nil {
 		return nil, err
-	}
-
-	// Ensure database connection
-	if err := pm.connectDB(); err != nil {
-		pm.logger.ErrorContext(ctx, "Failed to connect to database", "error", err)
-		return nil, mterrors.Wrap(err, "database connection failed")
 	}
 
 	// Check current promotion state to determine what needs to be done

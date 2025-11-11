@@ -15,13 +15,13 @@
 package poolerserver
 
 // RegisterPoolerServiceFunc is used to delay registration of pooler gRPC servers until we have all the objects.
-type RegisterPoolerServiceFunc func(*MultiPooler)
+type RegisterPoolerServiceFunc func(*QueryPoolerServer)
 
 // RegisterPoolerServices is a list of functions to call when the delayed gRPC registration is triggered.
 var RegisterPoolerServices []RegisterPoolerServiceFunc
 
 // registerGRPCServices will register all the pooler gRPC service instances.
-func (s *MultiPooler) registerGRPCServices() {
+func (s *QueryPoolerServer) registerGRPCServices() {
 	for _, f := range RegisterPoolerServices {
 		f(s)
 	}
