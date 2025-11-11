@@ -299,10 +299,16 @@ func (pm *MultiPoolerManager) Close() error {
 	if pm.replTracker != nil {
 		pm.replTracker.Close()
 	}
+
 	if pm.db != nil {
 		if err := pm.db.Close(); err != nil {
 			return err
 		}
+		pm.db = nil
+	}
+
+	if err := pm.qsc.Close(); err != nil {
+		return err
 	}
 
 	pm.logger.Info("MultiPoolerManager: closed")
@@ -785,6 +791,12 @@ func (pm *MultiPoolerManager) restartPostgresAsStandby(ctx context.Context, stat
 		AsStandby: true, // Create standby.signal before restart
 	}
 
+	// Close the query service controller to release its stale database connection
+	if err := pm.Close(); err != nil {
+		pm.logger.WarnContext(ctx, "Failed to close query service controller after restart", "error", err)
+		// Continue - we'll try to reconnect anyway
+	}
+
 	resp, err := pm.pgctldClient.Restart(ctx, req)
 	if err != nil {
 		pm.logger.ErrorContext(ctx, "Failed to restart PostgreSQL as standby", "error", err)
@@ -795,16 +807,10 @@ func (pm *MultiPoolerManager) restartPostgresAsStandby(ctx context.Context, stat
 		"pid", resp.Pid,
 		"message", resp.Message)
 
-	// Close database connection since PostgreSQL restarted
-	if pm.db != nil {
-		pm.db.Close()
-		pm.db = nil
-	}
-
-	// Reconnect to PostgreSQL
-	if err := pm.connectDB(); err != nil {
-		pm.logger.ErrorContext(ctx, "Failed to reconnect to database after restart", "error", err)
-		return mterrors.Wrap(err, "failed to reconnect to database")
+	// Reopen the manager
+	if err := pm.Open(); err != nil {
+		pm.logger.ErrorContext(ctx, "Failed to reopen query service controller after restart", "error", err)
+		return mterrors.Wrap(err, "failed to reopen query service controller")
 	}
 
 	// Verify server is in recovery mode (standby)

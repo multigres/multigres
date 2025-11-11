@@ -180,11 +180,10 @@ func (s *QueryPoolerServer) StartServiceForTests(dbConfig *DBConfig) error {
 // Implements PoolerController interface.
 func (s *QueryPoolerServer) Close() error {
 	s.mu.Lock()
-	exec := s.executor
-	s.executor = nil
-	s.mu.Unlock()
-
-	if exec != nil {
+	defer s.mu.Unlock()
+	// Executor was never initialized, nothing to do
+	if s.executor != nil {
+		exec := s.executor
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		return exec.Close(ctx)
