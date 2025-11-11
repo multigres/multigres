@@ -279,8 +279,8 @@ func TestConsensus_GetLeadershipView(t *testing.T) {
 		assert.NotEmpty(t, resp.LeaderId, "LeaderId should not be empty")
 		assert.Equal(t, "primary-multipooler", resp.LeaderId, "LeaderId should be primary-multipooler")
 
-		// Verify leader_term is set (should be 1 from test setup)
-		assert.Equal(t, int64(1), resp.LeaderTerm, "LeaderTerm should be 1")
+		// Verify leader_term is set (should be >= 1, may be higher if previous tests ran)
+		assert.GreaterOrEqual(t, resp.LeaderTerm, int64(1), "LeaderTerm should be at least 1")
 
 		// Verify last_heartbeat is set and recent
 		require.NotNil(t, resp.LastHeartbeat, "LastHeartbeat should not be nil")
@@ -315,7 +315,7 @@ func TestConsensus_GetLeadershipView(t *testing.T) {
 		// Standby should also see the same leader information
 		assert.NotEmpty(t, resp.LeaderId, "LeaderId should not be empty")
 		assert.Equal(t, "primary-multipooler", resp.LeaderId, "LeaderId should be primary-multipooler")
-		assert.Equal(t, int64(1), resp.LeaderTerm, "LeaderTerm should be 1")
+		assert.GreaterOrEqual(t, resp.LeaderTerm, int64(1), "LeaderTerm should be at least 1")
 
 		require.NotNil(t, resp.LastHeartbeat, "LastHeartbeat should not be nil")
 		assert.True(t, resp.LastHeartbeat.IsValid(), "LastHeartbeat should be a valid timestamp")
