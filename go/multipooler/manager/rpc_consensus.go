@@ -122,24 +122,8 @@ func (pm *MultiPoolerManager) ConsensusStatus(ctx context.Context, req *consensu
 	// Get local term from consensus state
 	localTerm := cs.GetCurrentTermNumber()
 
-	// Get last successful leader term from Postgres (replicated data)
-	var leaderTerm int64
-	isHealthy := false
-
-	if pm.db != nil {
-		err := pm.db.QueryRowContext(ctx, `
-			SELECT COALESCE(MAX(leader_term), 0)
-			FROM multigres.heartbeat
-			WHERE shard_id = $1
-		`, []byte(req.ShardId)).Scan(&leaderTerm)
-
-		if err != nil {
-			pm.logger.WarnContext(ctx, "Failed to query postgres leader term", "error", err)
-			leaderTerm = 0
-		} else {
-			isHealthy = true
-		}
-	}
+	// Check if database is healthy
+	isHealthy := pm.db != nil
 
 	// Get WAL position and determine role (primary/replica)
 	walPosition := &consensusdatapb.WALPosition{
@@ -174,7 +158,6 @@ func (pm *MultiPoolerManager) ConsensusStatus(ctx context.Context, req *consensu
 	return &consensusdatapb.StatusResponse{
 		PoolerId:    pm.serviceID.GetName(),
 		CurrentTerm: localTerm,
-		LeaderTerm:  leaderTerm,
 		WalPosition: walPosition,
 		IsHealthy:   isHealthy,
 		IsEligible:  true, // TODO: implement eligibility logic based on policy
@@ -198,7 +181,6 @@ func (pm *MultiPoolerManager) GetLeadershipView(ctx context.Context, req *consen
 
 	return &consensusdatapb.LeadershipViewResponse{
 		LeaderId:         view.LeaderID,
-		LeaderTerm:       view.LeaderTerm,
 		LastHeartbeat:    timestamppb.New(view.LastHeartbeat),
 		ReplicationLagNs: view.ReplicationLag.Nanoseconds(),
 	}, nil
