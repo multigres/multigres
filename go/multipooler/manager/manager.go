@@ -298,6 +298,7 @@ func (pm *MultiPoolerManager) Close() error {
 	// Close resources (safe to call even if nil/never opened)
 	if pm.replTracker != nil {
 		pm.replTracker.Close()
+		pm.replTracker = nil
 	}
 
 	if pm.db != nil {
