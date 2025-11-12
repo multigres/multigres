@@ -61,18 +61,8 @@ func (t *Telemetry) WithTestExporters(spanExporter sdktrace.SpanExporter, metric
 }
 
 // InitTelemetry initializes OpenTelemetry providers and exporters
-// This should be called early in the service lifecycle, typically in OnInit or OnRun hooks
-// Configuration is done via standard OpenTelemetry environment variables:
-// - OTEL_SERVICE_NAME: Service name (defaults to defaultServiceName)
-// - OTEL_EXPORTER_OTLP_ENDPOINT: OTLP endpoint URL
-// - OTEL_EXPORTER_OTLP_PROTOCOL: "http/protobuf" or "grpc"
-// - OTEL_TRACES_EXPORTER: "otlp", "console", or "none" (defaults to "none" if not set)
-// - OTEL_METRICS_EXPORTER: "otlp", "console", or "none" (defaults to "none" if not set)
-// - OTEL_TRACES_SAMPLER: "always_on", "always_off", "traceidratio", "parentbased_always_on", etc.
-// - COMMAND_OTEL_TRACES_SAMPLER: CLI-specific sampler (used when OTEL_TRACES_SAMPLER is unset)
 //
-// Note: By default, telemetry data is not exported unless explicitly configured. This prevents
-// unwanted data transmission when OpenTelemetry environment variables are not set.
+// Configuration is done via standard OpenTelemetry environment variables
 func (t *Telemetry) InitTelemetry(ctx context.Context, defaultServiceName string) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -94,12 +84,10 @@ func (t *Telemetry) InitTelemetry(ctx context.Context, defaultServiceName string
 		semconv.ServiceName(serviceName),
 	)
 
-	// Initialize tracing
 	if err := t.initTracing(ctx, res); err != nil {
 		return fmt.Errorf("failed to initialize tracing: %w", err)
 	}
 
-	// Initialize metrics
 	if err := t.initMetrics(ctx, res); err != nil {
 		return fmt.Errorf("failed to initialize metrics: %w", err)
 	}
