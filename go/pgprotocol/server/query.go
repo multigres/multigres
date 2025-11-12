@@ -59,6 +59,44 @@ func (c *Conn) readQueryMessage() (string, error) {
 	return queryStr, nil
 }
 
+// writeParameterDescription writes a 't' (ParameterDescription) message.
+// Format:
+//   - Type: 't'
+//   - Length: int32
+//   - Parameter count: int16
+//   - For each parameter:
+//   - Type OID: int32
+func (c *Conn) writeParameterDescription(params []*query.ParameterDescription) error {
+	// Calculate message size: length + param count + (param count * 4 bytes per OID).
+	size := 4 + 2 + (len(params) * 4)
+
+	w := c.getWriter()
+
+	// Write message type.
+	if err := writeByte(w, protocol.MsgParameterDescription); err != nil {
+		return err
+	}
+
+	// Write message length.
+	if err := writeInt32(w, int32(size)); err != nil {
+		return err
+	}
+
+	// Write parameter count.
+	if err := writeInt16(w, int16(len(params))); err != nil {
+		return err
+	}
+
+	// Write each parameter OID.
+	for _, param := range params {
+		if err := writeInt32(w, int32(param.DataTypeOid)); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
 // writeRowDescription writes a 'T' (RowDescription) message.
 // Format:
 //   - Type: 'T'

@@ -28,6 +28,7 @@ import (
 	"github.com/multigres/multigres/go/clustermetadata/topo"
 	"github.com/multigres/multigres/go/clustermetadata/toporeg"
 	"github.com/multigres/multigres/go/multigateway/executor"
+	"github.com/multigres/multigres/go/multigateway/handler"
 	"github.com/multigres/multigres/go/multigateway/poolergateway"
 	"github.com/multigres/multigres/go/multigateway/scatterconn"
 	"github.com/multigres/multigres/go/pgprotocol/server"
@@ -99,6 +100,16 @@ func NewMultiGateway() *MultiGateway {
 	return mg
 }
 
+// Executor returns the query executor for this multigateway.
+func (mg *MultiGateway) Executor() *executor.Executor {
+	return mg.executor
+}
+
+// ServEnv returns the serving environment for this multigateway.
+func (mg *MultiGateway) ServEnv() *servenv.ServEnv {
+	return mg.senv
+}
+
 func (mg *MultiGateway) RegisterFlags(fs *pflag.FlagSet) {
 	fs.String("cell", mg.cell.Default(), "cell to use")
 	fs.String("service-id", mg.serviceID.Default(), "optional service ID (if empty, a random ID will be generated)")
@@ -142,7 +153,7 @@ func (mg *MultiGateway) Init() {
 	mg.executor = executor.NewExecutor(mg.scatterConn, logger)
 
 	// Create and start PostgreSQL protocol listener
-	pgHandler := NewMultiGatewayHandler(mg)
+	pgHandler := handler.NewMultiGatewayHandler(mg.executor, logger)
 	pgAddr := fmt.Sprintf("localhost:%d", mg.pgPort.Get())
 	var err error
 	mg.pgListener, err = server.NewListener(server.ListenerConfig{
