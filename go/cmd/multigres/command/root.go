@@ -82,7 +82,7 @@ Configuration:
 				return err
 			}
 
-			if span, err = mc.telemetry.InitForCommand(cmd, "multigres-cli", true); err != nil {
+			if span, err = mc.telemetry.InitForCommand(cmd, "multigres-cli", true /* startSpan */); err != nil {
 				return fmt.Errorf("failed to initialize OpenTelemetry: %w", err)
 			}
 
