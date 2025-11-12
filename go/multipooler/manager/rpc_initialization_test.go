@@ -392,23 +392,4 @@ func TestHelperMethods(t *testing.T) {
 		_, err = os.Stat(dataDir)
 		assert.True(t, os.IsNotExist(err))
 	})
-
-	t.Run("createStandbySignal", func(t *testing.T) {
-		poolerDir := t.TempDir()
-		config := &Config{PoolerDir: poolerDir}
-		pm := &MultiPoolerManager{config: config, logger: slog.Default()}
-
-		// Create data directory first
-		dataDir := filepath.Join(poolerDir, "pg_data")
-		require.NoError(t, os.MkdirAll(dataDir, 0o755))
-
-		// Create standby.signal
-		err := pm.createStandbySignal()
-		require.NoError(t, err)
-
-		// Verify file exists
-		signalPath := filepath.Join(dataDir, "standby.signal")
-		_, err = os.Stat(signalPath)
-		require.NoError(t, err)
-	})
 }

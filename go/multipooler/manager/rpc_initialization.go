@@ -107,20 +107,7 @@ func (pm *MultiPoolerManager) InitializeAsStandby(ctx context.Context, req *mult
 	}
 	defer pm.actionLock.Release(ctx)
 
-	// 1. Stop PostgreSQL if running
-	if pm.isPostgresRunning(ctx) {
-		pm.logger.InfoContext(ctx, "Stopping PostgreSQL before initialization", "shard", pm.getShardID())
-		if pm.pgctldClient == nil {
-			return nil, fmt.Errorf("pgctld client not available")
-		}
-
-		stopReq := &pgctldpb.StopRequest{}
-		if _, err := pm.pgctldClient.Stop(ctx, stopReq); err != nil {
-			return nil, fmt.Errorf("failed to stop PostgreSQL: %w", err)
-		}
-	}
-
-	// 2. Remove data directory if force_reinit
+	// 1. Remove data directory if force_reinit
 	if req.ForceReinit && pm.hasDataDirectory() {
 		pm.logger.InfoContext(ctx, "Force reinit: removing data directory", "shard", pm.getShardID())
 		if err := pm.removeDataDirectory(); err != nil {
@@ -128,7 +115,7 @@ func (pm *MultiPoolerManager) InitializeAsStandby(ctx context.Context, req *mult
 		}
 	}
 
-	// 3. TODO: Restore from primary using pgBackRest (PR #226)
+	// 2. TODO: Restore from primary using pgBackRest (PR #226)
 	// For now, we'll use pg_basebackup as a placeholder
 	pm.logger.InfoContext(ctx, "Performing backup from primary", "primary", fmt.Sprintf("%s:%d", req.PrimaryHost, req.PrimaryPort))
 
@@ -136,33 +123,31 @@ func (pm *MultiPoolerManager) InitializeAsStandby(ctx context.Context, req *mult
 	// For now, we skip the actual backup to avoid dependencies
 	finalLSN := ""
 
-	// 4. Create standby.signal
-	if err := pm.createStandbySignal(); err != nil {
-		return nil, fmt.Errorf("failed to create standby.signal: %w", err)
-	}
-
-	// 5. Configure primary_conninfo
+	// 3. Configure primary_conninfo
 	if err := pm.SetPrimaryConnInfo(ctx, req.PrimaryHost, req.PrimaryPort, false, false, req.ConsensusTerm, false); err != nil {
 		return nil, fmt.Errorf("failed to set primary_conninfo: %w", err)
 	}
 
-	// 6. Start PostgreSQL in standby mode
-	pm.logger.InfoContext(ctx, "Starting PostgreSQL in standby mode", "shard", pm.getShardID())
+	// 4. Restart PostgreSQL as standby (creates standby.signal and starts)
+	pm.logger.InfoContext(ctx, "Restarting PostgreSQL as standby", "shard", pm.getShardID())
 	if pm.pgctldClient == nil {
 		return nil, fmt.Errorf("pgctld client not available")
 	}
 
-	startReq := &pgctldpb.StartRequest{}
-	if _, err := pm.pgctldClient.Start(ctx, startReq); err != nil {
-		return nil, fmt.Errorf("failed to start PostgreSQL: %w", err)
+	restartReq := &pgctldpb.RestartRequest{
+		AsStandby: true,
+		Mode:      "fast",
+	}
+	if _, err := pm.pgctldClient.Restart(ctx, restartReq); err != nil {
+		return nil, fmt.Errorf("failed to restart PostgreSQL as standby: %w", err)
 	}
 
-	// 7. Wait for database connection
+	// 5. Wait for database connection
 	if err := pm.waitForDatabaseConnection(ctx); err != nil {
 		return nil, fmt.Errorf("failed to connect to database: %w", err)
 	}
 
-	// 8. Set consensus term
+	// 6. Set consensus term
 	if pm.consensusState != nil {
 		if err := pm.consensusState.UpdateTermAndSave(ctx, req.ConsensusTerm); err != nil {
 			return nil, fmt.Errorf("failed to set consensus term: %w", err)
@@ -324,25 +309,6 @@ func (pm *MultiPoolerManager) removeDataDirectory() error {
 
 	pm.logger.Warn("Removing data directory", "path", absDataDir)
 	return os.RemoveAll(absDataDir)
-}
-
-// createStandbySignal creates the standby.signal file in the data directory
-func (pm *MultiPoolerManager) createStandbySignal() error {
-	if pm.config == nil || pm.config.PoolerDir == "" {
-		return fmt.Errorf("pooler directory path not configured")
-	}
-
-	dataDir := filepath.Join(pm.config.PoolerDir, "pg_data")
-	signalPath := filepath.Join(dataDir, "standby.signal")
-	pm.logger.Info("Creating standby.signal", "path", signalPath)
-
-	file, err := os.Create(signalPath)
-	if err != nil {
-		return fmt.Errorf("failed to create standby.signal: %w", err)
-	}
-	defer file.Close()
-
-	return nil
 }
 
 // waitForDatabaseConnection waits for the database connection to become available
