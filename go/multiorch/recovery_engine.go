@@ -17,10 +17,27 @@ package multiorch
 import (
 	"context"
 	"log/slog"
+	"slices"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/multigres/multigres/go/clustermetadata/topo"
 )
+
+// runIfNotRunning executes fn in a goroutine only if inProgress flag is false.
+// If the operation is already in progress, it logs a debug message and returns immediately.
+// This prevents pile-up of concurrent operations that may be slow.
+func runIfNotRunning(logger *slog.Logger, inProgress *atomic.Bool, taskName string, fn func()) {
+	if !inProgress.CompareAndSwap(false, true) {
+		logger.Debug("skipping task, previous run still in progress", "task", taskName)
+		return
+	}
+	go func() {
+		defer inProgress.Store(false)
+		fn()
+	}()
+}
 
 // RecoveryEngine orchestrates health checking and automated recovery for Multigres poolers.
 //
@@ -90,13 +107,22 @@ import (
 //	)
 //	engine.Start()
 type RecoveryEngine struct {
-	cell              string
-	ts                topo.Store
-	logger            *slog.Logger
-	shardWatchTargets []string
+	cell   string
+	ts     topo.Store
+	logger *slog.Logger
 
+	// Current configuration values
+	mu                             sync.Mutex // protects shardWatchTargets
+	shardWatchTargets              []ShardWatchTarget
 	bookkeepingInterval            time.Duration
 	clusterMetadataRefreshInterval time.Duration
+
+	// Config reloader for dynamic updates (only shardWatchTargets is dynamic)
+	reloadConfig func() []string
+
+	// Goroutine management - prevent pile-up of concurrent operations
+	metadataRefreshInProgress atomic.Bool
+	bookkeepingInProgress     atomic.Bool
 
 	// Context for shutting down loops
 	ctx    context.Context
@@ -108,7 +134,7 @@ func NewRecoveryEngine(
 	cell string,
 	ts topo.Store,
 	logger *slog.Logger,
-	shardWatchTargets []string,
+	shardWatchTargets []ShardWatchTarget,
 	bookkeepingInterval time.Duration,
 	clusterMetadataRefreshInterval time.Duration,
 ) *RecoveryEngine {
@@ -123,6 +149,13 @@ func NewRecoveryEngine(
 		ctx:                            ctx,
 		cancel:                         cancel,
 	}
+}
+
+// SetConfigReloader sets the function to reload configuration dynamically.
+// The reloader function should return raw string targets (e.g., from viper).
+// Only shardWatchTargets can be reloaded; intervals require a restart.
+func (re *RecoveryEngine) SetConfigReloader(reloader func() []string) {
+	re.reloadConfig = reloader
 }
 
 // Start initializes and starts the RecoveryEngine loops.
@@ -148,6 +181,7 @@ func (re *RecoveryEngine) Stop() {
 }
 
 // runMaintenanceLoop runs the cluster metadata refresh and bookkeeping tasks.
+// Supports dynamic reloading of shardWatchTargets via SetConfigReloader.
 func (re *RecoveryEngine) runMaintenanceLoop() {
 	bookkeepingTicker := time.NewTicker(re.bookkeepingInterval)
 	defer bookkeepingTicker.Stop()
@@ -167,12 +201,62 @@ func (re *RecoveryEngine) runMaintenanceLoop() {
 			return
 
 		case <-metadataTicker.C:
-			re.refreshClusterMetadata()
+			runIfNotRunning(re.logger, &re.metadataRefreshInProgress, "cluster_metadata_refresh", re.refreshClusterMetadata)
 
 		case <-bookkeepingTicker.C:
-			re.runBookkeeping()
+			runIfNotRunning(re.logger, &re.bookkeepingInProgress, "bookkeeping", re.runBookkeeping)
 		}
 	}
+}
+
+// reloadConfigs checks for configuration changes and reloads if necessary.
+// Only shardWatchTargets can be reloaded; intervals require a restart.
+func (re *RecoveryEngine) reloadConfigs() {
+	if re.reloadConfig == nil {
+		return
+	}
+
+	// Get raw target strings from viper (or other config source)
+	rawTargets := re.reloadConfig()
+
+	// Handle empty targets - keep current configuration
+	if len(rawTargets) == 0 {
+		re.logger.Warn("ignoring empty shard_watch_targets during reload, keeping current targets")
+		return
+	}
+
+	// Parse the raw strings into ShardWatchTarget structs
+	newTargets, err := ParseShardWatchTargets(rawTargets)
+	if err != nil {
+		re.logger.Error("failed to parse shard_watch_targets during reload", "error", err)
+		return
+	}
+
+	// Acquire lock and update if changed
+	re.mu.Lock()
+	defer re.mu.Unlock()
+
+	if !shardWatchTargetsEqual(re.shardWatchTargets, newTargets) {
+		re.logger.Info("reloading shard watch targets",
+			"old", shardWatchTargetsToStrings(re.shardWatchTargets),
+			"new", shardWatchTargetsToStrings(newTargets),
+		)
+		re.shardWatchTargets = newTargets
+	}
+}
+
+// shardWatchTargetsEqual compares two ShardWatchTarget slices for equality.
+func shardWatchTargetsEqual(a, b []ShardWatchTarget) bool {
+	return slices.Equal(a, b)
+}
+
+// shardWatchTargetsToStrings converts ShardWatchTargets to their string representations.
+func shardWatchTargetsToStrings(targets []ShardWatchTarget) []string {
+	result := make([]string, len(targets))
+	for i, t := range targets {
+		result[i] = t.String()
+	}
+	return result
 }
 
 // refreshClusterMetadata queries the topology service for pooler updates.
@@ -192,6 +276,14 @@ func (re *RecoveryEngine) refreshClusterMetadata() {
 	// For each cell, count poolers (simple for now)
 	totalPoolers := 0
 	for _, cell := range cells {
+		// Check for context cancellation (e.g., shutdown in progress)
+		select {
+		case <-ctx.Done():
+			re.logger.Info("cluster metadata refresh cancelled")
+			return
+		default:
+		}
+
 		poolers, err := re.ts.GetMultiPoolersByCell(ctx, cell, nil)
 		if err != nil {
 			re.logger.Error("failed to get poolers", "cell", cell, "error", err)
@@ -210,6 +302,10 @@ func (re *RecoveryEngine) refreshClusterMetadata() {
 // runBookkeeping performs periodic bookkeeping tasks.
 func (re *RecoveryEngine) runBookkeeping() {
 	re.logger.Debug("running bookkeeping tasks")
+
+	// Reload configs first
+	go re.reloadConfigs()
+
 	// TODO: Add actual bookkeeping tasks in future PRs
 	// - Forget unseen poolers
 	// - Expire old recovery history

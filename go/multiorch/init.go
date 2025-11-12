@@ -85,13 +85,13 @@ func NewMultiOrch() *MultiOrch {
 		bookkeepingInterval: viperutil.Configure(reg, "bookkeeping_interval", viperutil.Options[time.Duration]{
 			Default:  1 * time.Minute,
 			FlagName: "bookkeeping_interval",
-			Dynamic:  true,
+			Dynamic:  false,
 			EnvVars:  []string{"MT_BOOKKEEPING_INTERVAL"},
 		}),
 		clusterMetadataRefreshInterval: viperutil.Configure(reg, "cluster_metadata_refresh_interval", viperutil.Options[time.Duration]{
 			Default:  15 * time.Second,
 			FlagName: "cluster_metadata_refresh_interval",
-			Dynamic:  true,
+			Dynamic:  false,
 			EnvVars:  []string{"MT_CLUSTER_METADATA_REFRESH_INTERVAL"},
 		}),
 		grpcServer: servenv.NewGrpcServer(reg),
@@ -117,10 +117,16 @@ func (mo *MultiOrch) Init() {
 	logger := mo.senv.GetLogger()
 	mo.ts = mo.topoConfig.Open()
 
-	// Validate shard watch targets
-	targets := mo.shardWatchTargets.Get()
-	if len(targets) == 0 {
+	// Validate and parse shard watch targets
+	targetsRaw := mo.shardWatchTargets.Get()
+	if len(targetsRaw) == 0 {
 		logger.Error("shard_watch_targets is required")
+		os.Exit(1)
+	}
+
+	targets, err := ParseShardWatchTargets(targetsRaw)
+	if err != nil {
+		logger.Error("failed to parse shard_watch_targets", "error", err)
 		os.Exit(1)
 	}
 
@@ -159,6 +165,11 @@ func (mo *MultiOrch) Init() {
 		mo.bookkeepingInterval.Get(),
 		mo.clusterMetadataRefreshInterval.Get(),
 	)
+
+	// Set up dynamic config reloader for shard watch targets
+	mo.recoveryEngine.SetConfigReloader(func() []string {
+		return mo.shardWatchTargets.Get()
+	})
 
 	if err := mo.recoveryEngine.Start(); err != nil {
 		logger.Error("failed to start recovery engine", "error", err)
