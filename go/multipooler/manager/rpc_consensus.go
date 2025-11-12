@@ -29,10 +29,12 @@ import (
 func (pm *MultiPoolerManager) BeginTerm(ctx context.Context, req *consensusdatapb.BeginTermRequest) (*consensusdatapb.BeginTermResponse, error) {
 	// Acquire the action lock to ensure only one consensus operation runs at a time
 	// This prevents split-brain acceptance and ensures term updates are serialized
-	if err := pm.lock(ctx); err != nil {
+	var err error
+	ctx, err = pm.actionLock.Acquire(ctx, "BeginTerm")
+	if err != nil {
 		return nil, err
 	}
-	defer pm.unlock()
+	defer pm.actionLock.Release(ctx)
 
 	// CRITICAL: Must be able to reach Postgres to participate in cohort
 	if pm.db == nil {
@@ -40,7 +42,7 @@ func (pm *MultiPoolerManager) BeginTerm(ctx context.Context, req *consensusdatap
 	}
 
 	// Test database connectivity
-	if err := pm.db.PingContext(ctx); err != nil {
+	if err = pm.db.PingContext(ctx); err != nil {
 		return nil, fmt.Errorf("postgres unhealthy, cannot accept new term: %w", err)
 	}
 
@@ -53,8 +55,15 @@ func (pm *MultiPoolerManager) BeginTerm(ctx context.Context, req *consensusdatap
 		return nil, fmt.Errorf("consensus state not initialized")
 	}
 
-	currentTerm := cs.GetCurrentTermNumber()
-	term := cs.GetTerm()
+	currentTerm, err := cs.GetCurrentTermNumber(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get current term: %w", err)
+	}
+
+	term, err := cs.GetTerm(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get term: %w", err)
+	}
 
 	response := &consensusdatapb.BeginTermResponse{
 		Term:     currentTerm,
@@ -87,7 +96,7 @@ func (pm *MultiPoolerManager) BeginTerm(ctx context.Context, req *consensusdatap
 	// TODO: Use pooler serving state to decide whether to accept
 	// Check if we're caught up with replication (within 30 seconds)
 	var lastMsgReceiptTime *time.Time
-	err := pm.db.QueryRowContext(ctx, "SELECT last_msg_receipt_time FROM pg_stat_wal_receiver").Scan(&lastMsgReceiptTime)
+	err = pm.db.QueryRowContext(ctx, "SELECT last_msg_receipt_time FROM pg_stat_wal_receiver").Scan(&lastMsgReceiptTime)
 	if err != nil {
 		// No WAL receiver (could be primary or disconnected standby)
 		// Don't reject the acceptance - let it proceed
@@ -100,7 +109,7 @@ func (pm *MultiPoolerManager) BeginTerm(ctx context.Context, req *consensusdatap
 	}
 
 	// Accept candidate atomically (checks, saves to disk, updates memory)
-	if err := cs.AcceptCandidateAndSave(req.CandidateId); err != nil {
+	if err := cs.AcceptCandidateAndSave(ctx, req.CandidateId); err != nil {
 		return nil, fmt.Errorf("failed to accept candidate: %w", err)
 	}
 
@@ -120,26 +129,13 @@ func (pm *MultiPoolerManager) ConsensusStatus(ctx context.Context, req *consensu
 	}
 
 	// Get local term from consensus state
-	localTerm := cs.GetCurrentTermNumber()
-
-	// Get last successful leader term from Postgres (replicated data)
-	var leaderTerm int64
-	isHealthy := false
-
-	if pm.db != nil {
-		err := pm.db.QueryRowContext(ctx, `
-			SELECT COALESCE(MAX(leader_term), 0)
-			FROM multigres.heartbeat
-			WHERE shard_id = $1
-		`, []byte(req.ShardId)).Scan(&leaderTerm)
-
-		if err != nil {
-			pm.logger.WarnContext(ctx, "Failed to query postgres leader term", "error", err)
-			leaderTerm = 0
-		} else {
-			isHealthy = true
-		}
+	localTerm, err := cs.GetInconsistentCurrentTermNumber()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get current term: %w", err)
 	}
+
+	// Check if database is healthy
+	isHealthy := pm.db != nil
 
 	// Get WAL position and determine role (primary/replica)
 	walPosition := &consensusdatapb.WALPosition{
@@ -174,7 +170,6 @@ func (pm *MultiPoolerManager) ConsensusStatus(ctx context.Context, req *consensu
 	return &consensusdatapb.StatusResponse{
 		PoolerId:    pm.serviceID.GetName(),
 		CurrentTerm: localTerm,
-		LeaderTerm:  leaderTerm,
 		WalPosition: walPosition,
 		IsHealthy:   isHealthy,
 		IsEligible:  true, // TODO: implement eligibility logic based on policy
@@ -198,7 +193,6 @@ func (pm *MultiPoolerManager) GetLeadershipView(ctx context.Context, req *consen
 
 	return &consensusdatapb.LeadershipViewResponse{
 		LeaderId:         view.LeaderID,
-		LeaderTerm:       view.LeaderTerm,
 		LastHeartbeat:    timestamppb.New(view.LastHeartbeat),
 		ReplicationLagNs: view.ReplicationLag.Nanoseconds(),
 	}, nil

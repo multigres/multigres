@@ -117,7 +117,7 @@ func (mg *MultiGateway) RegisterFlags(fs *pflag.FlagSet) {
 // or if some connections fail, it launches goroutines that retry
 // until successful.
 func (mg *MultiGateway) Init() {
-	mg.senv.Init()
+	mg.senv.Init("multigateway")
 	logger := mg.senv.GetLogger()
 
 	mg.ts = mg.topoConfig.Open()

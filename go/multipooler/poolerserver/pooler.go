@@ -17,119 +17,195 @@ package poolerserver
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"log/slog"
+	"sync"
+	"time"
 
 	"github.com/multigres/multigres/go/multipooler/executor"
-	"github.com/multigres/multigres/go/multipooler/manager"
 	"github.com/multigres/multigres/go/multipooler/queryservice"
-	"github.com/multigres/multigres/go/servenv"
+	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 )
 
-// MultiPooler is the core pooler implementation
-type MultiPooler struct {
+// QueryPoolerServer is the core pooler implementation for query serving.
+// It encapsulates the components required to manage query execution
+// (e.g. pooling, execution, transactions).
+//
+// In the future, components like the transaction engine and query engine
+// should be added here. The current executor is temporary until those
+// engines are introduced.
+//
+// The lifecycle of the pooler is managed by the MultiPoolerManager.
+// New subcomponents added to QueryPoolerServer should follow one of these
+// initialization patterns: New -> InitDBConfig -> Init -> Open
+// or: New -> InitDBConfig -> Open.
+//
+// Some subcomponents define Init methods. These usually perform one-time
+// initialization and must be idempotent.
+//
+// Open and Close may be called repeatedly during the lifetime of a
+// subcomponent and must also be idempotent.
+type QueryPoolerServer struct {
 	logger   *slog.Logger
-	config   *manager.Config
-	db       *sql.DB
-	executor queryservice.QueryService
+	dbConfig *DBConfig
+	executor *executor.Executor
+
+	mu            sync.Mutex
+	servingStatus clustermetadatapb.PoolerServingStatus
 }
 
-// NewMultiPooler creates a new multipooler instance
-func NewMultiPooler(logger *slog.Logger, config *manager.Config) *MultiPooler {
-	return &MultiPooler{
-		logger: logger,
-		config: config,
+// NewMultiPooler creates a new multipooler instance.
+func NewMultiPooler(logger *slog.Logger) *QueryPoolerServer {
+	return &QueryPoolerServer{
+		logger:        logger,
+		servingStatus: clustermetadatapb.PoolerServingStatus_NOT_SERVING,
 	}
 }
 
-// connectDB establishes a connection to PostgreSQL
-func (s *MultiPooler) connectDB() error {
-	if s.db != nil {
-		return nil // Already connected
+// InitDBConfig initializes the controller with database configuration.
+// This is called by MultiPoolerManager after it has the DB config available.
+// Implements PoolerController interface. InitDBConfig is a continuation of New.
+// However the db config is not initially available. For this reason, the initialization
+// is done in two phases.
+func (s *QueryPoolerServer) InitDBConfig(dbConfig *DBConfig) error {
+	if dbConfig == nil {
+		return fmt.Errorf("database config cannot be nil")
 	}
 
-	db, err := manager.CreateDBConnection(s.logger, s.config)
-	if err != nil {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.dbConfig = dbConfig
+
+	// Create the executor (but don't open yet - manager will call Open)
+	execConfig := &executor.DBConfig{
+		SocketFilePath: dbConfig.SocketFilePath,
+		PoolerDir:      dbConfig.PoolerDir,
+		Database:       dbConfig.Database,
+		PgPort:         dbConfig.PgPort,
+	}
+	s.executor = executor.NewExecutor(s.logger, execConfig)
+
+	s.logger.Info("MultiPooler initialized with database config",
+		"socket", dbConfig.SocketFilePath,
+		"database", dbConfig.Database)
+
+	return nil
+}
+
+// Open opens the database connection via the executor.
+// Following Vitess pattern: manager calls Open explicitly.
+func (s *QueryPoolerServer) Open() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.executor == nil {
+		return fmt.Errorf("executor not initialized - call InitDBConfig first")
+	}
+
+	return s.executor.Open()
+}
+
+// SetServingType transitions the serving state.
+// Implements PoolerController interface.
+func (s *QueryPoolerServer) SetServingType(ctx context.Context, servingStatus clustermetadatapb.PoolerServingStatus) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.logger.InfoContext(ctx, "Transitioning serving type", "from", s.servingStatus, "to", servingStatus)
+	s.servingStatus = servingStatus
+
+	// TODO: Implement state-specific behavior:
+	// - SERVING: Accept all queries
+	// - SERVING_RDONLY: Accept only read queries
+	// - NOT_SERVING: Reject all queries
+	// - DRAINED: Gracefully drain existing connections, reject new queries
+
+	return nil
+}
+
+// IsServing returns true if currently serving queries.
+// Implements PoolerController interface.
+func (s *QueryPoolerServer) IsServing() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.servingStatus == clustermetadatapb.PoolerServingStatus_SERVING ||
+		s.servingStatus == clustermetadatapb.PoolerServingStatus_SERVING_RDONLY
+}
+
+// IsHealthy checks if the controller is healthy.
+// Implements PoolerController interface.
+func (s *QueryPoolerServer) IsHealthy() error {
+	s.mu.Lock()
+	exec := s.executor
+	s.mu.Unlock()
+
+	if exec == nil {
+		return fmt.Errorf("executor not initialized")
+	}
+
+	return exec.IsHealthy()
+}
+
+// RegisterGRPCServices registers gRPC services (called by manager during startup).
+// Implements PoolerController interface.
+func (s *QueryPoolerServer) RegisterGRPCServices() {
+	s.registerGRPCServices()
+}
+
+// StartServiceForTests is a convenience method for tests to initialize and start the pooler.
+// Following Vitess pattern: "StartService is only used for testing."
+// It calls InitDBConfig, Open, and SetServingType(SERVING).
+//
+// For production use, the manager handles initialization via:
+//   - NewMultiPooler()
+//   - InitDBConfig()
+//   - Open()
+//   - Register()
+//   - SetServingType()
+func (s *QueryPoolerServer) StartServiceForTests(dbConfig *DBConfig) error {
+	if err := s.InitDBConfig(dbConfig); err != nil {
 		return err
 	}
-	s.db = db
-
-	// Test the connection
-	if err := s.db.Ping(); err != nil {
-		s.db.Close()
-		s.db = nil
-		return fmt.Errorf("failed to ping database: %w", err)
+	if err := s.Open(); err != nil {
+		return err
 	}
-
-	s.logger.Info("Connected to PostgreSQL", "socket_path", s.config.SocketFilePath, "database", s.config.Database)
-
-	// Create the multigres sidecar schema if it doesn't exist, but only on primary databases
-	// Note: Manager also creates this, but poolerserver might connect first
-	ctx := context.Background()
-	isPrimary, err := s.isPrimary(ctx)
-	if err != nil {
-		s.logger.Error("Failed to check if database is primary", "error", err)
-		// Don't fail the connection if primary check fails
-	} else if isPrimary {
-		s.logger.Info("Creating sidecar schema on primary database")
-		if err := manager.CreateSidecarSchema(s.db); err != nil {
-			return fmt.Errorf("failed to create sidecar schema: %w", err)
-		}
-	} else {
-		s.logger.Info("Skipping sidecar schema creation on replica")
-	}
-
-	return nil
+	// Set to SERVING state (tests assume the pooler is ready to serve)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	return s.SetServingType(ctx, clustermetadatapb.PoolerServingStatus_SERVING)
 }
 
-// isPrimary checks if the connected database is a primary (not in recovery)
-func (s *MultiPooler) isPrimary(ctx context.Context) (bool, error) {
-	if s.db == nil {
-		return false, fmt.Errorf("database connection not established")
-	}
-
-	var inRecovery bool
-	err := s.db.QueryRowContext(ctx, "SELECT pg_is_in_recovery()").Scan(&inRecovery)
-	if err != nil {
-		return false, fmt.Errorf("failed to query pg_is_in_recovery: %w", err)
-	}
-
-	// pg_is_in_recovery() returns true if standby, false if primary
-	return !inRecovery, nil
-}
-
-// Close closes the database connection
-func (s *MultiPooler) Close() error {
-	if s.db != nil {
-		return s.db.Close()
+// Close closes the executor and releases resources.
+// Implements PoolerController interface.
+func (s *QueryPoolerServer) Close() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	// Executor was never initialized, nothing to do
+	if s.executor != nil {
+		exec := s.executor
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		return exec.Close(ctx)
 	}
 	return nil
 }
 
-// Start initializes the MultiPooler
-func (s *MultiPooler) Start(senv *servenv.ServEnv) {
-	senv.OnRun(func() {
-		s.logger.Info("MultiPooler started")
+// Executor returns the executor instance for use by gRPC service handlers.
+// Implements PoolerController interface.
+// Returns error if the pooler is not opened or unhealthy.
+func (s *QueryPoolerServer) Executor() (queryservice.QueryService, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
-		// Register all gRPC services that have registered themselves
-		s.registerGRPCServices()
-		s.logger.Info("MultiPooler gRPC services registered")
-	})
-}
-
-// GetExecutor returns the executor instance for use by gRPC service handlers.
-func (s *MultiPooler) GetExecutor() (queryservice.QueryService, error) {
 	if s.executor == nil {
-		// TODO: We should initialize the executor in the NewPooler codepath,
-		// but we need the db connection which might not be up at the moment the pooler starts
-		// When we have connection pooling, it should be resilient to db not being up, and at that point,
-		// we can move the executor initalization as well to NewPooler.
-		err := s.connectDB()
-		if err != nil {
-			return nil, err
-		}
-		s.executor = executor.NewExecutor(s.logger, s.db)
+		return nil, fmt.Errorf("executor not initialized - call InitDBConfig first")
 	}
+
+	// Check if the executor is healthy (db connection is opened)
+	if err := s.executor.IsHealthy(); err != nil {
+		return nil, fmt.Errorf("executor not ready: %w", err)
+	}
+
 	return s.executor, nil
 }

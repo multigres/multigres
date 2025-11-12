@@ -78,7 +78,7 @@ func (ma *MultiAdmin) RegisterFlags(fs *pflag.FlagSet) {
 // or if some connections fail, it launches goroutines that retry
 // until successful.
 func (ma *MultiAdmin) Init() {
-	ma.senv.Init()
+	ma.senv.Init("multiadmin")
 	// Get the configured logger
 	logger := ma.senv.GetLogger()
 	ma.ts = ma.topoConfig.Open()

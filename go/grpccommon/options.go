@@ -18,6 +18,7 @@ package grpccommon
 
 import (
 	"github.com/spf13/pflag"
+	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
@@ -62,5 +63,6 @@ func LocalClientDialOptions() []grpc.DialOption {
 	return []grpc.DialOption{
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithDisableServiceConfig(),
+		grpc.WithStatsHandler(otelgrpc.NewClientHandler()),
 	}
 }

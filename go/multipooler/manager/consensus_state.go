@@ -15,6 +15,7 @@
 package manager
 
 import (
+	"context"
 	"fmt"
 	"sync"
 	"time"
@@ -50,62 +51,83 @@ func NewConsensusState(poolerDir string, serviceID *clustermetadatapb.ID) *Conse
 // Load loads consensus state from disk into memory.
 // If the file doesn't exist, initializes with default values (term 0, no accepted leader).
 // This method is idempotent - subsequent calls will reload from disk.
-func (cs *ConsensusState) Load() error {
+func (cs *ConsensusState) Load() (int64, error) {
 	term, err := getConsensusTerm(cs.poolerDir)
 	if err != nil {
-		return fmt.Errorf("failed to load consensus term: %w", err)
+		return 0, fmt.Errorf("failed to load consensus term: %w", err)
 	}
 
 	cs.mu.Lock()
 	cs.term = term
 	cs.mu.Unlock()
 
-	return nil
+	return term.TermNumber, nil
 }
 
 // GetCurrentTermNumber returns the current term.
 // Returns 0 if state has not been loaded.
-func (cs *ConsensusState) GetCurrentTermNumber() int64 {
+func (cs *ConsensusState) GetCurrentTermNumber(ctx context.Context) (int64, error) {
+	if err := AssertActionLockHeld(ctx); err != nil {
+		return 0, err
+	}
+	return cs.GetInconsistentCurrentTermNumber()
+}
+
+// GetInconsistentCurrentTermNumber returns the current term for monitoring.
+// It doesn't require the action lock to be held, so the value returned may
+// be outdated by the time it's used. Use GetCurrentTermNumber() as part of
+// any action workflow to protect against race conditions.
+// Returns 0 if state has not been loaded.
+func (cs *ConsensusState) GetInconsistentCurrentTermNumber() (int64, error) {
 	cs.mu.Lock()
 	defer cs.mu.Unlock()
 
 	if cs.term == nil {
-		return 0
+		return 0, nil
 	}
-	return cs.term.GetTermNumber()
+	return cs.term.GetTermNumber(), nil
 }
 
 // GetAcceptedLeader returns the candidate ID this pooler accepted as leader in the current term.
 // Returns empty string if no leader was accepted.
-func (cs *ConsensusState) GetAcceptedLeader() string {
+func (cs *ConsensusState) GetAcceptedLeader(ctx context.Context) (string, error) {
+	if err := AssertActionLockHeld(ctx); err != nil {
+		return "", err
+	}
 	cs.mu.Lock()
 	defer cs.mu.Unlock()
 
 	if cs.term == nil || cs.term.AcceptedLeader == nil {
-		return ""
+		return "", nil
 	}
-	return cs.term.AcceptedLeader.GetName()
+	return cs.term.AcceptedLeader.GetName(), nil
 }
 
 // GetTerm returns a copy of the current consensus term.
 // Returns nil if state has not been loaded.
-func (cs *ConsensusState) GetTerm() *multipoolermanagerdatapb.ConsensusTerm {
+func (cs *ConsensusState) GetTerm(ctx context.Context) (*multipoolermanagerdatapb.ConsensusTerm, error) {
+	if err := AssertActionLockHeld(ctx); err != nil {
+		return nil, err
+	}
 	cs.mu.Lock()
 	defer cs.mu.Unlock()
 
 	if cs.term == nil {
-		return nil
+		return nil, nil
 	}
 
 	// Return a copy to prevent external modifications
-	return cloneTerm(cs.term)
+	return cloneTerm(cs.term), nil
 }
 
 // AcceptCandidateAndSave atomically records acceptance of a candidate in the current term.
 // This is called when a node accepts a candidate during BeginTerm.
 // Returns error if already accepted a different candidate in this term.
 // Idempotent: succeeds if already accepted the same candidate.
-func (cs *ConsensusState) AcceptCandidateAndSave(candidateID *clustermetadatapb.ID) error {
+func (cs *ConsensusState) AcceptCandidateAndSave(ctx context.Context, candidateID *clustermetadatapb.ID) error {
+	if err := AssertActionLockHeld(ctx); err != nil {
+		return err
+	}
 	cs.mu.Lock()
 	defer cs.mu.Unlock()
 
@@ -146,7 +168,10 @@ func (cs *ConsensusState) AcceptCandidateAndSave(candidateID *clustermetadatapb.
 // This is called when discovering a newer term from another node.
 // Returns error if newTerm < currentTerm.
 // Idempotent: succeeds without changes if newTerm == currentTerm.
-func (cs *ConsensusState) UpdateTermAndSave(newTerm int64) error {
+func (cs *ConsensusState) UpdateTermAndSave(ctx context.Context, newTerm int64) error {
+	if err := AssertActionLockHeld(ctx); err != nil {
+		return err
+	}
 	cs.mu.Lock()
 	defer cs.mu.Unlock()
 
@@ -179,7 +204,10 @@ func (cs *ConsensusState) UpdateTermAndSave(newTerm int64) error {
 // SetTermDirectly directly sets the consensus term to the provided value.
 // This is used for initialization or explicit term setting (e.g., by coordinator after leader appointment).
 // Unlike UpdateTermAndSave, this does NOT validate or reset fields - it saves exactly what's provided.
-func (cs *ConsensusState) SetTermDirectly(term *multipoolermanagerdatapb.ConsensusTerm) error {
+func (cs *ConsensusState) SetTermDirectly(ctx context.Context, term *multipoolermanagerdatapb.ConsensusTerm) error {
+	if err := AssertActionLockHeld(ctx); err != nil {
+		return err
+	}
 	cs.mu.Lock()
 	defer cs.mu.Unlock()
 

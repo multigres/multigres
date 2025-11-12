@@ -391,8 +391,13 @@ func TestValidateAndUpdateTerm(t *testing.T) {
 				return manager.GetState() == ManagerStateReady
 			}, 5*time.Second, 100*time.Millisecond, "Manager should reach Ready state")
 
+			// Acquire action lock before calling validateAndUpdateTerm
+			ctx, err := manager.actionLock.Acquire(ctx, "test")
+			require.NoError(t, err)
+			defer manager.actionLock.Release(ctx)
+
 			// Call validateAndUpdateTerm
-			err := manager.validateAndUpdateTerm(ctx, tt.requestTerm, tt.force)
+			err = manager.validateAndUpdateTerm(ctx, tt.requestTerm, tt.force)
 
 			if tt.expectError {
 				require.Error(t, err)
