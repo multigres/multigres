@@ -53,6 +53,7 @@ type Logger struct {
 	loggerOnce sync.Once
 	logger     *slog.Logger
 	loggerMu   sync.Mutex
+	telemetry  *Telemetry
 
 	// Hooks for customizing logging behavior
 	loggingSetupHooks  []func(*slog.Logger)
@@ -60,19 +61,20 @@ type Logger struct {
 	loggingHooksMu     sync.Mutex
 }
 
-func NewLogger() *Logger {
+func NewLogger(reg *viperutil.Registry, telemetry *Telemetry) *Logger {
 	return &Logger{
-		logLevel: viperutil.Configure("log-level", viperutil.Options[string]{
+		telemetry: telemetry,
+		logLevel: viperutil.Configure(reg, "log-level", viperutil.Options[string]{
 			Default:  "info",
 			FlagName: "log-level",
 			Dynamic:  false,
 		}),
-		logFormat: viperutil.Configure("log-format", viperutil.Options[string]{
+		logFormat: viperutil.Configure(reg, "log-format", viperutil.Options[string]{
 			Default:  "json",
 			FlagName: "log-format",
 			Dynamic:  false,
 		}),
-		logOutput: viperutil.Configure("log-output", viperutil.Options[string]{
+		logOutput: viperutil.Configure(reg, "log-output", viperutil.Options[string]{
 			Default:  "stdout",
 			FlagName: "log-output",
 			Dynamic:  false,
@@ -339,6 +341,11 @@ func (lg *Logger) SetupLogging() {
 			handler = slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
 				Level: slog.LevelInfo,
 			})
+		}
+
+		// Wrap handler with OpenTelemetry bridge to inject trace context
+		if lg.telemetry != nil {
+			handler = lg.telemetry.WrapSlogHandler(handler)
 		}
 
 		// Create logger

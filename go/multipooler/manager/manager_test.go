@@ -29,6 +29,7 @@ import (
 	"github.com/multigres/multigres/go/clustermetadata/topo/memorytopo"
 	"github.com/multigres/multigres/go/mterrors"
 	"github.com/multigres/multigres/go/servenv"
+	"github.com/multigres/multigres/go/viperutil"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
@@ -384,7 +385,7 @@ func TestValidateAndUpdateTerm(t *testing.T) {
 			defer manager.Close()
 
 			// Start and wait for ready
-			senv := servenv.NewServEnv()
+			senv := servenv.NewServEnv(viperutil.NewRegistry())
 			go manager.Start(senv)
 			require.Eventually(t, func() bool {
 				return manager.GetState() == ManagerStateReady

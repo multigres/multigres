@@ -419,8 +419,10 @@ func TestGetPoolerDir(t *testing.T) {
 	tempDir := t.TempDir()
 
 	// Test with configured directory
+	reg1 := viperutil.NewRegistry()
 	pg1 := PgCtlCommand{
-		poolerDir: viperutil.Configure("pooler-dir", viperutil.Options[string]{
+		reg: reg1,
+		poolerDir: viperutil.Configure(reg1, "pooler-dir", viperutil.Options[string]{
 			Default:  tempDir,
 			FlagName: "pooler-dir",
 			Dynamic:  false,
@@ -430,8 +432,10 @@ func TestGetPoolerDir(t *testing.T) {
 	assert.Equal(t, tempDir, result, "GetPoolerDir should return configured directory")
 
 	// Test empty case
+	reg2 := viperutil.NewRegistry()
 	pg2 := PgCtlCommand{
-		poolerDir: viperutil.Configure("pooler-dir", viperutil.Options[string]{
+		reg: reg2,
+		poolerDir: viperutil.Configure(reg2, "pooler-dir", viperutil.Options[string]{
 			Default:  "",
 			FlagName: "pooler-dir",
 			Dynamic:  false,

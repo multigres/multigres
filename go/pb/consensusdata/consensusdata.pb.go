@@ -310,8 +310,6 @@ type StatusResponse struct {
 	PoolerId string `protobuf:"bytes,1,opt,name=pooler_id,json=poolerId,proto3" json:"pooler_id,omitempty"`
 	// Current term from local file
 	CurrentTerm int64 `protobuf:"varint,2,opt,name=current_term,json=currentTerm,proto3" json:"current_term,omitempty"`
-	// Last successful leader term from Postgres
-	LeaderTerm int64 `protobuf:"varint,3,opt,name=leader_term,json=leaderTerm,proto3" json:"leader_term,omitempty"`
 	// Current WAL position
 	WalPosition *WALPosition `protobuf:"bytes,4,opt,name=wal_position,json=walPosition,proto3" json:"wal_position,omitempty"`
 	// Whether Postgres is healthy and reachable
@@ -366,13 +364,6 @@ func (x *StatusResponse) GetPoolerId() string {
 func (x *StatusResponse) GetCurrentTerm() int64 {
 	if x != nil {
 		return x.CurrentTerm
-	}
-	return 0
-}
-
-func (x *StatusResponse) GetLeaderTerm() int64 {
-	if x != nil {
-		return x.LeaderTerm
 	}
 	return 0
 }
@@ -462,8 +453,6 @@ type LeadershipViewResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// ID of the current leader
 	LeaderId string `protobuf:"bytes,1,opt,name=leader_id,json=leaderId,proto3" json:"leader_id,omitempty"`
-	// Leader's consensus term
-	LeaderTerm int64 `protobuf:"varint,2,opt,name=leader_term,json=leaderTerm,proto3" json:"leader_term,omitempty"`
 	// Last heartbeat timestamp
 	LastHeartbeat *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=last_heartbeat,json=lastHeartbeat,proto3" json:"last_heartbeat,omitempty"`
 	// Calculated replication lag in nanoseconds
@@ -507,13 +496,6 @@ func (x *LeadershipViewResponse) GetLeaderId() string {
 		return x.LeaderId
 	}
 	return ""
-}
-
-func (x *LeadershipViewResponse) GetLeaderTerm() int64 {
-	if x != nil {
-		return x.LeaderTerm
-	}
-	return 0
 }
 
 func (x *LeadershipViewResponse) GetLastHeartbeat() *timestamppb.Timestamp {
@@ -661,12 +643,10 @@ const file_consensusdata_proto_rawDesc = "" +
 	"\tpooler_id\x18\x03 \x01(\tR\bpoolerId\">\n" +
 	"\rStatusRequest\x12\x12\n" +
 	"\x04term\x18\x01 \x01(\x03R\x04term\x12\x19\n" +
-	"\bshard_id\x18\x02 \x01(\tR\ashardId\"\x98\x02\n" +
+	"\bshard_id\x18\x02 \x01(\tR\ashardId\"\xf7\x01\n" +
 	"\x0eStatusResponse\x12\x1b\n" +
 	"\tpooler_id\x18\x01 \x01(\tR\bpoolerId\x12!\n" +
-	"\fcurrent_term\x18\x02 \x01(\x03R\vcurrentTerm\x12\x1f\n" +
-	"\vleader_term\x18\x03 \x01(\x03R\n" +
-	"leaderTerm\x12=\n" +
+	"\fcurrent_term\x18\x02 \x01(\x03R\vcurrentTerm\x12=\n" +
 	"\fwal_position\x18\x04 \x01(\v2\x1a.consensusdata.WALPositionR\vwalPosition\x12\x1d\n" +
 	"\n" +
 	"is_healthy\x18\x05 \x01(\bR\tisHealthy\x12\x1f\n" +
@@ -675,11 +655,9 @@ const file_consensusdata_proto_rawDesc = "" +
 	"\x04cell\x18\a \x01(\tR\x04cell\x12\x12\n" +
 	"\x04role\x18\t \x01(\tR\x04role\"2\n" +
 	"\x15LeadershipViewRequest\x12\x19\n" +
-	"\bshard_id\x18\x01 \x01(\tR\ashardId\"\xc7\x01\n" +
+	"\bshard_id\x18\x01 \x01(\tR\ashardId\"\xa6\x01\n" +
 	"\x16LeadershipViewResponse\x12\x1b\n" +
-	"\tleader_id\x18\x01 \x01(\tR\bleaderId\x12\x1f\n" +
-	"\vleader_term\x18\x02 \x01(\x03R\n" +
-	"leaderTerm\x12A\n" +
+	"\tleader_id\x18\x01 \x01(\tR\bleaderId\x12A\n" +
 	"\x0elast_heartbeat\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\rlastHeartbeat\x12,\n" +
 	"\x12replication_lag_ns\x18\x05 \x01(\x03R\x10replicationLagNs\"^\n" +
 	"\x16CanReachPrimaryRequest\x12!\n" +

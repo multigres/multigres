@@ -70,6 +70,15 @@ func (cs *ConsensusState) GetCurrentTermNumber(ctx context.Context) (int64, erro
 	if err := AssertActionLockHeld(ctx); err != nil {
 		return 0, err
 	}
+	return cs.GetInconsistentCurrentTermNumber()
+}
+
+// GetInconsistentCurrentTermNumber returns the current term for monitoring.
+// It doesn't require the action lock to be held, so the value returned may
+// be outdated by the time it's used. Use GetCurrentTermNumber() as part of
+// any action workflow to protect against race conditions.
+// Returns 0 if state has not been loaded.
+func (cs *ConsensusState) GetInconsistentCurrentTermNumber() (int64, error) {
 	cs.mu.Lock()
 	defer cs.mu.Unlock()
 

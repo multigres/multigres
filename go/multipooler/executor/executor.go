@@ -22,24 +22,79 @@ import (
 	"database/sql"
 	"fmt"
 	"log/slog"
+	"path/filepath"
 	"strings"
+	"sync/atomic"
 
 	"github.com/multigres/multigres/go/multipooler/queryservice"
 	"github.com/multigres/multigres/go/pb/query"
 )
 
+// DBConfig contains database connection parameters.
+type DBConfig struct {
+	SocketFilePath string
+	PoolerDir      string
+	Database       string
+	PgPort         int
+}
+
 // Executor implements the QueryService interface for executing queries against PostgreSQL.
 type Executor struct {
-	logger *slog.Logger
-	db     *sql.DB
+	logger   *slog.Logger
+	dbConfig *DBConfig
+	db       *sql.DB
+	isOpen   atomic.Bool
 }
 
 // NewExecutor creates a new Executor instance.
-func NewExecutor(logger *slog.Logger, db *sql.DB) *Executor {
+func NewExecutor(logger *slog.Logger, dbConfig *DBConfig) *Executor {
 	return &Executor{
-		logger: logger,
-		db:     db,
+		logger:   logger,
+		dbConfig: dbConfig,
 	}
+}
+
+// Open creates the database connection.
+func (e *Executor) Open() error {
+	if e.isOpen.Load() {
+		return nil
+	}
+
+	e.logger.Info("Executor: opening")
+
+	if e.dbConfig == nil {
+		return fmt.Errorf("database config not set")
+	}
+
+	// Create connection string using socket connection
+	// PostgreSQL creates socket files as: {poolerDir}/pg_sockets/.s.PGSQL.{port}
+	socketDir := filepath.Join(e.dbConfig.PoolerDir, "pg_sockets")
+	port := fmt.Sprintf("%d", e.dbConfig.PgPort)
+
+	dsn := fmt.Sprintf("user=postgres dbname=%s host=%s port=%s sslmode=disable",
+		e.dbConfig.Database, socketDir, port)
+
+	e.logger.Info("Executor: Unix socket connection",
+		"pooler_dir", e.dbConfig.PoolerDir,
+		"socket_dir", socketDir,
+		"pg_port", e.dbConfig.PgPort)
+
+	db, err := sql.Open("postgres", dsn)
+	if err != nil {
+		return fmt.Errorf("failed to open database: %w", err)
+	}
+
+	// Test the connection
+	if err := db.Ping(); err != nil {
+		db.Close()
+		return fmt.Errorf("failed to ping database: %w", err)
+	}
+
+	e.db = db
+	e.isOpen.Store(true)
+	e.logger.Info("Executor opened database connection")
+
+	return nil
 }
 
 // ExecuteQuery implements queryservice.QueryService.
@@ -83,7 +138,29 @@ func (e *Executor) StreamExecute(
 
 // Close closes the executor and releases resources.
 func (e *Executor) Close(ctx context.Context) error {
-	// Executor doesn't own the DB connection, so nothing to close
+	if !e.isOpen.Swap(false) {
+		return nil
+	}
+
+	if e.db != nil {
+		if err := e.db.Close(); err != nil {
+			return fmt.Errorf("failed to close database: %w", err)
+		}
+		e.db = nil
+	}
+
+	e.logger.InfoContext(ctx, "Executor: closed")
+	return nil
+}
+
+// IsHealthy checks if the executor is healthy and can serve queries.
+func (e *Executor) IsHealthy() error {
+	if e.db == nil {
+		return fmt.Errorf("database connection not initialized")
+	}
+	if err := e.db.Ping(); err != nil {
+		return fmt.Errorf("database ping failed: %w", err)
+	}
 	return nil
 }
 

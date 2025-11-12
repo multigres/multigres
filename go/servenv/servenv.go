@@ -37,6 +37,9 @@ import (
 
 // ServEnv holds the service environment configuration and state
 type ServEnv struct {
+	// Configuration registry
+	reg *viperutil.Registry
+
 	// Configuration
 	httpPort       viperutil.Value[int]
 	bindAddress    viperutil.Value[string]
@@ -67,8 +70,9 @@ type ServEnv struct {
 	mux          *http.ServeMux
 	onCloseHooks event.Hooks
 	// exitChan waits for a signal that tells the process to terminate
-	exitChan chan os.Signal
-	lg       *Logger
+	exitChan  chan os.Signal
+	lg        *Logger
+	telemetry *Telemetry
 
 	// serviceMap is the used version of the service map.
 	// init() functions can add default values to it (using InitServiceMap).
@@ -77,62 +81,64 @@ type ServEnv struct {
 	serviceMap map[string]bool
 }
 
-// NewServEnv creates a new ServEnv instance with default configuration
-func NewServEnv() *ServEnv {
-	return NewServEnvWithConfig(NewLogger(), viperutil.NewViperConfig())
+// NewServEnv creates a new ServEnv instance with the given registry
+func NewServEnv(reg *viperutil.Registry) *ServEnv {
+	telemetry := NewTelemetry()
+	return NewServEnvWithConfig(reg, NewLogger(reg, telemetry), viperutil.NewViperConfig(reg), telemetry)
 }
 
-// NewServEnvWithConfig creates a new ServEnv instance with external logger and viper config.
-// This allows sharing logger and viper config instances across multiple components
+// NewServEnvWithConfig creates a new ServEnv instance with external registry, logger and viper config.
+// This allows sharing registry, logger and viper config instances across multiple components
 // to avoid duplicate flag registrations and binding conflicts.
-func NewServEnvWithConfig(lg *Logger, vc *viperutil.ViperConfig) *ServEnv {
+func NewServEnvWithConfig(reg *viperutil.Registry, lg *Logger, vc *viperutil.ViperConfig, telemetry *Telemetry) *ServEnv {
 	return &ServEnv{
-		httpPort: viperutil.Configure("http-port", viperutil.Options[int]{
+		reg: reg,
+		httpPort: viperutil.Configure(reg, "http-port", viperutil.Options[int]{
 			Default:  0,
 			FlagName: "http-port",
 			Dynamic:  false,
 		}),
-		hostname: viperutil.Configure("hostname", viperutil.Options[string]{
+		hostname: viperutil.Configure(reg, "hostname", viperutil.Options[string]{
 			Default:  "",
 			FlagName: "hostname",
 			Dynamic:  false,
 		}),
-		bindAddress: viperutil.Configure("bind-address", viperutil.Options[string]{
+		bindAddress: viperutil.Configure(reg, "bind-address", viperutil.Options[string]{
 			Default:  "",
 			FlagName: "bind-address",
 			Dynamic:  false,
 		}),
-		lameduckPeriod: viperutil.Configure("lameduck-period", viperutil.Options[time.Duration]{
+		lameduckPeriod: viperutil.Configure(reg, "lameduck-period", viperutil.Options[time.Duration]{
 			Default:  50 * time.Millisecond,
 			FlagName: "lameduck-period",
 			Dynamic:  false,
 		}),
-		onTermTimeout: viperutil.Configure("onterm-timeout", viperutil.Options[time.Duration]{
+		onTermTimeout: viperutil.Configure(reg, "onterm-timeout", viperutil.Options[time.Duration]{
 			Default:  10 * time.Second,
 			FlagName: "onterm-timeout",
 			Dynamic:  false,
 		}),
-		onCloseTimeout: viperutil.Configure("onclose-timeout", viperutil.Options[time.Duration]{
+		onCloseTimeout: viperutil.Configure(reg, "onclose-timeout", viperutil.Options[time.Duration]{
 			Default:  10 * time.Second,
 			FlagName: "onclose-timeout",
 			Dynamic:  false,
 		}),
-		pidFile: viperutil.Configure("pid-file", viperutil.Options[string]{
+		pidFile: viperutil.Configure(reg, "pid-file", viperutil.Options[string]{
 			Default:  "",
 			FlagName: "pid-file",
 			Dynamic:  false,
 		}),
-		httpPprof: viperutil.Configure("pprof-http", viperutil.Options[bool]{
+		httpPprof: viperutil.Configure(reg, "pprof-http", viperutil.Options[bool]{
 			Default:  false,
 			FlagName: "pprof-http",
 			Dynamic:  false,
 		}),
-		pprofFlag: viperutil.Configure("pprof", viperutil.Options[[]string]{
+		pprofFlag: viperutil.Configure(reg, "pprof", viperutil.Options[[]string]{
 			Default:  []string{},
 			FlagName: "pprof",
 			Dynamic:  false,
 		}),
-		serviceMapFlag: viperutil.Configure("service-map", viperutil.Options[[]string]{
+		serviceMapFlag: viperutil.Configure(reg, "service-map", viperutil.Options[[]string]{
 			Default:  []string{},
 			FlagName: "service-map",
 			Dynamic:  false,
@@ -141,6 +147,7 @@ func NewServEnvWithConfig(lg *Logger, vc *viperutil.ViperConfig) *ServEnv {
 		maxStackSize: 64 * 1024 * 1024,
 		mux:          http.NewServeMux(),
 		lg:           lg,
+		telemetry:    telemetry,
 		serviceMap:   make(map[string]bool),
 		exitChan:     make(chan os.Signal, 1),
 	}
@@ -303,14 +310,14 @@ func getGlobalFlagHooks() (hooks []func(fs *pflag.FlagSet)) {
 func (sv *ServEnv) CobraPreRunE(cmd *cobra.Command) error {
 	// Register logging on config file change.
 	ch := make(chan struct{})
-	viperutil.NotifyConfigReload(ch)
+	viperutil.NotifyConfigReload(sv.reg, ch)
 	go func() {
 		for range ch {
-			slog.Info("Change in configuration", "settings", viperdebug.AllSettings())
+			slog.Info("Change in configuration", "settings", viperdebug.AllSettings(sv.reg))
 		}
 	}()
 
-	watchCancel, err := sv.vc.LoadConfig()
+	watchCancel, err := sv.vc.LoadConfig(sv.reg)
 	if err != nil {
 		return fmt.Errorf("%s: failed to read in config: %s", cmd.Name(), err)
 	}

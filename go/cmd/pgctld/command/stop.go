@@ -42,7 +42,7 @@ type PgCtlStopCmd struct {
 func AddStopCommand(root *cobra.Command, pc *PgCtlCommand) {
 	stopCmd := &PgCtlStopCmd{
 		pgCtlCmd: pc,
-		mode: viperutil.Configure("mode", viperutil.Options[string]{
+		mode: viperutil.Configure(pc.reg, "mode", viperutil.Options[string]{
 			Default:  "fast",
 			FlagName: "mode",
 			Dynamic:  false,

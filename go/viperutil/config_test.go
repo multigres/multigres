@@ -51,53 +51,59 @@ duration: 10h
 // TestLoadConfig tests that LoadConfig behaves in the way expected when the config file doesn't exist.
 func TestLoadConfig(t *testing.T) {
 	t.Run("Ignore file not found error", func(t *testing.T) {
-		vc := NewViperConfig()
+		reg := NewRegistry()
+		vc := NewViperConfig(reg)
 		vc.configFile.Set("notfound.yaml")
 		vc.configFileNotFoundHandling.Set(IgnoreConfigFileNotFound)
-		_, err := vc.LoadConfig()
+		_, err := vc.LoadConfig(reg)
 		require.NoError(t, err)
 	})
 
 	t.Run("Ignore file not found error from config name", func(t *testing.T) {
-		vc := NewViperConfig()
+		reg := NewRegistry()
+		vc := NewViperConfig(reg)
 		vc.configFile.Set("")
 		vc.configName.Set("notfound")
 		vc.configFileNotFoundHandling.Set(IgnoreConfigFileNotFound)
-		_, err := vc.LoadConfig()
+		_, err := vc.LoadConfig(reg)
 		require.NoError(t, err)
 	})
 
 	t.Run("Warn file not found error", func(t *testing.T) {
-		vc := NewViperConfig()
+		reg := NewRegistry()
+		vc := NewViperConfig(reg)
 		vc.configFile.Set("notfound.yaml")
 		vc.configFileNotFoundHandling.Set(WarnOnConfigFileNotFound)
-		_, err := vc.LoadConfig()
+		_, err := vc.LoadConfig(reg)
 		require.NoError(t, err)
 	})
 
 	t.Run("Ignore file not found error from config name", func(t *testing.T) {
-		vc := NewViperConfig()
+		reg := NewRegistry()
+		vc := NewViperConfig(reg)
 		vc.configFile.Set("")
 		vc.configName.Set("notfound")
 		vc.configFileNotFoundHandling.Set(WarnOnConfigFileNotFound)
-		_, err := vc.LoadConfig()
+		_, err := vc.LoadConfig(reg)
 		require.NoError(t, err)
 	})
 
 	t.Run("Error file not found error", func(t *testing.T) {
-		vc := NewViperConfig()
+		reg := NewRegistry()
+		vc := NewViperConfig(reg)
 		vc.configFile.Set("notfound.yaml")
 		vc.configFileNotFoundHandling.Set(ErrorOnConfigFileNotFound)
-		_, err := vc.LoadConfig()
+		_, err := vc.LoadConfig(reg)
 		require.Error(t, err)
 	})
 
 	t.Run("Ignore file not found error from config name", func(t *testing.T) {
-		vc := NewViperConfig()
+		reg := NewRegistry()
+		vc := NewViperConfig(reg)
 		vc.configFile.Set("")
 		vc.configName.Set("notfound")
 		vc.configFileNotFoundHandling.Set(ErrorOnConfigFileNotFound)
-		_, err := vc.LoadConfig()
+		_, err := vc.LoadConfig(reg)
 		require.Error(t, err)
 	})
 }

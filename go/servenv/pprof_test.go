@@ -25,6 +25,8 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/multigres/multigres/go/viperutil"
 )
 
 func TestParseProfileFlag(t *testing.T) {
@@ -61,7 +63,7 @@ func TestParseProfileFlag(t *testing.T) {
 				profileFlag = strings.Split(tt.arg, ",")
 			}
 			// Create a ServEnv instance to call the method
-			sv := NewServEnv()
+			sv := NewServEnv(viperutil.NewRegistry())
 			got, err := sv.parseProfileFlag(profileFlag)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("parseProfileFlag() error = %v, wantErr %v", err, tt.wantErr)
@@ -79,7 +81,7 @@ func TestPProfInitWithWaitSig(t *testing.T) {
 	signal.Reset(syscall.SIGUSR1)
 
 	// Create a ServEnv instance and set pprofFlag
-	sv := NewServEnv()
+	sv := NewServEnv(viperutil.NewRegistry())
 	sv.pprofFlag.Set(strings.Split("cpu,waitSig", ","))
 
 	sv.pprofInit()
@@ -117,7 +119,7 @@ func TestPProfInitWithoutWaitSig(t *testing.T) {
 	signal.Reset(syscall.SIGUSR1)
 
 	// Create a ServEnv instance and set pprofFlag
-	sv := NewServEnv()
+	sv := NewServEnv(viperutil.NewRegistry())
 	sv.pprofFlag.Set(strings.Split("cpu", ","))
 
 	sv.pprofInit()

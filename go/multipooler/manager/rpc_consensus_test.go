@@ -29,6 +29,7 @@ import (
 	"github.com/multigres/multigres/go/clustermetadata/topo/memorytopo"
 	"github.com/multigres/multigres/go/cmd/pgctld/testutil"
 	"github.com/multigres/multigres/go/servenv"
+	"github.com/multigres/multigres/go/viperutil"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	consensusdatapb "github.com/multigres/multigres/go/pb/consensusdata"
@@ -70,7 +71,7 @@ func setupManagerWithMockDB(t *testing.T) (*MultiPoolerManager, sqlmock.Sqlmock,
 	pm := NewMultiPoolerManager(logger, config)
 	t.Cleanup(func() { pm.Close() })
 
-	senv := servenv.NewServEnv()
+	senv := servenv.NewServEnv(viperutil.NewRegistry())
 	go pm.Start(senv)
 
 	require.Eventually(t, func() bool {
@@ -502,7 +503,6 @@ func TestConsensusStatus(t *testing.T) {
 		nilDB               bool
 		setupMocks          func(mock sqlmock.Sqlmock)
 		expectedCurrentTerm int64
-		expectedLeaderTerm  int64
 		expectedIsHealthy   bool
 		expectedRole        string
 		expectedWALLsn      string
@@ -519,8 +519,6 @@ func TestConsensusStatus(t *testing.T) {
 			},
 			termInMemory: true,
 			setupMocks: func(mock sqlmock.Sqlmock) {
-				mock.ExpectQuery("SELECT COALESCE\\(MAX\\(leader_term\\), 0\\)").
-					WillReturnRows(sqlmock.NewRows([]string{"leader_term"}).AddRow(5))
 				// Single pg_is_in_recovery check determines both role and which WAL position to query
 				mock.ExpectQuery("SELECT pg_is_in_recovery\\(\\)").
 					WillReturnRows(sqlmock.NewRows([]string{"pg_is_in_recovery"}).AddRow(false))
@@ -528,7 +526,6 @@ func TestConsensusStatus(t *testing.T) {
 					WillReturnRows(sqlmock.NewRows([]string{"pg_current_wal_lsn"}).AddRow("0/4000000"))
 			},
 			expectedCurrentTerm: 5,
-			expectedLeaderTerm:  5,
 			expectedIsHealthy:   true,
 			expectedRole:        "primary",
 			expectedWALLsn:      "0/4000000",
@@ -542,8 +539,6 @@ func TestConsensusStatus(t *testing.T) {
 			},
 			termInMemory: true,
 			setupMocks: func(mock sqlmock.Sqlmock) {
-				mock.ExpectQuery("SELECT COALESCE\\(MAX\\(leader_term\\), 0\\)").
-					WillReturnRows(sqlmock.NewRows([]string{"leader_term"}).AddRow(5))
 				// Single pg_is_in_recovery check determines both role and which WAL position to query
 				mock.ExpectQuery("SELECT pg_is_in_recovery\\(\\)").
 					WillReturnRows(sqlmock.NewRows([]string{"pg_is_in_recovery"}).AddRow(true))
@@ -559,7 +554,6 @@ func TestConsensusStatus(t *testing.T) {
 					}).AddRow("0/4FFFFFF", "0/5000000", false, "not paused", nil, ""))
 			},
 			expectedCurrentTerm: 3,
-			expectedLeaderTerm:  5,
 			expectedIsHealthy:   true,
 			expectedRole:        "replica",
 			expectedWALLsn:      "0/5000000", // receive LSN
@@ -574,7 +568,6 @@ func TestConsensusStatus(t *testing.T) {
 			termInMemory:        true,
 			nilDB:               true,
 			expectedCurrentTerm: 7,
-			expectedLeaderTerm:  0,
 			expectedIsHealthy:   false,
 			expectedRole:        "replica",
 			description:         "Should handle missing database connection gracefully",
@@ -587,12 +580,10 @@ func TestConsensusStatus(t *testing.T) {
 			},
 			termInMemory: true,
 			setupMocks: func(mock sqlmock.Sqlmock) {
-				mock.ExpectQuery("SELECT COALESCE\\(MAX\\(leader_term\\), 0\\)").
-					WillReturnError(assert.AnError)
+				// No database queries expected - database connection exists but no queries made
 			},
 			expectedCurrentTerm: 4,
-			expectedLeaderTerm:  0,
-			expectedIsHealthy:   false,
+			expectedIsHealthy:   true,
 			expectedRole:        "replica",
 			description:         "Should handle database query failure gracefully",
 		},
@@ -632,7 +623,6 @@ func TestConsensusStatus(t *testing.T) {
 			require.NotNil(t, resp)
 			assert.Equal(t, "test-pooler", resp.PoolerId)
 			assert.Equal(t, tt.expectedCurrentTerm, resp.CurrentTerm)
-			assert.Equal(t, tt.expectedLeaderTerm, resp.LeaderTerm)
 			assert.Equal(t, tt.expectedIsHealthy, resp.IsHealthy, tt.description)
 			assert.True(t, resp.IsEligible)
 			assert.Equal(t, "zone1", resp.Cell)

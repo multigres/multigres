@@ -22,30 +22,19 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-
-	"github.com/multigres/multigres/go/multipooler/manager"
-	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 )
 
 func TestNewMultiPooler(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	config := &manager.Config{
-		SocketFilePath: "/tmp/test.sock",
-		Database:       "testdb",
-		TopoClient:     nil,
-		ServiceID: &clustermetadatapb.ID{
-			Component: clustermetadatapb.ID_MULTIPOOLER,
-			Cell:      "zone1",
-			Name:      "test-service",
-		},
-	}
 
-	pooler := NewMultiPooler(logger, config)
+	pooler := NewMultiPooler(logger)
 
 	assert.NotNil(t, pooler)
-	assert.Equal(t, config, pooler.config)
 	assert.Equal(t, logger, pooler.logger)
-	assert.Nil(t, pooler.db) // Should be nil until connectDB is called
+	// Executor should be nil until InitDBConfig is called
+	exec, err := pooler.Executor()
+	assert.Error(t, err)
+	assert.Nil(t, exec)
 }
 
 func TestConfig(t *testing.T) {
@@ -53,57 +42,67 @@ func TestConfig(t *testing.T) {
 		name           string
 		socketFilePath string
 		database       string
+		pgPort         int
 	}{
 		{
 			name:           "Unix socket configuration",
 			socketFilePath: "/tmp/postgres.sock",
 			database:       "testdb",
+			pgPort:         5432,
 		},
 		{
 			name:           "TCP configuration",
-			socketFilePath: "",
+			socketFilePath: "localhost",
 			database:       "proddb",
+			pgPort:         5433,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			config := &manager.Config{
+			config := &DBConfig{
 				SocketFilePath: tt.socketFilePath,
 				Database:       tt.database,
-				TopoClient:     nil,
-				ServiceID: &clustermetadatapb.ID{
-					Component: clustermetadatapb.ID_MULTIPOOLER,
-					Cell:      "zone1",
-					Name:      "test-service",
-				},
+				PgPort:         tt.pgPort,
 			}
 
 			assert.Equal(t, tt.socketFilePath, config.SocketFilePath)
 			assert.Equal(t, tt.database, config.Database)
+			assert.Equal(t, tt.pgPort, config.PgPort)
 		})
 	}
 }
 
 func TestExecuteQuery_InvalidInput(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	config := &manager.Config{
-		SocketFilePath: "/nonexistent/socket",
-		Database:       "testdb",
-		TopoClient:     nil,
-		ServiceID: &clustermetadatapb.ID{
-			Component: clustermetadatapb.ID_MULTIPOOLER,
-			Cell:      "zone1",
-			Name:      "test-service",
-		},
-	}
-	pooler := NewMultiPooler(logger, config)
+	pooler := NewMultiPooler(logger)
 
-	// This should fail because the socket doesn't exist
-	exec, err := pooler.GetExecutor()
+	dbConfig := &DBConfig{
+		SocketFilePath: "/nonexistent/socket",
+		PoolerDir:      "/nonexistent/pooler",
+		Database:       "testdb",
+		PgPort:         5432,
+	}
+
+	// Initialize the config
+	err := pooler.InitDBConfig(dbConfig)
+	assert.NoError(t, err)
+
+	// Try to open - this should fail because the socket doesn't exist
+	err = pooler.Open()
 	assert.Error(t, err)
-	assert.Nil(t, exec)
 	assert.Contains(t, err.Error(), "failed to ping database")
+
+	// Executor should fail since the database is not opened
+	exec, err := pooler.Executor()
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "executor not ready")
+	assert.Nil(t, exec)
+
+	// IsHealthy should fail since the database connection is not opened
+	err = pooler.IsHealthy()
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "database connection not initialized")
 }
 
 func TestExecuteQuery_QueryTypeDetection(t *testing.T) {
@@ -176,17 +175,7 @@ func TestResultTranslation_NullValues(t *testing.T) {
 
 func TestClose(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	config := &manager.Config{
-		SocketFilePath: "/tmp/test.sock",
-		Database:       "testdb",
-		TopoClient:     nil,
-		ServiceID: &clustermetadatapb.ID{
-			Component: clustermetadatapb.ID_MULTIPOOLER,
-			Cell:      "zone1",
-			Name:      "test-service",
-		},
-	}
-	pooler := NewMultiPooler(logger, config)
+	pooler := NewMultiPooler(logger)
 
 	// Test closing when no connection exists
 	err := pooler.Close()

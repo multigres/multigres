@@ -43,7 +43,7 @@ type PgCtldInitCmd struct {
 func AddInitCommand(root *cobra.Command, pc *PgCtlCommand) {
 	initCmd := &PgCtldInitCmd{
 		pgCtlCmd: pc,
-		pgPwfile: viperutil.Configure("pg-pwfile", viperutil.Options[string]{
+		pgPwfile: viperutil.Configure(pc.reg, "pg-pwfile", viperutil.Options[string]{
 			Default:  "",
 			FlagName: "pg-pwfile",
 			Dynamic:  false,
@@ -75,7 +75,6 @@ Examples:
   # Initialize using config file settings
   pgctld init --config-file /etc/pgctld/config.yaml`,
 		PreRunE: func(cmd *cobra.Command, args []string) error {
-			i.pgCtlCmd.lg.SetupLogging()
 			return i.pgCtlCmd.validateGlobalFlags(cmd, args)
 		},
 		RunE: i.runInit,
