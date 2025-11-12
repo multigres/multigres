@@ -28,6 +28,7 @@ import (
 	"github.com/multigres/multigres/go/event"
 	"github.com/multigres/multigres/go/mterrors"
 	"github.com/multigres/multigres/go/netutil"
+	"github.com/multigres/multigres/go/tools/telemetry"
 	"github.com/multigres/multigres/go/viperutil"
 	viperdebug "github.com/multigres/multigres/go/viperutil/debug"
 
@@ -72,7 +73,7 @@ type ServEnv struct {
 	// exitChan waits for a signal that tells the process to terminate
 	exitChan  chan os.Signal
 	lg        *Logger
-	telemetry *Telemetry
+	telemetry *telemetry.Telemetry
 
 	// serviceMap is the used version of the service map.
 	// init() functions can add default values to it (using InitServiceMap).
@@ -83,14 +84,14 @@ type ServEnv struct {
 
 // NewServEnv creates a new ServEnv instance with the given registry
 func NewServEnv(reg *viperutil.Registry) *ServEnv {
-	telemetry := NewTelemetry()
+	telemetry := telemetry.NewTelemetry()
 	return NewServEnvWithConfig(reg, NewLogger(reg, telemetry), viperutil.NewViperConfig(reg), telemetry)
 }
 
 // NewServEnvWithConfig creates a new ServEnv instance with external registry, logger and viper config.
 // This allows sharing registry, logger and viper config instances across multiple components
 // to avoid duplicate flag registrations and binding conflicts.
-func NewServEnvWithConfig(reg *viperutil.Registry, lg *Logger, vc *viperutil.ViperConfig, telemetry *Telemetry) *ServEnv {
+func NewServEnvWithConfig(reg *viperutil.Registry, lg *Logger, vc *viperutil.ViperConfig, telemetry *telemetry.Telemetry) *ServEnv {
 	return &ServEnv{
 		reg: reg,
 		httpPort: viperutil.Configure(reg, "http-port", viperutil.Options[int]{

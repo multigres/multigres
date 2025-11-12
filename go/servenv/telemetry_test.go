@@ -17,7 +17,6 @@ package servenv
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"net"
 	"net/http"
 	"syscall"
@@ -28,7 +27,6 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	oteltrace "go.opentelemetry.io/otel/trace"
@@ -36,312 +34,9 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 
+	"github.com/multigres/multigres/go/tools/telemetry"
 	"github.com/multigres/multigres/go/viperutil"
 )
-
-// testTelemetrySetup holds test telemetry infrastructure
-type testTelemetrySetup struct {
-	telemetry    *Telemetry
-	spanExporter *tracetest.InMemoryExporter
-	metricReader *metric.ManualReader
-}
-
-// setupRestoreDefaultGlobals saves http.DefaultClient.Transport and otel.GetTracerProvider
-// to restore after the test and subtests complete.
-func setupRestoreDefaultGlobals(t *testing.T) {
-	t.Helper()
-	originalTransport := http.DefaultClient.Transport
-	originalTracerProvider := otel.GetTracerProvider()
-	originalMeterProvider := otel.GetMeterProvider()
-	originalTextMapPropagator := otel.GetTextMapPropagator()
-	t.Cleanup(func() {
-		http.DefaultClient.Transport = originalTransport
-		otel.SetTracerProvider(originalTracerProvider)
-		otel.SetMeterProvider(originalMeterProvider)
-		otel.SetTextMapPropagator(originalTextMapPropagator)
-	})
-}
-
-// setupTestTelemetry creates a telemetry instance with in-memory exporters for testing
-func setupTestTelemetry(t *testing.T) *testTelemetrySetup {
-	t.Helper()
-
-	// Save and restore the HTTP client transport
-	setupRestoreDefaultGlobals(t)
-
-	spanExporter := tracetest.NewInMemoryExporter()
-	metricReader := metric.NewManualReader()
-
-	// Create telemetry with test exporters - this will use them during InitTelemetry
-	telemetry := NewTelemetry().WithTestExporters(spanExporter, metricReader)
-
-	return &testTelemetrySetup{
-		telemetry:    telemetry,
-		spanExporter: spanExporter,
-		metricReader: metricReader,
-	}
-}
-
-func TestNewTelemetry(t *testing.T) {
-	tel := NewTelemetry()
-	require.NotNil(t, tel)
-	assert.False(t, tel.initialized)
-	assert.Nil(t, tel.tracerProvider)
-	assert.Nil(t, tel.meterProvider)
-}
-
-func TestInitTelemetry_DefaultServiceName(t *testing.T) {
-	setup := setupTestTelemetry(t)
-	ctx := context.Background()
-
-	err := setup.telemetry.InitTelemetry(ctx, "test-service")
-	require.NoError(t, err)
-
-	// Verify initialization completed
-	assert.True(t, setup.telemetry.initialized)
-	assert.NotNil(t, setup.telemetry.tracerProvider)
-	assert.NotNil(t, setup.telemetry.meterProvider)
-
-	// Verify shutdown works
-	err = setup.telemetry.ShutdownTelemetry(ctx)
-	require.NoError(t, err)
-}
-
-func TestInitTelemetry_WithServiceNameEnvVar(t *testing.T) {
-	t.Setenv("OTEL_SERVICE_NAME", "custom-service-from-env")
-
-	setup := setupTestTelemetry(t)
-	ctx := context.Background()
-
-	err := setup.telemetry.InitTelemetry(ctx, "default-service")
-	require.NoError(t, err)
-
-	// Note: We can't easily assert the service name was used since it's internal
-	// but we verify that initialization succeeded with the env var set
-	assert.True(t, setup.telemetry.initialized)
-
-	err = setup.telemetry.ShutdownTelemetry(ctx)
-	require.NoError(t, err)
-}
-
-func TestInitTelemetry_Idempotency(t *testing.T) {
-	setup := setupTestTelemetry(t)
-	ctx := context.Background()
-
-	// First initialization
-	err := setup.telemetry.InitTelemetry(ctx, "test-service")
-	require.NoError(t, err)
-
-	// Second initialization should succeed without error
-	err = setup.telemetry.InitTelemetry(ctx, "different-service")
-	require.NoError(t, err)
-
-	// Should still be initialized
-	assert.True(t, setup.telemetry.initialized)
-
-	err = setup.telemetry.ShutdownTelemetry(ctx)
-	require.NoError(t, err)
-}
-
-func TestGetTracerProvider(t *testing.T) {
-	setup := setupTestTelemetry(t)
-	ctx := context.Background()
-
-	// Before initialization, should return a provider (possibly noop)
-	provider1 := setup.telemetry.GetTracerProvider()
-	require.NotNil(t, provider1)
-
-	// Initialize
-	err := setup.telemetry.InitTelemetry(ctx, "test-service")
-	require.NoError(t, err)
-
-	// After initialization, should return the configured provider
-	provider2 := setup.telemetry.GetTracerProvider()
-	require.NotNil(t, provider2)
-	assert.Equal(t, setup.telemetry.tracerProvider, provider2)
-
-	assert.NotEqual(t, provider1, provider2)
-
-	err = setup.telemetry.ShutdownTelemetry(ctx)
-	require.NoError(t, err)
-}
-
-func TestGetTracer(t *testing.T) {
-	setup := setupTestTelemetry(t)
-	ctx := context.Background()
-
-	err := setup.telemetry.InitTelemetry(ctx, "test-service")
-	require.NoError(t, err)
-
-	// Verify the global tracer provider was set correctly
-	globalProvider := otel.GetTracerProvider()
-	require.Equal(t, setup.telemetry.GetTracerProvider(), globalProvider,
-		"global tracer provider should match Telemetry's tracer provider")
-
-	// Test using the global tracer (matches production usage where Telemetry object isn't passed around)
-	tracer := otel.Tracer("test-tracer")
-	require.NotNil(t, tracer)
-
-	// Verify we can create a span with the global tracer
-	_, span := tracer.Start(ctx, "test-span")
-	require.NotNil(t, span)
-	span.End()
-
-	// Also verify GetTracer() method still works for cases where Telemetry is available
-	tracerDirect := otel.Tracer("test-tracer-direct")
-	require.NotNil(t, tracerDirect)
-
-	err = setup.telemetry.ShutdownTelemetry(ctx)
-	require.NoError(t, err)
-}
-
-func TestShutdownTelemetry_BeforeInit(t *testing.T) {
-	setup := setupTestTelemetry(t)
-	ctx := context.Background()
-
-	// Shutdown before initialization should not error
-	err := setup.telemetry.ShutdownTelemetry(ctx)
-	require.NoError(t, err)
-}
-
-func TestShutdownTelemetry_WithTimeout(t *testing.T) {
-	setup := setupTestTelemetry(t)
-	ctx := context.Background()
-
-	err := setup.telemetry.InitTelemetry(ctx, "test-service")
-	require.NoError(t, err)
-
-	// Create some spans
-	tracer := otel.Tracer("test")
-	_, span := tracer.Start(ctx, "test-span")
-	span.End()
-
-	// Shutdown with timeout
-	shutdownCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
-
-	err = setup.telemetry.ShutdownTelemetry(shutdownCtx)
-	require.NoError(t, err)
-}
-
-func TestWrapSlogHandler_InjectsTraceContext(t *testing.T) {
-	setup := setupTestTelemetry(t)
-	ctx := context.Background()
-
-	err := setup.telemetry.InitTelemetry(ctx, "test-service")
-	require.NoError(t, err)
-	t.Cleanup(func() {
-		require.NoError(t, setup.telemetry.ShutdownTelemetry(ctx))
-	})
-
-	// Create a simple in-memory handler to capture log output
-	type capturedRecord struct {
-		traceID string
-		spanID  string
-	}
-	var captured *capturedRecord
-
-	baseHandler := &testHandler{
-		onHandle: func(ctx context.Context, r slog.Record) error {
-			captured = &capturedRecord{}
-			r.Attrs(func(a slog.Attr) bool {
-				if a.Key == "trace_id" {
-					captured.traceID = a.Value.String()
-				}
-				if a.Key == "span_id" {
-					captured.spanID = a.Value.String()
-				}
-				return true
-			})
-			return nil
-		},
-	}
-
-	// Wrap the handler
-	wrappedHandler := setup.telemetry.WrapSlogHandler(baseHandler)
-
-	// Create a span context
-	tracer := otel.Tracer("test")
-	spanCtx, span := tracer.Start(ctx, "test-span")
-	defer span.End()
-
-	// Log with span context
-	logger := slog.New(wrappedHandler)
-	logger.InfoContext(spanCtx, "test message")
-
-	// Verify trace_id and span_id were injected
-	require.NotNil(t, captured)
-	assert.NotEmpty(t, captured.traceID, "trace_id should be injected")
-	assert.NotEmpty(t, captured.spanID, "span_id should be injected")
-
-	// Verify the IDs match the span
-	spanContext := span.SpanContext()
-	assert.Equal(t, spanContext.TraceID().String(), captured.traceID)
-	assert.Equal(t, spanContext.SpanID().String(), captured.spanID)
-}
-
-func TestWrapSlogHandler_NoSpanContext(t *testing.T) {
-	setup := setupTestTelemetry(t)
-	ctx := context.Background()
-
-	err := setup.telemetry.InitTelemetry(ctx, "test-service")
-	require.NoError(t, err)
-	t.Cleanup(func() {
-		require.NoError(t, setup.telemetry.ShutdownTelemetry(ctx))
-	})
-
-	// Track whether trace_id or span_id were added
-	var hasTraceID, hasSpanID bool
-
-	baseHandler := &testHandler{
-		onHandle: func(ctx context.Context, r slog.Record) error {
-			r.Attrs(func(a slog.Attr) bool {
-				if a.Key == "trace_id" {
-					hasTraceID = true
-				}
-				if a.Key == "span_id" {
-					hasSpanID = true
-				}
-				return true
-			})
-			return nil
-		},
-	}
-
-	wrappedHandler := setup.telemetry.WrapSlogHandler(baseHandler)
-
-	// Log without span context
-	logger := slog.New(wrappedHandler)
-	logger.InfoContext(ctx, "test message without span")
-
-	// Verify trace_id and span_id were NOT injected
-	assert.False(t, hasTraceID, "trace_id should not be injected without span context")
-	assert.False(t, hasSpanID, "span_id should not be injected without span context")
-}
-
-// testHandler is a simple slog.Handler for testing
-type testHandler struct {
-	onHandle func(context.Context, slog.Record) error
-}
-
-func (h *testHandler) Enabled(ctx context.Context, level slog.Level) bool {
-	return true
-}
-
-func (h *testHandler) Handle(ctx context.Context, r slog.Record) error {
-	if h.onHandle != nil {
-		return h.onHandle(ctx, r)
-	}
-	return nil
-}
-
-func (h *testHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
-	return h
-}
-
-func (h *testHandler) WithGroup(name string) slog.Handler {
-	return h
-}
 
 // getFreePorts allocates n free ports for testing
 func getFreePorts(t *testing.T, n int) []int {
@@ -366,24 +61,18 @@ func getFreePorts(t *testing.T, n int) []int {
 
 // TestServEnvTelemetryIntegration tests telemetry with a real ServEnv instance
 func TestServEnvTelemetryIntegration(t *testing.T) {
-	// Save and restore http.DefaultClient.Transport to avoid interference
-	setupRestoreDefaultGlobals(t)
+	setup := telemetry.SetupTestTelemetry(t)
 
 	// Allocate free ports for HTTP and gRPC servers
 	ports := getFreePorts(t, 2)
 	httpPort := ports[0]
 	grpcPort := ports[1]
 
-	// Setup test telemetry exporters
-	spanExporter := tracetest.NewInMemoryExporter()
-	metricReader := metric.NewManualReader()
-	telemetry := NewTelemetry().WithTestExporters(spanExporter, metricReader)
-
 	// Create ServEnv with test telemetry
 	reg := viperutil.NewRegistry()
-	logger := NewLogger(reg, telemetry)
+	logger := NewLogger(reg, setup.Telemetry)
 	vc := viperutil.NewViperConfig(reg)
-	sv := NewServEnvWithConfig(reg, logger, vc, telemetry)
+	sv := NewServEnvWithConfig(reg, logger, vc, setup.Telemetry)
 
 	// Configure HTTP server
 	sv.httpPort.Set(httpPort)
@@ -439,7 +128,7 @@ func TestServEnvTelemetryIntegration(t *testing.T) {
 
 	// Run subtests for different telemetry behaviors
 	t.Run("HTTP_TracePropagation", func(t *testing.T) {
-		spanExporter.Reset()
+		setup.SpanExporter.Reset()
 		ctx := context.Background()
 
 		// Create a parent span representing an application-level operation
@@ -463,11 +152,11 @@ func TestServEnvTelemetryIntegration(t *testing.T) {
 		parentSpan.End()
 
 		// Force flush to collect all spans
-		err = telemetry.tracerProvider.ForceFlush(ctx)
+		err = setup.ForceFlush(ctx)
 		require.NoError(t, err)
 
 		// Verify spans: should have parent + HTTP client span + HTTP server span
-		spans := spanExporter.GetSpans()
+		spans := setup.SpanExporter.GetSpans()
 		require.Len(t, spans, 3, "should have exactly 3 spans (parent, http client, http server)")
 
 		// Find parent, client, and server spans
@@ -541,14 +230,12 @@ func TestServEnvTelemetryIntegration(t *testing.T) {
 		resp.Body.Close()
 
 		// Flush both traces and metrics to ensure everything is recorded
-		err = telemetry.tracerProvider.ForceFlush(ctx)
-		require.NoError(t, err)
-		err = telemetry.meterProvider.ForceFlush(ctx)
+		err = setup.ForceFlush(ctx)
 		require.NoError(t, err)
 
 		// Collect metrics
 		var metricData metricdata.ResourceMetrics
-		err = metricReader.Collect(ctx, &metricData)
+		err = setup.MetricReader.Collect(ctx, &metricData)
 		require.NoError(t, err)
 
 		// Verify we have metrics
@@ -569,7 +256,7 @@ func TestServEnvTelemetryIntegration(t *testing.T) {
 	})
 
 	t.Run("GRPC_TracePropagation", func(t *testing.T) {
-		spanExporter.Reset()
+		setup.SpanExporter.Reset()
 		ctx := context.Background()
 
 		// Create gRPC client with otelgrpc instrumentation
@@ -595,11 +282,11 @@ func TestServEnvTelemetryIntegration(t *testing.T) {
 		parentSpan.End()
 
 		// Force flush
-		err = telemetry.tracerProvider.ForceFlush(ctx)
+		err = setup.ForceFlush(ctx)
 		require.NoError(t, err)
 
 		// Verify we captured exactly 3 spans: parent + gRPC client + gRPC server
-		spans := spanExporter.GetSpans()
+		spans := setup.SpanExporter.GetSpans()
 		require.Len(t, spans, 3, "should have exactly 3 spans (parent, grpc client, grpc server)")
 
 		// Find spans by name and kind
@@ -672,15 +359,13 @@ func TestServEnvTelemetryIntegration(t *testing.T) {
 		span.End()
 
 		// Flush both traces and metrics to ensure everything is recorded
-		err = telemetry.tracerProvider.ForceFlush(ctx)
-		require.NoError(t, err)
-		err = telemetry.meterProvider.ForceFlush(ctx)
+		err = setup.ForceFlush(ctx)
 		require.NoError(t, err)
 
 		// Helper function to check for exemplars in metrics
 		checkExemplar := func(metricName string) bool {
 			var metricData metricdata.ResourceMetrics
-			if err := metricReader.Collect(ctx, &metricData); err != nil {
+			if err := setup.MetricReader.Collect(ctx, &metricData); err != nil {
 				return false
 			}
 
@@ -730,5 +415,5 @@ func TestServEnvTelemetryIntegration(t *testing.T) {
 	// Cleanup telemetry
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	_ = telemetry.ShutdownTelemetry(ctx)
+	_ = setup.Telemetry.ShutdownTelemetry(ctx)
 }
