@@ -246,8 +246,9 @@ func TestBeginTerm(t *testing.T) {
 			require.NoError(t, err)
 
 			// Load into consensus state
-			err = pm.consensusState.Load()
+			loadedTermNumber, err := pm.consensusState.Load()
 			require.NoError(t, err)
+			assert.Equal(t, tt.initialTerm.TermNumber, loadedTermNumber, "Loaded term number should match initial term")
 
 			// Setup mocks
 			tt.setupMocks(mock)
@@ -268,10 +269,10 @@ func TestBeginTerm(t *testing.T) {
 			assert.Equal(t, tt.expectedTerm, resp.Term)
 
 			// Verify persisted state
-			loadedTerm, err := getConsensusTerm(tmpDir)
+			persistedTerm, err := getConsensusTerm(tmpDir)
 			require.NoError(t, err)
-			assert.Equal(t, tt.expectedTerm, loadedTerm.TermNumber)
-			assert.Equal(t, tt.expectedAcceptedLeader, loadedTerm.AcceptedLeader.GetName())
+			assert.Equal(t, tt.expectedTerm, persistedTerm.TermNumber)
+			assert.Equal(t, tt.expectedAcceptedLeader, persistedTerm.AcceptedLeader.GetName())
 
 			assert.NoError(t, mock.ExpectationsWereMet())
 		})
@@ -288,8 +289,9 @@ func TestBeginTerm(t *testing.T) {
 			require.NoError(t, err)
 
 			// Load into consensus state
-			err = pm.consensusState.Load()
+			loadedTermNumber, err := pm.consensusState.Load()
 			require.NoError(t, err)
+			assert.Equal(t, tt.initialTerm.TermNumber, loadedTermNumber, "Loaded term number should match initial term")
 
 			// Make filesystem read-only to simulate save failure
 			if tt.makeFilesystemReadOnly {
@@ -320,9 +322,18 @@ func TestBeginTerm(t *testing.T) {
 				assert.Error(t, err, tt.description)
 				assert.Nil(t, resp)
 
+				// Acquire action lock to inspect consensus state
+				inspectCtx, err := pm.actionLock.Acquire(ctx, "inspect")
+				require.NoError(t, err)
+				defer pm.actionLock.Release(inspectCtx)
+
 				// CRITICAL: Verify memory is unchanged despite save failure
-				assert.Equal(t, tt.expectedMemoryTerm, pm.consensusState.GetCurrentTermNumber(), "Memory term should be unchanged after save failure")
-				assert.Equal(t, tt.expectedMemoryLeader, pm.consensusState.GetAcceptedLeader(), "Memory leader should be unchanged after save failure")
+				memoryTerm, err := pm.consensusState.GetCurrentTermNumber(inspectCtx)
+				require.NoError(t, err)
+				assert.Equal(t, tt.expectedMemoryTerm, memoryTerm, "Memory term should be unchanged after save failure")
+				memoryLeader, err := pm.consensusState.GetAcceptedLeader(inspectCtx)
+				require.NoError(t, err)
+				assert.Equal(t, tt.expectedMemoryLeader, memoryLeader, "Memory leader should be unchanged after save failure")
 
 				// Verify disk is unchanged
 				loadedTerm, loadErr := getConsensusTerm(tmpDir)
@@ -589,8 +600,9 @@ func TestConsensusStatus(t *testing.T) {
 
 			// Load term into consensus state if term should be in memory
 			if tt.termInMemory {
-				err = pm.consensusState.Load()
+				loadedTerm, err := pm.consensusState.Load()
 				require.NoError(t, err)
+				assert.Equal(t, tt.expectedCurrentTerm, loadedTerm, "Loaded term should match expected current term")
 			}
 
 			// Handle nil DB case
@@ -628,7 +640,13 @@ func TestConsensusStatus(t *testing.T) {
 
 			// Verify term was loaded if applicable
 			if !tt.termInMemory && !tt.nilDB {
-				assert.Equal(t, tt.expectedCurrentTerm, pm.consensusState.GetCurrentTermNumber(), "Term should be loaded into memory")
+				// Acquire action lock to inspect consensus state
+				inspectCtx, err := pm.actionLock.Acquire(ctx, "inspect")
+				require.NoError(t, err)
+				currentTerm, err := pm.consensusState.GetCurrentTermNumber(inspectCtx)
+				require.NoError(t, err)
+				assert.Equal(t, tt.expectedCurrentTerm, currentTerm, "Term should be loaded into memory")
+				pm.actionLock.Release(inspectCtx)
 			}
 
 			if !tt.nilDB {

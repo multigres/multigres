@@ -34,6 +34,8 @@ import (
 
 	"github.com/spf13/pflag"
 
+	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
+
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/health"
 	"google.golang.org/grpc/keepalive"
@@ -344,6 +346,10 @@ func (g *GrpcServer) Create() {
 	}
 	opts = append(opts, grpc.KeepaliveParams(ka))
 
+	// Add OpenTelemetry instrumentation for distributed tracing and metrics
+	// If no OTEL exporters are configured, noop exporters are used with minimal overhead
+	opts = append(opts, grpc.StatsHandler(otelgrpc.NewServerHandler()))
+
 	opts = append(opts, g.interceptors()...)
 
 	g.Server = grpc.NewServer(opts...)
@@ -371,8 +377,6 @@ func (g *GrpcServer) interceptors() []grpc.ServerOption {
 			},
 		)
 	}
-
-	// TODO (@rafael) hook stats and tracing
 
 	return interceptors.Build()
 }

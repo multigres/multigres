@@ -179,7 +179,8 @@ func TestInitializeEmptyPrimary(t *testing.T) {
 
 			// Initialize consensus state
 			pm.consensusState = NewConsensusState(poolerDir, serviceID)
-			require.NoError(t, pm.consensusState.Load())
+			_, err := pm.consensusState.Load()
+			require.NoError(t, err)
 
 			// Run setup function
 			if tt.setupFunc != nil {
@@ -281,7 +282,8 @@ func TestInitializeAsStandby(t *testing.T) {
 
 			// Initialize consensus state
 			pm.consensusState = NewConsensusState(poolerDir, serviceID)
-			require.NoError(t, pm.consensusState.Load())
+			_, err := pm.consensusState.Load()
+			require.NoError(t, err)
 
 			// Run setup function
 			if tt.setupFunc != nil {

@@ -15,7 +15,6 @@
 package cluster
 
 import (
-	"context"
 	"fmt"
 	"strings"
 
@@ -153,7 +152,7 @@ func start(cmd *cobra.Command, args []string) error {
 	fmt.Println(strings.Repeat("=", 65))
 	fmt.Println()
 
-	ctx := context.Background()
+	ctx := cmd.Context()
 
 	// Initialize service summary to track all provisioned services
 	summary := &ServiceSummary{}

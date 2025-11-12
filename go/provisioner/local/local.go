@@ -38,11 +38,16 @@ import (
 	"github.com/multigres/multigres/go/tools/retry"
 	"github.com/multigres/multigres/go/tools/semver"
 	"github.com/multigres/multigres/go/tools/stringutil"
+	"github.com/multigres/multigres/go/tools/telemetry"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 
+	"go.opentelemetry.io/otel"
+
 	"gopkg.in/yaml.v3"
 )
+
+var tracer = otel.Tracer("github.com/multigres/multigres/go/provisioner/local")
 
 // localProvisioner implements the Provisioner interface for local binary-based provisioning
 type localProvisioner struct {
@@ -195,6 +200,9 @@ func (p *localProvisioner) provisionEtcd(ctx context.Context, req *provisioner.P
 
 	// Start etcd process
 	etcdCmd := exec.CommandContext(ctx, etcdBinary, args...)
+
+	// Inject trace context so etcd startup is part of the cluster_startup trace
+	telemetry.SetCmdEnvTraceContext(ctx, etcdCmd)
 
 	fmt.Printf("▶️  - Launching etcd on port %d...", port)
 
@@ -460,6 +468,9 @@ func (p *localProvisioner) provisionMultigateway(ctx context.Context, req *provi
 	// Start multigateway process
 	multigatewayCmd := exec.CommandContext(ctx, multigatewayBinary, args...)
 
+	// Inject trace context for distributed tracing
+	telemetry.SetCmdEnvTraceContext(ctx, multigatewayCmd)
+
 	fmt.Printf("▶️  - Launching multigateway (HTTP:%d, gRPC:%d, pg:%d)...", httpPort, grpcPort, pgPort)
 
 	if err := multigatewayCmd.Start(); err != nil {
@@ -594,6 +605,9 @@ func (p *localProvisioner) provisionMultiadmin(ctx context.Context, req *provisi
 
 	// Start multiadmin process
 	multiadminCmd := exec.CommandContext(ctx, multiadminBinary, args...)
+
+	// Inject trace context for distributed tracing
+	telemetry.SetCmdEnvTraceContext(ctx, multiadminCmd)
 
 	fmt.Printf("▶️  - Launching multiadmin (HTTP:%d, gRPC:%d)...", httpPort, grpcPort)
 
@@ -793,6 +807,9 @@ func (p *localProvisioner) provisionMultipooler(ctx context.Context, req *provis
 	// Start multipooler process
 	multipoolerCmd := exec.CommandContext(ctx, multipoolerBinary, args...)
 
+	// Inject trace context for distributed tracing
+	telemetry.SetCmdEnvTraceContext(ctx, multipoolerCmd)
+
 	fmt.Printf("▶️  - Launching multipooler (HTTP:%d, gRPC:%d)...", httpPort, grpcPort)
 
 	if err := multipoolerCmd.Start(); err != nil {
@@ -939,6 +956,9 @@ func (p *localProvisioner) provisionMultiOrch(ctx context.Context, req *provisio
 
 	// Start multiorch process
 	multiorchCmd := exec.CommandContext(ctx, multiorchBinary, args...)
+
+	// Inject trace context for distributed tracing
+	telemetry.SetCmdEnvTraceContext(ctx, multiorchCmd)
 
 	fmt.Printf("▶️  - Launching multiorch (HTTP:%d, gRPC:%d)...", httpPort, grpcPort)
 

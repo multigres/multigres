@@ -84,7 +84,7 @@ func NewMultiOrch() *MultiOrch {
 // or if some connections fail, it launches goroutines that retry
 // until successful.
 func (mo *MultiOrch) Init() {
-	mo.senv.Init()
+	mo.senv.Init("multiorch")
 	// Get the configured logger
 	logger := mo.senv.GetLogger()
 	mo.ts = mo.topoConfig.Open()

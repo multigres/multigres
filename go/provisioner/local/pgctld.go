@@ -26,6 +26,7 @@ import (
 	"github.com/multigres/multigres/go/grpccommon"
 	pb "github.com/multigres/multigres/go/pb/pgctldservice"
 	"github.com/multigres/multigres/go/provisioner/local/ports"
+	"github.com/multigres/multigres/go/tools/telemetry"
 )
 
 // startPostgreSQLViaPgctld starts PostgreSQL via pgctld gRPC and verifies it's running
@@ -255,6 +256,9 @@ func (p *localProvisioner) provisionPgctld(ctx context.Context, dbName, tableGro
 	}
 
 	initCmd := exec.CommandContext(ctx, pgctldBinary, initArgs...)
+	// Inject trace context for distributed tracing
+	telemetry.SetCmdEnvTraceContext(ctx, initCmd)
+
 	if err := initCmd.Run(); err != nil {
 		return nil, fmt.Errorf("failed to initialize pgctld data directory: %w", err)
 	}
@@ -281,6 +285,9 @@ func (p *localProvisioner) provisionPgctld(ctx context.Context, dbName, tableGro
 	}
 
 	pgctldCmd := exec.CommandContext(ctx, pgctldBinary, serverArgs...)
+	// Inject trace context for distributed tracing
+	telemetry.SetCmdEnvTraceContext(ctx, pgctldCmd)
+
 	if err := pgctldCmd.Start(); err != nil {
 		return nil, fmt.Errorf("failed to start pgctld server: %w", err)
 	}

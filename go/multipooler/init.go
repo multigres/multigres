@@ -29,6 +29,7 @@ import (
 	"github.com/multigres/multigres/go/multipooler/grpcpoolerservice"
 	"github.com/multigres/multigres/go/multipooler/manager"
 	"github.com/multigres/multigres/go/servenv"
+	"github.com/multigres/multigres/go/tools/telemetry"
 	"github.com/multigres/multigres/go/viperutil"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
@@ -53,6 +54,7 @@ type MultiPooler struct {
 	senv *servenv.ServEnv
 	// TopoConfig holds topology configuration
 	topoConfig *topo.TopoConfig
+	telemetry  *telemetry.Telemetry
 
 	ts           topo.Store
 	tr           *toporeg.TopoReg
@@ -64,7 +66,7 @@ func (mp *MultiPooler) CobraPreRunE(cmd *cobra.Command) error {
 }
 
 // NewMultiPooler creates a new MultiPooler instance with default configuration
-func NewMultiPooler() *MultiPooler {
+func NewMultiPooler(telemetry *telemetry.Telemetry) *MultiPooler {
 	reg := viperutil.NewRegistry()
 	mp := &MultiPooler{
 		pgctldAddr: viperutil.Configure(reg, "pgctld-addr", viperutil.Options[string]{
@@ -115,7 +117,8 @@ func NewMultiPooler() *MultiPooler {
 			Dynamic:  false,
 		}),
 		grpcServer: servenv.NewGrpcServer(reg),
-		senv:       servenv.NewServEnv(reg),
+		senv:       servenv.NewServEnvWithConfig(reg, servenv.NewLogger(reg, telemetry), viperutil.NewViperConfig(reg), telemetry),
+		telemetry:  telemetry,
 		topoConfig: topo.NewTopoConfig(reg),
 		serverStatus: Status{
 			Title: "Multipooler",
@@ -164,8 +167,11 @@ func (mp *MultiPooler) RegisterFlags(flags *pflag.FlagSet) {
 // Init initializes the multipooler. If any services fail to start,
 // or if some connections fail, it launches goroutines that retry
 // until successful.
-func (mp *MultiPooler) Init() {
-	mp.senv.Init()
+func (mp *MultiPooler) Init(startCtx context.Context) {
+	startCtx, span := telemetry.Tracer().Start(startCtx, "Init")
+	defer span.End()
+
+	mp.senv.Init("multipooler")
 	// Get the configured logger
 	logger := mp.senv.GetLogger()
 
@@ -175,7 +181,7 @@ func (mp *MultiPooler) Init() {
 	// at that point.
 	mp.ts = mp.topoConfig.Open()
 
-	logger.Info("multipooler starting up",
+	logger.InfoContext(startCtx, "multipooler starting up",
 		"pgctld_addr", mp.pgctldAddr.Get(),
 		"cell", mp.cell.Get(),
 		"database", mp.database.Get(),
@@ -188,12 +194,12 @@ func (mp *MultiPooler) Init() {
 	)
 
 	if mp.database.Get() == "" {
-		logger.Error("database is required")
+		logger.ErrorContext(startCtx, "database is required")
 		os.Exit(1)
 	}
 
 	if mp.tableGroup.Get() == "" {
-		logger.Error("table group is required")
+		logger.ErrorContext(startCtx, "table group is required")
 		os.Exit(1)
 	}
 	// Create MultiPooler instance for topo registration
@@ -203,7 +209,7 @@ func (mp *MultiPooler) Init() {
 	multipooler.Database = mp.database.Get()
 	multipooler.ServingStatus = clustermetadatapb.PoolerServingStatus_NOT_SERVING
 
-	logger.Info("Initializing MultiPoolerManager")
+	logger.InfoContext(startCtx, "Initializing MultiPoolerManager")
 	poolerManager := manager.NewMultiPoolerManager(logger, &manager.Config{
 		SocketFilePath:      mp.socketFilePath.Get(),
 		PoolerDir:           mp.poolerDir.Get(),

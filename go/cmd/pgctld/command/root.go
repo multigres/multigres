@@ -15,11 +15,16 @@
 package command
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
+	"time"
+
+	"go.opentelemetry.io/otel/trace"
 
 	"github.com/multigres/multigres/go/pgctld"
 	"github.com/multigres/multigres/go/servenv"
+	"github.com/multigres/multigres/go/tools/telemetry"
 	"github.com/multigres/multigres/go/viperutil"
 
 	"github.com/spf13/cobra"
@@ -36,10 +41,12 @@ type PgCtlCommand struct {
 	pgListenAddresses viperutil.Value[string]
 	vc                *viperutil.ViperConfig
 	lg                *servenv.Logger
+	telemetry         *telemetry.Telemetry
 }
 
 // GetRootCommand creates and returns the root command for pgctld with all subcommands
 func GetRootCommand() (*cobra.Command, *PgCtlCommand) {
+	telemetry := telemetry.NewTelemetry()
 	reg := viperutil.NewRegistry()
 	pc := &PgCtlCommand{
 		reg: reg,
@@ -73,9 +80,12 @@ func GetRootCommand() (*cobra.Command, *PgCtlCommand) {
 			FlagName: "pg-listen-addresses",
 			Dynamic:  false,
 		}),
-		vc: viperutil.NewViperConfig(reg),
-		lg: servenv.NewLogger(reg),
+		vc:        viperutil.NewViperConfig(reg),
+		lg:        servenv.NewLogger(reg, telemetry),
+		telemetry: telemetry,
 	}
+
+	var span trace.Span
 
 	root := &cobra.Command{
 		Use:   "pgctld",
@@ -84,8 +94,27 @@ func GetRootCommand() (*cobra.Command, *PgCtlCommand) {
 It provides lifecycle management including start, stop, restart, and configuration
 management for PostgreSQL servers.`,
 		Args: cobra.NoArgs,
-		PreRun: func(cmd *cobra.Command, args []string) {
+		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 			pc.lg.SetupLogging()
+			// Initialize telemetry for CLI commands (server command will re-initialize via ServEnv.Init)
+			var err error
+			if span, err = pc.telemetry.InitForCommand(cmd, "pgctld", cmd.Use != "server" /* startSpan */); err != nil {
+				return fmt.Errorf("failed to initialize OpenTelemetry: %w", err)
+			}
+
+			return nil
+		},
+		PersistentPostRunE: func(cmd *cobra.Command, args []string) error {
+			span.End()
+
+			// Shutdown OpenTelemetry to flush all pending spans
+			// For server command, this runs after the server has shut down
+			ctx, cancel := context.WithTimeout(cmd.Context(), 5*time.Second)
+			defer cancel()
+			if err := pc.telemetry.ShutdownTelemetry(ctx); err != nil {
+				return fmt.Errorf("failed to shutdown OpenTelemetry: %w", err)
+			}
+			return nil
 		},
 	}
 

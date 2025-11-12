@@ -32,8 +32,6 @@ import (
 	"github.com/multigres/multigres/go/servenv"
 	"github.com/multigres/multigres/go/tools/retry"
 
-	"golang.org/x/sync/semaphore"
-
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
@@ -70,11 +68,11 @@ type MultiPoolerManager struct {
 	// topology, consensus, and replication operations.
 	qsc poolerserver.PoolerController
 
-	// actionSema is there to run only one action at a time.
-	// This semaphore can be held for long periods of time (hours),
-	// like in the case of a restore. This semaphore must be obtained
+	// actionLock is there to run only one action at a time.
+	// This lock can be held for long periods of time (hours),
+	// like in the case of a restore. This lock must be obtained
 	// first before other mutexes.
-	actionSema *semaphore.Weighted
+	actionLock *ActionLock
 
 	// Multipooler record from topology and startup state
 	mu              sync.Mutex
@@ -139,7 +137,7 @@ func NewMultiPoolerManagerWithTimeout(logger *slog.Logger, config *Config, loadT
 		config:            config,
 		topoClient:        config.TopoClient,
 		serviceID:         config.ServiceID,
-		actionSema:        semaphore.NewWeighted(1),
+		actionLock:        NewActionLock(),
 		state:             ManagerStateStarting,
 		ctx:               ctx,
 		cancel:            cancel,
@@ -154,20 +152,6 @@ func NewMultiPoolerManagerWithTimeout(logger *slog.Logger, config *Config, loadT
 	logger.Info("Created query service controller")
 
 	return pm
-}
-
-// lock is used at the beginning of an RPC call, to acquire the
-// action semaphore. It returns ctx.Err() if the context expires.
-func (pm *MultiPoolerManager) lock(ctx context.Context) error {
-	if err := pm.actionSema.Acquire(ctx, 1); err != nil {
-		return mterrors.Wrap(err, "failed to acquire action lock")
-	}
-	return nil
-}
-
-// unlock is the symmetrical action to lock.
-func (pm *MultiPoolerManager) unlock() {
-	pm.actionSema.Release(1)
 }
 
 // connectDB establishes a connection to PostgreSQL (reuses the shared logic)
@@ -377,14 +361,14 @@ func (pm *MultiPoolerManager) checkPoolerType(expectedType clustermetadatapb.Poo
 }
 
 // getCurrentTermNumber returns the current consensus term number in a thread-safe manner
-func (pm *MultiPoolerManager) getCurrentTermNumber() int64 {
+func (pm *MultiPoolerManager) getCurrentTermNumber(ctx context.Context) (int64, error) {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
 
 	if pm.consensusState == nil {
-		return 0
+		return 0, nil
 	}
-	return pm.consensusState.GetCurrentTermNumber()
+	return pm.consensusState.GetCurrentTermNumber(ctx)
 }
 
 // checkReplicaGuardrails verifies that the pooler is a REPLICA and PostgreSQL is in recovery mode
@@ -525,7 +509,10 @@ func (pm *MultiPoolerManager) validateAndUpdateTerm(ctx context.Context, request
 		return nil // Skip validation if force is set
 	}
 
-	currentTerm := pm.getCurrentTermNumber()
+	currentTerm, err := pm.getCurrentTermNumber(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to get current term: %w", err)
+	}
 
 	// Check if consensus term has been initialized (term 0 means uninitialized)
 	if currentTerm == 0 {
@@ -563,7 +550,7 @@ func (pm *MultiPoolerManager) validateAndUpdateTerm(ctx context.Context, request
 		}
 
 		// Update term atomically (resets accepted leader)
-		if err := cs.UpdateTermAndSave(requestTerm); err != nil {
+		if err := cs.UpdateTermAndSave(ctx, requestTerm); err != nil {
 			pm.logger.ErrorContext(ctx, "Failed to update term", "error", err)
 			return mterrors.Wrap(err, "failed to update consensus term")
 		}
@@ -582,7 +569,10 @@ func (pm *MultiPoolerManager) validateTermExactMatch(ctx context.Context, reques
 		return nil // Skip validation if force is set
 	}
 
-	currentTerm := pm.getCurrentTermNumber()
+	currentTerm, err := pm.getCurrentTermNumber(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to get current term: %w", err)
+	}
 
 	// Check if consensus term has been initialized
 	if currentTerm == 0 {
@@ -633,7 +623,8 @@ func (pm *MultiPoolerManager) loadConsensusTermFromDisk() {
 		pm.mu.Unlock()
 
 		// Load term from local disk using the ConsensusState
-		if err := cs.Load(); err != nil {
+		var currentTerm int64
+		if currentTerm, err = cs.Load(); err != nil {
 			pm.logger.Debug("Failed to load consensus term from disk, retrying", "error", err)
 			continue // Will retry with backoff
 		}
@@ -643,7 +634,11 @@ func (pm *MultiPoolerManager) loadConsensusTermFromDisk() {
 		pm.consensusLoaded = true
 		pm.mu.Unlock()
 
-		currentTerm := cs.GetCurrentTermNumber()
+		if err != nil {
+			pm.logger.ErrorContext(timeoutCtx, "Failed to get current term number after loading", "error", err)
+			pm.setStateError(fmt.Errorf("failed to get current term: %w", err))
+			return
+		}
 
 		pm.logger.Info("Loaded consensus term from disk", "current_term", currentTerm)
 		pm.checkAndSetReady()

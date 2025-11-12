@@ -30,10 +30,12 @@ func (pm *MultiPoolerManager) InitializeEmptyPrimary(ctx context.Context, req *m
 	pm.logger.InfoContext(ctx, "InitializeEmptyPrimary called", "shard", pm.getShardID(), "term", req.ConsensusTerm)
 
 	// Acquire action lock
-	if err := pm.lock(ctx); err != nil {
+	var err error
+	ctx, err = pm.actionLock.Acquire(ctx, "InitializeEmptyPrimary")
+	if err != nil {
 		return nil, fmt.Errorf("failed to acquire action lock: %w", err)
 	}
-	defer pm.unlock()
+	defer pm.actionLock.Release(ctx)
 
 	// 1. Check if already initialized
 	if pm.isInitialized() {
@@ -79,7 +81,7 @@ func (pm *MultiPoolerManager) InitializeEmptyPrimary(ctx context.Context, req *m
 
 	// 6. Set consensus term
 	if pm.consensusState != nil {
-		if err := pm.consensusState.UpdateTermAndSave(req.ConsensusTerm); err != nil {
+		if err := pm.consensusState.UpdateTermAndSave(ctx, req.ConsensusTerm); err != nil {
 			return nil, fmt.Errorf("failed to set consensus term: %w", err)
 		}
 	}
@@ -98,10 +100,12 @@ func (pm *MultiPoolerManager) InitializeAsStandby(ctx context.Context, req *mult
 		"force_reinit", req.ForceReinit)
 
 	// Acquire action lock
-	if err := pm.lock(ctx); err != nil {
+	var err error
+	ctx, err = pm.actionLock.Acquire(ctx, "InitializeAsStandby")
+	if err != nil {
 		return nil, fmt.Errorf("failed to acquire action lock: %w", err)
 	}
-	defer pm.unlock()
+	defer pm.actionLock.Release(ctx)
 
 	// 1. Stop PostgreSQL if running
 	if pm.isPostgresRunning(ctx) {
@@ -160,7 +164,7 @@ func (pm *MultiPoolerManager) InitializeAsStandby(ctx context.Context, req *mult
 
 	// 8. Set consensus term
 	if pm.consensusState != nil {
-		if err := pm.consensusState.UpdateTermAndSave(req.ConsensusTerm); err != nil {
+		if err := pm.consensusState.UpdateTermAndSave(ctx, req.ConsensusTerm); err != nil {
 			return nil, fmt.Errorf("failed to set consensus term: %w", err)
 		}
 	}
@@ -188,7 +192,10 @@ func (pm *MultiPoolerManager) InitializationStatus(ctx context.Context, req *mul
 
 	// Get consensus term if available
 	if pm.consensusState != nil {
-		resp.ConsensusTerm = pm.consensusState.GetCurrentTermNumber()
+		term, err := pm.consensusState.GetCurrentTermNumber(ctx)
+		if err == nil {
+			resp.ConsensusTerm = term
+		}
 	}
 
 	return resp, nil
