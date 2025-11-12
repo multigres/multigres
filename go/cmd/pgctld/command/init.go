@@ -75,7 +75,6 @@ Examples:
   # Initialize using config file settings
   pgctld init --config-file /etc/pgctld/config.yaml`,
 		PreRunE: func(cmd *cobra.Command, args []string) error {
-			i.pgCtlCmd.lg.SetupLogging()
 			return i.pgCtlCmd.validateGlobalFlags(cmd, args)
 		},
 		RunE: i.runInit,
