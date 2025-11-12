@@ -949,6 +949,7 @@ func (p *localProvisioner) provisionMultiOrch(ctx context.Context, req *provisio
 		"--topo-global-root", topoGlobalRoot,
 		"--topo-implementation", topoBackend,
 		"--cell", cell,
+		"--shard_watch_targets", req.DatabaseName,
 		"--log-level", logLevel,
 		"--log-output", logFile,
 		"--hostname", "localhost",

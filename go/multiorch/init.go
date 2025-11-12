@@ -17,6 +17,8 @@ package multiorch
 
 import (
 	"context"
+	"os"
+	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
@@ -38,6 +40,12 @@ type MultiOrch struct {
 	ts           topo.Store
 	tr           *toporeg.TopoReg
 	serverStatus Status
+
+	// Orchestration components
+	shardWatchTargets              viperutil.Value[[]string]
+	bookkeepingInterval            viperutil.Value[time.Duration]
+	clusterMetadataRefreshInterval viperutil.Value[time.Duration]
+	recoveryEngine                 *RecoveryEngine
 }
 
 func (mo *MultiOrch) CobraPreRunE(cmd *cobra.Command) error {
@@ -51,7 +59,10 @@ func (mo *MultiOrch) RunDefault() {
 // Register flags that are specific to multiorch.
 func (mo *MultiOrch) RegisterFlags(fs *pflag.FlagSet) {
 	fs.String("cell", mo.cell.Default(), "cell to use")
-	viperutil.BindFlags(fs, mo.cell)
+	fs.StringSlice("shard_watch_targets", mo.shardWatchTargets.Default(), "list of db/tablegroup/shard targets to watch")
+	fs.Duration("bookkeeping_interval", mo.bookkeepingInterval.Default(), "interval for bookkeeping tasks")
+	fs.Duration("cluster_metadata_refresh_interval", mo.clusterMetadataRefreshInterval.Default(), "interval for refreshing cluster metadata from topology")
+	viperutil.BindFlags(fs, mo.cell, mo.shardWatchTargets, mo.bookkeepingInterval, mo.clusterMetadataRefreshInterval)
 	mo.senv.RegisterFlags(fs)
 	mo.grpcServer.RegisterFlags(fs)
 	mo.topoConfig.RegisterFlags(fs)
@@ -65,6 +76,23 @@ func NewMultiOrch() *MultiOrch {
 			FlagName: "cell",
 			Dynamic:  false,
 			EnvVars:  []string{"MT_CELL"},
+		}),
+		shardWatchTargets: viperutil.Configure(reg, "shard_watch_targets", viperutil.Options[[]string]{
+			FlagName: "shard_watch_targets",
+			Dynamic:  true,
+			EnvVars:  []string{"MT_SHARD_WATCH_TARGETS"},
+		}),
+		bookkeepingInterval: viperutil.Configure(reg, "bookkeeping_interval", viperutil.Options[time.Duration]{
+			Default:  1 * time.Minute,
+			FlagName: "bookkeeping_interval",
+			Dynamic:  true,
+			EnvVars:  []string{"MT_BOOKKEEPING_INTERVAL"},
+		}),
+		clusterMetadataRefreshInterval: viperutil.Configure(reg, "cluster_metadata_refresh_interval", viperutil.Options[time.Duration]{
+			Default:  15 * time.Second,
+			FlagName: "cluster_metadata_refresh_interval",
+			Dynamic:  true,
+			EnvVars:  []string{"MT_CLUSTER_METADATA_REFRESH_INTERVAL"},
 		}),
 		grpcServer: servenv.NewGrpcServer(reg),
 		senv:       servenv.NewServEnv(reg),
@@ -89,10 +117,18 @@ func (mo *MultiOrch) Init() {
 	logger := mo.senv.GetLogger()
 	mo.ts = mo.topoConfig.Open()
 
+	// Validate shard watch targets
+	targets := mo.shardWatchTargets.Get()
+	if len(targets) == 0 {
+		logger.Error("shard_watch_targets is required")
+		os.Exit(1)
+	}
+
 	logger.Info("multiorch starting up",
 		"cell", mo.cell.Get(),
 		"http_port", mo.senv.GetHTTPPort(),
 		"grpc_port", mo.grpcServer.Port(),
+		"watch_targets", targets,
 	)
 
 	// Create MultiOrch instance for topo registration
@@ -114,6 +150,21 @@ func (mo *MultiOrch) Init() {
 	mo.senv.HTTPHandleFunc("/", mo.handleIndex)
 	mo.senv.HTTPHandleFunc("/ready", mo.handleReady)
 
+	// Create and start recovery engine
+	mo.recoveryEngine = NewRecoveryEngine(
+		mo.cell.Get(),
+		mo.ts,
+		logger,
+		targets,
+		mo.bookkeepingInterval.Get(),
+		mo.clusterMetadataRefreshInterval.Get(),
+	)
+
+	if err := mo.recoveryEngine.Start(); err != nil {
+		logger.Error("failed to start recovery engine", "error", err)
+		os.Exit(1)
+	}
+
 	mo.senv.OnClose(func() {
 		mo.Shutdown()
 	})
@@ -121,6 +172,9 @@ func (mo *MultiOrch) Init() {
 
 func (mo *MultiOrch) Shutdown() {
 	mo.senv.GetLogger().Info("multiorch shutting down")
+	if mo.recoveryEngine != nil {
+		mo.recoveryEngine.Stop()
+	}
 	mo.tr.Unregister()
 	mo.ts.Close()
 }
