@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package servenv
+package telemetry
 
 import (
 	"context"
@@ -20,7 +20,10 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"os/exec"
 	"sync"
+
+	"github.com/spf13/cobra"
 
 	"go.opentelemetry.io/contrib/exporters/autoexport"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
@@ -32,6 +35,17 @@ import (
 	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
 	"go.opentelemetry.io/otel/trace"
 )
+
+// TODO(dweitzman): Do we want package-specific tracing services, or is a shared
+// one for all of multigres fine?
+const tracingServiceName = "github.com/multigres/multigres"
+
+var tracer = otel.Tracer(tracingServiceName)
+
+// Tracer returns a tracer for creating spans named github.com/multigres/multigres
+func Tracer() trace.Tracer {
+	return tracer
+}
 
 // Telemetry holds OpenTelemetry configuration and state
 type Telemetry struct {
@@ -102,9 +116,6 @@ func (t *Telemetry) InitTelemetry(ctx context.Context, defaultServiceName string
 		propagation.TraceContext{},
 		propagation.Baggage{},
 	))
-
-	// TODO(dweitzman): If we're running on a one-off command rather than a service, check the environment
-	// for things like TRACEPARENT: https://opentelemetry.io/docs/specs/otel/context/env-carriers/#environment-variable-names
 
 	t.initialized = true
 
@@ -199,6 +210,39 @@ func (t *Telemetry) initMetrics(ctx context.Context, res *resource.Resource) err
 	return nil
 }
 
+// WithEnvTraceparent parses the TRACEPARENT env variable and returns a context within that
+// parent
+func (t *Telemetry) WithEnvTraceparent(ctx context.Context) context.Context {
+	traceparent := os.Getenv("TRACEPARENT")
+
+	if traceparent == "" {
+		return ctx
+	}
+
+	// Parse W3C Trace Context format: version-trace_id-span_id-flags
+	// Example: 00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01
+	carrier := propagation.MapCarrier{
+		"traceparent": traceparent,
+	}
+
+	propagator := otel.GetTextMapPropagator()
+	return propagator.Extract(ctx, carrier)
+}
+
+func (t *Telemetry) InitForCommand(cmd *cobra.Command, defaultServiceName string, startSpan bool) (trace.Span, error) {
+	if err := t.InitTelemetry(cmd.Context(), defaultServiceName); err != nil {
+		return nil, fmt.Errorf("failed to initialize OpenTelemetry: %w", err)
+	}
+
+	ctx := t.WithEnvTraceparent(cmd.Context())
+	var span trace.Span
+	if startSpan {
+		ctx, span = tracer.Start(ctx, cmd.Use)
+	}
+	cmd.SetContext(ctx)
+	return span, nil
+}
+
 // GetTracerProvider returns the configured TracerProvider
 func (t *Telemetry) GetTracerProvider() trace.TracerProvider {
 	t.mu.Lock()
@@ -208,11 +252,6 @@ func (t *Telemetry) GetTracerProvider() trace.TracerProvider {
 		return otel.GetTracerProvider()
 	}
 	return t.tracerProvider
-}
-
-// GetTracer returns a named tracer for creating spans
-func (t *Telemetry) GetTracer(name string) trace.Tracer {
-	return t.GetTracerProvider().Tracer(name)
 }
 
 // ShutdownTelemetry gracefully shuts down all telemetry providers
@@ -282,4 +321,28 @@ func (h *traceHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
 
 func (h *traceHandler) WithGroup(name string) slog.Handler {
 	return &traceHandler{wrapped: h.wrapped.WithGroup(name)}
+}
+
+// SetCmdEnvTraceContext adds trace context to a command's environment for distributed tracing
+// This allows subprocesses to participate in the same trace as the parent provisioner
+func SetCmdEnvTraceContext(ctx context.Context, cmd *exec.Cmd) {
+	span := trace.SpanFromContext(ctx)
+	if !span.SpanContext().IsValid() {
+		return
+	}
+
+	// Extract trace context to W3C Trace Context format
+	carrier := propagation.MapCarrier{}
+	propagator := otel.GetTextMapPropagator()
+	propagator.Inject(ctx, carrier)
+
+	// Get traceparent value (format: version-trace_id-span_id-flags)
+	if traceparent, ok := carrier["traceparent"]; ok {
+		// Initialize Env with current environment if not set
+		if cmd.Env == nil {
+			cmd.Env = os.Environ()
+		}
+		// Add TRACEPARENT environment variable
+		cmd.Env = append(cmd.Env, fmt.Sprintf("TRACEPARENT=%s", traceparent))
+	}
 }

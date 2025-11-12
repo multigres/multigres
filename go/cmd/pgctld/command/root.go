@@ -20,8 +20,11 @@ import (
 	"log/slog"
 	"time"
 
+	"go.opentelemetry.io/otel/trace"
+
 	"github.com/multigres/multigres/go/pgctld"
 	"github.com/multigres/multigres/go/servenv"
+	"github.com/multigres/multigres/go/tools/telemetry"
 	"github.com/multigres/multigres/go/viperutil"
 
 	"github.com/spf13/cobra"
@@ -38,12 +41,12 @@ type PgCtlCommand struct {
 	pgListenAddresses viperutil.Value[string]
 	vc                *viperutil.ViperConfig
 	lg                *servenv.Logger
-	telemetry         *servenv.Telemetry
+	telemetry         *telemetry.Telemetry
 }
 
 // GetRootCommand creates and returns the root command for pgctld with all subcommands
 func GetRootCommand() (*cobra.Command, *PgCtlCommand) {
-	telemetry := servenv.NewTelemetry()
+	telemetry := telemetry.NewTelemetry()
 	reg := viperutil.NewRegistry()
 	pc := &PgCtlCommand{
 		reg: reg,
@@ -82,6 +85,8 @@ func GetRootCommand() (*cobra.Command, *PgCtlCommand) {
 		telemetry: telemetry,
 	}
 
+	var span trace.Span
+
 	root := &cobra.Command{
 		Use:   "pgctld",
 		Short: "PostgreSQL control daemon for Multigres",
@@ -92,15 +97,19 @@ management for PostgreSQL servers.`,
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 			pc.lg.SetupLogging()
 			// Initialize telemetry for CLI commands (server command will re-initialize via ServEnv.Init)
-			if err := pc.telemetry.InitTelemetry(context.Background(), "pgctld"); err != nil {
+			var err error
+			if span, err = pc.telemetry.InitForCommand(cmd, "pgctld", cmd.Use != "server"); err != nil {
 				return fmt.Errorf("failed to initialize OpenTelemetry: %w", err)
 			}
+
 			return nil
 		},
 		PersistentPostRunE: func(cmd *cobra.Command, args []string) error {
+			span.End()
+
 			// Shutdown OpenTelemetry to flush all pending spans
 			// For server command, this runs after the server has shut down
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			ctx, cancel := context.WithTimeout(cmd.Context(), 5*time.Second)
 			defer cancel()
 			if err := pc.telemetry.ShutdownTelemetry(ctx); err != nil {
 				return fmt.Errorf("failed to shutdown OpenTelemetry: %w", err)

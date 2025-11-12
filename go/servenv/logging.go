@@ -21,6 +21,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/multigres/multigres/go/tools/telemetry"
 	"github.com/multigres/multigres/go/viperutil"
 
 	"github.com/spf13/pflag"
@@ -53,7 +54,7 @@ type Logger struct {
 	loggerOnce sync.Once
 	logger     *slog.Logger
 	loggerMu   sync.Mutex
-	telemetry  *Telemetry
+	telemetry  *telemetry.Telemetry
 
 	// Hooks for customizing logging behavior
 	loggingSetupHooks  []func(*slog.Logger)
@@ -61,7 +62,7 @@ type Logger struct {
 	loggingHooksMu     sync.Mutex
 }
 
-func NewLogger(reg *viperutil.Registry, telemetry *Telemetry) *Logger {
+func NewLogger(reg *viperutil.Registry, telemetry *telemetry.Telemetry) *Logger {
 	return &Logger{
 		telemetry: telemetry,
 		logLevel: viperutil.Configure(reg, "log-level", viperutil.Options[string]{
