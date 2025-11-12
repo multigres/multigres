@@ -1603,7 +1603,7 @@ func (x *DemoteRequest) GetForce() bool {
 
 type DemoteResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Whether the node was already demoted (idempotent check)
+	// Whether the pooler was already demoted (idempotent check)
 	WasAlreadyDemoted bool `protobuf:"varint,1,opt,name=was_already_demoted,json=wasAlreadyDemoted,proto3" json:"was_already_demoted,omitempty"`
 	// Consensus term at the time of demotion
 	ConsensusTerm int64 `protobuf:"varint,2,opt,name=consensus_term,json=consensusTerm,proto3" json:"consensus_term,omitempty"`
@@ -1941,7 +1941,7 @@ type PromoteRequest struct {
 	ConsensusTerm int64 `protobuf:"varint,1,opt,name=consensus_term,json=consensusTerm,proto3" json:"consensus_term,omitempty"`
 	// Expected LSN position before promotion (optional, for validation)
 	// By the Propagate stage, replication should already be stopped and the LSN frozen.
-	// This is an assertion to verify the node has the expected durable state.
+	// This is an assertion to verify the pooler has the expected durable state.
 	// If the actual LSN doesn't match, this indicates an error in an earlier consensus stage.
 	// If empty, skip LSN validation.
 	ExpectedLsn string `protobuf:"bytes,2,opt,name=expected_lsn,json=expectedLsn,proto3" json:"expected_lsn,omitempty"`
@@ -2017,7 +2017,7 @@ type PromoteResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// LSN position after promotion
 	LsnPosition string `protobuf:"bytes,1,opt,name=lsn_position,json=lsnPosition,proto3" json:"lsn_position,omitempty"`
-	// Whether the node was already promoted (idempotent check)
+	// Whether the pooler was already promoted (idempotent check)
 	WasAlreadyPrimary bool `protobuf:"varint,2,opt,name=was_already_primary,json=wasAlreadyPrimary,proto3" json:"was_already_primary,omitempty"`
 	// Consensus term at the time of promotion
 	ConsensusTerm int64 `protobuf:"varint,3,opt,name=consensus_term,json=consensusTerm,proto3" json:"consensus_term,omitempty"`
@@ -2643,7 +2643,7 @@ func (x *ConsensusTerm) GetLeaderId() *clustermetadata.ID {
 	return nil
 }
 
-// InitializeEmptyPrimary initializes this node as an empty primary
+// InitializeEmptyPrimary initializes this pooler as an empty primary
 // Used during bootstrap initialization of a new shard
 type InitializeEmptyPrimaryRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -2744,7 +2744,7 @@ func (x *InitializeEmptyPrimaryResponse) GetErrorMessage() string {
 	return ""
 }
 
-// InitializeAsStandby initializes this node as a standby from a primary backup
+// InitializeAsStandby initializes this pooler as a standby from a primary backup
 // Used during bootstrap initialization of a new shard or when adding a new standby
 type InitializeAsStandbyRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -2881,7 +2881,7 @@ func (x *InitializeAsStandbyResponse) GetFinalLsn() string {
 	return ""
 }
 
-// InitializationStatus returns the initialization status of this node
+// InitializationStatus returns the initialization status of this pooler
 // Used by multiorch coordinator to determine what initialization scenario to use
 type InitializationStatusRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -2921,19 +2921,19 @@ func (*InitializationStatusRequest) Descriptor() ([]byte, []int) {
 
 type InitializationStatusResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Whether this node has been initialized (has data directory and multigres schema)
+	// Whether this pooler has been initialized (has data directory and multigres schema)
 	IsInitialized bool `protobuf:"varint,1,opt,name=is_initialized,json=isInitialized,proto3" json:"is_initialized,omitempty"`
 	// Whether data directory exists
 	HasDataDirectory bool `protobuf:"varint,2,opt,name=has_data_directory,json=hasDataDirectory,proto3" json:"has_data_directory,omitempty"`
 	// Whether PostgreSQL is currently running
 	PostgresRunning bool `protobuf:"varint,3,opt,name=postgres_running,json=postgresRunning,proto3" json:"postgres_running,omitempty"`
-	// Current role of this node ("primary", "standby", or "unknown")
+	// Current role of this pooler ("primary", "standby", or "unknown")
 	Role string `protobuf:"bytes,4,opt,name=role,proto3" json:"role,omitempty"`
 	// Current WAL position (if available)
 	WalPosition string `protobuf:"bytes,5,opt,name=wal_position,json=walPosition,proto3" json:"wal_position,omitempty"`
 	// Current consensus term
 	ConsensusTerm int64 `protobuf:"varint,6,opt,name=consensus_term,json=consensusTerm,proto3" json:"consensus_term,omitempty"`
-	// Shard ID that this node belongs to
+	// Shard ID that this pooler belongs to
 	ShardId       string `protobuf:"bytes,7,opt,name=shard_id,json=shardId,proto3" json:"shard_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache

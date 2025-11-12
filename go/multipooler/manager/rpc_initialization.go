@@ -24,7 +24,7 @@ import (
 	pgctldpb "github.com/multigres/multigres/go/pb/pgctldservice"
 )
 
-// InitializeEmptyPrimary initializes this node as an empty primary
+// InitializeEmptyPrimary initializes this pooler as an empty primary
 // Used during bootstrap initialization of a new shard
 func (pm *MultiPoolerManager) InitializeEmptyPrimary(ctx context.Context, req *multipoolermanagerdatapb.InitializeEmptyPrimaryRequest) (*multipoolermanagerdatapb.InitializeEmptyPrimaryResponse, error) {
 	pm.logger.InfoContext(ctx, "InitializeEmptyPrimary called", "shard", pm.getShardID(), "term", req.ConsensusTerm)
@@ -37,7 +37,7 @@ func (pm *MultiPoolerManager) InitializeEmptyPrimary(ctx context.Context, req *m
 
 	// 1. Check if already initialized
 	if pm.isInitialized() {
-		pm.logger.InfoContext(ctx, "Node already initialized", "shard", pm.getShardID())
+		pm.logger.InfoContext(ctx, "Pooler already initialized", "shard", pm.getShardID())
 		return &multipoolermanagerdatapb.InitializeEmptyPrimaryResponse{Success: true}, nil
 	}
 
@@ -84,11 +84,11 @@ func (pm *MultiPoolerManager) InitializeEmptyPrimary(ctx context.Context, req *m
 		}
 	}
 
-	pm.logger.InfoContext(ctx, "Successfully initialized node as empty primary", "shard", pm.getShardID(), "term", req.ConsensusTerm)
+	pm.logger.InfoContext(ctx, "Successfully initialized pooler as empty primary", "shard", pm.getShardID(), "term", req.ConsensusTerm)
 	return &multipoolermanagerdatapb.InitializeEmptyPrimaryResponse{Success: true}, nil
 }
 
-// InitializeAsStandby initializes this node as a standby from a primary backup
+// InitializeAsStandby initializes this pooler as a standby from a primary backup
 // Used during bootstrap initialization of a new shard or when adding a new standby
 func (pm *MultiPoolerManager) InitializeAsStandby(ctx context.Context, req *multipoolermanagerdatapb.InitializeAsStandbyRequest) (*multipoolermanagerdatapb.InitializeAsStandbyResponse, error) {
 	pm.logger.InfoContext(ctx, "InitializeAsStandby called",
@@ -165,14 +165,14 @@ func (pm *MultiPoolerManager) InitializeAsStandby(ctx context.Context, req *mult
 		}
 	}
 
-	pm.logger.InfoContext(ctx, "Successfully initialized node as standby", "shard", pm.getShardID(), "term", req.ConsensusTerm)
+	pm.logger.InfoContext(ctx, "Successfully initialized pooler as standby", "shard", pm.getShardID(), "term", req.ConsensusTerm)
 	return &multipoolermanagerdatapb.InitializeAsStandbyResponse{
 		Success:  true,
 		FinalLsn: finalLSN,
 	}, nil
 }
 
-// InitializationStatus returns the initialization status of this node
+// InitializationStatus returns the initialization status of this pooler
 // Used by multiorch coordinator to determine what initialization scenario to use
 func (pm *MultiPoolerManager) InitializationStatus(ctx context.Context, req *multipoolermanagerdatapb.InitializationStatusRequest) (*multipoolermanagerdatapb.InitializationStatusResponse, error) {
 	pm.logger.DebugContext(ctx, "InitializationStatus called", "shard", pm.getShardID())
@@ -196,7 +196,7 @@ func (pm *MultiPoolerManager) InitializationStatus(ctx context.Context, req *mul
 
 // Helper methods
 
-// isInitialized checks if the node has been initialized (has data directory and multigres schema)
+// isInitialized checks if the pooler has been initialized (has data directory and multigres schema)
 func (pm *MultiPoolerManager) isInitialized() bool {
 	if !pm.hasDataDirectory() {
 		return false
@@ -243,7 +243,7 @@ func (pm *MultiPoolerManager) isPostgresRunning(ctx context.Context) bool {
 	return statusResp.Status == pgctldpb.ServerStatus_RUNNING
 }
 
-// getRole returns the current role of this node ("primary", "standby", or "unknown")
+// getRole returns the current role of this pooler ("primary", "standby", or "unknown")
 func (pm *MultiPoolerManager) getRole(ctx context.Context) string {
 	if pm.db == nil {
 		return "unknown"

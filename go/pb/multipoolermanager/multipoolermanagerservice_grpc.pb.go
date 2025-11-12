@@ -102,13 +102,13 @@ type MultiPoolerManagerClient interface {
 	Status(ctx context.Context, in *multipoolermanagerdata.StatusRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.StatusResponse, error)
 	// SetTerm sets the consensus term information. Used by MultiOrch for consensus operations.
 	SetTerm(ctx context.Context, in *multipoolermanagerdata.SetTermRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.SetTermResponse, error)
-	// InitializeEmptyPrimary initializes this node as an empty primary
+	// InitializeEmptyPrimary initializes this pooler as an empty primary
 	// Used during bootstrap initialization of a new shard
 	InitializeEmptyPrimary(ctx context.Context, in *multipoolermanagerdata.InitializeEmptyPrimaryRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.InitializeEmptyPrimaryResponse, error)
-	// InitializeAsStandby initializes this node as a standby from a primary backup
+	// InitializeAsStandby initializes this pooler as a standby from a primary backup
 	// Used during bootstrap initialization of a new shard or when adding a new standby
 	InitializeAsStandby(ctx context.Context, in *multipoolermanagerdata.InitializeAsStandbyRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.InitializeAsStandbyResponse, error)
-	// InitializationStatus returns the initialization status of this node
+	// InitializationStatus returns the initialization status of this pooler
 	// Used by multiorch coordinator to determine what initialization scenario to use
 	InitializationStatus(ctx context.Context, in *multipoolermanagerdata.InitializationStatusRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.InitializationStatusResponse, error)
 }
@@ -355,13 +355,13 @@ type MultiPoolerManagerServer interface {
 	Status(context.Context, *multipoolermanagerdata.StatusRequest) (*multipoolermanagerdata.StatusResponse, error)
 	// SetTerm sets the consensus term information. Used by MultiOrch for consensus operations.
 	SetTerm(context.Context, *multipoolermanagerdata.SetTermRequest) (*multipoolermanagerdata.SetTermResponse, error)
-	// InitializeEmptyPrimary initializes this node as an empty primary
+	// InitializeEmptyPrimary initializes this pooler as an empty primary
 	// Used during bootstrap initialization of a new shard
 	InitializeEmptyPrimary(context.Context, *multipoolermanagerdata.InitializeEmptyPrimaryRequest) (*multipoolermanagerdata.InitializeEmptyPrimaryResponse, error)
-	// InitializeAsStandby initializes this node as a standby from a primary backup
+	// InitializeAsStandby initializes this pooler as a standby from a primary backup
 	// Used during bootstrap initialization of a new shard or when adding a new standby
 	InitializeAsStandby(context.Context, *multipoolermanagerdata.InitializeAsStandbyRequest) (*multipoolermanagerdata.InitializeAsStandbyResponse, error)
-	// InitializationStatus returns the initialization status of this node
+	// InitializationStatus returns the initialization status of this pooler
 	// Used by multiorch coordinator to determine what initialization scenario to use
 	InitializationStatus(context.Context, *multipoolermanagerdata.InitializationStatusRequest) (*multipoolermanagerdata.InitializationStatusResponse, error)
 	mustEmbedUnimplementedMultiPoolerManagerServer()

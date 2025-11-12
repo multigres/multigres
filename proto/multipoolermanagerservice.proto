@@ -112,17 +112,17 @@ service MultiPoolerManager {
   // The following methods are used by MultiOrch to bootstrap new shards
   //
 
-  // InitializeEmptyPrimary initializes this node as an empty primary
+  // InitializeEmptyPrimary initializes this pooler as an empty primary
   // Used during bootstrap initialization of a new shard
   rpc InitializeEmptyPrimary(multipoolermanagerdata.InitializeEmptyPrimaryRequest)
     returns (multipoolermanagerdata.InitializeEmptyPrimaryResponse);
 
-  // InitializeAsStandby initializes this node as a standby from a primary backup
+  // InitializeAsStandby initializes this pooler as a standby from a primary backup
   // Used during bootstrap initialization of a new shard or when adding a new standby
   rpc InitializeAsStandby(multipoolermanagerdata.InitializeAsStandbyRequest)
     returns (multipoolermanagerdata.InitializeAsStandbyResponse);
 
-  // InitializationStatus returns the initialization status of this node
+  // InitializationStatus returns the initialization status of this pooler
   // Used by multiorch coordinator to determine what initialization scenario to use
   rpc InitializationStatus(multipoolermanagerdata.InitializationStatusRequest)
     returns (multipoolermanagerdata.InitializationStatusResponse);

@@ -40,9 +40,9 @@ func TestInitializationStatus(t *testing.T) {
 		expectedShardID     string
 	}{
 		{
-			name: "uninitialized node",
+			name: "uninitialized pooler",
 			setupFunc: func(t *testing.T, pm *MultiPoolerManager, poolerDir string) {
-				// Don't create anything - node is completely uninitialized
+				// Don't create anything - pooler is completely uninitialized
 			},
 			expectedInitialized: false,
 			expectedHasDataDir:  false,
@@ -50,7 +50,7 @@ func TestInitializationStatus(t *testing.T) {
 			expectedShardID:     "test-shard-01",
 		},
 		{
-			name: "node with data directory but no database",
+			name: "pooler with data directory but no database",
 			setupFunc: func(t *testing.T, pm *MultiPoolerManager, poolerDir string) {
 				// Create data directory
 				dataDir := filepath.Join(poolerDir, "pg_data")
@@ -129,9 +129,9 @@ func TestInitializeEmptyPrimary(t *testing.T) {
 		errorContains string
 	}{
 		{
-			name: "initialize fresh node",
+			name: "initialize fresh pooler",
 			setupFunc: func(t *testing.T, pm *MultiPoolerManager, poolerDir string) {
-				// Fresh node - no setup needed
+				// Fresh pooler - no setup needed
 			},
 			term:        1,
 			expectError: false,
@@ -227,7 +227,7 @@ func TestInitializeAsStandby(t *testing.T) {
 		{
 			name: "initialize fresh standby",
 			setupFunc: func(t *testing.T, pm *MultiPoolerManager, poolerDir string) {
-				// Fresh node - no setup needed
+				// Fresh pooler - no setup needed
 			},
 			primaryHost: "primary-host",
 			primaryPort: 5432,
