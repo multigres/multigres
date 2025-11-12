@@ -22,6 +22,8 @@ import (
 	"net"
 	"net/http"
 	"net/http/pprof"
+
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
 
 // HTTPHandle registers the given handler for the internal servenv mux.
@@ -37,7 +39,12 @@ func (sv *ServEnv) HTTPHandleFunc(pattern string, handler func(http.ResponseWrit
 // HTTPServe starts the HTTP server for the internal servenv mux on the listener.
 func (sv *ServEnv) HTTPServe(l net.Listener) error {
 	slog.Info("Listening for HTTP calls on port", "httpPort", sv.httpPort.Get())
-	err := http.Serve(l, sv.mux)
+
+	// Wrap the mux with OpenTelemetry instrumentation
+	// If no OTEL exporters are configured, noop exporters are used with minimal overhead
+	handler := otelhttp.NewHandler(sv.mux, "http-server")
+
+	err := http.Serve(l, handler)
 	if errors.Is(err, http.ErrServerClosed) || errors.Is(err, net.ErrClosed) {
 		return nil
 	}

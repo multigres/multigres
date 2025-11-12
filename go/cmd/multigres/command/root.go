@@ -15,6 +15,11 @@
 package command
 
 import (
+	"context"
+	"fmt"
+	"time"
+
+	"github.com/multigres/multigres/go/servenv"
 	"github.com/multigres/multigres/go/viperutil"
 
 	"github.com/spf13/cobra"
@@ -23,16 +28,18 @@ import (
 
 // MultigresCommand holds the configuration for multigres commands
 type MultigresCommand struct {
-	reg *viperutil.Registry
-	vc  *viperutil.ViperConfig
+	reg       *viperutil.Registry
+	vc        *viperutil.ViperConfig
+	telemetry *servenv.Telemetry
 }
 
 // GetRootCommand creates and returns the root command for multigres with all subcommands
 func GetRootCommand() *cobra.Command {
 	reg := viperutil.NewRegistry()
 	mc := &MultigresCommand{
-		reg: reg,
-		vc:  viperutil.NewViperConfig(reg),
+		reg:       reg,
+		vc:        viperutil.NewViperConfig(reg),
+		telemetry: servenv.NewTelemetry(),
 	}
 
 	root := &cobra.Command{
@@ -66,7 +73,25 @@ Configuration:
 
 			// Load config (without the full servenv setup)
 			_, err := mc.vc.LoadConfig(mc.reg)
-			return err
+			if err != nil {
+				return err
+			}
+
+			if err := mc.telemetry.InitTelemetry(context.Background(), "multigres-cli"); err != nil {
+				return fmt.Errorf("failed to initialize OpenTelemetry: %w", err)
+			}
+
+			return nil
+		},
+		PersistentPostRunE: func(cmd *cobra.Command, args []string) error {
+			// Shutdown OpenTelemetry to flush all pending spans
+			// This is critical for CLI commands to export traces before process exit
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			if err := mc.telemetry.ShutdownTelemetry(ctx); err != nil {
+				return fmt.Errorf("failed to shutdown OpenTelemetry: %w", err)
+			}
+			return nil
 		},
 	}
 

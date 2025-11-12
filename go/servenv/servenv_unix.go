@@ -21,6 +21,7 @@ Modifications Copyright 2025 Supabase, Inc.
 package servenv
 
 import (
+	"context"
 	"log"
 	"log/slog"
 	"os"
@@ -34,11 +35,17 @@ import (
 )
 
 // Init is the first phase of the server startup.
-func (sv *ServEnv) Init() {
+func (sv *ServEnv) Init(serviceName string) {
 	sv.mu.Lock()
 	sv.initStartTime = time.Now()
 	sv.mu.Unlock()
 	sv.lg.SetupLogging()
+
+	// Initialize OpenTelemetry
+	if err := sv.telemetry.InitTelemetry(context.Background(), serviceName); err != nil {
+		slog.Error("Failed to initialize OpenTelemetry", "error", err)
+		// Continue without telemetry rather than crashing
+	}
 
 	// Ignore SIGPIPE if specified
 	// The Go runtime catches SIGPIPE for us on all fds except stdout/stderr
