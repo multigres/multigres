@@ -17,14 +17,10 @@ package grpcmanagerservice
 
 import (
 	"context"
-	"log/slog"
-	"path/filepath"
 	"time"
 
 	"github.com/multigres/multigres/go/mterrors"
 	"github.com/multigres/multigres/go/multipooler/manager"
-	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
-	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multipoolermanagerpb "github.com/multigres/multigres/go/pb/multipoolermanager"
 	multipoolermanagerdata "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	"github.com/multigres/multigres/go/servenv"
@@ -244,91 +240,19 @@ func (s *managerService) SetTerm(ctx context.Context, req *multipoolermanagerdat
 
 // Backup performs a backup
 func (s *managerService) Backup(ctx context.Context, req *multipoolermanagerdata.BackupRequest) (*multipoolermanagerdata.BackupResponse, error) {
-	// Check if this is a primary pooler based on topology
-	poolerType := s.manager.GetPoolerType()
-	isPrimary := (poolerType == clustermetadatapb.PoolerType_PRIMARY)
-
-	// Prevent backups from primary databases unless ForcePrimary is set
-	if isPrimary && !req.ForcePrimary {
-		slog.WarnContext(ctx, "Backup requested on primary database without ForcePrimary flag")
-		return nil, mterrors.ToGRPC(mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
-			"backups from primary databases are not allowed unless ForcePrimary is set"))
-	}
-
-	configPath := s.manager.GetBackupConfigPath()
-	stanzaName := s.manager.GetBackupStanza()
-	tableGroup := s.manager.GetTableGroup()
-	shard := s.manager.GetShard()
-
-	result, err := manager.Backup(ctx, configPath, stanzaName, manager.BackupOptions{
-		ForcePrimary: req.ForcePrimary,
-		Type:         req.Type,
-		TableGroup:   tableGroup,
-		Shard:        shard,
-	})
+	backupID, err := s.manager.Backup(ctx, req.ForcePrimary, req.Type)
 	if err != nil {
 		return nil, mterrors.ToGRPC(err)
 	}
 
 	return &multipoolermanagerdata.BackupResponse{
-		BackupId: result.BackupID,
+		BackupId: backupID,
 	}, nil
 }
 
 // RestoreFromBackup restores from a backup
 func (s *managerService) RestoreFromBackup(ctx context.Context, req *multipoolermanagerdata.RestoreFromBackupRequest) (*multipoolermanagerdata.RestoreFromBackupResponse, error) {
-	slog.InfoContext(ctx, "RestoreFromBackup called", "backup_id", req.BackupId)
-
-	pgctldClient := s.manager.GetPgCtldClient()
-	configPath := s.manager.GetBackupConfigPath()
-	stanzaName := s.manager.GetBackupStanza()
-
-	// Get pg_data directory from the backup config path
-	// configPath is like /path/to/pooler_dir/pgbackrest.conf, so we get the dir and append pg_data
-	poolerDir := filepath.Dir(configPath)
-	pgDataDir := filepath.Join(poolerDir, "pg_data")
-
-	// Determine if we should maintain standby status after restore
-	// We query PostgreSQL directly to get the current recovery status
-	slog.InfoContext(ctx, "Checking recovery status before restore")
-	isPrimary, err := s.manager.IsPrimary(ctx)
-	if err != nil {
-		slog.ErrorContext(ctx, "Failed to check recovery status before restore", "error", err)
-		return nil, mterrors.ToGRPC(mterrors.Wrap(err, "failed to check recovery status"))
-	}
-
-	asStandby := !isPrimary
-
-	// If this is a standby, get the current primary connection info
-	// so we can restore it after pgbackrest overwrites postgresql.auto.conf
-	var primaryHost string
-	var primaryPort int32
-	if asStandby {
-		replStatus, err := s.manager.ReplicationStatus(ctx)
-		if err != nil {
-			slog.ErrorContext(ctx, "Failed to get replication status", "error", err)
-			return nil, mterrors.ToGRPC(mterrors.Wrap(err, "failed to get replication status"))
-		}
-		if replStatus == nil || replStatus.PrimaryConnInfo == nil || replStatus.PrimaryConnInfo.Host == "" {
-			return nil, mterrors.ToGRPC(mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION, "standby has no primary connection configured"))
-		}
-		primaryHost = replStatus.PrimaryConnInfo.Host
-		primaryPort = replStatus.PrimaryConnInfo.Port
-	}
-
-	slog.InfoContext(ctx, "Restore parameters determined",
-		"is_primary", isPrimary,
-		"as_standby", asStandby,
-		"primary_host", primaryHost,
-		"primary_port", primaryPort,
-		"backup_id", req.BackupId)
-
-	_, err = manager.RestoreShardFromBackup(ctx, pgctldClient, configPath, stanzaName, pgDataDir, manager.RestoreOptions{
-		BackupID:    req.BackupId,
-		AsStandby:   asStandby,
-		PrimaryHost: primaryHost,
-		PrimaryPort: primaryPort,
-	})
+	err := s.manager.RestoreFromBackup(ctx, req.BackupId)
 	if err != nil {
 		return nil, mterrors.ToGRPC(err)
 	}
@@ -338,17 +262,12 @@ func (s *managerService) RestoreFromBackup(ctx context.Context, req *multipooler
 
 // GetBackups retrieves backup information
 func (s *managerService) GetBackups(ctx context.Context, req *multipoolermanagerdata.GetBackupsRequest) (*multipoolermanagerdata.GetBackupsResponse, error) {
-	configPath := s.manager.GetBackupConfigPath()
-	stanzaName := s.manager.GetBackupStanza()
-
-	result, err := manager.GetBackups(ctx, configPath, stanzaName, manager.GetBackupsOptions{
-		Limit: req.Limit,
-	})
+	backups, err := s.manager.GetBackups(ctx, req.Limit)
 	if err != nil {
 		return nil, mterrors.ToGRPC(err)
 	}
 
 	return &multipoolermanagerdata.GetBackupsResponse{
-		Backups: result.Backups,
+		Backups: backups,
 	}, nil
 }

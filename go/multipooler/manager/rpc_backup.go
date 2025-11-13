@@ -27,35 +27,34 @@ import (
 	"time"
 
 	"github.com/multigres/multigres/go/mterrors"
+	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multipoolermanagerdata "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	pgctldpb "github.com/multigres/multigres/go/pb/pgctldservice"
 )
 
-// BackupOptions contains options for performing a backup
-type BackupOptions struct {
-	ForcePrimary bool
-	Type         string // "full", "differential", "incremental"
-	TableGroup   string // for annotations
-	Shard        string // for annotations
-}
+// Backup performs a backup
+func (pm *MultiPoolerManager) Backup(ctx context.Context, forcePrimary bool, backupType string) (string, error) {
+	// Check if this is a primary pooler based on topology
+	poolerType := pm.GetPoolerType()
+	isPrimary := (poolerType == clustermetadatapb.PoolerType_PRIMARY)
 
-// BackupResult contains the result of a backup operation
-type BackupResult struct {
-	BackupID string
-}
+	// Prevent backups from primary databases unless ForcePrimary is set
+	if isPrimary && !forcePrimary {
+		slog.WarnContext(ctx, "Backup requested on primary database without ForcePrimary flag")
+		return "", mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
+			"backups from primary databases are not allowed unless ForcePrimary is set")
+	}
 
-// Backup performs a backup on a specific shard
-func Backup(ctx context.Context, configPath, stanzaName string, opts BackupOptions) (*BackupResult, error) {
 	// Validation
-	if opts.Type == "" {
-		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "type is required")
+	if backupType == "" {
+		return "", mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "type is required")
 	}
 
 	// Type validation and mapping to pgbackrest types
 	// pgbackrest uses abbreviated types: full, diff, incr
 	pgBackRestType := ""
-	switch opts.Type {
+	switch backupType {
 	case "full":
 		pgBackRestType = "full"
 	case "differential":
@@ -63,16 +62,21 @@ func Backup(ctx context.Context, configPath, stanzaName string, opts BackupOptio
 	case "incremental":
 		pgBackRestType = "incr"
 	default:
-		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT,
-			fmt.Sprintf("invalid backup type '%s': must be one of: full, differential, incremental", opts.Type))
+		return "", mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT,
+			fmt.Sprintf("invalid backup type '%s': must be one of: full, differential, incremental", backupType))
 	}
+
+	configPath := pm.GetBackupConfigPath()
+	stanzaName := pm.GetBackupStanza()
+	tableGroup := pm.GetTableGroup()
+	shard := pm.GetShard()
 
 	// Validate required backup configuration
 	if configPath == "" {
-		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "config_path is required")
+		return "", mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "config_path is required")
 	}
 	if stanzaName == "" {
-		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "stanza_name is required")
+		return "", mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "stanza_name is required")
 	}
 
 	// Execute pgbackrest backup command
@@ -87,11 +91,11 @@ func Backup(ctx context.Context, configPath, stanzaName string, opts BackupOptio
 	}
 
 	// Add annotations if table_group and shard are provided
-	if opts.TableGroup != "" {
-		args = append(args, "--annotation=table_group="+opts.TableGroup)
+	if tableGroup != "" {
+		args = append(args, "--annotation=table_group="+tableGroup)
 	}
-	if opts.Shard != "" {
-		args = append(args, "--annotation=shard="+opts.Shard)
+	if shard != "" {
+		args = append(args, "--annotation=shard="+shard)
 	}
 
 	args = append(args, "backup")
@@ -101,14 +105,14 @@ func Backup(ctx context.Context, configPath, stanzaName string, opts BackupOptio
 	// Capture output for logging and to extract backup ID
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return nil, mterrors.New(mtrpcpb.Code_INTERNAL,
+		return "", mterrors.New(mtrpcpb.Code_INTERNAL,
 			fmt.Sprintf("pgbackrest backup failed: %v\nOutput: %s", err, string(output)))
 	}
 
 	// Parse the backup ID from the output
 	backupID, err := extractBackupID(string(output))
 	if err != nil {
-		return nil, mterrors.New(mtrpcpb.Code_INTERNAL,
+		return "", mterrors.New(mtrpcpb.Code_INTERNAL,
 			fmt.Sprintf("failed to extract backup ID from output: %v\nOutput: %s", err, string(output)))
 	}
 
@@ -125,13 +129,11 @@ func Backup(ctx context.Context, configPath, stanzaName string, opts BackupOptio
 
 	verifyOutput, verifyErr := verifyCmd.CombinedOutput()
 	if verifyErr != nil {
-		return nil, mterrors.New(mtrpcpb.Code_INTERNAL,
+		return "", mterrors.New(mtrpcpb.Code_INTERNAL,
 			fmt.Sprintf("pgbackrest verify failed for backup %s: %v\nOutput: %s", backupID, verifyErr, string(verifyOutput)))
 	}
 
-	return &BackupResult{
-		BackupID: backupID,
-	}, nil
+	return backupID, nil
 }
 
 // extractBackupID extracts the backup label from pgbackrest output
@@ -169,48 +171,81 @@ func extractBackupID(output string) (string, error) {
 	return "", fmt.Errorf("backup ID not found in output")
 }
 
-// RestoreOptions contains options for performing a restore
-type RestoreOptions struct {
-	BackupID    string // If empty, restore from the latest backup
-	AsStandby   bool   // If true, restart as standby after restore (maintains replication)
-	PrimaryHost string // Primary host for replication (required if AsStandby is true)
-	PrimaryPort int32  // Primary port for replication (required if AsStandby is true)
-}
+// RestoreFromBackup restores from a backup
+func (pm *MultiPoolerManager) RestoreFromBackup(ctx context.Context, backupID string) error {
+	slog.InfoContext(ctx, "RestoreFromBackup called", "backup_id", backupID)
 
-// RestoreResult contains the result of a restore operation
-type RestoreResult struct {
-	// Currently empty, but can be extended with metadata about the restore
-}
+	pgctldClient := pm.GetPgCtldClient()
+	configPath := pm.GetBackupConfigPath()
+	stanzaName := pm.GetBackupStanza()
 
-// RestoreShardFromBackup restores a shard from a backup
-func RestoreShardFromBackup(ctx context.Context, pgctldClient pgctldpb.PgCtldClient, configPath, stanzaName, pgDataDir string, opts RestoreOptions) (*RestoreResult, error) {
+	// Get pg_data directory from the backup config path
+	// configPath is like /path/to/pooler_dir/pgbackrest.conf, so we get the dir and append pg_data
+	poolerDir := filepath.Dir(configPath)
+	pgDataDir := filepath.Join(poolerDir, "pg_data")
+
+	// Determine if we should maintain standby status after restore
+	// We query PostgreSQL directly to get the current recovery status
+	slog.InfoContext(ctx, "Checking recovery status before restore")
+	isPrimary, err := pm.IsPrimary(ctx)
+	if err != nil {
+		slog.ErrorContext(ctx, "Failed to check recovery status before restore", "error", err)
+		return mterrors.Wrap(err, "failed to check recovery status")
+	}
+
+	asStandby := !isPrimary
+
+	// If this is a standby, get the current primary connection info
+	// so we can restore it after pgbackrest overwrites postgresql.auto.conf
+	var primaryHost string
+	var primaryPort int32
+	if asStandby {
+		replStatus, err := pm.ReplicationStatus(ctx)
+		if err != nil {
+			slog.ErrorContext(ctx, "Failed to get replication status", "error", err)
+			return mterrors.Wrap(err, "failed to get replication status")
+		}
+		if replStatus == nil || replStatus.PrimaryConnInfo == nil || replStatus.PrimaryConnInfo.Host == "" {
+			return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION, "standby has no primary connection configured")
+		}
+		primaryHost = replStatus.PrimaryConnInfo.Host
+		primaryPort = replStatus.PrimaryConnInfo.Port
+	}
+
+	slog.InfoContext(ctx, "Restore parameters determined",
+		"is_primary", isPrimary,
+		"as_standby", asStandby,
+		"primary_host", primaryHost,
+		"primary_port", primaryPort,
+		"backup_id", backupID)
+
 	// Validate required parameters
 	if pgctldClient == nil {
-		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "pgctld_client is required")
+		return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "pgctld_client is required")
 	}
 	if configPath == "" {
-		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "config_path is required")
+		return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "config_path is required")
 	}
 	if stanzaName == "" {
-		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "stanza_name is required")
+		return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "stanza_name is required")
 	}
 	if pgDataDir == "" {
-		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "pg_data_dir is required")
+		return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "pg_data_dir is required")
 	}
-	if opts.AsStandby && (opts.PrimaryHost == "" || opts.PrimaryPort == 0) {
-		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "primary_host and primary_port required when restoring as standby")
+	if asStandby && (primaryHost == "" || primaryPort == 0) {
+		return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "primary_host and primary_port required when restoring as standby")
 	}
 
 	// Step 1: Stop PostgreSQL server
-	slog.InfoContext(ctx, "Stopping PostgreSQL before restore", "backup_id", opts.BackupID)
+	slog.InfoContext(ctx, "Stopping PostgreSQL before restore", "backup_id", backupID)
 	stopCtx, stopCancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer stopCancel()
 
-	_, err := pgctldClient.Stop(stopCtx, &pgctldpb.StopRequest{
+	_, err = pgctldClient.Stop(stopCtx, &pgctldpb.StopRequest{
 		Mode: "fast", // Fast shutdown mode
 	})
 	if err != nil {
-		return nil, mterrors.New(mtrpcpb.Code_INTERNAL,
+		return mterrors.New(mtrpcpb.Code_INTERNAL,
 			fmt.Sprintf("failed to stop PostgreSQL: %v", err))
 	}
 	slog.InfoContext(ctx, "PostgreSQL stopped successfully")
@@ -228,8 +263,8 @@ func RestoreShardFromBackup(ctx context.Context, pgctldClient pgctldpb.PgCtldCli
 	}
 
 	// If a specific backup ID is specified, add the --set flag
-	if opts.BackupID != "" {
-		args = append(args, "--set="+opts.BackupID)
+	if backupID != "" {
+		args = append(args, "--set="+backupID)
 	}
 
 	args = append(args, "restore")
@@ -242,18 +277,18 @@ func RestoreShardFromBackup(ctx context.Context, pgctldClient pgctldpb.PgCtldCli
 		defer startCancel()
 		_, _ = pgctldClient.Start(startCtx, &pgctldpb.StartRequest{})
 
-		return nil, mterrors.New(mtrpcpb.Code_INTERNAL,
+		return mterrors.New(mtrpcpb.Code_INTERNAL,
 			fmt.Sprintf("pgbackrest restore failed: %v\nOutput: %s", err, string(output)))
 	}
 
 	// Step 2.5: If restoring as standby, restore primary_conninfo to postgresql.auto.conf
 	// (pgbackrest restore overwrites postgresql.auto.conf, removing replication settings)
-	if opts.AsStandby {
+	if asStandby {
 		autoConfPath := filepath.Join(pgDataDir, "postgresql.auto.conf")
 		slog.InfoContext(ctx, "Restoring primary_conninfo to postgresql.auto.conf",
 			"path", autoConfPath,
-			"primary_host", opts.PrimaryHost,
-			"primary_port", opts.PrimaryPort)
+			"primary_host", primaryHost,
+			"primary_port", primaryPort)
 
 		// Read existing content to preserve other settings
 		existingContent, err := os.ReadFile(autoConfPath)
@@ -264,13 +299,13 @@ func RestoreShardFromBackup(ctx context.Context, pgctldClient pgctldpb.PgCtldCli
 
 		// Append primary_conninfo setting
 		primaryConnInfo := fmt.Sprintf("\n# Restored by multigres after backup restore\nprimary_conninfo = 'host=%s port=%d user=postgres'\n",
-			opts.PrimaryHost, opts.PrimaryPort)
+			primaryHost, primaryPort)
 
 		newContent := append(existingContent, []byte(primaryConnInfo)...)
 
 		err = os.WriteFile(autoConfPath, newContent, 0o600)
 		if err != nil {
-			return nil, mterrors.New(mtrpcpb.Code_INTERNAL,
+			return mterrors.New(mtrpcpb.Code_INTERNAL,
 				fmt.Sprintf("failed to write primary_conninfo to postgresql.auto.conf: %v", err))
 		}
 
@@ -283,34 +318,27 @@ func RestoreShardFromBackup(ctx context.Context, pgctldClient pgctldpb.PgCtldCli
 	defer restartCancel()
 
 	slog.InfoContext(ctx, "Restarting PostgreSQL after restore",
-		"as_standby", opts.AsStandby,
-		"backup_id", opts.BackupID)
+		"as_standby", asStandby,
+		"backup_id", backupID)
 
 	_, err = pgctldClient.Restart(restartCtx, &pgctldpb.RestartRequest{
-		AsStandby: opts.AsStandby, // Maintains standby status if restoring to a replica
+		AsStandby: asStandby, // Maintains standby status if restoring to a replica
 	})
 	if err != nil {
-		return nil, mterrors.New(mtrpcpb.Code_INTERNAL,
+		return mterrors.New(mtrpcpb.Code_INTERNAL,
 			fmt.Sprintf("failed to restart PostgreSQL after restore: %v", err))
 	}
 
 	slog.InfoContext(ctx, "PostgreSQL restarted successfully after restore")
 
-	return &RestoreResult{}, nil
+	return nil
 }
 
-// GetBackupsOptions contains options for listing backups
-type GetBackupsOptions struct {
-	Limit uint32 // Maximum number of backups to return, 0 means no limit
-}
+// GetBackups retrieves backup information
+func (pm *MultiPoolerManager) GetBackups(ctx context.Context, limit uint32) ([]*multipoolermanagerdata.BackupMetadata, error) {
+	configPath := pm.GetBackupConfigPath()
+	stanzaName := pm.GetBackupStanza()
 
-// GetBackupsResult contains the result of a backup listing operation
-type GetBackupsResult struct {
-	Backups []*multipoolermanagerdata.BackupMetadata
-}
-
-// GetBackups retrieves backup information for a shard
-func GetBackups(ctx context.Context, configPath, stanzaName string, opts GetBackupsOptions) (*GetBackupsResult, error) {
 	// Validate required configuration
 	if configPath == "" {
 		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "config_path is required")
@@ -334,7 +362,7 @@ func GetBackups(ctx context.Context, configPath, stanzaName string, opts GetBack
 		// Handle case where stanza doesn't exist yet or config file is missing - return empty list
 		outputStr := string(output)
 		if outputStr == "" || strings.Contains(outputStr, "does not exist") || strings.Contains(outputStr, "unable to open missing file") {
-			return &GetBackupsResult{Backups: []*multipoolermanagerdata.BackupMetadata{}}, nil
+			return []*multipoolermanagerdata.BackupMetadata{}, nil
 		}
 		return nil, mterrors.New(mtrpcpb.Code_INTERNAL,
 			fmt.Sprintf("pgbackrest info failed: %v\nOutput: %s", err, outputStr))
@@ -375,11 +403,11 @@ func GetBackups(ctx context.Context, configPath, stanzaName string, opts GetBack
 	}
 
 	// Apply limit if specified
-	if opts.Limit > 0 && uint32(len(backups)) > opts.Limit {
-		backups = backups[:opts.Limit]
+	if limit > 0 && uint32(len(backups)) > limit {
+		backups = backups[:limit]
 	}
 
-	return &GetBackupsResult{Backups: backups}, nil
+	return backups, nil
 }
 
 // pgBackRestInfo represents the structure of pgbackrest info JSON output
