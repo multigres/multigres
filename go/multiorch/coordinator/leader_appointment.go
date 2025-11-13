@@ -167,8 +167,8 @@ func (c *Coordinator) selectCandidate(ctx context.Context, cohort []*Node) (*Nod
 			if resp.Role == "primary" {
 				status.walPosition = resp.WalPosition.CurrentLsn
 			} else {
-				// For standbys, use replay position
-				status.walPosition = resp.WalPosition.LastReplayLsn
+				// For standbys, use receive position (includes unreplayed WAL)
+				status.walPosition = resp.WalPosition.LastReceiveLsn
 			}
 		}
 
@@ -297,7 +297,8 @@ func (c *Coordinator) Propagate(ctx context.Context, candidate *Node, standbys [
 		if status.Role == "primary" {
 			expectedLSN = status.WalPosition.CurrentLsn
 		} else {
-			expectedLSN = status.WalPosition.LastReplayLsn
+			// For standbys, use receive position (includes unreplayed WAL)
+			expectedLSN = status.WalPosition.LastReceiveLsn
 		}
 	}
 

@@ -162,8 +162,9 @@ func createMockNode(name string, term int64, walPosition string, healthy bool, r
 				IsHealthy:   healthy,
 				Role:        role,
 				WalPosition: &consensusdatapb.WALPosition{
-					CurrentLsn:    walPosition,
-					LastReplayLsn: walPosition,
+					CurrentLsn:     walPosition,
+					LastReceiveLsn: walPosition,
+					LastReplayLsn:  walPosition,
 				},
 			},
 			beginTermResp: &consensusdatapb.BeginTermResponse{
