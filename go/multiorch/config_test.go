@@ -24,18 +24,18 @@ func TestParseShardWatchTarget(t *testing.T) {
 	tests := []struct {
 		name      string
 		input     string
-		want      ShardWatchTarget
+		want      WatchTarget
 		wantError bool
 	}{
 		{
 			name:  "database only",
 			input: "postgres",
-			want:  ShardWatchTarget{Database: "postgres"},
+			want:  WatchTarget{Database: "postgres"},
 		},
 		{
 			name:  "database and tablegroup",
 			input: "postgres/default",
-			want: ShardWatchTarget{
+			want: WatchTarget{
 				Database:   "postgres",
 				TableGroup: "default",
 			},
@@ -43,7 +43,7 @@ func TestParseShardWatchTarget(t *testing.T) {
 		{
 			name:  "database, tablegroup, and shard",
 			input: "postgres/default/80-",
-			want: ShardWatchTarget{
+			want: WatchTarget{
 				Database:   "postgres",
 				TableGroup: "default",
 				Shard:      "80-",
@@ -97,17 +97,17 @@ func TestParseShardWatchTarget(t *testing.T) {
 func TestShardWatchTarget_String(t *testing.T) {
 	tests := []struct {
 		name   string
-		target ShardWatchTarget
+		target WatchTarget
 		want   string
 	}{
 		{
 			name:   "database only",
-			target: ShardWatchTarget{Database: "postgres"},
+			target: WatchTarget{Database: "postgres"},
 			want:   "postgres",
 		},
 		{
 			name: "database and tablegroup",
-			target: ShardWatchTarget{
+			target: WatchTarget{
 				Database:   "postgres",
 				TableGroup: "default",
 			},
@@ -115,7 +115,7 @@ func TestShardWatchTarget_String(t *testing.T) {
 		},
 		{
 			name: "database, tablegroup, and shard",
-			target: ShardWatchTarget{
+			target: WatchTarget{
 				Database:   "postgres",
 				TableGroup: "default",
 				Shard:      "80-",
@@ -135,7 +135,7 @@ func TestShardWatchTarget_String(t *testing.T) {
 func TestShardWatchTarget_Matches(t *testing.T) {
 	tests := []struct {
 		name           string
-		target         ShardWatchTarget
+		target         WatchTarget
 		testDB         string
 		testTableGroup string
 		testShard      string
@@ -145,7 +145,7 @@ func TestShardWatchTarget_Matches(t *testing.T) {
 	}{
 		{
 			name:           "database level - matches all",
-			target:         ShardWatchTarget{Database: "postgres"},
+			target:         WatchTarget{Database: "postgres"},
 			testDB:         "postgres",
 			testTableGroup: "default",
 			testShard:      "80-",
@@ -155,7 +155,7 @@ func TestShardWatchTarget_Matches(t *testing.T) {
 		},
 		{
 			name:           "database level - different database",
-			target:         ShardWatchTarget{Database: "postgres"},
+			target:         WatchTarget{Database: "postgres"},
 			testDB:         "other",
 			testTableGroup: "default",
 			testShard:      "80-",
@@ -165,7 +165,7 @@ func TestShardWatchTarget_Matches(t *testing.T) {
 		},
 		{
 			name: "tablegroup level - matches tablegroup and shards",
-			target: ShardWatchTarget{
+			target: WatchTarget{
 				Database:   "postgres",
 				TableGroup: "default",
 			},
@@ -178,7 +178,7 @@ func TestShardWatchTarget_Matches(t *testing.T) {
 		},
 		{
 			name: "tablegroup level - different tablegroup",
-			target: ShardWatchTarget{
+			target: WatchTarget{
 				Database:   "postgres",
 				TableGroup: "default",
 			},
@@ -191,7 +191,7 @@ func TestShardWatchTarget_Matches(t *testing.T) {
 		},
 		{
 			name: "shard level - exact match",
-			target: ShardWatchTarget{
+			target: WatchTarget{
 				Database:   "postgres",
 				TableGroup: "default",
 				Shard:      "80-",
@@ -205,7 +205,7 @@ func TestShardWatchTarget_Matches(t *testing.T) {
 		},
 		{
 			name: "shard level - different shard",
-			target: ShardWatchTarget{
+			target: WatchTarget{
 				Database:   "postgres",
 				TableGroup: "default",
 				Shard:      "80-",

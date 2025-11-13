@@ -98,9 +98,10 @@ func runIfNotRunning(logger *slog.Logger, inProgress *atomic.Bool, taskName stri
 // # Configuration
 //
 // The RecoveryEngine requires:
-//   - shard_watch_targets: List of database/tablegroup/shard targets to monitor
-//   - bookkeeping_interval: How often to run cleanup tasks (default: 1m)
-//   - cluster_metadata_refresh_interval: How often to refresh from topology (default: 15s)
+//   - shard-watch-targets: List of database/tablegroup/shard targets to monitor
+//   - bookkeeping-interval: How often to run cleanup tasks (default: 1m)
+//   - cluster-metadata-refresh-interval: How often to refresh from topology (default: 15s)
+//   - cluster-metadata-refresh-timeout: Timeout for metadata refresh operation (default: 30s)
 //
 // Example:
 //
@@ -120,7 +121,7 @@ type RecoveryEngine struct {
 
 	// Current configuration values
 	mu                             sync.Mutex // protects shardWatchTargets
-	shardWatchTargets              []ShardWatchTarget
+	shardWatchTargets              []WatchTarget
 	bookkeepingInterval            time.Duration
 	clusterMetadataRefreshInterval time.Duration
 	clusterMetadataRefreshTimeout  time.Duration
@@ -142,7 +143,7 @@ func NewRecoveryEngine(
 	cell string,
 	ts topo.Store,
 	logger *slog.Logger,
-	shardWatchTargets []ShardWatchTarget,
+	shardWatchTargets []WatchTarget,
 	bookkeepingInterval time.Duration,
 	clusterMetadataRefreshInterval time.Duration,
 	clusterMetadataRefreshTimeout time.Duration,
@@ -232,14 +233,14 @@ func (re *RecoveryEngine) reloadConfigs() {
 
 	// Handle empty targets - keep current configuration
 	if len(rawTargets) == 0 {
-		re.logger.Warn("ignoring empty shard_watch_targets during reload, keeping current targets")
+		re.logger.Warn("ignoring empty shard-watch-targets during reload, keeping current targets")
 		return
 	}
 
 	// Parse the raw strings into ShardWatchTarget structs
 	newTargets, err := ParseShardWatchTargets(rawTargets)
 	if err != nil {
-		re.logger.Error("failed to parse shard_watch_targets during reload", "error", err)
+		re.logger.Error("failed to parse shard-watch-targets during reload", "error", err)
 		return
 	}
 
@@ -257,12 +258,12 @@ func (re *RecoveryEngine) reloadConfigs() {
 }
 
 // shardWatchTargetsEqual compares two ShardWatchTarget slices for equality.
-func shardWatchTargetsEqual(a, b []ShardWatchTarget) bool {
+func shardWatchTargetsEqual(a, b []WatchTarget) bool {
 	return slices.Equal(a, b)
 }
 
 // shardWatchTargetsToStrings converts ShardWatchTargets to their string representations.
-func shardWatchTargetsToStrings(targets []ShardWatchTarget) []string {
+func shardWatchTargetsToStrings(targets []WatchTarget) []string {
 	result := make([]string, len(targets))
 	for i, t := range targets {
 		result[i] = t.String()

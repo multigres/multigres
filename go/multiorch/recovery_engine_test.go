@@ -42,7 +42,7 @@ func TestRecoveryEngine_ConfigReload(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug}))
 
 	// Initial config
-	initialTargets := []ShardWatchTarget{
+	initialTargets := []WatchTarget{
 		{Database: "db1"},
 		{Database: "db2"},
 	}
@@ -84,7 +84,7 @@ func TestRecoveryEngine_ConfigReload(t *testing.T) {
 	updatedTargets := re.shardWatchTargets
 	re.mu.Unlock()
 
-	expectedTargets := []ShardWatchTarget{
+	expectedTargets := []WatchTarget{
 		{Database: "db1"},
 		{Database: "db2"},
 		{Database: "db3"},
@@ -100,7 +100,7 @@ func TestRecoveryEngine_ConfigReload_NoChange(t *testing.T) {
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug}))
 
-	initialTargets := []ShardWatchTarget{
+	initialTargets := []WatchTarget{
 		{Database: "db1"},
 		{Database: "db2"},
 	}
@@ -146,7 +146,7 @@ func TestRecoveryEngine_ConfigReload_EmptyTargets(t *testing.T) {
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug}))
 
-	initialTargets := []ShardWatchTarget{
+	initialTargets := []WatchTarget{
 		{Database: "db1"},
 		{Database: "db2"},
 	}
@@ -189,7 +189,7 @@ func TestRecoveryEngine_StartStop(t *testing.T) {
 		"zone1",
 		ts,
 		logger,
-		[]ShardWatchTarget{{Database: "db1"}},
+		[]WatchTarget{{Database: "db1"}},
 		1*time.Minute,
 		15*time.Second,
 		30*time.Second,
@@ -228,7 +228,7 @@ func TestRecoveryEngine_MaintenanceLoop(t *testing.T) {
 		"zone1",
 		ts,
 		logger,
-		[]ShardWatchTarget{{Database: "db1"}},
+		[]WatchTarget{{Database: "db1"}},
 		200*time.Millisecond, // bookkeeping interval
 		100*time.Millisecond, // metadata refresh interval
 		5*time.Second,        // metadata refresh timeout
@@ -263,7 +263,7 @@ func TestRecoveryEngine_MaintenanceLoop(t *testing.T) {
 	finalTargets := re.shardWatchTargets
 	re.mu.Unlock()
 
-	expectedTargets := []ShardWatchTarget{
+	expectedTargets := []WatchTarget{
 		{Database: "db1"},
 		{Database: "db2"},
 	}
@@ -278,7 +278,7 @@ func TestRecoveryEngine_ConfigReloadError(t *testing.T) {
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug}))
 
-	initialTargets := []ShardWatchTarget{
+	initialTargets := []WatchTarget{
 		{Database: "db1"},
 	}
 
@@ -365,8 +365,8 @@ func TestRecoveryEngine_ViperDynamicConfig(t *testing.T) {
 
 	// Create a viperutil registry and dynamic value
 	reg := viperutil.NewRegistry()
-	shardWatchTargets := viperutil.Configure(reg, "shard_watch_targets", viperutil.Options[[]string]{
-		FlagName: "shard_watch_targets",
+	shardWatchTargets := viperutil.Configure(reg, "shard-watch-targets", viperutil.Options[[]string]{
+		FlagName: "shard-watch-targets",
 		Dynamic:  true,
 	})
 
@@ -402,14 +402,14 @@ func TestRecoveryEngine_ViperDynamicConfig(t *testing.T) {
 	currentTargets := re.shardWatchTargets
 	re.mu.Unlock()
 
-	expectedInit := []ShardWatchTarget{{Database: "db1"}}
+	expectedInit := []WatchTarget{{Database: "db1"}}
 	require.Equal(t, expectedInit, currentTargets, "initial targets mismatch")
 
 	// Update viper config using Set()
 	shardWatchTargets.Set([]string{"db1", "db2", "db3"})
 
 	// Use require.Eventually to wait for the update to be picked up by bookkeeping loop
-	expectedFinal := []ShardWatchTarget{
+	expectedFinal := []WatchTarget{
 		{Database: "db1"},
 		{Database: "db2"},
 		{Database: "db3"},

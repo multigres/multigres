@@ -19,18 +19,18 @@ import (
 	"strings"
 )
 
-// ShardWatchTarget represents a target to watch in the format:
+// WatchTarget represents a target to watch in the format:
 // - "database" - watch entire database
 // - "database/tablegroup" - watch specific tablegroup
 // - "database/tablegroup/shard" - watch specific shard
-type ShardWatchTarget struct {
+type WatchTarget struct {
 	Database   string
 	TableGroup string // empty if watching entire database
 	Shard      string // empty if watching database or tablegroup level
 }
 
 // String returns the string representation of the target.
-func (t ShardWatchTarget) String() string {
+func (t WatchTarget) String() string {
 	if t.Shard != "" {
 		return fmt.Sprintf("%s/%s/%s", t.Database, t.TableGroup, t.Shard)
 	}
@@ -41,13 +41,13 @@ func (t ShardWatchTarget) String() string {
 }
 
 // MatchesDatabase returns true if this target watches the given database.
-func (t ShardWatchTarget) MatchesDatabase(db string) bool {
+func (t WatchTarget) MatchesDatabase(db string) bool {
 	return t.Database == db
 }
 
 // MatchesTableGroup returns true if this target watches the given database/tablegroup.
 // Returns true if watching entire database or specific tablegroup.
-func (t ShardWatchTarget) MatchesTableGroup(db, tablegroup string) bool {
+func (t WatchTarget) MatchesTableGroup(db, tablegroup string) bool {
 	if t.Database != db {
 		return false
 	}
@@ -60,7 +60,7 @@ func (t ShardWatchTarget) MatchesTableGroup(db, tablegroup string) bool {
 
 // MatchesShard returns true if this target watches the given database/tablegroup/shard.
 // Returns true if watching entire database, entire tablegroup, or specific shard.
-func (t ShardWatchTarget) MatchesShard(db, tablegroup, shard string) bool {
+func (t WatchTarget) MatchesShard(db, tablegroup, shard string) bool {
 	if t.Database != db {
 		return false
 	}
@@ -85,27 +85,27 @@ func (t ShardWatchTarget) MatchesShard(db, tablegroup, shard string) bool {
 // - Database is always required
 // - If shard is provided, tablegroup must be provided
 // - Empty parts are not allowed
-func ParseShardWatchTarget(s string) (ShardWatchTarget, error) {
+func ParseShardWatchTarget(s string) (WatchTarget, error) {
 	if s == "" {
-		return ShardWatchTarget{}, fmt.Errorf("empty shard watch target")
+		return WatchTarget{}, fmt.Errorf("empty shard watch target")
 	}
 
 	parts := strings.Split(s, "/")
 	if len(parts) > 3 {
-		return ShardWatchTarget{}, fmt.Errorf("invalid shard watch target format: %s (expected db, db/tablegroup, or db/tablegroup/shard)", s)
+		return WatchTarget{}, fmt.Errorf("invalid shard watch target format: %s (expected db, db/tablegroup, or db/tablegroup/shard)", s)
 	}
 
 	// Database is always required
 	if parts[0] == "" {
-		return ShardWatchTarget{}, fmt.Errorf("database cannot be empty")
+		return WatchTarget{}, fmt.Errorf("database cannot be empty")
 	}
 
-	target := ShardWatchTarget{Database: parts[0]}
+	target := WatchTarget{Database: parts[0]}
 
 	// Validate and set tablegroup if provided
 	if len(parts) >= 2 {
 		if parts[1] == "" {
-			return ShardWatchTarget{}, fmt.Errorf("tablegroup cannot be empty when specified")
+			return WatchTarget{}, fmt.Errorf("tablegroup cannot be empty when specified")
 		}
 		target.TableGroup = parts[1]
 	}
@@ -113,10 +113,10 @@ func ParseShardWatchTarget(s string) (ShardWatchTarget, error) {
 	// Validate and set shard if provided
 	if len(parts) == 3 {
 		if parts[2] == "" {
-			return ShardWatchTarget{}, fmt.Errorf("shard cannot be empty when specified")
+			return WatchTarget{}, fmt.Errorf("shard cannot be empty when specified")
 		}
 		if target.TableGroup == "" {
-			return ShardWatchTarget{}, fmt.Errorf("tablegroup must be specified when shard is provided")
+			return WatchTarget{}, fmt.Errorf("tablegroup must be specified when shard is provided")
 		}
 		target.Shard = parts[2]
 	}
@@ -125,8 +125,8 @@ func ParseShardWatchTarget(s string) (ShardWatchTarget, error) {
 }
 
 // ParseShardWatchTargets parses multiple shard watch target strings.
-func ParseShardWatchTargets(targets []string) ([]ShardWatchTarget, error) {
-	result := make([]ShardWatchTarget, 0, len(targets))
+func ParseShardWatchTargets(targets []string) ([]WatchTarget, error) {
+	result := make([]WatchTarget, 0, len(targets))
 	for _, t := range targets {
 		parsed, err := ParseShardWatchTarget(t)
 		if err != nil {
