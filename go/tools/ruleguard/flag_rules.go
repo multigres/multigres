@@ -21,7 +21,7 @@ import (
 	"github.com/quasilyte/go-ruleguard/dsl"
 )
 
-func disallowUnderscoreInViperFlags(m dsl.Matcher) {
+func disallowUnderscoreInFlags(m dsl.Matcher) {
 	m.Import("github.com/spf13/pflag")
 
 	m.Match(
