@@ -212,7 +212,7 @@ func (pm *MultiPoolerManager) Open() error {
 		poolerID := pm.serviceID.Name
 
 		// Check if connected to a primary database
-		isPrimary, err := pm.IsPrimary(ctx)
+		isPrimary, err := pm.isPrimary(ctx)
 		if err != nil {
 			pm.logger.ErrorContext(ctx, "Failed to check if database is primary", "error", err)
 			// Don't fail the connection if primary check fails
@@ -250,7 +250,7 @@ func (pm *MultiPoolerManager) startHeartbeat(ctx context.Context, shardID []byte
 	pm.replTracker = heartbeat.NewReplTracker(pm.db, pm.logger, shardID, poolerID, pm.config.HeartbeatIntervalMs)
 
 	// Check if we're connected to a primary
-	isPrimary, err := pm.IsPrimary(ctx)
+	isPrimary, err := pm.isPrimary(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to check if database is primary: %w", err)
 	}
@@ -710,7 +710,7 @@ func (pm *MultiPoolerManager) checkDemotionState(ctx context.Context) (*demotion
 	state.isServingReadOnly = (servingStatus == clustermetadatapb.PoolerServingStatus_SERVING_RDONLY)
 
 	// Check if PostgreSQL is in recovery mode (canonical way to check if read-only)
-	isPrimary, err := pm.IsPrimary(ctx)
+	isPrimary, err := pm.isPrimary(ctx)
 	if err != nil {
 		pm.logger.ErrorContext(ctx, "Failed to check recovery status", "error", err)
 		return nil, mterrors.Wrap(err, "failed to check recovery status")

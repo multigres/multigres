@@ -253,7 +253,7 @@ func (pm *MultiPoolerManager) getRole(ctx context.Context) string {
 		return "unknown"
 	}
 
-	isPrimary, err := pm.IsPrimary(ctx)
+	isPrimary, err := pm.isPrimary(ctx)
 	if err != nil {
 		return "unknown"
 	}
@@ -270,7 +270,7 @@ func (pm *MultiPoolerManager) getWALPosition(ctx context.Context) (string, error
 		return "", fmt.Errorf("database connection not available")
 	}
 
-	isPrimary, err := pm.IsPrimary(ctx)
+	isPrimary, err := pm.isPrimary(ctx)
 	if err != nil {
 		return "", err
 	}

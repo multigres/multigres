@@ -69,8 +69,8 @@ func formatStandbyList(standbyIDs []*clustermetadatapb.ID) string {
 // Replication Status Query Methods
 // ----------------------------------------------------------------------------
 
-// IsPrimary checks if the connected database is a primary (not in recovery)
-func (pm *MultiPoolerManager) IsPrimary(ctx context.Context) (bool, error) {
+// isPrimary checks if the connected database is a primary (not in recovery)
+func (pm *MultiPoolerManager) isPrimary(ctx context.Context) (bool, error) {
 	if pm.db == nil {
 		return false, fmt.Errorf("database connection not established")
 	}

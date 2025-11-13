@@ -145,7 +145,7 @@ func (pm *MultiPoolerManager) ConsensusStatus(ctx context.Context, req *consensu
 
 	if isHealthy {
 		// Check role and get appropriate WAL position
-		isPrimary, err := pm.IsPrimary(ctx)
+		isPrimary, err := pm.isPrimary(ctx)
 		if err == nil {
 			if isPrimary {
 				// On primary: get current write position

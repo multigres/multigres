@@ -187,7 +187,7 @@ func (pm *MultiPoolerManager) RestoreFromBackup(ctx context.Context, backupID st
 	// Determine if we should maintain standby status after restore
 	// We query PostgreSQL directly to get the current recovery status
 	slog.InfoContext(ctx, "Checking recovery status before restore")
-	isPrimary, err := pm.IsPrimary(ctx)
+	isPrimary, err := pm.isPrimary(ctx)
 	if err != nil {
 		slog.ErrorContext(ctx, "Failed to check recovery status before restore", "error", err)
 		return mterrors.Wrap(err, "failed to check recovery status")
