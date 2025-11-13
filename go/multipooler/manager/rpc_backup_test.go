@@ -23,7 +23,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/multigres/multigres/go/cmd/pgctld/testutil"
-	backupservicepb "github.com/multigres/multigres/go/pb/multipoolerbackupservice"
+	multipoolermanagerdata "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	pgctldpb "github.com/multigres/multigres/go/pb/pgctldservice"
 )
 
@@ -477,12 +477,12 @@ func TestGetShardBackups_LimitApplication(t *testing.T) {
 	// We can test that the limit is properly applied if backups exist
 
 	// Create a mock result with multiple backups
-	mockBackups := []*backupservicepb.BackupMetadata{
-		{BackupId: "20250101-100000F", Status: backupservicepb.BackupMetadata_COMPLETE},
-		{BackupId: "20250102-100000F", Status: backupservicepb.BackupMetadata_COMPLETE},
-		{BackupId: "20250103-100000F", Status: backupservicepb.BackupMetadata_COMPLETE},
-		{BackupId: "20250104-100000F", Status: backupservicepb.BackupMetadata_COMPLETE},
-		{BackupId: "20250105-100000F", Status: backupservicepb.BackupMetadata_COMPLETE},
+	mockBackups := []*multipoolermanagerdata.BackupMetadata{
+		{BackupId: "20250101-100000F", Status: multipoolermanagerdata.BackupMetadata_COMPLETE},
+		{BackupId: "20250102-100000F", Status: multipoolermanagerdata.BackupMetadata_COMPLETE},
+		{BackupId: "20250103-100000F", Status: multipoolermanagerdata.BackupMetadata_COMPLETE},
+		{BackupId: "20250104-100000F", Status: multipoolermanagerdata.BackupMetadata_COMPLETE},
+		{BackupId: "20250105-100000F", Status: multipoolermanagerdata.BackupMetadata_COMPLETE},
 	}
 
 	tests := []struct {
@@ -530,26 +530,26 @@ func TestGetShardBackups_StatusMapping(t *testing.T) {
 	tests := []struct {
 		name           string
 		errorFlag      bool
-		expectedStatus backupservicepb.BackupMetadata_Status
+		expectedStatus multipoolermanagerdata.BackupMetadata_Status
 	}{
 		{
 			name:           "No error means COMPLETE",
 			errorFlag:      false,
-			expectedStatus: backupservicepb.BackupMetadata_COMPLETE,
+			expectedStatus: multipoolermanagerdata.BackupMetadata_COMPLETE,
 		},
 		{
 			name:           "Error means INCOMPLETE",
 			errorFlag:      true,
-			expectedStatus: backupservicepb.BackupMetadata_INCOMPLETE,
+			expectedStatus: multipoolermanagerdata.BackupMetadata_INCOMPLETE,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// This tests the status mapping logic used in GetShardBackups
-			status := backupservicepb.BackupMetadata_COMPLETE
+			status := multipoolermanagerdata.BackupMetadata_COMPLETE
 			if tt.errorFlag {
-				status = backupservicepb.BackupMetadata_INCOMPLETE
+				status = multipoolermanagerdata.BackupMetadata_INCOMPLETE
 			}
 
 			assert.Equal(t, tt.expectedStatus, status)

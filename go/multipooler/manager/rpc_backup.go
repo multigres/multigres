@@ -28,7 +28,7 @@ import (
 
 	"github.com/multigres/multigres/go/mterrors"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
-	backupservicepb "github.com/multigres/multigres/go/pb/multipoolerbackupservice"
+	multipoolermanagerdata "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	pgctldpb "github.com/multigres/multigres/go/pb/pgctldservice"
 )
 
@@ -306,7 +306,7 @@ type GetBackupsOptions struct {
 
 // GetBackupsResult contains the result of a backup listing operation
 type GetBackupsResult struct {
-	Backups []*backupservicepb.BackupMetadata
+	Backups []*multipoolermanagerdata.BackupMetadata
 }
 
 // GetBackups retrieves backup information for a shard
@@ -334,7 +334,7 @@ func GetBackups(ctx context.Context, configPath, stanzaName string, opts GetBack
 		// Handle case where stanza doesn't exist yet or config file is missing - return empty list
 		outputStr := string(output)
 		if outputStr == "" || strings.Contains(outputStr, "does not exist") || strings.Contains(outputStr, "unable to open missing file") {
-			return &GetBackupsResult{Backups: []*backupservicepb.BackupMetadata{}}, nil
+			return &GetBackupsResult{Backups: []*multipoolermanagerdata.BackupMetadata{}}, nil
 		}
 		return nil, mterrors.New(mtrpcpb.Code_INTERNAL,
 			fmt.Sprintf("pgbackrest info failed: %v\nOutput: %s", err, outputStr))
@@ -348,13 +348,13 @@ func GetBackups(ctx context.Context, configPath, stanzaName string, opts GetBack
 	}
 
 	// Extract backups from the first stanza (should be the only one)
-	var backups []*backupservicepb.BackupMetadata
+	var backups []*multipoolermanagerdata.BackupMetadata
 	if len(infoData) > 0 && len(infoData[0].Backup) > 0 {
 		for _, pgBackup := range infoData[0].Backup {
 			// Determine backup status
-			status := backupservicepb.BackupMetadata_COMPLETE
+			status := multipoolermanagerdata.BackupMetadata_COMPLETE
 			if pgBackup.Error {
-				status = backupservicepb.BackupMetadata_INCOMPLETE
+				status = multipoolermanagerdata.BackupMetadata_INCOMPLETE
 			}
 
 			// Extract table_group and shard from annotations
@@ -365,7 +365,7 @@ func GetBackups(ctx context.Context, configPath, stanzaName string, opts GetBack
 				shard = pgBackup.Annotation["shard"]
 			}
 
-			backups = append(backups, &backupservicepb.BackupMetadata{
+			backups = append(backups, &multipoolermanagerdata.BackupMetadata{
 				BackupId:   pgBackup.Label,
 				Status:     status,
 				TableGroup: tableGroup,

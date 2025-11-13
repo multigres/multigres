@@ -32,7 +32,8 @@ import (
 
 	"github.com/multigres/multigres/go/test/utils"
 
-	backupservicepb "github.com/multigres/multigres/go/pb/multipoolerbackupservice"
+	multipoolermanagerpb "github.com/multigres/multigres/go/pb/multipoolermanager"
+	multipoolermanagerdata "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
 
 // connectToPostgres establishes a connection to the PostgreSQL database using Unix socket
@@ -70,7 +71,7 @@ func TestBackup_CreateListAndRestore(t *testing.T) {
 	)
 	require.NoError(t, err)
 	t.Cleanup(func() { primaryConn.Close() })
-	backupClient := backupservicepb.NewMultiPoolerBackupServiceClient(primaryConn)
+	backupClient := multipoolermanagerpb.NewMultiPoolerManagerClient(primaryConn)
 
 	standbyConn, err := grpc.NewClient(
 		fmt.Sprintf("localhost:%d", setup.StandbyMultipooler.GrpcPort),
@@ -78,7 +79,7 @@ func TestBackup_CreateListAndRestore(t *testing.T) {
 	)
 	require.NoError(t, err)
 	t.Cleanup(func() { standbyConn.Close() })
-	standbyBackupClient := backupservicepb.NewMultiPoolerBackupServiceClient(standbyConn)
+	standbyBackupClient := multipoolermanagerpb.NewMultiPoolerManagerClient(standbyConn)
 
 	// Connect to primary PostgreSQL database using Unix socket
 	primarySocketDir := filepath.Join(setup.PrimaryPgctld.DataDir, "pg_sockets")
@@ -114,7 +115,7 @@ func TestBackup_CreateListAndRestore(t *testing.T) {
 	t.Run("CreateFullBackup", func(t *testing.T) {
 		t.Log("Step 2: Creating full backup...")
 
-		req := &backupservicepb.BackupRequest{
+		req := &multipoolermanagerdata.BackupRequest{
 			ForcePrimary: true, // Required for backups from primary
 			Type:         "full",
 		}
@@ -141,7 +142,7 @@ func TestBackup_CreateListAndRestore(t *testing.T) {
 		t.Run("GetBackups_VerifyFullBackup", func(t *testing.T) {
 			t.Log("Step 3: Listing backups to verify full backup...")
 
-			listReq := &backupservicepb.GetBackupsRequest{
+			listReq := &multipoolermanagerdata.GetBackupsRequest{
 				Limit: 10,
 			}
 
@@ -154,7 +155,7 @@ func TestBackup_CreateListAndRestore(t *testing.T) {
 			assert.NotEmpty(t, listResp.Backups, "Should have at least one backup")
 
 			// Find our backup in the list
-			var foundBackup *backupservicepb.BackupMetadata
+			var foundBackup *multipoolermanagerdata.BackupMetadata
 			for _, backup := range listResp.Backups {
 				if backup.BackupId == fullBackupID {
 					foundBackup = backup
@@ -166,7 +167,7 @@ func TestBackup_CreateListAndRestore(t *testing.T) {
 
 			// Verify backup metadata
 			assert.Equal(t, fullBackupID, foundBackup.BackupId, "Backup ID should match")
-			assert.Equal(t, backupservicepb.BackupMetadata_COMPLETE, foundBackup.Status,
+			assert.Equal(t, multipoolermanagerdata.BackupMetadata_COMPLETE, foundBackup.Status,
 				"Backup status should be COMPLETE")
 
 			t.Logf("Backup verified in list: ID=%s, Status=%s",
@@ -194,7 +195,7 @@ func TestBackup_CreateListAndRestore(t *testing.T) {
 
 			t.Log("Step 5: Verifying backup exists in standby's list...")
 
-			listReq := &backupservicepb.GetBackupsRequest{
+			listReq := &multipoolermanagerdata.GetBackupsRequest{
 				Limit: 20,
 			}
 
@@ -204,7 +205,7 @@ func TestBackup_CreateListAndRestore(t *testing.T) {
 			require.NotNil(t, listResp, "List response should not be nil")
 
 			// Find our backup in the standby's list
-			var foundBackup *backupservicepb.BackupMetadata
+			var foundBackup *multipoolermanagerdata.BackupMetadata
 			for _, backup := range listResp.Backups {
 				if backup.BackupId == fullBackupID {
 					foundBackup = backup
@@ -213,13 +214,13 @@ func TestBackup_CreateListAndRestore(t *testing.T) {
 			}
 
 			require.NotNil(t, foundBackup, "Backup should be in standby's list")
-			assert.Equal(t, backupservicepb.BackupMetadata_COMPLETE, foundBackup.Status,
+			assert.Equal(t, multipoolermanagerdata.BackupMetadata_COMPLETE, foundBackup.Status,
 				"Backup status should be COMPLETE")
 			t.Logf("Backup verified in standby's list: ID=%s, Status=%s", foundBackup.BackupId, foundBackup.Status)
 
 			t.Log("Step 6: Restoring from backup to standby...")
 
-			restoreReq := &backupservicepb.RestoreFromBackupRequest{
+			restoreReq := &multipoolermanagerdata.RestoreFromBackupRequest{
 				BackupId: fullBackupID,
 			}
 
@@ -298,7 +299,7 @@ func TestBackup_CreateListAndRestore(t *testing.T) {
 		t.Run("GetBackups_WithoutLimit", func(t *testing.T) {
 			t.Log("Listing backups without limit...")
 
-			listReq := &backupservicepb.GetBackupsRequest{
+			listReq := &multipoolermanagerdata.GetBackupsRequest{
 				Limit: 0, // No limit
 			}
 
@@ -316,7 +317,7 @@ func TestBackup_CreateListAndRestore(t *testing.T) {
 		t.Run("GetBackups_WithSmallLimit", func(t *testing.T) {
 			t.Log("Listing backups with limit=1...")
 
-			listReq := &backupservicepb.GetBackupsRequest{
+			listReq := &multipoolermanagerdata.GetBackupsRequest{
 				Limit: 1,
 			}
 
@@ -336,7 +337,7 @@ func TestBackup_CreateListAndRestore(t *testing.T) {
 	t.Run("CreateDifferentialBackup", func(t *testing.T) {
 		t.Log("Creating differential backup...")
 
-		req := &backupservicepb.BackupRequest{
+		req := &multipoolermanagerdata.BackupRequest{
 			ForcePrimary: true, // Required for backups from primary
 			Type:         "differential",
 		}
@@ -358,7 +359,7 @@ func TestBackup_CreateListAndRestore(t *testing.T) {
 		t.Logf("Differential backup created successfully with ID: %s", resp.BackupId)
 
 		// Verify differential backup appears in list
-		listReq := &backupservicepb.GetBackupsRequest{
+		listReq := &multipoolermanagerdata.GetBackupsRequest{
 			Limit: 10,
 		}
 
@@ -376,7 +377,7 @@ func TestBackup_CreateListAndRestore(t *testing.T) {
 	t.Run("CreateIncrementalBackup", func(t *testing.T) {
 		t.Log("Creating incremental backup...")
 
-		req := &backupservicepb.BackupRequest{
+		req := &multipoolermanagerdata.BackupRequest{
 			ForcePrimary: true, // Required for backups from primary
 			Type:         "incremental",
 		}
@@ -398,7 +399,7 @@ func TestBackup_CreateListAndRestore(t *testing.T) {
 		t.Logf("Incremental backup created successfully with ID: %s", resp.BackupId)
 
 		// Verify incremental backup appears in list
-		listReq := &backupservicepb.GetBackupsRequest{
+		listReq := &multipoolermanagerdata.GetBackupsRequest{
 			Limit: 10,
 		}
 
@@ -432,10 +433,10 @@ func TestBackup_ValidationErrors(t *testing.T) {
 	)
 	require.NoError(t, err)
 	t.Cleanup(func() { conn.Close() })
-	backupClient := backupservicepb.NewMultiPoolerBackupServiceClient(conn)
+	backupClient := multipoolermanagerpb.NewMultiPoolerManagerClient(conn)
 
 	t.Run("MissingType", func(t *testing.T) {
-		req := &backupservicepb.BackupRequest{
+		req := &multipoolermanagerdata.BackupRequest{
 			ForcePrimary: true, // Set to true to test type validation
 			Type:         "",   // Missing
 		}
@@ -449,7 +450,7 @@ func TestBackup_ValidationErrors(t *testing.T) {
 	})
 
 	t.Run("InvalidType", func(t *testing.T) {
-		req := &backupservicepb.BackupRequest{
+		req := &multipoolermanagerdata.BackupRequest{
 			ForcePrimary: true,      // Set to true to test type validation
 			Type:         "invalid", // Invalid type
 		}
@@ -463,7 +464,7 @@ func TestBackup_ValidationErrors(t *testing.T) {
 	})
 
 	t.Run("BackupFromPrimaryWithoutForcePrimary", func(t *testing.T) {
-		req := &backupservicepb.BackupRequest{
+		req := &multipoolermanagerdata.BackupRequest{
 			ForcePrimary: false, // Not forced
 			Type:         "full",
 		}
@@ -495,12 +496,12 @@ func TestBackup_FromStandby(t *testing.T) {
 	)
 	require.NoError(t, err)
 	t.Cleanup(func() { conn.Close() })
-	backupClient := backupservicepb.NewMultiPoolerBackupServiceClient(conn)
+	backupClient := multipoolermanagerpb.NewMultiPoolerManagerClient(conn)
 
 	t.Run("CreateFullBackupFromStandby", func(t *testing.T) {
 		t.Log("Creating full backup from standby...")
 
-		req := &backupservicepb.BackupRequest{
+		req := &multipoolermanagerdata.BackupRequest{
 			ForcePrimary: false, // Should use standby since we're connected to standby
 			Type:         "full",
 		}
@@ -523,7 +524,7 @@ func TestBackup_FromStandby(t *testing.T) {
 		t.Logf("Full backup from standby created successfully with ID: %s", resp.BackupId)
 
 		// Verify backup appears in standby's backup list
-		listReq := &backupservicepb.GetBackupsRequest{
+		listReq := &multipoolermanagerdata.GetBackupsRequest{
 			Limit: 10,
 		}
 
@@ -536,7 +537,7 @@ func TestBackup_FromStandby(t *testing.T) {
 		assert.NotEmpty(t, listResp.Backups, "Should have at least one backup")
 
 		// Find our backup in the list
-		var foundBackup *backupservicepb.BackupMetadata
+		var foundBackup *multipoolermanagerdata.BackupMetadata
 		for _, backup := range listResp.Backups {
 			if backup.BackupId == resp.BackupId {
 				foundBackup = backup
@@ -546,7 +547,7 @@ func TestBackup_FromStandby(t *testing.T) {
 
 		require.NotNil(t, foundBackup, "Standby backup should be in the list")
 		assert.Equal(t, resp.BackupId, foundBackup.BackupId, "Backup ID should match")
-		assert.Equal(t, backupservicepb.BackupMetadata_COMPLETE, foundBackup.Status,
+		assert.Equal(t, multipoolermanagerdata.BackupMetadata_COMPLETE, foundBackup.Status,
 			"Backup status should be COMPLETE")
 
 		t.Logf("Standby backup verified in list: ID=%s, Status=%s",
@@ -556,7 +557,7 @@ func TestBackup_FromStandby(t *testing.T) {
 	t.Run("CreateIncrementalBackupFromStandby", func(t *testing.T) {
 		t.Log("Creating incremental backup from standby...")
 
-		req := &backupservicepb.BackupRequest{
+		req := &multipoolermanagerdata.BackupRequest{
 			ForcePrimary: false,
 			Type:         "incremental",
 		}
