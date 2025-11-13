@@ -20,12 +20,12 @@ import (
 	"github.com/multigres/multigres/go/pb/clustermetadata"
 )
 
-// PoolerInfo represents runtime state of a MultiPooler instance.
+// PoolerHealthCheckStatus represents runtime state of a MultiPooler instance.
 // This is the minimal version that stores:
 // - The MultiPooler record from topology
 // - Timestamps for staleness detection
 // - Computed fields for quick access
-type PoolerInfo struct {
+type PoolerHealthCheckStatus struct {
 	// MultiPooler record from topology service
 	MultiPooler *clustermetadata.MultiPooler
 

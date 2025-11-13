@@ -98,7 +98,7 @@ func (re *Engine) refreshClusterMetadata() {
 					// New pooler - we've discovered it in the topology, but we haven't
 					// performed a health check yet. The health check loop will update
 					// LastSeen, LastCheckAttempted, LastCheckSuccessful, and IsUpToDate.
-					poolerInfo := &store.PoolerInfo{
+					poolerInfo := &store.PoolerHealthCheckStatus{
 						MultiPooler: pooler.MultiPooler,
 						IsUpToDate:  false, // Not yet health checked
 					}
