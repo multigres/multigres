@@ -89,13 +89,20 @@ jobs:
       - name: Coverage report
         run: |
           go tool covdata textfmt -i=./coverage -o=coverage.out
-          go tool cover -html=coverage.out -o coverage.html
+          # go tool cover -html=coverage.out -o coverage.html
 
-      - name: Upload report
-        uses: actions/upload-artifact@v4
+      # - name: Upload report
+      #   uses: actions/upload-artifact@v4
+      #   with:
+      #     name: integration-coverage
+      #     path: coverage.html
+
+      - name: Update coverage report
+        uses: ncruces/go-coverage-report@aa507d98fb11c2b4dffa1b731e0786f50fd8ec93 # v0.3.1
         with:
-          name: integration-coverage
-          path: coverage.html
+          coverage-file: coverage.out
+          report: true # Generates HTML report
+          chart: true # Generates SVG chart
 
       - name: Test Report
         uses: dorny/test-reporter@dc3a92680fcc15842eef52e8c4606ea7ce6bd3f3 # v2.1.1
