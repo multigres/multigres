@@ -60,7 +60,7 @@ func (mo *MultiOrch) RunDefault() {
 // Register flags that are specific to multiorch.
 func (mo *MultiOrch) RegisterFlags(fs *pflag.FlagSet) {
 	fs.String("cell", mo.cell.Default(), "cell to use")
-	fs.StringSlice("shard-watch-targets", mo.shardWatchTargets.Default(), "list of db/tablegroup/shard targets to watch")
+	fs.StringSlice("watch-targets", mo.shardWatchTargets.Default(), "list of db/tablegroup/shard targets to watch")
 	fs.Duration("bookkeeping-interval", mo.bookkeepingInterval.Default(), "interval for bookkeeping tasks")
 	fs.Duration("cluster-metadata-refresh-interval", mo.clusterMetadataRefreshInterval.Default(), "interval for refreshing cluster metadata from topology")
 	fs.Duration("cluster-metadata-refresh-timeout", mo.clusterMetadataRefreshTimeout.Default(), "timeout for cluster metadata refresh operation")
@@ -79,8 +79,8 @@ func NewMultiOrch() *MultiOrch {
 			Dynamic:  false,
 			EnvVars:  []string{"MT_CELL"},
 		}),
-		shardWatchTargets: viperutil.Configure(reg, "shard-watch-targets", viperutil.Options[[]string]{
-			FlagName: "shard-watch-targets",
+		shardWatchTargets: viperutil.Configure(reg, "watch-targets", viperutil.Options[[]string]{
+			FlagName: "watch-targets",
 			Dynamic:  true,
 			EnvVars:  []string{"MT_SHARD_WATCH_TARGETS"},
 		}),
@@ -128,13 +128,13 @@ func (mo *MultiOrch) Init() {
 	// Validate and parse shard watch targets
 	targetsRaw := mo.shardWatchTargets.Get()
 	if len(targetsRaw) == 0 {
-		logger.Error("shard-watch-targets is required")
+		logger.Error("watch-targets is required")
 		os.Exit(1)
 	}
 
 	targets, err := ParseShardWatchTargets(targetsRaw)
 	if err != nil {
-		logger.Error("failed to parse shard-watch-targets", "error", err)
+		logger.Error("failed to parse watch-targets", "error", err)
 		os.Exit(1)
 	}
 

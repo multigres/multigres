@@ -365,8 +365,8 @@ func TestRecoveryEngine_ViperDynamicConfig(t *testing.T) {
 
 	// Create a viperutil registry and dynamic value
 	reg := viperutil.NewRegistry()
-	shardWatchTargets := viperutil.Configure(reg, "shard-watch-targets", viperutil.Options[[]string]{
-		FlagName: "shard-watch-targets",
+	shardWatchTargets := viperutil.Configure(reg, "watch-targets", viperutil.Options[[]string]{
+		FlagName: "watch-targets",
 		Dynamic:  true,
 	})
 

@@ -98,7 +98,7 @@ func runIfNotRunning(logger *slog.Logger, inProgress *atomic.Bool, taskName stri
 // # Configuration
 //
 // The RecoveryEngine requires:
-//   - shard-watch-targets: List of database/tablegroup/shard targets to monitor
+//   - watch-targets: List of database/tablegroup/shard targets to monitor
 //   - bookkeeping-interval: How often to run cleanup tasks (default: 1m)
 //   - cluster-metadata-refresh-interval: How often to refresh from topology (default: 15s)
 //   - cluster-metadata-refresh-timeout: Timeout for metadata refresh operation (default: 30s)
@@ -233,14 +233,14 @@ func (re *RecoveryEngine) reloadConfigs() {
 
 	// Handle empty targets - keep current configuration
 	if len(rawTargets) == 0 {
-		re.logger.Warn("ignoring empty shard-watch-targets during reload, keeping current targets")
+		re.logger.Warn("ignoring empty watch-targets during reload, keeping current targets")
 		return
 	}
 
 	// Parse the raw strings into ShardWatchTarget structs
 	newTargets, err := ParseShardWatchTargets(rawTargets)
 	if err != nil {
-		re.logger.Error("failed to parse shard-watch-targets during reload", "error", err)
+		re.logger.Error("failed to parse watch-targets during reload", "error", err)
 		return
 	}
 
