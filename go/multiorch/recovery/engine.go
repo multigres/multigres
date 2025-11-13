@@ -149,8 +149,8 @@ type Engine struct {
 	cancel context.CancelFunc
 }
 
-// NewRecoveryEngine creates a new RecoveryEngine instance.
-func NewRecoveryEngine(
+// NewEngine creates a new RecoveryEngine instance.
+func NewEngine(
 	cell string,
 	ts topo.Store,
 	logger *slog.Logger,

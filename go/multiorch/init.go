@@ -166,7 +166,7 @@ func (mo *MultiOrch) Init() {
 	mo.senv.HTTPHandleFunc("/ready", mo.handleReady)
 
 	// Create and start recovery engine
-	mo.recoveryEngine = recovery.NewRecoveryEngine(
+	mo.recoveryEngine = recovery.NewEngine(
 		mo.cell.Get(),
 		mo.ts,
 		logger,

@@ -50,7 +50,7 @@ func TestRecoveryEngine_ConfigReload(t *testing.T) {
 	}
 
 	// Create recovery engine
-	re := NewRecoveryEngine(
+	re := NewEngine(
 		"zone1",
 		ts,
 		logger,
@@ -107,7 +107,7 @@ func TestRecoveryEngine_ConfigReload_NoChange(t *testing.T) {
 		{Database: "db2"},
 	}
 
-	re := NewRecoveryEngine(
+	re := NewEngine(
 		"zone1",
 		ts,
 		logger,
@@ -153,7 +153,7 @@ func TestRecoveryEngine_ConfigReload_EmptyTargets(t *testing.T) {
 		{Database: "db2"},
 	}
 
-	re := NewRecoveryEngine(
+	re := NewEngine(
 		"zone1",
 		ts,
 		logger,
@@ -187,7 +187,7 @@ func TestRecoveryEngine_StartStop(t *testing.T) {
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug}))
 
-	re := NewRecoveryEngine(
+	re := NewEngine(
 		"zone1",
 		ts,
 		logger,
@@ -226,7 +226,7 @@ func TestRecoveryEngine_MaintenanceLoop(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug}))
 
 	// Use shorter intervals for testing
-	re := NewRecoveryEngine(
+	re := NewEngine(
 		"zone1",
 		ts,
 		logger,
@@ -284,7 +284,7 @@ func TestRecoveryEngine_ConfigReloadError(t *testing.T) {
 		{Database: "db1"},
 	}
 
-	re := NewRecoveryEngine(
+	re := NewEngine(
 		"zone1",
 		ts,
 		logger,
@@ -380,7 +380,7 @@ func TestRecoveryEngine_ViperDynamicConfig(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create recovery engine with initial config
-	re := NewRecoveryEngine(
+	re := NewEngine(
 		"zone1",
 		ts,
 		logger,
@@ -450,7 +450,7 @@ func TestRecoveryEngine_DiscoveryLoop_Integration(t *testing.T) {
 	}))
 
 	// Create engine with short refresh interval for testing
-	re := NewRecoveryEngine(
+	re := NewEngine(
 		"zone1",
 		ts,
 		logger,
@@ -492,7 +492,7 @@ func TestRecoveryEngine_BookkeepingLoop_Integration(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
 
 	// Create engine with short bookkeeping interval for testing
-	re := NewRecoveryEngine(
+	re := NewEngine(
 		"zone1",
 		ts,
 		logger,
@@ -574,7 +574,7 @@ func TestRecoveryEngine_FullIntegration(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
 
 	// Create engine with short intervals for testing
-	re := NewRecoveryEngine(
+	re := NewEngine(
 		"zone1",
 		ts,
 		logger,
