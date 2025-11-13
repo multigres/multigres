@@ -22,7 +22,7 @@ The following are examples of a 3-node Multigres deployment to illustrate this.
 
 ### MultiPooler 1's pgbackrest.conf
 
-```
+```ini
 [global]
 (defines global parameters, such as compression and where backups go)
 
@@ -48,7 +48,7 @@ There are some things to note:
 3. There is one *stanza* called `multigres`, under which all the replicas are declared.
 
 ### MultiPooler 2's pgbackrest.conf
-```
+```ini
 [global]
 (defines global parameters, such as compression and where backups go)
 
@@ -71,7 +71,7 @@ pg3-database=postgres
 The only difference here is that `pg1-*` now refers to MultiPooler 2's Postgres cluster. This allows us to force pgBackRest to backup `pg1-host`, not some other replica.
 
 ### MultiPooler 3's pgbackrest.conf
-```
+```ini
 [global]
 (defines global parameters, such as compression and where backups go)
 
