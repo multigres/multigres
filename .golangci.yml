@@ -15,12 +15,15 @@
 version: "2"
 run:
   go: "1.24"
+  build-tags:
+    - ruleguard
 linters:
   default: none
   enable:
     - bodyclose
     - depguard
     - errcheck
+    - gocritic
     - govet
     - ineffassign
     - sloglint
@@ -60,6 +63,14 @@ linters:
     sloglint:
       context: scope
     govet:
+    gocritic:
+      # TODO(dweitzman): Re-enable default checks. Some of them seem worthwhile.
+      disable-all: true
+      enabled-checks:
+        - ruleguard
+      settings:
+        ruleguard:
+          rules: "go/tools/ruleguard/flag_rules.go"
     disable:
       - nilness
       - unusedwrite

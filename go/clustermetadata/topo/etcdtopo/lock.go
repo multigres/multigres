@@ -40,7 +40,7 @@ func init() {
 }
 
 func registerEtcd2TopoLockFlags(fs *pflag.FlagSet) {
-	fs.IntVar(&leaseTTL, "topo_etcd_lease_ttl", leaseTTL, "Lease TTL for locks and leader election. The client will use KeepAlive to keep the lease going.")
+	fs.IntVar(&leaseTTL, "topo-etcd-lease-ttl", leaseTTL, "Lease TTL for locks and leader election. The client will use KeepAlive to keep the lease going.")
 }
 
 // newUniqueEphemeralKV creates a new file in the provided directory.
