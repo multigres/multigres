@@ -266,7 +266,7 @@ message DemoteRequest {
 }
 
 message DemoteResponse {
-  // Whether the node was already demoted (idempotent check)
+  // Whether the pooler was already demoted (idempotent check)
   bool was_already_demoted = 1;
 
   // Consensus term at the time of demotion
@@ -322,7 +322,7 @@ message PromoteRequest {
 
   // Expected LSN position before promotion (optional, for validation)
   // By the Propagate stage, replication should already be stopped and the LSN frozen.
-  // This is an assertion to verify the node has the expected durable state.
+  // This is an assertion to verify the pooler has the expected durable state.
   // If the actual LSN doesn't match, this indicates an error in an earlier consensus stage.
   // If empty, skip LSN validation.
   string expected_lsn = 2;
@@ -340,7 +340,7 @@ message PromoteResponse {
   // LSN position after promotion
   string lsn_position = 1;
 
-  // Whether the node was already promoted (idempotent check)
+  // Whether the pooler was already promoted (idempotent check)
   bool was_already_primary = 2;
 
   // Consensus term at the time of promotion
@@ -490,9 +490,79 @@ message ConsensusTerm {
   clustermetadata.ID leader_id = 4;
 }
 
+// InitializeEmptyPrimary initializes this pooler as an empty primary
+// Used during bootstrap initialization of a new shard
+message InitializeEmptyPrimaryRequest {
+  // Consensus term to set for this primary
+  int64 consensus_term = 1;
+}
+
+message InitializeEmptyPrimaryResponse {
+  // Whether the initialization succeeded
+  bool success = 1;
+
+  // Error message if initialization failed
+  string error_message = 2;
+}
+
+// InitializeAsStandby initializes this pooler as a standby from a primary backup
+// Used during bootstrap initialization of a new shard or when adding a new standby
+message InitializeAsStandbyRequest {
+  // Primary server hostname to backup from
+  string primary_host = 1;
+
+  // Primary server port
+  int32 primary_port = 2;
+
+  // Consensus term to set for this standby
+  int64 consensus_term = 3;
+
+  // Whether to force reinitialization (removes existing data directory)
+  bool force = 4;
+}
+
+message InitializeAsStandbyResponse {
+  // Whether the initialization succeeded
+  bool success = 1;
+
+  // Error message if initialization failed
+  string error_message = 2;
+
+  // Final LSN position after backup completed
+  string final_lsn = 3;
+}
+
+// InitializationStatus returns the initialization status of this pooler
+// Used by multiorch coordinator to determine what initialization scenario to use
+message InitializationStatusRequest {
+}
+
+message InitializationStatusResponse {
+  // Whether this pooler has been initialized (has data directory and multigres schema)
+  bool is_initialized = 1;
+
+  // Whether data directory exists
+  bool has_data_directory = 2;
+
+  // Whether PostgreSQL is currently running
+  bool postgres_running = 3;
+
+  // Current role of this pooler ("primary", "standby", or "unknown")
+  string role = 4;
+
+  // Current WAL position (if available)
+  string wal_position = 5;
+
+  // Current consensus term
+  int64 consensus_term = 6;
+
+  // Shard ID that this pooler belongs to
+  string shard_id = 7;
+}
+
 // Backup operations
 // All of these RPCs perform backups and restores in the context
-// of the TableGroup and Shard this multipooler serves.
+// of the database, table group, and shard this multipooler serves.
 
 // BackupRequest requests a backup
 message BackupRequest {

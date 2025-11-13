@@ -114,6 +114,24 @@ func (pm *MultiPoolerManager) getStandbyReplayLSN(ctx context.Context) (string, 
 	return lsn, nil
 }
 
+// querySchemaExists checks if the multigres schema exists in the database
+func (pm *MultiPoolerManager) querySchemaExists(ctx context.Context) (bool, error) {
+	if pm.db == nil {
+		return false, fmt.Errorf("database connection not available")
+	}
+
+	queryCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
+	defer cancel()
+
+	var exists bool
+	query := "SELECT EXISTS(SELECT 1 FROM information_schema.schemata WHERE schema_name = 'multigres')"
+	err := pm.db.QueryRowContext(queryCtx, query).Scan(&exists)
+	if err != nil {
+		return false, mterrors.Wrap(err, "failed to check schema exists")
+	}
+	return exists, nil
+}
+
 // checkLSNReached checks if the standby has replayed up to or past the target LSN
 func (pm *MultiPoolerManager) checkLSNReached(ctx context.Context, targetLsn string) (bool, error) {
 	queryCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)

@@ -43,6 +43,7 @@ import (
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 
 	"gopkg.in/yaml.v3"
 )
@@ -201,12 +202,9 @@ func (p *localProvisioner) provisionEtcd(ctx context.Context, req *provisioner.P
 	// Start etcd process
 	etcdCmd := exec.CommandContext(ctx, etcdBinary, args...)
 
-	// Inject trace context so etcd startup is part of the cluster_startup trace
-	telemetry.SetCmdEnvTraceContext(ctx, etcdCmd)
-
 	fmt.Printf("▶️  - Launching etcd on port %d...", port)
 
-	if err := etcdCmd.Start(); err != nil {
+	if err := telemetry.StartCmd(ctx, etcdCmd); err != nil {
 		return nil, fmt.Errorf("failed to start etcd: %w", err)
 	}
 
@@ -217,7 +215,7 @@ func (p *localProvisioner) provisionEtcd(ctx context.Context, req *provisioner.P
 
 	// Wait for etcd to be ready
 	servicePorts := map[string]int{"etcd_port": port}
-	if err := p.waitForServiceReady("etcd", "localhost", servicePorts, 10*time.Second); err != nil {
+	if err := p.waitForServiceReady(ctx, "etcd", "localhost", servicePorts, 10*time.Second); err != nil {
 		logs := p.readServiceLogs(logFile, 20)
 		return nil, fmt.Errorf("etcd readiness check failed: %w\n\nLast 20 lines from etcd logs:\n%s", err, logs)
 	}
@@ -468,12 +466,9 @@ func (p *localProvisioner) provisionMultigateway(ctx context.Context, req *provi
 	// Start multigateway process
 	multigatewayCmd := exec.CommandContext(ctx, multigatewayBinary, args...)
 
-	// Inject trace context for distributed tracing
-	telemetry.SetCmdEnvTraceContext(ctx, multigatewayCmd)
-
 	fmt.Printf("▶️  - Launching multigateway (HTTP:%d, gRPC:%d, pg:%d)...", httpPort, grpcPort, pgPort)
 
-	if err := multigatewayCmd.Start(); err != nil {
+	if err := telemetry.StartCmd(ctx, multigatewayCmd); err != nil {
 		return nil, fmt.Errorf("failed to start multigateway: %w", err)
 	}
 
@@ -502,7 +497,7 @@ func (p *localProvisioner) provisionMultigateway(ctx context.Context, req *provi
 
 	// Wait for multigateway to be ready
 	servicePorts := map[string]int{"http_port": httpPort, "grpc_port": grpcPort, "pg_port": pgPort}
-	if err := p.waitForServiceReady("multigateway", "localhost", servicePorts, 10*time.Second); err != nil {
+	if err := p.waitForServiceReady(ctx, "multigateway", "localhost", servicePorts, 10*time.Second); err != nil {
 		logs := p.readServiceLogs(logFile, 20)
 		return nil, fmt.Errorf("multigateway readiness check failed: %w\n\nLast 20 lines from multigateway logs:\n%s", err, logs)
 	}
@@ -606,12 +601,9 @@ func (p *localProvisioner) provisionMultiadmin(ctx context.Context, req *provisi
 	// Start multiadmin process
 	multiadminCmd := exec.CommandContext(ctx, multiadminBinary, args...)
 
-	// Inject trace context for distributed tracing
-	telemetry.SetCmdEnvTraceContext(ctx, multiadminCmd)
-
 	fmt.Printf("▶️  - Launching multiadmin (HTTP:%d, gRPC:%d)...", httpPort, grpcPort)
 
-	if err := multiadminCmd.Start(); err != nil {
+	if err := telemetry.StartCmd(ctx, multiadminCmd); err != nil {
 		return nil, fmt.Errorf("failed to start multiadmin: %w", err)
 	}
 
@@ -639,7 +631,7 @@ func (p *localProvisioner) provisionMultiadmin(ctx context.Context, req *provisi
 
 	// Wait for multiadmin to be ready (check HTTP port)
 	servicePorts := map[string]int{"http_port": httpPort, "grpc_port": grpcPort}
-	if err := p.waitForServiceReady("multiadmin", "localhost", servicePorts, 10*time.Second); err != nil {
+	if err := p.waitForServiceReady(ctx, "multiadmin", "localhost", servicePorts, 10*time.Second); err != nil {
 		logs := p.readServiceLogs(logFile, 20)
 		return nil, fmt.Errorf("multiadmin readiness check failed: %w\n\nLast 20 lines from multiadmin logs:\n%s", err, logs)
 	}
@@ -808,12 +800,9 @@ func (p *localProvisioner) provisionMultipooler(ctx context.Context, req *provis
 	// Start multipooler process
 	multipoolerCmd := exec.CommandContext(ctx, multipoolerBinary, args...)
 
-	// Inject trace context for distributed tracing
-	telemetry.SetCmdEnvTraceContext(ctx, multipoolerCmd)
-
 	fmt.Printf("▶️  - Launching multipooler (HTTP:%d, gRPC:%d)...", httpPort, grpcPort)
 
-	if err := multipoolerCmd.Start(); err != nil {
+	if err := telemetry.StartCmd(ctx, multipoolerCmd); err != nil {
 		return nil, fmt.Errorf("failed to start multipooler: %w", err)
 	}
 
@@ -824,7 +813,7 @@ func (p *localProvisioner) provisionMultipooler(ctx context.Context, req *provis
 
 	// Wait for multipooler to be ready
 	servicePorts := map[string]int{"http_port": httpPort, "grpc_port": grpcPort}
-	if err := p.waitForServiceReady("multipooler", "localhost", servicePorts, 10*time.Second); err != nil {
+	if err := p.waitForServiceReady(ctx, "multipooler", "localhost", servicePorts, 10*time.Second); err != nil {
 		logs := p.readServiceLogs(logFile, 20)
 		return nil, fmt.Errorf("multipooler readiness check failed: %w\n\nLast 20 lines from multipooler logs:\n%s", err, logs)
 	}
@@ -958,12 +947,9 @@ func (p *localProvisioner) provisionMultiOrch(ctx context.Context, req *provisio
 	// Start multiorch process
 	multiorchCmd := exec.CommandContext(ctx, multiorchBinary, args...)
 
-	// Inject trace context for distributed tracing
-	telemetry.SetCmdEnvTraceContext(ctx, multiorchCmd)
-
 	fmt.Printf("▶️  - Launching multiorch (HTTP:%d, gRPC:%d)...", httpPort, grpcPort)
 
-	if err := multiorchCmd.Start(); err != nil {
+	if err := telemetry.StartCmd(ctx, multiorchCmd); err != nil {
 		return nil, fmt.Errorf("failed to start multiorch: %w", err)
 	}
 
@@ -974,7 +960,7 @@ func (p *localProvisioner) provisionMultiOrch(ctx context.Context, req *provisio
 
 	// Wait for multiorch to be ready
 	servicePorts := map[string]int{"http_port": httpPort, "grpc_port": grpcPort}
-	if err := p.waitForServiceReady("multiorch", "localhost", servicePorts, 10*time.Second); err != nil {
+	if err := p.waitForServiceReady(ctx, "multiorch", "localhost", servicePorts, 10*time.Second); err != nil {
 		logs := p.readServiceLogs(logFile, 20)
 		return nil, fmt.Errorf("multiorch readiness check failed: %w\n\nLast 20 lines from multiorch logs:\n%s", err, logs)
 	}
@@ -1112,7 +1098,7 @@ func (p *localProvisioner) deprovisionService(ctx context.Context, req *provisio
 
 	// Stop the process if it's running
 	if service.PID > 0 {
-		if err := p.stopProcessByPID(service.PID); err != nil {
+		if err := p.stopProcessByPID(ctx, service.Service, service.PID); err != nil {
 			return fmt.Errorf("failed to stop process: %w", err)
 		}
 	}
@@ -1157,7 +1143,11 @@ func (p *localProvisioner) deprovisionMultipooler(ctx context.Context, req *prov
 }
 
 // stopProcessByPID stops a process by its PID
-func (p *localProvisioner) stopProcessByPID(pid int) error {
+func (p *localProvisioner) stopProcessByPID(ctx context.Context, name string, pid int) error {
+	ctx, span := tracer.Start(ctx, "stopProcessByPID")
+	span.SetAttributes(attribute.String("service", name))
+	defer span.End()
+
 	// Check if process exists
 	process, err := os.FindProcess(pid)
 	if err != nil {
@@ -1188,14 +1178,14 @@ func (p *localProvisioner) stopProcessByPID(pid int) error {
 	}
 
 	// Wait for the process to actually exit
-	p.waitForProcessExit(process, 2*time.Second)
+	p.waitForProcessExit(ctx, process, 2*time.Second)
 
 	return nil
 }
 
 // waitForProcessExit waits for a process to exit by polling with Signal(0)
-func (p *localProvisioner) waitForProcessExit(process *os.Process, timeout time.Duration) {
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+func (p *localProvisioner) waitForProcessExit(ctx context.Context, process *os.Process, timeout time.Duration) {
+	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
 	r := retry.New(10*time.Millisecond, 1*time.Second)

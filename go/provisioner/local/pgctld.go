@@ -30,8 +30,8 @@ import (
 )
 
 // startPostgreSQLViaPgctld starts PostgreSQL via pgctld gRPC and verifies it's running
-func (p *localProvisioner) startPostgreSQLViaPgctld(address string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+func (p *localProvisioner) startPostgreSQLViaPgctld(ctx context.Context, address string) error {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
 	conn, err := grpc.NewClient(address, grpccommon.LocalClientDialOptions()...)
@@ -90,8 +90,8 @@ func (p *localProvisioner) startPostgreSQLViaPgctld(address string) error {
 }
 
 // stopPostgreSQLViaPgctld stops PostgreSQL via pgctld gRPC
-func (p *localProvisioner) stopPostgreSQLViaPgctld(address string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+func (p *localProvisioner) stopPostgreSQLViaPgctld(ctx context.Context, address string) error {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
 	conn, err := grpc.NewClient(address, grpccommon.LocalClientDialOptions()...)
@@ -157,7 +157,7 @@ func (p *localProvisioner) provisionPgctld(ctx context.Context, dbName, tableGro
 
 		// Verify PostgreSQL is running via gRPC health check
 		grpcAddress := fmt.Sprintf("localhost:%d", existingService.Ports["grpc_port"])
-		if err := p.checkPgctldGrpcHealth(grpcAddress); err != nil {
+		if err := p.checkPgctldGrpcHealth(ctx, grpcAddress); err != nil {
 			logs := p.readServiceLogs(existingService.LogFile, 20)
 			return nil, fmt.Errorf("pgctld health check failed: %w\n\nLast 20 lines from pgctld logs:\n%s", err, logs)
 		}
@@ -256,10 +256,8 @@ func (p *localProvisioner) provisionPgctld(ctx context.Context, dbName, tableGro
 	}
 
 	initCmd := exec.CommandContext(ctx, pgctldBinary, initArgs...)
-	// Inject trace context for distributed tracing
-	telemetry.SetCmdEnvTraceContext(ctx, initCmd)
 
-	if err := initCmd.Run(); err != nil {
+	if err := telemetry.RunCmd(ctx, initCmd, true /* clientSpan */); err != nil {
 		return nil, fmt.Errorf("failed to initialize pgctld data directory: %w", err)
 	}
 	fmt.Printf(" initialized ✓\n")
@@ -285,10 +283,8 @@ func (p *localProvisioner) provisionPgctld(ctx context.Context, dbName, tableGro
 	}
 
 	pgctldCmd := exec.CommandContext(ctx, pgctldBinary, serverArgs...)
-	// Inject trace context for distributed tracing
-	telemetry.SetCmdEnvTraceContext(ctx, pgctldCmd)
 
-	if err := pgctldCmd.Start(); err != nil {
+	if err := telemetry.StartCmd(ctx, pgctldCmd); err != nil {
 		return nil, fmt.Errorf("failed to start pgctld server: %w", err)
 	}
 
@@ -299,14 +295,14 @@ func (p *localProvisioner) provisionPgctld(ctx context.Context, dbName, tableGro
 
 	// Wait for pgctld to be ready
 	servicePorts := map[string]int{"grpc_port": grpcPort}
-	if err := p.waitForServiceReady("pgctld", "localhost", servicePorts, 60*time.Second); err != nil {
+	if err := p.waitForServiceReady(ctx, "pgctld", "localhost", servicePorts, 60*time.Second); err != nil {
 		logs := p.readServiceLogs(pgctldLogFile, 20)
 		return nil, fmt.Errorf("pgctld readiness check failed: %w\n\nLast 20 lines from pgctld logs:\n%s", err, logs)
 	}
 
 	// Now that pgctld is healthy, start PostgreSQL
 	grpcAddress := fmt.Sprintf("localhost:%d", grpcPort)
-	if err := p.startPostgreSQLViaPgctld(grpcAddress); err != nil {
+	if err := p.startPostgreSQLViaPgctld(ctx, grpcAddress); err != nil {
 		logs := p.readServiceLogs(pgctldLogFile, 20)
 		return nil, fmt.Errorf("failed to start PostgreSQL: %w\n\nLast 20 lines from pgctld logs:\n%s", err, logs)
 	}
@@ -346,13 +342,13 @@ func (p *localProvisioner) deprovisionPgctld(ctx context.Context, service *Local
 	address := fmt.Sprintf("localhost:%d", grpcPort)
 
 	fmt.Printf("Stopping PostgreSQL via pgctld...")
-	if err := p.stopPostgreSQLViaPgctld(address); err != nil {
+	if err := p.stopPostgreSQLViaPgctld(ctx, address); err != nil {
 		fmt.Printf("Warning: failed to stop PostgreSQL gracefully: %v\n", err)
 	}
 
 	// Then stop the pgctld process itself
 	fmt.Printf("Stopping pgctld process...")
-	if err := p.stopProcessByPID(service.PID); err != nil {
+	if err := p.stopProcessByPID(ctx, service.Service, service.PID); err != nil {
 		return fmt.Errorf("failed to stop pgctld process: %w", err)
 	}
 
