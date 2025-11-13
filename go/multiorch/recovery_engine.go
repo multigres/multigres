@@ -55,7 +55,7 @@ func runIfNotRunning(logger *slog.Logger, inProgress *atomic.Bool, taskName stri
 //	│                                                                  │
 //	│  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐   │
 //	│  │ Healthcheck Loop│  │  Recovery Loop  │  │ Maintenance Loop│   │
-//	│  │  (TODO: 5s)     │  │   (TODO: 1s)    │  │  (every 1m/15s) │   │
+//	│  │  (5s)           │  │   (1s)          │  │   (1s)          │   │
 //	│  └────────┬────────┘  └────────┬────────┘  └────────┬────────┘   │
 //	│           │                    │                    │            │
 //	│           └────────────────────┼────────────────────┘            │
@@ -67,26 +67,33 @@ func runIfNotRunning(logger *slog.Logger, inProgress *atomic.Bool, taskName stri
 //
 // Maintenance Loop:
 //
-//   - Cluster Metadata Refresh:
+//	Keeps the engine's view of the cluster up-to-date and performs general maintance tasks.
+//	Runs two types of operations at configurable intervals:
 //
-//   - Queries all cells in the topology to find multipoolers that are part of the shards_to_watch
+//	Cluster Metadata Refresh:
+//	- Queries all cells in the topology to find multipoolers that are part of the shards_to_watch
+//	- Reads database information for the shards being watched (this will contain durability policy information)
 //
-//   - Reads database information for the shards being watched (this will contain durability policy information)
-//
-//   - Bookkeeping Tasks:
-//
-//   - Forget unseen poolers (remove stale entries)
-//
-//   - Clean up stale data from the in memory state store.
+//	Bookkeeping Tasks:
+//	- Forget unseen poolers (remove stale entries)
+//	- Clean up stale data from the in memory state store
 //
 // Healthcheck Loop:
-//   - Poll each pooler for health status
-//   - Update in-memory state store with current status
 //
-// Recovery Loop (TODO):
-//   - Analyze pooler state for problems
-//   - Execute recovery actions for detected issues
-//   - Coordinate failovers via consensus protocol
+//	Continuously monitors the health of all poolers by polling their status.
+//	This loop maintains an up-to-date health snapshot in the state store.
+//
+//	- Poll each pooler for health status
+//	- Update in-memory state store with current status
+//
+// Recovery Loop:
+//
+//	Detects problems and executes automated recovery actions.
+//	This is where the actual failover logic lives.
+//
+//	- Analyze pooler state for problems
+//	- Execute recovery actions for detected issues
+//	- Coordinate failovers via consensus protocol
 //
 // # Configuration
 //
@@ -116,6 +123,7 @@ type RecoveryEngine struct {
 	shardWatchTargets              []ShardWatchTarget
 	bookkeepingInterval            time.Duration
 	clusterMetadataRefreshInterval time.Duration
+	clusterMetadataRefreshTimeout  time.Duration
 
 	// Config reloader for dynamic updates (only shardWatchTargets is dynamic)
 	reloadConfig func() []string
@@ -137,6 +145,7 @@ func NewRecoveryEngine(
 	shardWatchTargets []ShardWatchTarget,
 	bookkeepingInterval time.Duration,
 	clusterMetadataRefreshInterval time.Duration,
+	clusterMetadataRefreshTimeout time.Duration,
 ) *RecoveryEngine {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &RecoveryEngine{
@@ -146,6 +155,7 @@ func NewRecoveryEngine(
 		shardWatchTargets:              shardWatchTargets,
 		bookkeepingInterval:            bookkeepingInterval,
 		clusterMetadataRefreshInterval: clusterMetadataRefreshInterval,
+		clusterMetadataRefreshTimeout:  clusterMetadataRefreshTimeout,
 		ctx:                            ctx,
 		cancel:                         cancel,
 	}
@@ -165,6 +175,7 @@ func (re *RecoveryEngine) Start() error {
 		"watch_targets", re.shardWatchTargets,
 		"bookkeeping_interval", re.bookkeepingInterval,
 		"cluster_metadata_refresh_interval", re.clusterMetadataRefreshInterval,
+		"cluster_metadata_refresh_timeout", re.clusterMetadataRefreshTimeout,
 	)
 
 	// Start maintenance loop (cluster metadata refresh + bookkeeping)
@@ -263,7 +274,9 @@ func shardWatchTargetsToStrings(targets []ShardWatchTarget) []string {
 func (re *RecoveryEngine) refreshClusterMetadata() {
 	re.logger.Debug("refreshing cluster metadata")
 
-	ctx, cancel := context.WithTimeout(re.ctx, topo.RemoteOperationTimeout)
+	// Create a timeout context for this refresh operation
+	// Use the configured timeout, but respect parent context cancellation
+	ctx, cancel := context.WithTimeout(re.ctx, re.clusterMetadataRefreshTimeout)
 	defer cancel()
 
 	// Get all cells
@@ -273,7 +286,7 @@ func (re *RecoveryEngine) refreshClusterMetadata() {
 		return
 	}
 
-	// For each cell, count poolers (simple for now)
+	// For each cell, query poolers matching our shard watch targets
 	totalPoolers := 0
 	for _, cell := range cells {
 		// Check for context cancellation (e.g., shutdown in progress)
@@ -284,13 +297,37 @@ func (re *RecoveryEngine) refreshClusterMetadata() {
 		default:
 		}
 
-		poolers, err := re.ts.GetMultiPoolersByCell(ctx, cell, nil)
-		if err != nil {
-			re.logger.Error("failed to get poolers", "cell", cell, "error", err)
-			continue
+		cellPoolers := 0
+
+		// Get current targets (protected by mutex)
+		re.mu.Lock()
+		targets := re.shardWatchTargets
+		re.mu.Unlock()
+
+		// Query poolers for each watch target
+		for _, target := range targets {
+			opt := &topo.GetMultiPoolersByCellOptions{
+				DatabaseShard: &topo.DatabaseShard{
+					Database:   target.Database,
+					TableGroup: target.TableGroup, // empty = all tablegroups
+					Shard:      target.Shard,      // empty = all shards
+				},
+			}
+
+			poolers, err := re.ts.GetMultiPoolersByCell(ctx, cell, opt)
+			if err != nil {
+				re.logger.Error("failed to get poolers",
+					"cell", cell,
+					"target", target.String(),
+					"error", err,
+				)
+				continue
+			}
+			cellPoolers += len(poolers)
 		}
-		totalPoolers += len(poolers)
-		re.logger.Debug("discovered poolers", "cell", cell, "count", len(poolers))
+
+		totalPoolers += cellPoolers
+		re.logger.Debug("discovered poolers", "cell", cell, "count", cellPoolers)
 	}
 
 	re.logger.Info("cluster metadata refresh complete",

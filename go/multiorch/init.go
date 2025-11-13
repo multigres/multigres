@@ -45,6 +45,7 @@ type MultiOrch struct {
 	shardWatchTargets              viperutil.Value[[]string]
 	bookkeepingInterval            viperutil.Value[time.Duration]
 	clusterMetadataRefreshInterval viperutil.Value[time.Duration]
+	clusterMetadataRefreshTimeout  viperutil.Value[time.Duration]
 	recoveryEngine                 *RecoveryEngine
 }
 
@@ -62,7 +63,8 @@ func (mo *MultiOrch) RegisterFlags(fs *pflag.FlagSet) {
 	fs.StringSlice("shard_watch_targets", mo.shardWatchTargets.Default(), "list of db/tablegroup/shard targets to watch")
 	fs.Duration("bookkeeping_interval", mo.bookkeepingInterval.Default(), "interval for bookkeeping tasks")
 	fs.Duration("cluster_metadata_refresh_interval", mo.clusterMetadataRefreshInterval.Default(), "interval for refreshing cluster metadata from topology")
-	viperutil.BindFlags(fs, mo.cell, mo.shardWatchTargets, mo.bookkeepingInterval, mo.clusterMetadataRefreshInterval)
+	fs.Duration("cluster_metadata_refresh_timeout", mo.clusterMetadataRefreshTimeout.Default(), "timeout for cluster metadata refresh operation")
+	viperutil.BindFlags(fs, mo.cell, mo.shardWatchTargets, mo.bookkeepingInterval, mo.clusterMetadataRefreshInterval, mo.clusterMetadataRefreshTimeout)
 	mo.senv.RegisterFlags(fs)
 	mo.grpcServer.RegisterFlags(fs)
 	mo.topoConfig.RegisterFlags(fs)
@@ -93,6 +95,12 @@ func NewMultiOrch() *MultiOrch {
 			FlagName: "cluster_metadata_refresh_interval",
 			Dynamic:  false,
 			EnvVars:  []string{"MT_CLUSTER_METADATA_REFRESH_INTERVAL"},
+		}),
+		clusterMetadataRefreshTimeout: viperutil.Configure(reg, "cluster_metadata_refresh_timeout", viperutil.Options[time.Duration]{
+			Default:  30 * time.Second,
+			FlagName: "cluster_metadata_refresh_timeout",
+			Dynamic:  false,
+			EnvVars:  []string{"MT_CLUSTER_METADATA_REFRESH_TIMEOUT"},
 		}),
 		grpcServer: servenv.NewGrpcServer(reg),
 		senv:       servenv.NewServEnv(reg),
@@ -164,6 +172,7 @@ func (mo *MultiOrch) Init() {
 		targets,
 		mo.bookkeepingInterval.Get(),
 		mo.clusterMetadataRefreshInterval.Get(),
+		mo.clusterMetadataRefreshTimeout.Get(),
 	)
 
 	// Set up dynamic config reloader for shard watch targets

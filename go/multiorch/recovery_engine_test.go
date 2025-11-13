@@ -55,6 +55,7 @@ func TestRecoveryEngine_ConfigReload(t *testing.T) {
 		initialTargets,
 		1*time.Minute,
 		15*time.Second,
+		30*time.Second,
 	)
 
 	// Verify initial config
@@ -111,6 +112,7 @@ func TestRecoveryEngine_ConfigReload_NoChange(t *testing.T) {
 		initialTargets,
 		1*time.Minute,
 		15*time.Second,
+		30*time.Second,
 	)
 
 	// Set up config reloader that returns same targets
@@ -156,6 +158,7 @@ func TestRecoveryEngine_ConfigReload_EmptyTargets(t *testing.T) {
 		initialTargets,
 		1*time.Minute,
 		15*time.Second,
+		30*time.Second,
 	)
 
 	// Set up config reloader that returns empty targets
@@ -189,6 +192,7 @@ func TestRecoveryEngine_StartStop(t *testing.T) {
 		[]ShardWatchTarget{{Database: "db1"}},
 		1*time.Minute,
 		15*time.Second,
+		30*time.Second,
 	)
 
 	// Start the engine
@@ -227,6 +231,7 @@ func TestRecoveryEngine_MaintenanceLoop(t *testing.T) {
 		[]ShardWatchTarget{{Database: "db1"}},
 		200*time.Millisecond, // bookkeeping interval
 		100*time.Millisecond, // metadata refresh interval
+		5*time.Second,        // metadata refresh timeout
 	)
 
 	// Track config reloads
@@ -284,6 +289,7 @@ func TestRecoveryEngine_ConfigReloadError(t *testing.T) {
 		initialTargets,
 		1*time.Minute,
 		15*time.Second,
+		30*time.Second,
 	)
 
 	// Set up config reloader that returns invalid targets
@@ -313,29 +319,35 @@ func TestRecoveryEngine_GoroutinePileupPrevention(t *testing.T) {
 	var executionCount int32
 	var inProgress atomic.Bool
 
-	// Slow operation that gets progressively slower
-	// First call: no sleep (0ms), second call: 1000ms, third: 2000ms, etc.
+	// Slow operation: first call proceeds immediately, subsequent calls sleep first
 	slowOperation := func() {
-		count := atomic.AddInt32(&executionCount, 1)
-		sleepTime := time.Duration((count-1)*1000) * time.Millisecond
+		// Read current count before incrementing
+		currentCount := atomic.LoadInt32(&executionCount)
 
-		// Sleep with context cancellation support
-		select {
-		case <-time.After(sleepTime):
-		case <-ctx.Done():
-			return
+		// If count > 0, sleep before incrementing (simulates slow operation)
+		if currentCount > 0 {
+			sleepTime := time.Duration(currentCount*1000) * time.Millisecond
+			select {
+			case <-time.After(sleepTime):
+			case <-ctx.Done():
+				return
+			}
 		}
+
+		// Increment after sleep (or immediately for first call)
+		atomic.AddInt32(&executionCount, 1)
 	}
 
 	// Try to trigger the operation 10 times rapidly
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		runIfNotRunning(logger, &inProgress, "test_operation", slowOperation)
 	}
 
-	// Check immediately - only the first goroutine should have started
-	// because it doesn't sleep, but subsequent ones should be blocked
-	executions := atomic.LoadInt32(&executionCount)
-	require.Equal(t, int32(1), executions, "expected exactly 1 execution due to pile-up prevention")
+	// Wait for the first goroutine to complete (it doesn't sleep, so should be fast)
+	// Use Eventually to avoid flakiness while keeping test fast
+	require.Eventually(t, func() bool {
+		return atomic.LoadInt32(&executionCount) == 1
+	}, 100*time.Millisecond, 5*time.Millisecond, "expected exactly 1 execution due to pile-up prevention")
 
 	// Clean up - cancel context to stop the sleeping goroutine
 	cancel()
@@ -373,6 +385,7 @@ func TestRecoveryEngine_ViperDynamicConfig(t *testing.T) {
 		initialTargets,
 		200*time.Millisecond, // bookkeeping interval
 		100*time.Millisecond, // metadata refresh interval
+		5*time.Second,        // metadata refresh timeout
 	)
 
 	// Set up config reloader that reads from viperutil.Value
