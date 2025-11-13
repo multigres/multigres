@@ -84,7 +84,7 @@ jobs:
           export PGCONNECT_TIMEOUT=5
           mkdir -p coverage
           # Run tests with verbose output
-          GOCOVERDIR=./coverage go test -cover -covermode=atomic -coverpkg=github.com/multigres/multigres/... -json -v ./... | tee integration-test-results.jsonl | go tool tparse -follow
+          GOCOVERDIR=./coverage go test -cover -covermode=atomic -coverpkg=./... -json -v ./... | tee integration-test-results.jsonl | go tool tparse -follow
 
       - name: Coverage report
         run: |
