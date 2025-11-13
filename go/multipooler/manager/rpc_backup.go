@@ -15,6 +15,7 @@
 package manager
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -206,8 +207,13 @@ func (pm *MultiPoolerManager) RestoreFromBackup(ctx context.Context, backupID st
 			fmt.Sprintf("pgbackrest restore failed: %v\nOutput: %s", err, string(output)))
 	}
 
-	// Step 2.5: If restoring as standby, restore primary_conninfo to postgresql.auto.conf
-	// (pgbackrest restore overwrites postgresql.auto.conf, removing replication settings)
+	// Step 2.5: If restoring as standby, restore primary_conninfo to
+	// postgresql.auto.conf
+	//
+	// This is needed for the following situations:
+	// 1. pgbackrest restore overwrites postgresql.auto.conf, removing replication
+	//    settings
+	// 2. During bootstrap, MultiOrch may not have written primary_conninfo yet.
 	if asStandby {
 		autoConfPath := filepath.Join(pgDataDir, "postgresql.auto.conf")
 		slog.InfoContext(ctx, "Restoring primary_conninfo to postgresql.auto.conf",
@@ -282,20 +288,20 @@ func (pm *MultiPoolerManager) GetBackups(ctx context.Context, limit uint32) ([]*
 		"--output=json",
 		"info")
 
-	output, err := cmd.CombinedOutput()
+	// Use streamOutput to avoid blocking on large output
+	output, err := safeCombinedOutput(cmd)
 	if err != nil {
 		// Handle case where stanza doesn't exist yet or config file is missing - return empty list
-		outputStr := string(output)
-		if outputStr == "" || strings.Contains(outputStr, "does not exist") || strings.Contains(outputStr, "unable to open missing file") {
+		if output == "" || strings.Contains(output, "does not exist") || strings.Contains(output, "unable to open missing file") {
 			return []*multipoolermanagerdata.BackupMetadata{}, nil
 		}
 		return nil, mterrors.New(mtrpcpb.Code_INTERNAL,
-			fmt.Sprintf("pgbackrest info failed: %v\nOutput: %s", err, outputStr))
+			fmt.Sprintf("pgbackrest info failed: %v\nOutput: %s", err, output))
 	}
 
 	// Parse JSON output
 	var infoData []pgBackRestInfo
-	if err := json.Unmarshal(output, &infoData); err != nil {
+	if err := json.Unmarshal([]byte(output), &infoData); err != nil {
 		return nil, mterrors.New(mtrpcpb.Code_INTERNAL,
 			fmt.Sprintf("failed to parse pgbackrest info JSON: %v", err))
 	}
@@ -418,6 +424,58 @@ func validateRestoreParams(pgctldClient pgctldpb.PgCtldClient, configPath, stanz
 		return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "primary_host and primary_port required when restoring as standby")
 	}
 	return nil
+}
+
+// safeCombinedOutput executes a command and streams its output to avoid blocking.
+// This prevents deadlocks when commands produce large amounts of output that
+// would fill the internal pipe buffers. Returns combined stdout and stderr.
+func safeCombinedOutput(cmd *exec.Cmd) (string, error) {
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return "", fmt.Errorf("failed to create stdout pipe: %w", err)
+	}
+
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		return "", fmt.Errorf("failed to create stderr pipe: %w", err)
+	}
+
+	if err := cmd.Start(); err != nil {
+		return "", fmt.Errorf("failed to start command: %w", err)
+	}
+
+	lines := make(chan string, 100)
+	stdoutDone := make(chan struct{})
+	stderrDone := make(chan struct{})
+
+	go func() {
+		defer close(stdoutDone)
+		scanner := bufio.NewScanner(stdout)
+		for scanner.Scan() {
+			lines <- scanner.Text() + "\n"
+		}
+	}()
+
+	go func() {
+		defer close(stderrDone)
+		scanner := bufio.NewScanner(stderr)
+		for scanner.Scan() {
+			lines <- scanner.Text() + "\n"
+		}
+	}()
+
+	go func() {
+		<-stdoutDone
+		<-stderrDone
+		close(lines)
+	}()
+
+	var combinedBuf strings.Builder
+	for line := range lines {
+		combinedBuf.WriteString(line)
+	}
+
+	return combinedBuf.String(), cmd.Wait()
 }
 
 // extractBackupID extracts the backup label from pgbackrest output
