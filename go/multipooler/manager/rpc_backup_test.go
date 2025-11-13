@@ -432,7 +432,7 @@ func TestSafeCombinedOutput_LongLines(t *testing.T) {
 	t.Run("Multiple long lines", func(t *testing.T) {
 		// Generate 10 lines of 5KB each
 		script := "for i in $(seq 1 10); do printf '%s\\n' \"$(printf 'x%.0s' {1..5000})\"; done"
-		cmd := exec.Command("sh", "-c", script)
+		cmd := exec.Command("bash", "-c", script)
 		output, err := safeCombinedOutput(cmd)
 
 		require.NoError(t, err)
