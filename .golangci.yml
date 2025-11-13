@@ -14,13 +14,16 @@
 
 version: "2"
 run:
-  go: "1.24"
+  go: "1.25"
+  build-tags:
+    - ruleguard
 linters:
   default: none
   enable:
     - bodyclose
     - depguard
     - errcheck
+    - gocritic
     - govet
     - ineffassign
     - sloglint
@@ -60,23 +63,31 @@ linters:
     sloglint:
       context: scope
     govet:
-    disable:
-      - nilness
-      - unusedwrite
-      - loopclosure
-  staticcheck:
-    checks:
-      - "all"
-      - "-ST1000"
-      - "-ST1003"
-      - "-ST1005"
-      - "-ST1016"
-      - "-ST1020"
-      - "-ST1021"
-      - "-ST1022"
-      - "-QF1001"
-      - "-QF1005"
-      - "-QF1008"
+      disable:
+        - nilness
+        - unusedwrite
+        - loopclosure
+    gocritic:
+      # TODO(dweitzman): Re-enable default checks. Some of them seem worthwhile.
+      disable-all: true
+      enabled-checks:
+        - ruleguard
+      settings:
+        ruleguard:
+          rules: "go/tools/ruleguard/flag_rules.go"
+    staticcheck:
+      checks:
+        - "all"
+        - "-ST1000"
+        - "-ST1003"
+        - "-ST1005"
+        - "-ST1016"
+        - "-ST1020"
+        - "-ST1021"
+        - "-ST1022"
+        - "-QF1001"
+        - "-QF1005"
+        - "-QF1008"
   exclusions:
     generated: lax
     presets:
