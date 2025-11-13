@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/multigres/multigres/go/clustermetadata/topo"
+	"github.com/multigres/multigres/go/multiorch/store"
 )
 
 // runIfNotRunning executes fn in a goroutine only if inProgress flag is false.
@@ -39,18 +40,18 @@ func runIfNotRunning(logger *slog.Logger, inProgress *atomic.Bool, taskName stri
 	}()
 }
 
-// RecoveryEngine orchestrates health checking and automated recovery for Multigres poolers.
+// Engine orchestrates health checking and automated recovery for Multigres poolers.
 //
-// The RecoveryEngine provides high availability for Multigres
+// The Engine provides high availability for Multigres
 // by continuously monitoring pooler health and automatically
 // recovering from failures.
 //
 // # Architecture
 //
-// The RecoveryEngine runs three main loops operating at different intervals:
+// The Engine runs three main loops operating at different intervals:
 //
 //	┌──────────────────────────────────────────────────────────────────┐
-//	│                        RecoveryEngine                            │
+//	│                        Engine                            │
 //	├──────────────────────────────────────────────────────────────────┤
 //	│                                                                  │
 //	│  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐   │
@@ -97,7 +98,7 @@ func runIfNotRunning(logger *slog.Logger, inProgress *atomic.Bool, taskName stri
 //
 // # Configuration
 //
-// The RecoveryEngine requires:
+// The Engine requires:
 //   - watch-targets: List of database/tablegroup/shard targets to monitor
 //   - bookkeeping-interval: How often to run cleanup tasks (default: 1m)
 //   - cluster-metadata-refresh-interval: How often to refresh from topology (default: 15s)
@@ -114,10 +115,13 @@ func runIfNotRunning(logger *slog.Logger, inProgress *atomic.Bool, taskName stri
 //	    15*time.Second,                   // metadata refresh interval
 //	)
 //	engine.Start()
-type RecoveryEngine struct {
+type Engine struct {
 	cell   string
 	ts     topo.Store
 	logger *slog.Logger
+
+	// In-memory state store
+	poolerStore *store.Store[string, *store.PoolerInfo]
 
 	// Current configuration values
 	mu                             sync.Mutex // protects shardWatchTargets
@@ -147,12 +151,13 @@ func NewRecoveryEngine(
 	bookkeepingInterval time.Duration,
 	clusterMetadataRefreshInterval time.Duration,
 	clusterMetadataRefreshTimeout time.Duration,
-) *RecoveryEngine {
+) *Engine {
 	ctx, cancel := context.WithCancel(context.Background())
-	return &RecoveryEngine{
+	return &Engine{
 		cell:                           cell,
 		ts:                             ts,
 		logger:                         logger,
+		poolerStore:                    store.NewStore[string, *store.PoolerInfo](),
 		shardWatchTargets:              shardWatchTargets,
 		bookkeepingInterval:            bookkeepingInterval,
 		clusterMetadataRefreshInterval: clusterMetadataRefreshInterval,
@@ -165,12 +170,12 @@ func NewRecoveryEngine(
 // SetConfigReloader sets the function to reload configuration dynamically.
 // The reloader function should return raw string targets (e.g., from viper).
 // Only shardWatchTargets can be reloaded; intervals require a restart.
-func (re *RecoveryEngine) SetConfigReloader(reloader func() []string) {
+func (re *Engine) SetConfigReloader(reloader func() []string) {
 	re.reloadConfig = reloader
 }
 
 // Start initializes and starts the RecoveryEngine loops.
-func (re *RecoveryEngine) Start() error {
+func (re *Engine) Start() error {
 	re.logger.Info("starting recovery engine",
 		"cell", re.cell,
 		"watch_targets", re.shardWatchTargets,
@@ -187,14 +192,14 @@ func (re *RecoveryEngine) Start() error {
 }
 
 // Stop gracefully shuts down the RecoveryEngine.
-func (re *RecoveryEngine) Stop() {
+func (re *Engine) Stop() {
 	re.logger.Info("stopping recovery engine")
 	re.cancel()
 }
 
 // runMaintenanceLoop runs the cluster metadata refresh and bookkeeping tasks.
 // Supports dynamic reloading of shardWatchTargets via SetConfigReloader.
-func (re *RecoveryEngine) runMaintenanceLoop() {
+func (re *Engine) runMaintenanceLoop() {
 	bookkeepingTicker := time.NewTicker(re.bookkeepingInterval)
 	defer bookkeepingTicker.Stop()
 
@@ -223,7 +228,7 @@ func (re *RecoveryEngine) runMaintenanceLoop() {
 
 // reloadConfigs checks for configuration changes and reloads if necessary.
 // Only shardWatchTargets can be reloaded; intervals require a restart.
-func (re *RecoveryEngine) reloadConfigs() {
+func (re *Engine) reloadConfigs() {
 	if re.reloadConfig == nil {
 		return
 	}
@@ -272,7 +277,7 @@ func shardWatchTargetsToStrings(targets []WatchTarget) []string {
 }
 
 // refreshClusterMetadata queries the topology service for pooler updates.
-func (re *RecoveryEngine) refreshClusterMetadata() {
+func (re *Engine) refreshClusterMetadata() {
 	re.logger.Debug("refreshing cluster metadata")
 
 	// Create a timeout context for this refresh operation
@@ -338,7 +343,7 @@ func (re *RecoveryEngine) refreshClusterMetadata() {
 }
 
 // runBookkeeping performs periodic bookkeeping tasks.
-func (re *RecoveryEngine) runBookkeeping() {
+func (re *Engine) runBookkeeping() {
 	re.logger.Debug("running bookkeeping tasks")
 
 	// Reload configs first

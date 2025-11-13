@@ -47,7 +47,7 @@ type MultiOrch struct {
 	bookkeepingInterval            viperutil.Value[time.Duration]
 	clusterMetadataRefreshInterval viperutil.Value[time.Duration]
 	clusterMetadataRefreshTimeout  viperutil.Value[time.Duration]
-	recoveryEngine                 *recovery.RecoveryEngine
+	recoveryEngine                 *recovery.Engine
 }
 
 func (mo *MultiOrch) CobraPreRunE(cmd *cobra.Command) error {
