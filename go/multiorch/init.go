@@ -25,6 +25,7 @@ import (
 
 	"github.com/multigres/multigres/go/clustermetadata/topo"
 	"github.com/multigres/multigres/go/clustermetadata/toporeg"
+	"github.com/multigres/multigres/go/multiorch/recovery"
 	"github.com/multigres/multigres/go/servenv"
 	"github.com/multigres/multigres/go/viperutil"
 )
@@ -46,7 +47,7 @@ type MultiOrch struct {
 	bookkeepingInterval            viperutil.Value[time.Duration]
 	clusterMetadataRefreshInterval viperutil.Value[time.Duration]
 	clusterMetadataRefreshTimeout  viperutil.Value[time.Duration]
-	recoveryEngine                 *RecoveryEngine
+	recoveryEngine                 *recovery.RecoveryEngine
 }
 
 func (mo *MultiOrch) CobraPreRunE(cmd *cobra.Command) error {
@@ -132,7 +133,7 @@ func (mo *MultiOrch) Init() {
 		os.Exit(1)
 	}
 
-	targets, err := ParseShardWatchTargets(targetsRaw)
+	targets, err := recovery.ParseShardWatchTargets(targetsRaw)
 	if err != nil {
 		logger.Error("failed to parse watch-targets", "error", err)
 		os.Exit(1)
@@ -165,7 +166,7 @@ func (mo *MultiOrch) Init() {
 	mo.senv.HTTPHandleFunc("/ready", mo.handleReady)
 
 	// Create and start recovery engine
-	mo.recoveryEngine = NewRecoveryEngine(
+	mo.recoveryEngine = recovery.NewRecoveryEngine(
 		mo.cell.Get(),
 		mo.ts,
 		logger,
