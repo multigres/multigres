@@ -21,7 +21,6 @@ import (
 	"path/filepath"
 
 	"github.com/multigres/multigres/go/mterrors"
-	"github.com/multigres/multigres/go/multipooler/backup"
 	"github.com/multigres/multigres/go/multipooler/manager"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
@@ -66,7 +65,7 @@ func (s *backupService) Backup(ctx context.Context, req *backupservicepb.BackupR
 	tableGroup := s.manager.GetTableGroup()
 	shard := s.manager.GetShard()
 
-	result, err := backup.Backup(ctx, configPath, stanzaName, backup.BackupOptions{
+	result, err := manager.Backup(ctx, configPath, stanzaName, manager.BackupOptions{
 		ForcePrimary: req.ForcePrimary,
 		Type:         req.Type,
 		TableGroup:   tableGroup,
@@ -129,7 +128,7 @@ func (s *backupService) RestoreFromBackup(ctx context.Context, req *backupservic
 		"primary_port", primaryPort,
 		"backup_id", req.BackupId)
 
-	_, err = backup.RestoreShardFromBackup(ctx, pgctldClient, configPath, stanzaName, pgDataDir, backup.RestoreOptions{
+	_, err = manager.RestoreShardFromBackup(ctx, pgctldClient, configPath, stanzaName, pgDataDir, manager.RestoreOptions{
 		BackupID:    req.BackupId,
 		AsStandby:   asStandby,
 		PrimaryHost: primaryHost,
@@ -147,7 +146,7 @@ func (s *backupService) GetBackups(ctx context.Context, req *backupservicepb.Get
 	configPath := s.manager.GetBackupConfigPath()
 	stanzaName := s.manager.GetBackupStanza()
 
-	result, err := backup.GetBackups(ctx, configPath, stanzaName, backup.GetBackupsOptions{
+	result, err := manager.GetBackups(ctx, configPath, stanzaName, manager.GetBackupsOptions{
 		Limit: req.Limit,
 	})
 	if err != nil {

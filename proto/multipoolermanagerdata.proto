@@ -489,3 +489,62 @@ message ConsensusTerm {
   // ID of the leader of the current term
   clustermetadata.ID leader_id = 4;
 }
+
+// Backup operations
+// All of these RPCs perform backups and restores in the context
+// of the TableGroup and Shard this multipooler serves.
+
+// BackupRequest requests a backup
+message BackupRequest {
+  // force_primary should typically be false, because backups should be done on
+  // replicas to reduce load on the primary cluster. This is dangerous.
+  bool force_primary = 1;
+
+  // type indicates the type of backup that should be done. "full", "differential",
+  // and "incremental" are examples that are appropriate for pgBackRest.
+  string type = 2;
+}
+
+// BackupResponse contains the result of a backup operation
+message BackupResponse {
+  // backup_id uniquely identifies a backup and can be used to restore this
+  // backup in the future.
+  string backup_id = 1;
+}
+
+// RestoreFromBackupRequest requests a restore from a backup
+message RestoreFromBackupRequest {
+  // Backup to restore from. If this is empty, we restore from the latest
+  // backup.
+  string backup_id = 1;
+}
+
+// RestoreFromBackupResponse contains the result of a restore operation
+message RestoreFromBackupResponse {
+}
+
+// GetBackupsRequest requests backup information
+message GetBackupsRequest {
+  uint32 limit = 1;
+}
+
+// GetBackupsResponse contains the list of backups
+message GetBackupsResponse {
+  repeated BackupMetadata backups = 1;
+}
+
+// BackupMetadata contains metadata about a backup
+message BackupMetadata {
+  string table_group = 1;
+  string shard = 2;
+  Status status = 3;
+  string backup_id = 4;
+
+  // Status represents the state of a backup
+  enum Status {
+    UNKNOWN = 0;
+    INCOMPLETE = 1;
+    COMPLETE = 2;
+    // TODO: add VALID/INVALID states
+  }
+}

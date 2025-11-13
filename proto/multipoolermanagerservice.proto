@@ -106,4 +106,20 @@ service MultiPoolerManager {
   // SetTerm sets the consensus term information. Used by MultiOrch for consensus operations.
   rpc SetTerm(multipoolermanagerdata.SetTermRequest)
     returns (multipoolermanagerdata.SetTermResponse);
+
+  // Backup and Restore
+  // All of these RPCs perform backups and restores in the context
+  // of the datbase, table group and shard this multipooler serves.
+
+  // Backup performs a backup
+  rpc Backup(multipoolermanagerdata.BackupRequest)
+    returns (multipoolermanagerdata.BackupResponse);
+
+  // RestoreFromBackup restores from a backup
+  rpc RestoreFromBackup(multipoolermanagerdata.RestoreFromBackupRequest)
+    returns (multipoolermanagerdata.RestoreFromBackupResponse);
+
+  // GetBackups retrieves backup information
+  rpc GetBackups(multipoolermanagerdata.GetBackupsRequest)
+    returns (multipoolermanagerdata.GetBackupsResponse);
 }
