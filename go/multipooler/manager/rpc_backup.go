@@ -35,35 +35,9 @@ import (
 
 // Backup performs a backup
 func (pm *MultiPoolerManager) Backup(ctx context.Context, forcePrimary bool, backupType string) (string, error) {
-	// Check if this is a primary pooler based on topology
-	poolerType := pm.GetPoolerType()
-	isPrimary := (poolerType == clustermetadatapb.PoolerType_PRIMARY)
-
-	// Prevent backups from primary databases unless ForcePrimary is set
-	if isPrimary && !forcePrimary {
-		slog.WarnContext(ctx, "Backup requested on primary database without ForcePrimary flag")
-		return "", mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
-			"backups from primary databases are not allowed unless ForcePrimary is set")
-	}
-
-	// Validation
-	if backupType == "" {
-		return "", mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "type is required")
-	}
-
-	// Type validation and mapping to pgbackrest types
-	// pgbackrest uses abbreviated types: full, diff, incr
-	pgBackRestType := ""
-	switch backupType {
-	case "full":
-		pgBackRestType = "full"
-	case "differential":
-		pgBackRestType = "diff"
-	case "incremental":
-		pgBackRestType = "incr"
-	default:
-		return "", mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT,
-			fmt.Sprintf("invalid backup type '%s': must be one of: full, differential, incremental", backupType))
+	// Check if backup is allowed on primary
+	if err := pm.allowBackupOnPrimary(ctx, forcePrimary); err != nil {
+		return "", err
 	}
 
 	configPath := pm.GetBackupConfigPath()
@@ -71,12 +45,10 @@ func (pm *MultiPoolerManager) Backup(ctx context.Context, forcePrimary bool, bac
 	tableGroup := pm.GetTableGroup()
 	shard := pm.GetShard()
 
-	// Validate required backup configuration
-	if configPath == "" {
-		return "", mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "config_path is required")
-	}
-	if stanzaName == "" {
-		return "", mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "stanza_name is required")
+	// Validate parameters and get pgbackrest type
+	pgBackRestType, err := pm.validateBackupParams(backupType, configPath, stanzaName)
+	if err != nil {
+		return "", err
 	}
 
 	// Execute pgbackrest backup command
@@ -136,41 +108,6 @@ func (pm *MultiPoolerManager) Backup(ctx context.Context, forcePrimary bool, bac
 	return backupID, nil
 }
 
-// extractBackupID extracts the backup label from pgbackrest output
-//
-// TODO: find a way of of doing this that does that does not rely on text matching
-func extractBackupID(output string) (string, error) {
-	// First, try to find "new backup label" in the output (most reliable)
-	lines := strings.Split(output, "\n")
-	for _, line := range lines {
-		if strings.Contains(line, "new backup label") {
-			// Extract the label after the "=" sign
-			parts := strings.Split(line, "=")
-			if len(parts) >= 2 {
-				label := strings.TrimSpace(parts[len(parts)-1])
-				if label != "" {
-					return label, nil
-				}
-			}
-		}
-	}
-
-	// Fallback: Look for backup label pattern like "20250104-100000F" or "20250104-100000F_20250104-120000I"
-	// The pattern is: YYYYMMDD-HHMMSS followed by F (full), D (differential), or I (incremental)
-	// Find all matches and take the last one (newest backup)
-	re := regexp.MustCompile(`(\d{8}-\d{6}[FDI](?:_\d{8}-\d{6}[FDI])?)`)
-	matches := re.FindAllStringSubmatch(output, -1)
-	if len(matches) > 0 {
-		// Return the last match (most recent backup ID)
-		lastMatch := matches[len(matches)-1]
-		if len(lastMatch) >= 2 {
-			return lastMatch[1], nil
-		}
-	}
-
-	return "", fmt.Errorf("backup ID not found in output")
-}
-
 // RestoreFromBackup restores from a backup
 func (pm *MultiPoolerManager) RestoreFromBackup(ctx context.Context, backupID string) error {
 	slog.InfoContext(ctx, "RestoreFromBackup called", "backup_id", backupID)
@@ -220,20 +157,8 @@ func (pm *MultiPoolerManager) RestoreFromBackup(ctx context.Context, backupID st
 		"backup_id", backupID)
 
 	// Validate required parameters
-	if pgctldClient == nil {
-		return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "pgctld_client is required")
-	}
-	if configPath == "" {
-		return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "config_path is required")
-	}
-	if stanzaName == "" {
-		return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "stanza_name is required")
-	}
-	if pgDataDir == "" {
-		return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "pg_data_dir is required")
-	}
-	if asStandby && (primaryHost == "" || primaryPort == 0) {
-		return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "primary_host and primary_port required when restoring as standby")
+	if err := validateRestoreParams(pgctldClient, configPath, stanzaName, pgDataDir, asStandby, primaryHost, primaryPort); err != nil {
+		return err
 	}
 
 	// Step 1: Stop PostgreSQL server
@@ -429,4 +354,103 @@ type pgBackRestBackup struct {
 type pgBackRestTimestamp struct {
 	Start int64 `json:"start"`
 	Stop  int64 `json:"stop"`
+}
+
+// allowBackupOnPrimary checks if a backup operation is allowed on a primary pooler
+func (pm *MultiPoolerManager) allowBackupOnPrimary(ctx context.Context, forcePrimary bool) error {
+	poolerType := pm.GetPoolerType()
+	isPrimary := (poolerType == clustermetadatapb.PoolerType_PRIMARY)
+
+	if isPrimary && !forcePrimary {
+		slog.WarnContext(ctx, "Backup requested on primary database without ForcePrimary flag")
+		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
+			"backups from primary databases are not allowed unless ForcePrimary is set")
+	}
+	return nil
+}
+
+// validateBackupParams validates the backup type and returns the pgbackrest type mapping
+func (pm *MultiPoolerManager) validateBackupParams(backupType, configPath, stanzaName string) (pgBackRestType string, err error) {
+	// Validate backup type is provided
+	if backupType == "" {
+		return "", mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "type is required")
+	}
+
+	// Map to pgbackrest types: full, diff, incr
+	switch backupType {
+	case "full":
+		pgBackRestType = "full"
+	case "differential":
+		pgBackRestType = "diff"
+	case "incremental":
+		pgBackRestType = "incr"
+	default:
+		return "", mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT,
+			fmt.Sprintf("invalid backup type '%s': must be one of: full, differential, incremental", backupType))
+	}
+
+	// Validate required backup configuration
+	if configPath == "" {
+		return "", mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "config_path is required")
+	}
+	if stanzaName == "" {
+		return "", mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "stanza_name is required")
+	}
+
+	return pgBackRestType, nil
+}
+
+// validateRestoreParams validates the parameters required for a restore operation
+func validateRestoreParams(pgctldClient pgctldpb.PgCtldClient, configPath, stanzaName, pgDataDir string, asStandby bool, primaryHost string, primaryPort int32) error {
+	if pgctldClient == nil {
+		return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "pgctld_client is required")
+	}
+	if configPath == "" {
+		return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "config_path is required")
+	}
+	if stanzaName == "" {
+		return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "stanza_name is required")
+	}
+	if pgDataDir == "" {
+		return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "pg_data_dir is required")
+	}
+	if asStandby && (primaryHost == "" || primaryPort == 0) {
+		return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "primary_host and primary_port required when restoring as standby")
+	}
+	return nil
+}
+
+// extractBackupID extracts the backup label from pgbackrest output
+//
+// TODO: find a way of of doing this that does that does not rely on text matching
+func extractBackupID(output string) (string, error) {
+	// First, try to find "new backup label" in the output (most reliable)
+	lines := strings.Split(output, "\n")
+	for _, line := range lines {
+		if strings.Contains(line, "new backup label") {
+			// Extract the label after the "=" sign
+			parts := strings.Split(line, "=")
+			if len(parts) >= 2 {
+				label := strings.TrimSpace(parts[len(parts)-1])
+				if label != "" {
+					return label, nil
+				}
+			}
+		}
+	}
+
+	// Fallback: Look for backup label pattern like "20250104-100000F" or "20250104-100000F_20250104-120000I"
+	// The pattern is: YYYYMMDD-HHMMSS followed by F (full), D (differential), or I (incremental)
+	// Find all matches and take the last one (newest backup)
+	re := regexp.MustCompile(`(\d{8}-\d{6}[FDI](?:_\d{8}-\d{6}[FDI])?)`)
+	matches := re.FindAllStringSubmatch(output, -1)
+	if len(matches) > 0 {
+		// Return the last match (most recent backup ID)
+		lastMatch := matches[len(matches)-1]
+		if len(lastMatch) >= 2 {
+			return lastMatch[1], nil
+		}
+	}
+
+	return "", fmt.Errorf("backup ID not found in output")
 }
