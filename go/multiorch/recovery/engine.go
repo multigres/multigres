@@ -109,7 +109,7 @@ func runIfNotRunning(logger *slog.Logger, inProgress *atomic.Bool, taskName stri
 //
 // Example:
 //
-//	engine := NewRecoveryEngine(
+//	engine := Engine(
 //	    "zone1",                          // cell
 //	    topoStore,                        // topology service
 //	    logger,                           // structured logger
