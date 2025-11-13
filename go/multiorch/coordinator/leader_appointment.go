@@ -222,7 +222,7 @@ func (c *Coordinator) recruitNodes(ctx context.Context, cohort []*Node, term int
 		wg.Add(1)
 		go func(n *Node) {
 			defer wg.Done()
-			resp, err := n.BeginTerm(ctx, term, candidate.ID)
+			resp, err := n.BeginTerm(ctx, term, c.coordinatorID)
 			if err != nil {
 				results <- result{node: n, err: err}
 				return

@@ -183,7 +183,15 @@ func createMockNode(name string, term int64, walPosition string, healthy bool, r
 func TestDiscoverMaxTerm(t *testing.T) {
 	ctx := context.Background()
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelWarn}))
-	c := &Coordinator{logger: logger}
+	coordID := &clustermetadatapb.ID{
+		Component: clustermetadatapb.ID_MULTIORCH,
+		Cell:      "test-cell",
+		Name:      "test-coordinator",
+	}
+	c := &Coordinator{
+		coordinatorID: coordID,
+		logger:        logger,
+	}
 
 	t.Run("success - finds max term from cohort", func(t *testing.T) {
 		cohort := []*Node{
@@ -233,7 +241,15 @@ func TestDiscoverMaxTerm(t *testing.T) {
 func TestSelectCandidate(t *testing.T) {
 	ctx := context.Background()
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelWarn}))
-	c := &Coordinator{logger: logger}
+	coordID := &clustermetadatapb.ID{
+		Component: clustermetadatapb.ID_MULTIORCH,
+		Cell:      "test-cell",
+		Name:      "test-coordinator",
+	}
+	c := &Coordinator{
+		coordinatorID: coordID,
+		logger:        logger,
+	}
 
 	t.Run("success - selects node with most advanced WAL", func(t *testing.T) {
 		cohort := []*Node{
@@ -295,7 +311,15 @@ func TestSelectCandidate(t *testing.T) {
 func TestRecruitNodes(t *testing.T) {
 	ctx := context.Background()
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelWarn}))
-	c := &Coordinator{logger: logger}
+	coordID := &clustermetadatapb.ID{
+		Component: clustermetadatapb.ID_MULTIORCH,
+		Cell:      "test-cell",
+		Name:      "test-coordinator",
+	}
+	c := &Coordinator{
+		coordinatorID: coordID,
+		logger:        logger,
+	}
 
 	t.Run("success - all nodes accept", func(t *testing.T) {
 		candidate := createMockNode("mp1", 5, "0/3000000", true, "primary")
@@ -338,7 +362,15 @@ func TestRecruitNodes(t *testing.T) {
 func TestBeginTerm(t *testing.T) {
 	ctx := context.Background()
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelWarn}))
-	c := &Coordinator{logger: logger}
+	coordID := &clustermetadatapb.ID{
+		Component: clustermetadatapb.ID_MULTIORCH,
+		Cell:      "test-cell",
+		Name:      "test-coordinator",
+	}
+	c := &Coordinator{
+		coordinatorID: coordID,
+		logger:        logger,
+	}
 
 	t.Run("success - achieves quorum", func(t *testing.T) {
 		cohort := []*Node{
@@ -414,7 +446,15 @@ func TestBeginTerm(t *testing.T) {
 func TestPropagate(t *testing.T) {
 	ctx := context.Background()
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelWarn}))
-	c := &Coordinator{logger: logger}
+	coordID := &clustermetadatapb.ID{
+		Component: clustermetadatapb.ID_MULTIORCH,
+		Cell:      "test-cell",
+		Name:      "test-coordinator",
+	}
+	c := &Coordinator{
+		coordinatorID: coordID,
+		logger:        logger,
+	}
 
 	t.Run("success - promotes candidate and configures standbys", func(t *testing.T) {
 		candidate := createMockNode("mp1", 5, "0/3000000", true, "primary")
@@ -463,7 +503,15 @@ func TestPropagate(t *testing.T) {
 func TestEstablishLeader(t *testing.T) {
 	ctx := context.Background()
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelWarn}))
-	c := &Coordinator{logger: logger}
+	coordID := &clustermetadatapb.ID{
+		Component: clustermetadatapb.ID_MULTIORCH,
+		Cell:      "test-cell",
+		Name:      "test-coordinator",
+	}
+	c := &Coordinator{
+		coordinatorID: coordID,
+		logger:        logger,
+	}
 
 	t.Run("success - leader is ready", func(t *testing.T) {
 		candidate := createMockNode("mp1", 5, "0/3000000", true, "primary")

@@ -66,10 +66,11 @@ func (n *Node) WaitForLSN(ctx context.Context, targetLsn string) error {
 }
 
 // BeginTerm sends a BeginTerm request to this node for leader appointment
-func (n *Node) BeginTerm(ctx context.Context, term int64, candidateID *clustermetadatapb.ID) (*consensusdatapb.BeginTermResponse, error) {
+// The coordinatorID identifies the multiorch coordinator initiating this term
+func (n *Node) BeginTerm(ctx context.Context, term int64, coordinatorID *clustermetadatapb.ID) (*consensusdatapb.BeginTermResponse, error) {
 	req := &consensusdatapb.BeginTermRequest{
 		Term:        term,
-		CandidateId: candidateID,
+		CandidateId: coordinatorID, // Note: proto field name is CandidateId but now contains coordinator ID
 	}
 	return n.ConsensusClient.BeginTerm(ctx, req)
 }

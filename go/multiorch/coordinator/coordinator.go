@@ -27,15 +27,17 @@ import (
 // Coordinator orchestrates consensus-based leader election for shards.
 // It implements the consensus protocol from multigres-consensus-design-v2.md.
 type Coordinator struct {
-	topoStore topo.Store
-	logger    *slog.Logger
+	coordinatorID *clustermetadatapb.ID
+	topoStore     topo.Store
+	logger        *slog.Logger
 }
 
 // NewCoordinator creates a new coordinator instance.
-func NewCoordinator(topoStore topo.Store, logger *slog.Logger) *Coordinator {
+func NewCoordinator(coordinatorID *clustermetadatapb.ID, topoStore topo.Store, logger *slog.Logger) *Coordinator {
 	return &Coordinator{
-		topoStore: topoStore,
-		logger:    logger,
+		coordinatorID: coordinatorID,
+		topoStore:     topoStore,
+		logger:        logger,
 	}
 }
 
