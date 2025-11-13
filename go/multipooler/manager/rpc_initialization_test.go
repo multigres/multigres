@@ -221,7 +221,7 @@ func TestInitializeAsStandby(t *testing.T) {
 		primaryHost   string
 		primaryPort   int32
 		term          int64
-		forceReinit   bool
+		force         bool
 		expectError   bool
 		errorContains string
 	}{
@@ -233,7 +233,7 @@ func TestInitializeAsStandby(t *testing.T) {
 			primaryHost: "primary-host",
 			primaryPort: 5432,
 			term:        1,
-			forceReinit: false,
+			force:       false,
 			expectError: false,
 		},
 		{
@@ -250,7 +250,7 @@ func TestInitializeAsStandby(t *testing.T) {
 			primaryHost: "primary-host",
 			primaryPort: 5432,
 			term:        1,
-			forceReinit: true,
+			force:       true,
 			expectError: false,
 		},
 	}
@@ -290,8 +290,8 @@ func TestInitializeAsStandby(t *testing.T) {
 				tt.setupFunc(t, pm, poolerDir)
 			}
 
-			// Verify test file exists if force_reinit test
-			if tt.forceReinit {
+			// Verify test file exists if force test
+			if tt.force {
 				dataDir := filepath.Join(poolerDir, "pg_data")
 				testFile := filepath.Join(dataDir, "test.txt")
 				_, err := os.Stat(testFile)
@@ -303,7 +303,7 @@ func TestInitializeAsStandby(t *testing.T) {
 				PrimaryHost:   tt.primaryHost,
 				PrimaryPort:   tt.primaryPort,
 				ConsensusTerm: tt.term,
-				ForceReinit:   tt.forceReinit,
+				Force:         tt.force,
 			}
 
 			resp, err := pm.InitializeAsStandby(ctx, req)
@@ -316,7 +316,7 @@ func TestInitializeAsStandby(t *testing.T) {
 			} else {
 				// Note: This will fail because pgctldClient is nil
 				// But we verify the error is expected or that reinit worked
-				if tt.forceReinit {
+				if tt.force {
 					// Verify data directory was removed
 					dataDir := filepath.Join(poolerDir, "pg_data")
 					testFile := filepath.Join(dataDir, "test.txt")

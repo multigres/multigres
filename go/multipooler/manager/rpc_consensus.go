@@ -144,24 +144,22 @@ func (pm *MultiPoolerManager) ConsensusStatus(ctx context.Context, req *consensu
 	role := "replica"
 
 	if isHealthy {
-		// Check if we're in recovery (standby)
-		var inRecovery bool
-		err := pm.db.QueryRowContext(ctx, "SELECT pg_is_in_recovery()").Scan(&inRecovery)
+		// Check role and get appropriate WAL position
+		isPrimary, err := pm.isPrimary(ctx)
 		if err == nil {
-			if inRecovery {
+			if isPrimary {
+				// On primary: get current write position
+				role = "primary"
+				currentLsn, err := pm.getPrimaryLSN(ctx)
+				if err == nil {
+					walPosition.CurrentLsn = currentLsn
+				}
+			} else {
 				// On standby: get receive and replay positions
 				status, err := pm.queryReplicationStatus(ctx)
 				if err == nil {
 					walPosition.LastReceiveLsn = status.LastReceiveLsn
 					walPosition.LastReplayLsn = status.LastReplayLsn
-				}
-			} else {
-				// On primary: get current write position
-				role = "primary"
-				var currentLsn string
-				err = pm.db.QueryRowContext(ctx, "SELECT pg_current_wal_lsn()").Scan(&currentLsn)
-				if err == nil {
-					walPosition.CurrentLsn = currentLsn
 				}
 			}
 		}

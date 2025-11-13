@@ -518,7 +518,7 @@ message InitializeAsStandbyRequest {
   int64 consensus_term = 3;
 
   // Whether to force reinitialization (removes existing data directory)
-  bool force_reinit = 4;
+  bool force = 4;
 }
 
 message InitializeAsStandbyResponse {

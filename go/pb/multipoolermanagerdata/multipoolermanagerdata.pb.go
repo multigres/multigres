@@ -2755,7 +2755,7 @@ type InitializeAsStandbyRequest struct {
 	// Consensus term to set for this standby
 	ConsensusTerm int64 `protobuf:"varint,3,opt,name=consensus_term,json=consensusTerm,proto3" json:"consensus_term,omitempty"`
 	// Whether to force reinitialization (removes existing data directory)
-	ForceReinit   bool `protobuf:"varint,4,opt,name=force_reinit,json=forceReinit,proto3" json:"force_reinit,omitempty"`
+	Force         bool `protobuf:"varint,4,opt,name=force,proto3" json:"force,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2811,9 +2811,9 @@ func (x *InitializeAsStandbyRequest) GetConsensusTerm() int64 {
 	return 0
 }
 
-func (x *InitializeAsStandbyRequest) GetForceReinit() bool {
+func (x *InitializeAsStandbyRequest) GetForce() bool {
 	if x != nil {
-		return x.ForceReinit
+		return x.Force
 	}
 	return false
 }
@@ -3170,12 +3170,12 @@ const file_multipoolermanagerdata_proto_rawDesc = "" +
 	"\x0econsensus_term\x18\x01 \x01(\x03R\rconsensusTerm\"_\n" +
 	"\x1eInitializeEmptyPrimaryResponse\x12\x18\n" +
 	"\asuccess\x18\x01 \x01(\bR\asuccess\x12#\n" +
-	"\rerror_message\x18\x02 \x01(\tR\ferrorMessage\"\xac\x01\n" +
+	"\rerror_message\x18\x02 \x01(\tR\ferrorMessage\"\x9f\x01\n" +
 	"\x1aInitializeAsStandbyRequest\x12!\n" +
 	"\fprimary_host\x18\x01 \x01(\tR\vprimaryHost\x12!\n" +
 	"\fprimary_port\x18\x02 \x01(\x05R\vprimaryPort\x12%\n" +
-	"\x0econsensus_term\x18\x03 \x01(\x03R\rconsensusTerm\x12!\n" +
-	"\fforce_reinit\x18\x04 \x01(\bR\vforceReinit\"y\n" +
+	"\x0econsensus_term\x18\x03 \x01(\x03R\rconsensusTerm\x12\x14\n" +
+	"\x05force\x18\x04 \x01(\bR\x05force\"y\n" +
 	"\x1bInitializeAsStandbyResponse\x12\x18\n" +
 	"\asuccess\x18\x01 \x01(\bR\asuccess\x12#\n" +
 	"\rerror_message\x18\x02 \x01(\tR\ferrorMessage\x12\x1b\n" +

@@ -660,34 +660,25 @@ func (pm *MultiPoolerManager) checkDemotionState(ctx context.Context) (*demotion
 	state.isServingReadOnly = (servingStatus == clustermetadatapb.PoolerServingStatus_SERVING_RDONLY)
 
 	// Check if PostgreSQL is in recovery mode (canonical way to check if read-only)
-	var inRecovery bool
-	err := pm.db.QueryRowContext(ctx, "SELECT pg_is_in_recovery()").Scan(&inRecovery)
+	isPrimary, err := pm.isPrimary(ctx)
 	if err != nil {
 		pm.logger.ErrorContext(ctx, "Failed to check recovery status", "error", err)
 		return nil, mterrors.Wrap(err, "failed to check recovery status")
 	}
-	state.isReadOnly = inRecovery
+	state.isReadOnly = !isPrimary
 
-	// Capture current LSN - this method needs to be idempotent, so it's possible
-	// it's called on a host where the primary was already changed to a standby.
-	// Therefore, we try both LSN retrieval methods and use whichever succeeds.
-
-	// Try getting current WAL LSN (works on primary)
-	state.finalLSN, err = pm.getPrimaryLSN(ctx)
+	// Capture current LSN
+	state.finalLSN, err = pm.getWALPosition(ctx)
 	if err != nil {
-		// If that fails, try getting replay LSN (works on standby)
-		state.finalLSN, err = pm.getStandbyReplayLSN(ctx)
-		if err != nil {
-			pm.logger.ErrorContext(ctx, "Failed to get LSN (tried both primary and standby methods)", "error", err)
-			return nil, mterrors.Wrap(err, "failed to get LSN")
-		}
+		pm.logger.ErrorContext(ctx, "Failed to get LSN", "error", err)
+		return nil, mterrors.Wrap(err, "failed to get LSN")
 	}
 
 	pm.logger.InfoContext(ctx, "Checked demotion state",
 		"is_serving_read_only", state.isServingReadOnly,
 		"is_replica_in_topology", state.isReplicaInTopology,
 		"is_read_only", state.isReadOnly,
-		"in_recovery", inRecovery,
+		"is_primary", isPrimary,
 		"pooler_type", poolerType,
 		"serving_status", servingStatus)
 

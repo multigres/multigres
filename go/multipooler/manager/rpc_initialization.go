@@ -20,6 +20,8 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/multigres/multigres/go/mterrors"
+	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	pgctldpb "github.com/multigres/multigres/go/pb/pgctldservice"
 )
@@ -33,56 +35,61 @@ func (pm *MultiPoolerManager) InitializeEmptyPrimary(ctx context.Context, req *m
 	var err error
 	ctx, err = pm.actionLock.Acquire(ctx, "InitializeEmptyPrimary")
 	if err != nil {
-		return nil, fmt.Errorf("failed to acquire action lock: %w", err)
+		return nil, mterrors.Wrap(err, "failed to acquire action lock")
 	}
 	defer pm.actionLock.Release(ctx)
 
-	// 1. Check if already initialized
+	// 1. Validate consensus term must be 1 for new primary
+	if req.ConsensusTerm != 1 {
+		return nil, mterrors.Errorf(mtrpcpb.Code_INVALID_ARGUMENT, "consensus term must be 1 for new primary initialization, got %d", req.ConsensusTerm)
+	}
+
+	// 2. Check if already initialized
 	if pm.isInitialized() {
 		pm.logger.InfoContext(ctx, "Pooler already initialized", "shard", pm.getShardID())
 		return &multipoolermanagerdatapb.InitializeEmptyPrimaryResponse{Success: true}, nil
 	}
 
-	// 2. Initialize data directory via pgctld if needed
+	// 3. Initialize data directory via pgctld if needed
 	if !pm.hasDataDirectory() {
 		pm.logger.InfoContext(ctx, "Initializing data directory", "shard", pm.getShardID())
 		if pm.pgctldClient == nil {
-			return nil, fmt.Errorf("pgctld client not available")
+			return nil, mterrors.New(mtrpcpb.Code_UNAVAILABLE, "pgctld client not available")
 		}
 
 		initReq := &pgctldpb.InitDataDirRequest{}
 		if _, err := pm.pgctldClient.InitDataDir(ctx, initReq); err != nil {
-			return nil, fmt.Errorf("failed to initialize data directory: %w", err)
+			return nil, mterrors.Wrap(err, "failed to initialize data directory")
 		}
 	}
 
-	// 3. Start PostgreSQL if not running
+	// 4. Start PostgreSQL if not running
 	if !pm.isPostgresRunning(ctx) {
 		pm.logger.InfoContext(ctx, "Starting PostgreSQL", "shard", pm.getShardID())
 		if pm.pgctldClient == nil {
-			return nil, fmt.Errorf("pgctld client not available")
+			return nil, mterrors.New(mtrpcpb.Code_UNAVAILABLE, "pgctld client not available")
 		}
 
 		startReq := &pgctldpb.StartRequest{}
 		if _, err := pm.pgctldClient.Start(ctx, startReq); err != nil {
-			return nil, fmt.Errorf("failed to start PostgreSQL: %w", err)
+			return nil, mterrors.Wrap(err, "failed to start PostgreSQL")
 		}
 	}
 
-	// 4. Wait for database connection
+	// 5. Wait for database connection
 	if err := pm.waitForDatabaseConnection(ctx); err != nil {
-		return nil, fmt.Errorf("failed to connect to database: %w", err)
+		return nil, mterrors.Wrap(err, "failed to connect to database")
 	}
 
-	// 5. Create multigres schema and heartbeat table
+	// 6. Create multigres schema and heartbeat table
 	if err := pm.initializeMultigresSchema(ctx); err != nil {
-		return nil, fmt.Errorf("failed to initialize multigres schema: %w", err)
+		return nil, mterrors.Wrap(err, "failed to initialize multigres schema")
 	}
 
-	// 6. Set consensus term
+	// 7. Set consensus term
 	if pm.consensusState != nil {
 		if err := pm.consensusState.UpdateTermAndSave(ctx, req.ConsensusTerm); err != nil {
-			return nil, fmt.Errorf("failed to set consensus term: %w", err)
+			return nil, mterrors.Wrap(err, "failed to set consensus term")
 		}
 	}
 
@@ -97,21 +104,25 @@ func (pm *MultiPoolerManager) InitializeAsStandby(ctx context.Context, req *mult
 		"shard", pm.getShardID(),
 		"primary", fmt.Sprintf("%s:%d", req.PrimaryHost, req.PrimaryPort),
 		"term", req.ConsensusTerm,
-		"force_reinit", req.ForceReinit)
+		"force", req.Force)
 
 	// Acquire action lock
 	var err error
 	ctx, err = pm.actionLock.Acquire(ctx, "InitializeAsStandby")
 	if err != nil {
-		return nil, fmt.Errorf("failed to acquire action lock: %w", err)
+		return nil, mterrors.Wrap(err, "failed to acquire action lock")
 	}
 	defer pm.actionLock.Release(ctx)
 
-	// 1. Remove data directory if force_reinit
-	if req.ForceReinit && pm.hasDataDirectory() {
+	// 1. Check for existing data directory
+	if pm.hasDataDirectory() {
+		if !req.Force {
+			return nil, mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION, "data directory already exists, use force=true to reinitialize")
+		}
+		// Remove data directory if force
 		pm.logger.InfoContext(ctx, "Force reinit: removing data directory", "shard", pm.getShardID())
 		if err := pm.removeDataDirectory(); err != nil {
-			return nil, fmt.Errorf("failed to remove data directory: %w", err)
+			return nil, mterrors.Wrap(err, "failed to remove data directory")
 		}
 	}
 
@@ -125,13 +136,13 @@ func (pm *MultiPoolerManager) InitializeAsStandby(ctx context.Context, req *mult
 
 	// 3. Configure primary_conninfo
 	if err := pm.SetPrimaryConnInfo(ctx, req.PrimaryHost, req.PrimaryPort, false, false, req.ConsensusTerm, false); err != nil {
-		return nil, fmt.Errorf("failed to set primary_conninfo: %w", err)
+		return nil, mterrors.Wrap(err, "failed to set primary_conninfo")
 	}
 
 	// 4. Restart PostgreSQL as standby (creates standby.signal and starts)
 	pm.logger.InfoContext(ctx, "Restarting PostgreSQL as standby", "shard", pm.getShardID())
 	if pm.pgctldClient == nil {
-		return nil, fmt.Errorf("pgctld client not available")
+		return nil, mterrors.New(mtrpcpb.Code_UNAVAILABLE, "pgctld client not available")
 	}
 
 	restartReq := &pgctldpb.RestartRequest{
@@ -139,18 +150,18 @@ func (pm *MultiPoolerManager) InitializeAsStandby(ctx context.Context, req *mult
 		Mode:      "fast",
 	}
 	if _, err := pm.pgctldClient.Restart(ctx, restartReq); err != nil {
-		return nil, fmt.Errorf("failed to restart PostgreSQL as standby: %w", err)
+		return nil, mterrors.Wrap(err, "failed to restart PostgreSQL as standby")
 	}
 
 	// 5. Wait for database connection
 	if err := pm.waitForDatabaseConnection(ctx); err != nil {
-		return nil, fmt.Errorf("failed to connect to database: %w", err)
+		return nil, mterrors.Wrap(err, "failed to connect to database")
 	}
 
 	// 6. Set consensus term
 	if pm.consensusState != nil {
 		if err := pm.consensusState.UpdateTermAndSave(ctx, req.ConsensusTerm); err != nil {
-			return nil, fmt.Errorf("failed to set consensus term: %w", err)
+			return nil, mterrors.Wrap(err, "failed to set consensus term")
 		}
 	}
 
@@ -166,12 +177,15 @@ func (pm *MultiPoolerManager) InitializeAsStandby(ctx context.Context, req *mult
 func (pm *MultiPoolerManager) InitializationStatus(ctx context.Context, req *multipoolermanagerdatapb.InitializationStatusRequest) (*multipoolermanagerdatapb.InitializationStatusResponse, error) {
 	pm.logger.DebugContext(ctx, "InitializationStatus called", "shard", pm.getShardID())
 
+	// Get WAL position (ignore errors, just return empty string)
+	walPosition, _ := pm.getWALPosition(ctx)
+
 	resp := &multipoolermanagerdatapb.InitializationStatusResponse{
 		IsInitialized:    pm.isInitialized(),
 		HasDataDirectory: pm.hasDataDirectory(),
 		PostgresRunning:  pm.isPostgresRunning(ctx),
 		Role:             pm.getRole(ctx),
-		WalPosition:      pm.getWALPosition(ctx),
+		WalPosition:      walPosition,
 		ShardId:          pm.getShardID(),
 	}
 
@@ -199,9 +213,7 @@ func (pm *MultiPoolerManager) isInitialized() bool {
 	}
 
 	// Check if multigres schema exists
-	var exists bool
-	query := "SELECT EXISTS(SELECT 1 FROM information_schema.schemata WHERE schema_name = 'multigres')"
-	err := pm.db.QueryRow(query).Scan(&exists)
+	exists, err := pm.querySchemaExists(context.Background())
 	return err == nil && exists
 }
 
@@ -241,40 +253,32 @@ func (pm *MultiPoolerManager) getRole(ctx context.Context) string {
 		return "unknown"
 	}
 
-	var inRecovery bool
-	err := pm.db.QueryRowContext(ctx, "SELECT pg_is_in_recovery()").Scan(&inRecovery)
+	isPrimary, err := pm.isPrimary(ctx)
 	if err != nil {
 		return "unknown"
 	}
 
-	if inRecovery {
-		return "standby"
+	if isPrimary {
+		return "primary"
 	}
-	return "primary"
+	return "standby"
 }
 
-// getWALPosition returns the current WAL position
-func (pm *MultiPoolerManager) getWALPosition(ctx context.Context) string {
+// getWALPosition returns the current WAL position and any error encountered
+func (pm *MultiPoolerManager) getWALPosition(ctx context.Context) (string, error) {
 	if pm.db == nil {
-		return ""
+		return "", fmt.Errorf("database connection not available")
 	}
 
-	role := pm.getRole(ctx)
-	var lsn string
-	var err error
-
-	switch role {
-	case "primary":
-		err = pm.db.QueryRowContext(ctx, "SELECT pg_current_wal_lsn()").Scan(&lsn)
-	case "standby":
-		err = pm.db.QueryRowContext(ctx, "SELECT pg_last_wal_replay_lsn()").Scan(&lsn)
-	}
-
+	isPrimary, err := pm.isPrimary(ctx)
 	if err != nil {
-		return ""
+		return "", err
 	}
 
-	return lsn
+	if isPrimary {
+		return pm.getPrimaryLSN(ctx)
+	}
+	return pm.getStandbyReplayLSN(ctx)
 }
 
 // getShardID returns the shard ID from the multipooler metadata
