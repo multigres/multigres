@@ -40,10 +40,10 @@ func (pm *MultiPoolerManager) Backup(ctx context.Context, forcePrimary bool, bac
 		return "", err
 	}
 
-	configPath := pm.GetBackupConfigPath()
-	stanzaName := pm.GetBackupStanza()
-	tableGroup := pm.GetTableGroup()
-	shard := pm.GetShard()
+	configPath := pm.getBackupConfigPath()
+	stanzaName := pm.getBackupStanza()
+	tableGroup := pm.getTableGroup()
+	shard := pm.getShard()
 
 	// Validate parameters and get pgbackrest type
 	pgBackRestType, err := pm.validateBackupParams(backupType, configPath, stanzaName)
@@ -112,9 +112,9 @@ func (pm *MultiPoolerManager) Backup(ctx context.Context, forcePrimary bool, bac
 func (pm *MultiPoolerManager) RestoreFromBackup(ctx context.Context, backupID string) error {
 	slog.InfoContext(ctx, "RestoreFromBackup called", "backup_id", backupID)
 
-	pgctldClient := pm.GetPgCtldClient()
-	configPath := pm.GetBackupConfigPath()
-	stanzaName := pm.GetBackupStanza()
+	pgctldClient := pm.getPgCtldClient()
+	configPath := pm.getBackupConfigPath()
+	stanzaName := pm.getBackupStanza()
 
 	// Get pg_data directory from the backup config path
 	// configPath is like /path/to/pooler_dir/pgbackrest.conf, so we get the dir and append pg_data
@@ -261,8 +261,8 @@ func (pm *MultiPoolerManager) RestoreFromBackup(ctx context.Context, backupID st
 
 // GetBackups retrieves backup information
 func (pm *MultiPoolerManager) GetBackups(ctx context.Context, limit uint32) ([]*multipoolermanagerdata.BackupMetadata, error) {
-	configPath := pm.GetBackupConfigPath()
-	stanzaName := pm.GetBackupStanza()
+	configPath := pm.getBackupConfigPath()
+	stanzaName := pm.getBackupStanza()
 
 	// Validate required configuration
 	if configPath == "" {
@@ -358,7 +358,7 @@ type pgBackRestTimestamp struct {
 
 // allowBackupOnPrimary checks if a backup operation is allowed on a primary pooler
 func (pm *MultiPoolerManager) allowBackupOnPrimary(ctx context.Context, forcePrimary bool) error {
-	poolerType := pm.GetPoolerType()
+	poolerType := pm.getPoolerType()
 	isPrimary := (poolerType == clustermetadatapb.PoolerType_PRIMARY)
 
 	if isPrimary && !forcePrimary {

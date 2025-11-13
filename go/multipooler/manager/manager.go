@@ -326,13 +326,13 @@ func (pm *MultiPoolerManager) GetMultiPooler() (*topo.MultiPoolerInfo, ManagerSt
 	return pm.multipooler, pm.state, pm.stateError
 }
 
-// GetBackupConfigPath returns the path to the pgbackrest config file
-func (pm *MultiPoolerManager) GetBackupConfigPath() string {
+// getBackupConfigPath returns the path to the pgbackrest config file
+func (pm *MultiPoolerManager) getBackupConfigPath() string {
 	return filepath.Join(pm.config.PoolerDir, "pgbackrest.conf")
 }
 
-// GetBackupStanza returns the pgbackrest stanza name
-func (pm *MultiPoolerManager) GetBackupStanza() string {
+// getBackupStanza returns the pgbackrest stanza name
+func (pm *MultiPoolerManager) getBackupStanza() string {
 	// Use configured stanza name if set, otherwise fallback to service ID
 	if pm.config.PgBackRestStanza != "" {
 		return pm.config.PgBackRestStanza
@@ -340,13 +340,13 @@ func (pm *MultiPoolerManager) GetBackupStanza() string {
 	return pm.serviceID.Name
 }
 
-// GetPgCtldClient returns the pgctld gRPC client
-func (pm *MultiPoolerManager) GetPgCtldClient() pgctldpb.PgCtldClient {
+// getPgCtldClient returns the pgctld gRPC client
+func (pm *MultiPoolerManager) getPgCtldClient() pgctldpb.PgCtldClient {
 	return pm.pgctldClient
 }
 
-// GetTableGroup returns the table group from the multipooler record
-func (pm *MultiPoolerManager) GetTableGroup() string {
+// getTableGroup returns the table group from the multipooler record
+func (pm *MultiPoolerManager) getTableGroup() string {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
 	if pm.multipooler != nil && pm.multipooler.MultiPooler != nil {
@@ -355,8 +355,8 @@ func (pm *MultiPoolerManager) GetTableGroup() string {
 	return ""
 }
 
-// GetShard returns the shard from the multipooler record
-func (pm *MultiPoolerManager) GetShard() string {
+// getShard returns the shard from the multipooler record
+func (pm *MultiPoolerManager) getShard() string {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
 	if pm.multipooler != nil && pm.multipooler.MultiPooler != nil {
@@ -365,8 +365,8 @@ func (pm *MultiPoolerManager) GetShard() string {
 	return ""
 }
 
-// GetPoolerType returns the pooler type from the multipooler record
-func (pm *MultiPoolerManager) GetPoolerType() clustermetadatapb.PoolerType {
+// getPoolerType returns the pooler type from the multipooler record
+func (pm *MultiPoolerManager) getPoolerType() clustermetadatapb.PoolerType {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
 	if pm.multipooler != nil && pm.multipooler.MultiPooler != nil {
