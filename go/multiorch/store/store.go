@@ -82,3 +82,15 @@ func (s *Store[K, V]) Clear() {
 	defer s.mu.Unlock()
 	s.items = make(map[K]V)
 }
+
+// GetAllWithKeys returns a snapshot of all key-value pairs in the store as a map.
+func (s *Store[K, V]) GetAllWithKeys() map[K]V {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	result := make(map[K]V, len(s.items))
+	for k, v := range s.items {
+		result[k] = v
+	}
+	return result
+}

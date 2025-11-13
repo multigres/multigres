@@ -156,3 +156,52 @@ func TestStore_GenericTypes(t *testing.T) {
 
 	require.Equal(t, 2, intStore.Len())
 }
+
+func TestStore_GetAllWithKeys(t *testing.T) {
+	store := NewStore[string, *PoolerInfo]()
+
+	// Test empty store
+	all := store.GetAllWithKeys()
+	require.Empty(t, all)
+
+	// Add multiple items
+	poolers := make(map[string]*PoolerInfo)
+	for i := 0; i < 3; i++ {
+		key := string(rune('a' + i))
+		info := &PoolerInfo{
+			MultiPooler: &clustermetadata.MultiPooler{
+				Id: &clustermetadata.ID{
+					Component: clustermetadata.ID_MULTIPOOLER,
+					Cell:      "zone1",
+					Name:      key,
+				},
+				Database: "db" + key,
+			},
+		}
+		poolers[key] = info
+		store.Set(key, info)
+	}
+
+	// Get all with keys
+	all = store.GetAllWithKeys()
+	require.Len(t, all, 3)
+
+	// Verify all keys and values are present
+	for key, expectedInfo := range poolers {
+		actualInfo, ok := all[key]
+		require.True(t, ok, "key %s should exist", key)
+		require.Equal(t, expectedInfo.MultiPooler.Id.Name, actualInfo.MultiPooler.Id.Name)
+		require.Equal(t, expectedInfo.MultiPooler.Database, actualInfo.MultiPooler.Database)
+	}
+
+	// Verify modifications to returned map don't affect store
+	all["new-key"] = &PoolerInfo{}
+	require.Equal(t, 3, store.Len(), "modifications to returned map should not affect store")
+
+	// Delete an item and verify
+	store.Delete("a")
+	all = store.GetAllWithKeys()
+	require.Len(t, all, 2)
+	_, ok := all["a"]
+	require.False(t, ok, "deleted key should not be in result")
+}
