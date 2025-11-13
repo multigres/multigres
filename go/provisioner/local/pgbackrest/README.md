@@ -5,7 +5,7 @@
 pgBackRest has specific ways of doing things and handles many backup-related tasks, including setting up standby clusters and ensuring backup integrity across timeline changes.
 
 Here are the main parts of pgBackRest's design that affect Multigres:
-- It has a config file (usually `pgbackrest.conf`) that specifies the backup repo, a list of all Postgres replicas that may perform backups, and other options.
+- It has a config file (usually `pgbackrest.conf`) that specifies the backup storage location (known as the pgBackRest repo), a list of all Postgres replicas that may perform backups, and other options.
 - Because the role of each replica can change over time, the config does *not* specify whether each replica is a primary or standby. This information is determined at runtime by pgBackRest by querying each Postgres cluster directly.
 - pgBackRest has an optional server mode. It acts as a TLS-secured rsyncd-like server that is used by the pgBackRest command-line tool to copy required files from the primary. Multigres needs this.
 - Backing up a standby requires:
@@ -47,7 +47,7 @@ There are some things to note:
 2. The Postgres instance associated with this MultiPooler is listed as pg1. The order of the replicas does not matter, except for one thing: pgBackRest uses the first declared standby when you allow it to backup from standby. So, Multigres must control the ordering of the replicas in pgbackrest.conf.
 3. There is one *stanza* called `multigres`, under which all the replicas are declared.
 
-## MultiPooler 2's pgbackrest.conf
+### MultiPooler 2's pgbackrest.conf
 ```
 [global]
 (defines global parameters, such as compression and where backups go)
@@ -70,7 +70,7 @@ pg3-database=postgres
 
 The only difference here is that `pg1-*` now refers to MultiPooler 2's Postgres cluster. This allows us to force pgBackRest to backup `pg1-host`, not some other replica.
 
-## MultiPooler 3's pgbackrest.conf
+### MultiPooler 3's pgbackrest.conf
 ```
 [global]
 (defines global parameters, such as compression and where backups go)
