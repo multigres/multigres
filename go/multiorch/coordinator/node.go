@@ -56,6 +56,15 @@ func (n *Node) InitializationStatus(ctx context.Context) (*multipoolermanagerdat
 	return n.ManagerClient.InitializationStatus(ctx, req)
 }
 
+// WaitForLSN waits for this node to replay WAL up to the target LSN
+func (n *Node) WaitForLSN(ctx context.Context, targetLsn string) error {
+	req := &multipoolermanagerdatapb.WaitForLSNRequest{
+		TargetLsn: targetLsn,
+	}
+	_, err := n.ManagerClient.WaitForLSN(ctx, req)
+	return err
+}
+
 // BeginTerm sends a BeginTerm request to this node for leader appointment
 func (n *Node) BeginTerm(ctx context.Context, term int64, candidateID *clustermetadatapb.ID) (*consensusdatapb.BeginTermResponse, error) {
 	req := &consensusdatapb.BeginTermRequest{

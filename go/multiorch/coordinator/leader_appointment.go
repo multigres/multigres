@@ -299,6 +299,18 @@ func (c *Coordinator) Propagate(ctx context.Context, candidate *Node, standbys [
 		} else {
 			// For standbys, use receive position (includes unreplayed WAL)
 			expectedLSN = status.WalPosition.LastReceiveLsn
+
+			// Wait for standby to replay all received WAL before promotion
+			// This ensures validateExpectedLSN in Promote will pass
+			if expectedLSN != "" {
+				c.logger.InfoContext(ctx, "Waiting for candidate to replay all received WAL",
+					"node", candidate.ID.Name,
+					"target_lsn", expectedLSN)
+
+				if err := candidate.WaitForLSN(ctx, expectedLSN); err != nil {
+					return mterrors.Wrapf(err, "candidate failed to replay WAL to %s", expectedLSN)
+				}
+			}
 		}
 	}
 
