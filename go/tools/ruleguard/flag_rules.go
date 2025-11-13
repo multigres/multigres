@@ -30,9 +30,6 @@ func disallowUnderscoreInViperFlags(m dsl.Matcher) {
 		Where(m["name"].Text.Matches("_")).
 		Report("viper flag name contains an underscore; use dashes instead")
 
-	// m.Match(`$fs.$f($name, ...)`).Where(m["fs"].Type.HasSuffix("pflag.FlagSet")).
-	// 	Report(`flag name: $name`)
-
 	m.Match(`$fs.$_($name, $*_)`).
 		Where(
 			m["fs"].Type.Is("*pflag.FlagSet") && m["name"].Text.Matches("_")).
