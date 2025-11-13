@@ -13,7 +13,6 @@
 // limitations under the License.
 
 //go:build ruleguard
-// +build ruleguard
 
 package gorules
 

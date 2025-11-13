@@ -63,6 +63,10 @@ linters:
     sloglint:
       context: scope
     govet:
+      disable:
+        - nilness
+        - unusedwrite
+        - loopclosure
     gocritic:
       # TODO(dweitzman): Re-enable default checks. Some of them seem worthwhile.
       disable-all: true
@@ -71,23 +75,19 @@ linters:
       settings:
         ruleguard:
           rules: "go/tools/ruleguard/flag_rules.go"
-    disable:
-      - nilness
-      - unusedwrite
-      - loopclosure
-  staticcheck:
-    checks:
-      - "all"
-      - "-ST1000"
-      - "-ST1003"
-      - "-ST1005"
-      - "-ST1016"
-      - "-ST1020"
-      - "-ST1021"
-      - "-ST1022"
-      - "-QF1001"
-      - "-QF1005"
-      - "-QF1008"
+    staticcheck:
+      checks:
+        - "all"
+        - "-ST1000"
+        - "-ST1003"
+        - "-ST1005"
+        - "-ST1016"
+        - "-ST1020"
+        - "-ST1021"
+        - "-ST1022"
+        - "-QF1001"
+        - "-QF1005"
+        - "-QF1008"
   exclusions:
     generated: lax
     presets:
