@@ -67,6 +67,25 @@ generate: parser
 build:
 	mkdir -p bin/
 	cp external/pico/pico.* go/web/templates/css/
+	go build -cover -covermode=atomic -coverpkg=github.com/multigres/multigres/... -o bin/multigateway ./go/cmd/multigateway
+	go build -cover -covermode=atomic -coverpkg=github.com/multigres/multigres/... -o bin/multipooler ./go/cmd/multipooler
+	go build -cover -covermode=atomic -coverpkg=github.com/multigres/multigres/... -o bin/pgctld ./go/cmd/pgctld
+	go build -cover -covermode=atomic -coverpkg=github.com/multigres/multigres/... -o bin/multiorch ./go/cmd/multiorch
+	go build -cover -covermode=atomic -coverpkg=github.com/multigres/multigres/... -o bin/multigres ./go/cmd/multigres
+	go build -cover -covermode=atomic -coverpkg=github.com/multigres/multigres/... -o bin/multiadmin ./go/cmd/multiadmin
+
+# Build Go binaries only, with code coverage
+build-coverage:
+	mkdir -p bin/
+	cp external/pico/pico.* go/web/templates/css/
+	go build -cover -covermode=atomic -coverpkg=github.com/multigres/multigres/... -o bin/multigateway ./go/cmd/multigateway
+	go build -cover -covermode=atomic -coverpkg=github.com/multigres/multigres/... -o bin/multipooler ./go/cmd/multipooler
+	go build -cover -covermode=atomic -coverpkg=github.com/multigres/multigres/... -o bin/pgctld ./go/cmd/pgctld
+	go build -cover -covermode=atomic -coverpkg=github.com/multigres/multigres/... -o bin/multiorch ./go/cmd/multiorch
+	go build -cover -covermode=atomic -coverpkg=github.com/multigres/multigres/... -o bin/multigres ./go/cmd/multigres
+	go build -cover -covermode=atomic -coverpkg=github.com/multigres/multigres/... -o bin/multiadmin ./go/cmd/multiadmin
+	mkdir -p bin/
+	cp external/pico/pico.* go/web/templates/css/
 	go build -o bin/multigateway ./go/cmd/multigateway
 	go build -o bin/multipooler ./go/cmd/multipooler
 	go build -o bin/pgctld ./go/cmd/pgctld
