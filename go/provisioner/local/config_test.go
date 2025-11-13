@@ -36,6 +36,8 @@ func TestGeneratePgBackRestConfigs(t *testing.T) {
 					"zone1": {
 						Multipooler: MultipoolerConfig{
 							ServiceID:  "test-service-1",
+							Database:   "postgres",
+							TableGroup: "default",
 							PoolerDir:  filepath.Join(tmpDir, "pooler1"),
 							PgPort:     5432,
 							BackupConf: filepath.Join(tmpDir, "pooler1", "pgbackrest.conf"),
@@ -44,6 +46,8 @@ func TestGeneratePgBackRestConfigs(t *testing.T) {
 					"zone2": {
 						Multipooler: MultipoolerConfig{
 							ServiceID:  "test-service-2",
+							Database:   "postgres",
+							TableGroup: "default",
 							PoolerDir:  filepath.Join(tmpDir, "pooler2"),
 							PgPort:     5433,
 							BackupConf: filepath.Join(tmpDir, "pooler2", "pgbackrest.conf"),
@@ -61,8 +65,9 @@ func TestGeneratePgBackRestConfigs(t *testing.T) {
 		err := p.GeneratePgBackRestConfigs()
 		require.NoError(t, err)
 
-		// Verify backup repository directory was created
+		// Verify backup repository directory was created with database/tablegroup/shard structure
 		backupDir := filepath.Join(tmpDir, "data", "backups")
+		repoPath := filepath.Join(backupDir, "postgres", "default", "0")
 		stat, err := os.Stat(backupDir)
 		require.NoError(t, err)
 		assert.True(t, stat.IsDir())
@@ -73,7 +78,7 @@ func TestGeneratePgBackRestConfigs(t *testing.T) {
 		require.NoError(t, err)
 		assert.Contains(t, string(content1), "[global]")
 		assert.Contains(t, string(content1), "[multigres]") // Shared stanza for HA
-		assert.Contains(t, string(content1), "repo1-path="+backupDir)
+		assert.Contains(t, string(content1), "repo1-path="+repoPath)
 		assert.Contains(t, string(content1), "pg1-socket-path=") // Using socket connections
 		assert.Contains(t, string(content1), "pg2-path=")        // Has zone2 as pg2
 
@@ -82,7 +87,7 @@ func TestGeneratePgBackRestConfigs(t *testing.T) {
 		require.NoError(t, err)
 		assert.Contains(t, string(content2), "[global]")
 		assert.Contains(t, string(content2), "[multigres]") // Shared stanza for HA
-		assert.Contains(t, string(content2), "repo1-path="+backupDir)
+		assert.Contains(t, string(content2), "repo1-path="+repoPath)
 		assert.Contains(t, string(content2), "pg1-socket-path=") // Using socket connections
 		assert.Contains(t, string(content2), "pg2-path=")        // Has zone1 as pg2
 	})
@@ -99,6 +104,8 @@ func TestGeneratePgBackRestConfigs(t *testing.T) {
 					"zone1": {
 						Multipooler: MultipoolerConfig{
 							ServiceID:  "test-service",
+							Database:   "postgres",
+							TableGroup: "default",
 							PoolerDir:  filepath.Join(tmpDir, "pooler1"),
 							PgPort:     5432,
 							BackupConf: "", // Empty - should use default
@@ -130,6 +137,9 @@ func TestGeneratePgBackRestConfigs(t *testing.T) {
 		require.NoError(t, err)
 		assert.Contains(t, string(content), "[global]")
 		assert.Contains(t, string(content), "[multigres]") // Shared stanza for HA
+		// Verify repo path includes database/tablegroup/shard structure
+		repoPath := filepath.Join(defaultBackupDir, "postgres", "default", "0")
+		assert.Contains(t, string(content), "repo1-path="+repoPath)
 	})
 
 	t.Run("handles multiple cells correctly", func(t *testing.T) {
@@ -142,6 +152,8 @@ func TestGeneratePgBackRestConfigs(t *testing.T) {
 			cells[cellName] = CellServicesConfig{
 				Multipooler: MultipoolerConfig{
 					ServiceID:  "service-" + string(rune('0'+i)),
+					Database:   "postgres",
+					TableGroup: "default",
 					PoolerDir:  filepath.Join(tmpDir, "pooler"+string(rune('0'+i))),
 					PgPort:     5432 + i - 1,
 					BackupConf: filepath.Join(tmpDir, "pooler"+string(rune('0'+i)), "pgbackrest.conf"),
@@ -193,6 +205,8 @@ func TestGeneratePgBackRestConfigs(t *testing.T) {
 					"zone1": {
 						Multipooler: MultipoolerConfig{
 							ServiceID:  "test",
+							Database:   "postgres",
+							TableGroup: "default",
 							PoolerDir:  filepath.Join(tmpDir, "pooler"),
 							PgPort:     5432,
 							BackupConf: filepath.Join(tmpDir, "pooler", "pgbackrest.conf"),
@@ -227,6 +241,8 @@ func TestGeneratePgBackRestConfigs(t *testing.T) {
 					"cell-a": {
 						Multipooler: MultipoolerConfig{
 							ServiceID:  "service-a",
+							Database:   "postgres",
+							TableGroup: "default",
 							PoolerDir:  filepath.Join(tmpDir, "pooler-a"),
 							PgPort:     5432,
 							BackupConf: filepath.Join(tmpDir, "pooler-a", "pgbackrest.conf"),
@@ -235,6 +251,8 @@ func TestGeneratePgBackRestConfigs(t *testing.T) {
 					"cell-b": {
 						Multipooler: MultipoolerConfig{
 							ServiceID:  "service-b",
+							Database:   "postgres",
+							TableGroup: "default",
 							PoolerDir:  filepath.Join(tmpDir, "pooler-b"),
 							PgPort:     5433,
 							BackupConf: filepath.Join(tmpDir, "pooler-b", "pgbackrest.conf"),
@@ -243,6 +261,8 @@ func TestGeneratePgBackRestConfigs(t *testing.T) {
 					"cell-c": {
 						Multipooler: MultipoolerConfig{
 							ServiceID:  "service-c",
+							Database:   "postgres",
+							TableGroup: "default",
 							PoolerDir:  filepath.Join(tmpDir, "pooler-c"),
 							PgPort:     5434,
 							BackupConf: filepath.Join(tmpDir, "pooler-c", "pgbackrest.conf"),
@@ -327,10 +347,11 @@ func TestGeneratePgBackRestConfigs(t *testing.T) {
 		assert.NotContains(t, contentC, "pg2-path="+filepath.Join(tmpDir, "pooler-c", "pg_data"))
 		assert.NotContains(t, contentC, "pg3-path="+filepath.Join(tmpDir, "pooler-c", "pg_data"))
 
-		// Verify all share the same backup repository
+		// Verify all share the same backup repository with database/tablegroup/shard structure
 		backupPath := filepath.Join(tmpDir, "data", "backups")
-		assert.Contains(t, contentA, "repo1-path="+backupPath)
-		assert.Contains(t, contentB, "repo1-path="+backupPath)
-		assert.Contains(t, contentC, "repo1-path="+backupPath)
+		repoPath := filepath.Join(backupPath, "postgres", "default", "0")
+		assert.Contains(t, contentA, "repo1-path="+repoPath)
+		assert.Contains(t, contentB, "repo1-path="+repoPath)
+		assert.Contains(t, contentC, "repo1-path="+repoPath)
 	})
 }

@@ -450,6 +450,13 @@ func (p *localProvisioner) GeneratePgBackRestConfigs() error {
 			})
 		}
 
+		// Build backup repository path with database/tablegroup/shard structure
+		// TODO: Replace hardcoded shard "0" with actual shard value from multipooler config
+		database := cellServices.Multipooler.Database
+		tableGroup := cellServices.Multipooler.TableGroup
+		shard := "0" // Default shard ID
+		repoPath := filepath.Join(p.config.BackupRepoPath, database, tableGroup, shard)
+
 		// Generate pgBackRest config for this pooler
 		// Use a shared stanza name for all clusters in the HA setup
 		backupCfg := pgbackrest.Config{
@@ -461,7 +468,7 @@ func (p *localProvisioner) GeneratePgBackRestConfigs() error {
 			PgPassword:      "postgres", // For local development only
 			PgDatabase:      "postgres",
 			AdditionalHosts: additionalHosts,
-			RepoPath:        p.config.BackupRepoPath,
+			RepoPath:        repoPath,
 			LogPath:         pgBackRestLogPath,
 			RetentionFull:   2, // Keep 2 full backups by default
 		}

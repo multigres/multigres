@@ -423,7 +423,12 @@ func initializePrimary(t *testing.T, baseDir string, pgctld *ProcessInstance, mu
 	}
 
 	// Create pgbackrest configuration first (before starting PostgreSQL)
-	repoPath := filepath.Join(baseDir, "backup-repo")
+	// Build backup repository path with database/tablegroup/shard structure
+	// TODO: Replace hardcoded shard "0" with actual shard value
+	database := "postgres"
+	tableGroup := "test"
+	shard := "0" // Default shard ID
+	repoPath := filepath.Join(baseDir, "backup-repo", database, tableGroup, shard)
 	if err := os.MkdirAll(repoPath, 0o755); err != nil {
 		return fmt.Errorf("failed to create backup repo: %w", err)
 	}
@@ -594,7 +599,12 @@ func initializeStandby(t *testing.T, baseDir string, primaryPgctld *ProcessInsta
 	// - pg1: this cluster (standby in this case)
 	// - pg2: other cluster (primary in this case)
 	// Each cluster treats itself as pg1 and lists others as pg2, pg3, etc.
-	repoPath := filepath.Join(baseDir, "backup-repo")
+	// Build backup repository path with database/tablegroup/shard structure (same as primary)
+	// TODO: Replace hardcoded shard "0" with actual shard value
+	database := "postgres"
+	tableGroup := "test"
+	shard := "0" // Default shard ID
+	repoPath := filepath.Join(baseDir, "backup-repo", database, tableGroup, shard)
 	logPath := filepath.Join(baseDir, "logs", "pgbackrest")
 	spoolPath := filepath.Join(baseDir, "pgbackrest-spool")
 
