@@ -22,6 +22,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/proto"
 
 	"github.com/multigres/multigres/go/clustermetadata/topo"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
@@ -30,19 +31,26 @@ import (
 
 // createTestManager creates a minimal MultiPoolerManager for testing
 func createTestManager(poolerDir, stanzaName, tableGroup, shard string, poolerType clustermetadatapb.PoolerType) *MultiPoolerManager {
+	multipoolerInfo := &topo.MultiPoolerInfo{
+		MultiPooler: &clustermetadatapb.MultiPooler{
+			Type:       poolerType,
+			TableGroup: tableGroup,
+			Shard:      shard,
+		},
+	}
 	pm := &MultiPoolerManager{
 		config: &Config{
 			PoolerDir:        poolerDir,
 			PgBackRestStanza: stanzaName,
 			ServiceID:        &clustermetadatapb.ID{Name: "test-service"},
 		},
-		serviceID: &clustermetadatapb.ID{Name: "test-service"},
-		multipooler: &topo.MultiPoolerInfo{
-			MultiPooler: &clustermetadatapb.MultiPooler{
-				Type:       poolerType,
-				TableGroup: tableGroup,
-				Shard:      shard,
-			},
+		serviceID:   &clustermetadatapb.ID{Name: "test-service"},
+		multipooler: multipoolerInfo,
+		cachedMultipooler: cachedMultiPoolerInfo{
+			multipooler: topo.NewMultiPoolerInfo(
+				proto.Clone(multipoolerInfo.MultiPooler).(*clustermetadatapb.MultiPooler),
+				multipoolerInfo.Version(),
+			),
 		},
 	}
 	return pm

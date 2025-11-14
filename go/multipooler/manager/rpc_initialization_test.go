@@ -99,6 +99,7 @@ func TestInitializationStatus(t *testing.T) {
 
 			pm.mu.Lock()
 			pm.multipooler = &topo.MultiPoolerInfo{MultiPooler: multipooler}
+			pm.updateCachedMultipooler()
 			pm.mu.Unlock()
 
 			// Run setup function
