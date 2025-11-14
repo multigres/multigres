@@ -134,7 +134,7 @@ type ConnLock interface {
 
 	// LockWithTTL is similar to `Lock` but the difference is that it allows
 	// you to override the global default TTL that is configured for the
-	// implementation (--topo_etcd_lease_ttl).
+	// implementation (--topo-etcd-lease-ttl).
 	LockWithTTL(ctx context.Context, dirPath, contents string, ttl time.Duration) (LockDescriptor, error)
 
 	// LockName is similar to `Lock` but the difference is that it does not require

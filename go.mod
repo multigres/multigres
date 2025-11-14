@@ -18,6 +18,7 @@ require (
 	github.com/lib/pq v1.10.9
 	github.com/mitchellh/mapstructure v1.5.0
 	github.com/pganalyze/pg_query_go/v6 v6.1.0
+	github.com/quasilyte/go-ruleguard/dsl v0.3.23
 	github.com/spf13/afero v1.15.0
 	github.com/spf13/cobra v1.10.1
 	github.com/spf13/pflag v1.0.10
@@ -59,6 +60,8 @@ require (
 	github.com/gertd/go-pluralize v0.2.1 // indirect
 	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
+	github.com/go-toolsmith/astcopy v1.0.2 // indirect
+	github.com/go-toolsmith/astequal v1.0.3 // indirect
 	github.com/go-viper/mapstructure/v2 v2.4.0 // indirect
 	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/golang/protobuf v1.5.4 // indirect
@@ -84,6 +87,9 @@ require (
 	github.com/prometheus/common v0.65.0 // indirect
 	github.com/prometheus/otlptranslator v0.0.2 // indirect
 	github.com/prometheus/procfs v0.17.0 // indirect
+	github.com/quasilyte/go-ruleguard v0.4.5 // indirect
+	github.com/quasilyte/gogrep v0.5.0 // indirect
+	github.com/quasilyte/stdinfo v0.0.0-20220114132959-f7386bf02567 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/sagikazarmark/locafero v0.11.0 // indirect
 	github.com/sourcegraph/conc v0.3.1-0.20240121214520-5f936abd7ae8 // indirect
@@ -112,6 +118,7 @@ require (
 	go.uber.org/multierr v1.11.0 // indirect
 	go.uber.org/zap v1.27.0 // indirect
 	go.yaml.in/yaml/v3 v3.0.4 // indirect
+	golang.org/x/exp/typeparams v0.0.0-20240213143201-ec583247a57a // indirect
 	golang.org/x/mod v0.29.0 // indirect
 	golang.org/x/sys v0.37.0 // indirect
 	golang.org/x/telemetry v0.0.0-20251008203120-078029d740a8 // indirect
@@ -126,6 +133,7 @@ require (
 
 tool (
 	github.com/mfridman/tparse
+	github.com/quasilyte/go-ruleguard/cmd/ruleguard
 	github.com/yoheimuta/protolint/cmd/protolint
 	golang.org/x/tools/cmd/goimports
 	google.golang.org/grpc/cmd/protoc-gen-go-grpc

@@ -145,6 +145,18 @@ func (m *mockManagerClient) SetTerm(ctx context.Context, req *multipoolermanager
 	return &multipoolermanagerdatapb.SetTermResponse{}, nil
 }
 
+func (m *mockManagerClient) Backup(ctx context.Context, req *multipoolermanagerdatapb.BackupRequest, opts ...grpc.CallOption) (*multipoolermanagerdatapb.BackupResponse, error) {
+	return &multipoolermanagerdatapb.BackupResponse{}, nil
+}
+
+func (m *mockManagerClient) RestoreFromBackup(ctx context.Context, req *multipoolermanagerdatapb.RestoreFromBackupRequest, opts ...grpc.CallOption) (*multipoolermanagerdatapb.RestoreFromBackupResponse, error) {
+	return &multipoolermanagerdatapb.RestoreFromBackupResponse{}, nil
+}
+
+func (m *mockManagerClient) GetBackups(ctx context.Context, req *multipoolermanagerdatapb.GetBackupsRequest, opts ...grpc.CallOption) (*multipoolermanagerdatapb.GetBackupsResponse, error) {
+	return &multipoolermanagerdatapb.GetBackupsResponse{}, nil
+}
+
 // createMockNode creates a mock node for testing
 func createMockNode(name string, term int64, walPosition string, healthy bool, role string) *Node {
 	return &Node{
