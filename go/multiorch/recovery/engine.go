@@ -88,8 +88,26 @@ func runIfNotRunning(logger *slog.Logger, inProgress *atomic.Bool, taskName stri
 //	Continuously monitors the health of all poolers by polling their status.
 //	This loop maintains an up-to-date health snapshot in the state store.
 //
-//	- Poll each pooler for health status
-//	- Update in-memory state store with current status
+//	The health check system uses a queue-based architecture with worker pools:
+//
+//	1. Discovery Phase (runs during cluster metadata refresh):
+//	   - When refreshClusterMetadata() discovers poolers from topology
+//	   - Newly discovered poolers (never health checked) are immediately queued
+//	   - This ensures fast initial health check after discovery
+//
+//	2. Worker Pool (always running):
+//	   - N concurrent worker goroutines (configurable via health-check-workers)
+//	   - Workers consume from the health check queue (blocking)
+//	   - Each worker calls pollPooler() to perform the actual health check
+//	   - Updates LastCheckAttempted, LastSeen, IsUpToDate in the store
+//
+//	3. Health Check Ticker (periodic re-queueing):
+//	   - Runs every pooler-health-check-interval (e.g., 5s)
+//	   - Scans all poolers in the store
+//	   - Queues poolers with outdated checks (LastCheckAttempted older than interval)
+//	   - Ensures continuous health monitoring even if checks fail
+//
+//	The queue deduplicates entries, so a pooler can only be queued once at a time.
 //
 // Recovery Loop:
 //
