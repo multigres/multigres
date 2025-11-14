@@ -20,6 +20,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -323,6 +324,55 @@ func (pm *MultiPoolerManager) GetMultiPooler() (*topo.MultiPoolerInfo, ManagerSt
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
 	return pm.multipooler, pm.state, pm.stateError
+}
+
+// getBackupConfigPath returns the path to the pgbackrest config file
+func (pm *MultiPoolerManager) getBackupConfigPath() string {
+	return filepath.Join(pm.config.PoolerDir, "pgbackrest.conf")
+}
+
+// getBackupStanza returns the pgbackrest stanza name
+func (pm *MultiPoolerManager) getBackupStanza() string {
+	// Use configured stanza name if set, otherwise fallback to service ID
+	if pm.config.PgBackRestStanza != "" {
+		return pm.config.PgBackRestStanza
+	}
+	return pm.serviceID.Name
+}
+
+// getPgCtldClient returns the pgctld gRPC client
+func (pm *MultiPoolerManager) getPgCtldClient() pgctldpb.PgCtldClient {
+	return pm.pgctldClient
+}
+
+// getTableGroup returns the table group from the multipooler record
+func (pm *MultiPoolerManager) getTableGroup() string {
+	pm.mu.Lock()
+	defer pm.mu.Unlock()
+	if pm.multipooler != nil && pm.multipooler.MultiPooler != nil {
+		return pm.multipooler.TableGroup
+	}
+	return ""
+}
+
+// getShard returns the shard from the multipooler record
+func (pm *MultiPoolerManager) getShard() string {
+	pm.mu.Lock()
+	defer pm.mu.Unlock()
+	if pm.multipooler != nil && pm.multipooler.MultiPooler != nil {
+		return pm.multipooler.Shard
+	}
+	return ""
+}
+
+// getPoolerType returns the pooler type from the multipooler record
+func (pm *MultiPoolerManager) getPoolerType() clustermetadatapb.PoolerType {
+	pm.mu.Lock()
+	defer pm.mu.Unlock()
+	if pm.multipooler != nil && pm.multipooler.MultiPooler != nil {
+		return pm.multipooler.Type
+	}
+	return clustermetadatapb.PoolerType_UNKNOWN
 }
 
 // checkReady returns an error if the manager is not in Ready state

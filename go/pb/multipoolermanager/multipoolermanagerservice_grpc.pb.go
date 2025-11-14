@@ -55,6 +55,9 @@ const (
 	MultiPoolerManager_InitializeEmptyPrimary_FullMethodName          = "/multipoolermanager.MultiPoolerManager/InitializeEmptyPrimary"
 	MultiPoolerManager_InitializeAsStandby_FullMethodName             = "/multipoolermanager.MultiPoolerManager/InitializeAsStandby"
 	MultiPoolerManager_InitializationStatus_FullMethodName            = "/multipoolermanager.MultiPoolerManager/InitializationStatus"
+	MultiPoolerManager_Backup_FullMethodName                          = "/multipoolermanager.MultiPoolerManager/Backup"
+	MultiPoolerManager_RestoreFromBackup_FullMethodName               = "/multipoolermanager.MultiPoolerManager/RestoreFromBackup"
+	MultiPoolerManager_GetBackups_FullMethodName                      = "/multipoolermanager.MultiPoolerManager/GetBackups"
 )
 
 // MultiPoolerManagerClient is the client API for MultiPoolerManager service.
@@ -111,6 +114,12 @@ type MultiPoolerManagerClient interface {
 	// InitializationStatus returns the initialization status of this pooler
 	// Used by multiorch coordinator to determine what initialization scenario to use
 	InitializationStatus(ctx context.Context, in *multipoolermanagerdata.InitializationStatusRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.InitializationStatusResponse, error)
+	// Backup performs a backup
+	Backup(ctx context.Context, in *multipoolermanagerdata.BackupRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.BackupResponse, error)
+	// RestoreFromBackup restores from a backup
+	RestoreFromBackup(ctx context.Context, in *multipoolermanagerdata.RestoreFromBackupRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.RestoreFromBackupResponse, error)
+	// GetBackups retrieves backup information
+	GetBackups(ctx context.Context, in *multipoolermanagerdata.GetBackupsRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.GetBackupsResponse, error)
 }
 
 type multiPoolerManagerClient struct {
@@ -310,6 +319,33 @@ func (c *multiPoolerManagerClient) InitializationStatus(ctx context.Context, in 
 	return out, nil
 }
 
+func (c *multiPoolerManagerClient) Backup(ctx context.Context, in *multipoolermanagerdata.BackupRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.BackupResponse, error) {
+	out := new(multipoolermanagerdata.BackupResponse)
+	err := c.cc.Invoke(ctx, MultiPoolerManager_Backup_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *multiPoolerManagerClient) RestoreFromBackup(ctx context.Context, in *multipoolermanagerdata.RestoreFromBackupRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.RestoreFromBackupResponse, error) {
+	out := new(multipoolermanagerdata.RestoreFromBackupResponse)
+	err := c.cc.Invoke(ctx, MultiPoolerManager_RestoreFromBackup_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *multiPoolerManagerClient) GetBackups(ctx context.Context, in *multipoolermanagerdata.GetBackupsRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.GetBackupsResponse, error) {
+	out := new(multipoolermanagerdata.GetBackupsResponse)
+	err := c.cc.Invoke(ctx, MultiPoolerManager_GetBackups_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // MultiPoolerManagerServer is the server API for MultiPoolerManager service.
 // All implementations must embed UnimplementedMultiPoolerManagerServer
 // for forward compatibility
@@ -364,6 +400,12 @@ type MultiPoolerManagerServer interface {
 	// InitializationStatus returns the initialization status of this pooler
 	// Used by multiorch coordinator to determine what initialization scenario to use
 	InitializationStatus(context.Context, *multipoolermanagerdata.InitializationStatusRequest) (*multipoolermanagerdata.InitializationStatusResponse, error)
+	// Backup performs a backup
+	Backup(context.Context, *multipoolermanagerdata.BackupRequest) (*multipoolermanagerdata.BackupResponse, error)
+	// RestoreFromBackup restores from a backup
+	RestoreFromBackup(context.Context, *multipoolermanagerdata.RestoreFromBackupRequest) (*multipoolermanagerdata.RestoreFromBackupResponse, error)
+	// GetBackups retrieves backup information
+	GetBackups(context.Context, *multipoolermanagerdata.GetBackupsRequest) (*multipoolermanagerdata.GetBackupsResponse, error)
 	mustEmbedUnimplementedMultiPoolerManagerServer()
 }
 
@@ -433,6 +475,15 @@ func (UnimplementedMultiPoolerManagerServer) InitializeAsStandby(context.Context
 }
 func (UnimplementedMultiPoolerManagerServer) InitializationStatus(context.Context, *multipoolermanagerdata.InitializationStatusRequest) (*multipoolermanagerdata.InitializationStatusResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method InitializationStatus not implemented")
+}
+func (UnimplementedMultiPoolerManagerServer) Backup(context.Context, *multipoolermanagerdata.BackupRequest) (*multipoolermanagerdata.BackupResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method Backup not implemented")
+}
+func (UnimplementedMultiPoolerManagerServer) RestoreFromBackup(context.Context, *multipoolermanagerdata.RestoreFromBackupRequest) (*multipoolermanagerdata.RestoreFromBackupResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method RestoreFromBackup not implemented")
+}
+func (UnimplementedMultiPoolerManagerServer) GetBackups(context.Context, *multipoolermanagerdata.GetBackupsRequest) (*multipoolermanagerdata.GetBackupsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetBackups not implemented")
 }
 func (UnimplementedMultiPoolerManagerServer) mustEmbedUnimplementedMultiPoolerManagerServer() {}
 
@@ -825,6 +876,60 @@ func _MultiPoolerManager_InitializationStatus_Handler(srv interface{}, ctx conte
 	return interceptor(ctx, in, info, handler)
 }
 
+func _MultiPoolerManager_Backup_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(multipoolermanagerdata.BackupRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MultiPoolerManagerServer).Backup(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MultiPoolerManager_Backup_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MultiPoolerManagerServer).Backup(ctx, req.(*multipoolermanagerdata.BackupRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _MultiPoolerManager_RestoreFromBackup_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(multipoolermanagerdata.RestoreFromBackupRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MultiPoolerManagerServer).RestoreFromBackup(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MultiPoolerManager_RestoreFromBackup_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MultiPoolerManagerServer).RestoreFromBackup(ctx, req.(*multipoolermanagerdata.RestoreFromBackupRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _MultiPoolerManager_GetBackups_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(multipoolermanagerdata.GetBackupsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MultiPoolerManagerServer).GetBackups(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MultiPoolerManager_GetBackups_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MultiPoolerManagerServer).GetBackups(ctx, req.(*multipoolermanagerdata.GetBackupsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // MultiPoolerManager_ServiceDesc is the grpc.ServiceDesc for MultiPoolerManager service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -915,6 +1020,18 @@ var MultiPoolerManager_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "InitializationStatus",
 			Handler:    _MultiPoolerManager_InitializationStatus_Handler,
+		},
+		{
+			MethodName: "Backup",
+			Handler:    _MultiPoolerManager_Backup_Handler,
+		},
+		{
+			MethodName: "RestoreFromBackup",
+			Handler:    _MultiPoolerManager_RestoreFromBackup_Handler,
+		},
+		{
+			MethodName: "GetBackups",
+			Handler:    _MultiPoolerManager_GetBackups_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

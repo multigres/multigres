@@ -126,7 +126,7 @@ func RestartPostgreSQLWithResult(logger *slog.Logger, config *pgctld.PostgresCtl
 		if err := os.WriteFile(standbySignalPath, []byte(""), 0o644); err != nil {
 			return nil, fmt.Errorf("failed to create standby.signal: %w", err)
 		}
-		logger.Info("standby.signal created successfully")
+		logger.Info("standby.signal created successfully", "path", standbySignalPath)
 	}
 
 	// Start the server
