@@ -43,8 +43,8 @@ func (pm *MultiPoolerManager) Backup(ctx context.Context, forcePrimary bool, bac
 
 	configPath := pm.getBackupConfigPath()
 	stanzaName := pm.getBackupStanza()
-	tableGroup := pm.getTableGroup()
-	shard := pm.getShard()
+	tableGroup := pm.getCachedTableGroup()
+	shard := pm.getCachedShard()
 
 	// Validate parameters and get pgbackrest type
 	pgBackRestType, err := pm.validateBackupParams(backupType, configPath, stanzaName)
@@ -286,6 +286,7 @@ func (pm *MultiPoolerManager) GetBackups(ctx context.Context, limit uint32) ([]*
 		"--stanza="+stanzaName,
 		"--config="+configPath,
 		"--output=json",
+		"--log-level-console=off", // Override console logging to prevent contaminating JSON output
 		"info")
 
 	// Use streamOutput to avoid blocking on large output
@@ -364,7 +365,7 @@ type pgBackRestTimestamp struct {
 
 // allowBackupOnPrimary checks if a backup operation is allowed on a primary pooler
 func (pm *MultiPoolerManager) allowBackupOnPrimary(ctx context.Context, forcePrimary bool) error {
-	poolerType := pm.getPoolerType()
+	poolerType := pm.getCachedPoolerType()
 	isPrimary := (poolerType == clustermetadatapb.PoolerType_PRIMARY)
 
 	if isPrimary && !forcePrimary {

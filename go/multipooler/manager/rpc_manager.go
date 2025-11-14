@@ -597,6 +597,7 @@ func (pm *MultiPoolerManager) ChangeType(ctx context.Context, poolerType string)
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
 	pm.multipooler.MultiPooler = updatedMultipooler
+	pm.updateCachedMultipooler()
 	pm.logger.InfoContext(ctx, "Pooler type updated successfully", "new_type", poolerType, "service_id", pm.serviceID.String())
 
 	return nil
