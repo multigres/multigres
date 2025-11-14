@@ -110,6 +110,9 @@ func (re *Engine) refreshClusterMetadata() {
 						IsUpToDate:  false, // Not yet health checked
 					}
 					re.poolerStore.Set(key, poolerInfo)
+
+					// Queue health check for this newly discovered pooler
+					re.healthCheckQueue.Push(key)
 				}
 			}
 
@@ -124,7 +127,4 @@ func (re *Engine) refreshClusterMetadata() {
 		"cells", len(cells),
 		"total_poolers", totalPoolers,
 	)
-
-	// Queue all discovered poolers for health checking
-	re.queuePoolersHealthCheck()
 }
