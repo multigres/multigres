@@ -27,6 +27,7 @@ import (
 
 	"github.com/multigres/multigres/go/clustermetadata/topo"
 	"github.com/multigres/multigres/go/clustermetadata/topo/memorytopo"
+	"github.com/multigres/multigres/go/multiorch/config"
 	"github.com/multigres/multigres/go/multiorch/store"
 	"github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/viperutil"
@@ -43,21 +44,25 @@ func TestRecoveryEngine_ConfigReload(t *testing.T) {
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug}))
 
+	cfg := config.NewTestConfig(
+		config.WithCell("zone1"),
+		config.WithBookkeepingInterval(1*time.Minute),
+		config.WithClusterMetadataRefreshInterval(15*time.Second),
+		config.WithClusterMetadataRefreshTimeout(30*time.Second),
+	)
+
 	// Initial config
-	initialTargets := []WatchTarget{
+	initialTargets := []config.WatchTarget{
 		{Database: "db1"},
 		{Database: "db2"},
 	}
 
 	// Create recovery engine
 	re := NewEngine(
-		"zone1",
 		ts,
 		logger,
+		cfg,
 		initialTargets,
-		1*time.Minute,
-		15*time.Second,
-		30*time.Second,
 	)
 
 	// Verify initial config
@@ -86,7 +91,7 @@ func TestRecoveryEngine_ConfigReload(t *testing.T) {
 	updatedTargets := re.shardWatchTargets
 	re.mu.Unlock()
 
-	expectedTargets := []WatchTarget{
+	expectedTargets := []config.WatchTarget{
 		{Database: "db1"},
 		{Database: "db2"},
 		{Database: "db3"},
@@ -102,19 +107,23 @@ func TestRecoveryEngine_ConfigReload_NoChange(t *testing.T) {
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug}))
 
-	initialTargets := []WatchTarget{
+	cfg := config.NewTestConfig(
+		config.WithCell("zone1"),
+		config.WithBookkeepingInterval(1*time.Minute),
+		config.WithClusterMetadataRefreshInterval(15*time.Second),
+		config.WithClusterMetadataRefreshTimeout(30*time.Second),
+	)
+
+	initialTargets := []config.WatchTarget{
 		{Database: "db1"},
 		{Database: "db2"},
 	}
 
 	re := NewEngine(
-		"zone1",
 		ts,
 		logger,
+		cfg,
 		initialTargets,
-		1*time.Minute,
-		15*time.Second,
-		30*time.Second,
 	)
 
 	// Set up config reloader that returns same targets
@@ -148,19 +157,23 @@ func TestRecoveryEngine_ConfigReload_EmptyTargets(t *testing.T) {
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug}))
 
-	initialTargets := []WatchTarget{
+	cfg := config.NewTestConfig(
+		config.WithCell("zone1"),
+		config.WithBookkeepingInterval(1*time.Minute),
+		config.WithClusterMetadataRefreshInterval(15*time.Second),
+		config.WithClusterMetadataRefreshTimeout(30*time.Second),
+	)
+
+	initialTargets := []config.WatchTarget{
 		{Database: "db1"},
 		{Database: "db2"},
 	}
 
 	re := NewEngine(
-		"zone1",
 		ts,
 		logger,
+		cfg,
 		initialTargets,
-		1*time.Minute,
-		15*time.Second,
-		30*time.Second,
 	)
 
 	// Set up config reloader that returns empty targets
@@ -187,14 +200,18 @@ func TestRecoveryEngine_StartStop(t *testing.T) {
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug}))
 
+	cfg := config.NewTestConfig(
+		config.WithCell("zone1"),
+		config.WithBookkeepingInterval(1*time.Minute),
+		config.WithClusterMetadataRefreshInterval(15*time.Second),
+		config.WithClusterMetadataRefreshTimeout(30*time.Second),
+	)
+
 	re := NewEngine(
-		"zone1",
 		ts,
 		logger,
-		[]WatchTarget{{Database: "db1"}},
-		1*time.Minute,
-		15*time.Second,
-		30*time.Second,
+		cfg,
+		[]config.WatchTarget{{Database: "db1"}},
 	)
 
 	// Start the engine
@@ -226,14 +243,18 @@ func TestRecoveryEngine_MaintenanceLoop(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug}))
 
 	// Use shorter intervals for testing
+	cfg := config.NewTestConfig(
+		config.WithCell("zone1"),
+		config.WithBookkeepingInterval(200*time.Millisecond),
+		config.WithClusterMetadataRefreshInterval(100*time.Millisecond),
+		config.WithClusterMetadataRefreshTimeout(5*time.Second),
+	)
+
 	re := NewEngine(
-		"zone1",
 		ts,
 		logger,
-		[]WatchTarget{{Database: "db1"}},
-		200*time.Millisecond, // bookkeeping interval
-		100*time.Millisecond, // metadata refresh interval
-		5*time.Second,        // metadata refresh timeout
+		cfg,
+		[]config.WatchTarget{{Database: "db1"}},
 	)
 
 	// Track config reloads
@@ -265,7 +286,7 @@ func TestRecoveryEngine_MaintenanceLoop(t *testing.T) {
 	finalTargets := re.shardWatchTargets
 	re.mu.Unlock()
 
-	expectedTargets := []WatchTarget{
+	expectedTargets := []config.WatchTarget{
 		{Database: "db1"},
 		{Database: "db2"},
 	}
@@ -280,18 +301,22 @@ func TestRecoveryEngine_ConfigReloadError(t *testing.T) {
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug}))
 
-	initialTargets := []WatchTarget{
+	cfg := config.NewTestConfig(
+		config.WithCell("zone1"),
+		config.WithBookkeepingInterval(1*time.Minute),
+		config.WithClusterMetadataRefreshInterval(15*time.Second),
+		config.WithClusterMetadataRefreshTimeout(30*time.Second),
+	)
+
+	initialTargets := []config.WatchTarget{
 		{Database: "db1"},
 	}
 
 	re := NewEngine(
-		"zone1",
 		ts,
 		logger,
+		cfg,
 		initialTargets,
-		1*time.Minute,
-		15*time.Second,
-		30*time.Second,
 	)
 
 	// Set up config reloader that returns invalid targets
@@ -376,18 +401,22 @@ func TestRecoveryEngine_ViperDynamicConfig(t *testing.T) {
 	shardWatchTargets.Set([]string{"db1"})
 
 	// Parse initial targets
-	initialTargets, err := ParseShardWatchTargets(shardWatchTargets.Get())
+	initialTargets, err := config.ParseShardWatchTargets(shardWatchTargets.Get())
 	require.NoError(t, err)
 
 	// Create recovery engine with initial config
+	cfg := config.NewTestConfig(
+		config.WithCell("zone1"),
+		config.WithBookkeepingInterval(200*time.Millisecond),
+		config.WithClusterMetadataRefreshInterval(100*time.Millisecond),
+		config.WithClusterMetadataRefreshTimeout(5*time.Second),
+	)
+
 	re := NewEngine(
-		"zone1",
 		ts,
 		logger,
+		cfg,
 		initialTargets,
-		200*time.Millisecond, // bookkeeping interval
-		100*time.Millisecond, // metadata refresh interval
-		5*time.Second,        // metadata refresh timeout
 	)
 
 	// Set up config reloader that reads from viperutil.Value
@@ -404,14 +433,14 @@ func TestRecoveryEngine_ViperDynamicConfig(t *testing.T) {
 	currentTargets := re.shardWatchTargets
 	re.mu.Unlock()
 
-	expectedInit := []WatchTarget{{Database: "db1"}}
+	expectedInit := []config.WatchTarget{{Database: "db1"}}
 	require.Equal(t, expectedInit, currentTargets, "initial targets mismatch")
 
 	// Update viper config using Set()
 	shardWatchTargets.Set([]string{"db1", "db2", "db3"})
 
 	// Use require.Eventually to wait for the update to be picked up by bookkeeping loop
-	expectedFinal := []WatchTarget{
+	expectedFinal := []config.WatchTarget{
 		{Database: "db1"},
 		{Database: "db2"},
 		{Database: "db3"},
@@ -450,14 +479,18 @@ func TestRecoveryEngine_DiscoveryLoop_Integration(t *testing.T) {
 	}))
 
 	// Create engine with short refresh interval for testing
+	cfg := config.NewTestConfig(
+		config.WithCell("zone1"),
+		config.WithBookkeepingInterval(5*time.Second),                   // bookkeeping interval (not relevant for this test)
+		config.WithClusterMetadataRefreshInterval(100*time.Millisecond), // metadata refresh interval - short for testing
+		config.WithClusterMetadataRefreshTimeout(5*time.Second),         // metadata refresh timeout
+	)
+
 	re := NewEngine(
-		"zone1",
 		ts,
 		logger,
-		[]WatchTarget{{Database: "mydb"}},
-		5*time.Second,        // bookkeeping interval (not relevant for this test)
-		100*time.Millisecond, // metadata refresh interval - short for testing
-		5*time.Second,        // metadata refresh timeout
+		cfg,
+		[]config.WatchTarget{{Database: "mydb"}},
 	)
 
 	// Start the engine - it should discover existing poolers
@@ -492,14 +525,18 @@ func TestRecoveryEngine_BookkeepingLoop_Integration(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
 
 	// Create engine with short bookkeeping interval for testing
+	cfg := config.NewTestConfig(
+		config.WithCell("zone1"),
+		config.WithBookkeepingInterval(100*time.Millisecond),     // bookkeeping interval - short for testing
+		config.WithClusterMetadataRefreshInterval(5*time.Second), // metadata refresh interval (not relevant for this test)
+		config.WithClusterMetadataRefreshTimeout(5*time.Second),  // metadata refresh timeout
+	)
+
 	re := NewEngine(
-		"zone1",
 		ts,
 		logger,
-		[]WatchTarget{{Database: "mydb"}},
-		100*time.Millisecond, // bookkeeping interval - short for testing
-		5*time.Second,        // metadata refresh interval (not relevant for this test)
-		5*time.Second,        // metadata refresh timeout
+		cfg,
+		[]config.WatchTarget{{Database: "mydb"}},
 	)
 
 	// Add poolers to store BEFORE starting engine
@@ -574,14 +611,18 @@ func TestRecoveryEngine_FullIntegration(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
 
 	// Create engine with short intervals for testing
+	cfg := config.NewTestConfig(
+		config.WithCell("zone1"),
+		config.WithBookkeepingInterval(150*time.Millisecond),            // bookkeeping interval
+		config.WithClusterMetadataRefreshInterval(100*time.Millisecond), // metadata refresh interval
+		config.WithClusterMetadataRefreshTimeout(5*time.Second),         // metadata refresh timeout
+	)
+
 	re := NewEngine(
-		"zone1",
 		ts,
 		logger,
-		[]WatchTarget{{Database: "mydb"}},
-		150*time.Millisecond, // bookkeeping interval
-		100*time.Millisecond, // metadata refresh interval
-		5*time.Second,        // metadata refresh timeout
+		cfg,
+		[]config.WatchTarget{{Database: "mydb"}},
 	)
 
 	// Add pooler to topology BEFORE starting
