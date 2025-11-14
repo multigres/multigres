@@ -76,16 +76,16 @@ func (pm *MultiPoolerManager) BeginTerm(ctx context.Context, req *consensusdatap
 		return response, nil
 	}
 
-	// Check if we've already accepted a different candidate in this term
-	if req.Term == currentTerm && term != nil && term.AcceptedLeader != nil {
+	// Check if we've already accepted this term from a different coordinator
+	if req.Term == currentTerm && term != nil && term.AcceptedTermFromCoordinatorId != nil {
 		// Compare full ID (component, cell, name) not just name
-		if !proto.Equal(term.AcceptedLeader, req.CandidateId) {
+		if !proto.Equal(term.AcceptedTermFromCoordinatorId, req.CandidateId) {
 			return response, nil
 		}
 	}
 
 	// Update term if needed (only if req.Term > currentTerm)
-	// This will reset AcceptedLeader to nil
+	// This will reset AcceptedTermFromCoordinatorId to nil
 	if req.Term > currentTerm {
 		if err := pm.validateAndUpdateTerm(ctx, req.Term, false); err != nil {
 			return nil, fmt.Errorf("failed to update term: %w", err)
@@ -108,9 +108,9 @@ func (pm *MultiPoolerManager) BeginTerm(ctx context.Context, req *consensusdatap
 		}
 	}
 
-	// Accept candidate atomically (checks, saves to disk, updates memory)
+	// Accept term from coordinator atomically (checks, saves to disk, updates memory)
 	if err := cs.AcceptCandidateAndSave(ctx, req.CandidateId); err != nil {
-		return nil, fmt.Errorf("failed to accept candidate: %w", err)
+		return nil, fmt.Errorf("failed to accept term from coordinator: %w", err)
 	}
 
 	response.Accepted = true

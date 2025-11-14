@@ -2625,8 +2625,8 @@ type ConsensusTerm struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Term number for this consensus term
 	TermNumber int64 `protobuf:"varint,1,opt,name=term_number,json=termNumber,proto3" json:"term_number,omitempty"`
-	// ID of the pooler this replica accepted as leader
-	AcceptedLeader *clustermetadata.ID `protobuf:"bytes,2,opt,name=accepted_leader,json=acceptedLeader,proto3" json:"accepted_leader,omitempty"`
+	// ID of the coordinator (multiorch) that this node accepted the term from
+	AcceptedTermFromCoordinatorId *clustermetadata.ID `protobuf:"bytes,2,opt,name=accepted_term_from_coordinator_id,json=acceptedTermFromCoordinatorId,proto3" json:"accepted_term_from_coordinator_id,omitempty"`
 	// Timestamp of the last acceptance
 	LastAcceptanceTime *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=last_acceptance_time,json=lastAcceptanceTime,proto3" json:"last_acceptance_time,omitempty"`
 	// ID of the leader of the current term
@@ -2672,9 +2672,9 @@ func (x *ConsensusTerm) GetTermNumber() int64 {
 	return 0
 }
 
-func (x *ConsensusTerm) GetAcceptedLeader() *clustermetadata.ID {
+func (x *ConsensusTerm) GetAcceptedTermFromCoordinatorId() *clustermetadata.ID {
 	if x != nil {
-		return x.AcceptedLeader
+		return x.AcceptedTermFromCoordinatorId
 	}
 	return nil
 }
@@ -3556,11 +3556,11 @@ const file_multipoolermanagerdata_proto_rawDesc = "" +
 	"\rreload_config\x18\x03 \x01(\bR\freloadConfig\x12%\n" +
 	"\x0econsensus_term\x18\x04 \x01(\x03R\rconsensusTerm\x12\x14\n" +
 	"\x05force\x18\x05 \x01(\bR\x05force\"&\n" +
-	"$UpdateSynchronousStandbyListResponse\"\xee\x01\n" +
+	"$UpdateSynchronousStandbyListResponse\"\x8f\x02\n" +
 	"\rConsensusTerm\x12\x1f\n" +
 	"\vterm_number\x18\x01 \x01(\x03R\n" +
-	"termNumber\x12<\n" +
-	"\x0faccepted_leader\x18\x02 \x01(\v2\x13.clustermetadata.IDR\x0eacceptedLeader\x12L\n" +
+	"termNumber\x12]\n" +
+	"!accepted_term_from_coordinator_id\x18\x02 \x01(\v2\x13.clustermetadata.IDR\x1dacceptedTermFromCoordinatorId\x12L\n" +
 	"\x14last_acceptance_time\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\x12lastAcceptanceTime\x120\n" +
 	"\tleader_id\x18\x04 \x01(\v2\x13.clustermetadata.IDR\bleaderId\"F\n" +
 	"\x1dInitializeEmptyPrimaryRequest\x12%\n" +
@@ -3742,7 +3742,7 @@ var file_multipoolermanagerdata_proto_depIdxs = []int32{
 	47, // 28: multipoolermanagerdata.SetTermRequest.term:type_name -> multipoolermanagerdata.ConsensusTerm
 	2,  // 29: multipoolermanagerdata.UpdateSynchronousStandbyListRequest.operation:type_name -> multipoolermanagerdata.StandbyUpdateOperation
 	62, // 30: multipoolermanagerdata.UpdateSynchronousStandbyListRequest.standby_ids:type_name -> clustermetadata.ID
-	62, // 31: multipoolermanagerdata.ConsensusTerm.accepted_leader:type_name -> clustermetadata.ID
+	62, // 31: multipoolermanagerdata.ConsensusTerm.accepted_term_from_coordinator_id:type_name -> clustermetadata.ID
 	64, // 32: multipoolermanagerdata.ConsensusTerm.last_acceptance_time:type_name -> google.protobuf.Timestamp
 	62, // 33: multipoolermanagerdata.ConsensusTerm.leader_id:type_name -> clustermetadata.ID
 	60, // 34: multipoolermanagerdata.GetBackupsResponse.backups:type_name -> multipoolermanagerdata.BackupMetadata

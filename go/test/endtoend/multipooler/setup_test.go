@@ -537,10 +537,10 @@ archive_command = 'pgbackrest --stanza=%s --config=%s archive-push %%p'
 	// Initialize consensus term to 1 via multipooler manager API
 	t.Logf("Initializing consensus term to 1 for primary...")
 	initialTerm := &multipoolermanagerdatapb.ConsensusTerm{
-		TermNumber:         1,
-		AcceptedLeader:     nil,
-		LastAcceptanceTime: nil,
-		LeaderId:           nil,
+		TermNumber:                    1,
+		AcceptedTermFromCoordinatorId: nil,
+		LastAcceptanceTime:            nil,
+		LeaderId:                      nil,
 	}
 
 	ctx, cancel = context.WithTimeout(context.Background(), 1*time.Second)
@@ -665,10 +665,10 @@ func initializeStandby(t *testing.T, baseDir string, primaryPgctld *ProcessInsta
 	// Initialize consensus term to 1 via multipooler manager API
 	t.Logf("Initializing consensus term to 1 for standby...")
 	initialTerm := &multipoolermanagerdatapb.ConsensusTerm{
-		TermNumber:         1,
-		AcceptedLeader:     nil,
-		LastAcceptanceTime: nil,
-		LeaderId:           nil,
+		TermNumber:                    1,
+		AcceptedTermFromCoordinatorId: nil,
+		LastAcceptanceTime:            nil,
+		LeaderId:                      nil,
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
