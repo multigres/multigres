@@ -99,9 +99,6 @@ test: pb build
 test-short:
 	go test -short -v ./...
 
-test-short-race:
-	go test -short -race -v ./...
-
 # Clean build and dependencies
 clean-all: clean
 	echo "Removing build dependencies..."
