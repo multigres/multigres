@@ -60,12 +60,12 @@ func runIfNotRunning(logger *slog.Logger, inProgress *atomic.Bool, taskName stri
 //	│                                                                  │
 //	│  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐   │
 //	│  │ Healthcheck Loop│  │  Recovery Loop  │  │ Maintenance Loop│   │
-//	│  │  (5s)           │  │   (1s)          │  │   (1s)          │   │
+//	│  │  (5s)           │  │   (1s)          │  │                 │   │
 //	│  └────────┬────────┘  └────────┬────────┘  └────────┬────────┘   │
 //	│           │                    │                    │            │
 //	│           └────────────────────┼────────────────────┘            │
 //	│                                ▼                                 │
-//	│                        (TODO: State Store)                       │
+//	│                        (State Store)                             │
 //	└──────────────────────────────────────────────────────────────────┘
 //
 // # Loop Details
@@ -108,6 +108,30 @@ func runIfNotRunning(logger *slog.Logger, inProgress *atomic.Bool, taskName stri
 //	   - Ensures continuous health monitoring even if checks fail
 //
 //	The queue deduplicates entries, so a pooler can only be queued once at a time.
+//
+//	Health Check Queue Flow:
+//
+//	  ┌──────────────────────┐                  ┌──────────────────────┐
+//	  │  Metadata Refresh    │──new poolers  ─> │                      │
+//	  │  (periodic: 30s)     │                  │   Health Check       │
+//	  └──────────────────────┘                  │   Queue              │
+//	                                            │   (deduplicates)     │
+//	  ┌──────────────────────┐                  │                      │
+//	  │  Health Check Ticker │──stale checks -> │                      │
+//	  │  (periodic: 5s)      │                  └──────────┬───────────┘
+//	  └──────────────────────┘                             │
+//	                                                       │ consume
+//	                                                       ▼
+//	                                            ┌─────────────────────┐
+//	                                            │   Worker Pool       │
+//	                                            │   (N workers)       │
+//	                                            └──────────┬──────────┘
+//	                                                       │
+//	                                                       │ updates
+//	                                                       ▼
+//	                                            ┌──────────────────────┐
+//	                                            │   Pooler Store       │
+//	                                            └──────────────────────┘
 //
 // Recovery Loop:
 //
