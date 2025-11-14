@@ -26,6 +26,7 @@ import (
 	"go.opentelemetry.io/otel/metric"
 
 	"github.com/multigres/multigres/go/clustermetadata/topo"
+	"github.com/multigres/multigres/go/multiorch/config"
 	"github.com/multigres/multigres/go/multiorch/store"
 )
 
@@ -119,19 +120,19 @@ func runIfNotRunning(logger *slog.Logger, inProgress *atomic.Bool, taskName stri
 //	)
 //	engine.Start()
 type Engine struct {
-	cell   string
 	ts     topo.Store
 	logger *slog.Logger
+	config *config.Config
 
 	// In-memory state store
 	poolerStore *store.Store[string, *store.PoolerHealth]
 
+	// Health check queue for concurrent pooler polling
+	healthCheckQueue *Queue
+
 	// Current configuration values
-	mu                             sync.Mutex // protects shardWatchTargets
-	shardWatchTargets              []WatchTarget
-	bookkeepingInterval            time.Duration
-	clusterMetadataRefreshInterval time.Duration
-	clusterMetadataRefreshTimeout  time.Duration
+	mu                sync.Mutex // protects shardWatchTargets
+	shardWatchTargets []config.WatchTarget
 
 	// Config reloader for dynamic updates (only shardWatchTargets is dynamic)
 	reloadConfig func() []string
@@ -139,10 +140,21 @@ type Engine struct {
 	// Goroutine management - prevent pile-up of concurrent operations
 	metadataRefreshInProgress atomic.Bool
 	bookkeepingInProgress     atomic.Bool
+	healthCheckInProgress     atomic.Bool
+
+	// Cache for deduplication (prevents redundant health checks)
+	recentPollCache   map[string]time.Time
+	recentPollCacheMu sync.Mutex
 
 	// Metrics
-	poolerStoreSize metric.Int64ObservableGauge
-	refreshLatency  metric.Float64Histogram
+	poolerStoreSize           metric.Int64ObservableGauge
+	refreshLatency            metric.Float64Histogram
+	pollAttemptsCounter       metric.Int64Counter
+	pollFailuresCounter       metric.Int64Counter
+	poolerPollExceededCounter metric.Int64Counter
+	pollLatency               metric.Float64Histogram
+	healthCheckCycleDuration  metric.Float64Histogram
+	poolersCheckedPerCycle    metric.Int64Histogram
 
 	// Context for shutting down loops
 	ctx    context.Context
@@ -151,27 +163,23 @@ type Engine struct {
 
 // NewEngine creates a new RecoveryEngine instance.
 func NewEngine(
-	cell string,
 	ts topo.Store,
 	logger *slog.Logger,
-	shardWatchTargets []WatchTarget,
-	bookkeepingInterval time.Duration,
-	clusterMetadataRefreshInterval time.Duration,
-	clusterMetadataRefreshTimeout time.Duration,
+	config *config.Config,
+	shardWatchTargets []config.WatchTarget,
 ) *Engine {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	engine := &Engine{
-		cell:                           cell,
-		ts:                             ts,
-		logger:                         logger,
-		poolerStore:                    store.NewStore[string, *store.PoolerHealth](),
-		shardWatchTargets:              shardWatchTargets,
-		bookkeepingInterval:            bookkeepingInterval,
-		clusterMetadataRefreshInterval: clusterMetadataRefreshInterval,
-		clusterMetadataRefreshTimeout:  clusterMetadataRefreshTimeout,
-		ctx:                            ctx,
-		cancel:                         cancel,
+		ts:                ts,
+		logger:            logger,
+		config:            config,
+		poolerStore:       store.NewStore[string, *store.PoolerHealth](),
+		healthCheckQueue:  NewQueue(logger, config),
+		shardWatchTargets: shardWatchTargets,
+		recentPollCache:   make(map[string]time.Time),
+		ctx:               ctx,
+		cancel:            cancel,
 	}
 
 	// Initialize metrics
@@ -216,6 +224,66 @@ func (re *Engine) initMetrics() {
 	if err != nil {
 		re.logger.Error("failed to create refresh_latency histogram", "error", err)
 	}
+
+	// Counter for health check attempts
+	re.pollAttemptsCounter, err = meter.Int64Counter(
+		"multiorch.recovery.poll_attempts",
+		metric.WithDescription("Total number of pooler health check attempts"),
+		metric.WithUnit("{checks}"),
+	)
+	if err != nil {
+		re.logger.Error("failed to create poll_attempts counter", "error", err)
+	}
+
+	// Counter for health check failures
+	re.pollFailuresCounter, err = meter.Int64Counter(
+		"multiorch.recovery.poll_failures",
+		metric.WithDescription("Total number of pooler health check failures"),
+		metric.WithUnit("{failures}"),
+	)
+	if err != nil {
+		re.logger.Error("failed to create poll_failures counter", "error", err)
+	}
+
+	// Counter for polls exceeding interval
+	re.poolerPollExceededCounter, err = meter.Int64Counter(
+		"multiorch.recovery.poll_interval_exceeded",
+		metric.WithDescription("Number of health checks that exceeded the poll interval"),
+		metric.WithUnit("{checks}"),
+	)
+	if err != nil {
+		re.logger.Error("failed to create poll_interval_exceeded counter", "error", err)
+	}
+
+	// Histogram for individual poll latency
+	re.pollLatency, err = meter.Float64Histogram(
+		"multiorch.recovery.poll_latency",
+		metric.WithDescription("Latency of individual pooler health checks"),
+		metric.WithUnit("s"),
+	)
+	if err != nil {
+		re.logger.Error("failed to create poll_latency histogram", "error", err)
+	}
+
+	// Histogram for health check cycle duration
+	re.healthCheckCycleDuration, err = meter.Float64Histogram(
+		"multiorch.recovery.health_check_cycle_duration",
+		metric.WithDescription("Duration of complete health check cycles"),
+		metric.WithUnit("s"),
+	)
+	if err != nil {
+		re.logger.Error("failed to create health_check_cycle_duration histogram", "error", err)
+	}
+
+	// Histogram for poolers checked per cycle
+	re.poolersCheckedPerCycle, err = meter.Int64Histogram(
+		"multiorch.recovery.poolers_checked_per_cycle",
+		metric.WithDescription("Number of poolers checked per health check cycle"),
+		metric.WithUnit("{poolers}"),
+	)
+	if err != nil {
+		re.logger.Error("failed to create poolers_checked_per_cycle histogram", "error", err)
+	}
 }
 
 // SetConfigReloader sets the function to reload configuration dynamically.
@@ -228,15 +296,23 @@ func (re *Engine) SetConfigReloader(reloader func() []string) {
 // Start initializes and starts the RecoveryEngine loops.
 func (re *Engine) Start() error {
 	re.logger.Info("starting recovery engine",
-		"cell", re.cell,
+		"cell", re.config.GetCell(),
 		"watch_targets", re.shardWatchTargets,
-		"bookkeeping_interval", re.bookkeepingInterval,
-		"cluster_metadata_refresh_interval", re.clusterMetadataRefreshInterval,
-		"cluster_metadata_refresh_timeout", re.clusterMetadataRefreshTimeout,
+		"bookkeeping_interval", re.config.GetBookkeepingInterval(),
+		"cluster_metadata_refresh_interval", re.config.GetClusterMetadataRefreshInterval(),
+		"cluster_metadata_refresh_timeout", re.config.GetClusterMetadataRefreshTimeout(),
+		"pooler_health_check_interval", re.config.GetPoolerHealthCheckInterval(),
+		"health_check_workers", re.config.GetHealthCheckWorkers(),
 	)
+
+	// Start health check worker pool
+	re.startHealthCheckWorkers()
 
 	// Start maintenance loop (cluster metadata refresh + bookkeeping)
 	go re.runMaintenanceLoop()
+
+	// Start health check ticker loop (queues poolers for health checking)
+	go re.runHealthCheckTickerLoop()
 
 	re.logger.Info("recovery engine started successfully")
 	return nil
@@ -251,10 +327,10 @@ func (re *Engine) Stop() {
 // runMaintenanceLoop runs the cluster metadata refresh and bookkeeping tasks.
 // Supports dynamic reloading of shardWatchTargets via SetConfigReloader.
 func (re *Engine) runMaintenanceLoop() {
-	bookkeepingTicker := time.NewTicker(re.bookkeepingInterval)
+	bookkeepingTicker := time.NewTicker(re.config.GetBookkeepingInterval())
 	defer bookkeepingTicker.Stop()
 
-	metadataTicker := time.NewTicker(re.clusterMetadataRefreshInterval)
+	metadataTicker := time.NewTicker(re.config.GetClusterMetadataRefreshInterval())
 	defer metadataTicker.Stop()
 
 	re.logger.Info("maintenance loop started")
@@ -277,6 +353,35 @@ func (re *Engine) runMaintenanceLoop() {
 	}
 }
 
+// startHealthCheckWorkers starts the worker pool that consumes from the health check queue.
+// Each worker runs in its own goroutine and processes health checks concurrently.
+func (re *Engine) startHealthCheckWorkers() {
+	numWorkers := re.config.GetHealthCheckWorkers()
+	for i := 0; i < numWorkers; i++ {
+		go re.handlePoolerHealthChecks()
+	}
+	re.logger.Info("health check worker pool started", "workers", numWorkers)
+}
+
+// runHealthCheckTickerLoop periodically queues poolers for health checking.
+func (re *Engine) runHealthCheckTickerLoop() {
+	healthCheckTicker := time.NewTicker(re.config.GetPoolerHealthCheckInterval())
+	defer healthCheckTicker.Stop()
+
+	re.logger.Info("health check ticker loop started")
+
+	for {
+		select {
+		case <-re.ctx.Done():
+			re.logger.Info("health check ticker loop stopped")
+			return
+
+		case <-healthCheckTicker.C:
+			runIfNotRunning(re.logger, &re.healthCheckInProgress, "health_check_queue", re.queuePoolersHealthCheck)
+		}
+	}
+}
+
 // reloadConfigs checks for configuration changes and reloads if necessary.
 // Only shardWatchTargets can be reloaded; intervals require a restart.
 func (re *Engine) reloadConfigs() {
@@ -294,7 +399,7 @@ func (re *Engine) reloadConfigs() {
 	}
 
 	// Parse the raw strings into ShardWatchTarget structs
-	newTargets, err := ParseShardWatchTargets(rawTargets)
+	newTargets, err := config.ParseShardWatchTargets(rawTargets)
 	if err != nil {
 		re.logger.Error("failed to parse watch-targets during reload", "error", err)
 		return
@@ -314,12 +419,12 @@ func (re *Engine) reloadConfigs() {
 }
 
 // shardWatchTargetsEqual compares two ShardWatchTarget slices for equality.
-func shardWatchTargetsEqual(a, b []WatchTarget) bool {
+func shardWatchTargetsEqual(a, b []config.WatchTarget) bool {
 	return slices.Equal(a, b)
 }
 
 // shardWatchTargetsToStrings converts ShardWatchTargets to their string representations.
-func shardWatchTargetsToStrings(targets []WatchTarget) []string {
+func shardWatchTargetsToStrings(targets []config.WatchTarget) []string {
 	result := make([]string, len(targets))
 	for i, t := range targets {
 		result[i] = t.String()

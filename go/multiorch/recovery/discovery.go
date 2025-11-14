@@ -36,7 +36,7 @@ func (re *Engine) refreshClusterMetadata() {
 
 	// Create a timeout context for this refresh operation
 	// Use the configured timeout, but respect parent context cancellation
-	ctx, cancel := context.WithTimeout(re.ctx, re.clusterMetadataRefreshTimeout)
+	ctx, cancel := context.WithTimeout(re.ctx, re.config.GetClusterMetadataRefreshTimeout())
 	defer cancel()
 
 	// Get all cells
