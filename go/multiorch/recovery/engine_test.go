@@ -530,6 +530,7 @@ func TestRecoveryEngine_BookkeepingLoop_Integration(t *testing.T) {
 		config.WithBookkeepingInterval(100*time.Millisecond),     // bookkeeping interval - short for testing
 		config.WithClusterMetadataRefreshInterval(5*time.Second), // metadata refresh interval (not relevant for this test)
 		config.WithClusterMetadataRefreshTimeout(5*time.Second),  // metadata refresh timeout
+		config.WithHealthCheckWorkers(0),                         // no workers - we're not testing health checks
 	)
 
 	re := NewEngine(
@@ -616,6 +617,7 @@ func TestRecoveryEngine_FullIntegration(t *testing.T) {
 		config.WithBookkeepingInterval(150*time.Millisecond),            // bookkeeping interval
 		config.WithClusterMetadataRefreshInterval(100*time.Millisecond), // metadata refresh interval
 		config.WithClusterMetadataRefreshTimeout(5*time.Second),         // metadata refresh timeout
+		config.WithHealthCheckWorkers(0),                                // no workers - we're not testing health checks
 	)
 
 	re := NewEngine(

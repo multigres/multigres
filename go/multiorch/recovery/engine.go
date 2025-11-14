@@ -55,7 +55,7 @@ func runIfNotRunning(logger *slog.Logger, inProgress *atomic.Bool, taskName stri
 // The Engine runs three main loops operating at different intervals:
 //
 //	┌──────────────────────────────────────────────────────────────────┐
-//	│                        Engine                            │
+//	│                        Engine                                    │
 //	├──────────────────────────────────────────────────────────────────┤
 //	│                                                                  │
 //	│  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐   │

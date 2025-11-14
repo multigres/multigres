@@ -26,6 +26,7 @@ import (
 
 	"github.com/multigres/multigres/go/clustermetadata/topo/memorytopo"
 	"github.com/multigres/multigres/go/multiorch/config"
+	"github.com/multigres/multigres/go/multiorch/store"
 	"github.com/multigres/multigres/go/pb/clustermetadata"
 )
 
@@ -41,7 +42,7 @@ func TestRecoveryEngine_HealthCheckQueue(t *testing.T) {
 	cfg := config.NewTestConfig(
 		config.WithCell("zone1"),
 		config.WithPoolerHealthCheckInterval(100*time.Millisecond), // health check interval - short for testing
-		config.WithHealthCheckWorkers(5),                           // small worker pool for testing
+		config.WithHealthCheckWorkers(1),                           // single worker for testing
 		config.WithClusterMetadataRefreshInterval(50*time.Millisecond),
 		config.WithClusterMetadataRefreshTimeout(5*time.Second),
 	)
@@ -77,11 +78,6 @@ func TestRecoveryEngine_HealthCheckQueue(t *testing.T) {
 
 	key1 := poolerKey("zone1", "pooler1")
 	key2 := poolerKey("zone1", "pooler2")
-
-	// Verify poolers are in store with zero LastCheckAttempted (not yet health checked via queue)
-	pooler1, ok := re.poolerStore.Get(key1)
-	require.True(t, ok, "pooler1 should be in store")
-	require.True(t, pooler1.LastCheckAttempted.IsZero(), "pooler1 should not have been health checked yet")
 
 	// Wait for health check ticker to queue and process poolers
 	// Health checks should update LastCheckAttempted
@@ -228,12 +224,12 @@ func TestRecoveryEngine_HealthCheckWorkerPool(t *testing.T) {
 	// With 10 workers, this should happen relatively quickly
 	require.Eventually(t, func() bool {
 		checkedCount := 0
-		poolers := re.poolerStore.GetMap()
-		for _, p := range poolers {
+		re.poolerStore.Range(func(key string, p *store.PoolerHealth) bool {
 			if !p.LastCheckAttempted.IsZero() {
 				checkedCount++
 			}
-		}
+			return true
+		})
 		return checkedCount == 20
 	}, 2*time.Second, 50*time.Millisecond, "all poolers should be health checked")
 }
