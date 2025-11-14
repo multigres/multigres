@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package multiorch
+package recovery
 
 import (
 	"context"
@@ -22,7 +22,11 @@ import (
 	"sync/atomic"
 	"time"
 
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/metric"
+
 	"github.com/multigres/multigres/go/clustermetadata/topo"
+	"github.com/multigres/multigres/go/multiorch/store"
 )
 
 // runIfNotRunning executes fn in a goroutine only if inProgress flag is false.
@@ -39,18 +43,18 @@ func runIfNotRunning(logger *slog.Logger, inProgress *atomic.Bool, taskName stri
 	}()
 }
 
-// RecoveryEngine orchestrates health checking and automated recovery for Multigres poolers.
+// Engine orchestrates health checking and automated recovery for Multigres poolers.
 //
-// The RecoveryEngine provides high availability for Multigres
+// The Engine provides high availability for Multigres
 // by continuously monitoring pooler health and automatically
 // recovering from failures.
 //
 // # Architecture
 //
-// The RecoveryEngine runs three main loops operating at different intervals:
+// The Engine runs three main loops operating at different intervals:
 //
 //	┌──────────────────────────────────────────────────────────────────┐
-//	│                        RecoveryEngine                            │
+//	│                        Engine                            │
 //	├──────────────────────────────────────────────────────────────────┤
 //	│                                                                  │
 //	│  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐   │
@@ -97,7 +101,7 @@ func runIfNotRunning(logger *slog.Logger, inProgress *atomic.Bool, taskName stri
 //
 // # Configuration
 //
-// The RecoveryEngine requires:
+// The Engine requires:
 //   - watch-targets: List of database/tablegroup/shard targets to monitor
 //   - bookkeeping-interval: How often to run cleanup tasks (default: 1m)
 //   - cluster-metadata-refresh-interval: How often to refresh from topology (default: 15s)
@@ -105,7 +109,7 @@ func runIfNotRunning(logger *slog.Logger, inProgress *atomic.Bool, taskName stri
 //
 // Example:
 //
-//	engine := NewRecoveryEngine(
+//	engine := Engine(
 //	    "zone1",                          // cell
 //	    topoStore,                        // topology service
 //	    logger,                           // structured logger
@@ -114,10 +118,13 @@ func runIfNotRunning(logger *slog.Logger, inProgress *atomic.Bool, taskName stri
 //	    15*time.Second,                   // metadata refresh interval
 //	)
 //	engine.Start()
-type RecoveryEngine struct {
+type Engine struct {
 	cell   string
 	ts     topo.Store
 	logger *slog.Logger
+
+	// In-memory state store
+	poolerStore *store.Store[string, *store.PoolerHealth]
 
 	// Current configuration values
 	mu                             sync.Mutex // protects shardWatchTargets
@@ -133,13 +140,17 @@ type RecoveryEngine struct {
 	metadataRefreshInProgress atomic.Bool
 	bookkeepingInProgress     atomic.Bool
 
+	// Metrics
+	poolerStoreSize metric.Int64ObservableGauge
+	refreshLatency  metric.Float64Histogram
+
 	// Context for shutting down loops
 	ctx    context.Context
 	cancel context.CancelFunc
 }
 
-// NewRecoveryEngine creates a new RecoveryEngine instance.
-func NewRecoveryEngine(
+// NewEngine creates a new RecoveryEngine instance.
+func NewEngine(
 	cell string,
 	ts topo.Store,
 	logger *slog.Logger,
@@ -147,12 +158,14 @@ func NewRecoveryEngine(
 	bookkeepingInterval time.Duration,
 	clusterMetadataRefreshInterval time.Duration,
 	clusterMetadataRefreshTimeout time.Duration,
-) *RecoveryEngine {
+) *Engine {
 	ctx, cancel := context.WithCancel(context.Background())
-	return &RecoveryEngine{
+
+	engine := &Engine{
 		cell:                           cell,
 		ts:                             ts,
 		logger:                         logger,
+		poolerStore:                    store.NewStore[string, *store.PoolerHealth](),
 		shardWatchTargets:              shardWatchTargets,
 		bookkeepingInterval:            bookkeepingInterval,
 		clusterMetadataRefreshInterval: clusterMetadataRefreshInterval,
@@ -160,17 +173,60 @@ func NewRecoveryEngine(
 		ctx:                            ctx,
 		cancel:                         cancel,
 	}
+
+	// Initialize metrics
+	engine.initMetrics()
+
+	return engine
+}
+
+// initMetrics initializes OpenTelemetry metrics for the recovery engine.
+func (re *Engine) initMetrics() {
+	meter := otel.Meter("github.com/multigres/multigres/go/multiorch/recovery")
+
+	// Gauge for current pooler store size
+	var err error
+	re.poolerStoreSize, err = meter.Int64ObservableGauge(
+		"multiorch.recovery.pooler_store_size",
+		metric.WithDescription("Current number of poolers tracked in the recovery engine store"),
+		metric.WithUnit("{poolers}"),
+	)
+	if err != nil {
+		re.logger.Error("failed to create pooler_store_size gauge", "error", err)
+	}
+
+	// Register callback to update the gauge
+	_, err = meter.RegisterCallback(
+		func(ctx context.Context, observer metric.Observer) error {
+			observer.ObserveInt64(re.poolerStoreSize, int64(re.poolerStore.Len()))
+			return nil
+		},
+		re.poolerStoreSize,
+	)
+	if err != nil {
+		re.logger.Error("failed to register pooler_store_size callback", "error", err)
+	}
+
+	// Histogram for cluster metadata refresh latency
+	re.refreshLatency, err = meter.Float64Histogram(
+		"multiorch.recovery.refresh_latency",
+		metric.WithDescription("Latency of cluster metadata refresh operations"),
+		metric.WithUnit("s"),
+	)
+	if err != nil {
+		re.logger.Error("failed to create refresh_latency histogram", "error", err)
+	}
 }
 
 // SetConfigReloader sets the function to reload configuration dynamically.
 // The reloader function should return raw string targets (e.g., from viper).
 // Only shardWatchTargets can be reloaded; intervals require a restart.
-func (re *RecoveryEngine) SetConfigReloader(reloader func() []string) {
+func (re *Engine) SetConfigReloader(reloader func() []string) {
 	re.reloadConfig = reloader
 }
 
 // Start initializes and starts the RecoveryEngine loops.
-func (re *RecoveryEngine) Start() error {
+func (re *Engine) Start() error {
 	re.logger.Info("starting recovery engine",
 		"cell", re.cell,
 		"watch_targets", re.shardWatchTargets,
@@ -187,14 +243,14 @@ func (re *RecoveryEngine) Start() error {
 }
 
 // Stop gracefully shuts down the RecoveryEngine.
-func (re *RecoveryEngine) Stop() {
+func (re *Engine) Stop() {
 	re.logger.Info("stopping recovery engine")
 	re.cancel()
 }
 
 // runMaintenanceLoop runs the cluster metadata refresh and bookkeeping tasks.
 // Supports dynamic reloading of shardWatchTargets via SetConfigReloader.
-func (re *RecoveryEngine) runMaintenanceLoop() {
+func (re *Engine) runMaintenanceLoop() {
 	bookkeepingTicker := time.NewTicker(re.bookkeepingInterval)
 	defer bookkeepingTicker.Stop()
 
@@ -223,7 +279,7 @@ func (re *RecoveryEngine) runMaintenanceLoop() {
 
 // reloadConfigs checks for configuration changes and reloads if necessary.
 // Only shardWatchTargets can be reloaded; intervals require a restart.
-func (re *RecoveryEngine) reloadConfigs() {
+func (re *Engine) reloadConfigs() {
 	if re.reloadConfig == nil {
 		return
 	}
@@ -269,83 +325,4 @@ func shardWatchTargetsToStrings(targets []WatchTarget) []string {
 		result[i] = t.String()
 	}
 	return result
-}
-
-// refreshClusterMetadata queries the topology service for pooler updates.
-func (re *RecoveryEngine) refreshClusterMetadata() {
-	re.logger.Debug("refreshing cluster metadata")
-
-	// Create a timeout context for this refresh operation
-	// Use the configured timeout, but respect parent context cancellation
-	ctx, cancel := context.WithTimeout(re.ctx, re.clusterMetadataRefreshTimeout)
-	defer cancel()
-
-	// Get all cells
-	cells, err := re.ts.GetCellNames(ctx)
-	if err != nil {
-		re.logger.Error("failed to get cell names", "error", err)
-		return
-	}
-
-	// For each cell, query poolers matching our shard watch targets
-	totalPoolers := 0
-	for _, cell := range cells {
-		// Check for context cancellation (e.g., shutdown in progress)
-		select {
-		case <-ctx.Done():
-			re.logger.Info("cluster metadata refresh cancelled")
-			return
-		default:
-		}
-
-		cellPoolers := 0
-
-		// Get current targets (protected by mutex)
-		re.mu.Lock()
-		targets := re.shardWatchTargets
-		re.mu.Unlock()
-
-		// Query poolers for each watch target
-		for _, target := range targets {
-			opt := &topo.GetMultiPoolersByCellOptions{
-				DatabaseShard: &topo.DatabaseShard{
-					Database:   target.Database,
-					TableGroup: target.TableGroup, // empty = all tablegroups
-					Shard:      target.Shard,      // empty = all shards
-				},
-			}
-
-			poolers, err := re.ts.GetMultiPoolersByCell(ctx, cell, opt)
-			if err != nil {
-				re.logger.Error("failed to get poolers",
-					"cell", cell,
-					"target", target.String(),
-					"error", err,
-				)
-				continue
-			}
-			cellPoolers += len(poolers)
-		}
-
-		totalPoolers += cellPoolers
-		re.logger.Debug("discovered poolers", "cell", cell, "count", cellPoolers)
-	}
-
-	re.logger.Info("cluster metadata refresh complete",
-		"cells", len(cells),
-		"total_poolers", totalPoolers,
-	)
-}
-
-// runBookkeeping performs periodic bookkeeping tasks.
-func (re *RecoveryEngine) runBookkeeping() {
-	re.logger.Debug("running bookkeeping tasks")
-
-	// Reload configs first
-	go re.reloadConfigs()
-
-	// TODO: Add actual bookkeeping tasks in future PRs
-	// - Forget unseen poolers
-	// - Expire old recovery history
-	// - Clean up stale data
 }
