@@ -28,15 +28,15 @@ import (
 func TestForgetLongUnseenInstances_BrokenEntries(t *testing.T) {
 	engine := &Engine{
 		logger:      slog.Default(),
-		poolerStore: store.NewStore[string, *store.PoolerHealthCheckStatus](),
+		poolerStore: store.NewStore[string, *store.PoolerHealth](),
 	}
 
 	// Add broken entries
 	engine.poolerStore.Set("broken-nil-info", nil)
-	engine.poolerStore.Set("broken-nil-multipooler", &store.PoolerHealthCheckStatus{
+	engine.poolerStore.Set("broken-nil-multipooler", &store.PoolerHealth{
 		MultiPooler: nil,
 	})
-	engine.poolerStore.Set("broken-nil-id", &store.PoolerHealthCheckStatus{
+	engine.poolerStore.Set("broken-nil-id", &store.PoolerHealth{
 		MultiPooler: &clustermetadata.MultiPooler{
 			Id: nil,
 		},
@@ -54,14 +54,14 @@ func TestForgetLongUnseenInstances_BrokenEntries(t *testing.T) {
 func TestForgetLongUnseenInstances_NeverSeen(t *testing.T) {
 	engine := &Engine{
 		logger:      slog.Default(),
-		poolerStore: store.NewStore[string, *store.PoolerHealthCheckStatus](),
+		poolerStore: store.NewStore[string, *store.PoolerHealth](),
 	}
 
 	now := time.Now()
 	threshold := 4 * time.Hour
 
 	// Add pooler that was never successfully health checked, discovered > 4 hours ago
-	oldPooler := &store.PoolerHealthCheckStatus{
+	oldPooler := &store.PoolerHealth{
 		MultiPooler: &clustermetadata.MultiPooler{
 			Id: &clustermetadata.ID{
 				Component: clustermetadata.ID_MULTIPOOLER,
@@ -78,7 +78,7 @@ func TestForgetLongUnseenInstances_NeverSeen(t *testing.T) {
 	engine.poolerStore.Set("zone1/old-pooler", oldPooler)
 
 	// Add pooler that was never health checked, but discovered recently
-	recentPooler := &store.PoolerHealthCheckStatus{
+	recentPooler := &store.PoolerHealth{
 		MultiPooler: &clustermetadata.MultiPooler{
 			Id: &clustermetadata.ID{
 				Component: clustermetadata.ID_MULTIPOOLER,
@@ -93,7 +93,7 @@ func TestForgetLongUnseenInstances_NeverSeen(t *testing.T) {
 	engine.poolerStore.Set("zone1/recent-pooler", recentPooler)
 
 	// Add pooler with no attempts yet (should be skipped)
-	noAttempts := &store.PoolerHealthCheckStatus{
+	noAttempts := &store.PoolerHealth{
 		MultiPooler: &clustermetadata.MultiPooler{
 			Id: &clustermetadata.ID{
 				Component: clustermetadata.ID_MULTIPOOLER,
@@ -129,14 +129,14 @@ func TestForgetLongUnseenInstances_NeverSeen(t *testing.T) {
 func TestForgetLongUnseenInstances_LongUnseen(t *testing.T) {
 	engine := &Engine{
 		logger:      slog.Default(),
-		poolerStore: store.NewStore[string, *store.PoolerHealthCheckStatus](),
+		poolerStore: store.NewStore[string, *store.PoolerHealth](),
 	}
 
 	now := time.Now()
 	threshold := 4 * time.Hour
 
 	// Add pooler that was healthy but not seen in > 4 hours
-	oldHealthyPooler := &store.PoolerHealthCheckStatus{
+	oldHealthyPooler := &store.PoolerHealth{
 		MultiPooler: &clustermetadata.MultiPooler{
 			Id: &clustermetadata.ID{
 				Component: clustermetadata.ID_MULTIPOOLER,
@@ -153,7 +153,7 @@ func TestForgetLongUnseenInstances_LongUnseen(t *testing.T) {
 	engine.poolerStore.Set("zone1/old-healthy", oldHealthyPooler)
 
 	// Add pooler that was healthy and seen recently
-	recentHealthyPooler := &store.PoolerHealthCheckStatus{
+	recentHealthyPooler := &store.PoolerHealth{
 		MultiPooler: &clustermetadata.MultiPooler{
 			Id: &clustermetadata.ID{
 				Component: clustermetadata.ID_MULTIPOOLER,
@@ -188,14 +188,14 @@ func TestForgetLongUnseenInstances_LongUnseen(t *testing.T) {
 func TestForgetLongUnseenInstances_MixedScenario(t *testing.T) {
 	engine := &Engine{
 		logger:      slog.Default(),
-		poolerStore: store.NewStore[string, *store.PoolerHealthCheckStatus](),
+		poolerStore: store.NewStore[string, *store.PoolerHealth](),
 	}
 
 	now := time.Now()
 	threshold := 4 * time.Hour
 
 	// Add various poolers covering all cases
-	cases := map[string]*store.PoolerHealthCheckStatus{
+	cases := map[string]*store.PoolerHealth{
 		"broken": nil,
 		"never-seen-old": {
 			MultiPooler: &clustermetadata.MultiPooler{
@@ -274,7 +274,7 @@ func TestForgetLongUnseenInstances_MixedScenario(t *testing.T) {
 func TestForgetLongUnseenInstances_EmptyStore(t *testing.T) {
 	engine := &Engine{
 		logger:      slog.Default(),
-		poolerStore: store.NewStore[string, *store.PoolerHealthCheckStatus](),
+		poolerStore: store.NewStore[string, *store.PoolerHealth](),
 	}
 
 	// Run forget on empty store (should not panic)
@@ -286,14 +286,14 @@ func TestForgetLongUnseenInstances_EmptyStore(t *testing.T) {
 func TestRunBookkeeping(t *testing.T) {
 	engine := &Engine{
 		logger:      slog.Default(),
-		poolerStore: store.NewStore[string, *store.PoolerHealthCheckStatus](),
+		poolerStore: store.NewStore[string, *store.PoolerHealth](),
 	}
 
 	now := time.Now()
 	threshold := 4 * time.Hour
 
 	// Add an old pooler that should be forgotten
-	oldPooler := &store.PoolerHealthCheckStatus{
+	oldPooler := &store.PoolerHealth{
 		MultiPooler: &clustermetadata.MultiPooler{
 			Id: &clustermetadata.ID{
 				Component: clustermetadata.ID_MULTIPOOLER,

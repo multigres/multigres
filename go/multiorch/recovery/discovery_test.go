@@ -45,7 +45,7 @@ func TestDiscovery_DatabaseLevelWatch(t *testing.T) {
 	engine := &Engine{
 		logger:                        slog.Default(),
 		ts:                            ts,
-		poolerStore:                   store.NewStore[string, *store.PoolerHealthCheckStatus](),
+		poolerStore:                   store.NewStore[string, *store.PoolerHealth](),
 		shardWatchTargets:             []WatchTarget{{Database: "mydb"}},
 		clusterMetadataRefreshTimeout: 5 * time.Second,
 		ctx:                           context.Background(),
@@ -114,7 +114,7 @@ func TestDiscovery_TablegroupLevelWatch(t *testing.T) {
 	engine := &Engine{
 		logger:                        slog.Default(),
 		ts:                            ts,
-		poolerStore:                   store.NewStore[string, *store.PoolerHealthCheckStatus](),
+		poolerStore:                   store.NewStore[string, *store.PoolerHealth](),
 		shardWatchTargets:             []WatchTarget{{Database: "mydb", TableGroup: "tg1"}},
 		clusterMetadataRefreshTimeout: 5 * time.Second,
 		ctx:                           context.Background(),
@@ -174,7 +174,7 @@ func TestDiscovery_ShardLevelWatch(t *testing.T) {
 	engine := &Engine{
 		logger:                        slog.Default(),
 		ts:                            ts,
-		poolerStore:                   store.NewStore[string, *store.PoolerHealthCheckStatus](),
+		poolerStore:                   store.NewStore[string, *store.PoolerHealth](),
 		shardWatchTargets:             []WatchTarget{{Database: "mydb", TableGroup: "tg1", Shard: "0"}},
 		clusterMetadataRefreshTimeout: 5 * time.Second,
 		ctx:                           context.Background(),
@@ -253,7 +253,7 @@ func TestDiscovery_PreservesTimestamps(t *testing.T) {
 	engine := &Engine{
 		logger:                        slog.Default(),
 		ts:                            ts,
-		poolerStore:                   store.NewStore[string, *store.PoolerHealthCheckStatus](),
+		poolerStore:                   store.NewStore[string, *store.PoolerHealth](),
 		shardWatchTargets:             []WatchTarget{{Database: "mydb"}},
 		clusterMetadataRefreshTimeout: 5 * time.Second,
 		ctx:                           context.Background(),
@@ -319,7 +319,7 @@ func TestDiscovery_MultipleWatchTargets(t *testing.T) {
 	engine := &Engine{
 		logger:      slog.Default(),
 		ts:          ts,
-		poolerStore: store.NewStore[string, *store.PoolerHealthCheckStatus](),
+		poolerStore: store.NewStore[string, *store.PoolerHealth](),
 		shardWatchTargets: []WatchTarget{
 			{Database: "db1"},                                // Watch entire database
 			{Database: "db2", TableGroup: "tg1"},             // Watch specific tablegroup
@@ -382,7 +382,7 @@ func TestDiscovery_EmptyTopology(t *testing.T) {
 	engine := &Engine{
 		logger:                        slog.Default(),
 		ts:                            ts,
-		poolerStore:                   store.NewStore[string, *store.PoolerHealthCheckStatus](),
+		poolerStore:                   store.NewStore[string, *store.PoolerHealth](),
 		shardWatchTargets:             []WatchTarget{{Database: "mydb"}},
 		clusterMetadataRefreshTimeout: 5 * time.Second,
 		ctx:                           context.Background(),

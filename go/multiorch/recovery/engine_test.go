@@ -505,7 +505,7 @@ func TestRecoveryEngine_BookkeepingLoop_Integration(t *testing.T) {
 	// Add poolers to store BEFORE starting engine
 	key1 := poolerKey("zone1", "old-pooler")
 	oldTime := time.Now().Add(-5 * time.Hour) // 5 hours ago (> 4 hour threshold)
-	re.poolerStore.Set(key1, &store.PoolerHealthCheckStatus{
+	re.poolerStore.Set(key1, &store.PoolerHealth{
 		MultiPooler: &clustermetadata.MultiPooler{
 			Id:       &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "old-pooler"},
 			Database: "mydb", TableGroup: "tg1", Shard: "0",
@@ -517,7 +517,7 @@ func TestRecoveryEngine_BookkeepingLoop_Integration(t *testing.T) {
 	})
 
 	key2 := poolerKey("zone1", "never-seen")
-	re.poolerStore.Set(key2, &store.PoolerHealthCheckStatus{
+	re.poolerStore.Set(key2, &store.PoolerHealth{
 		MultiPooler: &clustermetadata.MultiPooler{
 			Id:       &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "never-seen"},
 			Database: "mydb", TableGroup: "tg1", Shard: "1",
@@ -529,7 +529,7 @@ func TestRecoveryEngine_BookkeepingLoop_Integration(t *testing.T) {
 
 	key3 := poolerKey("zone1", "healthy-pooler")
 	recentTime := time.Now().Add(-1 * time.Hour) // 1 hour ago (< 4 hour threshold)
-	re.poolerStore.Set(key3, &store.PoolerHealthCheckStatus{
+	re.poolerStore.Set(key3, &store.PoolerHealth{
 		MultiPooler: &clustermetadata.MultiPooler{
 			Id:       &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "healthy-pooler"},
 			Database: "mydb", TableGroup: "tg1", Shard: "2",
@@ -594,7 +594,7 @@ func TestRecoveryEngine_FullIntegration(t *testing.T) {
 	// Add an old pooler to store BEFORE starting
 	keyOld := poolerKey("zone1", "old-pooler")
 	oldTime := time.Now().Add(-5 * time.Hour)
-	re.poolerStore.Set(keyOld, &store.PoolerHealthCheckStatus{
+	re.poolerStore.Set(keyOld, &store.PoolerHealth{
 		MultiPooler: &clustermetadata.MultiPooler{
 			Id:       &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "old-pooler"},
 			Database: "mydb", TableGroup: "tg1", Shard: "1",

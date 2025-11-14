@@ -20,6 +20,18 @@ import (
 
 // Store is a generic thread-safe in-memory key-value store.
 // It can be used to store any type of value indexed by any comparable key.
+//
+// Design rationale:
+// While sync.Map could be used here, this custom data structure provides a more
+// flexible API tailored to our access patterns. sync.Map is optimized for
+// "write-once, read-many" scenarios with minimal write contention. In contrast,
+// the recovery engine experiences frequent writes (health check updates, topology
+// changes, bookkeeping operations), making sync.Map's optimizations less effective.
+//
+// This abstraction provides flexibility for future optimizations if contention
+// becomes a bottleneck:
+// - Range locks or per-key locking for finer-grained concurrency
+// - Channel-based write batching to reduce lock contention
 type Store[K comparable, V any] struct {
 	mu    sync.Mutex
 	items map[K]V
@@ -56,9 +68,9 @@ func (s *Store[K, V]) Delete(key K) bool {
 	return existed
 }
 
-// GetAll returns a snapshot of all values in the store.
+// GetAllValues returns a snapshot of all values in the store.
 // The order is not guaranteed.
-func (s *Store[K, V]) GetAll() []V {
+func (s *Store[K, V]) GetAllValues() []V {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -83,8 +95,8 @@ func (s *Store[K, V]) Clear() {
 	s.items = make(map[K]V)
 }
 
-// GetAllWithKeys returns a snapshot of all key-value pairs in the store as a map.
-func (s *Store[K, V]) GetAllWithKeys() map[K]V {
+// GetMap returns a snapshot of all key-value pairs in the store as a map.
+func (s *Store[K, V]) GetMap() map[K]V {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 

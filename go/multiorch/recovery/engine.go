@@ -124,7 +124,7 @@ type Engine struct {
 	logger *slog.Logger
 
 	// In-memory state store
-	poolerStore *store.Store[string, *store.PoolerHealthCheckStatus]
+	poolerStore *store.Store[string, *store.PoolerHealth]
 
 	// Current configuration values
 	mu                             sync.Mutex // protects shardWatchTargets
@@ -165,7 +165,7 @@ func NewEngine(
 		cell:                           cell,
 		ts:                             ts,
 		logger:                         logger,
-		poolerStore:                    store.NewStore[string, *store.PoolerHealthCheckStatus](),
+		poolerStore:                    store.NewStore[string, *store.PoolerHealth](),
 		shardWatchTargets:              shardWatchTargets,
 		bookkeepingInterval:            bookkeepingInterval,
 		clusterMetadataRefreshInterval: clusterMetadataRefreshInterval,

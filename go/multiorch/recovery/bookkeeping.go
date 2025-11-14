@@ -44,7 +44,7 @@ func (re *Engine) forgetLongUnseenInstances() {
 	now := time.Now()
 	cutoff := now.Add(-threshold)
 
-	allPoolers := re.poolerStore.GetAllWithKeys()
+	allPoolers := re.poolerStore.GetMap()
 	storeSize := len(allPoolers)
 
 	// Warn if store gets too large - operator should consider splitting watchers

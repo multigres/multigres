@@ -24,11 +24,11 @@ import (
 )
 
 func TestStore_BasicOperations(t *testing.T) {
-	store := NewStore[string, *PoolerHealthCheckStatus]()
+	store := NewStore[string, *PoolerHealth]()
 
 	// Test Set and Get
 	poolerID := "zone1/multipooler-1"
-	info := &PoolerHealthCheckStatus{
+	info := &PoolerHealth{
 		MultiPooler: &clustermetadata.MultiPooler{
 			Id: &clustermetadata.ID{
 				Component: clustermetadata.ID_MULTIPOOLER,
@@ -59,10 +59,10 @@ func TestStore_BasicOperations(t *testing.T) {
 }
 
 func TestStore_Delete(t *testing.T) {
-	store := NewStore[string, *PoolerHealthCheckStatus]()
+	store := NewStore[string, *PoolerHealth]()
 
 	key := "test-key"
-	info := &PoolerHealthCheckStatus{
+	info := &PoolerHealth{
 		MultiPooler: &clustermetadata.MultiPooler{
 			Id: &clustermetadata.ID{
 				Component: clustermetadata.ID_MULTIPOOLER,
@@ -91,12 +91,12 @@ func TestStore_Delete(t *testing.T) {
 }
 
 func TestStore_GetAll(t *testing.T) {
-	store := NewStore[string, *PoolerHealthCheckStatus]()
+	store := NewStore[string, *PoolerHealth]()
 
 	// Add multiple items
 	for i := 0; i < 3; i++ {
 		key := string(rune('a' + i))
-		info := &PoolerHealthCheckStatus{
+		info := &PoolerHealth{
 			MultiPooler: &clustermetadata.MultiPooler{
 				Id: &clustermetadata.ID{
 					Component: clustermetadata.ID_MULTIPOOLER,
@@ -108,19 +108,19 @@ func TestStore_GetAll(t *testing.T) {
 		store.Set(key, info)
 	}
 
-	all := store.GetAll()
+	all := store.GetAllValues()
 	require.Len(t, all, 3)
 }
 
 func TestStore_Len(t *testing.T) {
-	store := NewStore[string, *PoolerHealthCheckStatus]()
+	store := NewStore[string, *PoolerHealth]()
 
 	require.Equal(t, 0, store.Len())
 
-	store.Set("key1", &PoolerHealthCheckStatus{})
+	store.Set("key1", &PoolerHealth{})
 	require.Equal(t, 1, store.Len())
 
-	store.Set("key2", &PoolerHealthCheckStatus{})
+	store.Set("key2", &PoolerHealth{})
 	require.Equal(t, 2, store.Len())
 
 	store.Delete("key1")
@@ -128,11 +128,11 @@ func TestStore_Len(t *testing.T) {
 }
 
 func TestStore_Clear(t *testing.T) {
-	store := NewStore[string, *PoolerHealthCheckStatus]()
+	store := NewStore[string, *PoolerHealth]()
 
 	// Add items
-	store.Set("key1", &PoolerHealthCheckStatus{})
-	store.Set("key2", &PoolerHealthCheckStatus{})
+	store.Set("key1", &PoolerHealth{})
+	store.Set("key2", &PoolerHealth{})
 	require.Equal(t, 2, store.Len())
 
 	// Clear
@@ -157,18 +157,18 @@ func TestStore_GenericTypes(t *testing.T) {
 	require.Equal(t, 2, intStore.Len())
 }
 
-func TestStore_GetAllWithKeys(t *testing.T) {
-	store := NewStore[string, *PoolerHealthCheckStatus]()
+func TestStore_GetMap(t *testing.T) {
+	store := NewStore[string, *PoolerHealth]()
 
 	// Test empty store
-	all := store.GetAllWithKeys()
+	all := store.GetMap()
 	require.Empty(t, all)
 
 	// Add multiple items
-	poolers := make(map[string]*PoolerHealthCheckStatus)
+	poolers := make(map[string]*PoolerHealth)
 	for i := 0; i < 3; i++ {
 		key := string(rune('a' + i))
-		info := &PoolerHealthCheckStatus{
+		info := &PoolerHealth{
 			MultiPooler: &clustermetadata.MultiPooler{
 				Id: &clustermetadata.ID{
 					Component: clustermetadata.ID_MULTIPOOLER,
@@ -183,7 +183,7 @@ func TestStore_GetAllWithKeys(t *testing.T) {
 	}
 
 	// Get all with keys
-	all = store.GetAllWithKeys()
+	all = store.GetMap()
 	require.Len(t, all, 3)
 
 	// Verify all keys and values are present
@@ -195,12 +195,12 @@ func TestStore_GetAllWithKeys(t *testing.T) {
 	}
 
 	// Verify modifications to returned map don't affect store
-	all["new-key"] = &PoolerHealthCheckStatus{}
+	all["new-key"] = &PoolerHealth{}
 	require.Equal(t, 3, store.Len(), "modifications to returned map should not affect store")
 
 	// Delete an item and verify
 	store.Delete("a")
-	all = store.GetAllWithKeys()
+	all = store.GetMap()
 	require.Len(t, all, 2)
 	_, ok := all["a"]
 	require.False(t, ok, "deleted key should not be in result")
