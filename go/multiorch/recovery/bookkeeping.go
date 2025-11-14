@@ -17,6 +17,8 @@ package recovery
 import (
 	"fmt"
 	"time"
+
+	"github.com/multigres/multigres/go/multiorch/store"
 )
 
 // runBookkeeping performs periodic bookkeeping tasks.
@@ -44,8 +46,7 @@ func (re *Engine) forgetLongUnseenInstances() {
 	now := time.Now()
 	cutoff := now.Add(-threshold)
 
-	allPoolers := re.poolerStore.GetMap()
-	storeSize := len(allPoolers)
+	storeSize := re.poolerStore.Len()
 
 	// Warn if store gets too large - operator should consider splitting watchers
 	if storeSize > 1000 {
@@ -60,14 +61,28 @@ func (re *Engine) forgetLongUnseenInstances() {
 	forgottenNeverSeen := 0
 	forgottenLongGone := 0
 
-	for poolerID, poolerInfo := range allPoolers {
+	// Collect entries to delete (can't delete while iterating due to lock)
+	type deleteEntry struct {
+		poolerID   string
+		auditType  string
+		database   string
+		tableGroup string
+		shard      string
+		message    string
+	}
+	var toDelete []deleteEntry
+
+	// Iterate using Range() to hold lock during iteration
+	re.poolerStore.Range(func(poolerID string, poolerInfo *store.PoolerHealth) bool {
 		// Case 0: Broken entry (should never happen)
 		if poolerInfo == nil || poolerInfo.MultiPooler == nil || poolerInfo.MultiPooler.Id == nil {
-			re.audit("forget-broken-entry", poolerID, "", "", "",
-				"removing broken pooler entry (nil pointers)")
-			re.poolerStore.Delete(poolerID)
+			toDelete = append(toDelete, deleteEntry{
+				poolerID:  poolerID,
+				auditType: "forget-broken-entry",
+				message:   "removing broken pooler entry (nil pointers)",
+			})
 			forgottenBroken++
-			continue
+			return true // continue iteration
 		}
 
 		database := poolerInfo.MultiPooler.Database
@@ -80,21 +95,38 @@ func (re *Engine) forgetLongUnseenInstances() {
 			// so we use LastCheckAttempted as a proxy, or skip if both are zero)
 			if poolerInfo.LastCheckAttempted.IsZero() {
 				// No attempts yet, skip for now
-				continue
+				return true // continue iteration
 			}
 			if poolerInfo.LastCheckAttempted.Before(cutoff) {
-				re.audit("forget-never-seen", poolerID, database, tableGroup, shard,
-					"removing pooler that was never successfully health checked after 4 hours")
-				re.poolerStore.Delete(poolerID)
+				toDelete = append(toDelete, deleteEntry{
+					poolerID:   poolerID,
+					auditType:  "forget-never-seen",
+					database:   database,
+					tableGroup: tableGroup,
+					shard:      shard,
+					message:    "removing pooler that was never successfully health checked after 4 hours",
+				})
 				forgottenNeverSeen++
 			}
 		} else if poolerInfo.LastSeen.Before(cutoff) {
 			// Case 2: Was previously healthy but not seen in 4+ hours
-			re.audit("forget-long-unseen", poolerID, database, tableGroup, shard,
-				fmt.Sprintf("removing pooler not seen for %s", now.Sub(poolerInfo.LastSeen).Round(time.Second)))
-			re.poolerStore.Delete(poolerID)
+			toDelete = append(toDelete, deleteEntry{
+				poolerID:   poolerID,
+				auditType:  "forget-long-unseen",
+				database:   database,
+				tableGroup: tableGroup,
+				shard:      shard,
+				message:    fmt.Sprintf("removing pooler not seen for %s", now.Sub(poolerInfo.LastSeen).Round(time.Second)),
+			})
 			forgottenLongGone++
 		}
+		return true // continue iteration
+	})
+
+	// Now delete the entries (outside the iteration)
+	for _, entry := range toDelete {
+		re.audit(entry.auditType, entry.poolerID, entry.database, entry.tableGroup, entry.shard, entry.message)
+		re.poolerStore.Delete(entry.poolerID)
 	}
 
 	if forgottenBroken > 0 || forgottenNeverSeen > 0 || forgottenLongGone > 0 {

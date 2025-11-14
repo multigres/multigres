@@ -68,19 +68,6 @@ func (s *Store[K, V]) Delete(key K) bool {
 	return existed
 }
 
-// GetAllValues returns a snapshot of all values in the store.
-// The order is not guaranteed.
-func (s *Store[K, V]) GetAllValues() []V {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	result := make([]V, 0, len(s.items))
-	for _, v := range s.items {
-		result = append(result, v)
-	}
-	return result
-}
-
 // Len returns the number of items in the store.
 func (s *Store[K, V]) Len() int {
 	s.mu.Lock()
@@ -95,14 +82,22 @@ func (s *Store[K, V]) Clear() {
 	s.items = make(map[K]V)
 }
 
-// GetMap returns a snapshot of all key-value pairs in the store as a map.
-func (s *Store[K, V]) GetMap() map[K]V {
+// Range iterates over all key-value pairs in the store while holding the lock.
+// The iteration stops early if the callback function returns false.
+//
+// Example:
+//
+//	store.Range(func(key string, value PoolerHealth) bool {
+//	    // Process key and value
+//	    return true  // continue iteration
+//	})
+func (s *Store[K, V]) Range(fn func(key K, value V) bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	result := make(map[K]V, len(s.items))
 	for k, v := range s.items {
-		result[k] = v
+		if !fn(k, v) {
+			return
+		}
 	}
-	return result
 }
