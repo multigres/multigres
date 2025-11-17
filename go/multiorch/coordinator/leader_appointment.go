@@ -261,25 +261,61 @@ func (c *Coordinator) recruitNodes(ctx context.Context, cohort []*Node, term int
 	return recruited, nil
 }
 
+// buildSyncReplicationConfig creates synchronous replication configuration based on the quorum policy.
+// Returns nil if synchronous replication should not be configured (required_count=1 or no standbys).
+func (c *Coordinator) buildSyncReplicationConfig(quorumRule *clustermetadatapb.QuorumRule, standbys []*Node) *multipoolermanagerdatapb.ConfigureSynchronousReplicationRequest {
+	requiredCount := int(quorumRule.RequiredCount)
+
+	// If required_count is 1 or there are no standbys, don't configure synchronous replication
+	// With required_count=1, only the primary itself is needed for quorum, so async replication is sufficient
+	if requiredCount == 1 || len(standbys) == 0 {
+		c.logger.Info("Skipping synchronous replication configuration",
+			"required_count", requiredCount,
+			"standbys_count", len(standbys),
+			"reason", "async replication sufficient for quorum")
+		return nil
+	}
+
+	// Calculate num_sync: required_count - 1 (since primary counts as 1)
+	// This ensures that primary + num_sync standbys = required_count total nodes
+	numSync := int32(requiredCount - 1)
+
+	// Cap num_sync at the number of available standbys
+	if int(numSync) > len(standbys) {
+		c.logger.Warn("Not enough standbys for required sync count, using all available",
+			"required_num_sync", numSync,
+			"available_standbys", len(standbys))
+		numSync = int32(len(standbys))
+	}
+
+	// Convert standby nodes to IDs
+	standbyIDs := make([]*clustermetadatapb.ID, len(standbys))
+	for i, standby := range standbys {
+		standbyIDs[i] = standby.ID
+	}
+
+	c.logger.Info("Configuring synchronous replication",
+		"quorum_type", quorumRule.QuorumType,
+		"required_count", requiredCount,
+		"num_sync", numSync,
+		"total_standbys", len(standbys))
+
+	return &multipoolermanagerdatapb.ConfigureSynchronousReplicationRequest{
+		SynchronousCommit: multipoolermanagerdatapb.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_REMOTE_WRITE,
+		SynchronousMethod: multipoolermanagerdatapb.SynchronousMethod_SYNCHRONOUS_METHOD_ANY,
+		NumSync:           numSync,
+		StandbyIds:        standbyIDs,
+		ReloadConfig:      true,
+	}
+}
+
 // Propagate implements stage 5 of the consensus protocol:
 // - Promote the candidate to primary
 // - Configure standbys to replicate from the new primary
-// - Wait for quorum to catch up (optional, based on sync replication config)
-func (c *Coordinator) Propagate(ctx context.Context, candidate *Node, standbys []*Node, term int64) error {
-	// Build synchronous replication configuration
-	// For now, use FIRST method with all standbys
-	syncConfig := &multipoolermanagerdatapb.ConfigureSynchronousReplicationRequest{
-		SynchronousCommit: multipoolermanagerdatapb.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_REMOTE_APPLY,
-		SynchronousMethod: multipoolermanagerdatapb.SynchronousMethod_SYNCHRONOUS_METHOD_FIRST,
-		NumSync:           int32(len(standbys)),
-		StandbyIds:        make([]*clustermetadatapb.ID, len(standbys)),
-		ReloadConfig:      true,
-	}
-
-	// Convert standby IDs to the format expected by the RPC
-	for i, standby := range standbys {
-		syncConfig.StandbyIds[i] = standby.ID
-	}
+// - Configure synchronous replication based on quorum policy
+func (c *Coordinator) Propagate(ctx context.Context, candidate *Node, standbys []*Node, term int64, quorumRule *clustermetadatapb.QuorumRule) error {
+	// Build synchronous replication configuration based on quorum policy
+	syncConfig := c.buildSyncReplicationConfig(quorumRule, standbys)
 
 	// Promote candidate to primary
 	c.logger.InfoContext(ctx, "Promoting candidate to primary",

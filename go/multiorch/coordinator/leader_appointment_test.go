@@ -489,7 +489,13 @@ func TestPropagate(t *testing.T) {
 			createMockNode("mp3", 5, "0/1000000", true, "standby"),
 		}
 
-		err := c.Propagate(ctx, candidate, standbys, 6)
+		quorumRule := &clustermetadatapb.QuorumRule{
+			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_ANY_N,
+			RequiredCount: 2,
+			Description:   "Test quorum",
+		}
+
+		err := c.Propagate(ctx, candidate, standbys, 6, quorumRule)
 		require.NoError(t, err)
 	})
 
@@ -520,7 +526,13 @@ func TestPropagate(t *testing.T) {
 			},
 		}
 
-		err := c.Propagate(ctx, candidate, standbys, 6)
+		quorumRule := &clustermetadatapb.QuorumRule{
+			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_ANY_N,
+			RequiredCount: 2,
+			Description:   "Test quorum",
+		}
+
+		err := c.Propagate(ctx, candidate, standbys, 6, quorumRule)
 		// Should succeed even though one standby failed
 		require.NoError(t, err)
 	})

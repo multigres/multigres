@@ -90,7 +90,7 @@ func (c *Coordinator) AppointLeader(ctx context.Context, shardID string, cohort 
 
 	// Stage 6: Propagate (setup replication within shard)
 	c.logger.InfoContext(ctx, "Stage 6: Propagating replication", "shard", shardID)
-	if err := c.Propagate(ctx, candidate, standbys, term); err != nil {
+	if err := c.Propagate(ctx, candidate, standbys, term, quorumRule); err != nil {
 		return mterrors.Wrap(err, "Propagate failed")
 	}
 

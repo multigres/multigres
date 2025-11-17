@@ -120,7 +120,10 @@ func CreateSidecarSchema(db *sql.DB) error {
 			is_active BOOLEAN NOT NULL DEFAULT true,
 			created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
 			updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-			UNIQUE (policy_name, policy_version)
+			UNIQUE (policy_name, policy_version),
+			CONSTRAINT quorum_rule_required_count_check CHECK (
+				(quorum_rule->>'required_count')::int >= 1
+			)
 		)
 	`)
 	if err != nil {
