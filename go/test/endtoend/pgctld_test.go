@@ -56,7 +56,7 @@ func getCachedPgctldBinary(t *testing.T) string {
 		}
 
 		cachedPgctldBinary = filepath.Join(tempDir, "pgctld")
-		buildCmd := exec.Command("go", "build", "-o", cachedPgctldBinary, "../../cmd/pgctld")
+		buildCmd := exec.Command("go", "build", "-cover", "-covermode=atomic", "-coverpkg=./..", "-o", cachedPgctldBinary, "../../cmd/pgctld")
 		buildOutput, err := buildCmd.CombinedOutput()
 		if err != nil {
 			pgctldBuildError = fmt.Errorf("failed to build pgctld binary: %v\nOutput: %s", err, string(buildOutput))
