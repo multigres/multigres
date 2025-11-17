@@ -263,7 +263,8 @@ func (c *Coordinator) recruitNodes(ctx context.Context, cohort []*Node, term int
 
 // buildSyncReplicationConfig creates synchronous replication configuration based on the quorum policy.
 // Returns nil if synchronous replication should not be configured (required_count=1 or no standbys).
-func (c *Coordinator) buildSyncReplicationConfig(quorumRule *clustermetadatapb.QuorumRule, standbys []*Node) *multipoolermanagerdatapb.ConfigureSynchronousReplicationRequest {
+// For MULTI_CELL_ANY_N policies, excludes standbys in the same cell as the candidate (primary).
+func (c *Coordinator) buildSyncReplicationConfig(quorumRule *clustermetadatapb.QuorumRule, standbys []*Node, candidate *Node) *multipoolermanagerdatapb.ConfigureSynchronousReplicationRequest {
 	requiredCount := int(quorumRule.RequiredCount)
 
 	// If required_count is 1 or there are no standbys, don't configure synchronous replication
@@ -276,21 +277,42 @@ func (c *Coordinator) buildSyncReplicationConfig(quorumRule *clustermetadatapb.Q
 		return nil
 	}
 
+	// For MULTI_CELL_ANY_N, filter out standbys in the same cell as the primary
+	// This ensures that synchronous replication requires acknowledgment from different cells
+	eligibleStandbys := standbys
+	if quorumRule.QuorumType == clustermetadatapb.QuorumType_QUORUM_TYPE_MULTI_CELL_ANY_N {
+		eligibleStandbys = c.filterStandbysByCell(candidate, standbys)
+
+		c.logger.Info("Filtered standbys for MULTI_CELL_ANY_N",
+			"candidate_cell", candidate.ID.Cell,
+			"total_standbys", len(standbys),
+			"eligible_standbys", len(eligibleStandbys),
+			"excluded_same_cell", len(standbys)-len(eligibleStandbys))
+
+		// If no eligible standbys remain after filtering, use async replication
+		if len(eligibleStandbys) == 0 {
+			c.logger.Warn("No eligible standbys in different cells, using async replication",
+				"candidate_cell", candidate.ID.Cell,
+				"total_standbys", len(standbys))
+			return nil
+		}
+	}
+
 	// Calculate num_sync: required_count - 1 (since primary counts as 1)
-	// This ensures that primary + num_sync standbys = required_count total nodes
+	// This ensures that primary + num_sync standbys = required_count total nodes/cells
 	numSync := int32(requiredCount - 1)
 
-	// Cap num_sync at the number of available standbys
-	if int(numSync) > len(standbys) {
+	// Cap num_sync at the number of available eligible standbys
+	if int(numSync) > len(eligibleStandbys) {
 		c.logger.Warn("Not enough standbys for required sync count, using all available",
 			"required_num_sync", numSync,
-			"available_standbys", len(standbys))
-		numSync = int32(len(standbys))
+			"available_standbys", len(eligibleStandbys))
+		numSync = int32(len(eligibleStandbys))
 	}
 
 	// Convert standby nodes to IDs
-	standbyIDs := make([]*clustermetadatapb.ID, len(standbys))
-	for i, standby := range standbys {
+	standbyIDs := make([]*clustermetadatapb.ID, len(eligibleStandbys))
+	for i, standby := range eligibleStandbys {
 		standbyIDs[i] = standby.ID
 	}
 
@@ -298,7 +320,7 @@ func (c *Coordinator) buildSyncReplicationConfig(quorumRule *clustermetadatapb.Q
 		"quorum_type", quorumRule.QuorumType,
 		"required_count", requiredCount,
 		"num_sync", numSync,
-		"total_standbys", len(standbys))
+		"total_standbys", len(eligibleStandbys))
 
 	return &multipoolermanagerdatapb.ConfigureSynchronousReplicationRequest{
 		SynchronousCommit: multipoolermanagerdatapb.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_REMOTE_WRITE,
@@ -309,13 +331,28 @@ func (c *Coordinator) buildSyncReplicationConfig(quorumRule *clustermetadatapb.Q
 	}
 }
 
+// filterStandbysByCell returns standbys that are NOT in the same cell as the candidate.
+// Used for MULTI_CELL_ANY_N to ensure synchronous replication spans multiple cells.
+func (c *Coordinator) filterStandbysByCell(candidate *Node, standbys []*Node) []*Node {
+	candidateCell := candidate.ID.Cell
+	filtered := make([]*Node, 0, len(standbys))
+
+	for _, standby := range standbys {
+		if standby.ID.Cell != candidateCell {
+			filtered = append(filtered, standby)
+		}
+	}
+
+	return filtered
+}
+
 // Propagate implements stage 5 of the consensus protocol:
 // - Promote the candidate to primary
 // - Configure standbys to replicate from the new primary
 // - Configure synchronous replication based on quorum policy
 func (c *Coordinator) Propagate(ctx context.Context, candidate *Node, standbys []*Node, term int64, quorumRule *clustermetadatapb.QuorumRule) error {
 	// Build synchronous replication configuration based on quorum policy
-	syncConfig := c.buildSyncReplicationConfig(quorumRule, standbys)
+	syncConfig := c.buildSyncReplicationConfig(quorumRule, standbys, candidate)
 
 	// Promote candidate to primary
 	c.logger.InfoContext(ctx, "Promoting candidate to primary",

@@ -29,6 +29,9 @@ func TestBuildSyncReplicationConfig(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 	c := &Coordinator{logger: logger}
 
+	// Default candidate for tests
+	candidate := createTestNode("primary", "cell-primary")
+
 	t.Run("required_count=1 returns nil (async replication)", func(t *testing.T) {
 		rule := &clustermetadatapb.QuorumRule{
 			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_ANY_N,
@@ -41,7 +44,7 @@ func TestBuildSyncReplicationConfig(t *testing.T) {
 			createTestNode("mp2", "cell1"),
 		}
 
-		config := c.buildSyncReplicationConfig(rule, standbys)
+		config := c.buildSyncReplicationConfig(rule, standbys, candidate)
 		require.Nil(t, config, "Should return nil for required_count=1")
 	})
 
@@ -54,7 +57,7 @@ func TestBuildSyncReplicationConfig(t *testing.T) {
 
 		standbys := []*Node{}
 
-		config := c.buildSyncReplicationConfig(rule, standbys)
+		config := c.buildSyncReplicationConfig(rule, standbys, candidate)
 		require.Nil(t, config, "Should return nil when no standbys")
 	})
 
@@ -69,7 +72,7 @@ func TestBuildSyncReplicationConfig(t *testing.T) {
 			createTestNode("mp1", "cell1"),
 		}
 
-		config := c.buildSyncReplicationConfig(rule, standbys)
+		config := c.buildSyncReplicationConfig(rule, standbys, candidate)
 		require.NotNil(t, config)
 		require.Equal(t, multipoolermanagerdatapb.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_REMOTE_WRITE, config.SynchronousCommit)
 		require.Equal(t, multipoolermanagerdatapb.SynchronousMethod_SYNCHRONOUS_METHOD_ANY, config.SynchronousMethod)
@@ -91,7 +94,7 @@ func TestBuildSyncReplicationConfig(t *testing.T) {
 			createTestNode("mp2", "cell1"),
 		}
 
-		config := c.buildSyncReplicationConfig(rule, standbys)
+		config := c.buildSyncReplicationConfig(rule, standbys, candidate)
 		require.NotNil(t, config)
 		require.Equal(t, int32(2), config.NumSync, "num_sync should be required_count - 1")
 		require.Len(t, config.StandbyIds, 2)
@@ -112,7 +115,7 @@ func TestBuildSyncReplicationConfig(t *testing.T) {
 			createTestNode("mp5", "cell1"),
 		}
 
-		config := c.buildSyncReplicationConfig(rule, standbys)
+		config := c.buildSyncReplicationConfig(rule, standbys, candidate)
 		require.NotNil(t, config)
 		require.Equal(t, int32(2), config.NumSync, "num_sync should be required_count - 1, not capped by standbys")
 		require.Len(t, config.StandbyIds, 5, "All standbys should be in the list")
@@ -130,7 +133,7 @@ func TestBuildSyncReplicationConfig(t *testing.T) {
 			createTestNode("mp2", "cell1"),
 		}
 
-		config := c.buildSyncReplicationConfig(rule, standbys)
+		config := c.buildSyncReplicationConfig(rule, standbys, candidate)
 		require.NotNil(t, config)
 		require.Equal(t, int32(2), config.NumSync, "num_sync should be capped at number of standbys")
 		require.Len(t, config.StandbyIds, 2)
@@ -149,7 +152,7 @@ func TestBuildSyncReplicationConfig(t *testing.T) {
 			createTestNode("mp3", "us-west-1c"),
 		}
 
-		config := c.buildSyncReplicationConfig(rule, standbys)
+		config := c.buildSyncReplicationConfig(rule, standbys, candidate)
 		require.NotNil(t, config)
 		require.Equal(t, int32(1), config.NumSync, "num_sync should be required_count - 1")
 		require.Len(t, config.StandbyIds, 3)
@@ -169,7 +172,7 @@ func TestBuildSyncReplicationConfig(t *testing.T) {
 			createTestNode("mp-gamma", "cell-c"),
 		}
 
-		config := c.buildSyncReplicationConfig(rule, standbys)
+		config := c.buildSyncReplicationConfig(rule, standbys, candidate)
 		require.NotNil(t, config)
 		require.Len(t, config.StandbyIds, 3)
 
@@ -191,7 +194,7 @@ func TestBuildSyncReplicationConfig(t *testing.T) {
 
 		standbys := []*Node{createTestNode("mp1", "cell1")}
 
-		config := c.buildSyncReplicationConfig(rule, standbys)
+		config := c.buildSyncReplicationConfig(rule, standbys, candidate)
 		require.NotNil(t, config)
 		require.Equal(t, multipoolermanagerdatapb.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_REMOTE_WRITE, config.SynchronousCommit)
 	})
@@ -207,7 +210,7 @@ func TestBuildSyncReplicationConfig(t *testing.T) {
 			createTestNode("mp2", "cell1"),
 		}
 
-		config := c.buildSyncReplicationConfig(rule, standbys)
+		config := c.buildSyncReplicationConfig(rule, standbys, candidate)
 		require.NotNil(t, config)
 		require.Equal(t, multipoolermanagerdatapb.SynchronousMethod_SYNCHRONOUS_METHOD_ANY, config.SynchronousMethod)
 	})
@@ -220,8 +223,134 @@ func TestBuildSyncReplicationConfig(t *testing.T) {
 
 		standbys := []*Node{createTestNode("mp1", "cell1")}
 
-		config := c.buildSyncReplicationConfig(rule, standbys)
+		config := c.buildSyncReplicationConfig(rule, standbys, candidate)
 		require.NotNil(t, config)
 		require.True(t, config.ReloadConfig)
+	})
+
+	// ========== MULTI_CELL_ANY_N Cell Filtering Tests ==========
+
+	t.Run("MULTI_CELL_ANY_N excludes same-cell standbys", func(t *testing.T) {
+		candidate := createTestNode("primary", "us-west-1a")
+		rule := &clustermetadatapb.QuorumRule{
+			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_MULTI_CELL_ANY_N,
+			RequiredCount: 2,
+			Description:   "Two cell quorum",
+		}
+
+		standbys := []*Node{
+			createTestNode("mp1", "us-west-1a"), // Same cell as primary - should be excluded
+			createTestNode("mp2", "us-west-1b"), // Different cell - should be included
+			createTestNode("mp3", "us-west-1c"), // Different cell - should be included
+		}
+
+		config := c.buildSyncReplicationConfig(rule, standbys, candidate)
+		require.NotNil(t, config)
+		require.Equal(t, int32(1), config.NumSync, "num_sync should be required_count - 1")
+		require.Len(t, config.StandbyIds, 2, "Should only include standbys from different cells")
+
+		// Verify excluded standby is not in the list
+		for _, id := range config.StandbyIds {
+			require.NotEqual(t, "mp1", id.Name, "mp1 should be excluded (same cell as primary)")
+		}
+
+		// Verify included standbys are present
+		names := make(map[string]bool)
+		for _, id := range config.StandbyIds {
+			names[id.Name] = true
+		}
+		require.True(t, names["mp2"], "mp2 should be included (different cell)")
+		require.True(t, names["mp3"], "mp3 should be included (different cell)")
+	})
+
+	t.Run("MULTI_CELL_ANY_N with all standbys in same cell returns nil", func(t *testing.T) {
+		candidate := createTestNode("primary", "us-west-1a")
+		rule := &clustermetadatapb.QuorumRule{
+			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_MULTI_CELL_ANY_N,
+			RequiredCount: 2,
+			Description:   "Two cell quorum",
+		}
+
+		standbys := []*Node{
+			createTestNode("mp1", "us-west-1a"), // Same cell as primary
+			createTestNode("mp2", "us-west-1a"), // Same cell as primary
+			createTestNode("mp3", "us-west-1a"), // Same cell as primary
+		}
+
+		config := c.buildSyncReplicationConfig(rule, standbys, candidate)
+		require.Nil(t, config, "Should return nil when all standbys are in same cell as primary")
+	})
+
+	t.Run("MULTI_CELL_ANY_N with mixed cells only includes different cells", func(t *testing.T) {
+		candidate := createTestNode("primary", "cell-a")
+		rule := &clustermetadatapb.QuorumRule{
+			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_MULTI_CELL_ANY_N,
+			RequiredCount: 3,
+			Description:   "Three cell quorum",
+		}
+
+		standbys := []*Node{
+			createTestNode("mp1", "cell-a"), // Same cell - excluded
+			createTestNode("mp2", "cell-a"), // Same cell - excluded
+			createTestNode("mp3", "cell-b"), // Different cell - included
+			createTestNode("mp4", "cell-c"), // Different cell - included
+			createTestNode("mp5", "cell-d"), // Different cell - included
+		}
+
+		config := c.buildSyncReplicationConfig(rule, standbys, candidate)
+		require.NotNil(t, config)
+		require.Equal(t, int32(2), config.NumSync, "num_sync should be required_count - 1")
+		require.Len(t, config.StandbyIds, 3, "Should only include 3 standbys from different cells")
+
+		// Verify no same-cell standbys are included
+		for _, id := range config.StandbyIds {
+			require.NotEqual(t, "cell-a", id.Cell, "No standbys from primary's cell should be included")
+		}
+	})
+
+	t.Run("MULTI_CELL_ANY_N insufficient different-cell standbys caps num_sync", func(t *testing.T) {
+		candidate := createTestNode("primary", "cell-a")
+		rule := &clustermetadatapb.QuorumRule{
+			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_MULTI_CELL_ANY_N,
+			RequiredCount: 4, // Would need 3 standbys
+			Description:   "Four cell quorum",
+		}
+
+		standbys := []*Node{
+			createTestNode("mp1", "cell-a"), // Same cell - excluded
+			createTestNode("mp2", "cell-b"), // Different cell - included
+			createTestNode("mp3", "cell-c"), // Different cell - included
+		}
+
+		config := c.buildSyncReplicationConfig(rule, standbys, candidate)
+		require.NotNil(t, config)
+		require.Equal(t, int32(2), config.NumSync, "num_sync should be capped at available different-cell standbys")
+		require.Len(t, config.StandbyIds, 2, "Should include all available different-cell standbys")
+	})
+
+	t.Run("ANY_N does NOT filter by cell (includes same-cell standbys)", func(t *testing.T) {
+		candidate := createTestNode("primary", "us-west-1a")
+		rule := &clustermetadatapb.QuorumRule{
+			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_ANY_N,
+			RequiredCount: 2,
+			Description:   "Two node quorum",
+		}
+
+		standbys := []*Node{
+			createTestNode("mp1", "us-west-1a"), // Same cell as primary - should be included for ANY_N
+			createTestNode("mp2", "us-west-1b"),
+		}
+
+		config := c.buildSyncReplicationConfig(rule, standbys, candidate)
+		require.NotNil(t, config)
+		require.Len(t, config.StandbyIds, 2, "ANY_N should include all standbys regardless of cell")
+
+		// Verify same-cell standby IS included for ANY_N
+		names := make(map[string]bool)
+		for _, id := range config.StandbyIds {
+			names[id.Name] = true
+		}
+		require.True(t, names["mp1"], "mp1 should be included for ANY_N (cell filtering only for MULTI_CELL)")
+		require.True(t, names["mp2"], "mp2 should be included")
 	})
 }
