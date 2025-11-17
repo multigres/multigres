@@ -26,6 +26,7 @@ import (
 	"github.com/multigres/multigres/go/clustermetadata/topo"
 	"github.com/multigres/multigres/go/clustermetadata/toporeg"
 	"github.com/multigres/multigres/go/multiorch/recovery"
+	"github.com/multigres/multigres/go/multipooler/rpcclient"
 	"github.com/multigres/multigres/go/servenv"
 	"github.com/multigres/multigres/go/viperutil"
 )
@@ -37,7 +38,9 @@ type MultiOrch struct {
 	// senv is the serving environment
 	senv *servenv.ServEnv
 	// topoConfig holds topology configuration
-	topoConfig   *topo.TopoConfig
+	topoConfig *topo.TopoConfig
+	// connConfig holds multipooler RPC client configuration
+	connConfig   *rpcclient.ConnConfig
 	ts           topo.Store
 	tr           *toporeg.TopoReg
 	serverStatus Status
@@ -69,6 +72,7 @@ func (mo *MultiOrch) RegisterFlags(fs *pflag.FlagSet) {
 	mo.senv.RegisterFlags(fs)
 	mo.grpcServer.RegisterFlags(fs)
 	mo.topoConfig.RegisterFlags(fs)
+	mo.connConfig.RegisterFlags(fs)
 }
 
 func NewMultiOrch() *MultiOrch {
@@ -106,6 +110,7 @@ func NewMultiOrch() *MultiOrch {
 		grpcServer: servenv.NewGrpcServer(reg),
 		senv:       servenv.NewServEnv(reg),
 		topoConfig: topo.NewTopoConfig(reg),
+		connConfig: rpcclient.NewConnConfig(reg),
 		serverStatus: Status{
 			Title: "Multiorch",
 			Links: []Link{

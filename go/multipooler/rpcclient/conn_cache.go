@@ -18,11 +18,13 @@ package rpcclient
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"sort"
 	"sync"
 	"time"
 
+	"github.com/spf13/pflag"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/metric"
 	"golang.org/x/sync/semaphore"
@@ -31,9 +33,76 @@ import (
 
 	consensuspb "github.com/multigres/multigres/go/pb/consensus"
 	multipoolermanagerpb "github.com/multigres/multigres/go/pb/multipoolermanager"
+	"github.com/multigres/multigres/go/viperutil"
 )
 
 const defaultCapacity = 100
+
+// ConnConfig holds configuration for multipooler RPC client connections.
+type ConnConfig struct {
+	capacity viperutil.Value[int]
+	cert     viperutil.Value[string]
+	key      viperutil.Value[string]
+	ca       viperutil.Value[string]
+	crl      viperutil.Value[string]
+	name     viperutil.Value[string]
+}
+
+// NewConnConfig creates a new ConnConfig with default values.
+func NewConnConfig(reg *viperutil.Registry) *ConnConfig {
+	return &ConnConfig{
+		capacity: viperutil.Configure(reg, "multipooler-grpc-connpool-size", viperutil.Options[int]{
+			Default:  defaultCapacity,
+			FlagName: "multipooler-grpc-connpool-size",
+			Dynamic:  false,
+		}),
+		cert: viperutil.Configure(reg, "multipooler-grpc-cert", viperutil.Options[string]{
+			Default:  "",
+			FlagName: "multipooler-grpc-cert",
+			Dynamic:  false,
+		}),
+		key: viperutil.Configure(reg, "multipooler-grpc-key", viperutil.Options[string]{
+			Default:  "",
+			FlagName: "multipooler-grpc-key",
+			Dynamic:  false,
+		}),
+		ca: viperutil.Configure(reg, "multipooler-grpc-ca", viperutil.Options[string]{
+			Default:  "",
+			FlagName: "multipooler-grpc-ca",
+			Dynamic:  false,
+		}),
+		crl: viperutil.Configure(reg, "multipooler-grpc-crl", viperutil.Options[string]{
+			Default:  "",
+			FlagName: "multipooler-grpc-crl",
+			Dynamic:  false,
+		}),
+		name: viperutil.Configure(reg, "multipooler-grpc-server-name", viperutil.Options[string]{
+			Default:  "",
+			FlagName: "multipooler-grpc-server-name",
+			Dynamic:  false,
+		}),
+	}
+}
+
+// RegisterFlags registers all multipooler RPC client flags with the given FlagSet.
+func (cc *ConnConfig) RegisterFlags(fs *pflag.FlagSet) {
+	fs.Int("multipooler-grpc-connpool-size", cc.capacity.Default(), "number of multipooler connections to pool")
+	fs.String("multipooler-grpc-cert", cc.cert.Default(), "the cert to use to connect to multipooler (not yet implemented)")
+	fs.String("multipooler-grpc-key", cc.key.Default(), "the key to use to connect to multipooler (not yet implemented)")
+	fs.String("multipooler-grpc-ca", cc.ca.Default(), "the server ca to use to validate multipooler servers when connecting (not yet implemented)")
+	fs.String("multipooler-grpc-crl", cc.crl.Default(), "the server crl to use to validate multipooler server certificates when connecting (not yet implemented)")
+	fs.String("multipooler-grpc-server-name", cc.name.Default(), "the server name to use to validate multipooler server certificate (not yet implemented)")
+
+	viperutil.BindFlags(fs, cc.capacity, cc.cert, cc.key, cc.ca, cc.crl, cc.name)
+}
+
+// validateTLSConfig checks if TLS is configured and returns an error if so (not yet implemented).
+func (cc *ConnConfig) validateTLSConfig() error {
+	if cc.cert.Get() != "" || cc.key.Get() != "" || cc.ca.Get() != "" || cc.crl.Get() != "" || cc.name.Get() != "" {
+		return fmt.Errorf("TLS configuration for multipooler RPC client is not yet implemented")
+	}
+	return nil
+}
 
 // cacheMetrics holds OpenTelemetry metrics for connection cache operations.
 type cacheMetrics struct {
