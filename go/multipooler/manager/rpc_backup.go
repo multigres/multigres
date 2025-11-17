@@ -206,18 +206,6 @@ func (pm *MultiPoolerManager) RestoreFromBackup(ctx context.Context, backupID st
 	cmd := exec.CommandContext(restoreCtx, "pgbackrest", args...)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		// Attempt to restart PostgreSQL even if restore failed
-		slog.WarnContext(ctx, "pgbackrest restore failed, attempting to restart PostgreSQL anyway")
-		startCtx, startCancel := context.WithTimeout(context.Background(), 2*time.Minute)
-		defer startCancel()
-		if _, startErr := pgctldClient.Start(startCtx, &pgctldpb.StartRequest{}); startErr == nil {
-			// If PostgreSQL restarted successfully, try to reopen the manager
-			// so the system is at least in a usable state even though restore failed
-			if openErr := pm.Open(); openErr != nil {
-				slog.ErrorContext(ctx, "Failed to reopen manager after restore failure", "error", openErr)
-			}
-		}
-
 		return mterrors.New(mtrpcpb.Code_INTERNAL,
 			fmt.Sprintf("pgbackrest restore failed: %v\nOutput: %s", err, string(output)))
 	}
