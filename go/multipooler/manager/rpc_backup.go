@@ -43,8 +43,8 @@ func (pm *MultiPoolerManager) Backup(ctx context.Context, forcePrimary bool, bac
 
 	configPath := pm.getBackupConfigPath()
 	stanzaName := pm.getBackupStanza()
-	tableGroup := pm.getCachedTableGroup()
-	shard := pm.getCachedShard()
+	tableGroup := pm.getTableGroup()
+	shard := pm.getShard()
 
 	// Validate parameters and get pgbackrest type
 	pgBackRestType, err := pm.validateBackupParams(backupType, configPath, stanzaName)
@@ -365,7 +365,7 @@ type pgBackRestTimestamp struct {
 
 // allowBackupOnPrimary checks if a backup operation is allowed on a primary pooler
 func (pm *MultiPoolerManager) allowBackupOnPrimary(ctx context.Context, forcePrimary bool) error {
-	poolerType := pm.getCachedPoolerType()
+	poolerType := pm.getPoolerType()
 	isPrimary := (poolerType == clustermetadatapb.PoolerType_PRIMARY)
 
 	if isPrimary && !forcePrimary {

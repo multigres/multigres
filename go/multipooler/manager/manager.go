@@ -364,8 +364,8 @@ func (pm *MultiPoolerManager) getPgCtldClient() pgctldpb.PgCtldClient {
 	return pm.pgctldClient
 }
 
-// getCachedTableGroup returns the table group from the multipooler record
-func (pm *MultiPoolerManager) getCachedTableGroup() string {
+// getTableGroup returns the table group from the multipooler record
+func (pm *MultiPoolerManager) getTableGroup() string {
 	pm.cachedMultipooler.mu.Lock()
 	defer pm.cachedMultipooler.mu.Unlock()
 	if pm.cachedMultipooler.multipooler != nil && pm.cachedMultipooler.multipooler.MultiPooler != nil {
@@ -374,8 +374,8 @@ func (pm *MultiPoolerManager) getCachedTableGroup() string {
 	return ""
 }
 
-// getCachedShard returns the shard from the multipooler record
-func (pm *MultiPoolerManager) getCachedShard() string {
+// getShard returns the shard from the multipooler record
+func (pm *MultiPoolerManager) getShard() string {
 	pm.cachedMultipooler.mu.Lock()
 	defer pm.cachedMultipooler.mu.Unlock()
 	if pm.cachedMultipooler.multipooler != nil && pm.cachedMultipooler.multipooler.MultiPooler != nil {
@@ -384,8 +384,8 @@ func (pm *MultiPoolerManager) getCachedShard() string {
 	return ""
 }
 
-// getCachedPoolerType returns the pooler type from the multipooler record
-func (pm *MultiPoolerManager) getCachedPoolerType() clustermetadatapb.PoolerType {
+// getPoolerType returns the pooler type from the multipooler record
+func (pm *MultiPoolerManager) getPoolerType() clustermetadatapb.PoolerType {
 	pm.cachedMultipooler.mu.Lock()
 	defer pm.cachedMultipooler.mu.Unlock()
 	if pm.cachedMultipooler.multipooler != nil && pm.cachedMultipooler.multipooler.MultiPooler != nil {
