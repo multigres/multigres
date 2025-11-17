@@ -162,7 +162,15 @@ func (pm *MultiPoolerManager) RestoreFromBackup(ctx context.Context, backupID st
 		return err
 	}
 
-	// Step 1: Stop PostgreSQL server
+	// Step 1: Close the pooler manager to release its stale database connection
+	// This must be done before stopping PostgreSQL to avoid stale connections
+	slog.InfoContext(ctx, "Closing pooler manager before restore")
+	if err := pm.Close(); err != nil {
+		slog.WarnContext(ctx, "Failed to close pooler manager before restore", "error", err)
+		// Continue - we'll try to reconnect anyway after restore
+	}
+
+	// Step 2: Stop PostgreSQL server
 	slog.InfoContext(ctx, "Stopping PostgreSQL before restore", "backup_id", backupID)
 	stopCtx, stopCancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer stopCancel()
@@ -176,7 +184,7 @@ func (pm *MultiPoolerManager) RestoreFromBackup(ctx context.Context, backupID st
 	}
 	slog.InfoContext(ctx, "PostgreSQL stopped successfully")
 
-	// Step 2: Execute pgBackRest restore command, which does most of the work
+	// Step 3: Execute pgBackRest restore command, which does most of the work
 	// of writing necessary configuration to postgresql.auto.conf
 	restoreCtx, restoreCancel := context.WithTimeout(ctx, 30*time.Minute) // Restores can take a long time
 	defer restoreCancel()
@@ -198,16 +206,11 @@ func (pm *MultiPoolerManager) RestoreFromBackup(ctx context.Context, backupID st
 	cmd := exec.CommandContext(restoreCtx, "pgbackrest", args...)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		// Attempt to restart PostgreSQL even if restore failed
-		startCtx, startCancel := context.WithTimeout(context.Background(), 2*time.Minute)
-		defer startCancel()
-		_, _ = pgctldClient.Start(startCtx, &pgctldpb.StartRequest{})
-
 		return mterrors.New(mtrpcpb.Code_INTERNAL,
 			fmt.Sprintf("pgbackrest restore failed: %v\nOutput: %s", err, string(output)))
 	}
 
-	// Step 2.5: If restoring as standby, restore primary_conninfo to
+	// Step 4: If restoring as standby, restore primary_conninfo to
 	// postgresql.auto.conf
 	//
 	// This is needed for the following situations:
@@ -243,7 +246,7 @@ func (pm *MultiPoolerManager) RestoreFromBackup(ctx context.Context, backupID st
 		slog.InfoContext(ctx, "Successfully restored primary_conninfo to postgresql.auto.conf")
 	}
 
-	// Step 3: Restart PostgreSQL server after successful restore
+	// Step 5: Restart PostgreSQL server after successful restore
 	// Use Restart instead of Start to properly handle standby.signal creation
 	restartCtx, restartCancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer restartCancel()
@@ -261,6 +264,15 @@ func (pm *MultiPoolerManager) RestoreFromBackup(ctx context.Context, backupID st
 	}
 
 	slog.InfoContext(ctx, "PostgreSQL restarted successfully after restore")
+
+	// Step 6: Reopen the pooler manager to establish fresh database connections
+	// This must be done after PostgreSQL restarts to ensure the executor is properly initialized
+	slog.InfoContext(ctx, "Reopening pooler manager after restore")
+	if err := pm.Open(); err != nil {
+		slog.ErrorContext(ctx, "Failed to reopen pooler manager after restore", "error", err)
+		return mterrors.Wrap(err, "failed to reopen pooler manager after restore")
+	}
+	slog.InfoContext(ctx, "pooler manager reopened successfully after restore")
 
 	return nil
 }
@@ -286,6 +298,7 @@ func (pm *MultiPoolerManager) GetBackups(ctx context.Context, limit uint32) ([]*
 		"--stanza="+stanzaName,
 		"--config="+configPath,
 		"--output=json",
+		"--log-level-console=off", // Override console logging to prevent contaminating JSON output
 		"info")
 
 	// Use streamOutput to avoid blocking on large output

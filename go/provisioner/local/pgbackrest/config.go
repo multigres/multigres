@@ -63,6 +63,21 @@ func GenerateConfig(cfg Config) string {
 	if cfg.SpoolPath != "" {
 		sb.WriteString(fmt.Sprintf("spool-path=%s\n", cfg.SpoolPath))
 	}
+	// Use Zstandard compression for better compression ratios and performance
+	sb.WriteString("compress-type=zst\n")
+	// Enable hard linking for all files to save space when multiple backups share identical files
+	sb.WriteString("link-all=y\n")
+	// Set console logging to info level for readable output during operations
+	sb.WriteString("log-level-console=info\n")
+	// Set file logging to detail level for comprehensive debugging and audit trails
+	sb.WriteString("log-level-file=detail\n")
+	// Enable subprocess logging to capture output from parallel processes
+	sb.WriteString("log-subprocess=y\n")
+	// Disable resume to avoid potential issues with partial backups
+	sb.WriteString("resume=n\n")
+	// Force an immediate checkpoint when starting backups to speed up the backup process
+	sb.WriteString("start-fast=y\n")
+	// Note: stanza is a command-line only option, not a config file option
 	sb.WriteString("\n")
 
 	// Stanza section
