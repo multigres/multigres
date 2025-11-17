@@ -33,13 +33,17 @@ import (
 const _ = grpc.SupportPackageIsVersion7
 
 const (
-	MultiAdminService_GetCell_FullMethodName          = "/multiadmin.MultiAdminService/GetCell"
-	MultiAdminService_GetDatabase_FullMethodName      = "/multiadmin.MultiAdminService/GetDatabase"
-	MultiAdminService_GetCellNames_FullMethodName     = "/multiadmin.MultiAdminService/GetCellNames"
-	MultiAdminService_GetDatabaseNames_FullMethodName = "/multiadmin.MultiAdminService/GetDatabaseNames"
-	MultiAdminService_GetGateways_FullMethodName      = "/multiadmin.MultiAdminService/GetGateways"
-	MultiAdminService_GetPoolers_FullMethodName       = "/multiadmin.MultiAdminService/GetPoolers"
-	MultiAdminService_GetOrchs_FullMethodName         = "/multiadmin.MultiAdminService/GetOrchs"
+	MultiAdminService_GetCell_FullMethodName            = "/multiadmin.MultiAdminService/GetCell"
+	MultiAdminService_GetDatabase_FullMethodName        = "/multiadmin.MultiAdminService/GetDatabase"
+	MultiAdminService_GetCellNames_FullMethodName       = "/multiadmin.MultiAdminService/GetCellNames"
+	MultiAdminService_GetDatabaseNames_FullMethodName   = "/multiadmin.MultiAdminService/GetDatabaseNames"
+	MultiAdminService_GetGateways_FullMethodName        = "/multiadmin.MultiAdminService/GetGateways"
+	MultiAdminService_GetPoolers_FullMethodName         = "/multiadmin.MultiAdminService/GetPoolers"
+	MultiAdminService_GetOrchs_FullMethodName           = "/multiadmin.MultiAdminService/GetOrchs"
+	MultiAdminService_Backup_FullMethodName             = "/multiadmin.MultiAdminService/Backup"
+	MultiAdminService_RestoreFromBackup_FullMethodName  = "/multiadmin.MultiAdminService/RestoreFromBackup"
+	MultiAdminService_GetBackupJobStatus_FullMethodName = "/multiadmin.MultiAdminService/GetBackupJobStatus"
+	MultiAdminService_GetBackups_FullMethodName         = "/multiadmin.MultiAdminService/GetBackups"
 )
 
 // MultiAdminServiceClient is the client API for MultiAdminService service.
@@ -60,6 +64,14 @@ type MultiAdminServiceClient interface {
 	GetPoolers(ctx context.Context, in *GetPoolersRequest, opts ...grpc.CallOption) (*GetPoolersResponse, error)
 	// GetOrchs retrieves orchestrators filtered by cells
 	GetOrchs(ctx context.Context, in *GetOrchsRequest, opts ...grpc.CallOption) (*GetOrchsResponse, error)
+	// Backup starts an async backup of a specific shard
+	Backup(ctx context.Context, in *BackupRequest, opts ...grpc.CallOption) (*BackupResponse, error)
+	// RestoreFromBackup starts an async restore of a specific shard from a backup
+	RestoreFromBackup(ctx context.Context, in *RestoreFromBackupRequest, opts ...grpc.CallOption) (*RestoreFromBackupResponse, error)
+	// GetBackupJobStatus checks the status of a backup or restore job
+	GetBackupJobStatus(ctx context.Context, in *GetBackupJobStatusRequest, opts ...grpc.CallOption) (*GetBackupJobStatusResponse, error)
+	// GetBackups lists backup artifacts with optional filtering
+	GetBackups(ctx context.Context, in *GetBackupsRequest, opts ...grpc.CallOption) (*GetBackupsResponse, error)
 }
 
 type multiAdminServiceClient struct {
@@ -133,6 +145,42 @@ func (c *multiAdminServiceClient) GetOrchs(ctx context.Context, in *GetOrchsRequ
 	return out, nil
 }
 
+func (c *multiAdminServiceClient) Backup(ctx context.Context, in *BackupRequest, opts ...grpc.CallOption) (*BackupResponse, error) {
+	out := new(BackupResponse)
+	err := c.cc.Invoke(ctx, MultiAdminService_Backup_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *multiAdminServiceClient) RestoreFromBackup(ctx context.Context, in *RestoreFromBackupRequest, opts ...grpc.CallOption) (*RestoreFromBackupResponse, error) {
+	out := new(RestoreFromBackupResponse)
+	err := c.cc.Invoke(ctx, MultiAdminService_RestoreFromBackup_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *multiAdminServiceClient) GetBackupJobStatus(ctx context.Context, in *GetBackupJobStatusRequest, opts ...grpc.CallOption) (*GetBackupJobStatusResponse, error) {
+	out := new(GetBackupJobStatusResponse)
+	err := c.cc.Invoke(ctx, MultiAdminService_GetBackupJobStatus_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *multiAdminServiceClient) GetBackups(ctx context.Context, in *GetBackupsRequest, opts ...grpc.CallOption) (*GetBackupsResponse, error) {
+	out := new(GetBackupsResponse)
+	err := c.cc.Invoke(ctx, MultiAdminService_GetBackups_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // MultiAdminServiceServer is the server API for MultiAdminService service.
 // All implementations must embed UnimplementedMultiAdminServiceServer
 // for forward compatibility
@@ -151,6 +199,14 @@ type MultiAdminServiceServer interface {
 	GetPoolers(context.Context, *GetPoolersRequest) (*GetPoolersResponse, error)
 	// GetOrchs retrieves orchestrators filtered by cells
 	GetOrchs(context.Context, *GetOrchsRequest) (*GetOrchsResponse, error)
+	// Backup starts an async backup of a specific shard
+	Backup(context.Context, *BackupRequest) (*BackupResponse, error)
+	// RestoreFromBackup starts an async restore of a specific shard from a backup
+	RestoreFromBackup(context.Context, *RestoreFromBackupRequest) (*RestoreFromBackupResponse, error)
+	// GetBackupJobStatus checks the status of a backup or restore job
+	GetBackupJobStatus(context.Context, *GetBackupJobStatusRequest) (*GetBackupJobStatusResponse, error)
+	// GetBackups lists backup artifacts with optional filtering
+	GetBackups(context.Context, *GetBackupsRequest) (*GetBackupsResponse, error)
 	mustEmbedUnimplementedMultiAdminServiceServer()
 }
 
@@ -178,6 +234,18 @@ func (UnimplementedMultiAdminServiceServer) GetPoolers(context.Context, *GetPool
 }
 func (UnimplementedMultiAdminServiceServer) GetOrchs(context.Context, *GetOrchsRequest) (*GetOrchsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetOrchs not implemented")
+}
+func (UnimplementedMultiAdminServiceServer) Backup(context.Context, *BackupRequest) (*BackupResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method Backup not implemented")
+}
+func (UnimplementedMultiAdminServiceServer) RestoreFromBackup(context.Context, *RestoreFromBackupRequest) (*RestoreFromBackupResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method RestoreFromBackup not implemented")
+}
+func (UnimplementedMultiAdminServiceServer) GetBackupJobStatus(context.Context, *GetBackupJobStatusRequest) (*GetBackupJobStatusResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetBackupJobStatus not implemented")
+}
+func (UnimplementedMultiAdminServiceServer) GetBackups(context.Context, *GetBackupsRequest) (*GetBackupsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetBackups not implemented")
 }
 func (UnimplementedMultiAdminServiceServer) mustEmbedUnimplementedMultiAdminServiceServer() {}
 
@@ -318,6 +386,78 @@ func _MultiAdminService_GetOrchs_Handler(srv interface{}, ctx context.Context, d
 	return interceptor(ctx, in, info, handler)
 }
 
+func _MultiAdminService_Backup_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(BackupRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MultiAdminServiceServer).Backup(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MultiAdminService_Backup_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MultiAdminServiceServer).Backup(ctx, req.(*BackupRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _MultiAdminService_RestoreFromBackup_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RestoreFromBackupRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MultiAdminServiceServer).RestoreFromBackup(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MultiAdminService_RestoreFromBackup_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MultiAdminServiceServer).RestoreFromBackup(ctx, req.(*RestoreFromBackupRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _MultiAdminService_GetBackupJobStatus_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetBackupJobStatusRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MultiAdminServiceServer).GetBackupJobStatus(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MultiAdminService_GetBackupJobStatus_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MultiAdminServiceServer).GetBackupJobStatus(ctx, req.(*GetBackupJobStatusRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _MultiAdminService_GetBackups_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetBackupsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MultiAdminServiceServer).GetBackups(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MultiAdminService_GetBackups_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MultiAdminServiceServer).GetBackups(ctx, req.(*GetBackupsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // MultiAdminService_ServiceDesc is the grpc.ServiceDesc for MultiAdminService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -352,6 +492,22 @@ var MultiAdminService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetOrchs",
 			Handler:    _MultiAdminService_GetOrchs_Handler,
+		},
+		{
+			MethodName: "Backup",
+			Handler:    _MultiAdminService_Backup_Handler,
+		},
+		{
+			MethodName: "RestoreFromBackup",
+			Handler:    _MultiAdminService_RestoreFromBackup_Handler,
+		},
+		{
+			MethodName: "GetBackupJobStatus",
+			Handler:    _MultiAdminService_GetBackupJobStatus_Handler,
+		},
+		{
+			MethodName: "GetBackups",
+			Handler:    _MultiAdminService_GetBackups_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
