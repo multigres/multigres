@@ -15,16 +15,17 @@
 // Package rpcclient provides a unified client interface for communicating with multipooler nodes.
 //
 // This package provides a single MultiPoolerClient interface that encompasses both
-// consensus and manager RPC services, with support for persistent connections per pooler
+// consensus and manager RPC services, with support for cached connections with LRU eviction
 // to optimize for the continuous monitoring use case in multiorch.
 //
 // # Architecture
 //
 // This implementation provides:
 //  1. Unified Interface: Single MultiPoolerClient interface with both consensus and manager methods
-//  2. Persistent Connections: One long-lived gRPC connection per multipooler address
-//  3. Automatic Invalidation: Connections are automatically closed on errors and recreated on next use
-//  4. Explicit Connection Management: CloseTablet() method to remove poolers from monitoring
+//  2. Connection Cache: Bounded cache with LRU eviction (default capacity: 100 connections)
+//  3. Automatic Connection Management: Connections are reused when available, created on demand
+//  4. Capacity-Based Eviction: When cache is full, least-recently-used unreferenced connections are evicted
+//  5. Explicit Connection Removal: CloseTablet() method to immediately remove a connection from cache
 //
 // # Design Rationale
 //
@@ -34,7 +35,7 @@
 //
 // Multiorch continuously monitors a relatively stable set of poolers. Health checks run
 // every few seconds on the same poolers. Creating/destroying connections for each RPC is
-// expensive. One persistent connection per pooler minimizes overhead.
+// expensive. Connection caching minimizes overhead while preventing unbounded resource usage.
 //
 // # Usage
 //
@@ -55,34 +56,47 @@
 //
 // Connection management:
 //
-//	// Remove a pooler from monitoring (closes its connection)
+//	// Explicitly remove a pooler connection from cache
 //	client.CloseTablet(tablet)
 //
 //	// Connection will be automatically recreated on next RPC to this tablet
 //
-// Error handling - connections are automatically invalidated on errors:
+// Connection lifecycle and caching:
 //
-//	resp, err := client.Status(ctx, tablet, req)
-//	if err != nil {
-//	    // Connection has been closed and removed from cache
-//	    // Next call will create a new connection
-//	    return err
-//	}
+//	// First call to a tablet - creates new connection and adds to cache
+//	resp1, err := client.Status(ctx, tablet1, req)
+//
+//	// Second call to same tablet - reuses cached connection
+//	resp2, err := client.Status(ctx, tablet1, req)
+//
+//	// When cache is full, least-recently-used unreferenced connections are evicted
+//	// to make room for new connections
 //
 // # Implementation Details
 //
-// The client maintains a map of address -> *persistentConn. Each connection holds
-// clients for both consensus and manager services, created from the same grpc.ClientConn.
+// The client uses a connection cache (connCache) that maintains:
+//   - A map of address -> *cachedConn for O(1) lookups
+//   - An eviction queue sorted by reference count and last access time
+//   - A semaphore to limit concurrent connection attempts to the cache capacity
 //
-// All connection management operations are protected by a mutex, making the client
-// safe for concurrent use by multiple goroutines.
+// Each cached connection holds clients for both consensus and manager services,
+// created from the same grpc.ClientConn.
+//
+// All cache operations are protected by a mutex, making the client safe for
+// concurrent use by multiple goroutines.
 //
 // Connection lifecycle:
-//  1. Creation: First RPC to an address creates a new persistent connection
-//  2. Reuse: Subsequent RPCs reuse the same connection
-//  3. Invalidation: On error, the invalidator function closes and removes the connection
-//  4. Explicit Removal: CloseTablet() can explicitly remove a connection
-//  5. Shutdown: Close() closes all connections
+//  1. Cache Lookup: Check if connection exists in cache and is available
+//  2. Fast Dial: If cache miss and capacity available, dial new connection immediately
+//  3. Eviction: If at capacity, wait for evictable (unreferenced) connection, evict it, then dial
+//  4. Reuse: Increment reference count while RPC is in flight
+//  5. Release: Decrement reference count after RPC completes (via closer function)
+//  6. Explicit Removal: CloseTablet() immediately closes and removes a connection
+//  7. Shutdown: Close() closes all connections and clears the cache
+//
+// The three-path dial strategy (cache_fast, sema_fast, sema_poll) is borrowed from
+// Vitess's cachedConnDialer and optimizes for high-throughput scenarios while
+// preventing unbounded connection growth.
 package rpcclient
 
 import (
@@ -94,12 +108,13 @@ import (
 )
 
 // MultiPoolerClient defines the unified interface for communicating with a multipooler node.
-// It provides methods for both consensus and manager services, maintaining persistent
-// connections per pooler address for optimal performance in monitoring scenarios.
+// It provides methods for both consensus and manager services, maintaining a cache of
+// connections with LRU eviction for optimal performance in monitoring scenarios.
 //
 // Implementations should:
-//   - Maintain one persistent connection per multipooler address
-//   - Support connection invalidation when errors occur
+//   - Cache connections up to a configurable capacity (default: 100)
+//   - Evict least-recently-used unreferenced connections when cache is full
+//   - Reuse existing connections when available
 //   - Be thread-safe for concurrent use
 //
 // All methods take a *clustermetadatapb.MultiPooler parameter to identify the target pooler.
@@ -113,7 +128,7 @@ type MultiPoolerClient interface {
 	BeginTerm(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *consensusdatapb.BeginTermRequest) (*consensusdatapb.BeginTermResponse, error)
 
 	// ConsensusStatus gets the consensus status of the multipooler.
-	// This may be called frequently for monitoring, so implementations use persistent connections.
+	// This may be called frequently for monitoring, so implementations cache connections.
 	ConsensusStatus(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *consensusdatapb.StatusRequest) (*consensusdatapb.StatusResponse, error)
 
 	// GetLeadershipView gets the leadership view from the multipooler's perspective.
@@ -133,7 +148,7 @@ type MultiPoolerClient interface {
 	InitializeAsStandby(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.InitializeAsStandbyRequest) (*multipoolermanagerdatapb.InitializeAsStandbyResponse, error)
 
 	// InitializationStatus gets the initialization status of the multipooler.
-	// This is called frequently during discovery, so implementations use persistent connections.
+	// This is called frequently during discovery, so implementations cache connections.
 	InitializationStatus(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.InitializationStatusRequest) (*multipoolermanagerdatapb.InitializationStatusResponse, error)
 
 	//
@@ -142,7 +157,7 @@ type MultiPoolerClient interface {
 
 	// Status gets the current status of the multipooler manager.
 	// This is called very frequently by the recovery engine health checks,
-	// so implementations use persistent connections.
+	// so implementations cache connections.
 	Status(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.StatusRequest) (*multipoolermanagerdatapb.StatusResponse, error)
 
 	//
@@ -233,17 +248,22 @@ type MultiPoolerClient interface {
 	// Connection Management Methods
 	//
 
-	// Close closes all persistent connections and frees resources.
+	// Close closes all cached connections and frees resources.
 	// After calling Close, this client should not be used anymore.
 	Close()
 
-	// CloseTablet closes the persistent connection to a specific tablet.
+	// CloseTablet closes and removes the cached connection to a specific tablet.
 	// This should be called when a pooler is removed from monitoring or becomes unreachable.
 	// Subsequent calls to the same tablet will create a new connection.
 	CloseTablet(pooler *clustermetadatapb.MultiPooler)
 }
 
-// NewMultiPoolerClient creates a new MultiPoolerClient with persistent connections.
-func NewMultiPoolerClient() MultiPoolerClient {
-	return NewClient()
+// NewMultiPoolerClient creates a new MultiPoolerClient with connection caching.
+// The capacity parameter determines the maximum number of simultaneous connections
+// to distinct multipoolers. Connections are cached with LRU eviction.
+//
+// For multiorch deployments monitoring many poolers, a capacity of 1000 is recommended.
+// For smaller deployments or testing, 100 may be sufficient.
+func NewMultiPoolerClient(capacity int) MultiPoolerClient {
+	return NewClient(capacity)
 }

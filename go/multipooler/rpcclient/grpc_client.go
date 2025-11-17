@@ -37,16 +37,11 @@ type Client struct {
 	cache *connCache
 }
 
-// NewClient creates a new gRPC-based MultiPoolerClient with default capacity.
-func NewClient() *Client {
-	return &Client{
-		cache: newConnCache(),
-	}
-}
-
-// NewClientWithCapacity creates a new gRPC-based MultiPoolerClient with specified
-// maximum number of simultaneous connections to distinct multipoolers.
-func NewClientWithCapacity(capacity int) *Client {
+// NewClient creates a new gRPC-based MultiPoolerClient with specified capacity.
+// The capacity parameter determines the maximum number of simultaneous connections
+// to distinct multipoolers. When the cache is full, least-recently-used unreferenced
+// connections are evicted to make room for new connections.
+func NewClient(capacity int) *Client {
 	return &Client{
 		cache: newConnCacheWithCapacity(capacity),
 	}

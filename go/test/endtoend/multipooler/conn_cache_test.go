@@ -102,7 +102,7 @@ func BenchmarkMultiPoolerClientSteadyState(b *testing.B) {
 		}
 	}()
 
-	client := rpcclient.NewMultiPoolerClient()
+	client := rpcclient.NewMultiPoolerClient(100)
 	defer client.Close()
 
 	ctx := context.Background()
@@ -134,7 +134,7 @@ func BenchmarkMultiPoolerClientSteadyStateRedials(b *testing.B) {
 		}
 	}()
 
-	client := rpcclient.NewMultiPoolerClient()
+	client := rpcclient.NewMultiPoolerClient(100)
 	defer client.Close()
 
 	ctx := context.Background()
@@ -178,7 +178,7 @@ func BenchmarkMultiPoolerClientSteadyStateEvictions(b *testing.B) {
 	}()
 
 	// Use default capacity (100) to force evictions with 1000 addresses
-	client := rpcclient.NewMultiPoolerClient()
+	client := rpcclient.NewMultiPoolerClient(100)
 	defer client.Close()
 
 	ctx := context.Background()
@@ -218,7 +218,7 @@ func TestMultiPoolerClient(t *testing.T) {
 		}
 	}()
 
-	client := rpcclient.NewMultiPoolerClient()
+	client := rpcclient.NewMultiPoolerClient(100)
 	defer client.Close()
 
 	ctx, cancel := context.WithTimeout(context.Background(), duration)
@@ -276,7 +276,7 @@ func TestMultiPoolerClient_evictions(t *testing.T) {
 	}()
 
 	// Default capacity is 100, so with 200 addresses we'll trigger evictions
-	client := rpcclient.NewMultiPoolerClient()
+	client := rpcclient.NewMultiPoolerClient(100)
 	defer client.Close()
 
 	ctx := context.Background()
