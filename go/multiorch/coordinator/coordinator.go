@@ -45,24 +45,39 @@ func NewCoordinator(coordinatorID *clustermetadatapb.ID, topoStore topo.Store, l
 // for the given shard. It operates on a cohort of nodes (all nodes in the shard).
 //
 // The process follows these stages:
-// 1-4. BeginTerm: Recruit nodes, establish consensus on term and candidate
-// 5. Propagate: Setup replication topology
-// 6. Establish: Start heartbeat writer, enable serving
+// 0. Load durability policy (quorum rule)
+// 1-5. BeginTerm: Recruit nodes, establish consensus on term and candidate, validate quorum
+// 6. Propagate: Setup replication topology
+// 7. Establish: Start heartbeat writer, enable serving
 //
 // Returns an error if any stage fails. The operation is idempotent and can be
 // retried safely.
-func (c *Coordinator) AppointLeader(ctx context.Context, shardID string, cohort []*Node) error {
+func (c *Coordinator) AppointLeader(ctx context.Context, shardID string, cohort []*Node, database string) error {
 	c.logger.InfoContext(ctx, "Starting leader appointment",
 		"shard", shardID,
+		"database", database,
 		"cohort_size", len(cohort))
 
 	if len(cohort) == 0 {
 		return mterrors.Errorf(mtrpcpb.Code_INVALID_ARGUMENT, "cohort is empty for shard %s", shardID)
 	}
 
-	// Stage 1-4: BeginTerm (recruit nodes, get consensus)
-	c.logger.InfoContext(ctx, "Stage 1-4: Beginning term", "shard", shardID)
-	candidate, standbys, term, err := c.BeginTerm(ctx, shardID, cohort)
+	// Stage 0: Load durability policy from any available node
+	c.logger.InfoContext(ctx, "Loading durability policy", "shard", shardID)
+	quorumRule, err := c.LoadQuorumRule(ctx, cohort, database)
+	if err != nil {
+		return mterrors.Wrap(err, "failed to load durability policy")
+	}
+
+	c.logger.InfoContext(ctx, "Loaded durability policy",
+		"shard", shardID,
+		"quorum_type", quorumRule.QuorumType,
+		"required_count", quorumRule.RequiredCount,
+		"description", quorumRule.Description)
+
+	// Stage 1-5: BeginTerm (recruit nodes, get consensus, validate quorum)
+	c.logger.InfoContext(ctx, "Stage 1-5: Beginning term", "shard", shardID)
+	candidate, standbys, term, err := c.BeginTerm(ctx, shardID, cohort, quorumRule)
 	if err != nil {
 		return mterrors.Wrap(err, "BeginTerm failed")
 	}
@@ -73,16 +88,16 @@ func (c *Coordinator) AppointLeader(ctx context.Context, shardID string, cohort 
 		"candidate", candidate.ID.Name,
 		"standbys", len(standbys))
 
-	// Stage 5: Propagate (setup replication within shard)
-	c.logger.InfoContext(ctx, "Stage 5: Propagating replication", "shard", shardID)
+	// Stage 6: Propagate (setup replication within shard)
+	c.logger.InfoContext(ctx, "Stage 6: Propagating replication", "shard", shardID)
 	if err := c.Propagate(ctx, candidate, standbys, term); err != nil {
 		return mterrors.Wrap(err, "Propagate failed")
 	}
 
 	c.logger.InfoContext(ctx, "Propagate succeeded", "shard", shardID)
 
-	// Stage 6: Establish (start heartbeat, enable serving)
-	c.logger.InfoContext(ctx, "Stage 6: Establishing leader", "shard", shardID)
+	// Stage 7: Establish (start heartbeat, enable serving)
+	c.logger.InfoContext(ctx, "Stage 7: Establishing leader", "shard", shardID)
 	if err := c.EstablishLeader(ctx, candidate, term); err != nil {
 		return mterrors.Wrap(err, "EstablishLeader failed")
 	}

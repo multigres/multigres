@@ -24,15 +24,15 @@ import (
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
 
-// BeginTerm implements stages 1-4 of the consensus protocol:
+// BeginTerm implements stages 1-5 of the consensus protocol:
 // 1. Discover max term from all nodes
 // 2. Increment to get new term
 // 3. Select candidate based on WAL position
 // 4. Send BeginTerm RPC to all nodes in parallel
-// 5. Validate quorum (majority acceptance)
+// 5. Validate quorum using durability policy
 //
 // Returns the candidate node, standbys, the new term, and any error.
-func (c *Coordinator) BeginTerm(ctx context.Context, shardID string, cohort []*Node) (*Node, []*Node, int64, error) {
+func (c *Coordinator) BeginTerm(ctx context.Context, shardID string, cohort []*Node, quorumRule *clustermetadatapb.QuorumRule) (*Node, []*Node, int64, error) {
 	// Stage 1: Obtain Term Number - Query all nodes for max term
 	c.logger.InfoContext(ctx, "Discovering max term", "shard", shardID, "cohort_size", len(cohort))
 	maxTerm, err := c.discoverMaxTerm(ctx, cohort)
@@ -60,14 +60,14 @@ func (c *Coordinator) BeginTerm(ctx context.Context, shardID string, cohort []*N
 
 	c.logger.InfoContext(ctx, "Recruited nodes", "shard", shardID, "count", len(recruited))
 
-	// Stage 5: Validate Quorum
-	// TODO(durability-policy): Replace hardcoded majority with pluggable policy evaluation
-	// Future: Load ruleset from Topo Server and validate against policy (e.g., multi-AZ)
-	quorumSize := len(cohort)/2 + 1
-	if len(recruited) < quorumSize {
-		return nil, nil, 0, mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
-			"insufficient quorum in shard %s: got %d/%d nodes (need %d)",
-			shardID, len(recruited), len(cohort), quorumSize)
+	// Stage 5: Validate Quorum using durability policy
+	c.logger.InfoContext(ctx, "Validating quorum",
+		"shard", shardID,
+		"quorum_type", quorumRule.QuorumType,
+		"required_count", quorumRule.RequiredCount)
+
+	if err := c.ValidateQuorum(quorumRule, cohort, recruited); err != nil {
+		return nil, nil, 0, mterrors.Wrapf(err, "quorum validation failed for shard %s", shardID)
 	}
 
 	// Separate candidate from standbys

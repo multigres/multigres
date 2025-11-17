@@ -110,5 +110,32 @@ func CreateSidecarSchema(db *sql.DB) error {
 		return fmt.Errorf("failed to create heartbeat table: %w", err)
 	}
 
+	// Create the durability_policy table
+	_, err = db.Exec(`
+		CREATE TABLE IF NOT EXISTS multigres.durability_policy (
+			id BIGSERIAL PRIMARY KEY,
+			policy_name TEXT NOT NULL,
+			policy_version BIGINT NOT NULL,
+			quorum_rule JSONB NOT NULL,
+			is_active BOOLEAN NOT NULL DEFAULT true,
+			created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+			updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+			UNIQUE (policy_name, policy_version)
+		)
+	`)
+	if err != nil {
+		return fmt.Errorf("failed to create durability_policy table: %w", err)
+	}
+
+	// Create index on is_active for efficient active policy lookups
+	_, err = db.Exec(`
+		CREATE INDEX IF NOT EXISTS idx_durability_policy_active
+		ON multigres.durability_policy(is_active)
+		WHERE is_active = true
+	`)
+	if err != nil {
+		return fmt.Errorf("failed to create durability_policy index: %w", err)
+	}
+
 	return nil
 }

@@ -391,7 +391,14 @@ func TestBeginTerm(t *testing.T) {
 			createMockNode("mp3", 5, "0/1000000", true, "standby"),
 		}
 
-		candidate, standbys, term, err := c.BeginTerm(ctx, "shard0", cohort)
+		// Create default ANY_N quorum rule (majority: 2 of 3)
+		quorumRule := &clustermetadatapb.QuorumRule{
+			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_ANY_N,
+			RequiredCount: 2,
+			Description:   "Test majority quorum",
+		}
+
+		candidate, standbys, term, err := c.BeginTerm(ctx, "shard0", cohort, quorumRule)
 		require.NoError(t, err)
 		require.NotNil(t, candidate)
 		require.Equal(t, "mp1", candidate.ID.Name) // Most advanced WAL
@@ -446,12 +453,19 @@ func TestBeginTerm(t *testing.T) {
 			},
 		}
 
-		candidate, standbys, term, err := c.BeginTerm(ctx, "shard0", cohort)
+		// Create ANY_N quorum rule requiring 2 nodes
+		quorumRule := &clustermetadatapb.QuorumRule{
+			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_ANY_N,
+			RequiredCount: 2,
+			Description:   "Test quorum requiring 2 nodes",
+		}
+
+		candidate, standbys, term, err := c.BeginTerm(ctx, "shard0", cohort, quorumRule)
 		require.Error(t, err)
 		require.Nil(t, candidate)
 		require.Nil(t, standbys)
 		require.Equal(t, int64(0), term)
-		require.Contains(t, err.Error(), "insufficient quorum")
+		require.Contains(t, err.Error(), "quorum")
 	})
 }
 

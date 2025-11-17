@@ -16,6 +16,8 @@ syntax = "proto3";
 
 package clustermetadata;
 
+import "google/protobuf/timestamp.proto";
+
 option go_package = "github.com/multigres/multigres/go/pb/clustermetadata";
 
 // Topology Schemas for Multigres Cluster Management
@@ -215,4 +217,57 @@ enum PoolerServingStatus {
   // This is used during demotion when the server transitions from PRIMARY to REPLICA,
   // or for read-only replicas. The server accepts connections but only serves read queries.
   SERVING_RDONLY = 5;
+}
+
+// =============================================================================
+// Durability Policy
+// =============================================================================
+
+// DurabilityPolicy defines consensus quorum rules for a shard.
+// These policies are stored locally in each shard's postgres database
+// and replicated via postgres streaming replication.
+message DurabilityPolicy {
+  // policy_name references Database.durability_policy (e.g., "any-two")
+  string policy_name = 1;
+
+  // policy_version allows policy evolution over time
+  int64 policy_version = 2;
+
+  // quorum_rule defines the actual quorum requirements
+  QuorumRule quorum_rule = 3;
+
+  // is_active indicates if this is the current active policy
+  bool is_active = 4;
+
+  // Audit timestamps
+  google.protobuf.Timestamp created_at = 5;
+  google.protobuf.Timestamp updated_at = 6;
+}
+
+// QuorumRule defines how many nodes are required for quorum
+message QuorumRule {
+  // quorum_type determines which quorum algorithm to use
+  QuorumType quorum_type = 1;
+
+  // required_count: number of nodes/cells required
+  // - For QUORUM_TYPE_ANY_N: number of nodes required from discovered cohort
+  // - For QUORUM_TYPE_MULTI_CELL_ANY_N: number of distinct cells required,
+  //   with at least one node from each cell
+  int32 required_count = 2;
+
+  // Human-readable description
+  string description = 3;
+}
+
+// QuorumType enumerates supported quorum algorithms
+enum QuorumType {
+  // QUORUM_TYPE_UNKNOWN represents an unknown or uninitialized quorum type
+  QUORUM_TYPE_UNKNOWN = 0;
+
+  // QUORUM_TYPE_ANY_N requires any N nodes from discovered cohort
+  QUORUM_TYPE_ANY_N = 1;
+
+  // QUORUM_TYPE_MULTI_CELL_ANY_N requires nodes from multiple cells (availability zones)
+  // with at least one node from each of the required cells
+  QUORUM_TYPE_MULTI_CELL_ANY_N = 2;
 }

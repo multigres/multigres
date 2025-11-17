@@ -23,6 +23,7 @@ package clustermetadata
 import (
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
+	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
 	reflect "reflect"
 	sync "sync"
 	unsafe "unsafe"
@@ -164,6 +165,60 @@ func (PoolerServingStatus) EnumDescriptor() ([]byte, []int) {
 	return file_clustermetadata_proto_rawDescGZIP(), []int{1}
 }
 
+// QuorumType enumerates supported quorum algorithms
+type QuorumType int32
+
+const (
+	// QUORUM_TYPE_UNKNOWN represents an unknown or uninitialized quorum type
+	QuorumType_QUORUM_TYPE_UNKNOWN QuorumType = 0
+	// QUORUM_TYPE_ANY_N requires any N nodes from discovered cohort
+	QuorumType_QUORUM_TYPE_ANY_N QuorumType = 1
+	// QUORUM_TYPE_MULTI_CELL_ANY_N requires nodes from multiple cells (availability zones)
+	// with at least one node from each of the required cells
+	QuorumType_QUORUM_TYPE_MULTI_CELL_ANY_N QuorumType = 2
+)
+
+// Enum value maps for QuorumType.
+var (
+	QuorumType_name = map[int32]string{
+		0: "QUORUM_TYPE_UNKNOWN",
+		1: "QUORUM_TYPE_ANY_N",
+		2: "QUORUM_TYPE_MULTI_CELL_ANY_N",
+	}
+	QuorumType_value = map[string]int32{
+		"QUORUM_TYPE_UNKNOWN":          0,
+		"QUORUM_TYPE_ANY_N":            1,
+		"QUORUM_TYPE_MULTI_CELL_ANY_N": 2,
+	}
+)
+
+func (x QuorumType) Enum() *QuorumType {
+	p := new(QuorumType)
+	*p = x
+	return p
+}
+
+func (x QuorumType) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (QuorumType) Descriptor() protoreflect.EnumDescriptor {
+	return file_clustermetadata_proto_enumTypes[2].Descriptor()
+}
+
+func (QuorumType) Type() protoreflect.EnumType {
+	return &file_clustermetadata_proto_enumTypes[2]
+}
+
+func (x QuorumType) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use QuorumType.Descriptor instead.
+func (QuorumType) EnumDescriptor() ([]byte, []int) {
+	return file_clustermetadata_proto_rawDescGZIP(), []int{2}
+}
+
 // ComponentType represents the type of Multigres component
 type ID_ComponentType int32
 
@@ -205,11 +260,11 @@ func (x ID_ComponentType) String() string {
 }
 
 func (ID_ComponentType) Descriptor() protoreflect.EnumDescriptor {
-	return file_clustermetadata_proto_enumTypes[2].Descriptor()
+	return file_clustermetadata_proto_enumTypes[3].Descriptor()
 }
 
 func (ID_ComponentType) Type() protoreflect.EnumType {
-	return &file_clustermetadata_proto_enumTypes[2]
+	return &file_clustermetadata_proto_enumTypes[3]
 }
 
 func (x ID_ComponentType) Number() protoreflect.EnumNumber {
@@ -797,11 +852,170 @@ func (x *KeyRange) GetEnd() []byte {
 	return nil
 }
 
+// DurabilityPolicy defines consensus quorum rules for a shard.
+// These policies are stored locally in each shard's postgres database
+// and replicated via postgres streaming replication.
+type DurabilityPolicy struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// policy_name references Database.durability_policy (e.g., "any-two")
+	PolicyName string `protobuf:"bytes,1,opt,name=policy_name,json=policyName,proto3" json:"policy_name,omitempty"`
+	// policy_version allows policy evolution over time
+	PolicyVersion int64 `protobuf:"varint,2,opt,name=policy_version,json=policyVersion,proto3" json:"policy_version,omitempty"`
+	// quorum_rule defines the actual quorum requirements
+	QuorumRule *QuorumRule `protobuf:"bytes,3,opt,name=quorum_rule,json=quorumRule,proto3" json:"quorum_rule,omitempty"`
+	// is_active indicates if this is the current active policy
+	IsActive bool `protobuf:"varint,4,opt,name=is_active,json=isActive,proto3" json:"is_active,omitempty"`
+	// Audit timestamps
+	CreatedAt     *timestamppb.Timestamp `protobuf:"bytes,5,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	UpdatedAt     *timestamppb.Timestamp `protobuf:"bytes,6,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DurabilityPolicy) Reset() {
+	*x = DurabilityPolicy{}
+	mi := &file_clustermetadata_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DurabilityPolicy) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DurabilityPolicy) ProtoMessage() {}
+
+func (x *DurabilityPolicy) ProtoReflect() protoreflect.Message {
+	mi := &file_clustermetadata_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DurabilityPolicy.ProtoReflect.Descriptor instead.
+func (*DurabilityPolicy) Descriptor() ([]byte, []int) {
+	return file_clustermetadata_proto_rawDescGZIP(), []int{8}
+}
+
+func (x *DurabilityPolicy) GetPolicyName() string {
+	if x != nil {
+		return x.PolicyName
+	}
+	return ""
+}
+
+func (x *DurabilityPolicy) GetPolicyVersion() int64 {
+	if x != nil {
+		return x.PolicyVersion
+	}
+	return 0
+}
+
+func (x *DurabilityPolicy) GetQuorumRule() *QuorumRule {
+	if x != nil {
+		return x.QuorumRule
+	}
+	return nil
+}
+
+func (x *DurabilityPolicy) GetIsActive() bool {
+	if x != nil {
+		return x.IsActive
+	}
+	return false
+}
+
+func (x *DurabilityPolicy) GetCreatedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.CreatedAt
+	}
+	return nil
+}
+
+func (x *DurabilityPolicy) GetUpdatedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.UpdatedAt
+	}
+	return nil
+}
+
+// QuorumRule defines how many nodes are required for quorum
+type QuorumRule struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// quorum_type determines which quorum algorithm to use
+	QuorumType QuorumType `protobuf:"varint,1,opt,name=quorum_type,json=quorumType,proto3,enum=clustermetadata.QuorumType" json:"quorum_type,omitempty"`
+	// required_count: number of nodes/cells required
+	//   - For QUORUM_TYPE_ANY_N: number of nodes required from discovered cohort
+	//   - For QUORUM_TYPE_MULTI_CELL_ANY_N: number of distinct cells required,
+	//     with at least one node from each cell
+	RequiredCount int32 `protobuf:"varint,2,opt,name=required_count,json=requiredCount,proto3" json:"required_count,omitempty"`
+	// Human-readable description
+	Description   string `protobuf:"bytes,3,opt,name=description,proto3" json:"description,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *QuorumRule) Reset() {
+	*x = QuorumRule{}
+	mi := &file_clustermetadata_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *QuorumRule) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*QuorumRule) ProtoMessage() {}
+
+func (x *QuorumRule) ProtoReflect() protoreflect.Message {
+	mi := &file_clustermetadata_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use QuorumRule.ProtoReflect.Descriptor instead.
+func (*QuorumRule) Descriptor() ([]byte, []int) {
+	return file_clustermetadata_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *QuorumRule) GetQuorumType() QuorumType {
+	if x != nil {
+		return x.QuorumType
+	}
+	return QuorumType_QUORUM_TYPE_UNKNOWN
+}
+
+func (x *QuorumRule) GetRequiredCount() int32 {
+	if x != nil {
+		return x.RequiredCount
+	}
+	return 0
+}
+
+func (x *QuorumRule) GetDescription() string {
+	if x != nil {
+		return x.Description
+	}
+	return ""
+}
+
 var File_clustermetadata_proto protoreflect.FileDescriptor
 
 const file_clustermetadata_proto_rawDesc = "" +
 	"\n" +
-	"\x15clustermetadata.proto\x12\x0fclustermetadata\"y\n" +
+	"\x15clustermetadata.proto\x12\x0fclustermetadata\x1a\x1fgoogle/protobuf/timestamp.proto\"y\n" +
 	"\x10GlobalTopoConfig\x12&\n" +
 	"\x0eimplementation\x18\x01 \x01(\tR\x0eimplementation\x12)\n" +
 	"\x10server_addresses\x18\x02 \x03(\tR\x0fserverAddresses\x12\x12\n" +
@@ -854,7 +1068,24 @@ const file_clustermetadata_proto_rawDesc = "" +
 	"\tMULTIORCH\x10\x03\"2\n" +
 	"\bKeyRange\x12\x14\n" +
 	"\x05start\x18\x01 \x01(\fR\x05start\x12\x10\n" +
-	"\x03end\x18\x02 \x01(\fR\x03end*3\n" +
+	"\x03end\x18\x02 \x01(\fR\x03end\"\xab\x02\n" +
+	"\x10DurabilityPolicy\x12\x1f\n" +
+	"\vpolicy_name\x18\x01 \x01(\tR\n" +
+	"policyName\x12%\n" +
+	"\x0epolicy_version\x18\x02 \x01(\x03R\rpolicyVersion\x12<\n" +
+	"\vquorum_rule\x18\x03 \x01(\v2\x1b.clustermetadata.QuorumRuleR\n" +
+	"quorumRule\x12\x1b\n" +
+	"\tis_active\x18\x04 \x01(\bR\bisActive\x129\n" +
+	"\n" +
+	"created_at\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x129\n" +
+	"\n" +
+	"updated_at\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\"\x93\x01\n" +
+	"\n" +
+	"QuorumRule\x12<\n" +
+	"\vquorum_type\x18\x01 \x01(\x0e2\x1b.clustermetadata.QuorumTypeR\n" +
+	"quorumType\x12%\n" +
+	"\x0erequired_count\x18\x02 \x01(\x05R\rrequiredCount\x12 \n" +
+	"\vdescription\x18\x03 \x01(\tR\vdescription*3\n" +
 	"\n" +
 	"PoolerType\x12\v\n" +
 	"\aUNKNOWN\x10\x00\x12\v\n" +
@@ -867,7 +1098,12 @@ const file_clustermetadata_proto_rawDesc = "" +
 	"\x06BACKUP\x10\x02\x12\v\n" +
 	"\aRESTORE\x10\x03\x12\v\n" +
 	"\aDRAINED\x10\x04\x12\x12\n" +
-	"\x0eSERVING_RDONLY\x10\x05B6Z4github.com/multigres/multigres/go/pb/clustermetadatab\x06proto3"
+	"\x0eSERVING_RDONLY\x10\x05*^\n" +
+	"\n" +
+	"QuorumType\x12\x17\n" +
+	"\x13QUORUM_TYPE_UNKNOWN\x10\x00\x12\x15\n" +
+	"\x11QUORUM_TYPE_ANY_N\x10\x01\x12 \n" +
+	"\x1cQUORUM_TYPE_MULTI_CELL_ANY_N\x10\x02B6Z4github.com/multigres/multigres/go/pb/clustermetadatab\x06proto3"
 
 var (
 	file_clustermetadata_proto_rawDescOnce sync.Once
@@ -881,40 +1117,48 @@ func file_clustermetadata_proto_rawDescGZIP() []byte {
 	return file_clustermetadata_proto_rawDescData
 }
 
-var file_clustermetadata_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
-var file_clustermetadata_proto_msgTypes = make([]protoimpl.MessageInfo, 11)
+var file_clustermetadata_proto_enumTypes = make([]protoimpl.EnumInfo, 4)
+var file_clustermetadata_proto_msgTypes = make([]protoimpl.MessageInfo, 13)
 var file_clustermetadata_proto_goTypes = []any{
-	(PoolerType)(0),          // 0: clustermetadata.PoolerType
-	(PoolerServingStatus)(0), // 1: clustermetadata.PoolerServingStatus
-	(ID_ComponentType)(0),    // 2: clustermetadata.ID.ComponentType
-	(*GlobalTopoConfig)(nil), // 3: clustermetadata.GlobalTopoConfig
-	(*Cell)(nil),             // 4: clustermetadata.Cell
-	(*Database)(nil),         // 5: clustermetadata.Database
-	(*MultiPooler)(nil),      // 6: clustermetadata.MultiPooler
-	(*MultiGateway)(nil),     // 7: clustermetadata.MultiGateway
-	(*MultiOrch)(nil),        // 8: clustermetadata.MultiOrch
-	(*ID)(nil),               // 9: clustermetadata.ID
-	(*KeyRange)(nil),         // 10: clustermetadata.KeyRange
-	nil,                      // 11: clustermetadata.MultiPooler.PortMapEntry
-	nil,                      // 12: clustermetadata.MultiGateway.PortMapEntry
-	nil,                      // 13: clustermetadata.MultiOrch.PortMapEntry
+	(PoolerType)(0),               // 0: clustermetadata.PoolerType
+	(PoolerServingStatus)(0),      // 1: clustermetadata.PoolerServingStatus
+	(QuorumType)(0),               // 2: clustermetadata.QuorumType
+	(ID_ComponentType)(0),         // 3: clustermetadata.ID.ComponentType
+	(*GlobalTopoConfig)(nil),      // 4: clustermetadata.GlobalTopoConfig
+	(*Cell)(nil),                  // 5: clustermetadata.Cell
+	(*Database)(nil),              // 6: clustermetadata.Database
+	(*MultiPooler)(nil),           // 7: clustermetadata.MultiPooler
+	(*MultiGateway)(nil),          // 8: clustermetadata.MultiGateway
+	(*MultiOrch)(nil),             // 9: clustermetadata.MultiOrch
+	(*ID)(nil),                    // 10: clustermetadata.ID
+	(*KeyRange)(nil),              // 11: clustermetadata.KeyRange
+	(*DurabilityPolicy)(nil),      // 12: clustermetadata.DurabilityPolicy
+	(*QuorumRule)(nil),            // 13: clustermetadata.QuorumRule
+	nil,                           // 14: clustermetadata.MultiPooler.PortMapEntry
+	nil,                           // 15: clustermetadata.MultiGateway.PortMapEntry
+	nil,                           // 16: clustermetadata.MultiOrch.PortMapEntry
+	(*timestamppb.Timestamp)(nil), // 17: google.protobuf.Timestamp
 }
 var file_clustermetadata_proto_depIdxs = []int32{
-	9,  // 0: clustermetadata.MultiPooler.id:type_name -> clustermetadata.ID
-	10, // 1: clustermetadata.MultiPooler.key_range:type_name -> clustermetadata.KeyRange
+	10, // 0: clustermetadata.MultiPooler.id:type_name -> clustermetadata.ID
+	11, // 1: clustermetadata.MultiPooler.key_range:type_name -> clustermetadata.KeyRange
 	0,  // 2: clustermetadata.MultiPooler.type:type_name -> clustermetadata.PoolerType
 	1,  // 3: clustermetadata.MultiPooler.serving_status:type_name -> clustermetadata.PoolerServingStatus
-	11, // 4: clustermetadata.MultiPooler.port_map:type_name -> clustermetadata.MultiPooler.PortMapEntry
-	9,  // 5: clustermetadata.MultiGateway.id:type_name -> clustermetadata.ID
-	12, // 6: clustermetadata.MultiGateway.port_map:type_name -> clustermetadata.MultiGateway.PortMapEntry
-	9,  // 7: clustermetadata.MultiOrch.id:type_name -> clustermetadata.ID
-	13, // 8: clustermetadata.MultiOrch.port_map:type_name -> clustermetadata.MultiOrch.PortMapEntry
-	2,  // 9: clustermetadata.ID.component:type_name -> clustermetadata.ID.ComponentType
-	10, // [10:10] is the sub-list for method output_type
-	10, // [10:10] is the sub-list for method input_type
-	10, // [10:10] is the sub-list for extension type_name
-	10, // [10:10] is the sub-list for extension extendee
-	0,  // [0:10] is the sub-list for field type_name
+	14, // 4: clustermetadata.MultiPooler.port_map:type_name -> clustermetadata.MultiPooler.PortMapEntry
+	10, // 5: clustermetadata.MultiGateway.id:type_name -> clustermetadata.ID
+	15, // 6: clustermetadata.MultiGateway.port_map:type_name -> clustermetadata.MultiGateway.PortMapEntry
+	10, // 7: clustermetadata.MultiOrch.id:type_name -> clustermetadata.ID
+	16, // 8: clustermetadata.MultiOrch.port_map:type_name -> clustermetadata.MultiOrch.PortMapEntry
+	3,  // 9: clustermetadata.ID.component:type_name -> clustermetadata.ID.ComponentType
+	13, // 10: clustermetadata.DurabilityPolicy.quorum_rule:type_name -> clustermetadata.QuorumRule
+	17, // 11: clustermetadata.DurabilityPolicy.created_at:type_name -> google.protobuf.Timestamp
+	17, // 12: clustermetadata.DurabilityPolicy.updated_at:type_name -> google.protobuf.Timestamp
+	2,  // 13: clustermetadata.QuorumRule.quorum_type:type_name -> clustermetadata.QuorumType
+	14, // [14:14] is the sub-list for method output_type
+	14, // [14:14] is the sub-list for method input_type
+	14, // [14:14] is the sub-list for extension type_name
+	14, // [14:14] is the sub-list for extension extendee
+	0,  // [0:14] is the sub-list for field type_name
 }
 
 func init() { file_clustermetadata_proto_init() }
@@ -927,8 +1171,8 @@ func file_clustermetadata_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_clustermetadata_proto_rawDesc), len(file_clustermetadata_proto_rawDesc)),
-			NumEnums:      3,
-			NumMessages:   11,
+			NumEnums:      4,
+			NumMessages:   13,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
