@@ -73,6 +73,7 @@ type FakeClient struct {
 	ChangeTypeResponses                      map[string]*multipoolermanagerdatapb.ChangeTypeResponse
 	SetTermResponses                         map[string]*multipoolermanagerdatapb.SetTermResponse
 	GetDurabilityPolicyResponses             map[string]*multipoolermanagerdatapb.GetDurabilityPolicyResponse
+	CreateDurabilityPolicyResponses          map[string]*multipoolermanagerdatapb.CreateDurabilityPolicyResponse
 	BackupResponses                          map[string]*multipoolermanagerdatapb.BackupResponse
 	RestoreFromBackupResponses               map[string]*multipoolermanagerdatapb.RestoreFromBackupResponse
 	GetBackupsResponses                      map[string]*multipoolermanagerdatapb.GetBackupsResponse
@@ -113,6 +114,7 @@ func NewFakeClient() *FakeClient {
 		ChangeTypeResponses:                      make(map[string]*multipoolermanagerdatapb.ChangeTypeResponse),
 		SetTermResponses:                         make(map[string]*multipoolermanagerdatapb.SetTermResponse),
 		GetDurabilityPolicyResponses:             make(map[string]*multipoolermanagerdatapb.GetDurabilityPolicyResponse),
+		CreateDurabilityPolicyResponses:          make(map[string]*multipoolermanagerdatapb.CreateDurabilityPolicyResponse),
 		BackupResponses:                          make(map[string]*multipoolermanagerdatapb.BackupResponse),
 		RestoreFromBackupResponses:               make(map[string]*multipoolermanagerdatapb.RestoreFromBackupResponse),
 		GetBackupsResponses:                      make(map[string]*multipoolermanagerdatapb.GetBackupsResponse),
@@ -595,6 +597,22 @@ func (f *FakeClient) GetDurabilityPolicy(ctx context.Context, pooler *clustermet
 		return resp, nil
 	}
 	return &multipoolermanagerdatapb.GetDurabilityPolicyResponse{}, nil
+}
+
+func (f *FakeClient) CreateDurabilityPolicy(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.CreateDurabilityPolicyRequest) (*multipoolermanagerdatapb.CreateDurabilityPolicyResponse, error) {
+	poolerID := f.getPoolerID(pooler)
+	f.logCall("CreateDurabilityPolicy", poolerID)
+
+	if err := f.checkError(poolerID); err != nil {
+		return nil, err
+	}
+
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+	if resp, ok := f.CreateDurabilityPolicyResponses[poolerID]; ok {
+		return resp, nil
+	}
+	return &multipoolermanagerdatapb.CreateDurabilityPolicyResponse{Success: true}, nil
 }
 
 //

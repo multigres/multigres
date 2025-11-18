@@ -49,8 +49,8 @@ func TestLoadQuorumRule_PrimaryPreference(t *testing.T) {
 		}
 		primaryNode := &Node{
 			ID:        primaryPooler.Id,
-			pooler:    primaryPooler,
-			rpcClient: fakeClient,
+			Pooler:    primaryPooler,
+			RpcClient: fakeClient,
 		}
 
 		// Create REPLICA nodes
@@ -64,8 +64,8 @@ func TestLoadQuorumRule_PrimaryPreference(t *testing.T) {
 		}
 		replica1Node := &Node{
 			ID:        replica1Pooler.Id,
-			pooler:    replica1Pooler,
-			rpcClient: fakeClient,
+			Pooler:    replica1Pooler,
+			RpcClient: fakeClient,
 		}
 
 		replica2Pooler := &clustermetadatapb.MultiPooler{
@@ -78,8 +78,8 @@ func TestLoadQuorumRule_PrimaryPreference(t *testing.T) {
 		}
 		replica2Node := &Node{
 			ID:        replica2Pooler.Id,
-			pooler:    replica2Pooler,
-			rpcClient: fakeClient,
+			Pooler:    replica2Pooler,
+			RpcClient: fakeClient,
 		}
 
 		// Setup PRIMARY response with version 100
@@ -149,8 +149,8 @@ func TestLoadQuorumRule_PrimaryPreference(t *testing.T) {
 		}
 		primaryNode := &Node{
 			ID:        primaryPooler.Id,
-			pooler:    primaryPooler,
-			rpcClient: fakeClient,
+			Pooler:    primaryPooler,
+			RpcClient: fakeClient,
 		}
 
 		// Create REPLICA nodes
@@ -164,8 +164,8 @@ func TestLoadQuorumRule_PrimaryPreference(t *testing.T) {
 		}
 		replica1Node := &Node{
 			ID:        replica1Pooler.Id,
-			pooler:    replica1Pooler,
-			rpcClient: fakeClient,
+			Pooler:    replica1Pooler,
+			RpcClient: fakeClient,
 		}
 
 		replica2Pooler := &clustermetadatapb.MultiPooler{
@@ -178,8 +178,8 @@ func TestLoadQuorumRule_PrimaryPreference(t *testing.T) {
 		}
 		replica2Node := &Node{
 			ID:        replica2Pooler.Id,
-			pooler:    replica2Pooler,
-			rpcClient: fakeClient,
+			Pooler:    replica2Pooler,
+			RpcClient: fakeClient,
 		}
 
 		// Setup PRIMARY to fail
@@ -244,8 +244,8 @@ func TestLoadQuorumRule_ParallelReplicaLoading(t *testing.T) {
 		}
 		replica1Node := &Node{
 			ID:        replica1Pooler.Id,
-			pooler:    replica1Pooler,
-			rpcClient: fakeClient,
+			Pooler:    replica1Pooler,
+			RpcClient: fakeClient,
 		}
 
 		replica2Pooler := &clustermetadatapb.MultiPooler{
@@ -258,8 +258,8 @@ func TestLoadQuorumRule_ParallelReplicaLoading(t *testing.T) {
 		}
 		replica2Node := &Node{
 			ID:        replica2Pooler.Id,
-			pooler:    replica2Pooler,
-			rpcClient: fakeClient,
+			Pooler:    replica2Pooler,
+			RpcClient: fakeClient,
 		}
 
 		replica3Pooler := &clustermetadatapb.MultiPooler{
@@ -272,8 +272,8 @@ func TestLoadQuorumRule_ParallelReplicaLoading(t *testing.T) {
 		}
 		replica3Node := &Node{
 			ID:        replica3Pooler.Id,
-			pooler:    replica3Pooler,
-			rpcClient: fakeClient,
+			Pooler:    replica3Pooler,
+			RpcClient: fakeClient,
 		}
 
 		// Setup REPLICA responses with different versions
@@ -342,8 +342,8 @@ func TestLoadQuorumRule_ParallelReplicaLoading(t *testing.T) {
 		}
 		replica1Node := &Node{
 			ID:        replica1Pooler.Id,
-			pooler:    replica1Pooler,
-			rpcClient: fakeClient,
+			Pooler:    replica1Pooler,
+			RpcClient: fakeClient,
 		}
 
 		replica2Pooler := &clustermetadatapb.MultiPooler{
@@ -356,8 +356,8 @@ func TestLoadQuorumRule_ParallelReplicaLoading(t *testing.T) {
 		}
 		replica2Node := &Node{
 			ID:        replica2Pooler.Id,
-			pooler:    replica2Pooler,
-			rpcClient: fakeClient,
+			Pooler:    replica2Pooler,
+			RpcClient: fakeClient,
 		}
 
 		// Setup responses with version 200 (higher) and version 50 (lower)
@@ -421,8 +421,8 @@ func TestLoadQuorumRule_ResponseWaiting(t *testing.T) {
 			}
 			node := &Node{
 				ID:        pooler.Id,
-				pooler:    pooler,
-				rpcClient: fakeClient,
+				Pooler:    pooler,
+				RpcClient: fakeClient,
 			}
 			replicaNodes = append(replicaNodes, node)
 
@@ -469,8 +469,8 @@ func TestLoadQuorumRule_ResponseWaiting(t *testing.T) {
 		}
 		replica1Node := &Node{
 			ID:        replica1Pooler.Id,
-			pooler:    replica1Pooler,
-			rpcClient: fakeClient,
+			Pooler:    replica1Pooler,
+			RpcClient: fakeClient,
 		}
 
 		replica2Pooler := &clustermetadatapb.MultiPooler{
@@ -483,8 +483,8 @@ func TestLoadQuorumRule_ResponseWaiting(t *testing.T) {
 		}
 		replica2Node := &Node{
 			ID:        replica2Pooler.Id,
-			pooler:    replica2Pooler,
-			rpcClient: fakeClient,
+			Pooler:    replica2Pooler,
+			RpcClient: fakeClient,
 		}
 
 		replica3Pooler := &clustermetadatapb.MultiPooler{
@@ -497,8 +497,8 @@ func TestLoadQuorumRule_ResponseWaiting(t *testing.T) {
 		}
 		replica3Node := &Node{
 			ID:        replica3Pooler.Id,
-			pooler:    replica3Pooler,
-			rpcClient: fakeClient,
+			Pooler:    replica3Pooler,
+			RpcClient: fakeClient,
 		}
 
 		// Setup replica1 to fail
@@ -563,8 +563,8 @@ func TestLoadQuorumRule_FallbackBehaviors(t *testing.T) {
 		}
 		replica1Node := &Node{
 			ID:        replica1Pooler.Id,
-			pooler:    replica1Pooler,
-			rpcClient: fakeClient,
+			Pooler:    replica1Pooler,
+			RpcClient: fakeClient,
 		}
 
 		replica2Pooler := &clustermetadatapb.MultiPooler{
@@ -577,8 +577,8 @@ func TestLoadQuorumRule_FallbackBehaviors(t *testing.T) {
 		}
 		replica2Node := &Node{
 			ID:        replica2Pooler.Id,
-			pooler:    replica2Pooler,
-			rpcClient: fakeClient,
+			Pooler:    replica2Pooler,
+			RpcClient: fakeClient,
 		}
 
 		// Setup all REPLICAs to fail
@@ -614,8 +614,8 @@ func TestLoadQuorumRule_FallbackBehaviors(t *testing.T) {
 		}
 		primaryNode := &Node{
 			ID:        primaryPooler.Id,
-			pooler:    primaryPooler,
-			rpcClient: fakeClient,
+			Pooler:    primaryPooler,
+			RpcClient: fakeClient,
 		}
 
 		// Setup PRIMARY to fail

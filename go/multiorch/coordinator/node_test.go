@@ -53,8 +53,8 @@ func TestCreateNode(t *testing.T) {
 		require.Equal(t, "localhost", node.Hostname)
 		require.Equal(t, int32(9000), node.Port)
 		require.Equal(t, "shard0", node.ShardID)
-		require.NotNil(t, node.rpcClient)
-		require.NotNil(t, node.pooler)
+		require.NotNil(t, node.RpcClient)
+		require.NotNil(t, node.Pooler)
 	})
 }
 

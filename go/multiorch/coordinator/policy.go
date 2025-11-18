@@ -16,12 +16,8 @@ package coordinator
 
 import (
 	"context"
-	"database/sql"
-	"encoding/json"
 	"fmt"
 	"sync"
-
-	"google.golang.org/protobuf/encoding/protojson"
 
 	"github.com/multigres/multigres/go/mterrors"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
@@ -34,7 +30,7 @@ import (
 func (c *Coordinator) LoadQuorumRuleFromNode(ctx context.Context, node *Node, database string) (*clustermetadatapb.QuorumRule, error) {
 	// Call GetDurabilityPolicy RPC
 	req := &multipoolermanagerdatapb.GetDurabilityPolicyRequest{}
-	resp, err := node.rpcClient.GetDurabilityPolicy(ctx, node.pooler, req)
+	resp, err := node.RpcClient.GetDurabilityPolicy(ctx, node.Pooler, req)
 	if err != nil {
 		return nil, mterrors.Wrapf(err, "failed to get durability policy from node %s", node.ID.Name)
 	}
@@ -74,7 +70,7 @@ func (c *Coordinator) LoadQuorumRule(ctx context.Context, cohort []*Node, databa
 	var primaryNode *Node
 	var replicaNodes []*Node
 	for _, node := range cohort {
-		switch node.pooler.Type {
+		switch node.Pooler.Type {
 		case clustermetadatapb.PoolerType_PRIMARY:
 			primaryNode = node
 		case clustermetadatapb.PoolerType_REPLICA:
@@ -131,7 +127,7 @@ func (c *Coordinator) loadFromReplicasInParallel(ctx context.Context, replicas [
 		go func(n *Node) {
 			defer wg.Done()
 			req := &multipoolermanagerdatapb.GetDurabilityPolicyRequest{}
-			resp, err := n.rpcClient.GetDurabilityPolicy(ctx, n.pooler, req)
+			resp, err := n.RpcClient.GetDurabilityPolicy(ctx, n.Pooler, req)
 			if err != nil {
 				results <- result{node: n, err: err}
 				return
@@ -238,55 +234,28 @@ func (c *Coordinator) getDefaultQuorumRule(ctx context.Context, cohortSize int) 
 // CreateDefaultPolicy creates a default durability policy in the given database.
 // This is useful for bootstrapping new shards.
 func (c *Coordinator) CreateDefaultPolicy(ctx context.Context, node *Node, database string, policyName string) error {
-	// Connect to the node's postgres database
-	dsn := fmt.Sprintf("host=%s port=%d dbname=%s user=postgres sslmode=disable",
-		node.Hostname, node.Port, database)
-
-	db, err := sql.Open("postgres", dsn)
-	if err != nil {
-		return mterrors.Wrapf(err, "failed to connect to node %s", node.ID.Name)
-	}
-	defer db.Close()
-
-	// Test the connection
-	if err := db.PingContext(ctx); err != nil {
-		return mterrors.Wrapf(err, "failed to ping node %s", node.ID.Name)
-	}
-
 	// Create default ANY_N policy with required_count = 2
-	quorumRule := clustermetadatapb.QuorumRule{
+	quorumRule := &clustermetadatapb.QuorumRule{
 		QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_ANY_N,
 		RequiredCount: 2,
 		Description:   "Default ANY_N quorum (2 nodes)",
 	}
 
-	// Marshal to JSON
-	quorumRuleJSON, err := protojson.Marshal(&quorumRule)
-	if err != nil {
-		return mterrors.Wrap(err, "failed to marshal quorum rule")
+	// Call CreateDurabilityPolicy RPC
+	req := &multipoolermanagerdatapb.CreateDurabilityPolicyRequest{
+		PolicyName: policyName,
+		QuorumRule: quorumRule,
 	}
 
-	// Convert to standard JSON for PostgreSQL JSONB
-	var jsonData interface{}
-	if err := json.Unmarshal(quorumRuleJSON, &jsonData); err != nil {
-		return mterrors.Wrap(err, "failed to parse quorum rule JSON")
+	resp, err := node.RpcClient.CreateDurabilityPolicy(ctx, node.Pooler, req)
+	if err != nil {
+		return mterrors.Wrapf(err, "failed to create durability policy on node %s", node.ID.Name)
 	}
 
-	jsonBytes, err := json.Marshal(jsonData)
-	if err != nil {
-		return mterrors.Wrap(err, "failed to re-marshal quorum rule")
-	}
-
-	// Insert the policy
-	query := `
-		INSERT INTO multigres.durability_policy (policy_name, policy_version, quorum_rule, is_active)
-		VALUES ($1, 1, $2::jsonb, true)
-		ON CONFLICT (policy_name, policy_version) DO NOTHING
-	`
-
-	_, err = db.ExecContext(ctx, query, policyName, string(jsonBytes))
-	if err != nil {
-		return mterrors.Wrapf(err, "failed to insert default policy into node %s", node.ID.Name)
+	if !resp.Success {
+		return mterrors.Errorf(mtrpcpb.Code_INTERNAL,
+			"failed to create durability policy on node %s: %s",
+			node.ID.Name, resp.ErrorMessage)
 	}
 
 	c.logger.InfoContext(ctx, "Created default durability policy",

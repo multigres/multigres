@@ -38,11 +38,11 @@ type Node struct {
 	// ShardID identifies which shard this node belongs to
 	ShardID string
 
-	// rpcClient is the shared cached RPC client for calling multipooler services
-	rpcClient rpcclient.MultiPoolerClient
+	// RpcClient is the shared cached RPC client for calling multipooler services
+	RpcClient rpcclient.MultiPoolerClient
 
-	// pooler is the full multipooler metadata needed for RPC calls
-	pooler *clustermetadatapb.MultiPooler
+	// Pooler is the full multipooler metadata needed for RPC calls
+	Pooler *clustermetadatapb.MultiPooler
 }
 
 // CreateNode creates a Node with a reference to the shared cached RPC client.
@@ -56,8 +56,8 @@ func CreateNode(ctx context.Context, rpcClient rpcclient.MultiPoolerClient, pool
 		Hostname:  poolerInfo.Hostname,
 		Port:      poolerInfo.PortMap["grpc"],
 		ShardID:   poolerInfo.Shard,
-		rpcClient: rpcClient,
-		pooler:    pooler,
+		RpcClient: rpcClient,
+		Pooler:    pooler,
 	}
 
 	return node, nil

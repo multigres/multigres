@@ -71,8 +71,8 @@ func createMockNode(fakeClient *rpcclient.FakeClient, name string, term int64, w
 		Hostname:  pooler.Hostname,
 		Port:      pooler.PortMap["grpc"],
 		ShardID:   "shard0",
-		rpcClient: fakeClient,
-		pooler:    pooler,
+		RpcClient: fakeClient,
+		Pooler:    pooler,
 	}
 }
 
@@ -135,8 +135,8 @@ func TestDiscoverMaxTerm(t *testing.T) {
 				Hostname:  pooler2.Hostname,
 				Port:      pooler2.PortMap["grpc"],
 				ShardID:   "shard0",
-				rpcClient: fakeClient,
-				pooler:    pooler2,
+				RpcClient: fakeClient,
+				Pooler:    pooler2,
 			},
 			createMockNode(fakeClient, "mp3", 3, "0/1000000", true, "standby"),
 		}
@@ -219,8 +219,8 @@ func TestSelectCandidate(t *testing.T) {
 				Hostname:  pooler.Hostname,
 				Port:      pooler.PortMap["grpc"],
 				ShardID:   "shard0",
-				rpcClient: fakeClient,
-				pooler:    pooler,
+				RpcClient: fakeClient,
+				Pooler:    pooler,
 			},
 		}
 

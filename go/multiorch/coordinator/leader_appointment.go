@@ -98,7 +98,7 @@ func (c *Coordinator) discoverMaxTerm(ctx context.Context, cohort []*Node) (int6
 		go func(n *Node) {
 			defer wg.Done()
 			req := &consensusdatapb.StatusRequest{}
-			resp, err := n.rpcClient.ConsensusStatus(ctx, n.pooler, req)
+			resp, err := n.RpcClient.ConsensusStatus(ctx, n.Pooler, req)
 			if err != nil {
 				results <- result{err: err}
 				return
@@ -153,7 +153,7 @@ func (c *Coordinator) selectCandidate(ctx context.Context, cohort []*Node) (*Nod
 	// Query status from all nodes
 	for _, node := range cohort {
 		req := &consensusdatapb.StatusRequest{}
-		resp, err := node.rpcClient.ConsensusStatus(ctx, node.pooler, req)
+		resp, err := node.RpcClient.ConsensusStatus(ctx, node.Pooler, req)
 		if err != nil {
 			c.logger.WarnContext(ctx, "Failed to get status from node",
 				"node", node.ID.Name,
@@ -230,7 +230,7 @@ func (c *Coordinator) recruitNodes(ctx context.Context, cohort []*Node, term int
 				Term:        term,
 				CandidateId: c.coordinatorID,
 			}
-			resp, err := n.rpcClient.BeginTerm(ctx, n.pooler, req)
+			resp, err := n.RpcClient.BeginTerm(ctx, n.Pooler, req)
 			if err != nil {
 				results <- result{node: n, err: err}
 				return
@@ -407,7 +407,7 @@ func (c *Coordinator) Propagate(ctx context.Context, candidate *Node, standbys [
 
 	// Get current WAL position before promotion (for validation)
 	statusReq := &consensusdatapb.StatusRequest{}
-	status, err := candidate.rpcClient.ConsensusStatus(ctx, candidate.pooler, statusReq)
+	status, err := candidate.RpcClient.ConsensusStatus(ctx, candidate.Pooler, statusReq)
 	if err != nil {
 		return mterrors.Wrap(err, "failed to get candidate status before promotion")
 	}
@@ -430,7 +430,7 @@ func (c *Coordinator) Propagate(ctx context.Context, candidate *Node, standbys [
 				waitReq := &multipoolermanagerdatapb.WaitForLSNRequest{
 					TargetLsn: expectedLSN,
 				}
-				if _, err := candidate.rpcClient.WaitForLSN(ctx, candidate.pooler, waitReq); err != nil {
+				if _, err := candidate.RpcClient.WaitForLSN(ctx, candidate.Pooler, waitReq); err != nil {
 					return mterrors.Wrapf(err, "candidate failed to replay WAL to %s", expectedLSN)
 				}
 			}
@@ -443,7 +443,7 @@ func (c *Coordinator) Propagate(ctx context.Context, candidate *Node, standbys [
 		SyncReplicationConfig: syncConfig,
 		Force:                 false,
 	}
-	_, err = candidate.rpcClient.Promote(ctx, candidate.pooler, promoteReq)
+	_, err = candidate.RpcClient.Promote(ctx, candidate.Pooler, promoteReq)
 	if err != nil {
 		return mterrors.Wrap(err, "failed to promote candidate")
 	}
@@ -470,7 +470,7 @@ func (c *Coordinator) Propagate(ctx context.Context, candidate *Node, standbys [
 				StartReplicationAfter: false,
 				Force:                 false,
 			}
-			if _, err := s.rpcClient.SetPrimaryConnInfo(ctx, s.pooler, setPrimaryReq); err != nil {
+			if _, err := s.RpcClient.SetPrimaryConnInfo(ctx, s.Pooler, setPrimaryReq); err != nil {
 				errChan <- mterrors.Wrapf(err, "failed to configure standby %s", s.ID.Name)
 				return
 			}
@@ -518,7 +518,7 @@ func (c *Coordinator) EstablishLeader(ctx context.Context, candidate *Node, term
 
 	// Verify the leader is actually serving
 	statusReq := &multipoolermanagerdatapb.StatusRequest{}
-	status, err := candidate.rpcClient.Status(ctx, candidate.pooler, statusReq)
+	status, err := candidate.RpcClient.Status(ctx, candidate.Pooler, statusReq)
 	if err != nil {
 		return mterrors.Wrap(err, "failed to verify leader status")
 	}

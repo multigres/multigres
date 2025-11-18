@@ -436,6 +436,19 @@ func (c *Client) GetDurabilityPolicy(ctx context.Context, pooler *clustermetadat
 	return conn.managerClient.GetDurabilityPolicy(ctx, request)
 }
 
+// CreateDurabilityPolicy creates a new durability policy in the local database.
+func (c *Client) CreateDurabilityPolicy(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.CreateDurabilityPolicyRequest) (*multipoolermanagerdatapb.CreateDurabilityPolicyResponse, error) {
+	conn, closer, err := c.dialPersistent(ctx, pooler)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		_ = closer()
+	}()
+
+	return conn.managerClient.CreateDurabilityPolicy(ctx, request)
+}
+
 //
 // Manager Service Methods - Backup and Restore
 //
