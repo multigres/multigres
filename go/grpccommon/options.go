@@ -18,6 +18,7 @@ package grpccommon
 
 import (
 	"github.com/spf13/pflag"
+	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
@@ -39,10 +40,10 @@ var (
 func RegisterFlags(fs *pflag.FlagSet) {
 	fs.IntVar(&maxMessageSize, "grpc-max-message-size", maxMessageSize, "Maximum allowed RPC message size. Larger messages will be rejected by gRPC with the error 'exceeding the max size'.")
 	fs.BoolVar(&grpc.EnableTracing, "grpc-enable-tracing", grpc.EnableTracing, "Enable gRPC tracing.")
-	fs.BoolVar(&enablePrometheus, "grpc_prometheus", enablePrometheus, "Enable gRPC monitoring with Prometheus.")
+	fs.BoolVar(&enablePrometheus, "grpc-prometheus", enablePrometheus, "Enable gRPC monitoring with Prometheus.")
 }
 
-// EnableGRPCPrometheus returns the value of the --grpc_prometheus flag.
+// EnableGRPCPrometheus returns the value of the --grpc-prometheus flag.
 func EnableGRPCPrometheus() bool {
 	return enablePrometheus
 }
@@ -62,5 +63,6 @@ func LocalClientDialOptions() []grpc.DialOption {
 	return []grpc.DialOption{
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithDisableServiceConfig(),
+		grpc.WithStatsHandler(otelgrpc.NewClientHandler()),
 	}
 }

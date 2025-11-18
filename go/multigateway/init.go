@@ -64,28 +64,29 @@ type MultiGateway struct {
 }
 
 func NewMultiGateway() *MultiGateway {
+	reg := viperutil.NewRegistry()
 	mg := &MultiGateway{
-		cell: viperutil.Configure("cell", viperutil.Options[string]{
+		cell: viperutil.Configure(reg, "cell", viperutil.Options[string]{
 			Default:  "",
 			FlagName: "cell",
 			Dynamic:  false,
 			EnvVars:  []string{"MT_CELL"},
 		}),
-		serviceID: viperutil.Configure("service-id", viperutil.Options[string]{
+		serviceID: viperutil.Configure(reg, "service-id", viperutil.Options[string]{
 			Default:  "",
 			FlagName: "service-id",
 			Dynamic:  false,
 			EnvVars:  []string{"MT_SERVICE_ID"},
 		}),
-		pgPort: viperutil.Configure("pg-port", viperutil.Options[int]{
+		pgPort: viperutil.Configure(reg, "pg-port", viperutil.Options[int]{
 			Default:  5432,
 			FlagName: "pg-port",
 			Dynamic:  false,
 			EnvVars:  []string{"MT_PG_PORT"},
 		}),
-		grpcServer: servenv.NewGrpcServer(),
-		senv:       servenv.NewServEnv(),
-		topoConfig: topo.NewTopoConfig(),
+		grpcServer: servenv.NewGrpcServer(reg),
+		senv:       servenv.NewServEnv(reg),
+		topoConfig: topo.NewTopoConfig(reg),
 		serverStatus: Status{
 			Title: "Multigateway",
 			Links: []Link{
@@ -127,7 +128,7 @@ func (mg *MultiGateway) RegisterFlags(fs *pflag.FlagSet) {
 // or if some connections fail, it launches goroutines that retry
 // until successful.
 func (mg *MultiGateway) Init() {
-	mg.senv.Init()
+	mg.senv.Init("multigateway")
 	logger := mg.senv.GetLogger()
 
 	mg.ts = mg.topoConfig.Open()

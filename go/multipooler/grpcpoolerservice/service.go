@@ -28,12 +28,12 @@ import (
 // poolerService is the gRPC wrapper for MultiPooler
 type poolerService struct {
 	multipoolerpb.UnimplementedMultiPoolerServiceServer
-	pooler *poolerserver.MultiPooler
+	pooler *poolerserver.QueryPoolerServer
 }
 
 func RegisterPoolerServices(senv *servenv.ServEnv, grpc *servenv.GrpcServer) {
 	// Register ourselves to be invoked when the pooler starts
-	poolerserver.RegisterPoolerServices = append(poolerserver.RegisterPoolerServices, func(p *poolerserver.MultiPooler) {
+	poolerserver.RegisterPoolerServices = append(poolerserver.RegisterPoolerServices, func(p *poolerserver.QueryPoolerServer) {
 		if grpc.CheckServiceMap("pooler", senv) {
 			srv := &poolerService{
 				pooler: p,
@@ -47,7 +47,7 @@ func RegisterPoolerServices(senv *servenv.ServEnv, grpc *servenv.GrpcServer) {
 // This is the main execution method used by multigateway.
 func (s *poolerService) StreamExecute(req *multipoolerpb.StreamExecuteRequest, stream multipoolerpb.MultiPoolerService_StreamExecuteServer) error {
 	// Get the executor from the pooler
-	executor, err := s.pooler.GetExecutor()
+	executor, err := s.pooler.Executor()
 	if err != nil {
 		return fmt.Errorf("executor not initialized")
 	}
@@ -69,7 +69,7 @@ func (s *poolerService) StreamExecute(req *multipoolerpb.StreamExecuteRequest, s
 // otherwise StreamExecute should be used.
 func (s *poolerService) ExecuteQuery(ctx context.Context, req *multipoolerpb.ExecuteQueryRequest) (*multipoolerpb.ExecuteQueryResponse, error) {
 	// Get the executor from the pooler
-	executor, err := s.pooler.GetExecutor()
+	executor, err := s.pooler.Executor()
 	if err != nil {
 		return nil, fmt.Errorf("executor not initialized")
 	}

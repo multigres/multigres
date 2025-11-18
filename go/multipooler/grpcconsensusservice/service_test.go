@@ -25,6 +25,7 @@ import (
 	"github.com/multigres/multigres/go/cmd/pgctld/testutil"
 	"github.com/multigres/multigres/go/multipooler/manager"
 	"github.com/multigres/multigres/go/servenv"
+	"github.com/multigres/multigres/go/viperutil"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -73,7 +74,7 @@ func TestConsensusService_BeginTerm(t *testing.T) {
 	defer pm.Close()
 
 	// Start the async loader
-	senv := servenv.NewServEnv()
+	senv := servenv.NewServEnv(viperutil.NewRegistry())
 	go pm.Start(senv)
 
 	// Wait for the manager to become ready
@@ -145,7 +146,7 @@ func TestConsensusService_Status(t *testing.T) {
 	defer pm.Close()
 
 	// Start the async loader
-	senv := servenv.NewServEnv()
+	senv := servenv.NewServEnv(viperutil.NewRegistry())
 	go pm.Start(senv)
 
 	// Wait for the manager to become ready
@@ -216,7 +217,7 @@ func TestConsensusService_GetLeadershipView(t *testing.T) {
 	defer pm.Close()
 
 	// Start the async loader
-	senv := servenv.NewServEnv()
+	senv := servenv.NewServEnv(viperutil.NewRegistry())
 	go pm.Start(senv)
 
 	// Wait for the manager to become ready
@@ -282,7 +283,7 @@ func TestConsensusService_CanReachPrimary(t *testing.T) {
 	defer pm.Close()
 
 	// Start the async loader
-	senv := servenv.NewServEnv()
+	senv := servenv.NewServEnv(viperutil.NewRegistry())
 	go pm.Start(senv)
 
 	// Wait for the manager to become ready
@@ -350,7 +351,7 @@ func TestConsensusService_AllMethods(t *testing.T) {
 	defer pm.Close()
 
 	// Start the async loader
-	senv := servenv.NewServEnv()
+	senv := servenv.NewServEnv(viperutil.NewRegistry())
 	go pm.Start(senv)
 
 	// Wait for the manager to become ready

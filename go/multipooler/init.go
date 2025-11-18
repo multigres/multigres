@@ -28,8 +28,8 @@ import (
 	"github.com/multigres/multigres/go/multipooler/grpcmanagerservice"
 	"github.com/multigres/multigres/go/multipooler/grpcpoolerservice"
 	"github.com/multigres/multigres/go/multipooler/manager"
-	"github.com/multigres/multigres/go/multipooler/poolerserver"
 	"github.com/multigres/multigres/go/servenv"
+	"github.com/multigres/multigres/go/tools/telemetry"
 	"github.com/multigres/multigres/go/viperutil"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
@@ -46,6 +46,7 @@ type MultiPooler struct {
 	poolerDir           viperutil.Value[string]
 	pgPort              viperutil.Value[int]
 	heartbeatIntervalMs viperutil.Value[int]
+	pgBackRestStanza    viperutil.Value[string]
 	// MultipoolerID stores the ID for deregistration during shutdown
 	multipoolerID *clustermetadatapb.ID
 	// GrpcServer is the grpc server
@@ -54,6 +55,7 @@ type MultiPooler struct {
 	senv *servenv.ServEnv
 	// TopoConfig holds topology configuration
 	topoConfig *topo.TopoConfig
+	telemetry  *telemetry.Telemetry
 
 	ts           topo.Store
 	tr           *toporeg.TopoReg
@@ -65,58 +67,65 @@ func (mp *MultiPooler) CobraPreRunE(cmd *cobra.Command) error {
 }
 
 // NewMultiPooler creates a new MultiPooler instance with default configuration
-func NewMultiPooler() *MultiPooler {
+func NewMultiPooler(telemetry *telemetry.Telemetry) *MultiPooler {
+	reg := viperutil.NewRegistry()
 	mp := &MultiPooler{
-		pgctldAddr: viperutil.Configure("pgctld-addr", viperutil.Options[string]{
+		pgctldAddr: viperutil.Configure(reg, "pgctld-addr", viperutil.Options[string]{
 			Default:  "localhost:15200",
 			FlagName: "pgctld-addr",
 			Dynamic:  false,
 		}),
-		cell: viperutil.Configure("cell", viperutil.Options[string]{
+		cell: viperutil.Configure(reg, "cell", viperutil.Options[string]{
 			Default:  "",
 			FlagName: "cell",
 			Dynamic:  false,
 			EnvVars:  []string{"MT_CELL"},
 		}),
-		database: viperutil.Configure("database", viperutil.Options[string]{
+		database: viperutil.Configure(reg, "database", viperutil.Options[string]{
 			Default:  "",
 			FlagName: "database",
 			Dynamic:  false,
 		}),
-		tableGroup: viperutil.Configure("table-group", viperutil.Options[string]{
+		tableGroup: viperutil.Configure(reg, "table-group", viperutil.Options[string]{
 			Default:  "",
 			FlagName: "table-group",
 			Dynamic:  false,
 		}),
-		serviceID: viperutil.Configure("service-id", viperutil.Options[string]{
+		serviceID: viperutil.Configure(reg, "service-id", viperutil.Options[string]{
 			Default:  "",
 			FlagName: "service-id",
 			Dynamic:  false,
 			EnvVars:  []string{"MT_SERVICE_ID"},
 		}),
-		socketFilePath: viperutil.Configure("socket-file", viperutil.Options[string]{
+		socketFilePath: viperutil.Configure(reg, "socket-file", viperutil.Options[string]{
 			Default:  "",
 			FlagName: "socket-file",
 			Dynamic:  false,
 		}),
-		poolerDir: viperutil.Configure("pooler-dir", viperutil.Options[string]{
+		poolerDir: viperutil.Configure(reg, "pooler-dir", viperutil.Options[string]{
 			Default:  "",
 			FlagName: "pooler-dir",
 			Dynamic:  false,
 		}),
-		pgPort: viperutil.Configure("pg-port", viperutil.Options[int]{
+		pgPort: viperutil.Configure(reg, "pg-port", viperutil.Options[int]{
 			Default:  5432,
 			FlagName: "pg-port",
 			Dynamic:  false,
 		}),
-		heartbeatIntervalMs: viperutil.Configure("heartbeat-interval-milliseconds", viperutil.Options[int]{
+		heartbeatIntervalMs: viperutil.Configure(reg, "heartbeat-interval-milliseconds", viperutil.Options[int]{
 			Default:  1000,
 			FlagName: "heartbeat-interval-milliseconds",
 			Dynamic:  false,
 		}),
-		grpcServer: servenv.NewGrpcServer(),
-		senv:       servenv.NewServEnv(),
-		topoConfig: topo.NewTopoConfig(),
+		pgBackRestStanza: viperutil.Configure(reg, "pgbackrest-stanza", viperutil.Options[string]{
+			Default:  "",
+			FlagName: "pgbackrest-stanza",
+			Dynamic:  false,
+		}),
+		grpcServer: servenv.NewGrpcServer(reg),
+		senv:       servenv.NewServEnvWithConfig(reg, servenv.NewLogger(reg, telemetry), viperutil.NewViperConfig(reg), telemetry),
+		telemetry:  telemetry,
+		topoConfig: topo.NewTopoConfig(reg),
 		serverStatus: Status{
 			Title: "Multipooler",
 			Links: []Link{
@@ -143,6 +152,7 @@ func (mp *MultiPooler) RegisterFlags(flags *pflag.FlagSet) {
 	flags.String("pooler-dir", mp.poolerDir.Default(), "pooler directory path (if empty, socket-file path will be used as-is)")
 	flags.Int("pg-port", mp.pgPort.Default(), "PostgreSQL port number")
 	flags.Int("heartbeat-interval-milliseconds", mp.heartbeatIntervalMs.Default(), "interval in milliseconds between heartbeat writes")
+	flags.String("pgbackrest-stanza", mp.pgBackRestStanza.Default(), "pgBackRest stanza name (defaults to service ID if empty)")
 
 	viperutil.BindFlags(flags,
 		mp.pgctldAddr,
@@ -154,6 +164,7 @@ func (mp *MultiPooler) RegisterFlags(flags *pflag.FlagSet) {
 		mp.poolerDir,
 		mp.pgPort,
 		mp.heartbeatIntervalMs,
+		mp.pgBackRestStanza,
 	)
 
 	mp.grpcServer.RegisterFlags(flags)
@@ -164,8 +175,11 @@ func (mp *MultiPooler) RegisterFlags(flags *pflag.FlagSet) {
 // Init initializes the multipooler. If any services fail to start,
 // or if some connections fail, it launches goroutines that retry
 // until successful.
-func (mp *MultiPooler) Init() {
-	mp.senv.Init()
+func (mp *MultiPooler) Init(startCtx context.Context) {
+	startCtx, span := telemetry.Tracer().Start(startCtx, "Init")
+	defer span.End()
+
+	mp.senv.Init("multipooler")
 	// Get the configured logger
 	logger := mp.senv.GetLogger()
 
@@ -175,7 +189,7 @@ func (mp *MultiPooler) Init() {
 	// at that point.
 	mp.ts = mp.topoConfig.Open()
 
-	logger.Info("multipooler starting up",
+	logger.InfoContext(startCtx, "multipooler starting up",
 		"pgctld_addr", mp.pgctldAddr.Get(),
 		"cell", mp.cell.Get(),
 		"database", mp.database.Get(),
@@ -188,12 +202,12 @@ func (mp *MultiPooler) Init() {
 	)
 
 	if mp.database.Get() == "" {
-		logger.Error("database is required")
+		logger.ErrorContext(startCtx, "database is required")
 		os.Exit(1)
 	}
 
 	if mp.tableGroup.Get() == "" {
-		logger.Error("table group is required")
+		logger.ErrorContext(startCtx, "table group is required")
 		os.Exit(1)
 	}
 	// Create MultiPooler instance for topo registration
@@ -203,8 +217,7 @@ func (mp *MultiPooler) Init() {
 	multipooler.Database = mp.database.Get()
 	multipooler.ServingStatus = clustermetadatapb.PoolerServingStatus_NOT_SERVING
 
-	// Initialize the MultiPoolerManager (following Vitess tm_init.go pattern)
-	logger.Info("Initializing MultiPoolerManager")
+	logger.InfoContext(startCtx, "Initializing MultiPoolerManager")
 	poolerManager := manager.NewMultiPoolerManager(logger, &manager.Config{
 		SocketFilePath:      mp.socketFilePath.Get(),
 		PoolerDir:           mp.poolerDir.Get(),
@@ -214,6 +227,7 @@ func (mp *MultiPooler) Init() {
 		ServiceID:           multipooler.Id,
 		HeartbeatIntervalMs: mp.heartbeatIntervalMs.Get(),
 		PgctldAddr:          mp.pgctldAddr.Get(),
+		PgBackRestStanza:    mp.pgBackRestStanza.Get(),
 		ConsensusEnabled:    mp.grpcServer.CheckServiceMap("consensus", mp.senv),
 	})
 
@@ -225,19 +239,6 @@ func (mp *MultiPooler) Init() {
 
 	mp.senv.HTTPHandleFunc("/", mp.handleIndex)
 	mp.senv.HTTPHandleFunc("/ready", mp.handleReady)
-
-	// Initialize and start the MultiPooler
-	pooler := poolerserver.NewMultiPooler(logger, &manager.Config{
-		SocketFilePath:      mp.socketFilePath.Get(),
-		PoolerDir:           mp.poolerDir.Get(),
-		PgPort:              mp.pgPort.Get(),
-		Database:            mp.database.Get(),
-		TopoClient:          mp.ts,
-		ServiceID:           multipooler.Id,
-		HeartbeatIntervalMs: mp.heartbeatIntervalMs.Get(),
-		PgctldAddr:          mp.pgctldAddr.Get(),
-	})
-	pooler.Start(mp.senv)
 
 	mp.senv.OnRun(
 		func() {

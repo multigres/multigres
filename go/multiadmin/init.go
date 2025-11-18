@@ -22,6 +22,7 @@ import (
 	"github.com/multigres/multigres/go/admin/server"
 	"github.com/multigres/multigres/go/clustermetadata/topo"
 	"github.com/multigres/multigres/go/servenv"
+	"github.com/multigres/multigres/go/viperutil"
 )
 
 type MultiAdmin struct {
@@ -49,10 +50,11 @@ func (ma *MultiAdmin) CobraPreRunE(cmd *cobra.Command) error {
 }
 
 func NewMultiAdmin() *MultiAdmin {
+	reg := viperutil.NewRegistry()
 	return &MultiAdmin{
-		grpcServer: servenv.NewGrpcServer(),
-		senv:       servenv.NewServEnv(),
-		topoConfig: topo.NewTopoConfig(),
+		grpcServer: servenv.NewGrpcServer(reg),
+		senv:       servenv.NewServEnv(reg),
+		topoConfig: topo.NewTopoConfig(reg),
 		serverStatus: Status{
 			Title: "Multiadmin",
 			Links: []Link{
@@ -76,7 +78,7 @@ func (ma *MultiAdmin) RegisterFlags(fs *pflag.FlagSet) {
 // or if some connections fail, it launches goroutines that retry
 // until successful.
 func (ma *MultiAdmin) Init() {
-	ma.senv.Init()
+	ma.senv.Init("multiadmin")
 	// Get the configured logger
 	logger := ma.senv.GetLogger()
 	ma.ts = ma.topoConfig.Open()

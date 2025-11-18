@@ -44,12 +44,12 @@ type PgCtlRestartCmd struct {
 func AddRestartCommand(root *cobra.Command, pc *PgCtlCommand) {
 	restartCmd := &PgCtlRestartCmd{
 		pgCtlCmd: pc,
-		mode: viperutil.Configure("restart-mode", viperutil.Options[string]{
+		mode: viperutil.Configure(pc.reg, "restart-mode", viperutil.Options[string]{
 			Default:  "fast",
 			FlagName: "mode",
 			Dynamic:  false,
 		}),
-		asStandby: viperutil.Configure("as-standby", viperutil.Options[bool]{
+		asStandby: viperutil.Configure(pc.reg, "as-standby", viperutil.Options[bool]{
 			Default:  false,
 			FlagName: "as-standby",
 			Dynamic:  false,
@@ -126,7 +126,7 @@ func RestartPostgreSQLWithResult(logger *slog.Logger, config *pgctld.PostgresCtl
 		if err := os.WriteFile(standbySignalPath, []byte(""), 0o644); err != nil {
 			return nil, fmt.Errorf("failed to create standby.signal: %w", err)
 		}
-		logger.Info("standby.signal created successfully")
+		logger.Info("standby.signal created successfully", "path", standbySignalPath)
 	}
 
 	// Start the server

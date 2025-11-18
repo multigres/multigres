@@ -143,15 +143,21 @@ func (ts *store) GetMultiPoolerIDsByCell(ctx context.Context, cell string) ([]*c
 
 // GetMultiPoolersByCellOptions controls the behavior of GetMultiPoolersByCell.
 type GetMultiPoolersByCellOptions struct {
-	// DatabaseShard is the optional database/shard that multipoolers must match.
-	// An empty shard value will match all shards in the database.
+	// DatabaseShard is the optional database/tablegroup/shard that multipoolers must match.
+	// An empty tablegroup value will match all tablegroups in the database.
+	// An empty shard value will match all shards in the tablegroup.
 	DatabaseShard *DatabaseShard
 }
 
-// DatabaseShard represents a database and shard pair.
+// DatabaseShard represents a database, tablegroup, and shard tuple for filtering.
+// Supports hierarchical matching:
+// - Database only: matches all tablegroups and shards in database
+// - Database + TableGroup: matches all shards in that tablegroup
+// - Database + TableGroup + Shard: matches only that specific shard
 type DatabaseShard struct {
-	Database string
-	Shard    string
+	Database   string
+	TableGroup string // empty = all tablegroups in database
+	Shard      string // empty = all shards in tablegroup
 }
 
 // GetMultiPoolersByCell returns all the multipoolers in the cell.
@@ -159,6 +165,19 @@ type DatabaseShard struct {
 // It returns ErrPartialResult if some multipoolers couldn't be read. The results in the slice are incomplete.
 // It returns (nil, nil) if the cell exists, but there are no multipoolers in it.
 func (ts *store) GetMultiPoolersByCell(ctx context.Context, cellName string, opt *GetMultiPoolersByCellOptions) ([]*MultiPoolerInfo, error) {
+	// Validate filtering hierarchy: Database -> TableGroup -> Shard
+	if opt != nil && opt.DatabaseShard != nil {
+		ds := opt.DatabaseShard
+		// If Shard is specified, TableGroup must be specified
+		if ds.Shard != "" && ds.TableGroup == "" {
+			return nil, NewError(BadInput, "cannot filter by Shard without specifying TableGroup")
+		}
+		// If TableGroup is specified, Database must be specified
+		if ds.TableGroup != "" && ds.Database == "" {
+			return nil, NewError(BadInput, "cannot filter by TableGroup without specifying Database")
+		}
+	}
+
 	// If the cell doesn't exist, this will return ErrNoNode.
 	cellConn, err := ts.ConnForCell(ctx, cellName)
 	if err != nil {
@@ -184,9 +203,15 @@ func (ts *store) GetMultiPoolersByCell(ctx context.Context, cellName string, opt
 			return nil, err
 		}
 		if opt != nil && opt.DatabaseShard != nil && opt.DatabaseShard.Database != "" {
+			// Database must match
 			if opt.DatabaseShard.Database != multipooler.Database {
 				continue
 			}
+			// If TableGroup is specified, it must match
+			if opt.DatabaseShard.TableGroup != "" && opt.DatabaseShard.TableGroup != multipooler.TableGroup {
+				continue
+			}
+			// If Shard is specified, it must match
 			if opt.DatabaseShard.Shard != "" && opt.DatabaseShard.Shard != multipooler.Shard {
 				continue
 			}

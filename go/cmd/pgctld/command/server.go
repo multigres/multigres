@@ -41,8 +41,8 @@ type PgCtldServerCmd struct {
 func AddServerCommand(root *cobra.Command, pc *PgCtlCommand) {
 	serverCmd := &PgCtldServerCmd{
 		pgCtlCmd:   pc,
-		grpcServer: servenv.NewGrpcServer(),
-		senv:       servenv.NewServEnvWithConfig(pc.lg, pc.vc),
+		grpcServer: servenv.NewGrpcServer(pc.reg),
+		senv:       servenv.NewServEnvWithConfig(pc.reg, pc.lg, pc.vc, pc.telemetry),
 	}
 	serverCmd.senv.InitServiceMap("grpc", "pgctld")
 	root.AddCommand(serverCmd.createCommand())
@@ -50,9 +50,6 @@ func AddServerCommand(root *cobra.Command, pc *PgCtlCommand) {
 
 // validateServerFlags validates required flags for the server command
 func (s *PgCtldServerCmd) validateServerFlags(cmd *cobra.Command, args []string) error {
-	// Setup logging using the shared logger instance from root command
-	s.pgCtlCmd.lg.SetupLogging()
-
 	// First run the standard servenv validation
 	if err := s.senv.CobraPreRunE(cmd); err != nil {
 		return err
@@ -82,7 +79,7 @@ func (s *PgCtldServerCmd) createCommand() *cobra.Command {
 }
 
 func (s *PgCtldServerCmd) runServer(cmd *cobra.Command, args []string) error {
-	s.senv.Init()
+	s.senv.Init("pgctld")
 
 	// Get the configured logger
 	logger := s.senv.GetLogger()

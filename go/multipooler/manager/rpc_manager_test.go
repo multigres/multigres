@@ -31,6 +31,7 @@ import (
 	"github.com/multigres/multigres/go/mterrors"
 	"github.com/multigres/multigres/go/servenv"
 	"github.com/multigres/multigres/go/test/utils"
+	"github.com/multigres/multigres/go/viperutil"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
@@ -96,7 +97,7 @@ func TestPrimaryPosition(t *testing.T) {
 			defer manager.Close()
 
 			// Start and wait for ready
-			senv := servenv.NewServEnv()
+			senv := servenv.NewServEnv(viperutil.NewRegistry())
 			go manager.Start(senv)
 			require.Eventually(t, func() bool {
 				return manager.GetState() == ManagerStateReady
@@ -155,7 +156,7 @@ func TestActionLock_MutationMethodsTimeout(t *testing.T) {
 	defer manager.Close()
 
 	// Start and wait for ready
-	senv := servenv.NewServEnv()
+	senv := servenv.NewServEnv(viperutil.NewRegistry())
 	go manager.Start(senv)
 	require.Eventually(t, func() bool {
 		return manager.GetState() == ManagerStateReady
@@ -166,12 +167,13 @@ func TestActionLock_MutationMethodsTimeout(t *testing.T) {
 		lockCtx, cancel := context.WithDeadline(context.Background(), time.Now().Add(duration))
 		lockAcquired := make(chan struct{})
 		go func() {
-			if err := manager.lock(lockCtx); err == nil {
+			newCtx, err := manager.actionLock.Acquire(lockCtx, "test-lock-holder")
+			if err == nil {
 				// Signal that the lock was acquired
 				close(lockAcquired)
 				// Hold the lock for the duration or until cancelled
 				<-lockCtx.Done()
-				manager.unlock()
+				manager.actionLock.Release(newCtx)
 			}
 		}()
 		// Wait for the lock to be acquired
@@ -340,7 +342,7 @@ func setupPromoteTestManager(t *testing.T) (*MultiPoolerManager, sqlmock.Sqlmock
 	pm := NewMultiPoolerManager(logger, config)
 	t.Cleanup(func() { pm.Close() })
 
-	senv := servenv.NewServEnv()
+	senv := servenv.NewServEnv(viperutil.NewRegistry())
 	go pm.Start(senv)
 
 	require.Eventually(t, func() bool {
@@ -366,9 +368,13 @@ func setupPromoteTestManager(t *testing.T) (*MultiPoolerManager, sqlmock.Sqlmock
 	term := &multipoolermanagerdatapb.ConsensusTerm{TermNumber: 10}
 	err = pm.SetTerm(ctx, term)
 	require.NoError(t, err)
-	pm.mu.Lock()
-	currentTerm := pm.consensusState.GetCurrentTermNumber()
-	pm.mu.Unlock()
+
+	// Acquire action lock to inspect consensus state
+	inspectCtx, err := pm.actionLock.Acquire(ctx, "inspect")
+	require.NoError(t, err)
+	currentTerm, err := pm.consensusState.GetCurrentTermNumber(inspectCtx)
+	require.NoError(t, err)
+	pm.actionLock.Release(inspectCtx)
 	assert.Equal(t, int64(10), currentTerm, "Term should be set to 10")
 
 	return pm, mock, tmpDir

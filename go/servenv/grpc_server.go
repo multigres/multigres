@@ -34,6 +34,8 @@ import (
 
 	"github.com/spf13/pflag"
 
+	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
+
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/health"
 	"google.golang.org/grpc/keepalive"
@@ -118,94 +120,94 @@ type GrpcServer struct {
 }
 
 // NewGrpcServer creates and initializes a new GrpcServer with viperutil values
-func NewGrpcServer() *GrpcServer {
+func NewGrpcServer(reg *viperutil.Registry) *GrpcServer {
 	return &GrpcServer{
-		auth: viperutil.Configure("grpc-auth-mode", viperutil.Options[string]{
+		auth: viperutil.Configure(reg, "grpc-auth-mode", viperutil.Options[string]{
 			Default:  "",
 			FlagName: "grpc-auth-mode",
 			Dynamic:  false,
 		}),
-		port: viperutil.Configure("grpc-port", viperutil.Options[int]{
+		port: viperutil.Configure(reg, "grpc-port", viperutil.Options[int]{
 			Default:  0,
 			FlagName: "grpc-port",
 			Dynamic:  false,
 		}),
-		bindAddress: viperutil.Configure("grpc-bind-address", viperutil.Options[string]{
+		bindAddress: viperutil.Configure(reg, "grpc-bind-address", viperutil.Options[string]{
 			Default:  "",
 			FlagName: "grpc-bind-address",
 			Dynamic:  false,
 		}),
-		maxConnectionAge: viperutil.Configure("grpc-max-connection-age", viperutil.Options[time.Duration]{
+		maxConnectionAge: viperutil.Configure(reg, "grpc-max-connection-age", viperutil.Options[time.Duration]{
 			Default:  time.Duration(math.MaxInt64),
 			FlagName: "grpc-max-connection-age",
 			Dynamic:  false,
 		}),
-		maxConnectionAgeGrace: viperutil.Configure("grpc-max-connection-age-grace", viperutil.Options[time.Duration]{
+		maxConnectionAgeGrace: viperutil.Configure(reg, "grpc-max-connection-age-grace", viperutil.Options[time.Duration]{
 			Default:  time.Duration(math.MaxInt64),
 			FlagName: "grpc-max-connection-age-grace",
 			Dynamic:  false,
 		}),
-		initialConnWindowSize: viperutil.Configure("grpc-server-initial-conn-window-size", viperutil.Options[int]{
+		initialConnWindowSize: viperutil.Configure(reg, "grpc-server-initial-conn-window-size", viperutil.Options[int]{
 			Default:  0,
 			FlagName: "grpc-server-initial-conn-window-size",
 			Dynamic:  false,
 		}),
-		initialWindowSize: viperutil.Configure("grpc-server-initial-window-size", viperutil.Options[int]{
+		initialWindowSize: viperutil.Configure(reg, "grpc-server-initial-window-size", viperutil.Options[int]{
 			Default:  0,
 			FlagName: "grpc-server-initial-window-size",
 			Dynamic:  false,
 		}),
-		keepAliveEnforcementPolicyMinTime: viperutil.Configure("grpc-server-keepalive-enforcement-policy-min-time", viperutil.Options[time.Duration]{
+		keepAliveEnforcementPolicyMinTime: viperutil.Configure(reg, "grpc-server-keepalive-enforcement-policy-min-time", viperutil.Options[time.Duration]{
 			Default:  10 * time.Second,
 			FlagName: "grpc-server-keepalive-enforcement-policy-min-time",
 			Dynamic:  false,
 		}),
-		keepAliveEnforcementPolicyPermitWithoutStream: viperutil.Configure("grpc-server-keepalive-enforcement-policy-permit-without-stream", viperutil.Options[bool]{
+		keepAliveEnforcementPolicyPermitWithoutStream: viperutil.Configure(reg, "grpc-server-keepalive-enforcement-policy-permit-without-stream", viperutil.Options[bool]{
 			Default:  false,
 			FlagName: "grpc-server-keepalive-enforcement-policy-permit-without-stream",
 			Dynamic:  false,
 		}),
-		keepaliveTime: viperutil.Configure("grpc-server-keepalive-time", viperutil.Options[time.Duration]{
+		keepaliveTime: viperutil.Configure(reg, "grpc-server-keepalive-time", viperutil.Options[time.Duration]{
 			Default:  10 * time.Second,
 			FlagName: "grpc-server-keepalive-time",
 			Dynamic:  false,
 		}),
-		keepaliveTimeout: viperutil.Configure("grpc-server-keepalive-timeout", viperutil.Options[time.Duration]{
+		keepaliveTimeout: viperutil.Configure(reg, "grpc-server-keepalive-timeout", viperutil.Options[time.Duration]{
 			Default:  10 * time.Second,
 			FlagName: "grpc-server-keepalive-timeout",
 			Dynamic:  false,
 		}),
-		cert: viperutil.Configure("grpc-cert", viperutil.Options[string]{
+		cert: viperutil.Configure(reg, "grpc-cert", viperutil.Options[string]{
 			Default:  "",
 			FlagName: "grpc-cert",
 			Dynamic:  false,
 		}),
-		key: viperutil.Configure("grpc-key", viperutil.Options[string]{
+		key: viperutil.Configure(reg, "grpc-key", viperutil.Options[string]{
 			Default:  "",
 			FlagName: "grpc-key",
 			Dynamic:  false,
 		}),
-		ca: viperutil.Configure("grpc-ca", viperutil.Options[string]{
+		ca: viperutil.Configure(reg, "grpc-ca", viperutil.Options[string]{
 			Default:  "",
 			FlagName: "grpc-ca",
 			Dynamic:  false,
 		}),
-		crl: viperutil.Configure("grpc-crl", viperutil.Options[string]{
+		crl: viperutil.Configure(reg, "grpc-crl", viperutil.Options[string]{
 			Default:  "",
 			FlagName: "grpc-crl",
 			Dynamic:  false,
 		}),
-		enableOptionalTLS: viperutil.Configure("grpc-enable-optional-tls", viperutil.Options[bool]{
+		enableOptionalTLS: viperutil.Configure(reg, "grpc-enable-optional-tls", viperutil.Options[bool]{
 			Default:  false,
 			FlagName: "grpc-enable-optional-tls",
 			Dynamic:  false,
 		}),
-		serverCA: viperutil.Configure("grpc-server-ca", viperutil.Options[string]{
+		serverCA: viperutil.Configure(reg, "grpc-server-ca", viperutil.Options[string]{
 			Default:  "",
 			FlagName: "grpc-server-ca",
 			Dynamic:  false,
 		}),
-		socketFile: viperutil.Configure("grpc-socket-file", viperutil.Options[string]{
+		socketFile: viperutil.Configure(reg, "grpc-socket-file", viperutil.Options[string]{
 			Default:  "",
 			FlagName: "grpc-socket-file",
 			Dynamic:  false,
@@ -344,6 +346,10 @@ func (g *GrpcServer) Create() {
 	}
 	opts = append(opts, grpc.KeepaliveParams(ka))
 
+	// Add OpenTelemetry instrumentation for distributed tracing and metrics
+	// If no OTEL exporters are configured, noop exporters are used with minimal overhead
+	opts = append(opts, grpc.StatsHandler(otelgrpc.NewServerHandler()))
+
 	opts = append(opts, g.interceptors()...)
 
 	g.Server = grpc.NewServer(opts...)
@@ -371,8 +377,6 @@ func (g *GrpcServer) interceptors() []grpc.ServerOption {
 			},
 		)
 	}
-
-	// TODO (@rafael) hook stats and tracing
 
 	return interceptors.Build()
 }

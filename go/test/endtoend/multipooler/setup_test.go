@@ -35,6 +35,7 @@ import (
 
 	"github.com/multigres/multigres/go/clustermetadata/topo"
 	"github.com/multigres/multigres/go/cmd/pgctld/testutil"
+	"github.com/multigres/multigres/go/provisioner/local/pgbackrest"
 	"github.com/multigres/multigres/go/test/endtoend"
 	"github.com/multigres/multigres/go/test/utils"
 	"github.com/multigres/multigres/go/tools/pathutil"
@@ -143,6 +144,7 @@ type ProcessInstance struct {
 	PgPort      int    // Used by pgctld
 	PgctldAddr  string // Used by multipooler
 	EtcdAddr    string // Used by multipooler for topology
+	StanzaName  string // pgBackRest stanza name (used by multipooler)
 	Process     *exec.Cmd
 	Binary      string
 	Environment []string
@@ -207,21 +209,30 @@ func (p *ProcessInstance) startMultipooler(t *testing.T) error {
 
 	t.Logf("Starting %s: binary '%s', gRPC port %d, ServiceID %s", p.Name, p.Binary, p.GrpcPort, p.ServiceID)
 
-	// Start the multipooler server
-	p.Process = exec.Command(p.Binary,
+	// Build command arguments
+	args := []string{
 		"--grpc-port", strconv.Itoa(p.GrpcPort),
 		"--database", "postgres", // Required parameter
 		"--table-group", "test", // Required parameter
 		"--pgctld-addr", p.PgctldAddr,
 		"--pooler-dir", p.DataDir, // Use the same pooler dir as pgctld
 		"--pg-port", strconv.Itoa(p.PgPort),
-		"--service-map", "grpc-pooler,grpc-poolermanager,grpc-consensus",
+		"--service-map", "grpc-pooler,grpc-poolermanager,grpc-consensus,grpc-backup",
 		"--topo-global-server-addresses", p.EtcdAddr,
 		"--topo-global-root", "/multigres/global",
 		"--topo-implementation", "etcd2",
 		"--cell", "test-cell",
 		"--service-id", p.ServiceID,
-		"--log-output", p.LogFile)
+		"--log-output", p.LogFile,
+	}
+
+	// Add stanza name if configured
+	if p.StanzaName != "" {
+		args = append(args, "--pgbackrest-stanza", p.StanzaName)
+	}
+
+	// Start the multipooler server
+	p.Process = exec.Command(p.Binary, args...)
 
 	// Set MULTIGRES_TESTDATA_DIR for directory-deletion triggered cleanup
 	p.Process.Env = append(p.Environment,
@@ -368,12 +379,12 @@ func createPgctldInstance(t *testing.T, name, baseDir string, grpcPort, pgPort i
 		GrpcPort:    grpcPort,
 		PgPort:      pgPort,
 		Binary:      "pgctld", // Assume binary is in PATH
-		Environment: append(os.Environ(), "PGCONNECT_TIMEOUT=5"),
+		Environment: append(os.Environ(), "PGCONNECT_TIMEOUT=5", "LC_ALL=en_US.UTF-8"),
 	}
 }
 
 // createMultipoolerInstance creates a new multipooler instance configuration
-func createMultipoolerInstance(t *testing.T, name, baseDir string, grpcPort int, pgctldAddr string, pgctldDataDir string, pgPort int, etcdAddr string) *ProcessInstance {
+func createMultipoolerInstance(t *testing.T, name, baseDir string, grpcPort int, pgctldAddr string, pgctldDataDir string, pgPort int, etcdAddr string, stanzaName string) *ProcessInstance {
 	t.Helper()
 
 	logFile := filepath.Join(baseDir, name, "multipooler.log")
@@ -390,13 +401,14 @@ func createMultipoolerInstance(t *testing.T, name, baseDir string, grpcPort int,
 		PgctldAddr:  pgctldAddr,
 		DataDir:     pgctldDataDir, // Use the same data dir as pgctld for pooler-dir
 		EtcdAddr:    etcdAddr,
+		StanzaName:  stanzaName,    // pgBackRest stanza name
 		Binary:      "multipooler", // Assume binary is in PATH
 		Environment: append(os.Environ(), "PGCONNECT_TIMEOUT=5"),
 	}
 }
 
 // initializePrimary sets up the primary pgctld, PostgreSQL, consensus term, and multipooler
-func initializePrimary(t *testing.T, pgctld *ProcessInstance, multipooler *ProcessInstance) error {
+func initializePrimary(t *testing.T, baseDir string, pgctld *ProcessInstance, multipooler *ProcessInstance, standbyPgctld *ProcessInstance, stanzaName string) error {
 	t.Helper()
 
 	// Start primary pgctld server
@@ -404,11 +416,103 @@ func initializePrimary(t *testing.T, pgctld *ProcessInstance, multipooler *Proce
 		return fmt.Errorf("failed to start primary pgctld: %w", err)
 	}
 
-	// Initialize and start primary PostgreSQL
+	// Initialize PostgreSQL data directory (but don't start yet)
 	primaryGrpcAddr := fmt.Sprintf("localhost:%d", pgctld.GrpcPort)
-	if err := endtoend.InitAndStartPostgreSQL(t, primaryGrpcAddr); err != nil {
-		return fmt.Errorf("failed to init and start primary PostgreSQL: %w", err)
+	if err := endtoend.InitPostgreSQLDataDir(t, primaryGrpcAddr); err != nil {
+		return fmt.Errorf("failed to init PostgreSQL data dir: %w", err)
 	}
+
+	// Create pgbackrest configuration first (before starting PostgreSQL)
+	// Build backup repository path with database/tablegroup/shard structure
+	// TODO: Replace hardcoded shard "0" with actual shard value
+	database := "postgres"
+	tableGroup := "test"
+	shard := "0" // Default shard ID
+	repoPath := filepath.Join(baseDir, "backup-repo", database, tableGroup, shard)
+	if err := os.MkdirAll(repoPath, 0o755); err != nil {
+		return fmt.Errorf("failed to create backup repo: %w", err)
+	}
+
+	logPath := filepath.Join(baseDir, "logs", "pgbackrest")
+	if err := os.MkdirAll(logPath, 0o755); err != nil {
+		return fmt.Errorf("failed to create pgbackrest log dir: %w", err)
+	}
+
+	spoolPath := filepath.Join(baseDir, "pgbackrest-spool")
+	if err := os.MkdirAll(spoolPath, 0o755); err != nil {
+		return fmt.Errorf("failed to create pgbackrest spool dir: %w", err)
+	}
+
+	// Create symmetric pgbackrest configuration:
+	// - pg1: this cluster (primary in this case)
+	// - pg2: other cluster (standby in this case)
+	// Each cluster treats itself as pg1 and lists others as pg2, pg3, etc.
+	configPath := filepath.Join(pgctld.DataDir, "pgbackrest.conf")
+	backupCfg := pgbackrest.Config{
+		StanzaName:  stanzaName,
+		PgDataPath:  filepath.Join(pgctld.DataDir, "pg_data"),
+		PgPort:      pgctld.PgPort, // Keep for fallback even though socket-path takes precedence
+		PgSocketDir: filepath.Join(pgctld.DataDir, "pg_sockets"),
+		PgUser:      "postgres",
+		PgDatabase:  "postgres",
+		// Add standby as pg2 for symmetric configuration
+		AdditionalHosts: []pgbackrest.PgHost{
+			{
+				DataPath:  filepath.Join(standbyPgctld.DataDir, "pg_data"),
+				SocketDir: filepath.Join(standbyPgctld.DataDir, "pg_sockets"),
+				Port:      standbyPgctld.PgPort,
+				User:      "postgres",
+				Database:  "postgres",
+			},
+		},
+		RepoPath:      repoPath,
+		LogPath:       logPath,
+		SpoolPath:     spoolPath,
+		RetentionFull: 2,
+	}
+
+	if err := pgbackrest.WriteConfigFile(configPath, backupCfg); err != nil {
+		return fmt.Errorf("failed to write pgbackrest config: %w", err)
+	}
+	t.Logf("Created symmetric pgbackrest config at %s (pg1=self, pg2=standby, stanza: %s)", configPath, stanzaName)
+
+	// Configure archive_mode in postgresql.auto.conf BEFORE starting PostgreSQL
+	// The archive_command will fail initially until we create the stanza, but PostgreSQL
+	// handles this gracefully by retrying. Once the stanza is created, archiving will work.
+	pgDataDir := filepath.Join(pgctld.DataDir, "pg_data")
+	autoConfPath := filepath.Join(pgDataDir, "postgresql.auto.conf")
+	archiveConfig := fmt.Sprintf(`
+# Archive mode for pgbackrest backups
+archive_mode = on
+archive_command = 'pgbackrest --stanza=%s --config=%s archive-push %%p'
+`, stanzaName, configPath)
+	f, err := os.OpenFile(autoConfPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	if err != nil {
+		return fmt.Errorf("failed to open postgresql.auto.conf: %w", err)
+	}
+	if _, err := f.WriteString(archiveConfig); err != nil {
+		f.Close()
+		return fmt.Errorf("failed to write archive config: %w", err)
+	}
+	f.Close()
+	t.Log("Configured archive_mode in postgresql.auto.conf")
+
+	// Start PostgreSQL with archive mode enabled
+	// Archive commands will fail until stanza is created, but that's okay
+	if err := endtoend.StartPostgreSQL(t, primaryGrpcAddr); err != nil {
+		return fmt.Errorf("failed to start PostgreSQL: %w", err)
+	}
+	t.Log("Started PostgreSQL with archive mode enabled")
+
+	// Initialize pgbackrest stanza (PostgreSQL must be running)
+	// Once stanza is created, archiving will start working
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	if err := pgbackrest.StanzaCreate(ctx, stanzaName, configPath); err != nil {
+		return fmt.Errorf("failed to create pgbackrest stanza: %w", err)
+	}
+	t.Logf("Initialized pgbackrest stanza: %s", stanzaName)
 
 	// Start primary multipooler
 	if err := multipooler.Start(t); err != nil {
@@ -433,13 +537,13 @@ func initializePrimary(t *testing.T, pgctld *ProcessInstance, multipooler *Proce
 	// Initialize consensus term to 1 via multipooler manager API
 	t.Logf("Initializing consensus term to 1 for primary...")
 	initialTerm := &multipoolermanagerdatapb.ConsensusTerm{
-		TermNumber:         1,
-		AcceptedLeader:     nil,
-		LastAcceptanceTime: nil,
-		LeaderId:           nil,
+		TermNumber:                    1,
+		AcceptedTermFromCoordinatorId: nil,
+		LastAcceptanceTime:            nil,
+		LeaderId:                      nil,
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+	ctx, cancel = context.WithTimeout(context.Background(), 1*time.Second)
 	_, err = client.SetTerm(ctx, &multipoolermanagerdatapb.SetTermRequest{Term: initialTerm})
 	cancel()
 	if err != nil {
@@ -464,7 +568,7 @@ func initializePrimary(t *testing.T, pgctld *ProcessInstance, multipooler *Proce
 }
 
 // initializeStandby sets up the standby pgctld, PostgreSQL (with replication), consensus term, and multipooler
-func initializeStandby(t *testing.T, primaryPgctld *ProcessInstance, standbyPgctld *ProcessInstance, standbyMultipooler *ProcessInstance) error {
+func initializeStandby(t *testing.T, baseDir string, primaryPgctld *ProcessInstance, standbyPgctld *ProcessInstance, standbyMultipooler *ProcessInstance, stanzaName string) error {
 	t.Helper()
 
 	// Start standby pgctld server
@@ -486,6 +590,57 @@ func initializeStandby(t *testing.T, primaryPgctld *ProcessInstance, standbyPgct
 	if err := endtoend.StartPostgreSQL(t, standbyGrpcAddr); err != nil {
 		return fmt.Errorf("failed to start standby PostgreSQL: %w", err)
 	}
+
+	// Create symmetric pgbackrest configuration for standby
+	// Note: Standby shares the same backup repository and stanza as primary
+	// since they're replicas. Both clusters use the same stanza name.
+	//
+	// Symmetric configuration:
+	// - pg1: this cluster (standby in this case)
+	// - pg2: other cluster (primary in this case)
+	// Each cluster treats itself as pg1 and lists others as pg2, pg3, etc.
+	// Build backup repository path with database/tablegroup/shard structure (same as primary)
+	// TODO: Replace hardcoded shard "0" with actual shard value
+	database := "postgres"
+	tableGroup := "test"
+	shard := "0" // Default shard ID
+	repoPath := filepath.Join(baseDir, "backup-repo", database, tableGroup, shard)
+	logPath := filepath.Join(baseDir, "logs", "pgbackrest")
+	spoolPath := filepath.Join(baseDir, "pgbackrest-spool")
+
+	configPath := filepath.Join(standbyPgctld.DataDir, "pgbackrest.conf")
+	backupCfg := pgbackrest.Config{
+		StanzaName:  stanzaName, // Use same stanza (they're replicas in HA setup)
+		PgDataPath:  filepath.Join(standbyPgctld.DataDir, "pg_data"),
+		PgPort:      standbyPgctld.PgPort, // Keep for fallback even though socket-path takes precedence
+		PgSocketDir: filepath.Join(standbyPgctld.DataDir, "pg_sockets"),
+		PgUser:      "postgres",
+		PgDatabase:  "postgres",
+		// Add primary as pg2 for symmetric configuration
+		AdditionalHosts: []pgbackrest.PgHost{
+			{
+				DataPath:  filepath.Join(primaryPgctld.DataDir, "pg_data"),
+				SocketDir: filepath.Join(primaryPgctld.DataDir, "pg_sockets"),
+				Port:      primaryPgctld.PgPort,
+				User:      "postgres",
+				Database:  "postgres",
+			},
+		},
+		RepoPath:      repoPath,
+		LogPath:       logPath,
+		SpoolPath:     spoolPath,
+		RetentionFull: 2,
+	}
+
+	if err := pgbackrest.WriteConfigFile(configPath, backupCfg); err != nil {
+		return fmt.Errorf("failed to write standby pgbackrest config: %w", err)
+	}
+	t.Logf("Created symmetric pgbackrest config at %s (pg1=self, pg2=primary, stanza: %s)", configPath, stanzaName)
+
+	// Note: We don't create a new stanza for the standby because:
+	// 1. It's in recovery mode, so pgbackrest won't allow stanza creation
+	// 2. It shares the primary's stanza since they're replicas
+	// 3. The stanza was already created when initializing the primary
 
 	// Start standby multipooler
 	if err := standbyMultipooler.Start(t); err != nil {
@@ -510,10 +665,10 @@ func initializeStandby(t *testing.T, primaryPgctld *ProcessInstance, standbyPgct
 	// Initialize consensus term to 1 via multipooler manager API
 	t.Logf("Initializing consensus term to 1 for standby...")
 	initialTerm := &multipoolermanagerdatapb.ConsensusTerm{
-		TermNumber:         1,
-		AcceptedLeader:     nil,
-		LastAcceptanceTime: nil,
-		LeaderId:           nil,
+		TermNumber:                    1,
+		AcceptedTermFromCoordinatorId: nil,
+		LastAcceptanceTime:            nil,
+		LeaderId:                      nil,
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
@@ -630,19 +785,34 @@ func getSharedTestSetup(t *testing.T) *MultipoolerTestSetup {
 		primaryPgctld := createPgctldInstance(t, "primary", tempDir, primaryGrpcPort, primaryPgPort)
 		standbyPgctld := createPgctldInstance(t, "standby", tempDir, standbyGrpcPort, standbyPgPort)
 
-		primaryMultipooler := createMultipoolerInstance(t, "primary-multipooler", tempDir, primaryMultipoolerPort,
-			fmt.Sprintf("localhost:%d", primaryGrpcPort), primaryPgctld.DataDir, primaryPgctld.PgPort, etcdClientAddr)
-		standbyMultipooler := createMultipoolerInstance(t, "standby-multipooler", tempDir, standbyMultipoolerPort,
-			fmt.Sprintf("localhost:%d", standbyGrpcPort), standbyPgctld.DataDir, standbyPgctld.PgPort, etcdClientAddr)
+		// Use a shared stanza name for the test setup
+		// This allows both primary and standby to use the same pgBackRest stanza
+		stanzaName := "test_backup"
 
-		// Initialize primary (pgctld, PostgreSQL, consensus term, multipooler, type)
-		if err := initializePrimary(t, primaryPgctld, primaryMultipooler); err != nil {
+		primaryMultipooler := createMultipoolerInstance(t, "primary-multipooler", tempDir, primaryMultipoolerPort,
+			fmt.Sprintf("localhost:%d", primaryGrpcPort), primaryPgctld.DataDir, primaryPgctld.PgPort, etcdClientAddr, stanzaName)
+		standbyMultipooler := createMultipoolerInstance(t, "standby-multipooler", tempDir, standbyMultipoolerPort,
+			fmt.Sprintf("localhost:%d", standbyGrpcPort), standbyPgctld.DataDir, standbyPgctld.PgPort, etcdClientAddr, stanzaName)
+
+		// Create standby data directories before initializing primary
+		// This is needed for symmetric pgBackRest configuration where primary references standby paths
+		if err := os.MkdirAll(filepath.Join(standbyPgctld.DataDir, "pg_data"), 0o755); err != nil {
+			setupError = fmt.Errorf("failed to create standby pg_data dir: %w", err)
+			return
+		}
+		if err := os.MkdirAll(filepath.Join(standbyPgctld.DataDir, "pg_sockets"), 0o755); err != nil {
+			setupError = fmt.Errorf("failed to create standby pg_sockets dir: %w", err)
+			return
+		}
+
+		// Initialize primary (pgctld, PostgreSQL, pgbackrest, consensus term, multipooler, type)
+		if err := initializePrimary(t, tempDir, primaryPgctld, primaryMultipooler, standbyPgctld, stanzaName); err != nil {
 			setupError = err
 			return
 		}
 
 		// Initialize standby (pgctld, PostgreSQL with replication, consensus term, multipooler, type)
-		if err := initializeStandby(t, primaryPgctld, standbyPgctld, standbyMultipooler); err != nil {
+		if err := initializeStandby(t, tempDir, primaryPgctld, standbyPgctld, standbyMultipooler, stanzaName); err != nil {
 			setupError = err
 			return
 		}
@@ -890,15 +1060,16 @@ func queryStringValue(ctx context.Context, client *endtoend.MultiPoolerTestClien
 	return string(resp.Rows[0].Values[0]), nil
 }
 
-// validateGUCValue queries a GUC and fails the test if it doesn't match the expected value.
-func validateGUCValue(t *testing.T, client *endtoend.MultiPoolerTestClient, gucName, expected, instanceName string) {
-	t.Helper()
+// validateGUCValue queries a GUC and returns an error if it doesn't match the expected value.
+func validateGUCValue(client *endtoend.MultiPoolerTestClient, gucName, expected, instanceName string) error {
 	value, err := queryStringValue(context.Background(), client, fmt.Sprintf("SHOW %s", gucName))
-	if err == nil && value != expected {
-		t.Fatalf("setupPoolerTest: %s has %s='%s' (expected '%s'). "+
-			"Previous test leaked state. Make sure all subtests call setupPoolerTest().",
-			instanceName, gucName, value, expected)
+	if err != nil {
+		return fmt.Errorf("%s failed to query %s: %w", instanceName, gucName, err)
 	}
+	if value != expected {
+		return fmt.Errorf("%s has %s='%s' (expected '%s')", instanceName, gucName, value, expected)
+	}
+	return nil
 }
 
 // saveGUCs queries multiple GUC values and saves them to a map.
@@ -940,49 +1111,64 @@ func restoreGUCs(t *testing.T, client *endtoend.MultiPoolerTestClient, savedGucs
 
 // validateCleanState checks that primary and standby are in the expected clean state.
 // Expected state:
-//   - Primary: primary_conninfo=”, synchronous_standby_names=”
-//   - Standby: pg_is_in_recovery=true, primary_conninfo=”, pg_is_wal_replay_paused=false
+//   - Primary: primary_conninfo=", synchronous_standby_names="
+//   - Standby: pg_is_in_recovery=true, primary_conninfo=", pg_is_wal_replay_paused=false
 //
-// This catches state leaks from tests that don't call setupPoolerTest().
-func validateCleanState(t *testing.T, setup *MultipoolerTestSetup) {
-	t.Helper()
+// Returns an error if state is not clean.
+func validateCleanState(setup *MultipoolerTestSetup) error {
 	if setup == nil {
-		return
+		return nil
 	}
 
 	// Validate primary state
 	if setup.PrimaryMultipooler != nil {
 		primaryClient, err := endtoend.NewMultiPoolerTestClient(fmt.Sprintf("localhost:%d", setup.PrimaryMultipooler.GrpcPort))
-		if err == nil {
-			defer primaryClient.Close()
-			validateGUCValue(t, primaryClient, "primary_conninfo", "", "Primary")
-			validateGUCValue(t, primaryClient, "synchronous_standby_names", "", "Primary")
+		if err != nil {
+			return fmt.Errorf("failed to connect to primary: %w", err)
+		}
+		defer primaryClient.Close()
+
+		if err := validateGUCValue(primaryClient, "primary_conninfo", "", "Primary"); err != nil {
+			return err
+		}
+		if err := validateGUCValue(primaryClient, "synchronous_standby_names", "", "Primary"); err != nil {
+			return err
 		}
 	}
 
 	// Validate standby state
 	if setup.StandbyMultipooler != nil {
 		standbyClient, err := endtoend.NewMultiPoolerTestClient(fmt.Sprintf("localhost:%d", setup.StandbyMultipooler.GrpcPort))
-		if err == nil {
-			defer standbyClient.Close()
+		if err != nil {
+			return fmt.Errorf("failed to connect to standby: %w", err)
+		}
+		defer standbyClient.Close()
 
-			// Verify standby is in recovery mode
-			inRecovery, err := queryStringValue(context.Background(), standbyClient, "SELECT pg_is_in_recovery()")
-			if err == nil && inRecovery != "true" {
-				t.Fatalf("setupPoolerTest: Standby pg_is_in_recovery=%s (expected true). "+
-					"Previous test leaked state. Make sure all subtests call setupPoolerTest().", inRecovery)
-			}
+		// Verify standby is in recovery mode
+		inRecovery, err := queryStringValue(context.Background(), standbyClient, "SELECT pg_is_in_recovery()")
+		if err != nil {
+			return fmt.Errorf("Standby failed to query pg_is_in_recovery: %w", err)
+		}
+		if inRecovery != "true" {
+			return fmt.Errorf("Standby pg_is_in_recovery=%s (expected true)", inRecovery)
+		}
 
-			// Verify replication not configured and WAL replay not paused
-			validateGUCValue(t, standbyClient, "primary_conninfo", "", "Standby")
+		// Verify replication not configured
+		if err := validateGUCValue(standbyClient, "primary_conninfo", "", "Standby"); err != nil {
+			return err
+		}
 
-			isPaused, err := queryStringValue(context.Background(), standbyClient, "SELECT pg_is_wal_replay_paused()")
-			if err == nil && isPaused != "false" {
-				t.Fatalf("setupPoolerTest: Standby pg_is_wal_replay_paused=%s (expected false). "+
-					"Previous test leaked state. Make sure all subtests call setupPoolerTest().", isPaused)
-			}
+		// Verify WAL replay not paused
+		isPaused, err := queryStringValue(context.Background(), standbyClient, "SELECT pg_is_wal_replay_paused()")
+		if err != nil {
+			return fmt.Errorf("Standby failed to query pg_is_wal_replay_paused: %w", err)
+		}
+		if isPaused != "false" {
+			return fmt.Errorf("Standby pg_is_wal_replay_paused=%s (expected false)", isPaused)
 		}
 	}
+
+	return nil
 }
 
 // setupPoolerTest provides test isolation by validating clean state, optionally configuring
@@ -1016,7 +1202,9 @@ func setupPoolerTest(t *testing.T, setup *MultipoolerTestSetup, opts ...cleanupO
 
 	// Validate that settings are in the expected clean state.
 	// This catches state leaks from tests that don't call setupPoolerTest().
-	validateCleanState(t, setup)
+	if err := validateCleanState(setup); err != nil {
+		t.Fatalf("setupPoolerTest: %v. Previous test leaked state. Make sure all subtests call setupPoolerTest().", err)
+	}
 
 	// Determine if we should configure replication (default: yes, unless WithoutReplication)
 	shouldConfigureReplication := !config.noReplication
@@ -1063,9 +1251,7 @@ func setupPoolerTest(t *testing.T, setup *MultipoolerTestSetup, opts ...cleanupO
 		if setup == nil || setup.StandbyMultipooler == nil || setup.PrimaryPgctld == nil {
 			t.Log("Test setup: Cannot configure replication (setup or multipoolers are nil)")
 		} else {
-			t.Log("Test setup: Configuring replication (setting primary_conninfo, starting WAL streaming)...")
-
-			// SAFETY: Disable synchronous replication to prevent write hangs
+			// SAFETY: Always disable synchronous replication to prevent write hangs
 			if primaryPoolerClient != nil {
 				_, err := primaryPoolerClient.ExecuteQuery(context.Background(), "ALTER SYSTEM SET synchronous_standby_names = ''", 0)
 				if err == nil {
@@ -1079,53 +1265,73 @@ func setupPoolerTest(t *testing.T, setup *MultipoolerTestSetup, opts ...cleanupO
 				}
 			}
 
-			standbyConn, err := grpc.NewClient(
-				fmt.Sprintf("localhost:%d", setup.StandbyMultipooler.GrpcPort),
-				grpc.WithTransportCredentials(insecure.NewCredentials()),
-			)
-			require.NoError(t, err, "Failed to connect to standby multipooler")
-			defer standbyConn.Close()
-
-			standbyClient := multipoolermanagerpb.NewMultiPoolerManagerClient(standbyConn)
-
-			// Set consensus term
-			_, err = standbyClient.SetTerm(utils.WithShortDeadline(t), &multipoolermanagerdatapb.SetTermRequest{
-				Term: &multipoolermanagerdatapb.ConsensusTerm{
-					TermNumber: 1,
-				},
-			})
-			if err != nil {
-				t.Logf("Warning: Failed to set term on standby: %v", err)
+			// Check if replication is already configured and streaming
+			alreadyStreaming := false
+			if standbyPoolerClient != nil {
+				resp, err := standbyPoolerClient.ExecuteQuery(context.Background(), "SELECT status FROM pg_stat_wal_receiver", 1)
+				if err == nil && len(resp.Rows) > 0 && len(resp.Rows[0].Values) > 0 {
+					status := string(resp.Rows[0].Values[0])
+					if status == "streaming" {
+						alreadyStreaming = true
+						t.Log("Test setup: Replication already streaming")
+					}
+				}
 			}
 
-			// Configure replication
-			setPrimaryReq := &multipoolermanagerdatapb.SetPrimaryConnInfoRequest{
-				Host:                  "localhost",
-				Port:                  int32(setup.PrimaryPgctld.PgPort),
-				StartReplicationAfter: true,
-				StopReplicationBefore: false,
-				CurrentTerm:           1,
-				Force:                 false,
-			}
-			ctxSetPrimary, cancelSetPrimary := context.WithTimeout(context.Background(), 5*time.Second)
-			_, err = standbyClient.SetPrimaryConnInfo(ctxSetPrimary, setPrimaryReq)
-			cancelSetPrimary()
+			// Configure replication if not already streaming
+			if !alreadyStreaming {
+				t.Log("Test setup: Configuring replication (setting primary_conninfo, starting WAL streaming)...")
 
-			if err != nil {
-				t.Logf("Warning: Failed to configure replication: %v", err)
-			} else if standbyPoolerClient != nil {
-				// Wait for replication to actually start streaming before the test begins
+				standbyConn, err := grpc.NewClient(
+					fmt.Sprintf("localhost:%d", setup.StandbyMultipooler.GrpcPort),
+					grpc.WithTransportCredentials(insecure.NewCredentials()),
+				)
+				require.NoError(t, err, "Failed to connect to standby multipooler")
+				defer standbyConn.Close()
+
+				standbyClient := multipoolermanagerpb.NewMultiPoolerManagerClient(standbyConn)
+
+				// Set consensus term
+				_, err = standbyClient.SetTerm(utils.WithShortDeadline(t), &multipoolermanagerdatapb.SetTermRequest{
+					Term: &multipoolermanagerdatapb.ConsensusTerm{
+						TermNumber: 1,
+					},
+				})
+				if err != nil {
+					t.Logf("Warning: Failed to set term on standby: %v", err)
+				}
+
+				// Configure replication with Force=true to ensure it works
+				setPrimaryReq := &multipoolermanagerdatapb.SetPrimaryConnInfoRequest{
+					Host:                  "localhost",
+					Port:                  int32(setup.PrimaryPgctld.PgPort),
+					StartReplicationAfter: true,
+					StopReplicationBefore: false,
+					CurrentTerm:           1,
+					Force:                 true, // Force reconfiguration to ensure it works
+				}
+				ctxSetPrimary, cancelSetPrimary := context.WithTimeout(context.Background(), 5*time.Second)
+				_, err = standbyClient.SetPrimaryConnInfo(ctxSetPrimary, setPrimaryReq)
+				cancelSetPrimary()
+
+				if err != nil {
+					t.Fatalf("Failed to configure replication: %v", err)
+				}
+			}
+
+			// Wait for replication to be streaming (whether we just configured it or it was already streaming)
+			if standbyPoolerClient != nil {
 				require.Eventually(t, func() bool {
 					resp, err := standbyPoolerClient.ExecuteQuery(context.Background(), "SELECT status FROM pg_stat_wal_receiver", 1)
 					if err != nil || len(resp.Rows) == 0 {
 						return false
 					}
 					return string(resp.Rows[0].Values[0]) == "streaming"
-				}, 5*time.Second, 100*time.Millisecond, "Replication should be streaming after setup")
+				}, 10*time.Second, 100*time.Millisecond, "Replication should be streaming after setup")
 
 				if config.pauseReplication {
 					// Pause WAL replay (WAL receiver keeps streaming, but changes aren't applied)
-					_, err = standbyPoolerClient.ExecuteQuery(context.Background(), "SELECT pg_wal_replay_pause()", 1)
+					_, err := standbyPoolerClient.ExecuteQuery(context.Background(), "SELECT pg_wal_replay_pause()", 1)
 					if err != nil {
 						t.Logf("Warning: Failed to pause WAL replay: %v", err)
 					} else {
@@ -1162,6 +1368,19 @@ func setupPoolerTest(t *testing.T, setup *MultipoolerTestSetup, opts ...cleanupO
 
 		if len(savedStandbyGucs) > 0 && standbyPoolerClient != nil {
 			restoreGUCs(t, standbyPoolerClient, savedStandbyGucs, "standby")
+
+			// Wait for primary_conninfo to actually be cleared (if it was in the saved GUCs)
+			// This prevents race conditions where the next test starts before config reload completes
+			if _, hasPrimaryConnInfo := savedStandbyGucs["primary_conninfo"]; hasPrimaryConnInfo {
+				require.Eventually(t, func() bool {
+					value, err := queryStringValue(context.Background(), standbyPoolerClient, "SHOW primary_conninfo")
+					if err != nil {
+						t.Logf("Cleanup: Error checking primary_conninfo: %v", err)
+						return false
+					}
+					return value == savedStandbyGucs["primary_conninfo"]
+				}, 5*time.Second, 100*time.Millisecond, "Cleanup: Failed to restore primary_conninfo to original value")
+			}
 		}
 
 		// Step 2: Always resume WAL replay (must be after GUC restoration)
@@ -1185,5 +1404,11 @@ func setupPoolerTest(t *testing.T, setup *MultipoolerTestSetup, opts ...cleanupO
 				}
 			}
 		}
+
+		// Step 4: Validate that cleanup fully applied and state is clean
+		// Use Eventually to give the system time to reach clean state
+		require.Eventually(t, func() bool {
+			return validateCleanState(setup) == nil
+		}, 2*time.Second, 50*time.Millisecond, "Test cleanup failed: state did not return to clean state after cleanup")
 	})
 }

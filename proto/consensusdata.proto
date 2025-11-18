@@ -81,9 +81,6 @@ message StatusResponse {
   // Current term from local file
   int64 current_term = 2;
 
-  // Last successful leader term from Postgres
-  int64 leader_term = 3;
-
   // Current WAL position
   WALPosition wal_position = 4;
 
@@ -109,9 +106,6 @@ message LeadershipViewRequest {
 message LeadershipViewResponse {
   // ID of the current leader
   string leader_id = 1;
-
-  // Leader's consensus term
-  int64 leader_term = 2;
 
   // Last heartbeat timestamp
   google.protobuf.Timestamp last_heartbeat = 4;

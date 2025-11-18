@@ -38,11 +38,17 @@ import (
 	"github.com/multigres/multigres/go/tools/retry"
 	"github.com/multigres/multigres/go/tools/semver"
 	"github.com/multigres/multigres/go/tools/stringutil"
+	"github.com/multigres/multigres/go/tools/telemetry"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+
 	"gopkg.in/yaml.v3"
 )
+
+var tracer = otel.Tracer("github.com/multigres/multigres/go/provisioner/local")
 
 // localProvisioner implements the Provisioner interface for local binary-based provisioning
 type localProvisioner struct {
@@ -198,7 +204,7 @@ func (p *localProvisioner) provisionEtcd(ctx context.Context, req *provisioner.P
 
 	fmt.Printf("▶️  - Launching etcd on port %d...", port)
 
-	if err := etcdCmd.Start(); err != nil {
+	if err := telemetry.StartCmd(ctx, etcdCmd); err != nil {
 		return nil, fmt.Errorf("failed to start etcd: %w", err)
 	}
 
@@ -209,7 +215,7 @@ func (p *localProvisioner) provisionEtcd(ctx context.Context, req *provisioner.P
 
 	// Wait for etcd to be ready
 	servicePorts := map[string]int{"etcd_port": port}
-	if err := p.waitForServiceReady("etcd", "localhost", servicePorts, 10*time.Second); err != nil {
+	if err := p.waitForServiceReady(ctx, "etcd", "localhost", servicePorts, 10*time.Second); err != nil {
 		logs := p.readServiceLogs(logFile, 20)
 		return nil, fmt.Errorf("etcd readiness check failed: %w\n\nLast 20 lines from etcd logs:\n%s", err, logs)
 	}
@@ -462,7 +468,7 @@ func (p *localProvisioner) provisionMultigateway(ctx context.Context, req *provi
 
 	fmt.Printf("▶️  - Launching multigateway (HTTP:%d, gRPC:%d, pg:%d)...", httpPort, grpcPort, pgPort)
 
-	if err := multigatewayCmd.Start(); err != nil {
+	if err := telemetry.StartCmd(ctx, multigatewayCmd); err != nil {
 		return nil, fmt.Errorf("failed to start multigateway: %w", err)
 	}
 
@@ -491,7 +497,7 @@ func (p *localProvisioner) provisionMultigateway(ctx context.Context, req *provi
 
 	// Wait for multigateway to be ready
 	servicePorts := map[string]int{"http_port": httpPort, "grpc_port": grpcPort, "pg_port": pgPort}
-	if err := p.waitForServiceReady("multigateway", "localhost", servicePorts, 10*time.Second); err != nil {
+	if err := p.waitForServiceReady(ctx, "multigateway", "localhost", servicePorts, 10*time.Second); err != nil {
 		logs := p.readServiceLogs(logFile, 20)
 		return nil, fmt.Errorf("multigateway readiness check failed: %w\n\nLast 20 lines from multigateway logs:\n%s", err, logs)
 	}
@@ -597,7 +603,7 @@ func (p *localProvisioner) provisionMultiadmin(ctx context.Context, req *provisi
 
 	fmt.Printf("▶️  - Launching multiadmin (HTTP:%d, gRPC:%d)...", httpPort, grpcPort)
 
-	if err := multiadminCmd.Start(); err != nil {
+	if err := telemetry.StartCmd(ctx, multiadminCmd); err != nil {
 		return nil, fmt.Errorf("failed to start multiadmin: %w", err)
 	}
 
@@ -625,7 +631,7 @@ func (p *localProvisioner) provisionMultiadmin(ctx context.Context, req *provisi
 
 	// Wait for multiadmin to be ready (check HTTP port)
 	servicePorts := map[string]int{"http_port": httpPort, "grpc_port": grpcPort}
-	if err := p.waitForServiceReady("multiadmin", "localhost", servicePorts, 10*time.Second); err != nil {
+	if err := p.waitForServiceReady(ctx, "multiadmin", "localhost", servicePorts, 10*time.Second); err != nil {
 		logs := p.readServiceLogs(logFile, 20)
 		return nil, fmt.Errorf("multiadmin readiness check failed: %w\n\nLast 20 lines from multiadmin logs:\n%s", err, logs)
 	}
@@ -780,6 +786,7 @@ func (p *localProvisioner) provisionMultipooler(ctx context.Context, req *provis
 		"--pooler-dir", poolerDir,
 		"--pg-port", fmt.Sprintf("%d", pgPort),
 		"--hostname", "localhost",
+		"--pgbackrest-stanza", "multigres",
 	}
 
 	// Add socket file if configured
@@ -795,7 +802,7 @@ func (p *localProvisioner) provisionMultipooler(ctx context.Context, req *provis
 
 	fmt.Printf("▶️  - Launching multipooler (HTTP:%d, gRPC:%d)...", httpPort, grpcPort)
 
-	if err := multipoolerCmd.Start(); err != nil {
+	if err := telemetry.StartCmd(ctx, multipoolerCmd); err != nil {
 		return nil, fmt.Errorf("failed to start multipooler: %w", err)
 	}
 
@@ -806,7 +813,7 @@ func (p *localProvisioner) provisionMultipooler(ctx context.Context, req *provis
 
 	// Wait for multipooler to be ready
 	servicePorts := map[string]int{"http_port": httpPort, "grpc_port": grpcPort}
-	if err := p.waitForServiceReady("multipooler", "localhost", servicePorts, 10*time.Second); err != nil {
+	if err := p.waitForServiceReady(ctx, "multipooler", "localhost", servicePorts, 10*time.Second); err != nil {
 		logs := p.readServiceLogs(logFile, 20)
 		return nil, fmt.Errorf("multipooler readiness check failed: %w\n\nLast 20 lines from multipooler logs:\n%s", err, logs)
 	}
@@ -932,6 +939,7 @@ func (p *localProvisioner) provisionMultiOrch(ctx context.Context, req *provisio
 		"--topo-global-root", topoGlobalRoot,
 		"--topo-implementation", topoBackend,
 		"--cell", cell,
+		"--watch-targets", req.DatabaseName,
 		"--log-level", logLevel,
 		"--log-output", logFile,
 		"--hostname", "localhost",
@@ -942,7 +950,7 @@ func (p *localProvisioner) provisionMultiOrch(ctx context.Context, req *provisio
 
 	fmt.Printf("▶️  - Launching multiorch (HTTP:%d, gRPC:%d)...", httpPort, grpcPort)
 
-	if err := multiorchCmd.Start(); err != nil {
+	if err := telemetry.StartCmd(ctx, multiorchCmd); err != nil {
 		return nil, fmt.Errorf("failed to start multiorch: %w", err)
 	}
 
@@ -953,7 +961,7 @@ func (p *localProvisioner) provisionMultiOrch(ctx context.Context, req *provisio
 
 	// Wait for multiorch to be ready
 	servicePorts := map[string]int{"http_port": httpPort, "grpc_port": grpcPort}
-	if err := p.waitForServiceReady("multiorch", "localhost", servicePorts, 10*time.Second); err != nil {
+	if err := p.waitForServiceReady(ctx, "multiorch", "localhost", servicePorts, 10*time.Second); err != nil {
 		logs := p.readServiceLogs(logFile, 20)
 		return nil, fmt.Errorf("multiorch readiness check failed: %w\n\nLast 20 lines from multiorch logs:\n%s", err, logs)
 	}
@@ -1055,12 +1063,13 @@ func (p *localProvisioner) stopService(ctx context.Context, req *provisioner.Dep
 		fallthrough
 	case "multigateway":
 		fallthrough
-	case "multipooler":
-		fallthrough
 	case "multiorch":
 		fallthrough
 	case "multiadmin":
 		return p.deprovisionService(ctx, req)
+	case "multipooler":
+		// multipooler requires special handling to clean up pgbackrest logs
+		return p.deprovisionMultipooler(ctx, req)
 	case "pgctld":
 		// pgctld requires special handling to stop PostgreSQL first
 		service, err := p.loadServiceState(req)
@@ -1090,7 +1099,7 @@ func (p *localProvisioner) deprovisionService(ctx context.Context, req *provisio
 
 	// Stop the process if it's running
 	if service.PID > 0 {
-		if err := p.stopProcessByPID(service.PID); err != nil {
+		if err := p.stopProcessByPID(ctx, service.Service, service.PID); err != nil {
 			return fmt.Errorf("failed to stop process: %w", err)
 		}
 	}
@@ -1118,8 +1127,28 @@ func (p *localProvisioner) deprovisionService(ctx context.Context, req *provisio
 	return nil
 }
 
+// deprovisionMultipooler stops a multipooler service instance with special cleanup for pgbackrest logs
+func (p *localProvisioner) deprovisionMultipooler(ctx context.Context, req *provisioner.DeprovisionRequest) error {
+	// First, perform standard service deprovisioning
+	if err := p.deprovisionService(ctx, req); err != nil {
+		return err
+	}
+
+	// Clean up pgbackrest logs (specific to multipooler)
+	pgBackRestLogPath := filepath.Join(p.config.RootWorkingDir, "logs", "dbs", "postgres", "pgbackrest")
+	if err := os.RemoveAll(pgBackRestLogPath); err != nil && !os.IsNotExist(err) {
+		fmt.Printf("Warning: failed to clean up pgbackrest logs: %v\n", err)
+	}
+
+	return nil
+}
+
 // stopProcessByPID stops a process by its PID
-func (p *localProvisioner) stopProcessByPID(pid int) error {
+func (p *localProvisioner) stopProcessByPID(ctx context.Context, name string, pid int) error {
+	ctx, span := tracer.Start(ctx, "stopProcessByPID")
+	span.SetAttributes(attribute.String("service", name))
+	defer span.End()
+
 	// Check if process exists
 	process, err := os.FindProcess(pid)
 	if err != nil {
@@ -1150,14 +1179,14 @@ func (p *localProvisioner) stopProcessByPID(pid int) error {
 	}
 
 	// Wait for the process to actually exit
-	p.waitForProcessExit(process, 2*time.Second)
+	p.waitForProcessExit(ctx, process, 2*time.Second)
 
 	return nil
 }
 
 // waitForProcessExit waits for a process to exit by polling with Signal(0)
-func (p *localProvisioner) waitForProcessExit(process *os.Process, timeout time.Duration) {
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+func (p *localProvisioner) waitForProcessExit(ctx context.Context, process *os.Process, timeout time.Duration) {
+	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
 	r := retry.New(10*time.Millisecond, 1*time.Second)
@@ -1215,6 +1244,13 @@ func (p *localProvisioner) Bootstrap(ctx context.Context) ([]*provisioner.Provis
 	fmt.Println("=== Setting up pgctld directories ===")
 	if err := p.initializePgctldDirectories(); err != nil {
 		return nil, fmt.Errorf("failed to initialize pgctld directories: %w", err)
+	}
+	fmt.Println("")
+
+	// Generate pgBackRest configurations for all poolers
+	fmt.Println("=== Generating pgBackRest configurations ===")
+	if err := p.GeneratePgBackRestConfigs(); err != nil {
+		return nil, fmt.Errorf("failed to generate pgBackRest configurations: %w", err)
 	}
 	fmt.Println("")
 
@@ -1584,6 +1620,13 @@ func (p *localProvisioner) ProvisionDatabase(ctx context.Context, databaseName s
 
 		fmt.Printf("\n✓ Cell %s provisioned successfully\n\n", cellName)
 	}
+
+	// Skip pgBackRest stanza initialization during bootstrap
+	// Stanzas should be created after replication is configured between cells
+	// to avoid "more than one primary cluster found" errors
+	// TODO: Initialize stanzas after replication is set up
+	fmt.Println("=== Skipping pgBackRest stanza initialization (will be done after replication setup) ===")
+	fmt.Println("")
 
 	fmt.Printf("Database %s provisioned successfully across %d cells with %d total services\n", databaseName, len(cellNames), len(results))
 	return results, nil

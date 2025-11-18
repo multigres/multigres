@@ -76,7 +76,7 @@ func down(cmd *cobra.Command, args []string) error {
 	fmt.Printf("Using configuration from: %s\n", configFile)
 	fmt.Printf("Stopping cluster with provisioner: %s\n", config.Provisioner)
 
-	ctx := context.Background()
+	ctx := cmd.Context()
 
 	// Teardown all services using the provisioner
 	if err := teardownAllServices(ctx, config.Provisioner, configPaths, clean); err != nil {
