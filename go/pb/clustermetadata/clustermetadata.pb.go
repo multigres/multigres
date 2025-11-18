@@ -219,6 +219,62 @@ func (QuorumType) EnumDescriptor() ([]byte, []int) {
 	return file_clustermetadata_proto_rawDescGZIP(), []int{2}
 }
 
+// AsyncReplicationFallbackMode defines the behavior when insufficient standbys are available
+// for synchronous replication to meet the quorum requirement
+type AsyncReplicationFallbackMode int32
+
+const (
+	// ASYNC_REPLICATION_FALLBACK_MODE_UNKNOWN represents an unknown or uninitialized mode
+	AsyncReplicationFallbackMode_ASYNC_REPLICATION_FALLBACK_MODE_UNKNOWN AsyncReplicationFallbackMode = 0
+	// ASYNC_REPLICATION_FALLBACK_MODE_ALLOW permits falling back to async replication
+	// when no standby servers are available. This is the default behavior.
+	AsyncReplicationFallbackMode_ASYNC_REPLICATION_FALLBACK_MODE_ALLOW AsyncReplicationFallbackMode = 1
+	// ASYNC_REPLICATION_FALLBACK_MODE_REJECT rejects the leader appointment
+	// if synchronous replication cannot be established to meet quorum requirements
+	AsyncReplicationFallbackMode_ASYNC_REPLICATION_FALLBACK_MODE_REJECT AsyncReplicationFallbackMode = 2
+)
+
+// Enum value maps for AsyncReplicationFallbackMode.
+var (
+	AsyncReplicationFallbackMode_name = map[int32]string{
+		0: "ASYNC_REPLICATION_FALLBACK_MODE_UNKNOWN",
+		1: "ASYNC_REPLICATION_FALLBACK_MODE_ALLOW",
+		2: "ASYNC_REPLICATION_FALLBACK_MODE_REJECT",
+	}
+	AsyncReplicationFallbackMode_value = map[string]int32{
+		"ASYNC_REPLICATION_FALLBACK_MODE_UNKNOWN": 0,
+		"ASYNC_REPLICATION_FALLBACK_MODE_ALLOW":   1,
+		"ASYNC_REPLICATION_FALLBACK_MODE_REJECT":  2,
+	}
+)
+
+func (x AsyncReplicationFallbackMode) Enum() *AsyncReplicationFallbackMode {
+	p := new(AsyncReplicationFallbackMode)
+	*p = x
+	return p
+}
+
+func (x AsyncReplicationFallbackMode) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (AsyncReplicationFallbackMode) Descriptor() protoreflect.EnumDescriptor {
+	return file_clustermetadata_proto_enumTypes[3].Descriptor()
+}
+
+func (AsyncReplicationFallbackMode) Type() protoreflect.EnumType {
+	return &file_clustermetadata_proto_enumTypes[3]
+}
+
+func (x AsyncReplicationFallbackMode) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use AsyncReplicationFallbackMode.Descriptor instead.
+func (AsyncReplicationFallbackMode) EnumDescriptor() ([]byte, []int) {
+	return file_clustermetadata_proto_rawDescGZIP(), []int{3}
+}
+
 // ComponentType represents the type of Multigres component
 type ID_ComponentType int32
 
@@ -260,11 +316,11 @@ func (x ID_ComponentType) String() string {
 }
 
 func (ID_ComponentType) Descriptor() protoreflect.EnumDescriptor {
-	return file_clustermetadata_proto_enumTypes[3].Descriptor()
+	return file_clustermetadata_proto_enumTypes[4].Descriptor()
 }
 
 func (ID_ComponentType) Type() protoreflect.EnumType {
-	return &file_clustermetadata_proto_enumTypes[3]
+	return &file_clustermetadata_proto_enumTypes[4]
 }
 
 func (x ID_ComponentType) Number() protoreflect.EnumNumber {
@@ -955,7 +1011,10 @@ type QuorumRule struct {
 	//     with at least one node from each cell
 	RequiredCount int32 `protobuf:"varint,2,opt,name=required_count,json=requiredCount,proto3" json:"required_count,omitempty"`
 	// Human-readable description
-	Description   string `protobuf:"bytes,3,opt,name=description,proto3" json:"description,omitempty"`
+	Description string `protobuf:"bytes,3,opt,name=description,proto3" json:"description,omitempty"`
+	// async_fallback defines behavior when insufficient standbys are available
+	// for synchronous replication. Defaults to ALLOW if unset.
+	AsyncFallback AsyncReplicationFallbackMode `protobuf:"varint,4,opt,name=async_fallback,json=asyncFallback,proto3,enum=clustermetadata.AsyncReplicationFallbackMode" json:"async_fallback,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1009,6 +1068,13 @@ func (x *QuorumRule) GetDescription() string {
 		return x.Description
 	}
 	return ""
+}
+
+func (x *QuorumRule) GetAsyncFallback() AsyncReplicationFallbackMode {
+	if x != nil {
+		return x.AsyncFallback
+	}
+	return AsyncReplicationFallbackMode_ASYNC_REPLICATION_FALLBACK_MODE_UNKNOWN
 }
 
 var File_clustermetadata_proto protoreflect.FileDescriptor
@@ -1079,13 +1145,14 @@ const file_clustermetadata_proto_rawDesc = "" +
 	"\n" +
 	"created_at\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x129\n" +
 	"\n" +
-	"updated_at\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\"\x93\x01\n" +
+	"updated_at\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\"\xe9\x01\n" +
 	"\n" +
 	"QuorumRule\x12<\n" +
 	"\vquorum_type\x18\x01 \x01(\x0e2\x1b.clustermetadata.QuorumTypeR\n" +
 	"quorumType\x12%\n" +
 	"\x0erequired_count\x18\x02 \x01(\x05R\rrequiredCount\x12 \n" +
-	"\vdescription\x18\x03 \x01(\tR\vdescription*3\n" +
+	"\vdescription\x18\x03 \x01(\tR\vdescription\x12T\n" +
+	"\x0easync_fallback\x18\x04 \x01(\x0e2-.clustermetadata.AsyncReplicationFallbackModeR\rasyncFallback*3\n" +
 	"\n" +
 	"PoolerType\x12\v\n" +
 	"\aUNKNOWN\x10\x00\x12\v\n" +
@@ -1103,7 +1170,11 @@ const file_clustermetadata_proto_rawDesc = "" +
 	"QuorumType\x12\x17\n" +
 	"\x13QUORUM_TYPE_UNKNOWN\x10\x00\x12\x15\n" +
 	"\x11QUORUM_TYPE_ANY_N\x10\x01\x12 \n" +
-	"\x1cQUORUM_TYPE_MULTI_CELL_ANY_N\x10\x02B6Z4github.com/multigres/multigres/go/pb/clustermetadatab\x06proto3"
+	"\x1cQUORUM_TYPE_MULTI_CELL_ANY_N\x10\x02*\xa2\x01\n" +
+	"\x1cAsyncReplicationFallbackMode\x12+\n" +
+	"'ASYNC_REPLICATION_FALLBACK_MODE_UNKNOWN\x10\x00\x12)\n" +
+	"%ASYNC_REPLICATION_FALLBACK_MODE_ALLOW\x10\x01\x12*\n" +
+	"&ASYNC_REPLICATION_FALLBACK_MODE_REJECT\x10\x02B6Z4github.com/multigres/multigres/go/pb/clustermetadatab\x06proto3"
 
 var (
 	file_clustermetadata_proto_rawDescOnce sync.Once
@@ -1117,48 +1188,50 @@ func file_clustermetadata_proto_rawDescGZIP() []byte {
 	return file_clustermetadata_proto_rawDescData
 }
 
-var file_clustermetadata_proto_enumTypes = make([]protoimpl.EnumInfo, 4)
+var file_clustermetadata_proto_enumTypes = make([]protoimpl.EnumInfo, 5)
 var file_clustermetadata_proto_msgTypes = make([]protoimpl.MessageInfo, 13)
 var file_clustermetadata_proto_goTypes = []any{
-	(PoolerType)(0),               // 0: clustermetadata.PoolerType
-	(PoolerServingStatus)(0),      // 1: clustermetadata.PoolerServingStatus
-	(QuorumType)(0),               // 2: clustermetadata.QuorumType
-	(ID_ComponentType)(0),         // 3: clustermetadata.ID.ComponentType
-	(*GlobalTopoConfig)(nil),      // 4: clustermetadata.GlobalTopoConfig
-	(*Cell)(nil),                  // 5: clustermetadata.Cell
-	(*Database)(nil),              // 6: clustermetadata.Database
-	(*MultiPooler)(nil),           // 7: clustermetadata.MultiPooler
-	(*MultiGateway)(nil),          // 8: clustermetadata.MultiGateway
-	(*MultiOrch)(nil),             // 9: clustermetadata.MultiOrch
-	(*ID)(nil),                    // 10: clustermetadata.ID
-	(*KeyRange)(nil),              // 11: clustermetadata.KeyRange
-	(*DurabilityPolicy)(nil),      // 12: clustermetadata.DurabilityPolicy
-	(*QuorumRule)(nil),            // 13: clustermetadata.QuorumRule
-	nil,                           // 14: clustermetadata.MultiPooler.PortMapEntry
-	nil,                           // 15: clustermetadata.MultiGateway.PortMapEntry
-	nil,                           // 16: clustermetadata.MultiOrch.PortMapEntry
-	(*timestamppb.Timestamp)(nil), // 17: google.protobuf.Timestamp
+	(PoolerType)(0),                   // 0: clustermetadata.PoolerType
+	(PoolerServingStatus)(0),          // 1: clustermetadata.PoolerServingStatus
+	(QuorumType)(0),                   // 2: clustermetadata.QuorumType
+	(AsyncReplicationFallbackMode)(0), // 3: clustermetadata.AsyncReplicationFallbackMode
+	(ID_ComponentType)(0),             // 4: clustermetadata.ID.ComponentType
+	(*GlobalTopoConfig)(nil),          // 5: clustermetadata.GlobalTopoConfig
+	(*Cell)(nil),                      // 6: clustermetadata.Cell
+	(*Database)(nil),                  // 7: clustermetadata.Database
+	(*MultiPooler)(nil),               // 8: clustermetadata.MultiPooler
+	(*MultiGateway)(nil),              // 9: clustermetadata.MultiGateway
+	(*MultiOrch)(nil),                 // 10: clustermetadata.MultiOrch
+	(*ID)(nil),                        // 11: clustermetadata.ID
+	(*KeyRange)(nil),                  // 12: clustermetadata.KeyRange
+	(*DurabilityPolicy)(nil),          // 13: clustermetadata.DurabilityPolicy
+	(*QuorumRule)(nil),                // 14: clustermetadata.QuorumRule
+	nil,                               // 15: clustermetadata.MultiPooler.PortMapEntry
+	nil,                               // 16: clustermetadata.MultiGateway.PortMapEntry
+	nil,                               // 17: clustermetadata.MultiOrch.PortMapEntry
+	(*timestamppb.Timestamp)(nil),     // 18: google.protobuf.Timestamp
 }
 var file_clustermetadata_proto_depIdxs = []int32{
-	10, // 0: clustermetadata.MultiPooler.id:type_name -> clustermetadata.ID
-	11, // 1: clustermetadata.MultiPooler.key_range:type_name -> clustermetadata.KeyRange
+	11, // 0: clustermetadata.MultiPooler.id:type_name -> clustermetadata.ID
+	12, // 1: clustermetadata.MultiPooler.key_range:type_name -> clustermetadata.KeyRange
 	0,  // 2: clustermetadata.MultiPooler.type:type_name -> clustermetadata.PoolerType
 	1,  // 3: clustermetadata.MultiPooler.serving_status:type_name -> clustermetadata.PoolerServingStatus
-	14, // 4: clustermetadata.MultiPooler.port_map:type_name -> clustermetadata.MultiPooler.PortMapEntry
-	10, // 5: clustermetadata.MultiGateway.id:type_name -> clustermetadata.ID
-	15, // 6: clustermetadata.MultiGateway.port_map:type_name -> clustermetadata.MultiGateway.PortMapEntry
-	10, // 7: clustermetadata.MultiOrch.id:type_name -> clustermetadata.ID
-	16, // 8: clustermetadata.MultiOrch.port_map:type_name -> clustermetadata.MultiOrch.PortMapEntry
-	3,  // 9: clustermetadata.ID.component:type_name -> clustermetadata.ID.ComponentType
-	13, // 10: clustermetadata.DurabilityPolicy.quorum_rule:type_name -> clustermetadata.QuorumRule
-	17, // 11: clustermetadata.DurabilityPolicy.created_at:type_name -> google.protobuf.Timestamp
-	17, // 12: clustermetadata.DurabilityPolicy.updated_at:type_name -> google.protobuf.Timestamp
+	15, // 4: clustermetadata.MultiPooler.port_map:type_name -> clustermetadata.MultiPooler.PortMapEntry
+	11, // 5: clustermetadata.MultiGateway.id:type_name -> clustermetadata.ID
+	16, // 6: clustermetadata.MultiGateway.port_map:type_name -> clustermetadata.MultiGateway.PortMapEntry
+	11, // 7: clustermetadata.MultiOrch.id:type_name -> clustermetadata.ID
+	17, // 8: clustermetadata.MultiOrch.port_map:type_name -> clustermetadata.MultiOrch.PortMapEntry
+	4,  // 9: clustermetadata.ID.component:type_name -> clustermetadata.ID.ComponentType
+	14, // 10: clustermetadata.DurabilityPolicy.quorum_rule:type_name -> clustermetadata.QuorumRule
+	18, // 11: clustermetadata.DurabilityPolicy.created_at:type_name -> google.protobuf.Timestamp
+	18, // 12: clustermetadata.DurabilityPolicy.updated_at:type_name -> google.protobuf.Timestamp
 	2,  // 13: clustermetadata.QuorumRule.quorum_type:type_name -> clustermetadata.QuorumType
-	14, // [14:14] is the sub-list for method output_type
-	14, // [14:14] is the sub-list for method input_type
-	14, // [14:14] is the sub-list for extension type_name
-	14, // [14:14] is the sub-list for extension extendee
-	0,  // [0:14] is the sub-list for field type_name
+	3,  // 14: clustermetadata.QuorumRule.async_fallback:type_name -> clustermetadata.AsyncReplicationFallbackMode
+	15, // [15:15] is the sub-list for method output_type
+	15, // [15:15] is the sub-list for method input_type
+	15, // [15:15] is the sub-list for extension type_name
+	15, // [15:15] is the sub-list for extension extendee
+	0,  // [0:15] is the sub-list for field type_name
 }
 
 func init() { file_clustermetadata_proto_init() }
@@ -1171,7 +1244,7 @@ func file_clustermetadata_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_clustermetadata_proto_rawDesc), len(file_clustermetadata_proto_rawDesc)),
-			NumEnums:      4,
+			NumEnums:      5,
 			NumMessages:   13,
 			NumExtensions: 0,
 			NumServices:   0,

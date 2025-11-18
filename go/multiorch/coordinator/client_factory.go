@@ -18,57 +18,35 @@ import (
 	"context"
 	"fmt"
 
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
-
 	"github.com/multigres/multigres/go/clustermetadata/topo"
-	consensuspb "github.com/multigres/multigres/go/pb/consensus"
-	multipoolermanagerpb "github.com/multigres/multigres/go/pb/multipoolermanager"
+	"github.com/multigres/multigres/go/multipooler/rpcclient"
 )
 
-// CreateNode creates a Node with connected gRPC clients for both
-// MultiPoolerManager and MultiPoolerConsensus services.
-// The caller is responsible for closing the connections when done.
-func CreateNode(ctx context.Context, poolerInfo *topo.MultiPoolerInfo) (*Node, error) {
-	// Get the gRPC address (hostname:port)
-	addr := poolerInfo.Addr()
-	if addr == "" {
-		return nil, fmt.Errorf("multipooler %s has no gRPC address", poolerInfo.IDString())
-	}
-
-	// Create gRPC connection
-	// TODO: Add proper TLS configuration for production
-	conn, err := grpc.NewClient(
-		addr,
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to connect to multipooler at %s: %w", addr, err)
-	}
-
-	// Create clients for both services on the same connection
-	managerClient := multipoolermanagerpb.NewMultiPoolerManagerClient(conn)
-	consensusClient := consensuspb.NewMultiPoolerConsensusClient(conn)
+// CreateNode creates a Node with a reference to the shared cached RPC client.
+// The node stores the pooler metadata needed for making RPC calls.
+func CreateNode(ctx context.Context, rpcClient rpcclient.MultiPoolerClient, poolerInfo *topo.MultiPoolerInfo) (*Node, error) {
+	// Convert topo.MultiPoolerInfo to clustermetadatapb.MultiPooler
+	pooler := poolerInfo.MultiPooler
 
 	node := &Node{
-		ID:              poolerInfo.Id,
-		Hostname:        poolerInfo.Hostname,
-		Port:            poolerInfo.PortMap["grpc"],
-		ShardID:         poolerInfo.Shard,
-		ManagerClient:   managerClient,
-		ConsensusClient: consensusClient,
+		ID:        poolerInfo.Id,
+		Hostname:  poolerInfo.Hostname,
+		Port:      poolerInfo.PortMap["grpc"],
+		ShardID:   poolerInfo.Shard,
+		rpcClient: rpcClient,
+		pooler:    pooler,
 	}
 
 	return node, nil
 }
 
 // CreateNodes creates Node instances for all multipoolers in the given list.
-// Returns an error if any node fails to connect.
-func CreateNodes(ctx context.Context, poolerInfos []*topo.MultiPoolerInfo) ([]*Node, error) {
+// All nodes share the same cached RPC client for connection pooling.
+func CreateNodes(ctx context.Context, rpcClient rpcclient.MultiPoolerClient, poolerInfos []*topo.MultiPoolerInfo) ([]*Node, error) {
 	nodes := make([]*Node, 0, len(poolerInfos))
 
 	for _, poolerInfo := range poolerInfos {
-		node, err := CreateNode(ctx, poolerInfo)
+		node, err := CreateNode(ctx, rpcClient, poolerInfo)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create node for %s: %w", poolerInfo.IDString(), err)
 		}

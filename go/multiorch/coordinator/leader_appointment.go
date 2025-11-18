@@ -16,6 +16,7 @@ package coordinator
 
 import (
 	"context"
+	"fmt"
 	"sync"
 
 	"github.com/multigres/multigres/go/mterrors"
@@ -264,8 +265,14 @@ func (c *Coordinator) recruitNodes(ctx context.Context, cohort []*Node, term int
 // buildSyncReplicationConfig creates synchronous replication configuration based on the quorum policy.
 // Returns nil if synchronous replication should not be configured (required_count=1 or no standbys).
 // For MULTI_CELL_ANY_N policies, excludes standbys in the same cell as the candidate (primary).
-func (c *Coordinator) buildSyncReplicationConfig(quorumRule *clustermetadatapb.QuorumRule, standbys []*Node, candidate *Node) *multipoolermanagerdatapb.ConfigureSynchronousReplicationRequest {
+func (c *Coordinator) buildSyncReplicationConfig(quorumRule *clustermetadatapb.QuorumRule, standbys []*Node, candidate *Node) (*multipoolermanagerdatapb.ConfigureSynchronousReplicationRequest, error) {
 	requiredCount := int(quorumRule.RequiredCount)
+
+	// Determine async fallback mode (default to ALLOW if unset)
+	asyncFallback := quorumRule.AsyncFallback
+	if asyncFallback == clustermetadatapb.AsyncReplicationFallbackMode_ASYNC_REPLICATION_FALLBACK_MODE_UNKNOWN {
+		asyncFallback = clustermetadatapb.AsyncReplicationFallbackMode_ASYNC_REPLICATION_FALLBACK_MODE_ALLOW
+	}
 
 	// If required_count is 1 or there are no standbys, don't configure synchronous replication
 	// With required_count=1, only the primary itself is needed for quorum, so async replication is sufficient
@@ -274,7 +281,7 @@ func (c *Coordinator) buildSyncReplicationConfig(quorumRule *clustermetadatapb.Q
 			"required_count", requiredCount,
 			"standbys_count", len(standbys),
 			"reason", "async replication sufficient for quorum")
-		return nil
+		return nil, nil
 	}
 
 	// For MULTI_CELL_ANY_N, filter out standbys in the same cell as the primary
@@ -289,12 +296,17 @@ func (c *Coordinator) buildSyncReplicationConfig(quorumRule *clustermetadatapb.Q
 			"eligible_standbys", len(eligibleStandbys),
 			"excluded_same_cell", len(standbys)-len(eligibleStandbys))
 
-		// If no eligible standbys remain after filtering, use async replication
+		// If no eligible standbys remain after filtering, check async fallback mode
 		if len(eligibleStandbys) == 0 {
+			if asyncFallback == clustermetadatapb.AsyncReplicationFallbackMode_ASYNC_REPLICATION_FALLBACK_MODE_REJECT {
+				return nil, mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
+					fmt.Sprintf("cannot establish synchronous replication: no eligible standbys in different cells (candidate_cell=%s, async_fallback=REJECT)",
+						candidate.ID.Cell))
+			}
 			c.logger.Warn("No eligible standbys in different cells, using async replication",
 				"candidate_cell", candidate.ID.Cell,
 				"total_standbys", len(standbys))
-			return nil
+			return nil, nil
 		}
 	}
 
@@ -328,7 +340,7 @@ func (c *Coordinator) buildSyncReplicationConfig(quorumRule *clustermetadatapb.Q
 		NumSync:           numSync,
 		StandbyIds:        standbyIDs,
 		ReloadConfig:      true,
-	}
+	}, nil
 }
 
 // filterStandbysByCell returns standbys that are NOT in the same cell as the candidate.
@@ -352,7 +364,10 @@ func (c *Coordinator) filterStandbysByCell(candidate *Node, standbys []*Node) []
 // - Configure synchronous replication based on quorum policy
 func (c *Coordinator) Propagate(ctx context.Context, candidate *Node, standbys []*Node, term int64, quorumRule *clustermetadatapb.QuorumRule) error {
 	// Build synchronous replication configuration based on quorum policy
-	syncConfig := c.buildSyncReplicationConfig(quorumRule, standbys, candidate)
+	syncConfig, err := c.buildSyncReplicationConfig(quorumRule, standbys, candidate)
+	if err != nil {
+		return mterrors.Wrap(err, "failed to build synchronous replication config")
+	}
 
 	// Promote candidate to primary
 	c.logger.InfoContext(ctx, "Promoting candidate to primary",

@@ -20,6 +20,7 @@ import (
 
 	"github.com/multigres/multigres/go/clustermetadata/topo"
 	"github.com/multigres/multigres/go/mterrors"
+	"github.com/multigres/multigres/go/multipooler/rpcclient"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 )
@@ -29,14 +30,16 @@ import (
 type Coordinator struct {
 	coordinatorID *clustermetadatapb.ID
 	topoStore     topo.Store
+	rpcClient     rpcclient.MultiPoolerClient
 	logger        *slog.Logger
 }
 
 // NewCoordinator creates a new coordinator instance.
-func NewCoordinator(coordinatorID *clustermetadatapb.ID, topoStore topo.Store, logger *slog.Logger) *Coordinator {
+func NewCoordinator(coordinatorID *clustermetadatapb.ID, topoStore topo.Store, rpcClient rpcclient.MultiPoolerClient, logger *slog.Logger) *Coordinator {
 	return &Coordinator{
 		coordinatorID: coordinatorID,
 		topoStore:     topoStore,
+		rpcClient:     rpcClient,
 		logger:        logger,
 	}
 }
@@ -170,8 +173,8 @@ func (c *Coordinator) GetShardNodes(ctx context.Context, cell string, database s
 			"no multipoolers found for shard %s in cell %s", shardID, cell)
 	}
 
-	// Create Node instances with gRPC clients
-	nodes, err := CreateNodes(ctx, poolers)
+	// Create Node instances with the shared RPC client
+	nodes, err := CreateNodes(ctx, c.rpcClient, poolers)
 	if err != nil {
 		return nil, mterrors.Wrap(err, "failed to create node clients")
 	}

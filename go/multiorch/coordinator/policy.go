@@ -27,55 +27,25 @@ import (
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 )
 
-// LoadQuorumRuleFromNode loads the active durability policy from a node's local database.
-// This connects directly to the node's postgres instance and queries the
-// multigres.durability_policy table.
+// LoadQuorumRuleFromNode loads the active durability policy from a node via gRPC.
+// This uses the GetDurabilityPolicy RPC to fetch the policy from the node's local database.
 func (c *Coordinator) LoadQuorumRuleFromNode(ctx context.Context, node *Node, database string) (*clustermetadatapb.QuorumRule, error) {
-	// Connect to the node's postgres database
-	// Note: We need postgres connection credentials
-	// For now, we'll use a simplified connection string
-	// TODO: Add proper authentication configuration
-	dsn := fmt.Sprintf("host=%s port=%d dbname=%s user=postgres sslmode=disable",
-		node.Hostname, node.Port, database)
-
-	db, err := sql.Open("postgres", dsn)
+	// Call GetDurabilityPolicy RPC
+	resp, err := node.GetDurabilityPolicy(ctx)
 	if err != nil {
-		return nil, mterrors.Wrapf(err, "failed to connect to node %s", node.ID.Name)
-	}
-	defer db.Close()
-
-	// Test the connection
-	if err := db.PingContext(ctx); err != nil {
-		return nil, mterrors.Wrapf(err, "failed to ping node %s", node.ID.Name)
+		return nil, mterrors.Wrapf(err, "failed to get durability policy from node %s", node.ID.Name)
 	}
 
-	// Query the active policy
-	query := `
-		SELECT quorum_rule
-		FROM multigres.durability_policy
-		WHERE is_active = true
-		ORDER BY policy_version DESC
-		LIMIT 1
-	`
-
-	var quorumRuleJSON []byte
-	err = db.QueryRowContext(ctx, query).Scan(&quorumRuleJSON)
-	if err == sql.ErrNoRows {
+	// Check if a policy was returned
+	if resp.Policy == nil || resp.Policy.QuorumRule == nil {
 		// No active policy found - return a default policy
 		c.logger.WarnContext(ctx, "No active durability policy found, using default ANY_N with majority",
 			"node", node.ID.Name,
 			"database", database)
 		return c.getDefaultQuorumRule(ctx, 0), nil
 	}
-	if err != nil {
-		return nil, mterrors.Wrapf(err, "failed to query durability policy from node %s", node.ID.Name)
-	}
 
-	// Unmarshal JSON to QuorumRule proto
-	var quorumRule clustermetadatapb.QuorumRule
-	if err := protojson.Unmarshal(quorumRuleJSON, &quorumRule); err != nil {
-		return nil, mterrors.Wrapf(err, "failed to unmarshal quorum rule from node %s", node.ID.Name)
-	}
+	quorumRule := resp.Policy.QuorumRule
 
 	c.logger.InfoContext(ctx, "Loaded durability policy from node",
 		"node", node.ID.Name,
@@ -84,7 +54,7 @@ func (c *Coordinator) LoadQuorumRuleFromNode(ctx context.Context, node *Node, da
 		"required_count", quorumRule.RequiredCount,
 		"description", quorumRule.Description)
 
-	return &quorumRule, nil
+	return quorumRule, nil
 }
 
 // LoadQuorumRule attempts to load the quorum rule from any available node in the cohort.
