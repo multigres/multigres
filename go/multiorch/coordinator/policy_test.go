@@ -402,7 +402,7 @@ func TestLoadQuorumRule_ResponseWaiting(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 	c := &Coordinator{logger: logger}
 
-	t.Run("waits for n-1 responses from REPLICAs", func(t *testing.T) {
+	t.Run("waits for all responses from REPLICAs", func(t *testing.T) {
 		ctx := context.Background()
 
 		// Create fake client
@@ -440,20 +440,19 @@ func TestLoadQuorumRule_ResponseWaiting(t *testing.T) {
 			}
 		}
 
-		// With 4 replicas, should wait for n-1 = 3 responses
-		// Should get highest version from first 3 responses
+		// With 4 replicas, should wait for all 4 responses
+		// Should get highest version from all responses
 
 		rule, err := c.LoadQuorumRule(ctx, replicaNodes, "testdb")
 		require.NoError(t, err)
 		require.NotNil(t, rule)
 
-		// Should get the highest version (40 from replica4, or possibly 30 from replica3
-		// depending on which 3 respond first - but since they all respond quickly,
-		// we should get the highest)
+		// Should get the highest version (40 from replica4)
+		// since all replicas respond successfully
 		require.Contains(t, rule.Description, "Policy v")
 	})
 
-	t.Run("succeeds with partial failures if n-1 succeed", func(t *testing.T) {
+	t.Run("succeeds with partial failures using best available", func(t *testing.T) {
 		ctx := context.Background()
 
 		// Create fake client
@@ -532,13 +531,13 @@ func TestLoadQuorumRule_ResponseWaiting(t *testing.T) {
 
 		cohort := []*Node{replica1Node, replica2Node, replica3Node}
 
-		// With 3 replicas, need n-1 = 2 successful responses
-		// We have replica1 failing, but replica2 and replica3 succeeding
+		// With 3 replicas, we want all responses but replica1 fails
+		// Should succeed using best available from replica2 and replica3
 		rule, err := c.LoadQuorumRule(ctx, cohort, "testdb")
 		require.NoError(t, err)
 		require.NotNil(t, rule)
 
-		// Should get highest version from successful responses (v100)
+		// Should get highest version from successful responses (v100 from replica2)
 		require.Equal(t, "Policy v100", rule.Description)
 	})
 }

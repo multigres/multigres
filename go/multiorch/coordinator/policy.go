@@ -110,7 +110,8 @@ func (c *Coordinator) LoadQuorumRule(ctx context.Context, cohort []*Node, databa
 }
 
 // loadFromReplicasInParallel loads policies from all REPLICA nodes in parallel,
-// waits for n-1 responses, and returns the policy with the highest version.
+// waits for all responses, and returns the policy with the highest version.
+// If some replicas fail, it uses the best available policy with a warning.
 func (c *Coordinator) loadFromReplicasInParallel(ctx context.Context, replicas []*Node, database string) (*clustermetadatapb.QuorumRule, error) {
 	type result struct {
 		node   *Node
@@ -155,11 +156,8 @@ func (c *Coordinator) loadFromReplicasInParallel(ctx context.Context, replicas [
 		close(results)
 	}()
 
-	// Collect results - wait for n-1 responses (majority)
-	requiredResponses := len(replicas) - 1
-	if requiredResponses < 1 {
-		requiredResponses = 1 // At least get one response
-	}
+	// Collect results - we want all responses
+	requiredResponses := len(replicas)
 
 	var bestPolicy *clustermetadatapb.DurabilityPolicy
 	var bestRule *clustermetadatapb.QuorumRule
@@ -197,9 +195,10 @@ func (c *Coordinator) loadFromReplicasInParallel(ctx context.Context, replicas [
 	}
 
 	if successCount < requiredResponses {
-		c.logger.WarnContext(ctx, "Got fewer responses than required, using best available",
+		c.logger.WarnContext(ctx, "Did not receive responses from all REPLICAs, using best available policy",
 			"success_count", successCount,
-			"required", requiredResponses)
+			"total_replicas", requiredResponses,
+			"failed_count", errorCount)
 	}
 
 	c.logger.InfoContext(ctx, "Selected durability policy",
