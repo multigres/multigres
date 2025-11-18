@@ -275,18 +275,32 @@ func (c *Coordinator) recruitNodes(ctx context.Context, cohort []*Node, term int
 func (c *Coordinator) buildSyncReplicationConfig(quorumRule *clustermetadatapb.QuorumRule, standbys []*Node, candidate *Node) (*multipoolermanagerdatapb.ConfigureSynchronousReplicationRequest, error) {
 	requiredCount := int(quorumRule.RequiredCount)
 
-	// Determine async fallback mode (default to ALLOW if unset)
+	// Determine async fallback mode (default to REJECT if unset)
 	asyncFallback := quorumRule.AsyncFallback
 	if asyncFallback == clustermetadatapb.AsyncReplicationFallbackMode_ASYNC_REPLICATION_FALLBACK_MODE_UNKNOWN {
-		asyncFallback = clustermetadatapb.AsyncReplicationFallbackMode_ASYNC_REPLICATION_FALLBACK_MODE_ALLOW
+		asyncFallback = clustermetadatapb.AsyncReplicationFallbackMode_ASYNC_REPLICATION_FALLBACK_MODE_REJECT
 	}
 
-	// If required_count is 1 or there are no standbys, don't configure synchronous replication
+	// If required_count is 1, don't configure synchronous replication
 	// With required_count=1, only the primary itself is needed for quorum, so async replication is sufficient
-	if requiredCount == 1 || len(standbys) == 0 {
+	if requiredCount == 1 {
 		c.logger.Info("Skipping synchronous replication configuration",
 			"required_count", requiredCount,
 			"standbys_count", len(standbys),
+			"reason", "async replication sufficient for quorum")
+		return nil, nil
+	}
+
+	// If there are no standbys, check async fallback mode
+	if len(standbys) == 0 {
+		if asyncFallback == clustermetadatapb.AsyncReplicationFallbackMode_ASYNC_REPLICATION_FALLBACK_MODE_REJECT {
+			return nil, mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
+				fmt.Sprintf("cannot establish synchronous replication: no standbys available (required %d standbys, async_fallback=REJECT)",
+					requiredCount-1))
+		}
+		c.logger.Info("Skipping synchronous replication configuration",
+			"required_count", requiredCount,
+			"standbys_count", 0,
 			"reason", "async replication sufficient for quorum")
 		return nil, nil
 	}
@@ -319,13 +333,23 @@ func (c *Coordinator) buildSyncReplicationConfig(quorumRule *clustermetadatapb.Q
 
 	// Calculate num_sync: required_count - 1 (since primary counts as 1)
 	// This ensures that primary + num_sync standbys = required_count total nodes/cells
-	numSync := int32(requiredCount - 1)
+	requiredNumSync := requiredCount - 1
+
+	// Check if we have enough standbys to meet the requirement
+	if requiredNumSync > len(eligibleStandbys) {
+		if asyncFallback == clustermetadatapb.AsyncReplicationFallbackMode_ASYNC_REPLICATION_FALLBACK_MODE_REJECT {
+			return nil, mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
+				fmt.Sprintf("cannot establish synchronous replication: insufficient standbys (required %d standbys, available %d, async_fallback=REJECT)",
+					requiredNumSync, len(eligibleStandbys)))
+		}
+		c.logger.Warn("Not enough standbys for required sync count, using all available",
+			"required_num_sync", requiredNumSync,
+			"available_standbys", len(eligibleStandbys))
+	}
 
 	// Cap num_sync at the number of available eligible standbys
+	numSync := int32(requiredNumSync)
 	if int(numSync) > len(eligibleStandbys) {
-		c.logger.Warn("Not enough standbys for required sync count, using all available",
-			"required_num_sync", numSync,
-			"available_standbys", len(eligibleStandbys))
 		numSync = int32(len(eligibleStandbys))
 	}
 

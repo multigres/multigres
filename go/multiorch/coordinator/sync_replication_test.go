@@ -54,6 +54,7 @@ func TestBuildSyncReplicationConfig(t *testing.T) {
 			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_ANY_N,
 			RequiredCount: 2,
 			Description:   "Two node quorum",
+			AsyncFallback: clustermetadatapb.AsyncReplicationFallbackMode_ASYNC_REPLICATION_FALLBACK_MODE_ALLOW,
 		}
 
 		standbys := []*Node{}
@@ -131,6 +132,7 @@ func TestBuildSyncReplicationConfig(t *testing.T) {
 			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_ANY_N,
 			RequiredCount: 5,
 			Description:   "Five node quorum",
+			AsyncFallback: clustermetadatapb.AsyncReplicationFallbackMode_ASYNC_REPLICATION_FALLBACK_MODE_ALLOW,
 		}
 
 		standbys := []*Node{
@@ -275,12 +277,13 @@ func TestBuildSyncReplicationConfig(t *testing.T) {
 		require.True(t, names["mp3"], "mp3 should be included (different cell)")
 	})
 
-	t.Run("MULTI_CELL_ANY_N with all standbys in same cell returns nil", func(t *testing.T) {
+	t.Run("MULTI_CELL_ANY_N with all standbys in same cell returns nil with ALLOW mode", func(t *testing.T) {
 		candidate := createTestNode("primary", "us-west-1a")
 		rule := &clustermetadatapb.QuorumRule{
 			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_MULTI_CELL_ANY_N,
 			RequiredCount: 2,
 			Description:   "Two cell quorum",
+			AsyncFallback: clustermetadatapb.AsyncReplicationFallbackMode_ASYNC_REPLICATION_FALLBACK_MODE_ALLOW,
 		}
 
 		standbys := []*Node{
@@ -291,7 +294,7 @@ func TestBuildSyncReplicationConfig(t *testing.T) {
 
 		config, err := c.buildSyncReplicationConfig(rule, standbys, candidate)
 		require.NoError(t, err)
-		require.Nil(t, config, "Should return nil when all standbys are in same cell as primary")
+		require.Nil(t, config, "Should return nil when all standbys are in same cell as primary with ALLOW mode")
 	})
 
 	t.Run("MULTI_CELL_ANY_N with mixed cells only includes different cells", func(t *testing.T) {
@@ -328,6 +331,7 @@ func TestBuildSyncReplicationConfig(t *testing.T) {
 			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_MULTI_CELL_ANY_N,
 			RequiredCount: 4, // Would need 3 standbys
 			Description:   "Four cell quorum",
+			AsyncFallback: clustermetadatapb.AsyncReplicationFallbackMode_ASYNC_REPLICATION_FALLBACK_MODE_ALLOW,
 		}
 
 		standbys := []*Node{
@@ -414,7 +418,7 @@ func TestBuildSyncReplicationConfig(t *testing.T) {
 		require.Nil(t, config, "Should return nil and allow async replication")
 	})
 
-	t.Run("default (UNKNOWN) mode behaves like ALLOW", func(t *testing.T) {
+	t.Run("default (UNKNOWN) mode behaves like REJECT", func(t *testing.T) {
 		candidate := createTestNode("primary", "us-west-1a")
 		rule := &clustermetadatapb.QuorumRule{
 			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_MULTI_CELL_ANY_N,
@@ -431,7 +435,76 @@ func TestBuildSyncReplicationConfig(t *testing.T) {
 		}
 
 		config, err := c.buildSyncReplicationConfig(rule, standbys, candidate)
-		require.NoError(t, err)
-		require.Nil(t, config, "UNKNOWN should default to ALLOW behavior")
+		require.Error(t, err, "UNKNOWN should default to REJECT behavior")
+		require.Nil(t, config)
+		require.Contains(t, err.Error(), "async_fallback=REJECT")
+	})
+
+	// ========== Additional REJECT Mode Edge Cases ==========
+
+	t.Run("REJECT mode with ANY_N and no standbys returns error", func(t *testing.T) {
+		candidate := createTestNode("primary", "us-west-1a")
+		rule := &clustermetadatapb.QuorumRule{
+			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_ANY_N,
+			RequiredCount: 2,
+			Description:   "ANY_N quorum requiring 2 nodes",
+			AsyncFallback: clustermetadatapb.AsyncReplicationFallbackMode_ASYNC_REPLICATION_FALLBACK_MODE_REJECT,
+		}
+
+		// No standbys available
+		standbys := []*Node{}
+
+		config, err := c.buildSyncReplicationConfig(rule, standbys, candidate)
+		require.Error(t, err)
+		require.Nil(t, config)
+		require.Contains(t, err.Error(), "cannot establish synchronous replication")
+		require.Contains(t, err.Error(), "async_fallback=REJECT")
+	})
+
+	t.Run("REJECT mode with ANY_N and insufficient standbys returns error", func(t *testing.T) {
+		candidate := createTestNode("primary", "us-west-1a")
+		rule := &clustermetadatapb.QuorumRule{
+			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_ANY_N,
+			RequiredCount: 5, // Requires 4 standbys to achieve quorum
+			Description:   "ANY_N quorum requiring 5 nodes",
+			AsyncFallback: clustermetadatapb.AsyncReplicationFallbackMode_ASYNC_REPLICATION_FALLBACK_MODE_REJECT,
+		}
+
+		// Only 2 standbys available, insufficient for required_count=5
+		standbys := []*Node{
+			createTestNode("mp1", "us-west-1a"),
+			createTestNode("mp2", "us-west-1b"),
+		}
+
+		config, err := c.buildSyncReplicationConfig(rule, standbys, candidate)
+		require.Error(t, err)
+		require.Nil(t, config)
+		require.Contains(t, err.Error(), "cannot establish synchronous replication")
+		require.Contains(t, err.Error(), "async_fallback=REJECT")
+		require.Contains(t, err.Error(), "required 4 standbys")
+	})
+
+	t.Run("REJECT mode with MULTI_CELL_ANY_N and insufficient different-cell standbys returns error", func(t *testing.T) {
+		candidate := createTestNode("primary", "cell-a")
+		rule := &clustermetadatapb.QuorumRule{
+			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_MULTI_CELL_ANY_N,
+			RequiredCount: 4, // Requires 3 standbys in different cells
+			Description:   "MULTI_CELL quorum requiring 4 cells",
+			AsyncFallback: clustermetadatapb.AsyncReplicationFallbackMode_ASYNC_REPLICATION_FALLBACK_MODE_REJECT,
+		}
+
+		// Only 1 standby in different cell (2 are in same cell as candidate)
+		standbys := []*Node{
+			createTestNode("mp1", "cell-a"), // Same cell - excluded
+			createTestNode("mp2", "cell-a"), // Same cell - excluded
+			createTestNode("mp3", "cell-b"), // Different cell - included
+		}
+
+		config, err := c.buildSyncReplicationConfig(rule, standbys, candidate)
+		require.Error(t, err)
+		require.Nil(t, config)
+		require.Contains(t, err.Error(), "cannot establish synchronous replication")
+		require.Contains(t, err.Error(), "async_fallback=REJECT")
+		require.Contains(t, err.Error(), "required 3 standbys")
 	})
 }
