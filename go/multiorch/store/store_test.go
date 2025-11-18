@@ -90,28 +90,6 @@ func TestStore_Delete(t *testing.T) {
 	require.False(t, deleted)
 }
 
-func TestStore_GetAll(t *testing.T) {
-	store := NewStore[string, *PoolerHealth]()
-
-	// Add multiple items
-	for i := 0; i < 3; i++ {
-		key := string(rune('a' + i))
-		info := &PoolerHealth{
-			MultiPooler: &clustermetadata.MultiPooler{
-				Id: &clustermetadata.ID{
-					Component: clustermetadata.ID_MULTIPOOLER,
-					Cell:      "zone1",
-					Name:      key,
-				},
-			},
-		}
-		store.Set(key, info)
-	}
-
-	all := store.GetAllValues()
-	require.Len(t, all, 3)
-}
-
 func TestStore_Len(t *testing.T) {
 	store := NewStore[string, *PoolerHealth]()
 
@@ -157,51 +135,112 @@ func TestStore_GenericTypes(t *testing.T) {
 	require.Equal(t, 2, intStore.Len())
 }
 
-func TestStore_GetMap(t *testing.T) {
+func TestStore_Range(t *testing.T) {
 	store := NewStore[string, *PoolerHealth]()
 
-	// Test empty store
-	all := store.GetMap()
-	require.Empty(t, all)
-
-	// Add multiple items
-	poolers := make(map[string]*PoolerHealth)
-	for i := 0; i < 3; i++ {
-		key := string(rune('a' + i))
-		info := &PoolerHealth{
-			MultiPooler: &clustermetadata.MultiPooler{
-				Id: &clustermetadata.ID{
-					Component: clustermetadata.ID_MULTIPOOLER,
-					Cell:      "zone1",
-					Name:      key,
-				},
-				Database: "db" + key,
+	// Add test items
+	store.Set("key1", &PoolerHealth{
+		MultiPooler: &clustermetadata.MultiPooler{
+			Id: &clustermetadata.ID{
+				Component: clustermetadata.ID_MULTIPOOLER,
+				Cell:      "zone1",
+				Name:      "pooler1",
 			},
+			Database: "db1",
+		},
+	})
+	store.Set("key2", &PoolerHealth{
+		MultiPooler: &clustermetadata.MultiPooler{
+			Id: &clustermetadata.ID{
+				Component: clustermetadata.ID_MULTIPOOLER,
+				Cell:      "zone1",
+				Name:      "pooler2",
+			},
+			Database: "db2",
+		},
+	})
+	store.Set("key3", &PoolerHealth{
+		MultiPooler: &clustermetadata.MultiPooler{
+			Id: &clustermetadata.ID{
+				Component: clustermetadata.ID_MULTIPOOLER,
+				Cell:      "zone1",
+				Name:      "pooler3",
+			},
+			Database: "db3",
+		},
+	})
+
+	// Test iterating over all items
+	visited := make(map[string]bool)
+	store.Range(func(key string, value *PoolerHealth) bool {
+		visited[key] = true
+		require.NotNil(t, value)
+		require.NotNil(t, value.MultiPooler)
+		return true // continue iteration
+	})
+
+	require.Equal(t, 3, len(visited))
+	require.True(t, visited["key1"])
+	require.True(t, visited["key2"])
+	require.True(t, visited["key3"])
+}
+
+func TestStore_Range_EarlyStop(t *testing.T) {
+	store := NewStore[string, int]()
+
+	// Add test items
+	store.Set("key1", 1)
+	store.Set("key2", 2)
+	store.Set("key3", 3)
+
+	// Test early stop - should only visit one item
+	count := 0
+	store.Range(func(key string, value int) bool {
+		count++
+		return false // stop after first item
+	})
+
+	require.Equal(t, 1, count)
+}
+
+func TestStore_Range_EmptyStore(t *testing.T) {
+	store := NewStore[string, int]()
+
+	// Range on empty store should not call callback
+	called := false
+	store.Range(func(key string, value int) bool {
+		called = true
+		return true
+	})
+
+	require.False(t, called)
+}
+
+func TestStore_Range_ModifyDuringIteration(t *testing.T) {
+	store := NewStore[string, int]()
+
+	// Add test items
+	store.Set("key1", 1)
+	store.Set("key2", 2)
+
+	// Collect keys to delete (cannot delete during Range due to lock)
+	var toDelete []string
+	store.Range(func(key string, value int) bool {
+		if value == 1 {
+			toDelete = append(toDelete, key)
 		}
-		poolers[key] = info
-		store.Set(key, info)
+		return true
+	})
+
+	// Delete after iteration
+	for _, key := range toDelete {
+		store.Delete(key)
 	}
 
-	// Get all with keys
-	all = store.GetMap()
-	require.Len(t, all, 3)
-
-	// Verify all keys and values are present
-	for key, expectedInfo := range poolers {
-		actualInfo, ok := all[key]
-		require.True(t, ok, "key %s should exist", key)
-		require.Equal(t, expectedInfo.MultiPooler.Id.Name, actualInfo.MultiPooler.Id.Name)
-		require.Equal(t, expectedInfo.MultiPooler.Database, actualInfo.MultiPooler.Database)
-	}
-
-	// Verify modifications to returned map don't affect store
-	all["new-key"] = &PoolerHealth{}
-	require.Equal(t, 3, store.Len(), "modifications to returned map should not affect store")
-
-	// Delete an item and verify
-	store.Delete("a")
-	all = store.GetMap()
-	require.Len(t, all, 2)
-	_, ok := all["a"]
-	require.False(t, ok, "deleted key should not be in result")
+	// Verify deletion
+	require.Equal(t, 1, store.Len())
+	_, ok := store.Get("key1")
+	require.False(t, ok)
+	_, ok = store.Get("key2")
+	require.True(t, ok)
 }
