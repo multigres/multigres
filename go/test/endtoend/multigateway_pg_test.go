@@ -29,8 +29,6 @@ import (
 // TestMultiGateway_PostgreSQLConnection tests that we can connect to multigateway via PostgreSQL protocol
 // and execute queries. This is a true end-to-end test that uses the full cluster setup.
 func TestMultiGateway_PostgreSQLConnection(t *testing.T) {
-	ensureBinaryBuilt(t)
-
 	// Setup full test cluster with all services
 	cluster := setupTestCluster(t)
 	defer cluster.Cleanup()

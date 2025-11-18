@@ -23,7 +23,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -55,13 +54,6 @@ func getProjectRoot() (string, error) {
 	projectRoot := filepath.Join(wd, "..", "..", "..")
 	return filepath.Abs(projectRoot)
 }
-
-// Global variables for lazy binary building
-var (
-	multigresBinary string
-	buildOnce       sync.Once
-	buildError      error
-)
 
 // testPortConfig holds test-specific port configuration to avoid conflicts
 type testPortConfig struct {
@@ -179,7 +171,6 @@ func cleanupTestProcesses(tempDir string) error {
 // createTestConfigWithPorts creates a test configuration file with custom ports
 func createTestConfigWithPorts(tempDir string, portConfig *testPortConfig) (string, error) {
 	// Create a typed configuration using LocalProvisionerConfig
-	binPath := filepath.Join(tempDir, "bin")
 	serviceIDZone1 := stringutil.RandomString(8)
 	serviceIDZone2 := stringutil.RandomString(8)
 
@@ -206,7 +197,7 @@ func createTestConfigWithPorts(tempDir string, portConfig *testPortConfig) (stri
 			},
 		},
 		Multiadmin: local.MultiadminConfig{
-			Path:     filepath.Join(binPath, "multiadmin"),
+			Path:     "multiadmin",
 			HttpPort: portConfig.MultiadminHTTPPort,
 			GrpcPort: portConfig.MultiadminGRPCPort,
 			LogLevel: "info",
@@ -214,14 +205,14 @@ func createTestConfigWithPorts(tempDir string, portConfig *testPortConfig) (stri
 		Cells: map[string]local.CellServicesConfig{
 			"zone1": {
 				Multigateway: local.MultigatewayConfig{
-					Path:     filepath.Join(binPath, "multigateway"),
+					Path:     "multigateway",
 					HttpPort: portConfig.MultigatewayHTTPPort,
 					GrpcPort: portConfig.MultigatewayGRPCPort,
 					PgPort:   portConfig.MultigatewayPGPort,
 					LogLevel: "info",
 				},
 				Multipooler: local.MultipoolerConfig{
-					Path:           filepath.Join(binPath, "multipooler"),
+					Path:           "multipooler",
 					Database:       "postgres",
 					TableGroup:     "default",
 					ServiceID:      serviceIDZone1,
@@ -233,13 +224,13 @@ func createTestConfigWithPorts(tempDir string, portConfig *testPortConfig) (stri
 					LogLevel:       "info",
 				},
 				Multiorch: local.MultiorchConfig{
-					Path:     filepath.Join(binPath, "multiorch"),
+					Path:     "multiorch",
 					HttpPort: portConfig.MultiorchHTTPPort,
 					GrpcPort: portConfig.MultiorchGRPCPort,
 					LogLevel: "info",
 				},
 				Pgctld: local.PgctldConfig{
-					Path:           filepath.Join(binPath, "pgctld"),
+					Path:           "pgctld",
 					GrpcPort:       portConfig.PgctldGRPCPort,
 					GRPCSocketFile: filepath.Join(tempDir, "sockets", "pgctld-zone1.sock"),
 					PgPort:         portConfig.PgctldPGPort,
@@ -253,14 +244,14 @@ func createTestConfigWithPorts(tempDir string, portConfig *testPortConfig) (stri
 			},
 			"zone2": {
 				Multigateway: local.MultigatewayConfig{
-					Path:     filepath.Join(binPath, "multigateway"),
+					Path:     "multigateway",
 					HttpPort: portConfig.MultigatewayHTTPPort + 100,
 					GrpcPort: portConfig.MultigatewayGRPCPort + 100,
 					PgPort:   portConfig.MultigatewayPGPort + 100,
 					LogLevel: "info",
 				},
 				Multipooler: local.MultipoolerConfig{
-					Path:           filepath.Join(binPath, "multipooler"),
+					Path:           "multipooler",
 					Database:       "postgres",
 					TableGroup:     "default",
 					ServiceID:      serviceIDZone2,
@@ -272,13 +263,13 @@ func createTestConfigWithPorts(tempDir string, portConfig *testPortConfig) (stri
 					LogLevel:       "info",
 				},
 				Multiorch: local.MultiorchConfig{
-					Path:     filepath.Join(binPath, "multiorch"),
+					Path:     "multiorch",
 					HttpPort: portConfig.MultiorchHTTPPort + 100,
 					GrpcPort: portConfig.MultiorchGRPCPort + 100,
 					LogLevel: "info",
 				},
 				Pgctld: local.PgctldConfig{
-					Path:           filepath.Join(binPath, "pgctld"),
+					Path:           "pgctld",
 					GrpcPort:       portConfig.PgctldGRPCPort + 100, // offset for zone2
 					GRPCSocketFile: filepath.Join(tempDir, "sockets", "pgctld-zone2.sock"),
 					PgPort:         portConfig.PgctldPGPort + 100, // offset for zone2
@@ -523,93 +514,6 @@ func queryHeartbeatCount(addr string) (int, error) {
 	return count, nil
 }
 
-// buildMultigresBinary builds the multigres binary and returns its path
-func buildMultigresBinary() (string, error) {
-	// Create a temporary directory for the multigres binary
-	tempDir, err := os.MkdirTemp("/tmp", "mlt")
-	if err != nil {
-		return "", fmt.Errorf("failed to create temp directory for multigres binary: %v", err)
-	}
-
-	// Get project root directory
-	projectRoot, err := getProjectRoot()
-	if err != nil {
-		return "", fmt.Errorf("failed to get project root: %w", err)
-	}
-
-	// Build multigres binary
-	binaryPath := filepath.Join(tempDir, "multigres")
-	sourceDir := filepath.Join(projectRoot, "go", "cmd", "multigres")
-	buildCmd := exec.Command("go", "build", "-o", binaryPath, sourceDir)
-	buildCmd.Dir = projectRoot
-
-	buildOutput, err := buildCmd.CombinedOutput()
-	if err != nil {
-		return "", fmt.Errorf("failed to build multigres: %v\nOutput: %s", err, string(buildOutput))
-	}
-
-	return binaryPath, nil
-}
-
-// buildServiceBinaries builds service binaries (not multigres) in the specified directory
-func buildServiceBinaries(tempDir string) error {
-	// Create bin directory inside temp directory
-	binDir := filepath.Join(tempDir, "bin")
-	if err := os.MkdirAll(binDir, 0o755); err != nil {
-		return fmt.Errorf("failed to create bin directory: %v", err)
-	}
-
-	// Get project root directory
-	projectRoot, err := getProjectRoot()
-	if err != nil {
-		return fmt.Errorf("failed to get project root: %w", err)
-	}
-
-	// Build service binaries (excluding multigres which is built separately)
-	binaries := []string{
-		"multiadmin",
-		"multigateway",
-		"multiorch",
-		"multipooler",
-		"pgctld",
-	}
-
-	for _, binaryName := range binaries {
-		// Define binary paths in the bin directory
-		binaryPath := filepath.Join(binDir, binaryName)
-		sourceDir := filepath.Join(projectRoot, "go", "cmd", binaryName)
-		buildCmd := exec.Command("go", "build", "-o", binaryPath, sourceDir)
-		buildCmd.Dir = projectRoot
-
-		buildOutput, err := buildCmd.CombinedOutput()
-		if err != nil {
-			return fmt.Errorf("failed to build %s: %v\nOutput: %s", binaryName, err, string(buildOutput))
-		}
-	}
-
-	return nil
-}
-
-// ensureBinaryBuilt ensures the multigres binary is built exactly once
-// It should be called at the start of each test function
-func ensureBinaryBuilt(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping e2e test in short mode")
-	}
-
-	buildOnce.Do(func() {
-		var err error
-		multigresBinary, err = buildMultigresBinary()
-		if err != nil {
-			buildError = fmt.Errorf("failed to build multigres binary: %w", err)
-		}
-	})
-
-	if buildError != nil {
-		t.Fatalf("Binary build failed: %v", buildError)
-	}
-}
-
 // TestMain sets the path and cleans up after all tests
 func TestMain(m *testing.M) {
 	// Set the PATH so etcd and orphan detection scripts can be found
@@ -627,11 +531,6 @@ func TestMain(m *testing.M) {
 	// Run all tests
 	exitCode := m.Run()
 
-	// Clean up multigres binary after all tests if it was built
-	if multigresBinary != "" {
-		os.RemoveAll(filepath.Dir(multigresBinary))
-	}
-
 	// Cleanup environment variable
 	os.Unsetenv("MULTIGRES_TEST_PARENT_PID")
 
@@ -643,15 +542,13 @@ func TestMain(m *testing.M) {
 func executeInitCommand(t *testing.T, args []string) (string, error) {
 	// Prepare the full command: "multigres cluster init <args>"
 	cmdArgs := append([]string{"cluster", "init"}, args...)
-	cmd := exec.Command(multigresBinary, cmdArgs...)
+	cmd := exec.Command("multigres", cmdArgs...)
 
 	output, err := cmd.CombinedOutput()
 	return string(output), err
 }
 
 func TestInitCommand(t *testing.T) {
-	ensureBinaryBuilt(t)
-
 	tests := []struct {
 		name           string
 		setupDirs      func(*testing.T) ([]string, func()) // returns config paths and cleanup
@@ -732,8 +629,6 @@ func TestInitCommand(t *testing.T) {
 }
 
 func TestInitCommandConfigFileCreation(t *testing.T) {
-	ensureBinaryBuilt(t)
-
 	// Setup test directory
 	tempDir, err := os.MkdirTemp("/tmp/", "multigres_init_config_test")
 	require.NoError(t, err)
@@ -816,19 +711,9 @@ func TestInitCommandConfigFileCreation(t *testing.T) {
 	assert.True(t, ok, "multipooler should be configured in zone2")
 	_, ok = zone2Services["multiorch"]
 	assert.True(t, ok, "multiorch should be configured in zone2")
-
-	// Now try to start the cluster without building the binaries
-	// This should fail with binary validation errors
-	t.Log("Attempting to start cluster without binaries (should fail)...")
-	output, err = executeStartCommand(t, []string{"--config-path", tempDir}, tempDir)
-	require.Error(t, err, "Start should fail when binaries are not present")
-	errorOutput := err.Error() + "\n" + output
-	assert.Contains(t, errorOutput, "binary validation failed", "error should mention binary validation failure. Got: %s", errorOutput)
 }
 
 func TestInitCommandConfigFileAlreadyExists(t *testing.T) {
-	ensureBinaryBuilt(t)
-
 	// Setup test directory
 	tempDir, err := os.MkdirTemp("/tmp", "mlt")
 	require.NoError(t, err)
@@ -853,7 +738,7 @@ func TestInitCommandConfigFileAlreadyExists(t *testing.T) {
 func executeStartCommand(t *testing.T, args []string, tempDir string) (string, error) {
 	// Prepare the full command: "multigres cluster start <args>"
 	cmdArgs := append([]string{"cluster", "start"}, args...)
-	cmd := exec.Command(multigresBinary, cmdArgs...)
+	cmd := exec.Command("multigres", cmdArgs...)
 
 	// Set MULTIGRES_TESTDATA_DIR for directory-deletion triggered cleanup
 	cmd.Env = append(os.Environ(),
@@ -868,7 +753,7 @@ func executeStartCommand(t *testing.T, args []string, tempDir string) (string, e
 func executeStopCommand(t *testing.T, args []string) (string, error) {
 	// Prepare the full command: "multigres cluster down <args>"
 	cmdArgs := append([]string{"cluster", "stop"}, args...)
-	cmd := exec.Command(multigresBinary, cmdArgs...)
+	cmd := exec.Command("multigres", cmdArgs...)
 
 	output, err := cmd.CombinedOutput()
 	return string(output), err
@@ -895,8 +780,6 @@ func testPostgreSQLConnection(t *testing.T, port int, zone string) {
 }
 
 func TestClusterLifecycle(t *testing.T) {
-	ensureBinaryBuilt(t)
-
 	// Require etcd binary to be available (required for local provisioner)
 	_, err := exec.LookPath("etcd")
 	require.NoError(t, err, "etcd binary must be available in PATH for cluster lifecycle tests")
@@ -917,10 +800,6 @@ func TestClusterLifecycle(t *testing.T) {
 		}()
 
 		t.Logf("Testing cluster lifecycle in directory: %s", tempDir)
-
-		// Build service binaries in the test directory
-		t.Log("Building service binaries...")
-		require.NoError(t, buildServiceBinaries(tempDir), "Failed to build service binaries")
 
 		// Setup test ports and sanity checks
 		t.Log("Setting up test ports and performing sanity checks...")
@@ -1112,17 +991,24 @@ func TestClusterLifecycle(t *testing.T) {
 		assert.NoFileExists(t, filepath.Join(tempDir, "state"))
 		assert.NoFileExists(t, filepath.Join(tempDir, "logs"))
 
-		// Only config file and bin directory should remain
+		// After clean stop, only config file should remain (no directories)
 		entries, err := os.ReadDir(tempDir)
 		require.NoError(t, err)
 
 		var remainingDirs []string
+		var remainingFiles []string
 		for _, entry := range entries {
 			if entry.IsDir() {
 				remainingDirs = append(remainingDirs, entry.Name())
+			} else {
+				remainingFiles = append(remainingFiles, entry.Name())
 			}
 		}
-		assert.ElementsMatch(t, []string{"bin"}, remainingDirs, "Only bin directory should remain after clean")
+
+		t.Logf("Remaining directories after clean: %v", remainingDirs)
+		t.Logf("Remaining files after clean: %v", remainingFiles)
+
+		assert.Empty(t, remainingDirs, "No directories should remain after clean stop")
 
 		t.Log("Cluster lifecycle test completed successfully")
 	})
@@ -1136,26 +1022,13 @@ func TestClusterLifecycle(t *testing.T) {
 		require.NoError(t, err)
 		defer os.RemoveAll(tempDir)
 
-		// Build just the multipooler binary for this test
-		t.Log("Building multipooler binary for database flag test...")
-		binDir := filepath.Join(tempDir, "bin")
-		require.NoError(t, os.MkdirAll(binDir, 0o755))
-
 		projectRoot, err := getProjectRoot()
 		require.NoError(t, err)
 		require.NotEmpty(t, projectRoot, "projectRoot should not be empty")
 
-		multipoolerPath := filepath.Join(binDir, "multipooler")
-		sourceDir := filepath.Join(projectRoot, "go", "cmd", "multipooler")
-		buildCmd := exec.Command("go", "build", "-o", multipoolerPath, sourceDir)
-		buildCmd.Dir = projectRoot
-
-		buildOutput, err := buildCmd.CombinedOutput()
-		require.NoError(t, err, "Failed to build multipooler: %v\nOutput: %s", err, string(buildOutput))
-
 		// Try to run multipooler without --database flag (should fail)
 		t.Log("Testing multipooler without --database flag (should fail)...")
-		cmd := exec.Command(multipoolerPath,
+		cmd := exec.Command("multipooler",
 			"--topo-global-server-addresses", "fake-address",
 			"--topo-global-root", "fake-root",
 			"--topo-implementation", "etcd2",
@@ -1170,7 +1043,7 @@ func TestClusterLifecycle(t *testing.T) {
 
 		// Try to run multipooler with --database flag (should succeed with setup)
 		t.Log("Testing multipooler with --database flag (should not show database error)...")
-		cmd = exec.Command(multipoolerPath, "--cell", "testcell", "--database", "testdb", "--help")
+		cmd = exec.Command("multipooler", "--cell", "testcell", "--database", "testdb", "--help")
 		output, err = cmd.CombinedOutput()
 		require.NoError(t, err)
 
@@ -1194,10 +1067,6 @@ func TestClusterLifecycle(t *testing.T) {
 			}
 			os.RemoveAll(tempDir)
 		}()
-
-		// Build service binaries in the test directory
-		t.Log("Building service binaries...")
-		require.NoError(t, buildServiceBinaries(tempDir), "Failed to build service binaries")
 
 		// Setup test ports
 		testPorts := getTestPortConfig()
@@ -1360,10 +1229,6 @@ func setupTestCluster(t *testing.T) *testClusterSetup {
 	}
 
 	t.Logf("Testing cluster lifecycle in directory: %s", tempDir)
-
-	// Build service binaries in the test directory
-	t.Log("Building service binaries...")
-	require.NoError(t, buildServiceBinaries(tempDir), "Failed to build service binaries")
 
 	// Setup test ports and sanity checks
 	t.Log("Setting up test ports and performing sanity checks...")
