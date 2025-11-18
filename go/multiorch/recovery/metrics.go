@@ -19,6 +19,7 @@ import (
 	"log/slog"
 	"time"
 
+	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/metric/noop"
@@ -123,42 +124,35 @@ func (m HealthCheckCycleDuration) Record(ctx context.Context, val float64, attrs
 }
 
 // NewMetrics initializes OpenTelemetry metrics for the recovery engine.
-// If meter is nil, returns noop implementations to avoid nil checks in instrumented code.
-func NewMetrics(meter metric.Meter, logger *slog.Logger, poolerStore *store.Store[string, *store.PoolerHealth]) (*Metrics, error) {
+// Individual metrics that fail to initialize will use noop implementations.
+func NewMetrics(logger *slog.Logger, poolerStore *store.Store[string, *store.PoolerHealth]) *Metrics {
 	m := &Metrics{}
 
-	// Handle nil meter case - return noop implementations
-	if meter == nil {
-		m.clusterMetadataRefreshDuration = ClusterMetadataRefreshDuration{noop.Float64Histogram{}}
-		m.poolerPollDuration = PoolerPollDuration{noop.Float64Histogram{}}
-		m.healthCheckCycleDuration = HealthCheckCycleDuration{noop.Float64Histogram{}}
-		return m, nil
-	}
+	// Create the OpenTelemetry meter
+	meter := otel.Meter("github.com/multigres/multigres/go/multiorch/recovery")
 
 	var err error
 
 	// Gauge for current pooler store size
 	m.poolerStoreSize, err = meter.Int64ObservableGauge(
-		"multiorch.recovery.pooler_store_size",
+		"multiorch.recovery.pooler_store.size",
 		metric.WithDescription("Current number of poolers tracked in the recovery engine store"),
 		metric.WithUnit("{poolers}"),
 	)
 	if err != nil {
-		logger.Error("failed to create pooler_store_size gauge", "error", err)
-		return nil, err
-	}
-
-	// Register callback to update the gauge
-	_, err = meter.RegisterCallback(
-		func(ctx context.Context, observer metric.Observer) error {
-			observer.ObserveInt64(m.poolerStoreSize, int64(poolerStore.Len()))
-			return nil
-		},
-		m.poolerStoreSize,
-	)
-	if err != nil {
-		logger.Error("failed to register pooler_store_size callback", "error", err)
-		return nil, err
+		logger.Error("failed to create pooler_store.size gauge", "error", err)
+	} else {
+		// Register callback to update the gauge
+		_, err = meter.RegisterCallback(
+			func(ctx context.Context, observer metric.Observer) error {
+				observer.ObserveInt64(m.poolerStoreSize, int64(poolerStore.Len()))
+				return nil
+			},
+			m.poolerStoreSize,
+		)
+		if err != nil {
+			logger.Error("failed to register pooler_store.size callback", "error", err)
+		}
 	}
 
 	// Histogram for cluster metadata refresh duration
@@ -168,10 +162,11 @@ func NewMetrics(meter metric.Meter, logger *slog.Logger, poolerStore *store.Stor
 		metric.WithUnit("s"),
 	)
 	if err != nil {
-		logger.Error("failed to create refresh.duration histogram", "error", err)
-		return nil, err
+		logger.Error("failed to create cluster_metadata_refresh.duration histogram", "error", err)
+		m.clusterMetadataRefreshDuration = ClusterMetadataRefreshDuration{noop.Float64Histogram{}}
+	} else {
+		m.clusterMetadataRefreshDuration = ClusterMetadataRefreshDuration{refreshDurationHistogram}
 	}
-	m.clusterMetadataRefreshDuration = ClusterMetadataRefreshDuration{refreshDurationHistogram}
 
 	// Histogram for individual poll duration
 	// Following OTel convention: use histogram with status attribute instead of separate counters
@@ -181,10 +176,11 @@ func NewMetrics(meter metric.Meter, logger *slog.Logger, poolerStore *store.Stor
 		metric.WithUnit("s"),
 	)
 	if err != nil {
-		logger.Error("failed to create poll.duration histogram", "error", err)
-		return nil, err
+		logger.Error("failed to create pooler_poll.duration histogram", "error", err)
+		m.poolerPollDuration = PoolerPollDuration{noop.Float64Histogram{}}
+	} else {
+		m.poolerPollDuration = PoolerPollDuration{pollDurationHistogram}
 	}
-	m.poolerPollDuration = PoolerPollDuration{pollDurationHistogram}
 
 	// Histogram for health check cycle duration
 	healthCheckCycleDurationHistogram, err := meter.Float64Histogram(
@@ -194,11 +190,12 @@ func NewMetrics(meter metric.Meter, logger *slog.Logger, poolerStore *store.Stor
 	)
 	if err != nil {
 		logger.Error("failed to create health_check_cycle.duration histogram", "error", err)
-		return nil, err
+		m.healthCheckCycleDuration = HealthCheckCycleDuration{noop.Float64Histogram{}}
+	} else {
+		m.healthCheckCycleDuration = HealthCheckCycleDuration{healthCheckCycleDurationHistogram}
 	}
-	m.healthCheckCycleDuration = HealthCheckCycleDuration{healthCheckCycleDurationHistogram}
 
-	return m, nil
+	return m
 }
 
 // RecordHealthCheckCycleDuration records the duration of a complete health check cycle.

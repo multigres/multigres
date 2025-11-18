@@ -22,8 +22,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"go.opentelemetry.io/otel"
-
 	"github.com/multigres/multigres/go/clustermetadata/topo"
 	"github.com/multigres/multigres/go/multiorch/config"
 	"github.com/multigres/multigres/go/multiorch/store"
@@ -219,14 +217,7 @@ func NewEngine(
 	}
 
 	// Initialize metrics
-	meter := otel.Meter("github.com/multigres/multigres/go/multiorch/recovery")
-	metrics, err := NewMetrics(meter, logger, poolerStore)
-	if err != nil {
-		logger.Error("failed to initialize metrics", "error", err)
-		// Use noop metrics on error
-		metrics, _ = NewMetrics(nil, logger, poolerStore)
-	}
-	engine.metrics = metrics
+	engine.metrics = NewMetrics(logger, poolerStore)
 
 	return engine
 }
