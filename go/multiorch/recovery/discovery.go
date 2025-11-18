@@ -26,10 +26,7 @@ import (
 func (re *Engine) refreshClusterMetadata() {
 	startTime := time.Now()
 	defer func() {
-		latency := time.Since(startTime).Seconds()
-		if re.refreshLatency != nil {
-			re.refreshLatency.Record(re.ctx, latency)
-		}
+		re.metrics.refreshDuration.Record(re.ctx, time.Since(startTime))
 	}()
 
 	re.logger.Debug("refreshing cluster metadata")

@@ -19,9 +19,6 @@ import (
 	"fmt"
 	"time"
 
-	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/metric"
-
 	"github.com/multigres/multigres/go/clustermetadata/topo"
 	"github.com/multigres/multigres/go/multiorch/store"
 	"github.com/multigres/multigres/go/pb/clustermetadata"
@@ -44,13 +41,13 @@ import (
 //   - pooler: The pooler's health info from the store
 //   - forceDiscovery: If true, bypass cache and up-to-date checks (force poll)
 func (re *Engine) pollPooler(poolerID *clustermetadata.ID, pooler *store.PoolerHealth, forceDiscovery bool) {
+	poolerIDStr := topo.MultiPoolerIDString(poolerID)
+
 	// Skip if this pooler is marked as forgotten (shouldn't happen, but defensive)
 	if pooler == nil || pooler.MultiPooler == nil {
-		re.logger.Debug("skipping poll of nil pooler", "pooler_id", topo.MultiPoolerIDString(poolerID))
+		re.logger.Debug("skipping poll of nil pooler", "pooler_id", poolerIDStr)
 		return
 	}
-
-	poolerIDStr := topo.MultiPoolerIDString(poolerID)
 
 	// Track latency
 	totalStart := time.Now()
@@ -58,16 +55,13 @@ func (re *Engine) pollPooler(poolerID *clustermetadata.ID, pooler *store.PoolerH
 	defer func() {
 		totalLatency := time.Since(totalStart)
 
+		// Determine status for metric recording
+		status := "success"
+
 		// Warn if exceeded poll interval
 		pollInterval := re.config.GetPoolerHealthCheckInterval()
 		if totalLatency > pollInterval {
-			if re.poolerPollExceededCounter != nil {
-				re.poolerPollExceededCounter.Add(re.ctx, 1,
-					metric.WithAttributes(
-						attribute.String("database", pooler.MultiPooler.Database),
-						attribute.String("tablegroup", pooler.MultiPooler.TableGroup),
-					))
-			}
+			status = "exceeded_interval"
 			re.logger.Warn("pollPooler exceeded poll interval",
 				"pooler_id", poolerIDStr,
 				"poll_interval", pollInterval,
@@ -75,14 +69,14 @@ func (re *Engine) pollPooler(poolerID *clustermetadata.ID, pooler *store.PoolerH
 			)
 		}
 
-		// Record latency histogram
-		if re.pollLatency != nil {
-			re.pollLatency.Record(re.ctx, totalLatency.Seconds(),
-				metric.WithAttributes(
-					attribute.String("database", pooler.MultiPooler.Database),
-					attribute.String("tablegroup", pooler.MultiPooler.TableGroup),
-				))
-		}
+		// Record poll duration with status
+		re.metrics.pollDuration.Record(
+			re.ctx,
+			totalLatency,
+			pooler.MultiPooler.Database,
+			pooler.MultiPooler.TableGroup,
+			status,
+		)
 	}()
 
 	// Check cache - prevent redundant checks within poll interval
@@ -119,14 +113,7 @@ func (re *Engine) pollPooler(poolerID *clustermetadata.ID, pooler *store.PoolerH
 		)
 	}
 
-	// Increment poll attempts counter
-	if re.pollAttemptsCounter != nil {
-		re.pollAttemptsCounter.Add(re.ctx, 1,
-			metric.WithAttributes(
-				attribute.String("database", pooler.MultiPooler.Database),
-				attribute.String("tablegroup", pooler.MultiPooler.TableGroup),
-			))
-	}
+	// Note: Poll attempts are now tracked via the poll.duration histogram with status attribute
 
 	// Mark attempt timestamp - create new struct to avoid race condition
 	now := time.Now()
@@ -142,6 +129,10 @@ func (re *Engine) pollPooler(poolerID *clustermetadata.ID, pooler *store.PoolerH
 	pooler = updated // use updated for rest of function
 
 	// Call appropriate RPC based on pooler type
+	// TODO(follow-up): Unify GetPrimaryStatus and GetReplicaStatus into a single RPC.
+	// The multipooler should return information based on what type it believes itself
+	// to be, rather than MultiOrch deciding which RPC to call. This avoids potential
+	// disparity between what MultiOrch thinks the type is versus the actual type.
 	ctx, cancel := context.WithTimeout(re.ctx, 5*time.Second)
 	defer cancel()
 
@@ -162,13 +153,15 @@ func (re *Engine) pollPooler(poolerID *clustermetadata.ID, pooler *store.PoolerH
 			"error", err,
 			"latency", time.Since(totalStart),
 		)
-		if re.pollFailuresCounter != nil {
-			re.pollFailuresCounter.Add(re.ctx, 1,
-				metric.WithAttributes(
-					attribute.String("database", pooler.MultiPooler.Database),
-					attribute.String("tablegroup", pooler.MultiPooler.TableGroup),
-				))
-		}
+
+		// Record failure in metrics (the deferred function will record with status)
+		re.metrics.pollDuration.Record(
+			re.ctx,
+			time.Since(totalStart),
+			pooler.MultiPooler.Database,
+			pooler.MultiPooler.TableGroup,
+			"failure",
+		)
 
 		// Mark as failed check - create new struct to avoid race condition
 		failed := &store.PoolerHealth{

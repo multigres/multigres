@@ -23,7 +23,6 @@ import (
 	"time"
 
 	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/metric"
 
 	"github.com/multigres/multigres/go/clustermetadata/topo"
 	"github.com/multigres/multigres/go/multiorch/config"
@@ -189,14 +188,7 @@ type Engine struct {
 	recentPollCacheMu sync.Mutex
 
 	// Metrics
-	poolerStoreSize           metric.Int64ObservableGauge
-	refreshLatency            metric.Float64Histogram
-	pollAttemptsCounter       metric.Int64Counter
-	pollFailuresCounter       metric.Int64Counter
-	poolerPollExceededCounter metric.Int64Counter
-	pollLatency               metric.Float64Histogram
-	healthCheckCycleDuration  metric.Float64Histogram
-	poolersCheckedPerCycle    metric.Int64Histogram
+	metrics *Metrics
 
 	// Context for shutting down loops
 	ctx    context.Context
@@ -212,11 +204,13 @@ func NewEngine(
 ) *Engine {
 	ctx, cancel := context.WithCancel(context.Background())
 
+	poolerStore := store.NewStore[string, *store.PoolerHealth]()
+
 	engine := &Engine{
 		ts:                ts,
 		logger:            logger,
 		config:            config,
-		poolerStore:       store.NewStore[string, *store.PoolerHealth](),
+		poolerStore:       poolerStore,
 		healthCheckQueue:  NewQueue(logger, config),
 		shardWatchTargets: shardWatchTargets,
 		recentPollCache:   make(map[string]time.Time),
@@ -225,107 +219,16 @@ func NewEngine(
 	}
 
 	// Initialize metrics
-	engine.initMetrics()
+	meter := otel.Meter("github.com/multigres/multigres/go/multiorch/recovery")
+	metrics, err := NewMetrics(meter, logger, poolerStore)
+	if err != nil {
+		logger.Error("failed to initialize metrics", "error", err)
+		// Use noop metrics on error
+		metrics, _ = NewMetrics(nil, logger, poolerStore)
+	}
+	engine.metrics = metrics
 
 	return engine
-}
-
-// initMetrics initializes OpenTelemetry metrics for the recovery engine.
-func (re *Engine) initMetrics() {
-	meter := otel.Meter("github.com/multigres/multigres/go/multiorch/recovery")
-
-	// Gauge for current pooler store size
-	var err error
-	re.poolerStoreSize, err = meter.Int64ObservableGauge(
-		"multiorch.recovery.pooler_store_size",
-		metric.WithDescription("Current number of poolers tracked in the recovery engine store"),
-		metric.WithUnit("{poolers}"),
-	)
-	if err != nil {
-		re.logger.Error("failed to create pooler_store_size gauge", "error", err)
-	}
-
-	// Register callback to update the gauge
-	_, err = meter.RegisterCallback(
-		func(ctx context.Context, observer metric.Observer) error {
-			observer.ObserveInt64(re.poolerStoreSize, int64(re.poolerStore.Len()))
-			return nil
-		},
-		re.poolerStoreSize,
-	)
-	if err != nil {
-		re.logger.Error("failed to register pooler_store_size callback", "error", err)
-	}
-
-	// Histogram for cluster metadata refresh latency
-	re.refreshLatency, err = meter.Float64Histogram(
-		"multiorch.recovery.refresh_latency",
-		metric.WithDescription("Latency of cluster metadata refresh operations"),
-		metric.WithUnit("s"),
-	)
-	if err != nil {
-		re.logger.Error("failed to create refresh_latency histogram", "error", err)
-	}
-
-	// Counter for health check attempts
-	re.pollAttemptsCounter, err = meter.Int64Counter(
-		"multiorch.recovery.poll_attempts",
-		metric.WithDescription("Total number of pooler health check attempts"),
-		metric.WithUnit("{checks}"),
-	)
-	if err != nil {
-		re.logger.Error("failed to create poll_attempts counter", "error", err)
-	}
-
-	// Counter for health check failures
-	re.pollFailuresCounter, err = meter.Int64Counter(
-		"multiorch.recovery.poll_failures",
-		metric.WithDescription("Total number of pooler health check failures"),
-		metric.WithUnit("{failures}"),
-	)
-	if err != nil {
-		re.logger.Error("failed to create poll_failures counter", "error", err)
-	}
-
-	// Counter for polls exceeding interval
-	re.poolerPollExceededCounter, err = meter.Int64Counter(
-		"multiorch.recovery.poll_interval_exceeded",
-		metric.WithDescription("Number of health checks that exceeded the poll interval"),
-		metric.WithUnit("{checks}"),
-	)
-	if err != nil {
-		re.logger.Error("failed to create poll_interval_exceeded counter", "error", err)
-	}
-
-	// Histogram for individual poll latency
-	re.pollLatency, err = meter.Float64Histogram(
-		"multiorch.recovery.poll_latency",
-		metric.WithDescription("Latency of individual pooler health checks"),
-		metric.WithUnit("s"),
-	)
-	if err != nil {
-		re.logger.Error("failed to create poll_latency histogram", "error", err)
-	}
-
-	// Histogram for health check cycle duration
-	re.healthCheckCycleDuration, err = meter.Float64Histogram(
-		"multiorch.recovery.health_check_cycle_duration",
-		metric.WithDescription("Duration of complete health check cycles"),
-		metric.WithUnit("s"),
-	)
-	if err != nil {
-		re.logger.Error("failed to create health_check_cycle_duration histogram", "error", err)
-	}
-
-	// Histogram for poolers checked per cycle
-	re.poolersCheckedPerCycle, err = meter.Int64Histogram(
-		"multiorch.recovery.poolers_checked_per_cycle",
-		metric.WithDescription("Number of poolers checked per health check cycle"),
-		metric.WithUnit("{poolers}"),
-	)
-	if err != nil {
-		re.logger.Error("failed to create poolers_checked_per_cycle histogram", "error", err)
-	}
 }
 
 // SetConfigReloader sets the function to reload configuration dynamically.
