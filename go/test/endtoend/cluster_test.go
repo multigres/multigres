@@ -763,11 +763,6 @@ func executeStopCommand(t *testing.T, args []string) (string, error) {
 func testPostgreSQLConnection(t *testing.T, port int, zone string) {
 	t.Helper()
 
-	if utils.ShouldSkipRealPostgres() {
-		t.Log("Skipping PostgreSQL test for short tests with no postgres binaries")
-		return
-	}
-
 	t.Logf("Testing PostgreSQL connection on port %d (Zone %s)...", port, zone)
 
 	// Set up environment for psql command
@@ -785,11 +780,14 @@ func testPostgreSQLConnection(t *testing.T, port int, zone string) {
 }
 
 func TestClusterLifecycle(t *testing.T) {
+	if utils.ShouldSkipRealPostgres() {
+		t.Skip("Skipping PostgreSQL test for short tests with no postgres binaries")
+		return
+	}
+
 	// Require etcd binary to be available (required for local provisioner)
 	_, err := exec.LookPath("etcd")
 	require.NoError(t, err, "etcd binary must be available in PATH for cluster lifecycle tests")
-
-	// Binaries are built in TestMain
 
 	t.Run("cluster init and basic connectivity test", func(t *testing.T) {
 		// Setup test directory
