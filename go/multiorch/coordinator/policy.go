@@ -19,6 +19,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"sync"
 
 	"google.golang.org/protobuf/encoding/protojson"
 
@@ -57,32 +58,157 @@ func (c *Coordinator) LoadQuorumRuleFromNode(ctx context.Context, node *Node, da
 	return quorumRule, nil
 }
 
-// LoadQuorumRule attempts to load the quorum rule from any available node in the cohort.
-// It tries each node until it finds one that responds successfully.
+// LoadQuorumRule loads the quorum rule using the following strategy:
+// 1. If a PRIMARY node exists, load from it (most up-to-date)
+// 2. Otherwise, load from all REPLICA nodes in parallel
+// 3. Wait for n-1 responses
+// 4. Return the rule with the highest version number
 func (c *Coordinator) LoadQuorumRule(ctx context.Context, cohort []*Node, database string) (*clustermetadatapb.QuorumRule, error) {
 	if len(cohort) == 0 {
 		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "cohort is empty")
 	}
 
-	var lastErr error
+	// Step 1: Find PRIMARY node
+	var primaryNode *Node
+	var replicaNodes []*Node
 	for _, node := range cohort {
-		rule, err := c.LoadQuorumRuleFromNode(ctx, node, database)
-		if err != nil {
-			c.logger.WarnContext(ctx, "Failed to load policy from node",
-				"node", node.ID.Name,
-				"error", err)
-			lastErr = err
-			continue
+		switch node.pooler.Type {
+		case clustermetadatapb.PoolerType_PRIMARY:
+			primaryNode = node
+		case clustermetadatapb.PoolerType_REPLICA:
+			replicaNodes = append(replicaNodes, node)
 		}
-		return rule, nil
 	}
 
-	// If all nodes failed, return default policy
-	c.logger.WarnContext(ctx, "Failed to load policy from all nodes, using default",
-		"cohort_size", len(cohort),
-		"last_error", lastErr)
+	// If PRIMARY exists, load from it
+	if primaryNode != nil {
+		c.logger.InfoContext(ctx, "Loading durability policy from PRIMARY node",
+			"node", primaryNode.ID.Name,
+			"database", database)
+		rule, err := c.LoadQuorumRuleFromNode(ctx, primaryNode, database)
+		if err != nil {
+			c.logger.WarnContext(ctx, "Failed to load policy from PRIMARY, falling back to REPLICAs",
+				"node", primaryNode.ID.Name,
+				"error", err)
+			// Fall through to REPLICA strategy
+		} else {
+			return rule, nil
+		}
+	}
 
-	return c.getDefaultQuorumRule(ctx, len(cohort)), nil
+	// Step 2-4: Load from REPLICAs in parallel and select latest version
+	if len(replicaNodes) == 0 {
+		c.logger.WarnContext(ctx, "No REPLICA nodes available, using default policy")
+		return c.getDefaultQuorumRule(ctx, len(cohort)), nil
+	}
+
+	c.logger.InfoContext(ctx, "Loading durability policy from REPLICA nodes in parallel",
+		"replica_count", len(replicaNodes),
+		"database", database)
+
+	return c.loadFromReplicasInParallel(ctx, replicaNodes, database)
+}
+
+// loadFromReplicasInParallel loads policies from all REPLICA nodes in parallel,
+// waits for n-1 responses, and returns the policy with the highest version.
+func (c *Coordinator) loadFromReplicasInParallel(ctx context.Context, replicas []*Node, database string) (*clustermetadatapb.QuorumRule, error) {
+	type result struct {
+		node   *Node
+		policy *clustermetadatapb.DurabilityPolicy
+		rule   *clustermetadatapb.QuorumRule
+		err    error
+	}
+
+	results := make(chan result, len(replicas))
+	var wg sync.WaitGroup
+
+	// Launch parallel queries
+	for _, node := range replicas {
+		wg.Add(1)
+		go func(n *Node) {
+			defer wg.Done()
+			resp, err := n.GetDurabilityPolicy(ctx)
+			if err != nil {
+				results <- result{node: n, err: err}
+				return
+			}
+
+			if resp.Policy == nil || resp.Policy.QuorumRule == nil {
+				results <- result{
+					node: n,
+					err:  fmt.Errorf("no active policy found"),
+				}
+				return
+			}
+
+			results <- result{
+				node:   n,
+				policy: resp.Policy,
+				rule:   resp.Policy.QuorumRule,
+			}
+		}(node)
+	}
+
+	// Close results channel when all goroutines complete
+	go func() {
+		wg.Wait()
+		close(results)
+	}()
+
+	// Collect results - wait for n-1 responses (majority)
+	requiredResponses := len(replicas) - 1
+	if requiredResponses < 1 {
+		requiredResponses = 1 // At least get one response
+	}
+
+	var bestPolicy *clustermetadatapb.DurabilityPolicy
+	var bestRule *clustermetadatapb.QuorumRule
+	successCount := 0
+	errorCount := 0
+
+	// Collect all responses (channel will close when all goroutines complete)
+	for res := range results {
+		if res.err != nil {
+			c.logger.WarnContext(ctx, "Failed to load policy from REPLICA",
+				"node", res.node.ID.Name,
+				"error", res.err)
+			errorCount++
+			continue
+		}
+
+		successCount++
+		c.logger.InfoContext(ctx, "Loaded policy from REPLICA",
+			"node", res.node.ID.Name,
+			"version", res.policy.PolicyVersion)
+
+		// Select policy with highest version
+		if bestPolicy == nil || res.policy.PolicyVersion > bestPolicy.PolicyVersion {
+			bestPolicy = res.policy
+			bestRule = res.rule
+		}
+	}
+
+	// Check if we got enough responses
+	if successCount == 0 {
+		c.logger.WarnContext(ctx, "Failed to load policy from all REPLICAs, using default",
+			"replica_count", len(replicas),
+			"errors", errorCount)
+		return c.getDefaultQuorumRule(ctx, len(replicas)), nil
+	}
+
+	if successCount < requiredResponses {
+		c.logger.WarnContext(ctx, "Got fewer responses than required, using best available",
+			"success_count", successCount,
+			"required", requiredResponses)
+	}
+
+	c.logger.InfoContext(ctx, "Selected durability policy",
+		"policy_name", bestPolicy.PolicyName,
+		"policy_version", bestPolicy.PolicyVersion,
+		"quorum_type", bestRule.QuorumType,
+		"required_count", bestRule.RequiredCount)
+
+	return bestRule, nil
 }
 
 // getDefaultQuorumRule returns a default majority quorum rule.
