@@ -26,6 +26,15 @@ import (
 	"github.com/multigres/multigres/go/multiorch/store"
 )
 
+// PoolerPollStatus represents the possible status values for a pooler health check poll.
+type PoolerPollStatus string
+
+const (
+	PoolerPollStatusSuccess          PoolerPollStatus = "success"
+	PoolerPollStatusFailure          PoolerPollStatus = "failure"
+	PoolerPollStatusExceededInterval PoolerPollStatus = "exceeded_interval"
+)
+
 // Metrics holds all OpenTelemetry metrics for the recovery engine.
 // Following OTel conventions, metrics are defined in a separate file with
 // wrapper types that hide attribute key names from instrumented code.
@@ -33,16 +42,15 @@ import (
 // This pattern is inspired by:
 // https://github.com/open-telemetry/opentelemetry-go/blob/v1.38.0/semconv/v1.37.0/dbconv/metric.go
 type Metrics struct {
-	poolerStoreSize          metric.Int64ObservableGauge
-	refreshDuration          RefreshDuration
-	pollDuration             PollDuration
-	healthCheckCycleDuration metric.Float64Histogram
-	poolersCheckedPerCycle   metric.Int64Histogram
+	poolerStoreSize                metric.Int64ObservableGauge
+	clusterMetadataRefreshDuration ClusterMetadataRefreshDuration
+	poolerPollDuration             PoolerPollDuration
+	healthCheckCycleDuration       HealthCheckCycleDuration
 }
 
-// PollDuration wraps a Float64Histogram for recording pooler health check durations.
+// PoolerPollDuration wraps a Float64Histogram for recording pooler health check durations.
 // It abstracts away attribute key names so callers don't need to know them.
-type PollDuration struct {
+type PoolerPollDuration struct {
 	metric.Float64Histogram
 }
 
@@ -52,33 +60,66 @@ type PollDuration struct {
 //
 // Parameters:
 //   - ctx: Context for the metric recording
-//   - duration: How long the poll took
+//   - val: How long the poll took (in seconds)
 //   - dbNamespace: The database name (becomes "db.namespace" attribute per OTel spec)
 //   - tablegroup: The table group name
-//   - status: "success", "failure", or "exceeded_interval"
-func (m PollDuration) Record(
+//   - status: The poll status (success, failure, or exceeded_interval)
+//   - attrs: Optional additional attributes to include in the metric
+func (m PoolerPollDuration) Record(
 	ctx context.Context,
-	duration time.Duration,
+	val float64,
 	dbNamespace string,
 	tablegroup string,
-	status string,
+	status PoolerPollStatus,
+	attrs ...attribute.KeyValue,
 ) {
-	m.Float64Histogram.Record(ctx, duration.Seconds(),
+	m.Float64Histogram.Record(ctx, val,
 		metric.WithAttributes(
-			attribute.String("db.namespace", dbNamespace),
-			attribute.String("tablegroup", tablegroup),
-			attribute.String("status", status),
+			append(
+				attrs,
+				attribute.String("db.namespace", dbNamespace),
+				attribute.String("tablegroup", tablegroup),
+				attribute.String("status", string(status)),
+			)...,
 		))
 }
 
-// RefreshDuration wraps a Float64Histogram for recording cluster metadata refresh durations.
-type RefreshDuration struct {
+// ClusterMetadataRefreshDuration wraps a Float64Histogram for recording cluster metadata refresh durations.
+type ClusterMetadataRefreshDuration struct {
 	metric.Float64Histogram
 }
 
 // Record records a cluster metadata refresh duration.
-func (m RefreshDuration) Record(ctx context.Context, duration time.Duration) {
-	m.Float64Histogram.Record(ctx, duration.Seconds())
+//
+// Parameters:
+//   - ctx: Context for the metric recording
+//   - val: How long the refresh took (in seconds)
+//   - attrs: Optional additional attributes to include in the metric
+func (m ClusterMetadataRefreshDuration) Record(ctx context.Context, val float64, attrs ...attribute.KeyValue) {
+	if len(attrs) == 0 {
+		m.Float64Histogram.Record(ctx, val)
+		return
+	}
+	m.Float64Histogram.Record(ctx, val, metric.WithAttributes(attrs...))
+}
+
+// HealthCheckCycleDuration wraps a Float64Histogram for recording health check cycle durations.
+type HealthCheckCycleDuration struct {
+	metric.Float64Histogram
+}
+
+// Record records a health check cycle duration.
+//
+// Parameters:
+//   - ctx: Context for the metric recording
+//   - val: How long the cycle took (in seconds)
+//   - attrs: Optional additional attributes to include in the metric
+func (m HealthCheckCycleDuration) Record(ctx context.Context, val float64, attrs ...attribute.KeyValue) {
+	if len(attrs) == 0 {
+		m.Float64Histogram.Record(ctx, val)
+		return
+	}
+	m.Float64Histogram.Record(ctx, val, metric.WithAttributes(attrs...))
 }
 
 // NewMetrics initializes OpenTelemetry metrics for the recovery engine.
@@ -88,10 +129,9 @@ func NewMetrics(meter metric.Meter, logger *slog.Logger, poolerStore *store.Stor
 
 	// Handle nil meter case - return noop implementations
 	if meter == nil {
-		m.refreshDuration = RefreshDuration{noop.Float64Histogram{}}
-		m.pollDuration = PollDuration{noop.Float64Histogram{}}
-		m.healthCheckCycleDuration = noop.Float64Histogram{}
-		m.poolersCheckedPerCycle = noop.Int64Histogram{}
+		m.clusterMetadataRefreshDuration = ClusterMetadataRefreshDuration{noop.Float64Histogram{}}
+		m.poolerPollDuration = PoolerPollDuration{noop.Float64Histogram{}}
+		m.healthCheckCycleDuration = HealthCheckCycleDuration{noop.Float64Histogram{}}
 		return m, nil
 	}
 
@@ -123,7 +163,7 @@ func NewMetrics(meter metric.Meter, logger *slog.Logger, poolerStore *store.Stor
 
 	// Histogram for cluster metadata refresh duration
 	refreshDurationHistogram, err := meter.Float64Histogram(
-		"multiorch.recovery.refresh.duration",
+		"multiorch.recovery.cluster_metadata_refresh.duration",
 		metric.WithDescription("Duration of cluster metadata refresh operations"),
 		metric.WithUnit("s"),
 	)
@@ -131,12 +171,12 @@ func NewMetrics(meter metric.Meter, logger *slog.Logger, poolerStore *store.Stor
 		logger.Error("failed to create refresh.duration histogram", "error", err)
 		return nil, err
 	}
-	m.refreshDuration = RefreshDuration{refreshDurationHistogram}
+	m.clusterMetadataRefreshDuration = ClusterMetadataRefreshDuration{refreshDurationHistogram}
 
 	// Histogram for individual poll duration
 	// Following OTel convention: use histogram with status attribute instead of separate counters
 	pollDurationHistogram, err := meter.Float64Histogram(
-		"multiorch.recovery.poll.duration",
+		"multiorch.recovery.pooler_poll.duration",
 		metric.WithDescription("Duration of individual pooler health checks"),
 		metric.WithUnit("s"),
 	)
@@ -144,10 +184,10 @@ func NewMetrics(meter metric.Meter, logger *slog.Logger, poolerStore *store.Stor
 		logger.Error("failed to create poll.duration histogram", "error", err)
 		return nil, err
 	}
-	m.pollDuration = PollDuration{pollDurationHistogram}
+	m.poolerPollDuration = PoolerPollDuration{pollDurationHistogram}
 
 	// Histogram for health check cycle duration
-	m.healthCheckCycleDuration, err = meter.Float64Histogram(
+	healthCheckCycleDurationHistogram, err := meter.Float64Histogram(
 		"multiorch.recovery.health_check_cycle.duration",
 		metric.WithDescription("Duration of complete health check cycles"),
 		metric.WithUnit("s"),
@@ -156,27 +196,12 @@ func NewMetrics(meter metric.Meter, logger *slog.Logger, poolerStore *store.Stor
 		logger.Error("failed to create health_check_cycle.duration histogram", "error", err)
 		return nil, err
 	}
-
-	// Histogram for poolers checked per cycle
-	m.poolersCheckedPerCycle, err = meter.Int64Histogram(
-		"multiorch.recovery.poolers_checked_per_cycle",
-		metric.WithDescription("Number of poolers checked per health check cycle"),
-		metric.WithUnit("{poolers}"),
-	)
-	if err != nil {
-		logger.Error("failed to create poolers_checked_per_cycle histogram", "error", err)
-		return nil, err
-	}
+	m.healthCheckCycleDuration = HealthCheckCycleDuration{healthCheckCycleDurationHistogram}
 
 	return m, nil
 }
 
 // RecordHealthCheckCycleDuration records the duration of a complete health check cycle.
-func (m *Metrics) RecordHealthCheckCycleDuration(ctx context.Context, duration time.Duration) {
-	m.healthCheckCycleDuration.Record(ctx, duration.Seconds())
-}
-
-// RecordPoolersCheckedPerCycle records the number of poolers checked in a health check cycle.
-func (m *Metrics) RecordPoolersCheckedPerCycle(ctx context.Context, count int) {
-	m.poolersCheckedPerCycle.Record(ctx, int64(count))
+func (m *Metrics) RecordHealthCheckCycleDuration(ctx context.Context, duration time.Duration, attrs ...attribute.KeyValue) {
+	m.healthCheckCycleDuration.Record(ctx, duration.Seconds(), attrs...)
 }

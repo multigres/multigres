@@ -56,12 +56,12 @@ func (re *Engine) pollPooler(poolerID *clustermetadata.ID, pooler *store.PoolerH
 		totalLatency := time.Since(totalStart)
 
 		// Determine status for metric recording
-		status := "success"
+		status := PoolerPollStatusSuccess
 
 		// Warn if exceeded poll interval
 		pollInterval := re.config.GetPoolerHealthCheckInterval()
 		if totalLatency > pollInterval {
-			status = "exceeded_interval"
+			status = PoolerPollStatusExceededInterval
 			re.logger.Warn("pollPooler exceeded poll interval",
 				"pooler_id", poolerIDStr,
 				"poll_interval", pollInterval,
@@ -70,9 +70,9 @@ func (re *Engine) pollPooler(poolerID *clustermetadata.ID, pooler *store.PoolerH
 		}
 
 		// Record poll duration with status
-		re.metrics.pollDuration.Record(
+		re.metrics.poolerPollDuration.Record(
 			re.ctx,
-			totalLatency,
+			totalLatency.Seconds(),
 			pooler.MultiPooler.Database,
 			pooler.MultiPooler.TableGroup,
 			status,
@@ -155,12 +155,12 @@ func (re *Engine) pollPooler(poolerID *clustermetadata.ID, pooler *store.PoolerH
 		)
 
 		// Record failure in metrics (the deferred function will record with status)
-		re.metrics.pollDuration.Record(
+		re.metrics.poolerPollDuration.Record(
 			re.ctx,
-			time.Since(totalStart),
+			time.Since(totalStart).Seconds(),
 			pooler.MultiPooler.Database,
 			pooler.MultiPooler.TableGroup,
-			"failure",
+			PoolerPollStatusFailure,
 		)
 
 		// Mark as failed check - create new struct to avoid race condition
