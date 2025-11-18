@@ -41,7 +41,13 @@ service MultiPoolerManager {
   rpc StopReplication(multipoolermanagerdata.StopReplicationRequest)
     returns (multipoolermanagerdata.StopReplicationResponse);
 
-  // ReplicationStatus gets the current replication status of the standby
+  // StandbyReplicationStatus gets the current replication status of the standby
+  rpc StandbyReplicationStatus(multipoolermanagerdata.StandbyReplicationStatusRequest)
+    returns (multipoolermanagerdata.StandbyReplicationStatusResponse);
+
+  // ReplicationStatus gets unified status that works for both PRIMARY and REPLICA poolers
+  // The multipooler returns information based on what type it believes itself to be,
+  // avoiding disparity between what MultiOrch thinks versus actual state
   rpc ReplicationStatus(multipoolermanagerdata.ReplicationStatusRequest)
     returns (multipoolermanagerdata.ReplicationStatusResponse);
 

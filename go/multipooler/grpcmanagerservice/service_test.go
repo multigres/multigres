@@ -180,10 +180,10 @@ func TestManagerServiceMethods_ManagerNotReady(t *testing.T) {
 			},
 		},
 		{
-			name: "ReplicationStatus",
+			name: "StandbyReplicationStatus",
 			method: func() error {
-				req := &multipoolermanagerdata.ReplicationStatusRequest{}
-				_, err := svc.ReplicationStatus(ctx, req)
+				req := &multipoolermanagerdata.StandbyReplicationStatusRequest{}
+				_, err := svc.StandbyReplicationStatus(ctx, req)
 				return err
 			},
 		},

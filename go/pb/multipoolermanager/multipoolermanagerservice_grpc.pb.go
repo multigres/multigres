@@ -38,6 +38,7 @@ const (
 	MultiPoolerManager_SetPrimaryConnInfo_FullMethodName              = "/multipoolermanager.MultiPoolerManager/SetPrimaryConnInfo"
 	MultiPoolerManager_StartReplication_FullMethodName                = "/multipoolermanager.MultiPoolerManager/StartReplication"
 	MultiPoolerManager_StopReplication_FullMethodName                 = "/multipoolermanager.MultiPoolerManager/StopReplication"
+	MultiPoolerManager_StandbyReplicationStatus_FullMethodName        = "/multipoolermanager.MultiPoolerManager/StandbyReplicationStatus"
 	MultiPoolerManager_ReplicationStatus_FullMethodName               = "/multipoolermanager.MultiPoolerManager/ReplicationStatus"
 	MultiPoolerManager_ResetReplication_FullMethodName                = "/multipoolermanager.MultiPoolerManager/ResetReplication"
 	MultiPoolerManager_ConfigureSynchronousReplication_FullMethodName = "/multipoolermanager.MultiPoolerManager/ConfigureSynchronousReplication"
@@ -72,7 +73,11 @@ type MultiPoolerManagerClient interface {
 	StartReplication(ctx context.Context, in *multipoolermanagerdata.StartReplicationRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.StartReplicationResponse, error)
 	// StopReplication stops WAL replay on standby (calls pg_wal_replay_pause)
 	StopReplication(ctx context.Context, in *multipoolermanagerdata.StopReplicationRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.StopReplicationResponse, error)
-	// ReplicationStatus gets the current replication status of the standby
+	// StandbyReplicationStatus gets the current replication status of the standby
+	StandbyReplicationStatus(ctx context.Context, in *multipoolermanagerdata.StandbyReplicationStatusRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.StandbyReplicationStatusResponse, error)
+	// ReplicationStatus gets unified status that works for both PRIMARY and REPLICA poolers
+	// The multipooler returns information based on what type it believes itself to be,
+	// avoiding disparity between what MultiOrch thinks versus actual state
 	ReplicationStatus(ctx context.Context, in *multipoolermanagerdata.ReplicationStatusRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.ReplicationStatusResponse, error)
 	// ResetReplication resets the standby's connection to its primary by clearing primary_conninfo
 	// and reloading PostgreSQL configuration. This effectively
@@ -160,6 +165,15 @@ func (c *multiPoolerManagerClient) StartReplication(ctx context.Context, in *mul
 func (c *multiPoolerManagerClient) StopReplication(ctx context.Context, in *multipoolermanagerdata.StopReplicationRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.StopReplicationResponse, error) {
 	out := new(multipoolermanagerdata.StopReplicationResponse)
 	err := c.cc.Invoke(ctx, MultiPoolerManager_StopReplication_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *multiPoolerManagerClient) StandbyReplicationStatus(ctx context.Context, in *multipoolermanagerdata.StandbyReplicationStatusRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.StandbyReplicationStatusResponse, error) {
+	out := new(multipoolermanagerdata.StandbyReplicationStatusResponse)
+	err := c.cc.Invoke(ctx, MultiPoolerManager_StandbyReplicationStatus_FullMethodName, in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -358,7 +372,11 @@ type MultiPoolerManagerServer interface {
 	StartReplication(context.Context, *multipoolermanagerdata.StartReplicationRequest) (*multipoolermanagerdata.StartReplicationResponse, error)
 	// StopReplication stops WAL replay on standby (calls pg_wal_replay_pause)
 	StopReplication(context.Context, *multipoolermanagerdata.StopReplicationRequest) (*multipoolermanagerdata.StopReplicationResponse, error)
-	// ReplicationStatus gets the current replication status of the standby
+	// StandbyReplicationStatus gets the current replication status of the standby
+	StandbyReplicationStatus(context.Context, *multipoolermanagerdata.StandbyReplicationStatusRequest) (*multipoolermanagerdata.StandbyReplicationStatusResponse, error)
+	// ReplicationStatus gets unified status that works for both PRIMARY and REPLICA poolers
+	// The multipooler returns information based on what type it believes itself to be,
+	// avoiding disparity between what MultiOrch thinks versus actual state
 	ReplicationStatus(context.Context, *multipoolermanagerdata.ReplicationStatusRequest) (*multipoolermanagerdata.ReplicationStatusResponse, error)
 	// ResetReplication resets the standby's connection to its primary by clearing primary_conninfo
 	// and reloading PostgreSQL configuration. This effectively
@@ -424,6 +442,9 @@ func (UnimplementedMultiPoolerManagerServer) StartReplication(context.Context, *
 }
 func (UnimplementedMultiPoolerManagerServer) StopReplication(context.Context, *multipoolermanagerdata.StopReplicationRequest) (*multipoolermanagerdata.StopReplicationResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method StopReplication not implemented")
+}
+func (UnimplementedMultiPoolerManagerServer) StandbyReplicationStatus(context.Context, *multipoolermanagerdata.StandbyReplicationStatusRequest) (*multipoolermanagerdata.StandbyReplicationStatusResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method StandbyReplicationStatus not implemented")
 }
 func (UnimplementedMultiPoolerManagerServer) ReplicationStatus(context.Context, *multipoolermanagerdata.ReplicationStatusRequest) (*multipoolermanagerdata.ReplicationStatusResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ReplicationStatus not implemented")
@@ -566,6 +587,24 @@ func _MultiPoolerManager_StopReplication_Handler(srv interface{}, ctx context.Co
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(MultiPoolerManagerServer).StopReplication(ctx, req.(*multipoolermanagerdata.StopReplicationRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _MultiPoolerManager_StandbyReplicationStatus_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(multipoolermanagerdata.StandbyReplicationStatusRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MultiPoolerManagerServer).StandbyReplicationStatus(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MultiPoolerManager_StandbyReplicationStatus_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MultiPoolerManagerServer).StandbyReplicationStatus(ctx, req.(*multipoolermanagerdata.StandbyReplicationStatusRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -952,6 +991,10 @@ var MultiPoolerManager_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "StopReplication",
 			Handler:    _MultiPoolerManager_StopReplication_Handler,
+		},
+		{
+			MethodName: "StandbyReplicationStatus",
+			Handler:    _MultiPoolerManager_StandbyReplicationStatus_Handler,
 		},
 		{
 			MethodName: "ReplicationStatus",

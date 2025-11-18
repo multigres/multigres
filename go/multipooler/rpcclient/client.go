@@ -176,7 +176,10 @@ type MultiPoolerClient interface {
 	// StopReplication stops replication based on the specified mode.
 	StopReplication(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.StopReplicationRequest) (*multipoolermanagerdatapb.StopReplicationResponse, error)
 
-	// ReplicationStatus gets the current replication status of the standby.
+	// StandbyReplicationStatus gets the current replication status of the standby.
+	StandbyReplicationStatus(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.StandbyReplicationStatusRequest) (*multipoolermanagerdatapb.StandbyReplicationStatusResponse, error)
+
+	// ReplicationStatus gets unified status that works for both PRIMARY and REPLICA poolers.
 	ReplicationStatus(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.ReplicationStatusRequest) (*multipoolermanagerdatapb.ReplicationStatusResponse, error)
 
 	// ResetReplication resets the standby's connection to its primary.

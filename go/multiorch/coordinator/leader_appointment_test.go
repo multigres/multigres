@@ -125,6 +125,10 @@ func (m *mockManagerClient) StopReplication(ctx context.Context, req *multipoole
 	return &multipoolermanagerdatapb.StopReplicationResponse{}, nil
 }
 
+func (m *mockManagerClient) StandbyReplicationStatus(ctx context.Context, req *multipoolermanagerdatapb.StandbyReplicationStatusRequest, opts ...grpc.CallOption) (*multipoolermanagerdatapb.StandbyReplicationStatusResponse, error) {
+	return &multipoolermanagerdatapb.StandbyReplicationStatusResponse{}, nil
+}
+
 func (m *mockManagerClient) ReplicationStatus(ctx context.Context, req *multipoolermanagerdatapb.ReplicationStatusRequest, opts ...grpc.CallOption) (*multipoolermanagerdatapb.ReplicationStatusResponse, error) {
 	return &multipoolermanagerdatapb.ReplicationStatusResponse{}, nil
 }

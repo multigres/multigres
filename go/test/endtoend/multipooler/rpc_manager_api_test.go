@@ -250,7 +250,7 @@ func TestPrimaryStatus(t *testing.T) {
 
 		// Wait for replication to be established
 		require.Eventually(t, func() bool {
-			statusResp, err := standbyManagerClient.ReplicationStatus(utils.WithShortDeadline(t), &multipoolermanagerdata.ReplicationStatusRequest{})
+			statusResp, err := standbyManagerClient.StandbyReplicationStatus(utils.WithShortDeadline(t), &multipoolermanagerdata.StandbyReplicationStatusRequest{})
 			if err != nil {
 				return false
 			}
@@ -374,7 +374,7 @@ func TestGetFollowers(t *testing.T) {
 
 		// Replication is already running (default behavior), verify standby is connected
 		require.Eventually(t, func() bool {
-			statusResp, err := standbyManagerClient.ReplicationStatus(utils.WithShortDeadline(t), &multipoolermanagerdata.ReplicationStatusRequest{})
+			statusResp, err := standbyManagerClient.StandbyReplicationStatus(utils.WithShortDeadline(t), &multipoolermanagerdata.StandbyReplicationStatusRequest{})
 			if err != nil {
 				return false
 			}
@@ -443,7 +443,7 @@ func TestGetFollowers(t *testing.T) {
 
 		// Replication is already running (default behavior), verify standby is connected
 		require.Eventually(t, func() bool {
-			statusResp, err := standbyManagerClient.ReplicationStatus(utils.WithShortDeadline(t), &multipoolermanagerdata.ReplicationStatusRequest{})
+			statusResp, err := standbyManagerClient.StandbyReplicationStatus(utils.WithShortDeadline(t), &multipoolermanagerdata.StandbyReplicationStatusRequest{})
 			if err != nil {
 				return false
 			}
@@ -527,7 +527,7 @@ func TestGetFollowers(t *testing.T) {
 
 		// Replication is already running (default behavior), verify standby is connected
 		require.Eventually(t, func() bool {
-			statusResp, err := standbyManagerClient.ReplicationStatus(utils.WithShortDeadline(t), &multipoolermanagerdata.ReplicationStatusRequest{})
+			statusResp, err := standbyManagerClient.StandbyReplicationStatus(utils.WithShortDeadline(t), &multipoolermanagerdata.StandbyReplicationStatusRequest{})
 			if err != nil {
 				return false
 			}

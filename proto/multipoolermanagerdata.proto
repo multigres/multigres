@@ -126,11 +126,11 @@ message StopReplicationResponse {
   ReplicationStatus status = 1;
 }
 
-// ReplicationStatus gets the current replication status
-message ReplicationStatusRequest {
+// StandbyReplicationStatus gets the current replication status of the standby
+message StandbyReplicationStatusRequest {
 }
 
-message ReplicationStatusResponse {
+message StandbyReplicationStatusResponse {
   // Current replication status
   ReplicationStatus status = 1;
 }
@@ -183,6 +183,27 @@ message PrimaryPositionRequest {
 message PrimaryPositionResponse {
   // Current primary LSN position
   string lsn_position = 1;
+}
+
+// PoolerStatus provides unified status information that works for both PRIMARY and REPLICA poolers
+// The pooler returns information based on its actual state
+message PoolerStatus {
+  // Pooler type from topology (PRIMARY or REPLICA)
+  clustermetadata.PoolerType pooler_type = 1;
+
+  // Primary status information (only populated if pooler is acting as primary)
+  PrimaryStatus primary_status = 2;
+
+  // Replication status information (only populated if pooler is acting as standby)
+  ReplicationStatus replication_status = 3;
+}
+
+// ReplicationStatus gets unified status that works for both PRIMARY and REPLICA poolers
+message ReplicationStatusRequest {
+}
+
+message ReplicationStatusResponse {
+  PoolerStatus status = 1;
 }
 
 // Replication statistics for a connected follower from pg_stat_replication

@@ -86,7 +86,18 @@ func (s *managerService) StopReplication(ctx context.Context, req *multipoolerma
 	return &multipoolermanagerdata.StopReplicationResponse{}, nil
 }
 
-// ReplicationStatus gets the current replication status of the standby
+// StandbyReplicationStatus gets the current replication status of the standby
+func (s *managerService) StandbyReplicationStatus(ctx context.Context, req *multipoolermanagerdata.StandbyReplicationStatusRequest) (*multipoolermanagerdata.StandbyReplicationStatusResponse, error) {
+	status, err := s.manager.StandbyReplicationStatus(ctx)
+	if err != nil {
+		return nil, mterrors.ToGRPC(err)
+	}
+	return &multipoolermanagerdata.StandbyReplicationStatusResponse{
+		Status: status,
+	}, nil
+}
+
+// ReplicationStatus gets unified status that works for both PRIMARY and REPLICA poolers
 func (s *managerService) ReplicationStatus(ctx context.Context, req *multipoolermanagerdata.ReplicationStatusRequest) (*multipoolermanagerdata.ReplicationStatusResponse, error) {
 	status, err := s.manager.ReplicationStatus(ctx)
 	if err != nil {

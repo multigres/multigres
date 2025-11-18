@@ -234,7 +234,20 @@ func (c *Client) StopReplication(ctx context.Context, pooler *clustermetadatapb.
 	return conn.managerClient.StopReplication(ctx, request)
 }
 
-// ReplicationStatus gets the current replication status of the standby.
+// StandbyReplicationStatus gets the current replication status of the standby.
+func (c *Client) StandbyReplicationStatus(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.StandbyReplicationStatusRequest) (*multipoolermanagerdatapb.StandbyReplicationStatusResponse, error) {
+	conn, closer, err := c.dialPersistent(ctx, pooler)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		_ = closer()
+	}()
+
+	return conn.managerClient.StandbyReplicationStatus(ctx, request)
+}
+
+// ReplicationStatus gets unified status that works for both PRIMARY and REPLICA poolers.
 func (c *Client) ReplicationStatus(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.ReplicationStatusRequest) (*multipoolermanagerdatapb.ReplicationStatusResponse, error) {
 	conn, closer, err := c.dialPersistent(ctx, pooler)
 	if err != nil {

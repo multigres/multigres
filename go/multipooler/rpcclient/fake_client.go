@@ -59,6 +59,7 @@ type FakeClient struct {
 	SetPrimaryConnInfoResponses              map[string]*multipoolermanagerdatapb.SetPrimaryConnInfoResponse
 	StartReplicationResponses                map[string]*multipoolermanagerdatapb.StartReplicationResponse
 	StopReplicationResponses                 map[string]*multipoolermanagerdatapb.StopReplicationResponse
+	StandbyReplicationStatusResponses        map[string]*multipoolermanagerdatapb.StandbyReplicationStatusResponse
 	ReplicationStatusResponses               map[string]*multipoolermanagerdatapb.ReplicationStatusResponse
 	ResetReplicationResponses                map[string]*multipoolermanagerdatapb.ResetReplicationResponse
 	StopReplicationAndGetStatusResponses     map[string]*multipoolermanagerdatapb.StopReplicationAndGetStatusResponse
@@ -98,6 +99,7 @@ func NewFakeClient() *FakeClient {
 		SetPrimaryConnInfoResponses:              make(map[string]*multipoolermanagerdatapb.SetPrimaryConnInfoResponse),
 		StartReplicationResponses:                make(map[string]*multipoolermanagerdatapb.StartReplicationResponse),
 		StopReplicationResponses:                 make(map[string]*multipoolermanagerdatapb.StopReplicationResponse),
+		StandbyReplicationStatusResponses:        make(map[string]*multipoolermanagerdatapb.StandbyReplicationStatusResponse),
 		ReplicationStatusResponses:               make(map[string]*multipoolermanagerdatapb.ReplicationStatusResponse),
 		ResetReplicationResponses:                make(map[string]*multipoolermanagerdatapb.ResetReplicationResponse),
 		StopReplicationAndGetStatusResponses:     make(map[string]*multipoolermanagerdatapb.StopReplicationAndGetStatusResponse),
@@ -349,6 +351,22 @@ func (f *FakeClient) StopReplication(ctx context.Context, pooler *clustermetadat
 		return resp, nil
 	}
 	return &multipoolermanagerdatapb.StopReplicationResponse{}, nil
+}
+
+func (f *FakeClient) StandbyReplicationStatus(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.StandbyReplicationStatusRequest) (*multipoolermanagerdatapb.StandbyReplicationStatusResponse, error) {
+	poolerID := f.getPoolerID(pooler)
+	f.logCall("StandbyReplicationStatus", poolerID)
+
+	if err := f.checkError(poolerID); err != nil {
+		return nil, err
+	}
+
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+	if resp, ok := f.StandbyReplicationStatusResponses[poolerID]; ok {
+		return resp, nil
+	}
+	return &multipoolermanagerdatapb.StandbyReplicationStatusResponse{}, nil
 }
 
 func (f *FakeClient) ReplicationStatus(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.ReplicationStatusRequest) (*multipoolermanagerdatapb.ReplicationStatusResponse, error) {
