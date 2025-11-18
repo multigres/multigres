@@ -21,174 +21,58 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	"google.golang.org/grpc"
 
+	"github.com/multigres/multigres/go/multipooler/rpcclient"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	consensusdatapb "github.com/multigres/multigres/go/pb/consensusdata"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
 
-// mockConsensusClient implements a mock for testing
-type mockConsensusClient struct {
-	statusResp    *consensusdatapb.StatusResponse
-	statusErr     error
-	beginTermResp *consensusdatapb.BeginTermResponse
-	beginTermErr  error
-}
-
-func (m *mockConsensusClient) Status(ctx context.Context, req *consensusdatapb.StatusRequest, opts ...grpc.CallOption) (*consensusdatapb.StatusResponse, error) {
-	return m.statusResp, m.statusErr
-}
-
-func (m *mockConsensusClient) BeginTerm(ctx context.Context, req *consensusdatapb.BeginTermRequest, opts ...grpc.CallOption) (*consensusdatapb.BeginTermResponse, error) {
-	return m.beginTermResp, m.beginTermErr
-}
-
-func (m *mockConsensusClient) CanReachPrimary(ctx context.Context, req *consensusdatapb.CanReachPrimaryRequest, opts ...grpc.CallOption) (*consensusdatapb.CanReachPrimaryResponse, error) {
-	return &consensusdatapb.CanReachPrimaryResponse{}, nil
-}
-
-func (m *mockConsensusClient) GetLeadershipView(ctx context.Context, req *consensusdatapb.LeadershipViewRequest, opts ...grpc.CallOption) (*consensusdatapb.LeadershipViewResponse, error) {
-	return &consensusdatapb.LeadershipViewResponse{}, nil
-}
-
-// mockManagerClient implements a mock for testing
-type mockManagerClient struct {
-	statusResp            *multipoolermanagerdatapb.StatusResponse
-	statusErr             error
-	promoteResp           *multipoolermanagerdatapb.PromoteResponse
-	promoteErr            error
-	setPrimaryConnInfoErr error
-}
-
-func (m *mockManagerClient) Status(ctx context.Context, req *multipoolermanagerdatapb.StatusRequest, opts ...grpc.CallOption) (*multipoolermanagerdatapb.StatusResponse, error) {
-	return m.statusResp, m.statusErr
-}
-
-func (m *mockManagerClient) Promote(ctx context.Context, req *multipoolermanagerdatapb.PromoteRequest, opts ...grpc.CallOption) (*multipoolermanagerdatapb.PromoteResponse, error) {
-	return m.promoteResp, m.promoteErr
-}
-
-func (m *mockManagerClient) SetPrimaryConnInfo(ctx context.Context, req *multipoolermanagerdatapb.SetPrimaryConnInfoRequest, opts ...grpc.CallOption) (*multipoolermanagerdatapb.SetPrimaryConnInfoResponse, error) {
-	return &multipoolermanagerdatapb.SetPrimaryConnInfoResponse{}, m.setPrimaryConnInfoErr
-}
-
-func (m *mockManagerClient) InitializeEmptyPrimary(ctx context.Context, req *multipoolermanagerdatapb.InitializeEmptyPrimaryRequest, opts ...grpc.CallOption) (*multipoolermanagerdatapb.InitializeEmptyPrimaryResponse, error) {
-	return &multipoolermanagerdatapb.InitializeEmptyPrimaryResponse{}, nil
-}
-
-func (m *mockManagerClient) InitializeAsStandby(ctx context.Context, req *multipoolermanagerdatapb.InitializeAsStandbyRequest, opts ...grpc.CallOption) (*multipoolermanagerdatapb.InitializeAsStandbyResponse, error) {
-	return &multipoolermanagerdatapb.InitializeAsStandbyResponse{}, nil
-}
-
-func (m *mockManagerClient) InitializationStatus(ctx context.Context, req *multipoolermanagerdatapb.InitializationStatusRequest, opts ...grpc.CallOption) (*multipoolermanagerdatapb.InitializationStatusResponse, error) {
-	return &multipoolermanagerdatapb.InitializationStatusResponse{}, nil
-}
-
-func (m *mockManagerClient) Demote(ctx context.Context, req *multipoolermanagerdatapb.DemoteRequest, opts ...grpc.CallOption) (*multipoolermanagerdatapb.DemoteResponse, error) {
-	return &multipoolermanagerdatapb.DemoteResponse{}, nil
-}
-
-func (m *mockManagerClient) StopReplicationAndGetStatus(ctx context.Context, req *multipoolermanagerdatapb.StopReplicationAndGetStatusRequest, opts ...grpc.CallOption) (*multipoolermanagerdatapb.StopReplicationAndGetStatusResponse, error) {
-	return &multipoolermanagerdatapb.StopReplicationAndGetStatusResponse{}, nil
-}
-
-func (m *mockManagerClient) ConfigureSynchronousReplication(ctx context.Context, req *multipoolermanagerdatapb.ConfigureSynchronousReplicationRequest, opts ...grpc.CallOption) (*multipoolermanagerdatapb.ConfigureSynchronousReplicationResponse, error) {
-	return &multipoolermanagerdatapb.ConfigureSynchronousReplicationResponse{}, nil
-}
-
-func (m *mockManagerClient) ChangeType(ctx context.Context, req *multipoolermanagerdatapb.ChangeTypeRequest, opts ...grpc.CallOption) (*multipoolermanagerdatapb.ChangeTypeResponse, error) {
-	return &multipoolermanagerdatapb.ChangeTypeResponse{}, nil
-}
-
-func (m *mockManagerClient) GetFollowers(ctx context.Context, req *multipoolermanagerdatapb.GetFollowersRequest, opts ...grpc.CallOption) (*multipoolermanagerdatapb.GetFollowersResponse, error) {
-	return &multipoolermanagerdatapb.GetFollowersResponse{}, nil
-}
-
-func (m *mockManagerClient) PrimaryPosition(ctx context.Context, req *multipoolermanagerdatapb.PrimaryPositionRequest, opts ...grpc.CallOption) (*multipoolermanagerdatapb.PrimaryPositionResponse, error) {
-	return &multipoolermanagerdatapb.PrimaryPositionResponse{}, nil
-}
-
-func (m *mockManagerClient) PrimaryStatus(ctx context.Context, req *multipoolermanagerdatapb.PrimaryStatusRequest, opts ...grpc.CallOption) (*multipoolermanagerdatapb.PrimaryStatusResponse, error) {
-	return &multipoolermanagerdatapb.PrimaryStatusResponse{}, nil
-}
-
-func (m *mockManagerClient) WaitForLSN(ctx context.Context, req *multipoolermanagerdatapb.WaitForLSNRequest, opts ...grpc.CallOption) (*multipoolermanagerdatapb.WaitForLSNResponse, error) {
-	return &multipoolermanagerdatapb.WaitForLSNResponse{}, nil
-}
-
-func (m *mockManagerClient) StartReplication(ctx context.Context, req *multipoolermanagerdatapb.StartReplicationRequest, opts ...grpc.CallOption) (*multipoolermanagerdatapb.StartReplicationResponse, error) {
-	return &multipoolermanagerdatapb.StartReplicationResponse{}, nil
-}
-
-func (m *mockManagerClient) StopReplication(ctx context.Context, req *multipoolermanagerdatapb.StopReplicationRequest, opts ...grpc.CallOption) (*multipoolermanagerdatapb.StopReplicationResponse, error) {
-	return &multipoolermanagerdatapb.StopReplicationResponse{}, nil
-}
-
-func (m *mockManagerClient) ReplicationStatus(ctx context.Context, req *multipoolermanagerdatapb.ReplicationStatusRequest, opts ...grpc.CallOption) (*multipoolermanagerdatapb.ReplicationStatusResponse, error) {
-	return &multipoolermanagerdatapb.ReplicationStatusResponse{}, nil
-}
-
-func (m *mockManagerClient) ResetReplication(ctx context.Context, req *multipoolermanagerdatapb.ResetReplicationRequest, opts ...grpc.CallOption) (*multipoolermanagerdatapb.ResetReplicationResponse, error) {
-	return &multipoolermanagerdatapb.ResetReplicationResponse{}, nil
-}
-
-func (m *mockManagerClient) UpdateSynchronousStandbyList(ctx context.Context, req *multipoolermanagerdatapb.UpdateSynchronousStandbyListRequest, opts ...grpc.CallOption) (*multipoolermanagerdatapb.UpdateSynchronousStandbyListResponse, error) {
-	return &multipoolermanagerdatapb.UpdateSynchronousStandbyListResponse{}, nil
-}
-
-func (m *mockManagerClient) UndoDemote(ctx context.Context, req *multipoolermanagerdatapb.UndoDemoteRequest, opts ...grpc.CallOption) (*multipoolermanagerdatapb.UndoDemoteResponse, error) {
-	return &multipoolermanagerdatapb.UndoDemoteResponse{}, nil
-}
-
-func (m *mockManagerClient) SetTerm(ctx context.Context, req *multipoolermanagerdatapb.SetTermRequest, opts ...grpc.CallOption) (*multipoolermanagerdatapb.SetTermResponse, error) {
-	return &multipoolermanagerdatapb.SetTermResponse{}, nil
-}
-
-func (m *mockManagerClient) Backup(ctx context.Context, req *multipoolermanagerdatapb.BackupRequest, opts ...grpc.CallOption) (*multipoolermanagerdatapb.BackupResponse, error) {
-	return &multipoolermanagerdatapb.BackupResponse{}, nil
-}
-
-func (m *mockManagerClient) RestoreFromBackup(ctx context.Context, req *multipoolermanagerdatapb.RestoreFromBackupRequest, opts ...grpc.CallOption) (*multipoolermanagerdatapb.RestoreFromBackupResponse, error) {
-	return &multipoolermanagerdatapb.RestoreFromBackupResponse{}, nil
-}
-
-func (m *mockManagerClient) GetBackups(ctx context.Context, req *multipoolermanagerdatapb.GetBackupsRequest, opts ...grpc.CallOption) (*multipoolermanagerdatapb.GetBackupsResponse, error) {
-	return &multipoolermanagerdatapb.GetBackupsResponse{}, nil
-}
-
-// createMockNode creates a mock node for testing
-func createMockNode(name string, term int64, walPosition string, healthy bool, role string) *Node {
-	return &Node{
-		ID: &clustermetadatapb.ID{
+// createMockNode creates a mock node for testing using FakeClient
+func createMockNode(fakeClient *rpcclient.FakeClient, name string, term int64, walPosition string, healthy bool, role string) *Node {
+	pooler := &clustermetadatapb.MultiPooler{
+		Id: &clustermetadatapb.ID{
 			Component: clustermetadatapb.ID_MULTIPOOLER,
 			Cell:      "zone1",
 			Name:      name,
 		},
 		Hostname: "localhost",
-		Port:     9000,
-		ShardID:  "shard0",
-		ConsensusClient: &mockConsensusClient{
-			statusResp: &consensusdatapb.StatusResponse{
-				CurrentTerm: term,
-				IsHealthy:   healthy,
-				Role:        role,
-				WalPosition: &consensusdatapb.WALPosition{
-					CurrentLsn:     walPosition,
-					LastReceiveLsn: walPosition,
-					LastReplayLsn:  walPosition,
-				},
-			},
-			beginTermResp: &consensusdatapb.BeginTermResponse{
-				Accepted: true,
-			},
+		PortMap: map[string]int32{
+			"grpc": 9000,
 		},
-		ManagerClient: &mockManagerClient{
-			statusResp: &multipoolermanagerdatapb.StatusResponse{
-				State: "ready",
-			},
-			promoteResp: &multipoolermanagerdatapb.PromoteResponse{},
+	}
+
+	// Configure FakeClient responses for this pooler
+	fakeClient.ConsensusStatusResponses[name] = &consensusdatapb.StatusResponse{
+		CurrentTerm: term,
+		IsHealthy:   healthy,
+		Role:        role,
+		WalPosition: &consensusdatapb.WALPosition{
+			CurrentLsn:     walPosition,
+			LastReceiveLsn: walPosition,
+			LastReplayLsn:  walPosition,
 		},
+	}
+
+	fakeClient.BeginTermResponses[name] = &consensusdatapb.BeginTermResponse{
+		Accepted: true,
+	}
+
+	fakeClient.StatusResponses[name] = &multipoolermanagerdatapb.StatusResponse{
+		State: "ready",
+	}
+
+	fakeClient.PromoteResponses[name] = &multipoolermanagerdatapb.PromoteResponse{}
+
+	fakeClient.SetPrimaryConnInfoResponses[name] = &multipoolermanagerdatapb.SetPrimaryConnInfoResponse{}
+
+	return &Node{
+		ID:        pooler.Id,
+		Hostname:  pooler.Hostname,
+		Port:      pooler.PortMap["grpc"],
+		ShardID:   "shard0",
+		rpcClient: fakeClient,
+		pooler:    pooler,
 	}
 }
 
@@ -206,10 +90,11 @@ func TestDiscoverMaxTerm(t *testing.T) {
 	}
 
 	t.Run("success - finds max term from cohort", func(t *testing.T) {
+		fakeClient := rpcclient.NewFakeClient()
 		cohort := []*Node{
-			createMockNode("mp1", 5, "0/1000000", true, "standby"),
-			createMockNode("mp2", 3, "0/1000000", true, "standby"),
-			createMockNode("mp3", 7, "0/1000000", true, "standby"),
+			createMockNode(fakeClient, "mp1", 5, "0/1000000", true, "standby"),
+			createMockNode(fakeClient, "mp2", 3, "0/1000000", true, "standby"),
+			createMockNode(fakeClient, "mp3", 7, "0/1000000", true, "standby"),
 		}
 
 		maxTerm, err := c.discoverMaxTerm(ctx, cohort)
@@ -218,9 +103,10 @@ func TestDiscoverMaxTerm(t *testing.T) {
 	})
 
 	t.Run("success - returns 0 when all nodes have term 0", func(t *testing.T) {
+		fakeClient := rpcclient.NewFakeClient()
 		cohort := []*Node{
-			createMockNode("mp1", 0, "0/1000000", true, "standby"),
-			createMockNode("mp2", 0, "0/1000000", true, "standby"),
+			createMockNode(fakeClient, "mp1", 0, "0/1000000", true, "standby"),
+			createMockNode(fakeClient, "mp2", 0, "0/1000000", true, "standby"),
 		}
 
 		maxTerm, err := c.discoverMaxTerm(ctx, cohort)
@@ -229,19 +115,30 @@ func TestDiscoverMaxTerm(t *testing.T) {
 	})
 
 	t.Run("success - ignores failed nodes", func(t *testing.T) {
-		cohort := []*Node{
-			createMockNode("mp1", 5, "0/1000000", true, "standby"),
-			{
-				ID: &clustermetadatapb.ID{
-					Component: clustermetadatapb.ID_MULTIPOOLER,
-					Cell:      "zone1",
-					Name:      "mp2",
-				},
-				ConsensusClient: &mockConsensusClient{
-					statusErr: context.DeadlineExceeded,
-				},
+		fakeClient := rpcclient.NewFakeClient()
+
+		pooler2 := &clustermetadatapb.MultiPooler{
+			Id: &clustermetadatapb.ID{
+				Component: clustermetadatapb.ID_MULTIPOOLER,
+				Cell:      "zone1",
+				Name:      "mp2",
 			},
-			createMockNode("mp3", 3, "0/1000000", true, "standby"),
+			Hostname: "localhost",
+			PortMap:  map[string]int32{"grpc": 9000},
+		}
+		fakeClient.Errors["mp2"] = context.DeadlineExceeded
+
+		cohort := []*Node{
+			createMockNode(fakeClient, "mp1", 5, "0/1000000", true, "standby"),
+			{
+				ID:        pooler2.Id,
+				Hostname:  pooler2.Hostname,
+				Port:      pooler2.PortMap["grpc"],
+				ShardID:   "shard0",
+				rpcClient: fakeClient,
+				pooler:    pooler2,
+			},
+			createMockNode(fakeClient, "mp3", 3, "0/1000000", true, "standby"),
 		}
 
 		maxTerm, err := c.discoverMaxTerm(ctx, cohort)
@@ -264,10 +161,11 @@ func TestSelectCandidate(t *testing.T) {
 	}
 
 	t.Run("success - selects node with most advanced WAL", func(t *testing.T) {
+		fakeClient := rpcclient.NewFakeClient()
 		cohort := []*Node{
-			createMockNode("mp1", 5, "0/1000000", true, "standby"),
-			createMockNode("mp2", 5, "0/3000000", true, "standby"),
-			createMockNode("mp3", 5, "0/2000000", true, "standby"),
+			createMockNode(fakeClient, "mp1", 5, "0/1000000", true, "standby"),
+			createMockNode(fakeClient, "mp2", 5, "0/3000000", true, "standby"),
+			createMockNode(fakeClient, "mp3", 5, "0/2000000", true, "standby"),
 		}
 
 		candidate, err := c.selectCandidate(ctx, cohort)
@@ -276,9 +174,10 @@ func TestSelectCandidate(t *testing.T) {
 	})
 
 	t.Run("success - prefers healthy nodes", func(t *testing.T) {
+		fakeClient := rpcclient.NewFakeClient()
 		cohort := []*Node{
-			createMockNode("mp1", 5, "0/3000000", false, "standby"),
-			createMockNode("mp2", 5, "0/2000000", true, "standby"),
+			createMockNode(fakeClient, "mp1", 5, "0/3000000", false, "standby"),
+			createMockNode(fakeClient, "mp2", 5, "0/2000000", true, "standby"),
 		}
 
 		candidate, err := c.selectCandidate(ctx, cohort)
@@ -287,9 +186,10 @@ func TestSelectCandidate(t *testing.T) {
 	})
 
 	t.Run("success - falls back to first node if none healthy", func(t *testing.T) {
+		fakeClient := rpcclient.NewFakeClient()
 		cohort := []*Node{
-			createMockNode("mp1", 5, "0/1000000", false, "standby"),
-			createMockNode("mp2", 5, "0/2000000", false, "standby"),
+			createMockNode(fakeClient, "mp1", 5, "0/1000000", false, "standby"),
+			createMockNode(fakeClient, "mp2", 5, "0/2000000", false, "standby"),
 		}
 
 		candidate, err := c.selectCandidate(ctx, cohort)
@@ -300,16 +200,27 @@ func TestSelectCandidate(t *testing.T) {
 	})
 
 	t.Run("error - no nodes available", func(t *testing.T) {
+		fakeClient := rpcclient.NewFakeClient()
+		fakeClient.Errors["mp1"] = context.DeadlineExceeded
+
+		pooler := &clustermetadatapb.MultiPooler{
+			Id: &clustermetadatapb.ID{
+				Component: clustermetadatapb.ID_MULTIPOOLER,
+				Cell:      "zone1",
+				Name:      "mp1",
+			},
+			Hostname: "localhost",
+			PortMap:  map[string]int32{"grpc": 9000},
+		}
+
 		cohort := []*Node{
 			{
-				ID: &clustermetadatapb.ID{
-					Component: clustermetadatapb.ID_MULTIPOOLER,
-					Cell:      "zone1",
-					Name:      "mp1",
-				},
-				ConsensusClient: &mockConsensusClient{
-					statusErr: context.DeadlineExceeded,
-				},
+				ID:        pooler.Id,
+				Hostname:  pooler.Hostname,
+				Port:      pooler.PortMap["grpc"],
+				ShardID:   "shard0",
+				rpcClient: fakeClient,
+				pooler:    pooler,
 			},
 		}
 
@@ -334,11 +245,12 @@ func TestRecruitNodes(t *testing.T) {
 	}
 
 	t.Run("success - all nodes accept", func(t *testing.T) {
-		candidate := createMockNode("mp1", 5, "0/3000000", true, "primary")
+		fakeClient := rpcclient.NewFakeClient()
+		candidate := createMockNode(fakeClient, "mp1", 5, "0/3000000", true, "primary")
 		cohort := []*Node{
 			candidate,
-			createMockNode("mp2", 5, "0/2000000", true, "standby"),
-			createMockNode("mp3", 5, "0/1000000", true, "standby"),
+			createMockNode(fakeClient, "mp2", 5, "0/2000000", true, "standby"),
+			createMockNode(fakeClient, "mp3", 5, "0/1000000", true, "standby"),
 		}
 
 		recruited, err := c.recruitNodes(ctx, cohort, 6, candidate)
@@ -347,23 +259,17 @@ func TestRecruitNodes(t *testing.T) {
 	})
 
 	t.Run("success - some nodes reject", func(t *testing.T) {
-		candidate := createMockNode("mp1", 5, "0/3000000", true, "primary")
+		fakeClient := rpcclient.NewFakeClient()
+		candidate := createMockNode(fakeClient, "mp1", 5, "0/3000000", true, "primary")
+
 		cohort := []*Node{
 			candidate,
-			createMockNode("mp2", 5, "0/2000000", true, "standby"),
-			{
-				ID: &clustermetadatapb.ID{
-					Component: clustermetadatapb.ID_MULTIPOOLER,
-					Cell:      "zone1",
-					Name:      "mp3",
-				},
-				ConsensusClient: &mockConsensusClient{
-					beginTermResp: &consensusdatapb.BeginTermResponse{
-						Accepted: false,
-					},
-				},
-			},
+			createMockNode(fakeClient, "mp2", 5, "0/2000000", true, "standby"),
+			createMockNode(fakeClient, "mp3", 5, "0/2000000", true, "standby"),
 		}
+
+		// mp3 will reject the term (override after creating the node)
+		fakeClient.BeginTermResponses["mp3"] = &consensusdatapb.BeginTermResponse{Accepted: false}
 
 		recruited, err := c.recruitNodes(ctx, cohort, 6, candidate)
 		require.NoError(t, err)
@@ -385,13 +291,21 @@ func TestBeginTerm(t *testing.T) {
 	}
 
 	t.Run("success - achieves quorum", func(t *testing.T) {
+		fakeClient := rpcclient.NewFakeClient()
 		cohort := []*Node{
-			createMockNode("mp1", 5, "0/3000000", true, "standby"),
-			createMockNode("mp2", 5, "0/2000000", true, "standby"),
-			createMockNode("mp3", 5, "0/1000000", true, "standby"),
+			createMockNode(fakeClient, "mp1", 5, "0/3000000", true, "standby"),
+			createMockNode(fakeClient, "mp2", 5, "0/2000000", true, "standby"),
+			createMockNode(fakeClient, "mp3", 5, "0/1000000", true, "standby"),
 		}
 
-		candidate, standbys, term, err := c.BeginTerm(ctx, "shard0", cohort)
+		// Create default ANY_N quorum rule (majority: 2 of 3)
+		quorumRule := &clustermetadatapb.QuorumRule{
+			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_ANY_N,
+			RequiredCount: 2,
+			Description:   "Test majority quorum",
+		}
+
+		candidate, standbys, term, err := c.BeginTerm(ctx, "shard0", cohort, quorumRule)
 		require.NoError(t, err)
 		require.NotNil(t, candidate)
 		require.Equal(t, "mp1", candidate.ID.Name) // Most advanced WAL
@@ -401,57 +315,35 @@ func TestBeginTerm(t *testing.T) {
 
 	t.Run("error - insufficient quorum", func(t *testing.T) {
 		// Create cohort where only 1 out of 3 accepts (need 2 for quorum)
-		candidate := createMockNode("mp1", 5, "0/3000000", true, "standby")
+		fakeClient := rpcclient.NewFakeClient()
+		candidate := createMockNode(fakeClient, "mp1", 5, "0/3000000", true, "standby")
+
 		cohort := []*Node{
 			candidate,
-			{
-				ID: &clustermetadatapb.ID{
-					Component: clustermetadatapb.ID_MULTIPOOLER,
-					Cell:      "zone1",
-					Name:      "mp2",
-				},
-				ConsensusClient: &mockConsensusClient{
-					statusResp: &consensusdatapb.StatusResponse{
-						CurrentTerm: 5,
-						IsHealthy:   true,
-						Role:        "standby",
-						WalPosition: &consensusdatapb.WALPosition{
-							CurrentLsn:    "0/2000000",
-							LastReplayLsn: "0/2000000",
-						},
-					},
-					beginTermResp: &consensusdatapb.BeginTermResponse{
-						Accepted: false,
-					},
-				},
-			},
-			{
-				ID: &clustermetadatapb.ID{
-					Component: clustermetadatapb.ID_MULTIPOOLER,
-					Cell:      "zone1",
-					Name:      "mp3",
-				},
-				ConsensusClient: &mockConsensusClient{
-					statusResp: &consensusdatapb.StatusResponse{
-						CurrentTerm: 5,
-						IsHealthy:   true,
-						Role:        "standby",
-						WalPosition: &consensusdatapb.WALPosition{
-							CurrentLsn:    "0/1000000",
-							LastReplayLsn: "0/1000000",
-						},
-					},
-					beginTermErr: context.DeadlineExceeded,
-				},
-			},
+			createMockNode(fakeClient, "mp2", 5, "0/2000000", true, "standby"),
+			createMockNode(fakeClient, "mp3", 5, "0/1000000", true, "standby"),
 		}
 
-		candidate, standbys, term, err := c.BeginTerm(ctx, "shard0", cohort)
+		// Override responses after creating nodes
+		// mp2 rejects the term
+		fakeClient.BeginTermResponses["mp2"] = &consensusdatapb.BeginTermResponse{Accepted: false}
+
+		// mp3 returns an error
+		fakeClient.Errors["mp3"] = context.DeadlineExceeded
+
+		// Create ANY_N quorum rule requiring 2 nodes
+		quorumRule := &clustermetadatapb.QuorumRule{
+			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_ANY_N,
+			RequiredCount: 2,
+			Description:   "Test quorum requiring 2 nodes",
+		}
+
+		candidate, standbys, term, err := c.BeginTerm(ctx, "shard0", cohort, quorumRule)
 		require.Error(t, err)
 		require.Nil(t, candidate)
 		require.Nil(t, standbys)
 		require.Equal(t, int64(0), term)
-		require.Contains(t, err.Error(), "insufficient quorum")
+		require.Contains(t, err.Error(), "quorum")
 	})
 }
 
@@ -469,44 +361,43 @@ func TestPropagate(t *testing.T) {
 	}
 
 	t.Run("success - promotes candidate and configures standbys", func(t *testing.T) {
-		candidate := createMockNode("mp1", 5, "0/3000000", true, "primary")
+		fakeClient := rpcclient.NewFakeClient()
+		candidate := createMockNode(fakeClient, "mp1", 5, "0/3000000", true, "primary")
 		standbys := []*Node{
-			createMockNode("mp2", 5, "0/2000000", true, "standby"),
-			createMockNode("mp3", 5, "0/1000000", true, "standby"),
+			createMockNode(fakeClient, "mp2", 5, "0/2000000", true, "standby"),
+			createMockNode(fakeClient, "mp3", 5, "0/1000000", true, "standby"),
 		}
 
-		err := c.Propagate(ctx, candidate, standbys, 6)
+		quorumRule := &clustermetadatapb.QuorumRule{
+			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_ANY_N,
+			RequiredCount: 2,
+			Description:   "Test quorum",
+		}
+
+		err := c.Propagate(ctx, candidate, standbys, 6, quorumRule)
 		require.NoError(t, err)
 	})
 
 	t.Run("success - continues even if some standbys fail", func(t *testing.T) {
-		candidate := createMockNode("mp1", 5, "0/3000000", true, "primary")
+		fakeClient := rpcclient.NewFakeClient()
+		candidate := createMockNode(fakeClient, "mp1", 5, "0/3000000", true, "primary")
+
+		// mp3 will fail SetPrimaryConnInfo
+		fakeClient.SetPrimaryConnInfoResponses["mp3"] = nil
+		fakeClient.Errors["mp3"] = context.DeadlineExceeded
+
 		standbys := []*Node{
-			createMockNode("mp2", 5, "0/2000000", true, "standby"),
-			{
-				ID: &clustermetadatapb.ID{
-					Component: clustermetadatapb.ID_MULTIPOOLER,
-					Cell:      "zone1",
-					Name:      "mp3",
-				},
-				ConsensusClient: &mockConsensusClient{
-					statusResp: &consensusdatapb.StatusResponse{
-						CurrentTerm: 5,
-						IsHealthy:   true,
-						Role:        "standby",
-						WalPosition: &consensusdatapb.WALPosition{
-							CurrentLsn:    "0/1000000",
-							LastReplayLsn: "0/1000000",
-						},
-					},
-				},
-				ManagerClient: &mockManagerClient{
-					setPrimaryConnInfoErr: context.DeadlineExceeded,
-				},
-			},
+			createMockNode(fakeClient, "mp2", 5, "0/2000000", true, "standby"),
+			createMockNode(fakeClient, "mp3", 5, "0/1000000", true, "standby"),
 		}
 
-		err := c.Propagate(ctx, candidate, standbys, 6)
+		quorumRule := &clustermetadatapb.QuorumRule{
+			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_ANY_N,
+			RequiredCount: 2,
+			Description:   "Test quorum",
+		}
+
+		err := c.Propagate(ctx, candidate, standbys, 6, quorumRule)
 		// Should succeed even though one standby failed
 		require.NoError(t, err)
 	})
@@ -526,18 +417,20 @@ func TestEstablishLeader(t *testing.T) {
 	}
 
 	t.Run("success - leader is ready", func(t *testing.T) {
-		candidate := createMockNode("mp1", 5, "0/3000000", true, "primary")
+		fakeClient := rpcclient.NewFakeClient()
+		candidate := createMockNode(fakeClient, "mp1", 5, "0/3000000", true, "primary")
 
 		err := c.EstablishLeader(ctx, candidate, 6)
 		require.NoError(t, err)
 	})
 
 	t.Run("error - leader not in ready state", func(t *testing.T) {
-		candidate := createMockNode("mp1", 5, "0/3000000", true, "primary")
-		candidate.ManagerClient = &mockManagerClient{
-			statusResp: &multipoolermanagerdatapb.StatusResponse{
-				State: "initializing",
-			},
+		fakeClient := rpcclient.NewFakeClient()
+		candidate := createMockNode(fakeClient, "mp1", 5, "0/3000000", true, "primary")
+
+		// Override the status response to indicate not ready
+		fakeClient.StatusResponses["mp1"] = &multipoolermanagerdatapb.StatusResponse{
+			State: "initializing",
 		}
 
 		err := c.EstablishLeader(ctx, candidate, 6)

@@ -69,7 +69,7 @@ service MultiPoolerManager {
   rpc PrimaryPosition(multipoolermanagerdata.PrimaryPositionRequest)
     returns (multipoolermanagerdata.PrimaryPositionResponse);
 
-  // StopReplicationAndGetStatus stops PostgreSQL replication (replay and/or receiver based on mode) 
+  // StopReplicationAndGetStatus stops PostgreSQL replication (replay and/or receiver based on mode)
   // and returns the status
   rpc StopReplicationAndGetStatus(multipoolermanagerdata.StopReplicationAndGetStatusRequest)
     returns (multipoolermanagerdata.StopReplicationAndGetStatusResponse);
@@ -78,6 +78,11 @@ service MultiPoolerManager {
   // Multigres HA
   // The following methods are used by MultiOrch to
   // perform HA operations (reparents and failovers)
+
+  // GetDurabilityPolicy retrieves the active durability policy from the local database
+  // Used by MultiOrch to query quorum rules via gRPC instead of direct database connection
+  rpc GetDurabilityPolicy(multipoolermanagerdata.GetDurabilityPolicyRequest)
+    returns (multipoolermanagerdata.GetDurabilityPolicyResponse);
 
   // ChangeType changes the pooler type (LEADER/FOLLOWER)
   rpc ChangeType(multipoolermanagerdata.ChangeTypeRequest)
