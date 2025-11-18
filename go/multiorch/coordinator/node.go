@@ -16,19 +16,15 @@ package coordinator
 
 import (
 	"context"
-	"time"
+	"fmt"
 
-	"google.golang.org/protobuf/types/known/durationpb"
-
+	"github.com/multigres/multigres/go/clustermetadata/topo"
 	"github.com/multigres/multigres/go/multipooler/rpcclient"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
-	consensusdatapb "github.com/multigres/multigres/go/pb/consensusdata"
-	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
 
 // Node represents a single multipooler node with a cached gRPC client for both
-// manager and consensus services. It provides convenience methods for
-// calling RPCs during leader appointment.
+// manager and consensus services.
 type Node struct {
 	// ID is the cluster metadata ID for this multipooler
 	ID *clustermetadatapb.ID
@@ -49,112 +45,36 @@ type Node struct {
 	pooler *clustermetadatapb.MultiPooler
 }
 
-// InitializationStatus gets the initialization status of this node
-func (n *Node) InitializationStatus(ctx context.Context) (*multipoolermanagerdatapb.InitializationStatusResponse, error) {
-	req := &multipoolermanagerdatapb.InitializationStatusRequest{}
-	return n.rpcClient.InitializationStatus(ctx, n.pooler, req)
-}
+// CreateNode creates a Node with a reference to the shared cached RPC client.
+// The node stores the pooler metadata needed for making RPC calls.
+func CreateNode(ctx context.Context, rpcClient rpcclient.MultiPoolerClient, poolerInfo *topo.MultiPoolerInfo) (*Node, error) {
+	// Convert topo.MultiPoolerInfo to clustermetadatapb.MultiPooler
+	pooler := poolerInfo.MultiPooler
 
-// WaitForLSN waits for this node to replay WAL up to the target LSN
-func (n *Node) WaitForLSN(ctx context.Context, targetLsn string) error {
-	req := &multipoolermanagerdatapb.WaitForLSNRequest{
-		TargetLsn: targetLsn,
+	node := &Node{
+		ID:        poolerInfo.Id,
+		Hostname:  poolerInfo.Hostname,
+		Port:      poolerInfo.PortMap["grpc"],
+		ShardID:   poolerInfo.Shard,
+		rpcClient: rpcClient,
+		pooler:    pooler,
 	}
-	_, err := n.rpcClient.WaitForLSN(ctx, n.pooler, req)
-	return err
+
+	return node, nil
 }
 
-// BeginTerm sends a BeginTerm request to this node for leader appointment
-// The coordinatorID identifies the multiorch coordinator initiating this term
-func (n *Node) BeginTerm(ctx context.Context, term int64, coordinatorID *clustermetadatapb.ID) (*consensusdatapb.BeginTermResponse, error) {
-	req := &consensusdatapb.BeginTermRequest{
-		Term:        term,
-		CandidateId: coordinatorID, // Note: proto field name is CandidateId but now contains coordinator ID
+// CreateNodes creates Node instances for all multipoolers in the given list.
+// All nodes share the same cached RPC client for connection pooling.
+func CreateNodes(ctx context.Context, rpcClient rpcclient.MultiPoolerClient, poolerInfos []*topo.MultiPoolerInfo) ([]*Node, error) {
+	nodes := make([]*Node, 0, len(poolerInfos))
+
+	for _, poolerInfo := range poolerInfos {
+		node, err := CreateNode(ctx, rpcClient, poolerInfo)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create node for %s: %w", poolerInfo.IDString(), err)
+		}
+		nodes = append(nodes, node)
 	}
-	return n.rpcClient.BeginTerm(ctx, n.pooler, req)
-}
 
-// Promote promotes this node to primary
-func (n *Node) Promote(ctx context.Context, term int64, expectedLSN string, syncConfig *multipoolermanagerdatapb.ConfigureSynchronousReplicationRequest) (*multipoolermanagerdatapb.PromoteResponse, error) {
-	req := &multipoolermanagerdatapb.PromoteRequest{
-		ConsensusTerm:         term,
-		ExpectedLsn:           expectedLSN,
-		SyncReplicationConfig: syncConfig,
-		Force:                 false,
-	}
-	return n.rpcClient.Promote(ctx, n.pooler, req)
-}
-
-// Demote demotes this node from primary
-func (n *Node) Demote(ctx context.Context, term int64, drainTimeout time.Duration) (*multipoolermanagerdatapb.DemoteResponse, error) {
-	req := &multipoolermanagerdatapb.DemoteRequest{
-		ConsensusTerm: term,
-		DrainTimeout:  durationpb.New(drainTimeout),
-		Force:         false,
-	}
-	return n.rpcClient.Demote(ctx, n.pooler, req)
-}
-
-// ConsensusStatus gets the consensus status of this node
-func (n *Node) ConsensusStatus(ctx context.Context) (*consensusdatapb.StatusResponse, error) {
-	req := &consensusdatapb.StatusRequest{}
-	return n.rpcClient.ConsensusStatus(ctx, n.pooler, req)
-}
-
-// ManagerStatus gets the manager status of this node
-func (n *Node) ManagerStatus(ctx context.Context) (*multipoolermanagerdatapb.StatusResponse, error) {
-	req := &multipoolermanagerdatapb.StatusRequest{}
-	return n.rpcClient.Status(ctx, n.pooler, req)
-}
-
-// InitializeEmptyPrimary initializes this node as an empty primary
-func (n *Node) InitializeEmptyPrimary(ctx context.Context, term int64) (*multipoolermanagerdatapb.InitializeEmptyPrimaryResponse, error) {
-	req := &multipoolermanagerdatapb.InitializeEmptyPrimaryRequest{
-		ConsensusTerm: term,
-	}
-	return n.rpcClient.InitializeEmptyPrimary(ctx, n.pooler, req)
-}
-
-// InitializeAsStandby initializes this node as a standby from a primary
-func (n *Node) InitializeAsStandby(ctx context.Context, primaryHost string, primaryPort int32, term int64, force bool) (*multipoolermanagerdatapb.InitializeAsStandbyResponse, error) {
-	req := &multipoolermanagerdatapb.InitializeAsStandbyRequest{
-		PrimaryHost:   primaryHost,
-		PrimaryPort:   primaryPort,
-		ConsensusTerm: term,
-		Force:         force,
-	}
-	return n.rpcClient.InitializeAsStandby(ctx, n.pooler, req)
-}
-
-// SetPrimaryConnInfo configures this standby's connection to a primary
-func (n *Node) SetPrimaryConnInfo(ctx context.Context, primaryHost string, primaryPort int32, term int64) error {
-	req := &multipoolermanagerdatapb.SetPrimaryConnInfoRequest{
-		Host:                  primaryHost,
-		Port:                  primaryPort,
-		CurrentTerm:           term,
-		StopReplicationBefore: false,
-		StartReplicationAfter: false,
-		Force:                 false,
-	}
-	_, err := n.rpcClient.SetPrimaryConnInfo(ctx, n.pooler, req)
-	return err
-}
-
-// StopReplicationAndGetStatus stops replication on this standby and returns status
-func (n *Node) StopReplicationAndGetStatus(ctx context.Context, mode multipoolermanagerdatapb.ReplicationPauseMode, wait bool) (*multipoolermanagerdatapb.ReplicationStatus, error) {
-	req := &multipoolermanagerdatapb.StopReplicationAndGetStatusRequest{
-		Mode: mode,
-		Wait: wait,
-	}
-	resp, err := n.rpcClient.StopReplicationAndGetStatus(ctx, n.pooler, req)
-	if err != nil {
-		return nil, err
-	}
-	return resp.Status, nil
-}
-
-// GetDurabilityPolicy retrieves the active durability policy from the node's local database.
-func (n *Node) GetDurabilityPolicy(ctx context.Context) (*multipoolermanagerdatapb.GetDurabilityPolicyResponse, error) {
-	req := &multipoolermanagerdatapb.GetDurabilityPolicyRequest{}
-	return n.rpcClient.GetDurabilityPolicy(ctx, n.pooler, req)
+	return nodes, nil
 }

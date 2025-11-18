@@ -26,13 +26,15 @@ import (
 	"github.com/multigres/multigres/go/mterrors"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
+	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
 
 // LoadQuorumRuleFromNode loads the active durability policy from a node via gRPC.
 // This uses the GetDurabilityPolicy RPC to fetch the policy from the node's local database.
 func (c *Coordinator) LoadQuorumRuleFromNode(ctx context.Context, node *Node, database string) (*clustermetadatapb.QuorumRule, error) {
 	// Call GetDurabilityPolicy RPC
-	resp, err := node.GetDurabilityPolicy(ctx)
+	req := &multipoolermanagerdatapb.GetDurabilityPolicyRequest{}
+	resp, err := node.rpcClient.GetDurabilityPolicy(ctx, node.pooler, req)
 	if err != nil {
 		return nil, mterrors.Wrapf(err, "failed to get durability policy from node %s", node.ID.Name)
 	}
@@ -128,7 +130,8 @@ func (c *Coordinator) loadFromReplicasInParallel(ctx context.Context, replicas [
 		wg.Add(1)
 		go func(n *Node) {
 			defer wg.Done()
-			resp, err := n.GetDurabilityPolicy(ctx)
+			req := &multipoolermanagerdatapb.GetDurabilityPolicyRequest{}
+			resp, err := n.rpcClient.GetDurabilityPolicy(ctx, n.pooler, req)
 			if err != nil {
 				results <- result{node: n, err: err}
 				return
