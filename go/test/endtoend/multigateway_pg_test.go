@@ -24,11 +24,17 @@ import (
 	_ "github.com/lib/pq" // PostgreSQL driver
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/multigres/multigres/go/test/utils"
 )
 
 // TestMultiGateway_PostgreSQLConnection tests that we can connect to multigateway via PostgreSQL protocol
 // and execute queries. This is a true end-to-end test that uses the full cluster setup.
 func TestMultiGateway_PostgreSQLConnection(t *testing.T) {
+	if utils.ShouldSkipRealPostgres() {
+		t.Skip("PostgreSQL binaries not found, skipping cluster lifecycle tests")
+	}
+
 	// Setup full test cluster with all services
 	cluster := setupTestCluster(t)
 	defer cluster.Cleanup()

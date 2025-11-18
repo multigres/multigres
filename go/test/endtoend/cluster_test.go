@@ -763,6 +763,11 @@ func executeStopCommand(t *testing.T, args []string) (string, error) {
 func testPostgreSQLConnection(t *testing.T, port int, zone string) {
 	t.Helper()
 
+	if utils.ShouldSkipRealPostgres() {
+		t.Log("Skipping PostgreSQL test for short tests with no postgres binaries")
+		return
+	}
+
 	t.Logf("Testing PostgreSQL connection on port %d (Zone %s)...", port, zone)
 
 	// Set up environment for psql command
