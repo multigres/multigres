@@ -22,6 +22,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/multigres/multigres/go/clustermetadata/topo"
 	"github.com/multigres/multigres/go/multipooler/rpcclient"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	consensusdatapb "github.com/multigres/multigres/go/pb/consensusdata"
@@ -30,20 +31,25 @@ import (
 
 // createMockNode creates a mock node for testing using FakeClient
 func createMockNode(fakeClient *rpcclient.FakeClient, name string, term int64, walPosition string, healthy bool, role string) *Node {
+	poolerID := &clustermetadatapb.ID{
+		Component: clustermetadatapb.ID_MULTIPOOLER,
+		Cell:      "zone1",
+		Name:      name,
+	}
+
 	pooler := &clustermetadatapb.MultiPooler{
-		Id: &clustermetadatapb.ID{
-			Component: clustermetadatapb.ID_MULTIPOOLER,
-			Cell:      "zone1",
-			Name:      name,
-		},
+		Id:       poolerID,
 		Hostname: "localhost",
 		PortMap: map[string]int32{
 			"grpc": 9000,
 		},
 	}
 
+	// Use topo helper to generate consistent key format
+	poolerKey := topo.MultiPoolerIDString(poolerID)
+
 	// Configure FakeClient responses for this pooler
-	fakeClient.ConsensusStatusResponses[name] = &consensusdatapb.StatusResponse{
+	fakeClient.ConsensusStatusResponses[poolerKey] = &consensusdatapb.StatusResponse{
 		CurrentTerm: term,
 		IsHealthy:   healthy,
 		Role:        role,
@@ -54,17 +60,17 @@ func createMockNode(fakeClient *rpcclient.FakeClient, name string, term int64, w
 		},
 	}
 
-	fakeClient.BeginTermResponses[name] = &consensusdatapb.BeginTermResponse{
+	fakeClient.BeginTermResponses[poolerKey] = &consensusdatapb.BeginTermResponse{
 		Accepted: true,
 	}
 
-	fakeClient.StateResponses[name] = &multipoolermanagerdatapb.StateResponse{
+	fakeClient.StateResponses[poolerKey] = &multipoolermanagerdatapb.StateResponse{
 		State: "ready",
 	}
 
-	fakeClient.PromoteResponses[name] = &multipoolermanagerdatapb.PromoteResponse{}
+	fakeClient.PromoteResponses[poolerKey] = &multipoolermanagerdatapb.PromoteResponse{}
 
-	fakeClient.SetPrimaryConnInfoResponses[name] = &multipoolermanagerdatapb.SetPrimaryConnInfoResponse{}
+	fakeClient.SetPrimaryConnInfoResponses[poolerKey] = &multipoolermanagerdatapb.SetPrimaryConnInfoResponse{}
 
 	return &Node{
 		ID:        pooler.Id,
@@ -117,16 +123,17 @@ func TestDiscoverMaxTerm(t *testing.T) {
 	t.Run("success - ignores failed nodes", func(t *testing.T) {
 		fakeClient := rpcclient.NewFakeClient()
 
+		pooler2ID := &clustermetadatapb.ID{
+			Component: clustermetadatapb.ID_MULTIPOOLER,
+			Cell:      "zone1",
+			Name:      "mp2",
+		}
 		pooler2 := &clustermetadatapb.MultiPooler{
-			Id: &clustermetadatapb.ID{
-				Component: clustermetadatapb.ID_MULTIPOOLER,
-				Cell:      "zone1",
-				Name:      "mp2",
-			},
+			Id:       pooler2ID,
 			Hostname: "localhost",
 			PortMap:  map[string]int32{"grpc": 9000},
 		}
-		fakeClient.Errors["mp2"] = context.DeadlineExceeded
+		fakeClient.Errors[topo.MultiPoolerIDString(pooler2ID)] = context.DeadlineExceeded
 
 		cohort := []*Node{
 			createMockNode(fakeClient, "mp1", 5, "0/1000000", true, "standby"),
@@ -201,14 +208,16 @@ func TestSelectCandidate(t *testing.T) {
 
 	t.Run("error - no nodes available", func(t *testing.T) {
 		fakeClient := rpcclient.NewFakeClient()
-		fakeClient.Errors["mp1"] = context.DeadlineExceeded
+
+		poolerID := &clustermetadatapb.ID{
+			Component: clustermetadatapb.ID_MULTIPOOLER,
+			Cell:      "zone1",
+			Name:      "mp1",
+		}
+		fakeClient.Errors[topo.MultiPoolerIDString(poolerID)] = context.DeadlineExceeded
 
 		pooler := &clustermetadatapb.MultiPooler{
-			Id: &clustermetadatapb.ID{
-				Component: clustermetadatapb.ID_MULTIPOOLER,
-				Cell:      "zone1",
-				Name:      "mp1",
-			},
+			Id:       poolerID,
 			Hostname: "localhost",
 			PortMap:  map[string]int32{"grpc": 9000},
 		}
@@ -269,7 +278,12 @@ func TestRecruitNodes(t *testing.T) {
 		}
 
 		// mp3 will reject the term (override after creating the node)
-		fakeClient.BeginTermResponses["mp3"] = &consensusdatapb.BeginTermResponse{Accepted: false}
+		mp3ID := &clustermetadatapb.ID{
+			Component: clustermetadatapb.ID_MULTIPOOLER,
+			Cell:      "zone1",
+			Name:      "mp3",
+		}
+		fakeClient.BeginTermResponses[topo.MultiPoolerIDString(mp3ID)] = &consensusdatapb.BeginTermResponse{Accepted: false}
 
 		recruited, err := c.recruitNodes(ctx, cohort, 6, candidate)
 		require.NoError(t, err)
@@ -326,10 +340,20 @@ func TestBeginTerm(t *testing.T) {
 
 		// Override responses after creating nodes
 		// mp2 rejects the term
-		fakeClient.BeginTermResponses["mp2"] = &consensusdatapb.BeginTermResponse{Accepted: false}
+		mp2ID := &clustermetadatapb.ID{
+			Component: clustermetadatapb.ID_MULTIPOOLER,
+			Cell:      "zone1",
+			Name:      "mp2",
+		}
+		fakeClient.BeginTermResponses[topo.MultiPoolerIDString(mp2ID)] = &consensusdatapb.BeginTermResponse{Accepted: false}
 
 		// mp3 returns an error
-		fakeClient.Errors["mp3"] = context.DeadlineExceeded
+		mp3ID := &clustermetadatapb.ID{
+			Component: clustermetadatapb.ID_MULTIPOOLER,
+			Cell:      "zone1",
+			Name:      "mp3",
+		}
+		fakeClient.Errors[topo.MultiPoolerIDString(mp3ID)] = context.DeadlineExceeded
 
 		// Create ANY_N quorum rule requiring 2 nodes
 		quorumRule := &clustermetadatapb.QuorumRule{
@@ -383,8 +407,13 @@ func TestPropagate(t *testing.T) {
 		candidate := createMockNode(fakeClient, "mp1", 5, "0/3000000", true, "primary")
 
 		// mp3 will fail SetPrimaryConnInfo
-		fakeClient.SetPrimaryConnInfoResponses["mp3"] = nil
-		fakeClient.Errors["mp3"] = context.DeadlineExceeded
+		mp3ID := &clustermetadatapb.ID{
+			Component: clustermetadatapb.ID_MULTIPOOLER,
+			Cell:      "zone1",
+			Name:      "mp3",
+		}
+		fakeClient.SetPrimaryConnInfoResponses[topo.MultiPoolerIDString(mp3ID)] = nil
+		fakeClient.Errors[topo.MultiPoolerIDString(mp3ID)] = context.DeadlineExceeded
 
 		standbys := []*Node{
 			createMockNode(fakeClient, "mp2", 5, "0/2000000", true, "standby"),
@@ -429,7 +458,12 @@ func TestEstablishLeader(t *testing.T) {
 		candidate := createMockNode(fakeClient, "mp1", 5, "0/3000000", true, "primary")
 
 		// Override the status response to indicate not ready
-		fakeClient.StateResponses["mp1"] = &multipoolermanagerdatapb.StateResponse{
+		mp1ID := &clustermetadatapb.ID{
+			Component: clustermetadatapb.ID_MULTIPOOLER,
+			Cell:      "zone1",
+			Name:      "mp1",
+		}
+		fakeClient.StateResponses[topo.MultiPoolerIDString(mp1ID)] = &multipoolermanagerdatapb.StateResponse{
 			State: "initializing",
 		}
 

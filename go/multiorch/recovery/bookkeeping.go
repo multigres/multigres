@@ -49,10 +49,11 @@ func (re *Engine) forgetLongUnseenInstances() {
 	storeSize := re.poolerStore.Len()
 
 	// Warn if store gets too large - operator should consider splitting watchers
-	if storeSize > 1000 {
+	const maxRecommendedPoolers = 1000
+	if storeSize > maxRecommendedPoolers {
 		re.logger.Warn("pooler store size exceeds recommended threshold",
 			"current_size", storeSize,
-			"threshold", 1000,
+			"threshold", maxRecommendedPoolers,
 			"message", "consider splitting watch targets among multiple multiorch instances to distribute load",
 		)
 	}
