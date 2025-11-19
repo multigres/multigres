@@ -83,7 +83,7 @@ jobs:
           # Set environment variables for tests
           export PGCONNECT_TIMEOUT=5
           # Run tests with verbose output
-          go test -coverprofile=coverage.out -json -v ./go/cmd/... | tee integration-test-results.jsonl | go tool tparse -follow
+          go test -coverprofile=coverage.txt -json -v ./go/cmd/... | tee integration-test-results.jsonl | go tool tparse -follow
 
       - name: Upload coverage artifact
         uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
