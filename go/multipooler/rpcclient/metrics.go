@@ -61,8 +61,6 @@ type DialDuration struct {
 }
 
 // Record records a dial operation duration with proper OTel attributes.
-// The path parameter is automatically converted to the correct attribute key
-// internally.
 //
 // Parameters:
 //   - ctx: Context for the metric recording
@@ -85,7 +83,6 @@ func (m DialDuration) Record(
 }
 
 // NewMetrics initializes OpenTelemetry metrics for the rpcclient connection cache.
-// Individual metrics that fail to initialize will use noop implementations.
 // For the cacheSize observable gauge, use RegisterCacheSizeCallback() to register a callback.
 func NewMetrics() *Metrics {
 	m := &Metrics{
