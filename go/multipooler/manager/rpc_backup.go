@@ -138,7 +138,7 @@ func (pm *MultiPoolerManager) RestoreFromBackup(ctx context.Context, backupID st
 	var primaryHost string
 	var primaryPort int32
 	if asStandby {
-		replStatus, err := pm.ReplicationStatus(ctx)
+		replStatus, err := pm.StandbyReplicationStatus(ctx)
 		if err != nil {
 			slog.ErrorContext(ctx, "Failed to get replication status", "error", err)
 			return mterrors.Wrap(err, "failed to get replication status")

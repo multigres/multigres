@@ -29,10 +29,14 @@ var (
 	// MT13001 General Error
 	MT13001 = errorWithoutState("MT13001", mtrpcpb.Code_INTERNAL, "[BUG] %s", "This error should not happen and is a bug. Please file an issue on GitHub: https://github.com/multigres/multigres/issues/new/choose.")
 
+	// MT13002 Pooler Type Mismatch
+	MT13002 = errorWithoutState("MT13002", mtrpcpb.Code_FAILED_PRECONDITION, "pooler type mismatch: topology says %s but PostgreSQL is %s", "The pooler type in the topology does not match the actual PostgreSQL role. This indicates the pooler is in an inconsistent state and requires intervention.")
+
 	// Errors is a list of errors that must match all the variables
 	// defined above to enable auto-documentation of error codes.
 	Errors = []func(args ...any) *MultigresError{
 		MT13001,
+		MT13002,
 	}
 
 	ErrorsWithNoCode = []func(code mtrpcpb.Code, args ...any) *MultigresError{}

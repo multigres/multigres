@@ -517,15 +517,15 @@ func (c *Coordinator) EstablishLeader(ctx context.Context, candidate *Node, term
 		"term", term)
 
 	// Verify the leader is actually serving
-	statusReq := &multipoolermanagerdatapb.StatusRequest{}
-	status, err := candidate.rpcClient.Status(ctx, candidate.pooler, statusReq)
+	stateReq := &multipoolermanagerdatapb.StateRequest{}
+	state, err := candidate.rpcClient.State(ctx, candidate.pooler, stateReq)
 	if err != nil {
 		return mterrors.Wrap(err, "failed to verify leader status")
 	}
 
-	if status.State != "ready" {
+	if state.State != "ready" {
 		return mterrors.Errorf(mtrpcpb.Code_INTERNAL,
-			"leader is not in ready state: %s", status.State)
+			"leader is not in ready state: %s", state.State)
 	}
 
 	return nil
