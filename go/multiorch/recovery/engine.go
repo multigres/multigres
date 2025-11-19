@@ -217,7 +217,11 @@ func NewEngine(
 	}
 
 	// Initialize metrics
-	engine.metrics = NewMetrics(logger)
+	var err error
+	engine.metrics, err = NewMetrics()
+	if err != nil {
+		logger.Error("failed to initialize recovery metrics", "error", err)
+	}
 
 	// Register callback for pooler store size observable gauge
 	_ = engine.metrics.RegisterPoolerStoreSizeCallback(func() int {

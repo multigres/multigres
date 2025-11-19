@@ -16,7 +16,8 @@ package recovery
 
 import (
 	"context"
-	"log/slog"
+	"errors"
+	"fmt"
 	"time"
 
 	"go.opentelemetry.io/otel"
@@ -134,14 +135,18 @@ func (m HealthCheckCycleDuration) Record(ctx context.Context, val float64, attrs
 }
 
 // NewMetrics initializes OpenTelemetry metrics for the recovery engine.
-// Individual metrics that fail to initialize will use noop implementations.
-// For the poolerStoreSize observable gauge, use RegisterPoolerStoreSizeCallback() to register a callback.
-func NewMetrics(logger *slog.Logger) *Metrics {
+// Individual metrics that fail to initialize will use noop implementations and be included
+// in the returned error. For the poolerStoreSize observable gauge, use
+// RegisterPoolerStoreSizeCallback() to register a callback.
+//
+// Returns a Metrics instance (with noop fallbacks for failed metrics) and any initialization
+// errors that occurred. The caller should log or handle these errors as appropriate.
+func NewMetrics() (*Metrics, error) {
 	m := &Metrics{
 		meter: otel.Meter("github.com/multigres/multigres/go/multiorch/recovery"),
 	}
 
-	var err error
+	var errs []error
 
 	// Gauge for current pooler store size
 	poolerStoreSizeGauge, err := m.meter.Int64ObservableGauge(
@@ -150,7 +155,7 @@ func NewMetrics(logger *slog.Logger) *Metrics {
 		metric.WithUnit("{pooler}"),
 	)
 	if err != nil {
-		logger.Error("failed to create pooler.store.size gauge", "error", err)
+		errs = append(errs, fmt.Errorf("multiorch.recovery.pooler.store.size gauge: %w", err))
 		m.poolerStoreSize = PoolerStoreSize{noop.Int64ObservableGauge{}}
 	} else {
 		m.poolerStoreSize = PoolerStoreSize{poolerStoreSizeGauge}
@@ -163,7 +168,7 @@ func NewMetrics(logger *slog.Logger) *Metrics {
 		metric.WithUnit("s"),
 	)
 	if err != nil {
-		logger.Error("failed to create cluster_metadata.refresh.duration histogram", "error", err)
+		errs = append(errs, fmt.Errorf("multiorch.recovery.cluster_metadata.refresh.duration histogram: %w", err))
 		m.clusterMetadataRefreshDuration = ClusterMetadataRefreshDuration{noop.Float64Histogram{}}
 	} else {
 		m.clusterMetadataRefreshDuration = ClusterMetadataRefreshDuration{refreshDurationHistogram}
@@ -177,7 +182,7 @@ func NewMetrics(logger *slog.Logger) *Metrics {
 		metric.WithUnit("s"),
 	)
 	if err != nil {
-		logger.Error("failed to create pooler.poll.duration histogram", "error", err)
+		errs = append(errs, fmt.Errorf("multiorch.recovery.pooler.poll.duration histogram: %w", err))
 		m.poolerPollDuration = PoolerPollDuration{noop.Float64Histogram{}}
 	} else {
 		m.poolerPollDuration = PoolerPollDuration{pollDurationHistogram}
@@ -190,13 +195,16 @@ func NewMetrics(logger *slog.Logger) *Metrics {
 		metric.WithUnit("s"),
 	)
 	if err != nil {
-		logger.Error("failed to create health_check.cycle.duration histogram", "error", err)
+		errs = append(errs, fmt.Errorf("multiorch.recovery.health_check.cycle.duration histogram: %w", err))
 		m.healthCheckCycleDuration = HealthCheckCycleDuration{noop.Float64Histogram{}}
 	} else {
 		m.healthCheckCycleDuration = HealthCheckCycleDuration{healthCheckCycleDurationHistogram}
 	}
 
-	return m
+	if len(errs) > 0 {
+		return m, errors.Join(errs...)
+	}
+	return m, nil
 }
 
 // RegisterPoolerStoreSizeCallback registers a callback for the pooler store size observable gauge.
