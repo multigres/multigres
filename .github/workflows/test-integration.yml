@@ -97,7 +97,7 @@ jobs:
     name: "Code coverage report"
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-24.04
-    needs: unit_tests
+    needs: test-integration
 
     steps:
       - name: Upload coverage artifact
