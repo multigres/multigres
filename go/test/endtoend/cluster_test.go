@@ -540,7 +540,7 @@ func buildMultigresBinary() (string, error) {
 	// Build multigres binary
 	binaryPath := filepath.Join(tempDir, "multigres")
 	sourceDir := filepath.Join(projectRoot, "go", "cmd", "multigres")
-	buildCmd := exec.Command("go", "build", "-cover", "-covermode=atomic", "-coverpkg=./..", "-o", binaryPath, sourceDir)
+	buildCmd := exec.Command("go", "build", "-o", binaryPath, sourceDir)
 	buildCmd.Dir = projectRoot
 
 	buildOutput, err := buildCmd.CombinedOutput()
@@ -578,7 +578,7 @@ func buildServiceBinaries(tempDir string) error {
 		// Define binary paths in the bin directory
 		binaryPath := filepath.Join(binDir, binaryName)
 		sourceDir := filepath.Join(projectRoot, "go", "cmd", binaryName)
-		buildCmd := exec.Command("go", "build", "-cover", "-covermode=atomic", "-coverpkg=./..", "-o", binaryPath, sourceDir)
+		buildCmd := exec.Command("go", "build", "-o", binaryPath, sourceDir)
 		buildCmd.Dir = projectRoot
 
 		buildOutput, err := buildCmd.CombinedOutput()
@@ -1147,7 +1147,7 @@ func TestClusterLifecycle(t *testing.T) {
 
 		multipoolerPath := filepath.Join(binDir, "multipooler")
 		sourceDir := filepath.Join(projectRoot, "go", "cmd", "multipooler")
-		buildCmd := exec.Command("go", "build", "-cover", "-covermode=atomic", "-coverpkg=./..", "-o", multipoolerPath, sourceDir)
+		buildCmd := exec.Command("go", "build", "-o", multipoolerPath, sourceDir)
 		buildCmd.Dir = projectRoot
 
 		buildOutput, err := buildCmd.CombinedOutput()
