@@ -81,8 +81,8 @@ func (pm *MultiPoolerManager) InitializeEmptyPrimary(ctx context.Context, req *m
 		return nil, mterrors.Wrap(err, "failed to connect to database")
 	}
 
-	// 6. Create multigres schema and heartbeat table
-	if err := pm.initializeMultigresSchema(ctx); err != nil {
+	// 6. Create multigres schema and tables (heartbeat, durability_policy)
+	if err := CreateSidecarSchema(pm.db); err != nil {
 		return nil, mterrors.Wrap(err, "failed to initialize multigres schema")
 	}
 
@@ -328,33 +328,5 @@ func (pm *MultiPoolerManager) waitForDatabaseConnection(ctx context.Context) err
 	pm.logger.InfoContext(ctx, "Waiting for database connection")
 	// TODO: Implement retry logic
 	// For now, assume the database will be available soon
-	return nil
-}
-
-// initializeMultigresSchema creates the multigres schema and heartbeat table
-func (pm *MultiPoolerManager) initializeMultigresSchema(ctx context.Context) error {
-	if pm.db == nil {
-		return fmt.Errorf("database connection not available")
-	}
-
-	pm.logger.InfoContext(ctx, "Creating multigres schema and heartbeat table")
-
-	// Create schema
-	if _, err := pm.db.ExecContext(ctx, "CREATE SCHEMA IF NOT EXISTS multigres"); err != nil {
-		return fmt.Errorf("failed to create multigres schema: %w", err)
-	}
-
-	// Create heartbeat table
-	createTableSQL := `
-		CREATE TABLE IF NOT EXISTS multigres.heartbeat (
-			shard_id BYTEA PRIMARY KEY,
-			leader_id TEXT NOT NULL,
-			ts BIGINT NOT NULL
-		)`
-
-	if _, err := pm.db.ExecContext(ctx, createTableSQL); err != nil {
-		return fmt.Errorf("failed to create heartbeat table: %w", err)
-	}
-
 	return nil
 }
