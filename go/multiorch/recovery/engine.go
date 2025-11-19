@@ -224,9 +224,12 @@ func NewEngine(
 	}
 
 	// Register callback for pooler store size observable gauge
-	_ = engine.metrics.RegisterPoolerStoreSizeCallback(func() int {
+	err = engine.metrics.RegisterPoolerStoreSizeCallback(func() int {
 		return poolerStore.Len()
 	})
+	if err != nil {
+		logger.Error("failed to monitor pooler store size", "error", err)
+	}
 
 	return engine
 }
