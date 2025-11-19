@@ -95,6 +95,14 @@ func (pm *MultiPoolerManager) InitializeEmptyPrimary(ctx context.Context, req *m
 		}
 	}
 
+	// 8. Create initial backup for standby initialization
+	pm.logger.InfoContext(ctx, "Creating initial backup for standby initialization", "shard", pm.getShardID())
+	backupID, err := pm.Backup(ctx, true, "full")
+	if err != nil {
+		return nil, mterrors.Wrap(err, "failed to create initial backup")
+	}
+	pm.logger.InfoContext(ctx, "Initial backup created", "backup_id", backupID)
+
 	pm.logger.InfoContext(ctx, "Successfully initialized pooler as empty primary", "shard", pm.getShardID(), "term", req.ConsensusTerm)
 	return &multipoolermanagerdatapb.InitializeEmptyPrimaryResponse{Success: true}, nil
 }
@@ -128,39 +136,48 @@ func (pm *MultiPoolerManager) InitializeAsStandby(ctx context.Context, req *mult
 		}
 	}
 
-	// 2. TODO: Restore from primary using pgBackRest (PR #226)
-	// For now, we'll use pg_basebackup as a placeholder
-	pm.logger.InfoContext(ctx, "Performing backup from primary", "primary", fmt.Sprintf("%s:%d", req.PrimaryHost, req.PrimaryPort))
-
-	// Placeholder: In production, this would call pm.Restore() from PR #226
-	// For now, we skip the actual backup to avoid dependencies
-	finalLSN := ""
-
-	// 3. Configure primary_conninfo
-	if err := pm.setPrimaryConnInfoLocked(ctx, req.PrimaryHost, req.PrimaryPort, false, false); err != nil {
+	// 2. Configure primary_conninfo before restore
+	// This must happen before restore so RestoreFromBackup can preserve these settings
+	if err := pm.SetPrimaryConnInfo(ctx, req.PrimaryHost, req.PrimaryPort, false, false, req.ConsensusTerm, false); err != nil {
 		return nil, mterrors.Wrap(err, "failed to set primary_conninfo")
 	}
 
-	// 4. Restart PostgreSQL as standby (creates standby.signal and starts)
-	pm.logger.InfoContext(ctx, "Restarting PostgreSQL as standby", "shard", pm.getShardID())
-	if pm.pgctldClient == nil {
-		return nil, mterrors.New(mtrpcpb.Code_UNAVAILABLE, "pgctld client not available")
+	// 3. Restore from the latest backup on the primary
+	pm.logger.InfoContext(ctx, "Restoring from latest backup on primary", "primary", fmt.Sprintf("%s:%d", req.PrimaryHost, req.PrimaryPort))
+
+	// Use asStandby=true since we're initializing as a standby
+	// Use empty backupID to restore from latest backup
+	err = pm.RestoreFromBackup(ctx, "", true)
+	if err != nil {
+		return nil, mterrors.Wrap(err, "failed to restore from backup")
 	}
 
-	restartReq := &pgctldpb.RestartRequest{
-		AsStandby: true,
-		Mode:      "fast",
-	}
-	if _, err := pm.pgctldClient.Restart(ctx, restartReq); err != nil {
-		return nil, mterrors.Wrap(err, "failed to restart PostgreSQL as standby")
+	pm.logger.InfoContext(ctx, "Successfully restored from latest backup")
+
+	// Note: RestoreFromBackup already restarted PostgreSQL as standby, so we skip
+	// the explicit restart here. The standby.signal is already in place.
+
+	// Extract final LSN from backup metadata
+	backups, err := pm.GetBackups(ctx, 1) // Get latest backup
+	if err != nil {
+		pm.logger.WarnContext(ctx, "Failed to get backup metadata for LSN", "error", err)
+		// Non-fatal: we can continue without LSN
 	}
 
-	// 5. Wait for database connection
+	finalLSN := ""
+	if len(backups) > 0 && backups[0].FinalLsn != "" {
+		finalLSN = backups[0].FinalLsn
+		pm.logger.InfoContext(ctx, "Backup LSN captured", "backup_id", backups[0].BackupId, "final_lsn", finalLSN)
+	} else {
+		pm.logger.WarnContext(ctx, "No LSN available from backup metadata")
+	}
+
+	// 4. Wait for database connection
 	if err := pm.waitForDatabaseConnection(ctx); err != nil {
 		return nil, mterrors.Wrap(err, "failed to connect to database")
 	}
 
-	// 6. Set consensus term
+	// 5. Set consensus term
 	if pm.consensusState != nil {
 		if err := pm.consensusState.UpdateTermAndSave(ctx, req.ConsensusTerm); err != nil {
 			return nil, mterrors.Wrap(err, "failed to set consensus term")

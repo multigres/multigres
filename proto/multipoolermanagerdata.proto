@@ -608,6 +608,10 @@ message RestoreFromBackupRequest {
   // Backup to restore from. If this is empty, we restore from the latest
   // backup.
   string backup_id = 1;
+
+  // Whether to restore as standby. When false, auto-detect from current state.
+  // Set to true when initializing a new standby from scratch.
+  bool as_standby = 2;
 }
 
 // RestoreFromBackupResponse contains the result of a restore operation
@@ -630,6 +634,7 @@ message BackupMetadata {
   string shard = 2;
   Status status = 3;
   string backup_id = 4;
+  string final_lsn = 5;  // Final checkpoint LSN (stop LSN) for this backup
 
   // Status represents the state of a backup
   enum Status {

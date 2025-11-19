@@ -221,7 +221,8 @@ func TestBackup_CreateListAndRestore(t *testing.T) {
 			t.Log("Step 6: Restoring from backup to standby...")
 
 			restoreReq := &multipoolermanagerdata.RestoreFromBackupRequest{
-				BackupId: fullBackupID,
+				BackupId:  fullBackupID,
+				AsStandby: true, // Must match current standby state
 			}
 
 			restoreCtx, restoreCancel := context.WithTimeout(context.Background(), 10*time.Minute)
