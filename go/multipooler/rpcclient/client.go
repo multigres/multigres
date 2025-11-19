@@ -158,7 +158,7 @@ type MultiPoolerClient interface {
 	// State gets the current status of the multipooler manager.
 	// This is called very frequently by the recovery engine health checks,
 	// so implementations cache connections.
-	State(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.StatusRequest) (*multipoolermanagerdatapb.StatusResponse, error)
+	State(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.StateRequest) (*multipoolermanagerdatapb.StateResponse, error)
 
 	//
 	// Manager Service Methods - Replication
@@ -179,8 +179,8 @@ type MultiPoolerClient interface {
 	// StandbyReplicationStatus gets the current replication status of the standby.
 	StandbyReplicationStatus(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.StandbyReplicationStatusRequest) (*multipoolermanagerdatapb.StandbyReplicationStatusResponse, error)
 
-	// ReplicationStatus gets unified status that works for both PRIMARY and REPLICA poolers.
-	ReplicationStatus(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.ReplicationStatusRequest) (*multipoolermanagerdatapb.ReplicationStatusResponse, error)
+	// Status gets unified status that works for both PRIMARY and REPLICA poolers.
+	Status(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.ReplicationStatusRequest) (*multipoolermanagerdatapb.ReplicationStatusResponse, error)
 
 	// ResetReplication resets the standby's connection to its primary.
 	ResetReplication(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.ResetReplicationRequest) (*multipoolermanagerdatapb.ResetReplicationResponse, error)

@@ -97,9 +97,9 @@ func (s *managerService) StandbyReplicationStatus(ctx context.Context, req *mult
 	}, nil
 }
 
-// ReplicationStatus gets unified status that works for both PRIMARY and REPLICA poolers
-func (s *managerService) ReplicationStatus(ctx context.Context, req *multipoolermanagerdata.ReplicationStatusRequest) (*multipoolermanagerdata.ReplicationStatusResponse, error) {
-	status, err := s.manager.ReplicationStatus(ctx)
+// Status gets unified status that works for both PRIMARY and REPLICA poolers
+func (s *managerService) Status(ctx context.Context, req *multipoolermanagerdata.ReplicationStatusRequest) (*multipoolermanagerdata.ReplicationStatusResponse, error) {
+	status, err := s.manager.Status(ctx)
 	if err != nil {
 		return nil, mterrors.ToGRPC(err)
 	}
@@ -237,7 +237,7 @@ func (s *managerService) Promote(ctx context.Context, req *multipoolermanagerdat
 }
 
 // State gets the current status of the manager
-func (s *managerService) State(ctx context.Context, req *multipoolermanagerdata.StatusRequest) (*multipoolermanagerdata.StatusResponse, error) {
+func (s *managerService) State(ctx context.Context, req *multipoolermanagerdata.StateRequest) (*multipoolermanagerdata.StateResponse, error) {
 	return s.manager.State(ctx)
 }
 

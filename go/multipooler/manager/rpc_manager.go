@@ -250,13 +250,13 @@ func (pm *MultiPoolerManager) StandbyReplicationStatus(ctx context.Context) (*mu
 	return status, nil
 }
 
-// ReplicationStatus gets unified status that works for both PRIMARY and REPLICA poolers
+// Status gets unified status that works for both PRIMARY and REPLICA poolers
 // The multipooler returns information based on what type it believes itself to be
-func (pm *MultiPoolerManager) ReplicationStatus(ctx context.Context) (*multipoolermanagerdatapb.PoolerStatus, error) {
+func (pm *MultiPoolerManager) Status(ctx context.Context) (*multipoolermanagerdatapb.PoolerStatus, error) {
 	if err := pm.checkReady(); err != nil {
 		return nil, err
 	}
-	pm.logger.InfoContext(ctx, "ReplicationStatus called")
+	pm.logger.InfoContext(ctx, "Status called")
 
 	// Get pooler type from topology
 	pm.mu.Lock()
@@ -669,7 +669,7 @@ func (pm *MultiPoolerManager) ChangeType(ctx context.Context, poolerType string)
 }
 
 // State returns the current manager status and error information
-func (pm *MultiPoolerManager) State(ctx context.Context) (*multipoolermanagerdatapb.StatusResponse, error) {
+func (pm *MultiPoolerManager) State(ctx context.Context) (*multipoolermanagerdatapb.StateResponse, error) {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
 
@@ -679,7 +679,7 @@ func (pm *MultiPoolerManager) State(ctx context.Context) (*multipoolermanagerdat
 		errorMessage = pm.stateError.Error()
 	}
 
-	return &multipoolermanagerdatapb.StatusResponse{
+	return &multipoolermanagerdatapb.StateResponse{
 		State:        state,
 		ErrorMessage: errorMessage,
 	}, nil

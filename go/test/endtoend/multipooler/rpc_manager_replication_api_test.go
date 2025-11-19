@@ -2424,7 +2424,7 @@ func TestReplicationStatus(t *testing.T) {
 		t.Log("Testing ReplicationStatus on PRIMARY pooler...")
 
 		// Call ReplicationStatus on PRIMARY
-		statusResp, err := primaryManagerClient.ReplicationStatus(utils.WithShortDeadline(t), &multipoolermanagerdatapb.ReplicationStatusRequest{})
+		statusResp, err := primaryManagerClient.Status(utils.WithShortDeadline(t), &multipoolermanagerdatapb.ReplicationStatusRequest{})
 		require.NoError(t, err, "ReplicationStatus should succeed on PRIMARY")
 		require.NotNil(t, statusResp.Status, "Status should not be nil")
 
@@ -2459,7 +2459,7 @@ func TestReplicationStatus(t *testing.T) {
 		}, 10*time.Second, 500*time.Millisecond, "Standby should be connected (from default setup)")
 
 		// Call ReplicationStatus on REPLICA
-		statusResp, err := standbyManagerClient.ReplicationStatus(utils.WithShortDeadline(t), &multipoolermanagerdatapb.ReplicationStatusRequest{})
+		statusResp, err := standbyManagerClient.Status(utils.WithShortDeadline(t), &multipoolermanagerdatapb.ReplicationStatusRequest{})
 		require.NoError(t, err, "ReplicationStatus should succeed on REPLICA")
 		require.NotNil(t, statusResp.Status, "Status should not be nil")
 
@@ -2487,10 +2487,10 @@ func TestReplicationStatus(t *testing.T) {
 		t.Log("Testing unified ReplicationStatus API works for both PRIMARY and REPLICA...")
 
 		// Call the same RPC on both PRIMARY and REPLICA
-		primaryStatusResp, err := primaryManagerClient.ReplicationStatus(utils.WithShortDeadline(t), &multipoolermanagerdatapb.ReplicationStatusRequest{})
+		primaryStatusResp, err := primaryManagerClient.Status(utils.WithShortDeadline(t), &multipoolermanagerdatapb.ReplicationStatusRequest{})
 		require.NoError(t, err, "ReplicationStatus should succeed on PRIMARY")
 
-		standbyStatusResp, err := standbyManagerClient.ReplicationStatus(utils.WithShortDeadline(t), &multipoolermanagerdatapb.ReplicationStatusRequest{})
+		standbyStatusResp, err := standbyManagerClient.Status(utils.WithShortDeadline(t), &multipoolermanagerdatapb.ReplicationStatusRequest{})
 		require.NoError(t, err, "ReplicationStatus should succeed on REPLICA")
 
 		// Verify each returns the appropriate status

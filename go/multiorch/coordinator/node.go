@@ -103,8 +103,8 @@ func (n *Node) ConsensusStatus(ctx context.Context) (*consensusdatapb.StatusResp
 }
 
 // ManagerStatus gets the manager status of this node
-func (n *Node) ManagerStatus(ctx context.Context) (*multipoolermanagerdatapb.StatusResponse, error) {
-	req := &multipoolermanagerdatapb.StatusRequest{}
+func (n *Node) ManagerStatus(ctx context.Context) (*multipoolermanagerdatapb.StateResponse, error) {
+	req := &multipoolermanagerdatapb.StateRequest{}
 	return n.ManagerClient.State(ctx, req)
 }
 

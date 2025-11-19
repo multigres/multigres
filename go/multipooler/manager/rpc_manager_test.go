@@ -794,7 +794,7 @@ func TestReplicationStatus(t *testing.T) {
 			WillReturnRows(sqlmock.NewRows([]string{"synchronous_commit"}).AddRow("on"))
 
 		// Call ReplicationStatus
-		status, err := pm.ReplicationStatus(ctx)
+		status, err := pm.Status(ctx)
 		require.NoError(t, err)
 		require.NotNil(t, status)
 
@@ -867,7 +867,7 @@ func TestReplicationStatus(t *testing.T) {
 			}).AddRow("0/12345600", "0/12345678", false, "not paused", "2025-01-01 00:00:00", "host=primary port=5432 user=repl application_name=test"))
 
 		// Call ReplicationStatus
-		status, err := pm.ReplicationStatus(ctx)
+		status, err := pm.Status(ctx)
 		require.NoError(t, err)
 		require.NotNil(t, status)
 
@@ -926,7 +926,7 @@ func TestReplicationStatus(t *testing.T) {
 			WillReturnRows(sqlmock.NewRows([]string{"pg_is_in_recovery"}).AddRow(true))
 
 		// Call ReplicationStatus - should return MT13002 error
-		status, err := pm.ReplicationStatus(ctx)
+		status, err := pm.Status(ctx)
 		require.Error(t, err)
 		assert.Nil(t, status)
 
@@ -988,7 +988,7 @@ func TestReplicationStatus(t *testing.T) {
 			WillReturnRows(sqlmock.NewRows([]string{"pg_is_in_recovery"}).AddRow(false))
 
 		// Call ReplicationStatus - should return MT13002 error
-		status, err := pm.ReplicationStatus(ctx)
+		status, err := pm.Status(ctx)
 		require.Error(t, err)
 		assert.Nil(t, status)
 

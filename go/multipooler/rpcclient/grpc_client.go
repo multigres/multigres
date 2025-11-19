@@ -166,7 +166,7 @@ func (c *Client) InitializationStatus(ctx context.Context, pooler *clustermetada
 
 // State gets the current status of the multipooler manager.
 // This is called very frequently by the recovery engine health checks.
-func (c *Client) State(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.StatusRequest) (*multipoolermanagerdatapb.StatusResponse, error) {
+func (c *Client) State(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.StateRequest) (*multipoolermanagerdatapb.StateResponse, error) {
 	conn, closer, err := c.dialPersistent(ctx, pooler)
 	if err != nil {
 		return nil, err
@@ -247,8 +247,8 @@ func (c *Client) StandbyReplicationStatus(ctx context.Context, pooler *clusterme
 	return conn.managerClient.StandbyReplicationStatus(ctx, request)
 }
 
-// ReplicationStatus gets unified status that works for both PRIMARY and REPLICA poolers.
-func (c *Client) ReplicationStatus(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.ReplicationStatusRequest) (*multipoolermanagerdatapb.ReplicationStatusResponse, error) {
+// Status gets unified status that works for both PRIMARY and REPLICA poolers.
+func (c *Client) Status(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.ReplicationStatusRequest) (*multipoolermanagerdatapb.ReplicationStatusResponse, error) {
 	conn, closer, err := c.dialPersistent(ctx, pooler)
 	if err != nil {
 		return nil, err
@@ -257,7 +257,7 @@ func (c *Client) ReplicationStatus(ctx context.Context, pooler *clustermetadatap
 		_ = closer()
 	}()
 
-	return conn.managerClient.ReplicationStatus(ctx, request)
+	return conn.managerClient.Status(ctx, request)
 }
 
 // ResetReplication resets the standby's connection to its primary.

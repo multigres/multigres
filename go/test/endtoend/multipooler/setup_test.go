@@ -899,7 +899,7 @@ func waitForManagerReady(t *testing.T, setup *MultipoolerTestSetup, manager *Pro
 		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 		defer cancel()
 
-		req := &multipoolermanagerdatapb.StatusRequest{}
+		req := &multipoolermanagerdatapb.StateRequest{}
 		resp, err := client.State(ctx, req)
 		if err != nil {
 			return false

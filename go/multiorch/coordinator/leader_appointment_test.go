@@ -54,14 +54,14 @@ func (m *mockConsensusClient) GetLeadershipView(ctx context.Context, req *consen
 
 // mockManagerClient implements a mock for testing
 type mockManagerClient struct {
-	statusResp            *multipoolermanagerdatapb.StatusResponse
+	statusResp            *multipoolermanagerdatapb.StateResponse
 	statusErr             error
 	promoteResp           *multipoolermanagerdatapb.PromoteResponse
 	promoteErr            error
 	setPrimaryConnInfoErr error
 }
 
-func (m *mockManagerClient) State(ctx context.Context, req *multipoolermanagerdatapb.StatusRequest, opts ...grpc.CallOption) (*multipoolermanagerdatapb.StatusResponse, error) {
+func (m *mockManagerClient) State(ctx context.Context, req *multipoolermanagerdatapb.StateRequest, opts ...grpc.CallOption) (*multipoolermanagerdatapb.StateResponse, error) {
 	return m.statusResp, m.statusErr
 }
 
@@ -129,7 +129,7 @@ func (m *mockManagerClient) StandbyReplicationStatus(ctx context.Context, req *m
 	return &multipoolermanagerdatapb.StandbyReplicationStatusResponse{}, nil
 }
 
-func (m *mockManagerClient) ReplicationStatus(ctx context.Context, req *multipoolermanagerdatapb.ReplicationStatusRequest, opts ...grpc.CallOption) (*multipoolermanagerdatapb.ReplicationStatusResponse, error) {
+func (m *mockManagerClient) Status(ctx context.Context, req *multipoolermanagerdatapb.ReplicationStatusRequest, opts ...grpc.CallOption) (*multipoolermanagerdatapb.ReplicationStatusResponse, error) {
 	return &multipoolermanagerdatapb.ReplicationStatusResponse{}, nil
 }
 
@@ -188,7 +188,7 @@ func createMockNode(name string, term int64, walPosition string, healthy bool, r
 			},
 		},
 		ManagerClient: &mockManagerClient{
-			statusResp: &multipoolermanagerdatapb.StatusResponse{
+			statusResp: &multipoolermanagerdatapb.StateResponse{
 				State: "ready",
 			},
 			promoteResp: &multipoolermanagerdatapb.PromoteResponse{},
@@ -539,7 +539,7 @@ func TestEstablishLeader(t *testing.T) {
 	t.Run("error - leader not in ready state", func(t *testing.T) {
 		candidate := createMockNode("mp1", 5, "0/3000000", true, "primary")
 		candidate.ManagerClient = &mockManagerClient{
-			statusResp: &multipoolermanagerdatapb.StatusResponse{
+			statusResp: &multipoolermanagerdatapb.StateResponse{
 				State: "initializing",
 			},
 		}
