@@ -54,13 +54,13 @@ type FakeClient struct {
 	InitializeEmptyPrimaryResponses          map[string]*multipoolermanagerdatapb.InitializeEmptyPrimaryResponse
 	InitializeAsStandbyResponses             map[string]*multipoolermanagerdatapb.InitializeAsStandbyResponse
 	InitializationStatusResponses            map[string]*multipoolermanagerdatapb.InitializationStatusResponse
-	StatusResponses                          map[string]*multipoolermanagerdatapb.StateResponse
+	StateResponses                           map[string]*multipoolermanagerdatapb.StateResponse
 	WaitForLSNResponses                      map[string]*multipoolermanagerdatapb.WaitForLSNResponse
 	SetPrimaryConnInfoResponses              map[string]*multipoolermanagerdatapb.SetPrimaryConnInfoResponse
 	StartReplicationResponses                map[string]*multipoolermanagerdatapb.StartReplicationResponse
 	StopReplicationResponses                 map[string]*multipoolermanagerdatapb.StopReplicationResponse
 	StandbyReplicationStatusResponses        map[string]*multipoolermanagerdatapb.StandbyReplicationStatusResponse
-	ReplicationStatusResponses               map[string]*multipoolermanagerdatapb.StatusResponse
+	StatusResponses                          map[string]*multipoolermanagerdatapb.StatusResponse
 	ResetReplicationResponses                map[string]*multipoolermanagerdatapb.ResetReplicationResponse
 	StopReplicationAndGetStatusResponses     map[string]*multipoolermanagerdatapb.StopReplicationAndGetStatusResponse
 	ConfigureSynchronousReplicationResponses map[string]*multipoolermanagerdatapb.ConfigureSynchronousReplicationResponse
@@ -95,13 +95,13 @@ func NewFakeClient() *FakeClient {
 		InitializeEmptyPrimaryResponses:          make(map[string]*multipoolermanagerdatapb.InitializeEmptyPrimaryResponse),
 		InitializeAsStandbyResponses:             make(map[string]*multipoolermanagerdatapb.InitializeAsStandbyResponse),
 		InitializationStatusResponses:            make(map[string]*multipoolermanagerdatapb.InitializationStatusResponse),
-		StatusResponses:                          make(map[string]*multipoolermanagerdatapb.StateResponse),
+		StateResponses:                           make(map[string]*multipoolermanagerdatapb.StateResponse),
 		WaitForLSNResponses:                      make(map[string]*multipoolermanagerdatapb.WaitForLSNResponse),
 		SetPrimaryConnInfoResponses:              make(map[string]*multipoolermanagerdatapb.SetPrimaryConnInfoResponse),
 		StartReplicationResponses:                make(map[string]*multipoolermanagerdatapb.StartReplicationResponse),
 		StopReplicationResponses:                 make(map[string]*multipoolermanagerdatapb.StopReplicationResponse),
 		StandbyReplicationStatusResponses:        make(map[string]*multipoolermanagerdatapb.StandbyReplicationStatusResponse),
-		ReplicationStatusResponses:               make(map[string]*multipoolermanagerdatapb.StatusResponse),
+		StatusResponses:                          make(map[string]*multipoolermanagerdatapb.StatusResponse),
 		ResetReplicationResponses:                make(map[string]*multipoolermanagerdatapb.ResetReplicationResponse),
 		StopReplicationAndGetStatusResponses:     make(map[string]*multipoolermanagerdatapb.StopReplicationAndGetStatusResponse),
 		ConfigureSynchronousReplicationResponses: make(map[string]*multipoolermanagerdatapb.ConfigureSynchronousReplicationResponse),
@@ -281,7 +281,7 @@ func (f *FakeClient) State(ctx context.Context, pooler *clustermetadatapb.MultiP
 
 	f.mu.RLock()
 	defer f.mu.RUnlock()
-	if resp, ok := f.StatusResponses[poolerID]; ok {
+	if resp, ok := f.StateResponses[poolerID]; ok {
 		return resp, nil
 	}
 	return &multipoolermanagerdatapb.StateResponse{}, nil
@@ -381,7 +381,7 @@ func (f *FakeClient) Status(ctx context.Context, pooler *clustermetadatapb.Multi
 
 	f.mu.RLock()
 	defer f.mu.RUnlock()
-	if resp, ok := f.ReplicationStatusResponses[poolerID]; ok {
+	if resp, ok := f.StatusResponses[poolerID]; ok {
 		return resp, nil
 	}
 	return &multipoolermanagerdatapb.StatusResponse{}, nil
