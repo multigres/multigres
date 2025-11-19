@@ -433,6 +433,23 @@ func (c *Client) SetTerm(ctx context.Context, pooler *clustermetadatapb.MultiPoo
 }
 
 //
+// Manager Service Methods - Durability Policy
+//
+
+// GetDurabilityPolicy retrieves the active durability policy from the local database.
+func (c *Client) GetDurabilityPolicy(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.GetDurabilityPolicyRequest) (*multipoolermanagerdatapb.GetDurabilityPolicyResponse, error) {
+	conn, closer, err := c.dialPersistent(ctx, pooler)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		_ = closer()
+	}()
+
+	return conn.managerClient.GetDurabilityPolicy(ctx, request)
+}
+
+//
 // Manager Service Methods - Backup and Restore
 //
 

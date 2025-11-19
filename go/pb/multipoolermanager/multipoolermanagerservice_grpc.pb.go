@@ -46,6 +46,7 @@ const (
 	MultiPoolerManager_PrimaryStatus_FullMethodName                   = "/multipoolermanager.MultiPoolerManager/PrimaryStatus"
 	MultiPoolerManager_PrimaryPosition_FullMethodName                 = "/multipoolermanager.MultiPoolerManager/PrimaryPosition"
 	MultiPoolerManager_StopReplicationAndGetStatus_FullMethodName     = "/multipoolermanager.MultiPoolerManager/StopReplicationAndGetStatus"
+	MultiPoolerManager_GetDurabilityPolicy_FullMethodName             = "/multipoolermanager.MultiPoolerManager/GetDurabilityPolicy"
 	MultiPoolerManager_ChangeType_FullMethodName                      = "/multipoolermanager.MultiPoolerManager/ChangeType"
 	MultiPoolerManager_GetFollowers_FullMethodName                    = "/multipoolermanager.MultiPoolerManager/GetFollowers"
 	MultiPoolerManager_Demote_FullMethodName                          = "/multipoolermanager.MultiPoolerManager/Demote"
@@ -96,6 +97,9 @@ type MultiPoolerManagerClient interface {
 	// StopReplicationAndGetStatus stops PostgreSQL replication (replay and/or receiver based on mode)
 	// and returns the status
 	StopReplicationAndGetStatus(ctx context.Context, in *multipoolermanagerdata.StopReplicationAndGetStatusRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.StopReplicationAndGetStatusResponse, error)
+	// GetDurabilityPolicy retrieves the active durability policy from the local database
+	// Used by MultiOrch to query quorum rules via gRPC instead of direct database connection
+	GetDurabilityPolicy(ctx context.Context, in *multipoolermanagerdata.GetDurabilityPolicyRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.GetDurabilityPolicyResponse, error)
 	// ChangeType changes the pooler type (LEADER/FOLLOWER)
 	ChangeType(ctx context.Context, in *multipoolermanagerdata.ChangeTypeRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.ChangeTypeResponse, error)
 	// GetFollowers gets the list of follower servers
@@ -237,6 +241,15 @@ func (c *multiPoolerManagerClient) PrimaryPosition(ctx context.Context, in *mult
 func (c *multiPoolerManagerClient) StopReplicationAndGetStatus(ctx context.Context, in *multipoolermanagerdata.StopReplicationAndGetStatusRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.StopReplicationAndGetStatusResponse, error) {
 	out := new(multipoolermanagerdata.StopReplicationAndGetStatusResponse)
 	err := c.cc.Invoke(ctx, MultiPoolerManager_StopReplicationAndGetStatus_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *multiPoolerManagerClient) GetDurabilityPolicy(ctx context.Context, in *multipoolermanagerdata.GetDurabilityPolicyRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.GetDurabilityPolicyResponse, error) {
+	out := new(multipoolermanagerdata.GetDurabilityPolicyResponse)
+	err := c.cc.Invoke(ctx, MultiPoolerManager_GetDurabilityPolicy_FullMethodName, in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -395,6 +408,9 @@ type MultiPoolerManagerServer interface {
 	// StopReplicationAndGetStatus stops PostgreSQL replication (replay and/or receiver based on mode)
 	// and returns the status
 	StopReplicationAndGetStatus(context.Context, *multipoolermanagerdata.StopReplicationAndGetStatusRequest) (*multipoolermanagerdata.StopReplicationAndGetStatusResponse, error)
+	// GetDurabilityPolicy retrieves the active durability policy from the local database
+	// Used by MultiOrch to query quorum rules via gRPC instead of direct database connection
+	GetDurabilityPolicy(context.Context, *multipoolermanagerdata.GetDurabilityPolicyRequest) (*multipoolermanagerdata.GetDurabilityPolicyResponse, error)
 	// ChangeType changes the pooler type (LEADER/FOLLOWER)
 	ChangeType(context.Context, *multipoolermanagerdata.ChangeTypeRequest) (*multipoolermanagerdata.ChangeTypeResponse, error)
 	// GetFollowers gets the list of follower servers
@@ -466,6 +482,9 @@ func (UnimplementedMultiPoolerManagerServer) PrimaryPosition(context.Context, *m
 }
 func (UnimplementedMultiPoolerManagerServer) StopReplicationAndGetStatus(context.Context, *multipoolermanagerdata.StopReplicationAndGetStatusRequest) (*multipoolermanagerdata.StopReplicationAndGetStatusResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method StopReplicationAndGetStatus not implemented")
+}
+func (UnimplementedMultiPoolerManagerServer) GetDurabilityPolicy(context.Context, *multipoolermanagerdata.GetDurabilityPolicyRequest) (*multipoolermanagerdata.GetDurabilityPolicyResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetDurabilityPolicy not implemented")
 }
 func (UnimplementedMultiPoolerManagerServer) ChangeType(context.Context, *multipoolermanagerdata.ChangeTypeRequest) (*multipoolermanagerdata.ChangeTypeResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ChangeType not implemented")
@@ -731,6 +750,24 @@ func _MultiPoolerManager_StopReplicationAndGetStatus_Handler(srv interface{}, ct
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(MultiPoolerManagerServer).StopReplicationAndGetStatus(ctx, req.(*multipoolermanagerdata.StopReplicationAndGetStatusRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _MultiPoolerManager_GetDurabilityPolicy_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(multipoolermanagerdata.GetDurabilityPolicyRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MultiPoolerManagerServer).GetDurabilityPolicy(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MultiPoolerManager_GetDurabilityPolicy_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MultiPoolerManagerServer).GetDurabilityPolicy(ctx, req.(*multipoolermanagerdata.GetDurabilityPolicyRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -1023,6 +1060,10 @@ var MultiPoolerManager_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "StopReplicationAndGetStatus",
 			Handler:    _MultiPoolerManager_StopReplicationAndGetStatus_Handler,
+		},
+		{
+			MethodName: "GetDurabilityPolicy",
+			Handler:    _MultiPoolerManager_GetDurabilityPolicy_Handler,
 		},
 		{
 			MethodName: "ChangeType",

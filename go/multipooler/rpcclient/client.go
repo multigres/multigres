@@ -235,6 +235,13 @@ type MultiPoolerClient interface {
 	SetTerm(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.SetTermRequest) (*multipoolermanagerdatapb.SetTermResponse, error)
 
 	//
+	// Manager Service Methods - Durability Policy
+	//
+
+	// GetDurabilityPolicy retrieves the active durability policy from the local database.
+	GetDurabilityPolicy(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.GetDurabilityPolicyRequest) (*multipoolermanagerdatapb.GetDurabilityPolicyResponse, error)
+
+	//
 	// Manager Service Methods - Backup and Restore
 	//
 
