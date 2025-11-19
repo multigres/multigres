@@ -34,11 +34,6 @@ const (
 )
 
 // Metrics holds all OpenTelemetry metrics for the rpcclient connection cache.
-// Following OTel conventions, metrics are defined in a separate file with
-// wrapper types that hide attribute key names from instrumented code.
-//
-// This pattern is inspired by:
-// https://github.com/open-telemetry/opentelemetry-go/blob/v1.38.0/semconv/v1.37.0/dbconv/metric.go
 type Metrics struct {
 	meter        metric.Meter
 	connReuse    metric.Int64Counter
