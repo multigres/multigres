@@ -177,12 +177,12 @@ func NewMetrics() (*Metrics, error) {
 	// Histogram for individual poll duration
 	// Following OTel convention: use histogram with status attribute instead of separate counters
 	pollDurationHistogram, err := m.meter.Float64Histogram(
-		"multiorch.recovery.pooler.poll.duration",
+		"multiorch.recovery.pooler_poll.duration",
 		metric.WithDescription("Duration of individual pooler health checks"),
 		metric.WithUnit("s"),
 	)
 	if err != nil {
-		errs = append(errs, fmt.Errorf("multiorch.recovery.pooler.poll.duration histogram: %w", err))
+		errs = append(errs, fmt.Errorf("multiorch.recovery.pooler_poll.duration histogram: %w", err))
 		m.poolerPollDuration = PoolerPollDuration{noop.Float64Histogram{}}
 	} else {
 		m.poolerPollDuration = PoolerPollDuration{pollDurationHistogram}
@@ -190,12 +190,12 @@ func NewMetrics() (*Metrics, error) {
 
 	// Histogram for health check cycle duration
 	healthCheckCycleDurationHistogram, err := m.meter.Float64Histogram(
-		"multiorch.recovery.health_check.cycle.duration",
+		"multiorch.recovery.health_check_cycle.duration",
 		metric.WithDescription("Duration of complete health check cycles"),
 		metric.WithUnit("s"),
 	)
 	if err != nil {
-		errs = append(errs, fmt.Errorf("multiorch.recovery.health_check.cycle.duration histogram: %w", err))
+		errs = append(errs, fmt.Errorf("multiorch.recovery.health_check_cycle.duration histogram: %w", err))
 		m.healthCheckCycleDuration = HealthCheckCycleDuration{noop.Float64Histogram{}}
 	} else {
 		m.healthCheckCycleDuration = HealthCheckCycleDuration{healthCheckCycleDurationHistogram}
