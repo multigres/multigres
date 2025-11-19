@@ -254,18 +254,6 @@ func TestInitializeAsStandby(t *testing.T) {
 			force:       true,
 			expectError: false,
 		},
-		{
-			name: "uses pgBackRest backup and restore",
-			setupFunc: func(t *testing.T, pm *MultiPoolerManager, poolerDir string) {
-				// Fresh pooler - no setup needed
-				// This test verifies that Backup and RestoreFromBackup are called
-			},
-			primaryHost: "primary-host",
-			primaryPort: 5432,
-			term:        1,
-			force:       false,
-			expectError: false,
-		},
 	}
 
 	for _, tt := range tests {

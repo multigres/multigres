@@ -122,28 +122,25 @@ func (pm *MultiPoolerManager) RestoreFromBackup(ctx context.Context, backupID st
 	poolerDir := filepath.Dir(configPath)
 	pgDataDir := filepath.Join(poolerDir, "pg_data")
 
-	// Check current recovery status to validate the restore request
-	// If PostgreSQL isn't running (uninitialized state), we can restore as requested
-	slog.InfoContext(ctx, "Checking recovery status before restore")
-	isPrimary, err := pm.isPrimary(ctx)
-	isUninitialized := false
-	if err != nil {
-		// Check if this is a "database not available" error (uninitialized state)
-		errMsg := err.Error()
-		if strings.Contains(errMsg, "database connection not established") ||
-			strings.Contains(errMsg, "connection refused") ||
-			strings.Contains(errMsg, "no such file or directory") {
-			slog.InfoContext(ctx, "PostgreSQL not initialized - treating as new initialization", "error", err)
-			isUninitialized = true
-		} else {
-			slog.ErrorContext(ctx, "Failed to check recovery status before restore", "error", err)
+	// Check if PostgreSQL is initialized by looking for PG_VERSION file
+	pgVersionPath := filepath.Join(pgDataDir, "PG_VERSION")
+	_, err := os.Stat(pgVersionPath)
+	uninitialized := os.IsNotExist(err)
+
+	// Check whether asStandby matches the current state of the pooler
+	var isPrimary bool
+	if !uninitialized {
+		slog.InfoContext(ctx, "PostgreSQL not initialized - treating as new initialization", "pg_data_dir", pgDataDir)
+
+		// Check current recovery status to validate the restore request
+		// If PostgreSQL isn't running (uninitialized state), we can restore as requested
+		slog.InfoContext(ctx, "Checking recovery status before restore")
+		isPrimary, err = pm.isPrimary(ctx)
+		if err != nil {
+			slog.ErrorContext(ctx, "Failed to check recovery status before restore", "error", err, "pg_data_dir", pgDataDir)
 			return mterrors.Wrap(err, "failed to check recovery status")
 		}
-	}
 
-	// Validate that the requested asStandby matches the current state (if initialized)
-	// We never override the caller's explicit asStandby parameter
-	if !isUninitialized {
 		currentIsStandby := !isPrimary
 		if asStandby != currentIsStandby {
 			return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
@@ -156,7 +153,7 @@ func (pm *MultiPoolerManager) RestoreFromBackup(ctx context.Context, backupID st
 	// Skip this for uninitialized databases - they don't have replication info yet
 	var primaryHost string
 	var primaryPort int32
-	if asStandby && !isUninitialized {
+	if asStandby && !uninitialized {
 		replStatus, err := pm.StandbyReplicationStatus(ctx)
 		if err != nil {
 			slog.ErrorContext(ctx, "Failed to get replication status", "error", err)
@@ -177,14 +174,14 @@ func (pm *MultiPoolerManager) RestoreFromBackup(ctx context.Context, backupID st
 		"backup_id", backupID)
 
 	// Validate required parameters
-	if err := validateRestoreParams(pgctldClient, configPath, stanzaName, pgDataDir, asStandby, isUninitialized, primaryHost, primaryPort); err != nil {
+	if err := validateRestoreParams(pgctldClient, configPath, stanzaName, pgDataDir, asStandby, uninitialized, primaryHost, primaryPort); err != nil {
 		return err
 	}
 
 	// Step 1: Close the pooler manager to release its stale database connection
 	// This must be done before stopping PostgreSQL to avoid stale connections
 	// Skip if PostgreSQL is uninitialized
-	if !isUninitialized {
+	if !uninitialized {
 		slog.InfoContext(ctx, "Closing pooler manager before restore")
 		if err := pm.Close(); err != nil {
 			slog.WarnContext(ctx, "Failed to close pooler manager before restore", "error", err)
@@ -193,7 +190,7 @@ func (pm *MultiPoolerManager) RestoreFromBackup(ctx context.Context, backupID st
 	}
 
 	// Step 2: Stop PostgreSQL server (skip if uninitialized)
-	if !isUninitialized {
+	if !uninitialized {
 		slog.InfoContext(ctx, "Stopping PostgreSQL before restore", "backup_id", backupID)
 		stopCtx, stopCancel := context.WithTimeout(ctx, 2*time.Minute)
 		defer stopCancel()
@@ -242,7 +239,7 @@ func (pm *MultiPoolerManager) RestoreFromBackup(ctx context.Context, backupID st
 	// This is needed when pgbackrest restore overwrites postgresql.auto.conf, removing replication
 	// settings. For uninitialized databases, we skip this step since the primary connection
 	// will be configured later by the orchestrator or test setup.
-	if asStandby && !isUninitialized && primaryHost != "" && primaryPort != 0 {
+	if asStandby && !uninitialized && primaryHost != "" && primaryPort != 0 {
 		autoConfPath := filepath.Join(pgDataDir, "postgresql.auto.conf")
 		slog.InfoContext(ctx, "Restoring primary_conninfo to postgresql.auto.conf",
 			"path", autoConfPath,
@@ -269,7 +266,7 @@ func (pm *MultiPoolerManager) RestoreFromBackup(ctx context.Context, backupID st
 		}
 
 		slog.InfoContext(ctx, "Successfully restored primary_conninfo to postgresql.auto.conf")
-	} else if asStandby && isUninitialized {
+	} else if asStandby && uninitialized {
 		slog.InfoContext(ctx, "Skipping primary_conninfo restore for uninitialized standby - will be configured later")
 	}
 
