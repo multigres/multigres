@@ -25,8 +25,6 @@ import (
 	"time"
 
 	"github.com/spf13/pflag"
-	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/metric"
 	"golang.org/x/sync/semaphore"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -97,72 +95,6 @@ func (cc *ConnConfig) validateTLSConfig() error {
 	return nil
 }
 
-// cacheMetrics holds OpenTelemetry metrics for connection cache operations.
-type cacheMetrics struct {
-	connReuse    metric.Int64Counter
-	connNew      metric.Int64Counter
-	dialTimeouts metric.Int64Counter
-	cacheSize    metric.Int64ObservableGauge
-	dialDuration metric.Float64Histogram
-}
-
-// Global metrics instance
-var metrics *cacheMetrics
-
-// initMetrics initializes OpenTelemetry metrics for the connection cache.
-// This is called once during package initialization.
-func initMetrics() {
-	meter := otel.Meter("github.com/multigres/multigres/go/multipooler/rpcclient")
-
-	var err error
-
-	// Counter for connection reuse
-	metrics = &cacheMetrics{}
-	metrics.connReuse, err = meter.Int64Counter(
-		"rpcclient.conn_cache.reuse",
-		metric.WithDescription("Number of times a connection was reused from the cache"),
-		metric.WithUnit("{connections}"),
-	)
-	if err != nil {
-		// Log error but don't fail - metrics are optional
-		_ = err
-	}
-
-	// Counter for new connections
-	metrics.connNew, err = meter.Int64Counter(
-		"rpcclient.conn_cache.new",
-		metric.WithDescription("Number of times a new connection was created"),
-		metric.WithUnit("{connections}"),
-	)
-	if err != nil {
-		_ = err
-	}
-
-	// Counter for dial timeouts
-	metrics.dialTimeouts, err = meter.Int64Counter(
-		"rpcclient.conn_cache.dial_timeouts",
-		metric.WithDescription("Number of context timeouts during dial"),
-		metric.WithUnit("{timeouts}"),
-	)
-	if err != nil {
-		_ = err
-	}
-
-	// Histogram for dial duration
-	metrics.dialDuration, err = meter.Float64Histogram(
-		"rpcclient.conn_cache.dial_duration",
-		metric.WithDescription("Duration of dial operations by path (cache_fast, sema_fast, sema_poll)"),
-		metric.WithUnit("s"),
-	)
-	if err != nil {
-		_ = err
-	}
-}
-
-func init() {
-	initMetrics()
-}
-
 // closeFunc allows a standalone function to implement io.Closer, similar to
 // how http.HandlerFunc allows standalone functions to implement http.Handler.
 type closeFunc func() error
@@ -194,6 +126,7 @@ type connCache struct {
 	evictSorted  bool
 	connWaitSema *semaphore.Weighted
 	capacity     int
+	metrics      *Metrics
 }
 
 // newConnCache creates a new connection cache with the default capacity.
@@ -203,12 +136,22 @@ func newConnCache() *connCache {
 
 // newConnCacheWithCapacity creates a new connection cache with a specified capacity.
 func newConnCacheWithCapacity(capacity int) *connCache {
-	return &connCache{
+	cc := &connCache{
 		conns:        make(map[string]*cachedConn, capacity),
 		evict:        make([]*cachedConn, 0, capacity),
 		connWaitSema: semaphore.NewWeighted(int64(capacity)),
 		capacity:     capacity,
+		metrics:      NewMetrics(),
 	}
+
+	// Register callback for cache size observable gauge
+	_ = cc.metrics.RegisterCacheSizeCallback(func() int {
+		cc.m.Lock()
+		defer cc.m.Unlock()
+		return len(cc.conns)
+	})
+
+	return cc
 }
 
 // sortEvictionsLocked sorts the eviction queue by refs (descending) then by
@@ -238,19 +181,15 @@ func (cc *connCache) getOrDial(ctx context.Context, addr string) (*cachedConn, c
 	start := time.Now()
 
 	// Fast path: try to get from cache without blocking
-	if client, closer, found, err := cc.tryFromCache(addr, &cc.m); found {
-		if metrics != nil && metrics.dialDuration != nil {
-			metrics.dialDuration.Record(ctx, time.Since(start).Seconds(), metric.WithAttributes())
-		}
+	if client, closer, found, err := cc.tryFromCache(ctx, addr, &cc.m); found {
+		cc.metrics.RecordDialDuration(ctx, time.Since(start), DialPathCacheFast)
 		return client, closer, err
 	}
 
 	// Try to acquire semaphore without blocking (fast path for new connections)
 	if cc.connWaitSema.TryAcquire(1) {
 		defer func() {
-			if metrics != nil && metrics.dialDuration != nil {
-				metrics.dialDuration.Record(ctx, time.Since(start).Seconds(), metric.WithAttributes())
-			}
+			cc.metrics.RecordDialDuration(ctx, time.Since(start), DialPathSemaFast)
 		}()
 
 		// Check if another goroutine managed to dial a conn for the same addr
@@ -258,7 +197,7 @@ func (cc *connCache) getOrDial(ctx context.Context, addr string) (*cachedConn, c
 		// read-lock section above, except we release the connWaitSema if we
 		// are able to use the cache, allowing another goroutine to dial a new
 		// conn instead.
-		if client, closer, found, err := cc.tryFromCache(addr, &cc.m); found {
+		if client, closer, found, err := cc.tryFromCache(ctx, addr, &cc.m); found {
 			cc.connWaitSema.Release(1)
 			return client, closer, err
 		}
@@ -267,17 +206,13 @@ func (cc *connCache) getOrDial(ctx context.Context, addr string) (*cachedConn, c
 
 	// Slow path: poll for evictable connections
 	defer func() {
-		if metrics != nil && metrics.dialDuration != nil {
-			metrics.dialDuration.Record(ctx, time.Since(start).Seconds(), metric.WithAttributes())
-		}
+		cc.metrics.RecordDialDuration(ctx, time.Since(start), DialPathSemaPoll)
 	}()
 
 	for {
 		select {
 		case <-ctx.Done():
-			if metrics != nil && metrics.dialTimeouts != nil {
-				metrics.dialTimeouts.Add(ctx, 1)
-			}
+			cc.metrics.AddDialTimeout(ctx)
 			return nil, nil, ctx.Err()
 		default:
 			if client, closer, found, err := cc.pollOnce(ctx, addr); found {
@@ -297,14 +232,14 @@ func (cc *connCache) getOrDial(ctx context.Context, addr string) (*cachedConn, c
 // externally (like in pollOnce), so we do not want to manage the locks here. In
 // other cases (like in the cache_fast path of getOrDial()), we pass in the cc.m
 // to ensure we have a lock on the cache for the duration of the call.
-func (cc *connCache) tryFromCache(addr string, locker sync.Locker) (client *cachedConn, closer closeFunc, found bool, err error) {
+func (cc *connCache) tryFromCache(ctx context.Context, addr string, locker sync.Locker) (client *cachedConn, closer closeFunc, found bool, err error) {
 	if locker != nil {
 		locker.Lock()
 		defer locker.Unlock()
 	}
 
 	if conn, ok := cc.conns[addr]; ok {
-		client, closer, err := cc.redialLocked(conn)
+		client, closer, err := cc.redialLocked(ctx, conn)
 		return client, closer, ok, err
 	}
 
@@ -330,7 +265,7 @@ func (cc *connCache) tryFromCache(addr string, locker sync.Locker) (client *cach
 func (cc *connCache) pollOnce(ctx context.Context, addr string) (client *cachedConn, closer closeFunc, found bool, err error) {
 	cc.m.Lock()
 
-	if client, closer, found, err := cc.tryFromCache(addr, nil); found {
+	if client, closer, found, err := cc.tryFromCache(ctx, addr, nil); found {
 		cc.m.Unlock()
 		return client, closer, found, err
 	}
@@ -380,13 +315,11 @@ func (cc *connCache) newDial(ctx context.Context, addr string) (*cachedConn, clo
 		// the actual Dial out of the global lock and significantly increase throughput
 		grpcConn.Close()
 		cc.connWaitSema.Release(1)
-		return cc.redialLocked(conn)
+		return cc.redialLocked(ctx, conn)
 	}
 
 	// Record new connection metric
-	if metrics != nil && metrics.connNew != nil {
-		metrics.connNew.Add(ctx, 1)
-	}
+	cc.metrics.AddConnNew(ctx)
 
 	conn := &cachedConn{
 		consensusClient: consensuspb.NewMultiPoolerConsensusClient(grpcConn),
@@ -411,11 +344,9 @@ func (cc *connCache) newDial(ctx context.Context, addr string) (*cachedConn, clo
 // redialLocked takes an already-dialed connection in the cache does all the
 // work of lending that connection out to one more caller. It returns the
 // two-tuple of connection and closer that getOrDial returns.
-func (cc *connCache) redialLocked(conn *cachedConn) (*cachedConn, closeFunc, error) {
+func (cc *connCache) redialLocked(ctx context.Context, conn *cachedConn) (*cachedConn, closeFunc, error) {
 	// Record connection reuse metric
-	if metrics != nil && metrics.connReuse != nil {
-		metrics.connReuse.Add(context.Background(), 1)
-	}
+	cc.metrics.AddConnReuse(ctx)
 
 	conn.lastAccessTime = time.Now()
 	conn.refs++
