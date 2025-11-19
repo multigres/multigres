@@ -32,59 +32,29 @@ import (
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
 
-// InitializationScenario represents the different ways a shard can be initialized
-type InitializationScenario int
+// BootstrapShardAction handles bootstrap initialization of a new shard from scratch.
+// This action assumes all nodes in the cohort are empty (uninitialized).
+// It will:
+// 1. Select the first reachable node as the primary
+// 2. Initialize it as an empty primary with term=1
+// 3. Create the durability policy in the database
+// 4. Initialize remaining nodes as standbys
+type BootstrapShardAction struct {
+	topoStore topo.Store
+	logger    *slog.Logger
+}
 
-const (
-	// ScenarioUnknown indicates we couldn't determine the scenario
-	ScenarioUnknown InitializationScenario = iota
-
-	// ScenarioBootstrap: All nodes are empty (no data directories or no initialized schemas)
-	// Action: Initialize one node as primary, then initialize others as standbys
-	ScenarioBootstrap
-
-	// ScenarioRepair: Some nodes have data but no current primary
-	// Action: Use coordinator.AppointLeader to elect the most advanced node
-	ScenarioRepair
-
-	// ScenarioReelect: All nodes are initialized but no current primary
-	// Action: Use coordinator.AppointLeader to re-elect a leader
-	ScenarioReelect
-)
-
-// String returns the string representation of the scenario
-func (s InitializationScenario) String() string {
-	switch s {
-	case ScenarioBootstrap:
-		return "Bootstrap"
-	case ScenarioRepair:
-		return "Repair"
-	case ScenarioReelect:
-		return "Reelect"
-	default:
-		return "Unknown"
+// NewBootstrapShardAction creates a new bootstrap action
+func NewBootstrapShardAction(topoStore topo.Store, logger *slog.Logger) *BootstrapShardAction {
+	return &BootstrapShardAction{
+		topoStore: topoStore,
+		logger:    logger,
 	}
 }
 
-// InitializeShardAction handles shard initialization for all three scenarios
-type InitializeShardAction struct {
-	coordinator *coordinator.Coordinator
-	topoStore   topo.Store
-	logger      *slog.Logger
-}
-
-// NewInitializeShardAction creates a new shard initialization action
-func NewInitializeShardAction(coord *coordinator.Coordinator, topoStore topo.Store, logger *slog.Logger) *InitializeShardAction {
-	return &InitializeShardAction{
-		coordinator: coord,
-		topoStore:   topoStore,
-		logger:      logger,
-	}
-}
-
-// Execute determines the initialization scenario and executes the appropriate workflow
-func (a *InitializeShardAction) Execute(ctx context.Context, shardID string, database string, cohort []*coordinator.Node) error {
-	a.logger.InfoContext(ctx, "Starting shard initialization",
+// Execute performs bootstrap initialization for a new shard
+func (a *BootstrapShardAction) Execute(ctx context.Context, shardID string, database string, cohort []*coordinator.Node) error {
+	a.logger.InfoContext(ctx, "Executing bootstrap initialization",
 		"shard", shardID,
 		"database", database,
 		"cohort_size", len(cohort))
@@ -92,104 +62,6 @@ func (a *InitializeShardAction) Execute(ctx context.Context, shardID string, dat
 	if len(cohort) == 0 {
 		return mterrors.Errorf(mtrpcpb.Code_INVALID_ARGUMENT, "cohort is empty for shard %s", shardID)
 	}
-
-	// Step 1: Gather initialization status from all nodes
-	statuses, err := a.gatherInitializationStatus(ctx, cohort)
-	if err != nil {
-		return mterrors.Wrap(err, "failed to gather initialization status")
-	}
-
-	// Step 2: Determine scenario
-	scenario := a.determineScenario(statuses)
-	a.logger.InfoContext(ctx, "Determined initialization scenario",
-		"shard", shardID,
-		"database", database,
-		"scenario", scenario.String())
-
-	// Step 3: Execute appropriate workflow based on scenario
-	switch scenario {
-	case ScenarioBootstrap:
-		return a.executeBootstrap(ctx, shardID, database, cohort)
-	case ScenarioRepair:
-		return a.executeRepair(ctx, shardID, database, cohort)
-	case ScenarioReelect:
-		return a.executeReelect(ctx, shardID, database, cohort)
-	default:
-		return mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
-			"unable to determine initialization scenario for shard %s", shardID)
-	}
-}
-
-// gatherInitializationStatus queries all nodes for their initialization status
-func (a *InitializeShardAction) gatherInitializationStatus(ctx context.Context, cohort []*coordinator.Node) ([]*multipoolermanagerdatapb.InitializationStatusResponse, error) {
-	statuses := make([]*multipoolermanagerdatapb.InitializationStatusResponse, len(cohort))
-
-	for i, node := range cohort {
-		req := &multipoolermanagerdatapb.InitializationStatusRequest{}
-		status, err := node.RpcClient.InitializationStatus(ctx, node.Pooler, req)
-		if err != nil {
-			a.logger.WarnContext(ctx, "Failed to get initialization status from node",
-				"node", node.ID.Name,
-				"error", err)
-			// Continue with nil status - we'll handle missing statuses in determineScenario
-			statuses[i] = nil
-			continue
-		}
-		statuses[i] = status
-	}
-
-	return statuses, nil
-}
-
-// determineScenario analyzes initialization statuses to determine the appropriate scenario
-func (a *InitializeShardAction) determineScenario(statuses []*multipoolermanagerdatapb.InitializationStatusResponse) InitializationScenario {
-	var initializedCount int
-	var emptyCount int
-	var unavailableCount int
-
-	for _, status := range statuses {
-		if status == nil {
-			unavailableCount++
-			continue
-		}
-
-		if status.IsInitialized {
-			initializedCount++
-		} else {
-			emptyCount++
-		}
-	}
-
-	a.logger.Debug("Analyzing initialization statuses",
-		"initialized", initializedCount,
-		"empty", emptyCount,
-		"unavailable", unavailableCount)
-
-	// All nodes are empty (or unavailable) → Bootstrap
-	if initializedCount == 0 && emptyCount > 0 {
-		return ScenarioBootstrap
-	}
-
-	// All reachable nodes are initialized → Reelect
-	if initializedCount > 0 && emptyCount == 0 {
-		return ScenarioReelect
-	}
-
-	// Mix of initialized and empty nodes → Repair
-	if initializedCount > 0 && emptyCount > 0 {
-		return ScenarioRepair
-	}
-
-	// All nodes unavailable or unknown state
-	return ScenarioUnknown
-}
-
-// executeBootstrap handles the bootstrap scenario: initialize a new shard from scratch
-func (a *InitializeShardAction) executeBootstrap(ctx context.Context, shardID string, database string, cohort []*coordinator.Node) error {
-	a.logger.InfoContext(ctx, "Executing bootstrap initialization",
-		"shard", shardID,
-		"database", database,
-		"cohort_size", len(cohort))
 
 	// Step 1: Get the durability policy name from the Database proto in topology
 	policyName, err := a.getDurabilityPolicyName(ctx, database)
@@ -268,45 +140,8 @@ func (a *InitializeShardAction) executeBootstrap(ctx context.Context, shardID st
 	return nil
 }
 
-// executeRepair handles the repair scenario: some nodes have data, elect the most advanced
-func (a *InitializeShardAction) executeRepair(ctx context.Context, shardID string, database string, cohort []*coordinator.Node) error {
-	a.logger.InfoContext(ctx, "Executing repair initialization",
-		"shard", shardID,
-		"database", database,
-		"cohort_size", len(cohort))
-
-	// Use the coordinator's AppointLeader to handle the election
-	// It will select the most advanced node based on WAL position
-	if err := a.coordinator.AppointLeader(ctx, shardID, cohort, database); err != nil {
-		return mterrors.Wrap(err, "failed to appoint leader during repair")
-	}
-
-	a.logger.InfoContext(ctx, "Repair initialization complete",
-		"shard", shardID,
-		"database", database)
-	return nil
-}
-
-// executeReelect handles the reelect scenario: all nodes initialized, re-elect leader
-func (a *InitializeShardAction) executeReelect(ctx context.Context, shardID string, database string, cohort []*coordinator.Node) error {
-	a.logger.InfoContext(ctx, "Executing reelect initialization",
-		"shard", shardID,
-		"database", database,
-		"cohort_size", len(cohort))
-
-	// Use the coordinator's AppointLeader to handle the re-election
-	if err := a.coordinator.AppointLeader(ctx, shardID, cohort, database); err != nil {
-		return mterrors.Wrap(err, "failed to appoint leader during reelect")
-	}
-
-	a.logger.InfoContext(ctx, "Reelect initialization complete",
-		"shard", shardID,
-		"database", database)
-	return nil
-}
-
 // selectBootstrapCandidate selects the first healthy node as the bootstrap candidate
-func (a *InitializeShardAction) selectBootstrapCandidate(ctx context.Context, cohort []*coordinator.Node) (*coordinator.Node, error) {
+func (a *BootstrapShardAction) selectBootstrapCandidate(ctx context.Context, cohort []*coordinator.Node) (*coordinator.Node, error) {
 	// For bootstrap, we just pick the first reachable node
 	// In a production system, you might want to consider factors like:
 	// - Node with fastest storage
@@ -335,7 +170,7 @@ func (a *InitializeShardAction) selectBootstrapCandidate(ctx context.Context, co
 }
 
 // initializeStandbys initializes multiple nodes as standbys of the given primary
-func (a *InitializeShardAction) initializeStandbys(ctx context.Context, shardID string, primary *coordinator.Node, standbys []*coordinator.Node) error {
+func (a *BootstrapShardAction) initializeStandbys(ctx context.Context, shardID string, primary *coordinator.Node, standbys []*coordinator.Node) error {
 	if len(standbys) == 0 {
 		return nil
 	}
@@ -406,7 +241,7 @@ func (a *InitializeShardAction) initializeStandbys(ctx context.Context, shardID 
 }
 
 // getDurabilityPolicyName retrieves the durability policy name from the Database proto in topology
-func (a *InitializeShardAction) getDurabilityPolicyName(ctx context.Context, database string) (string, error) {
+func (a *BootstrapShardAction) getDurabilityPolicyName(ctx context.Context, database string) (string, error) {
 	db, err := a.topoStore.GetDatabase(ctx, database)
 	if err != nil {
 		return "", mterrors.Wrapf(err, "failed to get database %s from topology", database)
@@ -429,7 +264,7 @@ func (a *InitializeShardAction) getDurabilityPolicyName(ctx context.Context, dat
 
 // createDurabilityPolicy creates the durability policy entry in the primary's database
 // This will be replicated to standbys automatically through PostgreSQL replication
-func (a *InitializeShardAction) createDurabilityPolicy(ctx context.Context, primary *coordinator.Node, database string, policyName string) error {
+func (a *BootstrapShardAction) createDurabilityPolicy(ctx context.Context, primary *coordinator.Node, database string, policyName string) error {
 	// Parse the policy name to get the quorum configuration
 	quorumRule, err := a.parsePolicy(policyName)
 	if err != nil {
@@ -489,7 +324,7 @@ func (a *InitializeShardAction) createDurabilityPolicy(ctx context.Context, prim
 }
 
 // parsePolicy converts a policy name into a QuorumRule
-func (a *InitializeShardAction) parsePolicy(policyName string) (*clustermetadatapb.QuorumRule, error) {
+func (a *BootstrapShardAction) parsePolicy(policyName string) (*clustermetadatapb.QuorumRule, error) {
 	switch policyName {
 	case "ANY_2":
 		return &clustermetadatapb.QuorumRule{
