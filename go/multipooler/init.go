@@ -46,6 +46,7 @@ type MultiPooler struct {
 	poolerDir           viperutil.Value[string]
 	pgPort              viperutil.Value[int]
 	heartbeatIntervalMs viperutil.Value[int]
+	pgBackRestStanza    viperutil.Value[string]
 	// MultipoolerID stores the ID for deregistration during shutdown
 	multipoolerID *clustermetadatapb.ID
 	// GrpcServer is the grpc server
@@ -116,6 +117,11 @@ func NewMultiPooler(telemetry *telemetry.Telemetry) *MultiPooler {
 			FlagName: "heartbeat-interval-milliseconds",
 			Dynamic:  false,
 		}),
+		pgBackRestStanza: viperutil.Configure(reg, "pgbackrest-stanza", viperutil.Options[string]{
+			Default:  "",
+			FlagName: "pgbackrest-stanza",
+			Dynamic:  false,
+		}),
 		grpcServer: servenv.NewGrpcServer(reg),
 		senv:       servenv.NewServEnvWithConfig(reg, servenv.NewLogger(reg, telemetry), viperutil.NewViperConfig(reg), telemetry),
 		telemetry:  telemetry,
@@ -146,6 +152,7 @@ func (mp *MultiPooler) RegisterFlags(flags *pflag.FlagSet) {
 	flags.String("pooler-dir", mp.poolerDir.Default(), "pooler directory path (if empty, socket-file path will be used as-is)")
 	flags.Int("pg-port", mp.pgPort.Default(), "PostgreSQL port number")
 	flags.Int("heartbeat-interval-milliseconds", mp.heartbeatIntervalMs.Default(), "interval in milliseconds between heartbeat writes")
+	flags.String("pgbackrest-stanza", mp.pgBackRestStanza.Default(), "pgBackRest stanza name (defaults to service ID if empty)")
 
 	viperutil.BindFlags(flags,
 		mp.pgctldAddr,
@@ -157,6 +164,7 @@ func (mp *MultiPooler) RegisterFlags(flags *pflag.FlagSet) {
 		mp.poolerDir,
 		mp.pgPort,
 		mp.heartbeatIntervalMs,
+		mp.pgBackRestStanza,
 	)
 
 	mp.grpcServer.RegisterFlags(flags)
@@ -219,6 +227,7 @@ func (mp *MultiPooler) Init(startCtx context.Context) {
 		ServiceID:           multipooler.Id,
 		HeartbeatIntervalMs: mp.heartbeatIntervalMs.Get(),
 		PgctldAddr:          mp.pgctldAddr.Get(),
+		PgBackRestStanza:    mp.pgBackRestStanza.Get(),
 		ConsensusEnabled:    mp.grpcServer.CheckServiceMap("consensus", mp.senv),
 	})
 

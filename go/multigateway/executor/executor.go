@@ -19,7 +19,9 @@ import (
 	"log/slog"
 
 	"github.com/multigres/multigres/go/multigateway/engine"
+	"github.com/multigres/multigres/go/multigateway/handler"
 	"github.com/multigres/multigres/go/multigateway/planner"
+	"github.com/multigres/multigres/go/parser/ast"
 	"github.com/multigres/multigres/go/pb/query"
 	"github.com/multigres/multigres/go/pgprotocol/server"
 )
@@ -62,6 +64,7 @@ func (e *Executor) StreamExecute(
 	ctx context.Context,
 	conn *server.Conn,
 	sql string,
+	astStmt ast.Stmt,
 	callback func(ctx context.Context, res *query.QueryResult) error,
 ) error {
 	e.logger.DebugContext(ctx, "executing query",
@@ -100,3 +103,6 @@ func (e *Executor) StreamExecute(
 
 	return nil
 }
+
+// Ensure Executor implements handler.Executor interface.
+var _ handler.Executor = (*Executor)(nil)

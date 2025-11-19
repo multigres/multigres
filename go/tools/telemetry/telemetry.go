@@ -12,6 +12,36 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+// Package telemetry can help with annotating and exporting metrics, logs, traces, and exemplars.
+//
+// To start a cluster with the local provisioner configured to export traces and metrics:
+//
+//	OTEL_EXPORTER_OTLP_PROTOCOL="http/protobuf" \
+//	  OTEL_METRICS_EXPORTER=otlp \
+//	  OTEL_EXPORTER_OTLP_METRICS_ENDPOINT="http://localhost:9090/api/v1/otlp/v1/metrics" \
+//	  OTEL_EXPORTER_OTLP_ENDPOINT="http://localhost:4318" \
+//	  OTEL_TRACES_SAMPLER=always_on \
+//	  OTEL_TRACES_EXPORTER=otlp \
+//	  multigres cluster start --config-path multigres_local
+//
+// To collect traces locally to view at http://localhost:16686/:
+//
+//	$ docker run --rm -it --name jaeger-all-in-one \
+//	    -e COLLECTOR_OTLP_ENABLED=true \
+//	    -e COLLECTOR_OTLP_HTTP_PORT=4318 \
+//	    -p 16686:16686 \
+//	    -p 4318:4318 \
+//	    jaegertracing/all-in-one:latest
+//
+// To collect metrics locally to view at http://localhost:9090/:
+//
+//	$ docker run --rm -it \
+//	    --name prometheus \
+//	    -p 9090:9090 \
+//	    prom/prometheus \
+//	    --config.file=/etc/prometheus/prometheus.yml \
+//	    --web.enable-otlp-receiver \
+//	    --enable-feature=exemplar-storage
 package telemetry
 
 import (

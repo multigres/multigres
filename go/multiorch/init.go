@@ -17,27 +17,36 @@ package multiorch
 
 import (
 	"context"
+	"os"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 
 	"github.com/multigres/multigres/go/clustermetadata/topo"
 	"github.com/multigres/multigres/go/clustermetadata/toporeg"
+	"github.com/multigres/multigres/go/multiorch/config"
+	"github.com/multigres/multigres/go/multiorch/recovery"
+	"github.com/multigres/multigres/go/multipooler/rpcclient"
 	"github.com/multigres/multigres/go/servenv"
 	"github.com/multigres/multigres/go/viperutil"
 )
 
 type MultiOrch struct {
-	cell viperutil.Value[string]
 	// grpcServer is the grpc server
 	grpcServer *servenv.GrpcServer
 	// senv is the serving environment
 	senv *servenv.ServEnv
 	// topoConfig holds topology configuration
-	topoConfig   *topo.TopoConfig
+	topoConfig *topo.TopoConfig
+	// connConfig holds multipooler RPC client configuration
+	connConfig   *rpcclient.ConnConfig
 	ts           topo.Store
 	tr           *toporeg.TopoReg
 	serverStatus Status
+
+	// Orchestration components
+	cfg            *config.Config
+	recoveryEngine *recovery.Engine
 }
 
 func (mo *MultiOrch) CobraPreRunE(cmd *cobra.Command) error {
@@ -50,25 +59,21 @@ func (mo *MultiOrch) RunDefault() {
 
 // Register flags that are specific to multiorch.
 func (mo *MultiOrch) RegisterFlags(fs *pflag.FlagSet) {
-	fs.String("cell", mo.cell.Default(), "cell to use")
-	viperutil.BindFlags(fs, mo.cell)
+	mo.cfg.RegisterFlags(fs)
 	mo.senv.RegisterFlags(fs)
 	mo.grpcServer.RegisterFlags(fs)
 	mo.topoConfig.RegisterFlags(fs)
+	mo.connConfig.RegisterFlags(fs)
 }
 
 func NewMultiOrch() *MultiOrch {
 	reg := viperutil.NewRegistry()
 	return &MultiOrch{
-		cell: viperutil.Configure(reg, "cell", viperutil.Options[string]{
-			Default:  "",
-			FlagName: "cell",
-			Dynamic:  false,
-			EnvVars:  []string{"MT_CELL"},
-		}),
+		cfg:        config.NewConfig(reg),
 		grpcServer: servenv.NewGrpcServer(reg),
 		senv:       servenv.NewServEnv(reg),
 		topoConfig: topo.NewTopoConfig(reg),
+		connConfig: rpcclient.NewConnConfig(reg),
 		serverStatus: Status{
 			Title: "Multiorch",
 			Links: []Link{
@@ -89,15 +94,29 @@ func (mo *MultiOrch) Init() {
 	logger := mo.senv.GetLogger()
 	mo.ts = mo.topoConfig.Open()
 
+	// Validate and parse shard watch targets
+	targetsRaw := mo.cfg.GetShardWatchTargets()
+	if len(targetsRaw) == 0 {
+		logger.Error("watch-targets is required")
+		os.Exit(1)
+	}
+
+	targets, err := config.ParseShardWatchTargets(targetsRaw)
+	if err != nil {
+		logger.Error("failed to parse watch-targets", "error", err)
+		os.Exit(1)
+	}
+
 	logger.Info("multiorch starting up",
-		"cell", mo.cell.Get(),
+		"cell", mo.cfg.GetCell(),
 		"http_port", mo.senv.GetHTTPPort(),
 		"grpc_port", mo.grpcServer.Port(),
+		"watch_targets", targets,
 	)
 
 	// Create MultiOrch instance for topo registration
 	// TODO(sougou): Is serviceID needed? It's sent as empty string for now.
-	multiorch := topo.NewMultiOrch("", mo.cell.Get(), mo.senv.GetHostname())
+	multiorch := topo.NewMultiOrch("", mo.cfg.GetCell(), mo.senv.GetHostname())
 	multiorch.PortMap["grpc"] = int32(mo.grpcServer.Port())
 	multiorch.PortMap["http"] = int32(mo.senv.GetHTTPPort())
 
@@ -114,6 +133,19 @@ func (mo *MultiOrch) Init() {
 	mo.senv.HTTPHandleFunc("/", mo.handleIndex)
 	mo.senv.HTTPHandleFunc("/ready", mo.handleReady)
 
+	// Create and start recovery engine
+	mo.recoveryEngine = recovery.NewEngine(
+		mo.ts,
+		logger,
+		mo.cfg,
+		targets,
+	)
+
+	if err := mo.recoveryEngine.Start(); err != nil {
+		logger.Error("failed to start recovery engine", "error", err)
+		os.Exit(1)
+	}
+
 	mo.senv.OnClose(func() {
 		mo.Shutdown()
 	})
@@ -121,6 +153,9 @@ func (mo *MultiOrch) Init() {
 
 func (mo *MultiOrch) Shutdown() {
 	mo.senv.GetLogger().Info("multiorch shutting down")
+	if mo.recoveryEngine != nil {
+		mo.recoveryEngine.Stop()
+	}
 	mo.tr.Unregister()
 	mo.ts.Close()
 }

@@ -73,10 +73,11 @@ type Handler interface {
 	HandleBind(ctx context.Context, conn *Conn, portalName, stmtName string, params [][]byte, paramFormats, resultFormats []int16) error
 
 	// HandleExecute processes an Execute message ('E') for the extended query protocol.
-	// Executes a bound portal and returns results.
+	// Executes a bound portal and streams results via callback.
 	// portalName: name of the portal to execute (empty for unnamed portal)
 	// maxRows: maximum number of rows to return (0 for no limit)
-	HandleExecute(ctx context.Context, conn *Conn, portalName string, maxRows int32) (*query.QueryResult, error)
+	// callback: function called for each result chunk
+	HandleExecute(ctx context.Context, conn *Conn, portalName string, maxRows int32, callback func(ctx context.Context, result *query.QueryResult) error) error
 
 	// HandleDescribe processes a Describe message ('D').
 	// Returns description of a prepared statement or portal.

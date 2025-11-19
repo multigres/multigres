@@ -21,7 +21,8 @@ import (
 
 const (
 	// BasePort is the starting port for all tests
-	BasePort = 6700
+	BasePort    = 6700
+	portsPerPid = 500
 )
 
 var (
@@ -35,7 +36,11 @@ func init() {
 	// Use process ID to create unique port ranges for different test processes
 	// This prevents conflicts when running tests from different packages simultaneously
 	pid := os.Getpid()
-	basePortOffset = (pid % 100) * 100 // Use last 2 digits of PID, multiply by 100 for range
+	// Give each test process enough ports for multiple zones. Tests assume that each
+	// zone can use up to 100 ports.
+	//
+	// This generates a max port number of 6700 + (99 * 500) + 200 = 56400 (< 65535)
+	basePortOffset = (pid % 100) * portsPerPid
 }
 
 // GetNextPort returns the next available port for tests

@@ -237,3 +237,37 @@ func (s *managerService) SetTerm(ctx context.Context, req *multipoolermanagerdat
 	}
 	return &multipoolermanagerdata.SetTermResponse{}, nil
 }
+
+// Backup performs a backup
+func (s *managerService) Backup(ctx context.Context, req *multipoolermanagerdata.BackupRequest) (*multipoolermanagerdata.BackupResponse, error) {
+	backupID, err := s.manager.Backup(ctx, req.ForcePrimary, req.Type)
+	if err != nil {
+		return nil, mterrors.ToGRPC(err)
+	}
+
+	return &multipoolermanagerdata.BackupResponse{
+		BackupId: backupID,
+	}, nil
+}
+
+// RestoreFromBackup restores from a backup
+func (s *managerService) RestoreFromBackup(ctx context.Context, req *multipoolermanagerdata.RestoreFromBackupRequest) (*multipoolermanagerdata.RestoreFromBackupResponse, error) {
+	err := s.manager.RestoreFromBackup(ctx, req.BackupId)
+	if err != nil {
+		return nil, mterrors.ToGRPC(err)
+	}
+
+	return &multipoolermanagerdata.RestoreFromBackupResponse{}, nil
+}
+
+// GetBackups retrieves backup information
+func (s *managerService) GetBackups(ctx context.Context, req *multipoolermanagerdata.GetBackupsRequest) (*multipoolermanagerdata.GetBackupsResponse, error) {
+	backups, err := s.manager.GetBackups(ctx, req.Limit)
+	if err != nil {
+		return nil, mterrors.ToGRPC(err)
+	}
+
+	return &multipoolermanagerdata.GetBackupsResponse{
+		Backups: backups,
+	}, nil
+}

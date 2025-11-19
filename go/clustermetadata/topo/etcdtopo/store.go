@@ -82,9 +82,9 @@ func init() {
 }
 
 func registerEtcd2TopoFlags(fs *pflag.FlagSet) {
-	fs.StringVar(&clientCertPath, "topo_etcd_tls_cert", clientCertPath, "path to the client cert to use to connect to the etcd topo server, requires topo_etcd_tls_key, enables TLS")
-	fs.StringVar(&clientKeyPath, "topo_etcd_tls_key", clientKeyPath, "path to the client key to use to connect to the etcd topo server, enables TLS")
-	fs.StringVar(&serverCaPath, "topo_etcd_tls_ca", serverCaPath, "path to the ca to use to validate the server cert when connecting to the etcd topo server")
+	fs.StringVar(&clientCertPath, "topo-etcd-tls-cert", clientCertPath, "path to the client cert to use to connect to the etcd topo server, requires topo-etcd-tls-key, enables TLS")
+	fs.StringVar(&clientKeyPath, "topo-etcd-tls-key", clientKeyPath, "path to the client key to use to connect to the etcd topo server, enables TLS")
+	fs.StringVar(&serverCaPath, "topo-etcd-tls-ca", serverCaPath, "path to the ca to use to validate the server cert when connecting to the etcd topo server")
 }
 
 // Close implements topo.Conn.Close.
