@@ -96,10 +96,8 @@ jobs:
       - name: Upload coverage artifact
         uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
         with:
-          name: coverage
-          path: coverage.out
+          name: code-coverage
+          path: coverage.txt
 
       - name: Report Coverage
         uses: fgrosse/go-coverage-report@8c1d1a09864211d258937b1b1a5b849f7e4f2682 # v1.2.0
-        with:
-          coverage-file: coverage.out
