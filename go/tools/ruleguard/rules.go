@@ -47,3 +47,11 @@ func disallowOtelMeterOutsideMetricsFiles(m dsl.Matcher) {
 		Where(!m.File().Name.Matches(`(_test|metrics)\.go$`)).
 		Report("otel.Meter() should only be called in *_test.go or *metrics.go files")
 }
+
+func disallowMetricsConstructorArgs(m dsl.Matcher) {
+	m.Match(`func NewMetrics($*params) $*_ { $*_ }`).
+		Where(
+			m.File().Name.Matches(`metrics\.go$`) &&
+				m["params"].Text != "()").
+		Report("NewMetrics() in metrics.go should take no arguments to maintain isolation from service code. Return (*Metrics, error) and let caller handle logging.")
+}
