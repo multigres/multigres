@@ -618,3 +618,18 @@ message BackupMetadata {
     // TODO: add VALID/INVALID states
   }
 }
+
+// =============================================================================
+// Durability Policy APIs
+// =============================================================================
+
+// GetDurabilityPolicyRequest requests the active durability policy
+message GetDurabilityPolicyRequest {
+  // Empty - retrieves the currently active policy
+}
+
+// GetDurabilityPolicyResponse returns the active durability policy
+message GetDurabilityPolicyResponse {
+  // The active durability policy, or null if none is configured
+  clustermetadata.DurabilityPolicy policy = 1;
+}

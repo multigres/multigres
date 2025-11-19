@@ -16,23 +16,25 @@ package coordinator
 
 import (
 	"context"
+	"fmt"
 	"sync"
 
 	"github.com/multigres/multigres/go/mterrors"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	consensusdatapb "github.com/multigres/multigres/go/pb/consensusdata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
 
-// BeginTerm implements stages 1-4 of the consensus protocol:
+// BeginTerm implements stages 1-5 of the consensus protocol:
 // 1. Discover max term from all nodes
 // 2. Increment to get new term
 // 3. Select candidate based on WAL position
 // 4. Send BeginTerm RPC to all nodes in parallel
-// 5. Validate quorum (majority acceptance)
+// 5. Validate quorum using durability policy
 //
 // Returns the candidate node, standbys, the new term, and any error.
-func (c *Coordinator) BeginTerm(ctx context.Context, shardID string, cohort []*Node) (*Node, []*Node, int64, error) {
+func (c *Coordinator) BeginTerm(ctx context.Context, shardID string, cohort []*Node, quorumRule *clustermetadatapb.QuorumRule) (*Node, []*Node, int64, error) {
 	// Stage 1: Obtain Term Number - Query all nodes for max term
 	c.logger.InfoContext(ctx, "Discovering max term", "shard", shardID, "cohort_size", len(cohort))
 	maxTerm, err := c.discoverMaxTerm(ctx, cohort)
@@ -60,14 +62,14 @@ func (c *Coordinator) BeginTerm(ctx context.Context, shardID string, cohort []*N
 
 	c.logger.InfoContext(ctx, "Recruited nodes", "shard", shardID, "count", len(recruited))
 
-	// Stage 5: Validate Quorum
-	// TODO(durability-policy): Replace hardcoded majority with pluggable policy evaluation
-	// Future: Load ruleset from Topo Server and validate against policy (e.g., multi-AZ)
-	quorumSize := len(cohort)/2 + 1
-	if len(recruited) < quorumSize {
-		return nil, nil, 0, mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
-			"insufficient quorum in shard %s: got %d/%d nodes (need %d)",
-			shardID, len(recruited), len(cohort), quorumSize)
+	// Stage 5: Validate Quorum using durability policy
+	c.logger.InfoContext(ctx, "Validating quorum",
+		"shard", shardID,
+		"quorum_type", quorumRule.QuorumType,
+		"required_count", quorumRule.RequiredCount)
+
+	if err := c.ValidateQuorum(quorumRule, cohort, recruited); err != nil {
+		return nil, nil, 0, mterrors.Wrapf(err, "quorum validation failed for shard %s", shardID)
 	}
 
 	// Separate candidate from standbys
@@ -95,7 +97,8 @@ func (c *Coordinator) discoverMaxTerm(ctx context.Context, cohort []*Node) (int6
 		wg.Add(1)
 		go func(n *Node) {
 			defer wg.Done()
-			resp, err := n.ConsensusStatus(ctx)
+			req := &consensusdatapb.StatusRequest{}
+			resp, err := n.rpcClient.ConsensusStatus(ctx, n.pooler, req)
 			if err != nil {
 				results <- result{err: err}
 				return
@@ -149,7 +152,8 @@ func (c *Coordinator) selectCandidate(ctx context.Context, cohort []*Node) (*Nod
 
 	// Query status from all nodes
 	for _, node := range cohort {
-		resp, err := node.ConsensusStatus(ctx)
+		req := &consensusdatapb.StatusRequest{}
+		resp, err := node.rpcClient.ConsensusStatus(ctx, node.pooler, req)
 		if err != nil {
 			c.logger.WarnContext(ctx, "Failed to get status from node",
 				"node", node.ID.Name,
@@ -222,7 +226,11 @@ func (c *Coordinator) recruitNodes(ctx context.Context, cohort []*Node, term int
 		wg.Add(1)
 		go func(n *Node) {
 			defer wg.Done()
-			resp, err := n.BeginTerm(ctx, term, c.coordinatorID)
+			req := &consensusdatapb.BeginTermRequest{
+				Term:        term,
+				CandidateId: c.coordinatorID,
+			}
+			resp, err := n.rpcClient.BeginTerm(ctx, n.pooler, req)
 			if err != nil {
 				results <- result{node: n, err: err}
 				return
@@ -261,24 +269,135 @@ func (c *Coordinator) recruitNodes(ctx context.Context, cohort []*Node, term int
 	return recruited, nil
 }
 
+// buildSyncReplicationConfig creates synchronous replication configuration based on the quorum policy.
+// Returns nil if synchronous replication should not be configured (required_count=1 or no standbys).
+// For MULTI_CELL_ANY_N policies, excludes standbys in the same cell as the candidate (primary).
+func (c *Coordinator) buildSyncReplicationConfig(quorumRule *clustermetadatapb.QuorumRule, standbys []*Node, candidate *Node) (*multipoolermanagerdatapb.ConfigureSynchronousReplicationRequest, error) {
+	requiredCount := int(quorumRule.RequiredCount)
+
+	// Determine async fallback mode (default to REJECT if unset)
+	asyncFallback := quorumRule.AsyncFallback
+	if asyncFallback == clustermetadatapb.AsyncReplicationFallbackMode_ASYNC_REPLICATION_FALLBACK_MODE_UNKNOWN {
+		asyncFallback = clustermetadatapb.AsyncReplicationFallbackMode_ASYNC_REPLICATION_FALLBACK_MODE_REJECT
+	}
+
+	// If required_count is 1, don't configure synchronous replication
+	// With required_count=1, only the primary itself is needed for quorum, so async replication is sufficient
+	if requiredCount == 1 {
+		c.logger.Info("Skipping synchronous replication configuration",
+			"required_count", requiredCount,
+			"standbys_count", len(standbys),
+			"reason", "async replication sufficient for quorum")
+		return nil, nil
+	}
+
+	// If there are no standbys, check async fallback mode
+	if len(standbys) == 0 {
+		if asyncFallback == clustermetadatapb.AsyncReplicationFallbackMode_ASYNC_REPLICATION_FALLBACK_MODE_REJECT {
+			return nil, mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
+				fmt.Sprintf("cannot establish synchronous replication: no standbys available (required %d standbys, async_fallback=REJECT)",
+					requiredCount-1))
+		}
+		c.logger.Info("Skipping synchronous replication configuration",
+			"required_count", requiredCount,
+			"standbys_count", 0,
+			"reason", "async replication sufficient for quorum")
+		return nil, nil
+	}
+
+	// For MULTI_CELL_ANY_N, filter out standbys in the same cell as the primary
+	// This ensures that synchronous replication requires acknowledgment from different cells
+	eligibleStandbys := standbys
+	if quorumRule.QuorumType == clustermetadatapb.QuorumType_QUORUM_TYPE_MULTI_CELL_ANY_N {
+		eligibleStandbys = c.filterStandbysByCell(candidate, standbys)
+
+		c.logger.Info("Filtered standbys for MULTI_CELL_ANY_N",
+			"candidate_cell", candidate.ID.Cell,
+			"total_standbys", len(standbys),
+			"eligible_standbys", len(eligibleStandbys),
+			"excluded_same_cell", len(standbys)-len(eligibleStandbys))
+
+		// If no eligible standbys remain after filtering, check async fallback mode
+		if len(eligibleStandbys) == 0 {
+			if asyncFallback == clustermetadatapb.AsyncReplicationFallbackMode_ASYNC_REPLICATION_FALLBACK_MODE_REJECT {
+				return nil, mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
+					fmt.Sprintf("cannot establish synchronous replication: no eligible standbys in different cells (candidate_cell=%s, async_fallback=REJECT)",
+						candidate.ID.Cell))
+			}
+			c.logger.Warn("No eligible standbys in different cells, using async replication",
+				"candidate_cell", candidate.ID.Cell,
+				"total_standbys", len(standbys))
+			return nil, nil
+		}
+	}
+
+	// Calculate num_sync: required_count - 1 (since primary counts as 1)
+	// This ensures that primary + num_sync standbys = required_count total nodes/cells
+	requiredNumSync := requiredCount - 1
+
+	// Check if we have enough standbys to meet the requirement
+	if requiredNumSync > len(eligibleStandbys) {
+		if asyncFallback == clustermetadatapb.AsyncReplicationFallbackMode_ASYNC_REPLICATION_FALLBACK_MODE_REJECT {
+			return nil, mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
+				fmt.Sprintf("cannot establish synchronous replication: insufficient standbys (required %d standbys, available %d, async_fallback=REJECT)",
+					requiredNumSync, len(eligibleStandbys)))
+		}
+		c.logger.Warn("Not enough standbys for required sync count, using all available",
+			"required_num_sync", requiredNumSync,
+			"available_standbys", len(eligibleStandbys))
+	}
+
+	// Cap num_sync at the number of available eligible standbys
+	numSync := int32(requiredNumSync)
+	if int(numSync) > len(eligibleStandbys) {
+		numSync = int32(len(eligibleStandbys))
+	}
+
+	// Convert standby nodes to IDs
+	standbyIDs := make([]*clustermetadatapb.ID, len(eligibleStandbys))
+	for i, standby := range eligibleStandbys {
+		standbyIDs[i] = standby.ID
+	}
+
+	c.logger.Info("Configuring synchronous replication",
+		"quorum_type", quorumRule.QuorumType,
+		"required_count", requiredCount,
+		"num_sync", numSync,
+		"total_standbys", len(eligibleStandbys))
+
+	return &multipoolermanagerdatapb.ConfigureSynchronousReplicationRequest{
+		SynchronousCommit: multipoolermanagerdatapb.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_REMOTE_WRITE,
+		SynchronousMethod: multipoolermanagerdatapb.SynchronousMethod_SYNCHRONOUS_METHOD_ANY,
+		NumSync:           numSync,
+		StandbyIds:        standbyIDs,
+		ReloadConfig:      true,
+	}, nil
+}
+
+// filterStandbysByCell returns standbys that are NOT in the same cell as the candidate.
+// Used for MULTI_CELL_ANY_N to ensure synchronous replication spans multiple cells.
+func (c *Coordinator) filterStandbysByCell(candidate *Node, standbys []*Node) []*Node {
+	candidateCell := candidate.ID.Cell
+	filtered := make([]*Node, 0, len(standbys))
+
+	for _, standby := range standbys {
+		if standby.ID.Cell != candidateCell {
+			filtered = append(filtered, standby)
+		}
+	}
+
+	return filtered
+}
+
 // Propagate implements stage 5 of the consensus protocol:
 // - Promote the candidate to primary
 // - Configure standbys to replicate from the new primary
-// - Wait for quorum to catch up (optional, based on sync replication config)
-func (c *Coordinator) Propagate(ctx context.Context, candidate *Node, standbys []*Node, term int64) error {
-	// Build synchronous replication configuration
-	// For now, use FIRST method with all standbys
-	syncConfig := &multipoolermanagerdatapb.ConfigureSynchronousReplicationRequest{
-		SynchronousCommit: multipoolermanagerdatapb.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_REMOTE_APPLY,
-		SynchronousMethod: multipoolermanagerdatapb.SynchronousMethod_SYNCHRONOUS_METHOD_FIRST,
-		NumSync:           int32(len(standbys)),
-		StandbyIds:        make([]*clustermetadatapb.ID, len(standbys)),
-		ReloadConfig:      true,
-	}
-
-	// Convert standby IDs to the format expected by the RPC
-	for i, standby := range standbys {
-		syncConfig.StandbyIds[i] = standby.ID
+// - Configure synchronous replication based on quorum policy
+func (c *Coordinator) Propagate(ctx context.Context, candidate *Node, standbys []*Node, term int64, quorumRule *clustermetadatapb.QuorumRule) error {
+	// Build synchronous replication configuration based on quorum policy
+	syncConfig, err := c.buildSyncReplicationConfig(quorumRule, standbys, candidate)
+	if err != nil {
+		return mterrors.Wrap(err, "failed to build synchronous replication config")
 	}
 
 	// Promote candidate to primary
@@ -287,7 +406,8 @@ func (c *Coordinator) Propagate(ctx context.Context, candidate *Node, standbys [
 		"term", term)
 
 	// Get current WAL position before promotion (for validation)
-	status, err := candidate.ConsensusStatus(ctx)
+	statusReq := &consensusdatapb.StatusRequest{}
+	status, err := candidate.rpcClient.ConsensusStatus(ctx, candidate.pooler, statusReq)
 	if err != nil {
 		return mterrors.Wrap(err, "failed to get candidate status before promotion")
 	}
@@ -307,14 +427,23 @@ func (c *Coordinator) Propagate(ctx context.Context, candidate *Node, standbys [
 					"node", candidate.ID.Name,
 					"target_lsn", expectedLSN)
 
-				if err := candidate.WaitForLSN(ctx, expectedLSN); err != nil {
+				waitReq := &multipoolermanagerdatapb.WaitForLSNRequest{
+					TargetLsn: expectedLSN,
+				}
+				if _, err := candidate.rpcClient.WaitForLSN(ctx, candidate.pooler, waitReq); err != nil {
 					return mterrors.Wrapf(err, "candidate failed to replay WAL to %s", expectedLSN)
 				}
 			}
 		}
 	}
 
-	_, err = candidate.Promote(ctx, term, expectedLSN, syncConfig)
+	promoteReq := &multipoolermanagerdatapb.PromoteRequest{
+		ConsensusTerm:         term,
+		ExpectedLsn:           expectedLSN,
+		SyncReplicationConfig: syncConfig,
+		Force:                 false,
+	}
+	_, err = candidate.rpcClient.Promote(ctx, candidate.pooler, promoteReq)
 	if err != nil {
 		return mterrors.Wrap(err, "failed to promote candidate")
 	}
@@ -333,8 +462,15 @@ func (c *Coordinator) Propagate(ctx context.Context, candidate *Node, standbys [
 				"standby", s.ID.Name,
 				"primary", candidate.ID.Name)
 
-			err := s.SetPrimaryConnInfo(ctx, candidate.Hostname, candidate.Port, term)
-			if err != nil {
+			setPrimaryReq := &multipoolermanagerdatapb.SetPrimaryConnInfoRequest{
+				Host:                  candidate.Hostname,
+				Port:                  candidate.Port,
+				CurrentTerm:           term,
+				StopReplicationBefore: false,
+				StartReplicationAfter: false,
+				Force:                 false,
+			}
+			if _, err := s.rpcClient.SetPrimaryConnInfo(ctx, s.pooler, setPrimaryReq); err != nil {
 				errChan <- mterrors.Wrapf(err, "failed to configure standby %s", s.ID.Name)
 				return
 			}
@@ -381,7 +517,8 @@ func (c *Coordinator) EstablishLeader(ctx context.Context, candidate *Node, term
 		"term", term)
 
 	// Verify the leader is actually serving
-	status, err := candidate.ManagerStatus(ctx)
+	statusReq := &multipoolermanagerdatapb.StatusRequest{}
+	status, err := candidate.rpcClient.Status(ctx, candidate.pooler, statusReq)
 	if err != nil {
 		return mterrors.Wrap(err, "failed to verify leader status")
 	}

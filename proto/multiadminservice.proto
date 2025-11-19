@@ -17,6 +17,7 @@ syntax = "proto3";
 package multiadmin;
 
 import "clustermetadata.proto";
+import "google/protobuf/timestamp.proto";
 
 option go_package = "github.com/multigres/multigres/go/pb/multiadmin";
 
@@ -42,6 +43,18 @@ service MultiAdminService {
 
   // GetOrchs retrieves orchestrators filtered by cells
   rpc GetOrchs(GetOrchsRequest) returns (GetOrchsResponse);
+
+  // Backup starts an async backup of a specific shard
+  rpc Backup(BackupRequest) returns (BackupResponse);
+
+  // RestoreFromBackup starts an async restore of a specific shard from a backup
+  rpc RestoreFromBackup(RestoreFromBackupRequest) returns (RestoreFromBackupResponse);
+
+  // GetBackupJobStatus checks the status of a backup or restore job
+  rpc GetBackupJobStatus(GetBackupJobStatusRequest) returns (GetBackupJobStatusResponse);
+
+  // GetBackups lists backup artifacts with optional filtering
+  rpc GetBackups(GetBackupsRequest) returns (GetBackupsResponse);
 }
 
 // GetCellRequest specifies the cell to retrieve
@@ -122,4 +135,147 @@ message GetOrchsRequest {
 message GetOrchsResponse {
   // protolint:disable:next REPEATED_FIELD_NAMES_PLURALIZED
   repeated clustermetadata.MultiOrch orchs = 1;
+}
+
+// Backup operation messages
+
+// BackupRequest requests an async backup of a specific shard
+message BackupRequest {
+  // database name (required)
+  string database = 1;
+  // table_group name (required)
+  string table_group = 2;
+  // shard name (required)
+  string shard = 3;
+  // type of backup: "full", "differential", or "incremental" (required)
+  string type = 4;
+  // force_primary indicates whether to backup from primary (optional, default false)
+  bool force_primary = 5;
+}
+
+// BackupResponse contains the job ID for tracking the async backup
+message BackupResponse {
+  // job_id is the unique identifier for tracking this backup job
+  string job_id = 1;
+}
+
+// RestoreFromBackup operation messages
+
+// RestoreFromBackupRequest requests an async restore of a specific shard
+message RestoreFromBackupRequest {
+  // database name (required)
+  string database = 1;
+  // table_group name (required)
+  string table_group = 2;
+  // shard name (required)
+  string shard = 3;
+  // backup_id to restore from (optional, empty means "latest backup")
+  string backup_id = 4;
+}
+
+// RestoreFromBackupResponse contains the job ID for tracking the async restore
+message RestoreFromBackupResponse {
+  // job_id is the unique identifier for tracking this restore job
+  string job_id = 1;
+}
+
+// GetBackupJobStatus operation messages
+
+// GetBackupJobStatusRequest requests the status of a backup or restore job
+message GetBackupJobStatusRequest {
+  // job_id to query (required)
+  string job_id = 1;
+}
+
+// GetBackupJobStatusResponse contains the current status of a backup or restore job
+message GetBackupJobStatusResponse {
+  // job_id is the unique identifier for this job
+  string job_id = 1;
+  // job_type indicates whether this is a backup or restore job
+  JobType job_type = 2;
+  // status indicates the current state of the job
+  JobStatus status = 3;
+  // error_message contains the error if status is FAILED
+  string error_message = 4;
+
+  // Original request context
+  string database = 5;
+  string table_group = 6;
+  string shard = 7;
+
+  // For backup jobs
+  string backup_type = 8;         // "full", "differential", "incremental"
+  bool force_primary = 9;
+
+  // For restore jobs
+  string requested_backup_id = 10; // What was requested (may be empty for "latest")
+
+  // Results (set when status = COMPLETED)
+  // For backup: created backup_id
+  // For restore: backup_id that was restored
+  string backup_id = 11;
+}
+
+// JobType indicates the type of async job
+enum JobType {
+  JOB_TYPE_UNKNOWN = 0;
+  JOB_TYPE_BACKUP = 1;
+  JOB_TYPE_RESTORE = 2;
+}
+
+// JobStatus indicates the current state of an async job
+enum JobStatus {
+  JOB_STATUS_UNKNOWN = 0;
+  JOB_STATUS_PENDING = 1;
+  JOB_STATUS_RUNNING = 2;
+  JOB_STATUS_COMPLETED = 3;
+  JOB_STATUS_FAILED = 4;
+}
+
+// GetBackups operation messages
+
+// GetBackupsRequest requests a list of backup artifacts with optional filtering
+message GetBackupsRequest {
+  // database name to filter by (optional, empty means all databases)
+  string database = 1;
+  // table_group name to filter by (optional, empty means all table groups)
+  string table_group = 2;
+  // shard name to filter by (optional, empty means all shards)
+  string shard = 3;
+  // limit on number of results (optional, 0 means no limit)
+  uint32 limit = 4;
+}
+
+// GetBackupsResponse contains the list of backup artifacts
+message GetBackupsResponse {
+  // backups is the list of backup information
+  repeated BackupInfo backups = 1;
+}
+
+// BackupInfo contains information about a single backup artifact
+message BackupInfo {
+  // backup_id uniquely identifies this backup (e.g., "20250117-123456F")
+  string backup_id = 1;
+  // database name
+  string database = 2;
+  // table_group name
+  string table_group = 3;
+  // shard name
+  string shard = 4;
+  // type of backup: "full", "differential", or "incremental"
+  string type = 5;
+  // status of the backup
+  BackupStatus status = 6;
+  // backup_time is when the backup was created
+  google.protobuf.Timestamp backup_time = 7;
+  // backup_size_bytes is the size of the backup in bytes
+  uint64 backup_size_bytes = 8;
+}
+
+// BackupStatus indicates the state of a backup artifact
+enum BackupStatus {
+  BACKUP_STATUS_UNKNOWN = 0;
+  BACKUP_STATUS_INCOMPLETE = 1;
+  BACKUP_STATUS_COMPLETE = 2;
+  BACKUP_STATUS_FAILED = 3;
 }

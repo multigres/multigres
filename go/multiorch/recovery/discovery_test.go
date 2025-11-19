@@ -24,7 +24,7 @@ import (
 
 	"github.com/multigres/multigres/go/clustermetadata/topo"
 	"github.com/multigres/multigres/go/clustermetadata/topo/memorytopo"
-	"github.com/multigres/multigres/go/multiorch/store"
+	"github.com/multigres/multigres/go/multiorch/config"
 	"github.com/multigres/multigres/go/pb/clustermetadata"
 )
 
@@ -42,14 +42,17 @@ func TestDiscovery_DatabaseLevelWatch(t *testing.T) {
 	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
 	defer ts.Close()
 
-	engine := &Engine{
-		logger:                        slog.Default(),
-		ts:                            ts,
-		poolerStore:                   store.NewStore[string, *store.PoolerHealth](),
-		shardWatchTargets:             []WatchTarget{{Database: "mydb"}},
-		clusterMetadataRefreshTimeout: 5 * time.Second,
-		ctx:                           context.Background(),
-	}
+	cfg := config.NewTestConfig(
+		config.WithCell("zone1"),
+		config.WithClusterMetadataRefreshTimeout(5*time.Second),
+	)
+
+	engine := NewEngine(
+		ts,
+		slog.Default(),
+		cfg,
+		[]config.WatchTarget{{Database: "mydb"}},
+	)
 
 	// Initial state: 2 poolers in different tablegroups
 	require.NoError(t, ts.CreateMultiPooler(ctx, &clustermetadata.MultiPooler{
@@ -111,14 +114,17 @@ func TestDiscovery_TablegroupLevelWatch(t *testing.T) {
 	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
 	defer ts.Close()
 
-	engine := &Engine{
-		logger:                        slog.Default(),
-		ts:                            ts,
-		poolerStore:                   store.NewStore[string, *store.PoolerHealth](),
-		shardWatchTargets:             []WatchTarget{{Database: "mydb", TableGroup: "tg1"}},
-		clusterMetadataRefreshTimeout: 5 * time.Second,
-		ctx:                           context.Background(),
-	}
+	cfg := config.NewTestConfig(
+		config.WithCell("zone1"),
+		config.WithClusterMetadataRefreshTimeout(5*time.Second),
+	)
+
+	engine := NewEngine(
+		ts,
+		slog.Default(),
+		cfg,
+		[]config.WatchTarget{{Database: "mydb", TableGroup: "tg1"}},
+	)
 
 	// Initial state: poolers in tg1 and tg2
 	require.NoError(t, ts.CreateMultiPooler(ctx, &clustermetadata.MultiPooler{
@@ -171,14 +177,17 @@ func TestDiscovery_ShardLevelWatch(t *testing.T) {
 	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
 	defer ts.Close()
 
-	engine := &Engine{
-		logger:                        slog.Default(),
-		ts:                            ts,
-		poolerStore:                   store.NewStore[string, *store.PoolerHealth](),
-		shardWatchTargets:             []WatchTarget{{Database: "mydb", TableGroup: "tg1", Shard: "0"}},
-		clusterMetadataRefreshTimeout: 5 * time.Second,
-		ctx:                           context.Background(),
-	}
+	cfg := config.NewTestConfig(
+		config.WithCell("zone1"),
+		config.WithClusterMetadataRefreshTimeout(5*time.Second),
+	)
+
+	engine := NewEngine(
+		ts,
+		slog.Default(),
+		cfg,
+		[]config.WatchTarget{{Database: "mydb", TableGroup: "tg1", Shard: "0"}},
+	)
 
 	// Initial state: poolers in different shards and tablegroups
 	require.NoError(t, ts.CreateMultiPooler(ctx, &clustermetadata.MultiPooler{
@@ -250,14 +259,17 @@ func TestDiscovery_PreservesTimestamps(t *testing.T) {
 	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
 	defer ts.Close()
 
-	engine := &Engine{
-		logger:                        slog.Default(),
-		ts:                            ts,
-		poolerStore:                   store.NewStore[string, *store.PoolerHealth](),
-		shardWatchTargets:             []WatchTarget{{Database: "mydb"}},
-		clusterMetadataRefreshTimeout: 5 * time.Second,
-		ctx:                           context.Background(),
-	}
+	cfg := config.NewTestConfig(
+		config.WithCell("zone1"),
+		config.WithClusterMetadataRefreshTimeout(5*time.Second),
+	)
+
+	engine := NewEngine(
+		ts,
+		slog.Default(),
+		cfg,
+		[]config.WatchTarget{{Database: "mydb"}},
+	)
 
 	// Add initial pooler
 	require.NoError(t, ts.CreateMultiPooler(ctx, &clustermetadata.MultiPooler{
@@ -316,18 +328,21 @@ func TestDiscovery_MultipleWatchTargets(t *testing.T) {
 	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
 	defer ts.Close()
 
-	engine := &Engine{
-		logger:      slog.Default(),
-		ts:          ts,
-		poolerStore: store.NewStore[string, *store.PoolerHealth](),
-		shardWatchTargets: []WatchTarget{
+	cfg := config.NewTestConfig(
+		config.WithCell("zone1"),
+		config.WithClusterMetadataRefreshTimeout(5*time.Second),
+	)
+
+	engine := NewEngine(
+		ts,
+		slog.Default(),
+		cfg,
+		[]config.WatchTarget{
 			{Database: "db1"},                                // Watch entire database
 			{Database: "db2", TableGroup: "tg1"},             // Watch specific tablegroup
 			{Database: "db3", TableGroup: "tg1", Shard: "0"}, // Watch specific shard
 		},
-		clusterMetadataRefreshTimeout: 5 * time.Second,
-		ctx:                           context.Background(),
-	}
+	)
 
 	// Add poolers for different watch targets
 	require.NoError(t, ts.CreateMultiPooler(ctx, &clustermetadata.MultiPooler{
@@ -379,14 +394,17 @@ func TestDiscovery_EmptyTopology(t *testing.T) {
 	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
 	defer ts.Close()
 
-	engine := &Engine{
-		logger:                        slog.Default(),
-		ts:                            ts,
-		poolerStore:                   store.NewStore[string, *store.PoolerHealth](),
-		shardWatchTargets:             []WatchTarget{{Database: "mydb"}},
-		clusterMetadataRefreshTimeout: 5 * time.Second,
-		ctx:                           context.Background(),
-	}
+	cfg := config.NewTestConfig(
+		config.WithCell("zone1"),
+		config.WithClusterMetadataRefreshTimeout(5*time.Second),
+	)
+
+	engine := NewEngine(
+		ts,
+		slog.Default(),
+		cfg,
+		[]config.WatchTarget{{Database: "mydb"}},
+	)
 
 	// Refresh with empty topology
 	engine.refreshClusterMetadata()

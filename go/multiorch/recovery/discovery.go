@@ -26,17 +26,14 @@ import (
 func (re *Engine) refreshClusterMetadata() {
 	startTime := time.Now()
 	defer func() {
-		latency := time.Since(startTime).Seconds()
-		if re.refreshLatency != nil {
-			re.refreshLatency.Record(re.ctx, latency)
-		}
+		re.metrics.clusterMetadataRefreshDuration.Record(re.ctx, time.Since(startTime).Seconds())
 	}()
 
 	re.logger.Debug("refreshing cluster metadata")
 
 	// Create a timeout context for this refresh operation
 	// Use the configured timeout, but respect parent context cancellation
-	ctx, cancel := context.WithTimeout(re.ctx, re.clusterMetadataRefreshTimeout)
+	ctx, cancel := context.WithTimeout(re.ctx, re.config.GetClusterMetadataRefreshTimeout())
 	defer cancel()
 
 	// Get all cells
@@ -92,8 +89,15 @@ func (re *Engine) refreshClusterMetadata() {
 				if existing, ok := re.poolerStore.Get(key); ok {
 					// Update the MultiPooler record in case topology changed
 					// but preserve all timestamps and computed fields
-					existing.MultiPooler = pooler.MultiPooler
-					re.poolerStore.Set(key, existing)
+					updated := &store.PoolerHealth{
+						MultiPooler:         pooler.MultiPooler,
+						LastCheckAttempted:  existing.LastCheckAttempted,
+						LastCheckSuccessful: existing.LastCheckSuccessful,
+						LastSeen:            existing.LastSeen,
+						IsUpToDate:          existing.IsUpToDate,
+						IsLastCheckValid:    existing.IsLastCheckValid,
+					}
+					re.poolerStore.Set(key, updated)
 				} else {
 					// New pooler - we've discovered it in the topology, but we haven't
 					// performed a health check yet. The health check loop will update
@@ -103,6 +107,9 @@ func (re *Engine) refreshClusterMetadata() {
 						IsUpToDate:  false, // Not yet health checked
 					}
 					re.poolerStore.Set(key, poolerInfo)
+
+					// Queue health check for this newly discovered pooler
+					re.healthCheckQueue.Push(key)
 				}
 			}
 

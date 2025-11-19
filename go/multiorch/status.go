@@ -48,7 +48,7 @@ func (mo *MultiOrch) handleIndex(w http.ResponseWriter, r *http.Request) {
 	mo.serverStatus.mu.Lock()
 	defer mo.serverStatus.mu.Unlock()
 
-	mo.serverStatus.Cell = mo.cell.Get()
+	mo.serverStatus.Cell = mo.cfg.GetCell()
 	mo.serverStatus.TopoStatus = mo.ts.Status()
 	err := web.Templates.ExecuteTemplate(w, "orch_index.html", &mo.serverStatus)
 	if err != nil {
