@@ -90,6 +90,11 @@ service MultiPoolerManager {
   rpc GetDurabilityPolicy(multipoolermanagerdata.GetDurabilityPolicyRequest)
     returns (multipoolermanagerdata.GetDurabilityPolicyResponse);
 
+  // CreateDurabilityPolicy creates a new durability policy in the local database
+  // Used by MultiOrch to initialize policies via gRPC instead of direct database connection
+  rpc CreateDurabilityPolicy(multipoolermanagerdata.CreateDurabilityPolicyRequest)
+    returns (multipoolermanagerdata.CreateDurabilityPolicyResponse);
+
   // ChangeType changes the pooler type (LEADER/FOLLOWER)
   rpc ChangeType(multipoolermanagerdata.ChangeTypeRequest)
     returns (multipoolermanagerdata.ChangeTypeResponse);

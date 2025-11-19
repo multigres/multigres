@@ -654,3 +654,21 @@ message GetDurabilityPolicyResponse {
   // The active durability policy, or null if none is configured
   clustermetadata.DurabilityPolicy policy = 1;
 }
+
+// CreateDurabilityPolicyRequest creates a new durability policy
+message CreateDurabilityPolicyRequest {
+  // The name of the policy (e.g., "ANY_2", "MULTI_CELL_ANY_2")
+  string policy_name = 1;
+
+  // The quorum rule defining the policy behavior
+  clustermetadata.QuorumRule quorum_rule = 2;
+}
+
+// CreateDurabilityPolicyResponse confirms policy creation
+message CreateDurabilityPolicyResponse {
+  // Whether the policy was created successfully
+  bool success = 1;
+
+  // Error message if creation failed
+  string error_message = 2;
+}
