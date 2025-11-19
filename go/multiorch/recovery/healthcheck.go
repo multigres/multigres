@@ -175,7 +175,7 @@ func (re *Engine) pollPooler(ctx context.Context, poolerID *clustermetadata.ID, 
 		LastSeen:            successTime,
 		IsUpToDate:          true,
 		IsLastCheckValid:    true,
-		ReportedType:        statusResp.Status.PoolerType,
+		PoolerType:          statusResp.Status.PoolerType,
 	}
 
 	// Populate type-specific fields based on what the pooler reports

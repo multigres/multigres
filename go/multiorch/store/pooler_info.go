@@ -43,7 +43,7 @@ type PoolerHealth struct {
 	// Health status from Status RPC (populated after successful health check)
 	// This is the type the pooler reports itself as, which may differ from
 	// the topology type if there's a failover in progress or type mismatch.
-	ReportedType clustermetadata.PoolerType
+	PoolerType clustermetadata.PoolerType
 
 	// Primary-specific fields (populated when ReportedType == PRIMARY)
 	PrimaryLSN                string                                                        // Current WAL LSN position (PostgreSQL format: X/XXXXXXXX)

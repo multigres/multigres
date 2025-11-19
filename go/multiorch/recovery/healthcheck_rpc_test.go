@@ -113,7 +113,7 @@ func TestPollPooler_UpdatesStore_Primary(t *testing.T) {
 	require.False(t, updated.LastCheckSuccessful.IsZero(), "LastCheckSuccessful should be set")
 
 	// Check that PRIMARY-specific fields were populated
-	require.Equal(t, clustermetadata.PoolerType_PRIMARY, updated.ReportedType, "should report PRIMARY type")
+	require.Equal(t, clustermetadata.PoolerType_PRIMARY, updated.PoolerType, "should report PRIMARY type")
 	require.Equal(t, "0/123ABC", updated.PrimaryLSN, "LSN should match response")
 	require.True(t, updated.PrimaryReady, "should be ready")
 	require.Len(t, updated.PrimaryConnectedFollowers, 2, "should have 2 connected followers")
@@ -205,7 +205,7 @@ func TestPollPooler_UpdatesStore_Replica(t *testing.T) {
 	require.False(t, updated.LastSeen.IsZero(), "LastSeen should be set")
 
 	// Check that REPLICA-specific fields were populated
-	require.Equal(t, clustermetadata.PoolerType_REPLICA, updated.ReportedType, "should report REPLICA type")
+	require.Equal(t, clustermetadata.PoolerType_REPLICA, updated.PoolerType, "should report REPLICA type")
 	require.Equal(t, "0/123ABC", updated.ReplicaLastReplayLSN, "replay LSN should match response")
 	require.Equal(t, "0/123DEF", updated.ReplicaLastReceiveLSN, "receive LSN should match response")
 	require.False(t, updated.ReplicaIsWalReplayPaused, "WAL replay should not be paused")
@@ -360,7 +360,7 @@ func TestPollPooler_TypeMismatch(t *testing.T) {
 
 	// Check that we captured the type mismatch
 	require.Equal(t, clustermetadata.PoolerType_REPLICA, updated.MultiPooler.Type, "topology type should remain REPLICA")
-	require.Equal(t, clustermetadata.PoolerType_PRIMARY, updated.ReportedType, "reported type should be PRIMARY")
+	require.Equal(t, clustermetadata.PoolerType_PRIMARY, updated.PoolerType, "reported type should be PRIMARY")
 
 	// Should have populated PRIMARY fields (what the pooler actually reports)
 	require.Equal(t, "0/FFFFFF", updated.PrimaryLSN)
