@@ -21,8 +21,6 @@ import (
 	"github.com/multigres/multigres/go/clustermetadata/topo"
 	"github.com/multigres/multigres/go/multipooler/rpcclient"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
-	consensusdatapb "github.com/multigres/multigres/go/pb/consensusdata"
-	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
 
 // Node represents a single multipooler node with a cached gRPC client for both
@@ -79,69 +77,4 @@ func CreateNodes(ctx context.Context, rpcClient rpcclient.MultiPoolerClient, poo
 	}
 
 	return nodes, nil
-}
-
-// ConsensusStatus gets the consensus status of this node
-func (n *Node) ConsensusStatus(ctx context.Context) (*consensusdatapb.StatusResponse, error) {
-	req := &consensusdatapb.StatusRequest{}
-	return n.rpcClient.ConsensusStatus(ctx, n.pooler, req)
-}
-
-// BeginTerm sends a BeginTerm request for leader appointment
-func (n *Node) BeginTerm(ctx context.Context, term int64, candidateID *clustermetadatapb.ID) (*consensusdatapb.BeginTermResponse, error) {
-	req := &consensusdatapb.BeginTermRequest{
-		Term:        term,
-		CandidateId: candidateID,
-	}
-	return n.rpcClient.BeginTerm(ctx, n.pooler, req)
-}
-
-// ManagerStatus gets the manager status of this node
-func (n *Node) ManagerStatus(ctx context.Context) (*multipoolermanagerdatapb.StateResponse, error) {
-	req := &multipoolermanagerdatapb.StateRequest{}
-	return n.rpcClient.State(ctx, n.pooler, req)
-}
-
-// InitializeEmptyPrimary initializes this node as an empty primary
-func (n *Node) InitializeEmptyPrimary(ctx context.Context, term int64) (*multipoolermanagerdatapb.InitializeEmptyPrimaryResponse, error) {
-	req := &multipoolermanagerdatapb.InitializeEmptyPrimaryRequest{
-		ConsensusTerm: term,
-	}
-	return n.rpcClient.InitializeEmptyPrimary(ctx, n.pooler, req)
-}
-
-// InitializeAsStandby initializes this node as a standby from a primary
-func (n *Node) InitializeAsStandby(ctx context.Context, primaryHost string, primaryPort int32, term int64, force bool) (*multipoolermanagerdatapb.InitializeAsStandbyResponse, error) {
-	req := &multipoolermanagerdatapb.InitializeAsStandbyRequest{
-		PrimaryHost:   primaryHost,
-		PrimaryPort:   primaryPort,
-		ConsensusTerm: term,
-		Force:         force,
-	}
-	return n.rpcClient.InitializeAsStandby(ctx, n.pooler, req)
-}
-
-// SetPrimaryConnInfo configures this standby's connection to a primary
-func (n *Node) SetPrimaryConnInfo(ctx context.Context, primaryHost string, primaryPort int32, term int64) error {
-	req := &multipoolermanagerdatapb.SetPrimaryConnInfoRequest{
-		Host:                  primaryHost,
-		Port:                  primaryPort,
-		CurrentTerm:           term,
-		StopReplicationBefore: false,
-		StartReplicationAfter: false,
-		Force:                 false,
-	}
-	_, err := n.rpcClient.SetPrimaryConnInfo(ctx, n.pooler, req)
-	return err
-}
-
-// Promote promotes this node to primary
-func (n *Node) Promote(ctx context.Context, term int64, expectedLSN string, syncConfig *multipoolermanagerdatapb.ConfigureSynchronousReplicationRequest) (*multipoolermanagerdatapb.PromoteResponse, error) {
-	req := &multipoolermanagerdatapb.PromoteRequest{
-		ConsensusTerm:         term,
-		ExpectedLsn:           expectedLSN,
-		SyncReplicationConfig: syncConfig,
-		Force:                 false,
-	}
-	return n.rpcClient.Promote(ctx, n.pooler, req)
 }
