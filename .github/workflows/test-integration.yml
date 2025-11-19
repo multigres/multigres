@@ -93,6 +93,13 @@ jobs:
           path: integration-test-results.jsonl
           reporter: golang-json
 
+  code-coverage:
+    name: "Code coverage report"
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    needs: unit_tests
+
+    steps:
       - name: Upload coverage artifact
         uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
         with:
