@@ -101,9 +101,9 @@ func NewMetrics() *Metrics {
 
 	// Counter for connection reuse
 	m.connReuse, err = m.meter.Int64Counter(
-		"rpcclient.conn_cache.reuse",
-		metric.WithDescription("Number of times a connection was reused from the cache"),
-		metric.WithUnit("{connections}"),
+		"rpcclient.connection.reuses",
+		metric.WithDescription("Number of connection reuse events"),
+		metric.WithUnit("{reuse}"),
 	)
 	if err != nil {
 		m.connReuse = noop.Int64Counter{}
@@ -111,9 +111,9 @@ func NewMetrics() *Metrics {
 
 	// Counter for new connections
 	m.connNew, err = m.meter.Int64Counter(
-		"rpcclient.conn_cache.new",
-		metric.WithDescription("Number of times a new connection was created"),
-		metric.WithUnit("{connections}"),
+		"rpcclient.connection.creates",
+		metric.WithDescription("Number of connection creation events"),
+		metric.WithUnit("{create}"),
 	)
 	if err != nil {
 		m.connNew = noop.Int64Counter{}
@@ -121,9 +121,9 @@ func NewMetrics() *Metrics {
 
 	// Counter for dial timeouts
 	m.dialTimeouts, err = m.meter.Int64Counter(
-		"rpcclient.conn_cache.dial_timeouts",
-		metric.WithDescription("Number of context timeouts during dial"),
-		metric.WithUnit("{timeouts}"),
+		"rpcclient.connection.dial.timeouts",
+		metric.WithDescription("Number of connection dial timeout events"),
+		metric.WithUnit("{timeout}"),
 	)
 	if err != nil {
 		m.dialTimeouts = noop.Int64Counter{}
@@ -131,9 +131,9 @@ func NewMetrics() *Metrics {
 
 	// Observable gauge for cache size
 	cacheSizeGauge, err := m.meter.Int64ObservableGauge(
-		"rpcclient.conn_cache.size",
-		metric.WithDescription("Current number of connections in the cache"),
-		metric.WithUnit("{connections}"),
+		"rpcclient.connection.cache.size",
+		metric.WithDescription("Current number of cached connections"),
+		metric.WithUnit("{connection}"),
 	)
 	if err != nil {
 		m.cacheSize = CacheSize{noop.Int64ObservableGauge{}}
@@ -143,8 +143,8 @@ func NewMetrics() *Metrics {
 
 	// Histogram for dial duration
 	dialDurationHistogram, err := m.meter.Float64Histogram(
-		"rpcclient.conn_cache.dial_duration",
-		metric.WithDescription("Duration of dial operations by path (cache_fast, sema_fast, sema_poll)"),
+		"rpcclient.connection.dial.duration",
+		metric.WithDescription("Duration of connection dial operations"),
 		metric.WithUnit("s"),
 	)
 	if err != nil {

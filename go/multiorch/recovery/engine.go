@@ -217,7 +217,12 @@ func NewEngine(
 	}
 
 	// Initialize metrics
-	engine.metrics = NewMetrics(logger, poolerStore)
+	engine.metrics = NewMetrics(logger)
+
+	// Register callback for pooler store size observable gauge
+	_ = engine.metrics.RegisterPoolerStoreSizeCallback(func() int {
+		return poolerStore.Len()
+	})
 
 	return engine
 }
