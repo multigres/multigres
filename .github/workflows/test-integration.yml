@@ -83,7 +83,7 @@ jobs:
           # Set environment variables for tests
           export PGCONNECT_TIMEOUT=5
           # Run tests with verbose output
-          go test -json -v ./... | tee integration-test-results.jsonl | go tool tparse -follow
+          go test -coverprofile=coverage.out -json -v ./... | tee integration-test-results.jsonl | go tool tparse -follow
 
       - name: Test Report
         uses: dorny/test-reporter@dc3a92680fcc15842eef52e8c4606ea7ce6bd3f3 # v2.1.1
@@ -92,3 +92,14 @@ jobs:
           name: Unit Tests
           path: integration-test-results.jsonl
           reporter: golang-json
+
+      - name: Upload coverage artifact
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
+        with:
+          name: coverage
+          path: coverage.out
+
+      - name: Report Coverage
+        uses: fgrosse/go-coverage-report@8c1d1a09864211d258937b1b1a5b849f7e4f2682 # v1.2.0
+        with:
+          coverage-file: coverage.out
