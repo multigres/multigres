@@ -155,10 +155,10 @@ type MultiPoolerClient interface {
 	// Manager Service Methods - Status and Monitoring
 	//
 
-	// Status gets the current status of the multipooler manager.
+	// State gets the current status of the multipooler manager.
 	// This is called very frequently by the recovery engine health checks,
 	// so implementations cache connections.
-	Status(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.StatusRequest) (*multipoolermanagerdatapb.StatusResponse, error)
+	State(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.StatusRequest) (*multipoolermanagerdatapb.StatusResponse, error)
 
 	//
 	// Manager Service Methods - Replication

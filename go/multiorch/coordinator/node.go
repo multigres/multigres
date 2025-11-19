@@ -105,7 +105,7 @@ func (n *Node) ConsensusStatus(ctx context.Context) (*consensusdatapb.StatusResp
 // ManagerStatus gets the manager status of this node
 func (n *Node) ManagerStatus(ctx context.Context) (*multipoolermanagerdatapb.StatusResponse, error) {
 	req := &multipoolermanagerdatapb.StatusRequest{}
-	return n.ManagerClient.Status(ctx, req)
+	return n.ManagerClient.State(ctx, req)
 }
 
 // InitializeEmptyPrimary initializes this node as an empty primary

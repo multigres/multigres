@@ -61,7 +61,7 @@ type mockManagerClient struct {
 	setPrimaryConnInfoErr error
 }
 
-func (m *mockManagerClient) Status(ctx context.Context, req *multipoolermanagerdatapb.StatusRequest, opts ...grpc.CallOption) (*multipoolermanagerdatapb.StatusResponse, error) {
+func (m *mockManagerClient) State(ctx context.Context, req *multipoolermanagerdatapb.StatusRequest, opts ...grpc.CallOption) (*multipoolermanagerdatapb.StatusResponse, error) {
 	return m.statusResp, m.statusErr
 }
 

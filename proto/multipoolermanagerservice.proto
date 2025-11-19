@@ -105,8 +105,8 @@ service MultiPoolerManager {
   rpc Promote(multipoolermanagerdata.PromoteRequest)
     returns (multipoolermanagerdata.PromoteResponse);
 
-  // Status gets the current status of the manager
-  rpc Status(multipoolermanagerdata.StatusRequest)
+  // State gets the current status of the manager
+  rpc State(multipoolermanagerdata.StatusRequest)
     returns (multipoolermanagerdata.StatusResponse);
 
   // SetTerm sets the consensus term information. Used by MultiOrch for consensus operations.

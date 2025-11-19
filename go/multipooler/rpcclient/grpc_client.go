@@ -164,9 +164,9 @@ func (c *Client) InitializationStatus(ctx context.Context, pooler *clustermetada
 // Manager Service Methods - Status and Monitoring
 //
 
-// Status gets the current status of the multipooler manager.
+// State gets the current status of the multipooler manager.
 // This is called very frequently by the recovery engine health checks.
-func (c *Client) Status(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.StatusRequest) (*multipoolermanagerdatapb.StatusResponse, error) {
+func (c *Client) State(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.StatusRequest) (*multipoolermanagerdatapb.StatusResponse, error) {
 	conn, closer, err := c.dialPersistent(ctx, pooler)
 	if err != nil {
 		return nil, err
@@ -175,7 +175,7 @@ func (c *Client) Status(ctx context.Context, pooler *clustermetadatapb.MultiPool
 		_ = closer()
 	}()
 
-	return conn.managerClient.Status(ctx, request)
+	return conn.managerClient.State(ctx, request)
 }
 
 //

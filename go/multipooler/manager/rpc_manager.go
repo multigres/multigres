@@ -668,8 +668,8 @@ func (pm *MultiPoolerManager) ChangeType(ctx context.Context, poolerType string)
 	return nil
 }
 
-// Status returns the current manager status and error information
-func (pm *MultiPoolerManager) Status(ctx context.Context) (*multipoolermanagerdatapb.StatusResponse, error) {
+// State returns the current manager status and error information
+func (pm *MultiPoolerManager) State(ctx context.Context) (*multipoolermanagerdatapb.StatusResponse, error) {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
 

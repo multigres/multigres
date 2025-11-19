@@ -236,9 +236,9 @@ func (s *managerService) Promote(ctx context.Context, req *multipoolermanagerdat
 	return resp, nil
 }
 
-// Status gets the current status of the manager
-func (s *managerService) Status(ctx context.Context, req *multipoolermanagerdata.StatusRequest) (*multipoolermanagerdata.StatusResponse, error) {
-	return s.manager.Status(ctx)
+// State gets the current status of the manager
+func (s *managerService) State(ctx context.Context, req *multipoolermanagerdata.StatusRequest) (*multipoolermanagerdata.StatusResponse, error) {
+	return s.manager.State(ctx)
 }
 
 // SetTerm sets the consensus term information

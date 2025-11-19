@@ -51,7 +51,7 @@ const (
 	MultiPoolerManager_Demote_FullMethodName                          = "/multipoolermanager.MultiPoolerManager/Demote"
 	MultiPoolerManager_UndoDemote_FullMethodName                      = "/multipoolermanager.MultiPoolerManager/UndoDemote"
 	MultiPoolerManager_Promote_FullMethodName                         = "/multipoolermanager.MultiPoolerManager/Promote"
-	MultiPoolerManager_Status_FullMethodName                          = "/multipoolermanager.MultiPoolerManager/Status"
+	MultiPoolerManager_State_FullMethodName                           = "/multipoolermanager.MultiPoolerManager/State"
 	MultiPoolerManager_SetTerm_FullMethodName                         = "/multipoolermanager.MultiPoolerManager/SetTerm"
 	MultiPoolerManager_InitializeEmptyPrimary_FullMethodName          = "/multipoolermanager.MultiPoolerManager/InitializeEmptyPrimary"
 	MultiPoolerManager_InitializeAsStandby_FullMethodName             = "/multipoolermanager.MultiPoolerManager/InitializeAsStandby"
@@ -106,8 +106,8 @@ type MultiPoolerManagerClient interface {
 	UndoDemote(ctx context.Context, in *multipoolermanagerdata.UndoDemoteRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.UndoDemoteResponse, error)
 	// Promote promotes a replica to leader (Multigres-level operation)
 	Promote(ctx context.Context, in *multipoolermanagerdata.PromoteRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.PromoteResponse, error)
-	// Status gets the current status of the manager
-	Status(ctx context.Context, in *multipoolermanagerdata.StatusRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.StatusResponse, error)
+	// State gets the current status of the manager
+	State(ctx context.Context, in *multipoolermanagerdata.StatusRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.StatusResponse, error)
 	// SetTerm sets the consensus term information. Used by MultiOrch for consensus operations.
 	SetTerm(ctx context.Context, in *multipoolermanagerdata.SetTermRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.SetTermResponse, error)
 	// InitializeEmptyPrimary initializes this pooler as an empty primary
@@ -288,9 +288,9 @@ func (c *multiPoolerManagerClient) Promote(ctx context.Context, in *multipoolerm
 	return out, nil
 }
 
-func (c *multiPoolerManagerClient) Status(ctx context.Context, in *multipoolermanagerdata.StatusRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.StatusResponse, error) {
+func (c *multiPoolerManagerClient) State(ctx context.Context, in *multipoolermanagerdata.StatusRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.StatusResponse, error) {
 	out := new(multipoolermanagerdata.StatusResponse)
-	err := c.cc.Invoke(ctx, MultiPoolerManager_Status_FullMethodName, in, out, opts...)
+	err := c.cc.Invoke(ctx, MultiPoolerManager_State_FullMethodName, in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -405,8 +405,8 @@ type MultiPoolerManagerServer interface {
 	UndoDemote(context.Context, *multipoolermanagerdata.UndoDemoteRequest) (*multipoolermanagerdata.UndoDemoteResponse, error)
 	// Promote promotes a replica to leader (Multigres-level operation)
 	Promote(context.Context, *multipoolermanagerdata.PromoteRequest) (*multipoolermanagerdata.PromoteResponse, error)
-	// Status gets the current status of the manager
-	Status(context.Context, *multipoolermanagerdata.StatusRequest) (*multipoolermanagerdata.StatusResponse, error)
+	// State gets the current status of the manager
+	State(context.Context, *multipoolermanagerdata.StatusRequest) (*multipoolermanagerdata.StatusResponse, error)
 	// SetTerm sets the consensus term information. Used by MultiOrch for consensus operations.
 	SetTerm(context.Context, *multipoolermanagerdata.SetTermRequest) (*multipoolermanagerdata.SetTermResponse, error)
 	// InitializeEmptyPrimary initializes this pooler as an empty primary
@@ -482,8 +482,8 @@ func (UnimplementedMultiPoolerManagerServer) UndoDemote(context.Context, *multip
 func (UnimplementedMultiPoolerManagerServer) Promote(context.Context, *multipoolermanagerdata.PromoteRequest) (*multipoolermanagerdata.PromoteResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Promote not implemented")
 }
-func (UnimplementedMultiPoolerManagerServer) Status(context.Context, *multipoolermanagerdata.StatusRequest) (*multipoolermanagerdata.StatusResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method Status not implemented")
+func (UnimplementedMultiPoolerManagerServer) State(context.Context, *multipoolermanagerdata.StatusRequest) (*multipoolermanagerdata.StatusResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method State not implemented")
 }
 func (UnimplementedMultiPoolerManagerServer) SetTerm(context.Context, *multipoolermanagerdata.SetTermRequest) (*multipoolermanagerdata.SetTermResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SetTerm not implemented")
@@ -825,20 +825,20 @@ func _MultiPoolerManager_Promote_Handler(srv interface{}, ctx context.Context, d
 	return interceptor(ctx, in, info, handler)
 }
 
-func _MultiPoolerManager_Status_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func _MultiPoolerManager_State_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(multipoolermanagerdata.StatusRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(MultiPoolerManagerServer).Status(ctx, in)
+		return srv.(MultiPoolerManagerServer).State(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: MultiPoolerManager_Status_FullMethodName,
+		FullMethod: MultiPoolerManager_State_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(MultiPoolerManagerServer).Status(ctx, req.(*multipoolermanagerdata.StatusRequest))
+		return srv.(MultiPoolerManagerServer).State(ctx, req.(*multipoolermanagerdata.StatusRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -1045,8 +1045,8 @@ var MultiPoolerManager_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _MultiPoolerManager_Promote_Handler,
 		},
 		{
-			MethodName: "Status",
-			Handler:    _MultiPoolerManager_Status_Handler,
+			MethodName: "State",
+			Handler:    _MultiPoolerManager_State_Handler,
 		},
 		{
 			MethodName: "SetTerm",

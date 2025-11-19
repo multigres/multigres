@@ -269,9 +269,9 @@ func (f *FakeClient) InitializationStatus(ctx context.Context, pooler *clusterme
 // Manager Service Methods - Status and Monitoring
 //
 
-func (f *FakeClient) Status(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.StatusRequest) (*multipoolermanagerdatapb.StatusResponse, error) {
+func (f *FakeClient) State(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.StatusRequest) (*multipoolermanagerdatapb.StatusResponse, error) {
 	poolerID := f.getPoolerID(pooler)
-	f.logCall("Status", poolerID)
+	f.logCall("State", poolerID)
 
 	if err := f.checkError(poolerID); err != nil {
 		return nil, err

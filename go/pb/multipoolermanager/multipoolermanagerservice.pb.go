@@ -39,7 +39,7 @@ var File_multipoolermanagerservice_proto protoreflect.FileDescriptor
 
 const file_multipoolermanagerservice_proto_rawDesc = "" +
 	"\n" +
-	"\x1fmultipoolermanagerservice.proto\x12\x12multipoolermanager\x1a\x1cmultipoolermanagerdata.proto2\x83\x17\n" +
+	"\x1fmultipoolermanagerservice.proto\x12\x12multipoolermanager\x1a\x1cmultipoolermanagerdata.proto2\x82\x17\n" +
 	"\x12MultiPoolerManager\x12c\n" +
 	"\n" +
 	"WaitForLSN\x12).multipoolermanagerdata.WaitForLSNRequest\x1a*.multipoolermanagerdata.WaitForLSNResponse\x12{\n" +
@@ -60,8 +60,8 @@ const file_multipoolermanagerservice_proto_rawDesc = "" +
 	"\x06Demote\x12%.multipoolermanagerdata.DemoteRequest\x1a&.multipoolermanagerdata.DemoteResponse\x12c\n" +
 	"\n" +
 	"UndoDemote\x12).multipoolermanagerdata.UndoDemoteRequest\x1a*.multipoolermanagerdata.UndoDemoteResponse\x12Z\n" +
-	"\aPromote\x12&.multipoolermanagerdata.PromoteRequest\x1a'.multipoolermanagerdata.PromoteResponse\x12W\n" +
-	"\x06Status\x12%.multipoolermanagerdata.StatusRequest\x1a&.multipoolermanagerdata.StatusResponse\x12Z\n" +
+	"\aPromote\x12&.multipoolermanagerdata.PromoteRequest\x1a'.multipoolermanagerdata.PromoteResponse\x12V\n" +
+	"\x05State\x12%.multipoolermanagerdata.StatusRequest\x1a&.multipoolermanagerdata.StatusResponse\x12Z\n" +
 	"\aSetTerm\x12&.multipoolermanagerdata.SetTermRequest\x1a'.multipoolermanagerdata.SetTermResponse\x12\x87\x01\n" +
 	"\x16InitializeEmptyPrimary\x125.multipoolermanagerdata.InitializeEmptyPrimaryRequest\x1a6.multipoolermanagerdata.InitializeEmptyPrimaryResponse\x12~\n" +
 	"\x13InitializeAsStandby\x122.multipoolermanagerdata.InitializeAsStandbyRequest\x1a3.multipoolermanagerdata.InitializeAsStandbyResponse\x12\x81\x01\n" +
@@ -141,7 +141,7 @@ var file_multipoolermanagerservice_proto_depIdxs = []int32{
 	14, // 14: multipoolermanager.MultiPoolerManager.Demote:input_type -> multipoolermanagerdata.DemoteRequest
 	15, // 15: multipoolermanager.MultiPoolerManager.UndoDemote:input_type -> multipoolermanagerdata.UndoDemoteRequest
 	16, // 16: multipoolermanager.MultiPoolerManager.Promote:input_type -> multipoolermanagerdata.PromoteRequest
-	17, // 17: multipoolermanager.MultiPoolerManager.Status:input_type -> multipoolermanagerdata.StatusRequest
+	17, // 17: multipoolermanager.MultiPoolerManager.State:input_type -> multipoolermanagerdata.StatusRequest
 	18, // 18: multipoolermanager.MultiPoolerManager.SetTerm:input_type -> multipoolermanagerdata.SetTermRequest
 	19, // 19: multipoolermanager.MultiPoolerManager.InitializeEmptyPrimary:input_type -> multipoolermanagerdata.InitializeEmptyPrimaryRequest
 	20, // 20: multipoolermanager.MultiPoolerManager.InitializeAsStandby:input_type -> multipoolermanagerdata.InitializeAsStandbyRequest
@@ -166,7 +166,7 @@ var file_multipoolermanagerservice_proto_depIdxs = []int32{
 	39, // 39: multipoolermanager.MultiPoolerManager.Demote:output_type -> multipoolermanagerdata.DemoteResponse
 	40, // 40: multipoolermanager.MultiPoolerManager.UndoDemote:output_type -> multipoolermanagerdata.UndoDemoteResponse
 	41, // 41: multipoolermanager.MultiPoolerManager.Promote:output_type -> multipoolermanagerdata.PromoteResponse
-	42, // 42: multipoolermanager.MultiPoolerManager.Status:output_type -> multipoolermanagerdata.StatusResponse
+	42, // 42: multipoolermanager.MultiPoolerManager.State:output_type -> multipoolermanagerdata.StatusResponse
 	43, // 43: multipoolermanager.MultiPoolerManager.SetTerm:output_type -> multipoolermanagerdata.SetTermResponse
 	44, // 44: multipoolermanager.MultiPoolerManager.InitializeEmptyPrimary:output_type -> multipoolermanagerdata.InitializeEmptyPrimaryResponse
 	45, // 45: multipoolermanager.MultiPoolerManager.InitializeAsStandby:output_type -> multipoolermanagerdata.InitializeAsStandbyResponse

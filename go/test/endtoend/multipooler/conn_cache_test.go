@@ -62,7 +62,7 @@ type fakeManagerServer struct {
 	multipoolermanagerpb.UnimplementedMultiPoolerManagerServer
 }
 
-func (f *fakeManagerServer) Status(ctx context.Context, req *multipoolermanagerdatapb.StatusRequest) (*multipoolermanagerdatapb.StatusResponse, error) {
+func (f *fakeManagerServer) State(ctx context.Context, req *multipoolermanagerdatapb.StatusRequest) (*multipoolermanagerdatapb.StatusResponse, error) {
 	return &multipoolermanagerdatapb.StatusResponse{}, nil
 }
 
@@ -142,7 +142,7 @@ func BenchmarkMultiPoolerClientSteadyStateRedials(b *testing.B) {
 	// Pre-populate by making one call to each address
 	for _, addr := range addrs {
 		pooler := makePooler(addr)
-		_, err := client.Status(ctx, pooler, &multipoolermanagerdatapb.StatusRequest{})
+		_, err := client.State(ctx, pooler, &multipoolermanagerdatapb.StatusRequest{})
 		if err != nil {
 			b.Fatalf("Status RPC failed: %v", err)
 		}
@@ -154,7 +154,7 @@ func BenchmarkMultiPoolerClientSteadyStateRedials(b *testing.B) {
 		addr := addrs[n%len(addrs)]
 		pooler := makePooler(addr)
 
-		_, err := client.Status(ctx, pooler, &multipoolermanagerdatapb.StatusRequest{})
+		_, err := client.State(ctx, pooler, &multipoolermanagerdatapb.StatusRequest{})
 		if err != nil {
 			b.Fatalf("Status RPC failed: %v", err)
 		}
@@ -248,7 +248,7 @@ func TestMultiPoolerClient(t *testing.T) {
 						}
 					}
 
-					_, err = client.Status(ctx, pooler, &multipoolermanagerdatapb.StatusRequest{})
+					_, err = client.State(ctx, pooler, &multipoolermanagerdatapb.StatusRequest{})
 					if err != nil && ctx.Err() == nil {
 						// With grpc.NewClient() lazy connections, DeadlineExceeded can occur
 						// when the context expires right before/during connection establishment.
