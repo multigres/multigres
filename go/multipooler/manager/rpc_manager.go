@@ -222,7 +222,7 @@ func (pm *MultiPoolerManager) StopReplication(ctx context.Context, mode multipoo
 }
 
 // StandbyReplicationStatus gets the current replication status of the standby
-func (pm *MultiPoolerManager) StandbyReplicationStatus(ctx context.Context) (*multipoolermanagerdatapb.ReplicationStatus, error) {
+func (pm *MultiPoolerManager) StandbyReplicationStatus(ctx context.Context) (*multipoolermanagerdatapb.StandbyReplicationStatus, error) {
 	if err := pm.checkReady(); err != nil {
 		return nil, err
 	}
@@ -252,7 +252,7 @@ func (pm *MultiPoolerManager) StandbyReplicationStatus(ctx context.Context) (*mu
 
 // Status gets unified status that works for both PRIMARY and REPLICA poolers
 // The multipooler returns information based on what type it believes itself to be
-func (pm *MultiPoolerManager) Status(ctx context.Context) (*multipoolermanagerdatapb.PoolerStatus, error) {
+func (pm *MultiPoolerManager) Status(ctx context.Context) (*multipoolermanagerdatapb.Status, error) {
 	if err := pm.checkReady(); err != nil {
 		return nil, err
 	}
@@ -283,7 +283,7 @@ func (pm *MultiPoolerManager) Status(ctx context.Context) (*multipoolermanagerda
 		return nil, mterrors.MT13002(poolerType.String(), pgRole).Err
 	}
 
-	poolerStatus := &multipoolermanagerdatapb.PoolerStatus{
+	poolerStatus := &multipoolermanagerdatapb.Status{
 		PoolerType: poolerType,
 	}
 
@@ -585,7 +585,7 @@ func (pm *MultiPoolerManager) PrimaryPosition(ctx context.Context) (string, erro
 }
 
 // StopReplicationAndGetStatus stops PostgreSQL replication (replay and/or receiver based on mode) and returns the status
-func (pm *MultiPoolerManager) StopReplicationAndGetStatus(ctx context.Context, mode multipoolermanagerdatapb.ReplicationPauseMode, wait bool) (*multipoolermanagerdatapb.ReplicationStatus, error) {
+func (pm *MultiPoolerManager) StopReplicationAndGetStatus(ctx context.Context, mode multipoolermanagerdatapb.ReplicationPauseMode, wait bool) (*multipoolermanagerdatapb.StandbyReplicationStatus, error) {
 	if err := pm.checkReady(); err != nil {
 		return nil, err
 	}

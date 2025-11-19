@@ -39,15 +39,15 @@ var File_multipoolermanagerservice_proto protoreflect.FileDescriptor
 
 const file_multipoolermanagerservice_proto_rawDesc = "" +
 	"\n" +
-	"\x1fmultipoolermanagerservice.proto\x12\x12multipoolermanager\x1a\x1cmultipoolermanagerdata.proto2\xf5\x17\n" +
+	"\x1fmultipoolermanagerservice.proto\x12\x12multipoolermanager\x1a\x1cmultipoolermanagerdata.proto2\xdf\x17\n" +
 	"\x12MultiPoolerManager\x12c\n" +
 	"\n" +
 	"WaitForLSN\x12).multipoolermanagerdata.WaitForLSNRequest\x1a*.multipoolermanagerdata.WaitForLSNResponse\x12{\n" +
 	"\x12SetPrimaryConnInfo\x121.multipoolermanagerdata.SetPrimaryConnInfoRequest\x1a2.multipoolermanagerdata.SetPrimaryConnInfoResponse\x12u\n" +
 	"\x10StartReplication\x12/.multipoolermanagerdata.StartReplicationRequest\x1a0.multipoolermanagerdata.StartReplicationResponse\x12r\n" +
 	"\x0fStopReplication\x12..multipoolermanagerdata.StopReplicationRequest\x1a/.multipoolermanagerdata.StopReplicationResponse\x12\x8d\x01\n" +
-	"\x18StandbyReplicationStatus\x127.multipoolermanagerdata.StandbyReplicationStatusRequest\x1a8.multipoolermanagerdata.StandbyReplicationStatusResponse\x12m\n" +
-	"\x06Status\x120.multipoolermanagerdata.ReplicationStatusRequest\x1a1.multipoolermanagerdata.ReplicationStatusResponse\x12u\n" +
+	"\x18StandbyReplicationStatus\x127.multipoolermanagerdata.StandbyReplicationStatusRequest\x1a8.multipoolermanagerdata.StandbyReplicationStatusResponse\x12W\n" +
+	"\x06Status\x12%.multipoolermanagerdata.StatusRequest\x1a&.multipoolermanagerdata.StatusResponse\x12u\n" +
 	"\x10ResetReplication\x12/.multipoolermanagerdata.ResetReplicationRequest\x1a0.multipoolermanagerdata.ResetReplicationResponse\x12\xa2\x01\n" +
 	"\x1fConfigureSynchronousReplication\x12>.multipoolermanagerdata.ConfigureSynchronousReplicationRequest\x1a?.multipoolermanagerdata.ConfigureSynchronousReplicationResponse\x12\x99\x01\n" +
 	"\x1cUpdateSynchronousStandbyList\x12;.multipoolermanagerdata.UpdateSynchronousStandbyListRequest\x1a<.multipoolermanagerdata.UpdateSynchronousStandbyListResponse\x12l\n" +
@@ -78,7 +78,7 @@ var file_multipoolermanagerservice_proto_goTypes = []any{
 	(*multipoolermanagerdata.StartReplicationRequest)(nil),                 // 2: multipoolermanagerdata.StartReplicationRequest
 	(*multipoolermanagerdata.StopReplicationRequest)(nil),                  // 3: multipoolermanagerdata.StopReplicationRequest
 	(*multipoolermanagerdata.StandbyReplicationStatusRequest)(nil),         // 4: multipoolermanagerdata.StandbyReplicationStatusRequest
-	(*multipoolermanagerdata.ReplicationStatusRequest)(nil),                // 5: multipoolermanagerdata.ReplicationStatusRequest
+	(*multipoolermanagerdata.StatusRequest)(nil),                           // 5: multipoolermanagerdata.StatusRequest
 	(*multipoolermanagerdata.ResetReplicationRequest)(nil),                 // 6: multipoolermanagerdata.ResetReplicationRequest
 	(*multipoolermanagerdata.ConfigureSynchronousReplicationRequest)(nil),  // 7: multipoolermanagerdata.ConfigureSynchronousReplicationRequest
 	(*multipoolermanagerdata.UpdateSynchronousStandbyListRequest)(nil),     // 8: multipoolermanagerdata.UpdateSynchronousStandbyListRequest
@@ -104,7 +104,7 @@ var file_multipoolermanagerservice_proto_goTypes = []any{
 	(*multipoolermanagerdata.StartReplicationResponse)(nil),                // 28: multipoolermanagerdata.StartReplicationResponse
 	(*multipoolermanagerdata.StopReplicationResponse)(nil),                 // 29: multipoolermanagerdata.StopReplicationResponse
 	(*multipoolermanagerdata.StandbyReplicationStatusResponse)(nil),        // 30: multipoolermanagerdata.StandbyReplicationStatusResponse
-	(*multipoolermanagerdata.ReplicationStatusResponse)(nil),               // 31: multipoolermanagerdata.ReplicationStatusResponse
+	(*multipoolermanagerdata.StatusResponse)(nil),                          // 31: multipoolermanagerdata.StatusResponse
 	(*multipoolermanagerdata.ResetReplicationResponse)(nil),                // 32: multipoolermanagerdata.ResetReplicationResponse
 	(*multipoolermanagerdata.ConfigureSynchronousReplicationResponse)(nil), // 33: multipoolermanagerdata.ConfigureSynchronousReplicationResponse
 	(*multipoolermanagerdata.UpdateSynchronousStandbyListResponse)(nil),    // 34: multipoolermanagerdata.UpdateSynchronousStandbyListResponse
@@ -132,7 +132,7 @@ var file_multipoolermanagerservice_proto_depIdxs = []int32{
 	2,  // 2: multipoolermanager.MultiPoolerManager.StartReplication:input_type -> multipoolermanagerdata.StartReplicationRequest
 	3,  // 3: multipoolermanager.MultiPoolerManager.StopReplication:input_type -> multipoolermanagerdata.StopReplicationRequest
 	4,  // 4: multipoolermanager.MultiPoolerManager.StandbyReplicationStatus:input_type -> multipoolermanagerdata.StandbyReplicationStatusRequest
-	5,  // 5: multipoolermanager.MultiPoolerManager.Status:input_type -> multipoolermanagerdata.ReplicationStatusRequest
+	5,  // 5: multipoolermanager.MultiPoolerManager.Status:input_type -> multipoolermanagerdata.StatusRequest
 	6,  // 6: multipoolermanager.MultiPoolerManager.ResetReplication:input_type -> multipoolermanagerdata.ResetReplicationRequest
 	7,  // 7: multipoolermanager.MultiPoolerManager.ConfigureSynchronousReplication:input_type -> multipoolermanagerdata.ConfigureSynchronousReplicationRequest
 	8,  // 8: multipoolermanager.MultiPoolerManager.UpdateSynchronousStandbyList:input_type -> multipoolermanagerdata.UpdateSynchronousStandbyListRequest
@@ -158,7 +158,7 @@ var file_multipoolermanagerservice_proto_depIdxs = []int32{
 	28, // 28: multipoolermanager.MultiPoolerManager.StartReplication:output_type -> multipoolermanagerdata.StartReplicationResponse
 	29, // 29: multipoolermanager.MultiPoolerManager.StopReplication:output_type -> multipoolermanagerdata.StopReplicationResponse
 	30, // 30: multipoolermanager.MultiPoolerManager.StandbyReplicationStatus:output_type -> multipoolermanagerdata.StandbyReplicationStatusResponse
-	31, // 31: multipoolermanager.MultiPoolerManager.Status:output_type -> multipoolermanagerdata.ReplicationStatusResponse
+	31, // 31: multipoolermanager.MultiPoolerManager.Status:output_type -> multipoolermanagerdata.StatusResponse
 	32, // 32: multipoolermanager.MultiPoolerManager.ResetReplication:output_type -> multipoolermanagerdata.ResetReplicationResponse
 	33, // 33: multipoolermanager.MultiPoolerManager.ConfigureSynchronousReplication:output_type -> multipoolermanagerdata.ConfigureSynchronousReplicationResponse
 	34, // 34: multipoolermanager.MultiPoolerManager.UpdateSynchronousStandbyList:output_type -> multipoolermanagerdata.UpdateSynchronousStandbyListResponse

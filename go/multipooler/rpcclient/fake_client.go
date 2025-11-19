@@ -60,7 +60,7 @@ type FakeClient struct {
 	StartReplicationResponses                map[string]*multipoolermanagerdatapb.StartReplicationResponse
 	StopReplicationResponses                 map[string]*multipoolermanagerdatapb.StopReplicationResponse
 	StandbyReplicationStatusResponses        map[string]*multipoolermanagerdatapb.StandbyReplicationStatusResponse
-	ReplicationStatusResponses               map[string]*multipoolermanagerdatapb.ReplicationStatusResponse
+	ReplicationStatusResponses               map[string]*multipoolermanagerdatapb.StatusResponse
 	ResetReplicationResponses                map[string]*multipoolermanagerdatapb.ResetReplicationResponse
 	StopReplicationAndGetStatusResponses     map[string]*multipoolermanagerdatapb.StopReplicationAndGetStatusResponse
 	ConfigureSynchronousReplicationResponses map[string]*multipoolermanagerdatapb.ConfigureSynchronousReplicationResponse
@@ -101,7 +101,7 @@ func NewFakeClient() *FakeClient {
 		StartReplicationResponses:                make(map[string]*multipoolermanagerdatapb.StartReplicationResponse),
 		StopReplicationResponses:                 make(map[string]*multipoolermanagerdatapb.StopReplicationResponse),
 		StandbyReplicationStatusResponses:        make(map[string]*multipoolermanagerdatapb.StandbyReplicationStatusResponse),
-		ReplicationStatusResponses:               make(map[string]*multipoolermanagerdatapb.ReplicationStatusResponse),
+		ReplicationStatusResponses:               make(map[string]*multipoolermanagerdatapb.StatusResponse),
 		ResetReplicationResponses:                make(map[string]*multipoolermanagerdatapb.ResetReplicationResponse),
 		StopReplicationAndGetStatusResponses:     make(map[string]*multipoolermanagerdatapb.StopReplicationAndGetStatusResponse),
 		ConfigureSynchronousReplicationResponses: make(map[string]*multipoolermanagerdatapb.ConfigureSynchronousReplicationResponse),
@@ -371,7 +371,7 @@ func (f *FakeClient) StandbyReplicationStatus(ctx context.Context, pooler *clust
 	return &multipoolermanagerdatapb.StandbyReplicationStatusResponse{}, nil
 }
 
-func (f *FakeClient) Status(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.ReplicationStatusRequest) (*multipoolermanagerdatapb.ReplicationStatusResponse, error) {
+func (f *FakeClient) Status(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.StatusRequest) (*multipoolermanagerdatapb.StatusResponse, error) {
 	poolerID := f.getPoolerID(pooler)
 	f.logCall("Status", poolerID)
 
@@ -384,7 +384,7 @@ func (f *FakeClient) Status(ctx context.Context, pooler *clustermetadatapb.Multi
 	if resp, ok := f.ReplicationStatusResponses[poolerID]; ok {
 		return resp, nil
 	}
-	return &multipoolermanagerdatapb.ReplicationStatusResponse{}, nil
+	return &multipoolermanagerdatapb.StatusResponse{}, nil
 }
 
 func (f *FakeClient) ResetReplication(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.ResetReplicationRequest) (*multipoolermanagerdatapb.ResetReplicationResponse, error) {

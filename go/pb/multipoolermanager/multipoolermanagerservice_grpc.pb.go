@@ -79,7 +79,7 @@ type MultiPoolerManagerClient interface {
 	// Status gets unified status that works for both PRIMARY and REPLICA poolers
 	// The multipooler returns information based on what type it believes itself to be,
 	// avoiding disparity between what MultiOrch thinks versus actual state
-	Status(ctx context.Context, in *multipoolermanagerdata.ReplicationStatusRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.ReplicationStatusResponse, error)
+	Status(ctx context.Context, in *multipoolermanagerdata.StatusRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.StatusResponse, error)
 	// ResetReplication resets the standby's connection to its primary by clearing primary_conninfo
 	// and reloading PostgreSQL configuration. This effectively
 	// disconnects the replica from the primary and prevents it from acknowledging commits, making it
@@ -184,8 +184,8 @@ func (c *multiPoolerManagerClient) StandbyReplicationStatus(ctx context.Context,
 	return out, nil
 }
 
-func (c *multiPoolerManagerClient) Status(ctx context.Context, in *multipoolermanagerdata.ReplicationStatusRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.ReplicationStatusResponse, error) {
-	out := new(multipoolermanagerdata.ReplicationStatusResponse)
+func (c *multiPoolerManagerClient) Status(ctx context.Context, in *multipoolermanagerdata.StatusRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.StatusResponse, error) {
+	out := new(multipoolermanagerdata.StatusResponse)
 	err := c.cc.Invoke(ctx, MultiPoolerManager_Status_FullMethodName, in, out, opts...)
 	if err != nil {
 		return nil, err
@@ -390,7 +390,7 @@ type MultiPoolerManagerServer interface {
 	// Status gets unified status that works for both PRIMARY and REPLICA poolers
 	// The multipooler returns information based on what type it believes itself to be,
 	// avoiding disparity between what MultiOrch thinks versus actual state
-	Status(context.Context, *multipoolermanagerdata.ReplicationStatusRequest) (*multipoolermanagerdata.ReplicationStatusResponse, error)
+	Status(context.Context, *multipoolermanagerdata.StatusRequest) (*multipoolermanagerdata.StatusResponse, error)
 	// ResetReplication resets the standby's connection to its primary by clearing primary_conninfo
 	// and reloading PostgreSQL configuration. This effectively
 	// disconnects the replica from the primary and prevents it from acknowledging commits, making it
@@ -462,7 +462,7 @@ func (UnimplementedMultiPoolerManagerServer) StopReplication(context.Context, *m
 func (UnimplementedMultiPoolerManagerServer) StandbyReplicationStatus(context.Context, *multipoolermanagerdata.StandbyReplicationStatusRequest) (*multipoolermanagerdata.StandbyReplicationStatusResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method StandbyReplicationStatus not implemented")
 }
-func (UnimplementedMultiPoolerManagerServer) Status(context.Context, *multipoolermanagerdata.ReplicationStatusRequest) (*multipoolermanagerdata.ReplicationStatusResponse, error) {
+func (UnimplementedMultiPoolerManagerServer) Status(context.Context, *multipoolermanagerdata.StatusRequest) (*multipoolermanagerdata.StatusResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Status not implemented")
 }
 func (UnimplementedMultiPoolerManagerServer) ResetReplication(context.Context, *multipoolermanagerdata.ResetReplicationRequest) (*multipoolermanagerdata.ResetReplicationResponse, error) {
@@ -629,7 +629,7 @@ func _MultiPoolerManager_StandbyReplicationStatus_Handler(srv interface{}, ctx c
 }
 
 func _MultiPoolerManager_Status_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(multipoolermanagerdata.ReplicationStatusRequest)
+	in := new(multipoolermanagerdata.StatusRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
@@ -641,7 +641,7 @@ func _MultiPoolerManager_Status_Handler(srv interface{}, ctx context.Context, de
 		FullMethod: MultiPoolerManager_Status_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(MultiPoolerManagerServer).Status(ctx, req.(*multipoolermanagerdata.ReplicationStatusRequest))
+		return srv.(MultiPoolerManagerServer).Status(ctx, req.(*multipoolermanagerdata.StatusRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }

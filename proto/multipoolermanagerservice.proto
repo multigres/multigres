@@ -48,8 +48,8 @@ service MultiPoolerManager {
   // Status gets unified status that works for both PRIMARY and REPLICA poolers
   // The multipooler returns information based on what type it believes itself to be,
   // avoiding disparity between what MultiOrch thinks versus actual state
-  rpc Status(multipoolermanagerdata.ReplicationStatusRequest)
-    returns (multipoolermanagerdata.ReplicationStatusResponse);
+  rpc Status(multipoolermanagerdata.StatusRequest)
+    returns (multipoolermanagerdata.StatusResponse);
 
   // ResetReplication resets the standby's connection to its primary by clearing primary_conninfo
   // and reloading PostgreSQL configuration. This effectively
