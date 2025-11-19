@@ -14,7 +14,10 @@
 
 package utils
 
-import "os/exec"
+import (
+	"os/exec"
+	"testing"
+)
 
 // hasPostgreSQLBinaries checks if required PostgreSQL binaries are available
 func HasPostgreSQLBinaries() bool {
@@ -28,4 +31,10 @@ func HasPostgreSQLBinaries() bool {
 	}
 
 	return true
+}
+
+// ShouldSkipRealPostgres returns true if tests should skip real PostgreSQL tests.
+// This happens when running short tests AND PostgreSQL binaries are not available.
+func ShouldSkipRealPostgres() bool {
+	return testing.Short() && !HasPostgreSQLBinaries()
 }
