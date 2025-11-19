@@ -149,7 +149,7 @@ func (pm *MultiPoolerManager) checkLSNReached(ctx context.Context, targetLsn str
 // queryReplicationStatus queries PostgreSQL for all replication status fields.
 // This method handles NULL values properly for LSN fields that may be NULL
 // when not in recovery mode or when no WAL has been received/replayed.
-func (pm *MultiPoolerManager) queryReplicationStatus(ctx context.Context) (*multipoolermanagerdatapb.ReplicationStatus, error) {
+func (pm *MultiPoolerManager) queryReplicationStatus(ctx context.Context) (*multipoolermanagerdatapb.StandbyReplicationStatus, error) {
 	var replayLsn sql.NullString
 	var receiveLsn sql.NullString
 	var isPaused bool
@@ -180,7 +180,7 @@ func (pm *MultiPoolerManager) queryReplicationStatus(ctx context.Context) (*mult
 		return nil, mterrors.Wrap(err, "failed to query replication status")
 	}
 
-	status := &multipoolermanagerdatapb.ReplicationStatus{
+	status := &multipoolermanagerdatapb.StandbyReplicationStatus{
 		IsWalReplayPaused:   isPaused,
 		WalReplayPauseState: pauseState,
 	}
@@ -207,7 +207,7 @@ func (pm *MultiPoolerManager) queryReplicationStatus(ctx context.Context) (*mult
 
 // waitForReplicationPause polls until WAL replay is paused and returns the status at that moment.
 // This ensures the LSN returned represents the exact point at which replication stopped.
-func (pm *MultiPoolerManager) waitForReplicationPause(ctx context.Context) (*multipoolermanagerdatapb.ReplicationStatus, error) {
+func (pm *MultiPoolerManager) waitForReplicationPause(ctx context.Context) (*multipoolermanagerdatapb.StandbyReplicationStatus, error) {
 	// Create a context with timeout for the polling loop
 	waitCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
@@ -298,7 +298,7 @@ func (pm *MultiPoolerManager) resetPrimaryConnInfo(ctx context.Context) error {
 
 // waitForReceiverDisconnect waits for the WAL receiver to fully disconnect after clearing primary_conninfo.
 // It polls pg_stat_wal_receiver to confirm the receiver has stopped.
-func (pm *MultiPoolerManager) waitForReceiverDisconnect(ctx context.Context) (*multipoolermanagerdatapb.ReplicationStatus, error) {
+func (pm *MultiPoolerManager) waitForReceiverDisconnect(ctx context.Context) (*multipoolermanagerdatapb.StandbyReplicationStatus, error) {
 	// Create a context with timeout for the polling loop
 	waitCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
@@ -346,7 +346,7 @@ func (pm *MultiPoolerManager) waitForReceiverDisconnect(ctx context.Context) (*m
 // pauseReplication pauses replication based on the specified mode.
 // If wait is true, it waits for the pause operation to complete before returning.
 // Returns the replication status after pausing (if wait is true) or nil (if wait is false).
-func (pm *MultiPoolerManager) pauseReplication(ctx context.Context, mode multipoolermanagerdatapb.ReplicationPauseMode, wait bool) (*multipoolermanagerdatapb.ReplicationStatus, error) {
+func (pm *MultiPoolerManager) pauseReplication(ctx context.Context, mode multipoolermanagerdatapb.ReplicationPauseMode, wait bool) (*multipoolermanagerdatapb.StandbyReplicationStatus, error) {
 	switch mode {
 	case multipoolermanagerdatapb.ReplicationPauseMode_REPLICATION_PAUSE_MODE_REPLAY_ONLY:
 		// Pause WAL replay on the standby

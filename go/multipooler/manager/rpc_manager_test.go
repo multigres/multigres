@@ -719,3 +719,288 @@ func TestPromoteIdempotency_EmptyExpectedLSNSkipsValidation(t *testing.T) {
 
 	require.NoError(t, mock.ExpectationsWereMet())
 }
+
+func TestReplicationStatus(t *testing.T) {
+	ctx := context.Background()
+	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+
+	serviceID := &clustermetadatapb.ID{
+		Component: clustermetadatapb.ID_MULTIPOOLER,
+		Cell:      "zone1",
+		Name:      "test-service",
+	}
+
+	t.Run("PRIMARY_pooler_returns_primary_status", func(t *testing.T) {
+		ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
+		defer ts.Close()
+
+		pgctldAddr, cleanupPgctld := testutil.StartMockPgctldServer(t)
+		t.Cleanup(cleanupPgctld)
+
+		// Create PRIMARY multipooler
+		multipooler := &clustermetadatapb.MultiPooler{
+			Id:            serviceID,
+			Database:      "testdb",
+			Hostname:      "localhost",
+			PortMap:       map[string]int32{"grpc": 8080},
+			Type:          clustermetadatapb.PoolerType_PRIMARY,
+			ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
+		}
+		require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
+
+		tmpDir := t.TempDir()
+		config := &Config{
+			TopoClient: ts,
+			ServiceID:  serviceID,
+			PgctldAddr: pgctldAddr,
+			PoolerDir:  tmpDir,
+		}
+		pm := NewMultiPoolerManager(logger, config)
+		t.Cleanup(func() { pm.Close() })
+
+		senv := servenv.NewServEnv(viperutil.NewRegistry())
+		go pm.Start(senv)
+
+		require.Eventually(t, func() bool {
+			return pm.GetState() == ManagerStateReady
+		}, 5*time.Second, 100*time.Millisecond, "Manager should reach Ready state")
+
+		// Create mock database and inject it
+		db, mock, err := sqlmock.New()
+		require.NoError(t, err)
+		t.Cleanup(func() { db.Close() })
+		pm.db = db
+
+		// Mock pg_is_in_recovery() = false (this is a primary)
+		// First call: ReplicationStatus checks isPrimary()
+		mock.ExpectQuery(regexp.QuoteMeta("SELECT pg_is_in_recovery()")).
+			WillReturnRows(sqlmock.NewRows([]string{"pg_is_in_recovery"}).AddRow(false))
+		// Second call: PrimaryStatus calls checkPrimaryGuardrails which also checks isPrimary()
+		mock.ExpectQuery(regexp.QuoteMeta("SELECT pg_is_in_recovery()")).
+			WillReturnRows(sqlmock.NewRows([]string{"pg_is_in_recovery"}).AddRow(false))
+
+		// Mock PrimaryStatus queries
+		// 1. getPrimaryLSN
+		mock.ExpectQuery(regexp.QuoteMeta("SELECT pg_current_wal_lsn()")).
+			WillReturnRows(sqlmock.NewRows([]string{"pg_current_wal_lsn"}).AddRow("0/12345678"))
+		// 2. getConnectedFollowerIDs - returns empty list
+		mock.ExpectQuery(regexp.QuoteMeta("SELECT application_name")).
+			WillReturnRows(sqlmock.NewRows([]string{"application_name"}))
+		// 3. getSynchronousReplicationConfig queries SHOW synchronous_standby_names first
+		mock.ExpectQuery(regexp.QuoteMeta("SHOW synchronous_standby_names")).
+			WillReturnRows(sqlmock.NewRows([]string{"synchronous_standby_names"}).AddRow(""))
+		// 4. Then SHOW synchronous_commit
+		mock.ExpectQuery(regexp.QuoteMeta("SHOW synchronous_commit")).
+			WillReturnRows(sqlmock.NewRows([]string{"synchronous_commit"}).AddRow("on"))
+
+		// Call ReplicationStatus
+		status, err := pm.Status(ctx)
+		require.NoError(t, err)
+		require.NotNil(t, status)
+
+		// Verify response structure
+		assert.Equal(t, clustermetadatapb.PoolerType_PRIMARY, status.PoolerType)
+		assert.NotNil(t, status.PrimaryStatus, "PrimaryStatus should be populated")
+		assert.Nil(t, status.ReplicationStatus, "ReplicationStatus should be nil for PRIMARY")
+		assert.Equal(t, "0/12345678", status.PrimaryStatus.Lsn)
+
+		require.NoError(t, mock.ExpectationsWereMet())
+	})
+
+	t.Run("REPLICA_pooler_returns_replication_status", func(t *testing.T) {
+		ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
+		defer ts.Close()
+
+		pgctldAddr, cleanupPgctld := testutil.StartMockPgctldServer(t)
+		t.Cleanup(cleanupPgctld)
+
+		// Create REPLICA multipooler
+		multipooler := &clustermetadatapb.MultiPooler{
+			Id:            serviceID,
+			Database:      "testdb",
+			Hostname:      "localhost",
+			PortMap:       map[string]int32{"grpc": 8080},
+			Type:          clustermetadatapb.PoolerType_REPLICA,
+			ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
+		}
+		require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
+
+		tmpDir := t.TempDir()
+		config := &Config{
+			TopoClient: ts,
+			ServiceID:  serviceID,
+			PgctldAddr: pgctldAddr,
+			PoolerDir:  tmpDir,
+		}
+		pm := NewMultiPoolerManager(logger, config)
+		t.Cleanup(func() { pm.Close() })
+
+		senv := servenv.NewServEnv(viperutil.NewRegistry())
+		go pm.Start(senv)
+
+		require.Eventually(t, func() bool {
+			return pm.GetState() == ManagerStateReady
+		}, 5*time.Second, 100*time.Millisecond, "Manager should reach Ready state")
+
+		// Create mock database and inject it
+		db, mock, err := sqlmock.New()
+		require.NoError(t, err)
+		t.Cleanup(func() { db.Close() })
+		pm.db = db
+
+		// Mock pg_is_in_recovery() = true (this is a standby)
+		mock.ExpectQuery(regexp.QuoteMeta("SELECT pg_is_in_recovery()")).
+			WillReturnRows(sqlmock.NewRows([]string{"pg_is_in_recovery"}).AddRow(true))
+
+		// Mock StandbyReplicationStatus queries
+		mock.ExpectQuery(regexp.QuoteMeta("SELECT pg_is_in_recovery()")).
+			WillReturnRows(sqlmock.NewRows([]string{"pg_is_in_recovery"}).AddRow(true))
+		// queryReplicationStatus returns 6 columns including current_setting('primary_conninfo')
+		mock.ExpectQuery(regexp.QuoteMeta("SELECT")).
+			WillReturnRows(sqlmock.NewRows([]string{
+				"pg_last_wal_replay_lsn",
+				"pg_last_wal_receive_lsn",
+				"pg_is_wal_replay_paused",
+				"pg_get_wal_replay_pause_state",
+				"pg_last_xact_replay_timestamp",
+				"primary_conninfo",
+			}).AddRow("0/12345600", "0/12345678", false, "not paused", "2025-01-01 00:00:00", "host=primary port=5432 user=repl application_name=test"))
+
+		// Call ReplicationStatus
+		status, err := pm.Status(ctx)
+		require.NoError(t, err)
+		require.NotNil(t, status)
+
+		// Verify response structure
+		assert.Equal(t, clustermetadatapb.PoolerType_REPLICA, status.PoolerType)
+		assert.Nil(t, status.PrimaryStatus, "PrimaryStatus should be nil for REPLICA")
+		assert.NotNil(t, status.ReplicationStatus, "ReplicationStatus should be populated")
+		assert.Equal(t, "0/12345600", status.ReplicationStatus.LastReplayLsn)
+
+		require.NoError(t, mock.ExpectationsWereMet())
+	})
+
+	t.Run("Mismatch_PRIMARY_topology_but_standby_postgres", func(t *testing.T) {
+		ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
+		defer ts.Close()
+
+		pgctldAddr, cleanupPgctld := testutil.StartMockPgctldServer(t)
+		t.Cleanup(cleanupPgctld)
+
+		// Create PRIMARY multipooler (but PG will be in standby mode - mismatch!)
+		multipooler := &clustermetadatapb.MultiPooler{
+			Id:            serviceID,
+			Database:      "testdb",
+			Hostname:      "localhost",
+			PortMap:       map[string]int32{"grpc": 8080},
+			Type:          clustermetadatapb.PoolerType_PRIMARY,
+			ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
+		}
+		require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
+
+		tmpDir := t.TempDir()
+		config := &Config{
+			TopoClient: ts,
+			ServiceID:  serviceID,
+			PgctldAddr: pgctldAddr,
+			PoolerDir:  tmpDir,
+		}
+		pm := NewMultiPoolerManager(logger, config)
+		t.Cleanup(func() { pm.Close() })
+
+		senv := servenv.NewServEnv(viperutil.NewRegistry())
+		go pm.Start(senv)
+
+		require.Eventually(t, func() bool {
+			return pm.GetState() == ManagerStateReady
+		}, 5*time.Second, 100*time.Millisecond, "Manager should reach Ready state")
+
+		// Create mock database and inject it
+		db, mock, err := sqlmock.New()
+		require.NoError(t, err)
+		t.Cleanup(func() { db.Close() })
+		pm.db = db
+
+		// Mock pg_is_in_recovery() = true (but topology says PRIMARY - mismatch!)
+		mock.ExpectQuery(regexp.QuoteMeta("SELECT pg_is_in_recovery()")).
+			WillReturnRows(sqlmock.NewRows([]string{"pg_is_in_recovery"}).AddRow(true))
+
+		// Call ReplicationStatus - should return MT13002 error
+		status, err := pm.Status(ctx)
+		require.Error(t, err)
+		assert.Nil(t, status)
+
+		// Verify it's the pooler type mismatch error
+		assert.Contains(t, err.Error(), "MT13002")
+		assert.Contains(t, err.Error(), "pooler type mismatch")
+		assert.Contains(t, err.Error(), "PRIMARY")
+		assert.Contains(t, err.Error(), "standby")
+
+		code := mterrors.Code(err)
+		assert.Equal(t, mtrpcpb.Code_FAILED_PRECONDITION, code)
+
+		require.NoError(t, mock.ExpectationsWereMet())
+	})
+
+	t.Run("Mismatch_REPLICA_topology_but_primary_postgres", func(t *testing.T) {
+		ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
+		defer ts.Close()
+
+		pgctldAddr, cleanupPgctld := testutil.StartMockPgctldServer(t)
+		t.Cleanup(cleanupPgctld)
+
+		// Create REPLICA multipooler (but PG will be in primary mode - mismatch!)
+		multipooler := &clustermetadatapb.MultiPooler{
+			Id:            serviceID,
+			Database:      "testdb",
+			Hostname:      "localhost",
+			PortMap:       map[string]int32{"grpc": 8080},
+			Type:          clustermetadatapb.PoolerType_REPLICA,
+			ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
+		}
+		require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
+
+		tmpDir := t.TempDir()
+		config := &Config{
+			TopoClient: ts,
+			ServiceID:  serviceID,
+			PgctldAddr: pgctldAddr,
+			PoolerDir:  tmpDir,
+		}
+		pm := NewMultiPoolerManager(logger, config)
+		t.Cleanup(func() { pm.Close() })
+
+		senv := servenv.NewServEnv(viperutil.NewRegistry())
+		go pm.Start(senv)
+
+		require.Eventually(t, func() bool {
+			return pm.GetState() == ManagerStateReady
+		}, 5*time.Second, 100*time.Millisecond, "Manager should reach Ready state")
+
+		// Create mock database and inject it
+		db, mock, err := sqlmock.New()
+		require.NoError(t, err)
+		t.Cleanup(func() { db.Close() })
+		pm.db = db
+
+		// Mock pg_is_in_recovery() = false (but topology says REPLICA - mismatch!)
+		mock.ExpectQuery(regexp.QuoteMeta("SELECT pg_is_in_recovery()")).
+			WillReturnRows(sqlmock.NewRows([]string{"pg_is_in_recovery"}).AddRow(false))
+
+		// Call ReplicationStatus - should return MT13002 error
+		status, err := pm.Status(ctx)
+		require.Error(t, err)
+		assert.Nil(t, status)
+
+		// Verify it's the pooler type mismatch error
+		assert.Contains(t, err.Error(), "MT13002")
+		assert.Contains(t, err.Error(), "pooler type mismatch")
+		assert.Contains(t, err.Error(), "REPLICA")
+		assert.Contains(t, err.Error(), "primary")
+
+		code := mterrors.Code(err)
+		assert.Equal(t, mtrpcpb.Code_FAILED_PRECONDITION, code)
+
+		require.NoError(t, mock.ExpectationsWereMet())
+	})
+}

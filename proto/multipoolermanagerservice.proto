@@ -41,9 +41,15 @@ service MultiPoolerManager {
   rpc StopReplication(multipoolermanagerdata.StopReplicationRequest)
     returns (multipoolermanagerdata.StopReplicationResponse);
 
-  // ReplicationStatus gets the current replication status of the standby
-  rpc ReplicationStatus(multipoolermanagerdata.ReplicationStatusRequest)
-    returns (multipoolermanagerdata.ReplicationStatusResponse);
+  // StandbyReplicationStatus gets the current replication status of the standby
+  rpc StandbyReplicationStatus(multipoolermanagerdata.StandbyReplicationStatusRequest)
+    returns (multipoolermanagerdata.StandbyReplicationStatusResponse);
+
+  // Status gets unified status that works for both PRIMARY and REPLICA poolers
+  // The multipooler returns information based on what type it believes itself to be,
+  // avoiding disparity between what MultiOrch thinks versus actual state
+  rpc Status(multipoolermanagerdata.StatusRequest)
+    returns (multipoolermanagerdata.StatusResponse);
 
   // ResetReplication resets the standby's connection to its primary by clearing primary_conninfo
   // and reloading PostgreSQL configuration. This effectively
@@ -109,9 +115,9 @@ service MultiPoolerManager {
   rpc Promote(multipoolermanagerdata.PromoteRequest)
     returns (multipoolermanagerdata.PromoteResponse);
 
-  // Status gets the current status of the manager
-  rpc Status(multipoolermanagerdata.StatusRequest)
-    returns (multipoolermanagerdata.StatusResponse);
+  // State gets the current status of the manager
+  rpc State(multipoolermanagerdata.StateRequest)
+    returns (multipoolermanagerdata.StateResponse);
 
   // SetTerm sets the consensus term information. Used by MultiOrch for consensus operations.
   rpc SetTerm(multipoolermanagerdata.SetTermRequest)

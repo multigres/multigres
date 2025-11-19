@@ -136,8 +136,8 @@ func TestDemoteAndPromote(t *testing.T) {
 		require.NoError(t, err, "StopReplication should succeed")
 
 		// Get current LSN
-		statusReq := &multipoolermanagerdatapb.ReplicationStatusRequest{}
-		statusResp, err := standbyManagerClient.ReplicationStatus(utils.WithShortDeadline(t), statusReq)
+		statusReq := &multipoolermanagerdatapb.StandbyReplicationStatusRequest{}
+		statusResp, err := standbyManagerClient.StandbyReplicationStatus(utils.WithShortDeadline(t), statusReq)
 		require.NoError(t, err, "ReplicationStatus should succeed")
 		currentLSN := statusResp.Status.LastReplayLsn
 		t.Logf("Current LSN before promotion: %s", currentLSN)
@@ -201,8 +201,8 @@ func TestDemoteAndPromote(t *testing.T) {
 		require.NoError(t, err, "StopReplication should succeed")
 
 		// Get LSN
-		statusReq2 := &multipoolermanagerdatapb.ReplicationStatusRequest{}
-		statusResp2, err := primaryManagerClient.ReplicationStatus(utils.WithShortDeadline(t), statusReq2)
+		statusReq2 := &multipoolermanagerdatapb.StandbyReplicationStatusRequest{}
+		statusResp2, err := primaryManagerClient.StandbyReplicationStatus(utils.WithShortDeadline(t), statusReq2)
 		require.NoError(t, err, "ReplicationStatus should succeed")
 		currentLSN2 := statusResp2.Status.LastReplayLsn
 
@@ -291,8 +291,8 @@ func TestDemoteAndPromote(t *testing.T) {
 		_, err = primaryManagerClient.StopReplication(utils.WithShortDeadline(t), stopReq)
 		require.NoError(t, err)
 
-		statusReq := &multipoolermanagerdatapb.ReplicationStatusRequest{}
-		statusResp, err := primaryManagerClient.ReplicationStatus(utils.WithShortDeadline(t), statusReq)
+		statusReq := &multipoolermanagerdatapb.StandbyReplicationStatusRequest{}
+		statusResp, err := primaryManagerClient.StandbyReplicationStatus(utils.WithShortDeadline(t), statusReq)
 		require.NoError(t, err)
 		currentLSN := statusResp.Status.LastReplayLsn
 
@@ -433,8 +433,8 @@ func TestDemoteAndPromote(t *testing.T) {
 		_, err = primaryManagerClient.StopReplication(utils.WithShortDeadline(t), stopReq)
 		require.NoError(t, err)
 
-		statusReq := &multipoolermanagerdatapb.ReplicationStatusRequest{}
-		statusResp, err := primaryManagerClient.ReplicationStatus(utils.WithShortDeadline(t), statusReq)
+		statusReq := &multipoolermanagerdatapb.StandbyReplicationStatusRequest{}
+		statusResp, err := primaryManagerClient.StandbyReplicationStatus(utils.WithShortDeadline(t), statusReq)
 		require.NoError(t, err)
 		currentLSN := statusResp.Status.LastReplayLsn
 

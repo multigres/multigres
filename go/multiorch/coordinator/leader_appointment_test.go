@@ -58,7 +58,7 @@ func createMockNode(fakeClient *rpcclient.FakeClient, name string, term int64, w
 		Accepted: true,
 	}
 
-	fakeClient.StatusResponses[name] = &multipoolermanagerdatapb.StatusResponse{
+	fakeClient.StateResponses[name] = &multipoolermanagerdatapb.StateResponse{
 		State: "ready",
 	}
 
@@ -429,7 +429,7 @@ func TestEstablishLeader(t *testing.T) {
 		candidate := createMockNode(fakeClient, "mp1", 5, "0/3000000", true, "primary")
 
 		// Override the status response to indicate not ready
-		fakeClient.StatusResponses["mp1"] = &multipoolermanagerdatapb.StatusResponse{
+		fakeClient.StateResponses["mp1"] = &multipoolermanagerdatapb.StateResponse{
 			State: "initializing",
 		}
 

@@ -1938,28 +1938,10 @@ func (p *localProvisioner) validateBinaryPaths(config *LocalProvisionerConfig) e
 
 // validateBinaryExists checks if a binary path exists and is executable
 func (p *localProvisioner) validateBinaryExists(binaryPath, serviceName string) error {
-	// Convert to absolute path if it's relative
-	var fullPath string
-	if filepath.IsAbs(binaryPath) {
-		fullPath = binaryPath
-	} else {
-		// Make it relative to current directory
-		fullPath = filepath.Join(".", binaryPath)
-	}
-
-	// Check if the binary exists and is executable
-	info, err := os.Stat(fullPath)
+	// Use exec.LookPath to find and validate the binary
+	_, err := exec.LookPath(binaryPath)
 	if err != nil {
-		return fmt.Errorf("  %s binary not found at %s: %w", serviceName, binaryPath, err)
-	}
-
-	if info.IsDir() {
-		return fmt.Errorf("  %s path is a directory, not a binary: %s", serviceName, binaryPath)
-	}
-
-	// Check if it's executable (on Unix systems)
-	if info.Mode()&0o111 == 0 {
-		return fmt.Errorf("  %s binary is not executable: %s", serviceName, binaryPath)
+		return fmt.Errorf("  %s binary not found: %s: %w", serviceName, binaryPath, err)
 	}
 
 	return nil

@@ -105,8 +105,8 @@ func (m *mockHandler) HandleBind(ctx context.Context, conn *Conn, portalName, st
 	return nil
 }
 
-func (m *mockHandler) HandleExecute(ctx context.Context, conn *Conn, portalName string, maxRows int32) (*query.QueryResult, error) {
-	return nil, nil
+func (m *mockHandler) HandleExecute(ctx context.Context, conn *Conn, portalName string, maxRows int32, callback func(ctx context.Context, result *query.QueryResult) error) error {
+	return nil
 }
 
 func (m *mockHandler) HandleDescribe(ctx context.Context, conn *Conn, typ byte, name string) (*query.StatementDescription, error) {
