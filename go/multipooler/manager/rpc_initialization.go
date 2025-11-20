@@ -19,11 +19,13 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/multigres/multigres/go/mterrors"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	pgctldpb "github.com/multigres/multigres/go/pb/pgctldservice"
+	"github.com/multigres/multigres/go/tools/retry"
 )
 
 // InitializeEmptyPrimary initializes this pooler as an empty primary
@@ -135,7 +137,7 @@ func (pm *MultiPoolerManager) InitializeAsStandby(ctx context.Context, req *mult
 	finalLSN := ""
 
 	// 3. Configure primary_conninfo
-	if err := pm.SetPrimaryConnInfo(ctx, req.PrimaryHost, req.PrimaryPort, false, false, req.ConsensusTerm, false); err != nil {
+	if err := pm.setPrimaryConnInfoLocked(ctx, req.PrimaryHost, req.PrimaryPort, false, false); err != nil {
 		return nil, mterrors.Wrap(err, "failed to set primary_conninfo")
 	}
 
@@ -176,6 +178,14 @@ func (pm *MultiPoolerManager) InitializeAsStandby(ctx context.Context, req *mult
 // Used by multiorch coordinator to determine what initialization scenario to use
 func (pm *MultiPoolerManager) InitializationStatus(ctx context.Context, req *multipoolermanagerdatapb.InitializationStatusRequest) (*multipoolermanagerdatapb.InitializationStatusResponse, error) {
 	pm.logger.DebugContext(ctx, "InitializationStatus called", "shard", pm.getShardID())
+
+	// Acquire action lock to read consensus term consistently
+	var err error
+	ctx, err = pm.actionLock.Acquire(ctx, "InitializationStatus")
+	if err != nil {
+		return nil, mterrors.Wrap(err, "failed to acquire action lock")
+	}
+	defer pm.actionLock.Release(ctx)
 
 	// Get WAL position (ignore errors, just return empty string)
 	walPosition, _ := pm.getWALPosition(ctx)
@@ -322,11 +332,41 @@ func (pm *MultiPoolerManager) waitForDatabaseConnection(ctx context.Context) err
 		if err := pm.db.PingContext(ctx); err == nil {
 			return nil
 		}
+		// Close stale connection
+		pm.db.Close()
+		pm.db = nil
 	}
 
-	// Wait for connection to become available (up to 30 seconds)
+	// Wait for connection to become available with retry logic
 	pm.logger.InfoContext(ctx, "Waiting for database connection")
-	// TODO: Implement retry logic
-	// For now, assume the database will be available soon
-	return nil
+
+	// Use exponential backoff starting at 500ms, up to 30s max backoff
+	r := retry.New(500*time.Millisecond, 30*time.Second)
+	var lastErr error
+	firstAttempt := true
+
+	for attempt, err := range r.Attempts(ctx) {
+		// Check if context was cancelled or exceeded deadline
+		if err != nil {
+			if lastErr != nil {
+				return mterrors.Wrap(lastErr, fmt.Sprintf("failed to connect to database after %d attempts: %v", attempt, err))
+			}
+			return mterrors.Wrap(err, fmt.Sprintf("context error while waiting for database connection after %d attempts", attempt))
+		}
+
+		// Try to open the connection
+		if err := pm.connectDB(); err == nil {
+			pm.logger.InfoContext(ctx, "Database connection established successfully", "attempts", attempt)
+			return nil
+		} else {
+			lastErr = err
+			if firstAttempt {
+				pm.logger.InfoContext(ctx, "PostgreSQL not ready yet, will retry with exponential backoff", "error", err)
+				firstAttempt = false
+			}
+		}
+	}
+
+	// This should not be reached due to the context check in the loop, but just in case
+	return mterrors.Wrap(lastErr, "failed to connect to database after retries")
 }

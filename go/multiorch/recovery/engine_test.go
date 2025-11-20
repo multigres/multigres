@@ -29,6 +29,7 @@ import (
 	"github.com/multigres/multigres/go/clustermetadata/topo/memorytopo"
 	"github.com/multigres/multigres/go/multiorch/config"
 	"github.com/multigres/multigres/go/multiorch/store"
+	"github.com/multigres/multigres/go/multipooler/rpcclient"
 	"github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/viperutil"
 )
@@ -63,6 +64,7 @@ func TestRecoveryEngine_ConfigReload(t *testing.T) {
 		logger,
 		cfg,
 		initialTargets,
+		&rpcclient.FakeClient{},
 	)
 
 	// Verify initial config
@@ -124,6 +126,7 @@ func TestRecoveryEngine_ConfigReload_NoChange(t *testing.T) {
 		logger,
 		cfg,
 		initialTargets,
+		&rpcclient.FakeClient{},
 	)
 
 	// Set up config reloader that returns same targets
@@ -174,6 +177,7 @@ func TestRecoveryEngine_ConfigReload_EmptyTargets(t *testing.T) {
 		logger,
 		cfg,
 		initialTargets,
+		&rpcclient.FakeClient{},
 	)
 
 	// Set up config reloader that returns empty targets
@@ -212,6 +216,7 @@ func TestRecoveryEngine_StartStop(t *testing.T) {
 		logger,
 		cfg,
 		[]config.WatchTarget{{Database: "db1"}},
+		&rpcclient.FakeClient{},
 	)
 
 	// Start the engine
@@ -255,6 +260,7 @@ func TestRecoveryEngine_MaintenanceLoop(t *testing.T) {
 		logger,
 		cfg,
 		[]config.WatchTarget{{Database: "db1"}},
+		&rpcclient.FakeClient{},
 	)
 
 	// Track config reloads
@@ -317,6 +323,7 @@ func TestRecoveryEngine_ConfigReloadError(t *testing.T) {
 		logger,
 		cfg,
 		initialTargets,
+		&rpcclient.FakeClient{},
 	)
 
 	// Set up config reloader that returns invalid targets
@@ -417,6 +424,7 @@ func TestRecoveryEngine_ViperDynamicConfig(t *testing.T) {
 		logger,
 		cfg,
 		initialTargets,
+		&rpcclient.FakeClient{},
 	)
 
 	// Set up config reloader that reads from viperutil.Value
@@ -491,6 +499,7 @@ func TestRecoveryEngine_DiscoveryLoop_Integration(t *testing.T) {
 		logger,
 		cfg,
 		[]config.WatchTarget{{Database: "mydb"}},
+		&rpcclient.FakeClient{},
 	)
 
 	// Start the engine - it should discover existing poolers
@@ -538,6 +547,7 @@ func TestRecoveryEngine_BookkeepingLoop_Integration(t *testing.T) {
 		logger,
 		cfg,
 		[]config.WatchTarget{{Database: "mydb"}},
+		&rpcclient.FakeClient{},
 	)
 
 	// Add poolers to store BEFORE starting engine
@@ -625,6 +635,7 @@ func TestRecoveryEngine_FullIntegration(t *testing.T) {
 		logger,
 		cfg,
 		[]config.WatchTarget{{Database: "mydb"}},
+		&rpcclient.FakeClient{},
 	)
 
 	// Add pooler to topology BEFORE starting

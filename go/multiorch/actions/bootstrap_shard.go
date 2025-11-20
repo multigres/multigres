@@ -16,13 +16,10 @@ package actions
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"log/slog"
-	"time"
 
 	_ "github.com/lib/pq"
-	"google.golang.org/protobuf/encoding/protojson"
 
 	"github.com/multigres/multigres/go/clustermetadata/topo"
 	"github.com/multigres/multigres/go/mterrors"
@@ -105,12 +102,27 @@ func (a *BootstrapShardAction) Execute(ctx context.Context, shardID string, data
 		"database", database,
 		"primary", candidate.ID.Name)
 
-	// Step 4: Create the durability policy in the primary's database
-	if err := a.createDurabilityPolicy(ctx, candidate, database, policyName); err != nil {
-		return mterrors.Wrap(err, "failed to create durability policy in database")
+	// Step 4: Create durability policy in the primary's database
+	quorumRule, err := a.parsePolicy(policyName)
+	if err != nil {
+		return mterrors.Wrap(err, "failed to parse policy")
 	}
 
-	a.logger.InfoContext(ctx, "Created durability policy in database",
+	createPolicyReq := &multipoolermanagerdatapb.CreateDurabilityPolicyRequest{
+		PolicyName: policyName,
+		QuorumRule: quorumRule,
+	}
+	createPolicyResp, err := candidate.RpcClient.CreateDurabilityPolicy(ctx, candidate.Pooler, createPolicyReq)
+	if err != nil {
+		return mterrors.Wrap(err, "failed to create durability policy")
+	}
+
+	if !createPolicyResp.Success {
+		return mterrors.Errorf(mtrpcpb.Code_INTERNAL,
+			"failed to create durability policy: %s", createPolicyResp.ErrorMessage)
+	}
+
+	a.logger.InfoContext(ctx, "Successfully created durability policy",
 		"shard", shardID,
 		"database", database,
 		"policy_name", policyName)
@@ -191,6 +203,16 @@ func (a *BootstrapShardAction) initializeStandbys(ctx context.Context, shardID s
 
 	for _, standby := range standbys {
 		go func(node *coordinator.Node) {
+			// Set pooler type to REPLICA before initializing as standby
+			changeTypeReq := &multipoolermanagerdatapb.ChangeTypeRequest{
+				PoolerType: clustermetadatapb.PoolerType_REPLICA,
+			}
+			_, err := node.RpcClient.ChangeType(ctx, node.Pooler, changeTypeReq)
+			if err != nil {
+				results <- result{node: node, err: fmt.Errorf("failed to set pooler type: %w", err)}
+				return
+			}
+
 			req := &multipoolermanagerdatapb.InitializeAsStandbyRequest{
 				PrimaryHost:   primary.Hostname,
 				PrimaryPort:   primary.Port,
@@ -260,67 +282,6 @@ func (a *BootstrapShardAction) getDurabilityPolicyName(ctx context.Context, data
 		return "", mterrors.Errorf(mtrpcpb.Code_INVALID_ARGUMENT,
 			"unsupported durability policy: %s (must be ANY_2 or MULTI_CELL_ANY_2)", db.DurabilityPolicy)
 	}
-}
-
-// createDurabilityPolicy creates the durability policy entry in the primary's database
-// This will be replicated to standbys automatically through PostgreSQL replication
-func (a *BootstrapShardAction) createDurabilityPolicy(ctx context.Context, primary *coordinator.Node, database string, policyName string) error {
-	// Parse the policy name to get the quorum configuration
-	quorumRule, err := a.parsePolicy(policyName)
-	if err != nil {
-		return mterrors.Wrap(err, "failed to parse policy")
-	}
-
-	// Marshal the quorum rule to JSON
-	quorumRuleJSON, err := protojson.Marshal(quorumRule)
-	if err != nil {
-		return mterrors.Wrap(err, "failed to marshal quorum rule")
-	}
-
-	// Connect to the primary's PostgreSQL database
-	// Always use 'postgres' as the actual PostgreSQL database name
-	dsn := fmt.Sprintf("host=%s port=%d dbname=postgres user=postgres sslmode=disable",
-		primary.Hostname, primary.Port)
-
-	db, err := sql.Open("postgres", dsn)
-	if err != nil {
-		return mterrors.Wrapf(err, "failed to connect to primary %s", primary.ID.Name)
-	}
-	defer db.Close()
-
-	// Test the connection
-	if err := db.PingContext(ctx); err != nil {
-		return mterrors.Wrapf(err, "failed to ping primary %s", primary.ID.Name)
-	}
-
-	// Insert the policy into the durability_policy table
-	now := time.Now()
-	query := `
-		INSERT INTO multigres.durability_policy
-			(policy_name, policy_version, quorum_rule, is_active, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6)
-	`
-
-	_, err = db.ExecContext(ctx, query,
-		policyName,     // policy_name
-		1,              // policy_version (initial version)
-		quorumRuleJSON, // quorum_rule (JSONB)
-		true,           // is_active
-		now,            // created_at
-		now,            // updated_at
-	)
-	if err != nil {
-		return mterrors.Wrapf(err, "failed to insert durability policy into database")
-	}
-
-	a.logger.InfoContext(ctx, "Inserted durability policy into primary database",
-		"primary", primary.ID.Name,
-		"logical_database", database,
-		"policy_name", policyName,
-		"quorum_type", quorumRule.QuorumType,
-		"required_count", quorumRule.RequiredCount)
-
-	return nil
 }
 
 // parsePolicy converts a policy name into a QuorumRule

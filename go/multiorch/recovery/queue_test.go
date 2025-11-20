@@ -46,13 +46,14 @@ func TestQueue(t *testing.T) {
 	require.Equal(t, 1, q.QueueLen())
 
 	// Consume
-	require.Equal(t, t.Name(), q.Consume())
+	key, release := q.Consume()
+	require.Equal(t, t.Name(), key)
 	require.Equal(t, 1, q.QueueLen())
 	_, found = q.enqueued[t.Name()]
 	require.True(t, found)
 
 	// Release
-	q.Release(t.Name())
+	release()
 	require.Zero(t, q.QueueLen())
 	_, found = q.enqueued[t.Name()]
 	require.False(t, found)
@@ -61,8 +62,7 @@ func TestQueue(t *testing.T) {
 type testQueue interface {
 	QueueLen() int
 	Push(string)
-	Consume() string
-	Release(string)
+	Consume() (string, func())
 }
 
 func BenchmarkQueues(b *testing.B) {
@@ -85,7 +85,8 @@ func BenchmarkQueues(b *testing.B) {
 				}
 				q.QueueLen()
 				for i := 0; i < 1000; i++ {
-					q.Release(q.Consume())
+					_, release := q.Consume()
+					release()
 				}
 			}
 		})
