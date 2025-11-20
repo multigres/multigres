@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/multigres/multigres/go/mterrors"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
@@ -135,7 +136,7 @@ func (pm *MultiPoolerManager) InitializeAsStandby(ctx context.Context, req *mult
 	finalLSN := ""
 
 	// 3. Configure primary_conninfo
-	if err := pm.SetPrimaryConnInfo(ctx, req.PrimaryHost, req.PrimaryPort, false, false, req.ConsensusTerm, false); err != nil {
+	if err := pm.setPrimaryConnInfoLocked(ctx, req.PrimaryHost, req.PrimaryPort, false, false); err != nil {
 		return nil, mterrors.Wrap(err, "failed to set primary_conninfo")
 	}
 
@@ -176,6 +177,14 @@ func (pm *MultiPoolerManager) InitializeAsStandby(ctx context.Context, req *mult
 // Used by multiorch coordinator to determine what initialization scenario to use
 func (pm *MultiPoolerManager) InitializationStatus(ctx context.Context, req *multipoolermanagerdatapb.InitializationStatusRequest) (*multipoolermanagerdatapb.InitializationStatusResponse, error) {
 	pm.logger.DebugContext(ctx, "InitializationStatus called", "shard", pm.getShardID())
+
+	// Acquire action lock to read consensus term consistently
+	var err error
+	ctx, err = pm.actionLock.Acquire(ctx, "InitializationStatus")
+	if err != nil {
+		return nil, mterrors.Wrap(err, "failed to acquire action lock")
+	}
+	defer pm.actionLock.Release(ctx)
 
 	// Get WAL position (ignore errors, just return empty string)
 	walPosition, _ := pm.getWALPosition(ctx)
@@ -322,11 +331,39 @@ func (pm *MultiPoolerManager) waitForDatabaseConnection(ctx context.Context) err
 		if err := pm.db.PingContext(ctx); err == nil {
 			return nil
 		}
+		// Close stale connection
+		pm.db.Close()
+		pm.db = nil
 	}
 
-	// Wait for connection to become available (up to 30 seconds)
+	// Wait for connection to become available with retry logic
 	pm.logger.InfoContext(ctx, "Waiting for database connection")
-	// TODO: Implement retry logic
-	// For now, assume the database will be available soon
-	return nil
+
+	// Retry for up to 30 seconds
+	maxRetries := 60
+	retryDelay := 500 * time.Millisecond
+
+	var lastErr error
+	for i := 0; i < maxRetries; i++ {
+		// Try to open the connection
+		if err := pm.connectDB(); err == nil {
+			pm.logger.InfoContext(ctx, "Database connection established successfully")
+			return nil
+		} else {
+			lastErr = err
+			if i == 0 {
+				pm.logger.InfoContext(ctx, "PostgreSQL not ready yet, will retry", "error", err)
+			}
+		}
+
+		// Wait before retrying
+		select {
+		case <-ctx.Done():
+			return mterrors.Wrap(ctx.Err(), "context cancelled while waiting for database connection")
+		case <-time.After(retryDelay):
+			// Continue to next retry
+		}
+	}
+
+	return mterrors.Wrap(lastErr, "failed to connect to database after retries")
 }

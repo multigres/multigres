@@ -1,0 +1,549 @@
+// Copyright 2025 Supabase, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package endtoend
+
+import (
+	"context"
+	"database/sql"
+	"encoding/json"
+	"fmt"
+	"log/slog"
+	"net"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"testing"
+	"time"
+
+	_ "github.com/lib/pq"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
+
+	"github.com/multigres/multigres/go/clustermetadata/topo"
+	"github.com/multigres/multigres/go/multiorch/actions"
+	"github.com/multigres/multigres/go/multiorch/coordinator"
+	"github.com/multigres/multigres/go/multipooler/rpcclient"
+	"github.com/multigres/multigres/go/test/utils"
+	"github.com/multigres/multigres/go/tools/pathutil"
+
+	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	multipoolermanagerpb "github.com/multigres/multigres/go/pb/multipoolermanager"
+	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
+
+	// Register topo plugins
+	_ "github.com/multigres/multigres/go/plugins/topo"
+)
+
+// nodeInstance represents a multipooler node for bootstrap testing
+type nodeInstance struct {
+	name           string
+	cell           string
+	grpcPort       int
+	pgPort         int
+	pgctldGrpcPort int
+	dataDir        string
+	pgctldProcess  *exec.Cmd
+	multipoolerCmd *exec.Cmd
+}
+
+func TestBootstrapInitialization(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping end-to-end bootstrap test in short mode")
+	}
+
+	if utils.ShouldSkipRealPostgres() {
+		t.Skip("Skipping PostgreSQL test - no postgres binaries")
+	}
+
+	// Require etcd binary
+	_, err := exec.LookPath("etcd")
+	require.NoError(t, err, "etcd binary must be available in PATH")
+
+	// Set PATH for binaries
+	err = pathutil.PrependBinToPath()
+	require.NoError(t, err, "Failed to add bin to PATH")
+
+	ctx := context.Background()
+
+	// Setup test directory - use /tmp to avoid long paths that exceed Unix socket limits (103 bytes on macOS)
+	tempDir, err := os.MkdirTemp("/tmp", "btst*")
+	require.NoError(t, err, "Failed to create temp directory")
+
+	// Only cleanup on success to allow debugging failures
+	defer func() {
+		if !t.Failed() {
+			os.RemoveAll(tempDir)
+		} else {
+			t.Logf("Test failed - directory preserved for debugging: %s", tempDir)
+		}
+	}()
+
+	t.Logf("Bootstrap test directory: %s", tempDir)
+
+	// Start etcd
+	etcdDataDir := filepath.Join(tempDir, "etcd_data")
+	require.NoError(t, os.MkdirAll(etcdDataDir, 0o755))
+
+	etcdClientAddr, etcdCmd := startEtcd(t, etcdDataDir)
+	defer func() {
+		if etcdCmd != nil && etcdCmd.Process != nil {
+			_ = etcdCmd.Process.Kill()
+			_ = etcdCmd.Wait()
+		}
+	}()
+
+	t.Logf("Started etcd at %s", etcdClientAddr)
+
+	// Create topology server and cell
+	testRoot := "/multigres"
+	globalRoot := filepath.Join(testRoot, "global")
+	cellName := "test-cell"
+	cellRoot := filepath.Join(testRoot, cellName)
+
+	ts, err := topo.OpenServer("etcd2", globalRoot, []string{etcdClientAddr})
+	require.NoError(t, err, "Failed to open topology server")
+	defer ts.Close()
+
+	err = ts.CreateCell(ctx, cellName, &clustermetadatapb.Cell{
+		ServerAddresses: []string{etcdClientAddr},
+		Root:            cellRoot,
+	})
+	require.NoError(t, err, "Failed to create cell")
+
+	// Use postgres database (multigres always uses postgres database with table_group for isolation)
+	database := "postgres"
+	err = ts.CreateDatabase(ctx, database, &clustermetadatapb.Database{
+		Name:             database,
+		DurabilityPolicy: "ANY_2",
+	})
+	require.NoError(t, err, "Failed to create database in topology")
+
+	t.Logf("Created database '%s' with policy 'ANY_2'", database)
+
+	// Create 3 empty nodes
+	shardID := "test-shard-01"
+	nodes := make([]*nodeInstance, 3)
+	for i := 0; i < 3; i++ {
+		nodes[i] = createEmptyNode(t, tempDir, cellName, shardID, database, i, etcdClientAddr)
+		defer cleanupNode(t, nodes[i])
+	}
+
+	t.Logf("Created 3 empty nodes")
+
+	// Verify all nodes are uninitialized
+	for i, node := range nodes {
+		status := checkInitializationStatus(t, node)
+		require.False(t, status.IsInitialized, "Node %d should be uninitialized", i)
+		t.Logf("Node %d (%s) confirmed uninitialized", i, node.name)
+	}
+
+	// Create coordinator nodes for bootstrap action
+	rpcClient := rpcclient.NewClient(10) // connection pool capacity
+	coordNodes := make([]*coordinator.Node, 3)
+	for i, node := range nodes {
+		pooler := &clustermetadatapb.MultiPooler{
+			Id: &clustermetadatapb.ID{
+				Component: clustermetadatapb.ID_MULTIPOOLER,
+				Cell:      node.cell,
+				Name:      node.name,
+			},
+			Hostname: "localhost",
+			PortMap: map[string]int32{
+				"grpc": int32(node.grpcPort),
+			},
+			Shard:    shardID,
+			Database: database,
+		}
+
+		coordNodes[i] = &coordinator.Node{
+			ID:        pooler.Id,
+			Hostname:  pooler.Hostname,
+			Port:      int32(node.pgPort),
+			ShardID:   shardID,
+			RpcClient: rpcClient,
+			Pooler:    pooler,
+		}
+	}
+
+	// Execute bootstrap action
+	t.Logf("Executing bootstrap action...")
+	logger := slog.Default()
+	bootstrapAction := actions.NewBootstrapShardAction(ts, logger)
+
+	err = bootstrapAction.Execute(ctx, shardID, database, coordNodes)
+	require.NoError(t, err, "Bootstrap action should succeed")
+
+	t.Logf("Bootstrap action completed successfully")
+
+	// Wait for initialization to complete
+	time.Sleep(2 * time.Second)
+
+	// Verify bootstrap results
+	t.Run("verify primary initialized", func(t *testing.T) {
+		// Check at least one node is initialized as primary
+		var primaryNode *nodeInstance
+		for _, node := range nodes {
+			status := checkInitializationStatus(t, node)
+			if status.IsInitialized && status.Role == "primary" {
+				primaryNode = node
+				break
+			}
+		}
+		require.NotNil(t, primaryNode, "Should have one primary node")
+		t.Logf("Primary node: %s", primaryNode.name)
+
+		// Connect to primary and verify durability policy
+		socketDir := filepath.Join(primaryNode.dataDir, "pg_sockets")
+		db := connectToPostgres(t, socketDir, primaryNode.pgPort)
+		defer db.Close()
+
+		// Verify multigres schema exists
+		var schemaExists bool
+		err := db.QueryRow("SELECT EXISTS(SELECT 1 FROM pg_namespace WHERE nspname = 'multigres')").Scan(&schemaExists)
+		require.NoError(t, err)
+		assert.True(t, schemaExists, "multigres schema should exist")
+
+		// Verify durability_policy table exists
+		var tableExists bool
+		err = db.QueryRow("SELECT EXISTS(SELECT 1 FROM pg_tables WHERE schemaname = 'multigres' AND tablename = 'durability_policy')").Scan(&tableExists)
+		require.NoError(t, err)
+		assert.True(t, tableExists, "durability_policy table should exist")
+
+		// Query the durability policy
+		var policyName string
+		var policyVersion int64
+		var quorumRuleJSON string
+		var isActive bool
+		err = db.QueryRow(`
+			SELECT policy_name, policy_version, quorum_rule::text, is_active
+			FROM multigres.durability_policy
+			WHERE policy_name = $1
+		`, "ANY_2").Scan(&policyName, &policyVersion, &quorumRuleJSON, &isActive)
+		require.NoError(t, err, "Should find ANY_2 policy")
+
+		// Verify policy fields
+		assert.Equal(t, "ANY_2", policyName)
+		assert.Equal(t, int64(1), policyVersion)
+		assert.True(t, isActive)
+
+		// Parse and verify JSONB structure
+		var quorumRule map[string]interface{}
+		err = json.Unmarshal([]byte(quorumRuleJSON), &quorumRule)
+		require.NoError(t, err, "Should parse quorum_rule JSON")
+
+		// Verify QuorumType (protojson uses camelCase field names)
+		quorumType, ok := quorumRule["quorumType"].(float64)
+		require.True(t, ok, "quorumType should be a number")
+		assert.Equal(t, float64(clustermetadatapb.QuorumType_QUORUM_TYPE_ANY_N), quorumType)
+
+		// Verify RequiredCount
+		requiredCount, ok := quorumRule["requiredCount"].(float64)
+		require.True(t, ok, "requiredCount should be a number")
+		assert.Equal(t, float64(2), requiredCount)
+
+		// Verify Description
+		description, ok := quorumRule["description"].(string)
+		require.True(t, ok, "description should be a string")
+		assert.Equal(t, "Any 2 nodes must acknowledge", description)
+
+		t.Logf("Verified durability policy in database:")
+		t.Logf("  policy_name: %s", policyName)
+		t.Logf("  policy_version: %d", policyVersion)
+		t.Logf("  quorum_type: ANY_N (%d)", int(quorumType))
+		t.Logf("  required_count: %d", int(requiredCount))
+		t.Logf("  is_active: %t", isActive)
+	})
+
+	t.Run("verify heartbeat table exists", func(t *testing.T) {
+		// Connect to primary node's database
+		var primaryNode *nodeInstance
+		for _, node := range nodes {
+			status := checkInitializationStatus(t, node)
+			if status.IsInitialized && status.Role == "primary" {
+				primaryNode = node
+				break
+			}
+		}
+		require.NotNil(t, primaryNode, "Should have a primary node")
+
+		socketDir := filepath.Join(primaryNode.dataDir, "pg_sockets")
+		db := connectToPostgres(t, socketDir, primaryNode.pgPort)
+		defer db.Close()
+
+		// Check that heartbeat table exists
+		var tableExists bool
+		err := db.QueryRow(`
+			SELECT EXISTS (
+				SELECT FROM information_schema.tables
+				WHERE table_schema = 'multigres'
+				AND table_name = 'heartbeat'
+			)
+		`).Scan(&tableExists)
+		require.NoError(t, err, "Should query heartbeat table existence")
+		assert.True(t, tableExists, "Heartbeat table should exist")
+
+		t.Logf("Verified heartbeat table exists in multigres schema")
+	})
+
+	t.Run("verify standbys initialized", func(t *testing.T) {
+		t.Skip("Skipping standby initialization verification - backup not yet implemented in bootstrap")
+		// Count standbys
+		standbyCount := 0
+		for _, node := range nodes {
+			status := checkInitializationStatus(t, node)
+			if status.IsInitialized && status.Role == "standby" {
+				standbyCount++
+				t.Logf("Standby node: %s", node.name)
+			}
+		}
+		// Should have at least 1 standby (might have issues with some)
+		assert.GreaterOrEqual(t, standbyCount, 1, "Should have at least one standby")
+	})
+
+	t.Run("verify consensus term", func(t *testing.T) {
+		// All initialized nodes should have consensus term = 1
+		for _, node := range nodes {
+			status := checkInitializationStatus(t, node)
+			if status.IsInitialized {
+				assert.Equal(t, int64(1), status.ConsensusTerm, "Node %s should have consensus term 1", node.name)
+			}
+		}
+	})
+}
+
+// createEmptyNode creates a new empty multipooler node with pgctld and multipooler processes
+func createEmptyNode(t *testing.T, baseDir, cell, shard, database string, index int, etcdAddr string) *nodeInstance {
+	t.Helper()
+
+	name := fmt.Sprintf("node%d", index)
+	dataDir := filepath.Join(baseDir, name)
+	require.NoError(t, os.MkdirAll(dataDir, 0o755))
+
+	// Allocate ports
+	pgctldGrpcPort := utils.GetNextPort()
+	pgPort := utils.GetNextPort()
+	grpcPort := utils.GetNextPort()
+
+	// Start pgctld server
+	logFile := filepath.Join(dataDir, "pgctld.log")
+	pgctldCmd := exec.Command("pgctld", "server",
+		"--pooler-dir", dataDir,
+		"--grpc-port", fmt.Sprintf("%d", pgctldGrpcPort),
+		"--pg-port", fmt.Sprintf("%d", pgPort),
+		"--log-output", logFile)
+
+	// Set MULTIGRES_TESTDATA_DIR for directory-deletion triggered cleanup
+	pgctldCmd.Env = append(os.Environ(),
+		"MULTIGRES_TESTDATA_DIR="+baseDir,
+	)
+
+	require.NoError(t, pgctldCmd.Start())
+	t.Logf("Started pgctld for %s (pid: %d, grpc: %d, pg: %d)", name, pgctldCmd.Process.Pid, pgctldGrpcPort, pgPort)
+
+	// Wait for pgctld to be ready
+	waitForProcessReady(t, "pgctld", pgctldGrpcPort, 10*time.Second)
+
+	// Start multipooler
+	serviceID := fmt.Sprintf("%s/%s", cell, name)
+	multipoolerCmd := exec.Command("multipooler",
+		"--grpc-port", fmt.Sprintf("%d", grpcPort),
+		"--database", database,
+		"--table-group", "test", // table group is required
+		"--pgctld-addr", fmt.Sprintf("localhost:%d", pgctldGrpcPort),
+		"--pooler-dir", dataDir,
+		"--pg-port", fmt.Sprintf("%d", pgPort),
+		"--service-map", "grpc-pooler,grpc-poolermanager,grpc-consensus,grpc-backup",
+		"--topo-global-server-addresses", etcdAddr,
+		"--topo-global-root", "/multigres/global",
+		"--topo-implementation", "etcd2",
+		"--cell", cell,
+		"--service-id", serviceID,
+	)
+	multipoolerCmd.Dir = dataDir
+	mpLogFile := filepath.Join(dataDir, "multipooler.log")
+	mpLogF, err := os.Create(mpLogFile)
+	require.NoError(t, err)
+	multipoolerCmd.Stdout = mpLogF
+	multipoolerCmd.Stderr = mpLogF
+
+	require.NoError(t, multipoolerCmd.Start())
+	t.Logf("Started multipooler for %s (pid: %d, grpc: %d)", name, multipoolerCmd.Process.Pid, grpcPort)
+
+	// Wait for multipooler to be ready by polling its status
+	waitForMultipoolerReady(t, grpcPort, 30*time.Second)
+	t.Logf("Multipooler %s is ready", name)
+
+	return &nodeInstance{
+		name:           name,
+		cell:           cell,
+		grpcPort:       grpcPort,
+		pgPort:         pgPort,
+		pgctldGrpcPort: pgctldGrpcPort,
+		dataDir:        dataDir,
+		pgctldProcess:  pgctldCmd,
+		multipoolerCmd: multipoolerCmd,
+	}
+}
+
+// waitForMultipoolerReady polls the multipooler gRPC endpoint until it's ready
+func waitForMultipoolerReady(t *testing.T, grpcPort int, timeout time.Duration) {
+	t.Helper()
+
+	deadline := time.Now().Add(timeout)
+	var lastErr error
+	for time.Now().Before(deadline) {
+		conn, err := grpc.NewClient(
+			fmt.Sprintf("localhost:%d", grpcPort),
+			grpc.WithTransportCredentials(insecure.NewCredentials()),
+		)
+		if err != nil {
+			lastErr = err
+			time.Sleep(200 * time.Millisecond)
+			continue
+		}
+
+		client := multipoolermanagerpb.NewMultiPoolerManagerClient(conn)
+		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+		_, err = client.InitializationStatus(ctx, &multipoolermanagerdatapb.InitializationStatusRequest{})
+		cancel()
+		conn.Close()
+
+		if err == nil {
+			return // Success!
+		}
+
+		lastErr = err
+		time.Sleep(200 * time.Millisecond)
+	}
+
+	// On failure, log the last error
+	if lastErr != nil {
+		t.Logf("Last error from multipooler: %v", lastErr)
+	}
+
+	// On failure, try to read and display the multipooler log
+	t.Errorf("Multipooler at port %d did not become ready within %v", grpcPort, timeout)
+	t.FailNow()
+}
+
+// cleanupNode stops pgctld and multipooler processes
+func cleanupNode(t *testing.T, node *nodeInstance) {
+	t.Helper()
+	if node.multipoolerCmd != nil && node.multipoolerCmd.Process != nil {
+		_ = node.multipoolerCmd.Process.Kill()
+		_ = node.multipoolerCmd.Wait()
+	}
+	if node.pgctldProcess != nil && node.pgctldProcess.Process != nil {
+		_ = node.pgctldProcess.Process.Kill()
+		_ = node.pgctldProcess.Wait()
+	}
+}
+
+// checkInitializationStatus checks the initialization status of a node
+func checkInitializationStatus(t *testing.T, node *nodeInstance) *multipoolermanagerdatapb.InitializationStatusResponse {
+	t.Helper()
+
+	conn, err := grpc.NewClient(
+		fmt.Sprintf("localhost:%d", node.grpcPort),
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	)
+	require.NoError(t, err)
+	defer conn.Close()
+
+	client := multipoolermanagerpb.NewMultiPoolerManagerClient(conn)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	resp, err := client.InitializationStatus(ctx, &multipoolermanagerdatapb.InitializationStatusRequest{})
+	require.NoError(t, err)
+
+	return resp
+}
+
+// connectToPostgres establishes a connection to PostgreSQL using Unix socket
+func connectToPostgres(t *testing.T, socketDir string, port int) *sql.DB {
+	t.Helper()
+
+	connStr := fmt.Sprintf("host=%s port=%d user=postgres dbname=postgres sslmode=disable", socketDir, port)
+	db, err := sql.Open("postgres", connStr)
+	require.NoError(t, err, "Failed to open database connection")
+
+	err = db.Ping()
+	require.NoError(t, err, "Failed to ping database")
+
+	return db
+}
+
+// startEtcd starts an etcd instance for testing
+func startEtcd(t *testing.T, dataDir string) (string, *exec.Cmd) {
+	t.Helper()
+
+	clientPort := utils.GetNextPort()
+	peerPort := utils.GetNextPort()
+
+	// Use unique cluster name to avoid conflicts with previous runs
+	clusterName := fmt.Sprintf("test-etcd-%d", clientPort)
+
+	cmd := exec.Command("etcd",
+		"--name", clusterName,
+		"--data-dir", dataDir,
+		"--listen-client-urls", fmt.Sprintf("http://localhost:%d", clientPort),
+		"--advertise-client-urls", fmt.Sprintf("http://localhost:%d", clientPort),
+		"--listen-peer-urls", fmt.Sprintf("http://localhost:%d", peerPort),
+		"--initial-advertise-peer-urls", fmt.Sprintf("http://localhost:%d", peerPort),
+		"--initial-cluster", fmt.Sprintf("%s=http://localhost:%d", clusterName, peerPort),
+		"--initial-cluster-state", "new",
+		"--force-new-cluster",
+	)
+
+	logFile := filepath.Join(dataDir, "etcd.log")
+	logF, err := os.Create(logFile)
+	require.NoError(t, err)
+	cmd.Stdout = logF
+	cmd.Stderr = logF
+
+	require.NoError(t, cmd.Start())
+
+	// Wait for etcd to be ready
+	time.Sleep(2 * time.Second)
+
+	return fmt.Sprintf("localhost:%d", clientPort), cmd
+}
+
+// waitForProcessReady waits for a process to be ready by checking its gRPC port
+func waitForProcessReady(t *testing.T, name string, grpcPort int, timeout time.Duration) {
+	t.Helper()
+
+	deadline := time.Now().Add(timeout)
+	connectAttempts := 0
+	for time.Now().Before(deadline) {
+		connectAttempts++
+		// Test gRPC connectivity
+		conn, err := net.DialTimeout("tcp", fmt.Sprintf("localhost:%d", grpcPort), 100*time.Millisecond)
+		if err == nil {
+			conn.Close()
+			t.Logf("%s ready on gRPC port %d (after %d attempts)", name, grpcPort, connectAttempts)
+			return
+		}
+		if connectAttempts%10 == 0 {
+			t.Logf("Still waiting for %s to start (attempt %d)...", name, connectAttempts)
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	t.Fatalf("Timeout: %s failed to start listening on port %d after %d attempts", name, grpcPort, connectAttempts)
+}

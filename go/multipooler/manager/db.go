@@ -40,7 +40,7 @@ func CreateDBConnection(logger *slog.Logger, config *Config) (*sql.DB, error) {
 		socketDir := filepath.Join(config.PoolerDir, "pg_sockets")
 		port := fmt.Sprintf("%d", config.PgPort)
 
-		dsn = fmt.Sprintf("user=postgres dbname=%s host=%s port=%s sslmode=disable",
+		dsn = fmt.Sprintf("user=postgres dbname=%s host=%s port=%s sslmode=disable connect_timeout=2",
 			config.Database, socketDir, port)
 
 		logger.Info("Unix socket connection via pooler directory",
