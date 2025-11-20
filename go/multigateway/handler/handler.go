@@ -23,6 +23,7 @@ import (
 	"github.com/multigres/multigres/go/parser/ast"
 	"github.com/multigres/multigres/go/pb/query"
 	"github.com/multigres/multigres/go/pgprotocol/server"
+	"github.com/multigres/multigres/go/pools/connpool"
 )
 
 // Executor defines the interface for query execution.
@@ -73,14 +74,14 @@ func (h *MultiGatewayHandler) HandleQuery(ctx context.Context, conn *server.Conn
 
 // getConnectionState retrieves and typecasts the connection state for this handler.
 // Initializes a new state if it doesn't exist.
-func (h *MultiGatewayHandler) getConnectionState(conn *server.Conn) *ConnectionState {
+func (h *MultiGatewayHandler) getConnectionState(conn *server.Conn) *connpool.ConnectionState {
 	state := conn.GetConnectionState()
 	if state == nil {
-		newState := NewConnectionState()
+		newState := connpool.NewEmptyConnectionState()
 		conn.SetConnectionState(newState)
 		return newState
 	}
-	return state.(*ConnectionState)
+	return state.(*connpool.ConnectionState)
 }
 
 // HandleParse processes a Parse message ('P') for the extended query protocol.
@@ -102,7 +103,7 @@ func (h *MultiGatewayHandler) HandleParse(ctx context.Context, conn *server.Conn
 	}
 
 	// Create and store the prepared statement.
-	stmt := NewPreparedStatement(name, asts[0], paramTypes)
+	stmt := connpool.NewPreparedStatement(name, asts[0], paramTypes)
 
 	state := h.getConnectionState(conn)
 	state.StorePreparedStatement(stmt)
@@ -125,7 +126,7 @@ func (h *MultiGatewayHandler) HandleBind(ctx context.Context, conn *server.Conn,
 	}
 
 	// Create portal with bound parameters and format codes.
-	portal := NewPortal(portalName, stmt, params, paramFormats, resultFormats)
+	portal := connpool.NewPortal(portalName, stmt, params, paramFormats, resultFormats)
 	state.StorePortal(portal)
 
 	return nil
