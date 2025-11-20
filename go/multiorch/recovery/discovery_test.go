@@ -25,6 +25,7 @@ import (
 	"github.com/multigres/multigres/go/clustermetadata/topo"
 	"github.com/multigres/multigres/go/clustermetadata/topo/memorytopo"
 	"github.com/multigres/multigres/go/multiorch/config"
+	"github.com/multigres/multigres/go/multipooler/rpcclient"
 	"github.com/multigres/multigres/go/pb/clustermetadata"
 )
 
@@ -52,6 +53,7 @@ func TestDiscovery_DatabaseLevelWatch(t *testing.T) {
 		slog.Default(),
 		cfg,
 		[]config.WatchTarget{{Database: "mydb"}},
+		&rpcclient.FakeClient{},
 	)
 
 	// Initial state: 2 poolers in different tablegroups
@@ -124,6 +126,7 @@ func TestDiscovery_TablegroupLevelWatch(t *testing.T) {
 		slog.Default(),
 		cfg,
 		[]config.WatchTarget{{Database: "mydb", TableGroup: "tg1"}},
+		&rpcclient.FakeClient{},
 	)
 
 	// Initial state: poolers in tg1 and tg2
@@ -187,6 +190,7 @@ func TestDiscovery_ShardLevelWatch(t *testing.T) {
 		slog.Default(),
 		cfg,
 		[]config.WatchTarget{{Database: "mydb", TableGroup: "tg1", Shard: "0"}},
+		&rpcclient.FakeClient{},
 	)
 
 	// Initial state: poolers in different shards and tablegroups
@@ -269,6 +273,7 @@ func TestDiscovery_PreservesTimestamps(t *testing.T) {
 		slog.Default(),
 		cfg,
 		[]config.WatchTarget{{Database: "mydb"}},
+		&rpcclient.FakeClient{},
 	)
 
 	// Add initial pooler
@@ -342,6 +347,7 @@ func TestDiscovery_MultipleWatchTargets(t *testing.T) {
 			{Database: "db2", TableGroup: "tg1"},             // Watch specific tablegroup
 			{Database: "db3", TableGroup: "tg1", Shard: "0"}, // Watch specific shard
 		},
+		&rpcclient.FakeClient{},
 	)
 
 	// Add poolers for different watch targets
@@ -404,6 +410,7 @@ func TestDiscovery_EmptyTopology(t *testing.T) {
 		slog.Default(),
 		cfg,
 		[]config.WatchTarget{{Database: "mydb"}},
+		&rpcclient.FakeClient{},
 	)
 
 	// Refresh with empty topology

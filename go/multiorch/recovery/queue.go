@@ -89,8 +89,13 @@ func (q *Queue) Push(key string) {
 }
 
 // Consume fetches a key to process; blocks if queue is empty.
-// Release must be called once after Consume.
-func (q *Queue) Consume() string {
+// Returns the key and a release function that must be called when processing is complete.
+// Example usage:
+//
+//	poolerID, release := q.Consume()
+//	defer release()
+//	// process poolerID...
+func (q *Queue) Consume() (string, func()) {
 	item := <-q.queue
 
 	pollInterval := q.config.GetPoolerHealthCheckInterval()
@@ -103,14 +108,11 @@ func (q *Queue) Consume() string {
 		)
 	}
 
-	return item.Key
-}
+	release := func() {
+		q.mu.Lock()
+		defer q.mu.Unlock()
+		delete(q.enqueued, item.Key)
+	}
 
-// Release removes a key from a list of being processed keys
-// which allows that key to be pushed into the queue again.
-func (q *Queue) Release(key string) {
-	q.mu.Lock()
-	defer q.mu.Unlock()
-
-	delete(q.enqueued, key)
+	return item.Key, release
 }
