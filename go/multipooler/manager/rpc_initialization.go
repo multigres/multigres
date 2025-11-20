@@ -51,6 +51,7 @@ func (pm *MultiPoolerManager) InitializeEmptyPrimary(ctx context.Context, req *m
 	// 2. Check if already initialized
 	if pm.isInitialized() {
 		pm.logger.InfoContext(ctx, "Pooler already initialized", "shard", pm.getShardID())
+		// Note: backup_id will be empty for idempotent case since we didn't create a new backup
 		return &multipoolermanagerdatapb.InitializeEmptyPrimaryResponse{Success: true}, nil
 	}
 
@@ -119,7 +120,10 @@ func (pm *MultiPoolerManager) InitializeEmptyPrimary(ctx context.Context, req *m
 	pm.logger.InfoContext(ctx, "Initial backup created", "backup_id", backupID)
 
 	pm.logger.InfoContext(ctx, "Successfully initialized pooler as empty primary", "shard", pm.getShardID(), "term", req.ConsensusTerm)
-	return &multipoolermanagerdatapb.InitializeEmptyPrimaryResponse{Success: true}, nil
+	return &multipoolermanagerdatapb.InitializeEmptyPrimaryResponse{
+		Success:  true,
+		BackupId: backupID,
+	}, nil
 }
 
 // InitializeAsStandby initializes this pooler as a standby from a primary backup
@@ -151,17 +155,25 @@ func (pm *MultiPoolerManager) InitializeAsStandby(ctx context.Context, req *mult
 		}
 	}
 
-	// 2. Restore from the latest backup on the primary
-	pm.logger.InfoContext(ctx, "Restoring from latest backup on primary", "primary", fmt.Sprintf("%s:%d", req.PrimaryHost, req.PrimaryPort))
+	// 2. Restore from the specified backup (or latest if not specified)
+	if req.BackupId != "" {
+		pm.logger.InfoContext(ctx, "Restoring from specified backup", "backup_id", req.BackupId, "primary", fmt.Sprintf("%s:%d", req.PrimaryHost, req.PrimaryPort))
+	} else {
+		pm.logger.InfoContext(ctx, "Restoring from latest backup on primary", "primary", fmt.Sprintf("%s:%d", req.PrimaryHost, req.PrimaryPort))
+	}
 
 	// Use asStandby=true since we're initializing as a standby
-	// Use empty backupID to restore from latest backup
-	err = pm.RestoreFromBackup(ctx, "", true)
+	// Use backup_id from request (empty string means latest)
+	err = pm.RestoreFromBackup(ctx, req.BackupId, true)
 	if err != nil {
 		return nil, mterrors.Wrap(err, "failed to restore from backup")
 	}
 
-	pm.logger.InfoContext(ctx, "Successfully restored from latest backup")
+	if req.BackupId != "" {
+		pm.logger.InfoContext(ctx, "Successfully restored from specified backup", "backup_id", req.BackupId)
+	} else {
+		pm.logger.InfoContext(ctx, "Successfully restored from latest backup")
+	}
 
 	// Note: RestoreFromBackup already restarted PostgreSQL as standby, so we skip
 	// the explicit restart here. The standby.signal is already in place.
@@ -180,6 +192,7 @@ func (pm *MultiPoolerManager) InitializeAsStandby(ctx context.Context, req *mult
 	} else {
 		pm.logger.WarnContext(ctx, "No LSN available from backup metadata")
 	}
+	// TODO: do something with finalLSN?
 
 	// 3. Wait for database connection
 	if err := pm.waitForDatabaseConnection(ctx); err != nil {

@@ -524,6 +524,10 @@ message InitializeEmptyPrimaryResponse {
 
   // Error message if initialization failed
   string error_message = 2;
+
+  // Backup ID of the initial backup created during initialization
+  // This can be used by standbys to restore from the same backup
+  string backup_id = 3;
 }
 
 // InitializeAsStandby initializes this pooler as a standby from a primary backup
@@ -540,6 +544,10 @@ message InitializeAsStandbyRequest {
 
   // Whether to force reinitialization (removes existing data directory)
   bool force = 4;
+
+  // Optional: Specific backup ID to restore from
+  // If empty, restore from the latest backup
+  string backup_id = 5;
 }
 
 message InitializeAsStandbyResponse {
