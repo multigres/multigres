@@ -169,9 +169,10 @@ func TestBackup_CreateListAndRestore(t *testing.T) {
 			assert.Equal(t, fullBackupID, foundBackup.BackupId, "Backup ID should match")
 			assert.Equal(t, multipoolermanagerdata.BackupMetadata_COMPLETE, foundBackup.Status,
 				"Backup status should be COMPLETE")
+			assert.NotEmpty(t, foundBackup.FinalLsn, "Backup should have final LSN")
 
-			t.Logf("Backup verified in list: ID=%s, Status=%s",
-				foundBackup.BackupId, foundBackup.Status)
+			t.Logf("Backup verified in list: ID=%s, Status=%s, FinalLSN=%s",
+				foundBackup.BackupId, foundBackup.Status, foundBackup.FinalLsn)
 		})
 
 		t.Run("RestoreAndVerify", func(t *testing.T) {
@@ -216,7 +217,9 @@ func TestBackup_CreateListAndRestore(t *testing.T) {
 			require.NotNil(t, foundBackup, "Backup should be in standby's list")
 			assert.Equal(t, multipoolermanagerdata.BackupMetadata_COMPLETE, foundBackup.Status,
 				"Backup status should be COMPLETE")
-			t.Logf("Backup verified in standby's list: ID=%s, Status=%s", foundBackup.BackupId, foundBackup.Status)
+			assert.NotEmpty(t, foundBackup.FinalLsn, "Backup should have final LSN")
+			t.Logf("Backup verified in standby's list: ID=%s, Status=%s, FinalLSN=%s",
+				foundBackup.BackupId, foundBackup.Status, foundBackup.FinalLsn)
 
 			t.Log("Step 6: Restoring from backup to standby...")
 
@@ -550,9 +553,10 @@ func TestBackup_FromStandby(t *testing.T) {
 		assert.Equal(t, resp.BackupId, foundBackup.BackupId, "Backup ID should match")
 		assert.Equal(t, multipoolermanagerdata.BackupMetadata_COMPLETE, foundBackup.Status,
 			"Backup status should be COMPLETE")
+		assert.NotEmpty(t, foundBackup.FinalLsn, "Backup should have final LSN")
 
-		t.Logf("Standby backup verified in list: ID=%s, Status=%s",
-			foundBackup.BackupId, foundBackup.Status)
+		t.Logf("Standby backup verified in list: ID=%s, Status=%s, FinalLSN=%s",
+			foundBackup.BackupId, foundBackup.Status, foundBackup.FinalLsn)
 	})
 
 	t.Run("CreateIncrementalBackupFromStandby", func(t *testing.T) {
