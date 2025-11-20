@@ -25,6 +25,7 @@ import (
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	pgctldpb "github.com/multigres/multigres/go/pb/pgctldservice"
+	"github.com/multigres/multigres/go/tools/retry"
 )
 
 // InitializeEmptyPrimary initializes this pooler as an empty primary
@@ -339,31 +340,33 @@ func (pm *MultiPoolerManager) waitForDatabaseConnection(ctx context.Context) err
 	// Wait for connection to become available with retry logic
 	pm.logger.InfoContext(ctx, "Waiting for database connection")
 
-	// Retry for up to 30 seconds
-	maxRetries := 60
-	retryDelay := 500 * time.Millisecond
-
+	// Use exponential backoff starting at 500ms, up to 30s max backoff
+	r := retry.New(500*time.Millisecond, 30*time.Second)
 	var lastErr error
-	for i := 0; i < maxRetries; i++ {
+	firstAttempt := true
+
+	for attempt, err := range r.Attempts(ctx) {
+		// Check if context was cancelled or exceeded deadline
+		if err != nil {
+			if lastErr != nil {
+				return mterrors.Wrap(lastErr, fmt.Sprintf("failed to connect to database after %d attempts: %v", attempt, err))
+			}
+			return mterrors.Wrap(err, fmt.Sprintf("context error while waiting for database connection after %d attempts", attempt))
+		}
+
 		// Try to open the connection
 		if err := pm.connectDB(); err == nil {
-			pm.logger.InfoContext(ctx, "Database connection established successfully")
+			pm.logger.InfoContext(ctx, "Database connection established successfully", "attempts", attempt)
 			return nil
 		} else {
 			lastErr = err
-			if i == 0 {
-				pm.logger.InfoContext(ctx, "PostgreSQL not ready yet, will retry", "error", err)
+			if firstAttempt {
+				pm.logger.InfoContext(ctx, "PostgreSQL not ready yet, will retry with exponential backoff", "error", err)
+				firstAttempt = false
 			}
-		}
-
-		// Wait before retrying
-		select {
-		case <-ctx.Done():
-			return mterrors.Wrap(ctx.Err(), "context cancelled while waiting for database connection")
-		case <-time.After(retryDelay):
-			// Continue to next retry
 		}
 	}
 
+	// This should not be reached due to the context check in the loop, but just in case
 	return mterrors.Wrap(lastErr, "failed to connect to database after retries")
 }

@@ -103,6 +103,10 @@ func (pm *MultiPoolerManager) SetPrimaryConnInfo(ctx context.Context, host strin
 // setPrimaryConnInfoLocked sets the primary connection info for a standby server.
 // This function assumes the action lock is already held by the caller.
 func (pm *MultiPoolerManager) setPrimaryConnInfoLocked(ctx context.Context, host string, port int32, stopReplicationBefore, startReplicationAfter bool) error {
+	if err := AssertActionLockHeld(ctx); err != nil {
+		return err
+	}
+
 	if err := pm.checkReady(); err != nil {
 		return err
 	}
@@ -1084,17 +1088,12 @@ func (pm *MultiPoolerManager) CreateDurabilityPolicy(ctx context.Context, req *m
 		}, nil
 	}
 
-	// Insert the policy into the durability_policy table
-	_, err = pm.db.ExecContext(ctx, `
-		INSERT INTO multigres.durability_policy (policy_name, policy_version, quorum_rule, is_active, created_at, updated_at)
-		VALUES ($1, 1, $2::jsonb, true, NOW(), NOW())
-		ON CONFLICT (policy_name, policy_version) DO NOTHING
-	`, req.PolicyName, string(quorumRuleJSON))
-	if err != nil {
+	// Insert the policy into the durability_policy table using helper function
+	if err := InsertDurabilityPolicy(ctx, pm.db, req.PolicyName, quorumRuleJSON); err != nil {
 		pm.logger.ErrorContext(ctx, "Failed to insert durability policy", "error", err)
 		return &multipoolermanagerdatapb.CreateDurabilityPolicyResponse{
 			Success:      false,
-			ErrorMessage: fmt.Sprintf("failed to insert durability policy: %v", err),
+			ErrorMessage: err.Error(),
 		}, nil
 	}
 

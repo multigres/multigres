@@ -15,6 +15,7 @@
 package manager
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"log/slog"
@@ -40,6 +41,13 @@ func CreateDBConnection(logger *slog.Logger, config *Config) (*sql.DB, error) {
 		socketDir := filepath.Join(config.PoolerDir, "pg_sockets")
 		port := fmt.Sprintf("%d", config.PgPort)
 
+		// Use connect_timeout to prevent indefinite blocking on connection attempts.
+		// This is necessary because Go's sql.Open() and db.Ping() don't support
+		// context-based timeouts without changing function signatures to use PingContext().
+		// The 2-second timeout allows quick failure for retry logic while being generous
+		// enough for Unix socket connections which should be nearly instant.
+		// NOTE: This will be replaced with connection pooling soon, so it's not worth
+		// refactoring to pass in a context parameter at this time.
 		dsn = fmt.Sprintf("user=postgres dbname=%s host=%s port=%s sslmode=disable connect_timeout=2",
 			config.Database, socketDir, port)
 
@@ -140,5 +148,19 @@ func CreateSidecarSchema(db *sql.DB) error {
 		return fmt.Errorf("failed to create durability_policy index: %w", err)
 	}
 
+	return nil
+}
+
+// InsertDurabilityPolicy inserts a durability policy into the durability_policy table.
+// Uses ON CONFLICT DO NOTHING to handle concurrent insertions gracefully.
+func InsertDurabilityPolicy(ctx context.Context, db *sql.DB, policyName string, quorumRuleJSON []byte) error {
+	_, err := db.ExecContext(ctx, `
+		INSERT INTO multigres.durability_policy (policy_name, policy_version, quorum_rule, is_active, created_at, updated_at)
+		VALUES ($1, 1, $2::jsonb, true, NOW(), NOW())
+		ON CONFLICT (policy_name, policy_version) DO NOTHING
+	`, policyName, quorumRuleJSON)
+	if err != nil {
+		return fmt.Errorf("failed to insert durability policy: %w", err)
+	}
 	return nil
 }

@@ -34,11 +34,11 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 
 	"github.com/multigres/multigres/go/clustermetadata/topo"
+	"github.com/multigres/multigres/go/clustermetadata/topo/etcdtopo"
 	"github.com/multigres/multigres/go/multiorch/actions"
 	"github.com/multigres/multigres/go/multiorch/coordinator"
 	"github.com/multigres/multigres/go/multipooler/rpcclient"
 	"github.com/multigres/multigres/go/test/utils"
-	"github.com/multigres/multigres/go/tools/pathutil"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multipoolermanagerpb "github.com/multigres/multigres/go/pb/multipoolermanager"
@@ -61,50 +61,38 @@ type nodeInstance struct {
 }
 
 func TestBootstrapInitialization(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping end-to-end bootstrap test in short mode")
-	}
-
 	if utils.ShouldSkipRealPostgres() {
-		t.Skip("Skipping PostgreSQL test - no postgres binaries")
+		t.Skip("Skipping end-to-end bootstrap test (short mode or no postgres binaries)")
 	}
 
-	// Require etcd binary
+	// Require etcd binary (PATH already configured by TestMain in cluster_test.go)
 	_, err := exec.LookPath("etcd")
 	require.NoError(t, err, "etcd binary must be available in PATH")
 
-	// Set PATH for binaries
-	err = pathutil.PrependBinToPath()
-	require.NoError(t, err, "Failed to add bin to PATH")
-
-	ctx := context.Background()
+	ctx := t.Context()
 
 	// Setup test directory - use /tmp to avoid long paths that exceed Unix socket limits (103 bytes on macOS)
 	tempDir, err := os.MkdirTemp("/tmp", "btst*")
 	require.NoError(t, err, "Failed to create temp directory")
-
-	// Only cleanup on success to allow debugging failures
-	defer func() {
-		if !t.Failed() {
-			os.RemoveAll(tempDir)
-		} else {
-			t.Logf("Test failed - directory preserved for debugging: %s", tempDir)
-		}
-	}()
-
 	t.Logf("Bootstrap test directory: %s", tempDir)
 
-	// Start etcd
+	// Use t.Cleanup to ensure directory cleanup happens even on test failure.
+	// This prevents orphaned processes from previous test runs interfering with new tests.
+	t.Cleanup(func() {
+		if err := os.RemoveAll(tempDir); err != nil {
+			t.Logf("Warning: failed to remove temp directory %s: %v", tempDir, err)
+		} else {
+			t.Logf("Cleaned up test directory: %s", tempDir)
+		}
+	})
+
+	// Start etcd using shared helper
 	etcdDataDir := filepath.Join(tempDir, "etcd_data")
 	require.NoError(t, os.MkdirAll(etcdDataDir, 0o755))
 
-	etcdClientAddr, etcdCmd := startEtcd(t, etcdDataDir)
-	defer func() {
-		if etcdCmd != nil && etcdCmd.Process != nil {
-			_ = etcdCmd.Process.Kill()
-			_ = etcdCmd.Wait()
-		}
-	}()
+	etcdClientAddr, _ := etcdtopo.StartEtcdWithOptions(t, etcdtopo.EtcdOptions{
+		DataDir: etcdDataDir,
+	})
 
 	t.Logf("Started etcd at %s", etcdClientAddr)
 
@@ -415,53 +403,70 @@ func createEmptyNode(t *testing.T, baseDir, cell, shard, database string, index 
 func waitForMultipoolerReady(t *testing.T, grpcPort int, timeout time.Duration) {
 	t.Helper()
 
-	deadline := time.Now().Add(timeout)
-	var lastErr error
-	for time.Now().Before(deadline) {
-		conn, err := grpc.NewClient(
-			fmt.Sprintf("localhost:%d", grpcPort),
-			grpc.WithTransportCredentials(insecure.NewCredentials()),
-		)
-		if err != nil {
-			lastErr = err
-			time.Sleep(200 * time.Millisecond)
-			continue
-		}
+	// Create a single gRPC client connection instead of recreating in the loop
+	conn, err := grpc.NewClient(
+		fmt.Sprintf("localhost:%d", grpcPort),
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	)
+	require.NoError(t, err, "Failed to create gRPC client")
+	defer conn.Close()
 
-		client := multipoolermanagerpb.NewMultiPoolerManagerClient(conn)
+	client := multipoolermanagerpb.NewMultiPoolerManagerClient(conn)
+
+	// Use require.Eventually to poll the RPC call rather than recreating connections
+	require.Eventually(t, func() bool {
 		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
-		_, err = client.InitializationStatus(ctx, &multipoolermanagerdatapb.InitializationStatusRequest{})
-		cancel()
-		conn.Close()
+		defer cancel()
 
-		if err == nil {
-			return // Success!
+		_, err := client.InitializationStatus(ctx, &multipoolermanagerdatapb.InitializationStatusRequest{})
+		return err == nil
+	}, timeout, 200*time.Millisecond, "Multipooler at port %d did not become ready", grpcPort)
+}
+
+// terminateProcess gracefully terminates a process by first sending SIGTERM,
+// waiting for graceful shutdown, and only using SIGKILL if necessary.
+func terminateProcess(t *testing.T, cmd *exec.Cmd, name string, timeout time.Duration) {
+	t.Helper()
+	if cmd == nil || cmd.Process == nil {
+		return
+	}
+
+	// Try graceful shutdown with SIGTERM first
+	if err := cmd.Process.Signal(os.Interrupt); err != nil {
+		t.Logf("Failed to send SIGTERM to %s: %v, forcing kill", name, err)
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+		return
+	}
+
+	// Wait for graceful shutdown with timeout
+	done := make(chan error, 1)
+	go func() {
+		done <- cmd.Wait()
+	}()
+
+	select {
+	case <-time.After(timeout):
+		t.Logf("%s did not terminate gracefully within %v, forcing kill", name, timeout)
+		_ = cmd.Process.Kill()
+		<-done // Wait for process to actually die
+	case err := <-done:
+		if err != nil {
+			t.Logf("%s terminated with error: %v", name, err)
+		} else {
+			t.Logf("%s terminated gracefully", name)
 		}
-
-		lastErr = err
-		time.Sleep(200 * time.Millisecond)
 	}
-
-	// On failure, log the last error
-	if lastErr != nil {
-		t.Logf("Last error from multipooler: %v", lastErr)
-	}
-
-	// On failure, try to read and display the multipooler log
-	t.Errorf("Multipooler at port %d did not become ready within %v", grpcPort, timeout)
-	t.FailNow()
 }
 
 // cleanupNode stops pgctld and multipooler processes
 func cleanupNode(t *testing.T, node *nodeInstance) {
 	t.Helper()
 	if node.multipoolerCmd != nil && node.multipoolerCmd.Process != nil {
-		_ = node.multipoolerCmd.Process.Kill()
-		_ = node.multipoolerCmd.Wait()
+		terminateProcess(t, node.multipoolerCmd, "multipooler", 2*time.Second)
 	}
 	if node.pgctldProcess != nil && node.pgctldProcess.Process != nil {
-		_ = node.pgctldProcess.Process.Kill()
-		_ = node.pgctldProcess.Wait()
+		terminateProcess(t, node.pgctldProcess, "pgctld", 2*time.Second)
 	}
 }
 
@@ -498,42 +503,6 @@ func connectToPostgres(t *testing.T, socketDir string, port int) *sql.DB {
 	require.NoError(t, err, "Failed to ping database")
 
 	return db
-}
-
-// startEtcd starts an etcd instance for testing
-func startEtcd(t *testing.T, dataDir string) (string, *exec.Cmd) {
-	t.Helper()
-
-	clientPort := utils.GetNextPort()
-	peerPort := utils.GetNextPort()
-
-	// Use unique cluster name to avoid conflicts with previous runs
-	clusterName := fmt.Sprintf("test-etcd-%d", clientPort)
-
-	cmd := exec.Command("etcd",
-		"--name", clusterName,
-		"--data-dir", dataDir,
-		"--listen-client-urls", fmt.Sprintf("http://localhost:%d", clientPort),
-		"--advertise-client-urls", fmt.Sprintf("http://localhost:%d", clientPort),
-		"--listen-peer-urls", fmt.Sprintf("http://localhost:%d", peerPort),
-		"--initial-advertise-peer-urls", fmt.Sprintf("http://localhost:%d", peerPort),
-		"--initial-cluster", fmt.Sprintf("%s=http://localhost:%d", clusterName, peerPort),
-		"--initial-cluster-state", "new",
-		"--force-new-cluster",
-	)
-
-	logFile := filepath.Join(dataDir, "etcd.log")
-	logF, err := os.Create(logFile)
-	require.NoError(t, err)
-	cmd.Stdout = logF
-	cmd.Stderr = logF
-
-	require.NoError(t, cmd.Start())
-
-	// Wait for etcd to be ready
-	time.Sleep(2 * time.Second)
-
-	return fmt.Sprintf("localhost:%d", clientPort), cmd
 }
 
 // waitForProcessReady waits for a process to be ready by checking its gRPC port
