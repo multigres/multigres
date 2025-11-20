@@ -25,24 +25,36 @@ import (
 	"path/filepath"
 	"strings"
 	"sync/atomic"
+	"time"
 
+	"github.com/multigres/multigres/go/multipooler/dbconn"
 	"github.com/multigres/multigres/go/multipooler/queryservice"
 	"github.com/multigres/multigres/go/pb/query"
+	"github.com/multigres/multigres/go/pools/connpool"
+
+	_ "github.com/lib/pq" // PostgreSQL driver
 )
 
 // DBConfig contains database connection parameters.
 type DBConfig struct {
-	SocketFilePath string
-	PoolerDir      string
-	Database       string
-	PgPort         int
+	SocketFilePath  string
+	PoolerDir       string
+	Database        string
+	PgPort          int
+	PoolEnabled     bool          // Enable connection pooling (default: true)
+	PoolCapacity    int           // Max connections (default: 100)
+	PoolMaxIdle     int           // Max idle connections (default: 50)
+	PoolIdleTimeout time.Duration // Idle timeout (default: 5min)
+	PoolMaxLifetime time.Duration // Max connection lifetime (default: 1hr)
 }
 
 // Executor implements the QueryService interface for executing queries against PostgreSQL.
 type Executor struct {
 	logger   *slog.Logger
 	dbConfig *DBConfig
-	db       *sql.DB
+	db       *sql.DB                        // Used for non-pooled mode or driver initialization
+	pool     *connpool.Pool[*dbconn.DBConn] // Connection pool
+	dsn      string                         // DSN for creating new connections
 	isOpen   atomic.Bool
 }
 
@@ -54,7 +66,7 @@ func NewExecutor(logger *slog.Logger, dbConfig *DBConfig) *Executor {
 	}
 }
 
-// Open creates the database connection.
+// Open creates the database connection pool (or sql.DB if pooling is disabled).
 func (e *Executor) Open() error {
 	if e.isOpen.Load() {
 		return nil
@@ -71,7 +83,7 @@ func (e *Executor) Open() error {
 	socketDir := filepath.Join(e.dbConfig.PoolerDir, "pg_sockets")
 	port := fmt.Sprintf("%d", e.dbConfig.PgPort)
 
-	dsn := fmt.Sprintf("user=postgres dbname=%s host=%s port=%s sslmode=disable",
+	e.dsn = fmt.Sprintf("user=postgres dbname=%s host=%s port=%s sslmode=disable",
 		e.dbConfig.Database, socketDir, port)
 
 	e.logger.Info("Executor: Unix socket connection",
@@ -79,22 +91,118 @@ func (e *Executor) Open() error {
 		"socket_dir", socketDir,
 		"pg_port", e.dbConfig.PgPort)
 
-	db, err := sql.Open("postgres", dsn)
-	if err != nil {
-		return fmt.Errorf("failed to open database: %w", err)
+	// Check if pooling is enabled (default to true if not explicitly disabled)
+	poolEnabled := !(!e.dbConfig.PoolEnabled &&
+		e.dbConfig.PoolCapacity == 0 &&
+		e.dbConfig.PoolMaxIdle == 0)
+
+	if poolEnabled {
+		// Initialize connection pool
+		e.logger.Info("Executor: initializing connection pool",
+			"capacity", e.getPoolCapacity(),
+			"max_idle", e.getPoolMaxIdle(),
+			"idle_timeout", e.getPoolIdleTimeout(),
+			"max_lifetime", e.getPoolMaxLifetime())
+
+		// Create a factory function that creates new connections
+		factory := func(ctx context.Context) (*dbconn.DBConn, error) {
+			db, err := sql.Open("postgres", e.dsn)
+			if err != nil {
+				return nil, fmt.Errorf("failed to open database: %w", err)
+			}
+
+			conn, err := db.Conn(ctx)
+			if err != nil {
+				db.Close()
+				return nil, fmt.Errorf("failed to get connection: %w", err)
+			}
+
+			return dbconn.NewDBConn(conn), nil
+		}
+
+		e.pool = connpool.NewPool(factory, connpool.Config{
+			Capacity:    e.getPoolCapacity(),
+			MaxIdle:     e.getPoolMaxIdle(),
+			IdleTimeout: e.getPoolIdleTimeout(),
+			MaxLifetime: e.getPoolMaxLifetime(),
+		})
+
+		// Test the pool by getting a connection
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		testPooled, err := e.pool.Get(ctx)
+		if err != nil {
+			return fmt.Errorf("failed to get test connection from pool: %w", err)
+		}
+
+		// Test ping
+		err = testPooled.Conn().Exec(ctx, "SELECT 1")
+		if err != nil {
+			_ = e.pool.Put(testPooled)
+			return fmt.Errorf("failed to ping database: %w", err)
+		}
+
+		// Return connection to pool
+		if err := e.pool.Put(testPooled); err != nil {
+			return fmt.Errorf("failed to return test connection to pool: %w", err)
+		}
+
+		e.logger.Info("Executor: connection pool initialized successfully")
+	} else {
+		// Fallback to sql.DB (non-pooled mode)
+		e.logger.Info("Executor: connection pooling disabled, using sql.DB")
+
+		db, err := sql.Open("postgres", e.dsn)
+		if err != nil {
+			return fmt.Errorf("failed to open database: %w", err)
+		}
+
+		// Test the connection
+		if err := db.Ping(); err != nil {
+			db.Close()
+			return fmt.Errorf("failed to ping database: %w", err)
+		}
+
+		e.db = db
 	}
 
-	// Test the connection
-	if err := db.Ping(); err != nil {
-		db.Close()
-		return fmt.Errorf("failed to ping database: %w", err)
-	}
-
-	e.db = db
 	e.isOpen.Store(true)
 	e.logger.Info("Executor opened database connection")
 
 	return nil
+}
+
+// getPoolCapacity returns the pool capacity with default fallback.
+func (e *Executor) getPoolCapacity() int {
+	if e.dbConfig.PoolCapacity > 0 {
+		return e.dbConfig.PoolCapacity
+	}
+	return 100 // Default capacity
+}
+
+// getPoolMaxIdle returns the max idle connections with default fallback.
+func (e *Executor) getPoolMaxIdle() int {
+	if e.dbConfig.PoolMaxIdle > 0 {
+		return e.dbConfig.PoolMaxIdle
+	}
+	return 50 // Default max idle
+}
+
+// getPoolIdleTimeout returns the idle timeout with default fallback.
+func (e *Executor) getPoolIdleTimeout() time.Duration {
+	if e.dbConfig.PoolIdleTimeout > 0 {
+		return e.dbConfig.PoolIdleTimeout
+	}
+	return 5 * time.Minute // Default idle timeout
+}
+
+// getPoolMaxLifetime returns the max connection lifetime with default fallback.
+func (e *Executor) getPoolMaxLifetime() time.Duration {
+	if e.dbConfig.PoolMaxLifetime > 0 {
+		return e.dbConfig.PoolMaxLifetime
+	}
+	return 1 * time.Hour // Default max lifetime
 }
 
 // ExecuteQuery implements queryservice.QueryService.
@@ -142,6 +250,15 @@ func (e *Executor) Close(ctx context.Context) error {
 		return nil
 	}
 
+	// Close the pool if it exists
+	if e.pool != nil {
+		if err := e.pool.Close(); err != nil {
+			return fmt.Errorf("failed to close connection pool: %w", err)
+		}
+		e.pool = nil
+	}
+
+	// Close sql.DB if it exists (non-pooled mode)
 	if e.db != nil {
 		if err := e.db.Close(); err != nil {
 			return fmt.Errorf("failed to close database: %w", err)
@@ -155,12 +272,41 @@ func (e *Executor) Close(ctx context.Context) error {
 
 // IsHealthy checks if the executor is healthy and can serve queries.
 func (e *Executor) IsHealthy() error {
+	if !e.isOpen.Load() {
+		return fmt.Errorf("executor not open")
+	}
+
+	if e.pool != nil {
+		// Pool mode - verify we can get a connection
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+
+		pooled, err := e.pool.Get(ctx)
+		if err != nil {
+			return fmt.Errorf("failed to get connection from pool: %w", err)
+		}
+		defer func() {
+			if putErr := e.pool.Put(pooled); putErr != nil {
+				e.logger.Warn("failed to return connection to pool during health check", "error", putErr)
+			}
+		}()
+
+		// Test the connection
+		if err := pooled.Conn().Exec(ctx, "SELECT 1"); err != nil {
+			return fmt.Errorf("connection health check failed: %w", err)
+		}
+
+		return nil
+	}
+
 	if e.db == nil {
 		return fmt.Errorf("database connection not initialized")
 	}
+
 	if err := e.db.Ping(); err != nil {
 		return fmt.Errorf("database ping failed: %w", err)
 	}
+
 	return nil
 }
 
@@ -182,9 +328,31 @@ func (e *Executor) executeQuery(ctx context.Context, queryStr string, maxRows ui
 
 // executeSelectQuery executes a SELECT query and returns rows.
 func (e *Executor) executeSelectQuery(ctx context.Context, queryStr string, maxRows uint64) (*query.QueryResult, error) {
-	rows, err := e.db.QueryContext(ctx, queryStr)
-	if err != nil {
-		return nil, fmt.Errorf("failed to execute query: %w", err)
+	var rows *sql.Rows
+	var err error
+
+	if e.pool != nil {
+		// Use connection pool
+		pooled, err := e.pool.Get(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get connection from pool: %w", err)
+		}
+		defer func() {
+			if putErr := e.pool.Put(pooled); putErr != nil {
+				e.logger.Warn("failed to return connection to pool after query", "error", putErr)
+			}
+		}()
+
+		rows, err = pooled.Conn().Query(ctx, queryStr)
+		if err != nil {
+			return nil, fmt.Errorf("failed to execute query: %w", err)
+		}
+	} else {
+		// Use sql.DB
+		rows, err = e.db.QueryContext(ctx, queryStr)
+		if err != nil {
+			return nil, fmt.Errorf("failed to execute query: %w", err)
+		}
 	}
 	defer rows.Close()
 
@@ -210,8 +378,8 @@ func (e *Executor) executeSelectQuery(ctx context.Context, queryStr string, maxR
 
 	// Read rows
 	var resultRows []*query.Row
-	scanValues := make([]interface{}, len(columns))
-	scanPointers := make([]interface{}, len(columns))
+	scanValues := make([]any, len(columns))
+	scanPointers := make([]any, len(columns))
 
 	for i := range scanValues {
 		scanPointers[i] = &scanValues[i]
@@ -229,7 +397,7 @@ func (e *Executor) executeSelectQuery(ctx context.Context, queryStr string, maxR
 			if val == nil {
 				values[i] = nil
 			} else {
-				values[i] = []byte(fmt.Sprintf("%v", val))
+				values[i] = fmt.Appendf(nil, "%v", val)
 			}
 		}
 
@@ -254,15 +422,41 @@ func (e *Executor) executeSelectQuery(ctx context.Context, queryStr string, maxR
 
 // executeModifyQuery executes an INSERT, UPDATE, DELETE, or other modification query.
 func (e *Executor) executeModifyQuery(ctx context.Context, queryStr string) (*query.QueryResult, error) {
-	result, err := e.db.ExecContext(ctx, queryStr)
-	if err != nil {
-		return nil, fmt.Errorf("failed to execute query: %w", err)
-	}
+	var rowsAffected int64
 
-	rowsAffected, err := result.RowsAffected()
-	if err != nil {
-		// Some queries don't support RowsAffected, that's okay
+	if e.pool != nil {
+		// Use connection pool
+		pooled, err := e.pool.Get(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get connection from pool: %w", err)
+		}
+		defer func() {
+			if putErr := e.pool.Put(pooled); putErr != nil {
+				e.logger.Warn("failed to return connection to pool after modify", "error", putErr)
+			}
+		}()
+
+		err = pooled.Conn().Exec(ctx, queryStr)
+		if err != nil {
+			return nil, fmt.Errorf("failed to execute query: %w", err)
+		}
+
+		// Note: DBConn.Exec doesn't return RowsAffected
+		// For now, we set it to 0. In the future, we might need to enhance
+		// DBConn to return sql.Result
 		rowsAffected = 0
+	} else {
+		// Use sql.DB
+		result, err := e.db.ExecContext(ctx, queryStr)
+		if err != nil {
+			return nil, fmt.Errorf("failed to execute query: %w", err)
+		}
+
+		rowsAffected, err = result.RowsAffected()
+		if err != nil {
+			// Some queries don't support RowsAffected, that's okay
+			rowsAffected = 0
+		}
 	}
 
 	// Generate command tag based on query type

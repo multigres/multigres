@@ -79,10 +79,15 @@ func (s *QueryPoolerServer) InitDBConfig(dbConfig *DBConfig) error {
 
 	// Create the executor (but don't open yet - manager will call Open)
 	execConfig := &executor.DBConfig{
-		SocketFilePath: dbConfig.SocketFilePath,
-		PoolerDir:      dbConfig.PoolerDir,
-		Database:       dbConfig.Database,
-		PgPort:         dbConfig.PgPort,
+		SocketFilePath:  dbConfig.SocketFilePath,
+		PoolerDir:       dbConfig.PoolerDir,
+		Database:        dbConfig.Database,
+		PgPort:          dbConfig.PgPort,
+		PoolEnabled:     dbConfig.PoolEnabled,
+		PoolCapacity:    dbConfig.PoolCapacity,
+		PoolMaxIdle:     dbConfig.PoolMaxIdle,
+		PoolIdleTimeout: dbConfig.PoolIdleTimeout,
+		PoolMaxLifetime: dbConfig.PoolMaxLifetime,
 	}
 	s.executor = executor.NewExecutor(s.logger, execConfig)
 
