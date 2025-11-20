@@ -88,7 +88,9 @@ func TestBootstrapInitialization(t *testing.T) {
 	require.NoError(t, os.MkdirAll(etcdDataDir, 0o755))
 
 	etcdClientAddr, _ := etcdtopo.StartEtcdWithOptions(t, etcdtopo.EtcdOptions{
-		DataDir: etcdDataDir,
+		ClientPort: utils.GetFreePort(t),
+		PeerPort:   utils.GetFreePort(t),
+		DataDir:    etcdDataDir,
 	})
 
 	t.Logf("Started etcd at %s", etcdClientAddr)
