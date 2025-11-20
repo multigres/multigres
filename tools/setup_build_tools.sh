@@ -15,6 +15,11 @@
 
 set -euo pipefail
 
+# Source the safe_download helper
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=tools/safe_download.sh
+source "$SCRIPT_DIR/safe_download.sh"
+
 # Multigres build tools setup script
 # Installs build dependencies using install_dep pattern
 
@@ -108,7 +113,7 @@ install_protoc_impl() {
   cd "$dist"
 
   echo "Downloading ${url}..."
-  curl -L -o "${filename}" "${url}"
+  safe_download "${url}" "${filename}"
 
   echo "Extracting protoc..."
   unzip -q "${filename}"
@@ -157,7 +162,7 @@ install_etcd() {
 
   cd "$dist"
   echo "Downloading ${url}..."
-  curl -L -o "${filename}" "${url}"
+  safe_download "${url}" "${filename}"
 
   echo "Extracting etcd..."
 
