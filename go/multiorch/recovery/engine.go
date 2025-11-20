@@ -266,6 +266,9 @@ func (re *Engine) Start() error {
 	// Start health check ticker loop (queues poolers for health checking)
 	go re.runHealthCheckTickerLoop()
 
+	// Start recovery loop (problem detection and recovery)
+	go re.runRecoveryLoop()
+
 	re.logger.Info("recovery engine started successfully")
 	return nil
 }
