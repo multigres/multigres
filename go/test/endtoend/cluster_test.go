@@ -57,7 +57,8 @@ func getProjectRoot() (string, error) {
 
 // testPortConfig holds test-specific port configuration to avoid conflicts
 type testPortConfig struct {
-	EtcdPort             int
+	EtcdClientPort       int
+	EtcdPeerPort         int
 	MultiadminHTTPPort   int
 	MultiadminGRPCPort   int
 	MultigatewayHTTPPort int
@@ -72,20 +73,21 @@ type testPortConfig struct {
 }
 
 // getTestPortConfig returns a port configuration for tests that avoids conflicts
-func getTestPortConfig() *testPortConfig {
+func getTestPortConfig(t *testing.T) *testPortConfig {
 	return &testPortConfig{
-		EtcdPort:             utils.GetNextEtcd2Port(),
-		MultiadminHTTPPort:   utils.GetNextPort(),
-		MultiadminGRPCPort:   utils.GetNextPort(),
-		MultigatewayHTTPPort: utils.GetNextPort(),
-		MultigatewayGRPCPort: utils.GetNextPort(),
-		MultigatewayPGPort:   utils.GetNextPort(),
-		MultipoolerHTTPPort:  utils.GetNextPort(),
-		MultipoolerGRPCPort:  utils.GetNextPort(),
-		MultiorchHTTPPort:    utils.GetNextPort(),
-		MultiorchGRPCPort:    utils.GetNextPort(),
-		PgctldPGPort:         utils.GetNextPort(),
-		PgctldGRPCPort:       utils.GetNextPort(),
+		EtcdClientPort:       utils.GetFreePort(t),
+		EtcdPeerPort:         utils.GetFreePort(t),
+		MultiadminHTTPPort:   utils.GetFreePort(t),
+		MultiadminGRPCPort:   utils.GetFreePort(t),
+		MultigatewayHTTPPort: utils.GetFreePort(t),
+		MultigatewayGRPCPort: utils.GetFreePort(t),
+		MultigatewayPGPort:   utils.GetFreePort(t),
+		MultipoolerHTTPPort:  utils.GetFreePort(t),
+		MultipoolerGRPCPort:  utils.GetFreePort(t),
+		MultiorchHTTPPort:    utils.GetFreePort(t),
+		MultiorchGRPCPort:    utils.GetFreePort(t),
+		PgctldPGPort:         utils.GetFreePort(t),
+		PgctldGRPCPort:       utils.GetFreePort(t),
 	}
 }
 
@@ -104,7 +106,8 @@ func checkPortAvailable(port int) error {
 // checkAllPortsAvailable ensures all test ports are available before starting
 func checkAllPortsAvailable(config *testPortConfig) error {
 	ports := []int{
-		config.EtcdPort,
+		config.EtcdClientPort,
+		config.EtcdPeerPort,
 		config.MultiadminHTTPPort,
 		config.MultiadminGRPCPort,
 		config.MultigatewayHTTPPort,
@@ -178,9 +181,10 @@ func createTestConfigWithPorts(tempDir string, portConfig *testPortConfig) (stri
 		RootWorkingDir: tempDir,
 		DefaultDbName:  "postgres",
 		Etcd: local.EtcdConfig{
-			Version: "3.5.9",
-			DataDir: filepath.Join(tempDir, "data", "etcd-data"),
-			Port:    portConfig.EtcdPort,
+			Version:  "3.5.9",
+			DataDir:  filepath.Join(tempDir, "data", "etcd-data"),
+			Port:     portConfig.EtcdClientPort,
+			PeerPort: portConfig.EtcdPeerPort,
 		},
 		Topology: local.TopologyConfig{
 			Backend:        "etcd2",
@@ -806,12 +810,12 @@ func TestClusterLifecycle(t *testing.T) {
 
 		// Setup test ports and sanity checks
 		t.Log("Setting up test ports and performing sanity checks...")
-		testPorts := getTestPortConfig()
+		testPorts := getTestPortConfig(t)
 		require.NoError(t, checkAllPortsAvailable(testPorts),
 			"Test ports should be available before starting cluster")
 
-		t.Logf("Using test ports - etcd:%d, multiadmin-http:%d, multiadmin-grpc:%d, multigateway-http:%d, multigateway-grpc:%d, multipooler-http:%d, multipooler-grpc:%d, multiorch-http:%d, multiorch-grpc:%d",
-			testPorts.EtcdPort, testPorts.MultiadminHTTPPort, testPorts.MultiadminGRPCPort, testPorts.MultigatewayHTTPPort, testPorts.MultigatewayGRPCPort,
+		t.Logf("Using test ports - etcd-client:%d, etcd-peer:%d, multiadmin-http:%d, multiadmin-grpc:%d, multigateway-http:%d, multigateway-grpc:%d, multipooler-http:%d, multipooler-grpc:%d, multiorch-http:%d, multiorch-grpc:%d",
+			testPorts.EtcdClientPort, testPorts.EtcdPeerPort, testPorts.MultiadminHTTPPort, testPorts.MultiadminGRPCPort, testPorts.MultigatewayHTTPPort, testPorts.MultigatewayGRPCPort,
 			testPorts.MultipoolerHTTPPort, testPorts.MultipoolerGRPCPort, testPorts.MultiorchHTTPPort, testPorts.MultiorchGRPCPort)
 
 		// Create cluster configuration with test ports
@@ -1072,7 +1076,7 @@ func TestClusterLifecycle(t *testing.T) {
 		}()
 
 		// Setup test ports
-		testPorts := getTestPortConfig()
+		testPorts := getTestPortConfig(t)
 
 		// Intentionally occupy the multipooler gRPC port to create a conflict
 		conflictPort := testPorts.MultipoolerGRPCPort
@@ -1235,12 +1239,12 @@ func setupTestCluster(t *testing.T) *testClusterSetup {
 
 	// Setup test ports and sanity checks
 	t.Log("Setting up test ports and performing sanity checks...")
-	testPorts := getTestPortConfig()
+	testPorts := getTestPortConfig(t)
 	require.NoError(t, checkAllPortsAvailable(testPorts),
 		"Test ports should be available before starting cluster")
 
-	t.Logf("Using test ports - etcd:%d, multiadmin-http:%d, multiadmin-grpc:%d, multigateway-http:%d, multigateway-grpc:%d, multigateway-pg:%d, multipooler-http:%d, multipooler-grpc:%d, multiorch-http:%d, multiorch-grpc:%d",
-		testPorts.EtcdPort, testPorts.MultiadminHTTPPort, testPorts.MultiadminGRPCPort, testPorts.MultigatewayHTTPPort, testPorts.MultigatewayGRPCPort, testPorts.MultigatewayPGPort,
+	t.Logf("Using test ports - etcd-client:%d, etcd-peer:%d, multiadmin-http:%d, multiadmin-grpc:%d, multigateway-http:%d, multigateway-grpc:%d, multigateway-pg:%d, multipooler-http:%d, multipooler-grpc:%d, multiorch-http:%d, multiorch-grpc:%d",
+		testPorts.EtcdClientPort, testPorts.EtcdPeerPort, testPorts.MultiadminHTTPPort, testPorts.MultiadminGRPCPort, testPorts.MultigatewayHTTPPort, testPorts.MultigatewayGRPCPort, testPorts.MultigatewayPGPort,
 		testPorts.MultipoolerHTTPPort, testPorts.MultipoolerGRPCPort, testPorts.MultiorchHTTPPort, testPorts.MultiorchGRPCPort)
 
 	// Create cluster configuration with test ports

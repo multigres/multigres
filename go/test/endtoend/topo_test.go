@@ -80,7 +80,7 @@ func (s *mockMultiAdminServer) GetDatabase(ctx context.Context, req *multiadminp
 // startMockServer starts a mock multiadmin gRPC server for testing
 func startMockServer(t *testing.T) (string, func()) {
 	// Get a free port
-	port := utils.GetNextPort()
+	port := utils.GetFreePort(t)
 	address := fmt.Sprintf("localhost:%d", port)
 
 	// Create listener
