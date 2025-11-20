@@ -31,7 +31,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/multigres/multigres/go/netutil"
+	"github.com/multigres/multigres/go/tools/netutil"
 )
 
 // Init is the first phase of the server startup.

@@ -26,7 +26,7 @@ import (
 
 	"github.com/multigres/multigres/go/mterrors"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
-	"github.com/multigres/multigres/go/timer"
+	"github.com/multigres/multigres/go/tools/timer"
 )
 
 const (

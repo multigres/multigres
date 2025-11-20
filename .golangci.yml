@@ -53,8 +53,6 @@ linters:
             - github.com/multigres/multigres/go/tools
             - github.com/multigres/multigres/go/pb
             - github.com/multigres/multigres/go/provisioner
-            - github.com/multigres/multigres/go/provisioner/local
-            - github.com/multigres/multigres/go/grpccommon
         use_modern_packages:
           list-mode: lax
           deny:

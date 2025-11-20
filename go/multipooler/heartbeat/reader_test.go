@@ -20,7 +20,7 @@ import (
 	"time"
 
 	"github.com/multigres/multigres/go/fakepgdb"
-	"github.com/multigres/multigres/go/timer"
+	"github.com/multigres/multigres/go/tools/timer"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

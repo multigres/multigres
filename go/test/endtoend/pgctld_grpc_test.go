@@ -29,7 +29,7 @@ import (
 	"google.golang.org/grpc"
 
 	"github.com/multigres/multigres/go/cmd/pgctld/command"
-	"github.com/multigres/multigres/go/grpccommon"
+	"github.com/multigres/multigres/go/tools/grpccommon"
 
 	"github.com/multigres/multigres/go/cmd/pgctld/testutil"
 	pb "github.com/multigres/multigres/go/pb/pgctldservice"
