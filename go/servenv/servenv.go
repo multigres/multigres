@@ -27,7 +27,7 @@ import (
 
 	"github.com/multigres/multigres/go/event"
 	"github.com/multigres/multigres/go/mterrors"
-	"github.com/multigres/multigres/go/netutil"
+	"github.com/multigres/multigres/go/tools/netutil"
 	"github.com/multigres/multigres/go/tools/telemetry"
 	"github.com/multigres/multigres/go/viperutil"
 	viperdebug "github.com/multigres/multigres/go/viperutil/debug"
