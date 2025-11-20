@@ -263,50 +263,6 @@ func TestBootstrapInitialization(t *testing.T) {
 		t.Logf("  required_count: %d", int(requiredCount))
 		t.Logf("  is_active: %t", isActive)
 	})
-
-	t.Run("verify multigres internal tables exist", func(t *testing.T) {
-		// Connect to primary node's database
-		var primaryNode *nodeInstance
-		for _, node := range nodes {
-			status := checkInitializationStatus(t, node)
-			if status.IsInitialized && status.Role == "primary" {
-				primaryNode = node
-				break
-			}
-		}
-		require.NotNil(t, primaryNode, "Should have a primary node")
-
-		socketDir := filepath.Join(primaryNode.dataDir, "pg_sockets")
-		db := connectToPostgres(t, socketDir, primaryNode.pgPort)
-		defer db.Close()
-
-		// Check that heartbeat table exists
-		var heartbeatExists bool
-		err := db.QueryRow(`
-			SELECT EXISTS (
-				SELECT FROM information_schema.tables
-				WHERE table_schema = 'multigres'
-				AND table_name = 'heartbeat'
-			)
-		`).Scan(&heartbeatExists)
-		require.NoError(t, err, "Should query heartbeat table existence")
-		assert.True(t, heartbeatExists, "Heartbeat table should exist")
-
-		// Check that durability_policy table exists
-		var durabilityPolicyExists bool
-		err = db.QueryRow(`
-			SELECT EXISTS (
-				SELECT FROM information_schema.tables
-				WHERE table_schema = 'multigres'
-				AND table_name = 'durability_policy'
-			)
-		`).Scan(&durabilityPolicyExists)
-		require.NoError(t, err, "Should query durability_policy table existence")
-		assert.True(t, durabilityPolicyExists, "Durability policy table should exist")
-
-		t.Logf("Verified heartbeat and durability_policy tables exist in multigres schema")
-	})
-
 	t.Run("verify standbys initialized", func(t *testing.T) {
 		// Count standbys
 		standbyCount := 0
@@ -319,6 +275,17 @@ func TestBootstrapInitialization(t *testing.T) {
 		}
 		// Should have at least 1 standby (might have issues with some)
 		assert.GreaterOrEqual(t, standbyCount, 1, "Should have at least one standby")
+	})
+
+	t.Run("verify multigres internal tables exist", func(t *testing.T) {
+		// Verify tables exist on all initialized nodes (both primary and standbys)
+		for _, node := range nodes {
+			status := checkInitializationStatus(t, node)
+			if status.IsInitialized {
+				verifyMultigresTablesExist(t, node)
+				t.Logf("Verified multigres tables exist on %s (%s)", node.name, status.Role)
+			}
+		}
 	})
 
 	t.Run("verify consensus term", func(t *testing.T) {
@@ -513,6 +480,39 @@ func connectToPostgres(t *testing.T, socketDir string, port int) *sql.DB {
 	require.NoError(t, err, "Failed to ping database")
 
 	return db
+}
+
+// verifyMultigresTablesExist checks that the multigres internal tables exist on a node
+func verifyMultigresTablesExist(t *testing.T, node *nodeInstance) {
+	t.Helper()
+
+	socketDir := filepath.Join(node.dataDir, "pg_sockets")
+	db := connectToPostgres(t, socketDir, node.pgPort)
+	defer db.Close()
+
+	// Check that heartbeat table exists
+	var heartbeatExists bool
+	err := db.QueryRow(`
+		SELECT EXISTS (
+			SELECT FROM information_schema.tables
+			WHERE table_schema = 'multigres'
+			AND table_name = 'heartbeat'
+		)
+	`).Scan(&heartbeatExists)
+	require.NoError(t, err, "Should query heartbeat table existence on %s", node.name)
+	assert.True(t, heartbeatExists, "Heartbeat table should exist on %s", node.name)
+
+	// Check that durability_policy table exists
+	var durabilityPolicyExists bool
+	err = db.QueryRow(`
+		SELECT EXISTS (
+			SELECT FROM information_schema.tables
+			WHERE table_schema = 'multigres'
+			AND table_name = 'durability_policy'
+		)
+	`).Scan(&durabilityPolicyExists)
+	require.NoError(t, err, "Should query durability_policy table existence on %s", node.name)
+	assert.True(t, durabilityPolicyExists, "Durability policy table should exist on %s", node.name)
 }
 
 // waitForProcessReady waits for a process to be ready by checking its gRPC port
