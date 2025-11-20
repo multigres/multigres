@@ -238,6 +238,58 @@ func TestSelectCandidate(t *testing.T) {
 		require.Nil(t, candidate)
 		require.Contains(t, err.Error(), "no healthy nodes available")
 	})
+
+	t.Run("success - numeric LSN comparison: higher segment wins", func(t *testing.T) {
+		fakeClient := rpcclient.NewFakeClient()
+		cohort := []*Node{
+			createMockNode(fakeClient, "mp1", 5, "0/FFFFFFFF", true, "standby"), // max offset in segment 0
+			createMockNode(fakeClient, "mp2", 5, "1/0", true, "standby"),        // segment 1
+			createMockNode(fakeClient, "mp3", 5, "0/1000000", true, "standby"),
+		}
+
+		candidate, err := c.selectCandidate(ctx, cohort)
+		require.NoError(t, err)
+		require.Equal(t, "mp2", candidate.ID.Name, "Node with higher segment (1/0) should win even though offset is 0")
+	})
+
+	t.Run("success - numeric LSN comparison: lexicographically smaller but numerically larger", func(t *testing.T) {
+		fakeClient := rpcclient.NewFakeClient()
+		cohort := []*Node{
+			createMockNode(fakeClient, "mp1", 5, "2/0", true, "standby"),  // 2 > 10 lexicographically, but 2 < 10 numerically
+			createMockNode(fakeClient, "mp2", 5, "10/0", true, "standby"), // should win
+			createMockNode(fakeClient, "mp3", 5, "F/0", true, "standby"),  // F (15) < 10 (16) numerically
+		}
+
+		candidate, err := c.selectCandidate(ctx, cohort)
+		require.NoError(t, err)
+		require.Equal(t, "mp2", candidate.ID.Name, "Node with LSN 10/0 should win with proper numeric comparison")
+	})
+
+	t.Run("success - numeric LSN comparison: same segment, different offset", func(t *testing.T) {
+		fakeClient := rpcclient.NewFakeClient()
+		cohort := []*Node{
+			createMockNode(fakeClient, "mp1", 5, "5/A0000000", true, "standby"),
+			createMockNode(fakeClient, "mp2", 5, "5/B0000000", true, "standby"), // should win
+			createMockNode(fakeClient, "mp3", 5, "5/90000000", true, "standby"),
+		}
+
+		candidate, err := c.selectCandidate(ctx, cohort)
+		require.NoError(t, err)
+		require.Equal(t, "mp2", candidate.ID.Name, "Node with highest offset in same segment should win")
+	})
+
+	t.Run("success - handles invalid LSN gracefully", func(t *testing.T) {
+		fakeClient := rpcclient.NewFakeClient()
+		cohort := []*Node{
+			createMockNode(fakeClient, "mp1", 5, "invalid-lsn", true, "standby"), // invalid, should be skipped
+			createMockNode(fakeClient, "mp2", 5, "1/0", true, "standby"),         // should win
+			createMockNode(fakeClient, "mp3", 5, "0/1000000", true, "standby"),
+		}
+
+		candidate, err := c.selectCandidate(ctx, cohort)
+		require.NoError(t, err)
+		require.Equal(t, "mp2", candidate.ID.Name, "Should skip node with invalid LSN and select valid one")
+	})
 }
 
 func TestRecruitNodes(t *testing.T) {

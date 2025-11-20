@@ -20,6 +20,7 @@ import (
 	"sync"
 
 	"github.com/multigres/multigres/go/mterrors"
+	"github.com/multigres/multigres/go/multipooler/lsn"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	consensusdatapb "github.com/multigres/multigres/go/pb/consensusdata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
@@ -184,9 +185,7 @@ func (c *Coordinator) selectCandidate(ctx context.Context, cohort []*Node) (*Nod
 			"no healthy nodes available for candidate selection")
 	}
 
-	// Select node with most advanced WAL position
-	// TODO: Implement proper LSN comparison (PostgreSQL format: X/XXXXXXXX)
-	// For now, use lexicographic comparison as a placeholder
+	// Select node with most advanced WAL position using proper PostgreSQL LSN comparison
 	var bestCandidate *Node
 	var bestWAL string
 
@@ -195,7 +194,31 @@ func (c *Coordinator) selectCandidate(ctx context.Context, cohort []*Node) (*Nod
 			continue
 		}
 
-		if bestCandidate == nil || status.walPosition > bestWAL {
+		// Validate LSN format first
+		if _, err := lsn.Parse(status.walPosition); err != nil {
+			c.logger.WarnContext(ctx, "Invalid LSN format, skipping node",
+				"node", status.node.ID.Name,
+				"lsn", status.walPosition,
+				"error", err)
+			continue
+		}
+
+		if bestCandidate == nil {
+			bestCandidate = status.node
+			bestWAL = status.walPosition
+			continue
+		}
+
+		cmp, err := lsn.CompareStrings(status.walPosition, bestWAL)
+		if err != nil {
+			c.logger.WarnContext(ctx, "Failed to compare LSN, skipping node",
+				"node", status.node.ID.Name,
+				"lsn", status.walPosition,
+				"error", err)
+			continue
+		}
+
+		if cmp > 0 { // status.walPosition > bestWAL
 			bestCandidate = status.node
 			bestWAL = status.walPosition
 		}
