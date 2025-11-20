@@ -30,8 +30,6 @@ import (
 	_ "github.com/lib/pq"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 
 	"github.com/multigres/multigres/go/clustermetadata/topo"
 	"github.com/multigres/multigres/go/clustermetadata/topo/etcdtopo"
@@ -41,7 +39,6 @@ import (
 	"github.com/multigres/multigres/go/test/utils"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
-	multipoolermanagerpb "github.com/multigres/multigres/go/pb/multipoolermanager"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 
 	// Register topo plugins
@@ -399,26 +396,31 @@ func createEmptyNode(t *testing.T, baseDir, cell, shard, database string, index 
 	}
 }
 
+// createMultiPoolerProto creates a MultiPooler proto for the given gRPC port
+func createMultiPoolerProto(grpcPort int) *clustermetadatapb.MultiPooler {
+	return &clustermetadatapb.MultiPooler{
+		Hostname: "localhost",
+		PortMap: map[string]int32{
+			"grpc": int32(grpcPort),
+		},
+	}
+}
+
 // waitForMultipoolerReady polls the multipooler gRPC endpoint until it's ready
 func waitForMultipoolerReady(t *testing.T, grpcPort int, timeout time.Duration) {
 	t.Helper()
 
-	// Create a single gRPC client connection instead of recreating in the loop
-	conn, err := grpc.NewClient(
-		fmt.Sprintf("localhost:%d", grpcPort),
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-	)
-	require.NoError(t, err, "Failed to create gRPC client")
-	defer conn.Close()
+	client := rpcclient.NewMultiPoolerClient(10) // Small cache for test connections
+	defer client.Close()
 
-	client := multipoolermanagerpb.NewMultiPoolerManagerClient(conn)
+	pooler := createMultiPoolerProto(grpcPort)
 
-	// Use require.Eventually to poll the RPC call rather than recreating connections
+	// Use require.Eventually to poll the RPC call with connection caching
 	require.Eventually(t, func() bool {
 		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 		defer cancel()
 
-		_, err := client.InitializationStatus(ctx, &multipoolermanagerdatapb.InitializationStatusRequest{})
+		_, err := client.InitializationStatus(ctx, pooler, &multipoolermanagerdatapb.InitializationStatusRequest{})
 		return err == nil
 	}, timeout, 200*time.Millisecond, "Multipooler at port %d did not become ready", grpcPort)
 }
@@ -474,18 +476,15 @@ func cleanupNode(t *testing.T, node *nodeInstance) {
 func checkInitializationStatus(t *testing.T, node *nodeInstance) *multipoolermanagerdatapb.InitializationStatusResponse {
 	t.Helper()
 
-	conn, err := grpc.NewClient(
-		fmt.Sprintf("localhost:%d", node.grpcPort),
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-	)
-	require.NoError(t, err)
-	defer conn.Close()
+	client := rpcclient.NewMultiPoolerClient(10) // Small cache for test connections
+	defer client.Close()
 
-	client := multipoolermanagerpb.NewMultiPoolerManagerClient(conn)
+	pooler := createMultiPoolerProto(node.grpcPort)
+
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	resp, err := client.InitializationStatus(ctx, &multipoolermanagerdatapb.InitializationStatusRequest{})
+	resp, err := client.InitializationStatus(ctx, pooler, &multipoolermanagerdatapb.InitializationStatusRequest{})
 	require.NoError(t, err)
 
 	return resp
