@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/multigres/multigres/go/clustermetadata/topo"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	consensusdatapb "github.com/multigres/multigres/go/pb/consensusdata"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
@@ -131,7 +132,7 @@ func (f *FakeClient) getPoolerID(pooler *clustermetadatapb.MultiPooler) string {
 	if pooler == nil || pooler.Id == nil {
 		return ""
 	}
-	return pooler.Id.Name
+	return topo.MultiPoolerIDString(pooler.Id)
 }
 
 func (f *FakeClient) logCall(method string, poolerID string) {
