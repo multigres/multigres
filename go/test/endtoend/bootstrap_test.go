@@ -268,7 +268,7 @@ func TestBootstrapInitialization(t *testing.T) {
 		t.Logf("  is_active: %t", isActive)
 	})
 
-	t.Run("verify heartbeat table exists", func(t *testing.T) {
+	t.Run("verify multigres internal tables exist", func(t *testing.T) {
 		// Connect to primary node's database
 		var primaryNode *nodeInstance
 		for _, node := range nodes {
@@ -285,18 +285,30 @@ func TestBootstrapInitialization(t *testing.T) {
 		defer db.Close()
 
 		// Check that heartbeat table exists
-		var tableExists bool
+		var heartbeatExists bool
 		err := db.QueryRow(`
 			SELECT EXISTS (
 				SELECT FROM information_schema.tables
 				WHERE table_schema = 'multigres'
 				AND table_name = 'heartbeat'
 			)
-		`).Scan(&tableExists)
+		`).Scan(&heartbeatExists)
 		require.NoError(t, err, "Should query heartbeat table existence")
-		assert.True(t, tableExists, "Heartbeat table should exist")
+		assert.True(t, heartbeatExists, "Heartbeat table should exist")
 
-		t.Logf("Verified heartbeat table exists in multigres schema")
+		// Check that durability_policy table exists
+		var durabilityPolicyExists bool
+		err = db.QueryRow(`
+			SELECT EXISTS (
+				SELECT FROM information_schema.tables
+				WHERE table_schema = 'multigres'
+				AND table_name = 'durability_policy'
+			)
+		`).Scan(&durabilityPolicyExists)
+		require.NoError(t, err, "Should query durability_policy table existence")
+		assert.True(t, durabilityPolicyExists, "Durability policy table should exist")
+
+		t.Logf("Verified heartbeat and durability_policy tables exist in multigres schema")
 	})
 
 	t.Run("verify standbys initialized", func(t *testing.T) {
