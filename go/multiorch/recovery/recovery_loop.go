@@ -262,7 +262,7 @@ func (re *Engine) attemptRecovery(problem analysis.Problem, generator *analysis.
 			"tablegroup", problem.TableGroup,
 			"shard", problem.Shard,
 		)
-		re.ForceRefreshShardPoolers(context.Background(), problem.Database, problem.TableGroup, problem.Shard, nil /* poolersToIgnore */)
+		re.forceHealthCheckShardPoolers(context.Background(), problem.Database, problem.TableGroup, problem.Shard, nil /* poolersToIgnore */)
 	}
 }
 
@@ -288,7 +288,7 @@ func (re *Engine) validateProblemStillExists(problem analysis.Problem, generator
 	defer cancel()
 
 	// Step 1: Refresh metadata for the shard
-	if err := re.RefreshShardMetadata(ctx, problem.Database, problem.TableGroup, problem.Shard, nil); err != nil {
+	if err := re.refreshShardMetadata(ctx, problem.Database, problem.TableGroup, problem.Shard, nil); err != nil {
 		return false, fmt.Errorf("failed to refresh shard metadata: %w", err)
 	}
 
@@ -299,7 +299,7 @@ func (re *Engine) validateProblemStillExists(problem analysis.Problem, generator
 		if problem.Code == analysis.ProblemPrimaryDead {
 			poolersToIgnore = []string{poolerIDStr}
 		}
-		re.ForceRefreshShardPoolers(ctx, problem.Database, problem.TableGroup, problem.Shard, poolersToIgnore)
+		re.forceHealthCheckShardPoolers(ctx, problem.Database, problem.TableGroup, problem.Shard, poolersToIgnore)
 	} else {
 		// Single-pooler: only refresh this pooler + primary
 		re.logger.DebugContext(re.ctx, "refreshing single pooler and primary")
