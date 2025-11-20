@@ -83,7 +83,7 @@ jobs:
           # Set environment variables for tests
           export PGCONNECT_TIMEOUT=5
           # Run tests with verbose output
-          go test -json -v ./... | tee integration-test-results.jsonl | go tool tparse -follow
+          go test -cover -covermode=atomic -coverprofile=coverage.txt -coverpkg=./... -json -v ./go/cmd/... | tee integration-test-results.jsonl | go tool tparse -follow
 
       - name: Test Report
         uses: dorny/test-reporter@dc3a92680fcc15842eef52e8c4606ea7ce6bd3f3 # v2.1.1
@@ -92,3 +92,9 @@ jobs:
           name: Unit Tests
           path: integration-test-results.jsonl
           reporter: golang-json
+
+      - name: Upload coverage reports to Codecov
+        uses: codecov/codecov-action@5a1091511ad55cbe89839c7260b706298ca349f7 # v5.5.1
+        if: ${{ !cancelled() }}
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
