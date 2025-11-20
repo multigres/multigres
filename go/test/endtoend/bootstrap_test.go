@@ -36,6 +36,7 @@ import (
 	"github.com/multigres/multigres/go/multiorch/actions"
 	"github.com/multigres/multigres/go/multiorch/coordinator"
 	"github.com/multigres/multigres/go/multipooler/rpcclient"
+	"github.com/multigres/multigres/go/provisioner/local/pgbackrest"
 	"github.com/multigres/multigres/go/test/utils"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
@@ -76,6 +77,10 @@ func TestBootstrapInitialization(t *testing.T) {
 	// Use t.Cleanup to ensure directory cleanup happens even on test failure.
 	// This prevents orphaned processes from previous test runs interfering with new tests.
 	t.Cleanup(func() {
+		if os.Getenv("KEEP_TEMP_DIRS") != "" {
+			t.Logf("Keeping test directory for debugging: %s", tempDir)
+			return
+		}
 		if err := os.RemoveAll(tempDir); err != nil {
 			t.Logf("Warning: failed to remove temp directory %s: %v", tempDir, err)
 		} else {
@@ -121,9 +126,12 @@ func TestBootstrapInitialization(t *testing.T) {
 
 	// Create 3 empty nodes
 	shardID := "test-shard-01"
+	// Use a shared stanza name for all nodes
+	pgBackRestStanza := "bootstrap-test"
+
 	nodes := make([]*nodeInstance, 3)
 	for i := 0; i < 3; i++ {
-		nodes[i] = createEmptyNode(t, tempDir, cellName, shardID, database, i, etcdClientAddr)
+		nodes[i] = createEmptyNode(t, tempDir, cellName, shardID, database, i, etcdClientAddr, pgBackRestStanza)
 		defer cleanupNode(t, nodes[i])
 	}
 
@@ -135,6 +143,9 @@ func TestBootstrapInitialization(t *testing.T) {
 		require.False(t, status.IsInitialized, "Node %d should be uninitialized", i)
 		t.Logf("Node %d (%s) confirmed uninitialized", i, node.name)
 	}
+
+	// Setup pgbackrest configuration for all nodes before bootstrap
+	setupPgBackRestForBootstrap(t, tempDir, nodes, pgBackRestStanza)
 
 	// Create coordinator nodes for bootstrap action
 	rpcClient := rpcclient.NewClient(10) // connection pool capacity
@@ -297,7 +308,6 @@ func TestBootstrapInitialization(t *testing.T) {
 	})
 
 	t.Run("verify standbys initialized", func(t *testing.T) {
-		t.Skip("Skipping standby initialization verification - backup not yet implemented in bootstrap")
 		// Count standbys
 		standbyCount := 0
 		for _, node := range nodes {
@@ -323,7 +333,7 @@ func TestBootstrapInitialization(t *testing.T) {
 }
 
 // createEmptyNode creates a new empty multipooler node with pgctld and multipooler processes
-func createEmptyNode(t *testing.T, baseDir, cell, shard, database string, index int, etcdAddr string) *nodeInstance {
+func createEmptyNode(t *testing.T, baseDir, cell, shard, database string, index int, etcdAddr, pgBackRestStanza string) *nodeInstance {
 	t.Helper()
 
 	name := fmt.Sprintf("node%d", index)
@@ -369,6 +379,7 @@ func createEmptyNode(t *testing.T, baseDir, cell, shard, database string, index 
 		"--topo-implementation", "etcd2",
 		"--cell", cell,
 		"--service-id", serviceID,
+		"--pgbackrest-stanza", pgBackRestStanza,
 	)
 	multipoolerCmd.Dir = dataDir
 	mpLogFile := filepath.Join(dataDir, "multipooler.log")
@@ -526,4 +537,65 @@ func waitForProcessReady(t *testing.T, name string, grpcPort int, timeout time.D
 	}
 
 	t.Fatalf("Timeout: %s failed to start listening on port %d after %d attempts", name, grpcPort, connectAttempts)
+}
+
+// setupPgBackRestForBootstrap sets up pgbackrest configuration and stanzas for all nodes
+// This follows the same pattern as localProvisioner.GeneratePgBackRestConfigs and InitializePgBackRestStanzas
+func setupPgBackRestForBootstrap(t *testing.T, baseDir string, nodes []*nodeInstance, sharedStanzaName string) {
+	t.Helper()
+
+	// Create shared pgbackrest directories
+	repoPath := filepath.Join(baseDir, "pgbackrest-repo")
+	logPath := filepath.Join(baseDir, "pgbackrest-logs")
+	spoolPath := filepath.Join(baseDir, "pgbackrest-spool")
+
+	require.NoError(t, os.MkdirAll(repoPath, 0o755), "Failed to create pgbackrest repo dir")
+	require.NoError(t, os.MkdirAll(logPath, 0o755), "Failed to create pgbackrest log dir")
+	require.NoError(t, os.MkdirAll(spoolPath, 0o755), "Failed to create pgbackrest spool dir")
+
+	t.Logf("Created pgbackrest directories (repo: %s, log: %s, spool: %s)", repoPath, logPath, spoolPath)
+
+	// Setup pgbackrest for each node (following localProvisioner pattern)
+	for _, node := range nodes {
+		// Build list of other nodes for multi-host configuration
+		var additionalHosts []pgbackrest.PgHost
+		for _, otherNode := range nodes {
+			if otherNode.name != node.name {
+				additionalHosts = append(additionalHosts, pgbackrest.PgHost{
+					DataPath:  filepath.Join(otherNode.dataDir, "pg_data"),
+					SocketDir: filepath.Join(otherNode.dataDir, "pg_sockets"),
+					Port:      otherNode.pgPort,
+					User:      "postgres",
+					Database:  "postgres",
+				})
+			}
+		}
+
+		// Create pgbackrest configuration
+		configPath := filepath.Join(node.dataDir, "pgbackrest.conf")
+		lockPath := filepath.Join(node.dataDir, "pgbackrest-lock")
+		require.NoError(t, os.MkdirAll(lockPath, 0o755), "Failed to create pgbackrest lock dir for %s", node.name)
+
+		backupCfg := pgbackrest.Config{
+			StanzaName:      sharedStanzaName,
+			PgDataPath:      filepath.Join(node.dataDir, "pg_data"),
+			PgPort:          node.pgPort,
+			PgSocketDir:     filepath.Join(node.dataDir, "pg_sockets"),
+			PgUser:          "postgres",
+			PgDatabase:      "postgres",
+			AdditionalHosts: additionalHosts,
+			RepoPath:        repoPath,
+			LogPath:         logPath,
+			SpoolPath:       spoolPath,
+			LockPath:        lockPath,
+			RetentionFull:   2,
+		}
+
+		// Write the pgBackRest config file (reusing pgbackrest.WriteConfigFile from provisioner)
+		require.NoError(t, pgbackrest.WriteConfigFile(configPath, backupCfg),
+			"Failed to write pgbackrest config for %s", node.name)
+		t.Logf("Created pgbackrest config for %s at %s (stanza: %s)", node.name, configPath, sharedStanzaName)
+	}
+
+	t.Logf("pgbackrest configuration completed for all nodes")
 }

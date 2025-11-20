@@ -271,6 +271,7 @@ func (pm *MultiPoolerManager) RestoreFromBackup(ctx context.Context, backupID st
 	}
 
 	// Step 5: Restart PostgreSQL server after successful restore
+	// Note: pgctld's StartPostgreSQLWithResult ensures socket directory exists
 	// Use Restart instead of Start to properly handle standby.signal creation
 	restartCtx, restartCancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer restartCancel()

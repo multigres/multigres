@@ -15,9 +15,11 @@
 package manager
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"time"
 
@@ -63,6 +65,13 @@ func (pm *MultiPoolerManager) InitializeEmptyPrimary(ctx context.Context, req *m
 		if _, err := pm.pgctldClient.InitDataDir(ctx, initReq); err != nil {
 			return nil, mterrors.Wrap(err, "failed to initialize data directory")
 		}
+
+		// 3a. Configure archive_mode in postgresql.auto.conf BEFORE starting PostgreSQL
+		// This must be done after InitDataDir creates pg_data but before Start
+		pm.logger.InfoContext(ctx, "Configuring archive_mode for pgbackrest", "shard", pm.getShardID())
+		if err := pm.configureArchiveMode(ctx); err != nil {
+			return nil, mterrors.Wrap(err, "failed to configure archive mode")
+		}
 	}
 
 	// 4. Start PostgreSQL if not running
@@ -95,7 +104,13 @@ func (pm *MultiPoolerManager) InitializeEmptyPrimary(ctx context.Context, req *m
 		}
 	}
 
-	// 8. Create initial backup for standby initialization
+	// 8. Initialize pgbackrest stanza (must be done after PostgreSQL is running)
+	pm.logger.InfoContext(ctx, "Initializing pgbackrest stanza", "shard", pm.getShardID())
+	if err := pm.initializePgBackRestStanza(ctx); err != nil {
+		return nil, mterrors.Wrap(err, "failed to initialize pgbackrest stanza")
+	}
+
+	// 9. Create initial backup for standby initialization
 	pm.logger.InfoContext(ctx, "Creating initial backup for standby initialization", "shard", pm.getShardID())
 	backupID, err := pm.Backup(ctx, true, "full")
 	if err != nil {
@@ -136,13 +151,7 @@ func (pm *MultiPoolerManager) InitializeAsStandby(ctx context.Context, req *mult
 		}
 	}
 
-	// 2. Configure primary_conninfo before restore
-	// This must happen before restore so RestoreFromBackup can preserve these settings
-	if err := pm.SetPrimaryConnInfo(ctx, req.PrimaryHost, req.PrimaryPort, false, false, req.ConsensusTerm, false); err != nil {
-		return nil, mterrors.Wrap(err, "failed to set primary_conninfo")
-	}
-
-	// 3. Restore from the latest backup on the primary
+	// 2. Restore from the latest backup on the primary
 	pm.logger.InfoContext(ctx, "Restoring from latest backup on primary", "primary", fmt.Sprintf("%s:%d", req.PrimaryHost, req.PrimaryPort))
 
 	// Use asStandby=true since we're initializing as a standby
@@ -172,9 +181,16 @@ func (pm *MultiPoolerManager) InitializeAsStandby(ctx context.Context, req *mult
 		pm.logger.WarnContext(ctx, "No LSN available from backup metadata")
 	}
 
-	// 4. Wait for database connection
+	// 3. Wait for database connection
 	if err := pm.waitForDatabaseConnection(ctx); err != nil {
 		return nil, mterrors.Wrap(err, "failed to connect to database")
+	}
+
+	// 4. Configure primary_conninfo now that PostgreSQL is running
+	// Use the locked version since we're already holding the action lock
+	pm.logger.InfoContext(ctx, "Configuring primary connection info", "primary_host", req.PrimaryHost, "primary_port", req.PrimaryPort)
+	if err := pm.setPrimaryConnInfoLocked(ctx, req.PrimaryHost, req.PrimaryPort, false, true); err != nil {
+		return nil, mterrors.Wrap(err, "failed to set primary_conninfo")
 	}
 
 	// 5. Set consensus term
@@ -386,4 +402,97 @@ func (pm *MultiPoolerManager) waitForDatabaseConnection(ctx context.Context) err
 
 	// This should not be reached due to the context check in the loop, but just in case
 	return mterrors.Wrap(lastErr, "failed to connect to database after retries")
+}
+
+// configureArchiveMode configures archive_mode in postgresql.auto.conf for pgbackrest
+// This must be called after InitDataDir but BEFORE starting PostgreSQL
+func (pm *MultiPoolerManager) configureArchiveMode(ctx context.Context) error {
+	configPath := pm.getBackupConfigPath()
+	stanzaName := pm.getBackupStanza()
+
+	// Validate required configuration
+	if configPath == "" {
+		return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "backup config path not configured")
+	}
+	if stanzaName == "" {
+		return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "backup stanza name not configured")
+	}
+
+	// Check if pgbackrest config file exists before configuring archive mode
+	if _, err := os.Stat(configPath); os.IsNotExist(err) {
+		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
+			fmt.Sprintf("pgbackrest config file not found at %s - cannot configure archive mode", configPath))
+	}
+
+	pgDataDir := filepath.Join(pm.config.PoolerDir, "pg_data")
+	autoConfPath := filepath.Join(pgDataDir, "postgresql.auto.conf")
+
+	// Check if archive_mode is already configured to avoid duplicates
+	if _, err := os.Stat(autoConfPath); err == nil {
+		content, err := os.ReadFile(autoConfPath)
+		if err == nil && bytes.Contains(content, []byte("archive_mode")) {
+			pm.logger.InfoContext(ctx, "archive_mode already configured, skipping", "auto_conf", autoConfPath)
+			return nil
+		}
+	}
+
+	// Configure archive_mode in postgresql.auto.conf
+	// Following the pattern from test/endtoend/multipooler/setup_test.go:479-498
+	archiveConfig := fmt.Sprintf(`
+# Archive mode for pgbackrest backups
+archive_mode = on
+archive_command = 'pgbackrest --stanza=%s --config=%s archive-push %%p'
+`, stanzaName, configPath)
+
+	f, err := os.OpenFile(autoConfPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	if err != nil {
+		return mterrors.Wrap(err, "failed to open postgresql.auto.conf")
+	}
+	defer f.Close()
+
+	if _, err := f.WriteString(archiveConfig); err != nil {
+		return mterrors.Wrap(err, "failed to write archive config")
+	}
+
+	pm.logger.InfoContext(ctx, "Configured archive_mode in postgresql.auto.conf", "config_path", configPath, "stanza", stanzaName)
+	return nil
+}
+
+// initializePgBackRestStanza initializes the pgbackrest stanza
+// This must be called after PostgreSQL is initialized and running
+func (pm *MultiPoolerManager) initializePgBackRestStanza(ctx context.Context) error {
+	configPath := pm.getBackupConfigPath()
+	stanzaName := pm.getBackupStanza()
+
+	// Validate required configuration
+	if configPath == "" {
+		return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "backup config path not configured")
+	}
+	if stanzaName == "" {
+		return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "backup stanza name not configured")
+	}
+
+	// Check if config file exists
+	if _, err := os.Stat(configPath); os.IsNotExist(err) {
+		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
+			fmt.Sprintf("pgbackrest config file not found at %s", configPath))
+	}
+
+	// Execute pgbackrest stanza-create command
+	stanzaCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(stanzaCtx, "pgbackrest",
+		"--stanza="+stanzaName,
+		"--config="+configPath,
+		"stanza-create")
+
+	output, err := safeCombinedOutput(cmd)
+	if err != nil {
+		return mterrors.New(mtrpcpb.Code_INTERNAL,
+			fmt.Sprintf("failed to create pgbackrest stanza %s: %v\nOutput: %s", stanzaName, err, output))
+	}
+
+	pm.logger.InfoContext(ctx, "pgbackrest stanza initialized successfully", "stanza", stanzaName, "config", configPath)
+	return nil
 }

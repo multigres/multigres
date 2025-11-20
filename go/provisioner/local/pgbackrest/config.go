@@ -49,6 +49,7 @@ type Config struct {
 	RepoPath        string   // Path to backup repository
 	LogPath         string   // Path for pgBackRest logs
 	SpoolPath       string   // Path for pgBackRest spool directory
+	LockPath        string   // Path for pgBackRest lock files
 	RetentionFull   int      // Number of full backups to retain
 }
 
@@ -62,6 +63,9 @@ func GenerateConfig(cfg Config) string {
 	sb.WriteString(fmt.Sprintf("log-path=%s\n", cfg.LogPath))
 	if cfg.SpoolPath != "" {
 		sb.WriteString(fmt.Sprintf("spool-path=%s\n", cfg.SpoolPath))
+	}
+	if cfg.LockPath != "" {
+		sb.WriteString(fmt.Sprintf("lock-path=%s\n", cfg.LockPath))
 	}
 	// Use Zstandard compression for better compression ratios and performance
 	sb.WriteString("compress-type=zst\n")
