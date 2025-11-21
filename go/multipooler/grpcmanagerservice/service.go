@@ -263,7 +263,7 @@ func (s *managerService) Backup(ctx context.Context, req *multipoolermanagerdata
 
 // RestoreFromBackup restores from a backup
 func (s *managerService) RestoreFromBackup(ctx context.Context, req *multipoolermanagerdatapb.RestoreFromBackupRequest) (*multipoolermanagerdatapb.RestoreFromBackupResponse, error) {
-	err := s.manager.RestoreFromBackup(ctx, req.BackupId, req.AsStandby)
+	err := s.manager.RestoreFromBackup(ctx, req.BackupId)
 	if err != nil {
 		return nil, mterrors.ToGRPC(err)
 	}

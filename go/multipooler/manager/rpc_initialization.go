@@ -162,9 +162,9 @@ func (pm *MultiPoolerManager) InitializeAsStandby(ctx context.Context, req *mult
 		pm.logger.InfoContext(ctx, "Restoring from latest backup on primary", "primary", fmt.Sprintf("%s:%d", req.PrimaryHost, req.PrimaryPort))
 	}
 
-	// Use asStandby=true since we're initializing as a standby
-	// Use backup_id from request (empty string means latest)
-	err = pm.RestoreFromBackup(ctx, req.BackupId, true)
+	// Restore from backup (empty string means latest)
+	// RestoreFromBackup will check that this is a standby and start PostgreSQL in standby mode
+	err = pm.RestoreFromBackup(ctx, req.BackupId)
 	if err != nil {
 		return nil, mterrors.Wrap(err, "failed to restore from backup")
 	}

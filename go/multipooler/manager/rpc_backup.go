@@ -115,21 +115,32 @@ func (pm *MultiPoolerManager) Backup(ctx context.Context, forcePrimary bool, bac
 	return backupID, nil
 }
 
-// RestoreFromBackup restores from a backup. This can only be used to restore a
-// backup to an uniinitialized standby. If standby is already initialized,
-// the caller is responsible for removing PGDATA.
-func (pm *MultiPoolerManager) RestoreFromBackup(ctx context.Context, backupID string, asStandby bool) error {
+// RestoreFromBackup restores from a backup to an uninitialized standby.
+//
+// Requirements:
+// - The pooler must be a standby (not a primary)
+// - The database must not be initialized (pm.isInitialized() must be false)
+// - PostgreSQL must not be running (caller's responsibility to stop it)
+// - PGDATA must be removed if it exists (caller's responsibility)
+//
+// This function will:
+// 1. Execute pgbackrest restore to recreate PGDATA
+// 2. Start PostgreSQL in standby mode using Restart (which handles the not-running case)
+// 3. Reopen the pooler manager to establish fresh connections
+func (pm *MultiPoolerManager) RestoreFromBackup(ctx context.Context, backupID string) error {
 	slog.InfoContext(ctx, "RestoreFromBackup called", "backup_id", backupID)
 
-	// Perform validation
-	if !asStandby {
-		return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT,
-			"only restoring as standby is currently supported (as_standby must be true)")
+	// Check that this is a standby, not a primary
+	poolerType := pm.getPoolerType()
+	if poolerType == clustermetadatapb.PoolerType_PRIMARY {
+		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
+			"cannot restore to a primary pooler; restore is only supported for standby poolers")
 	}
 
+	// Check that database is not initialized
 	if pm.isInitialized() {
 		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
-			"cannot restore onto already-initialized database")
+			"cannot restore onto already-initialized database; caller must stop PostgreSQL and remove PGDATA first")
 	}
 
 	// Restore the backup
@@ -211,6 +222,10 @@ func (pm *MultiPoolerManager) startPostgreSQLAfterRestore(ctx context.Context, b
 
 func (pm *MultiPoolerManager) reopenPoolerManager(ctx context.Context) error {
 	slog.InfoContext(ctx, "Reopening pooler manager after restore")
+	if err := pm.Close(); err != nil {
+		slog.ErrorContext(ctx, "Failed to close pooler manager before reopening", "error", err)
+		return mterrors.Wrap(err, "failed to close pooler manager before reopening")
+	}
 	if err := pm.Open(); err != nil {
 		slog.ErrorContext(ctx, "Failed to reopen pooler manager after restore", "error", err)
 		return mterrors.Wrap(err, "failed to reopen pooler manager after restore")
