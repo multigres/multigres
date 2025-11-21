@@ -83,7 +83,7 @@ func NewMultiOrchInfo(multiorch *clustermetadatapb.MultiOrch, version Version) *
 
 // MultiOrchIDString returns the string representation of a MultiOrch ID
 func MultiOrchIDString(id *clustermetadatapb.ID) string {
-	return fmt.Sprintf("%s-%s-%s", stringutil.ComponentTypeToString(id.Component), id.Cell, id.Name)
+	return fmt.Sprintf("%s-%s-%s", ComponentTypeToString(id.Component), id.Cell, id.Name)
 }
 
 // GetMultiOrch is a high level function to read multiorch data.

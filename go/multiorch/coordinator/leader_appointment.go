@@ -19,6 +19,8 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/jackc/pglogrepl"
+
 	"github.com/multigres/multigres/go/common/mterrors"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	consensusdatapb "github.com/multigres/multigres/go/pb/consensusdata"
@@ -185,19 +187,26 @@ func (c *Coordinator) selectCandidate(ctx context.Context, cohort []*Node) (*Nod
 	}
 
 	// Select node with most advanced WAL position
-	// TODO: Implement proper LSN comparison (PostgreSQL format: X/XXXXXXXX)
-	// For now, use lexicographic comparison as a placeholder
 	var bestCandidate *Node
-	var bestWAL string
+	var bestLSN pglogrepl.LSN
 
 	for _, status := range statuses {
 		if !status.healthy {
 			continue
 		}
 
-		if bestCandidate == nil || status.walPosition > bestWAL {
+		// Parse and validate LSN
+		lsn, err := pglogrepl.ParseLSN(status.walPosition)
+		if err != nil {
+			return nil, mterrors.Errorf(mtrpcpb.Code_INVALID_ARGUMENT,
+				"invalid LSN format for node %s: %s (error: %v)",
+				status.node.ID.Name, status.walPosition, err)
+		}
+
+		// Select node with highest LSN
+		if bestCandidate == nil || lsn > bestLSN {
 			bestCandidate = status.node
-			bestWAL = status.walPosition
+			bestLSN = lsn
 		}
 	}
 

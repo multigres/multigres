@@ -83,7 +83,7 @@ func NewMultiGatewayInfo(multigateway *clustermetadatapb.MultiGateway, version V
 
 // MultiGatewayIDString returns the string representation of a MultiGateway ID
 func MultiGatewayIDString(id *clustermetadatapb.ID) string {
-	return fmt.Sprintf("%s-%s-%s", stringutil.ComponentTypeToString(id.Component), id.Cell, id.Name)
+	return fmt.Sprintf("%s-%s-%s", ComponentTypeToString(id.Component), id.Cell, id.Name)
 }
 
 // GetMultiGateway is a high level function to read multigateway data.
