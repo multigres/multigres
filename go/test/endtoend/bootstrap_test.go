@@ -88,7 +88,9 @@ func TestBootstrapInitialization(t *testing.T) {
 	require.NoError(t, os.MkdirAll(etcdDataDir, 0o755))
 
 	etcdClientAddr, _ := etcdtopo.StartEtcdWithOptions(t, etcdtopo.EtcdOptions{
-		DataDir: etcdDataDir,
+		ClientPort: utils.GetFreePort(t),
+		PeerPort:   utils.GetFreePort(t),
+		DataDir:    etcdDataDir,
 	})
 
 	t.Logf("Started etcd at %s", etcdClientAddr)
@@ -331,9 +333,9 @@ func createEmptyNode(t *testing.T, baseDir, cell, shard, database string, index 
 	require.NoError(t, os.MkdirAll(dataDir, 0o755))
 
 	// Allocate ports
-	pgctldGrpcPort := utils.GetNextPort()
-	pgPort := utils.GetNextPort()
-	grpcPort := utils.GetNextPort()
+	pgctldGrpcPort := utils.GetFreePort(t)
+	pgPort := utils.GetFreePort(t)
+	grpcPort := utils.GetFreePort(t)
 
 	// Start pgctld server
 	logFile := filepath.Join(dataDir, "pgctld.log")
