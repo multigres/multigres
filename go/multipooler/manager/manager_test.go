@@ -181,17 +181,16 @@ func TestManagerState_CancellationDuringLoad(t *testing.T) {
 	// Start the async loader
 	go manager.loadMultiPoolerFromTopo()
 
-	// Give it a moment to start
+	// Give it a moment to start retrying
 	time.Sleep(200 * time.Millisecond)
 
 	// Cancel the manager
 	manager.Close()
 
-	// Wait a bit for the cancellation to propagate
-	time.Sleep(100 * time.Millisecond)
-
-	// State should be Error due to context cancellation
-	assert.Equal(t, ManagerStateError, manager.GetState())
+	// Wait for the state to become Error due to context cancellation
+	require.Eventually(t, func() bool {
+		return manager.GetState() == ManagerStateError
+	}, 3*time.Second, 100*time.Millisecond, "Manager should reach Error state after cancellation")
 
 	// Verify the error contains "cancelled"
 	_, _, err := manager.GetMultiPooler()

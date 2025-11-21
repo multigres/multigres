@@ -223,9 +223,8 @@ func (pm *MultiPoolerManager) startPostgreSQLAfterRestore(ctx context.Context, b
 func (pm *MultiPoolerManager) reopenPoolerManager(ctx context.Context) error {
 	slog.InfoContext(ctx, "Reopening pooler manager after restore")
 	if err := pm.Close(); err != nil {
-		// Log but don't return error - connection might already be broken since
-		// PostgreSQL was stopped for restore. This is expected and not an error.
-		slog.WarnContext(ctx, "Failed to close pooler manager before reopening (expected if PostgreSQL was stopped)", "error", err)
+		slog.ErrorContext(ctx, "Failed to close pooler manager after restore", "error", err)
+		return mterrors.Wrap(err, "failed to close pooler manager after restore")
 	}
 	if err := pm.Open(); err != nil {
 		slog.ErrorContext(ctx, "Failed to reopen pooler manager after restore", "error", err)

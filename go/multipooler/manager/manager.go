@@ -297,10 +297,15 @@ func (pm *MultiPoolerManager) Close() error {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
 
-	// Always cancel context to stop async loaders
+	// Always cancel context to stop async loaders (even if Open() was never called)
 	pm.cancel()
 
-	// Always set isOpen to false
+	if !pm.isOpen {
+		pm.logger.Info("MultiPoolerManager: already closed")
+		return nil
+	}
+
+	// Set isOpen to false
 	pm.isOpen = false
 
 	// Close resources (safe to call even if nil/never opened)
@@ -316,8 +321,10 @@ func (pm *MultiPoolerManager) Close() error {
 		pm.db = nil
 	}
 
-	if err := pm.qsc.Close(); err != nil {
-		return err
+	if pm.qsc != nil {
+		if err := pm.qsc.Close(); err != nil {
+			return err
+		}
 	}
 
 	pm.logger.Info("MultiPoolerManager: closed")
