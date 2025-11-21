@@ -16,7 +16,6 @@ package testutil
 
 import (
 	"fmt"
-	rand "math/rand/v2"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -172,12 +171,4 @@ func cleanupMockProcesses(t *testing.T, tempDir string) {
 	if err != nil {
 		t.Logf("Warning: failed to walk temp directory for cleanup: %v", err)
 	}
-}
-
-// GenerateRandomPort generates a random port number between 10000 and 65535
-func GenerateRandomPort() int {
-	// Generate a random port between 10000 and 65535
-	minPort := 10000
-	maxPort := 65535
-	return rand.IntN(maxPort-minPort+1) + minPort
 }

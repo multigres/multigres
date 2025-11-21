@@ -27,6 +27,7 @@ import (
 	"github.com/multigres/multigres/go/clustermetadata/topo/memorytopo"
 	"github.com/multigres/multigres/go/multiorch/config"
 	"github.com/multigres/multigres/go/multiorch/store"
+	"github.com/multigres/multigres/go/multipooler/rpcclient"
 	"github.com/multigres/multigres/go/pb/clustermetadata"
 )
 
@@ -52,6 +53,7 @@ func TestRecoveryEngine_HealthCheckQueue(t *testing.T) {
 		logger,
 		cfg,
 		[]config.WatchTarget{{Database: "mydb"}},
+		&rpcclient.FakeClient{},
 	)
 
 	// Add poolers to topology
@@ -144,6 +146,7 @@ func TestRecoveryEngine_HealthCheckQueueDeduplication(t *testing.T) {
 		logger,
 		cfg,
 		[]config.WatchTarget{{Database: "mydb"}},
+		&rpcclient.FakeClient{},
 	)
 
 	// Add pooler to topology
@@ -200,6 +203,7 @@ func TestRecoveryEngine_HealthCheckWorkerPool(t *testing.T) {
 		logger,
 		cfg,
 		[]config.WatchTarget{{Database: "mydb"}},
+		&rpcclient.FakeClient{},
 	)
 
 	// Add multiple poolers

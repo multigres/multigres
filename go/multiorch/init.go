@@ -31,6 +31,12 @@ import (
 	"github.com/multigres/multigres/go/viperutil"
 )
 
+// maxPoolerConnections is the maximum number of simultaneous RPC connections
+// to multipooler instances that multiorch will maintain. This limits both the
+// RPC client connection cache capacity and serves as a warning threshold for
+// the number of poolers being monitored.
+const maxPoolerConnections = 1000
+
 type MultiOrch struct {
 	// grpcServer is the grpc server
 	grpcServer *servenv.GrpcServer
@@ -133,12 +139,16 @@ func (mo *MultiOrch) Init() {
 	mo.senv.HTTPHandleFunc("/", mo.handleIndex)
 	mo.senv.HTTPHandleFunc("/ready", mo.handleReady)
 
+	// Create RPC client for recovery engine health checks
+	rpcClient := rpcclient.NewMultiPoolerClient(maxPoolerConnections)
+
 	// Create and start recovery engine
 	mo.recoveryEngine = recovery.NewEngine(
 		mo.ts,
 		logger,
 		mo.cfg,
 		targets,
+		rpcClient,
 	)
 
 	if err := mo.recoveryEngine.Start(); err != nil {

@@ -29,7 +29,7 @@ import (
 
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 
-	"github.com/multigres/multigres/go/grpccommon"
+	"github.com/multigres/multigres/go/tools/grpccommon"
 	"github.com/multigres/multigres/go/viperutil"
 
 	"github.com/spf13/pflag"

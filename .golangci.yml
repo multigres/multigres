@@ -38,6 +38,16 @@ linters:
             - github.com/spf13/pflag
             - github.com/spf13/viper
             - github.com/stretchr/testify
+        tools-isolation:
+          files:
+            - "**/go/tools/**/*.go"
+          list-mode: lax
+          deny:
+            - pkg: "github.com/multigres/multigres/go"
+              desc: "tools packages must not depend on internal multigres packages (except other tools)"
+          allow:
+            - $gostd
+            - github.com/multigres/multigres/go/tools
         provisioner:
           files:
             - "!$test"
@@ -53,8 +63,6 @@ linters:
             - github.com/multigres/multigres/go/tools
             - github.com/multigres/multigres/go/pb
             - github.com/multigres/multigres/go/provisioner
-            - github.com/multigres/multigres/go/provisioner/local
-            - github.com/multigres/multigres/go/grpccommon
         use_modern_packages:
           list-mode: lax
           deny:

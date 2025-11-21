@@ -282,3 +282,39 @@ func (s *managerService) GetBackups(ctx context.Context, req *multipoolermanager
 		Backups: backups,
 	}, nil
 }
+
+// InitializationStatus returns the initialization status of this pooler
+func (s *managerService) InitializationStatus(ctx context.Context, req *multipoolermanagerdatapb.InitializationStatusRequest) (*multipoolermanagerdatapb.InitializationStatusResponse, error) {
+	resp, err := s.manager.InitializationStatus(ctx, req)
+	if err != nil {
+		return nil, mterrors.ToGRPC(err)
+	}
+	return resp, nil
+}
+
+// InitializeEmptyPrimary initializes an empty PostgreSQL instance as a primary
+func (s *managerService) InitializeEmptyPrimary(ctx context.Context, req *multipoolermanagerdatapb.InitializeEmptyPrimaryRequest) (*multipoolermanagerdatapb.InitializeEmptyPrimaryResponse, error) {
+	resp, err := s.manager.InitializeEmptyPrimary(ctx, req)
+	if err != nil {
+		return nil, mterrors.ToGRPC(err)
+	}
+	return resp, nil
+}
+
+// InitializeAsStandby initializes an empty PostgreSQL instance as a standby
+func (s *managerService) InitializeAsStandby(ctx context.Context, req *multipoolermanagerdatapb.InitializeAsStandbyRequest) (*multipoolermanagerdatapb.InitializeAsStandbyResponse, error) {
+	resp, err := s.manager.InitializeAsStandby(ctx, req)
+	if err != nil {
+		return nil, mterrors.ToGRPC(err)
+	}
+	return resp, nil
+}
+
+// CreateDurabilityPolicy creates a new durability policy in the local database
+func (s *managerService) CreateDurabilityPolicy(ctx context.Context, req *multipoolermanagerdatapb.CreateDurabilityPolicyRequest) (*multipoolermanagerdatapb.CreateDurabilityPolicyResponse, error) {
+	resp, err := s.manager.CreateDurabilityPolicy(ctx, req)
+	if err != nil {
+		return nil, mterrors.ToGRPC(err)
+	}
+	return resp, nil
+}
