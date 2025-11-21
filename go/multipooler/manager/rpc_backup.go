@@ -20,9 +20,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"os"
 	"os/exec"
-	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
@@ -109,77 +107,27 @@ func (pm *MultiPoolerManager) Backup(ctx context.Context, forcePrimary bool, bac
 	return backupID, nil
 }
 
-// RestoreFromBackup restores from a backup
+// RestoreFromBackup restores from a backup. This can only be used to restore a
+// backup to an uniinitialized standby. If standby is already initialized,
+// the caller is responsible for removing PGDATA.
 func (pm *MultiPoolerManager) RestoreFromBackup(ctx context.Context, backupID string, asStandby bool) error {
 	slog.InfoContext(ctx, "RestoreFromBackup called", "backup_id", backupID)
 
-	pgctldClient := pm.getPgCtldClient()
-	configPath := pm.getBackupConfigPath()
-	stanzaName := pm.getBackupStanza()
-
-	// Get pg_data directory from the backup config path
-	// configPath is like /path/to/pooler_dir/pgbackrest.conf, so we get the dir and append pg_data
-	poolerDir := filepath.Dir(configPath)
-	pgDataDir := filepath.Join(poolerDir, "pg_data")
-
-	// Check if PostgreSQL is initialized using the existing method
-	initialized := pm.isInitialized()
-
-	// Only allow restoring as standby for now. Restoring as primary or onto running
-	// primaries could be dangerous and is not currently supported.
+	// Perform validation
 	if !asStandby {
 		return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT,
 			"only restoring as standby is currently supported (as_standby must be true)")
 	}
 
-	// If PostgreSQL is already initialized, verify it's safe to restore
-	var isPrimary bool
-	var err error
-	if initialized {
-		slog.InfoContext(ctx, "PostgreSQL already initialized - checking if restore is safe", "pg_data_dir", pgDataDir)
-
-		// Check current recovery status
-		isPrimary, err = pm.isPrimary(ctx)
-		if err != nil {
-			slog.ErrorContext(ctx, "Failed to check recovery status before restore", "error", err, "pg_data_dir", pgDataDir)
-			return mterrors.Wrap(err, "failed to check recovery status")
-		}
-
-		// Block restores onto running primaries - this could cause data loss
-		if isPrimary {
-			return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
-				"cannot restore backup onto a running primary (this could cause data loss)")
-		}
-	} else {
-		slog.InfoContext(ctx, "PostgreSQL not initialized - treating as new initialization", "pg_data_dir", pgDataDir)
+	if pm.isInitialized() {
+		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
+			"cannot restore onto already-initialized database")
 	}
 
-	// If this is a standby, get the current primary connection info
-	// so we can restore it after pgbackrest overwrites postgresql.auto.conf
-	// Skip this for uninitialized databases - they don't have replication info yet
-	var primaryHost string
-	var primaryPort int32
-	if asStandby && initialized {
-		replStatus, err := pm.StandbyReplicationStatus(ctx)
-		if err != nil {
-			slog.ErrorContext(ctx, "Failed to get replication status", "error", err)
-			return mterrors.Wrap(err, "failed to get replication status")
-		}
-		if replStatus == nil || replStatus.PrimaryConnInfo == nil || replStatus.PrimaryConnInfo.Host == "" {
-			return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION, "standby has no primary connection configured")
-		}
-		primaryHost = replStatus.PrimaryConnInfo.Host
-		primaryPort = replStatus.PrimaryConnInfo.Port
-	}
+	pgctldClient := pm.getPgCtldClient()
+	configPath := pm.getBackupConfigPath()
+	stanzaName := pm.getBackupStanza()
 
-	slog.InfoContext(ctx, "Restore parameters determined",
-		"is_primary", isPrimary,
-		"as_standby", asStandby,
-		"primary_host", primaryHost,
-		"primary_port", primaryPort,
-		"backup_id", backupID)
-
-	// Validate required parameters
 	if pgctldClient == nil {
 		return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "pgctld_client is required")
 	}
@@ -189,53 +137,27 @@ func (pm *MultiPoolerManager) RestoreFromBackup(ctx context.Context, backupID st
 	if stanzaName == "" {
 		return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "stanza_name is required")
 	}
-	if pgDataDir == "" {
-		return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "pg_data_dir is required")
-	}
-	// For uninitialized databases, we don't need primary connection info yet
-	if asStandby && initialized && (primaryHost == "" || primaryPort == 0) {
-		return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "primary_host and primary_port required when restoring as standby")
-	}
 
-	// Step 1: Close the pooler manager to release its stale database connection
-	// This must be done before stopping PostgreSQL to avoid stale connections
-	// Step 2: Stop PostgreSQL server
-	// Skip both steps if PostgreSQL is not initialized
-	if initialized {
-		slog.InfoContext(ctx, "Closing pooler manager before restore")
-		if err := pm.Close(); err != nil {
-			slog.WarnContext(ctx, "Failed to close pooler manager before restore", "error", err)
-			// Continue - we'll try to reconnect anyway after restore
-		}
-		slog.InfoContext(ctx, "Stopping PostgreSQL before restore", "backup_id", backupID)
-		stopCtx, stopCancel := context.WithTimeout(ctx, 2*time.Minute)
-		defer stopCancel()
-
-		_, err = pgctldClient.Stop(stopCtx, &pgctldpb.StopRequest{
-			Mode: "fast", // Fast shutdown mode
-		})
-		if err != nil {
-			return mterrors.New(mtrpcpb.Code_INTERNAL,
-				fmt.Sprintf("failed to stop PostgreSQL: %v", err))
-		}
-		slog.InfoContext(ctx, "PostgreSQL stopped successfully")
-	} else {
-		slog.InfoContext(ctx, "Skipping PostgreSQL stop - database not initialized")
+	// Restore the backup
+	if err := pm.executeBackrestRestore(ctx, stanzaName, configPath, backupID); err != nil {
+		return err
 	}
+	if err := pm.startPostgreSQLAfterRestore(ctx, pgctldClient, asStandby, backupID); err != nil {
+		return err
+	}
+	return pm.reopenPoolerManager(ctx)
+}
 
-	// Step 3: Execute pgBackRest restore command, which does most of the work
-	// of writing necessary configuration to postgresql.auto.conf
-	restoreCtx, restoreCancel := context.WithTimeout(ctx, 30*time.Minute) // Restores can take a long time
-	defer restoreCancel()
+func (pm *MultiPoolerManager) executeBackrestRestore(ctx context.Context, stanzaName, configPath, backupID string) error {
+	restoreCtx, cancel := context.WithTimeout(ctx, 30*time.Minute)
+	defer cancel()
 
 	args := []string{
 		"--stanza=" + stanzaName,
 		"--config=" + configPath,
-		"--log-level-console=info", // Verbose logging to see what pgBackRest is doing
-		"--delta",                  // Preserve valid files and only restore changed/missing ones
+		"--log-level-console=info",
 	}
 
-	// If a specific backup ID is specified, add the --set flag
 	if backupID != "" {
 		args = append(args, "--set="+backupID)
 	}
@@ -243,78 +165,42 @@ func (pm *MultiPoolerManager) RestoreFromBackup(ctx context.Context, backupID st
 	args = append(args, "restore")
 
 	cmd := exec.CommandContext(restoreCtx, "pgbackrest", args...)
-	output, err := cmd.CombinedOutput()
+	output, err := safeCombinedOutput(cmd)
 	if err != nil {
 		return mterrors.New(mtrpcpb.Code_INTERNAL,
 			fmt.Sprintf("pgbackrest restore failed: %v\nOutput: %s", err, string(output)))
 	}
 
-	// Step 4: If restoring as standby with existing replication config, restore primary_conninfo to
-	// postgresql.auto.conf
-	//
-	// This is needed when pgbackrest restore overwrites postgresql.auto.conf, removing replication
-	// settings. For uninitialized databases, we skip this step since the primary connection
-	// will be configured later by the orchestrator or test setup.
-	if asStandby && initialized && primaryHost != "" && primaryPort != 0 {
-		autoConfPath := filepath.Join(pgDataDir, "postgresql.auto.conf")
-		slog.InfoContext(ctx, "Restoring primary_conninfo to postgresql.auto.conf",
-			"path", autoConfPath,
-			"primary_host", primaryHost,
-			"primary_port", primaryPort)
+	return nil
+}
 
-		// Read existing content to preserve other settings
-		existingContent, err := os.ReadFile(autoConfPath)
-		if err != nil && !os.IsNotExist(err) {
-			slog.WarnContext(ctx, "Failed to read existing postgresql.auto.conf", "error", err)
-			existingContent = []byte{}
-		}
+func (pm *MultiPoolerManager) startPostgreSQLAfterRestore(ctx context.Context, pgctldClient pgctldpb.PgCtldClient, asStandby bool, backupID string) error {
+	restartCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+	defer cancel()
 
-		// Append primary_conninfo setting
-		primaryConnInfo := fmt.Sprintf("\n# Restored by multigres after backup restore\nprimary_conninfo = 'host=%s port=%d user=postgres'\n",
-			primaryHost, primaryPort)
-
-		newContent := append(existingContent, []byte(primaryConnInfo)...)
-
-		err = os.WriteFile(autoConfPath, newContent, 0o600)
-		if err != nil {
-			return mterrors.New(mtrpcpb.Code_INTERNAL,
-				fmt.Sprintf("failed to write primary_conninfo to postgresql.auto.conf: %v", err))
-		}
-
-		slog.InfoContext(ctx, "Successfully restored primary_conninfo to postgresql.auto.conf")
-	} else if asStandby && !initialized {
-		slog.InfoContext(ctx, "Skipping primary_conninfo restore for uninitialized standby - will be configured later")
-	}
-
-	// Step 5: Restart PostgreSQL server after successful restore
-	// Note: pgctld's StartPostgreSQLWithResult ensures socket directory exists
-	// Use Restart instead of Start to properly handle standby.signal creation
-	restartCtx, restartCancel := context.WithTimeout(ctx, 2*time.Minute)
-	defer restartCancel()
-
-	slog.InfoContext(ctx, "Restarting PostgreSQL after restore",
+	slog.InfoContext(ctx, "Starting PostgreSQL after restore",
 		"as_standby", asStandby,
 		"backup_id", backupID)
 
-	_, err = pgctldClient.Restart(restartCtx, &pgctldpb.RestartRequest{
-		AsStandby: asStandby, // Maintains standby status if restoring to a replica
+	_, err := pgctldClient.Restart(restartCtx, &pgctldpb.RestartRequest{
+		AsStandby: asStandby,
 	})
 	if err != nil {
 		return mterrors.New(mtrpcpb.Code_INTERNAL,
-			fmt.Sprintf("failed to restart PostgreSQL after restore: %v", err))
+			fmt.Sprintf("failed to start PostgreSQL after restore: %v", err))
 	}
 
-	slog.InfoContext(ctx, "PostgreSQL restarted successfully after restore")
+	slog.InfoContext(ctx, "PostgreSQL started successfully after restore")
+	return nil
+}
 
-	// Step 6: Reopen the pooler manager to establish fresh database connections
-	// This must be done after PostgreSQL restarts to ensure the executor is properly initialized
+func (pm *MultiPoolerManager) reopenPoolerManager(ctx context.Context) error {
 	slog.InfoContext(ctx, "Reopening pooler manager after restore")
 	if err := pm.Open(); err != nil {
 		slog.ErrorContext(ctx, "Failed to reopen pooler manager after restore", "error", err)
 		return mterrors.Wrap(err, "failed to reopen pooler manager after restore")
 	}
-	slog.InfoContext(ctx, "pooler manager reopened successfully after restore")
-
+	slog.InfoContext(ctx, "Pooler manager reopened successfully after restore")
 	return nil
 }
 
