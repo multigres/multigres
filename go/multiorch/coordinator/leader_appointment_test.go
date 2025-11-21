@@ -472,3 +472,68 @@ func TestEstablishLeader(t *testing.T) {
 		require.Contains(t, err.Error(), "not in ready state")
 	})
 }
+
+func TestSelectCandidate_LSNComparison(t *testing.T) {
+	ctx := context.Background()
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelWarn}))
+	coordID := &clustermetadatapb.ID{
+		Component: clustermetadatapb.ID_MULTIORCH,
+		Cell:      "test-cell",
+		Name:      "test-coordinator",
+	}
+	c := &Coordinator{
+		coordinatorID: coordID,
+		logger:        logger,
+	}
+	fakeClient := rpcclient.NewFakeClient()
+
+	t.Run("selects node with highest LSN using numeric comparison", func(t *testing.T) {
+		cohort := []*Node{
+			createMockNode(fakeClient, "mp1", 5, "0/5000000", true, "standby"),
+			createMockNode(fakeClient, "mp2", 5, "0/9000000", true, "standby"),
+			createMockNode(fakeClient, "mp3", 5, "0/3000000", true, "standby"),
+		}
+
+		candidate, err := c.selectCandidate(ctx, cohort)
+		require.NoError(t, err)
+		require.Equal(t, "mp2", candidate.ID.Name,
+			"should select node with highest LSN (0/9000000)")
+	})
+
+	t.Run("handles multi-digit segment numbers correctly", func(t *testing.T) {
+		// Numeric: 10/1000000 > 9/9000000 (segment 10 > segment 9)
+		cohort := []*Node{
+			createMockNode(fakeClient, "mp1", 5, "9/9000000", true, "standby"),
+			createMockNode(fakeClient, "mp2", 5, "10/1000000", true, "standby"),
+			createMockNode(fakeClient, "mp3", 5, "8/5000000", true, "standby"),
+		}
+
+		candidate, err := c.selectCandidate(ctx, cohort)
+		require.NoError(t, err)
+		require.Equal(t, "mp2", candidate.ID.Name,
+			"should use numeric comparison: segment 10 > segment 9")
+	})
+
+	t.Run("returns error when LSN is invalid", func(t *testing.T) {
+		cohort := []*Node{
+			createMockNode(fakeClient, "mp1", 5, "invalid-lsn", true, "standby"),
+			createMockNode(fakeClient, "mp2", 5, "0/5000000", true, "standby"),
+		}
+
+		_, err := c.selectCandidate(ctx, cohort)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "invalid LSN format")
+	})
+
+	t.Run("returns error when any healthy node has invalid LSN", func(t *testing.T) {
+		cohort := []*Node{
+			createMockNode(fakeClient, "mp1", 5, "0/5000000", true, "standby"),
+			createMockNode(fakeClient, "mp2", 5, "not-an-lsn", true, "standby"),
+			createMockNode(fakeClient, "mp3", 5, "0/3000000", true, "standby"),
+		}
+
+		_, err := c.selectCandidate(ctx, cohort)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "invalid LSN format")
+	})
+}
