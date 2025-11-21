@@ -118,3 +118,23 @@ func CompareStrings(a, b string) (int, error) {
 func (l LSN) String() string {
 	return fmt.Sprintf("%X/%X", l.high, l.low)
 }
+
+// Greater returns true if a > b.
+// Returns error if either string cannot be parsed.
+func Greater(a, b string) (bool, error) {
+	cmp, err := CompareStrings(a, b)
+	if err != nil {
+		return false, err
+	}
+	return cmp > 0, nil
+}
+
+// GreaterOrEqual returns true if a >= b.
+// Returns error if either string cannot be parsed.
+func GreaterOrEqual(a, b string) (bool, error) {
+	cmp, err := CompareStrings(a, b)
+	if err != nil {
+		return false, err
+	}
+	return cmp >= 0, nil
+}

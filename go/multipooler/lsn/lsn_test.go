@@ -307,55 +307,114 @@ func TestLSN_String(t *testing.T) {
 	}
 }
 
-// TestLexicographicVsNumeric demonstrates that lexicographic comparison
-// is incorrect for LSNs and our numeric comparison gives correct results.
-func TestLexicographicVsNumeric(t *testing.T) {
-	testCases := []struct {
-		a              string
-		b              string
-		numericCorrect int // correct numeric comparison result
-		description    string
+func TestGreater(t *testing.T) {
+	tests := []struct {
+		name    string
+		a       string
+		b       string
+		want    bool
+		wantErr bool
 	}{
 		{
-			a:              "F/0",
-			b:              "10/0",
-			numericCorrect: -1, // F (15) < 10 (16) numerically (correct)
-			description:    "Single vs double digit hex - lexicographic gives wrong result",
+			name: "a > b same segment",
+			a:    "0/3000000",
+			b:    "0/1000000",
+			want: true,
 		},
 		{
-			a:              "2/0",
-			b:              "10/0",
-			numericCorrect: -1, // 2 < 10 numerically (correct)
-			description:    "Single vs double digit - lexicographic gives wrong result",
+			name: "a > b different segments",
+			a:    "1/1000000",
+			b:    "0/9000000",
+			want: true,
 		},
 		{
-			a:              "1/FFFFFFFF",
-			b:              "2/0",
-			numericCorrect: -1, // 1 < 2 numerically (correct)
-			description:    "Different segments - lexicographic happens to be correct",
+			name: "a < b",
+			a:    "0/1000000",
+			b:    "0/3000000",
+			want: false,
 		},
 		{
-			a:              "0/FFFFFFFF",
-			b:              "1/0",
-			numericCorrect: -1, // segment 0 < segment 1 (correct)
-			description:    "Max offset in lower segment vs zero in higher segment",
+			name: "a == b",
+			a:    "0/3000000",
+			b:    "0/3000000",
+			want: false,
+		},
+		{
+			name:    "invalid a",
+			a:       "invalid",
+			b:       "0/1000000",
+			wantErr: true,
+		},
+		{
+			name:    "invalid b",
+			a:       "0/1000000",
+			b:       "invalid",
+			wantErr: true,
 		},
 	}
 
-	for _, tc := range testCases {
-		t.Run(tc.description, func(t *testing.T) {
-			// Check our numeric comparison
-			numComp, err := CompareStrings(tc.a, tc.b)
-			require.NoError(t, err)
-			assert.Equal(t, tc.numericCorrect, numComp, "numeric comparison")
-
-			// Check if lexicographic comparison would give wrong result
-			lexComp := tc.a > tc.b
-			numIsGreater := numComp > 0
-			if lexComp != numIsGreater {
-				t.Logf("✓ Lexicographic comparison (%s > %s = %v) disagrees with numeric (%d), showing why proper LSN comparison is needed",
-					tc.a, tc.b, lexComp, numComp)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := Greater(tt.a, tt.b)
+			if tt.wantErr {
+				require.Error(t, err)
+				return
 			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestGreaterOrEqual(t *testing.T) {
+	tests := []struct {
+		name    string
+		a       string
+		b       string
+		want    bool
+		wantErr bool
+	}{
+		{
+			name: "a > b",
+			a:    "0/3000000",
+			b:    "0/1000000",
+			want: true,
+		},
+		{
+			name: "a == b",
+			a:    "0/3000000",
+			b:    "0/3000000",
+			want: true,
+		},
+		{
+			name: "a < b",
+			a:    "0/1000000",
+			b:    "0/3000000",
+			want: false,
+		},
+		{
+			name:    "invalid a",
+			a:       "invalid",
+			b:       "0/1000000",
+			wantErr: true,
+		},
+		{
+			name:    "invalid b",
+			a:       "0/1000000",
+			b:       "invalid",
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := GreaterOrEqual(tt.a, tt.b)
+			if tt.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got)
 		})
 	}
 }

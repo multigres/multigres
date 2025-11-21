@@ -252,17 +252,20 @@ func TestSelectCandidate(t *testing.T) {
 		require.Equal(t, "mp2", candidate.ID.Name, "Node with higher segment (1/0) should win even though offset is 0")
 	})
 
-	t.Run("success - numeric LSN comparison: lexicographically smaller but numerically larger", func(t *testing.T) {
+	t.Run("success - numeric LSN comparison: multi-digit segments", func(t *testing.T) {
 		fakeClient := rpcclient.NewFakeClient()
+		// Create nodes with LSNs where lexicographic comparison would be wrong
+		// Lexicographic: "9/9000000" > "10/1000000" (WRONG! '9' > '1')
+		// Numeric: "10/1000000" > "9/9000000" (CORRECT! 10 > 9)
 		cohort := []*Node{
-			createMockNode(fakeClient, "mp1", 5, "2/0", true, "standby"),  // 2 > 10 lexicographically, but 2 < 10 numerically
-			createMockNode(fakeClient, "mp2", 5, "10/0", true, "standby"), // should win
-			createMockNode(fakeClient, "mp3", 5, "F/0", true, "standby"),  // F (15) < 10 (16) numerically
+			createMockNode(fakeClient, "mp1", 5, "9/9000000", true, "standby"),  // Segment 9
+			createMockNode(fakeClient, "mp2", 5, "10/1000000", true, "standby"), // Segment 10 (highest)
+			createMockNode(fakeClient, "mp3", 5, "8/5000000", true, "standby"),  // Segment 8
 		}
 
 		candidate, err := c.selectCandidate(ctx, cohort)
 		require.NoError(t, err)
-		require.Equal(t, "mp2", candidate.ID.Name, "Node with LSN 10/0 should win with proper numeric comparison")
+		require.Equal(t, "mp2", candidate.ID.Name, "Should select node with highest LSN using numeric comparison, not lexicographic")
 	})
 
 	t.Run("success - numeric LSN comparison: same segment, different offset", func(t *testing.T) {
