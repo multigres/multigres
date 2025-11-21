@@ -124,13 +124,20 @@ func (pm *MultiPoolerManager) RestoreFromBackup(ctx context.Context, backupID st
 			"cannot restore onto already-initialized database")
 	}
 
-	pgctldClient := pm.getPgCtldClient()
-	configPath := pm.getBackupConfigPath()
-	stanzaName := pm.getBackupStanza()
-
-	if pgctldClient == nil {
-		return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "pgctld_client is required")
+	// Restore the backup
+	if err := pm.executeBackrestRestore(ctx, backupID); err != nil {
+		return err
 	}
+	if err := pm.startPostgreSQLAfterRestore(ctx, backupID); err != nil {
+		return err
+	}
+	return pm.reopenPoolerManager(ctx)
+}
+
+func (pm *MultiPoolerManager) executeBackrestRestore(ctx context.Context, backupID string) error {
+	stanzaName := pm.getBackupStanza()
+	configPath := pm.getBackupConfigPath()
+
 	if configPath == "" {
 		return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "config_path is required")
 	}
@@ -138,17 +145,6 @@ func (pm *MultiPoolerManager) RestoreFromBackup(ctx context.Context, backupID st
 		return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "stanza_name is required")
 	}
 
-	// Restore the backup
-	if err := pm.executeBackrestRestore(ctx, stanzaName, configPath, backupID); err != nil {
-		return err
-	}
-	if err := pm.startPostgreSQLAfterRestore(ctx, pgctldClient, asStandby, backupID); err != nil {
-		return err
-	}
-	return pm.reopenPoolerManager(ctx)
-}
-
-func (pm *MultiPoolerManager) executeBackrestRestore(ctx context.Context, stanzaName, configPath, backupID string) error {
 	restoreCtx, cancel := context.WithTimeout(ctx, 30*time.Minute)
 	defer cancel()
 
@@ -174,16 +170,20 @@ func (pm *MultiPoolerManager) executeBackrestRestore(ctx context.Context, stanza
 	return nil
 }
 
-func (pm *MultiPoolerManager) startPostgreSQLAfterRestore(ctx context.Context, pgctldClient pgctldpb.PgCtldClient, asStandby bool, backupID string) error {
+func (pm *MultiPoolerManager) startPostgreSQLAfterRestore(ctx context.Context, backupID string) error {
+	pgctldClient := pm.getPgCtldClient()
+	if pgctldClient == nil {
+		return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "pgctld_client is required")
+	}
+
 	restartCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
 
 	slog.InfoContext(ctx, "Starting PostgreSQL after restore",
-		"as_standby", asStandby,
 		"backup_id", backupID)
 
 	_, err := pgctldClient.Restart(restartCtx, &pgctldpb.RestartRequest{
-		AsStandby: asStandby,
+		AsStandby: true,
 	})
 	if err != nil {
 		return mterrors.New(mtrpcpb.Code_INTERNAL,
