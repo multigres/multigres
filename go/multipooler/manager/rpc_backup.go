@@ -44,6 +44,12 @@ func (pm *MultiPoolerManager) Backup(ctx context.Context, forcePrimary bool, bac
 	tableGroup := pm.getTableGroup()
 	shard := pm.getShard()
 
+	// Get backup location from topology
+	backupLocation, err := pm.getBackupLocation(ctx)
+	if err != nil {
+		return "", err
+	}
+
 	// Validate parameters and get pgbackrest type
 	pgBackRestType, err := pm.validateBackupParams(backupType, configPath, stanzaName)
 	if err != nil {
@@ -57,6 +63,7 @@ func (pm *MultiPoolerManager) Backup(ctx context.Context, forcePrimary bool, bac
 	args := []string{
 		"--stanza=" + stanzaName,
 		"--config=" + configPath,
+		"--repo1-path=" + backupLocation,
 		"--type=" + pgBackRestType,
 		"--log-level-console=info",
 	}
@@ -94,6 +101,7 @@ func (pm *MultiPoolerManager) Backup(ctx context.Context, forcePrimary bool, bac
 	verifyCmd := exec.CommandContext(verifyCtx, "pgbackrest",
 		"--stanza="+stanzaName,
 		"--config="+configPath,
+		"--repo1-path="+backupLocation,
 		"--set="+backupID,
 		"--log-level-console=info",
 		"verify")
@@ -145,12 +153,19 @@ func (pm *MultiPoolerManager) executeBackrestRestore(ctx context.Context, backup
 		return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "stanza_name is required")
 	}
 
+	// Get backup location from topology
+	backupLocation, err := pm.getBackupLocation(ctx)
+	if err != nil {
+		return err
+	}
+
 	restoreCtx, cancel := context.WithTimeout(ctx, 30*time.Minute)
 	defer cancel()
 
 	args := []string{
 		"--stanza=" + stanzaName,
 		"--config=" + configPath,
+		"--repo1-path=" + backupLocation,
 		"--log-level-console=info",
 	}
 
@@ -217,6 +232,12 @@ func (pm *MultiPoolerManager) GetBackups(ctx context.Context, limit uint32) ([]*
 		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "stanza_name is required")
 	}
 
+	// Get backup location from topology
+	backupLocation, err := pm.getBackupLocation(ctx)
+	if err != nil {
+		return nil, err
+	}
+
 	// Execute pgbackrest info command with JSON output
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
@@ -224,6 +245,7 @@ func (pm *MultiPoolerManager) GetBackups(ctx context.Context, limit uint32) ([]*
 	cmd := exec.CommandContext(ctx, "pgbackrest",
 		"--stanza="+stanzaName,
 		"--config="+configPath,
+		"--repo1-path="+backupLocation,
 		"--output=json",
 		"--log-level-console=off", // Override console logging to prevent contaminating JSON output
 		"info")

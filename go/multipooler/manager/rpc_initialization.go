@@ -437,6 +437,12 @@ func (pm *MultiPoolerManager) configureArchiveMode(ctx context.Context) error {
 			fmt.Sprintf("pgbackrest config file not found at %s - cannot configure archive mode", configPath))
 	}
 
+	// Get backup location from topology
+	backupLocation, err := pm.getBackupLocation(ctx)
+	if err != nil {
+		return err
+	}
+
 	pgDataDir := filepath.Join(pm.config.PoolerDir, "pg_data")
 	autoConfPath := filepath.Join(pgDataDir, "postgresql.auto.conf")
 
@@ -454,8 +460,8 @@ func (pm *MultiPoolerManager) configureArchiveMode(ctx context.Context) error {
 	archiveConfig := fmt.Sprintf(`
 # Archive mode for pgbackrest backups
 archive_mode = on
-archive_command = 'pgbackrest --stanza=%s --config=%s archive-push %%p'
-`, stanzaName, configPath)
+archive_command = 'pgbackrest --stanza=%s --config=%s --repo1-path=%s archive-push %%p'
+`, stanzaName, configPath, backupLocation)
 
 	f, err := os.OpenFile(autoConfPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
 	if err != nil {
@@ -467,7 +473,7 @@ archive_command = 'pgbackrest --stanza=%s --config=%s archive-push %%p'
 		return mterrors.Wrap(err, "failed to write archive config")
 	}
 
-	pm.logger.InfoContext(ctx, "Configured archive_mode in postgresql.auto.conf", "config_path", configPath, "stanza", stanzaName)
+	pm.logger.InfoContext(ctx, "Configured archive_mode in postgresql.auto.conf", "config_path", configPath, "stanza", stanzaName, "repo_path", backupLocation)
 	return nil
 }
 
@@ -491,6 +497,12 @@ func (pm *MultiPoolerManager) initializePgBackRestStanza(ctx context.Context) er
 			fmt.Sprintf("pgbackrest config file not found at %s", configPath))
 	}
 
+	// Get backup location from topology
+	backupLocation, err := pm.getBackupLocation(ctx)
+	if err != nil {
+		return err
+	}
+
 	// Execute pgbackrest stanza-create command
 	stanzaCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
@@ -498,6 +510,7 @@ func (pm *MultiPoolerManager) initializePgBackRestStanza(ctx context.Context) er
 	cmd := exec.CommandContext(stanzaCtx, "pgbackrest",
 		"--stanza="+stanzaName,
 		"--config="+configPath,
+		"--repo1-path="+backupLocation,
 		"stanza-create")
 
 	output, err := safeCombinedOutput(cmd)

@@ -1531,7 +1531,7 @@ func (p *localProvisioner) ProvisionDatabase(ctx context.Context, databaseName s
 
 		databaseConfig := &clustermetadatapb.Database{
 			Name:             databaseName,
-			BackupLocation:   "",        // TODO: Configure backup location
+			BackupLocation:   p.config.BackupRepoPath,
 			DurabilityPolicy: "none",    // Default durability policy
 			Cells:            cellNames, // Register with all cells
 		}

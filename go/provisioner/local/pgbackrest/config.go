@@ -46,7 +46,6 @@ type Config struct {
 	PgPassword      string   // PostgreSQL password (for local development only, pg1)
 	PgDatabase      string   // PostgreSQL database for connections (pg1)
 	AdditionalHosts []PgHost // Additional PostgreSQL hosts (pg2, pg3, etc.) for multi-host setups
-	RepoPath        string   // Path to backup repository
 	LogPath         string   // Path for pgBackRest logs
 	SpoolPath       string   // Path for pgBackRest spool directory
 	LockPath        string   // Path for pgBackRest lock files
@@ -59,7 +58,6 @@ func GenerateConfig(cfg Config) string {
 
 	// Global section
 	sb.WriteString("[global]\n")
-	sb.WriteString(fmt.Sprintf("repo1-path=%s\n", cfg.RepoPath))
 	sb.WriteString(fmt.Sprintf("log-path=%s\n", cfg.LogPath))
 	if cfg.SpoolPath != "" {
 		sb.WriteString(fmt.Sprintf("spool-path=%s\n", cfg.SpoolPath))
@@ -159,7 +157,7 @@ func WriteConfigFile(configPath string, cfg Config) error {
 }
 
 // StanzaCreate executes pgbackrest stanza-create command to initialize a backup stanza
-func StanzaCreate(ctx context.Context, stanzaName, configPath string) error {
+func StanzaCreate(ctx context.Context, stanzaName, configPath, repoPath string) error {
 	// Create context with timeout
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
@@ -168,6 +166,7 @@ func StanzaCreate(ctx context.Context, stanzaName, configPath string) error {
 	cmd := exec.CommandContext(ctx, "pgbackrest",
 		"--stanza="+stanzaName,
 		"--config="+configPath,
+		"--repo1-path="+repoPath,
 		"stanza-create")
 	fmt.Println("Executing command:", cmd.String())
 	// Capture output for logging

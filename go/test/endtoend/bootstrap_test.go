@@ -116,13 +116,15 @@ func TestBootstrapInitialization(t *testing.T) {
 
 	// Use postgres database (multigres always uses postgres database with table_group for isolation)
 	database := "postgres"
+	backupLocation := filepath.Join(tempDir, "pgbackrest-repo")
 	err = ts.CreateDatabase(ctx, database, &clustermetadatapb.Database{
 		Name:             database,
+		BackupLocation:   backupLocation,
 		DurabilityPolicy: "ANY_2",
 	})
 	require.NoError(t, err, "Failed to create database in topology")
 
-	t.Logf("Created database '%s' with policy 'ANY_2'", database)
+	t.Logf("Created database '%s' with policy 'ANY_2' and backup_location=%s", database, backupLocation)
 
 	// Create 3 empty nodes
 	shardID := "test-shard-01"
@@ -584,7 +586,6 @@ func setupPgBackRestForBootstrap(t *testing.T, baseDir string, nodes []*nodeInst
 			PgUser:          "postgres",
 			PgDatabase:      "postgres",
 			AdditionalHosts: additionalHosts,
-			RepoPath:        repoPath,
 			LogPath:         logPath,
 			SpoolPath:       spoolPath,
 			LockPath:        lockPath,
