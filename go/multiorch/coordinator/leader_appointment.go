@@ -209,7 +209,7 @@ func (c *Coordinator) selectCandidate(ctx context.Context, cohort []*Node) (*Nod
 			continue
 		}
 
-		cmp, err := lsn.CompareStrings(status.walPosition, bestWAL)
+		isGreater, err := lsn.Greater(status.walPosition, bestWAL)
 		if err != nil {
 			c.logger.WarnContext(ctx, "Failed to compare LSN, skipping node",
 				"node", status.node.ID.Name,
@@ -218,7 +218,7 @@ func (c *Coordinator) selectCandidate(ctx context.Context, cohort []*Node) (*Nod
 			continue
 		}
 
-		if cmp > 0 { // status.walPosition > bestWAL
+		if isGreater { // status.walPosition > bestWAL
 			bestCandidate = status.node
 			bestWAL = status.walPosition
 		}
