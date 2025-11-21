@@ -18,7 +18,7 @@ package grpcconsensusservice
 import (
 	"context"
 
-	"github.com/multigres/multigres/go/mterrors"
+	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/multipooler/manager"
 	consensuspb "github.com/multigres/multigres/go/pb/consensus"
 	consensusdata "github.com/multigres/multigres/go/pb/consensusdata"

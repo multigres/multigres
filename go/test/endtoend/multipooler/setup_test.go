@@ -46,7 +46,7 @@ import (
 	"github.com/multigres/multigres/go/pb/pgctldservice"
 
 	// Register topo plugins
-	_ "github.com/multigres/multigres/go/plugins/topo"
+	_ "github.com/multigres/multigres/go/common/plugins/topo"
 )
 
 var (

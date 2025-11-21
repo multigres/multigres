@@ -29,7 +29,7 @@ import (
 
 	"github.com/fsnotify/fsnotify"
 
-	"github.com/multigres/multigres/go/mterrors"
+	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/pb/mtrpc"
 )
 

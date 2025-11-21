@@ -22,7 +22,7 @@ import (
 
 	"golang.org/x/sync/semaphore"
 
-	"github.com/multigres/multigres/go/mterrors"
+	"github.com/multigres/multigres/go/common/mterrors"
 )
 
 // actionLockKey is the context key for storing action lock information
