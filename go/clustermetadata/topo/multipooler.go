@@ -84,7 +84,7 @@ func NewMultiPoolerInfo(multipooler *clustermetadatapb.MultiPooler, version Vers
 
 // MultiPoolerIDString returns the string representation of a MultiPooler ID
 func MultiPoolerIDString(id *clustermetadatapb.ID) string {
-	return fmt.Sprintf("%s-%s-%s", stringutil.ComponentTypeToString(id.Component), id.Cell, id.Name)
+	return fmt.Sprintf("%s-%s-%s", ComponentTypeToString(id.Component), id.Cell, id.Name)
 }
 
 // GetMultiPooler is a high level function to read multipooler data.
