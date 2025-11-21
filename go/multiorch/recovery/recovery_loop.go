@@ -126,10 +126,33 @@ func (re *Engine) processTableGroupProblems(tgKey TableGroupKey, problems []anal
 	// Apply smart deduplication logic
 	filteredProblems := re.smartFilterProblems(problems)
 
+	// Check if there's a primary problem in this tablegroup
+	hasPrimaryProblem := re.hasPrimaryProblem(filteredProblems)
+
 	// Attempt recoveries in priority order
 	for _, problem := range filteredProblems {
-		re.attemptRecovery(problem, generator)
+		// Skip replica recoveries if primary is unhealthy and action requires healthy primary
+		if problem.RecoveryAction.RequiresHealthyPrimary() && hasPrimaryProblem {
+			re.logger.InfoContext(re.ctx, "skipping recovery - requires healthy primary but primary is unhealthy",
+				"problem_code", problem.Code,
+				"pooler_id", topo.MultiPoolerIDString(problem.PoolerID),
+			)
+			continue
+		}
+
+		re.attemptRecovery(problem)
 	}
+}
+
+// hasPrimaryProblem checks if any of the problems indicate an unhealthy primary.
+// Cluster-wide problems (e.g., PrimaryDead) imply an unhealthy primary.
+func (re *Engine) hasPrimaryProblem(problems []analysis.Problem) bool {
+	for _, problem := range problems {
+		if problem.Scope == analysis.ScopeClusterWide {
+			return true
+		}
+	}
+	return false
 }
 
 // smartFilterProblems applies intelligent filtering to the problem list:
@@ -169,7 +192,7 @@ func (re *Engine) smartFilterProblems(problems []analysis.Problem) []analysis.Pr
 // attemptRecovery attempts to recover from a single problem.
 // IMPORTANT: Before attempting recovery, force re-poll the affected pooler
 // to ensure the problem still exists.
-func (re *Engine) attemptRecovery(problem analysis.Problem, generator *analysis.AnalysisGenerator) {
+func (re *Engine) attemptRecovery(problem analysis.Problem) {
 	poolerIDStr := topo.MultiPoolerIDString(problem.PoolerID)
 
 	re.logger.DebugContext(re.ctx, "attempting recovery",
@@ -180,7 +203,7 @@ func (re *Engine) attemptRecovery(problem analysis.Problem, generator *analysis.
 	)
 
 	// Force re-poll to validate the problem still exists
-	stillExists, err := re.validateProblemStillExists(problem, generator)
+	stillExists, err := re.validateProblemStillExists(problem)
 	if err != nil {
 		re.logger.WarnContext(re.ctx, "failed to validate problem, skipping recovery",
 			"problem_code", problem.Code,
@@ -245,7 +268,7 @@ func (re *Engine) attemptRecovery(problem analysis.Problem, generator *analysis.
 // - SinglePooler: Only refresh the affected pooler + primary pooler
 //
 // Returns (stillExists bool, error).
-func (re *Engine) validateProblemStillExists(problem analysis.Problem, generator *analysis.AnalysisGenerator) (bool, error) {
+func (re *Engine) validateProblemStillExists(problem analysis.Problem) (bool, error) {
 	poolerIDStr := topo.MultiPoolerIDString(problem.PoolerID)
 	isClusterWide := problem.Scope == analysis.ScopeClusterWide
 
@@ -290,6 +313,9 @@ func (re *Engine) validateProblemStillExists(problem analysis.Problem, generator
 	}
 
 	// Re-generate analysis for this specific pooler using updated store data
+	// Note: GenerateAnalysisForPooler rebuilds its internal map from the current store state,
+	// so it will see the fresh data from the re-poll above.
+	generator := analysis.NewAnalysisGenerator(re.poolerStore)
 	poolerAnalysis, err := generator.GenerateAnalysisForPooler(poolerIDStr)
 	if err != nil {
 		return false, fmt.Errorf("failed to generate analysis after re-poll: %w", err)

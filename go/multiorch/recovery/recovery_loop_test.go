@@ -25,23 +25,27 @@ import (
 	"github.com/multigres/multigres/go/clustermetadata/topo/memorytopo"
 	"github.com/multigres/multigres/go/multiorch/config"
 	"github.com/multigres/multigres/go/multiorch/recovery/analysis"
+	"github.com/multigres/multigres/go/multiorch/store"
 	"github.com/multigres/multigres/go/multipooler/rpcclient"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/types/known/durationpb"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
 
 // mockRecoveryAction is a test implementation of RecoveryAction
 type mockRecoveryAction struct {
-	name         string
-	priority     analysis.Priority
-	timeout      time.Duration
-	requiresLock bool
-	executed     bool
-	executeErr   error
-	metadata     analysis.RecoveryMetadata
+	name                   string
+	priority               analysis.Priority
+	timeout                time.Duration
+	requiresLock           bool
+	requiresHealthyPrimary bool
+	executed               bool
+	executeErr             error
+	metadata               analysis.RecoveryMetadata
 }
 
 func (m *mockRecoveryAction) Execute(ctx context.Context, problem analysis.Problem) error {
@@ -64,6 +68,10 @@ func (m *mockRecoveryAction) Metadata() analysis.RecoveryMetadata {
 
 func (m *mockRecoveryAction) RequiresLock() bool {
 	return m.requiresLock
+}
+
+func (m *mockRecoveryAction) RequiresHealthyPrimary() bool {
+	return m.requiresHealthyPrimary
 }
 
 func (m *mockRecoveryAction) Priority() analysis.Priority {
@@ -291,9 +299,6 @@ func TestValidateProblemStillExists_PoolerNotFound(t *testing.T) {
 		Name:      "pooler1",
 	}
 
-	// Create generator with empty store
-	generator := analysis.NewAnalysisGenerator(engine.poolerStore)
-
 	// Create problem
 	problem := analysis.Problem{
 		Code:       analysis.ProblemPrimaryDead,
@@ -305,7 +310,7 @@ func TestValidateProblemStillExists_PoolerNotFound(t *testing.T) {
 		Priority:   analysis.PriorityEmergency,
 	}
 
-	stillExists, err := engine.validateProblemStillExists(problem, generator)
+	stillExists, err := engine.validateProblemStillExists(problem)
 
 	require.Error(t, err, "should return error when pooler not found")
 	assert.False(t, stillExists)
@@ -501,4 +506,292 @@ func TestSmartFilterProblems_MultipleClusterWide(t *testing.T) {
 	require.Len(t, filtered, 1)
 	assert.Equal(t, analysis.ProblemClusterHasNoPrimary, filtered[0].Code)
 	assert.Equal(t, analysis.PriorityClusterBootstrap, filtered[0].Priority)
+}
+
+// mockPrimaryDeadAnalyzer detects when a primary is unreachable
+type mockPrimaryDeadAnalyzer struct {
+	recoveryAction analysis.RecoveryAction
+}
+
+func (m *mockPrimaryDeadAnalyzer) Name() analysis.CheckName {
+	return "MockPrimaryDeadCheck"
+}
+
+func (m *mockPrimaryDeadAnalyzer) Analyze(a *store.ReplicationAnalysis) []analysis.Problem {
+	// Detect if this is a primary that is unreachable
+	if a.IsPrimary && a.IsUnreachable {
+		return []analysis.Problem{
+			{
+				Code:           analysis.ProblemPrimaryDead,
+				CheckName:      m.Name(),
+				PoolerID:       a.PoolerID,
+				Database:       a.Database,
+				TableGroup:     a.TableGroup,
+				Shard:          a.Shard,
+				Priority:       analysis.PriorityEmergency,
+				Scope:          analysis.ScopeClusterWide,
+				RecoveryAction: m.recoveryAction,
+				DetectedAt:     time.Now(),
+				Description:    "Primary is unreachable",
+			},
+		}
+	}
+	return nil
+}
+
+// mockReplicaNotReplicatingAnalyzer detects when a replica has stopped replicating
+type mockReplicaNotReplicatingAnalyzer struct {
+	recoveryAction analysis.RecoveryAction
+}
+
+func (m *mockReplicaNotReplicatingAnalyzer) Name() analysis.CheckName {
+	return "MockReplicationStoppedCheck"
+}
+
+func (m *mockReplicaNotReplicatingAnalyzer) Analyze(a *store.ReplicationAnalysis) []analysis.Problem {
+	// Detect if this is a replica with replication stopped
+	if !a.IsPrimary && a.IsWalReplayPaused {
+		return []analysis.Problem{
+			{
+				Code:           analysis.ProblemReplicaNotReplicating,
+				CheckName:      m.Name(),
+				PoolerID:       a.PoolerID,
+				Database:       a.Database,
+				TableGroup:     a.TableGroup,
+				Shard:          a.Shard,
+				Priority:       analysis.PriorityHigh,
+				Scope:          analysis.ScopeSinglePooler,
+				RecoveryAction: m.recoveryAction,
+				DetectedAt:     time.Now(),
+				Description:    "Replica replication is paused",
+			},
+		}
+	}
+	return nil
+}
+
+// TestProcessTableGroupProblems_DependencyEnforcement tests the full flow of
+// dependency enforcement from state → analysis → problem detection → recovery.
+func TestProcessTableGroupProblems_DependencyEnforcement(t *testing.T) {
+	// Setup
+	ctx := context.Background()
+	ts, _ := memorytopo.NewServerAndFactory(ctx, "cell1")
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
+	cfg := config.NewTestConfig(config.WithCell("cell1"))
+
+	// Create fake RPC client with responses for both primary and replica
+	fakeClient := &rpcclient.FakeClient{
+		StatusResponses: map[string]*multipoolermanagerdatapb.StatusResponse{
+			"multipooler-cell1-primary-pooler": {
+				Status: &multipoolermanagerdatapb.Status{
+					PoolerType: clustermetadatapb.PoolerType_PRIMARY,
+					PrimaryStatus: &multipoolermanagerdatapb.PrimaryStatus{
+						Lsn:   "0/DEADBEEF",
+						Ready: true,
+					},
+				},
+			},
+			"multipooler-cell1-replica-pooler": {
+				Status: &multipoolermanagerdatapb.Status{
+					PoolerType: clustermetadatapb.PoolerType_REPLICA,
+					ReplicationStatus: &multipoolermanagerdatapb.StandbyReplicationStatus{
+						LastReplayLsn:           "0/DEADBEEF",
+						LastReceiveLsn:          "0/DEADBEEF",
+						IsWalReplayPaused:       true, // Replication is paused
+						WalReplayPauseState:     "paused",
+						Lag:                     durationpb.New(0),
+						LastXactReplayTimestamp: "",
+						PrimaryConnInfo: &multipoolermanagerdatapb.PrimaryConnInfo{
+							Host: "primary-host",
+							Port: 5432,
+						},
+					},
+				},
+			},
+		},
+	}
+
+	engine := NewEngine(ts, logger, cfg, []config.WatchTarget{}, fakeClient)
+
+	primaryID := &clustermetadatapb.ID{
+		Component: clustermetadatapb.ID_MULTIPOOLER,
+		Cell:      "cell1",
+		Name:      "primary-pooler",
+	}
+
+	replicaID := &clustermetadatapb.ID{
+		Component: clustermetadatapb.ID_MULTIPOOLER,
+		Cell:      "cell1",
+		Name:      "replica-pooler",
+	}
+
+	// Create recovery actions
+	primaryRecovery := &mockRecoveryAction{
+		name:                   "EmergencyFailover",
+		priority:               analysis.PriorityEmergency,
+		timeout:                30 * time.Second,
+		requiresHealthyPrimary: false,
+		metadata: analysis.RecoveryMetadata{
+			Name:    "EmergencyFailover",
+			Timeout: 30 * time.Second,
+		},
+	}
+
+	replicaRecovery := &mockRecoveryAction{
+		name:                   "FixReplication",
+		priority:               analysis.PriorityHigh,
+		timeout:                10 * time.Second,
+		requiresHealthyPrimary: true, // Requires healthy primary!
+		metadata: analysis.RecoveryMetadata{
+			Name:    "FixReplication",
+			Timeout: 10 * time.Second,
+		},
+	}
+
+	// Create mock analyzers
+	primaryDeadAnalyzer := &mockPrimaryDeadAnalyzer{recoveryAction: primaryRecovery}
+	replicaNotReplicatingAnalyzer := &mockReplicaNotReplicatingAnalyzer{recoveryAction: replicaRecovery}
+
+	t.Run("skips replica recovery when primary is dead", func(t *testing.T) {
+		// Reset execution flags
+		primaryRecovery.executed = false
+		replicaRecovery.executed = false
+
+		// Setup test analyzers
+		analysis.SetTestAnalyzers([]analysis.Analyzer{
+			primaryDeadAnalyzer,
+			replicaNotReplicatingAnalyzer,
+		})
+		t.Cleanup(analysis.ResetAnalyzers)
+
+		// Set up store state: dead primary, replica with replication stopped
+		engine.poolerStore.Set("multipooler-cell1-primary-pooler", &store.PoolerHealth{
+			MultiPooler: &clustermetadatapb.MultiPooler{
+				Id:         primaryID,
+				Database:   "db1",
+				TableGroup: "tg1",
+				Shard:      "0",
+				Type:       clustermetadatapb.PoolerType_PRIMARY,
+				Hostname:   "primary-host",
+			},
+			IsLastCheckValid: false, // Primary is dead (unreachable)
+			IsUpToDate:       true,
+			LastSeen:         time.Now(),
+		})
+
+		engine.poolerStore.Set("multipooler-cell1-replica-pooler", &store.PoolerHealth{
+			MultiPooler: &clustermetadatapb.MultiPooler{
+				Id:         replicaID,
+				Database:   "db1",
+				TableGroup: "tg1",
+				Shard:      "0",
+				Type:       clustermetadatapb.PoolerType_REPLICA,
+				Hostname:   "replica-host",
+			},
+			IsLastCheckValid:         true,
+			IsUpToDate:               true,
+			ReplicaIsWalReplayPaused: true, // Replication stopped
+			LastSeen:                 time.Now(),
+		})
+
+		// Generate analyses from the store
+		generator := analysis.NewAnalysisGenerator(engine.poolerStore)
+		analyses := generator.GenerateAnalyses()
+
+		// Run analyzers to detect problems
+		var problems []analysis.Problem
+		analyzers := analysis.DefaultAnalyzers()
+		for _, poolerAnalysis := range analyses {
+			for _, analyzer := range analyzers {
+				detectedProblems := analyzer.Analyze(poolerAnalysis)
+				problems = append(problems, detectedProblems...)
+			}
+		}
+
+		// Should detect both problems
+		require.Len(t, problems, 2, "should detect both primary dead and replica not replicating")
+
+		tgKey := TableGroupKey{Database: "db1", TableGroup: "tg1", Shard: "0"}
+
+		// Call processTableGroupProblems - this exercises the full recovery flow
+		engine.processTableGroupProblems(tgKey, problems, generator)
+
+		// ASSERTION: Replica recovery should be SKIPPED due to dependency check
+		assert.False(t, replicaRecovery.executed,
+			"replica recovery requiring healthy primary should be skipped when primary is dead")
+
+		// Primary recovery should have been attempted (though it will fail validation
+		// since we can't actually poll the dead primary)
+		// The key point is that replica recovery was skipped BEFORE validation
+	})
+
+	t.Run("allows replica recovery when primary is healthy", func(t *testing.T) {
+		// Reset execution flags
+		replicaRecovery.executed = false
+
+		// Setup test analyzers (only replica analyzer this time)
+		analysis.SetTestAnalyzers([]analysis.Analyzer{
+			replicaNotReplicatingAnalyzer,
+		})
+		t.Cleanup(analysis.ResetAnalyzers)
+
+		// Set up store state: healthy primary, replica with replication stopped
+		engine.poolerStore.Set("multipooler-cell1-primary-pooler", &store.PoolerHealth{
+			MultiPooler: &clustermetadatapb.MultiPooler{
+				Id:         primaryID,
+				Database:   "db1",
+				TableGroup: "tg1",
+				Shard:      "0",
+				Type:       clustermetadatapb.PoolerType_PRIMARY,
+				Hostname:   "primary-host",
+			},
+			IsLastCheckValid: true, // Primary is healthy
+			IsUpToDate:       true,
+			LastSeen:         time.Now(),
+		})
+
+		engine.poolerStore.Set("multipooler-cell1-replica-pooler", &store.PoolerHealth{
+			MultiPooler: &clustermetadatapb.MultiPooler{
+				Id:         replicaID,
+				Database:   "db1",
+				TableGroup: "tg1",
+				Shard:      "0",
+				Type:       clustermetadatapb.PoolerType_REPLICA,
+				Hostname:   "replica-host",
+			},
+			IsLastCheckValid:         true,
+			IsUpToDate:               true,
+			ReplicaIsWalReplayPaused: true, // Replication stopped
+			LastSeen:                 time.Now(),
+		})
+
+		// Generate analyses from the store
+		generator := analysis.NewAnalysisGenerator(engine.poolerStore)
+		analyses := generator.GenerateAnalyses()
+
+		// Run analyzers to detect problems
+		var problems []analysis.Problem
+		analyzers := analysis.DefaultAnalyzers()
+		for _, poolerAnalysis := range analyses {
+			for _, analyzer := range analyzers {
+				detectedProblems := analyzer.Analyze(poolerAnalysis)
+				problems = append(problems, detectedProblems...)
+			}
+		}
+
+		// Should detect only replica problem
+		require.Len(t, problems, 1, "should detect only replica not replicating")
+		assert.Equal(t, analysis.ProblemReplicaNotReplicating, problems[0].Code)
+
+		tgKey := TableGroupKey{Database: "db1", TableGroup: "tg1", Shard: "0"}
+
+		// Call processTableGroupProblems
+		engine.processTableGroupProblems(tgKey, problems, generator)
+
+		// ASSERTION: Replica recovery should be executed (NOT skipped)
+		// It will still fail validation since the mock analyzer won't re-detect it,
+		// but the key is it wasn't skipped by the dependency check
+		assert.True(t, replicaRecovery.executed,
+			"replica recovery should be executed when primary is healthy")
+	})
 }

@@ -27,8 +27,27 @@ type Analyzer interface {
 	Analyze(analysis *store.ReplicationAnalysis) []Problem
 }
 
-// DefaultAnalyzers returns the default set of analyzers to run.
+// defaultAnalyzers holds the global list of analyzers.
+// Can be overridden for testing via SetTestAnalyzers.
+var defaultAnalyzers []Analyzer
+
+// DefaultAnalyzers returns the current set of analyzers to run.
 func DefaultAnalyzers() []Analyzer {
-	// TODO: Implement actual analyzers
-	return []Analyzer{}
+	if defaultAnalyzers == nil {
+		// TODO: Implement actual analyzers
+		return []Analyzer{}
+	}
+	return defaultAnalyzers
+}
+
+// SetTestAnalyzers overrides the default analyzers for testing.
+// This should only be called from tests.
+func SetTestAnalyzers(analyzers []Analyzer) {
+	defaultAnalyzers = analyzers
+}
+
+// ResetAnalyzers resets the analyzers to the default (empty) state.
+// This should be called in test cleanup.
+func ResetAnalyzers() {
+	defaultAnalyzers = nil
 }

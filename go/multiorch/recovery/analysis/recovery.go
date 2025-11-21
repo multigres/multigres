@@ -30,6 +30,12 @@ type RecoveryAction interface {
 	// RequiresLock indicates if tablegroup lock is needed.
 	RequiresLock() bool
 
+	// RequiresHealthyPrimary indicates if this recovery requires a healthy primary.
+	// If true, the recovery will be skipped when the primary is unhealthy.
+	// This provides an extra guardrail to avoid accidental operations on replicas
+	// when the cluster is not healthy (e.g., can't fix replica replication if primary is dead).
+	RequiresHealthyPrimary() bool
+
 	// Priority returns the priority of this recovery action.
 	// Higher priority actions are attempted first.
 	Priority() Priority
