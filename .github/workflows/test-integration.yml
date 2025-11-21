@@ -68,11 +68,7 @@ jobs:
       - name: Install etcd binary
         run: |
           set -euo pipefail
-          echo "Downloading etcd binary..."
-          tools/safe_download.sh \
-            https://github.com/etcd-io/etcd/releases/download/v3.5.0/etcd-v3.5.0-linux-amd64.tar.gz \
-            etcd.tar.gz \
-            864baa0437f8368e0713d44b83afe21dce1fb4ee7dae4ca0f9dd5f0df22d01c4
+          tools/download_tool.sh etcd v3.5.0 linux-amd64 etcd.tar.gz
           echo "Extracting etcd binary..."
           tar xzf etcd.tar.gz
           sudo cp etcd-v3.5.0-linux-amd64/etcd /usr/local/bin/
