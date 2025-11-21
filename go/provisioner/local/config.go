@@ -62,9 +62,10 @@ type LocalProvisionerConfig struct {
 
 // EtcdConfig holds etcd service configuration
 type EtcdConfig struct {
-	Version string `yaml:"version"`
-	DataDir string `yaml:"data-dir"`
-	Port    int    `yaml:"port"`
+	Version  string `yaml:"version"`
+	DataDir  string `yaml:"data-dir"`
+	Port     int    `yaml:"port"`                // Client port
+	PeerPort int    `yaml:"peer-port,omitempty"` // Optional peer port, defaults to Port+1
 }
 
 // MultigatewayConfig holds multigateway service configuration

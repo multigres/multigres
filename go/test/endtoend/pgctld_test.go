@@ -146,9 +146,9 @@ timeout: 30
 	require.NoError(t, err)
 
 	t.Run("grpc_server_with_real_postgresql", func(t *testing.T) {
-		// Generate random ports for this test
-		grpcPort := testutil.GenerateRandomPort()
-		pgPort := testutil.GenerateRandomPort()
+		// Get free ports for this test
+		grpcPort := utils.GetFreePort(t)
+		pgPort := utils.GetFreePort(t)
 		t.Logf("gRPC test using ports - gRPC: %d, PostgreSQL: %d", grpcPort, pgPort)
 
 		// Start gRPC server in background
@@ -226,8 +226,8 @@ timeout: 30
 
 	// Use cached pgctld binary for testing
 
-	// Generate random port for these tests (shared across subtests since they share the same dataDir)
-	perfTestPort := testutil.GenerateRandomPort()
+	// Get free port for these tests (shared across subtests since they share the same dataDir)
+	perfTestPort := utils.GetFreePort(t)
 
 	t.Run("startup_performance", func(t *testing.T) {
 		t.Logf("Performance test using port: %d", perfTestPort)
@@ -321,8 +321,8 @@ timeout: 30
 	// Use cached pgctld binary for testing
 
 	t.Run("version_compatibility", func(t *testing.T) {
-		// Generate random port for this test
-		testPort := testutil.GenerateRandomPort()
+		// Get free port for this test
+		testPort := utils.GetFreePort(t)
 		t.Logf("Using port: %d", testPort)
 
 		// Check PostgreSQL version compatibility
@@ -388,8 +388,8 @@ timeout: 30
 `), 0o644)
 	require.NoError(t, err)
 
-	// Generate random port for this test
-	testPort := testutil.GenerateRandomPort()
+	// Get free port for this test
+	testPort := utils.GetFreePort(t)
 	t.Logf("Using port: %d", testPort)
 
 	// Initialize database
@@ -485,7 +485,7 @@ func TestPostgreSQLAuthentication(t *testing.T) {
 		// Use cached pgctld binary for testing
 
 		// Get available port for PostgreSQL
-		port := testutil.GenerateRandomPort()
+		port := utils.GetFreePort(t)
 		t.Logf("Authentication test using port: %d", port)
 
 		// Test password
@@ -623,7 +623,7 @@ func TestPostgreSQLAuthentication(t *testing.T) {
 		// Use cached pgctld binary for testing
 
 		// Get available port for PostgreSQL
-		port := testutil.GenerateRandomPort()
+		port := utils.GetFreePort(t)
 		t.Logf("Password file test using port: %d", port)
 
 		// Test password
@@ -1079,8 +1079,8 @@ func TestOrphanDetectionWithRealPostgreSQL(t *testing.T) {
 	err := os.WriteFile(pgctldConfigFile, []byte("log-level: info\ntimeout: 30\n"), 0o644)
 	require.NoError(t, err)
 
-	grpcPort := testutil.GenerateRandomPort()
-	pgPort := testutil.GenerateRandomPort()
+	grpcPort := utils.GetFreePort(t)
+	pgPort := utils.GetFreePort(t)
 
 	// Initialize data directory
 	initCmd := exec.Command("pgctld", "init", "--pooler-dir", dataDir, "--pg-port", strconv.Itoa(pgPort), "--config-file", pgctldConfigFile)
