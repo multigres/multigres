@@ -49,11 +49,7 @@ get_sha256() {
     ;;
   "etcd")
     case "$version-$platform-$arch-$ext" in
-    # v3.5.0 checksums (used in CI)
-    "v3.5.0-linux-amd64-tar.gz")
-      echo "864baa0437f8368e0713d44b83afe21dce1fb4ee7dae4ca0f9dd5f0df22d01c4"
-      ;;
-    # v3.6.4 checksums (used in local dev via setup_build_tools.sh)
+    # v3.6.4 checksums
     "v3.6.4-linux-amd64-tar.gz")
       echo "4d5f3101daa534e45ccaf3eec8d21c19b7222db377bcfd5e5a9144155238c105"
       ;;
