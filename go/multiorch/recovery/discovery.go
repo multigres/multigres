@@ -220,7 +220,7 @@ func (re *Engine) forceHealthCheckShardPoolers(ctx context.Context, database, ta
 		ignoreMap[id] = true
 	}
 
-	// Step 1: Collect poolers to poll (can't poll inside Range due to lock contention)
+	// Collect poolers to poll (can't poll inside Range due to lock contention)
 	type poolerToPoll struct {
 		id     *clustermetadatapb.ID
 		health *store.PoolerHealth
@@ -254,7 +254,7 @@ func (re *Engine) forceHealthCheckShardPoolers(ctx context.Context, database, ta
 		return true // continue
 	})
 
-	// Step 2: Poll the collected poolers (outside the Range lock)
+	// Poll the collected poolers (outside the Range lock)
 	polledCount := 0
 	for _, p := range poolersToPoll {
 		pollCtx, cancel := context.WithTimeout(ctx, 10*time.Second)

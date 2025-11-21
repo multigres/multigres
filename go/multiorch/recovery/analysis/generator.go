@@ -51,10 +51,10 @@ func NewAnalysisGenerator(poolerStore *store.Store[string, *store.PoolerHealth])
 // GenerateAnalyses creates one ReplicationAnalysis per pooler in the store.
 // This examines the current state and computes derived fields.
 func (g *AnalysisGenerator) GenerateAnalyses() []*store.ReplicationAnalysis {
-	// Step 1: Build structured map - iterate store ONCE
+	// Build structured map - iterate store ONCE
 	poolersByTG := g.buildPoolersByTableGroup()
 
-	// Step 2: Generate analyses for all poolers
+	// Generate analyses for all poolers
 	analyses := []*store.ReplicationAnalysis{}
 
 	for database, tableGroups := range poolersByTG {

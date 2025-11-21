@@ -152,7 +152,7 @@ func (re *Engine) smartFilterProblems(problems []analysis.Problem) []analysis.Pr
 		return problems
 	}
 
-	// Step 1: Check if there are any cluster-wide problems
+	// Check if there are any cluster-wide problems
 	var clusterWideProblems []analysis.Problem
 	for _, problem := range problems {
 		if problem.Scope == analysis.ScopeClusterWide {
@@ -172,7 +172,7 @@ func (re *Engine) smartFilterProblems(problems []analysis.Problem) []analysis.Pr
 		return []analysis.Problem{clusterWideProblems[0]}
 	}
 
-	// Step 2: No cluster-wide problems, so deduplicate by pooler ID
+	// No cluster-wide problems, so deduplicate by pooler ID
 	// Keep only the highest priority problem per pooler
 	seenPoolers := make(map[string]bool)
 	filtered := []analysis.Problem{}
@@ -208,7 +208,7 @@ func (re *Engine) attemptRecovery(problem analysis.Problem, generator *analysis.
 		"description", problem.Description,
 	)
 
-	// Step 1: Force re-poll to validate the problem still exists
+	// Force re-poll to validate the problem still exists
 	stillExists, err := re.validateProblemStillExists(problem, generator)
 	if err != nil {
 		re.logger.WarnContext(re.ctx, "failed to validate problem, skipping recovery",
@@ -226,13 +226,13 @@ func (re *Engine) attemptRecovery(problem analysis.Problem, generator *analysis.
 		return
 	}
 
-	// Step 2: Acquire lock if needed
+	// Acquire lock if needed
 	if problem.RecoveryAction.RequiresLock() {
-		// TODO: Implement tablegroup locking
+		// TODO: Implement shard locking
 		re.logger.DebugContext(re.ctx, "recovery action requires lock", "problem_code", problem.Code)
 	}
 
-	// Step 3: Execute recovery action
+	// Execute recovery action
 	ctx, cancel := context.WithTimeout(re.ctx, problem.RecoveryAction.Metadata().Timeout)
 	defer cancel()
 
@@ -253,7 +253,7 @@ func (re *Engine) attemptRecovery(problem analysis.Problem, generator *analysis.
 	)
 	// TODO: Record success in metrics
 
-	// Step 4: Post-recovery refresh
+	// Post-recovery refresh
 	// If we ran a cluster-wide recovery, force refresh all poolers in the shard
 	// to ensure they have up-to-date state and prevent re-queueing the same problem.
 	if problem.Scope == analysis.ScopeClusterWide {
@@ -287,12 +287,12 @@ func (re *Engine) validateProblemStillExists(problem analysis.Problem, generator
 	ctx, cancel := context.WithTimeout(re.ctx, 30*time.Second)
 	defer cancel()
 
-	// Step 1: Refresh metadata for the shard
+	// Refresh metadata for the shard
 	if err := re.refreshShardMetadata(ctx, problem.Database, problem.TableGroup, problem.Shard, nil); err != nil {
 		return false, fmt.Errorf("failed to refresh shard metadata: %w", err)
 	}
 
-	// Step 2: Force re-poll poolers based on scope
+	// Force re-poll poolers based on scope
 	if isClusterWide {
 		// Cluster-wide: refresh all poolers in shard except the dead one
 		var poolersToIgnore []string
@@ -318,13 +318,13 @@ func (re *Engine) validateProblemStillExists(problem analysis.Problem, generator
 		}
 	}
 
-	// Step 3: Re-generate analysis for this specific pooler using updated store data
+	// Re-generate analysis for this specific pooler using updated store data
 	poolerAnalysis, err := generator.GenerateAnalysisForPooler(poolerIDStr)
 	if err != nil {
 		return false, fmt.Errorf("failed to generate analysis after re-poll: %w", err)
 	}
 
-	// Step 4: Re-run the analyzer that originally detected this problem
+	// Re-run the analyzer that originally detected this problem
 	analyzers := analysis.DefaultAnalyzers()
 	for _, analyzer := range analyzers {
 		if analyzer.Name() == problem.CheckName {
