@@ -122,30 +122,36 @@ func (pm *MultiPoolerManager) RestoreFromBackup(ctx context.Context, backupID st
 	poolerDir := filepath.Dir(configPath)
 	pgDataDir := filepath.Join(poolerDir, "pg_data")
 
-	// Check if PostgreSQL is initialized by looking for PG_VERSION file
-	pgVersionPath := filepath.Join(pgDataDir, "PG_VERSION")
-	_, err := os.Stat(pgVersionPath)
-	uninitialized := os.IsNotExist(err)
+	// Check if PostgreSQL is initialized using the existing method
+	initialized := pm.isInitialized()
 
-	// Check whether asStandby matches the current state of the pooler
+	// Only allow restoring as standby for now. Restoring as primary or onto running
+	// primaries could be dangerous and is not currently supported.
+	if !asStandby {
+		return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT,
+			"only restoring as standby is currently supported (as_standby must be true)")
+	}
+
+	// If PostgreSQL is already initialized, verify it's safe to restore
 	var isPrimary bool
-	if !uninitialized {
-		slog.InfoContext(ctx, "PostgreSQL not initialized - treating as new initialization", "pg_data_dir", pgDataDir)
+	var err error
+	if initialized {
+		slog.InfoContext(ctx, "PostgreSQL already initialized - checking if restore is safe", "pg_data_dir", pgDataDir)
 
-		// Check current recovery status to validate the restore request
-		// If PostgreSQL isn't running (uninitialized state), we can restore as requested
-		slog.InfoContext(ctx, "Checking recovery status before restore")
+		// Check current recovery status
 		isPrimary, err = pm.isPrimary(ctx)
 		if err != nil {
 			slog.ErrorContext(ctx, "Failed to check recovery status before restore", "error", err, "pg_data_dir", pgDataDir)
 			return mterrors.Wrap(err, "failed to check recovery status")
 		}
 
-		currentIsStandby := !isPrimary
-		if asStandby != currentIsStandby {
+		// Block restores onto running primaries - this could cause data loss
+		if isPrimary {
 			return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
-				fmt.Sprintf("cannot restore as_standby=%v when current state is standby=%v (use RestoreFromBackup with matching as_standby parameter)", asStandby, currentIsStandby))
+				"cannot restore backup onto a running primary (this could cause data loss)")
 		}
+	} else {
+		slog.InfoContext(ctx, "PostgreSQL not initialized - treating as new initialization", "pg_data_dir", pgDataDir)
 	}
 
 	// If this is a standby, get the current primary connection info
@@ -153,7 +159,7 @@ func (pm *MultiPoolerManager) RestoreFromBackup(ctx context.Context, backupID st
 	// Skip this for uninitialized databases - they don't have replication info yet
 	var primaryHost string
 	var primaryPort int32
-	if asStandby && !uninitialized {
+	if asStandby && initialized {
 		replStatus, err := pm.StandbyReplicationStatus(ctx)
 		if err != nil {
 			slog.ErrorContext(ctx, "Failed to get replication status", "error", err)
@@ -174,23 +180,33 @@ func (pm *MultiPoolerManager) RestoreFromBackup(ctx context.Context, backupID st
 		"backup_id", backupID)
 
 	// Validate required parameters
-	if err := validateRestoreParams(pgctldClient, configPath, stanzaName, pgDataDir, asStandby, uninitialized, primaryHost, primaryPort); err != nil {
-		return err
+	if pgctldClient == nil {
+		return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "pgctld_client is required")
+	}
+	if configPath == "" {
+		return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "config_path is required")
+	}
+	if stanzaName == "" {
+		return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "stanza_name is required")
+	}
+	if pgDataDir == "" {
+		return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "pg_data_dir is required")
+	}
+	// For uninitialized databases, we don't need primary connection info yet
+	if asStandby && initialized && (primaryHost == "" || primaryPort == 0) {
+		return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "primary_host and primary_port required when restoring as standby")
 	}
 
 	// Step 1: Close the pooler manager to release its stale database connection
 	// This must be done before stopping PostgreSQL to avoid stale connections
-	// Skip if PostgreSQL is uninitialized
-	if !uninitialized {
+	// Step 2: Stop PostgreSQL server
+	// Skip both steps if PostgreSQL is not initialized
+	if initialized {
 		slog.InfoContext(ctx, "Closing pooler manager before restore")
 		if err := pm.Close(); err != nil {
 			slog.WarnContext(ctx, "Failed to close pooler manager before restore", "error", err)
 			// Continue - we'll try to reconnect anyway after restore
 		}
-	}
-
-	// Step 2: Stop PostgreSQL server (skip if uninitialized)
-	if !uninitialized {
 		slog.InfoContext(ctx, "Stopping PostgreSQL before restore", "backup_id", backupID)
 		stopCtx, stopCancel := context.WithTimeout(ctx, 2*time.Minute)
 		defer stopCancel()
@@ -239,7 +255,7 @@ func (pm *MultiPoolerManager) RestoreFromBackup(ctx context.Context, backupID st
 	// This is needed when pgbackrest restore overwrites postgresql.auto.conf, removing replication
 	// settings. For uninitialized databases, we skip this step since the primary connection
 	// will be configured later by the orchestrator or test setup.
-	if asStandby && !uninitialized && primaryHost != "" && primaryPort != 0 {
+	if asStandby && initialized && primaryHost != "" && primaryPort != 0 {
 		autoConfPath := filepath.Join(pgDataDir, "postgresql.auto.conf")
 		slog.InfoContext(ctx, "Restoring primary_conninfo to postgresql.auto.conf",
 			"path", autoConfPath,
@@ -266,7 +282,7 @@ func (pm *MultiPoolerManager) RestoreFromBackup(ctx context.Context, backupID st
 		}
 
 		slog.InfoContext(ctx, "Successfully restored primary_conninfo to postgresql.auto.conf")
-	} else if asStandby && uninitialized {
+	} else if asStandby && !initialized {
 		slog.InfoContext(ctx, "Skipping primary_conninfo restore for uninitialized standby - will be configured later")
 	}
 
@@ -456,27 +472,6 @@ func (pm *MultiPoolerManager) validateBackupParams(backupType, configPath, stanz
 	}
 
 	return pgBackRestType, nil
-}
-
-// validateRestoreParams validates the parameters required for a restore operation
-func validateRestoreParams(pgctldClient pgctldpb.PgCtldClient, configPath, stanzaName, pgDataDir string, asStandby, isUninitialized bool, primaryHost string, primaryPort int32) error {
-	if pgctldClient == nil {
-		return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "pgctld_client is required")
-	}
-	if configPath == "" {
-		return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "config_path is required")
-	}
-	if stanzaName == "" {
-		return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "stanza_name is required")
-	}
-	if pgDataDir == "" {
-		return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "pg_data_dir is required")
-	}
-	// For uninitialized databases, we don't need primary connection info yet
-	if asStandby && !isUninitialized && (primaryHost == "" || primaryPort == 0) {
-		return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "primary_host and primary_port required when restoring as standby")
-	}
-	return nil
 }
 
 // safeCombinedOutput executes a command and streams its output to avoid blocking.
