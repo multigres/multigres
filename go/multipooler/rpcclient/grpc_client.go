@@ -17,10 +17,10 @@ package rpcclient
 import (
 	"context"
 
-	"github.com/multigres/multigres/go/netutil"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	consensusdatapb "github.com/multigres/multigres/go/pb/consensusdata"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
+	"github.com/multigres/multigres/go/tools/netutil"
 )
 
 // Client implements MultiPoolerClient using gRPC with cached persistent connections.

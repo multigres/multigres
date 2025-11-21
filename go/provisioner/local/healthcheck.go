@@ -25,8 +25,8 @@ import (
 
 	"google.golang.org/grpc"
 
-	"github.com/multigres/multigres/go/grpccommon"
 	pb "github.com/multigres/multigres/go/pb/pgctldservice"
+	"github.com/multigres/multigres/go/tools/grpccommon"
 	"github.com/multigres/multigres/go/tools/retry"
 
 	"go.opentelemetry.io/otel/attribute"

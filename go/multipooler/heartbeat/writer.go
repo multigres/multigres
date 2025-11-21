@@ -26,7 +26,7 @@ import (
 	"time"
 
 	"github.com/multigres/multigres/go/mterrors"
-	"github.com/multigres/multigres/go/timer"
+	"github.com/multigres/multigres/go/tools/timer"
 )
 
 // Make these modifiable for testing.
