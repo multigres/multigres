@@ -25,8 +25,7 @@ import (
 	"github.com/multigres/multigres/go/clustermetadata/topo/memorytopo"
 	"github.com/multigres/multigres/go/multiorch/config"
 	"github.com/multigres/multigres/go/multiorch/recovery/analysis"
-	"github.com/multigres/multigres/go/multiorch/store"
-	"github.com/multigres/multigres/go/viperutil"
+	"github.com/multigres/multigres/go/multipooler/rpcclient"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -72,7 +71,11 @@ func (m *mockRecoveryAction) Priority() analysis.Priority {
 }
 
 func TestGroupProblemsByTableGroup(t *testing.T) {
-	engine := &Engine{}
+	ctx := context.Background()
+	ts, _ := memorytopo.NewServerAndFactory(ctx, "cell1")
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
+	cfg := config.NewTestConfig(config.WithCell("cell1"))
+	engine := NewEngine(ts, logger, cfg, []config.WatchTarget{}, &rpcclient.FakeClient{})
 
 	poolerID1 := &clustermetadatapb.ID{
 		Component: clustermetadatapb.ID_MULTIPOOLER,
@@ -130,59 +133,7 @@ func TestGroupProblemsByTableGroup(t *testing.T) {
 	assert.Len(t, grouped[key2], 1, "db2/tg2/0 should have 1 problem")
 }
 
-func TestDeduplicateByCode(t *testing.T) {
-	engine := &Engine{}
-
-	poolerID := &clustermetadatapb.ID{
-		Component: clustermetadatapb.ID_MULTIPOOLER,
-		Cell:      "cell1",
-		Name:      "pooler1",
-	}
-
-	problems := []analysis.Problem{
-		{
-			Code:       analysis.ProblemPrimaryDead,
-			CheckName:  "DeadPrimaryCheck",
-			PoolerID:   poolerID,
-			Database:   "db1",
-			TableGroup: "tg1",
-			Shard:      "0",
-		},
-		{
-			Code:       analysis.ProblemPrimaryDead, // Duplicate code
-			CheckName:  "AnotherDeadPrimaryCheck",
-			PoolerID:   poolerID,
-			Database:   "db1",
-			TableGroup: "tg1",
-			Shard:      "0",
-		},
-		{
-			Code:       analysis.ProblemReplicaNotReplicating,
-			CheckName:  "ReplicationCheck",
-			PoolerID:   poolerID,
-			Database:   "db1",
-			TableGroup: "tg1",
-			Shard:      "0",
-		},
-	}
-
-	unique := engine.deduplicateByCode(problems)
-
-	require.Len(t, unique, 2, "should deduplicate to 2 unique problems")
-
-	// Verify we kept one of each code
-	codes := make(map[analysis.ProblemCode]bool)
-	for _, p := range unique {
-		codes[p.Code] = true
-	}
-
-	assert.True(t, codes[analysis.ProblemPrimaryDead])
-	assert.True(t, codes[analysis.ProblemReplicaNotReplicating])
-}
-
 func TestPrioritySorting(t *testing.T) {
-	engine := &Engine{}
-
 	poolerID1 := &clustermetadatapb.ID{
 		Component: clustermetadatapb.ID_MULTIPOOLER,
 		Cell:      "cell1",
@@ -228,24 +179,21 @@ func TestPrioritySorting(t *testing.T) {
 		},
 	}
 
-	// Deduplicate and sort (simulating what processTableGroupProblems does)
-	uniqueProblems := engine.deduplicateByCode(problems)
-
 	// Sort by priority (same logic as processTableGroupProblems)
-	sort.SliceStable(uniqueProblems, func(i, j int) bool {
-		return uniqueProblems[i].Priority > uniqueProblems[j].Priority
+	sort.SliceStable(problems, func(i, j int) bool {
+		return problems[i].Priority > problems[j].Priority
 	})
 
 	// Verify order: Emergency > High > Normal
-	require.Len(t, uniqueProblems, 3)
-	assert.Equal(t, analysis.PriorityEmergency, uniqueProblems[0].Priority)
-	assert.Equal(t, analysis.ProblemPrimaryDead, uniqueProblems[0].Code)
+	require.Len(t, problems, 3)
+	assert.Equal(t, analysis.PriorityEmergency, problems[0].Priority)
+	assert.Equal(t, analysis.ProblemPrimaryDead, problems[0].Code)
 
-	assert.Equal(t, analysis.PriorityHigh, uniqueProblems[1].Priority)
-	assert.Equal(t, analysis.ProblemReplicaNotReplicating, uniqueProblems[1].Code)
+	assert.Equal(t, analysis.PriorityHigh, problems[1].Priority)
+	assert.Equal(t, analysis.ProblemReplicaNotReplicating, problems[1].Code)
 
-	assert.Equal(t, analysis.PriorityNormal, uniqueProblems[2].Priority)
-	assert.Equal(t, analysis.ProblemCode("ConfigurationDrift"), uniqueProblems[2].Code)
+	assert.Equal(t, analysis.PriorityNormal, problems[2].Priority)
+	assert.Equal(t, analysis.ProblemCode("ConfigurationDrift"), problems[2].Code)
 }
 
 func TestTableGroupKey(t *testing.T) {
@@ -280,39 +228,12 @@ func TestTableGroupKey(t *testing.T) {
 	assert.Len(t, m, 2, "should have 2 unique keys")
 }
 
-func TestDeduplicateByCode_PreservesFirstOccurrence(t *testing.T) {
-	engine := &Engine{}
-
-	poolerID := &clustermetadatapb.ID{
-		Component: clustermetadatapb.ID_MULTIPOOLER,
-		Cell:      "cell1",
-		Name:      "pooler1",
-	}
-
-	problems := []analysis.Problem{
-		{
-			Code:        analysis.ProblemPrimaryDead,
-			CheckName:   "FirstCheck",
-			PoolerID:    poolerID,
-			Description: "First detection",
-		},
-		{
-			Code:        analysis.ProblemPrimaryDead,
-			CheckName:   "SecondCheck",
-			PoolerID:    poolerID,
-			Description: "Second detection",
-		},
-	}
-
-	unique := engine.deduplicateByCode(problems)
-
-	require.Len(t, unique, 1)
-	assert.Equal(t, analysis.CheckName("FirstCheck"), unique[0].CheckName, "should preserve first occurrence")
-	assert.Equal(t, "First detection", unique[0].Description, "should preserve first occurrence")
-}
-
 func TestGroupProblemsByTableGroup_DifferentShards(t *testing.T) {
-	engine := &Engine{}
+	ctx := context.Background()
+	ts, _ := memorytopo.NewServerAndFactory(ctx, "cell1")
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
+	cfg := config.NewTestConfig(config.WithCell("cell1"))
+	engine := NewEngine(ts, logger, cfg, []config.WatchTarget{}, &rpcclient.FakeClient{})
 
 	poolerID1 := &clustermetadatapb.ID{
 		Component: clustermetadatapb.ID_MULTIPOOLER,
@@ -358,24 +279,11 @@ func TestGroupProblemsByTableGroup_DifferentShards(t *testing.T) {
 // TestValidateProblemStillExists_PoolerNotFound tests error handling when
 // the pooler is not found in the store.
 func TestValidateProblemStillExists_PoolerNotFound(t *testing.T) {
-	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
-	reg := viperutil.NewRegistry()
-	cfg := config.NewConfig(reg)
-
-	poolerStore := store.NewStore[string, *store.PoolerHealth]()
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	// Create in-memory topology service
+	ctx := context.Background()
 	ts, _ := memorytopo.NewServerAndFactory(ctx, "cell1")
-
-	engine := &Engine{
-		ts:          ts,
-		logger:      logger,
-		config:      cfg,
-		poolerStore: poolerStore,
-		ctx:         ctx,
-	}
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
+	cfg := config.NewTestConfig(config.WithCell("cell1"))
+	engine := NewEngine(ts, logger, cfg, []config.WatchTarget{}, &rpcclient.FakeClient{})
 
 	poolerID := &clustermetadatapb.ID{
 		Component: clustermetadatapb.ID_MULTIPOOLER,
@@ -384,7 +292,7 @@ func TestValidateProblemStillExists_PoolerNotFound(t *testing.T) {
 	}
 
 	// Create generator with empty store
-	generator := analysis.NewAnalysisGenerator(poolerStore)
+	generator := analysis.NewAnalysisGenerator(engine.poolerStore)
 
 	// Create problem
 	problem := analysis.Problem{
@@ -407,14 +315,11 @@ func TestValidateProblemStillExists_PoolerNotFound(t *testing.T) {
 // TestSmartFilterProblems_ClusterWideOnly tests that when cluster-wide problems exist,
 // only the highest priority cluster-wide problem is returned.
 func TestSmartFilterProblems_ClusterWideOnly(t *testing.T) {
+	ctx := context.Background()
+	ts, _ := memorytopo.NewServerAndFactory(ctx, "cell1")
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	engine := &Engine{
-		logger: logger,
-		ctx:    ctx,
-	}
+	cfg := config.NewTestConfig(config.WithCell("cell1"))
+	engine := NewEngine(ts, logger, cfg, []config.WatchTarget{}, &rpcclient.FakeClient{})
 
 	poolerID1 := &clustermetadatapb.ID{
 		Component: clustermetadatapb.ID_MULTIPOOLER,
@@ -477,14 +382,11 @@ func TestSmartFilterProblems_ClusterWideOnly(t *testing.T) {
 // TestSmartFilterProblems_NoClusterWide tests deduplication by pooler ID
 // when there are no cluster-wide problems.
 func TestSmartFilterProblems_NoClusterWide(t *testing.T) {
+	ctx := context.Background()
+	ts, _ := memorytopo.NewServerAndFactory(ctx, "cell1")
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	engine := &Engine{
-		logger: logger,
-		ctx:    ctx,
-	}
+	cfg := config.NewTestConfig(config.WithCell("cell1"))
+	engine := NewEngine(ts, logger, cfg, []config.WatchTarget{}, &rpcclient.FakeClient{})
 
 	poolerID1 := &clustermetadatapb.ID{
 		Component: clustermetadatapb.ID_MULTIPOOLER,
@@ -549,14 +451,11 @@ func TestSmartFilterProblems_NoClusterWide(t *testing.T) {
 // TestSmartFilterProblems_MultipleClusterWide tests that when multiple cluster-wide
 // problems exist, only the highest priority one is returned.
 func TestSmartFilterProblems_MultipleClusterWide(t *testing.T) {
+	ctx := context.Background()
+	ts, _ := memorytopo.NewServerAndFactory(ctx, "cell1")
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	engine := &Engine{
-		logger: logger,
-		ctx:    ctx,
-	}
+	cfg := config.NewTestConfig(config.WithCell("cell1"))
+	engine := NewEngine(ts, logger, cfg, []config.WatchTarget{}, &rpcclient.FakeClient{})
 
 	poolerID1 := &clustermetadatapb.ID{
 		Component: clustermetadatapb.ID_MULTIPOOLER,

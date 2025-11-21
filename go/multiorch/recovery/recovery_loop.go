@@ -109,42 +109,23 @@ func (re *Engine) processTableGroupProblems(tgKey TableGroupKey, problems []anal
 		"problem_count", len(problems),
 	)
 
-	// 1. Deduplicate by ProblemCode (multiple analyzers can detect same problem)
-	uniqueProblems := re.deduplicateByCode(problems)
-
-	// 2. Sort by priority (highest priority first)
-	sort.SliceStable(uniqueProblems, func(i, j int) bool {
-		return uniqueProblems[i].Priority > uniqueProblems[j].Priority
+	// Sort by priority (highest priority first)
+	sort.SliceStable(problems, func(i, j int) bool {
+		return problems[i].Priority > problems[j].Priority
 	})
 
-	// 3. Apply smart deduplication logic
-	filteredProblems := re.smartFilterProblems(uniqueProblems)
+	// Apply smart deduplication logic
+	filteredProblems := re.smartFilterProblems(problems)
 
-	// 4. Attempt recoveries in priority order
+	// Attempt recoveries in priority order
 	for _, problem := range filteredProblems {
 		re.attemptRecovery(problem, generator)
 	}
 }
 
-// deduplicateByCode removes duplicate problems with the same ProblemCode.
-// If multiple analyzers detect the same problem, we only keep the first one.
-func (re *Engine) deduplicateByCode(problems []analysis.Problem) []analysis.Problem {
-	seen := make(map[analysis.ProblemCode]bool)
-	unique := []analysis.Problem{}
-
-	for _, problem := range problems {
-		if !seen[problem.Code] {
-			seen[problem.Code] = true
-			unique = append(unique, problem)
-		}
-	}
-
-	return unique
-}
-
 // smartFilterProblems applies intelligent filtering to the problem list:
-// 1. If there's a cluster-wide problem, return only the highest priority cluster-wide problem
-// 2. Otherwise, deduplicate by pooler ID, keeping only the highest priority problem per pooler
+// - If there's a cluster-wide problem, return only the highest priority cluster-wide problem
+// - Otherwise, deduplicate by pooler ID, keeping only the highest priority problem per pooler
 //
 // IMPORTANT: Input must already be sorted by priority (highest first).
 func (re *Engine) smartFilterProblems(problems []analysis.Problem) []analysis.Problem {
