@@ -45,7 +45,7 @@ func TestAnalysisGenerator_GenerateAnalyses_SinglePrimary(t *testing.T) {
 		Name:      "primary-1",
 	}
 
-	poolerStore.Set("cell1/multipooler/primary-1", &store.PoolerHealth{
+	poolerStore.Set("multipooler-cell1-primary-1", &store.PoolerHealth{
 		MultiPooler: &clustermetadatapb.MultiPooler{
 			Id:         primaryID,
 			Database:   "testdb",
@@ -97,7 +97,7 @@ func TestAnalysisGenerator_GenerateAnalyses_PrimaryWithReplicas(t *testing.T) {
 	}
 
 	// Add primary
-	poolerStore.Set("cell1/multipooler/primary-1", &store.PoolerHealth{
+	poolerStore.Set("multipooler-cell1-primary-1", &store.PoolerHealth{
 		MultiPooler: &clustermetadatapb.MultiPooler{
 			Id:         primaryID,
 			Database:   "testdb",
@@ -115,7 +115,7 @@ func TestAnalysisGenerator_GenerateAnalyses_PrimaryWithReplicas(t *testing.T) {
 	})
 
 	// Add replica 1 (replicating)
-	poolerStore.Set("cell1/multipooler/replica-1", &store.PoolerHealth{
+	poolerStore.Set("multipooler-cell1-replica-1", &store.PoolerHealth{
 		MultiPooler: &clustermetadatapb.MultiPooler{
 			Id:         replica1ID,
 			Database:   "testdb",
@@ -131,7 +131,7 @@ func TestAnalysisGenerator_GenerateAnalyses_PrimaryWithReplicas(t *testing.T) {
 	})
 
 	// Add replica 2 (lagging)
-	poolerStore.Set("cell1/multipooler/replica-2", &store.PoolerHealth{
+	poolerStore.Set("multipooler-cell1-replica-2", &store.PoolerHealth{
 		MultiPooler: &clustermetadatapb.MultiPooler{
 			Id:         replica2ID,
 			Database:   "testdb",
@@ -183,7 +183,7 @@ func TestAnalysisGenerator_GenerateAnalyses_Replica(t *testing.T) {
 	}
 
 	// Add primary
-	poolerStore.Set("cell1/multipooler/primary-1", &store.PoolerHealth{
+	poolerStore.Set("multipooler-cell1-primary-1", &store.PoolerHealth{
 		MultiPooler: &clustermetadatapb.MultiPooler{
 			Id:         primaryID,
 			Database:   "testdb",
@@ -197,7 +197,7 @@ func TestAnalysisGenerator_GenerateAnalyses_Replica(t *testing.T) {
 	})
 
 	// Add replica
-	poolerStore.Set("cell1/multipooler/replica-1", &store.PoolerHealth{
+	poolerStore.Set("multipooler-cell1-replica-1", &store.PoolerHealth{
 		MultiPooler: &clustermetadatapb.MultiPooler{
 			Id:         replicaID,
 			Database:   "testdb",
@@ -240,7 +240,7 @@ func TestAnalysisGenerator_GenerateAnalyses_MultipleTableGroups(t *testing.T) {
 	poolerStore := store.NewStore[string, *store.PoolerHealth]()
 
 	// Add poolers from two different table groups
-	poolerStore.Set("cell1/multipooler/tg1-primary", &store.PoolerHealth{
+	poolerStore.Set("multipooler-cell1-tg1-primary", &store.PoolerHealth{
 		MultiPooler: &clustermetadatapb.MultiPooler{
 			Id: &clustermetadatapb.ID{
 				Component: clustermetadatapb.ID_MULTIPOOLER,
@@ -257,7 +257,7 @@ func TestAnalysisGenerator_GenerateAnalyses_MultipleTableGroups(t *testing.T) {
 		LastSeen:         time.Now(),
 	})
 
-	poolerStore.Set("cell1/multipooler/tg2-primary", &store.PoolerHealth{
+	poolerStore.Set("multipooler-cell1-tg2-primary", &store.PoolerHealth{
 		MultiPooler: &clustermetadatapb.MultiPooler{
 			Id: &clustermetadatapb.ID{
 				Component: clustermetadatapb.ID_MULTIPOOLER,
