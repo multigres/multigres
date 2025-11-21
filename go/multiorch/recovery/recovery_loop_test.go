@@ -414,7 +414,7 @@ func TestSmartFilterProblems_NoClusterWide(t *testing.T) {
 			},
 		},
 		{
-			Code:     "ConfigDrift",
+			Code:     analysis.ProblemPrimaryMisconfigured,
 			PoolerID: poolerID1,
 			Priority: analysis.PriorityNormal,
 			Scope:    analysis.ScopeSinglePooler,
@@ -441,11 +441,10 @@ func TestSmartFilterProblems_NoClusterWide(t *testing.T) {
 	filtered := engine.smartFilterProblems(problems)
 
 	// Should keep only highest priority problem per pooler
-	// pooler1: keep ReplicaNotReplicating (High), drop ConfigDrift (Normal)
-	// pooler2: keep ReplicaLagging (only one)
-	require.Len(t, filtered, 2)
+	require.Len(t, filtered, 3)
 	assert.Equal(t, analysis.ProblemReplicaNotReplicating, filtered[0].Code)
-	assert.Equal(t, analysis.ProblemReplicaLagging, filtered[1].Code)
+	assert.Equal(t, analysis.ProblemPrimaryMisconfigured, filtered[1].Code)
+	assert.Equal(t, analysis.ProblemReplicaLagging, filtered[2].Code)
 }
 
 // TestSmartFilterProblems_MultipleClusterWide tests that when multiple cluster-wide

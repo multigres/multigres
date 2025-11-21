@@ -18,6 +18,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"sync"
 	"time"
 
 	"github.com/multigres/multigres/go/clustermetadata/topo"
@@ -47,18 +48,18 @@ func (re *Engine) runRecoveryLoop() {
 			return
 
 		case <-ticker.C:
-			re.performRecoveryCycle()
+			runIfNotRunning(re.logger, &re.recoveryLoopInProgress, "recovery_loop", re.performRecoveryCycle)
 		}
 	}
 }
 
 // performRecoveryCycle runs one cycle of problem detection and recovery.
 func (re *Engine) performRecoveryCycle() {
-	// 1. Create generator - this builds the poolersByTG map once
+	// Create generator - this builds the poolersByTG map once
 	generator := analysis.NewAnalysisGenerator(re.poolerStore)
 	analyses := generator.GenerateAnalyses()
 
-	// 2. Run all analyzers to detect problems
+	// Run all analyzers to detect problems
 	var problems []analysis.Problem
 	analyzers := analysis.DefaultAnalyzers()
 
@@ -75,13 +76,21 @@ func (re *Engine) performRecoveryCycle() {
 
 	re.logger.InfoContext(re.ctx, "problems detected", "count", len(problems))
 
-	// 3. Group problems by tablegroup
+	// Group problems by tablegroup
 	problemsByTableGroup := re.groupProblemsByTableGroup(problems)
 
-	// 4. Process each tablegroup independently, passing generator for efficient re-analysis
+	// Process each tablegroup independently in parallel
+	var wg sync.WaitGroup
 	for tgKey, tgProblems := range problemsByTableGroup {
-		re.processTableGroupProblems(tgKey, tgProblems, generator)
+		wg.Add(1)
+		go func(key TableGroupKey, problems []analysis.Problem) {
+			defer wg.Done()
+			// Create a new generator for this goroutine to avoid contention
+			tgGenerator := analysis.NewAnalysisGenerator(re.poolerStore)
+			re.processTableGroupProblems(key, problems, tgGenerator)
+		}(tgKey, tgProblems)
 	}
+	wg.Wait()
 }
 
 // groupProblemsByTableGroup groups problems by their tablegroup.
@@ -153,27 +162,8 @@ func (re *Engine) smartFilterProblems(problems []analysis.Problem) []analysis.Pr
 		return []analysis.Problem{clusterWideProblems[0]}
 	}
 
-	// No cluster-wide problems, so deduplicate by pooler ID
-	// Keep only the highest priority problem per pooler
-	seenPoolers := make(map[string]bool)
-	filtered := []analysis.Problem{}
-
-	for _, problem := range problems {
-		poolerID := topo.MultiPoolerIDString(problem.PoolerID)
-		if !seenPoolers[poolerID] {
-			seenPoolers[poolerID] = true
-			filtered = append(filtered, problem)
-		}
-	}
-
-	if len(filtered) < len(problems) {
-		re.logger.DebugContext(re.ctx, "filtered problems by pooler ID",
-			"original_count", len(problems),
-			"filtered_count", len(filtered),
-		)
-	}
-
-	return filtered
+	// No cluster-wide problems, keep them all.
+	return problems
 }
 
 // attemptRecovery attempts to recover from a single problem.
