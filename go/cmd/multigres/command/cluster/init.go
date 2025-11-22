@@ -19,17 +19,11 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/multigres/multigres/go/clustermetadata/topo"
 	"github.com/multigres/multigres/go/provisioner"
 
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 )
-
-// getAvailableTopoImplementations returns a list of registered topo implementations
-func getAvailableTopoImplementations() []string {
-	return topo.GetAvailableImplementations()
-}
 
 // getConfigPaths returns the list of config paths.
 func getConfigPaths(cmd *cobra.Command) ([]string, error) {

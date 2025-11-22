@@ -28,6 +28,7 @@ linters:
     - ineffassign
     - sloglint
     - staticcheck
+    - unused
   settings:
     depguard:
       rules:
@@ -107,6 +108,9 @@ linters:
       - linters:
           - errcheck
         path: ^proto/
+      - linters:
+          - unused
+        path: ^go/(parser|pgprotocol|tools/ruleguard)
 formatters:
   enable:
     - gofumpt

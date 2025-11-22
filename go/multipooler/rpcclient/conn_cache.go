@@ -18,7 +18,6 @@ package rpcclient
 
 import (
 	"context"
-	"fmt"
 	"io"
 	"sort"
 	"sync"
@@ -85,14 +84,6 @@ func (cc *ConnConfig) RegisterFlags(fs *pflag.FlagSet) {
 	fs.String("multipooler-grpc-server-name", cc.name.Default(), "the server name to use to validate multipooler server certificate (not yet implemented)")
 
 	viperutil.BindFlags(fs, cc.cert, cc.key, cc.ca, cc.crl, cc.name)
-}
-
-// validateTLSConfig checks if TLS is configured and returns an error if so (not yet implemented).
-func (cc *ConnConfig) validateTLSConfig() error {
-	if cc.cert.Get() != "" || cc.key.Get() != "" || cc.ca.Get() != "" || cc.crl.Get() != "" || cc.name.Get() != "" {
-		return fmt.Errorf("TLS configuration for multipooler RPC client is not yet implemented")
-	}
-	return nil
 }
 
 // closeFunc allows a standalone function to implement io.Closer, similar to
