@@ -29,8 +29,8 @@ import (
 	"github.com/multigres/multigres/go/tools/event"
 	"github.com/multigres/multigres/go/tools/netutil"
 	"github.com/multigres/multigres/go/tools/telemetry"
-	"github.com/multigres/multigres/go/viperutil"
-	viperdebug "github.com/multigres/multigres/go/viperutil/debug"
+	"github.com/multigres/multigres/go/tools/viperutil"
+	viperdebug "github.com/multigres/multigres/go/tools/viperutil/debug"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"

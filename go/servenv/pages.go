@@ -18,7 +18,7 @@ import (
 	"net/http"
 	"path"
 
-	viperdebug "github.com/multigres/multigres/go/viperutil/debug"
+	viperdebug "github.com/multigres/multigres/go/tools/viperutil/debug"
 	"github.com/multigres/multigres/go/web"
 )
 

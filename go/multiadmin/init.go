@@ -22,7 +22,7 @@ import (
 	"github.com/multigres/multigres/go/admin/server"
 	"github.com/multigres/multigres/go/clustermetadata/topo"
 	"github.com/multigres/multigres/go/servenv"
-	"github.com/multigres/multigres/go/viperutil"
+	"github.com/multigres/multigres/go/tools/viperutil"
 )
 
 type MultiAdmin struct {
