@@ -23,9 +23,9 @@ import (
 	"time"
 
 	"github.com/multigres/multigres/go/clustermetadata/topo"
+	"github.com/multigres/multigres/go/common/rpcclient"
 	"github.com/multigres/multigres/go/multiorch/config"
 	"github.com/multigres/multigres/go/multiorch/store"
-	"github.com/multigres/multigres/go/multipooler/rpcclient"
 )
 
 // runIfNotRunning executes fn in a goroutine only if inProgress flag is false.

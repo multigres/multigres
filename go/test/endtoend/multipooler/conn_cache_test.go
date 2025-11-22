@@ -27,7 +27,7 @@ import (
 	"golang.org/x/net/nettest"
 	"google.golang.org/grpc"
 
-	"github.com/multigres/multigres/go/multipooler/rpcclient"
+	"github.com/multigres/multigres/go/common/rpcclient"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	consensuspb "github.com/multigres/multigres/go/pb/consensus"
 	consensusdatapb "github.com/multigres/multigres/go/pb/consensusdata"
