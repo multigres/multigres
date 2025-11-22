@@ -26,11 +26,11 @@ import (
 	"time"
 
 	"github.com/multigres/multigres/go/common/mterrors"
+	viperdebug "github.com/multigres/multigres/go/servenv/viperdebug"
 	"github.com/multigres/multigres/go/tools/event"
 	"github.com/multigres/multigres/go/tools/netutil"
 	"github.com/multigres/multigres/go/tools/telemetry"
 	"github.com/multigres/multigres/go/tools/viperutil"
-	viperdebug "github.com/multigres/multigres/go/tools/viperutil/debug"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
