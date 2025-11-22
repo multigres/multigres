@@ -35,7 +35,6 @@ func TestGenerateConfig(t *testing.T) {
 			PgUser:        "postgres",
 			PgPassword:    "testpass",
 			PgDatabase:    "postgres",
-			RepoPath:      "/var/lib/pgbackrest",
 			LogPath:       "/var/log/pgbackrest",
 			RetentionFull: 2,
 		}
@@ -43,7 +42,6 @@ func TestGenerateConfig(t *testing.T) {
 		result := GenerateConfig(cfg)
 
 		assert.Contains(t, result, "[global]")
-		assert.Contains(t, result, "repo1-path=/var/lib/pgbackrest")
 		assert.Contains(t, result, "log-path=/var/log/pgbackrest")
 		assert.Contains(t, result, "[test-stanza]")
 		assert.Contains(t, result, "pg1-path=/var/lib/postgresql/data")
@@ -62,7 +60,6 @@ func TestGenerateConfig(t *testing.T) {
 			StanzaName:    "test-stanza",
 			PgDataPath:    "/var/lib/postgresql/data",
 			PgPort:        5432,
-			RepoPath:      "/var/lib/pgbackrest",
 			LogPath:       "/var/log/pgbackrest",
 			RetentionFull: 0,
 		}
@@ -77,7 +74,6 @@ func TestGenerateConfig(t *testing.T) {
 			StanzaName:    "test-stanza",
 			PgDataPath:    "/var/lib/postgresql/data",
 			PgPort:        5432,
-			RepoPath:      "/var/lib/pgbackrest",
 			LogPath:       "/var/log/pgbackrest",
 			RetentionFull: 1,
 			// PgHost, PgSocketDir, PgUser, PgPassword, PgDatabase, SpoolPath are empty
@@ -100,7 +96,6 @@ func TestGenerateConfig(t *testing.T) {
 			StanzaName:    "test-stanza",
 			PgDataPath:    "/var/lib/postgresql/data",
 			PgPort:        5432,
-			RepoPath:      "/var/lib/pgbackrest",
 			LogPath:       "/var/log/pgbackrest",
 			SpoolPath:     "/tmp/pgbackrest-spool",
 			RetentionFull: 1,
@@ -117,7 +112,6 @@ func TestGenerateConfig(t *testing.T) {
 			StanzaName:    "my-service",
 			PgDataPath:    "/data/pg",
 			PgPort:        5433,
-			RepoPath:      "/backups",
 			LogPath:       "/logs",
 			RetentionFull: 3,
 		}
@@ -148,7 +142,6 @@ func TestGenerateConfig(t *testing.T) {
 			PgDataPath:  "/data/pg",
 			PgPort:      5432,
 			PgSocketDir: "/var/run/postgresql",
-			RepoPath:    "/backups",
 			LogPath:     "/logs",
 		}
 
@@ -161,7 +154,6 @@ func TestGenerateConfig(t *testing.T) {
 			StanzaName: "test-port",
 			PgDataPath: "/data/pg",
 			PgPort:     5432,
-			RepoPath:   "/backups",
 			LogPath:    "/logs",
 		}
 
@@ -194,7 +186,6 @@ func TestGenerateConfig(t *testing.T) {
 					Database:  "postgres",
 				},
 			},
-			RepoPath:      "/backups",
 			LogPath:       "/logs",
 			RetentionFull: 2,
 		}
@@ -232,7 +223,6 @@ func TestWriteConfigFile(t *testing.T) {
 			StanzaName:    "test-stanza",
 			PgDataPath:    "/var/lib/postgresql/data",
 			PgPort:        5432,
-			RepoPath:      "/var/lib/pgbackrest",
 			LogPath:       "/var/log/pgbackrest",
 			RetentionFull: 2,
 		}
@@ -261,7 +251,6 @@ func TestWriteConfigFile(t *testing.T) {
 			StanzaName:    "stanza1",
 			PgDataPath:    "/data1",
 			PgPort:        5432,
-			RepoPath:      "/repo1",
 			LogPath:       "/log1",
 			RetentionFull: 1,
 		}
@@ -273,7 +262,6 @@ func TestWriteConfigFile(t *testing.T) {
 			StanzaName:    "stanza2",
 			PgDataPath:    "/data2",
 			PgPort:        5433,
-			RepoPath:      "/repo2",
 			LogPath:       "/log2",
 			RetentionFull: 3,
 		}
@@ -302,7 +290,6 @@ func TestWriteConfigFile(t *testing.T) {
 			StanzaName: "test",
 			PgDataPath: "/data",
 			PgPort:     5432,
-			RepoPath:   "/repo",
 			LogPath:    "/log",
 		}
 
@@ -317,20 +304,19 @@ func TestStanzaCreate(t *testing.T) {
 		// Create a temporary directory with a valid config file
 		tmpDir := t.TempDir()
 		configPath := filepath.Join(tmpDir, "pgbackrest.conf")
-		repoPath := filepath.Join(tmpDir, "repo")
 		logPath := filepath.Join(tmpDir, "log")
 		dataPath := filepath.Join(tmpDir, "data")
+		repoPath := filepath.Join(tmpDir, "repo")
 
 		// Create necessary directories
-		require.NoError(t, os.MkdirAll(repoPath, 0o755))
 		require.NoError(t, os.MkdirAll(logPath, 0o755))
 		require.NoError(t, os.MkdirAll(dataPath, 0o755))
+		require.NoError(t, os.MkdirAll(repoPath, 0o755))
 
 		cfg := Config{
 			StanzaName:    "test-stanza",
 			PgDataPath:    dataPath,
 			PgPort:        5432,
-			RepoPath:      repoPath,
 			LogPath:       logPath,
 			RetentionFull: 2,
 		}
@@ -342,7 +328,7 @@ func TestStanzaCreate(t *testing.T) {
 
 		// Note: This will fail if pgbackrest is not installed or if PostgreSQL is not running
 		// But the test will verify that the command is executed with the correct arguments
-		err = StanzaCreate(ctx, "test-stanza", configPath)
+		err = StanzaCreate(ctx, "test-stanza", configPath, repoPath)
 		// We expect an error because PostgreSQL is not running, but we can check
 		// that the error is from pgbackrest execution, not from our code
 		if err != nil {
@@ -355,12 +341,12 @@ func TestStanzaCreate(t *testing.T) {
 	t.Run("respects context timeout", func(t *testing.T) {
 		tmpDir := t.TempDir()
 		configPath := filepath.Join(tmpDir, "pgbackrest.conf")
+		repoPath := filepath.Join(tmpDir, "repo")
 
 		cfg := Config{
 			StanzaName:    "test-stanza",
 			PgDataPath:    "/nonexistent",
 			PgPort:        5432,
-			RepoPath:      "/nonexistent",
 			LogPath:       "/nonexistent",
 			RetentionFull: 2,
 		}
@@ -371,7 +357,7 @@ func TestStanzaCreate(t *testing.T) {
 		ctx := context.Background()
 
 		// The function creates its own timeout context internally
-		err = StanzaCreate(ctx, "test-stanza", configPath)
+		err = StanzaCreate(ctx, "test-stanza", configPath, repoPath)
 
 		// Should fail because pgbackrest command will fail
 		assert.Error(t, err)
@@ -380,7 +366,7 @@ func TestStanzaCreate(t *testing.T) {
 	t.Run("handles invalid config path", func(t *testing.T) {
 		ctx := context.Background()
 
-		err := StanzaCreate(ctx, "test-stanza", "/nonexistent/path/pgbackrest.conf")
+		err := StanzaCreate(ctx, "test-stanza", "/nonexistent/path/pgbackrest.conf", "/tmp/repo")
 
 		// Should fail because config file doesn't exist
 		assert.Error(t, err)
@@ -390,12 +376,12 @@ func TestStanzaCreate(t *testing.T) {
 	t.Run("handles empty stanza name", func(t *testing.T) {
 		tmpDir := t.TempDir()
 		configPath := filepath.Join(tmpDir, "pgbackrest.conf")
+		repoPath := filepath.Join(tmpDir, "repo")
 
 		cfg := Config{
 			StanzaName:    "test",
 			PgDataPath:    "/data",
 			PgPort:        5432,
-			RepoPath:      "/repo",
 			LogPath:       "/log",
 			RetentionFull: 2,
 		}
@@ -406,9 +392,23 @@ func TestStanzaCreate(t *testing.T) {
 		ctx := context.Background()
 
 		// Try with empty stanza name
-		err = StanzaCreate(ctx, "", configPath)
+		err = StanzaCreate(ctx, "", configPath, repoPath)
 
 		// Should fail - pgbackrest will reject empty stanza name
 		assert.Error(t, err)
 	})
+}
+
+func TestGenerateConfigWithoutRepoPath(t *testing.T) {
+	cfg := Config{
+		StanzaName: "test-stanza",
+		PgDataPath: "/var/lib/postgresql/data",
+		PgPort:     5432,
+		LogPath:    "/var/log/pgbackrest",
+	}
+
+	config := GenerateConfig(cfg)
+
+	// Verify repo1-path is NOT in the config
+	assert.NotContains(t, config, "repo1-path=")
 }

@@ -100,7 +100,8 @@ func (a *BootstrapShardAction) Execute(ctx context.Context, shardID string, data
 	a.logger.InfoContext(ctx, "Successfully initialized primary",
 		"shard", shardID,
 		"database", database,
-		"primary", candidate.ID.Name)
+		"primary", candidate.ID.Name,
+		"backup_id", resp.BackupId)
 
 	// Step 4: Create durability policy in the primary's database
 	quorumRule, err := a.parsePolicy(policyName)
@@ -135,7 +136,7 @@ func (a *BootstrapShardAction) Execute(ctx context.Context, shardID string, data
 		}
 	}
 
-	if err := a.initializeStandbys(ctx, shardID, candidate, standbys); err != nil {
+	if err := a.initializeStandbys(ctx, shardID, candidate, standbys, resp.BackupId); err != nil {
 		// Log but don't fail - we have a primary at least
 		a.logger.WarnContext(ctx, "Failed to initialize some standbys",
 			"shard", shardID,
@@ -182,7 +183,7 @@ func (a *BootstrapShardAction) selectBootstrapCandidate(ctx context.Context, coh
 }
 
 // initializeStandbys initializes multiple nodes as standbys of the given primary
-func (a *BootstrapShardAction) initializeStandbys(ctx context.Context, shardID string, primary *coordinator.Node, standbys []*coordinator.Node) error {
+func (a *BootstrapShardAction) initializeStandbys(ctx context.Context, shardID string, primary *coordinator.Node, standbys []*coordinator.Node, backupID string) error {
 	if len(standbys) == 0 {
 		return nil
 	}
@@ -190,7 +191,8 @@ func (a *BootstrapShardAction) initializeStandbys(ctx context.Context, shardID s
 	a.logger.InfoContext(ctx, "Initializing standbys",
 		"shard", shardID,
 		"primary", primary.ID.Name,
-		"standby_count", len(standbys))
+		"standby_count", len(standbys),
+		"backup_id", backupID)
 
 	// Initialize all standbys in parallel
 	// Use a simple error aggregation approach
@@ -218,6 +220,7 @@ func (a *BootstrapShardAction) initializeStandbys(ctx context.Context, shardID s
 				PrimaryPort:   primary.Port,
 				ConsensusTerm: 1,
 				Force:         false,
+				BackupId:      backupID,
 			}
 			resp, err := node.RpcClient.InitializeAsStandby(ctx, node.Pooler, req)
 			if err != nil {

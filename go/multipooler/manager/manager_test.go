@@ -24,6 +24,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/proto"
 
 	"github.com/multigres/multigres/go/clustermetadata/topo"
 	"github.com/multigres/multigres/go/clustermetadata/topo/memorytopo"
@@ -180,17 +181,16 @@ func TestManagerState_CancellationDuringLoad(t *testing.T) {
 	// Start the async loader
 	go manager.loadMultiPoolerFromTopo()
 
-	// Give it a moment to start
+	// Give it a moment to start retrying
 	time.Sleep(200 * time.Millisecond)
 
 	// Cancel the manager
 	manager.Close()
 
-	// Wait a bit for the cancellation to propagate
-	time.Sleep(100 * time.Millisecond)
-
-	// State should be Error due to context cancellation
-	assert.Equal(t, ManagerStateError, manager.GetState())
+	// Wait for the state to become Error due to context cancellation
+	require.Eventually(t, func() bool {
+		return manager.GetState() == ManagerStateError
+	}, 3*time.Second, 100*time.Millisecond, "Manager should reach Error state after cancellation")
 
 	// Verify the error contains "cancelled"
 	_, _, err := manager.GetMultiPooler()
@@ -412,4 +412,146 @@ func TestValidateAndUpdateTerm(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestGetBackupLocation(t *testing.T) {
+	ctx := context.Background()
+	tmpDir := t.TempDir()
+
+	// Create test topology store
+	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
+	defer ts.Close()
+
+	// Create test database with backup_location
+	database := "testdb"
+	err := ts.CreateDatabase(ctx, database, &clustermetadatapb.Database{
+		Name:             database,
+		BackupLocation:   "/var/backups/pgbackrest",
+		DurabilityPolicy: "ANY_2",
+	})
+	require.NoError(t, err)
+
+	// Create manager config
+	serviceID := &clustermetadatapb.ID{
+		Component: clustermetadatapb.ID_MULTIPOOLER,
+		Cell:      "zone1",
+		Name:      "test-service",
+	}
+	config := &Config{
+		TopoClient: ts,
+		ServiceID:  serviceID,
+		PoolerDir:  filepath.Join(tmpDir, "pooler"),
+		PgctldAddr: "",
+	}
+
+	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+	manager := NewMultiPoolerManager(logger, config)
+
+	// Set the multipooler to have the database
+	multipoolerInfo := &topo.MultiPoolerInfo{
+		MultiPooler: &clustermetadatapb.MultiPooler{
+			Database: database,
+		},
+	}
+	manager.multipooler = multipoolerInfo
+	manager.cachedMultipooler.multipooler = topo.NewMultiPoolerInfo(
+		proto.Clone(multipoolerInfo.MultiPooler).(*clustermetadatapb.MultiPooler),
+		multipoolerInfo.Version(),
+	)
+
+	// Test getting backup location
+	backupLocation, err := manager.getBackupLocation(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, "/var/backups/pgbackrest", backupLocation)
+}
+
+func TestGetBackupLocationError(t *testing.T) {
+	ctx := context.Background()
+	tmpDir := t.TempDir()
+
+	// Create test topology store
+	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
+	defer ts.Close()
+
+	// Create manager config
+	serviceID := &clustermetadatapb.ID{
+		Component: clustermetadatapb.ID_MULTIPOOLER,
+		Cell:      "zone1",
+		Name:      "test-service",
+	}
+	config := &Config{
+		TopoClient: ts,
+		ServiceID:  serviceID,
+		PoolerDir:  filepath.Join(tmpDir, "pooler"),
+	}
+
+	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+	manager := NewMultiPoolerManager(logger, config)
+
+	// Set the multipooler to have a nonexistent database
+	multipoolerInfo := &topo.MultiPoolerInfo{
+		MultiPooler: &clustermetadatapb.MultiPooler{
+			Database: "nonexistent",
+		},
+	}
+	manager.multipooler = multipoolerInfo
+	manager.cachedMultipooler.multipooler = topo.NewMultiPoolerInfo(
+		proto.Clone(multipoolerInfo.MultiPooler).(*clustermetadatapb.MultiPooler),
+		multipoolerInfo.Version(),
+	)
+
+	// Test getting backup location for nonexistent database
+	_, err := manager.getBackupLocation(ctx)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to get database")
+}
+
+func TestGetBackupLocationEmpty(t *testing.T) {
+	ctx := context.Background()
+	tmpDir := t.TempDir()
+
+	// Create test topology store
+	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
+	defer ts.Close()
+
+	// Create test database WITHOUT backup_location
+	database := "testdb"
+	err := ts.CreateDatabase(ctx, database, &clustermetadatapb.Database{
+		Name:             database,
+		BackupLocation:   "", // Empty
+		DurabilityPolicy: "ANY_2",
+	})
+	require.NoError(t, err)
+
+	// Create manager config
+	serviceID := &clustermetadatapb.ID{
+		Component: clustermetadatapb.ID_MULTIPOOLER,
+		Cell:      "zone1",
+		Name:      "test-service",
+	}
+	config := &Config{
+		TopoClient: ts,
+		ServiceID:  serviceID,
+		PoolerDir:  filepath.Join(tmpDir, "pooler"),
+	}
+
+	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+	manager := NewMultiPoolerManager(logger, config)
+
+	// Set the multipooler to have the database
+	multipoolerInfo := &topo.MultiPoolerInfo{
+		MultiPooler: &clustermetadatapb.MultiPooler{
+			Database: database,
+		},
+	}
+	manager.multipooler = multipoolerInfo
+	manager.cachedMultipooler.multipooler = topo.NewMultiPoolerInfo(
+		proto.Clone(multipoolerInfo.MultiPooler).(*clustermetadatapb.MultiPooler),
+		multipoolerInfo.Version(),
+	)
+
+	// Test getting empty backup location
+	_, err = manager.getBackupLocation(ctx)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "has no backup_location configured")
 }

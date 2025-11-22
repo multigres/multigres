@@ -15,9 +15,11 @@
 package manager
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"time"
 
@@ -49,6 +51,7 @@ func (pm *MultiPoolerManager) InitializeEmptyPrimary(ctx context.Context, req *m
 	// 2. Check if already initialized
 	if pm.isInitialized() {
 		pm.logger.InfoContext(ctx, "Pooler already initialized", "shard", pm.getShardID())
+		// Note: backup_id will be empty for idempotent case since we didn't create a new backup
 		return &multipoolermanagerdatapb.InitializeEmptyPrimaryResponse{Success: true}, nil
 	}
 
@@ -62,6 +65,13 @@ func (pm *MultiPoolerManager) InitializeEmptyPrimary(ctx context.Context, req *m
 		initReq := &pgctldpb.InitDataDirRequest{}
 		if _, err := pm.pgctldClient.InitDataDir(ctx, initReq); err != nil {
 			return nil, mterrors.Wrap(err, "failed to initialize data directory")
+		}
+
+		// 3a. Configure archive_mode in postgresql.auto.conf BEFORE starting PostgreSQL
+		// This must be done after InitDataDir creates pg_data but before Start
+		pm.logger.InfoContext(ctx, "Configuring archive_mode for pgbackrest", "shard", pm.getShardID())
+		if err := pm.configureArchiveMode(ctx); err != nil {
+			return nil, mterrors.Wrap(err, "failed to configure archive mode")
 		}
 	}
 
@@ -95,8 +105,25 @@ func (pm *MultiPoolerManager) InitializeEmptyPrimary(ctx context.Context, req *m
 		}
 	}
 
+	// 8. Initialize pgbackrest stanza (must be done after PostgreSQL is running)
+	pm.logger.InfoContext(ctx, "Initializing pgbackrest stanza", "shard", pm.getShardID())
+	if err := pm.initializePgBackRestStanza(ctx); err != nil {
+		return nil, mterrors.Wrap(err, "failed to initialize pgbackrest stanza")
+	}
+
+	// 9. Create initial backup for standby initialization
+	pm.logger.InfoContext(ctx, "Creating initial backup for standby initialization", "shard", pm.getShardID())
+	backupID, err := pm.Backup(ctx, true, "full")
+	if err != nil {
+		return nil, mterrors.Wrap(err, "failed to create initial backup")
+	}
+	pm.logger.InfoContext(ctx, "Initial backup created", "backup_id", backupID)
+
 	pm.logger.InfoContext(ctx, "Successfully initialized pooler as empty primary", "shard", pm.getShardID(), "term", req.ConsensusTerm)
-	return &multipoolermanagerdatapb.InitializeEmptyPrimaryResponse{Success: true}, nil
+	return &multipoolermanagerdatapb.InitializeEmptyPrimaryResponse{
+		Success:  true,
+		BackupId: backupID,
+	}, nil
 }
 
 // InitializeAsStandby initializes this pooler as a standby from a primary backup
@@ -128,39 +155,58 @@ func (pm *MultiPoolerManager) InitializeAsStandby(ctx context.Context, req *mult
 		}
 	}
 
-	// 2. TODO: Restore from primary using pgBackRest (PR #226)
-	// For now, we'll use pg_basebackup as a placeholder
-	pm.logger.InfoContext(ctx, "Performing backup from primary", "primary", fmt.Sprintf("%s:%d", req.PrimaryHost, req.PrimaryPort))
+	// 2. Restore from the specified backup (or latest if not specified)
+	if req.BackupId != "" {
+		pm.logger.InfoContext(ctx, "Restoring from specified backup", "backup_id", req.BackupId, "primary", fmt.Sprintf("%s:%d", req.PrimaryHost, req.PrimaryPort))
+	} else {
+		pm.logger.InfoContext(ctx, "Restoring from latest backup on primary", "primary", fmt.Sprintf("%s:%d", req.PrimaryHost, req.PrimaryPort))
+	}
 
-	// Placeholder: In production, this would call pm.Restore() from PR #226
-	// For now, we skip the actual backup to avoid dependencies
+	// Restore from backup (empty string means latest)
+	// RestoreFromBackup will check that this is a standby and start PostgreSQL in standby mode
+	err = pm.RestoreFromBackup(ctx, req.BackupId)
+	if err != nil {
+		return nil, mterrors.Wrap(err, "failed to restore from backup")
+	}
+
+	if req.BackupId != "" {
+		pm.logger.InfoContext(ctx, "Successfully restored from specified backup", "backup_id", req.BackupId)
+	} else {
+		pm.logger.InfoContext(ctx, "Successfully restored from latest backup")
+	}
+
+	// Note: RestoreFromBackup already restarted PostgreSQL as standby, so we skip
+	// the explicit restart here. The standby.signal is already in place.
+
+	// Extract final LSN from backup metadata
+	backups, err := pm.GetBackups(ctx, 1) // Get latest backup
+	if err != nil {
+		pm.logger.WarnContext(ctx, "Failed to get backup metadata for LSN", "error", err)
+		// Non-fatal: we can continue without LSN
+	}
+
 	finalLSN := ""
-
-	// 3. Configure primary_conninfo
-	if err := pm.setPrimaryConnInfoLocked(ctx, req.PrimaryHost, req.PrimaryPort, false, false); err != nil {
-		return nil, mterrors.Wrap(err, "failed to set primary_conninfo")
+	if len(backups) > 0 && backups[0].FinalLsn != "" {
+		finalLSN = backups[0].FinalLsn
+		pm.logger.InfoContext(ctx, "Backup LSN captured", "backup_id", backups[0].BackupId, "final_lsn", finalLSN)
+	} else {
+		pm.logger.WarnContext(ctx, "No LSN available from backup metadata")
 	}
+	// TODO: do something with finalLSN?
 
-	// 4. Restart PostgreSQL as standby (creates standby.signal and starts)
-	pm.logger.InfoContext(ctx, "Restarting PostgreSQL as standby", "shard", pm.getShardID())
-	if pm.pgctldClient == nil {
-		return nil, mterrors.New(mtrpcpb.Code_UNAVAILABLE, "pgctld client not available")
-	}
-
-	restartReq := &pgctldpb.RestartRequest{
-		AsStandby: true,
-		Mode:      "fast",
-	}
-	if _, err := pm.pgctldClient.Restart(ctx, restartReq); err != nil {
-		return nil, mterrors.Wrap(err, "failed to restart PostgreSQL as standby")
-	}
-
-	// 5. Wait for database connection
+	// 3. Wait for database connection
 	if err := pm.waitForDatabaseConnection(ctx); err != nil {
 		return nil, mterrors.Wrap(err, "failed to connect to database")
 	}
 
-	// 6. Set consensus term
+	// 4. Configure primary_conninfo now that PostgreSQL is running
+	// Use the locked version since we're already holding the action lock
+	pm.logger.InfoContext(ctx, "Configuring primary connection info", "primary_host", req.PrimaryHost, "primary_port", req.PrimaryPort)
+	if err := pm.setPrimaryConnInfoLocked(ctx, req.PrimaryHost, req.PrimaryPort, false, true); err != nil {
+		return nil, mterrors.Wrap(err, "failed to set primary_conninfo")
+	}
+
+	// 5. Set consensus term
 	if pm.consensusState != nil {
 		if err := pm.consensusState.UpdateTermAndSave(ctx, req.ConsensusTerm); err != nil {
 			return nil, mterrors.Wrap(err, "failed to set consensus term")
@@ -369,4 +415,110 @@ func (pm *MultiPoolerManager) waitForDatabaseConnection(ctx context.Context) err
 
 	// This should not be reached due to the context check in the loop, but just in case
 	return mterrors.Wrap(lastErr, "failed to connect to database after retries")
+}
+
+// configureArchiveMode configures archive_mode in postgresql.auto.conf for pgbackrest
+// This must be called after InitDataDir but BEFORE starting PostgreSQL
+func (pm *MultiPoolerManager) configureArchiveMode(ctx context.Context) error {
+	configPath := pm.getBackupConfigPath()
+	stanzaName := pm.getBackupStanza()
+
+	// Validate required configuration
+	if configPath == "" {
+		return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "backup config path not configured")
+	}
+	if stanzaName == "" {
+		return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "backup stanza name not configured")
+	}
+
+	// Check if pgbackrest config file exists before configuring archive mode
+	if _, err := os.Stat(configPath); os.IsNotExist(err) {
+		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
+			fmt.Sprintf("pgbackrest config file not found at %s - cannot configure archive mode", configPath))
+	}
+
+	// Get backup location from topology
+	backupLocation, err := pm.getBackupLocation(ctx)
+	if err != nil {
+		return err
+	}
+
+	pgDataDir := filepath.Join(pm.config.PoolerDir, "pg_data")
+	autoConfPath := filepath.Join(pgDataDir, "postgresql.auto.conf")
+
+	// Check if archive_mode is already configured to avoid duplicates
+	if _, err := os.Stat(autoConfPath); err == nil {
+		content, err := os.ReadFile(autoConfPath)
+		if err == nil && bytes.Contains(content, []byte("archive_mode")) {
+			pm.logger.InfoContext(ctx, "archive_mode already configured, skipping", "auto_conf", autoConfPath)
+			return nil
+		}
+	}
+
+	// Configure archive_mode in postgresql.auto.conf
+	// Following the pattern from test/endtoend/multipooler/setup_test.go:479-498
+	archiveConfig := fmt.Sprintf(`
+# Archive mode for pgbackrest backups
+archive_mode = on
+archive_command = 'pgbackrest --stanza=%s --config=%s --repo1-path=%s archive-push %%p'
+`, stanzaName, configPath, backupLocation)
+
+	f, err := os.OpenFile(autoConfPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	if err != nil {
+		return mterrors.Wrap(err, "failed to open postgresql.auto.conf")
+	}
+	defer f.Close()
+
+	if _, err := f.WriteString(archiveConfig); err != nil {
+		return mterrors.Wrap(err, "failed to write archive config")
+	}
+
+	pm.logger.InfoContext(ctx, "Configured archive_mode in postgresql.auto.conf", "config_path", configPath, "stanza", stanzaName, "repo_path", backupLocation)
+	return nil
+}
+
+// initializePgBackRestStanza initializes the pgbackrest stanza
+// This must be called after PostgreSQL is initialized and running
+func (pm *MultiPoolerManager) initializePgBackRestStanza(ctx context.Context) error {
+	configPath := pm.getBackupConfigPath()
+	stanzaName := pm.getBackupStanza()
+
+	// Validate required configuration
+	if configPath == "" {
+		return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "backup config path not configured")
+	}
+	if stanzaName == "" {
+		return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "backup stanza name not configured")
+	}
+
+	// Check if config file exists
+	if _, err := os.Stat(configPath); os.IsNotExist(err) {
+		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
+			fmt.Sprintf("pgbackrest config file not found at %s", configPath))
+	}
+
+	// Get backup location from topology
+	backupLocation, err := pm.getBackupLocation(ctx)
+	if err != nil {
+		return err
+	}
+
+	// Execute pgbackrest stanza-create command
+	stanzaCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(stanzaCtx, "pgbackrest",
+		"--stanza="+stanzaName,
+		"--config="+configPath,
+		"--repo1-path="+backupLocation,
+		"stanza-create")
+
+	output, err := safeCombinedOutput(cmd)
+	if err != nil {
+		return mterrors.New(mtrpcpb.Code_INTERNAL,
+			fmt.Sprintf("failed to create pgbackrest stanza %s: %v\nOutput: %s", stanzaName, err, output))
+	}
+
+	pm.logger.InfoContext(ctx, "pgbackrest stanza initialized successfully", "stanza", stanzaName, "config", configPath)
+	return nil
 }

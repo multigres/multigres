@@ -465,7 +465,6 @@ func initializePrimary(t *testing.T, baseDir string, pgctld *ProcessInstance, mu
 				Database:  "postgres",
 			},
 		},
-		RepoPath:      repoPath,
 		LogPath:       logPath,
 		SpoolPath:     spoolPath,
 		RetentionFull: 2,
@@ -484,8 +483,8 @@ func initializePrimary(t *testing.T, baseDir string, pgctld *ProcessInstance, mu
 	archiveConfig := fmt.Sprintf(`
 # Archive mode for pgbackrest backups
 archive_mode = on
-archive_command = 'pgbackrest --stanza=%s --config=%s archive-push %%p'
-`, stanzaName, configPath)
+archive_command = 'pgbackrest --stanza=%s --config=%s --repo1-path=%s archive-push %%p'
+`, stanzaName, configPath, repoPath)
 	f, err := os.OpenFile(autoConfPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
 	if err != nil {
 		return fmt.Errorf("failed to open postgresql.auto.conf: %w", err)
@@ -509,7 +508,7 @@ archive_command = 'pgbackrest --stanza=%s --config=%s archive-push %%p'
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	if err := pgbackrest.StanzaCreate(ctx, stanzaName, configPath); err != nil {
+	if err := pgbackrest.StanzaCreate(ctx, stanzaName, configPath, repoPath); err != nil {
 		return fmt.Errorf("failed to create pgbackrest stanza: %w", err)
 	}
 	t.Logf("Initialized pgbackrest stanza: %s", stanzaName)
@@ -601,10 +600,6 @@ func initializeStandby(t *testing.T, baseDir string, primaryPgctld *ProcessInsta
 	// Each cluster treats itself as pg1 and lists others as pg2, pg3, etc.
 	// Build backup repository path with database/tablegroup/shard structure (same as primary)
 	// TODO: Replace hardcoded shard "0" with actual shard value
-	database := "postgres"
-	tableGroup := "test"
-	shard := "0" // Default shard ID
-	repoPath := filepath.Join(baseDir, "backup-repo", database, tableGroup, shard)
 	logPath := filepath.Join(baseDir, "logs", "pgbackrest")
 	spoolPath := filepath.Join(baseDir, "pgbackrest-spool")
 
@@ -626,7 +621,6 @@ func initializeStandby(t *testing.T, baseDir string, primaryPgctld *ProcessInsta
 				Database:  "postgres",
 			},
 		},
-		RepoPath:      repoPath,
 		LogPath:       logPath,
 		SpoolPath:     spoolPath,
 		RetentionFull: 2,
@@ -769,6 +763,21 @@ func getSharedTestSetup(t *testing.T) *MultipoolerTestSetup {
 		}
 
 		t.Logf("Created topology cell '%s' at etcd %s", cellName, etcdClientAddr)
+
+		// Create the database entry in topology with backup_location
+		// This is needed for getBackupLocation() calls in multipooler manager
+		database := "postgres"
+		backupLocation := filepath.Join(tempDir, "backup-repo", database, "test", "0")
+		err = ts.CreateDatabase(context.Background(), database, &clustermetadatapb.Database{
+			Name:             database,
+			BackupLocation:   backupLocation,
+			DurabilityPolicy: "ANY_2",
+		})
+		if err != nil {
+			setupError = fmt.Errorf("failed to create database in topology: %w", err)
+			return
+		}
+		t.Logf("Created database '%s' in topology with backup_location=%s", database, backupLocation)
 
 		// Generate ports for shared instances using systematic allocation to avoid conflicts
 		primaryGrpcPort := utils.GetFreePort(t)
