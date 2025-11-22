@@ -22,8 +22,8 @@ import (
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
 
-	"github.com/multigres/multigres/go/viperutil"
-	"github.com/multigres/multigres/go/viperutil/internal/value"
+	"github.com/multigres/multigres/go/tools/viperutil"
+	"github.com/multigres/multigres/go/tools/viperutil/internal/value"
 )
 
 // Stub stubs out a given value to use the passed-in viper to retrieve its

@@ -21,9 +21,9 @@ import (
 
 	"github.com/spf13/viper"
 
-	"github.com/multigres/multigres/go/viperutil"
-	"github.com/multigres/multigres/go/viperutil/funcs"
-	"github.com/multigres/multigres/go/viperutil/internal/value"
+	"github.com/multigres/multigres/go/tools/viperutil"
+	"github.com/multigres/multigres/go/tools/viperutil/funcs"
+	"github.com/multigres/multigres/go/tools/viperutil/internal/value"
 )
 
 func ExampleGetPath() {

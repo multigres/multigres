@@ -23,7 +23,7 @@ variables that are the result of calling Configure, for example in package trace
 
 	package trace
 
-		"github.com/multigres/multigres/go/viperutil/
+		"github.com/multigres/multigres/go/tools/viperutil/
 
 	var (
 		modulePrefix = viperutil.KeyPrefixFunc("trace")
@@ -51,7 +51,7 @@ to those flags, as appropriate:
 	import (
 		"github.com/spf13/pflag"
 
-		"github.com/multigres/multigres/go/viperutil/
+		"github.com/multigres/multigres/go/tools/viperutil/
 		"github.com/multigres/multigres/go/vt/servenv"
 	)
 
@@ -77,7 +77,7 @@ import (
 
 	"github.com/spf13/viper"
 
-	"github.com/multigres/multigres/go/viperutil/internal/value"
+	"github.com/multigres/multigres/go/tools/viperutil/internal/value"
 )
 
 // Options represents the various options used to control how Values are

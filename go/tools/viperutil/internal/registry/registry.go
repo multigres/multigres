@@ -14,20 +14,26 @@
 //
 // Modifications Copyright 2025 Supabase, Inc.
 
-package viperutil
+package registry
 
 import (
-	"github.com/multigres/multigres/go/viperutil/internal/sync"
-	"github.com/multigres/multigres/go/viperutil/internal/value"
+	"github.com/spf13/pflag"
+	"github.com/spf13/viper"
+
+	"github.com/multigres/multigres/go/tools/viperutil/internal/sync"
 )
 
 var (
-	// ErrDuplicateWatch is returned when Watch is called multiple times on a
-	// single synced viper. Viper only supports reading/watching a single
-	// config file.
-	ErrDuplicateWatch = sync.ErrDuplicateWatch
-	// ErrNoFlagDefined is returned from Value's Flag method when the value was
-	// configured to bind to a given FlagName but the provided flag set does not
-	// define a flag with that name.
-	ErrNoFlagDefined = value.ErrNoFlagDefined
+	_ Bindable = (*viper.Viper)(nil)
+	_ Bindable = (*sync.Viper)(nil)
 )
+
+// Bindable represents the methods needed to bind a value.Value to a given
+// registry. It exists primarly to allow us to treat a sync.Viper as a
+// viper.Viper for configuration registration purposes.
+type Bindable interface {
+	BindEnv(vars ...string) error
+	BindPFlag(key string, flag *pflag.Flag) error
+	RegisterAlias(alias string, key string)
+	SetDefault(key string, value any)
+}
