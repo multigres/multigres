@@ -52,8 +52,7 @@ var tracer = otel.Tracer("github.com/multigres/multigres/go/provisioner/local")
 
 // localProvisioner implements the Provisioner interface for local binary-based provisioning
 type localProvisioner struct {
-	config  *LocalProvisionerConfig
-	dataDir string // Base data directory for this provisioner instance
+	config *LocalProvisionerConfig
 }
 
 // Compile-time check to ensure localProvisioner implements Provisioner
@@ -1761,23 +1760,6 @@ func (p *localProvisioner) getCellNames() ([]string, error) {
 		names = append(names, cell.Name)
 	}
 	return names, nil
-}
-
-// getCellIndex returns the index of a cell in the list of cell names (for port calculation)
-func (p *localProvisioner) getCellIndex(cellName string) (int, error) {
-	cells, err := p.getAllCells()
-	if err != nil {
-		return -1, err
-	}
-
-	// Find the cell by name and return its index
-	for i, cell := range cells {
-		if cell.Name == cellName {
-			return i, nil
-		}
-	}
-
-	return -1, fmt.Errorf("cell %s not found", cellName)
 }
 
 // getCellByName returns the cell configuration for a specific cell name

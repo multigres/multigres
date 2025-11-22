@@ -47,8 +47,6 @@ type MultiPooler struct {
 	pgPort              viperutil.Value[int]
 	heartbeatIntervalMs viperutil.Value[int]
 	pgBackRestStanza    viperutil.Value[string]
-	// MultipoolerID stores the ID for deregistration during shutdown
-	multipoolerID *clustermetadatapb.ID
 	// GrpcServer is the grpc server
 	grpcServer *servenv.GrpcServer
 	// Senv is the serving environment

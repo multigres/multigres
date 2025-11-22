@@ -75,43 +75,8 @@ func errorWithoutState(id string, code mtrpcpb.Code, short, long string) func(ar
 	}
 }
 
-func errorWithState(id string, code mtrpcpb.Code, state State, short, long string) func(args ...any) *MultigresError {
-	return func(args ...any) *MultigresError {
-		var err error
-		if len(args) != 0 {
-			err = NewErrorf(code, state, id+": "+short, args...)
-		} else {
-			err = NewError(code, state, id+": "+short)
-		}
-
-		return &MultigresError{
-			Err:         err,
-			Description: long,
-			ID:          id,
-			State:       state,
-		}
-	}
-}
-
 // ErrorWithNoCode refers to error code that do not have a predefined error code.
 type ErrorWithNoCode func(code mtrpcpb.Code, args ...any) *MultigresError
-
-// errorWithNoCode creates a MultigresError where the error code is set by the user when creating the error
-// instead of having a static error code that is declared in this file.
-func errorWithNoCode(id string, short, long string) func(code mtrpcpb.Code, args ...any) *MultigresError {
-	return func(code mtrpcpb.Code, args ...any) *MultigresError {
-		s := short
-		if len(args) != 0 {
-			s = fmt.Sprintf(s, args...)
-		}
-
-		return &MultigresError{
-			Err:         New(code, id+": "+s),
-			Description: long,
-			ID:          id,
-		}
-	}
-}
 
 func IsError(err error, code string) bool {
 	if err == nil {
