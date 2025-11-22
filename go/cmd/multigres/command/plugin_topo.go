@@ -15,5 +15,5 @@
 package command
 
 import (
-	_ "github.com/multigres/multigres/go/plugins/topo"
+	_ "github.com/multigres/multigres/go/common/plugins/topo"
 )
