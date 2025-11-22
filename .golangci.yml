@@ -110,13 +110,7 @@ linters:
         path: ^proto/
       - linters:
           - unused
-        path: ^go/parser
-      - linters:
-          - unused
-        path: ^go/pgprotocol
-      - linters:
-          - unused
-        path: ^go/tools/ruleguard
+        path: ^go/(parser|pgprotocol|tools/ruleguard)
 formatters:
   enable:
     - gofumpt
