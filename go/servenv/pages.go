@@ -18,8 +18,8 @@ import (
 	"net/http"
 	"path"
 
+	"github.com/multigres/multigres/go/common/web"
 	viperdebug "github.com/multigres/multigres/go/viperutil/debug"
-	"github.com/multigres/multigres/go/web"
 )
 
 // The RegisterCommonHTTPEndpoints function sets up all the necessary frameworks for serving pages.

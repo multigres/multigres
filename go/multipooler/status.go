@@ -20,7 +20,7 @@ import (
 	"net/http"
 	"sync"
 
-	"github.com/multigres/multigres/go/web"
+	"github.com/multigres/multigres/go/common/web"
 )
 
 // Link represents a link on the status page.
