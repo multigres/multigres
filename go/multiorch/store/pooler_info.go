@@ -45,13 +45,13 @@ type PoolerHealth struct {
 	// the topology type if there's a failover in progress or type mismatch.
 	PoolerType clustermetadata.PoolerType
 
-	// Primary-specific fields (populated when ReportedType == PRIMARY)
+	// Primary-specific fields (populated when PoolerType == PRIMARY)
 	PrimaryLSN                string                                                        // Current WAL LSN position (PostgreSQL format: X/XXXXXXXX)
 	PrimaryReady              bool                                                          // Whether server is accepting connections
 	PrimaryConnectedFollowers []*clustermetadata.ID                                         // Follower servers currently connected via replication
 	PrimarySyncConfig         *multipoolermanagerdatapb.SynchronousReplicationConfiguration // Sync replication config
 
-	// Replica-specific fields (populated when ReportedType == REPLICA)
+	// Replica-specific fields (populated when PoolerType == REPLICA)
 	ReplicaLastReplayLSN           string                                    // Last WAL position replayed during recovery (X/XXXXXXXX)
 	ReplicaLastReceiveLSN          string                                    // Last WAL position received and synced to disk (X/XXXXXXXX)
 	ReplicaIsWalReplayPaused       bool                                      // Result of pg_is_wal_replay_paused()
