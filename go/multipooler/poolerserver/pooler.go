@@ -22,8 +22,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/multigres/multigres/go/common/queryservice"
 	"github.com/multigres/multigres/go/multipooler/executor"
-	"github.com/multigres/multigres/go/multipooler/queryservice"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 )
 
