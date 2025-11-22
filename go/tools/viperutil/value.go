@@ -19,7 +19,7 @@ package viperutil
 import (
 	"github.com/spf13/pflag"
 
-	"github.com/multigres/multigres/go/viperutil/internal/value"
+	"github.com/multigres/multigres/go/tools/viperutil/internal/value"
 )
 
 var (

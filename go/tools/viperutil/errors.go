@@ -14,24 +14,20 @@
 //
 // Modifications Copyright 2025 Supabase, Inc.
 
-package debug
+package viperutil
 
 import (
-	"github.com/multigres/multigres/go/viperutil"
+	"github.com/multigres/multigres/go/tools/viperutil/internal/sync"
+	"github.com/multigres/multigres/go/tools/viperutil/internal/value"
 )
 
-// Debug provides the Debug functionality normally accessible to a given viper
-// instance, but for a combination of the static and dynamic registries.
-func Debug(reg *viperutil.Registry) {
-	reg.Combined().Debug()
-}
-
-// WriteConfigAs writes the config into the given filename.
-func WriteConfigAs(reg *viperutil.Registry, filename string) error {
-	return reg.Combined().WriteConfigAs(filename)
-}
-
-// AllSettings gets all the settings in the configuration.
-func AllSettings(reg *viperutil.Registry) map[string]any {
-	return reg.Combined().AllSettings()
-}
+var (
+	// ErrDuplicateWatch is returned when Watch is called multiple times on a
+	// single synced viper. Viper only supports reading/watching a single
+	// config file.
+	ErrDuplicateWatch = sync.ErrDuplicateWatch
+	// ErrNoFlagDefined is returned from Value's Flag method when the value was
+	// configured to bind to a given FlagName but the provided flag set does not
+	// define a flag with that name.
+	ErrNoFlagDefined = value.ErrNoFlagDefined
+)

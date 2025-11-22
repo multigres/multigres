@@ -14,26 +14,24 @@
 //
 // Modifications Copyright 2025 Supabase, Inc.
 
-package registry
+package debug
 
 import (
-	"github.com/spf13/pflag"
-	"github.com/spf13/viper"
-
-	"github.com/multigres/multigres/go/viperutil/internal/sync"
+	"github.com/multigres/multigres/go/tools/viperutil"
 )
 
-var (
-	_ Bindable = (*viper.Viper)(nil)
-	_ Bindable = (*sync.Viper)(nil)
-)
+// Debug provides the Debug functionality normally accessible to a given viper
+// instance, but for a combination of the static and dynamic registries.
+func Debug(reg *viperutil.Registry) {
+	reg.Combined().Debug()
+}
 
-// Bindable represents the methods needed to bind a value.Value to a given
-// registry. It exists primarly to allow us to treat a sync.Viper as a
-// viper.Viper for configuration registration purposes.
-type Bindable interface {
-	BindEnv(vars ...string) error
-	BindPFlag(key string, flag *pflag.Flag) error
-	RegisterAlias(alias string, key string)
-	SetDefault(key string, value any)
+// WriteConfigAs writes the config into the given filename.
+func WriteConfigAs(reg *viperutil.Registry, filename string) error {
+	return reg.Combined().WriteConfigAs(filename)
+}
+
+// AllSettings gets all the settings in the configuration.
+func AllSettings(reg *viperutil.Registry) map[string]any {
+	return reg.Combined().AllSettings()
 }

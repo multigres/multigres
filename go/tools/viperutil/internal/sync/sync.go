@@ -18,6 +18,7 @@ package sync
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -28,9 +29,6 @@ import (
 	"github.com/spf13/viper"
 
 	"github.com/fsnotify/fsnotify"
-
-	"github.com/multigres/multigres/go/common/mterrors"
-	"github.com/multigres/multigres/go/pb/mtrpc"
 )
 
 // Viper is a wrapper around a pair of viper.Viper instances to provide config-
@@ -103,7 +101,7 @@ func (v *Viper) Set(key string, value any) {
 
 // ErrDuplicateWatch is returned when Watch is called on a synced Viper which
 // has already started a watch.
-var ErrDuplicateWatch = mterrors.New(mtrpc.Code_FAILED_PRECONDITION, "duplicate watch")
+var ErrDuplicateWatch = errors.New("duplicate watch")
 
 // Watch starts watching the config used by the passed-in Viper. Before starting
 // the watch, the synced viper will perform an initial read and load from disk
@@ -135,7 +133,7 @@ var ErrDuplicateWatch = mterrors.New(mtrpc.Code_FAILED_PRECONDITION, "duplicate 
 // to ensure the config file can be read in properly.
 func (v *Viper) Watch(ctx context.Context, static *viper.Viper, minWaitInterval time.Duration) (cancel context.CancelFunc, err error) {
 	if v.watchingConfig {
-		return nil, mterrors.Wrapf(ErrDuplicateWatch, "%s: viper is already watching %s", ErrDuplicateWatch.Error(), v.disk.ConfigFileUsed())
+		return nil, fmt.Errorf("%w: viper is already watching %s", ErrDuplicateWatch, v.disk.ConfigFileUsed())
 	}
 
 	ctx, cancel = context.WithCancel(ctx)

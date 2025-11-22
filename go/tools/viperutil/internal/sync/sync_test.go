@@ -29,10 +29,10 @@ import (
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/require"
 
-	"github.com/multigres/multigres/go/viperutil"
-	"github.com/multigres/multigres/go/viperutil/internal/value"
+	"github.com/multigres/multigres/go/tools/viperutil"
+	"github.com/multigres/multigres/go/tools/viperutil/internal/value"
 
-	vipersync "github.com/multigres/multigres/go/viperutil/internal/sync"
+	vipersync "github.com/multigres/multigres/go/tools/viperutil/internal/sync"
 )
 
 func TestWatchConfig(t *testing.T) {

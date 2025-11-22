@@ -33,8 +33,8 @@ import (
 
 	"github.com/mitchellh/mapstructure"
 
-	"github.com/multigres/multigres/go/viperutil/funcs"
-	"github.com/multigres/multigres/go/viperutil/internal/value"
+	"github.com/multigres/multigres/go/tools/viperutil/funcs"
+	"github.com/multigres/multigres/go/tools/viperutil/internal/value"
 )
 
 type ViperConfig struct {

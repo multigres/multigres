@@ -17,7 +17,7 @@ package viperutil
 import (
 	"github.com/spf13/viper"
 
-	"github.com/multigres/multigres/go/viperutil/internal/sync"
+	"github.com/multigres/multigres/go/tools/viperutil/internal/sync"
 )
 
 // Registry holds the static and dynamic viper instances for configuration.
