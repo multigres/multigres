@@ -20,7 +20,7 @@ import (
 	"fmt"
 	"path"
 
-	"github.com/multigres/multigres/go/mterrors"
+	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/tools/stringutil"
 
 	"google.golang.org/protobuf/proto"

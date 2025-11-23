@@ -20,14 +20,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"os"
 	"os/exec"
-	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
 
-	"github.com/multigres/multigres/go/mterrors"
+	"github.com/multigres/multigres/go/common/mterrors"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multipoolermanagerdata "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
@@ -46,6 +44,12 @@ func (pm *MultiPoolerManager) Backup(ctx context.Context, forcePrimary bool, bac
 	tableGroup := pm.getTableGroup()
 	shard := pm.getShard()
 
+	// Get backup location from topology
+	backupLocation, err := pm.getBackupLocation(ctx)
+	if err != nil {
+		return "", err
+	}
+
 	// Validate parameters and get pgbackrest type
 	pgBackRestType, err := pm.validateBackupParams(backupType, configPath, stanzaName)
 	if err != nil {
@@ -59,6 +63,7 @@ func (pm *MultiPoolerManager) Backup(ctx context.Context, forcePrimary bool, bac
 	args := []string{
 		"--stanza=" + stanzaName,
 		"--config=" + configPath,
+		"--repo1-path=" + backupLocation,
 		"--type=" + pgBackRestType,
 		"--log-level-console=info",
 	}
@@ -96,6 +101,7 @@ func (pm *MultiPoolerManager) Backup(ctx context.Context, forcePrimary bool, bac
 	verifyCmd := exec.CommandContext(verifyCtx, "pgbackrest",
 		"--stanza="+stanzaName,
 		"--config="+configPath,
+		"--repo1-path="+backupLocation,
 		"--set="+backupID,
 		"--log-level-console=info",
 		"verify")
@@ -109,94 +115,71 @@ func (pm *MultiPoolerManager) Backup(ctx context.Context, forcePrimary bool, bac
 	return backupID, nil
 }
 
-// RestoreFromBackup restores from a backup
+// RestoreFromBackup restores from a backup to an uninitialized standby.
+//
+// Requirements:
+// - The pooler must be a standby (not a primary)
+// - The database must not be initialized (pm.isInitialized() must be false)
+// - PostgreSQL must not be running (caller's responsibility to stop it)
+// - PGDATA must be removed if it exists (caller's responsibility)
+//
+// This function will:
+// 1. Execute pgbackrest restore to recreate PGDATA
+// 2. Start PostgreSQL in standby mode using Restart (which handles the not-running case)
+// 3. Reopen the pooler manager to establish fresh connections
 func (pm *MultiPoolerManager) RestoreFromBackup(ctx context.Context, backupID string) error {
 	slog.InfoContext(ctx, "RestoreFromBackup called", "backup_id", backupID)
 
-	pgctldClient := pm.getPgCtldClient()
-	configPath := pm.getBackupConfigPath()
+	// Check that this is a standby, not a primary
+	poolerType := pm.getPoolerType()
+	if poolerType == clustermetadatapb.PoolerType_PRIMARY {
+		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
+			"cannot restore to a primary pooler; restore is only supported for standby poolers")
+	}
+
+	// Check that database is not initialized
+	if pm.isInitialized() {
+		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
+			"cannot restore onto already-initialized database; caller must stop PostgreSQL and remove PGDATA first")
+	}
+
+	// Restore the backup
+	if err := pm.executeBackrestRestore(ctx, backupID); err != nil {
+		return err
+	}
+	if err := pm.startPostgreSQLAfterRestore(ctx, backupID); err != nil {
+		return err
+	}
+	return pm.reopenPoolerManager(ctx)
+}
+
+func (pm *MultiPoolerManager) executeBackrestRestore(ctx context.Context, backupID string) error {
 	stanzaName := pm.getBackupStanza()
+	configPath := pm.getBackupConfigPath()
 
-	// Get pg_data directory from the backup config path
-	// configPath is like /path/to/pooler_dir/pgbackrest.conf, so we get the dir and append pg_data
-	poolerDir := filepath.Dir(configPath)
-	pgDataDir := filepath.Join(poolerDir, "pg_data")
+	if configPath == "" {
+		return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "config_path is required")
+	}
+	if stanzaName == "" {
+		return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "stanza_name is required")
+	}
 
-	// Determine if we should maintain standby status after restore
-	// We query PostgreSQL directly to get the current recovery status
-	slog.InfoContext(ctx, "Checking recovery status before restore")
-	isPrimary, err := pm.isPrimary(ctx)
+	// Get backup location from topology
+	backupLocation, err := pm.getBackupLocation(ctx)
 	if err != nil {
-		slog.ErrorContext(ctx, "Failed to check recovery status before restore", "error", err)
-		return mterrors.Wrap(err, "failed to check recovery status")
-	}
-
-	asStandby := !isPrimary
-
-	// If this is a standby, get the current primary connection info
-	// so we can restore it after pgbackrest overwrites postgresql.auto.conf
-	var primaryHost string
-	var primaryPort int32
-	if asStandby {
-		replStatus, err := pm.StandbyReplicationStatus(ctx)
-		if err != nil {
-			slog.ErrorContext(ctx, "Failed to get replication status", "error", err)
-			return mterrors.Wrap(err, "failed to get replication status")
-		}
-		if replStatus == nil || replStatus.PrimaryConnInfo == nil || replStatus.PrimaryConnInfo.Host == "" {
-			return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION, "standby has no primary connection configured")
-		}
-		primaryHost = replStatus.PrimaryConnInfo.Host
-		primaryPort = replStatus.PrimaryConnInfo.Port
-	}
-
-	slog.InfoContext(ctx, "Restore parameters determined",
-		"is_primary", isPrimary,
-		"as_standby", asStandby,
-		"primary_host", primaryHost,
-		"primary_port", primaryPort,
-		"backup_id", backupID)
-
-	// Validate required parameters
-	if err := validateRestoreParams(pgctldClient, configPath, stanzaName, pgDataDir, asStandby, primaryHost, primaryPort); err != nil {
 		return err
 	}
 
-	// Step 1: Close the pooler manager to release its stale database connection
-	// This must be done before stopping PostgreSQL to avoid stale connections
-	slog.InfoContext(ctx, "Closing pooler manager before restore")
-	if err := pm.Close(); err != nil {
-		slog.WarnContext(ctx, "Failed to close pooler manager before restore", "error", err)
-		// Continue - we'll try to reconnect anyway after restore
-	}
-
-	// Step 2: Stop PostgreSQL server
-	slog.InfoContext(ctx, "Stopping PostgreSQL before restore", "backup_id", backupID)
-	stopCtx, stopCancel := context.WithTimeout(ctx, 2*time.Minute)
-	defer stopCancel()
-
-	_, err = pgctldClient.Stop(stopCtx, &pgctldpb.StopRequest{
-		Mode: "fast", // Fast shutdown mode
-	})
-	if err != nil {
-		return mterrors.New(mtrpcpb.Code_INTERNAL,
-			fmt.Sprintf("failed to stop PostgreSQL: %v", err))
-	}
-	slog.InfoContext(ctx, "PostgreSQL stopped successfully")
-
-	// Step 3: Execute pgBackRest restore command, which does most of the work
-	// of writing necessary configuration to postgresql.auto.conf
-	restoreCtx, restoreCancel := context.WithTimeout(ctx, 30*time.Minute) // Restores can take a long time
-	defer restoreCancel()
+	restoreCtx, cancel := context.WithTimeout(ctx, 30*time.Minute)
+	defer cancel()
 
 	args := []string{
 		"--stanza=" + stanzaName,
 		"--config=" + configPath,
-		"--log-level-console=info", // Verbose logging to see what pgBackRest is doing
-		"--delta",                  // Preserve valid files and only restore changed/missing ones
+		"--repo1-path=" + backupLocation,
+		"--log-level-console=info",
 	}
 
-	// If a specific backup ID is specified, add the --set flag
 	if backupID != "" {
 		args = append(args, "--set="+backupID)
 	}
@@ -204,76 +187,50 @@ func (pm *MultiPoolerManager) RestoreFromBackup(ctx context.Context, backupID st
 	args = append(args, "restore")
 
 	cmd := exec.CommandContext(restoreCtx, "pgbackrest", args...)
-	output, err := cmd.CombinedOutput()
+	output, err := safeCombinedOutput(cmd)
 	if err != nil {
 		return mterrors.New(mtrpcpb.Code_INTERNAL,
 			fmt.Sprintf("pgbackrest restore failed: %v\nOutput: %s", err, string(output)))
 	}
 
-	// Step 4: If restoring as standby, restore primary_conninfo to
-	// postgresql.auto.conf
-	//
-	// This is needed for the following situations:
-	// 1. pgbackrest restore overwrites postgresql.auto.conf, removing replication
-	//    settings
-	// 2. During bootstrap, MultiOrch may not have written primary_conninfo yet.
-	if asStandby {
-		autoConfPath := filepath.Join(pgDataDir, "postgresql.auto.conf")
-		slog.InfoContext(ctx, "Restoring primary_conninfo to postgresql.auto.conf",
-			"path", autoConfPath,
-			"primary_host", primaryHost,
-			"primary_port", primaryPort)
+	return nil
+}
 
-		// Read existing content to preserve other settings
-		existingContent, err := os.ReadFile(autoConfPath)
-		if err != nil && !os.IsNotExist(err) {
-			slog.WarnContext(ctx, "Failed to read existing postgresql.auto.conf", "error", err)
-			existingContent = []byte{}
-		}
-
-		// Append primary_conninfo setting
-		primaryConnInfo := fmt.Sprintf("\n# Restored by multigres after backup restore\nprimary_conninfo = 'host=%s port=%d user=postgres'\n",
-			primaryHost, primaryPort)
-
-		newContent := append(existingContent, []byte(primaryConnInfo)...)
-
-		err = os.WriteFile(autoConfPath, newContent, 0o600)
-		if err != nil {
-			return mterrors.New(mtrpcpb.Code_INTERNAL,
-				fmt.Sprintf("failed to write primary_conninfo to postgresql.auto.conf: %v", err))
-		}
-
-		slog.InfoContext(ctx, "Successfully restored primary_conninfo to postgresql.auto.conf")
+func (pm *MultiPoolerManager) startPostgreSQLAfterRestore(ctx context.Context, backupID string) error {
+	pgctldClient := pm.getPgCtldClient()
+	if pgctldClient == nil {
+		return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "pgctld_client is required")
 	}
 
-	// Step 5: Restart PostgreSQL server after successful restore
-	// Use Restart instead of Start to properly handle standby.signal creation
-	restartCtx, restartCancel := context.WithTimeout(ctx, 2*time.Minute)
-	defer restartCancel()
+	restartCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+	defer cancel()
 
-	slog.InfoContext(ctx, "Restarting PostgreSQL after restore",
-		"as_standby", asStandby,
+	slog.InfoContext(ctx, "Starting PostgreSQL after restore",
 		"backup_id", backupID)
 
-	_, err = pgctldClient.Restart(restartCtx, &pgctldpb.RestartRequest{
-		AsStandby: asStandby, // Maintains standby status if restoring to a replica
+	_, err := pgctldClient.Restart(restartCtx, &pgctldpb.RestartRequest{
+		AsStandby: true,
 	})
 	if err != nil {
 		return mterrors.New(mtrpcpb.Code_INTERNAL,
-			fmt.Sprintf("failed to restart PostgreSQL after restore: %v", err))
+			fmt.Sprintf("failed to start PostgreSQL after restore: %v", err))
 	}
 
-	slog.InfoContext(ctx, "PostgreSQL restarted successfully after restore")
+	slog.InfoContext(ctx, "PostgreSQL started successfully after restore")
+	return nil
+}
 
-	// Step 6: Reopen the pooler manager to establish fresh database connections
-	// This must be done after PostgreSQL restarts to ensure the executor is properly initialized
+func (pm *MultiPoolerManager) reopenPoolerManager(ctx context.Context) error {
 	slog.InfoContext(ctx, "Reopening pooler manager after restore")
+	if err := pm.Close(); err != nil {
+		slog.ErrorContext(ctx, "Failed to close pooler manager after restore", "error", err)
+		return mterrors.Wrap(err, "failed to close pooler manager after restore")
+	}
 	if err := pm.Open(); err != nil {
 		slog.ErrorContext(ctx, "Failed to reopen pooler manager after restore", "error", err)
 		return mterrors.Wrap(err, "failed to reopen pooler manager after restore")
 	}
-	slog.InfoContext(ctx, "pooler manager reopened successfully after restore")
-
+	slog.InfoContext(ctx, "Pooler manager reopened successfully after restore")
 	return nil
 }
 
@@ -290,6 +247,12 @@ func (pm *MultiPoolerManager) GetBackups(ctx context.Context, limit uint32) ([]*
 		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "stanza_name is required")
 	}
 
+	// Get backup location from topology
+	backupLocation, err := pm.getBackupLocation(ctx)
+	if err != nil {
+		return nil, err
+	}
+
 	// Execute pgbackrest info command with JSON output
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
@@ -297,6 +260,7 @@ func (pm *MultiPoolerManager) GetBackups(ctx context.Context, limit uint32) ([]*
 	cmd := exec.CommandContext(ctx, "pgbackrest",
 		"--stanza="+stanzaName,
 		"--config="+configPath,
+		"--repo1-path="+backupLocation,
 		"--output=json",
 		"--log-level-console=off", // Override console logging to prevent contaminating JSON output
 		"info")
@@ -337,11 +301,18 @@ func (pm *MultiPoolerManager) GetBackups(ctx context.Context, limit uint32) ([]*
 				shard = pgBackup.Annotation["shard"]
 			}
 
+			// Extract final LSN (stop LSN) from backup
+			finalLSN := ""
+			if pgBackup.LSN != nil && pgBackup.LSN.Stop != "" {
+				finalLSN = pgBackup.LSN.Stop
+			}
+
 			backups = append(backups, &multipoolermanagerdata.BackupMetadata{
 				BackupId:   pgBackup.Label,
 				Status:     status,
 				TableGroup: tableGroup,
 				Shard:      shard,
+				FinalLsn:   finalLSN,
 			})
 		}
 	}
@@ -367,12 +338,19 @@ type pgBackRestBackup struct {
 	Error      bool                `json:"error"`
 	Timestamp  pgBackRestTimestamp `json:"timestamp"`
 	Annotation map[string]string   `json:"annotation,omitempty"`
+	LSN        *pgBackRestLSN      `json:"lsn,omitempty"` // LSN range for this backup
 }
 
 // pgBackRestTimestamp represents backup timestamps
 type pgBackRestTimestamp struct {
 	Start int64 `json:"start"`
 	Stop  int64 `json:"stop"`
+}
+
+// pgBackRestLSN represents LSN start/stop positions for a backup
+type pgBackRestLSN struct {
+	Start string `json:"start"` // e.g., "0/21000028"
+	Stop  string `json:"stop"`  // e.g., "0/21000100"
 }
 
 // allowBackupOnPrimary checks if a backup operation is allowed on a primary pooler
@@ -417,26 +395,6 @@ func (pm *MultiPoolerManager) validateBackupParams(backupType, configPath, stanz
 	}
 
 	return pgBackRestType, nil
-}
-
-// validateRestoreParams validates the parameters required for a restore operation
-func validateRestoreParams(pgctldClient pgctldpb.PgCtldClient, configPath, stanzaName, pgDataDir string, asStandby bool, primaryHost string, primaryPort int32) error {
-	if pgctldClient == nil {
-		return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "pgctld_client is required")
-	}
-	if configPath == "" {
-		return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "config_path is required")
-	}
-	if stanzaName == "" {
-		return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "stanza_name is required")
-	}
-	if pgDataDir == "" {
-		return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "pg_data_dir is required")
-	}
-	if asStandby && (primaryHost == "" || primaryPort == 0) {
-		return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "primary_host and primary_port required when restoring as standby")
-	}
-	return nil
 }
 
 // safeCombinedOutput executes a command and streams its output to avoid blocking.

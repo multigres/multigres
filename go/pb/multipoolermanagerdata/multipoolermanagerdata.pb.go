@@ -2891,7 +2891,10 @@ type InitializeEmptyPrimaryResponse struct {
 	// Whether the initialization succeeded
 	Success bool `protobuf:"varint,1,opt,name=success,proto3" json:"success,omitempty"`
 	// Error message if initialization failed
-	ErrorMessage  string `protobuf:"bytes,2,opt,name=error_message,json=errorMessage,proto3" json:"error_message,omitempty"`
+	ErrorMessage string `protobuf:"bytes,2,opt,name=error_message,json=errorMessage,proto3" json:"error_message,omitempty"`
+	// Backup ID of the initial backup created during initialization
+	// This can be used by standbys to restore from the same backup
+	BackupId      string `protobuf:"bytes,3,opt,name=backup_id,json=backupId,proto3" json:"backup_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2940,6 +2943,13 @@ func (x *InitializeEmptyPrimaryResponse) GetErrorMessage() string {
 	return ""
 }
 
+func (x *InitializeEmptyPrimaryResponse) GetBackupId() string {
+	if x != nil {
+		return x.BackupId
+	}
+	return ""
+}
+
 // InitializeAsStandby initializes this pooler as a standby from a primary backup
 // Used during bootstrap initialization of a new shard or when adding a new standby
 type InitializeAsStandbyRequest struct {
@@ -2951,7 +2961,10 @@ type InitializeAsStandbyRequest struct {
 	// Consensus term to set for this standby
 	ConsensusTerm int64 `protobuf:"varint,3,opt,name=consensus_term,json=consensusTerm,proto3" json:"consensus_term,omitempty"`
 	// Whether to force reinitialization (removes existing data directory)
-	Force         bool `protobuf:"varint,4,opt,name=force,proto3" json:"force,omitempty"`
+	Force bool `protobuf:"varint,4,opt,name=force,proto3" json:"force,omitempty"`
+	// Optional: Specific backup ID to restore from
+	// If empty, restore from the latest backup
+	BackupId      string `protobuf:"bytes,5,opt,name=backup_id,json=backupId,proto3" json:"backup_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3012,6 +3025,13 @@ func (x *InitializeAsStandbyRequest) GetForce() bool {
 		return x.Force
 	}
 	return false
+}
+
+func (x *InitializeAsStandbyRequest) GetBackupId() string {
+	if x != nil {
+		return x.BackupId
+	}
+	return ""
 }
 
 type InitializeAsStandbyResponse struct {
@@ -3323,7 +3343,10 @@ type RestoreFromBackupRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Backup to restore from. If this is empty, we restore from the latest
 	// backup.
-	BackupId      string `protobuf:"bytes,1,opt,name=backup_id,json=backupId,proto3" json:"backup_id,omitempty"`
+	BackupId string `protobuf:"bytes,1,opt,name=backup_id,json=backupId,proto3" json:"backup_id,omitempty"`
+	// Whether to restore as standby. When false, auto-detect from current state.
+	// Set to true when initializing a new standby from scratch.
+	AsStandby     bool `protobuf:"varint,2,opt,name=as_standby,json=asStandby,proto3" json:"as_standby,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3363,6 +3386,13 @@ func (x *RestoreFromBackupRequest) GetBackupId() string {
 		return x.BackupId
 	}
 	return ""
+}
+
+func (x *RestoreFromBackupRequest) GetAsStandby() bool {
+	if x != nil {
+		return x.AsStandby
+	}
+	return false
 }
 
 // RestoreFromBackupResponse contains the result of a restore operation
@@ -3499,6 +3529,7 @@ type BackupMetadata struct {
 	Shard         string                 `protobuf:"bytes,2,opt,name=shard,proto3" json:"shard,omitempty"`
 	Status        BackupMetadata_Status  `protobuf:"varint,3,opt,name=status,proto3,enum=multipoolermanagerdata.BackupMetadata_Status" json:"status,omitempty"`
 	BackupId      string                 `protobuf:"bytes,4,opt,name=backup_id,json=backupId,proto3" json:"backup_id,omitempty"`
+	FinalLsn      string                 `protobuf:"bytes,5,opt,name=final_lsn,json=finalLsn,proto3" json:"final_lsn,omitempty"` // Final checkpoint LSN (stop LSN) for this backup
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3557,6 +3588,13 @@ func (x *BackupMetadata) GetStatus() BackupMetadata_Status {
 func (x *BackupMetadata) GetBackupId() string {
 	if x != nil {
 		return x.BackupId
+	}
+	return ""
+}
+
+func (x *BackupMetadata) GetFinalLsn() string {
+	if x != nil {
+		return x.FinalLsn
 	}
 	return ""
 }
@@ -3911,15 +3949,17 @@ const file_multipoolermanagerdata_proto_rawDesc = "" +
 	"\x14last_acceptance_time\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\x12lastAcceptanceTime\x120\n" +
 	"\tleader_id\x18\x04 \x01(\v2\x13.clustermetadata.IDR\bleaderId\"F\n" +
 	"\x1dInitializeEmptyPrimaryRequest\x12%\n" +
-	"\x0econsensus_term\x18\x01 \x01(\x03R\rconsensusTerm\"_\n" +
+	"\x0econsensus_term\x18\x01 \x01(\x03R\rconsensusTerm\"|\n" +
 	"\x1eInitializeEmptyPrimaryResponse\x12\x18\n" +
 	"\asuccess\x18\x01 \x01(\bR\asuccess\x12#\n" +
-	"\rerror_message\x18\x02 \x01(\tR\ferrorMessage\"\x9f\x01\n" +
+	"\rerror_message\x18\x02 \x01(\tR\ferrorMessage\x12\x1b\n" +
+	"\tbackup_id\x18\x03 \x01(\tR\bbackupId\"\xbc\x01\n" +
 	"\x1aInitializeAsStandbyRequest\x12!\n" +
 	"\fprimary_host\x18\x01 \x01(\tR\vprimaryHost\x12!\n" +
 	"\fprimary_port\x18\x02 \x01(\x05R\vprimaryPort\x12%\n" +
 	"\x0econsensus_term\x18\x03 \x01(\x03R\rconsensusTerm\x12\x14\n" +
-	"\x05force\x18\x04 \x01(\bR\x05force\"y\n" +
+	"\x05force\x18\x04 \x01(\bR\x05force\x12\x1b\n" +
+	"\tbackup_id\x18\x05 \x01(\tR\bbackupId\"y\n" +
 	"\x1bInitializeAsStandbyResponse\x12\x18\n" +
 	"\asuccess\x18\x01 \x01(\bR\asuccess\x12#\n" +
 	"\rerror_message\x18\x02 \x01(\tR\ferrorMessage\x12\x1b\n" +
@@ -3937,20 +3977,23 @@ const file_multipoolermanagerdata_proto_rawDesc = "" +
 	"\rforce_primary\x18\x01 \x01(\bR\fforcePrimary\x12\x12\n" +
 	"\x04type\x18\x02 \x01(\tR\x04type\"-\n" +
 	"\x0eBackupResponse\x12\x1b\n" +
-	"\tbackup_id\x18\x01 \x01(\tR\bbackupId\"7\n" +
+	"\tbackup_id\x18\x01 \x01(\tR\bbackupId\"V\n" +
 	"\x18RestoreFromBackupRequest\x12\x1b\n" +
-	"\tbackup_id\x18\x01 \x01(\tR\bbackupId\"\x1b\n" +
+	"\tbackup_id\x18\x01 \x01(\tR\bbackupId\x12\x1d\n" +
+	"\n" +
+	"as_standby\x18\x02 \x01(\bR\tasStandby\"\x1b\n" +
 	"\x19RestoreFromBackupResponse\")\n" +
 	"\x11GetBackupsRequest\x12\x14\n" +
 	"\x05limit\x18\x01 \x01(\rR\x05limit\"V\n" +
 	"\x12GetBackupsResponse\x12@\n" +
-	"\abackups\x18\x01 \x03(\v2&.multipoolermanagerdata.BackupMetadataR\abackups\"\xe0\x01\n" +
+	"\abackups\x18\x01 \x03(\v2&.multipoolermanagerdata.BackupMetadataR\abackups\"\xfd\x01\n" +
 	"\x0eBackupMetadata\x12\x1f\n" +
 	"\vtable_group\x18\x01 \x01(\tR\n" +
 	"tableGroup\x12\x14\n" +
 	"\x05shard\x18\x02 \x01(\tR\x05shard\x12E\n" +
 	"\x06status\x18\x03 \x01(\x0e2-.multipoolermanagerdata.BackupMetadata.StatusR\x06status\x12\x1b\n" +
-	"\tbackup_id\x18\x04 \x01(\tR\bbackupId\"3\n" +
+	"\tbackup_id\x18\x04 \x01(\tR\bbackupId\x12\x1b\n" +
+	"\tfinal_lsn\x18\x05 \x01(\tR\bfinalLsn\"3\n" +
 	"\x06Status\x12\v\n" +
 	"\aUNKNOWN\x10\x00\x12\x0e\n" +
 	"\n" +
