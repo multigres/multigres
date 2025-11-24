@@ -92,7 +92,7 @@ jobs:
           retention-days: 7
 
   merge-and-upload:
-    name: Upload coverage
+    name: Merge coverage and upload
     runs-on: ubuntu-24.04
     needs: [coverage-direct, coverage-subprocess]
     if: always()
