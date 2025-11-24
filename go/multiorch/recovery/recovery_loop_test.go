@@ -394,7 +394,7 @@ func TestSmartFilterProblems_ClusterWideOnly(t *testing.T) {
 			Code:     analysis.ProblemReplicaNotReplicating,
 			PoolerID: poolerID2,
 			Priority: analysis.PriorityHigh,
-			Scope:    analysis.ScopeSinglePooler,
+			Scope:    analysis.ScopePooler,
 			RecoveryAction: &mockRecoveryAction{
 				name:     "FixReplica",
 				priority: analysis.PriorityHigh,
@@ -405,7 +405,7 @@ func TestSmartFilterProblems_ClusterWideOnly(t *testing.T) {
 			Code:     analysis.ProblemPrimaryDead,
 			PoolerID: poolerID1,
 			Priority: analysis.PriorityEmergency,
-			Scope:    analysis.ScopeClusterWide,
+			Scope:    analysis.ScopeShard,
 			RecoveryAction: &mockRecoveryAction{
 				name:     "FailoverPrimary",
 				priority: analysis.PriorityEmergency,
@@ -416,7 +416,7 @@ func TestSmartFilterProblems_ClusterWideOnly(t *testing.T) {
 			Code:     "ConfigDrift",
 			PoolerID: poolerID2,
 			Priority: analysis.PriorityNormal,
-			Scope:    analysis.ScopeSinglePooler,
+			Scope:    analysis.ScopePooler,
 			RecoveryAction: &mockRecoveryAction{
 				name:     "FixConfig",
 				priority: analysis.PriorityNormal,
@@ -461,7 +461,7 @@ func TestSmartFilterProblems_NoClusterWide(t *testing.T) {
 			Code:     analysis.ProblemReplicaNotReplicating,
 			PoolerID: poolerID1,
 			Priority: analysis.PriorityHigh,
-			Scope:    analysis.ScopeSinglePooler,
+			Scope:    analysis.ScopePooler,
 			RecoveryAction: &mockRecoveryAction{
 				name:     "FixReplication",
 				priority: analysis.PriorityHigh,
@@ -472,7 +472,7 @@ func TestSmartFilterProblems_NoClusterWide(t *testing.T) {
 			Code:     analysis.ProblemPrimaryMisconfigured,
 			PoolerID: poolerID1,
 			Priority: analysis.PriorityNormal,
-			Scope:    analysis.ScopeSinglePooler,
+			Scope:    analysis.ScopePooler,
 			RecoveryAction: &mockRecoveryAction{
 				name:     "FixConfig",
 				priority: analysis.PriorityNormal,
@@ -483,7 +483,7 @@ func TestSmartFilterProblems_NoClusterWide(t *testing.T) {
 			Code:     analysis.ProblemReplicaLagging,
 			PoolerID: poolerID2,
 			Priority: analysis.PriorityNormal,
-			Scope:    analysis.ScopeSinglePooler,
+			Scope:    analysis.ScopePooler,
 			RecoveryAction: &mockRecoveryAction{
 				name:     "FixLag",
 				priority: analysis.PriorityNormal,
@@ -529,7 +529,7 @@ func TestSmartFilterProblems_MultipleClusterWide(t *testing.T) {
 			Code:     analysis.ProblemClusterHasNoPrimary,
 			PoolerID: poolerID1,
 			Priority: analysis.PriorityClusterBootstrap,
-			Scope:    analysis.ScopeClusterWide,
+			Scope:    analysis.ScopeShard,
 			RecoveryAction: &mockRecoveryAction{
 				name:     "ElectPrimary",
 				priority: analysis.PriorityClusterBootstrap,
@@ -540,7 +540,7 @@ func TestSmartFilterProblems_MultipleClusterWide(t *testing.T) {
 			Code:     analysis.ProblemPrimaryDead,
 			PoolerID: poolerID2,
 			Priority: analysis.PriorityEmergency,
-			Scope:    analysis.ScopeClusterWide,
+			Scope:    analysis.ScopeShard,
 			RecoveryAction: &mockRecoveryAction{
 				name:     "FailoverPrimary",
 				priority: analysis.PriorityEmergency,
@@ -579,7 +579,7 @@ func (m *mockPrimaryDeadAnalyzer) Analyze(a *store.ReplicationAnalysis) []analys
 				TableGroup:     a.TableGroup,
 				Shard:          a.Shard,
 				Priority:       analysis.PriorityEmergency,
-				Scope:          analysis.ScopeClusterWide,
+				Scope:          analysis.ScopeShard,
 				RecoveryAction: m.recoveryAction,
 				DetectedAt:     time.Now(),
 				Description:    "Primary is unreachable",
@@ -610,7 +610,7 @@ func (m *mockReplicaNotReplicatingAnalyzer) Analyze(a *store.ReplicationAnalysis
 				TableGroup:     a.TableGroup,
 				Shard:          a.Shard,
 				Priority:       analysis.PriorityHigh,
-				Scope:          analysis.ScopeSinglePooler,
+				Scope:          analysis.ScopePooler,
 				RecoveryAction: m.recoveryAction,
 				DetectedAt:     time.Now(),
 				Description:    "Replica replication is paused",
@@ -1127,7 +1127,7 @@ func TestRecoveryLoop_PostRecoveryRefresh(t *testing.T) {
 	}
 
 	require.Len(t, problems, 1, "should detect primary dead problem")
-	assert.Equal(t, analysis.ScopeClusterWide, problems[0].Scope)
+	assert.Equal(t, analysis.ScopeShard, problems[0].Scope)
 
 	// Now fix the primary in the fake client so validation will pass
 	fakeClient.StatusResponses["multipooler-cell1-primary-pooler"] = &multipoolermanagerdatapb.StatusResponse{
@@ -1407,7 +1407,7 @@ func TestRecoveryLoop_PriorityOrdering(t *testing.T) {
 					TableGroup:     a.TableGroup,
 					Shard:          a.Shard,
 					Priority:       analysis.PriorityNormal,
-					Scope:          analysis.ScopeSinglePooler,
+					Scope:          analysis.ScopePooler,
 					RecoveryAction: normalRecovery,
 					DetectedAt:     time.Now(),
 					Description:    "Normal priority problem",
@@ -1420,7 +1420,7 @@ func TestRecoveryLoop_PriorityOrdering(t *testing.T) {
 					TableGroup:     a.TableGroup,
 					Shard:          a.Shard,
 					Priority:       analysis.PriorityEmergency,
-					Scope:          analysis.ScopeSinglePooler,
+					Scope:          analysis.ScopePooler,
 					RecoveryAction: emergencyRecovery,
 					DetectedAt:     time.Now(),
 					Description:    "Emergency priority problem",
@@ -1433,7 +1433,7 @@ func TestRecoveryLoop_PriorityOrdering(t *testing.T) {
 					TableGroup:     a.TableGroup,
 					Shard:          a.Shard,
 					Priority:       analysis.PriorityHigh,
-					Scope:          analysis.ScopeSinglePooler,
+					Scope:          analysis.ScopePooler,
 					RecoveryAction: highRecovery,
 					DetectedAt:     time.Now(),
 					Description:    "High priority problem",

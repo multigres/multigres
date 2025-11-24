@@ -80,11 +80,11 @@ const (
 type ProblemScope string
 
 const (
-	// ScopeClusterWide indicates the problem affects the entire shard (e.g., primary dead).
+	// ScopeShard indicates the problem affects the entire shard (e.g., primary dead).
 	// Recovery requires refreshing all poolers in the shard and may involve cluster-wide operations like failover.
-	ScopeClusterWide ProblemScope = "ClusterWide"
+	ScopeShard ProblemScope = "Shard"
 
-	// ScopeSinglePooler indicates the problem affects only a specific pooler.
+	// ScopePooler indicates the problem affects only a specific pooler.
 	// Recovery only requires refreshing the affected pooler and potentially the primary.
-	ScopeSinglePooler ProblemScope = "SinglePooler"
+	ScopePooler ProblemScope = "Pooler"
 )

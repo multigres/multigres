@@ -148,7 +148,7 @@ func (re *Engine) processTableGroupProblems(tgKey TableGroupKey, problems []anal
 // Cluster-wide problems (e.g., PrimaryDead) imply an unhealthy primary.
 func (re *Engine) hasPrimaryProblem(problems []analysis.Problem) bool {
 	for _, problem := range problems {
-		if problem.Scope == analysis.ScopeClusterWide {
+		if problem.Scope == analysis.ScopeShard {
 			return true
 		}
 	}
@@ -168,7 +168,7 @@ func (re *Engine) smartFilterProblems(problems []analysis.Problem) []analysis.Pr
 	// Check if there are any cluster-wide problems
 	var clusterWideProblems []analysis.Problem
 	for _, problem := range problems {
-		if problem.Scope == analysis.ScopeClusterWide {
+		if problem.Scope == analysis.ScopeShard {
 			clusterWideProblems = append(clusterWideProblems, problem)
 		}
 	}
@@ -250,7 +250,7 @@ func (re *Engine) attemptRecovery(problem analysis.Problem) {
 	// Post-recovery refresh
 	// If we ran a cluster-wide recovery, force refresh all poolers in the shard
 	// to ensure they have up-to-date state and prevent re-queueing the same problem.
-	if problem.Scope == analysis.ScopeClusterWide {
+	if problem.Scope == analysis.ScopeShard {
 		re.logger.InfoContext(re.ctx, "forcing refresh of all poolers post recovery",
 			"database", problem.Database,
 			"tablegroup", problem.TableGroup,
@@ -270,7 +270,7 @@ func (re *Engine) attemptRecovery(problem analysis.Problem) {
 // Returns (stillExists bool, error).
 func (re *Engine) validateProblemStillExists(problem analysis.Problem) (bool, error) {
 	poolerIDStr := topo.MultiPoolerIDString(problem.PoolerID)
-	isClusterWide := problem.Scope == analysis.ScopeClusterWide
+	isClusterWide := problem.Scope == analysis.ScopeShard
 
 	re.logger.DebugContext(re.ctx, "validating problem still exists",
 		"pooler_id", poolerIDStr,

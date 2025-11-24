@@ -27,7 +27,7 @@ type RecoveryAction interface {
 	// Metadata returns info about this recovery.
 	Metadata() RecoveryMetadata
 
-	// RequiresLock indicates if tablegroup lock is needed.
+	// RequiresLock indicates if shard lock is needed.
 	RequiresLock() bool
 
 	// RequiresHealthyPrimary indicates if this recovery requires a healthy primary.
