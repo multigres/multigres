@@ -48,6 +48,10 @@ message ExecuteQueryRequest {
   // caller_id identifies the caller. This is the effective caller ID,
   // set by the application to further identify the caller.
   mtrpc.CallerID caller_id = 4;
+
+  // options contains execution options including session state
+  // (prepared statements, portals, settings) needed for query execution.
+  query.ExecuteOptions options = 5;
 }
 
 // ExecuteQueryResponse represents the response from executing a SQL query
@@ -66,6 +70,10 @@ message StreamExecuteRequest {
   // caller_id identifies the caller. This is the effective caller ID,
   // set by the application to further identify the caller.
   mtrpc.CallerID caller_id = 3;
+
+  // options contains execution options including session state
+  // (prepared statements, portals, settings) needed for query execution.
+  query.ExecuteOptions options = 4;
 }
 
 // StreamExecuteResponse represents a single response in the stream of query results

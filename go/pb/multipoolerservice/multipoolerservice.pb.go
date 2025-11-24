@@ -49,7 +49,10 @@ type ExecuteQueryRequest struct {
 	MaxRows uint64        `protobuf:"varint,3,opt,name=max_rows,json=maxRows,proto3" json:"max_rows,omitempty"`
 	// caller_id identifies the caller. This is the effective caller ID,
 	// set by the application to further identify the caller.
-	CallerId      *mtrpc.CallerID `protobuf:"bytes,4,opt,name=caller_id,json=callerId,proto3" json:"caller_id,omitempty"`
+	CallerId *mtrpc.CallerID `protobuf:"bytes,4,opt,name=caller_id,json=callerId,proto3" json:"caller_id,omitempty"`
+	// options contains execution options including session state
+	// (prepared statements, portals, settings) needed for query execution.
+	Options       *query.ExecuteOptions `protobuf:"bytes,5,opt,name=options,proto3" json:"options,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -112,6 +115,13 @@ func (x *ExecuteQueryRequest) GetCallerId() *mtrpc.CallerID {
 	return nil
 }
 
+func (x *ExecuteQueryRequest) GetOptions() *query.ExecuteOptions {
+	if x != nil {
+		return x.Options
+	}
+	return nil
+}
+
 // ExecuteQueryResponse represents the response from executing a SQL query
 type ExecuteQueryResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -166,7 +176,10 @@ type StreamExecuteRequest struct {
 	Target *query.Target `protobuf:"bytes,2,opt,name=target,proto3" json:"target,omitempty"`
 	// caller_id identifies the caller. This is the effective caller ID,
 	// set by the application to further identify the caller.
-	CallerId      *mtrpc.CallerID `protobuf:"bytes,3,opt,name=caller_id,json=callerId,proto3" json:"caller_id,omitempty"`
+	CallerId *mtrpc.CallerID `protobuf:"bytes,3,opt,name=caller_id,json=callerId,proto3" json:"caller_id,omitempty"`
+	// options contains execution options including session state
+	// (prepared statements, portals, settings) needed for query execution.
+	Options       *query.ExecuteOptions `protobuf:"bytes,4,opt,name=options,proto3" json:"options,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -222,6 +235,13 @@ func (x *StreamExecuteRequest) GetCallerId() *mtrpc.CallerID {
 	return nil
 }
 
+func (x *StreamExecuteRequest) GetOptions() *query.ExecuteOptions {
+	if x != nil {
+		return x.Options
+	}
+	return nil
+}
+
 // StreamExecuteResponse represents a single response in the stream of query results
 type StreamExecuteResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -272,18 +292,20 @@ var File_multipoolerservice_proto protoreflect.FileDescriptor
 
 const file_multipoolerservice_proto_rawDesc = "" +
 	"\n" +
-	"\x18multipoolerservice.proto\x12\x12multipoolerservice\x1a\vmtrpc.proto\x1a\vquery.proto\"\x9b\x01\n" +
+	"\x18multipoolerservice.proto\x12\x12multipoolerservice\x1a\vmtrpc.proto\x1a\vquery.proto\"\xcc\x01\n" +
 	"\x13ExecuteQueryRequest\x12\x14\n" +
 	"\x05query\x18\x01 \x01(\tR\x05query\x12%\n" +
 	"\x06target\x18\x02 \x01(\v2\r.query.TargetR\x06target\x12\x19\n" +
 	"\bmax_rows\x18\x03 \x01(\x04R\amaxRows\x12,\n" +
-	"\tcaller_id\x18\x04 \x01(\v2\x0f.mtrpc.CallerIDR\bcallerId\"B\n" +
+	"\tcaller_id\x18\x04 \x01(\v2\x0f.mtrpc.CallerIDR\bcallerId\x12/\n" +
+	"\aoptions\x18\x05 \x01(\v2\x15.query.ExecuteOptionsR\aoptions\"B\n" +
 	"\x14ExecuteQueryResponse\x12*\n" +
-	"\x06result\x18\x01 \x01(\v2\x12.query.QueryResultR\x06result\"\x81\x01\n" +
+	"\x06result\x18\x01 \x01(\v2\x12.query.QueryResultR\x06result\"\xb2\x01\n" +
 	"\x14StreamExecuteRequest\x12\x14\n" +
 	"\x05query\x18\x01 \x01(\tR\x05query\x12%\n" +
 	"\x06target\x18\x02 \x01(\v2\r.query.TargetR\x06target\x12,\n" +
-	"\tcaller_id\x18\x03 \x01(\v2\x0f.mtrpc.CallerIDR\bcallerId\"C\n" +
+	"\tcaller_id\x18\x03 \x01(\v2\x0f.mtrpc.CallerIDR\bcallerId\x12/\n" +
+	"\aoptions\x18\x04 \x01(\v2\x15.query.ExecuteOptionsR\aoptions\"C\n" +
 	"\x15StreamExecuteResponse\x12*\n" +
 	"\x06result\x18\x01 \x01(\v2\x12.query.QueryResultR\x06result2\xdf\x01\n" +
 	"\x12MultiPoolerService\x12a\n" +
@@ -310,24 +332,27 @@ var file_multipoolerservice_proto_goTypes = []any{
 	(*StreamExecuteResponse)(nil), // 3: multipoolerservice.StreamExecuteResponse
 	(*query.Target)(nil),          // 4: query.Target
 	(*mtrpc.CallerID)(nil),        // 5: mtrpc.CallerID
-	(*query.QueryResult)(nil),     // 6: query.QueryResult
+	(*query.ExecuteOptions)(nil),  // 6: query.ExecuteOptions
+	(*query.QueryResult)(nil),     // 7: query.QueryResult
 }
 var file_multipoolerservice_proto_depIdxs = []int32{
-	4, // 0: multipoolerservice.ExecuteQueryRequest.target:type_name -> query.Target
-	5, // 1: multipoolerservice.ExecuteQueryRequest.caller_id:type_name -> mtrpc.CallerID
-	6, // 2: multipoolerservice.ExecuteQueryResponse.result:type_name -> query.QueryResult
-	4, // 3: multipoolerservice.StreamExecuteRequest.target:type_name -> query.Target
-	5, // 4: multipoolerservice.StreamExecuteRequest.caller_id:type_name -> mtrpc.CallerID
-	6, // 5: multipoolerservice.StreamExecuteResponse.result:type_name -> query.QueryResult
-	0, // 6: multipoolerservice.MultiPoolerService.ExecuteQuery:input_type -> multipoolerservice.ExecuteQueryRequest
-	2, // 7: multipoolerservice.MultiPoolerService.StreamExecute:input_type -> multipoolerservice.StreamExecuteRequest
-	1, // 8: multipoolerservice.MultiPoolerService.ExecuteQuery:output_type -> multipoolerservice.ExecuteQueryResponse
-	3, // 9: multipoolerservice.MultiPoolerService.StreamExecute:output_type -> multipoolerservice.StreamExecuteResponse
-	8, // [8:10] is the sub-list for method output_type
-	6, // [6:8] is the sub-list for method input_type
-	6, // [6:6] is the sub-list for extension type_name
-	6, // [6:6] is the sub-list for extension extendee
-	0, // [0:6] is the sub-list for field type_name
+	4,  // 0: multipoolerservice.ExecuteQueryRequest.target:type_name -> query.Target
+	5,  // 1: multipoolerservice.ExecuteQueryRequest.caller_id:type_name -> mtrpc.CallerID
+	6,  // 2: multipoolerservice.ExecuteQueryRequest.options:type_name -> query.ExecuteOptions
+	7,  // 3: multipoolerservice.ExecuteQueryResponse.result:type_name -> query.QueryResult
+	4,  // 4: multipoolerservice.StreamExecuteRequest.target:type_name -> query.Target
+	5,  // 5: multipoolerservice.StreamExecuteRequest.caller_id:type_name -> mtrpc.CallerID
+	6,  // 6: multipoolerservice.StreamExecuteRequest.options:type_name -> query.ExecuteOptions
+	7,  // 7: multipoolerservice.StreamExecuteResponse.result:type_name -> query.QueryResult
+	0,  // 8: multipoolerservice.MultiPoolerService.ExecuteQuery:input_type -> multipoolerservice.ExecuteQueryRequest
+	2,  // 9: multipoolerservice.MultiPoolerService.StreamExecute:input_type -> multipoolerservice.StreamExecuteRequest
+	1,  // 10: multipoolerservice.MultiPoolerService.ExecuteQuery:output_type -> multipoolerservice.ExecuteQueryResponse
+	3,  // 11: multipoolerservice.MultiPoolerService.StreamExecute:output_type -> multipoolerservice.StreamExecuteResponse
+	10, // [10:12] is the sub-list for method output_type
+	8,  // [8:10] is the sub-list for method input_type
+	8,  // [8:8] is the sub-list for extension type_name
+	8,  // [8:8] is the sub-list for extension extendee
+	0,  // [0:8] is the sub-list for field type_name
 }
 
 func init() { file_multipoolerservice_proto_init() }

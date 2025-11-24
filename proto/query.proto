@@ -111,3 +111,73 @@ message Target {
   // If not specified (UNKNOWN), defaults to PRIMARY
   clustermetadata.PoolerType pooler_type = 3;
 }
+
+// PreparedStatement represents a prepared statement in the extended query protocol.
+// Prepared statements are created by the Parse message and can be executed
+// multiple times with different parameter values.
+message PreparedStatement {
+  // name is the client-provided name for the prepared statement.
+  // An empty name indicates the unnamed statement.
+  string name = 1;
+
+  // query is the SQL query string.
+  string query = 2;
+
+  // param_types contains the OIDs of the parameter types.
+  // This is sent by the client in the Parse message.
+  repeated uint32 param_types = 3;
+}
+
+// Portal represents a bound prepared statement with parameters.
+// Portals are created by the Bind message and can be executed via Execute.
+message Portal {
+  // name is the client-provided name for the portal.
+  // An empty name indicates the unnamed portal.
+  string name = 1;
+
+  // prepared_statement_name is the name of the prepared statement this portal is bound to.
+  string prepared_statement_name = 2;
+
+  // params contains the parameter values sent by the client in the Bind message.
+  // Each parameter is a byte slice, with empty bytes indicating NULL.
+  repeated bytes params = 3;
+
+  // param_formats specifies the format code for each parameter.
+  // 0 = text, 1 = binary.
+  // If empty, all parameters are text format.
+  // If a single element, that format applies to all parameters.
+  repeated int32 param_formats = 4;
+
+  // result_formats specifies the format code for each result column.
+  // 0 = text, 1 = binary.
+  // If empty, all results are text format.
+  // If a single element, that format applies to all result columns.
+  repeated int32 result_formats = 5;
+}
+
+// ExecuteOptions contains execution options for query execution.
+// This includes session state like prepared statements and portals that
+// need to be available on the connection where the query is executed.
+message ExecuteOptions {
+  // session_settings contains session variables (SET commands) that should
+  // be applied to the connection before executing the query.
+  // Key is the variable name, value is the variable value.
+  map<string, string> session_settings = 1;
+
+  // prepared_statements contains prepared statements that should be
+  // available on the connection. Each statement has a name field.
+  repeated PreparedStatement prepared_statements = 2;
+
+  // portals contains portals (bound prepared statements) that should be
+  // available on the connection. Each portal has a name field.
+  repeated Portal portals = 3;
+
+  // client_id is a unique identifier for the client session.
+  // Used for connection pinning and reservation in the pool.
+  uint64 client_id = 4;
+
+  // requires_reservation indicates whether this execution requires
+  // the connection to be reserved (pinned) for subsequent operations.
+  // This is typically true when using prepared statements or transactions.
+  bool requires_reservation = 5;
+}

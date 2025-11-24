@@ -17,6 +17,8 @@ package connpool
 import (
 	"testing"
 
+	"github.com/multigres/multigres/go/pb/query"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -268,9 +270,13 @@ func TestConnectionStateOrderIndependence(t *testing.T) {
 func TestConnectionStatePreparedStatements(t *testing.T) {
 	state := NewEmptyConnectionState()
 
-	// Test storing prepared statement
-	stmt := NewPreparedStatement("test_stmt", nil, []uint32{23, 23})
-	state.StorePreparedStatement(stmt)
+	// Test storing prepared statement using proto type
+	stmt := &query.PreparedStatement{
+		Name:       "test_stmt",
+		Query:      "SELECT $1, $2",
+		ParamTypes: []uint32{23, 23},
+	}
+	state.StorePreparedStatement(stmt, nil)
 
 	// Test retrieving prepared statement
 	retrieved := state.GetPreparedStatement("test_stmt")
@@ -294,18 +300,29 @@ func TestConnectionStatePreparedStatements(t *testing.T) {
 func TestConnectionStatePortals(t *testing.T) {
 	state := NewEmptyConnectionState()
 
-	// Create a prepared statement first
-	stmt := NewPreparedStatement("test_stmt", nil, []uint32{23})
+	// Create and store a prepared statement first
+	stmt := &query.PreparedStatement{
+		Name:       "test_stmt",
+		Query:      "SELECT $1",
+		ParamTypes: []uint32{23},
+	}
+	state.StorePreparedStatement(stmt, nil)
 
-	// Test storing portal
-	portal := NewPortal("test_portal", stmt, [][]byte{[]byte("value")}, []int16{0}, []int16{0})
+	// Test storing portal using proto type
+	portal := &query.Portal{
+		Name:                  "test_portal",
+		PreparedStatementName: "test_stmt",
+		Params:                [][]byte{[]byte("value")},
+		ParamFormats:          []int32{0},
+		ResultFormats:         []int32{0},
+	}
 	state.StorePortal(portal)
 
 	// Test retrieving portal
 	retrieved := state.GetPortal("test_portal")
 	require.NotNil(t, retrieved, "should retrieve stored portal")
 	assert.Equal(t, "test_portal", retrieved.Name)
-	assert.Equal(t, stmt, retrieved.Statement)
+	assert.Equal(t, "test_stmt", retrieved.PreparedStatementName)
 
 	// Test retrieving non-existent portal
 	notFound := state.GetPortal("non_existent")
@@ -325,8 +342,8 @@ func TestConnectionStateIsCleanWithPreparedStatements(t *testing.T) {
 	assert.True(t, state.IsClean(), "new state should be clean")
 
 	// Add prepared statement
-	stmt := NewPreparedStatement("test", nil, nil)
-	state.StorePreparedStatement(stmt)
+	stmt := &query.PreparedStatement{Name: "test", Query: "SELECT 1"}
+	state.StorePreparedStatement(stmt, nil)
 	assert.False(t, state.IsClean(), "state with prepared statement should not be clean")
 }
 
@@ -335,8 +352,7 @@ func TestConnectionStateIsCleanWithPortals(t *testing.T) {
 	assert.True(t, state.IsClean(), "new state should be clean")
 
 	// Add portal
-	stmt := NewPreparedStatement("test", nil, nil)
-	portal := NewPortal("test_portal", stmt, nil, nil, nil)
+	portal := &query.Portal{Name: "test_portal", PreparedStatementName: "test"}
 	state.StorePortal(portal)
 	assert.False(t, state.IsClean(), "state with portal should not be clean")
 }
@@ -346,9 +362,9 @@ func TestConnectionStateResetSQLWithPreparedStatements(t *testing.T) {
 
 	// Add settings and prepared statements
 	state.Settings["timezone"] = "UTC"
-	stmt := NewPreparedStatement("test", nil, nil)
-	state.StorePreparedStatement(stmt)
-	portal := NewPortal("test_portal", stmt, nil, nil, nil)
+	stmt := &query.PreparedStatement{Name: "test", Query: "SELECT 1"}
+	state.StorePreparedStatement(stmt, nil)
+	portal := &query.Portal{Name: "test_portal", PreparedStatementName: "test"}
 	state.StorePortal(portal)
 
 	sql := state.GenerateResetSQL()
@@ -361,8 +377,8 @@ func TestConnectionStateResetSQLWithPreparedStatements(t *testing.T) {
 func TestConnectionStateClose(t *testing.T) {
 	state := NewEmptyConnectionState()
 	state.Settings["timezone"] = "UTC"
-	stmt := NewPreparedStatement("test", nil, nil)
-	state.StorePreparedStatement(stmt)
+	stmt := &query.PreparedStatement{Name: "test", Query: "SELECT 1"}
+	state.StorePreparedStatement(stmt, nil)
 
 	state.Close()
 
@@ -370,13 +386,14 @@ func TestConnectionStateClose(t *testing.T) {
 	assert.Nil(t, state.Settings)
 	assert.Nil(t, state.PreparedStatements)
 	assert.Nil(t, state.Portals)
+	assert.Nil(t, state.ParsedASTs)
 }
 
 func TestConnectionStateCloneWithPreparedStatements(t *testing.T) {
 	state := NewEmptyConnectionState()
 	state.Settings["timezone"] = "UTC"
-	stmt := NewPreparedStatement("test", nil, []uint32{23})
-	state.StorePreparedStatement(stmt)
+	stmt := &query.PreparedStatement{Name: "test", Query: "SELECT $1", ParamTypes: []uint32{23}}
+	state.StorePreparedStatement(stmt, nil)
 
 	clone := state.Clone()
 	require.NotNil(t, clone)

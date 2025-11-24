@@ -21,70 +21,8 @@ import (
 	"sync"
 
 	"github.com/multigres/multigres/go/parser/ast"
+	"github.com/multigres/multigres/go/pb/query"
 )
-
-// PreparedStatement represents a prepared statement in the extended query protocol.
-// Prepared statements are created by the Parse message and can be executed
-// multiple times with different parameter values.
-type PreparedStatement struct {
-	// Name is the client-provided name for the prepared statement.
-	// An empty name indicates the unnamed statement.
-	Name string
-
-	// Query is the SQL query string.
-	Query ast.Stmt
-
-	// ParamTypes contains the OIDs of the parameter types.
-	// This is sent by the client in the Parse message.
-	ParamTypes []uint32
-}
-
-// NewPreparedStatement creates a new PreparedStatement.
-func NewPreparedStatement(name string, query ast.Stmt, paramTypes []uint32) *PreparedStatement {
-	return &PreparedStatement{
-		Name:       name,
-		Query:      query,
-		ParamTypes: paramTypes,
-	}
-}
-
-// Portal represents a bound prepared statement with parameters.
-// Portals are created by the Bind message and can be executed via Execute.
-type Portal struct {
-	// Name is the client-provided name for the portal.
-	// An empty name indicates the unnamed portal.
-	Name string
-
-	// Statement is the prepared statement this portal is bound to.
-	Statement *PreparedStatement
-
-	// Params contains the parameter values sent by the client in the Bind message.
-	// Each parameter is a byte slice, with nil indicating NULL.
-	Params [][]byte
-
-	// ParamFormats specifies the format code for each parameter.
-	// 0 = text, 1 = binary.
-	// If empty, all parameters are text format.
-	// If a single element, that format applies to all parameters.
-	ParamFormats []int16
-
-	// ResultFormats specifies the format code for each result column.
-	// 0 = text, 1 = binary.
-	// If empty, all results are text format.
-	// If a single element, that format applies to all result columns.
-	ResultFormats []int16
-}
-
-// NewPortal creates a new Portal.
-func NewPortal(name string, statement *PreparedStatement, params [][]byte, paramFormats, resultFormats []int16) *Portal {
-	return &Portal{
-		Name:          name,
-		Statement:     statement,
-		Params:        params,
-		ParamFormats:  paramFormats,
-		ResultFormats: resultFormats,
-	}
-}
 
 // ConnectionState represents the cumulative state of a connection.
 // This includes all state modifiers like session settings, prepared statements,
@@ -104,11 +42,19 @@ type ConnectionState struct {
 
 	// PreparedStatements stores prepared statements by name.
 	// The unnamed statement uses the empty string "" as the key.
-	PreparedStatements map[string]*PreparedStatement
+	// Uses proto type for gRPC serialization.
+	PreparedStatements map[string]*query.PreparedStatement
 
 	// Portals stores portals (bound prepared statements) by name.
 	// The unnamed portal uses the empty string "" as the key.
-	Portals map[string]*Portal
+	// Uses proto type for gRPC serialization.
+	Portals map[string]*query.Portal
+
+	// ParsedASTs stores parsed AST for prepared statements by name.
+	// This is kept separate from PreparedStatements because AST cannot be
+	// serialized over gRPC. The AST is needed for parameter substitution
+	// and query execution.
+	ParsedASTs map[string]ast.Stmt
 
 	// hash is the cached hash value for this state.
 	// Used for distributing connections across state-specific stacks.
@@ -120,8 +66,9 @@ type ConnectionState struct {
 func NewConnectionState(settings map[string]string) *ConnectionState {
 	state := &ConnectionState{
 		Settings:           settings,
-		PreparedStatements: make(map[string]*PreparedStatement),
-		Portals:            make(map[string]*Portal),
+		PreparedStatements: make(map[string]*query.PreparedStatement),
+		Portals:            make(map[string]*query.Portal),
+		ParsedASTs:         make(map[string]ast.Stmt),
 	}
 	state.hash = state.computeHash()
 	return state
@@ -131,8 +78,9 @@ func NewConnectionState(settings map[string]string) *ConnectionState {
 func NewEmptyConnectionState() *ConnectionState {
 	return &ConnectionState{
 		Settings:           make(map[string]string),
-		PreparedStatements: make(map[string]*PreparedStatement),
-		Portals:            make(map[string]*Portal),
+		PreparedStatements: make(map[string]*query.PreparedStatement),
+		Portals:            make(map[string]*query.Portal),
+		ParsedASTs:         make(map[string]ast.Stmt),
 	}
 }
 
@@ -183,9 +131,9 @@ func (s *ConnectionState) computeHash() uint64 {
 			stmt := s.PreparedStatements[name]
 			h.Write([]byte(name))
 			h.Write([]byte{0})
-			// Hash the query string representation
-			if stmt.Query != nil {
-				h.Write([]byte(stmt.Query.String()))
+			// Hash the query string
+			if stmt.Query != "" {
+				h.Write([]byte(stmt.Query))
 				h.Write([]byte{0})
 			}
 		}
@@ -247,11 +195,7 @@ func (s *ConnectionState) Equals(other *ConnectionState) bool {
 			return false
 		}
 		// Compare query strings
-		if stmt.Query != nil && otherStmt.Query != nil {
-			if stmt.Query.String() != otherStmt.Query.String() {
-				return false
-			}
-		} else if stmt.Query != otherStmt.Query {
+		if stmt.Query != otherStmt.Query {
 			return false
 		}
 	}
@@ -294,13 +238,15 @@ func (s *ConnectionState) Clone() *ConnectionState {
 
 	clone := &ConnectionState{
 		Settings:           make(map[string]string, len(s.Settings)),
-		PreparedStatements: make(map[string]*PreparedStatement, len(s.PreparedStatements)),
-		Portals:            make(map[string]*Portal, len(s.Portals)),
+		PreparedStatements: make(map[string]*query.PreparedStatement, len(s.PreparedStatements)),
+		Portals:            make(map[string]*query.Portal, len(s.Portals)),
+		ParsedASTs:         make(map[string]ast.Stmt, len(s.ParsedASTs)),
 	}
 
 	maps.Copy(clone.Settings, s.Settings)
 	maps.Copy(clone.PreparedStatements, s.PreparedStatements)
 	maps.Copy(clone.Portals, s.Portals)
+	maps.Copy(clone.ParsedASTs, s.ParsedASTs)
 
 	clone.hash = clone.computeHash()
 	return clone
@@ -318,6 +264,7 @@ func (s *ConnectionState) Close() {
 	s.Settings = nil
 	s.PreparedStatements = nil
 	s.Portals = nil
+	s.ParsedASTs = nil
 }
 
 // ApplySetting adds or updates a setting and recomputes the hash.
@@ -350,9 +297,11 @@ func (s *ConnectionState) RemoveSetting(key string) {
 
 // --- Prepared Statement Methods ---
 
-// StorePreparedStatement stores a prepared statement.
+// StorePreparedStatement stores a prepared statement along with its parsed AST.
 // If a statement with the same name already exists, it is replaced.
-func (s *ConnectionState) StorePreparedStatement(stmt *PreparedStatement) {
+// The parsedAST parameter is the parsed AST of the query, which is needed for
+// parameter substitution and query execution but cannot be serialized over gRPC.
+func (s *ConnectionState) StorePreparedStatement(stmt *query.PreparedStatement, parsedAST ast.Stmt) {
 	if s == nil {
 		return
 	}
@@ -361,12 +310,15 @@ func (s *ConnectionState) StorePreparedStatement(stmt *PreparedStatement) {
 	defer s.mu.Unlock()
 
 	s.PreparedStatements[stmt.Name] = stmt
+	if parsedAST != nil {
+		s.ParsedASTs[stmt.Name] = parsedAST
+	}
 	s.hash = 0 // Invalidate hash
 }
 
 // GetPreparedStatement retrieves a prepared statement by name.
 // Returns nil if the statement does not exist.
-func (s *ConnectionState) GetPreparedStatement(name string) *PreparedStatement {
+func (s *ConnectionState) GetPreparedStatement(name string) *query.PreparedStatement {
 	if s == nil {
 		return nil
 	}
@@ -375,6 +327,19 @@ func (s *ConnectionState) GetPreparedStatement(name string) *PreparedStatement {
 	defer s.mu.Unlock()
 
 	return s.PreparedStatements[name]
+}
+
+// GetParsedAST retrieves the parsed AST for a prepared statement by name.
+// Returns nil if the statement or AST does not exist.
+func (s *ConnectionState) GetParsedAST(name string) ast.Stmt {
+	if s == nil {
+		return nil
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return s.ParsedASTs[name]
 }
 
 // DeletePreparedStatement removes a prepared statement by name.
@@ -388,6 +353,7 @@ func (s *ConnectionState) DeletePreparedStatement(name string) {
 	defer s.mu.Unlock()
 
 	delete(s.PreparedStatements, name)
+	delete(s.ParsedASTs, name)
 	s.hash = 0 // Invalidate hash
 }
 
@@ -395,7 +361,7 @@ func (s *ConnectionState) DeletePreparedStatement(name string) {
 
 // StorePortal stores a portal.
 // If a portal with the same name already exists, it is replaced.
-func (s *ConnectionState) StorePortal(portal *Portal) {
+func (s *ConnectionState) StorePortal(portal *query.Portal) {
 	if s == nil {
 		return
 	}
@@ -409,7 +375,7 @@ func (s *ConnectionState) StorePortal(portal *Portal) {
 
 // GetPortal retrieves a portal by name.
 // Returns nil if the portal does not exist.
-func (s *ConnectionState) GetPortal(name string) *Portal {
+func (s *ConnectionState) GetPortal(name string) *query.Portal {
 	if s == nil {
 		return nil
 	}

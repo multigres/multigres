@@ -24,6 +24,7 @@ import (
 	"github.com/multigres/multigres/go/pb/query"
 	"github.com/multigres/multigres/go/pgprotocol/server"
 	"github.com/multigres/multigres/go/pools/connpool"
+	"github.com/multigres/multigres/go/protoutil"
 )
 
 // Executor defines the interface for query execution.
@@ -102,11 +103,12 @@ func (h *MultiGatewayHandler) HandleParse(ctx context.Context, conn *server.Conn
 		return fmt.Errorf("more than 1 query in prepare statement")
 	}
 
-	// Create and store the prepared statement.
-	stmt := connpool.NewPreparedStatement(name, asts[0], paramTypes)
+	// Create the prepared statement using protoutil helper.
+	stmt := protoutil.NewPreparedStatement(name, queryStr, paramTypes)
 
 	state := h.getConnectionState(conn)
-	state.StorePreparedStatement(stmt)
+	// Store both the proto statement and the parsed AST.
+	state.StorePreparedStatement(stmt, asts[0])
 
 	return nil
 }
@@ -119,14 +121,14 @@ func (h *MultiGatewayHandler) HandleBind(ctx context.Context, conn *server.Conn,
 	// Get the connection state.
 	state := h.getConnectionState(conn)
 
-	// Get the prepared statement.
+	// Get the prepared statement to verify it exists.
 	stmt := state.GetPreparedStatement(stmtName)
 	if stmt == nil {
 		return fmt.Errorf("prepared statement \"%s\" does not exist", stmtName)
 	}
 
-	// Create portal with bound parameters and format codes.
-	portal := connpool.NewPortal(portalName, stmt, params, paramFormats, resultFormats)
+	// Create portal using protoutil helper.
+	portal := protoutil.NewPortal(portalName, stmtName, params, paramFormats, resultFormats)
 	state.StorePortal(portal)
 
 	return nil
@@ -146,16 +148,25 @@ func (h *MultiGatewayHandler) HandleExecute(ctx context.Context, conn *server.Co
 		return fmt.Errorf("portal \"%s\" does not exist", portalName)
 	}
 
-	// Get the query AST from the portal's statement.
-	qry := portal.Statement.Query
+	// Get the prepared statement referenced by the portal.
+	stmt := state.GetPreparedStatement(portal.PreparedStatementName)
+	if stmt == nil {
+		return fmt.Errorf("prepared statement \"%s\" does not exist", portal.PreparedStatementName)
+	}
+
+	// Get the parsed AST for the statement.
+	qry := state.GetParsedAST(portal.PreparedStatementName)
+	if qry == nil {
+		return fmt.Errorf("parsed AST for statement \"%s\" not found", portal.PreparedStatementName)
+	}
 
 	// Substitute parameters if any are bound
 	if len(portal.Params) > 0 {
 		substitutedQuery, err := ast.SubstituteParameters(
 			qry,
 			portal.Params,
-			portal.ParamFormats,
-			portal.Statement.ParamTypes,
+			protoutil.PortalParamFormats(portal),
+			stmt.ParamTypes,
 		)
 		if err != nil {
 			return fmt.Errorf("parameter substitution failed: %w", err)
@@ -206,9 +217,15 @@ func (h *MultiGatewayHandler) HandleDescribe(ctx context.Context, conn *server.C
 			return nil, fmt.Errorf("portal \"%s\" does not exist", name)
 		}
 
+		// Get the prepared statement referenced by the portal.
+		stmt := state.GetPreparedStatement(portal.PreparedStatementName)
+		if stmt == nil {
+			return nil, fmt.Errorf("prepared statement \"%s\" does not exist", portal.PreparedStatementName)
+		}
+
 		// Convert param types to parameter descriptions.
-		params := make([]*query.ParameterDescription, len(portal.Statement.ParamTypes))
-		for i, oid := range portal.Statement.ParamTypes {
+		params := make([]*query.ParameterDescription, len(stmt.ParamTypes))
+		for i, oid := range stmt.ParamTypes {
 			params[i] = &query.ParameterDescription{
 				DataTypeOid: oid,
 			}

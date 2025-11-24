@@ -445,6 +445,256 @@ func (x *Target) GetPoolerType() clustermetadata.PoolerType {
 	return clustermetadata.PoolerType(0)
 }
 
+// PreparedStatement represents a prepared statement in the extended query protocol.
+// Prepared statements are created by the Parse message and can be executed
+// multiple times with different parameter values.
+type PreparedStatement struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// name is the client-provided name for the prepared statement.
+	// An empty name indicates the unnamed statement.
+	Name string `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	// query is the SQL query string.
+	Query string `protobuf:"bytes,2,opt,name=query,proto3" json:"query,omitempty"`
+	// param_types contains the OIDs of the parameter types.
+	// This is sent by the client in the Parse message.
+	ParamTypes    []uint32 `protobuf:"varint,3,rep,packed,name=param_types,json=paramTypes,proto3" json:"param_types,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PreparedStatement) Reset() {
+	*x = PreparedStatement{}
+	mi := &file_query_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PreparedStatement) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PreparedStatement) ProtoMessage() {}
+
+func (x *PreparedStatement) ProtoReflect() protoreflect.Message {
+	mi := &file_query_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PreparedStatement.ProtoReflect.Descriptor instead.
+func (*PreparedStatement) Descriptor() ([]byte, []int) {
+	return file_query_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *PreparedStatement) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *PreparedStatement) GetQuery() string {
+	if x != nil {
+		return x.Query
+	}
+	return ""
+}
+
+func (x *PreparedStatement) GetParamTypes() []uint32 {
+	if x != nil {
+		return x.ParamTypes
+	}
+	return nil
+}
+
+// Portal represents a bound prepared statement with parameters.
+// Portals are created by the Bind message and can be executed via Execute.
+type Portal struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// name is the client-provided name for the portal.
+	// An empty name indicates the unnamed portal.
+	Name string `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	// prepared_statement_name is the name of the prepared statement this portal is bound to.
+	PreparedStatementName string `protobuf:"bytes,2,opt,name=prepared_statement_name,json=preparedStatementName,proto3" json:"prepared_statement_name,omitempty"`
+	// params contains the parameter values sent by the client in the Bind message.
+	// Each parameter is a byte slice, with empty bytes indicating NULL.
+	Params [][]byte `protobuf:"bytes,3,rep,name=params,proto3" json:"params,omitempty"`
+	// param_formats specifies the format code for each parameter.
+	// 0 = text, 1 = binary.
+	// If empty, all parameters are text format.
+	// If a single element, that format applies to all parameters.
+	ParamFormats []int32 `protobuf:"varint,4,rep,packed,name=param_formats,json=paramFormats,proto3" json:"param_formats,omitempty"`
+	// result_formats specifies the format code for each result column.
+	// 0 = text, 1 = binary.
+	// If empty, all results are text format.
+	// If a single element, that format applies to all result columns.
+	ResultFormats []int32 `protobuf:"varint,5,rep,packed,name=result_formats,json=resultFormats,proto3" json:"result_formats,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Portal) Reset() {
+	*x = Portal{}
+	mi := &file_query_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Portal) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Portal) ProtoMessage() {}
+
+func (x *Portal) ProtoReflect() protoreflect.Message {
+	mi := &file_query_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Portal.ProtoReflect.Descriptor instead.
+func (*Portal) Descriptor() ([]byte, []int) {
+	return file_query_proto_rawDescGZIP(), []int{7}
+}
+
+func (x *Portal) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *Portal) GetPreparedStatementName() string {
+	if x != nil {
+		return x.PreparedStatementName
+	}
+	return ""
+}
+
+func (x *Portal) GetParams() [][]byte {
+	if x != nil {
+		return x.Params
+	}
+	return nil
+}
+
+func (x *Portal) GetParamFormats() []int32 {
+	if x != nil {
+		return x.ParamFormats
+	}
+	return nil
+}
+
+func (x *Portal) GetResultFormats() []int32 {
+	if x != nil {
+		return x.ResultFormats
+	}
+	return nil
+}
+
+// ExecuteOptions contains execution options for query execution.
+// This includes session state like prepared statements and portals that
+// need to be available on the connection where the query is executed.
+type ExecuteOptions struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// session_settings contains session variables (SET commands) that should
+	// be applied to the connection before executing the query.
+	// Key is the variable name, value is the variable value.
+	SessionSettings map[string]string `protobuf:"bytes,1,rep,name=session_settings,json=sessionSettings,proto3" json:"session_settings,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	// prepared_statements contains prepared statements that should be
+	// available on the connection. Each statement has a name field.
+	PreparedStatements []*PreparedStatement `protobuf:"bytes,2,rep,name=prepared_statements,json=preparedStatements,proto3" json:"prepared_statements,omitempty"`
+	// portals contains portals (bound prepared statements) that should be
+	// available on the connection. Each portal has a name field.
+	Portals []*Portal `protobuf:"bytes,3,rep,name=portals,proto3" json:"portals,omitempty"`
+	// client_id is a unique identifier for the client session.
+	// Used for connection pinning and reservation in the pool.
+	ClientId uint64 `protobuf:"varint,4,opt,name=client_id,json=clientId,proto3" json:"client_id,omitempty"`
+	// requires_reservation indicates whether this execution requires
+	// the connection to be reserved (pinned) for subsequent operations.
+	// This is typically true when using prepared statements or transactions.
+	RequiresReservation bool `protobuf:"varint,5,opt,name=requires_reservation,json=requiresReservation,proto3" json:"requires_reservation,omitempty"`
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
+}
+
+func (x *ExecuteOptions) Reset() {
+	*x = ExecuteOptions{}
+	mi := &file_query_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ExecuteOptions) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ExecuteOptions) ProtoMessage() {}
+
+func (x *ExecuteOptions) ProtoReflect() protoreflect.Message {
+	mi := &file_query_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ExecuteOptions.ProtoReflect.Descriptor instead.
+func (*ExecuteOptions) Descriptor() ([]byte, []int) {
+	return file_query_proto_rawDescGZIP(), []int{8}
+}
+
+func (x *ExecuteOptions) GetSessionSettings() map[string]string {
+	if x != nil {
+		return x.SessionSettings
+	}
+	return nil
+}
+
+func (x *ExecuteOptions) GetPreparedStatements() []*PreparedStatement {
+	if x != nil {
+		return x.PreparedStatements
+	}
+	return nil
+}
+
+func (x *ExecuteOptions) GetPortals() []*Portal {
+	if x != nil {
+		return x.Portals
+	}
+	return nil
+}
+
+func (x *ExecuteOptions) GetClientId() uint64 {
+	if x != nil {
+		return x.ClientId
+	}
+	return 0
+}
+
+func (x *ExecuteOptions) GetRequiresReservation() bool {
+	if x != nil {
+		return x.RequiresReservation
+	}
+	return false
+}
+
 var File_query_proto protoreflect.FileDescriptor
 
 const file_query_proto_rawDesc = "" +
@@ -480,7 +730,27 @@ const file_query_proto_rawDesc = "" +
 	"tableGroup\x12\x14\n" +
 	"\x05shard\x18\x02 \x01(\tR\x05shard\x12<\n" +
 	"\vpooler_type\x18\x03 \x01(\x0e2\x1b.clustermetadata.PoolerTypeR\n" +
-	"poolerTypeB,Z*github.com/multigres/multigres/go/pb/queryb\x06proto3"
+	"poolerType\"^\n" +
+	"\x11PreparedStatement\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12\x14\n" +
+	"\x05query\x18\x02 \x01(\tR\x05query\x12\x1f\n" +
+	"\vparam_types\x18\x03 \x03(\rR\n" +
+	"paramTypes\"\xb8\x01\n" +
+	"\x06Portal\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x126\n" +
+	"\x17prepared_statement_name\x18\x02 \x01(\tR\x15preparedStatementName\x12\x16\n" +
+	"\x06params\x18\x03 \x03(\fR\x06params\x12#\n" +
+	"\rparam_formats\x18\x04 \x03(\x05R\fparamFormats\x12%\n" +
+	"\x0eresult_formats\x18\x05 \x03(\x05R\rresultFormats\"\xef\x02\n" +
+	"\x0eExecuteOptions\x12U\n" +
+	"\x10session_settings\x18\x01 \x03(\v2*.query.ExecuteOptions.SessionSettingsEntryR\x0fsessionSettings\x12I\n" +
+	"\x13prepared_statements\x18\x02 \x03(\v2\x18.query.PreparedStatementR\x12preparedStatements\x12'\n" +
+	"\aportals\x18\x03 \x03(\v2\r.query.PortalR\aportals\x12\x1b\n" +
+	"\tclient_id\x18\x04 \x01(\x04R\bclientId\x121\n" +
+	"\x14requires_reservation\x18\x05 \x01(\bR\x13requiresReservation\x1aB\n" +
+	"\x14SessionSettingsEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01B,Z*github.com/multigres/multigres/go/pb/queryb\x06proto3"
 
 var (
 	file_query_proto_rawDescOnce sync.Once
@@ -494,7 +764,7 @@ func file_query_proto_rawDescGZIP() []byte {
 	return file_query_proto_rawDescData
 }
 
-var file_query_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
+var file_query_proto_msgTypes = make([]protoimpl.MessageInfo, 10)
 var file_query_proto_goTypes = []any{
 	(*QueryResult)(nil),             // 0: query.QueryResult
 	(*Field)(nil),                   // 1: query.Field
@@ -502,19 +772,26 @@ var file_query_proto_goTypes = []any{
 	(*StatementDescription)(nil),    // 3: query.StatementDescription
 	(*ParameterDescription)(nil),    // 4: query.ParameterDescription
 	(*Target)(nil),                  // 5: query.Target
-	(clustermetadata.PoolerType)(0), // 6: clustermetadata.PoolerType
+	(*PreparedStatement)(nil),       // 6: query.PreparedStatement
+	(*Portal)(nil),                  // 7: query.Portal
+	(*ExecuteOptions)(nil),          // 8: query.ExecuteOptions
+	nil,                             // 9: query.ExecuteOptions.SessionSettingsEntry
+	(clustermetadata.PoolerType)(0), // 10: clustermetadata.PoolerType
 }
 var file_query_proto_depIdxs = []int32{
-	1, // 0: query.QueryResult.fields:type_name -> query.Field
-	2, // 1: query.QueryResult.rows:type_name -> query.Row
-	4, // 2: query.StatementDescription.parameters:type_name -> query.ParameterDescription
-	1, // 3: query.StatementDescription.fields:type_name -> query.Field
-	6, // 4: query.Target.pooler_type:type_name -> clustermetadata.PoolerType
-	5, // [5:5] is the sub-list for method output_type
-	5, // [5:5] is the sub-list for method input_type
-	5, // [5:5] is the sub-list for extension type_name
-	5, // [5:5] is the sub-list for extension extendee
-	0, // [0:5] is the sub-list for field type_name
+	1,  // 0: query.QueryResult.fields:type_name -> query.Field
+	2,  // 1: query.QueryResult.rows:type_name -> query.Row
+	4,  // 2: query.StatementDescription.parameters:type_name -> query.ParameterDescription
+	1,  // 3: query.StatementDescription.fields:type_name -> query.Field
+	10, // 4: query.Target.pooler_type:type_name -> clustermetadata.PoolerType
+	9,  // 5: query.ExecuteOptions.session_settings:type_name -> query.ExecuteOptions.SessionSettingsEntry
+	6,  // 6: query.ExecuteOptions.prepared_statements:type_name -> query.PreparedStatement
+	7,  // 7: query.ExecuteOptions.portals:type_name -> query.Portal
+	8,  // [8:8] is the sub-list for method output_type
+	8,  // [8:8] is the sub-list for method input_type
+	8,  // [8:8] is the sub-list for extension type_name
+	8,  // [8:8] is the sub-list for extension extendee
+	0,  // [0:8] is the sub-list for field type_name
 }
 
 func init() { file_query_proto_init() }
@@ -528,7 +805,7 @@ func file_query_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_query_proto_rawDesc), len(file_query_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   6,
+			NumMessages:   10,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
