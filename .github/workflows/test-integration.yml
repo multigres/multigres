@@ -37,53 +37,14 @@ jobs:
         with:
           go-version: "1.25.0"
 
-      - name: Install PostgreSQL
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y postgresql postgresql-contrib postgresql-client-common postgresql-common
-          # Set up postgres user password for tests
-          sudo -u postgres psql -c "ALTER USER postgres PASSWORD 'postgres';" || true
-
-      - name: Install pgBackRest
-        run: |
-          # Set up PostgreSQL apt repository for latest pgBackRest
-          sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
-          sudo apt-get update
-          sudo apt-get install -y pgbackrest
-          pgbackrest version
-
-      - name: Verify PostgreSQL Installation
-        run: |
-          # Add PostgreSQL binaries to PATH
-          # shellcheck disable=SC2012
-          PATH="/usr/lib/postgresql/$(ls /usr/lib/postgresql/ | head -1)/bin:$PATH"
-          export PATH
-          # Now verify the binaries
-          postgres --version
-          initdb --version
-          pg_ctl --version
-          pg_isready --version
-          psql --version
-
-      - name: Install etcd binary
-        run: |
-          curl -L https://github.com/etcd-io/etcd/releases/download/v3.5.0/etcd-v3.5.0-linux-amd64.tar.gz | tar xz
-          sudo cp etcd-v3.5.0-linux-amd64/etcd /usr/local/bin/
-          rm -rf etcd-v3.5.0-linux-amd64
+      - name: Set up test environment
+        run: .github/scripts/setup-test-environment.sh
 
       - name: Build
         run: make build
 
       - name: Run integration tests
-        run: |
-          # Add PostgreSQL binaries to PATH
-          # shellcheck disable=SC2012
-          PATH="/usr/lib/postgresql/$(ls /usr/lib/postgresql/ | head -1)/bin:$PATH"
-          export PATH
-          # Set environment variables for tests
-          export PGCONNECT_TIMEOUT=5
-          # Run tests with verbose output
-          go test -cover -covermode=atomic -coverprofile=coverage.txt -coverpkg=./... -json -v ./... | tee integration-test-results.jsonl | go tool tparse -follow
+        run: go test -cover -covermode=atomic -coverprofile=coverage.txt -coverpkg=./... -json -v ./... | tee integration-test-results.jsonl | go tool tparse -follow
 
       - name: Test Report
         uses: dorny/test-reporter@dc3a92680fcc15842eef52e8c4606ea7ce6bd3f3 # v2.1.1
