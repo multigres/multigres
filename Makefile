@@ -24,6 +24,9 @@ export ADDLICENSE_VER
 ETCD_VER = v3.6.4
 export ETCD_VER
 
+# List of all commands to build
+COMMANDS = multigateway multipooler pgctld multiorch multigres multiadmin
+
 .PHONY: all build build-all clean install test proto tools parser
 
 # Default target
@@ -67,12 +70,17 @@ generate: parser
 build:
 	mkdir -p bin/
 	cp external/pico/pico.* go/common/web/templates/css/
-	go build -o bin/multigateway ./go/cmd/multigateway
-	go build -o bin/multipooler ./go/cmd/multipooler
-	go build -o bin/pgctld ./go/cmd/pgctld
-	go build -o bin/multiorch ./go/cmd/multiorch
-	go build -o bin/multigres ./go/cmd/multigres
-	go build -o bin/multiadmin ./go/cmd/multiadmin
+	for cmd in $(COMMANDS); do \
+		go build -o bin/$$cmd ./go/cmd/$$cmd; \
+	done
+
+# Build Go binaries with coverage
+build-coverage:
+	mkdir -p bin/
+	cp external/pico/pico.* go/common/web/templates/css/
+	for cmd in $(COMMANDS); do \
+		go build -cover -covermode=atomic -coverpkg=./... -o bin/$$cmd.cov ./go/cmd/$$cmd; \
+	done
 
 # Build everything (proto + parser + binaries)
 build-all: proto parser build
@@ -85,12 +93,9 @@ clean:
 
 # Install binaries to GOPATH/bin
 install:
-	go install ./go/cmd/multigateway
-	go install ./go/cmd/multipooler
-	go install ./go/cmd/pgctld
-	go install ./go/cmd/multiorch
-	go install ./go/cmd/multigres
-	go install ./go/cmd/multiadmin
+	for cmd in $(COMMANDS); do \
+		go install ./go/cmd/$$cmd; \
+	done
 
 # Run tests
 test: pb build
