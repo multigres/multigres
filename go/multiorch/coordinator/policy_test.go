@@ -32,13 +32,13 @@ import (
 
 func TestLoadQuorumRule_PrimaryPreference(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
-	c := &Coordinator{logger: logger}
 
 	t.Run("loads from PRIMARY when available", func(t *testing.T) {
 		ctx := context.Background()
 
 		// Create fake client
 		fakeClient := rpcclient.NewFakeClient()
+		c := &Coordinator{logger: logger, rpcClient: fakeClient}
 
 		// Create PRIMARY node
 		primaryPooler := &clustermetadatapb.MultiPooler{
@@ -127,6 +127,7 @@ func TestLoadQuorumRule_PrimaryPreference(t *testing.T) {
 
 		// Create fake client
 		fakeClient := rpcclient.NewFakeClient()
+		c := &Coordinator{logger: logger, rpcClient: fakeClient}
 
 		// Create PRIMARY node
 		primaryPooler := &clustermetadatapb.MultiPooler{
@@ -203,13 +204,13 @@ func TestLoadQuorumRule_PrimaryPreference(t *testing.T) {
 
 func TestLoadQuorumRule_ParallelReplicaLoading(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
-	c := &Coordinator{logger: logger}
 
 	t.Run("loads from all REPLICAs in parallel when no PRIMARY", func(t *testing.T) {
 		ctx := context.Background()
 
 		// Create fake client
 		fakeClient := rpcclient.NewFakeClient()
+		c := &Coordinator{logger: logger, rpcClient: fakeClient}
 
 		// Create REPLICA nodes only (no PRIMARY)
 		replica1Pooler := &clustermetadatapb.MultiPooler{
@@ -296,6 +297,7 @@ func TestLoadQuorumRule_ParallelReplicaLoading(t *testing.T) {
 
 		// Create fake client
 		fakeClient := rpcclient.NewFakeClient()
+		c := &Coordinator{logger: logger, rpcClient: fakeClient}
 
 		// Create REPLICA nodes
 		replica1Pooler := &clustermetadatapb.MultiPooler{
@@ -358,13 +360,13 @@ func TestLoadQuorumRule_ParallelReplicaLoading(t *testing.T) {
 
 func TestLoadQuorumRule_ResponseWaiting(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
-	c := &Coordinator{logger: logger}
 
 	t.Run("waits for all responses from REPLICAs", func(t *testing.T) {
 		ctx := context.Background()
 
 		// Create fake client
 		fakeClient := rpcclient.NewFakeClient()
+		c := &Coordinator{logger: logger, rpcClient: fakeClient}
 
 		// Create 4 REPLICA nodes
 		var replicaNodes []*store.PoolerHealth
@@ -411,6 +413,7 @@ func TestLoadQuorumRule_ResponseWaiting(t *testing.T) {
 
 		// Create fake client
 		fakeClient := rpcclient.NewFakeClient()
+		c := &Coordinator{logger: logger, rpcClient: fakeClient}
 
 		// Create 3 REPLICA nodes
 		replica1Pooler := &clustermetadatapb.MultiPooler{
@@ -486,13 +489,13 @@ func TestLoadQuorumRule_ResponseWaiting(t *testing.T) {
 
 func TestLoadQuorumRule_FallbackBehaviors(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
-	c := &Coordinator{logger: logger}
 
 	t.Run("returns default policy when all REPLICAs fail", func(t *testing.T) {
 		ctx := context.Background()
 
 		// Create fake client
 		fakeClient := rpcclient.NewFakeClient()
+		c := &Coordinator{logger: logger, rpcClient: fakeClient}
 
 		// Create REPLICA nodes
 		replica1Pooler := &clustermetadatapb.MultiPooler{
@@ -536,6 +539,7 @@ func TestLoadQuorumRule_FallbackBehaviors(t *testing.T) {
 
 		// Create fake client
 		fakeClient := rpcclient.NewFakeClient()
+		c := &Coordinator{logger: logger, rpcClient: fakeClient}
 
 		// Create PRIMARY node that fails
 		primaryPooler := &clustermetadatapb.MultiPooler{
@@ -566,6 +570,9 @@ func TestLoadQuorumRule_FallbackBehaviors(t *testing.T) {
 
 	t.Run("returns error when cohort is empty", func(t *testing.T) {
 		ctx := context.Background()
+
+		fakeClient := rpcclient.NewFakeClient()
+		c := &Coordinator{logger: logger, rpcClient: fakeClient}
 
 		// Empty cohort
 		cohort := []*store.PoolerHealth{}
