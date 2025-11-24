@@ -29,15 +29,15 @@ import (
 // - Computed fields for quick access
 type PoolerHealth struct {
 	// Core pooler metadata (from topology)
-	ID            *clustermetadatapb.ID
-	Database      string
-	TableGroup    string
-	Shard         string
-	KeyRange      *clustermetadatapb.KeyRange
-	Hostname      string
-	PortMap       map[string]int32
-	Type          clustermetadatapb.PoolerType          // Topology type (PRIMARY or REPLICA)
-	ServingStatus clustermetadatapb.PoolerServingStatus // Current serving status
+	ID             *clustermetadatapb.ID
+	Database       string
+	TableGroup     string
+	Shard          string
+	KeyRange       *clustermetadatapb.KeyRange
+	Hostname       string
+	PortMap        map[string]int32
+	TopoPoolerType clustermetadatapb.PoolerType          // Topology type (PRIMARY or REPLICA)
+	ServingStatus  clustermetadatapb.PoolerServingStatus // Current serving status
 
 	// Timestamps (critical for staleness detection)
 	LastCheckAttempted  time.Time
@@ -78,7 +78,7 @@ func (p *PoolerHealth) ToMultiPooler() *clustermetadatapb.MultiPooler {
 		TableGroup:    p.TableGroup,
 		Shard:         p.Shard,
 		KeyRange:      p.KeyRange,
-		Type:          p.Type,
+		Type:          p.TopoPoolerType,
 		ServingStatus: p.ServingStatus,
 		Hostname:      p.Hostname,
 		PortMap:       p.PortMap,
@@ -92,14 +92,14 @@ func NewPoolerHealthFromMultiPooler(mp *clustermetadatapb.MultiPooler) *PoolerHe
 		return nil
 	}
 	return &PoolerHealth{
-		ID:            mp.Id,
-		Database:      mp.Database,
-		TableGroup:    mp.TableGroup,
-		Shard:         mp.Shard,
-		KeyRange:      mp.KeyRange,
-		Hostname:      mp.Hostname,
-		PortMap:       mp.PortMap,
-		Type:          mp.Type,
-		ServingStatus: mp.ServingStatus,
+		ID:             mp.Id,
+		Database:       mp.Database,
+		TableGroup:     mp.TableGroup,
+		Shard:          mp.Shard,
+		KeyRange:       mp.KeyRange,
+		Hostname:       mp.Hostname,
+		PortMap:        mp.PortMap,
+		TopoPoolerType: mp.Type,
+		ServingStatus:  mp.ServingStatus,
 	}
 }

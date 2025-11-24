@@ -37,7 +37,7 @@ func TestStore_BasicOperations(t *testing.T) {
 		Database:         "postgres",
 		TableGroup:       "default",
 		Shard:            "-",
-		Type:             clustermetadata.PoolerType_PRIMARY,
+		TopoPoolerType:   clustermetadata.PoolerType_PRIMARY,
 		LastSeen:         time.Now(),
 		IsUpToDate:       true,
 		IsLastCheckValid: true,

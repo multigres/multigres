@@ -355,7 +355,7 @@ func TestPollPooler_TypeMismatch(t *testing.T) {
 	require.True(t, ok, "pooler should exist in store")
 
 	// Check that we captured the type mismatch
-	require.Equal(t, clustermetadata.PoolerType_REPLICA, updated.Type, "topology type should remain REPLICA")
+	require.Equal(t, clustermetadata.PoolerType_REPLICA, updated.TopoPoolerType, "topology type should remain REPLICA")
 	require.Equal(t, clustermetadata.PoolerType_PRIMARY, updated.PoolerType, "reported type should be PRIMARY")
 
 	// Should have populated PRIMARY fields (what the pooler actually reports)

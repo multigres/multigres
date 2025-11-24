@@ -33,7 +33,7 @@ func (p *PoolerHealth) DeepCopy() *PoolerHealth {
 		TableGroup:                     p.TableGroup,
 		Shard:                          p.Shard,
 		Hostname:                       p.Hostname,
-		Type:                           p.Type,
+		TopoPoolerType:                 p.TopoPoolerType,
 		ServingStatus:                  p.ServingStatus,
 		LastCheckAttempted:             p.LastCheckAttempted,
 		LastCheckSuccessful:            p.LastCheckSuccessful,

@@ -361,7 +361,7 @@ func (re *Engine) findPrimaryInShard(database, tablegroup, shard string) (string
 		if poolerHealth.Database == database &&
 			poolerHealth.TableGroup == tablegroup &&
 			poolerHealth.Shard == shard &&
-			poolerHealth.Type == clustermetadatapb.PoolerType_PRIMARY {
+			poolerHealth.TopoPoolerType == clustermetadatapb.PoolerType_PRIMARY {
 			primaryID = poolerID
 			found = true
 			return false // stop iteration

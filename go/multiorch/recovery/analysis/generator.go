@@ -181,9 +181,9 @@ func (g *AnalysisGenerator) generateAnalysisForPooler(
 		Database:             pooler.Database,
 		TableGroup:           pooler.TableGroup,
 		Shard:                pooler.Shard,
-		PoolerType:           pooler.Type,
+		PoolerType:           pooler.TopoPoolerType,
 		CurrentServingStatus: pooler.ServingStatus,
-		IsPrimary:            pooler.Type == clustermetadatapb.PoolerType_PRIMARY,
+		IsPrimary:            pooler.TopoPoolerType == clustermetadatapb.PoolerType_PRIMARY,
 		LastCheckValid:       pooler.IsLastCheckValid,
 		AnalyzedAt:           time.Now(),
 	}
@@ -253,7 +253,7 @@ func (g *AnalysisGenerator) aggregateReplicaStats(
 			}
 
 			// Skip if not a replica
-			if pooler.Type != clustermetadatapb.PoolerType_REPLICA {
+			if pooler.TopoPoolerType != clustermetadatapb.PoolerType_REPLICA {
 				continue
 			}
 
@@ -321,7 +321,7 @@ func (g *AnalysisGenerator) populatePrimaryInfo(
 			}
 
 			// Look for primary in same tablegroup
-			if pooler.Type != clustermetadatapb.PoolerType_PRIMARY {
+			if pooler.TopoPoolerType != clustermetadatapb.PoolerType_PRIMARY {
 				continue
 			}
 

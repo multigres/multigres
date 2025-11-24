@@ -111,7 +111,7 @@ func (re *Engine) pollPooler(ctx context.Context, poolerID *clustermetadata.ID, 
 	if forceDiscovery {
 		re.logger.InfoContext(ctx, "force polling pooler",
 			"pooler_id", poolerIDStr,
-			"type", pooler.Type,
+			"type", pooler.TopoPoolerType,
 		)
 	}
 
@@ -137,7 +137,7 @@ func (re *Engine) pollPooler(ctx context.Context, poolerID *clustermetadata.ID, 
 	if err != nil {
 		re.logger.WarnContext(ctx, "pooler poll failed",
 			"pooler_id", poolerIDStr,
-			"type", pooler.Type,
+			"type", pooler.TopoPoolerType,
 			"error", err,
 			"latency", time.Since(totalStart),
 		)
@@ -200,7 +200,7 @@ func (re *Engine) pollPooler(ctx context.Context, poolerID *clustermetadata.ID, 
 
 	re.logger.DebugContext(ctx, "pooler poll successful",
 		"pooler_id", poolerIDStr,
-		"topology_type", pooler.Type,
+		"topology_type", pooler.TopoPoolerType,
 		"reported_type", statusResp.Status.PoolerType,
 		"latency", time.Since(totalStart),
 	)
@@ -217,7 +217,7 @@ func (re *Engine) pollPoolerStatus(ctx context.Context, poolerID *clustermetadat
 		"pooler_id", poolerIDStr,
 		"hostname", pooler.Hostname,
 		"grpc_port", pooler.PortMap["grpc"],
-		"type", pooler.Type,
+		"type", pooler.TopoPoolerType,
 	)
 
 	// Call Status RPC
