@@ -30,7 +30,6 @@ package parser
 // This will process postgres.y grammar file and generate postgres.go parser
 
 //go:generate goyacc -o postgres.go postgres.y
-//go:generate sh -c "grep -v -e '^//line yaccpar:' -e '^//line yacctab:' postgres.go > postgres.go.tmp && mv postgres.go.tmp postgres.go"
 //go:generate go tool goimports -w postgres.go
 //go:generate go tool gofumpt -w postgres.go
 

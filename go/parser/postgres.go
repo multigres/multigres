@@ -1252,6 +1252,7 @@ func ParseSQL(input string) ([]ast.Stmt, error) {
 	return lexer.GetParseTree(), nil
 }
 
+//line yacctab:1
 var yyExca = [...]int16{
 	-1, 0,
 	1, 130,
@@ -16784,6 +16785,8 @@ var yyErrorMessages = [...]struct {
 	token int
 	msg   string
 }{}
+
+//line yaccpar:1
 
 /*	parser for yacc output	*/
 

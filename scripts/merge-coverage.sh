@@ -47,11 +47,24 @@ for input in "${INPUTS[@]}"; do
   fi
 done
 
-# Merge coverage files using gocovmerge
+# Create temporary directory for filtered files
+TEMP_DIR=$(mktemp -d)
+trap 'rm -rf "$TEMP_DIR"' EXIT
+
+# Filter out generated parser code (postgres.y, yaccpar, yacctab) from each input file
+# This avoids issues with go tool cover and potential merge conflicts from yacc-generated code
+FILTERED_INPUTS=()
+for i in "${!INPUTS[@]}"; do
+  FILTERED="$TEMP_DIR/filtered-$i.txt"
+  grep -v -e "/go/parser/postgres\.y:" -e "/go/parser/yaccpar:" -e "/go/parser/yacctab:" "${INPUTS[$i]}" >"$FILTERED" || true
+  FILTERED_INPUTS+=("$FILTERED")
+done
+
+# Merge the filtered coverage files using gocovmerge
 # Note: gocovmerge is installed via: go get -tool github.com/wadey/gocovmerge@latest
-if ! go tool gocovmerge "${INPUTS[@]}" >"$OUTPUT"; then
+if ! go tool gocovmerge "${FILTERED_INPUTS[@]}" >"$OUTPUT"; then
   echo "Error: Failed to merge coverage files" >&2
   exit 1
 fi
 
-echo "Successfully merged ${#INPUTS[@]} coverage files into $OUTPUT"
+echo "Successfully merged ${#INPUTS[@]} coverage files into $OUTPUT (excluding generated parser code)"

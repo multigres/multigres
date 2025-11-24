@@ -121,11 +121,13 @@ jobs:
 
       - name: Merge coverage files
         run: |
-          go tool gocovmerge \
+          ./scripts/merge-coverage.sh \
             coverage-artifacts/direct/coverage-direct.txt \
             coverage-artifacts/subprocess/coverage-subprocess.txt \
-            > coverage-merged.txt
-          echo "Merged coverage file created"
+            coverage-merged.txt
+
+          echo ""
+          echo "Final coverage summary:"
           go tool cover -func=coverage-merged.txt | tail -1
 
       - name: Upload merged coverage artifact
