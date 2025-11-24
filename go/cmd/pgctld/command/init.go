@@ -139,7 +139,7 @@ func initializeDataDir(logger *slog.Logger, dataDir string, pgUser string, pgPwf
 	}
 
 	// Run initdb
-	cmd := exec.Command("initdb", "-D", dataDir, "--auth-local=trust", "--auth-host=md5", "-U", pgUser)
+	cmd := exec.Command("initdb", "-D", dataDir, "--data-checksums", "--auth-local=trust", "--auth-host=md5", "-U", pgUser)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 
