@@ -3003,18 +3003,18 @@ func (n *ConstraintsSetStmt) String() string {
 				constraintNames = append(constraintNames, rangeVar.RelName)
 			} else if nodeList, ok := constraint.(*NodeList); ok && len(nodeList.Items) > 0 {
 				// Handle qualified name (schema.constraint)
-				nameStr := ""
+				var nameStr strings.Builder
 				for i, item := range nodeList.Items {
 					if i > 0 {
-						nameStr += "."
+						nameStr.WriteString(".")
 					}
 					if strNode, ok := item.(*String); ok {
-						nameStr += strNode.SVal
+						nameStr.WriteString(strNode.SVal)
 					} else {
-						nameStr += item.String()
+						nameStr.WriteString(item.String())
 					}
 				}
-				constraintNames = append(constraintNames, nameStr)
+				constraintNames = append(constraintNames, nameStr.String())
 			} else {
 				constraintNames = append(constraintNames, constraint.String())
 			}

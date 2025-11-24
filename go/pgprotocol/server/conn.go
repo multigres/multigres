@@ -528,7 +528,7 @@ func (c *Conn) handleBind() error {
 		return fmt.Errorf("failed to read parameter format count: %w", err)
 	}
 	paramFormats := make([]int16, paramFormatCount)
-	for i := int16(0); i < paramFormatCount; i++ {
+	for i := range paramFormatCount {
 		format, err := reader.ReadInt16()
 		if err != nil {
 			return fmt.Errorf("failed to read parameter format: %w", err)
@@ -542,7 +542,7 @@ func (c *Conn) handleBind() error {
 		return fmt.Errorf("failed to read parameter count: %w", err)
 	}
 	params := make([][]byte, paramCount)
-	for i := int16(0); i < paramCount; i++ {
+	for i := range paramCount {
 		param, err := reader.ReadByteString()
 		if err != nil {
 			return fmt.Errorf("failed to read parameter: %w", err)
@@ -556,7 +556,7 @@ func (c *Conn) handleBind() error {
 		return fmt.Errorf("failed to read result format count: %w", err)
 	}
 	resultFormats := make([]int16, resultFormatCount)
-	for i := int16(0); i < resultFormatCount; i++ {
+	for i := range resultFormatCount {
 		format, err := reader.ReadInt16()
 		if err != nil {
 			return fmt.Errorf("failed to read result format: %w", err)

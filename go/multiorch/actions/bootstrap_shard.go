@@ -23,8 +23,9 @@ import (
 
 	"github.com/multigres/multigres/go/clustermetadata/topo"
 	"github.com/multigres/multigres/go/common/mterrors"
+	"github.com/multigres/multigres/go/common/rpcclient"
 	"github.com/multigres/multigres/go/multiorch/store"
-	"github.com/multigres/multigres/go/multipooler/rpcclient"
+
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
@@ -245,7 +246,7 @@ func (a *BootstrapShardAction) initializeStandbys(ctx context.Context, shardID s
 
 	// Collect results
 	var failedNodes []string
-	for i := 0; i < len(standbys); i++ {
+	for range standbys {
 		res := <-results
 		if res.err != nil {
 			a.logger.WarnContext(ctx, "Failed to initialize standby",

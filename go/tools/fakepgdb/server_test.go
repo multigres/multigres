@@ -22,7 +22,7 @@ func TestBasicQuery(t *testing.T) {
 	db := New(t)
 	db.AddQuery("SELECT 1", &ExpectedResult{
 		Columns: []string{"?column?"},
-		Rows:    [][]interface{}{{int64(1)}},
+		Rows:    [][]any{{int64(1)}},
 	})
 
 	sqlDB := db.OpenDB()
@@ -48,7 +48,7 @@ func TestQueryPattern(t *testing.T) {
 	db := New(t)
 	db.AddQueryPattern("SELECT \\* FROM users WHERE id = .*", &ExpectedResult{
 		Columns: []string{"id", "name"},
-		Rows:    [][]interface{}{{int64(1), "John"}},
+		Rows:    [][]any{{int64(1), "John"}},
 	})
 
 	sqlDB := db.OpenDB()
@@ -92,7 +92,7 @@ func TestOrderedQueries(t *testing.T) {
 		Query: "SELECT 1",
 		QueryResult: &ExpectedResult{
 			Columns: []string{"?column?"},
-			Rows:    [][]interface{}{{int64(1)}},
+			Rows:    [][]any{{int64(1)}},
 		},
 	})
 
@@ -100,7 +100,7 @@ func TestOrderedQueries(t *testing.T) {
 		Query: "SELECT 2",
 		QueryResult: &ExpectedResult{
 			Columns: []string{"?column?"},
-			Rows:    [][]interface{}{{int64(2)}},
+			Rows:    [][]any{{int64(2)}},
 		},
 	})
 
@@ -108,7 +108,7 @@ func TestOrderedQueries(t *testing.T) {
 		Query: "SELECT 3",
 		QueryResult: &ExpectedResult{
 			Columns: []string{"?column?"},
-			Rows:    [][]interface{}{{int64(3)}},
+			Rows:    [][]any{{int64(3)}},
 		},
 	})
 
@@ -148,7 +148,7 @@ func TestMultipleRows(t *testing.T) {
 	db := New(t)
 	db.AddQuery("SELECT * FROM users", &ExpectedResult{
 		Columns: []string{"id", "name"},
-		Rows: [][]interface{}{
+		Rows: [][]any{
 			{int64(1), "Alice"},
 			{int64(2), "Bob"},
 			{int64(3), "Charlie"},

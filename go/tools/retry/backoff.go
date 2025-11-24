@@ -104,12 +104,9 @@ func (e *exponentialFullJitterBackoff) nextDelay() time.Duration {
 	// Exponential backoff: baseDelay * 2^attempt
 	// Use bit shifting for precise integer math and overflow protection
 
-	cappedAttempt := e.attempt
-
-	// Cap attempt count to prevent overflow (shifting more than 62 bits would overflow int64)
-	if cappedAttempt > 62 {
-		cappedAttempt = 62
-	}
+	cappedAttempt := min(
+		// Cap attempt count to prevent overflow (shifting more than 62 bits would overflow int64)
+		e.attempt, 62)
 
 	// Calculate delay = baseDelay * (1 << attempt)
 	// time.Duration is int64, so we can work with it directly
@@ -121,11 +118,9 @@ func (e *exponentialFullJitterBackoff) nextDelay() time.Duration {
 		// Would overflow, use maxDelay
 		delay = e.maxDelay
 	} else {
-		delay = time.Duration(baseDelayInt * multiplier)
-		// Apply max delay cap
-		if delay > e.maxDelay {
-			delay = e.maxDelay
-		}
+		delay = min(
+			// Apply max delay cap
+			time.Duration(baseDelayInt*multiplier), e.maxDelay)
 	}
 
 	// Apply Full Jitter: randomize between 0 and computed delay

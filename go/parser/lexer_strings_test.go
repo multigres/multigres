@@ -430,7 +430,7 @@ func TestDollarTokens(t *testing.T) {
 		name          string
 		input         string
 		expectedType  TokenType
-		expectedValue interface{}
+		expectedValue any
 	}{
 		{
 			name:          "Parameter token $1",

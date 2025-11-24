@@ -144,7 +144,7 @@ func TestResultTranslation_NullValues(t *testing.T) {
 	// Test how NULL values are handled in result translation
 	tests := []struct {
 		name     string
-		input    interface{}
+		input    any
 		expected []byte
 	}{
 		{"Null value", nil, nil},
@@ -161,7 +161,7 @@ func TestResultTranslation_NullValues(t *testing.T) {
 			if tt.input == nil {
 				result = nil
 			} else {
-				result = []byte(fmt.Sprintf("%v", tt.input))
+				result = fmt.Appendf(nil, "%v", tt.input)
 			}
 
 			if tt.expected == nil {
