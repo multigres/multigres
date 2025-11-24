@@ -310,29 +310,28 @@ func (re *Engine) queuePoolersHealthCheck() {
 // Multiple instances of this function run concurrently as worker goroutines.
 func (re *Engine) handlePoolerHealthChecks() {
 	for {
-		select {
-		case <-re.ctx.Done():
+		// Consume blocks until an item is available or context is cancelled
+		poolerID, release, ok := re.healthCheckQueue.Consume(re.ctx)
+		if !ok {
+			// Context cancelled, exit the worker
 			return
-		default:
-			// Consume blocks until an item is available
-			poolerID, release := re.healthCheckQueue.Consume()
-
-			// Perform the health check with context
-			func() {
-				defer release()
-
-				// Get pooler info from store
-				poolerInfo, ok := re.poolerStore.Get(poolerID)
-				if !ok {
-					re.logger.Debug("pooler not found in store, skipping health check",
-						"pooler_id", poolerID,
-					)
-					return
-				}
-
-				// Poll the pooler with engine context (respects shutdown)
-				re.pollPooler(re.ctx, poolerInfo.ID, poolerInfo, false /* forceDiscovery */)
-			}()
 		}
+
+		// Perform the health check with context
+		func() {
+			defer release()
+
+			// Get pooler info from store
+			poolerInfo, ok := re.poolerStore.Get(poolerID)
+			if !ok {
+				re.logger.Debug("pooler not found in store, skipping health check",
+					"pooler_id", poolerID,
+				)
+				return
+			}
+
+			// Poll the pooler with engine context (respects shutdown)
+			re.pollPooler(re.ctx, poolerInfo.ID, poolerInfo, false /* forceDiscovery */)
+		}()
 	}
 }

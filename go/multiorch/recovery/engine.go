@@ -256,6 +256,9 @@ type Engine struct {
 	// Context for shutting down loops
 	ctx    context.Context
 	cancel context.CancelFunc
+
+	// WaitGroup to track goroutines for graceful shutdown
+	wg sync.WaitGroup
 }
 
 // NewEngine creates a new RecoveryEngine instance.
@@ -324,22 +327,31 @@ func (re *Engine) Start() error {
 	re.startHealthCheckWorkers()
 
 	// Start maintenance loop (cluster metadata refresh + bookkeeping)
-	go re.runMaintenanceLoop()
+	re.wg.Go(func() {
+		re.runMaintenanceLoop()
+	})
 
 	// Start health check ticker loop (queues poolers for health checking)
-	go re.runHealthCheckTickerLoop()
+	re.wg.Go(func() {
+		re.runHealthCheckTickerLoop()
+	})
 
 	// Start recovery loop (problem detection and recovery)
-	go re.runRecoveryLoop()
+	re.wg.Go(func() {
+		re.runRecoveryLoop()
+	})
 
 	re.logger.Info("recovery engine started successfully")
 	return nil
 }
 
 // Stop gracefully shuts down the RecoveryEngine.
+// It cancels the context and waits for all goroutines to finish.
 func (re *Engine) Stop() {
 	re.logger.Info("stopping recovery engine")
 	re.cancel()
+	re.wg.Wait()
+	re.logger.Info("recovery engine stopped")
 }
 
 // runMaintenanceLoop runs the cluster metadata refresh and bookkeeping tasks.
@@ -376,7 +388,9 @@ func (re *Engine) runMaintenanceLoop() {
 func (re *Engine) startHealthCheckWorkers() {
 	numWorkers := re.config.GetHealthCheckWorkers()
 	for range numWorkers {
-		go re.handlePoolerHealthChecks()
+		re.wg.Go(func() {
+			re.handlePoolerHealthChecks()
+		})
 	}
 	re.logger.Info("health check worker pool started", "workers", numWorkers)
 }
