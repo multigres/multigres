@@ -102,7 +102,7 @@ jobs:
           retention-days: 7
 
   upload-coverage:
-    name: Upload coverage to Codecov and Coveralls
+    name: Upload coverage to Coveralls
     runs-on: ubuntu-24.04
     needs: [test-integration]
     if: always()
@@ -112,12 +112,6 @@ jobs:
         uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v4.1.8
         with:
           name: coverage-data
-
-      - name: Upload coverage reports to Codecov
-        uses: codecov/codecov-action@5a1091511ad55cbe89839c7260b706298ca349f7 # v5.5.1
-        with:
-          token: ${{ secrets.CODECOV_TOKEN }}
-          files: ./coverage.txt
 
       - name: Upload coverage reports to Coveralls
         if: success() || failure()
