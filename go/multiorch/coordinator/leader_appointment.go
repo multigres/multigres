@@ -96,7 +96,7 @@ func (c *Coordinator) discoverMaxTerm(ctx context.Context, cohort []*store.Poole
 	results := make(chan result, len(cohort))
 	var wg sync.WaitGroup
 
-	for _, node := range cohort {
+	for _, pooler := range cohort {
 		wg.Add(1)
 		go func(n *store.PoolerHealth) {
 			defer wg.Done()
@@ -107,7 +107,7 @@ func (c *Coordinator) discoverMaxTerm(ctx context.Context, cohort []*store.Poole
 				return
 			}
 			results <- result{term: resp.CurrentTerm}
-		}(node)
+		}(pooler)
 	}
 
 	// Wait for all goroutines to complete
@@ -154,18 +154,18 @@ func (c *Coordinator) selectCandidate(ctx context.Context, cohort []*store.Poole
 	statuses := make([]nodeStatus, 0, len(cohort))
 
 	// Query status from all nodes
-	for _, node := range cohort {
+	for _, pooler := range cohort {
 		req := &consensusdatapb.StatusRequest{}
-		resp, err := c.rpcClient.ConsensusStatus(ctx, node.ToMultiPooler(), req)
+		resp, err := c.rpcClient.ConsensusStatus(ctx, pooler.ToMultiPooler(), req)
 		if err != nil {
 			c.logger.WarnContext(ctx, "Failed to get status from node",
-				"node", node.ID.Name,
+				"node", pooler.ID.Name,
 				"error", err)
 			continue
 		}
 
 		status := nodeStatus{
-			node:    node,
+			node:    pooler,
 			healthy: resp.IsHealthy,
 		}
 
@@ -232,7 +232,7 @@ func (c *Coordinator) recruitNodes(ctx context.Context, cohort []*store.PoolerHe
 	results := make(chan result, len(cohort))
 	var wg sync.WaitGroup
 
-	for _, node := range cohort {
+	for _, pooler := range cohort {
 		wg.Add(1)
 		go func(n *store.PoolerHealth) {
 			defer wg.Done()
@@ -246,7 +246,7 @@ func (c *Coordinator) recruitNodes(ctx context.Context, cohort []*store.PoolerHe
 				return
 			}
 			results <- result{node: n, accepted: resp.Accepted}
-		}(node)
+		}(pooler)
 	}
 
 	// Wait for all goroutines to complete

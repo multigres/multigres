@@ -133,9 +133,9 @@ func (a *BootstrapShardAction) Execute(ctx context.Context, shardID string, data
 
 	// Step 5: Initialize remaining nodes as standbys
 	standbys := make([]*store.PoolerHealth, 0, len(cohort)-1)
-	for _, node := range cohort {
-		if node.ID.Name != candidate.ID.Name {
-			standbys = append(standbys, node)
+	for _, pooler := range cohort {
+		if pooler.ID.Name != candidate.ID.Name {
+			standbys = append(standbys, pooler)
 		}
 	}
 
@@ -164,20 +164,20 @@ func (a *BootstrapShardAction) selectBootstrapCandidate(ctx context.Context, coh
 	// - Node in preferred availability zone
 	// - Node with most resources available
 
-	for _, node := range cohort {
+	for _, pooler := range cohort {
 		req := &multipoolermanagerdatapb.InitializationStatusRequest{}
-		status, err := a.rpcClient.InitializationStatus(ctx, node.ToMultiPooler(), req)
+		status, err := a.rpcClient.InitializationStatus(ctx, pooler.ToMultiPooler(), req)
 		if err != nil {
 			a.logger.WarnContext(ctx, "Node unreachable during candidate selection",
-				"node", node.ID.Name,
+				"node", pooler.ID.Name,
 				"error", err)
 			continue
 		}
 
 		if !status.IsInitialized {
 			a.logger.InfoContext(ctx, "Selected node as bootstrap candidate",
-				"node", node.ID.Name)
-			return node, nil
+				"node", pooler.ID.Name)
+			return pooler, nil
 		}
 	}
 

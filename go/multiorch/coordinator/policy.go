@@ -70,12 +70,12 @@ func (c *Coordinator) LoadQuorumRule(ctx context.Context, cohort []*store.Pooler
 	// Step 1: Find PRIMARY node
 	var primaryNode *store.PoolerHealth
 	var replicaNodes []*store.PoolerHealth
-	for _, node := range cohort {
-		switch node.TopoPoolerType {
+	for _, pooler := range cohort {
+		switch pooler.TopoPoolerType {
 		case clustermetadatapb.PoolerType_PRIMARY:
-			primaryNode = node
+			primaryNode = pooler
 		case clustermetadatapb.PoolerType_REPLICA:
-			replicaNodes = append(replicaNodes, node)
+			replicaNodes = append(replicaNodes, pooler)
 		}
 	}
 
