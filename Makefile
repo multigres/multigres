@@ -89,7 +89,8 @@ build-all: proto parser build
 clean:
 	rm -f go/common/web/templates/css/pico.*
 	go clean -i ./go/...
-	rm -f bin/*
+	rm -rf bin/*
+	rm -rf coverage/
 
 # Install binaries to GOPATH/bin
 install:
