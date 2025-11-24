@@ -25,19 +25,44 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	"github.com/multigres/multigres/go/clustermetadata/topo"
+	"github.com/multigres/multigres/go/clustermetadata/topo/memorytopo"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multipoolermanagerdata "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
 
 // createTestManager creates a minimal MultiPoolerManager for testing
 func createTestManager(poolerDir, stanzaName, tableGroup, shard string, poolerType clustermetadatapb.PoolerType) *MultiPoolerManager {
+	return createTestManagerWithBackupLocation(poolerDir, stanzaName, tableGroup, shard, poolerType, "/tmp/backups")
+}
+
+// createTestManagerWithBackupLocation creates a minimal MultiPoolerManager for testing with backup_location
+func createTestManagerWithBackupLocation(poolerDir, stanzaName, tableGroup, shard string, poolerType clustermetadatapb.PoolerType, backupLocation string) *MultiPoolerManager {
+	database := "test-database"
+
 	multipoolerInfo := &topo.MultiPoolerInfo{
 		MultiPooler: &clustermetadatapb.MultiPooler{
 			Type:       poolerType,
 			TableGroup: tableGroup,
 			Shard:      shard,
+			Database:   database,
 		},
 	}
+
+	// Create a topology store with backup location if provided
+	var topoClient topo.Store
+	if backupLocation != "" {
+		ctx := context.Background()
+		ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
+		err := ts.CreateDatabase(ctx, database, &clustermetadatapb.Database{
+			Name:             database,
+			BackupLocation:   backupLocation,
+			DurabilityPolicy: "ANY_2",
+		})
+		if err == nil {
+			topoClient = ts
+		}
+	}
+
 	pm := &MultiPoolerManager{
 		config: &Config{
 			PoolerDir:        poolerDir,
@@ -45,6 +70,7 @@ func createTestManager(poolerDir, stanzaName, tableGroup, shard string, poolerTy
 			ServiceID:        &clustermetadatapb.ID{Name: "test-service"},
 		},
 		serviceID:   &clustermetadatapb.ID{Name: "test-service"},
+		topoClient:  topoClient,
 		multipooler: multipoolerInfo,
 		cachedMultipooler: cachedMultiPoolerInfo{
 			multipooler: topo.NewMultiPoolerInfo(
@@ -203,7 +229,9 @@ func TestBackup_Validation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			pm := createTestManager(tt.poolerDir, tt.stanzaName, "", "", tt.poolerType)
+			// Provide backup location for tests that need to reach pgbackrest execution or validation
+			backupLocation := "/tmp/test-backups"
+			pm := createTestManagerWithBackupLocation(tt.poolerDir, tt.stanzaName, "", "", tt.poolerType, backupLocation)
 
 			_, err := pm.Backup(ctx, tt.forcePrimary, tt.backupType)
 

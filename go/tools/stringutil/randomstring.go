@@ -16,24 +16,9 @@ package stringutil
 
 import (
 	"math/rand/v2"
-	"strings"
 	"sync"
 	"time"
-
-	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 )
-
-// ComponentTypeToString converts a ComponentType enum to its string representation.
-// This function uses the generated name map to be resilient to refactors.
-// It's not specific to any single component type and can be used across the topology system.
-func ComponentTypeToString(component clustermetadatapb.ID_ComponentType) string {
-	// Use the generated name map for resilience - this automatically updates when the proto changes
-	if name, exists := clustermetadatapb.ID_ComponentType_name[int32(component)]; exists {
-		// Convert the generated name (e.g., "MULTIPOOLER") to lowercase for consistency
-		return strings.ToLower(name)
-	}
-	return "unknown"
-}
 
 // Random string generation utilities copied from Kubernetes codebase
 var rng = struct {

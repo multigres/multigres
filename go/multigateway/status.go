@@ -23,7 +23,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/multigres/multigres/go/web"
+	"github.com/multigres/multigres/go/common/web"
 )
 
 // PoolerStatus represents the status of a multipooler instance.

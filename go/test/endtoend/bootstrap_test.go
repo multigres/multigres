@@ -36,13 +36,14 @@ import (
 	"github.com/multigres/multigres/go/multiorch/actions"
 	"github.com/multigres/multigres/go/multiorch/coordinator"
 	"github.com/multigres/multigres/go/multipooler/rpcclient"
+	"github.com/multigres/multigres/go/provisioner/local/pgbackrest"
 	"github.com/multigres/multigres/go/test/utils"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 
 	// Register topo plugins
-	_ "github.com/multigres/multigres/go/plugins/topo"
+	_ "github.com/multigres/multigres/go/common/plugins/topo"
 )
 
 // nodeInstance represents a multipooler node for bootstrap testing
@@ -76,6 +77,10 @@ func TestBootstrapInitialization(t *testing.T) {
 	// Use t.Cleanup to ensure directory cleanup happens even on test failure.
 	// This prevents orphaned processes from previous test runs interfering with new tests.
 	t.Cleanup(func() {
+		if os.Getenv("KEEP_TEMP_DIRS") != "" {
+			t.Logf("Keeping test directory for debugging: %s", tempDir)
+			return
+		}
 		if err := os.RemoveAll(tempDir); err != nil {
 			t.Logf("Warning: failed to remove temp directory %s: %v", tempDir, err)
 		} else {
@@ -113,19 +118,24 @@ func TestBootstrapInitialization(t *testing.T) {
 
 	// Use postgres database (multigres always uses postgres database with table_group for isolation)
 	database := "postgres"
+	backupLocation := filepath.Join(tempDir, "pgbackrest-repo")
 	err = ts.CreateDatabase(ctx, database, &clustermetadatapb.Database{
 		Name:             database,
+		BackupLocation:   backupLocation,
 		DurabilityPolicy: "ANY_2",
 	})
 	require.NoError(t, err, "Failed to create database in topology")
 
-	t.Logf("Created database '%s' with policy 'ANY_2'", database)
+	t.Logf("Created database '%s' with policy 'ANY_2' and backup_location=%s", database, backupLocation)
 
 	// Create 3 empty nodes
 	shardID := "test-shard-01"
+	// Use a shared stanza name for all nodes
+	pgBackRestStanza := "bootstrap-test"
+
 	nodes := make([]*nodeInstance, 3)
 	for i := 0; i < 3; i++ {
-		nodes[i] = createEmptyNode(t, tempDir, cellName, shardID, database, i, etcdClientAddr)
+		nodes[i] = createEmptyNode(t, tempDir, cellName, shardID, database, i, etcdClientAddr, pgBackRestStanza)
 		defer cleanupNode(t, nodes[i])
 	}
 
@@ -137,6 +147,9 @@ func TestBootstrapInitialization(t *testing.T) {
 		require.False(t, status.IsInitialized, "Node %d should be uninitialized", i)
 		t.Logf("Node %d (%s) confirmed uninitialized", i, node.name)
 	}
+
+	// Setup pgbackrest configuration for all nodes before bootstrap
+	setupPgBackRestForBootstrap(t, tempDir, nodes, pgBackRestStanza)
 
 	// Create coordinator nodes for bootstrap action
 	rpcClient := rpcclient.NewClient(10) // connection pool capacity
@@ -254,52 +267,7 @@ func TestBootstrapInitialization(t *testing.T) {
 		t.Logf("  required_count: %d", int(requiredCount))
 		t.Logf("  is_active: %t", isActive)
 	})
-
-	t.Run("verify multigres internal tables exist", func(t *testing.T) {
-		// Connect to primary node's database
-		var primaryNode *nodeInstance
-		for _, node := range nodes {
-			status := checkInitializationStatus(t, node)
-			if status.IsInitialized && status.Role == "primary" {
-				primaryNode = node
-				break
-			}
-		}
-		require.NotNil(t, primaryNode, "Should have a primary node")
-
-		socketDir := filepath.Join(primaryNode.dataDir, "pg_sockets")
-		db := connectToPostgres(t, socketDir, primaryNode.pgPort)
-		defer db.Close()
-
-		// Check that heartbeat table exists
-		var heartbeatExists bool
-		err := db.QueryRow(`
-			SELECT EXISTS (
-				SELECT FROM information_schema.tables
-				WHERE table_schema = 'multigres'
-				AND table_name = 'heartbeat'
-			)
-		`).Scan(&heartbeatExists)
-		require.NoError(t, err, "Should query heartbeat table existence")
-		assert.True(t, heartbeatExists, "Heartbeat table should exist")
-
-		// Check that durability_policy table exists
-		var durabilityPolicyExists bool
-		err = db.QueryRow(`
-			SELECT EXISTS (
-				SELECT FROM information_schema.tables
-				WHERE table_schema = 'multigres'
-				AND table_name = 'durability_policy'
-			)
-		`).Scan(&durabilityPolicyExists)
-		require.NoError(t, err, "Should query durability_policy table existence")
-		assert.True(t, durabilityPolicyExists, "Durability policy table should exist")
-
-		t.Logf("Verified heartbeat and durability_policy tables exist in multigres schema")
-	})
-
 	t.Run("verify standbys initialized", func(t *testing.T) {
-		t.Skip("Skipping standby initialization verification - backup not yet implemented in bootstrap")
 		// Count standbys
 		standbyCount := 0
 		for _, node := range nodes {
@@ -311,6 +279,17 @@ func TestBootstrapInitialization(t *testing.T) {
 		}
 		// Should have at least 1 standby (might have issues with some)
 		assert.GreaterOrEqual(t, standbyCount, 1, "Should have at least one standby")
+	})
+
+	t.Run("verify multigres internal tables exist", func(t *testing.T) {
+		// Verify tables exist on all initialized nodes (both primary and standbys)
+		for _, node := range nodes {
+			status := checkInitializationStatus(t, node)
+			if status.IsInitialized {
+				verifyMultigresTablesExist(t, node)
+				t.Logf("Verified multigres tables exist on %s (%s)", node.name, status.Role)
+			}
+		}
 	})
 
 	t.Run("verify consensus term", func(t *testing.T) {
@@ -325,7 +304,7 @@ func TestBootstrapInitialization(t *testing.T) {
 }
 
 // createEmptyNode creates a new empty multipooler node with pgctld and multipooler processes
-func createEmptyNode(t *testing.T, baseDir, cell, shard, database string, index int, etcdAddr string) *nodeInstance {
+func createEmptyNode(t *testing.T, baseDir, cell, shard, database string, index int, etcdAddr, pgBackRestStanza string) *nodeInstance {
 	t.Helper()
 
 	name := fmt.Sprintf("node%d", index)
@@ -371,6 +350,7 @@ func createEmptyNode(t *testing.T, baseDir, cell, shard, database string, index 
 		"--topo-implementation", "etcd2",
 		"--cell", cell,
 		"--service-id", serviceID,
+		"--pgbackrest-stanza", pgBackRestStanza,
 	)
 	multipoolerCmd.Dir = dataDir
 	mpLogFile := filepath.Join(dataDir, "multipooler.log")
@@ -506,6 +486,39 @@ func connectToPostgres(t *testing.T, socketDir string, port int) *sql.DB {
 	return db
 }
 
+// verifyMultigresTablesExist checks that the multigres internal tables exist on a node
+func verifyMultigresTablesExist(t *testing.T, node *nodeInstance) {
+	t.Helper()
+
+	socketDir := filepath.Join(node.dataDir, "pg_sockets")
+	db := connectToPostgres(t, socketDir, node.pgPort)
+	defer db.Close()
+
+	// Check that heartbeat table exists
+	var heartbeatExists bool
+	err := db.QueryRow(`
+		SELECT EXISTS (
+			SELECT FROM information_schema.tables
+			WHERE table_schema = 'multigres'
+			AND table_name = 'heartbeat'
+		)
+	`).Scan(&heartbeatExists)
+	require.NoError(t, err, "Should query heartbeat table existence on %s", node.name)
+	assert.True(t, heartbeatExists, "Heartbeat table should exist on %s", node.name)
+
+	// Check that durability_policy table exists
+	var durabilityPolicyExists bool
+	err = db.QueryRow(`
+		SELECT EXISTS (
+			SELECT FROM information_schema.tables
+			WHERE table_schema = 'multigres'
+			AND table_name = 'durability_policy'
+		)
+	`).Scan(&durabilityPolicyExists)
+	require.NoError(t, err, "Should query durability_policy table existence on %s", node.name)
+	assert.True(t, durabilityPolicyExists, "Durability policy table should exist on %s", node.name)
+}
+
 // waitForProcessReady waits for a process to be ready by checking its gRPC port
 func waitForProcessReady(t *testing.T, name string, grpcPort int, timeout time.Duration) {
 	t.Helper()
@@ -528,4 +541,64 @@ func waitForProcessReady(t *testing.T, name string, grpcPort int, timeout time.D
 	}
 
 	t.Fatalf("Timeout: %s failed to start listening on port %d after %d attempts", name, grpcPort, connectAttempts)
+}
+
+// setupPgBackRestForBootstrap sets up pgbackrest configuration and stanzas for all nodes
+// This follows the same pattern as localProvisioner.GeneratePgBackRestConfigs and InitializePgBackRestStanzas
+func setupPgBackRestForBootstrap(t *testing.T, baseDir string, nodes []*nodeInstance, sharedStanzaName string) {
+	t.Helper()
+
+	// Create shared pgbackrest directories
+	repoPath := filepath.Join(baseDir, "pgbackrest-repo")
+	logPath := filepath.Join(baseDir, "pgbackrest-logs")
+	spoolPath := filepath.Join(baseDir, "pgbackrest-spool")
+
+	require.NoError(t, os.MkdirAll(repoPath, 0o755), "Failed to create pgbackrest repo dir")
+	require.NoError(t, os.MkdirAll(logPath, 0o755), "Failed to create pgbackrest log dir")
+	require.NoError(t, os.MkdirAll(spoolPath, 0o755), "Failed to create pgbackrest spool dir")
+
+	t.Logf("Created pgbackrest directories (repo: %s, log: %s, spool: %s)", repoPath, logPath, spoolPath)
+
+	// Setup pgbackrest for each node (following localProvisioner pattern)
+	for _, node := range nodes {
+		// Build list of other nodes for multi-host configuration
+		var additionalHosts []pgbackrest.PgHost
+		for _, otherNode := range nodes {
+			if otherNode.name != node.name {
+				additionalHosts = append(additionalHosts, pgbackrest.PgHost{
+					DataPath:  filepath.Join(otherNode.dataDir, "pg_data"),
+					SocketDir: filepath.Join(otherNode.dataDir, "pg_sockets"),
+					Port:      otherNode.pgPort,
+					User:      "postgres",
+					Database:  "postgres",
+				})
+			}
+		}
+
+		// Create pgbackrest configuration
+		configPath := filepath.Join(node.dataDir, "pgbackrest.conf")
+		lockPath := filepath.Join(node.dataDir, "pgbackrest-lock")
+		require.NoError(t, os.MkdirAll(lockPath, 0o755), "Failed to create pgbackrest lock dir for %s", node.name)
+
+		backupCfg := pgbackrest.Config{
+			StanzaName:      sharedStanzaName,
+			PgDataPath:      filepath.Join(node.dataDir, "pg_data"),
+			PgPort:          node.pgPort,
+			PgSocketDir:     filepath.Join(node.dataDir, "pg_sockets"),
+			PgUser:          "postgres",
+			PgDatabase:      "postgres",
+			AdditionalHosts: additionalHosts,
+			LogPath:         logPath,
+			SpoolPath:       spoolPath,
+			LockPath:        lockPath,
+			RetentionFull:   2,
+		}
+
+		// Write the pgBackRest config file (reusing pgbackrest.WriteConfigFile from provisioner)
+		require.NoError(t, pgbackrest.WriteConfigFile(configPath, backupCfg),
+			"Failed to write pgbackrest config for %s", node.name)
+		t.Logf("Created pgbackrest config for %s at %s (stanza: %s)", node.name, configPath, sharedStanzaName)
+	}
+
+	t.Logf("pgbackrest configuration completed for all nodes")
 }

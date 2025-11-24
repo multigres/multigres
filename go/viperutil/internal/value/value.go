@@ -22,7 +22,7 @@ import (
 	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
 
-	"github.com/multigres/multigres/go/mterrors"
+	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/pb/mtrpc"
 	"github.com/multigres/multigres/go/viperutil/internal/registry"
 	"github.com/multigres/multigres/go/viperutil/internal/sync"

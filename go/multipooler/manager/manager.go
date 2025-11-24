@@ -27,7 +27,7 @@ import (
 	"github.com/lib/pq"
 
 	"github.com/multigres/multigres/go/clustermetadata/topo"
-	"github.com/multigres/multigres/go/mterrors"
+	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/multipooler/heartbeat"
 	"github.com/multigres/multigres/go/multipooler/poolerserver"
 	"github.com/multigres/multigres/go/servenv"
@@ -297,10 +297,15 @@ func (pm *MultiPoolerManager) Close() error {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
 
-	// Always cancel context to stop async loaders
+	// Always cancel context to stop async loaders (even if Open() was never called)
 	pm.cancel()
 
-	// Always set isOpen to false
+	if !pm.isOpen {
+		pm.logger.Info("MultiPoolerManager: already closed")
+		return nil
+	}
+
+	// Set isOpen to false
 	pm.isOpen = false
 
 	// Close resources (safe to call even if nil/never opened)
@@ -316,8 +321,10 @@ func (pm *MultiPoolerManager) Close() error {
 		pm.db = nil
 	}
 
-	if err := pm.qsc.Close(); err != nil {
-		return err
+	if pm.qsc != nil {
+		if err := pm.qsc.Close(); err != nil {
+			return err
+		}
 	}
 
 	pm.logger.Info("MultiPoolerManager: closed")
@@ -392,6 +399,36 @@ func (pm *MultiPoolerManager) getPoolerType() clustermetadatapb.PoolerType {
 		return pm.cachedMultipooler.multipooler.Type
 	}
 	return clustermetadatapb.PoolerType_UNKNOWN
+}
+
+// getDatabase returns the database name from the multipooler record
+func (pm *MultiPoolerManager) getDatabase() string {
+	pm.cachedMultipooler.mu.Lock()
+	defer pm.cachedMultipooler.mu.Unlock()
+	if pm.cachedMultipooler.multipooler != nil && pm.cachedMultipooler.multipooler.MultiPooler != nil {
+		return pm.cachedMultipooler.multipooler.Database
+	}
+	return ""
+}
+
+// getBackupLocation returns the backup location from the database topology
+func (pm *MultiPoolerManager) getBackupLocation(ctx context.Context) (string, error) {
+	database := pm.getDatabase()
+	if database == "" {
+		return "", mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION, "database name not set in multipooler")
+	}
+
+	db, err := pm.topoClient.GetDatabase(ctx, database)
+	if err != nil {
+		return "", mterrors.Wrapf(err, "failed to get database %s from topology", database)
+	}
+
+	if db.BackupLocation == "" {
+		return "", mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
+			"database %s has no backup_location configured", database)
+	}
+
+	return db.BackupLocation, nil
 }
 
 // updateCachedMultipooler updates the cached multipooler info with the current multipooler

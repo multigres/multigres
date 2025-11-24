@@ -21,7 +21,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/multigres/multigres/go/fakepgdb"
+	"github.com/multigres/multigres/go/tools/fakepgdb"
 
 	"github.com/stretchr/testify/assert"
 )

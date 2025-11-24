@@ -163,6 +163,16 @@ func StartPostgreSQLWithResult(logger *slog.Logger, config *pgctld.PostgresCtlCo
 		return result, nil
 	}
 
+	// Ensure Unix socket directory exists before starting PostgreSQL
+	// This is necessary for restarts after restores, where pgBackRest only restores pg_data
+	// but not external directories like pg_sockets
+	if config.UnixSocketDirectories != "" {
+		if err := os.MkdirAll(config.UnixSocketDirectories, 0o755); err != nil {
+			return nil, fmt.Errorf("failed to create Unix socket directory %s: %w", config.UnixSocketDirectories, err)
+		}
+		logger.Info("Ensured Unix socket directory exists", "socket_dir", config.UnixSocketDirectories)
+	}
+
 	// Start PostgreSQL
 	logger.Info("Starting PostgreSQL server", "data_dir", config.PostgresDataDir)
 	if err := startPostgreSQLWithConfig(logger, config); err != nil {
