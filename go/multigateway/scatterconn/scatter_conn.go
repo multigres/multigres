@@ -26,8 +26,8 @@ import (
 	"fmt"
 	"log/slog"
 
+	"github.com/multigres/multigres/go/common/queryservice"
 	"github.com/multigres/multigres/go/multigateway/engine"
-	"github.com/multigres/multigres/go/multipooler/queryservice"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/pb/query"
 )

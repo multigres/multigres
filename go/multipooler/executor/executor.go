@@ -28,7 +28,7 @@ import (
 	"sync/atomic"
 	"syscall"
 
-	"github.com/multigres/multigres/go/multipooler/queryservice"
+	"github.com/multigres/multigres/go/common/queryservice"
 	"github.com/multigres/multigres/go/pb/query"
 )
 

@@ -86,7 +86,7 @@ func (m DialDuration) Record(
 // For the cacheSize observable gauge, use RegisterCacheSizeCallback() to register a callback.
 func NewMetrics() *Metrics {
 	m := &Metrics{
-		meter: otel.Meter("github.com/multigres/multigres/go/multipooler/rpcclient"),
+		meter: otel.Meter("github.com/multigres/multigres/go/common/rpcclient"),
 	}
 
 	var err error

@@ -17,7 +17,7 @@ package poolerserver
 import (
 	"context"
 
-	"github.com/multigres/multigres/go/multipooler/queryservice"
+	"github.com/multigres/multigres/go/common/queryservice"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 )
 

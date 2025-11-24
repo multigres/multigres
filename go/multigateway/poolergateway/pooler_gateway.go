@@ -30,7 +30,7 @@ import (
 	"time"
 
 	"github.com/multigres/multigres/go/clustermetadata/topo"
-	"github.com/multigres/multigres/go/multipooler/queryservice"
+	"github.com/multigres/multigres/go/common/queryservice"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/pb/query"
 
