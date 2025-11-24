@@ -34,6 +34,11 @@ import (
 
 // Backup performs a backup
 func (pm *MultiPoolerManager) Backup(ctx context.Context, forcePrimary bool, backupType string) (string, error) {
+	// We can't proceed without the topo, which is loaded asynchronously at startup
+	if err := pm.checkReady(); err != nil {
+		return "", err
+	}
+
 	// Check if backup is allowed on primary
 	if err := pm.allowBackupOnPrimary(ctx, forcePrimary); err != nil {
 		return "", err
@@ -123,6 +128,11 @@ func (pm *MultiPoolerManager) Backup(ctx context.Context, forcePrimary bool, bac
 // 3. Reopen the pooler manager to establish fresh connections
 func (pm *MultiPoolerManager) RestoreFromBackup(ctx context.Context, backupID string) error {
 	slog.InfoContext(ctx, "RestoreFromBackup called", "backup_id", backupID)
+
+	// We can't proceed without the topo, which is loaded asynchronously at startup
+	if err := pm.checkReady(); err != nil {
+		return err
+	}
 
 	// Check that this is a standby, not a primary
 	poolerType := pm.getPoolerType()
@@ -224,6 +234,11 @@ func (pm *MultiPoolerManager) reopenPoolerManager(ctx context.Context) error {
 
 // GetBackups retrieves backup information
 func (pm *MultiPoolerManager) GetBackups(ctx context.Context, limit uint32) ([]*multipoolermanagerdata.BackupMetadata, error) {
+	// We can't proceed without the topo, which is loaded asynchronously at startup
+	if err := pm.checkReady(); err != nil {
+		return nil, err
+	}
+
 	configPath := pm.getBackupConfigPath()
 	stanzaName := pm.getBackupStanza()
 
