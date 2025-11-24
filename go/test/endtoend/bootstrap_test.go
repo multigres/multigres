@@ -34,7 +34,7 @@ import (
 	"github.com/multigres/multigres/go/clustermetadata/topo"
 	"github.com/multigres/multigres/go/clustermetadata/topo/etcdtopo"
 	"github.com/multigres/multigres/go/multiorch/actions"
-	"github.com/multigres/multigres/go/multiorch/coordinator"
+	"github.com/multigres/multigres/go/multiorch/store"
 	"github.com/multigres/multigres/go/multipooler/rpcclient"
 	"github.com/multigres/multigres/go/provisioner/local/pgbackrest"
 	"github.com/multigres/multigres/go/test/utils"
@@ -153,7 +153,7 @@ func TestBootstrapInitialization(t *testing.T) {
 
 	// Create coordinator nodes for bootstrap action
 	rpcClient := rpcclient.NewClient(10) // connection pool capacity
-	coordNodes := make([]*coordinator.Node, 3)
+	coordNodes := make([]*store.PoolerHealth, 3)
 	for i, node := range nodes {
 		pooler := &clustermetadatapb.MultiPooler{
 			Id: &clustermetadatapb.ID{
@@ -168,21 +168,13 @@ func TestBootstrapInitialization(t *testing.T) {
 			Shard:    shardID,
 			Database: database,
 		}
-
-		coordNodes[i] = &coordinator.Node{
-			ID:        pooler.Id,
-			Hostname:  pooler.Hostname,
-			Port:      int32(node.pgPort),
-			ShardID:   shardID,
-			RpcClient: rpcClient,
-			Pooler:    pooler,
-		}
+		coordNodes[i] = store.NewPoolerHealthFromMultiPooler(pooler)
 	}
 
 	// Execute bootstrap action
 	t.Logf("Executing bootstrap action...")
 	logger := slog.Default()
-	bootstrapAction := actions.NewBootstrapShardAction(ts, logger)
+	bootstrapAction := actions.NewBootstrapShardAction(rpcClient, ts, logger)
 
 	err = bootstrapAction.Execute(ctx, shardID, database, coordNodes)
 	require.NoError(t, err, "Bootstrap action should succeed")
