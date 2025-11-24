@@ -15,6 +15,8 @@
 package store
 
 import (
+	"maps"
+
 	"google.golang.org/protobuf/proto"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
@@ -63,9 +65,7 @@ func (p *PoolerHealth) DeepCopy() *PoolerHealth {
 	// Deep copy map
 	if p.PortMap != nil {
 		copy.PortMap = make(map[string]int32, len(p.PortMap))
-		for k, v := range p.PortMap {
-			copy.PortMap[k] = v
-		}
+		maps.Copy(copy.PortMap, p.PortMap)
 	}
 
 	if p.PrimarySyncConfig != nil {
