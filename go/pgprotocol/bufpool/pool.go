@@ -32,7 +32,7 @@ func newSizedPool(size int) *sizedPool {
 	return &sizedPool{
 		size: size,
 		pool: sync.Pool{
-			New: func() interface{} {
+			New: func() any {
 				buf := make([]byte, size)
 				return &buf
 			},

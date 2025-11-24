@@ -37,11 +37,11 @@ func TestWriteHeartbeat(t *testing.T) {
 	// Add expected heartbeat query (must match with whitespace)
 	db.AddQueryPattern("\\s*INSERT INTO multigres\\.heartbeat.*", &fakepgdb.ExpectedResult{
 		Columns: []string{},
-		Rows:    [][]interface{}{},
+		Rows:    [][]any{},
 	})
 	db.AddQueryPattern("SELECT pg_backend_pid\\(\\)", &fakepgdb.ExpectedResult{
 		Columns: []string{"pg_backend_pid"},
-		Rows:    [][]interface{}{{int64(12345)}},
+		Rows:    [][]any{{int64(12345)}},
 	})
 
 	// Write a single heartbeat
@@ -62,11 +62,11 @@ func TestWriteHeartbeatOpen(t *testing.T) {
 	// Add expected heartbeat query pattern
 	db.AddQueryPattern("\\s*INSERT INTO multigres\\.heartbeat.*", &fakepgdb.ExpectedResult{
 		Columns: []string{},
-		Rows:    [][]interface{}{},
+		Rows:    [][]any{},
 	})
 	db.AddQueryPattern("SELECT pg_backend_pid\\(\\)", &fakepgdb.ExpectedResult{
 		Columns: []string{"pg_backend_pid"},
-		Rows:    [][]interface{}{{int64(12345)}},
+		Rows:    [][]any{{int64(12345)}},
 	})
 
 	// Test initial write before opening
@@ -132,7 +132,7 @@ func TestCloseWhileStuckWriting(t *testing.T) {
 	// Insert a query pattern that causes the insert to block indefinitely until it has been killed
 	db.AddQueryPatternWithCallback("\\s*INSERT INTO multigres\\.heartbeat.*", &fakepgdb.ExpectedResult{
 		Columns: []string{},
-		Rows:    [][]interface{}{},
+		Rows:    [][]any{},
 	}, func(s string) {
 		startedWaitWg.Done()
 		killWg.Wait()
@@ -140,13 +140,13 @@ func TestCloseWhileStuckWriting(t *testing.T) {
 
 	db.AddQueryPattern("SELECT pg_backend_pid\\(\\)", &fakepgdb.ExpectedResult{
 		Columns: []string{"pg_backend_pid"},
-		Rows:    [][]interface{}{{int64(12345)}},
+		Rows:    [][]any{{int64(12345)}},
 	})
 
 	// When we receive a kill query, we want to finish running the wait group to unblock the insert query
 	db.AddQueryPatternWithCallback("SELECT pg_terminate_backend.*", &fakepgdb.ExpectedResult{
 		Columns: []string{},
-		Rows:    [][]interface{}{},
+		Rows:    [][]any{},
 	}, func(s string) {
 		killWg.Done()
 	})
@@ -182,11 +182,11 @@ func TestOpenClose(t *testing.T) {
 
 	db.AddQueryPattern("\\s*INSERT INTO multigres\\.heartbeat.*", &fakepgdb.ExpectedResult{
 		Columns: []string{},
-		Rows:    [][]interface{}{},
+		Rows:    [][]any{},
 	})
 	db.AddQueryPattern("SELECT pg_backend_pid\\(\\)", &fakepgdb.ExpectedResult{
 		Columns: []string{"pg_backend_pid"},
-		Rows:    [][]interface{}{{int64(12345)}},
+		Rows:    [][]any{{int64(12345)}},
 	})
 
 	assert.False(t, tw.IsOpen())
@@ -214,11 +214,11 @@ func TestMultipleWriters(t *testing.T) {
 
 	db.AddQueryPattern("\\s*INSERT INTO multigres\\.heartbeat.*", &fakepgdb.ExpectedResult{
 		Columns: []string{},
-		Rows:    [][]interface{}{},
+		Rows:    [][]any{},
 	})
 	db.AddQueryPattern("SELECT pg_backend_pid\\(\\)", &fakepgdb.ExpectedResult{
 		Columns: []string{"pg_backend_pid"},
-		Rows:    [][]interface{}{{int64(12345)}},
+		Rows:    [][]any{{int64(12345)}},
 	})
 
 	tw1 := newTestWriter(t, db, nil)
@@ -252,7 +252,7 @@ func newTestWriter(t *testing.T, db *fakepgdb.DB, frozenTime *time.Time) *Writer
 	// Add pg_current_wal_lsn mock for all writer tests
 	db.AddQueryPattern("SELECT pg_current_wal_lsn\\(\\)", &fakepgdb.ExpectedResult{
 		Columns: []string{"pg_current_wal_lsn"},
-		Rows:    [][]interface{}{{"0/1A2B3C4D"}},
+		Rows:    [][]any{{"0/1A2B3C4D"}},
 	})
 
 	// Use 250ms interval for tests to oversample our 1s test ticker

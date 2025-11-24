@@ -26,6 +26,7 @@ linters:
     - gocritic
     - govet
     - ineffassign
+    - modernize
     - sloglint
     - staticcheck
   settings:
