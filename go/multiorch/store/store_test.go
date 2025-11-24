@@ -29,17 +29,15 @@ func TestStore_BasicOperations(t *testing.T) {
 	// Test Set and Get
 	poolerID := "zone1/multipooler-1"
 	info := &PoolerHealth{
-		MultiPooler: &clustermetadata.MultiPooler{
-			Id: &clustermetadata.ID{
-				Component: clustermetadata.ID_MULTIPOOLER,
-				Cell:      "zone1",
-				Name:      "multipooler-1",
-			},
-			Database:   "postgres",
-			TableGroup: "default",
-			Shard:      "-",
-			Type:       clustermetadata.PoolerType_PRIMARY,
+		ID: &clustermetadata.ID{
+			Component: clustermetadata.ID_MULTIPOOLER,
+			Cell:      "zone1",
+			Name:      "multipooler-1",
 		},
+		Database:         "postgres",
+		TableGroup:       "default",
+		Shard:            "-",
+		Type:             clustermetadata.PoolerType_PRIMARY,
 		LastSeen:         time.Now(),
 		IsUpToDate:       true,
 		IsLastCheckValid: true,
@@ -50,8 +48,8 @@ func TestStore_BasicOperations(t *testing.T) {
 	// Get should return the value
 	retrieved, ok := store.Get(poolerID)
 	require.True(t, ok)
-	require.Equal(t, info.MultiPooler.Id.Name, retrieved.MultiPooler.Id.Name)
-	require.Equal(t, info.MultiPooler.Database, retrieved.MultiPooler.Database)
+	require.Equal(t, info.ID.Name, retrieved.ID.Name)
+	require.Equal(t, info.Database, retrieved.Database)
 
 	// Get non-existent key
 	_, ok = store.Get("nonexistent")
@@ -62,15 +60,13 @@ func TestStore_Delete(t *testing.T) {
 	store := NewStore[string, *PoolerHealth]()
 
 	key := "test-key"
-	info := &PoolerHealth{
-		MultiPooler: &clustermetadata.MultiPooler{
-			Id: &clustermetadata.ID{
-				Component: clustermetadata.ID_MULTIPOOLER,
-				Cell:      "zone1",
-				Name:      "test",
-			},
+	info := NewPoolerHealthFromMultiPooler(&clustermetadata.MultiPooler{
+		Id: &clustermetadata.ID{
+			Component: clustermetadata.ID_MULTIPOOLER,
+			Cell:      "zone1",
+			Name:      "test",
 		},
-	}
+	})
 
 	// Set and verify
 	store.Set(key, info)
@@ -140,34 +136,28 @@ func TestStore_Range(t *testing.T) {
 
 	// Add test items
 	store.Set("key1", &PoolerHealth{
-		MultiPooler: &clustermetadata.MultiPooler{
-			Id: &clustermetadata.ID{
-				Component: clustermetadata.ID_MULTIPOOLER,
-				Cell:      "zone1",
-				Name:      "pooler1",
-			},
-			Database: "db1",
+		ID: &clustermetadata.ID{
+			Component: clustermetadata.ID_MULTIPOOLER,
+			Cell:      "zone1",
+			Name:      "pooler1",
 		},
+		Database: "db1",
 	})
 	store.Set("key2", &PoolerHealth{
-		MultiPooler: &clustermetadata.MultiPooler{
-			Id: &clustermetadata.ID{
-				Component: clustermetadata.ID_MULTIPOOLER,
-				Cell:      "zone1",
-				Name:      "pooler2",
-			},
-			Database: "db2",
+		ID: &clustermetadata.ID{
+			Component: clustermetadata.ID_MULTIPOOLER,
+			Cell:      "zone1",
+			Name:      "pooler2",
 		},
+		Database: "db2",
 	})
 	store.Set("key3", &PoolerHealth{
-		MultiPooler: &clustermetadata.MultiPooler{
-			Id: &clustermetadata.ID{
-				Component: clustermetadata.ID_MULTIPOOLER,
-				Cell:      "zone1",
-				Name:      "pooler3",
-			},
-			Database: "db3",
+		ID: &clustermetadata.ID{
+			Component: clustermetadata.ID_MULTIPOOLER,
+			Cell:      "zone1",
+			Name:      "pooler3",
 		},
+		Database: "db3",
 	})
 
 	// Test iterating over all items
@@ -175,7 +165,7 @@ func TestStore_Range(t *testing.T) {
 	store.Range(func(key string, value *PoolerHealth) bool {
 		visited[key] = true
 		require.NotNil(t, value)
-		require.NotNil(t, value.MultiPooler)
+		require.NotNil(t, value.ID)
 		return true // continue iteration
 	})
 

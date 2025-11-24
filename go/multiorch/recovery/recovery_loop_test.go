@@ -715,34 +715,32 @@ func TestProcessTableGroupProblems_DependencyEnforcement(t *testing.T) {
 		t.Cleanup(analysis.ResetAnalyzers)
 
 		// Set up store state: dead primary, replica with replication stopped
-		engine.poolerStore.Set("multipooler-cell1-primary-pooler", &store.PoolerHealth{
-			MultiPooler: &clustermetadatapb.MultiPooler{
-				Id:         primaryID,
-				Database:   "db1",
-				TableGroup: "tg1",
-				Shard:      "0",
-				Type:       clustermetadatapb.PoolerType_PRIMARY,
-				Hostname:   "primary-host",
-			},
-			IsLastCheckValid: false, // Primary is dead (unreachable)
-			IsUpToDate:       true,
-			LastSeen:         time.Now(),
+		primaryPooler := store.NewPoolerHealthFromMultiPooler(&clustermetadatapb.MultiPooler{
+			Id:         primaryID,
+			Database:   "db1",
+			TableGroup: "tg1",
+			Shard:      "0",
+			Type:       clustermetadatapb.PoolerType_PRIMARY,
+			Hostname:   "primary-host",
 		})
+		primaryPooler.IsLastCheckValid = false
+		primaryPooler.IsUpToDate = true
+		primaryPooler.LastSeen = time.Now()
+		engine.poolerStore.Set("multipooler-cell1-primary-pooler", primaryPooler)
 
-		engine.poolerStore.Set("multipooler-cell1-replica-pooler", &store.PoolerHealth{
-			MultiPooler: &clustermetadatapb.MultiPooler{
-				Id:         replicaID,
-				Database:   "db1",
-				TableGroup: "tg1",
-				Shard:      "0",
-				Type:       clustermetadatapb.PoolerType_REPLICA,
-				Hostname:   "replica-host",
-			},
-			IsLastCheckValid:         true,
-			IsUpToDate:               true,
-			ReplicaIsWalReplayPaused: true, // Replication stopped
-			LastSeen:                 time.Now(),
+		replicaPooler := store.NewPoolerHealthFromMultiPooler(&clustermetadatapb.MultiPooler{
+			Id:         replicaID,
+			Database:   "db1",
+			TableGroup: "tg1",
+			Shard:      "0",
+			Type:       clustermetadatapb.PoolerType_REPLICA,
+			Hostname:   "replica-host",
 		})
+		replicaPooler.IsLastCheckValid = true
+		replicaPooler.IsUpToDate = true
+		replicaPooler.ReplicaIsWalReplayPaused = true // Replication stopped
+		replicaPooler.LastSeen = time.Now()
+		engine.poolerStore.Set("multipooler-cell1-replica-pooler", replicaPooler)
 
 		// Generate analyses from the store
 		generator := analysis.NewAnalysisGenerator(engine.poolerStore)
@@ -786,34 +784,32 @@ func TestProcessTableGroupProblems_DependencyEnforcement(t *testing.T) {
 		t.Cleanup(analysis.ResetAnalyzers)
 
 		// Set up store state: healthy primary, replica with replication stopped
-		engine.poolerStore.Set("multipooler-cell1-primary-pooler", &store.PoolerHealth{
-			MultiPooler: &clustermetadatapb.MultiPooler{
-				Id:         primaryID,
-				Database:   "db1",
-				TableGroup: "tg1",
-				Shard:      "0",
-				Type:       clustermetadatapb.PoolerType_PRIMARY,
-				Hostname:   "primary-host",
-			},
-			IsLastCheckValid: true, // Primary is healthy
-			IsUpToDate:       true,
-			LastSeen:         time.Now(),
+		primaryPooler := store.NewPoolerHealthFromMultiPooler(&clustermetadatapb.MultiPooler{
+			Id:         primaryID,
+			Database:   "db1",
+			TableGroup: "tg1",
+			Shard:      "0",
+			Type:       clustermetadatapb.PoolerType_PRIMARY,
+			Hostname:   "primary-host",
 		})
+		primaryPooler.IsLastCheckValid = true // Primary is healthy
+		primaryPooler.IsUpToDate = true
+		primaryPooler.LastSeen = time.Now()
+		engine.poolerStore.Set("multipooler-cell1-primary-pooler", primaryPooler)
 
-		engine.poolerStore.Set("multipooler-cell1-replica-pooler", &store.PoolerHealth{
-			MultiPooler: &clustermetadatapb.MultiPooler{
-				Id:         replicaID,
-				Database:   "db1",
-				TableGroup: "tg1",
-				Shard:      "0",
-				Type:       clustermetadatapb.PoolerType_REPLICA,
-				Hostname:   "replica-host",
-			},
-			IsLastCheckValid:         true,
-			IsUpToDate:               true,
-			ReplicaIsWalReplayPaused: true, // Replication stopped
-			LastSeen:                 time.Now(),
+		replicaPooler := store.NewPoolerHealthFromMultiPooler(&clustermetadatapb.MultiPooler{
+			Id:         replicaID,
+			Database:   "db1",
+			TableGroup: "tg1",
+			Shard:      "0",
+			Type:       clustermetadatapb.PoolerType_REPLICA,
+			Hostname:   "replica-host",
 		})
+		replicaPooler.IsLastCheckValid = true
+		replicaPooler.IsUpToDate = true
+		replicaPooler.ReplicaIsWalReplayPaused = true // Replication stopped
+		replicaPooler.LastSeen = time.Now()
+		engine.poolerStore.Set("multipooler-cell1-replica-pooler", replicaPooler)
 
 		// Generate analyses from the store
 		generator := analysis.NewAnalysisGenerator(engine.poolerStore)
@@ -905,20 +901,19 @@ func TestRecoveryLoop_ValidationPreventsStaleRecovery(t *testing.T) {
 	t.Cleanup(analysis.ResetAnalyzers)
 
 	// Set up initial store state: replica with replication stopped
-	engine.poolerStore.Set("multipooler-cell1-replica-pooler", &store.PoolerHealth{
-		MultiPooler: &clustermetadatapb.MultiPooler{
-			Id:         replicaID,
-			Database:   "db1",
-			TableGroup: "tg1",
-			Shard:      "0",
-			Type:       clustermetadatapb.PoolerType_REPLICA,
-			Hostname:   "replica-host",
-		},
-		IsLastCheckValid:         true,
-		IsUpToDate:               true,
-		ReplicaIsWalReplayPaused: true, // Replication stopped
-		LastSeen:                 time.Now(),
+	replicaPooler := store.NewPoolerHealthFromMultiPooler(&clustermetadatapb.MultiPooler{
+		Id:         replicaID,
+		Database:   "db1",
+		TableGroup: "tg1",
+		Shard:      "0",
+		Type:       clustermetadatapb.PoolerType_REPLICA,
+		Hostname:   "replica-host",
 	})
+	replicaPooler.IsLastCheckValid = true
+	replicaPooler.IsUpToDate = true
+	replicaPooler.ReplicaIsWalReplayPaused = true // Replication stopped
+	replicaPooler.LastSeen = time.Now()
+	engine.poolerStore.Set("multipooler-cell1-replica-pooler", replicaPooler)
 
 	// Generate initial analysis - problem should be detected
 	generator := analysis.NewAnalysisGenerator(engine.poolerStore)
@@ -1061,47 +1056,45 @@ func TestRecoveryLoop_PostRecoveryRefresh(t *testing.T) {
 	t.Cleanup(analysis.ResetAnalyzers)
 
 	// Set up store state: dead primary, healthy replicas
-	engine.poolerStore.Set("multipooler-cell1-primary-pooler", &store.PoolerHealth{
-		MultiPooler: &clustermetadatapb.MultiPooler{
-			Id:         primaryID,
-			Database:   "db1",
-			TableGroup: "tg1",
-			Shard:      "0",
-			Type:       clustermetadatapb.PoolerType_PRIMARY,
-			Hostname:   "primary-host",
-		},
-		IsLastCheckValid: false, // Primary is dead
-		IsUpToDate:       true,
-		LastSeen:         time.Now().Add(-1 * time.Minute),
-	})
 
-	engine.poolerStore.Set("multipooler-cell1-replica1-pooler", &store.PoolerHealth{
-		MultiPooler: &clustermetadatapb.MultiPooler{
-			Id:         replica1ID,
-			Database:   "db1",
-			TableGroup: "tg1",
-			Shard:      "0",
-			Type:       clustermetadatapb.PoolerType_REPLICA,
-			Hostname:   "replica1-host",
-		},
-		IsLastCheckValid: true,
-		IsUpToDate:       true,
-		LastSeen:         time.Now(),
+	primaryPooler := store.NewPoolerHealthFromMultiPooler(&clustermetadatapb.MultiPooler{
+		Id:         primaryID,
+		Database:   "db1",
+		TableGroup: "tg1",
+		Shard:      "0",
+		Type:       clustermetadatapb.PoolerType_PRIMARY,
+		Hostname:   "primary-host",
 	})
+	primaryPooler.IsLastCheckValid = false // Primary is dead
+	primaryPooler.IsUpToDate = true
+	primaryPooler.LastSeen = time.Now().Add(-1 * time.Minute)
+	engine.poolerStore.Set("multipooler-cell1-primary-pooler", primaryPooler)
 
-	engine.poolerStore.Set("multipooler-cell1-replica2-pooler", &store.PoolerHealth{
-		MultiPooler: &clustermetadatapb.MultiPooler{
-			Id:         replica2ID,
-			Database:   "db1",
-			TableGroup: "tg1",
-			Shard:      "0",
-			Type:       clustermetadatapb.PoolerType_REPLICA,
-			Hostname:   "replica2-host",
-		},
-		IsLastCheckValid: true,
-		IsUpToDate:       true,
-		LastSeen:         time.Now(),
+	replica1Pooler := store.NewPoolerHealthFromMultiPooler(&clustermetadatapb.MultiPooler{
+		Id:         replica1ID,
+		Database:   "db1",
+		TableGroup: "tg1",
+		Shard:      "0",
+		Type:       clustermetadatapb.PoolerType_REPLICA,
+		Hostname:   "replica1-host",
 	})
+	replica1Pooler.IsLastCheckValid = true
+	replica1Pooler.IsUpToDate = true
+	replica1Pooler.LastSeen = time.Now()
+	engine.poolerStore.Set("multipooler-cell1-replica1-pooler", replica1Pooler)
+
+	replica2Pooler := store.NewPoolerHealthFromMultiPooler(&clustermetadatapb.MultiPooler{
+		Id:         replica2ID,
+		Database:   "db1",
+		TableGroup: "tg1",
+		Shard:      "0",
+		Type:       clustermetadatapb.PoolerType_REPLICA,
+		Hostname:   "replica2-host",
+	})
+	replica2Pooler.IsLastCheckValid = true
+	replica2Pooler.IsUpToDate = true
+	replica2Pooler.LastSeen = time.Now()
+	engine.poolerStore.Set("multipooler-cell1-replica2-pooler", replica2Pooler)
 
 	// Record initial LastCheckAttempted times
 	initialPrimaryCheck := time.Now().Add(-5 * time.Minute)
@@ -1275,49 +1268,47 @@ func TestRecoveryLoop_FullCycle(t *testing.T) {
 	t.Cleanup(analysis.ResetAnalyzers)
 
 	// Set up store state: healthy primary, two replicas with problems
-	engine.poolerStore.Set("multipooler-cell1-primary-pooler", &store.PoolerHealth{
-		MultiPooler: &clustermetadatapb.MultiPooler{
-			Id:         primaryID,
-			Database:   "db1",
-			TableGroup: "tg1",
-			Shard:      "0",
-			Type:       clustermetadatapb.PoolerType_PRIMARY,
-			Hostname:   "primary-host",
-		},
-		IsLastCheckValid: true,
-		IsUpToDate:       true,
-		LastSeen:         time.Now(),
+	primaryPooler := store.NewPoolerHealthFromMultiPooler(&clustermetadatapb.MultiPooler{
+		Id:         primaryID,
+		Database:   "db1",
+		TableGroup: "tg1",
+		Shard:      "0",
+		Type:       clustermetadatapb.PoolerType_PRIMARY,
+		Hostname:   "primary-host",
 	})
+	primaryPooler.IsLastCheckValid = true
+	primaryPooler.IsUpToDate = true
+	primaryPooler.LastSeen = time.Now()
+	engine.poolerStore.Set("multipooler-cell1-primary-pooler", primaryPooler)
 
-	engine.poolerStore.Set("multipooler-cell1-replica1-pooler", &store.PoolerHealth{
-		MultiPooler: &clustermetadatapb.MultiPooler{
-			Id:         replica1ID,
-			Database:   "db1",
-			TableGroup: "tg1",
-			Shard:      "0",
-			Type:       clustermetadatapb.PoolerType_REPLICA,
-			Hostname:   "replica1-host",
-		},
-		IsLastCheckValid:         true,
-		IsUpToDate:               true,
-		ReplicaIsWalReplayPaused: true, // Problem
-		LastSeen:                 time.Now(),
+	replica1Pooler := store.NewPoolerHealthFromMultiPooler(&clustermetadatapb.MultiPooler{
+		Id:         replica1ID,
+		Database:   "db1",
+		TableGroup: "tg1",
+		Shard:      "0",
+		Type:       clustermetadatapb.PoolerType_REPLICA,
+		Hostname:   "replica1-host",
 	})
+	replica1Pooler.IsLastCheckValid = true
+	replica1Pooler.IsUpToDate = true
+	replica1Pooler.ReplicaIsWalReplayPaused = true // Problem
+	replica1Pooler.LastSeen = time.Now()
 
-	engine.poolerStore.Set("multipooler-cell1-replica2-pooler", &store.PoolerHealth{
-		MultiPooler: &clustermetadatapb.MultiPooler{
-			Id:         replica2ID,
-			Database:   "db1",
-			TableGroup: "tg1",
-			Shard:      "0",
-			Type:       clustermetadatapb.PoolerType_REPLICA,
-			Hostname:   "replica2-host",
-		},
-		IsLastCheckValid:         true,
-		IsUpToDate:               true,
-		ReplicaIsWalReplayPaused: true, // Problem
-		LastSeen:                 time.Now(),
+	engine.poolerStore.Set("multipooler-cell1-replica1-pooler", replica1Pooler)
+
+	replica2Pooler := store.NewPoolerHealthFromMultiPooler(&clustermetadatapb.MultiPooler{
+		Id:         replica2ID,
+		Database:   "db1",
+		TableGroup: "tg1",
+		Shard:      "0",
+		Type:       clustermetadatapb.PoolerType_REPLICA,
+		Hostname:   "replica2-host",
 	})
+	replica2Pooler.IsLastCheckValid = true
+	replica2Pooler.IsUpToDate = true
+	replica2Pooler.ReplicaIsWalReplayPaused = true // Problem
+	replica2Pooler.LastSeen = time.Now()
+	engine.poolerStore.Set("multipooler-cell1-replica2-pooler", replica2Pooler)
 
 	// Run full recovery cycle
 	engine.performRecoveryCycle()
@@ -1462,20 +1453,19 @@ func TestRecoveryLoop_PriorityOrdering(t *testing.T) {
 	t.Cleanup(analysis.ResetAnalyzers)
 
 	// Set up store state: replica with problem
-	engine.poolerStore.Set("multipooler-cell1-replica-pooler", &store.PoolerHealth{
-		MultiPooler: &clustermetadatapb.MultiPooler{
-			Id:         replicaID,
-			Database:   "db1",
-			TableGroup: "tg1",
-			Shard:      "0",
-			Type:       clustermetadatapb.PoolerType_REPLICA,
-			Hostname:   "replica-host",
-		},
-		IsLastCheckValid:         true,
-		IsUpToDate:               true,
-		ReplicaIsWalReplayPaused: true,
-		LastSeen:                 time.Now(),
+	replicaPooler := store.NewPoolerHealthFromMultiPooler(&clustermetadatapb.MultiPooler{
+		Id:         replicaID,
+		Database:   "db1",
+		TableGroup: "tg1",
+		Shard:      "0",
+		Type:       clustermetadatapb.PoolerType_REPLICA,
+		Hostname:   "replica-host",
 	})
+	replicaPooler.IsLastCheckValid = true
+	replicaPooler.IsUpToDate = true
+	replicaPooler.ReplicaIsWalReplayPaused = true
+	replicaPooler.LastSeen = time.Now()
+	engine.poolerStore.Set("multipooler-cell1-replica-pooler", replicaPooler)
 
 	// Generate problems
 	generator := analysis.NewAnalysisGenerator(engine.poolerStore)

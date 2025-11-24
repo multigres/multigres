@@ -46,7 +46,7 @@ func (re *Engine) pollPooler(ctx context.Context, poolerID *clustermetadata.ID, 
 	poolerIDStr := topo.MultiPoolerIDString(poolerID)
 
 	// Skip if this pooler is marked as forgotten (shouldn't happen, but defensive)
-	if pooler == nil || pooler.MultiPooler == nil {
+	if pooler == nil || pooler.ID == nil {
 		re.logger.DebugContext(ctx, "skipping poll of nil pooler", "pooler_id", poolerIDStr)
 		return
 	}
@@ -75,8 +75,8 @@ func (re *Engine) pollPooler(ctx context.Context, poolerID *clustermetadata.ID, 
 		re.metrics.poolerPollDuration.Record(
 			re.ctx,
 			totalLatency.Seconds(),
-			pooler.MultiPooler.Database,
-			pooler.MultiPooler.TableGroup,
+			pooler.Database,
+			pooler.TableGroup,
 			status,
 		)
 	}()
@@ -111,7 +111,7 @@ func (re *Engine) pollPooler(ctx context.Context, poolerID *clustermetadata.ID, 
 	if forceDiscovery {
 		re.logger.InfoContext(ctx, "force polling pooler",
 			"pooler_id", poolerIDStr,
-			"type", pooler.MultiPooler.Type,
+			"type", pooler.Type,
 		)
 	}
 
@@ -119,14 +119,12 @@ func (re *Engine) pollPooler(ctx context.Context, poolerID *clustermetadata.ID, 
 
 	// Mark attempt timestamp - create new struct to avoid race condition
 	now := time.Now()
-	updated := &store.PoolerHealth{
-		MultiPooler:         pooler.MultiPooler,
-		LastCheckAttempted:  now,
-		LastCheckSuccessful: pooler.LastCheckSuccessful,
-		LastSeen:            pooler.LastSeen,
-		IsUpToDate:          pooler.IsUpToDate,
-		IsLastCheckValid:    pooler.IsLastCheckValid,
-	}
+	updated := store.NewPoolerHealthFromMultiPooler(pooler.ToMultiPooler())
+	updated.LastCheckAttempted = now
+	updated.LastCheckSuccessful = pooler.LastCheckSuccessful
+	updated.LastSeen = pooler.LastSeen
+	updated.IsUpToDate = pooler.IsUpToDate
+	updated.IsLastCheckValid = pooler.IsLastCheckValid
 	re.poolerStore.Set(poolerIDStr, updated)
 	pooler = updated // use updated for rest of function
 
@@ -139,7 +137,7 @@ func (re *Engine) pollPooler(ctx context.Context, poolerID *clustermetadata.ID, 
 	if err != nil {
 		re.logger.WarnContext(ctx, "pooler poll failed",
 			"pooler_id", poolerIDStr,
-			"type", pooler.MultiPooler.Type,
+			"type", pooler.Type,
 			"error", err,
 			"latency", time.Since(totalStart),
 		)
@@ -148,35 +146,31 @@ func (re *Engine) pollPooler(ctx context.Context, poolerID *clustermetadata.ID, 
 		re.metrics.poolerPollDuration.Record(
 			re.ctx,
 			time.Since(totalStart).Seconds(),
-			pooler.MultiPooler.Database,
-			pooler.MultiPooler.TableGroup,
+			pooler.Database,
+			pooler.TableGroup,
 			PoolerPollStatusFailure,
 		)
 
 		// Mark as failed check - create new struct to avoid race condition
-		failed := &store.PoolerHealth{
-			MultiPooler:         pooler.MultiPooler,
-			LastCheckAttempted:  pooler.LastCheckAttempted,
-			LastCheckSuccessful: pooler.LastCheckSuccessful,
-			LastSeen:            pooler.LastSeen,
-			IsUpToDate:          true, // We tried, don't retry immediately
-			IsLastCheckValid:    false,
-		}
+		failed := store.NewPoolerHealthFromMultiPooler(pooler.ToMultiPooler())
+		failed.LastCheckAttempted = pooler.LastCheckAttempted
+		failed.LastCheckSuccessful = pooler.LastCheckSuccessful
+		failed.LastSeen = pooler.LastSeen
+		failed.IsUpToDate = true // We tried, don't retry immediately
+		failed.IsLastCheckValid = false
 		re.poolerStore.Set(poolerIDStr, failed)
 		return
 	}
 
 	// Success! Extract health metrics from status response and update store
 	successTime := time.Now()
-	success := &store.PoolerHealth{
-		MultiPooler:         pooler.MultiPooler,
-		LastCheckAttempted:  pooler.LastCheckAttempted,
-		LastCheckSuccessful: successTime,
-		LastSeen:            successTime,
-		IsUpToDate:          true,
-		IsLastCheckValid:    true,
-		PoolerType:          statusResp.Status.PoolerType,
-	}
+	success := store.NewPoolerHealthFromMultiPooler(pooler.ToMultiPooler())
+	success.LastCheckAttempted = pooler.LastCheckAttempted
+	success.LastCheckSuccessful = successTime
+	success.LastSeen = successTime
+	success.IsUpToDate = true
+	success.IsLastCheckValid = true
+	success.PoolerType = statusResp.Status.PoolerType
 
 	// Populate type-specific fields based on what the pooler reports
 	if statusResp.Status.PrimaryStatus != nil {
@@ -206,7 +200,7 @@ func (re *Engine) pollPooler(ctx context.Context, poolerID *clustermetadata.ID, 
 
 	re.logger.DebugContext(ctx, "pooler poll successful",
 		"pooler_id", poolerIDStr,
-		"topology_type", pooler.MultiPooler.Type,
+		"topology_type", pooler.Type,
 		"reported_type", statusResp.Status.PoolerType,
 		"latency", time.Since(totalStart),
 	)
@@ -221,13 +215,13 @@ func (re *Engine) pollPoolerStatus(ctx context.Context, poolerID *clustermetadat
 
 	re.logger.DebugContext(ctx, "polling pooler status",
 		"pooler_id", poolerIDStr,
-		"hostname", pooler.MultiPooler.Hostname,
-		"grpc_port", pooler.MultiPooler.PortMap["grpc"],
-		"type", pooler.MultiPooler.Type,
+		"hostname", pooler.Hostname,
+		"grpc_port", pooler.PortMap["grpc"],
+		"type", pooler.Type,
 	)
 
 	// Call Status RPC
-	resp, err := re.rpcClient.Status(ctx, pooler.MultiPooler, &multipoolermanagerdatapb.StatusRequest{})
+	resp, err := re.rpcClient.Status(ctx, pooler.ToMultiPooler(), &multipoolermanagerdatapb.StatusRequest{})
 	if err != nil {
 		return nil, fmt.Errorf("failed to get status from pooler: %w", err)
 	}
@@ -337,7 +331,7 @@ func (re *Engine) handlePoolerHealthChecks() {
 				}
 
 				// Poll the pooler with engine context (respects shutdown)
-				re.pollPooler(re.ctx, poolerInfo.MultiPooler.Id, poolerInfo, false /* forceDiscovery */)
+				re.pollPooler(re.ctx, poolerInfo.ID, poolerInfo, false /* forceDiscovery */)
 			}()
 		}
 	}

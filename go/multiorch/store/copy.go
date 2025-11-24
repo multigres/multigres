@@ -17,8 +17,7 @@ package store
 import (
 	"google.golang.org/protobuf/proto"
 
-	"github.com/multigres/multigres/go/pb/clustermetadata"
-
+	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
 
@@ -30,6 +29,12 @@ func (p *PoolerHealth) DeepCopy() *PoolerHealth {
 
 	copy := &PoolerHealth{
 		// Copy value types directly
+		Database:                       p.Database,
+		TableGroup:                     p.TableGroup,
+		Shard:                          p.Shard,
+		Hostname:                       p.Hostname,
+		Type:                           p.Type,
+		ServingStatus:                  p.ServingStatus,
 		LastCheckAttempted:             p.LastCheckAttempted,
 		LastCheckSuccessful:            p.LastCheckSuccessful,
 		LastSeen:                       p.LastSeen,
@@ -47,8 +52,20 @@ func (p *PoolerHealth) DeepCopy() *PoolerHealth {
 	}
 
 	// Deep copy protobufs using proto.Clone
-	if p.MultiPooler != nil {
-		copy.MultiPooler = proto.Clone(p.MultiPooler).(*clustermetadata.MultiPooler)
+	if p.ID != nil {
+		copy.ID = proto.Clone(p.ID).(*clustermetadatapb.ID)
+	}
+
+	if p.KeyRange != nil {
+		copy.KeyRange = proto.Clone(p.KeyRange).(*clustermetadatapb.KeyRange)
+	}
+
+	// Deep copy map
+	if p.PortMap != nil {
+		copy.PortMap = make(map[string]int32, len(p.PortMap))
+		for k, v := range p.PortMap {
+			copy.PortMap[k] = v
+		}
 	}
 
 	if p.PrimarySyncConfig != nil {
@@ -61,10 +78,10 @@ func (p *PoolerHealth) DeepCopy() *PoolerHealth {
 
 	// Deep copy slice of pointers
 	if p.PrimaryConnectedFollowers != nil {
-		copy.PrimaryConnectedFollowers = make([]*clustermetadata.ID, len(p.PrimaryConnectedFollowers))
+		copy.PrimaryConnectedFollowers = make([]*clustermetadatapb.ID, len(p.PrimaryConnectedFollowers))
 		for i, id := range p.PrimaryConnectedFollowers {
 			if id != nil {
-				copy.PrimaryConnectedFollowers[i] = proto.Clone(id).(*clustermetadata.ID)
+				copy.PrimaryConnectedFollowers[i] = proto.Clone(id).(*clustermetadatapb.ID)
 			}
 		}
 	}

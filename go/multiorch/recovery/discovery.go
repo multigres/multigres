@@ -142,25 +142,21 @@ func (re *Engine) refreshPoolersForTarget(ctx context.Context, database, tablegr
 
 			// Check if we already know about this pooler
 			if existing, ok := re.poolerStore.Get(poolerID); ok {
-				// Update the MultiPooler record in case topology changed
+				// Update the pooler metadata in case topology changed
 				// but preserve all timestamps and computed fields
-				updated := &store.PoolerHealth{
-					MultiPooler:         pooler.MultiPooler,
-					LastCheckAttempted:  existing.LastCheckAttempted,
-					LastCheckSuccessful: existing.LastCheckSuccessful,
-					LastSeen:            existing.LastSeen,
-					IsUpToDate:          existing.IsUpToDate,
-					IsLastCheckValid:    existing.IsLastCheckValid,
-				}
+				updated := store.NewPoolerHealthFromMultiPooler(pooler.MultiPooler)
+				updated.LastCheckAttempted = existing.LastCheckAttempted
+				updated.LastCheckSuccessful = existing.LastCheckSuccessful
+				updated.LastSeen = existing.LastSeen
+				updated.IsUpToDate = existing.IsUpToDate
+				updated.IsLastCheckValid = existing.IsLastCheckValid
 				re.poolerStore.Set(poolerID, updated)
 			} else {
 				// New pooler - we've discovered it in the topology, but we haven't
 				// performed a health check yet. The health check loop will update
 				// LastSeen, LastCheckAttempted, LastCheckSuccessful, and IsUpToDate.
-				poolerInfo := &store.PoolerHealth{
-					MultiPooler: pooler.MultiPooler,
-					IsUpToDate:  false, // Not yet health checked
-				}
+				poolerInfo := store.NewPoolerHealthFromMultiPooler(pooler.MultiPooler)
+				poolerInfo.IsUpToDate = false // Not yet health checked
 				re.poolerStore.Set(poolerID, poolerInfo)
 
 				// Queue health check for this newly discovered pooler
@@ -228,16 +224,14 @@ func (re *Engine) forceHealthCheckShardPoolers(ctx context.Context, database, ta
 	var poolersToPoll []poolerToPoll
 
 	re.poolerStore.Range(func(poolerID string, poolerHealth *store.PoolerHealth) bool {
-		if poolerHealth == nil || poolerHealth.MultiPooler == nil {
+		if poolerHealth == nil || poolerHealth.ID == nil {
 			return true
 		}
 
-		mp := poolerHealth.MultiPooler
-
 		// Check if this pooler is in the target shard
-		if mp.Database != database ||
-			mp.TableGroup != tablegroup ||
-			mp.Shard != shard {
+		if poolerHealth.Database != database ||
+			poolerHealth.TableGroup != tablegroup ||
+			poolerHealth.Shard != shard {
 			return true // continue
 		}
 
@@ -248,7 +242,7 @@ func (re *Engine) forceHealthCheckShardPoolers(ctx context.Context, database, ta
 
 		// Collect this pooler for polling
 		poolersToPoll = append(poolersToPoll, poolerToPoll{
-			id:     mp.Id,
+			id:     poolerHealth.ID,
 			health: poolerHealth,
 		})
 		return true // continue

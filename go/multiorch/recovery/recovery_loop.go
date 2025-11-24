@@ -300,14 +300,14 @@ func (re *Engine) validateProblemStillExists(problem analysis.Problem) (bool, er
 
 		// Refresh the affected pooler
 		if ph, ok := re.poolerStore.Get(poolerIDStr); ok {
-			re.pollPooler(ctx, ph.MultiPooler.Id, ph, true /* forceDiscovery */)
+			re.pollPooler(ctx, ph.ID, ph, true /* forceDiscovery */)
 		}
 
 		// Find and refresh primary if different
 		primaryID, err := re.findPrimaryInShard(problem.Database, problem.TableGroup, problem.Shard)
 		if err == nil && primaryID != poolerIDStr {
 			if ph, ok := re.poolerStore.Get(primaryID); ok {
-				re.pollPooler(ctx, ph.MultiPooler.Id, ph, true /* forceDiscovery */)
+				re.pollPooler(ctx, ph.ID, ph, true /* forceDiscovery */)
 			}
 		}
 	}
@@ -354,15 +354,14 @@ func (re *Engine) findPrimaryInShard(database, tablegroup, shard string) (string
 	var found bool
 
 	re.poolerStore.Range(func(poolerID string, poolerHealth *store.PoolerHealth) bool {
-		if poolerHealth == nil || poolerHealth.MultiPooler == nil {
+		if poolerHealth == nil || poolerHealth.ID == nil {
 			return true
 		}
 
-		mp := poolerHealth.MultiPooler
-		if mp.Database == database &&
-			mp.TableGroup == tablegroup &&
-			mp.Shard == shard &&
-			mp.Type == clustermetadatapb.PoolerType_PRIMARY {
+		if poolerHealth.Database == database &&
+			poolerHealth.TableGroup == tablegroup &&
+			poolerHealth.Shard == shard &&
+			poolerHealth.Type == clustermetadatapb.PoolerType_PRIMARY {
 			primaryID = poolerID
 			found = true
 			return false // stop iteration

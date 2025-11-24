@@ -76,13 +76,13 @@ func (g *AnalysisGenerator) buildPoolersByTableGroup() PoolersByTableGroup {
 	poolersByTG := make(PoolersByTableGroup)
 
 	g.poolerStore.Range(func(poolerID string, pooler *store.PoolerHealth) bool {
-		if pooler == nil || pooler.MultiPooler == nil {
+		if pooler == nil || pooler.ID == nil {
 			return true // skip nil entries
 		}
 
-		database := pooler.MultiPooler.Database
-		tableGroup := pooler.MultiPooler.TableGroup
-		shard := pooler.MultiPooler.Shard
+		database := pooler.Database
+		tableGroup := pooler.TableGroup
+		shard := pooler.Shard
 
 		// Initialize nested maps if needed
 		if poolersByTG[database] == nil {
@@ -112,26 +112,26 @@ func (g *AnalysisGenerator) GetPoolersInTableGroup(poolerIDStr string) ([]string
 		return nil, fmt.Errorf("pooler not found in store: %s", poolerIDStr)
 	}
 
-	if pooler == nil || pooler.MultiPooler == nil {
-		return nil, fmt.Errorf("pooler or MultiPooler is nil: %s", poolerIDStr)
+	if pooler == nil || pooler.ID == nil {
+		return nil, fmt.Errorf("pooler or ID is nil: %s", poolerIDStr)
 	}
 
-	database := pooler.MultiPooler.Database
-	tableGroup := pooler.MultiPooler.TableGroup
-	shard := pooler.MultiPooler.Shard
+	database := pooler.Database
+	tableGroup := pooler.TableGroup
+	shard := pooler.Shard
 
 	var poolerIDs []string
 
 	// Iterate the store to find all poolers in the same tablegroup
 	// Note: We can't use the cached poolersByTG here because the store may have been updated
 	g.poolerStore.Range(func(id string, p *store.PoolerHealth) bool {
-		if p == nil || p.MultiPooler == nil {
+		if p == nil || p.ID == nil {
 			return true
 		}
 
-		if p.MultiPooler.Database == database &&
-			p.MultiPooler.TableGroup == tableGroup &&
-			p.MultiPooler.Shard == shard {
+		if p.Database == database &&
+			p.TableGroup == tableGroup &&
+			p.Shard == shard {
 			poolerIDs = append(poolerIDs, id)
 		}
 
@@ -150,16 +150,16 @@ func (g *AnalysisGenerator) GenerateAnalysisForPooler(poolerIDStr string) (*stor
 		return nil, fmt.Errorf("pooler not found in store: %s", poolerIDStr)
 	}
 
-	if pooler == nil || pooler.MultiPooler == nil {
-		return nil, fmt.Errorf("pooler or MultiPooler is nil: %s", poolerIDStr)
+	if pooler == nil || pooler.ID == nil {
+		return nil, fmt.Errorf("pooler or ID is nil: %s", poolerIDStr)
 	}
 
 	// Rebuild the map with current store data (store may have been updated by re-polling)
 	poolersByTG := g.buildPoolersByTableGroup()
 
-	database := pooler.MultiPooler.Database
-	tableGroup := pooler.MultiPooler.TableGroup
-	shard := pooler.MultiPooler.Shard
+	database := pooler.Database
+	tableGroup := pooler.TableGroup
+	shard := pooler.Shard
 
 	// Generate analysis for this specific pooler
 	analysis := g.generateAnalysisForPooler(poolerIDStr, pooler, poolersByTG, database, tableGroup, shard)
@@ -177,13 +177,13 @@ func (g *AnalysisGenerator) generateAnalysisForPooler(
 	shard string,
 ) *store.ReplicationAnalysis {
 	analysis := &store.ReplicationAnalysis{
-		PoolerID:             pooler.MultiPooler.Id,
-		Database:             pooler.MultiPooler.Database,
-		TableGroup:           pooler.MultiPooler.TableGroup,
-		Shard:                pooler.MultiPooler.Shard,
-		PoolerType:           pooler.MultiPooler.Type,
-		CurrentServingStatus: pooler.MultiPooler.ServingStatus,
-		IsPrimary:            pooler.MultiPooler.Type == clustermetadatapb.PoolerType_PRIMARY,
+		PoolerID:             pooler.ID,
+		Database:             pooler.Database,
+		TableGroup:           pooler.TableGroup,
+		Shard:                pooler.Shard,
+		PoolerType:           pooler.Type,
+		CurrentServingStatus: pooler.ServingStatus,
+		IsPrimary:            pooler.Type == clustermetadatapb.PoolerType_PRIMARY,
 		LastCheckValid:       pooler.IsLastCheckValid,
 		AnalyzedAt:           time.Now(),
 	}
@@ -238,12 +238,12 @@ func (g *AnalysisGenerator) aggregateReplicaStats(
 	var countReplicating uint
 	var countLagging uint
 
-	primaryIDStr := topo.MultiPoolerIDString(primary.MultiPooler.Id)
+	primaryIDStr := topo.MultiPoolerIDString(primary.ID)
 
 	// Iterate only over poolers in the same tablegroup (efficient lookup)
 	if poolers, ok := poolersByTG[database][tableGroup][shard]; ok {
 		for poolerID, pooler := range poolers {
-			if pooler == nil || pooler.MultiPooler == nil {
+			if pooler == nil || pooler.ID == nil {
 				continue
 			}
 
@@ -253,7 +253,7 @@ func (g *AnalysisGenerator) aggregateReplicaStats(
 			}
 
 			// Skip if not a replica
-			if pooler.MultiPooler.Type != clustermetadatapb.PoolerType_REPLICA {
+			if pooler.Type != clustermetadatapb.PoolerType_REPLICA {
 				continue
 			}
 
@@ -270,7 +270,7 @@ func (g *AnalysisGenerator) aggregateReplicaStats(
 
 			// Also check via primary_conninfo if we didn't find it in connected followers
 			if !isPointingToPrimary && pooler.ReplicaPrimaryConnInfo != nil {
-				if pooler.ReplicaPrimaryConnInfo.Host == primary.MultiPooler.Hostname {
+				if pooler.ReplicaPrimaryConnInfo.Host == primary.Hostname {
 					// TODO: More robust check would compare port as well
 					isPointingToPrimary = true
 				}
@@ -316,17 +316,17 @@ func (g *AnalysisGenerator) populatePrimaryInfo(
 	// Find the primary in the same tablegroup (efficient lookup)
 	if poolers, ok := poolersByTG[database][tableGroup][shard]; ok {
 		for _, pooler := range poolers {
-			if pooler == nil || pooler.MultiPooler == nil {
+			if pooler == nil || pooler.ID == nil {
 				continue
 			}
 
 			// Look for primary in same tablegroup
-			if pooler.MultiPooler.Type != clustermetadatapb.PoolerType_PRIMARY {
+			if pooler.Type != clustermetadatapb.PoolerType_PRIMARY {
 				continue
 			}
 
 			// Found the primary
-			analysis.PrimaryPoolerID = pooler.MultiPooler.Id
+			analysis.PrimaryPoolerID = pooler.ID
 			analysis.PrimaryReachable = pooler.IsLastCheckValid
 			analysis.PrimaryTimestamp = pooler.LastSeen
 			return // found it
