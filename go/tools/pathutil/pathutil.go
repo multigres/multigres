@@ -67,15 +67,18 @@ func findModuleRoot() (string, error) {
 
 // prependModuleSubdirsToPath finds the module root and prepends multiple
 // subdirectories to PATH. Each subdir is joined with the module root and
-// prepended to PATH in order (last argument will have highest precedence).
+// prepended to PATH in order (first argument will have highest precedence).
+// Subdirs are processed in reverse order so that the first argument ends up
+// first in the resulting PATH.
 func prependModuleSubdirsToPath(subdirs ...string) error {
 	moduleRoot, err := findModuleRoot()
 	if err != nil {
 		return fmt.Errorf("failed to find module root: %w", err)
 	}
 
-	for _, subdir := range subdirs {
-		targetPath := filepath.Join(moduleRoot, subdir)
+	// Iterate in reverse order so first argument ends up first in PATH
+	for i := len(subdirs) - 1; i >= 0; i-- {
+		targetPath := filepath.Join(moduleRoot, subdirs[i])
 		PrependPath(targetPath)
 	}
 	return nil
@@ -85,6 +88,18 @@ func prependModuleSubdirsToPath(subdirs ...string) error {
 // This is useful for tests that need to use binaries built in the project.
 // go/test/endtoend is also added because there are scripts there to help with
 // detecting and killing orphan subprocesses during endtoend tests.
+//
+// If GOCOVERDIR is set (indicating coverage collection is desired), bin/cov/ is
+// prepended before bin/ to enable automatic coverage collection from subprocess
+// executions. If bin/cov/ doesn't exist, PATH lookup will skip it harmlessly.
 func PrependBinToPath() error {
+	// Check if coverage collection is requested via GOCOVERDIR
+	if gocoverdir := os.Getenv("GOCOVERDIR"); gocoverdir != "" {
+		// GOCOVERDIR is set, so prepend bin/cov before bin
+		// This allows coverage-instrumented binaries to be found first
+		return prependModuleSubdirsToPath("bin/cov", "bin", "go/test/endtoend")
+	}
+
+	// Normal case: just prepend bin
 	return prependModuleSubdirsToPath("bin", "go/test/endtoend")
 }
