@@ -111,6 +111,12 @@ func getLogErrStacks() bool {
 	return logErrStacks
 }
 
+func setLogErrStacks(val bool) {
+	muLogErrStacks.Lock()
+	defer muLogErrStacks.Unlock()
+	logErrStacks = val
+}
+
 // RegisterFlags registers the command-line options that control mtterror
 // behavior on the provided FlagSet.
 func RegisterFlags(fs *pflag.FlagSet) {
