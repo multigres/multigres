@@ -700,7 +700,6 @@ func TestRealWorldErrorScenarios(t *testing.T) {
 			lexer := NewLexer(tt.input)
 
 			// Keep getting tokens until EOF or error
-			var lastError error
 			for {
 				token := lexer.NextToken()
 				if token.Type == EOF {
@@ -708,27 +707,16 @@ func TestRealWorldErrorScenarios(t *testing.T) {
 				}
 			}
 
-			// Check for errors either as return value or in context
-			if lastError != nil {
-				// Check if it's a LexerError
-				if enhancedErr, ok := lastError.(*LexerError); ok {
-					assert.Equal(t, tt.expectedError, enhancedErr.Type)
-					if tt.expectedText != "" {
-						assert.Contains(t, enhancedErr.NearText, tt.expectedText)
-					}
-				}
-			} else {
-				// Check context for errors (PostgreSQL-style error collection)
-				require.True(t, lexer.context.HasErrors(), "Expected an error but got none")
-				errors := lexer.context.GetErrors()
-				require.NotEmpty(t, errors, "Expected errors in context")
+			// Check context for errors (PostgreSQL-style error collection)
+			require.True(t, lexer.context.HasErrors(), "Expected an error but got none")
+			errors := lexer.context.GetErrors()
+			require.NotEmpty(t, errors, "Expected errors in context")
 
-				// Check the first error
-				firstError := errors[0]
-				assert.Equal(t, tt.expectedError, firstError.Type)
-				if tt.expectedText != "" {
-					assert.Contains(t, firstError.NearText, tt.expectedText)
-				}
+			// Check the first error
+			firstError := errors[0]
+			assert.Equal(t, tt.expectedError, firstError.Type)
+			if tt.expectedText != "" {
+				assert.Contains(t, firstError.NearText, tt.expectedText)
 			}
 		})
 	}
