@@ -13,10 +13,7 @@ bin/
 
 # Code coverage profiles and other test artifacts
 *.out
-coverage.*
-*.coverprofile
-profile.cov
-coverage/
+/coverage/
 
 # Dependency directories (remove the comment below to include it)
 vendor/
