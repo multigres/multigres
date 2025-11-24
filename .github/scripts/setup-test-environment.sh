@@ -42,7 +42,7 @@ pgbackrest version
 # shellcheck disable=SC2012
 POSTGRES_BIN="/usr/lib/postgresql/$(ls /usr/lib/postgresql/ | head -1)/bin"
 export PATH="$POSTGRES_BIN:$PATH"
-echo "PATH=$POSTGRES_BIN:\$PATH" >>"$GITHUB_ENV"
+echo "$POSTGRES_BIN" >>"$GITHUB_PATH"
 
 # Verify PostgreSQL installation
 echo "Verifying PostgreSQL installation..."
