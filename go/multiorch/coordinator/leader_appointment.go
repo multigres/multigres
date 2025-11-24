@@ -22,6 +22,7 @@ import (
 	"github.com/jackc/pglogrepl"
 
 	"github.com/multigres/multigres/go/common/mterrors"
+	"github.com/multigres/multigres/go/multiorch/store"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	consensusdatapb "github.com/multigres/multigres/go/pb/consensusdata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
@@ -36,7 +37,7 @@ import (
 // 5. Validate quorum using durability policy
 //
 // Returns the candidate node, standbys, the new term, and any error.
-func (c *Coordinator) BeginTerm(ctx context.Context, shardID string, cohort []*Node, quorumRule *clustermetadatapb.QuorumRule) (*Node, []*Node, int64, error) {
+func (c *Coordinator) BeginTerm(ctx context.Context, shardID string, cohort []*store.PoolerHealth, quorumRule *clustermetadatapb.QuorumRule) (*store.PoolerHealth, []*store.PoolerHealth, int64, error) {
 	// Stage 1: Obtain Term Number - Query all nodes for max term
 	c.logger.InfoContext(ctx, "Discovering max term", "shard", shardID, "cohort_size", len(cohort))
 	maxTerm, err := c.discoverMaxTerm(ctx, cohort)
@@ -75,7 +76,7 @@ func (c *Coordinator) BeginTerm(ctx context.Context, shardID string, cohort []*N
 	}
 
 	// Separate candidate from standbys
-	var standbys []*Node
+	var standbys []*store.PoolerHealth
 	for _, node := range recruited {
 		if node.ID.Name != candidate.ID.Name {
 			standbys = append(standbys, node)
@@ -86,7 +87,7 @@ func (c *Coordinator) BeginTerm(ctx context.Context, shardID string, cohort []*N
 }
 
 // discoverMaxTerm queries all nodes in parallel to find the maximum consensus term.
-func (c *Coordinator) discoverMaxTerm(ctx context.Context, cohort []*Node) (int64, error) {
+func (c *Coordinator) discoverMaxTerm(ctx context.Context, cohort []*store.PoolerHealth) (int64, error) {
 	type result struct {
 		term int64
 		err  error
@@ -97,10 +98,10 @@ func (c *Coordinator) discoverMaxTerm(ctx context.Context, cohort []*Node) (int6
 
 	for _, node := range cohort {
 		wg.Add(1)
-		go func(n *Node) {
+		go func(n *store.PoolerHealth) {
 			defer wg.Done()
 			req := &consensusdatapb.StatusRequest{}
-			resp, err := n.RpcClient.ConsensusStatus(ctx, n.Pooler, req)
+			resp, err := c.rpcClient.ConsensusStatus(ctx, n.ToMultiPooler(), req)
 			if err != nil {
 				results <- result{err: err}
 				return
@@ -143,9 +144,9 @@ func (c *Coordinator) discoverMaxTerm(ctx context.Context, cohort []*Node) (int6
 }
 
 // selectCandidate chooses the best candidate based on WAL position and health.
-func (c *Coordinator) selectCandidate(ctx context.Context, cohort []*Node) (*Node, error) {
+func (c *Coordinator) selectCandidate(ctx context.Context, cohort []*store.PoolerHealth) (*store.PoolerHealth, error) {
 	type nodeStatus struct {
-		node        *Node
+		node        *store.PoolerHealth
 		walPosition string
 		healthy     bool
 	}
@@ -155,7 +156,7 @@ func (c *Coordinator) selectCandidate(ctx context.Context, cohort []*Node) (*Nod
 	// Query status from all nodes
 	for _, node := range cohort {
 		req := &consensusdatapb.StatusRequest{}
-		resp, err := node.RpcClient.ConsensusStatus(ctx, node.Pooler, req)
+		resp, err := c.rpcClient.ConsensusStatus(ctx, node.ToMultiPooler(), req)
 		if err != nil {
 			c.logger.WarnContext(ctx, "Failed to get status from node",
 				"node", node.ID.Name,
@@ -187,7 +188,7 @@ func (c *Coordinator) selectCandidate(ctx context.Context, cohort []*Node) (*Nod
 	}
 
 	// Select node with most advanced WAL position
-	var bestCandidate *Node
+	var bestCandidate *store.PoolerHealth
 	var bestLSN pglogrepl.LSN
 
 	for _, status := range statuses {
@@ -221,9 +222,9 @@ func (c *Coordinator) selectCandidate(ctx context.Context, cohort []*Node) (*Nod
 }
 
 // recruitNodes sends BeginTerm RPC to all nodes in parallel and returns those that accepted.
-func (c *Coordinator) recruitNodes(ctx context.Context, cohort []*Node, term int64, candidate *Node) ([]*Node, error) {
+func (c *Coordinator) recruitNodes(ctx context.Context, cohort []*store.PoolerHealth, term int64, candidate *store.PoolerHealth) ([]*store.PoolerHealth, error) {
 	type result struct {
-		node     *Node
+		node     *store.PoolerHealth
 		accepted bool
 		err      error
 	}
@@ -233,13 +234,13 @@ func (c *Coordinator) recruitNodes(ctx context.Context, cohort []*Node, term int
 
 	for _, node := range cohort {
 		wg.Add(1)
-		go func(n *Node) {
+		go func(n *store.PoolerHealth) {
 			defer wg.Done()
 			req := &consensusdatapb.BeginTermRequest{
 				Term:        term,
 				CandidateId: c.coordinatorID,
 			}
-			resp, err := n.RpcClient.BeginTerm(ctx, n.Pooler, req)
+			resp, err := c.rpcClient.BeginTerm(ctx, n.ToMultiPooler(), req)
 			if err != nil {
 				results <- result{node: n, err: err}
 				return
@@ -255,7 +256,7 @@ func (c *Coordinator) recruitNodes(ctx context.Context, cohort []*Node, term int
 	}()
 
 	// Collect accepted nodes
-	var recruited []*Node
+	var recruited []*store.PoolerHealth
 	for r := range results {
 		if r.err != nil {
 			c.logger.WarnContext(ctx, "BeginTerm failed for node",
@@ -281,7 +282,7 @@ func (c *Coordinator) recruitNodes(ctx context.Context, cohort []*Node, term int
 // buildSyncReplicationConfig creates synchronous replication configuration based on the quorum policy.
 // Returns nil if synchronous replication should not be configured (required_count=1 or no standbys).
 // For MULTI_CELL_ANY_N policies, excludes standbys in the same cell as the candidate (primary).
-func (c *Coordinator) buildSyncReplicationConfig(quorumRule *clustermetadatapb.QuorumRule, standbys []*Node, candidate *Node) (*multipoolermanagerdatapb.ConfigureSynchronousReplicationRequest, error) {
+func (c *Coordinator) buildSyncReplicationConfig(quorumRule *clustermetadatapb.QuorumRule, standbys []*store.PoolerHealth, candidate *store.PoolerHealth) (*multipoolermanagerdatapb.ConfigureSynchronousReplicationRequest, error) {
 	requiredCount := int(quorumRule.RequiredCount)
 
 	// Determine async fallback mode (default to REJECT if unset)
@@ -385,9 +386,9 @@ func (c *Coordinator) buildSyncReplicationConfig(quorumRule *clustermetadatapb.Q
 
 // filterStandbysByCell returns standbys that are NOT in the same cell as the candidate.
 // Used for MULTI_CELL_ANY_N to ensure synchronous replication spans multiple cells.
-func (c *Coordinator) filterStandbysByCell(candidate *Node, standbys []*Node) []*Node {
+func (c *Coordinator) filterStandbysByCell(candidate *store.PoolerHealth, standbys []*store.PoolerHealth) []*store.PoolerHealth {
 	candidateCell := candidate.ID.Cell
-	filtered := make([]*Node, 0, len(standbys))
+	filtered := make([]*store.PoolerHealth, 0, len(standbys))
 
 	for _, standby := range standbys {
 		if standby.ID.Cell != candidateCell {
@@ -402,7 +403,7 @@ func (c *Coordinator) filterStandbysByCell(candidate *Node, standbys []*Node) []
 // - Promote the candidate to primary
 // - Configure standbys to replicate from the new primary
 // - Configure synchronous replication based on quorum policy
-func (c *Coordinator) Propagate(ctx context.Context, candidate *Node, standbys []*Node, term int64, quorumRule *clustermetadatapb.QuorumRule) error {
+func (c *Coordinator) Propagate(ctx context.Context, candidate *store.PoolerHealth, standbys []*store.PoolerHealth, term int64, quorumRule *clustermetadatapb.QuorumRule) error {
 	// Build synchronous replication configuration based on quorum policy
 	syncConfig, err := c.buildSyncReplicationConfig(quorumRule, standbys, candidate)
 	if err != nil {
@@ -416,7 +417,7 @@ func (c *Coordinator) Propagate(ctx context.Context, candidate *Node, standbys [
 
 	// Get current WAL position before promotion (for validation)
 	statusReq := &consensusdatapb.StatusRequest{}
-	status, err := candidate.RpcClient.ConsensusStatus(ctx, candidate.Pooler, statusReq)
+	status, err := c.rpcClient.ConsensusStatus(ctx, candidate.ToMultiPooler(), statusReq)
 	if err != nil {
 		return mterrors.Wrap(err, "failed to get candidate status before promotion")
 	}
@@ -439,7 +440,7 @@ func (c *Coordinator) Propagate(ctx context.Context, candidate *Node, standbys [
 				waitReq := &multipoolermanagerdatapb.WaitForLSNRequest{
 					TargetLsn: expectedLSN,
 				}
-				if _, err := candidate.RpcClient.WaitForLSN(ctx, candidate.Pooler, waitReq); err != nil {
+				if _, err := c.rpcClient.WaitForLSN(ctx, candidate.ToMultiPooler(), waitReq); err != nil {
 					return mterrors.Wrapf(err, "candidate failed to replay WAL to %s", expectedLSN)
 				}
 			}
@@ -452,7 +453,7 @@ func (c *Coordinator) Propagate(ctx context.Context, candidate *Node, standbys [
 		SyncReplicationConfig: syncConfig,
 		Force:                 false,
 	}
-	_, err = candidate.RpcClient.Promote(ctx, candidate.Pooler, promoteReq)
+	_, err = c.rpcClient.Promote(ctx, candidate.ToMultiPooler(), promoteReq)
 	if err != nil {
 		return mterrors.Wrap(err, "failed to promote candidate")
 	}
@@ -465,7 +466,7 @@ func (c *Coordinator) Propagate(ctx context.Context, candidate *Node, standbys [
 
 	for _, standby := range standbys {
 		wg.Add(1)
-		go func(s *Node) {
+		go func(s *store.PoolerHealth) {
 			defer wg.Done()
 			c.logger.InfoContext(ctx, "Configuring standby replication",
 				"standby", s.ID.Name,
@@ -473,13 +474,13 @@ func (c *Coordinator) Propagate(ctx context.Context, candidate *Node, standbys [
 
 			setPrimaryReq := &multipoolermanagerdatapb.SetPrimaryConnInfoRequest{
 				Host:                  candidate.Hostname,
-				Port:                  candidate.Port,
+				Port:                  candidate.PortMap["grpc"],
 				CurrentTerm:           term,
 				StopReplicationBefore: false,
 				StartReplicationAfter: false,
 				Force:                 false,
 			}
-			if _, err := s.RpcClient.SetPrimaryConnInfo(ctx, s.Pooler, setPrimaryReq); err != nil {
+			if _, err := c.rpcClient.SetPrimaryConnInfo(ctx, s.ToMultiPooler(), setPrimaryReq); err != nil {
 				errChan <- mterrors.Wrapf(err, "failed to configure standby %s", s.ID.Name)
 				return
 			}
@@ -512,7 +513,7 @@ func (c *Coordinator) Propagate(ctx context.Context, candidate *Node, standbys [
 // EstablishLeader implements stage 6 of the consensus protocol:
 // - Start heartbeat writer on the primary
 // - Enable serving (if needed)
-func (c *Coordinator) EstablishLeader(ctx context.Context, candidate *Node, term int64) error {
+func (c *Coordinator) EstablishLeader(ctx context.Context, candidate *store.PoolerHealth, term int64) error {
 	// The Promote RPC already handles:
 	// 1. Starting the heartbeat writer
 	// 2. Enabling serving
@@ -527,7 +528,7 @@ func (c *Coordinator) EstablishLeader(ctx context.Context, candidate *Node, term
 
 	// Verify the leader is actually serving
 	stateReq := &multipoolermanagerdatapb.StateRequest{}
-	state, err := candidate.RpcClient.State(ctx, candidate.Pooler, stateReq)
+	state, err := c.rpcClient.State(ctx, candidate.ToMultiPooler(), stateReq)
 	if err != nil {
 		return mterrors.Wrap(err, "failed to verify leader status")
 	}
