@@ -1350,18 +1350,18 @@ func (n *AlterOwnerStmt) SqlString() string {
 						methodStr = nodeList.Items[0].SqlString()
 					}
 
-					var nameStr string
+					var nameStr strings.Builder
 					for i := 1; i < nodeList.Len(); i++ {
 						if i > 1 {
-							nameStr += "."
+							nameStr.WriteString(".")
 						}
 						if str, ok := nodeList.Items[i].(*String); ok {
-							nameStr += QuoteIdentifier(str.SVal)
+							nameStr.WriteString(QuoteIdentifier(str.SVal))
 						} else {
-							nameStr += nodeList.Items[i].SqlString()
+							nameStr.WriteString(nodeList.Items[i].SqlString())
 						}
 					}
-					parts = append(parts, nameStr, "USING", methodStr)
+					parts = append(parts, nameStr.String(), "USING", methodStr)
 				} else {
 					parts = append(parts, n.Object.SqlString())
 				}

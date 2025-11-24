@@ -860,7 +860,7 @@ timeout: 30
 	require.NoError(t, err)
 
 	// Test multiple start/stop cycles
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		t.Run(fmt.Sprintf("cycle_%d", i+1), func(t *testing.T) {
 			// Start PostgreSQL
 			startCmd := exec.Command("pgctld", "start", "--pooler-dir", dataDir, "--config-file", pgctldConfigFile)

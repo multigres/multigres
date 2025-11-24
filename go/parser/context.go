@@ -478,10 +478,7 @@ func (ctx *ParseContext) NextByte() (byte, bool) {
 
 // PeekBytes returns n bytes starting at the current position without advancing
 func (ctx *ParseContext) PeekBytes(n int) []byte {
-	end := ctx.scanPos + n
-	if end > ctx.scanBufLen {
-		end = ctx.scanBufLen
-	}
+	end := min(ctx.scanPos+n, ctx.scanBufLen)
 
 	result := make([]byte, end-ctx.scanPos)
 	copy(result, ctx.scanBuf[ctx.scanPos:end])
@@ -529,7 +526,7 @@ func (ctx *ParseContext) AdvanceRune() rune {
 	r, size := utf8.DecodeRune(ctx.scanBuf[ctx.scanPos:])
 
 	// Update position tracking for each byte of the rune
-	for i := 0; i < size; i++ {
+	for range size {
 		ctx.advancePosition(ctx.scanBuf[ctx.scanPos])
 	}
 
@@ -737,10 +734,7 @@ func (ctx *ParseContext) extractNearText(location int) string {
 		return ""
 	}
 
-	end := start + maxNearTextLen
-	if end > len(ctx.sourceText) {
-		end = len(ctx.sourceText)
-	}
+	end := min(start+maxNearTextLen, len(ctx.sourceText))
 
 	nearText := ctx.sourceText[start:end]
 	return SanitizeNearText(nearText, maxNearTextLen)

@@ -107,9 +107,7 @@ func BenchmarkMultiPoolerClientSteadyState(b *testing.B) {
 
 	ctx := context.Background()
 
-	b.ResetTimer()
-
-	for n := 0; n < b.N; n++ {
+	for n := 0; b.Loop(); n++ {
 		addr := addrs[n%len(addrs)]
 		pooler := makePooler(addr)
 
@@ -148,9 +146,7 @@ func BenchmarkMultiPoolerClientSteadyStateRedials(b *testing.B) {
 		}
 	}
 
-	b.ResetTimer()
-
-	for n := 0; n < b.N; n++ {
+	for n := 0; b.Loop(); n++ {
 		addr := addrs[n%len(addrs)]
 		pooler := makePooler(addr)
 
@@ -183,9 +179,7 @@ func BenchmarkMultiPoolerClientSteadyStateEvictions(b *testing.B) {
 
 	ctx := context.Background()
 
-	b.ResetTimer()
-
-	for n := 0; n < b.N; n++ {
+	for n := 0; b.Loop(); n++ {
 		addr := addrs[n%len(addrs)]
 		pooler := makePooler(addr)
 
@@ -225,7 +219,7 @@ func TestMultiPoolerClient(t *testing.T) {
 	defer cancel()
 
 	var wg sync.WaitGroup
-	for i := 0; i < concurrency; i++ {
+	for i := range concurrency {
 		wg.Add(1)
 		go func(workerID int) {
 			defer wg.Done()

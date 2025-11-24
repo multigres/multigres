@@ -309,7 +309,7 @@ func (re *Engine) runMaintenanceLoop() {
 // Each worker runs in its own goroutine and processes health checks concurrently.
 func (re *Engine) startHealthCheckWorkers() {
 	numWorkers := re.config.GetHealthCheckWorkers()
-	for i := 0; i < numWorkers; i++ {
+	for range numWorkers {
 		go re.handlePoolerHealthChecks()
 	}
 	re.logger.Info("health check worker pool started", "workers", numWorkers)

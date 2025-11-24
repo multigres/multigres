@@ -82,7 +82,7 @@ type DB struct {
 // ExpectedResult holds the data for a matched query.
 type ExpectedResult struct {
 	Columns []string
-	Rows    [][]interface{}
+	Rows    [][]any
 	// BeforeFunc() is synchronously called before the server returns the result.
 	BeforeFunc func()
 }

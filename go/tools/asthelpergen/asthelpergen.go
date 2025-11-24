@@ -65,8 +65,8 @@ limitations under the License.`
 
 // addLicenseHeader adds the license header as single-line // comments before the package declaration
 func addLicenseHeader(file *jen.File) {
-	lines := strings.Split(licenseFileHeader, "\n")
-	for _, line := range lines {
+	lines := strings.SplitSeq(licenseFileHeader, "\n")
+	for line := range lines {
 		if line == "" {
 			file.PackageComment("")
 		} else {

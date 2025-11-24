@@ -454,8 +454,8 @@ func safeCombinedOutput(cmd *exec.Cmd) (string, error) {
 // TODO: find a way of of doing this that does that does not rely on text matching
 func extractBackupID(output string) (string, error) {
 	// First, try to find "new backup label" in the output (most reliable)
-	lines := strings.Split(output, "\n")
-	for _, line := range lines {
+	lines := strings.SplitSeq(output, "\n")
+	for line := range lines {
 		if strings.Contains(line, "new backup label") {
 			// Extract the label after the "=" sign
 			parts := strings.Split(line, "=")

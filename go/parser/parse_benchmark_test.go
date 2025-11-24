@@ -43,10 +43,9 @@ func BenchmarkMultigresParser(b *testing.B) {
 	var totalStatements int
 	var parseErrors int
 
-	b.ResetTimer()
 	b.ReportAllocs()
 
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		for _, query := range queries {
 			// Parse using our parser
 			asts, err := ParseSQL(query)
@@ -74,10 +73,9 @@ func BenchmarkPgQueryGo(b *testing.B) {
 	var totalStatements int
 	var parseErrors int
 
-	b.ResetTimer()
 	b.ReportAllocs()
 
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		for _, query := range queries {
 			// Parse using pg-query-go
 			result, err := pg_query.Parse(query)
@@ -148,10 +146,9 @@ func BenchmarkMultigresParserSimpleSelect(b *testing.B) {
 
 	var astCount int
 
-	b.ResetTimer()
 	b.ReportAllocs()
 
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		asts, err := ParseSQL(query)
 		if err != nil {
 			b.Fatal(err)
@@ -171,10 +168,9 @@ func BenchmarkPgQueryGoSimpleSelect(b *testing.B) {
 
 	var stmtCount int
 
-	b.ResetTimer()
 	b.ReportAllocs()
 
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		result, err := pg_query.Parse(query)
 		if err != nil {
 			b.Fatal(err)
@@ -204,10 +200,9 @@ func BenchmarkMultigresParserComplexJoin(b *testing.B) {
 
 	var astCount int
 
-	b.ResetTimer()
 	b.ReportAllocs()
 
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		asts, err := ParseSQL(query)
 		if err != nil {
 			b.Fatal(err)
@@ -237,10 +232,9 @@ func BenchmarkPgQueryGoComplexJoin(b *testing.B) {
 
 	var stmtCount int
 
-	b.ResetTimer()
 	b.ReportAllocs()
 
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		result, err := pg_query.Parse(query)
 		if err != nil {
 			b.Fatal(err)
@@ -271,10 +265,9 @@ func BenchmarkMultigresParserDDL(b *testing.B) {
 
 	var astCount int
 
-	b.ResetTimer()
 	b.ReportAllocs()
 
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		asts, err := ParseSQL(query)
 		if err != nil {
 			b.Fatal(err)
@@ -305,10 +298,9 @@ func BenchmarkPgQueryGoDDL(b *testing.B) {
 
 	var stmtCount int
 
-	b.ResetTimer()
 	b.ReportAllocs()
 
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		result, err := pg_query.Parse(query)
 		if err != nil {
 			b.Fatal(err)

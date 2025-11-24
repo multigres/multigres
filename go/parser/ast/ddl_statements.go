@@ -1207,14 +1207,15 @@ func (c *Constraint) SqlString() string {
 		}
 		return "DEFAULT"
 	case CONSTR_IDENTITY:
-		result := "GENERATED "
+		var result strings.Builder
+		result.WriteString("GENERATED ")
 		switch c.GeneratedWhen {
 		case ATTRIBUTE_IDENTITY_ALWAYS:
-			result += "ALWAYS"
+			result.WriteString("ALWAYS")
 		case ATTRIBUTE_IDENTITY_BY_DEFAULT:
-			result += "BY DEFAULT"
+			result.WriteString("BY DEFAULT")
 		}
-		result += " AS IDENTITY"
+		result.WriteString(" AS IDENTITY")
 
 		// Add sequence options if present
 		if c.Options != nil && len(c.Options.Items) > 0 {
@@ -1223,38 +1224,38 @@ func (c *Constraint) SqlString() string {
 					switch defElem.Defname {
 					case "increment":
 						if defElem.Arg != nil {
-							result += " SET INCREMENT BY " + defElem.Arg.SqlString()
+							result.WriteString(" SET INCREMENT BY " + defElem.Arg.SqlString())
 						}
 					case "start":
 						if defElem.Arg != nil {
-							result += " SET START WITH " + defElem.Arg.SqlString()
+							result.WriteString(" SET START WITH " + defElem.Arg.SqlString())
 						}
 					case "restart":
 						if defElem.Arg != nil {
-							result += " SET RESTART WITH " + defElem.Arg.SqlString()
+							result.WriteString(" SET RESTART WITH " + defElem.Arg.SqlString())
 						} else {
-							result += " RESTART"
+							result.WriteString(" RESTART")
 						}
 					case "maxvalue":
 						if defElem.Arg != nil {
-							result += " SET MAXVALUE " + defElem.Arg.SqlString()
+							result.WriteString(" SET MAXVALUE " + defElem.Arg.SqlString())
 						}
 					case "minvalue":
 						if defElem.Arg != nil {
-							result += " SET MINVALUE " + defElem.Arg.SqlString()
+							result.WriteString(" SET MINVALUE " + defElem.Arg.SqlString())
 						}
 					case "cache":
 						if defElem.Arg != nil {
-							result += " SET CACHE " + defElem.Arg.SqlString()
+							result.WriteString(" SET CACHE " + defElem.Arg.SqlString())
 						}
 					case "cycle":
 						if defElem.Arg != nil {
 							// Check if it's a boolean and handle accordingly
 							if boolNode, ok := defElem.Arg.(*Boolean); ok {
 								if boolNode.BoolVal {
-									result += " SET CYCLE"
+									result.WriteString(" SET CYCLE")
 								} else {
-									result += " SET NO CYCLE"
+									result.WriteString(" SET NO CYCLE")
 								}
 							}
 						}
@@ -1262,7 +1263,7 @@ func (c *Constraint) SqlString() string {
 				}
 			}
 		}
-		return result
+		return result.String()
 	case CONSTR_GENERATED:
 		result := "GENERATED ALWAYS AS"
 		if c.RawExpr != nil {
@@ -3119,14 +3120,14 @@ func (a *AlterExtensionContentsStmt) SqlString() string {
 		if nodeList, ok := a.Object.(*NodeList); ok && nodeList.Len() >= 2 {
 			// First item is method name, rest are class name parts
 			methodStr := nodeList.Items[0].SqlString()
-			var nameStr string
+			var nameStr strings.Builder
 			for i := 1; i < nodeList.Len(); i++ {
 				if i > 1 {
-					nameStr += "."
+					nameStr.WriteString(".")
 				}
-				nameStr += nodeList.Items[i].SqlString()
+				nameStr.WriteString(nodeList.Items[i].SqlString())
 			}
-			parts = append(parts, nameStr, "USING", methodStr)
+			parts = append(parts, nameStr.String(), "USING", methodStr)
 			return strings.Join(parts, " ")
 		}
 	case int(OBJECT_OPFAMILY):
@@ -3135,14 +3136,14 @@ func (a *AlterExtensionContentsStmt) SqlString() string {
 		if nodeList, ok := a.Object.(*NodeList); ok && nodeList.Len() >= 2 {
 			// First item is method name, rest are family name parts
 			methodStr := nodeList.Items[0].SqlString()
-			var nameStr string
+			var nameStr strings.Builder
 			for i := 1; i < nodeList.Len(); i++ {
 				if i > 1 {
-					nameStr += "."
+					nameStr.WriteString(".")
 				}
-				nameStr += nodeList.Items[i].SqlString()
+				nameStr.WriteString(nodeList.Items[i].SqlString())
 			}
-			parts = append(parts, nameStr, "USING", methodStr)
+			parts = append(parts, nameStr.String(), "USING", methodStr)
 			return strings.Join(parts, " ")
 		}
 	case int(OBJECT_PROCEDURE):

@@ -360,7 +360,7 @@ func Example_withTimeout() {
 }
 
 // Mock function for examples
-func makeAPICall() (interface{}, error) {
+func makeAPICall() (any, error) {
 	return nil, nil
 }
 

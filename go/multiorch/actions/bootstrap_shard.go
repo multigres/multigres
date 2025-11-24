@@ -242,7 +242,7 @@ func (a *BootstrapShardAction) initializeStandbys(ctx context.Context, shardID s
 
 	// Collect results
 	var failedNodes []string
-	for i := 0; i < len(standbys); i++ {
+	for range standbys {
 		res := <-results
 		if res.err != nil {
 			a.logger.WarnContext(ctx, "Failed to initialize standby",

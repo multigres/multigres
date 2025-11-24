@@ -38,6 +38,7 @@ package parser
 import (
 	"fmt"
 	"strconv"
+	"strings"
 	"unicode"
 	"unicode/utf8"
 )
@@ -261,7 +262,8 @@ func (l *Lexer) parseDollarDelimiter() (string, error) {
 		return "", fmt.Errorf("expected '$' at start of dollar delimiter")
 	}
 
-	delimiter := "$"
+	var delimiter strings.Builder
+	delimiter.WriteString("$")
 	ctx.AdvanceBy(1) // Skip initial $
 
 	// Parse optional tag - postgres/src/backend/parser/scan.l:290-303
@@ -269,12 +271,12 @@ func (l *Lexer) parseDollarDelimiter() (string, error) {
 	// dolq_cont: [A-Za-z\200-\377_0-9]
 	if !ctx.AtEOF() && l.isDollarQuoteStartChar(ctx.CurrentChar()) {
 		// Tag starts with valid character
-		delimiter += string(ctx.CurrentChar())
+		delimiter.WriteString(string(ctx.CurrentChar()))
 		ctx.AdvanceBy(1)
 
 		// Continue with valid tag characters
 		for !ctx.AtEOF() && l.isDollarQuoteCont(ctx.CurrentChar()) {
-			delimiter += string(ctx.CurrentChar())
+			delimiter.WriteString(string(ctx.CurrentChar()))
 			ctx.AdvanceBy(1)
 		}
 	}
@@ -284,10 +286,10 @@ func (l *Lexer) parseDollarDelimiter() (string, error) {
 		return "", fmt.Errorf("unterminated dollar-quote delimiter")
 	}
 
-	delimiter += "$"
+	delimiter.WriteString("$")
 	ctx.AdvanceBy(1) // Skip closing $
 
-	return delimiter, nil
+	return delimiter.String(), nil
 }
 
 // isDollarQuoteStartChar checks if character can start a dollar-quote tag
