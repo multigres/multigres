@@ -128,7 +128,7 @@ func (m *mockRecoveryAction) Priority() analysis.Priority {
 	return m.priority
 }
 
-func TestGroupProblemsByTableGroup(t *testing.T) {
+func TestGroupProblemsByShard(t *testing.T) {
 	ctx := context.Background()
 	ts, _ := memorytopo.NewServerAndFactory(ctx, "cell1")
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
@@ -620,9 +620,9 @@ func (m *mockReplicaNotReplicatingAnalyzer) Analyze(a *store.ReplicationAnalysis
 	return nil
 }
 
-// TestProcessTableGroupProblems_DependencyEnforcement tests the full flow of
+// TestProcessShardProblems_DependencyEnforcement tests the full flow of
 // dependency enforcement from state → analysis → problem detection → recovery.
-func TestProcessTableGroupProblems_DependencyEnforcement(t *testing.T) {
+func TestProcessShardProblems_DependencyEnforcement(t *testing.T) {
 	// Setup
 	ctx := context.Background()
 	ts, _ := memorytopo.NewServerAndFactory(ctx, "cell1")

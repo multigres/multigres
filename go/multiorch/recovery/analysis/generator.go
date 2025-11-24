@@ -105,7 +105,7 @@ func (g *AnalysisGenerator) buildPoolersByShard() PoolersByShard {
 
 // GetPoolersInShard returns all pooler IDs in the same shard as the given pooler.
 func (g *AnalysisGenerator) GetPoolersInShard(poolerIDStr string) ([]string, error) {
-	// Get pooler from store to determine its tablegroup
+	// Get pooler from store to determine its shard
 	pooler, ok := g.poolerStore.Get(poolerIDStr)
 	if !ok {
 		return nil, fmt.Errorf("pooler not found in store: %s", poolerIDStr)
@@ -121,8 +121,8 @@ func (g *AnalysisGenerator) GetPoolersInShard(poolerIDStr string) ([]string, err
 
 	var poolerIDs []string
 
-	// Iterate the store to find all poolers in the same tablegroup
-	// Note: We can't use the cached poolersByTG here because the store may have been updated
+	// Iterate the store to find all poolers in the same shard
+	// Note: We can't use the cached poolersByShard here because the store may have been updated
 	g.poolerStore.Range(func(id string, p *store.PoolerHealth) bool {
 		if p == nil || p.ID == nil {
 			return true
@@ -238,7 +238,7 @@ func (g *AnalysisGenerator) aggregateReplicaStats(
 
 	primaryIDStr := topo.MultiPoolerIDString(primary.ID)
 
-	// Iterate only over poolers in the same tablegroup (efficient lookup)
+	// Iterate only over poolers in the same shard (efficient lookup)
 	if poolers, ok := poolersByTG[database][tableGroup][shard]; ok {
 		for poolerID, pooler := range poolers {
 			if pooler == nil || pooler.ID == nil {
