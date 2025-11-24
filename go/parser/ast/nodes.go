@@ -1288,7 +1288,7 @@ func (n *Null) IsValue() bool       { return true }
 
 // NewValue creates a properly typed value node based on the Go type.
 // This is a convenience function that delegates to the specific typed constructors.
-func NewValue(val interface{}) Node {
+func NewValue(val any) Node {
 	switch v := val.(type) {
 	case string:
 		return NewString(v)
@@ -1315,13 +1315,13 @@ func NewValue(val interface{}) Node {
 // Helper functions for node creation and manipulation
 
 // IsNode checks if a value implements the Node interface.
-func IsNode(v interface{}) bool {
+func IsNode(v any) bool {
 	_, ok := v.(Node)
 	return ok
 }
 
 // NodeTagOf returns the NodeTag of a node, or T_Invalid if not a node.
-func NodeTagOf(v interface{}) NodeTag {
+func NodeTagOf(v any) NodeTag {
 	if node, ok := v.(Node); ok {
 		return node.NodeTag()
 	}
@@ -1329,7 +1329,7 @@ func NodeTagOf(v interface{}) NodeTag {
 }
 
 // LocationOf returns the location of a node, or -1 if not a node or no location.
-func LocationOf(v interface{}) int {
+func LocationOf(v any) int {
 	if node, ok := v.(Node); ok {
 		return node.Location()
 	}
@@ -1337,7 +1337,7 @@ func LocationOf(v interface{}) int {
 }
 
 // CastNode safely casts a value to a Node, returning nil if not a node.
-func CastNode(v interface{}) Node {
+func CastNode(v any) Node {
 	if node, ok := v.(Node); ok {
 		return node
 	}
@@ -1401,12 +1401,12 @@ func PrintAST(node Node, indent int) {
 		return
 	}
 
-	prefix := ""
-	for i := 0; i < indent; i++ {
-		prefix += "  "
+	var prefix strings.Builder
+	for range indent {
+		prefix.WriteString("  ")
 	}
 
-	fmt.Printf("%s%s\n", prefix, node.String())
+	fmt.Printf("%s%s\n", prefix.String(), node.String())
 
 	// Print children for specific node types
 	switch n := node.(type) {

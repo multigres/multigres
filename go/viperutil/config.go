@@ -24,7 +24,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
-	"sort"
+	"slices"
 	"strings"
 	"time"
 
@@ -274,12 +274,12 @@ func getHandlingValue(v *viper.Viper) func(key string) ConfigFileNotFoundHandlin
 
 func decodeHandlingValue(from, to reflect.Type, data any) (any, error) {
 	var h ConfigFileNotFoundHandling
-	if to != reflect.TypeOf(h) {
+	if to != reflect.TypeFor[ConfigFileNotFoundHandling]() {
 		return data, nil
 	}
 
 	switch {
-	case from == reflect.TypeOf(h):
+	case from == reflect.TypeFor[ConfigFileNotFoundHandling]():
 		return data.(ConfigFileNotFoundHandling), nil
 	case from.Kind() == reflect.Int:
 		return ConfigFileNotFoundHandling(data.(int)), nil
@@ -303,9 +303,7 @@ func init() {
 		handlingNames = append(handlingNames, name)
 	}
 
-	sort.Slice(handlingNames, func(i, j int) bool {
-		return handlingNames[i] < handlingNames[j]
-	})
+	slices.Sort(handlingNames)
 }
 
 func (h *ConfigFileNotFoundHandling) Set(arg string) error {

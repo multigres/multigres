@@ -268,25 +268,26 @@ func (r *ResTarget) ColumnNameWithIndirection() string {
 		return ""
 	}
 
-	result := QuoteIdentifier(r.Name)
+	var result strings.Builder
+	result.WriteString(QuoteIdentifier(r.Name))
 	if r.Indirection != nil {
 		for _, ind := range r.Indirection.Items {
 			if ind != nil {
 				switch i := ind.(type) {
 				case *String:
 					// Field selection
-					result += "." + i.SVal
+					result.WriteString("." + i.SVal)
 				case *A_Indices:
 					// Array index or slice
-					result += i.SqlString()
+					result.WriteString(i.SqlString())
 				default:
 					// Generic indirection
-					result += ind.SqlString()
+					result.WriteString(ind.SqlString())
 				}
 			}
 		}
 	}
-	return result
+	return result.String()
 }
 
 // SetClauseString returns the SQL representation for SET clauses (UPDATE, ON CONFLICT DO UPDATE)
@@ -321,7 +322,8 @@ func (r *ResTarget) SqlString() string {
 		return ""
 	}
 
-	result := r.Val.SqlString()
+	var result strings.Builder
+	result.WriteString(r.Val.SqlString())
 
 	// Add indirection if present (e.g., array subscripts, field selection)
 	if r.Indirection != nil && len(r.Indirection.Items) > 0 {
@@ -331,13 +333,13 @@ func (r *ResTarget) SqlString() string {
 				switch i := ind.(type) {
 				case *String:
 					// Field selection
-					result += "." + i.SVal
+					result.WriteString("." + i.SVal)
 				case *A_Indices:
 					// Array index or slice
-					result += i.SqlString()
+					result.WriteString(i.SqlString())
 				default:
 					// Generic indirection
-					result += ind.SqlString()
+					result.WriteString(ind.SqlString())
 				}
 			}
 		}
@@ -345,10 +347,10 @@ func (r *ResTarget) SqlString() string {
 
 	// Add alias if present
 	if r.Name != "" {
-		result += " AS " + QuoteIdentifier(r.Name)
+		result.WriteString(" AS " + QuoteIdentifier(r.Name))
 	}
 
-	return result
+	return result.String()
 }
 
 // ==============================================================================

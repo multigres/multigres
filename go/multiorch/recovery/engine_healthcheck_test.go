@@ -207,7 +207,7 @@ func TestRecoveryEngine_HealthCheckWorkerPool(t *testing.T) {
 	)
 
 	// Add multiple poolers
-	for i := 0; i < 20; i++ {
+	for i := range 20 {
 		require.NoError(t, ts.CreateMultiPooler(ctx, &clustermetadata.MultiPooler{
 			Id:       &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: fmt.Sprintf("pooler-%d", i)},
 			Database: "mydb", TableGroup: "tg1", Shard: "0",
