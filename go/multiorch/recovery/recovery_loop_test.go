@@ -334,9 +334,9 @@ func TestGroupProblemsByShard_DifferentShards(t *testing.T) {
 	assert.Len(t, grouped[key2], 1, "shard 1 should have 1 problem")
 }
 
-// TestValidateProblemStillExists_PoolerNotFound tests error handling when
+// TestRecheckProblem_PoolerNotFound tests error handling when
 // the pooler is not found in the store.
-func TestValidateProblemStillExists_PoolerNotFound(t *testing.T) {
+func TestRecheckProblem_PoolerNotFound(t *testing.T) {
 	ctx := context.Background()
 	ts, _ := memorytopo.NewServerAndFactory(ctx, "cell1")
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
@@ -360,16 +360,16 @@ func TestValidateProblemStillExists_PoolerNotFound(t *testing.T) {
 		Priority:   analysis.PriorityEmergency,
 	}
 
-	stillExists, err := engine.validateProblemStillExists(problem)
+	stillExists, err := engine.recheckProblem(problem)
 
 	require.Error(t, err, "should return error when pooler not found")
 	assert.False(t, stillExists)
 	assert.Contains(t, err.Error(), "pooler not found in store")
 }
 
-// TestSmartFilterProblems_ShardWideOnly tests that when shard-wide problems exist,
+// TestFilterAndPrioritize_ShardWideOnly tests that when shard-wide problems exist,
 // only the highest priority shard-wide problem is returned.
-func TestSmartFilterProblems_ShardWideOnly(t *testing.T) {
+func TestFilterAndPrioritize_ShardWideOnly(t *testing.T) {
 	ctx := context.Background()
 	ts, _ := memorytopo.NewServerAndFactory(ctx, "cell1")
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
@@ -425,8 +425,7 @@ func TestSmartFilterProblems_ShardWideOnly(t *testing.T) {
 		},
 	}
 
-	// Problems are already sorted by priority (Emergency > High > Normal)
-	filtered := engine.smartFilterProblems(problems)
+	filtered := engine.filterAndPrioritize(problems)
 
 	// Should return only the shard-wide problem (PrimaryDead)
 	require.Len(t, filtered, 1)
@@ -434,9 +433,9 @@ func TestSmartFilterProblems_ShardWideOnly(t *testing.T) {
 	assert.Equal(t, analysis.PriorityEmergency, filtered[0].Priority)
 }
 
-// TestSmartFilterProblems_NoShardWide tests deduplication by pooler ID
+// TestFilterAndPrioritize_NoShardWide tests deduplication by pooler ID
 // when there are no shard-wide problems.
-func TestSmartFilterProblems_NoShardWide(t *testing.T) {
+func TestFilterAndPrioritize_NoShardWide(t *testing.T) {
 	ctx := context.Background()
 	ts, _ := memorytopo.NewServerAndFactory(ctx, "cell1")
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
@@ -493,7 +492,7 @@ func TestSmartFilterProblems_NoShardWide(t *testing.T) {
 	}
 
 	// Problems are already sorted by priority
-	filtered := engine.smartFilterProblems(problems)
+	filtered := engine.filterAndPrioritize(problems)
 
 	// Should keep only highest priority problem per pooler
 	require.Len(t, filtered, 3)
@@ -502,9 +501,9 @@ func TestSmartFilterProblems_NoShardWide(t *testing.T) {
 	assert.Equal(t, analysis.ProblemReplicaLagging, filtered[2].Code)
 }
 
-// TestSmartFilterProblems_MultipleShardWide tests that when multiple shard-wide
+// TestFilterAndPrioritize_MultipleShardWide tests that when multiple shard-wide
 // problems exist, only the highest priority one is returned.
-func TestSmartFilterProblems_MultipleShardWide(t *testing.T) {
+func TestFilterAndPrioritize_MultipleShardWide(t *testing.T) {
 	ctx := context.Background()
 	ts, _ := memorytopo.NewServerAndFactory(ctx, "cell1")
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
@@ -549,8 +548,7 @@ func TestSmartFilterProblems_MultipleShardWide(t *testing.T) {
 		},
 	}
 
-	// Problems are already sorted by priority
-	filtered := engine.smartFilterProblems(problems)
+	filtered := engine.filterAndPrioritize(problems)
 
 	// Should return only the highest priority shard-wide problem
 	require.Len(t, filtered, 1)

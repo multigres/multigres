@@ -111,13 +111,8 @@ func (re *Engine) processShardProblems(shardKey analysis.ShardKey, problems []an
 		"problem_count", len(problems),
 	)
 
-	// Sort by priority (highest priority first)
-	sort.SliceStable(problems, func(i, j int) bool {
-		return problems[i].Priority > problems[j].Priority
-	})
-
-	// Apply smart deduplication logic
-	filteredProblems := re.smartFilterProblems(problems)
+	// Sort by priority and apply filtering logic
+	filteredProblems := re.filterAndPrioritize(problems)
 
 	// Check if there's a primary problem in this shard
 	hasPrimaryProblem := re.hasPrimaryProblem(filteredProblems)
@@ -148,15 +143,19 @@ func (re *Engine) hasPrimaryProblem(problems []analysis.Problem) bool {
 	return false
 }
 
-// smartFilterProblems applies intelligent filtering to the problem list:
+// filterAndPrioritize sorts problems by priority and applies filtering:
+// - Sorts by priority (highest first)
 // - If there's a shard-wide problem, return only the highest priority shard-wide problem
-// - Otherwise, deduplicate by pooler ID, keeping only the highest priority problem per pooler
-//
-// IMPORTANT: Input must already be sorted by priority (highest first).
-func (re *Engine) smartFilterProblems(problems []analysis.Problem) []analysis.Problem {
+// - Otherwise, return all problems sorted by priority
+func (re *Engine) filterAndPrioritize(problems []analysis.Problem) []analysis.Problem {
 	if len(problems) == 0 {
 		return problems
 	}
+
+	// Sort by priority (highest priority first)
+	sort.SliceStable(problems, func(i, j int) bool {
+		return problems[i].Priority > problems[j].Priority
+	})
 
 	// Check if there are any shard-wide problems
 	var shardWideProblems []analysis.Problem
@@ -167,7 +166,7 @@ func (re *Engine) smartFilterProblems(problems []analysis.Problem) []analysis.Pr
 	}
 
 	// If we have shard-wide problems, return only the highest priority one
-	// (since input is already sorted by priority, the first one is highest)
+	// (since problems are now sorted by priority, the first one is highest)
 	if len(shardWideProblems) > 0 {
 		re.logger.DebugContext(re.ctx, "shard-wide problem detected, focusing on single recovery",
 			"problem_code", shardWideProblems[0].Code,
@@ -178,7 +177,7 @@ func (re *Engine) smartFilterProblems(problems []analysis.Problem) []analysis.Pr
 		return []analysis.Problem{shardWideProblems[0]}
 	}
 
-	// No shard-wide problems, keep them all.
+	// No shard-wide problems, return all sorted by priority.
 	return problems
 }
 
@@ -196,7 +195,7 @@ func (re *Engine) attemptRecovery(problem analysis.Problem) {
 	)
 
 	// Force re-poll to validate the problem still exists
-	stillExists, err := re.validateProblemStillExists(problem)
+	stillExists, err := re.recheckProblem(problem)
 	if err != nil {
 		re.logger.WarnContext(re.ctx, "failed to validate problem, skipping recovery",
 			"problem_code", problem.Code,
@@ -253,7 +252,7 @@ func (re *Engine) attemptRecovery(problem analysis.Problem) {
 	}
 }
 
-// validateProblemStillExists force re-polls the pooler and re-runs analysis
+// recheckProblem force re-polls the pooler and re-runs analysis
 // to check if the problem still exists.
 //
 // The validation strategy depends on the problem scope:
@@ -261,7 +260,7 @@ func (re *Engine) attemptRecovery(problem analysis.Problem) {
 // - SinglePooler: Only refresh the affected pooler + primary pooler
 //
 // Returns (stillExists bool, error).
-func (re *Engine) validateProblemStillExists(problem analysis.Problem) (bool, error) {
+func (re *Engine) recheckProblem(problem analysis.Problem) (bool, error) {
 	poolerIDStr := topo.MultiPoolerIDString(problem.PoolerID)
 	isShardWide := problem.Scope == analysis.ScopeShard
 

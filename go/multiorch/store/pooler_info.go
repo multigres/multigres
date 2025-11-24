@@ -39,14 +39,14 @@ type PoolerHealth struct {
 	TopoPoolerType clustermetadatapb.PoolerType          // Topology type (PRIMARY or REPLICA)
 	ServingStatus  clustermetadatapb.PoolerServingStatus // Current serving status
 
+	// Computed fields (cached)
+	IsUpToDate       bool
+	IsLastCheckValid bool
+
 	// Timestamps (critical for staleness detection)
 	LastCheckAttempted  time.Time
 	LastCheckSuccessful time.Time
 	LastSeen            time.Time
-
-	// Computed fields (cached)
-	IsUpToDate       bool
-	IsLastCheckValid bool
 
 	// Health status from Status RPC (populated after successful health check)
 	// This is the type the pooler reports itself as, which may differ from
