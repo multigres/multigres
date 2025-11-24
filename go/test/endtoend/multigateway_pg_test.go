@@ -41,7 +41,7 @@ func TestMultiGateway_PostgreSQLConnection(t *testing.T) {
 
 	// Connect to multigateway's PostgreSQL port using PostgreSQL driver
 	connStr := fmt.Sprintf("host=localhost port=%d user=postgres dbname=postgres sslmode=disable connect_timeout=5",
-		cluster.PortConfig.MultigatewayPGPort)
+		cluster.PortConfig.Zones[0].MultigatewayPGPort)
 	db, err := sql.Open("postgres", connStr)
 	require.NoError(t, err, "failed to open database connection")
 	defer db.Close()

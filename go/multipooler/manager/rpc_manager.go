@@ -19,8 +19,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/multigres/multigres/go/mterrors"
+	"google.golang.org/protobuf/encoding/protojson"
 
+	"github.com/multigres/multigres/go/common/mterrors"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
@@ -95,8 +96,23 @@ func (pm *MultiPoolerManager) SetPrimaryConnInfo(ctx context.Context, host strin
 		return err
 	}
 
+	// Call the locked version that assumes action lock is already held
+	return pm.setPrimaryConnInfoLocked(ctx, host, port, stopReplicationBefore, startReplicationAfter)
+}
+
+// setPrimaryConnInfoLocked sets the primary connection info for a standby server.
+// This function assumes the action lock is already held by the caller.
+func (pm *MultiPoolerManager) setPrimaryConnInfoLocked(ctx context.Context, host string, port int32, stopReplicationBefore, startReplicationAfter bool) error {
+	if err := AssertActionLockHeld(ctx); err != nil {
+		return err
+	}
+
+	if err := pm.checkReady(); err != nil {
+		return err
+	}
+
 	// Guardrail: Check pooler type - only REPLICA poolers can set primary_conninfo
-	if err = pm.checkPoolerType(clustermetadatapb.PoolerType_REPLICA, "SetPrimaryConnInfo"); err != nil {
+	if err := pm.checkPoolerType(clustermetadatapb.PoolerType_REPLICA, "SetPrimaryConnInfo"); err != nil {
 		return err
 	}
 
@@ -1026,4 +1042,67 @@ func (pm *MultiPoolerManager) SetTerm(ctx context.Context, term *multipoolermana
 
 	pm.logger.InfoContext(ctx, "SetTerm completed successfully", "current_term", term.GetTermNumber())
 	return nil
+}
+
+// CreateDurabilityPolicy creates a new durability policy in the local database
+// Used by MultiOrch to initialize policies via gRPC instead of direct database connection
+func (pm *MultiPoolerManager) CreateDurabilityPolicy(ctx context.Context, req *multipoolermanagerdatapb.CreateDurabilityPolicyRequest) (*multipoolermanagerdatapb.CreateDurabilityPolicyResponse, error) {
+	if err := pm.checkReady(); err != nil {
+		return nil, err
+	}
+
+	pm.logger.InfoContext(ctx, "CreateDurabilityPolicy called", "policy_name", req.PolicyName)
+
+	// Validate inputs
+	if req.PolicyName == "" {
+		return &multipoolermanagerdatapb.CreateDurabilityPolicyResponse{
+			Success:      false,
+			ErrorMessage: "policy_name is required",
+		}, nil
+	}
+
+	if req.QuorumRule == nil {
+		return &multipoolermanagerdatapb.CreateDurabilityPolicyResponse{
+			Success:      false,
+			ErrorMessage: "quorum_rule is required",
+		}, nil
+	}
+
+	// Check that we have a database connection
+	if pm.db == nil {
+		return &multipoolermanagerdatapb.CreateDurabilityPolicyResponse{
+			Success:      false,
+			ErrorMessage: "database connection not available",
+		}, nil
+	}
+
+	// Marshal the quorum rule to JSON using protojson
+	marshaler := protojson.MarshalOptions{
+		UseEnumNumbers: true, // Encode enums as numbers, not strings
+	}
+	quorumRuleJSON, err := marshaler.Marshal(req.QuorumRule)
+	if err != nil {
+		return &multipoolermanagerdatapb.CreateDurabilityPolicyResponse{
+			Success:      false,
+			ErrorMessage: fmt.Sprintf("failed to marshal quorum rule: %v", err),
+		}, nil
+	}
+
+	// Insert the policy into the durability_policy table using helper function
+	if err := InsertDurabilityPolicy(ctx, pm.db, req.PolicyName, quorumRuleJSON); err != nil {
+		pm.logger.ErrorContext(ctx, "Failed to insert durability policy", "error", err)
+		return &multipoolermanagerdatapb.CreateDurabilityPolicyResponse{
+			Success:      false,
+			ErrorMessage: err.Error(),
+		}, nil
+	}
+
+	pm.logger.InfoContext(ctx, "Successfully created durability policy",
+		"policy_name", req.PolicyName,
+		"quorum_type", req.QuorumRule.QuorumType,
+		"required_count", req.QuorumRule.RequiredCount)
+
+	return &multipoolermanagerdatapb.CreateDurabilityPolicyResponse{
+		Success: true,
+	}, nil
 }

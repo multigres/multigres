@@ -25,6 +25,7 @@ import (
 	"github.com/multigres/multigres/go/clustermetadata/topo"
 	"github.com/multigres/multigres/go/multiorch/config"
 	"github.com/multigres/multigres/go/multiorch/store"
+	"github.com/multigres/multigres/go/multipooler/rpcclient"
 )
 
 // runIfNotRunning executes fn in a goroutine only if inProgress flag is false.
@@ -159,9 +160,10 @@ func runIfNotRunning(logger *slog.Logger, inProgress *atomic.Bool, taskName stri
 //	)
 //	engine.Start()
 type Engine struct {
-	ts     topo.Store
-	logger *slog.Logger
-	config *config.Config
+	ts        topo.Store
+	logger    *slog.Logger
+	config    *config.Config
+	rpcClient rpcclient.MultiPoolerClient
 
 	// In-memory state store
 	poolerStore *store.Store[string, *store.PoolerHealth]
@@ -199,6 +201,7 @@ func NewEngine(
 	logger *slog.Logger,
 	config *config.Config,
 	shardWatchTargets []config.WatchTarget,
+	rpcClient rpcclient.MultiPoolerClient,
 ) *Engine {
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -208,6 +211,7 @@ func NewEngine(
 		ts:                ts,
 		logger:            logger,
 		config:            config,
+		rpcClient:         rpcClient,
 		poolerStore:       poolerStore,
 		healthCheckQueue:  NewQueue(logger, config),
 		shardWatchTargets: shardWatchTargets,

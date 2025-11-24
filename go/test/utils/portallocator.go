@@ -15,51 +15,25 @@
 package utils
 
 import (
-	"os"
-	"sync"
+	"net"
+	"testing"
 )
 
-const (
-	// BasePort is the starting port for all tests
-	BasePort    = 6700
-	portsPerPid = 500
-)
+// GetFreePort returns a port number that was verified free by the OS.
+// It binds to localhost:0, lets the OS choose a free port, then closes
+// the listener and returns the port number. There's a small race window
+// between closing and actual use, but this is much more reliable than
+// counter-based allocation, especially with parallel test processes.
+func GetFreePort(t *testing.T) int {
+	t.Helper()
 
-var (
-	// Global state for port allocation
-	portMutex      sync.Mutex
-	portCounter    int
-	basePortOffset int
-)
+	lis, err := net.Listen("tcp", "localhost:0")
+	if err != nil {
+		t.Fatalf("failed to allocate free port: %v", err)
+	}
 
-func init() {
-	// Use process ID to create unique port ranges for different test processes
-	// This prevents conflicts when running tests from different packages simultaneously
-	pid := os.Getpid()
-	// Give each test process enough ports for multiple zones. Tests assume that each
-	// zone can use up to 100 ports.
-	//
-	// This generates a max port number of 6700 + (99 * 500) + 200 = 56400 (< 65535)
-	basePortOffset = (pid % 100) * portsPerPid
-}
+	port := lis.Addr().(*net.TCPAddr).Port
+	lis.Close()
 
-// GetNextPort returns the next available port for tests
-func GetNextPort() int {
-	portMutex.Lock()
-	defer portMutex.Unlock()
-
-	// Simple deterministic approach: just increment and return the next port
-	portCounter++
-	port := BasePort + basePortOffset + portCounter
-	return port
-}
-
-// GetNextEtcd2Port returns the next available port for tests
-func GetNextEtcd2Port() int {
-	port := GetNextPort()
-	// Let's skip two ports as they will be use by etcd.
-	// This way other services will not conflict with etcd.
-	GetNextPort()
-	GetNextPort()
 	return port
 }

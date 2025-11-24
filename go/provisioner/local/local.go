@@ -150,6 +150,12 @@ func (p *localProvisioner) provisionEtcd(ctx context.Context, req *provisioner.P
 		port = p
 	}
 
+	// Get peer port from config, or default to port + 1
+	peerPort := port + 1
+	if pp, ok := etcdConfig["peer-port"].(int); ok && pp > 0 {
+		peerPort = pp
+	}
+
 	// Find etcd binary (PATH or configured path)
 	etcdBinary, err := p.findBinary("etcd", etcdConfig)
 	if err != nil {
@@ -184,8 +190,6 @@ func (p *localProvisioner) provisionEtcd(ctx context.Context, req *provisioner.P
 	if err != nil {
 		return nil, fmt.Errorf("failed to create log file: %w", err)
 	}
-
-	peerPort := port + 1
 
 	args := []string{
 		"--name", "default",
@@ -1531,7 +1535,7 @@ func (p *localProvisioner) ProvisionDatabase(ctx context.Context, databaseName s
 
 		databaseConfig := &clustermetadatapb.Database{
 			Name:             databaseName,
-			BackupLocation:   "",        // TODO: Configure backup location
+			BackupLocation:   p.config.BackupRepoPath,
 			DurabilityPolicy: "none",    // Default durability policy
 			Cells:            cellNames, // Register with all cells
 		}

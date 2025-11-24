@@ -24,10 +24,10 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 
-	"github.com/multigres/multigres/go/grpccommon"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
 	querypb "github.com/multigres/multigres/go/pb/query"
+	"github.com/multigres/multigres/go/tools/grpccommon"
 )
 
 // MultiPoolerTestClient wraps the gRPC client for testing

@@ -21,7 +21,7 @@ import (
 	"path"
 	"slices"
 
-	"github.com/multigres/multigres/go/mterrors"
+	"github.com/multigres/multigres/go/common/mterrors"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 
 	"google.golang.org/protobuf/proto"

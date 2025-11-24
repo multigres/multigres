@@ -41,7 +41,7 @@ import (
 	"github.com/multigres/multigres/go/tools/pathutil"
 	"github.com/multigres/multigres/go/tools/stringutil"
 
-	_ "github.com/multigres/multigres/go/plugins/topo"
+	_ "github.com/multigres/multigres/go/common/plugins/topo"
 )
 
 // getProjectRoot finds the project root directory by traversing up from the current file.
@@ -55,11 +55,9 @@ func getProjectRoot() (string, error) {
 	return filepath.Abs(projectRoot)
 }
 
-// testPortConfig holds test-specific port configuration to avoid conflicts
-type testPortConfig struct {
-	EtcdPort             int
-	MultiadminHTTPPort   int
-	MultiadminGRPCPort   int
+// zonePortConfig holds port configuration for per-zone services
+// TODO: In the future, may need to support multiple instances of a service within a zone
+type zonePortConfig struct {
 	MultigatewayHTTPPort int
 	MultigatewayGRPCPort int
 	MultigatewayPGPort   int
@@ -67,60 +65,47 @@ type testPortConfig struct {
 	MultipoolerGRPCPort  int
 	MultiorchHTTPPort    int
 	MultiorchGRPCPort    int
-	PgctldPGPort         int
 	PgctldGRPCPort       int
+	PgctldPGPort         int
+}
+
+// testPortConfig holds test-specific port configuration to avoid conflicts
+type testPortConfig struct {
+	// Global services (shared across zones)
+	EtcdClientPort     int
+	EtcdPeerPort       int
+	MultiadminHTTPPort int
+	MultiadminGRPCPort int
+
+	// Per-zone services (one of each per zone)
+	Zones []zonePortConfig
 }
 
 // getTestPortConfig returns a port configuration for tests that avoids conflicts
-func getTestPortConfig() *testPortConfig {
-	return &testPortConfig{
-		EtcdPort:             utils.GetNextEtcd2Port(),
-		MultiadminHTTPPort:   utils.GetNextPort(),
-		MultiadminGRPCPort:   utils.GetNextPort(),
-		MultigatewayHTTPPort: utils.GetNextPort(),
-		MultigatewayGRPCPort: utils.GetNextPort(),
-		MultigatewayPGPort:   utils.GetNextPort(),
-		MultipoolerHTTPPort:  utils.GetNextPort(),
-		MultipoolerGRPCPort:  utils.GetNextPort(),
-		MultiorchHTTPPort:    utils.GetNextPort(),
-		MultiorchGRPCPort:    utils.GetNextPort(),
-		PgctldPGPort:         utils.GetNextPort(),
-		PgctldGRPCPort:       utils.GetNextPort(),
-	}
-}
-
-// checkPortAvailable checks if a port is available for binding
-func checkPortAvailable(port int) error {
-	address := fmt.Sprintf("localhost:%d", port)
-	conn, err := net.DialTimeout("tcp", address, 1*time.Second)
-	if err != nil {
-		// Port is not in use, which is good
-		return nil
-	}
-	defer conn.Close()
-	return fmt.Errorf("port %d is already in use", port)
-}
-
-// checkAllPortsAvailable ensures all test ports are available before starting
-func checkAllPortsAvailable(config *testPortConfig) error {
-	ports := []int{
-		config.EtcdPort,
-		config.MultiadminHTTPPort,
-		config.MultiadminGRPCPort,
-		config.MultigatewayHTTPPort,
-		config.MultigatewayGRPCPort,
-		config.MultipoolerHTTPPort,
-		config.MultipoolerGRPCPort,
-		config.MultiorchHTTPPort,
-		config.MultiorchGRPCPort,
+func getTestPortConfig(t *testing.T, numZones int) *testPortConfig {
+	config := &testPortConfig{
+		EtcdClientPort:     utils.GetFreePort(t),
+		EtcdPeerPort:       utils.GetFreePort(t),
+		MultiadminHTTPPort: utils.GetFreePort(t),
+		MultiadminGRPCPort: utils.GetFreePort(t),
+		Zones:              make([]zonePortConfig, numZones),
 	}
 
-	for _, port := range ports {
-		if err := checkPortAvailable(port); err != nil {
-			return fmt.Errorf("port availability check failed: %w", err)
+	for i := 0; i < numZones; i++ {
+		config.Zones[i] = zonePortConfig{
+			MultigatewayHTTPPort: utils.GetFreePort(t),
+			MultigatewayGRPCPort: utils.GetFreePort(t),
+			MultigatewayPGPort:   utils.GetFreePort(t),
+			MultipoolerHTTPPort:  utils.GetFreePort(t),
+			MultipoolerGRPCPort:  utils.GetFreePort(t),
+			MultiorchHTTPPort:    utils.GetFreePort(t),
+			MultiorchGRPCPort:    utils.GetFreePort(t),
+			PgctldGRPCPort:       utils.GetFreePort(t),
+			PgctldPGPort:         utils.GetFreePort(t),
 		}
 	}
-	return nil
+
+	return config
 }
 
 // killProcessByPID kills a process by PID using kill -9
@@ -169,32 +154,35 @@ func cleanupTestProcesses(tempDir string) error {
 }
 
 // createTestConfigWithPorts creates a test configuration file with custom ports
+// The number of zones is determined by len(portConfig.Zones)
 func createTestConfigWithPorts(tempDir string, portConfig *testPortConfig) (string, error) {
-	// Create a typed configuration using LocalProvisionerConfig
-	serviceIDZone1 := stringutil.RandomString(8)
-	serviceIDZone2 := stringutil.RandomString(8)
+	numZones := len(portConfig.Zones)
+	if numZones == 0 {
+		return "", fmt.Errorf("portConfig must have at least one zone")
+	}
+
+	// Build cell configs dynamically
+	cellConfigs := make([]local.CellConfig, numZones)
+	for i := 0; i < numZones; i++ {
+		cellConfigs[i] = local.CellConfig{
+			Name:     fmt.Sprintf("zone%d", i+1),
+			RootPath: fmt.Sprintf("/multigres/zone%d", i+1),
+		}
+	}
 
 	localConfig := &local.LocalProvisionerConfig{
 		RootWorkingDir: tempDir,
 		DefaultDbName:  "postgres",
 		Etcd: local.EtcdConfig{
-			Version: "3.5.9",
-			DataDir: filepath.Join(tempDir, "data", "etcd-data"),
-			Port:    portConfig.EtcdPort,
+			Version:  "3.5.9",
+			DataDir:  filepath.Join(tempDir, "data", "etcd-data"),
+			Port:     portConfig.EtcdClientPort,
+			PeerPort: portConfig.EtcdPeerPort,
 		},
 		Topology: local.TopologyConfig{
 			Backend:        "etcd2",
 			GlobalRootPath: "/multigres/global",
-			Cells: []local.CellConfig{
-				{
-					Name:     "zone1",
-					RootPath: "/multigres/zone1",
-				},
-				{
-					Name:     "zone2",
-					RootPath: "/multigres/zone2",
-				},
-			},
+			Cells:          cellConfigs,
 		},
 		Multiadmin: local.MultiadminConfig{
 			Path:     "multiadmin",
@@ -202,86 +190,54 @@ func createTestConfigWithPorts(tempDir string, portConfig *testPortConfig) (stri
 			GrpcPort: portConfig.MultiadminGRPCPort,
 			LogLevel: "info",
 		},
-		Cells: map[string]local.CellServicesConfig{
-			"zone1": {
-				Multigateway: local.MultigatewayConfig{
-					Path:     "multigateway",
-					HttpPort: portConfig.MultigatewayHTTPPort,
-					GrpcPort: portConfig.MultigatewayGRPCPort,
-					PgPort:   portConfig.MultigatewayPGPort,
-					LogLevel: "info",
-				},
-				Multipooler: local.MultipoolerConfig{
-					Path:           "multipooler",
-					Database:       "postgres",
-					TableGroup:     "default",
-					ServiceID:      serviceIDZone1,
-					PoolerDir:      local.GeneratePoolerDir(tempDir, serviceIDZone1),
-					PgPort:         portConfig.PgctldPGPort, // Same as pgctld for this zone
-					HttpPort:       portConfig.MultipoolerHTTPPort,
-					GrpcPort:       portConfig.MultipoolerGRPCPort,
-					GRPCSocketFile: filepath.Join(tempDir, "sockets", "multipooler-zone1.sock"),
-					LogLevel:       "info",
-				},
-				Multiorch: local.MultiorchConfig{
-					Path:     "multiorch",
-					HttpPort: portConfig.MultiorchHTTPPort,
-					GrpcPort: portConfig.MultiorchGRPCPort,
-					LogLevel: "info",
-				},
-				Pgctld: local.PgctldConfig{
-					Path:           "pgctld",
-					GrpcPort:       portConfig.PgctldGRPCPort,
-					GRPCSocketFile: filepath.Join(tempDir, "sockets", "pgctld-zone1.sock"),
-					PgPort:         portConfig.PgctldPGPort,
-					PgDatabase:     "postgres",
-					PgUser:         "postgres",
-					Timeout:        30,
-					LogLevel:       "info",
-					PoolerDir:      local.GeneratePoolerDir(tempDir, serviceIDZone1),
-					PgPwfile:       filepath.Join(local.GeneratePoolerDir(tempDir, serviceIDZone1), "pgctld.pwfile"),
-				},
+	}
+
+	// Build cell services dynamically for each zone
+	localConfig.Cells = make(map[string]local.CellServicesConfig)
+	for i := 0; i < numZones; i++ {
+		zoneName := fmt.Sprintf("zone%d", i+1)
+		serviceID := stringutil.RandomString(8)
+		zonePort := &portConfig.Zones[i]
+
+		localConfig.Cells[zoneName] = local.CellServicesConfig{
+			Multigateway: local.MultigatewayConfig{
+				Path:     "multigateway",
+				HttpPort: zonePort.MultigatewayHTTPPort,
+				GrpcPort: zonePort.MultigatewayGRPCPort,
+				PgPort:   zonePort.MultigatewayPGPort,
+				LogLevel: "info",
 			},
-			"zone2": {
-				Multigateway: local.MultigatewayConfig{
-					Path:     "multigateway",
-					HttpPort: portConfig.MultigatewayHTTPPort + 100,
-					GrpcPort: portConfig.MultigatewayGRPCPort + 100,
-					PgPort:   portConfig.MultigatewayPGPort + 100,
-					LogLevel: "info",
-				},
-				Multipooler: local.MultipoolerConfig{
-					Path:           "multipooler",
-					Database:       "postgres",
-					TableGroup:     "default",
-					ServiceID:      serviceIDZone2,
-					PoolerDir:      local.GeneratePoolerDir(tempDir, serviceIDZone2),
-					PgPort:         portConfig.PgctldPGPort + 100, // Same as pgctld for this zone (offset for zone2)
-					HttpPort:       portConfig.MultipoolerHTTPPort + 100,
-					GrpcPort:       portConfig.MultipoolerGRPCPort + 100,
-					GRPCSocketFile: filepath.Join(tempDir, "sockets", "multipooler-zone2.sock"),
-					LogLevel:       "info",
-				},
-				Multiorch: local.MultiorchConfig{
-					Path:     "multiorch",
-					HttpPort: portConfig.MultiorchHTTPPort + 100,
-					GrpcPort: portConfig.MultiorchGRPCPort + 100,
-					LogLevel: "info",
-				},
-				Pgctld: local.PgctldConfig{
-					Path:           "pgctld",
-					GrpcPort:       portConfig.PgctldGRPCPort + 100, // offset for zone2
-					GRPCSocketFile: filepath.Join(tempDir, "sockets", "pgctld-zone2.sock"),
-					PgPort:         portConfig.PgctldPGPort + 100, // offset for zone2
-					PgDatabase:     "postgres",
-					PgUser:         "postgres",
-					Timeout:        30,
-					LogLevel:       "info",
-					PoolerDir:      local.GeneratePoolerDir(tempDir, serviceIDZone2),
-					PgPwfile:       filepath.Join(local.GeneratePoolerDir(tempDir, serviceIDZone2), "pgctld.pwfile"),
-				},
+			Multipooler: local.MultipoolerConfig{
+				Path:           "multipooler",
+				Database:       "postgres",
+				TableGroup:     "default",
+				ServiceID:      serviceID,
+				PoolerDir:      local.GeneratePoolerDir(tempDir, serviceID),
+				PgPort:         zonePort.PgctldPGPort, // Same as pgctld for this zone
+				HttpPort:       zonePort.MultipoolerHTTPPort,
+				GrpcPort:       zonePort.MultipoolerGRPCPort,
+				GRPCSocketFile: filepath.Join(tempDir, "sockets", fmt.Sprintf("multipooler-%s.sock", zoneName)),
+				LogLevel:       "info",
 			},
-		},
+			Multiorch: local.MultiorchConfig{
+				Path:     "multiorch",
+				HttpPort: zonePort.MultiorchHTTPPort,
+				GrpcPort: zonePort.MultiorchGRPCPort,
+				LogLevel: "info",
+			},
+			Pgctld: local.PgctldConfig{
+				Path:           "pgctld",
+				GrpcPort:       zonePort.PgctldGRPCPort,
+				GRPCSocketFile: filepath.Join(tempDir, "sockets", fmt.Sprintf("pgctld-%s.sock", zoneName)),
+				PgPort:         zonePort.PgctldPGPort,
+				PgDatabase:     "postgres",
+				PgUser:         "postgres",
+				Timeout:        30,
+				LogLevel:       "info",
+				PoolerDir:      local.GeneratePoolerDir(tempDir, serviceID),
+				PgPwfile:       filepath.Join(local.GeneratePoolerDir(tempDir, serviceID), "pgctld.pwfile"),
+			},
+		}
 	}
 
 	// Convert the typed config to map[string]any via YAML marshaling
@@ -804,15 +760,20 @@ func TestClusterLifecycle(t *testing.T) {
 
 		t.Logf("Testing cluster lifecycle in directory: %s", tempDir)
 
-		// Setup test ports and sanity checks
-		t.Log("Setting up test ports and performing sanity checks...")
-		testPorts := getTestPortConfig()
-		require.NoError(t, checkAllPortsAvailable(testPorts),
-			"Test ports should be available before starting cluster")
+		// Setup test ports
+		t.Log("Setting up test ports...")
+		testPorts := getTestPortConfig(t, 2)
 
-		t.Logf("Using test ports - etcd:%d, multiadmin-http:%d, multiadmin-grpc:%d, multigateway-http:%d, multigateway-grpc:%d, multipooler-http:%d, multipooler-grpc:%d, multiorch-http:%d, multiorch-grpc:%d",
-			testPorts.EtcdPort, testPorts.MultiadminHTTPPort, testPorts.MultiadminGRPCPort, testPorts.MultigatewayHTTPPort, testPorts.MultigatewayGRPCPort,
-			testPorts.MultipoolerHTTPPort, testPorts.MultipoolerGRPCPort, testPorts.MultiorchHTTPPort, testPorts.MultiorchGRPCPort)
+		t.Logf("Using test ports - etcd-client:%d, etcd-peer:%d, multiadmin-http:%d, multiadmin-grpc:%d",
+			testPorts.EtcdClientPort, testPorts.EtcdPeerPort, testPorts.MultiadminHTTPPort, testPorts.MultiadminGRPCPort)
+		t.Logf("Zone 1 ports - multigateway-http:%d, multigateway-grpc:%d, multipooler-http:%d, multipooler-grpc:%d, multiorch-http:%d, multiorch-grpc:%d",
+			testPorts.Zones[0].MultigatewayHTTPPort, testPorts.Zones[0].MultigatewayGRPCPort,
+			testPorts.Zones[0].MultipoolerHTTPPort, testPorts.Zones[0].MultipoolerGRPCPort,
+			testPorts.Zones[0].MultiorchHTTPPort, testPorts.Zones[0].MultiorchGRPCPort)
+		t.Logf("Zone 2 ports - multigateway-http:%d, multigateway-grpc:%d, multipooler-http:%d, multipooler-grpc:%d, multiorch-http:%d, multiorch-grpc:%d",
+			testPorts.Zones[1].MultigatewayHTTPPort, testPorts.Zones[1].MultigatewayGRPCPort,
+			testPorts.Zones[1].MultipoolerHTTPPort, testPorts.Zones[1].MultipoolerGRPCPort,
+			testPorts.Zones[1].MultiorchHTTPPort, testPorts.Zones[1].MultiorchGRPCPort)
 
 		// Create cluster configuration with test ports
 		t.Log("Creating cluster configuration with test ports...")
@@ -916,14 +877,14 @@ func TestClusterLifecycle(t *testing.T) {
 
 		// Test PostgreSQL connectivity for both zones
 		t.Log("Testing PostgreSQL connectivity for both zones...")
-		testPostgreSQLConnection(t, testPorts.PgctldPGPort, "1")
-		testPostgreSQLConnection(t, testPorts.PgctldPGPort+100, "2")
+		testPostgreSQLConnection(t, testPorts.Zones[0].PgctldPGPort, "1")
+		testPostgreSQLConnection(t, testPorts.Zones[1].PgctldPGPort, "2")
 		t.Log("Both PostgreSQL instances are working correctly!")
 
 		// Test multipooler gRPC functionality via TCP
 		t.Log("Testing multipooler gRPC ExecuteQuery functionality via TCP...")
-		testMultipoolerGRPC(t, fmt.Sprintf("localhost:%d", testPorts.MultipoolerGRPCPort))
-		testMultipoolerGRPC(t, fmt.Sprintf("localhost:%d", testPorts.MultipoolerGRPCPort+100))
+		testMultipoolerGRPC(t, fmt.Sprintf("localhost:%d", testPorts.Zones[0].MultipoolerGRPCPort))
+		testMultipoolerGRPC(t, fmt.Sprintf("localhost:%d", testPorts.Zones[1].MultipoolerGRPCPort))
 		t.Log("Both multipooler gRPC instances are working correctly via TCP!")
 
 		// Test multipooler gRPC functionality via Unix socket
@@ -947,7 +908,7 @@ func TestClusterLifecycle(t *testing.T) {
 
 		// Verify heartbeats were written before stopping cluster
 		t.Log("Verifying heartbeats were written...")
-		multipoolerAddr := fmt.Sprintf("localhost:%d", testPorts.MultipoolerGRPCPort)
+		multipoolerAddr := fmt.Sprintf("localhost:%d", testPorts.Zones[0].MultipoolerGRPCPort)
 		heartbeatsWritten, err := checkHeartbeatsWritten(multipoolerAddr)
 		require.NoError(t, err, "should be able to check heartbeats")
 		assert.True(t, heartbeatsWritten, "at least one heartbeat should have been written before cluster stopped")
@@ -1071,11 +1032,11 @@ func TestClusterLifecycle(t *testing.T) {
 			os.RemoveAll(tempDir)
 		}()
 
-		// Setup test ports
-		testPorts := getTestPortConfig()
+		// Setup test ports (only need 1 zone for port conflict test)
+		testPorts := getTestPortConfig(t, 1)
 
 		// Intentionally occupy the multipooler gRPC port to create a conflict
-		conflictPort := testPorts.MultipoolerGRPCPort
+		conflictPort := testPorts.Zones[0].MultipoolerGRPCPort
 		ln, err := net.Listen("tcp", fmt.Sprintf("localhost:%d", conflictPort))
 		require.NoError(t, err, "failed to bind conflict port %d", conflictPort)
 		defer ln.Close()
@@ -1233,15 +1194,17 @@ func setupTestCluster(t *testing.T) *testClusterSetup {
 
 	t.Logf("Testing cluster lifecycle in directory: %s", tempDir)
 
-	// Setup test ports and sanity checks
-	t.Log("Setting up test ports and performing sanity checks...")
-	testPorts := getTestPortConfig()
-	require.NoError(t, checkAllPortsAvailable(testPorts),
-		"Test ports should be available before starting cluster")
+	// Setup test ports
+	t.Log("Setting up test ports...")
+	testPorts := getTestPortConfig(t, 2)
 
-	t.Logf("Using test ports - etcd:%d, multiadmin-http:%d, multiadmin-grpc:%d, multigateway-http:%d, multigateway-grpc:%d, multigateway-pg:%d, multipooler-http:%d, multipooler-grpc:%d, multiorch-http:%d, multiorch-grpc:%d",
-		testPorts.EtcdPort, testPorts.MultiadminHTTPPort, testPorts.MultiadminGRPCPort, testPorts.MultigatewayHTTPPort, testPorts.MultigatewayGRPCPort, testPorts.MultigatewayPGPort,
-		testPorts.MultipoolerHTTPPort, testPorts.MultipoolerGRPCPort, testPorts.MultiorchHTTPPort, testPorts.MultiorchGRPCPort)
+	t.Logf("Using test ports - etcd-client:%d, etcd-peer:%d, multiadmin-http:%d, multiadmin-grpc:%d",
+		testPorts.EtcdClientPort, testPorts.EtcdPeerPort, testPorts.MultiadminHTTPPort, testPorts.MultiadminGRPCPort)
+	for i, zone := range testPorts.Zones {
+		t.Logf("Zone %d ports - multigateway-http:%d, multigateway-grpc:%d, multigateway-pg:%d, multipooler-http:%d, multipooler-grpc:%d, multiorch-http:%d, multiorch-grpc:%d",
+			i+1, zone.MultigatewayHTTPPort, zone.MultigatewayGRPCPort, zone.MultigatewayPGPort,
+			zone.MultipoolerHTTPPort, zone.MultipoolerGRPCPort, zone.MultiorchHTTPPort, zone.MultiorchGRPCPort)
+	}
 
 	// Create cluster configuration with test ports
 	t.Log("Creating cluster configuration with test ports...")

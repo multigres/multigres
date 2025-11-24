@@ -21,7 +21,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/multigres/multigres/go/mterrors"
+	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/pb/mtrpc"
 	"github.com/multigres/multigres/go/tools/retry"
 )

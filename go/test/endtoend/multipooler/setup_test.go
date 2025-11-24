@@ -46,7 +46,7 @@ import (
 	"github.com/multigres/multigres/go/pb/pgctldservice"
 
 	// Register topo plugins
-	_ "github.com/multigres/multigres/go/plugins/topo"
+	_ "github.com/multigres/multigres/go/common/plugins/topo"
 )
 
 var (
@@ -465,7 +465,6 @@ func initializePrimary(t *testing.T, baseDir string, pgctld *ProcessInstance, mu
 				Database:  "postgres",
 			},
 		},
-		RepoPath:      repoPath,
 		LogPath:       logPath,
 		SpoolPath:     spoolPath,
 		RetentionFull: 2,
@@ -484,8 +483,8 @@ func initializePrimary(t *testing.T, baseDir string, pgctld *ProcessInstance, mu
 	archiveConfig := fmt.Sprintf(`
 # Archive mode for pgbackrest backups
 archive_mode = on
-archive_command = 'pgbackrest --stanza=%s --config=%s archive-push %%p'
-`, stanzaName, configPath)
+archive_command = 'pgbackrest --stanza=%s --config=%s --repo1-path=%s archive-push %%p'
+`, stanzaName, configPath, repoPath)
 	f, err := os.OpenFile(autoConfPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
 	if err != nil {
 		return fmt.Errorf("failed to open postgresql.auto.conf: %w", err)
@@ -509,7 +508,7 @@ archive_command = 'pgbackrest --stanza=%s --config=%s archive-push %%p'
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	if err := pgbackrest.StanzaCreate(ctx, stanzaName, configPath); err != nil {
+	if err := pgbackrest.StanzaCreate(ctx, stanzaName, configPath, repoPath); err != nil {
 		return fmt.Errorf("failed to create pgbackrest stanza: %w", err)
 	}
 	t.Logf("Initialized pgbackrest stanza: %s", stanzaName)
@@ -601,10 +600,6 @@ func initializeStandby(t *testing.T, baseDir string, primaryPgctld *ProcessInsta
 	// Each cluster treats itself as pg1 and lists others as pg2, pg3, etc.
 	// Build backup repository path with database/tablegroup/shard structure (same as primary)
 	// TODO: Replace hardcoded shard "0" with actual shard value
-	database := "postgres"
-	tableGroup := "test"
-	shard := "0" // Default shard ID
-	repoPath := filepath.Join(baseDir, "backup-repo", database, tableGroup, shard)
 	logPath := filepath.Join(baseDir, "logs", "pgbackrest")
 	spoolPath := filepath.Join(baseDir, "pgbackrest-spool")
 
@@ -626,7 +621,6 @@ func initializeStandby(t *testing.T, baseDir string, primaryPgctld *ProcessInsta
 				Database:  "postgres",
 			},
 		},
-		RepoPath:      repoPath,
 		LogPath:       logPath,
 		SpoolPath:     spoolPath,
 		RetentionFull: 2,
@@ -738,7 +732,7 @@ func getSharedTestSetup(t *testing.T) *MultipoolerTestSetup {
 			setupError = fmt.Errorf("failed to create etcd data directory: %w", err)
 			return
 		}
-		etcdClientAddr, etcdCmd, err := startEtcdForSharedSetup(etcdDataDir)
+		etcdClientAddr, etcdCmd, err := startEtcdForSharedSetup(t, etcdDataDir)
 		if err != nil {
 			setupError = fmt.Errorf("failed to start etcd: %w", err)
 			return
@@ -770,13 +764,28 @@ func getSharedTestSetup(t *testing.T) *MultipoolerTestSetup {
 
 		t.Logf("Created topology cell '%s' at etcd %s", cellName, etcdClientAddr)
 
+		// Create the database entry in topology with backup_location
+		// This is needed for getBackupLocation() calls in multipooler manager
+		database := "postgres"
+		backupLocation := filepath.Join(tempDir, "backup-repo", database, "test", "0")
+		err = ts.CreateDatabase(context.Background(), database, &clustermetadatapb.Database{
+			Name:             database,
+			BackupLocation:   backupLocation,
+			DurabilityPolicy: "ANY_2",
+		})
+		if err != nil {
+			setupError = fmt.Errorf("failed to create database in topology: %w", err)
+			return
+		}
+		t.Logf("Created database '%s' in topology with backup_location=%s", database, backupLocation)
+
 		// Generate ports for shared instances using systematic allocation to avoid conflicts
-		primaryGrpcPort := utils.GetNextPort()
-		primaryPgPort := utils.GetNextPort()
-		standbyGrpcPort := utils.GetNextPort()
-		standbyPgPort := utils.GetNextPort()
-		primaryMultipoolerPort := utils.GetNextPort()
-		standbyMultipoolerPort := utils.GetNextPort()
+		primaryGrpcPort := utils.GetFreePort(t)
+		primaryPgPort := utils.GetFreePort(t)
+		standbyGrpcPort := utils.GetFreePort(t)
+		standbyPgPort := utils.GetFreePort(t)
+		primaryMultipoolerPort := utils.GetFreePort(t)
+		standbyMultipoolerPort := utils.GetFreePort(t)
 
 		t.Logf("Shared test setup - Primary pgctld gRPC: %d, Primary PG: %d, Standby pgctld gRPC: %d, Standby PG: %d, Primary multipooler: %d, Standby multipooler: %d",
 			primaryGrpcPort, primaryPgPort, standbyGrpcPort, standbyPgPort, primaryMultipoolerPort, standbyMultipoolerPort)
@@ -840,19 +849,20 @@ func getSharedTestSetup(t *testing.T) *MultipoolerTestSetup {
 
 // startEtcdForSharedSetup starts etcd without registering t.Cleanup() handlers
 // since cleanup is handled manually by TestMain via cleanupSharedTestSetup()
-func startEtcdForSharedSetup(dataDir string) (string, *exec.Cmd, error) {
+func startEtcdForSharedSetup(t *testing.T, dataDir string) (string, *exec.Cmd, error) {
 	// Check if etcd is available in PATH
 	_, err := exec.LookPath("etcd")
 	if err != nil {
 		return "", nil, fmt.Errorf("etcd not found in PATH: %w", err)
 	}
 
-	// Get port for etcd using the same mechanism as other tests to avoid conflicts
-	port := utils.GetNextEtcd2Port()
+	// Get ports for etcd (client and peer)
+	clientPort := utils.GetFreePort(t)
+	peerPort := utils.GetFreePort(t)
 
 	name := "multigres_shared_test"
-	clientAddr := fmt.Sprintf("http://localhost:%v", port)
-	peerAddr := fmt.Sprintf("http://localhost:%v", port+1)
+	clientAddr := fmt.Sprintf("http://localhost:%v", clientPort)
+	peerAddr := fmt.Sprintf("http://localhost:%v", peerPort)
 	initialCluster := fmt.Sprintf("%v=%v", name, peerAddr)
 
 	// Wrap etcd with run_in_test to ensure cleanup if test process dies

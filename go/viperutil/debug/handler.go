@@ -23,8 +23,8 @@ import (
 	"os"
 	"strings"
 
+	"github.com/multigres/multigres/go/common/web"
 	"github.com/multigres/multigres/go/viperutil"
-	"github.com/multigres/multigres/go/web"
 
 	"github.com/spf13/pflag"
 )

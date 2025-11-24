@@ -21,7 +21,7 @@ import (
 	"strings"
 
 	"github.com/multigres/multigres/go/clustermetadata/topo"
-	"github.com/multigres/multigres/go/mterrors"
+	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/pb/mtrpc"
 )
 

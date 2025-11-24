@@ -43,18 +43,29 @@ func checkPortAvailable(port int) error {
 
 // EtcdOptions contains optional configuration for starting etcd.
 type EtcdOptions struct {
-	// Port is the client port to listen on (peer port will be port+1).
+	// ClientPort is the client port to listen on.
 	// If 0, a port will be automatically assigned.
-	Port int
+	ClientPort int
+
+	// PeerPort is the peer port for etcd cluster communication.
+	// If 0 and ClientPort is also 0, will be automatically assigned.
+	// If 0 and ClientPort is specified, defaults to ClientPort+1 for backwards compatibility.
+	PeerPort int
 
 	// DataDir is the directory for etcd data storage.
 	// If empty, a temporary directory will be created and cleaned up after the test.
 	DataDir string
 }
 
-// StartEtcd starts an etcd subprocess with default options, and waits for it to be ready.
-func StartEtcd(t *testing.T, port int) (string, *exec.Cmd) {
-	return StartEtcdWithOptions(t, EtcdOptions{Port: port})
+// StartEtcd starts an etcd subprocess with automatically allocated ports.
+// Returns the client address (which includes the port) and the process handle.
+func StartEtcd(t *testing.T) (string, *exec.Cmd) {
+	clientPort := utils.GetFreePort(t)
+	peerPort := utils.GetFreePort(t)
+	return StartEtcdWithOptions(t, EtcdOptions{
+		ClientPort: clientPort,
+		PeerPort:   peerPort,
+	})
 }
 
 // StartEtcdWithOptions starts an etcd subprocess with custom options, and waits for it to be ready.
@@ -69,21 +80,22 @@ func StartEtcdWithOptions(t *testing.T, opts EtcdOptions) (string, *exec.Cmd) {
 		dataDir = t.TempDir()
 	}
 
-	// Get our two ports to listen to.
-	port := opts.Port
-	if port == 0 {
-		port = utils.GetNextEtcd2Port()
-	}
+	// Get our two ports to listen to - both must be specified
+	clientPort := opts.ClientPort
+	peerPort := opts.PeerPort
+
+	require.NotZero(t, clientPort, "EtcdOptions.ClientPort must be set to a non-zero value")
+	require.NotZero(t, peerPort, "EtcdOptions.PeerPort must be set to a non-zero value")
 
 	// Check if ports are available before starting etcd
-	err = checkPortAvailable(port)
+	err = checkPortAvailable(clientPort)
 	require.NoError(t, err, "Port check failed")
-	err = checkPortAvailable(port + 1)
+	err = checkPortAvailable(peerPort)
 	require.NoError(t, err, "Peer port check failed")
 
 	name := "multigres_unit_test"
-	clientAddr := fmt.Sprintf("http://localhost:%v", port)
-	peerAddr := fmt.Sprintf("http://localhost:%v", port+1)
+	clientAddr := fmt.Sprintf("http://localhost:%v", clientPort)
+	peerAddr := fmt.Sprintf("http://localhost:%v", peerPort)
 	initialCluster := fmt.Sprintf("%v=%v", name, peerAddr)
 
 	// Wrap etcd with run_in_test.sh to ensure cleanup if test process dies
