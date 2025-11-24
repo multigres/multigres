@@ -27,13 +27,6 @@ import (
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 )
 
-// TableGroupKey uniquely identifies a tablegroup.
-type TableGroupKey struct {
-	Database   string
-	TableGroup string
-	Shard      string
-}
-
 // runRecoveryLoop is the main recovery loop that detects and fixes problems.
 func (re *Engine) runRecoveryLoop() {
 	ticker := time.NewTicker(1 * time.Second)
@@ -76,29 +69,29 @@ func (re *Engine) performRecoveryCycle() {
 
 	re.logger.InfoContext(re.ctx, "problems detected", "count", len(problems))
 
-	// Group problems by tablegroup
-	problemsByTableGroup := re.groupProblemsByTableGroup(problems)
+	// Group problems by shard
+	problemsByShard := re.groupProblemsByShard(problems)
 
-	// Process each tablegroup independently in parallel
+	// Process each shard independently in parallel
 	var wg sync.WaitGroup
-	for tgKey, tgProblems := range problemsByTableGroup {
+	for shardKey, shardProblems := range problemsByShard {
 		wg.Add(1)
-		go func(key TableGroupKey, problems []analysis.Problem) {
+		go func(key analysis.ShardKey, problems []analysis.Problem) {
 			defer wg.Done()
 			// Create a new generator for this goroutine to avoid contention
-			tgGenerator := analysis.NewAnalysisGenerator(re.poolerStore)
-			re.processTableGroupProblems(key, problems, tgGenerator)
-		}(tgKey, tgProblems)
+			shardGenerator := analysis.NewAnalysisGenerator(re.poolerStore)
+			re.processShardProblems(key, problems, shardGenerator)
+		}(shardKey, shardProblems)
 	}
 	wg.Wait()
 }
 
-// groupProblemsByTableGroup groups problems by their tablegroup.
-func (re *Engine) groupProblemsByTableGroup(problems []analysis.Problem) map[TableGroupKey][]analysis.Problem {
-	grouped := make(map[TableGroupKey][]analysis.Problem)
+// groupProblemsByShard groups problems by their shard.
+func (re *Engine) groupProblemsByShard(problems []analysis.Problem) map[analysis.ShardKey][]analysis.Problem {
+	grouped := make(map[analysis.ShardKey][]analysis.Problem)
 
 	for _, problem := range problems {
-		key := TableGroupKey{
+		key := analysis.ShardKey{
 			Database:   problem.Database,
 			TableGroup: problem.TableGroup,
 			Shard:      problem.Shard,
@@ -109,12 +102,12 @@ func (re *Engine) groupProblemsByTableGroup(problems []analysis.Problem) map[Tab
 	return grouped
 }
 
-// processTableGroupProblems handles all problems for a single tablegroup.
-func (re *Engine) processTableGroupProblems(tgKey TableGroupKey, problems []analysis.Problem, generator *analysis.AnalysisGenerator) {
-	re.logger.DebugContext(re.ctx, "processing tablegroup problems",
-		"database", tgKey.Database,
-		"tablegroup", tgKey.TableGroup,
-		"shard", tgKey.Shard,
+// processShardProblems handles all problems for a single shard.
+func (re *Engine) processShardProblems(shardKey analysis.ShardKey, problems []analysis.Problem, generator *analysis.AnalysisGenerator) {
+	re.logger.DebugContext(re.ctx, "processing shard problems",
+		"database", shardKey.Database,
+		"tablegroup", shardKey.TableGroup,
+		"shard", shardKey.Shard,
 		"problem_count", len(problems),
 	)
 
@@ -126,7 +119,7 @@ func (re *Engine) processTableGroupProblems(tgKey TableGroupKey, problems []anal
 	// Apply smart deduplication logic
 	filteredProblems := re.smartFilterProblems(problems)
 
-	// Check if there's a primary problem in this tablegroup
+	// Check if there's a primary problem in this shard
 	hasPrimaryProblem := re.hasPrimaryProblem(filteredProblems)
 
 	// Attempt recoveries in priority order

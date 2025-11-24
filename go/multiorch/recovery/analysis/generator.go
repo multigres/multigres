@@ -23,7 +23,7 @@ import (
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 )
 
-// ShardKey uniquely identifies a tablegroup.
+// ShardKey uniquely identifies a shard.
 type ShardKey struct {
 	Database   string
 	TableGroup string
@@ -103,8 +103,7 @@ func (g *AnalysisGenerator) buildPoolersByShard() PoolersByShard {
 	return poolersByShard
 }
 
-// GetPoolersInShard returns all pooler IDs in the same tablegroup as the given pooler.
-// This uses the cached poolersByTG map to avoid iterating the store again.
+// GetPoolersInShard returns all pooler IDs in the same shard as the given pooler.
 func (g *AnalysisGenerator) GetPoolersInShard(poolerIDStr string) ([]string, error) {
 	// Get pooler from store to determine its tablegroup
 	pooler, ok := g.poolerStore.Get(poolerIDStr)
