@@ -199,7 +199,7 @@ func (re *Engine) refreshShardMetadata(ctx context.Context, database, tablegroup
 }
 
 // forceHealthCheckShardPoolers forces a health check re-poll for all poolers in a shard.
-// This is used after cluster-wide recoveries to ensure all pooler state is up-to-date.
+// This is used after shard-wide recoveries to ensure all pooler state is up-to-date.
 //
 // poolersToIgnore is a list of pooler IDs to skip (e.g., a dead primary).
 func (re *Engine) forceHealthCheckShardPoolers(ctx context.Context, database, tablegroup, shard string, poolersToIgnore []string) {

@@ -40,9 +40,8 @@ const (
 	ProblemReplicaMisconfigured  ProblemCode = "ReplicaMisconfigured"
 	ProblemReplicaIsWritable     ProblemCode = "ReplicaIsWritable"
 
-	// Non-actionable (detect but don't auto-recover).
-	ProblemPrimaryAndReplicasDead    ProblemCode = "PrimaryAndReplicasDead"
-	ProblemAllReplicasNotReplicating ProblemCode = "AllReplicasNotReplicating"
+	// Non-actionable: if all hosts are down, there is no way we can failover.
+	ProblemPrimaryAndReplicasDead ProblemCode = "PrimaryAndReplicasDead"
 )
 
 // Category groups checks by what they monitor.
@@ -59,9 +58,10 @@ const (
 type Priority int
 
 const (
-	// PriorityClusterBootstrap is for cluster-wide bootstrap issues like no primary exists.
-	// This is the highest priority - the cluster cannot function at all.
-	PriorityClusterBootstrap Priority = 2000
+	// PriorityShardBootstrap is for shard-wide bootstrap issues like no primary exists.
+	// This is the highest priority - the shard cannot function at all.
+	// Arbitrarily high priority, to leave room for other priorities.
+	PriorityShardBootstrap Priority = 10000
 
 	// PriorityEmergency is for catastrophic issues like dead primary.
 	// These must be fixed before anything else can proceed.
@@ -76,12 +76,12 @@ const (
 	PriorityNormal Priority = 100
 )
 
-// ProblemScope indicates whether a problem affects the whole cluster or just a single pooler.
+// ProblemScope indicates whether a problem affects the whole shard or just a single pooler.
 type ProblemScope string
 
 const (
 	// ScopeShard indicates the problem affects the entire shard (e.g., primary dead).
-	// Recovery requires refreshing all poolers in the shard and may involve cluster-wide operations like failover.
+	// Recovery requires refreshing all poolers in the shard and may involve shard-wide operations like failover.
 	ScopeShard ProblemScope = "Shard"
 
 	// ScopePooler indicates the problem affects only a specific pooler.

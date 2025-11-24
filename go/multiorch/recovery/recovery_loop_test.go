@@ -367,9 +367,9 @@ func TestValidateProblemStillExists_PoolerNotFound(t *testing.T) {
 	assert.Contains(t, err.Error(), "pooler not found in store")
 }
 
-// TestSmartFilterProblems_ClusterWideOnly tests that when cluster-wide problems exist,
-// only the highest priority cluster-wide problem is returned.
-func TestSmartFilterProblems_ClusterWideOnly(t *testing.T) {
+// TestSmartFilterProblems_ShardWideOnly tests that when shard-wide problems exist,
+// only the highest priority shard-wide problem is returned.
+func TestSmartFilterProblems_ShardWideOnly(t *testing.T) {
 	ctx := context.Background()
 	ts, _ := memorytopo.NewServerAndFactory(ctx, "cell1")
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
@@ -428,15 +428,15 @@ func TestSmartFilterProblems_ClusterWideOnly(t *testing.T) {
 	// Problems are already sorted by priority (Emergency > High > Normal)
 	filtered := engine.smartFilterProblems(problems)
 
-	// Should return only the cluster-wide problem (PrimaryDead)
+	// Should return only the shard-wide problem (PrimaryDead)
 	require.Len(t, filtered, 1)
 	assert.Equal(t, analysis.ProblemPrimaryDead, filtered[0].Code)
 	assert.Equal(t, analysis.PriorityEmergency, filtered[0].Priority)
 }
 
-// TestSmartFilterProblems_NoClusterWide tests deduplication by pooler ID
-// when there are no cluster-wide problems.
-func TestSmartFilterProblems_NoClusterWide(t *testing.T) {
+// TestSmartFilterProblems_NoShardWide tests deduplication by pooler ID
+// when there are no shard-wide problems.
+func TestSmartFilterProblems_NoShardWide(t *testing.T) {
 	ctx := context.Background()
 	ts, _ := memorytopo.NewServerAndFactory(ctx, "cell1")
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
@@ -502,9 +502,9 @@ func TestSmartFilterProblems_NoClusterWide(t *testing.T) {
 	assert.Equal(t, analysis.ProblemReplicaLagging, filtered[2].Code)
 }
 
-// TestSmartFilterProblems_MultipleClusterWide tests that when multiple cluster-wide
+// TestSmartFilterProblems_MultipleShardWide tests that when multiple shard-wide
 // problems exist, only the highest priority one is returned.
-func TestSmartFilterProblems_MultipleClusterWide(t *testing.T) {
+func TestSmartFilterProblems_MultipleShardWide(t *testing.T) {
 	ctx := context.Background()
 	ts, _ := memorytopo.NewServerAndFactory(ctx, "cell1")
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
@@ -523,16 +523,16 @@ func TestSmartFilterProblems_MultipleClusterWide(t *testing.T) {
 		Name:      "another-primary",
 	}
 
-	// Create multiple cluster-wide problems with different priorities
+	// Create multiple shard-wide problems with different priorities
 	problems := []analysis.Problem{
 		{
 			Code:     analysis.ProblemClusterHasNoPrimary,
 			PoolerID: poolerID1,
-			Priority: analysis.PriorityClusterBootstrap,
+			Priority: analysis.PriorityShardBootstrap,
 			Scope:    analysis.ScopeShard,
 			RecoveryAction: &mockRecoveryAction{
 				name:     "ElectPrimary",
-				priority: analysis.PriorityClusterBootstrap,
+				priority: analysis.PriorityShardBootstrap,
 				timeout:  60 * time.Second,
 			},
 		},
@@ -552,10 +552,10 @@ func TestSmartFilterProblems_MultipleClusterWide(t *testing.T) {
 	// Problems are already sorted by priority
 	filtered := engine.smartFilterProblems(problems)
 
-	// Should return only the highest priority cluster-wide problem
+	// Should return only the highest priority shard-wide problem
 	require.Len(t, filtered, 1)
 	assert.Equal(t, analysis.ProblemClusterHasNoPrimary, filtered[0].Code)
-	assert.Equal(t, analysis.PriorityClusterBootstrap, filtered[0].Priority)
+	assert.Equal(t, analysis.PriorityShardBootstrap, filtered[0].Priority)
 }
 
 // mockPrimaryDeadAnalyzer detects when a primary is unreachable
@@ -958,7 +958,7 @@ func TestRecoveryLoop_ValidationPreventsStaleRecovery(t *testing.T) {
 		"recovery should be skipped when problem no longer exists after validation")
 }
 
-// TestRecoveryLoop_PostRecoveryRefresh tests that after a cluster-wide recovery,
+// TestRecoveryLoop_PostRecoveryRefresh tests that after a shard-wide recovery,
 // all poolers in the shard are force-refreshed.
 func TestRecoveryLoop_PostRecoveryRefresh(t *testing.T) {
 	ctx := context.Background()
@@ -1035,7 +1035,7 @@ func TestRecoveryLoop_PostRecoveryRefresh(t *testing.T) {
 		Name:      "replica2-pooler",
 	}
 
-	// Create recovery action that simulates successful cluster-wide recovery
+	// Create recovery action that simulates successful shard-wide recovery
 	primaryRecovery := &mockRecoveryAction{
 		name:                   "EmergencyFailover",
 		priority:               analysis.PriorityEmergency,
@@ -1150,11 +1150,11 @@ func TestRecoveryLoop_PostRecoveryRefresh(t *testing.T) {
 	// Note: The dead primary won't be refreshed (it's in the ignore list), but replicas should be
 	ph, _ = engine.poolerStore.Get("multipooler-cell1-replica1-pooler")
 	assert.True(t, ph.LastCheckAttempted.After(initialReplica1Check),
-		"replica1 should be refreshed after cluster-wide recovery")
+		"replica1 should be refreshed after shard-wide recovery")
 
 	ph, _ = engine.poolerStore.Get("multipooler-cell1-replica2-pooler")
 	assert.True(t, ph.LastCheckAttempted.After(initialReplica2Check),
-		"replica2 should be refreshed after cluster-wide recovery")
+		"replica2 should be refreshed after shard-wide recovery")
 }
 
 // TestRecoveryLoop_FullCycle tests the complete recovery cycle end-to-end:
@@ -1313,7 +1313,7 @@ func TestRecoveryLoop_FullCycle(t *testing.T) {
 	// Run full recovery cycle
 	engine.performRecoveryCycle()
 
-	// ASSERTION: Both recovery actions should be executed (no cluster-wide problems)
+	// ASSERTION: Both recovery actions should be executed (no shard-wide problems)
 	assert.True(t, replica1Recovery.executed || replica2Recovery.executed,
 		"at least one replica recovery should be executed in full cycle")
 }

@@ -182,9 +182,9 @@ func runIfNotRunning(logger *slog.Logger, inProgress *atomic.Bool, taskName stri
 //	  - Ensures critical issues (e.g., primary failure) take precedence
 //
 //	Smart Filtering by Scope:
-//	  - If ANY cluster-wide problem exists:
-//	    * Return ONLY the highest priority cluster-wide problem
-//	    * Rationale: Cluster-wide recoveries (e.g., failover) fix multiple
+//	  - If ANY shard-wide problem exists:
+//	    * Return ONLY the highest priority shard-wide problem
+//	    * Rationale: Shard-wide recoveries (e.g., failover) fix multiple
 //	      pooler-level issues, so addressing them first is more efficient
 //	  - Otherwise (only single-pooler problems):
 //	    * Deduplicate by pooler ID
@@ -198,7 +198,7 @@ func runIfNotRunning(logger *slog.Logger, inProgress *atomic.Bool, taskName stri
 //	  - Prevents acting on stale/transient issues
 //
 //	Post-Recovery Refresh:
-//	  - After cluster-wide recoveries, force refresh all shard poolers
+//	  - After shard-wide recoveries, force refresh all shard poolers
 //	  - Ensures accurate state before next recovery cycle
 //	  - Prevents re-queueing problems that were just fixed
 //

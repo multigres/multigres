@@ -138,7 +138,7 @@ func (re *Engine) processShardProblems(shardKey analysis.ShardKey, problems []an
 }
 
 // hasPrimaryProblem checks if any of the problems indicate an unhealthy primary.
-// Cluster-wide problems (e.g., PrimaryDead) imply an unhealthy primary.
+// Shard-wide problems (e.g., PrimaryDead) imply an unhealthy primary.
 func (re *Engine) hasPrimaryProblem(problems []analysis.Problem) bool {
 	for _, problem := range problems {
 		if problem.Scope == analysis.ScopeShard {
@@ -149,7 +149,7 @@ func (re *Engine) hasPrimaryProblem(problems []analysis.Problem) bool {
 }
 
 // smartFilterProblems applies intelligent filtering to the problem list:
-// - If there's a cluster-wide problem, return only the highest priority cluster-wide problem
+// - If there's a shard-wide problem, return only the highest priority shard-wide problem
 // - Otherwise, deduplicate by pooler ID, keeping only the highest priority problem per pooler
 //
 // IMPORTANT: Input must already be sorted by priority (highest first).
@@ -158,27 +158,27 @@ func (re *Engine) smartFilterProblems(problems []analysis.Problem) []analysis.Pr
 		return problems
 	}
 
-	// Check if there are any cluster-wide problems
-	var clusterWideProblems []analysis.Problem
+	// Check if there are any shard-wide problems
+	var shardWideProblems []analysis.Problem
 	for _, problem := range problems {
 		if problem.Scope == analysis.ScopeShard {
-			clusterWideProblems = append(clusterWideProblems, problem)
+			shardWideProblems = append(shardWideProblems, problem)
 		}
 	}
 
-	// If we have cluster-wide problems, return only the highest priority one
+	// If we have shard-wide problems, return only the highest priority one
 	// (since input is already sorted by priority, the first one is highest)
-	if len(clusterWideProblems) > 0 {
-		re.logger.DebugContext(re.ctx, "cluster-wide problem detected, focusing on single recovery",
-			"problem_code", clusterWideProblems[0].Code,
-			"priority", clusterWideProblems[0].Priority,
-			"total_cluster_wide", len(clusterWideProblems),
+	if len(shardWideProblems) > 0 {
+		re.logger.DebugContext(re.ctx, "shard-wide problem detected, focusing on single recovery",
+			"problem_code", shardWideProblems[0].Code,
+			"priority", shardWideProblems[0].Priority,
+			"total_shard_wide", len(shardWideProblems),
 			"total_problems", len(problems),
 		)
-		return []analysis.Problem{clusterWideProblems[0]}
+		return []analysis.Problem{shardWideProblems[0]}
 	}
 
-	// No cluster-wide problems, keep them all.
+	// No shard-wide problems, keep them all.
 	return problems
 }
 
@@ -241,7 +241,7 @@ func (re *Engine) attemptRecovery(problem analysis.Problem) {
 	// TODO: Record success in metrics
 
 	// Post-recovery refresh
-	// If we ran a cluster-wide recovery, force refresh all poolers in the shard
+	// If we ran a shard-wide recovery, force refresh all poolers in the shard
 	// to ensure they have up-to-date state and prevent re-queueing the same problem.
 	if problem.Scope == analysis.ScopeShard {
 		re.logger.InfoContext(re.ctx, "forcing refresh of all poolers post recovery",
@@ -257,13 +257,13 @@ func (re *Engine) attemptRecovery(problem analysis.Problem) {
 // to check if the problem still exists.
 //
 // The validation strategy depends on the problem scope:
-// - ClusterWide: Refresh shard metadata + force poll all poolers in shard (except dead ones)
+// - ShardWide: Refresh shard metadata + force poll all poolers in shard (except dead ones)
 // - SinglePooler: Only refresh the affected pooler + primary pooler
 //
 // Returns (stillExists bool, error).
 func (re *Engine) validateProblemStillExists(problem analysis.Problem) (bool, error) {
 	poolerIDStr := topo.MultiPoolerIDString(problem.PoolerID)
-	isClusterWide := problem.Scope == analysis.ScopeShard
+	isShardWide := problem.Scope == analysis.ScopeShard
 
 	re.logger.DebugContext(re.ctx, "validating problem still exists",
 		"pooler_id", poolerIDStr,
@@ -280,8 +280,8 @@ func (re *Engine) validateProblemStillExists(problem analysis.Problem) (bool, er
 	}
 
 	// Force re-poll poolers based on scope
-	if isClusterWide {
-		// Cluster-wide: refresh all poolers in shard except the dead one
+	if isShardWide {
+		// Shard-wide: refresh all poolers in shard except the dead one
 		var poolersToIgnore []string
 		if problem.Code == analysis.ProblemPrimaryDead {
 			poolersToIgnore = []string{poolerIDStr}
