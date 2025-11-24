@@ -76,10 +76,10 @@ build:
 
 # Build Go binaries with coverage
 build-coverage:
-	mkdir -p bin/
+	mkdir -p bin/cov/
 	cp external/pico/pico.* go/common/web/templates/css/
 	for cmd in $(COMMANDS); do \
-		go build -cover -covermode=atomic -coverpkg=./... -o bin/$$cmd.cov ./go/cmd/$$cmd; \
+		go build -cover -covermode=atomic -coverpkg=./... -o bin/cov/$$cmd ./go/cmd/$$cmd; \
 	done
 
 # Build everything (proto + parser + binaries)
