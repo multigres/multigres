@@ -54,9 +54,12 @@ psql --version
 
 # Install etcd binary
 echo "Installing etcd..."
-curl -L https://github.com/etcd-io/etcd/releases/download/v3.5.0/etcd-v3.5.0-linux-amd64.tar.gz | tar xz
-sudo cp etcd-v3.5.0-linux-amd64/etcd /usr/local/bin/
-rm -rf etcd-v3.5.0-linux-amd64
+tools/download_tool.sh etcd v3.6.4 linux-amd64 etcd.tar.gz
+echo "Extracting etcd binary..."
+tar xzf etcd.tar.gz
+sudo cp etcd-v3.6.4-linux-amd64/etcd /usr/local/bin/
+rm -rf etcd-v3.6.4-linux-amd64 etcd.tar.gz
+echo "✅ etcd binary installed successfully"
 etcd --version
 
 # Set environment variables for tests

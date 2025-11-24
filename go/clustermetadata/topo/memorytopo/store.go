@@ -376,8 +376,8 @@ func (f *Factory) nodeByPath(cell, filePath string) *node {
 		return nil
 	}
 
-	parts := strings.Split(filePath, "/")
-	for _, part := range parts {
+	parts := strings.SplitSeq(filePath, "/")
+	for part := range parts {
 		if part == "" {
 			// Skip empty parts, usually happens at the end.
 			continue
@@ -402,8 +402,8 @@ func (f *Factory) getOrCreatePath(cell, filePath string) *node {
 		return nil
 	}
 
-	parts := strings.Split(filePath, "/")
-	for _, part := range parts {
+	parts := strings.SplitSeq(filePath, "/")
+	for part := range parts {
 		if part == "" {
 			// Skip empty parts, usually happens at the end.
 			continue

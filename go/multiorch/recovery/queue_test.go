@@ -80,11 +80,11 @@ func BenchmarkQueues(b *testing.B) {
 		q := test.queue
 		b.Run(test.name, func(b *testing.B) {
 			for i := 0; i < b.N; i++ {
-				for i := 0; i < 1000; i++ {
+				for i := range 1000 {
 					q.Push(b.Name() + strconv.Itoa(i))
 				}
 				q.QueueLen()
-				for i := 0; i < 1000; i++ {
+				for range 1000 {
 					_, release := q.Consume()
 					release()
 				}

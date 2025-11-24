@@ -31,15 +31,15 @@ func TestReplTrackerMakePrimary(t *testing.T) {
 
 	db.AddQueryPattern("\\s*INSERT INTO multigres\\.heartbeat.*", &fakepgdb.ExpectedResult{
 		Columns: []string{},
-		Rows:    [][]interface{}{},
+		Rows:    [][]any{},
 	})
 	db.AddQueryPattern("SELECT pg_backend_pid\\(\\)", &fakepgdb.ExpectedResult{
 		Columns: []string{"pg_backend_pid"},
-		Rows:    [][]interface{}{{int64(12345)}},
+		Rows:    [][]any{{int64(12345)}},
 	})
 	db.AddQueryPattern("SELECT pg_current_wal_lsn\\(\\)", &fakepgdb.ExpectedResult{
 		Columns: []string{"pg_current_wal_lsn"},
-		Rows:    [][]interface{}{{"0/1A2B3C4D"}},
+		Rows:    [][]any{{"0/1A2B3C4D"}},
 	})
 
 	logger := slog.Default()
@@ -70,19 +70,19 @@ func TestReplTrackerMakeNonPrimary(t *testing.T) {
 
 	db.AddQueryPattern("\\s*INSERT INTO multigres\\.heartbeat.*", &fakepgdb.ExpectedResult{
 		Columns: []string{},
-		Rows:    [][]interface{}{},
+		Rows:    [][]any{},
 	})
 	db.AddQueryPattern("SELECT pg_backend_pid\\(\\)", &fakepgdb.ExpectedResult{
 		Columns: []string{"pg_backend_pid"},
-		Rows:    [][]interface{}{{int64(12345)}},
+		Rows:    [][]any{{int64(12345)}},
 	})
 	db.AddQueryPattern("SELECT pg_current_wal_lsn\\(\\)", &fakepgdb.ExpectedResult{
 		Columns: []string{"pg_current_wal_lsn"},
-		Rows:    [][]interface{}{{"0/1A2B3C4D"}},
+		Rows:    [][]any{{"0/1A2B3C4D"}},
 	})
 	db.AddQuery("SELECT ts FROM multigres.heartbeat WHERE shard_id = $1", &fakepgdb.ExpectedResult{
 		Columns: []string{"ts"},
-		Rows: [][]interface{}{
+		Rows: [][]any{
 			{time.Now().Add(-5 * time.Second).UnixNano()},
 		},
 	})
@@ -121,15 +121,15 @@ func TestReplTrackerEnableHeartbeat(t *testing.T) {
 
 	db.AddQueryPattern("\\s*INSERT INTO multigres\\.heartbeat.*", &fakepgdb.ExpectedResult{
 		Columns: []string{},
-		Rows:    [][]interface{}{},
+		Rows:    [][]any{},
 	})
 	db.AddQueryPattern("SELECT pg_backend_pid\\(\\)", &fakepgdb.ExpectedResult{
 		Columns: []string{"pg_backend_pid"},
-		Rows:    [][]interface{}{{int64(12345)}},
+		Rows:    [][]any{{int64(12345)}},
 	})
 	db.AddQueryPattern("SELECT pg_current_wal_lsn\\(\\)", &fakepgdb.ExpectedResult{
 		Columns: []string{"pg_current_wal_lsn"},
-		Rows:    [][]interface{}{{"0/1A2B3C4D"}},
+		Rows:    [][]any{{"0/1A2B3C4D"}},
 	})
 
 	logger := slog.Default()
@@ -175,19 +175,19 @@ func TestReplTrackerMakePrimaryAndNonPrimary(t *testing.T) {
 	// Setup queries for both writer and reader
 	db.AddQueryPattern("\\s*INSERT INTO multigres\\.heartbeat.*", &fakepgdb.ExpectedResult{
 		Columns: []string{},
-		Rows:    [][]interface{}{},
+		Rows:    [][]any{},
 	})
 	db.AddQueryPattern("SELECT pg_backend_pid\\(\\)", &fakepgdb.ExpectedResult{
 		Columns: []string{"pg_backend_pid"},
-		Rows:    [][]interface{}{{int64(12345)}},
+		Rows:    [][]any{{int64(12345)}},
 	})
 	db.AddQueryPattern("SELECT pg_current_wal_lsn\\(\\)", &fakepgdb.ExpectedResult{
 		Columns: []string{"pg_current_wal_lsn"},
-		Rows:    [][]interface{}{{"0/1A2B3C4D"}},
+		Rows:    [][]any{{"0/1A2B3C4D"}},
 	})
 	db.AddQuery("SELECT ts FROM multigres.heartbeat WHERE shard_id = $1", &fakepgdb.ExpectedResult{
 		Columns: []string{"ts"},
-		Rows: [][]interface{}{
+		Rows: [][]any{
 			{time.Now().Add(-5 * time.Second).UnixNano()},
 		},
 	})

@@ -23,9 +23,9 @@ import (
 	"time"
 
 	"github.com/multigres/multigres/go/clustermetadata/topo"
+	"github.com/multigres/multigres/go/common/rpcclient"
 	"github.com/multigres/multigres/go/multiorch/config"
 	"github.com/multigres/multigres/go/multiorch/store"
-	"github.com/multigres/multigres/go/multipooler/rpcclient"
 )
 
 // runIfNotRunning executes fn in a goroutine only if inProgress flag is false.
@@ -309,7 +309,7 @@ func (re *Engine) runMaintenanceLoop() {
 // Each worker runs in its own goroutine and processes health checks concurrently.
 func (re *Engine) startHealthCheckWorkers() {
 	numWorkers := re.config.GetHealthCheckWorkers()
-	for i := 0; i < numWorkers; i++ {
+	for range numWorkers {
 		go re.handlePoolerHealthChecks()
 	}
 	re.logger.Info("health check worker pool started", "workers", numWorkers)

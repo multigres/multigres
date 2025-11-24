@@ -312,7 +312,7 @@ func TestBackup_CreateListAndRestore(t *testing.T) {
 			var newRowExists bool
 			maxAttempts := 10
 			found := false
-			for i := 0; i < maxAttempts; i++ {
+			for i := range maxAttempts {
 				time.Sleep(1 * time.Second)
 				err = standbyDB.QueryRow("SELECT EXISTS(SELECT 1 FROM backup_restore_test WHERE data = $1)", testData).Scan(&newRowExists)
 				if err == nil && newRowExists {

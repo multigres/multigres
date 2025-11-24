@@ -130,7 +130,7 @@ func createExtendedQueryTestConn(t *testing.T, readBuf *bytes.Buffer, writeBuf *
 	// Create a minimal listener with writer pool for testing.
 	listener := &Listener{
 		writersPool: &sync.Pool{
-			New: func() interface{} {
+			New: func() any {
 				return bufio.NewWriter(tc)
 			},
 		},

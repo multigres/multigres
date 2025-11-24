@@ -450,8 +450,7 @@ func TestServerGetMultiPoolersByCell(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ctx, cancel := context.WithCancel(context.Background())
-			defer cancel()
+			ctx := t.Context()
 
 			ts, factory := memorytopo.NewServerAndFactory(ctx, cell)
 			defer ts.Close()
@@ -498,8 +497,7 @@ func TestServerGetMultiPoolersByCell(t *testing.T) {
 	// Run validation error tests
 	for _, tt := range validationTests {
 		t.Run(tt.name, func(t *testing.T) {
-			ctx, cancel := context.WithCancel(context.Background())
-			defer cancel()
+			ctx := t.Context()
 
 			ts, _ := memorytopo.NewServerAndFactory(ctx, cell)
 			defer ts.Close()

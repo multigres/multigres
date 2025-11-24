@@ -33,9 +33,9 @@ import (
 
 	"github.com/multigres/multigres/go/clustermetadata/topo"
 	"github.com/multigres/multigres/go/clustermetadata/topo/etcdtopo"
+	"github.com/multigres/multigres/go/common/rpcclient"
 	"github.com/multigres/multigres/go/multiorch/actions"
 	"github.com/multigres/multigres/go/multiorch/coordinator"
-	"github.com/multigres/multigres/go/multipooler/rpcclient"
 	"github.com/multigres/multigres/go/provisioner/local/pgbackrest"
 	"github.com/multigres/multigres/go/test/utils"
 
@@ -134,7 +134,7 @@ func TestBootstrapInitialization(t *testing.T) {
 	pgBackRestStanza := "bootstrap-test"
 
 	nodes := make([]*nodeInstance, 3)
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		nodes[i] = createEmptyNode(t, tempDir, cellName, shardID, database, i, etcdClientAddr, pgBackRestStanza)
 		defer cleanupNode(t, nodes[i])
 	}
@@ -241,7 +241,7 @@ func TestBootstrapInitialization(t *testing.T) {
 		assert.True(t, isActive)
 
 		// Parse and verify JSONB structure
-		var quorumRule map[string]interface{}
+		var quorumRule map[string]any
 		err = json.Unmarshal([]byte(quorumRuleJSON), &quorumRule)
 		require.NoError(t, err, "Should parse quorum_rule JSON")
 
