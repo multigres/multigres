@@ -110,9 +110,11 @@ func TestRecoveryEngine_HealthCheckQueue(t *testing.T) {
 
 	// Verify queue is working - outdated poolers get re-queued
 	// Update pooler1's LastCheckAttempted to be old
-	pooler1After.LastCheckAttempted = time.Now().Add(-200 * time.Millisecond)
-	re.poolerStore.Set(key1, pooler1After)
-	firstCheckTime := pooler1After.LastCheckAttempted
+	// Use DeepCopy to avoid race with background goroutines reading the same object
+	pooler1Copy := pooler1After.DeepCopy()
+	pooler1Copy.LastCheckAttempted = time.Now().Add(-200 * time.Millisecond)
+	re.poolerStore.Set(key1, pooler1Copy)
+	firstCheckTime := pooler1Copy.LastCheckAttempted
 
 	// Wait for health check ticker to re-queue and re-check pooler1
 	require.Eventually(t, func() bool {
