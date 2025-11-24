@@ -411,6 +411,16 @@ func (pm *MultiPoolerManager) getDatabase() string {
 	return ""
 }
 
+// getMultipoolerID returns the multipooler ID as a string
+func (pm *MultiPoolerManager) getMultipoolerID() string {
+	pm.cachedMultipooler.mu.Lock()
+	defer pm.cachedMultipooler.mu.Unlock()
+	if pm.cachedMultipooler.multipooler != nil && pm.cachedMultipooler.multipooler.Id != nil {
+		return topo.MultiPoolerIDString(pm.cachedMultipooler.multipooler.Id)
+	}
+	return ""
+}
+
 // getBackupLocation returns the backup location from the database topology
 func (pm *MultiPoolerManager) getBackupLocation(ctx context.Context) (string, error) {
 	database := pm.getDatabase()

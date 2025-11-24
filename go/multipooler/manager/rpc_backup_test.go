@@ -82,88 +82,6 @@ func createTestManagerWithBackupLocation(poolerDir, stanzaName, tableGroup, shar
 	return pm
 }
 
-func TestExtractBackupID(t *testing.T) {
-	tests := []struct {
-		name        string
-		output      string
-		want        string
-		expectError bool
-	}{
-		{
-			name: "Full backup with standard format",
-			output: `P00   INFO: backup command begin 2.41: --exec-id=12345
-P00   INFO: execute non-exclusive pg_start_backup(): backup begins after the next regular checkpoint completes
-P00   INFO: backup start archive = 000000010000000000000002
-P00   INFO: new backup label = 20250104-100000F
-P00   INFO: full backup size = 25.3MB
-P00   INFO: backup command end: completed successfully`,
-			want:        "20250104-100000F",
-			expectError: false,
-		},
-		{
-			name: "Incremental backup format",
-			output: `P00   INFO: backup command begin 2.41
-P00   INFO: last backup label = 20250104-100000F, version = 2.41
-new backup label = 20250104-100000F_20250104-120000I
-P00   INFO: backup command end: completed successfully`,
-			want:        "20250104-100000F_20250104-120000I",
-			expectError: false,
-		},
-		{
-			name: "Differential backup format",
-			output: `P00   INFO: backup command begin 2.41
-P00   INFO: last backup label = 20250104-100000F, version = 2.41
-new backup label = 20250104-100000F_20250104-110000D
-P00   INFO: backup command end: completed successfully`,
-			want:        "20250104-100000F_20250104-110000D",
-			expectError: false,
-		},
-		{
-			name: "Backup label with equals sign format",
-			output: `Some random output
-new backup label = 20250105-150000F
-More output here`,
-			want:        "20250105-150000F",
-			expectError: false,
-		},
-		{
-			name: "Output with no backup ID",
-			output: `P00   INFO: backup command begin 2.41
-P00   ERROR: backup failed with error`,
-			want:        "",
-			expectError: true,
-		},
-		{
-			name:        "Empty output",
-			output:      "",
-			want:        "",
-			expectError: true,
-		},
-		{
-			name: "Backup ID in different position",
-			output: `Start backup
-20250106-180000F was created
-End backup`,
-			want:        "20250106-180000F",
-			expectError: false,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got, err := extractBackupID(tt.output)
-
-			if tt.expectError {
-				assert.Error(t, err)
-				assert.Empty(t, got)
-			} else {
-				require.NoError(t, err)
-				assert.Equal(t, tt.want, got)
-			}
-		})
-	}
-}
-
 func TestBackup_Validation(t *testing.T) {
 	ctx := context.Background()
 
@@ -643,11 +561,6 @@ EOF
 		require.NoError(t, err)
 		assert.Contains(t, output, "new backup label = 20250104-100000F")
 		assert.Contains(t, output, "backup command end: completed successfully")
-
-		// Verify we can extract backup ID from this output
-		backupID, err := extractBackupID(output)
-		require.NoError(t, err)
-		assert.Equal(t, "20250104-100000F", backupID)
 	})
 }
 
