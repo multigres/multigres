@@ -35,6 +35,16 @@ var portCache sync.Map
 func GetFreePort(t *testing.T) int {
 	t.Helper()
 
+	// Track listeners we need to keep open to prevent OS port reuse
+	var heldListeners []net.Listener
+
+	// Clean up all held listeners when done
+	defer func() {
+		for _, lis := range heldListeners {
+			lis.Close()
+		}
+	}()
+
 	for {
 		lis, err := net.Listen("tcp", "localhost:0")
 		if err != nil {
@@ -55,7 +65,7 @@ func GetFreePort(t *testing.T) int {
 		}
 
 		// Port already in cache - hold this listener open to prevent OS reuse
-		// and try again. The defer ensures cleanup when we return with a good port.
-		defer lis.Close()
+		// and try again. Add to slice so we can close all at once when done.
+		heldListeners = append(heldListeners, lis)
 	}
 }

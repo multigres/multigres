@@ -25,9 +25,8 @@ import (
 // the same port twice within a single test, even when called rapidly
 // in succession.
 func TestGetFreePort_NoDuplicates(t *testing.T) {
-	// Allocate many ports rapidly - this reproduces the scenario where
-	// we saw port 41917 allocated twice in cluster_test.go
-	const numPorts = 20
+	// Allocate many ports rapidly
+	const numPorts = 100
 	ports := make([]int, numPorts)
 	for i := 0; i < numPorts; i++ {
 		ports[i] = GetFreePort(t)
