@@ -26,7 +26,7 @@ import (
 	"time"
 
 	"github.com/multigres/multigres/go/common/mterrors"
-	viperdebug "github.com/multigres/multigres/go/servenv/viperdebug"
+	viperdebug "github.com/multigres/multigres/go/common/servenv/viperdebug"
 	"github.com/multigres/multigres/go/tools/event"
 	"github.com/multigres/multigres/go/tools/netutil"
 	"github.com/multigres/multigres/go/tools/telemetry"
