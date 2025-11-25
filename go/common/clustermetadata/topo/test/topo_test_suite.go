@@ -18,7 +18,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/multigres/multigres/go/clustermetadata/topo"
+	"github.com/multigres/multigres/go/common/clustermetadata/topo"
 )
 
 // LocalCellName is the cell name used by this test suite.

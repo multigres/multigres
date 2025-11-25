@@ -21,9 +21,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/multigres/multigres/go/clustermetadata/topo"
-	"github.com/multigres/multigres/go/clustermetadata/topo/etcdtopo"
-	"github.com/multigres/multigres/go/clustermetadata/topo/test"
+	"github.com/multigres/multigres/go/common/clustermetadata/topo"
+	"github.com/multigres/multigres/go/common/clustermetadata/topo/etcdtopo"
+	"github.com/multigres/multigres/go/common/clustermetadata/topo/test"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 
 	"github.com/stretchr/testify/require"

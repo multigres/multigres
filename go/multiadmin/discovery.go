@@ -19,7 +19,7 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/multigres/multigres/go/clustermetadata/topo"
+	"github.com/multigres/multigres/go/common/clustermetadata/topo"
 )
 
 // ServiceInfo represents a discoverable service in the cluster

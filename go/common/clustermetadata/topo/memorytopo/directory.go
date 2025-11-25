@@ -19,7 +19,7 @@ import (
 
 	"github.com/multigres/multigres/go/pb/mtrpc"
 
-	"github.com/multigres/multigres/go/clustermetadata/topo"
+	"github.com/multigres/multigres/go/common/clustermetadata/topo"
 	"github.com/multigres/multigres/go/common/mterrors"
 )
 

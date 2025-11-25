@@ -28,137 +28,137 @@ import (
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 
-	"github.com/multigres/multigres/go/clustermetadata/topo"
-	"github.com/multigres/multigres/go/clustermetadata/topo/memorytopo"
+	"github.com/multigres/multigres/go/common/clustermetadata/topo"
+	"github.com/multigres/multigres/go/common/clustermetadata/topo/memorytopo"
 )
 
-var multigateways []*clustermetadatapb.MultiGateway
+var multiorchs []*clustermetadatapb.MultiOrch
 
 func init() {
 	uid := uint32(1)
 	for _, cell := range cells {
-		multigateway := getMultiGateway(cell, uid)
-		multigateways = append(multigateways, multigateway)
+		multiorch := getMultiOrch(cell, uid)
+		multiorchs = append(multiorchs, multiorch)
 		uid++
 	}
 }
 
-func getMultiGateway(cell string, uid uint32) *clustermetadatapb.MultiGateway {
-	return &clustermetadatapb.MultiGateway{
+func getMultiOrch(cell string, uid uint32) *clustermetadatapb.MultiOrch {
+	return &clustermetadatapb.MultiOrch{
 		Id: &clustermetadatapb.ID{
-			Component: clustermetadatapb.ID_MULTIGATEWAY,
+			Component: clustermetadatapb.ID_MULTIORCH,
 			Cell:      cell,
 			Name:      fmt.Sprintf("%d", uid),
 		},
 		Hostname: "host1",
 		PortMap: map[string]int32{
-			"grpc":     int32(uid),
-			"postgres": int32(uid + 5432),
+			"grpc": int32(uid),
+			"http": int32(uid + 8080),
 		},
 	}
 }
 
-func checkMultiGatewaysEqual(t *testing.T, expected, actual *clustermetadatapb.MultiGateway) {
+func checkMultiOrchsEqual(t *testing.T, expected, actual *clustermetadatapb.MultiOrch) {
 	t.Helper()
 	require.Equal(t, expected.Id.String(), actual.Id.String())
 	require.Equal(t, expected.Hostname, actual.Hostname)
 	require.Equal(t, expected.PortMap, actual.PortMap)
 }
 
-func checkMultiGatewayInfosEqual(t *testing.T, expected, actual []*topo.MultiGatewayInfo) {
+func checkMultiOrchInfosEqual(t *testing.T, expected, actual []*topo.MultiOrchInfo) {
 	t.Helper()
 	require.Len(t, actual, len(expected))
-	for _, actualMG := range actual {
+	for _, actualMO := range actual {
 		found := false
-		for _, expectedMG := range expected {
-			if topo.MultiGatewayIDString(actualMG.Id) == topo.MultiGatewayIDString(expectedMG.Id) {
-				checkMultiGatewaysEqual(t, expectedMG.MultiGateway, actualMG.MultiGateway)
+		for _, expectedMO := range expected {
+			if topo.MultiOrchIDString(actualMO.Id) == topo.MultiOrchIDString(expectedMO.Id) {
+				checkMultiOrchsEqual(t, expectedMO.MultiOrch, actualMO.MultiOrch)
 				found = true
 				break
 			}
 		}
-		require.True(t, found, "unexpected multigateway %v", actualMG.IDString())
+		require.True(t, found, "unexpected multiorch %v", actualMO.IDString())
 	}
 }
 
-// Test various cases of calls to GetMultiGatewaysByCell.
-func TestServerGetMultiGatewaysByCell(t *testing.T) {
+// Test various cases of calls to GetMultiOrchsByCell.
+func TestServerGetMultiOrchsByCell(t *testing.T) {
 	const cell = "zone1"
 
 	tests := []struct {
-		name                    string
-		createCellMultiGateways int
-		expectedMultiGateways   []*clustermetadatapb.MultiGateway
-		listError               error
+		name                string
+		createCellMultiOrch int
+		expectedMultiOrch   []*clustermetadatapb.MultiOrch
+		listError           error
 	}{
 		{
-			name:                    "single",
-			createCellMultiGateways: 1,
-			expectedMultiGateways: []*clustermetadatapb.MultiGateway{
+			name:                "single",
+			createCellMultiOrch: 1,
+			expectedMultiOrch: []*clustermetadatapb.MultiOrch{
 				{
 					Id: &clustermetadatapb.ID{
-						Component: clustermetadatapb.ID_MULTIGATEWAY,
+						Component: clustermetadatapb.ID_MULTIORCH,
 						Cell:      cell,
 						Name:      "alpha",
 					},
 					Hostname: "host1",
 					PortMap: map[string]int32{
-						"grpc":     1,
-						"postgres": 5433,
+						"grpc": 1,
+						"http": 8081,
 					},
 				},
 			},
 		},
 		{
-			name:                    "multiple",
-			createCellMultiGateways: 4,
-			expectedMultiGateways: []*clustermetadatapb.MultiGateway{
+			name:                "multiple",
+			createCellMultiOrch: 4,
+			expectedMultiOrch: []*clustermetadatapb.MultiOrch{
 				{
 					Id: &clustermetadatapb.ID{
-						Component: clustermetadatapb.ID_MULTIGATEWAY,
+						Component: clustermetadatapb.ID_MULTIORCH,
 						Cell:      cell,
 						Name:      "beta",
 					},
 					Hostname: "host1",
 					PortMap: map[string]int32{
-						"grpc":     1,
-						"postgres": 5433,
+						"grpc": 1,
+						"http": 8081,
 					},
 				},
 				{
 					Id: &clustermetadatapb.ID{
-						Component: clustermetadatapb.ID_MULTIGATEWAY,
+						Component: clustermetadatapb.ID_MULTIORCH,
 						Cell:      cell,
 						Name:      "echo",
 					},
 					Hostname: "host1",
 					PortMap: map[string]int32{
-						"grpc":     2,
-						"postgres": 5434,
+						"grpc": 2,
+						"http": 8082,
 					},
 				},
 				{
 					Id: &clustermetadatapb.ID{
-						Component: clustermetadatapb.ID_MULTIGATEWAY,
+						Component: clustermetadatapb.ID_MULTIORCH,
 						Cell:      cell,
 						Name:      "foxtrot",
 					},
 					Hostname: "host1",
 					PortMap: map[string]int32{
-						"grpc":     3,
-						"postgres": 5435,
+						"grpc": 3,
+						"http": 8083,
 					},
 				},
 				{
 					Id: &clustermetadatapb.ID{
-						Component: clustermetadatapb.ID_MULTIGATEWAY,
+						Component: clustermetadatapb.ID_MULTIORCH,
 						Cell:      cell,
 						Name:      "golf",
 					},
 					Hostname: "host1",
 					PortMap: map[string]int32{
-						"grpc":     4,
-						"postgres": 5436,
+						"grpc": 4,
+						"http": 8084,
 					},
 				},
 			},
@@ -175,43 +175,43 @@ func TestServerGetMultiGatewaysByCell(t *testing.T) {
 				factory.AddOperationError(memorytopo.List, ".*", tt.listError)
 			}
 
-			// Create multigateways with names from expected results
-			for i, expectedMG := range tt.expectedMultiGateways {
-				multigateway := &clustermetadatapb.MultiGateway{
+			// Create multiorchs with names from expected results
+			for i, expectedMO := range tt.expectedMultiOrch {
+				multiorch := &clustermetadatapb.MultiOrch{
 					Id: &clustermetadatapb.ID{
-						Component: clustermetadatapb.ID_MULTIGATEWAY,
+						Component: clustermetadatapb.ID_MULTIORCH,
 						Cell:      cell,
-						Name:      expectedMG.Id.Name,
+						Name:      expectedMO.Id.Name,
 					},
 					Hostname: "host1",
 					PortMap: map[string]int32{
-						"grpc":     int32(i + 1),
-						"postgres": int32(i + 1 + 5432),
+						"grpc": int32(i + 1),
+						"http": int32(i + 1 + 8080),
 					},
 				}
-				require.NoError(t, ts.CreateMultiGateway(ctx, multigateway))
+				require.NoError(t, ts.CreateMultiOrch(ctx, multiorch))
 			}
 
-			out, err := ts.GetMultiGatewaysByCell(ctx, cell)
+			out, err := ts.GetMultiOrchsByCell(ctx, cell)
 			require.NoError(t, err)
-			require.Len(t, out, len(tt.expectedMultiGateways))
+			require.Len(t, out, len(tt.expectedMultiOrch))
 
-			slices.SortFunc(out, func(i, j *topo.MultiGatewayInfo) int {
+			slices.SortFunc(out, func(i, j *topo.MultiOrchInfo) int {
 				return cmp.Compare(i.Id.Name, j.Id.Name)
 			})
-			slices.SortFunc(tt.expectedMultiGateways, func(i, j *clustermetadatapb.MultiGateway) int {
+			slices.SortFunc(tt.expectedMultiOrch, func(i, j *clustermetadatapb.MultiOrch) int {
 				return cmp.Compare(i.Id.Name, j.Id.Name)
 			})
 
-			for i, multigatewayInfo := range out {
-				checkMultiGatewaysEqual(t, tt.expectedMultiGateways[i], multigatewayInfo.MultiGateway)
+			for i, multiorchInfo := range out {
+				checkMultiOrchsEqual(t, tt.expectedMultiOrch[i], multiorchInfo.MultiOrch)
 			}
 		})
 	}
 }
 
-// TestMultiGatewayIDString tests the ID string functionality
-func TestMultiGatewayIDString(t *testing.T) {
+// TestMultiOrchIDString tests the ID string functionality
+func TestMultiOrchIDString(t *testing.T) {
 	tests := []struct {
 		name     string
 		id       *clustermetadatapb.ID
@@ -219,31 +219,31 @@ func TestMultiGatewayIDString(t *testing.T) {
 	}{
 		{
 			name:     "simple case",
-			id:       &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIGATEWAY, Cell: "zone1", Name: "100"},
-			expected: "multigateway-zone1-100",
+			id:       &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIORCH, Cell: "zone1", Name: "100"},
+			expected: "multiorch-zone1-100",
 		},
 		{
 			name:     "you can use name as numbers",
-			id:       &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIGATEWAY, Cell: "prod", Name: "0"},
-			expected: "multigateway-prod-0",
+			id:       &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIORCH, Cell: "prod", Name: "0"},
+			expected: "multiorch-prod-0",
 		},
 		{
 			name:     "funny name",
-			id:       &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIGATEWAY, Cell: "prod", Name: "sleepy"},
-			expected: "multigateway-prod-sleepy",
+			id:       &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIORCH, Cell: "prod", Name: "sleepy"},
+			expected: "multiorch-prod-sleepy",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := topo.MultiGatewayIDString(tt.id)
+			result := topo.MultiOrchIDString(tt.id)
 			require.Equal(t, tt.expected, result)
 		})
 	}
 }
 
-// TestMultiGatewayCRUDOperations tests basic CRUD operations for multigateways
-func TestMultiGatewayCRUDOperations(t *testing.T) {
+// TestMultiOrchCRUDOperations tests basic CRUD operations for multiorchs
+func TestMultiOrchCRUDOperations(t *testing.T) {
 	ctx := context.Background()
 	cell := "zone-1"
 
@@ -252,106 +252,106 @@ func TestMultiGatewayCRUDOperations(t *testing.T) {
 		test func(t *testing.T, ts topo.Store)
 	}{
 		{
-			name: "Create and Get MultiGateway",
+			name: "Create and Get MultiOrch",
 			test: func(t *testing.T, ts topo.Store) {
-				multigateway := &clustermetadatapb.MultiGateway{
+				multiorch := &clustermetadatapb.MultiOrch{
 					Id: &clustermetadatapb.ID{
-						Component: clustermetadatapb.ID_MULTIGATEWAY,
+						Component: clustermetadatapb.ID_MULTIORCH,
 						Cell:      cell,
 						Name:      "november",
 					},
 					Hostname: "host1.example.com",
-					PortMap:  map[string]int32{"grpc": 8080, "postgres": 5432},
+					PortMap:  map[string]int32{"grpc": 8080, "http": 9090},
 				}
-				err := ts.CreateMultiGateway(ctx, multigateway)
+				err := ts.CreateMultiOrch(ctx, multiorch)
 				require.NoError(t, err)
 
-				retrieved, err := ts.GetMultiGateway(ctx, multigateway.Id)
+				retrieved, err := ts.GetMultiOrch(ctx, multiorch.Id)
 				require.NoError(t, err)
-				checkMultiGatewaysEqual(t, multigateway, retrieved.MultiGateway)
+				checkMultiOrchsEqual(t, multiorch, retrieved.MultiOrch)
 				require.NotZero(t, retrieved.Version())
 			},
 		},
 		{
-			name: "Get nonexistent MultiGateway",
+			name: "Get nonexistent MultiOrch",
 			test: func(t *testing.T, ts topo.Store) {
-				id := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIGATEWAY, Cell: cell, Name: "999"}
-				_, err := ts.GetMultiGateway(ctx, id)
+				id := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIORCH, Cell: cell, Name: "999"}
+				_, err := ts.GetMultiOrch(ctx, id)
 				require.Error(t, err)
 				require.True(t, errors.Is(err, &topo.TopoError{Code: topo.NoNode}))
 			},
 		},
 		{
-			name: "Create duplicate MultiGateway fails",
+			name: "Create duplicate MultiOrch fails",
 			test: func(t *testing.T, ts topo.Store) {
-				multigateway := &clustermetadatapb.MultiGateway{
+				multiorch := &clustermetadatapb.MultiOrch{
 					Id: &clustermetadatapb.ID{
-						Component: clustermetadatapb.ID_MULTIGATEWAY,
+						Component: clustermetadatapb.ID_MULTIORCH,
 						Cell:      cell,
 						Name:      "oscar",
 					},
 					Hostname: "host1.example.com",
 					PortMap:  map[string]int32{"grpc": 8080},
 				}
-				err := ts.CreateMultiGateway(ctx, multigateway)
+				err := ts.CreateMultiOrch(ctx, multiorch)
 				require.NoError(t, err)
 
-				err = ts.CreateMultiGateway(ctx, multigateway)
+				err = ts.CreateMultiOrch(ctx, multiorch)
 				require.Error(t, err)
 				require.True(t, errors.Is(err, &topo.TopoError{Code: topo.NodeExists}))
 			},
 		},
 		{
-			name: "Update MultiGateway",
+			name: "Update MultiOrch",
 			test: func(t *testing.T, ts topo.Store) {
-				multigateway := &clustermetadatapb.MultiGateway{
+				multiorch := &clustermetadatapb.MultiOrch{
 					Id: &clustermetadatapb.ID{
-						Component: clustermetadatapb.ID_MULTIGATEWAY,
+						Component: clustermetadatapb.ID_MULTIORCH,
 						Cell:      cell,
 						Name:      "papa",
 					},
 					Hostname: "host1.example.com",
 					PortMap:  map[string]int32{"grpc": 8080},
 				}
-				err := ts.CreateMultiGateway(ctx, multigateway)
+				err := ts.CreateMultiOrch(ctx, multiorch)
 				require.NoError(t, err)
 
-				retrieved, err := ts.GetMultiGateway(ctx, multigateway.Id)
+				retrieved, err := ts.GetMultiOrch(ctx, multiorch.Id)
 				require.NoError(t, err)
 				oldVersion := retrieved.Version()
 
 				retrieved.Hostname = "host2.example.com"
-				retrieved.PortMap["postgres"] = 5432
+				retrieved.PortMap["http"] = 9090
 
-				err = ts.UpdateMultiGateway(ctx, retrieved)
+				err = ts.UpdateMultiOrch(ctx, retrieved)
 				require.NoError(t, err)
 
-				updated, err := ts.GetMultiGateway(ctx, multigateway.Id)
+				updated, err := ts.GetMultiOrch(ctx, multiorch.Id)
 				require.NoError(t, err)
 				require.Equal(t, "host2.example.com", updated.Hostname)
-				require.Equal(t, int32(5432), updated.PortMap["postgres"])
+				require.Equal(t, int32(9090), updated.PortMap["http"])
 				require.NotEqual(t, oldVersion, updated.Version())
 			},
 		},
 		{
-			name: "Delete MultiGateway",
+			name: "Delete MultiOrch",
 			test: func(t *testing.T, ts topo.Store) {
-				multigateway := &clustermetadatapb.MultiGateway{
+				multiorch := &clustermetadatapb.MultiOrch{
 					Id: &clustermetadatapb.ID{
-						Component: clustermetadatapb.ID_MULTIGATEWAY,
+						Component: clustermetadatapb.ID_MULTIORCH,
 						Cell:      cell,
 						Name:      "quebec",
 					},
 					Hostname: "host1.example.com",
 					PortMap:  map[string]int32{"grpc": 8080},
 				}
-				err := ts.CreateMultiGateway(ctx, multigateway)
+				err := ts.CreateMultiOrch(ctx, multiorch)
 				require.NoError(t, err)
 
-				err = ts.UnregisterMultiGateway(ctx, multigateway.Id)
+				err = ts.UnregisterMultiOrch(ctx, multiorch.Id)
 				require.NoError(t, err)
 
-				_, err = ts.GetMultiGateway(ctx, multigateway.Id)
+				_, err = ts.GetMultiOrch(ctx, multiorch.Id)
 				require.Error(t, err)
 
 				require.True(t, errors.Is(err, &topo.TopoError{Code: topo.NoNode}))
@@ -368,8 +368,8 @@ func TestMultiGatewayCRUDOperations(t *testing.T) {
 	}
 }
 
-// TestGetMultiGatewayIDsByCell tests getting multigateway IDs by cell
-func TestGetMultiGatewayIDsByCell(t *testing.T) {
+// TestGetMultiOrchIDsByCell tests getting multiorch IDs by cell
+func TestGetMultiOrchIDsByCell(t *testing.T) {
 	ctx := context.Background()
 	cell1 := "zone-1"
 	cell2 := "zone-2"
@@ -381,18 +381,18 @@ func TestGetMultiGatewayIDsByCell(t *testing.T) {
 		{
 			name: "Empty cell returns empty list",
 			test: func(t *testing.T, ts topo.Store) {
-				ids, err := ts.GetMultiGatewayIDsByCell(ctx, cell1)
+				ids, err := ts.GetMultiOrchIDsByCell(ctx, cell1)
 				require.NoError(t, err)
 				require.Empty(t, ids)
 			},
 		},
 		{
-			name: "Cell with multigateways",
+			name: "Cell with multiorchs",
 			test: func(t *testing.T, ts topo.Store) {
-				multigateways := []*clustermetadatapb.MultiGateway{
+				multiorchs := []*clustermetadatapb.MultiOrch{
 					{
 						Id: &clustermetadatapb.ID{
-							Component: clustermetadatapb.ID_MULTIGATEWAY,
+							Component: clustermetadatapb.ID_MULTIORCH,
 							Cell:      cell1,
 							Name:      "bravo",
 						},
@@ -401,7 +401,7 @@ func TestGetMultiGatewayIDsByCell(t *testing.T) {
 					},
 					{
 						Id: &clustermetadatapb.ID{
-							Component: clustermetadatapb.ID_MULTIGATEWAY,
+							Component: clustermetadatapb.ID_MULTIORCH,
 							Cell:      cell1,
 							Name:      "charlie",
 						},
@@ -410,22 +410,22 @@ func TestGetMultiGatewayIDsByCell(t *testing.T) {
 					},
 				}
 
-				for _, mg := range multigateways {
-					require.NoError(t, ts.CreateMultiGateway(ctx, mg))
+				for _, mo := range multiorchs {
+					require.NoError(t, ts.CreateMultiOrch(ctx, mo))
 				}
 
-				ids, err := ts.GetMultiGatewayIDsByCell(ctx, cell1)
+				ids, err := ts.GetMultiOrchIDsByCell(ctx, cell1)
 				require.NoError(t, err)
 				require.Len(t, ids, 2)
 
 				expectedIDs := []*clustermetadatapb.ID{
 					{
-						Component: clustermetadatapb.ID_MULTIGATEWAY,
+						Component: clustermetadatapb.ID_MULTIORCH,
 						Cell:      cell1,
 						Name:      "bravo",
 					},
 					{
-						Component: clustermetadatapb.ID_MULTIGATEWAY,
+						Component: clustermetadatapb.ID_MULTIORCH,
 						Cell:      cell1,
 						Name:      "charlie",
 					},
@@ -440,16 +440,16 @@ func TestGetMultiGatewayIDsByCell(t *testing.T) {
 					require.Equal(t, expectedIDs[i].Name, id.Name)
 				}
 
-				// Verify cell boundary: multigateways are NOT accessible from cell2
-				cell2Ids, err := ts.GetMultiGatewayIDsByCell(ctx, cell2)
+				// Verify cell boundary: multiorchs are NOT accessible from cell2
+				cell2Ids, err := ts.GetMultiOrchIDsByCell(ctx, cell2)
 				require.NoError(t, err)
-				require.Empty(t, cell2Ids, "multigateways should not be accessible from other cells")
+				require.Empty(t, cell2Ids, "multiorchs should not be accessible from other cells")
 			},
 		},
 		{
 			name: "Nonexistent cell returns error",
 			test: func(t *testing.T, ts topo.Store) {
-				_, err := ts.GetMultiGatewayIDsByCell(ctx, "nonexistent")
+				_, err := ts.GetMultiOrchIDsByCell(ctx, "nonexistent")
 				require.Error(t, err)
 				require.True(t, errors.Is(err, &topo.TopoError{Code: topo.NoNode}))
 			},
@@ -465,8 +465,8 @@ func TestGetMultiGatewayIDsByCell(t *testing.T) {
 	}
 }
 
-// TestUpdateMultiGatewayFields tests the update fields functionality with retry logic
-func TestUpdateMultiGatewayFields(t *testing.T) {
+// TestUpdateMultiOrchFields tests the update fields functionality with retry logic
+func TestUpdateMultiOrchFields(t *testing.T) {
 	ctx := context.Background()
 	cell := "zone-1"
 
@@ -478,55 +478,55 @@ func TestUpdateMultiGatewayFields(t *testing.T) {
 			name: "Successful update",
 			test: func(t *testing.T, ts topo.Store) {
 				id := &clustermetadatapb.ID{
-					Component: clustermetadatapb.ID_MULTIGATEWAY,
+					Component: clustermetadatapb.ID_MULTIORCH,
 					Cell:      cell,
 					Name:      "tango",
 				}
-				multigateway := &clustermetadatapb.MultiGateway{
+				multiorch := &clustermetadatapb.MultiOrch{
 					Id:       id,
 					Hostname: "host1",
 					PortMap:  map[string]int32{"grpc": 8080},
 				}
-				require.NoError(t, ts.CreateMultiGateway(ctx, multigateway))
+				require.NoError(t, ts.CreateMultiOrch(ctx, multiorch))
 
-				updated, err := ts.UpdateMultiGatewayFields(ctx, id, func(mg *clustermetadatapb.MultiGateway) error {
-					mg.Hostname = "newhost"
-					mg.PortMap["postgres"] = 5432
+				updated, err := ts.UpdateMultiOrchFields(ctx, id, func(mo *clustermetadatapb.MultiOrch) error {
+					mo.Hostname = "newhost"
+					mo.PortMap["http"] = 9090
 					return nil
 				})
 				require.NoError(t, err)
 				require.Equal(t, "newhost", updated.Hostname)
-				require.Equal(t, int32(5432), updated.PortMap["postgres"])
+				require.Equal(t, int32(9090), updated.PortMap["http"])
 
-				retrieved, err := ts.GetMultiGateway(ctx, id)
+				retrieved, err := ts.GetMultiOrch(ctx, id)
 				require.NoError(t, err)
 				require.Equal(t, "newhost", retrieved.Hostname)
-				require.Equal(t, int32(5432), retrieved.PortMap["postgres"])
+				require.Equal(t, int32(9090), retrieved.PortMap["http"])
 			},
 		},
 		{
 			name: "Update function returns error",
 			test: func(t *testing.T, ts topo.Store) {
 				id := &clustermetadatapb.ID{
-					Component: clustermetadatapb.ID_MULTIGATEWAY,
+					Component: clustermetadatapb.ID_MULTIORCH,
 					Cell:      cell,
 					Name:      "uniform",
 				}
-				multigateway := &clustermetadatapb.MultiGateway{
+				multiorch := &clustermetadatapb.MultiOrch{
 					Id:       id,
 					Hostname: "host1",
 					PortMap:  map[string]int32{"grpc": 8080},
 				}
-				require.NoError(t, ts.CreateMultiGateway(ctx, multigateway))
+				require.NoError(t, ts.CreateMultiOrch(ctx, multiorch))
 
 				updateErr := errors.New("update failed")
-				_, err := ts.UpdateMultiGatewayFields(ctx, id, func(mg *clustermetadatapb.MultiGateway) error {
+				_, err := ts.UpdateMultiOrchFields(ctx, id, func(mo *clustermetadatapb.MultiOrch) error {
 					return updateErr
 				})
 				require.Error(t, err)
 				require.Equal(t, updateErr, err)
 
-				retrieved, err := ts.GetMultiGateway(ctx, id)
+				retrieved, err := ts.GetMultiOrch(ctx, id)
 				require.NoError(t, err)
 				require.Equal(t, "host1", retrieved.Hostname)
 			},
@@ -535,18 +535,18 @@ func TestUpdateMultiGatewayFields(t *testing.T) {
 			name: "NoUpdateNeeded returns nil",
 			test: func(t *testing.T, ts topo.Store) {
 				id := &clustermetadatapb.ID{
-					Component: clustermetadatapb.ID_MULTIGATEWAY,
+					Component: clustermetadatapb.ID_MULTIORCH,
 					Cell:      cell,
 					Name:      "victor",
 				}
-				multigateway := &clustermetadatapb.MultiGateway{
+				multiorch := &clustermetadatapb.MultiOrch{
 					Id:       id,
 					Hostname: "host1",
 					PortMap:  map[string]int32{"grpc": 8080},
 				}
-				require.NoError(t, ts.CreateMultiGateway(ctx, multigateway))
+				require.NoError(t, ts.CreateMultiOrch(ctx, multiorch))
 
-				result, err := ts.UpdateMultiGatewayFields(ctx, id, func(mg *clustermetadatapb.MultiGateway) error {
+				result, err := ts.UpdateMultiOrchFields(ctx, id, func(mo *clustermetadatapb.MultiOrch) error {
 					return &topo.TopoError{Code: topo.NoUpdateNeeded}
 				})
 				require.NoError(t, err)
@@ -560,32 +560,32 @@ func TestUpdateMultiGatewayFields(t *testing.T) {
 				defer tsWithFactory.Close()
 
 				id := &clustermetadatapb.ID{
-					Component: clustermetadatapb.ID_MULTIGATEWAY,
+					Component: clustermetadatapb.ID_MULTIORCH,
 					Cell:      cell,
 					Name:      "whiskey",
 				}
-				multigateway := &clustermetadatapb.MultiGateway{
+				multiorch := &clustermetadatapb.MultiOrch{
 					Id:       id,
 					Hostname: "host1",
 					PortMap:  map[string]int32{"grpc": 8080},
 				}
-				require.NoError(t, tsWithFactory.CreateMultiGateway(ctx, multigateway))
+				require.NoError(t, tsWithFactory.CreateMultiOrch(ctx, multiorch))
 
 				badVersionErr := &topo.TopoError{Code: topo.BadVersion}
-				gatewayPath := path.Join(topo.GatewaysPath, topo.MultiGatewayIDString(id), topo.GatewayFile)
-				factory.AddOneTimeOperationError(memorytopo.Update, gatewayPath, badVersionErr)
+				orchPath := path.Join(topo.OrchsPath, topo.MultiOrchIDString(id), topo.OrchFile)
+				factory.AddOneTimeOperationError(memorytopo.Update, orchPath, badVersionErr)
 
 				updateCallCount := 0
-				updated, err := tsWithFactory.UpdateMultiGatewayFields(ctx, id, func(mg *clustermetadatapb.MultiGateway) error {
+				updated, err := tsWithFactory.UpdateMultiOrchFields(ctx, id, func(mo *clustermetadatapb.MultiOrch) error {
 					updateCallCount++
-					mg.Hostname = "newhost"
+					mo.Hostname = "newhost"
 					return nil
 				})
 				require.NoError(t, err)
 				require.Equal(t, 2, updateCallCount)
 				require.Equal(t, "newhost", updated.Hostname)
 
-				retrieved, err := tsWithFactory.GetMultiGateway(ctx, id)
+				retrieved, err := tsWithFactory.GetMultiOrch(ctx, id)
 				require.NoError(t, err)
 				require.Equal(t, "newhost", retrieved.Hostname)
 			},
@@ -601,8 +601,8 @@ func TestUpdateMultiGatewayFields(t *testing.T) {
 	}
 }
 
-// TestInitMultiGateway tests the init multigateway functionality
-func TestInitMultiGateway(t *testing.T) {
+// TestInitMultiOrch tests the init multiorch functionality
+func TestInitMultiOrch(t *testing.T) {
 	ctx := context.Background()
 	cell := "zone-1"
 
@@ -611,11 +611,11 @@ func TestInitMultiGateway(t *testing.T) {
 		test func(t *testing.T, ts topo.Store)
 	}{
 		{
-			name: "Create new multigateway",
+			name: "Create new multiorch",
 			test: func(t *testing.T, ts topo.Store) {
-				multigateway := &clustermetadatapb.MultiGateway{
+				multiorch := &clustermetadatapb.MultiOrch{
 					Id: &clustermetadatapb.ID{
-						Component: clustermetadatapb.ID_MULTIGATEWAY,
+						Component: clustermetadatapb.ID_MULTIORCH,
 						Cell:      cell,
 						Name:      "zulu",
 					},
@@ -623,63 +623,63 @@ func TestInitMultiGateway(t *testing.T) {
 					PortMap:  map[string]int32{"grpc": 8080},
 				}
 
-				err := ts.RegisterMultiGateway(ctx, multigateway, false)
+				err := ts.RegisterMultiOrch(ctx, multiorch, false)
 				require.NoError(t, err)
 
-				retrieved, err := ts.GetMultiGateway(ctx, multigateway.Id)
+				retrieved, err := ts.GetMultiOrch(ctx, multiorch.Id)
 				require.NoError(t, err)
-				checkMultiGatewaysEqual(t, multigateway, retrieved.MultiGateway)
+				checkMultiOrchsEqual(t, multiorch, retrieved.MultiOrch)
 			},
 		},
 		{
-			name: "Update existing multigateway with allowUpdate=true",
+			name: "Update existing multiorch with allowUpdate=true",
 			test: func(t *testing.T, ts topo.Store) {
-				original := &clustermetadatapb.MultiGateway{
+				original := &clustermetadatapb.MultiOrch{
 					Id: &clustermetadatapb.ID{
-						Component: clustermetadatapb.ID_MULTIGATEWAY,
+						Component: clustermetadatapb.ID_MULTIORCH,
 						Cell:      cell,
 						Name:      "xray",
 					},
 					Hostname: "host1",
 					PortMap:  map[string]int32{"grpc": 8080},
 				}
-				require.NoError(t, ts.CreateMultiGateway(ctx, original))
+				require.NoError(t, ts.CreateMultiOrch(ctx, original))
 
-				updated := &clustermetadatapb.MultiGateway{
+				updated := &clustermetadatapb.MultiOrch{
 					Id: &clustermetadatapb.ID{
-						Component: clustermetadatapb.ID_MULTIGATEWAY,
+						Component: clustermetadatapb.ID_MULTIORCH,
 						Cell:      cell,
 						Name:      "xray",
 					},
 					Hostname: "newhost",
-					PortMap:  map[string]int32{"grpc": 8081, "postgres": 5432},
+					PortMap:  map[string]int32{"grpc": 8081, "http": 9090},
 				}
 
-				err := ts.RegisterMultiGateway(ctx, updated, true)
+				err := ts.RegisterMultiOrch(ctx, updated, true)
 				require.NoError(t, err)
 
-				retrieved, err := ts.GetMultiGateway(ctx, original.Id)
+				retrieved, err := ts.GetMultiOrch(ctx, original.Id)
 				require.NoError(t, err)
-				checkMultiGatewaysEqual(t, updated, retrieved.MultiGateway)
+				checkMultiOrchsEqual(t, updated, retrieved.MultiOrch)
 			},
 		},
 		{
-			name: "Fail to update existing multigateway with allowUpdate=false",
+			name: "Fail to update existing multiorch with allowUpdate=false",
 			test: func(t *testing.T, ts topo.Store) {
-				original := &clustermetadatapb.MultiGateway{
+				original := &clustermetadatapb.MultiOrch{
 					Id: &clustermetadatapb.ID{
-						Component: clustermetadatapb.ID_MULTIGATEWAY,
+						Component: clustermetadatapb.ID_MULTIORCH,
 						Cell:      cell,
 						Name:      "whiskey",
 					},
 					Hostname: "host1",
 					PortMap:  map[string]int32{"grpc": 8080},
 				}
-				require.NoError(t, ts.CreateMultiGateway(ctx, original))
+				require.NoError(t, ts.CreateMultiOrch(ctx, original))
 
-				updated := &clustermetadatapb.MultiGateway{
+				updated := &clustermetadatapb.MultiOrch{
 					Id: &clustermetadatapb.ID{
-						Component: clustermetadatapb.ID_MULTIGATEWAY,
+						Component: clustermetadatapb.ID_MULTIORCH,
 						Cell:      cell,
 						Name:      "whiskey",
 					},
@@ -687,7 +687,7 @@ func TestInitMultiGateway(t *testing.T) {
 					PortMap:  map[string]int32{"grpc": 8081},
 				}
 
-				err := ts.RegisterMultiGateway(ctx, updated, false)
+				err := ts.RegisterMultiOrch(ctx, updated, false)
 				require.Error(t, err)
 				require.True(t, errors.Is(err, &topo.TopoError{Code: topo.NodeExists}))
 			},
@@ -703,21 +703,21 @@ func TestInitMultiGateway(t *testing.T) {
 	}
 }
 
-// TestNewMultiGateway tests the factory function
-func TestNewMultiGateway(t *testing.T) {
+// TestNewMultiOrch tests the factory function
+func TestNewMultiOrch(t *testing.T) {
 	tests := []struct {
 		testName string
 		name     string
 		cell     string
 		host     string
-		expected *clustermetadatapb.MultiGateway
+		expected *clustermetadatapb.MultiOrch
 	}{
 		{
 			testName: "basic creation",
 			name:     "100",
 			cell:     "zone1",
 			host:     "host.example.com",
-			expected: &clustermetadatapb.MultiGateway{
+			expected: &clustermetadatapb.MultiOrch{
 				Id: &clustermetadatapb.ID{
 					Cell: "zone1",
 					Name: "100",
@@ -730,7 +730,7 @@ func TestNewMultiGateway(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.testName, func(t *testing.T) {
-			result := topo.NewMultiGateway(tt.name, tt.cell, tt.host)
+			result := topo.NewMultiOrch(tt.name, tt.cell, tt.host)
 			require.Equal(t, tt.expected.Id.Cell, result.Id.Cell)
 			require.Equal(t, tt.expected.Id.Name, result.Id.Name)
 			require.Equal(t, tt.expected.Hostname, result.Hostname)
@@ -740,7 +740,7 @@ func TestNewMultiGateway(t *testing.T) {
 
 	// Test random name generation when name is empty
 	t.Run("empty name generates random name", func(t *testing.T) {
-		result := topo.NewMultiGateway("", "zone2", "host2.example.com")
+		result := topo.NewMultiOrch("", "zone2", "host2.example.com")
 
 		// Verify basic properties
 		require.Equal(t, "zone2", result.Id.Cell)
@@ -758,37 +758,37 @@ func TestNewMultiGateway(t *testing.T) {
 		}
 
 		// Test that multiple calls generate different names
-		result2 := topo.NewMultiGateway("", "zone2", "host2.example.com")
+		result2 := topo.NewMultiOrch("", "zone2", "host2.example.com")
 		require.NotEqual(t, result.Id.Name, result2.Id.Name, "multiple calls should generate different random names")
 	})
 }
 
-// TestMultiGatewayInfo tests the MultiGatewayInfo methods
-func TestMultiGatewayInfo(t *testing.T) {
-	multigateway := &clustermetadatapb.MultiGateway{
+// TestMultiOrchInfo tests the MultiOrchInfo methods
+func TestMultiOrchInfo(t *testing.T) {
+	multiorch := &clustermetadatapb.MultiOrch{
 		Id: &clustermetadatapb.ID{
-			Component: clustermetadatapb.ID_MULTIGATEWAY,
+			Component: clustermetadatapb.ID_MULTIORCH,
 			Cell:      "zone1",
 			Name:      "100",
 		},
 		Hostname: "host.example.com",
 		PortMap: map[string]int32{
-			"grpc":     8080,
-			"postgres": 5432,
+			"grpc": 8080,
+			"http": 9090,
 		},
 	}
 	version := memorytopo.NodeVersion(123)
-	info := topo.NewMultiGatewayInfo(multigateway, version)
+	info := topo.NewMultiOrchInfo(multiorch, version)
 
 	t.Run("String method", func(t *testing.T) {
 		result := info.String()
-		expected := "MultiGateway{multigateway-zone1-100}"
+		expected := "MultiOrch{multiorch-zone1-100}"
 		require.Equal(t, expected, result)
 	})
 
 	t.Run("IDString method", func(t *testing.T) {
 		result := info.IDString()
-		expected := "multigateway-zone1-100"
+		expected := "multiorch-zone1-100"
 		require.Equal(t, expected, result)
 	})
 
@@ -799,18 +799,18 @@ func TestMultiGatewayInfo(t *testing.T) {
 	})
 
 	t.Run("Addr method without grpc port", func(t *testing.T) {
-		multigatewayNoGrpc := &clustermetadatapb.MultiGateway{
+		multiorchNoGrpc := &clustermetadatapb.MultiOrch{
 			Id: &clustermetadatapb.ID{
-				Component: clustermetadatapb.ID_MULTIGATEWAY,
+				Component: clustermetadatapb.ID_MULTIORCH,
 				Cell:      "zone1",
 				Name:      "100",
 			},
 			Hostname: "host.example.com",
 			PortMap: map[string]int32{
-				"postgres": 5432,
+				"http": 9090,
 			},
 		}
-		infoNoGrpc := topo.NewMultiGatewayInfo(multigatewayNoGrpc, version)
+		infoNoGrpc := topo.NewMultiOrchInfo(multiorchNoGrpc, version)
 		result := infoNoGrpc.Addr()
 		expected := "host.example.com"
 		require.Equal(t, expected, result)
@@ -822,57 +822,57 @@ func TestMultiGatewayInfo(t *testing.T) {
 	})
 }
 
-// TestGetMultiGatewaysByCell covers comprehensive scenarios for the GetMultiGatewaysByCell method
-func TestGetMultiGatewaysByCell_Comprehensive(t *testing.T) {
+// TestGetMultiOrchsByCell covers comprehensive scenarios for the GetMultiOrchsByCell method
+func TestGetMultiOrchsByCell_Comprehensive(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	t.Run("cell with multiple multigateways", func(t *testing.T) {
+	t.Run("cell with multiple multiorchs", func(t *testing.T) {
 		// Create fresh topo for this test with multiple cells
 		ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1", "zone2")
 		defer ts.Close()
 
-		// Setup: Create 3 multigateways in zone1
-		multigateways := []*clustermetadatapb.MultiGateway{
+		// Setup: Create 3 multiorchs in zone1
+		multiorchs := []*clustermetadatapb.MultiOrch{
 			{
 				Id:       &clustermetadatapb.ID{Cell: "zone1", Name: "1"},
 				Hostname: "host1",
-				PortMap:  map[string]int32{"grpc": 8080, "postgres": 5432},
+				PortMap:  map[string]int32{"grpc": 8080, "http": 9090},
 			},
 			{
 				Id:       &clustermetadatapb.ID{Cell: "zone1", Name: "2"},
 				Hostname: "host2",
-				PortMap:  map[string]int32{"grpc": 8081, "postgres": 5433},
+				PortMap:  map[string]int32{"grpc": 8081, "http": 9091},
 			},
 			{
 				Id:       &clustermetadatapb.ID{Cell: "zone1", Name: "3"},
 				Hostname: "host3",
-				PortMap:  map[string]int32{"grpc": 8082, "postgres": 5434},
+				PortMap:  map[string]int32{"grpc": 8082, "http": 9092},
 			},
 		}
 
-		// Create all multigateways
-		for _, mg := range multigateways {
-			require.NoError(t, ts.CreateMultiGateway(ctx, mg))
+		// Create all multiorchs
+		for _, mo := range multiorchs {
+			require.NoError(t, ts.CreateMultiOrch(ctx, mo))
 		}
 
-		// Test: Get all multigateways
-		multigatewayInfos, err := ts.GetMultiGatewaysByCell(ctx, "zone1")
+		// Test: Get all multiorchs
+		multiorchInfos, err := ts.GetMultiOrchsByCell(ctx, "zone1")
 		require.NoError(t, err)
-		require.Len(t, multigatewayInfos, 3)
+		require.Len(t, multiorchInfos, 3)
 
-		// Verify all multigateways are returned
-		expectedMGs := []*topo.MultiGatewayInfo{
-			{MultiGateway: multigateways[0]},
-			{MultiGateway: multigateways[1]},
-			{MultiGateway: multigateways[2]},
+		// Verify all multiorchs are returned
+		expectedMOs := []*topo.MultiOrchInfo{
+			{MultiOrch: multiorchs[0]},
+			{MultiOrch: multiorchs[1]},
+			{MultiOrch: multiorchs[2]},
 		}
-		checkMultiGatewayInfosEqual(t, expectedMGs, multigatewayInfos)
+		checkMultiOrchInfosEqual(t, expectedMOs, multiorchInfos)
 
-		// Verify cell boundary: multigateways are NOT accessible from other cells
-		otherCellInfos, err := ts.GetMultiGatewaysByCell(ctx, "zone2")
+		// Verify cell boundary: multiorchs are NOT accessible from other cells
+		otherCellInfos, err := ts.GetMultiOrchsByCell(ctx, "zone2")
 		require.NoError(t, err)
-		require.Empty(t, otherCellInfos, "multigateways should not be accessible from other cells")
+		require.Empty(t, otherCellInfos, "multiorchs should not be accessible from other cells")
 	})
 
 	t.Run("empty cell returns empty list", func(t *testing.T) {
@@ -880,12 +880,12 @@ func TestGetMultiGatewaysByCell_Comprehensive(t *testing.T) {
 		ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
 		defer ts.Close()
 
-		// Setup: No multigateways created
+		// Setup: No multiorchs created
 
-		// Test: Get multigateways from empty cell
-		multigatewayInfos, err := ts.GetMultiGatewaysByCell(ctx, "zone1")
+		// Test: Get multiorchs from empty cell
+		multiorchInfos, err := ts.GetMultiOrchsByCell(ctx, "zone1")
 		require.NoError(t, err)
-		require.Empty(t, multigatewayInfos)
+		require.Empty(t, multiorchInfos)
 	})
 
 	t.Run("nonexistent cell returns NoNode error", func(t *testing.T) {
@@ -893,64 +893,64 @@ func TestGetMultiGatewaysByCell_Comprehensive(t *testing.T) {
 		ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
 		defer ts.Close()
 
-		// Setup: No multigateways created
+		// Setup: No multiorchs created
 
-		// Test: Try to get multigateways from nonexistent cell
-		_, err := ts.GetMultiGatewaysByCell(ctx, "nonexistent")
+		// Test: Try to get multiorchs from nonexistent cell
+		_, err := ts.GetMultiOrchsByCell(ctx, "nonexistent")
 		require.Error(t, err)
 		require.True(t, errors.Is(err, &topo.TopoError{Code: topo.NoNode}))
 	})
 
-	t.Run("multigateways are isolated between cells", func(t *testing.T) {
+	t.Run("multiorchs are isolated between cells", func(t *testing.T) {
 		// Create fresh topo for this test with multiple cells
 		ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1", "zone2")
 		defer ts.Close()
 
-		// Setup: Create multigateways in both cells
-		zone1MultiGateway := &clustermetadatapb.MultiGateway{
+		// Setup: Create multiorchs in both cells
+		zone1MultiOrch := &clustermetadatapb.MultiOrch{
 			Id: &clustermetadatapb.ID{
-				Component: clustermetadatapb.ID_MULTIGATEWAY,
+				Component: clustermetadatapb.ID_MULTIORCH,
 				Cell:      "zone1",
 				Name:      "1",
 			},
 			Hostname: "host1",
-			PortMap:  map[string]int32{"grpc": 8080, "postgres": 5432},
+			PortMap:  map[string]int32{"grpc": 8080, "http": 9090},
 		}
-		zone2MultiGateway := &clustermetadatapb.MultiGateway{
+		zone2MultiOrch := &clustermetadatapb.MultiOrch{
 			Id: &clustermetadatapb.ID{
-				Component: clustermetadatapb.ID_MULTIGATEWAY,
+				Component: clustermetadatapb.ID_MULTIORCH,
 				Cell:      "zone2",
 				Name:      "1",
 			},
 			Hostname: "host2",
-			PortMap:  map[string]int32{"grpc": 8081, "postgres": 5433},
+			PortMap:  map[string]int32{"grpc": 8081, "http": 9091},
 		}
 
-		// Create multigateways in their respective cells
-		require.NoError(t, ts.CreateMultiGateway(ctx, zone1MultiGateway))
-		require.NoError(t, ts.CreateMultiGateway(ctx, zone2MultiGateway))
+		// Create multiorchs in their respective cells
+		require.NoError(t, ts.CreateMultiOrch(ctx, zone1MultiOrch))
+		require.NoError(t, ts.CreateMultiOrch(ctx, zone2MultiOrch))
 
-		// Test: Verify zone1 can only see its own multigateway
-		zone1Infos, err := ts.GetMultiGatewaysByCell(ctx, "zone1")
+		// Test: Verify zone1 can only see its own multiorch
+		zone1Infos, err := ts.GetMultiOrchsByCell(ctx, "zone1")
 		require.NoError(t, err)
 		require.Len(t, zone1Infos, 1)
 		require.Equal(t, "zone1", zone1Infos[0].Id.Cell)
 		require.Equal(t, "host1", zone1Infos[0].Hostname)
 
-		// Test: Verify zone2 can only see its own multigateway
-		zone2Infos, err := ts.GetMultiGatewaysByCell(ctx, "zone2")
+		// Test: Verify zone2 can only see its own multiorch
+		zone2Infos, err := ts.GetMultiOrchsByCell(ctx, "zone2")
 		require.NoError(t, err)
 		require.Len(t, zone2Infos, 1)
 		require.Equal(t, "zone2", zone2Infos[0].Id.Cell)
 		require.Equal(t, "host2", zone2Infos[0].Hostname)
 
 		// Test: Verify cross-cell access is properly isolated
-		zone1FromZone2, err := ts.GetMultiGateway(ctx, zone1MultiGateway.Id)
-		require.NoError(t, err, "should be able to get multigateway by ID regardless of current cell context")
+		zone1FromZone2, err := ts.GetMultiOrch(ctx, zone1MultiOrch.Id)
+		require.NoError(t, err, "should be able to get multiorch by ID regardless of current cell context")
 		require.Equal(t, "zone1", zone1FromZone2.Id.Cell)
 
-		zone2FromZone1, err := ts.GetMultiGateway(ctx, zone2MultiGateway.Id)
-		require.NoError(t, err, "should be able to get multigateway by ID regardless of current cell context")
+		zone2FromZone1, err := ts.GetMultiOrch(ctx, zone2MultiOrch.Id)
+		require.NoError(t, err, "should be able to get multiorch by ID regardless of current cell context")
 		require.Equal(t, "zone2", zone2FromZone1.Id.Cell)
 	})
 }

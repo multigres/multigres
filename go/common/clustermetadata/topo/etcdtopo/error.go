@@ -18,7 +18,7 @@ import (
 	"context"
 	"errors"
 
-	"github.com/multigres/multigres/go/clustermetadata/topo"
+	"github.com/multigres/multigres/go/common/clustermetadata/topo"
 
 	"go.etcd.io/etcd/api/v3/v3rpc/rpctypes"
 

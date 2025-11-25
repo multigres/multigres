@@ -17,8 +17,8 @@ package memorytopo
 import (
 	"testing"
 
-	"github.com/multigres/multigres/go/clustermetadata/topo"
-	"github.com/multigres/multigres/go/clustermetadata/topo/test"
+	"github.com/multigres/multigres/go/common/clustermetadata/topo"
+	"github.com/multigres/multigres/go/common/clustermetadata/topo/test"
 )
 
 func TestMemoryTopo(t *testing.T) {
