@@ -377,7 +377,7 @@ func TestPositionSaveRestore(t *testing.T) {
 	ctx := NewLexerContext(input)
 
 	// Advance to position 7 (first character of "world")
-	for i := 0; i < 7; i++ {
+	for range 7 {
 		ctx.NextByte()
 	}
 
@@ -387,7 +387,7 @@ func TestPositionSaveRestore(t *testing.T) {
 	originalColumn := ctx.ColumnNumber()
 
 	// Advance further to reach the next line
-	for i := 0; i < 6; i++ { // Need to go from 'w' to past the second '\n'
+	for range 6 { // Need to go from 'w' to past the second '\n'
 		ctx.NextByte()
 	}
 
@@ -409,7 +409,7 @@ func TestUnicodeAdvancement(t *testing.T) {
 	ctx := NewLexerContext(input)
 
 	// Advance through ASCII part
-	for i := 0; i < 5; i++ { // "test "
+	for range 5 { // "test "
 		ctx.AdvanceRune()
 	}
 

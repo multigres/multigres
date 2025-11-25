@@ -63,8 +63,8 @@ func CreateDBConnection(logger *slog.Logger, config *Config) (*sql.DB, error) {
 
 		// Extract port from socket filename (.s.PGSQL.PORT)
 		port := "5432" // default
-		if strings.HasPrefix(socketFile, ".s.PGSQL.") {
-			if portStr := strings.TrimPrefix(socketFile, ".s.PGSQL."); portStr != "" {
+		if after, ok := strings.CutPrefix(socketFile, ".s.PGSQL."); ok {
+			if portStr := after; portStr != "" {
 				port = portStr
 			}
 		}

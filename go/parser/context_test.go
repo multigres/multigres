@@ -356,7 +356,7 @@ func TestParseContextUnicodeHandling(t *testing.T) {
 	assert.Equal(t, 'H', ctx.PeekRune())
 
 	// Advance through ASCII characters
-	for i := 0; i < 6; i++ { // "Hello "
+	for range 6 { // "Hello "
 		ctx.AdvanceRune()
 	}
 
@@ -433,7 +433,7 @@ func TestParseContextSingleThreaded(t *testing.T) {
 	ctx := NewParseContext("SELECT * FROM users WHERE id = 1;", nil)
 
 	// Test various operations in sequence
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		// Read operations
 		_ = ctx.GetSourceText()
 		_, _, _ = ctx.GetCurrentPosition()

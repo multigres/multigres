@@ -25,9 +25,9 @@ import (
 
 	"github.com/multigres/multigres/go/clustermetadata/topo"
 	"github.com/multigres/multigres/go/clustermetadata/topo/memorytopo"
+	"github.com/multigres/multigres/go/common/rpcclient"
 	"github.com/multigres/multigres/go/multiorch/config"
 	"github.com/multigres/multigres/go/multiorch/store"
-	"github.com/multigres/multigres/go/multipooler/rpcclient"
 	"github.com/multigres/multigres/go/pb/clustermetadata"
 
 	"google.golang.org/protobuf/types/known/durationpb"
@@ -83,19 +83,17 @@ func TestPollPooler_UpdatesStore_Primary(t *testing.T) {
 		Cell:      "zone1",
 		Name:      "pooler1",
 	}
-	pooler := &store.PoolerHealth{
-		MultiPooler: &clustermetadata.MultiPooler{
-			Id:         poolerID,
-			Database:   "mydb",
-			TableGroup: "tg1",
-			Shard:      "0",
-			Type:       clustermetadata.PoolerType_PRIMARY,
-			Hostname:   "host1",
-			PortMap:    map[string]int32{"grpc": 5432},
-		},
-		IsUpToDate:       false,
-		IsLastCheckValid: false,
-	}
+	pooler := store.NewPoolerHealthFromMultiPooler(&clustermetadata.MultiPooler{
+		Id:         poolerID,
+		Database:   "mydb",
+		TableGroup: "tg1",
+		Shard:      "0",
+		Type:       clustermetadata.PoolerType_PRIMARY,
+		Hostname:   "host1",
+		PortMap:    map[string]int32{"grpc": 5432},
+	})
+	pooler.IsUpToDate = false
+	pooler.IsLastCheckValid = false
 	poolerKey := topo.MultiPoolerIDString(poolerID)
 	re.poolerStore.Set(poolerKey, pooler)
 
@@ -176,19 +174,19 @@ func TestPollPooler_UpdatesStore_Replica(t *testing.T) {
 		Cell:      "zone1",
 		Name:      "replica1",
 	}
-	pooler := &store.PoolerHealth{
-		MultiPooler: &clustermetadata.MultiPooler{
-			Id:         poolerID,
-			Database:   "mydb",
-			TableGroup: "tg1",
-			Shard:      "0",
-			Type:       clustermetadata.PoolerType_REPLICA,
-			Hostname:   "replica-host",
-			PortMap:    map[string]int32{"grpc": 5432},
-		},
-		IsUpToDate:       false,
-		IsLastCheckValid: false,
-	}
+	pooler := store.NewPoolerHealthFromMultiPooler(&clustermetadata.MultiPooler{
+		Id:         poolerID,
+		Database:   "mydb",
+		TableGroup: "tg1",
+		Shard:      "0",
+		Type:       clustermetadata.PoolerType_REPLICA,
+		Hostname:   "replica-host",
+		PortMap:    map[string]int32{"grpc": 5432},
+	})
+
+	pooler.IsUpToDate = false
+	pooler.IsLastCheckValid = false
+
 	poolerKey := topo.MultiPoolerIDString(poolerID)
 	re.poolerStore.Set(poolerKey, pooler)
 
@@ -258,20 +256,19 @@ func TestPollPooler_RPCFailure(t *testing.T) {
 		Cell:      "zone1",
 		Name:      "failed-pooler",
 	}
-	pooler := &store.PoolerHealth{
-		MultiPooler: &clustermetadata.MultiPooler{
-			Id:         poolerID,
-			Database:   "mydb",
-			TableGroup: "tg1",
-			Shard:      "0",
-			Type:       clustermetadata.PoolerType_PRIMARY,
-			Hostname:   "host1",
-			PortMap:    map[string]int32{"grpc": 5432},
-		},
-		IsUpToDate:       false,
-		IsLastCheckValid: true, // was previously valid
-		LastSeen:         time.Now().Add(-1 * time.Hour),
-	}
+
+	pooler := store.NewPoolerHealthFromMultiPooler(&clustermetadata.MultiPooler{
+		Id:         poolerID,
+		Database:   "mydb",
+		TableGroup: "tg1",
+		Shard:      "0",
+		Type:       clustermetadata.PoolerType_PRIMARY,
+		Hostname:   "host1",
+		PortMap:    map[string]int32{"grpc": 5432},
+	})
+	pooler.IsUpToDate = false
+	pooler.IsLastCheckValid = true
+	pooler.LastSeen = time.Now().Add(-1 * time.Hour)
 	poolerKey := topo.MultiPoolerIDString(poolerID)
 	re.poolerStore.Set(poolerKey, pooler)
 
@@ -335,19 +332,18 @@ func TestPollPooler_TypeMismatch(t *testing.T) {
 		Cell:      "zone1",
 		Name:      "confused-pooler",
 	}
-	pooler := &store.PoolerHealth{
-		MultiPooler: &clustermetadata.MultiPooler{
-			Id:         poolerID,
-			Database:   "mydb",
-			TableGroup: "tg1",
-			Shard:      "0",
-			Type:       clustermetadata.PoolerType_REPLICA, // Topology says REPLICA
-			Hostname:   "host1",
-			PortMap:    map[string]int32{"grpc": 5432},
-		},
-		IsUpToDate:       false,
-		IsLastCheckValid: false,
-	}
+
+	pooler := store.NewPoolerHealthFromMultiPooler(&clustermetadata.MultiPooler{
+		Id:         poolerID,
+		Database:   "mydb",
+		TableGroup: "tg1",
+		Shard:      "0",
+		Type:       clustermetadata.PoolerType_REPLICA, // Topology says REPLICA
+		Hostname:   "host1",
+		PortMap:    map[string]int32{"grpc": 5432},
+	})
+	pooler.IsUpToDate = false
+	pooler.IsLastCheckValid = false
 	poolerKey := topo.MultiPoolerIDString(poolerID)
 	re.poolerStore.Set(poolerKey, pooler)
 
@@ -359,7 +355,7 @@ func TestPollPooler_TypeMismatch(t *testing.T) {
 	require.True(t, ok, "pooler should exist in store")
 
 	// Check that we captured the type mismatch
-	require.Equal(t, clustermetadata.PoolerType_REPLICA, updated.MultiPooler.Type, "topology type should remain REPLICA")
+	require.Equal(t, clustermetadata.PoolerType_REPLICA, updated.TopoPoolerType, "topology type should remain REPLICA")
 	require.Equal(t, clustermetadata.PoolerType_PRIMARY, updated.PoolerType, "reported type should be PRIMARY")
 
 	// Should have populated PRIMARY fields (what the pooler actually reports)

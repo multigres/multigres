@@ -258,8 +258,7 @@ func TestIsReservedKeyword(t *testing.T) {
 func BenchmarkKeywordLookup(b *testing.B) {
 	testKeywords := []string{"select", "from", "where", "integer", "boolean", "notakeyword"}
 
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		for _, kw := range testKeywords {
 			LookupKeyword(kw)
 		}
@@ -274,8 +273,7 @@ func BenchmarkKeywordLookupLongStrings(b *testing.B) {
 		strings.Repeat("identifier", 10),
 	}
 
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		for _, s := range longStrings {
 			LookupKeyword(s)
 		}
@@ -292,8 +290,7 @@ func BenchmarkNormalizeKeywordCase(b *testing.B) {
 		"CURRENT_TIMESTAMP", // longest keyword with conversion
 	}
 
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		for _, tc := range testCases {
 			normalizeKeywordCase(tc)
 		}

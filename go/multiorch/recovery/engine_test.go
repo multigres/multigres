@@ -27,9 +27,9 @@ import (
 
 	"github.com/multigres/multigres/go/clustermetadata/topo"
 	"github.com/multigres/multigres/go/clustermetadata/topo/memorytopo"
+	"github.com/multigres/multigres/go/common/rpcclient"
 	"github.com/multigres/multigres/go/multiorch/config"
 	"github.com/multigres/multigres/go/multiorch/store"
-	"github.com/multigres/multigres/go/multipooler/rpcclient"
 	"github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/viperutil"
 )
@@ -553,40 +553,38 @@ func TestRecoveryEngine_BookkeepingLoop_Integration(t *testing.T) {
 	// Add poolers to store BEFORE starting engine
 	key1 := poolerKey("zone1", "old-pooler")
 	oldTime := time.Now().Add(-5 * time.Hour) // 5 hours ago (> 4 hour threshold)
-	re.poolerStore.Set(key1, &store.PoolerHealth{
-		MultiPooler: &clustermetadata.MultiPooler{
-			Id:       &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "old-pooler"},
-			Database: "mydb", TableGroup: "tg1", Shard: "0",
-		},
-		LastSeen:            oldTime,
-		LastCheckAttempted:  oldTime,
-		LastCheckSuccessful: oldTime,
-		IsUpToDate:          true,
+	oldPooler := store.NewPoolerHealthFromMultiPooler(&clustermetadata.MultiPooler{
+		Id:       &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "old-pooler"},
+		Database: "mydb", TableGroup: "tg1", Shard: "0",
 	})
-
+	oldPooler.LastSeen = oldTime
+	oldPooler.LastCheckAttempted = oldTime
+	oldPooler.LastCheckSuccessful = oldTime
+	oldPooler.IsUpToDate = true
+	re.poolerStore.Set(key1, oldPooler)
 	key2 := poolerKey("zone1", "never-seen")
-	re.poolerStore.Set(key2, &store.PoolerHealth{
-		MultiPooler: &clustermetadata.MultiPooler{
-			Id:       &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "never-seen"},
-			Database: "mydb", TableGroup: "tg1", Shard: "1",
-		},
-		LastCheckAttempted: oldTime,
-		LastSeen:           time.Time{}, // Zero - never seen
-		IsUpToDate:         false,
+
+	neverSeenPooler := store.NewPoolerHealthFromMultiPooler(&clustermetadata.MultiPooler{
+		Id:       &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "never-seen"},
+		Database: "mydb", TableGroup: "tg1", Shard: "1",
 	})
+	neverSeenPooler.LastCheckAttempted = oldTime
+	neverSeenPooler.LastSeen = time.Time{}
+	neverSeenPooler.IsUpToDate = false
+	re.poolerStore.Set(key2, neverSeenPooler)
 
 	key3 := poolerKey("zone1", "healthy-pooler")
 	recentTime := time.Now().Add(-1 * time.Hour) // 1 hour ago (< 4 hour threshold)
-	re.poolerStore.Set(key3, &store.PoolerHealth{
-		MultiPooler: &clustermetadata.MultiPooler{
-			Id:       &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "healthy-pooler"},
-			Database: "mydb", TableGroup: "tg1", Shard: "2",
-		},
-		LastSeen:            recentTime,
-		LastCheckAttempted:  recentTime,
-		LastCheckSuccessful: recentTime,
-		IsUpToDate:          true,
+
+	healthyPooler := store.NewPoolerHealthFromMultiPooler(&clustermetadata.MultiPooler{
+		Id:       &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "healthy-pooler"},
+		Database: "mydb", TableGroup: "tg1", Shard: "2",
 	})
+	healthyPooler.LastSeen = recentTime
+	healthyPooler.LastCheckAttempted = recentTime
+	healthyPooler.LastCheckSuccessful = recentTime
+	healthyPooler.IsUpToDate = true
+	re.poolerStore.Set(key3, healthyPooler)
 
 	// Initially 3 poolers
 	require.Equal(t, 3, re.poolerStore.Len())
@@ -648,15 +646,15 @@ func TestRecoveryEngine_FullIntegration(t *testing.T) {
 	// Add an old pooler to store BEFORE starting
 	keyOld := poolerKey("zone1", "old-pooler")
 	oldTime := time.Now().Add(-5 * time.Hour)
-	re.poolerStore.Set(keyOld, &store.PoolerHealth{
-		MultiPooler: &clustermetadata.MultiPooler{
-			Id:       &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "old-pooler"},
-			Database: "mydb", TableGroup: "tg1", Shard: "1",
-		},
-		LastSeen:            oldTime,
-		LastCheckAttempted:  oldTime,
-		LastCheckSuccessful: oldTime,
+
+	oldPooler := store.NewPoolerHealthFromMultiPooler(&clustermetadata.MultiPooler{
+		Id:       &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "old-pooler"},
+		Database: "mydb", TableGroup: "tg1", Shard: "1",
 	})
+	oldPooler.LastSeen = oldTime
+	oldPooler.LastCheckAttempted = oldTime
+	oldPooler.LastCheckSuccessful = oldTime
+	re.poolerStore.Set(keyOld, oldPooler)
 
 	// Start the engine
 	err := re.Start()
@@ -695,13 +693,13 @@ func TestRecoveryEngine_FullIntegration(t *testing.T) {
 	// Wait for refresh to pick up the change
 	require.Eventually(t, func() bool {
 		info, ok := re.poolerStore.Get(keyNew)
-		return ok && info.MultiPooler.Hostname == "host2"
+		return ok && info.Hostname == "host2"
 	}, 1*time.Second, 50*time.Millisecond, "hostname update should be discovered")
 
 	// Verify timestamps were preserved
 	updatedInfo, ok := re.poolerStore.Get(keyNew)
 	require.True(t, ok)
-	require.Equal(t, "host2", updatedInfo.MultiPooler.Hostname, "hostname should be updated")
+	require.Equal(t, "host2", updatedInfo.Hostname, "hostname should be updated")
 	require.Equal(t, now.Unix(), updatedInfo.LastSeen.Unix(), "LastSeen should be preserved")
 	require.True(t, updatedInfo.IsUpToDate, "IsUpToDate should be preserved")
 

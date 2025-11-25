@@ -681,27 +681,24 @@ func TestComplexNullAndBooleanTests(t *testing.T) {
 
 func BenchmarkRelabelTypeCreation(b *testing.B) {
 	expr := NewConst(23, 42, false)
-	b.ResetTimer()
 
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_ = NewRelabelType(expr, 20, -1, COERCE_EXPLICIT_CAST)
 	}
 }
 
 func BenchmarkNullTestCreation(b *testing.B) {
 	expr := NewConst(23, 42, false)
-	b.ResetTimer()
 
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_ = NewIsNullTest(expr)
 	}
 }
 
 func BenchmarkFieldSelectCreation(b *testing.B) {
 	recordExpr := NewConst(16, Datum(1), false)
-	b.ResetTimer()
 
-	for i := 0; i < b.N; i++ {
+	for i := 0; b.Loop(); i++ {
 		_ = NewFieldSelect(recordExpr, AttrNumber(i%10+1), 25)
 	}
 }
@@ -709,9 +706,8 @@ func BenchmarkFieldSelectCreation(b *testing.B) {
 func BenchmarkSubscriptingRefCreation(b *testing.B) {
 	arrayExpr := NewConst(1007, Datum(123), false)
 	indexExpr := NewConst(23, 1, false)
-	b.ResetTimer()
 
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_ = NewArraySubscript(1007, 23, arrayExpr, indexExpr)
 	}
 }

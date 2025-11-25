@@ -242,9 +242,7 @@ func TestTriggerEventCombinations(t *testing.T) {
 // ==============================================================================
 
 func BenchmarkAlterTableCmdCreation(b *testing.B) {
-	b.ResetTimer()
-
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_ = NewAlterTableCmd(AT_AddColumn, "test_column", nil)
 	}
 }
@@ -253,9 +251,7 @@ func BenchmarkCreateTriggerStmt(b *testing.B) {
 	relation := NewRangeVar("test_table", "", "")
 	funcname := NewNodeList(NewString("trigger_function"))
 
-	b.ResetTimer()
-
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_ = NewCreateTriggerStmt("test_trigger", relation, funcname, TRIGGER_TIMING_BEFORE, TRIGGER_TYPE_INSERT)
 	}
 }
@@ -265,9 +261,7 @@ func BenchmarkConstraintTriggerCreation(b *testing.B) {
 	constrrel := NewRangeVar("customers", "", "")
 	funcname := NewNodeList(NewString("fk_function"))
 
-	b.ResetTimer()
-
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_ = NewConstraintTrigger("fk_trigger", relation, funcname, TRIGGER_TIMING_AFTER, TRIGGER_TYPE_INSERT, constrrel)
 	}
 }

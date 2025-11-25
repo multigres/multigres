@@ -194,8 +194,7 @@ func TestPoolPutUndersizedBuffer(t *testing.T) {
 func BenchmarkPoolGet(b *testing.B) {
 	pool := New(1024, 16384)
 
-	b.ResetTimer()
-	for range b.N {
+	for b.Loop() {
 		buf := pool.Get(4096)
 		pool.Put(buf)
 	}
@@ -214,8 +213,7 @@ func BenchmarkPoolGetParallel(b *testing.B) {
 }
 
 func BenchmarkDirectAllocation(b *testing.B) {
-	b.ResetTimer()
-	for range b.N {
+	for b.Loop() {
 		buf := make([]byte, 4096)
 		_ = buf
 	}
