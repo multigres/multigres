@@ -76,6 +76,11 @@ func (pm *MultiPoolerManager) SetPrimaryConnInfo(ctx context.Context, host strin
 	}
 	defer pm.actionLock.Release(ctx)
 
+	// Check if manager is ready before proceeding
+	if err := pm.checkReady(); err != nil {
+		return err
+	}
+
 	pm.logger.InfoContext(ctx, "SetPrimaryConnInfo called",
 		"host", host,
 		"port", port,
@@ -595,6 +600,12 @@ func (pm *MultiPoolerManager) ChangeType(ctx context.Context, poolerType string)
 	}
 	defer pm.actionLock.Release(ctx)
 
+	// Defensive check: while gRPC won't register until manager is ready,
+	// internal callers can invoke methods directly. Prevent nil pointer panic.
+	if err := pm.checkReady(); err != nil {
+		return err
+	}
+
 	// Validate pooler type
 	var newType clustermetadatapb.PoolerType
 	// TODO: For now allow to change type to PRIMARY, this is to make it easier
@@ -714,6 +725,12 @@ func (pm *MultiPoolerManager) Demote(ctx context.Context, consensusTerm int64, d
 	}
 	defer pm.actionLock.Release(ctx)
 
+	// Defensive check: while gRPC won't register until manager is ready,
+	// internal callers can invoke methods directly. Prevent nil pointer panic.
+	if err := pm.checkReady(); err != nil {
+		return nil, err
+	}
+
 	pm.logger.InfoContext(ctx, "Demote called",
 		"consensus_term", consensusTerm,
 		"drain_timeout", drainTimeout,
@@ -825,6 +842,12 @@ func (pm *MultiPoolerManager) UndoDemote(ctx context.Context) error {
 	}
 	defer pm.actionLock.Release(ctx)
 
+	// Defensive check: while gRPC won't register until manager is ready,
+	// internal callers can invoke methods directly. Prevent nil pointer panic.
+	if err := pm.checkReady(); err != nil {
+		return err
+	}
+
 	pm.logger.InfoContext(ctx, "UndoDemote called")
 	return mterrors.New(mtrpcpb.Code_UNIMPLEMENTED, "method UndoDemote not implemented")
 }
@@ -841,6 +864,12 @@ func (pm *MultiPoolerManager) Promote(ctx context.Context, consensusTerm int64, 
 		return nil, err
 	}
 	defer pm.actionLock.Release(ctx)
+
+	// Defensive check: while gRPC won't register until manager is ready,
+	// internal callers can invoke methods directly. Prevent nil pointer panic.
+	if err := pm.checkReady(); err != nil {
+		return nil, err
+	}
 
 	pm.logger.InfoContext(ctx, "Promote called",
 		"consensus_term", consensusTerm,

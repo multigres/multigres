@@ -1315,20 +1315,20 @@ func (pm *MultiPoolerManager) Start(senv *servenv.ServEnv) {
 		// Don't fail startup if Open fails - will retry on demand
 	}
 
-	// Block until manager is ready or error
-	// Use load timeout from manager configuration
-	waitCtx, cancel := context.WithTimeout(context.Background(), pm.loadTimeout)
-	defer cancel()
-
-	pm.logger.Info("Waiting for manager to reach ready state before registering gRPC services")
-	if err := pm.WaitUntilReady(waitCtx); err != nil {
-		pm.logger.Error("Manager failed to reach ready state during startup", "error", err)
-		// Exit immediately - no point in starting gRPC if we're not ready
-		os.Exit(1)
-	}
-	pm.logger.Info("Manager reached ready state, will register gRPC services")
-
 	senv.OnRun(func() {
+		// Block until manager is ready or error before registering gRPC services
+		// Use load timeout from manager configuration
+		waitCtx, cancel := context.WithTimeout(context.Background(), pm.loadTimeout)
+		defer cancel()
+
+		pm.logger.Info("Waiting for manager to reach ready state before registering gRPC services")
+		if err := pm.WaitUntilReady(waitCtx); err != nil {
+			pm.logger.Error("Manager failed to reach ready state during startup", "error", err)
+			// Exit immediately - no point in starting gRPC if we're not ready
+			os.Exit(1)
+		}
+		pm.logger.Info("Manager reached ready state, will register gRPC services")
+
 		pm.logger.Info("MultiPoolerManager started")
 		pm.qsc.RegisterGRPCServices()
 		pm.logger.Info("Query service controller registered")
