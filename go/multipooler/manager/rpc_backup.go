@@ -21,7 +21,6 @@ import (
 	"fmt"
 	"log/slog"
 	"os/exec"
-	"regexp"
 	"strings"
 	"time"
 
@@ -48,6 +47,11 @@ func (pm *MultiPoolerManager) Backup(ctx context.Context, forcePrimary bool, bac
 	stanzaName := pm.getBackupStanza()
 	tableGroup := pm.getTableGroup()
 	shard := pm.getShard()
+	multipoolerID, err := pm.getMultipoolerIDString()
+	if err != nil {
+		return "", err
+	}
+	backupTimestamp := time.Now().Format("20060102-150405.000000")
 
 	// Validate parameters and get pgbackrest type
 	pgBackRestType, err := pm.validateBackupParams(backupType, configPath, stanzaName)
@@ -75,22 +79,26 @@ func (pm *MultiPoolerManager) Backup(ctx context.Context, forcePrimary bool, bac
 		args = append(args, "--annotation=shard="+shard)
 	}
 
+	// Add multipooler_id and backup_timestamp annotations for unique identification
+	args = append(args, "--annotation=multipooler_id="+multipoolerID)
+	args = append(args, "--annotation=backup_timestamp="+backupTimestamp)
+
 	args = append(args, "backup")
 
 	cmd := exec.CommandContext(ctx, "pgbackrest", args...)
 
-	// Capture output for logging and to extract backup ID
+	// Capture output for logging
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return "", mterrors.New(mtrpcpb.Code_INTERNAL,
 			fmt.Sprintf("pgbackrest backup failed: %v\nOutput: %s", err, string(output)))
 	}
 
-	// Parse the backup ID from the output
-	backupID, err := extractBackupID(string(output))
+	// Find the backup ID by querying pgbackrest info with our unique annotations
+	backupID, err := pm.findBackupByAnnotations(ctx, multipoolerID, backupTimestamp)
 	if err != nil {
 		return "", mterrors.New(mtrpcpb.Code_INTERNAL,
-			fmt.Sprintf("failed to extract backup ID from output: %v\nOutput: %s", err, string(output)))
+			fmt.Sprintf("failed to find backup by annotations: %v\nBackup output: %s", err, string(output)))
 	}
 
 	// Verify the backup to ensure it's valid
@@ -110,6 +118,8 @@ func (pm *MultiPoolerManager) Backup(ctx context.Context, forcePrimary bool, bac
 		return "", mterrors.New(mtrpcpb.Code_INTERNAL,
 			fmt.Sprintf("pgbackrest verify failed for backup %s: %v\nOutput: %s", backupID, verifyErr, string(verifyOutput)))
 	}
+	// TODO: use `pgbackrest info` to verify that the database pages from the backed up
+	// Postgres cluster pass checksum validation.
 
 	return backupID, nil
 }
@@ -446,37 +456,77 @@ func safeCombinedOutput(cmd *exec.Cmd) (string, error) {
 	return combinedBuf.String(), cmd.Wait()
 }
 
-// extractBackupID extracts the backup label from pgbackrest output
+// findBackupByAnnotations finds a backup by matching multipooler_id and backup_timestamp annotations
 //
-// TODO: find a way of of doing this that does that does not rely on text matching
-func extractBackupID(output string) (string, error) {
-	// First, try to find "new backup label" in the output (most reliable)
-	lines := strings.SplitSeq(output, "\n")
-	for line := range lines {
-		if strings.Contains(line, "new backup label") {
-			// Extract the label after the "=" sign
-			parts := strings.Split(line, "=")
-			if len(parts) >= 2 {
-				label := strings.TrimSpace(parts[len(parts)-1])
-				if label != "" {
-					return label, nil
-				}
+// This function has to scan the entire backup history to find the backup, but the worst case
+// should be manageable, because production deployments should have retention policies that
+// trigger pgBackRest to delete older backups.
+func (pm *MultiPoolerManager) findBackupByAnnotations(
+	ctx context.Context,
+	multipoolerID string,
+	backupTimestamp string,
+) (string, error) {
+	stanzaName := pm.getBackupStanza()
+	configPath := pm.getBackupConfigPath()
+
+	// Get backup location from topology
+	backupLocation, err := pm.getBackupLocation(ctx)
+	if err != nil {
+		return "", err
+	}
+
+	// Execute pgbackrest info command with JSON output
+	infoCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(infoCtx, "pgbackrest",
+		"--stanza="+stanzaName,
+		"--config="+configPath,
+		"--repo1-path="+backupLocation,
+		"--output=json",
+		"--log-level-console=off",
+		"info")
+
+	output, err := safeCombinedOutput(cmd)
+	if err != nil {
+		return "", mterrors.New(mtrpcpb.Code_INTERNAL,
+			fmt.Sprintf("pgbackrest info failed: %v\nOutput: %s", err, output))
+	}
+
+	// Parse JSON output
+	var infoData []pgBackRestInfo
+	if err := json.Unmarshal([]byte(output), &infoData); err != nil {
+		return "", mterrors.New(mtrpcpb.Code_INTERNAL,
+			fmt.Sprintf("failed to parse pgbackrest info JSON: %v", err))
+	}
+
+	// Search for backup with matching annotations
+	if len(infoData) == 0 || len(infoData[0].Backup) == 0 {
+		return "", mterrors.New(mtrpcpb.Code_NOT_FOUND,
+			"no backups found in pgbackrest info output")
+	}
+
+	var matchedBackups []string
+	for _, pgBackup := range infoData[0].Backup {
+		if pgBackup.Annotation != nil {
+			if pgBackup.Annotation["multipooler_id"] == multipoolerID &&
+				pgBackup.Annotation["backup_timestamp"] == backupTimestamp {
+				matchedBackups = append(matchedBackups, pgBackup.Label)
 			}
 		}
 	}
 
-	// Fallback: Look for backup label pattern like "20250104-100000F" or "20250104-100000F_20250104-120000I"
-	// The pattern is: YYYYMMDD-HHMMSS followed by F (full), D (differential), or I (incremental)
-	// Find all matches and take the last one (newest backup)
-	re := regexp.MustCompile(`(\d{8}-\d{6}[FDI](?:_\d{8}-\d{6}[FDI])?)`)
-	matches := re.FindAllStringSubmatch(output, -1)
-	if len(matches) > 0 {
-		// Return the last match (most recent backup ID)
-		lastMatch := matches[len(matches)-1]
-		if len(lastMatch) >= 2 {
-			return lastMatch[1], nil
-		}
+	if len(matchedBackups) == 0 {
+		return "", mterrors.New(mtrpcpb.Code_NOT_FOUND,
+			fmt.Sprintf("no backup found with multipooler_id=%s and backup_timestamp=%s",
+				multipoolerID, backupTimestamp))
 	}
 
-	return "", fmt.Errorf("backup ID not found in output")
+	if len(matchedBackups) > 1 {
+		return "", mterrors.New(mtrpcpb.Code_INTERNAL,
+			fmt.Sprintf("found %d backups with multipooler_id=%s and backup_timestamp=%s, expected 1",
+				len(matchedBackups), multipoolerID, backupTimestamp))
+	}
+
+	return matchedBackups[0], nil
 }
