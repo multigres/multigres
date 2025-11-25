@@ -760,7 +760,7 @@ func TestProcessShardProblems_DependencyEnforcement(t *testing.T) {
 		shardKey := analysis.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"}
 
 		// Call processShardProblems - this exercises the full recovery flow
-		engine.processShardProblems(shardKey, problems, generator)
+		engine.processShardProblems(shardKey, problems)
 
 		// ASSERTION: Replica recovery should be SKIPPED due to dependency check
 		assert.False(t, replicaRecovery.executed,
@@ -830,7 +830,7 @@ func TestProcessShardProblems_DependencyEnforcement(t *testing.T) {
 		shardKey := analysis.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"}
 
 		// Call processShardProblems
-		engine.processShardProblems(shardKey, problems, generator)
+		engine.processShardProblems(shardKey, problems)
 
 		// ASSERTION: Replica recovery should be executed (NOT skipped)
 		// It will still fail validation since the mock analyzer won't re-detect it,
@@ -1484,7 +1484,7 @@ func TestRecoveryLoop_PriorityOrdering(t *testing.T) {
 	shardKey := analysis.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"}
 
 	// Process problems - they should be attempted in priority order
-	engine.processShardProblems(shardKey, problems, generator)
+	engine.processShardProblems(shardKey, problems)
 
 	// ASSERTION: Problems should be attempted in priority order (Emergency > High > Normal)
 	// Note: validation will fail for all since we don't change the state, but we can verify

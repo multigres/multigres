@@ -78,9 +78,7 @@ func (re *Engine) performRecoveryCycle() {
 		wg.Add(1)
 		go func(key analysis.ShardKey, problems []analysis.Problem) {
 			defer wg.Done()
-			// Create a new generator for this goroutine to avoid contention
-			shardGenerator := analysis.NewAnalysisGenerator(re.poolerStore)
-			re.processShardProblems(key, problems, shardGenerator)
+			re.processShardProblems(key, problems)
 		}(shardKey, shardProblems)
 	}
 	wg.Wait()
@@ -103,7 +101,7 @@ func (re *Engine) groupProblemsByShard(problems []analysis.Problem) map[analysis
 }
 
 // processShardProblems handles all problems for a single shard.
-func (re *Engine) processShardProblems(shardKey analysis.ShardKey, problems []analysis.Problem, generator *analysis.AnalysisGenerator) {
+func (re *Engine) processShardProblems(shardKey analysis.ShardKey, problems []analysis.Problem) {
 	re.logger.DebugContext(re.ctx, "processing shard problems",
 		"database", shardKey.Database,
 		"tablegroup", shardKey.TableGroup,

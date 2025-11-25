@@ -35,33 +35,31 @@ type ShardKey struct {
 type PoolersByShard map[string]map[string]map[string]map[string]*store.PoolerHealth
 
 // AnalysisGenerator creates ReplicationAnalysis from the pooler store.
-// This is analogous to VTOrc's GetReplicationAnalysis() SQL query,
-// but done in-memory with Go code.
 type AnalysisGenerator struct {
-	poolerStore *store.Store[string, *store.PoolerHealth]
+	poolerStore    *store.Store[string, *store.PoolerHealth]
+	poolersByShard PoolersByShard
 }
 
 // NewAnalysisGenerator creates a new analysis generator.
+// It eagerly builds the poolersByShard map from the current store state.
 func NewAnalysisGenerator(poolerStore *store.Store[string, *store.PoolerHealth]) *AnalysisGenerator {
-	return &AnalysisGenerator{
+	g := &AnalysisGenerator{
 		poolerStore: poolerStore,
 	}
+	g.poolersByShard = g.buildPoolersByShard()
+	return g
 }
 
 // GenerateAnalyses creates one ReplicationAnalysis per pooler in the store.
 // This examines the current state and computes derived fields.
 func (g *AnalysisGenerator) GenerateAnalyses() []*store.ReplicationAnalysis {
-	// Build structured map - iterate store ONCE
-	poolersByTG := g.buildPoolersByShard()
-
-	// Generate analyses for all poolers
 	analyses := []*store.ReplicationAnalysis{}
 
-	for database, tableGroups := range poolersByTG {
+	for database, tableGroups := range g.poolersByShard {
 		for tableGroup, shards := range tableGroups {
 			for shard, poolers := range shards {
 				for _, pooler := range poolers {
-					analysis := g.generateAnalysisForPooler(pooler, poolersByTG, database, tableGroup, shard)
+					analysis := g.generateAnalysisForPooler(pooler, database, tableGroup, shard)
 					analyses = append(analyses, analysis)
 				}
 			}
@@ -140,8 +138,8 @@ func (g *AnalysisGenerator) GetPoolersInShard(poolerIDStr string) ([]string, err
 	return poolerIDs, nil
 }
 
-// GenerateAnalysisForPooler generates analysis for a single pooler.
-// This rebuilds the poolersByTG map from the current store state to ensure fresh data.
+// GenerateAnalysisForPooler generates analysis for a single pooler using the cached poolersByShard.
+// If fresh data is needed (e.g., after re-polling the store), create a new AnalysisGenerator.
 func (g *AnalysisGenerator) GenerateAnalysisForPooler(poolerIDStr string) (*store.ReplicationAnalysis, error) {
 	// Get pooler from store
 	pooler, ok := g.poolerStore.Get(poolerIDStr)
@@ -153,15 +151,9 @@ func (g *AnalysisGenerator) GenerateAnalysisForPooler(poolerIDStr string) (*stor
 		return nil, fmt.Errorf("pooler or ID is nil: %s", poolerIDStr)
 	}
 
-	// Rebuild the map with current store data (store may have been updated by re-polling)
-	poolersByTG := g.buildPoolersByShard()
-
-	database := pooler.Database
-	tableGroup := pooler.TableGroup
-	shard := pooler.Shard
-
-	// Generate analysis for this specific pooler
-	analysis := g.generateAnalysisForPooler(pooler, poolersByTG, database, tableGroup, shard)
+	// Generate analysis for this specific pooler using the cached poolersByShard.
+	// Note: If fresh data is needed (e.g., after re-polling), create a new AnalysisGenerator.
+	analysis := g.generateAnalysisForPooler(pooler, pooler.Database, pooler.TableGroup, pooler.Shard)
 
 	return analysis, nil
 }
@@ -169,7 +161,6 @@ func (g *AnalysisGenerator) GenerateAnalysisForPooler(poolerIDStr string) (*stor
 // generateAnalysisForPooler creates a ReplicationAnalysis for a single pooler.
 func (g *AnalysisGenerator) generateAnalysisForPooler(
 	pooler *store.PoolerHealth,
-	poolersByShard PoolersByShard,
 	database string,
 	tableGroup string,
 	shard string,
@@ -196,7 +187,7 @@ func (g *AnalysisGenerator) generateAnalysisForPooler(
 		analysis.ReadOnly = !pooler.PrimaryReady // Primary not ready = read-only
 
 		// Aggregate replica stats
-		g.aggregateReplicaStats(pooler, analysis, poolersByShard, database, tableGroup, shard)
+		g.aggregateReplicaStats(pooler, analysis, database, tableGroup, shard)
 	}
 
 	// If this is a REPLICA, populate replica-specific fields
@@ -216,7 +207,7 @@ func (g *AnalysisGenerator) generateAnalysisForPooler(
 		}
 
 		// Lookup primary info
-		g.populatePrimaryInfo(pooler, analysis, poolersByShard, database, tableGroup, shard)
+		g.populatePrimaryInfo(pooler, analysis, database, tableGroup, shard)
 	}
 
 	return analysis
@@ -226,7 +217,6 @@ func (g *AnalysisGenerator) generateAnalysisForPooler(
 func (g *AnalysisGenerator) aggregateReplicaStats(
 	primary *store.PoolerHealth,
 	analysis *store.ReplicationAnalysis,
-	poolersByTG PoolersByShard,
 	database string,
 	tableGroup string,
 	shard string,
@@ -239,7 +229,7 @@ func (g *AnalysisGenerator) aggregateReplicaStats(
 	primaryIDStr := topo.MultiPoolerIDString(primary.ID)
 
 	// Iterate only over poolers in the same shard (efficient lookup)
-	if poolers, ok := poolersByTG[database][tableGroup][shard]; ok {
+	if poolers, ok := g.poolersByShard[database][tableGroup][shard]; ok {
 		for poolerID, pooler := range poolers {
 			if pooler == nil || pooler.ID == nil {
 				continue
@@ -306,13 +296,12 @@ func (g *AnalysisGenerator) aggregateReplicaStats(
 func (g *AnalysisGenerator) populatePrimaryInfo(
 	replica *store.PoolerHealth,
 	analysis *store.ReplicationAnalysis,
-	poolersByTG PoolersByShard,
 	database string,
 	tableGroup string,
 	shard string,
 ) {
 	// Find the primary in the same tablegroup (efficient lookup)
-	if poolers, ok := poolersByTG[database][tableGroup][shard]; ok {
+	if poolers, ok := g.poolersByShard[database][tableGroup][shard]; ok {
 		for _, pooler := range poolers {
 			if pooler == nil || pooler.ID == nil {
 				continue
