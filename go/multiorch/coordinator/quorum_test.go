@@ -21,6 +21,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/multigres/multigres/go/multiorch/store"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 )
 
@@ -35,13 +36,13 @@ func TestValidateAnyNQuorum(t *testing.T) {
 			Description:   "Any 2 nodes",
 		}
 
-		cohort := []*Node{
-			createTestNode("mp1", "cell1"),
-			createTestNode("mp2", "cell1"),
-			createTestNode("mp3", "cell1"),
+		cohort := []*store.PoolerHealth{
+			createTestPoolerHealth("mp1", "cell1"),
+			createTestPoolerHealth("mp2", "cell1"),
+			createTestPoolerHealth("mp3", "cell1"),
 		}
 
-		recruited := []*Node{
+		recruited := []*store.PoolerHealth{
 			cohort[0],
 			cohort[1],
 		}
@@ -57,10 +58,10 @@ func TestValidateAnyNQuorum(t *testing.T) {
 			Description:   "Any 2 nodes",
 		}
 
-		cohort := []*Node{
-			createTestNode("mp1", "cell1"),
-			createTestNode("mp2", "cell1"),
-			createTestNode("mp3", "cell1"),
+		cohort := []*store.PoolerHealth{
+			createTestPoolerHealth("mp1", "cell1"),
+			createTestPoolerHealth("mp2", "cell1"),
+			createTestPoolerHealth("mp3", "cell1"),
 		}
 
 		recruited := cohort // All 3 recruited
@@ -76,13 +77,13 @@ func TestValidateAnyNQuorum(t *testing.T) {
 			Description:   "Any 3 nodes",
 		}
 
-		cohort := []*Node{
-			createTestNode("mp1", "cell1"),
-			createTestNode("mp2", "cell1"),
-			createTestNode("mp3", "cell1"),
+		cohort := []*store.PoolerHealth{
+			createTestPoolerHealth("mp1", "cell1"),
+			createTestPoolerHealth("mp2", "cell1"),
+			createTestPoolerHealth("mp3", "cell1"),
 		}
 
-		recruited := []*Node{
+		recruited := []*store.PoolerHealth{
 			cohort[0],
 			cohort[1],
 		}
@@ -100,8 +101,8 @@ func TestValidateAnyNQuorum(t *testing.T) {
 			Description:   "Any 1 node",
 		}
 
-		cohort := []*Node{
-			createTestNode("mp1", "cell1"),
+		cohort := []*store.PoolerHealth{
+			createTestPoolerHealth("mp1", "cell1"),
 		}
 
 		recruited := cohort
@@ -122,9 +123,9 @@ func TestValidateMultiCellQuorum(t *testing.T) {
 			Description:   "At least 1 node from 2 cells",
 		}
 
-		recruited := []*Node{
-			createTestNode("mp1", "us-west-1a"),
-			createTestNode("mp2", "us-west-1b"),
+		recruited := []*store.PoolerHealth{
+			createTestPoolerHealth("mp1", "us-west-1a"),
+			createTestPoolerHealth("mp2", "us-west-1b"),
 		}
 
 		err := c.validateMultiCellQuorum(rule, recruited)
@@ -138,10 +139,10 @@ func TestValidateMultiCellQuorum(t *testing.T) {
 			Description:   "At least 1 node from 2 cells",
 		}
 
-		recruited := []*Node{
-			createTestNode("mp1", "us-west-1a"),
-			createTestNode("mp2", "us-west-1b"),
-			createTestNode("mp3", "us-west-1c"),
+		recruited := []*store.PoolerHealth{
+			createTestPoolerHealth("mp1", "us-west-1a"),
+			createTestPoolerHealth("mp2", "us-west-1b"),
+			createTestPoolerHealth("mp3", "us-west-1c"),
 		}
 
 		err := c.validateMultiCellQuorum(rule, recruited)
@@ -155,10 +156,10 @@ func TestValidateMultiCellQuorum(t *testing.T) {
 			Description:   "At least 1 node from 2 cells",
 		}
 
-		recruited := []*Node{
-			createTestNode("mp1", "us-west-1a"),
-			createTestNode("mp2", "us-west-1a"), // Same cell as mp1
-			createTestNode("mp3", "us-west-1b"),
+		recruited := []*store.PoolerHealth{
+			createTestPoolerHealth("mp1", "us-west-1a"),
+			createTestPoolerHealth("mp2", "us-west-1a"), // Same cell as mp1
+			createTestPoolerHealth("mp3", "us-west-1b"),
 		}
 
 		err := c.validateMultiCellQuorum(rule, recruited)
@@ -172,9 +173,9 @@ func TestValidateMultiCellQuorum(t *testing.T) {
 			Description:   "At least 1 node from 3 cells",
 		}
 
-		recruited := []*Node{
-			createTestNode("mp1", "us-west-1a"),
-			createTestNode("mp2", "us-west-1b"),
+		recruited := []*store.PoolerHealth{
+			createTestPoolerHealth("mp1", "us-west-1a"),
+			createTestPoolerHealth("mp2", "us-west-1b"),
 		}
 
 		err := c.validateMultiCellQuorum(rule, recruited)
@@ -190,10 +191,10 @@ func TestValidateMultiCellQuorum(t *testing.T) {
 			Description:   "At least 1 node from 2 cells",
 		}
 
-		recruited := []*Node{
-			createTestNode("mp1", "us-west-1a"),
-			createTestNode("mp2", "us-west-1a"),
-			createTestNode("mp3", "us-west-1a"),
+		recruited := []*store.PoolerHealth{
+			createTestPoolerHealth("mp1", "us-west-1a"),
+			createTestPoolerHealth("mp2", "us-west-1a"),
+			createTestPoolerHealth("mp3", "us-west-1a"),
 		}
 
 		err := c.validateMultiCellQuorum(rule, recruited)
@@ -209,8 +210,8 @@ func TestValidateMultiCellQuorum(t *testing.T) {
 			Description:   "At least 1 node from 1 cell",
 		}
 
-		recruited := []*Node{
-			createTestNode("mp1", "us-west-1a"),
+		recruited := []*store.PoolerHealth{
+			createTestPoolerHealth("mp1", "us-west-1a"),
 		}
 
 		err := c.validateMultiCellQuorum(rule, recruited)
@@ -229,9 +230,9 @@ func TestValidateQuorum(t *testing.T) {
 			Description:   "Any 2 nodes",
 		}
 
-		cohort := []*Node{
-			createTestNode("mp1", "cell1"),
-			createTestNode("mp2", "cell1"),
+		cohort := []*store.PoolerHealth{
+			createTestPoolerHealth("mp1", "cell1"),
+			createTestPoolerHealth("mp2", "cell1"),
 		}
 
 		recruited := cohort
@@ -247,9 +248,9 @@ func TestValidateQuorum(t *testing.T) {
 			Description:   "At least 1 node from 2 cells",
 		}
 
-		cohort := []*Node{
-			createTestNode("mp1", "us-west-1a"),
-			createTestNode("mp2", "us-west-1b"),
+		cohort := []*store.PoolerHealth{
+			createTestPoolerHealth("mp1", "us-west-1a"),
+			createTestPoolerHealth("mp2", "us-west-1b"),
 		}
 
 		recruited := cohort
@@ -265,8 +266,8 @@ func TestValidateQuorum(t *testing.T) {
 			Description:   "Unknown quorum type",
 		}
 
-		cohort := []*Node{
-			createTestNode("mp1", "cell1"),
+		cohort := []*store.PoolerHealth{
+			createTestPoolerHealth("mp1", "cell1"),
 		}
 
 		recruited := cohort
@@ -277,13 +278,13 @@ func TestValidateQuorum(t *testing.T) {
 	})
 }
 
-// createTestNode creates a test node with minimal configuration
-func createTestNode(name, cell string) *Node {
-	return &Node{
-		ID: &clustermetadatapb.ID{
+// createTestPoolerHealth creates a test pooler health with minimal configuration
+func createTestPoolerHealth(name, cell string) *store.PoolerHealth {
+	return store.NewPoolerHealthFromMultiPooler(&clustermetadatapb.MultiPooler{
+		Id: &clustermetadatapb.ID{
 			Component: clustermetadatapb.ID_MULTIPOOLER,
 			Cell:      cell,
 			Name:      name,
 		},
-	}
+	})
 }
