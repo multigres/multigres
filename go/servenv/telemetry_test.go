@@ -35,7 +35,7 @@ import (
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 
 	"github.com/multigres/multigres/go/tools/telemetry"
-	"github.com/multigres/multigres/go/viperutil"
+	"github.com/multigres/multigres/go/tools/viperutil"
 )
 
 // getFreePorts allocates n free ports for testing
