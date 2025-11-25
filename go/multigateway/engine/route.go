@@ -52,6 +52,7 @@ func (r *Route) StreamExecute(
 	ctx context.Context,
 	exec IExecute,
 	conn *server.Conn,
+	options *query.ExecuteOptions,
 	callback func(context.Context, *query.QueryResult) error,
 ) error {
 	// Execute the query through the execution interface
@@ -61,6 +62,7 @@ func (r *Route) StreamExecute(
 		r.TableGroup,
 		r.Shard,
 		r.Query,
+		options,
 		callback,
 	)
 }

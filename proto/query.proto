@@ -164,20 +164,20 @@ message ExecuteOptions {
   // Key is the variable name, value is the variable value.
   map<string, string> session_settings = 1;
 
-  // prepared_statements contains prepared statements that should be
-  // available on the connection. Each statement has a name field.
-  repeated PreparedStatement prepared_statements = 2;
+  // prepared_statement is the prepared statement that should be
+  // available on the connection for this query execution.
+  PreparedStatement prepared_statement = 2;
 
-  // portals contains portals (bound prepared statements) that should be
-  // available on the connection. Each portal has a name field.
-  repeated Portal portals = 3;
+  // portal is the portal (bound prepared statement) that should be
+  // available on the connection for this query execution.
+  Portal portal = 3;
 
-  // client_id is a unique identifier for the client session.
-  // Used for connection pinning and reservation in the pool.
-  uint64 client_id = 4;
+  // max_rows is the maximum number of rows to return from Execute.
+  // 0 means return all rows. Used by the Execute message in the extended query protocol.
+  uint64 max_rows = 4;
 
-  // requires_reservation indicates whether this execution requires
-  // the connection to be reserved (pinned) for subsequent operations.
-  // This is typically true when using prepared statements or transactions.
-  bool requires_reservation = 5;
+  // reserved_connection_id is the ID of a reserved connection on the multipooler.
+  // Used for connection pinning - this tells the multipooler which specific
+  // connection to use for executing this query.
+  uint64 reserved_connection_id = 5;
 }

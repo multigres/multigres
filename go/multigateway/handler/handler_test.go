@@ -29,7 +29,7 @@ import (
 // mockExecutor is a mock implementation of the Executor interface for testing.
 type mockExecutor struct{}
 
-func (m *mockExecutor) StreamExecute(ctx context.Context, conn *server.Conn, queryStr string, astStmt ast.Stmt, callback func(ctx context.Context, result *query.QueryResult) error) error {
+func (m *mockExecutor) StreamExecute(ctx context.Context, conn *server.Conn, queryStr string, astStmt ast.Stmt, options *query.ExecuteOptions, callback func(ctx context.Context, result *query.QueryResult) error) error {
 	// Return a simple test result
 	return callback(ctx, &query.QueryResult{
 		Fields: []*query.Field{

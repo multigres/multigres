@@ -39,12 +39,14 @@ type IExecute interface {
 	//   tableGroup: Target tablegroup for the query
 	//   shard: Target shard (empty string for unsharded or any shard)
 	//   sql: SQL query to execute
+	//   options: Execute options containing session state and settings
 	//   callback: Function called for each result chunk
 	StreamExecute(
 		ctx context.Context,
 		tableGroup string,
 		shard string,
 		sql string,
+		options *query.ExecuteOptions,
 		callback func(context.Context, *query.QueryResult) error,
 	) error
 }
@@ -62,6 +64,7 @@ type Primitive interface {
 		ctx context.Context,
 		exec IExecute,
 		conn *server.Conn,
+		options *query.ExecuteOptions,
 		callback func(context.Context, *query.QueryResult) error,
 	) error
 

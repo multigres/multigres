@@ -206,7 +206,7 @@ func (e *Executor) getPoolMaxLifetime() time.Duration {
 }
 
 // ExecuteQuery implements queryservice.QueryService.
-func (e *Executor) ExecuteQuery(ctx context.Context, target *query.Target, sql string, maxRows uint64) (*query.QueryResult, error) {
+func (e *Executor) ExecuteQuery(ctx context.Context, target *query.Target, sql string, options *query.ExecuteOptions) (*query.QueryResult, error) {
 	if target == nil {
 		target = &query.Target{}
 	}
@@ -215,6 +215,13 @@ func (e *Executor) ExecuteQuery(ctx context.Context, target *query.Target, sql s
 		"shard", target.Shard,
 		"pooler_type", target.PoolerType.String(),
 		"query", sql)
+
+	// TODO: Use ExecuteOptions for prepared statements, portals, session settings, etc.
+	// Extract maxRows from options if provided
+	maxRows := uint64(0)
+	if options != nil {
+		maxRows = options.MaxRows
+	}
 
 	// Execute the query and stream results
 	return e.executeQuery(ctx, sql, maxRows)
@@ -226,11 +233,13 @@ func (e *Executor) StreamExecute(
 	ctx context.Context,
 	target *query.Target,
 	sql string,
+	options *query.ExecuteOptions,
 	callback func(context.Context, *query.QueryResult) error,
 ) error {
+	// TODO: Use ExecuteOptions for prepared statements, portals, session settings, etc.
 	// Execute the query and stream results
 	// TODO(GuptaManan100): Actually stream the results from postgres.
-	result, err := e.ExecuteQuery(ctx, target, sql, 0) // 0 = no max rows limit
+	result, err := e.ExecuteQuery(ctx, target, sql, options)
 	if err != nil {
 		e.logger.ErrorContext(ctx, "query execution failed", "error", err, "query", sql)
 		return fmt.Errorf("query execution failed: %w", err)

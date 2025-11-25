@@ -107,6 +107,7 @@ func (pg *PoolerGateway) StreamExecute(
 	ctx context.Context,
 	target *query.Target,
 	sql string,
+	options *query.ExecuteOptions,
 	callback func(context.Context, *query.QueryResult) error,
 ) error {
 	// Get a pooler matching the target
@@ -116,7 +117,7 @@ func (pg *PoolerGateway) StreamExecute(
 	}
 
 	// Delegate to the pooler's QueryService
-	return queryService.StreamExecute(ctx, target, sql, callback)
+	return queryService.StreamExecute(ctx, target, sql, options, callback)
 }
 
 func (pg *PoolerGateway) getQueryServiceForTarget(ctx context.Context, target *query.Target) (queryservice.QueryService, error) {
@@ -147,7 +148,7 @@ func (pg *PoolerGateway) getQueryServiceForTarget(ctx context.Context, target *q
 // It routes the query to the appropriate multipooler instance based on the target.
 // This should be used sparingly only when we know the result set is small,
 // otherwise StreamExecute should be used.
-func (pg *PoolerGateway) ExecuteQuery(ctx context.Context, target *query.Target, sql string, maxRows uint64) (*query.QueryResult, error) {
+func (pg *PoolerGateway) ExecuteQuery(ctx context.Context, target *query.Target, sql string, options *query.ExecuteOptions) (*query.QueryResult, error) {
 	// Get a pooler matching the target
 	queryService, err := pg.getQueryServiceForTarget(ctx, target)
 	if err != nil {
@@ -155,7 +156,7 @@ func (pg *PoolerGateway) ExecuteQuery(ctx context.Context, target *query.Target,
 	}
 
 	// Delegate to the pooler's QueryService
-	return queryService.ExecuteQuery(ctx, target, sql, maxRows)
+	return queryService.ExecuteQuery(ctx, target, sql, options)
 }
 
 // getOrCreateConnection returns an existing connection or creates a new one.

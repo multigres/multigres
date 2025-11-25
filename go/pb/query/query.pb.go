@@ -613,21 +613,21 @@ type ExecuteOptions struct {
 	// be applied to the connection before executing the query.
 	// Key is the variable name, value is the variable value.
 	SessionSettings map[string]string `protobuf:"bytes,1,rep,name=session_settings,json=sessionSettings,proto3" json:"session_settings,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
-	// prepared_statements contains prepared statements that should be
-	// available on the connection. Each statement has a name field.
-	PreparedStatements []*PreparedStatement `protobuf:"bytes,2,rep,name=prepared_statements,json=preparedStatements,proto3" json:"prepared_statements,omitempty"`
-	// portals contains portals (bound prepared statements) that should be
-	// available on the connection. Each portal has a name field.
-	Portals []*Portal `protobuf:"bytes,3,rep,name=portals,proto3" json:"portals,omitempty"`
-	// client_id is a unique identifier for the client session.
-	// Used for connection pinning and reservation in the pool.
-	ClientId uint64 `protobuf:"varint,4,opt,name=client_id,json=clientId,proto3" json:"client_id,omitempty"`
-	// requires_reservation indicates whether this execution requires
-	// the connection to be reserved (pinned) for subsequent operations.
-	// This is typically true when using prepared statements or transactions.
-	RequiresReservation bool `protobuf:"varint,5,opt,name=requires_reservation,json=requiresReservation,proto3" json:"requires_reservation,omitempty"`
-	unknownFields       protoimpl.UnknownFields
-	sizeCache           protoimpl.SizeCache
+	// prepared_statement is the prepared statement that should be
+	// available on the connection for this query execution.
+	PreparedStatement *PreparedStatement `protobuf:"bytes,2,opt,name=prepared_statement,json=preparedStatement,proto3" json:"prepared_statement,omitempty"`
+	// portal is the portal (bound prepared statement) that should be
+	// available on the connection for this query execution.
+	Portal *Portal `protobuf:"bytes,3,opt,name=portal,proto3" json:"portal,omitempty"`
+	// max_rows is the maximum number of rows to return from Execute.
+	// 0 means return all rows. Used by the Execute message in the extended query protocol.
+	MaxRows uint64 `protobuf:"varint,4,opt,name=max_rows,json=maxRows,proto3" json:"max_rows,omitempty"`
+	// reserved_connection_id is the ID of a reserved connection on the multipooler.
+	// Used for connection pinning - this tells the multipooler which specific
+	// connection to use for executing this query.
+	ReservedConnectionId uint64 `protobuf:"varint,5,opt,name=reserved_connection_id,json=reservedConnectionId,proto3" json:"reserved_connection_id,omitempty"`
+	unknownFields        protoimpl.UnknownFields
+	sizeCache            protoimpl.SizeCache
 }
 
 func (x *ExecuteOptions) Reset() {
@@ -667,32 +667,32 @@ func (x *ExecuteOptions) GetSessionSettings() map[string]string {
 	return nil
 }
 
-func (x *ExecuteOptions) GetPreparedStatements() []*PreparedStatement {
+func (x *ExecuteOptions) GetPreparedStatement() *PreparedStatement {
 	if x != nil {
-		return x.PreparedStatements
+		return x.PreparedStatement
 	}
 	return nil
 }
 
-func (x *ExecuteOptions) GetPortals() []*Portal {
+func (x *ExecuteOptions) GetPortal() *Portal {
 	if x != nil {
-		return x.Portals
+		return x.Portal
 	}
 	return nil
 }
 
-func (x *ExecuteOptions) GetClientId() uint64 {
+func (x *ExecuteOptions) GetMaxRows() uint64 {
 	if x != nil {
-		return x.ClientId
+		return x.MaxRows
 	}
 	return 0
 }
 
-func (x *ExecuteOptions) GetRequiresReservation() bool {
+func (x *ExecuteOptions) GetReservedConnectionId() uint64 {
 	if x != nil {
-		return x.RequiresReservation
+		return x.ReservedConnectionId
 	}
-	return false
+	return 0
 }
 
 var File_query_proto protoreflect.FileDescriptor
@@ -741,13 +741,13 @@ const file_query_proto_rawDesc = "" +
 	"\x17prepared_statement_name\x18\x02 \x01(\tR\x15preparedStatementName\x12\x16\n" +
 	"\x06params\x18\x03 \x03(\fR\x06params\x12#\n" +
 	"\rparam_formats\x18\x04 \x03(\x05R\fparamFormats\x12%\n" +
-	"\x0eresult_formats\x18\x05 \x03(\x05R\rresultFormats\"\xef\x02\n" +
+	"\x0eresult_formats\x18\x05 \x03(\x05R\rresultFormats\"\xec\x02\n" +
 	"\x0eExecuteOptions\x12U\n" +
-	"\x10session_settings\x18\x01 \x03(\v2*.query.ExecuteOptions.SessionSettingsEntryR\x0fsessionSettings\x12I\n" +
-	"\x13prepared_statements\x18\x02 \x03(\v2\x18.query.PreparedStatementR\x12preparedStatements\x12'\n" +
-	"\aportals\x18\x03 \x03(\v2\r.query.PortalR\aportals\x12\x1b\n" +
-	"\tclient_id\x18\x04 \x01(\x04R\bclientId\x121\n" +
-	"\x14requires_reservation\x18\x05 \x01(\bR\x13requiresReservation\x1aB\n" +
+	"\x10session_settings\x18\x01 \x03(\v2*.query.ExecuteOptions.SessionSettingsEntryR\x0fsessionSettings\x12G\n" +
+	"\x12prepared_statement\x18\x02 \x01(\v2\x18.query.PreparedStatementR\x11preparedStatement\x12%\n" +
+	"\x06portal\x18\x03 \x01(\v2\r.query.PortalR\x06portal\x12\x19\n" +
+	"\bmax_rows\x18\x04 \x01(\x04R\amaxRows\x124\n" +
+	"\x16reserved_connection_id\x18\x05 \x01(\x04R\x14reservedConnectionId\x1aB\n" +
 	"\x14SessionSettingsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01B,Z*github.com/multigres/multigres/go/pb/queryb\x06proto3"
@@ -785,8 +785,8 @@ var file_query_proto_depIdxs = []int32{
 	1,  // 3: query.StatementDescription.fields:type_name -> query.Field
 	10, // 4: query.Target.pooler_type:type_name -> clustermetadata.PoolerType
 	9,  // 5: query.ExecuteOptions.session_settings:type_name -> query.ExecuteOptions.SessionSettingsEntry
-	6,  // 6: query.ExecuteOptions.prepared_statements:type_name -> query.PreparedStatement
-	7,  // 7: query.ExecuteOptions.portals:type_name -> query.Portal
+	6,  // 6: query.ExecuteOptions.prepared_statement:type_name -> query.PreparedStatement
+	7,  // 7: query.ExecuteOptions.portal:type_name -> query.Portal
 	8,  // [8:8] is the sub-list for method output_type
 	8,  // [8:8] is the sub-list for method input_type
 	8,  // [8:8] is the sub-list for extension type_name

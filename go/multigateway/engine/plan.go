@@ -46,9 +46,10 @@ func (p *Plan) StreamExecute(
 	ctx context.Context,
 	exec IExecute,
 	conn *server.Conn,
+	options *query.ExecuteOptions,
 	callback func(context.Context, *query.QueryResult) error,
 ) error {
-	return p.Primitive.StreamExecute(ctx, exec, conn, callback)
+	return p.Primitive.StreamExecute(ctx, exec, conn, options, callback)
 }
 
 // GetTableGroup returns the target tablegroup from the primitive.

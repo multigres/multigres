@@ -60,6 +60,7 @@ func (sc *ScatterConn) StreamExecute(
 	tableGroup string,
 	shard string,
 	sql string,
+	options *query.ExecuteOptions,
 	callback func(context.Context, *query.QueryResult) error,
 ) error {
 	sc.logger.DebugContext(ctx, "scatter conn executing query",
@@ -83,7 +84,7 @@ func (sc *ScatterConn) StreamExecute(
 		"shard", shard,
 		"pooler_type", target.PoolerType.String())
 
-	if err := sc.queryService.StreamExecute(ctx, target, sql, callback); err != nil {
+	if err := sc.queryService.StreamExecute(ctx, target, sql, options, callback); err != nil {
 		return fmt.Errorf("query execution failed: %w", err)
 	}
 

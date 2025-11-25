@@ -45,7 +45,7 @@ type QueryService interface {
 		ctx context.Context,
 		target *query.Target,
 		sql string,
-		maxRows uint64,
+		options *query.ExecuteOptions,
 	) (*query.QueryResult, error)
 
 	// StreamExecute executes a query and streams results back via callback.
@@ -57,6 +57,7 @@ type QueryService interface {
 		ctx context.Context,
 		target *query.Target,
 		sql string,
+		options *query.ExecuteOptions,
 		callback func(context.Context, *query.QueryResult) error,
 	) error
 

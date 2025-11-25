@@ -65,6 +65,7 @@ func (e *Executor) StreamExecute(
 	conn *server.Conn,
 	sql string,
 	astStmt ast.Stmt,
+	options *query.ExecuteOptions,
 	callback func(ctx context.Context, res *query.QueryResult) error,
 ) error {
 	e.logger.DebugContext(ctx, "executing query",
@@ -88,7 +89,7 @@ func (e *Executor) StreamExecute(
 
 	// Step 2: Execute the plan
 	// Pass the IExecute implementation to the plan, which will pass it to the primitive
-	err = plan.StreamExecute(ctx, e.exec, conn, callback)
+	err = plan.StreamExecute(ctx, e.exec, conn, options, callback)
 	if err != nil {
 		e.logger.ErrorContext(ctx, "query execution failed",
 			"query", sql,

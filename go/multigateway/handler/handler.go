@@ -29,7 +29,7 @@ import (
 
 // Executor defines the interface for query execution.
 type Executor interface {
-	StreamExecute(ctx context.Context, conn *server.Conn, queryStr string, astStmt ast.Stmt, callback func(ctx context.Context, result *query.QueryResult) error) error
+	StreamExecute(ctx context.Context, conn *server.Conn, queryStr string, astStmt ast.Stmt, options *query.ExecuteOptions, callback func(ctx context.Context, result *query.QueryResult) error) error
 }
 
 // MultiGatewayHandler implements the pgprotocol Handler interface for multigateway.
@@ -66,8 +66,12 @@ func (h *MultiGatewayHandler) HandleQuery(ctx context.Context, conn *server.Conn
 	}
 
 	for _, astStmt := range asts {
+		// Create execute options with reserved connection ID for connection pinning
+		// TODO: Implement connection reservation and get the actual reserved connection ID
+		options := &query.ExecuteOptions{}
+
 		// Route the query through the executor which will eventually call multipooler
-		err = h.executor.StreamExecute(ctx, conn, queryStr, astStmt, callback)
+		err = h.executor.StreamExecute(ctx, conn, queryStr, astStmt, options, callback)
 		if err != nil {
 			return err
 		}
