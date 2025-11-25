@@ -33,6 +33,11 @@ import (
 
 // Backup performs a backup
 func (pm *MultiPoolerManager) Backup(ctx context.Context, forcePrimary bool, backupType string) (string, error) {
+	// We can't proceed without the topo, which is loaded asynchronously at startup
+	if err := pm.checkReady(); err != nil {
+		return "", err
+	}
+
 	// Check if backup is allowed on primary
 	if err := pm.allowBackupOnPrimary(ctx, forcePrimary); err != nil {
 		return "", err
@@ -48,12 +53,6 @@ func (pm *MultiPoolerManager) Backup(ctx context.Context, forcePrimary bool, bac
 	}
 	backupTimestamp := time.Now().Format("20060102-150405.000000")
 
-	// Get backup location from topology
-	backupLocation, err := pm.getBackupLocation(ctx)
-	if err != nil {
-		return "", err
-	}
-
 	// Validate parameters and get pgbackrest type
 	pgBackRestType, err := pm.validateBackupParams(backupType, configPath, stanzaName)
 	if err != nil {
@@ -67,7 +66,7 @@ func (pm *MultiPoolerManager) Backup(ctx context.Context, forcePrimary bool, bac
 	args := []string{
 		"--stanza=" + stanzaName,
 		"--config=" + configPath,
-		"--repo1-path=" + backupLocation,
+		"--repo1-path=" + pm.backupLocation,
 		"--type=" + pgBackRestType,
 		"--log-level-console=info",
 	}
@@ -109,7 +108,7 @@ func (pm *MultiPoolerManager) Backup(ctx context.Context, forcePrimary bool, bac
 	verifyCmd := exec.CommandContext(verifyCtx, "pgbackrest",
 		"--stanza="+stanzaName,
 		"--config="+configPath,
-		"--repo1-path="+backupLocation,
+		"--repo1-path="+pm.backupLocation,
 		"--set="+backupID,
 		"--log-level-console=info",
 		"verify")
@@ -139,6 +138,11 @@ func (pm *MultiPoolerManager) Backup(ctx context.Context, forcePrimary bool, bac
 // 3. Reopen the pooler manager to establish fresh connections
 func (pm *MultiPoolerManager) RestoreFromBackup(ctx context.Context, backupID string) error {
 	slog.InfoContext(ctx, "RestoreFromBackup called", "backup_id", backupID)
+
+	// We can't proceed without the topo, which is loaded asynchronously at startup
+	if err := pm.checkReady(); err != nil {
+		return err
+	}
 
 	// Check that this is a standby, not a primary
 	poolerType := pm.getPoolerType()
@@ -174,19 +178,13 @@ func (pm *MultiPoolerManager) executeBackrestRestore(ctx context.Context, backup
 		return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "stanza_name is required")
 	}
 
-	// Get backup location from topology
-	backupLocation, err := pm.getBackupLocation(ctx)
-	if err != nil {
-		return err
-	}
-
 	restoreCtx, cancel := context.WithTimeout(ctx, 30*time.Minute)
 	defer cancel()
 
 	args := []string{
 		"--stanza=" + stanzaName,
 		"--config=" + configPath,
-		"--repo1-path=" + backupLocation,
+		"--repo1-path=" + pm.backupLocation,
 		"--log-level-console=info",
 	}
 
@@ -246,6 +244,11 @@ func (pm *MultiPoolerManager) reopenPoolerManager(ctx context.Context) error {
 
 // GetBackups retrieves backup information
 func (pm *MultiPoolerManager) GetBackups(ctx context.Context, limit uint32) ([]*multipoolermanagerdata.BackupMetadata, error) {
+	// We can't proceed without the topo, which is loaded asynchronously at startup
+	if err := pm.checkReady(); err != nil {
+		return nil, err
+	}
+
 	configPath := pm.getBackupConfigPath()
 	stanzaName := pm.getBackupStanza()
 
@@ -257,12 +260,6 @@ func (pm *MultiPoolerManager) GetBackups(ctx context.Context, limit uint32) ([]*
 		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "stanza_name is required")
 	}
 
-	// Get backup location from topology
-	backupLocation, err := pm.getBackupLocation(ctx)
-	if err != nil {
-		return nil, err
-	}
-
 	// Execute pgbackrest info command with JSON output
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
@@ -270,7 +267,7 @@ func (pm *MultiPoolerManager) GetBackups(ctx context.Context, limit uint32) ([]*
 	cmd := exec.CommandContext(ctx, "pgbackrest",
 		"--stanza="+stanzaName,
 		"--config="+configPath,
-		"--repo1-path="+backupLocation,
+		"--repo1-path="+pm.backupLocation,
 		"--output=json",
 		"--log-level-console=off", // Override console logging to prevent contaminating JSON output
 		"info")

@@ -17,15 +17,14 @@
 package value
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
 
-	"github.com/multigres/multigres/go/common/mterrors"
-	"github.com/multigres/multigres/go/pb/mtrpc"
-	"github.com/multigres/multigres/go/viperutil/internal/registry"
-	"github.com/multigres/multigres/go/viperutil/internal/sync"
+	"github.com/multigres/multigres/go/tools/viperutil/internal/registry"
+	"github.com/multigres/multigres/go/tools/viperutil/internal/sync"
 )
 
 // Registerable is the subset of the interface exposed by Values (which is
@@ -60,7 +59,7 @@ func (val *Base[T]) Get() T      { return val.BoundGetFunc(val.Key()) }
 
 // ErrNoFlagDefined is returned when a Value has a FlagName set, but the given
 // FlagSet does not define a flag with that name.
-var ErrNoFlagDefined = mterrors.New(mtrpc.Code_INVALID_ARGUMENT, "flag not defined")
+var ErrNoFlagDefined = errors.New("flag not defined")
 
 // Flag is part of the Registerable interface. If the given flag set has a flag
 // with the name of this value's configured flag, that flag is returned, along
@@ -76,7 +75,7 @@ func (val *Base[T]) Flag(fs *pflag.FlagSet) (*pflag.Flag, error) {
 
 	flag := fs.Lookup(val.FlagName)
 	if flag == nil {
-		return nil, mterrors.Wrapf(ErrNoFlagDefined, "%s with name %s (for key %s)", ErrNoFlagDefined.Error(), val.FlagName, val.Key())
+		return nil, fmt.Errorf("%w with name %s (for key %s)", ErrNoFlagDefined, val.FlagName, val.Key())
 	}
 
 	return flag, nil

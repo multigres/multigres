@@ -29,7 +29,7 @@ import (
 	"github.com/multigres/multigres/go/clustermetadata/topo/memorytopo"
 	"github.com/multigres/multigres/go/cmd/pgctld/testutil"
 	"github.com/multigres/multigres/go/servenv"
-	"github.com/multigres/multigres/go/viperutil"
+	"github.com/multigres/multigres/go/tools/viperutil"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	consensusdatapb "github.com/multigres/multigres/go/pb/consensusdata"
@@ -46,6 +46,10 @@ func setupManagerWithMockDB(t *testing.T) (*MultiPoolerManager, sqlmock.Sqlmock,
 	pgctldAddr, cleanupPgctld := testutil.StartMockPgctldServer(t)
 	t.Cleanup(cleanupPgctld)
 
+	// Create the database in topology with backup location
+	database := "testdb"
+	addDatabaseToTopo(t, ts, database)
+
 	serviceID := &clustermetadatapb.ID{
 		Component: clustermetadatapb.ID_MULTIPOOLER,
 		Cell:      "zone1",
@@ -53,7 +57,7 @@ func setupManagerWithMockDB(t *testing.T) (*MultiPoolerManager, sqlmock.Sqlmock,
 	}
 	multipooler := &clustermetadatapb.MultiPooler{
 		Id:            serviceID,
-		Database:      "testdb",
+		Database:      database,
 		Hostname:      "localhost",
 		PortMap:       map[string]int32{"grpc": 8080},
 		Type:          clustermetadatapb.PoolerType_PRIMARY,

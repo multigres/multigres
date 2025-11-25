@@ -21,16 +21,16 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/multigres/multigres/go/multiorch/coordinator"
+	"github.com/multigres/multigres/go/multiorch/store"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 )
 
 func TestBootstrapExecuteEmptyCohort(t *testing.T) {
 	ctx := context.Background()
 	logger := slog.Default()
-	action := NewBootstrapShardAction(nil, logger)
+	action := NewBootstrapShardAction(nil, nil, logger)
 
-	cohort := []*coordinator.Node{}
+	cohort := []*store.PoolerHealth{}
 	err := action.Execute(ctx, "shard-01", "postgres", cohort)
 
 	assert.Error(t, err)
@@ -39,7 +39,7 @@ func TestBootstrapExecuteEmptyCohort(t *testing.T) {
 
 func TestBootstrapParsePolicyANY_2(t *testing.T) {
 	logger := slog.Default()
-	action := NewBootstrapShardAction(nil, logger)
+	action := NewBootstrapShardAction(nil, nil, logger)
 
 	rule, err := action.parsePolicy("ANY_2")
 	assert.NoError(t, err)
@@ -51,7 +51,7 @@ func TestBootstrapParsePolicyANY_2(t *testing.T) {
 
 func TestBootstrapParsePolicyMULTI_CELL_ANY_2(t *testing.T) {
 	logger := slog.Default()
-	action := NewBootstrapShardAction(nil, logger)
+	action := NewBootstrapShardAction(nil, nil, logger)
 
 	rule, err := action.parsePolicy("MULTI_CELL_ANY_2")
 	assert.NoError(t, err)
@@ -63,7 +63,7 @@ func TestBootstrapParsePolicyMULTI_CELL_ANY_2(t *testing.T) {
 
 func TestBootstrapParsePolicyInvalid(t *testing.T) {
 	logger := slog.Default()
-	action := NewBootstrapShardAction(nil, logger)
+	action := NewBootstrapShardAction(nil, nil, logger)
 
 	rule, err := action.parsePolicy("INVALID_POLICY")
 	assert.Error(t, err)

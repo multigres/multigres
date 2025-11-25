@@ -31,7 +31,7 @@ import (
 
 	consensuspb "github.com/multigres/multigres/go/pb/consensus"
 	multipoolermanagerpb "github.com/multigres/multigres/go/pb/multipoolermanager"
-	"github.com/multigres/multigres/go/viperutil"
+	"github.com/multigres/multigres/go/tools/viperutil"
 )
 
 const defaultCapacity = 100

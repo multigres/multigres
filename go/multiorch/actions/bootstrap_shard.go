@@ -23,7 +23,9 @@ import (
 
 	"github.com/multigres/multigres/go/clustermetadata/topo"
 	"github.com/multigres/multigres/go/common/mterrors"
-	"github.com/multigres/multigres/go/multiorch/coordinator"
+	"github.com/multigres/multigres/go/common/rpcclient"
+	"github.com/multigres/multigres/go/multiorch/store"
+
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
@@ -37,20 +39,22 @@ import (
 // 3. Create the durability policy in the database
 // 4. Initialize remaining nodes as standbys
 type BootstrapShardAction struct {
+	rpcClient rpcclient.MultiPoolerClient
 	topoStore topo.Store
 	logger    *slog.Logger
 }
 
 // NewBootstrapShardAction creates a new bootstrap action
-func NewBootstrapShardAction(topoStore topo.Store, logger *slog.Logger) *BootstrapShardAction {
+func NewBootstrapShardAction(rpcClient rpcclient.MultiPoolerClient, topoStore topo.Store, logger *slog.Logger) *BootstrapShardAction {
 	return &BootstrapShardAction{
+		rpcClient: rpcClient,
 		topoStore: topoStore,
 		logger:    logger,
 	}
 }
 
 // Execute performs bootstrap initialization for a new shard
-func (a *BootstrapShardAction) Execute(ctx context.Context, shardID string, database string, cohort []*coordinator.Node) error {
+func (a *BootstrapShardAction) Execute(ctx context.Context, shardID string, database string, cohort []*store.PoolerHealth) error {
 	a.logger.InfoContext(ctx, "Executing bootstrap initialization",
 		"shard", shardID,
 		"database", database,
@@ -86,7 +90,7 @@ func (a *BootstrapShardAction) Execute(ctx context.Context, shardID string, data
 	req := &multipoolermanagerdatapb.InitializeEmptyPrimaryRequest{
 		ConsensusTerm: 1,
 	}
-	resp, err := candidate.RpcClient.InitializeEmptyPrimary(ctx, candidate.Pooler, req)
+	resp, err := a.rpcClient.InitializeEmptyPrimary(ctx, candidate.ToMultiPooler(), req)
 	if err != nil {
 		return mterrors.Wrap(err, "failed to initialize empty primary")
 	}
@@ -113,7 +117,7 @@ func (a *BootstrapShardAction) Execute(ctx context.Context, shardID string, data
 		PolicyName: policyName,
 		QuorumRule: quorumRule,
 	}
-	createPolicyResp, err := candidate.RpcClient.CreateDurabilityPolicy(ctx, candidate.Pooler, createPolicyReq)
+	createPolicyResp, err := a.rpcClient.CreateDurabilityPolicy(ctx, candidate.ToMultiPooler(), createPolicyReq)
 	if err != nil {
 		return mterrors.Wrap(err, "failed to create durability policy")
 	}
@@ -129,10 +133,10 @@ func (a *BootstrapShardAction) Execute(ctx context.Context, shardID string, data
 		"policy_name", policyName)
 
 	// Step 5: Initialize remaining nodes as standbys
-	standbys := make([]*coordinator.Node, 0, len(cohort)-1)
-	for _, node := range cohort {
-		if node.ID.Name != candidate.ID.Name {
-			standbys = append(standbys, node)
+	standbys := make([]*store.PoolerHealth, 0, len(cohort)-1)
+	for _, pooler := range cohort {
+		if pooler.ID.Name != candidate.ID.Name {
+			standbys = append(standbys, pooler)
 		}
 	}
 
@@ -154,27 +158,27 @@ func (a *BootstrapShardAction) Execute(ctx context.Context, shardID string, data
 }
 
 // selectBootstrapCandidate selects the first healthy node as the bootstrap candidate
-func (a *BootstrapShardAction) selectBootstrapCandidate(ctx context.Context, cohort []*coordinator.Node) (*coordinator.Node, error) {
+func (a *BootstrapShardAction) selectBootstrapCandidate(ctx context.Context, cohort []*store.PoolerHealth) (*store.PoolerHealth, error) {
 	// For bootstrap, we just pick the first reachable node
 	// In a production system, you might want to consider factors like:
 	// - Node with fastest storage
 	// - Node in preferred availability zone
 	// - Node with most resources available
 
-	for _, node := range cohort {
+	for _, pooler := range cohort {
 		req := &multipoolermanagerdatapb.InitializationStatusRequest{}
-		status, err := node.RpcClient.InitializationStatus(ctx, node.Pooler, req)
+		status, err := a.rpcClient.InitializationStatus(ctx, pooler.ToMultiPooler(), req)
 		if err != nil {
 			a.logger.WarnContext(ctx, "Node unreachable during candidate selection",
-				"node", node.ID.Name,
+				"node", pooler.ID.Name,
 				"error", err)
 			continue
 		}
 
 		if !status.IsInitialized {
 			a.logger.InfoContext(ctx, "Selected node as bootstrap candidate",
-				"node", node.ID.Name)
-			return node, nil
+				"node", pooler.ID.Name)
+			return pooler, nil
 		}
 	}
 
@@ -183,7 +187,7 @@ func (a *BootstrapShardAction) selectBootstrapCandidate(ctx context.Context, coh
 }
 
 // initializeStandbys initializes multiple nodes as standbys of the given primary
-func (a *BootstrapShardAction) initializeStandbys(ctx context.Context, shardID string, primary *coordinator.Node, standbys []*coordinator.Node, backupID string) error {
+func (a *BootstrapShardAction) initializeStandbys(ctx context.Context, shardID string, primary *store.PoolerHealth, standbys []*store.PoolerHealth, backupID string) error {
 	if len(standbys) == 0 {
 		return nil
 	}
@@ -197,19 +201,19 @@ func (a *BootstrapShardAction) initializeStandbys(ctx context.Context, shardID s
 	// Initialize all standbys in parallel
 	// Use a simple error aggregation approach
 	type result struct {
-		node *coordinator.Node
+		node *store.PoolerHealth
 		err  error
 	}
 
 	results := make(chan result, len(standbys))
 
 	for _, standby := range standbys {
-		go func(node *coordinator.Node) {
+		go func(node *store.PoolerHealth) {
 			// Set pooler type to REPLICA before initializing as standby
 			changeTypeReq := &multipoolermanagerdatapb.ChangeTypeRequest{
 				PoolerType: clustermetadatapb.PoolerType_REPLICA,
 			}
-			_, err := node.RpcClient.ChangeType(ctx, node.Pooler, changeTypeReq)
+			_, err := a.rpcClient.ChangeType(ctx, node.ToMultiPooler(), changeTypeReq)
 			if err != nil {
 				results <- result{node: node, err: fmt.Errorf("failed to set pooler type: %w", err)}
 				return
@@ -217,12 +221,12 @@ func (a *BootstrapShardAction) initializeStandbys(ctx context.Context, shardID s
 
 			req := &multipoolermanagerdatapb.InitializeAsStandbyRequest{
 				PrimaryHost:   primary.Hostname,
-				PrimaryPort:   primary.Port,
+				PrimaryPort:   primary.PortMap["grpc"],
 				ConsensusTerm: 1,
 				Force:         false,
 				BackupId:      backupID,
 			}
-			resp, err := node.RpcClient.InitializeAsStandby(ctx, node.Pooler, req)
+			resp, err := a.rpcClient.InitializeAsStandby(ctx, node.ToMultiPooler(), req)
 			if err != nil {
 				results <- result{node: node, err: err}
 				return
