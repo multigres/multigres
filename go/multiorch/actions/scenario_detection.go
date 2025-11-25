@@ -19,8 +19,8 @@ import (
 	"log/slog"
 
 	"github.com/multigres/multigres/go/common/rpcclient"
-	"github.com/multigres/multigres/go/multiorch/store"
 
+	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
 
@@ -61,16 +61,16 @@ func (s InitializationScenario) String() string {
 // GatherInitializationStatus queries all nodes for their initialization status.
 // This is a helper function that multiorch can use to collect node status
 // before determining which initialization action to use.
-func GatherInitializationStatus(ctx context.Context, rpcClient rpcclient.MultiPoolerClient, cohort []*store.PoolerHealth, logger *slog.Logger) ([]*multipoolermanagerdatapb.InitializationStatusResponse, error) {
+func GatherInitializationStatus(ctx context.Context, rpcClient rpcclient.MultiPoolerClient, cohort []*multiorchdatapb.PoolerHealthState, logger *slog.Logger) ([]*multipoolermanagerdatapb.InitializationStatusResponse, error) {
 	statuses := make([]*multipoolermanagerdatapb.InitializationStatusResponse, len(cohort))
 
-	for i, node := range cohort {
+	for i, pooler := range cohort {
 		req := &multipoolermanagerdatapb.InitializationStatusRequest{}
-		status, err := rpcClient.InitializationStatus(ctx, node.ToMultiPooler(), req)
+		status, err := rpcClient.InitializationStatus(ctx, pooler.MultiPooler, req)
 		if err != nil {
 			if logger != nil {
 				logger.WarnContext(ctx, "Failed to get initialization status from node",
-					"node", node.ID.Name,
+					"node", pooler.MultiPooler.Id.Name,
 					"error", err)
 			}
 			// Continue with nil status - we'll handle missing statuses in DetermineScenario
