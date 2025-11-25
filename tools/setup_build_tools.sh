@@ -15,6 +15,13 @@
 
 set -euo pipefail
 
+# Source helper scripts
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=tools/safe_download.sh
+source "$SCRIPT_DIR/safe_download.sh"
+# shellcheck source=tools/tool_checksums.sh
+source "$SCRIPT_DIR/tool_checksums.sh"
+
 # Multigres build tools setup script
 # Installs build dependencies using install_dep pattern
 
@@ -105,10 +112,14 @@ install_protoc_impl() {
   local filename="protoc-${version}-${platform}-${arch}.zip"
   local url="https://github.com/protocolbuffers/protobuf/releases/download/v${version}/${filename}"
 
+  # Get SHA256 hash for verification
+  local sha256
+  sha256=$(get_sha256 "protoc" "$version" "$platform" "$arch" "zip")
+
   cd "$dist"
 
   echo "Downloading ${url}..."
-  curl -L -o "${filename}" "${url}"
+  safe_download "${url}" "${filename}" "${sha256}"
 
   echo "Extracting protoc..."
   unzip -q "${filename}"
@@ -155,9 +166,13 @@ install_etcd() {
   # This is how we'd download directly from source:
   local url="https://github.com/etcd-io/etcd/releases/download/$version/$filename"
 
+  # Get SHA256 hash for verification
+  local sha256
+  sha256=$(get_sha256 "etcd" "$version" "$platform" "$arch" "$ext")
+
   cd "$dist"
   echo "Downloading ${url}..."
-  curl -L -o "${filename}" "${url}"
+  safe_download "${url}" "${filename}" "${sha256}"
 
   echo "Extracting etcd..."
 

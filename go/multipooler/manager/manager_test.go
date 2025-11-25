@@ -73,6 +73,10 @@ func TestManagerState_SuccessfulLoad(t *testing.T) {
 	// Create temp directory for pooler-dir
 	poolerDir := t.TempDir()
 
+	// Create the database in topology with backup location
+	database := "testdb"
+	addDatabaseToTopo(t, ts, database)
+
 	// Create the multipooler in topology
 	serviceID := &clustermetadatapb.ID{
 		Component: clustermetadatapb.ID_MULTIPOOLER,
@@ -81,7 +85,7 @@ func TestManagerState_SuccessfulLoad(t *testing.T) {
 	}
 	multipooler := &clustermetadatapb.MultiPooler{
 		Id:            serviceID,
-		Database:      "testdb",
+		Database:      database,
 		Hostname:      "localhost",
 		PortMap:       map[string]int32{"grpc": 8080},
 		Type:          clustermetadatapb.PoolerType_PRIMARY,
@@ -207,6 +211,10 @@ func TestManagerState_RetryUntilSuccess(t *testing.T) {
 	// Create temp directory for pooler-dir
 	poolerDir := t.TempDir()
 
+	// Create the database in topology with backup location
+	database := "testdb"
+	addDatabaseToTopo(t, ts, database)
+
 	// Create the multipooler in topology
 	serviceID := &clustermetadatapb.ID{
 		Component: clustermetadatapb.ID_MULTIPOOLER,
@@ -215,7 +223,7 @@ func TestManagerState_RetryUntilSuccess(t *testing.T) {
 	}
 	multipooler := &clustermetadatapb.MultiPooler{
 		Id:            serviceID,
-		Database:      "testdb",
+		Database:      database,
 		Hostname:      "localhost",
 		PortMap:       map[string]int32{"grpc": 8080},
 		Type:          clustermetadatapb.PoolerType_PRIMARY,
@@ -365,9 +373,13 @@ func TestValidateAndUpdateTerm(t *testing.T) {
 				require.NoError(t, setConsensusTerm(poolerDir, initialTerm))
 			}
 
+			// Create the database in topology with backup location
+			database := "testdb"
+			addDatabaseToTopo(t, ts, database)
+
 			multipooler := &clustermetadatapb.MultiPooler{
 				Id:            serviceID,
-				Database:      "testdb",
+				Database:      database,
 				Hostname:      "localhost",
 				PortMap:       map[string]int32{"grpc": 8080},
 				Type:          clustermetadatapb.PoolerType_PRIMARY,
@@ -424,12 +436,7 @@ func TestGetBackupLocation(t *testing.T) {
 
 	// Create test database with backup_location
 	database := "testdb"
-	err := ts.CreateDatabase(ctx, database, &clustermetadatapb.Database{
-		Name:             database,
-		BackupLocation:   "/var/backups/pgbackrest",
-		DurabilityPolicy: "ANY_2",
-	})
-	require.NoError(t, err)
+	addDatabaseToTopo(t, ts, database)
 
 	// Create manager config
 	serviceID := &clustermetadatapb.ID{
@@ -458,100 +465,8 @@ func TestGetBackupLocation(t *testing.T) {
 		proto.Clone(multipoolerInfo.MultiPooler).(*clustermetadatapb.MultiPooler),
 		multipoolerInfo.Version(),
 	)
+	manager.backupLocation = "/var/backups/pgbackrest"
 
-	// Test getting backup location
-	backupLocation, err := manager.getBackupLocation(ctx)
-	require.NoError(t, err)
-	assert.Equal(t, "/var/backups/pgbackrest", backupLocation)
-}
-
-func TestGetBackupLocationError(t *testing.T) {
-	ctx := context.Background()
-	tmpDir := t.TempDir()
-
-	// Create test topology store
-	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
-	defer ts.Close()
-
-	// Create manager config
-	serviceID := &clustermetadatapb.ID{
-		Component: clustermetadatapb.ID_MULTIPOOLER,
-		Cell:      "zone1",
-		Name:      "test-service",
-	}
-	config := &Config{
-		TopoClient: ts,
-		ServiceID:  serviceID,
-		PoolerDir:  filepath.Join(tmpDir, "pooler"),
-	}
-
-	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
-	manager := NewMultiPoolerManager(logger, config)
-
-	// Set the multipooler to have a nonexistent database
-	multipoolerInfo := &topo.MultiPoolerInfo{
-		MultiPooler: &clustermetadatapb.MultiPooler{
-			Database: "nonexistent",
-		},
-	}
-	manager.multipooler = multipoolerInfo
-	manager.cachedMultipooler.multipooler = topo.NewMultiPoolerInfo(
-		proto.Clone(multipoolerInfo.MultiPooler).(*clustermetadatapb.MultiPooler),
-		multipoolerInfo.Version(),
-	)
-
-	// Test getting backup location for nonexistent database
-	_, err := manager.getBackupLocation(ctx)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to get database")
-}
-
-func TestGetBackupLocationEmpty(t *testing.T) {
-	ctx := context.Background()
-	tmpDir := t.TempDir()
-
-	// Create test topology store
-	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
-	defer ts.Close()
-
-	// Create test database WITHOUT backup_location
-	database := "testdb"
-	err := ts.CreateDatabase(ctx, database, &clustermetadatapb.Database{
-		Name:             database,
-		BackupLocation:   "", // Empty
-		DurabilityPolicy: "ANY_2",
-	})
-	require.NoError(t, err)
-
-	// Create manager config
-	serviceID := &clustermetadatapb.ID{
-		Component: clustermetadatapb.ID_MULTIPOOLER,
-		Cell:      "zone1",
-		Name:      "test-service",
-	}
-	config := &Config{
-		TopoClient: ts,
-		ServiceID:  serviceID,
-		PoolerDir:  filepath.Join(tmpDir, "pooler"),
-	}
-
-	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
-	manager := NewMultiPoolerManager(logger, config)
-
-	// Set the multipooler to have the database
-	multipoolerInfo := &topo.MultiPoolerInfo{
-		MultiPooler: &clustermetadatapb.MultiPooler{
-			Database: database,
-		},
-	}
-	manager.multipooler = multipoolerInfo
-	manager.cachedMultipooler.multipooler = topo.NewMultiPoolerInfo(
-		proto.Clone(multipoolerInfo.MultiPooler).(*clustermetadatapb.MultiPooler),
-		multipoolerInfo.Version(),
-	)
-
-	// Test getting empty backup location
-	_, err = manager.getBackupLocation(ctx)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "has no backup_location configured")
+	// Test accessing backup location field
+	assert.Equal(t, "/var/backups/pgbackrest", manager.backupLocation)
 }

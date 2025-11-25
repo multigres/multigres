@@ -154,7 +154,7 @@ func TestCreateTable(t *testing.T, client *MultiPoolerTestClient, tableName stri
 }
 
 // TestInsertData tests inserting data into a table
-func TestInsertData(t *testing.T, client *MultiPoolerTestClient, tableName string, testData []map[string]interface{}) {
+func TestInsertData(t *testing.T, client *MultiPoolerTestClient, tableName string, testData []map[string]any) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()

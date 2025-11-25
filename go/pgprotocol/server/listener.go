@@ -98,12 +98,12 @@ func NewListener(config ListenerConfig) (*Listener, error) {
 
 	// Initialize buffer pools.
 	l.readersPool = &sync.Pool{
-		New: func() interface{} {
+		New: func() any {
 			return bufio.NewReaderSize(nil, connBufferSize)
 		},
 	}
 	l.writersPool = &sync.Pool{
-		New: func() interface{} {
+		New: func() any {
 			return bufio.NewWriterSize(nil, connBufferSize)
 		},
 	}
@@ -136,11 +136,9 @@ func (l *Listener) Serve() error {
 		conn.handler = l.handler
 
 		// Handle connection in a new goroutine.
-		l.wg.Add(1)
-		go func() {
-			defer l.wg.Done()
+		l.wg.Go(func() {
 			l.handleConnection(conn)
-		}()
+		})
 	}
 }
 

@@ -63,7 +63,7 @@ super-linter-output/
 go/parser/testdata/expected
 
 # files copied from external sources
-go/web/templates/css/pico.*
+go/common/web/templates/css/pico.*
 
 # y.output file
 y.output

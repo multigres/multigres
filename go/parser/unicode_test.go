@@ -37,6 +37,7 @@
 package parser
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -604,24 +605,25 @@ func TestStateXEUBehavior(t *testing.T) {
 // TestUnicodePerformance tests performance characteristics of Unicode processing
 func TestUnicodePerformance(t *testing.T) {
 	// Test with a string containing many surrogate pairs
-	input := "E'"
-	for i := 0; i < 100; i++ {
-		input += "\\uD83D\\uDE00" // 😀 emoji
+	var input strings.Builder
+	input.WriteString("E'")
+	for range 100 {
+		input.WriteString("\\uD83D\\uDE00") // 😀 emoji
 	}
-	input += "'"
+	input.WriteString("'")
 
-	lexer := NewLexer(input)
+	lexer := NewLexer(input.String())
 	token := lexer.NextToken()
 	require.NotNil(t, token)
 
 	// Should process correctly
-	expected := ""
-	for i := 0; i < 100; i++ {
-		expected += "😀"
+	var expected strings.Builder
+	for range 100 {
+		expected.WriteString("😀")
 	}
 
 	assert.Equal(t, SCONST, token.Type)
-	assert.Equal(t, expected, token.Value.Str)
+	assert.Equal(t, expected.String(), token.Value.Str)
 	assert.Empty(t, lexer.context.Errors())
 }
 
@@ -770,8 +772,7 @@ func TestUnicodeStatePreservation(t *testing.T) {
 func BenchmarkSurrogatePairProcessing(b *testing.B) {
 	input := "E'\\uD83D\\uDE00'"
 
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		lexer := NewLexer(input)
 		token := lexer.NextToken()
 		if token.Type != SCONST {
@@ -784,8 +785,7 @@ func BenchmarkSurrogatePairProcessing(b *testing.B) {
 func BenchmarkMultipleSurrogatePairs(b *testing.B) {
 	input := "E'\\uD83D\\uDE00\\uD83D\\uDE01\\uD83D\\uDE02\\uD83D\\uDE03\\uD83D\\uDE04'"
 
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		lexer := NewLexer(input)
 		token := lexer.NextToken()
 		if token.Type != SCONST {

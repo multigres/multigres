@@ -44,7 +44,7 @@ func getFreePorts(t *testing.T, n int) []int {
 	ports := make([]int, n)
 	listeners := make([]net.Listener, n)
 
-	for i := 0; i < n; i++ {
+	for i := range n {
 		listener, err := net.Listen("tcp", "localhost:0")
 		require.NoError(t, err)
 		listeners[i] = listener

@@ -598,7 +598,7 @@ func TestThreadSafety(t *testing.T) {
 	results := make([][]TokenType, numGoroutines)
 
 	// Launch multiple goroutines that each create their own lexer
-	for i := 0; i < numGoroutines; i++ {
+	for i := range numGoroutines {
 		wg.Add(1)
 		go func(goroutineID int) {
 			defer wg.Done()
@@ -606,11 +606,11 @@ func TestThreadSafety(t *testing.T) {
 			var tokens []TokenType
 
 			// Create many lexer instances to test thread safety
-			for j := 0; j < tokensPerGoroutine; j++ {
+			for range tokensPerGoroutine {
 				lexer := NewLexer(input)
 
 				// Lex the first few tokens
-				for k := 0; k < 3; k++ {
+				for range 3 {
 					token := lexer.NextToken()
 					tokens = append(tokens, token.Type)
 				}
@@ -627,7 +627,7 @@ func TestThreadSafety(t *testing.T) {
 	for i := 1; i < numGoroutines; i++ {
 		require.Equal(t, len(expected), len(results[i]), "Goroutine %d produced different number of tokens", i)
 
-		for j := 0; j < len(expected); j++ {
+		for j := range expected {
 			assert.Equal(t, expected[j], results[i][j], "Goroutine %d, token %d mismatch", i, j)
 		}
 	}
@@ -711,9 +711,7 @@ func TestComprehensiveSQLLexing(t *testing.T) {
 func BenchmarkBasicLexing(b *testing.B) {
 	input := "SELECT * FROM users WHERE id = $1 AND name = 'test' AND active = true"
 
-	b.ResetTimer()
-
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		lexer := NewLexer(input)
 
 		for {
@@ -729,9 +727,7 @@ func BenchmarkBasicLexing(b *testing.B) {
 func BenchmarkLexerCreation(b *testing.B) {
 	input := "SELECT * FROM table"
 
-	b.ResetTimer()
-
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		lexer := NewLexer(input)
 		_ = lexer // Prevent optimization
 	}
@@ -750,9 +746,7 @@ func BenchmarkEnhancedLexing(b *testing.B) {
 		LIMIT 100;
 	`
 
-	b.ResetTimer()
-
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		lexer := NewLexer(input)
 
 		for {

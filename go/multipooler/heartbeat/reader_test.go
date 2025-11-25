@@ -40,7 +40,7 @@ func TestReaderReadHeartbeat(t *testing.T) {
 	// Add query result for heartbeat read
 	db.AddQuery("SELECT ts FROM multigres.heartbeat WHERE shard_id = $1", &fakepgdb.ExpectedResult{
 		Columns: []string{"ts"},
-		Rows: [][]interface{}{
+		Rows: [][]any{
 			{now.Add(-10 * time.Second).UnixNano()},
 		},
 	})
@@ -89,7 +89,7 @@ func TestReaderOpen(t *testing.T) {
 	// Add query result for heartbeat reads
 	db.AddQuery("SELECT ts FROM multigres.heartbeat WHERE shard_id = $1", &fakepgdb.ExpectedResult{
 		Columns: []string{"ts"},
-		Rows: [][]interface{}{
+		Rows: [][]any{
 			{time.Now().Add(-5 * time.Second).UnixNano()},
 		},
 	})
@@ -121,7 +121,7 @@ func TestReaderOpenClose(t *testing.T) {
 
 	db.AddQuery("SELECT ts FROM multigres.heartbeat WHERE shard_id = $1", &fakepgdb.ExpectedResult{
 		Columns: []string{"ts"},
-		Rows: [][]interface{}{
+		Rows: [][]any{
 			{time.Now().Add(-5 * time.Second).UnixNano()},
 		},
 	})

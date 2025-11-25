@@ -34,6 +34,11 @@ import (
 
 // Backup performs a backup
 func (pm *MultiPoolerManager) Backup(ctx context.Context, forcePrimary bool, backupType string) (string, error) {
+	// We can't proceed without the topo, which is loaded asynchronously at startup
+	if err := pm.checkReady(); err != nil {
+		return "", err
+	}
+
 	// Check if backup is allowed on primary
 	if err := pm.allowBackupOnPrimary(ctx, forcePrimary); err != nil {
 		return "", err
@@ -43,12 +48,6 @@ func (pm *MultiPoolerManager) Backup(ctx context.Context, forcePrimary bool, bac
 	stanzaName := pm.getBackupStanza()
 	tableGroup := pm.getTableGroup()
 	shard := pm.getShard()
-
-	// Get backup location from topology
-	backupLocation, err := pm.getBackupLocation(ctx)
-	if err != nil {
-		return "", err
-	}
 
 	// Validate parameters and get pgbackrest type
 	pgBackRestType, err := pm.validateBackupParams(backupType, configPath, stanzaName)
@@ -63,7 +62,7 @@ func (pm *MultiPoolerManager) Backup(ctx context.Context, forcePrimary bool, bac
 	args := []string{
 		"--stanza=" + stanzaName,
 		"--config=" + configPath,
-		"--repo1-path=" + backupLocation,
+		"--repo1-path=" + pm.backupLocation,
 		"--type=" + pgBackRestType,
 		"--log-level-console=info",
 	}
@@ -101,7 +100,7 @@ func (pm *MultiPoolerManager) Backup(ctx context.Context, forcePrimary bool, bac
 	verifyCmd := exec.CommandContext(verifyCtx, "pgbackrest",
 		"--stanza="+stanzaName,
 		"--config="+configPath,
-		"--repo1-path="+backupLocation,
+		"--repo1-path="+pm.backupLocation,
 		"--set="+backupID,
 		"--log-level-console=info",
 		"verify")
@@ -129,6 +128,11 @@ func (pm *MultiPoolerManager) Backup(ctx context.Context, forcePrimary bool, bac
 // 3. Reopen the pooler manager to establish fresh connections
 func (pm *MultiPoolerManager) RestoreFromBackup(ctx context.Context, backupID string) error {
 	slog.InfoContext(ctx, "RestoreFromBackup called", "backup_id", backupID)
+
+	// We can't proceed without the topo, which is loaded asynchronously at startup
+	if err := pm.checkReady(); err != nil {
+		return err
+	}
 
 	// Check that this is a standby, not a primary
 	poolerType := pm.getPoolerType()
@@ -164,19 +168,13 @@ func (pm *MultiPoolerManager) executeBackrestRestore(ctx context.Context, backup
 		return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "stanza_name is required")
 	}
 
-	// Get backup location from topology
-	backupLocation, err := pm.getBackupLocation(ctx)
-	if err != nil {
-		return err
-	}
-
 	restoreCtx, cancel := context.WithTimeout(ctx, 30*time.Minute)
 	defer cancel()
 
 	args := []string{
 		"--stanza=" + stanzaName,
 		"--config=" + configPath,
-		"--repo1-path=" + backupLocation,
+		"--repo1-path=" + pm.backupLocation,
 		"--log-level-console=info",
 	}
 
@@ -236,6 +234,11 @@ func (pm *MultiPoolerManager) reopenPoolerManager(ctx context.Context) error {
 
 // GetBackups retrieves backup information
 func (pm *MultiPoolerManager) GetBackups(ctx context.Context, limit uint32) ([]*multipoolermanagerdata.BackupMetadata, error) {
+	// We can't proceed without the topo, which is loaded asynchronously at startup
+	if err := pm.checkReady(); err != nil {
+		return nil, err
+	}
+
 	configPath := pm.getBackupConfigPath()
 	stanzaName := pm.getBackupStanza()
 
@@ -247,12 +250,6 @@ func (pm *MultiPoolerManager) GetBackups(ctx context.Context, limit uint32) ([]*
 		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "stanza_name is required")
 	}
 
-	// Get backup location from topology
-	backupLocation, err := pm.getBackupLocation(ctx)
-	if err != nil {
-		return nil, err
-	}
-
 	// Execute pgbackrest info command with JSON output
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
@@ -260,7 +257,7 @@ func (pm *MultiPoolerManager) GetBackups(ctx context.Context, limit uint32) ([]*
 	cmd := exec.CommandContext(ctx, "pgbackrest",
 		"--stanza="+stanzaName,
 		"--config="+configPath,
-		"--repo1-path="+backupLocation,
+		"--repo1-path="+pm.backupLocation,
 		"--output=json",
 		"--log-level-console=off", // Override console logging to prevent contaminating JSON output
 		"info")
@@ -454,8 +451,8 @@ func safeCombinedOutput(cmd *exec.Cmd) (string, error) {
 // TODO: find a way of of doing this that does that does not rely on text matching
 func extractBackupID(output string) (string, error) {
 	// First, try to find "new backup label" in the output (most reliable)
-	lines := strings.Split(output, "\n")
-	for _, line := range lines {
+	lines := strings.SplitSeq(output, "\n")
+	for line := range lines {
 		if strings.Contains(line, "new backup label") {
 			// Extract the label after the "=" sign
 			parts := strings.Split(line, "=")

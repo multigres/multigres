@@ -23,6 +23,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/multigres/multigres/go/clustermetadata/topo"
 	"github.com/multigres/multigres/go/clustermetadata/topo/memorytopo"
 	"github.com/multigres/multigres/go/cmd/pgctld/testutil"
 	"github.com/multigres/multigres/go/common/mterrors"
@@ -38,6 +39,17 @@ import (
 	multipoolermanagerdata "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
 
+func addDatabaseToTopo(t *testing.T, ts topo.Store, database string) {
+	t.Helper()
+	ctx := context.Background()
+	err := ts.CreateDatabase(ctx, database, &clustermetadata.Database{
+		Name:             database,
+		BackupLocation:   "/var/backups/pgbackrest",
+		DurabilityPolicy: "ANY_2",
+	})
+	require.NoError(t, err)
+}
+
 func TestManagerServiceMethods_NotImplemented(t *testing.T) {
 	ctx := context.Background()
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
@@ -47,6 +59,9 @@ func TestManagerServiceMethods_NotImplemented(t *testing.T) {
 	// Start mock pgctld server
 	pgctldAddr, cleanupPgctld := testutil.StartMockPgctldServer(t)
 	defer cleanupPgctld()
+
+	// Create database in topology
+	addDatabaseToTopo(t, ts, "testdb")
 
 	// Create the multipooler in topology so manager can reach ready state
 	serviceID := &clustermetadata.ID{

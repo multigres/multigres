@@ -204,9 +204,7 @@ func (r *rewriteGen) rewriteStructFields(t types.Type, strct *types.Struct, spi 
 func (r *rewriteGen) rewriteAllFields(t types.Type, strct *types.Struct, spi generatorSPI, fail bool) []jen.Code {
 	var output []jen.Code
 
-	for i := 0; i < strct.NumFields(); i++ {
-		field := strct.Field(i)
-
+	for field := range strct.Fields() {
 		// single field that implements the interface
 		if types.Implements(field.Type(), spi.iface()) {
 			spi.addType(field.Type())

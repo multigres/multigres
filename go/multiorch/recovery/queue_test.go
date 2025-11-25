@@ -17,6 +17,7 @@
 package recovery
 
 import (
+	"context"
 	"log/slog"
 	"os"
 	"strconv"
@@ -46,7 +47,8 @@ func TestQueue(t *testing.T) {
 	require.Equal(t, 1, q.QueueLen())
 
 	// Consume
-	key, release := q.Consume()
+	key, release, ok := q.Consume(context.Background())
+	require.True(t, ok)
 	require.Equal(t, t.Name(), key)
 	require.Equal(t, 1, q.QueueLen())
 	_, found = q.enqueued[t.Name()]
@@ -62,7 +64,7 @@ func TestQueue(t *testing.T) {
 type testQueue interface {
 	QueueLen() int
 	Push(string)
-	Consume() (string, func())
+	Consume(context.Context) (string, func(), bool)
 }
 
 func BenchmarkQueues(b *testing.B) {
@@ -79,13 +81,14 @@ func BenchmarkQueues(b *testing.B) {
 	for _, test := range tests {
 		q := test.queue
 		b.Run(test.name, func(b *testing.B) {
+			ctx := context.Background()
 			for i := 0; i < b.N; i++ {
-				for i := 0; i < 1000; i++ {
+				for i := range 1000 {
 					q.Push(b.Name() + strconv.Itoa(i))
 				}
 				q.QueueLen()
-				for i := 0; i < 1000; i++ {
-					_, release := q.Consume()
+				for range 1000 {
+					_, release, _ := q.Consume(ctx)
 					release()
 				}
 			}

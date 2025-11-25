@@ -69,9 +69,11 @@ func createTestManagerWithBackupLocation(poolerDir, stanzaName, tableGroup, shar
 			PgBackRestStanza: stanzaName,
 			ServiceID:        &clustermetadatapb.ID{Name: "test-service"},
 		},
-		serviceID:   &clustermetadatapb.ID{Name: "test-service"},
-		topoClient:  topoClient,
-		multipooler: multipoolerInfo,
+		serviceID:      &clustermetadatapb.ID{Name: "test-service"},
+		topoClient:     topoClient,
+		multipooler:    multipoolerInfo,
+		state:          ManagerStateReady,
+		backupLocation: backupLocation,
 		cachedMultipooler: cachedMultiPoolerInfo{
 			multipooler: topo.NewMultiPoolerInfo(
 				proto.Clone(multipoolerInfo.MultiPooler).(*clustermetadatapb.MultiPooler),

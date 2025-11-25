@@ -241,7 +241,7 @@ func TestGRPCConcurrentRequests(t *testing.T) {
 		results := make(chan error, numRequests)
 
 		// Send multiple concurrent status requests
-		for i := 0; i < numRequests; i++ {
+		for range numRequests {
 			go func() {
 				_, err := client.Status(ctx, &pb.StatusRequest{})
 				results <- err
@@ -249,7 +249,7 @@ func TestGRPCConcurrentRequests(t *testing.T) {
 		}
 
 		// Collect results
-		for i := 0; i < numRequests; i++ {
+		for range numRequests {
 			err := <-results
 			assert.NoError(t, err, "Concurrent status request failed")
 		}
@@ -260,7 +260,7 @@ func TestGRPCConcurrentRequests(t *testing.T) {
 		results := make(chan error, numRequests)
 
 		// Send multiple concurrent version requests
-		for i := 0; i < numRequests; i++ {
+		for range numRequests {
 			go func() {
 				_, err := client.Version(ctx, &pb.VersionRequest{})
 				results <- err
@@ -268,7 +268,7 @@ func TestGRPCConcurrentRequests(t *testing.T) {
 		}
 
 		// Collect results
-		for i := 0; i < numRequests; i++ {
+		for range numRequests {
 			err := <-results
 			assert.NoError(t, err, "Concurrent version request failed")
 		}
