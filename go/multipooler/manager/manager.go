@@ -745,12 +745,6 @@ func (pm *MultiPoolerManager) loadConsensusTermFromDisk() {
 		pm.consensusLoaded = true
 		pm.mu.Unlock()
 
-		if err != nil {
-			pm.logger.ErrorContext(timeoutCtx, "Failed to get current term number after loading", "error", err)
-			pm.setStateError(fmt.Errorf("failed to get current term: %w", err))
-			return
-		}
-
 		pm.logger.Info("Loaded consensus term from disk", "current_term", currentTerm)
 		pm.checkAndSetReady()
 		return
