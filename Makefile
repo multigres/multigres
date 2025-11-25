@@ -24,7 +24,7 @@ export ADDLICENSE_VER
 ETCD_VER = v3.6.4
 export ETCD_VER
 
-.PHONY: all build build-all clean install test proto tools parser
+.PHONY: all build build-all clean install test proto tools parser generate-types
 
 # Default target
 all: build
@@ -61,7 +61,14 @@ parser:
 	go generate ./go/parser/...
 	@echo "Parser and ast helpers generation completed"
 
-generate: parser
+generate: parser generate-types
+
+# Generate plain Go structs from protobuf definitions
+# These are immutable alternatives to pb types, avoiding deep copies
+generate-types: pb
+	@echo "$$(date): Generating plain Go types from protobuf definitions"
+	go generate ./go/common/types/...
+	@echo "Type generation completed"
 
 # Build Go binaries only
 build:
