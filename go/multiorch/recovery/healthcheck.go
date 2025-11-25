@@ -19,7 +19,6 @@ import (
 	"fmt"
 	"time"
 
-	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/multigres/multigres/go/clustermetadata/topo"
@@ -120,12 +119,11 @@ func (re *Engine) pollPooler(ctx context.Context, poolerID *clustermetadata.ID, 
 
 	// Note: Poll attempts are now tracked via the poll.duration histogram with status attribute
 
-	// Mark attempt timestamp - clone the pooler to avoid race condition
+	// Mark attempt timestamp
+	// Note: pooler is already a clone from store.Get(), safe to mutate directly
 	now := time.Now()
-	updated := proto.Clone(pooler).(*multiorchdatapb.PoolerHealthState)
-	updated.LastCheckAttempted = timestamppb.New(now)
-	re.poolerStore.Set(poolerIDStr, updated)
-	pooler = updated // use updated for rest of function
+	pooler.LastCheckAttempted = timestamppb.New(now)
+	re.poolerStore.Set(poolerIDStr, pooler)
 
 	// Call Status RPC which works for both PRIMARY and REPLICA poolers
 	// Use provided context with 5 second timeout to prevent blocking forever
@@ -150,28 +148,28 @@ func (re *Engine) pollPooler(ctx context.Context, poolerID *clustermetadata.ID, 
 			PoolerPollStatusFailure,
 		)
 
-		// Mark as failed check - clone the pooler to avoid race condition
-		failed := proto.Clone(pooler).(*multiorchdatapb.PoolerHealthState)
-		failed.IsUpToDate = true // We tried, don't retry immediately
-		failed.IsLastCheckValid = false
-		re.poolerStore.Set(poolerIDStr, failed)
+		// Mark as failed check
+		// Note: pooler is already a clone from store.Get(), safe to mutate directly
+		pooler.IsUpToDate = true // We tried, don't retry immediately
+		pooler.IsLastCheckValid = false
+		re.poolerStore.Set(poolerIDStr, pooler)
 		return
 	}
 
 	// Success! Extract health metrics from status response and update store
+	// Note: pooler is already a clone from store.Get(), safe to mutate directly
 	successTime := time.Now()
-	success := proto.Clone(pooler).(*multiorchdatapb.PoolerHealthState)
-	success.LastCheckSuccessful = timestamppb.New(successTime)
-	success.LastSeen = timestamppb.New(successTime)
-	success.IsUpToDate = true
-	success.IsLastCheckValid = true
-	success.PoolerType = statusResp.Status.PoolerType
+	pooler.LastCheckSuccessful = timestamppb.New(successTime)
+	pooler.LastSeen = timestamppb.New(successTime)
+	pooler.IsUpToDate = true
+	pooler.IsLastCheckValid = true
+	pooler.PoolerType = statusResp.Status.PoolerType
 
 	// Populate type-specific fields based on what the pooler reports
-	success.PrimaryStatus = statusResp.Status.PrimaryStatus
-	success.ReplicationStatus = statusResp.Status.ReplicationStatus
+	pooler.PrimaryStatus = statusResp.Status.PrimaryStatus
+	pooler.ReplicationStatus = statusResp.Status.ReplicationStatus
 
-	re.poolerStore.Set(poolerIDStr, success)
+	re.poolerStore.Set(poolerIDStr, pooler)
 
 	re.logger.DebugContext(ctx, "pooler poll successful",
 		"pooler_id", poolerIDStr,
