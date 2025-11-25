@@ -176,6 +176,7 @@ func (g *AnalysisGenerator) generateAnalysisForPooler(
 		CurrentServingStatus: pooler.MultiPooler.ServingStatus,
 		IsPrimary:            pooler.MultiPooler.Type == clustermetadatapb.PoolerType_PRIMARY,
 		LastCheckValid:       pooler.IsLastCheckValid,
+		IsInitialized:        pooler.IsInitialized(),
 		AnalyzedAt:           time.Now(),
 	}
 

@@ -37,6 +37,7 @@ type ReplicationAnalysis struct {
 	LastCheckValid       bool
 	IsStale              bool
 	IsUnreachable        bool
+	IsInitialized        bool // Whether this pooler has been initialized
 	AnalyzedAt           time.Time
 
 	// Primary-specific fields

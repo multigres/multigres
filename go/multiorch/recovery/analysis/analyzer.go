@@ -34,8 +34,10 @@ var defaultAnalyzers []Analyzer
 // DefaultAnalyzers returns the current set of analyzers to run.
 func DefaultAnalyzers() []Analyzer {
 	if defaultAnalyzers == nil {
-		// TODO: Implement actual analyzers
-		return []Analyzer{}
+		return []Analyzer{
+			&ShardNeedsBootstrapAnalyzer{},
+			&ShardHasNoPrimaryAnalyzer{},
+		}
 	}
 	return defaultAnalyzers
 }
