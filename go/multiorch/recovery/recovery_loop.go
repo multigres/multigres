@@ -302,9 +302,8 @@ func (re *Engine) recheckProblem(problem analysis.Problem) (bool, error) {
 		}
 	}
 
-	// Re-generate analysis for this specific pooler using updated store data
-	// Note: GenerateAnalysisForPooler rebuilds its internal map from the current store state,
-	// so it will see the fresh data from the re-poll above.
+	// Re-generate analysis for this specific pooler using updated store data.
+	// A new generator is created to capture the updated store state from the re-poll above.
 	generator := analysis.NewAnalysisGenerator(re.poolerStore)
 	poolerAnalysis, err := generator.GenerateAnalysisForPooler(poolerIDStr)
 	if err != nil {
