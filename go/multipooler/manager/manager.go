@@ -1278,6 +1278,10 @@ func (pm *MultiPoolerManager) configureReplicationAfterPromotion(ctx context.Con
 
 // ReplicationLag returns the current replication lag from the heartbeat reader
 func (pm *MultiPoolerManager) ReplicationLag(ctx context.Context) (time.Duration, error) {
+	if err := pm.checkReady(); err != nil {
+		return 0, err
+	}
+
 	if pm.replTracker == nil {
 		return 0, mterrors.New(mtrpcpb.Code_UNAVAILABLE, "replication tracker not initialized")
 	}
