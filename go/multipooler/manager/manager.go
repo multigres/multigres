@@ -411,14 +411,14 @@ func (pm *MultiPoolerManager) getDatabase() string {
 	return ""
 }
 
-// getMultipoolerID returns the multipooler ID as a string
-func (pm *MultiPoolerManager) getMultipoolerID() string {
+// getMultipoolerIDString returns the multipooler ID as a string
+func (pm *MultiPoolerManager) getMultipoolerIDString() (string, error) {
 	pm.cachedMultipooler.mu.Lock()
 	defer pm.cachedMultipooler.mu.Unlock()
 	if pm.cachedMultipooler.multipooler != nil && pm.cachedMultipooler.multipooler.Id != nil {
-		return topo.MultiPoolerIDString(pm.cachedMultipooler.multipooler.Id)
+		return topo.MultiPoolerIDString(pm.cachedMultipooler.multipooler.Id), nil
 	}
-	return ""
+	return "", mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION, "multipooler ID not available")
 }
 
 // getBackupLocation returns the backup location from the database topology

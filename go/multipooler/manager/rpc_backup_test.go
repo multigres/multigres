@@ -39,8 +39,15 @@ func createTestManager(poolerDir, stanzaName, tableGroup, shard string, poolerTy
 func createTestManagerWithBackupLocation(poolerDir, stanzaName, tableGroup, shard string, poolerType clustermetadatapb.PoolerType, backupLocation string) *MultiPoolerManager {
 	database := "test-database"
 
+	multipoolerID := &clustermetadatapb.ID{
+		Component: clustermetadatapb.ID_MULTIPOOLER,
+		Cell:      "zone1",
+		Name:      "test-multipooler",
+	}
+
 	multipoolerInfo := &topo.MultiPoolerInfo{
 		MultiPooler: &clustermetadatapb.MultiPooler{
+			Id:         multipoolerID,
 			Type:       poolerType,
 			TableGroup: tableGroup,
 			Shard:      shard,
@@ -80,6 +87,156 @@ func createTestManagerWithBackupLocation(poolerDir, stanzaName, tableGroup, shar
 		},
 	}
 	return pm
+}
+
+func TestFindBackupByAnnotations(t *testing.T) {
+	tests := []struct {
+		name            string
+		multipoolerID   string
+		backupTimestamp string
+		jsonOutput      string
+		wantBackupID    string
+		wantError       bool
+		errorContains   string
+	}{
+		{
+			name:            "Single matching backup",
+			multipoolerID:   "zone1-multipooler1",
+			backupTimestamp: "20250104-100000.000000",
+			jsonOutput: `[{
+				"backup": [{
+					"label": "20250104-100000F",
+					"annotation": {
+						"multipooler_id": "zone1-multipooler1",
+						"backup_timestamp": "20250104-100000.000000"
+					}
+				}]
+			}]`,
+			wantBackupID: "20250104-100000F",
+			wantError:    false,
+		},
+		{
+			name:            "Multiple backups, one match",
+			multipoolerID:   "zone1-multipooler1",
+			backupTimestamp: "20250104-120000.000000",
+			jsonOutput: `[{
+				"backup": [{
+					"label": "20250104-100000F",
+					"annotation": {
+						"multipooler_id": "zone1-multipooler1",
+						"backup_timestamp": "20250104-100000.000000"
+					}
+				}, {
+					"label": "20250104-120000F",
+					"annotation": {
+						"multipooler_id": "zone1-multipooler1",
+						"backup_timestamp": "20250104-120000.000000"
+					}
+				}]
+			}]`,
+			wantBackupID: "20250104-120000F",
+			wantError:    false,
+		},
+		{
+			name:            "No matching backup",
+			multipoolerID:   "zone1-multipooler1",
+			backupTimestamp: "20250104-180000.000000",
+			jsonOutput: `[{
+				"backup": [{
+					"label": "20250104-100000F",
+					"annotation": {
+						"multipooler_id": "zone1-multipooler1",
+						"backup_timestamp": "20250104-100000.000000"
+					}
+				}]
+			}]`,
+			wantError:     true,
+			errorContains: "no backup found",
+		},
+		{
+			name:            "No backups at all",
+			multipoolerID:   "zone1-multipooler1",
+			backupTimestamp: "20250104-100000.000000",
+			jsonOutput:      `[{"backup": []}]`,
+			wantError:       true,
+			errorContains:   "no backups found",
+		},
+		{
+			name:            "Duplicate matching backups",
+			multipoolerID:   "zone1-multipooler1",
+			backupTimestamp: "20250104-100000.000000",
+			jsonOutput: `[{
+				"backup": [{
+					"label": "20250104-100000F",
+					"annotation": {
+						"multipooler_id": "zone1-multipooler1",
+						"backup_timestamp": "20250104-100000.000000"
+					}
+				}, {
+					"label": "20250104-100000F_20250104-110000I",
+					"annotation": {
+						"multipooler_id": "zone1-multipooler1",
+						"backup_timestamp": "20250104-100000.000000"
+					}
+				}]
+			}]`,
+			wantError:     true,
+			errorContains: "found 2 backups",
+		},
+		{
+			name:            "Backup without annotations",
+			multipoolerID:   "zone1-multipooler1",
+			backupTimestamp: "20250104-100000.000000",
+			jsonOutput: `[{
+				"backup": [{
+					"label": "20250104-100000F"
+				}]
+			}]`,
+			wantError:     true,
+			errorContains: "no backup found",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Create temp directory for mock pgbackrest
+			tmpDir := t.TempDir()
+
+			// Create mock pgbackrest binary that returns the test JSON
+			mockScript := `#!/bin/bash
+if [[ "$*" == *"info"* ]]; then
+    cat << 'JSONEOF'
+` + tt.jsonOutput + `
+JSONEOF
+    exit 0
+fi
+exit 1
+`
+			pgbackrestPath := tmpDir + "/pgbackrest"
+			err := exec.Command("sh", "-c", "cat > "+pgbackrestPath+" << 'EOF'\n"+mockScript+"\nEOF").Run()
+			require.NoError(t, err)
+			err = exec.Command("chmod", "+x", pgbackrestPath).Run()
+			require.NoError(t, err)
+
+			// Prepend temp dir to PATH so our mock pgbackrest is found first
+			t.Setenv("PATH", tmpDir+":/usr/bin:/bin")
+
+			pm := createTestManagerWithBackupLocation(tmpDir, "test-stanza", "test-tg", "0", clustermetadatapb.PoolerType_REPLICA, tmpDir)
+
+			ctx := context.Background()
+			backupID, err := pm.findBackupByAnnotations(ctx, tt.multipoolerID, tt.backupTimestamp)
+
+			if tt.wantError {
+				require.Error(t, err)
+				if tt.errorContains != "" {
+					assert.Contains(t, err.Error(), tt.errorContains)
+				}
+			} else {
+				require.NoError(t, err)
+				assert.Equal(t, tt.wantBackupID, backupID)
+			}
+		})
+	}
 }
 
 func TestBackup_Validation(t *testing.T) {

@@ -938,7 +938,7 @@ func setupStandbyReplication(t *testing.T, primaryPgctld *ProcessInstance, stand
 	primaryConfigPath := filepath.Join(primaryPgctld.DataDir, "pgbackrest.conf")
 
 	// Determine the stanza name from the primary's config
-	// The stanza is set during initializePrimary (around line 800)
+	// The stanza is set during initializePrimary
 	stanzaName := "test_backup" // This matches the value from initializePrimary
 
 	// Get backup location (same structure as in initializePrimary)
@@ -952,7 +952,7 @@ func setupStandbyReplication(t *testing.T, primaryPgctld *ProcessInstance, stand
 	t.Logf("Creating pgBackRest backup on primary (stanza: %s, config: %s, repo: %s)...",
 		stanzaName, primaryConfigPath, repoPath)
 
-	backupCtx, backupCancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	backupCtx, backupCancel := context.WithTimeout(t.Context(), 5*time.Minute)
 	defer backupCancel()
 
 	backupCmd := exec.CommandContext(backupCtx, "pgbackrest",
@@ -1006,7 +1006,7 @@ func setupStandbyReplication(t *testing.T, primaryPgctld *ProcessInstance, stand
 	// Restore the backup to the standby using pgbackrest
 	t.Logf("Restoring pgBackRest backup to standby (config: %s)...", standbyConfigPath)
 
-	restoreCtx, restoreCancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	restoreCtx, restoreCancel := context.WithTimeout(t.Context(), 5*time.Minute)
 	defer restoreCancel()
 
 	restoreCmd := exec.CommandContext(restoreCtx, "pgbackrest",

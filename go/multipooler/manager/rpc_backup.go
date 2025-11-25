@@ -42,7 +42,10 @@ func (pm *MultiPoolerManager) Backup(ctx context.Context, forcePrimary bool, bac
 	stanzaName := pm.getBackupStanza()
 	tableGroup := pm.getTableGroup()
 	shard := pm.getShard()
-	multipoolerID := pm.getMultipoolerID()
+	multipoolerID, err := pm.getMultipoolerIDString()
+	if err != nil {
+		return "", err
+	}
 	backupTimestamp := time.Now().Format("20060102-150405.000000")
 
 	// Get backup location from topology
@@ -93,7 +96,7 @@ func (pm *MultiPoolerManager) Backup(ctx context.Context, forcePrimary bool, bac
 	}
 
 	// Find the backup ID by querying pgbackrest info with our unique annotations
-	backupID, err := pm.findBackupByAnnotations(ctx, backupTimestamp)
+	backupID, err := pm.findBackupByAnnotations(ctx, multipoolerID, backupTimestamp)
 	if err != nil {
 		return "", mterrors.New(mtrpcpb.Code_INTERNAL,
 			fmt.Sprintf("failed to find backup by annotations: %v\nBackup output: %s", err, string(output)))
@@ -463,9 +466,9 @@ func safeCombinedOutput(cmd *exec.Cmd) (string, error) {
 // trigger pgBackRest to delete older backups.
 func (pm *MultiPoolerManager) findBackupByAnnotations(
 	ctx context.Context,
+	multipoolerID string,
 	backupTimestamp string,
 ) (string, error) {
-	multipoolerID := pm.getMultipoolerID()
 	stanzaName := pm.getBackupStanza()
 	configPath := pm.getBackupConfigPath()
 
