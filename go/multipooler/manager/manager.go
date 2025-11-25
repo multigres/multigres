@@ -20,6 +20,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
 	"path/filepath"
 	"sync"
 	"time"
@@ -1277,10 +1278,6 @@ func (pm *MultiPoolerManager) configureReplicationAfterPromotion(ctx context.Con
 
 // ReplicationLag returns the current replication lag from the heartbeat reader
 func (pm *MultiPoolerManager) ReplicationLag(ctx context.Context) (time.Duration, error) {
-	if err := pm.checkReady(); err != nil {
-		return 0, err
-	}
-
 	if pm.replTracker == nil {
 		return 0, mterrors.New(mtrpcpb.Code_UNAVAILABLE, "replication tracker not initialized")
 	}
@@ -1318,6 +1315,19 @@ func (pm *MultiPoolerManager) Start(senv *servenv.ServEnv) {
 		// Don't fail startup if Open fails - will retry on demand
 	}
 
+	// Block until manager is ready or error
+	// Use load timeout from manager configuration
+	waitCtx, cancel := context.WithTimeout(context.Background(), pm.loadTimeout)
+	defer cancel()
+
+	pm.logger.Info("Waiting for manager to reach ready state before registering gRPC services")
+	if err := pm.WaitUntilReady(waitCtx); err != nil {
+		pm.logger.Error("Manager failed to reach ready state during startup", "error", err)
+		// Exit immediately - no point in starting gRPC if we're not ready
+		os.Exit(1)
+	}
+	pm.logger.Info("Manager reached ready state, will register gRPC services")
+
 	senv.OnRun(func() {
 		pm.logger.Info("MultiPoolerManager started")
 		pm.qsc.RegisterGRPCServices()
@@ -1327,4 +1337,45 @@ func (pm *MultiPoolerManager) Start(senv *servenv.ServEnv) {
 		pm.registerGRPCServices()
 		pm.logger.Info("MultiPoolerManager gRPC services registered")
 	})
+}
+
+// WaitUntilReady blocks until the manager reaches Ready or Error state, or
+// the context is cancelled. Returns nil if Ready, or an error if Error state
+// or context cancelled. This should be called after Start() to ensure
+// initialization is complete before accepting RPC requests.
+//
+// Thread-safety: This method safely reads manager state by acquiring and
+// releasing pm.mu for each check. This prevents holding the lock during the
+// polling interval, allowing background goroutines to update state
+// without blocking.
+func (pm *MultiPoolerManager) WaitUntilReady(ctx context.Context) error {
+	ticker := time.NewTicker(50 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		// Acquire lock only for reading state, then release immediately
+		// This is critical for avoiding deadlocks with background loaders
+		pm.mu.Lock()
+		state := pm.state
+		stateError := pm.stateError
+		pm.mu.Unlock()
+
+		switch state {
+		case ManagerStateReady:
+			pm.logger.InfoContext(ctx, "Manager is ready")
+			return nil
+		case ManagerStateError:
+			pm.logger.ErrorContext(ctx, "Manager failed to initialize", "error", stateError)
+			return fmt.Errorf("manager is in error state: %w", stateError)
+		case ManagerStateStarting:
+			// Continue waiting
+		}
+
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("waiting for manager ready cancelled: %w", ctx.Err())
+		case <-ticker.C:
+			// Continue loop
+		}
+	}
 }
