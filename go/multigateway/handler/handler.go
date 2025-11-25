@@ -19,11 +19,11 @@ import (
 	"fmt"
 	"log/slog"
 
+	"github.com/multigres/multigres/go/common/preparedstatement"
 	"github.com/multigres/multigres/go/parser"
 	"github.com/multigres/multigres/go/parser/ast"
 	"github.com/multigres/multigres/go/pb/query"
 	"github.com/multigres/multigres/go/pgprotocol/server"
-	"github.com/multigres/multigres/go/pools/connpool"
 	"github.com/multigres/multigres/go/protoutil"
 )
 
@@ -37,6 +37,7 @@ type Executor interface {
 type MultiGatewayHandler struct {
 	executor Executor
 	logger   *slog.Logger
+	psc      *preparedstatement.Consolidator
 }
 
 // NewMultiGatewayHandler creates a new PostgreSQL protocol handler.
@@ -44,6 +45,7 @@ func NewMultiGatewayHandler(executor Executor, logger *slog.Logger) *MultiGatewa
 	return &MultiGatewayHandler{
 		executor: executor,
 		logger:   logger.With("component", "multigateway_handler"),
+		psc:      preparedstatement.NewConsolidator(),
 	}
 }
 
@@ -75,14 +77,14 @@ func (h *MultiGatewayHandler) HandleQuery(ctx context.Context, conn *server.Conn
 
 // getConnectionState retrieves and typecasts the connection state for this handler.
 // Initializes a new state if it doesn't exist.
-func (h *MultiGatewayHandler) getConnectionState(conn *server.Conn) *connpool.ConnectionState {
+func (h *MultiGatewayHandler) getConnectionState(conn *server.Conn) *MultiGatewayConnectionState {
 	state := conn.GetConnectionState()
 	if state == nil {
-		newState := connpool.NewEmptyConnectionState()
+		newState := NewMultiGatewayConnectionState()
 		conn.SetConnectionState(newState)
 		return newState
 	}
-	return state.(*connpool.ConnectionState)
+	return state.(*MultiGatewayConnectionState)
 }
 
 // HandleParse processes a Parse message ('P') for the extended query protocol.
@@ -95,22 +97,7 @@ func (h *MultiGatewayHandler) HandleParse(ctx context.Context, conn *server.Conn
 		return fmt.Errorf("query string cannot be empty")
 	}
 
-	asts, err := parser.ParseSQL(queryStr)
-	if err != nil {
-		return err
-	}
-	if len(asts) != 1 {
-		return fmt.Errorf("more than 1 query in prepare statement")
-	}
-
-	// Create the prepared statement using protoutil helper.
-	stmt := protoutil.NewPreparedStatement(name, queryStr, paramTypes)
-
-	state := h.getConnectionState(conn)
-	// Store both the proto statement and the parsed AST.
-	state.StorePreparedStatement(stmt, asts[0])
-
-	return nil
+	return h.psc.AddPreparedStatement(conn.ConnectionID(), name, queryStr, paramTypes)
 }
 
 // HandleBind processes a Bind message ('B') for the extended query protocol.
@@ -118,18 +105,18 @@ func (h *MultiGatewayHandler) HandleParse(ctx context.Context, conn *server.Conn
 func (h *MultiGatewayHandler) HandleBind(ctx context.Context, conn *server.Conn, portalName, stmtName string, params [][]byte, paramFormats, resultFormats []int16) error {
 	h.logger.DebugContext(ctx, "bind", "portal", portalName, "statement", stmtName, "param_count", len(params))
 
-	// Get the connection state.
-	state := h.getConnectionState(conn)
-
 	// Get the prepared statement to verify it exists.
-	stmt := state.GetPreparedStatement(stmtName)
-	if stmt == nil {
+	psi := h.psc.GetPreparedStatementInfo(conn.ConnectionID(), stmtName)
+	if psi == nil {
 		return fmt.Errorf("prepared statement \"%s\" does not exist", stmtName)
 	}
 
+	// Get the connection state.
+	state := h.getConnectionState(conn)
+
 	// Create portal using protoutil helper.
-	portal := protoutil.NewPortal(portalName, stmtName, params, paramFormats, resultFormats)
-	state.StorePortal(portal)
+	portal := protoutil.NewPortal(portalName, psi.Name, params, paramFormats, resultFormats)
+	state.StorePortalInfo(portal, psi)
 
 	return nil
 }
@@ -143,42 +130,14 @@ func (h *MultiGatewayHandler) HandleExecute(ctx context.Context, conn *server.Co
 	state := h.getConnectionState(conn)
 
 	// Get the portal.
-	portal := state.GetPortal(portalName)
-	if portal == nil {
+	portalInfo := state.GetPortalInfo(portalName)
+	if portalInfo == nil {
 		return fmt.Errorf("portal \"%s\" does not exist", portalName)
 	}
 
-	// Get the prepared statement referenced by the portal.
-	stmt := state.GetPreparedStatement(portal.PreparedStatementName)
-	if stmt == nil {
-		return fmt.Errorf("prepared statement \"%s\" does not exist", portal.PreparedStatementName)
-	}
-
-	// Get the parsed AST for the statement.
-	qry := state.GetParsedAST(portal.PreparedStatementName)
-	if qry == nil {
-		return fmt.Errorf("parsed AST for statement \"%s\" not found", portal.PreparedStatementName)
-	}
-
-	// Substitute parameters if any are bound
-	if len(portal.Params) > 0 {
-		substitutedQuery, err := ast.SubstituteParameters(
-			qry,
-			portal.Params,
-			protoutil.PortalParamFormats(portal),
-			stmt.ParamTypes,
-		)
-		if err != nil {
-			return fmt.Errorf("parameter substitution failed: %w", err)
-		}
-		qry = substitutedQuery
-		h.logger.DebugContext(ctx, "substituted query", "query", qry.SqlString())
-	}
-
 	// TODO: Handle maxRows limitation (cursor support for partial fetches)
-
-	// Stream execute and pass results directly through callback.
-	return h.executor.StreamExecute(ctx, conn, qry.SqlString(), qry, callback)
+	// TODO: Handle Execution by passing in Portal information
+	return nil
 }
 
 // HandleDescribe processes a Describe message ('D').
@@ -186,58 +145,24 @@ func (h *MultiGatewayHandler) HandleExecute(ctx context.Context, conn *server.Co
 func (h *MultiGatewayHandler) HandleDescribe(ctx context.Context, conn *server.Conn, typ byte, name string) (*query.StatementDescription, error) {
 	h.logger.DebugContext(ctx, "describe", "type", string(typ), "name", name)
 
-	state := h.getConnectionState(conn)
-
 	switch typ {
 	case 'S': // Describe prepared statement
-		stmt := state.GetPreparedStatement(name)
+		stmt := h.psc.GetPreparedStatementInfo(conn.ConnectionID(), name)
 		if stmt == nil {
 			return nil, fmt.Errorf("prepared statement \"%s\" does not exist", name)
 		}
 
-		// Convert param types to parameter descriptions.
-		params := make([]*query.ParameterDescription, len(stmt.ParamTypes))
-		for i, oid := range stmt.ParamTypes {
-			params[i] = &query.ParameterDescription{
-				DataTypeOid: oid,
-			}
-		}
-
-		// Return a statement description.
-		// TODO: For now, we return empty fields since we don't parse the query to determine result columns.
-		// The client will get actual field information when executing.
-		return &query.StatementDescription{
-			Parameters: params,
-			Fields:     nil, // Would require query parsing to determine result columns
-		}, nil
-
+		// TODO: Handle Describe
+		return nil, nil
 	case 'P': // Describe portal
-		portal := state.GetPortal(name)
+		state := h.getConnectionState(conn)
+		portal := state.GetPortalInfo(name)
 		if portal == nil {
 			return nil, fmt.Errorf("portal \"%s\" does not exist", name)
 		}
 
-		// Get the prepared statement referenced by the portal.
-		stmt := state.GetPreparedStatement(portal.PreparedStatementName)
-		if stmt == nil {
-			return nil, fmt.Errorf("prepared statement \"%s\" does not exist", portal.PreparedStatementName)
-		}
-
-		// Convert param types to parameter descriptions.
-		params := make([]*query.ParameterDescription, len(stmt.ParamTypes))
-		for i, oid := range stmt.ParamTypes {
-			params[i] = &query.ParameterDescription{
-				DataTypeOid: oid,
-			}
-		}
-
-		// Return a statement description for the portal's query.
-		// TODO: Similar to above, we don't have field information without executing.
-		return &query.StatementDescription{
-			Parameters: params,
-			Fields:     nil, // Would require query parsing/execution to determine result columns
-		}, nil
-
+		// TODO: Handle Describe
+		return nil, nil
 	default:
 		return nil, fmt.Errorf("invalid describe type: %c (expected 'S' or 'P')", typ)
 	}
@@ -248,15 +173,14 @@ func (h *MultiGatewayHandler) HandleDescribe(ctx context.Context, conn *server.C
 func (h *MultiGatewayHandler) HandleClose(ctx context.Context, conn *server.Conn, typ byte, name string) error {
 	h.logger.DebugContext(ctx, "close", "type", string(typ), "name", name)
 
-	state := h.getConnectionState(conn)
-
 	switch typ {
 	case 'S': // Close prepared statement
-		state.DeletePreparedStatement(name)
+		h.psc.RemovePreparedStatement(conn.ConnectionID(), name)
 		return nil
 
 	case 'P': // Close portal
-		state.DeletePortal(name)
+		state := h.getConnectionState(conn)
+		state.DeletePortalInfo(name)
 		return nil
 
 	default:

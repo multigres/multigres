@@ -1,0 +1,244 @@
+// Copyright 2025 Supabase, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package preparedstatement
+
+import (
+	"sync"
+	"testing"
+
+	"github.com/stretchr/testify/require"
+
+	querypb "github.com/multigres/multigres/go/pb/query"
+)
+
+func TestConsolidator_AddAndGetPreparedStatement(t *testing.T) {
+	consolidator := NewConsolidator()
+	connID := uint32(1)
+
+	err := consolidator.AddPreparedStatement(connID, "stmt1", "SELECT 1", nil)
+	require.NoError(t, err)
+
+	psi := consolidator.GetPreparedStatementInfo(connID, "stmt1")
+	require.NotNil(t, psi)
+	require.Equal(t, "SELECT 1", psi.Query)
+	require.Equal(t, "stmt0", psi.Name) // Internal name should be generated
+}
+
+func TestConsolidator_ConsolidatesDuplicateQueries(t *testing.T) {
+	consolidator := NewConsolidator()
+	connID1 := uint32(1)
+	connID2 := uint32(2)
+
+	// Add the same query with different names on different connections
+	err := consolidator.AddPreparedStatement(connID1, "stmt_a", "SELECT * FROM users", nil)
+	require.NoError(t, err)
+
+	err = consolidator.AddPreparedStatement(connID2, "stmt_b", "SELECT * FROM users", nil)
+	require.NoError(t, err)
+
+	// Both should point to the same underlying prepared statement
+	psi1 := consolidator.GetPreparedStatementInfo(connID1, "stmt_a")
+	psi2 := consolidator.GetPreparedStatementInfo(connID2, "stmt_b")
+
+	require.NotNil(t, psi1)
+	require.NotNil(t, psi2)
+	require.Equal(t, psi1.Name, psi2.Name) // Should have the same internal name
+	require.Equal(t, "SELECT * FROM users", psi1.Query)
+	require.Equal(t, "SELECT * FROM users", psi2.Query)
+
+	// Usage count should be 2
+	require.Equal(t, 2, consolidator.usageCount[psi1])
+}
+
+func TestConsolidator_DuplicateNameOnSameConnectionReturnsError(t *testing.T) {
+	consolidator := NewConsolidator()
+	connID := uint32(1)
+
+	err := consolidator.AddPreparedStatement(connID, "stmt1", "SELECT 1", nil)
+	require.NoError(t, err)
+
+	// Try to add another statement with the same name on the same connection
+	err = consolidator.AddPreparedStatement(connID, "stmt1", "SELECT 2", nil)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "Prepared statement with this name exists")
+}
+
+func TestConsolidator_EmptyNameAllowsDuplicates(t *testing.T) {
+	consolidator := NewConsolidator()
+	connID := uint32(1)
+
+	// Empty names should be allowed multiple times
+	err := consolidator.AddPreparedStatement(connID, "", "SELECT 1", nil)
+	require.NoError(t, err)
+
+	err = consolidator.AddPreparedStatement(connID, "", "SELECT 2", nil)
+	require.NoError(t, err)
+}
+
+func TestConsolidator_RemovePreparedStatement(t *testing.T) {
+	consolidator := NewConsolidator()
+	connID := uint32(1)
+
+	err := consolidator.AddPreparedStatement(connID, "stmt1", "SELECT 1", nil)
+	require.NoError(t, err)
+
+	psi := consolidator.GetPreparedStatementInfo(connID, "stmt1")
+	require.NotNil(t, psi)
+
+	consolidator.RemovePreparedStatement(connID, "stmt1")
+
+	psi = consolidator.GetPreparedStatementInfo(connID, "stmt1")
+	require.Nil(t, psi)
+}
+
+func TestConsolidator_RemoveDecrementsUsageCount(t *testing.T) {
+	consolidator := NewConsolidator()
+	connID1 := uint32(1)
+	connID2 := uint32(2)
+	query := "SELECT * FROM users"
+
+	// Add same query on two connections
+	err := consolidator.AddPreparedStatement(connID1, "stmt1", query, nil)
+	require.NoError(t, err)
+
+	err = consolidator.AddPreparedStatement(connID2, "stmt2", query, nil)
+	require.NoError(t, err)
+
+	psi := consolidator.GetPreparedStatementInfo(connID1, "stmt1")
+	require.Equal(t, 2, consolidator.usageCount[psi])
+
+	// Remove from first connection
+	consolidator.RemovePreparedStatement(connID1, "stmt1")
+	require.Equal(t, 1, consolidator.usageCount[psi])
+
+	// The query should still exist in stmts
+	_, exists := consolidator.stmts[query]
+	require.True(t, exists)
+
+	// Remove from second connection
+	consolidator.RemovePreparedStatement(connID2, "stmt2")
+
+	// Now the query should be removed from stmts since usage count is 0
+	_, exists = consolidator.stmts[query]
+	require.False(t, exists)
+}
+
+func TestConsolidator_RemoveNonExistentStatement(t *testing.T) {
+	consolidator := NewConsolidator()
+	connID := uint32(1)
+
+	// Removing a non-existent statement should not panic or error
+	consolidator.RemovePreparedStatement(connID, "nonexistent")
+
+	// Should be safe to call multiple times
+	consolidator.RemovePreparedStatement(connID, "nonexistent")
+}
+
+func TestConsolidator_InvalidSQL(t *testing.T) {
+	consolidator := NewConsolidator()
+	connID := uint32(1)
+
+	// Test with invalid SQL that the parser cannot handle
+	err := consolidator.AddPreparedStatement(connID, "stmt1", "THIS IS NOT VALID SQL @@##", nil)
+	require.Error(t, err)
+}
+
+func TestConsolidator_MultipleStatementsInQuery(t *testing.T) {
+	consolidator := NewConsolidator()
+	connID := uint32(1)
+
+	// Prepared statements should only contain a single query
+	err := consolidator.AddPreparedStatement(connID, "stmt1", "SELECT 1; SELECT 2", nil)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "more than 1 query")
+}
+
+func TestConsolidator_ConcurrentAccess(t *testing.T) {
+	consolidator := NewConsolidator()
+	var wg sync.WaitGroup
+	numGoroutines := 10
+
+	// Concurrently add prepared statements
+	for i := 0; i < numGoroutines; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			connID := uint32(id)
+			err := consolidator.AddPreparedStatement(connID, "stmt1", "SELECT 1", nil)
+			require.NoError(t, err)
+
+			psi := consolidator.GetPreparedStatementInfo(connID, "stmt1")
+			require.NotNil(t, psi)
+
+			consolidator.RemovePreparedStatement(connID, "stmt1")
+		}(i)
+	}
+
+	wg.Wait()
+
+	// After all removals, the consolidator should be empty
+	require.Empty(t, consolidator.stmts)
+	require.Empty(t, consolidator.usageCount)
+}
+
+func TestConsolidator_GetNonExistentStatement(t *testing.T) {
+	consolidator := NewConsolidator()
+	connID := uint32(1)
+
+	psi := consolidator.GetPreparedStatementInfo(connID, "nonexistent")
+	require.Nil(t, psi)
+}
+
+func TestConsolidator_DifferentConnectionsIndependentNamespaces(t *testing.T) {
+	consolidator := NewConsolidator()
+	connID1 := uint32(1)
+	connID2 := uint32(2)
+
+	// Same name on different connections should work
+	err := consolidator.AddPreparedStatement(connID1, "stmt1", "SELECT 1", nil)
+	require.NoError(t, err)
+
+	err = consolidator.AddPreparedStatement(connID2, "stmt1", "SELECT 2", nil)
+	require.NoError(t, err)
+
+	psi1 := consolidator.GetPreparedStatementInfo(connID1, "stmt1")
+	psi2 := consolidator.GetPreparedStatementInfo(connID2, "stmt1")
+
+	require.NotNil(t, psi1)
+	require.NotNil(t, psi2)
+	require.Equal(t, "SELECT 1", psi1.Query)
+	require.Equal(t, "SELECT 2", psi2.Query)
+}
+
+func TestNewPortalInfo(t *testing.T) {
+	consolidator := NewConsolidator()
+	connID := uint32(1)
+
+	err := consolidator.AddPreparedStatement(connID, "stmt1", "SELECT 1", nil)
+	require.NoError(t, err)
+
+	psi := consolidator.GetPreparedStatementInfo(connID, "stmt1")
+	require.NotNil(t, psi)
+
+	portal := &querypb.Portal{
+		Name:                  "portal1",
+		PreparedStatementName: "stmt1",
+	}
+
+	portalInfo := NewPortalInfo(psi, portal)
+	require.NotNil(t, portalInfo)
+	require.Equal(t, "portal1", portalInfo.Name)
+	require.Equal(t, psi, portalInfo.PreparedStatementInfo)
+}
