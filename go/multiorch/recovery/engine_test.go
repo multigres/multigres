@@ -31,8 +31,9 @@ import (
 	"github.com/multigres/multigres/go/common/rpcclient"
 	"github.com/multigres/multigres/go/multiorch/config"
 	"github.com/multigres/multigres/go/pb/clustermetadata"
+	"github.com/multigres/multigres/go/tools/viperutil"
+
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
-	"github.com/multigres/multigres/go/viperutil"
 )
 
 func newTestTopoStore() topo.Store {

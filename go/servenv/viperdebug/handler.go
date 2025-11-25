@@ -24,7 +24,7 @@ import (
 	"strings"
 
 	"github.com/multigres/multigres/go/common/web"
-	"github.com/multigres/multigres/go/viperutil"
+	"github.com/multigres/multigres/go/tools/viperutil"
 
 	"github.com/spf13/pflag"
 )

@@ -28,7 +28,7 @@ import (
 	"github.com/multigres/multigres/go/multiorch/config"
 	"github.com/multigres/multigres/go/multiorch/recovery"
 	"github.com/multigres/multigres/go/servenv"
-	"github.com/multigres/multigres/go/viperutil"
+	"github.com/multigres/multigres/go/tools/viperutil"
 )
 
 // maxPoolerConnections is the maximum number of simultaneous RPC connections

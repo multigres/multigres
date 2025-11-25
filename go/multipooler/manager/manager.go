@@ -405,6 +405,46 @@ func (pm *MultiPoolerManager) getPoolerType() clustermetadatapb.PoolerType {
 	return clustermetadatapb.PoolerType_UNKNOWN
 }
 
+// getDatabase returns the database name from the multipooler record
+func (pm *MultiPoolerManager) getDatabase() string {
+	pm.cachedMultipooler.mu.Lock()
+	defer pm.cachedMultipooler.mu.Unlock()
+	if pm.cachedMultipooler.multipooler != nil && pm.cachedMultipooler.multipooler.MultiPooler != nil {
+		return pm.cachedMultipooler.multipooler.Database
+	}
+	return ""
+}
+
+// getMultipoolerIDString returns the multipooler ID as a string
+func (pm *MultiPoolerManager) getMultipoolerIDString() (string, error) {
+	pm.cachedMultipooler.mu.Lock()
+	defer pm.cachedMultipooler.mu.Unlock()
+	if pm.cachedMultipooler.multipooler != nil && pm.cachedMultipooler.multipooler.Id != nil {
+		return topo.MultiPoolerIDString(pm.cachedMultipooler.multipooler.Id), nil
+	}
+	return "", mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION, "multipooler ID not available")
+}
+
+// getBackupLocation returns the backup location from the database topology
+func (pm *MultiPoolerManager) getBackupLocation(ctx context.Context) (string, error) {
+	database := pm.getDatabase()
+	if database == "" {
+		return "", mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION, "database name not set in multipooler")
+	}
+
+	db, err := pm.topoClient.GetDatabase(ctx, database)
+	if err != nil {
+		return "", mterrors.Wrapf(err, "failed to get database %s from topology", database)
+	}
+
+	if db.BackupLocation == "" {
+		return "", mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
+			"database %s has no backup_location configured", database)
+	}
+
+	return db.BackupLocation, nil
+}
+
 // updateCachedMultipooler updates the cached multipooler info with the current multipooler
 // This should be called whenever pm.multipooler is updated while holding pm.mu
 func (pm *MultiPoolerManager) updateCachedMultipooler() {
@@ -744,12 +784,6 @@ func (pm *MultiPoolerManager) loadConsensusTermFromDisk() {
 		pm.mu.Lock()
 		pm.consensusLoaded = true
 		pm.mu.Unlock()
-
-		if err != nil {
-			pm.logger.ErrorContext(timeoutCtx, "Failed to get current term number after loading", "error", err)
-			pm.setStateError(fmt.Errorf("failed to get current term: %w", err))
-			return
-		}
 
 		pm.logger.Info("Loaded consensus term from disk", "current_term", currentTerm)
 		pm.checkAndSetReady()
