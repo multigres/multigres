@@ -321,9 +321,10 @@ func (p *localProvisioner) getServiceConfig(service string) map[string]any {
 	switch service {
 	case "etcd":
 		return map[string]any{
-			"version":  p.config.Etcd.Version,
-			"data-dir": p.config.Etcd.DataDir,
-			"port":     p.config.Etcd.Port,
+			"version":   p.config.Etcd.Version,
+			"data-dir":  p.config.Etcd.DataDir,
+			"port":      p.config.Etcd.Port,
+			"peer-port": p.config.Etcd.PeerPort,
 		}
 	case "multiadmin":
 		return map[string]any{
