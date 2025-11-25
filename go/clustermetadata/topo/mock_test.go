@@ -169,26 +169,6 @@ func (m *mockConn) Close() error {
 	return nil
 }
 
-// mockConnWithCloseError is a mock connection that fails when closed
-type mockConnWithCloseError struct {
-	*mockConn
-	closeError error
-}
-
-func newMockConnWithCloseError(id int, closeErr error) *mockConnWithCloseError {
-	return &mockConnWithCloseError{
-		mockConn:   newMockConn(id),
-		closeError: closeErr,
-	}
-}
-
-func (m *mockConnWithCloseError) Close() error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.closed = true
-	return m.closeError
-}
-
 // mockVersion implements Version
 type mockVersion struct {
 	version string
@@ -257,39 +237,11 @@ func (f *mockFactory) waitForNewConn(currentCount int32) {
 	}
 }
 
-// mockFactoryWithCloseError creates connections that fail when closed
-type mockFactoryWithCloseError struct {
-	mu          sync.Mutex
-	createCount int32
-	closeError  error
-}
-
-func (f *mockFactoryWithCloseError) getCreateCount() int32 {
-	return atomic.LoadInt32(&f.createCount)
-}
-
-func (f *mockFactoryWithCloseError) newConn() (Conn, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-
-	count := atomic.AddInt32(&f.createCount, 1)
-	return newMockConnWithCloseError(int(count), f.closeError), nil
-}
-
-// Create implements Factory interface
-func (f *mockFactoryWithCloseError) Create(topoName, root string, serverAddrs []string) (Conn, error) {
-	return f.newConn()
-}
-
 // mockFactoryWithSelectiveFailure fails only for specific cells
 type mockFactoryWithSelectiveFailure struct {
 	mu          sync.Mutex
 	createCount int32
 	failForCell string
-}
-
-func (f *mockFactoryWithSelectiveFailure) getCreateCount() int32 {
-	return atomic.LoadInt32(&f.createCount)
 }
 
 func (f *mockFactoryWithSelectiveFailure) newConn(topoName string) (Conn, error) {

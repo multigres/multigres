@@ -120,7 +120,6 @@ type PgCtldService struct {
 	pgPort     int
 	pgUser     string
 	pgDatabase string
-	pgPassword string
 	timeout    int
 	poolerDir  string
 	config     *pgctld.PostgresCtlConfig
