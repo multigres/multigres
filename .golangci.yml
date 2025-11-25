@@ -71,10 +71,6 @@ linters:
     sloglint:
       context: scope
     govet:
-      disable:
-        - nilness
-        - unusedwrite
-        - loopclosure
       enable:
         # Check for missing values after append.
         - appends
