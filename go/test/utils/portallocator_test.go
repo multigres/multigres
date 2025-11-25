@@ -28,7 +28,7 @@ func TestGetFreePort_NoDuplicates(t *testing.T) {
 	// Allocate many ports rapidly
 	const numPorts = 100
 	ports := make([]int, numPorts)
-	for i := 0; i < numPorts; i++ {
+	for i := range numPorts {
 		ports[i] = GetFreePort(t)
 	}
 
@@ -49,12 +49,10 @@ func TestGetFreePort_Concurrent(t *testing.T) {
 	results := make(chan int, numGoroutines)
 
 	// Spawn multiple goroutines allocating ports concurrently
-	for i := 0; i < numGoroutines; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range numGoroutines {
+		wg.Go(func() {
 			results <- GetFreePort(t)
-		}()
+		})
 	}
 
 	wg.Wait()
