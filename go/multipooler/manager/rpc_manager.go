@@ -29,6 +29,12 @@ import (
 
 // WaitForLSN waits for PostgreSQL server to reach a specific LSN position
 func (pm *MultiPoolerManager) WaitForLSN(ctx context.Context, targetLsn string) error {
+	// Defensive check: while gRPC won't register until manager is ready,
+	// internal callers can invoke methods directly. Prevent nil pointer panic.
+	if err := pm.checkReady(); err != nil {
+		return err
+	}
+
 	pm.logger.InfoContext(ctx, "WaitForLSN called", "target_lsn", targetLsn)
 
 	// Check REPLICA guardrails (pooler type and recovery mode)
@@ -182,6 +188,12 @@ func (pm *MultiPoolerManager) StartReplication(ctx context.Context) error {
 	}
 	defer pm.actionLock.Release(ctx)
 
+	// Defensive check: while gRPC won't register until manager is ready,
+	// internal callers can invoke methods directly. Prevent nil pointer panic.
+	if err := pm.checkReady(); err != nil {
+		return err
+	}
+
 	pm.logger.InfoContext(ctx, "StartReplication called")
 
 	// Check REPLICA guardrails (pooler type and recovery mode)
@@ -207,6 +219,12 @@ func (pm *MultiPoolerManager) StopReplication(ctx context.Context, mode multipoo
 	}
 	defer pm.actionLock.Release(ctx)
 
+	// Defensive check: while gRPC won't register until manager is ready,
+	// internal callers can invoke methods directly. Prevent nil pointer panic.
+	if err := pm.checkReady(); err != nil {
+		return err
+	}
+
 	pm.logger.InfoContext(ctx, "StopReplication called", "mode", mode, "wait", wait)
 
 	// Check REPLICA guardrails (pooler type and recovery mode)
@@ -225,6 +243,12 @@ func (pm *MultiPoolerManager) StopReplication(ctx context.Context, mode multipoo
 
 // StandbyReplicationStatus gets the current replication status of the standby
 func (pm *MultiPoolerManager) StandbyReplicationStatus(ctx context.Context) (*multipoolermanagerdatapb.StandbyReplicationStatus, error) {
+	// Defensive check: while gRPC won't register until manager is ready,
+	// internal callers can invoke methods directly. Prevent nil pointer panic.
+	if err := pm.checkReady(); err != nil {
+		return nil, err
+	}
+
 	pm.logger.InfoContext(ctx, "StandbyReplicationStatus called")
 
 	// Check REPLICA guardrails (pooler type and recovery mode)
@@ -323,6 +347,12 @@ func (pm *MultiPoolerManager) ResetReplication(ctx context.Context) error {
 	}
 	defer pm.actionLock.Release(ctx)
 
+	// Defensive check: while gRPC won't register until manager is ready,
+	// internal callers can invoke methods directly. Prevent nil pointer panic.
+	if err := pm.checkReady(); err != nil {
+		return err
+	}
+
 	pm.logger.InfoContext(ctx, "ResetReplication called")
 
 	// Check REPLICA guardrails (pooler type and recovery mode)
@@ -348,6 +378,12 @@ func (pm *MultiPoolerManager) ConfigureSynchronousReplication(ctx context.Contex
 		return err
 	}
 	defer pm.actionLock.Release(ctx)
+
+	// Defensive check: while gRPC won't register until manager is ready,
+	// internal callers can invoke methods directly. Prevent nil pointer panic.
+	if err := pm.checkReady(); err != nil {
+		return err
+	}
 
 	pm.logger.InfoContext(ctx, "ConfigureSynchronousReplication called",
 		"synchronous_commit", synchronousCommit,
@@ -396,6 +432,12 @@ func (pm *MultiPoolerManager) UpdateSynchronousStandbyList(ctx context.Context, 
 		return err
 	}
 	defer pm.actionLock.Release(ctx)
+
+	// Defensive check: while gRPC won't register until manager is ready,
+	// internal callers can invoke methods directly. Prevent nil pointer panic.
+	if err := pm.checkReady(); err != nil {
+		return err
+	}
 
 	pm.logger.InfoContext(ctx, "UpdateSynchronousStandbyList called",
 		"operation", operation,
@@ -509,6 +551,12 @@ func (pm *MultiPoolerManager) UpdateSynchronousStandbyList(ctx context.Context, 
 
 // PrimaryStatus gets the status of the leader server
 func (pm *MultiPoolerManager) PrimaryStatus(ctx context.Context) (*multipoolermanagerdatapb.PrimaryStatus, error) {
+	// Defensive check: while gRPC won't register until manager is ready,
+	// internal callers can invoke methods directly. Prevent nil pointer panic.
+	if err := pm.checkReady(); err != nil {
+		return nil, err
+	}
+
 	pm.logger.InfoContext(ctx, "PrimaryStatus called")
 
 	// Check PRIMARY guardrails (pooler type and non-recovery mode)
@@ -549,6 +597,12 @@ func (pm *MultiPoolerManager) PrimaryStatus(ctx context.Context) (*multipoolerma
 
 // PrimaryPosition gets the current LSN position of the leader
 func (pm *MultiPoolerManager) PrimaryPosition(ctx context.Context) (string, error) {
+	// Defensive check: while gRPC won't register until manager is ready,
+	// internal callers can invoke methods directly. Prevent nil pointer panic.
+	if err := pm.checkReady(); err != nil {
+		return "", err
+	}
+
 	pm.logger.InfoContext(ctx, "PrimaryPosition called")
 
 	// Check PRIMARY guardrails (pooler type and non-recovery mode)
@@ -568,6 +622,12 @@ func (pm *MultiPoolerManager) StopReplicationAndGetStatus(ctx context.Context, m
 		return nil, err
 	}
 	defer pm.actionLock.Release(ctx)
+
+	// Defensive check: while gRPC won't register until manager is ready,
+	// internal callers can invoke methods directly. Prevent nil pointer panic.
+	if err := pm.checkReady(); err != nil {
+		return nil, err
+	}
 
 	pm.logger.InfoContext(ctx, "StopReplicationAndGetStatus called", "mode", mode, "wait", wait)
 
@@ -661,6 +721,12 @@ func (pm *MultiPoolerManager) State(ctx context.Context) (*multipoolermanagerdat
 
 // GetFollowers gets the list of follower servers with detailed replication status
 func (pm *MultiPoolerManager) GetFollowers(ctx context.Context) (*multipoolermanagerdatapb.GetFollowersResponse, error) {
+	// Defensive check: while gRPC won't register until manager is ready,
+	// internal callers can invoke methods directly. Prevent nil pointer panic.
+	if err := pm.checkReady(); err != nil {
+		return nil, err
+	}
+
 	pm.logger.InfoContext(ctx, "GetFollowers called")
 
 	// Check PRIMARY guardrails (only primary can have followers)
