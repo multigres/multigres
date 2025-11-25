@@ -116,6 +116,8 @@ func (pm *MultiPoolerManager) Backup(ctx context.Context, forcePrimary bool, bac
 		return "", mterrors.New(mtrpcpb.Code_INTERNAL,
 			fmt.Sprintf("pgbackrest verify failed for backup %s: %v\nOutput: %s", backupID, verifyErr, string(verifyOutput)))
 	}
+	// TODO: use `pgbackrest info` to verify that the database pages from the backed up
+	// Postgres cluster pass checksum validation.
 
 	return backupID, nil
 }

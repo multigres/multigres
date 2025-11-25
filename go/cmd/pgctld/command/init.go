@@ -139,6 +139,11 @@ func initializeDataDir(logger *slog.Logger, dataDir string, pgUser string, pgPwf
 	}
 
 	// Run initdb
+	//
+	// It's generally a good idea to enable page data checksums. Furthermore,
+	// pgBackRest will validate checksums for the Postgres cluster it's backing up.
+	// However, pgBackRest merely logs checksum validation errors but does not fail
+	// the backup.
 	cmd := exec.Command("initdb", "-D", dataDir, "--data-checksums", "--auth-local=trust", "--auth-host=md5", "-U", pgUser)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
