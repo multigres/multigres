@@ -75,6 +75,7 @@ func errorWithoutState(id string, code mtrpcpb.Code, short, long string) func(ar
 	}
 }
 
+//nolint:unused // Will be used for future error codes with state
 func errorWithState(id string, code mtrpcpb.Code, state State, short, long string) func(args ...any) *MultigresError {
 	return func(args ...any) *MultigresError {
 		var err error
@@ -98,6 +99,8 @@ type ErrorWithNoCode func(code mtrpcpb.Code, args ...any) *MultigresError
 
 // errorWithNoCode creates a MultigresError where the error code is set by the user when creating the error
 // instead of having a static error code that is declared in this file.
+//
+//nolint:unused // Will be used for future dynamic error codes
 func errorWithNoCode(id string, short, long string) func(code mtrpcpb.Code, args ...any) *MultigresError {
 	return func(code mtrpcpb.Code, args ...any) *MultigresError {
 		s := short
