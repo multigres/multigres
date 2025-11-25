@@ -26,6 +26,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/multigres/multigres/go/clustermetadata/topo"
 	"github.com/multigres/multigres/go/clustermetadata/topo/memorytopo"
 	"github.com/multigres/multigres/go/cmd/pgctld/testutil"
 	"github.com/multigres/multigres/go/common/mterrors"
@@ -37,6 +38,18 @@ import (
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
+
+// addDatabaseToTopo creates a database in the topology with a backup location
+func addDatabaseToTopo(t *testing.T, ts topo.Store, database string) {
+	t.Helper()
+	ctx := context.Background()
+	err := ts.CreateDatabase(ctx, database, &clustermetadatapb.Database{
+		Name:             database,
+		BackupLocation:   "/var/backups/pgbackrest",
+		DurabilityPolicy: "ANY_2",
+	})
+	require.NoError(t, err)
+}
 
 func TestPrimaryPosition(t *testing.T) {
 	ctx := context.Background()
@@ -78,9 +91,13 @@ func TestPrimaryPosition(t *testing.T) {
 			// Create temp directory for pooler-dir
 			poolerDir := t.TempDir()
 
+			// Create the database in topology with backup location
+			database := "testdb"
+			addDatabaseToTopo(t, ts, database)
+
 			multipooler := &clustermetadatapb.MultiPooler{
 				Id:            serviceID,
-				Database:      "testdb",
+				Database:      database,
 				Hostname:      "localhost",
 				PortMap:       map[string]int32{"grpc": 8080},
 				Type:          tt.poolerType,
@@ -136,10 +153,14 @@ func TestActionLock_MutationMethodsTimeout(t *testing.T) {
 
 	poolerDir := t.TempDir()
 
+	// Create the database in topology with backup location
+	database := "testdb"
+	addDatabaseToTopo(t, ts, database)
+
 	// Create PRIMARY multipooler for testing
 	multipooler := &clustermetadatapb.MultiPooler{
 		Id:            serviceID,
-		Database:      "testdb",
+		Database:      database,
 		Hostname:      "localhost",
 		PortMap:       map[string]int32{"grpc": 8080},
 		Type:          clustermetadatapb.PoolerType_PRIMARY,
@@ -315,6 +336,10 @@ func setupPromoteTestManager(t *testing.T) (*MultiPoolerManager, sqlmock.Sqlmock
 	pgctldAddr, cleanupPgctld := testutil.StartMockPgctldServer(t)
 	t.Cleanup(cleanupPgctld)
 
+	// Create the database in topology with backup location
+	database := "testdb"
+	addDatabaseToTopo(t, ts, database)
+
 	serviceID := &clustermetadatapb.ID{
 		Component: clustermetadatapb.ID_MULTIPOOLER,
 		Cell:      "zone1",
@@ -324,7 +349,7 @@ func setupPromoteTestManager(t *testing.T) (*MultiPoolerManager, sqlmock.Sqlmock
 	// Create as REPLICA (ready for promotion)
 	multipooler := &clustermetadatapb.MultiPooler{
 		Id:            serviceID,
-		Database:      "testdb",
+		Database:      database,
 		Hostname:      "localhost",
 		PortMap:       map[string]int32{"grpc": 8080},
 		Type:          clustermetadatapb.PoolerType_REPLICA,
@@ -737,10 +762,14 @@ func TestReplicationStatus(t *testing.T) {
 		pgctldAddr, cleanupPgctld := testutil.StartMockPgctldServer(t)
 		t.Cleanup(cleanupPgctld)
 
+		// Create the database in topology with backup location
+		database := "testdb"
+		addDatabaseToTopo(t, ts, database)
+
 		// Create PRIMARY multipooler
 		multipooler := &clustermetadatapb.MultiPooler{
 			Id:            serviceID,
-			Database:      "testdb",
+			Database:      database,
 			Hostname:      "localhost",
 			PortMap:       map[string]int32{"grpc": 8080},
 			Type:          clustermetadatapb.PoolerType_PRIMARY,
@@ -814,10 +843,14 @@ func TestReplicationStatus(t *testing.T) {
 		pgctldAddr, cleanupPgctld := testutil.StartMockPgctldServer(t)
 		t.Cleanup(cleanupPgctld)
 
+		// Create the database in topology with backup location
+		database := "testdb"
+		addDatabaseToTopo(t, ts, database)
+
 		// Create REPLICA multipooler
 		multipooler := &clustermetadatapb.MultiPooler{
 			Id:            serviceID,
-			Database:      "testdb",
+			Database:      database,
 			Hostname:      "localhost",
 			PortMap:       map[string]int32{"grpc": 8080},
 			Type:          clustermetadatapb.PoolerType_REPLICA,
@@ -887,10 +920,14 @@ func TestReplicationStatus(t *testing.T) {
 		pgctldAddr, cleanupPgctld := testutil.StartMockPgctldServer(t)
 		t.Cleanup(cleanupPgctld)
 
+		// Create the database in topology with backup location
+		database := "testdb"
+		addDatabaseToTopo(t, ts, database)
+
 		// Create PRIMARY multipooler (but PG will be in standby mode - mismatch!)
 		multipooler := &clustermetadatapb.MultiPooler{
 			Id:            serviceID,
-			Database:      "testdb",
+			Database:      database,
 			Hostname:      "localhost",
 			PortMap:       map[string]int32{"grpc": 8080},
 			Type:          clustermetadatapb.PoolerType_PRIMARY,
@@ -949,10 +986,14 @@ func TestReplicationStatus(t *testing.T) {
 		pgctldAddr, cleanupPgctld := testutil.StartMockPgctldServer(t)
 		t.Cleanup(cleanupPgctld)
 
+		// Create the database in topology with backup location
+		database := "testdb"
+		addDatabaseToTopo(t, ts, database)
+
 		// Create REPLICA multipooler (but PG will be in primary mode - mismatch!)
 		multipooler := &clustermetadatapb.MultiPooler{
 			Id:            serviceID,
-			Database:      "testdb",
+			Database:      database,
 			Hostname:      "localhost",
 			PortMap:       map[string]int32{"grpc": 8080},
 			Type:          clustermetadatapb.PoolerType_REPLICA,

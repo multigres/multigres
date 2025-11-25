@@ -101,6 +101,10 @@ type MultiPoolerManager struct {
 	// to wait a potentially long time on mu when accessing read-only fields.
 	cachedMultipooler cachedMultiPoolerInfo
 
+	// Cached backup location from the database topology record.
+	// This is loaded once during startup and cached for fast access.
+	backupLocation string
+
 	// TODO: Implement async query serving state management system
 	// This should include: target state, current state, convergence goroutine,
 	// and state-specific handlers (setServing, setServingReadOnly, setNotServing, setDrained)
@@ -401,36 +405,6 @@ func (pm *MultiPoolerManager) getPoolerType() clustermetadatapb.PoolerType {
 	return clustermetadatapb.PoolerType_UNKNOWN
 }
 
-// getDatabase returns the database name from the multipooler record
-func (pm *MultiPoolerManager) getDatabase() string {
-	pm.cachedMultipooler.mu.Lock()
-	defer pm.cachedMultipooler.mu.Unlock()
-	if pm.cachedMultipooler.multipooler != nil && pm.cachedMultipooler.multipooler.MultiPooler != nil {
-		return pm.cachedMultipooler.multipooler.Database
-	}
-	return ""
-}
-
-// getBackupLocation returns the backup location from the database topology
-func (pm *MultiPoolerManager) getBackupLocation(ctx context.Context) (string, error) {
-	database := pm.getDatabase()
-	if database == "" {
-		return "", mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION, "database name not set in multipooler")
-	}
-
-	db, err := pm.topoClient.GetDatabase(ctx, database)
-	if err != nil {
-		return "", mterrors.Wrapf(err, "failed to get database %s from topology", database)
-	}
-
-	if db.BackupLocation == "" {
-		return "", mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
-			"database %s has no backup_location configured", database)
-	}
-
-	return db.BackupLocation, nil
-}
-
 // updateCachedMultipooler updates the cached multipooler info with the current multipooler
 // This should be called whenever pm.multipooler is updated while holding pm.mu
 func (pm *MultiPoolerManager) updateCachedMultipooler() {
@@ -603,14 +577,35 @@ func (pm *MultiPoolerManager) loadMultiPoolerFromTopo() {
 			continue // Will retry with backoff
 		}
 
-		// Successfully loaded
+		// Successfully loaded multipooler record
+		// Now load the backup location from the database topology
+		database := mp.Database
+		if database == "" {
+			pm.setStateError(fmt.Errorf("database name not set in multipooler"))
+			return
+		}
+
+		ctx, cancel = context.WithTimeout(pm.ctx, 5*time.Second)
+		db, err := pm.topoClient.GetDatabase(ctx, database)
+		cancel()
+		if err != nil {
+			pm.setStateError(fmt.Errorf("failed to get database %s from topology: %w", database, err))
+			return
+		}
+
+		if db.BackupLocation == "" {
+			pm.setStateError(fmt.Errorf("database %s has no backup_location configured", database))
+			return
+		}
+
 		pm.mu.Lock()
 		pm.multipooler = mp
 		pm.updateCachedMultipooler()
+		pm.backupLocation = db.BackupLocation
 		pm.topoLoaded = true
 		pm.mu.Unlock()
 
-		pm.logger.InfoContext(ctx, "Loaded multipooler record from topology", "service_id", pm.serviceID.String(), "database", mp.Database)
+		pm.logger.InfoContext(ctx, "Loaded multipooler record from topology", "service_id", pm.serviceID.String(), "database", mp.Database, "backup_location", db.BackupLocation)
 		pm.checkAndSetReady()
 		return
 	}
