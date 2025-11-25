@@ -570,9 +570,8 @@ func TestCTEWithWindowFunction(t *testing.T) {
 
 func BenchmarkTargetEntryCreation(b *testing.B) {
 	expr := NewConst(23, 42, false)
-	b.ResetTimer()
 
-	for i := 0; i < b.N; i++ {
+	for i := 0; b.Loop(); i++ {
 		_ = NewTargetEntry(expr, AttrNumber(i%100), "test_column")
 	}
 }
@@ -581,18 +580,16 @@ func BenchmarkJoinExprCreation(b *testing.B) {
 	larg := NewRangeVar("left_table", "public", "")
 	rarg := NewRangeVar("right_table", "public", "")
 	quals := NewConst(16, Datum(1), false)
-	b.ResetTimer()
 
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_ = NewJoinExpr(JOIN_INNER, larg, rarg, quals)
 	}
 }
 
 func BenchmarkStringRepresentation(b *testing.B) {
 	te := NewTargetEntry(NewConst(23, 42, false), 1, "test_column")
-	b.ResetTimer()
 
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_ = te.String()
 	}
 }

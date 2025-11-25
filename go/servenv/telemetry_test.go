@@ -35,7 +35,7 @@ import (
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 
 	"github.com/multigres/multigres/go/tools/telemetry"
-	"github.com/multigres/multigres/go/viperutil"
+	"github.com/multigres/multigres/go/tools/viperutil"
 )
 
 // getFreePorts allocates n free ports for testing
@@ -44,7 +44,7 @@ func getFreePorts(t *testing.T, n int) []int {
 	ports := make([]int, n)
 	listeners := make([]net.Listener, n)
 
-	for i := 0; i < n; i++ {
+	for i := range n {
 		listener, err := net.Listen("tcp", "localhost:0")
 		require.NoError(t, err)
 		listeners[i] = listener

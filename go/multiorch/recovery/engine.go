@@ -23,9 +23,9 @@ import (
 	"time"
 
 	"github.com/multigres/multigres/go/clustermetadata/topo"
+	"github.com/multigres/multigres/go/common/rpcclient"
 	"github.com/multigres/multigres/go/multiorch/config"
 	"github.com/multigres/multigres/go/multiorch/store"
-	"github.com/multigres/multigres/go/multipooler/rpcclient"
 )
 
 // runIfNotRunning executes fn in a goroutine only if inProgress flag is false.
@@ -133,12 +133,74 @@ func runIfNotRunning(logger *slog.Logger, inProgress *atomic.Bool, taskName stri
 //
 // Recovery Loop:
 //
-//	Detects problems and executes automated recovery actions.
+//	Detects problems and executes automated recovery actions (runs every 1s).
 //	This is where the actual failover logic lives.
 //
-//	- Analyze pooler state for problems
-//	- Execute recovery actions for detected issues
-//	- Coordinate failovers via consensus protocol
+//	Recovery Loop Flow:
+//
+//	  ┌──────────────────────┐
+//	  │   Pooler Store       │──────────┐
+//	  │  (Health Snapshots)  │          │ read
+//	  └──────────────────────┘          │
+//	                                    ▼
+//	                         ┌──────────────────────┐
+//	                         │  Analysis Generator  │
+//	                         │  (builds analyses)   │
+//	                         └──────────┬───────────┘
+//	                                    │ per-pooler analysis
+//	                                    ▼
+//	                         ┌──────────────────────┐
+//	                         │   Analyzers          │
+//	                         │  (detect problems)   │
+//	                         └──────────┬───────────┘
+//	                                    │ problems
+//	                                    ▼
+//	                         ┌──────────────────────┐
+//	                         │  Deduplication       │
+//	                         │  & Prioritization    │
+//	                         └──────────┬───────────┘
+//	                                    │ filtered problems
+//	                                    ▼
+//	                         ┌──────────────────────┐
+//	                         │  Validation          │
+//	                         │  (force re-poll)     │
+//	                         └──────────┬───────────┘
+//	                                    │ validated problems
+//	                                    ▼
+//	                         ┌──────────────────────┐
+//	                         │  Recovery Actions    │
+//	                         │  (automated repairs) │
+//	                         └──────────────────────┘
+//
+//	Deduplication Strategy:
+//
+//	The recovery loop applies intelligent deduplication to avoid redundant
+//	recovery attempts and ensure safe, efficient problem resolution:
+//
+//	Sort by Priority:
+//	  - Higher priority problems are processed first
+//	  - Ensures critical issues (e.g., primary failure) take precedence
+//
+//	Smart Filtering by Scope:
+//	  - If ANY shard-wide problem exists:
+//	    * Return ONLY the highest priority shard-wide problem
+//	    * Rationale: Shard-wide recoveries (e.g., failover) fix multiple
+//	      pooler-level issues, so addressing them first is more efficient
+//	  - Otherwise (only single-pooler problems):
+//	    * Deduplicate by pooler ID
+//	    * Keep highest priority problem per pooler
+//	    * Rationale: One pooler can have multiple issues; fixing the
+//	      highest priority issue often resolves downstream problems
+//
+//	Validation Before Recovery:
+//	  - Force re-poll affected poolers to get fresh state
+//	  - Re-run analyzers to confirm problem still exists
+//	  - Prevents acting on stale/transient issues
+//
+//	Post-Recovery Refresh:
+//	  - After shard-wide recoveries, force refresh all shard poolers
+//	  - Ensures accurate state before next recovery cycle
+//	  - Prevents re-queueing problems that were just fixed
 //
 // # Configuration
 //
@@ -182,6 +244,7 @@ type Engine struct {
 	metadataRefreshInProgress atomic.Bool
 	bookkeepingInProgress     atomic.Bool
 	healthCheckInProgress     atomic.Bool
+	recoveryLoopInProgress    atomic.Bool
 
 	// Cache for deduplication (prevents redundant health checks)
 	recentPollCache   map[string]time.Time
@@ -193,6 +256,9 @@ type Engine struct {
 	// Context for shutting down loops
 	ctx    context.Context
 	cancel context.CancelFunc
+
+	// WaitGroup to track goroutines for graceful shutdown
+	wg sync.WaitGroup
 }
 
 // NewEngine creates a new RecoveryEngine instance.
@@ -261,19 +327,31 @@ func (re *Engine) Start() error {
 	re.startHealthCheckWorkers()
 
 	// Start maintenance loop (cluster metadata refresh + bookkeeping)
-	go re.runMaintenanceLoop()
+	re.wg.Go(func() {
+		re.runMaintenanceLoop()
+	})
 
 	// Start health check ticker loop (queues poolers for health checking)
-	go re.runHealthCheckTickerLoop()
+	re.wg.Go(func() {
+		re.runHealthCheckTickerLoop()
+	})
+
+	// Start recovery loop (problem detection and recovery)
+	re.wg.Go(func() {
+		re.runRecoveryLoop()
+	})
 
 	re.logger.Info("recovery engine started successfully")
 	return nil
 }
 
 // Stop gracefully shuts down the RecoveryEngine.
+// It cancels the context and waits for all goroutines to finish.
 func (re *Engine) Stop() {
 	re.logger.Info("stopping recovery engine")
 	re.cancel()
+	re.wg.Wait()
+	re.logger.Info("recovery engine stopped")
 }
 
 // runMaintenanceLoop runs the cluster metadata refresh and bookkeeping tasks.
@@ -309,8 +387,10 @@ func (re *Engine) runMaintenanceLoop() {
 // Each worker runs in its own goroutine and processes health checks concurrently.
 func (re *Engine) startHealthCheckWorkers() {
 	numWorkers := re.config.GetHealthCheckWorkers()
-	for i := 0; i < numWorkers; i++ {
-		go re.handlePoolerHealthChecks()
+	for range numWorkers {
+		re.wg.Go(func() {
+			re.handlePoolerHealthChecks()
+		})
 	}
 	re.logger.Info("health check worker pool started", "workers", numWorkers)
 }

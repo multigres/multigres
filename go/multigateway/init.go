@@ -33,7 +33,7 @@ import (
 	"github.com/multigres/multigres/go/multigateway/scatterconn"
 	"github.com/multigres/multigres/go/pgprotocol/server"
 	"github.com/multigres/multigres/go/servenv"
-	"github.com/multigres/multigres/go/viperutil"
+	"github.com/multigres/multigres/go/tools/viperutil"
 )
 
 type MultiGateway struct {

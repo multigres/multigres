@@ -23,6 +23,7 @@
 package recovery
 
 import (
+	"context"
 	"log/slog"
 	"sync"
 	"time"
@@ -89,30 +90,37 @@ func (q *Queue) Push(key string) {
 }
 
 // Consume fetches a key to process; blocks if queue is empty.
-// Returns the key and a release function that must be called when processing is complete.
+// Returns the key, a release function that must be called when processing is complete,
+// and a boolean indicating if a key was successfully consumed (false if context cancelled).
 // Example usage:
 //
-//	poolerID, release := q.Consume()
+//	poolerID, release, ok := q.Consume(ctx)
+//	if !ok {
+//	    return // context cancelled
+//	}
 //	defer release()
 //	// process poolerID...
-func (q *Queue) Consume() (string, func()) {
-	item := <-q.queue
+func (q *Queue) Consume(ctx context.Context) (string, func(), bool) {
+	select {
+	case <-ctx.Done():
+		return "", func() {}, false
+	case item := <-q.queue:
+		pollInterval := q.config.GetPoolerHealthCheckInterval()
+		timeOnQueue := time.Since(item.PushedAt)
+		if timeOnQueue > pollInterval {
+			q.logger.WarnContext(ctx, "pooler spent too long waiting in queue",
+				"pooler_id", item.Key,
+				"time_on_queue", timeOnQueue,
+				"poll_interval", pollInterval,
+			)
+		}
 
-	pollInterval := q.config.GetPoolerHealthCheckInterval()
-	timeOnQueue := time.Since(item.PushedAt)
-	if timeOnQueue > pollInterval {
-		q.logger.Warn("pooler spent too long waiting in queue",
-			"pooler_id", item.Key,
-			"time_on_queue", timeOnQueue,
-			"poll_interval", pollInterval,
-		)
+		release := func() {
+			q.mu.Lock()
+			defer q.mu.Unlock()
+			delete(q.enqueued, item.Key)
+		}
+
+		return item.Key, release, true
 	}
-
-	release := func() {
-		q.mu.Lock()
-		defer q.mu.Unlock()
-		delete(q.enqueued, item.Key)
-	}
-
-	return item.Key, release
 }

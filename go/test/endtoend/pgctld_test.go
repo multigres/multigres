@@ -77,6 +77,18 @@ timeout: 30
 		}
 		require.NoError(t, err)
 
+		// Step 1.5: Verify data checksums are enabled
+		pgDataDir := filepath.Join(dataDir, "pg_data")
+		controldataCmd := exec.Command("pg_controldata", pgDataDir)
+		controldataOutput, err := controldataCmd.CombinedOutput()
+		require.NoError(t, err, "pg_controldata should succeed, output: %s", string(controldataOutput))
+
+		outputStr := string(controldataOutput)
+		assert.Contains(t, outputStr, "Data page checksum version:", "should report checksum version")
+		assert.NotContains(t, outputStr, "Data page checksum version:                  0",
+			"checksums should be enabled (non-zero version)")
+		t.Log("Verified: data checksums are enabled")
+
 		// Step 2: Check status - should show stopped after init
 		statusCmd := exec.Command("pgctld", "status", "--pooler-dir", dataDir, "--config-file", pgctldConfigFile)
 		setupTestEnv(statusCmd)
@@ -850,7 +862,7 @@ timeout: 30
 	require.NoError(t, err)
 
 	// Test multiple start/stop cycles
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		t.Run(fmt.Sprintf("cycle_%d", i+1), func(t *testing.T) {
 			// Start PostgreSQL
 			startCmd := exec.Command("pgctld", "start", "--pooler-dir", dataDir, "--config-file", pgctldConfigFile)

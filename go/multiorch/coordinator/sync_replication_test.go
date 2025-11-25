@@ -21,6 +21,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/multigres/multigres/go/multiorch/store"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
@@ -30,7 +31,7 @@ func TestBuildSyncReplicationConfig(t *testing.T) {
 	c := &Coordinator{logger: logger}
 
 	// Default candidate for tests
-	candidate := createTestNode("primary", "cell-primary")
+	candidate := createTestPoolerHealth("primary", "cell-primary")
 
 	t.Run("required_count=1 returns nil (async replication)", func(t *testing.T) {
 		rule := &clustermetadatapb.QuorumRule{
@@ -39,9 +40,9 @@ func TestBuildSyncReplicationConfig(t *testing.T) {
 			Description:   "Single node quorum",
 		}
 
-		standbys := []*Node{
-			createTestNode("mp1", "cell1"),
-			createTestNode("mp2", "cell1"),
+		standbys := []*store.PoolerHealth{
+			createTestPoolerHealth("mp1", "cell1"),
+			createTestPoolerHealth("mp2", "cell1"),
 		}
 
 		config, err := c.buildSyncReplicationConfig(rule, standbys, candidate)
@@ -57,7 +58,7 @@ func TestBuildSyncReplicationConfig(t *testing.T) {
 			AsyncFallback: clustermetadatapb.AsyncReplicationFallbackMode_ASYNC_REPLICATION_FALLBACK_MODE_ALLOW,
 		}
 
-		standbys := []*Node{}
+		standbys := []*store.PoolerHealth{}
 
 		config, err := c.buildSyncReplicationConfig(rule, standbys, candidate)
 		require.NoError(t, err)
@@ -71,8 +72,8 @@ func TestBuildSyncReplicationConfig(t *testing.T) {
 			Description:   "Two node quorum",
 		}
 
-		standbys := []*Node{
-			createTestNode("mp1", "cell1"),
+		standbys := []*store.PoolerHealth{
+			createTestPoolerHealth("mp1", "cell1"),
 		}
 
 		config, err := c.buildSyncReplicationConfig(rule, standbys, candidate)
@@ -93,9 +94,9 @@ func TestBuildSyncReplicationConfig(t *testing.T) {
 			Description:   "Three node quorum",
 		}
 
-		standbys := []*Node{
-			createTestNode("mp1", "cell1"),
-			createTestNode("mp2", "cell1"),
+		standbys := []*store.PoolerHealth{
+			createTestPoolerHealth("mp1", "cell1"),
+			createTestPoolerHealth("mp2", "cell1"),
 		}
 
 		config, err := c.buildSyncReplicationConfig(rule, standbys, candidate)
@@ -112,12 +113,12 @@ func TestBuildSyncReplicationConfig(t *testing.T) {
 			Description:   "Three node quorum",
 		}
 
-		standbys := []*Node{
-			createTestNode("mp1", "cell1"),
-			createTestNode("mp2", "cell1"),
-			createTestNode("mp3", "cell1"),
-			createTestNode("mp4", "cell1"),
-			createTestNode("mp5", "cell1"),
+		standbys := []*store.PoolerHealth{
+			createTestPoolerHealth("mp1", "cell1"),
+			createTestPoolerHealth("mp2", "cell1"),
+			createTestPoolerHealth("mp3", "cell1"),
+			createTestPoolerHealth("mp4", "cell1"),
+			createTestPoolerHealth("mp5", "cell1"),
 		}
 
 		config, err := c.buildSyncReplicationConfig(rule, standbys, candidate)
@@ -135,9 +136,9 @@ func TestBuildSyncReplicationConfig(t *testing.T) {
 			AsyncFallback: clustermetadatapb.AsyncReplicationFallbackMode_ASYNC_REPLICATION_FALLBACK_MODE_ALLOW,
 		}
 
-		standbys := []*Node{
-			createTestNode("mp1", "cell1"),
-			createTestNode("mp2", "cell1"),
+		standbys := []*store.PoolerHealth{
+			createTestPoolerHealth("mp1", "cell1"),
+			createTestPoolerHealth("mp2", "cell1"),
 		}
 
 		config, err := c.buildSyncReplicationConfig(rule, standbys, candidate)
@@ -154,10 +155,10 @@ func TestBuildSyncReplicationConfig(t *testing.T) {
 			Description:   "Two cell quorum",
 		}
 
-		standbys := []*Node{
-			createTestNode("mp1", "us-west-1a"),
-			createTestNode("mp2", "us-west-1b"),
-			createTestNode("mp3", "us-west-1c"),
+		standbys := []*store.PoolerHealth{
+			createTestPoolerHealth("mp1", "us-west-1a"),
+			createTestPoolerHealth("mp2", "us-west-1b"),
+			createTestPoolerHealth("mp3", "us-west-1c"),
 		}
 
 		config, err := c.buildSyncReplicationConfig(rule, standbys, candidate)
@@ -175,10 +176,10 @@ func TestBuildSyncReplicationConfig(t *testing.T) {
 			Description:   "Two node quorum",
 		}
 
-		standbys := []*Node{
-			createTestNode("mp-alpha", "cell-a"),
-			createTestNode("mp-beta", "cell-b"),
-			createTestNode("mp-gamma", "cell-c"),
+		standbys := []*store.PoolerHealth{
+			createTestPoolerHealth("mp-alpha", "cell-a"),
+			createTestPoolerHealth("mp-beta", "cell-b"),
+			createTestPoolerHealth("mp-gamma", "cell-c"),
 		}
 
 		config, err := c.buildSyncReplicationConfig(rule, standbys, candidate)
@@ -202,7 +203,7 @@ func TestBuildSyncReplicationConfig(t *testing.T) {
 			RequiredCount: 2,
 		}
 
-		standbys := []*Node{createTestNode("mp1", "cell1")}
+		standbys := []*store.PoolerHealth{createTestPoolerHealth("mp1", "cell1")}
 
 		config, err := c.buildSyncReplicationConfig(rule, standbys, candidate)
 		require.NoError(t, err)
@@ -216,9 +217,9 @@ func TestBuildSyncReplicationConfig(t *testing.T) {
 			RequiredCount: 3,
 		}
 
-		standbys := []*Node{
-			createTestNode("mp1", "cell1"),
-			createTestNode("mp2", "cell1"),
+		standbys := []*store.PoolerHealth{
+			createTestPoolerHealth("mp1", "cell1"),
+			createTestPoolerHealth("mp2", "cell1"),
 		}
 
 		config, err := c.buildSyncReplicationConfig(rule, standbys, candidate)
@@ -233,7 +234,7 @@ func TestBuildSyncReplicationConfig(t *testing.T) {
 			RequiredCount: 2,
 		}
 
-		standbys := []*Node{createTestNode("mp1", "cell1")}
+		standbys := []*store.PoolerHealth{createTestPoolerHealth("mp1", "cell1")}
 
 		config, err := c.buildSyncReplicationConfig(rule, standbys, candidate)
 		require.NoError(t, err)
@@ -244,17 +245,17 @@ func TestBuildSyncReplicationConfig(t *testing.T) {
 	// ========== MULTI_CELL_ANY_N Cell Filtering Tests ==========
 
 	t.Run("MULTI_CELL_ANY_N excludes same-cell standbys", func(t *testing.T) {
-		candidate := createTestNode("primary", "us-west-1a")
+		candidate := createTestPoolerHealth("primary", "us-west-1a")
 		rule := &clustermetadatapb.QuorumRule{
 			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_MULTI_CELL_ANY_N,
 			RequiredCount: 2,
 			Description:   "Two cell quorum",
 		}
 
-		standbys := []*Node{
-			createTestNode("mp1", "us-west-1a"), // Same cell as primary - should be excluded
-			createTestNode("mp2", "us-west-1b"), // Different cell - should be included
-			createTestNode("mp3", "us-west-1c"), // Different cell - should be included
+		standbys := []*store.PoolerHealth{
+			createTestPoolerHealth("mp1", "us-west-1a"), // Same cell as primary - should be excluded
+			createTestPoolerHealth("mp2", "us-west-1b"), // Different cell - should be included
+			createTestPoolerHealth("mp3", "us-west-1c"), // Different cell - should be included
 		}
 
 		config, err := c.buildSyncReplicationConfig(rule, standbys, candidate)
@@ -278,7 +279,7 @@ func TestBuildSyncReplicationConfig(t *testing.T) {
 	})
 
 	t.Run("MULTI_CELL_ANY_N with all standbys in same cell returns nil with ALLOW mode", func(t *testing.T) {
-		candidate := createTestNode("primary", "us-west-1a")
+		candidate := createTestPoolerHealth("primary", "us-west-1a")
 		rule := &clustermetadatapb.QuorumRule{
 			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_MULTI_CELL_ANY_N,
 			RequiredCount: 2,
@@ -286,10 +287,10 @@ func TestBuildSyncReplicationConfig(t *testing.T) {
 			AsyncFallback: clustermetadatapb.AsyncReplicationFallbackMode_ASYNC_REPLICATION_FALLBACK_MODE_ALLOW,
 		}
 
-		standbys := []*Node{
-			createTestNode("mp1", "us-west-1a"), // Same cell as primary
-			createTestNode("mp2", "us-west-1a"), // Same cell as primary
-			createTestNode("mp3", "us-west-1a"), // Same cell as primary
+		standbys := []*store.PoolerHealth{
+			createTestPoolerHealth("mp1", "us-west-1a"), // Same cell as primary
+			createTestPoolerHealth("mp2", "us-west-1a"), // Same cell as primary
+			createTestPoolerHealth("mp3", "us-west-1a"), // Same cell as primary
 		}
 
 		config, err := c.buildSyncReplicationConfig(rule, standbys, candidate)
@@ -298,19 +299,19 @@ func TestBuildSyncReplicationConfig(t *testing.T) {
 	})
 
 	t.Run("MULTI_CELL_ANY_N with mixed cells only includes different cells", func(t *testing.T) {
-		candidate := createTestNode("primary", "cell-a")
+		candidate := createTestPoolerHealth("primary", "cell-a")
 		rule := &clustermetadatapb.QuorumRule{
 			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_MULTI_CELL_ANY_N,
 			RequiredCount: 3,
 			Description:   "Three cell quorum",
 		}
 
-		standbys := []*Node{
-			createTestNode("mp1", "cell-a"), // Same cell - excluded
-			createTestNode("mp2", "cell-a"), // Same cell - excluded
-			createTestNode("mp3", "cell-b"), // Different cell - included
-			createTestNode("mp4", "cell-c"), // Different cell - included
-			createTestNode("mp5", "cell-d"), // Different cell - included
+		standbys := []*store.PoolerHealth{
+			createTestPoolerHealth("mp1", "cell-a"), // Same cell - excluded
+			createTestPoolerHealth("mp2", "cell-a"), // Same cell - excluded
+			createTestPoolerHealth("mp3", "cell-b"), // Different cell - included
+			createTestPoolerHealth("mp4", "cell-c"), // Different cell - included
+			createTestPoolerHealth("mp5", "cell-d"), // Different cell - included
 		}
 
 		config, err := c.buildSyncReplicationConfig(rule, standbys, candidate)
@@ -326,7 +327,7 @@ func TestBuildSyncReplicationConfig(t *testing.T) {
 	})
 
 	t.Run("MULTI_CELL_ANY_N insufficient different-cell standbys caps num_sync", func(t *testing.T) {
-		candidate := createTestNode("primary", "cell-a")
+		candidate := createTestPoolerHealth("primary", "cell-a")
 		rule := &clustermetadatapb.QuorumRule{
 			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_MULTI_CELL_ANY_N,
 			RequiredCount: 4, // Would need 3 standbys
@@ -334,10 +335,10 @@ func TestBuildSyncReplicationConfig(t *testing.T) {
 			AsyncFallback: clustermetadatapb.AsyncReplicationFallbackMode_ASYNC_REPLICATION_FALLBACK_MODE_ALLOW,
 		}
 
-		standbys := []*Node{
-			createTestNode("mp1", "cell-a"), // Same cell - excluded
-			createTestNode("mp2", "cell-b"), // Different cell - included
-			createTestNode("mp3", "cell-c"), // Different cell - included
+		standbys := []*store.PoolerHealth{
+			createTestPoolerHealth("mp1", "cell-a"), // Same cell - excluded
+			createTestPoolerHealth("mp2", "cell-b"), // Different cell - included
+			createTestPoolerHealth("mp3", "cell-c"), // Different cell - included
 		}
 
 		config, err := c.buildSyncReplicationConfig(rule, standbys, candidate)
@@ -348,16 +349,16 @@ func TestBuildSyncReplicationConfig(t *testing.T) {
 	})
 
 	t.Run("ANY_N does NOT filter by cell (includes same-cell standbys)", func(t *testing.T) {
-		candidate := createTestNode("primary", "us-west-1a")
+		candidate := createTestPoolerHealth("primary", "us-west-1a")
 		rule := &clustermetadatapb.QuorumRule{
 			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_ANY_N,
 			RequiredCount: 2,
 			Description:   "Two node quorum",
 		}
 
-		standbys := []*Node{
-			createTestNode("mp1", "us-west-1a"), // Same cell as primary - should be included for ANY_N
-			createTestNode("mp2", "us-west-1b"),
+		standbys := []*store.PoolerHealth{
+			createTestPoolerHealth("mp1", "us-west-1a"), // Same cell as primary - should be included for ANY_N
+			createTestPoolerHealth("mp2", "us-west-1b"),
 		}
 
 		config, err := c.buildSyncReplicationConfig(rule, standbys, candidate)
@@ -375,7 +376,7 @@ func TestBuildSyncReplicationConfig(t *testing.T) {
 	})
 
 	t.Run("REJECT mode with no eligible standbys returns error", func(t *testing.T) {
-		candidate := createTestNode("primary", "us-west-1a")
+		candidate := createTestPoolerHealth("primary", "us-west-1a")
 		rule := &clustermetadatapb.QuorumRule{
 			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_MULTI_CELL_ANY_N,
 			RequiredCount: 2,
@@ -384,10 +385,10 @@ func TestBuildSyncReplicationConfig(t *testing.T) {
 		}
 
 		// All standbys in same cell as candidate
-		standbys := []*Node{
-			createTestNode("mp1", "us-west-1a"),
-			createTestNode("mp2", "us-west-1a"),
-			createTestNode("mp3", "us-west-1a"),
+		standbys := []*store.PoolerHealth{
+			createTestPoolerHealth("mp1", "us-west-1a"),
+			createTestPoolerHealth("mp2", "us-west-1a"),
+			createTestPoolerHealth("mp3", "us-west-1a"),
 		}
 
 		config, err := c.buildSyncReplicationConfig(rule, standbys, candidate)
@@ -398,7 +399,7 @@ func TestBuildSyncReplicationConfig(t *testing.T) {
 	})
 
 	t.Run("ALLOW mode with no eligible standbys returns nil (async fallback)", func(t *testing.T) {
-		candidate := createTestNode("primary", "us-west-1a")
+		candidate := createTestPoolerHealth("primary", "us-west-1a")
 		rule := &clustermetadatapb.QuorumRule{
 			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_MULTI_CELL_ANY_N,
 			RequiredCount: 2,
@@ -407,10 +408,10 @@ func TestBuildSyncReplicationConfig(t *testing.T) {
 		}
 
 		// All standbys in same cell as candidate
-		standbys := []*Node{
-			createTestNode("mp1", "us-west-1a"),
-			createTestNode("mp2", "us-west-1a"),
-			createTestNode("mp3", "us-west-1a"),
+		standbys := []*store.PoolerHealth{
+			createTestPoolerHealth("mp1", "us-west-1a"),
+			createTestPoolerHealth("mp2", "us-west-1a"),
+			createTestPoolerHealth("mp3", "us-west-1a"),
 		}
 
 		config, err := c.buildSyncReplicationConfig(rule, standbys, candidate)
@@ -419,7 +420,7 @@ func TestBuildSyncReplicationConfig(t *testing.T) {
 	})
 
 	t.Run("default (UNKNOWN) mode behaves like REJECT", func(t *testing.T) {
-		candidate := createTestNode("primary", "us-west-1a")
+		candidate := createTestPoolerHealth("primary", "us-west-1a")
 		rule := &clustermetadatapb.QuorumRule{
 			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_MULTI_CELL_ANY_N,
 			RequiredCount: 2,
@@ -428,10 +429,10 @@ func TestBuildSyncReplicationConfig(t *testing.T) {
 		}
 
 		// All standbys in same cell as candidate
-		standbys := []*Node{
-			createTestNode("mp1", "us-west-1a"),
-			createTestNode("mp2", "us-west-1a"),
-			createTestNode("mp3", "us-west-1a"),
+		standbys := []*store.PoolerHealth{
+			createTestPoolerHealth("mp1", "us-west-1a"),
+			createTestPoolerHealth("mp2", "us-west-1a"),
+			createTestPoolerHealth("mp3", "us-west-1a"),
 		}
 
 		config, err := c.buildSyncReplicationConfig(rule, standbys, candidate)
@@ -443,7 +444,7 @@ func TestBuildSyncReplicationConfig(t *testing.T) {
 	// ========== Additional REJECT Mode Edge Cases ==========
 
 	t.Run("REJECT mode with ANY_N and no standbys returns error", func(t *testing.T) {
-		candidate := createTestNode("primary", "us-west-1a")
+		candidate := createTestPoolerHealth("primary", "us-west-1a")
 		rule := &clustermetadatapb.QuorumRule{
 			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_ANY_N,
 			RequiredCount: 2,
@@ -452,7 +453,7 @@ func TestBuildSyncReplicationConfig(t *testing.T) {
 		}
 
 		// No standbys available
-		standbys := []*Node{}
+		standbys := []*store.PoolerHealth{}
 
 		config, err := c.buildSyncReplicationConfig(rule, standbys, candidate)
 		require.Error(t, err)
@@ -462,7 +463,7 @@ func TestBuildSyncReplicationConfig(t *testing.T) {
 	})
 
 	t.Run("REJECT mode with ANY_N and insufficient standbys returns error", func(t *testing.T) {
-		candidate := createTestNode("primary", "us-west-1a")
+		candidate := createTestPoolerHealth("primary", "us-west-1a")
 		rule := &clustermetadatapb.QuorumRule{
 			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_ANY_N,
 			RequiredCount: 5, // Requires 4 standbys to achieve quorum
@@ -471,9 +472,9 @@ func TestBuildSyncReplicationConfig(t *testing.T) {
 		}
 
 		// Only 2 standbys available, insufficient for required_count=5
-		standbys := []*Node{
-			createTestNode("mp1", "us-west-1a"),
-			createTestNode("mp2", "us-west-1b"),
+		standbys := []*store.PoolerHealth{
+			createTestPoolerHealth("mp1", "us-west-1a"),
+			createTestPoolerHealth("mp2", "us-west-1b"),
 		}
 
 		config, err := c.buildSyncReplicationConfig(rule, standbys, candidate)
@@ -485,7 +486,7 @@ func TestBuildSyncReplicationConfig(t *testing.T) {
 	})
 
 	t.Run("REJECT mode with MULTI_CELL_ANY_N and insufficient different-cell standbys returns error", func(t *testing.T) {
-		candidate := createTestNode("primary", "cell-a")
+		candidate := createTestPoolerHealth("primary", "cell-a")
 		rule := &clustermetadatapb.QuorumRule{
 			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_MULTI_CELL_ANY_N,
 			RequiredCount: 4, // Requires 3 standbys in different cells
@@ -494,10 +495,10 @@ func TestBuildSyncReplicationConfig(t *testing.T) {
 		}
 
 		// Only 1 standby in different cell (2 are in same cell as candidate)
-		standbys := []*Node{
-			createTestNode("mp1", "cell-a"), // Same cell - excluded
-			createTestNode("mp2", "cell-a"), // Same cell - excluded
-			createTestNode("mp3", "cell-b"), // Different cell - included
+		standbys := []*store.PoolerHealth{
+			createTestPoolerHealth("mp1", "cell-a"), // Same cell - excluded
+			createTestPoolerHealth("mp2", "cell-a"), // Same cell - excluded
+			createTestPoolerHealth("mp3", "cell-b"), // Different cell - included
 		}
 
 		config, err := c.buildSyncReplicationConfig(rule, standbys, candidate)

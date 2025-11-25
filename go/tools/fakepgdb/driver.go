@@ -54,7 +54,7 @@ func (c *fakeConn) Begin() (driver.Tx, error) {
 // QueryContext executes a query that may return rows.
 func (c *fakeConn) QueryContext(ctx context.Context, query string, args []driver.NamedValue) (driver.Rows, error) {
 	// Convert args to []interface{} for compatibility
-	iargs := make([]interface{}, len(args))
+	iargs := make([]any, len(args))
 	for i, arg := range args {
 		iargs[i] = arg.Value
 	}
@@ -74,7 +74,7 @@ func (c *fakeConn) QueryContext(ctx context.Context, query string, args []driver
 // ExecContext executes a query that doesn't return rows.
 func (c *fakeConn) ExecContext(ctx context.Context, query string, args []driver.NamedValue) (driver.Result, error) {
 	// Convert args to []interface{} for compatibility
-	iargs := make([]interface{}, len(args))
+	iargs := make([]any, len(args))
 	for i, arg := range args {
 		iargs[i] = arg.Value
 	}
@@ -163,7 +163,7 @@ func (r *fakeResult) RowsAffected() (int64, error) {
 // fakeRows implements driver.Rows
 type fakeRows struct {
 	columns []string
-	rows    [][]interface{}
+	rows    [][]any
 	index   int
 }
 

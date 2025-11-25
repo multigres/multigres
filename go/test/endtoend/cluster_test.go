@@ -91,7 +91,7 @@ func getTestPortConfig(t *testing.T, numZones int) *testPortConfig {
 		Zones:              make([]zonePortConfig, numZones),
 	}
 
-	for i := 0; i < numZones; i++ {
+	for i := range numZones {
 		config.Zones[i] = zonePortConfig{
 			MultigatewayHTTPPort: utils.GetFreePort(t),
 			MultigatewayGRPCPort: utils.GetFreePort(t),
@@ -163,7 +163,7 @@ func createTestConfigWithPorts(tempDir string, portConfig *testPortConfig) (stri
 
 	// Build cell configs dynamically
 	cellConfigs := make([]local.CellConfig, numZones)
-	for i := 0; i < numZones; i++ {
+	for i := range numZones {
 		cellConfigs[i] = local.CellConfig{
 			Name:     fmt.Sprintf("zone%d", i+1),
 			RootPath: fmt.Sprintf("/multigres/zone%d", i+1),
@@ -194,7 +194,7 @@ func createTestConfigWithPorts(tempDir string, portConfig *testPortConfig) (stri
 
 	// Build cell services dynamically for each zone
 	localConfig.Cells = make(map[string]local.CellServicesConfig)
-	for i := 0; i < numZones; i++ {
+	for i := range numZones {
 		zoneName := fmt.Sprintf("zone%d", i+1)
 		serviceID := stringutil.RandomString(8)
 		zonePort := &portConfig.Zones[i]
@@ -1102,7 +1102,7 @@ func testMultipoolerGRPC(t *testing.T, addr string) {
 	TestCreateTable(t, client, tableName)
 
 	// Insert some test data
-	testData := []map[string]interface{}{
+	testData := []map[string]any{
 		{"name": "test1", "value": 100},
 		{"name": "test2", "value": 200},
 	}

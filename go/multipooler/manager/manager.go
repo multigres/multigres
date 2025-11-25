@@ -101,6 +101,10 @@ type MultiPoolerManager struct {
 	// to wait a potentially long time on mu when accessing read-only fields.
 	cachedMultipooler cachedMultiPoolerInfo
 
+	// Cached backup location from the database topology record.
+	// This is loaded once during startup and cached for fast access.
+	backupLocation string
+
 	// TODO: Implement async query serving state management system
 	// This should include: target state, current state, convergence goroutine,
 	// and state-specific handlers (setServing, setServingReadOnly, setNotServing, setDrained)
@@ -411,6 +415,16 @@ func (pm *MultiPoolerManager) getDatabase() string {
 	return ""
 }
 
+// getMultipoolerIDString returns the multipooler ID as a string
+func (pm *MultiPoolerManager) getMultipoolerIDString() (string, error) {
+	pm.cachedMultipooler.mu.Lock()
+	defer pm.cachedMultipooler.mu.Unlock()
+	if pm.cachedMultipooler.multipooler != nil && pm.cachedMultipooler.multipooler.Id != nil {
+		return topo.MultiPoolerIDString(pm.cachedMultipooler.multipooler.Id), nil
+	}
+	return "", mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION, "multipooler ID not available")
+}
+
 // getBackupLocation returns the backup location from the database topology
 func (pm *MultiPoolerManager) getBackupLocation(ctx context.Context) (string, error) {
 	database := pm.getDatabase()
@@ -603,14 +617,35 @@ func (pm *MultiPoolerManager) loadMultiPoolerFromTopo() {
 			continue // Will retry with backoff
 		}
 
-		// Successfully loaded
+		// Successfully loaded multipooler record
+		// Now load the backup location from the database topology
+		database := mp.Database
+		if database == "" {
+			pm.setStateError(fmt.Errorf("database name not set in multipooler"))
+			return
+		}
+
+		ctx, cancel = context.WithTimeout(pm.ctx, 5*time.Second)
+		db, err := pm.topoClient.GetDatabase(ctx, database)
+		cancel()
+		if err != nil {
+			pm.setStateError(fmt.Errorf("failed to get database %s from topology: %w", database, err))
+			return
+		}
+
+		if db.BackupLocation == "" {
+			pm.setStateError(fmt.Errorf("database %s has no backup_location configured", database))
+			return
+		}
+
 		pm.mu.Lock()
 		pm.multipooler = mp
 		pm.updateCachedMultipooler()
+		pm.backupLocation = db.BackupLocation
 		pm.topoLoaded = true
 		pm.mu.Unlock()
 
-		pm.logger.InfoContext(ctx, "Loaded multipooler record from topology", "service_id", pm.serviceID.String(), "database", mp.Database)
+		pm.logger.InfoContext(ctx, "Loaded multipooler record from topology", "service_id", pm.serviceID.String(), "database", mp.Database, "backup_location", db.BackupLocation)
 		pm.checkAndSetReady()
 		return
 	}
@@ -749,12 +784,6 @@ func (pm *MultiPoolerManager) loadConsensusTermFromDisk() {
 		pm.mu.Lock()
 		pm.consensusLoaded = true
 		pm.mu.Unlock()
-
-		if err != nil {
-			pm.logger.ErrorContext(timeoutCtx, "Failed to get current term number after loading", "error", err)
-			pm.setStateError(fmt.Errorf("failed to get current term: %w", err))
-			return
-		}
 
 		pm.logger.Info("Loaded consensus term from disk", "current_term", currentTerm)
 		pm.checkAndSetReady()

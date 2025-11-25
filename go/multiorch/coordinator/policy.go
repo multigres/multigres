@@ -20,6 +20,7 @@ import (
 	"sync"
 
 	"github.com/multigres/multigres/go/common/mterrors"
+	"github.com/multigres/multigres/go/multiorch/store"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
@@ -27,10 +28,10 @@ import (
 
 // LoadQuorumRuleFromNode loads the active durability policy from a node via gRPC.
 // This uses the GetDurabilityPolicy RPC to fetch the policy from the node's local database.
-func (c *Coordinator) LoadQuorumRuleFromNode(ctx context.Context, node *Node, database string) (*clustermetadatapb.QuorumRule, error) {
+func (c *Coordinator) LoadQuorumRuleFromNode(ctx context.Context, node *store.PoolerHealth, database string) (*clustermetadatapb.QuorumRule, error) {
 	// Call GetDurabilityPolicy RPC
 	req := &multipoolermanagerdatapb.GetDurabilityPolicyRequest{}
-	resp, err := node.RpcClient.GetDurabilityPolicy(ctx, node.Pooler, req)
+	resp, err := c.rpcClient.GetDurabilityPolicy(ctx, node.ToMultiPooler(), req)
 	if err != nil {
 		return nil, mterrors.Wrapf(err, "failed to get durability policy from node %s", node.ID.Name)
 	}
@@ -61,20 +62,20 @@ func (c *Coordinator) LoadQuorumRuleFromNode(ctx context.Context, node *Node, da
 // 2. Otherwise, load from all REPLICA nodes in parallel
 // 3. Wait for n-1 responses
 // 4. Return the rule with the highest version number
-func (c *Coordinator) LoadQuorumRule(ctx context.Context, cohort []*Node, database string) (*clustermetadatapb.QuorumRule, error) {
+func (c *Coordinator) LoadQuorumRule(ctx context.Context, cohort []*store.PoolerHealth, database string) (*clustermetadatapb.QuorumRule, error) {
 	if len(cohort) == 0 {
 		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "cohort is empty")
 	}
 
 	// Step 1: Find PRIMARY node
-	var primaryNode *Node
-	var replicaNodes []*Node
-	for _, node := range cohort {
-		switch node.Pooler.Type {
+	var primaryNode *store.PoolerHealth
+	var replicaNodes []*store.PoolerHealth
+	for _, pooler := range cohort {
+		switch pooler.TopoPoolerType {
 		case clustermetadatapb.PoolerType_PRIMARY:
-			primaryNode = node
+			primaryNode = pooler
 		case clustermetadatapb.PoolerType_REPLICA:
-			replicaNodes = append(replicaNodes, node)
+			replicaNodes = append(replicaNodes, pooler)
 		}
 	}
 
@@ -110,9 +111,9 @@ func (c *Coordinator) LoadQuorumRule(ctx context.Context, cohort []*Node, databa
 // loadFromReplicasInParallel loads policies from all REPLICA nodes in parallel,
 // waits for all responses, and returns the policy with the highest version.
 // If some replicas fail, it uses the best available policy with a warning.
-func (c *Coordinator) loadFromReplicasInParallel(ctx context.Context, replicas []*Node, database string) (*clustermetadatapb.QuorumRule, error) {
+func (c *Coordinator) loadFromReplicasInParallel(ctx context.Context, replicas []*store.PoolerHealth, database string) (*clustermetadatapb.QuorumRule, error) {
 	type result struct {
-		node   *Node
+		node   *store.PoolerHealth
 		policy *clustermetadatapb.DurabilityPolicy
 		rule   *clustermetadatapb.QuorumRule
 		err    error
@@ -124,10 +125,10 @@ func (c *Coordinator) loadFromReplicasInParallel(ctx context.Context, replicas [
 	// Launch parallel queries
 	for _, node := range replicas {
 		wg.Add(1)
-		go func(n *Node) {
+		go func(n *store.PoolerHealth) {
 			defer wg.Done()
 			req := &multipoolermanagerdatapb.GetDurabilityPolicyRequest{}
-			resp, err := n.RpcClient.GetDurabilityPolicy(ctx, n.Pooler, req)
+			resp, err := c.rpcClient.GetDurabilityPolicy(ctx, n.ToMultiPooler(), req)
 			if err != nil {
 				results <- result{node: n, err: err}
 				return
@@ -233,7 +234,7 @@ func (c *Coordinator) getDefaultQuorumRule(ctx context.Context, cohortSize int) 
 
 // CreateDefaultPolicy creates a default durability policy in the given database.
 // This is useful for bootstrapping new shards.
-func (c *Coordinator) CreateDefaultPolicy(ctx context.Context, node *Node, database string, policyName string) error {
+func (c *Coordinator) CreateDefaultPolicy(ctx context.Context, node *store.PoolerHealth, database string, policyName string) error {
 	// Create default ANY_N policy with required_count = 2
 	quorumRule := &clustermetadatapb.QuorumRule{
 		QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_ANY_N,
@@ -247,7 +248,7 @@ func (c *Coordinator) CreateDefaultPolicy(ctx context.Context, node *Node, datab
 		QuorumRule: quorumRule,
 	}
 
-	resp, err := node.RpcClient.CreateDurabilityPolicy(ctx, node.Pooler, req)
+	resp, err := c.rpcClient.CreateDurabilityPolicy(ctx, node.ToMultiPooler(), req)
 	if err != nil {
 		return mterrors.Wrapf(err, "failed to create durability policy on node %s", node.ID.Name)
 	}
