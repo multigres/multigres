@@ -17,8 +17,8 @@ syntax = "proto3";
 package multiorchdata;
 
 import "clustermetadata.proto";
-import "multipoolermanagerdata.proto";
 import "google/protobuf/timestamp.proto";
+import "multipoolermanagerdata.proto";
 
 option go_package = "github.com/multigres/multigres/go/pb/multiorchdata";
 
