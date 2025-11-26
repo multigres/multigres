@@ -156,7 +156,7 @@ func TestGroupProblemsByShard(t *testing.T) {
 
 	problems := []analysis.Problem{
 		{
-			Code:       analysis.ProblemPrimaryDead,
+			Code:       analysis.ProblemPrimaryIsDead,
 			PoolerID:   poolerID1,
 			Database:   "db1",
 			TableGroup: "tg1",
@@ -170,7 +170,7 @@ func TestGroupProblemsByShard(t *testing.T) {
 			Shard:      "0",
 		},
 		{
-			Code:       analysis.ProblemPrimaryDead,
+			Code:       analysis.ProblemPrimaryIsDead,
 			PoolerID:   poolerID3,
 			Database:   "db2",
 			TableGroup: "tg2",
@@ -221,7 +221,7 @@ func TestPrioritySorting(t *testing.T) {
 			Priority:   analysis.PriorityHigh,
 		},
 		{
-			Code:       analysis.ProblemPrimaryDead,
+			Code:       analysis.ProblemPrimaryIsDead,
 			PoolerID:   poolerID1,
 			Database:   "db1",
 			TableGroup: "tg1",
@@ -246,7 +246,7 @@ func TestPrioritySorting(t *testing.T) {
 	// Verify order: Emergency > High > Normal
 	require.Len(t, problems, 3)
 	assert.Equal(t, analysis.PriorityEmergency, problems[0].Priority)
-	assert.Equal(t, analysis.ProblemPrimaryDead, problems[0].Code)
+	assert.Equal(t, analysis.ProblemPrimaryIsDead, problems[0].Code)
 
 	assert.Equal(t, analysis.PriorityHigh, problems[1].Priority)
 	assert.Equal(t, analysis.ProblemReplicaNotReplicating, problems[1].Code)
@@ -308,14 +308,14 @@ func TestGroupProblemsByShard_DifferentShards(t *testing.T) {
 
 	problems := []analysis.Problem{
 		{
-			Code:       analysis.ProblemPrimaryDead,
+			Code:       analysis.ProblemPrimaryIsDead,
 			PoolerID:   poolerID1,
 			Database:   "db1",
 			TableGroup: "tg1",
 			Shard:      "0",
 		},
 		{
-			Code:       analysis.ProblemPrimaryDead,
+			Code:       analysis.ProblemPrimaryIsDead,
 			PoolerID:   poolerID2,
 			Database:   "db1",
 			TableGroup: "tg1",
@@ -352,7 +352,7 @@ func TestRecheckProblem_PoolerNotFound(t *testing.T) {
 
 	// Create problem
 	problem := analysis.Problem{
-		Code:       analysis.ProblemPrimaryDead,
+		Code:       analysis.ProblemPrimaryIsDead,
 		CheckName:  "PrimaryDeadCheck",
 		PoolerID:   poolerID,
 		Database:   "db1",
@@ -403,7 +403,7 @@ func TestFilterAndPrioritize_ShardWideOnly(t *testing.T) {
 			},
 		},
 		{
-			Code:     analysis.ProblemPrimaryDead,
+			Code:     analysis.ProblemPrimaryIsDead,
 			PoolerID: poolerID1,
 			Priority: analysis.PriorityEmergency,
 			Scope:    analysis.ScopeShard,
@@ -430,7 +430,7 @@ func TestFilterAndPrioritize_ShardWideOnly(t *testing.T) {
 
 	// Should return only the shard-wide problem (PrimaryDead)
 	require.Len(t, filtered, 1)
-	assert.Equal(t, analysis.ProblemPrimaryDead, filtered[0].Code)
+	assert.Equal(t, analysis.ProblemPrimaryIsDead, filtered[0].Code)
 	assert.Equal(t, analysis.PriorityEmergency, filtered[0].Priority)
 }
 
@@ -526,7 +526,7 @@ func TestFilterAndPrioritize_MultipleShardWide(t *testing.T) {
 	// Create multiple shard-wide problems with different priorities
 	problems := []analysis.Problem{
 		{
-			Code:     analysis.ProblemClusterHasNoPrimary,
+			Code:     analysis.ProblemShardHasNoPrimary,
 			PoolerID: poolerID1,
 			Priority: analysis.PriorityShardBootstrap,
 			Scope:    analysis.ScopeShard,
@@ -537,7 +537,7 @@ func TestFilterAndPrioritize_MultipleShardWide(t *testing.T) {
 			},
 		},
 		{
-			Code:     analysis.ProblemPrimaryDead,
+			Code:     analysis.ProblemPrimaryIsDead,
 			PoolerID: poolerID2,
 			Priority: analysis.PriorityEmergency,
 			Scope:    analysis.ScopeShard,
@@ -553,7 +553,7 @@ func TestFilterAndPrioritize_MultipleShardWide(t *testing.T) {
 
 	// Should return only the highest priority shard-wide problem
 	require.Len(t, filtered, 1)
-	assert.Equal(t, analysis.ProblemClusterHasNoPrimary, filtered[0].Code)
+	assert.Equal(t, analysis.ProblemShardHasNoPrimary, filtered[0].Code)
 	assert.Equal(t, analysis.PriorityShardBootstrap, filtered[0].Priority)
 }
 
@@ -571,7 +571,7 @@ func (m *mockPrimaryDeadAnalyzer) Analyze(a *store.ReplicationAnalysis) []analys
 	if a.IsPrimary && a.IsUnreachable {
 		return []analysis.Problem{
 			{
-				Code:           analysis.ProblemPrimaryDead,
+				Code:           analysis.ProblemPrimaryIsDead,
 				CheckName:      m.Name(),
 				PoolerID:       a.PoolerID,
 				Database:       a.Database,

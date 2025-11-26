@@ -280,7 +280,7 @@ func (re *Engine) recheckProblem(problem analysis.Problem) (bool, error) {
 	if isShardWide {
 		// Shard-wide: refresh all poolers in shard except the dead one
 		var poolersToIgnore []string
-		if problem.Code == analysis.ProblemPrimaryDead {
+		if problem.Code == analysis.ProblemPrimaryIsDead {
 			poolersToIgnore = []string{poolerIDStr}
 		}
 		re.forceHealthCheckShardPoolers(ctx, problem.Database, problem.TableGroup, problem.Shard, poolersToIgnore)

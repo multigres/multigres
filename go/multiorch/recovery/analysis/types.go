@@ -28,9 +28,8 @@ const (
 	ProblemShardHasNoPrimary   ProblemCode = "ShardHasNoPrimary"
 
 	// Primary problems (catastrophic - block everything else).
-	ProblemPrimaryDead         ProblemCode = "PrimaryDead"
-	ProblemPrimaryDiskStalled  ProblemCode = "PrimaryDiskStalled"
-	ProblemClusterHasNoPrimary ProblemCode = "ClusterHasNoPrimary"
+	ProblemPrimaryIsDead      ProblemCode = "PrimaryIsDead"
+	ProblemPrimaryDiskStalled ProblemCode = "PrimaryDiskStalled"
 
 	// Primary configuration problems (can fix while primary alive).
 	ProblemPrimaryNotAcceptingWrites ProblemCode = "PrimaryNotAcceptingWrites"
