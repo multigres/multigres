@@ -323,5 +323,23 @@ func isProcessRunning(pid int) bool {
 
 	// On Unix, sending signal 0 checks if process exists
 	err = process.Signal(syscall.Signal(0))
-	return err == nil
+	if err != nil {
+		return false
+	}
+
+	// Additional verification: Check that this is actually a postgres process
+	// by reading /proc/<pid>/cmdline. This prevents false positives when:
+	// 1. Postgres was killed with SIGKILL (doesn't clean up postmaster.pid)
+	// 2. The PID was reused by a different process
+	cmdlinePath := fmt.Sprintf("/proc/%d/cmdline", pid)
+	cmdlineBytes, err := os.ReadFile(cmdlinePath)
+	if err != nil {
+		// If we can't read /proc (e.g., process died), consider it not running
+		return false
+	}
+
+	// /proc/pid/cmdline uses null bytes as separators
+	cmdline := string(cmdlineBytes)
+	// Check if the command contains "postgres" (could be "postgres", "/usr/bin/postgres", etc.)
+	return strings.Contains(cmdline, "postgres")
 }
