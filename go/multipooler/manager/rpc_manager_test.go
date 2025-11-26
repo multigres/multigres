@@ -429,6 +429,11 @@ func setupPromoteTestManager(t *testing.T, mockDB *sql.DB) (*MultiPoolerManager,
 func TestPromoteIdempotency_PostgreSQLPromotedButTopologyNotUpdated(t *testing.T) {
 	ctx := context.Background()
 
+	// Simulate partial completion:
+	// 1. PostgreSQL is already primary (pg_promote() was called successfully)
+	// 2. Topology still shows REPLICA (update failed previously)
+	// 3. No sync replication config requested
+
 	// Create mock and set ALL expectations BEFORE starting the manager
 	mockDB, mock := newMockDB(t)
 	expectStartupQueries(mock)
@@ -446,11 +451,6 @@ func TestPromoteIdempotency_PostgreSQLPromotedButTopologyNotUpdated(t *testing.T
 		WillReturnRows(sqlmock.NewRows([]string{"pg_current_wal_lsn"}).AddRow("0/ABCDEF0"))
 
 	pm, _ := setupPromoteTestManager(t, mockDB)
-
-	// Simulate partial completion:
-	// 1. PostgreSQL is already primary (pg_promote() was called successfully)
-	// 2. Topology still shows REPLICA (update failed previously)
-	// 3. No sync replication config requested
 
 	// Topology is still REPLICA (this is what the guard rail checks)
 	pm.mu.Lock()
@@ -479,6 +479,11 @@ func TestPromoteIdempotency_PostgreSQLPromotedButTopologyNotUpdated(t *testing.T
 func TestPromoteIdempotency_FullyCompleteTopologyPrimary(t *testing.T) {
 	ctx := context.Background()
 
+	// Simulate fully completed promotion:
+	// 1. PostgreSQL is primary (not in recovery)
+	// 2. Topology is PRIMARY
+	// 3. No sync replication config requested (so it matches by default)
+
 	// Create mock and set ALL expectations BEFORE starting the manager
 	mockDB, mock := newMockDB(t)
 	expectStartupQueries(mock)
@@ -492,11 +497,6 @@ func TestPromoteIdempotency_FullyCompleteTopologyPrimary(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"pg_current_wal_lsn"}).AddRow("0/FEDCBA0"))
 
 	pm, _ := setupPromoteTestManager(t, mockDB)
-
-	// Simulate fully completed promotion:
-	// 1. PostgreSQL is primary (not in recovery)
-	// 2. Topology is PRIMARY
-	// 3. No sync replication config requested (so it matches by default)
 
 	// Topology is already PRIMARY
 	pm.mu.Lock()
@@ -519,6 +519,11 @@ func TestPromoteIdempotency_FullyCompleteTopologyPrimary(t *testing.T) {
 func TestPromoteIdempotency_InconsistentStateTopologyPrimaryPgNotPrimary(t *testing.T) {
 	ctx := context.Background()
 
+	// Simulate inconsistent state (should never happen):
+	// 1. PostgreSQL is still in recovery (standby)
+	// 2. Topology shows PRIMARY
+	// This indicates a serious problem that requires manual intervention
+
 	// Create mock and set ALL expectations BEFORE starting the manager
 	mockDB, mock := newMockDB(t)
 	expectStartupQueries(mock)
@@ -528,11 +533,6 @@ func TestPromoteIdempotency_InconsistentStateTopologyPrimaryPgNotPrimary(t *test
 		WillReturnRows(sqlmock.NewRows([]string{"pg_is_in_recovery"}).AddRow(true))
 
 	pm, _ := setupPromoteTestManager(t, mockDB)
-
-	// Simulate inconsistent state (should never happen):
-	// 1. PostgreSQL is still in recovery (standby)
-	// 2. Topology shows PRIMARY
-	// This indicates a serious problem that requires manual intervention
 
 	// Topology shows PRIMARY (inconsistent!)
 	pm.mu.Lock()
@@ -551,6 +551,11 @@ func TestPromoteIdempotency_InconsistentStateTopologyPrimaryPgNotPrimary(t *test
 // TestPromoteIdempotency_InconsistentStateFixedWithForce tests that force flag fixes inconsistent state
 func TestPromoteIdempotency_InconsistentStateFixedWithForce(t *testing.T) {
 	ctx := context.Background()
+
+	// Simulate inconsistent state:
+	// 1. PostgreSQL is still in recovery (standby)
+	// 2. Topology shows PRIMARY
+	// With force=true, it should complete the missing promotion steps
 
 	// Create mock and set ALL expectations BEFORE starting the manager
 	mockDB, mock := newMockDB(t)
@@ -578,11 +583,6 @@ func TestPromoteIdempotency_InconsistentStateFixedWithForce(t *testing.T) {
 
 	pm, _ := setupPromoteTestManager(t, mockDB)
 
-	// Simulate inconsistent state:
-	// 1. PostgreSQL is still in recovery (standby)
-	// 2. Topology shows PRIMARY
-	// With force=true, it should complete the missing promotion steps
-
 	// Topology shows PRIMARY (inconsistent!)
 	pm.mu.Lock()
 	pm.multipooler.Type = clustermetadatapb.PoolerType_PRIMARY
@@ -604,6 +604,11 @@ func TestPromoteIdempotency_InconsistentStateFixedWithForce(t *testing.T) {
 // TestPromoteIdempotency_NothingCompleteYet tests promotion from scratch
 func TestPromoteIdempotency_NothingCompleteYet(t *testing.T) {
 	ctx := context.Background()
+
+	// Simulate fresh promotion - nothing done yet:
+	// 1. PostgreSQL is still in recovery (standby)
+	// 2. Topology is REPLICA
+	// 3. No sync replication configured
 
 	// Create mock and set ALL expectations BEFORE starting the manager
 	mockDB, mock := newMockDB(t)
@@ -634,11 +639,6 @@ func TestPromoteIdempotency_NothingCompleteYet(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"pg_current_wal_lsn"}).AddRow("0/5678ABC"))
 
 	pm, _ := setupPromoteTestManager(t, mockDB)
-
-	// Simulate fresh promotion - nothing done yet:
-	// 1. PostgreSQL is still in recovery (standby)
-	// 2. Topology is REPLICA
-	// 3. No sync replication configured
 
 	// Topology is REPLICA
 	pm.mu.Lock()
