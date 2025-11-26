@@ -256,12 +256,12 @@ func (ts *store) RegisterMultiGateway(ctx context.Context, mtgateway *clustermet
 		// Try to update then
 		oldMtGateway, err := ts.GetMultiGateway(ctx, mtgateway.Id)
 		if err != nil {
-			return fmt.Errorf("failed reading existing mtgateway %v: %v", MultiGatewayIDString(mtgateway.Id), err)
+			return fmt.Errorf("failed reading existing mtgateway %v: %w", MultiGatewayIDString(mtgateway.Id), err)
 		}
 
 		oldMtGateway.MultiGateway = proto.Clone(mtgateway).(*clustermetadatapb.MultiGateway)
 		if err := ts.UpdateMultiGateway(ctx, oldMtGateway); err != nil {
-			return fmt.Errorf("failed updating mtgateway %v: %v", MultiGatewayIDString(mtgateway.Id), err)
+			return fmt.Errorf("failed updating mtgateway %v: %w", MultiGatewayIDString(mtgateway.Id), err)
 		}
 		return nil
 	}

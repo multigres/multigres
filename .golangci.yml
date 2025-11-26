@@ -23,12 +23,19 @@ linters:
     - bodyclose
     - depguard
     - errcheck
+    - errorlint
     - gocritic
+    - gosec
     - govet
     - ineffassign
+    - misspell
     - modernize
+    - nilerr
+    # TODO: Enable noctx - requires fixing ~170 issues where context should be passed
+    # - noctx
     - sloglint
     - staticcheck
+    - unconvert
     - unused
   settings:
     depguard:
@@ -199,6 +206,30 @@ linters:
       - linters:
           - unused
         path: ^go/(parser|pgprotocol|tools/ruleguard)
+      # Integer overflow conversions are all over the place
+      - linters:
+          - gosec
+        text: "G115:"
+      # math/rand is fine for non-crypto uses (jitter, test data, IDs)
+      - linters:
+          - gosec
+        text: "G404:"
+      # File permissions 0644 are fine for config/data files
+      - linters:
+          - gosec
+        text: "G306:"
+      # Subprocess calls with variables are common
+      - linters:
+          - gosec
+        text: "G204:"
+      # mterrors intentionally uses direct error comparisons
+      - linters:
+          - errorlint
+        path: ^go/common/mterrors/
+      # Parser has many unnecessary type conversions
+      - linters:
+          - unconvert
+        path: ^go/parser/
 formatters:
   enable:
     - gofumpt

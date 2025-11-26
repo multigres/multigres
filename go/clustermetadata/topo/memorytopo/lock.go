@@ -16,6 +16,7 @@ package memorytopo
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -24,10 +25,10 @@ import (
 
 // convertError converts a context error into a topo error.
 func convertError(err error, nodePath string) error {
-	switch err {
-	case context.Canceled:
+	switch {
+	case errors.Is(err, context.Canceled):
 		return topo.NewError(topo.Interrupted, nodePath)
-	case context.DeadlineExceeded:
+	case errors.Is(err, context.DeadlineExceeded):
 		return topo.NewError(topo.Timeout, nodePath)
 	}
 	return err
