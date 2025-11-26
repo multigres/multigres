@@ -98,6 +98,11 @@ type MultiPoolerManager struct {
 	cancel          context.CancelFunc
 	loadTimeout     time.Duration
 
+	// readyChan is closed when state becomes Ready or Error, to broadcast to all waiters.
+	// Unbuffered is safe here because we only close() the channel (which never blocks
+	// and broadcasts to all receivers) rather than sending to it.
+	readyChan chan struct{}
+
 	// Cached MultipoolerInfo so that we can access its state without having
 	// to wait a potentially long time on mu when accessing read-only fields.
 	cachedMultipooler cachedMultiPoolerInfo
@@ -169,6 +174,7 @@ func NewMultiPoolerManagerWithTimeout(logger *slog.Logger, config *Config, loadT
 		loadTimeout:       loadTimeout,
 		queryServingState: clustermetadatapb.PoolerServingStatus_NOT_SERVING,
 		pgctldClient:      pgctldClient,
+		readyChan:         make(chan struct{}),
 	}
 
 	// Create the query service controller (follows Vitess pattern)
@@ -571,6 +577,14 @@ func (pm *MultiPoolerManager) setStateError(err error) {
 	pm.state = ManagerStateError
 	pm.stateError = err
 	pm.logger.Error("Manager state changed", "state", ManagerStateError, "error", err.Error())
+
+	// Signal that we've reached a terminal state
+	select {
+	case <-pm.readyChan:
+		// Already closed
+	default:
+		close(pm.readyChan)
+	}
 }
 
 // checkAndSetReady checks if all required resources are loaded and sets state to ready if so
@@ -584,6 +598,14 @@ func (pm *MultiPoolerManager) checkAndSetReady() {
 	if pm.topoLoaded && consensusReady {
 		pm.state = ManagerStateReady
 		pm.logger.Info("Manager state changed", "state", ManagerStateReady, "service_id", pm.serviceID.String())
+
+		// Signal that we've reached ready state
+		select {
+		case <-pm.readyChan:
+			// Already closed
+		default:
+			close(pm.readyChan)
+		}
 	}
 }
 
@@ -1322,7 +1344,7 @@ func (pm *MultiPoolerManager) Start(senv *servenv.ServEnv) {
 	senv.OnRun(func() {
 		// Block until manager is ready or error before registering gRPC services
 		// Use load timeout from manager configuration
-		waitCtx, cancel := context.WithTimeout(context.Background(), pm.loadTimeout)
+		waitCtx, cancel := context.WithTimeout(pm.ctx, pm.loadTimeout)
 		defer cancel()
 
 		pm.logger.Info("Waiting for manager to reach ready state before registering gRPC services")
@@ -1348,17 +1370,14 @@ func (pm *MultiPoolerManager) Start(senv *servenv.ServEnv) {
 // or context cancelled. This should be called after Start() to ensure
 // initialization is complete before accepting RPC requests.
 //
-// Thread-safety: This method safely reads manager state by acquiring and
-// releasing pm.mu for each check. This prevents holding the lock during the
-// polling interval, allowing background goroutines to update state
-// without blocking.
+// Thread-safety: This method waits on a channel that is closed when the state
+// changes to Ready or Error, allowing efficient notification without polling.
 func (pm *MultiPoolerManager) WaitUntilReady(ctx context.Context) error {
-	ticker := time.NewTicker(50 * time.Millisecond)
-	defer ticker.Stop()
-
-	for {
-		// Acquire lock only for reading state, then release immediately
-		// This is critical for avoiding deadlocks with background loaders
+	select {
+	case <-ctx.Done():
+		return fmt.Errorf("waiting for manager ready cancelled: %w", ctx.Err())
+	case <-pm.readyChan:
+		// State has changed to Ready or Error, check which one
 		pm.mu.Lock()
 		state := pm.state
 		stateError := pm.stateError
@@ -1371,15 +1390,9 @@ func (pm *MultiPoolerManager) WaitUntilReady(ctx context.Context) error {
 		case ManagerStateError:
 			pm.logger.ErrorContext(ctx, "Manager failed to initialize", "error", stateError)
 			return fmt.Errorf("manager is in error state: %w", stateError)
-		case ManagerStateStarting:
-			// Continue waiting
-		}
-
-		select {
-		case <-ctx.Done():
-			return fmt.Errorf("waiting for manager ready cancelled: %w", ctx.Err())
-		case <-ticker.C:
-			// Continue loop
+		default:
+			// This shouldn't happen - channel was closed but state isn't terminal
+			return fmt.Errorf("unexpected state after ready signal: %s", state)
 		}
 	}
 }

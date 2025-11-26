@@ -38,7 +38,7 @@ import (
 )
 
 func TestManagerState_InitialState(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
 	defer ts.Close()
@@ -65,7 +65,7 @@ func TestManagerState_InitialState(t *testing.T) {
 }
 
 func TestManagerState_SuccessfulLoad(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
 	defer ts.Close()
@@ -121,7 +121,7 @@ func TestManagerState_SuccessfulLoad(t *testing.T) {
 }
 
 func TestManagerState_LoadFailureTimeout(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 	ts, factory := memorytopo.NewServerAndFactory(ctx, "zone1")
 	defer ts.Close()
@@ -161,7 +161,7 @@ func TestManagerState_LoadFailureTimeout(t *testing.T) {
 }
 
 func TestManagerState_CancellationDuringLoad(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 	ts, factory := memorytopo.NewServerAndFactory(ctx, "zone1")
 	defer ts.Close()
@@ -203,7 +203,7 @@ func TestManagerState_CancellationDuringLoad(t *testing.T) {
 }
 
 func TestManagerState_RetryUntilSuccess(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 	ts, factory := memorytopo.NewServerAndFactory(ctx, "zone1")
 	defer ts.Close()
@@ -263,7 +263,7 @@ func TestManagerState_RetryUntilSuccess(t *testing.T) {
 }
 
 func TestManagerState_NilServiceID(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
 	defer ts.Close()
@@ -293,7 +293,7 @@ func TestManagerState_NilServiceID(t *testing.T) {
 }
 
 func TestValidateAndUpdateTerm(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 
 	serviceID := &clustermetadatapb.ID{
@@ -427,7 +427,7 @@ func TestValidateAndUpdateTerm(t *testing.T) {
 }
 
 func TestGetBackupLocation(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	tmpDir := t.TempDir()
 
 	// Create test topology store
@@ -485,9 +485,10 @@ func TestWaitUntilReady_Success(t *testing.T) {
 	pm.mu.Lock()
 	pm.state = ManagerStateReady
 	pm.topoLoaded = true
+	close(pm.readyChan) // Signal that state has changed
 	pm.mu.Unlock()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 1*time.Second)
 	defer cancel()
 
 	err := pm.WaitUntilReady(ctx)
@@ -508,9 +509,10 @@ func TestWaitUntilReady_Error(t *testing.T) {
 	pm.mu.Lock()
 	pm.state = ManagerStateError
 	pm.stateError = assert.AnError
+	close(pm.readyChan) // Signal that state has changed
 	pm.mu.Unlock()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 1*time.Second)
 	defer cancel()
 
 	err := pm.WaitUntilReady(ctx)
@@ -529,8 +531,9 @@ func TestWaitUntilReady_Timeout(t *testing.T) {
 	pm := NewMultiPoolerManagerWithTimeout(logger, config, 100*time.Millisecond)
 
 	// Leave in Starting state - will timeout
+	// Don't close readyChan to test context timeout
 
-	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	ctx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
 	defer cancel()
 
 	err := pm.WaitUntilReady(ctx)
@@ -552,7 +555,7 @@ func TestWaitUntilReady_ConcurrentCalls(t *testing.T) {
 	const numGoroutines = 10
 	errChan := make(chan error, numGoroutines)
 
-	ctx := context.Background()
+	ctx := t.Context()
 
 	for range numGoroutines {
 		go func() {
@@ -566,6 +569,7 @@ func TestWaitUntilReady_ConcurrentCalls(t *testing.T) {
 	pm.mu.Lock()
 	pm.state = ManagerStateReady
 	pm.topoLoaded = true
+	close(pm.readyChan) // Signal that state has changed
 	pm.mu.Unlock()
 
 	// Collect results
