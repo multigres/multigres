@@ -16,7 +16,6 @@ package analysis
 
 import (
 	"fmt"
-	"log/slog"
 	"time"
 
 	"github.com/multigres/multigres/go/multiorch/store"
@@ -39,6 +38,12 @@ func (a *ShardHasNoPrimaryAnalyzer) Analyze(poolerAnalysis *store.ReplicationAna
 
 	// If this replica is initialized but has no primary, the shard needs leader appointment
 	if poolerAnalysis.IsInitialized && poolerAnalysis.PrimaryPoolerID == nil {
+		factory := GetRecoveryActionFactory()
+		if factory == nil {
+			// Factory not initialized yet, skip recovery action
+			return nil
+		}
+
 		return []Problem{{
 			Code:       ProblemShardHasNoPrimary,
 			CheckName:  "ShardHasNoPrimary",
@@ -51,7 +56,7 @@ func (a *ShardHasNoPrimaryAnalyzer) Analyze(poolerAnalysis *store.ReplicationAna
 			Priority:       PriorityShardBootstrap,
 			Scope:          ScopeShard,
 			DetectedAt:     time.Now(),
-			RecoveryAction: NewAppointLeaderRecoveryAction(slog.Default()),
+			RecoveryAction: factory.NewAppointLeaderRecoveryAction(),
 		}}
 	}
 

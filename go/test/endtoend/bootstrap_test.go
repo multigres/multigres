@@ -35,7 +35,8 @@ import (
 	"github.com/multigres/multigres/go/clustermetadata/topo"
 	"github.com/multigres/multigres/go/clustermetadata/topo/etcdtopo"
 	"github.com/multigres/multigres/go/common/rpcclient"
-	"github.com/multigres/multigres/go/multiorch/actions"
+	"github.com/multigres/multigres/go/multiorch/recovery/actions"
+	"github.com/multigres/multigres/go/multiorch/store"
 	"github.com/multigres/multigres/go/provisioner/local/pgbackrest"
 	"github.com/multigres/multigres/go/test/utils"
 

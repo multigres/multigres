@@ -53,3 +53,19 @@ func SetTestAnalyzers(analyzers []Analyzer) {
 func ResetAnalyzers() {
 	defaultAnalyzers = nil
 }
+
+// globalFactory holds the global RecoveryActionFactory instance.
+// This is set during engine initialization and used by analyzers.
+var globalFactory *RecoveryActionFactory
+
+// SetRecoveryActionFactory sets the global recovery action factory.
+// This should be called during engine initialization.
+func SetRecoveryActionFactory(factory *RecoveryActionFactory) {
+	globalFactory = factory
+}
+
+// GetRecoveryActionFactory returns the global recovery action factory.
+// Analyzers use this to create recovery actions.
+func GetRecoveryActionFactory() *RecoveryActionFactory {
+	return globalFactory
+}

@@ -15,15 +15,36 @@
 package analysis
 
 import (
+	"context"
+	"log/slog"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/multigres/multigres/go/clustermetadata/topo/memorytopo"
+	"github.com/multigres/multigres/go/common/rpcclient"
+	"github.com/multigres/multigres/go/multiorch/coordinator"
 	"github.com/multigres/multigres/go/multiorch/store"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 )
 
 func TestShardNeedsBootstrapAnalyzer_Analyze(t *testing.T) {
+	// Set up factory for tests
+	ctx := context.Background()
+	ts, _ := memorytopo.NewServerAndFactory(ctx, "cell1")
+	defer ts.Close()
+	poolerStore := store.NewStore[string, *store.PoolerHealth]()
+	rpcClient := &rpcclient.FakeClient{}
+	coordID := &clustermetadatapb.ID{
+		Component: clustermetadatapb.ID_MULTIORCH,
+		Cell:      "cell1",
+		Name:      "test-coord",
+	}
+	coord := coordinator.NewCoordinator(coordID, ts, rpcClient, slog.Default())
+	factory := NewRecoveryActionFactory(poolerStore, rpcClient, ts, coord, slog.Default())
+	SetRecoveryActionFactory(factory)
+	defer SetRecoveryActionFactory(nil) // Clean up after test
+
 	analyzer := &ShardNeedsBootstrapAnalyzer{}
 
 	t.Run("detects uninitialized shard", func(t *testing.T) {

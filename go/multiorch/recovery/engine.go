@@ -25,6 +25,8 @@ import (
 	"github.com/multigres/multigres/go/clustermetadata/topo"
 	"github.com/multigres/multigres/go/common/rpcclient"
 	"github.com/multigres/multigres/go/multiorch/config"
+	"github.com/multigres/multigres/go/multiorch/coordinator"
+	"github.com/multigres/multigres/go/multiorch/recovery/analysis"
 	"github.com/multigres/multigres/go/multiorch/store"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 )
@@ -269,6 +271,7 @@ func NewEngine(
 	config *config.Config,
 	shardWatchTargets []config.WatchTarget,
 	rpcClient rpcclient.MultiPoolerClient,
+	coordinator *coordinator.Coordinator,
 ) *Engine {
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -301,6 +304,16 @@ func NewEngine(
 	if err != nil {
 		logger.Error("failed to monitor pooler store size", "error", err)
 	}
+
+	// Create and set global action factory
+	actionFactory := analysis.NewRecoveryActionFactory(
+		poolerStore,
+		rpcClient,
+		ts,
+		coordinator,
+		logger,
+	)
+	analysis.SetRecoveryActionFactory(actionFactory)
 
 	return engine
 }

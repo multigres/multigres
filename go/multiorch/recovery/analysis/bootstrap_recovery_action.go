@@ -19,44 +19,89 @@ import (
 	"fmt"
 	"log/slog"
 	"time"
+
+	"github.com/multigres/multigres/go/multiorch/recovery/actions"
+	"github.com/multigres/multigres/go/multiorch/store"
 )
 
-// BootstrapRecoveryAction is a placeholder for bootstrap recovery logic.
-// Full implementation will be added later when coordinator integration is ready.
+// BootstrapRecoveryAction wraps actions.BootstrapShardAction to implement RecoveryAction interface.
 type BootstrapRecoveryAction struct {
-	logger *slog.Logger
-}
-
-// NewBootstrapRecoveryAction creates a new bootstrap recovery action.
-func NewBootstrapRecoveryAction(logger *slog.Logger) *BootstrapRecoveryAction {
-	return &BootstrapRecoveryAction{
-		logger: logger,
-	}
+	bootstrapAction *actions.BootstrapShardAction
+	poolerStore     *store.Store[string, *store.PoolerHealth]
+	logger          *slog.Logger
 }
 
 func (a *BootstrapRecoveryAction) Execute(ctx context.Context, problem Problem) error {
-	a.logger.InfoContext(ctx, "bootstrap recovery action triggered (not yet implemented)",
+	a.logger.InfoContext(ctx, "executing bootstrap recovery action",
 		"database", problem.Database,
 		"tablegroup", problem.TableGroup,
 		"shard", problem.Shard)
-	// TODO: Implement actual bootstrap logic:
-	// 1. Fetch cohort from poolerStore
-	// 2. Call coordinator.BootstrapShard() with appropriate cohort
-	return fmt.Errorf("bootstrap action not yet implemented")
+
+	// Fetch cohort from pooler store
+	cohort, err := a.getCohort(problem.Database, problem.TableGroup, problem.Shard)
+	if err != nil {
+		return fmt.Errorf("failed to get cohort: %w", err)
+	}
+
+	if len(cohort) == 0 {
+		return fmt.Errorf("no poolers found for shard %s/%s/%s",
+			problem.Database, problem.TableGroup, problem.Shard)
+	}
+
+	a.logger.InfoContext(ctx, "fetched cohort for bootstrap",
+		"database", problem.Database,
+		"tablegroup", problem.TableGroup,
+		"shard", problem.Shard,
+		"cohort_size", len(cohort))
+
+	// Call the underlying bootstrap action
+	if err := a.bootstrapAction.Execute(ctx, problem.Shard, problem.Database, cohort); err != nil {
+		return fmt.Errorf("bootstrap action failed: %w", err)
+	}
+
+	a.logger.InfoContext(ctx, "bootstrap recovery completed successfully",
+		"database", problem.Database,
+		"tablegroup", problem.TableGroup,
+		"shard", problem.Shard)
+
+	return nil
+}
+
+// getCohort fetches all poolers in the shard from the pooler store.
+func (a *BootstrapRecoveryAction) getCohort(database, tablegroup, shard string) ([]*store.PoolerHealth, error) {
+	var cohort []*store.PoolerHealth
+
+	a.poolerStore.Range(func(key string, pooler *store.PoolerHealth) bool {
+		if pooler == nil || pooler.ID == nil {
+			return true // continue
+		}
+
+		if pooler.Database == database &&
+			pooler.TableGroup == tablegroup &&
+			pooler.Shard == shard {
+			cohort = append(cohort, pooler.DeepCopy())
+		}
+
+		return true // continue
+	})
+
+	return cohort, nil
 }
 
 func (a *BootstrapRecoveryAction) RequiresHealthyPrimary() bool {
-	return false // bootstrap doesn't need a primary
+	return false
 }
 
 func (a *BootstrapRecoveryAction) RequiresLock() bool {
-	return true // bootstrap requires exclusive shard lock
+	return true
 }
 
 func (a *BootstrapRecoveryAction) Metadata() RecoveryMetadata {
 	return RecoveryMetadata{
-		Timeout:   60 * time.Second,
-		Retryable: false, // bootstrap should not auto-retry
+		Name:        "BootstrapShard",
+		Description: "Initialize empty shard with primary and standbys",
+		Timeout:     60 * time.Second,
+		Retryable:   false,
 	}
 }
 

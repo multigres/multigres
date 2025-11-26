@@ -19,30 +19,73 @@ import (
 	"fmt"
 	"log/slog"
 	"time"
+
+	"github.com/multigres/multigres/go/multiorch/recovery/actions"
+	"github.com/multigres/multigres/go/multiorch/store"
 )
 
-// AppointLeaderRecoveryAction is a placeholder for leader appointment logic.
-// Full implementation will be added later when coordinator integration is ready.
+// AppointLeaderRecoveryAction wraps actions.AppointLeaderAction to implement RecoveryAction interface.
 type AppointLeaderRecoveryAction struct {
-	logger *slog.Logger
-}
-
-// NewAppointLeaderRecoveryAction creates a new leader appointment recovery action.
-func NewAppointLeaderRecoveryAction(logger *slog.Logger) *AppointLeaderRecoveryAction {
-	return &AppointLeaderRecoveryAction{
-		logger: logger,
-	}
+	appointAction *actions.AppointLeaderAction
+	poolerStore   *store.Store[string, *store.PoolerHealth]
+	logger        *slog.Logger
 }
 
 func (a *AppointLeaderRecoveryAction) Execute(ctx context.Context, problem Problem) error {
-	a.logger.InfoContext(ctx, "appoint leader recovery action triggered (not yet implemented)",
+	a.logger.InfoContext(ctx, "executing appoint leader recovery action",
 		"database", problem.Database,
 		"tablegroup", problem.TableGroup,
 		"shard", problem.Shard)
-	// TODO: Implement actual leader appointment logic:
-	// 1. Fetch cohort from poolerStore
-	// 2. Call coordinator.AppointLeader() to elect primary
-	return fmt.Errorf("appoint leader action not yet implemented")
+
+	// Fetch cohort from pooler store
+	cohort, err := a.getCohort(problem.Database, problem.TableGroup, problem.Shard)
+	if err != nil {
+		return fmt.Errorf("failed to get cohort: %w", err)
+	}
+
+	if len(cohort) == 0 {
+		return fmt.Errorf("no poolers found for shard %s/%s/%s",
+			problem.Database, problem.TableGroup, problem.Shard)
+	}
+
+	a.logger.InfoContext(ctx, "fetched cohort for leader appointment",
+		"database", problem.Database,
+		"tablegroup", problem.TableGroup,
+		"shard", problem.Shard,
+		"cohort_size", len(cohort))
+
+	// Call the underlying appoint leader action
+	if err := a.appointAction.Execute(ctx, problem.Shard, problem.Database, cohort); err != nil {
+		return fmt.Errorf("appoint leader action failed: %w", err)
+	}
+
+	a.logger.InfoContext(ctx, "appoint leader recovery completed successfully",
+		"database", problem.Database,
+		"tablegroup", problem.TableGroup,
+		"shard", problem.Shard)
+
+	return nil
+}
+
+// getCohort fetches all poolers in the shard from the pooler store.
+func (a *AppointLeaderRecoveryAction) getCohort(database, tablegroup, shard string) ([]*store.PoolerHealth, error) {
+	var cohort []*store.PoolerHealth
+
+	a.poolerStore.Range(func(key string, pooler *store.PoolerHealth) bool {
+		if pooler == nil || pooler.ID == nil {
+			return true // continue
+		}
+
+		if pooler.Database == database &&
+			pooler.TableGroup == tablegroup &&
+			pooler.Shard == shard {
+			cohort = append(cohort, pooler.DeepCopy())
+		}
+
+		return true // continue
+	})
+
+	return cohort, nil
 }
 
 func (a *AppointLeaderRecoveryAction) RequiresHealthyPrimary() bool {
@@ -55,8 +98,10 @@ func (a *AppointLeaderRecoveryAction) RequiresLock() bool {
 
 func (a *AppointLeaderRecoveryAction) Metadata() RecoveryMetadata {
 	return RecoveryMetadata{
-		Timeout:   30 * time.Second,
-		Retryable: true, // can retry if it fails
+		Name:        "AppointLeader",
+		Description: "Elect a new primary for the shard using consensus",
+		Timeout:     60 * time.Second,
+		Retryable:   true, // can retry if it fails
 	}
 }
 

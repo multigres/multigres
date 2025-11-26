@@ -134,7 +134,7 @@ func TestGroupProblemsByShard(t *testing.T) {
 	ts, _ := memorytopo.NewServerAndFactory(ctx, "cell1")
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
 	cfg := config.NewTestConfig(config.WithCell("cell1"))
-	engine := NewEngine(ts, logger, cfg, []config.WatchTarget{}, &rpcclient.FakeClient{})
+	engine := NewEngine(ts, logger, cfg, []config.WatchTarget{}, &rpcclient.FakeClient{}, nil)
 
 	poolerID1 := &clustermetadatapb.ID{
 		Component: clustermetadatapb.ID_MULTIPOOLER,
@@ -292,7 +292,7 @@ func TestGroupProblemsByShard_DifferentShards(t *testing.T) {
 	ts, _ := memorytopo.NewServerAndFactory(ctx, "cell1")
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
 	cfg := config.NewTestConfig(config.WithCell("cell1"))
-	engine := NewEngine(ts, logger, cfg, []config.WatchTarget{}, &rpcclient.FakeClient{})
+	engine := NewEngine(ts, logger, cfg, []config.WatchTarget{}, &rpcclient.FakeClient{}, nil)
 
 	poolerID1 := &clustermetadatapb.ID{
 		Component: clustermetadatapb.ID_MULTIPOOLER,
@@ -342,7 +342,7 @@ func TestRecheckProblem_PoolerNotFound(t *testing.T) {
 	ts, _ := memorytopo.NewServerAndFactory(ctx, "cell1")
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
 	cfg := config.NewTestConfig(config.WithCell("cell1"))
-	engine := NewEngine(ts, logger, cfg, []config.WatchTarget{}, &rpcclient.FakeClient{})
+	engine := NewEngine(ts, logger, cfg, []config.WatchTarget{}, &rpcclient.FakeClient{}, nil)
 
 	poolerID := &clustermetadatapb.ID{
 		Component: clustermetadatapb.ID_MULTIPOOLER,
@@ -375,7 +375,7 @@ func TestFilterAndPrioritize_ShardWideOnly(t *testing.T) {
 	ts, _ := memorytopo.NewServerAndFactory(ctx, "cell1")
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
 	cfg := config.NewTestConfig(config.WithCell("cell1"))
-	engine := NewEngine(ts, logger, cfg, []config.WatchTarget{}, &rpcclient.FakeClient{})
+	engine := NewEngine(ts, logger, cfg, []config.WatchTarget{}, &rpcclient.FakeClient{}, nil)
 
 	poolerID1 := &clustermetadatapb.ID{
 		Component: clustermetadatapb.ID_MULTIPOOLER,
@@ -441,7 +441,7 @@ func TestFilterAndPrioritize_NoShardWide(t *testing.T) {
 	ts, _ := memorytopo.NewServerAndFactory(ctx, "cell1")
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
 	cfg := config.NewTestConfig(config.WithCell("cell1"))
-	engine := NewEngine(ts, logger, cfg, []config.WatchTarget{}, &rpcclient.FakeClient{})
+	engine := NewEngine(ts, logger, cfg, []config.WatchTarget{}, &rpcclient.FakeClient{}, nil)
 
 	poolerID1 := &clustermetadatapb.ID{
 		Component: clustermetadatapb.ID_MULTIPOOLER,
@@ -509,7 +509,7 @@ func TestFilterAndPrioritize_MultipleShardWide(t *testing.T) {
 	ts, _ := memorytopo.NewServerAndFactory(ctx, "cell1")
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
 	cfg := config.NewTestConfig(config.WithCell("cell1"))
-	engine := NewEngine(ts, logger, cfg, []config.WatchTarget{}, &rpcclient.FakeClient{})
+	engine := NewEngine(ts, logger, cfg, []config.WatchTarget{}, &rpcclient.FakeClient{}, nil)
 
 	poolerID1 := &clustermetadatapb.ID{
 		Component: clustermetadatapb.ID_MULTIPOOLER,
@@ -660,7 +660,7 @@ func TestProcessShardProblems_DependencyEnforcement(t *testing.T) {
 		},
 	}
 
-	engine := NewEngine(ts, logger, cfg, []config.WatchTarget{}, fakeClient)
+	engine := NewEngine(ts, logger, cfg, []config.WatchTarget{}, fakeClient, nil)
 
 	primaryID := &clustermetadatapb.ID{
 		Component: clustermetadatapb.ID_MULTIPOOLER,
@@ -884,7 +884,7 @@ func TestRecoveryLoop_ValidationPreventsStaleRecovery(t *testing.T) {
 		},
 	}
 
-	engine := NewEngine(ts, logger, cfg, []config.WatchTarget{}, fakeClient)
+	engine := NewEngine(ts, logger, cfg, []config.WatchTarget{}, fakeClient, nil)
 
 	replicaID := &clustermetadatapb.ID{
 		Component: clustermetadatapb.ID_MULTIPOOLER,
@@ -1030,7 +1030,7 @@ func TestRecoveryLoop_PostRecoveryRefresh(t *testing.T) {
 		},
 	}
 
-	engine := NewEngine(ts, logger, cfg, []config.WatchTarget{}, fakeClient)
+	engine := NewEngine(ts, logger, cfg, []config.WatchTarget{}, fakeClient, nil)
 
 	primaryID := &clustermetadatapb.ID{
 		Component: clustermetadatapb.ID_MULTIPOOLER,
@@ -1226,7 +1226,7 @@ func TestRecoveryLoop_FullCycle(t *testing.T) {
 		},
 	}
 
-	engine := NewEngine(ts, logger, cfg, []config.WatchTarget{}, fakeClient)
+	engine := NewEngine(ts, logger, cfg, []config.WatchTarget{}, fakeClient, nil)
 
 	primaryID := &clustermetadatapb.ID{
 		Component: clustermetadatapb.ID_MULTIPOOLER,
@@ -1378,7 +1378,7 @@ func TestRecoveryLoop_PriorityOrdering(t *testing.T) {
 		},
 	}
 
-	engine := NewEngine(ts, logger, cfg, []config.WatchTarget{}, fakeClient)
+	engine := NewEngine(ts, logger, cfg, []config.WatchTarget{}, fakeClient, nil)
 
 	replicaID := &clustermetadatapb.ID{
 		Component: clustermetadatapb.ID_MULTIPOOLER,

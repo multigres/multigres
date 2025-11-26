@@ -16,7 +16,6 @@ package analysis
 
 import (
 	"fmt"
-	"log/slog"
 	"time"
 
 	"github.com/multigres/multigres/go/multiorch/store"
@@ -40,6 +39,12 @@ func (a *ShardNeedsBootstrapAnalyzer) Analyze(poolerAnalysis *store.ReplicationA
 	// If this pooler is uninitialized AND there's no primary in the shard,
 	// then the whole shard likely needs bootstrap
 	if poolerAnalysis.PrimaryPoolerID == nil {
+		factory := GetRecoveryActionFactory()
+		if factory == nil {
+			// Factory not initialized yet, skip recovery action
+			return nil
+		}
+
 		return []Problem{{
 			Code:       ProblemShardNeedsBootstrap,
 			CheckName:  "ShardNeedsBootstrap",
@@ -52,7 +57,7 @@ func (a *ShardNeedsBootstrapAnalyzer) Analyze(poolerAnalysis *store.ReplicationA
 			Priority:       PriorityShardBootstrap,
 			Scope:          ScopeShard,
 			DetectedAt:     time.Now(),
-			RecoveryAction: NewBootstrapRecoveryAction(slog.Default()),
+			RecoveryAction: factory.NewBootstrapRecoveryAction(),
 		}}
 	}
 
