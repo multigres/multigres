@@ -18,6 +18,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/multigres/multigres/go/multigateway/handler"
 	"github.com/multigres/multigres/go/pb/query"
 	"github.com/multigres/multigres/go/pgprotocol/server"
 )
@@ -46,7 +47,7 @@ func (p *Plan) StreamExecute(
 	ctx context.Context,
 	exec IExecute,
 	conn *server.Conn,
-	options *query.ExecuteOptions,
+	options *handler.ExecuteOptions,
 	callback func(context.Context, *query.QueryResult) error,
 ) error {
 	return p.Primitive.StreamExecute(ctx, exec, conn, options, callback)

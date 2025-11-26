@@ -61,6 +61,28 @@ type QueryService interface {
 		callback func(context.Context, *query.QueryResult) error,
 	) error
 
+	// ReserveStreamExecute reserves a connection from the pool, executes a query on it,
+	// and returns the reserved connection ID along with streaming results.
+	// This is used for session affinity to ensure subsequent queries use the same connection.
+	// The returned connection ID should be passed in ExecuteOptions.ReservedConnectionId
+	// for future queries that need to run on the same connection.
+	ReserveStreamExecute(
+		ctx context.Context,
+		target *query.Target,
+		sql string,
+		options *query.ExecuteOptions,
+		callback func(context.Context, *query.QueryResult) error,
+	) (reservedConnID uint64, err error)
+
+	// Describe returns metadata about a prepared statement or portal.
+	// The target specifies which multipooler to query.
+	// The options should contain either PreparedStatement or Portal information.
+	Describe(
+		ctx context.Context,
+		target *query.Target,
+		options *query.ExecuteOptions,
+	) (*query.StatementDescription, error)
+
 	// Close closes the query service and releases resources.
 	// After Close is called, no other methods should be called.
 	Close(ctx context.Context) error

@@ -27,9 +27,12 @@ import (
 	"log/slog"
 
 	"github.com/multigres/multigres/go/multigateway/engine"
+	"github.com/multigres/multigres/go/multigateway/handler"
+	"github.com/multigres/multigres/go/multigateway/poolergateway"
 	"github.com/multigres/multigres/go/multipooler/queryservice"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/pb/query"
+	"github.com/multigres/multigres/go/protoutil"
 )
 
 // ScatterConn coordinates query execution across multiple multipooler instances.
@@ -37,15 +40,15 @@ import (
 type ScatterConn struct {
 	logger *slog.Logger
 
-	// queryService is used for executing queries (typically a PoolerGateway)
-	queryService queryservice.QueryService
+	// gateway is used for executing queries (typically a PoolerGateway)
+	gateway poolergateway.Gateway
 }
 
 // NewScatterConn creates a new ScatterConn instance.
-func NewScatterConn(queryService queryservice.QueryService, logger *slog.Logger) *ScatterConn {
+func NewScatterConn(gateway poolergateway.Gateway, logger *slog.Logger) *ScatterConn {
 	return &ScatterConn{
-		logger:       logger,
-		queryService: queryService,
+		logger:  logger,
+		gateway: gateway,
 	}
 }
 
@@ -60,7 +63,7 @@ func (sc *ScatterConn) StreamExecute(
 	tableGroup string,
 	shard string,
 	sql string,
-	options *query.ExecuteOptions,
+	options *handler.ExecuteOptions,
 	callback func(context.Context, *query.QueryResult) error,
 ) error {
 	sc.logger.DebugContext(ctx, "scatter conn executing query",
@@ -77,6 +80,28 @@ func (sc *ScatterConn) StreamExecute(
 		Shard:      shard,
 	}
 
+	eo := &query.ExecuteOptions{
+		PreparedStatement: options.PreparedStatement,
+		Portal:            options.Portal,
+		MaxRows:           options.MaxRows,
+	}
+
+	var qs queryservice.QueryService = sc.gateway
+	var err error
+
+	ss := getMatchingShardState(options.ShardStates, target)
+	// If we have a reserved connection, we have to ensure
+	// we are routing the query to the pooler where we got the reserved
+	// connection from. If a reparent happened, then we will get an error
+	// back.
+	if ss != nil && ss.ReservedConnectionId != 0 {
+		eo.ReservedConnectionId = uint64(ss.ReservedConnectionId)
+		qs, err = sc.gateway.QueryServiceByID(ctx, ss.PoolerID, target)
+	}
+	if err != nil {
+		return err
+	}
+
 	// Execute query via QueryService (PoolerGateway) and stream results
 	// PoolerGateway will use the target to find the right pooler
 	sc.logger.DebugContext(ctx, "executing query via query service",
@@ -84,7 +109,7 @@ func (sc *ScatterConn) StreamExecute(
 		"shard", shard,
 		"pooler_type", target.PoolerType.String())
 
-	if err := sc.queryService.StreamExecute(ctx, target, sql, options, callback); err != nil {
+	if err := qs.StreamExecute(ctx, target, sql, eo, callback); err != nil {
 		return fmt.Errorf("query execution failed: %w", err)
 	}
 
@@ -92,6 +117,16 @@ func (sc *ScatterConn) StreamExecute(
 		"tablegroup", tableGroup,
 		"shard", shard)
 
+	return nil
+}
+
+// getMatchingShardState gets the shardState (if any) that matches the target specified.
+func getMatchingShardState(shardState []*handler.ShardState, target *query.Target) *handler.ShardState {
+	for _, ss := range shardState {
+		if protoutil.TargetEquals(ss.Target, target) {
+			return ss
+		}
+	}
 	return nil
 }
 

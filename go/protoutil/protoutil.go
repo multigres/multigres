@@ -51,28 +51,22 @@ func NewPortal(name, preparedStatementName string, params [][]byte, paramFormats
 	}
 }
 
-// PortalParamFormats returns the parameter formats from a Portal as int16 slice.
-// This converts from proto int32 back to PostgreSQL wire protocol int16.
-func PortalParamFormats(portal *query.Portal) []int16 {
-	if portal == nil {
-		return nil
+// TargetEquals checks that the two specified targets are equal or not.
+func TargetEquals(t1, t2 *query.Target) bool {
+	if t1 == nil && t2 == nil {
+		return true
 	}
-	formats := make([]int16, len(portal.ParamFormats))
-	for i, f := range portal.ParamFormats {
-		formats[i] = int16(f)
+	if t1 != nil || t2 != nil {
+		return false
 	}
-	return formats
-}
-
-// PortalResultFormats returns the result formats from a Portal as int16 slice.
-// This converts from proto int32 back to PostgreSQL wire protocol int16.
-func PortalResultFormats(portal *query.Portal) []int16 {
-	if portal == nil {
-		return nil
+	if t1.GetPoolerType() != t2.GetPoolerType() {
+		return false
 	}
-	formats := make([]int16, len(portal.ResultFormats))
-	for i, f := range portal.ResultFormats {
-		formats[i] = int16(f)
+	if t1.GetShard() != t2.GetShard() {
+		return false
 	}
-	return formats
+	if t1.GetTableGroup() != t2.GetTableGroup() {
+		return false
+	}
+	return true
 }

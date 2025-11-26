@@ -16,6 +16,7 @@ package executor
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 
 	"github.com/multigres/multigres/go/multigateway/engine"
@@ -65,7 +66,7 @@ func (e *Executor) StreamExecute(
 	conn *server.Conn,
 	sql string,
 	astStmt ast.Stmt,
-	options *query.ExecuteOptions,
+	options *handler.ExecuteOptions,
 	callback func(ctx context.Context, res *query.QueryResult) error,
 ) error {
 	e.logger.DebugContext(ctx, "executing query",
@@ -103,6 +104,43 @@ func (e *Executor) StreamExecute(
 		"tablegroup", plan.GetTableGroup())
 
 	return nil
+}
+
+// ReserveStreamExecute reserves a connection and executes a query on it.
+// Returns the reserved connection ID that should be used for subsequent queries in this session.
+func (e *Executor) ReserveStreamExecute(
+	ctx context.Context,
+	conn *server.Conn,
+	sql string,
+	astStmt ast.Stmt,
+	options *handler.ExecuteOptions,
+	callback func(ctx context.Context, res *query.QueryResult) error,
+) (uint64, error) {
+	e.logger.DebugContext(ctx, "reserve and execute query",
+		"query", sql,
+		"user", conn.User(),
+		"database", conn.Database(),
+		"connection_id", conn.ConnectionID())
+
+	// TODO: Implement actual connection reservation through the query service
+	return 0, fmt.Errorf("ReserveStreamExecute not yet implemented")
+}
+
+// Describe returns metadata about a prepared statement or portal.
+func (e *Executor) Describe(
+	ctx context.Context,
+	conn *server.Conn,
+	options *handler.ExecuteOptions,
+) (*query.StatementDescription, error) {
+	e.logger.DebugContext(ctx, "describe",
+		"user", conn.User(),
+		"database", conn.Database(),
+		"connection_id", conn.ConnectionID())
+
+	// TODO: Implement Describe by routing to the multipooler via the query service
+	// This should use the PreparedStatement or Portal from options
+	e.logger.WarnContext(ctx, "Describe not yet implemented")
+	return nil, fmt.Errorf("Describe not yet implemented")
 }
 
 // Ensure Executor implements handler.Executor interface.

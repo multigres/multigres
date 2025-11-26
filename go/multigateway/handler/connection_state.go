@@ -18,6 +18,7 @@ import (
 	"sync"
 
 	"github.com/multigres/multigres/go/common/preparedstatement"
+	"github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/pb/query"
 )
 
@@ -35,6 +36,23 @@ type MultiGatewayConnectionState struct {
 	// Portals stores the list of portals created on this connection.
 	// Map is keyed by the name of the portal.
 	Portals map[string]*preparedstatement.PortalInfo
+
+	// ShardStates is the information per shard that needs to be maintained.
+	// It keeps track of any reserved connections on each Shard currently open.
+	ShardStates []*ShardState
+}
+
+type ShardState struct {
+	// Target stores the information about the shard
+	Target *query.Target
+
+	// PoolerID is the pooler ID we are going to be running the queries against.
+	// This is particularly useful to ensure that we detect the case of a reparent when we are
+	// holding a reserved connection and the primary pooler changes.
+	PoolerID *clustermetadata.ID
+
+	// ReservedConnectionId is the connection ID of the reserved connection being held.
+	ReservedConnectionId int64
 }
 
 // NewMultiGatewayConnectionState creates a new MultiGatewayConnectionState.

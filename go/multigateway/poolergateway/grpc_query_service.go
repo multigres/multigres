@@ -140,6 +140,45 @@ func (g *grpcQueryService) ExecuteQuery(ctx context.Context, target *query.Targe
 	return res.GetResult(), err
 }
 
+// ReserveStreamExecute reserves a connection and executes a query on it.
+func (g *grpcQueryService) ReserveStreamExecute(
+	ctx context.Context,
+	target *query.Target,
+	sql string,
+	options *query.ExecuteOptions,
+	callback func(context.Context, *query.QueryResult) error,
+) (uint64, error) {
+	g.logger.DebugContext(ctx, "reserve and stream query execution",
+		"pooler_id", g.poolerID,
+		"tablegroup", target.TableGroup,
+		"shard", target.Shard,
+		"pooler_type", target.PoolerType.String(),
+		"query", sql)
+
+	// TODO: Implement ReserveStreamExecute in the multipooler gRPC service
+	// For now, just call StreamExecute and return 0 as the connection ID
+	g.logger.WarnContext(ctx, "ReserveStreamExecute not yet implemented, falling back to StreamExecute")
+	err := g.StreamExecute(ctx, target, sql, options, callback)
+	return 0, err
+}
+
+// Describe returns metadata about a prepared statement or portal.
+func (g *grpcQueryService) Describe(
+	ctx context.Context,
+	target *query.Target,
+	options *query.ExecuteOptions,
+) (*query.StatementDescription, error) {
+	g.logger.DebugContext(ctx, "describing statement/portal",
+		"pooler_id", g.poolerID,
+		"tablegroup", target.TableGroup,
+		"shard", target.Shard,
+		"pooler_type", target.PoolerType.String())
+
+	// TODO: Implement Describe in the multipooler gRPC service
+	g.logger.WarnContext(ctx, "Describe not yet implemented in gRPC service")
+	return nil, fmt.Errorf("Describe not yet implemented")
+}
+
 // Close closes the gRPC connection.
 func (g *grpcQueryService) Close(ctx context.Context) error {
 	g.logger.DebugContext(ctx, "closing gRPC query service", "pooler_id", g.poolerID)

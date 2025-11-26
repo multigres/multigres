@@ -50,6 +50,16 @@ type PoolerDiscovery interface {
 	GetPooler(target *query.Target) *clustermetadatapb.MultiPooler
 }
 
+// A Gateway is the query processing module for each shard,
+// which is used by ScatterConn.
+type Gateway interface {
+	// the query service that this Gateway wraps around
+	queryservice.QueryService
+
+	// QueryServiceByID returns a QueryService
+	QueryServiceByID(ctx context.Context, id *clustermetadatapb.ID, target *query.Target) (queryservice.QueryService, error)
+}
+
 // PoolerGateway selects and manages connections to multipooler instances.
 type PoolerGateway struct {
 	// discovery is used to find available poolers
@@ -89,6 +99,12 @@ func NewPoolerGateway(
 		logger:      logger,
 		connections: make(map[string]*poolerConnection),
 	}
+}
+
+// QueryServiceByID implements Gateway.
+func (pg *PoolerGateway) QueryServiceByID(ctx context.Context, id *clustermetadatapb.ID, target *query.Target) (queryservice.QueryService, error) {
+	// TODO: IMPLEMENT queryservicebyid
+	return pg, nil
 }
 
 // StreamExecute implements queryservice.QueryService.
@@ -219,6 +235,42 @@ func (pg *PoolerGateway) getOrCreateConnection(
 	return queryService, nil
 }
 
+// ReserveStreamExecute implements queryservice.QueryService.
+// It reserves a connection and executes a query on it, returning the reserved connection ID.
+func (pg *PoolerGateway) ReserveStreamExecute(
+	ctx context.Context,
+	target *query.Target,
+	sql string,
+	options *query.ExecuteOptions,
+	callback func(context.Context, *query.QueryResult) error,
+) (uint64, error) {
+	// Get a pooler matching the target
+	queryService, err := pg.getQueryServiceForTarget(ctx, target)
+	if err != nil {
+		return 0, err
+	}
+
+	// Delegate to the pooler's QueryService
+	return queryService.ReserveStreamExecute(ctx, target, sql, options, callback)
+}
+
+// Describe implements queryservice.QueryService.
+// It returns metadata about a prepared statement or portal.
+func (pg *PoolerGateway) Describe(
+	ctx context.Context,
+	target *query.Target,
+	options *query.ExecuteOptions,
+) (*query.StatementDescription, error) {
+	// Get a pooler matching the target
+	queryService, err := pg.getQueryServiceForTarget(ctx, target)
+	if err != nil {
+		return nil, err
+	}
+
+	// Delegate to the pooler's QueryService
+	return queryService.Describe(ctx, target, options)
+}
+
 // Close implements queryservice.QueryService.
 // It closes all connections to poolers.
 func (pg *PoolerGateway) Close(ctx context.Context) error {
@@ -244,8 +296,8 @@ func (pg *PoolerGateway) Close(ctx context.Context) error {
 	return lastErr
 }
 
-// Ensure PoolerGateway implements queryservice.QueryService
-var _ queryservice.QueryService = (*PoolerGateway)(nil)
+// Ensure PoolerGateway implements Gateway
+var _ Gateway = (*PoolerGateway)(nil)
 
 // Stats returns statistics about the gateway.
 func (pg *PoolerGateway) Stats() map[string]any {

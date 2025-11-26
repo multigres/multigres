@@ -29,7 +29,7 @@ import (
 // mockExecutor is a mock implementation of the Executor interface for testing.
 type mockExecutor struct{}
 
-func (m *mockExecutor) StreamExecute(ctx context.Context, conn *server.Conn, queryStr string, astStmt ast.Stmt, options *query.ExecuteOptions, callback func(ctx context.Context, result *query.QueryResult) error) error {
+func (m *mockExecutor) StreamExecute(ctx context.Context, conn *server.Conn, queryStr string, astStmt ast.Stmt, options *ExecuteOptions, callback func(ctx context.Context, result *query.QueryResult) error) error {
 	// Return a simple test result
 	return callback(ctx, &query.QueryResult{
 		Fields: []*query.Field{
@@ -41,6 +41,21 @@ func (m *mockExecutor) StreamExecute(ctx context.Context, conn *server.Conn, que
 		CommandTag:   "SELECT 1",
 		RowsAffected: 1,
 	})
+}
+
+func (m *mockExecutor) ReserveStreamExecute(ctx context.Context, conn *server.Conn, queryStr string, astStmt ast.Stmt, options *ExecuteOptions, callback func(ctx context.Context, result *query.QueryResult) error) (uint64, error) {
+	// Return a simple test result and a mock connection ID
+	err := m.StreamExecute(ctx, conn, queryStr, astStmt, options, callback)
+	return 123, err // Return a mock connection ID
+}
+
+func (m *mockExecutor) Describe(ctx context.Context, conn *server.Conn, options *ExecuteOptions) (*query.StatementDescription, error) {
+	// Return a simple test description
+	return &query.StatementDescription{
+		Fields: []*query.Field{
+			{Name: "test_field", Type: "int4"},
+		},
+	}, nil
 }
 
 // TestHandleQueryEmptyQuery tests that empty queries are handled correctly.

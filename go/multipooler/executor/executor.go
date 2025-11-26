@@ -253,6 +253,33 @@ func (e *Executor) StreamExecute(
 	return nil
 }
 
+// ReserveStreamExecute reserves a connection from the pool and executes a query on it.
+// Returns the reserved connection ID that can be used for subsequent queries.
+func (e *Executor) ReserveStreamExecute(
+	ctx context.Context,
+	target *query.Target,
+	sql string,
+	options *query.ExecuteOptions,
+	callback func(context.Context, *query.QueryResult) error,
+) (uint64, error) {
+	// TODO: Implement actual connection reservation logic
+	// For now, just execute the query normally and return 0
+	e.logger.WarnContext(ctx, "ReserveStreamExecute not fully implemented, using regular StreamExecute")
+	err := e.StreamExecute(ctx, target, sql, options, callback)
+	return 0, err
+}
+
+// Describe returns metadata about a prepared statement or portal.
+func (e *Executor) Describe(
+	ctx context.Context,
+	target *query.Target,
+	options *query.ExecuteOptions,
+) (*query.StatementDescription, error) {
+	// TODO: Implement Describe to return field descriptions for prepared statements/portals
+	e.logger.WarnContext(ctx, "Describe not yet implemented")
+	return nil, fmt.Errorf("Describe not yet implemented")
+}
+
 // Close closes the executor and releases resources.
 func (e *Executor) Close(ctx context.Context) error {
 	if !e.isOpen.Swap(false) {

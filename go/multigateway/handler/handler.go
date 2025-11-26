@@ -29,7 +29,16 @@ import (
 
 // Executor defines the interface for query execution.
 type Executor interface {
-	StreamExecute(ctx context.Context, conn *server.Conn, queryStr string, astStmt ast.Stmt, options *query.ExecuteOptions, callback func(ctx context.Context, result *query.QueryResult) error) error
+	StreamExecute(ctx context.Context, conn *server.Conn, queryStr string, astStmt ast.Stmt, options *ExecuteOptions, callback func(ctx context.Context, result *query.QueryResult) error) error
+
+	// ReserveStreamExecute reserves a connection, executes a query on it, and returns the reserved connection ID.
+	// This is used for session affinity - ensuring subsequent queries from the same session use the same connection.
+	// Returns the reserved connection ID that can be used in subsequent ExecuteOptions.
+	ReserveStreamExecute(ctx context.Context, conn *server.Conn, queryStr string, astStmt ast.Stmt, options *ExecuteOptions, callback func(ctx context.Context, result *query.QueryResult) error) (reservedConnID uint64, err error)
+
+	// Describe returns metadata about a prepared statement or portal.
+	// The options should contain PreparedStatement or Portal information and the reserved connection ID.
+	Describe(ctx context.Context, conn *server.Conn, options *ExecuteOptions) (*query.StatementDescription, error)
 }
 
 // MultiGatewayHandler implements the pgprotocol Handler interface for multigateway.
@@ -68,7 +77,7 @@ func (h *MultiGatewayHandler) HandleQuery(ctx context.Context, conn *server.Conn
 	for _, astStmt := range asts {
 		// Create execute options with reserved connection ID for connection pinning
 		// TODO: Implement connection reservation and get the actual reserved connection ID
-		options := &query.ExecuteOptions{}
+		options := &ExecuteOptions{}
 
 		// Route the query through the executor which will eventually call multipooler
 		err = h.executor.StreamExecute(ctx, conn, queryStr, astStmt, options, callback)
@@ -139,8 +148,17 @@ func (h *MultiGatewayHandler) HandleExecute(ctx context.Context, conn *server.Co
 		return fmt.Errorf("portal \"%s\" does not exist", portalName)
 	}
 
+	options := &ExecuteOptions{
+		PreparedStatement: portalInfo.PreparedStatementInfo.PreparedStatement,
+		Portal:            portalInfo.Portal,
+		MaxRows:           uint64(maxRows),
+	}
+
+	if maxRows == 0 {
+		return h.executor.StreamExecute(ctx, conn, "", nil, options, callback)
+	}
+
 	// TODO: Handle maxRows limitation (cursor support for partial fetches)
-	// TODO: Handle Execution by passing in Portal information
 	return nil
 }
 
@@ -156,17 +174,32 @@ func (h *MultiGatewayHandler) HandleDescribe(ctx context.Context, conn *server.C
 			return nil, fmt.Errorf("prepared statement \"%s\" does not exist", name)
 		}
 
-		// TODO: Handle Describe
-		return nil, nil
+		// Create execute options with prepared statement info
+		options := &ExecuteOptions{
+			PreparedStatement: stmt.PreparedStatement,
+			// TODO: Add reserved connection ID if one exists for this session
+		}
+
+		// Call executor to get description from multipooler
+		return h.executor.Describe(ctx, conn, options)
+
 	case 'P': // Describe portal
 		state := h.getConnectionState(conn)
-		portal := state.GetPortalInfo(name)
-		if portal == nil {
+		portalInfo := state.GetPortalInfo(name)
+		if portalInfo == nil {
 			return nil, fmt.Errorf("portal \"%s\" does not exist", name)
 		}
 
-		// TODO: Handle Describe
-		return nil, nil
+		// Create execute options with portal and prepared statement info
+		options := &ExecuteOptions{
+			PreparedStatement: portalInfo.PreparedStatementInfo.PreparedStatement,
+			Portal:            portalInfo.Portal,
+			// TODO: Add reserved connection ID if one exists for this session
+		}
+
+		// Call executor to get description from multipooler
+		return h.executor.Describe(ctx, conn, options)
+
 	default:
 		return nil, fmt.Errorf("invalid describe type: %c (expected 'S' or 'P')", typ)
 	}

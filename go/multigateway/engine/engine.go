@@ -20,6 +20,7 @@ package engine
 import (
 	"context"
 
+	"github.com/multigres/multigres/go/multigateway/handler"
 	"github.com/multigres/multigres/go/pb/query"
 	"github.com/multigres/multigres/go/pgprotocol/server"
 )
@@ -41,12 +42,14 @@ type IExecute interface {
 	//   sql: SQL query to execute
 	//   options: Execute options containing session state and settings
 	//   callback: Function called for each result chunk
+	// TODO: When we support sharded query serving, this method will need to take in
+	// Routing parameters instead and figure out which all shards to send queries to.
 	StreamExecute(
 		ctx context.Context,
 		tableGroup string,
 		shard string,
 		sql string,
-		options *query.ExecuteOptions,
+		options *handler.ExecuteOptions,
 		callback func(context.Context, *query.QueryResult) error,
 	) error
 }
@@ -64,7 +67,7 @@ type Primitive interface {
 		ctx context.Context,
 		exec IExecute,
 		conn *server.Conn,
-		options *query.ExecuteOptions,
+		options *handler.ExecuteOptions,
 		callback func(context.Context, *query.QueryResult) error,
 	) error
 
