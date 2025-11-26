@@ -23,8 +23,8 @@ import (
 
 	"github.com/multigres/multigres/go/clustermetadata/topo"
 	"github.com/multigres/multigres/go/multiorch/recovery/analysis"
-	"github.com/multigres/multigres/go/multiorch/store"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 )
 
 // runRecoveryLoop is the main recovery loop that detects and fixes problems.
@@ -290,14 +290,14 @@ func (re *Engine) recheckProblem(problem analysis.Problem) (bool, error) {
 
 		// Refresh the affected pooler
 		if ph, ok := re.poolerStore.Get(poolerIDStr); ok {
-			re.pollPooler(ctx, ph.ID, ph, true /* forceDiscovery */)
+			re.pollPooler(ctx, ph.MultiPooler.Id, ph, true /* forceDiscovery */)
 		}
 
 		// Find and refresh primary if different
 		primaryID, err := re.findPrimaryInShard(problem.Database, problem.TableGroup, problem.Shard)
 		if err == nil && primaryID != poolerIDStr {
 			if ph, ok := re.poolerStore.Get(primaryID); ok {
-				re.pollPooler(ctx, ph.ID, ph, true /* forceDiscovery */)
+				re.pollPooler(ctx, ph.MultiPooler.Id, ph, true /* forceDiscovery */)
 			}
 		}
 	}
@@ -342,15 +342,15 @@ func (re *Engine) findPrimaryInShard(database, tablegroup, shard string) (string
 	var primaryID string
 	var found bool
 
-	re.poolerStore.Range(func(poolerID string, poolerHealth *store.PoolerHealth) bool {
-		if poolerHealth == nil || poolerHealth.ID == nil {
+	re.poolerStore.Range(func(poolerID string, poolerHealth *multiorchdatapb.PoolerHealthState) bool {
+		if poolerHealth == nil || poolerHealth.MultiPooler == nil || poolerHealth.MultiPooler.Id == nil {
 			return true
 		}
 
-		if poolerHealth.Database == database &&
-			poolerHealth.TableGroup == tablegroup &&
-			poolerHealth.Shard == shard &&
-			poolerHealth.TopoPoolerType == clustermetadatapb.PoolerType_PRIMARY {
+		if poolerHealth.MultiPooler.Database == database &&
+			poolerHealth.MultiPooler.TableGroup == tablegroup &&
+			poolerHealth.MultiPooler.Shard == shard &&
+			poolerHealth.MultiPooler.Type == clustermetadatapb.PoolerType_PRIMARY {
 			primaryID = poolerID
 			found = true
 			return false // stop iteration

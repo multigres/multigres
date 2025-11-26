@@ -20,7 +20,7 @@ import (
 
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/multiorch/coordinator"
-	"github.com/multigres/multigres/go/multiorch/store"
+	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 )
 
 // AppointLeaderAction handles leader appointment using the coordinator's consensus protocol.
@@ -42,7 +42,7 @@ func NewAppointLeaderAction(coordinator *coordinator.Coordinator, logger *slog.L
 }
 
 // Execute performs leader appointment by running the coordinator's consensus protocol
-func (a *AppointLeaderAction) Execute(ctx context.Context, shardID string, database string, cohort []*store.PoolerHealth) error {
+func (a *AppointLeaderAction) Execute(ctx context.Context, shardID string, database string, cohort []*multiorchdatapb.PoolerHealthState) error {
 	a.logger.InfoContext(ctx, "Executing leader appointment",
 		"shard", shardID,
 		"database", database,
