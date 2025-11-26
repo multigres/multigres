@@ -19,29 +19,26 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"log/slog"
 	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
+	"strings"
+	"syscall"
 	"testing"
 	"time"
 
 	_ "github.com/lib/pq"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/multigres/multigres/go/clustermetadata/topo"
 	"github.com/multigres/multigres/go/clustermetadata/topo/etcdtopo"
-	"github.com/multigres/multigres/go/common/rpcclient"
-	"github.com/multigres/multigres/go/multiorch/recovery/actions"
-	"github.com/multigres/multigres/go/multiorch/store"
 	"github.com/multigres/multigres/go/provisioner/local/pgbackrest"
 	"github.com/multigres/multigres/go/test/utils"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
-	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 
 	// Register topo plugins
@@ -130,33 +127,106 @@ func TestBootstrapInitialization(t *testing.T) {
 
 	t.Logf("Created database '%s' with policy 'ANY_2' and backup_location=%s", database, backupLocation)
 
-	// Create 3 empty nodes
+	// Create 3 empty nodes with PostgreSQL running but uninitialized
+	// This ensures multipooler can connect and return "uninitialized" status
 	shardID := "test-shard-01"
 	// Use a shared stanza name for all nodes
 	pgBackRestStanza := "bootstrap-test"
 
 	nodes := make([]*nodeInstance, 3)
 	for i := range 3 {
-		nodes[i] = createEmptyNode(t, tempDir, cellName, shardID, database, i, etcdClientAddr, pgBackRestStanza)
-		defer cleanupNode(t, nodes[i])
+		// Create node with pgctld and multipooler, but start PostgreSQL in between
+		node := &nodeInstance{
+			name:           fmt.Sprintf("node%d", i),
+			cell:           cellName,
+			grpcPort:       utils.GetFreePort(t),
+			pgPort:         utils.GetFreePort(t),
+			pgctldGrpcPort: utils.GetFreePort(t),
+			dataDir:        filepath.Join(tempDir, fmt.Sprintf("node%d", i)),
+		}
+		require.NoError(t, os.MkdirAll(node.dataDir, 0o755))
+
+		// 1. Start pgctld server
+		logFile := filepath.Join(node.dataDir, "pgctld.log")
+		pgctldCmd := exec.Command("pgctld", "server",
+			"--pooler-dir", node.dataDir,
+			"--grpc-port", fmt.Sprintf("%d", node.pgctldGrpcPort),
+			"--pg-port", fmt.Sprintf("%d", node.pgPort),
+			"--log-output", logFile)
+		pgctldCmd.Env = append(os.Environ(), "MULTIGRES_TESTDATA_DIR="+tempDir)
+		require.NoError(t, pgctldCmd.Start())
+		node.pgctldProcess = pgctldCmd
+		t.Logf("Started pgctld for %s (pid: %d, grpc: %d, pg: %d)", node.name, pgctldCmd.Process.Pid, node.pgctldGrpcPort, node.pgPort)
+
+		// Wait for pgctld to be ready
+		waitForProcessReady(t, "pgctld", node.pgctldGrpcPort, 10*time.Second)
+
+		// 2. Initialize PostgreSQL data directory
+		grpcAddr := fmt.Sprintf("localhost:%d", node.pgctldGrpcPort)
+		err := InitPostgreSQLDataDir(t, grpcAddr)
+		require.NoError(t, err, "Failed to init PostgreSQL data dir for node %d", i)
+
+		// 3. Start PostgreSQL
+		// Note: multipooler will auto-create the multigres schema when it connects to a primary,
+		// but multiorch should still be able to complete bootstrap (setting consensus term, etc.)
+		err = StartPostgreSQL(t, grpcAddr)
+		require.NoError(t, err, "Failed to start PostgreSQL for node %d", i)
+		t.Logf("Node %s: PostgreSQL started", node.name)
+
+		// 4. Start multipooler (it will auto-create the multigres schema)
+		serviceID := fmt.Sprintf("%s/%s", cellName, node.name)
+		multipoolerCmd := exec.Command("multipooler",
+			"--grpc-port", fmt.Sprintf("%d", node.grpcPort),
+			"--database", database,
+			"--table-group", "test",
+			"--pgctld-addr", fmt.Sprintf("localhost:%d", node.pgctldGrpcPort),
+			"--pooler-dir", node.dataDir,
+			"--pg-port", fmt.Sprintf("%d", node.pgPort),
+			"--service-map", "grpc-pooler,grpc-poolermanager,grpc-consensus,grpc-backup",
+			"--topo-global-server-addresses", etcdClientAddr,
+			"--topo-global-root", "/multigres/global",
+			"--topo-implementation", "etcd2",
+			"--cell", cellName,
+			"--service-id", serviceID,
+			"--pgbackrest-stanza", pgBackRestStanza,
+		)
+		multipoolerCmd.Dir = node.dataDir
+		mpLogFile := filepath.Join(node.dataDir, "multipooler.log")
+		mpLogF, err := os.Create(mpLogFile)
+		require.NoError(t, err)
+		multipoolerCmd.Stdout = mpLogF
+		multipoolerCmd.Stderr = mpLogF
+		require.NoError(t, multipoolerCmd.Start())
+		node.multipoolerCmd = multipoolerCmd
+		t.Logf("Started multipooler for %s (pid: %d, grpc: %d)", node.name, multipoolerCmd.Process.Pid, node.grpcPort)
+
+		// Wait for multipooler to be ready
+		waitForMultipoolerReady(t, node.grpcPort, 30*time.Second)
+		t.Logf("Multipooler %s is ready", node.name)
+
+		nodes[i] = node
+		defer cleanupNode(t, node)
 	}
 
-	t.Logf("Created 3 empty nodes")
+	t.Logf("Created 3 nodes with PostgreSQL running and multipooler connected")
 
-	// Verify all nodes are uninitialized
+	// Verify nodes have consensus term = 0 (not yet bootstrapped by multiorch)
+	// Note: multipooler will have auto-created the multigres schema (IsInitialized=true)
+	// but multiorch still needs to bootstrap consensus (set term=1, create durability policy, etc.)
 	for i, node := range nodes {
 		status := checkInitializationStatus(t, node)
-		require.False(t, status.IsInitialized, "Node %d should be uninitialized", i)
-		t.Logf("Node %d (%s) confirmed uninitialized", i, node.name)
+		t.Logf("Node %d (%s) InitializationStatus: IsInitialized=%v, Role=%s, ConsensusTerm=%d",
+			i, node.name, status.IsInitialized, status.Role, status.ConsensusTerm)
+		// Nodes will show IsInitialized=true due to auto-created schema, but ConsensusTerm should be 0
+		require.Equal(t, int64(0), status.ConsensusTerm, "Node %d should have ConsensusTerm=0 before bootstrap", i)
+		t.Logf("Node %d (%s) ready for bootstrap (ConsensusTerm=0)", i, node.name)
 	}
 
 	// Setup pgbackrest configuration for all nodes before bootstrap
 	setupPgBackRestForBootstrap(t, tempDir, nodes, pgBackRestStanza)
 
-	// Create coordinator nodes for bootstrap action
-	rpcClient := rpcclient.NewClient(10) // connection pool capacity
-	coordNodes := make([]*multiorchdatapb.PoolerHealthState, 3)
-	for i, node := range nodes {
+	// Register nodes in topology so multiorch can discover them
+	for _, node := range nodes {
 		pooler := &clustermetadatapb.MultiPooler{
 			Id: &clustermetadatapb.ID{
 				Component: clustermetadatapb.ID_MULTIPOOLER,
@@ -167,44 +237,28 @@ func TestBootstrapInitialization(t *testing.T) {
 			PortMap: map[string]int32{
 				"grpc": int32(node.grpcPort),
 			},
-			Shard:    shardID,
-			Database: database,
+			Shard:      shardID,
+			Database:   database,
+			TableGroup: "test",
+			Type:       clustermetadatapb.PoolerType_PRIMARY, // All start as PRIMARY candidates
 		}
-		coordNodes[i] = &multiorchdatapb.PoolerHealthState{
-			MultiPooler:         pooler,
-			IsUpToDate:          true,
-			IsLastCheckValid:    true,
-			LastCheckAttempted:  timestamppb.New(time.Now()),
-			LastCheckSuccessful: timestamppb.New(time.Now()),
-			LastSeen:            timestamppb.New(time.Now()),
-		}
+		err = ts.RegisterMultiPooler(ctx, pooler, true /* overwrite */)
+		require.NoError(t, err, "Failed to register pooler %s in topology", node.name)
+		t.Logf("Registered pooler %s in topology", node.name)
 	}
 
-	// Execute bootstrap action
-	t.Logf("Executing bootstrap action...")
-	logger := slog.Default()
-	bootstrapAction := actions.NewBootstrapShardAction(rpcClient, ts, logger)
+	// Start multiorch to watch this shard
+	watchTarget := fmt.Sprintf("%s/test/%s", database, shardID)
+	multiOrchCmd := startMultiOrch(t, tempDir, cellName, etcdClientAddr, []string{watchTarget})
+	defer terminateProcess(t, multiOrchCmd, "multiorch", 5*time.Second)
 
-	err = bootstrapAction.Execute(ctx, shardID, database, coordNodes)
-	require.NoError(t, err, "Bootstrap action should succeed")
-
-	t.Logf("Bootstrap action completed successfully")
-
-	// Wait for initialization to complete
-	time.Sleep(2 * time.Second)
+	// Wait for multiorch to detect uninitialized shard and bootstrap it automatically
+	t.Logf("Waiting for multiorch to detect and bootstrap the shard...")
+	primaryNode := waitForShardBootstrapped(t, nodes, 60*time.Second)
+	require.NotNil(t, primaryNode, "Expected multiorch to bootstrap shard automatically")
 
 	// Verify bootstrap results
 	t.Run("verify primary initialized", func(t *testing.T) {
-		// Check at least one node is initialized as primary
-		var primaryNode *nodeInstance
-		for _, node := range nodes {
-			status := checkInitializationStatus(t, node)
-			if status.IsInitialized && status.Role == "primary" {
-				primaryNode = node
-				break
-			}
-		}
-		require.NotNil(t, primaryNode, "Should have one primary node")
 		t.Logf("Primary node: %s", primaryNode.name)
 
 		// Connect to primary and verify durability policy
@@ -602,4 +656,99 @@ func setupPgBackRestForBootstrap(t *testing.T, baseDir string, nodes []*nodeInst
 	}
 
 	t.Logf("pgbackrest configuration completed for all nodes")
+}
+
+// startMultiOrch starts a multiorch process with the given configuration
+func startMultiOrch(t *testing.T, baseDir, cell string, etcdAddr string, watchTargets []string) *exec.Cmd {
+	t.Helper()
+
+	orchDataDir := filepath.Join(baseDir, "multiorch")
+	require.NoError(t, os.MkdirAll(orchDataDir, 0o755), "Failed to create multiorch data dir")
+
+	grpcPort := utils.GetFreePort(t)
+	httpPort := utils.GetFreePort(t)
+
+	args := []string{
+		"--cell", cell,
+		"--watch-targets", strings.Join(watchTargets, ","),
+		"--topo-global-server-addresses", etcdAddr,
+		"--topo-global-root", "/multigres/global",
+		"--topo-implementation", "etcd2",
+		"--grpc-port", fmt.Sprintf("%d", grpcPort),
+		"--http-port", fmt.Sprintf("%d", httpPort),
+		"--bookkeeping-interval", "2s",
+		"--cluster-metadata-refresh-interval", "2s",
+	}
+
+	multiOrchCmd := exec.Command("multiorch", args...)
+	multiOrchCmd.Dir = orchDataDir
+
+	logFile := filepath.Join(orchDataDir, "multiorch.log")
+	logF, err := os.Create(logFile)
+	require.NoError(t, err, "Failed to create multiorch log file")
+	multiOrchCmd.Stdout = logF
+	multiOrchCmd.Stderr = logF
+
+	require.NoError(t, multiOrchCmd.Start(), "Failed to start multiorch")
+	t.Logf("Started multiorch (pid: %d, grpc: %d, http: %d, log: %s)",
+		multiOrchCmd.Process.Pid, grpcPort, httpPort, logFile)
+
+	// Wait for multiorch to be ready
+	waitForProcessReady(t, "multiorch", grpcPort, 15*time.Second)
+	t.Logf("MultiOrch is ready")
+
+	return multiOrchCmd
+}
+
+// waitForShardBootstrapped polls multipooler nodes until at least one is initialized as primary
+func waitForShardBootstrapped(t *testing.T, nodes []*nodeInstance, timeout time.Duration) *nodeInstance {
+	t.Helper()
+
+	deadline := time.Now().Add(timeout)
+	checkInterval := 2 * time.Second
+
+	for time.Now().Before(deadline) {
+		for _, node := range nodes {
+			status := checkInitializationStatus(t, node)
+			if status.IsInitialized && status.Role == "primary" {
+				t.Logf("Shard bootstrapped: primary is %s", node.name)
+				return node
+			}
+		}
+		t.Logf("Waiting for shard bootstrap... (sleeping %v)", checkInterval)
+		time.Sleep(checkInterval)
+	}
+
+	t.Fatalf("Timeout: shard did not bootstrap within %v", timeout)
+	return nil
+}
+
+// getPostgresPid reads the postgres PID from postmaster.pid file
+func getPostgresPid(t *testing.T, node *nodeInstance) int {
+	t.Helper()
+
+	pidFile := filepath.Join(node.dataDir, "pg_data", "postmaster.pid")
+	data, err := os.ReadFile(pidFile)
+	require.NoError(t, err, "Failed to read postgres PID file for %s", node.name)
+
+	lines := strings.Split(string(data), "\n")
+	require.Greater(t, len(lines), 0, "PID file should have at least one line")
+
+	pid, err := strconv.Atoi(strings.TrimSpace(lines[0]))
+	require.NoError(t, err, "Failed to parse PID from postmaster.pid")
+
+	return pid
+}
+
+// killPostgres terminates the postgres process for a node (simulates database crash)
+func killPostgres(t *testing.T, node *nodeInstance) {
+	t.Helper()
+
+	pgPid := getPostgresPid(t, node)
+	t.Logf("Killing postgres (PID %d) on node %s", pgPid, node.name)
+
+	err := syscall.Kill(pgPid, syscall.SIGKILL)
+	require.NoError(t, err, "Failed to kill postgres process")
+
+	t.Logf("Postgres killed on %s - multipooler should detect failure", node.name)
 }
