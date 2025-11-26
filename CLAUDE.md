@@ -36,7 +36,7 @@ go test -v ./go/multipooler/...  # Run all tests in a package
 
 ## Architecture
 
-Client connections flow through multigateway → multipooler → pgctld → PostgreSQL. The multiorch service handles failover and consensus. See the architecture reference doc for details on services, packages, and data flow.
+Client connections flow through multigateway → multipooler → PostgreSQL. The multiorch service handles failover and consensus. See the architecture reference doc for details on services, packages, and data flow.
 
 ## Engineering Principles
 
@@ -44,7 +44,7 @@ This is mission-critical infrastructure. Prioritize reliability, security, and m
 
 ### Performance
 
-- The query path (multigateway → multipooler → pgctld) is latency-sensitive
+- The query path (multigateway → multipooler → postgres) is latency-sensitive
 
 ### Security
 
@@ -59,7 +59,7 @@ This is mission-critical infrastructure. Prioritize reliability, security, and m
 
 Follow [Conventional Commits](https://www.conventionalcommits.org/) for commit messages and PR titles:
 
-```
+```text
 <type>(<scope>): <description>
 
 feat(multigateway): add connection timeout configuration

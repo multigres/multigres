@@ -3,8 +3,8 @@
 ## Core Services (go/cmd/)
 
 - **multigateway** - PostgreSQL proxy accepting client connections, routes queries
-- **multipooler** - Connection pooling service, communicates with pgctld
-- **pgctld** - PostgreSQL interface daemon, connects directly to PostgreSQL instances
+- **multipooler** - Connection pooling service, communicates with postgres
+- **pgctld** - PostgreSQL manager, starts, restarts, and stops PostgreSQL instances
 - **multiorch** - Cluster orchestration for consensus and failover
 - **multiadmin** - Administrative service for cluster management
 - **multigres** - CLI tool for cluster management
@@ -13,8 +13,8 @@
 
 1. Client → **multigateway** (accepts PostgreSQL connections)
 2. **multigateway** → **multipooler** (query routing and pooling)
-3. **multipooler** → **pgctld** (database interface)
-4. **pgctld** → PostgreSQL (actual database)
+3. **multipooler** → **postgres** (database interface)
+4. **pgctld** → handles starting and stopping PostgreSQL (actual database)
 5. **multiorch** handles failover and consensus across cells
 
 ## Topology
@@ -23,7 +23,7 @@ The system uses etcd for service discovery and topology storage. The topology is
 
 ## Directory Structure and Dependencies
 
-```
+```text
 ./go/cmd/...      # Commands - can depend on anything
 ./go/services/... # Service code - cannot depend on cmd/ or other services
 ./go/common/...   # Shared code - cannot depend on cmd/ or services/
