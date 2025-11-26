@@ -161,19 +161,12 @@ func TestBootstrapInitialization(t *testing.T) {
 		// Wait for pgctld to be ready
 		waitForProcessReady(t, "pgctld", node.pgctldGrpcPort, 10*time.Second)
 
-		// 2. Initialize PostgreSQL data directory
-		grpcAddr := fmt.Sprintf("localhost:%d", node.pgctldGrpcPort)
-		err := InitPostgreSQLDataDir(t, grpcAddr)
-		require.NoError(t, err, "Failed to init PostgreSQL data dir for node %d", i)
+		// 2. DO NOT initialize PostgreSQL data directory - let multiorch bootstrap do it
+		// InitializeEmptyPrimary will call InitDataDir, configure archive_mode, and start postgres
+		// This tests the proper bootstrap flow from completely empty nodes
+		t.Logf("Node %s: pgctld ready (postgres data directory NOT initialized yet)", node.name)
 
-		// 3. Start PostgreSQL
-		// Note: multipooler will auto-create the multigres schema when it connects to a primary,
-		// but multiorch should still be able to complete bootstrap (setting consensus term, etc.)
-		err = StartPostgreSQL(t, grpcAddr)
-		require.NoError(t, err, "Failed to start PostgreSQL for node %d", i)
-		t.Logf("Node %s: PostgreSQL started", node.name)
-
-		// 4. Start multipooler (it will auto-create the multigres schema)
+		// 4. Start multipooler (without postgres running, it will wait for bootstrap)
 		serviceID := fmt.Sprintf("%s/%s", cellName, node.name)
 		multipoolerCmd := exec.Command("multipooler",
 			"--grpc-port", fmt.Sprintf("%d", node.grpcPort),
@@ -208,18 +201,20 @@ func TestBootstrapInitialization(t *testing.T) {
 		defer cleanupNode(t, node)
 	}
 
-	t.Logf("Created 3 nodes with PostgreSQL running and multipooler connected")
+	t.Logf("Created 3 nodes with pgctld running but no PostgreSQL data directory yet")
 
-	// Verify nodes have consensus term = 0 (not yet bootstrapped by multiorch)
-	// Note: multipooler will have auto-created the multigres schema (IsInitialized=true)
-	// but multiorch still needs to bootstrap consensus (set term=1, create durability policy, etc.)
+	// Verify nodes are completely uninitialized (no data directory, no postgres running)
+	// Multiorch will detect these as needing bootstrap and call InitializeEmptyPrimary
+	// which will create the data directory, configure archive mode, and start postgres
 	for i, node := range nodes {
 		status := checkInitializationStatus(t, node)
-		t.Logf("Node %d (%s) InitializationStatus: IsInitialized=%v, Role=%s, ConsensusTerm=%d",
-			i, node.name, status.IsInitialized, status.Role, status.ConsensusTerm)
-		// Nodes will show IsInitialized=true due to auto-created schema, but ConsensusTerm should be 0
-		require.Equal(t, int64(0), status.ConsensusTerm, "Node %d should have ConsensusTerm=0 before bootstrap", i)
-		t.Logf("Node %d (%s) ready for bootstrap (ConsensusTerm=0)", i, node.name)
+		t.Logf("Node %d (%s) InitializationStatus: IsInitialized=%v, HasDataDirectory=%v, PostgresRunning=%v, Role=%s",
+			i, node.name, status.IsInitialized, status.HasDataDirectory, status.PostgresRunning, status.Role)
+		// Nodes should be completely uninitialized (no data directory at all)
+		require.False(t, status.IsInitialized, "Node %d should not be initialized yet", i)
+		require.False(t, status.HasDataDirectory, "Node %d should not have data directory yet", i)
+		require.False(t, status.PostgresRunning, "Node %d should not have postgres running yet", i)
+		t.Logf("Node %d (%s) ready for bootstrap (no data directory, postgres not running)", i, node.name)
 	}
 
 	// Setup pgbackrest configuration for all nodes before bootstrap
