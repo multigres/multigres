@@ -22,12 +22,13 @@ import (
 
 	"github.com/multigres/multigres/go/multiorch/recovery/actions"
 	"github.com/multigres/multigres/go/multiorch/store"
+	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 )
 
 // BootstrapRecoveryAction wraps actions.BootstrapShardAction to implement RecoveryAction interface.
 type BootstrapRecoveryAction struct {
 	bootstrapAction *actions.BootstrapShardAction
-	poolerStore     *store.Store[string, *store.PoolerHealth]
+	poolerStore     *store.ProtoStore[string, *multiorchdatapb.PoolerHealthState]
 	logger          *slog.Logger
 }
 
@@ -68,18 +69,18 @@ func (a *BootstrapRecoveryAction) Execute(ctx context.Context, problem Problem) 
 }
 
 // getCohort fetches all poolers in the shard from the pooler store.
-func (a *BootstrapRecoveryAction) getCohort(database, tablegroup, shard string) ([]*store.PoolerHealth, error) {
-	var cohort []*store.PoolerHealth
+func (a *BootstrapRecoveryAction) getCohort(database, tablegroup, shard string) ([]*multiorchdatapb.PoolerHealthState, error) {
+	var cohort []*multiorchdatapb.PoolerHealthState
 
-	a.poolerStore.Range(func(key string, pooler *store.PoolerHealth) bool {
-		if pooler == nil || pooler.ID == nil {
+	a.poolerStore.Range(func(key string, pooler *multiorchdatapb.PoolerHealthState) bool {
+		if pooler == nil || pooler.MultiPooler == nil || pooler.MultiPooler.Id == nil {
 			return true // continue
 		}
 
-		if pooler.Database == database &&
-			pooler.TableGroup == tablegroup &&
-			pooler.Shard == shard {
-			cohort = append(cohort, pooler.DeepCopy())
+		if pooler.MultiPooler.Database == database &&
+			pooler.MultiPooler.TableGroup == tablegroup &&
+			pooler.MultiPooler.Shard == shard {
+			cohort = append(cohort, pooler)
 		}
 
 		return true // continue

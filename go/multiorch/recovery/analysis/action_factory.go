@@ -22,11 +22,12 @@ import (
 	"github.com/multigres/multigres/go/multiorch/coordinator"
 	"github.com/multigres/multigres/go/multiorch/recovery/actions"
 	"github.com/multigres/multigres/go/multiorch/store"
+	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 )
 
 // RecoveryActionFactory creates recovery actions with all necessary dependencies.
 type RecoveryActionFactory struct {
-	poolerStore *store.Store[string, *store.PoolerHealth]
+	poolerStore *store.ProtoStore[string, *multiorchdatapb.PoolerHealthState]
 	rpcClient   rpcclient.MultiPoolerClient
 	topoStore   topo.Store
 	coordinator *coordinator.Coordinator
@@ -35,7 +36,7 @@ type RecoveryActionFactory struct {
 
 // NewRecoveryActionFactory creates a factory for recovery actions.
 func NewRecoveryActionFactory(
-	poolerStore *store.Store[string, *store.PoolerHealth],
+	poolerStore *store.ProtoStore[string, *multiorchdatapb.PoolerHealthState],
 	rpcClient rpcclient.MultiPoolerClient,
 	topoStore topo.Store,
 	coordinator *coordinator.Coordinator,
