@@ -1,0 +1,88 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## Project Overview
+
+Multigres is Vitess for PostgreSQL. It provides horizontal scaling, connection pooling, and cluster orchestration for PostgreSQL deployments.
+
+## Getting Started
+
+### Build Commands
+
+```bash
+make tools      # Install build dependencies (protoc, goyacc, etc.)
+make build      # Build Go binaries to bin/
+make proto      # Generate protobuf files
+make parser     # Generate PostgreSQL parser from grammar
+make build-all  # Proto + parser + binaries
+make test       # Run all tests
+make test-short # Run short tests only (skips PostgreSQL integration tests)
+make test-race  # Run tests with race detector
+make clean      # Remove build artifacts
+```
+
+### Running Tests
+
+```bash
+go test -v -run TestName ./go/path/to/package/...
+go test -v ./go/multipooler/...  # Run all tests in a package
+```
+
+### Development Workflow
+
+- Run `make proto` after modifying `.proto` files
+- Run `make build` before running integration tests
+
+## Architecture
+
+Client connections flow through multigateway → multipooler → pgctld → PostgreSQL. The multiorch service handles failover and consensus. See the architecture reference doc for details on services, packages, and data flow.
+
+## Engineering Principles
+
+This is mission-critical infrastructure. Prioritize reliability, security, and maintainability.
+
+### Performance
+
+- The query path (multigateway → multipooler → pgctld) is latency-sensitive
+
+### Security
+
+- Validate all external input at system boundaries
+- Never log credentials, tokens, or sensitive query data
+- **Supply chain security**:
+  - Pin GitHub Actions to exact commit SHAs, not version tags
+  - Verify SHA256 checksums for downloaded tools (see `tools/tool_checksums.sh`)
+  - Use minimal permissions in CI workflows
+
+## Commits and PRs
+
+Follow [Conventional Commits](https://www.conventionalcommits.org/) for commit messages and PR titles:
+
+```
+<type>(<scope>): <description>
+
+feat(multigateway): add connection timeout configuration
+fix(multipooler): handle nil pointer in health check
+docs(readme): update installation instructions
+test(pgctld): add integration tests for failover
+refactor(parser): simplify AST node handling
+```
+
+Types: `feat`, `fix`, `docs`, `test`, `refactor`, `chore`, `build`, `ci`, `perf`
+
+## Code Patterns
+
+### Formatting and Linting
+
+- Formatting: gofumpt + goimports (local prefix: `github.com/multigres`)
+- Linting: golangci-lint
+- Protobufs follow [Google Cloud API Design Guide](https://cloud.google.com/apis/design/)
+
+## Reference Documentation
+
+@.claude/docs/architecture.md
+
+## Personal Preferences
+
+@~/.claude/multigres.md
