@@ -36,10 +36,13 @@ import (
 
 	"github.com/multigres/multigres/go/clustermetadata/topo"
 	"github.com/multigres/multigres/go/clustermetadata/topo/etcdtopo"
+	"github.com/multigres/multigres/go/common/rpcclient"
+	"github.com/multigres/multigres/go/multiorch/recovery/actions"
 	"github.com/multigres/multigres/go/provisioner/local/pgbackrest"
 	"github.com/multigres/multigres/go/test/utils"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 
 	// Register topo plugins
@@ -580,7 +583,7 @@ func TestMultiOrchMixedInitializationRepair(t *testing.T) {
 	rpcClient := rpcclient.NewMultiPoolerClient(10)
 	defer rpcClient.Close()
 
-	coordNodes := make([]*store.PoolerHealth, 2)
+	coordNodes := make([]*multiorchdatapb.PoolerHealthState, 2)
 	for i := range 2 {
 		node := nodes[i]
 		pooler := &clustermetadatapb.MultiPooler{
@@ -596,7 +599,9 @@ func TestMultiOrchMixedInitializationRepair(t *testing.T) {
 			Shard:    shardID,
 			Database: database,
 		}
-		coordNodes[i] = store.NewPoolerHealthFromMultiPooler(pooler)
+		coordNodes[i] = &multiorchdatapb.PoolerHealthState{
+			MultiPooler: pooler,
+		}
 	}
 
 	logger := slog.Default()
