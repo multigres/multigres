@@ -256,6 +256,10 @@ func TestBootstrapInitialization(t *testing.T) {
 	primaryNode := waitForShardBootstrapped(t, nodes, 60*time.Second)
 	require.NotNil(t, primaryNode, "Expected multiorch to bootstrap shard automatically")
 
+	// Wait for postgres to fully start and accept connections on all nodes
+	t.Logf("Waiting for postgres to stabilize on all nodes...")
+	time.Sleep(5 * time.Second)
+
 	// Verify bootstrap results
 	t.Run("verify primary initialized", func(t *testing.T) {
 		t.Logf("Primary node: %s", primaryNode.name)
