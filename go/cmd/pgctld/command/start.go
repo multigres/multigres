@@ -20,6 +20,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
@@ -327,19 +328,31 @@ func isProcessRunning(pid int) bool {
 		return false
 	}
 
-	// Additional verification: Check that this is actually a postgres process
-	// by reading /proc/<pid>/cmdline. This prevents false positives when:
+	// Additional verification: Check that this is actually a postgres process.
+	// This prevents false positives when:
 	// 1. Postgres was killed with SIGKILL (doesn't clean up postmaster.pid)
 	// 2. The PID was reused by a different process
-	cmdlinePath := fmt.Sprintf("/proc/%d/cmdline", pid)
-	cmdlineBytes, err := os.ReadFile(cmdlinePath)
-	if err != nil {
-		// If we can't read /proc (e.g., process died), consider it not running
-		return false
+	//
+	// On Linux, use /proc which is fastest. On other platforms, use `ps`.
+	if runtime.GOOS == "linux" {
+		cmdlinePath := fmt.Sprintf("/proc/%d/cmdline", pid)
+		cmdlineBytes, err := os.ReadFile(cmdlinePath)
+		if err != nil {
+			// Process died or /proc not available
+			return false
+		}
+		// /proc/pid/cmdline uses null bytes as separators
+		cmdline := string(cmdlineBytes)
+		return strings.Contains(cmdline, "postgres")
 	}
 
-	// /proc/pid/cmdline uses null bytes as separators
-	cmdline := string(cmdlineBytes)
-	// Check if the command contains "postgres" (could be "postgres", "/usr/bin/postgres", etc.)
+	// On non-Linux platforms (macOS, BSD, etc.), use ps command
+	cmd := exec.Command("ps", "-p", fmt.Sprintf("%d", pid), "-o", "command=")
+	output, err := cmd.Output()
+	if err != nil {
+		// Process doesn't exist or ps command failed
+		return false
+	}
+	cmdline := strings.TrimSpace(string(output))
 	return strings.Contains(cmdline, "postgres")
 }
