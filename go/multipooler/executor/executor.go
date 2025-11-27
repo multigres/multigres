@@ -254,19 +254,19 @@ func (e *Executor) StreamExecute(
 }
 
 // ReserveStreamExecute reserves a connection from the pool and executes a query on it.
-// Returns the reserved connection ID that can be used for subsequent queries.
+// Returns ReservedState containing the connection ID and pooler ID for subsequent queries.
 func (e *Executor) ReserveStreamExecute(
 	ctx context.Context,
 	target *query.Target,
 	sql string,
 	options *query.ExecuteOptions,
 	callback func(context.Context, *query.QueryResult) error,
-) (uint64, error) {
+) (queryservice.ReservedState, error) {
 	// TODO: Implement actual connection reservation logic
-	// For now, just execute the query normally and return 0
+	// For now, just execute the query normally and return empty state
 	e.logger.WarnContext(ctx, "ReserveStreamExecute not fully implemented, using regular StreamExecute")
 	err := e.StreamExecute(ctx, target, sql, options, callback)
-	return 0, err
+	return queryservice.ReservedState{}, err
 }
 
 // Describe returns metadata about a prepared statement or portal.

@@ -147,7 +147,7 @@ func (g *grpcQueryService) ReserveStreamExecute(
 	sql string,
 	options *query.ExecuteOptions,
 	callback func(context.Context, *query.QueryResult) error,
-) (uint64, error) {
+) (queryservice.ReservedState, error) {
 	g.logger.DebugContext(ctx, "reserve and stream query execution",
 		"pooler_id", g.poolerID,
 		"tablegroup", target.TableGroup,
@@ -156,10 +156,10 @@ func (g *grpcQueryService) ReserveStreamExecute(
 		"query", sql)
 
 	// TODO: Implement ReserveStreamExecute in the multipooler gRPC service
-	// For now, just call StreamExecute and return 0 as the connection ID
+	// For now, just call StreamExecute and return empty ReservedState
 	g.logger.WarnContext(ctx, "ReserveStreamExecute not yet implemented, falling back to StreamExecute")
 	err := g.StreamExecute(ctx, target, sql, options, callback)
-	return 0, err
+	return queryservice.ReservedState{}, err
 }
 
 // Describe returns metadata about a prepared statement or portal.

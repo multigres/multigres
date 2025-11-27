@@ -236,18 +236,18 @@ func (pg *PoolerGateway) getOrCreateConnection(
 }
 
 // ReserveStreamExecute implements queryservice.QueryService.
-// It reserves a connection and executes a query on it, returning the reserved connection ID.
+// It reserves a connection and executes a query on it, returning reservation information.
 func (pg *PoolerGateway) ReserveStreamExecute(
 	ctx context.Context,
 	target *query.Target,
 	sql string,
 	options *query.ExecuteOptions,
 	callback func(context.Context, *query.QueryResult) error,
-) (uint64, error) {
+) (queryservice.ReservedState, error) {
 	// Get a pooler matching the target
 	queryService, err := pg.getQueryServiceForTarget(ctx, target)
 	if err != nil {
-		return 0, err
+		return queryservice.ReservedState{}, err
 	}
 
 	// Delegate to the pooler's QueryService

@@ -20,6 +20,7 @@ import (
 	"log/slog"
 
 	"github.com/multigres/multigres/go/common/preparedstatement"
+	"github.com/multigres/multigres/go/multipooler/queryservice"
 	"github.com/multigres/multigres/go/parser"
 	"github.com/multigres/multigres/go/parser/ast"
 	"github.com/multigres/multigres/go/pb/query"
@@ -31,10 +32,10 @@ import (
 type Executor interface {
 	StreamExecute(ctx context.Context, conn *server.Conn, queryStr string, astStmt ast.Stmt, options *ExecuteOptions, callback func(ctx context.Context, result *query.QueryResult) error) error
 
-	// ReserveStreamExecute reserves a connection, executes a query on it, and returns the reserved connection ID.
+	// ReserveStreamExecute reserves a connection, executes a query on it, and returns reservation information.
 	// This is used for session affinity - ensuring subsequent queries from the same session use the same connection.
-	// Returns the reserved connection ID that can be used in subsequent ExecuteOptions.
-	ReserveStreamExecute(ctx context.Context, conn *server.Conn, queryStr string, astStmt ast.Stmt, options *ExecuteOptions, callback func(ctx context.Context, result *query.QueryResult) error) (reservedConnID uint64, err error)
+	// Returns ReservedState containing the reserved connection ID and pooler ID.
+	ReserveStreamExecute(ctx context.Context, conn *server.Conn, queryStr string, astStmt ast.Stmt, options *ExecuteOptions, callback func(ctx context.Context, result *query.QueryResult) error) (queryservice.ReservedState, error)
 
 	// Describe returns metadata about a prepared statement or portal.
 	// The options should contain PreparedStatement or Portal information and the reserved connection ID.

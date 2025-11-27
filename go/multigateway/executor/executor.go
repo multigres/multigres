@@ -22,6 +22,7 @@ import (
 	"github.com/multigres/multigres/go/multigateway/engine"
 	"github.com/multigres/multigres/go/multigateway/handler"
 	"github.com/multigres/multigres/go/multigateway/planner"
+	"github.com/multigres/multigres/go/multipooler/queryservice"
 	"github.com/multigres/multigres/go/parser/ast"
 	"github.com/multigres/multigres/go/pb/query"
 	"github.com/multigres/multigres/go/pgprotocol/server"
@@ -107,7 +108,7 @@ func (e *Executor) StreamExecute(
 }
 
 // ReserveStreamExecute reserves a connection and executes a query on it.
-// Returns the reserved connection ID that should be used for subsequent queries in this session.
+// Returns ReservedState containing the connection ID and pooler ID for this session.
 func (e *Executor) ReserveStreamExecute(
 	ctx context.Context,
 	conn *server.Conn,
@@ -115,7 +116,7 @@ func (e *Executor) ReserveStreamExecute(
 	astStmt ast.Stmt,
 	options *handler.ExecuteOptions,
 	callback func(ctx context.Context, res *query.QueryResult) error,
-) (uint64, error) {
+) (queryservice.ReservedState, error) {
 	e.logger.DebugContext(ctx, "reserve and execute query",
 		"query", sql,
 		"user", conn.User(),
@@ -123,7 +124,7 @@ func (e *Executor) ReserveStreamExecute(
 		"connection_id", conn.ConnectionID())
 
 	// TODO: Implement actual connection reservation through the query service
-	return 0, fmt.Errorf("ReserveStreamExecute not yet implemented")
+	return queryservice.ReservedState{}, fmt.Errorf("ReserveStreamExecute not yet implemented")
 }
 
 // Describe returns metadata about a prepared statement or portal.

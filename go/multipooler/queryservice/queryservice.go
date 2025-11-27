@@ -24,8 +24,21 @@ package queryservice
 import (
 	"context"
 
+	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/pb/query"
 )
+
+// ReservedState contains information about a reserved connection.
+// This is returned by ReserveStreamExecute and should be stored in the shard state
+// to ensure subsequent queries in the same session use the same reserved connection.
+type ReservedState struct {
+	// ReservedConnectionId is the ID of the reserved connection on the multipooler.
+	ReservedConnectionId uint64
+
+	// PoolerID identifies which multipooler instance owns this reserved connection.
+	// This is needed to route subsequent queries to the correct pooler.
+	PoolerID *clustermetadatapb.ID
+}
 
 // QueryService is the interface for executing queries on a multipooler.
 // This interface abstracts the communication with multipooler instances
@@ -62,17 +75,17 @@ type QueryService interface {
 	) error
 
 	// ReserveStreamExecute reserves a connection from the pool, executes a query on it,
-	// and returns the reserved connection ID along with streaming results.
+	// and returns reservation information along with streaming results.
 	// This is used for session affinity to ensure subsequent queries use the same connection.
-	// The returned connection ID should be passed in ExecuteOptions.ReservedConnectionId
-	// for future queries that need to run on the same connection.
+	// The returned ReservedState should be stored and its ReservedConnectionId passed in
+	// ExecuteOptions.ReservedConnectionId for future queries that need to run on the same connection.
 	ReserveStreamExecute(
 		ctx context.Context,
 		target *query.Target,
 		sql string,
 		options *query.ExecuteOptions,
 		callback func(context.Context, *query.QueryResult) error,
-	) (reservedConnID uint64, err error)
+	) (ReservedState, error)
 
 	// Describe returns metadata about a prepared statement or portal.
 	// The target specifies which multipooler to query.

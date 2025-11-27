@@ -21,6 +21,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/multigres/multigres/go/multipooler/queryservice"
 	"github.com/multigres/multigres/go/parser/ast"
 	"github.com/multigres/multigres/go/pb/query"
 	"github.com/multigres/multigres/go/pgprotocol/server"
@@ -43,10 +44,13 @@ func (m *mockExecutor) StreamExecute(ctx context.Context, conn *server.Conn, que
 	})
 }
 
-func (m *mockExecutor) ReserveStreamExecute(ctx context.Context, conn *server.Conn, queryStr string, astStmt ast.Stmt, options *ExecuteOptions, callback func(ctx context.Context, result *query.QueryResult) error) (uint64, error) {
-	// Return a simple test result and a mock connection ID
+func (m *mockExecutor) ReserveStreamExecute(ctx context.Context, conn *server.Conn, queryStr string, astStmt ast.Stmt, options *ExecuteOptions, callback func(ctx context.Context, result *query.QueryResult) error) (queryservice.ReservedState, error) {
+	// Return a simple test result and a mock ReservedState
 	err := m.StreamExecute(ctx, conn, queryStr, astStmt, options, callback)
-	return 123, err // Return a mock connection ID
+	return queryservice.ReservedState{
+		ReservedConnectionId: 123,
+		PoolerID:             nil, // Mock doesn't have a real pooler ID
+	}, err
 }
 
 func (m *mockExecutor) Describe(ctx context.Context, conn *server.Conn, options *ExecuteOptions) (*query.StatementDescription, error) {
