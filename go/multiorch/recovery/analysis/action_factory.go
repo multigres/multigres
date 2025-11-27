@@ -57,6 +57,7 @@ func (f *RecoveryActionFactory) NewBootstrapRecoveryAction() RecoveryAction {
 	return &BootstrapRecoveryAction{
 		bootstrapAction: bootstrapAction,
 		poolerStore:     f.poolerStore,
+		topoStore:       f.topoStore,
 		logger:          f.logger,
 	}
 }
@@ -67,6 +68,7 @@ func (f *RecoveryActionFactory) NewAppointLeaderRecoveryAction() RecoveryAction 
 	return &AppointLeaderRecoveryAction{
 		appointAction: appointAction,
 		poolerStore:   f.poolerStore,
+		topoStore:     f.topoStore,
 		logger:        f.logger,
 	}
 }

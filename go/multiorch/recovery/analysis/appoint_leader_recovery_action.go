@@ -20,8 +20,10 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/multigres/multigres/go/clustermetadata/topo"
 	"github.com/multigres/multigres/go/multiorch/recovery/actions"
 	"github.com/multigres/multigres/go/multiorch/store"
+	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 )
 
@@ -29,6 +31,7 @@ import (
 type AppointLeaderRecoveryAction struct {
 	appointAction *actions.AppointLeaderAction
 	poolerStore   *store.ProtoStore[string, *multiorchdatapb.PoolerHealthState]
+	topoStore     topo.Store
 	logger        *slog.Logger
 }
 
@@ -38,7 +41,34 @@ func (a *AppointLeaderRecoveryAction) Execute(ctx context.Context, problem Probl
 		"tablegroup", problem.TableGroup,
 		"shard", problem.Shard)
 
-	// Fetch cohort from pooler store
+	// Step 1: Acquire distributed lock for this shard
+	lockPath := fmt.Sprintf("recovery/%s/%s/%s", problem.Database, problem.TableGroup, problem.Shard)
+	lockContents := fmt.Sprintf("appoint leader recovery for shard %s/%s/%s", problem.Database, problem.TableGroup, problem.Shard)
+
+	a.logger.InfoContext(ctx, "acquiring recovery lock", "lock_path", lockPath)
+	conn, err := a.topoStore.ConnForCell(ctx, topo.GlobalCell)
+	if err != nil {
+		return fmt.Errorf("failed to get topo connection: %w", err)
+	}
+	lockDesc, err := conn.LockName(ctx, lockPath, lockContents)
+	if err != nil {
+		// Another recovery is in progress
+		a.logger.InfoContext(ctx, "failed to acquire lock, another recovery in progress",
+			"lock_path", lockPath,
+			"error", err)
+		return fmt.Errorf("failed to acquire recovery lock: %w", err)
+	}
+	defer func() {
+		if unlockErr := lockDesc.Unlock(ctx); unlockErr != nil {
+			a.logger.WarnContext(ctx, "failed to release recovery lock",
+				"lock_path", lockPath,
+				"error", unlockErr)
+		}
+	}()
+
+	a.logger.InfoContext(ctx, "acquired recovery lock", "lock_path", lockPath)
+
+	// Step 2: Recheck the problem after acquiring lock
 	cohort, err := a.getCohort(problem.Database, problem.TableGroup, problem.Shard)
 	if err != nil {
 		return fmt.Errorf("failed to get cohort: %w", err)
@@ -49,13 +79,26 @@ func (a *AppointLeaderRecoveryAction) Execute(ctx context.Context, problem Probl
 			problem.Database, problem.TableGroup, problem.Shard)
 	}
 
-	a.logger.InfoContext(ctx, "fetched cohort for leader appointment",
+	// Check if a primary already exists (problem resolved)
+	for _, pooler := range cohort {
+		if pooler.MultiPooler != nil &&
+			pooler.MultiPooler.Type == clustermetadatapb.PoolerType_PRIMARY &&
+			pooler.IsLastCheckValid {
+			a.logger.InfoContext(ctx, "primary already exists, skipping leader appointment",
+				"primary", pooler.MultiPooler.Id.Name,
+				"database", problem.Database,
+				"shard", problem.Shard)
+			return nil
+		}
+	}
+
+	a.logger.InfoContext(ctx, "verified shard still needs leader appointment, proceeding",
 		"database", problem.Database,
 		"tablegroup", problem.TableGroup,
 		"shard", problem.Shard,
 		"cohort_size", len(cohort))
 
-	// Call the underlying appoint leader action
+	// Step 3: Execute appoint leader action
 	if err := a.appointAction.Execute(ctx, problem.Shard, problem.Database, cohort); err != nil {
 		return fmt.Errorf("appoint leader action failed: %w", err)
 	}
