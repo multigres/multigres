@@ -56,8 +56,10 @@ multigres_local/
 super-linter-output/
 .mypy_cache/
 
-# Claude Code settings
-.claude/
+# Claude Code local settings
+.claude/settings.local.json
+.claude/commands/*.local.md
+CLAUDE.local.md
 
 # expected results of a test
 go/parser/testdata/expected
