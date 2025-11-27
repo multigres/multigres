@@ -506,6 +506,102 @@ func TestEstablishLeader(t *testing.T) {
 	})
 }
 
+func TestSelectCandidate_PrefersInitializedNodes(t *testing.T) {
+	ctx := context.Background()
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelWarn}))
+	coordID := &clustermetadatapb.ID{
+		Component: clustermetadatapb.ID_MULTIORCH,
+		Cell:      "test-cell",
+		Name:      "test-coordinator",
+	}
+
+	t.Run("prefers initialized node over uninitialized with higher LSN", func(t *testing.T) {
+		fakeClient := rpcclient.NewFakeClient()
+		c := &Coordinator{
+			coordinatorID: coordID,
+			logger:        logger,
+			rpcClient:     fakeClient,
+		}
+
+		// Create cohort with mixed initialization:
+		// - mp1: initialized replica with lower LSN (0/1000000)
+		// - mp2: uninitialized node with higher LSN (0/2000000)
+		node1 := createMockNode(fakeClient, "mp1", 5, "0/1000000", true, "standby")
+		node1.IsLastCheckValid = true
+		node1.ReplicationStatus = &multipoolermanagerdatapb.StandbyReplicationStatus{
+			LastReplayLsn:  "0/1000000",
+			LastReceiveLsn: "0/1000000",
+		}
+
+		node2 := createMockNode(fakeClient, "mp2", 5, "0/2000000", true, "standby")
+		node2.IsLastCheckValid = true
+		// node2 has no ReplicationStatus, making it uninitialized
+
+		cohort := []*multiorchdatapb.PoolerHealthState{node1, node2}
+
+		candidate, err := c.selectCandidate(ctx, cohort)
+		require.NoError(t, err)
+		require.Equal(t, "mp1", candidate.MultiPooler.Id.Name,
+			"should prefer initialized node mp1 over uninitialized node mp2 despite lower LSN")
+	})
+
+	t.Run("prefers higher LSN among initialized nodes", func(t *testing.T) {
+		fakeClient := rpcclient.NewFakeClient()
+		c := &Coordinator{
+			coordinatorID: coordID,
+			logger:        logger,
+			rpcClient:     fakeClient,
+		}
+
+		// Both nodes initialized, mp2 has higher LSN
+		node1 := createMockNode(fakeClient, "mp1", 5, "0/1000000", true, "standby")
+		node1.IsLastCheckValid = true
+		node1.ReplicationStatus = &multipoolermanagerdatapb.StandbyReplicationStatus{
+			LastReplayLsn:  "0/1000000",
+			LastReceiveLsn: "0/1000000",
+		}
+
+		node2 := createMockNode(fakeClient, "mp2", 5, "0/2000000", true, "standby")
+		node2.IsLastCheckValid = true
+		node2.ReplicationStatus = &multipoolermanagerdatapb.StandbyReplicationStatus{
+			LastReplayLsn:  "0/2000000",
+			LastReceiveLsn: "0/2000000",
+		}
+
+		cohort := []*multiorchdatapb.PoolerHealthState{node1, node2}
+
+		candidate, err := c.selectCandidate(ctx, cohort)
+		require.NoError(t, err)
+		require.Equal(t, "mp2", candidate.MultiPooler.Id.Name,
+			"should prefer higher LSN among initialized nodes")
+	})
+
+	t.Run("prefers higher LSN among uninitialized nodes", func(t *testing.T) {
+		fakeClient := rpcclient.NewFakeClient()
+		c := &Coordinator{
+			coordinatorID: coordID,
+			logger:        logger,
+			rpcClient:     fakeClient,
+		}
+
+		// Both nodes uninitialized, mp2 has higher LSN
+		node1 := createMockNode(fakeClient, "mp1", 5, "0/1000000", true, "standby")
+		node1.IsLastCheckValid = true
+		// No ReplicationStatus, uninitialized
+
+		node2 := createMockNode(fakeClient, "mp2", 5, "0/2000000", true, "standby")
+		node2.IsLastCheckValid = true
+		// No ReplicationStatus, uninitialized
+
+		cohort := []*multiorchdatapb.PoolerHealthState{node1, node2}
+
+		candidate, err := c.selectCandidate(ctx, cohort)
+		require.NoError(t, err)
+		require.Equal(t, "mp2", candidate.MultiPooler.Id.Name,
+			"should prefer higher LSN among uninitialized nodes")
+	})
+}
+
 func TestSelectCandidate_LSNComparison(t *testing.T) {
 	ctx := context.Background()
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelWarn}))

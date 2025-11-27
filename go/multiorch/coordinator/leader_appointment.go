@@ -22,6 +22,7 @@ import (
 	"github.com/jackc/pglogrepl"
 
 	"github.com/multigres/multigres/go/common/mterrors"
+	"github.com/multigres/multigres/go/multiorch/store"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	consensusdatapb "github.com/multigres/multigres/go/pb/consensusdata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
@@ -149,6 +150,7 @@ func (c *Coordinator) selectCandidate(ctx context.Context, cohort []*multiorchda
 		node        *multiorchdatapb.PoolerHealthState
 		walPosition string
 		healthy     bool
+		initialized bool
 	}
 
 	statuses := make([]nodeStatus, 0, len(cohort))
@@ -165,8 +167,9 @@ func (c *Coordinator) selectCandidate(ctx context.Context, cohort []*multiorchda
 		}
 
 		status := nodeStatus{
-			node:    pooler,
-			healthy: resp.IsHealthy,
+			node:        pooler,
+			healthy:     resp.IsHealthy,
+			initialized: store.IsInitialized(pooler),
 		}
 
 		// Extract WAL position based on role
@@ -187,9 +190,11 @@ func (c *Coordinator) selectCandidate(ctx context.Context, cohort []*multiorchda
 			"no healthy nodes available for candidate selection")
 	}
 
-	// Select node with most advanced WAL position
+	// Prefer initialized nodes over uninitialized nodes
+	// Within each group (initialized vs uninitialized), select by WAL position
 	var bestCandidate *multiorchdatapb.PoolerHealthState
 	var bestLSN pglogrepl.LSN
+	var bestIsInitialized bool
 
 	for _, status := range statuses {
 		if !status.healthy {
@@ -204,10 +209,27 @@ func (c *Coordinator) selectCandidate(ctx context.Context, cohort []*multiorchda
 				status.node.MultiPooler.Id.Name, status.walPosition, err)
 		}
 
-		// Select node with highest LSN
-		if bestCandidate == nil || lsn > bestLSN {
+		// Selection criteria:
+		// 1. Prefer initialized nodes over uninitialized nodes
+		// 2. Within same initialization status, prefer highest LSN
+		shouldSelect := false
+		if bestCandidate == nil {
+			shouldSelect = true
+		} else if status.initialized && !bestIsInitialized {
+			// Prefer initialized over uninitialized
+			shouldSelect = true
+			c.logger.InfoContext(ctx, "Preferring initialized node over uninitialized",
+				"initialized_node", status.node.MultiPooler.Id.Name,
+				"uninitialized_node", bestCandidate.MultiPooler.Id.Name)
+		} else if status.initialized == bestIsInitialized && lsn > bestLSN {
+			// Same initialization status, prefer higher LSN
+			shouldSelect = true
+		}
+
+		if shouldSelect {
 			bestCandidate = status.node
 			bestLSN = lsn
+			bestIsInitialized = status.initialized
 		}
 	}
 
@@ -217,6 +239,11 @@ func (c *Coordinator) selectCandidate(ctx context.Context, cohort []*multiorchda
 		c.logger.WarnContext(ctx, "No healthy nodes, using first available",
 			"node", bestCandidate.MultiPooler.Id.Name)
 	}
+
+	c.logger.InfoContext(ctx, "Selected candidate",
+		"node", bestCandidate.MultiPooler.Id.Name,
+		"initialized", bestIsInitialized,
+		"lsn", bestLSN)
 
 	return bestCandidate, nil
 }

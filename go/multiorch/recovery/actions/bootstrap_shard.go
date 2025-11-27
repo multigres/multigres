@@ -157,13 +157,22 @@ func (a *BootstrapShardAction) Execute(ctx context.Context, shardID string, data
 	return nil
 }
 
-// selectBootstrapCandidate selects the first healthy node as the bootstrap candidate
+// selectBootstrapCandidate selects a healthy node as the bootstrap candidate.
+// Prefers initialized nodes over uninitialized nodes to avoid data loss in mixed scenarios.
 func (a *BootstrapShardAction) selectBootstrapCandidate(ctx context.Context, cohort []*multiorchdatapb.PoolerHealthState) (*multiorchdatapb.PoolerHealthState, error) {
-	// For bootstrap, we just pick the first reachable node
-	// In a production system, you might want to consider factors like:
-	// - Node with fastest storage
-	// - Node in preferred availability zone
-	// - Node with most resources available
+	// For bootstrap in mixed initialization scenarios, prefer initialized nodes
+	// to avoid data loss. This handles cases where some nodes have data and others don't.
+	// Selection strategy:
+	// 1. First pass: look for initialized nodes
+	// 2. Second pass: if no initialized nodes, use first uninitialized node
+
+	type nodeInfo struct {
+		pooler      *multiorchdatapb.PoolerHealthState
+		initialized bool
+		reachable   bool
+	}
+
+	nodes := make([]nodeInfo, 0, len(cohort))
 
 	for _, pooler := range cohort {
 		req := &multipoolermanagerdatapb.InitializationStatusRequest{}
@@ -172,13 +181,36 @@ func (a *BootstrapShardAction) selectBootstrapCandidate(ctx context.Context, coh
 			a.logger.WarnContext(ctx, "Node unreachable during candidate selection",
 				"node", pooler.MultiPooler.Id.Name,
 				"error", err)
+			nodes = append(nodes, nodeInfo{
+				pooler:      pooler,
+				initialized: false,
+				reachable:   false,
+			})
 			continue
 		}
 
-		if !status.IsInitialized {
-			a.logger.InfoContext(ctx, "Selected node as bootstrap candidate",
-				"node", pooler.MultiPooler.Id.Name)
-			return pooler, nil
+		nodes = append(nodes, nodeInfo{
+			pooler:      pooler,
+			initialized: status.IsInitialized,
+			reachable:   true,
+		})
+	}
+
+	// First pass: prefer initialized nodes
+	for _, node := range nodes {
+		if node.reachable && node.initialized {
+			a.logger.InfoContext(ctx, "Selected initialized node as bootstrap candidate",
+				"node", node.pooler.MultiPooler.Id.Name)
+			return node.pooler, nil
+		}
+	}
+
+	// Second pass: use first uninitialized but reachable node
+	for _, node := range nodes {
+		if node.reachable && !node.initialized {
+			a.logger.InfoContext(ctx, "Selected uninitialized node as bootstrap candidate",
+				"node", node.pooler.MultiPooler.Id.Name)
+			return node.pooler, nil
 		}
 	}
 

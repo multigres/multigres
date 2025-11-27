@@ -525,16 +525,10 @@ func TestMultiOrchLeaderReelection(t *testing.T) {
 // TestMultiOrchMixedInitializationRepair tests multiorch's ability to repair a mixed initialization
 // scenario where some nodes are initialized and others are not.
 //
-// KNOWN ISSUE: This test currently fails because multiorch's leader election does not prefer
-// already-initialized nodes over uninitialized nodes when repairing a mixed initialization scenario.
 // The test creates: node0 (initialized primary - killed), node1 (initialized standby), node2 (uninitialized).
 // Expected: multiorch should elect node1 (initialized standby) as the new primary.
-// Actual: multiorch elects node2 (uninitialized node) as the new primary.
-// This requires fixing multiorch's leader election logic to prioritize initialized nodes during repair.
-// TODO: Fix multiorch to prefer initialized nodes when repairing mixed initialization scenarios.
+// The leader election logic now prefers initialized nodes over uninitialized nodes.
 func TestMultiOrchMixedInitializationRepair(t *testing.T) {
-	t.Skip("Skipping due to multiorch leader election not preferring initialized nodes - see test comment for details")
-
 	if utils.ShouldSkipRealPostgres() {
 		t.Skip("Skipping end-to-end mixed initialization test (short mode or no postgres binaries)")
 	}
