@@ -42,7 +42,7 @@ type TopoReg struct {
 // registration succeeds, the alarm will be invoked with an empty string.
 func Register(register func(ctx context.Context) error, unregister func(ctx context.Context) error, alarm func(string)) *TopoReg {
 	tp := &TopoReg{}
-	tp.ctx, tp.cancel = context.WithCancel(context.Background())
+	tp.ctx, tp.cancel = context.WithCancel(context.TODO())
 	tp.logger = servenv.GetLogger()
 	tp.unregister = unregister
 
@@ -95,7 +95,7 @@ func (tp *TopoReg) Unregister() {
 	tp.wg.Wait()
 
 	// Use standalone ctx because tp.ctx is already canceled.
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	ctx, cancel := context.WithTimeout(context.TODO(), time.Second)
 	defer cancel()
 
 	if err := tp.unregister(ctx); err != nil {

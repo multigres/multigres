@@ -102,7 +102,7 @@ func (pm *MultiPoolerManager) Backup(ctx context.Context, forcePrimary bool, bac
 	}
 
 	// Verify the backup to ensure it's valid
-	verifyCtx, verifyCancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	verifyCtx, verifyCancel := context.WithTimeout(ctx, 10*time.Minute)
 	defer verifyCancel()
 
 	verifyCmd := exec.CommandContext(verifyCtx, "pgbackrest",
@@ -152,7 +152,7 @@ func (pm *MultiPoolerManager) RestoreFromBackup(ctx context.Context, backupID st
 	}
 
 	// Check that database is not initialized
-	if pm.isInitialized() {
+	if pm.isInitialized(ctx) {
 		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
 			"cannot restore onto already-initialized database; caller must stop PostgreSQL and remove PGDATA first")
 	}

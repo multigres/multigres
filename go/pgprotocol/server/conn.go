@@ -101,7 +101,7 @@ type Conn struct {
 
 // newConn creates a new connection.
 func newConn(netConn net.Conn, listener *Listener, connectionID uint32) *Conn {
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(context.TODO())
 
 	c := &Conn{
 		conn:           netConn,

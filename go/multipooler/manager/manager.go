@@ -141,7 +141,7 @@ func NewMultiPoolerManager(logger *slog.Logger, config *Config) *MultiPoolerMana
 
 // NewMultiPoolerManagerWithTimeout creates a new MultiPoolerManager instance with a custom load timeout
 func NewMultiPoolerManagerWithTimeout(logger *slog.Logger, config *Config, loadTimeout time.Duration) *MultiPoolerManager {
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(context.TODO())
 
 	// Create pgctld gRPC client
 	var pgctldClient pgctldpb.PgCtldClient
@@ -227,7 +227,7 @@ func (pm *MultiPoolerManager) Open() error {
 	// This ensures the schema exists before queries can be served
 	if pm.replTracker == nil {
 		pm.logger.Info("MultiPoolerManager: Starting database heartbeat")
-		ctx := context.Background()
+		ctx := context.TODO()
 		// TODO: populate shard ID
 		shardID := []byte("0") // default shard ID
 
