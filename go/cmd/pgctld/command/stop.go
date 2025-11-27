@@ -15,6 +15,7 @@
 package command
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"os"
@@ -178,7 +179,7 @@ func stopWithPgCtlWithConfig(logger *slog.Logger, config *pgctld.PostgresCtlConf
 		"-t", fmt.Sprintf("%d", config.Timeout),
 	}
 
-	cmd := exec.Command("pg_ctl", args...)
+	cmd := exec.CommandContext(context.TODO(), "pg_ctl", args...)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 
@@ -200,7 +201,7 @@ func takeCheckpoint(logger *slog.Logger, config *pgctld.PostgresCtlConfig) error
 		"-q", // quiet mode - suppress messages
 	}
 
-	cmd := exec.Command("psql", args...)
+	cmd := exec.CommandContext(context.TODO(), "psql", args...)
 
 	// Capture output to avoid cluttering the terminal
 	output, err := cmd.CombinedOutput()

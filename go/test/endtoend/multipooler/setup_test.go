@@ -184,7 +184,7 @@ func (p *ProcessInstance) startPgctld(t *testing.T) error {
 	t.Logf("Data dir: %s, gRPC port: %d, PG port: %d", p.DataDir, p.GrpcPort, p.PgPort)
 
 	// Start the gRPC server
-	p.Process = exec.Command(p.Binary, "server",
+	p.Process = exec.CommandContext(t.Context(), p.Binary, "server",
 		"--pooler-dir", p.DataDir,
 		"--grpc-port", strconv.Itoa(p.GrpcPort),
 		"--pg-port", strconv.Itoa(p.PgPort),
@@ -232,7 +232,7 @@ func (p *ProcessInstance) startMultipooler(t *testing.T) error {
 	}
 
 	// Start the multipooler server
-	p.Process = exec.Command(p.Binary, args...)
+	p.Process = exec.CommandContext(t.Context(), p.Binary, args...)
 
 	// Set MULTIGRES_TESTDATA_DIR for directory-deletion triggered cleanup
 	p.Process.Env = append(p.Environment,
@@ -277,7 +277,7 @@ func (p *ProcessInstance) waitForStartup(t *testing.T, timeout time.Duration, lo
 
 		connectAttempts++
 		// Test gRPC connectivity
-		conn, err := net.DialTimeout("tcp", fmt.Sprintf("localhost:%d", p.GrpcPort), 100*time.Millisecond)
+		conn, err := (&net.Dialer{Timeout: 100 * time.Millisecond}).DialContext(t.Context(), "tcp", fmt.Sprintf("localhost:%d", p.GrpcPort))
 		if err == nil {
 			conn.Close()
 			if p.Binary == "pgctld" {
@@ -866,7 +866,7 @@ func startEtcdForSharedSetup(t *testing.T, dataDir string) (string, *exec.Cmd, e
 	initialCluster := fmt.Sprintf("%v=%v", name, peerAddr)
 
 	// Wrap etcd with run_in_test to ensure cleanup if test process dies
-	cmd := exec.Command("run_in_test.sh", "etcd",
+	cmd := exec.CommandContext(t.Context(), "run_in_test.sh", "etcd",
 		"-name", name,
 		"-advertise-client-urls", clientAddr,
 		"-initial-advertise-peer-urls", peerAddr,

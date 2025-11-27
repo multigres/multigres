@@ -96,7 +96,7 @@ func CreatePIDFile(t *testing.T, dataDir string, pid int) {
 	t.Helper()
 
 	// Start a background sleep process to get a real PID that will pass the isProcessRunning check
-	cmd := exec.Command("sleep", "3600")
+	cmd := exec.CommandContext(t.Context(), "sleep", "3600")
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("Failed to start background sleep process: %v", err)
 	}

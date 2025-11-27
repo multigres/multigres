@@ -213,13 +213,13 @@ func TestBootstrapInitialization(t *testing.T) {
 
 		// Verify multigres schema exists
 		var schemaExists bool
-		err := db.QueryRow("SELECT EXISTS(SELECT 1 FROM pg_namespace WHERE nspname = 'multigres')").Scan(&schemaExists)
+		err := db.QueryRowContext(t.Context(), "SELECT EXISTS(SELECT 1 FROM pg_namespace WHERE nspname = 'multigres')").Scan(&schemaExists)
 		require.NoError(t, err)
 		assert.True(t, schemaExists, "multigres schema should exist")
 
 		// Verify durability_policy table exists
 		var tableExists bool
-		err = db.QueryRow("SELECT EXISTS(SELECT 1 FROM pg_tables WHERE schemaname = 'multigres' AND tablename = 'durability_policy')").Scan(&tableExists)
+		err = db.QueryRowContext(t.Context(), "SELECT EXISTS(SELECT 1 FROM pg_tables WHERE schemaname = 'multigres' AND tablename = 'durability_policy')").Scan(&tableExists)
 		require.NoError(t, err)
 		assert.True(t, tableExists, "durability_policy table should exist")
 
@@ -228,7 +228,7 @@ func TestBootstrapInitialization(t *testing.T) {
 		var policyVersion int64
 		var quorumRuleJSON string
 		var isActive bool
-		err = db.QueryRow(`
+		err = db.QueryRowContext(t.Context(), `
 			SELECT policy_name, policy_version, quorum_rule::text, is_active
 			FROM multigres.durability_policy
 			WHERE policy_name = $1
@@ -318,7 +318,7 @@ func createEmptyNode(t *testing.T, baseDir, cell, shard, database string, index 
 
 	// Start pgctld server
 	logFile := filepath.Join(dataDir, "pgctld.log")
-	pgctldCmd := exec.Command("pgctld", "server",
+	pgctldCmd := exec.CommandContext(t.Context(), "pgctld", "server",
 		"--pooler-dir", dataDir,
 		"--grpc-port", fmt.Sprintf("%d", pgctldGrpcPort),
 		"--pg-port", fmt.Sprintf("%d", pgPort),
@@ -337,7 +337,7 @@ func createEmptyNode(t *testing.T, baseDir, cell, shard, database string, index 
 
 	// Start multipooler
 	serviceID := fmt.Sprintf("%s/%s", cell, name)
-	multipoolerCmd := exec.Command("multipooler",
+	multipoolerCmd := exec.CommandContext(t.Context(), "multipooler",
 		"--grpc-port", fmt.Sprintf("%d", grpcPort),
 		"--database", database,
 		"--table-group", "test", // table group is required
@@ -480,7 +480,7 @@ func connectToPostgres(t *testing.T, socketDir string, port int) *sql.DB {
 	db, err := sql.Open("postgres", connStr)
 	require.NoError(t, err, "Failed to open database connection")
 
-	err = db.Ping()
+	err = db.PingContext(t.Context())
 	require.NoError(t, err, "Failed to ping database")
 
 	return db
@@ -496,7 +496,7 @@ func verifyMultigresTablesExist(t *testing.T, node *nodeInstance) {
 
 	// Check that heartbeat table exists
 	var heartbeatExists bool
-	err := db.QueryRow(`
+	err := db.QueryRowContext(t.Context(), `
 		SELECT EXISTS (
 			SELECT FROM information_schema.tables
 			WHERE table_schema = 'multigres'
@@ -508,7 +508,7 @@ func verifyMultigresTablesExist(t *testing.T, node *nodeInstance) {
 
 	// Check that durability_policy table exists
 	var durabilityPolicyExists bool
-	err = db.QueryRow(`
+	err = db.QueryRowContext(t.Context(), `
 		SELECT EXISTS (
 			SELECT FROM information_schema.tables
 			WHERE table_schema = 'multigres'
@@ -528,7 +528,7 @@ func waitForProcessReady(t *testing.T, name string, grpcPort int, timeout time.D
 	for time.Now().Before(deadline) {
 		connectAttempts++
 		// Test gRPC connectivity
-		conn, err := net.DialTimeout("tcp", fmt.Sprintf("localhost:%d", grpcPort), 100*time.Millisecond)
+		conn, err := (&net.Dialer{Timeout: 100 * time.Millisecond}).DialContext(t.Context(), "tcp", fmt.Sprintf("localhost:%d", grpcPort))
 		if err == nil {
 			conn.Close()
 			t.Logf("%s ready on gRPC port %d (after %d attempts)", name, grpcPort, connectAttempts)

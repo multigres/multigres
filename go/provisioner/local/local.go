@@ -290,7 +290,7 @@ func (p *localProvisioner) findBinary(name string, serviceConfig map[string]any)
 // checkEtcdVersion verifies that the etcd binary major version matches expected version
 func (p *localProvisioner) checkEtcdVersion(binaryPath, expectedVersion string) error {
 	// Run etcd --version to get version info
-	cmd := exec.Command(binaryPath, "--version")
+	cmd := exec.CommandContext(context.TODO(), binaryPath, "--version")
 	output, err := cmd.Output()
 	if err != nil {
 		return fmt.Errorf("failed to get etcd version: %w", err)

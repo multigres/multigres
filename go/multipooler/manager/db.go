@@ -90,7 +90,7 @@ func CreateDBConnection(logger *slog.Logger, config *Config) (*sql.DB, error) {
 	}
 
 	// Test the connection
-	if err := db.Ping(); err != nil {
+	if err := db.PingContext(context.TODO()); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("failed to ping database: %w", err)
 	}
@@ -101,13 +101,13 @@ func CreateDBConnection(logger *slog.Logger, config *Config) (*sql.DB, error) {
 
 // CreateSidecarSchema creates the multigres sidecar schema and heartbeat table if they don't exist
 func CreateSidecarSchema(db *sql.DB) error {
-	_, err := db.Exec("CREATE SCHEMA IF NOT EXISTS multigres")
+	_, err := db.ExecContext(context.TODO(), "CREATE SCHEMA IF NOT EXISTS multigres")
 	if err != nil {
 		return fmt.Errorf("failed to create multigres schema: %w", err)
 	}
 
 	// Create the heartbeat table
-	_, err = db.Exec(`
+	_, err = db.ExecContext(context.TODO(), `
 		CREATE TABLE IF NOT EXISTS multigres.heartbeat (
 			shard_id BYTEA PRIMARY KEY,
 			leader_id TEXT NOT NULL,
@@ -119,7 +119,7 @@ func CreateSidecarSchema(db *sql.DB) error {
 	}
 
 	// Create the durability_policy table
-	_, err = db.Exec(`
+	_, err = db.ExecContext(context.TODO(), `
 		CREATE TABLE IF NOT EXISTS multigres.durability_policy (
 			id BIGSERIAL PRIMARY KEY,
 			policy_name TEXT NOT NULL,
@@ -139,7 +139,7 @@ func CreateSidecarSchema(db *sql.DB) error {
 	}
 
 	// Create index on is_active for efficient active policy lookups
-	_, err = db.Exec(`
+	_, err = db.ExecContext(context.TODO(), `
 		CREATE INDEX IF NOT EXISTS idx_durability_policy_active
 		ON multigres.durability_policy(is_active)
 		WHERE is_active = true

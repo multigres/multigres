@@ -33,7 +33,7 @@ import (
 
 // checkPortAvailable checks if a port is available for binding
 func checkPortAvailable(port int) error {
-	ln, err := net.Listen("tcp", fmt.Sprintf("localhost:%d", port))
+	ln, err := (&net.ListenConfig{}).Listen(context.TODO(), "tcp", fmt.Sprintf("localhost:%d", port))
 	if err != nil {
 		return fmt.Errorf("port %d is already in use - this could be from a previous test run, another service, or a port conflict. Try running 'lsof -i :%d' to see what's using it", port, port)
 	}
@@ -99,7 +99,7 @@ func StartEtcdWithOptions(t *testing.T, opts EtcdOptions) (string, *exec.Cmd) {
 	initialCluster := fmt.Sprintf("%v=%v", name, peerAddr)
 
 	// Wrap etcd with run_in_test.sh to ensure cleanup if test process dies
-	cmd := exec.Command("run_in_test.sh", "etcd",
+	cmd := exec.CommandContext(t.Context(), "run_in_test.sh", "etcd",
 		"-name", name,
 		"-advertise-client-urls", clientAddr,
 		"-initial-advertise-peer-urls", peerAddr,

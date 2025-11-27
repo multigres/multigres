@@ -191,7 +191,7 @@ func (pm *MultiPoolerManager) connectDB() error {
 	pm.db = db
 
 	// Test the connection
-	if err := pm.db.Ping(); err != nil {
+	if err := pm.db.PingContext(context.TODO()); err != nil {
 		pm.db.Close()
 		pm.db = nil
 		return fmt.Errorf("failed to ping database: %w", err)

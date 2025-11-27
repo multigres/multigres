@@ -87,7 +87,7 @@ func (e *Executor) Open() error {
 	}
 
 	// Test the connection
-	if err := db.Ping(); err != nil {
+	if err := db.PingContext(context.TODO()); err != nil {
 		db.Close()
 		return fmt.Errorf("failed to ping database: %w", err)
 	}
@@ -169,7 +169,7 @@ func (e *Executor) IsHealthy() error {
 	if e.db == nil {
 		return fmt.Errorf("database connection not initialized")
 	}
-	if err := e.db.Ping(); err != nil {
+	if err := e.db.PingContext(context.TODO()); err != nil {
 		return fmt.Errorf("database ping failed: %w", err)
 	}
 	return nil

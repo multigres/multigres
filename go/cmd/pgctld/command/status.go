@@ -15,6 +15,7 @@
 package command
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"os"
@@ -195,7 +196,7 @@ func formatUptime(seconds int64) string {
 func isServerReadyWithConfig(config *pgctld.PostgresCtlConfig) bool {
 	// Use Unix socket connection for pg_isready
 	socketDir := pgctld.PostgresSocketDir(config.PoolerDir)
-	cmd := exec.Command("pg_isready",
+	cmd := exec.CommandContext(context.TODO(), "pg_isready",
 		"-h", socketDir,
 		"-p", fmt.Sprintf("%d", config.Port), // Need port even for socket connections
 		"-U", config.User,
@@ -208,7 +209,7 @@ func isServerReadyWithConfig(config *pgctld.PostgresCtlConfig) bool {
 func getServerVersionWithConfig(config *pgctld.PostgresCtlConfig) string {
 	// Use Unix socket connection for psql
 	socketDir := pgctld.PostgresSocketDir(config.PoolerDir)
-	cmd := exec.Command("psql",
+	cmd := exec.CommandContext(context.TODO(), "psql",
 		"-h", socketDir,
 		"-p", fmt.Sprintf("%d", config.Port), // Need port even for socket connections
 		"-U", config.User,

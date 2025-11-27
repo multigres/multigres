@@ -27,6 +27,7 @@ linters:
     - govet
     - ineffassign
     - modernize
+    - noctx
     - sloglint
     - staticcheck
     - unused

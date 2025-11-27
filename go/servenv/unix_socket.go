@@ -17,6 +17,7 @@
 package servenv
 
 import (
+	"context"
 	"log/slog"
 	"net"
 	"os"
@@ -39,7 +40,7 @@ func (g *GrpcServer) serveSocketFile() {
 		}
 	}
 
-	l, err := net.Listen("unix", name)
+	l, err := (&net.ListenConfig{}).Listen(context.TODO(), "unix", name)
 	if err != nil {
 		slog.Error("Error listening on socket file", "name", name, "err", err)
 	}

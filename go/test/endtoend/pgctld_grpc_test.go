@@ -465,7 +465,7 @@ func createTestGRPCServer(t *testing.T, dataDir, binDir string) (net.Listener, f
 	t.Helper()
 
 	// Find a free port
-	lis, err := net.Listen("tcp", "localhost:0")
+	lis, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "localhost:0")
 	require.NoError(t, err)
 
 	// Create gRPC server

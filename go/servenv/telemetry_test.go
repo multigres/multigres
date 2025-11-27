@@ -45,7 +45,7 @@ func getFreePorts(t *testing.T, n int) []int {
 	listeners := make([]net.Listener, n)
 
 	for i := range n {
-		listener, err := net.Listen("tcp", "localhost:0")
+		listener, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "localhost:0")
 		require.NoError(t, err)
 		listeners[i] = listener
 		ports[i] = listener.Addr().(*net.TCPAddr).Port
@@ -109,7 +109,7 @@ func TestServEnvTelemetryIntegration(t *testing.T) {
 
 	// Wait for servers to be listening
 	require.Eventually(t, func() bool {
-		conn, err := net.Dial("tcp", fmt.Sprintf("localhost:%d", httpPort))
+		conn, err := (&net.Dialer{}).DialContext(t.Context(), "tcp", fmt.Sprintf("localhost:%d", httpPort))
 		if err != nil {
 			return false
 		}
@@ -118,7 +118,7 @@ func TestServEnvTelemetryIntegration(t *testing.T) {
 	}, 2*time.Second, 10*time.Millisecond, "HTTP server should start listening")
 
 	require.Eventually(t, func() bool {
-		conn, err := net.Dial("tcp", grpcAddr)
+		conn, err := (&net.Dialer{}).DialContext(t.Context(), "tcp", grpcAddr)
 		if err != nil {
 			return false
 		}
@@ -221,7 +221,9 @@ func TestServEnvTelemetryIntegration(t *testing.T) {
 		ctx := context.Background()
 
 		// Make an HTTP request
-		resp, err := http.Get(httpURL + "/live")
+		req, err := http.NewRequestWithContext(t.Context(), "GET", httpURL+"/live", nil)
+		require.NoError(t, err)
+		resp, err := http.DefaultClient.Do(req)
 		require.NoError(t, err)
 		assert.Equal(t, http.StatusOK, resp.StatusCode)
 

@@ -17,6 +17,7 @@
 package servenv
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"net"
@@ -37,7 +38,7 @@ func (sv *ServEnv) Run(bindAddress string, port int, grpcServer *GrpcServer) {
 	grpcServer.Serve(sv)
 	grpcServer.serveSocketFile()
 
-	l, err := net.Listen("tcp", net.JoinHostPort(bindAddress, strconv.Itoa(port)))
+	l, err := (&net.ListenConfig{}).Listen(context.TODO(), "tcp", net.JoinHostPort(bindAddress, strconv.Itoa(port)))
 	if err != nil {
 		slog.Error("failed to listen", "err", err)
 		os.Exit(1)

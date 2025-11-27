@@ -46,7 +46,7 @@ func GetFreePort(t *testing.T) int {
 	}()
 
 	for {
-		lis, err := net.Listen("tcp", "localhost:0")
+		lis, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "localhost:0")
 		if err != nil {
 			t.Fatalf("failed to allocate free port: %v", err)
 		}

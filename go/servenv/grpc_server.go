@@ -401,7 +401,7 @@ func (g *GrpcServer) Serve(sv *ServEnv) {
 
 	// listen on the port
 	slog.Info("Listening for gRPC calls on port", "grpcPort", g.port.Get())
-	listener, err := net.Listen("tcp", net.JoinHostPort(g.bindAddress.Get(), strconv.Itoa(g.port.Get())))
+	listener, err := (&net.ListenConfig{}).Listen(context.TODO(), "tcp", net.JoinHostPort(g.bindAddress.Get(), strconv.Itoa(g.port.Get())))
 	if err != nil {
 		slog.Error("Cannot listen on the provided grpc port", "err", err)
 		os.Exit(1)

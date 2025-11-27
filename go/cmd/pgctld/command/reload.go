@@ -15,6 +15,7 @@
 package command
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"os"
@@ -129,7 +130,7 @@ func reloadWithPgCtl(dataDir string) error {
 		"-D", dataDir,
 	}
 
-	cmd := exec.Command("pg_ctl", args...)
+	cmd := exec.CommandContext(context.TODO(), "pg_ctl", args...)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 

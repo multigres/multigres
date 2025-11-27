@@ -47,7 +47,7 @@ func connectToPostgres(t *testing.T, socketDir string, port int) *sql.DB {
 	require.NoError(t, err, "Failed to open database connection")
 
 	// Test the connection
-	err = db.Ping()
+	err = db.PingContext(t.Context())
 	require.NoError(t, err, "Failed to ping database")
 
 	return db
@@ -99,7 +99,7 @@ func TestBackup_CreateListAndRestore(t *testing.T) {
 	t.Log("Step 1: Creating test table and inserting initial data...")
 
 	// Create a test table
-	_, err = db.Exec(`
+	_, err = db.ExecContext(t.Context(), `
 		CREATE TABLE IF NOT EXISTS backup_restore_test (
 			id SERIAL PRIMARY KEY,
 			data TEXT NOT NULL,
@@ -111,13 +111,13 @@ func TestBackup_CreateListAndRestore(t *testing.T) {
 	// Insert initial rows (these should persist after restore)
 	initialRows := []string{"row1_before_backup", "row2_before_backup", "row3_before_backup"}
 	for _, data := range initialRows {
-		_, err = db.Exec("INSERT INTO backup_restore_test (data) VALUES ($1)", data)
+		_, err = db.ExecContext(t.Context(), "INSERT INTO backup_restore_test (data) VALUES ($1)", data)
 		require.NoError(t, err, "Failed to insert initial row: %s", data)
 	}
 
 	// Verify initial rows were inserted
 	var countBefore int
-	err = db.QueryRow("SELECT COUNT(*) FROM backup_restore_test").Scan(&countBefore)
+	err = db.QueryRowContext(t.Context(), "SELECT COUNT(*) FROM backup_restore_test").Scan(&countBefore)
 	require.NoError(t, err)
 	assert.Equal(t, len(initialRows), countBefore, "Initial row count should match")
 	t.Logf("Inserted %d initial rows", countBefore)
@@ -191,13 +191,13 @@ func TestBackup_CreateListAndRestore(t *testing.T) {
 			// Insert additional rows (these should NOT persist after restore)
 			additionalRows := []string{"row4_after_backup", "row5_after_backup"}
 			for _, data := range additionalRows {
-				_, err = db.Exec("INSERT INTO backup_restore_test (data) VALUES ($1)", data)
+				_, err = db.ExecContext(t.Context(), "INSERT INTO backup_restore_test (data) VALUES ($1)", data)
 				require.NoError(t, err, "Failed to insert additional row: %s", data)
 			}
 
 			// Verify all rows exist before restore
 			var countAfterInsert int
-			err = db.QueryRow("SELECT COUNT(*) FROM backup_restore_test").Scan(&countAfterInsert)
+			err = db.QueryRowContext(t.Context(), "SELECT COUNT(*) FROM backup_restore_test").Scan(&countAfterInsert)
 			require.NoError(t, err)
 			expectedCountBeforeRestore := len(initialRows) + len(additionalRows)
 			assert.Equal(t, expectedCountBeforeRestore, countAfterInsert,
@@ -294,7 +294,7 @@ func TestBackup_CreateListAndRestore(t *testing.T) {
 
 			// Verify standby database is accessible and we can query data
 			var countAfterRestore int
-			err = standbyDB.QueryRow("SELECT COUNT(*) FROM backup_restore_test").Scan(&countAfterRestore)
+			err = standbyDB.QueryRowContext(t.Context(), "SELECT COUNT(*) FROM backup_restore_test").Scan(&countAfterRestore)
 			require.NoError(t, err)
 			t.Logf("Row count on standby after restore: %d", countAfterRestore)
 
@@ -305,7 +305,7 @@ func TestBackup_CreateListAndRestore(t *testing.T) {
 
 			// Insert a new row on primary after restore to test replication
 			testData := "row_after_restore"
-			_, err = db.Exec("INSERT INTO backup_restore_test (data) VALUES ($1)", testData)
+			_, err = db.ExecContext(t.Context(), "INSERT INTO backup_restore_test (data) VALUES ($1)", testData)
 			require.NoError(t, err, "Should be able to insert data on primary after restore")
 
 			// Wait for replication to standby (with retry logic)
@@ -314,7 +314,7 @@ func TestBackup_CreateListAndRestore(t *testing.T) {
 			found := false
 			for i := range maxAttempts {
 				time.Sleep(1 * time.Second)
-				err = standbyDB.QueryRow("SELECT EXISTS(SELECT 1 FROM backup_restore_test WHERE data = $1)", testData).Scan(&newRowExists)
+				err = standbyDB.QueryRowContext(t.Context(), "SELECT EXISTS(SELECT 1 FROM backup_restore_test WHERE data = $1)", testData).Scan(&newRowExists)
 				if err == nil && newRowExists {
 					found = true
 					t.Logf("Replication working: new row appeared on standby after %d seconds", i+1)
@@ -328,7 +328,7 @@ func TestBackup_CreateListAndRestore(t *testing.T) {
 
 			// Verify that the standby is still acting as a replica (in recovery mode)
 			var isInRecovery bool
-			err = standbyDB.QueryRow("SELECT pg_is_in_recovery()").Scan(&isInRecovery)
+			err = standbyDB.QueryRowContext(t.Context(), "SELECT pg_is_in_recovery()").Scan(&isInRecovery)
 			require.NoError(t, err, "Should be able to query recovery status")
 			t.Logf("pg_is_in_recovery() returned: %v", isInRecovery)
 

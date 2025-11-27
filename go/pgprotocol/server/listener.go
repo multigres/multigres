@@ -76,7 +76,7 @@ func NewListener(config ListenerConfig) (*Listener, error) {
 		return nil, fmt.Errorf("handler is required")
 	}
 
-	netListener, err := net.Listen("tcp", config.Address)
+	netListener, err := (&net.ListenConfig{}).Listen(context.TODO(), "tcp", config.Address)
 	if err != nil {
 		return nil, fmt.Errorf("failed to listen on %s: %w", config.Address, err)
 	}

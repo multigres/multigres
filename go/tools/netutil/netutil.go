@@ -19,6 +19,7 @@ package netutil
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"net"
 	"os"
@@ -68,7 +69,7 @@ func FullyQualifiedHostname() (string, error) {
 	}
 
 	// 2. Look up the IP address for that hostname. Example: 127.0.0.1
-	ips, err := net.LookupHost(hostname)
+	ips, err := (&net.Resolver{}).LookupHost(context.TODO(), hostname)
 	if err != nil {
 		return "", fmt.Errorf("FullyQualifiedHostname: failed to lookup the IP of this machine's hostname (%v): %v", hostname, err)
 	}
@@ -101,7 +102,7 @@ func FullyQualifiedHostname() (string, error) {
 	}
 
 	// 3. Reverse lookup the IP. Example: localhost.localdomain
-	resolvedHostnames, err := net.LookupAddr(localIP)
+	resolvedHostnames, err := (&net.Resolver{}).LookupAddr(context.TODO(), localIP)
 	if err != nil {
 		return "", fmt.Errorf("FullyQualifiedHostname: failed to reverse lookup this machine's local IP (%v): %v", localIP, err)
 	}
@@ -129,7 +130,7 @@ func FullyQualifiedHostnameOrPanic() string {
 }
 
 func dnsLookup(host string) ([]net.IP, error) {
-	addrs, err := net.LookupHost(host)
+	addrs, err := (&net.Resolver{}).LookupHost(context.TODO(), host)
 	if err != nil {
 		return nil, fmt.Errorf("error looking up dns name [%v]: (%v)", host, err)
 	}

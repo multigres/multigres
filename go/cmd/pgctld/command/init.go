@@ -15,6 +15,7 @@
 package command
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"os"
@@ -144,7 +145,7 @@ func initializeDataDir(logger *slog.Logger, dataDir string, pgUser string, pgPwf
 	// pgBackRest will validate checksums for the Postgres cluster it's backing up.
 	// However, pgBackRest merely logs checksum validation errors but does not fail
 	// the backup.
-	cmd := exec.Command("initdb", "-D", dataDir, "--data-checksums", "--auth-local=trust", "--auth-host=md5", "-U", pgUser)
+	cmd := exec.CommandContext(context.TODO(), "initdb", "-D", dataDir, "--data-checksums", "--auth-local=trust", "--auth-host=md5", "-U", pgUser)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 
@@ -192,7 +193,7 @@ func setPostgresPassword(dataDir string, pgUser string, pgPwfile string) error {
 	// Start PostgreSQL temporarily in single-user mode to set password
 	// Use the configured user in single-user mode with trust auth to set the password
 	// Set password_encryption to scram-sha-256 to ensure SCRAM encoding
-	cmd := exec.Command("postgres", "--single", "-D", dataDir, pgUser)
+	cmd := exec.CommandContext(context.TODO(), "postgres", "--single", "-D", dataDir, pgUser)
 	sqlCommands := fmt.Sprintf("SET password_encryption = 'scram-sha-256';\nALTER USER %s WITH PASSWORD '%s';\n", pgUser, effectivePassword)
 	cmd.Stdin = strings.NewReader(sqlCommands)
 	cmd.Stdout = os.Stdout
