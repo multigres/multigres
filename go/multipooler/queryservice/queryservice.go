@@ -74,25 +74,42 @@ type QueryService interface {
 		callback func(context.Context, *query.QueryResult) error,
 	) error
 
-	// ReserveStreamExecute reserves a connection from the pool, executes a query on it,
-	// and returns reservation information along with streaming results.
-	// This is used for session affinity to ensure subsequent queries use the same connection.
-	// The returned ReservedState should be stored and its ReservedConnectionId passed in
-	// ExecuteOptions.ReservedConnectionId for future queries that need to run on the same connection.
-	ReserveStreamExecute(
+	// PortalStreamExecute executes a portal (bound prepared statement) and streams results back via callback.
+	// Returns ReservedState containing information about the reserved connection used for this execution.
+	// The returned ReservedState should be stored in the connection's shard state to ensure
+	// subsequent queries in the same session use the same reserved connection.
+	//
+	// Parameters:
+	//   ctx: Context for cancellation and timeouts
+	//   target: Target specifying tablegroup, shard, and pooler type
+	//   preparedStatement: The prepared statement to execute
+	//   portal: The portal containing bound parameters
+	//   options: Execute options including max rows and reserved connection ID
+	//   callback: Function called for each result chunk
+	PortalStreamExecute(
 		ctx context.Context,
 		target *query.Target,
-		sql string,
+		preparedStatement *query.PreparedStatement,
+		portal *query.Portal,
 		options *query.ExecuteOptions,
 		callback func(context.Context, *query.QueryResult) error,
 	) (ReservedState, error)
 
 	// Describe returns metadata about a prepared statement or portal.
 	// The target specifies which multipooler to query.
-	// The options should contain either PreparedStatement or Portal information.
+	// Either preparedStatement or portal (or both) should be provided.
+	//
+	// Parameters:
+	//   ctx: Context for cancellation and timeouts
+	//   target: Target specifying tablegroup, shard, and pooler type
+	//   preparedStatement: The prepared statement to describe (nil if describing a portal)
+	//   portal: The portal to describe (nil if describing a prepared statement)
+	//   options: Execute options including reserved connection ID
 	Describe(
 		ctx context.Context,
 		target *query.Target,
+		preparedStatement *query.PreparedStatement,
+		portal *query.Portal,
 		options *query.ExecuteOptions,
 	) (*query.StatementDescription, error)
 

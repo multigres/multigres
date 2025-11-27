@@ -253,26 +253,34 @@ func (e *Executor) StreamExecute(
 	return nil
 }
 
-// ReserveStreamExecute reserves a connection from the pool and executes a query on it.
-// Returns ReservedState containing the connection ID and pooler ID for subsequent queries.
-func (e *Executor) ReserveStreamExecute(
+// PortalStreamExecute executes a portal (bound prepared statement) and streams results back via callback.
+// Returns ReservedState containing information about the reserved connection used for this execution.
+func (e *Executor) PortalStreamExecute(
 	ctx context.Context,
 	target *query.Target,
-	sql string,
+	preparedStatement *query.PreparedStatement,
+	portal *query.Portal,
 	options *query.ExecuteOptions,
 	callback func(context.Context, *query.QueryResult) error,
 ) (queryservice.ReservedState, error) {
+	// TODO: Implement actual portal execution with parameter binding
+	e.logger.DebugContext(ctx, "portal stream execute",
+		"tablegroup", target.TableGroup,
+		"shard", target.Shard,
+		"portal", portal.Name,
+		"query", preparedStatement.Query)
+
 	// TODO: Implement actual connection reservation logic
-	// For now, just execute the query normally and return empty state
-	e.logger.WarnContext(ctx, "ReserveStreamExecute not fully implemented, using regular StreamExecute")
-	err := e.StreamExecute(ctx, target, sql, options, callback)
-	return queryservice.ReservedState{}, err
+	// Return empty reserved state for now
+	return queryservice.ReservedState{}, nil
 }
 
 // Describe returns metadata about a prepared statement or portal.
 func (e *Executor) Describe(
 	ctx context.Context,
 	target *query.Target,
+	preparedStatement *query.PreparedStatement,
+	portal *query.Portal,
 	options *query.ExecuteOptions,
 ) (*query.StatementDescription, error) {
 	// TODO: Implement Describe to return field descriptions for prepared statements/portals

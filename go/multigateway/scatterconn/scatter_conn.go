@@ -182,12 +182,13 @@ func (sc *ScatterConn) PortalStreamExecute(
 	if err != nil {
 		return fmt.Errorf("portal execution failed: %w", err)
 	}
-	// TODO: Use reserved state.
 
+	// TODO: Store reserved state in connection state for subsequent queries
 	sc.logger.DebugContext(ctx, "portal execution completed successfully",
 		"tablegroup", tableGroup,
 		"shard", shard,
-		"portal", portalInfo.Portal.Name)
+		"portal", portalInfo.Portal.Name,
+		"reserved_connection_id", reservedState.ReservedConnectionId)
 
 	return nil
 }

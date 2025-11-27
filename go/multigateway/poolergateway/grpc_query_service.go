@@ -140,32 +140,34 @@ func (g *grpcQueryService) ExecuteQuery(ctx context.Context, target *query.Targe
 	return res.GetResult(), err
 }
 
-// ReserveStreamExecute reserves a connection and executes a query on it.
-func (g *grpcQueryService) ReserveStreamExecute(
+// PortalStreamExecute executes a portal (bound prepared statement) and streams results back via callback.
+// Returns ReservedState containing information about the reserved connection used for this execution.
+func (g *grpcQueryService) PortalStreamExecute(
 	ctx context.Context,
 	target *query.Target,
-	sql string,
+	preparedStatement *query.PreparedStatement,
+	portal *query.Portal,
 	options *query.ExecuteOptions,
 	callback func(context.Context, *query.QueryResult) error,
 ) (queryservice.ReservedState, error) {
-	g.logger.DebugContext(ctx, "reserve and stream query execution",
+	g.logger.DebugContext(ctx, "portal stream execute",
 		"pooler_id", g.poolerID,
 		"tablegroup", target.TableGroup,
 		"shard", target.Shard,
 		"pooler_type", target.PoolerType.String(),
-		"query", sql)
+		"portal", portal.Name)
 
-	// TODO: Implement ReserveStreamExecute in the multipooler gRPC service
-	// For now, just call StreamExecute and return empty ReservedState
-	g.logger.WarnContext(ctx, "ReserveStreamExecute not yet implemented, falling back to StreamExecute")
-	err := g.StreamExecute(ctx, target, sql, options, callback)
-	return queryservice.ReservedState{}, err
+	// TODO: Implement PortalStreamExecute in the multipooler gRPC service
+	g.logger.WarnContext(ctx, "PortalStreamExecute not yet implemented in gRPC service")
+	return queryservice.ReservedState{}, fmt.Errorf("PortalStreamExecute not yet implemented")
 }
 
 // Describe returns metadata about a prepared statement or portal.
 func (g *grpcQueryService) Describe(
 	ctx context.Context,
 	target *query.Target,
+	preparedStatement *query.PreparedStatement,
+	portal *query.Portal,
 	options *query.ExecuteOptions,
 ) (*query.StatementDescription, error) {
 	g.logger.DebugContext(ctx, "describing statement/portal",

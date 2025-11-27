@@ -613,12 +613,6 @@ type ExecuteOptions struct {
 	// be applied to the connection before executing the query.
 	// Key is the variable name, value is the variable value.
 	SessionSettings map[string]string `protobuf:"bytes,1,rep,name=session_settings,json=sessionSettings,proto3" json:"session_settings,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
-	// prepared_statement is the prepared statement that should be
-	// available on the connection for this query execution.
-	PreparedStatement *PreparedStatement `protobuf:"bytes,2,opt,name=prepared_statement,json=preparedStatement,proto3" json:"prepared_statement,omitempty"`
-	// portal is the portal (bound prepared statement) that should be
-	// available on the connection for this query execution.
-	Portal *Portal `protobuf:"bytes,3,opt,name=portal,proto3" json:"portal,omitempty"`
 	// max_rows is the maximum number of rows to return from Execute.
 	// 0 means return all rows. Used by the Execute message in the extended query protocol.
 	MaxRows uint64 `protobuf:"varint,4,opt,name=max_rows,json=maxRows,proto3" json:"max_rows,omitempty"`
@@ -663,20 +657,6 @@ func (*ExecuteOptions) Descriptor() ([]byte, []int) {
 func (x *ExecuteOptions) GetSessionSettings() map[string]string {
 	if x != nil {
 		return x.SessionSettings
-	}
-	return nil
-}
-
-func (x *ExecuteOptions) GetPreparedStatement() *PreparedStatement {
-	if x != nil {
-		return x.PreparedStatement
-	}
-	return nil
-}
-
-func (x *ExecuteOptions) GetPortal() *Portal {
-	if x != nil {
-		return x.Portal
 	}
 	return nil
 }
@@ -741,11 +721,9 @@ const file_query_proto_rawDesc = "" +
 	"\x17prepared_statement_name\x18\x02 \x01(\tR\x15preparedStatementName\x12\x16\n" +
 	"\x06params\x18\x03 \x03(\fR\x06params\x12#\n" +
 	"\rparam_formats\x18\x04 \x03(\x05R\fparamFormats\x12%\n" +
-	"\x0eresult_formats\x18\x05 \x03(\x05R\rresultFormats\"\xec\x02\n" +
+	"\x0eresult_formats\x18\x05 \x03(\x05R\rresultFormats\"\xfc\x01\n" +
 	"\x0eExecuteOptions\x12U\n" +
-	"\x10session_settings\x18\x01 \x03(\v2*.query.ExecuteOptions.SessionSettingsEntryR\x0fsessionSettings\x12G\n" +
-	"\x12prepared_statement\x18\x02 \x01(\v2\x18.query.PreparedStatementR\x11preparedStatement\x12%\n" +
-	"\x06portal\x18\x03 \x01(\v2\r.query.PortalR\x06portal\x12\x19\n" +
+	"\x10session_settings\x18\x01 \x03(\v2*.query.ExecuteOptions.SessionSettingsEntryR\x0fsessionSettings\x12\x19\n" +
 	"\bmax_rows\x18\x04 \x01(\x04R\amaxRows\x124\n" +
 	"\x16reserved_connection_id\x18\x05 \x01(\x04R\x14reservedConnectionId\x1aB\n" +
 	"\x14SessionSettingsEntry\x12\x10\n" +
@@ -785,13 +763,11 @@ var file_query_proto_depIdxs = []int32{
 	1,  // 3: query.StatementDescription.fields:type_name -> query.Field
 	10, // 4: query.Target.pooler_type:type_name -> clustermetadata.PoolerType
 	9,  // 5: query.ExecuteOptions.session_settings:type_name -> query.ExecuteOptions.SessionSettingsEntry
-	6,  // 6: query.ExecuteOptions.prepared_statement:type_name -> query.PreparedStatement
-	7,  // 7: query.ExecuteOptions.portal:type_name -> query.Portal
-	8,  // [8:8] is the sub-list for method output_type
-	8,  // [8:8] is the sub-list for method input_type
-	8,  // [8:8] is the sub-list for extension type_name
-	8,  // [8:8] is the sub-list for extension extendee
-	0,  // [0:8] is the sub-list for field type_name
+	6,  // [6:6] is the sub-list for method output_type
+	6,  // [6:6] is the sub-list for method input_type
+	6,  // [6:6] is the sub-list for extension type_name
+	6,  // [6:6] is the sub-list for extension extendee
+	0,  // [0:6] is the sub-list for field type_name
 }
 
 func init() { file_query_proto_init() }

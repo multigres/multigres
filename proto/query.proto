@@ -164,14 +164,6 @@ message ExecuteOptions {
   // Key is the variable name, value is the variable value.
   map<string, string> session_settings = 1;
 
-  // prepared_statement is the prepared statement that should be
-  // available on the connection for this query execution.
-  PreparedStatement prepared_statement = 2;
-
-  // portal is the portal (bound prepared statement) that should be
-  // available on the connection for this query execution.
-  Portal portal = 3;
-
   // max_rows is the maximum number of rows to return from Execute.
   // 0 means return all rows. Used by the Execute message in the extended query protocol.
   uint64 max_rows = 4;

@@ -235,12 +235,13 @@ func (pg *PoolerGateway) getOrCreateConnection(
 	return queryService, nil
 }
 
-// ReserveStreamExecute implements queryservice.QueryService.
-// It reserves a connection and executes a query on it, returning reservation information.
-func (pg *PoolerGateway) ReserveStreamExecute(
+// PortalStreamExecute implements queryservice.QueryService.
+// It executes a portal and returns reservation information.
+func (pg *PoolerGateway) PortalStreamExecute(
 	ctx context.Context,
 	target *query.Target,
-	sql string,
+	preparedStatement *query.PreparedStatement,
+	portal *query.Portal,
 	options *query.ExecuteOptions,
 	callback func(context.Context, *query.QueryResult) error,
 ) (queryservice.ReservedState, error) {
@@ -251,7 +252,7 @@ func (pg *PoolerGateway) ReserveStreamExecute(
 	}
 
 	// Delegate to the pooler's QueryService
-	return queryService.ReserveStreamExecute(ctx, target, sql, options, callback)
+	return queryService.PortalStreamExecute(ctx, target, preparedStatement, portal, options, callback)
 }
 
 // Describe implements queryservice.QueryService.
@@ -259,6 +260,8 @@ func (pg *PoolerGateway) ReserveStreamExecute(
 func (pg *PoolerGateway) Describe(
 	ctx context.Context,
 	target *query.Target,
+	preparedStatement *query.PreparedStatement,
+	portal *query.Portal,
 	options *query.ExecuteOptions,
 ) (*query.StatementDescription, error) {
 	// Get a pooler matching the target
@@ -268,7 +271,7 @@ func (pg *PoolerGateway) Describe(
 	}
 
 	// Delegate to the pooler's QueryService
-	return queryService.Describe(ctx, target, options)
+	return queryService.Describe(ctx, target, preparedStatement, portal, options)
 }
 
 // Close implements queryservice.QueryService.
