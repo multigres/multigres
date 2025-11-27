@@ -19,10 +19,10 @@ import (
 	"fmt"
 	"log/slog"
 
+	"github.com/multigres/multigres/go/common/preparedstatement"
 	"github.com/multigres/multigres/go/multigateway/engine"
 	"github.com/multigres/multigres/go/multigateway/handler"
 	"github.com/multigres/multigres/go/multigateway/planner"
-	"github.com/multigres/multigres/go/multipooler/queryservice"
 	"github.com/multigres/multigres/go/parser/ast"
 	"github.com/multigres/multigres/go/pb/query"
 	"github.com/multigres/multigres/go/pgprotocol/server"
@@ -65,22 +65,22 @@ func NewExecutor(exec engine.IExecute, logger *slog.Logger) *Executor {
 func (e *Executor) StreamExecute(
 	ctx context.Context,
 	conn *server.Conn,
-	sql string,
+	state *handler.MultiGatewayConnectionState,
+	queryStr string,
 	astStmt ast.Stmt,
-	options *handler.ExecuteOptions,
 	callback func(ctx context.Context, res *query.QueryResult) error,
 ) error {
 	e.logger.DebugContext(ctx, "executing query",
-		"query", sql,
+		"query", queryStr,
 		"user", conn.User(),
 		"database", conn.Database(),
 		"connection_id", conn.ConnectionID())
 
 	// Step 1: Plan the query
-	plan, err := e.planner.Plan(sql, conn)
+	plan, err := e.planner.Plan(queryStr, conn)
 	if err != nil {
 		e.logger.ErrorContext(ctx, "query planning failed",
-			"query", sql,
+			"query", queryStr,
 			"error", err)
 		return err
 	}
@@ -91,47 +91,50 @@ func (e *Executor) StreamExecute(
 
 	// Step 2: Execute the plan
 	// Pass the IExecute implementation to the plan, which will pass it to the primitive
-	err = plan.StreamExecute(ctx, e.exec, conn, options, callback)
+	err = plan.StreamExecute(ctx, e.exec, conn, state, callback)
 	if err != nil {
 		e.logger.ErrorContext(ctx, "query execution failed",
-			"query", sql,
+			"query", queryStr,
 			"plan", plan.String(),
 			"error", err)
 		return err
 	}
 
 	e.logger.DebugContext(ctx, "query execution completed",
-		"query", sql,
+		"query", queryStr,
 		"tablegroup", plan.GetTableGroup())
 
 	return nil
 }
 
-// ReserveStreamExecute reserves a connection and executes a query on it.
-// Returns ReservedState containing the connection ID and pooler ID for this session.
-func (e *Executor) ReserveStreamExecute(
+// PortalExecute executes a portal and streams results back via the callback function.
+func (e *Executor) PortalExecute(
 	ctx context.Context,
 	conn *server.Conn,
-	sql string,
-	astStmt ast.Stmt,
-	options *handler.ExecuteOptions,
+	state *handler.MultiGatewayConnectionState,
+	portalInfo *preparedstatement.PortalInfo,
+	maxRows int32,
 	callback func(ctx context.Context, res *query.QueryResult) error,
-) (queryservice.ReservedState, error) {
-	e.logger.DebugContext(ctx, "reserve and execute query",
-		"query", sql,
+) error {
+	e.logger.DebugContext(ctx, "executing portal",
+		"portal", portalInfo.Portal.Name,
+		"max_rows", maxRows,
 		"user", conn.User(),
 		"database", conn.Database(),
 		"connection_id", conn.ConnectionID())
 
-	// TODO: Implement actual connection reservation through the query service
-	return queryservice.ReservedState{}, fmt.Errorf("ReserveStreamExecute not yet implemented")
+	// TODO: Implement portal execution through the query service
+	e.logger.WarnContext(ctx, "PortalExecute not yet implemented")
+	return fmt.Errorf("PortalExecute not yet implemented")
 }
 
 // Describe returns metadata about a prepared statement or portal.
 func (e *Executor) Describe(
 	ctx context.Context,
 	conn *server.Conn,
-	options *handler.ExecuteOptions,
+	state *handler.MultiGatewayConnectionState,
+	portalInfo *preparedstatement.PortalInfo,
+	preparedStatementInfo *preparedstatement.PreparedStatementInfo,
 ) (*query.StatementDescription, error) {
 	e.logger.DebugContext(ctx, "describe",
 		"user", conn.User(),
@@ -139,7 +142,6 @@ func (e *Executor) Describe(
 		"connection_id", conn.ConnectionID())
 
 	// TODO: Implement Describe by routing to the multipooler via the query service
-	// This should use the PreparedStatement or Portal from options
 	e.logger.WarnContext(ctx, "Describe not yet implemented")
 	return nil, fmt.Errorf("Describe not yet implemented")
 }

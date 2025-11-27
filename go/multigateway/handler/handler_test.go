@@ -21,7 +21,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/multigres/multigres/go/multipooler/queryservice"
+	"github.com/multigres/multigres/go/common/preparedstatement"
 	"github.com/multigres/multigres/go/parser/ast"
 	"github.com/multigres/multigres/go/pb/query"
 	"github.com/multigres/multigres/go/pgprotocol/server"
@@ -30,7 +30,7 @@ import (
 // mockExecutor is a mock implementation of the Executor interface for testing.
 type mockExecutor struct{}
 
-func (m *mockExecutor) StreamExecute(ctx context.Context, conn *server.Conn, queryStr string, astStmt ast.Stmt, options *ExecuteOptions, callback func(ctx context.Context, result *query.QueryResult) error) error {
+func (m *mockExecutor) StreamExecute(ctx context.Context, conn *server.Conn, state *MultiGatewayConnectionState, queryStr string, astStmt ast.Stmt, callback func(ctx context.Context, result *query.QueryResult) error) error {
 	// Return a simple test result
 	return callback(ctx, &query.QueryResult{
 		Fields: []*query.Field{
@@ -44,16 +44,21 @@ func (m *mockExecutor) StreamExecute(ctx context.Context, conn *server.Conn, que
 	})
 }
 
-func (m *mockExecutor) ReserveStreamExecute(ctx context.Context, conn *server.Conn, queryStr string, astStmt ast.Stmt, options *ExecuteOptions, callback func(ctx context.Context, result *query.QueryResult) error) (queryservice.ReservedState, error) {
-	// Return a simple test result and a mock ReservedState
-	err := m.StreamExecute(ctx, conn, queryStr, astStmt, options, callback)
-	return queryservice.ReservedState{
-		ReservedConnectionId: 123,
-		PoolerID:             nil, // Mock doesn't have a real pooler ID
-	}, err
+func (m *mockExecutor) PortalExecute(ctx context.Context, conn *server.Conn, state *MultiGatewayConnectionState, portalInfo *preparedstatement.PortalInfo, maxRows int32, callback func(ctx context.Context, result *query.QueryResult) error) error {
+	// Return a simple test result
+	return callback(ctx, &query.QueryResult{
+		Fields: []*query.Field{
+			{Name: "column1", Type: "int4"},
+		},
+		Rows: []*query.Row{
+			{Values: [][]byte{[]byte("1")}},
+		},
+		CommandTag:   "SELECT 1",
+		RowsAffected: 1,
+	})
 }
 
-func (m *mockExecutor) Describe(ctx context.Context, conn *server.Conn, options *ExecuteOptions) (*query.StatementDescription, error) {
+func (m *mockExecutor) Describe(ctx context.Context, conn *server.Conn, state *MultiGatewayConnectionState, portalInfo *preparedstatement.PortalInfo, preparedStatementInfo *preparedstatement.PreparedStatementInfo) (*query.StatementDescription, error) {
 	// Return a simple test description
 	return &query.StatementDescription{
 		Fields: []*query.Field{

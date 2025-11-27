@@ -20,7 +20,6 @@ import (
 	"log/slog"
 
 	"github.com/multigres/multigres/go/common/preparedstatement"
-	"github.com/multigres/multigres/go/multipooler/queryservice"
 	"github.com/multigres/multigres/go/parser"
 	"github.com/multigres/multigres/go/parser/ast"
 	"github.com/multigres/multigres/go/pb/query"
@@ -30,16 +29,15 @@ import (
 
 // Executor defines the interface for query execution.
 type Executor interface {
-	StreamExecute(ctx context.Context, conn *server.Conn, queryStr string, astStmt ast.Stmt, options *ExecuteOptions, callback func(ctx context.Context, result *query.QueryResult) error) error
+	// StreamExecute is used to run the provided query in streaming mode.
+	StreamExecute(ctx context.Context, conn *server.Conn, state *MultiGatewayConnectionState, queryStr string, astStmt ast.Stmt, callback func(ctx context.Context, result *query.QueryResult) error) error
 
-	// ReserveStreamExecute reserves a connection, executes a query on it, and returns reservation information.
-	// This is used for session affinity - ensuring subsequent queries from the same session use the same connection.
-	// Returns ReservedState containing the reserved connection ID and pooler ID.
-	ReserveStreamExecute(ctx context.Context, conn *server.Conn, queryStr string, astStmt ast.Stmt, options *ExecuteOptions, callback func(ctx context.Context, result *query.QueryResult) error) (queryservice.ReservedState, error)
+	// PortalExecute is used to execute a Portal that was previously created.
+	PortalExecute(ctx context.Context, conn *server.Conn, state *MultiGatewayConnectionState, portalInfo *preparedstatement.PortalInfo, maxRows int32, callback func(ctx context.Context, result *query.QueryResult) error) error
 
 	// Describe returns metadata about a prepared statement or portal.
 	// The options should contain PreparedStatement or Portal information and the reserved connection ID.
-	Describe(ctx context.Context, conn *server.Conn, options *ExecuteOptions) (*query.StatementDescription, error)
+	Describe(ctx context.Context, conn *server.Conn, state *MultiGatewayConnectionState, portalInfo *preparedstatement.PortalInfo, preparedStatementInfo *preparedstatement.PreparedStatementInfo) (*query.StatementDescription, error)
 }
 
 // MultiGatewayHandler implements the pgprotocol Handler interface for multigateway.
@@ -74,14 +72,11 @@ func (h *MultiGatewayHandler) HandleQuery(ctx context.Context, conn *server.Conn
 	if len(asts) == 0 {
 		return callback(ctx, nil)
 	}
+	st := h.getConnectionState(conn)
 
 	for _, astStmt := range asts {
-		// Create execute options with reserved connection ID for connection pinning
-		// TODO: Implement connection reservation and get the actual reserved connection ID
-		options := &ExecuteOptions{}
-
 		// Route the query through the executor which will eventually call multipooler
-		err = h.executor.StreamExecute(ctx, conn, queryStr, astStmt, options, callback)
+		err = h.executor.StreamExecute(ctx, conn, st, queryStr, astStmt, callback)
 		if err != nil {
 			return err
 		}
@@ -149,24 +144,16 @@ func (h *MultiGatewayHandler) HandleExecute(ctx context.Context, conn *server.Co
 		return fmt.Errorf("portal \"%s\" does not exist", portalName)
 	}
 
-	options := &ExecuteOptions{
-		PreparedStatement: portalInfo.PreparedStatementInfo.PreparedStatement,
-		Portal:            portalInfo.Portal,
-		MaxRows:           uint64(maxRows),
-	}
-
-	if maxRows == 0 {
-		return h.executor.StreamExecute(ctx, conn, "", nil, options, callback)
-	}
-
-	// TODO: Handle maxRows limitation (cursor support for partial fetches)
-	return nil
+	return h.executor.PortalExecute(ctx, conn, state, portalInfo, maxRows, callback)
 }
 
 // HandleDescribe processes a Describe message ('D').
 // Describes either a prepared statement ('S') or a portal ('P').
 func (h *MultiGatewayHandler) HandleDescribe(ctx context.Context, conn *server.Conn, typ byte, name string) (*query.StatementDescription, error) {
 	h.logger.DebugContext(ctx, "describe", "type", string(typ), "name", name)
+
+	// Get the connection state.
+	state := h.getConnectionState(conn)
 
 	switch typ {
 	case 'S': // Describe prepared statement
@@ -175,31 +162,17 @@ func (h *MultiGatewayHandler) HandleDescribe(ctx context.Context, conn *server.C
 			return nil, fmt.Errorf("prepared statement \"%s\" does not exist", name)
 		}
 
-		// Create execute options with prepared statement info
-		options := &ExecuteOptions{
-			PreparedStatement: stmt.PreparedStatement,
-			// TODO: Add reserved connection ID if one exists for this session
-		}
-
 		// Call executor to get description from multipooler
-		return h.executor.Describe(ctx, conn, options)
+		return h.executor.Describe(ctx, conn, state, nil, stmt)
 
 	case 'P': // Describe portal
-		state := h.getConnectionState(conn)
 		portalInfo := state.GetPortalInfo(name)
 		if portalInfo == nil {
 			return nil, fmt.Errorf("portal \"%s\" does not exist", name)
 		}
 
-		// Create execute options with portal and prepared statement info
-		options := &ExecuteOptions{
-			PreparedStatement: portalInfo.PreparedStatementInfo.PreparedStatement,
-			Portal:            portalInfo.Portal,
-			// TODO: Add reserved connection ID if one exists for this session
-		}
-
 		// Call executor to get description from multipooler
-		return h.executor.Describe(ctx, conn, options)
+		return h.executor.Describe(ctx, conn, state, portalInfo, nil)
 
 	default:
 		return nil, fmt.Errorf("invalid describe type: %c (expected 'S' or 'P')", typ)

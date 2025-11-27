@@ -37,19 +37,21 @@ type IExecute interface {
 	//
 	// Parameters:
 	//   ctx: Context for cancellation and timeouts
+	//   conn: Database connection
 	//   tableGroup: Target tablegroup for the query
 	//   shard: Target shard (empty string for unsharded or any shard)
 	//   sql: SQL query to execute
-	//   options: Execute options containing session state and settings
+	//   state: Connection state containing session information and reserved connections
 	//   callback: Function called for each result chunk
 	// TODO: When we support sharded query serving, this method will need to take in
 	// Routing parameters instead and figure out which all shards to send queries to.
 	StreamExecute(
 		ctx context.Context,
+		conn *server.Conn,
 		tableGroup string,
 		shard string,
 		sql string,
-		options *handler.ExecuteOptions,
+		state *handler.MultiGatewayConnectionState,
 		callback func(context.Context, *query.QueryResult) error,
 	) error
 }
@@ -67,7 +69,7 @@ type Primitive interface {
 		ctx context.Context,
 		exec IExecute,
 		conn *server.Conn,
-		options *handler.ExecuteOptions,
+		state *handler.MultiGatewayConnectionState,
 		callback func(context.Context, *query.QueryResult) error,
 	) error
 

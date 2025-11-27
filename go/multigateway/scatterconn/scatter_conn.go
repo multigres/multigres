@@ -32,6 +32,7 @@ import (
 	"github.com/multigres/multigres/go/multipooler/queryservice"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/pb/query"
+	"github.com/multigres/multigres/go/pgprotocol/server"
 	"github.com/multigres/multigres/go/protoutil"
 )
 
@@ -60,16 +61,20 @@ func NewScatterConn(gateway poolergateway.Gateway, logger *slog.Logger) *Scatter
 // - Streams actual results back via callback
 func (sc *ScatterConn) StreamExecute(
 	ctx context.Context,
+	conn *server.Conn,
 	tableGroup string,
 	shard string,
 	sql string,
-	options *handler.ExecuteOptions,
+	state *handler.MultiGatewayConnectionState,
 	callback func(context.Context, *query.QueryResult) error,
 ) error {
 	sc.logger.DebugContext(ctx, "scatter conn executing query",
 		"tablegroup", tableGroup,
 		"shard", shard,
-		"query", sql)
+		"query", sql,
+		"user", conn.User(),
+		"database", conn.Database(),
+		"connection_id", conn.ConnectionID())
 
 	// Create target for routing
 	// TODO: Add query analysis to determine if this is a read or write query
@@ -80,16 +85,12 @@ func (sc *ScatterConn) StreamExecute(
 		Shard:      shard,
 	}
 
-	eo := &query.ExecuteOptions{
-		PreparedStatement: options.PreparedStatement,
-		Portal:            options.Portal,
-		MaxRows:           options.MaxRows,
-	}
+	eo := &query.ExecuteOptions{}
 
 	var qs queryservice.QueryService = sc.gateway
 	var err error
 
-	ss := getMatchingShardState(options.ShardStates, target)
+	ss := getMatchingShardState(state.ShardStates, target)
 	// If we have a reserved connection, we have to ensure
 	// we are routing the query to the pooler where we got the reserved
 	// connection from. If a reparent happened, then we will get an error

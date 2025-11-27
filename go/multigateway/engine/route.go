@@ -53,17 +53,18 @@ func (r *Route) StreamExecute(
 	ctx context.Context,
 	exec IExecute,
 	conn *server.Conn,
-	options *handler.ExecuteOptions,
+	state *handler.MultiGatewayConnectionState,
 	callback func(context.Context, *query.QueryResult) error,
 ) error {
 	// Execute the query through the execution interface
 	// This will call ScatterConn in Phase 2+, or a stub/mock in testing
 	return exec.StreamExecute(
 		conn.Context(),
+		conn,
 		r.TableGroup,
 		r.Shard,
 		r.Query,
-		options,
+		state,
 		callback,
 	)
 }
