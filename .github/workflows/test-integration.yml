@@ -94,7 +94,7 @@ jobs:
           reporter: golang-json
 
       - name: Upload coverage artifact
-        uses: actions/upload-artifact@50769540e7f4bd5e21e526ee35c689e35e0d6874 # v4.4.0
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
         if: always()
         with:
           name: coverage-data
@@ -114,7 +114,6 @@ jobs:
           name: coverage-data
 
       - name: Upload coverage reports to Coveralls
-        if: success() || failure()
         uses: coverallsapp/github-action@643bc377ffa44ace6394b2b5d0d3950076de9f63 # v2.3.0
         with:
           file: ./coverage.txt
