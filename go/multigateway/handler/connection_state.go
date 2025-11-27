@@ -18,8 +18,10 @@ import (
 	"sync"
 
 	"github.com/multigres/multigres/go/common/preparedstatement"
+	"github.com/multigres/multigres/go/multipooler/queryservice"
 	"github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/pb/query"
+	"github.com/multigres/multigres/go/protoutil"
 )
 
 // MultiGatewayConnectionState keeps track of the information specific
@@ -82,4 +84,40 @@ func (m *MultiGatewayConnectionState) DeletePortalInfo(portalName string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	delete(m.Portals, portalName)
+}
+
+// NewShardState creates a new shard state.
+func NewShardState(target *query.Target) *ShardState {
+	return &ShardState{
+		Target: target,
+	}
+}
+
+// GetMatchingShardState gets the shardState (if any) that matches the target specified.
+func (m *MultiGatewayConnectionState) GetMatchingShardState(target *query.Target) *ShardState {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, ss := range m.ShardStates {
+		if protoutil.TargetEquals(ss.Target, target) {
+			return ss
+		}
+	}
+	return nil
+}
+
+// StoreReservedConnection stores a new reserved connection that has been created.
+func (m *MultiGatewayConnectionState) StoreReservedConnection(target *query.Target, rs queryservice.ReservedState) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, ss := range m.ShardStates {
+		if protoutil.TargetEquals(ss.Target, target) {
+			ss.PoolerID = rs.PoolerID
+			ss.ReservedConnectionId = int64(rs.ReservedConnectionId)
+			return
+		}
+	}
+	ss := NewShardState(target)
+	ss.PoolerID = rs.PoolerID
+	ss.ReservedConnectionId = int64(rs.ReservedConnectionId)
+	m.ShardStates = append(m.ShardStates, ss)
 }

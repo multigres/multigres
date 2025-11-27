@@ -34,7 +34,6 @@ import (
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/pb/query"
 	"github.com/multigres/multigres/go/pgprotocol/server"
-	"github.com/multigres/multigres/go/protoutil"
 )
 
 // ScatterConn coordinates query execution across multiple multipooler instances.
@@ -91,7 +90,7 @@ func (sc *ScatterConn) StreamExecute(
 	var qs queryservice.QueryService = sc.gateway
 	var err error
 
-	ss := getMatchingShardState(state.ShardStates, target)
+	ss := state.GetMatchingShardState(target)
 	// If we have a reserved connection, we have to ensure
 	// we are routing the query to the pooler where we got the reserved
 	// connection from. If a reparent happened, then we will get an error
@@ -157,7 +156,7 @@ func (sc *ScatterConn) PortalStreamExecute(
 	var qs queryservice.QueryService = sc.gateway
 	var err error
 
-	ss := getMatchingShardState(state.ShardStates, target)
+	ss := state.GetMatchingShardState(target)
 	// If we have a reserved connection, we have to ensure
 	// we are routing the query to the pooler where we got the reserved
 	// connection from. If a reparent happened, then we will get an error
@@ -182,8 +181,8 @@ func (sc *ScatterConn) PortalStreamExecute(
 	if err != nil {
 		return fmt.Errorf("portal execution failed: %w", err)
 	}
+	state.StoreReservedConnection(target, reservedState)
 
-	// TODO: Store reserved state in connection state for subsequent queries
 	sc.logger.DebugContext(ctx, "portal execution completed successfully",
 		"tablegroup", tableGroup,
 		"shard", shard,
@@ -231,7 +230,7 @@ func (sc *ScatterConn) Describe(
 	var qs queryservice.QueryService = sc.gateway
 	var err error
 
-	ss := getMatchingShardState(state.ShardStates, target)
+	ss := state.GetMatchingShardState(target)
 	// If we have a reserved connection, use it
 	if ss != nil && ss.ReservedConnectionId != 0 {
 		eo.ReservedConnectionId = uint64(ss.ReservedConnectionId)
@@ -257,16 +256,6 @@ func (sc *ScatterConn) Describe(
 		"shard", shard)
 
 	return description, nil
-}
-
-// getMatchingShardState gets the shardState (if any) that matches the target specified.
-func getMatchingShardState(shardState []*handler.ShardState, target *query.Target) *handler.ShardState {
-	for _, ss := range shardState {
-		if protoutil.TargetEquals(ss.Target, target) {
-			return ss
-		}
-	}
-	return nil
 }
 
 // Ensure ScatterConn implements engine.IExecute interface.
