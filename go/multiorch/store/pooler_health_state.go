@@ -12,10 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package multiorchdata
+package store
 
 import (
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	multiorchdata "github.com/multigres/multigres/go/pb/multiorchdata"
 )
 
 // IsInitialized returns true if the pooler has been initialized.
@@ -23,7 +24,7 @@ import (
 // - It's reachable (IsLastCheckValid)
 // - For PRIMARY: PrimaryStatus.Lsn is non-empty
 // - For REPLICA: ReplicationStatus has non-empty LastReplayLsn or LastReceiveLsn
-func (p *PoolerHealthState) IsInitialized() bool {
+func IsInitialized(p *multiorchdata.PoolerHealthState) bool {
 	if !p.IsLastCheckValid {
 		return false // unreachable nodes are uninitialized
 	}
