@@ -20,6 +20,7 @@ package engine
 import (
 	"context"
 
+	"github.com/multigres/multigres/go/common/preparedstatement"
 	"github.com/multigres/multigres/go/multigateway/handler"
 	"github.com/multigres/multigres/go/pb/query"
 	"github.com/multigres/multigres/go/pgprotocol/server"
@@ -54,6 +55,48 @@ type IExecute interface {
 		state *handler.MultiGatewayConnectionState,
 		callback func(context.Context, *query.QueryResult) error,
 	) error
+
+	// PortalStreamExecute executes a portal (bound prepared statement) and streams results.
+	//
+	// Parameters:
+	//   ctx: Context for cancellation and timeouts
+	//   tableGroup: Target tablegroup for the query
+	//   shard: Target shard (empty string for unsharded or any shard)
+	//   conn: Database connection
+	//   state: Connection state containing session information and reserved connections
+	//   portalInfo: Portal information including bound parameters
+	//   maxRows: Maximum number of rows to return (0 for unlimited)
+	//   callback: Function called for each result chunk
+	PortalStreamExecute(
+		ctx context.Context,
+		tableGroup string,
+		shard string,
+		conn *server.Conn,
+		state *handler.MultiGatewayConnectionState,
+		portalInfo *preparedstatement.PortalInfo,
+		maxRows int32,
+		callback func(context.Context, *query.QueryResult) error,
+	) error
+
+	// Describe returns metadata about a prepared statement or portal.
+	//
+	// Parameters:
+	//   ctx: Context for cancellation and timeouts
+	//   tableGroup: Target tablegroup for the query
+	//   shard: Target shard (empty string for unsharded or any shard)
+	//   conn: Database connection
+	//   state: Connection state containing session information and reserved connections
+	//   portalInfo: Portal information (nil if describing a prepared statement)
+	//   preparedStatementInfo: Prepared statement information (nil if describing a portal)
+	Describe(
+		ctx context.Context,
+		tableGroup string,
+		shard string,
+		conn *server.Conn,
+		state *handler.MultiGatewayConnectionState,
+		portalInfo *preparedstatement.PortalInfo,
+		preparedStatementInfo *preparedstatement.PreparedStatementInfo,
+	) (*query.StatementDescription, error)
 }
 
 // Primitive is the building block of the query execution plan.

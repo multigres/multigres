@@ -32,8 +32,8 @@ type Executor interface {
 	// StreamExecute is used to run the provided query in streaming mode.
 	StreamExecute(ctx context.Context, conn *server.Conn, state *MultiGatewayConnectionState, queryStr string, astStmt ast.Stmt, callback func(ctx context.Context, result *query.QueryResult) error) error
 
-	// PortalExecute is used to execute a Portal that was previously created.
-	PortalExecute(ctx context.Context, conn *server.Conn, state *MultiGatewayConnectionState, portalInfo *preparedstatement.PortalInfo, maxRows int32, callback func(ctx context.Context, result *query.QueryResult) error) error
+	// PortalStreamExecute is used to execute a Portal that was previously created.
+	PortalStreamExecute(ctx context.Context, conn *server.Conn, state *MultiGatewayConnectionState, portalInfo *preparedstatement.PortalInfo, maxRows int32, callback func(ctx context.Context, result *query.QueryResult) error) error
 
 	// Describe returns metadata about a prepared statement or portal.
 	// The options should contain PreparedStatement or Portal information and the reserved connection ID.
@@ -144,7 +144,7 @@ func (h *MultiGatewayHandler) HandleExecute(ctx context.Context, conn *server.Co
 		return fmt.Errorf("portal \"%s\" does not exist", portalName)
 	}
 
-	return h.executor.PortalExecute(ctx, conn, state, portalInfo, maxRows, callback)
+	return h.executor.PortalStreamExecute(ctx, conn, state, portalInfo, maxRows, callback)
 }
 
 // HandleDescribe processes a Describe message ('D').

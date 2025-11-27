@@ -44,7 +44,7 @@ func (m *mockExecutor) StreamExecute(ctx context.Context, conn *server.Conn, sta
 	})
 }
 
-func (m *mockExecutor) PortalExecute(ctx context.Context, conn *server.Conn, state *MultiGatewayConnectionState, portalInfo *preparedstatement.PortalInfo, maxRows int32, callback func(ctx context.Context, result *query.QueryResult) error) error {
+func (m *mockExecutor) PortalStreamExecute(ctx context.Context, conn *server.Conn, state *MultiGatewayConnectionState, portalInfo *preparedstatement.PortalInfo, maxRows int32, callback func(ctx context.Context, result *query.QueryResult) error) error {
 	// Return a simple test result
 	return callback(ctx, &query.QueryResult{
 		Fields: []*query.Field{

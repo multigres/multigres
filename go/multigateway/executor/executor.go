@@ -16,7 +16,6 @@ package executor
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
 
 	"github.com/multigres/multigres/go/common/preparedstatement"
@@ -107,8 +106,8 @@ func (e *Executor) StreamExecute(
 	return nil
 }
 
-// PortalExecute executes a portal and streams results back via the callback function.
-func (e *Executor) PortalExecute(
+// PortalStreamExecute executes a portal and streams results back via the callback function.
+func (e *Executor) PortalStreamExecute(
 	ctx context.Context,
 	conn *server.Conn,
 	state *handler.MultiGatewayConnectionState,
@@ -123,9 +122,12 @@ func (e *Executor) PortalExecute(
 		"database", conn.Database(),
 		"connection_id", conn.ConnectionID())
 
-	// TODO: Implement portal execution through the query service
-	e.logger.WarnContext(ctx, "PortalExecute not yet implemented")
-	return fmt.Errorf("PortalExecute not yet implemented")
+	// TODO: We will need to plan the query to find wether it can
+	// be served by a single shard or not. For now, since we only
+	// support unsharded, we don't have to do much.
+	// We just send the query to the default table group.
+
+	return e.exec.PortalStreamExecute(ctx, e.planner.GetDefaultTableGroup(), "", conn, state, portalInfo, maxRows, callback)
 }
 
 // Describe returns metadata about a prepared statement or portal.
@@ -141,9 +143,12 @@ func (e *Executor) Describe(
 		"database", conn.Database(),
 		"connection_id", conn.ConnectionID())
 
-	// TODO: Implement Describe by routing to the multipooler via the query service
-	e.logger.WarnContext(ctx, "Describe not yet implemented")
-	return nil, fmt.Errorf("Describe not yet implemented")
+	// TODO: We will need to plan the query to find wether it can
+	// be served by a single shard or not. For now, since we only
+	// support unsharded, we don't have to do much.
+	// We just send the query to the default table group.
+
+	return e.exec.Describe(ctx, e.planner.GetDefaultTableGroup(), "", conn, state, portalInfo, preparedStatementInfo)
 }
 
 // Ensure Executor implements handler.Executor interface.
