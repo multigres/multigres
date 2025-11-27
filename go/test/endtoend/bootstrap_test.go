@@ -12,6 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+// Package endtoend contains integration tests for multigres components.
+//
+// Bootstrap and recovery tests:
+//   - TestBootstrapInitialization: Verifies multiorch automatically detects and bootstraps
+//     uninitialized shards without manual intervention.
+//   - TestMultiOrchLeaderReelection: Verifies multiorch detects primary failure and
+//     automatically elects a new leader from remaining standbys.
+//   - TestMultiOrchMixedInitializationRepair: Verifies multiorch handles mixed scenarios
+//     where some nodes are initialized and others are not, preferring to promote
+//     initialized standbys over bootstrapping new nodes.
 package endtoend
 
 import (
