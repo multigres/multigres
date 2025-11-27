@@ -95,8 +95,9 @@ func CreateDataDir(t *testing.T, baseDir string, initialized bool) string {
 func CreatePIDFile(t *testing.T, dataDir string, pid int) {
 	t.Helper()
 
-	// Start a background sleep process to get a real PID that will pass the isProcessRunning check
-	cmd := exec.Command("sleep", "3600")
+	// Start a background sleep process with "postgres" in the command name to pass the isProcessRunning check.
+	// The 'exec -a' renames the process so it appears as "postgres-test" in ps output.
+	cmd := exec.Command("sh", "-c", "exec -a postgres-test sleep 3600")
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("Failed to start background sleep process: %v", err)
 	}

@@ -194,8 +194,8 @@ case "$1" in
         done
         
         if [ -n "$DATADIR" ]; then
-            # Start a harmless background process and use its PID
-            sleep 3600 &
+            # Start a background process with "postgres" in command name to pass isProcessRunning check
+            sh -c 'exec -a postgres-test sleep 3600' &
             MOCK_PID=$!
             echo "$MOCK_PID" > "$DATADIR/postmaster.pid"
             echo "$DATADIR" >> "$DATADIR/postmaster.pid"
@@ -237,9 +237,9 @@ case "$1" in
             rm -f "$DATADIR/postmaster.pid"
             echo "waiting for server to shut down.... done"
             echo "server stopped"
-            
-            # Start a new background process
-            sleep 3600 &
+
+            # Start a new background process with "postgres" in command name
+            sh -c 'exec -a postgres-test sleep 3600' &
             MOCK_PID=$!
             echo "$MOCK_PID" > "$DATADIR/postmaster.pid"
             echo "$DATADIR" >> "$DATADIR/postmaster.pid"
