@@ -192,7 +192,6 @@ func (pm *MultiPoolerManager) InitializeAsStandby(ctx context.Context, req *mult
 	} else {
 		pm.logger.WarnContext(ctx, "No LSN available from backup metadata")
 	}
-	// TODO: do something with finalLSN?
 
 	// 3. Wait for database connection
 	if err := pm.waitForDatabaseConnection(ctx); err != nil {
