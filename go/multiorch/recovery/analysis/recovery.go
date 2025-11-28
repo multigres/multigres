@@ -46,5 +46,17 @@ type RecoveryMetadata struct {
 	Name        string
 	Description string
 	Timeout     time.Duration
+	// LockTimeout is the maximum time to wait for lock acquisition.
+	// Should be shorter than Timeout to leave time for the actual operation.
+	// Defaults to 15 seconds if zero.
+	LockTimeout time.Duration
 	Retryable   bool
+}
+
+// GetLockTimeout returns the lock timeout, defaulting to 15 seconds if not set.
+func (m RecoveryMetadata) GetLockTimeout() time.Duration {
+	if m.LockTimeout == 0 {
+		return 15 * time.Second
+	}
+	return m.LockTimeout
 }

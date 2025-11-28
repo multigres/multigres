@@ -42,24 +42,29 @@ func (a *AppointLeaderRecoveryAction) Execute(ctx context.Context, problem Probl
 		"shard", problem.Shard)
 
 	// Step 1: Acquire distributed lock for this shard
-	lockPath := fmt.Sprintf("recovery/%s/%s/%s", problem.Database, problem.TableGroup, problem.Shard)
-	lockContents := fmt.Sprintf("appoint leader recovery for shard %s/%s/%s", problem.Database, problem.TableGroup, problem.Shard)
-
+	metadata := a.Metadata()
+	lockPath := topo.RecoveryLockPath(problem.Database, problem.TableGroup, problem.Shard)
 	a.logger.InfoContext(ctx, "acquiring recovery lock", "lock_path", lockPath)
-	conn, err := a.topoStore.ConnForCell(ctx, topo.GlobalCell)
+
+	lockDesc, err := a.topoStore.LockShardForRecovery(
+		ctx,
+		problem.Database,
+		problem.TableGroup,
+		problem.Shard,
+		"appoint leader recovery",
+		metadata.GetLockTimeout(),
+	)
 	if err != nil {
-		return fmt.Errorf("failed to get topo connection: %w", err)
-	}
-	lockDesc, err := conn.LockName(ctx, lockPath, lockContents)
-	if err != nil {
-		// Another recovery is in progress
-		a.logger.InfoContext(ctx, "failed to acquire lock, another recovery in progress",
+		a.logger.InfoContext(ctx, "failed to acquire lock, another recovery may be in progress",
 			"lock_path", lockPath,
 			"error", err)
-		return fmt.Errorf("failed to acquire recovery lock: %w", err)
+		return err
 	}
 	defer func() {
-		if unlockErr := lockDesc.Unlock(ctx); unlockErr != nil {
+		// Use background context for unlock to ensure lock release even if ctx is cancelled
+		unlockCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if unlockErr := lockDesc.Unlock(unlockCtx); unlockErr != nil {
 			a.logger.WarnContext(ctx, "failed to release recovery lock",
 				"lock_path", lockPath,
 				"error", unlockErr)
@@ -145,6 +150,7 @@ func (a *AppointLeaderRecoveryAction) Metadata() RecoveryMetadata {
 		Name:        "AppointLeader",
 		Description: "Elect a new primary for the shard using consensus",
 		Timeout:     60 * time.Second,
+		LockTimeout: 15 * time.Second,
 		Retryable:   true, // can retry if it fails
 	}
 }
