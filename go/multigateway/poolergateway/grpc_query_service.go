@@ -173,7 +173,6 @@ func (g *grpcQueryService) PortalStreamExecute(
 	}
 
 	var reservedState queryservice.ReservedState
-	firstResponse := true
 
 	// Stream results back via callback
 	for {
@@ -187,16 +186,13 @@ func (g *grpcQueryService) PortalStreamExecute(
 			return reservedState, fmt.Errorf("portal stream receive error: %w", err)
 		}
 
-		// Extract reserved state from first response
-		if firstResponse {
+		// Extract reserved state if present
+		if response.ReservedConnectionId != 0 {
 			reservedState.ReservedConnectionId = response.ReservedConnectionId
-			if response.PoolerId != nil {
-				reservedState.PoolerID = response.PoolerId
-				g.logger.DebugContext(ctx, "received reserved connection",
-					"reserved_connection_id", response.ReservedConnectionId,
-					"pooler_id", response.PoolerId.String())
-			}
-			firstResponse = false
+			reservedState.PoolerID = response.PoolerId
+			g.logger.DebugContext(ctx, "received reserved connection",
+				"reserved_connection_id", response.ReservedConnectionId,
+				"pooler_id", response.PoolerId.String())
 		}
 
 		// Extract result from response
