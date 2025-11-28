@@ -69,6 +69,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/spf13/pflag"
 	"golang.org/x/sync/errgroup"
@@ -198,6 +199,10 @@ type Store interface {
 
 	// Connection provider for accessing cell-specific connections
 	ConnProvider
+
+	// LockShardForRecovery acquires a distributed lock for recovery operations on a shard.
+	// See recovery_lock.go for full documentation.
+	LockShardForRecovery(ctx context.Context, database, tableGroup, shard, purpose string, lockTimeout time.Duration) (LockDescriptor, error)
 
 	// Resource cleanup
 	io.Closer
