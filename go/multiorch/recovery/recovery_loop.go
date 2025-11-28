@@ -210,10 +210,11 @@ func (re *Engine) attemptRecovery(problem analysis.Problem) {
 		return
 	}
 
-	// Acquire lock if needed
+	// Note: Locking is handled by the recovery actions themselves using
+	// topo.LockShardForRecovery(). Actions that require locking (RequiresLock() == true)
+	// acquire distributed locks internally with configurable timeout from Metadata().LockTimeout.
 	if problem.RecoveryAction.RequiresLock() {
-		// TODO: Implement shard locking
-		re.logger.DebugContext(re.ctx, "recovery action requires lock", "problem_code", problem.Code)
+		re.logger.DebugContext(re.ctx, "recovery action will acquire shard lock", "problem_code", problem.Code)
 	}
 
 	// Execute recovery action
