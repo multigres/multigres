@@ -210,10 +210,11 @@ func TestAnalysisGenerator_GenerateAnalyses_Replica(t *testing.T) {
 			Shard:      "0",
 			Type:       clustermetadatapb.PoolerType_PRIMARY,
 		},
-		IsLastCheckValid: true,
-		IsUpToDate:       true,
-		LastSeen:         timestamppb.Now(),
-		PoolerType:       clustermetadatapb.PoolerType_PRIMARY,
+		IsLastCheckValid:  true,
+		IsUpToDate:        true,
+		IsPostgresRunning: true,
+		LastSeen:          timestamppb.Now(),
+		PoolerType:        clustermetadatapb.PoolerType_PRIMARY,
 	}
 	poolerStore.Set("multipooler-cell1-primary-1", primary)
 
@@ -316,4 +317,62 @@ func TestAnalysisGenerator_GenerateAnalyses_MultipleTableGroups(t *testing.T) {
 
 	assert.True(t, tableGroups["tg1"])
 	assert.True(t, tableGroups["tg2"])
+}
+
+func TestAggregateReplicaStats_MatchesByHostAndPort(t *testing.T) {
+	// Create a store with primary and replica on same host but different ports
+	poolerStore := store.NewProtoStore[string, *multiorchdatapb.PoolerHealthState]()
+
+	primaryID := "multipooler-cell1-node1"
+	replicaID := "multipooler-cell1-node2"
+
+	// Primary on host1:5432
+	poolerStore.Set(primaryID, &multiorchdatapb.PoolerHealthState{
+		MultiPooler: &clustermetadatapb.MultiPooler{
+			Id: &clustermetadatapb.ID{
+				Component: clustermetadatapb.ID_MULTIPOOLER,
+				Cell:      "cell1",
+				Name:      "node1",
+			},
+			Database:   "db1",
+			TableGroup: "tg1",
+			Shard:      "shard1",
+			Hostname:   "host1",
+			PortMap:    map[string]int32{"postgres": 5432},
+		},
+		PoolerType:       clustermetadatapb.PoolerType_PRIMARY,
+		IsLastCheckValid: true,
+		PrimaryStatus:    &multipoolermanagerdatapb.PrimaryStatus{Lsn: "0/1234"},
+	})
+
+	// Replica pointing to host1:5433 (wrong port - different primary)
+	poolerStore.Set(replicaID, &multiorchdatapb.PoolerHealthState{
+		MultiPooler: &clustermetadatapb.MultiPooler{
+			Id: &clustermetadatapb.ID{
+				Component: clustermetadatapb.ID_MULTIPOOLER,
+				Cell:      "cell1",
+				Name:      "node2",
+			},
+			Database:   "db1",
+			TableGroup: "tg1",
+			Shard:      "shard1",
+			Hostname:   "host2",
+		},
+		PoolerType:       clustermetadatapb.PoolerType_REPLICA,
+		IsLastCheckValid: true,
+		ReplicationStatus: &multipoolermanagerdatapb.StandbyReplicationStatus{
+			LastReplayLsn: "0/1234",
+			PrimaryConnInfo: &multipoolermanagerdatapb.PrimaryConnInfo{
+				Host: "host1",
+				Port: 5433, // Different port!
+			},
+		},
+	})
+
+	gen := NewAnalysisGenerator(poolerStore)
+	analysis, err := gen.GenerateAnalysisForPooler(primaryID)
+	require.NoError(t, err)
+
+	// Should NOT count this replica since port doesn't match
+	assert.Equal(t, uint(0), analysis.CountReplicas, "replica with wrong port should not be counted")
 }
