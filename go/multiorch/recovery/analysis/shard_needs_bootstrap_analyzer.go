@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/multigres/multigres/go/multiorch/store"
+	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 )
 
 // ShardNeedsBootstrapAnalyzer detects when all nodes in a shard are uninitialized.
@@ -31,6 +32,35 @@ func (a *ShardNeedsBootstrapAnalyzer) Name() CheckName {
 }
 
 func (a *ShardNeedsBootstrapAnalyzer) Analyze(poolerAnalysis *store.ReplicationAnalysis) []Problem {
+	// Skip unreachable nodes - we can't determine their true initialization state.
+	// An unreachable node might be perfectly initialized but just temporarily down.
+	// Other analyzers (PrimaryIsDead, ShardHasNoPrimary) will handle dead primaries.
+	if poolerAnalysis.IsUnreachable {
+		return nil
+	}
+
+	// Skip primary nodes - they don't have a PrimaryPoolerID by design (they ARE the primary).
+	// A dead primary should be handled by PrimaryIsDead (detected by replicas), not by
+	// ShardNeedsBootstrap. When a primary's postgres dies, it appears as:
+	// - IsPrimary = true (it's the primary)
+	// - IsInitialized = false (postgres down)
+	// - PrimaryPoolerID = nil (it's the primary itself)
+	// This would incorrectly trigger ShardNeedsBootstrap if we don't skip it.
+	// Note: IsPrimary is based on MultiPooler.Type == PRIMARY from topology, which is set
+	// when the node is initialized as primary. New uninitialized nodes start with Type=PRIMARY
+	// but will have IsInitialized=false AND PrimaryPoolerID != nil won't match below.
+	if poolerAnalysis.IsPrimary && poolerAnalysis.IsInitialized {
+		// Only skip if it was actually initialized as primary (has health data)
+		return nil
+	}
+
+	// Skip if node is registered as a REPLICA - it was initialized at some point.
+	// Even if IsInitialized is false (e.g., due to failed health check when primary died),
+	// a node that was ever a REPLICA should not trigger bootstrap.
+	if poolerAnalysis.PoolerType == clustermetadatapb.PoolerType_REPLICA {
+		return nil
+	}
+
 	// Only analyze if this pooler is uninitialized
 	if poolerAnalysis.IsInitialized {
 		return nil

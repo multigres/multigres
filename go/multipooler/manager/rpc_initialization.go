@@ -299,13 +299,12 @@ func (pm *MultiPoolerManager) hasDataDirectory() bool {
 		return false
 	}
 
+	// Check if PG_VERSION file exists to confirm the data directory is properly initialized.
+	// This prevents treating an empty directory (e.g., left behind by a failed initdb) as initialized.
 	dataDir := filepath.Join(pm.config.PoolerDir, "pg_data")
-	info, err := os.Stat(dataDir)
-	if err != nil {
-		return false
-	}
-
-	return info.IsDir()
+	pgVersionFile := filepath.Join(dataDir, "PG_VERSION")
+	_, err := os.Stat(pgVersionFile)
+	return err == nil
 }
 
 // isPostgresRunning checks if PostgreSQL is currently running

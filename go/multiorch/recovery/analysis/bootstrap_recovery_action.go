@@ -21,14 +21,17 @@ import (
 	"time"
 
 	"github.com/multigres/multigres/go/clustermetadata/topo"
+	"github.com/multigres/multigres/go/common/rpcclient"
 	"github.com/multigres/multigres/go/multiorch/recovery/actions"
 	"github.com/multigres/multigres/go/multiorch/store"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
+	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
 
 // BootstrapRecoveryAction wraps actions.BootstrapShardAction to implement RecoveryAction interface.
 type BootstrapRecoveryAction struct {
 	bootstrapAction *actions.BootstrapShardAction
+	rpcClient       rpcclient.MultiPoolerClient
 	poolerStore     *store.ProtoStore[string, *multiorchdatapb.PoolerHealthState]
 	topoStore       topo.Store
 	logger          *slog.Logger
@@ -79,15 +82,28 @@ func (a *BootstrapRecoveryAction) Execute(ctx context.Context, problem Problem) 
 			problem.Database, problem.TableGroup, problem.Shard)
 	}
 
-	// Verify all nodes are still uninitialized
+	// Verify all nodes are still uninitialized by making fresh RPC calls.
+	// Don't rely on potentially stale store data - call InitializationStatus RPC directly.
 	allUninitialized := true
 	for _, pooler := range cohort {
-		if store.IsInitialized(pooler) {
+		// Make fresh RPC call to get current initialization status
+		req := &multipoolermanagerdatapb.InitializationStatusRequest{}
+		resp, err := a.rpcClient.InitializationStatus(ctx, pooler.MultiPooler, req)
+		if err != nil {
+			// Node unreachable - can't determine state, continue checking others
+			a.logger.WarnContext(ctx, "node unreachable during bootstrap recheck",
+				"node", pooler.MultiPooler.Id.Name,
+				"error", err)
+			continue
+		}
+
+		if resp.IsInitialized {
 			allUninitialized = false
-			a.logger.InfoContext(ctx, "node is now initialized, skipping bootstrap",
+			a.logger.InfoContext(ctx, "node is now initialized (fresh RPC check), skipping bootstrap",
 				"node", pooler.MultiPooler.Id.Name,
 				"database", problem.Database,
-				"shard", problem.Shard)
+				"shard", problem.Shard,
+				"role", resp.Role)
 			break
 		}
 	}

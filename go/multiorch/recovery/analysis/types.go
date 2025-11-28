@@ -61,14 +61,16 @@ const (
 type Priority int
 
 const (
-	// PriorityShardBootstrap is for shard-wide bootstrap issues like no primary exists.
-	// This is the highest priority - the shard cannot function at all.
-	// Arbitrarily high priority, to leave room for other priorities.
-	PriorityShardBootstrap Priority = 10000
-
 	// PriorityEmergency is for catastrophic issues like dead primary.
-	// These must be fixed before anything else can proceed.
-	PriorityEmergency Priority = 1000
+	// This is the highest priority - a dead primary must be replaced immediately.
+	// When a primary dies, we want to elect a new leader from existing standbys,
+	// NOT re-bootstrap the entire shard.
+	PriorityEmergency Priority = 10000
+
+	// PriorityShardBootstrap is for shard-wide bootstrap issues when ALL nodes are uninitialized.
+	// This has lower priority than PriorityEmergency to ensure dead primary detection
+	// takes precedence over bootstrap when there are initialized standbys.
+	PriorityShardBootstrap Priority = 5000
 
 	// PriorityHigh is for serious issues that don't block everything.
 	// Examples: replica not replicating, replica pointing to wrong primary.

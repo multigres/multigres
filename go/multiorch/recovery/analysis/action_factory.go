@@ -56,6 +56,7 @@ func (f *RecoveryActionFactory) NewBootstrapRecoveryAction() RecoveryAction {
 	bootstrapAction := actions.NewBootstrapShardAction(f.rpcClient, f.topoStore, f.logger)
 	return &BootstrapRecoveryAction{
 		bootstrapAction: bootstrapAction,
+		rpcClient:       f.rpcClient,
 		poolerStore:     f.poolerStore,
 		topoStore:       f.topoStore,
 		logger:          f.logger,

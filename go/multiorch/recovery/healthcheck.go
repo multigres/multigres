@@ -166,8 +166,11 @@ func (re *Engine) pollPooler(ctx context.Context, poolerID *clustermetadata.ID, 
 
 	if statusResp.UsingInitStatus {
 		// We're using InitializationStatus response (postgres not running)
-		// Don't populate PoolerType or PrimaryStatus/ReplicationStatus since postgres is down
-		// The IsInitialized() method will return false when these are not populated
+		// NOTE: We do NOT clear PrimaryStatus/ReplicationStatus - they may contain
+		// valid data from when postgres was running, which is needed to determine
+		// IsInitialized(). The IsPostgresRunning flag is used separately to track
+		// whether postgres is currently running.
+		pooler.IsPostgresRunning = false
 		re.logger.InfoContext(ctx, "pooler poll successful (using InitializationStatus)",
 			"pooler_id", poolerIDStr,
 			"topology_type", pooler.MultiPooler.Type,
@@ -176,7 +179,8 @@ func (re *Engine) pollPooler(ctx context.Context, poolerID *clustermetadata.ID, 
 			"latency", time.Since(totalStart),
 		)
 	} else {
-		// We're using Status response (normal case)
+		// We're using Status response (normal case - postgres is running)
+		pooler.IsPostgresRunning = true
 		pooler.PoolerType = statusResp.StatusResponse.Status.PoolerType
 		pooler.PrimaryStatus = statusResp.StatusResponse.Status.PrimaryStatus
 		pooler.ReplicationStatus = statusResp.StatusResponse.Status.ReplicationStatus

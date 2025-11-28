@@ -249,7 +249,7 @@ func TestBootstrapInitialization(t *testing.T) {
 			Shard:      shardID,
 			Database:   database,
 			TableGroup: "test",
-			Type:       clustermetadatapb.PoolerType_PRIMARY, // All start as PRIMARY candidates
+			Type:       clustermetadatapb.PoolerType_UNKNOWN, // All start with unknown type until bootstrap determines role
 		}
 		err = ts.RegisterMultiPooler(ctx, pooler, true /* overwrite */)
 		require.NoError(t, err, "Failed to register pooler %s in topology", node.name)
@@ -376,13 +376,11 @@ func TestBootstrapInitialization(t *testing.T) {
 // creating a second postgres instance that masks the test's intentional SIGKILL.
 // This prevents multiorch from detecting the primary failure and electing a new leader.
 // The race typically occurs ~7 seconds after initial bootstrap completion.
-// TODO: Fix multiorch to add distributed locking or state coordination to prevent redundant bootstrap attempts.
+// Fixed: Distributed locking now prevents concurrent bootstrap attempts.
 func TestMultiOrchLeaderReelection(t *testing.T) {
 	if utils.ShouldSkipRealPostgres() {
 		t.Skip("Skipping end-to-end leader reelection test (short mode or no postgres binaries)")
 	}
-
-	t.Skip("Skipping due to multiorch bootstrap coordination race condition - see test comment for details")
 
 	_, err := exec.LookPath("etcd")
 	require.NoError(t, err, "etcd binary must be available in PATH")
@@ -473,7 +471,7 @@ func TestMultiOrchLeaderReelection(t *testing.T) {
 			Shard:      shardID,
 			Database:   database,
 			TableGroup: "test",
-			Type:       clustermetadatapb.PoolerType_PRIMARY,
+			Type:       clustermetadatapb.PoolerType_UNKNOWN, // All start with unknown type until bootstrap determines role
 		}
 		err = ts.RegisterMultiPooler(ctx, pooler, true)
 		require.NoError(t, err, "Failed to register pooler %s", node.name)
@@ -678,7 +676,7 @@ func TestMultiOrchMixedInitializationRepair(t *testing.T) {
 			Shard:      shardID,
 			Database:   database,
 			TableGroup: "test",
-			Type:       clustermetadatapb.PoolerType_PRIMARY,
+			Type:       clustermetadatapb.PoolerType_UNKNOWN, // All start with unknown type until bootstrap determines role
 		}
 		err = ts.RegisterMultiPooler(ctx, pooler, true)
 		require.NoError(t, err, "Failed to register pooler %s", node.name)

@@ -133,10 +133,8 @@ func (i *PgCtldInitCmd) runInit(cmd *cobra.Command, args []string) error {
 }
 
 func initializeDataDir(logger *slog.Logger, dataDir string, pgUser string, pgPwfile string) error {
-	// Create data directory if it doesn't exist
-	if err := os.MkdirAll(dataDir, 0o700); err != nil {
-		return fmt.Errorf("failed to create data directory: %w", err)
-	}
+	// Note: initdb will create the data directory itself if it doesn't exist.
+	// We don't create it beforehand to avoid leaving empty directories if initdb fails.
 
 	// Run initdb
 	//
