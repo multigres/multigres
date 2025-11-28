@@ -34,9 +34,8 @@ func TestPoolerHealthState_IsInitialized(t *testing.T) {
 			name: "unreachable primary is uninitialized",
 			pooler: &multiorchdatapb.PoolerHealthState{
 				IsLastCheckValid: false,
-				MultiPooler: &clustermetadatapb.MultiPooler{
-					Type: clustermetadatapb.PoolerType_PRIMARY,
-				},
+				MultiPooler:      &clustermetadatapb.MultiPooler{},
+				PoolerType:       clustermetadatapb.PoolerType_PRIMARY,
 				PrimaryStatus: &multipoolermanagerdatapb.PrimaryStatus{
 					Lsn: "0/123ABC",
 				},
@@ -47,9 +46,8 @@ func TestPoolerHealthState_IsInitialized(t *testing.T) {
 			name: "reachable primary with LSN is initialized",
 			pooler: &multiorchdatapb.PoolerHealthState{
 				IsLastCheckValid: true,
-				MultiPooler: &clustermetadatapb.MultiPooler{
-					Type: clustermetadatapb.PoolerType_PRIMARY,
-				},
+				MultiPooler:      &clustermetadatapb.MultiPooler{},
+				PoolerType:       clustermetadatapb.PoolerType_PRIMARY,
 				PrimaryStatus: &multipoolermanagerdatapb.PrimaryStatus{
 					Lsn: "0/123ABC",
 				},
@@ -60,9 +58,8 @@ func TestPoolerHealthState_IsInitialized(t *testing.T) {
 			name: "reachable primary without LSN is uninitialized",
 			pooler: &multiorchdatapb.PoolerHealthState{
 				IsLastCheckValid: true,
-				MultiPooler: &clustermetadatapb.MultiPooler{
-					Type: clustermetadatapb.PoolerType_PRIMARY,
-				},
+				MultiPooler:      &clustermetadatapb.MultiPooler{},
+				PoolerType:       clustermetadatapb.PoolerType_PRIMARY,
 				PrimaryStatus: &multipoolermanagerdatapb.PrimaryStatus{
 					Lsn: "",
 				},
@@ -73,9 +70,8 @@ func TestPoolerHealthState_IsInitialized(t *testing.T) {
 			name: "reachable replica with replay LSN is initialized",
 			pooler: &multiorchdatapb.PoolerHealthState{
 				IsLastCheckValid: true,
-				MultiPooler: &clustermetadatapb.MultiPooler{
-					Type: clustermetadatapb.PoolerType_REPLICA,
-				},
+				MultiPooler:      &clustermetadatapb.MultiPooler{},
+				PoolerType:       clustermetadatapb.PoolerType_REPLICA,
 				ReplicationStatus: &multipoolermanagerdatapb.StandbyReplicationStatus{
 					LastReplayLsn: "0/123ABC",
 				},
@@ -86,9 +82,8 @@ func TestPoolerHealthState_IsInitialized(t *testing.T) {
 			name: "reachable replica with receive LSN is initialized",
 			pooler: &multiorchdatapb.PoolerHealthState{
 				IsLastCheckValid: true,
-				MultiPooler: &clustermetadatapb.MultiPooler{
-					Type: clustermetadatapb.PoolerType_REPLICA,
-				},
+				MultiPooler:      &clustermetadatapb.MultiPooler{},
+				PoolerType:       clustermetadatapb.PoolerType_REPLICA,
 				ReplicationStatus: &multipoolermanagerdatapb.StandbyReplicationStatus{
 					LastReceiveLsn: "0/123ABC",
 				},
@@ -98,10 +93,9 @@ func TestPoolerHealthState_IsInitialized(t *testing.T) {
 		{
 			name: "reachable replica without LSNs is uninitialized",
 			pooler: &multiorchdatapb.PoolerHealthState{
-				IsLastCheckValid: true,
-				MultiPooler: &clustermetadatapb.MultiPooler{
-					Type: clustermetadatapb.PoolerType_REPLICA,
-				},
+				IsLastCheckValid:  true,
+				MultiPooler:       &clustermetadatapb.MultiPooler{},
+				PoolerType:        clustermetadatapb.PoolerType_REPLICA,
 				ReplicationStatus: &multipoolermanagerdatapb.StandbyReplicationStatus{},
 			},
 			expected: false,
@@ -110,9 +104,8 @@ func TestPoolerHealthState_IsInitialized(t *testing.T) {
 			name: "unreachable replica is uninitialized",
 			pooler: &multiorchdatapb.PoolerHealthState{
 				IsLastCheckValid: false,
-				MultiPooler: &clustermetadatapb.MultiPooler{
-					Type: clustermetadatapb.PoolerType_REPLICA,
-				},
+				MultiPooler:      &clustermetadatapb.MultiPooler{},
+				PoolerType:       clustermetadatapb.PoolerType_REPLICA,
 				ReplicationStatus: &multipoolermanagerdatapb.StandbyReplicationStatus{
 					LastReplayLsn: "0/123ABC",
 				},
