@@ -201,6 +201,13 @@ func (c *Coordinator) selectCandidate(ctx context.Context, cohort []*multiorchda
 			continue
 		}
 
+		// Skip nodes with empty WAL position (e.g., postgres is down but multipooler is still responding)
+		if status.walPosition == "" {
+			c.logger.InfoContext(ctx, "Skipping node with empty WAL position",
+				"node", status.node.MultiPooler.Id.Name)
+			continue
+		}
+
 		// Parse and validate LSN
 		lsn, err := pglogrepl.ParseLSN(status.walPosition)
 		if err != nil {
@@ -501,7 +508,7 @@ func (c *Coordinator) Propagate(ctx context.Context, candidate *multiorchdatapb.
 
 			setPrimaryReq := &multipoolermanagerdatapb.SetPrimaryConnInfoRequest{
 				Host:                  candidate.MultiPooler.Hostname,
-				Port:                  candidate.MultiPooler.PortMap["grpc"],
+				Port:                  candidate.MultiPooler.PortMap["pg"],
 				CurrentTerm:           term,
 				StopReplicationBefore: false,
 				StartReplicationAfter: false,

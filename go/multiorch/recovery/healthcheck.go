@@ -317,7 +317,14 @@ func (re *Engine) queuePoolersHealthCheck() {
 
 	pushedCount := 0
 
-	// Iterate over poolers using Range() to hold lock during iteration
+	// Collect poolers to queue and poolers that need IsUpToDate reset
+	var poolersToQueue []string
+	var poolersToReset []struct {
+		id   string
+		info *multiorchdatapb.PoolerHealthState
+	}
+
+	// Iterate over poolers using Range() - do NOT call Set inside Range (deadlock!)
 	re.poolerStore.Range(func(poolerID string, poolerInfo *multiorchdatapb.PoolerHealthState) bool {
 		// Skip if recently attempted (either never attempted or older than interval)
 		lastCheckAttempted := time.Time{}
@@ -328,11 +335,32 @@ func (re *Engine) queuePoolersHealthCheck() {
 			return true // continue iteration
 		}
 
-		// Push to queue for health checking
-		re.healthCheckQueue.Push(poolerID)
-		pushedCount++
+		// Collect pooler for queueing
+		poolersToQueue = append(poolersToQueue, poolerID)
+
+		// If IsUpToDate is true, collect for reset (will be done after Range completes)
+		// Without this reset, pollPooler skips if IsUpToDate && IsLastCheckValid are both true.
+		if poolerInfo.IsUpToDate {
+			poolerInfo.IsUpToDate = false
+			poolersToReset = append(poolersToReset, struct {
+				id   string
+				info *multiorchdatapb.PoolerHealthState
+			}{poolerID, poolerInfo})
+		}
+
 		return true // continue iteration
 	})
+
+	// Now safe to call Set (Range lock is released)
+	for _, p := range poolersToReset {
+		re.poolerStore.Set(p.id, p.info)
+	}
+
+	// Push collected poolers to queue
+	for _, poolerID := range poolersToQueue {
+		re.healthCheckQueue.Push(poolerID)
+		pushedCount++
+	}
 
 	if pushedCount > 0 {
 		re.logger.Debug("pushed poolers to health check queue",

@@ -186,7 +186,7 @@ func (mg *MultiGateway) Init() {
 	multigateway := topo.NewMultiGateway(mg.serviceID.Get(), mg.cell.Get(), mg.senv.GetHostname())
 	multigateway.PortMap["grpc"] = int32(mg.grpcServer.Port())
 	multigateway.PortMap["http"] = int32(mg.senv.GetHTTPPort())
-	multigateway.PortMap["pg"] = int32(mg.pgPort.Get())
+	multigateway.PortMap["postgres"] = int32(mg.pgPort.Get())
 
 	mg.tr = toporeg.Register(
 		func(ctx context.Context) error { return mg.ts.RegisterMultiGateway(ctx, multigateway, true) },

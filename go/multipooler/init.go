@@ -212,6 +212,7 @@ func (mp *MultiPooler) Init(startCtx context.Context) {
 	multipooler := topo.NewMultiPooler(mp.serviceID.Get(), mp.cell.Get(), mp.senv.GetHostname(), mp.tableGroup.Get())
 	multipooler.PortMap["grpc"] = int32(mp.grpcServer.Port())
 	multipooler.PortMap["http"] = int32(mp.senv.GetHTTPPort())
+	multipooler.PortMap["pg"] = int32(mp.pgPort.Get())
 	multipooler.Database = mp.database.Get()
 	multipooler.ServingStatus = clustermetadatapb.PoolerServingStatus_NOT_SERVING
 

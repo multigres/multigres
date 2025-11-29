@@ -1535,7 +1535,7 @@ func (p *localProvisioner) ProvisionDatabase(ctx context.Context, databaseName s
 		databaseConfig := &clustermetadatapb.Database{
 			Name:             databaseName,
 			BackupLocation:   p.config.BackupRepoPath,
-			DurabilityPolicy: "none",    // Default durability policy
+			DurabilityPolicy: "ANY_2",   // Default durability policy for bootstrap
 			Cells:            cellNames, // Register with all cells
 		}
 
@@ -1551,11 +1551,13 @@ func (p *localProvisioner) ProvisionDatabase(ctx context.Context, databaseName s
 
 	var results []*provisioner.ProvisionResult
 
-	// Provision services in each cell
-	for _, cellName := range cellNames {
-		fmt.Printf("=== Provisioning services in cell: %s ===\n", cellName)
+	// Provision services in phases across all cells to ensure dependencies are met.
+	// Multiorch needs all multipoolers running before bootstrap, so we start
+	// services in this order: multigateways -> multipoolers -> multiorchs
 
-		// Provision multigateway
+	// Phase 1: Provision all multigateways
+	fmt.Println("=== Phase 1: Starting Multigateways ===")
+	for _, cellName := range cellNames {
 		fmt.Printf("=== Starting Multigateway in %s ===\n", cellName)
 		multigatewayReq := &provisioner.ProvisionRequest{
 			Service:      "multigateway",
@@ -1576,9 +1578,13 @@ func (p *localProvisioner) ProvisionDatabase(ctx context.Context, databaseName s
 			fmt.Printf("🌐 - Available at: http://%s:%d\n", multigatewayResult.FQDN, httpPort)
 		}
 		results = append(results, multigatewayResult)
+	}
+	fmt.Println("")
 
-		// Provision multipooler
-		fmt.Printf("\n=== Starting Multipooler in %s ===\n", cellName)
+	// Phase 2: Provision all multipoolers (must be done before multiorchs start)
+	fmt.Println("=== Phase 2: Starting Multipoolers ===")
+	for _, cellName := range cellNames {
+		fmt.Printf("=== Starting Multipooler in %s ===\n", cellName)
 		multipoolerReq := &provisioner.ProvisionRequest{
 			Service:      "multipooler",
 			DatabaseName: databaseName,
@@ -1598,9 +1604,13 @@ func (p *localProvisioner) ProvisionDatabase(ctx context.Context, databaseName s
 			fmt.Printf("🌐 - Available at: %s:%d\n", multipoolerResult.FQDN, grpcPort)
 		}
 		results = append(results, multipoolerResult)
+	}
+	fmt.Println("")
 
-		// Provision multiorch
-		fmt.Printf("\n=== Starting MultiOrchestrator in %s ===\n", cellName)
+	// Phase 3: Provision all multiorchs (after all multipoolers are running)
+	fmt.Println("=== Phase 3: Starting MultiOrchestrators ===")
+	for _, cellName := range cellNames {
+		fmt.Printf("=== Starting MultiOrchestrator in %s ===\n", cellName)
 		multiorchReq := &provisioner.ProvisionRequest{
 			Service:      "multiorch",
 			DatabaseName: databaseName,
@@ -1620,9 +1630,10 @@ func (p *localProvisioner) ProvisionDatabase(ctx context.Context, databaseName s
 			fmt.Printf("🌐 - Available at: %s:%d\n", multiorchResult.FQDN, grpcPort)
 		}
 		results = append(results, multiorchResult)
-
-		fmt.Printf("\n✓ Cell %s provisioned successfully\n\n", cellName)
 	}
+	fmt.Println("")
+
+	fmt.Printf("✓ All cells provisioned successfully\n\n")
 
 	// Skip pgBackRest stanza initialization during bootstrap
 	// Stanzas should be created after replication is configured between cells

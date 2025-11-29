@@ -421,6 +421,10 @@ func (pm *MultiPoolerManager) waitForDatabaseConnection(ctx context.Context) err
 		// Try to open the connection
 		if err := pm.connectDB(); err == nil {
 			pm.logger.InfoContext(ctx, "Database connection established successfully", "attempts", attempt)
+			// Also open the query service controller (executor) now that DB is connected
+			if err := pm.qsc.Open(); err != nil {
+				pm.logger.WarnContext(ctx, "Failed to open query service controller after DB connection", "error", err)
+			}
 			return nil
 		} else {
 			lastErr = err

@@ -52,9 +52,11 @@ func TestInitializationStatus(t *testing.T) {
 		{
 			name: "pooler with data directory but no database",
 			setupFunc: func(t *testing.T, pm *MultiPoolerManager, poolerDir string) {
-				// Create data directory
+				// Create data directory with PG_VERSION file to simulate initialized postgres
 				dataDir := filepath.Join(poolerDir, "pg_data")
 				require.NoError(t, os.MkdirAll(dataDir, 0o755))
+				pgVersionFile := filepath.Join(dataDir, "PG_VERSION")
+				require.NoError(t, os.WriteFile(pgVersionFile, []byte("16"), 0o644))
 			},
 			expectedInitialized: false,
 			expectedHasDataDir:  true,
@@ -240,9 +242,11 @@ func TestInitializeAsStandby(t *testing.T) {
 		{
 			name: "force reinit removes existing data",
 			setupFunc: func(t *testing.T, pm *MultiPoolerManager, poolerDir string) {
-				// Create existing data directory
+				// Create existing data directory with PG_VERSION file
 				dataDir := filepath.Join(poolerDir, "pg_data")
 				require.NoError(t, os.MkdirAll(dataDir, 0o755))
+				pgVersionFile := filepath.Join(dataDir, "PG_VERSION")
+				require.NoError(t, os.WriteFile(pgVersionFile, []byte("16"), 0o644))
 
 				// Create a test file
 				testFile := filepath.Join(dataDir, "test.txt")
@@ -347,9 +351,11 @@ func TestHelperMethods(t *testing.T) {
 		// Initially no data directory
 		assert.False(t, pm.hasDataDirectory())
 
-		// Create data directory
+		// Create data directory with PG_VERSION file (simulating initialized postgres)
 		dataDir := filepath.Join(poolerDir, "pg_data")
 		require.NoError(t, os.MkdirAll(dataDir, 0o755))
+		pgVersionFile := filepath.Join(dataDir, "PG_VERSION")
+		require.NoError(t, os.WriteFile(pgVersionFile, []byte("16"), 0o644))
 
 		// Now should return true
 		assert.True(t, pm.hasDataDirectory())

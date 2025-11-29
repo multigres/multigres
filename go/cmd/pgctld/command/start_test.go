@@ -225,7 +225,7 @@ func TestInitializeDataDir(t *testing.T) {
 		logger := slog.New(slog.DiscardHandler)
 		err := initializeDataDir(logger, dataDir, "postgres", "")
 		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "failed to create data directory")
+		assert.Contains(t, err.Error(), "initdb failed")
 	})
 }
 

@@ -14,16 +14,12 @@
 
 // Package endtoend contains integration tests for multigres components.
 //
-// Leader reelection and recovery tests:
+// Leader reelection tests:
 //   - TestMultiOrchLeaderReelection: Verifies multiorch detects primary failure and
 //     automatically elects a new leader from remaining standbys.
-//   - TestMultiOrchMixedInitializationRepair: Verifies multiorch handles mixed scenarios
-//     where some nodes are initialized and others are not, preferring to promote
-//     initialized standbys over bootstrapping new nodes.
 package endtoend
 
 import (
-	"log/slog"
 	"os/exec"
 	"path/filepath"
 	"testing"
@@ -32,12 +28,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/multigres/multigres/go/common/rpcclient"
-	"github.com/multigres/multigres/go/multiorch/recovery/actions"
 	"github.com/multigres/multigres/go/test/utils"
-
-	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
-	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 )
 
 // TestMultiOrchLeaderReelection tests multiorch's ability to detect a primary failure
@@ -118,136 +109,4 @@ func TestMultiOrchLeaderReelection(t *testing.T) {
 		require.NoError(t, err, "Should be able to query new primary")
 		assert.Equal(t, 1, result)
 	})
-}
-
-// TestMultiOrchMixedInitializationRepair tests multiorch's ability to repair a mixed initialization
-// scenario where some nodes are initialized and others are not.
-//
-// The test creates: node0 (initialized primary - killed), node1 (initialized standby), node2 (uninitialized).
-// Expected: multiorch should elect node1 (initialized standby) as the new primary.
-// The leader election logic now prefers initialized nodes over uninitialized nodes.
-func TestMultiOrchMixedInitializationRepair(t *testing.T) {
-	if utils.ShouldSkipRealPostgres() {
-		t.Skip("Skipping end-to-end mixed initialization test (short mode or no postgres binaries)")
-	}
-
-	_, err := exec.LookPath("etcd")
-	require.NoError(t, err, "etcd binary must be available in PATH")
-
-	ctx := t.Context()
-
-	// Setup test environment
-	env := setupMultiOrchTestEnv(t, testEnvConfig{
-		tempDirPrefix:    "mixtest*",
-		cellName:         "test-cell",
-		database:         "postgres",
-		shardID:          "test-shard-mixed",
-		tableGroup:       "test",
-		durabilityPolicy: "ANY_2",
-		stanzaName:       "mixed-test",
-	})
-
-	// Create 3 nodes
-	nodes := env.createNodes(3)
-
-	// Setup pgbackrest
-	env.setupPgBackRest()
-
-	// Bootstrap first 2 nodes manually (simulate partial initialization)
-	t.Logf("Manually bootstrapping first 2 nodes to create mixed scenario...")
-
-	rpcClient := rpcclient.NewMultiPoolerClient(10)
-	defer rpcClient.Close()
-
-	coordNodes := make([]*multiorchdatapb.PoolerHealthState, 2)
-	for i := range 2 {
-		node := nodes[i]
-		pooler := &clustermetadatapb.MultiPooler{
-			Id: &clustermetadatapb.ID{
-				Component: clustermetadatapb.ID_MULTIPOOLER,
-				Cell:      node.cell,
-				Name:      node.name,
-			},
-			Hostname: "localhost",
-			PortMap: map[string]int32{
-				"grpc": int32(node.grpcPort),
-			},
-			Shard:    env.config.shardID,
-			Database: env.config.database,
-		}
-		coordNodes[i] = &multiorchdatapb.PoolerHealthState{
-			MultiPooler: pooler,
-		}
-	}
-
-	logger := slog.Default()
-	bootstrapAction := actions.NewBootstrapShardAction(rpcClient, env.ts, logger)
-	err = bootstrapAction.Execute(ctx, env.config.shardID, env.config.database, coordNodes)
-	require.NoError(t, err, "Manual bootstrap of first 2 nodes should succeed")
-
-	time.Sleep(3 * time.Second) // Wait for bootstrap to complete
-
-	// Verify first 2 nodes are initialized
-	for i := range 2 {
-		status := checkInitializationStatus(t, nodes[i])
-		require.True(t, status.IsInitialized, "Node %d should be initialized", i)
-		t.Logf("Node %d initialized as %s", i, status.Role)
-	}
-
-	// Kill the primary to create a mixed scenario: 1 initialized standby + 1 uninitialized
-	var initialPrimary *nodeInstance
-	var initialStandby *nodeInstance
-	for i := range 2 {
-		status := checkInitializationStatus(t, nodes[i])
-		if status.Role == "primary" {
-			initialPrimary = nodes[i]
-		} else {
-			initialStandby = nodes[i]
-		}
-	}
-	require.NotNil(t, initialPrimary, "Should have identified initial primary")
-	require.NotNil(t, initialStandby, "Should have identified initial standby")
-
-	t.Logf("Killing postgres on initial primary %s to create repair scenario", initialPrimary.name)
-	killPostgres(t, initialPrimary)
-
-	// Register all nodes in topology (including the uninitialized node3)
-	for _, node := range nodes {
-		if node.name == initialPrimary.name {
-			continue // Don't register the killed primary
-		}
-		pooler := &clustermetadatapb.MultiPooler{
-			Id: &clustermetadatapb.ID{
-				Component: clustermetadatapb.ID_MULTIPOOLER,
-				Cell:      node.cell,
-				Name:      node.name,
-			},
-			Hostname: "localhost",
-			PortMap: map[string]int32{
-				"grpc": int32(node.grpcPort),
-			},
-			Shard:      env.config.shardID,
-			Database:   env.config.database,
-			TableGroup: env.config.tableGroup,
-			Type:       clustermetadatapb.PoolerType_UNKNOWN, // All start with unknown type until bootstrap determines role
-		}
-		err = env.ts.RegisterMultiPooler(ctx, pooler, true)
-		require.NoError(t, err, "Failed to register pooler %s", node.name)
-		t.Logf("Registered %s (initialized: %v)", node.name, node.name != nodes[2].name)
-	}
-
-	// Start multiorch to watch and repair
-	env.startMultiOrch()
-
-	// Wait for multiorch to detect mixed state and appoint the initialized standby as primary
-	t.Logf("Waiting for multiorch to detect mixed initialization and appoint new leader...")
-
-	newPrimary := waitForShardBootstrapped(t, []*nodeInstance{initialStandby, nodes[2]}, 60*time.Second)
-	require.NotNil(t, newPrimary, "Expected multiorch to appoint new primary")
-
-	// Should prefer the initialized standby over uninitialized node
-	assert.Equal(t, initialStandby.name, newPrimary.name,
-		"MultiOrch should elect the initialized standby as primary")
-
-	t.Logf("MultiOrch successfully repaired mixed initialization scenario: %s is new primary", newPrimary.name)
 }

@@ -143,12 +143,13 @@ func initializeDataDir(logger *slog.Logger, dataDir string, pgUser string, pgPwf
 	// However, pgBackRest merely logs checksum validation errors but does not fail
 	// the backup.
 	cmd := exec.Command("initdb", "-D", dataDir, "--data-checksums", "--auth-local=trust", "--auth-host=md5", "-U", pgUser)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
 
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("initdb failed: %w", err)
+	// Capture both stdout and stderr to include in error messages
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("initdb failed: %w\nOutput: %s", err, string(output))
 	}
+	logger.Info("initdb completed", "output", string(output))
 
 	// Get the effective password and validate it
 	effectivePassword, err := resolvePassword(pgPwfile)

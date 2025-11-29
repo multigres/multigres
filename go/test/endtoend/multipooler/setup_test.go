@@ -521,6 +521,30 @@ archive_command = 'pgbackrest --stanza=%s --config=%s --repo1-path=%s archive-pu
 	// Wait for manager to be ready
 	waitForManagerReady(t, nil, multipooler)
 
+	// Create multigres schema and heartbeat table (needed for GetLeadershipView tests)
+	// This is normally done during InitializeEmptyPrimary, but we're setting up manually
+	primaryPoolerClient, err := endtoend.NewMultiPoolerTestClient(fmt.Sprintf("localhost:%d", multipooler.GrpcPort))
+	if err != nil {
+		return fmt.Errorf("failed to connect to primary pooler: %w", err)
+	}
+	defer primaryPoolerClient.Close()
+
+	_, err = primaryPoolerClient.ExecuteQuery(context.Background(), "CREATE SCHEMA IF NOT EXISTS multigres", 0)
+	if err != nil {
+		return fmt.Errorf("failed to create multigres schema: %w", err)
+	}
+
+	_, err = primaryPoolerClient.ExecuteQuery(context.Background(), `
+		CREATE TABLE IF NOT EXISTS multigres.heartbeat (
+			shard_id BYTEA PRIMARY KEY,
+			leader_id TEXT NOT NULL,
+			ts BIGINT NOT NULL
+		)`, 0)
+	if err != nil {
+		return fmt.Errorf("failed to create heartbeat table: %w", err)
+	}
+	t.Log("Created multigres schema and heartbeat table")
+
 	// Connect to multipooler manager
 	conn, err := grpc.NewClient(
 		fmt.Sprintf("localhost:%d", multipooler.GrpcPort),

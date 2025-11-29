@@ -86,7 +86,16 @@ func (a *BootstrapShardAction) Execute(ctx context.Context, shardID string, data
 		"database", database,
 		"candidate", candidate.MultiPooler.Id.Name)
 
-	// Step 3: Initialize the candidate as an empty primary with term=1
+	// Step 3: Set pooler type to PRIMARY before initializing
+	changeTypeReq := &multipoolermanagerdatapb.ChangeTypeRequest{
+		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
+	}
+	_, err = a.rpcClient.ChangeType(ctx, candidate.MultiPooler, changeTypeReq)
+	if err != nil {
+		return mterrors.Wrap(err, "failed to set pooler type to PRIMARY")
+	}
+
+	// Step 4: Initialize the candidate as an empty primary with term=1
 	req := &multipoolermanagerdatapb.InitializeEmptyPrimaryRequest{
 		ConsensusTerm: 1,
 	}
@@ -107,7 +116,7 @@ func (a *BootstrapShardAction) Execute(ctx context.Context, shardID string, data
 		"primary", candidate.MultiPooler.Id.Name,
 		"backup_id", resp.BackupId)
 
-	// Step 4: Create durability policy in the primary's database
+	// Step 5: Create durability policy in the primary's database
 	quorumRule, err := a.parsePolicy(policyName)
 	if err != nil {
 		return mterrors.Wrap(err, "failed to parse policy")
@@ -132,7 +141,7 @@ func (a *BootstrapShardAction) Execute(ctx context.Context, shardID string, data
 		"database", database,
 		"policy_name", policyName)
 
-	// Step 5: Initialize remaining nodes as standbys
+	// Step 6: Initialize remaining nodes as standbys
 	standbys := make([]*multiorchdatapb.PoolerHealthState, 0, len(cohort)-1)
 	for _, pooler := range cohort {
 		if pooler.MultiPooler.Id.Name != candidate.MultiPooler.Id.Name {
@@ -241,38 +250,8 @@ func (a *BootstrapShardAction) initializeStandbys(ctx context.Context, shardID s
 
 	for _, standby := range standbys {
 		go func(node *multiorchdatapb.PoolerHealthState) {
-			// Set pooler type to REPLICA before initializing as standby
-			changeTypeReq := &multipoolermanagerdatapb.ChangeTypeRequest{
-				PoolerType: clustermetadatapb.PoolerType_REPLICA,
-			}
-			_, err := a.rpcClient.ChangeType(ctx, node.MultiPooler, changeTypeReq)
-			if err != nil {
-				results <- result{node: node, err: fmt.Errorf("failed to set pooler type: %w", err)}
-				return
-			}
-
-			req := &multipoolermanagerdatapb.InitializeAsStandbyRequest{
-				PrimaryHost:   primary.MultiPooler.Hostname,
-				PrimaryPort:   primary.MultiPooler.PortMap["grpc"],
-				ConsensusTerm: 1,
-				Force:         false,
-				BackupId:      backupID,
-			}
-			resp, err := a.rpcClient.InitializeAsStandby(ctx, node.MultiPooler, req)
-			if err != nil {
-				results <- result{node: node, err: err}
-				return
-			}
-
-			if !resp.Success {
-				results <- result{
-					node: node,
-					err:  fmt.Errorf("initialization failed: %s", resp.ErrorMessage),
-				}
-				return
-			}
-
-			results <- result{node: node, err: nil}
+			err := a.initializeSingleStandby(ctx, node, primary, backupID)
+			results <- result{node: node, err: err}
 		}(standby)
 	}
 
@@ -296,6 +275,36 @@ func (a *BootstrapShardAction) initializeStandbys(ctx context.Context, shardID s
 	if len(failedNodes) > 0 {
 		return mterrors.Errorf(mtrpcpb.Code_INTERNAL,
 			"failed to initialize %d standbys: %v", len(failedNodes), failedNodes)
+	}
+
+	return nil
+}
+
+// initializeSingleStandby initializes a single node as a standby of the given primary.
+func (a *BootstrapShardAction) initializeSingleStandby(ctx context.Context, node *multiorchdatapb.PoolerHealthState, primary *multiorchdatapb.PoolerHealthState, backupID string) error {
+	// Set pooler type to REPLICA before initializing as standby
+	changeTypeReq := &multipoolermanagerdatapb.ChangeTypeRequest{
+		PoolerType: clustermetadatapb.PoolerType_REPLICA,
+	}
+	_, err := a.rpcClient.ChangeType(ctx, node.MultiPooler, changeTypeReq)
+	if err != nil {
+		return fmt.Errorf("failed to set pooler type: %w", err)
+	}
+
+	req := &multipoolermanagerdatapb.InitializeAsStandbyRequest{
+		PrimaryHost:   primary.MultiPooler.Hostname,
+		PrimaryPort:   primary.MultiPooler.PortMap["pg"],
+		ConsensusTerm: 1,
+		Force:         false,
+		BackupId:      backupID,
+	}
+	resp, err := a.rpcClient.InitializeAsStandby(ctx, node.MultiPooler, req)
+	if err != nil {
+		return err
+	}
+
+	if !resp.Success {
+		return fmt.Errorf("initialization failed: %s", resp.ErrorMessage)
 	}
 
 	return nil
