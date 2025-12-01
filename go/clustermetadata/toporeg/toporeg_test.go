@@ -19,6 +19,7 @@ import (
 	"errors"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -57,15 +58,13 @@ func TestRegister_SuccessOnFirstTry(t *testing.T) {
 }
 
 func TestRegister_FailureAndRetry(t *testing.T) {
+	var registerCallCount atomic.Int32
 	var alarmMessages []string
-	var registerCallCount int
 	var mu sync.Mutex
 
 	register := func(ctx context.Context) error {
-		mu.Lock()
-		defer mu.Unlock()
-		registerCallCount++
-		if registerCallCount < 3 {
+		count := registerCallCount.Add(1)
+		if count < 3 {
 			return errors.New("register failed")
 		}
 		return nil
@@ -87,30 +86,28 @@ func TestRegister_FailureAndRetry(t *testing.T) {
 	assert.Eventually(t, func() bool {
 		mu.Lock()
 		defer mu.Unlock()
-		return registerCallCount >= 1 &&
+		return registerCallCount.Load() >= 1 &&
 			len(alarmMessages) > 0 &&
 			strings.Contains(alarmMessages[0], "Failed to register component with topology")
-	}, 20*time.Millisecond, 1*time.Millisecond, "Incorrect register call count %d", registerCallCount)
+	}, 20*time.Millisecond, 1*time.Millisecond, "Incorrect register call count %d", registerCallCount.Load())
 
 	assert.Eventually(t, func() bool {
 		mu.Lock()
 		defer mu.Unlock()
-		return registerCallCount == 3 &&
+		return registerCallCount.Load() == 3 &&
 			alarmMessages[len(alarmMessages)-1] == ""
-	}, 200*time.Millisecond, 1*time.Millisecond, "Incorrect register call count %d", registerCallCount)
+	}, 200*time.Millisecond, 1*time.Millisecond, "Incorrect register call count %d", registerCallCount.Load())
 
 	tr.Unregister()
 }
 
 func TestRegister_ContinuousFailure(t *testing.T) {
 	var alarmMessages []string
-	var registerCallCount int
+	var registerCallCount atomic.Int32
 	var mu sync.Mutex
 
 	register := func(ctx context.Context) error {
-		mu.Lock()
-		defer mu.Unlock()
-		registerCallCount++
+		registerCallCount.Add(1)
 		return errors.New("always fails")
 	}
 
@@ -130,7 +127,7 @@ func TestRegister_ContinuousFailure(t *testing.T) {
 	assert.Eventually(t, func() bool {
 		mu.Lock()
 		defer mu.Unlock()
-		return registerCallCount > 1 && len(alarmMessages) > 1
+		return registerCallCount.Load() > 1 && len(alarmMessages) > 1
 	}, 100*time.Millisecond, 10*time.Millisecond, "register should be retried multiple times")
 
 	mu.Lock()
@@ -141,12 +138,10 @@ func TestRegister_ContinuousFailure(t *testing.T) {
 
 	tr.Unregister()
 
-	finalCallCount := registerCallCount
+	finalCallCount := registerCallCount.Load()
 
 	assert.Never(t, func() bool {
-		mu.Lock()
-		defer mu.Unlock()
-		return registerCallCount > finalCallCount
+		return registerCallCount.Load() > finalCallCount
 	}, 100*time.Millisecond, 50*time.Millisecond, "register should stop being called after Unregister")
 }
 

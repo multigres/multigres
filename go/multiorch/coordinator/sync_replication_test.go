@@ -21,8 +21,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/multigres/multigres/go/multiorch/store"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
 
@@ -40,7 +40,7 @@ func TestBuildSyncReplicationConfig(t *testing.T) {
 			Description:   "Single node quorum",
 		}
 
-		standbys := []*store.PoolerHealth{
+		standbys := []*multiorchdatapb.PoolerHealthState{
 			createTestPoolerHealth("mp1", "cell1"),
 			createTestPoolerHealth("mp2", "cell1"),
 		}
@@ -58,7 +58,7 @@ func TestBuildSyncReplicationConfig(t *testing.T) {
 			AsyncFallback: clustermetadatapb.AsyncReplicationFallbackMode_ASYNC_REPLICATION_FALLBACK_MODE_ALLOW,
 		}
 
-		standbys := []*store.PoolerHealth{}
+		standbys := []*multiorchdatapb.PoolerHealthState{}
 
 		config, err := c.buildSyncReplicationConfig(rule, standbys, candidate)
 		require.NoError(t, err)
@@ -72,7 +72,7 @@ func TestBuildSyncReplicationConfig(t *testing.T) {
 			Description:   "Two node quorum",
 		}
 
-		standbys := []*store.PoolerHealth{
+		standbys := []*multiorchdatapb.PoolerHealthState{
 			createTestPoolerHealth("mp1", "cell1"),
 		}
 
@@ -94,7 +94,7 @@ func TestBuildSyncReplicationConfig(t *testing.T) {
 			Description:   "Three node quorum",
 		}
 
-		standbys := []*store.PoolerHealth{
+		standbys := []*multiorchdatapb.PoolerHealthState{
 			createTestPoolerHealth("mp1", "cell1"),
 			createTestPoolerHealth("mp2", "cell1"),
 		}
@@ -113,7 +113,7 @@ func TestBuildSyncReplicationConfig(t *testing.T) {
 			Description:   "Three node quorum",
 		}
 
-		standbys := []*store.PoolerHealth{
+		standbys := []*multiorchdatapb.PoolerHealthState{
 			createTestPoolerHealth("mp1", "cell1"),
 			createTestPoolerHealth("mp2", "cell1"),
 			createTestPoolerHealth("mp3", "cell1"),
@@ -136,7 +136,7 @@ func TestBuildSyncReplicationConfig(t *testing.T) {
 			AsyncFallback: clustermetadatapb.AsyncReplicationFallbackMode_ASYNC_REPLICATION_FALLBACK_MODE_ALLOW,
 		}
 
-		standbys := []*store.PoolerHealth{
+		standbys := []*multiorchdatapb.PoolerHealthState{
 			createTestPoolerHealth("mp1", "cell1"),
 			createTestPoolerHealth("mp2", "cell1"),
 		}
@@ -155,7 +155,7 @@ func TestBuildSyncReplicationConfig(t *testing.T) {
 			Description:   "Two cell quorum",
 		}
 
-		standbys := []*store.PoolerHealth{
+		standbys := []*multiorchdatapb.PoolerHealthState{
 			createTestPoolerHealth("mp1", "us-west-1a"),
 			createTestPoolerHealth("mp2", "us-west-1b"),
 			createTestPoolerHealth("mp3", "us-west-1c"),
@@ -176,7 +176,7 @@ func TestBuildSyncReplicationConfig(t *testing.T) {
 			Description:   "Two node quorum",
 		}
 
-		standbys := []*store.PoolerHealth{
+		standbys := []*multiorchdatapb.PoolerHealthState{
 			createTestPoolerHealth("mp-alpha", "cell-a"),
 			createTestPoolerHealth("mp-beta", "cell-b"),
 			createTestPoolerHealth("mp-gamma", "cell-c"),
@@ -203,7 +203,7 @@ func TestBuildSyncReplicationConfig(t *testing.T) {
 			RequiredCount: 2,
 		}
 
-		standbys := []*store.PoolerHealth{createTestPoolerHealth("mp1", "cell1")}
+		standbys := []*multiorchdatapb.PoolerHealthState{createTestPoolerHealth("mp1", "cell1")}
 
 		config, err := c.buildSyncReplicationConfig(rule, standbys, candidate)
 		require.NoError(t, err)
@@ -217,7 +217,7 @@ func TestBuildSyncReplicationConfig(t *testing.T) {
 			RequiredCount: 3,
 		}
 
-		standbys := []*store.PoolerHealth{
+		standbys := []*multiorchdatapb.PoolerHealthState{
 			createTestPoolerHealth("mp1", "cell1"),
 			createTestPoolerHealth("mp2", "cell1"),
 		}
@@ -234,7 +234,7 @@ func TestBuildSyncReplicationConfig(t *testing.T) {
 			RequiredCount: 2,
 		}
 
-		standbys := []*store.PoolerHealth{createTestPoolerHealth("mp1", "cell1")}
+		standbys := []*multiorchdatapb.PoolerHealthState{createTestPoolerHealth("mp1", "cell1")}
 
 		config, err := c.buildSyncReplicationConfig(rule, standbys, candidate)
 		require.NoError(t, err)
@@ -252,7 +252,7 @@ func TestBuildSyncReplicationConfig(t *testing.T) {
 			Description:   "Two cell quorum",
 		}
 
-		standbys := []*store.PoolerHealth{
+		standbys := []*multiorchdatapb.PoolerHealthState{
 			createTestPoolerHealth("mp1", "us-west-1a"), // Same cell as primary - should be excluded
 			createTestPoolerHealth("mp2", "us-west-1b"), // Different cell - should be included
 			createTestPoolerHealth("mp3", "us-west-1c"), // Different cell - should be included
@@ -287,7 +287,7 @@ func TestBuildSyncReplicationConfig(t *testing.T) {
 			AsyncFallback: clustermetadatapb.AsyncReplicationFallbackMode_ASYNC_REPLICATION_FALLBACK_MODE_ALLOW,
 		}
 
-		standbys := []*store.PoolerHealth{
+		standbys := []*multiorchdatapb.PoolerHealthState{
 			createTestPoolerHealth("mp1", "us-west-1a"), // Same cell as primary
 			createTestPoolerHealth("mp2", "us-west-1a"), // Same cell as primary
 			createTestPoolerHealth("mp3", "us-west-1a"), // Same cell as primary
@@ -306,7 +306,7 @@ func TestBuildSyncReplicationConfig(t *testing.T) {
 			Description:   "Three cell quorum",
 		}
 
-		standbys := []*store.PoolerHealth{
+		standbys := []*multiorchdatapb.PoolerHealthState{
 			createTestPoolerHealth("mp1", "cell-a"), // Same cell - excluded
 			createTestPoolerHealth("mp2", "cell-a"), // Same cell - excluded
 			createTestPoolerHealth("mp3", "cell-b"), // Different cell - included
@@ -335,7 +335,7 @@ func TestBuildSyncReplicationConfig(t *testing.T) {
 			AsyncFallback: clustermetadatapb.AsyncReplicationFallbackMode_ASYNC_REPLICATION_FALLBACK_MODE_ALLOW,
 		}
 
-		standbys := []*store.PoolerHealth{
+		standbys := []*multiorchdatapb.PoolerHealthState{
 			createTestPoolerHealth("mp1", "cell-a"), // Same cell - excluded
 			createTestPoolerHealth("mp2", "cell-b"), // Different cell - included
 			createTestPoolerHealth("mp3", "cell-c"), // Different cell - included
@@ -356,7 +356,7 @@ func TestBuildSyncReplicationConfig(t *testing.T) {
 			Description:   "Two node quorum",
 		}
 
-		standbys := []*store.PoolerHealth{
+		standbys := []*multiorchdatapb.PoolerHealthState{
 			createTestPoolerHealth("mp1", "us-west-1a"), // Same cell as primary - should be included for ANY_N
 			createTestPoolerHealth("mp2", "us-west-1b"),
 		}
@@ -385,7 +385,7 @@ func TestBuildSyncReplicationConfig(t *testing.T) {
 		}
 
 		// All standbys in same cell as candidate
-		standbys := []*store.PoolerHealth{
+		standbys := []*multiorchdatapb.PoolerHealthState{
 			createTestPoolerHealth("mp1", "us-west-1a"),
 			createTestPoolerHealth("mp2", "us-west-1a"),
 			createTestPoolerHealth("mp3", "us-west-1a"),
@@ -408,7 +408,7 @@ func TestBuildSyncReplicationConfig(t *testing.T) {
 		}
 
 		// All standbys in same cell as candidate
-		standbys := []*store.PoolerHealth{
+		standbys := []*multiorchdatapb.PoolerHealthState{
 			createTestPoolerHealth("mp1", "us-west-1a"),
 			createTestPoolerHealth("mp2", "us-west-1a"),
 			createTestPoolerHealth("mp3", "us-west-1a"),
@@ -429,7 +429,7 @@ func TestBuildSyncReplicationConfig(t *testing.T) {
 		}
 
 		// All standbys in same cell as candidate
-		standbys := []*store.PoolerHealth{
+		standbys := []*multiorchdatapb.PoolerHealthState{
 			createTestPoolerHealth("mp1", "us-west-1a"),
 			createTestPoolerHealth("mp2", "us-west-1a"),
 			createTestPoolerHealth("mp3", "us-west-1a"),
@@ -453,7 +453,7 @@ func TestBuildSyncReplicationConfig(t *testing.T) {
 		}
 
 		// No standbys available
-		standbys := []*store.PoolerHealth{}
+		standbys := []*multiorchdatapb.PoolerHealthState{}
 
 		config, err := c.buildSyncReplicationConfig(rule, standbys, candidate)
 		require.Error(t, err)
@@ -472,7 +472,7 @@ func TestBuildSyncReplicationConfig(t *testing.T) {
 		}
 
 		// Only 2 standbys available, insufficient for required_count=5
-		standbys := []*store.PoolerHealth{
+		standbys := []*multiorchdatapb.PoolerHealthState{
 			createTestPoolerHealth("mp1", "us-west-1a"),
 			createTestPoolerHealth("mp2", "us-west-1b"),
 		}
@@ -495,7 +495,7 @@ func TestBuildSyncReplicationConfig(t *testing.T) {
 		}
 
 		// Only 1 standby in different cell (2 are in same cell as candidate)
-		standbys := []*store.PoolerHealth{
+		standbys := []*multiorchdatapb.PoolerHealthState{
 			createTestPoolerHealth("mp1", "cell-a"), // Same cell - excluded
 			createTestPoolerHealth("mp2", "cell-a"), // Same cell - excluded
 			createTestPoolerHealth("mp3", "cell-b"), // Different cell - included

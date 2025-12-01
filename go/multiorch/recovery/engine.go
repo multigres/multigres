@@ -26,6 +26,7 @@ import (
 	"github.com/multigres/multigres/go/common/rpcclient"
 	"github.com/multigres/multigres/go/multiorch/config"
 	"github.com/multigres/multigres/go/multiorch/store"
+	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 )
 
 // runIfNotRunning executes fn in a goroutine only if inProgress flag is false.
@@ -228,7 +229,7 @@ type Engine struct {
 	rpcClient rpcclient.MultiPoolerClient
 
 	// In-memory state store
-	poolerStore *store.Store[string, *store.PoolerHealth]
+	poolerStore *store.ProtoStore[string, *multiorchdatapb.PoolerHealthState]
 
 	// Health check queue for concurrent pooler polling
 	healthCheckQueue *Queue
@@ -271,7 +272,7 @@ func NewEngine(
 ) *Engine {
 	ctx, cancel := context.WithCancel(context.Background())
 
-	poolerStore := store.NewStore[string, *store.PoolerHealth]()
+	poolerStore := store.NewProtoStore[string, *multiorchdatapb.PoolerHealthState]()
 
 	engine := &Engine{
 		ts:                ts,
