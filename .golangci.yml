@@ -206,7 +206,7 @@ linters:
       - linters:
           - unused
         path: ^go/(parser|pgprotocol|tools/ruleguard)
-      # Integer overflow conversions are all over the place
+      # Potentially unsafe integer casts are all over the place (unsigned to signed, 64-bit to 32-bit, etc.)
       - linters:
           - gosec
         text: "G115:"
