@@ -69,6 +69,8 @@ func TestEtcd2Topo(t *testing.T) {
 	// Run etcd-specific tests.
 	ts := newServer()
 	testDatabaseLock(t, ts)
+	testLockNameWithTTL(t, ts)
+	testTryLockName(t, ts)
 	ts.Close()
 }
 
@@ -96,6 +98,59 @@ func testDatabaseLock(t *testing.T, ts topo.Store) {
 	lockDescriptor, err = conn.Lock(ctx, databasePath, "short ttl")
 	require.NoError(t, err, "Lock failed")
 	time.Sleep(2 * time.Second)
+	err = lockDescriptor.Unlock(ctx)
+	require.NoError(t, err, "Unlock failed")
+}
+
+// testLockNameWithTTL tests etcd-specific behavior of LockNameWithTTL.
+func testLockNameWithTTL(t *testing.T, ts topo.Store) {
+	ctx := context.Background()
+	conn, err := ts.ConnForCell(ctx, topo.GlobalCell)
+	require.NoError(t, err, "ConnForCell failed")
+
+	// LockNameWithTTL should work on a non-existent path
+	lockPath := "test_lock_name_with_ttl"
+	customTTL := 1 * time.Hour
+	lockDescriptor, err := conn.LockNameWithTTL(ctx, lockPath, "test", customTTL)
+	require.NoError(t, err, "LockNameWithTTL failed")
+
+	// Should not be able to acquire the same lock again
+	ctx2, cancel := context.WithTimeout(ctx, 100*time.Millisecond)
+	defer cancel()
+	_, err = conn.LockNameWithTTL(ctx2, lockPath, "again", customTTL)
+	require.Error(t, err, "LockNameWithTTL should fail when lock is held")
+
+	err = lockDescriptor.Unlock(ctx)
+	require.NoError(t, err, "Unlock failed")
+
+	// After unlock, should be able to acquire again
+	lockDescriptor, err = conn.LockNameWithTTL(ctx, lockPath, "reacquire", customTTL)
+	require.NoError(t, err, "LockNameWithTTL should succeed after unlock")
+	err = lockDescriptor.Unlock(ctx)
+	require.NoError(t, err, "Unlock failed")
+}
+
+// testTryLockName tests etcd-specific behavior of TryLockName.
+func testTryLockName(t *testing.T, ts topo.Store) {
+	ctx := context.Background()
+	conn, err := ts.ConnForCell(ctx, topo.GlobalCell)
+	require.NoError(t, err, "ConnForCell failed")
+
+	// TryLockName should work on a non-existent path
+	lockPath := "test_try_lock_name"
+	lockDescriptor, err := conn.TryLockName(ctx, lockPath, "test")
+	require.NoError(t, err, "TryLockName failed")
+
+	// TryLockName should fail fast when lock is held (not block)
+	_, err = conn.TryLockName(ctx, lockPath, "again")
+	require.Error(t, err, "TryLockName should fail when lock is held")
+
+	err = lockDescriptor.Unlock(ctx)
+	require.NoError(t, err, "Unlock failed")
+
+	// After unlock, should be able to acquire again
+	lockDescriptor, err = conn.TryLockName(ctx, lockPath, "reacquire")
+	require.NoError(t, err, "TryLockName should succeed after unlock")
 	err = lockDescriptor.Unlock(ctx)
 	require.NoError(t, err, "Unlock failed")
 }
