@@ -181,6 +181,81 @@ func checkLockName(t *testing.T, ctx context.Context, ts topo.Store) {
 	assert.Error(t, err, "Unlock(again) should fail")
 }
 
+// checkLockNameWithTTL checks if we can lock / unlock using LockNameWithTTL as expected.
+// LockNameWithTTL doesn't require the path to exist and allows specifying a custom TTL.
+func checkLockNameWithTTL(t *testing.T, ctx context.Context, ts topo.Store) {
+	conn, err := ts.ConnForCell(ctx, topo.GlobalCell)
+	require.NoError(t, err, "ConnForCell(global) failed")
+
+	// Use a non-existent path since LockNameWithTTL doesn't require it to exist
+	lockPath := "test_lock_name_with_ttl_path"
+
+	// Test with custom TTL (1 hour)
+	customTTL := 1 * time.Hour
+	lockDescriptor, err := conn.LockNameWithTTL(ctx, lockPath, "", customTTL)
+	require.NoError(t, err, "LockNameWithTTL failed")
+
+	// We should not be able to take the same named lock again
+	fastCtx, cancel := context.WithTimeout(ctx, timeUntilLockIsTaken)
+	_, err = conn.LockNameWithTTL(fastCtx, lockPath, "again", customTTL)
+	assert.True(t, errors.Is(err, &topo.TopoError{Code: topo.Timeout}), "LockNameWithTTL(again) should return Timeout error, got: %v", err)
+	cancel()
+
+	// test we can interrupt taking the lock
+	interruptCtx, cancel := context.WithCancel(ctx)
+	go func() {
+		time.Sleep(timeUntilLockIsTaken)
+		cancel()
+	}()
+	_, err = conn.LockNameWithTTL(interruptCtx, lockPath, "interrupted", customTTL)
+	assert.True(t, errors.Is(err, &topo.TopoError{Code: topo.Interrupted}), "LockNameWithTTL(interrupted) should return Interrupted error, got: %v", err)
+
+	err = lockDescriptor.Check(ctx)
+	assert.NoError(t, err, "Check() failed")
+
+	err = lockDescriptor.Unlock(ctx)
+	require.NoError(t, err, "Unlock() failed")
+
+	// test we can't unlock again
+	err = lockDescriptor.Unlock(ctx)
+	assert.Error(t, err, "Unlock(again) should fail")
+
+	// Test with zero TTL (should default to NamedLockTTL)
+	lockPath2 := "test_lock_name_with_ttl_path_default"
+	lockDescriptor2, err := conn.LockNameWithTTL(ctx, lockPath2, "", 0)
+	require.NoError(t, err, "LockNameWithTTL with zero TTL failed")
+	err = lockDescriptor2.Unlock(ctx)
+	require.NoError(t, err, "Unlock() failed")
+}
+
+// checkTryLockName checks if we can lock / unlock using TryLockName as expected.
+// TryLockName doesn't require the path to exist and fails fast if the lock is already held.
+func checkTryLockName(t *testing.T, ctx context.Context, ts topo.Store) {
+	conn, err := ts.ConnForCell(ctx, topo.GlobalCell)
+	require.NoError(t, err, "ConnForCell(global) failed")
+
+	// Use a non-existent path since TryLockName doesn't require it to exist
+	lockPath := "test_try_lock_name_path"
+	lockDescriptor, err := conn.TryLockName(ctx, lockPath, "")
+	require.NoError(t, err, "TryLockName failed")
+
+	// We should not be able to take the same lock again - it should fail fast with NodeExists
+	_, err = conn.TryLockName(ctx, lockPath, "again")
+	assert.True(t, errors.Is(err, &topo.TopoError{Code: topo.NodeExists}), "TryLockName(again) should return NodeExists error, got: %v", err)
+
+	err = lockDescriptor.Check(ctx)
+	assert.NoError(t, err, "Check() failed")
+
+	err = lockDescriptor.Unlock(ctx)
+	require.NoError(t, err, "Unlock() failed")
+
+	// After unlocking, we should be able to acquire the lock again
+	lockDescriptor2, err := conn.TryLockName(ctx, lockPath, "reacquire")
+	require.NoError(t, err, "TryLockName(reacquire) should succeed after unlock")
+	err = lockDescriptor2.Unlock(ctx)
+	require.NoError(t, err, "Unlock() failed")
+}
+
 // checkTryLock checks if we can lock / unlock as expected. It's using a database
 // as the lock target.
 func checkTryLock(t *testing.T, ctx context.Context, ts topo.Store) {

@@ -46,6 +46,16 @@ func TopoServerTestSuite(t *testing.T, ctx context.Context, factory func() topo.
 	checkLockName(t, ctx, ts)
 	_ = ts.Close()
 
+	t.Log("=== (Lock) checkLockNameWithTTL")
+	ts = factory()
+	checkLockNameWithTTL(t, ctx, ts)
+	_ = ts.Close()
+
+	t.Log("=== (Lock) checkTryLockName")
+	ts = factory()
+	checkTryLockName(t, ctx, ts)
+	_ = ts.Close()
+
 	// Directory is part of the Directory API.
 	t.Log("=== (Directory) checkDirectory")
 	ts = factory()

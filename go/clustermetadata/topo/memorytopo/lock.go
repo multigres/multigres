@@ -122,6 +122,32 @@ func (c *conn) LockName(ctx context.Context, dirPath, contents string) (topo.Loc
 	return c.lock(ctx, dirPath, contents, true)
 }
 
+// LockNameWithTTL is part of the topo.Conn interface. It behaves the same as LockName
+// as TTLs are not supported in memorytopo.
+func (c *conn) LockNameWithTTL(ctx context.Context, dirPath, contents string, _ time.Duration) (topo.LockDescriptor, error) {
+	// c.factory.callstats.Add([]string{"LockNameWithTTL"}, 1)
+	return c.lock(ctx, dirPath, contents, true)
+}
+
+// TryLockName is part of the topo.Conn interface.
+func (c *conn) TryLockName(ctx context.Context, dirPath, contents string) (topo.LockDescriptor, error) {
+	// c.factory.callstats.Add([]string{"TryLockName"}, 1)
+
+	c.factory.mu.Lock()
+	err := c.factory.getOperationError(TryLock, dirPath)
+	c.factory.mu.Unlock()
+	if err != nil {
+		return nil, err
+	}
+
+	// Check if lock exists, using named=true so the path is created if needed
+	if err := c.checkLockExistence(ctx, dirPath, true); err != nil {
+		return nil, err
+	}
+
+	return c.lock(ctx, dirPath, contents, true)
+}
+
 // Lock is part of the topo.Conn interface.
 func (c *conn) lock(ctx context.Context, dirPath, contents string, named bool) (topo.LockDescriptor, error) {
 	for {

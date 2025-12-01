@@ -199,6 +199,14 @@ type Store interface {
 	// Connection provider for accessing cell-specific connections
 	ConnProvider
 
+	// LockShard acquires a lock on the specified shard.
+	// See shard_lock.go for full documentation.
+	LockShard(ctx context.Context, database, tableGroup, shard, action string, opts ...LockOption) (context.Context, func(*error), error)
+
+	// TryLockShard attempts to acquire a lock on the specified shard without blocking.
+	// See shard_lock.go for full documentation.
+	TryLockShard(ctx context.Context, database, tableGroup, shard, action string) (context.Context, func(*error), error)
+
 	// Resource cleanup
 	io.Closer
 }
