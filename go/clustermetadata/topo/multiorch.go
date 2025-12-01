@@ -256,12 +256,12 @@ func (ts *store) RegisterMultiOrch(ctx context.Context, mtorch *clustermetadatap
 		// Try to update then
 		oldMtOrch, err := ts.GetMultiOrch(ctx, mtorch.Id)
 		if err != nil {
-			return fmt.Errorf("failed reading existing mtorch %v: %v", MultiOrchIDString(mtorch.Id), err)
+			return fmt.Errorf("failed reading existing mtorch %v: %w", MultiOrchIDString(mtorch.Id), err)
 		}
 
 		oldMtOrch.MultiOrch = proto.Clone(mtorch).(*clustermetadatapb.MultiOrch)
 		if err := ts.UpdateMultiOrch(ctx, oldMtOrch); err != nil {
-			return fmt.Errorf("failed updating mtorch %v: %v", MultiOrchIDString(mtorch.Id), err)
+			return fmt.Errorf("failed updating mtorch %v: %w", MultiOrchIDString(mtorch.Id), err)
 		}
 		return nil
 	}

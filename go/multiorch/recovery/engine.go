@@ -71,7 +71,7 @@ func runIfNotRunning(logger *slog.Logger, inProgress *atomic.Bool, taskName stri
 //
 // Maintenance Loop:
 //
-//	Keeps the engine's view of the cluster up-to-date and performs general maintance tasks.
+//	Keeps the engine's view of the cluster up-to-date and performs general maintenance tasks.
 //	Runs two types of operations at configurable intervals:
 //
 //	Cluster Metadata Refresh:

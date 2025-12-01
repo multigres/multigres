@@ -232,7 +232,7 @@ func (pm *MultiPoolerManager) executeBackrestRestore(ctx context.Context, backup
 	output, err := safeCombinedOutput(cmd)
 	if err != nil {
 		return mterrors.New(mtrpcpb.Code_INTERNAL,
-			fmt.Sprintf("pgbackrest restore failed: %v\nOutput: %s", err, string(output)))
+			fmt.Sprintf("pgbackrest restore failed: %v\nOutput: %s", err, output))
 	}
 
 	return nil

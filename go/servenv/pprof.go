@@ -99,7 +99,7 @@ func (sv *ServEnv) parseProfileFlag(pf []string) (*profile, error) {
 			}
 			p.rate, err = strconv.Atoi(fields[1])
 			if err != nil {
-				return nil, fmt.Errorf("invalid profile rate %q: %v", fields[1], err)
+				return nil, fmt.Errorf("invalid profile rate %q: %w", fields[1], err)
 			}
 
 		case "path":
@@ -116,7 +116,7 @@ func (sv *ServEnv) parseProfileFlag(pf []string) (*profile, error) {
 
 			p.quiet, err = strconv.ParseBool(fields[1])
 			if err != nil {
-				return nil, fmt.Errorf("invalid quiet flag %q: %v", fields[1], err)
+				return nil, fmt.Errorf("invalid quiet flag %q: %w", fields[1], err)
 			}
 		case "waitSig":
 			if len(fields) == 1 {
@@ -125,7 +125,7 @@ func (sv *ServEnv) parseProfileFlag(pf []string) (*profile, error) {
 			}
 			p.waitSig, err = strconv.ParseBool(fields[1])
 			if err != nil {
-				return nil, fmt.Errorf("invalid waitSig flag %q: %v", fields[1], err)
+				return nil, fmt.Errorf("invalid waitSig flag %q: %w", fields[1], err)
 			}
 		default:
 			return nil, fmt.Errorf("unknown flag: %q", fields[0])
