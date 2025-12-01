@@ -38,6 +38,23 @@ func (pm *MultiPoolerManager) Backup(ctx context.Context, forcePrimary bool, bac
 		return "", err
 	}
 
+	// Acquire the action lock to ensure only one mutation runs at a time
+	var err error
+	ctx, err = pm.actionLock.Acquire(ctx, "Backup")
+	if err != nil {
+		return "", err
+	}
+	defer pm.actionLock.Release(ctx)
+
+	return pm.backupLocked(ctx, forcePrimary, backupType)
+}
+
+// backupLocked performs a backup. Caller must hold the action lock.
+func (pm *MultiPoolerManager) backupLocked(ctx context.Context, forcePrimary bool, backupType string) (string, error) {
+	if err := AssertActionLockHeld(ctx); err != nil {
+		return "", err
+	}
+
 	// Check if backup is allowed on primary
 	if err := pm.allowBackupOnPrimary(ctx, forcePrimary); err != nil {
 		return "", err
@@ -144,6 +161,23 @@ func (pm *MultiPoolerManager) RestoreFromBackup(ctx context.Context, backupID st
 		return err
 	}
 
+	// Acquire the action lock to ensure only one mutation runs at a time
+	var err error
+	ctx, err = pm.actionLock.Acquire(ctx, "RestoreFromBackup")
+	if err != nil {
+		return err
+	}
+	defer pm.actionLock.Release(ctx)
+
+	return pm.restoreFromBackupLocked(ctx, backupID)
+}
+
+// restoreFromBackupLocked performs the restore. Caller must hold the action lock.
+func (pm *MultiPoolerManager) restoreFromBackupLocked(ctx context.Context, backupID string) error {
+	if err := AssertActionLockHeld(ctx); err != nil {
+		return err
+	}
+
 	// Check that this is a standby, not a primary
 	poolerType := pm.getPoolerType()
 	if poolerType == clustermetadatapb.PoolerType_PRIMARY {
@@ -246,6 +280,23 @@ func (pm *MultiPoolerManager) reopenPoolerManager(ctx context.Context) error {
 func (pm *MultiPoolerManager) GetBackups(ctx context.Context, limit uint32) ([]*multipoolermanagerdata.BackupMetadata, error) {
 	// We can't proceed without the topo, which is loaded asynchronously at startup
 	if err := pm.checkReady(); err != nil {
+		return nil, err
+	}
+
+	// Acquire the action lock to ensure only one operation runs at a time
+	var err error
+	ctx, err = pm.actionLock.Acquire(ctx, "GetBackups")
+	if err != nil {
+		return nil, err
+	}
+	defer pm.actionLock.Release(ctx)
+
+	return pm.getBackupsLocked(ctx, limit)
+}
+
+// getBackupsLocked retrieves backup information. Caller must hold the action lock.
+func (pm *MultiPoolerManager) getBackupsLocked(ctx context.Context, limit uint32) ([]*multipoolermanagerdata.BackupMetadata, error) {
+	if err := AssertActionLockHeld(ctx); err != nil {
 		return nil, err
 	}
 

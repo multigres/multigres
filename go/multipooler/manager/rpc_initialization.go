@@ -113,7 +113,7 @@ func (pm *MultiPoolerManager) InitializeEmptyPrimary(ctx context.Context, req *m
 
 	// 9. Create initial backup for standby initialization
 	pm.logger.InfoContext(ctx, "Creating initial backup for standby initialization", "shard", pm.getShardID())
-	backupID, err := pm.Backup(ctx, true, "full")
+	backupID, err := pm.backupLocked(ctx, true, "full")
 	if err != nil {
 		return nil, mterrors.Wrap(err, "failed to create initial backup")
 	}
@@ -163,8 +163,8 @@ func (pm *MultiPoolerManager) InitializeAsStandby(ctx context.Context, req *mult
 	}
 
 	// Restore from backup (empty string means latest)
-	// RestoreFromBackup will check that this is a standby and start PostgreSQL in standby mode
-	err = pm.RestoreFromBackup(ctx, req.BackupId)
+	// restoreFromBackupLocked will check that this is a standby and start PostgreSQL in standby mode
+	err = pm.restoreFromBackupLocked(ctx, req.BackupId)
 	if err != nil {
 		return nil, mterrors.Wrap(err, "failed to restore from backup")
 	}
@@ -179,7 +179,7 @@ func (pm *MultiPoolerManager) InitializeAsStandby(ctx context.Context, req *mult
 	// the explicit restart here. The standby.signal is already in place.
 
 	// Extract final LSN from backup metadata
-	backups, err := pm.GetBackups(ctx, 1) // Get latest backup
+	backups, err := pm.getBackupsLocked(ctx, 1) // Get latest backup
 	if err != nil {
 		pm.logger.WarnContext(ctx, "Failed to get backup metadata for LSN", "error", err)
 		// Non-fatal: we can continue without LSN
