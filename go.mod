@@ -24,7 +24,7 @@ require (
 	github.com/spf13/cobra v1.10.1
 	github.com/spf13/pflag v1.0.10
 	github.com/spf13/viper v1.21.0
-	go.etcd.io/etcd/api/v3 v3.6.5
+	go.etcd.io/etcd/api/v3 v3.6.6
 	go.etcd.io/etcd/client/pkg/v3 v3.6.5
 	go.etcd.io/etcd/client/v3 v3.6.5
 	go.opentelemetry.io/contrib/exporters/autoexport v0.63.0
