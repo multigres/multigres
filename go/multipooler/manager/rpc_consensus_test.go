@@ -96,7 +96,7 @@ func setupManagerWithMockDB(t *testing.T, mockDB *sql.DB) (*MultiPoolerManager, 
 	pm.db = mockDB
 
 	senv := servenv.NewServEnv(viperutil.NewRegistry())
-	go pm.Start(senv)
+	pm.Start(senv)
 
 	require.Eventually(t, func() bool {
 		return pm.GetState() == ManagerStateReady
