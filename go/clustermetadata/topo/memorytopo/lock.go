@@ -42,8 +42,6 @@ type memoryTopoLockDescriptor struct {
 
 // TryLock is part of the topo.Conn interface.
 func (c *conn) TryLock(ctx context.Context, dirPath, contents string) (topo.LockDescriptor, error) {
-	// c.factory.callstats.Add([]string{"TryLock"}, 1)
-
 	c.factory.mu.Lock()
 	err := c.factory.getOperationError(TryLock, dirPath)
 	c.factory.mu.Unlock()
@@ -89,8 +87,6 @@ func (c *conn) checkLockExistence(ctx context.Context, dirPath string, named boo
 
 // Lock is part of the topo.Conn interface.
 func (c *conn) Lock(ctx context.Context, dirPath, contents string) (topo.LockDescriptor, error) {
-	// c.factory.callstats.Add([]string{"Lock"}, 1)
-
 	c.factory.mu.Lock()
 	err := c.factory.getOperationError(Lock, dirPath)
 	c.factory.mu.Unlock()
@@ -104,8 +100,6 @@ func (c *conn) Lock(ctx context.Context, dirPath, contents string) (topo.LockDes
 // LockWithTTL is part of the topo.Conn interface. It behaves the same as Lock
 // as TTLs are not supported in memorytopo.
 func (c *conn) LockWithTTL(ctx context.Context, dirPath, contents string, _ time.Duration) (topo.LockDescriptor, error) {
-	// c.factory.callstats.Add([]string{"LockWithTTL"}, 1)
-
 	c.factory.mu.Lock()
 	err := c.factory.getOperationError(Lock, dirPath)
 	c.factory.mu.Unlock()
@@ -118,21 +112,17 @@ func (c *conn) LockWithTTL(ctx context.Context, dirPath, contents string, _ time
 
 // LockName is part of the topo.Conn interface.
 func (c *conn) LockName(ctx context.Context, dirPath, contents string) (topo.LockDescriptor, error) {
-	// c.factory.callstats.Add([]string{"LockName"}, 1)
 	return c.lock(ctx, dirPath, contents, true)
 }
 
 // LockNameWithTTL is part of the topo.Conn interface. It behaves the same as LockName
 // as TTLs are not supported in memorytopo.
 func (c *conn) LockNameWithTTL(ctx context.Context, dirPath, contents string, _ time.Duration) (topo.LockDescriptor, error) {
-	// c.factory.callstats.Add([]string{"LockNameWithTTL"}, 1)
 	return c.lock(ctx, dirPath, contents, true)
 }
 
 // TryLockName is part of the topo.Conn interface.
 func (c *conn) TryLockName(ctx context.Context, dirPath, contents string) (topo.LockDescriptor, error) {
-	// c.factory.callstats.Add([]string{"TryLockName"}, 1)
-
 	c.factory.mu.Lock()
 	err := c.factory.getOperationError(TryLock, dirPath)
 	c.factory.mu.Unlock()

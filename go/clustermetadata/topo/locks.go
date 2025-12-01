@@ -172,19 +172,43 @@ func (l *Lock) lock(ctx context.Context, ts *store, lt iTopoLock, opts ...LockOp
 	if ts.globalTopo == nil {
 		return nil, errors.New("no global cell connection on the topo server")
 	}
+
+	start := time.Now()
+	var lockDescriptor LockDescriptor
+	var lockOp LockOperation
+
 	switch l.Options.lockType {
 	case NonBlocking:
-		return ts.globalTopo.TryLock(ctx, lt.Path(), j)
+		lockOp = LockOpTryLock
+		lockDescriptor, err = ts.globalTopo.TryLock(ctx, lt.Path(), j)
 	case Named:
-		return ts.globalTopo.LockNameWithTTL(ctx, lt.Path(), j, l.Options.ttl)
+		lockOp = LockOpLockNameWithTTL
+		lockDescriptor, err = ts.globalTopo.LockNameWithTTL(ctx, lt.Path(), j, l.Options.ttl)
 	case NamedNonBlocking:
-		return ts.globalTopo.TryLockName(ctx, lt.Path(), j)
+		lockOp = LockOpTryLockName
+		lockDescriptor, err = ts.globalTopo.TryLockName(ctx, lt.Path(), j)
 	default:
 		if l.Options.ttl != 0 {
-			return ts.globalTopo.LockWithTTL(ctx, lt.Path(), j, l.Options.ttl)
+			lockOp = LockOpLockWithTTL
+			lockDescriptor, err = ts.globalTopo.LockWithTTL(ctx, lt.Path(), j, l.Options.ttl)
+		} else {
+			lockOp = LockOpLock
+			lockDescriptor, err = ts.globalTopo.Lock(ctx, lt.Path(), j)
 		}
-		return ts.globalTopo.Lock(ctx, lt.Path(), j)
 	}
+
+	// Record metrics
+	result := LockResultSuccess
+	if err != nil {
+		if ctx.Err() != nil {
+			result = LockResultTimeout
+		} else {
+			result = LockResultError
+		}
+	}
+	RecordLockOperation(ctx, lockOp, lt.Type(), lt.ResourceName(), result, time.Since(start))
+
+	return lockDescriptor, err
 }
 
 // unlock unlocks a previously locked key.
@@ -212,7 +236,18 @@ func (l *Lock) unlock(ctx context.Context, lt iTopoLock, lockDescriptor LockDesc
 		slog.InfoContext(ctx, "Unlocking resource successfully", "type", lt.Type(), "resource", lt.ResourceName(), "action", l.Action)
 		l.Status = "Done"
 	}
-	return lockDescriptor.Unlock(ctx)
+
+	start := time.Now()
+	err := lockDescriptor.Unlock(ctx)
+
+	// Record metrics
+	result := LockResultSuccess
+	if err != nil {
+		result = LockResultError
+	}
+	RecordLockOperation(ctx, LockOpUnlock, lt.Type(), lt.ResourceName(), result, time.Since(start))
+
+	return err
 }
 
 func (ts *store) internalLock(ctx context.Context, lt iTopoLock, action string, opts ...LockOption) (context.Context, func(*error), error) {
