@@ -239,26 +239,15 @@ func (re *Engine) attemptRecovery(problem analysis.Problem) {
 	// TODO: Record success in metrics
 
 	// Post-recovery refresh
-	// If we ran a shard-wide recovery, refresh shard metadata from topology first
-	// (to pick up any type changes, e.g., standbys becoming REPLICA after bootstrap),
-	// then force health check all poolers in the shard to ensure they have up-to-date state.
+	// If we ran a shard-wide recovery, force health check all poolers in the shard
+	// to ensure they have up-to-date state. Health check returns PoolerType from
+	// pg_is_in_recovery which is authoritative (topology type is only a fallback).
 	if problem.Scope == analysis.ScopeShard {
 		re.logger.InfoContext(re.ctx, "forcing refresh of all poolers post recovery",
 			"database", problem.Database,
 			"tablegroup", problem.TableGroup,
 			"shard", problem.Shard,
 		)
-		// First refresh shard metadata from topology to pick up any type changes
-		// (e.g., standbys being set to REPLICA after bootstrap via ChangeType RPC)
-		if err := re.refreshShardMetadata(context.Background(), problem.Database, problem.TableGroup, problem.Shard, nil); err != nil {
-			re.logger.WarnContext(re.ctx, "failed to refresh shard metadata post recovery",
-				"error", err,
-				"database", problem.Database,
-				"tablegroup", problem.TableGroup,
-				"shard", problem.Shard,
-			)
-		}
-		// Then force health check to update health state
 		re.forceHealthCheckShardPoolers(context.Background(), problem.Database, problem.TableGroup, problem.Shard, nil /* poolersToIgnore */)
 	}
 }
