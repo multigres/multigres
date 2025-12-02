@@ -21,6 +21,7 @@ import (
 	"github.com/multigres/multigres/go/common/rpcclient"
 	"github.com/multigres/multigres/go/multiorch/coordinator"
 	"github.com/multigres/multigres/go/multiorch/recovery/actions"
+	"github.com/multigres/multigres/go/multiorch/recovery/types"
 	"github.com/multigres/multigres/go/multiorch/store"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 )
@@ -51,25 +52,12 @@ func NewRecoveryActionFactory(
 	}
 }
 
-// NewBootstrapRecoveryAction creates a bootstrap recovery action.
-func (f *RecoveryActionFactory) NewBootstrapRecoveryAction() RecoveryAction {
-	bootstrapAction := actions.NewBootstrapShardAction(f.rpcClient, f.topoStore, f.logger)
-	return &BootstrapRecoveryAction{
-		bootstrapAction: bootstrapAction,
-		rpcClient:       f.rpcClient,
-		poolerStore:     f.poolerStore,
-		topoStore:       f.topoStore,
-		logger:          f.logger,
-	}
+// NewBootstrapShardAction creates a bootstrap shard action.
+func (f *RecoveryActionFactory) NewBootstrapShardAction() types.RecoveryAction {
+	return actions.NewBootstrapShardAction(f.rpcClient, f.poolerStore, f.topoStore, f.logger)
 }
 
-// NewAppointLeaderRecoveryAction creates an appoint leader recovery action.
-func (f *RecoveryActionFactory) NewAppointLeaderRecoveryAction() RecoveryAction {
-	appointAction := actions.NewAppointLeaderAction(f.coordinator, f.logger)
-	return &AppointLeaderRecoveryAction{
-		appointAction: appointAction,
-		poolerStore:   f.poolerStore,
-		topoStore:     f.topoStore,
-		logger:        f.logger,
-	}
+// NewAppointLeaderAction creates an appoint leader action.
+func (f *RecoveryActionFactory) NewAppointLeaderAction() types.RecoveryAction {
+	return actions.NewAppointLeaderAction(f.coordinator, f.poolerStore, f.topoStore, f.logger)
 }

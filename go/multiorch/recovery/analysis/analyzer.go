@@ -15,16 +15,17 @@
 package analysis
 
 import (
+	"github.com/multigres/multigres/go/multiorch/recovery/types"
 	"github.com/multigres/multigres/go/multiorch/store"
 )
 
 // Analyzer analyzes ReplicationAnalysis and detects problems.
 type Analyzer interface {
 	// Name returns the unique name of this analyzer.
-	Name() CheckName
+	Name() types.CheckName
 
 	// Analyze examines the ReplicationAnalysis and returns any detected problems.
-	Analyze(analysis *store.ReplicationAnalysis) []Problem
+	Analyze(analysis *store.ReplicationAnalysis) []types.Problem
 }
 
 // defaultAnalyzers holds the global list of analyzers.
