@@ -67,39 +67,7 @@ func (a *AppointLeaderAction) Execute(ctx context.Context, problem types.Problem
 		"tablegroup", problem.TableGroup,
 		"shard", problem.Shard)
 
-	// Step 1: Acquire distributed lock for this shard
-	metadata := a.Metadata()
-	lockPath := topo.RecoveryLockPath(problem.Database, problem.TableGroup, problem.Shard)
-	a.logger.InfoContext(ctx, "acquiring recovery lock", "lock_path", lockPath)
-
-	lockDesc, err := a.topoStore.LockShardForRecovery(
-		ctx,
-		problem.Database,
-		problem.TableGroup,
-		problem.Shard,
-		"appoint leader recovery",
-		metadata.GetLockTimeout(),
-	)
-	if err != nil {
-		a.logger.InfoContext(ctx, "failed to acquire lock, another recovery may be in progress",
-			"lock_path", lockPath,
-			"error", err)
-		return err
-	}
-	defer func() {
-		// Use background context for unlock to ensure lock release even if ctx is cancelled
-		unlockCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		if unlockErr := lockDesc.Unlock(unlockCtx); unlockErr != nil {
-			a.logger.WarnContext(ctx, "failed to release recovery lock",
-				"lock_path", lockPath,
-				"error", unlockErr)
-		}
-	}()
-
-	a.logger.InfoContext(ctx, "acquired recovery lock", "lock_path", lockPath)
-
-	// Step 2: Fetch cohort and recheck the problem after acquiring lock
+	// Fetch cohort and recheck the problem after acquiring lock
 	cohort := a.getCohort(problem.Database, problem.TableGroup, problem.Shard)
 	if len(cohort) == 0 {
 		return fmt.Errorf("no poolers found for shard %s/%s/%s",
@@ -125,7 +93,7 @@ func (a *AppointLeaderAction) Execute(ctx context.Context, problem types.Problem
 		"shard", problem.Shard,
 		"cohort_size", len(cohort))
 
-	// Step 3: Use the coordinator's AppointLeader to handle the election
+	// Use the coordinator's AppointLeader to handle the election
 	// It will select the most advanced node based on WAL position
 	// and run the full consensus protocol (term discovery, candidate selection,
 	// node recruitment, quorum validation, promotion, and replication setup)
