@@ -336,14 +336,12 @@ func newMockDB(t *testing.T) (*sql.DB, sqlmock.Sqlmock) {
 }
 
 // expectStartupQueries adds expectations for queries that happen during manager startup.
-// The manager is created as a REPLICA, so:
-// 1. First pg_is_in_recovery() check - returns true (replica), skips schema creation
-// 2. Second pg_is_in_recovery() check - returns true (replica), starts heartbeat reader not writer
+// The manager is created as a REPLICA, so pg_is_in_recovery() returns true,
+// which causes the heartbeat reader to start (not writer).
+// Note: Schema creation is now handled by multiorch during bootstrap initialization,
+// so we no longer expect CREATE SCHEMA or CREATE TABLE queries here.
 func expectStartupQueries(mock sqlmock.Sqlmock) {
-	// First check: sidecar schema creation decision
-	mock.ExpectQuery("SELECT pg_is_in_recovery").
-		WillReturnRows(sqlmock.NewRows([]string{"pg_is_in_recovery"}).AddRow(true))
-	// Second check: heartbeat writer vs reader decision
+	// Heartbeat startup: checks if DB is primary/replica
 	mock.ExpectQuery("SELECT pg_is_in_recovery").
 		WillReturnRows(sqlmock.NewRows([]string{"pg_is_in_recovery"}).AddRow(true))
 }
