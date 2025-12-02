@@ -19,7 +19,6 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 
-	"github.com/multigres/multigres/go/admin/server"
 	"github.com/multigres/multigres/go/clustermetadata/topo"
 	"github.com/multigres/multigres/go/common/servenv"
 	"github.com/multigres/multigres/go/tools/viperutil"
@@ -27,7 +26,7 @@ import (
 
 type MultiAdmin struct {
 	// adminServer holds the gRPC admin server instance
-	adminServer *server.MultiAdminServer
+	adminServer *MultiAdminServer
 
 	// grpcServer is the grpc server
 	grpcServer *servenv.GrpcServer
@@ -91,7 +90,7 @@ func (ma *MultiAdmin) Init() {
 	ma.senv.OnRun(func() {
 		// Register multiadmin gRPC service with servenv's GRPCServer
 		if ma.grpcServer.CheckServiceMap("multiadmin", ma.senv) {
-			ma.adminServer = server.NewMultiAdminServer(ma.ts, logger)
+			ma.adminServer = NewMultiAdminServer(ma.ts, logger)
 			ma.adminServer.RegisterWithGRPCServer(ma.grpcServer.Server)
 			logger.Info("MultiAdmin gRPC service registered with servenv")
 		}
