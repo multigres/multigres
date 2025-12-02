@@ -552,10 +552,10 @@ func TestFilterAndPrioritize_MultipleShardWide(t *testing.T) {
 	filtered := engine.filterAndPrioritize(problems)
 
 	// Should return only the highest priority shard-wide problem
-	// PriorityEmergency (10000) > PriorityShardBootstrap (5000)
+	// PriorityShardBootstrap (10000) > PriorityEmergency (1000)
 	require.Len(t, filtered, 1)
-	assert.Equal(t, analysis.ProblemPrimaryIsDead, filtered[0].Code)
-	assert.Equal(t, analysis.PriorityEmergency, filtered[0].Priority)
+	assert.Equal(t, analysis.ProblemShardHasNoPrimary, filtered[0].Code)
+	assert.Equal(t, analysis.PriorityShardBootstrap, filtered[0].Priority)
 }
 
 // mockPrimaryDeadAnalyzer detects when a primary is unreachable
