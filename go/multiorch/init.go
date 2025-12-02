@@ -100,7 +100,12 @@ func (mo *MultiOrch) Init() error {
 	}
 	// Get the configured logger
 	logger := mo.senv.GetLogger()
-	mo.ts = mo.topoConfig.Open()
+
+	var err error
+	mo.ts, err = mo.topoConfig.Open()
+	if err != nil {
+		return fmt.Errorf("topo open: %w", err)
+	}
 
 	// Validate and parse shard watch targets
 	targetsRaw := mo.cfg.GetShardWatchTargets()

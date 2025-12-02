@@ -133,7 +133,11 @@ func (mg *MultiGateway) Init() error {
 	}
 	logger := mg.senv.GetLogger()
 
-	mg.ts = mg.topoConfig.Open()
+	var err error
+	mg.ts, err = mg.topoConfig.Open()
+	if err != nil {
+		return fmt.Errorf("topo open: %w", err)
+	}
 
 	// This doesn't change
 	mg.serverStatus.Cell = mg.cell.Get()
@@ -157,7 +161,6 @@ func (mg *MultiGateway) Init() error {
 	// Create and start PostgreSQL protocol listener
 	pgHandler := handler.NewMultiGatewayHandler(mg.executor, logger)
 	pgAddr := fmt.Sprintf("localhost:%d", mg.pgPort.Get())
-	var err error
 	mg.pgListener, err = server.NewListener(server.ListenerConfig{
 		Address: pgAddr,
 		Handler: pgHandler,

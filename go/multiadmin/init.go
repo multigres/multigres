@@ -85,7 +85,12 @@ func (ma *MultiAdmin) Init() error {
 	}
 	// Get the configured logger
 	logger := ma.senv.GetLogger()
-	ma.ts = ma.topoConfig.Open()
+
+	var err error
+	ma.ts, err = ma.topoConfig.Open()
+	if err != nil {
+		return fmt.Errorf("topo open: %w", err)
+	}
 
 	logger.Info("multiadmin starting up",
 		"http_port", ma.senv.GetHTTPPort(),

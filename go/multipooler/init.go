@@ -187,7 +187,11 @@ func (mp *MultiPooler) Init(startCtx context.Context) error {
 	// defer that closes the topo runs after cancelling the context.
 	// This ensures that we've properly closed things like the watchers
 	// at that point.
-	mp.ts = mp.topoConfig.Open()
+	var err error
+	mp.ts, err = mp.topoConfig.Open()
+	if err != nil {
+		return fmt.Errorf("topo open: %w", err)
+	}
 
 	logger.InfoContext(startCtx, "multipooler starting up",
 		"pgctld_addr", mp.pgctldAddr.Get(),
