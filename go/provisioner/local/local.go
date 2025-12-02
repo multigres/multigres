@@ -1987,7 +1987,7 @@ func init() {
 	if binDir, err := getExecutablePath(); err == nil {
 		pathutil.PrependPath(binDir)
 	} else {
-		slog.Error(fmt.Sprintf("Local Provisioner failed to get executable path: %v", err))
-		os.Exit(1) //nolint:forbidigo // init() is allowed to call os.Exit
+		slog.Error("local provisioner failed to get executable path", "error", err)
+		panic(fmt.Sprintf("local provisioner failed to get executable path: %v", err))
 	}
 }

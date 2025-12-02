@@ -34,10 +34,10 @@ linters:
   settings:
     forbidigo:
       # Forbid os.Exit to ensure cleanup hooks can fire before process termination.
-      # Use //nolint:forbidigo in main(), init(), or TestMain() where it's allowed.
+      # Use //nolint:forbidigo in main() or TestMain() where it's allowed.
       forbid:
         - pattern: ^os\.Exit$
-          msg: "os.Exit() prevents cleanup hooks from firing. Return an error instead. Only allowed in main(), init(), or TestMain() with //nolint:forbidigo"
+          msg: "os.Exit() prevents cleanup hooks from firing. Return an error instead. Only allowed in main() or TestMain() with //nolint:forbidigo. In init(), use panic() instead."
     depguard:
       rules:
         main:
