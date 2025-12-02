@@ -30,6 +30,9 @@ import (
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 )
 
+// Compile-time assertion that AppointLeaderAction implements types.RecoveryAction.
+var _ types.RecoveryAction = (*AppointLeaderAction)(nil)
+
 // AppointLeaderAction handles leader appointment using the coordinator's consensus protocol.
 // This action is used for both repair (mixed initialized/empty nodes) and reelect
 // (all nodes initialized) scenarios. The coordinator.AppointLeader method handles
@@ -163,10 +166,6 @@ func (a *AppointLeaderAction) getCohort(database, tablegroup, shard string) []*m
 
 func (a *AppointLeaderAction) RequiresHealthyPrimary() bool {
 	return false // leader appointment doesn't need existing primary
-}
-
-func (a *AppointLeaderAction) RequiresLock() bool {
-	return true // leader appointment requires exclusive shard lock
 }
 
 func (a *AppointLeaderAction) Metadata() types.RecoveryMetadata {

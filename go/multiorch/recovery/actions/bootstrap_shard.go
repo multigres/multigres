@@ -32,6 +32,9 @@ import (
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
 
+// Compile-time assertion that BootstrapShardAction implements types.RecoveryAction.
+var _ types.RecoveryAction = (*BootstrapShardAction)(nil)
+
 // BootstrapShardAction handles bootstrap initialization of a new shard from scratch.
 // This action assumes all nodes in the cohort are empty (uninitialized).
 // It will:
@@ -432,10 +435,6 @@ func (a *BootstrapShardAction) parsePolicy(policyName string) (*clustermetadatap
 
 func (a *BootstrapShardAction) RequiresHealthyPrimary() bool {
 	return false
-}
-
-func (a *BootstrapShardAction) RequiresLock() bool {
-	return true
 }
 
 func (a *BootstrapShardAction) Metadata() types.RecoveryMetadata {

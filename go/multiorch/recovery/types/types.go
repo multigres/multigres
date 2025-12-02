@@ -124,9 +124,6 @@ type RecoveryAction interface {
 	// Metadata returns info about this recovery.
 	Metadata() RecoveryMetadata
 
-	// RequiresLock indicates if shard lock is needed.
-	RequiresLock() bool
-
 	// RequiresHealthyPrimary indicates if this recovery requires a healthy primary.
 	// If true, the recovery will be skipped when the primary is unhealthy.
 	// This provides an extra guardrail to avoid accidental operations on replicas
