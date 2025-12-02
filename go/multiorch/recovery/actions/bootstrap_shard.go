@@ -73,7 +73,7 @@ func (a *BootstrapShardAction) Execute(ctx context.Context, problem types.Proble
 		"tablegroup", problem.TableGroup,
 		"shard", problem.Shard)
 
-	// Step 1: Acquire distributed lock for this shard
+	// Acquire distributed lock for this shard
 	metadata := a.Metadata()
 	lockPath := topo.RecoveryLockPath(problem.Database, problem.TableGroup, problem.Shard)
 	a.logger.InfoContext(ctx, "acquiring recovery lock", "lock_path", lockPath)
@@ -105,14 +105,14 @@ func (a *BootstrapShardAction) Execute(ctx context.Context, problem types.Proble
 
 	a.logger.InfoContext(ctx, "acquired recovery lock", "lock_path", lockPath)
 
-	// Step 2: Fetch cohort from pooler store
+	// Fetch cohort from pooler store
 	cohort := a.getCohort(problem.Database, problem.TableGroup, problem.Shard)
 	if len(cohort) == 0 {
 		return fmt.Errorf("no poolers found for shard %s/%s/%s",
 			problem.Database, problem.TableGroup, problem.Shard)
 	}
 
-	// Step 3: Get the durability policy name from the Database proto in topology
+	// Get the durability policy name from the Database proto in topology
 	policyName, err := a.getDurabilityPolicyName(ctx, problem.Database)
 	if err != nil {
 		return mterrors.Wrap(err, "failed to get durability policy name from topology")
@@ -123,7 +123,7 @@ func (a *BootstrapShardAction) Execute(ctx context.Context, problem types.Proble
 		"database", problem.Database,
 		"policy_name", policyName)
 
-	// Step 4: Revalidate that bootstrap is still needed after acquiring lock.
+	// Revalidate that bootstrap is still needed after acquiring lock.
 	// Make fresh RPC calls to verify all nodes are still uninitialized.
 	// Don't rely on potentially stale store data.
 	needsBootstrap, err := a.verifyBootstrapNeeded(ctx, cohort)
@@ -144,7 +144,7 @@ func (a *BootstrapShardAction) Execute(ctx context.Context, problem types.Proble
 		"shard", problem.Shard,
 		"cohort_size", len(cohort))
 
-	// Step 5: Select a bootstrap candidate
+	// Select a bootstrap candidate
 	candidate, err := a.selectBootstrapCandidate(ctx, cohort)
 	if err != nil {
 		return mterrors.Wrap(err, "failed to select bootstrap candidate")
@@ -155,7 +155,7 @@ func (a *BootstrapShardAction) Execute(ctx context.Context, problem types.Proble
 		"database", problem.Database,
 		"candidate", candidate.MultiPooler.Id.Name)
 
-	// Step 6: Set pooler type to PRIMARY before initializing
+	// Set pooler type to PRIMARY before initializing
 	changeTypeReq := &multipoolermanagerdatapb.ChangeTypeRequest{
 		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
 	}
@@ -164,7 +164,7 @@ func (a *BootstrapShardAction) Execute(ctx context.Context, problem types.Proble
 		return mterrors.Wrap(err, "failed to set pooler type to PRIMARY")
 	}
 
-	// Step 7: Initialize the candidate as an empty primary with term=1
+	// Initialize the candidate as an empty primary with term=1
 	req := &multipoolermanagerdatapb.InitializeEmptyPrimaryRequest{
 		ConsensusTerm: 1,
 	}
@@ -185,7 +185,7 @@ func (a *BootstrapShardAction) Execute(ctx context.Context, problem types.Proble
 		"primary", candidate.MultiPooler.Id.Name,
 		"backup_id", resp.BackupId)
 
-	// Step 8: Create durability policy in the primary's database
+	// Create durability policy in the primary's database
 	quorumRule, err := a.parsePolicy(policyName)
 	if err != nil {
 		return mterrors.Wrap(err, "failed to parse policy")
@@ -210,7 +210,7 @@ func (a *BootstrapShardAction) Execute(ctx context.Context, problem types.Proble
 		"database", problem.Database,
 		"policy_name", policyName)
 
-	// Step 9: Initialize remaining nodes as standbys
+	// Initialize remaining nodes as standbys
 	standbys := make([]*multiorchdatapb.PoolerHealthState, 0, len(cohort)-1)
 	for _, pooler := range cohort {
 		if pooler.MultiPooler.Id.Name != candidate.MultiPooler.Id.Name {
