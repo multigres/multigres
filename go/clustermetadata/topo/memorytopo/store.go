@@ -27,6 +27,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/multigres/multigres/go/clustermetadata/topo"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
@@ -214,6 +215,10 @@ type node struct {
 	// For regular locks, it has the contents that was passed in.
 	// For primary election, it has the id of the election leader.
 	lockContents string
+
+	// lockTTLTimer is the timer for auto-expiring locks with TTL.
+	// It is nil if no TTL was set or the lock has been unlocked.
+	lockTTLTimer *time.Timer
 }
 
 func (n *node) isDirectory() bool {

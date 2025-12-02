@@ -49,7 +49,6 @@ const (
 // Metrics holds all OpenTelemetry metrics for the topo package.
 type Metrics struct {
 	meter        metric.Meter
-	lockOps      metric.Int64Counter
 	lockDuration metric.Float64Histogram
 }
 
@@ -68,17 +67,7 @@ func newMetrics() *Metrics {
 
 	var err error
 
-	// Counter for lock operations
-	m.lockOps, err = m.meter.Int64Counter(
-		"topo.lock.operations",
-		metric.WithDescription("Number of topo lock operations"),
-		metric.WithUnit("{operation}"),
-	)
-	if err != nil {
-		m.lockOps = noop.Int64Counter{}
-	}
-
-	// Histogram for lock operation duration
+	// Histogram for lock operation duration (count can be derived from this)
 	m.lockDuration, err = m.meter.Float64Histogram(
 		"topo.lock.duration",
 		metric.WithDescription("Duration of topo lock operations"),
@@ -99,6 +88,5 @@ func RecordLockOperation(ctx context.Context, op LockOperation, resourceType, re
 		attribute.String("result", string(result)),
 	}
 
-	metrics.lockOps.Add(ctx, 1, metric.WithAttributes(attrs...))
 	metrics.lockDuration.Record(ctx, duration.Seconds(), metric.WithAttributes(attrs...))
 }

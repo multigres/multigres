@@ -142,8 +142,11 @@ func testTryLockName(t *testing.T, ts topo.Store) {
 	require.NoError(t, err, "TryLockName failed")
 
 	// TryLockName should fail fast when lock is held (not block)
+	start := time.Now()
 	_, err = conn.TryLockName(ctx, lockPath, "again")
+	elapsed := time.Since(start)
 	require.Error(t, err, "TryLockName should fail when lock is held")
+	require.Less(t, elapsed, 100*time.Millisecond, "TryLockName should fail fast without blocking")
 
 	err = lockDescriptor.Unlock(ctx)
 	require.NoError(t, err, "Unlock failed")

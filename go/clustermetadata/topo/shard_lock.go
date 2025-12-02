@@ -47,25 +47,12 @@ func (s *shardLock) Path() string {
 // - an unlock method
 // - an error if anything failed.
 //
-// We are currently only using this method to lock actions that would
-// impact each-other. Most changes of the Shard object are done by
-// UpdateShardFields, which is not locking the shard object. The
-// current list of actions that lock a shard are:
-// * all Multigres-controlled re-parenting operations:
-//   - PlannedReparentShard
-//   - EmergencyReparentShard
+// We currently use this method for the bootstrap action in multiorch to ensure
+// exclusive access to a shard during initialization.
 //
-// * any multiorch recovery e.g
-//   - RecoverDeadPrimary
-//   - ElectNewPrimary
-//   - FixPrimary
-//
-// * operations that we don't want to conflict with re-parenting:
-//   - DeleteTablet when it's the shard's current primary
-//
-// Note: Shard locks use named locks (LockNameWithTTL) because shards don't have
-// dedicated topo entries. Named locks don't require the path to exist.
-// If no TTL is specified via WithTTL option, it defaults to NamedLockTTL (24 hours).
+// Note: Shard locks use named locks (LockNameWithTTL) which create the lock path
+// if it doesn't exist. If no TTL is specified via WithTTL option, it defaults to
+// NamedLockTTL (24 hours).
 func (ts *store) LockShard(ctx context.Context, database, tableGroup, shard, action string, opts ...LockOption) (context.Context, func(*error), error) {
 	// Prepend Named lock type - user-provided options can override this
 	opts = append([]LockOption{WithType(Named)}, opts...)
@@ -90,9 +77,7 @@ func (ts *store) LockShard(ctx context.Context, database, tableGroup, shard, act
 // client call times out (just like standard `LockShard' implementation). In short the lock checking
 // and acquiring is not under the same mutex in current implementation of `TryLockShard`.
 //
-// # We are currently using `TryLockShard` during tablet discovery in multiorch recovery
-//
-// Note: Uses NamedNonBlocking lock type because shards don't have dedicated topo entries.
+// Note: Uses NamedNonBlocking lock type which creates the lock path if it doesn't exist.
 func (ts *store) TryLockShard(ctx context.Context, database, tableGroup, shard, action string) (context.Context, func(*error), error) {
 	return ts.internalLock(ctx, &shardLock{
 		database:   database,
