@@ -100,7 +100,9 @@ func (sv *ServEnv) Init(serviceName string) error {
 	sv.registerPidFile()
 	sv.RegisterCommonHTTPEndpoints()
 	sv.HTTPRegisterPprofProfile()
-	sv.pprofInit()
+	if err := sv.pprofInit(); err != nil {
+		return fmt.Errorf("pprof init: %w", err)
+	}
 	sv.updateServiceMap()
 	sv.startOrphanDetection()
 	return nil

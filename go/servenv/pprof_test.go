@@ -84,7 +84,7 @@ func TestPProfInitWithWaitSig(t *testing.T) {
 	sv := NewServEnv(viperutil.NewRegistry())
 	sv.pprofFlag.Set(strings.Split("cpu,waitSig", ","))
 
-	sv.pprofInit()
+	require.NoError(t, sv.pprofInit())
 	require.Eventually(t, func() bool {
 		return !isProfileStarted()
 	}, 2*time.Second, 10*time.Millisecond)
@@ -122,7 +122,7 @@ func TestPProfInitWithoutWaitSig(t *testing.T) {
 	sv := NewServEnv(viperutil.NewRegistry())
 	sv.pprofFlag.Set(strings.Split("cpu", ","))
 
-	sv.pprofInit()
+	require.NoError(t, sv.pprofInit())
 	require.Eventually(t, func() bool {
 		return isProfileStarted()
 	}, 2*time.Second, 10*time.Millisecond)
@@ -144,4 +144,15 @@ func TestPProfInitWithoutWaitSig(t *testing.T) {
 	require.Eventually(t, func() bool {
 		return !isProfileStarted()
 	}, 2*time.Second, 10*time.Millisecond)
+}
+
+// TestPProfInitWithInvalidFlags verifies that pprofInit returns an error
+// when given invalid profile flags.
+func TestPProfInitWithInvalidFlags(t *testing.T) {
+	sv := NewServEnv(viperutil.NewRegistry())
+	sv.pprofFlag.Set(strings.Split("invalid-profile-type", ","))
+
+	err := sv.pprofInit()
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "parsing pprof flags")
 }

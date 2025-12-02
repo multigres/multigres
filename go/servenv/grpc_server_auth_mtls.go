@@ -19,6 +19,7 @@ package servenv
 import (
 	"context"
 	"log/slog"
+	"os"
 	"strings"
 
 	"github.com/spf13/pflag"
@@ -81,6 +82,9 @@ func ClientCertSubstrings() string {
 }
 
 func init() {
-	RegisterAuthPlugin("mtls", mtlsAuthPluginInitializer)
+	if err := RegisterAuthPlugin("mtls", mtlsAuthPluginInitializer); err != nil {
+		slog.Error("Failed to register mtls auth plugin", "error", err)
+		os.Exit(1)
+	}
 	grpcAuthServerFlagHooks = append(grpcAuthServerFlagHooks, registerGRPCServerAuthMTLSFlags)
 }

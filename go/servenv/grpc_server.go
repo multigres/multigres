@@ -365,10 +365,13 @@ func (g *GrpcServer) interceptors() ([]grpc.ServerOption, error) {
 
 	if g.auth.Get() != "" {
 		slog.Info("enabling auth plugin", "plugin", g.auth.Get())
-		pluginInitializer := GetAuthenticator(g.auth.Get())
+		pluginInitializer, err := GetAuthenticator(g.auth.Get())
+		if err != nil {
+			return nil, fmt.Errorf("get auth plugin %q: %w", g.auth.Get(), err)
+		}
 		authPluginImpl, err := pluginInitializer()
 		if err != nil {
-			return nil, fmt.Errorf("failed to load auth plugin %q: %w", g.auth.Get(), err)
+			return nil, fmt.Errorf("initialize auth plugin %q: %w", g.auth.Get(), err)
 		}
 		g.authPlugin = authPluginImpl
 		interceptors.Add(

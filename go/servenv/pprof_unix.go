@@ -21,17 +21,16 @@ Modifications Copyright 2025 Supabase, Inc.
 package servenv
 
 import (
-	"log/slog"
+	"fmt"
 	"os"
 	"os/signal"
 	"syscall"
 )
 
-func (sv *ServEnv) pprofInit() {
+func (sv *ServEnv) pprofInit() error {
 	prof, err := sv.parseProfileFlag(sv.pprofFlag.Get())
 	if err != nil {
-		slog.Error("error parsing pprof flags", "err", err)
-		os.Exit(1)
+		return fmt.Errorf("parsing pprof flags: %w", err)
 	}
 	if prof != nil {
 		start, stop := prof.init()
@@ -57,4 +56,5 @@ func (sv *ServEnv) pprofInit() {
 
 		sv.OnTerm(stop)
 	}
+	return nil
 }
