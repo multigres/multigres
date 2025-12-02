@@ -123,20 +123,31 @@ func (a *BootstrapShardAction) Execute(ctx context.Context, problem types.Proble
 		"database", problem.Database,
 		"policy_name", policyName)
 
-	// Step 4: Select a bootstrap candidate (also re-validates that bootstrap is needed)
-	// This makes fresh RPC calls to check initialization status, serving as the
-	// post-lock re-verification that the problem still exists.
-	candidate, needsBootstrap, err := a.selectBootstrapCandidate(ctx, cohort)
+	// Step 4: Revalidate that bootstrap is still needed after acquiring lock.
+	// Make fresh RPC calls to verify all nodes are still uninitialized.
+	// Don't rely on potentially stale store data.
+	needsBootstrap, err := a.verifyBootstrapNeeded(ctx, cohort)
 	if err != nil {
-		return mterrors.Wrap(err, "failed to select bootstrap candidate")
+		return mterrors.Wrap(err, "failed to verify bootstrap needed")
 	}
-
 	if !needsBootstrap {
-		a.logger.InfoContext(ctx, "shard no longer needs bootstrap, problem resolved",
+		a.logger.InfoContext(ctx, "shard no longer needs bootstrap, problem resolved by another recovery",
 			"database", problem.Database,
 			"tablegroup", problem.TableGroup,
 			"shard", problem.Shard)
 		return nil
+	}
+
+	a.logger.InfoContext(ctx, "verified shard still needs bootstrap, proceeding",
+		"database", problem.Database,
+		"tablegroup", problem.TableGroup,
+		"shard", problem.Shard,
+		"cohort_size", len(cohort))
+
+	// Step 5: Select a bootstrap candidate
+	candidate, err := a.selectBootstrapCandidate(ctx, cohort)
+	if err != nil {
+		return mterrors.Wrap(err, "failed to select bootstrap candidate")
 	}
 
 	a.logger.InfoContext(ctx, "selected bootstrap candidate",
@@ -144,7 +155,7 @@ func (a *BootstrapShardAction) Execute(ctx context.Context, problem types.Proble
 		"database", problem.Database,
 		"candidate", candidate.MultiPooler.Id.Name)
 
-	// Step 5: Set pooler type to PRIMARY before initializing
+	// Step 6: Set pooler type to PRIMARY before initializing
 	changeTypeReq := &multipoolermanagerdatapb.ChangeTypeRequest{
 		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
 	}
@@ -153,7 +164,7 @@ func (a *BootstrapShardAction) Execute(ctx context.Context, problem types.Proble
 		return mterrors.Wrap(err, "failed to set pooler type to PRIMARY")
 	}
 
-	// Step 6: Initialize the candidate as an empty primary with term=1
+	// Step 7: Initialize the candidate as an empty primary with term=1
 	req := &multipoolermanagerdatapb.InitializeEmptyPrimaryRequest{
 		ConsensusTerm: 1,
 	}
@@ -174,7 +185,7 @@ func (a *BootstrapShardAction) Execute(ctx context.Context, problem types.Proble
 		"primary", candidate.MultiPooler.Id.Name,
 		"backup_id", resp.BackupId)
 
-	// Step 7: Create durability policy in the primary's database
+	// Step 8: Create durability policy in the primary's database
 	quorumRule, err := a.parsePolicy(policyName)
 	if err != nil {
 		return mterrors.Wrap(err, "failed to parse policy")
@@ -199,7 +210,7 @@ func (a *BootstrapShardAction) Execute(ctx context.Context, problem types.Proble
 		"database", problem.Database,
 		"policy_name", policyName)
 
-	// Step 8: Initialize remaining nodes as standbys
+	// Step 9: Initialize remaining nodes as standbys
 	standbys := make([]*multiorchdatapb.PoolerHealthState, 0, len(cohort)-1)
 	for _, pooler := range cohort {
 		if pooler.MultiPooler.Id.Name != candidate.MultiPooler.Id.Name {
@@ -224,19 +235,46 @@ func (a *BootstrapShardAction) Execute(ctx context.Context, problem types.Proble
 	return nil
 }
 
-// nodeInfo holds information about a node's initialization state
-type nodeInfo struct {
-	pooler      *multiorchdatapb.PoolerHealthState
-	initialized bool
-	reachable   bool
+// verifyBootstrapNeeded checks if bootstrap is still needed by making fresh RPC calls.
+// Returns true if all reachable nodes are uninitialized, false if any node is initialized.
+func (a *BootstrapShardAction) verifyBootstrapNeeded(ctx context.Context, cohort []*multiorchdatapb.PoolerHealthState) (bool, error) {
+	for _, pooler := range cohort {
+		req := &multipoolermanagerdatapb.InitializationStatusRequest{}
+		resp, err := a.rpcClient.InitializationStatus(ctx, pooler.MultiPooler, req)
+		if err != nil {
+			// Node unreachable - can't determine state, continue checking others
+			a.logger.WarnContext(ctx, "node unreachable during bootstrap recheck",
+				"node", pooler.MultiPooler.Id.Name,
+				"error", err)
+			continue
+		}
+
+		if resp.IsInitialized {
+			a.logger.InfoContext(ctx, "node is now initialized (fresh RPC check), skipping bootstrap",
+				"node", pooler.MultiPooler.Id.Name,
+				"role", resp.Role)
+			return false, nil
+		}
+	}
+
+	return true, nil
 }
 
 // selectBootstrapCandidate selects a healthy node as the bootstrap candidate.
-// Returns the candidate, whether bootstrap is still needed, and any error.
-// If an initialized node is found, bootstrap is not needed (returns nil, false, nil).
-// This method makes fresh RPC calls to verify initialization status, serving as
-// the post-lock re-verification that the problem still exists.
-func (a *BootstrapShardAction) selectBootstrapCandidate(ctx context.Context, cohort []*multiorchdatapb.PoolerHealthState) (*multiorchdatapb.PoolerHealthState, bool, error) {
+// Prefers initialized nodes over uninitialized nodes to avoid data loss in mixed scenarios.
+func (a *BootstrapShardAction) selectBootstrapCandidate(ctx context.Context, cohort []*multiorchdatapb.PoolerHealthState) (*multiorchdatapb.PoolerHealthState, error) {
+	// For bootstrap in mixed initialization scenarios, prefer initialized nodes
+	// to avoid data loss. This handles cases where some nodes have data and others don't.
+	// Selection strategy:
+	// 1. First pass: look for initialized nodes
+	// 2. Second pass: if no initialized nodes, use first uninitialized node
+
+	type nodeInfo struct {
+		pooler      *multiorchdatapb.PoolerHealthState
+		initialized bool
+		reachable   bool
+	}
+
 	nodes := make([]nodeInfo, 0, len(cohort))
 
 	for _, pooler := range cohort {
@@ -261,25 +299,25 @@ func (a *BootstrapShardAction) selectBootstrapCandidate(ctx context.Context, coh
 		})
 	}
 
-	// Check if any node is already initialized - if so, bootstrap is not needed
+	// First pass: prefer initialized nodes
 	for _, node := range nodes {
 		if node.reachable && node.initialized {
-			a.logger.InfoContext(ctx, "found initialized node, bootstrap not needed",
+			a.logger.InfoContext(ctx, "selected initialized node as bootstrap candidate",
 				"node", node.pooler.MultiPooler.Id.Name)
-			return nil, false, nil
+			return node.pooler, nil
 		}
 	}
 
-	// All reachable nodes are uninitialized - select first reachable one for bootstrap
+	// Second pass: use first uninitialized but reachable node
 	for _, node := range nodes {
 		if node.reachable && !node.initialized {
 			a.logger.InfoContext(ctx, "selected uninitialized node as bootstrap candidate",
 				"node", node.pooler.MultiPooler.Id.Name)
-			return node.pooler, true, nil
+			return node.pooler, nil
 		}
 	}
 
-	return nil, true, mterrors.Errorf(mtrpcpb.Code_UNAVAILABLE,
+	return nil, mterrors.Errorf(mtrpcpb.Code_UNAVAILABLE,
 		"no suitable candidate found for bootstrap")
 }
 
