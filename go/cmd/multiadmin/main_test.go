@@ -22,8 +22,7 @@ import (
 )
 
 // TestInit_TopoMissingAddresses verifies that Init() returns an error when
-// topo-global-server-addresses is not configured. This was previously an
-// os.Exit() call that couldn't be tested.
+// topo-global-server-addresses is not configured.
 func TestInit_TopoMissingAddresses(t *testing.T) {
 	cmd, _ := CreateMultiAdminCommand()
 

@@ -23,6 +23,7 @@ linters:
     - bodyclose
     - depguard
     - errcheck
+    - forbidigo
     - gocritic
     - govet
     - ineffassign
@@ -31,6 +32,12 @@ linters:
     - staticcheck
     - unused
   settings:
+    forbidigo:
+      # Forbid os.Exit to ensure cleanup hooks can fire before process termination.
+      # Use //nolint:forbidigo in main(), init(), or TestMain() where it's allowed.
+      forbid:
+        - pattern: ^os\.Exit$
+          msg: "os.Exit() prevents cleanup hooks from firing. Return an error instead. Only allowed in main(), init(), or TestMain() with //nolint:forbidigo"
     depguard:
       rules:
         main:

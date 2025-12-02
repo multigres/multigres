@@ -34,7 +34,9 @@ func (sv *ServEnv) Run(bindAddress string, port int, grpcServer *GrpcServer) err
 	if err := grpcServer.Create(); err != nil {
 		return fmt.Errorf("grpc server create: %w", err)
 	}
-	sv.FireRunHooks()
+	if err := sv.FireRunHooks(); err != nil {
+		return fmt.Errorf("run hooks: %w", err)
+	}
 	if err := grpcServer.Serve(sv); err != nil {
 		return fmt.Errorf("grpc server serve: %w", err)
 	}

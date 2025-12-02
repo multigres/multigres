@@ -211,7 +211,7 @@ func (sv *ServEnv) startOrphanDetection() {
 						return
 					case <-time.After(10 * time.Second):
 						slog.Error("Graceful shutdown timed out after orphan detection, force killing")
-						os.Exit(1)
+						os.Exit(1) //nolint:forbidigo // Last resort: this is a test and graceful shutdown already timed out
 					}
 				}
 			case <-closeComplete:

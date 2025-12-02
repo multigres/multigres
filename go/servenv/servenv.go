@@ -62,6 +62,7 @@ type ServEnv struct {
 	onTermHooks     event.Hooks
 	onTermSyncHooks event.Hooks
 	onRunHooks      event.Hooks
+	onRunEHooks     event.ErrorHooks
 
 	// State
 	mu           sync.Mutex
@@ -218,6 +219,12 @@ func (se *ServEnv) OnRun(f func()) {
 	se.onRunHooks.Add(f)
 }
 
+// OnRunE registers an error-returning function to be run right at the beginning of Run.
+// If the function returns an error, it will be collected and returned by FireRunHooks.
+func (se *ServEnv) OnRunE(f func() error) {
+	se.onRunEHooks.Add(f)
+}
+
 // OnClose registers f to be run at the end of the app lifecycle.
 // This happens after the lameduck period just before the program exits.
 // All hooks are run in parallel.
@@ -225,9 +232,11 @@ func (sv *ServEnv) OnClose(f func()) {
 	sv.onCloseHooks.Add(f)
 }
 
-// FireRunHooks fires the hooks registered by OnRun
-func (se *ServEnv) FireRunHooks() {
+// FireRunHooks fires the hooks registered by OnRun and OnRunE.
+// Returns an error if any OnRunE hooks fail (combined with errors.Join).
+func (se *ServEnv) FireRunHooks() error {
 	se.onRunHooks.Fire()
+	return se.onRunEHooks.Fire()
 }
 
 // fireOnTermSyncHooks returns true iff all the hooks finish before the timeout

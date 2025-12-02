@@ -52,7 +52,7 @@ func main() {
 
 	if err := cmd.Execute(); err != nil {
 		slog.Error(err.Error())
-		os.Exit(1)
+		os.Exit(1) //nolint:forbidigo // main() is allowed to call os.Exit
 	}
 }
 

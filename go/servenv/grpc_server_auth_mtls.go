@@ -84,7 +84,7 @@ func ClientCertSubstrings() string {
 func init() {
 	if err := RegisterAuthPlugin("mtls", mtlsAuthPluginInitializer); err != nil {
 		slog.Error("Failed to register mtls auth plugin", "error", err)
-		os.Exit(1)
+		os.Exit(1) //nolint:forbidigo // init() is allowed to call os.Exit
 	}
 	grpcAuthServerFlagHooks = append(grpcAuthServerFlagHooks, registerGRPCServerAuthMTLSFlags)
 }

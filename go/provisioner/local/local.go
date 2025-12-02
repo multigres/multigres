@@ -1988,6 +1988,6 @@ func init() {
 		pathutil.PrependPath(binDir)
 	} else {
 		slog.Error(fmt.Sprintf("Local Provisioner failed to get executable path: %v", err))
-		os.Exit(1)
+		os.Exit(1) //nolint:forbidigo // init() is allowed to call os.Exit
 	}
 }

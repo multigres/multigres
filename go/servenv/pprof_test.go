@@ -156,3 +156,38 @@ func TestPProfInitWithInvalidFlags(t *testing.T) {
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "parsing pprof flags")
 }
+
+// TestStartCallback_DoubleStart verifies that calling start() twice returns an error.
+func TestStartCallback_DoubleStart(t *testing.T) {
+	// Reset profileStarted state
+	profileStarted = 0
+
+	start := startCallback(func() error {
+		return nil
+	})
+
+	// First call should succeed
+	err := start()
+	require.NoError(t, err)
+
+	// Second call should return error
+	err = start()
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "Start() already called")
+
+	// Reset for other tests
+	profileStarted = 0
+}
+
+// TestMkprofile_InvalidPath verifies that mkprofile returns an error for invalid paths.
+func TestMkprofile_InvalidPath(t *testing.T) {
+	prof := &profile{
+		mode: profileCPU,
+		// Use a path that can't be created (null byte in path)
+		path: "/dev/null/impossible\x00path",
+	}
+
+	_, err := prof.mkprofile()
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "pprof:")
+}

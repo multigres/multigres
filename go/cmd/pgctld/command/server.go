@@ -110,9 +110,7 @@ func (s *PgCtldServerCmd) runServer(cmd *cobra.Command, args []string) error {
 		// TODO: add closing hooks
 	})
 
-	s.senv.RunDefault(s.grpcServer)
-
-	return nil
+	return s.senv.RunDefault(s.grpcServer)
 }
 
 // PgCtldService implements the pgctld gRPC service

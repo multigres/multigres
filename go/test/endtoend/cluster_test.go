@@ -476,7 +476,7 @@ func TestMain(m *testing.M) {
 	// Use automatic module root detection instead of hard-coded relative paths
 	if err := pathutil.PrependBinToPath(); err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to add directories to PATH: %v\n", err)
-		os.Exit(1)
+		os.Exit(1) //nolint:forbidigo // TestMain() is allowed to call os.Exit
 	}
 
 	// Set orphan detection environment variable so postgres processes
@@ -491,7 +491,7 @@ func TestMain(m *testing.M) {
 	os.Unsetenv("MULTIGRES_TEST_PARENT_PID")
 
 	// Exit with the test result code
-	os.Exit(exitCode)
+	os.Exit(exitCode) //nolint:forbidigo // TestMain() is allowed to call os.Exit
 }
 
 // executeInitCommand runs the actual multigres binary with "cluster init" command
