@@ -16,6 +16,7 @@ package poolergateway
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -88,7 +89,7 @@ func (g *grpcQueryService) StreamExecute(
 	// Stream results back via callback
 	for {
 		response, err := stream.Recv()
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			// Stream completed successfully
 			g.logger.DebugContext(ctx, "stream completed", "pooler_id", g.poolerID)
 			return nil

@@ -145,14 +145,14 @@ func cleanupMockProcesses(t *testing.T, tempDir string) {
 	// Look for any postmaster.pid files in the temp directory and kill associated processes
 	err := filepath.Walk(tempDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
-			return nil // Continue walking even if there's an error with one file
+			return nil //nolint:nilerr // Continue walking even if there's an error with one file
 		}
 
 		if info.Name() == "postmaster.pid" {
 			// Read the PID from the file and kill the process
 			content, readErr := os.ReadFile(path)
 			if readErr != nil {
-				return nil // Continue if we can't read the file
+				return nil //nolint:nilerr // Continue if we can't read the file
 			}
 
 			lines := strings.Split(string(content), "\n")

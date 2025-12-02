@@ -22,10 +22,10 @@ import (
 	"github.com/jackc/pglogrepl"
 
 	"github.com/multigres/multigres/go/common/mterrors"
-	"github.com/multigres/multigres/go/multiorch/store"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	consensusdatapb "github.com/multigres/multigres/go/pb/consensusdata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
+	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
 
@@ -37,7 +37,7 @@ import (
 // 5. Validate quorum using durability policy
 //
 // Returns the candidate node, standbys, the new term, and any error.
-func (c *Coordinator) BeginTerm(ctx context.Context, shardID string, cohort []*store.PoolerHealth, quorumRule *clustermetadatapb.QuorumRule) (*store.PoolerHealth, []*store.PoolerHealth, int64, error) {
+func (c *Coordinator) BeginTerm(ctx context.Context, shardID string, cohort []*multiorchdatapb.PoolerHealthState, quorumRule *clustermetadatapb.QuorumRule) (*multiorchdatapb.PoolerHealthState, []*multiorchdatapb.PoolerHealthState, int64, error) {
 	// Stage 1: Obtain Term Number - Query all nodes for max term
 	c.logger.InfoContext(ctx, "Discovering max term", "shard", shardID, "cohort_size", len(cohort))
 	maxTerm, err := c.discoverMaxTerm(ctx, cohort)
@@ -55,7 +55,7 @@ func (c *Coordinator) BeginTerm(ctx context.Context, shardID string, cohort []*s
 		return nil, nil, 0, mterrors.Wrap(err, "failed to select candidate")
 	}
 
-	c.logger.InfoContext(ctx, "Selected candidate", "shard", shardID, "candidate", candidate.ID.Name)
+	c.logger.InfoContext(ctx, "Selected candidate", "shard", shardID, "candidate", candidate.MultiPooler.Id.Name)
 
 	// Stage 4: Recruit Nodes - Send BeginTerm RPC to all nodes in parallel
 	recruited, err := c.recruitNodes(ctx, cohort, newTerm, candidate)
@@ -76,9 +76,9 @@ func (c *Coordinator) BeginTerm(ctx context.Context, shardID string, cohort []*s
 	}
 
 	// Separate candidate from standbys
-	var standbys []*store.PoolerHealth
+	var standbys []*multiorchdatapb.PoolerHealthState
 	for _, node := range recruited {
-		if node.ID.Name != candidate.ID.Name {
+		if node.MultiPooler.Id.Name != candidate.MultiPooler.Id.Name {
 			standbys = append(standbys, node)
 		}
 	}
@@ -87,7 +87,7 @@ func (c *Coordinator) BeginTerm(ctx context.Context, shardID string, cohort []*s
 }
 
 // discoverMaxTerm queries all nodes in parallel to find the maximum consensus term.
-func (c *Coordinator) discoverMaxTerm(ctx context.Context, cohort []*store.PoolerHealth) (int64, error) {
+func (c *Coordinator) discoverMaxTerm(ctx context.Context, cohort []*multiorchdatapb.PoolerHealthState) (int64, error) {
 	type result struct {
 		term int64
 		err  error
@@ -98,10 +98,10 @@ func (c *Coordinator) discoverMaxTerm(ctx context.Context, cohort []*store.Poole
 
 	for _, pooler := range cohort {
 		wg.Add(1)
-		go func(n *store.PoolerHealth) {
+		go func(n *multiorchdatapb.PoolerHealthState) {
 			defer wg.Done()
 			req := &consensusdatapb.StatusRequest{}
-			resp, err := c.rpcClient.ConsensusStatus(ctx, n.ToMultiPooler(), req)
+			resp, err := c.rpcClient.ConsensusStatus(ctx, n.MultiPooler, req)
 			if err != nil {
 				results <- result{err: err}
 				return
@@ -144,9 +144,9 @@ func (c *Coordinator) discoverMaxTerm(ctx context.Context, cohort []*store.Poole
 }
 
 // selectCandidate chooses the best candidate based on WAL position and health.
-func (c *Coordinator) selectCandidate(ctx context.Context, cohort []*store.PoolerHealth) (*store.PoolerHealth, error) {
+func (c *Coordinator) selectCandidate(ctx context.Context, cohort []*multiorchdatapb.PoolerHealthState) (*multiorchdatapb.PoolerHealthState, error) {
 	type nodeStatus struct {
-		node        *store.PoolerHealth
+		node        *multiorchdatapb.PoolerHealthState
 		walPosition string
 		healthy     bool
 	}
@@ -156,10 +156,10 @@ func (c *Coordinator) selectCandidate(ctx context.Context, cohort []*store.Poole
 	// Query status from all nodes
 	for _, pooler := range cohort {
 		req := &consensusdatapb.StatusRequest{}
-		resp, err := c.rpcClient.ConsensusStatus(ctx, pooler.ToMultiPooler(), req)
+		resp, err := c.rpcClient.ConsensusStatus(ctx, pooler.MultiPooler, req)
 		if err != nil {
 			c.logger.WarnContext(ctx, "Failed to get status from node",
-				"node", pooler.ID.Name,
+				"node", pooler.MultiPooler.Id.Name,
 				"error", err)
 			continue
 		}
@@ -188,7 +188,7 @@ func (c *Coordinator) selectCandidate(ctx context.Context, cohort []*store.Poole
 	}
 
 	// Select node with most advanced WAL position
-	var bestCandidate *store.PoolerHealth
+	var bestCandidate *multiorchdatapb.PoolerHealthState
 	var bestLSN pglogrepl.LSN
 
 	for _, status := range statuses {
@@ -201,7 +201,7 @@ func (c *Coordinator) selectCandidate(ctx context.Context, cohort []*store.Poole
 		if err != nil {
 			return nil, mterrors.Errorf(mtrpcpb.Code_INVALID_ARGUMENT,
 				"invalid LSN format for node %s: %s (error: %v)",
-				status.node.ID.Name, status.walPosition, err)
+				status.node.MultiPooler.Id.Name, status.walPosition, err)
 		}
 
 		// Select node with highest LSN
@@ -215,16 +215,16 @@ func (c *Coordinator) selectCandidate(ctx context.Context, cohort []*store.Poole
 		// Fall back to first available node if no healthy nodes
 		bestCandidate = statuses[0].node
 		c.logger.WarnContext(ctx, "No healthy nodes, using first available",
-			"node", bestCandidate.ID.Name)
+			"node", bestCandidate.MultiPooler.Id.Name)
 	}
 
 	return bestCandidate, nil
 }
 
 // recruitNodes sends BeginTerm RPC to all nodes in parallel and returns those that accepted.
-func (c *Coordinator) recruitNodes(ctx context.Context, cohort []*store.PoolerHealth, term int64, candidate *store.PoolerHealth) ([]*store.PoolerHealth, error) {
+func (c *Coordinator) recruitNodes(ctx context.Context, cohort []*multiorchdatapb.PoolerHealthState, term int64, candidate *multiorchdatapb.PoolerHealthState) ([]*multiorchdatapb.PoolerHealthState, error) {
 	type result struct {
-		node     *store.PoolerHealth
+		node     *multiorchdatapb.PoolerHealthState
 		accepted bool
 		err      error
 	}
@@ -234,13 +234,13 @@ func (c *Coordinator) recruitNodes(ctx context.Context, cohort []*store.PoolerHe
 
 	for _, pooler := range cohort {
 		wg.Add(1)
-		go func(n *store.PoolerHealth) {
+		go func(n *multiorchdatapb.PoolerHealthState) {
 			defer wg.Done()
 			req := &consensusdatapb.BeginTermRequest{
 				Term:        term,
 				CandidateId: c.coordinatorID,
 			}
-			resp, err := c.rpcClient.BeginTerm(ctx, n.ToMultiPooler(), req)
+			resp, err := c.rpcClient.BeginTerm(ctx, n.MultiPooler, req)
 			if err != nil {
 				results <- result{node: n, err: err}
 				return
@@ -256,22 +256,22 @@ func (c *Coordinator) recruitNodes(ctx context.Context, cohort []*store.PoolerHe
 	}()
 
 	// Collect accepted nodes
-	var recruited []*store.PoolerHealth
+	var recruited []*multiorchdatapb.PoolerHealthState
 	for r := range results {
 		if r.err != nil {
 			c.logger.WarnContext(ctx, "BeginTerm failed for node",
-				"node", r.node.ID.Name,
+				"node", r.node.MultiPooler.Id.Name,
 				"error", r.err)
 			continue
 		}
 		if r.accepted {
 			recruited = append(recruited, r.node)
 			c.logger.InfoContext(ctx, "Node accepted term",
-				"node", r.node.ID.Name,
+				"node", r.node.MultiPooler.Id.Name,
 				"term", term)
 		} else {
 			c.logger.WarnContext(ctx, "Node rejected term",
-				"node", r.node.ID.Name,
+				"node", r.node.MultiPooler.Id.Name,
 				"term", term)
 		}
 	}
@@ -282,7 +282,7 @@ func (c *Coordinator) recruitNodes(ctx context.Context, cohort []*store.PoolerHe
 // buildSyncReplicationConfig creates synchronous replication configuration based on the quorum policy.
 // Returns nil if synchronous replication should not be configured (required_count=1 or no standbys).
 // For MULTI_CELL_ANY_N policies, excludes standbys in the same cell as the candidate (primary).
-func (c *Coordinator) buildSyncReplicationConfig(quorumRule *clustermetadatapb.QuorumRule, standbys []*store.PoolerHealth, candidate *store.PoolerHealth) (*multipoolermanagerdatapb.ConfigureSynchronousReplicationRequest, error) {
+func (c *Coordinator) buildSyncReplicationConfig(quorumRule *clustermetadatapb.QuorumRule, standbys []*multiorchdatapb.PoolerHealthState, candidate *multiorchdatapb.PoolerHealthState) (*multipoolermanagerdatapb.ConfigureSynchronousReplicationRequest, error) {
 	requiredCount := int(quorumRule.RequiredCount)
 
 	// Determine async fallback mode (default to REJECT if unset)
@@ -322,7 +322,7 @@ func (c *Coordinator) buildSyncReplicationConfig(quorumRule *clustermetadatapb.Q
 		eligibleStandbys = c.filterStandbysByCell(candidate, standbys)
 
 		c.logger.Info("Filtered standbys for MULTI_CELL_ANY_N",
-			"candidate_cell", candidate.ID.Cell,
+			"candidate_cell", candidate.MultiPooler.Id.Cell,
 			"total_standbys", len(standbys),
 			"eligible_standbys", len(eligibleStandbys),
 			"excluded_same_cell", len(standbys)-len(eligibleStandbys))
@@ -332,10 +332,10 @@ func (c *Coordinator) buildSyncReplicationConfig(quorumRule *clustermetadatapb.Q
 			if asyncFallback == clustermetadatapb.AsyncReplicationFallbackMode_ASYNC_REPLICATION_FALLBACK_MODE_REJECT {
 				return nil, mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
 					fmt.Sprintf("cannot establish synchronous replication: no eligible standbys in different cells (candidate_cell=%s, async_fallback=REJECT)",
-						candidate.ID.Cell))
+						candidate.MultiPooler.Id.Cell))
 			}
 			c.logger.Warn("No eligible standbys in different cells, using async replication",
-				"candidate_cell", candidate.ID.Cell,
+				"candidate_cell", candidate.MultiPooler.Id.Cell,
 				"total_standbys", len(standbys))
 			return nil, nil
 		}
@@ -366,7 +366,7 @@ func (c *Coordinator) buildSyncReplicationConfig(quorumRule *clustermetadatapb.Q
 	// Convert standby nodes to IDs
 	standbyIDs := make([]*clustermetadatapb.ID, len(eligibleStandbys))
 	for i, standby := range eligibleStandbys {
-		standbyIDs[i] = standby.ID
+		standbyIDs[i] = standby.MultiPooler.Id
 	}
 
 	c.logger.Info("Configuring synchronous replication",
@@ -386,12 +386,12 @@ func (c *Coordinator) buildSyncReplicationConfig(quorumRule *clustermetadatapb.Q
 
 // filterStandbysByCell returns standbys that are NOT in the same cell as the candidate.
 // Used for MULTI_CELL_ANY_N to ensure synchronous replication spans multiple cells.
-func (c *Coordinator) filterStandbysByCell(candidate *store.PoolerHealth, standbys []*store.PoolerHealth) []*store.PoolerHealth {
-	candidateCell := candidate.ID.Cell
-	filtered := make([]*store.PoolerHealth, 0, len(standbys))
+func (c *Coordinator) filterStandbysByCell(candidate *multiorchdatapb.PoolerHealthState, standbys []*multiorchdatapb.PoolerHealthState) []*multiorchdatapb.PoolerHealthState {
+	candidateCell := candidate.MultiPooler.Id.Cell
+	filtered := make([]*multiorchdatapb.PoolerHealthState, 0, len(standbys))
 
 	for _, standby := range standbys {
-		if standby.ID.Cell != candidateCell {
+		if standby.MultiPooler.Id.Cell != candidateCell {
 			filtered = append(filtered, standby)
 		}
 	}
@@ -403,7 +403,7 @@ func (c *Coordinator) filterStandbysByCell(candidate *store.PoolerHealth, standb
 // - Promote the candidate to primary
 // - Configure standbys to replicate from the new primary
 // - Configure synchronous replication based on quorum policy
-func (c *Coordinator) Propagate(ctx context.Context, candidate *store.PoolerHealth, standbys []*store.PoolerHealth, term int64, quorumRule *clustermetadatapb.QuorumRule) error {
+func (c *Coordinator) Propagate(ctx context.Context, candidate *multiorchdatapb.PoolerHealthState, standbys []*multiorchdatapb.PoolerHealthState, term int64, quorumRule *clustermetadatapb.QuorumRule) error {
 	// Build synchronous replication configuration based on quorum policy
 	syncConfig, err := c.buildSyncReplicationConfig(quorumRule, standbys, candidate)
 	if err != nil {
@@ -412,12 +412,12 @@ func (c *Coordinator) Propagate(ctx context.Context, candidate *store.PoolerHeal
 
 	// Promote candidate to primary
 	c.logger.InfoContext(ctx, "Promoting candidate to primary",
-		"node", candidate.ID.Name,
+		"node", candidate.MultiPooler.Id.Name,
 		"term", term)
 
 	// Get current WAL position before promotion (for validation)
 	statusReq := &consensusdatapb.StatusRequest{}
-	status, err := c.rpcClient.ConsensusStatus(ctx, candidate.ToMultiPooler(), statusReq)
+	status, err := c.rpcClient.ConsensusStatus(ctx, candidate.MultiPooler, statusReq)
 	if err != nil {
 		return mterrors.Wrap(err, "failed to get candidate status before promotion")
 	}
@@ -434,13 +434,13 @@ func (c *Coordinator) Propagate(ctx context.Context, candidate *store.PoolerHeal
 			// This ensures validateExpectedLSN in Promote will pass
 			if expectedLSN != "" {
 				c.logger.InfoContext(ctx, "Waiting for candidate to replay all received WAL",
-					"node", candidate.ID.Name,
+					"node", candidate.MultiPooler.Id.Name,
 					"target_lsn", expectedLSN)
 
 				waitReq := &multipoolermanagerdatapb.WaitForLSNRequest{
 					TargetLsn: expectedLSN,
 				}
-				if _, err := c.rpcClient.WaitForLSN(ctx, candidate.ToMultiPooler(), waitReq); err != nil {
+				if _, err := c.rpcClient.WaitForLSN(ctx, candidate.MultiPooler, waitReq); err != nil {
 					return mterrors.Wrapf(err, "candidate failed to replay WAL to %s", expectedLSN)
 				}
 			}
@@ -453,12 +453,12 @@ func (c *Coordinator) Propagate(ctx context.Context, candidate *store.PoolerHeal
 		SyncReplicationConfig: syncConfig,
 		Force:                 false,
 	}
-	_, err = c.rpcClient.Promote(ctx, candidate.ToMultiPooler(), promoteReq)
+	_, err = c.rpcClient.Promote(ctx, candidate.MultiPooler, promoteReq)
 	if err != nil {
 		return mterrors.Wrap(err, "failed to promote candidate")
 	}
 
-	c.logger.InfoContext(ctx, "Candidate promoted successfully", "node", candidate.ID.Name)
+	c.logger.InfoContext(ctx, "Candidate promoted successfully", "node", candidate.MultiPooler.Id.Name)
 
 	// Configure standbys to replicate from the new primary
 	var wg sync.WaitGroup
@@ -466,26 +466,26 @@ func (c *Coordinator) Propagate(ctx context.Context, candidate *store.PoolerHeal
 
 	for _, standby := range standbys {
 		wg.Add(1)
-		go func(s *store.PoolerHealth) {
+		go func(s *multiorchdatapb.PoolerHealthState) {
 			defer wg.Done()
 			c.logger.InfoContext(ctx, "Configuring standby replication",
-				"standby", s.ID.Name,
-				"primary", candidate.ID.Name)
+				"standby", s.MultiPooler.Id.Name,
+				"primary", candidate.MultiPooler.Id.Name)
 
 			setPrimaryReq := &multipoolermanagerdatapb.SetPrimaryConnInfoRequest{
-				Host:                  candidate.Hostname,
-				Port:                  candidate.PortMap["grpc"],
+				Host:                  candidate.MultiPooler.Hostname,
+				Port:                  candidate.MultiPooler.PortMap["grpc"],
 				CurrentTerm:           term,
 				StopReplicationBefore: false,
 				StartReplicationAfter: false,
 				Force:                 false,
 			}
-			if _, err := c.rpcClient.SetPrimaryConnInfo(ctx, s.ToMultiPooler(), setPrimaryReq); err != nil {
-				errChan <- mterrors.Wrapf(err, "failed to configure standby %s", s.ID.Name)
+			if _, err := c.rpcClient.SetPrimaryConnInfo(ctx, s.MultiPooler, setPrimaryReq); err != nil {
+				errChan <- mterrors.Wrapf(err, "failed to configure standby %s", s.MultiPooler.Id.Name)
 				return
 			}
 
-			c.logger.InfoContext(ctx, "Standby configured successfully", "standby", s.ID.Name)
+			c.logger.InfoContext(ctx, "Standby configured successfully", "standby", s.MultiPooler.Id.Name)
 		}(standby)
 	}
 
@@ -513,7 +513,7 @@ func (c *Coordinator) Propagate(ctx context.Context, candidate *store.PoolerHeal
 // EstablishLeader implements stage 6 of the consensus protocol:
 // - Start heartbeat writer on the primary
 // - Enable serving (if needed)
-func (c *Coordinator) EstablishLeader(ctx context.Context, candidate *store.PoolerHealth, term int64) error {
+func (c *Coordinator) EstablishLeader(ctx context.Context, candidate *multiorchdatapb.PoolerHealthState, term int64) error {
 	// The Promote RPC already handles:
 	// 1. Starting the heartbeat writer
 	// 2. Enabling serving
@@ -523,12 +523,12 @@ func (c *Coordinator) EstablishLeader(ctx context.Context, candidate *store.Pool
 	// finalization steps that might be needed in the future.
 
 	c.logger.InfoContext(ctx, "Leader established",
-		"node", candidate.ID.Name,
+		"node", candidate.MultiPooler.Id.Name,
 		"term", term)
 
 	// Verify the leader is actually serving
 	stateReq := &multipoolermanagerdatapb.StateRequest{}
-	state, err := c.rpcClient.State(ctx, candidate.ToMultiPooler(), stateReq)
+	state, err := c.rpcClient.State(ctx, candidate.MultiPooler, stateReq)
 	if err != nil {
 		return mterrors.Wrap(err, "failed to verify leader status")
 	}

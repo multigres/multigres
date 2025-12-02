@@ -21,8 +21,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/multigres/multigres/go/multiorch/store"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 )
 
 func TestBootstrapExecuteEmptyCohort(t *testing.T) {
@@ -30,7 +30,7 @@ func TestBootstrapExecuteEmptyCohort(t *testing.T) {
 	logger := slog.Default()
 	action := NewBootstrapShardAction(nil, nil, logger)
 
-	cohort := []*store.PoolerHealth{}
+	cohort := []*multiorchdatapb.PoolerHealthState{}
 	err := action.Execute(ctx, "shard-01", "postgres", cohort)
 
 	assert.Error(t, err)

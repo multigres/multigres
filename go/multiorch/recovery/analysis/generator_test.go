@@ -18,16 +18,19 @@ import (
 	"testing"
 	"time"
 
-	"github.com/multigres/multigres/go/multiorch/store"
-
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/types/known/durationpb"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
+	"github.com/multigres/multigres/go/multiorch/store"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
+	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
 
 func TestAnalysisGenerator_GenerateAnalyses_EmptyStore(t *testing.T) {
-	poolerStore := store.NewStore[string, *store.PoolerHealth]()
+	poolerStore := store.NewProtoStore[string, *multiorchdatapb.PoolerHealthState]()
 	generator := NewAnalysisGenerator(poolerStore)
 
 	analyses := generator.GenerateAnalyses()
@@ -36,7 +39,7 @@ func TestAnalysisGenerator_GenerateAnalyses_EmptyStore(t *testing.T) {
 }
 
 func TestAnalysisGenerator_GenerateAnalyses_SinglePrimary(t *testing.T) {
-	poolerStore := store.NewStore[string, *store.PoolerHealth]()
+	poolerStore := store.NewProtoStore[string, *multiorchdatapb.PoolerHealthState]()
 
 	// Add a single primary pooler
 	primaryID := &clustermetadatapb.ID{
@@ -45,18 +48,23 @@ func TestAnalysisGenerator_GenerateAnalyses_SinglePrimary(t *testing.T) {
 		Name:      "primary-1",
 	}
 
-	primary := store.NewPoolerHealthFromMultiPooler(&clustermetadatapb.MultiPooler{
-		Id:         primaryID,
-		Database:   "testdb",
-		TableGroup: "testtg",
-		Shard:      "0",
-		Type:       clustermetadatapb.PoolerType_PRIMARY,
-	})
-	primary.IsLastCheckValid = true
-	primary.IsUpToDate = true
-	primary.PrimaryLSN = "0/1234567"
-	primary.PrimaryReady = true
-	primary.LastSeen = time.Now()
+	primary := &multiorchdatapb.PoolerHealthState{
+		MultiPooler: &clustermetadatapb.MultiPooler{
+			Id:         primaryID,
+			Database:   "testdb",
+			TableGroup: "testtg",
+			Shard:      "0",
+			Type:       clustermetadatapb.PoolerType_PRIMARY,
+		},
+		IsLastCheckValid: true,
+		IsUpToDate:       true,
+		LastSeen:         timestamppb.Now(),
+		PoolerType:       clustermetadatapb.PoolerType_PRIMARY,
+		PrimaryStatus: &multipoolermanagerdatapb.PrimaryStatus{
+			Lsn:   "0/1234567",
+			Ready: true,
+		},
+	}
 	poolerStore.Set("multipooler-cell1-primary-1", primary)
 
 	generator := NewAnalysisGenerator(poolerStore)
@@ -75,7 +83,7 @@ func TestAnalysisGenerator_GenerateAnalyses_SinglePrimary(t *testing.T) {
 }
 
 func TestAnalysisGenerator_GenerateAnalyses_PrimaryWithReplicas(t *testing.T) {
-	poolerStore := store.NewStore[string, *store.PoolerHealth]()
+	poolerStore := store.NewProtoStore[string, *multiorchdatapb.PoolerHealthState]()
 
 	primaryID := &clustermetadatapb.ID{
 		Component: clustermetadatapb.ID_MULTIPOOLER,
@@ -96,50 +104,65 @@ func TestAnalysisGenerator_GenerateAnalyses_PrimaryWithReplicas(t *testing.T) {
 	}
 
 	// Add primary
-	primary := store.NewPoolerHealthFromMultiPooler(&clustermetadatapb.MultiPooler{
-		Id:         primaryID,
-		Database:   "testdb",
-		TableGroup: "testtg",
-		Shard:      "0",
-		Type:       clustermetadatapb.PoolerType_PRIMARY,
-		Hostname:   "primary.example.com",
-	})
-	primary.IsLastCheckValid = true
-	primary.IsUpToDate = true
-	primary.PrimaryLSN = "0/1234567"
-	primary.PrimaryReady = true
-	primary.PrimaryConnectedFollowers = []*clustermetadatapb.ID{replica1ID, replica2ID}
-	primary.LastSeen = time.Now()
+	primary := &multiorchdatapb.PoolerHealthState{
+		MultiPooler: &clustermetadatapb.MultiPooler{
+			Id:         primaryID,
+			Database:   "testdb",
+			TableGroup: "testtg",
+			Shard:      "0",
+			Type:       clustermetadatapb.PoolerType_PRIMARY,
+			Hostname:   "primary.example.com",
+		},
+		IsLastCheckValid: true,
+		IsUpToDate:       true,
+		LastSeen:         timestamppb.Now(),
+		PoolerType:       clustermetadatapb.PoolerType_PRIMARY,
+		PrimaryStatus: &multipoolermanagerdatapb.PrimaryStatus{
+			Lsn:                "0/1234567",
+			Ready:              true,
+			ConnectedFollowers: []*clustermetadatapb.ID{replica1ID, replica2ID},
+		},
+	}
 	poolerStore.Set("multipooler-cell1-primary-1", primary)
 
 	// Add replica 1 (replicating)
-	replica1 := store.NewPoolerHealthFromMultiPooler(&clustermetadatapb.MultiPooler{
-		Id:         replica1ID,
-		Database:   "testdb",
-		TableGroup: "testtg",
-		Shard:      "0",
-		Type:       clustermetadatapb.PoolerType_REPLICA,
-	})
-	replica1.IsLastCheckValid = true
-	replica1.IsUpToDate = true
-	replica1.ReplicaIsWalReplayPaused = false
-	replica1.ReplicaLagMillis = 100 // 100ms lag
-	replica1.LastSeen = time.Now()
+	replica1 := &multiorchdatapb.PoolerHealthState{
+		MultiPooler: &clustermetadatapb.MultiPooler{
+			Id:         replica1ID,
+			Database:   "testdb",
+			TableGroup: "testtg",
+			Shard:      "0",
+			Type:       clustermetadatapb.PoolerType_REPLICA,
+		},
+		IsLastCheckValid: true,
+		IsUpToDate:       true,
+		LastSeen:         timestamppb.Now(),
+		PoolerType:       clustermetadatapb.PoolerType_REPLICA,
+		ReplicationStatus: &multipoolermanagerdatapb.StandbyReplicationStatus{
+			IsWalReplayPaused: false,
+			Lag:               durationpb.New(100 * time.Millisecond), // 100ms lag
+		},
+	}
 	poolerStore.Set("multipooler-cell1-replica-1", replica1)
 
 	// Add replica 2 (lagging)
-	replica2 := store.NewPoolerHealthFromMultiPooler(&clustermetadatapb.MultiPooler{
-		Id:         replica2ID,
-		Database:   "testdb",
-		TableGroup: "testtg",
-		Shard:      "0",
-		Type:       clustermetadatapb.PoolerType_REPLICA,
-	})
-	replica2.IsLastCheckValid = true
-	replica2.IsUpToDate = true
-	replica2.ReplicaIsWalReplayPaused = false
-	replica2.ReplicaLagMillis = 15000 // 15s lag (> 10s threshold)
-	replica2.LastSeen = time.Now()
+	replica2 := &multiorchdatapb.PoolerHealthState{
+		MultiPooler: &clustermetadatapb.MultiPooler{
+			Id:         replica2ID,
+			Database:   "testdb",
+			TableGroup: "testtg",
+			Shard:      "0",
+			Type:       clustermetadatapb.PoolerType_REPLICA,
+		},
+		IsLastCheckValid: true,
+		IsUpToDate:       true,
+		LastSeen:         timestamppb.Now(),
+		PoolerType:       clustermetadatapb.PoolerType_REPLICA,
+		ReplicationStatus: &multipoolermanagerdatapb.StandbyReplicationStatus{
+			IsWalReplayPaused: false,
+			Lag:               durationpb.New(15 * time.Second), // 15s lag (> 10s threshold)
+		},
+	}
 	poolerStore.Set("multipooler-cell1-replica-2", replica2)
 
 	generator := NewAnalysisGenerator(poolerStore)
@@ -164,7 +187,7 @@ func TestAnalysisGenerator_GenerateAnalyses_PrimaryWithReplicas(t *testing.T) {
 }
 
 func TestAnalysisGenerator_GenerateAnalyses_Replica(t *testing.T) {
-	poolerStore := store.NewStore[string, *store.PoolerHealth]()
+	poolerStore := store.NewProtoStore[string, *multiorchdatapb.PoolerHealthState]()
 
 	primaryID := &clustermetadatapb.ID{
 		Component: clustermetadatapb.ID_MULTIPOOLER,
@@ -179,32 +202,40 @@ func TestAnalysisGenerator_GenerateAnalyses_Replica(t *testing.T) {
 	}
 
 	// Add primary
-	primary := store.NewPoolerHealthFromMultiPooler(&clustermetadatapb.MultiPooler{
-		Id:         primaryID,
-		Database:   "testdb",
-		TableGroup: "testtg",
-		Shard:      "0",
-		Type:       clustermetadatapb.PoolerType_PRIMARY,
-	})
-	primary.IsLastCheckValid = true
-	primary.IsUpToDate = true
-	primary.LastSeen = time.Now()
+	primary := &multiorchdatapb.PoolerHealthState{
+		MultiPooler: &clustermetadatapb.MultiPooler{
+			Id:         primaryID,
+			Database:   "testdb",
+			TableGroup: "testtg",
+			Shard:      "0",
+			Type:       clustermetadatapb.PoolerType_PRIMARY,
+		},
+		IsLastCheckValid: true,
+		IsUpToDate:       true,
+		LastSeen:         timestamppb.Now(),
+		PoolerType:       clustermetadatapb.PoolerType_PRIMARY,
+	}
 	poolerStore.Set("multipooler-cell1-primary-1", primary)
 
 	// Add replica
-	replica := store.NewPoolerHealthFromMultiPooler(&clustermetadatapb.MultiPooler{
-		Id:         replicaID,
-		Database:   "testdb",
-		TableGroup: "testtg",
-		Shard:      "0",
-		Type:       clustermetadatapb.PoolerType_REPLICA,
-	})
-	replica.IsLastCheckValid = true
-	replica.IsUpToDate = true
-	replica.ReplicaIsWalReplayPaused = false
-	replica.ReplicaLagMillis = 500
-	replica.ReplicaLastReplayLSN = "0/1234567"
-	replica.LastSeen = time.Now()
+	replica := &multiorchdatapb.PoolerHealthState{
+		MultiPooler: &clustermetadatapb.MultiPooler{
+			Id:         replicaID,
+			Database:   "testdb",
+			TableGroup: "testtg",
+			Shard:      "0",
+			Type:       clustermetadatapb.PoolerType_REPLICA,
+		},
+		IsLastCheckValid: true,
+		IsUpToDate:       true,
+		LastSeen:         timestamppb.Now(),
+		PoolerType:       clustermetadatapb.PoolerType_REPLICA,
+		ReplicationStatus: &multipoolermanagerdatapb.StandbyReplicationStatus{
+			IsWalReplayPaused: false,
+			Lag:               durationpb.New(500 * time.Millisecond),
+			LastReplayLsn:     "0/1234567",
+		},
+	}
 	poolerStore.Set("multipooler-cell1-replica-1", replica)
 
 	generator := NewAnalysisGenerator(poolerStore)
@@ -223,7 +254,7 @@ func TestAnalysisGenerator_GenerateAnalyses_Replica(t *testing.T) {
 
 	require.NotNil(t, replicaAnalysis, "should find replica analysis")
 	assert.False(t, replicaAnalysis.IsPrimary)
-	assert.Equal(t, int64(500), replicaAnalysis.ReplicaLagMillis)
+	assert.Equal(t, int64(500), replicaAnalysis.ReplicaLagMillis) // generator converts Duration to millis
 	assert.False(t, replicaAnalysis.IsLagging, "500ms should not be considered lagging")
 	assert.Equal(t, "0/1234567", replicaAnalysis.ReplicaReplayLSN)
 	assert.NotNil(t, replicaAnalysis.PrimaryPoolerID, "should have primary ID populated")
@@ -231,39 +262,45 @@ func TestAnalysisGenerator_GenerateAnalyses_Replica(t *testing.T) {
 }
 
 func TestAnalysisGenerator_GenerateAnalyses_MultipleTableGroups(t *testing.T) {
-	poolerStore := store.NewStore[string, *store.PoolerHealth]()
+	poolerStore := store.NewProtoStore[string, *multiorchdatapb.PoolerHealthState]()
 
 	// Add poolers from two different table groups
-	tg1Primary := store.NewPoolerHealthFromMultiPooler(&clustermetadatapb.MultiPooler{
-		Id: &clustermetadatapb.ID{
-			Component: clustermetadatapb.ID_MULTIPOOLER,
-			Cell:      "cell1",
-			Name:      "tg1-primary",
+	tg1Primary := &multiorchdatapb.PoolerHealthState{
+		MultiPooler: &clustermetadatapb.MultiPooler{
+			Id: &clustermetadatapb.ID{
+				Component: clustermetadatapb.ID_MULTIPOOLER,
+				Cell:      "cell1",
+				Name:      "tg1-primary",
+			},
+			Database:   "testdb",
+			TableGroup: "tg1",
+			Shard:      "0",
+			Type:       clustermetadatapb.PoolerType_PRIMARY,
 		},
-		Database:   "testdb",
-		TableGroup: "tg1",
-		Shard:      "0",
-		Type:       clustermetadatapb.PoolerType_PRIMARY,
-	})
-	tg1Primary.IsLastCheckValid = true
-	tg1Primary.IsUpToDate = true
-	tg1Primary.LastSeen = time.Now()
+		IsLastCheckValid: true,
+		IsUpToDate:       true,
+		LastSeen:         timestamppb.Now(),
+		PoolerType:       clustermetadatapb.PoolerType_PRIMARY,
+	}
 	poolerStore.Set("multipooler-cell1-tg1-primary", tg1Primary)
 
-	tg2Primary := store.NewPoolerHealthFromMultiPooler(&clustermetadatapb.MultiPooler{
-		Id: &clustermetadatapb.ID{
-			Component: clustermetadatapb.ID_MULTIPOOLER,
-			Cell:      "cell1",
-			Name:      "tg2-primary",
+	tg2Primary := &multiorchdatapb.PoolerHealthState{
+		MultiPooler: &clustermetadatapb.MultiPooler{
+			Id: &clustermetadatapb.ID{
+				Component: clustermetadatapb.ID_MULTIPOOLER,
+				Cell:      "cell1",
+				Name:      "tg2-primary",
+			},
+			Database:   "testdb",
+			TableGroup: "tg2",
+			Shard:      "0",
+			Type:       clustermetadatapb.PoolerType_PRIMARY,
 		},
-		Database:   "testdb",
-		TableGroup: "tg2",
-		Shard:      "0",
-		Type:       clustermetadatapb.PoolerType_PRIMARY,
-	})
-	tg2Primary.IsLastCheckValid = true
-	tg2Primary.IsUpToDate = true
-	tg2Primary.LastSeen = time.Now()
+		IsLastCheckValid: true,
+		IsUpToDate:       true,
+		LastSeen:         timestamppb.Now(),
+		PoolerType:       clustermetadatapb.PoolerType_PRIMARY,
+	}
 	poolerStore.Set("multipooler-cell1-tg2-primary", tg2Primary)
 
 	generator := NewAnalysisGenerator(poolerStore)
