@@ -15,7 +15,7 @@
 // Package server implements the MultiAdmin gRPC service for multigres cluster administration.
 // It provides administrative operations for managing and querying cluster components including
 // cells, databases, gateways, poolers, and orchestrators through a unified gRPC interface.
-package server
+package multiadmin
 
 import (
 	"context"

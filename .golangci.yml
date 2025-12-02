@@ -72,6 +72,17 @@ linters:
             - github.com/multigres/multigres/go/tools
             - github.com/multigres/multigres/go/pb
             - github.com/multigres/multigres/go/provisioner
+        multiadmin-isolation:
+          files:
+            - "!**/go/services/multiadmin/*.go"
+            - "!**/go/services/multiadmin/**/*.go"
+            - "!**/go/cmd/multiadmin/*.go"
+            - "!**/go/cmd/multiadmin/**/*.go"
+            - "**/*.go"
+          list-mode: lax
+          deny:
+            - pkg: "github.com/multigres/multigres/go/services/multiadmin"
+              desc: "multiadmin can only be imported by its own package and cmd"
         use_modern_packages:
           list-mode: lax
           deny:
