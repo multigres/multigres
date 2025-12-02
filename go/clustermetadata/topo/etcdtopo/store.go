@@ -52,7 +52,11 @@ var (
 	serverCaPath   string
 )
 
-// Factory is the consul topo.Factory implementation.
+// remoteOperationTimeout is used for operations where we have to
+// call out to etcd for initial data fetches (e.g., watch setup).
+const remoteOperationTimeout = 15 * time.Second
+
+// Factory is the etcd topo.Factory implementation.
 type Factory struct{}
 
 // HasGlobalReadOnlyCell is part of the topo.Factory interface.

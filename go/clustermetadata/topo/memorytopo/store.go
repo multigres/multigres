@@ -320,6 +320,12 @@ func (f *Factory) CloseWatches(cell, path string) {
 // the cells. It will create one cell for each parameter passed in.  It will log.Exit out
 // in case of a problem.
 func NewServerAndFactory(ctx context.Context, cells ...string) (topo.Store, *Factory) {
+	return NewServerAndFactoryWithConfig(ctx, topo.NewDefaultTopoConfig(), cells...)
+}
+
+// NewServerAndFactoryWithConfig is like NewServerAndFactory but allows specifying a custom TopoConfig.
+// This is useful for tests that need to customize lock timeouts.
+func NewServerAndFactoryWithConfig(ctx context.Context, config *topo.TopoConfig, cells ...string) (topo.Store, *Factory) {
 	f := &Factory{
 		cells:      make(map[string]*node),
 		generation: uint64(rand.Int64N(1 << 60)),
@@ -328,7 +334,7 @@ func NewServerAndFactory(ctx context.Context, cells ...string) (topo.Store, *Fac
 	}
 	f.cells[topo.GlobalCell] = f.newDirectory(topo.GlobalCell, nil)
 
-	ts := topo.NewWithFactory(f, "" /*root*/, []string{""} /*serverAddrs*/)
+	ts := topo.NewWithFactory(f, "" /*root*/, []string{""} /*serverAddrs*/, config)
 	for _, cell := range cells {
 		f.cells[cell] = f.newDirectory(cell, nil)
 		// Create cell with mock server addresses for testing
