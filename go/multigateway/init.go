@@ -211,8 +211,8 @@ func (mg *MultiGateway) Init() error {
 	return nil
 }
 
-func (mg *MultiGateway) RunDefault() {
-	mg.senv.RunDefault(mg.grpcServer)
+func (mg *MultiGateway) RunDefault() error {
+	return mg.senv.RunDefault(mg.grpcServer)
 }
 
 func (mg *MultiGateway) CobraPreRunE(cmd *cobra.Command) error {

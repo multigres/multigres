@@ -21,7 +21,6 @@ import (
 	"log/slog"
 	"net"
 	"net/url"
-	"os"
 	"os/signal"
 	"strconv"
 	"syscall"
@@ -30,17 +29,22 @@ import (
 
 // Run starts listening for RPC and HTTP requests,
 // and blocks until it the process gets a signal.
-func (sv *ServEnv) Run(bindAddress string, port int, grpcServer *GrpcServer) {
+func (sv *ServEnv) Run(bindAddress string, port int, grpcServer *GrpcServer) error {
 	sv.PopulateListeningURL(int32(port))
-	grpcServer.Create()
+	if err := grpcServer.Create(); err != nil {
+		return fmt.Errorf("grpc server create: %w", err)
+	}
 	sv.FireRunHooks()
-	grpcServer.Serve(sv)
-	grpcServer.serveSocketFile()
+	if err := grpcServer.Serve(sv); err != nil {
+		return fmt.Errorf("grpc server serve: %w", err)
+	}
+	if err := grpcServer.serveSocketFile(); err != nil {
+		return fmt.Errorf("grpc socket file: %w", err)
+	}
 
 	l, err := net.Listen("tcp", net.JoinHostPort(bindAddress, strconv.Itoa(port)))
 	if err != nil {
-		slog.Error("failed to listen", "err", err)
-		os.Exit(1)
+		return fmt.Errorf("failed to listen on HTTP port %d: %w", port, err)
 	}
 
 	// If port was 0, log the actual allocated port
@@ -79,4 +83,5 @@ func (sv *ServEnv) Run(bindAddress string, port int, grpcServer *GrpcServer) {
 	slog.Info("shutting down gracefully")
 	sv.fireOnCloseHooks(sv.onCloseTimeout.Get())
 	sv.SetListeningURL(url.URL{})
+	return nil
 }

@@ -82,6 +82,5 @@ func run(cmd *cobra.Command, args []string, mp *multipooler.MultiPooler) error {
 	if err := mp.Init(cmd.Context()); err != nil {
 		return err
 	}
-	mp.RunDefault()
-	return nil
+	return mp.RunDefault()
 }

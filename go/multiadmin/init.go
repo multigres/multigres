@@ -43,8 +43,8 @@ type MultiAdmin struct {
 	serverStatus Status
 }
 
-func (ma *MultiAdmin) RunDefault() {
-	ma.senv.RunDefault(ma.grpcServer)
+func (ma *MultiAdmin) RunDefault() error {
+	return ma.senv.RunDefault(ma.grpcServer)
 }
 
 func (ma *MultiAdmin) CobraPreRunE(cmd *cobra.Command) error {

@@ -267,8 +267,8 @@ func (se *ServEnv) fireHooksWithTimeout(timeout time.Duration, name string, hook
 }
 
 // RunDefault calls Run() with the parameters from the flags
-func (se *ServEnv) RunDefault(grpcServer *GrpcServer) {
-	se.Run(se.bindAddress.Get(), se.httpPort.Get(), grpcServer)
+func (se *ServEnv) RunDefault(grpcServer *GrpcServer) error {
+	return se.Run(se.bindAddress.Get(), se.httpPort.Get(), grpcServer)
 }
 
 var (

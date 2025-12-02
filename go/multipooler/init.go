@@ -276,8 +276,8 @@ func (mp *MultiPooler) Init(startCtx context.Context) error {
 	return nil
 }
 
-func (mp *MultiPooler) RunDefault() {
-	mp.senv.RunDefault(mp.grpcServer)
+func (mp *MultiPooler) RunDefault() error {
+	return mp.senv.RunDefault(mp.grpcServer)
 }
 
 func (mp *MultiPooler) Shutdown() {

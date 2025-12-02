@@ -59,8 +59,8 @@ func (mo *MultiOrch) CobraPreRunE(cmd *cobra.Command) error {
 	return mo.senv.CobraPreRunE(cmd)
 }
 
-func (mo *MultiOrch) RunDefault() {
-	mo.senv.RunDefault(mo.grpcServer)
+func (mo *MultiOrch) RunDefault() error {
+	return mo.senv.RunDefault(mo.grpcServer)
 }
 
 // Register flags that are specific to multiorch.
