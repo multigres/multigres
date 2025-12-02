@@ -87,7 +87,7 @@ jobs:
           # Set environment variables for tests
           export PGCONNECT_TIMEOUT=5
           # Run tests with verbose output
-          go test -json -v go/test/endtoend/... | tee integration-test-results.jsonl | go tool tparse -follow
+          go test -json -v ./go/test/endtoend/... | tee integration-test-results.jsonl | go tool tparse -follow
 
       - name: Test Report
         uses: dorny/test-reporter@dc3a92680fcc15842eef52e8c4606ea7ce6bd3f3 # v2.1.1
