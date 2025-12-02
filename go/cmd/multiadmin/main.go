@@ -25,10 +25,11 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func main() {
+// CreateMultiAdminCommand creates a cobra command with a MultiAdmin instance and registers its flags
+func CreateMultiAdminCommand() (*cobra.Command, *multiadmin.MultiAdmin) {
 	ma := multiadmin.NewMultiAdmin()
 
-	main := &cobra.Command{
+	cmd := &cobra.Command{
 		Use:   "multiadmin",
 		Short: "Multiadmin provides administrative services for the multigres cluster, exposing both HTTP and gRPC endpoints for cluster management operations.",
 		Long:  "Multiadmin provides administrative services for the multigres cluster, exposing both HTTP and gRPC endpoints for cluster management operations.",
@@ -41,9 +42,15 @@ func main() {
 		},
 	}
 
-	ma.RegisterFlags(main.Flags())
+	ma.RegisterFlags(cmd.Flags())
 
-	if err := main.Execute(); err != nil {
+	return cmd, ma
+}
+
+func main() {
+	cmd, _ := CreateMultiAdminCommand()
+
+	if err := cmd.Execute(); err != nil {
 		slog.Error(err.Error())
 		os.Exit(1)
 	}
