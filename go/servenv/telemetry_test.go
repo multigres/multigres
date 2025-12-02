@@ -79,7 +79,7 @@ func TestServEnvTelemetryIntegration(t *testing.T) {
 	sv.bindAddress.Set("localhost")
 
 	// Initialize
-	sv.Init("test-integration")
+	require.NoError(t, sv.Init("test-integration"))
 
 	// Create gRPC server with health service (automatically registered by ServEnv)
 	grpcServer := NewGrpcServer(reg)

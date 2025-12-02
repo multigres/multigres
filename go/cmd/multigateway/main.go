@@ -50,7 +50,9 @@ func main() {
 }
 
 func run(mg *multigateway.MultiGateway) error {
-	mg.Init()
+	if err := mg.Init(); err != nil {
+		return err
+	}
 	mg.RunDefault()
 	return nil
 }

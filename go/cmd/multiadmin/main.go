@@ -50,7 +50,9 @@ func main() {
 }
 
 func run(ma *multiadmin.MultiAdmin) error {
-	ma.Init()
+	if err := ma.Init(); err != nil {
+		return err
+	}
 	ma.RunDefault()
 	return nil
 }

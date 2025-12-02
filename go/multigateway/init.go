@@ -127,8 +127,10 @@ func (mg *MultiGateway) RegisterFlags(fs *pflag.FlagSet) {
 // Init initializes the multigateway. If any services fail to start,
 // or if some connections fail, it launches goroutines that retry
 // until successful.
-func (mg *MultiGateway) Init() {
-	mg.senv.Init("multigateway")
+func (mg *MultiGateway) Init() error {
+	if err := mg.senv.Init("multigateway"); err != nil {
+		return fmt.Errorf("servenv init: %w", err)
+	}
 	logger := mg.senv.GetLogger()
 
 	mg.ts = mg.topoConfig.Open()
@@ -162,8 +164,7 @@ func (mg *MultiGateway) Init() {
 		Logger:  logger,
 	})
 	if err != nil {
-		logger.Error("failed to create PostgreSQL listener", "error", err, "port", mg.pgPort.Get())
-		panic(err)
+		return fmt.Errorf("failed to create PostgreSQL listener on port %d: %w", mg.pgPort.Get(), err)
 	}
 
 	// Start the PostgreSQL listener in a goroutine
@@ -204,6 +205,7 @@ func (mg *MultiGateway) Init() {
 	mg.senv.OnClose(func() {
 		mg.Shutdown()
 	})
+	return nil
 }
 
 func (mg *MultiGateway) RunDefault() {

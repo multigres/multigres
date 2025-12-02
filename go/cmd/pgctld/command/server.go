@@ -79,7 +79,9 @@ func (s *PgCtldServerCmd) createCommand() *cobra.Command {
 }
 
 func (s *PgCtldServerCmd) runServer(cmd *cobra.Command, args []string) error {
-	s.senv.Init("pgctld")
+	if err := s.senv.Init("pgctld"); err != nil {
+		return fmt.Errorf("servenv init: %w", err)
+	}
 
 	// Get the configured logger
 	logger := s.senv.GetLogger()

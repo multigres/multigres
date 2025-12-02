@@ -17,7 +17,7 @@ package multiorch
 
 import (
 	"context"
-	"os"
+	"fmt"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
@@ -94,8 +94,10 @@ func NewMultiOrch() *MultiOrch {
 // Init initializes the multiorch. If any services fail to start,
 // or if some connections fail, it launches goroutines that retry
 // until successful.
-func (mo *MultiOrch) Init() {
-	mo.senv.Init("multiorch")
+func (mo *MultiOrch) Init() error {
+	if err := mo.senv.Init("multiorch"); err != nil {
+		return fmt.Errorf("servenv init: %w", err)
+	}
 	// Get the configured logger
 	logger := mo.senv.GetLogger()
 	mo.ts = mo.topoConfig.Open()
@@ -103,14 +105,12 @@ func (mo *MultiOrch) Init() {
 	// Validate and parse shard watch targets
 	targetsRaw := mo.cfg.GetShardWatchTargets()
 	if len(targetsRaw) == 0 {
-		logger.Error("watch-targets is required")
-		os.Exit(1)
+		return fmt.Errorf("watch-targets is required")
 	}
 
 	targets, err := config.ParseShardWatchTargets(targetsRaw)
 	if err != nil {
-		logger.Error("failed to parse watch-targets", "error", err)
-		os.Exit(1)
+		return fmt.Errorf("failed to parse watch-targets: %w", err)
 	}
 
 	logger.Info("multiorch starting up",
@@ -152,13 +152,13 @@ func (mo *MultiOrch) Init() {
 	)
 
 	if err := mo.recoveryEngine.Start(); err != nil {
-		logger.Error("failed to start recovery engine", "error", err)
-		os.Exit(1)
+		return fmt.Errorf("failed to start recovery engine: %w", err)
 	}
 
 	mo.senv.OnClose(func() {
 		mo.Shutdown()
 	})
+	return nil
 }
 
 func (mo *MultiOrch) Shutdown() {

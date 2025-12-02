@@ -50,7 +50,9 @@ func main() {
 }
 
 func run(cmd *cobra.Command, args []string, mo *multiorch.MultiOrch) error {
-	mo.Init()
+	if err := mo.Init(); err != nil {
+		return err
+	}
 	mo.RunDefault()
 	return nil
 }

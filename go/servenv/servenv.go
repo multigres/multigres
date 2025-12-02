@@ -166,25 +166,14 @@ func (se *ServEnv) SetListeningURL(u url.URL) {
 	se.listeningURL = u
 }
 
-// PopulateListeningURL sets the listening URL based on hostname and port
+// PopulateListeningURL sets the listening URL based on the configured hostname and port.
+// The hostname should already be set by Init() before this is called.
 func (se *ServEnv) PopulateListeningURL(port int32) {
-	host, err := netutil.FullyQualifiedHostname()
-	if err != nil {
-		slog.Warn("Failed to get fully qualified hostname, falling back to simple hostname",
-			"error", err,
-			"note", "This may indicate DNS configuration issues but service will continue normally")
-		host, err = os.Hostname()
-		if err != nil {
-			slog.Error("os.Hostname() failed", "err", err)
-			os.Exit(1)
-		}
-		slog.Info("Using simple hostname for service URL", "hostname", host)
-	} else {
-		slog.Info("Using fully qualified hostname for service URL", "hostname", host)
-	}
+	hostname := se.hostname.Get()
+	slog.Info("Setting listening URL", "hostname", hostname, "port", port)
 	se.SetListeningURL(url.URL{
 		Scheme: "http",
-		Host:   netutil.JoinHostPort(se.hostname.Get(), port),
+		Host:   netutil.JoinHostPort(hostname, port),
 		Path:   "/",
 	})
 }
