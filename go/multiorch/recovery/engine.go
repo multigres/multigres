@@ -270,7 +270,7 @@ func NewEngine(
 	shardWatchTargets []config.WatchTarget,
 	rpcClient rpcclient.MultiPoolerClient,
 ) *Engine {
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(context.TODO())
 
 	poolerStore := store.NewProtoStore[string, *multiorchdatapb.PoolerHealthState]()
 

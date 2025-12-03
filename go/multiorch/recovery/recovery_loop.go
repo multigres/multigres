@@ -246,7 +246,7 @@ func (re *Engine) attemptRecovery(problem analysis.Problem) {
 			"tablegroup", problem.TableGroup,
 			"shard", problem.Shard,
 		)
-		re.forceHealthCheckShardPoolers(context.Background(), problem.Database, problem.TableGroup, problem.Shard, nil /* poolersToIgnore */)
+		re.forceHealthCheckShardPoolers(context.TODO(), problem.Database, problem.TableGroup, problem.Shard, nil /* poolersToIgnore */)
 	}
 }
 

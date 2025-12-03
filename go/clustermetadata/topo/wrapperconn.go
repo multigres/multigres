@@ -127,8 +127,10 @@ func (c *WrapperConn) retryConnection(err error) {
 	}()
 
 	r := retry.New(10*time.Millisecond, 30*time.Second)
-	// Use background context since this retry loop runs until explicitly stopped
-	for range r.Attempts(context.Background()) {
+	// Use TODO context. This retry loop runs until explicitly stopped, but it would
+	// still be good to inherit from a higher-level background context for better
+	// tracing.
+	for range r.Attempts(context.TODO()) {
 
 		conn, err := c.newFunc()
 		mustContinue := func() bool {

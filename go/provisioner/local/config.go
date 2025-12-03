@@ -486,7 +486,7 @@ func (p *localProvisioner) InitializePgBackRestStanzas() error {
 		return fmt.Errorf("configuration not loaded")
 	}
 
-	ctx := context.Background()
+	ctx := context.TODO()
 
 	for cellName, cellServices := range p.config.Cells {
 		// Use default backup config path if not specified in config

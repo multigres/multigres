@@ -171,7 +171,7 @@ func (s *QueryPoolerServer) StartServiceForTests(dbConfig *DBConfig) error {
 		return err
 	}
 	// Set to SERVING state (tests assume the pooler is ready to serve)
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.TODO(), 5*time.Second)
 	defer cancel()
 	return s.SetServingType(ctx, clustermetadatapb.PoolerServingStatus_SERVING)
 }
@@ -184,7 +184,7 @@ func (s *QueryPoolerServer) Close() error {
 	// Executor was never initialized, nothing to do
 	if s.executor != nil {
 		exec := s.executor
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		ctx, cancel := context.WithTimeout(context.TODO(), 5*time.Second)
 		defer cancel()
 		return exec.Close(ctx)
 	}

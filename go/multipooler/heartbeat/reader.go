@@ -126,7 +126,7 @@ func (r *Reader) Status() (time.Duration, error) {
 // readHeartbeat reads from the heartbeat table exactly once, updating
 // the last known lag and/or error, and incrementing counters.
 func (r *Reader) readHeartbeat() {
-	ctx, cancel := context.WithDeadline(context.Background(), r.now().Add(r.interval))
+	ctx, cancel := context.WithDeadline(context.TODO(), r.now().Add(r.interval))
 	defer cancel()
 
 	ts, err := r.fetchMostRecentHeartbeat(ctx)
@@ -192,7 +192,7 @@ type LeadershipView struct {
 
 // GetLeadershipView returns both replication lag and consensus state
 func (r *Reader) GetLeadershipView() (*LeadershipView, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), r.interval)
+	ctx, cancel := context.WithTimeout(context.TODO(), r.interval)
 	defer cancel()
 
 	var view LeadershipView
