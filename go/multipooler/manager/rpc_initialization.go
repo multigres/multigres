@@ -43,7 +43,7 @@ func (pm *MultiPoolerManager) InitializeEmptyPrimary(ctx context.Context, req *m
 	}
 	defer pm.actionLock.Release(ctx)
 
-	// 1. Validate consensus term must be 1 for new primary
+	// Validate consensus term must be 1 for new primary
 	if req.ConsensusTerm != 1 {
 		return nil, mterrors.Errorf(mtrpcpb.Code_INVALID_ARGUMENT, "consensus term must be 1 for new primary initialization, got %d", req.ConsensusTerm)
 	}
@@ -93,25 +93,30 @@ func (pm *MultiPoolerManager) InitializeEmptyPrimary(ctx context.Context, req *m
 		return nil, mterrors.Wrap(err, "failed to connect to database")
 	}
 
-	// 6. Create multigres schema and tables (heartbeat, durability_policy)
+	// 6. Create multigres schema and tables (heartbeat, durability_policy, tablegroup, table, shard)
 	if err := pm.createSidecarSchema(ctx); err != nil {
 		return nil, mterrors.Wrap(err, "failed to initialize multigres schema")
 	}
 
-	// 7. Set consensus term
+	// Insert initial multischema data (tablegroup and shard records)
+	if err := pm.initializeMultischemaData(ctx); err != nil {
+		return nil, mterrors.Wrap(err, "failed to initialize multischema data")
+	}
+
+	// Set consensus term
 	if pm.consensusState != nil {
 		if err := pm.consensusState.UpdateTermAndSave(ctx, req.ConsensusTerm); err != nil {
 			return nil, mterrors.Wrap(err, "failed to set consensus term")
 		}
 	}
 
-	// 8. Initialize pgbackrest stanza (must be done after PostgreSQL is running)
+	// Initialize pgbackrest stanza (must be done after PostgreSQL is running)
 	pm.logger.InfoContext(ctx, "Initializing pgbackrest stanza", "shard", pm.getShardID())
 	if err := pm.initializePgBackRestStanza(ctx); err != nil {
 		return nil, mterrors.Wrap(err, "failed to initialize pgbackrest stanza")
 	}
 
-	// 9. Create initial backup for standby initialization
+	// Create initial backup for standby initialization
 	pm.logger.InfoContext(ctx, "Creating initial backup for standby initialization", "shard", pm.getShardID())
 	backupID, err := pm.backupLocked(ctx, true, "full")
 	if err != nil {
