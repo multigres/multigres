@@ -249,7 +249,7 @@ func (pm *MultiPoolerManager) Open() error {
 		} else if isPrimary {
 			// Only create the sidecar schema on primary databases
 			pm.logger.InfoContext(ctx, "MultiPoolerManager: Creating sidecar schema on primary database")
-			if err := CreateSidecarSchema(pm.db); err != nil {
+			if err := pm.createSidecarSchema(ctx); err != nil {
 				return fmt.Errorf("failed to create sidecar schema: %w", err)
 			}
 		} else {

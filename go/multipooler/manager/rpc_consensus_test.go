@@ -45,7 +45,7 @@ func expectPrimaryStartupQueries(mock sqlmock.Sqlmock) {
 	// Heartbeat startup: checks if DB is primary
 	mock.ExpectQuery("SELECT pg_is_in_recovery").
 		WillReturnRows(sqlmock.NewRows([]string{"pg_is_in_recovery"}).AddRow(false))
-	// CreateSidecarSchema creates the multigres schema and tables
+	// createSidecarSchema creates the multigres schema and tables
 	mock.ExpectExec("CREATE SCHEMA IF NOT EXISTS multigres").
 		WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectExec("CREATE TABLE IF NOT EXISTS multigres.heartbeat").

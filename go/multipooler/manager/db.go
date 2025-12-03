@@ -15,7 +15,6 @@
 package manager
 
 import (
-	"context"
 	"database/sql"
 	"fmt"
 	"log/slog"
@@ -97,70 +96,4 @@ func CreateDBConnection(logger *slog.Logger, config *Config) (*sql.DB, error) {
 
 	logger.Info("Connected to PostgreSQL", "socket_path", config.SocketFilePath, "database", config.Database)
 	return db, nil
-}
-
-// CreateSidecarSchema creates the multigres sidecar schema and heartbeat table if they don't exist
-func CreateSidecarSchema(db *sql.DB) error {
-	_, err := db.Exec("CREATE SCHEMA IF NOT EXISTS multigres")
-	if err != nil {
-		return fmt.Errorf("failed to create multigres schema: %w", err)
-	}
-
-	// Create the heartbeat table
-	_, err = db.Exec(`
-		CREATE TABLE IF NOT EXISTS multigres.heartbeat (
-			shard_id BYTEA PRIMARY KEY,
-			leader_id TEXT NOT NULL,
-			ts BIGINT NOT NULL
-		)
-	`)
-	if err != nil {
-		return fmt.Errorf("failed to create heartbeat table: %w", err)
-	}
-
-	// Create the durability_policy table
-	_, err = db.Exec(`
-		CREATE TABLE IF NOT EXISTS multigres.durability_policy (
-			id BIGSERIAL PRIMARY KEY,
-			policy_name TEXT NOT NULL,
-			policy_version BIGINT NOT NULL,
-			quorum_rule JSONB NOT NULL,
-			is_active BOOLEAN NOT NULL DEFAULT true,
-			created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-			updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-			UNIQUE (policy_name, policy_version),
-			CONSTRAINT quorum_rule_required_count_check CHECK (
-				(quorum_rule->>'required_count')::int >= 1
-			)
-		)
-	`)
-	if err != nil {
-		return fmt.Errorf("failed to create durability_policy table: %w", err)
-	}
-
-	// Create index on is_active for efficient active policy lookups
-	_, err = db.Exec(`
-		CREATE INDEX IF NOT EXISTS idx_durability_policy_active
-		ON multigres.durability_policy(is_active)
-		WHERE is_active = true
-	`)
-	if err != nil {
-		return fmt.Errorf("failed to create durability_policy index: %w", err)
-	}
-
-	return nil
-}
-
-// InsertDurabilityPolicy inserts a durability policy into the durability_policy table.
-// Uses ON CONFLICT DO NOTHING to handle concurrent insertions gracefully.
-func InsertDurabilityPolicy(ctx context.Context, db *sql.DB, policyName string, quorumRuleJSON []byte) error {
-	_, err := db.ExecContext(ctx, `
-		INSERT INTO multigres.durability_policy (policy_name, policy_version, quorum_rule, is_active, created_at, updated_at)
-		VALUES ($1, 1, $2::jsonb, true, NOW(), NOW())
-		ON CONFLICT (policy_name, policy_version) DO NOTHING
-	`, policyName, quorumRuleJSON)
-	if err != nil {
-		return fmt.Errorf("failed to insert durability policy: %w", err)
-	}
-	return nil
 }
