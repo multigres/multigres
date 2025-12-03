@@ -53,34 +53,3 @@ jobs:
           name: Integration Tests
           path: integration-test-results.jsonl
           reporter: golang-json
-
-      - name: Upload coverage artifact
-        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
-        if: always()
-        with:
-          name: coverage-data
-          path: coverage.txt
-          retention-days: 7
-
-  upload-coverage:
-    name: Upload coverage
-    runs-on: ubuntu-24.04
-    needs: [test-integration]
-    if: always()
-
-    steps:
-      - name: Download coverage artifact
-        uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v4.1.8
-        with:
-          name: coverage-data
-
-      - name: Upload coverage reports to Coveralls
-        uses: coverallsapp/github-action@643bc377ffa44ace6394b2b5d0d3950076de9f63 # v2.3.0
-        with:
-          file: ./coverage.txt
-          format: golang
-
-      - name: Upload coverage reports to Codecov
-        uses: codecov/codecov-action@5a1091511ad55cbe89839c7260b706298ca349f7 # v5.5.1
-        with:
-          token: ${{ secrets.CODECOV_TOKEN }}
