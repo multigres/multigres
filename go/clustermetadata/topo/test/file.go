@@ -42,7 +42,7 @@ func checkFile(t *testing.T, ctx context.Context, ts topo.Store) {
 }
 
 func checkFileInCell(t *testing.T, conn topo.Conn, hasCells bool) {
-	ctx := context.Background()
+	ctx := context.TODO()
 
 	// ListDir root: nothing.
 	var expected []topo.DirEntry

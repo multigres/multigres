@@ -79,7 +79,7 @@ func InitPostgreSQLDataDir(t *testing.T, grpcAddr string) error {
 	defer conn.Close()
 
 	client := pb.NewPgCtldClient(conn)
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 	defer cancel()
 
 	// Initialize the data directory

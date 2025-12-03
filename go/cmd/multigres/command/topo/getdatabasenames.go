@@ -15,7 +15,6 @@
 package topo
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 
@@ -43,7 +42,7 @@ func runGetDatabaseNames(cmd *cobra.Command, args []string) error {
 
 	// Create client and make the request
 	client := multiadminpb.NewMultiAdminServiceClient(conn)
-	ctx := context.Background()
+	ctx := cmd.Context()
 
 	response, err := client.GetDatabaseNames(ctx, &multiadminpb.GetDatabaseNamesRequest{})
 	if err != nil {

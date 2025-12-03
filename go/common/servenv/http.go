@@ -22,6 +22,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/pprof"
+	"time"
 
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
@@ -44,7 +45,11 @@ func (sv *ServEnv) HTTPServe(l net.Listener) error {
 	// If no OTEL exporters are configured, noop exporters are used with minimal overhead
 	handler := otelhttp.NewHandler(sv.mux, "http-server")
 
-	err := http.Serve(l, handler)
+	server := &http.Server{
+		Handler:           handler,
+		ReadHeaderTimeout: 10 * time.Second,
+	}
+	err := server.Serve(l)
 	if errors.Is(err, http.ErrServerClosed) || errors.Is(err, net.ErrClosed) {
 		return nil
 	}

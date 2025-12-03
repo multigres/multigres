@@ -38,6 +38,18 @@ import (
 	"github.com/multigres/multigres/go/tools/viperutil"
 )
 
+// spanSummary returns a human-readable summary of spans for error messages.
+func spanSummary(spans []tracetest.SpanStub) string {
+	if len(spans) == 0 {
+		return "[]"
+	}
+	names := make([]string, len(spans))
+	for i, s := range spans {
+		names[i] = fmt.Sprintf("%s(%s)", s.Name, s.SpanKind)
+	}
+	return fmt.Sprintf("%v", names)
+}
+
 // getFreePorts allocates n free ports for testing
 func getFreePorts(t *testing.T, n int) []int {
 	t.Helper()
@@ -283,13 +295,19 @@ func TestServEnvTelemetryIntegration(t *testing.T) {
 
 		parentSpan.End()
 
-		// Force flush
-		err = setup.ForceFlush(ctx)
-		require.NoError(t, err)
-
-		// Verify we captured exactly 3 spans: parent + gRPC client + gRPC server
-		spans := setup.SpanExporter.GetSpans()
-		require.Len(t, spans, 3, "should have exactly 3 spans (parent, grpc client, grpc server)")
+		// Wait for all 3 spans to be exported (parent + gRPC client + gRPC server).
+		// The server span may still be in flight after the client call returns,
+		// as the gRPC server handler continues async cleanup after sending the response.
+		var spans []tracetest.SpanStub
+		if !assert.Eventually(t, func() bool {
+			err = setup.ForceFlush(ctx)
+			require.NoError(t, err)
+			spans = setup.SpanExporter.GetSpans()
+			return len(spans) == 3
+		}, 2*time.Second, 10*time.Millisecond) {
+			t.Fatalf("expected 3 spans (parent, grpc client, grpc server), got %d: %v",
+				len(spans), spanSummary(spans))
+		}
 
 		// Find spans by name and kind
 		var foundParent, foundClient, foundServer *tracetest.SpanStub

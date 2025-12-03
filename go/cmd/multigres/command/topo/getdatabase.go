@@ -58,7 +58,7 @@ func runGetDatabase(cmd *cobra.Command, args []string) error {
 	}
 
 	// Create gRPC connection
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(cmd.Context(), 10*time.Second)
 	defer cancel()
 
 	conn, err := grpc.NewClient(adminServer, grpc.WithTransportCredentials(insecure.NewCredentials()))

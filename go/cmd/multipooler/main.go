@@ -55,7 +55,7 @@ func CreateMultiPoolerCommand() (*cobra.Command, *multipooler.MultiPooler) {
 		PersistentPostRunE: func(cmd *cobra.Command, args []string) error {
 			// Shutdown OpenTelemetry to flush all pending spans
 			// This is critical for CLI commands to export traces before process exit
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			ctx, cancel := context.WithTimeout(cmd.Context(), 5*time.Second)
 			defer cancel()
 			if err := telemetry.ShutdownTelemetry(ctx); err != nil {
 				return fmt.Errorf("failed to shutdown OpenTelemetry: %w", err)

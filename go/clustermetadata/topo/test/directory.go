@@ -81,7 +81,7 @@ func checkListDir(ctx context.Context, t *testing.T, conn topo.Conn, dirPath str
 }
 
 func checkDirectoryInCell(t *testing.T, conn topo.Conn, hasCells bool) {
-	ctx := context.Background()
+	ctx := t.Context()
 
 	// ListDir root: nothing
 	var expected []topo.DirEntry

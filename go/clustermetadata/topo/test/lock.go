@@ -40,7 +40,7 @@ func checkLock(t *testing.T, ctx context.Context, ts topo.Store) {
 	err := ts.CreateDatabase(ctx, "test_database", &clustermetadatapb.Database{})
 	require.NoError(t, err, "CreateDatabase failed")
 
-	conn, err := ts.ConnForCell(context.Background(), topo.GlobalCell)
+	conn, err := ts.ConnForCell(t.Context(), topo.GlobalCell)
 	require.NoError(t, err, "ConnForCell(global) failed")
 
 	t.Log("===      checkLockTimeout")
@@ -187,7 +187,7 @@ func checkTryLock(t *testing.T, ctx context.Context, ts topo.Store) {
 	err := ts.CreateDatabase(ctx, "test_database", &clustermetadatapb.Database{})
 	require.NoError(t, err, "CreateDatabase failed")
 
-	conn, err := ts.ConnForCell(context.Background(), topo.GlobalCell)
+	conn, err := ts.ConnForCell(t.Context(), topo.GlobalCell)
 	require.NoError(t, err, "ConnForCell(global) failed")
 
 	t.Log("===      checkTryLockTimeout")

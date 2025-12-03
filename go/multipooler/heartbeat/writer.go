@@ -142,7 +142,7 @@ func (w *Writer) disableWrites() {
 	// At the same time we try and kill the write that is in progress. We use the context and its cancellation
 	// for coordination between the two go-routines. In the end we will have guaranteed that the ticks have stopped
 	// and no write is in progress.
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(context.TODO())
 	go func() {
 		w.ticks.Stop()
 		cancel()
@@ -165,7 +165,7 @@ func (w *Writer) writeHeartbeat() {
 
 // write writes a single heartbeat update.
 func (w *Writer) write() error {
-	ctx, cancel := context.WithDeadline(context.Background(), w.now().Add(w.interval))
+	ctx, cancel := context.WithDeadline(context.TODO(), w.now().Add(w.interval))
 	defer cancel()
 
 	// Get connection for tracking (for potential kill)
@@ -235,7 +235,7 @@ func (w *Writer) killWrite() error {
 		return nil // No write in progress
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), w.interval)
+	ctx, cancel := context.WithTimeout(context.TODO(), w.interval)
 	defer cancel()
 
 	// If cancel didn't work, escalate to pg_terminate_backend

@@ -19,10 +19,10 @@ import (
 	"context"
 
 	"github.com/multigres/multigres/go/common/mterrors"
+	"github.com/multigres/multigres/go/common/servenv"
 	"github.com/multigres/multigres/go/multipooler/manager"
 	consensuspb "github.com/multigres/multigres/go/pb/consensus"
 	consensusdata "github.com/multigres/multigres/go/pb/consensusdata"
-	"github.com/multigres/multigres/go/servenv"
 )
 
 // consensusService is the gRPC wrapper for consensus operations
