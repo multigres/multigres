@@ -19,13 +19,15 @@ package topo
 import (
 	"context"
 	"fmt"
+
+	"github.com/multigres/multigres/go/common/types"
 )
 
 // ShardsPath is the path component for shards in the topology hierarchy.
 const ShardsPath = "shards"
 
 type shardLock struct {
-	database, tableGroup, shard string
+	types.ShardKey
 }
 
 var _ iTopoLock = (*shardLock)(nil)
@@ -35,11 +37,11 @@ func (s *shardLock) Type() string {
 }
 
 func (s *shardLock) ResourceName() string {
-	return fmt.Sprintf("%s/%s/%s", s.database, s.tableGroup, s.shard)
+	return s.ShardKey.String()
 }
 
 func (s *shardLock) Path() string {
-	return fmt.Sprintf("%s/%s/%s/%s", DatabasesPath, s.database, s.tableGroup, s.shard)
+	return fmt.Sprintf("%s/%s/%s/%s", DatabasesPath, s.Database, s.TableGroup, s.Shard)
 }
 
 // LockShard will lock the shard, and return:
@@ -53,14 +55,10 @@ func (s *shardLock) Path() string {
 // Note: Shard locks use named locks (LockNameWithTTL) which create the lock path
 // if it doesn't exist. If no TTL is specified via WithTTL option, it defaults to
 // NamedLockTTL (24 hours).
-func (ts *store) LockShard(ctx context.Context, database, tableGroup, shard, action string, opts ...LockOption) (context.Context, func(*error), error) {
+func (ts *store) LockShard(ctx context.Context, shardKey types.ShardKey, action string, opts ...LockOption) (context.Context, func(*error), error) {
 	// Prepend Named lock type - user-provided options can override this
 	opts = append([]LockOption{WithType(Named)}, opts...)
-	return ts.internalLock(ctx, &shardLock{
-		database:   database,
-		tableGroup: tableGroup,
-		shard:      shard,
-	}, action, opts...)
+	return ts.internalLock(ctx, &shardLock{ShardKey: shardKey}, action, opts...)
 }
 
 // TryLockShard will lock the shard, and return:
@@ -78,20 +76,12 @@ func (ts *store) LockShard(ctx context.Context, database, tableGroup, shard, act
 // and acquiring is not under the same mutex in current implementation of `TryLockShard`.
 //
 // Note: Uses NamedNonBlocking lock type which creates the lock path if it doesn't exist.
-func (ts *store) TryLockShard(ctx context.Context, database, tableGroup, shard, action string) (context.Context, func(*error), error) {
-	return ts.internalLock(ctx, &shardLock{
-		database:   database,
-		tableGroup: tableGroup,
-		shard:      shard,
-	}, action, WithType(NamedNonBlocking))
+func (ts *store) TryLockShard(ctx context.Context, shardKey types.ShardKey, action string) (context.Context, func(*error), error) {
+	return ts.internalLock(ctx, &shardLock{ShardKey: shardKey}, action, WithType(NamedNonBlocking))
 }
 
 // CheckShardLocked can be called on a context to make sure we have the lock
 // for a given shard.
-func CheckShardLocked(ctx context.Context, database, tableGroup, shard string) error {
-	return checkLocked(ctx, &shardLock{
-		database:   database,
-		tableGroup: tableGroup,
-		shard:      shard,
-	})
+func CheckShardLocked(ctx context.Context, shardKey types.ShardKey) error {
+	return checkLocked(ctx, &shardLock{ShardKey: shardKey})
 }

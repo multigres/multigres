@@ -24,6 +24,7 @@ import (
 
 	"github.com/multigres/multigres/go/clustermetadata/topo"
 	"github.com/multigres/multigres/go/clustermetadata/topo/memorytopo"
+	"github.com/multigres/multigres/go/common/types"
 )
 
 const testLockTimeout = 100 * time.Millisecond
@@ -40,29 +41,27 @@ func TestTopoShardLock(t *testing.T) {
 		topo.LockTimeout = currentTopoLockTimeout
 	}()
 
-	database := "testdb"
-	tableGroup := "default"
-	shard1 := "0"
-	shard2 := "1"
+	shardKey1 := types.ShardKey{Database: "testdb", TableGroup: "default", Shard: "0"}
+	shardKey2 := types.ShardKey{Database: "testdb", TableGroup: "default", Shard: "1"}
 
 	origCtx := ctx
-	ctx, unlock, err := ts.LockShard(origCtx, database, tableGroup, shard1, "db/default/0")
+	ctx, unlock, err := ts.LockShard(origCtx, shardKey1, "db/default/0")
 	require.NoError(t, err)
 
 	// locking the same key again, without unlocking, should return an error
-	_, _, err2 := ts.LockShard(ctx, database, tableGroup, shard1, "db/default/0")
+	_, _, err2 := ts.LockShard(ctx, shardKey1, "db/default/0")
 	require.ErrorContains(t, err2, "already held")
 
 	// Check that we have the shard lock shouldn't return an error
-	err = topo.CheckShardLocked(ctx, database, tableGroup, shard1)
+	err = topo.CheckShardLocked(ctx, shardKey1)
 	require.NoError(t, err)
 
 	// Check that we have the shard lock for the other shard should return an error
-	err = topo.CheckShardLocked(ctx, database, tableGroup, shard2)
+	err = topo.CheckShardLocked(ctx, shardKey2)
 	require.ErrorContains(t, err, "is not locked")
 
 	// Check we can acquire a shard lock for the other shard
-	ctx2, unlock2, err := ts.LockShard(ctx, database, tableGroup, shard2, "db/default/1")
+	ctx2, unlock2, err := ts.LockShard(ctx, shardKey2, "db/default/1")
 	require.NoError(t, err)
 	defer unlock2(&err)
 
@@ -70,13 +69,13 @@ func TestTopoShardLock(t *testing.T) {
 	unlock(&err)
 
 	// Check shard locked output for both shards
-	err = topo.CheckShardLocked(ctx2, database, tableGroup, shard1)
+	err = topo.CheckShardLocked(ctx2, shardKey1)
 	require.ErrorContains(t, err, "is not locked")
-	err = topo.CheckShardLocked(ctx2, database, tableGroup, shard2)
+	err = topo.CheckShardLocked(ctx2, shardKey2)
 	require.NoError(t, err)
 
 	// confirm that the lock can be re-acquired after unlocking
-	_, unlock, err = ts.TryLockShard(origCtx, database, tableGroup, shard1, "db/default/0")
+	_, unlock, err = ts.TryLockShard(origCtx, shardKey1, "db/default/0")
 	require.NoError(t, err)
 	defer unlock(&err)
 }
