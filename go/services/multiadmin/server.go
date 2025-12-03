@@ -23,7 +23,7 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/multigres/multigres/go/common/clustermetadata/topo"
+	"github.com/multigres/multigres/go/common/topoclient"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multiadminpb "github.com/multigres/multigres/go/pb/multiadmin"
 
@@ -37,14 +37,14 @@ type MultiAdminServer struct {
 	multiadminpb.UnimplementedMultiAdminServiceServer
 
 	// ts is the topology store for querying cluster metadata
-	ts topo.Store
+	ts topoclient.Store
 
 	// logger for structured logging
 	logger *slog.Logger
 }
 
 // NewMultiAdminServer creates a new MultiAdminServer instance
-func NewMultiAdminServer(ts topo.Store, logger *slog.Logger) *MultiAdminServer {
+func NewMultiAdminServer(ts topoclient.Store, logger *slog.Logger) *MultiAdminServer {
 	return &MultiAdminServer{
 		ts:     ts,
 		logger: logger,
@@ -72,7 +72,7 @@ func (s *MultiAdminServer) GetCell(ctx context.Context, req *multiadminpb.GetCel
 		s.logger.ErrorContext(ctx, "Failed to get cell from topology", "cell_name", req.Name, "error", err)
 
 		// Check if it's a not found error
-		if errors.Is(err, &topo.TopoError{Code: topo.NoNode}) {
+		if errors.Is(err, &topoclient.TopoError{Code: topoclient.NoNode}) {
 			return nil, status.Errorf(codes.NotFound, "cell '%s' not found", req.Name)
 		}
 
@@ -103,7 +103,7 @@ func (s *MultiAdminServer) GetDatabase(ctx context.Context, req *multiadminpb.Ge
 		s.logger.ErrorContext(ctx, "Failed to get database from topology", "database_name", req.Name, "error", err)
 
 		// Check if it's a not found error
-		if errors.Is(err, &topo.TopoError{Code: topo.NoNode}) {
+		if errors.Is(err, &topoclient.TopoError{Code: topoclient.NoNode}) {
 			return nil, status.Errorf(codes.NotFound, "database '%s' not found", req.Name)
 		}
 
@@ -225,11 +225,11 @@ func (s *MultiAdminServer) GetPoolers(ctx context.Context, req *multiadminpb.Get
 
 	// Query each cell for poolers
 	for _, cellName := range cellsToQuery {
-		var opts *topo.GetMultiPoolersByCellOptions
+		var opts *topoclient.GetMultiPoolersByCellOptions
 		// filter by database and shard if specified
 		if req.Database != "" {
-			opts = &topo.GetMultiPoolersByCellOptions{
-				DatabaseShard: &topo.DatabaseShard{
+			opts = &topoclient.GetMultiPoolersByCellOptions{
+				DatabaseShard: &topoclient.DatabaseShard{
 					Database: req.Database,
 					Shard:    req.Shard,
 				},

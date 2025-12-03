@@ -18,9 +18,9 @@ import (
 	"context"
 	"log/slog"
 
-	"github.com/multigres/multigres/go/common/clustermetadata/topo"
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/rpcclient"
+	"github.com/multigres/multigres/go/common/topoclient"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
@@ -30,13 +30,13 @@ import (
 // It implements the consensus protocol from multigres-consensus-design-v2.md.
 type Coordinator struct {
 	coordinatorID *clustermetadatapb.ID
-	topoStore     topo.Store
+	topoStore     topoclient.Store
 	rpcClient     rpcclient.MultiPoolerClient
 	logger        *slog.Logger
 }
 
 // NewCoordinator creates a new coordinator instance.
-func NewCoordinator(coordinatorID *clustermetadatapb.ID, topoStore topo.Store, rpcClient rpcclient.MultiPoolerClient, logger *slog.Logger) *Coordinator {
+func NewCoordinator(coordinatorID *clustermetadatapb.ID, topoStore topoclient.Store, rpcClient rpcclient.MultiPoolerClient, logger *slog.Logger) *Coordinator {
 	return &Coordinator{
 		coordinatorID: coordinatorID,
 		topoStore:     topoStore,
@@ -158,8 +158,8 @@ func (c *Coordinator) updateTopology(ctx context.Context, candidate *multiorchda
 // GetShardNodes retrieves all multipooler nodes for a given shard from the topology.
 func (c *Coordinator) GetShardNodes(ctx context.Context, cell string, database string, tablegroup string, shardID string) ([]*multiorchdatapb.PoolerHealthState, error) {
 	// Get all multipoolers in the cell for this specific shard
-	poolers, err := c.topoStore.GetMultiPoolersByCell(ctx, cell, &topo.GetMultiPoolersByCellOptions{
-		DatabaseShard: &topo.DatabaseShard{
+	poolers, err := c.topoStore.GetMultiPoolersByCell(ctx, cell, &topoclient.GetMultiPoolersByCellOptions{
+		DatabaseShard: &topoclient.DatabaseShard{
 			Database:   database,
 			TableGroup: tablegroup,
 			Shard:      shardID,

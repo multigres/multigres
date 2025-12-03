@@ -26,10 +26,10 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
 
-	"github.com/multigres/multigres/go/common/clustermetadata/topo"
-	"github.com/multigres/multigres/go/common/clustermetadata/topo/memorytopo"
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/servenv"
+	"github.com/multigres/multigres/go/common/topoclient"
+	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
 	"github.com/multigres/multigres/go/tools/viperutil"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
@@ -132,7 +132,7 @@ func TestManagerState_LoadFailureTimeout(t *testing.T) {
 		Cell:      "zone1",
 		Name:      "test-service",
 	}
-	poolerPath := "/poolers/" + topo.MultiPoolerIDString(serviceID) + "/Pooler"
+	poolerPath := "/poolers/" + topoclient.MultiPoolerIDString(serviceID) + "/Pooler"
 	factory.AddOperationError(memorytopo.Get, poolerPath, assert.AnError)
 
 	config := &Config{
@@ -172,7 +172,7 @@ func TestManagerState_CancellationDuringLoad(t *testing.T) {
 		Cell:      "zone1",
 		Name:      "test-service",
 	}
-	poolerPath := "/poolers/" + topo.MultiPoolerIDString(serviceID) + "/Pooler"
+	poolerPath := "/poolers/" + topoclient.MultiPoolerIDString(serviceID) + "/Pooler"
 	factory.AddOperationError(memorytopo.Get, poolerPath, assert.AnError)
 
 	config := &Config{
@@ -232,7 +232,7 @@ func TestManagerState_RetryUntilSuccess(t *testing.T) {
 	require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
 
 	// Inject 2 one-time errors to simulate transient failures
-	poolerPath := "/poolers/" + topo.MultiPoolerIDString(serviceID) + "/Pooler"
+	poolerPath := "/poolers/" + topoclient.MultiPoolerIDString(serviceID) + "/Pooler"
 	factory.AddOneTimeOperationError(memorytopo.Get, poolerPath, assert.AnError)
 	factory.AddOneTimeOperationError(memorytopo.Get, poolerPath, assert.AnError)
 
@@ -455,13 +455,13 @@ func TestGetBackupLocation(t *testing.T) {
 	manager := NewMultiPoolerManager(logger, config)
 
 	// Set the multipooler to have the database
-	multipoolerInfo := &topo.MultiPoolerInfo{
+	multipoolerInfo := &topoclient.MultiPoolerInfo{
 		MultiPooler: &clustermetadatapb.MultiPooler{
 			Database: database,
 		},
 	}
 	manager.multipooler = multipoolerInfo
-	manager.cachedMultipooler.multipooler = topo.NewMultiPoolerInfo(
+	manager.cachedMultipooler.multipooler = topoclient.NewMultiPoolerInfo(
 		proto.Clone(multipoolerInfo.MultiPooler).(*clustermetadatapb.MultiPooler),
 		multipoolerInfo.Version(),
 	)

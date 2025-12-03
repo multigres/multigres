@@ -19,7 +19,7 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/multigres/multigres/go/common/clustermetadata/topo"
+	"github.com/multigres/multigres/go/common/topoclient"
 )
 
 // ServiceInfo represents a discoverable service in the cluster
@@ -49,14 +49,14 @@ func (ma *MultiAdmin) DiscoverServices(ctx context.Context) (*ServiceList, error
 
 	// Add multiadmin as a global service
 	// Multiadmin is always available if this code is running
-	multiadminProxyURL := fmt.Sprintf("/proxy/admin/%s/multiadmin", topo.GlobalCell)
+	multiadminProxyURL := fmt.Sprintf("/proxy/admin/%s/multiadmin", topoclient.GlobalCell)
 	multiadminDirectURL := ""
 	if httpPort := ma.senv.GetHTTPPort(); httpPort > 0 && ma.senv.GetHostname() != "" {
 		multiadminDirectURL = fmt.Sprintf("http://%s:%d/", ma.senv.GetHostname(), httpPort)
 	}
 	result.GlobalServices = append(result.GlobalServices, ServiceInfo{
 		Name:       "multiadmin",
-		Cell:       topo.GlobalCell,
+		Cell:       topoclient.GlobalCell,
 		ProxiedURL: multiadminProxyURL,
 		DirectURL:  multiadminDirectURL,
 	})

@@ -21,9 +21,9 @@ import (
 
 	_ "github.com/lib/pq"
 
-	"github.com/multigres/multigres/go/common/clustermetadata/topo"
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/rpcclient"
+	"github.com/multigres/multigres/go/common/topoclient"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
@@ -40,12 +40,12 @@ import (
 // 4. Initialize remaining nodes as standbys
 type BootstrapShardAction struct {
 	rpcClient rpcclient.MultiPoolerClient
-	topoStore topo.Store
+	topoStore topoclient.Store
 	logger    *slog.Logger
 }
 
 // NewBootstrapShardAction creates a new bootstrap action
-func NewBootstrapShardAction(rpcClient rpcclient.MultiPoolerClient, topoStore topo.Store, logger *slog.Logger) *BootstrapShardAction {
+func NewBootstrapShardAction(rpcClient rpcclient.MultiPoolerClient, topoStore topoclient.Store, logger *slog.Logger) *BootstrapShardAction {
 	return &BootstrapShardAction{
 		rpcClient: rpcClient,
 		topoStore: topoStore,

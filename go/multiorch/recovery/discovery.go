@@ -18,7 +18,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/multigres/multigres/go/common/clustermetadata/topo"
+	"github.com/multigres/multigres/go/common/topoclient"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 )
@@ -95,8 +95,8 @@ func (re *Engine) refreshPoolersForTarget(ctx context.Context, database, tablegr
 	}
 
 	// Create filter for topo query
-	opt := &topo.GetMultiPoolersByCellOptions{
-		DatabaseShard: &topo.DatabaseShard{
+	opt := &topoclient.GetMultiPoolersByCellOptions{
+		DatabaseShard: &topoclient.DatabaseShard{
 			Database:   database,
 			TableGroup: tablegroup,
 			Shard:      shard,
@@ -130,7 +130,7 @@ func (re *Engine) refreshPoolersForTarget(ctx context.Context, database, tablegr
 				continue
 			}
 
-			poolerID := topo.MultiPoolerIDString(pooler.Id)
+			poolerID := topoclient.MultiPoolerIDString(pooler.Id)
 
 			// Skip ignored poolers
 			if ignoreMap[poolerID] {

@@ -22,10 +22,10 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 
-	"github.com/multigres/multigres/go/common/clustermetadata/topo"
-	"github.com/multigres/multigres/go/common/clustermetadata/toporeg"
 	"github.com/multigres/multigres/go/common/rpcclient"
 	"github.com/multigres/multigres/go/common/servenv"
+	"github.com/multigres/multigres/go/common/servenv/toporeg"
+	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/multiorch/config"
 	"github.com/multigres/multigres/go/multiorch/recovery"
 	"github.com/multigres/multigres/go/tools/viperutil"
@@ -43,10 +43,10 @@ type MultiOrch struct {
 	// senv is the serving environment
 	senv *servenv.ServEnv
 	// topoConfig holds topology configuration
-	topoConfig *topo.TopoConfig
+	topoConfig *topoclient.TopoConfig
 	// connConfig holds multipooler RPC client configuration
 	connConfig   *rpcclient.ConnConfig
-	ts           topo.Store
+	ts           topoclient.Store
 	tr           *toporeg.TopoReg
 	serverStatus Status
 
@@ -78,7 +78,7 @@ func NewMultiOrch() *MultiOrch {
 		cfg:        config.NewConfig(reg),
 		grpcServer: servenv.NewGrpcServer(reg),
 		senv:       servenv.NewServEnv(reg),
-		topoConfig: topo.NewTopoConfig(reg),
+		topoConfig: topoclient.NewTopoConfig(reg),
 		connConfig: rpcclient.NewConnConfig(reg),
 		serverStatus: Status{
 			Title: "Multiorch",
@@ -122,7 +122,7 @@ func (mo *MultiOrch) Init() {
 
 	// Create MultiOrch instance for topo registration
 	// TODO(sougou): Is serviceID needed? It's sent as empty string for now.
-	multiorch := topo.NewMultiOrch("", mo.cfg.GetCell(), mo.senv.GetHostname())
+	multiorch := topoclient.NewMultiOrch("", mo.cfg.GetCell(), mo.senv.GetHostname())
 	multiorch.PortMap["grpc"] = int32(mo.grpcServer.Port())
 	multiorch.PortMap["http"] = int32(mo.senv.GetHTTPPort())
 

@@ -23,8 +23,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/multigres/multigres/go/common/clustermetadata/topo"
-	"github.com/multigres/multigres/go/common/clustermetadata/topo/memorytopo"
+	"github.com/multigres/multigres/go/common/topoclient"
+	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 )
 
@@ -283,7 +283,7 @@ func TestPoolerDiscovery_InvalidDataHandling(t *testing.T) {
 	require.NoError(t, store.CreateMultiPooler(ctx, pooler2))
 
 	// Verify we can read pooler1 data directly to validate the path
-	pooler1Path := "poolers/" + topo.MultiPoolerIDString(pooler1.Id) + "/Pooler"
+	pooler1Path := "poolers/" + topoclient.MultiPoolerIDString(pooler1.Id) + "/Pooler"
 	pooler1Data, _, err := conn.Get(ctx, pooler1Path)
 	require.NoError(t, err, "Should be able to read valid pooler data")
 	require.NotEmpty(t, pooler1Data, "Valid pooler data should not be empty")

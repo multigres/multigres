@@ -27,9 +27,9 @@ import (
 
 	"github.com/lib/pq"
 
-	"github.com/multigres/multigres/go/common/clustermetadata/topo"
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/servenv"
+	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/multipooler/heartbeat"
 	"github.com/multigres/multigres/go/multipooler/poolerserver"
 	"github.com/multigres/multigres/go/tools/retry"
@@ -61,7 +61,7 @@ type MultiPoolerManager struct {
 	logger       *slog.Logger
 	config       *Config
 	db           *sql.DB
-	topoClient   topo.Store
+	topoClient   topoclient.Store
 	serviceID    *clustermetadatapb.ID
 	replTracker  *heartbeat.ReplTracker
 	pgctldClient pgctldpb.PgCtldClient
@@ -88,7 +88,7 @@ type MultiPoolerManager struct {
 	mu sync.Mutex
 
 	isOpen          bool
-	multipooler     *topo.MultiPoolerInfo
+	multipooler     *topoclient.MultiPoolerInfo
 	state           ManagerState
 	stateError      error
 	consensusState  *ConsensusState
@@ -137,7 +137,7 @@ type demotionState struct {
 // cachedMultiPoolerInfo holds a thread-safe cached copy of the multipooler info
 type cachedMultiPoolerInfo struct {
 	mu          sync.Mutex
-	multipooler *topo.MultiPoolerInfo
+	multipooler *topoclient.MultiPoolerInfo
 }
 
 // NewMultiPoolerManager creates a new MultiPoolerManager instance
@@ -357,7 +357,7 @@ func (pm *MultiPoolerManager) GetStateError() error {
 }
 
 // GetMultiPooler returns the current multipooler record and state
-func (pm *MultiPoolerManager) GetMultiPooler() (*topo.MultiPoolerInfo, ManagerState, error) {
+func (pm *MultiPoolerManager) GetMultiPooler() (*topoclient.MultiPoolerInfo, ManagerState, error) {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
 	return pm.multipooler, pm.state, pm.stateError
@@ -427,7 +427,7 @@ func (pm *MultiPoolerManager) getMultipoolerIDString() (string, error) {
 	pm.cachedMultipooler.mu.Lock()
 	defer pm.cachedMultipooler.mu.Unlock()
 	if pm.cachedMultipooler.multipooler != nil && pm.cachedMultipooler.multipooler.Id != nil {
-		return topo.MultiPoolerIDString(pm.cachedMultipooler.multipooler.Id), nil
+		return topoclient.MultiPoolerIDString(pm.cachedMultipooler.multipooler.Id), nil
 	}
 	return "", mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION, "multipooler ID not available")
 }
@@ -458,7 +458,7 @@ func (pm *MultiPoolerManager) updateCachedMultipooler() {
 	pm.cachedMultipooler.mu.Lock()
 	defer pm.cachedMultipooler.mu.Unlock()
 	clonedProto := proto.Clone(pm.multipooler.MultiPooler).(*clustermetadatapb.MultiPooler)
-	pm.cachedMultipooler.multipooler = topo.NewMultiPoolerInfo(clonedProto, pm.multipooler.Version())
+	pm.cachedMultipooler.multipooler = topoclient.NewMultiPoolerInfo(clonedProto, pm.multipooler.Version())
 }
 
 // checkReady returns an error if the manager is not in Ready state

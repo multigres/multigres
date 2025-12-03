@@ -24,8 +24,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/multigres/multigres/go/common/clustermetadata/topo"
-	"github.com/multigres/multigres/go/common/clustermetadata/topo/memorytopo"
+	"github.com/multigres/multigres/go/common/topoclient"
+	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
@@ -98,7 +98,7 @@ func TestInitializationStatus(t *testing.T) {
 			}
 
 			pm.mu.Lock()
-			pm.multipooler = &topo.MultiPoolerInfo{MultiPooler: multipooler}
+			pm.multipooler = &topoclient.MultiPoolerInfo{MultiPooler: multipooler}
 			pm.updateCachedMultipooler()
 			pm.mu.Unlock()
 
@@ -370,7 +370,7 @@ func TestHelperMethods(t *testing.T) {
 		}
 
 		pm := &MultiPoolerManager{
-			multipooler: &topo.MultiPoolerInfo{MultiPooler: multipooler},
+			multipooler: &topoclient.MultiPoolerInfo{MultiPooler: multipooler},
 		}
 
 		assert.Equal(t, "shard-123", pm.getShardID())

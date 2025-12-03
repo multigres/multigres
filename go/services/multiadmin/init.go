@@ -19,8 +19,8 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 
-	"github.com/multigres/multigres/go/common/clustermetadata/topo"
 	"github.com/multigres/multigres/go/common/servenv"
+	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/tools/viperutil"
 )
 
@@ -35,8 +35,8 @@ type MultiAdmin struct {
 	senv *servenv.ServEnv
 
 	// topoConfig holds topology configuration
-	topoConfig   *topo.TopoConfig
-	ts           topo.Store
+	topoConfig   *topoclient.TopoConfig
+	ts           topoclient.Store
 	serverStatus Status
 }
 
@@ -53,7 +53,7 @@ func NewMultiAdmin() *MultiAdmin {
 	return &MultiAdmin{
 		grpcServer: servenv.NewGrpcServer(reg),
 		senv:       servenv.NewServEnv(reg),
-		topoConfig: topo.NewTopoConfig(reg),
+		topoConfig: topoclient.NewTopoConfig(reg),
 		serverStatus: Status{
 			Title: "Multiadmin",
 			Links: []Link{

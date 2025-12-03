@@ -19,7 +19,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/multigres/multigres/go/common/clustermetadata/topo/memorytopo"
+	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multiadminpb "github.com/multigres/multigres/go/pb/multiadmin"
 

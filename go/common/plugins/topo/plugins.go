@@ -20,6 +20,6 @@ package topo
 import (
 	// Import all topology implementations here.
 	// This makes them available for registration and use.
-	_ "github.com/multigres/multigres/go/common/clustermetadata/topo/etcdtopo"
-	_ "github.com/multigres/multigres/go/common/clustermetadata/topo/memorytopo"
+	_ "github.com/multigres/multigres/go/common/topoclient/etcdtopo"
+	_ "github.com/multigres/multigres/go/common/topoclient/memorytopo"
 )
