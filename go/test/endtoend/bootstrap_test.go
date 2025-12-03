@@ -495,29 +495,28 @@ func verifyMultigresTablesExist(t *testing.T, node *nodeInstance) {
 	db := connectToPostgres(t, socketDir, node.pgPort)
 	defer db.Close()
 
-	// Check that heartbeat table exists
-	var heartbeatExists bool
-	err := db.QueryRow(`
-		SELECT EXISTS (
-			SELECT FROM information_schema.tables
-			WHERE table_schema = 'multigres'
-			AND table_name = 'heartbeat'
-		)
-	`).Scan(&heartbeatExists)
-	require.NoError(t, err, "Should query heartbeat table existence on %s", node.name)
-	assert.True(t, heartbeatExists, "Heartbeat table should exist on %s", node.name)
+	// Helper to check table existence
+	tableExists := func(tableName string) bool {
+		var exists bool
+		err := db.QueryRow(`
+			SELECT EXISTS (
+				SELECT FROM information_schema.tables
+				WHERE table_schema = 'multigres'
+				AND table_name = $1
+			)
+		`, tableName).Scan(&exists)
+		require.NoError(t, err, "Should query %s table existence on %s", tableName, node.name)
+		return exists
+	}
 
-	// Check that durability_policy table exists
-	var durabilityPolicyExists bool
-	err = db.QueryRow(`
-		SELECT EXISTS (
-			SELECT FROM information_schema.tables
-			WHERE table_schema = 'multigres'
-			AND table_name = 'durability_policy'
-		)
-	`).Scan(&durabilityPolicyExists)
-	require.NoError(t, err, "Should query durability_policy table existence on %s", node.name)
-	assert.True(t, durabilityPolicyExists, "Durability policy table should exist on %s", node.name)
+	// Check sidecar tables
+	assert.True(t, tableExists("heartbeat"), "heartbeat table should exist on %s", node.name)
+	assert.True(t, tableExists("durability_policy"), "durability_policy table should exist on %s", node.name)
+
+	// Check multischema global tables
+	assert.True(t, tableExists("tablegroup"), "tablegroup table should exist on %s", node.name)
+	assert.True(t, tableExists("table"), "table table should exist on %s", node.name)
+	assert.True(t, tableExists("shard"), "shard table should exist on %s", node.name)
 }
 
 // waitForProcessReady waits for a process to be ready by checking its gRPC port
