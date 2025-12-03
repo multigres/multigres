@@ -745,7 +745,7 @@ func getSharedTestSetup(t *testing.T) *MultipoolerTestSetup {
 		cellName := "test-cell"
 		cellRoot := path.Join(testRoot, cellName)
 
-		ts, err := topo.OpenServer("etcd2", globalRoot, []string{etcdClientAddr})
+		ts, err := topo.OpenServer("etcd2", globalRoot, []string{etcdClientAddr}, topo.NewDefaultTopoConfig())
 		if err != nil {
 			setupError = fmt.Errorf("failed to open topology server: %w", err)
 			return
