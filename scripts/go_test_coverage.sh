@@ -65,7 +65,7 @@ cd "$PROJECT_ROOT"
 echo "=========================================="
 echo "Phase 1: Direct Test Coverage"
 echo "=========================================="
-echo "Running: go test -cover -coverprofile=$DIRECT_COV -coverpkg=./... $@"
+echo "Running: go test -cover -coverprofile=$DIRECT_COV -coverpkg=./... $*"
 echo ""
 
 if go test -cover -covermode=atomic -coverprofile="$DIRECT_COV" -coverpkg=./... "$@"; then
@@ -84,7 +84,7 @@ echo ""
 echo "=========================================="
 echo "Phase 2: Subprocess Coverage"
 echo "=========================================="
-echo "Running: GOCOVERDIR=$SUBPROCESS_RAWDIR go test $@"
+echo "Running: GOCOVERDIR=$SUBPROCESS_RAWDIR go test $*"
 echo ""
 
 # Export GOCOVERDIR so PrependBinToPath will use coverage binaries
