@@ -98,7 +98,7 @@ func TestSettingsCacheConcurrent(t *testing.T) {
 	results := make([]*Settings, 100)
 
 	// Launch 100 concurrent goroutines all requesting the same settings
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
@@ -281,7 +281,7 @@ func BenchmarkSettingsPointerEquality(b *testing.B) {
 	s := cache.GetOrCreate(vars)
 
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		// Pointer comparison
 		_ = s == cache.GetOrCreate(vars)
 	}

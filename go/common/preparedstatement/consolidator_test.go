@@ -171,7 +171,7 @@ func TestConsolidator_ConcurrentAccess(t *testing.T) {
 	numGoroutines := 10
 
 	// Concurrently add prepared statements
-	for i := 0; i < numGoroutines; i++ {
+	for i := range numGoroutines {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
