@@ -39,7 +39,7 @@ const timestampBusy = math.MinInt64
 
 // monotonicNow returns the current monotonic time as a time.Duration.
 // This is a very efficient operation because time.Since performs direct
-// substraction of monotonic times without considering the wall clock times.
+// subtraction of monotonic times without considering the wall clock times.
 func monotonicNow() time.Duration {
 	return time.Since(monotonicRoot)
 }
@@ -47,7 +47,7 @@ func monotonicNow() time.Duration {
 // monotonicFromTime converts a wall-clock time from time.Now into a
 // monotonic timestamp.
 // This is a very efficient operation because time.(*Time).Sub performs direct
-// substraction of monotonic times without considering the wall clock times.
+// subtraction of monotonic times without considering the wall clock times.
 func monotonicFromTime(now time.Time) time.Duration {
 	return now.Sub(monotonicRoot)
 }

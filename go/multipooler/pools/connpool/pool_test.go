@@ -204,9 +204,9 @@ func TestPoolConcurrentGetPut(t *testing.T) {
 
 	done := make(chan bool)
 
-	for i := 0; i < concurrency; i++ {
+	for range concurrency {
 		go func() {
-			for j := 0; j < iterations; j++ {
+			for range iterations {
 				conn, err := pool.Get(ctx)
 				if err != nil {
 					continue
@@ -218,7 +218,7 @@ func TestPoolConcurrentGetPut(t *testing.T) {
 		}()
 	}
 
-	for i := 0; i < concurrency; i++ {
+	for range concurrency {
 		<-done
 	}
 

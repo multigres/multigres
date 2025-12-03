@@ -114,20 +114,6 @@ func (l *List[T]) remove(e *Element[T]) {
 	l.len.Add(-1)
 }
 
-// move moves e to next to at.
-func (l *List[T]) move(e, at *Element[T]) {
-	if e == at {
-		return
-	}
-	e.prev.next = e.next
-	e.next.prev = e.prev
-
-	e.prev = at
-	e.next = at.next
-	e.prev.next = e
-	e.next.prev = e
-}
-
 // Remove removes e from l if e is an element of list l.
 // It returns the element value e.Value.
 // The element must not be nil.
