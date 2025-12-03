@@ -21,11 +21,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/multigres/multigres/go/clustermetadata/topo"
 	"github.com/multigres/multigres/go/clustermetadata/topo/memorytopo"
 	"github.com/multigres/multigres/go/cmd/pgctld/testutil"
+	"github.com/multigres/multigres/go/common/servenv"
 	"github.com/multigres/multigres/go/multipooler/manager"
-	"github.com/multigres/multigres/go/servenv"
-	"github.com/multigres/multigres/go/viperutil"
+	"github.com/multigres/multigres/go/tools/viperutil"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -33,6 +34,17 @@ import (
 	clustermetadata "github.com/multigres/multigres/go/pb/clustermetadata"
 	consensusdata "github.com/multigres/multigres/go/pb/consensusdata"
 )
+
+func addDatabaseToTopo(t *testing.T, ts topo.Store, database string) {
+	t.Helper()
+	ctx := context.Background()
+	err := ts.CreateDatabase(ctx, database, &clustermetadata.Database{
+		Name:             database,
+		BackupLocation:   "/var/backups/pgbackrest",
+		DurabilityPolicy: "ANY_2",
+	})
+	require.NoError(t, err)
+}
 
 func TestConsensusService_BeginTerm(t *testing.T) {
 	ctx := context.Background()
@@ -43,6 +55,9 @@ func TestConsensusService_BeginTerm(t *testing.T) {
 	// Start mock pgctld server
 	pgctldAddr, cleanupPgctld := testutil.StartMockPgctldServer(t)
 	t.Cleanup(cleanupPgctld)
+
+	// Create database in topology
+	addDatabaseToTopo(t, ts, "testdb")
 
 	// Create the multipooler in topology so manager can reach ready state
 	serviceID := &clustermetadata.ID{
@@ -116,6 +131,9 @@ func TestConsensusService_Status(t *testing.T) {
 	pgctldAddr, cleanupPgctld := testutil.StartMockPgctldServer(t)
 	t.Cleanup(cleanupPgctld)
 
+	// Create database in topology
+	addDatabaseToTopo(t, ts, "testdb")
+
 	// Create the multipooler in topology
 	serviceID := &clustermetadata.ID{
 		Component: clustermetadata.ID_MULTIPOOLER,
@@ -187,6 +205,9 @@ func TestConsensusService_GetLeadershipView(t *testing.T) {
 	pgctldAddr, cleanupPgctld := testutil.StartMockPgctldServer(t)
 	t.Cleanup(cleanupPgctld)
 
+	// Create database in topology
+	addDatabaseToTopo(t, ts, "testdb")
+
 	// Create the multipooler in topology
 	serviceID := &clustermetadata.ID{
 		Component: clustermetadata.ID_MULTIPOOLER,
@@ -252,6 +273,9 @@ func TestConsensusService_CanReachPrimary(t *testing.T) {
 	// Start mock pgctld server
 	pgctldAddr, cleanupPgctld := testutil.StartMockPgctldServer(t)
 	t.Cleanup(cleanupPgctld)
+
+	// Create database in topology
+	addDatabaseToTopo(t, ts, "testdb")
 
 	// Create the multipooler in topology
 	serviceID := &clustermetadata.ID{
@@ -320,6 +344,9 @@ func TestConsensusService_AllMethods(t *testing.T) {
 	// Start mock pgctld server
 	pgctldAddr, cleanupPgctld := testutil.StartMockPgctldServer(t)
 	t.Cleanup(cleanupPgctld)
+
+	// Create database in topology
+	addDatabaseToTopo(t, ts, "testdb")
 
 	// Create the multipooler in topology
 	serviceID := &clustermetadata.ID{

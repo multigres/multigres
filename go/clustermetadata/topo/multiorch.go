@@ -20,7 +20,7 @@ import (
 	"fmt"
 	"path"
 
-	"github.com/multigres/multigres/go/mterrors"
+	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/tools/stringutil"
 
 	"google.golang.org/protobuf/proto"
@@ -83,7 +83,7 @@ func NewMultiOrchInfo(multiorch *clustermetadatapb.MultiOrch, version Version) *
 
 // MultiOrchIDString returns the string representation of a MultiOrch ID
 func MultiOrchIDString(id *clustermetadatapb.ID) string {
-	return fmt.Sprintf("%s-%s-%s", stringutil.ComponentTypeToString(id.Component), id.Cell, id.Name)
+	return fmt.Sprintf("%s-%s-%s", ComponentTypeToString(id.Component), id.Cell, id.Name)
 }
 
 // GetMultiOrch is a high level function to read multiorch data.
@@ -256,12 +256,12 @@ func (ts *store) RegisterMultiOrch(ctx context.Context, mtorch *clustermetadatap
 		// Try to update then
 		oldMtOrch, err := ts.GetMultiOrch(ctx, mtorch.Id)
 		if err != nil {
-			return fmt.Errorf("failed reading existing mtorch %v: %v", MultiOrchIDString(mtorch.Id), err)
+			return fmt.Errorf("failed reading existing mtorch %v: %w", MultiOrchIDString(mtorch.Id), err)
 		}
 
 		oldMtOrch.MultiOrch = proto.Clone(mtorch).(*clustermetadatapb.MultiOrch)
 		if err := ts.UpdateMultiOrch(ctx, oldMtOrch); err != nil {
-			return fmt.Errorf("failed updating mtorch %v: %v", MultiOrchIDString(mtorch.Id), err)
+			return fmt.Errorf("failed updating mtorch %v: %w", MultiOrchIDString(mtorch.Id), err)
 		}
 		return nil
 	}

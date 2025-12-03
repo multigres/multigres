@@ -65,9 +65,8 @@ func TestGeneratePgBackRestConfigs(t *testing.T) {
 		err := p.GeneratePgBackRestConfigs()
 		require.NoError(t, err)
 
-		// Verify backup repository directory was created with database/tablegroup/shard structure
+		// Verify backup repository directory was created
 		backupDir := filepath.Join(tmpDir, "data", "backups")
-		repoPath := filepath.Join(backupDir, "postgres", "default", "0")
 		stat, err := os.Stat(backupDir)
 		require.NoError(t, err)
 		assert.True(t, stat.IsDir())
@@ -77,8 +76,8 @@ func TestGeneratePgBackRestConfigs(t *testing.T) {
 		content1, err := os.ReadFile(config1)
 		require.NoError(t, err)
 		assert.Contains(t, string(content1), "[global]")
-		assert.Contains(t, string(content1), "[multigres]") // Shared stanza for HA
-		assert.Contains(t, string(content1), "repo1-path="+repoPath)
+		assert.Contains(t, string(content1), "[multigres]")      // Shared stanza for HA
+		assert.NotContains(t, string(content1), "repo1-path=")   // repo1-path should not be in config
 		assert.Contains(t, string(content1), "pg1-socket-path=") // Using socket connections
 		assert.Contains(t, string(content1), "pg2-path=")        // Has zone2 as pg2
 
@@ -86,8 +85,8 @@ func TestGeneratePgBackRestConfigs(t *testing.T) {
 		content2, err := os.ReadFile(config2)
 		require.NoError(t, err)
 		assert.Contains(t, string(content2), "[global]")
-		assert.Contains(t, string(content2), "[multigres]") // Shared stanza for HA
-		assert.Contains(t, string(content2), "repo1-path="+repoPath)
+		assert.Contains(t, string(content2), "[multigres]")      // Shared stanza for HA
+		assert.NotContains(t, string(content2), "repo1-path=")   // repo1-path should not be in config
 		assert.Contains(t, string(content2), "pg1-socket-path=") // Using socket connections
 		assert.Contains(t, string(content2), "pg2-path=")        // Has zone1 as pg2
 	})
@@ -136,10 +135,8 @@ func TestGeneratePgBackRestConfigs(t *testing.T) {
 		content, err := os.ReadFile(defaultConfigPath)
 		require.NoError(t, err)
 		assert.Contains(t, string(content), "[global]")
-		assert.Contains(t, string(content), "[multigres]") // Shared stanza for HA
-		// Verify repo path includes database/tablegroup/shard structure
-		repoPath := filepath.Join(defaultBackupDir, "postgres", "default", "0")
-		assert.Contains(t, string(content), "repo1-path="+repoPath)
+		assert.Contains(t, string(content), "[multigres]")    // Shared stanza for HA
+		assert.NotContains(t, string(content), "repo1-path=") // repo1-path should not be in config
 	})
 
 	t.Run("handles multiple cells correctly", func(t *testing.T) {
@@ -347,11 +344,9 @@ func TestGeneratePgBackRestConfigs(t *testing.T) {
 		assert.NotContains(t, contentC, "pg2-path="+filepath.Join(tmpDir, "pooler-c", "pg_data"))
 		assert.NotContains(t, contentC, "pg3-path="+filepath.Join(tmpDir, "pooler-c", "pg_data"))
 
-		// Verify all share the same backup repository with database/tablegroup/shard structure
-		backupPath := filepath.Join(tmpDir, "data", "backups")
-		repoPath := filepath.Join(backupPath, "postgres", "default", "0")
-		assert.Contains(t, contentA, "repo1-path="+repoPath)
-		assert.Contains(t, contentB, "repo1-path="+repoPath)
-		assert.Contains(t, contentC, "repo1-path="+repoPath)
+		// Verify repo1-path is not in any of the configs
+		assert.NotContains(t, contentA, "repo1-path=")
+		assert.NotContains(t, contentB, "repo1-path=")
+		assert.NotContains(t, contentC, "repo1-path=")
 	})
 }

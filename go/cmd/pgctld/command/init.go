@@ -22,7 +22,7 @@ import (
 	"strings"
 
 	"github.com/multigres/multigres/go/pgctld"
-	"github.com/multigres/multigres/go/viperutil"
+	"github.com/multigres/multigres/go/tools/viperutil"
 
 	"github.com/spf13/cobra"
 )
@@ -139,7 +139,12 @@ func initializeDataDir(logger *slog.Logger, dataDir string, pgUser string, pgPwf
 	}
 
 	// Run initdb
-	cmd := exec.Command("initdb", "-D", dataDir, "--auth-local=trust", "--auth-host=md5", "-U", pgUser)
+	//
+	// It's generally a good idea to enable page data checksums. Furthermore,
+	// pgBackRest will validate checksums for the Postgres cluster it's backing up.
+	// However, pgBackRest merely logs checksum validation errors but does not fail
+	// the backup.
+	cmd := exec.Command("initdb", "-D", dataDir, "--data-checksums", "--auth-local=trust", "--auth-host=md5", "-U", pgUser)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 

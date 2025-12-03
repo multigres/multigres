@@ -51,7 +51,7 @@ func waitForPoolerCount(t *testing.T, pd *PoolerDiscovery, expected int) {
 
 // waitForCondition waits for an arbitrary condition to become true.
 // It fails the test if the timeout is exceeded.
-func waitForCondition(t *testing.T, condition func() bool, msgAndArgs ...interface{}) {
+func waitForCondition(t *testing.T, condition func() bool, msgAndArgs ...any) {
 	t.Helper()
 	require.Eventually(t, condition, testTimeout, testPollInterval, msgAndArgs...)
 }

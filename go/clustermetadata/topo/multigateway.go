@@ -20,7 +20,7 @@ import (
 	"fmt"
 	"path"
 
-	"github.com/multigres/multigres/go/mterrors"
+	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/tools/stringutil"
 
 	"google.golang.org/protobuf/proto"
@@ -83,7 +83,7 @@ func NewMultiGatewayInfo(multigateway *clustermetadatapb.MultiGateway, version V
 
 // MultiGatewayIDString returns the string representation of a MultiGateway ID
 func MultiGatewayIDString(id *clustermetadatapb.ID) string {
-	return fmt.Sprintf("%s-%s-%s", stringutil.ComponentTypeToString(id.Component), id.Cell, id.Name)
+	return fmt.Sprintf("%s-%s-%s", ComponentTypeToString(id.Component), id.Cell, id.Name)
 }
 
 // GetMultiGateway is a high level function to read multigateway data.
@@ -256,12 +256,12 @@ func (ts *store) RegisterMultiGateway(ctx context.Context, mtgateway *clustermet
 		// Try to update then
 		oldMtGateway, err := ts.GetMultiGateway(ctx, mtgateway.Id)
 		if err != nil {
-			return fmt.Errorf("failed reading existing mtgateway %v: %v", MultiGatewayIDString(mtgateway.Id), err)
+			return fmt.Errorf("failed reading existing mtgateway %v: %w", MultiGatewayIDString(mtgateway.Id), err)
 		}
 
 		oldMtGateway.MultiGateway = proto.Clone(mtgateway).(*clustermetadatapb.MultiGateway)
 		if err := ts.UpdateMultiGateway(ctx, oldMtGateway); err != nil {
-			return fmt.Errorf("failed updating mtgateway %v: %v", MultiGatewayIDString(mtgateway.Id), err)
+			return fmt.Errorf("failed updating mtgateway %v: %w", MultiGatewayIDString(mtgateway.Id), err)
 		}
 		return nil
 	}

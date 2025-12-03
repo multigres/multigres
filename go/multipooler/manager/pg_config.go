@@ -20,7 +20,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/multigres/multigres/go/mterrors"
+	"github.com/multigres/multigres/go/common/mterrors"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multipoolermanagerdata "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
@@ -93,7 +93,7 @@ func parseSynchronousStandbyNames(value string) (*SyncStandbyConfig, error) {
 	}
 
 	methodStr := strings.ToUpper(matches[1]) // Normalize to uppercase
-	numSync, err := strconv.Atoi(matches[2])
+	numSync, err := strconv.ParseInt(matches[2], 10, 32)
 	if err != nil {
 		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT,
 			fmt.Sprintf("invalid num_sync value in synchronous_standby_names: %q", matches[2]))

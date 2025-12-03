@@ -23,11 +23,20 @@ linters:
     - bodyclose
     - depguard
     - errcheck
+    - errorlint
     - gocritic
+    - gosec
     - govet
     - ineffassign
+    - misspell
+    - modernize
+    - nilerr
+    # TODO: Enable noctx - requires fixing ~170 issues where context should be passed
+    # - noctx
     - sloglint
     - staticcheck
+    - unconvert
+    - unused
   settings:
     depguard:
       rules:
@@ -38,6 +47,16 @@ linters:
             - github.com/spf13/pflag
             - github.com/spf13/viper
             - github.com/stretchr/testify
+        tools-isolation:
+          files:
+            - "**/go/tools/**/*.go"
+          list-mode: lax
+          deny:
+            - pkg: "github.com/multigres/multigres/go"
+              desc: "tools packages must not depend on internal multigres packages (except other tools)"
+          allow:
+            - $gostd
+            - github.com/multigres/multigres/go/tools
         provisioner:
           files:
             - "!$test"
@@ -53,8 +72,17 @@ linters:
             - github.com/multigres/multigres/go/tools
             - github.com/multigres/multigres/go/pb
             - github.com/multigres/multigres/go/provisioner
-            - github.com/multigres/multigres/go/provisioner/local
-            - github.com/multigres/multigres/go/grpccommon
+        multiadmin-isolation:
+          files:
+            - "!**/go/services/multiadmin/*.go"
+            - "!**/go/services/multiadmin/**/*.go"
+            - "!**/go/cmd/multiadmin/*.go"
+            - "!**/go/cmd/multiadmin/**/*.go"
+            - "**/*.go"
+          list-mode: lax
+          deny:
+            - pkg: "github.com/multigres/multigres/go/services/multiadmin"
+              desc: "multiadmin can only be imported by its own package and cmd"
         use_modern_packages:
           list-mode: lax
           deny:
@@ -63,10 +91,97 @@ linters:
     sloglint:
       context: scope
     govet:
-      disable:
-        - nilness
-        - unusedwrite
+      enable:
+        # Check for missing values after append.
+        - appends
+        # Report mismatches between assembly files and Go declarations.
+        - asmdecl
+        # Check for useless assignments.
+        - assign
+        # Check for common mistakes using the sync/atomic package.
+        - atomic
+        # Check for non-64-bits-aligned arguments to sync/atomic functions.
+        - atomicalign
+        # Check for common mistakes involving boolean operators.
+        - bools
+        # Check //go:build and // +build directives.
+        - buildtag
+        # Detect some violations of the cgo pointer passing rules.
+        - cgocall
+        # Check for unkeyed composite literals.
+        - composites
+        # Check for locks erroneously passed by value.
+        - copylocks
+        # Check for calls of reflect.DeepEqual on error values.
+        - deepequalerrors
+        # Report common mistakes in defer statements.
+        - defers
+        # Check Go toolchain directives such as //go:debug.
+        - directive
+        # Report passing non-pointer or non-error values to errors.As.
+        - errorsas
+        # # Find structs that would use less memory if their fields were sorted.
+        # - fieldalignment
+        # Find calls to a particular function.
+        - findcall
+        # Report assembly that clobbers the frame pointer before saving it.
+        - framepointer
+        # Check format of addresses passed to net.Dial.
+        - hostport
+        # Report using Go 1.22 enhanced ServeMux patterns in older Go versions.
+        - httpmux
+        # Check for mistakes using HTTP responses.
+        - httpresponse
+        # Detect impossible interface-to-interface type assertions.
+        - ifaceassert
+        # Check references to loop variables from within nested functions.
         - loopclosure
+        # Check cancel func returned by context.WithCancel is called.
+        - lostcancel
+        # Check for useless comparisons between functions and nil.
+        - nilfunc
+        # Check for redundant or impossible nil comparisons.
+        - nilness
+        # Check consistency of Printf format strings and arguments.
+        - printf
+        # Check for comparing reflect.Value values with == or reflect.DeepEqual.
+        - reflectvaluecompare
+        # # Check for possible unintended shadowing of variables.
+        # - shadow
+        # Check for shifts that equal or exceed the width of the integer.
+        - shift
+        # Check for unbuffered channel of os.Signal.
+        - sigchanyzer
+        # Check for invalid structured logging calls.
+        - slog
+        # Check the argument type of sort.Slice.
+        - sortslice
+        # Check signature of methods of well-known interfaces.
+        - stdmethods
+        # Report uses of too-new standard library symbols.
+        - stdversion
+        # Check for string(int) conversions.
+        - stringintconv
+        # Check that struct field tags conform to reflect.StructTag.Get.
+        - structtag
+        # Report calls to (*testing.T).Fatal from goroutines started by a test.
+        - testinggoroutine
+        # Check for common mistaken usages of tests and examples.
+        - tests
+        # Check for calls of (time.Time).Format or time.Parse with 2006-02-01.
+        - timeformat
+        # Report passing non-pointer or non-interface values to unmarshal.
+        - unmarshal
+        # Check for unreachable code.
+        - unreachable
+        # Check for invalid conversions of uintptr to unsafe.Pointer.
+        - unsafeptr
+        # Check for unused results of calls to some functions.
+        - unusedresult
+        # Checks for unused writes.
+        - unusedwrite
+        # Check for misuses of sync.WaitGroup.
+        - waitgroup
     gocritic:
       # TODO(dweitzman): Re-enable default checks. Some of them seem worthwhile.
       disable-all: true
@@ -74,7 +189,7 @@ linters:
         - ruleguard
       settings:
         ruleguard:
-          rules: "go/tools/ruleguard/flag_rules.go"
+          rules: "go/tools/ruleguard/rules.go"
     staticcheck:
       checks:
         - "all"
@@ -99,6 +214,33 @@ linters:
       - linters:
           - errcheck
         path: ^proto/
+      - linters:
+          - unused
+        path: ^go/(parser|pgprotocol|tools/ruleguard)
+      # Potentially unsafe integer casts are all over the place (unsigned to signed, 64-bit to 32-bit, etc.)
+      - linters:
+          - gosec
+        text: "G115:"
+      # math/rand is fine for non-crypto uses (jitter, test data, IDs)
+      - linters:
+          - gosec
+        text: "G404:"
+      # File permissions 0644 are fine for config/data files
+      - linters:
+          - gosec
+        text: "G306:"
+      # Subprocess calls with variables are common
+      - linters:
+          - gosec
+        text: "G204:"
+      # mterrors intentionally uses direct error comparisons
+      - linters:
+          - errorlint
+        path: ^go/common/mterrors/
+      # Parser has many unnecessary type conversions
+      - linters:
+          - unconvert
+        path: ^go/parser/
 formatters:
   enable:
     - gofumpt

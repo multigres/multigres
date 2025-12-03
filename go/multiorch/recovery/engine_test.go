@@ -24,13 +24,16 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/multigres/multigres/go/clustermetadata/topo"
 	"github.com/multigres/multigres/go/clustermetadata/topo/memorytopo"
+	"github.com/multigres/multigres/go/common/rpcclient"
 	"github.com/multigres/multigres/go/multiorch/config"
-	"github.com/multigres/multigres/go/multiorch/store"
 	"github.com/multigres/multigres/go/pb/clustermetadata"
-	"github.com/multigres/multigres/go/viperutil"
+	"github.com/multigres/multigres/go/tools/viperutil"
+
+	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 )
 
 func newTestTopoStore() topo.Store {
@@ -63,6 +66,7 @@ func TestRecoveryEngine_ConfigReload(t *testing.T) {
 		logger,
 		cfg,
 		initialTargets,
+		&rpcclient.FakeClient{},
 	)
 
 	// Verify initial config
@@ -124,6 +128,7 @@ func TestRecoveryEngine_ConfigReload_NoChange(t *testing.T) {
 		logger,
 		cfg,
 		initialTargets,
+		&rpcclient.FakeClient{},
 	)
 
 	// Set up config reloader that returns same targets
@@ -174,6 +179,7 @@ func TestRecoveryEngine_ConfigReload_EmptyTargets(t *testing.T) {
 		logger,
 		cfg,
 		initialTargets,
+		&rpcclient.FakeClient{},
 	)
 
 	// Set up config reloader that returns empty targets
@@ -212,6 +218,7 @@ func TestRecoveryEngine_StartStop(t *testing.T) {
 		logger,
 		cfg,
 		[]config.WatchTarget{{Database: "db1"}},
+		&rpcclient.FakeClient{},
 	)
 
 	// Start the engine
@@ -255,6 +262,7 @@ func TestRecoveryEngine_MaintenanceLoop(t *testing.T) {
 		logger,
 		cfg,
 		[]config.WatchTarget{{Database: "db1"}},
+		&rpcclient.FakeClient{},
 	)
 
 	// Track config reloads
@@ -317,6 +325,7 @@ func TestRecoveryEngine_ConfigReloadError(t *testing.T) {
 		logger,
 		cfg,
 		initialTargets,
+		&rpcclient.FakeClient{},
 	)
 
 	// Set up config reloader that returns invalid targets
@@ -417,6 +426,7 @@ func TestRecoveryEngine_ViperDynamicConfig(t *testing.T) {
 		logger,
 		cfg,
 		initialTargets,
+		&rpcclient.FakeClient{},
 	)
 
 	// Set up config reloader that reads from viperutil.Value
@@ -491,6 +501,7 @@ func TestRecoveryEngine_DiscoveryLoop_Integration(t *testing.T) {
 		logger,
 		cfg,
 		[]config.WatchTarget{{Database: "mydb"}},
+		&rpcclient.FakeClient{},
 	)
 
 	// Start the engine - it should discover existing poolers
@@ -538,45 +549,50 @@ func TestRecoveryEngine_BookkeepingLoop_Integration(t *testing.T) {
 		logger,
 		cfg,
 		[]config.WatchTarget{{Database: "mydb"}},
+		&rpcclient.FakeClient{},
 	)
 
 	// Add poolers to store BEFORE starting engine
 	key1 := poolerKey("zone1", "old-pooler")
 	oldTime := time.Now().Add(-5 * time.Hour) // 5 hours ago (> 4 hour threshold)
-	re.poolerStore.Set(key1, &store.PoolerHealth{
+	oldPooler := &multiorchdatapb.PoolerHealthState{
 		MultiPooler: &clustermetadata.MultiPooler{
 			Id:       &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "old-pooler"},
 			Database: "mydb", TableGroup: "tg1", Shard: "0",
 		},
-		LastSeen:            oldTime,
-		LastCheckAttempted:  oldTime,
-		LastCheckSuccessful: oldTime,
+		LastSeen:            timestamppb.New(oldTime),
+		LastCheckAttempted:  timestamppb.New(oldTime),
+		LastCheckSuccessful: timestamppb.New(oldTime),
 		IsUpToDate:          true,
-	})
-
+	}
+	re.poolerStore.Set(key1, oldPooler)
 	key2 := poolerKey("zone1", "never-seen")
-	re.poolerStore.Set(key2, &store.PoolerHealth{
+
+	neverSeenPooler := &multiorchdatapb.PoolerHealthState{
 		MultiPooler: &clustermetadata.MultiPooler{
 			Id:       &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "never-seen"},
 			Database: "mydb", TableGroup: "tg1", Shard: "1",
 		},
-		LastCheckAttempted: oldTime,
-		LastSeen:           time.Time{}, // Zero - never seen
+		LastCheckAttempted: timestamppb.New(oldTime),
+		LastSeen:           nil, // Never seen
 		IsUpToDate:         false,
-	})
+	}
+	re.poolerStore.Set(key2, neverSeenPooler)
 
 	key3 := poolerKey("zone1", "healthy-pooler")
 	recentTime := time.Now().Add(-1 * time.Hour) // 1 hour ago (< 4 hour threshold)
-	re.poolerStore.Set(key3, &store.PoolerHealth{
+
+	healthyPooler := &multiorchdatapb.PoolerHealthState{
 		MultiPooler: &clustermetadata.MultiPooler{
 			Id:       &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "healthy-pooler"},
 			Database: "mydb", TableGroup: "tg1", Shard: "2",
 		},
-		LastSeen:            recentTime,
-		LastCheckAttempted:  recentTime,
-		LastCheckSuccessful: recentTime,
+		LastSeen:            timestamppb.New(recentTime),
+		LastCheckAttempted:  timestamppb.New(recentTime),
+		LastCheckSuccessful: timestamppb.New(recentTime),
 		IsUpToDate:          true,
-	})
+	}
+	re.poolerStore.Set(key3, healthyPooler)
 
 	// Initially 3 poolers
 	require.Equal(t, 3, re.poolerStore.Len())
@@ -625,6 +641,7 @@ func TestRecoveryEngine_FullIntegration(t *testing.T) {
 		logger,
 		cfg,
 		[]config.WatchTarget{{Database: "mydb"}},
+		&rpcclient.FakeClient{},
 	)
 
 	// Add pooler to topology BEFORE starting
@@ -637,15 +654,17 @@ func TestRecoveryEngine_FullIntegration(t *testing.T) {
 	// Add an old pooler to store BEFORE starting
 	keyOld := poolerKey("zone1", "old-pooler")
 	oldTime := time.Now().Add(-5 * time.Hour)
-	re.poolerStore.Set(keyOld, &store.PoolerHealth{
+
+	oldPooler := &multiorchdatapb.PoolerHealthState{
 		MultiPooler: &clustermetadata.MultiPooler{
 			Id:       &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "old-pooler"},
 			Database: "mydb", TableGroup: "tg1", Shard: "1",
 		},
-		LastSeen:            oldTime,
-		LastCheckAttempted:  oldTime,
-		LastCheckSuccessful: oldTime,
-	})
+		LastSeen:            timestamppb.New(oldTime),
+		LastCheckAttempted:  timestamppb.New(oldTime),
+		LastCheckSuccessful: timestamppb.New(oldTime),
+	}
+	re.poolerStore.Set(keyOld, oldPooler)
 
 	// Start the engine
 	err := re.Start()
@@ -662,14 +681,14 @@ func TestRecoveryEngine_FullIntegration(t *testing.T) {
 	// Verify initial state (not health checked)
 	info, ok := re.poolerStore.Get(keyNew)
 	require.True(t, ok)
-	require.True(t, info.LastSeen.IsZero(), "LastSeen should be zero initially")
+	require.Nil(t, info.LastSeen, "LastSeen should be nil initially")
 	require.False(t, info.IsUpToDate, "IsUpToDate should be false initially")
 
 	// Simulate health check
 	now := time.Now()
-	info.LastSeen = now
-	info.LastCheckAttempted = now
-	info.LastCheckSuccessful = now
+	info.LastSeen = timestamppb.New(now)
+	info.LastCheckAttempted = timestamppb.New(now)
+	info.LastCheckSuccessful = timestamppb.New(now)
 	info.IsUpToDate = true
 	re.poolerStore.Set(keyNew, info)
 
@@ -691,7 +710,7 @@ func TestRecoveryEngine_FullIntegration(t *testing.T) {
 	updatedInfo, ok := re.poolerStore.Get(keyNew)
 	require.True(t, ok)
 	require.Equal(t, "host2", updatedInfo.MultiPooler.Hostname, "hostname should be updated")
-	require.Equal(t, now.Unix(), updatedInfo.LastSeen.Unix(), "LastSeen should be preserved")
+	require.Equal(t, now.Unix(), updatedInfo.LastSeen.AsTime().Unix(), "LastSeen should be preserved")
 	require.True(t, updatedInfo.IsUpToDate, "IsUpToDate should be preserved")
 
 	// Wait for bookkeeping to remove old pooler

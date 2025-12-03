@@ -34,6 +34,7 @@ import (
 
 	multipoolermanagerpb "github.com/multigres/multigres/go/pb/multipoolermanager"
 	multipoolermanagerdata "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
+	"github.com/multigres/multigres/go/pb/pgctldservice"
 )
 
 // connectToPostgres establishes a connection to the PostgreSQL database using Unix socket
@@ -50,6 +51,15 @@ func connectToPostgres(t *testing.T, socketDir string, port int) *sql.DB {
 	require.NoError(t, err, "Failed to ping database")
 
 	return db
+}
+
+// removeDataDirectory removes the pg_data directory for a given pgctld instance
+func removeDataDirectory(t *testing.T, dataDir string) {
+	t.Helper()
+	pgDataDir := filepath.Join(dataDir, "pg_data")
+	err := os.RemoveAll(pgDataDir)
+	require.NoError(t, err, "Should be able to remove pg_data directory")
+	t.Logf("Removed pg_data directory: %s", pgDataDir)
 }
 
 func TestBackup_CreateListAndRestore(t *testing.T) {
@@ -169,9 +179,10 @@ func TestBackup_CreateListAndRestore(t *testing.T) {
 			assert.Equal(t, fullBackupID, foundBackup.BackupId, "Backup ID should match")
 			assert.Equal(t, multipoolermanagerdata.BackupMetadata_COMPLETE, foundBackup.Status,
 				"Backup status should be COMPLETE")
+			assert.NotEmpty(t, foundBackup.FinalLsn, "Backup should have final LSN")
 
-			t.Logf("Backup verified in list: ID=%s, Status=%s",
-				foundBackup.BackupId, foundBackup.Status)
+			t.Logf("Backup verified in list: ID=%s, Status=%s, FinalLSN=%s",
+				foundBackup.BackupId, foundBackup.Status, foundBackup.FinalLsn)
 		})
 
 		t.Run("RestoreAndVerify", func(t *testing.T) {
@@ -216,12 +227,36 @@ func TestBackup_CreateListAndRestore(t *testing.T) {
 			require.NotNil(t, foundBackup, "Backup should be in standby's list")
 			assert.Equal(t, multipoolermanagerdata.BackupMetadata_COMPLETE, foundBackup.Status,
 				"Backup status should be COMPLETE")
-			t.Logf("Backup verified in standby's list: ID=%s, Status=%s", foundBackup.BackupId, foundBackup.Status)
+			assert.NotEmpty(t, foundBackup.FinalLsn, "Backup should have final LSN")
+			t.Logf("Backup verified in standby's list: ID=%s, Status=%s, FinalLSN=%s",
+				foundBackup.BackupId, foundBackup.Status, foundBackup.FinalLsn)
 
-			t.Log("Step 6: Restoring from backup to standby...")
+			t.Log("Step 6: Preparing standby for restore (stopping PostgreSQL and removing PGDATA)...")
+
+			// Connect to standby's pgctld to stop PostgreSQL
+			standbyPgctldConn, err := grpc.NewClient(
+				fmt.Sprintf("localhost:%d", setup.StandbyPgctld.GrpcPort),
+				grpc.WithTransportCredentials(insecure.NewCredentials()),
+			)
+			require.NoError(t, err)
+			defer standbyPgctldConn.Close()
+			standbyPgctldClient := pgctldservice.NewPgCtldClient(standbyPgctldConn)
+
+			// Stop PostgreSQL on standby
+			stopCtx, stopCancel := context.WithTimeout(context.Background(), 2*time.Minute)
+			defer stopCancel()
+			_, err = standbyPgctldClient.Stop(stopCtx, &pgctldservice.StopRequest{Mode: "fast"})
+			require.NoError(t, err, "Should be able to stop PostgreSQL on standby")
+			t.Log("PostgreSQL stopped on standby")
+
+			// Remove pg_data directory
+			removeDataDirectory(t, setup.StandbyPgctld.DataDir)
+
+			t.Log("Step 7: Restoring from backup to standby...")
 
 			restoreReq := &multipoolermanagerdata.RestoreFromBackupRequest{
-				BackupId: fullBackupID,
+				BackupId:  fullBackupID,
+				AsStandby: true, // Must match current standby state
 			}
 
 			restoreCtx, restoreCancel := context.WithTimeout(context.Background(), 10*time.Minute)
@@ -234,12 +269,28 @@ func TestBackup_CreateListAndRestore(t *testing.T) {
 			// Wait a bit for PostgreSQL to be ready after restore
 			time.Sleep(5 * time.Second)
 
+			// Configure replication after restore
+			t.Log("Configuring replication after restore...")
+			setPrimaryReq := &multipoolermanagerdata.SetPrimaryConnInfoRequest{
+				Host:                  "localhost",
+				Port:                  int32(setup.PrimaryPgctld.PgPort),
+				StartReplicationAfter: true,
+				StopReplicationBefore: false,
+				CurrentTerm:           1,
+				Force:                 true, // Force reconfiguration after restore
+			}
+			setPrimaryCtx, setPrimaryCancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer setPrimaryCancel()
+			_, err = standbyBackupClient.SetPrimaryConnInfo(setPrimaryCtx, setPrimaryReq)
+			require.NoError(t, err, "Should be able to configure replication after restore")
+			t.Log("Replication configured successfully after restore")
+
 			// Connect to the standby database after restore
 			standbySocketDir := filepath.Join(setup.StandbyPgctld.DataDir, "pg_sockets")
 			standbyDB := connectToPostgres(t, standbySocketDir, setup.StandbyPgctld.PgPort)
 			defer standbyDB.Close()
 
-			t.Log("Step 7: Verifying standby database is accessible after restore...")
+			t.Log("Step 8: Verifying standby database is accessible after restore...")
 
 			// Verify standby database is accessible and we can query data
 			var countAfterRestore int
@@ -250,7 +301,7 @@ func TestBackup_CreateListAndRestore(t *testing.T) {
 			t.Logf("✓ Restore completed and standby database is accessible")
 			t.Logf("✓ Found %d rows in restored standby database", countAfterRestore)
 
-			t.Log("Step 8: Verifying replication from primary to standby still works...")
+			t.Log("Step 9: Verifying replication from primary to standby still works...")
 
 			// Insert a new row on primary after restore to test replication
 			testData := "row_after_restore"
@@ -261,7 +312,7 @@ func TestBackup_CreateListAndRestore(t *testing.T) {
 			var newRowExists bool
 			maxAttempts := 10
 			found := false
-			for i := 0; i < maxAttempts; i++ {
+			for i := range maxAttempts {
 				time.Sleep(1 * time.Second)
 				err = standbyDB.QueryRow("SELECT EXISTS(SELECT 1 FROM backup_restore_test WHERE data = $1)", testData).Scan(&newRowExists)
 				if err == nil && newRowExists {
@@ -273,7 +324,7 @@ func TestBackup_CreateListAndRestore(t *testing.T) {
 			require.NoError(t, err)
 			assert.True(t, found, "New row should exist on standby after restore (waited %d seconds)", maxAttempts)
 
-			t.Log("Step 9: Verifying standby is still in recovery mode...")
+			t.Log("Step 10: Verifying standby is still in recovery mode...")
 
 			// Verify that the standby is still acting as a replica (in recovery mode)
 			var isInRecovery bool
@@ -549,9 +600,10 @@ func TestBackup_FromStandby(t *testing.T) {
 		assert.Equal(t, resp.BackupId, foundBackup.BackupId, "Backup ID should match")
 		assert.Equal(t, multipoolermanagerdata.BackupMetadata_COMPLETE, foundBackup.Status,
 			"Backup status should be COMPLETE")
+		assert.NotEmpty(t, foundBackup.FinalLsn, "Backup should have final LSN")
 
-		t.Logf("Standby backup verified in list: ID=%s, Status=%s",
-			foundBackup.BackupId, foundBackup.Status)
+		t.Logf("Standby backup verified in list: ID=%s, Status=%s, FinalLSN=%s",
+			foundBackup.BackupId, foundBackup.Status, foundBackup.FinalLsn)
 	})
 
 	t.Run("CreateIncrementalBackupFromStandby", func(t *testing.T) {

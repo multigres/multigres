@@ -377,7 +377,7 @@ func TestPositionSaveRestore(t *testing.T) {
 	ctx := NewLexerContext(input)
 
 	// Advance to position 7 (first character of "world")
-	for i := 0; i < 7; i++ {
+	for range 7 {
 		ctx.NextByte()
 	}
 
@@ -387,7 +387,7 @@ func TestPositionSaveRestore(t *testing.T) {
 	originalColumn := ctx.ColumnNumber()
 
 	// Advance further to reach the next line
-	for i := 0; i < 6; i++ { // Need to go from 'w' to past the second '\n'
+	for range 6 { // Need to go from 'w' to past the second '\n'
 		ctx.NextByte()
 	}
 
@@ -409,7 +409,7 @@ func TestUnicodeAdvancement(t *testing.T) {
 	ctx := NewLexerContext(input)
 
 	// Advance through ASCII part
-	for i := 0; i < 5; i++ { // "test "
+	for range 5 { // "test "
 		ctx.AdvanceRune()
 	}
 
@@ -700,7 +700,6 @@ func TestRealWorldErrorScenarios(t *testing.T) {
 			lexer := NewLexer(tt.input)
 
 			// Keep getting tokens until EOF or error
-			var lastError error
 			for {
 				token := lexer.NextToken()
 				if token.Type == EOF {
@@ -708,27 +707,16 @@ func TestRealWorldErrorScenarios(t *testing.T) {
 				}
 			}
 
-			// Check for errors either as return value or in context
-			if lastError != nil {
-				// Check if it's a LexerError
-				if enhancedErr, ok := lastError.(*LexerError); ok {
-					assert.Equal(t, tt.expectedError, enhancedErr.Type)
-					if tt.expectedText != "" {
-						assert.Contains(t, enhancedErr.NearText, tt.expectedText)
-					}
-				}
-			} else {
-				// Check context for errors (PostgreSQL-style error collection)
-				require.True(t, lexer.context.HasErrors(), "Expected an error but got none")
-				errors := lexer.context.GetErrors()
-				require.NotEmpty(t, errors, "Expected errors in context")
+			// Check context for errors (PostgreSQL-style error collection)
+			require.True(t, lexer.context.HasErrors(), "Expected an error but got none")
+			errors := lexer.context.GetErrors()
+			require.NotEmpty(t, errors, "Expected errors in context")
 
-				// Check the first error
-				firstError := errors[0]
-				assert.Equal(t, tt.expectedError, firstError.Type)
-				if tt.expectedText != "" {
-					assert.Contains(t, firstError.NearText, tt.expectedText)
-				}
+			// Check the first error
+			firstError := errors[0]
+			assert.Equal(t, tt.expectedError, firstError.Type)
+			if tt.expectedText != "" {
+				assert.Contains(t, firstError.NearText, tt.expectedText)
 			}
 		})
 	}

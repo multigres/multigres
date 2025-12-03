@@ -20,13 +20,15 @@ package executor
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"log/slog"
 	"path/filepath"
 	"strings"
 	"sync/atomic"
+	"syscall"
 
-	"github.com/multigres/multigres/go/multipooler/queryservice"
+	"github.com/multigres/multigres/go/common/queryservice"
 	"github.com/multigres/multigres/go/pb/query"
 )
 
@@ -150,6 +152,15 @@ func (e *Executor) Close(ctx context.Context) error {
 
 	if e.db != nil {
 		if err := e.db.Close(); err != nil {
+			// db.Close() can return "write: broken pipe" if the connection is broken,
+			// because lib/pq tries to send a Postgres termination message during Close():
+			// https://github.com/lib/pq/blob/b7ffbd3b47da4290a4af2ccd253c74c2c22bfabf/conn.go#L885
+			//
+			// This is safe to ignore.
+			if errors.Is(err, syscall.EPIPE) {
+				e.logger.WarnContext(ctx, "Executor: broken pipe error when closing database", "error", err)
+				return nil
+			}
 			return fmt.Errorf("failed to close database: %w", err)
 		}
 		e.db = nil
@@ -241,8 +252,8 @@ func (e *Executor) executeSelectQuery(ctx context.Context, queryStr string, maxR
 
 	// Read rows
 	var resultRows []*query.Row
-	scanValues := make([]interface{}, len(columns))
-	scanPointers := make([]interface{}, len(columns))
+	scanValues := make([]any, len(columns))
+	scanPointers := make([]any, len(columns))
 
 	for i := range scanValues {
 		scanPointers[i] = &scanValues[i]
@@ -260,7 +271,7 @@ func (e *Executor) executeSelectQuery(ctx context.Context, queryStr string, maxR
 			if val == nil {
 				values[i] = nil
 			} else {
-				values[i] = []byte(fmt.Sprintf("%v", val))
+				values[i] = fmt.Appendf(nil, "%v", val)
 			}
 		}
 

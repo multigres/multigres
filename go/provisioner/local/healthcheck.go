@@ -25,8 +25,8 @@ import (
 
 	"google.golang.org/grpc"
 
-	"github.com/multigres/multigres/go/grpccommon"
 	pb "github.com/multigres/multigres/go/pb/pgctldservice"
+	"github.com/multigres/multigres/go/tools/grpccommon"
 	"github.com/multigres/multigres/go/tools/retry"
 
 	"go.opentelemetry.io/otel/attribute"
@@ -208,7 +208,7 @@ func (p *localProvisioner) checkPortConflict(port int, serviceName, portName str
 	conn, err := net.DialTimeout("tcp", address, 1*time.Second)
 	if err != nil {
 		// Port is not in use, this is good
-		return nil
+		return nil //nolint:nilerr // Error means port is free, which is success
 	}
 	conn.Close()
 

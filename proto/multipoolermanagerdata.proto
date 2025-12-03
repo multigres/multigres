@@ -40,8 +40,8 @@ message PrimaryConnInfo {
   string raw = 5;
 }
 
-// PostgreSQL replication status information
-message ReplicationStatus {
+// StandbyReplicationStatus PostgreSQL replication status information
+message StandbyReplicationStatus {
   // Last WAL position replayed during recovery (PostgreSQL format: X/XXXXXXXX)
   // Obtained from pg_last_wal_replay_lsn()
   string last_replay_lsn = 1;
@@ -123,16 +123,16 @@ message StopReplicationRequest {
 
 message StopReplicationResponse {
   // Replication status when replication was stopped (only populated if wait=true)
-  ReplicationStatus status = 1;
+  StandbyReplicationStatus status = 1;
 }
 
-// ReplicationStatus gets the current replication status
-message ReplicationStatusRequest {
+// StandbyReplicationStatus gets the current replication status of the standby
+message StandbyReplicationStatusRequest {
 }
 
-message ReplicationStatusResponse {
+message StandbyReplicationStatusResponse {
   // Current replication status
-  ReplicationStatus status = 1;
+  StandbyReplicationStatus status = 1;
 }
 
 // Synchronous replication configuration
@@ -183,6 +183,27 @@ message PrimaryPositionRequest {
 message PrimaryPositionResponse {
   // Current primary LSN position
   string lsn_position = 1;
+}
+
+// Status provides unified status information that works for both PRIMARY and REPLICA poolers
+// The pooler returns information based on its actual state
+message Status {
+  // Pooler type from topology (PRIMARY or REPLICA)
+  clustermetadata.PoolerType pooler_type = 1;
+
+  // Primary status information (only populated if pooler is acting as primary)
+  PrimaryStatus primary_status = 2;
+
+  // Replication status information (only populated if pooler is acting as standby)
+  StandbyReplicationStatus replication_status = 3;
+}
+
+// Status gets unified status that works for both PRIMARY and REPLICA poolers
+message StatusRequest {
+}
+
+message StatusResponse {
+  Status status = 1;
 }
 
 // Replication statistics for a connected follower from pg_stat_replication
@@ -300,7 +321,7 @@ message StopReplicationAndGetStatusRequest {
 
 message StopReplicationAndGetStatusResponse {
   // Replication status after stopping
-  ReplicationStatus status = 1;
+  StandbyReplicationStatus status = 1;
 }
 
 // ChangeType changes the pooler type
@@ -353,7 +374,7 @@ message ResetReplicationRequest {
 
 message ResetReplicationResponse {
   // Replication status when replication was reset
-  ReplicationStatus status = 1;
+  StandbyReplicationStatus status = 1;
 }
 
 // Replication pause mode - defines what aspect of replication to pause
@@ -431,11 +452,11 @@ message ConfigureSynchronousReplicationRequest {
 message ConfigureSynchronousReplicationResponse {
 }
 
-// Status gets the current status of the manager
-message StatusRequest {
+// State gets the current status of the manager
+message StateRequest {
 }
 
-message StatusResponse {
+message StateResponse {
   // Manager state (starting, ready, error)
   string state = 1;
 
@@ -503,6 +524,10 @@ message InitializeEmptyPrimaryResponse {
 
   // Error message if initialization failed
   string error_message = 2;
+
+  // Backup ID of the initial backup created during initialization
+  // This can be used by standbys to restore from the same backup
+  string backup_id = 3;
 }
 
 // InitializeAsStandby initializes this pooler as a standby from a primary backup
@@ -519,6 +544,10 @@ message InitializeAsStandbyRequest {
 
   // Whether to force reinitialization (removes existing data directory)
   bool force = 4;
+
+  // Optional: Specific backup ID to restore from
+  // If empty, restore from the latest backup
+  string backup_id = 5;
 }
 
 message InitializeAsStandbyResponse {
@@ -587,6 +616,10 @@ message RestoreFromBackupRequest {
   // Backup to restore from. If this is empty, we restore from the latest
   // backup.
   string backup_id = 1;
+
+  // Whether to restore as standby. When false, auto-detect from current state.
+  // Set to true when initializing a new standby from scratch.
+  bool as_standby = 2;
 }
 
 // RestoreFromBackupResponse contains the result of a restore operation
@@ -609,6 +642,7 @@ message BackupMetadata {
   string shard = 2;
   Status status = 3;
   string backup_id = 4;
+  string final_lsn = 5;  // Final checkpoint LSN (stop LSN) for this backup
 
   // Status represents the state of a backup
   enum Status {
@@ -632,4 +666,22 @@ message GetDurabilityPolicyRequest {
 message GetDurabilityPolicyResponse {
   // The active durability policy, or null if none is configured
   clustermetadata.DurabilityPolicy policy = 1;
+}
+
+// CreateDurabilityPolicyRequest creates a new durability policy
+message CreateDurabilityPolicyRequest {
+  // The name of the policy (e.g., "ANY_2", "MULTI_CELL_ANY_2")
+  string policy_name = 1;
+
+  // The quorum rule defining the policy behavior
+  clustermetadata.QuorumRule quorum_rule = 2;
+}
+
+// CreateDurabilityPolicyResponse confirms policy creation
+message CreateDurabilityPolicyResponse {
+  // Whether the policy was created successfully
+  bool success = 1;
+
+  // Error message if creation failed
+  string error_message = 2;
 }

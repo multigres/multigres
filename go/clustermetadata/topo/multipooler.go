@@ -20,7 +20,7 @@ import (
 	"fmt"
 	"path"
 
-	"github.com/multigres/multigres/go/mterrors"
+	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/tools/stringutil"
 
 	"google.golang.org/protobuf/proto"
@@ -84,7 +84,7 @@ func NewMultiPoolerInfo(multipooler *clustermetadatapb.MultiPooler, version Vers
 
 // MultiPoolerIDString returns the string representation of a MultiPooler ID
 func MultiPoolerIDString(id *clustermetadatapb.ID) string {
-	return fmt.Sprintf("%s-%s-%s", stringutil.ComponentTypeToString(id.Component), id.Cell, id.Name)
+	return fmt.Sprintf("%s-%s-%s", ComponentTypeToString(id.Component), id.Cell, id.Name)
 }
 
 // GetMultiPooler is a high level function to read multipooler data.
@@ -308,7 +308,7 @@ func (ts *store) RegisterMultiPooler(ctx context.Context, mtpooler *clustermetad
 		// Try to update then
 		oldMtPooler, err := ts.GetMultiPooler(ctx, mtpooler.Id)
 		if err != nil {
-			return fmt.Errorf("failed reading existing mtpooler %v: %v", MultiPoolerIDString(mtpooler.Id), err)
+			return fmt.Errorf("failed reading existing mtpooler %v: %w", MultiPoolerIDString(mtpooler.Id), err)
 		}
 
 		// Check we have the same database / shard, and if not,
@@ -318,7 +318,7 @@ func (ts *store) RegisterMultiPooler(ctx context.Context, mtpooler *clustermetad
 		}
 		oldMtPooler.MultiPooler = proto.Clone(mtpooler).(*clustermetadatapb.MultiPooler)
 		if err := ts.UpdateMultiPooler(ctx, oldMtPooler); err != nil {
-			return fmt.Errorf("failed updating mtpooler %v: %v", MultiPoolerIDString(mtpooler.Id), err)
+			return fmt.Errorf("failed updating mtpooler %v: %w", MultiPoolerIDString(mtpooler.Id), err)
 		}
 		return nil
 	}

@@ -566,7 +566,7 @@ var File_multipoolerservice_proto protoreflect.FileDescriptor
 
 const file_multipoolerservice_proto_rawDesc = "" +
 	"\n" +
-	"\x18multipoolerservice.proto\x12\x12multipoolerservice\x1a\vmtrpc.proto\x1a\vquery.proto\x1a\x15clustermetadata.proto\"\xcc\x01\n" +
+	"\x18multipoolerservice.proto\x12\x12multipoolerservice\x1a\x15clustermetadata.proto\x1a\vmtrpc.proto\x1a\vquery.proto\"\xcc\x01\n" +
 	"\x13ExecuteQueryRequest\x12\x14\n" +
 	"\x05query\x18\x01 \x01(\tR\x05query\x12%\n" +
 	"\x06target\x18\x02 \x01(\v2\r.query.TargetR\x06target\x12\x19\n" +

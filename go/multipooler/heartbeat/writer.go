@@ -25,8 +25,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/multigres/multigres/go/mterrors"
-	"github.com/multigres/multigres/go/timer"
+	"github.com/multigres/multigres/go/common/mterrors"
+	"github.com/multigres/multigres/go/tools/timer"
 )
 
 // Make these modifiable for testing.
@@ -202,16 +202,6 @@ func (w *Writer) write() error {
 	}
 
 	return nil
-}
-
-// getWALPosition returns the current WAL LSN position
-func (w *Writer) getWALPosition(ctx context.Context) (string, error) {
-	var lsn string
-	err := w.db.QueryRowContext(ctx, "SELECT pg_current_wal_lsn()").Scan(&lsn)
-	if err != nil {
-		return "", mterrors.Wrap(err, "failed to get WAL position")
-	}
-	return lsn, nil
 }
 
 // killWritesUntilStopped tries to kill the write in progress until the ticks have stopped.

@@ -107,6 +107,24 @@ touch "$2/postgresql.conf"
 touch "$2/pg_hba.conf"
 `)
 
+	// Mock pg_controldata
+	MockBinary(t, binDir, "pg_controldata", `
+#!/bin/bash
+echo "pg_control version number:            1300"
+echo "Catalog version number:               202107181"
+echo "Database system identifier:           7123456789012345678"
+echo "Database cluster state:               shut down"
+echo "pg_control last modified:             $(date)"
+echo "Latest checkpoint location:           0/1234567"
+echo "Latest checkpoint's REDO location:    0/1234567"
+echo "Latest checkpoint's REDO WAL file:    000000010000000000000001"
+echo "Latest checkpoint's TimeLineID:       1"
+echo "Latest checkpoint's PrevTimeLineID:   1"
+echo "Data page checksum version:           1"
+echo "Mock pg_controldata for testing."
+exit 0
+`)
+
 	// Mock postgres
 	MockBinary(t, binDir, "postgres", `
 if [[ "$*" == *"--help"* ]]; then

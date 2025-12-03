@@ -376,8 +376,8 @@ func (f *Factory) nodeByPath(cell, filePath string) *node {
 		return nil
 	}
 
-	parts := strings.Split(filePath, "/")
-	for _, part := range parts {
+	parts := strings.SplitSeq(filePath, "/")
+	for part := range parts {
 		if part == "" {
 			// Skip empty parts, usually happens at the end.
 			continue
@@ -402,8 +402,8 @@ func (f *Factory) getOrCreatePath(cell, filePath string) *node {
 		return nil
 	}
 
-	parts := strings.Split(filePath, "/")
-	for _, part := range parts {
+	parts := strings.SplitSeq(filePath, "/")
+	for part := range parts {
 		if part == "" {
 			// Skip empty parts, usually happens at the end.
 			continue
@@ -481,12 +481,4 @@ func (f *Factory) getOperationError(op Operation, path string) error {
 		}
 	}
 	return nil
-}
-
-func init() {
-	// TODO: @rafael
-	// This is short lived, I will remove this enterilely once we have a real topo server.
-	// Adding it to have all the wiring set up and get the tests to pass with an in memory topo.
-	_, factory := NewServerAndFactory(context.Background(), "global")
-	topo.RegisterFactory("memory", factory)
 }

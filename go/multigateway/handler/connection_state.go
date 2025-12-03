@@ -18,7 +18,7 @@ import (
 	"sync"
 
 	"github.com/multigres/multigres/go/common/preparedstatement"
-	"github.com/multigres/multigres/go/multipooler/queryservice"
+	"github.com/multigres/multigres/go/common/queryservice"
 	"github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/pb/query"
 	"github.com/multigres/multigres/go/protoutil"

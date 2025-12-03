@@ -27,8 +27,8 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/multigres/multigres/go/common/servenv"
 	"github.com/multigres/multigres/go/pgctld"
-	"github.com/multigres/multigres/go/servenv"
 )
 
 // StartResult contains the result of starting PostgreSQL
@@ -161,6 +161,16 @@ func StartPostgreSQLWithResult(logger *slog.Logger, config *pgctld.PostgresCtlCo
 		}
 
 		return result, nil
+	}
+
+	// Ensure Unix socket directory exists before starting PostgreSQL
+	// This is necessary for restarts after restores, where pgBackRest only restores pg_data
+	// but not external directories like pg_sockets
+	if config.UnixSocketDirectories != "" {
+		if err := os.MkdirAll(config.UnixSocketDirectories, 0o755); err != nil {
+			return nil, fmt.Errorf("failed to create Unix socket directory %s: %w", config.UnixSocketDirectories, err)
+		}
+		logger.Info("Ensured Unix socket directory exists", "socket_dir", config.UnixSocketDirectories)
 	}
 
 	// Start PostgreSQL

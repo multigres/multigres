@@ -17,6 +17,7 @@ package server
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -98,12 +99,12 @@ func NewListener(config ListenerConfig) (*Listener, error) {
 
 	// Initialize buffer pools.
 	l.readersPool = &sync.Pool{
-		New: func() interface{} {
+		New: func() any {
 			return bufio.NewReaderSize(nil, connBufferSize)
 		},
 	}
 	l.writersPool = &sync.Pool{
-		New: func() interface{} {
+		New: func() any {
 			return bufio.NewWriterSize(nil, connBufferSize)
 		},
 	}
@@ -136,11 +137,9 @@ func (l *Listener) Serve() error {
 		conn.handler = l.handler
 
 		// Handle connection in a new goroutine.
-		l.wg.Add(1)
-		go func() {
-			defer l.wg.Done()
+		l.wg.Go(func() {
 			l.handleConnection(conn)
-		}()
+		})
 	}
 }
 
@@ -164,7 +163,7 @@ func (l *Listener) handleConnection(conn *Conn) {
 
 	// Serve the connection (startup + command loop).
 	if err := conn.serve(); err != nil {
-		if err != io.EOF {
+		if !errors.Is(err, io.EOF) {
 			conn.logger.Error("connection error", "error", err)
 		}
 	}

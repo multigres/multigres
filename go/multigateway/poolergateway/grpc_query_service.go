@@ -16,11 +16,12 @@ package poolergateway
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 
-	"github.com/multigres/multigres/go/multipooler/queryservice"
+	"github.com/multigres/multigres/go/common/queryservice"
 	"github.com/multigres/multigres/go/pb/multipoolerservice"
 	"github.com/multigres/multigres/go/pb/query"
 
@@ -90,7 +91,7 @@ func (g *grpcQueryService) StreamExecute(
 	// Stream results back via callback
 	for {
 		response, err := stream.Recv()
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			// Stream completed successfully
 			g.logger.DebugContext(ctx, "stream completed", "pooler_id", g.poolerID)
 			return nil
@@ -177,7 +178,7 @@ func (g *grpcQueryService) PortalStreamExecute(
 	// Stream results back via callback
 	for {
 		response, err := stream.Recv()
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			// Stream completed successfully
 			g.logger.DebugContext(ctx, "portal stream completed", "pooler_id", g.poolerID)
 			return reservedState, nil

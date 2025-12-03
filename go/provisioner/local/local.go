@@ -52,8 +52,7 @@ var tracer = otel.Tracer("github.com/multigres/multigres/go/provisioner/local")
 
 // localProvisioner implements the Provisioner interface for local binary-based provisioning
 type localProvisioner struct {
-	config  *LocalProvisionerConfig
-	dataDir string // Base data directory for this provisioner instance
+	config *LocalProvisionerConfig
 }
 
 // Compile-time check to ensure localProvisioner implements Provisioner
@@ -150,6 +149,12 @@ func (p *localProvisioner) provisionEtcd(ctx context.Context, req *provisioner.P
 		port = p
 	}
 
+	// Get peer port from config, or default to port + 1
+	peerPort := port + 1
+	if pp, ok := etcdConfig["peer-port"].(int); ok && pp > 0 {
+		peerPort = pp
+	}
+
 	// Find etcd binary (PATH or configured path)
 	etcdBinary, err := p.findBinary("etcd", etcdConfig)
 	if err != nil {
@@ -184,8 +189,6 @@ func (p *localProvisioner) provisionEtcd(ctx context.Context, req *provisioner.P
 	if err != nil {
 		return nil, fmt.Errorf("failed to create log file: %w", err)
 	}
-
-	peerPort := port + 1
 
 	args := []string{
 		"--name", "default",
@@ -1531,7 +1534,7 @@ func (p *localProvisioner) ProvisionDatabase(ctx context.Context, databaseName s
 
 		databaseConfig := &clustermetadatapb.Database{
 			Name:             databaseName,
-			BackupLocation:   "",        // TODO: Configure backup location
+			BackupLocation:   p.config.BackupRepoPath,
 			DurabilityPolicy: "none",    // Default durability policy
 			Cells:            cellNames, // Register with all cells
 		}
@@ -1759,23 +1762,6 @@ func (p *localProvisioner) getCellNames() ([]string, error) {
 	return names, nil
 }
 
-// getCellIndex returns the index of a cell in the list of cell names (for port calculation)
-func (p *localProvisioner) getCellIndex(cellName string) (int, error) {
-	cells, err := p.getAllCells()
-	if err != nil {
-		return -1, err
-	}
-
-	// Find the cell by name and return its index
-	for i, cell := range cells {
-		if cell.Name == cellName {
-			return i, nil
-		}
-	}
-
-	return -1, fmt.Errorf("cell %s not found", cellName)
-}
-
 // getCellByName returns the cell configuration for a specific cell name
 func (p *localProvisioner) getCellByName(cellName string) (*CellConfig, error) {
 	if p.config == nil {
@@ -1938,28 +1924,10 @@ func (p *localProvisioner) validateBinaryPaths(config *LocalProvisionerConfig) e
 
 // validateBinaryExists checks if a binary path exists and is executable
 func (p *localProvisioner) validateBinaryExists(binaryPath, serviceName string) error {
-	// Convert to absolute path if it's relative
-	var fullPath string
-	if filepath.IsAbs(binaryPath) {
-		fullPath = binaryPath
-	} else {
-		// Make it relative to current directory
-		fullPath = filepath.Join(".", binaryPath)
-	}
-
-	// Check if the binary exists and is executable
-	info, err := os.Stat(fullPath)
+	// Use exec.LookPath to find and validate the binary
+	_, err := exec.LookPath(binaryPath)
 	if err != nil {
-		return fmt.Errorf("  %s binary not found at %s: %w", serviceName, binaryPath, err)
-	}
-
-	if info.IsDir() {
-		return fmt.Errorf("  %s path is a directory, not a binary: %s", serviceName, binaryPath)
-	}
-
-	// Check if it's executable (on Unix systems)
-	if info.Mode()&0o111 == 0 {
-		return fmt.Errorf("  %s binary is not executable: %s", serviceName, binaryPath)
+		return fmt.Errorf("  %s binary not found: %s: %w", serviceName, binaryPath, err)
 	}
 
 	return nil

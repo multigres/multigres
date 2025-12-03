@@ -18,7 +18,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/multigres/multigres/go/multiorch/store"
+	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 )
 
 // runBookkeeping performs periodic bookkeeping tasks.
@@ -49,10 +49,11 @@ func (re *Engine) forgetLongUnseenInstances() {
 	storeSize := re.poolerStore.Len()
 
 	// Warn if store gets too large - operator should consider splitting watchers
-	if storeSize > 1000 {
+	const maxRecommendedPoolers = 1000
+	if storeSize > maxRecommendedPoolers {
 		re.logger.Warn("pooler store size exceeds recommended threshold",
 			"current_size", storeSize,
-			"threshold", 1000,
+			"threshold", maxRecommendedPoolers,
 			"message", "consider splitting watch targets among multiple multiorch instances to distribute load",
 		)
 	}
@@ -73,7 +74,7 @@ func (re *Engine) forgetLongUnseenInstances() {
 	var toDelete []deleteEntry
 
 	// Iterate using Range() to hold lock during iteration
-	re.poolerStore.Range(func(poolerID string, poolerInfo *store.PoolerHealth) bool {
+	re.poolerStore.Range(func(poolerID string, poolerInfo *multiorchdatapb.PoolerHealthState) bool {
 		// Case 0: Broken entry (should never happen)
 		if poolerInfo == nil || poolerInfo.MultiPooler == nil || poolerInfo.MultiPooler.Id == nil {
 			toDelete = append(toDelete, deleteEntry{
@@ -89,15 +90,25 @@ func (re *Engine) forgetLongUnseenInstances() {
 		tableGroup := poolerInfo.MultiPooler.TableGroup
 		shard := poolerInfo.MultiPooler.Shard
 
+		// Get timestamps as time.Time
+		lastSeen := time.Time{}
+		if poolerInfo.LastSeen != nil {
+			lastSeen = poolerInfo.LastSeen.AsTime()
+		}
+		lastCheckAttempted := time.Time{}
+		if poolerInfo.LastCheckAttempted != nil {
+			lastCheckAttempted = poolerInfo.LastCheckAttempted.AsTime()
+		}
+
 		// Case 1: Never successfully health checked (LastSeen is zero)
-		if poolerInfo.LastSeen.IsZero() {
+		if lastSeen.IsZero() {
 			// Check how long since we first saw it (we don't have FirstDiscovered,
 			// so we use LastCheckAttempted as a proxy, or skip if both are zero)
-			if poolerInfo.LastCheckAttempted.IsZero() {
+			if lastCheckAttempted.IsZero() {
 				// No attempts yet, skip for now
 				return true // continue iteration
 			}
-			if poolerInfo.LastCheckAttempted.Before(cutoff) {
+			if lastCheckAttempted.Before(cutoff) {
 				toDelete = append(toDelete, deleteEntry{
 					poolerID:   poolerID,
 					auditType:  "forget-never-seen",
@@ -108,7 +119,7 @@ func (re *Engine) forgetLongUnseenInstances() {
 				})
 				forgottenNeverSeen++
 			}
-		} else if poolerInfo.LastSeen.Before(cutoff) {
+		} else if lastSeen.Before(cutoff) {
 			// Case 2: Was previously healthy but not seen in 4+ hours
 			toDelete = append(toDelete, deleteEntry{
 				poolerID:   poolerID,
@@ -116,7 +127,7 @@ func (re *Engine) forgetLongUnseenInstances() {
 				database:   database,
 				tableGroup: tableGroup,
 				shard:      shard,
-				message:    fmt.Sprintf("removing pooler not seen for %s", now.Sub(poolerInfo.LastSeen).Round(time.Second)),
+				message:    fmt.Sprintf("removing pooler not seen for %s", now.Sub(lastSeen).Round(time.Second)),
 			})
 			forgottenLongGone++
 		}

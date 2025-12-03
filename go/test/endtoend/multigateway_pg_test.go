@@ -24,12 +24,16 @@ import (
 	_ "github.com/lib/pq" // PostgreSQL driver
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/multigres/multigres/go/test/utils"
 )
 
 // TestMultiGateway_PostgreSQLConnection tests that we can connect to multigateway via PostgreSQL protocol
 // and execute queries. This is a true end-to-end test that uses the full cluster setup.
 func TestMultiGateway_PostgreSQLConnection(t *testing.T) {
-	ensureBinaryBuilt(t)
+	if utils.ShouldSkipRealPostgres() {
+		t.Skip("PostgreSQL binaries not found, skipping cluster lifecycle tests")
+	}
 
 	// Setup full test cluster with all services
 	cluster := setupTestCluster(t)
@@ -37,7 +41,7 @@ func TestMultiGateway_PostgreSQLConnection(t *testing.T) {
 
 	// Connect to multigateway's PostgreSQL port using PostgreSQL driver
 	connStr := fmt.Sprintf("host=localhost port=%d user=postgres dbname=postgres sslmode=disable connect_timeout=5",
-		cluster.PortConfig.MultigatewayPGPort)
+		cluster.PortConfig.Zones[0].MultigatewayPGPort)
 	db, err := sql.Open("postgres", connStr)
 	require.NoError(t, err, "failed to open database connection")
 	defer db.Close()

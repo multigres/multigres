@@ -28,7 +28,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/multigres/multigres/go/mterrors"
+	"github.com/multigres/multigres/go/common/mterrors"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
@@ -1342,7 +1342,7 @@ func TestPauseReplication(t *testing.T) {
 		expectError    bool
 		errorContains  string
 		expectStatus   bool // true if we expect a non-nil status to be returned
-		validateResult func(t *testing.T, status *multipoolermanagerdatapb.ReplicationStatus)
+		validateResult func(t *testing.T, status *multipoolermanagerdatapb.StandbyReplicationStatus)
 	}{
 		{
 			name: "PauseReplayOnly with wait=true",
@@ -1373,7 +1373,7 @@ func TestPauseReplication(t *testing.T) {
 			},
 			expectError:  false,
 			expectStatus: true,
-			validateResult: func(t *testing.T, status *multipoolermanagerdatapb.ReplicationStatus) {
+			validateResult: func(t *testing.T, status *multipoolermanagerdatapb.StandbyReplicationStatus) {
 				assert.Equal(t, "0/3000000", status.LastReplayLsn)
 				assert.True(t, status.IsWalReplayPaused)
 			},
@@ -1440,7 +1440,7 @@ func TestPauseReplication(t *testing.T) {
 			},
 			expectError:  false,
 			expectStatus: true,
-			validateResult: func(t *testing.T, status *multipoolermanagerdatapb.ReplicationStatus) {
+			validateResult: func(t *testing.T, status *multipoolermanagerdatapb.StandbyReplicationStatus) {
 				assert.Equal(t, "0/4000000", status.LastReplayLsn)
 				assert.False(t, status.IsWalReplayPaused)
 				assert.Empty(t, status.LastReceiveLsn)
@@ -1548,7 +1548,7 @@ func TestPauseReplication(t *testing.T) {
 			},
 			expectError:  false,
 			expectStatus: true,
-			validateResult: func(t *testing.T, status *multipoolermanagerdatapb.ReplicationStatus) {
+			validateResult: func(t *testing.T, status *multipoolermanagerdatapb.StandbyReplicationStatus) {
 				assert.Equal(t, "0/5000000", status.LastReplayLsn)
 				assert.True(t, status.IsWalReplayPaused)
 			},
@@ -1781,7 +1781,7 @@ func TestQueryReplicationStatus(t *testing.T) {
 		name           string
 		setupMock      func(mock sqlmock.Sqlmock)
 		expectError    bool
-		validateResult func(t *testing.T, status *multipoolermanagerdatapb.ReplicationStatus)
+		validateResult func(t *testing.T, status *multipoolermanagerdatapb.StandbyReplicationStatus)
 	}{
 		{
 			name: "All fields with valid values",
@@ -1804,7 +1804,7 @@ func TestQueryReplicationStatus(t *testing.T) {
 				mock.ExpectQuery("SELECT").WillReturnRows(rows)
 			},
 			expectError: false,
-			validateResult: func(t *testing.T, status *multipoolermanagerdatapb.ReplicationStatus) {
+			validateResult: func(t *testing.T, status *multipoolermanagerdatapb.StandbyReplicationStatus) {
 				assert.Equal(t, "0/3000000", status.LastReplayLsn)
 				assert.Equal(t, "0/3000100", status.LastReceiveLsn)
 				assert.False(t, status.IsWalReplayPaused)
@@ -1835,7 +1835,7 @@ func TestQueryReplicationStatus(t *testing.T) {
 				mock.ExpectQuery("SELECT").WillReturnRows(rows)
 			},
 			expectError: false,
-			validateResult: func(t *testing.T, status *multipoolermanagerdatapb.ReplicationStatus) {
+			validateResult: func(t *testing.T, status *multipoolermanagerdatapb.StandbyReplicationStatus) {
 				assert.Empty(t, status.LastReplayLsn, "LastReplayLsn should be empty when NULL")
 				assert.Empty(t, status.LastReceiveLsn, "LastReceiveLsn should be empty when NULL")
 				assert.False(t, status.IsWalReplayPaused)
@@ -1864,7 +1864,7 @@ func TestQueryReplicationStatus(t *testing.T) {
 				mock.ExpectQuery("SELECT").WillReturnRows(rows)
 			},
 			expectError: false,
-			validateResult: func(t *testing.T, status *multipoolermanagerdatapb.ReplicationStatus) {
+			validateResult: func(t *testing.T, status *multipoolermanagerdatapb.StandbyReplicationStatus) {
 				assert.Equal(t, "0/4000000", status.LastReplayLsn)
 				assert.Equal(t, "0/4000200", status.LastReceiveLsn)
 				assert.True(t, status.IsWalReplayPaused)
@@ -1898,7 +1898,7 @@ func TestQueryReplicationStatus(t *testing.T) {
 				mock.ExpectQuery("SELECT").WillReturnRows(rows)
 			},
 			expectError: false,
-			validateResult: func(t *testing.T, status *multipoolermanagerdatapb.ReplicationStatus) {
+			validateResult: func(t *testing.T, status *multipoolermanagerdatapb.StandbyReplicationStatus) {
 				assert.Equal(t, "0/5000000", status.LastReplayLsn, "LastReplayLsn should be populated")
 				assert.Empty(t, status.LastReceiveLsn, "LastReceiveLsn should be empty when NULL")
 				assert.False(t, status.IsWalReplayPaused)

@@ -20,8 +20,8 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/multigres/multigres/go/common/servenv"
 	"github.com/multigres/multigres/go/pgctld"
-	"github.com/multigres/multigres/go/servenv"
 
 	"github.com/spf13/cobra"
 
@@ -120,7 +120,6 @@ type PgCtldService struct {
 	pgPort     int
 	pgUser     string
 	pgDatabase string
-	pgPassword string
 	timeout    int
 	poolerDir  string
 	config     *pgctld.PostgresCtlConfig

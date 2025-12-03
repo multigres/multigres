@@ -46,7 +46,7 @@ import (
 	"github.com/multigres/multigres/go/pb/pgctldservice"
 
 	// Register topo plugins
-	_ "github.com/multigres/multigres/go/plugins/topo"
+	_ "github.com/multigres/multigres/go/common/plugins/topo"
 )
 
 var (
@@ -465,7 +465,6 @@ func initializePrimary(t *testing.T, baseDir string, pgctld *ProcessInstance, mu
 				Database:  "postgres",
 			},
 		},
-		RepoPath:      repoPath,
 		LogPath:       logPath,
 		SpoolPath:     spoolPath,
 		RetentionFull: 2,
@@ -484,8 +483,8 @@ func initializePrimary(t *testing.T, baseDir string, pgctld *ProcessInstance, mu
 	archiveConfig := fmt.Sprintf(`
 # Archive mode for pgbackrest backups
 archive_mode = on
-archive_command = 'pgbackrest --stanza=%s --config=%s archive-push %%p'
-`, stanzaName, configPath)
+archive_command = 'pgbackrest --stanza=%s --config=%s --repo1-path=%s archive-push %%p'
+`, stanzaName, configPath, repoPath)
 	f, err := os.OpenFile(autoConfPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
 	if err != nil {
 		return fmt.Errorf("failed to open postgresql.auto.conf: %w", err)
@@ -509,7 +508,7 @@ archive_command = 'pgbackrest --stanza=%s --config=%s archive-push %%p'
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	if err := pgbackrest.StanzaCreate(ctx, stanzaName, configPath); err != nil {
+	if err := pgbackrest.StanzaCreate(ctx, stanzaName, configPath, repoPath); err != nil {
 		return fmt.Errorf("failed to create pgbackrest stanza: %w", err)
 	}
 	t.Logf("Initialized pgbackrest stanza: %s", stanzaName)
@@ -582,7 +581,7 @@ func initializeStandby(t *testing.T, baseDir string, primaryPgctld *ProcessInsta
 		return fmt.Errorf("failed to init standby data dir: %w", err)
 	}
 
-	// Configure standby as a replica using pg_basebackup
+	// Configure standby as a replica using pgBackRest backup/restore
 	t.Logf("Configuring standby as replica of primary...")
 	setupStandbyReplication(t, primaryPgctld, standbyPgctld)
 
@@ -601,10 +600,6 @@ func initializeStandby(t *testing.T, baseDir string, primaryPgctld *ProcessInsta
 	// Each cluster treats itself as pg1 and lists others as pg2, pg3, etc.
 	// Build backup repository path with database/tablegroup/shard structure (same as primary)
 	// TODO: Replace hardcoded shard "0" with actual shard value
-	database := "postgres"
-	tableGroup := "test"
-	shard := "0" // Default shard ID
-	repoPath := filepath.Join(baseDir, "backup-repo", database, tableGroup, shard)
 	logPath := filepath.Join(baseDir, "logs", "pgbackrest")
 	spoolPath := filepath.Join(baseDir, "pgbackrest-spool")
 
@@ -626,7 +621,6 @@ func initializeStandby(t *testing.T, baseDir string, primaryPgctld *ProcessInsta
 				Database:  "postgres",
 			},
 		},
-		RepoPath:      repoPath,
 		LogPath:       logPath,
 		SpoolPath:     spoolPath,
 		RetentionFull: 2,
@@ -738,7 +732,7 @@ func getSharedTestSetup(t *testing.T) *MultipoolerTestSetup {
 			setupError = fmt.Errorf("failed to create etcd data directory: %w", err)
 			return
 		}
-		etcdClientAddr, etcdCmd, err := startEtcdForSharedSetup(etcdDataDir)
+		etcdClientAddr, etcdCmd, err := startEtcdForSharedSetup(t, etcdDataDir)
 		if err != nil {
 			setupError = fmt.Errorf("failed to start etcd: %w", err)
 			return
@@ -770,13 +764,28 @@ func getSharedTestSetup(t *testing.T) *MultipoolerTestSetup {
 
 		t.Logf("Created topology cell '%s' at etcd %s", cellName, etcdClientAddr)
 
+		// Create the database entry in topology with backup_location
+		// This is needed for getBackupLocation() calls in multipooler manager
+		database := "postgres"
+		backupLocation := filepath.Join(tempDir, "backup-repo", database, "test", "0")
+		err = ts.CreateDatabase(context.Background(), database, &clustermetadatapb.Database{
+			Name:             database,
+			BackupLocation:   backupLocation,
+			DurabilityPolicy: "ANY_2",
+		})
+		if err != nil {
+			setupError = fmt.Errorf("failed to create database in topology: %w", err)
+			return
+		}
+		t.Logf("Created database '%s' in topology with backup_location=%s", database, backupLocation)
+
 		// Generate ports for shared instances using systematic allocation to avoid conflicts
-		primaryGrpcPort := utils.GetNextPort()
-		primaryPgPort := utils.GetNextPort()
-		standbyGrpcPort := utils.GetNextPort()
-		standbyPgPort := utils.GetNextPort()
-		primaryMultipoolerPort := utils.GetNextPort()
-		standbyMultipoolerPort := utils.GetNextPort()
+		primaryGrpcPort := utils.GetFreePort(t)
+		primaryPgPort := utils.GetFreePort(t)
+		standbyGrpcPort := utils.GetFreePort(t)
+		standbyPgPort := utils.GetFreePort(t)
+		primaryMultipoolerPort := utils.GetFreePort(t)
+		standbyMultipoolerPort := utils.GetFreePort(t)
 
 		t.Logf("Shared test setup - Primary pgctld gRPC: %d, Primary PG: %d, Standby pgctld gRPC: %d, Standby PG: %d, Primary multipooler: %d, Standby multipooler: %d",
 			primaryGrpcPort, primaryPgPort, standbyGrpcPort, standbyPgPort, primaryMultipoolerPort, standbyMultipoolerPort)
@@ -840,19 +849,20 @@ func getSharedTestSetup(t *testing.T) *MultipoolerTestSetup {
 
 // startEtcdForSharedSetup starts etcd without registering t.Cleanup() handlers
 // since cleanup is handled manually by TestMain via cleanupSharedTestSetup()
-func startEtcdForSharedSetup(dataDir string) (string, *exec.Cmd, error) {
+func startEtcdForSharedSetup(t *testing.T, dataDir string) (string, *exec.Cmd, error) {
 	// Check if etcd is available in PATH
 	_, err := exec.LookPath("etcd")
 	if err != nil {
 		return "", nil, fmt.Errorf("etcd not found in PATH: %w", err)
 	}
 
-	// Get port for etcd using the same mechanism as other tests to avoid conflicts
-	port := utils.GetNextEtcd2Port()
+	// Get ports for etcd (client and peer)
+	clientPort := utils.GetFreePort(t)
+	peerPort := utils.GetFreePort(t)
 
 	name := "multigres_shared_test"
-	clientAddr := fmt.Sprintf("http://localhost:%v", port)
-	peerAddr := fmt.Sprintf("http://localhost:%v", port+1)
+	clientAddr := fmt.Sprintf("http://localhost:%v", clientPort)
+	peerAddr := fmt.Sprintf("http://localhost:%v", peerPort)
 	initialCluster := fmt.Sprintf("%v=%v", name, peerAddr)
 
 	// Wrap etcd with run_in_test to ensure cleanup if test process dies
@@ -899,8 +909,8 @@ func waitForManagerReady(t *testing.T, setup *MultipoolerTestSetup, manager *Pro
 		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 		defer cancel()
 
-		req := &multipoolermanagerdatapb.StatusRequest{}
-		resp, err := client.Status(ctx, req)
+		req := &multipoolermanagerdatapb.StateRequest{}
+		resp, err := client.State(ctx, req)
 		if err != nil {
 			return false
 		}
@@ -918,39 +928,100 @@ func waitForManagerReady(t *testing.T, setup *MultipoolerTestSetup, manager *Pro
 func setupStandbyReplication(t *testing.T, primaryPgctld *ProcessInstance, standbyPgctld *ProcessInstance) {
 	t.Helper()
 
-	// Backup standby's original configuration before pg_basebackup overwrites it
+	// Remove the standby pg_data directory to prepare for pgbackrest restore
 	standbyPgDataDir := filepath.Join(standbyPgctld.DataDir, "pg_data")
-	configBackupDir := filepath.Join(standbyPgctld.DataDir, "config_backup")
-
-	t.Logf("Backing up standby configuration to: %s", configBackupDir)
-	err := os.MkdirAll(configBackupDir, 0o755)
-	require.NoError(t, err)
-
-	// Remove the standby pg_data directory to prepare for pg_basebackup
 	t.Logf("Removing standby pg_data directory: %s", standbyPgDataDir)
-	err = os.RemoveAll(standbyPgDataDir)
+	err := os.RemoveAll(standbyPgDataDir)
 	require.NoError(t, err)
 
-	// Create base backup from primary using pg_basebackup
-	// Note: pg_basebackup needs to write to the pg_data subdirectory, not the pooler-dir
-	// We do NOT use -R flag because we want to test SetPrimaryConnInfo RPC method later
-	t.Logf("Creating base backup from primary (port %d) to standby pg_data dir...", primaryPgctld.PgPort)
-	basebackupCmd := exec.Command("pg_basebackup",
-		"-h", "localhost",
-		"-p", strconv.Itoa(primaryPgctld.PgPort),
-		"-U", "postgres",
-		"-D", standbyPgDataDir,
-		"-X", "stream",
-		"-c", "fast")
+	// Get primary's pgbackrest configuration
+	primaryConfigPath := filepath.Join(primaryPgctld.DataDir, "pgbackrest.conf")
 
-	basebackupCmd.Env = append(os.Environ(), "PGPASSWORD=postgres")
-	output, err := basebackupCmd.CombinedOutput()
+	// Determine the stanza name from the primary's config
+	// The stanza is set during initializePrimary
+	stanzaName := "test_backup" // This matches the value from initializePrimary
+
+	// Get backup location (same structure as in initializePrimary)
+	database := "postgres"
+	tableGroup := "test"
+	shard := "0"
+	baseDir := filepath.Dir(filepath.Dir(primaryPgctld.DataDir)) // Go up from primary/data to get base
+	repoPath := filepath.Join(baseDir, "backup-repo", database, tableGroup, shard)
+
+	// Create a backup on the primary using pgbackrest
+	t.Logf("Creating pgBackRest backup on primary (stanza: %s, config: %s, repo: %s)...",
+		stanzaName, primaryConfigPath, repoPath)
+
+	backupCtx, backupCancel := context.WithTimeout(t.Context(), 5*time.Minute)
+	defer backupCancel()
+
+	backupCmd := exec.CommandContext(backupCtx, "pgbackrest",
+		"--stanza="+stanzaName,
+		"--config="+primaryConfigPath,
+		"--repo1-path="+repoPath,
+		"--type=full",
+		"--log-level-console=info",
+		"backup")
+
+	backupOutput, err := backupCmd.CombinedOutput()
 	if err != nil {
-		t.Logf("pg_basebackup output: %s", string(output))
+		t.Logf("pgbackrest backup output: %s", string(backupOutput))
 	}
-	require.NoError(t, err, "pg_basebackup should succeed")
+	require.NoError(t, err, "pgbackrest backup should succeed")
+	t.Logf("pgBackRest backup completed successfully")
 
-	t.Logf("Base backup completed successfully")
+	// Create standby's pgbackrest configuration before restore
+	// This needs to be created now (before PostgreSQL starts) so we can use it for restore
+	logPath := filepath.Join(baseDir, "logs", "pgbackrest")
+	spoolPath := filepath.Join(baseDir, "pgbackrest-spool")
+
+	standbyConfigPath := filepath.Join(standbyPgctld.DataDir, "pgbackrest.conf")
+	standbyBackupCfg := pgbackrest.Config{
+		StanzaName:  stanzaName, // Use same stanza (they're replicas in HA setup)
+		PgDataPath:  filepath.Join(standbyPgctld.DataDir, "pg_data"),
+		PgPort:      standbyPgctld.PgPort,
+		PgSocketDir: filepath.Join(standbyPgctld.DataDir, "pg_sockets"),
+		PgUser:      "postgres",
+		PgDatabase:  "postgres",
+		// Add primary as pg2 for symmetric configuration
+		AdditionalHosts: []pgbackrest.PgHost{
+			{
+				DataPath:  filepath.Join(primaryPgctld.DataDir, "pg_data"),
+				SocketDir: filepath.Join(primaryPgctld.DataDir, "pg_sockets"),
+				Port:      primaryPgctld.PgPort,
+				User:      "postgres",
+				Database:  "postgres",
+			},
+		},
+		LogPath:       logPath,
+		SpoolPath:     spoolPath,
+		RetentionFull: 2,
+	}
+
+	if err := pgbackrest.WriteConfigFile(standbyConfigPath, standbyBackupCfg); err != nil {
+		require.NoError(t, err, "failed to write standby pgbackrest config")
+	}
+	t.Logf("Created pgbackrest config for standby at %s", standbyConfigPath)
+
+	// Restore the backup to the standby using pgbackrest
+	t.Logf("Restoring pgBackRest backup to standby (config: %s)...", standbyConfigPath)
+
+	restoreCtx, restoreCancel := context.WithTimeout(t.Context(), 5*time.Minute)
+	defer restoreCancel()
+
+	restoreCmd := exec.CommandContext(restoreCtx, "pgbackrest",
+		"--stanza="+stanzaName,
+		"--config="+standbyConfigPath,
+		"--repo1-path="+repoPath,
+		"--log-level-console=info",
+		"restore")
+
+	restoreOutput, err := restoreCmd.CombinedOutput()
+	if err != nil {
+		t.Logf("pgbackrest restore output: %s", string(restoreOutput))
+	}
+	require.NoError(t, err, "pgbackrest restore should succeed")
+	t.Logf("pgBackRest restore completed successfully")
 
 	// Create standby.signal to put the server in recovery mode
 	standbySignalPath := filepath.Join(standbyPgDataDir, "standby.signal")
@@ -958,7 +1029,7 @@ func setupStandbyReplication(t *testing.T, primaryPgctld *ProcessInstance, stand
 	err = os.WriteFile(standbySignalPath, []byte(""), 0o644)
 	require.NoError(t, err, "Should be able to create standby.signal")
 
-	t.Logf("Standby data copied and configured as replica (PostgreSQL will be started next)")
+	t.Logf("Standby data restored from backup and configured as replica (PostgreSQL will be started next)")
 }
 
 // makeMultipoolerID creates a multipooler ID for testing

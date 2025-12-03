@@ -16,6 +16,7 @@ package etcdtopo
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"path"
@@ -28,9 +29,9 @@ import (
 	clientv3 "go.etcd.io/etcd/client/v3"
 
 	"github.com/multigres/multigres/go/clustermetadata/topo"
-	"github.com/multigres/multigres/go/mterrors"
+	"github.com/multigres/multigres/go/common/mterrors"
+	"github.com/multigres/multigres/go/common/servenv"
 	"github.com/multigres/multigres/go/pb/mtrpc"
-	"github.com/multigres/multigres/go/servenv"
 )
 
 var leaseTTL = 30 // This is the default used for all non-named locks
@@ -58,7 +59,7 @@ func (s *Server) newUniqueEphemeralKV(ctx context.Context, cli *clientv3.Client,
 		Then(clientv3.OpPut(newKey, contents, clientv3.WithLease(leaseID))).
 		Commit()
 	if err != nil {
-		if err == context.Canceled || err == context.DeadlineExceeded {
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 			// Our context was canceled as we were sending
 			// a creation request. We don't know if it
 			// succeeded or not. In any case, let's try to

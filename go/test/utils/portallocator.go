@@ -15,51 +15,57 @@
 package utils
 
 import (
-	"os"
+	"net"
 	"sync"
+	"testing"
 )
 
-const (
-	// BasePort is the starting port for all tests
-	BasePort    = 6700
-	portsPerPid = 500
-)
+// portCache tracks ports currently allocated to tests to prevent duplicates.
+// Ports are added when allocated and removed via t.Cleanup() when tests complete.
+var portCache sync.Map
 
-var (
-	// Global state for port allocation
-	portMutex      sync.Mutex
-	portCounter    int
-	basePortOffset int
-)
+// GetFreePort returns a port number that was verified free by the OS and not
+// currently allocated to another test. It uses a global cache to prevent the
+// same port from being returned multiple times within the same test process.
+// Ports are automatically released from the cache when the test completes via
+// t.Cleanup(), preventing memory leaks.
+//
+// If the OS returns a port that's already in the cache, GetFreePort will keep
+// the listener open (to prevent OS reuse) and retry until it gets a unique port.
+func GetFreePort(t *testing.T) int {
+	t.Helper()
 
-func init() {
-	// Use process ID to create unique port ranges for different test processes
-	// This prevents conflicts when running tests from different packages simultaneously
-	pid := os.Getpid()
-	// Give each test process enough ports for multiple zones. Tests assume that each
-	// zone can use up to 100 ports.
-	//
-	// This generates a max port number of 6700 + (99 * 500) + 200 = 56400 (< 65535)
-	basePortOffset = (pid % 100) * portsPerPid
-}
+	// Track listeners we need to keep open to prevent OS port reuse
+	var heldListeners []net.Listener
 
-// GetNextPort returns the next available port for tests
-func GetNextPort() int {
-	portMutex.Lock()
-	defer portMutex.Unlock()
+	// Clean up all held listeners when done
+	defer func() {
+		for _, lis := range heldListeners {
+			lis.Close()
+		}
+	}()
 
-	// Simple deterministic approach: just increment and return the next port
-	portCounter++
-	port := BasePort + basePortOffset + portCounter
-	return port
-}
+	for {
+		lis, err := net.Listen("tcp", "localhost:0")
+		if err != nil {
+			t.Fatalf("failed to allocate free port: %v", err)
+		}
 
-// GetNextEtcd2Port returns the next available port for tests
-func GetNextEtcd2Port() int {
-	port := GetNextPort()
-	// Let's skip two ports as they will be use by etcd.
-	// This way other services will not conflict with etcd.
-	GetNextPort()
-	GetNextPort()
-	return port
+		port := lis.Addr().(*net.TCPAddr).Port
+
+		// Try to claim this port atomically
+		_, alreadyExists := portCache.LoadOrStore(port, true)
+		if !alreadyExists {
+			// Successfully claimed this port
+			lis.Close()
+			t.Cleanup(func() {
+				portCache.Delete(port)
+			})
+			return port
+		}
+
+		// Port already in cache - hold this listener open to prevent OS reuse
+		// and try again. Add to slice so we can close all at once when done.
+		heldListeners = append(heldListeners, lis)
+	}
 }

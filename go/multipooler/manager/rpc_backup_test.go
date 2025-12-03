@@ -19,33 +19,70 @@ import (
 	"os/exec"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
 
 	"github.com/multigres/multigres/go/clustermetadata/topo"
+	"github.com/multigres/multigres/go/clustermetadata/topo/memorytopo"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multipoolermanagerdata "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
 
 // createTestManager creates a minimal MultiPoolerManager for testing
 func createTestManager(poolerDir, stanzaName, tableGroup, shard string, poolerType clustermetadatapb.PoolerType) *MultiPoolerManager {
+	return createTestManagerWithBackupLocation(poolerDir, stanzaName, tableGroup, shard, poolerType, "/tmp/backups")
+}
+
+// createTestManagerWithBackupLocation creates a minimal MultiPoolerManager for testing with backup_location
+func createTestManagerWithBackupLocation(poolerDir, stanzaName, tableGroup, shard string, poolerType clustermetadatapb.PoolerType, backupLocation string) *MultiPoolerManager {
+	database := "test-database"
+
+	multipoolerID := &clustermetadatapb.ID{
+		Component: clustermetadatapb.ID_MULTIPOOLER,
+		Cell:      "zone1",
+		Name:      "test-multipooler",
+	}
+
 	multipoolerInfo := &topo.MultiPoolerInfo{
 		MultiPooler: &clustermetadatapb.MultiPooler{
+			Id:         multipoolerID,
 			Type:       poolerType,
 			TableGroup: tableGroup,
 			Shard:      shard,
+			Database:   database,
 		},
 	}
+
+	// Create a topology store with backup location if provided
+	var topoClient topo.Store
+	if backupLocation != "" {
+		ctx := context.Background()
+		ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
+		err := ts.CreateDatabase(ctx, database, &clustermetadatapb.Database{
+			Name:             database,
+			BackupLocation:   backupLocation,
+			DurabilityPolicy: "ANY_2",
+		})
+		if err == nil {
+			topoClient = ts
+		}
+	}
+
 	pm := &MultiPoolerManager{
 		config: &Config{
 			PoolerDir:        poolerDir,
 			PgBackRestStanza: stanzaName,
 			ServiceID:        &clustermetadatapb.ID{Name: "test-service"},
 		},
-		serviceID:   &clustermetadatapb.ID{Name: "test-service"},
-		multipooler: multipoolerInfo,
+		serviceID:      &clustermetadatapb.ID{Name: "test-service"},
+		topoClient:     topoClient,
+		multipooler:    multipoolerInfo,
+		state:          ManagerStateReady,
+		backupLocation: backupLocation,
+		actionLock:     NewActionLock(),
 		cachedMultipooler: cachedMultiPoolerInfo{
 			multipooler: topo.NewMultiPoolerInfo(
 				proto.Clone(multipoolerInfo.MultiPooler).(*clustermetadatapb.MultiPooler),
@@ -56,83 +93,151 @@ func createTestManager(poolerDir, stanzaName, tableGroup, shard string, poolerTy
 	return pm
 }
 
-func TestExtractBackupID(t *testing.T) {
+func TestFindBackupByAnnotations(t *testing.T) {
 	tests := []struct {
-		name        string
-		output      string
-		want        string
-		expectError bool
+		name            string
+		multipoolerID   string
+		backupTimestamp string
+		jsonOutput      string
+		wantBackupID    string
+		wantError       bool
+		errorContains   string
 	}{
 		{
-			name: "Full backup with standard format",
-			output: `P00   INFO: backup command begin 2.41: --exec-id=12345
-P00   INFO: execute non-exclusive pg_start_backup(): backup begins after the next regular checkpoint completes
-P00   INFO: backup start archive = 000000010000000000000002
-P00   INFO: new backup label = 20250104-100000F
-P00   INFO: full backup size = 25.3MB
-P00   INFO: backup command end: completed successfully`,
-			want:        "20250104-100000F",
-			expectError: false,
+			name:            "Single matching backup",
+			multipoolerID:   "zone1-multipooler1",
+			backupTimestamp: "20250104-100000.000000",
+			jsonOutput: `[{
+				"backup": [{
+					"label": "20250104-100000F",
+					"annotation": {
+						"multipooler_id": "zone1-multipooler1",
+						"backup_timestamp": "20250104-100000.000000"
+					}
+				}]
+			}]`,
+			wantBackupID: "20250104-100000F",
+			wantError:    false,
 		},
 		{
-			name: "Incremental backup format",
-			output: `P00   INFO: backup command begin 2.41
-P00   INFO: last backup label = 20250104-100000F, version = 2.41
-new backup label = 20250104-100000F_20250104-120000I
-P00   INFO: backup command end: completed successfully`,
-			want:        "20250104-100000F_20250104-120000I",
-			expectError: false,
+			name:            "Multiple backups, one match",
+			multipoolerID:   "zone1-multipooler1",
+			backupTimestamp: "20250104-120000.000000",
+			jsonOutput: `[{
+				"backup": [{
+					"label": "20250104-100000F",
+					"annotation": {
+						"multipooler_id": "zone1-multipooler1",
+						"backup_timestamp": "20250104-100000.000000"
+					}
+				}, {
+					"label": "20250104-120000F",
+					"annotation": {
+						"multipooler_id": "zone1-multipooler1",
+						"backup_timestamp": "20250104-120000.000000"
+					}
+				}]
+			}]`,
+			wantBackupID: "20250104-120000F",
+			wantError:    false,
 		},
 		{
-			name: "Differential backup format",
-			output: `P00   INFO: backup command begin 2.41
-P00   INFO: last backup label = 20250104-100000F, version = 2.41
-new backup label = 20250104-100000F_20250104-110000D
-P00   INFO: backup command end: completed successfully`,
-			want:        "20250104-100000F_20250104-110000D",
-			expectError: false,
+			name:            "No matching backup",
+			multipoolerID:   "zone1-multipooler1",
+			backupTimestamp: "20250104-180000.000000",
+			jsonOutput: `[{
+				"backup": [{
+					"label": "20250104-100000F",
+					"annotation": {
+						"multipooler_id": "zone1-multipooler1",
+						"backup_timestamp": "20250104-100000.000000"
+					}
+				}]
+			}]`,
+			wantError:     true,
+			errorContains: "no backup found",
 		},
 		{
-			name: "Backup label with equals sign format",
-			output: `Some random output
-new backup label = 20250105-150000F
-More output here`,
-			want:        "20250105-150000F",
-			expectError: false,
+			name:            "No backups at all",
+			multipoolerID:   "zone1-multipooler1",
+			backupTimestamp: "20250104-100000.000000",
+			jsonOutput:      `[{"backup": []}]`,
+			wantError:       true,
+			errorContains:   "no backups found",
 		},
 		{
-			name: "Output with no backup ID",
-			output: `P00   INFO: backup command begin 2.41
-P00   ERROR: backup failed with error`,
-			want:        "",
-			expectError: true,
+			name:            "Duplicate matching backups",
+			multipoolerID:   "zone1-multipooler1",
+			backupTimestamp: "20250104-100000.000000",
+			jsonOutput: `[{
+				"backup": [{
+					"label": "20250104-100000F",
+					"annotation": {
+						"multipooler_id": "zone1-multipooler1",
+						"backup_timestamp": "20250104-100000.000000"
+					}
+				}, {
+					"label": "20250104-100000F_20250104-110000I",
+					"annotation": {
+						"multipooler_id": "zone1-multipooler1",
+						"backup_timestamp": "20250104-100000.000000"
+					}
+				}]
+			}]`,
+			wantError:     true,
+			errorContains: "found 2 backups",
 		},
 		{
-			name:        "Empty output",
-			output:      "",
-			want:        "",
-			expectError: true,
-		},
-		{
-			name: "Backup ID in different position",
-			output: `Start backup
-20250106-180000F was created
-End backup`,
-			want:        "20250106-180000F",
-			expectError: false,
+			name:            "Backup without annotations",
+			multipoolerID:   "zone1-multipooler1",
+			backupTimestamp: "20250104-100000.000000",
+			jsonOutput: `[{
+				"backup": [{
+					"label": "20250104-100000F"
+				}]
+			}]`,
+			wantError:     true,
+			errorContains: "no backup found",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := extractBackupID(tt.output)
+			// Create temp directory for mock pgbackrest
+			tmpDir := t.TempDir()
 
-			if tt.expectError {
-				assert.Error(t, err)
-				assert.Empty(t, got)
+			// Create mock pgbackrest binary that returns the test JSON
+			mockScript := `#!/bin/bash
+if [[ "$*" == *"info"* ]]; then
+    cat << 'JSONEOF'
+` + tt.jsonOutput + `
+JSONEOF
+    exit 0
+fi
+exit 1
+`
+			pgbackrestPath := tmpDir + "/pgbackrest"
+			err := exec.Command("sh", "-c", "cat > "+pgbackrestPath+" << 'EOF'\n"+mockScript+"\nEOF").Run()
+			require.NoError(t, err)
+			err = exec.Command("chmod", "+x", pgbackrestPath).Run()
+			require.NoError(t, err)
+
+			// Prepend temp dir to PATH so our mock pgbackrest is found first
+			t.Setenv("PATH", tmpDir+":/usr/bin:/bin")
+
+			pm := createTestManagerWithBackupLocation(tmpDir, "test-stanza", "test-tg", "0", clustermetadatapb.PoolerType_REPLICA, tmpDir)
+
+			ctx := context.Background()
+			backupID, err := pm.findBackupByAnnotations(ctx, tt.multipoolerID, tt.backupTimestamp)
+
+			if tt.wantError {
+				require.Error(t, err)
+				if tt.errorContains != "" {
+					assert.Contains(t, err.Error(), tt.errorContains)
+				}
 			} else {
 				require.NoError(t, err)
-				assert.Equal(t, tt.want, got)
+				assert.Equal(t, tt.wantBackupID, backupID)
 			}
 		})
 	}
@@ -203,7 +308,9 @@ func TestBackup_Validation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			pm := createTestManager(tt.poolerDir, tt.stanzaName, "", "", tt.poolerType)
+			// Provide backup location for tests that need to reach pgbackrest execution or validation
+			backupLocation := "/tmp/test-backups"
+			pm := createTestManagerWithBackupLocation(tt.poolerDir, tt.stanzaName, "", "", tt.poolerType, backupLocation)
 
 			_, err := pm.Backup(ctx, tt.forcePrimary, tt.backupType)
 
@@ -615,11 +722,6 @@ EOF
 		require.NoError(t, err)
 		assert.Contains(t, output, "new backup label = 20250104-100000F")
 		assert.Contains(t, output, "backup command end: completed successfully")
-
-		// Verify we can extract backup ID from this output
-		backupID, err := extractBackupID(output)
-		require.NoError(t, err)
-		assert.Equal(t, "20250104-100000F", backupID)
 	})
 }
 
@@ -674,4 +776,127 @@ func BenchmarkSafeCombinedOutput(b *testing.B) {
 			_, _ = safeCombinedOutput(cmd)
 		}
 	})
+}
+
+func TestBackup_ActionLock(t *testing.T) {
+	ctx := t.Context()
+	tmpDir := t.TempDir()
+
+	pm := createTestManagerWithBackupLocation(tmpDir, "test-stanza", "", "", clustermetadatapb.PoolerType_REPLICA, tmpDir)
+
+	// Hold the lock in another goroutine
+	lockCtx, err := pm.actionLock.Acquire(ctx, "test-holder")
+	require.NoError(t, err)
+
+	// Create a context with a short timeout
+	timeoutCtx, cancel := context.WithTimeout(ctx, 100*time.Millisecond)
+	defer cancel()
+
+	// Backup should timeout waiting for the lock
+	_, err = pm.Backup(timeoutCtx, false, "full")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "context deadline exceeded")
+
+	// Release the lock
+	pm.actionLock.Release(lockCtx)
+}
+
+func TestGetBackups_ActionLock(t *testing.T) {
+	ctx := t.Context()
+	tmpDir := t.TempDir()
+
+	pm := createTestManagerWithBackupLocation(tmpDir, "test-stanza", "", "", clustermetadatapb.PoolerType_REPLICA, tmpDir)
+
+	// Hold the lock in another goroutine
+	lockCtx, err := pm.actionLock.Acquire(ctx, "test-holder")
+	require.NoError(t, err)
+
+	// Create a context with a short timeout
+	timeoutCtx, cancel := context.WithTimeout(ctx, 100*time.Millisecond)
+	defer cancel()
+
+	// GetBackups should timeout waiting for the lock
+	_, err = pm.GetBackups(timeoutCtx, 10)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "context deadline exceeded")
+
+	// Release the lock
+	pm.actionLock.Release(lockCtx)
+}
+
+func TestRestoreFromBackup_ActionLock(t *testing.T) {
+	ctx := t.Context()
+	tmpDir := t.TempDir()
+
+	pm := createTestManagerWithBackupLocation(tmpDir, "test-stanza", "", "", clustermetadatapb.PoolerType_REPLICA, tmpDir)
+
+	// Hold the lock in another goroutine
+	lockCtx, err := pm.actionLock.Acquire(ctx, "test-holder")
+	require.NoError(t, err)
+
+	// Create a context with a short timeout
+	timeoutCtx, cancel := context.WithTimeout(ctx, 100*time.Millisecond)
+	defer cancel()
+
+	// RestoreFromBackup should timeout waiting for the lock
+	err = pm.RestoreFromBackup(timeoutCtx, "test-backup-id")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "context deadline exceeded")
+
+	// Release the lock
+	pm.actionLock.Release(lockCtx)
+}
+
+func TestBackup_ActionLockReleased(t *testing.T) {
+	ctx := t.Context()
+	tmpDir := t.TempDir()
+
+	pm := createTestManagerWithBackupLocation(tmpDir, "test-stanza", "", "", clustermetadatapb.PoolerType_REPLICA, tmpDir)
+
+	// Call Backup - it will fail (no pgbackrest), but should release the lock
+	_, _ = pm.Backup(ctx, false, "full")
+
+	// Verify lock was released by acquiring it with a short timeout
+	timeoutCtx, cancel := context.WithTimeout(ctx, 100*time.Millisecond)
+	defer cancel()
+
+	lockCtx, err := pm.actionLock.Acquire(timeoutCtx, "verify-release")
+	require.NoError(t, err, "Lock should be released after Backup returns")
+	pm.actionLock.Release(lockCtx)
+}
+
+func TestGetBackups_ActionLockReleased(t *testing.T) {
+	ctx := t.Context()
+	tmpDir := t.TempDir()
+
+	pm := createTestManagerWithBackupLocation(tmpDir, "test-stanza", "", "", clustermetadatapb.PoolerType_REPLICA, tmpDir)
+
+	// Call GetBackups - it may fail or succeed, but should release the lock
+	_, _ = pm.GetBackups(ctx, 10)
+
+	// Verify lock was released by acquiring it with a short timeout
+	timeoutCtx, cancel := context.WithTimeout(ctx, 100*time.Millisecond)
+	defer cancel()
+
+	lockCtx, err := pm.actionLock.Acquire(timeoutCtx, "verify-release")
+	require.NoError(t, err, "Lock should be released after GetBackups returns")
+	pm.actionLock.Release(lockCtx)
+}
+
+func TestRestoreFromBackup_ActionLockReleased(t *testing.T) {
+	ctx := t.Context()
+	tmpDir := t.TempDir()
+
+	pm := createTestManagerWithBackupLocation(tmpDir, "test-stanza", "", "", clustermetadatapb.PoolerType_REPLICA, tmpDir)
+
+	// Call RestoreFromBackup - it will fail (precondition), but should release the lock
+	_ = pm.RestoreFromBackup(ctx, "test-backup-id")
+
+	// Verify lock was released by acquiring it with a short timeout
+	timeoutCtx, cancel := context.WithTimeout(ctx, 100*time.Millisecond)
+	defer cancel()
+
+	lockCtx, err := pm.actionLock.Acquire(timeoutCtx, "verify-release")
+	require.NoError(t, err, "Lock should be released after RestoreFromBackup returns")
+	pm.actionLock.Release(lockCtx)
 }

@@ -19,8 +19,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/multigres/multigres/go/mterrors"
+	"google.golang.org/protobuf/encoding/protojson"
 
+	"github.com/multigres/multigres/go/common/mterrors"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
@@ -95,8 +96,23 @@ func (pm *MultiPoolerManager) SetPrimaryConnInfo(ctx context.Context, host strin
 		return err
 	}
 
+	// Call the locked version that assumes action lock is already held
+	return pm.setPrimaryConnInfoLocked(ctx, host, port, stopReplicationBefore, startReplicationAfter)
+}
+
+// setPrimaryConnInfoLocked sets the primary connection info for a standby server.
+// This function assumes the action lock is already held by the caller.
+func (pm *MultiPoolerManager) setPrimaryConnInfoLocked(ctx context.Context, host string, port int32, stopReplicationBefore, startReplicationAfter bool) error {
+	if err := AssertActionLockHeld(ctx); err != nil {
+		return err
+	}
+
+	if err := pm.checkReady(); err != nil {
+		return err
+	}
+
 	// Guardrail: Check pooler type - only REPLICA poolers can set primary_conninfo
-	if err = pm.checkPoolerType(clustermetadatapb.PoolerType_REPLICA, "SetPrimaryConnInfo"); err != nil {
+	if err := pm.checkPoolerType(clustermetadatapb.PoolerType_REPLICA, "SetPrimaryConnInfo"); err != nil {
 		return err
 	}
 
@@ -221,12 +237,12 @@ func (pm *MultiPoolerManager) StopReplication(ctx context.Context, mode multipoo
 	return nil
 }
 
-// ReplicationStatus gets the current replication status of the standby
-func (pm *MultiPoolerManager) ReplicationStatus(ctx context.Context) (*multipoolermanagerdatapb.ReplicationStatus, error) {
+// StandbyReplicationStatus gets the current replication status of the standby
+func (pm *MultiPoolerManager) StandbyReplicationStatus(ctx context.Context) (*multipoolermanagerdatapb.StandbyReplicationStatus, error) {
 	if err := pm.checkReady(); err != nil {
 		return nil, err
 	}
-	pm.logger.InfoContext(ctx, "ReplicationStatus called")
+	pm.logger.InfoContext(ctx, "StandbyReplicationStatus called")
 
 	// Check REPLICA guardrails (pooler type and recovery mode)
 	if err := pm.checkReplicaGuardrails(ctx); err != nil {
@@ -240,7 +256,7 @@ func (pm *MultiPoolerManager) ReplicationStatus(ctx context.Context) (*multipool
 		return nil, err
 	}
 
-	pm.logger.InfoContext(ctx, "ReplicationStatus completed",
+	pm.logger.InfoContext(ctx, "StandbyReplicationStatus completed",
 		"last_replay_lsn", status.LastReplayLsn,
 		"last_receive_lsn", status.LastReceiveLsn,
 		"is_paused", status.IsWalReplayPaused,
@@ -248,6 +264,71 @@ func (pm *MultiPoolerManager) ReplicationStatus(ctx context.Context) (*multipool
 		"primary_conn_info", status.PrimaryConnInfo)
 
 	return status, nil
+}
+
+// Status gets unified status that works for both PRIMARY and REPLICA poolers
+// The multipooler returns information based on what type it believes itself to be
+func (pm *MultiPoolerManager) Status(ctx context.Context) (*multipoolermanagerdatapb.Status, error) {
+	if err := pm.checkReady(); err != nil {
+		return nil, err
+	}
+	pm.logger.InfoContext(ctx, "Status called")
+
+	// Get pooler type from topology
+	pm.mu.Lock()
+	poolerType := pm.multipooler.MultiPooler.Type
+	pm.mu.Unlock()
+
+	// Check actual PostgreSQL role
+	isPrimary, err := pm.isPrimary(ctx)
+	if err != nil {
+		pm.logger.ErrorContext(ctx, "Failed to check PostgreSQL role", "error", err)
+		return nil, err
+	}
+
+	// Verify consistency between topology and PostgreSQL state
+	expectedPrimary := (poolerType == clustermetadatapb.PoolerType_PRIMARY)
+	if expectedPrimary != isPrimary {
+		pm.logger.ErrorContext(ctx, "Mismatch between pooler type and PostgreSQL role",
+			"pooler_type", poolerType,
+			"is_primary_in_pg", isPrimary)
+		pgRole := "standby"
+		if isPrimary {
+			pgRole = "primary"
+		}
+		return nil, mterrors.MT13002(poolerType.String(), pgRole).Err
+	}
+
+	poolerStatus := &multipoolermanagerdatapb.Status{
+		PoolerType: poolerType,
+	}
+
+	// Based on actual PostgreSQL role, populate appropriate status
+	if isPrimary {
+		// Acting as primary - get primary status
+		primaryStatus, err := pm.PrimaryStatus(ctx)
+		if err != nil {
+			pm.logger.ErrorContext(ctx, "Failed to get primary status", "error", err)
+			return nil, err
+		}
+		poolerStatus.PrimaryStatus = primaryStatus
+		pm.logger.InfoContext(ctx, "ReplicationStatus completed (acting as primary)",
+			"pooler_type", poolerType,
+			"lsn", primaryStatus.Lsn)
+	} else {
+		// Acting as standby - get replication status
+		replStatus, err := pm.StandbyReplicationStatus(ctx)
+		if err != nil {
+			pm.logger.ErrorContext(ctx, "Failed to get standby replication status", "error", err)
+			return nil, err
+		}
+		poolerStatus.ReplicationStatus = replStatus
+		pm.logger.InfoContext(ctx, "ReplicationStatus completed (acting as standby)",
+			"pooler_type", poolerType,
+			"last_replay_lsn", replStatus.LastReplayLsn)
+	}
+
+	return poolerStatus, nil
 }
 
 // ResetReplication resets the standby's connection to its primary by clearing primary_conninfo
@@ -520,7 +601,7 @@ func (pm *MultiPoolerManager) PrimaryPosition(ctx context.Context) (string, erro
 }
 
 // StopReplicationAndGetStatus stops PostgreSQL replication (replay and/or receiver based on mode) and returns the status
-func (pm *MultiPoolerManager) StopReplicationAndGetStatus(ctx context.Context, mode multipoolermanagerdatapb.ReplicationPauseMode, wait bool) (*multipoolermanagerdatapb.ReplicationStatus, error) {
+func (pm *MultiPoolerManager) StopReplicationAndGetStatus(ctx context.Context, mode multipoolermanagerdatapb.ReplicationPauseMode, wait bool) (*multipoolermanagerdatapb.StandbyReplicationStatus, error) {
 	if err := pm.checkReady(); err != nil {
 		return nil, err
 	}
@@ -603,8 +684,8 @@ func (pm *MultiPoolerManager) ChangeType(ctx context.Context, poolerType string)
 	return nil
 }
 
-// Status returns the current manager status and error information
-func (pm *MultiPoolerManager) Status(ctx context.Context) (*multipoolermanagerdatapb.StatusResponse, error) {
+// State returns the current manager status and error information
+func (pm *MultiPoolerManager) State(ctx context.Context) (*multipoolermanagerdatapb.StateResponse, error) {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
 
@@ -614,7 +695,7 @@ func (pm *MultiPoolerManager) Status(ctx context.Context) (*multipoolermanagerda
 		errorMessage = pm.stateError.Error()
 	}
 
-	return &multipoolermanagerdatapb.StatusResponse{
+	return &multipoolermanagerdatapb.StateResponse{
 		State:        state,
 		ErrorMessage: errorMessage,
 	}, nil
@@ -961,4 +1042,67 @@ func (pm *MultiPoolerManager) SetTerm(ctx context.Context, term *multipoolermana
 
 	pm.logger.InfoContext(ctx, "SetTerm completed successfully", "current_term", term.GetTermNumber())
 	return nil
+}
+
+// CreateDurabilityPolicy creates a new durability policy in the local database
+// Used by MultiOrch to initialize policies via gRPC instead of direct database connection
+func (pm *MultiPoolerManager) CreateDurabilityPolicy(ctx context.Context, req *multipoolermanagerdatapb.CreateDurabilityPolicyRequest) (*multipoolermanagerdatapb.CreateDurabilityPolicyResponse, error) {
+	if err := pm.checkReady(); err != nil {
+		return nil, err
+	}
+
+	pm.logger.InfoContext(ctx, "CreateDurabilityPolicy called", "policy_name", req.PolicyName)
+
+	// Validate inputs
+	if req.PolicyName == "" {
+		return &multipoolermanagerdatapb.CreateDurabilityPolicyResponse{
+			Success:      false,
+			ErrorMessage: "policy_name is required",
+		}, nil
+	}
+
+	if req.QuorumRule == nil {
+		return &multipoolermanagerdatapb.CreateDurabilityPolicyResponse{
+			Success:      false,
+			ErrorMessage: "quorum_rule is required",
+		}, nil
+	}
+
+	// Check that we have a database connection
+	if pm.db == nil {
+		return &multipoolermanagerdatapb.CreateDurabilityPolicyResponse{
+			Success:      false,
+			ErrorMessage: "database connection not available",
+		}, nil
+	}
+
+	// Marshal the quorum rule to JSON using protojson
+	marshaler := protojson.MarshalOptions{
+		UseEnumNumbers: true, // Encode enums as numbers, not strings
+	}
+	quorumRuleJSON, err := marshaler.Marshal(req.QuorumRule)
+	if err != nil {
+		return &multipoolermanagerdatapb.CreateDurabilityPolicyResponse{
+			Success:      false,
+			ErrorMessage: fmt.Sprintf("failed to marshal quorum rule: %v", err),
+		}, nil
+	}
+
+	// Insert the policy into the durability_policy table using helper function
+	if err := InsertDurabilityPolicy(ctx, pm.db, req.PolicyName, quorumRuleJSON); err != nil {
+		pm.logger.ErrorContext(ctx, "Failed to insert durability policy", "error", err)
+		return &multipoolermanagerdatapb.CreateDurabilityPolicyResponse{
+			Success:      false,
+			ErrorMessage: err.Error(),
+		}, nil
+	}
+
+	pm.logger.InfoContext(ctx, "Successfully created durability policy",
+		"policy_name", req.PolicyName,
+		"quorum_type", req.QuorumRule.QuorumType,
+		"required_count", req.QuorumRule.RequiredCount)
+
+	return &multipoolermanagerdatapb.CreateDurabilityPolicyResponse{
+		Success: true,
+	}, nil
 }
