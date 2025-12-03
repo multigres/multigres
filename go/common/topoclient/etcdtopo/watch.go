@@ -26,17 +26,17 @@ import (
 
 	clientv3 "go.etcd.io/etcd/client/v3"
 
-	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/common/mterrors"
+	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/pb/mtrpc"
 )
 
 // Watch is part of the topoclient.Conn interface.
-func (s *Server) Watch(ctx context.Context, filePath string) (*topoclient.WatchData, <-chan *topoclient.WatchData, error) {
+func (s *etcdtopo) Watch(ctx context.Context, filePath string) (*topoclient.WatchData, <-chan *topoclient.WatchData, error) {
 	nodePath := path.Join(s.root, filePath)
 
 	// Get the initial version of the file
-	initialCtx, initialCancel := context.WithTimeout(ctx, topoclient.RemoteOperationTimeout)
+	initialCtx, initialCancel := context.WithTimeout(ctx, remoteOperationTimeout)
 	defer initialCancel()
 	initial, err := s.cli.Get(initialCtx, nodePath)
 	if err != nil {
@@ -158,7 +158,7 @@ func (s *Server) Watch(ctx context.Context, filePath string) (*topoclient.WatchD
 }
 
 // WatchRecursive is part of the topoclient.Conn interface.
-func (s *Server) WatchRecursive(ctx context.Context, dirpath string) ([]*topoclient.WatchDataRecursive, <-chan *topoclient.WatchDataRecursive, error) {
+func (s *etcdtopo) WatchRecursive(ctx context.Context, dirpath string) ([]*topoclient.WatchDataRecursive, <-chan *topoclient.WatchDataRecursive, error) {
 	nodePath := path.Join(s.root, dirpath)
 	if !strings.HasSuffix(nodePath, "/") {
 		nodePath = nodePath + "/"

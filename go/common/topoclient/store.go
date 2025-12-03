@@ -69,6 +69,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/spf13/pflag"
 	"golang.org/x/sync/errgroup"
@@ -236,6 +237,10 @@ type store struct {
 	// It is set at construction time and used to create cell-specific connections.
 	factory Factory
 
+	// config holds the topology configuration including lock timeouts.
+	// May be nil for stores created without a config (e.g., in tests).
+	config *TopoConfig
+
 	// cellConns contains cached connections to cell-specific topology services.
 	// These connections should be accessed through the ConnForCell() method, which
 	// will read the cell configuration from the global cluster and create clients
@@ -253,6 +258,16 @@ type store struct {
 // Ensure store implements the Store interface at compile time.
 var _ Store = (*store)(nil)
 
+// getLockTimeout returns the configured lock timeout.
+func (ts *store) getLockTimeout() time.Duration {
+	return ts.config.GetLockTimeout()
+}
+
+// getRemoteOperationTimeout returns the configured remote operation timeout.
+func (ts *store) getRemoteOperationTimeout() time.Duration {
+	return ts.config.GetRemoteOperationTimeout()
+}
+
 // cellConn represents a cached connection to a cell's topology service
 // along with its associated configuration.
 type cellConn struct {
@@ -262,10 +277,12 @@ type cellConn struct {
 
 // TopoConfig holds topology configuration using viperutil values
 type TopoConfig struct {
-	implementation        viperutil.Value[string]
-	globalServerAddresses viperutil.Value[[]string]
-	globalRoot            viperutil.Value[string]
-	readConcurrency       viperutil.Value[int64]
+	implementation         viperutil.Value[string]
+	globalServerAddresses  viperutil.Value[[]string]
+	globalRoot             viperutil.Value[string]
+	readConcurrency        viperutil.Value[int64]
+	lockTimeout            viperutil.Value[time.Duration]
+	remoteOperationTimeout viperutil.Value[time.Duration]
 }
 
 // NewTopoConfig creates a new TopoConfig with default values
@@ -291,6 +308,18 @@ func NewTopoConfig(reg *viperutil.Registry) *TopoConfig {
 			FlagName: "topo-read-concurrency",
 			Dynamic:  false,
 		}),
+		lockTimeout: viperutil.Configure(reg, "lock-timeout", viperutil.Options[time.Duration]{
+			Default:  45 * time.Second,
+			FlagName: "lock-timeout",
+			Dynamic:  false,
+			EnvVars:  []string{"MT_LOCK_TIMEOUT"},
+		}),
+		remoteOperationTimeout: viperutil.Configure(reg, "remote-operation-timeout", viperutil.Options[time.Duration]{
+			Default:  15 * time.Second,
+			FlagName: "remote-operation-timeout",
+			Dynamic:  false,
+			EnvVars:  []string{"MT_REMOTE_OPERATION_TIMEOUT"},
+		}),
 	}
 }
 
@@ -300,13 +329,44 @@ func (tc *TopoConfig) RegisterFlags(fs *pflag.FlagSet) {
 	fs.StringSlice("topo-global-server-addresses", tc.globalServerAddresses.Default(), "the address of the global topology server")
 	fs.String("topo-global-root", tc.globalRoot.Default(), "the path of the global topology data in the global topology server")
 	fs.Int64("topo-read-concurrency", tc.readConcurrency.Default(), "Maximum concurrency of topo reads per global or local cell.")
+	fs.Duration("lock-timeout", tc.lockTimeout.Default(), "Maximum time to wait when attempting to acquire a lock from the topo server")
+	fs.Duration("remote-operation-timeout", tc.remoteOperationTimeout.Default(), "time to wait for a remote operation")
 
 	viperutil.BindFlags(fs,
 		tc.implementation,
 		tc.globalServerAddresses,
 		tc.globalRoot,
 		tc.readConcurrency,
+		tc.lockTimeout,
+		tc.remoteOperationTimeout,
 	)
+}
+
+// GetLockTimeout returns the configured lock timeout duration.
+func (tc *TopoConfig) GetLockTimeout() time.Duration {
+	return tc.lockTimeout.Get()
+}
+
+// GetRemoteOperationTimeout returns the configured remote operation timeout duration.
+func (tc *TopoConfig) GetRemoteOperationTimeout() time.Duration {
+	return tc.remoteOperationTimeout.Get()
+}
+
+// NewDefaultTopoConfig creates a TopoConfig with default values.
+// Use this when you need a TopoConfig but don't have a viperutil.Registry
+// (e.g., in the local provisioner or tests).
+func NewDefaultTopoConfig() *TopoConfig {
+	return NewTopoConfig(viperutil.NewRegistry())
+}
+
+// SetLockTimeout sets the lock timeout value. This is primarily used for testing.
+func (tc *TopoConfig) SetLockTimeout(d time.Duration) {
+	tc.lockTimeout.Set(d)
+}
+
+// SetRemoteOperationTimeout sets the remote operation timeout value. This is primarily used for testing.
+func (tc *TopoConfig) SetRemoteOperationTimeout(d time.Duration) {
+	tc.remoteOperationTimeout.Set(d)
 }
 
 // factories contains the registered factories for creating topology connections.
@@ -336,9 +396,10 @@ func GetAvailableImplementations() []string {
 
 // NewWithFactory creates a new topology store based on the given Factory.
 // It also opens the global topology connection and initializes the store.
-func NewWithFactory(factory Factory, root string, serverAddrs []string) Store {
+func NewWithFactory(factory Factory, root string, serverAddrs []string, config *TopoConfig) Store {
 	ts := &store{
 		factory:   factory,
+		config:    config,
 		cellConns: make(map[string]cellConn),
 		status:    make(map[string]string),
 	}
@@ -357,7 +418,11 @@ func NewWithFactory(factory Factory, root string, serverAddrs []string) Store {
 
 // OpenServer returns a topology store using the specified implementation,
 // root path, and server addresses for the global topology server.
-func OpenServer(implementation, root string, serverAddrs []string) (Store, error) {
+func OpenServer(implementation, root string, serverAddrs []string, config *TopoConfig) (Store, error) {
+	if config == nil {
+		return nil, fmt.Errorf("TopoConfig is required")
+	}
+
 	factory, ok := factories[implementation]
 	if !ok {
 		// Build a helpful error message showing available implementations
@@ -372,7 +437,7 @@ func OpenServer(implementation, root string, serverAddrs []string) (Store, error
 
 		return nil, fmt.Errorf("topology implementation '%s' not found. Available implementations: %s", implementation, strings.Join(available, ", "))
 	}
-	return NewWithFactory(factory, root, serverAddrs), nil
+	return NewWithFactory(factory, root, serverAddrs, config), nil
 }
 
 // Open returns a topology store using the command-line parameter flags
@@ -407,7 +472,7 @@ func (config *TopoConfig) Open() Store {
 		os.Exit(1)
 	}
 
-	ts, err := OpenServer(implementation, root, addresses)
+	ts, err := OpenServer(implementation, root, addresses, config)
 	if err != nil {
 		slog.Error("Failed to open topo server", "error", err, "implementation", implementation, "addresses", addresses, "root", root)
 		os.Exit(1)

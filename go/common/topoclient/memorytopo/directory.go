@@ -19,8 +19,8 @@ import (
 
 	"github.com/multigres/multigres/go/pb/mtrpc"
 
-	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/common/mterrors"
+	"github.com/multigres/multigres/go/common/topoclient"
 )
 
 // ListDir is part of the topoclient.Conn interface.

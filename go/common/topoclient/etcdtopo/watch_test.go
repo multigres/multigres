@@ -80,7 +80,7 @@ func TestWatchTopoVersion(t *testing.T) {
 	})
 	require.NoError(t, err)
 	serverRunningCh := make(chan struct{})
-	server := &Server{
+	server := &etcdtopo{
 		cli:     client,
 		root:    root,
 		running: serverRunningCh,
@@ -216,7 +216,7 @@ func TestWatchRecursiveReconnection(t *testing.T) {
 	defer client.Close()
 
 	serverRunningCh := make(chan struct{})
-	server := &Server{
+	server := &etcdtopo{
 		cli:     client,
 		root:    root,
 		running: serverRunningCh,
@@ -318,7 +318,7 @@ func TestWatchRecursiveCompaction(t *testing.T) {
 	defer client.Close()
 
 	serverRunningCh := make(chan struct{})
-	server := &Server{
+	server := &etcdtopo{
 		cli:     client,
 		root:    root,
 		running: serverRunningCh,

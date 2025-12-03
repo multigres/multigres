@@ -24,7 +24,7 @@ import (
 )
 
 // Create is part of the topoclient.Conn interface.
-func (s *Server) Create(ctx context.Context, filePath string, contents []byte) (topoclient.Version, error) {
+func (s *etcdtopo) Create(ctx context.Context, filePath string, contents []byte) (topoclient.Version, error) {
 	nodePath := path.Join(s.root, filePath)
 
 	// We have to do a transaction, comparing existing version with 0.
@@ -43,7 +43,7 @@ func (s *Server) Create(ctx context.Context, filePath string, contents []byte) (
 }
 
 // Update is part of the topoclient.Conn interface.
-func (s *Server) Update(ctx context.Context, filePath string, contents []byte, version topoclient.Version) (topoclient.Version, error) {
+func (s *etcdtopo) Update(ctx context.Context, filePath string, contents []byte, version topoclient.Version) (topoclient.Version, error) {
 	nodePath := path.Join(s.root, filePath)
 
 	if version != nil {
@@ -71,7 +71,7 @@ func (s *Server) Update(ctx context.Context, filePath string, contents []byte, v
 }
 
 // Get is part of the topoclient.Conn interface.
-func (s *Server) Get(ctx context.Context, filePath string) ([]byte, topoclient.Version, error) {
+func (s *etcdtopo) Get(ctx context.Context, filePath string) ([]byte, topoclient.Version, error) {
 	nodePath := path.Join(s.root, filePath)
 
 	resp, err := s.cli.Get(ctx, nodePath)
@@ -86,7 +86,7 @@ func (s *Server) Get(ctx context.Context, filePath string) ([]byte, topoclient.V
 }
 
 // GetVersion is part of the topoclient.Conn interface.
-func (s *Server) GetVersion(ctx context.Context, filePath string, version int64) ([]byte, error) {
+func (s *etcdtopo) GetVersion(ctx context.Context, filePath string, version int64) ([]byte, error) {
 	nodePath := path.Join(s.root, filePath)
 
 	resp, err := s.cli.Get(ctx, nodePath, clientv3.WithRev(version))
@@ -101,7 +101,7 @@ func (s *Server) GetVersion(ctx context.Context, filePath string, version int64)
 }
 
 // List is part of the topoclient.Conn interface.
-func (s *Server) List(ctx context.Context, filePathPrefix string) ([]topoclient.KVInfo, error) {
+func (s *etcdtopo) List(ctx context.Context, filePathPrefix string) ([]topoclient.KVInfo, error) {
 	nodePathPrefix := path.Join(s.root, filePathPrefix)
 
 	resp, err := s.cli.Get(ctx, nodePathPrefix, clientv3.WithPrefix())
@@ -123,7 +123,7 @@ func (s *Server) List(ctx context.Context, filePathPrefix string) ([]topoclient.
 }
 
 // Delete is part of the topoclient.Conn interface.
-func (s *Server) Delete(ctx context.Context, filePath string, version topoclient.Version) error {
+func (s *etcdtopo) Delete(ctx context.Context, filePath string, version topoclient.Version) error {
 	nodePath := path.Join(s.root, filePath)
 
 	if version != nil {

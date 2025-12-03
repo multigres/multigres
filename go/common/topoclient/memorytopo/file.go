@@ -20,8 +20,8 @@ import (
 	"path"
 	"strings"
 
-	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/common/mterrors"
+	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/pb/mtrpc"
 )
 

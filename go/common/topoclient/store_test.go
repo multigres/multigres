@@ -66,7 +66,7 @@ func TestNewWithFactory(t *testing.T) {
 	root := "/test/root"
 	serverAddrs := []string{"localhost:2181", "localhost:2182"}
 
-	ts := NewWithFactory(factory, root, serverAddrs)
+	ts := NewWithFactory(factory, root, serverAddrs, NewDefaultTopoConfig())
 	require.NotNil(t, ts, "Store should not be nil")
 
 	// Verify factory was called for global topology
@@ -87,7 +87,7 @@ func TestOpenServer(t *testing.T) {
 		factory := newMockFactory()
 		RegisterFactory("test-impl", factory)
 
-		ts, err := OpenServer("test-impl", "/test", []string{"localhost:2181"})
+		ts, err := OpenServer("test-impl", "/test", []string{"localhost:2181"}, NewDefaultTopoConfig())
 		require.NoError(t, err, "OpenServer should succeed")
 		require.NotNil(t, ts, "Store should not be nil")
 
@@ -95,7 +95,7 @@ func TestOpenServer(t *testing.T) {
 	})
 
 	t.Run("Error with unregistered implementation", func(t *testing.T) {
-		ts, err := OpenServer("nonexistent", "/test", []string{"localhost:2181"})
+		ts, err := OpenServer("nonexistent", "/test", []string{"localhost:2181"}, NewDefaultTopoConfig())
 		assert.Error(t, err, "OpenServer should fail with unregistered implementation")
 		assert.Nil(t, ts, "Store should be nil")
 		assert.Contains(t, err.Error(), "not found", "Error should mention not found")
@@ -104,7 +104,7 @@ func TestOpenServer(t *testing.T) {
 	t.Run("Error with no registered implementations", func(t *testing.T) {
 		factories = make(map[string]Factory)
 
-		ts, err := OpenServer("anything", "/test", []string{"localhost:2181"})
+		ts, err := OpenServer("anything", "/test", []string{"localhost:2181"}, NewDefaultTopoConfig())
 		assert.Error(t, err, "OpenServer should fail with no implementations")
 		assert.Nil(t, ts, "Store should be nil")
 		assert.Contains(t, err.Error(), "no topology implementations registered", "Error should mention no implementations")
@@ -113,7 +113,7 @@ func TestOpenServer(t *testing.T) {
 
 func TestConnForCell_GlobalCell(t *testing.T) {
 	factory := newMockFactory()
-	ts := NewWithFactory(factory, "/test", []string{"localhost:2181"})
+	ts := NewWithFactory(factory, "/test", []string{"localhost:2181"}, NewDefaultTopoConfig())
 	defer ts.Close()
 
 	ctx := context.Background()
@@ -133,7 +133,7 @@ func TestConnForCell_GlobalCell(t *testing.T) {
 
 func TestConnForCell_NewCell(t *testing.T) {
 	factory := newMockFactory()
-	ts := NewWithFactory(factory, "/test", []string{"localhost:2181"})
+	ts := NewWithFactory(factory, "/test", []string{"localhost:2181"}, NewDefaultTopoConfig())
 	require.NotNil(t, ts)
 	defer ts.Close()
 
@@ -160,7 +160,7 @@ func TestConnForCell_NewCell(t *testing.T) {
 
 func TestConnForCell_CachedConnection(t *testing.T) {
 	factory := newMockFactory()
-	ts := NewWithFactory(factory, "/test", []string{"localhost:2181"})
+	ts := NewWithFactory(factory, "/test", []string{"localhost:2181"}, NewDefaultTopoConfig())
 	require.NotNil(t, ts)
 	defer ts.Close()
 
@@ -192,7 +192,7 @@ func TestConnForCell_CachedConnection(t *testing.T) {
 
 func TestConnForCell_UpdatedCellConfig(t *testing.T) {
 	factory := newMockFactory()
-	ts := NewWithFactory(factory, "/test", []string{"localhost:2181"})
+	ts := NewWithFactory(factory, "/test", []string{"localhost:2181"}, NewDefaultTopoConfig())
 	require.NotNil(t, ts)
 	defer ts.Close()
 
@@ -232,7 +232,7 @@ func TestConnForCell_UpdatedCellConfig(t *testing.T) {
 
 func TestConnForCell_NonexistentCell(t *testing.T) {
 	factory := newMockFactory()
-	ts := NewWithFactory(factory, "/test", []string{"localhost:2181"})
+	ts := NewWithFactory(factory, "/test", []string{"localhost:2181"}, NewDefaultTopoConfig())
 	require.NotNil(t, ts)
 	defer ts.Close()
 
@@ -246,7 +246,7 @@ func TestConnForCell_NonexistentCell(t *testing.T) {
 
 func TestConnForCell_CanceledContext(t *testing.T) {
 	factory := newMockFactory()
-	ts := NewWithFactory(factory, "/test", []string{"localhost:2181"})
+	ts := NewWithFactory(factory, "/test", []string{"localhost:2181"}, NewDefaultTopoConfig())
 	require.NotNil(t, ts)
 	defer ts.Close()
 
@@ -262,7 +262,7 @@ func TestConnForCell_CanceledContext(t *testing.T) {
 
 func TestStoreClose(t *testing.T) {
 	factory := newMockFactory()
-	ts := NewWithFactory(factory, "/test", []string{"localhost:2181"})
+	ts := NewWithFactory(factory, "/test", []string{"localhost:2181"}, NewDefaultTopoConfig())
 
 	ctx := context.Background()
 
@@ -289,7 +289,7 @@ func TestStoreClose(t *testing.T) {
 
 func TestStoreClose_VerifiesConnectionsClosed(t *testing.T) {
 	factory := newMockFactory()
-	ts := NewWithFactory(factory, "/test", []string{"localhost:2181"})
+	ts := NewWithFactory(factory, "/test", []string{"localhost:2181"}, NewDefaultTopoConfig())
 
 	ctx := context.Background()
 
@@ -336,7 +336,7 @@ func TestCellConnStruct(t *testing.T) {
 
 func TestConnForCell_ProtoEquality(t *testing.T) {
 	factory := newMockFactory()
-	ts := NewWithFactory(factory, "/test", []string{"localhost:2181"})
+	ts := NewWithFactory(factory, "/test", []string{"localhost:2181"}, NewDefaultTopoConfig())
 	require.NotNil(t, ts)
 	defer ts.Close()
 
@@ -373,7 +373,7 @@ func TestConnForCell_ProtoEquality(t *testing.T) {
 
 func TestConnForCell_ConcurrentAccess(t *testing.T) {
 	factory := newMockFactory()
-	ts := NewWithFactory(factory, "/test", []string{"localhost:2181"})
+	ts := NewWithFactory(factory, "/test", []string{"localhost:2181"}, NewDefaultTopoConfig())
 	require.NotNil(t, ts)
 	defer ts.Close()
 
@@ -467,7 +467,7 @@ func TestOpen_ValidConfiguration(t *testing.T) {
 
 func TestStatus_InitiallyEmpty(t *testing.T) {
 	factory := newMockFactory()
-	ts := NewWithFactory(factory, "/test", []string{"localhost:2181"})
+	ts := NewWithFactory(factory, "/test", []string{"localhost:2181"}, NewDefaultTopoConfig())
 	require.NotNil(t, ts)
 	defer ts.Close()
 
@@ -484,7 +484,7 @@ func TestStatus_GlobalCellError(t *testing.T) {
 	factory := newMockFactory()
 	factory.setShouldFail(true)
 
-	ts := NewWithFactory(factory, "/test", []string{"localhost:2181"})
+	ts := NewWithFactory(factory, "/test", []string{"localhost:2181"}, NewDefaultTopoConfig())
 	require.NotNil(t, ts)
 	defer ts.Close()
 
@@ -505,7 +505,7 @@ func TestStatus_GlobalCellRecovery(t *testing.T) {
 	factory := newMockFactory()
 	factory.setShouldFail(true)
 
-	ts := NewWithFactory(factory, "/test", []string{"localhost:2181"})
+	ts := NewWithFactory(factory, "/test", []string{"localhost:2181"}, NewDefaultTopoConfig())
 	require.NotNil(t, ts)
 	defer ts.Close()
 
@@ -533,7 +533,7 @@ func TestStatus_GlobalCellRecovery(t *testing.T) {
 
 func TestStatus_CellConnection(t *testing.T) {
 	factory := newMockFactory()
-	ts := NewWithFactory(factory, "/test", []string{"localhost:2181"})
+	ts := NewWithFactory(factory, "/test", []string{"localhost:2181"}, NewDefaultTopoConfig())
 	require.NotNil(t, ts)
 	defer ts.Close()
 
@@ -560,7 +560,7 @@ func TestStatus_CellConnection(t *testing.T) {
 
 func TestStatus_MultipleCells(t *testing.T) {
 	factory := newMockFactory()
-	ts := NewWithFactory(factory, "/test", []string{"localhost:2181"})
+	ts := NewWithFactory(factory, "/test", []string{"localhost:2181"}, NewDefaultTopoConfig())
 	require.NotNil(t, ts)
 	defer ts.Close()
 
@@ -598,7 +598,7 @@ func TestStatus_CellConnectionError(t *testing.T) {
 		failForCell: "cell1",
 	}
 
-	ts := NewWithFactory(factory, "/test", []string{"localhost:2181"})
+	ts := NewWithFactory(factory, "/test", []string{"localhost:2181"}, NewDefaultTopoConfig())
 	require.NotNil(t, ts)
 	defer ts.Close()
 
@@ -631,7 +631,7 @@ func TestStatus_CellConnectionError(t *testing.T) {
 
 func TestStatus_ReturnsCopy(t *testing.T) {
 	factory := newMockFactory()
-	ts := NewWithFactory(factory, "/test", []string{"localhost:2181"})
+	ts := NewWithFactory(factory, "/test", []string{"localhost:2181"}, NewDefaultTopoConfig())
 	require.NotNil(t, ts)
 	defer ts.Close()
 

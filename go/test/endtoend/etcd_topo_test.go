@@ -47,7 +47,7 @@ func TestEtcd2Topo(t *testing.T) {
 		testIndex++
 
 		// Create the server on the new root.
-		ts, err := topoclient.OpenServer("etcd2", path.Join(testRoot, topoclient.GlobalCell), []string{clientAddr})
+		ts, err := topoclient.OpenServer("etcd2", path.Join(testRoot, topoclient.GlobalCell), []string{clientAddr}, topoclient.NewDefaultTopoConfig())
 		require.NoError(t, err, "OpenServer() failed")
 
 		// Create the CellInfo.

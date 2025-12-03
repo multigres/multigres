@@ -32,14 +32,13 @@ const testLockTimeout = 100 * time.Millisecond
 // TestTopoShardLock tests shard lock operations.
 func TestTopoShardLock(t *testing.T) {
 	ctx := t.Context()
-	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
-	defer ts.Close()
 
-	currentTopoLockTimeout := topoclient.LockTimeout
-	topoclient.LockTimeout = testLockTimeout
-	defer func() {
-		topoclient.LockTimeout = currentTopoLockTimeout
-	}()
+	// Create a config with a short lock timeout for faster tests
+	config := topoclient.NewDefaultTopoConfig()
+	config.SetLockTimeout(testLockTimeout)
+
+	ts, _ := memorytopo.NewServerAndFactoryWithConfig(ctx, config, "zone1")
+	defer ts.Close()
 
 	shardKey1 := types.ShardKey{Database: "testdb", TableGroup: "default", Shard: "0"}
 	shardKey2 := types.ShardKey{Database: "testdb", TableGroup: "default", Shard: "1"}

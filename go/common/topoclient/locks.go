@@ -26,12 +26,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/spf13/pflag"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/multigres/multigres/go/common/mterrors"
-	"github.com/multigres/multigres/go/common/servenv"
 	"github.com/multigres/multigres/go/pb/mtrpc"
 	"github.com/multigres/multigres/go/tools/telemetry"
 )
@@ -50,15 +48,6 @@ type Lock struct {
 
 	// Status is the current status of the Lock.
 	Status string
-}
-
-func init() {
-	servenv.OnParse(registerTopoLockFlags)
-}
-
-func registerTopoLockFlags(fs *pflag.FlagSet) {
-	fs.DurationVar(&RemoteOperationTimeout, "remote-operation-timeout", RemoteOperationTimeout, "time to wait for a remote operation")
-	fs.DurationVar(&LockTimeout, "lock-timeout", LockTimeout, "Maximum time to wait when attempting to acquire a lock from the topo server")
 }
 
 // newLock creates a new Lock.
@@ -151,7 +140,7 @@ func (l *Lock) lock(ctx context.Context, ts *store, lt iTopoLock, opts ...LockOp
 	}
 	slog.InfoContext(ctx, "Locking resource", "type", lt.Type(), "resource", lt.ResourceName(), "action", l.Action, "options", l.Options)
 
-	ctx, cancel := context.WithTimeout(ctx, LockTimeout)
+	ctx, cancel := context.WithTimeout(ctx, ts.getLockTimeout())
 	defer cancel()
 
 	ctx, span := telemetry.Tracer().Start(ctx, "TopoServer.Lock",
@@ -212,14 +201,14 @@ func (l *Lock) lock(ctx context.Context, ts *store, lt iTopoLock, opts ...LockOp
 }
 
 // unlock unlocks a previously locked key.
-func (l *Lock) unlock(ctx context.Context, lt iTopoLock, lockDescriptor LockDescriptor, actionError error) error {
+func (l *Lock) unlock(ctx context.Context, ts *store, lt iTopoLock, lockDescriptor LockDescriptor, actionError error) error {
 	// Detach from the parent timeout, but preserve the trace span.
 	// We need to still release the lock even if the parent
 	// context timed out.
 	span := trace.SpanFromContext(ctx)
 	//nolint:gocritic // Intentionally detaching from parent context - unlock must complete even if parent was cancelled
 	ctx = trace.ContextWithSpan(context.Background(), span)
-	ctx, cancel := context.WithTimeout(ctx, RemoteOperationTimeout)
+	ctx, cancel := context.WithTimeout(ctx, ts.getRemoteOperationTimeout())
 	defer cancel()
 
 	ctx, unlockSpan := telemetry.Tracer().Start(ctx, "TopoServer.Unlock",
@@ -290,7 +279,7 @@ func (ts *store) internalLock(ctx context.Context, lt iTopoLock, action string, 
 			return
 		}
 
-		err := l.unlock(ctx, lt, lockDescriptor, *finalErr)
+		err := l.unlock(ctx, ts, lt, lockDescriptor, *finalErr)
 		// if we have an error, we log it, but we still want to delete the lock
 		if *finalErr != nil {
 			if err != nil {
