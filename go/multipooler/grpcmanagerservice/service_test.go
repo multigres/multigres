@@ -76,6 +76,8 @@ func TestManagerServiceMethods_NotImplemented(t *testing.T) {
 		PortMap:       map[string]int32{"grpc": 8080},
 		Type:          clustermetadata.PoolerType_PRIMARY,
 		ServingStatus: clustermetadata.PoolerServingStatus_SERVING,
+		TableGroup:    "default",
+		Shard:         "0-inf",
 	}
 	require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
 

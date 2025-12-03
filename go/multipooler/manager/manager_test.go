@@ -93,6 +93,8 @@ func TestManagerState_SuccessfulLoad(t *testing.T) {
 		PortMap:       map[string]int32{"grpc": 8080},
 		Type:          clustermetadatapb.PoolerType_PRIMARY,
 		ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
+		TableGroup:    "default",
+		Shard:         "0-inf",
 	}
 	require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
 
@@ -240,6 +242,8 @@ func TestManagerState_RetryUntilSuccess(t *testing.T) {
 		PortMap:       map[string]int32{"grpc": 8080},
 		Type:          clustermetadatapb.PoolerType_PRIMARY,
 		ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
+		TableGroup:    "default",
+		Shard:         "0-inf",
 	}
 	require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
 
@@ -402,6 +406,8 @@ func TestValidateAndUpdateTerm(t *testing.T) {
 				PortMap:       map[string]int32{"grpc": 8080},
 				Type:          clustermetadatapb.PoolerType_PRIMARY,
 				ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
+				TableGroup:    "default",
+				Shard:         "0-inf",
 			}
 			require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
 

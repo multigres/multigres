@@ -72,6 +72,8 @@ func TestConsensusService_BeginTerm(t *testing.T) {
 		PortMap:       map[string]int32{"grpc": 8080},
 		Type:          clustermetadata.PoolerType_REPLICA,
 		ServingStatus: clustermetadata.PoolerServingStatus_SERVING,
+		TableGroup:    "default",
+		Shard:         "0-inf",
 	}
 	require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
 
@@ -150,6 +152,8 @@ func TestConsensusService_Status(t *testing.T) {
 		PortMap:       map[string]int32{"grpc": 8080},
 		Type:          clustermetadata.PoolerType_REPLICA,
 		ServingStatus: clustermetadata.PoolerServingStatus_SERVING,
+		TableGroup:    "default",
+		Shard:         "0-inf",
 	}
 	require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
 
@@ -227,6 +231,8 @@ func TestConsensusService_GetLeadershipView(t *testing.T) {
 		PortMap:       map[string]int32{"grpc": 8080},
 		Type:          clustermetadata.PoolerType_REPLICA,
 		ServingStatus: clustermetadata.PoolerServingStatus_SERVING,
+		TableGroup:    "default",
+		Shard:         "0-inf",
 	}
 	require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
 
@@ -299,6 +305,8 @@ func TestConsensusService_CanReachPrimary(t *testing.T) {
 		PortMap:       map[string]int32{"grpc": 8080},
 		Type:          clustermetadata.PoolerType_REPLICA,
 		ServingStatus: clustermetadata.PoolerServingStatus_SERVING,
+		TableGroup:    "default",
+		Shard:         "0-inf",
 	}
 	require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
 
@@ -373,6 +381,8 @@ func TestConsensusService_AllMethods(t *testing.T) {
 		PortMap:       map[string]int32{"grpc": 8080},
 		Type:          clustermetadata.PoolerType_REPLICA,
 		ServingStatus: clustermetadata.PoolerServingStatus_SERVING,
+		TableGroup:    "default",
+		Shard:         "0-inf",
 	}
 	require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
 
