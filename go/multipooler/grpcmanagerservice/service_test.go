@@ -83,8 +83,11 @@ func TestManagerServiceMethods_NotImplemented(t *testing.T) {
 		TopoClient: ts,
 		ServiceID:  serviceID,
 		PgctldAddr: pgctldAddr,
+		TableGroup: "default",
+		Shard:      "0-inf",
 	}
-	pm := manager.NewMultiPoolerManager(logger, config)
+	pm, err := manager.NewMultiPoolerManager(logger, config)
+	require.NoError(t, err)
 	defer pm.Close()
 
 	// Start the async loader
@@ -151,8 +154,11 @@ func TestManagerServiceMethods_ManagerNotReady(t *testing.T) {
 	config := &manager.Config{
 		TopoClient: ts,
 		ServiceID:  serviceID,
+		TableGroup: "default",
+		Shard:      "0-inf",
 	}
-	pm := manager.NewMultiPoolerManager(logger, config)
+	pm, err := manager.NewMultiPoolerManager(logger, config)
+	require.NoError(t, err)
 	defer pm.Close()
 
 	// Do NOT start the manager - keep it in starting state

@@ -141,13 +141,23 @@ type cachedMultiPoolerInfo struct {
 }
 
 // NewMultiPoolerManager creates a new MultiPoolerManager instance
-func NewMultiPoolerManager(logger *slog.Logger, config *Config) *MultiPoolerManager {
+func NewMultiPoolerManager(logger *slog.Logger, config *Config) (*MultiPoolerManager, error) {
 	return NewMultiPoolerManagerWithTimeout(logger, config, 5*time.Minute)
 }
 
 // NewMultiPoolerManagerWithTimeout creates a new MultiPoolerManager instance with a custom load timeout
-func NewMultiPoolerManagerWithTimeout(logger *slog.Logger, config *Config, loadTimeout time.Duration) *MultiPoolerManager {
+func NewMultiPoolerManagerWithTimeout(logger *slog.Logger, config *Config, loadTimeout time.Duration) (*MultiPoolerManager, error) {
 	ctx, cancel := context.WithCancel(context.TODO())
+
+	// Validate required config fields
+	if config.TableGroup == "" {
+		cancel()
+		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "TableGroup is required")
+	}
+	if config.Shard == "" {
+		cancel()
+		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "Shard is required")
+	}
 
 	// Create pgctld gRPC client
 	var pgctldClient pgctldpb.PgCtldClient
@@ -182,7 +192,7 @@ func NewMultiPoolerManagerWithTimeout(logger *slog.Logger, config *Config, loadT
 	pm.qsc = poolerserver.NewMultiPooler(logger)
 	logger.Info("Created query service controller")
 
-	return pm
+	return pm, nil
 }
 
 // connectDB establishes a connection to PostgreSQL (reuses the shared logic)
@@ -382,24 +392,14 @@ func (pm *MultiPoolerManager) getPgCtldClient() pgctldpb.PgCtldClient {
 	return pm.pgctldClient
 }
 
-// getTableGroup returns the table group from the multipooler record
+// getTableGroup returns the table group from the config (static, set at startup)
 func (pm *MultiPoolerManager) getTableGroup() string {
-	pm.cachedMultipooler.mu.Lock()
-	defer pm.cachedMultipooler.mu.Unlock()
-	if pm.cachedMultipooler.multipooler != nil && pm.cachedMultipooler.multipooler.MultiPooler != nil {
-		return pm.cachedMultipooler.multipooler.TableGroup
-	}
-	return ""
+	return pm.config.TableGroup
 }
 
-// getShard returns the shard from the multipooler record
+// getShard returns the shard from the config (static, set at startup)
 func (pm *MultiPoolerManager) getShard() string {
-	pm.cachedMultipooler.mu.Lock()
-	defer pm.cachedMultipooler.mu.Unlock()
-	if pm.cachedMultipooler.multipooler != nil && pm.cachedMultipooler.multipooler.MultiPooler != nil {
-		return pm.cachedMultipooler.multipooler.Shard
-	}
-	return ""
+	return pm.config.Shard
 }
 
 // getPoolerType returns the pooler type from the multipooler record

@@ -26,7 +26,9 @@ type Config struct {
 	SocketFilePath      string
 	PoolerDir           string
 	PgPort              int
-	Database            string
+	Database            string // Database name this multipooler connects to (static, set at startup)
+	TableGroup          string // Tablegroup this multipooler serves (static, set at startup)
+	Shard               string // Shard this multipooler serves (static, set at startup)
 	TopoClient          topo.Store
 	ServiceID           *clustermetadatapb.ID
 	HeartbeatIntervalMs int

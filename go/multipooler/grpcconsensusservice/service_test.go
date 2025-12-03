@@ -84,8 +84,11 @@ func TestConsensusService_BeginTerm(t *testing.T) {
 		PgctldAddr:       pgctldAddr,
 		PoolerDir:        tmpDir,
 		ConsensusEnabled: true,
+		TableGroup:       "default",
+		Shard:            "0-inf",
 	}
-	pm := manager.NewMultiPoolerManager(logger, config)
+	pm, err := manager.NewMultiPoolerManager(logger, config)
+	require.NoError(t, err)
 	defer pm.Close()
 
 	// Start the async loader
@@ -159,8 +162,11 @@ func TestConsensusService_Status(t *testing.T) {
 		PgctldAddr:       pgctldAddr,
 		PoolerDir:        tmpDir,
 		ConsensusEnabled: true,
+		TableGroup:       "default",
+		Shard:            "0-inf",
 	}
-	pm := manager.NewMultiPoolerManager(logger, config)
+	pm, err := manager.NewMultiPoolerManager(logger, config)
+	require.NoError(t, err)
 	defer pm.Close()
 
 	// Start the async loader
@@ -233,8 +239,11 @@ func TestConsensusService_GetLeadershipView(t *testing.T) {
 		PgctldAddr:       pgctldAddr,
 		PoolerDir:        tmpDir,
 		ConsensusEnabled: true,
+		TableGroup:       "default",
+		Shard:            "0-inf",
 	}
-	pm := manager.NewMultiPoolerManager(logger, config)
+	pm, err := manager.NewMultiPoolerManager(logger, config)
+	require.NoError(t, err)
 	defer pm.Close()
 
 	// Start the async loader
@@ -302,8 +311,11 @@ func TestConsensusService_CanReachPrimary(t *testing.T) {
 		PgctldAddr:       pgctldAddr,
 		PoolerDir:        tmpDir,
 		ConsensusEnabled: true,
+		TableGroup:       "default",
+		Shard:            "0-inf",
 	}
-	pm := manager.NewMultiPoolerManager(logger, config)
+	pm, err := manager.NewMultiPoolerManager(logger, config)
+	require.NoError(t, err)
 	defer pm.Close()
 
 	// Start the async loader
@@ -373,8 +385,11 @@ func TestConsensusService_AllMethods(t *testing.T) {
 		PgctldAddr:       pgctldAddr,
 		PoolerDir:        tmpDir,
 		ConsensusEnabled: true,
+		TableGroup:       "default",
+		Shard:            "0-inf",
 	}
-	pm := manager.NewMultiPoolerManager(logger, config)
+	pm, err := manager.NewMultiPoolerManager(logger, config)
+	require.NoError(t, err)
 	defer pm.Close()
 
 	// Start the async loader

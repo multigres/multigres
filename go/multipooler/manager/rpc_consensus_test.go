@@ -79,6 +79,8 @@ func setupManagerWithMockDB(t *testing.T, mockDB *sql.DB) (*MultiPoolerManager, 
 		PortMap:       map[string]int32{"grpc": 8080},
 		Type:          clustermetadatapb.PoolerType_PRIMARY,
 		ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
+		TableGroup:    "default",
+		Shard:         "0-inf",
 	}
 	require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
 
@@ -88,8 +90,11 @@ func setupManagerWithMockDB(t *testing.T, mockDB *sql.DB) (*MultiPoolerManager, 
 		ServiceID:  serviceID,
 		PgctldAddr: pgctldAddr,
 		PoolerDir:  tmpDir,
+		TableGroup: "default",
+		Shard:      "0-inf",
 	}
-	pm := NewMultiPoolerManager(logger, config)
+	pm, err := NewMultiPoolerManager(logger, config)
+	require.NoError(t, err)
 	t.Cleanup(func() { pm.Close() })
 
 	// Assign mock DB BEFORE starting the manager to avoid race conditions
@@ -104,7 +109,7 @@ func setupManagerWithMockDB(t *testing.T, mockDB *sql.DB) (*MultiPoolerManager, 
 
 	// Create the pg_data directory to simulate initialized data directory
 	pgDataDir := tmpDir + "/pg_data"
-	err := os.MkdirAll(pgDataDir, 0o755)
+	err = os.MkdirAll(pgDataDir, 0o755)
 	require.NoError(t, err)
 	// Create PG_VERSION file to mark it as initialized
 	err = os.WriteFile(pgDataDir+"/PG_VERSION", []byte("18\n"), 0o644)

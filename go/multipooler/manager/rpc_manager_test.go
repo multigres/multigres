@@ -103,6 +103,8 @@ func TestPrimaryPosition(t *testing.T) {
 				PortMap:       map[string]int32{"grpc": 8080},
 				Type:          tt.poolerType,
 				ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
+				TableGroup:    "default",
+				Shard:         "0-inf",
 			}
 			require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
 
@@ -110,8 +112,11 @@ func TestPrimaryPosition(t *testing.T) {
 				TopoClient: ts,
 				ServiceID:  serviceID,
 				PoolerDir:  poolerDir,
+				TableGroup: "default",
+				Shard:      "0-inf",
 			}
-			manager := NewMultiPoolerManager(logger, config)
+			manager, err := NewMultiPoolerManager(logger, config)
+			require.NoError(t, err)
 			defer manager.Close()
 
 			// Start and wait for ready
@@ -122,7 +127,7 @@ func TestPrimaryPosition(t *testing.T) {
 			}, 5*time.Second, 100*time.Millisecond, "Manager should reach Ready state")
 
 			// Call PrimaryPosition
-			_, err := manager.PrimaryPosition(ctx)
+			_, err = manager.PrimaryPosition(ctx)
 
 			if tt.expectError {
 				require.Error(t, err)
@@ -166,6 +171,8 @@ func TestActionLock_MutationMethodsTimeout(t *testing.T) {
 		PortMap:       map[string]int32{"grpc": 8080},
 		Type:          clustermetadatapb.PoolerType_PRIMARY,
 		ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
+		TableGroup:    "default",
+		Shard:         "0-inf",
 	}
 	require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
 
@@ -173,8 +180,11 @@ func TestActionLock_MutationMethodsTimeout(t *testing.T) {
 		TopoClient: ts,
 		ServiceID:  serviceID,
 		PoolerDir:  poolerDir,
+		TableGroup: "default",
+		Shard:      "0-inf",
 	}
-	manager := NewMultiPoolerManager(logger, config)
+	manager, err := NewMultiPoolerManager(logger, config)
+	require.NoError(t, err)
 	defer manager.Close()
 
 	// Start and wait for ready
@@ -376,6 +386,8 @@ func setupPromoteTestManager(t *testing.T, mockDB *sql.DB) (*MultiPoolerManager,
 		PortMap:       map[string]int32{"grpc": 8080},
 		Type:          clustermetadatapb.PoolerType_REPLICA,
 		ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
+		TableGroup:    "default",
+		Shard:         "0-inf",
 	}
 	require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
 
@@ -385,8 +397,11 @@ func setupPromoteTestManager(t *testing.T, mockDB *sql.DB) (*MultiPoolerManager,
 		ServiceID:  serviceID,
 		PgctldAddr: pgctldAddr,
 		PoolerDir:  tmpDir,
+		TableGroup: "default",
+		Shard:      "0-inf",
 	}
-	pm := NewMultiPoolerManager(logger, config)
+	pm, err := NewMultiPoolerManager(logger, config)
+	require.NoError(t, err)
 	t.Cleanup(func() { pm.Close() })
 
 	// Assign mock DB BEFORE starting the manager to avoid race conditions
@@ -401,7 +416,7 @@ func setupPromoteTestManager(t *testing.T, mockDB *sql.DB) (*MultiPoolerManager,
 
 	// Create the pg_data directory to simulate initialized data directory
 	pgDataDir := tmpDir + "/pg_data"
-	err := os.MkdirAll(pgDataDir, 0o755)
+	err = os.MkdirAll(pgDataDir, 0o755)
 	require.NoError(t, err)
 	// Create PG_VERSION file to mark it as initialized
 	err = os.WriteFile(pgDataDir+"/PG_VERSION", []byte("18\n"), 0o644)
@@ -836,6 +851,8 @@ func TestReplicationStatus(t *testing.T) {
 			PortMap:       map[string]int32{"grpc": 8080},
 			Type:          clustermetadatapb.PoolerType_PRIMARY,
 			ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
+			TableGroup:    "default",
+			Shard:         "0-inf",
 		}
 		require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
 
@@ -845,8 +862,11 @@ func TestReplicationStatus(t *testing.T) {
 			ServiceID:  serviceID,
 			PgctldAddr: pgctldAddr,
 			PoolerDir:  tmpDir,
+			TableGroup: "default",
+			Shard:      "0-inf",
 		}
-		pm := NewMultiPoolerManager(logger, config)
+		pm, err := NewMultiPoolerManager(logger, config)
+		require.NoError(t, err)
 		t.Cleanup(func() { pm.Close() })
 
 		senv := servenv.NewServEnv(viperutil.NewRegistry())
@@ -917,6 +937,8 @@ func TestReplicationStatus(t *testing.T) {
 			PortMap:       map[string]int32{"grpc": 8080},
 			Type:          clustermetadatapb.PoolerType_REPLICA,
 			ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
+			TableGroup:    "default",
+			Shard:         "0-inf",
 		}
 		require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
 
@@ -926,8 +948,11 @@ func TestReplicationStatus(t *testing.T) {
 			ServiceID:  serviceID,
 			PgctldAddr: pgctldAddr,
 			PoolerDir:  tmpDir,
+			TableGroup: "default",
+			Shard:      "0-inf",
 		}
-		pm := NewMultiPoolerManager(logger, config)
+		pm, err := NewMultiPoolerManager(logger, config)
+		require.NoError(t, err)
 		t.Cleanup(func() { pm.Close() })
 
 		senv := servenv.NewServEnv(viperutil.NewRegistry())
@@ -994,6 +1019,8 @@ func TestReplicationStatus(t *testing.T) {
 			PortMap:       map[string]int32{"grpc": 8080},
 			Type:          clustermetadatapb.PoolerType_PRIMARY,
 			ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
+			TableGroup:    "default",
+			Shard:         "0-inf",
 		}
 		require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
 
@@ -1003,8 +1030,11 @@ func TestReplicationStatus(t *testing.T) {
 			ServiceID:  serviceID,
 			PgctldAddr: pgctldAddr,
 			PoolerDir:  tmpDir,
+			TableGroup: "default",
+			Shard:      "0-inf",
 		}
-		pm := NewMultiPoolerManager(logger, config)
+		pm, err := NewMultiPoolerManager(logger, config)
+		require.NoError(t, err)
 		t.Cleanup(func() { pm.Close() })
 
 		senv := servenv.NewServEnv(viperutil.NewRegistry())
@@ -1060,6 +1090,8 @@ func TestReplicationStatus(t *testing.T) {
 			PortMap:       map[string]int32{"grpc": 8080},
 			Type:          clustermetadatapb.PoolerType_REPLICA,
 			ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
+			TableGroup:    "default",
+			Shard:         "0-inf",
 		}
 		require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
 
@@ -1069,8 +1101,11 @@ func TestReplicationStatus(t *testing.T) {
 			ServiceID:  serviceID,
 			PgctldAddr: pgctldAddr,
 			PoolerDir:  tmpDir,
+			TableGroup: "default",
+			Shard:      "0-inf",
 		}
-		pm := NewMultiPoolerManager(logger, config)
+		pm, err := NewMultiPoolerManager(logger, config)
+		require.NoError(t, err)
 		t.Cleanup(func() { pm.Close() })
 
 		senv := servenv.NewServEnv(viperutil.NewRegistry())

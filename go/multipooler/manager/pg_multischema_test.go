@@ -25,12 +25,9 @@ import (
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/multigres/multigres/go/clustermetadata/topo"
-	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 )
 
-// newTestManagerWithMultipooler creates a test MultiPoolerManager with a mock DB and multipooler metadata
+// newTestManagerWithMultipooler creates a test MultiPoolerManager with a mock DB and config
 func newTestManagerWithMultipooler(t *testing.T, tableGroup, shard string) (*MultiPoolerManager, sqlmock.Sqlmock) {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 
@@ -40,14 +37,11 @@ func newTestManagerWithMultipooler(t *testing.T, tableGroup, shard string) (*Mul
 	pm := &MultiPoolerManager{
 		logger: logger,
 		db:     mockDB,
+		config: &Config{
+			TableGroup: tableGroup,
+			Shard:      shard,
+		},
 	}
-
-	// Set up cached multipooler with tablegroup and shard
-	multipooler := &clustermetadatapb.MultiPooler{
-		TableGroup: tableGroup,
-		Shard:      shard,
-	}
-	pm.cachedMultipooler.multipooler = topo.NewMultiPoolerInfo(multipooler, nil)
 
 	return pm, mock
 }
