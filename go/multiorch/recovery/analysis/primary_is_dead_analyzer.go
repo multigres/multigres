@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/multigres/multigres/go/multiorch/recovery/types"
 	"github.com/multigres/multigres/go/multiorch/store"
 )
 
@@ -27,11 +28,11 @@ import (
 // The recovery loop's filterAndPrioritize() will deduplicate multiple instances.
 type PrimaryIsDeadAnalyzer struct{}
 
-func (a *PrimaryIsDeadAnalyzer) Name() CheckName {
+func (a *PrimaryIsDeadAnalyzer) Name() types.CheckName {
 	return "PrimaryIsDead"
 }
 
-func (a *PrimaryIsDeadAnalyzer) Analyze(poolerAnalysis *store.ReplicationAnalysis) []Problem {
+func (a *PrimaryIsDeadAnalyzer) Analyze(poolerAnalysis *store.ReplicationAnalysis) []types.Problem {
 	// Only analyze replicas (primaries can't report themselves as dead)
 	if poolerAnalysis.IsPrimary {
 		return nil
@@ -54,8 +55,8 @@ func (a *PrimaryIsDeadAnalyzer) Analyze(poolerAnalysis *store.ReplicationAnalysi
 			return nil
 		}
 
-		return []Problem{{
-			Code:       ProblemPrimaryIsDead,
+		return []types.Problem{{
+			Code:       types.ProblemPrimaryIsDead,
 			CheckName:  "PrimaryIsDead",
 			PoolerID:   poolerAnalysis.PoolerID,
 			Database:   poolerAnalysis.Database,
@@ -63,10 +64,10 @@ func (a *PrimaryIsDeadAnalyzer) Analyze(poolerAnalysis *store.ReplicationAnalysi
 			Shard:      poolerAnalysis.Shard,
 			Description: fmt.Sprintf("Primary for shard %s/%s/%s is dead/unreachable",
 				poolerAnalysis.Database, poolerAnalysis.TableGroup, poolerAnalysis.Shard),
-			Priority:       PriorityEmergency,
-			Scope:          ScopeShard,
+			Priority:       types.PriorityEmergency,
+			Scope:          types.ScopeShard,
 			DetectedAt:     time.Now(),
-			RecoveryAction: factory.NewAppointLeaderRecoveryAction(),
+			RecoveryAction: factory.NewAppointLeaderAction(),
 		}}
 	}
 

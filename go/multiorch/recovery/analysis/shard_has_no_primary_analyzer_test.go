@@ -24,6 +24,7 @@ import (
 	"github.com/multigres/multigres/go/clustermetadata/topo/memorytopo"
 	"github.com/multigres/multigres/go/common/rpcclient"
 	"github.com/multigres/multigres/go/multiorch/coordinator"
+	"github.com/multigres/multigres/go/multiorch/recovery/types"
 	"github.com/multigres/multigres/go/multiorch/store"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
@@ -61,9 +62,9 @@ func TestShardHasNoPrimaryAnalyzer_Analyze(t *testing.T) {
 
 		problems := analyzer.Analyze(analysis)
 		require.Len(t, problems, 1)
-		require.Equal(t, ProblemShardHasNoPrimary, problems[0].Code)
-		require.Equal(t, ScopeShard, problems[0].Scope)
-		require.Equal(t, PriorityShardBootstrap, problems[0].Priority)
+		require.Equal(t, types.ProblemShardHasNoPrimary, problems[0].Code)
+		require.Equal(t, types.ScopeShard, problems[0].Scope)
+		require.Equal(t, types.PriorityShardBootstrap, problems[0].Priority)
 		require.NotNil(t, problems[0].RecoveryAction)
 	})
 
@@ -101,6 +102,6 @@ func TestShardHasNoPrimaryAnalyzer_Analyze(t *testing.T) {
 	})
 
 	t.Run("analyzer name is correct", func(t *testing.T) {
-		require.Equal(t, CheckName("ShardHasNoPrimary"), analyzer.Name())
+		require.Equal(t, types.CheckName("ShardHasNoPrimary"), analyzer.Name())
 	})
 }

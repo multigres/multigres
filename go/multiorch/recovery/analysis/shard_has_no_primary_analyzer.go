@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/multigres/multigres/go/multiorch/recovery/types"
 	"github.com/multigres/multigres/go/multiorch/store"
 )
 
@@ -26,11 +27,11 @@ import (
 // The recovery loop's filterAndPrioritize() will deduplicate multiple instances.
 type ShardHasNoPrimaryAnalyzer struct{}
 
-func (a *ShardHasNoPrimaryAnalyzer) Name() CheckName {
+func (a *ShardHasNoPrimaryAnalyzer) Name() types.CheckName {
 	return "ShardHasNoPrimary"
 }
 
-func (a *ShardHasNoPrimaryAnalyzer) Analyze(poolerAnalysis *store.ReplicationAnalysis) []Problem {
+func (a *ShardHasNoPrimaryAnalyzer) Analyze(poolerAnalysis *store.ReplicationAnalysis) []types.Problem {
 	// Only analyze replicas (primaries can't detect missing primary)
 	if poolerAnalysis.IsPrimary {
 		return nil
@@ -44,8 +45,8 @@ func (a *ShardHasNoPrimaryAnalyzer) Analyze(poolerAnalysis *store.ReplicationAna
 			return nil
 		}
 
-		return []Problem{{
-			Code:       ProblemShardHasNoPrimary,
+		return []types.Problem{{
+			Code:       types.ProblemShardHasNoPrimary,
 			CheckName:  "ShardHasNoPrimary",
 			PoolerID:   poolerAnalysis.PoolerID,
 			Database:   poolerAnalysis.Database,
@@ -53,10 +54,10 @@ func (a *ShardHasNoPrimaryAnalyzer) Analyze(poolerAnalysis *store.ReplicationAna
 			Shard:      poolerAnalysis.Shard,
 			Description: fmt.Sprintf("Shard %s/%s/%s has initialized nodes but no primary",
 				poolerAnalysis.Database, poolerAnalysis.TableGroup, poolerAnalysis.Shard),
-			Priority:       PriorityShardBootstrap,
-			Scope:          ScopeShard,
+			Priority:       types.PriorityShardBootstrap,
+			Scope:          types.ScopeShard,
 			DetectedAt:     time.Now(),
-			RecoveryAction: factory.NewAppointLeaderRecoveryAction(),
+			RecoveryAction: factory.NewAppointLeaderAction(),
 		}}
 	}
 

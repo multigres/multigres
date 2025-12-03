@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/multigres/multigres/go/multiorch/recovery/types"
 	"github.com/multigres/multigres/go/multiorch/store"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 )
@@ -27,11 +28,11 @@ import (
 // The recovery loop's filterAndPrioritize() will deduplicate multiple instances.
 type ShardNeedsBootstrapAnalyzer struct{}
 
-func (a *ShardNeedsBootstrapAnalyzer) Name() CheckName {
+func (a *ShardNeedsBootstrapAnalyzer) Name() types.CheckName {
 	return "ShardNeedsBootstrap"
 }
 
-func (a *ShardNeedsBootstrapAnalyzer) Analyze(poolerAnalysis *store.ReplicationAnalysis) []Problem {
+func (a *ShardNeedsBootstrapAnalyzer) Analyze(poolerAnalysis *store.ReplicationAnalysis) []types.Problem {
 	// Skip unreachable nodes - we can't determine their true initialization state.
 	// An unreachable node might be perfectly initialized but just temporarily down.
 	// Other analyzers (PrimaryIsDead, ShardHasNoPrimary) will handle dead primaries.
@@ -75,8 +76,8 @@ func (a *ShardNeedsBootstrapAnalyzer) Analyze(poolerAnalysis *store.ReplicationA
 			return nil
 		}
 
-		return []Problem{{
-			Code:       ProblemShardNeedsBootstrap,
+		return []types.Problem{{
+			Code:       types.ProblemShardNeedsBootstrap,
 			CheckName:  "ShardNeedsBootstrap",
 			PoolerID:   poolerAnalysis.PoolerID,
 			Database:   poolerAnalysis.Database,
@@ -84,10 +85,10 @@ func (a *ShardNeedsBootstrapAnalyzer) Analyze(poolerAnalysis *store.ReplicationA
 			Shard:      poolerAnalysis.Shard,
 			Description: fmt.Sprintf("Shard %s/%s/%s has no initialized nodes and needs bootstrap",
 				poolerAnalysis.Database, poolerAnalysis.TableGroup, poolerAnalysis.Shard),
-			Priority:       PriorityShardBootstrap,
-			Scope:          ScopeShard,
+			Priority:       types.PriorityShardBootstrap,
+			Scope:          types.ScopeShard,
 			DetectedAt:     time.Now(),
-			RecoveryAction: factory.NewBootstrapRecoveryAction(),
+			RecoveryAction: factory.NewBootstrapShardAction(),
 		}}
 	}
 
