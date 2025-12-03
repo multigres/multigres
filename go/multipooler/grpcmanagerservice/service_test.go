@@ -27,8 +27,8 @@ import (
 	"github.com/multigres/multigres/go/common/clustermetadata/topo"
 	"github.com/multigres/multigres/go/common/clustermetadata/topo/memorytopo"
 	"github.com/multigres/multigres/go/common/mterrors"
+	"github.com/multigres/multigres/go/common/servenv"
 	"github.com/multigres/multigres/go/multipooler/manager"
-	"github.com/multigres/multigres/go/servenv"
 	"github.com/multigres/multigres/go/tools/viperutil"
 
 	"github.com/stretchr/testify/assert"

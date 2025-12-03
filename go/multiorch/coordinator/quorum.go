@@ -17,12 +17,12 @@ package coordinator
 import (
 	"fmt"
 
-	"github.com/multigres/multigres/go/multiorch/store"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 )
 
 // ValidateQuorum checks if the recruited nodes satisfy the quorum rule
-func (c *Coordinator) ValidateQuorum(rule *clustermetadatapb.QuorumRule, cohort []*store.PoolerHealth, recruited []*store.PoolerHealth) error {
+func (c *Coordinator) ValidateQuorum(rule *clustermetadatapb.QuorumRule, cohort []*multiorchdatapb.PoolerHealthState, recruited []*multiorchdatapb.PoolerHealthState) error {
 	switch rule.QuorumType {
 	case clustermetadatapb.QuorumType_QUORUM_TYPE_ANY_N:
 		return c.validateAnyNQuorum(rule, cohort, recruited)
@@ -36,7 +36,7 @@ func (c *Coordinator) ValidateQuorum(rule *clustermetadatapb.QuorumRule, cohort 
 }
 
 // validateAnyNQuorum validates that we have at least N nodes recruited
-func (c *Coordinator) validateAnyNQuorum(rule *clustermetadatapb.QuorumRule, cohort []*store.PoolerHealth, recruited []*store.PoolerHealth) error {
+func (c *Coordinator) validateAnyNQuorum(rule *clustermetadatapb.QuorumRule, cohort []*multiorchdatapb.PoolerHealthState, recruited []*multiorchdatapb.PoolerHealthState) error {
 	required := int(rule.RequiredCount)
 	recruitedCount := len(recruited)
 
@@ -58,11 +58,11 @@ func (c *Coordinator) validateAnyNQuorum(rule *clustermetadatapb.QuorumRule, coh
 }
 
 // validateMultiCellQuorum validates that we have at least one node from required_count distinct cells
-func (c *Coordinator) validateMultiCellQuorum(rule *clustermetadatapb.QuorumRule, recruited []*store.PoolerHealth) error {
+func (c *Coordinator) validateMultiCellQuorum(rule *clustermetadatapb.QuorumRule, recruited []*multiorchdatapb.PoolerHealthState) error {
 	// Group recruited nodes by cell
-	nodesByCell := make(map[string][]*store.PoolerHealth)
+	nodesByCell := make(map[string][]*multiorchdatapb.PoolerHealthState)
 	for _, node := range recruited {
-		cell := node.ID.Cell
+		cell := node.MultiPooler.Id.Cell
 		nodesByCell[cell] = append(nodesByCell[cell], node)
 	}
 
@@ -88,7 +88,7 @@ func (c *Coordinator) validateMultiCellQuorum(rule *clustermetadatapb.QuorumRule
 }
 
 // getCellNames extracts cell names from the nodesByCell map for logging
-func getCellNames(nodesByCell map[string][]*store.PoolerHealth) []string {
+func getCellNames(nodesByCell map[string][]*multiorchdatapb.PoolerHealthState) []string {
 	cells := make([]string, 0, len(nodesByCell))
 	for cell := range nodesByCell {
 		cells = append(cells, cell)

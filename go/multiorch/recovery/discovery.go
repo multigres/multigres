@@ -19,8 +19,8 @@ import (
 	"time"
 
 	"github.com/multigres/multigres/go/common/clustermetadata/topo"
-	"github.com/multigres/multigres/go/multiorch/store"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 )
 
 // refreshClusterMetadata queries the topology service for pooler updates.
@@ -143,20 +143,18 @@ func (re *Engine) refreshPoolersForTarget(ctx context.Context, database, tablegr
 			// Check if we already know about this pooler
 			if existing, ok := re.poolerStore.Get(poolerID); ok {
 				// Update the pooler metadata in case topology changed
-				// but preserve all timestamps and computed fields
-				updated := store.NewPoolerHealthFromMultiPooler(pooler.MultiPooler)
-				updated.LastCheckAttempted = existing.LastCheckAttempted
-				updated.LastCheckSuccessful = existing.LastCheckSuccessful
-				updated.LastSeen = existing.LastSeen
-				updated.IsUpToDate = existing.IsUpToDate
-				updated.IsLastCheckValid = existing.IsLastCheckValid
-				re.poolerStore.Set(poolerID, updated)
+				// but preserve all timestamps and computed fields.
+				// ProtoStore.Set() clones on write, so we can mutate existing safely.
+				existing.MultiPooler = pooler.MultiPooler
+				re.poolerStore.Set(poolerID, existing)
 			} else {
 				// New pooler - we've discovered it in the topology, but we haven't
 				// performed a health check yet. The health check loop will update
 				// LastSeen, LastCheckAttempted, LastCheckSuccessful, and IsUpToDate.
-				poolerInfo := store.NewPoolerHealthFromMultiPooler(pooler.MultiPooler)
-				poolerInfo.IsUpToDate = false // Not yet health checked
+				poolerInfo := &multiorchdatapb.PoolerHealthState{
+					MultiPooler: pooler.MultiPooler,
+					IsUpToDate:  false, // Not yet health checked
+				}
 				re.poolerStore.Set(poolerID, poolerInfo)
 
 				// Queue health check for this newly discovered pooler
@@ -219,19 +217,19 @@ func (re *Engine) forceHealthCheckShardPoolers(ctx context.Context, database, ta
 	// Collect poolers to poll (can't poll inside Range due to lock contention)
 	type poolerToPoll struct {
 		id     *clustermetadatapb.ID
-		health *store.PoolerHealth
+		health *multiorchdatapb.PoolerHealthState
 	}
 	var poolersToPoll []poolerToPoll
 
-	re.poolerStore.Range(func(poolerID string, poolerHealth *store.PoolerHealth) bool {
-		if poolerHealth == nil || poolerHealth.ID == nil {
+	re.poolerStore.Range(func(poolerID string, poolerHealth *multiorchdatapb.PoolerHealthState) bool {
+		if poolerHealth == nil || poolerHealth.MultiPooler == nil || poolerHealth.MultiPooler.Id == nil {
 			return true
 		}
 
 		// Check if this pooler is in the target shard
-		if poolerHealth.Database != database ||
-			poolerHealth.TableGroup != tablegroup ||
-			poolerHealth.Shard != shard {
+		if poolerHealth.MultiPooler.Database != database ||
+			poolerHealth.MultiPooler.TableGroup != tablegroup ||
+			poolerHealth.MultiPooler.Shard != shard {
 			return true // continue
 		}
 
@@ -240,9 +238,9 @@ func (re *Engine) forceHealthCheckShardPoolers(ctx context.Context, database, ta
 			return true // continue
 		}
 
-		// Collect this pooler for polling
+		// Collect this pooler for polling (already a clone from Range)
 		poolersToPoll = append(poolersToPoll, poolerToPoll{
-			id:     poolerHealth.ID,
+			id:     poolerHealth.MultiPooler.Id,
 			health: poolerHealth,
 		})
 		return true // continue

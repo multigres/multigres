@@ -49,7 +49,7 @@ func (pm *MultiPoolerManager) InitializeEmptyPrimary(ctx context.Context, req *m
 	}
 
 	// 2. Check if already initialized
-	if pm.isInitialized() {
+	if pm.isInitialized(ctx) {
 		pm.logger.InfoContext(ctx, "Pooler already initialized", "shard", pm.getShardID())
 		// Note: backup_id will be empty for idempotent case since we didn't create a new backup
 		return &multipoolermanagerdatapb.InitializeEmptyPrimaryResponse{Success: true}, nil
@@ -113,7 +113,7 @@ func (pm *MultiPoolerManager) InitializeEmptyPrimary(ctx context.Context, req *m
 
 	// 9. Create initial backup for standby initialization
 	pm.logger.InfoContext(ctx, "Creating initial backup for standby initialization", "shard", pm.getShardID())
-	backupID, err := pm.Backup(ctx, true, "full")
+	backupID, err := pm.backupLocked(ctx, true, "full")
 	if err != nil {
 		return nil, mterrors.Wrap(err, "failed to create initial backup")
 	}
@@ -163,8 +163,8 @@ func (pm *MultiPoolerManager) InitializeAsStandby(ctx context.Context, req *mult
 	}
 
 	// Restore from backup (empty string means latest)
-	// RestoreFromBackup will check that this is a standby and start PostgreSQL in standby mode
-	err = pm.RestoreFromBackup(ctx, req.BackupId)
+	// restoreFromBackupLocked will check that this is a standby and start PostgreSQL in standby mode
+	err = pm.restoreFromBackupLocked(ctx, req.BackupId)
 	if err != nil {
 		return nil, mterrors.Wrap(err, "failed to restore from backup")
 	}
@@ -179,7 +179,7 @@ func (pm *MultiPoolerManager) InitializeAsStandby(ctx context.Context, req *mult
 	// the explicit restart here. The standby.signal is already in place.
 
 	// Extract final LSN from backup metadata
-	backups, err := pm.GetBackups(ctx, 1) // Get latest backup
+	backups, err := pm.getBackupsLocked(ctx, 1) // Get latest backup
 	if err != nil {
 		pm.logger.WarnContext(ctx, "Failed to get backup metadata for LSN", "error", err)
 		// Non-fatal: we can continue without LSN
@@ -237,7 +237,7 @@ func (pm *MultiPoolerManager) InitializationStatus(ctx context.Context, req *mul
 	walPosition, _ := pm.getWALPosition(ctx)
 
 	resp := &multipoolermanagerdatapb.InitializationStatusResponse{
-		IsInitialized:    pm.isInitialized(),
+		IsInitialized:    pm.isInitialized(ctx),
 		HasDataDirectory: pm.hasDataDirectory(),
 		PostgresRunning:  pm.isPostgresRunning(ctx),
 		Role:             pm.getRole(ctx),
@@ -259,7 +259,7 @@ func (pm *MultiPoolerManager) InitializationStatus(ctx context.Context, req *mul
 // Helper methods
 
 // isInitialized checks if the pooler has been initialized (has data directory and multigres schema)
-func (pm *MultiPoolerManager) isInitialized() bool {
+func (pm *MultiPoolerManager) isInitialized(ctx context.Context) bool {
 	if !pm.hasDataDirectory() {
 		return false
 	}
@@ -269,7 +269,7 @@ func (pm *MultiPoolerManager) isInitialized() bool {
 	}
 
 	// Check if multigres schema exists
-	exists, err := pm.querySchemaExists(context.Background())
+	exists, err := pm.querySchemaExists(ctx)
 	return err == nil && exists
 }
 

@@ -24,14 +24,14 @@ import (
 
 	"github.com/multigres/multigres/go/common/clustermetadata/topo"
 	"github.com/multigres/multigres/go/common/rpcclient"
-	"github.com/multigres/multigres/go/multiorch/store"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	consensusdatapb "github.com/multigres/multigres/go/pb/consensusdata"
+	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
 
 // createMockNode creates a mock node for testing using FakeClient
-func createMockNode(fakeClient *rpcclient.FakeClient, name string, term int64, walPosition string, healthy bool, role string) *store.PoolerHealth {
+func createMockNode(fakeClient *rpcclient.FakeClient, name string, term int64, walPosition string, healthy bool, role string) *multiorchdatapb.PoolerHealthState {
 	poolerID := &clustermetadatapb.ID{
 		Component: clustermetadatapb.ID_MULTIPOOLER,
 		Cell:      "zone1",
@@ -73,11 +73,8 @@ func createMockNode(fakeClient *rpcclient.FakeClient, name string, term int64, w
 
 	fakeClient.SetPrimaryConnInfoResponses[poolerKey] = &multipoolermanagerdatapb.SetPrimaryConnInfoResponse{}
 
-	return &store.PoolerHealth{
-		ID:       pooler.Id,
-		Hostname: pooler.Hostname,
-		PortMap:  map[string]int32{"grpc": pooler.PortMap["grpc"]},
-		Shard:    "shard0",
+	return &multiorchdatapb.PoolerHealthState{
+		MultiPooler: pooler,
 	}
 }
 
@@ -97,7 +94,7 @@ func TestDiscoverMaxTerm(t *testing.T) {
 			logger:        logger,
 			rpcClient:     fakeClient,
 		}
-		cohort := []*store.PoolerHealth{
+		cohort := []*multiorchdatapb.PoolerHealthState{
 			createMockNode(fakeClient, "mp1", 5, "0/1000000", true, "standby"),
 			createMockNode(fakeClient, "mp2", 3, "0/1000000", true, "standby"),
 			createMockNode(fakeClient, "mp3", 7, "0/1000000", true, "standby"),
@@ -115,7 +112,7 @@ func TestDiscoverMaxTerm(t *testing.T) {
 			logger:        logger,
 			rpcClient:     fakeClient,
 		}
-		cohort := []*store.PoolerHealth{
+		cohort := []*multiorchdatapb.PoolerHealthState{
 			createMockNode(fakeClient, "mp1", 0, "0/1000000", true, "standby"),
 			createMockNode(fakeClient, "mp2", 0, "0/1000000", true, "standby"),
 		}
@@ -145,9 +142,9 @@ func TestDiscoverMaxTerm(t *testing.T) {
 		}
 		fakeClient.Errors[topo.MultiPoolerIDString(pooler2ID)] = context.DeadlineExceeded
 
-		cohort := []*store.PoolerHealth{
+		cohort := []*multiorchdatapb.PoolerHealthState{
 			createMockNode(fakeClient, "mp1", 5, "0/1000000", true, "standby"),
-			store.NewPoolerHealthFromMultiPooler(pooler2),
+			{MultiPooler: pooler2},
 			createMockNode(fakeClient, "mp3", 3, "0/1000000", true, "standby"),
 		}
 
@@ -173,7 +170,7 @@ func TestSelectCandidate(t *testing.T) {
 			logger:        logger,
 			rpcClient:     fakeClient,
 		}
-		cohort := []*store.PoolerHealth{
+		cohort := []*multiorchdatapb.PoolerHealthState{
 			createMockNode(fakeClient, "mp1", 5, "0/1000000", true, "standby"),
 			createMockNode(fakeClient, "mp2", 5, "0/3000000", true, "standby"),
 			createMockNode(fakeClient, "mp3", 5, "0/2000000", true, "standby"),
@@ -181,7 +178,7 @@ func TestSelectCandidate(t *testing.T) {
 
 		candidate, err := c.selectCandidate(ctx, cohort)
 		require.NoError(t, err)
-		require.Equal(t, "mp2", candidate.ID.Name)
+		require.Equal(t, "mp2", candidate.MultiPooler.Id.Name)
 	})
 
 	t.Run("success - prefers healthy nodes", func(t *testing.T) {
@@ -191,14 +188,14 @@ func TestSelectCandidate(t *testing.T) {
 			logger:        logger,
 			rpcClient:     fakeClient,
 		}
-		cohort := []*store.PoolerHealth{
+		cohort := []*multiorchdatapb.PoolerHealthState{
 			createMockNode(fakeClient, "mp1", 5, "0/3000000", false, "standby"),
 			createMockNode(fakeClient, "mp2", 5, "0/2000000", true, "standby"),
 		}
 
 		candidate, err := c.selectCandidate(ctx, cohort)
 		require.NoError(t, err)
-		require.Equal(t, "mp2", candidate.ID.Name)
+		require.Equal(t, "mp2", candidate.MultiPooler.Id.Name)
 	})
 
 	t.Run("success - falls back to first node if none healthy", func(t *testing.T) {
@@ -208,7 +205,7 @@ func TestSelectCandidate(t *testing.T) {
 			logger:        logger,
 			rpcClient:     fakeClient,
 		}
-		cohort := []*store.PoolerHealth{
+		cohort := []*multiorchdatapb.PoolerHealthState{
 			createMockNode(fakeClient, "mp1", 5, "0/1000000", false, "standby"),
 			createMockNode(fakeClient, "mp2", 5, "0/2000000", false, "standby"),
 		}
@@ -217,7 +214,7 @@ func TestSelectCandidate(t *testing.T) {
 		require.NoError(t, err)
 		require.NotNil(t, candidate)
 		// Should select first available node
-		require.Equal(t, "mp1", candidate.ID.Name)
+		require.Equal(t, "mp1", candidate.MultiPooler.Id.Name)
 	})
 
 	t.Run("error - no nodes available", func(t *testing.T) {
@@ -241,8 +238,8 @@ func TestSelectCandidate(t *testing.T) {
 			PortMap:  map[string]int32{"grpc": 9000},
 		}
 
-		cohort := []*store.PoolerHealth{
-			store.NewPoolerHealthFromMultiPooler(pooler),
+		cohort := []*multiorchdatapb.PoolerHealthState{
+			{MultiPooler: pooler},
 		}
 
 		candidate, err := c.selectCandidate(ctx, cohort)
@@ -269,7 +266,7 @@ func TestRecruitNodes(t *testing.T) {
 			rpcClient:     fakeClient,
 		}
 		candidate := createMockNode(fakeClient, "mp1", 5, "0/3000000", true, "primary")
-		cohort := []*store.PoolerHealth{
+		cohort := []*multiorchdatapb.PoolerHealthState{
 			candidate,
 			createMockNode(fakeClient, "mp2", 5, "0/2000000", true, "standby"),
 			createMockNode(fakeClient, "mp3", 5, "0/1000000", true, "standby"),
@@ -289,7 +286,7 @@ func TestRecruitNodes(t *testing.T) {
 		}
 		candidate := createMockNode(fakeClient, "mp1", 5, "0/3000000", true, "primary")
 
-		cohort := []*store.PoolerHealth{
+		cohort := []*multiorchdatapb.PoolerHealthState{
 			candidate,
 			createMockNode(fakeClient, "mp2", 5, "0/2000000", true, "standby"),
 			createMockNode(fakeClient, "mp3", 5, "0/2000000", true, "standby"),
@@ -325,7 +322,7 @@ func TestBeginTerm(t *testing.T) {
 			logger:        logger,
 			rpcClient:     fakeClient,
 		}
-		cohort := []*store.PoolerHealth{
+		cohort := []*multiorchdatapb.PoolerHealthState{
 			createMockNode(fakeClient, "mp1", 5, "0/3000000", true, "standby"),
 			createMockNode(fakeClient, "mp2", 5, "0/2000000", true, "standby"),
 			createMockNode(fakeClient, "mp3", 5, "0/1000000", true, "standby"),
@@ -341,7 +338,7 @@ func TestBeginTerm(t *testing.T) {
 		candidate, standbys, term, err := c.BeginTerm(ctx, "shard0", cohort, quorumRule)
 		require.NoError(t, err)
 		require.NotNil(t, candidate)
-		require.Equal(t, "mp1", candidate.ID.Name) // Most advanced WAL
+		require.Equal(t, "mp1", candidate.MultiPooler.Id.Name) // Most advanced WAL
 		require.Len(t, standbys, 2)
 		require.Equal(t, int64(6), term)
 	})
@@ -356,7 +353,7 @@ func TestBeginTerm(t *testing.T) {
 		}
 		candidate := createMockNode(fakeClient, "mp1", 5, "0/3000000", true, "standby")
 
-		cohort := []*store.PoolerHealth{
+		cohort := []*multiorchdatapb.PoolerHealthState{
 			candidate,
 			createMockNode(fakeClient, "mp2", 5, "0/2000000", true, "standby"),
 			createMockNode(fakeClient, "mp3", 5, "0/1000000", true, "standby"),
@@ -412,7 +409,7 @@ func TestPropagate(t *testing.T) {
 			rpcClient:     fakeClient,
 		}
 		candidate := createMockNode(fakeClient, "mp1", 5, "0/3000000", true, "primary")
-		standbys := []*store.PoolerHealth{
+		standbys := []*multiorchdatapb.PoolerHealthState{
 			createMockNode(fakeClient, "mp2", 5, "0/2000000", true, "standby"),
 			createMockNode(fakeClient, "mp3", 5, "0/1000000", true, "standby"),
 		}
@@ -445,7 +442,7 @@ func TestPropagate(t *testing.T) {
 		fakeClient.SetPrimaryConnInfoResponses[topo.MultiPoolerIDString(mp3ID)] = nil
 		fakeClient.Errors[topo.MultiPoolerIDString(mp3ID)] = context.DeadlineExceeded
 
-		standbys := []*store.PoolerHealth{
+		standbys := []*multiorchdatapb.PoolerHealthState{
 			createMockNode(fakeClient, "mp2", 5, "0/2000000", true, "standby"),
 			createMockNode(fakeClient, "mp3", 5, "0/1000000", true, "standby"),
 		}
@@ -525,7 +522,7 @@ func TestSelectCandidate_LSNComparison(t *testing.T) {
 			logger:        logger,
 			rpcClient:     fakeClient,
 		}
-		cohort := []*store.PoolerHealth{
+		cohort := []*multiorchdatapb.PoolerHealthState{
 			createMockNode(fakeClient, "mp1", 5, "0/5000000", true, "standby"),
 			createMockNode(fakeClient, "mp2", 5, "0/9000000", true, "standby"),
 			createMockNode(fakeClient, "mp3", 5, "0/3000000", true, "standby"),
@@ -533,7 +530,7 @@ func TestSelectCandidate_LSNComparison(t *testing.T) {
 
 		candidate, err := c.selectCandidate(ctx, cohort)
 		require.NoError(t, err)
-		require.Equal(t, "mp2", candidate.ID.Name,
+		require.Equal(t, "mp2", candidate.MultiPooler.Id.Name,
 			"should select node with highest LSN (0/9000000)")
 	})
 
@@ -545,7 +542,7 @@ func TestSelectCandidate_LSNComparison(t *testing.T) {
 			rpcClient:     fakeClient,
 		}
 		// Numeric: 10/1000000 > 9/9000000 (segment 10 > segment 9)
-		cohort := []*store.PoolerHealth{
+		cohort := []*multiorchdatapb.PoolerHealthState{
 			createMockNode(fakeClient, "mp1", 5, "9/9000000", true, "standby"),
 			createMockNode(fakeClient, "mp2", 5, "10/1000000", true, "standby"),
 			createMockNode(fakeClient, "mp3", 5, "8/5000000", true, "standby"),
@@ -553,7 +550,7 @@ func TestSelectCandidate_LSNComparison(t *testing.T) {
 
 		candidate, err := c.selectCandidate(ctx, cohort)
 		require.NoError(t, err)
-		require.Equal(t, "mp2", candidate.ID.Name,
+		require.Equal(t, "mp2", candidate.MultiPooler.Id.Name,
 			"should use numeric comparison: segment 10 > segment 9")
 	})
 
@@ -564,7 +561,7 @@ func TestSelectCandidate_LSNComparison(t *testing.T) {
 			logger:        logger,
 			rpcClient:     fakeClient,
 		}
-		cohort := []*store.PoolerHealth{
+		cohort := []*multiorchdatapb.PoolerHealthState{
 			createMockNode(fakeClient, "mp1", 5, "invalid-lsn", true, "standby"),
 			createMockNode(fakeClient, "mp2", 5, "0/5000000", true, "standby"),
 		}
@@ -581,7 +578,7 @@ func TestSelectCandidate_LSNComparison(t *testing.T) {
 			logger:        logger,
 			rpcClient:     fakeClient,
 		}
-		cohort := []*store.PoolerHealth{
+		cohort := []*multiorchdatapb.PoolerHealthState{
 			createMockNode(fakeClient, "mp1", 5, "0/5000000", true, "standby"),
 			createMockNode(fakeClient, "mp2", 5, "not-an-lsn", true, "standby"),
 			createMockNode(fakeClient, "mp3", 5, "0/3000000", true, "standby"),

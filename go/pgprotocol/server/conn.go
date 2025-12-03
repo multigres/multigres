@@ -19,6 +19,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -101,7 +102,7 @@ type Conn struct {
 
 // newConn creates a new connection.
 func newConn(netConn net.Conn, listener *Listener, connectionID uint32) *Conn {
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(context.TODO())
 
 	c := &Conn{
 		conn:           netConn,
@@ -285,7 +286,7 @@ func (c *Conn) serve() error {
 		msgType, err := c.readMessageType()
 		if err != nil {
 			// EOF or connection error - close gracefully.
-			if err == io.EOF {
+			if errors.Is(err, io.EOF) {
 				c.logger.Debug("client closed connection")
 				return nil
 			}

@@ -48,7 +48,7 @@ import (
 func getProjectRoot() (string, error) {
 	wd, err := os.Getwd()
 	if err != nil {
-		return "", fmt.Errorf("cannot get current file path: %v", err)
+		return "", fmt.Errorf("cannot get current file path: %w", err)
 	}
 	// The current file is in go/test/endtoend, so we go up three levels.
 	projectRoot := filepath.Join(wd, "..", "..", "..")
@@ -133,7 +133,7 @@ func cleanupTestProcesses(tempDir string) error {
 	serviceStates, err := getServiceStates(tempDir)
 	if err != nil {
 		// If we can't read service states, that's okay - maybe nothing was started
-		return nil
+		return nil //nolint:nilerr // Cleanup should continue even if state file is missing
 	}
 
 	var errors []string

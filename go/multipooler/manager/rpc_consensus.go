@@ -212,6 +212,7 @@ func (pm *MultiPoolerManager) CanReachPrimary(ctx context.Context, req *consensu
 	err := pm.db.QueryRowContext(ctx, "SELECT status, conninfo FROM pg_stat_wal_receiver").Scan(&status, &conninfo)
 	if err != nil {
 		// No rows returned means we're not receiving WAL (likely not a replica or not connected)
+		//nolint:nilerr // Error is communicated via response struct, not error return
 		return &consensusdatapb.CanReachPrimaryResponse{
 			Reachable:    false,
 			ErrorMessage: "no active WAL receiver",

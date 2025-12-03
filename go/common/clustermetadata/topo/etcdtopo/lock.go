@@ -16,6 +16,7 @@ package etcdtopo
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"path"
@@ -29,8 +30,8 @@ import (
 
 	"github.com/multigres/multigres/go/common/clustermetadata/topo"
 	"github.com/multigres/multigres/go/common/mterrors"
+	"github.com/multigres/multigres/go/common/servenv"
 	"github.com/multigres/multigres/go/pb/mtrpc"
-	"github.com/multigres/multigres/go/servenv"
 )
 
 var leaseTTL = 30 // This is the default used for all non-named locks
@@ -58,15 +59,15 @@ func (s *Server) newUniqueEphemeralKV(ctx context.Context, cli *clientv3.Client,
 		Then(clientv3.OpPut(newKey, contents, clientv3.WithLease(leaseID))).
 		Commit()
 	if err != nil {
-		if err == context.Canceled || err == context.DeadlineExceeded {
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 			// Our context was canceled as we were sending
 			// a creation request. We don't know if it
 			// succeeded or not. In any case, let's try to
 			// delete the node, so we don't leave an orphan
 			// node behind for *leaseTTL time.
 
-			if _, err := cli.Delete(context.Background(), newKey); err != nil {
-				slog.InfoContext(ctx, "cli.Delete(context.Background(), newKey) failed", "error", err)
+			if _, err := cli.Delete(context.TODO(), newKey); err != nil {
+				slog.InfoContext(ctx, "cli.Delete(context.TODO(), newKey) failed", "error", err)
 			}
 		}
 		return "", 0, convertError(err, newKey)
@@ -219,7 +220,7 @@ func (s *Server) lock(ctx context.Context, nodePath, contents string, ttl int) (
 		if err != nil {
 			// We had an error waiting on the last node.
 			// Revoke our lease, this will delete the file.
-			if _, rerr := s.cli.Revoke(context.Background(), lease.ID); rerr != nil {
+			if _, rerr := s.cli.Revoke(context.TODO(), lease.ID); rerr != nil {
 				slog.InfoContext(ctx, fmt.Sprintf("Revoke(%d) failed, may have left %v behind: %v", lease.ID, key, rerr))
 			}
 			return nil, err

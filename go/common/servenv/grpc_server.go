@@ -409,7 +409,7 @@ func (g *GrpcServer) Serve(sv *ServEnv) {
 
 	// and serve on it
 	// NOTE: Before we call Serve(), all services must have registered themselves
-	//       with the Server. This is the case because go/servenv/run.go
+	//       with the Server. This is the case because go/common/servenv/run.go
 	//       runs all OnRun() hooks after Create() and before Serve().
 	//       If this was not the case, the binary would crash with
 	//       the error "grpc: Server.RegisterService after Server.Serve".

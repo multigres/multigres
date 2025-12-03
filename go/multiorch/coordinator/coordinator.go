@@ -21,9 +21,9 @@ import (
 	"github.com/multigres/multigres/go/common/clustermetadata/topo"
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/rpcclient"
-	"github.com/multigres/multigres/go/multiorch/store"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
+	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 )
 
 // Coordinator orchestrates consensus-based leader election for shards.
@@ -56,7 +56,7 @@ func NewCoordinator(coordinatorID *clustermetadatapb.ID, topoStore topo.Store, r
 //
 // Returns an error if any stage fails. The operation is idempotent and can be
 // retried safely.
-func (c *Coordinator) AppointLeader(ctx context.Context, shardID string, cohort []*store.PoolerHealth, database string) error {
+func (c *Coordinator) AppointLeader(ctx context.Context, shardID string, cohort []*multiorchdatapb.PoolerHealthState, database string) error {
 	c.logger.InfoContext(ctx, "Starting leader appointment",
 		"shard", shardID,
 		"database", database,
@@ -89,7 +89,7 @@ func (c *Coordinator) AppointLeader(ctx context.Context, shardID string, cohort 
 	c.logger.InfoContext(ctx, "BeginTerm succeeded",
 		"shard", shardID,
 		"term", term,
-		"candidate", candidate.ID.Name,
+		"candidate", candidate.MultiPooler.Id.Name,
 		"standbys", len(standbys))
 
 	// Stage 6: Propagate (setup replication within shard)
@@ -118,7 +118,7 @@ func (c *Coordinator) AppointLeader(ctx context.Context, shardID string, cohort 
 
 	c.logger.InfoContext(ctx, "Leader appointment complete",
 		"shard", shardID,
-		"leader", candidate.ID.Name)
+		"leader", candidate.MultiPooler.Id.Name)
 
 	// Async: Repair excluded nodes in this shard
 	// TODO: Implement RepairExcluded
@@ -128,9 +128,9 @@ func (c *Coordinator) AppointLeader(ctx context.Context, shardID string, cohort 
 }
 
 // updateTopology updates the topology store to reflect the new primary and standbys.
-func (c *Coordinator) updateTopology(ctx context.Context, candidate *store.PoolerHealth, standbys []*store.PoolerHealth) error {
+func (c *Coordinator) updateTopology(ctx context.Context, candidate *multiorchdatapb.PoolerHealthState, standbys []*multiorchdatapb.PoolerHealthState) error {
 	// Update candidate to PRIMARY type
-	_, err := c.topoStore.UpdateMultiPoolerFields(ctx, candidate.ID, func(mp *clustermetadatapb.MultiPooler) error {
+	_, err := c.topoStore.UpdateMultiPoolerFields(ctx, candidate.MultiPooler.Id, func(mp *clustermetadatapb.MultiPooler) error {
 		mp.Type = clustermetadatapb.PoolerType_PRIMARY
 		return nil
 	})
@@ -140,14 +140,14 @@ func (c *Coordinator) updateTopology(ctx context.Context, candidate *store.Poole
 
 	// Update standbys to REPLICA type
 	for _, standby := range standbys {
-		_, err := c.topoStore.UpdateMultiPoolerFields(ctx, standby.ID, func(mp *clustermetadatapb.MultiPooler) error {
+		_, err := c.topoStore.UpdateMultiPoolerFields(ctx, standby.MultiPooler.Id, func(mp *clustermetadatapb.MultiPooler) error {
 			mp.Type = clustermetadatapb.PoolerType_REPLICA
 			return nil
 		})
 		if err != nil {
 			// Log but continue with other standbys
 			c.logger.WarnContext(ctx, "Failed to update standby type",
-				"node", standby.ID.Name,
+				"node", standby.MultiPooler.Id.Name,
 				"error", err)
 		}
 	}
@@ -156,7 +156,7 @@ func (c *Coordinator) updateTopology(ctx context.Context, candidate *store.Poole
 }
 
 // GetShardNodes retrieves all multipooler nodes for a given shard from the topology.
-func (c *Coordinator) GetShardNodes(ctx context.Context, cell string, database string, tablegroup string, shardID string) ([]*store.PoolerHealth, error) {
+func (c *Coordinator) GetShardNodes(ctx context.Context, cell string, database string, tablegroup string, shardID string) ([]*multiorchdatapb.PoolerHealthState, error) {
 	// Get all multipoolers in the cell for this specific shard
 	poolers, err := c.topoStore.GetMultiPoolersByCell(ctx, cell, &topo.GetMultiPoolersByCellOptions{
 		DatabaseShard: &topo.DatabaseShard{
@@ -174,10 +174,12 @@ func (c *Coordinator) GetShardNodes(ctx context.Context, cell string, database s
 			"no multipoolers found for shard %s in cell %s", shardID, cell)
 	}
 
-	// Convert topology poolers to PoolerHealth instances
-	poolerHealths := make([]*store.PoolerHealth, 0, len(poolers))
+	// Convert topology poolers to PoolerHealthState instances
+	poolerHealths := make([]*multiorchdatapb.PoolerHealthState, 0, len(poolers))
 	for _, poolerInfo := range poolers {
-		ph := store.NewPoolerHealthFromMultiPooler(poolerInfo.MultiPooler)
+		ph := &multiorchdatapb.PoolerHealthState{
+			MultiPooler: poolerInfo.MultiPooler,
+		}
 		poolerHealths = append(poolerHealths, ph)
 	}
 

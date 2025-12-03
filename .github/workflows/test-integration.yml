@@ -28,7 +28,7 @@ jobs:
     runs-on: ubuntu-24.04
 
     steps:
-      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
+      - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
         with:
           persist-credentials: false
 
@@ -87,12 +87,38 @@ jobs:
           # Set environment variables for tests
           export PGCONNECT_TIMEOUT=5
           # Run tests with verbose output
-          go test -json -v ./... | tee integration-test-results.jsonl | go tool tparse -follow
+          go test -cover -covermode=atomic -coverprofile=coverage.txt -coverpkg=./... -json -v ./... | tee integration-test-results.jsonl | go tool tparse -follow
 
       - name: Test Report
-        uses: dorny/test-reporter@dc3a92680fcc15842eef52e8c4606ea7ce6bd3f3 # v2.1.1
+        uses: dorny/test-reporter@fe45e9537387dac839af0d33ba56eed8e24189e8 # v2.3.0
         if: ${{ !cancelled() }}
         with:
           name: Unit Tests
           path: integration-test-results.jsonl
           reporter: golang-json
+
+      - name: Upload coverage artifact
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+        if: always()
+        with:
+          name: coverage-data
+          path: coverage.txt
+          retention-days: 7
+
+  upload-coverage:
+    name: Upload coverage
+    runs-on: ubuntu-24.04
+    needs: [test-integration]
+    if: always()
+
+    steps:
+      - name: Download coverage artifact
+        uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v4.1.8
+        with:
+          name: coverage-data
+
+      - name: Upload coverage reports to Coveralls
+        uses: coverallsapp/github-action@643bc377ffa44ace6394b2b5d0d3950076de9f63 # v2.3.0
+        with:
+          file: ./coverage.txt
+          format: golang

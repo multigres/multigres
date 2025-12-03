@@ -25,8 +25,8 @@ import (
 
 	"github.com/multigres/multigres/go/common/clustermetadata/topo"
 	"github.com/multigres/multigres/go/common/rpcclient"
-	"github.com/multigres/multigres/go/multiorch/store"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
 
@@ -49,7 +49,7 @@ func TestLoadQuorumRule_PrimaryPreference(t *testing.T) {
 			},
 			Type: clustermetadatapb.PoolerType_PRIMARY,
 		}
-		primaryNode := store.NewPoolerHealthFromMultiPooler(primaryPooler)
+		primaryNode := &multiorchdatapb.PoolerHealthState{MultiPooler: primaryPooler}
 
 		// Create REPLICA nodes
 		replica1Pooler := &clustermetadatapb.MultiPooler{
@@ -60,7 +60,7 @@ func TestLoadQuorumRule_PrimaryPreference(t *testing.T) {
 			},
 			Type: clustermetadatapb.PoolerType_REPLICA,
 		}
-		replica1Node := store.NewPoolerHealthFromMultiPooler(replica1Pooler)
+		replica1Node := &multiorchdatapb.PoolerHealthState{MultiPooler: replica1Pooler}
 
 		replica2Pooler := &clustermetadatapb.MultiPooler{
 			Id: &clustermetadatapb.ID{
@@ -70,7 +70,7 @@ func TestLoadQuorumRule_PrimaryPreference(t *testing.T) {
 			},
 			Type: clustermetadatapb.PoolerType_REPLICA,
 		}
-		replica2Node := store.NewPoolerHealthFromMultiPooler(replica2Pooler)
+		replica2Node := &multiorchdatapb.PoolerHealthState{MultiPooler: replica2Pooler}
 
 		// Setup PRIMARY response with version 100
 		fakeClient.GetDurabilityPolicyResponses[topo.MultiPoolerIDString(primaryPooler.Id)] = &multipoolermanagerdatapb.GetDurabilityPolicyResponse{
@@ -110,7 +110,7 @@ func TestLoadQuorumRule_PrimaryPreference(t *testing.T) {
 			},
 		}
 
-		cohort := []*store.PoolerHealth{primaryNode, replica1Node, replica2Node}
+		cohort := []*multiorchdatapb.PoolerHealthState{primaryNode, replica1Node, replica2Node}
 
 		// Load quorum rule
 		rule, err := c.LoadQuorumRule(ctx, cohort, "testdb")
@@ -138,7 +138,7 @@ func TestLoadQuorumRule_PrimaryPreference(t *testing.T) {
 			},
 			Type: clustermetadatapb.PoolerType_PRIMARY,
 		}
-		primaryNode := store.NewPoolerHealthFromMultiPooler(primaryPooler)
+		primaryNode := &multiorchdatapb.PoolerHealthState{MultiPooler: primaryPooler}
 
 		// Create REPLICA nodes
 		replica1Pooler := &clustermetadatapb.MultiPooler{
@@ -149,7 +149,7 @@ func TestLoadQuorumRule_PrimaryPreference(t *testing.T) {
 			},
 			Type: clustermetadatapb.PoolerType_REPLICA,
 		}
-		replica1Node := store.NewPoolerHealthFromMultiPooler(replica1Pooler)
+		replica1Node := &multiorchdatapb.PoolerHealthState{MultiPooler: replica1Pooler}
 
 		replica2Pooler := &clustermetadatapb.MultiPooler{
 			Id: &clustermetadatapb.ID{
@@ -159,7 +159,7 @@ func TestLoadQuorumRule_PrimaryPreference(t *testing.T) {
 			},
 			Type: clustermetadatapb.PoolerType_REPLICA,
 		}
-		replica2Node := store.NewPoolerHealthFromMultiPooler(replica2Pooler)
+		replica2Node := &multiorchdatapb.PoolerHealthState{MultiPooler: replica2Pooler}
 
 		// Setup PRIMARY to fail
 		fakeClient.Errors[topo.MultiPoolerIDString(primaryPooler.Id)] = fmt.Errorf("primary is down")
@@ -189,7 +189,7 @@ func TestLoadQuorumRule_PrimaryPreference(t *testing.T) {
 			},
 		}
 
-		cohort := []*store.PoolerHealth{primaryNode, replica1Node, replica2Node}
+		cohort := []*multiorchdatapb.PoolerHealthState{primaryNode, replica1Node, replica2Node}
 
 		// Load quorum rule - should fall back to REPLICAs
 		rule, err := c.LoadQuorumRule(ctx, cohort, "testdb")
@@ -221,7 +221,7 @@ func TestLoadQuorumRule_ParallelReplicaLoading(t *testing.T) {
 			},
 			Type: clustermetadatapb.PoolerType_REPLICA,
 		}
-		replica1Node := store.NewPoolerHealthFromMultiPooler(replica1Pooler)
+		replica1Node := &multiorchdatapb.PoolerHealthState{MultiPooler: replica1Pooler}
 
 		replica2Pooler := &clustermetadatapb.MultiPooler{
 			Id: &clustermetadatapb.ID{
@@ -231,7 +231,7 @@ func TestLoadQuorumRule_ParallelReplicaLoading(t *testing.T) {
 			},
 			Type: clustermetadatapb.PoolerType_REPLICA,
 		}
-		replica2Node := store.NewPoolerHealthFromMultiPooler(replica2Pooler)
+		replica2Node := &multiorchdatapb.PoolerHealthState{MultiPooler: replica2Pooler}
 
 		replica3Pooler := &clustermetadatapb.MultiPooler{
 			Id: &clustermetadatapb.ID{
@@ -241,7 +241,7 @@ func TestLoadQuorumRule_ParallelReplicaLoading(t *testing.T) {
 			},
 			Type: clustermetadatapb.PoolerType_REPLICA,
 		}
-		replica3Node := store.NewPoolerHealthFromMultiPooler(replica3Pooler)
+		replica3Node := &multiorchdatapb.PoolerHealthState{MultiPooler: replica3Pooler}
 
 		// Setup REPLICA responses with different versions
 		fakeClient.GetDurabilityPolicyResponses[topo.MultiPoolerIDString(replica1Pooler.Id)] = &multipoolermanagerdatapb.GetDurabilityPolicyResponse{
@@ -280,7 +280,7 @@ func TestLoadQuorumRule_ParallelReplicaLoading(t *testing.T) {
 			},
 		}
 
-		cohort := []*store.PoolerHealth{replica1Node, replica2Node, replica3Node}
+		cohort := []*multiorchdatapb.PoolerHealthState{replica1Node, replica2Node, replica3Node}
 
 		// Load quorum rule - should query all REPLICAs and pick highest version
 		rule, err := c.LoadQuorumRule(ctx, cohort, "testdb")
@@ -308,7 +308,7 @@ func TestLoadQuorumRule_ParallelReplicaLoading(t *testing.T) {
 			},
 			Type: clustermetadatapb.PoolerType_REPLICA,
 		}
-		replica1Node := store.NewPoolerHealthFromMultiPooler(replica1Pooler)
+		replica1Node := &multiorchdatapb.PoolerHealthState{MultiPooler: replica1Pooler}
 
 		replica2Pooler := &clustermetadatapb.MultiPooler{
 			Id: &clustermetadatapb.ID{
@@ -318,7 +318,7 @@ func TestLoadQuorumRule_ParallelReplicaLoading(t *testing.T) {
 			},
 			Type: clustermetadatapb.PoolerType_REPLICA,
 		}
-		replica2Node := store.NewPoolerHealthFromMultiPooler(replica2Pooler)
+		replica2Node := &multiorchdatapb.PoolerHealthState{MultiPooler: replica2Pooler}
 
 		// Setup responses with version 200 (higher) and version 50 (lower)
 		fakeClient.GetDurabilityPolicyResponses[topo.MultiPoolerIDString(replica1Pooler.Id)] = &multipoolermanagerdatapb.GetDurabilityPolicyResponse{
@@ -345,7 +345,7 @@ func TestLoadQuorumRule_ParallelReplicaLoading(t *testing.T) {
 			},
 		}
 
-		cohort := []*store.PoolerHealth{replica1Node, replica2Node}
+		cohort := []*multiorchdatapb.PoolerHealthState{replica1Node, replica2Node}
 
 		// Load quorum rule
 		rule, err := c.LoadQuorumRule(ctx, cohort, "testdb")
@@ -369,7 +369,7 @@ func TestLoadQuorumRule_ResponseWaiting(t *testing.T) {
 		c := &Coordinator{logger: logger, rpcClient: fakeClient}
 
 		// Create 4 REPLICA nodes
-		var replicaNodes []*store.PoolerHealth
+		var replicaNodes []*multiorchdatapb.PoolerHealthState
 		for i := 1; i <= 4; i++ {
 			pooler := &clustermetadatapb.MultiPooler{
 				Id: &clustermetadatapb.ID{
@@ -379,7 +379,7 @@ func TestLoadQuorumRule_ResponseWaiting(t *testing.T) {
 				},
 				Type: clustermetadatapb.PoolerType_REPLICA,
 			}
-			node := store.NewPoolerHealthFromMultiPooler(pooler)
+			node := &multiorchdatapb.PoolerHealthState{MultiPooler: pooler}
 			replicaNodes = append(replicaNodes, node)
 
 			// Setup response for this replica
@@ -424,7 +424,7 @@ func TestLoadQuorumRule_ResponseWaiting(t *testing.T) {
 			},
 			Type: clustermetadatapb.PoolerType_REPLICA,
 		}
-		replica1Node := store.NewPoolerHealthFromMultiPooler(replica1Pooler)
+		replica1Node := &multiorchdatapb.PoolerHealthState{MultiPooler: replica1Pooler}
 
 		replica2Pooler := &clustermetadatapb.MultiPooler{
 			Id: &clustermetadatapb.ID{
@@ -434,7 +434,7 @@ func TestLoadQuorumRule_ResponseWaiting(t *testing.T) {
 			},
 			Type: clustermetadatapb.PoolerType_REPLICA,
 		}
-		replica2Node := store.NewPoolerHealthFromMultiPooler(replica2Pooler)
+		replica2Node := &multiorchdatapb.PoolerHealthState{MultiPooler: replica2Pooler}
 
 		replica3Pooler := &clustermetadatapb.MultiPooler{
 			Id: &clustermetadatapb.ID{
@@ -444,7 +444,7 @@ func TestLoadQuorumRule_ResponseWaiting(t *testing.T) {
 			},
 			Type: clustermetadatapb.PoolerType_REPLICA,
 		}
-		replica3Node := store.NewPoolerHealthFromMultiPooler(replica3Pooler)
+		replica3Node := &multiorchdatapb.PoolerHealthState{MultiPooler: replica3Pooler}
 
 		// Setup replica1 to fail
 		fakeClient.Errors[topo.MultiPoolerIDString(replica1Pooler.Id)] = fmt.Errorf("replica1 is down")
@@ -474,7 +474,7 @@ func TestLoadQuorumRule_ResponseWaiting(t *testing.T) {
 			},
 		}
 
-		cohort := []*store.PoolerHealth{replica1Node, replica2Node, replica3Node}
+		cohort := []*multiorchdatapb.PoolerHealthState{replica1Node, replica2Node, replica3Node}
 
 		// With 3 replicas, we want all responses but replica1 fails
 		// Should succeed using best available from replica2 and replica3
@@ -506,7 +506,7 @@ func TestLoadQuorumRule_FallbackBehaviors(t *testing.T) {
 			},
 			Type: clustermetadatapb.PoolerType_REPLICA,
 		}
-		replica1Node := store.NewPoolerHealthFromMultiPooler(replica1Pooler)
+		replica1Node := &multiorchdatapb.PoolerHealthState{MultiPooler: replica1Pooler}
 
 		replica2Pooler := &clustermetadatapb.MultiPooler{
 			Id: &clustermetadatapb.ID{
@@ -516,13 +516,13 @@ func TestLoadQuorumRule_FallbackBehaviors(t *testing.T) {
 			},
 			Type: clustermetadatapb.PoolerType_REPLICA,
 		}
-		replica2Node := store.NewPoolerHealthFromMultiPooler(replica2Pooler)
+		replica2Node := &multiorchdatapb.PoolerHealthState{MultiPooler: replica2Pooler}
 
 		// Setup all REPLICAs to fail
 		fakeClient.Errors[topo.MultiPoolerIDString(replica1Pooler.Id)] = fmt.Errorf("replica1 is down")
 		fakeClient.Errors[topo.MultiPoolerIDString(replica2Pooler.Id)] = fmt.Errorf("replica2 is down")
 
-		cohort := []*store.PoolerHealth{replica1Node, replica2Node}
+		cohort := []*multiorchdatapb.PoolerHealthState{replica1Node, replica2Node}
 
 		// Should return default policy
 		rule, err := c.LoadQuorumRule(ctx, cohort, "testdb")
@@ -550,13 +550,13 @@ func TestLoadQuorumRule_FallbackBehaviors(t *testing.T) {
 			},
 			Type: clustermetadatapb.PoolerType_PRIMARY,
 		}
-		primaryNode := store.NewPoolerHealthFromMultiPooler(primaryPooler)
+		primaryNode := &multiorchdatapb.PoolerHealthState{MultiPooler: primaryPooler}
 
 		// Setup PRIMARY to fail
 		fakeClient.Errors[topo.MultiPoolerIDString(primaryPooler.Id)] = fmt.Errorf("primary is down")
 
 		// No REPLICA nodes available
-		cohort := []*store.PoolerHealth{primaryNode}
+		cohort := []*multiorchdatapb.PoolerHealthState{primaryNode}
 
 		// Should return default policy
 		rule, err := c.LoadQuorumRule(ctx, cohort, "testdb")
@@ -575,7 +575,7 @@ func TestLoadQuorumRule_FallbackBehaviors(t *testing.T) {
 		c := &Coordinator{logger: logger, rpcClient: fakeClient}
 
 		// Empty cohort
-		cohort := []*store.PoolerHealth{}
+		cohort := []*multiorchdatapb.PoolerHealthState{}
 
 		// Should return error
 		rule, err := c.LoadQuorumRule(ctx, cohort, "testdb")

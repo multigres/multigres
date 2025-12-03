@@ -23,13 +23,14 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/multigres/multigres/go/common/clustermetadata/topo"
 	"github.com/multigres/multigres/go/common/clustermetadata/topo/memorytopo"
 	"github.com/multigres/multigres/go/common/rpcclient"
 	"github.com/multigres/multigres/go/multiorch/config"
-	"github.com/multigres/multigres/go/multiorch/store"
 	"github.com/multigres/multigres/go/pb/clustermetadata"
+	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 )
 
 // poolerKey creates the store key for a pooler
@@ -292,12 +293,12 @@ func TestDiscovery_PreservesTimestamps(t *testing.T) {
 
 	poolerInfo, ok := engine.poolerStore.Get(poolerKey("zone1", "pooler1"))
 	require.True(t, ok)
-	require.Equal(t, "host1", poolerInfo.Hostname)
-	require.True(t, poolerInfo.LastSeen.IsZero(), "LastSeen should be zero (not yet health checked)")
+	require.Equal(t, "host1", poolerInfo.MultiPooler.Hostname)
+	require.Nil(t, poolerInfo.LastSeen, "LastSeen should be nil (not yet health checked)")
 	require.False(t, poolerInfo.IsUpToDate, "IsUpToDate should be false")
 
 	// Simulate health check by updating timestamps
-	now := time.Now()
+	now := timestamppb.Now()
 	poolerInfo.LastSeen = now
 	poolerInfo.LastCheckAttempted = now
 	poolerInfo.LastCheckSuccessful = now
@@ -321,12 +322,12 @@ func TestDiscovery_PreservesTimestamps(t *testing.T) {
 	require.True(t, ok)
 
 	// MultiPooler record should be updated
-	require.Equal(t, "host2", updatedInfo.Hostname, "hostname should be updated")
+	require.Equal(t, "host2", updatedInfo.MultiPooler.Hostname, "hostname should be updated")
 
-	// Timestamps and computed fields should be preserved
-	require.Equal(t, now, updatedInfo.LastSeen, "LastSeen should be preserved")
-	require.Equal(t, now, updatedInfo.LastCheckAttempted, "LastCheckAttempted should be preserved")
-	require.Equal(t, now, updatedInfo.LastCheckSuccessful, "LastCheckSuccessful should be preserved")
+	// Timestamps and computed fields should be preserved (exact equality)
+	require.True(t, now.AsTime().Equal(updatedInfo.LastSeen.AsTime()), "LastSeen should be preserved")
+	require.True(t, now.AsTime().Equal(updatedInfo.LastCheckAttempted.AsTime()), "LastCheckAttempted should be preserved")
+	require.True(t, now.AsTime().Equal(updatedInfo.LastCheckSuccessful.AsTime()), "LastCheckSuccessful should be preserved")
 	require.True(t, updatedInfo.IsUpToDate, "IsUpToDate should be preserved")
 	require.True(t, updatedInfo.IsLastCheckValid, "IsLastCheckValid should be preserved")
 }
@@ -472,9 +473,9 @@ func TestRefreshPoolersForTarget_BasicRefresh(t *testing.T) {
 	poolerID := poolerKey("cell1", "pooler1")
 	ph, ok := engine.poolerStore.Get(poolerID)
 	require.True(t, ok, "pooler should be in store")
-	assert.Equal(t, "db1", ph.Database)
-	assert.Equal(t, "tg1", ph.TableGroup)
-	assert.Equal(t, "0", ph.Shard)
+	assert.Equal(t, "db1", ph.MultiPooler.Database)
+	assert.Equal(t, "tg1", ph.MultiPooler.TableGroup)
+	assert.Equal(t, "0", ph.MultiPooler.Shard)
 	assert.False(t, ph.IsUpToDate, "new pooler should not be up-to-date yet")
 
 	// Verify pooler was queued for health check
@@ -517,16 +518,18 @@ func TestRefreshPoolersForTarget_PreservesHealthCheckData(t *testing.T) {
 
 	// Pre-populate store with existing health check data
 	poolerID := poolerKey("cell1", "pooler1")
-	lastCheck := time.Now().Add(-5 * time.Minute)
-	lastSuccess := time.Now().Add(-6 * time.Minute)
-	lastSeen := time.Now().Add(-7 * time.Minute)
+	lastCheck := timestamppb.New(time.Now().Add(-5 * time.Minute))
+	lastSuccess := timestamppb.New(time.Now().Add(-6 * time.Minute))
+	lastSeen := timestamppb.New(time.Now().Add(-7 * time.Minute))
 
-	existingHealth := store.NewPoolerHealthFromMultiPooler(mp)
-	existingHealth.LastCheckAttempted = lastCheck
-	existingHealth.LastCheckSuccessful = lastSuccess
-	existingHealth.LastSeen = lastSeen
-	existingHealth.IsUpToDate = true
-	existingHealth.IsLastCheckValid = true
+	existingHealth := &multiorchdatapb.PoolerHealthState{
+		MultiPooler:         mp,
+		LastCheckAttempted:  lastCheck,
+		LastCheckSuccessful: lastSuccess,
+		LastSeen:            lastSeen,
+		IsUpToDate:          true,
+		IsLastCheckValid:    true,
+	}
 	engine.poolerStore.Set(poolerID, existingHealth)
 
 	// Refresh poolers (should update MultiPooler but preserve timestamps)
@@ -534,12 +537,12 @@ func TestRefreshPoolersForTarget_PreservesHealthCheckData(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 1, count)
 
-	// Verify health check data was preserved
+	// Verify health check data was preserved (exact equality)
 	ph, ok := engine.poolerStore.Get(poolerID)
 	require.True(t, ok)
-	assert.Equal(t, lastCheck, ph.LastCheckAttempted, "should preserve LastCheckAttempted")
-	assert.Equal(t, lastSuccess, ph.LastCheckSuccessful, "should preserve LastCheckSuccessful")
-	assert.Equal(t, lastSeen, ph.LastSeen, "should preserve LastSeen")
+	assert.True(t, lastCheck.AsTime().Equal(ph.LastCheckAttempted.AsTime()), "should preserve LastCheckAttempted")
+	assert.True(t, lastSuccess.AsTime().Equal(ph.LastCheckSuccessful.AsTime()), "should preserve LastCheckSuccessful")
+	assert.True(t, lastSeen.AsTime().Equal(ph.LastSeen.AsTime()), "should preserve LastSeen")
 	assert.True(t, ph.IsUpToDate, "should preserve IsUpToDate")
 	assert.True(t, ph.IsLastCheckValid, "should preserve IsLastCheckValid")
 
@@ -608,7 +611,7 @@ func TestRefreshPoolersForTarget_IgnoresPoolers(t *testing.T) {
 
 	ph2, ok := engine.poolerStore.Get(poolerKey("cell1", "pooler2"))
 	require.True(t, ok, "pooler2 should be in store")
-	assert.Equal(t, "pooler2", ph2.ID.Name)
+	assert.Equal(t, "pooler2", ph2.MultiPooler.Id.Name)
 }
 
 // TestRefreshPoolersForTarget_FiltersToShard tests that refreshPoolersForTarget
@@ -746,8 +749,10 @@ func TestForceHealthCheckShardPoolers_ForcesPolls(t *testing.T) {
 		Type:       clustermetadata.PoolerType_PRIMARY,
 		Hostname:   "host1",
 	}
-	existingHealth := store.NewPoolerHealthFromMultiPooler(mp1)
-	existingHealth.IsUpToDate = false
+	existingHealth := &multiorchdatapb.PoolerHealthState{
+		MultiPooler: mp1,
+		IsUpToDate:  false,
+	}
 	engine.poolerStore.Set(poolerKey("cell1", "pooler1"), existingHealth)
 
 	mp2 := &clustermetadata.MultiPooler{
@@ -762,8 +767,10 @@ func TestForceHealthCheckShardPoolers_ForcesPolls(t *testing.T) {
 		Type:       clustermetadata.PoolerType_REPLICA,
 		Hostname:   "host2",
 	}
-	existingHealth = store.NewPoolerHealthFromMultiPooler(mp2)
-	existingHealth.IsUpToDate = false
+	existingHealth = &multiorchdatapb.PoolerHealthState{
+		MultiPooler: mp2,
+		IsUpToDate:  false,
+	}
 	engine.poolerStore.Set(poolerKey("cell1", "pooler2"), existingHealth)
 
 	// Add a pooler in a different shard (should be ignored)
@@ -779,8 +786,10 @@ func TestForceHealthCheckShardPoolers_ForcesPolls(t *testing.T) {
 		Type:       clustermetadata.PoolerType_PRIMARY,
 		Hostname:   "host3",
 	}
-	existingHealth = store.NewPoolerHealthFromMultiPooler(mp3)
-	existingHealth.IsUpToDate = false
+	existingHealth = &multiorchdatapb.PoolerHealthState{
+		MultiPooler: mp3,
+		IsUpToDate:  false,
+	}
 	engine.poolerStore.Set(poolerKey("cell1", "pooler3"), existingHealth)
 
 	// Force health check for shard 0
@@ -789,16 +798,16 @@ func TestForceHealthCheckShardPoolers_ForcesPolls(t *testing.T) {
 	// Verify all shard 0 poolers had their LastCheckAttempted updated
 	p1, ok := engine.poolerStore.Get(poolerKey("cell1", "pooler1"))
 	require.True(t, ok)
-	assert.False(t, p1.LastCheckAttempted.IsZero(), "pooler1 should have been polled")
+	assert.NotNil(t, p1.LastCheckAttempted, "pooler1 should have been polled")
 
 	p2, ok := engine.poolerStore.Get(poolerKey("cell1", "pooler2"))
 	require.True(t, ok)
-	assert.False(t, p2.LastCheckAttempted.IsZero(), "pooler2 should have been polled")
+	assert.NotNil(t, p2.LastCheckAttempted, "pooler2 should have been polled")
 
 	// Verify pooler in different shard was NOT polled
 	p3, ok := engine.poolerStore.Get(poolerKey("cell1", "pooler3"))
 	require.True(t, ok)
-	assert.True(t, p3.LastCheckAttempted.IsZero(), "pooler3 (different shard) should not have been polled")
+	assert.Nil(t, p3.LastCheckAttempted, "pooler3 (different shard) should not have been polled")
 }
 
 // TestForceHealthCheckShardPoolers_RespectsIgnoreList tests that
@@ -831,7 +840,9 @@ func TestForceHealthCheckShardPoolers_RespectsIgnoreList(t *testing.T) {
 		Type:       clustermetadata.PoolerType_PRIMARY,
 		Hostname:   "host1",
 	}
-	existingHealth := store.NewPoolerHealthFromMultiPooler(mp1)
+	existingHealth := &multiorchdatapb.PoolerHealthState{
+		MultiPooler: mp1,
+	}
 	engine.poolerStore.Set(poolerKey("cell1", "dead-primary"), existingHealth)
 
 	mp2 := &clustermetadata.MultiPooler{
@@ -846,7 +857,9 @@ func TestForceHealthCheckShardPoolers_RespectsIgnoreList(t *testing.T) {
 		Type:       clustermetadata.PoolerType_REPLICA,
 		Hostname:   "host2",
 	}
-	existingHealth = store.NewPoolerHealthFromMultiPooler(mp2)
+	existingHealth = &multiorchdatapb.PoolerHealthState{
+		MultiPooler: mp2,
+	}
 	engine.poolerStore.Set(poolerKey("cell1", "healthy-replica"), existingHealth)
 
 	// Force health check, but ignore the dead primary
@@ -856,9 +869,9 @@ func TestForceHealthCheckShardPoolers_RespectsIgnoreList(t *testing.T) {
 	// Verify only the healthy replica was polled
 	pDead, ok := engine.poolerStore.Get(poolerKey("cell1", "dead-primary"))
 	require.True(t, ok)
-	assert.True(t, pDead.LastCheckAttempted.IsZero(), "dead primary should not have been polled")
+	assert.Nil(t, pDead.LastCheckAttempted, "dead primary should not have been polled")
 
 	pHealthy, ok := engine.poolerStore.Get(poolerKey("cell1", "healthy-replica"))
 	require.True(t, ok)
-	assert.False(t, pHealthy.LastCheckAttempted.IsZero(), "healthy replica should have been polled")
+	assert.NotNil(t, pHealthy.LastCheckAttempted, "healthy replica should have been polled")
 }

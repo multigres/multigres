@@ -23,12 +23,13 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/multigres/multigres/go/common/clustermetadata/topo/memorytopo"
 	"github.com/multigres/multigres/go/common/rpcclient"
 	"github.com/multigres/multigres/go/multiorch/config"
-	"github.com/multigres/multigres/go/multiorch/store"
 	"github.com/multigres/multigres/go/pb/clustermetadata"
+	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 )
 
 // TestRecoveryEngine_HealthCheckQueue tests that outdated poolers are queued and health checked
@@ -88,7 +89,7 @@ func TestRecoveryEngine_HealthCheckQueue(t *testing.T) {
 		if !ok {
 			return false
 		}
-		return !p1.LastCheckAttempted.IsZero()
+		return p1.LastCheckAttempted != nil
 	}, 1*time.Second, 50*time.Millisecond, "pooler1 should be health checked via queue")
 
 	require.Eventually(t, func() bool {
@@ -96,25 +97,24 @@ func TestRecoveryEngine_HealthCheckQueue(t *testing.T) {
 		if !ok {
 			return false
 		}
-		return !p2.LastCheckAttempted.IsZero()
+		return p2.LastCheckAttempted != nil
 	}, 1*time.Second, 50*time.Millisecond, "pooler2 should be health checked via queue")
 
 	// Verify both poolers have been health checked
 	pooler1After, ok := re.poolerStore.Get(key1)
 	require.True(t, ok, "pooler1 should still be in store")
-	require.False(t, pooler1After.LastCheckAttempted.IsZero(), "pooler1 should have LastCheckAttempted set")
+	require.NotNil(t, pooler1After.LastCheckAttempted, "pooler1 should have LastCheckAttempted set")
 
 	pooler2After, ok := re.poolerStore.Get(key2)
 	require.True(t, ok, "pooler2 should still be in store")
-	require.False(t, pooler2After.LastCheckAttempted.IsZero(), "pooler2 should have LastCheckAttempted set")
+	require.NotNil(t, pooler2After.LastCheckAttempted, "pooler2 should have LastCheckAttempted set")
 
 	// Verify queue is working - outdated poolers get re-queued
 	// Update pooler1's LastCheckAttempted to be old
-	// Use DeepCopy to avoid race with background goroutines reading the same object
-	pooler1Copy := pooler1After.DeepCopy()
-	pooler1Copy.LastCheckAttempted = time.Now().Add(-200 * time.Millisecond)
-	re.poolerStore.Set(key1, pooler1Copy)
-	firstCheckTime := pooler1Copy.LastCheckAttempted
+	// Store auto-clones, so we can safely modify and set back
+	pooler1After.LastCheckAttempted = timestamppb.New(time.Now().Add(-200 * time.Millisecond))
+	re.poolerStore.Set(key1, pooler1After)
+	firstCheckTime := pooler1After.LastCheckAttempted.AsTime()
 
 	// Wait for health check ticker to re-queue and re-check pooler1
 	require.Eventually(t, func() bool {
@@ -123,7 +123,7 @@ func TestRecoveryEngine_HealthCheckQueue(t *testing.T) {
 			return false
 		}
 		// LastCheckAttempted should be updated (newer than firstCheckTime)
-		return p1.LastCheckAttempted.After(firstCheckTime)
+		return p1.LastCheckAttempted.AsTime().After(firstCheckTime)
 	}, 1*time.Second, 50*time.Millisecond, "pooler1 should be re-checked after becoming outdated")
 }
 
@@ -230,8 +230,8 @@ func TestRecoveryEngine_HealthCheckWorkerPool(t *testing.T) {
 	// With 10 workers, this should happen relatively quickly
 	require.Eventually(t, func() bool {
 		checkedCount := 0
-		re.poolerStore.Range(func(key string, p *store.PoolerHealth) bool {
-			if !p.LastCheckAttempted.IsZero() {
+		re.poolerStore.Range(func(key string, p *multiorchdatapb.PoolerHealthState) bool {
+			if p.LastCheckAttempted != nil {
 				checkedCount++
 			}
 			return true

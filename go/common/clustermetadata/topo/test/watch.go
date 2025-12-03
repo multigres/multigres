@@ -34,7 +34,7 @@ import (
 // provided database.
 func waitForInitialValue(t *testing.T, conn topo.Conn, database *clustermetadatapb.Database) (changes <-chan *topo.WatchData, cancel context.CancelFunc) {
 	var current *topo.WatchData
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	start := time.Now()
 	var err error
 	for {
@@ -74,7 +74,7 @@ func waitForInitialValue(t *testing.T, conn topo.Conn, database *clustermetadata
 // will be watched. In this case will be waiting for the database to appear.
 func waitForInitialValueRecursive(t *testing.T, conn topo.Conn, database *clustermetadatapb.Database) (changes <-chan *topo.WatchDataRecursive, cancel context.CancelFunc, err error) {
 	var current []*topo.WatchDataRecursive
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	start := time.Now()
 	for {
 		current, changes, err = conn.WatchRecursive(ctx, "databases/test_database")

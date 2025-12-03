@@ -22,16 +22,15 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/types/known/durationpb"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/multigres/multigres/go/common/clustermetadata/topo"
 	"github.com/multigres/multigres/go/common/clustermetadata/topo/memorytopo"
 	"github.com/multigres/multigres/go/common/rpcclient"
 	"github.com/multigres/multigres/go/multiorch/config"
-	"github.com/multigres/multigres/go/multiorch/store"
 	"github.com/multigres/multigres/go/pb/clustermetadata"
-
-	"google.golang.org/protobuf/types/known/durationpb"
-
+	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
 
@@ -83,17 +82,19 @@ func TestPollPooler_UpdatesStore_Primary(t *testing.T) {
 		Cell:      "zone1",
 		Name:      "pooler1",
 	}
-	pooler := store.NewPoolerHealthFromMultiPooler(&clustermetadata.MultiPooler{
-		Id:         poolerID,
-		Database:   "mydb",
-		TableGroup: "tg1",
-		Shard:      "0",
-		Type:       clustermetadata.PoolerType_PRIMARY,
-		Hostname:   "host1",
-		PortMap:    map[string]int32{"grpc": 5432},
-	})
-	pooler.IsUpToDate = false
-	pooler.IsLastCheckValid = false
+	pooler := &multiorchdatapb.PoolerHealthState{
+		MultiPooler: &clustermetadata.MultiPooler{
+			Id:         poolerID,
+			Database:   "mydb",
+			TableGroup: "tg1",
+			Shard:      "0",
+			Type:       clustermetadata.PoolerType_PRIMARY,
+			Hostname:   "host1",
+			PortMap:    map[string]int32{"grpc": 5432},
+		},
+		IsUpToDate:       false,
+		IsLastCheckValid: false,
+	}
 	poolerKey := topo.MultiPoolerIDString(poolerID)
 	re.poolerStore.Set(poolerKey, pooler)
 
@@ -107,19 +108,18 @@ func TestPollPooler_UpdatesStore_Primary(t *testing.T) {
 	// Check that health check succeeded
 	require.True(t, updated.IsLastCheckValid, "health check should be valid")
 	require.True(t, updated.IsUpToDate, "health check should be up to date")
-	require.False(t, updated.LastSeen.IsZero(), "LastSeen should be set")
-	require.False(t, updated.LastCheckSuccessful.IsZero(), "LastCheckSuccessful should be set")
+	require.NotNil(t, updated.LastSeen, "LastSeen should be set")
+	require.NotNil(t, updated.LastCheckSuccessful, "LastCheckSuccessful should be set")
 
 	// Check that PRIMARY-specific fields were populated
 	require.Equal(t, clustermetadata.PoolerType_PRIMARY, updated.PoolerType, "should report PRIMARY type")
-	require.Equal(t, "0/123ABC", updated.PrimaryLSN, "LSN should match response")
-	require.True(t, updated.PrimaryReady, "should be ready")
-	require.Len(t, updated.PrimaryConnectedFollowers, 2, "should have 2 connected followers")
+	require.NotNil(t, updated.PrimaryStatus, "PrimaryStatus should be populated")
+	require.Equal(t, "0/123ABC", updated.PrimaryStatus.Lsn, "LSN should match response")
+	require.True(t, updated.PrimaryStatus.Ready, "should be ready")
+	require.Len(t, updated.PrimaryStatus.ConnectedFollowers, 2, "should have 2 connected followers")
 
 	// Check that REPLICA fields are not populated
-	require.Empty(t, updated.ReplicaLastReplayLSN, "replica fields should be empty for PRIMARY")
-	require.Empty(t, updated.ReplicaLastReceiveLSN, "replica fields should be empty for PRIMARY")
-	require.Zero(t, updated.ReplicaLagMillis, "replica lag should be 0 for PRIMARY")
+	require.Nil(t, updated.ReplicationStatus, "ReplicationStatus should be nil for PRIMARY")
 }
 
 // TestPollPooler_UpdatesStore_Replica tests that polling a REPLICA pooler updates the store with correct health metrics
@@ -174,18 +174,19 @@ func TestPollPooler_UpdatesStore_Replica(t *testing.T) {
 		Cell:      "zone1",
 		Name:      "replica1",
 	}
-	pooler := store.NewPoolerHealthFromMultiPooler(&clustermetadata.MultiPooler{
-		Id:         poolerID,
-		Database:   "mydb",
-		TableGroup: "tg1",
-		Shard:      "0",
-		Type:       clustermetadata.PoolerType_REPLICA,
-		Hostname:   "replica-host",
-		PortMap:    map[string]int32{"grpc": 5432},
-	})
-
-	pooler.IsUpToDate = false
-	pooler.IsLastCheckValid = false
+	pooler := &multiorchdatapb.PoolerHealthState{
+		MultiPooler: &clustermetadata.MultiPooler{
+			Id:         poolerID,
+			Database:   "mydb",
+			TableGroup: "tg1",
+			Shard:      "0",
+			Type:       clustermetadata.PoolerType_REPLICA,
+			Hostname:   "replica-host",
+			PortMap:    map[string]int32{"grpc": 5432},
+		},
+		IsUpToDate:       false,
+		IsLastCheckValid: false,
+	}
 
 	poolerKey := topo.MultiPoolerIDString(poolerID)
 	re.poolerStore.Set(poolerKey, pooler)
@@ -200,24 +201,23 @@ func TestPollPooler_UpdatesStore_Replica(t *testing.T) {
 	// Check that health check succeeded
 	require.True(t, updated.IsLastCheckValid, "health check should be valid")
 	require.True(t, updated.IsUpToDate, "health check should be up to date")
-	require.False(t, updated.LastSeen.IsZero(), "LastSeen should be set")
+	require.NotNil(t, updated.LastSeen, "LastSeen should be set")
 
 	// Check that REPLICA-specific fields were populated
 	require.Equal(t, clustermetadata.PoolerType_REPLICA, updated.PoolerType, "should report REPLICA type")
-	require.Equal(t, "0/123ABC", updated.ReplicaLastReplayLSN, "replay LSN should match response")
-	require.Equal(t, "0/123DEF", updated.ReplicaLastReceiveLSN, "receive LSN should match response")
-	require.False(t, updated.ReplicaIsWalReplayPaused, "WAL replay should not be paused")
-	require.Equal(t, "not paused", updated.ReplicaWalReplayPauseState)
-	require.Equal(t, int64(500), updated.ReplicaLagMillis, "lag should be 500ms")
-	require.Equal(t, "2025-01-19 20:00:00.000000+00", updated.ReplicaLastXactReplayTimestamp)
-	require.NotNil(t, updated.ReplicaPrimaryConnInfo, "primary conn info should be set")
-	require.Equal(t, "primary-host", updated.ReplicaPrimaryConnInfo.Host)
-	require.Equal(t, int32(5432), updated.ReplicaPrimaryConnInfo.Port)
+	require.NotNil(t, updated.ReplicationStatus, "ReplicationStatus should be populated")
+	require.Equal(t, "0/123ABC", updated.ReplicationStatus.LastReplayLsn, "replay LSN should match response")
+	require.Equal(t, "0/123DEF", updated.ReplicationStatus.LastReceiveLsn, "receive LSN should match response")
+	require.False(t, updated.ReplicationStatus.IsWalReplayPaused, "WAL replay should not be paused")
+	require.Equal(t, "not paused", updated.ReplicationStatus.WalReplayPauseState)
+	require.Equal(t, int64(500), updated.ReplicationStatus.Lag.AsDuration().Milliseconds(), "lag should be 500ms")
+	require.Equal(t, "2025-01-19 20:00:00.000000+00", updated.ReplicationStatus.LastXactReplayTimestamp)
+	require.NotNil(t, updated.ReplicationStatus.PrimaryConnInfo, "primary conn info should be set")
+	require.Equal(t, "primary-host", updated.ReplicationStatus.PrimaryConnInfo.Host)
+	require.Equal(t, int32(5432), updated.ReplicationStatus.PrimaryConnInfo.Port)
 
 	// Check that PRIMARY fields are not populated
-	require.Empty(t, updated.PrimaryLSN, "primary fields should be empty for REPLICA")
-	require.False(t, updated.PrimaryReady, "primary ready should be false for REPLICA")
-	require.Nil(t, updated.PrimaryConnectedFollowers, "primary followers should be nil for REPLICA")
+	require.Nil(t, updated.PrimaryStatus, "PrimaryStatus should be nil for REPLICA")
 }
 
 // TestPollPooler_RPCFailure tests that polling failure is properly recorded in the store
@@ -257,18 +257,21 @@ func TestPollPooler_RPCFailure(t *testing.T) {
 		Name:      "failed-pooler",
 	}
 
-	pooler := store.NewPoolerHealthFromMultiPooler(&clustermetadata.MultiPooler{
-		Id:         poolerID,
-		Database:   "mydb",
-		TableGroup: "tg1",
-		Shard:      "0",
-		Type:       clustermetadata.PoolerType_PRIMARY,
-		Hostname:   "host1",
-		PortMap:    map[string]int32{"grpc": 5432},
-	})
-	pooler.IsUpToDate = false
-	pooler.IsLastCheckValid = true
-	pooler.LastSeen = time.Now().Add(-1 * time.Hour)
+	lastSeenTime := time.Now().Add(-1 * time.Hour)
+	pooler := &multiorchdatapb.PoolerHealthState{
+		MultiPooler: &clustermetadata.MultiPooler{
+			Id:         poolerID,
+			Database:   "mydb",
+			TableGroup: "tg1",
+			Shard:      "0",
+			Type:       clustermetadata.PoolerType_PRIMARY,
+			Hostname:   "host1",
+			PortMap:    map[string]int32{"grpc": 5432},
+		},
+		IsUpToDate:       false,
+		IsLastCheckValid: true,
+		LastSeen:         timestamppb.New(lastSeenTime),
+	}
 	poolerKey := topo.MultiPoolerIDString(poolerID)
 	re.poolerStore.Set(poolerKey, pooler)
 
@@ -282,10 +285,10 @@ func TestPollPooler_RPCFailure(t *testing.T) {
 	// Check that health check failed properly
 	require.False(t, updated.IsLastCheckValid, "health check should be invalid after failure")
 	require.True(t, updated.IsUpToDate, "should be marked up-to-date (no immediate retry)")
-	require.False(t, updated.LastCheckAttempted.IsZero(), "LastCheckAttempted should be set")
+	require.NotNil(t, updated.LastCheckAttempted, "LastCheckAttempted should be set")
 
 	// LastSeen should remain from before (not updated on failure)
-	require.WithinDuration(t, pooler.LastSeen, updated.LastSeen, 1*time.Second, "LastSeen should not be updated on failure")
+	require.WithinDuration(t, lastSeenTime, updated.LastSeen.AsTime(), 1*time.Second, "LastSeen should not be updated on failure")
 }
 
 // TestPollPooler_TypeMismatch tests behavior when reported type differs from topology type
@@ -333,17 +336,19 @@ func TestPollPooler_TypeMismatch(t *testing.T) {
 		Name:      "confused-pooler",
 	}
 
-	pooler := store.NewPoolerHealthFromMultiPooler(&clustermetadata.MultiPooler{
-		Id:         poolerID,
-		Database:   "mydb",
-		TableGroup: "tg1",
-		Shard:      "0",
-		Type:       clustermetadata.PoolerType_REPLICA, // Topology says REPLICA
-		Hostname:   "host1",
-		PortMap:    map[string]int32{"grpc": 5432},
-	})
-	pooler.IsUpToDate = false
-	pooler.IsLastCheckValid = false
+	pooler := &multiorchdatapb.PoolerHealthState{
+		MultiPooler: &clustermetadata.MultiPooler{
+			Id:         poolerID,
+			Database:   "mydb",
+			TableGroup: "tg1",
+			Shard:      "0",
+			Type:       clustermetadata.PoolerType_REPLICA, // Topology says REPLICA
+			Hostname:   "host1",
+			PortMap:    map[string]int32{"grpc": 5432},
+		},
+		IsUpToDate:       false,
+		IsLastCheckValid: false,
+	}
 	poolerKey := topo.MultiPoolerIDString(poolerID)
 	re.poolerStore.Set(poolerKey, pooler)
 
@@ -355,10 +360,13 @@ func TestPollPooler_TypeMismatch(t *testing.T) {
 	require.True(t, ok, "pooler should exist in store")
 
 	// Check that we captured the type mismatch
-	require.Equal(t, clustermetadata.PoolerType_REPLICA, updated.TopoPoolerType, "topology type should remain REPLICA")
+	// Topology type is in MultiPooler.Type
+	require.Equal(t, clustermetadata.PoolerType_REPLICA, updated.MultiPooler.Type, "topology type should remain REPLICA")
+	// Reported type is in PoolerType
 	require.Equal(t, clustermetadata.PoolerType_PRIMARY, updated.PoolerType, "reported type should be PRIMARY")
 
 	// Should have populated PRIMARY fields (what the pooler actually reports)
-	require.Equal(t, "0/FFFFFF", updated.PrimaryLSN)
-	require.True(t, updated.PrimaryReady)
+	require.NotNil(t, updated.PrimaryStatus, "PrimaryStatus should be populated")
+	require.Equal(t, "0/FFFFFF", updated.PrimaryStatus.Lsn)
+	require.True(t, updated.PrimaryStatus.Ready)
 }

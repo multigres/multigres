@@ -27,12 +27,12 @@ import (
 
 	"github.com/multigres/multigres/go/common/clustermetadata/topo"
 	"github.com/multigres/multigres/go/common/clustermetadata/toporeg"
+	"github.com/multigres/multigres/go/common/servenv"
 	"github.com/multigres/multigres/go/multigateway/executor"
 	"github.com/multigres/multigres/go/multigateway/handler"
 	"github.com/multigres/multigres/go/multigateway/poolergateway"
 	"github.com/multigres/multigres/go/multigateway/scatterconn"
 	"github.com/multigres/multigres/go/pgprotocol/server"
-	"github.com/multigres/multigres/go/servenv"
 	"github.com/multigres/multigres/go/tools/viperutil"
 )
 
@@ -138,7 +138,7 @@ func (mg *MultiGateway) Init() {
 	mg.serverStatus.ServiceID = mg.serviceID.Get()
 
 	// Start pooler discovery first
-	mg.poolerDiscovery = NewPoolerDiscovery(context.Background(), mg.ts, mg.cell.Get(), logger)
+	mg.poolerDiscovery = NewPoolerDiscovery(context.TODO(), mg.ts, mg.cell.Get(), logger)
 	mg.poolerDiscovery.Start()
 	logger.Info("Pooler discovery started with topology watch", "cell", mg.cell.Get())
 
@@ -228,7 +228,7 @@ func (mg *MultiGateway) Shutdown() {
 
 	// Close pooler gateway connections
 	if mg.poolerGateway != nil {
-		if err := mg.poolerGateway.Close(context.Background()); err != nil {
+		if err := mg.poolerGateway.Close(context.TODO()); err != nil {
 			mg.senv.GetLogger().Error("error closing pooler gateway", "error", err)
 		} else {
 			mg.senv.GetLogger().Info("Pooler gateway closed")
