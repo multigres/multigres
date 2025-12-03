@@ -32,7 +32,7 @@ import (
 )
 
 // Watch is part of the topo.Conn interface.
-func (s *Server) Watch(ctx context.Context, filePath string) (*topo.WatchData, <-chan *topo.WatchData, error) {
+func (s *etcdtopo) Watch(ctx context.Context, filePath string) (*topo.WatchData, <-chan *topo.WatchData, error) {
 	nodePath := path.Join(s.root, filePath)
 
 	// Get the initial version of the file
@@ -158,7 +158,7 @@ func (s *Server) Watch(ctx context.Context, filePath string) (*topo.WatchData, <
 }
 
 // WatchRecursive is part of the topo.Conn interface.
-func (s *Server) WatchRecursive(ctx context.Context, dirpath string) ([]*topo.WatchDataRecursive, <-chan *topo.WatchDataRecursive, error) {
+func (s *etcdtopo) WatchRecursive(ctx context.Context, dirpath string) ([]*topo.WatchDataRecursive, <-chan *topo.WatchDataRecursive, error) {
 	nodePath := path.Join(s.root, dirpath)
 	if !strings.HasSuffix(nodePath, "/") {
 		nodePath = nodePath + "/"

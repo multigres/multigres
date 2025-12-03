@@ -25,7 +25,7 @@ import (
 )
 
 // ListDir is part of the topo.Conn interface.
-func (s *Server) ListDir(ctx context.Context, dirPath string, full bool) ([]topo.DirEntry, error) {
+func (s *etcdtopo) ListDir(ctx context.Context, dirPath string, full bool) ([]topo.DirEntry, error) {
 	nodePath := path.Join(s.root, dirPath) + "/"
 	if nodePath == "//" {
 		// Special case where s.root is "/", dirPath is empty,

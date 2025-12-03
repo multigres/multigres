@@ -107,7 +107,7 @@ func TestBootstrapInitialization(t *testing.T) {
 	cellName := "test-cell"
 	cellRoot := filepath.Join(testRoot, cellName)
 
-	ts, err := topo.OpenServer("etcd2", globalRoot, []string{etcdClientAddr})
+	ts, err := topo.OpenServer("etcd2", globalRoot, []string{etcdClientAddr}, topo.NewDefaultTopoConfig())
 	require.NoError(t, err, "Failed to open topology server")
 	defer ts.Close()
 

@@ -47,7 +47,7 @@ func registerEtcd2TopoLockFlags(fs *pflag.FlagSet) {
 // newUniqueEphemeralKV creates a new file in the provided directory.
 // It is linked to the Lease.
 // Errors returned are converted to topo errors.
-func (s *Server) newUniqueEphemeralKV(ctx context.Context, cli *clientv3.Client, leaseID clientv3.LeaseID, nodePath string, contents string) (string, int64, error) {
+func (s *etcdtopo) newUniqueEphemeralKV(ctx context.Context, cli *clientv3.Client, leaseID clientv3.LeaseID, nodePath string, contents string) (string, int64, error) {
 	// Use the lease ID as the file name, so it's guaranteed unique.
 	newKey := fmt.Sprintf("%v/%v", nodePath, leaseID)
 
@@ -83,7 +83,7 @@ func (s *Server) newUniqueEphemeralKV(ctx context.Context, cli *clientv3.Client,
 // waitOnLastRev waits on all revisions of the files in the provided
 // directory that have revisions smaller than the provided revision.
 // It returns true only if there is no more other older files.
-func (s *Server) waitOnLastRev(ctx context.Context, cli *clientv3.Client, nodePath string, revision int64) (bool, error) {
+func (s *etcdtopo) waitOnLastRev(ctx context.Context, cli *clientv3.Client, nodePath string, revision int64) (bool, error) {
 	// Get the keys that are blocking us, if any.
 	opts := append(clientv3.WithLastRev(), clientv3.WithMaxModRev(revision-1))
 	lastKey, err := cli.Get(ctx, nodePath+"/", opts...)
@@ -124,12 +124,12 @@ func (s *Server) waitOnLastRev(ctx context.Context, cli *clientv3.Client, nodePa
 
 // etcdLockDescriptor implements topo.LockDescriptor.
 type etcdLockDescriptor struct {
-	s       *Server
+	s       *etcdtopo
 	leaseID clientv3.LeaseID
 }
 
 // TryLock is part of the topo.Conn interface.
-func (s *Server) TryLock(ctx context.Context, dirPath, contents string) (topo.LockDescriptor, error) {
+func (s *etcdtopo) TryLock(ctx context.Context, dirPath, contents string) (topo.LockDescriptor, error) {
 	// We list all the entries under dirPath
 	entries, err := s.ListDir(ctx, dirPath, true)
 	if err != nil {
@@ -154,7 +154,7 @@ func (s *Server) TryLock(ctx context.Context, dirPath, contents string) (topo.Lo
 }
 
 // Lock is part of the topo.Conn interface.
-func (s *Server) Lock(ctx context.Context, dirPath, contents string) (topo.LockDescriptor, error) {
+func (s *etcdtopo) Lock(ctx context.Context, dirPath, contents string) (topo.LockDescriptor, error) {
 	// We list the directory first to make sure it exists.
 	if _, err := s.ListDir(ctx, dirPath, false /*full*/); err != nil {
 		// We need to return the right error codes, like
@@ -169,7 +169,7 @@ func (s *Server) Lock(ctx context.Context, dirPath, contents string) (topo.LockD
 }
 
 // LockWithTTL is part of the topo.Conn interface.
-func (s *Server) LockWithTTL(ctx context.Context, dirPath, contents string, ttl time.Duration) (topo.LockDescriptor, error) {
+func (s *etcdtopo) LockWithTTL(ctx context.Context, dirPath, contents string, ttl time.Duration) (topo.LockDescriptor, error) {
 	// We list the directory first to make sure it exists.
 	if _, err := s.ListDir(ctx, dirPath, false /*full*/); err != nil {
 		// We need to return the right error codes, like
@@ -184,12 +184,12 @@ func (s *Server) LockWithTTL(ctx context.Context, dirPath, contents string, ttl 
 }
 
 // LockName is part of the topo.Conn interface.
-func (s *Server) LockName(ctx context.Context, dirPath, contents string) (topo.LockDescriptor, error) {
+func (s *etcdtopo) LockName(ctx context.Context, dirPath, contents string) (topo.LockDescriptor, error) {
 	return s.lock(ctx, dirPath, contents, int(topo.NamedLockTTL.Seconds()))
 }
 
 // LockNameWithTTL is part of the topo.Conn interface.
-func (s *Server) LockNameWithTTL(ctx context.Context, dirPath, contents string, ttl time.Duration) (topo.LockDescriptor, error) {
+func (s *etcdtopo) LockNameWithTTL(ctx context.Context, dirPath, contents string, ttl time.Duration) (topo.LockDescriptor, error) {
 	ttlSeconds := int(topo.NamedLockTTL.Seconds())
 	if ttl > 0 {
 		ttlSeconds = int(ttl.Seconds())
@@ -201,7 +201,7 @@ func (s *Server) LockNameWithTTL(ctx context.Context, dirPath, contents string, 
 // It combines the fail-fast semantics of TryLock with LockName's ability to
 // lock paths that don't exist. It checks if a lock already exists at the
 // named lock path, and if so returns an error immediately.
-func (s *Server) TryLockName(ctx context.Context, dirPath, contents string) (topo.LockDescriptor, error) {
+func (s *etcdtopo) TryLockName(ctx context.Context, dirPath, contents string) (topo.LockDescriptor, error) {
 	// Check if a lock already exists by listing the locks directory
 	lockPath := path.Join(s.root, dirPath, locksPath)
 	resp, err := s.cli.Get(ctx, lockPath, clientv3.WithPrefix(), clientv3.WithLimit(1))
@@ -216,7 +216,7 @@ func (s *Server) TryLockName(ctx context.Context, dirPath, contents string) (top
 }
 
 // lock is used by both Lock() and primary election.
-func (s *Server) lock(ctx context.Context, nodePath, contents string, ttl int) (topo.LockDescriptor, error) {
+func (s *etcdtopo) lock(ctx context.Context, nodePath, contents string, ttl int) (topo.LockDescriptor, error) {
 	nodePath = path.Join(s.root, nodePath, locksPath)
 
 	// Get a lease, set its KeepAlive.

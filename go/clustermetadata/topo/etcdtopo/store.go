@@ -52,6 +52,8 @@ var (
 	serverCaPath   string
 )
 
+var _ topo.Conn = (*etcdtopo)(nil)
+
 // remoteOperationTimeout is used for operations where we have to
 // call out to etcd for initial data fetches (e.g., watch setup).
 const remoteOperationTimeout = 15 * time.Second
@@ -66,11 +68,11 @@ func (f Factory) HasGlobalReadOnlyCell(serverAddr, root string) bool {
 
 // Create is part of the topo.Factory interface.
 func (f Factory) Create(cell, root string, serverAddrs []string) (topo.Conn, error) {
-	return NewServer(serverAddrs, root)
+	return NewEtcdTopo(serverAddrs, root)
 }
 
-// Server is the implementation of topo.Conn for etcd.
-type Server struct {
+// etcdtopo is the implementation of topo.Conn for etcd.
+type etcdtopo struct {
 	// cli is the v3 client.
 	cli *clientv3.Client
 
@@ -94,7 +96,7 @@ func registerEtcd2TopoFlags(fs *pflag.FlagSet) {
 // Close implements topo.Conn.Close.
 // It will nil out the global and cells fields, so any attempt to
 // re-use this server will panic.
-func (s *Server) Close() error {
+func (s *etcdtopo) Close() error {
 	close(s.running)
 	if err := s.cli.Close(); err != nil {
 		return err
@@ -138,7 +140,7 @@ func newTLSConfig(certPath, keyPath, caPath string) (*tls.Config, error) {
 }
 
 // NewServerWithOpts creates a new server with the provided TLS options
-func NewServerWithOpts(serverAddrs []string, root, certPath, keyPath, caPath string) (*Server, error) {
+func NewServerWithOpts(serverAddrs []string, root, certPath, keyPath, caPath string) (*etcdtopo, error) {
 	// TODO: Rename this to NewServer and change NewServer to a name that signifies it uses the process-wide TLS settings.
 	config := clientv3.Config{
 		Endpoints:   serverAddrs,
@@ -158,16 +160,15 @@ func NewServerWithOpts(serverAddrs []string, root, certPath, keyPath, caPath str
 		return nil, err
 	}
 
-	return &Server{
+	return &etcdtopo{
 		cli:     cli,
 		root:    root,
 		running: make(chan struct{}),
 	}, nil
 }
 
-// NewServer returns a new etcdtopo.Server.
-func NewServer(serverAddrs []string, root string) (*Server, error) {
+// NewEtcdTopo returns a new etcdtopo.Server.
+func NewEtcdTopo(serverAddrs []string, root string) (*etcdtopo, error) {
 	// TODO: Rename this to a name to signifies this function uses the process-wide TLS settings.
-
 	return NewServerWithOpts(serverAddrs, root, clientCertPath, clientKeyPath, serverCaPath)
 }
