@@ -211,6 +211,7 @@ func createTestConfigWithPorts(tempDir string, portConfig *testPortConfig) (stri
 				Path:           "multipooler",
 				Database:       "postgres",
 				TableGroup:     "default",
+				Shard:          "0-inf",
 				ServiceID:      serviceID,
 				PoolerDir:      local.GeneratePoolerDir(tempDir, serviceID),
 				PgPort:         zonePort.PgctldPGPort, // Same as pgctld for this zone

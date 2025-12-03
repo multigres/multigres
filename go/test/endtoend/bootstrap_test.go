@@ -340,7 +340,8 @@ func createEmptyNode(t *testing.T, baseDir, cell, shard, database string, index 
 	multipoolerCmd := exec.Command("multipooler",
 		"--grpc-port", fmt.Sprintf("%d", grpcPort),
 		"--database", database,
-		"--table-group", "test", // table group is required
+		"--table-group", "default", // table group is required (MVP only supports "default")
+		"--shard", "0-inf", // shard is required (MVP only supports "0-inf")
 		"--pgctld-addr", fmt.Sprintf("localhost:%d", pgctldGrpcPort),
 		"--pooler-dir", dataDir,
 		"--pg-port", fmt.Sprintf("%d", pgPort),
