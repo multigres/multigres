@@ -24,13 +24,6 @@ import (
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 )
 
-// ShardKey uniquely identifies a shard.
-type ShardKey struct {
-	Database   string
-	TableGroup string
-	Shard      string
-}
-
 // PoolersByShard is a structured map for efficient lookups.
 // Structure: [database][tablegroup][shard][pooler_id] -> PoolerHealthState
 type PoolersByShard map[string]map[string]map[string]map[string]*multiorchdatapb.PoolerHealthState

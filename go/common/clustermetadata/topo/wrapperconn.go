@@ -286,6 +286,28 @@ func (c *WrapperConn) LockName(ctx context.Context, dirPath, contents string) (L
 	return result, err
 }
 
+// LockNameWithTTL acquires a named distributed lock with a time-to-live on the specified directory path.
+func (c *WrapperConn) LockNameWithTTL(ctx context.Context, dirPath, contents string, ttl time.Duration) (LockDescriptor, error) {
+	conn, err := c.getConnection()
+	if err != nil {
+		return nil, err
+	}
+	result, err := conn.LockNameWithTTL(ctx, dirPath, contents, ttl)
+	c.handleConnectionError(conn, err)
+	return result, err
+}
+
+// TryLockName attempts to acquire a named distributed lock without blocking.
+func (c *WrapperConn) TryLockName(ctx context.Context, dirPath, contents string) (LockDescriptor, error) {
+	conn, err := c.getConnection()
+	if err != nil {
+		return nil, err
+	}
+	result, err := conn.TryLockName(ctx, dirPath, contents)
+	c.handleConnectionError(conn, err)
+	return result, err
+}
+
 // TryLock attempts to acquire a distributed lock without blocking.
 func (c *WrapperConn) TryLock(ctx context.Context, dirPath, contents string) (LockDescriptor, error) {
 	conn, err := c.getConnection()

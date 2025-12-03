@@ -188,6 +188,33 @@ func (s *Server) LockName(ctx context.Context, dirPath, contents string) (topo.L
 	return s.lock(ctx, dirPath, contents, int(topo.NamedLockTTL.Seconds()))
 }
 
+// LockNameWithTTL is part of the topo.Conn interface.
+func (s *Server) LockNameWithTTL(ctx context.Context, dirPath, contents string, ttl time.Duration) (topo.LockDescriptor, error) {
+	ttlSeconds := int(topo.NamedLockTTL.Seconds())
+	if ttl > 0 {
+		ttlSeconds = int(ttl.Seconds())
+	}
+	return s.lock(ctx, dirPath, contents, ttlSeconds)
+}
+
+// TryLockName is part of the topo.Conn interface.
+// It combines the fail-fast semantics of TryLock with LockName's ability to
+// lock paths that don't exist. It checks if a lock already exists at the
+// named lock path, and if so returns an error immediately.
+func (s *Server) TryLockName(ctx context.Context, dirPath, contents string) (topo.LockDescriptor, error) {
+	// Check if a lock already exists by listing the locks directory
+	lockPath := path.Join(s.root, dirPath, locksPath)
+	resp, err := s.cli.Get(ctx, lockPath, clientv3.WithPrefix(), clientv3.WithLimit(1))
+	if err != nil {
+		return nil, convertError(err, dirPath)
+	}
+	if len(resp.Kvs) > 0 {
+		return nil, topo.NewError(topo.NodeExists, fmt.Sprintf("lock already exists at path %s", dirPath))
+	}
+	// No lock exists, proceed with acquiring the named lock
+	return s.lock(ctx, dirPath, contents, int(topo.NamedLockTTL.Seconds()))
+}
+
 // lock is used by both Lock() and primary election.
 func (s *Server) lock(ctx context.Context, nodePath, contents string, ttl int) (topo.LockDescriptor, error) {
 	nodePath = path.Join(s.root, nodePath, locksPath)

@@ -73,6 +73,7 @@ import (
 	"github.com/spf13/pflag"
 	"golang.org/x/sync/errgroup"
 
+	"github.com/multigres/multigres/go/common/types"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/tools/viperutil"
 )
@@ -198,6 +199,14 @@ type Store interface {
 
 	// Connection provider for accessing cell-specific connections
 	ConnProvider
+
+	// LockShard acquires a lock on the specified shard.
+	// See shard_lock.go for full documentation.
+	LockShard(ctx context.Context, shardKey types.ShardKey, action string, opts ...LockOption) (context.Context, func(*error), error)
+
+	// TryLockShard attempts to acquire a lock on the specified shard without blocking.
+	// See shard_lock.go for full documentation.
+	TryLockShard(ctx context.Context, shardKey types.ShardKey, action string) (context.Context, func(*error), error)
 
 	// Resource cleanup
 	io.Closer

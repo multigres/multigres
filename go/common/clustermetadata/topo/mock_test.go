@@ -137,7 +137,21 @@ func (m *mockConn) LockName(ctx context.Context, dirPath, contents string) (Lock
 	return &mockLockDescriptor{}, nil
 }
 
+func (m *mockConn) LockNameWithTTL(ctx context.Context, dirPath, contents string, ttl time.Duration) (LockDescriptor, error) {
+	if err := m.checkError(); err != nil {
+		return nil, err
+	}
+	return &mockLockDescriptor{}, nil
+}
+
 func (m *mockConn) TryLock(ctx context.Context, dirPath, contents string) (LockDescriptor, error) {
+	if err := m.checkError(); err != nil {
+		return nil, err
+	}
+	return &mockLockDescriptor{}, nil
+}
+
+func (m *mockConn) TryLockName(ctx context.Context, dirPath, contents string) (LockDescriptor, error) {
 	if err := m.checkError(); err != nil {
 		return nil, err
 	}

@@ -42,8 +42,6 @@ type memoryTopoLockDescriptor struct {
 
 // TryLock is part of the topo.Conn interface.
 func (c *conn) TryLock(ctx context.Context, dirPath, contents string) (topo.LockDescriptor, error) {
-	// c.factory.callstats.Add([]string{"TryLock"}, 1)
-
 	c.factory.mu.Lock()
 	err := c.factory.getOperationError(TryLock, dirPath)
 	c.factory.mu.Unlock()
@@ -89,8 +87,6 @@ func (c *conn) checkLockExistence(ctx context.Context, dirPath string, named boo
 
 // Lock is part of the topo.Conn interface.
 func (c *conn) Lock(ctx context.Context, dirPath, contents string) (topo.LockDescriptor, error) {
-	// c.factory.callstats.Add([]string{"Lock"}, 1)
-
 	c.factory.mu.Lock()
 	err := c.factory.getOperationError(Lock, dirPath)
 	c.factory.mu.Unlock()
@@ -101,11 +97,8 @@ func (c *conn) Lock(ctx context.Context, dirPath, contents string) (topo.LockDes
 	return c.lock(ctx, dirPath, contents, false)
 }
 
-// LockWithTTL is part of the topo.Conn interface. It behaves the same as Lock
-// as TTLs are not supported in memorytopo.
-func (c *conn) LockWithTTL(ctx context.Context, dirPath, contents string, _ time.Duration) (topo.LockDescriptor, error) {
-	// c.factory.callstats.Add([]string{"LockWithTTL"}, 1)
-
+// LockWithTTL is part of the topo.Conn interface.
+func (c *conn) LockWithTTL(ctx context.Context, dirPath, contents string, ttl time.Duration) (topo.LockDescriptor, error) {
 	c.factory.mu.Lock()
 	err := c.factory.getOperationError(Lock, dirPath)
 	c.factory.mu.Unlock()
@@ -113,17 +106,43 @@ func (c *conn) LockWithTTL(ctx context.Context, dirPath, contents string, _ time
 		return nil, err
 	}
 
-	return c.lock(ctx, dirPath, contents, false)
+	return c.lockWithTTL(ctx, dirPath, contents, false, ttl)
 }
 
 // LockName is part of the topo.Conn interface.
 func (c *conn) LockName(ctx context.Context, dirPath, contents string) (topo.LockDescriptor, error) {
-	// c.factory.callstats.Add([]string{"LockName"}, 1)
 	return c.lock(ctx, dirPath, contents, true)
 }
 
-// Lock is part of the topo.Conn interface.
+// LockNameWithTTL is part of the topo.Conn interface.
+func (c *conn) LockNameWithTTL(ctx context.Context, dirPath, contents string, ttl time.Duration) (topo.LockDescriptor, error) {
+	return c.lockWithTTL(ctx, dirPath, contents, true, ttl)
+}
+
+// TryLockName is part of the topo.Conn interface.
+func (c *conn) TryLockName(ctx context.Context, dirPath, contents string) (topo.LockDescriptor, error) {
+	c.factory.mu.Lock()
+	err := c.factory.getOperationError(TryLock, dirPath)
+	c.factory.mu.Unlock()
+	if err != nil {
+		return nil, err
+	}
+
+	// Check if lock exists, using named=true so the path is created if needed
+	if err := c.checkLockExistence(ctx, dirPath, true); err != nil {
+		return nil, err
+	}
+
+	return c.lock(ctx, dirPath, contents, true)
+}
+
+// lock acquires a lock without TTL.
 func (c *conn) lock(ctx context.Context, dirPath, contents string, named bool) (topo.LockDescriptor, error) {
+	return c.lockWithTTL(ctx, dirPath, contents, named, 0)
+}
+
+// lockWithTTL acquires a lock with an optional TTL. If ttl is 0, the lock does not expire.
+func (c *conn) lockWithTTL(ctx context.Context, dirPath, contents string, named bool, ttl time.Duration) (topo.LockDescriptor, error) {
 	for {
 		if err := c.dial(ctx); err != nil {
 			return nil, err
@@ -163,6 +182,22 @@ func (c *conn) lock(ctx context.Context, dirPath, contents string, named bool) (
 		// No one has the lock, grab it.
 		n.lock = make(chan struct{})
 		n.lockContents = contents
+
+		// Set up TTL expiration if specified
+		if ttl > 0 {
+			n.lockTTLTimer = time.AfterFunc(ttl, func() {
+				c.factory.mu.Lock()
+				defer c.factory.mu.Unlock()
+				// Only expire if the lock is still held (not already unlocked)
+				if n.lock != nil {
+					close(n.lock)
+					n.lock = nil
+					n.lockContents = ""
+					n.lockTTLTimer = nil
+				}
+			})
+		}
+
 		for _, w := range n.watches {
 			if w.lock == nil {
 				continue
@@ -202,6 +237,11 @@ func (c *conn) unlock(ctx context.Context, dirPath string) error {
 	}
 	if n.lock == nil {
 		return fmt.Errorf("node %v is not locked", dirPath)
+	}
+	// Stop the TTL timer if one exists
+	if n.lockTTLTimer != nil {
+		n.lockTTLTimer.Stop()
+		n.lockTTLTimer = nil
 	}
 	close(n.lock)
 	n.lock = nil

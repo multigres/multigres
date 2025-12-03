@@ -145,6 +145,15 @@ type ConnLock interface {
 	// TTL on them to ensure that they are eventually cleaned up.
 	LockName(ctx context.Context, dirPath, contents string) (LockDescriptor, error)
 
+	// LockNameWithTTL is similar to LockName but allows specifying a custom TTL.
+	// If ttl is 0, it defaults to NamedLockTTL (24 hours).
+	LockNameWithTTL(ctx context.Context, dirPath, contents string, ttl time.Duration) (LockDescriptor, error)
+
+	// TryLockName is similar to LockName but with fail-fast semantics like TryLock.
+	// If there is already a lock on the given path, it returns an error immediately
+	// instead of waiting. Unlike TryLock, it does not require the path to exist.
+	TryLockName(ctx context.Context, dirPath, contents string) (LockDescriptor, error)
+
 	// TryLock takes lock on the given directory with a fail-fast approach.
 	// It is similar to `Lock` but the difference is it attempts to acquire the lock
 	// if it is likely to succeed. If there is already a lock on given path, then unlike `Lock`
