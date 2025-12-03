@@ -16,7 +16,6 @@ package poolerserver
 
 import (
 	"context"
-	"time"
 
 	"github.com/multigres/multigres/go/multipooler/queryservice"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
@@ -26,15 +25,10 @@ import (
 // This is passed to InitDBConfig instead of an actual connection,
 // following the Vitess pattern where components receive config and create their own connections.
 type DBConfig struct {
-	SocketFilePath  string
-	PoolerDir       string
-	Database        string
-	PgPort          int
-	PoolEnabled     bool          // Enable connection pooling (default: true)
-	PoolCapacity    int           // Max connections (default: 100)
-	PoolMaxIdle     int           // Max idle connections (default: 50)
-	PoolIdleTimeout time.Duration // Idle timeout (default: 5min)
-	PoolMaxLifetime time.Duration // Max connection lifetime (default: 1hr)
+	SocketFilePath string
+	PoolerDir      string
+	Database       string
+	PgPort         int
 }
 
 // PoolerController defines the control interface for query serving.

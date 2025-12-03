@@ -16,8 +16,6 @@
 package manager
 
 import (
-	"time"
-
 	"github.com/multigres/multigres/go/clustermetadata/topo"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
@@ -35,11 +33,4 @@ type Config struct {
 	PgctldAddr          string // Address of pgctld gRPC service
 	PgBackRestStanza    string // pgBackRest stanza name (defaults to service ID if empty)
 	ConsensusEnabled    bool   // Whether consensus gRPC service is enabled
-
-	// Connection Pool Configuration
-	PoolEnabled     bool          // Enable connection pooling (default: true)
-	PoolCapacity    int           // Max connections (default: 100)
-	PoolMaxIdle     int           // Max idle connections (default: 50)
-	PoolIdleTimeout time.Duration // Idle timeout (default: 5min)
-	PoolMaxLifetime time.Duration // Max connection lifetime (default: 1hr)
 }

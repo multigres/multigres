@@ -16,14 +16,18 @@
 // ConnectionState-aware connection management.
 package connpool
 
-import "context"
+import (
+	"context"
+
+	"github.com/multigres/multigres/go/multipooler/connstate"
+)
 
 // Connection represents a pooled database connection.
 // Implementations must be safe for concurrent use by a single client.
 type Connection interface {
 	// State returns the current state of the connection.
 	// Returns nil if the connection has no state modifiers applied.
-	State() *ConnectionState
+	State() *connstate.ConnectionState
 
 	// IsClosed returns true if the connection has been closed.
 	IsClosed() bool
@@ -34,7 +38,7 @@ type Connection interface {
 	// ApplyState applies the given state to the connection by executing
 	// the necessary SQL commands (e.g., SET commands for settings).
 	// Returns an error if the state cannot be applied.
-	ApplyState(ctx context.Context, state *ConnectionState) error
+	ApplyState(ctx context.Context, state *connstate.ConnectionState) error
 
 	// ResetState resets the connection to a clean state with no modifiers.
 	// This typically involves running RESET commands or equivalent SQL.

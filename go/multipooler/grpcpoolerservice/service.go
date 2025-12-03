@@ -20,7 +20,6 @@ import (
 	"fmt"
 
 	"github.com/multigres/multigres/go/multipooler/poolerserver"
-	"github.com/multigres/multigres/go/multipooler/queryservice"
 	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
 	querypb "github.com/multigres/multigres/go/pb/query"
 	"github.com/multigres/multigres/go/servenv"
@@ -54,7 +53,7 @@ func (s *poolerService) StreamExecute(req *multipoolerpb.StreamExecuteRequest, s
 	}
 
 	// Execute the query and stream results
-	err = executor.StreamExecute(stream.Context(), req.Target, req.Query, req.Options, func(ctx context.Context, result *querypb.QueryResult) error {
+	err = executor.StreamExecute(stream.Context(), req.Target, req.Query, nil, func(ctx context.Context, result *querypb.QueryResult) error {
 		// Send the result back to the client
 		response := &multipoolerpb.StreamExecuteResponse{
 			Result: result,
@@ -76,74 +75,12 @@ func (s *poolerService) ExecuteQuery(ctx context.Context, req *multipoolerpb.Exe
 	}
 
 	// Execute the query and stream results
-	res, err := executor.ExecuteQuery(ctx, req.Target, req.Query, req.Options)
+	options := &querypb.ExecuteOptions{MaxRows: req.MaxRows}
+	res, err := executor.ExecuteQuery(ctx, req.Target, req.Query, options)
 	if err != nil {
 		return nil, err
 	}
 	return &multipoolerpb.ExecuteQueryResponse{
 		Result: res,
-	}, nil
-}
-
-// PortalStreamExecute executes a portal (bound prepared statement) and streams results back.
-// Returns reserved connection information in the first response.
-func (s *poolerService) PortalStreamExecute(req *multipoolerpb.PortalStreamExecuteRequest, stream multipoolerpb.MultiPoolerService_PortalStreamExecuteServer) error {
-	// Get the executor from the pooler
-	executor, err := s.pooler.Executor()
-	if err != nil {
-		return fmt.Errorf("executor not initialized")
-	}
-
-	var reservedState queryservice.ReservedState
-
-	// Execute the portal and stream results
-	reservedState, err = executor.PortalStreamExecute(
-		stream.Context(),
-		req.Target,
-		req.PreparedStatement,
-		req.Portal,
-		req.Options,
-		func(ctx context.Context, result *querypb.QueryResult) error {
-			// Build the response
-			response := &multipoolerpb.PortalStreamExecuteResponse{
-				Result: result,
-			}
-
-			// Send the result back to the client
-			return stream.Send(response)
-		},
-	)
-	if err != nil || reservedState.ReservedConnectionId == 0 {
-		return err
-	}
-
-	return stream.Send(&multipoolerpb.PortalStreamExecuteResponse{
-		PoolerId:             reservedState.PoolerID,
-		ReservedConnectionId: reservedState.ReservedConnectionId,
-	})
-}
-
-// Describe returns metadata about a prepared statement or portal.
-func (s *poolerService) Describe(ctx context.Context, req *multipoolerpb.DescribeRequest) (*multipoolerpb.DescribeResponse, error) {
-	// Get the executor from the pooler
-	executor, err := s.pooler.Executor()
-	if err != nil {
-		return nil, fmt.Errorf("executor not initialized")
-	}
-
-	// Get the description
-	description, err := executor.Describe(
-		ctx,
-		req.Target,
-		req.PreparedStatement,
-		req.Portal,
-		req.Options,
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	return &multipoolerpb.DescribeResponse{
-		Description: description,
 	}, nil
 }
