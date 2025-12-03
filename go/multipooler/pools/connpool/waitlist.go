@@ -24,9 +24,9 @@ import (
 
 // waiter represents a client waiting for a connection in the waitlist
 type waiter[C Connection] struct {
-	// state is the connection state that we'd like, or nil if we'd like a
-	// a connection with no state applied
-	state *connstate.ConnectionState
+	// settings is the settings that we'd like, or nil if we'd like a
+	// a connection with no settings applied (clean connection)
+	settings *connstate.Settings
 	// conn will be set by another client to hand over the connection to use
 	conn *Pooled[C]
 	// ctx is the context of the waiting client to check for expiration
@@ -44,14 +44,14 @@ type waitlist[C Connection] struct {
 	list  list.List[waiter[C]]
 }
 
-// waitForConn blocks until a connection with the given state is returned by another client,
+// waitForConn blocks until a connection with the given settings is returned by another client,
 // or until the given context expires.
-// The returned connection may _not_ have the requested state. This function can
+// The returned connection may _not_ have the requested settings. This function can
 // also return a `nil` connection even if our context has expired, if the pool has
 // forced an expiration of all waiters in the waitlist.
-func (wl *waitlist[C]) waitForConn(ctx context.Context, state *connstate.ConnectionState) (*Pooled[C], error) {
+func (wl *waitlist[C]) waitForConn(ctx context.Context, settings *connstate.Settings) (*Pooled[C], error) {
 	elem := wl.nodes.Get().(*list.Element[waiter[C]])
-	elem.Value = waiter[C]{state: state, conn: nil, ctx: ctx}
+	elem.Value = waiter[C]{settings: settings, conn: nil, ctx: ctx}
 
 	wl.mu.Lock()
 	// add ourselves as a waiter at the end of the waitlist
@@ -120,28 +120,28 @@ func (wl *waitlist[D]) tryReturnConn(conn *Pooled[D]) bool {
 func (wl *waitlist[D]) tryReturnConnSlow(conn *Pooled[D]) bool {
 	const maxAge = 8
 	var (
-		target    *list.Element[waiter[D]]
-		connState = conn.State()
+		target       *list.Element[waiter[D]]
+		connSettings = conn.Settings()
 	)
 
 	wl.mu.Lock()
 	target = wl.list.Front()
 	// iterate through the waitlist looking for either waiters that have been
-	// here too long, or a waiter that is looking exactly for the same state
+	// here too long, or a waiter that is looking exactly for the same settings
 	// as the one we have in our connection.
 	for e := target; e != nil; e = e.Next() {
-		// Check if states match - use pointer equality for fast path, settings match as fallback
-		statesMatch := e.Value.state == connState ||
-			(e.Value.state != nil && connState != nil && e.Value.state.HasMatchingSettings(connState.GetSettings()))
+		// Check if settings match using pointer equality.
+		// With interned settings from SettingsCache, same settings = same pointer.
+		settingsMatch := e.Value.settings == connSettings
 
-		if e.Value.age > maxAge || statesMatch {
+		if e.Value.age > maxAge || settingsMatch {
 			target = e
 			break
 		}
 		// this only ages the waiters that are being skipped over: we'll start
 		// aging the waiters in the back once they get to the front of the pool.
 		// the maxAge of 8 has been set empirically: smaller values cause clients
-		// with a specific state to slightly starve, and aging all the clients
+		// with a specific settings to slightly starve, and aging all the clients
 		// in the list every time leads to unfairness when the system is at capacity
 		e.Value.age++
 	}

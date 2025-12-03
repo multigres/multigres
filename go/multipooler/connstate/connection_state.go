@@ -278,6 +278,10 @@ var globalSettingsCounter atomic.Uint32
 // The bucket is assigned when the Settings is created and is used by the
 // connection pool to distribute connections with the same settings to the
 // same stack, enabling efficient connection reuse.
+//
+// IMPORTANT: Settings should be created via SettingsCache.GetOrCreate() to ensure
+// proper interning. When settings are interned, pointer equality can be used for
+// fast comparison instead of comparing the full Vars map.
 type Settings struct {
 	// Vars maps variable names to their values.
 	Vars map[string]string
@@ -289,6 +293,9 @@ type Settings struct {
 
 // NewSettings creates a new Settings with the given variables.
 // A unique bucket number is assigned from the global counter.
+//
+// NOTE: For connection pooling, prefer using SettingsCache.GetOrCreate() instead
+// to ensure settings are properly interned (same settings = same pointer).
 func NewSettings(vars map[string]string) *Settings {
 	return &Settings{
 		Vars:   vars,
@@ -306,7 +313,6 @@ func (s *Settings) Bucket() uint32 {
 }
 
 // ApplyQuery returns the SQL to apply these settings to a connection.
-// The query is constructed at runtime from the Vars map.
 func (s *Settings) ApplyQuery() string {
 	if s == nil || len(s.Vars) == 0 {
 		return ""

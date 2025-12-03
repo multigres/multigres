@@ -28,18 +28,16 @@ import (
 
 // mockConnection is a mock implementation of Connection for testing.
 type mockConnection struct {
-	state  *connstate.ConnectionState
-	closed atomic.Bool
+	settings *connstate.Settings
+	closed   atomic.Bool
 }
 
 func newMockConnection() *mockConnection {
-	return &mockConnection{
-		state: connstate.NewConnectionState(),
-	}
+	return &mockConnection{}
 }
 
-func (m *mockConnection) State() *connstate.ConnectionState {
-	return m.state
+func (m *mockConnection) Settings() *connstate.Settings {
+	return m.settings
 }
 
 func (m *mockConnection) IsClosed() bool {
@@ -51,13 +49,13 @@ func (m *mockConnection) Close() error {
 	return nil
 }
 
-func (m *mockConnection) ApplyState(ctx context.Context, state *connstate.ConnectionState) error {
-	m.state = state
+func (m *mockConnection) ApplySettings(ctx context.Context, settings *connstate.Settings) error {
+	m.settings = settings
 	return nil
 }
 
-func (m *mockConnection) ResetState(ctx context.Context) error {
-	m.state = connstate.NewConnectionState()
+func (m *mockConnection) ResetSettings(ctx context.Context) error {
+	m.settings = nil
 	return nil
 }
 
@@ -101,42 +99,40 @@ func TestPoolBasicGetPut(t *testing.T) {
 	assert.Same(t, conn1, conn2)
 }
 
-func TestPoolGetWithState(t *testing.T) {
+func TestPoolGetWithSettings(t *testing.T) {
 	pool := newTestPool(10)
 	defer pool.Close()
 
 	ctx := context.Background()
 
-	// Create a state with settings
+	// Create settings
 	settings1 := connstate.NewSettings(map[string]string{
 		"timezone": "UTC",
 	})
-	state1 := connstate.NewConnectionStateWithSettings(settings1)
 
-	// Get connection with state
-	conn1, err := pool.GetWithState(ctx, state1)
+	// Get connection with settings
+	conn1, err := pool.GetWithSettings(ctx, settings1)
 	require.NoError(t, err)
 
-	// Apply the state to the connection
-	err = conn1.Conn.ApplyState(ctx, state1)
+	// Apply the settings to the connection
+	err = conn1.Conn.ApplySettings(ctx, settings1)
 	require.NoError(t, err)
 
 	// Put it back
 	conn1.Recycle()
 
-	// Get with same state - should get from the same bucket (may or may not be exact same conn)
-	conn2, err := pool.GetWithState(ctx, state1)
+	// Get with same settings - should get from the same bucket (may or may not be exact same conn)
+	conn2, err := pool.GetWithSettings(ctx, settings1)
 	require.NoError(t, err)
 	// Due to the bucket-based distribution, this might be the same connection
 	// but we can't guarantee it anymore like before
 	conn2.Recycle()
 
-	// Get with different state - should work
+	// Get with different settings - should work
 	settings2 := connstate.NewSettings(map[string]string{
 		"timezone": "America/New_York",
 	})
-	state2 := connstate.NewConnectionStateWithSettings(settings2)
-	conn3, err := pool.GetWithState(ctx, state2)
+	conn3, err := pool.GetWithSettings(ctx, settings2)
 	require.NoError(t, err)
 	conn3.Recycle()
 }
@@ -237,26 +233,24 @@ func TestPoolStateSegregation(t *testing.T) {
 
 	ctx := context.Background()
 
-	// Create multiple connections with different states
+	// Create multiple connections with different settings
 	settings1 := connstate.NewSettings(map[string]string{"timezone": "UTC"})
-	state1 := connstate.NewConnectionStateWithSettings(settings1)
 	settings2 := connstate.NewSettings(map[string]string{"timezone": "PST"})
-	state2 := connstate.NewConnectionStateWithSettings(settings2)
 
-	conn1, _ := pool.GetWithState(ctx, state1)
-	_ = conn1.Conn.ApplyState(ctx, state1)
+	conn1, _ := pool.GetWithSettings(ctx, settings1)
+	_ = conn1.Conn.ApplySettings(ctx, settings1)
 	conn1.Recycle()
 
-	conn2, _ := pool.GetWithState(ctx, state2)
-	_ = conn2.Conn.ApplyState(ctx, state2)
+	conn2, _ := pool.GetWithSettings(ctx, settings2)
+	_ = conn2.Conn.ApplySettings(ctx, settings2)
 	conn2.Recycle()
 
-	// Getting with state1 should try to get from the matching bucket
-	conn3, _ := pool.GetWithState(ctx, state1)
+	// Getting with settings1 should try to get from the matching bucket
+	conn3, _ := pool.GetWithSettings(ctx, settings1)
 	conn3.Recycle()
 
-	// Getting with state2 should try to get from the matching bucket
-	conn4, _ := pool.GetWithState(ctx, state2)
+	// Getting with settings2 should try to get from the matching bucket
+	conn4, _ := pool.GetWithSettings(ctx, settings2)
 	conn4.Recycle()
 }
 
@@ -312,10 +306,9 @@ func TestPoolMetrics(t *testing.T) {
 	conn1.Recycle()
 	conn2.Recycle()
 
-	// Get with state
+	// Get with settings
 	settings := connstate.NewSettings(map[string]string{"foo": "bar"})
-	state := connstate.NewConnectionStateWithSettings(settings)
-	conn3, _ := pool.GetWithState(ctx, state)
+	conn3, _ := pool.GetWithSettings(ctx, settings)
 	conn3.Recycle()
 
 	assert.Equal(t, int64(1), pool.Metrics.GetStateCount())

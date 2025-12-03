@@ -68,7 +68,7 @@ func (p *Pooled[C]) Taint() {
 	p.pool = nil
 }
 
-// State returns the current state of the connection from the underlying connection.
-func (p *Pooled[C]) State() *connstate.ConnectionState {
-	return p.Conn.State()
+// Settings returns the current settings of the connection from the underlying connection.
+func (p *Pooled[C]) Settings() *connstate.Settings {
+	return p.Conn.Settings()
 }

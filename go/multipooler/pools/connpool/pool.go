@@ -365,21 +365,21 @@ func (pool *Pool[C]) Get(ctx context.Context) (*Pooled[C], error) {
 	return pool.get(ctx)
 }
 
-// GetWithState returns a connection from the pool with the given state applied.
+// GetWithSettings returns a connection from the pool with the given settings applied.
 // If there are no connections in the pool to be returned, Get blocks until one
 // is returned, or until the given ctx is cancelled.
 // The connection must be returned to the pool once it's not needed by calling Pooled.Recycle.
-func (pool *Pool[C]) GetWithState(ctx context.Context, state *connstate.ConnectionState) (*Pooled[C], error) {
+func (pool *Pool[C]) GetWithSettings(ctx context.Context, settings *connstate.Settings) (*Pooled[C], error) {
 	if ctx.Err() != nil {
 		return nil, ErrCtxTimeout
 	}
 	if pool.capacity.Load() == 0 {
 		return nil, ErrPoolClosed
 	}
-	if state == nil || state.IsClean() {
+	if settings == nil || settings.IsEmpty() {
 		return pool.get(ctx)
 	}
-	return pool.getWithState(ctx, state)
+	return pool.getWithSettings(ctx, settings)
 }
 
 // put returns a connection to the pool. This is a private API.
@@ -418,11 +418,11 @@ func (pool *Pool[C]) tryReturnConn(conn *Pooled[C]) bool {
 	if pool.closeOnIdleLimitReached(conn) {
 		return false
 	}
-	connState := conn.Conn.State()
-	if connState == nil || connState.IsClean() {
+	connSettings := conn.Conn.Settings()
+	if connSettings == nil || connSettings.IsEmpty() {
 		pool.clean.Push(conn)
 	} else {
-		bucket := connState.Bucket() & stackMask
+		bucket := connSettings.Bucket() & stackMask
 		pool.states[bucket].Push(conn)
 		pool.freshStatesStack.Store(int64(bucket))
 	}
@@ -490,8 +490,8 @@ func (pool *Pool[C]) connReopen(ctx context.Context, dbconn *Pooled[C], now time
 		return err
 	}
 
-	if state := dbconn.Conn.State(); state != nil && !state.IsClean() {
-		err = dbconn.Conn.ApplyState(ctx, state)
+	if settings := dbconn.Conn.Settings(); settings != nil && !settings.IsEmpty() {
+		err = dbconn.Conn.ApplySettings(ctx, settings)
 		if err != nil {
 			dbconn.Close()
 			return err
@@ -518,12 +518,12 @@ func (pool *Pool[C]) connNew(ctx context.Context) (*Pooled[C], error) {
 	return pooled, nil
 }
 
-func (pool *Pool[C]) getFromStatesStack(state *connstate.ConnectionState) *Pooled[C] {
+func (pool *Pool[C]) getFromSettingsStack(settings *connstate.Settings) *Pooled[C] {
 	var start uint32
-	if state == nil {
+	if settings == nil {
 		start = uint32(pool.freshStatesStack.Load())
 	} else {
-		start = state.Bucket() & stackMask
+		start = settings.Bucket() & stackMask
 	}
 
 	for i := uint32(0); i <= stackMask; i++ {
@@ -557,7 +557,7 @@ func (pool *Pool[C]) getNew(ctx context.Context) (*Pooled[C], error) {
 	}
 }
 
-// get returns a pooled connection with no state applied.
+// get returns a pooled connection with no settings applied.
 func (pool *Pool[C]) get(ctx context.Context) (*Pooled[C], error) {
 	pool.Metrics.getCount.Add(1)
 
@@ -572,11 +572,11 @@ func (pool *Pool[C]) get(ctx context.Context) (*Pooled[C], error) {
 	if err != nil {
 		return nil, err
 	}
-	// if we don't have capacity, try popping a connection from any of the state stacks
+	// if we don't have capacity, try popping a connection from any of the settings stacks
 	if conn == nil {
-		conn = pool.getFromStatesStack(nil)
+		conn = pool.getFromSettingsStack(nil)
 	}
-	// if there are no connections in the state stacks and we've lent out connections
+	// if there are no connections in the settings stacks and we've lent out connections
 	// to other clients, wait until one of the connections is returned
 	if conn == nil {
 		start := time.Now()
@@ -591,11 +591,11 @@ func (pool *Pool[C]) get(ctx context.Context) (*Pooled[C], error) {
 		return nil, ErrTimeout
 	}
 
-	// if the connection we've acquired has a state applied, we must reset it before returning
-	if state := conn.Conn.State(); state != nil && !state.IsClean() {
+	// if the connection we've acquired has settings applied, we must reset them before returning
+	if settings := conn.Conn.Settings(); settings != nil && !settings.IsEmpty() {
 		pool.Metrics.resetState.Add(1)
 
-		err = conn.Conn.ResetState(ctx)
+		err = conn.Conn.ResetSettings(ctx)
 		if err != nil {
 			conn.Close()
 			err = pool.connReopen(ctx, conn, monotonicNow())
@@ -610,36 +610,36 @@ func (pool *Pool[C]) get(ctx context.Context) (*Pooled[C], error) {
 	return conn, nil
 }
 
-// getWithState returns a connection from the pool with the given state applied.
-func (pool *Pool[C]) getWithState(ctx context.Context, state *connstate.ConnectionState) (*Pooled[C], error) {
+// getWithSettings returns a connection from the pool with the given settings applied.
+func (pool *Pool[C]) getWithSettings(ctx context.Context, settings *connstate.Settings) (*Pooled[C], error) {
 	pool.Metrics.getWithStateCount.Add(1)
 
-	bucket := state.Bucket() & stackMask
+	bucket := settings.Bucket() & stackMask
 
 	var err error
-	// best case: check if there's a connection in the state stack where our state belongs
+	// best case: check if there's a connection in the settings stack where our settings belongs
 	conn := pool.pop(&pool.states[bucket])
-	// if there's no connection with our state, try popping a clean connection
+	// if there's no connection with our settings, try popping a clean connection
 	if conn == nil {
 		conn = pool.pop(&pool.clean)
 	}
-	// otherwise try opening a brand new connection and we'll apply the state to it
+	// otherwise try opening a brand new connection and we'll apply the settings to it
 	if conn == nil {
 		conn, err = pool.getNew(ctx)
 		if err != nil {
 			return nil, err
 		}
 	}
-	// try on the _other_ state stacks, even if we have to reset the state for the returned
+	// try on the _other_ settings stacks, even if we have to reset the settings for the returned
 	// connection
 	if conn == nil {
-		conn = pool.getFromStatesStack(state)
+		conn = pool.getFromSettingsStack(settings)
 	}
 	// no connections anywhere in the pool; if we've lent out connections to other clients
 	// wait for one of them
 	if conn == nil {
 		start := time.Now()
-		conn, err = pool.wait.waitForConn(ctx, state)
+		conn, err = pool.wait.waitForConn(ctx, settings)
 		if err != nil {
 			return nil, ErrTimeout
 		}
@@ -650,14 +650,14 @@ func (pool *Pool[C]) getWithState(ctx context.Context, state *connstate.Connecti
 		return nil, ErrTimeout
 	}
 
-	// ensure that the state applied to the connection matches the one we want
-	connState := conn.Conn.State()
-	if !statesMatch(connState, state) {
-		// if there's another state applied, reset it before applying our state
-		if connState != nil && !connState.IsClean() {
+	// ensure that the settings applied to the connection matches the one we want
+	connSettings := conn.Conn.Settings()
+	if connSettings != settings {
+		// if there's other settings applied, reset them before applying our settings
+		if connSettings != nil && !connSettings.IsEmpty() {
 			pool.Metrics.diffState.Add(1)
 
-			err = conn.Conn.ResetState(ctx)
+			err = conn.Conn.ResetSettings(ctx)
 			if err != nil {
 				conn.Close()
 				err = pool.connReopen(ctx, conn, monotonicNow())
@@ -667,9 +667,9 @@ func (pool *Pool[C]) getWithState(ctx context.Context, state *connstate.Connecti
 				}
 			}
 		}
-		// apply our state now; if we can't we assume that the conn is broken
+		// apply our settings now; if we can't we assume that the conn is broken
 		// and close it without returning to the pool
-		if err := conn.Conn.ApplyState(ctx, state); err != nil {
+		if err := conn.Conn.ApplySettings(ctx, settings); err != nil {
 			conn.Close()
 			pool.closedConn()
 			return nil, err
@@ -678,18 +678,6 @@ func (pool *Pool[C]) getWithState(ctx context.Context, state *connstate.Connecti
 
 	pool.borrowed.Add(1)
 	return conn, nil
-}
-
-// statesMatch checks if two states have matching settings.
-// Only settings are compared since they determine pool bucket routing.
-func statesMatch(a, b *connstate.ConnectionState) bool {
-	if a == b {
-		return true
-	}
-	if a == nil || b == nil {
-		return false
-	}
-	return a.HasMatchingSettings(b.GetSettings())
 }
 
 // SetCapacity changes the capacity (number of open connections) on the pool.
@@ -733,7 +721,7 @@ func (pool *Pool[C]) setCapacity(ctx context.Context, newcap int64) error {
 		}
 
 		// try closing from connections which are currently idle in the stacks
-		conn := pool.getFromStatesStack(nil)
+		conn := pool.getFromSettingsStack(nil)
 		if conn == nil {
 			conn = pool.pop(&pool.clean)
 		}
