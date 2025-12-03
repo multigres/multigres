@@ -138,8 +138,7 @@ func (pm *MultiPoolerManager) checkLSNReached(ctx context.Context, targetLsn str
 	defer cancel()
 
 	var reachedTarget bool
-	query := fmt.Sprintf("SELECT pg_last_wal_replay_lsn() >= '%s'::pg_lsn", targetLsn)
-	err := pm.db.QueryRowContext(queryCtx, query).Scan(&reachedTarget)
+	err := pm.db.QueryRowContext(queryCtx, "SELECT pg_last_wal_replay_lsn() >= $1::pg_lsn", targetLsn).Scan(&reachedTarget)
 	if err != nil {
 		return false, mterrors.Wrap(err, "failed to check if replay LSN reached target")
 	}

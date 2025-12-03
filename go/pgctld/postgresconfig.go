@@ -101,7 +101,7 @@ func (cnf *PostgresServerConfig) lookupInt(key string) (int, error) {
 	}
 	ival, err := strconv.Atoi(val)
 	if err != nil {
-		return 0, fmt.Errorf("failed to convert %s: %v", key, err)
+		return 0, fmt.Errorf("failed to convert %s: %w", key, err)
 	}
 	return ival, nil
 }
@@ -113,7 +113,7 @@ func (cnf *PostgresServerConfig) lookupFloat(key string) (float64, error) {
 	}
 	fval, err := strconv.ParseFloat(val, 64)
 	if err != nil {
-		return 0, fmt.Errorf("failed to convert %s to float: %v", key, err)
+		return 0, fmt.Errorf("failed to convert %s to float: %w", key, err)
 	}
 	return fval, nil
 }

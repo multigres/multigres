@@ -415,7 +415,7 @@ func (l *Lexer) scanHexEscape() error {
 	value, err := strconv.ParseUint(hexDigits, 16, 8)
 	if err != nil {
 		_ = ctx.AddErrorWithType(InvalidEscape, "invalid hexadecimal escape sequence")
-		return nil
+		return nil //nolint:nilerr // Error is collected via context, not returned
 	}
 
 	ctx.AddLiteral(string(rune(value)))
@@ -448,7 +448,7 @@ func (l *Lexer) scanOctalEscape() error {
 	value, err := strconv.ParseUint(octalDigits, 8, 8)
 	if err != nil {
 		_ = ctx.AddErrorWithType(InvalidEscape, "invalid octal escape sequence")
-		return nil
+		return nil //nolint:nilerr // Error is collected via context, not returned
 	}
 
 	ctx.AddLiteral(string(rune(value)))
@@ -481,7 +481,7 @@ func (l *Lexer) scanUnicodeEscape(digitCount int) error {
 	value, err := strconv.ParseUint(hexDigits, 16, 32)
 	if err != nil {
 		_ = ctx.AddErrorWithType(InvalidUnicodeEscape, "invalid Unicode escape sequence")
-		return nil
+		return nil //nolint:nilerr // Error is collected via context, not returned
 	}
 
 	// Check for valid Unicode code point
@@ -808,7 +808,7 @@ func (l *Lexer) scanSurrogatePairSecond() error {
 	if err != nil {
 		_ = ctx.AddErrorWithType(InvalidUnicodeEscape, "invalid Unicode escape sequence")
 		ctx.SetUTF16FirstPart(0)
-		return nil
+		return nil //nolint:nilerr // Error is collected via context, not returned
 	}
 
 	secondSurrogate := rune(secondValue)

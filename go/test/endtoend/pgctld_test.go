@@ -22,7 +22,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -33,15 +32,6 @@ import (
 	"github.com/multigres/multigres/go/cmd/pgctld/testutil"
 	"github.com/multigres/multigres/go/pgctld"
 	"github.com/multigres/multigres/go/test/utils"
-)
-
-var (
-	// cachedPgctldBinary holds the cached pgctld binary path
-	cachedPgctldBinary string
-	// pgctldBuildOnce ensures pgctld binary is built only once
-	pgctldBuildOnce sync.Once
-	// pgctldBuildError holds any error from building the pgctld binary
-	pgctldBuildError error
 )
 
 // setupTestEnv sets up environment variables for PostgreSQL tests
@@ -86,6 +76,18 @@ timeout: 30
 			t.Logf("pgctld init failed with output: %s", string(initOutput))
 		}
 		require.NoError(t, err)
+
+		// Step 1.5: Verify data checksums are enabled
+		pgDataDir := filepath.Join(dataDir, "pg_data")
+		controldataCmd := exec.Command("pg_controldata", pgDataDir)
+		controldataOutput, err := controldataCmd.CombinedOutput()
+		require.NoError(t, err, "pg_controldata should succeed, output: %s", string(controldataOutput))
+
+		outputStr := string(controldataOutput)
+		assert.Contains(t, outputStr, "Data page checksum version:", "should report checksum version")
+		assert.NotContains(t, outputStr, "Data page checksum version:                  0",
+			"checksums should be enabled (non-zero version)")
+		t.Log("Verified: data checksums are enabled")
 
 		// Step 2: Check status - should show stopped after init
 		statusCmd := exec.Command("pgctld", "status", "--pooler-dir", dataDir, "--config-file", pgctldConfigFile)

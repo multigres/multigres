@@ -308,7 +308,7 @@ func (ts *store) RegisterMultiPooler(ctx context.Context, mtpooler *clustermetad
 		// Try to update then
 		oldMtPooler, err := ts.GetMultiPooler(ctx, mtpooler.Id)
 		if err != nil {
-			return fmt.Errorf("failed reading existing mtpooler %v: %v", MultiPoolerIDString(mtpooler.Id), err)
+			return fmt.Errorf("failed reading existing mtpooler %v: %w", MultiPoolerIDString(mtpooler.Id), err)
 		}
 
 		// Check we have the same database / shard, and if not,
@@ -318,7 +318,7 @@ func (ts *store) RegisterMultiPooler(ctx context.Context, mtpooler *clustermetad
 		}
 		oldMtPooler.MultiPooler = proto.Clone(mtpooler).(*clustermetadatapb.MultiPooler)
 		if err := ts.UpdateMultiPooler(ctx, oldMtPooler); err != nil {
-			return fmt.Errorf("failed updating mtpooler %v: %v", MultiPoolerIDString(mtpooler.Id), err)
+			return fmt.Errorf("failed updating mtpooler %v: %w", MultiPoolerIDString(mtpooler.Id), err)
 		}
 		return nil
 	}

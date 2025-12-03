@@ -40,7 +40,7 @@ import (
 func makePooler(addr string) *clustermetadatapb.MultiPooler {
 	// Parse the address into host and port
 	host, portStr, _ := strings.Cut(addr, ":")
-	port, _ := strconv.Atoi(portStr)
+	port, _ := strconv.ParseInt(portStr, 10, 32)
 
 	return &clustermetadatapb.MultiPooler{
 		Hostname: host,

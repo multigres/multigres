@@ -113,7 +113,7 @@ func (pm *MultiPoolerManager) InitializeEmptyPrimary(ctx context.Context, req *m
 
 	// 9. Create initial backup for standby initialization
 	pm.logger.InfoContext(ctx, "Creating initial backup for standby initialization", "shard", pm.getShardID())
-	backupID, err := pm.Backup(ctx, true, "full")
+	backupID, err := pm.backupLocked(ctx, true, "full")
 	if err != nil {
 		return nil, mterrors.Wrap(err, "failed to create initial backup")
 	}
@@ -163,8 +163,8 @@ func (pm *MultiPoolerManager) InitializeAsStandby(ctx context.Context, req *mult
 	}
 
 	// Restore from backup (empty string means latest)
-	// RestoreFromBackup will check that this is a standby and start PostgreSQL in standby mode
-	err = pm.RestoreFromBackup(ctx, req.BackupId)
+	// restoreFromBackupLocked will check that this is a standby and start PostgreSQL in standby mode
+	err = pm.restoreFromBackupLocked(ctx, req.BackupId)
 	if err != nil {
 		return nil, mterrors.Wrap(err, "failed to restore from backup")
 	}
@@ -179,7 +179,7 @@ func (pm *MultiPoolerManager) InitializeAsStandby(ctx context.Context, req *mult
 	// the explicit restart here. The standby.signal is already in place.
 
 	// Extract final LSN from backup metadata
-	backups, err := pm.GetBackups(ctx, 1) // Get latest backup
+	backups, err := pm.getBackupsLocked(ctx, 1) // Get latest backup
 	if err != nil {
 		pm.logger.WarnContext(ctx, "Failed to get backup metadata for LSN", "error", err)
 		// Non-fatal: we can continue without LSN
@@ -437,12 +437,6 @@ func (pm *MultiPoolerManager) configureArchiveMode(ctx context.Context) error {
 			fmt.Sprintf("pgbackrest config file not found at %s - cannot configure archive mode", configPath))
 	}
 
-	// Get backup location from topology
-	backupLocation, err := pm.getBackupLocation(ctx)
-	if err != nil {
-		return err
-	}
-
 	pgDataDir := filepath.Join(pm.config.PoolerDir, "pg_data")
 	autoConfPath := filepath.Join(pgDataDir, "postgresql.auto.conf")
 
@@ -461,7 +455,7 @@ func (pm *MultiPoolerManager) configureArchiveMode(ctx context.Context) error {
 # Archive mode for pgbackrest backups
 archive_mode = on
 archive_command = 'pgbackrest --stanza=%s --config=%s --repo1-path=%s archive-push %%p'
-`, stanzaName, configPath, backupLocation)
+`, stanzaName, configPath, pm.backupLocation)
 
 	f, err := os.OpenFile(autoConfPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
 	if err != nil {
@@ -473,7 +467,7 @@ archive_command = 'pgbackrest --stanza=%s --config=%s --repo1-path=%s archive-pu
 		return mterrors.Wrap(err, "failed to write archive config")
 	}
 
-	pm.logger.InfoContext(ctx, "Configured archive_mode in postgresql.auto.conf", "config_path", configPath, "stanza", stanzaName, "repo_path", backupLocation)
+	pm.logger.InfoContext(ctx, "Configured archive_mode in postgresql.auto.conf", "config_path", configPath, "stanza", stanzaName, "repo_path", pm.backupLocation)
 	return nil
 }
 
@@ -497,12 +491,6 @@ func (pm *MultiPoolerManager) initializePgBackRestStanza(ctx context.Context) er
 			fmt.Sprintf("pgbackrest config file not found at %s", configPath))
 	}
 
-	// Get backup location from topology
-	backupLocation, err := pm.getBackupLocation(ctx)
-	if err != nil {
-		return err
-	}
-
 	// Execute pgbackrest stanza-create command
 	stanzaCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
@@ -510,7 +498,7 @@ func (pm *MultiPoolerManager) initializePgBackRestStanza(ctx context.Context) er
 	cmd := exec.CommandContext(stanzaCtx, "pgbackrest",
 		"--stanza="+stanzaName,
 		"--config="+configPath,
-		"--repo1-path="+backupLocation,
+		"--repo1-path="+pm.backupLocation,
 		"stanza-create")
 
 	output, err := safeCombinedOutput(cmd)
