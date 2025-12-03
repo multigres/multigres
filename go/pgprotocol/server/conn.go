@@ -19,6 +19,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -285,7 +286,7 @@ func (c *Conn) serve() error {
 		msgType, err := c.readMessageType()
 		if err != nil {
 			// EOF or connection error - close gracefully.
-			if err == io.EOF {
+			if errors.Is(err, io.EOF) {
 				c.logger.Debug("client closed connection")
 				return nil
 			}

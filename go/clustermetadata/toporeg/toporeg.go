@@ -22,7 +22,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/multigres/multigres/go/servenv"
+	"github.com/multigres/multigres/go/common/servenv"
 	"github.com/multigres/multigres/go/tools/retry"
 )
 

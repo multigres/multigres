@@ -17,6 +17,7 @@ package server
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -162,7 +163,7 @@ func (l *Listener) handleConnection(conn *Conn) {
 
 	// Serve the connection (startup + command loop).
 	if err := conn.serve(); err != nil {
-		if err != io.EOF {
+		if !errors.Is(err, io.EOF) {
 			conn.logger.Error("connection error", "error", err)
 		}
 	}

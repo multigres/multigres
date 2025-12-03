@@ -26,7 +26,7 @@ import (
 	"time"
 
 	"github.com/multigres/multigres/go/common/mterrors"
-	viperdebug "github.com/multigres/multigres/go/servenv/viperdebug"
+	viperdebug "github.com/multigres/multigres/go/common/servenv/viperdebug"
 	"github.com/multigres/multigres/go/tools/event"
 	"github.com/multigres/multigres/go/tools/netutil"
 	"github.com/multigres/multigres/go/tools/telemetry"
@@ -320,7 +320,7 @@ func (sv *ServEnv) CobraPreRunE(cmd *cobra.Command) error {
 
 	watchCancel, err := sv.vc.LoadConfig(sv.reg)
 	if err != nil {
-		return fmt.Errorf("%s: failed to read in config: %s", cmd.Name(), err)
+		return fmt.Errorf("%s: failed to read in config: %w", cmd.Name(), err)
 	}
 
 	sv.OnTerm(watchCancel)

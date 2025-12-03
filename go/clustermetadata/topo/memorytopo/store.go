@@ -482,16 +482,3 @@ func (f *Factory) getOperationError(op Operation, path string) error {
 	}
 	return nil
 }
-
-func init() {
-	// TODO: @rafael
-	// This is short lived, I will remove this entirely once we have a real topo server.
-	// Adding it to have all the wiring set up and get the tests to pass with an in memory topo.
-	//
-	// TODO: To eliminate context.TODO() here, consider:
-	// 1. Add context parameter to Factory.Create() interface
-	// 2. Use sync.Once in Factory.Create() to lazily register cells on first call
-	// 3. Remove "global" from this init() since GlobalCell directory is already created
-	_, factory := NewServerAndFactory(context.TODO(), "global")
-	topo.RegisterFactory("memory", factory)
-}

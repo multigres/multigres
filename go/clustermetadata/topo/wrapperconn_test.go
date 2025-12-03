@@ -53,7 +53,10 @@ func TestNewConn_InitialFailure(t *testing.T) {
 	conn, err := wrapper.getConnection()
 	assert.Error(t, err, "Expected error when no connection available")
 	assert.Nil(t, conn, "Expected connection to be nil")
-	assert.Equal(t, int32(1), factory.getCreateCount(), "Expected 1 connection creation attempt")
+	// Count may be 1 or 2: the initial attempt plus possibly one immediate retry
+	// from the background goroutine (first retry has no delay).
+	count := factory.getCreateCount()
+	assert.True(t, count == 1 || count == 2, "Expected 1 or 2 connection attempts, got %d", count)
 
 	// Allow connection to succeed and wait for retry
 	initialCount := factory.getCreateCount()

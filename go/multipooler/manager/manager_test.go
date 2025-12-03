@@ -29,7 +29,7 @@ import (
 	"github.com/multigres/multigres/go/clustermetadata/topo"
 	"github.com/multigres/multigres/go/clustermetadata/topo/memorytopo"
 	"github.com/multigres/multigres/go/common/mterrors"
-	"github.com/multigres/multigres/go/servenv"
+	"github.com/multigres/multigres/go/common/servenv"
 	"github.com/multigres/multigres/go/tools/viperutil"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
@@ -38,7 +38,7 @@ import (
 )
 
 func TestManagerState_InitialState(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
 	defer ts.Close()
@@ -65,7 +65,7 @@ func TestManagerState_InitialState(t *testing.T) {
 }
 
 func TestManagerState_SuccessfulLoad(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
 	defer ts.Close()
@@ -121,7 +121,7 @@ func TestManagerState_SuccessfulLoad(t *testing.T) {
 }
 
 func TestManagerState_LoadFailureTimeout(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 	ts, factory := memorytopo.NewServerAndFactory(ctx, "zone1")
 	defer ts.Close()
@@ -161,7 +161,7 @@ func TestManagerState_LoadFailureTimeout(t *testing.T) {
 }
 
 func TestManagerState_CancellationDuringLoad(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 	ts, factory := memorytopo.NewServerAndFactory(ctx, "zone1")
 	defer ts.Close()
@@ -203,7 +203,7 @@ func TestManagerState_CancellationDuringLoad(t *testing.T) {
 }
 
 func TestManagerState_RetryUntilSuccess(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 	ts, factory := memorytopo.NewServerAndFactory(ctx, "zone1")
 	defer ts.Close()
@@ -263,7 +263,7 @@ func TestManagerState_RetryUntilSuccess(t *testing.T) {
 }
 
 func TestManagerState_NilServiceID(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
 	defer ts.Close()
@@ -293,7 +293,7 @@ func TestManagerState_NilServiceID(t *testing.T) {
 }
 
 func TestValidateAndUpdateTerm(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 
 	serviceID := &clustermetadatapb.ID{
@@ -427,7 +427,7 @@ func TestValidateAndUpdateTerm(t *testing.T) {
 }
 
 func TestGetBackupLocation(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	tmpDir := t.TempDir()
 
 	// Create test topology store
@@ -469,4 +469,112 @@ func TestGetBackupLocation(t *testing.T) {
 
 	// Test accessing backup location field
 	assert.Equal(t, "/var/backups/pgbackrest", manager.backupLocation)
+}
+
+// TestWaitUntilReady_Success verifies that WaitUntilReady returns immediately
+// when the manager is already in Ready state
+func TestWaitUntilReady_Success(t *testing.T) {
+	logger := slog.Default()
+	config := &Config{
+		ConsensusEnabled: false,
+	}
+
+	pm := NewMultiPoolerManagerWithTimeout(logger, config, 100*time.Millisecond)
+
+	// Simulate immediate ready state
+	pm.mu.Lock()
+	pm.state = ManagerStateReady
+	pm.topoLoaded = true
+	close(pm.readyChan) // Signal that state has changed
+	pm.mu.Unlock()
+
+	ctx, cancel := context.WithTimeout(t.Context(), 1*time.Second)
+	defer cancel()
+
+	err := pm.WaitUntilReady(ctx)
+	require.NoError(t, err)
+}
+
+// TestWaitUntilReady_Error verifies that WaitUntilReady returns an error
+// when the manager is in Error state
+func TestWaitUntilReady_Error(t *testing.T) {
+	logger := slog.Default()
+	config := &Config{
+		ConsensusEnabled: false,
+	}
+
+	pm := NewMultiPoolerManagerWithTimeout(logger, config, 100*time.Millisecond)
+
+	// Simulate error state
+	pm.mu.Lock()
+	pm.state = ManagerStateError
+	pm.stateError = assert.AnError
+	close(pm.readyChan) // Signal that state has changed
+	pm.mu.Unlock()
+
+	ctx, cancel := context.WithTimeout(t.Context(), 1*time.Second)
+	defer cancel()
+
+	err := pm.WaitUntilReady(ctx)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "manager is in error state")
+}
+
+// TestWaitUntilReady_Timeout verifies that WaitUntilReady returns a context error
+// when the manager stays in Starting state and the context times out
+func TestWaitUntilReady_Timeout(t *testing.T) {
+	logger := slog.Default()
+	config := &Config{
+		ConsensusEnabled: false,
+	}
+
+	pm := NewMultiPoolerManagerWithTimeout(logger, config, 100*time.Millisecond)
+
+	// Leave in Starting state - will timeout
+	// Don't close readyChan to test context timeout
+
+	ctx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
+	defer cancel()
+
+	err := pm.WaitUntilReady(ctx)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "context")
+}
+
+// TestWaitUntilReady_ConcurrentCalls verifies that multiple goroutines can
+// safely call WaitUntilReady concurrently without data races
+func TestWaitUntilReady_ConcurrentCalls(t *testing.T) {
+	logger := slog.Default()
+	config := &Config{
+		ConsensusEnabled: false,
+	}
+
+	pm := NewMultiPoolerManagerWithTimeout(logger, config, 100*time.Millisecond)
+
+	// Start multiple goroutines calling WaitUntilReady
+	const numGoroutines = 10
+	errChan := make(chan error, numGoroutines)
+
+	ctx := t.Context()
+
+	for range numGoroutines {
+		go func() {
+			err := pm.WaitUntilReady(ctx)
+			errChan <- err
+		}()
+	}
+
+	// Simulate state transition to Ready after a delay
+	time.Sleep(50 * time.Millisecond)
+	pm.mu.Lock()
+	pm.state = ManagerStateReady
+	pm.topoLoaded = true
+	close(pm.readyChan) // Signal that state has changed
+	pm.mu.Unlock()
+
+	// Collect results
+	for range numGoroutines {
+		err := <-errChan
+		require.NoError(t, err)
+	}
 }
