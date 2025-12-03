@@ -49,7 +49,7 @@ func (pm *MultiPoolerManager) InitializeEmptyPrimary(ctx context.Context, req *m
 	}
 
 	// 2. Check if already initialized
-	if pm.isInitialized() {
+	if pm.isInitialized(ctx) {
 		pm.logger.InfoContext(ctx, "Pooler already initialized", "shard", pm.getShardID())
 		// Note: backup_id will be empty for idempotent case since we didn't create a new backup
 		return &multipoolermanagerdatapb.InitializeEmptyPrimaryResponse{Success: true}, nil
@@ -237,7 +237,7 @@ func (pm *MultiPoolerManager) InitializationStatus(ctx context.Context, req *mul
 	walPosition, _ := pm.getWALPosition(ctx)
 
 	resp := &multipoolermanagerdatapb.InitializationStatusResponse{
-		IsInitialized:    pm.isInitialized(),
+		IsInitialized:    pm.isInitialized(ctx),
 		HasDataDirectory: pm.hasDataDirectory(),
 		PostgresRunning:  pm.isPostgresRunning(ctx),
 		Role:             pm.getRole(ctx),
@@ -259,7 +259,7 @@ func (pm *MultiPoolerManager) InitializationStatus(ctx context.Context, req *mul
 // Helper methods
 
 // isInitialized checks if the pooler has been initialized (has data directory and multigres schema)
-func (pm *MultiPoolerManager) isInitialized() bool {
+func (pm *MultiPoolerManager) isInitialized(ctx context.Context) bool {
 	if !pm.hasDataDirectory() {
 		return false
 	}
@@ -269,7 +269,7 @@ func (pm *MultiPoolerManager) isInitialized() bool {
 	}
 
 	// Check if multigres schema exists
-	exists, err := pm.querySchemaExists(context.Background())
+	exists, err := pm.querySchemaExists(ctx)
 	return err == nil && exists
 }
 

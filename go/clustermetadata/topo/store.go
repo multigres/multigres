@@ -497,7 +497,7 @@ func (ts *store) Status() map[string]string {
 // It will nil all member variables, so any further access will panic.
 // Returns a combined error if any errors occurred during cleanup.
 func (ts *store) Close() error {
-	g, _ := errgroup.WithContext(context.Background())
+	g, _ := errgroup.WithContext(context.TODO())
 
 	// Close global topology connection
 	g.Go(func() error {

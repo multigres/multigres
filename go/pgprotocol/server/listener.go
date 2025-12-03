@@ -87,7 +87,7 @@ func NewListener(config ListenerConfig) (*Listener, error) {
 		logger = slog.Default()
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(context.TODO())
 
 	l := &Listener{
 		listener: netListener,
