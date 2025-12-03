@@ -217,6 +217,7 @@ func (l *Lock) unlock(ctx context.Context, lt iTopoLock, lockDescriptor LockDesc
 	// We need to still release the lock even if the parent
 	// context timed out.
 	span := trace.SpanFromContext(ctx)
+	//nolint:gocritic // Intentionally detaching from parent context - unlock must complete even if parent was cancelled
 	ctx = trace.ContextWithSpan(context.Background(), span)
 	ctx, cancel := context.WithTimeout(ctx, RemoteOperationTimeout)
 	defer cancel()
