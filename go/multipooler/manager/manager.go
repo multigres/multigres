@@ -148,23 +148,20 @@ func NewMultiPoolerManager(logger *slog.Logger, config *Config) (*MultiPoolerMan
 
 // NewMultiPoolerManagerWithTimeout creates a new MultiPoolerManager instance with a custom load timeout
 func NewMultiPoolerManagerWithTimeout(logger *slog.Logger, config *Config, loadTimeout time.Duration) (*MultiPoolerManager, error) {
-	ctx, cancel := context.WithCancel(context.TODO())
-
 	// Validate required config fields
 	if config.TableGroup == "" {
-		cancel()
 		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "TableGroup is required")
 	}
 	if config.Shard == "" {
-		cancel()
 		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "Shard is required")
 	}
 
 	// MVP validation: fail fast if tablegroup/shard are not the MVP defaults
 	if err := constants.ValidateMVPTableGroupAndShard(config.TableGroup, config.Shard); err != nil {
-		cancel()
 		return nil, mterrors.Wrap(err, "MVP validation failed")
 	}
+
+	ctx, cancel := context.WithCancel(context.TODO())
 
 	// Create pgctld gRPC client
 	var pgctldClient pgctldpb.PgCtldClient
