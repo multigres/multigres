@@ -1,0 +1,75 @@
+---
+image:
+  repository: "teaglebuilt/multigres"
+  tag: "v0.1.0"
+  pullPolicy: IfNotPresent
+  pullSecrets: []
+
+config:
+  enabled: true
+  file: |-
+    logging:
+      level: info
+    topology:
+      clusters: []
+
+postgres:
+  host: "postgres.default.svc.cluster.local"
+  port: 5432
+  database: "appdb"
+  user: "appuser"
+  passwordSecretName: "multigres-postgres-credentials"
+  passwordSecretKey: "password"
+  password: ""
+
+gateway:
+  enabled: true
+  replicas: 1
+  command: [ "/bin/multigateway" ]
+  args: []
+  extraEnv: []
+  resources: {}
+
+  service:
+    type: ClusterIP
+    port: 5432
+    annotations: {}
+    labels: {}
+
+pooler:
+  enabled: true
+  replicas: 1
+  command: [ "/bin/multipooler" ]
+  args: []
+  extraEnv: []
+  resources: {}
+
+  service:
+    type: ClusterIP
+    port: 6432
+    annotations: {}
+    labels: {}
+
+podAnnotations: {}
+podLabels: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+resources:
+  requests:
+    cpu: "100m"
+    memory: "256Mi"
+  limits:
+    cpu: "1"
+    memory: "1Gi"
+
+pdb:
+  enabled: true
+  minAvailable: 1
+
+autoscaling:
+  enabled: false
+  minReplicas: 2
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 80

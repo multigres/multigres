@@ -13,7 +13,7 @@
 # limitations under the License.
 
 SHELL := /bin/bash
-
+DOCKER_IMAGE ?= multigres
 # These variables are used by the shell scripts.
 MTROOT := $(shell pwd)
 export MTROOT
@@ -24,7 +24,7 @@ export ADDLICENSE_VER
 ETCD_VER = v3.6.4
 export ETCD_VER
 
-.PHONY: all build build-all clean install test proto tools parser
+.PHONY: all build build-all clean install test proto tools parser docker-build docker-run
 
 # Default target
 all: build
@@ -122,3 +122,9 @@ validate-generated-files: clean build-all
 	else \
 		echo "Generated files are up-to-date."; \
 	fi
+
+docker-build:
+	docker build -t $(DOCKER_IMAGE) .
+
+docker-run:
+	docker run --rm -it $(DOCKER_IMAGE)

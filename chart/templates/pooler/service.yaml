@@ -1,0 +1,22 @@
+{{- if .Values.pooler.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "multigres.fullname" . }}-pooler
+  labels:
+    {{- include "multigres.labels" . | nindent 4 }}
+    app.kubernetes.io/component: pooler
+  annotations:
+    {{- toYaml .Values.pooler.service.annotations | nindent 4 }}
+spec:
+  type: {{ .Values.pooler.service.type }}
+  selector:
+    app.kubernetes.io/name: {{ include "multigres.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: pooler
+  ports:
+    - name: postgres
+      port: {{ .Values.pooler.service.port }}
+      targetPort: postgres
+      protocol: TCP
+{{- end }}

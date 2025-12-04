@@ -1,0 +1,12 @@
+---
+{{- if .Values.config.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "multigres.fullname" . }}-config
+  labels:
+    {{- include "multigres.labels" . | nindent 4 }}
+data:
+  config.yaml: |
+{{- .Values.config.file | nindent 4 }}
+{{- end }}

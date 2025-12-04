@@ -1,0 +1,22 @@
+{{- if .Values.gateway.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "multigres.fullname" . }}-gateway
+  labels:
+    {{- include "multigres.labels" . | nindent 4 }}
+    app.kubernetes.io/component: gateway
+  annotations:
+    {{- toYaml .Values.gateway.service.annotations | nindent 4 }}
+spec:
+  type: {{ .Values.gateway.service.type }}
+  selector:
+    app.kubernetes.io/name: {{ include "multigres.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: gateway
+  ports:
+    - name: postgres
+      port: {{ .Values.gateway.service.port }}
+      targetPort: postgres
+      protocol: TCP
+{{- end }}

@@ -1,0 +1,17 @@
+Thank you for installing the Multigres Helm chart!
+
+A basic Multigres deployment has been created with:
+
+  * MultiGateway + MultiPooler running in the same pod
+  * Service: {{ include "multigres.fullname" . }} on port {{ .Values.service.port }}
+
+Next steps:
+
+1. Ensure your Topo Servers (e.g., etcd endpoints) are reachable from the cluster.
+2. Ensure the Postgres instance defined in values.yaml is reachable and has the proper user/database.
+3. Point your application to the Multigres service:
+
+   postgres://{{ .Values.postgres.user }}:***@{{ include "multigres.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}/{{ .Values.postgres.database }}
+
+This chart is an early scaffold. Please verify configuration keys against the
+Multigres documentation and update the container commands/args as the project evolves.

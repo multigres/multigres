@@ -1,0 +1,48 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "multigres.fullname" . }}-gateway
+  labels:
+    {{- include "multigres.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.gateway.replicas }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "multigres.name" . }}
+      app.kubernetes.io/component: gateway
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ include "multigres.name" . }}
+        app.kubernetes.io/component: gateway
+        {{- include "multigres.labels" . | nindent 8 }}
+    spec:
+      {{- include "multigres.imagePullSecrets" . | nindent 6 }}
+      containers:
+        - name: gateway
+          image: {{ include "multigres.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          {{- with .Values.gateway.command }}
+          command: {{ toJson . }}
+          {{- end }}
+          {{- with .Values.gateway.args }}
+          args: {{ toJson . }}
+          {{- end }}
+          env:
+            - name: MULTIGRES_CONFIG
+              value: /etc/multigres/config.yaml
+            {{- range .Values.gateway.extraEnv }}
+            - name: {{ .name }}
+              value: {{ .value | quote }}
+            {{- end }}
+          volumeMounts:
+            - name: config
+              mountPath: /etc/multigres/config.yaml
+              subPath: config.yaml
+          resources:
+            {{- toYaml .Values.gateway.resources | nindent 12 }}
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "multigres.fullname" . }}-config
