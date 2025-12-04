@@ -385,6 +385,21 @@ func (p *ProcessInstance) Stop() {
 	_ = p.Process.Wait()
 }
 
+// IsRunning checks if the process is still running.
+// Returns false if the process has exited or was never started.
+func (p *ProcessInstance) IsRunning() bool {
+	if p == nil || p.Process == nil || p.Process.Process == nil {
+		return false
+	}
+	// ProcessState is set after Wait() returns, meaning process has exited
+	if p.Process.ProcessState != nil {
+		return false
+	}
+	// Signal 0 checks if process exists without actually sending a signal
+	err := p.Process.Process.Signal(syscall.Signal(0))
+	return err == nil
+}
+
 // stopPostgreSQL stops PostgreSQL via gRPC (best effort, no error handling)
 func (p *ProcessInstance) stopPostgreSQL() {
 	conn, err := grpc.NewClient(
@@ -1282,6 +1297,39 @@ func validateCleanState(setup *MultipoolerTestSetup) error {
 	return nil
 }
 
+// checkSharedProcesses verifies all shared test processes are still running.
+// This catches crashes from previous tests early, before confusing timeout errors.
+func checkSharedProcesses(t *testing.T, setup *MultipoolerTestSetup) {
+	t.Helper()
+
+	if setup == nil {
+		return
+	}
+
+	type processCheck struct {
+		name     string
+		instance *ProcessInstance
+	}
+
+	checks := []processCheck{
+		{"primary-multipooler", setup.PrimaryMultipooler},
+		{"standby-multipooler", setup.StandbyMultipooler},
+		{"primary-pgctld", setup.PrimaryPgctld},
+		{"standby-pgctld", setup.StandbyPgctld},
+	}
+
+	var dead []string
+	for _, check := range checks {
+		if check.instance != nil && !check.instance.IsRunning() {
+			dead = append(dead, check.name)
+		}
+	}
+
+	if len(dead) > 0 {
+		t.Fatalf("Shared test process(es) died: %v. A previous test likely crashed them. Check service logs above.", dead)
+	}
+}
+
 // setupPoolerTest provides test isolation by validating clean state, optionally configuring
 // replication, and automatically restoring any state changes at test cleanup.
 //
@@ -1304,6 +1352,9 @@ func validateCleanState(setup *MultipoolerTestSetup) error {
 // Other options: WithResetGuc(), WithDropTables()
 func setupPoolerTest(t *testing.T, setup *MultipoolerTestSetup, opts ...cleanupOption) {
 	t.Helper()
+
+	// Fail fast if shared processes died (e.g., from a previous test crash)
+	checkSharedProcesses(t, setup)
 
 	// Build cleanup configuration from options
 	config := &cleanupConfig{}
