@@ -16,7 +16,7 @@
 package manager
 
 import (
-	"github.com/multigres/multigres/go/clustermetadata/topo"
+	"github.com/multigres/multigres/go/common/topoclient"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 )
@@ -27,7 +27,7 @@ type Config struct {
 	PoolerDir           string
 	PgPort              int
 	Database            string
-	TopoClient          topo.Store
+	TopoClient          topoclient.Store
 	ServiceID           *clustermetadatapb.ID
 	HeartbeatIntervalMs int
 	PgctldAddr          string // Address of pgctld gRPC service

@@ -23,13 +23,18 @@ linters:
     - bodyclose
     - depguard
     - errcheck
+    - errorlint
     - gocritic
+    - gosec
     - govet
     - ineffassign
+    - misspell
     - modernize
+    - nilerr
     - noctx
     - sloglint
     - staticcheck
+    - unconvert
     - unused
   settings:
     depguard:
@@ -62,10 +67,21 @@ linters:
               desc: "provisioners should not depend on multigres logic aside from the topo"
           allow:
             - $gostd
-            - github.com/multigres/multigres/go/clustermetadata/topo
+            - github.com/multigres/multigres/go/common/topoclient
             - github.com/multigres/multigres/go/tools
             - github.com/multigres/multigres/go/pb
             - github.com/multigres/multigres/go/provisioner
+        multiadmin-isolation:
+          files:
+            - "!**/go/services/multiadmin/*.go"
+            - "!**/go/services/multiadmin/**/*.go"
+            - "!**/go/cmd/multiadmin/*.go"
+            - "!**/go/cmd/multiadmin/**/*.go"
+            - "**/*.go"
+          list-mode: lax
+          deny:
+            - pkg: "github.com/multigres/multigres/go/services/multiadmin"
+              desc: "multiadmin can only be imported by its own package and cmd"
         use_modern_packages:
           list-mode: lax
           deny:
@@ -200,6 +216,30 @@ linters:
       - linters:
           - unused
         path: ^go/(parser|pgprotocol|tools/ruleguard)
+      # Potentially unsafe integer casts are all over the place (unsigned to signed, 64-bit to 32-bit, etc.)
+      - linters:
+          - gosec
+        text: "G115:"
+      # math/rand is fine for non-crypto uses (jitter, test data, IDs)
+      - linters:
+          - gosec
+        text: "G404:"
+      # File permissions 0644 are fine for config/data files
+      - linters:
+          - gosec
+        text: "G306:"
+      # Subprocess calls with variables are common
+      - linters:
+          - gosec
+        text: "G204:"
+      # mterrors intentionally uses direct error comparisons
+      - linters:
+          - errorlint
+        path: ^go/common/mterrors/
+      # Parser has many unnecessary type conversions
+      - linters:
+          - unconvert
+        path: ^go/parser/
 formatters:
   enable:
     - gofumpt

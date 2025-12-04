@@ -33,8 +33,8 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"gopkg.in/yaml.v3"
 
-	"github.com/multigres/multigres/go/clustermetadata/topo"
 	"github.com/multigres/multigres/go/cmd/multigres/command/cluster"
+	"github.com/multigres/multigres/go/common/topoclient"
 	pb "github.com/multigres/multigres/go/pb/pgctldservice"
 	"github.com/multigres/multigres/go/provisioner/local"
 	"github.com/multigres/multigres/go/test/utils"
@@ -48,7 +48,7 @@ import (
 func getProjectRoot() (string, error) {
 	wd, err := os.Getwd()
 	if err != nil {
-		return "", fmt.Errorf("cannot get current file path: %v", err)
+		return "", fmt.Errorf("cannot get current file path: %w", err)
 	}
 	// The current file is in go/test/endtoend, so we go up three levels.
 	projectRoot := filepath.Join(wd, "..", "..", "..")
@@ -133,7 +133,7 @@ func cleanupTestProcesses(tempDir string) error {
 	serviceStates, err := getServiceStates(tempDir)
 	if err != nil {
 		// If we can't read service states, that's okay - maybe nothing was started
-		return nil
+		return nil //nolint:nilerr // Cleanup should continue even if state file is missing
 	}
 
 	var errors []string
@@ -275,7 +275,7 @@ func createTestConfigWithPorts(tempDir string, portConfig *testPortConfig) (stri
 // checkCellExistsInTopology checks if a cell exists in the topology server
 func checkCellExistsInTopology(etcdAddress, globalRootPath, cellName string) error {
 	// Create topology store connection
-	ts, err := topo.OpenServer("etcd2", globalRootPath, []string{etcdAddress})
+	ts, err := topoclient.OpenServer("etcd2", globalRootPath, []string{etcdAddress}, topoclient.NewDefaultTopoConfig())
 	if err != nil {
 		return fmt.Errorf("failed to connect to topology server: %w", err)
 	}
@@ -307,7 +307,7 @@ func checkCellExistsInTopology(etcdAddress, globalRootPath, cellName string) err
 // checkMultipoolerDatabaseInTopology checks if multipooler is registered with database field in topology
 func checkMultipoolerDatabaseInTopology(etcdAddress, globalRootPath, cellName, expectedDatabase string) error {
 	// Create topology store connection
-	ts, err := topo.OpenServer("etcd2", globalRootPath, []string{etcdAddress})
+	ts, err := topoclient.OpenServer("etcd2", globalRootPath, []string{etcdAddress}, topoclient.NewDefaultTopoConfig())
 	if err != nil {
 		return fmt.Errorf("failed to connect to topology server: %w", err)
 	}

@@ -208,7 +208,7 @@ func (p *localProvisioner) checkPortConflict(port int, serviceName, portName str
 	conn, err := (&net.Dialer{Timeout: 1 * time.Second}).DialContext(context.TODO(), "tcp", address)
 	if err != nil {
 		// Port is not in use, this is good
-		return nil
+		return nil //nolint:nilerr // Error means port is free, which is success
 	}
 	conn.Close()
 

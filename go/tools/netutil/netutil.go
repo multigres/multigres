@@ -44,7 +44,7 @@ func SplitHostPort(addr string) (string, int, error) {
 	}
 	p, err := strconv.ParseUint(port, 10, 16)
 	if err != nil {
-		return "", 0, fmt.Errorf("SplitHostPort: can't parse port %q: %v", port, err)
+		return "", 0, fmt.Errorf("SplitHostPort: can't parse port %q: %w", port, err)
 	}
 	return host, int(p), nil
 }
@@ -65,13 +65,13 @@ func FullyQualifiedHostname() (string, error) {
 	// 1. Get the machine hostname. Example: localhost
 	hostname, err := os.Hostname()
 	if err != nil {
-		return "", fmt.Errorf("FullyQualifiedHostname: failed to retrieve the hostname of this machine: %v", err)
+		return "", fmt.Errorf("FullyQualifiedHostname: failed to retrieve the hostname of this machine: %w", err)
 	}
 
 	// 2. Look up the IP address for that hostname. Example: 127.0.0.1
 	ips, err := (&net.Resolver{}).LookupHost(context.TODO(), hostname)
 	if err != nil {
-		return "", fmt.Errorf("FullyQualifiedHostname: failed to lookup the IP of this machine's hostname (%v): %v", hostname, err)
+		return "", fmt.Errorf("FullyQualifiedHostname: failed to lookup the IP of this machine's hostname (%v): %w", hostname, err)
 	}
 	if len(ips) == 0 {
 		return "", fmt.Errorf("FullyQualifiedHostname: lookup of the IP of this machine's hostname (%v) did not return any IP address", hostname)
@@ -104,7 +104,7 @@ func FullyQualifiedHostname() (string, error) {
 	// 3. Reverse lookup the IP. Example: localhost.localdomain
 	resolvedHostnames, err := (&net.Resolver{}).LookupAddr(context.TODO(), localIP)
 	if err != nil {
-		return "", fmt.Errorf("FullyQualifiedHostname: failed to reverse lookup this machine's local IP (%v): %v", localIP, err)
+		return "", fmt.Errorf("FullyQualifiedHostname: failed to reverse lookup this machine's local IP (%v): %w", localIP, err)
 	}
 	if len(resolvedHostnames) == 0 {
 		return "", fmt.Errorf("FullyQualifiedHostname: reverse lookup of this machine's local IP (%v) did not return any hostnames", localIP)
@@ -132,7 +132,7 @@ func FullyQualifiedHostnameOrPanic() string {
 func dnsLookup(host string) ([]net.IP, error) {
 	addrs, err := (&net.Resolver{}).LookupHost(context.TODO(), host)
 	if err != nil {
-		return nil, fmt.Errorf("error looking up dns name [%v]: (%v)", host, err)
+		return nil, fmt.Errorf("error looking up dns name [%v]: (%w)", host, err)
 	}
 	naddr := make([]net.IP, len(addrs))
 	for i, a := range addrs {

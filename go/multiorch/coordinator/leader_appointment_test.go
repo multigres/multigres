@@ -22,8 +22,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/multigres/multigres/go/clustermetadata/topo"
 	"github.com/multigres/multigres/go/common/rpcclient"
+	"github.com/multigres/multigres/go/common/topoclient"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	consensusdatapb "github.com/multigres/multigres/go/pb/consensusdata"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
@@ -47,7 +47,7 @@ func createMockNode(fakeClient *rpcclient.FakeClient, name string, term int64, w
 	}
 
 	// Use topo helper to generate consistent key format
-	poolerKey := topo.MultiPoolerIDString(poolerID)
+	poolerKey := topoclient.MultiPoolerIDString(poolerID)
 
 	// Configure FakeClient responses for this pooler
 	fakeClient.ConsensusStatusResponses[poolerKey] = &consensusdatapb.StatusResponse{
@@ -140,7 +140,7 @@ func TestDiscoverMaxTerm(t *testing.T) {
 			Hostname: "localhost",
 			PortMap:  map[string]int32{"grpc": 9000},
 		}
-		fakeClient.Errors[topo.MultiPoolerIDString(pooler2ID)] = context.DeadlineExceeded
+		fakeClient.Errors[topoclient.MultiPoolerIDString(pooler2ID)] = context.DeadlineExceeded
 
 		cohort := []*multiorchdatapb.PoolerHealthState{
 			createMockNode(fakeClient, "mp1", 5, "0/1000000", true, "standby"),
@@ -230,7 +230,7 @@ func TestSelectCandidate(t *testing.T) {
 			Cell:      "zone1",
 			Name:      "mp1",
 		}
-		fakeClient.Errors[topo.MultiPoolerIDString(poolerID)] = context.DeadlineExceeded
+		fakeClient.Errors[topoclient.MultiPoolerIDString(poolerID)] = context.DeadlineExceeded
 
 		pooler := &clustermetadatapb.MultiPooler{
 			Id:       poolerID,
@@ -298,7 +298,7 @@ func TestRecruitNodes(t *testing.T) {
 			Cell:      "zone1",
 			Name:      "mp3",
 		}
-		fakeClient.BeginTermResponses[topo.MultiPoolerIDString(mp3ID)] = &consensusdatapb.BeginTermResponse{Accepted: false}
+		fakeClient.BeginTermResponses[topoclient.MultiPoolerIDString(mp3ID)] = &consensusdatapb.BeginTermResponse{Accepted: false}
 
 		recruited, err := c.recruitNodes(ctx, cohort, 6, candidate)
 		require.NoError(t, err)
@@ -366,7 +366,7 @@ func TestBeginTerm(t *testing.T) {
 			Cell:      "zone1",
 			Name:      "mp2",
 		}
-		fakeClient.BeginTermResponses[topo.MultiPoolerIDString(mp2ID)] = &consensusdatapb.BeginTermResponse{Accepted: false}
+		fakeClient.BeginTermResponses[topoclient.MultiPoolerIDString(mp2ID)] = &consensusdatapb.BeginTermResponse{Accepted: false}
 
 		// mp3 returns an error
 		mp3ID := &clustermetadatapb.ID{
@@ -374,7 +374,7 @@ func TestBeginTerm(t *testing.T) {
 			Cell:      "zone1",
 			Name:      "mp3",
 		}
-		fakeClient.Errors[topo.MultiPoolerIDString(mp3ID)] = context.DeadlineExceeded
+		fakeClient.Errors[topoclient.MultiPoolerIDString(mp3ID)] = context.DeadlineExceeded
 
 		// Create ANY_N quorum rule requiring 2 nodes
 		quorumRule := &clustermetadatapb.QuorumRule{
@@ -439,8 +439,8 @@ func TestPropagate(t *testing.T) {
 			Cell:      "zone1",
 			Name:      "mp3",
 		}
-		fakeClient.SetPrimaryConnInfoResponses[topo.MultiPoolerIDString(mp3ID)] = nil
-		fakeClient.Errors[topo.MultiPoolerIDString(mp3ID)] = context.DeadlineExceeded
+		fakeClient.SetPrimaryConnInfoResponses[topoclient.MultiPoolerIDString(mp3ID)] = nil
+		fakeClient.Errors[topoclient.MultiPoolerIDString(mp3ID)] = context.DeadlineExceeded
 
 		standbys := []*multiorchdatapb.PoolerHealthState{
 			createMockNode(fakeClient, "mp2", 5, "0/2000000", true, "standby"),
@@ -496,7 +496,7 @@ func TestEstablishLeader(t *testing.T) {
 			Cell:      "zone1",
 			Name:      "mp1",
 		}
-		fakeClient.StateResponses[topo.MultiPoolerIDString(mp1ID)] = &multipoolermanagerdatapb.StateResponse{
+		fakeClient.StateResponses[topoclient.MultiPoolerIDString(mp1ID)] = &multipoolermanagerdatapb.StateResponse{
 			State: "initializing",
 		}
 

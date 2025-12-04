@@ -246,7 +246,7 @@ func StartTestServer(t *testing.T, service pb.PgCtldServer) (pb.PgCtldClient, fu
 	client := pb.NewPgCtldClient(conn)
 
 	// Wait for server to be ready
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 
 	for {

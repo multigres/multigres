@@ -26,9 +26,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/multigres/multigres/go/clustermetadata/topo/memorytopo"
 	"github.com/multigres/multigres/go/cmd/pgctld/testutil"
-	"github.com/multigres/multigres/go/servenv"
+	"github.com/multigres/multigres/go/common/servenv"
+	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
 	"github.com/multigres/multigres/go/tools/viperutil"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
@@ -37,7 +37,24 @@ import (
 )
 
 // Helper function to setup a manager with a mock database
-func setupManagerWithMockDB(t *testing.T) (*MultiPoolerManager, sqlmock.Sqlmock, string) {
+// expectPrimaryStartupQueries adds expectations for queries that happen during PRIMARY manager startup.
+// The manager is created as a PRIMARY, so:
+// 1. pg_is_in_recovery() check - returns false (primary)
+// 2. CREATE SCHEMA and CREATE TABLE queries for sidecar schema
+func expectPrimaryStartupQueries(mock sqlmock.Sqlmock) {
+	// Heartbeat startup: checks if DB is primary
+	mock.ExpectQuery("SELECT pg_is_in_recovery").
+		WillReturnRows(sqlmock.NewRows([]string{"pg_is_in_recovery"}).AddRow(false))
+	// CreateSidecarSchema creates the multigres schema and tables
+	mock.ExpectExec("CREATE SCHEMA IF NOT EXISTS multigres").
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectExec("CREATE TABLE IF NOT EXISTS multigres.heartbeat").
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectExec("CREATE TABLE IF NOT EXISTS multigres.durability_policy").
+		WillReturnResult(sqlmock.NewResult(0, 0))
+}
+
+func setupManagerWithMockDB(t *testing.T, mockDB *sql.DB) (*MultiPoolerManager, string) {
 	ctx := context.Background()
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
@@ -75,23 +92,19 @@ func setupManagerWithMockDB(t *testing.T) (*MultiPoolerManager, sqlmock.Sqlmock,
 	pm := NewMultiPoolerManager(logger, config)
 	t.Cleanup(func() { pm.Close() })
 
+	// Assign mock DB BEFORE starting the manager to avoid race conditions
+	pm.db = mockDB
+
 	senv := servenv.NewServEnv(viperutil.NewRegistry())
-	go pm.Start(senv)
+	pm.Start(senv)
 
 	require.Eventually(t, func() bool {
 		return pm.GetState() == ManagerStateReady
 	}, 5*time.Second, 100*time.Millisecond, "Manager should reach Ready state")
 
-	// Create mock database connection with ping monitoring enabled
-	mockDB, mock, err := sqlmock.New(sqlmock.MonitorPingsOption(true))
-	require.NoError(t, err)
-	t.Cleanup(func() { mockDB.Close() })
-
-	pm.db = mockDB
-
 	// Create the pg_data directory to simulate initialized data directory
 	pgDataDir := tmpDir + "/pg_data"
-	err = os.MkdirAll(pgDataDir, 0o755)
+	err := os.MkdirAll(pgDataDir, 0o755)
 	require.NoError(t, err)
 	// Create PG_VERSION file to mark it as initialized
 	err = os.WriteFile(pgDataDir+"/PG_VERSION", []byte("18\n"), 0o644)
@@ -102,7 +115,7 @@ func setupManagerWithMockDB(t *testing.T) (*MultiPoolerManager, sqlmock.Sqlmock,
 	pm.consensusState = NewConsensusState(tmpDir, serviceID)
 	pm.mu.Unlock()
 
-	return pm, mock, tmpDir
+	return pm, tmpDir
 }
 
 // ============================================================================
@@ -243,7 +256,13 @@ func TestBeginTerm(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := context.Background()
-			pm, mock, tmpDir := setupManagerWithMockDB(t)
+
+			// Create mock and set ALL expectations BEFORE starting the manager
+			mockDB, mock := newMockDB(t)
+			expectPrimaryStartupQueries(mock)
+			tt.setupMocks(mock)
+
+			pm, tmpDir := setupManagerWithMockDB(t, mockDB)
 
 			// Initialize term on disk
 			err := setConsensusTerm(tmpDir, tt.initialTerm)
@@ -253,9 +272,6 @@ func TestBeginTerm(t *testing.T) {
 			loadedTermNumber, err := pm.consensusState.Load()
 			require.NoError(t, err)
 			assert.Equal(t, tt.initialTerm.TermNumber, loadedTermNumber, "Loaded term number should match initial term")
-
-			// Setup mocks
-			tt.setupMocks(mock)
 
 			// Make request
 			req := &consensusdatapb.BeginTermRequest{
@@ -286,7 +302,12 @@ func TestBeginTerm(t *testing.T) {
 	for _, tt := range saveFailureTests {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := context.Background()
-			pm, mock, tmpDir := setupManagerWithMockDB(t)
+
+			// Create mock and set startup expectations BEFORE starting the manager
+			mockDB, mock := newMockDB(t)
+			expectPrimaryStartupQueries(mock)
+
+			pm, tmpDir := setupManagerWithMockDB(t, mockDB)
 
 			// Initialize term on disk
 			err := setConsensusTerm(tmpDir, tt.initialTerm)
@@ -463,13 +484,20 @@ func TestCanReachPrimary(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := context.Background()
-			pm, mock, _ := setupManagerWithMockDB(t)
 
-			if tt.nilDB {
-				pm.db = nil
-			} else if tt.setupMocks != nil {
-				tt.setupMocks(mock)
+			var mockDB *sql.DB
+			var mock sqlmock.Sqlmock
+
+			// Only create mock and set expectations when we have a DB
+			if !tt.nilDB {
+				mockDB, mock = newMockDB(t)
+				expectPrimaryStartupQueries(mock)
+				if tt.setupMocks != nil {
+					tt.setupMocks(mock)
+				}
 			}
+
+			pm, _ := setupManagerWithMockDB(t, mockDB)
 
 			req := &consensusdatapb.CanReachPrimaryRequest{
 				PrimaryHost: tt.requestHost,
@@ -596,7 +624,15 @@ func TestConsensusStatus(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := context.Background()
-			pm, mock, tmpDir := setupManagerWithMockDB(t)
+
+			// Create mock and set ALL expectations BEFORE starting the manager
+			mockDB, mock := newMockDB(t)
+			expectPrimaryStartupQueries(mock)
+			if tt.setupMocks != nil {
+				tt.setupMocks(mock)
+			}
+
+			pm, tmpDir := setupManagerWithMockDB(t, mockDB)
 
 			// Initialize term on disk
 			err := setConsensusTerm(tmpDir, tt.initialTerm)
@@ -612,8 +648,6 @@ func TestConsensusStatus(t *testing.T) {
 			// Handle nil DB case
 			if tt.nilDB {
 				pm.db = nil
-			} else if tt.setupMocks != nil {
-				tt.setupMocks(mock)
 			}
 
 			req := &consensusdatapb.StatusRequest{

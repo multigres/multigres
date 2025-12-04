@@ -29,7 +29,7 @@ var (
 )
 
 // Bindable represents the methods needed to bind a value.Value to a given
-// registry. It exists primarly to allow us to treat a sync.Viper as a
+// registry. It exists primarily to allow us to treat a sync.Viper as a
 // viper.Viper for configuration registration purposes.
 type Bindable interface {
 	BindEnv(vars ...string) error

@@ -22,8 +22,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/multigres/multigres/go/clustermetadata/topo"
 	"github.com/multigres/multigres/go/common/rpcclient"
+	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/multiorch/config"
 	"github.com/multigres/multigres/go/multiorch/store"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
@@ -71,7 +71,7 @@ func runIfNotRunning(logger *slog.Logger, inProgress *atomic.Bool, taskName stri
 //
 // Maintenance Loop:
 //
-//	Keeps the engine's view of the cluster up-to-date and performs general maintance tasks.
+//	Keeps the engine's view of the cluster up-to-date and performs general maintenance tasks.
 //	Runs two types of operations at configurable intervals:
 //
 //	Cluster Metadata Refresh:
@@ -223,7 +223,7 @@ func runIfNotRunning(logger *slog.Logger, inProgress *atomic.Bool, taskName stri
 //	)
 //	engine.Start()
 type Engine struct {
-	ts        topo.Store
+	ts        topoclient.Store
 	logger    *slog.Logger
 	config    *config.Config
 	rpcClient rpcclient.MultiPoolerClient
@@ -264,13 +264,13 @@ type Engine struct {
 
 // NewEngine creates a new RecoveryEngine instance.
 func NewEngine(
-	ts topo.Store,
+	ts topoclient.Store,
 	logger *slog.Logger,
 	config *config.Config,
 	shardWatchTargets []config.WatchTarget,
 	rpcClient rpcclient.MultiPoolerClient,
 ) *Engine {
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(context.TODO())
 
 	poolerStore := store.NewProtoStore[string, *multiorchdatapb.PoolerHealthState]()
 
