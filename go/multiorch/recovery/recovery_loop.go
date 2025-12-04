@@ -21,7 +21,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/multigres/multigres/go/clustermetadata/topo"
+	"github.com/multigres/multigres/go/common/topoclient"
+	"github.com/multigres/multigres/go/common/types"
 	"github.com/multigres/multigres/go/multiorch/recovery/analysis"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
@@ -76,7 +77,7 @@ func (re *Engine) performRecoveryCycle() {
 	var wg sync.WaitGroup
 	for shardKey, shardProblems := range problemsByShard {
 		wg.Add(1)
-		go func(key analysis.ShardKey, problems []analysis.Problem) {
+		go func(key types.ShardKey, problems []analysis.Problem) {
 			defer wg.Done()
 			re.processShardProblems(key, problems)
 		}(shardKey, shardProblems)
@@ -85,11 +86,11 @@ func (re *Engine) performRecoveryCycle() {
 }
 
 // groupProblemsByShard groups problems by their shard.
-func (re *Engine) groupProblemsByShard(problems []analysis.Problem) map[analysis.ShardKey][]analysis.Problem {
-	grouped := make(map[analysis.ShardKey][]analysis.Problem)
+func (re *Engine) groupProblemsByShard(problems []analysis.Problem) map[types.ShardKey][]analysis.Problem {
+	grouped := make(map[types.ShardKey][]analysis.Problem)
 
 	for _, problem := range problems {
-		key := analysis.ShardKey{
+		key := types.ShardKey{
 			Database:   problem.Database,
 			TableGroup: problem.TableGroup,
 			Shard:      problem.Shard,
@@ -101,7 +102,7 @@ func (re *Engine) groupProblemsByShard(problems []analysis.Problem) map[analysis
 }
 
 // processShardProblems handles all problems for a single shard.
-func (re *Engine) processShardProblems(shardKey analysis.ShardKey, problems []analysis.Problem) {
+func (re *Engine) processShardProblems(shardKey types.ShardKey, problems []analysis.Problem) {
 	re.logger.DebugContext(re.ctx, "processing shard problems",
 		"database", shardKey.Database,
 		"tablegroup", shardKey.TableGroup,
@@ -121,7 +122,7 @@ func (re *Engine) processShardProblems(shardKey analysis.ShardKey, problems []an
 		if problem.RecoveryAction.RequiresHealthyPrimary() && hasPrimaryProblem {
 			re.logger.InfoContext(re.ctx, "skipping recovery - requires healthy primary but primary is unhealthy",
 				"problem_code", problem.Code,
-				"pooler_id", topo.MultiPoolerIDString(problem.PoolerID),
+				"pooler_id", topoclient.MultiPoolerIDString(problem.PoolerID),
 			)
 			continue
 		}
@@ -183,7 +184,7 @@ func (re *Engine) filterAndPrioritize(problems []analysis.Problem) []analysis.Pr
 // IMPORTANT: Before attempting recovery, force re-poll the affected pooler
 // to ensure the problem still exists.
 func (re *Engine) attemptRecovery(problem analysis.Problem) {
-	poolerIDStr := topo.MultiPoolerIDString(problem.PoolerID)
+	poolerIDStr := topoclient.MultiPoolerIDString(problem.PoolerID)
 
 	re.logger.DebugContext(re.ctx, "attempting recovery",
 		"problem_code", problem.Code,
@@ -259,7 +260,7 @@ func (re *Engine) attemptRecovery(problem analysis.Problem) {
 //
 // Returns (stillExists bool, error).
 func (re *Engine) recheckProblem(problem analysis.Problem) (bool, error) {
-	poolerIDStr := topo.MultiPoolerIDString(problem.PoolerID)
+	poolerIDStr := topoclient.MultiPoolerIDString(problem.PoolerID)
 	isShardWide := problem.Scope == analysis.ScopeShard
 
 	re.logger.DebugContext(re.ctx, "validating problem still exists",

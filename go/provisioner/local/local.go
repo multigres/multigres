@@ -31,7 +31,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/multigres/multigres/go/clustermetadata/topo"
+	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/provisioner"
 	"github.com/multigres/multigres/go/provisioner/local/ports"
 	"github.com/multigres/multigres/go/tools/pathutil"
@@ -719,6 +719,12 @@ func (p *localProvisioner) provisionMultipooler(ctx context.Context, req *provis
 		tableGroup = tgFromConfig
 	}
 
+	// Get shard from multipooler config, default to "0-inf" if not set
+	shard := "0-inf"
+	if shardFromConfig, ok := multipoolerConfig["shard"].(string); ok && shardFromConfig != "" {
+		shard = shardFromConfig
+	}
+
 	// Get log level
 	logLevel := "info"
 	if level, ok := multipoolerConfig["log_level"].(string); ok {
@@ -782,6 +788,7 @@ func (p *localProvisioner) provisionMultipooler(ctx context.Context, req *provis
 		"--cell", cell,
 		"--database", database,
 		"--table-group", tableGroup,
+		"--shard", shard,
 		"--service-id", serviceID,
 		"--pgctld-addr", pgctldResult.Address,
 		"--log-level", logLevel,
@@ -1518,7 +1525,7 @@ func (p *localProvisioner) ProvisionDatabase(ctx context.Context, databaseName s
 	fmt.Println("=== Registering database in topology ===")
 	fmt.Printf("⚙️  - Registering database: %s\n", databaseName)
 
-	ts, err := topo.OpenServer(topoConfig.Backend, topoConfig.GlobalRootPath, []string{etcdAddress})
+	ts, err := topoclient.OpenServer(topoConfig.Backend, topoConfig.GlobalRootPath, []string{etcdAddress}, topoclient.NewDefaultTopoConfig())
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to topology server: %w", err)
 	}
@@ -1528,7 +1535,7 @@ func (p *localProvisioner) ProvisionDatabase(ctx context.Context, databaseName s
 	_, err = ts.GetDatabase(ctx, databaseName)
 	if err == nil {
 		fmt.Printf("⚙️  - Database \"%s\" detected — reusing existing database ✓\n", databaseName)
-	} else if errors.Is(err, &topo.TopoError{Code: topo.NoNode}) {
+	} else if errors.Is(err, &topoclient.TopoError{Code: topoclient.NoNode}) {
 		// Create the database if it doesn't exist
 		fmt.Printf("⚙️  - Creating database \"%s\" with cells: [%s]...\n", databaseName, strings.Join(cellNames, ", "))
 
@@ -1645,7 +1652,7 @@ func (p *localProvisioner) setupDefaultCell(ctx context.Context, cellName, etcdA
 	topoConfig := p.config.Topology
 
 	// Create topology store using configured backend
-	ts, err := topo.OpenServer(topoConfig.Backend, topoConfig.GlobalRootPath, []string{etcdAddress})
+	ts, err := topoclient.OpenServer(topoConfig.Backend, topoConfig.GlobalRootPath, []string{etcdAddress}, topoclient.NewDefaultTopoConfig())
 	if err != nil {
 		return fmt.Errorf("failed to connect to topology server: %w", err)
 	}
@@ -1659,7 +1666,7 @@ func (p *localProvisioner) setupDefaultCell(ctx context.Context, cellName, etcdA
 	}
 
 	// Create the cell if it doesn't exist
-	if errors.Is(err, &topo.TopoError{Code: topo.NoNode}) {
+	if errors.Is(err, &topoclient.TopoError{Code: topoclient.NoNode}) {
 		fmt.Printf("⚙️  - Creating cell \"%s\"...\n", cellName)
 
 		// Get the specific cell config for this cell name
@@ -1795,7 +1802,7 @@ func (p *localProvisioner) ValidateConfig(config map[string]any) error {
 	}
 
 	// Validate topology backend
-	availableBackends := topo.GetAvailableImplementations()
+	availableBackends := topoclient.GetAvailableImplementations()
 	validBackend := slices.Contains(availableBackends, typedConfig.Topology.Backend)
 	if !validBackend {
 		return fmt.Errorf("invalid topo backend: %s (available: %v)", typedConfig.Topology.Backend, availableBackends)

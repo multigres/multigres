@@ -25,9 +25,9 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 
-	"github.com/multigres/multigres/go/clustermetadata/topo"
-	"github.com/multigres/multigres/go/clustermetadata/toporeg"
 	"github.com/multigres/multigres/go/common/servenv"
+	"github.com/multigres/multigres/go/common/servenv/toporeg"
+	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/multigateway/executor"
 	"github.com/multigres/multigres/go/multigateway/handler"
 	"github.com/multigres/multigres/go/multigateway/poolergateway"
@@ -57,8 +57,8 @@ type MultiGateway struct {
 	// senv is the serving environment
 	senv *servenv.ServEnv
 	// topoConfig holds topology configuration
-	topoConfig   *topo.TopoConfig
-	ts           topo.Store
+	topoConfig   *topoclient.TopoConfig
+	ts           topoclient.Store
 	tr           *toporeg.TopoReg
 	serverStatus Status
 }
@@ -86,7 +86,7 @@ func NewMultiGateway() *MultiGateway {
 		}),
 		grpcServer: servenv.NewGrpcServer(reg),
 		senv:       servenv.NewServEnv(reg),
-		topoConfig: topo.NewTopoConfig(reg),
+		topoConfig: topoclient.NewTopoConfig(reg),
 		serverStatus: Status{
 			Title: "Multigateway",
 			Links: []Link{
@@ -187,7 +187,7 @@ func (mg *MultiGateway) Init() error {
 	)
 
 	// Create MultiGateway instance for topo registration
-	multigateway := topo.NewMultiGateway(mg.serviceID.Get(), mg.cell.Get(), mg.senv.GetHostname())
+	multigateway := topoclient.NewMultiGateway(mg.serviceID.Get(), mg.cell.Get(), mg.senv.GetHostname())
 	multigateway.PortMap["grpc"] = int32(mg.grpcServer.Port())
 	multigateway.PortMap["http"] = int32(mg.senv.GetHTTPPort())
 	multigateway.PortMap["pg"] = int32(mg.pgPort.Get())
