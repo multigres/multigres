@@ -35,7 +35,7 @@ func (a *ShardNeedsBootstrapAnalyzer) Name() types.CheckName {
 func (a *ShardNeedsBootstrapAnalyzer) Analyze(poolerAnalysis *store.ReplicationAnalysis) []types.Problem {
 	// Skip unreachable nodes - we can't determine their true initialization state.
 	// An unreachable node might be perfectly initialized but just temporarily down.
-	// Other analyzers (PrimaryIsDead, ShardHasNoPrimary) will handle dead primaries.
+	// PrimaryIsDead analyzer will handle dead primaries.
 	if poolerAnalysis.IsUnreachable {
 		return nil
 	}

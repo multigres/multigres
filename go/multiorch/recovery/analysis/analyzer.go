@@ -37,7 +37,6 @@ func DefaultAnalyzers() []Analyzer {
 	if defaultAnalyzers == nil {
 		return []Analyzer{
 			&ShardNeedsBootstrapAnalyzer{},
-			&ShardHasNoPrimaryAnalyzer{},
 			&PrimaryIsDeadAnalyzer{},
 		}
 	}

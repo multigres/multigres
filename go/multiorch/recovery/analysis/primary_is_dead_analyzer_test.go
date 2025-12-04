@@ -83,7 +83,7 @@ func TestPrimaryIsDeadAnalyzer_Analyze(t *testing.T) {
 		require.Len(t, problems, 0)
 	})
 
-	t.Run("ignores no primary scenario (ShardHasNoPrimary handles that)", func(t *testing.T) {
+	t.Run("ignores no primary scenario (future analysis)", func(t *testing.T) {
 		analysis := &store.ReplicationAnalysis{
 			IsPrimary:        false,
 			IsInitialized:    true,
@@ -92,7 +92,7 @@ func TestPrimaryIsDeadAnalyzer_Analyze(t *testing.T) {
 		}
 
 		problems := analyzer.Analyze(analysis)
-		require.Len(t, problems, 0) // ShardHasNoPrimaryAnalyzer handles this case
+		require.Len(t, problems, 0) // Future analyzer will handle this case
 	})
 
 	t.Run("ignores primary itself", func(t *testing.T) {

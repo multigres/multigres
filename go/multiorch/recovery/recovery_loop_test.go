@@ -518,7 +518,7 @@ func TestFilterAndPrioritize_MultipleShardWide(t *testing.T) {
 	// Create multiple shard-wide problems with different priorities
 	problems := []types.Problem{
 		{
-			Code:     types.ProblemShardHasNoPrimary,
+			Code:     types.ProblemShardNeedsBootstrap,
 			PoolerID: poolerID1,
 			Priority: types.PriorityShardBootstrap,
 			Scope:    types.ScopeShard,
@@ -546,7 +546,7 @@ func TestFilterAndPrioritize_MultipleShardWide(t *testing.T) {
 	// Should return only the highest priority shard-wide problem
 	// PriorityShardBootstrap (10000) > PriorityEmergency (1000)
 	require.Len(t, filtered, 1)
-	assert.Equal(t, types.ProblemShardHasNoPrimary, filtered[0].Code)
+	assert.Equal(t, types.ProblemShardNeedsBootstrap, filtered[0].Code)
 	assert.Equal(t, types.PriorityShardBootstrap, filtered[0].Priority)
 }
 
