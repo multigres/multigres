@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/multigres/multigres/go/cmd/pgctld/testutil"
+	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/servenv"
 	"github.com/multigres/multigres/go/common/topoclient"
@@ -76,6 +77,8 @@ func TestManagerServiceMethods_NotImplemented(t *testing.T) {
 		PortMap:       map[string]int32{"grpc": 8080},
 		Type:          clustermetadata.PoolerType_PRIMARY,
 		ServingStatus: clustermetadata.PoolerServingStatus_SERVING,
+		TableGroup:    constants.DefaultTableGroup,
+		Shard:         constants.DefaultShard,
 	}
 	require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
 
@@ -83,8 +86,11 @@ func TestManagerServiceMethods_NotImplemented(t *testing.T) {
 		TopoClient: ts,
 		ServiceID:  serviceID,
 		PgctldAddr: pgctldAddr,
+		TableGroup: constants.DefaultTableGroup,
+		Shard:      constants.DefaultShard,
 	}
-	pm := manager.NewMultiPoolerManager(logger, config)
+	pm, err := manager.NewMultiPoolerManager(logger, config)
+	require.NoError(t, err)
 	defer pm.Close()
 
 	// Start the async loader
@@ -151,8 +157,11 @@ func TestManagerServiceMethods_ManagerNotReady(t *testing.T) {
 	config := &manager.Config{
 		TopoClient: ts,
 		ServiceID:  serviceID,
+		TableGroup: constants.DefaultTableGroup,
+		Shard:      constants.DefaultShard,
 	}
-	pm := manager.NewMultiPoolerManager(logger, config)
+	pm, err := manager.NewMultiPoolerManager(logger, config)
+	require.NoError(t, err)
 	defer pm.Close()
 
 	// Do NOT start the manager - keep it in starting state

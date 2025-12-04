@@ -24,6 +24,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
@@ -47,7 +48,7 @@ func TestInitializationStatus(t *testing.T) {
 			expectedInitialized: false,
 			expectedHasDataDir:  false,
 			expectedRole:        "unknown",
-			expectedShardID:     "test-shard-01",
+			expectedShardID:     "0-inf",
 		},
 		{
 			name: "pooler with data directory but no database",
@@ -59,7 +60,7 @@ func TestInitializationStatus(t *testing.T) {
 			expectedInitialized: false,
 			expectedHasDataDir:  true,
 			expectedRole:        "unknown",
-			expectedShardID:     "test-shard-01",
+			expectedShardID:     "0-inf",
 		},
 	}
 
@@ -84,16 +85,19 @@ func TestInitializationStatus(t *testing.T) {
 				Database:   "postgres",
 				TopoClient: store,
 				ServiceID:  serviceID,
+				TableGroup: constants.DefaultTableGroup,
+				Shard:      tt.expectedShardID,
 			}
 
 			logger := slog.Default()
-			pm := NewMultiPoolerManager(logger, config)
+			pm, err := NewMultiPoolerManager(logger, config)
+			require.NoError(t, err)
 
 			// Create multipooler record in topology
 			multipooler := &clustermetadatapb.MultiPooler{
 				Id:         serviceID,
 				Database:   "testdb",
-				TableGroup: "testgroup",
+				TableGroup: constants.DefaultTableGroup,
 				Shard:      tt.expectedShardID,
 			}
 
@@ -172,15 +176,18 @@ func TestInitializeEmptyPrimary(t *testing.T) {
 				Database:   "postgres",
 				TopoClient: store,
 				ServiceID:  serviceID,
+				TableGroup: constants.DefaultTableGroup,
+				Shard:      constants.DefaultShard,
 				// Note: pgctldClient is nil - operations that need it will fail gracefully
 			}
 
 			logger := slog.Default()
-			pm := NewMultiPoolerManager(logger, config)
+			pm, err := NewMultiPoolerManager(logger, config)
+			require.NoError(t, err)
 
 			// Initialize consensus state
 			pm.consensusState = NewConsensusState(poolerDir, serviceID)
-			_, err := pm.consensusState.Load()
+			_, err = pm.consensusState.Load()
 			require.NoError(t, err)
 
 			// Run setup function
@@ -276,14 +283,17 @@ func TestInitializeAsStandby(t *testing.T) {
 				Database:   "postgres",
 				TopoClient: store,
 				ServiceID:  serviceID,
+				TableGroup: constants.DefaultTableGroup,
+				Shard:      constants.DefaultShard,
 			}
 
 			logger := slog.Default()
-			pm := NewMultiPoolerManager(logger, config)
+			pm, err := NewMultiPoolerManager(logger, config)
+			require.NoError(t, err)
 
 			// Initialize consensus state
 			pm.consensusState = NewConsensusState(poolerDir, serviceID)
-			_, err := pm.consensusState.Load()
+			_, err = pm.consensusState.Load()
 			require.NoError(t, err)
 
 			// Run setup function

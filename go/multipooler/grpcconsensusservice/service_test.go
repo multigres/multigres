@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/multigres/multigres/go/cmd/pgctld/testutil"
+	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/servenv"
 	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
@@ -72,6 +73,8 @@ func TestConsensusService_BeginTerm(t *testing.T) {
 		PortMap:       map[string]int32{"grpc": 8080},
 		Type:          clustermetadata.PoolerType_REPLICA,
 		ServingStatus: clustermetadata.PoolerServingStatus_SERVING,
+		TableGroup:    constants.DefaultTableGroup,
+		Shard:         constants.DefaultShard,
 	}
 	require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
 
@@ -84,8 +87,11 @@ func TestConsensusService_BeginTerm(t *testing.T) {
 		PgctldAddr:       pgctldAddr,
 		PoolerDir:        tmpDir,
 		ConsensusEnabled: true,
+		TableGroup:       constants.DefaultTableGroup,
+		Shard:            constants.DefaultShard,
 	}
-	pm := manager.NewMultiPoolerManager(logger, config)
+	pm, err := manager.NewMultiPoolerManager(logger, config)
+	require.NoError(t, err)
 	defer pm.Close()
 
 	// Start the async loader
@@ -147,6 +153,8 @@ func TestConsensusService_Status(t *testing.T) {
 		PortMap:       map[string]int32{"grpc": 8080},
 		Type:          clustermetadata.PoolerType_REPLICA,
 		ServingStatus: clustermetadata.PoolerServingStatus_SERVING,
+		TableGroup:    constants.DefaultTableGroup,
+		Shard:         constants.DefaultShard,
 	}
 	require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
 
@@ -159,8 +167,11 @@ func TestConsensusService_Status(t *testing.T) {
 		PgctldAddr:       pgctldAddr,
 		PoolerDir:        tmpDir,
 		ConsensusEnabled: true,
+		TableGroup:       constants.DefaultTableGroup,
+		Shard:            constants.DefaultShard,
 	}
-	pm := manager.NewMultiPoolerManager(logger, config)
+	pm, err := manager.NewMultiPoolerManager(logger, config)
+	require.NoError(t, err)
 	defer pm.Close()
 
 	// Start the async loader
@@ -221,6 +232,8 @@ func TestConsensusService_GetLeadershipView(t *testing.T) {
 		PortMap:       map[string]int32{"grpc": 8080},
 		Type:          clustermetadata.PoolerType_REPLICA,
 		ServingStatus: clustermetadata.PoolerServingStatus_SERVING,
+		TableGroup:    constants.DefaultTableGroup,
+		Shard:         constants.DefaultShard,
 	}
 	require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
 
@@ -233,8 +246,11 @@ func TestConsensusService_GetLeadershipView(t *testing.T) {
 		PgctldAddr:       pgctldAddr,
 		PoolerDir:        tmpDir,
 		ConsensusEnabled: true,
+		TableGroup:       constants.DefaultTableGroup,
+		Shard:            constants.DefaultShard,
 	}
-	pm := manager.NewMultiPoolerManager(logger, config)
+	pm, err := manager.NewMultiPoolerManager(logger, config)
+	require.NoError(t, err)
 	defer pm.Close()
 
 	// Start the async loader
@@ -290,6 +306,8 @@ func TestConsensusService_CanReachPrimary(t *testing.T) {
 		PortMap:       map[string]int32{"grpc": 8080},
 		Type:          clustermetadata.PoolerType_REPLICA,
 		ServingStatus: clustermetadata.PoolerServingStatus_SERVING,
+		TableGroup:    constants.DefaultTableGroup,
+		Shard:         constants.DefaultShard,
 	}
 	require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
 
@@ -302,8 +320,11 @@ func TestConsensusService_CanReachPrimary(t *testing.T) {
 		PgctldAddr:       pgctldAddr,
 		PoolerDir:        tmpDir,
 		ConsensusEnabled: true,
+		TableGroup:       constants.DefaultTableGroup,
+		Shard:            constants.DefaultShard,
 	}
-	pm := manager.NewMultiPoolerManager(logger, config)
+	pm, err := manager.NewMultiPoolerManager(logger, config)
+	require.NoError(t, err)
 	defer pm.Close()
 
 	// Start the async loader
@@ -361,6 +382,8 @@ func TestConsensusService_AllMethods(t *testing.T) {
 		PortMap:       map[string]int32{"grpc": 8080},
 		Type:          clustermetadata.PoolerType_REPLICA,
 		ServingStatus: clustermetadata.PoolerServingStatus_SERVING,
+		TableGroup:    constants.DefaultTableGroup,
+		Shard:         constants.DefaultShard,
 	}
 	require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
 
@@ -373,8 +396,11 @@ func TestConsensusService_AllMethods(t *testing.T) {
 		PgctldAddr:       pgctldAddr,
 		PoolerDir:        tmpDir,
 		ConsensusEnabled: true,
+		TableGroup:       constants.DefaultTableGroup,
+		Shard:            constants.DefaultShard,
 	}
-	pm := manager.NewMultiPoolerManager(logger, config)
+	pm, err := manager.NewMultiPoolerManager(logger, config)
+	require.NoError(t, err)
 	defer pm.Close()
 
 	// Start the async loader
