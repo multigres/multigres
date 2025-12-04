@@ -18,18 +18,11 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/multigres/multigres/go/clustermetadata/topo"
+	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/multiorch/store"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 )
-
-// ShardKey uniquely identifies a shard.
-type ShardKey struct {
-	Database   string
-	TableGroup string
-	Shard      string
-}
 
 // PoolersByShard is a structured map for efficient lookups.
 // Structure: [database][tablegroup][shard][pooler_id] -> PoolerHealthState
@@ -244,7 +237,7 @@ func (g *AnalysisGenerator) aggregateReplicaStats(
 	var countReplicating uint
 	var countLagging uint
 
-	primaryIDStr := topo.MultiPoolerIDString(primary.MultiPooler.Id)
+	primaryIDStr := topoclient.MultiPoolerIDString(primary.MultiPooler.Id)
 
 	// Get connected followers from primary status
 	var connectedFollowers []*clustermetadatapb.ID
@@ -278,7 +271,7 @@ func (g *AnalysisGenerator) aggregateReplicaStats(
 			// OR by checking primary_conninfo host/port match
 			isPointingToPrimary := false
 			for _, followerID := range connectedFollowers {
-				if topo.MultiPoolerIDString(followerID) == poolerID {
+				if topoclient.MultiPoolerIDString(followerID) == poolerID {
 					isPointingToPrimary = true
 					break
 				}

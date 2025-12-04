@@ -20,9 +20,10 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/multigres/multigres/go/clustermetadata/topo"
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/rpcclient"
+	"github.com/multigres/multigres/go/common/topoclient"
+	commontypes "github.com/multigres/multigres/go/common/types"
 	"github.com/multigres/multigres/go/multiorch/recovery/types"
 	"github.com/multigres/multigres/go/multiorch/store"
 
@@ -47,7 +48,7 @@ var _ types.RecoveryAction = (*BootstrapShardAction)(nil)
 type BootstrapShardAction struct {
 	rpcClient   rpcclient.MultiPoolerClient
 	poolerStore *store.ProtoStore[string, *multiorchdatapb.PoolerHealthState]
-	topoStore   topo.Store
+	topoStore   topoclient.Store
 	logger      *slog.Logger
 }
 
@@ -55,7 +56,7 @@ type BootstrapShardAction struct {
 func NewBootstrapShardAction(
 	rpcClient rpcclient.MultiPoolerClient,
 	poolerStore *store.ProtoStore[string, *multiorchdatapb.PoolerHealthState],
-	topoStore topo.Store,
+	topoStore topoclient.Store,
 	logger *slog.Logger,
 ) *BootstrapShardAction {
 	return &BootstrapShardAction{
@@ -74,36 +75,35 @@ func (a *BootstrapShardAction) Execute(ctx context.Context, problem types.Proble
 		"shard", problem.Shard)
 
 	// Acquire distributed lock for this shard
-	metadata := a.Metadata()
-	lockPath := topo.RecoveryLockPath(problem.Database, problem.TableGroup, problem.Shard)
-	a.logger.InfoContext(ctx, "acquiring recovery lock", "lock_path", lockPath)
+	shardKey := commontypes.ShardKey{
+		Database:   problem.Database,
+		TableGroup: problem.TableGroup,
+		Shard:      problem.Shard,
+	}
+	a.logger.InfoContext(ctx, "acquiring recovery lock", "shard_key", shardKey.String())
 
-	lockDesc, err := a.topoStore.LockShardForRecovery(
+	ctx, unlock, err := a.topoStore.LockShard(
 		ctx,
-		problem.Database,
-		problem.TableGroup,
-		problem.Shard,
+		shardKey,
 		"bootstrap recovery",
-		metadata.GetLockTimeout(),
 	)
 	if err != nil {
 		a.logger.InfoContext(ctx, "failed to acquire lock, another recovery may be in progress",
-			"lock_path", lockPath,
+			"shard_key", shardKey.String(),
 			"error", err)
 		return err
 	}
 	defer func() {
-		// Use background context for unlock to ensure lock release even if ctx is cancelled
-		unlockCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		if unlockErr := lockDesc.Unlock(unlockCtx); unlockErr != nil {
+		var unlockErr error
+		unlock(&unlockErr)
+		if unlockErr != nil {
 			a.logger.WarnContext(ctx, "failed to release recovery lock",
-				"lock_path", lockPath,
+				"shard_key", shardKey.String(),
 				"error", unlockErr)
 		}
 	}()
 
-	a.logger.InfoContext(ctx, "acquired recovery lock", "lock_path", lockPath)
+	a.logger.InfoContext(ctx, "acquired recovery lock", "shard_key", shardKey.String())
 
 	// Fetch cohort from pooler store
 	cohort := a.getCohort(problem.Database, problem.TableGroup, problem.Shard)

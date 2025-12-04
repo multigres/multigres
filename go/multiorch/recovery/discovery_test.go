@@ -25,9 +25,9 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	"github.com/multigres/multigres/go/clustermetadata/topo"
-	"github.com/multigres/multigres/go/clustermetadata/topo/memorytopo"
 	"github.com/multigres/multigres/go/common/rpcclient"
+	"github.com/multigres/multigres/go/common/topoclient"
+	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
 	"github.com/multigres/multigres/go/multiorch/config"
 	"github.com/multigres/multigres/go/pb/clustermetadata"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
@@ -35,7 +35,7 @@ import (
 
 // poolerKey creates the store key for a pooler
 func poolerKey(cell, name string) string {
-	return topo.MultiPoolerIDString(&clustermetadata.ID{
+	return topoclient.MultiPoolerIDString(&clustermetadata.ID{
 		Component: clustermetadata.ID_MULTIPOOLER,
 		Cell:      cell,
 		Name:      name,

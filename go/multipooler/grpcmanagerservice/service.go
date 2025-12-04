@@ -20,10 +20,10 @@ import (
 	"time"
 
 	"github.com/multigres/multigres/go/common/mterrors"
+	"github.com/multigres/multigres/go/common/servenv"
 	"github.com/multigres/multigres/go/multipooler/manager"
 	multipoolermanagerpb "github.com/multigres/multigres/go/pb/multipoolermanager"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
-	"github.com/multigres/multigres/go/servenv"
 )
 
 // managerService is the gRPC wrapper for MultiPoolerManager

@@ -28,8 +28,9 @@ import (
 	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	"github.com/multigres/multigres/go/clustermetadata/topo/memorytopo"
 	"github.com/multigres/multigres/go/common/rpcclient"
+	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
+	commontypes "github.com/multigres/multigres/go/common/types"
 	"github.com/multigres/multigres/go/multiorch/config"
 	"github.com/multigres/multigres/go/multiorch/recovery/analysis"
 	"github.com/multigres/multigres/go/multiorch/recovery/types"
@@ -176,11 +177,11 @@ func TestGroupProblemsByShard(t *testing.T) {
 	assert.Len(t, grouped, 2, "should have 2 shards")
 
 	// Check first shard
-	key1 := analysis.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"}
+	key1 := commontypes.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"}
 	assert.Len(t, grouped[key1], 2, "db1/tg1/0 should have 2 problems")
 
 	// Check second shard
-	key2 := analysis.ShardKey{Database: "db2", TableGroup: "tg2", Shard: "0"}
+	key2 := commontypes.ShardKey{Database: "db2", TableGroup: "tg2", Shard: "0"}
 	assert.Len(t, grouped[key2], 1, "db2/tg2/0 should have 1 problem")
 }
 
@@ -249,26 +250,26 @@ func TestPrioritySorting(t *testing.T) {
 
 func TestShardKey(t *testing.T) {
 	// Test that ShardKey works correctly as a map key
-	key1 := analysis.ShardKey{
+	key1 := commontypes.ShardKey{
 		Database:   "db1",
 		TableGroup: "tg1",
 		Shard:      "0",
 	}
 
-	key2 := analysis.ShardKey{
+	key2 := commontypes.ShardKey{
 		Database:   "db1",
 		TableGroup: "tg1",
 		Shard:      "0",
 	}
 
-	key3 := analysis.ShardKey{
+	key3 := commontypes.ShardKey{
 		Database:   "db1",
 		TableGroup: "tg2",
 		Shard:      "0",
 	}
 
 	// Test map usage
-	m := make(map[analysis.ShardKey]int)
+	m := make(map[commontypes.ShardKey]int)
 	m[key1] = 1
 	m[key2] = 2 // Should overwrite key1
 	m[key3] = 3
@@ -320,8 +321,8 @@ func TestGroupProblemsByShard_DifferentShards(t *testing.T) {
 	// Should have 2 separate groups (different shards)
 	assert.Len(t, grouped, 2, "should have 2 separate groups for different shards")
 
-	key1 := analysis.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"}
-	key2 := analysis.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "1"}
+	key1 := commontypes.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"}
+	key2 := commontypes.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "1"}
 
 	assert.Len(t, grouped[key1], 1, "shard 0 should have 1 problem")
 	assert.Len(t, grouped[key2], 1, "shard 1 should have 1 problem")
@@ -757,7 +758,7 @@ func TestProcessShardProblems_DependencyEnforcement(t *testing.T) {
 		// Should detect both problems
 		require.Len(t, problems, 2, "should detect both primary dead and replica not replicating")
 
-		shardKey := analysis.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"}
+		shardKey := commontypes.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"}
 
 		// Call processShardProblems - this exercises the full recovery flow
 		engine.processShardProblems(shardKey, problems)
@@ -833,7 +834,7 @@ func TestProcessShardProblems_DependencyEnforcement(t *testing.T) {
 		require.Len(t, problems, 1, "should detect only replica not replicating")
 		assert.Equal(t, types.ProblemReplicaNotReplicating, problems[0].Code)
 
-		shardKey := analysis.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"}
+		shardKey := commontypes.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"}
 
 		// Call processShardProblems
 		engine.processShardProblems(shardKey, problems)
@@ -1501,7 +1502,7 @@ func TestRecoveryLoop_PriorityOrdering(t *testing.T) {
 	// Should detect 3 problems with different priorities
 	require.Len(t, problems, 3, "should detect 3 problems with different priorities")
 
-	shardKey := analysis.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"}
+	shardKey := commontypes.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"}
 
 	// Process problems - they should be attempted in priority order
 	engine.processShardProblems(shardKey, problems)

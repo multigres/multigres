@@ -18,11 +18,12 @@ import (
 	"context"
 	"log/slog"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/multigres/multigres/go/clustermetadata/topo/memorytopo"
+	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
 	"github.com/multigres/multigres/go/multiorch/recovery/types"
 	"github.com/multigres/multigres/go/multiorch/store"
 
@@ -111,7 +112,8 @@ func TestBootstrapShardAction_ConcurrentExecutionPrevented(t *testing.T) {
 	})
 
 	// Acquire lock manually to simulate another recovery in progress
-	lockPath := "recovery/testdb/default/0"
+	// The LockShard API uses path: databases/<db>/<tg>/<shard>
+	lockPath := "databases/testdb/default/0"
 	conn, err := ts.ConnForCell(ctx, "global")
 	require.NoError(t, err)
 	lock1, err := conn.LockName(ctx, lockPath, "test lock")
@@ -130,11 +132,16 @@ func TestBootstrapShardAction_ConcurrentExecutionPrevented(t *testing.T) {
 		Shard:      "0",
 	}
 
-	err = action.Execute(ctx, problem)
+	// Use a short timeout so the test doesn't wait 45 seconds
+	shortCtx, cancel := context.WithTimeout(ctx, 1*time.Second)
+	defer cancel()
 
-	// Should fail because lock is already held
+	err = action.Execute(shortCtx, problem)
+
+	// Should fail because lock is already held (times out trying to acquire)
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "lock")
+	// The error message is "deadline exceeded" when lock acquisition times out
+	assert.Contains(t, err.Error(), "deadline exceeded")
 }
 
 func TestBootstrapShardAction_Metadata(t *testing.T) {

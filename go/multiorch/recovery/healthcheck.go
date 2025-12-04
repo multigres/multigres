@@ -21,7 +21,7 @@ import (
 
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	"github.com/multigres/multigres/go/clustermetadata/topo"
+	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/pb/clustermetadata"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
@@ -45,7 +45,7 @@ import (
 //   - pooler: The pooler's health info from the store
 //   - forceDiscovery: If true, bypass cache and up-to-date checks (force poll)
 func (re *Engine) pollPooler(ctx context.Context, poolerID *clustermetadata.ID, pooler *multiorchdatapb.PoolerHealthState, forceDiscovery bool) {
-	poolerIDStr := topo.MultiPoolerIDString(poolerID)
+	poolerIDStr := topoclient.MultiPoolerIDString(poolerID)
 
 	// Skip if this pooler is marked as forgotten (shouldn't happen, but defensive)
 	if pooler == nil || pooler.MultiPooler == nil || pooler.MultiPooler.Id == nil {
@@ -197,7 +197,7 @@ type poolerStatusResult struct {
 // The Status RPC also includes initialization fields and works even when the database is unavailable.
 // Returns the status for the caller to extract and store metrics.
 func (re *Engine) pollPoolerStatus(ctx context.Context, poolerID *clustermetadata.ID, pooler *multiorchdatapb.PoolerHealthState) (*poolerStatusResult, error) {
-	poolerIDStr := topo.MultiPoolerIDString(poolerID)
+	poolerIDStr := topoclient.MultiPoolerIDString(poolerID)
 
 	re.logger.DebugContext(ctx, "polling pooler status",
 		"pooler_id", poolerIDStr,

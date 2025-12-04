@@ -55,3 +55,11 @@ func disallowMetricsConstructorArgs(m dsl.Matcher) {
 				m["params"].Text != "()").
 		Report("NewMetrics() in metrics.go should take no arguments to maintain isolation from service code. Return (*Metrics, error) and let caller handle logging.")
 }
+
+func requireContextBackgroundJustification(m dsl.Matcher) {
+	m.Match(`context.Background()`).
+		Where(
+			!m.File().Name.Matches(`_test\.go$`) &&
+				!m.File().PkgPath.Matches(`/test/|/testutil/|testutil$`)).
+		Report("context.Background() requires justification. Use context.TODO() if no context is available, or add //nolint:gocritic // <reason> for legitimate entry points")
+}

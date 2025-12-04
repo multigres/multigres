@@ -20,8 +20,8 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/multigres/multigres/go/clustermetadata/topo"
 	"github.com/multigres/multigres/go/common/mterrors"
+	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/multiorch/coordinator"
 	"github.com/multigres/multigres/go/multiorch/recovery/types"
 	"github.com/multigres/multigres/go/multiorch/store"
@@ -41,7 +41,7 @@ var _ types.RecoveryAction = (*AppointLeaderAction)(nil)
 type AppointLeaderAction struct {
 	coordinator *coordinator.Coordinator
 	poolerStore *store.ProtoStore[string, *multiorchdatapb.PoolerHealthState]
-	topoStore   topo.Store
+	topoStore   topoclient.Store
 	logger      *slog.Logger
 }
 
@@ -49,7 +49,7 @@ type AppointLeaderAction struct {
 func NewAppointLeaderAction(
 	coordinator *coordinator.Coordinator,
 	poolerStore *store.ProtoStore[string, *multiorchdatapb.PoolerHealthState],
-	topoStore topo.Store,
+	topoStore topoclient.Store,
 	logger *slog.Logger,
 ) *AppointLeaderAction {
 	return &AppointLeaderAction{

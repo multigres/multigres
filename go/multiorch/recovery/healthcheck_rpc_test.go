@@ -25,9 +25,9 @@ import (
 	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	"github.com/multigres/multigres/go/clustermetadata/topo"
-	"github.com/multigres/multigres/go/clustermetadata/topo/memorytopo"
 	"github.com/multigres/multigres/go/common/rpcclient"
+	"github.com/multigres/multigres/go/common/topoclient"
+	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
 	"github.com/multigres/multigres/go/multiorch/config"
 	"github.com/multigres/multigres/go/pb/clustermetadata"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
@@ -96,7 +96,7 @@ func TestPollPooler_UpdatesStore_Primary(t *testing.T) {
 		IsUpToDate:       false,
 		IsLastCheckValid: false,
 	}
-	poolerKey := topo.MultiPoolerIDString(poolerID)
+	poolerKey := topoclient.MultiPoolerIDString(poolerID)
 	re.poolerStore.Set(poolerKey, pooler)
 
 	// Poll the pooler
@@ -190,7 +190,7 @@ func TestPollPooler_UpdatesStore_Replica(t *testing.T) {
 		IsLastCheckValid: false,
 	}
 
-	poolerKey := topo.MultiPoolerIDString(poolerID)
+	poolerKey := topoclient.MultiPoolerIDString(poolerID)
 	re.poolerStore.Set(poolerKey, pooler)
 
 	// Poll the pooler
@@ -275,7 +275,7 @@ func TestPollPooler_RPCFailure(t *testing.T) {
 		IsLastCheckValid: true,
 		LastSeen:         timestamppb.New(lastSeenTime),
 	}
-	poolerKey := topo.MultiPoolerIDString(poolerID)
+	poolerKey := topoclient.MultiPoolerIDString(poolerID)
 	re.poolerStore.Set(poolerKey, pooler)
 
 	// Poll the pooler (should fail)
@@ -353,7 +353,7 @@ func TestPollPooler_TypeMismatch(t *testing.T) {
 		IsUpToDate:       false,
 		IsLastCheckValid: false,
 	}
-	poolerKey := topo.MultiPoolerIDString(poolerID)
+	poolerKey := topoclient.MultiPoolerIDString(poolerID)
 	re.poolerStore.Set(poolerKey, pooler)
 
 	// Poll the pooler

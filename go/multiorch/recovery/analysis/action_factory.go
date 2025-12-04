@@ -17,8 +17,8 @@ package analysis
 import (
 	"log/slog"
 
-	"github.com/multigres/multigres/go/clustermetadata/topo"
 	"github.com/multigres/multigres/go/common/rpcclient"
+	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/multiorch/coordinator"
 	"github.com/multigres/multigres/go/multiorch/recovery/actions"
 	"github.com/multigres/multigres/go/multiorch/recovery/types"
@@ -30,7 +30,7 @@ import (
 type RecoveryActionFactory struct {
 	poolerStore *store.ProtoStore[string, *multiorchdatapb.PoolerHealthState]
 	rpcClient   rpcclient.MultiPoolerClient
-	topoStore   topo.Store
+	topoStore   topoclient.Store
 	coordinator *coordinator.Coordinator
 	logger      *slog.Logger
 }
@@ -39,7 +39,7 @@ type RecoveryActionFactory struct {
 func NewRecoveryActionFactory(
 	poolerStore *store.ProtoStore[string, *multiorchdatapb.PoolerHealthState],
 	rpcClient rpcclient.MultiPoolerClient,
-	topoStore topo.Store,
+	topoStore topoclient.Store,
 	coordinator *coordinator.Coordinator,
 	logger *slog.Logger,
 ) *RecoveryActionFactory {

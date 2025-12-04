@@ -155,7 +155,7 @@ func (vc *ViperConfig) RegisterFlags(fs *pflag.FlagSet) {
 // If a config file is successfully loaded, then the dynamic registry will also
 // start watching that file for changes. In addition, in-memory changes to the
 // config (for example, from a vtgate or vttablet's debugenv) will be persisted
-// back to disk, with writes occuring no more frequently than the
+// back to disk, with writes occurring no more frequently than the
 // --config-persistence-min-interval flag.
 //
 // A cancel function is returned to stop the re-persistence background thread,
@@ -205,7 +205,7 @@ func (vc *ViperConfig) LoadConfig(reg *Registry) (context.CancelFunc, error) {
 		return nil, err
 	}
 
-	return reg.dynamic.Watch(context.Background(), reg.static, vc.configPersistenceMinInterval.Get())
+	return reg.dynamic.Watch(context.TODO(), reg.static, vc.configPersistenceMinInterval.Get())
 }
 
 // isConfigFileNotFoundError checks if the error is caused because the file wasn't found.
@@ -240,7 +240,7 @@ const (
 	// WarnOnConfigFileNotFound causes LoadConfig to log a warning with details
 	// about the failed config load, but otherwise proceeds with the given
 	// process, which will get config values entirely from defaults,
-	// envirnoment variables, and flags.
+	// environment variables, and flags.
 	WarnOnConfigFileNotFound
 	// ErrorOnConfigFileNotFound causes LoadConfig to return the
 	// ConfigFileNotFoundError after logging an error.

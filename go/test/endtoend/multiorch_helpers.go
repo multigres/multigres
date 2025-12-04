@@ -32,9 +32,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/multigres/multigres/go/clustermetadata/topo"
-	"github.com/multigres/multigres/go/clustermetadata/topo/etcdtopo"
 	"github.com/multigres/multigres/go/common/rpcclient"
+	"github.com/multigres/multigres/go/common/topoclient"
+	"github.com/multigres/multigres/go/common/topoclient/etcdtopo"
 	"github.com/multigres/multigres/go/provisioner/local/pgbackrest"
 	"github.com/multigres/multigres/go/test/utils"
 
@@ -71,7 +71,7 @@ type testEnv struct {
 	config         testEnvConfig
 	tempDir        string
 	etcdClientAddr string
-	ts             topo.Store
+	ts             topoclient.Store
 	backupLocation string
 	nodes          []*nodeInstance
 	multiOrchCmd   *exec.Cmd
@@ -118,7 +118,7 @@ func setupMultiOrchTestEnv(t *testing.T, config testEnvConfig) *testEnv {
 	globalRoot := filepath.Join(testRoot, "global")
 	cellRoot := filepath.Join(testRoot, config.cellName)
 
-	ts, err := topo.OpenServer("etcd2", globalRoot, []string{etcdClientAddr})
+	ts, err := topoclient.OpenServer("etcd2", globalRoot, []string{etcdClientAddr}, topoclient.NewDefaultTopoConfig())
 	require.NoError(t, err, "Failed to open topology server")
 	t.Cleanup(func() { ts.Close() })
 

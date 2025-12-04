@@ -26,9 +26,9 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	"github.com/multigres/multigres/go/clustermetadata/topo"
-	"github.com/multigres/multigres/go/clustermetadata/topo/memorytopo"
 	"github.com/multigres/multigres/go/common/rpcclient"
+	"github.com/multigres/multigres/go/common/topoclient"
+	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
 	"github.com/multigres/multigres/go/multiorch/config"
 	"github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/tools/viperutil"
@@ -36,7 +36,7 @@ import (
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 )
 
-func newTestTopoStore() topo.Store {
+func newTestTopoStore() topoclient.Store {
 	return memorytopo.NewServer(context.Background(), "zone1")
 }
 

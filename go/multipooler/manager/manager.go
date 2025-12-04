@@ -20,17 +20,18 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
 	"path/filepath"
 	"sync"
 	"time"
 
 	"github.com/lib/pq"
 
-	"github.com/multigres/multigres/go/clustermetadata/topo"
 	"github.com/multigres/multigres/go/common/mterrors"
+	"github.com/multigres/multigres/go/common/servenv"
+	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/multipooler/heartbeat"
 	"github.com/multigres/multigres/go/multipooler/poolerserver"
-	"github.com/multigres/multigres/go/servenv"
 	"github.com/multigres/multigres/go/tools/retry"
 
 	"google.golang.org/grpc"
@@ -60,7 +61,7 @@ type MultiPoolerManager struct {
 	logger       *slog.Logger
 	config       *Config
 	db           *sql.DB
-	topoClient   topo.Store
+	topoClient   topoclient.Store
 	serviceID    *clustermetadatapb.ID
 	replTracker  *heartbeat.ReplTracker
 	pgctldClient pgctldpb.PgCtldClient
@@ -87,7 +88,7 @@ type MultiPoolerManager struct {
 	mu sync.Mutex
 
 	isOpen          bool
-	multipooler     *topo.MultiPoolerInfo
+	multipooler     *topoclient.MultiPoolerInfo
 	state           ManagerState
 	stateError      error
 	consensusState  *ConsensusState
@@ -96,6 +97,11 @@ type MultiPoolerManager struct {
 	ctx             context.Context
 	cancel          context.CancelFunc
 	loadTimeout     time.Duration
+
+	// readyChan is closed when state becomes Ready or Error, to broadcast to all waiters.
+	// Unbuffered is safe here because we only close() the channel (which never blocks
+	// and broadcasts to all receivers) rather than sending to it.
+	readyChan chan struct{}
 
 	// Cached MultipoolerInfo so that we can access its state without having
 	// to wait a potentially long time on mu when accessing read-only fields.
@@ -131,7 +137,7 @@ type demotionState struct {
 // cachedMultiPoolerInfo holds a thread-safe cached copy of the multipooler info
 type cachedMultiPoolerInfo struct {
 	mu          sync.Mutex
-	multipooler *topo.MultiPoolerInfo
+	multipooler *topoclient.MultiPoolerInfo
 }
 
 // NewMultiPoolerManager creates a new MultiPoolerManager instance
@@ -141,7 +147,7 @@ func NewMultiPoolerManager(logger *slog.Logger, config *Config) *MultiPoolerMana
 
 // NewMultiPoolerManagerWithTimeout creates a new MultiPoolerManager instance with a custom load timeout
 func NewMultiPoolerManagerWithTimeout(logger *slog.Logger, config *Config, loadTimeout time.Duration) *MultiPoolerManager {
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(context.TODO())
 
 	// Create pgctld gRPC client
 	var pgctldClient pgctldpb.PgCtldClient
@@ -168,6 +174,7 @@ func NewMultiPoolerManagerWithTimeout(logger *slog.Logger, config *Config, loadT
 		loadTimeout:       loadTimeout,
 		queryServingState: clustermetadatapb.PoolerServingStatus_NOT_SERVING,
 		pgctldClient:      pgctldClient,
+		readyChan:         make(chan struct{}),
 	}
 
 	// Create the query service controller (follows Vitess pattern)
@@ -227,7 +234,7 @@ func (pm *MultiPoolerManager) Open() error {
 	// This ensures the schema exists before queries can be served
 	if pm.replTracker == nil {
 		pm.logger.Info("MultiPoolerManager: Starting database heartbeat")
-		ctx := context.Background()
+		ctx := context.TODO()
 		// TODO: populate shard ID
 		shardID := []byte("0") // default shard ID
 
@@ -338,7 +345,7 @@ func (pm *MultiPoolerManager) GetStateError() error {
 }
 
 // GetMultiPooler returns the current multipooler record and state
-func (pm *MultiPoolerManager) GetMultiPooler() (*topo.MultiPoolerInfo, ManagerState, error) {
+func (pm *MultiPoolerManager) GetMultiPooler() (*topoclient.MultiPoolerInfo, ManagerState, error) {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
 	return pm.multipooler, pm.state, pm.stateError
@@ -408,7 +415,7 @@ func (pm *MultiPoolerManager) getMultipoolerIDString() (string, error) {
 	pm.cachedMultipooler.mu.Lock()
 	defer pm.cachedMultipooler.mu.Unlock()
 	if pm.cachedMultipooler.multipooler != nil && pm.cachedMultipooler.multipooler.Id != nil {
-		return topo.MultiPoolerIDString(pm.cachedMultipooler.multipooler.Id), nil
+		return topoclient.MultiPoolerIDString(pm.cachedMultipooler.multipooler.Id), nil
 	}
 	return "", mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION, "multipooler ID not available")
 }
@@ -439,7 +446,7 @@ func (pm *MultiPoolerManager) updateCachedMultipooler() {
 	pm.cachedMultipooler.mu.Lock()
 	defer pm.cachedMultipooler.mu.Unlock()
 	clonedProto := proto.Clone(pm.multipooler.MultiPooler).(*clustermetadatapb.MultiPooler)
-	pm.cachedMultipooler.multipooler = topo.NewMultiPoolerInfo(clonedProto, pm.multipooler.Version())
+	pm.cachedMultipooler.multipooler = topoclient.NewMultiPoolerInfo(clonedProto, pm.multipooler.Version())
 }
 
 // checkReady returns an error if the manager is not in Ready state
@@ -558,6 +565,14 @@ func (pm *MultiPoolerManager) setStateError(err error) {
 	pm.state = ManagerStateError
 	pm.stateError = err
 	pm.logger.Error("Manager state changed", "state", ManagerStateError, "error", err.Error())
+
+	// Signal that we've reached a terminal state
+	select {
+	case <-pm.readyChan:
+		// Already closed
+	default:
+		close(pm.readyChan)
+	}
 }
 
 // checkAndSetReady checks if all required resources are loaded and sets state to ready if so
@@ -571,6 +586,14 @@ func (pm *MultiPoolerManager) checkAndSetReady() {
 	if pm.topoLoaded && consensusReady {
 		pm.state = ManagerStateReady
 		pm.logger.Info("Manager state changed", "state", ManagerStateReady, "service_id", pm.serviceID.String())
+
+		// Signal that we've reached ready state
+		select {
+		case <-pm.readyChan:
+			// Already closed
+		default:
+			close(pm.readyChan)
+		}
 	}
 }
 
@@ -1307,6 +1330,19 @@ func (pm *MultiPoolerManager) Start(senv *servenv.ServEnv) {
 	}
 
 	senv.OnRun(func() {
+		// Block until manager is ready or error before registering gRPC services
+		// Use load timeout from manager configuration
+		waitCtx, cancel := context.WithTimeout(pm.ctx, pm.loadTimeout)
+		defer cancel()
+
+		pm.logger.Info("Waiting for manager to reach ready state before registering gRPC services")
+		if err := pm.WaitUntilReady(waitCtx); err != nil {
+			pm.logger.Error("Manager failed to reach ready state during startup", "error", err)
+			// Exit immediately - no point in starting gRPC if we're not ready
+			os.Exit(1)
+		}
+		pm.logger.Info("Manager reached ready state, will register gRPC services")
+
 		pm.logger.Info("MultiPoolerManager started")
 		pm.qsc.RegisterGRPCServices()
 		pm.logger.Info("Query service controller registered")
@@ -1315,4 +1351,36 @@ func (pm *MultiPoolerManager) Start(senv *servenv.ServEnv) {
 		pm.registerGRPCServices()
 		pm.logger.Info("MultiPoolerManager gRPC services registered")
 	})
+}
+
+// WaitUntilReady blocks until the manager reaches Ready or Error state, or
+// the context is cancelled. Returns nil if Ready, or an error if Error state
+// or context cancelled. This should be called after Start() to ensure
+// initialization is complete before accepting RPC requests.
+//
+// Thread-safety: This method waits on a channel that is closed when the state
+// changes to Ready or Error, allowing efficient notification without polling.
+func (pm *MultiPoolerManager) WaitUntilReady(ctx context.Context) error {
+	select {
+	case <-ctx.Done():
+		return fmt.Errorf("waiting for manager ready cancelled: %w", ctx.Err())
+	case <-pm.readyChan:
+		// State has changed to Ready or Error, check which one
+		pm.mu.Lock()
+		state := pm.state
+		stateError := pm.stateError
+		pm.mu.Unlock()
+
+		switch state {
+		case ManagerStateReady:
+			pm.logger.InfoContext(ctx, "Manager is ready")
+			return nil
+		case ManagerStateError:
+			pm.logger.ErrorContext(ctx, "Manager failed to initialize", "error", stateError)
+			return fmt.Errorf("manager is in error state: %w", stateError)
+		default:
+			// This shouldn't happen - channel was closed but state isn't terminal
+			return fmt.Errorf("unexpected state after ready signal: %s", state)
+		}
+	}
 }

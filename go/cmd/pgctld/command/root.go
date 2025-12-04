@@ -22,8 +22,8 @@ import (
 
 	"go.opentelemetry.io/otel/trace"
 
+	"github.com/multigres/multigres/go/common/servenv"
 	"github.com/multigres/multigres/go/pgctld"
-	"github.com/multigres/multigres/go/servenv"
 	"github.com/multigres/multigres/go/tools/telemetry"
 	"github.com/multigres/multigres/go/tools/viperutil"
 

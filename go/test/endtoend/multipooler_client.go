@@ -58,7 +58,7 @@ func NewMultiPoolerTestClient(addr string) (*MultiPoolerTestClient, error) {
 	client := multipoolerpb.NewMultiPoolerServiceClient(conn)
 
 	// Test the connection by making a simple RPC call with a short timeout
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	ctx, cancel := context.WithTimeout(context.TODO(), 2*time.Second)
 	defer cancel()
 
 	// Try to make a basic ExecuteQuery call to test connectivity
@@ -143,7 +143,7 @@ func IsPrimary(addr string) (bool, error) {
 
 // TestBasicSelect tests a basic SELECT query
 func TestBasicSelect(t *testing.T, client *MultiPoolerTestClient) {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 	defer cancel()
 	t.Helper()
 
@@ -162,7 +162,7 @@ func TestBasicSelect(t *testing.T, client *MultiPoolerTestClient) {
 // TestCreateTable tests creating a table
 func TestCreateTable(t *testing.T, client *MultiPoolerTestClient, tableName string) {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 	defer cancel()
 
 	createSQL := fmt.Sprintf(`
@@ -185,7 +185,7 @@ func TestCreateTable(t *testing.T, client *MultiPoolerTestClient, tableName stri
 // TestInsertData tests inserting data into a table
 func TestInsertData(t *testing.T, client *MultiPoolerTestClient, tableName string, testData []map[string]any) {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
 	defer cancel()
 
 	for i, data := range testData {
@@ -208,7 +208,7 @@ func TestSelectData(t *testing.T, client *MultiPoolerTestClient, tableName strin
 	t.Helper()
 
 	selectSQL := fmt.Sprintf("SELECT id, name, value FROM %s ORDER BY id", tableName)
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
 	defer cancel()
 
 	result, err := client.ExecuteQuery(ctx, selectSQL, 0)
@@ -233,7 +233,7 @@ func TestSelectData(t *testing.T, client *MultiPoolerTestClient, tableName strin
 // TestQueryLimits tests the max_rows parameter
 func TestQueryLimits(t *testing.T, client *MultiPoolerTestClient, tableName string) {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
 	defer cancel()
 
 	selectSQL := fmt.Sprintf("SELECT * FROM %s", tableName)
@@ -252,7 +252,7 @@ func TestUpdateData(t *testing.T, client *MultiPoolerTestClient, tableName strin
 
 	updateSQL := fmt.Sprintf("UPDATE %s SET value = value * 2 WHERE id = 1", tableName)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
 	defer cancel()
 	result, err := client.ExecuteQuery(ctx, updateSQL, 0)
 	require.NoError(t, err, "UPDATE should succeed")
@@ -269,7 +269,7 @@ func TestDeleteData(t *testing.T, client *MultiPoolerTestClient, tableName strin
 	t.Helper()
 
 	deleteSQL := fmt.Sprintf("DELETE FROM %s WHERE id = 1", tableName)
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
 	defer cancel()
 
 	result, err := client.ExecuteQuery(ctx, deleteSQL, 0)
@@ -287,7 +287,7 @@ func TestDropTable(t *testing.T, client *MultiPoolerTestClient, tableName string
 	t.Helper()
 
 	dropSQL := fmt.Sprintf("DROP TABLE IF EXISTS %s", tableName)
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
 	defer cancel()
 
 	result, err := client.ExecuteQuery(ctx, dropSQL, 0)
@@ -324,7 +324,7 @@ func TestDataTypes(t *testing.T, client *MultiPoolerTestClient) {
 		{"UUID", "SELECT gen_random_uuid()", "UUID"},
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
 	defer cancel()
 
 	for _, tt := range tests {
@@ -344,7 +344,7 @@ func TestMultigresSchemaExists(t *testing.T, client *MultiPoolerTestClient) {
 	t.Helper()
 
 	query := "SELECT nspname::text FROM pg_catalog.pg_namespace WHERE nspname = 'multigres'"
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
 	defer cancel()
 
 	result, err := client.ExecuteQuery(ctx, query, 10)
@@ -370,7 +370,7 @@ func TestHeartbeatTableExists(t *testing.T, client *MultiPoolerTestClient) {
 		WHERE n.nspname = 'multigres' AND c.relname = 'heartbeat' AND c.relkind = 'r'
 	`
 
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
 	defer cancel()
 
 	result, err := client.ExecuteQuery(ctx, tableQuery, 10)
@@ -436,7 +436,7 @@ func TestPrimaryDetection(t *testing.T, client *MultiPoolerTestClient) {
 
 	// Query pg_is_in_recovery() to check if connected to primary or standby
 	query := "SELECT pg_is_in_recovery()"
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
 	defer cancel()
 
 	result, err := client.ExecuteQuery(ctx, query, 1)

@@ -45,8 +45,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/multigres/multigres/go/clustermetadata/topo"
-	"github.com/multigres/multigres/go/clustermetadata/topo/etcdtopo"
+	"github.com/multigres/multigres/go/common/topoclient"
+	"github.com/multigres/multigres/go/common/topoclient/etcdtopo"
 	"github.com/multigres/multigres/go/test/utils"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
@@ -106,7 +106,7 @@ func TestBootstrapInitialization(t *testing.T) {
 	cellName := "test-cell"
 	cellRoot := filepath.Join(testRoot, cellName)
 
-	ts, err := topo.OpenServer("etcd2", globalRoot, []string{etcdClientAddr})
+	ts, err := topoclient.OpenServer("etcd2", globalRoot, []string{etcdClientAddr}, topoclient.NewDefaultTopoConfig())
 	require.NoError(t, err, "Failed to open topology server")
 	defer ts.Close()
 

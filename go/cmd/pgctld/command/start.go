@@ -27,8 +27,8 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/multigres/multigres/go/common/servenv"
 	"github.com/multigres/multigres/go/pgctld"
-	"github.com/multigres/multigres/go/servenv"
 )
 
 // StartResult contains the result of starting PostgreSQL
