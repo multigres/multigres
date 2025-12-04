@@ -475,65 +475,6 @@ func queryHeartbeatCount(addr string) (int, error) {
 	return count, nil
 }
 
-// printServiceLogs prints the last N lines of a service's log file for debugging.
-// If lines is 0, prints all lines.
-// serviceName is the name of the service (e.g., "multiorch", "multipooler").
-// database is the database name (e.g., "postgres") or empty for global services.
-// serviceID is the service identifier used in the log filename (e.g., "zone1-multiorch").
-// If serviceID is empty, prints all log files for the service.
-func printServiceLogs(t *testing.T, configDir, serviceName, database, serviceID string, lines int) {
-	t.Helper()
-
-	var logDir string
-	if database != "" {
-		logDir = filepath.Join(configDir, "logs", "dbs", database, serviceName)
-	} else {
-		logDir = filepath.Join(configDir, "logs", serviceName)
-	}
-
-	// If serviceID is empty, print all log files in the directory
-	if serviceID == "" {
-		files, err := os.ReadDir(logDir)
-		if err != nil {
-			t.Logf("Could not read log directory %s: %v", logDir, err)
-			return
-		}
-		for _, file := range files {
-			if !file.IsDir() && filepath.Ext(file.Name()) == ".log" {
-				sid := strings.TrimSuffix(file.Name(), ".log")
-				printServiceLogs(t, configDir, serviceName, database, sid, lines)
-			}
-		}
-		return
-	}
-
-	logFile := filepath.Join(logDir, serviceID+".log")
-
-	data, err := os.ReadFile(logFile)
-	if err != nil {
-		t.Logf("Could not read log file %s: %v", logFile, err)
-		return
-	}
-
-	logLines := strings.Split(string(data), "\n")
-	startIdx := 0
-	if lines > 0 && len(logLines) > lines {
-		startIdx = len(logLines) - lines
-	}
-
-	if lines == 0 {
-		t.Logf("=== Full contents of %s ===", logFile)
-	} else {
-		t.Logf("=== Last %d lines of %s ===", lines, logFile)
-	}
-	for _, line := range logLines[startIdx:] {
-		if line != "" {
-			t.Log(line)
-		}
-	}
-	t.Logf("=== End of %s ===", logFile)
-}
-
 // TestMain sets the path and cleans up after all tests
 func TestMain(m *testing.M) {
 	// Set the PATH so etcd and orphan detection scripts can be found
@@ -829,54 +770,15 @@ func TestClusterLifecycle(t *testing.T) {
 
 	t.Run("cluster init and basic connectivity test", func(t *testing.T) {
 		// Setup test directory
-		tempDir, err := os.MkdirTemp("/tmp", "mlt")
-		require.NoError(t, err)
-
-		// Always cleanup processes, even if test fails
-		defer func() {
-			if cleanupErr := cleanupTestProcesses(tempDir); cleanupErr != nil {
-				t.Logf("Warning: cleanup failed: %v", cleanupErr)
-			}
-			if os.Getenv("KEEP_TEMP_DIRS") != "" {
-				t.Logf("Keeping test directory for debugging: %s", tempDir)
-			} else {
-				os.RemoveAll(tempDir)
-			}
-		}()
-
+		clusterSetup := setupTestCluster(t)
+		t.Cleanup(clusterSetup.Cleanup)
+		tempDir := clusterSetup.TempDir
+		configFile := clusterSetup.ConfigFile
+		testPorts := clusterSetup.PortConfig
 		t.Logf("Testing cluster lifecycle in directory: %s", tempDir)
-
-		// Setup test ports
-		t.Log("Setting up test ports...")
-		testPorts := getTestPortConfig(t, 2)
-
-		t.Logf("Using test ports - etcd-client:%d, etcd-peer:%d, multiadmin-http:%d, multiadmin-grpc:%d",
-			testPorts.EtcdClientPort, testPorts.EtcdPeerPort, testPorts.MultiadminHTTPPort, testPorts.MultiadminGRPCPort)
-		t.Logf("Zone 1 ports - multigateway-http:%d, multigateway-grpc:%d, multipooler-http:%d, multipooler-grpc:%d, multiorch-http:%d, multiorch-grpc:%d",
-			testPorts.Zones[0].MultigatewayHTTPPort, testPorts.Zones[0].MultigatewayGRPCPort,
-			testPorts.Zones[0].MultipoolerHTTPPort, testPorts.Zones[0].MultipoolerGRPCPort,
-			testPorts.Zones[0].MultiorchHTTPPort, testPorts.Zones[0].MultiorchGRPCPort)
-		t.Logf("Zone 2 ports - multigateway-http:%d, multigateway-grpc:%d, multipooler-http:%d, multipooler-grpc:%d, multiorch-http:%d, multiorch-grpc:%d",
-			testPorts.Zones[1].MultigatewayHTTPPort, testPorts.Zones[1].MultigatewayGRPCPort,
-			testPorts.Zones[1].MultipoolerHTTPPort, testPorts.Zones[1].MultipoolerGRPCPort,
-			testPorts.Zones[1].MultiorchHTTPPort, testPorts.Zones[1].MultiorchGRPCPort)
-
-		// Create cluster configuration with test ports
-		t.Log("Creating cluster configuration with test ports...")
-		configFile, err := createTestConfigWithPorts(tempDir, testPorts)
-		require.NoError(t, err, "Failed to create test configuration")
-		t.Logf("Created test configuration: %s", configFile)
 		// Print the actual config file contents
 		configContents, _ := os.ReadFile(configFile)
 		t.Logf("Config file contents:\n%s", string(configContents))
-
-		// Start cluster (up)
-		t.Log("Starting cluster...")
-		upOutput, err := executeStartCommand(t, []string{"--config-path", tempDir}, tempDir)
-		require.NoError(t, err, "Start command should succeed and start the cluster: %v", upOutput)
-
-		// Verify we got expected output
-		assert.Contains(t, upOutput, "Multigres — Distributed Postgres made easy")
 
 		// Verify all services connectivity using state files
 		t.Log("Verifying all services connectivity...")
@@ -965,20 +867,12 @@ func TestClusterLifecycle(t *testing.T) {
 		// PostgreSQL is initialized and started as part of the bootstrap process
 		t.Log("Waiting for multiorch to bootstrap zone1...")
 		multipoolerAddr := fmt.Sprintf("localhost:%d", testPorts.Zones[0].MultipoolerGRPCPort)
-		if err := WaitForBootstrap(t, multipoolerAddr, 60*time.Second); err != nil {
-			// Print logs to help debug CI failures
-			printServiceLogs(t, tempDir, "multiorch", expectedDatabase, "", 0)
-			printServiceLogs(t, tempDir, "multipooler", expectedDatabase, "", 100)
-			require.NoError(t, err, "multiorch should bootstrap zone1 within timeout")
-		}
+		require.NoError(t, WaitForBootstrap(t, multipoolerAddr, 60*time.Second, tempDir, expectedDatabase),
+			"multiorch should bootstrap zone1 within timeout")
 		t.Log("Waiting for multiorch to bootstrap zone2...")
 		multipoolerAddr2 := fmt.Sprintf("localhost:%d", testPorts.Zones[1].MultipoolerGRPCPort)
-		if err := WaitForBootstrap(t, multipoolerAddr2, 60*time.Second); err != nil {
-			// Print logs to help debug CI failures
-			printServiceLogs(t, tempDir, "multiorch", expectedDatabase, "", 0)
-			printServiceLogs(t, tempDir, "multipooler", expectedDatabase, "", 100)
-			require.NoError(t, err, "multiorch should bootstrap zone2 within timeout")
-		}
+		require.NoError(t, WaitForBootstrap(t, multipoolerAddr2, 60*time.Second, tempDir, expectedDatabase),
+			"multiorch should bootstrap zone2 within timeout")
 
 		// Test PostgreSQL connectivity for both zones (after bootstrap)
 		t.Log("Testing PostgreSQL connectivity for both zones...")
@@ -1026,7 +920,7 @@ func TestClusterLifecycle(t *testing.T) {
 
 		// Start cluster is idempotent
 		t.Log("Attempting to start running cluster...")
-		upOutput, err = executeStartCommand(t, []string{"--config-path", tempDir}, tempDir)
+		upOutput, err := executeStartCommand(t, []string{"--config-path", tempDir}, tempDir)
 		require.NoError(t, err, "Start command failed with output: %s", upOutput)
 		assert.Contains(t, upOutput, "Multigres — Distributed Postgres made easy")
 		assert.Contains(t, upOutput, "is already running")

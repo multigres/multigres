@@ -17,6 +17,9 @@ package endtoend
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -449,11 +452,71 @@ func TestPrimaryDetection(t *testing.T, client *MultiPoolerTestClient) {
 	// Note: inRecovery is "false" for primary, "true" for standby/replica
 }
 
+// printServiceLogs prints the last N lines of a service's log file for debugging.
+// If lines is 0, prints all lines.
+// serviceName is the name of the service (e.g., "multiorch", "multipooler").
+// database is the database name (e.g., "postgres") or empty for global services.
+// serviceID is the service identifier used in the log filename (e.g., "zone1-multiorch").
+// If serviceID is empty, prints all log files for the service.
+func printServiceLogs(t *testing.T, configDir, serviceName, database, serviceID string, lines int) {
+	t.Helper()
+
+	var logDir string
+	if database != "" {
+		logDir = filepath.Join(configDir, "logs", "dbs", database, serviceName)
+	} else {
+		logDir = filepath.Join(configDir, "logs", serviceName)
+	}
+
+	// If serviceID is empty, print all log files in the directory
+	if serviceID == "" {
+		files, err := os.ReadDir(logDir)
+		if err != nil {
+			t.Logf("Could not read log directory %s: %v", logDir, err)
+			return
+		}
+		for _, file := range files {
+			if !file.IsDir() && filepath.Ext(file.Name()) == ".log" {
+				sid := strings.TrimSuffix(file.Name(), ".log")
+				printServiceLogs(t, configDir, serviceName, database, sid, lines)
+			}
+		}
+		return
+	}
+
+	logFile := filepath.Join(logDir, serviceID+".log")
+
+	data, err := os.ReadFile(logFile)
+	if err != nil {
+		t.Logf("Could not read log file %s: %v", logFile, err)
+		return
+	}
+
+	logLines := strings.Split(string(data), "\n")
+	startIdx := 0
+	if lines > 0 && len(logLines) > lines {
+		startIdx = len(logLines) - lines
+	}
+
+	if lines == 0 {
+		t.Logf("=== Full contents of %s ===", logFile)
+	} else {
+		t.Logf("=== Last %d lines of %s ===", lines, logFile)
+	}
+	for _, line := range logLines[startIdx:] {
+		if line != "" {
+			t.Log(line)
+		}
+	}
+	t.Logf("=== End of %s ===", logFile)
+}
+
 // WaitForBootstrap waits for multiorch to bootstrap the cluster by polling until
 // the multigres schema exists. Returns an error if bootstrap doesn't complete within timeout.
 // This function handles the case where PostgreSQL hasn't been initialized yet by retrying
 // until the database becomes available.
-func WaitForBootstrap(t *testing.T, addr string, timeout time.Duration) error {
+// If configDir and database are provided, prints service logs on failure to help debug CI issues.
+func WaitForBootstrap(t *testing.T, addr string, timeout time.Duration, configDir, database string) error {
 	t.Helper()
 
 	// Create gRPC connection directly without testing query
@@ -490,6 +553,12 @@ func WaitForBootstrap(t *testing.T, addr string, timeout time.Duration) error {
 			t.Logf("Waiting for bootstrap for: %v... (multigres schema not yet created)", addr)
 		}
 		time.Sleep(checkInterval)
+	}
+
+	// Print logs to help debug CI failures
+	if configDir != "" && database != "" {
+		printServiceLogs(t, configDir, "multiorch", database, "", 0)
+		printServiceLogs(t, configDir, "multipooler", database, "", 100)
 	}
 
 	return fmt.Errorf("bootstrap did not complete within %v", timeout)
