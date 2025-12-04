@@ -35,6 +35,7 @@ import (
 
 	"github.com/multigres/multigres/go/cmd/multigres/command/cluster"
 	"github.com/multigres/multigres/go/common/topoclient"
+	"github.com/multigres/multigres/go/common/types"
 	pb "github.com/multigres/multigres/go/pb/pgctldservice"
 	"github.com/multigres/multigres/go/provisioner/local"
 	"github.com/multigres/multigres/go/test/utils"
@@ -210,8 +211,8 @@ func createTestConfigWithPorts(tempDir string, portConfig *testPortConfig) (stri
 			Multipooler: local.MultipoolerConfig{
 				Path:           "multipooler",
 				Database:       "postgres",
-				TableGroup:     "default",
-				Shard:          "0-inf",
+				TableGroup:     types.DefaultTableGroup,
+				Shard:          types.DefaultShard,
 				ServiceID:      serviceID,
 				PoolerDir:      local.GeneratePoolerDir(tempDir, serviceID),
 				PgPort:         zonePort.PgctldPGPort, // Same as pgctld for this zone
@@ -876,7 +877,7 @@ func TestClusterLifecycle(t *testing.T) {
 
 		// Verify multipooler is registered with database, tablegroup, and shard in topology
 		t.Log("Verifying multipooler registration in topology...")
-		require.NoError(t, checkMultipoolerTopoRegistration(etcdAddress, globalRootPath, cellName, expectedDatabase, "default", "0-inf"),
+		require.NoError(t, checkMultipoolerTopoRegistration(etcdAddress, globalRootPath, cellName, expectedDatabase, types.DefaultTableGroup, types.DefaultShard),
 			"multipooler should be registered with correct database, tablegroup, and shard in topology")
 
 		// Test PostgreSQL connectivity for both zones
