@@ -22,9 +22,9 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 
-	"github.com/multigres/multigres/go/clustermetadata/topo"
-	"github.com/multigres/multigres/go/clustermetadata/toporeg"
 	"github.com/multigres/multigres/go/common/servenv"
+	"github.com/multigres/multigres/go/common/servenv/toporeg"
+	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/multipooler/grpcconsensusservice"
 	"github.com/multigres/multigres/go/multipooler/grpcmanagerservice"
 	"github.com/multigres/multigres/go/multipooler/grpcpoolerservice"
@@ -53,10 +53,10 @@ type MultiPooler struct {
 	// Senv is the serving environment
 	senv *servenv.ServEnv
 	// TopoConfig holds topology configuration
-	topoConfig *topo.TopoConfig
+	topoConfig *topoclient.TopoConfig
 	telemetry  *telemetry.Telemetry
 
-	ts           topo.Store
+	ts           topoclient.Store
 	tr           *toporeg.TopoReg
 	serverStatus Status
 }
@@ -129,7 +129,7 @@ func NewMultiPooler(telemetry *telemetry.Telemetry) *MultiPooler {
 		grpcServer: servenv.NewGrpcServer(reg),
 		senv:       servenv.NewServEnvWithConfig(reg, servenv.NewLogger(reg, telemetry), viperutil.NewViperConfig(reg), telemetry),
 		telemetry:  telemetry,
-		topoConfig: topo.NewTopoConfig(reg),
+		topoConfig: topoclient.NewTopoConfig(reg),
 		serverStatus: Status{
 			Title: "Multipooler",
 			Links: []Link{
@@ -224,7 +224,7 @@ func (mp *MultiPooler) Init(startCtx context.Context) {
 	}
 
 	// Create MultiPooler instance for topo registration
-	multipooler := topo.NewMultiPooler(mp.serviceID.Get(), mp.cell.Get(), mp.senv.GetHostname(), mp.tableGroup.Get())
+	multipooler := topoclient.NewMultiPooler(mp.serviceID.Get(), mp.cell.Get(), mp.senv.GetHostname(), mp.tableGroup.Get())
 	multipooler.PortMap["grpc"] = int32(mp.grpcServer.Port())
 	multipooler.PortMap["http"] = int32(mp.senv.GetHTTPPort())
 	multipooler.Database = mp.database.Get()

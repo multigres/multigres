@@ -29,8 +29,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/multigres/multigres/go/clustermetadata/topo"
 	"github.com/multigres/multigres/go/common/queryservice"
+	"github.com/multigres/multigres/go/common/topoclient"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/pb/query"
 
@@ -67,7 +67,7 @@ type PoolerGateway struct {
 // poolerConnection represents a connection to a single multipooler instance
 type poolerConnection struct {
 	// poolerInfo contains the pooler metadata
-	poolerInfo *topo.MultiPoolerInfo
+	poolerInfo *topoclient.MultiPoolerInfo
 
 	// conn is the gRPC connection
 	conn *grpc.ClientConn
@@ -126,7 +126,7 @@ func (pg *PoolerGateway) getQueryServiceForTarget(ctx context.Context, target *q
 			target.TableGroup, target.Shard, target.PoolerType.String())
 	}
 
-	poolerID := topo.MultiPoolerIDString(pooler.Id)
+	poolerID := topoclient.MultiPoolerIDString(pooler.Id)
 
 	pg.logger.DebugContext(ctx, "selected pooler for target",
 		"tablegroup", target.TableGroup,
@@ -163,7 +163,7 @@ func (pg *PoolerGateway) getOrCreateConnection(
 	ctx context.Context,
 	pooler *clustermetadatapb.MultiPooler,
 ) (queryservice.QueryService, error) {
-	poolerID := topo.MultiPoolerIDString(pooler.Id)
+	poolerID := topoclient.MultiPoolerIDString(pooler.Id)
 
 	// Check if we already have a connection
 	pg.mu.Lock()
@@ -185,7 +185,7 @@ func (pg *PoolerGateway) getOrCreateConnection(
 	}
 
 	// Create new gRPC connection
-	poolerInfo := &topo.MultiPoolerInfo{MultiPooler: pooler}
+	poolerInfo := &topoclient.MultiPoolerInfo{MultiPooler: pooler}
 	addr := poolerInfo.Addr()
 
 	pg.logger.InfoContext(ctx, "creating new gRPC connection to pooler",

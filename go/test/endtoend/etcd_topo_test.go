@@ -21,9 +21,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/multigres/multigres/go/clustermetadata/topo"
-	"github.com/multigres/multigres/go/clustermetadata/topo/etcdtopo"
-	"github.com/multigres/multigres/go/clustermetadata/topo/test"
+	"github.com/multigres/multigres/go/common/topoclient"
+	"github.com/multigres/multigres/go/common/topoclient/etcdtopo"
+	"github.com/multigres/multigres/go/common/topoclient/test"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 
 	"github.com/stretchr/testify/require"
@@ -41,13 +41,13 @@ func TestEtcd2Topo(t *testing.T) {
 	clientAddr, _ := etcdtopo.StartEtcd(t)
 
 	testIndex := 0
-	newServer := func() topo.Store {
+	newServer := func() topoclient.Store {
 		// Each test will use its own subdirectories.
 		testRoot := fmt.Sprintf("/test-%v", testIndex)
 		testIndex++
 
 		// Create the server on the new root.
-		ts, err := topo.OpenServer("etcd2", path.Join(testRoot, topo.GlobalCell), []string{clientAddr}, topo.NewDefaultTopoConfig())
+		ts, err := topoclient.OpenServer("etcd2", path.Join(testRoot, topoclient.GlobalCell), []string{clientAddr}, topoclient.NewDefaultTopoConfig())
 		require.NoError(t, err, "OpenServer() failed")
 
 		// Create the CellInfo.
@@ -62,7 +62,7 @@ func TestEtcd2Topo(t *testing.T) {
 
 	// Run the TopoServerTestSuite tests.
 	ctx := t.Context()
-	test.TopoServerTestSuite(t, ctx, func() topo.Store {
+	test.TopoServerTestSuite(t, ctx, func() topoclient.Store {
 		return newServer()
 	})
 
@@ -77,13 +77,13 @@ func TestEtcd2Topo(t *testing.T) {
 // testDatabaseLock tests etcd-specific heartbeat (TTL).
 // Note TTL granularity is in seconds, even though the API uses time.Duration.
 // So we have to wait a long time in these tests.
-func testDatabaseLock(t *testing.T, ts topo.Store) {
+func testDatabaseLock(t *testing.T, ts topoclient.Store) {
 	ctx := context.Background()
-	databasePath := path.Join(topo.DatabasesPath, "test_database")
+	databasePath := path.Join(topoclient.DatabasesPath, "test_database")
 	err := ts.CreateDatabase(ctx, "test_database", &clustermetadatapb.Database{})
 	require.NoError(t, err, "CreateKeyspace")
 
-	conn, err := ts.ConnForCell(ctx, topo.GlobalCell)
+	conn, err := ts.ConnForCell(ctx, topoclient.GlobalCell)
 	require.NoError(t, err, "ConnForCell failed")
 
 	// Long TTL, unlock before lease runs out.
@@ -103,9 +103,9 @@ func testDatabaseLock(t *testing.T, ts topo.Store) {
 }
 
 // testLockNameWithTTL tests etcd-specific behavior of LockNameWithTTL.
-func testLockNameWithTTL(t *testing.T, ts topo.Store) {
+func testLockNameWithTTL(t *testing.T, ts topoclient.Store) {
 	ctx := context.Background()
-	conn, err := ts.ConnForCell(ctx, topo.GlobalCell)
+	conn, err := ts.ConnForCell(ctx, topoclient.GlobalCell)
 	require.NoError(t, err, "ConnForCell failed")
 
 	// LockNameWithTTL should work on a non-existent path
@@ -131,9 +131,9 @@ func testLockNameWithTTL(t *testing.T, ts topo.Store) {
 }
 
 // testTryLockName tests etcd-specific behavior of TryLockName.
-func testTryLockName(t *testing.T, ts topo.Store) {
+func testTryLockName(t *testing.T, ts topoclient.Store) {
 	ctx := context.Background()
-	conn, err := ts.ConnForCell(ctx, topo.GlobalCell)
+	conn, err := ts.ConnForCell(ctx, topoclient.GlobalCell)
 	require.NoError(t, err, "ConnForCell failed")
 
 	// TryLockName should work on a non-existent path
