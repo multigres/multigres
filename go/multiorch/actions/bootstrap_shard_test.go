@@ -21,6 +21,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
+	"github.com/multigres/multigres/go/common/constants"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 )
@@ -31,7 +32,7 @@ func TestBootstrapExecuteEmptyCohort(t *testing.T) {
 	action := NewBootstrapShardAction(nil, nil, logger)
 
 	cohort := []*multiorchdatapb.PoolerHealthState{}
-	err := action.Execute(ctx, "shard-01", "postgres", cohort)
+	err := action.Execute(ctx, constants.DefaultShard, "postgres", cohort)
 
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "cohort is empty")

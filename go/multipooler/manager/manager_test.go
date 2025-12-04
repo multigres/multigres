@@ -26,6 +26,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
 
+	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/servenv"
 	"github.com/multigres/multigres/go/common/topoclient"
@@ -50,9 +51,12 @@ func TestManagerState_InitialState(t *testing.T) {
 			Cell:      "zone1",
 			Name:      "test-service",
 		},
+		TableGroup: constants.DefaultTableGroup,
+		Shard:      constants.DefaultShard,
 	}
 
-	manager := NewMultiPoolerManager(logger, config)
+	manager, err := NewMultiPoolerManager(logger, config)
+	require.NoError(t, err)
 	defer manager.Close()
 
 	// Initial state should be Starting
@@ -90,6 +94,8 @@ func TestManagerState_SuccessfulLoad(t *testing.T) {
 		PortMap:       map[string]int32{"grpc": 8080},
 		Type:          clustermetadatapb.PoolerType_PRIMARY,
 		ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
+		TableGroup:    constants.DefaultTableGroup,
+		Shard:         constants.DefaultShard,
 	}
 	require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
 
@@ -97,9 +103,12 @@ func TestManagerState_SuccessfulLoad(t *testing.T) {
 		TopoClient: ts,
 		ServiceID:  serviceID,
 		PoolerDir:  poolerDir,
+		TableGroup: constants.DefaultTableGroup,
+		Shard:      constants.DefaultShard,
 	}
 
-	manager := NewMultiPoolerManager(logger, config)
+	manager, err := NewMultiPoolerManager(logger, config)
+	require.NoError(t, err)
 	defer manager.Close()
 
 	// Start both async loaders (topo and consensus term)
@@ -138,10 +147,13 @@ func TestManagerState_LoadFailureTimeout(t *testing.T) {
 	config := &Config{
 		TopoClient: ts,
 		ServiceID:  serviceID,
+		TableGroup: constants.DefaultTableGroup,
+		Shard:      constants.DefaultShard,
 	}
 
 	// Create manager with a short timeout for testing
-	manager := NewMultiPoolerManagerWithTimeout(logger, config, 1*time.Second)
+	manager, err := NewMultiPoolerManagerWithTimeout(logger, config, 1*time.Second)
+	require.NoError(t, err)
 	defer manager.Close()
 
 	// Start the async loader
@@ -178,9 +190,12 @@ func TestManagerState_CancellationDuringLoad(t *testing.T) {
 	config := &Config{
 		TopoClient: ts,
 		ServiceID:  serviceID,
+		TableGroup: constants.DefaultTableGroup,
+		Shard:      constants.DefaultShard,
 	}
 
-	manager := NewMultiPoolerManager(logger, config)
+	manager, err := NewMultiPoolerManager(logger, config)
+	require.NoError(t, err)
 
 	// Start the async loader
 	go manager.loadMultiPoolerFromTopo()
@@ -197,7 +212,7 @@ func TestManagerState_CancellationDuringLoad(t *testing.T) {
 	}, 3*time.Second, 100*time.Millisecond, "Manager should reach Error state after cancellation")
 
 	// Verify the error contains "cancelled"
-	_, _, err := manager.GetMultiPooler()
+	_, _, err = manager.GetMultiPooler()
 	assert.NotNil(t, err)
 	assert.Contains(t, err.Error(), "cancelled")
 }
@@ -228,6 +243,8 @@ func TestManagerState_RetryUntilSuccess(t *testing.T) {
 		PortMap:       map[string]int32{"grpc": 8080},
 		Type:          clustermetadatapb.PoolerType_PRIMARY,
 		ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
+		TableGroup:    constants.DefaultTableGroup,
+		Shard:         constants.DefaultShard,
 	}
 	require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
 
@@ -240,9 +257,12 @@ func TestManagerState_RetryUntilSuccess(t *testing.T) {
 		TopoClient: ts,
 		ServiceID:  serviceID,
 		PoolerDir:  poolerDir,
+		TableGroup: constants.DefaultTableGroup,
+		Shard:      constants.DefaultShard,
 	}
 
-	manager := NewMultiPoolerManager(logger, config)
+	manager, err := NewMultiPoolerManager(logger, config)
+	require.NoError(t, err)
 	defer manager.Close()
 
 	// Start both async loaders (topo and consensus term)
@@ -271,9 +291,12 @@ func TestManagerState_NilServiceID(t *testing.T) {
 	config := &Config{
 		TopoClient: ts,
 		ServiceID:  nil, // Nil ServiceID
+		TableGroup: constants.DefaultTableGroup,
+		Shard:      constants.DefaultShard,
 	}
 
-	manager := NewMultiPoolerManager(logger, config)
+	manager, err := NewMultiPoolerManager(logger, config)
+	require.NoError(t, err)
 	defer manager.Close()
 
 	// Start the async loader
@@ -384,6 +407,8 @@ func TestValidateAndUpdateTerm(t *testing.T) {
 				PortMap:       map[string]int32{"grpc": 8080},
 				Type:          clustermetadatapb.PoolerType_PRIMARY,
 				ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
+				TableGroup:    constants.DefaultTableGroup,
+				Shard:         constants.DefaultShard,
 			}
 			require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
 
@@ -392,8 +417,11 @@ func TestValidateAndUpdateTerm(t *testing.T) {
 				ServiceID:        serviceID,
 				PoolerDir:        poolerDir,
 				ConsensusEnabled: true,
+				TableGroup:       constants.DefaultTableGroup,
+				Shard:            constants.DefaultShard,
 			}
-			manager := NewMultiPoolerManager(logger, config)
+			manager, err := NewMultiPoolerManager(logger, config)
+			require.NoError(t, err)
 			defer manager.Close()
 
 			// Start and wait for ready
@@ -449,10 +477,13 @@ func TestGetBackupLocation(t *testing.T) {
 		ServiceID:  serviceID,
 		PoolerDir:  filepath.Join(tmpDir, "pooler"),
 		PgctldAddr: "",
+		TableGroup: constants.DefaultTableGroup,
+		Shard:      constants.DefaultShard,
 	}
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
-	manager := NewMultiPoolerManager(logger, config)
+	manager, err := NewMultiPoolerManager(logger, config)
+	require.NoError(t, err)
 
 	// Set the multipooler to have the database
 	multipoolerInfo := &topoclient.MultiPoolerInfo{
@@ -477,9 +508,12 @@ func TestWaitUntilReady_Success(t *testing.T) {
 	logger := slog.Default()
 	config := &Config{
 		ConsensusEnabled: false,
+		TableGroup:       constants.DefaultTableGroup,
+		Shard:            constants.DefaultShard,
 	}
 
-	pm := NewMultiPoolerManagerWithTimeout(logger, config, 100*time.Millisecond)
+	pm, err := NewMultiPoolerManagerWithTimeout(logger, config, 100*time.Millisecond)
+	require.NoError(t, err)
 
 	// Simulate immediate ready state
 	pm.mu.Lock()
@@ -491,7 +525,7 @@ func TestWaitUntilReady_Success(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 1*time.Second)
 	defer cancel()
 
-	err := pm.WaitUntilReady(ctx)
+	err = pm.WaitUntilReady(ctx)
 	require.NoError(t, err)
 }
 
@@ -501,9 +535,12 @@ func TestWaitUntilReady_Error(t *testing.T) {
 	logger := slog.Default()
 	config := &Config{
 		ConsensusEnabled: false,
+		TableGroup:       constants.DefaultTableGroup,
+		Shard:            constants.DefaultShard,
 	}
 
-	pm := NewMultiPoolerManagerWithTimeout(logger, config, 100*time.Millisecond)
+	pm, err := NewMultiPoolerManagerWithTimeout(logger, config, 100*time.Millisecond)
+	require.NoError(t, err)
 
 	// Simulate error state
 	pm.mu.Lock()
@@ -515,7 +552,7 @@ func TestWaitUntilReady_Error(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 1*time.Second)
 	defer cancel()
 
-	err := pm.WaitUntilReady(ctx)
+	err = pm.WaitUntilReady(ctx)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "manager is in error state")
 }
@@ -526,9 +563,12 @@ func TestWaitUntilReady_Timeout(t *testing.T) {
 	logger := slog.Default()
 	config := &Config{
 		ConsensusEnabled: false,
+		TableGroup:       constants.DefaultTableGroup,
+		Shard:            constants.DefaultShard,
 	}
 
-	pm := NewMultiPoolerManagerWithTimeout(logger, config, 100*time.Millisecond)
+	pm, err := NewMultiPoolerManagerWithTimeout(logger, config, 100*time.Millisecond)
+	require.NoError(t, err)
 
 	// Leave in Starting state - will timeout
 	// Don't close readyChan to test context timeout
@@ -536,7 +576,7 @@ func TestWaitUntilReady_Timeout(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
 	defer cancel()
 
-	err := pm.WaitUntilReady(ctx)
+	err = pm.WaitUntilReady(ctx)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "context")
 }
@@ -547,9 +587,12 @@ func TestWaitUntilReady_ConcurrentCalls(t *testing.T) {
 	logger := slog.Default()
 	config := &Config{
 		ConsensusEnabled: false,
+		TableGroup:       constants.DefaultTableGroup,
+		Shard:            constants.DefaultShard,
 	}
 
-	pm := NewMultiPoolerManagerWithTimeout(logger, config, 100*time.Millisecond)
+	pm, err := NewMultiPoolerManagerWithTimeout(logger, config, 100*time.Millisecond)
+	require.NoError(t, err)
 
 	// Start multiple goroutines calling WaitUntilReady
 	const numGoroutines = 10
@@ -576,5 +619,83 @@ func TestWaitUntilReady_ConcurrentCalls(t *testing.T) {
 	for range numGoroutines {
 		err := <-errChan
 		require.NoError(t, err)
+	}
+}
+
+func TestNewMultiPoolerManager_MVPValidation(t *testing.T) {
+	ctx := t.Context()
+	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
+	defer ts.Close()
+
+	serviceID := &clustermetadatapb.ID{
+		Component: clustermetadatapb.ID_MULTIPOOLER,
+		Cell:      "zone1",
+		Name:      "test-service",
+	}
+
+	tests := []struct {
+		name        string
+		tableGroup  string
+		shard       string
+		wantErr     bool
+		errContains string
+	}{
+		{
+			name:       "valid default tablegroup and shard",
+			tableGroup: constants.DefaultTableGroup,
+			shard:      constants.DefaultShard,
+			wantErr:    false,
+		},
+		{
+			name:        "empty tablegroup fails",
+			tableGroup:  "",
+			shard:       constants.DefaultShard,
+			wantErr:     true,
+			errContains: "TableGroup is required",
+		},
+		{
+			name:        "empty shard fails",
+			tableGroup:  constants.DefaultTableGroup,
+			shard:       "",
+			wantErr:     true,
+			errContains: "Shard is required",
+		},
+		{
+			name:        "invalid tablegroup fails",
+			tableGroup:  "custom",
+			shard:       constants.DefaultShard,
+			wantErr:     true,
+			errContains: "only default tablegroup is supported",
+		},
+		{
+			name:        "invalid shard fails",
+			tableGroup:  constants.DefaultTableGroup,
+			shard:       "0-100",
+			wantErr:     true,
+			errContains: "only shard " + constants.DefaultShard + " is supported",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			config := &Config{
+				TopoClient: ts,
+				ServiceID:  serviceID,
+				TableGroup: tt.tableGroup,
+				Shard:      tt.shard,
+			}
+
+			manager, err := NewMultiPoolerManager(logger, config)
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.errContains)
+				assert.Nil(t, manager)
+			} else {
+				require.NoError(t, err)
+				assert.NotNil(t, manager)
+				manager.Close()
+			}
+		})
 	}
 }

@@ -340,7 +340,8 @@ func createEmptyNode(t *testing.T, baseDir, cell, shard, database string, index 
 	multipoolerCmd := exec.CommandContext(t.Context(), "multipooler",
 		"--grpc-port", fmt.Sprintf("%d", grpcPort),
 		"--database", database,
-		"--table-group", "test", // table group is required
+		"--table-group", "default", // table group is required (MVP only supports "default")
+		"--shard", "0-inf", // shard is required (MVP only supports "0-inf")
 		"--pgctld-addr", fmt.Sprintf("localhost:%d", pgctldGrpcPort),
 		"--pooler-dir", dataDir,
 		"--pg-port", fmt.Sprintf("%d", pgPort),
@@ -494,29 +495,28 @@ func verifyMultigresTablesExist(t *testing.T, node *nodeInstance) {
 	db := connectToPostgres(t, socketDir, node.pgPort)
 	defer db.Close()
 
-	// Check that heartbeat table exists
-	var heartbeatExists bool
-	err := db.QueryRowContext(t.Context(), `
-		SELECT EXISTS (
-			SELECT FROM information_schema.tables
-			WHERE table_schema = 'multigres'
-			AND table_name = 'heartbeat'
-		)
-	`).Scan(&heartbeatExists)
-	require.NoError(t, err, "Should query heartbeat table existence on %s", node.name)
-	assert.True(t, heartbeatExists, "Heartbeat table should exist on %s", node.name)
+	// Helper to check table existence
+	tableExists := func(tableName string) bool {
+		var exists bool
+		err := db.QueryRowContext(t.Context(), `
+			SELECT EXISTS (
+				SELECT FROM information_schema.tables
+				WHERE table_schema = 'multigres'
+				AND table_name = $1
+			)
+		`, tableName).Scan(&exists)
+		require.NoError(t, err, "Should query %s table existence on %s", tableName, node.name)
+		return exists
+	}
 
-	// Check that durability_policy table exists
-	var durabilityPolicyExists bool
-	err = db.QueryRowContext(t.Context(), `
-		SELECT EXISTS (
-			SELECT FROM information_schema.tables
-			WHERE table_schema = 'multigres'
-			AND table_name = 'durability_policy'
-		)
-	`).Scan(&durabilityPolicyExists)
-	require.NoError(t, err, "Should query durability_policy table existence on %s", node.name)
-	assert.True(t, durabilityPolicyExists, "Durability policy table should exist on %s", node.name)
+	// Check sidecar tables
+	assert.True(t, tableExists("heartbeat"), "heartbeat table should exist on %s", node.name)
+	assert.True(t, tableExists("durability_policy"), "durability_policy table should exist on %s", node.name)
+
+	// Check multischema global tables
+	assert.True(t, tableExists("tablegroup"), "tablegroup table should exist on %s", node.name)
+	assert.True(t, tableExists("tablegroup_table"), "tablegroup_table table should exist on %s", node.name)
+	assert.True(t, tableExists("shard"), "shard table should exist on %s", node.name)
 }
 
 // waitForProcessReady waits for a process to be ready by checking its gRPC port
@@ -528,7 +528,8 @@ func waitForProcessReady(t *testing.T, name string, grpcPort int, timeout time.D
 	for time.Now().Before(deadline) {
 		connectAttempts++
 		// Test gRPC connectivity
-		conn, err := (&net.Dialer{Timeout: 100 * time.Millisecond}).DialContext(t.Context(), "tcp", fmt.Sprintf("localhost:%d", grpcPort))
+		dialer := &net.Dialer{Timeout: 100 * time.Millisecond}
+		conn, err := dialer.DialContext(t.Context(), "tcp", fmt.Sprintf("localhost:%d", grpcPort))
 		if err == nil {
 			conn.Close()
 			t.Logf("%s ready on gRPC port %d (after %d attempts)", name, grpcPort, connectAttempts)

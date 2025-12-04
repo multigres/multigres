@@ -34,6 +34,7 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 
 	"github.com/multigres/multigres/go/cmd/pgctld/testutil"
+	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/provisioner/local/pgbackrest"
 	"github.com/multigres/multigres/go/test/endtoend"
@@ -213,7 +214,8 @@ func (p *ProcessInstance) startMultipooler(t *testing.T) error {
 	args := []string{
 		"--grpc-port", strconv.Itoa(p.GrpcPort),
 		"--database", "postgres", // Required parameter
-		"--table-group", "test", // Required parameter
+		"--table-group", "default", // Required parameter (MVP only supports "default")
+		"--shard", "0-inf", // Required parameter (MVP only supports "0-inf")
 		"--pgctld-addr", p.PgctldAddr,
 		"--pooler-dir", p.DataDir, // Use the same pooler dir as pgctld
 		"--pg-port", strconv.Itoa(p.PgPort),
@@ -424,10 +426,9 @@ func initializePrimary(t *testing.T, baseDir string, pgctld *ProcessInstance, mu
 
 	// Create pgbackrest configuration first (before starting PostgreSQL)
 	// Build backup repository path with database/tablegroup/shard structure
-	// TODO: Replace hardcoded shard "0" with actual shard value
 	database := "postgres"
-	tableGroup := "test"
-	shard := "0" // Default shard ID
+	tableGroup := "default"
+	shard := "0-inf"
 	repoPath := filepath.Join(baseDir, "backup-repo", database, tableGroup, shard)
 	if err := os.MkdirAll(repoPath, 0o755); err != nil {
 		return fmt.Errorf("failed to create backup repo: %w", err)
@@ -599,7 +600,6 @@ func initializeStandby(t *testing.T, baseDir string, primaryPgctld *ProcessInsta
 	// - pg2: other cluster (primary in this case)
 	// Each cluster treats itself as pg1 and lists others as pg2, pg3, etc.
 	// Build backup repository path with database/tablegroup/shard structure (same as primary)
-	// TODO: Replace hardcoded shard "0" with actual shard value
 	logPath := filepath.Join(baseDir, "logs", "pgbackrest")
 	spoolPath := filepath.Join(baseDir, "pgbackrest-spool")
 
@@ -767,7 +767,7 @@ func getSharedTestSetup(t *testing.T) *MultipoolerTestSetup {
 		// Create the database entry in topology with backup_location
 		// This is needed for getBackupLocation() calls in multipooler manager
 		database := "postgres"
-		backupLocation := filepath.Join(tempDir, "backup-repo", database, "test", "0")
+		backupLocation := filepath.Join(tempDir, "backup-repo", database, "default", "0-inf")
 		err = ts.CreateDatabase(context.Background(), database, &clustermetadatapb.Database{
 			Name:             database,
 			BackupLocation:   backupLocation,
@@ -943,10 +943,8 @@ func setupStandbyReplication(t *testing.T, primaryPgctld *ProcessInstance, stand
 
 	// Get backup location (same structure as in initializePrimary)
 	database := "postgres"
-	tableGroup := "test"
-	shard := "0"
 	baseDir := filepath.Dir(filepath.Dir(primaryPgctld.DataDir)) // Go up from primary/data to get base
-	repoPath := filepath.Join(baseDir, "backup-repo", database, tableGroup, shard)
+	repoPath := filepath.Join(baseDir, "backup-repo", database, constants.DefaultTableGroup, constants.DefaultShard)
 
 	// Create a backup on the primary using pgbackrest
 	t.Logf("Creating pgBackRest backup on primary (stanza: %s, config: %s, repo: %s)...",

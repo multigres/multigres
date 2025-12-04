@@ -22,6 +22,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/types"
 )
 
@@ -55,7 +56,7 @@ func lockedShardContext(shardKey types.ShardKey) context.Context {
 }
 
 func TestCheckShardLocked(t *testing.T) {
-	shardKey := types.ShardKey{Database: "testdb", TableGroup: "default", Shard: "0"}
+	shardKey := types.ShardKey{Database: "testdb", TableGroup: constants.DefaultTableGroup, Shard: "0"}
 
 	t.Run("returns error when no lock info in context", func(t *testing.T) {
 		ctx := context.Background()
@@ -66,7 +67,7 @@ func TestCheckShardLocked(t *testing.T) {
 
 	t.Run("returns error when shard is not locked", func(t *testing.T) {
 		// Create a context with lock info, but for a different shard
-		otherShardKey := types.ShardKey{Database: "testdb", TableGroup: "default", Shard: "other-shard"}
+		otherShardKey := types.ShardKey{Database: "testdb", TableGroup: constants.DefaultTableGroup, Shard: "other-shard"}
 		ctx := lockedShardContext(otherShardKey)
 		err := CheckShardLocked(ctx, shardKey)
 		require.Error(t, err)
@@ -82,7 +83,7 @@ func TestCheckShardLocked(t *testing.T) {
 
 func TestShardLockInterface(t *testing.T) {
 	lock := &shardLock{
-		ShardKey: types.ShardKey{Database: "mydb", TableGroup: "default", Shard: "0"},
+		ShardKey: types.ShardKey{Database: "mydb", TableGroup: constants.DefaultTableGroup, Shard: "0"},
 	}
 
 	t.Run("Type returns shard", func(t *testing.T) {
@@ -115,8 +116,8 @@ func TestShardLockResourceNameUniqueness(t *testing.T) {
 
 func TestLockedShardContextMultipleShards(t *testing.T) {
 	// Test that we can have multiple shards locked in the same context
-	shardKey1 := types.ShardKey{Database: "testdb", TableGroup: "default", Shard: "0"}
-	shardKey2 := types.ShardKey{Database: "testdb", TableGroup: "default", Shard: "1"}
+	shardKey1 := types.ShardKey{Database: "testdb", TableGroup: constants.DefaultTableGroup, Shard: "0"}
+	shardKey2 := types.ShardKey{Database: "testdb", TableGroup: constants.DefaultTableGroup, Shard: "1"}
 
 	// Create context with first shard locked
 	ctx := lockedShardContext(shardKey1)
@@ -133,7 +134,7 @@ func TestLockedShardContextMultipleShards(t *testing.T) {
 	require.NoError(t, CheckShardLocked(ctx, shardKey2))
 
 	// A different shard should not be locked
-	otherShardKey := types.ShardKey{Database: "testdb", TableGroup: "default", Shard: "other"}
+	otherShardKey := types.ShardKey{Database: "testdb", TableGroup: constants.DefaultTableGroup, Shard: "other"}
 	err := CheckShardLocked(ctx, otherShardKey)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "is not locked (no lockInfo in map)")
