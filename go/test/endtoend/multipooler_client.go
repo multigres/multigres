@@ -485,9 +485,9 @@ func WaitForBootstrap(t *testing.T, addr string, timeout time.Duration) error {
 
 		// Log progress with error details
 		if err != nil {
-			t.Logf("Waiting for bootstrap... (query error: %v)", err)
+			t.Logf("Waiting for bootstrap for: %v... (query error: %v)", addr, err)
 		} else {
-			t.Logf("Waiting for bootstrap... (multigres schema not yet created)")
+			t.Logf("Waiting for bootstrap for: %v... (multigres schema not yet created)", addr)
 		}
 		time.Sleep(checkInterval)
 	}
