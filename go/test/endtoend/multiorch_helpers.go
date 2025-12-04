@@ -32,6 +32,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/rpcclient"
 	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/common/topoclient/etcdtopo"
@@ -247,7 +248,8 @@ func createEmptyNode(t *testing.T, baseDir, cell, shard, database string, index 
 	multipoolerCmd := exec.Command("multipooler",
 		"--grpc-port", fmt.Sprintf("%d", grpcPort),
 		"--database", database,
-		"--table-group", "test", // table group is required
+		"--table-group", constants.DefaultTableGroup,
+		"--shard", constants.DefaultShard,
 		"--pgctld-addr", fmt.Sprintf("localhost:%d", pgctldGrpcPort),
 		"--pooler-dir", dataDir,
 		"--pg-port", fmt.Sprintf("%d", pgPort),
