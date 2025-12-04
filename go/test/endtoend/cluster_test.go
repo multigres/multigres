@@ -420,10 +420,10 @@ func checkServiceConnectivity(service string, state local.LocalProvisionedServic
 	return nil
 }
 
-// checkHeartbeatsWritten checks if at least one heartbeat was written to the heartbeat table
+// checkHeartbeatsWritten checks if at least one heartbeat was written to the heartbeat table.
+// This function checks immediately without waiting. Callers that need to wait for heartbeats
+// should use require.Eventually with this function.
 func checkHeartbeatsWritten(multipoolerAddr string) (bool, error) {
-	// Connect to multipooler via gRPC
-	time.Sleep(2 * time.Second)
 	count, err := queryHeartbeatCount(multipoolerAddr)
 	if err != nil {
 		return false, fmt.Errorf("failed to query heartbeat table: %w", err)
@@ -505,6 +505,9 @@ func executeInitCommand(t *testing.T, args []string) (string, error) {
 }
 
 func TestInitCommand(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping InitCommandtest in short mode")
+	}
 	tests := []struct {
 		name           string
 		setupDirs      func(*testing.T) ([]string, func()) // returns config paths and cleanup
@@ -585,6 +588,9 @@ func TestInitCommand(t *testing.T) {
 }
 
 func TestInitCommandConfigFileCreation(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping InitCommandConfigFileCreation test in short mode")
+	}
 	// Setup test directory
 	tempDir, err := os.MkdirTemp("/tmp/", "multigres_init_config_test")
 	require.NoError(t, err)
@@ -670,6 +676,9 @@ func TestInitCommandConfigFileCreation(t *testing.T) {
 }
 
 func TestInitCommandConfigFileAlreadyExists(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping InitCommandConfigFileAlreadyExists test in short mode")
+	}
 	// Setup test directory
 	tempDir, err := os.MkdirTemp("/tmp", "mlt")
 	require.NoError(t, err)
@@ -950,15 +959,13 @@ func TestClusterLifecycle(t *testing.T) {
 		assert.Contains(t, upOutput, "Multigres — Distributed Postgres made easy")
 		assert.Contains(t, upOutput, "is already running")
 
-		// Check if heartbeats were written (informational, not required immediately after bootstrap)
-		t.Log("Checking heartbeats...")
-		heartbeatsWritten, err := checkHeartbeatsWritten(multipoolerAddr)
-		require.NoError(t, err, "should be able to query heartbeat table")
-		if heartbeatsWritten {
-			t.Log("Heartbeats detected")
-		} else {
-			t.Log("No heartbeats yet (normal immediately after bootstrap)")
-		}
+		// Wait for heartbeats to be written
+		t.Log("Waiting for heartbeats...")
+		require.Eventually(t, func() bool {
+			written, err := checkHeartbeatsWritten(multipoolerAddr)
+			return err == nil && written
+		}, 10*time.Second, 500*time.Millisecond, "heartbeats should be written after bootstrap")
+		t.Log("Heartbeats detected")
 
 		// Stop cluster (down)
 		t.Log("Stopping cluster...")

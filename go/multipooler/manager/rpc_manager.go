@@ -696,9 +696,21 @@ func (pm *MultiPoolerManager) ChangeType(ctx context.Context, poolerType string)
 	}
 
 	pm.mu.Lock()
-	defer pm.mu.Unlock()
 	pm.multipooler.MultiPooler = updatedMultipooler
 	pm.updateCachedMultipooler()
+	pm.mu.Unlock()
+
+	// Update heartbeat tracker based on new type
+	if pm.replTracker != nil {
+		if newType == clustermetadatapb.PoolerType_PRIMARY {
+			pm.logger.InfoContext(ctx, "Starting heartbeat writer for new primary")
+			pm.replTracker.MakePrimary()
+		} else {
+			pm.logger.InfoContext(ctx, "Stopping heartbeat writer for replica")
+			pm.replTracker.MakeNonPrimary()
+		}
+	}
+
 	pm.logger.InfoContext(ctx, "Pooler type updated successfully", "new_type", poolerType, "service_id", pm.serviceID.String())
 
 	return nil

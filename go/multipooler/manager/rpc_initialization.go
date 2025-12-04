@@ -358,6 +358,14 @@ func (pm *MultiPoolerManager) waitForDatabaseConnection(ctx context.Context) err
 	// If we already have a connection, test it
 	if pm.db != nil {
 		if err := pm.db.PingContext(ctx); err == nil {
+			// Start heartbeat tracker if not already running
+			if pm.replTracker == nil {
+				shardID := []byte("0") // default shard ID
+				poolerID := pm.serviceID.Name
+				if err := pm.startHeartbeat(ctx, shardID, poolerID); err != nil {
+					pm.logger.WarnContext(ctx, "Failed to start heartbeat for existing DB connection", "error", err)
+				}
+			}
 			return nil
 		}
 		// Close stale connection
@@ -385,6 +393,17 @@ func (pm *MultiPoolerManager) waitForDatabaseConnection(ctx context.Context) err
 		// Try to open the connection
 		if err := pm.connectDB(); err == nil {
 			pm.logger.InfoContext(ctx, "Database connection established successfully", "attempts", attempt)
+
+			// Start heartbeat tracker if not already running
+			if pm.replTracker == nil {
+				shardID := []byte("0") // default shard ID
+				poolerID := pm.serviceID.Name
+				if err := pm.startHeartbeat(ctx, shardID, poolerID); err != nil {
+					pm.logger.WarnContext(ctx, "Failed to start heartbeat after DB connection", "error", err)
+					// Don't fail - heartbeat is not critical for initialization
+				}
+			}
+
 			// Also open the query service controller (executor) now that DB is connected
 			if err := pm.qsc.Open(); err != nil {
 				pm.logger.WarnContext(ctx, "Failed to open query service controller after DB connection", "error", err)
