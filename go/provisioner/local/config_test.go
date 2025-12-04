@@ -19,7 +19,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/multigres/multigres/go/common/types"
+	"github.com/multigres/multigres/go/common/constants"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -39,7 +39,7 @@ func TestGeneratePgBackRestConfigs(t *testing.T) {
 						Multipooler: MultipoolerConfig{
 							ServiceID:  "test-service-1",
 							Database:   "postgres",
-							TableGroup: types.DefaultTableGroup,
+							TableGroup: constants.DefaultTableGroup,
 							PoolerDir:  filepath.Join(tmpDir, "pooler1"),
 							PgPort:     5432,
 							BackupConf: filepath.Join(tmpDir, "pooler1", "pgbackrest.conf"),
@@ -49,7 +49,7 @@ func TestGeneratePgBackRestConfigs(t *testing.T) {
 						Multipooler: MultipoolerConfig{
 							ServiceID:  "test-service-2",
 							Database:   "postgres",
-							TableGroup: types.DefaultTableGroup,
+							TableGroup: constants.DefaultTableGroup,
 							PoolerDir:  filepath.Join(tmpDir, "pooler2"),
 							PgPort:     5433,
 							BackupConf: filepath.Join(tmpDir, "pooler2", "pgbackrest.conf"),
@@ -106,7 +106,7 @@ func TestGeneratePgBackRestConfigs(t *testing.T) {
 						Multipooler: MultipoolerConfig{
 							ServiceID:  "test-service",
 							Database:   "postgres",
-							TableGroup: types.DefaultTableGroup,
+							TableGroup: constants.DefaultTableGroup,
 							PoolerDir:  filepath.Join(tmpDir, "pooler1"),
 							PgPort:     5432,
 							BackupConf: "", // Empty - should use default
@@ -152,7 +152,7 @@ func TestGeneratePgBackRestConfigs(t *testing.T) {
 				Multipooler: MultipoolerConfig{
 					ServiceID:  "service-" + string(rune('0'+i)),
 					Database:   "postgres",
-					TableGroup: types.DefaultTableGroup,
+					TableGroup: constants.DefaultTableGroup,
 					PoolerDir:  filepath.Join(tmpDir, "pooler"+string(rune('0'+i))),
 					PgPort:     5432 + i - 1,
 					BackupConf: filepath.Join(tmpDir, "pooler"+string(rune('0'+i)), "pgbackrest.conf"),
@@ -205,7 +205,7 @@ func TestGeneratePgBackRestConfigs(t *testing.T) {
 						Multipooler: MultipoolerConfig{
 							ServiceID:  "test",
 							Database:   "postgres",
-							TableGroup: types.DefaultTableGroup,
+							TableGroup: constants.DefaultTableGroup,
 							PoolerDir:  filepath.Join(tmpDir, "pooler"),
 							PgPort:     5432,
 							BackupConf: filepath.Join(tmpDir, "pooler", "pgbackrest.conf"),
@@ -241,7 +241,7 @@ func TestGeneratePgBackRestConfigs(t *testing.T) {
 						Multipooler: MultipoolerConfig{
 							ServiceID:  "service-a",
 							Database:   "postgres",
-							TableGroup: types.DefaultTableGroup,
+							TableGroup: constants.DefaultTableGroup,
 							PoolerDir:  filepath.Join(tmpDir, "pooler-a"),
 							PgPort:     5432,
 							BackupConf: filepath.Join(tmpDir, "pooler-a", "pgbackrest.conf"),
@@ -251,7 +251,7 @@ func TestGeneratePgBackRestConfigs(t *testing.T) {
 						Multipooler: MultipoolerConfig{
 							ServiceID:  "service-b",
 							Database:   "postgres",
-							TableGroup: types.DefaultTableGroup,
+							TableGroup: constants.DefaultTableGroup,
 							PoolerDir:  filepath.Join(tmpDir, "pooler-b"),
 							PgPort:     5433,
 							BackupConf: filepath.Join(tmpDir, "pooler-b", "pgbackrest.conf"),
@@ -261,7 +261,7 @@ func TestGeneratePgBackRestConfigs(t *testing.T) {
 						Multipooler: MultipoolerConfig{
 							ServiceID:  "service-c",
 							Database:   "postgres",
-							TableGroup: types.DefaultTableGroup,
+							TableGroup: constants.DefaultTableGroup,
 							PoolerDir:  filepath.Join(tmpDir, "pooler-c"),
 							PgPort:     5434,
 							BackupConf: filepath.Join(tmpDir, "pooler-c", "pgbackrest.conf"),

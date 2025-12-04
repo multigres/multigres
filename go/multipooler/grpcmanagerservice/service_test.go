@@ -24,11 +24,11 @@ import (
 	"time"
 
 	"github.com/multigres/multigres/go/cmd/pgctld/testutil"
+	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/servenv"
 	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
-	"github.com/multigres/multigres/go/common/types"
 	"github.com/multigres/multigres/go/multipooler/manager"
 	"github.com/multigres/multigres/go/tools/viperutil"
 
@@ -77,8 +77,8 @@ func TestManagerServiceMethods_NotImplemented(t *testing.T) {
 		PortMap:       map[string]int32{"grpc": 8080},
 		Type:          clustermetadata.PoolerType_PRIMARY,
 		ServingStatus: clustermetadata.PoolerServingStatus_SERVING,
-		TableGroup:    types.DefaultTableGroup,
-		Shard:         types.DefaultShard,
+		TableGroup:    constants.DefaultTableGroup,
+		Shard:         constants.DefaultShard,
 	}
 	require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
 
@@ -86,8 +86,8 @@ func TestManagerServiceMethods_NotImplemented(t *testing.T) {
 		TopoClient: ts,
 		ServiceID:  serviceID,
 		PgctldAddr: pgctldAddr,
-		TableGroup: types.DefaultTableGroup,
-		Shard:      types.DefaultShard,
+		TableGroup: constants.DefaultTableGroup,
+		Shard:      constants.DefaultShard,
 	}
 	pm, err := manager.NewMultiPoolerManager(logger, config)
 	require.NoError(t, err)
@@ -157,8 +157,8 @@ func TestManagerServiceMethods_ManagerNotReady(t *testing.T) {
 	config := &manager.Config{
 		TopoClient: ts,
 		ServiceID:  serviceID,
-		TableGroup: types.DefaultTableGroup,
-		Shard:      types.DefaultShard,
+		TableGroup: constants.DefaultTableGroup,
+		Shard:      constants.DefaultShard,
 	}
 	pm, err := manager.NewMultiPoolerManager(logger, config)
 	require.NoError(t, err)

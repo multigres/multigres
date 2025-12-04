@@ -18,8 +18,8 @@ import (
 	"context"
 	"time"
 
+	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/mterrors"
-	"github.com/multigres/multigres/go/common/types"
 
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 )
@@ -96,13 +96,13 @@ func (pm *MultiPoolerManager) initializeMultischemaData(ctx context.Context) err
 	// are in the default tablegroup. However, we shouldn't be calling this function
 	// by the time we support multiple tablegroups/shards.
 	// This will ensure we make sure to remove this code when we get to that point.
-	if tableGroup != types.DefaultTableGroup {
+	if tableGroup != constants.DefaultTableGroup {
 		pm.logger.ErrorContext(ctx, "Only default tablegroup is supported in MVP",
 			"tablegroup", tableGroup)
 		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
 			"only default tablegroup is supported, got: "+tableGroup)
 	}
-	if shard != types.DefaultShard {
+	if shard != constants.DefaultShard {
 		pm.logger.ErrorContext(ctx, "Only shard 0-inf is supported for default tablegroup in MVP",
 			"shard", shard)
 		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,

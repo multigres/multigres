@@ -24,9 +24,9 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
+	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/rpcclient"
 	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
-	"github.com/multigres/multigres/go/common/types"
 	"github.com/multigres/multigres/go/multiorch/config"
 	"github.com/multigres/multigres/go/pb/clustermetadata"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
@@ -78,7 +78,7 @@ func TestForgetLongUnseenInstances_NeverSeen(t *testing.T) {
 				Name:      "old-pooler",
 			},
 			Database:   "db1",
-			TableGroup: types.DefaultTableGroup,
+			TableGroup: constants.DefaultTableGroup,
 			Shard:      "-",
 		},
 		LastCheckAttempted: timestamppb.New(now.Add(-threshold - time.Hour)), // > 4 hours ago

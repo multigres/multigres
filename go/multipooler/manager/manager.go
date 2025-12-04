@@ -27,10 +27,10 @@ import (
 
 	"github.com/lib/pq"
 
+	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/servenv"
 	"github.com/multigres/multigres/go/common/topoclient"
-	"github.com/multigres/multigres/go/common/types"
 	"github.com/multigres/multigres/go/multipooler/heartbeat"
 	"github.com/multigres/multigres/go/multipooler/poolerserver"
 	"github.com/multigres/multigres/go/tools/retry"
@@ -161,7 +161,7 @@ func NewMultiPoolerManagerWithTimeout(logger *slog.Logger, config *Config, loadT
 	}
 
 	// MVP validation: fail fast if tablegroup/shard are not the MVP defaults
-	if err := types.ValidateMVPTableGroupAndShard(config.TableGroup, config.Shard); err != nil {
+	if err := constants.ValidateMVPTableGroupAndShard(config.TableGroup, config.Shard); err != nil {
 		cancel()
 		return nil, mterrors.Wrap(err, "MVP validation failed")
 	}

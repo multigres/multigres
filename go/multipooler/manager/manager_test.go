@@ -26,11 +26,11 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
 
+	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/servenv"
 	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
-	"github.com/multigres/multigres/go/common/types"
 	"github.com/multigres/multigres/go/tools/viperutil"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
@@ -51,8 +51,8 @@ func TestManagerState_InitialState(t *testing.T) {
 			Cell:      "zone1",
 			Name:      "test-service",
 		},
-		TableGroup: types.DefaultTableGroup,
-		Shard:      types.DefaultShard,
+		TableGroup: constants.DefaultTableGroup,
+		Shard:      constants.DefaultShard,
 	}
 
 	manager, err := NewMultiPoolerManager(logger, config)
@@ -94,8 +94,8 @@ func TestManagerState_SuccessfulLoad(t *testing.T) {
 		PortMap:       map[string]int32{"grpc": 8080},
 		Type:          clustermetadatapb.PoolerType_PRIMARY,
 		ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
-		TableGroup:    types.DefaultTableGroup,
-		Shard:         types.DefaultShard,
+		TableGroup:    constants.DefaultTableGroup,
+		Shard:         constants.DefaultShard,
 	}
 	require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
 
@@ -103,8 +103,8 @@ func TestManagerState_SuccessfulLoad(t *testing.T) {
 		TopoClient: ts,
 		ServiceID:  serviceID,
 		PoolerDir:  poolerDir,
-		TableGroup: types.DefaultTableGroup,
-		Shard:      types.DefaultShard,
+		TableGroup: constants.DefaultTableGroup,
+		Shard:      constants.DefaultShard,
 	}
 
 	manager, err := NewMultiPoolerManager(logger, config)
@@ -147,8 +147,8 @@ func TestManagerState_LoadFailureTimeout(t *testing.T) {
 	config := &Config{
 		TopoClient: ts,
 		ServiceID:  serviceID,
-		TableGroup: types.DefaultTableGroup,
-		Shard:      types.DefaultShard,
+		TableGroup: constants.DefaultTableGroup,
+		Shard:      constants.DefaultShard,
 	}
 
 	// Create manager with a short timeout for testing
@@ -190,8 +190,8 @@ func TestManagerState_CancellationDuringLoad(t *testing.T) {
 	config := &Config{
 		TopoClient: ts,
 		ServiceID:  serviceID,
-		TableGroup: types.DefaultTableGroup,
-		Shard:      types.DefaultShard,
+		TableGroup: constants.DefaultTableGroup,
+		Shard:      constants.DefaultShard,
 	}
 
 	manager, err := NewMultiPoolerManager(logger, config)
@@ -243,8 +243,8 @@ func TestManagerState_RetryUntilSuccess(t *testing.T) {
 		PortMap:       map[string]int32{"grpc": 8080},
 		Type:          clustermetadatapb.PoolerType_PRIMARY,
 		ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
-		TableGroup:    types.DefaultTableGroup,
-		Shard:         types.DefaultShard,
+		TableGroup:    constants.DefaultTableGroup,
+		Shard:         constants.DefaultShard,
 	}
 	require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
 
@@ -257,8 +257,8 @@ func TestManagerState_RetryUntilSuccess(t *testing.T) {
 		TopoClient: ts,
 		ServiceID:  serviceID,
 		PoolerDir:  poolerDir,
-		TableGroup: types.DefaultTableGroup,
-		Shard:      types.DefaultShard,
+		TableGroup: constants.DefaultTableGroup,
+		Shard:      constants.DefaultShard,
 	}
 
 	manager, err := NewMultiPoolerManager(logger, config)
@@ -291,8 +291,8 @@ func TestManagerState_NilServiceID(t *testing.T) {
 	config := &Config{
 		TopoClient: ts,
 		ServiceID:  nil, // Nil ServiceID
-		TableGroup: types.DefaultTableGroup,
-		Shard:      types.DefaultShard,
+		TableGroup: constants.DefaultTableGroup,
+		Shard:      constants.DefaultShard,
 	}
 
 	manager, err := NewMultiPoolerManager(logger, config)
@@ -407,8 +407,8 @@ func TestValidateAndUpdateTerm(t *testing.T) {
 				PortMap:       map[string]int32{"grpc": 8080},
 				Type:          clustermetadatapb.PoolerType_PRIMARY,
 				ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
-				TableGroup:    types.DefaultTableGroup,
-				Shard:         types.DefaultShard,
+				TableGroup:    constants.DefaultTableGroup,
+				Shard:         constants.DefaultShard,
 			}
 			require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
 
@@ -417,8 +417,8 @@ func TestValidateAndUpdateTerm(t *testing.T) {
 				ServiceID:        serviceID,
 				PoolerDir:        poolerDir,
 				ConsensusEnabled: true,
-				TableGroup:       types.DefaultTableGroup,
-				Shard:            types.DefaultShard,
+				TableGroup:       constants.DefaultTableGroup,
+				Shard:            constants.DefaultShard,
 			}
 			manager, err := NewMultiPoolerManager(logger, config)
 			require.NoError(t, err)
@@ -477,8 +477,8 @@ func TestGetBackupLocation(t *testing.T) {
 		ServiceID:  serviceID,
 		PoolerDir:  filepath.Join(tmpDir, "pooler"),
 		PgctldAddr: "",
-		TableGroup: types.DefaultTableGroup,
-		Shard:      types.DefaultShard,
+		TableGroup: constants.DefaultTableGroup,
+		Shard:      constants.DefaultShard,
 	}
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
@@ -508,8 +508,8 @@ func TestWaitUntilReady_Success(t *testing.T) {
 	logger := slog.Default()
 	config := &Config{
 		ConsensusEnabled: false,
-		TableGroup:       types.DefaultTableGroup,
-		Shard:            types.DefaultShard,
+		TableGroup:       constants.DefaultTableGroup,
+		Shard:            constants.DefaultShard,
 	}
 
 	pm, err := NewMultiPoolerManagerWithTimeout(logger, config, 100*time.Millisecond)
@@ -535,8 +535,8 @@ func TestWaitUntilReady_Error(t *testing.T) {
 	logger := slog.Default()
 	config := &Config{
 		ConsensusEnabled: false,
-		TableGroup:       types.DefaultTableGroup,
-		Shard:            types.DefaultShard,
+		TableGroup:       constants.DefaultTableGroup,
+		Shard:            constants.DefaultShard,
 	}
 
 	pm, err := NewMultiPoolerManagerWithTimeout(logger, config, 100*time.Millisecond)
@@ -563,8 +563,8 @@ func TestWaitUntilReady_Timeout(t *testing.T) {
 	logger := slog.Default()
 	config := &Config{
 		ConsensusEnabled: false,
-		TableGroup:       types.DefaultTableGroup,
-		Shard:            types.DefaultShard,
+		TableGroup:       constants.DefaultTableGroup,
+		Shard:            constants.DefaultShard,
 	}
 
 	pm, err := NewMultiPoolerManagerWithTimeout(logger, config, 100*time.Millisecond)
@@ -587,8 +587,8 @@ func TestWaitUntilReady_ConcurrentCalls(t *testing.T) {
 	logger := slog.Default()
 	config := &Config{
 		ConsensusEnabled: false,
-		TableGroup:       types.DefaultTableGroup,
-		Shard:            types.DefaultShard,
+		TableGroup:       constants.DefaultTableGroup,
+		Shard:            constants.DefaultShard,
 	}
 
 	pm, err := NewMultiPoolerManagerWithTimeout(logger, config, 100*time.Millisecond)
@@ -643,20 +643,20 @@ func TestNewMultiPoolerManager_MVPValidation(t *testing.T) {
 	}{
 		{
 			name:       "valid default tablegroup and shard",
-			tableGroup: types.DefaultTableGroup,
-			shard:      types.DefaultShard,
+			tableGroup: constants.DefaultTableGroup,
+			shard:      constants.DefaultShard,
 			wantErr:    false,
 		},
 		{
 			name:        "empty tablegroup fails",
 			tableGroup:  "",
-			shard:       types.DefaultShard,
+			shard:       constants.DefaultShard,
 			wantErr:     true,
 			errContains: "TableGroup is required",
 		},
 		{
 			name:        "empty shard fails",
-			tableGroup:  types.DefaultTableGroup,
+			tableGroup:  constants.DefaultTableGroup,
 			shard:       "",
 			wantErr:     true,
 			errContains: "Shard is required",
@@ -664,16 +664,16 @@ func TestNewMultiPoolerManager_MVPValidation(t *testing.T) {
 		{
 			name:        "invalid tablegroup fails",
 			tableGroup:  "custom",
-			shard:       types.DefaultShard,
+			shard:       constants.DefaultShard,
 			wantErr:     true,
 			errContains: "only default tablegroup is supported",
 		},
 		{
 			name:        "invalid shard fails",
-			tableGroup:  types.DefaultTableGroup,
+			tableGroup:  constants.DefaultTableGroup,
 			shard:       "0-100",
 			wantErr:     true,
-			errContains: "only shard " + types.DefaultShard + " is supported",
+			errContains: "only shard " + constants.DefaultShard + " is supported",
 		},
 	}
 

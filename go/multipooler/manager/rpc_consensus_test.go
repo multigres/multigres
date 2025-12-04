@@ -27,9 +27,9 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/multigres/multigres/go/cmd/pgctld/testutil"
+	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/servenv"
 	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
-	"github.com/multigres/multigres/go/common/types"
 	"github.com/multigres/multigres/go/tools/viperutil"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
@@ -80,8 +80,8 @@ func setupManagerWithMockDB(t *testing.T, mockDB *sql.DB) (*MultiPoolerManager, 
 		PortMap:       map[string]int32{"grpc": 8080},
 		Type:          clustermetadatapb.PoolerType_PRIMARY,
 		ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
-		TableGroup:    types.DefaultTableGroup,
-		Shard:         types.DefaultShard,
+		TableGroup:    constants.DefaultTableGroup,
+		Shard:         constants.DefaultShard,
 	}
 	require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
 
@@ -91,8 +91,8 @@ func setupManagerWithMockDB(t *testing.T, mockDB *sql.DB) (*MultiPoolerManager, 
 		ServiceID:  serviceID,
 		PgctldAddr: pgctldAddr,
 		PoolerDir:  tmpDir,
-		TableGroup: types.DefaultTableGroup,
-		Shard:      types.DefaultShard,
+		TableGroup: constants.DefaultTableGroup,
+		Shard:      constants.DefaultShard,
 	}
 	pm, err := NewMultiPoolerManager(logger, config)
 	require.NoError(t, err)

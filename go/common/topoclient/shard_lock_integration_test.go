@@ -22,6 +22,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
 	"github.com/multigres/multigres/go/common/types"
@@ -40,8 +41,8 @@ func TestTopoShardLock(t *testing.T) {
 	ts, _ := memorytopo.NewServerAndFactoryWithConfig(ctx, config, "zone1")
 	defer ts.Close()
 
-	shardKey1 := types.ShardKey{Database: "testdb", TableGroup: types.DefaultTableGroup, Shard: "0"}
-	shardKey2 := types.ShardKey{Database: "testdb", TableGroup: types.DefaultTableGroup, Shard: "1"}
+	shardKey1 := types.ShardKey{Database: "testdb", TableGroup: constants.DefaultTableGroup, Shard: "0"}
+	shardKey2 := types.ShardKey{Database: "testdb", TableGroup: constants.DefaultTableGroup, Shard: "1"}
 
 	origCtx := ctx
 	ctx, unlock, err := ts.LockShard(origCtx, shardKey1, "db/default/0")

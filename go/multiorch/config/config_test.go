@@ -17,7 +17,7 @@ package config
 import (
 	"testing"
 
-	"github.com/multigres/multigres/go/common/types"
+	"github.com/multigres/multigres/go/common/constants"
 
 	"github.com/stretchr/testify/require"
 )
@@ -39,7 +39,7 @@ func TestParseShardWatchTarget(t *testing.T) {
 			input: "postgres/default",
 			want: WatchTarget{
 				Database:   "postgres",
-				TableGroup: types.DefaultTableGroup,
+				TableGroup: constants.DefaultTableGroup,
 			},
 		},
 		{
@@ -47,7 +47,7 @@ func TestParseShardWatchTarget(t *testing.T) {
 			input: "postgres/default/80-",
 			want: WatchTarget{
 				Database:   "postgres",
-				TableGroup: types.DefaultTableGroup,
+				TableGroup: constants.DefaultTableGroup,
 				Shard:      "80-",
 			},
 		},
@@ -111,7 +111,7 @@ func TestShardWatchTarget_String(t *testing.T) {
 			name: "database and tablegroup",
 			target: WatchTarget{
 				Database:   "postgres",
-				TableGroup: types.DefaultTableGroup,
+				TableGroup: constants.DefaultTableGroup,
 			},
 			want: "postgres/default",
 		},
@@ -119,7 +119,7 @@ func TestShardWatchTarget_String(t *testing.T) {
 			name: "database, tablegroup, and shard",
 			target: WatchTarget{
 				Database:   "postgres",
-				TableGroup: types.DefaultTableGroup,
+				TableGroup: constants.DefaultTableGroup,
 				Shard:      "80-",
 			},
 			want: "postgres/default/80-",
@@ -149,7 +149,7 @@ func TestShardWatchTarget_Matches(t *testing.T) {
 			name:           "database level - matches all",
 			target:         WatchTarget{Database: "postgres"},
 			testDB:         "postgres",
-			testTableGroup: types.DefaultTableGroup,
+			testTableGroup: constants.DefaultTableGroup,
 			testShard:      "80-",
 			wantDatabase:   true,
 			wantTableGroup: true,
@@ -159,7 +159,7 @@ func TestShardWatchTarget_Matches(t *testing.T) {
 			name:           "database level - different database",
 			target:         WatchTarget{Database: "postgres"},
 			testDB:         "other",
-			testTableGroup: types.DefaultTableGroup,
+			testTableGroup: constants.DefaultTableGroup,
 			testShard:      "80-",
 			wantDatabase:   false,
 			wantTableGroup: false,
@@ -169,10 +169,10 @@ func TestShardWatchTarget_Matches(t *testing.T) {
 			name: "tablegroup level - matches tablegroup and shards",
 			target: WatchTarget{
 				Database:   "postgres",
-				TableGroup: types.DefaultTableGroup,
+				TableGroup: constants.DefaultTableGroup,
 			},
 			testDB:         "postgres",
-			testTableGroup: types.DefaultTableGroup,
+			testTableGroup: constants.DefaultTableGroup,
 			testShard:      "80-",
 			wantDatabase:   true,
 			wantTableGroup: true,
@@ -182,7 +182,7 @@ func TestShardWatchTarget_Matches(t *testing.T) {
 			name: "tablegroup level - different tablegroup",
 			target: WatchTarget{
 				Database:   "postgres",
-				TableGroup: types.DefaultTableGroup,
+				TableGroup: constants.DefaultTableGroup,
 			},
 			testDB:         "postgres",
 			testTableGroup: "other",
@@ -195,11 +195,11 @@ func TestShardWatchTarget_Matches(t *testing.T) {
 			name: "shard level - exact match",
 			target: WatchTarget{
 				Database:   "postgres",
-				TableGroup: types.DefaultTableGroup,
+				TableGroup: constants.DefaultTableGroup,
 				Shard:      "80-",
 			},
 			testDB:         "postgres",
-			testTableGroup: types.DefaultTableGroup,
+			testTableGroup: constants.DefaultTableGroup,
 			testShard:      "80-",
 			wantDatabase:   true,
 			wantTableGroup: true,
@@ -209,11 +209,11 @@ func TestShardWatchTarget_Matches(t *testing.T) {
 			name: "shard level - different shard",
 			target: WatchTarget{
 				Database:   "postgres",
-				TableGroup: types.DefaultTableGroup,
+				TableGroup: constants.DefaultTableGroup,
 				Shard:      "80-",
 			},
 			testDB:         "postgres",
-			testTableGroup: types.DefaultTableGroup,
+			testTableGroup: constants.DefaultTableGroup,
 			testShard:      "40-80",
 			wantDatabase:   true,
 			wantTableGroup: true,
@@ -251,7 +251,7 @@ func TestParseShardWatchTargets(t *testing.T) {
 	require.Empty(t, got[0].Shard)
 
 	require.Equal(t, "myapp", got[1].Database)
-	require.Equal(t, types.DefaultTableGroup, got[1].TableGroup)
+	require.Equal(t, constants.DefaultTableGroup, got[1].TableGroup)
 	require.Empty(t, got[1].Shard)
 
 	require.Equal(t, "analytics", got[2].Database)

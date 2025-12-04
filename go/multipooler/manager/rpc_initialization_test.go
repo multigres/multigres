@@ -24,9 +24,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
-	"github.com/multigres/multigres/go/common/types"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
@@ -85,7 +85,7 @@ func TestInitializationStatus(t *testing.T) {
 				Database:   "postgres",
 				TopoClient: store,
 				ServiceID:  serviceID,
-				TableGroup: types.DefaultTableGroup,
+				TableGroup: constants.DefaultTableGroup,
 				Shard:      tt.expectedShardID,
 			}
 
@@ -97,7 +97,7 @@ func TestInitializationStatus(t *testing.T) {
 			multipooler := &clustermetadatapb.MultiPooler{
 				Id:         serviceID,
 				Database:   "testdb",
-				TableGroup: types.DefaultTableGroup,
+				TableGroup: constants.DefaultTableGroup,
 				Shard:      tt.expectedShardID,
 			}
 
@@ -176,8 +176,8 @@ func TestInitializeEmptyPrimary(t *testing.T) {
 				Database:   "postgres",
 				TopoClient: store,
 				ServiceID:  serviceID,
-				TableGroup: types.DefaultTableGroup,
-				Shard:      types.DefaultShard,
+				TableGroup: constants.DefaultTableGroup,
+				Shard:      constants.DefaultShard,
 				// Note: pgctldClient is nil - operations that need it will fail gracefully
 			}
 
@@ -283,8 +283,8 @@ func TestInitializeAsStandby(t *testing.T) {
 				Database:   "postgres",
 				TopoClient: store,
 				ServiceID:  serviceID,
-				TableGroup: types.DefaultTableGroup,
-				Shard:      types.DefaultShard,
+				TableGroup: constants.DefaultTableGroup,
+				Shard:      constants.DefaultShard,
 			}
 
 			logger := slog.Default()
