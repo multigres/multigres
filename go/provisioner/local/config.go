@@ -422,6 +422,13 @@ func (p *localProvisioner) GeneratePgBackRestConfigs() error {
 		return fmt.Errorf("failed to create pgBackRest log directory %s: %w", pgBackRestLogPath, err)
 	}
 
+	// Create the pgBackRest spool directory if it doesn't exist
+	// This prevents pgbackrest from using system default /var/spool/pgbackrest which may not be writable
+	pgBackRestSpoolPath := filepath.Join(p.config.RootWorkingDir, "spool", "pgbackrest")
+	if err := os.MkdirAll(pgBackRestSpoolPath, 0o755); err != nil {
+		return fmt.Errorf("failed to create pgBackRest spool directory %s: %w", pgBackRestSpoolPath, err)
+	}
+
 	// Get sorted list of all cell names for consistent ordering
 	var allCells []string
 	for cellName := range p.config.Cells {
@@ -469,6 +476,7 @@ func (p *localProvisioner) GeneratePgBackRestConfigs() error {
 			PgDatabase:      "postgres",
 			AdditionalHosts: additionalHosts,
 			LogPath:         pgBackRestLogPath,
+			SpoolPath:       pgBackRestSpoolPath,
 			RetentionFull:   2, // Keep 2 full backups by default
 		}
 
