@@ -48,14 +48,14 @@ func (pm *MultiPoolerManager) InitializeEmptyPrimary(ctx context.Context, req *m
 		return nil, mterrors.Errorf(mtrpcpb.Code_INVALID_ARGUMENT, "consensus term must be 1 for new primary initialization, got %d", req.ConsensusTerm)
 	}
 
-	// 2. Check if already initialized
+	// Check if already initialized
 	if pm.isInitialized(ctx) {
 		pm.logger.InfoContext(ctx, "Pooler already initialized", "shard", pm.getShardID())
 		// Note: backup_id will be empty for idempotent case since we didn't create a new backup
 		return &multipoolermanagerdatapb.InitializeEmptyPrimaryResponse{Success: true}, nil
 	}
 
-	// 3. Initialize data directory via pgctld if needed
+	// Initialize data directory via pgctld if needed
 	if !pm.hasDataDirectory() {
 		pm.logger.InfoContext(ctx, "Initializing data directory", "shard", pm.getShardID())
 		if pm.pgctldClient == nil {
@@ -67,7 +67,7 @@ func (pm *MultiPoolerManager) InitializeEmptyPrimary(ctx context.Context, req *m
 			return nil, mterrors.Wrap(err, "failed to initialize data directory")
 		}
 
-		// 3a. Configure archive_mode in postgresql.auto.conf BEFORE starting PostgreSQL
+		// Configure archive_mode in postgresql.auto.conf BEFORE starting PostgreSQL
 		// This must be done after InitDataDir creates pg_data but before Start
 		pm.logger.InfoContext(ctx, "Configuring archive_mode for pgbackrest", "shard", pm.getShardID())
 		if err := pm.configureArchiveMode(ctx); err != nil {
@@ -75,7 +75,7 @@ func (pm *MultiPoolerManager) InitializeEmptyPrimary(ctx context.Context, req *m
 		}
 	}
 
-	// 4. Start PostgreSQL if not running
+	// Start PostgreSQL if not running
 	if !pm.isPostgresRunning(ctx) {
 		pm.logger.InfoContext(ctx, "Starting PostgreSQL", "shard", pm.getShardID())
 		if pm.pgctldClient == nil {
@@ -88,12 +88,12 @@ func (pm *MultiPoolerManager) InitializeEmptyPrimary(ctx context.Context, req *m
 		}
 	}
 
-	// 5. Wait for database connection
+	// Wait for database connection
 	if err := pm.waitForDatabaseConnection(ctx); err != nil {
 		return nil, mterrors.Wrap(err, "failed to connect to database")
 	}
 
-	// 6. Create multigres schema and tables (heartbeat, durability_policy, tablegroup, table, shard)
+	// Create multigres schema and tables (heartbeat, durability_policy, tablegroup, table, shard)
 	if err := pm.createSidecarSchema(ctx); err != nil {
 		return nil, mterrors.Wrap(err, "failed to initialize multigres schema")
 	}
