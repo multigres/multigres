@@ -31,12 +31,13 @@ import (
 	"syscall"
 	"time"
 
+	"golang.org/x/mod/semver"
+
 	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/provisioner"
 	"github.com/multigres/multigres/go/provisioner/local/ports"
 	"github.com/multigres/multigres/go/tools/pathutil"
 	"github.com/multigres/multigres/go/tools/retry"
-	"github.com/multigres/multigres/go/tools/semver"
 	"github.com/multigres/multigres/go/tools/stringutil"
 	"github.com/multigres/multigres/go/tools/telemetry"
 
