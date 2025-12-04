@@ -85,6 +85,11 @@ func TestMain(m *testing.M) {
 	// Run all tests
 	exitCode := m.Run()
 
+	// Dump service logs on failure to help debug CI issues
+	if exitCode != 0 {
+		dumpServiceLogs()
+	}
+
 	// Clean up shared multipooler test infrastructure
 	cleanupSharedTestSetup()
 
@@ -93,6 +98,43 @@ func TestMain(m *testing.M) {
 
 	// Exit with the test result code
 	os.Exit(exitCode)
+}
+
+// dumpServiceLogs prints service log files to help debug test failures.
+// Call this before cleanup so logs are available.
+func dumpServiceLogs() {
+	if sharedTestSetup == nil {
+		return
+	}
+
+	fmt.Println("\n" + "=" + "=== SERVICE LOGS (test failure) ===" + "=")
+
+	instances := []*ProcessInstance{
+		sharedTestSetup.PrimaryMultipooler,
+		sharedTestSetup.StandbyMultipooler,
+		sharedTestSetup.PrimaryPgctld,
+		sharedTestSetup.StandbyPgctld,
+	}
+
+	for _, inst := range instances {
+		if inst == nil || inst.LogFile == "" {
+			continue
+		}
+
+		fmt.Printf("\n--- %s (%s) ---\n", inst.Name, inst.LogFile)
+		content, err := os.ReadFile(inst.LogFile)
+		if err != nil {
+			fmt.Printf("  [error reading log: %v]\n", err)
+			continue
+		}
+		if len(content) == 0 {
+			fmt.Println("  [empty log file]")
+			continue
+		}
+		fmt.Println(string(content))
+	}
+
+	fmt.Println("\n" + "=" + "=== END SERVICE LOGS ===" + "=")
 }
 
 // cleanupSharedTestSetup cleans up the shared test infrastructure
