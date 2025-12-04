@@ -35,6 +35,7 @@ import (
 
 	"github.com/multigres/multigres/go/cmd/pgctld/testutil"
 	"github.com/multigres/multigres/go/common/topoclient"
+	"github.com/multigres/multigres/go/common/types"
 	"github.com/multigres/multigres/go/provisioner/local/pgbackrest"
 	"github.com/multigres/multigres/go/test/endtoend"
 	"github.com/multigres/multigres/go/test/utils"
@@ -942,10 +943,8 @@ func setupStandbyReplication(t *testing.T, primaryPgctld *ProcessInstance, stand
 
 	// Get backup location (same structure as in initializePrimary)
 	database := "postgres"
-	tableGroup := "default"
-	shard := "0-inf"
 	baseDir := filepath.Dir(filepath.Dir(primaryPgctld.DataDir)) // Go up from primary/data to get base
-	repoPath := filepath.Join(baseDir, "backup-repo", database, tableGroup, shard)
+	repoPath := filepath.Join(baseDir, "backup-repo", database, types.DefaultTableGroup, types.DefaultShard)
 
 	// Create a backup on the primary using pgbackrest
 	t.Logf("Creating pgBackRest backup on primary (stanza: %s, config: %s, repo: %s)...",

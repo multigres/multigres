@@ -515,7 +515,7 @@ func verifyMultigresTablesExist(t *testing.T, node *nodeInstance) {
 
 	// Check multischema global tables
 	assert.True(t, tableExists("tablegroup"), "tablegroup table should exist on %s", node.name)
-	assert.True(t, tableExists("table"), "table table should exist on %s", node.name)
+	assert.True(t, tableExists("tablegroup_table"), "tablegroup_table table should exist on %s", node.name)
 	assert.True(t, tableExists("shard"), "shard table should exist on %s", node.name)
 }
 
