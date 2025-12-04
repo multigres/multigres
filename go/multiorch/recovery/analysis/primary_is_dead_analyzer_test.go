@@ -61,7 +61,8 @@ func TestPrimaryIsDeadAnalyzer_Analyze(t *testing.T) {
 			PrimaryReachable: false,     // But is unreachable (DEAD)
 		}
 
-		problems := analyzer.Analyze(analysis)
+		problems, err := analyzer.Analyze(analysis)
+		require.NoError(t, err)
 		require.Len(t, problems, 1)
 		require.Equal(t, types.ProblemPrimaryIsDead, problems[0].Code)
 		require.Equal(t, types.ScopeShard, problems[0].Scope)
@@ -78,7 +79,8 @@ func TestPrimaryIsDeadAnalyzer_Analyze(t *testing.T) {
 			PrimaryReachable: true,      // And is reachable (HEALTHY)
 		}
 
-		problems := analyzer.Analyze(analysis)
+		problems, err := analyzer.Analyze(analysis)
+		require.NoError(t, err)
 		require.Len(t, problems, 0)
 	})
 
@@ -90,7 +92,8 @@ func TestPrimaryIsDeadAnalyzer_Analyze(t *testing.T) {
 			PrimaryReachable: false, // N/A
 		}
 
-		problems := analyzer.Analyze(analysis)
+		problems, err := analyzer.Analyze(analysis)
+		require.NoError(t, err)
 		require.Len(t, problems, 0) // Future analyzer will handle this case
 	})
 
@@ -102,7 +105,8 @@ func TestPrimaryIsDeadAnalyzer_Analyze(t *testing.T) {
 			PrimaryReachable: false,
 		}
 
-		problems := analyzer.Analyze(analysis)
+		problems, err := analyzer.Analyze(analysis)
+		require.NoError(t, err)
 		require.Len(t, problems, 0) // Primaries don't report themselves as dead
 	})
 
@@ -115,7 +119,8 @@ func TestPrimaryIsDeadAnalyzer_Analyze(t *testing.T) {
 			PrimaryReachable: false,
 		}
 
-		problems := analyzer.Analyze(analysis)
+		problems, err := analyzer.Analyze(analysis)
+		require.NoError(t, err)
 		require.Len(t, problems, 0) // ShardNeedsBootstrap handles uninitialized nodes
 	})
 

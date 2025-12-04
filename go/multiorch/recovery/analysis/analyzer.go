@@ -25,7 +25,8 @@ type Analyzer interface {
 	Name() types.CheckName
 
 	// Analyze examines the ReplicationAnalysis and returns any detected problems.
-	Analyze(analysis *store.ReplicationAnalysis) []types.Problem
+	// Returns an error if the analyzer cannot perform its analysis (e.g., missing dependencies).
+	Analyze(analysis *store.ReplicationAnalysis) ([]types.Problem, error)
 }
 
 // defaultAnalyzers holds the global list of analyzers.

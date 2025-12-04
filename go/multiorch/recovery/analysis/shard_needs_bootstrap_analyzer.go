@@ -15,6 +15,7 @@
 package analysis
 
 import (
+	"errors"
 	"fmt"
 	"time"
 
@@ -32,12 +33,12 @@ func (a *ShardNeedsBootstrapAnalyzer) Name() types.CheckName {
 	return "ShardNeedsBootstrap"
 }
 
-func (a *ShardNeedsBootstrapAnalyzer) Analyze(poolerAnalysis *store.ReplicationAnalysis) []types.Problem {
+func (a *ShardNeedsBootstrapAnalyzer) Analyze(poolerAnalysis *store.ReplicationAnalysis) ([]types.Problem, error) {
 	// Skip unreachable nodes - we can't determine their true initialization state.
 	// An unreachable node might be perfectly initialized but just temporarily down.
 	// PrimaryIsDead analyzer will handle dead primaries.
 	if poolerAnalysis.IsUnreachable {
-		return nil
+		return nil, nil
 	}
 
 	// Skip primary nodes - they don't have a PrimaryPoolerID by design (they ARE the primary).
@@ -50,19 +51,19 @@ func (a *ShardNeedsBootstrapAnalyzer) Analyze(poolerAnalysis *store.ReplicationA
 	// Always skip primary nodes regardless of initialization state - if a primary's postgres
 	// crashes, PrimaryIsDead will handle it (detected by replicas).
 	if poolerAnalysis.IsPrimary {
-		return nil
+		return nil, nil
 	}
 
 	// Skip if node is registered as a REPLICA - it was initialized at some point.
 	// Even if IsInitialized is false (e.g., due to failed health check when primary died),
 	// a node that was ever a REPLICA should not trigger bootstrap.
 	if poolerAnalysis.PoolerType == clustermetadatapb.PoolerType_REPLICA {
-		return nil
+		return nil, nil
 	}
 
 	// Only analyze if this pooler is uninitialized
 	if poolerAnalysis.IsInitialized {
-		return nil
+		return nil, nil
 	}
 
 	// If this pooler is uninitialized AND there's no primary in the shard,
@@ -70,8 +71,7 @@ func (a *ShardNeedsBootstrapAnalyzer) Analyze(poolerAnalysis *store.ReplicationA
 	if poolerAnalysis.PrimaryPoolerID == nil {
 		factory := GetRecoveryActionFactory()
 		if factory == nil {
-			// Factory not initialized yet, skip recovery action
-			return nil
+			return nil, errors.New("recovery action factory not initialized")
 		}
 
 		return []types.Problem{{
@@ -84,8 +84,8 @@ func (a *ShardNeedsBootstrapAnalyzer) Analyze(poolerAnalysis *store.ReplicationA
 			Scope:          types.ScopeShard,
 			DetectedAt:     time.Now(),
 			RecoveryAction: factory.NewBootstrapShardAction(),
-		}}
+		}}, nil
 	}
 
-	return nil
+	return nil, nil
 }

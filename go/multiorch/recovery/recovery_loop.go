@@ -21,6 +21,8 @@ import (
 	"sync"
 	"time"
 
+	"go.opentelemetry.io/otel/attribute"
+
 	"github.com/multigres/multigres/go/common/topoclient"
 	commontypes "github.com/multigres/multigres/go/common/types"
 	"github.com/multigres/multigres/go/multiorch/recovery/analysis"
@@ -60,7 +62,18 @@ func (re *Engine) performRecoveryCycle() {
 
 	for _, poolerAnalysis := range analyses {
 		for _, analyzer := range analyzers {
-			detectedProblems := analyzer.Analyze(poolerAnalysis)
+			detectedProblems, err := analyzer.Analyze(poolerAnalysis)
+			if err != nil {
+				re.logger.ErrorContext(re.ctx, "analyzer error",
+					"analyzer", analyzer.Name(),
+					"pooler_id", topoclient.MultiPoolerIDString(poolerAnalysis.PoolerID),
+					"error", err,
+				)
+				re.metrics.errorsTotal.Add(re.ctx, "analyzer",
+					attribute.String("analyzer", string(analyzer.Name())),
+				)
+				continue
+			}
 			problems = append(problems, detectedProblems...)
 		}
 	}
@@ -304,7 +317,13 @@ func (re *Engine) recheckProblem(problem types.Problem) (bool, error) {
 	analyzers := analysis.DefaultAnalyzers()
 	for _, analyzer := range analyzers {
 		if analyzer.Name() == problem.CheckName {
-			redetectedProblems := analyzer.Analyze(poolerAnalysis)
+			redetectedProblems, err := analyzer.Analyze(poolerAnalysis)
+			if err != nil {
+				re.metrics.errorsTotal.Add(re.ctx, "analyzer",
+					attribute.String("analyzer", string(analyzer.Name())),
+				)
+				return false, fmt.Errorf("analyzer %s failed during recheck: %w", analyzer.Name(), err)
+			}
 
 			// Check if the same problem code is still detected
 			for _, p := range redetectedProblems {

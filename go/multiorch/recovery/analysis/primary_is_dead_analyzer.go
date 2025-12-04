@@ -15,6 +15,7 @@
 package analysis
 
 import (
+	"errors"
 	"fmt"
 	"time"
 
@@ -31,20 +32,20 @@ func (a *PrimaryIsDeadAnalyzer) Name() types.CheckName {
 	return "PrimaryIsDead"
 }
 
-func (a *PrimaryIsDeadAnalyzer) Analyze(poolerAnalysis *store.ReplicationAnalysis) []types.Problem {
+func (a *PrimaryIsDeadAnalyzer) Analyze(poolerAnalysis *store.ReplicationAnalysis) ([]types.Problem, error) {
 	// Only analyze replicas (primaries can't report themselves as dead)
 	if poolerAnalysis.IsPrimary {
-		return nil
+		return nil, nil
 	}
 
 	// Skip if replica is not initialized (ShardNeedsBootstrap handles that)
 	if !poolerAnalysis.IsInitialized {
-		return nil
+		return nil, nil
 	}
 
 	// Early return if primary is reachable - no problem to report
 	if poolerAnalysis.PrimaryPoolerID != nil && poolerAnalysis.PrimaryReachable {
-		return nil
+		return nil, nil
 	}
 
 	// At this point:
@@ -52,13 +53,12 @@ func (a *PrimaryIsDeadAnalyzer) Analyze(poolerAnalysis *store.ReplicationAnalysi
 	// - Either no primary exists (PrimaryPoolerID == nil) or primary is unreachable
 	// Only trigger if a primary exists but is unreachable.
 	if poolerAnalysis.PrimaryPoolerID == nil {
-		return nil
+		return nil, nil
 	}
 
 	factory := GetRecoveryActionFactory()
 	if factory == nil {
-		// Factory not initialized yet, skip recovery action
-		return nil
+		return nil, errors.New("recovery action factory not initialized")
 	}
 
 	return []types.Problem{{
@@ -71,5 +71,5 @@ func (a *PrimaryIsDeadAnalyzer) Analyze(poolerAnalysis *store.ReplicationAnalysi
 		Scope:          types.ScopeShard,
 		DetectedAt:     time.Now(),
 		RecoveryAction: factory.NewAppointLeaderAction(),
-	}}
+	}}, nil
 }

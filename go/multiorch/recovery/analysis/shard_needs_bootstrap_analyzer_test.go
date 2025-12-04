@@ -58,7 +58,8 @@ func TestShardNeedsBootstrapAnalyzer_Analyze(t *testing.T) {
 			PrimaryPoolerID: nil, // no primary exists
 		}
 
-		problems := analyzer.Analyze(analysis)
+		problems, err := analyzer.Analyze(analysis)
+		require.NoError(t, err)
 		require.Len(t, problems, 1)
 		require.Equal(t, types.ProblemShardNeedsBootstrap, problems[0].Code)
 		require.Equal(t, types.ScopeShard, problems[0].Scope)
@@ -72,7 +73,8 @@ func TestShardNeedsBootstrapAnalyzer_Analyze(t *testing.T) {
 			PrimaryPoolerID: nil,
 		}
 
-		problems := analyzer.Analyze(analysis)
+		problems, err := analyzer.Analyze(analysis)
+		require.NoError(t, err)
 		require.Len(t, problems, 0)
 	})
 
@@ -82,7 +84,8 @@ func TestShardNeedsBootstrapAnalyzer_Analyze(t *testing.T) {
 			PrimaryPoolerID: &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "primary1"},
 		}
 
-		problems := analyzer.Analyze(analysis)
+		problems, err := analyzer.Analyze(analysis)
+		require.NoError(t, err)
 		require.Len(t, problems, 0)
 	})
 
