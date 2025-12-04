@@ -32,6 +32,7 @@ import (
 	"github.com/multigres/multigres/go/cmd/pgctld/testutil"
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/servenv"
+	"github.com/multigres/multigres/go/common/types"
 	"github.com/multigres/multigres/go/test/utils"
 	"github.com/multigres/multigres/go/tools/viperutil"
 
@@ -103,8 +104,8 @@ func TestPrimaryPosition(t *testing.T) {
 				PortMap:       map[string]int32{"grpc": 8080},
 				Type:          tt.poolerType,
 				ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
-				TableGroup:    "default",
-				Shard:         "0-inf",
+				TableGroup:    types.DefaultTableGroup,
+				Shard:         types.DefaultShard,
 			}
 			require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
 
@@ -112,8 +113,8 @@ func TestPrimaryPosition(t *testing.T) {
 				TopoClient: ts,
 				ServiceID:  serviceID,
 				PoolerDir:  poolerDir,
-				TableGroup: "default",
-				Shard:      "0-inf",
+				TableGroup: types.DefaultTableGroup,
+				Shard:      types.DefaultShard,
 			}
 			manager, err := NewMultiPoolerManager(logger, config)
 			require.NoError(t, err)
@@ -171,8 +172,8 @@ func TestActionLock_MutationMethodsTimeout(t *testing.T) {
 		PortMap:       map[string]int32{"grpc": 8080},
 		Type:          clustermetadatapb.PoolerType_PRIMARY,
 		ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
-		TableGroup:    "default",
-		Shard:         "0-inf",
+		TableGroup:    types.DefaultTableGroup,
+		Shard:         types.DefaultShard,
 	}
 	require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
 
@@ -180,8 +181,8 @@ func TestActionLock_MutationMethodsTimeout(t *testing.T) {
 		TopoClient: ts,
 		ServiceID:  serviceID,
 		PoolerDir:  poolerDir,
-		TableGroup: "default",
-		Shard:      "0-inf",
+		TableGroup: types.DefaultTableGroup,
+		Shard:      types.DefaultShard,
 	}
 	manager, err := NewMultiPoolerManager(logger, config)
 	require.NoError(t, err)
@@ -386,8 +387,8 @@ func setupPromoteTestManager(t *testing.T, mockDB *sql.DB) (*MultiPoolerManager,
 		PortMap:       map[string]int32{"grpc": 8080},
 		Type:          clustermetadatapb.PoolerType_REPLICA,
 		ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
-		TableGroup:    "default",
-		Shard:         "0-inf",
+		TableGroup:    types.DefaultTableGroup,
+		Shard:         types.DefaultShard,
 	}
 	require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
 
@@ -397,8 +398,8 @@ func setupPromoteTestManager(t *testing.T, mockDB *sql.DB) (*MultiPoolerManager,
 		ServiceID:  serviceID,
 		PgctldAddr: pgctldAddr,
 		PoolerDir:  tmpDir,
-		TableGroup: "default",
-		Shard:      "0-inf",
+		TableGroup: types.DefaultTableGroup,
+		Shard:      types.DefaultShard,
 	}
 	pm, err := NewMultiPoolerManager(logger, config)
 	require.NoError(t, err)
@@ -851,8 +852,8 @@ func TestReplicationStatus(t *testing.T) {
 			PortMap:       map[string]int32{"grpc": 8080},
 			Type:          clustermetadatapb.PoolerType_PRIMARY,
 			ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
-			TableGroup:    "default",
-			Shard:         "0-inf",
+			TableGroup:    types.DefaultTableGroup,
+			Shard:         types.DefaultShard,
 		}
 		require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
 
@@ -862,8 +863,8 @@ func TestReplicationStatus(t *testing.T) {
 			ServiceID:  serviceID,
 			PgctldAddr: pgctldAddr,
 			PoolerDir:  tmpDir,
-			TableGroup: "default",
-			Shard:      "0-inf",
+			TableGroup: types.DefaultTableGroup,
+			Shard:      types.DefaultShard,
 		}
 		pm, err := NewMultiPoolerManager(logger, config)
 		require.NoError(t, err)
@@ -937,8 +938,8 @@ func TestReplicationStatus(t *testing.T) {
 			PortMap:       map[string]int32{"grpc": 8080},
 			Type:          clustermetadatapb.PoolerType_REPLICA,
 			ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
-			TableGroup:    "default",
-			Shard:         "0-inf",
+			TableGroup:    types.DefaultTableGroup,
+			Shard:         types.DefaultShard,
 		}
 		require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
 
@@ -948,8 +949,8 @@ func TestReplicationStatus(t *testing.T) {
 			ServiceID:  serviceID,
 			PgctldAddr: pgctldAddr,
 			PoolerDir:  tmpDir,
-			TableGroup: "default",
-			Shard:      "0-inf",
+			TableGroup: types.DefaultTableGroup,
+			Shard:      types.DefaultShard,
 		}
 		pm, err := NewMultiPoolerManager(logger, config)
 		require.NoError(t, err)
@@ -1019,8 +1020,8 @@ func TestReplicationStatus(t *testing.T) {
 			PortMap:       map[string]int32{"grpc": 8080},
 			Type:          clustermetadatapb.PoolerType_PRIMARY,
 			ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
-			TableGroup:    "default",
-			Shard:         "0-inf",
+			TableGroup:    types.DefaultTableGroup,
+			Shard:         types.DefaultShard,
 		}
 		require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
 
@@ -1030,8 +1031,8 @@ func TestReplicationStatus(t *testing.T) {
 			ServiceID:  serviceID,
 			PgctldAddr: pgctldAddr,
 			PoolerDir:  tmpDir,
-			TableGroup: "default",
-			Shard:      "0-inf",
+			TableGroup: types.DefaultTableGroup,
+			Shard:      types.DefaultShard,
 		}
 		pm, err := NewMultiPoolerManager(logger, config)
 		require.NoError(t, err)
@@ -1090,8 +1091,8 @@ func TestReplicationStatus(t *testing.T) {
 			PortMap:       map[string]int32{"grpc": 8080},
 			Type:          clustermetadatapb.PoolerType_REPLICA,
 			ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
-			TableGroup:    "default",
-			Shard:         "0-inf",
+			TableGroup:    types.DefaultTableGroup,
+			Shard:         types.DefaultShard,
 		}
 		require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
 
@@ -1101,8 +1102,8 @@ func TestReplicationStatus(t *testing.T) {
 			ServiceID:  serviceID,
 			PgctldAddr: pgctldAddr,
 			PoolerDir:  tmpDir,
-			TableGroup: "default",
-			Shard:      "0-inf",
+			TableGroup: types.DefaultTableGroup,
+			Shard:      types.DefaultShard,
 		}
 		pm, err := NewMultiPoolerManager(logger, config)
 		require.NoError(t, err)

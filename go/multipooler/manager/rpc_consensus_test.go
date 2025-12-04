@@ -29,6 +29,7 @@ import (
 	"github.com/multigres/multigres/go/clustermetadata/topo/memorytopo"
 	"github.com/multigres/multigres/go/cmd/pgctld/testutil"
 	"github.com/multigres/multigres/go/common/servenv"
+	"github.com/multigres/multigres/go/common/types"
 	"github.com/multigres/multigres/go/tools/viperutil"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
@@ -79,8 +80,8 @@ func setupManagerWithMockDB(t *testing.T, mockDB *sql.DB) (*MultiPoolerManager, 
 		PortMap:       map[string]int32{"grpc": 8080},
 		Type:          clustermetadatapb.PoolerType_PRIMARY,
 		ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
-		TableGroup:    "default",
-		Shard:         "0-inf",
+		TableGroup:    types.DefaultTableGroup,
+		Shard:         types.DefaultShard,
 	}
 	require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
 
@@ -90,8 +91,8 @@ func setupManagerWithMockDB(t *testing.T, mockDB *sql.DB) (*MultiPoolerManager, 
 		ServiceID:  serviceID,
 		PgctldAddr: pgctldAddr,
 		PoolerDir:  tmpDir,
-		TableGroup: "default",
-		Shard:      "0-inf",
+		TableGroup: types.DefaultTableGroup,
+		Shard:      types.DefaultShard,
 	}
 	pm, err := NewMultiPoolerManager(logger, config)
 	require.NoError(t, err)

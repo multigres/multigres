@@ -30,6 +30,7 @@ import (
 	"github.com/multigres/multigres/go/clustermetadata/topo"
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/servenv"
+	"github.com/multigres/multigres/go/common/types"
 	"github.com/multigres/multigres/go/multipooler/heartbeat"
 	"github.com/multigres/multigres/go/multipooler/poolerserver"
 	"github.com/multigres/multigres/go/tools/retry"
@@ -157,6 +158,12 @@ func NewMultiPoolerManagerWithTimeout(logger *slog.Logger, config *Config, loadT
 	if config.Shard == "" {
 		cancel()
 		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "Shard is required")
+	}
+
+	// MVP validation: fail fast if tablegroup/shard are not the MVP defaults
+	if err := types.ValidateMVPTableGroupAndShard(config.TableGroup, config.Shard); err != nil {
+		cancel()
+		return nil, mterrors.Wrap(err, "MVP validation failed")
 	}
 
 	// Create pgctld gRPC client

@@ -25,6 +25,7 @@ import (
 
 	"github.com/multigres/multigres/go/clustermetadata/topo"
 	"github.com/multigres/multigres/go/clustermetadata/topo/memorytopo"
+	"github.com/multigres/multigres/go/common/types"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 )
 
@@ -68,7 +69,7 @@ func createTestPooler(name, cell, hostname, database, shard string, poolerType c
 		Database:   database,
 		Shard:      shard,
 		Type:       poolerType,
-		TableGroup: "default",
+		TableGroup: types.DefaultTableGroup,
 		PortMap: map[string]int32{
 			"grpc": 5432,
 		},

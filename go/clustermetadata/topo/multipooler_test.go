@@ -26,6 +26,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/multigres/multigres/go/common/types"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 
 	"github.com/multigres/multigres/go/clustermetadata/topo"
@@ -1119,14 +1120,14 @@ func TestNewMultiPooler(t *testing.T) {
 			name:       "100",
 			cell:       "zone1",
 			host:       "host.example.com",
-			tableGroup: "default",
+			tableGroup: types.DefaultTableGroup,
 			expected: &clustermetadatapb.MultiPooler{
 				Id: &clustermetadatapb.ID{
 					Cell: "zone1",
 					Name: "100",
 				},
 				Hostname:   "host.example.com",
-				TableGroup: "default",
+				TableGroup: types.DefaultTableGroup,
 				PortMap:    map[string]int32{},
 				Database:   "", // Default empty database
 			},
@@ -1146,7 +1147,7 @@ func TestNewMultiPooler(t *testing.T) {
 
 	// Test random name generation when name is empty
 	t.Run("empty name generates random name", func(t *testing.T) {
-		result := topo.NewMultiPooler("", "zone2", "host2.example.com", "default")
+		result := topo.NewMultiPooler("", "zone2", "host2.example.com", types.DefaultTableGroup)
 
 		// Verify basic properties
 		require.Equal(t, "zone2", result.Id.Cell)
@@ -1164,7 +1165,7 @@ func TestNewMultiPooler(t *testing.T) {
 		}
 
 		// Test that multiple calls generate different names
-		result2 := topo.NewMultiPooler("", "zone2", "host2.example.com", "default")
+		result2 := topo.NewMultiPooler("", "zone2", "host2.example.com", types.DefaultTableGroup)
 		require.NotEqual(t, result.Id.Name, result2.Id.Name, "multiple calls should generate different random names")
 	})
 }

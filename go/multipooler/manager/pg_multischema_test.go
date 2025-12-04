@@ -23,6 +23,9 @@ import (
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
+
+	"github.com/multigres/multigres/go/common/types"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -56,7 +59,7 @@ func TestCreateSidecarSchema(t *testing.T) {
 	}{
 		{
 			name:       "successful schema creation for default tablegroup",
-			tableGroup: "default",
+			tableGroup: types.DefaultTableGroup,
 			setupMock: func(mock sqlmock.Sqlmock) {
 				mock.ExpectExec(regexp.QuoteMeta("CREATE SCHEMA IF NOT EXISTS multigres")).
 					WillReturnResult(sqlmock.NewResult(0, 0))
@@ -76,15 +79,8 @@ func TestCreateSidecarSchema(t *testing.T) {
 			expectError: false,
 		},
 		{
-			name:          "rejects non-default tablegroup",
-			tableGroup:    "custom",
-			setupMock:     func(mock sqlmock.Sqlmock) {},
-			expectError:   true,
-			errorContains: "only default tablegroup is supported",
-		},
-		{
 			name:       "schema creation fails",
-			tableGroup: "default",
+			tableGroup: types.DefaultTableGroup,
 			setupMock: func(mock sqlmock.Sqlmock) {
 				mock.ExpectExec(regexp.QuoteMeta("CREATE SCHEMA IF NOT EXISTS multigres")).
 					WillReturnError(fmt.Errorf("permission denied"))
@@ -94,7 +90,7 @@ func TestCreateSidecarSchema(t *testing.T) {
 		},
 		{
 			name:       "heartbeat table creation fails",
-			tableGroup: "default",
+			tableGroup: types.DefaultTableGroup,
 			setupMock: func(mock sqlmock.Sqlmock) {
 				mock.ExpectExec(regexp.QuoteMeta("CREATE SCHEMA IF NOT EXISTS multigres")).
 					WillReturnResult(sqlmock.NewResult(0, 0))
@@ -106,7 +102,7 @@ func TestCreateSidecarSchema(t *testing.T) {
 		},
 		{
 			name:       "durability_policy table creation fails",
-			tableGroup: "default",
+			tableGroup: types.DefaultTableGroup,
 			setupMock: func(mock sqlmock.Sqlmock) {
 				mock.ExpectExec(regexp.QuoteMeta("CREATE SCHEMA IF NOT EXISTS multigres")).
 					WillReturnResult(sqlmock.NewResult(0, 0))
@@ -120,7 +116,7 @@ func TestCreateSidecarSchema(t *testing.T) {
 		},
 		{
 			name:       "index creation fails",
-			tableGroup: "default",
+			tableGroup: types.DefaultTableGroup,
 			setupMock: func(mock sqlmock.Sqlmock) {
 				mock.ExpectExec(regexp.QuoteMeta("CREATE SCHEMA IF NOT EXISTS multigres")).
 					WillReturnResult(sqlmock.NewResult(0, 0))
@@ -136,7 +132,7 @@ func TestCreateSidecarSchema(t *testing.T) {
 		},
 		{
 			name:       "tablegroup table creation fails",
-			tableGroup: "default",
+			tableGroup: types.DefaultTableGroup,
 			setupMock: func(mock sqlmock.Sqlmock) {
 				mock.ExpectExec(regexp.QuoteMeta("CREATE SCHEMA IF NOT EXISTS multigres")).
 					WillReturnResult(sqlmock.NewResult(0, 0))
@@ -156,7 +152,7 @@ func TestCreateSidecarSchema(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			pm, mock := newTestManagerWithMultipooler(t, tt.tableGroup, "0-inf")
+			pm, mock := newTestManagerWithMultipooler(t, tt.tableGroup, types.DefaultShard)
 			defer pm.db.Close()
 
 			tt.setupMock(mock)
@@ -278,17 +274,17 @@ func TestInitializeMultischemaData(t *testing.T) {
 	}{
 		{
 			name:       "successful data initialization",
-			tableGroup: "default",
-			shard:      "0-inf",
+			tableGroup: types.DefaultTableGroup,
+			shard:      types.DefaultShard,
 			setupMock: func(mock sqlmock.Sqlmock) {
 				mock.ExpectExec(regexp.QuoteMeta("INSERT INTO multigres.tablegroup")).
-					WithArgs("default").
+					WithArgs(types.DefaultTableGroup).
 					WillReturnResult(sqlmock.NewResult(1, 1))
 				mock.ExpectQuery(regexp.QuoteMeta("SELECT oid FROM multigres.tablegroup WHERE name = $1")).
-					WithArgs("default").
+					WithArgs(types.DefaultTableGroup).
 					WillReturnRows(sqlmock.NewRows([]string{"oid"}).AddRow(1))
 				mock.ExpectExec(regexp.QuoteMeta("INSERT INTO multigres.shard")).
-					WithArgs(int64(1), "0-inf").
+					WithArgs(int64(1), types.DefaultShard).
 					WillReturnResult(sqlmock.NewResult(1, 1))
 			},
 			expectError: false,
@@ -296,26 +292,26 @@ func TestInitializeMultischemaData(t *testing.T) {
 		{
 			name:          "rejects non-default tablegroup",
 			tableGroup:    "custom",
-			shard:         "0-inf",
+			shard:         types.DefaultShard,
 			setupMock:     func(mock sqlmock.Sqlmock) {},
 			expectError:   true,
 			errorContains: "only default tablegroup is supported",
 		},
 		{
 			name:          "rejects non-default shard",
-			tableGroup:    "default",
+			tableGroup:    types.DefaultTableGroup,
 			shard:         "shard-1",
 			setupMock:     func(mock sqlmock.Sqlmock) {},
 			expectError:   true,
-			errorContains: "only shard 0-inf is supported",
+			errorContains: "only shard " + types.DefaultShard + " is supported",
 		},
 		{
 			name:       "tablegroup insert fails",
-			tableGroup: "default",
-			shard:      "0-inf",
+			tableGroup: types.DefaultTableGroup,
+			shard:      types.DefaultShard,
 			setupMock: func(mock sqlmock.Sqlmock) {
 				mock.ExpectExec(regexp.QuoteMeta("INSERT INTO multigres.tablegroup")).
-					WithArgs("default").
+					WithArgs(types.DefaultTableGroup).
 					WillReturnError(fmt.Errorf("insert failed"))
 			},
 			expectError:   true,
@@ -323,17 +319,17 @@ func TestInitializeMultischemaData(t *testing.T) {
 		},
 		{
 			name:       "shard insert fails",
-			tableGroup: "default",
-			shard:      "0-inf",
+			tableGroup: types.DefaultTableGroup,
+			shard:      types.DefaultShard,
 			setupMock: func(mock sqlmock.Sqlmock) {
 				mock.ExpectExec(regexp.QuoteMeta("INSERT INTO multigres.tablegroup")).
-					WithArgs("default").
+					WithArgs(types.DefaultTableGroup).
 					WillReturnResult(sqlmock.NewResult(1, 1))
 				mock.ExpectQuery(regexp.QuoteMeta("SELECT oid FROM multigres.tablegroup WHERE name = $1")).
-					WithArgs("default").
+					WithArgs(types.DefaultTableGroup).
 					WillReturnRows(sqlmock.NewRows([]string{"oid"}).AddRow(1))
 				mock.ExpectExec(regexp.QuoteMeta("INSERT INTO multigres.shard")).
-					WithArgs(int64(1), "0-inf").
+					WithArgs(int64(1), types.DefaultShard).
 					WillReturnError(fmt.Errorf("insert failed"))
 			},
 			expectError:   true,
@@ -341,18 +337,18 @@ func TestInitializeMultischemaData(t *testing.T) {
 		},
 		{
 			name:       "idempotent insert (conflict)",
-			tableGroup: "default",
-			shard:      "0-inf",
+			tableGroup: types.DefaultTableGroup,
+			shard:      types.DefaultShard,
 			setupMock: func(mock sqlmock.Sqlmock) {
 				// ON CONFLICT DO NOTHING returns 0 rows affected
 				mock.ExpectExec(regexp.QuoteMeta("INSERT INTO multigres.tablegroup")).
-					WithArgs("default").
+					WithArgs(types.DefaultTableGroup).
 					WillReturnResult(sqlmock.NewResult(0, 0))
 				mock.ExpectQuery(regexp.QuoteMeta("SELECT oid FROM multigres.tablegroup WHERE name = $1")).
-					WithArgs("default").
+					WithArgs(types.DefaultTableGroup).
 					WillReturnRows(sqlmock.NewRows([]string{"oid"}).AddRow(1))
 				mock.ExpectExec(regexp.QuoteMeta("INSERT INTO multigres.shard")).
-					WithArgs(int64(1), "0-inf").
+					WithArgs(int64(1), types.DefaultShard).
 					WillReturnResult(sqlmock.NewResult(0, 0))
 			},
 			expectError: false,

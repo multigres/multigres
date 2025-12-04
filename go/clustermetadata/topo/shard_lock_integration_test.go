@@ -40,8 +40,8 @@ func TestTopoShardLock(t *testing.T) {
 	ts, _ := memorytopo.NewServerAndFactoryWithConfig(ctx, config, "zone1")
 	defer ts.Close()
 
-	shardKey1 := types.ShardKey{Database: "testdb", TableGroup: "default", Shard: "0"}
-	shardKey2 := types.ShardKey{Database: "testdb", TableGroup: "default", Shard: "1"}
+	shardKey1 := types.ShardKey{Database: "testdb", TableGroup: types.DefaultTableGroup, Shard: "0"}
+	shardKey2 := types.ShardKey{Database: "testdb", TableGroup: types.DefaultTableGroup, Shard: "1"}
 
 	origCtx := ctx
 	ctx, unlock, err := ts.LockShard(origCtx, shardKey1, "db/default/0")

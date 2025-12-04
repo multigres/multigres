@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/multigres/multigres/go/common/mterrors"
+	"github.com/multigres/multigres/go/common/types"
 
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 )
@@ -35,13 +36,6 @@ import (
 // Schema Creation
 // ----------------------------------------------------------------------------
 
-// defaultTableGroup is the tablegroup value that indicates this multipooler
-// serves the default database where multischema global tables should be created.
-const defaultTableGroup = "default"
-
-// defaultShard is the only shard supported for the default tablegroup in the MVP.
-const defaultShard = "0-inf"
-
 // createSidecarSchema creates the multigres sidecar schema and all its tables.
 //
 // MVP Limitation: Currently, we only support the default tablegroup. This function
@@ -52,16 +46,6 @@ const defaultShard = "0-inf"
 // tables (tablegroup, table, shard).
 func (pm *MultiPoolerManager) createSidecarSchema(ctx context.Context) error {
 	pm.logger.InfoContext(ctx, "Creating multigres sidecar schema")
-
-	tableGroup := pm.getTableGroup()
-
-	// MVP validation: only default tablegroup is supported
-	if tableGroup != defaultTableGroup {
-		pm.logger.ErrorContext(ctx, "Only default tablegroup is supported in MVP",
-			"tablegroup", tableGroup)
-		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
-			"only default tablegroup is supported, got: "+tableGroup)
-	}
 
 	if err := pm.createSchema(ctx); err != nil {
 		return err
@@ -108,13 +92,17 @@ func (pm *MultiPoolerManager) initializeMultischemaData(ctx context.Context) err
 	shard := pm.getShard()
 
 	// MVP validation: only default tablegroup with shard 0-inf is supported
-	if tableGroup != defaultTableGroup {
+	// This is an extra guardail. Multipoolers shouldn't start unless they
+	// are in the default tablegroup. However, we shouldn't be calling this function
+	// by the time we support multiple tablegroups/shards.
+	// This will ensure we make sure to remove this code when we get to that point.
+	if tableGroup != types.DefaultTableGroup {
 		pm.logger.ErrorContext(ctx, "Only default tablegroup is supported in MVP",
 			"tablegroup", tableGroup)
 		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
 			"only default tablegroup is supported, got: "+tableGroup)
 	}
-	if shard != defaultShard {
+	if shard != types.DefaultShard {
 		pm.logger.ErrorContext(ctx, "Only shard 0-inf is supported for default tablegroup in MVP",
 			"shard", shard)
 		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,

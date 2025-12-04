@@ -26,6 +26,7 @@ import (
 
 	"github.com/multigres/multigres/go/clustermetadata/topo/memorytopo"
 	"github.com/multigres/multigres/go/common/rpcclient"
+	"github.com/multigres/multigres/go/common/types"
 	"github.com/multigres/multigres/go/multiorch/config"
 	"github.com/multigres/multigres/go/pb/clustermetadata"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
@@ -77,7 +78,7 @@ func TestForgetLongUnseenInstances_NeverSeen(t *testing.T) {
 				Name:      "old-pooler",
 			},
 			Database:   "db1",
-			TableGroup: "default",
+			TableGroup: types.DefaultTableGroup,
 			Shard:      "-",
 		},
 		LastCheckAttempted: timestamppb.New(now.Add(-threshold - time.Hour)), // > 4 hours ago

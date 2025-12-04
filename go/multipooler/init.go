@@ -222,6 +222,7 @@ func (mp *MultiPooler) Init(startCtx context.Context) {
 		logger.ErrorContext(startCtx, "shard is required")
 		os.Exit(1)
 	}
+
 	// Create MultiPooler instance for topo registration
 	multipooler := topo.NewMultiPooler(mp.serviceID.Get(), mp.cell.Get(), mp.senv.GetHostname(), mp.tableGroup.Get())
 	multipooler.PortMap["grpc"] = int32(mp.grpcServer.Port())

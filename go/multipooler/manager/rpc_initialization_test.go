@@ -26,6 +26,7 @@ import (
 
 	"github.com/multigres/multigres/go/clustermetadata/topo"
 	"github.com/multigres/multigres/go/clustermetadata/topo/memorytopo"
+	"github.com/multigres/multigres/go/common/types"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
@@ -84,7 +85,7 @@ func TestInitializationStatus(t *testing.T) {
 				Database:   "postgres",
 				TopoClient: store,
 				ServiceID:  serviceID,
-				TableGroup: "default",
+				TableGroup: types.DefaultTableGroup,
 				Shard:      tt.expectedShardID,
 			}
 
@@ -96,7 +97,7 @@ func TestInitializationStatus(t *testing.T) {
 			multipooler := &clustermetadatapb.MultiPooler{
 				Id:         serviceID,
 				Database:   "testdb",
-				TableGroup: "default",
+				TableGroup: types.DefaultTableGroup,
 				Shard:      tt.expectedShardID,
 			}
 
@@ -175,8 +176,8 @@ func TestInitializeEmptyPrimary(t *testing.T) {
 				Database:   "postgres",
 				TopoClient: store,
 				ServiceID:  serviceID,
-				TableGroup: "default",
-				Shard:      "0-inf",
+				TableGroup: types.DefaultTableGroup,
+				Shard:      types.DefaultShard,
 				// Note: pgctldClient is nil - operations that need it will fail gracefully
 			}
 
