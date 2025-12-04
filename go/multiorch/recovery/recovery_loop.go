@@ -21,7 +21,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/multigres/multigres/go/clustermetadata/topo"
+	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/common/types"
 	"github.com/multigres/multigres/go/multiorch/recovery/analysis"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
@@ -122,7 +122,7 @@ func (re *Engine) processShardProblems(shardKey types.ShardKey, problems []analy
 		if problem.RecoveryAction.RequiresHealthyPrimary() && hasPrimaryProblem {
 			re.logger.InfoContext(re.ctx, "skipping recovery - requires healthy primary but primary is unhealthy",
 				"problem_code", problem.Code,
-				"pooler_id", topo.MultiPoolerIDString(problem.PoolerID),
+				"pooler_id", topoclient.MultiPoolerIDString(problem.PoolerID),
 			)
 			continue
 		}
@@ -184,7 +184,7 @@ func (re *Engine) filterAndPrioritize(problems []analysis.Problem) []analysis.Pr
 // IMPORTANT: Before attempting recovery, force re-poll the affected pooler
 // to ensure the problem still exists.
 func (re *Engine) attemptRecovery(problem analysis.Problem) {
-	poolerIDStr := topo.MultiPoolerIDString(problem.PoolerID)
+	poolerIDStr := topoclient.MultiPoolerIDString(problem.PoolerID)
 
 	re.logger.DebugContext(re.ctx, "attempting recovery",
 		"problem_code", problem.Code,
@@ -260,7 +260,7 @@ func (re *Engine) attemptRecovery(problem analysis.Problem) {
 //
 // Returns (stillExists bool, error).
 func (re *Engine) recheckProblem(problem analysis.Problem) (bool, error) {
-	poolerIDStr := topo.MultiPoolerIDString(problem.PoolerID)
+	poolerIDStr := topoclient.MultiPoolerIDString(problem.PoolerID)
 	isShardWide := problem.Scope == analysis.ScopeShard
 
 	re.logger.DebugContext(re.ctx, "validating problem still exists",

@@ -21,10 +21,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/multigres/multigres/go/clustermetadata/topo"
-	"github.com/multigres/multigres/go/clustermetadata/topo/memorytopo"
 	"github.com/multigres/multigres/go/cmd/pgctld/testutil"
 	"github.com/multigres/multigres/go/common/servenv"
+	"github.com/multigres/multigres/go/common/topoclient"
+	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
 	"github.com/multigres/multigres/go/multipooler/manager"
 	"github.com/multigres/multigres/go/tools/viperutil"
 
@@ -35,7 +35,7 @@ import (
 	consensusdata "github.com/multigres/multigres/go/pb/consensusdata"
 )
 
-func addDatabaseToTopo(t *testing.T, ts topo.Store, database string) {
+func addDatabaseToTopo(t *testing.T, ts topoclient.Store, database string) {
 	t.Helper()
 	ctx := context.Background()
 	err := ts.CreateDatabase(ctx, database, &clustermetadata.Database{

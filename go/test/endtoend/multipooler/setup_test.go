@@ -33,8 +33,8 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
-	"github.com/multigres/multigres/go/clustermetadata/topo"
 	"github.com/multigres/multigres/go/cmd/pgctld/testutil"
+	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/provisioner/local/pgbackrest"
 	"github.com/multigres/multigres/go/test/endtoend"
 	"github.com/multigres/multigres/go/test/utils"
@@ -156,7 +156,7 @@ type MultipoolerTestSetup struct {
 	TempDirCleanup     func()
 	EtcdClientAddr     string
 	EtcdCmd            *exec.Cmd
-	TopoServer         topo.Store
+	TopoServer         topoclient.Store
 	PrimaryPgctld      *ProcessInstance
 	StandbyPgctld      *ProcessInstance
 	PrimaryMultipooler *ProcessInstance
@@ -745,7 +745,7 @@ func getSharedTestSetup(t *testing.T) *MultipoolerTestSetup {
 		cellName := "test-cell"
 		cellRoot := path.Join(testRoot, cellName)
 
-		ts, err := topo.OpenServer("etcd2", globalRoot, []string{etcdClientAddr}, topo.NewDefaultTopoConfig())
+		ts, err := topoclient.OpenServer("etcd2", globalRoot, []string{etcdClientAddr}, topoclient.NewDefaultTopoConfig())
 		if err != nil {
 			setupError = fmt.Errorf("failed to open topology server: %w", err)
 			return

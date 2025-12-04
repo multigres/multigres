@@ -25,8 +25,8 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
 
-	"github.com/multigres/multigres/go/clustermetadata/topo"
-	"github.com/multigres/multigres/go/clustermetadata/topo/memorytopo"
+	"github.com/multigres/multigres/go/common/topoclient"
+	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multipoolermanagerdata "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
@@ -46,7 +46,7 @@ func createTestManagerWithBackupLocation(poolerDir, stanzaName, tableGroup, shar
 		Name:      "test-multipooler",
 	}
 
-	multipoolerInfo := &topo.MultiPoolerInfo{
+	multipoolerInfo := &topoclient.MultiPoolerInfo{
 		MultiPooler: &clustermetadatapb.MultiPooler{
 			Id:         multipoolerID,
 			Type:       poolerType,
@@ -57,7 +57,7 @@ func createTestManagerWithBackupLocation(poolerDir, stanzaName, tableGroup, shar
 	}
 
 	// Create a topology store with backup location if provided
-	var topoClient topo.Store
+	var topoClient topoclient.Store
 	if backupLocation != "" {
 		ctx := context.Background()
 		ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
@@ -84,7 +84,7 @@ func createTestManagerWithBackupLocation(poolerDir, stanzaName, tableGroup, shar
 		backupLocation: backupLocation,
 		actionLock:     NewActionLock(),
 		cachedMultipooler: cachedMultiPoolerInfo{
-			multipooler: topo.NewMultiPoolerInfo(
+			multipooler: topoclient.NewMultiPoolerInfo(
 				proto.Clone(multipoolerInfo.MultiPooler).(*clustermetadatapb.MultiPooler),
 				multipoolerInfo.Version(),
 			),

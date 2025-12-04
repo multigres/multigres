@@ -32,9 +32,9 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	"github.com/multigres/multigres/go/clustermetadata/topo"
-	"github.com/multigres/multigres/go/clustermetadata/topo/etcdtopo"
 	"github.com/multigres/multigres/go/common/rpcclient"
+	"github.com/multigres/multigres/go/common/topoclient"
+	"github.com/multigres/multigres/go/common/topoclient/etcdtopo"
 	"github.com/multigres/multigres/go/multiorch/actions"
 	"github.com/multigres/multigres/go/provisioner/local/pgbackrest"
 	"github.com/multigres/multigres/go/test/utils"
@@ -107,7 +107,7 @@ func TestBootstrapInitialization(t *testing.T) {
 	cellName := "test-cell"
 	cellRoot := filepath.Join(testRoot, cellName)
 
-	ts, err := topo.OpenServer("etcd2", globalRoot, []string{etcdClientAddr}, topo.NewDefaultTopoConfig())
+	ts, err := topoclient.OpenServer("etcd2", globalRoot, []string{etcdClientAddr}, topoclient.NewDefaultTopoConfig())
 	require.NoError(t, err, "Failed to open topology server")
 	defer ts.Close()
 

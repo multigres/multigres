@@ -27,11 +27,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/multigres/multigres/go/clustermetadata/topo"
-	"github.com/multigres/multigres/go/clustermetadata/topo/memorytopo"
 	"github.com/multigres/multigres/go/cmd/pgctld/testutil"
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/servenv"
+	"github.com/multigres/multigres/go/common/topoclient"
+	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
 	"github.com/multigres/multigres/go/test/utils"
 	"github.com/multigres/multigres/go/tools/viperutil"
 
@@ -41,7 +41,7 @@ import (
 )
 
 // addDatabaseToTopo creates a database in the topology with a backup location
-func addDatabaseToTopo(t *testing.T, ts topo.Store, database string) {
+func addDatabaseToTopo(t *testing.T, ts topoclient.Store, database string) {
 	t.Helper()
 	ctx := context.Background()
 	err := ts.CreateDatabase(ctx, database, &clustermetadatapb.Database{
