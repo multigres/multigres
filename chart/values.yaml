@@ -1,8 +1,8 @@
 ---
 image:
   repository: "teaglebuilt/multigres"
-  tag: "v0.1.0"
-  pullPolicy: IfNotPresent
+  tag: "test"
+  pullPolicy: Always
   pullSecrets: []
 
 config:
@@ -25,10 +25,27 @@ postgres:
 gateway:
   enabled: true
   replicas: 1
-  command: [ "/bin/multigateway" ]
-  args: []
+  command: [ "/multigres/bin/multigateway" ]
+  args:
+  - "--topo-global-root"
+  - "/multigres/global"
+  - "--topo-global-server-addresses"
   extraEnv: []
   resources: {}
+
+  livenessProbe:
+    enabled: true
+    initialDelaySeconds: 10
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+
+  readinessProbe:
+    enabled: true
+    initialDelaySeconds: 5
+    periodSeconds: 5
+    timeoutSeconds: 3
+    failureThreshold: 3
 
   service:
     type: ClusterIP
@@ -39,16 +56,38 @@ gateway:
 pooler:
   enabled: true
   replicas: 1
-  command: [ "/bin/multipooler" ]
-  args: []
+  command: [ "/multigres/bin/multipooler" ]
+  args:
+  - "--topo-global-root"
+  - "/multigres/global"
   extraEnv: []
   resources: {}
+
+  livenessProbe:
+    enabled: true
+    initialDelaySeconds: 10
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+
+  readinessProbe:
+    enabled: true
+    initialDelaySeconds: 5
+    periodSeconds: 5
+    timeoutSeconds: 3
+    failureThreshold: 3
 
   service:
     type: ClusterIP
     port: 6432
     annotations: {}
     labels: {}
+
+serviceAccount:
+  create: true
+  automount: true
+  annotations: {}
+  name: ""
 
 podAnnotations: {}
 podLabels: {}
@@ -70,6 +109,11 @@ pdb:
 
 autoscaling:
   enabled: false
-  minReplicas: 2
-  maxReplicas: 10
-  targetCPUUtilizationPercentage: 80
+  gateway:
+    minReplicas: 2
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 80
+  pooler:
+    minReplicas: 2
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 80

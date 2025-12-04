@@ -1,24 +1,55 @@
 ---
+{{- if .Values.gateway.enabled }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: {{ include "multigres.fullname" . }}-gateway
   labels:
     {{- include "multigres.labels" . | nindent 4 }}
+    app.kubernetes.io/component: gateway
 spec:
   replicas: {{ .Values.gateway.replicas }}
   selector:
     matchLabels:
       app.kubernetes.io/name: {{ include "multigres.name" . }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
       app.kubernetes.io/component: gateway
   template:
     metadata:
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
       labels:
         app.kubernetes.io/name: {{ include "multigres.name" . }}
+        app.kubernetes.io/instance: {{ .Release.Name }}
         app.kubernetes.io/component: gateway
-        {{- include "multigres.labels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
     spec:
       {{- include "multigres.imagePullSecrets" . | nindent 6 }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "multigres.serviceAccountName" . }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: gateway
           image: {{ include "multigres.image" . }}
@@ -29,6 +60,10 @@ spec:
           {{- with .Values.gateway.args }}
           args: {{ toJson . }}
           {{- end }}
+          ports:
+            - name: postgres
+              containerPort: 5432
+              protocol: TCP
           env:
             - name: MULTIGRES_CONFIG
               value: /etc/multigres/config.yaml
@@ -40,9 +75,41 @@ spec:
             - name: config
               mountPath: /etc/multigres/config.yaml
               subPath: config.yaml
+              readOnly: true
+          {{- if .Values.gateway.livenessProbe.enabled }}
+          livenessProbe:
+            tcpSocket:
+              port: postgres
+            initialDelaySeconds: {{ .Values.gateway.livenessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.gateway.livenessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.gateway.livenessProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.gateway.livenessProbe.failureThreshold }}
+          {{- end }}
+          {{- if .Values.gateway.readinessProbe.enabled }}
+          readinessProbe:
+            tcpSocket:
+              port: postgres
+            initialDelaySeconds: {{ .Values.gateway.readinessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.gateway.readinessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.gateway.readinessProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.gateway.readinessProbe.failureThreshold }}
+          {{- end }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 65532
+            capabilities:
+              drop:
+                - ALL
           resources:
+            {{- if .Values.gateway.resources }}
             {{- toYaml .Values.gateway.resources | nindent 12 }}
+            {{- else }}
+            {{- toYaml .Values.resources | nindent 12 }}
+            {{- end }}
       volumes:
         - name: config
           configMap:
             name: {{ include "multigres.fullname" . }}-config
+{{- end }}

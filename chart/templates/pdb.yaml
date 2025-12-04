@@ -1,13 +1,36 @@
 {{- if .Values.pdb.enabled }}
+{{- if .Values.gateway.enabled }}
+---
 apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:
-  name: {{ include "multigres.fullname" . }}
+  name: {{ include "multigres.fullname" . }}-gateway
   labels:
     {{- include "multigres.labels" . | nindent 4 }}
+    app.kubernetes.io/component: gateway
 spec:
   minAvailable: {{ .Values.pdb.minAvailable }}
   selector:
     matchLabels:
-      {{- include "multigres.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/name: {{ include "multigres.name" . }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: gateway
+{{- end }}
+{{- if .Values.pooler.enabled }}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "multigres.fullname" . }}-pooler
+  labels:
+    {{- include "multigres.labels" . | nindent 4 }}
+    app.kubernetes.io/component: pooler
+spec:
+  minAvailable: {{ .Values.pdb.minAvailable }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "multigres.name" . }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: pooler
+{{- end }}
 {{- end }}

@@ -1,23 +1,55 @@
+---
+{{- if .Values.pooler.enabled }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: {{ include "multigres.fullname" . }}-pooler
   labels:
     {{- include "multigres.labels" . | nindent 4 }}
+    app.kubernetes.io/component: pooler
 spec:
   replicas: {{ .Values.pooler.replicas }}
   selector:
     matchLabels:
       app.kubernetes.io/name: {{ include "multigres.name" . }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
       app.kubernetes.io/component: pooler
   template:
     metadata:
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
       labels:
         app.kubernetes.io/name: {{ include "multigres.name" . }}
+        app.kubernetes.io/instance: {{ .Release.Name }}
         app.kubernetes.io/component: pooler
-        {{- include "multigres.labels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
     spec:
       {{- include "multigres.imagePullSecrets" . | nindent 6 }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "multigres.serviceAccountName" . }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: pooler
           image: {{ include "multigres.image" . }}
@@ -28,6 +60,10 @@ spec:
           {{- with .Values.pooler.args }}
           args: {{ toJson . }}
           {{- end }}
+          ports:
+            - name: postgres
+              containerPort: 6432
+              protocol: TCP
           env:
             - name: MULTIGRES_CONFIG
               value: /etc/multigres/config.yaml
@@ -39,9 +75,41 @@ spec:
             - name: config
               mountPath: /etc/multigres/config.yaml
               subPath: config.yaml
+              readOnly: true
+          {{- if .Values.pooler.livenessProbe.enabled }}
+          livenessProbe:
+            tcpSocket:
+              port: postgres
+            initialDelaySeconds: {{ .Values.pooler.livenessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.pooler.livenessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.pooler.livenessProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.pooler.livenessProbe.failureThreshold }}
+          {{- end }}
+          {{- if .Values.pooler.readinessProbe.enabled }}
+          readinessProbe:
+            tcpSocket:
+              port: postgres
+            initialDelaySeconds: {{ .Values.pooler.readinessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.pooler.readinessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.pooler.readinessProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.pooler.readinessProbe.failureThreshold }}
+          {{- end }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 65532
+            capabilities:
+              drop:
+                - ALL
           resources:
+            {{- if .Values.pooler.resources }}
             {{- toYaml .Values.pooler.resources | nindent 12 }}
+            {{- else }}
+            {{- toYaml .Values.resources | nindent 12 }}
+            {{- end }}
       volumes:
         - name: config
           configMap:
             name: {{ include "multigres.fullname" . }}-config
+{{- end }}

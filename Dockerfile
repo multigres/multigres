@@ -1,39 +1,45 @@
-FROM golang:1.25-alpine AS build
+# =========================================================================
+# Stage 1: The Builder Stage
+# =========================================================================
+FROM golang:1.25-alpine AS builder
 
 WORKDIR /src
 
+# Install build dependencies like git and make
+RUN apk add --no-cache git make bash
+
+# Cache dependencies
 COPY go.mod go.sum ./
-RUN go mod download && go mod verify
+RUN go mod download
+
+# Copy source and build static binaries using Makefile
 COPY . .
+RUN make build-release
 
-RUN CGO_ENABLED=0 GOOS=linux go build \
-    -trimpath \
-    -ldflags="-s -w" \
-    -o /bin/multigateway ./go/cmd/multigateway
+# =========================================================================
+# Stage 2: The Final Production Stage
+# =========================================================================
+FROM gcr.io/distroless/static-debian12:nonroot
 
-RUN CGO_ENABLED=0 GOOS=linux go build \
-    -trimpath \
-    -ldflags="-s -w" \
-    -o /bin/multipooler ./go/cmd/multipooler
+LABEL org.opencontainers.image.source="https://github.com/multigres/multigres"
+LABEL org.opencontainers.image.description="A single container image containing all Multigres components."
+LABEL org.opencontainers.image.licenses="Apache-2.0"
 
-FROM alpine:3.20
+ENV PATH="/multigres/bin:$PATH"
+WORKDIR /multigres
 
-RUN apk add --no-cache ca-certificates && \
-    apk upgrade --no-cache
+# Switch to the default non-root user for enhanced security.
+USER 65532:65532
 
-RUN addgroup -g 1000 multigres && \
-    adduser -u 1000 -G multigres -s /bin/sh -D multigres
+# Copy all the compiled binaries from the builder stage into our namespaced directory.
+COPY --from=builder /src/bin/multigres /multigres/bin/
+COPY --from=builder /src/bin/multiadmin /multigres/bin/
+COPY --from=builder /src/bin/multigateway /multigres/bin/
+COPY --from=builder /src/bin/multiorch /multigres/bin/
+COPY --from=builder /src/bin/multipooler /multigres/bin/
+COPY --from=builder /src/bin/pgctld /multigres/bin/
 
-COPY --from=build /bin/multigateway /usr/local/bin/multigateway
-COPY --from=build /bin/multipooler /usr/local/bin/multipooler
-
-RUN chown -R multigres:multigres /usr/local/bin/multigateway /usr/local/bin/multipooler && \
-    chmod +x /usr/local/bin/multigateway /usr/local/bin/multipooler
-
-USER multigres
-
-LABEL org.opencontainers.image.title="Multigres Gateway" \
-      org.opencontainers.image.description="PostgreSQL horizontal scaling and connection pooling" \
-      org.opencontainers.image.source="https://github.com/supabase/multigres"
-
-ENTRYPOINT ["/usr/local/bin/multigateway"]
+# Since this container serves multiple binaries depending on the execution it's impossible to have a healthcheck that applies to all at this point.
+# The healthcheck below exists only to satisfy Super-linter CHECKOV and it's not a reliable healthcheck for production. 
+HEALTHCHECK --interval=10s --timeout=3s \
+  CMD ["/multigres/bin/multigres"]

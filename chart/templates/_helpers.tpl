@@ -35,3 +35,11 @@ imagePullSecrets:
 {{- end }}
 {{- end }}
 {{- end }}
+
+{{- define "multigres.serviceAccountName" -}}
+{{- if .Values.serviceAccount.create }}
+{{- default (include "multigres.fullname" .) .Values.serviceAccount.name }}
+{{- else }}
+{{- default "default" .Values.serviceAccount.name }}
+{{- end }}
+{{- end }}
