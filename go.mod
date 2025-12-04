@@ -101,6 +101,7 @@ require (
 	github.com/sourcegraph/conc v0.3.1-0.20240121214520-5f936abd7ae8 // indirect
 	github.com/spf13/cast v1.10.0 // indirect
 	github.com/subosito/gotenv v1.6.0 // indirect
+	github.com/wadey/gocovmerge v0.0.0-20160331181800-b5bfa59ec0ad // indirect
 	github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e // indirect
 	github.com/yoheimuta/go-protoparser/v4 v4.14.2 // indirect
 	github.com/yoheimuta/protolint v0.56.4 // indirect
@@ -140,6 +141,7 @@ require (
 tool (
 	github.com/mfridman/tparse
 	github.com/quasilyte/go-ruleguard/cmd/ruleguard
+	github.com/wadey/gocovmerge
 	github.com/yoheimuta/protolint/cmd/protolint
 	golang.org/x/tools/cmd/goimports
 	google.golang.org/grpc/cmd/protoc-gen-go-grpc
