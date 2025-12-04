@@ -43,7 +43,7 @@ import (
 // return an error otherwise.
 //
 // For the default tablegroup, this function also creates the multischema global
-// tables (tablegroup, table, shard).
+// tables (tablegroup, tablegroup_table, shard).
 func (pm *MultiPoolerManager) createSidecarSchema(ctx context.Context) error {
 	pm.logger.InfoContext(ctx, "Creating multigres sidecar schema")
 
@@ -62,15 +62,15 @@ func (pm *MultiPoolerManager) createSidecarSchema(ctx context.Context) error {
 	// Create multischema global tables for the default tablegroup
 	pm.logger.InfoContext(ctx, "Creating multischema global tables for default tablegroup")
 
-	if err := pm.createTablegroups(ctx); err != nil {
+	if err := pm.createTablegroup(ctx); err != nil {
 		return err
 	}
 
-	if err := pm.createTables(ctx); err != nil {
+	if err := pm.createTablegroupTable(ctx); err != nil {
 		return err
 	}
 
-	if err := pm.createShards(ctx); err != nil {
+	if err := pm.createShard(ctx); err != nil {
 		return err
 	}
 
@@ -187,10 +187,10 @@ func (pm *MultiPoolerManager) createDurabilityPolicyTable(ctx context.Context) e
 		return mterrors.Wrap(err, "failed to create durability_policy table")
 	}
 
-	// Create index on is_active for efficient active policy lookups
 	execCtx, cancel = context.WithTimeout(ctx, 500*time.Millisecond)
 	defer cancel()
 
+	// Create index on is_active for efficient active policy lookups
 	_, err = pm.db.ExecContext(execCtx, `
 		CREATE INDEX IF NOT EXISTS idx_durability_policy_active
 		ON multigres.durability_policy(is_active)
@@ -208,8 +208,8 @@ func (pm *MultiPoolerManager) createDurabilityPolicyTable(ctx context.Context) e
 // Multischema Global Tables (default tablegroup only)
 // ----------------------------------------------------------------------------
 
-// createTablegroups creates the tablegroup table for tracking table groups
-func (pm *MultiPoolerManager) createTablegroups(ctx context.Context) error {
+// createTablegroup creates the tablegroup table for tracking table groups
+func (pm *MultiPoolerManager) createTablegroup(ctx context.Context) error {
 	execCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer cancel()
 
@@ -228,13 +228,13 @@ func (pm *MultiPoolerManager) createTablegroups(ctx context.Context) error {
 	return nil
 }
 
-// createTables creates the table table for tracking tables within tablegroups
-func (pm *MultiPoolerManager) createTables(ctx context.Context) error {
+// createTablegroupTable creates the tablegroup_table table for tracking tables within tablegroups
+func (pm *MultiPoolerManager) createTablegroupTable(ctx context.Context) error {
 	execCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer cancel()
 
 	_, err := pm.db.ExecContext(execCtx, `
-		CREATE TABLE IF NOT EXISTS multigres.table (
+		CREATE TABLE IF NOT EXISTS multigres.tablegroup_table (
 			oid BIGSERIAL PRIMARY KEY,
 			tablegroup_oid BIGINT NOT NULL REFERENCES multigres.tablegroup(oid),
 			name TEXT NOT NULL,
@@ -242,15 +242,15 @@ func (pm *MultiPoolerManager) createTables(ctx context.Context) error {
 		)
 	`)
 	if err != nil {
-		pm.logger.ErrorContext(ctx, "Failed to create table table", "error", err)
-		return mterrors.Wrap(err, "failed to create table table")
+		pm.logger.ErrorContext(ctx, "Failed to create tablegroup_table table", "error", err)
+		return mterrors.Wrap(err, "failed to create tablegroup_table table")
 	}
 
 	return nil
 }
 
-// createShards creates the shard table for tracking shards within tablegroups
-func (pm *MultiPoolerManager) createShards(ctx context.Context) error {
+// createShard creates the shard table for tracking shards within tablegroups
+func (pm *MultiPoolerManager) createShard(ctx context.Context) error {
 	execCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer cancel()
 

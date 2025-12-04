@@ -283,8 +283,8 @@ func TestInitializeAsStandby(t *testing.T) {
 				Database:   "postgres",
 				TopoClient: store,
 				ServiceID:  serviceID,
-				TableGroup: "default",
-				Shard:      "0-inf",
+				TableGroup: types.DefaultTableGroup,
+				Shard:      types.DefaultShard,
 			}
 
 			logger := slog.Default()
