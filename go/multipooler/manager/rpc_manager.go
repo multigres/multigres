@@ -1120,8 +1120,8 @@ func (pm *MultiPoolerManager) CreateDurabilityPolicy(ctx context.Context, req *m
 		}, nil
 	}
 
-	// Insert the policy into the durability_policy table using helper function
-	if err := InsertDurabilityPolicy(ctx, pm.db, req.PolicyName, quorumRuleJSON); err != nil {
+	// Insert the policy into the durability_policy table
+	if err := pm.insertDurabilityPolicy(ctx, req.PolicyName, quorumRuleJSON); err != nil {
 		pm.logger.ErrorContext(ctx, "Failed to insert durability policy", "error", err)
 		return &multipoolermanagerdatapb.CreateDurabilityPolicyResponse{
 			Success:      false,

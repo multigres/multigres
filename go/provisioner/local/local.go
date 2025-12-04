@@ -719,6 +719,12 @@ func (p *localProvisioner) provisionMultipooler(ctx context.Context, req *provis
 		tableGroup = tgFromConfig
 	}
 
+	// Get shard from multipooler config, default to "0-inf" if not set
+	shard := "0-inf"
+	if shardFromConfig, ok := multipoolerConfig["shard"].(string); ok && shardFromConfig != "" {
+		shard = shardFromConfig
+	}
+
 	// Get log level
 	logLevel := "info"
 	if level, ok := multipoolerConfig["log_level"].(string); ok {
@@ -782,6 +788,7 @@ func (p *localProvisioner) provisionMultipooler(ctx context.Context, req *provis
 		"--cell", cell,
 		"--database", database,
 		"--table-group", tableGroup,
+		"--shard", shard,
 		"--service-id", serviceID,
 		"--pgctld-addr", pgctldResult.Address,
 		"--log-level", logLevel,

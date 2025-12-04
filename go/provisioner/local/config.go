@@ -82,6 +82,7 @@ type MultipoolerConfig struct {
 	Path           string `yaml:"path"`
 	Database       string `yaml:"database"`
 	TableGroup     string `yaml:"table-group"`
+	Shard          string `yaml:"shard"`
 	ServiceID      string `yaml:"service-id"`
 	PoolerDir      string `yaml:"pooler-dir"`  // Directory path for PostgreSQL socket files
 	PgPort         int    `yaml:"pg-port"`     // PostgreSQL port number (same as pgctld)
@@ -182,6 +183,7 @@ func (p *localProvisioner) DefaultConfig(configPaths []string) map[string]any {
 	serviceIDZone1 := stringutil.RandomString(8)
 	serviceIDZone2 := stringutil.RandomString(8)
 	tableGroup := "default"
+	shard := "0-inf"
 	dbName := "postgres"
 
 	// Create typed configuration with defaults
@@ -227,6 +229,7 @@ func (p *localProvisioner) DefaultConfig(configPaths []string) map[string]any {
 					Path:           filepath.Join(binDir, "multipooler"),
 					Database:       dbName,
 					TableGroup:     tableGroup,
+					Shard:          shard,
 					ServiceID:      serviceIDZone1,
 					PoolerDir:      GeneratePoolerDir(baseDir, serviceIDZone1),
 					PgPort:         ports.DefaultPostgresPort, // Same as pgctld for this zone
@@ -267,6 +270,7 @@ func (p *localProvisioner) DefaultConfig(configPaths []string) map[string]any {
 					Path:           filepath.Join(binDir, "multipooler"),
 					Database:       dbName,
 					TableGroup:     tableGroup,
+					Shard:          shard,
 					ServiceID:      serviceIDZone2,
 					PoolerDir:      GeneratePoolerDir(baseDir, serviceIDZone2),
 					PgPort:         ports.DefaultPostgresPort + 1,
@@ -360,6 +364,7 @@ func (p *localProvisioner) getCellServiceConfig(cellName, service string) (map[s
 			"path":             cellServices.Multipooler.Path,
 			"database":         cellServices.Multipooler.Database,
 			"table_group":      cellServices.Multipooler.TableGroup,
+			"shard":            cellServices.Multipooler.Shard,
 			"service-id":       cellServices.Multipooler.ServiceID,
 			"http_port":        cellServices.Multipooler.HttpPort,
 			"grpc_port":        cellServices.Multipooler.GrpcPort,
