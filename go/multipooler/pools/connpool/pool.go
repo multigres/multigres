@@ -151,13 +151,10 @@ func NewPool[C Connection](config *Config) *Pool[C] {
 }
 
 func (pool *Pool[C]) runWorker(close <-chan struct{}, interval time.Duration, worker func(now time.Time) bool) {
-	pool.workers.Add(1)
-
-	go func() {
+	pool.workers.Go(func() {
 		tick := time.NewTicker(interval)
 
 		defer tick.Stop()
-		defer pool.workers.Done()
 
 		for {
 			select {
@@ -169,7 +166,7 @@ func (pool *Pool[C]) runWorker(close <-chan struct{}, interval time.Duration, wo
 				return
 			}
 		}
-	}()
+	})
 }
 
 func (pool *Pool[C]) open() {

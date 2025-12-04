@@ -85,20 +85,6 @@ func (s *ConnectionState) IsClean() bool {
 	return s.Settings == nil || s.Settings.IsEmpty()
 }
 
-// HasMatchingSettings returns true if this state has settings that match the given settings.
-func (s *ConnectionState) HasMatchingSettings(other *Settings) bool {
-	if s == nil {
-		return other == nil || other.IsEmpty()
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if s.Settings == nil {
-		return other == nil || other.IsEmpty()
-	}
-	return s.Settings.Equals(other)
-}
-
 // Clone creates a deep copy of this state.
 func (s *ConnectionState) Clone() *ConnectionState {
 	if s == nil {
@@ -354,27 +340,6 @@ func (s *Settings) IsEmpty() bool {
 		return true
 	}
 	return len(s.Vars) == 0
-}
-
-// Equals checks if two Settings are equal (same variables).
-// Note: bucket numbers are NOT compared since two Settings with the same
-// variables may have different buckets if created at different times.
-func (s *Settings) Equals(other *Settings) bool {
-	if s == other {
-		return true
-	}
-	if s == nil || other == nil {
-		return false
-	}
-	if len(s.Vars) != len(other.Vars) {
-		return false
-	}
-	for k, v := range s.Vars {
-		if ov, ok := other.Vars[k]; !ok || v != ov {
-			return false
-		}
-	}
-	return true
 }
 
 // Clone creates a copy of these settings with the same bucket number.
