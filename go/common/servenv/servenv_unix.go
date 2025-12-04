@@ -42,7 +42,7 @@ func (sv *ServEnv) Init(serviceName string) {
 	sv.lg.SetupLogging()
 
 	// Initialize OpenTelemetry
-	if err := sv.telemetry.InitTelemetry(context.Background(), serviceName); err != nil {
+	if err := sv.telemetry.InitTelemetry(context.TODO(), serviceName); err != nil {
 		slog.Error("Failed to initialize OpenTelemetry", "error", err)
 		// Continue without telemetry rather than crashing
 	}

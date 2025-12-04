@@ -15,7 +15,6 @@
 package topo
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -60,7 +59,7 @@ func runGetGateways(cmd *cobra.Command, args []string) error {
 
 	// Create client and make the request
 	client := multiadminpb.NewMultiAdminServiceClient(conn)
-	ctx := context.Background()
+	ctx := cmd.Context()
 
 	request := &multiadminpb.GetGatewaysRequest{
 		Cells: cells,

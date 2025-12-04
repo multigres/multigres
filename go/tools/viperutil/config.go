@@ -205,7 +205,7 @@ func (vc *ViperConfig) LoadConfig(reg *Registry) (context.CancelFunc, error) {
 		return nil, err
 	}
 
-	return reg.dynamic.Watch(context.Background(), reg.static, vc.configPersistenceMinInterval.Get())
+	return reg.dynamic.Watch(context.TODO(), reg.static, vc.configPersistenceMinInterval.Get())
 }
 
 // isConfigFileNotFoundError checks if the error is caused because the file wasn't found.
