@@ -75,14 +75,11 @@ func (a *ShardNeedsBootstrapAnalyzer) Analyze(poolerAnalysis *store.ReplicationA
 		}
 
 		return []types.Problem{{
-			Code:       types.ProblemShardNeedsBootstrap,
-			CheckName:  "ShardNeedsBootstrap",
-			PoolerID:   poolerAnalysis.PoolerID,
-			Database:   poolerAnalysis.Database,
-			TableGroup: poolerAnalysis.TableGroup,
-			Shard:      poolerAnalysis.Shard,
-			Description: fmt.Sprintf("Shard %s/%s/%s has no initialized nodes and needs bootstrap",
-				poolerAnalysis.Database, poolerAnalysis.TableGroup, poolerAnalysis.Shard),
+			Code:           types.ProblemShardNeedsBootstrap,
+			CheckName:      "ShardNeedsBootstrap",
+			PoolerID:       poolerAnalysis.PoolerID,
+			ShardKey:       poolerAnalysis.ShardKey,
+			Description:    fmt.Sprintf("Shard %s has no initialized nodes and needs bootstrap", poolerAnalysis.ShardKey),
 			Priority:       types.PriorityShardBootstrap,
 			Scope:          types.ScopeShard,
 			DetectedAt:     time.Now(),

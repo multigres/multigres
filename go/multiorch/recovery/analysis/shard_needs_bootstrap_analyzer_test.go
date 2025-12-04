@@ -23,6 +23,7 @@ import (
 
 	"github.com/multigres/multigres/go/common/rpcclient"
 	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
+	commontypes "github.com/multigres/multigres/go/common/types"
 	"github.com/multigres/multigres/go/multiorch/coordinator"
 	"github.com/multigres/multigres/go/multiorch/recovery/types"
 	"github.com/multigres/multigres/go/multiorch/store"
@@ -52,9 +53,7 @@ func TestShardNeedsBootstrapAnalyzer_Analyze(t *testing.T) {
 	t.Run("detects uninitialized shard", func(t *testing.T) {
 		analysis := &store.ReplicationAnalysis{
 			PoolerID:        &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler1"},
-			Database:        "db",
-			TableGroup:      "tg",
-			Shard:           "0",
+			ShardKey:        commontypes.ShardKey{Database: "db", TableGroup: "tg", Shard: "0"},
 			IsInitialized:   false,
 			PrimaryPoolerID: nil, // no primary exists
 		}

@@ -552,10 +552,10 @@ func startMultiOrch(t *testing.T, baseDir, cell string, etcdAddr string, watchTa
 	return multiOrchCmd
 }
 
-// waitForShardBootstrapped polls multipooler nodes until at least one is initialized as primary.
+// waitForShardPrimary polls multipooler nodes until at least one is initialized as primary.
 // Uses PoolerType from topology (set by ChangeType RPC) rather than postgres-level role from pg_is_in_recovery().
 // This ensures the test waits until multiorch has completed the full bootstrap sequence including ChangeType.
-func waitForShardBootstrapped(t *testing.T, nodes []*nodeInstance, timeout time.Duration) *nodeInstance {
+func waitForShardPrimary(t *testing.T, nodes []*nodeInstance, timeout time.Duration) *nodeInstance {
 	t.Helper()
 
 	deadline := time.Now().Add(timeout)

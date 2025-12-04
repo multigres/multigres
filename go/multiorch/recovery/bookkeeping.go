@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"time"
 
+	commontypes "github.com/multigres/multigres/go/common/types"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 )
 
@@ -64,12 +65,10 @@ func (re *Engine) forgetLongUnseenInstances() {
 
 	// Collect entries to delete (can't delete while iterating due to lock)
 	type deleteEntry struct {
-		poolerID   string
-		auditType  string
-		database   string
-		tableGroup string
-		shard      string
-		message    string
+		poolerID  string
+		auditType string
+		shardKey  commontypes.ShardKey
+		message   string
 	}
 	var toDelete []deleteEntry
 
@@ -86,9 +85,11 @@ func (re *Engine) forgetLongUnseenInstances() {
 			return true // continue iteration
 		}
 
-		database := poolerInfo.MultiPooler.Database
-		tableGroup := poolerInfo.MultiPooler.TableGroup
-		shard := poolerInfo.MultiPooler.Shard
+		shardKey := commontypes.ShardKey{
+			Database:   poolerInfo.MultiPooler.Database,
+			TableGroup: poolerInfo.MultiPooler.TableGroup,
+			Shard:      poolerInfo.MultiPooler.Shard,
+		}
 
 		// Get timestamps as time.Time
 		lastSeen := time.Time{}
@@ -110,24 +111,20 @@ func (re *Engine) forgetLongUnseenInstances() {
 			}
 			if lastCheckAttempted.Before(cutoff) {
 				toDelete = append(toDelete, deleteEntry{
-					poolerID:   poolerID,
-					auditType:  "forget-never-seen",
-					database:   database,
-					tableGroup: tableGroup,
-					shard:      shard,
-					message:    "removing pooler that was never successfully health checked after 4 hours",
+					poolerID:  poolerID,
+					auditType: "forget-never-seen",
+					shardKey:  shardKey,
+					message:   "removing pooler that was never successfully health checked after 4 hours",
 				})
 				forgottenNeverSeen++
 			}
 		} else if lastSeen.Before(cutoff) {
 			// Case 2: Was previously healthy but not seen in 4+ hours
 			toDelete = append(toDelete, deleteEntry{
-				poolerID:   poolerID,
-				auditType:  "forget-long-unseen",
-				database:   database,
-				tableGroup: tableGroup,
-				shard:      shard,
-				message:    fmt.Sprintf("removing pooler not seen for %s", now.Sub(lastSeen).Round(time.Second)),
+				poolerID:  poolerID,
+				auditType: "forget-long-unseen",
+				shardKey:  shardKey,
+				message:   fmt.Sprintf("removing pooler not seen for %s", now.Sub(lastSeen).Round(time.Second)),
 			})
 			forgottenLongGone++
 		}
@@ -136,7 +133,7 @@ func (re *Engine) forgetLongUnseenInstances() {
 
 	// Now delete the entries (outside the iteration)
 	for _, entry := range toDelete {
-		re.audit(entry.auditType, entry.poolerID, entry.database, entry.tableGroup, entry.shard, entry.message)
+		re.audit(entry.auditType, entry.poolerID, entry.shardKey, entry.message)
 		re.poolerStore.Delete(entry.poolerID)
 	}
 
@@ -152,13 +149,11 @@ func (re *Engine) forgetLongUnseenInstances() {
 
 // audit logs an audit message with consistent formatting.
 // This ensures important operations are logged in a structured way for compliance and debugging.
-func (re *Engine) audit(auditType, poolerID, database, tableGroup, shard, message string) {
+func (re *Engine) audit(auditType, poolerID string, shardKey commontypes.ShardKey, message string) {
 	re.logger.Info("audit",
 		"audit_type", auditType,
 		"pooler_id", poolerID,
-		"database", database,
-		"tablegroup", tableGroup,
-		"shard", shard,
+		"shard_key", shardKey.String(),
 		"message", message,
 	)
 }

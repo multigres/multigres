@@ -62,14 +62,11 @@ func (a *PrimaryIsDeadAnalyzer) Analyze(poolerAnalysis *store.ReplicationAnalysi
 	}
 
 	return []types.Problem{{
-		Code:       types.ProblemPrimaryIsDead,
-		CheckName:  "PrimaryIsDead",
-		PoolerID:   poolerAnalysis.PoolerID,
-		Database:   poolerAnalysis.Database,
-		TableGroup: poolerAnalysis.TableGroup,
-		Shard:      poolerAnalysis.Shard,
-		Description: fmt.Sprintf("Primary for shard %s/%s/%s is dead/unreachable",
-			poolerAnalysis.Database, poolerAnalysis.TableGroup, poolerAnalysis.Shard),
+		Code:           types.ProblemPrimaryIsDead,
+		CheckName:      "PrimaryIsDead",
+		PoolerID:       poolerAnalysis.PoolerID,
+		ShardKey:       poolerAnalysis.ShardKey,
+		Description:    fmt.Sprintf("Primary for shard %s is dead/unreachable", poolerAnalysis.ShardKey),
 		Priority:       types.PriorityEmergency,
 		Scope:          types.ScopeShard,
 		DetectedAt:     time.Now(),

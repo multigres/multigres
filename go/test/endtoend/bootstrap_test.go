@@ -251,7 +251,7 @@ func TestBootstrapInitialization(t *testing.T) {
 
 	// Wait for multiorch to detect uninitialized shard and bootstrap it automatically
 	t.Logf("Waiting for multiorch to detect and bootstrap the shard...")
-	primaryNode := waitForShardBootstrapped(t, nodes, 60*time.Second)
+	primaryNode := waitForShardPrimary(t, nodes, 60*time.Second)
 	require.NotNil(t, primaryNode, "Expected multiorch to bootstrap shard automatically")
 
 	// Wait for all standbys to complete initialization before running verification

@@ -91,12 +91,7 @@ func (re *Engine) groupProblemsByShard(problems []types.Problem) map[commontypes
 	grouped := make(map[commontypes.ShardKey][]types.Problem)
 
 	for _, problem := range problems {
-		key := commontypes.ShardKey{
-			Database:   problem.Database,
-			TableGroup: problem.TableGroup,
-			Shard:      problem.Shard,
-		}
-		grouped[key] = append(grouped[key], problem)
+		grouped[problem.ShardKey] = append(grouped[problem.ShardKey], problem)
 	}
 
 	return grouped
@@ -239,11 +234,9 @@ func (re *Engine) attemptRecovery(problem types.Problem) {
 	// pg_is_in_recovery which is authoritative (topology type is only a fallback).
 	if problem.Scope == types.ScopeShard {
 		re.logger.InfoContext(re.ctx, "forcing refresh of all poolers post recovery",
-			"database", problem.Database,
-			"tablegroup", problem.TableGroup,
-			"shard", problem.Shard,
+			"shard_key", problem.ShardKey.String(),
 		)
-		re.forceHealthCheckShardPoolers(context.TODO(), problem.Database, problem.TableGroup, problem.Shard, nil /* poolersToIgnore */)
+		re.forceHealthCheckShardPoolers(context.TODO(), problem.ShardKey, nil /* poolersToIgnore */)
 	}
 }
 
@@ -269,7 +262,7 @@ func (re *Engine) recheckProblem(problem types.Problem) (bool, error) {
 	defer cancel()
 
 	// Refresh metadata for the shard
-	if err := re.refreshShardMetadata(ctx, problem.Database, problem.TableGroup, problem.Shard, nil); err != nil {
+	if err := re.refreshShardMetadata(ctx, problem.ShardKey, nil); err != nil {
 		return false, fmt.Errorf("failed to refresh shard metadata: %w", err)
 	}
 
@@ -280,7 +273,7 @@ func (re *Engine) recheckProblem(problem types.Problem) (bool, error) {
 		if problem.Code == types.ProblemPrimaryIsDead {
 			poolersToIgnore = []string{poolerIDStr}
 		}
-		re.forceHealthCheckShardPoolers(ctx, problem.Database, problem.TableGroup, problem.Shard, poolersToIgnore)
+		re.forceHealthCheckShardPoolers(ctx, problem.ShardKey, poolersToIgnore)
 	} else {
 		// Single-pooler: only refresh this pooler + primary
 		re.logger.DebugContext(re.ctx, "refreshing single pooler and primary")
@@ -291,7 +284,7 @@ func (re *Engine) recheckProblem(problem types.Problem) (bool, error) {
 		}
 
 		// Find and refresh primary if different
-		primaryID, err := re.findPrimaryInShard(problem.Database, problem.TableGroup, problem.Shard)
+		primaryID, err := re.findPrimaryInShard(problem.ShardKey)
 		if err == nil && primaryID != poolerIDStr {
 			if ph, ok := re.poolerStore.Get(primaryID); ok {
 				re.pollPooler(ctx, ph.MultiPooler.Id, ph, true /* forceDiscovery */)
@@ -335,7 +328,7 @@ func (re *Engine) recheckProblem(problem types.Problem) (bool, error) {
 }
 
 // findPrimaryInShard finds the primary pooler ID for a given shard.
-func (re *Engine) findPrimaryInShard(database, tablegroup, shard string) (string, error) {
+func (re *Engine) findPrimaryInShard(shardKey commontypes.ShardKey) (string, error) {
 	var primaryID string
 	var found bool
 
@@ -344,9 +337,9 @@ func (re *Engine) findPrimaryInShard(database, tablegroup, shard string) (string
 			return true
 		}
 
-		if poolerHealth.MultiPooler.Database == database &&
-			poolerHealth.MultiPooler.TableGroup == tablegroup &&
-			poolerHealth.MultiPooler.Shard == shard &&
+		if poolerHealth.MultiPooler.Database == shardKey.Database &&
+			poolerHealth.MultiPooler.TableGroup == shardKey.TableGroup &&
+			poolerHealth.MultiPooler.Shard == shardKey.Shard &&
 			poolerHealth.MultiPooler.Type == clustermetadatapb.PoolerType_PRIMARY {
 			primaryID = poolerID
 			found = true
@@ -356,7 +349,7 @@ func (re *Engine) findPrimaryInShard(database, tablegroup, shard string) (string
 	})
 
 	if !found {
-		return "", fmt.Errorf("no primary found for shard %s/%s/%s", database, tablegroup, shard)
+		return "", fmt.Errorf("no primary found for shard %s", shardKey)
 	}
 
 	return primaryID, nil

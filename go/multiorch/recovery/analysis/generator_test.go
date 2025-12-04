@@ -73,9 +73,9 @@ func TestAnalysisGenerator_GenerateAnalyses_SinglePrimary(t *testing.T) {
 	require.Len(t, analyses, 1, "should generate one analysis")
 
 	analysis := analyses[0]
-	assert.Equal(t, "testdb", analysis.Database)
-	assert.Equal(t, "testtg", analysis.TableGroup)
-	assert.Equal(t, "0", analysis.Shard)
+	assert.Equal(t, "testdb", analysis.ShardKey.Database)
+	assert.Equal(t, "testtg", analysis.ShardKey.TableGroup)
+	assert.Equal(t, "0", analysis.ShardKey.Shard)
 	assert.True(t, analysis.IsPrimary)
 	assert.True(t, analysis.LastCheckValid)
 	assert.Equal(t, "0/1234567", analysis.PrimaryLSN)
@@ -312,7 +312,7 @@ func TestAnalysisGenerator_GenerateAnalyses_MultipleTableGroups(t *testing.T) {
 	// Verify both table groups are present
 	tableGroups := make(map[string]bool)
 	for _, a := range analyses {
-		tableGroups[a.TableGroup] = true
+		tableGroups[a.ShardKey.TableGroup] = true
 	}
 
 	assert.True(t, tableGroups["tg1"])
@@ -405,7 +405,7 @@ func TestGenerateAnalyses_SkipsNilEntries(t *testing.T) {
 
 	// Should only generate one analysis for the valid pooler, skipping the nil entry
 	assert.Len(t, analyses, 1)
-	assert.Equal(t, "db1", analyses[0].Database)
+	assert.Equal(t, "db1", analyses[0].ShardKey.Database)
 }
 
 // Task 7: Test for no primary in shard

@@ -22,6 +22,7 @@ import (
 
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/topoclient"
+	commontypes "github.com/multigres/multigres/go/common/types"
 	"github.com/multigres/multigres/go/multiorch/coordinator"
 	"github.com/multigres/multigres/go/multiorch/recovery/types"
 	"github.com/multigres/multigres/go/multiorch/store"
@@ -63,15 +64,12 @@ func NewAppointLeaderAction(
 // Execute performs leader appointment by running the coordinator's consensus protocol
 func (a *AppointLeaderAction) Execute(ctx context.Context, problem types.Problem) error {
 	a.logger.InfoContext(ctx, "executing appoint leader action",
-		"database", problem.Database,
-		"tablegroup", problem.TableGroup,
-		"shard", problem.Shard)
+		"shard_key", problem.ShardKey.String())
 
 	// Fetch cohort and recheck the problem after acquiring lock
-	cohort := a.getCohort(problem.Database, problem.TableGroup, problem.Shard)
+	cohort := a.getCohort(problem.ShardKey)
 	if len(cohort) == 0 {
-		return fmt.Errorf("no poolers found for shard %s/%s/%s",
-			problem.Database, problem.TableGroup, problem.Shard)
+		return fmt.Errorf("no poolers found for shard %s", problem.ShardKey)
 	}
 
 	// Check if a primary already exists (problem resolved)
@@ -81,36 +79,31 @@ func (a *AppointLeaderAction) Execute(ctx context.Context, problem types.Problem
 			pooler.IsLastCheckValid {
 			a.logger.InfoContext(ctx, "primary already exists, skipping leader appointment",
 				"primary", pooler.MultiPooler.Id.Name,
-				"database", problem.Database,
-				"shard", problem.Shard)
+				"shard_key", problem.ShardKey.String())
 			return nil
 		}
 	}
 
 	a.logger.InfoContext(ctx, "verified shard still needs leader appointment, proceeding",
-		"database", problem.Database,
-		"tablegroup", problem.TableGroup,
-		"shard", problem.Shard,
+		"shard_key", problem.ShardKey.String(),
 		"cohort_size", len(cohort))
 
 	// Use the coordinator's AppointLeader to handle the election
 	// It will select the most advanced node based on WAL position
 	// and run the full consensus protocol (term discovery, candidate selection,
 	// node recruitment, quorum validation, promotion, and replication setup)
-	if err := a.coordinator.AppointLeader(ctx, problem.Shard, cohort, problem.Database); err != nil {
+	if err := a.coordinator.AppointLeader(ctx, problem.ShardKey.Shard, cohort, problem.ShardKey.Database); err != nil {
 		return mterrors.Wrap(err, "failed to appoint leader")
 	}
 
 	a.logger.InfoContext(ctx, "appoint leader action completed successfully",
-		"database", problem.Database,
-		"tablegroup", problem.TableGroup,
-		"shard", problem.Shard)
+		"shard_key", problem.ShardKey.String())
 
 	return nil
 }
 
 // getCohort fetches all poolers in the shard from the pooler store.
-func (a *AppointLeaderAction) getCohort(database, tablegroup, shard string) []*multiorchdatapb.PoolerHealthState {
+func (a *AppointLeaderAction) getCohort(shardKey commontypes.ShardKey) []*multiorchdatapb.PoolerHealthState {
 	var cohort []*multiorchdatapb.PoolerHealthState
 
 	a.poolerStore.Range(func(key string, pooler *multiorchdatapb.PoolerHealthState) bool {
@@ -118,9 +111,9 @@ func (a *AppointLeaderAction) getCohort(database, tablegroup, shard string) []*m
 			return true // continue
 		}
 
-		if pooler.MultiPooler.Database == database &&
-			pooler.MultiPooler.TableGroup == tablegroup &&
-			pooler.MultiPooler.Shard == shard {
+		if pooler.MultiPooler.Database == shardKey.Database &&
+			pooler.MultiPooler.TableGroup == shardKey.TableGroup &&
+			pooler.MultiPooler.Shard == shardKey.Shard {
 			cohort = append(cohort, pooler)
 		}
 

@@ -70,26 +70,21 @@ func NewBootstrapShardAction(
 // Execute performs bootstrap initialization for a new shard
 func (a *BootstrapShardAction) Execute(ctx context.Context, problem types.Problem) error {
 	a.logger.InfoContext(ctx, "executing bootstrap shard action",
-		"database", problem.Database,
-		"tablegroup", problem.TableGroup,
-		"shard", problem.Shard)
+		"database", problem.ShardKey.Database,
+		"tablegroup", problem.ShardKey.TableGroup,
+		"shard", problem.ShardKey.Shard)
 
 	// Acquire distributed lock for this shard
-	shardKey := commontypes.ShardKey{
-		Database:   problem.Database,
-		TableGroup: problem.TableGroup,
-		Shard:      problem.Shard,
-	}
-	a.logger.InfoContext(ctx, "acquiring recovery lock", "shard_key", shardKey.String())
+	a.logger.InfoContext(ctx, "acquiring recovery lock", "shard_key", problem.ShardKey.String())
 
 	ctx, unlock, err := a.topoStore.LockShard(
 		ctx,
-		shardKey,
+		problem.ShardKey,
 		"bootstrap recovery",
 	)
 	if err != nil {
 		a.logger.InfoContext(ctx, "failed to acquire lock, another recovery may be in progress",
-			"shard_key", shardKey.String(),
+			"shard_key", problem.ShardKey.String(),
 			"error", err)
 		return err
 	}
@@ -98,29 +93,27 @@ func (a *BootstrapShardAction) Execute(ctx context.Context, problem types.Proble
 		unlock(&unlockErr)
 		if unlockErr != nil {
 			a.logger.WarnContext(ctx, "failed to release recovery lock",
-				"shard_key", shardKey.String(),
+				"shard_key", problem.ShardKey.String(),
 				"error", unlockErr)
 		}
 	}()
 
-	a.logger.InfoContext(ctx, "acquired recovery lock", "shard_key", shardKey.String())
+	a.logger.InfoContext(ctx, "acquired recovery lock", "shard_key", problem.ShardKey.String())
 
 	// Fetch cohort from pooler store
-	cohort := a.getCohort(problem.Database, problem.TableGroup, problem.Shard)
+	cohort := a.getCohort(problem.ShardKey)
 	if len(cohort) == 0 {
-		return fmt.Errorf("no poolers found for shard %s/%s/%s",
-			problem.Database, problem.TableGroup, problem.Shard)
+		return fmt.Errorf("no poolers found for shard %s", problem.ShardKey)
 	}
 
 	// Get the durability policy name from the Database proto in topology
-	policyName, err := a.getDurabilityPolicyName(ctx, problem.Database)
+	policyName, err := a.getDurabilityPolicyName(ctx, problem.ShardKey.Database)
 	if err != nil {
 		return mterrors.Wrap(err, "failed to get durability policy name from topology")
 	}
 
 	a.logger.InfoContext(ctx, "using durability policy",
-		"shard", problem.Shard,
-		"database", problem.Database,
+		"shard_key", problem.ShardKey.String(),
 		"policy_name", policyName)
 
 	// Revalidate that bootstrap is still needed after acquiring lock.
@@ -132,16 +125,12 @@ func (a *BootstrapShardAction) Execute(ctx context.Context, problem types.Proble
 	}
 	if !needsBootstrap {
 		a.logger.InfoContext(ctx, "shard no longer needs bootstrap, problem resolved by another recovery",
-			"database", problem.Database,
-			"tablegroup", problem.TableGroup,
-			"shard", problem.Shard)
+			"shard_key", problem.ShardKey.String())
 		return nil
 	}
 
 	a.logger.InfoContext(ctx, "verified shard still needs bootstrap, proceeding",
-		"database", problem.Database,
-		"tablegroup", problem.TableGroup,
-		"shard", problem.Shard,
+		"shard_key", problem.ShardKey.String(),
 		"cohort_size", len(cohort))
 
 	// Select a bootstrap candidate
@@ -151,8 +140,7 @@ func (a *BootstrapShardAction) Execute(ctx context.Context, problem types.Proble
 	}
 
 	a.logger.InfoContext(ctx, "selected bootstrap candidate",
-		"shard", problem.Shard,
-		"database", problem.Database,
+		"shard_key", problem.ShardKey.String(),
 		"candidate", candidate.MultiPooler.Id.Name)
 
 	// Initialize the candidate as an empty primary with term=1
@@ -171,8 +159,7 @@ func (a *BootstrapShardAction) Execute(ctx context.Context, problem types.Proble
 	}
 
 	a.logger.InfoContext(ctx, "successfully initialized primary",
-		"shard", problem.Shard,
-		"database", problem.Database,
+		"shard_key", problem.ShardKey.String(),
 		"primary", candidate.MultiPooler.Id.Name,
 		"backup_id", resp.BackupId)
 
@@ -207,8 +194,7 @@ func (a *BootstrapShardAction) Execute(ctx context.Context, problem types.Proble
 	}
 
 	a.logger.InfoContext(ctx, "successfully created durability policy",
-		"shard", problem.Shard,
-		"database", problem.Database,
+		"shard_key", problem.ShardKey.String(),
 		"policy_name", policyName)
 
 	// Initialize remaining nodes as standbys
@@ -219,17 +205,15 @@ func (a *BootstrapShardAction) Execute(ctx context.Context, problem types.Proble
 		}
 	}
 
-	if err := a.initializeStandbys(ctx, problem.Shard, candidate, standbys, resp.BackupId); err != nil {
+	if err := a.initializeStandbys(ctx, problem.ShardKey, candidate, standbys, resp.BackupId); err != nil {
 		// Log but don't fail - we have a primary at least
 		a.logger.WarnContext(ctx, "failed to initialize some standbys",
-			"shard", problem.Shard,
-			"database", problem.Database,
+			"shard_key", problem.ShardKey.String(),
 			"error", err)
 	}
 
 	a.logger.InfoContext(ctx, "bootstrap shard action completed successfully",
-		"shard", problem.Shard,
-		"database", problem.Database,
+		"shard_key", problem.ShardKey.String(),
 		"primary", candidate.MultiPooler.Id.Name,
 		"standbys", len(standbys))
 
@@ -284,13 +268,13 @@ func (a *BootstrapShardAction) selectBootstrapCandidate(ctx context.Context, coh
 }
 
 // initializeStandbys initializes multiple nodes as standbys of the given primary
-func (a *BootstrapShardAction) initializeStandbys(ctx context.Context, shardID string, primary *multiorchdatapb.PoolerHealthState, standbys []*multiorchdatapb.PoolerHealthState, backupID string) error {
+func (a *BootstrapShardAction) initializeStandbys(ctx context.Context, shardKey commontypes.ShardKey, primary *multiorchdatapb.PoolerHealthState, standbys []*multiorchdatapb.PoolerHealthState, backupID string) error {
 	if len(standbys) == 0 {
 		return nil
 	}
 
 	a.logger.InfoContext(ctx, "initializing standbys",
-		"shard", shardID,
+		"shard_key", shardKey.String(),
 		"primary", primary.MultiPooler.Id.Name,
 		"standby_count", len(standbys),
 		"backup_id", backupID)
@@ -316,13 +300,13 @@ func (a *BootstrapShardAction) initializeStandbys(ctx context.Context, shardID s
 		res := <-results
 		if res.err != nil {
 			a.logger.WarnContext(ctx, "failed to initialize standby",
-				"shard", shardID,
+				"shard_key", shardKey.String(),
 				"node", res.node.MultiPooler.Id.Name,
 				"error", res.err)
 			failedNodes = append(failedNodes, res.node.MultiPooler.Id.Name)
 		} else {
 			a.logger.InfoContext(ctx, "successfully initialized standby",
-				"shard", shardID,
+				"shard_key", shardKey.String(),
 				"node", res.node.MultiPooler.Id.Name)
 		}
 	}
@@ -366,7 +350,7 @@ func (a *BootstrapShardAction) initializeSingleStandby(ctx context.Context, node
 }
 
 // getCohort fetches all poolers in the shard from the pooler store.
-func (a *BootstrapShardAction) getCohort(database, tablegroup, shard string) []*multiorchdatapb.PoolerHealthState {
+func (a *BootstrapShardAction) getCohort(shardKey commontypes.ShardKey) []*multiorchdatapb.PoolerHealthState {
 	var cohort []*multiorchdatapb.PoolerHealthState
 
 	a.poolerStore.Range(func(key string, pooler *multiorchdatapb.PoolerHealthState) bool {
@@ -374,9 +358,9 @@ func (a *BootstrapShardAction) getCohort(database, tablegroup, shard string) []*
 			return true // continue
 		}
 
-		if pooler.MultiPooler.Database == database &&
-			pooler.MultiPooler.TableGroup == tablegroup &&
-			pooler.MultiPooler.Shard == shard {
+		if pooler.MultiPooler.Database == shardKey.Database &&
+			pooler.MultiPooler.TableGroup == shardKey.TableGroup &&
+			pooler.MultiPooler.Shard == shardKey.Shard {
 			cohort = append(cohort, pooler)
 		}
 

@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/multigres/multigres/go/common/topoclient"
+	commontypes "github.com/multigres/multigres/go/common/types"
 	"github.com/multigres/multigres/go/multiorch/store"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
@@ -52,8 +53,13 @@ func (g *AnalysisGenerator) GenerateAnalyses() []*store.ReplicationAnalysis {
 	for database, tableGroups := range g.poolersByShard {
 		for tableGroup, shards := range tableGroups {
 			for shard, poolers := range shards {
+				shardKey := commontypes.ShardKey{
+					Database:   database,
+					TableGroup: tableGroup,
+					Shard:      shard,
+				}
 				for _, pooler := range poolers {
-					analysis := g.generateAnalysisForPooler(pooler, database, tableGroup, shard)
+					analysis := g.generateAnalysisForPooler(pooler, shardKey)
 					analyses = append(analyses, analysis)
 				}
 			}
@@ -148,7 +154,12 @@ func (g *AnalysisGenerator) GenerateAnalysisForPooler(poolerIDStr string) (*stor
 
 	// Generate analysis for this specific pooler using the cached poolersByShard.
 	// Note: If fresh data is needed (e.g., after re-polling), create a new AnalysisGenerator.
-	analysis := g.generateAnalysisForPooler(pooler, pooler.MultiPooler.Database, pooler.MultiPooler.TableGroup, pooler.MultiPooler.Shard)
+	shardKey := commontypes.ShardKey{
+		Database:   pooler.MultiPooler.Database,
+		TableGroup: pooler.MultiPooler.TableGroup,
+		Shard:      pooler.MultiPooler.Shard,
+	}
+	analysis := g.generateAnalysisForPooler(pooler, shardKey)
 
 	return analysis, nil
 }
@@ -156,9 +167,7 @@ func (g *AnalysisGenerator) GenerateAnalysisForPooler(poolerIDStr string) (*stor
 // generateAnalysisForPooler creates a ReplicationAnalysis for a single pooler.
 func (g *AnalysisGenerator) generateAnalysisForPooler(
 	pooler *multiorchdatapb.PoolerHealthState,
-	database string,
-	tableGroup string,
-	shard string,
+	shardKey commontypes.ShardKey,
 ) *store.ReplicationAnalysis {
 	// Determine pooler type from health check (PoolerType).
 	// Nodes are never created with topology type PRIMARY, so health check is authoritative.
@@ -170,9 +179,7 @@ func (g *AnalysisGenerator) generateAnalysisForPooler(
 
 	analysis := &store.ReplicationAnalysis{
 		PoolerID:             pooler.MultiPooler.Id,
-		Database:             pooler.MultiPooler.Database,
-		TableGroup:           pooler.MultiPooler.TableGroup,
-		Shard:                pooler.MultiPooler.Shard,
+		ShardKey:             shardKey,
 		PoolerType:           poolerType,
 		CurrentServingStatus: pooler.MultiPooler.ServingStatus,
 		IsPrimary:            poolerType == clustermetadatapb.PoolerType_PRIMARY,
@@ -193,7 +200,7 @@ func (g *AnalysisGenerator) generateAnalysisForPooler(
 		}
 
 		// Aggregate replica stats
-		g.aggregateReplicaStats(pooler, analysis, database, tableGroup, shard)
+		g.aggregateReplicaStats(pooler, analysis, shardKey)
 	}
 
 	// If this is a REPLICA, populate replica-specific fields
@@ -218,7 +225,7 @@ func (g *AnalysisGenerator) generateAnalysisForPooler(
 		}
 
 		// Lookup primary info
-		g.populatePrimaryInfo(pooler, analysis, database, tableGroup, shard)
+		g.populatePrimaryInfo(analysis, shardKey)
 	}
 
 	return analysis
@@ -228,9 +235,7 @@ func (g *AnalysisGenerator) generateAnalysisForPooler(
 func (g *AnalysisGenerator) aggregateReplicaStats(
 	primary *multiorchdatapb.PoolerHealthState,
 	analysis *store.ReplicationAnalysis,
-	database string,
-	tableGroup string,
-	shard string,
+	shardKey commontypes.ShardKey,
 ) {
 	var countReplicas uint
 	var countReachable uint
@@ -246,7 +251,7 @@ func (g *AnalysisGenerator) aggregateReplicaStats(
 	}
 
 	// Iterate only over poolers in the same shard (efficient lookup)
-	if poolers, ok := g.poolersByShard[database][tableGroup][shard]; ok {
+	if poolers, ok := g.poolersByShard[shardKey.Database][shardKey.TableGroup][shardKey.Shard]; ok {
 		for poolerID, pooler := range poolers {
 			if pooler == nil || pooler.MultiPooler == nil || pooler.MultiPooler.Id == nil {
 				continue
@@ -318,14 +323,11 @@ func (g *AnalysisGenerator) aggregateReplicaStats(
 
 // populatePrimaryInfo looks up the primary this replica is replicating from.
 func (g *AnalysisGenerator) populatePrimaryInfo(
-	replica *multiorchdatapb.PoolerHealthState,
 	analysis *store.ReplicationAnalysis,
-	database string,
-	tableGroup string,
-	shard string,
+	shardKey commontypes.ShardKey,
 ) {
 	// Find the primary in the same tablegroup (efficient lookup)
-	if poolers, ok := g.poolersByShard[database][tableGroup][shard]; ok {
+	if poolers, ok := g.poolersByShard[shardKey.Database][shardKey.TableGroup][shardKey.Shard]; ok {
 		for _, pooler := range poolers {
 			if pooler == nil || pooler.MultiPooler == nil || pooler.MultiPooler.Id == nil {
 				continue

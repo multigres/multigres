@@ -149,25 +149,19 @@ func TestGroupProblemsByShard(t *testing.T) {
 
 	problems := []types.Problem{
 		{
-			Code:       types.ProblemPrimaryIsDead,
-			PoolerID:   poolerID1,
-			Database:   "db1",
-			TableGroup: "tg1",
-			Shard:      "0",
+			Code:     types.ProblemPrimaryIsDead,
+			PoolerID: poolerID1,
+			ShardKey: commontypes.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"},
 		},
 		{
-			Code:       types.ProblemReplicaNotReplicating,
-			PoolerID:   poolerID2,
-			Database:   "db1",
-			TableGroup: "tg1",
-			Shard:      "0",
+			Code:     types.ProblemReplicaNotReplicating,
+			PoolerID: poolerID2,
+			ShardKey: commontypes.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"},
 		},
 		{
-			Code:       types.ProblemPrimaryIsDead,
-			PoolerID:   poolerID3,
-			Database:   "db2",
-			TableGroup: "tg2",
-			Shard:      "0",
+			Code:     types.ProblemPrimaryIsDead,
+			PoolerID: poolerID3,
+			ShardKey: commontypes.ShardKey{Database: "db2", TableGroup: "tg2", Shard: "0"},
 		},
 	}
 
@@ -206,28 +200,22 @@ func TestPrioritySorting(t *testing.T) {
 
 	problems := []types.Problem{
 		{
-			Code:       types.ProblemReplicaNotReplicating,
-			PoolerID:   poolerID2,
-			Database:   "db1",
-			TableGroup: "tg1",
-			Shard:      "0",
-			Priority:   types.PriorityHigh,
+			Code:     types.ProblemReplicaNotReplicating,
+			PoolerID: poolerID2,
+			ShardKey: commontypes.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"},
+			Priority: types.PriorityHigh,
 		},
 		{
-			Code:       types.ProblemPrimaryIsDead,
-			PoolerID:   poolerID1,
-			Database:   "db1",
-			TableGroup: "tg1",
-			Shard:      "0",
-			Priority:   types.PriorityEmergency,
+			Code:     types.ProblemPrimaryIsDead,
+			PoolerID: poolerID1,
+			ShardKey: commontypes.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"},
+			Priority: types.PriorityEmergency,
 		},
 		{
-			Code:       "ConfigurationDrift",
-			PoolerID:   poolerID3,
-			Database:   "db1",
-			TableGroup: "tg1",
-			Shard:      "0",
-			Priority:   types.PriorityNormal,
+			Code:     "ConfigurationDrift",
+			PoolerID: poolerID3,
+			ShardKey: commontypes.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"},
+			Priority: types.PriorityNormal,
 		},
 	}
 
@@ -250,23 +238,11 @@ func TestPrioritySorting(t *testing.T) {
 
 func TestShardKey(t *testing.T) {
 	// Test that ShardKey works correctly as a map key
-	key1 := commontypes.ShardKey{
-		Database:   "db1",
-		TableGroup: "tg1",
-		Shard:      "0",
-	}
+	key1 := commontypes.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"}
 
-	key2 := commontypes.ShardKey{
-		Database:   "db1",
-		TableGroup: "tg1",
-		Shard:      "0",
-	}
+	key2 := commontypes.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"}
 
-	key3 := commontypes.ShardKey{
-		Database:   "db1",
-		TableGroup: "tg2",
-		Shard:      "0",
-	}
+	key3 := commontypes.ShardKey{Database: "db1", TableGroup: "tg2", Shard: "0"}
 
 	// Test map usage
 	m := make(map[commontypes.ShardKey]int)
@@ -301,18 +277,14 @@ func TestGroupProblemsByShard_DifferentShards(t *testing.T) {
 
 	problems := []types.Problem{
 		{
-			Code:       types.ProblemPrimaryIsDead,
-			PoolerID:   poolerID1,
-			Database:   "db1",
-			TableGroup: "tg1",
-			Shard:      "0",
+			Code:     types.ProblemPrimaryIsDead,
+			PoolerID: poolerID1,
+			ShardKey: commontypes.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"},
 		},
 		{
-			Code:       types.ProblemPrimaryIsDead,
-			PoolerID:   poolerID2,
-			Database:   "db1",
-			TableGroup: "tg1",
-			Shard:      "1", // Different shard
+			Code:     types.ProblemPrimaryIsDead,
+			PoolerID: poolerID2,
+			ShardKey: commontypes.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "1"}, // Different shard
 		},
 	}
 
@@ -345,13 +317,11 @@ func TestRecheckProblem_PoolerNotFound(t *testing.T) {
 
 	// Create problem
 	problem := types.Problem{
-		Code:       types.ProblemPrimaryIsDead,
-		CheckName:  "PrimaryDeadCheck",
-		PoolerID:   poolerID,
-		Database:   "db1",
-		TableGroup: "tg1",
-		Shard:      "0",
-		Priority:   types.PriorityEmergency,
+		Code:      types.ProblemPrimaryIsDead,
+		CheckName: "PrimaryDeadCheck",
+		PoolerID:  poolerID,
+		ShardKey:  commontypes.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"},
+		Priority:  types.PriorityEmergency,
 	}
 
 	stillExists, err := engine.recheckProblem(problem)
@@ -568,9 +538,7 @@ func (m *mockPrimaryDeadAnalyzer) Analyze(a *store.ReplicationAnalysis) []types.
 				Code:           types.ProblemPrimaryIsDead,
 				CheckName:      m.Name(),
 				PoolerID:       a.PoolerID,
-				Database:       a.Database,
-				TableGroup:     a.TableGroup,
-				Shard:          a.Shard,
+				ShardKey:       a.ShardKey,
 				Priority:       types.PriorityEmergency,
 				Scope:          types.ScopeShard,
 				RecoveryAction: m.recoveryAction,
@@ -599,9 +567,7 @@ func (m *mockReplicaNotReplicatingAnalyzer) Analyze(a *store.ReplicationAnalysis
 				Code:           types.ProblemReplicaNotReplicating,
 				CheckName:      m.Name(),
 				PoolerID:       a.PoolerID,
-				Database:       a.Database,
-				TableGroup:     a.TableGroup,
-				Shard:          a.Shard,
+				ShardKey:       a.ShardKey,
 				Priority:       types.PriorityHigh,
 				Scope:          types.ScopePooler,
 				RecoveryAction: m.recoveryAction,
@@ -710,12 +676,10 @@ func TestProcessShardProblems_DependencyEnforcement(t *testing.T) {
 		// Set up store state: dead primary, replica with replication stopped
 		primaryPooler := &multiorchdatapb.PoolerHealthState{
 			MultiPooler: &clustermetadatapb.MultiPooler{
-				Id:         primaryID,
-				Database:   "db1",
-				TableGroup: "tg1",
-				Shard:      "0",
-				Type:       clustermetadatapb.PoolerType_PRIMARY,
-				Hostname:   "primary-host",
+				Id:       primaryID,
+				Database: "db1", TableGroup: "tg1", Shard: "0",
+				Type:     clustermetadatapb.PoolerType_PRIMARY,
+				Hostname: "primary-host",
 			},
 			IsLastCheckValid: false,
 			IsUpToDate:       true,
@@ -725,12 +689,10 @@ func TestProcessShardProblems_DependencyEnforcement(t *testing.T) {
 
 		replicaPooler := &multiorchdatapb.PoolerHealthState{
 			MultiPooler: &clustermetadatapb.MultiPooler{
-				Id:         replicaID,
-				Database:   "db1",
-				TableGroup: "tg1",
-				Shard:      "0",
-				Type:       clustermetadatapb.PoolerType_REPLICA,
-				Hostname:   "replica-host",
+				Id:       replicaID,
+				Database: "db1", TableGroup: "tg1", Shard: "0",
+				Type:     clustermetadatapb.PoolerType_REPLICA,
+				Hostname: "replica-host",
 			},
 			IsLastCheckValid: true,
 			IsUpToDate:       true,
@@ -785,12 +747,10 @@ func TestProcessShardProblems_DependencyEnforcement(t *testing.T) {
 		// Set up store state: healthy primary, replica with replication stopped
 		primaryPooler := &multiorchdatapb.PoolerHealthState{
 			MultiPooler: &clustermetadatapb.MultiPooler{
-				Id:         primaryID,
-				Database:   "db1",
-				TableGroup: "tg1",
-				Shard:      "0",
-				Type:       clustermetadatapb.PoolerType_PRIMARY,
-				Hostname:   "primary-host",
+				Id:       primaryID,
+				Database: "db1", TableGroup: "tg1", Shard: "0",
+				Type:     clustermetadatapb.PoolerType_PRIMARY,
+				Hostname: "primary-host",
 			},
 			IsLastCheckValid: true, // Primary is healthy
 			IsUpToDate:       true,
@@ -800,12 +760,10 @@ func TestProcessShardProblems_DependencyEnforcement(t *testing.T) {
 
 		replicaPooler := &multiorchdatapb.PoolerHealthState{
 			MultiPooler: &clustermetadatapb.MultiPooler{
-				Id:         replicaID,
-				Database:   "db1",
-				TableGroup: "tg1",
-				Shard:      "0",
-				Type:       clustermetadatapb.PoolerType_REPLICA,
-				Hostname:   "replica-host",
+				Id:       replicaID,
+				Database: "db1", TableGroup: "tg1", Shard: "0",
+				Type:     clustermetadatapb.PoolerType_REPLICA,
+				Hostname: "replica-host",
 			},
 			IsLastCheckValid: true,
 			IsUpToDate:       true,
@@ -908,12 +866,10 @@ func TestRecoveryLoop_ValidationPreventsStaleRecovery(t *testing.T) {
 	// Set up initial store state: replica with replication stopped
 	replicaPooler := &multiorchdatapb.PoolerHealthState{
 		MultiPooler: &clustermetadatapb.MultiPooler{
-			Id:         replicaID,
-			Database:   "db1",
-			TableGroup: "tg1",
-			Shard:      "0",
-			Type:       clustermetadatapb.PoolerType_REPLICA,
-			Hostname:   "replica-host",
+			Id:       replicaID,
+			Database: "db1", TableGroup: "tg1", Shard: "0",
+			Type:     clustermetadatapb.PoolerType_REPLICA,
+			Hostname: "replica-host",
 		},
 		IsLastCheckValid: true,
 		IsUpToDate:       true,
@@ -1073,12 +1029,10 @@ func TestRecoveryLoop_PostRecoveryRefresh(t *testing.T) {
 
 	primaryPooler := &multiorchdatapb.PoolerHealthState{
 		MultiPooler: &clustermetadatapb.MultiPooler{
-			Id:         primaryID,
-			Database:   "db1",
-			TableGroup: "tg1",
-			Shard:      "0",
-			Type:       clustermetadatapb.PoolerType_PRIMARY,
-			Hostname:   "primary-host",
+			Id:       primaryID,
+			Database: "db1", TableGroup: "tg1", Shard: "0",
+			Type:     clustermetadatapb.PoolerType_PRIMARY,
+			Hostname: "primary-host",
 		},
 		IsLastCheckValid:   false, // Primary is dead
 		IsUpToDate:         true,
@@ -1089,12 +1043,10 @@ func TestRecoveryLoop_PostRecoveryRefresh(t *testing.T) {
 
 	replica1Pooler := &multiorchdatapb.PoolerHealthState{
 		MultiPooler: &clustermetadatapb.MultiPooler{
-			Id:         replica1ID,
-			Database:   "db1",
-			TableGroup: "tg1",
-			Shard:      "0",
-			Type:       clustermetadatapb.PoolerType_REPLICA,
-			Hostname:   "replica1-host",
+			Id:       replica1ID,
+			Database: "db1", TableGroup: "tg1", Shard: "0",
+			Type:     clustermetadatapb.PoolerType_REPLICA,
+			Hostname: "replica1-host",
 		},
 		IsLastCheckValid:   true,
 		IsUpToDate:         true,
@@ -1105,12 +1057,10 @@ func TestRecoveryLoop_PostRecoveryRefresh(t *testing.T) {
 
 	replica2Pooler := &multiorchdatapb.PoolerHealthState{
 		MultiPooler: &clustermetadatapb.MultiPooler{
-			Id:         replica2ID,
-			Database:   "db1",
-			TableGroup: "tg1",
-			Shard:      "0",
-			Type:       clustermetadatapb.PoolerType_REPLICA,
-			Hostname:   "replica2-host",
+			Id:       replica2ID,
+			Database: "db1", TableGroup: "tg1", Shard: "0",
+			Type:     clustermetadatapb.PoolerType_REPLICA,
+			Hostname: "replica2-host",
 		},
 		IsLastCheckValid:   true,
 		IsUpToDate:         true,
@@ -1276,12 +1226,10 @@ func TestRecoveryLoop_FullCycle(t *testing.T) {
 	// Set up store state: healthy primary, two replicas with problems
 	primaryPooler := &multiorchdatapb.PoolerHealthState{
 		MultiPooler: &clustermetadatapb.MultiPooler{
-			Id:         primaryID,
-			Database:   "db1",
-			TableGroup: "tg1",
-			Shard:      "0",
-			Type:       clustermetadatapb.PoolerType_PRIMARY,
-			Hostname:   "primary-host",
+			Id:       primaryID,
+			Database: "db1", TableGroup: "tg1", Shard: "0",
+			Type:     clustermetadatapb.PoolerType_PRIMARY,
+			Hostname: "primary-host",
 		},
 		IsLastCheckValid: true,
 		IsUpToDate:       true,
@@ -1291,12 +1239,10 @@ func TestRecoveryLoop_FullCycle(t *testing.T) {
 
 	replica1Pooler := &multiorchdatapb.PoolerHealthState{
 		MultiPooler: &clustermetadatapb.MultiPooler{
-			Id:         replica1ID,
-			Database:   "db1",
-			TableGroup: "tg1",
-			Shard:      "0",
-			Type:       clustermetadatapb.PoolerType_REPLICA,
-			Hostname:   "replica1-host",
+			Id:       replica1ID,
+			Database: "db1", TableGroup: "tg1", Shard: "0",
+			Type:     clustermetadatapb.PoolerType_REPLICA,
+			Hostname: "replica1-host",
 		},
 		IsLastCheckValid: true,
 		IsUpToDate:       true,
@@ -1309,12 +1255,10 @@ func TestRecoveryLoop_FullCycle(t *testing.T) {
 
 	replica2Pooler := &multiorchdatapb.PoolerHealthState{
 		MultiPooler: &clustermetadatapb.MultiPooler{
-			Id:         replica2ID,
-			Database:   "db1",
-			TableGroup: "tg1",
-			Shard:      "0",
-			Type:       clustermetadatapb.PoolerType_REPLICA,
-			Hostname:   "replica2-host",
+			Id:       replica2ID,
+			Database: "db1", TableGroup: "tg1", Shard: "0",
+			Type:     clustermetadatapb.PoolerType_REPLICA,
+			Hostname: "replica2-host",
 		},
 		IsLastCheckValid: true,
 		IsUpToDate:       true,
@@ -1418,9 +1362,7 @@ func TestRecoveryLoop_PriorityOrdering(t *testing.T) {
 					Code:           types.ProblemReplicaNotReplicating,
 					CheckName:      "MultiPriorityAnalyzer",
 					PoolerID:       a.PoolerID,
-					Database:       a.Database,
-					TableGroup:     a.TableGroup,
-					Shard:          a.Shard,
+					ShardKey:       a.ShardKey,
 					Priority:       types.PriorityNormal,
 					Scope:          types.ScopePooler,
 					RecoveryAction: normalRecovery,
@@ -1431,9 +1373,7 @@ func TestRecoveryLoop_PriorityOrdering(t *testing.T) {
 					Code:           types.ProblemReplicaNotReplicating,
 					CheckName:      "MultiPriorityAnalyzer",
 					PoolerID:       a.PoolerID,
-					Database:       a.Database,
-					TableGroup:     a.TableGroup,
-					Shard:          a.Shard,
+					ShardKey:       a.ShardKey,
 					Priority:       types.PriorityEmergency,
 					Scope:          types.ScopePooler,
 					RecoveryAction: emergencyRecovery,
@@ -1444,9 +1384,7 @@ func TestRecoveryLoop_PriorityOrdering(t *testing.T) {
 					Code:           types.ProblemReplicaNotReplicating,
 					CheckName:      "MultiPriorityAnalyzer",
 					PoolerID:       a.PoolerID,
-					Database:       a.Database,
-					TableGroup:     a.TableGroup,
-					Shard:          a.Shard,
+					ShardKey:       a.ShardKey,
 					Priority:       types.PriorityHigh,
 					Scope:          types.ScopePooler,
 					RecoveryAction: highRecovery,
@@ -1470,12 +1408,10 @@ func TestRecoveryLoop_PriorityOrdering(t *testing.T) {
 	// Set up store state: replica with problem
 	replicaPooler := &multiorchdatapb.PoolerHealthState{
 		MultiPooler: &clustermetadatapb.MultiPooler{
-			Id:         replicaID,
-			Database:   "db1",
-			TableGroup: "tg1",
-			Shard:      "0",
-			Type:       clustermetadatapb.PoolerType_REPLICA,
-			Hostname:   "replica-host",
+			Id:       replicaID,
+			Database: "db1", TableGroup: "tg1", Shard: "0",
+			Type:     clustermetadatapb.PoolerType_REPLICA,
+			Hostname: "replica-host",
 		},
 		IsLastCheckValid: true,
 		IsUpToDate:       true,

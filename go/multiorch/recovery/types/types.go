@@ -20,6 +20,7 @@ import (
 	"context"
 	"time"
 
+	commontypes "github.com/multigres/multigres/go/common/types"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 )
 
@@ -105,9 +106,7 @@ type Problem struct {
 	Code           ProblemCode           // Category of problem
 	CheckName      CheckName             // Which check detected it
 	PoolerID       *clustermetadatapb.ID // Affected pooler
-	Database       string                // Database name
-	TableGroup     string                // TableGroup name
-	Shard          string                // Shard name
+	ShardKey       commontypes.ShardKey  // Identifies the affected shard
 	Description    string                // Human-readable description
 	Priority       Priority              // Priority of this problem
 	Scope          ProblemScope          // Whether this affects the whole cluster or just one pooler

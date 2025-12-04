@@ -26,6 +26,7 @@ import (
 
 	"github.com/multigres/multigres/go/common/rpcclient"
 	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
+	commontypes "github.com/multigres/multigres/go/common/types"
 	"github.com/multigres/multigres/go/multiorch/config"
 	"github.com/multigres/multigres/go/pb/clustermetadata"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
@@ -337,5 +338,5 @@ func TestAudit(t *testing.T) {
 	engine := NewEngine(ts, logger, cfg, []config.WatchTarget{}, &rpcclient.FakeClient{}, nil)
 
 	// Just verify audit doesn't panic (output is logged)
-	engine.audit("test-type", "pooler-1", "db1", "default", "-", "test message")
+	engine.audit("test-type", "pooler-1", commontypes.ShardKey{Database: "db1", TableGroup: "default", Shard: "-"}, "test message")
 }

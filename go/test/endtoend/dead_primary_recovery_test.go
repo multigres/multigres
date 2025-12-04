@@ -32,7 +32,7 @@ import (
 	"github.com/multigres/multigres/go/test/utils"
 )
 
-// TestMultiOrchLeaderReelection tests multiorch's ability to detect a primary failure
+// TestDeadPrimaryRecovery tests multiorch's ability to detect a primary failure
 // and elect a new primary from the standbys.
 //
 // This test previously failed due to a multiorch bootstrap coordination race condition.
@@ -42,7 +42,10 @@ import (
 // This prevented multiorch from detecting the primary failure and electing a new leader.
 // The race typically occurred ~7 seconds after initial bootstrap completion.
 // Fixed: Distributed locking now prevents concurrent bootstrap attempts.
-func TestMultiOrchLeaderReelection(t *testing.T) {
+func TestDeadPrimaryRecovery(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping TestMultiOrchLeaderReelection test in short mode")
+	}
 	if utils.ShouldSkipRealPostgres() {
 		t.Skip("Skipping end-to-end leader reelection test (short mode or no postgres binaries)")
 	}
@@ -76,7 +79,7 @@ func TestMultiOrchLeaderReelection(t *testing.T) {
 
 	// Wait for initial bootstrap
 	t.Logf("Waiting for initial bootstrap...")
-	primaryNode := waitForShardBootstrapped(t, nodes, 60*time.Second)
+	primaryNode := waitForShardPrimary(t, nodes, 60*time.Second)
 	require.NotNil(t, primaryNode)
 	t.Logf("Initial primary: %s", primaryNode.name)
 

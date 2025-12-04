@@ -17,6 +17,7 @@ package store
 import (
 	"time"
 
+	commontypes "github.com/multigres/multigres/go/common/types"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 )
 
@@ -25,10 +26,8 @@ import (
 // VTOrc's replication_analysis table.
 type ReplicationAnalysis struct {
 	// Identity
-	PoolerID   *clustermetadatapb.ID
-	Database   string
-	TableGroup string
-	Shard      string
+	PoolerID *clustermetadatapb.ID
+	ShardKey commontypes.ShardKey
 
 	// Pooler properties
 	PoolerType           clustermetadatapb.PoolerType

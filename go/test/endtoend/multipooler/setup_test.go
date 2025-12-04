@@ -908,10 +908,20 @@ func startEtcdForSharedSetup(t *testing.T, dataDir string) (string, *exec.Cmd, e
 		return "", nil, fmt.Errorf("failed to start etcd: %w", err)
 	}
 
-	// Wait for etcd to be ready
-	time.Sleep(500 * time.Millisecond)
+	// Wait for etcd to be ready by polling the client port
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		conn, err := net.DialTimeout("tcp", fmt.Sprintf("localhost:%d", clientPort), 100*time.Millisecond)
+		if err == nil {
+			conn.Close()
+			return clientAddr, cmd, nil
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
 
-	return clientAddr, cmd, nil
+	// If we get here, etcd didn't start in time - kill it and return error
+	_ = cmd.Process.Kill()
+	return "", nil, fmt.Errorf("etcd failed to become ready within 10 seconds")
 }
 
 // waitForManagerReady waits for the manager to be in ready state

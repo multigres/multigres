@@ -24,6 +24,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
+	commontypes "github.com/multigres/multigres/go/common/types"
 	"github.com/multigres/multigres/go/multiorch/recovery/types"
 	"github.com/multigres/multigres/go/multiorch/store"
 
@@ -42,10 +43,12 @@ func TestBootstrapShardAction_ExecuteNoCohort(t *testing.T) {
 	action := NewBootstrapShardAction(nil, poolerStore, ts, logger)
 
 	problem := types.Problem{
-		Code:       types.ProblemShardNeedsBootstrap,
-		Database:   "testdb",
-		TableGroup: "default",
-		Shard:      "0",
+		Code: types.ProblemShardNeedsBootstrap,
+		ShardKey: commontypes.ShardKey{
+			Database:   "testdb",
+			TableGroup: "default",
+			Shard:      "0",
+		},
 	}
 
 	err := action.Execute(ctx, problem)
@@ -126,10 +129,12 @@ func TestBootstrapShardAction_ConcurrentExecutionPrevented(t *testing.T) {
 	// Now try to execute recovery - should fail to acquire lock
 	action := NewBootstrapShardAction(nil, poolerStore, ts, logger)
 	problem := types.Problem{
-		Code:       types.ProblemShardNeedsBootstrap,
-		Database:   "testdb",
-		TableGroup: "default",
-		Shard:      "0",
+		Code: types.ProblemShardNeedsBootstrap,
+		ShardKey: commontypes.ShardKey{
+			Database:   "testdb",
+			TableGroup: "default",
+			Shard:      "0",
+		},
 	}
 
 	// Use a short timeout so the test doesn't wait 45 seconds

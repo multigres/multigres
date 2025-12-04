@@ -28,6 +28,7 @@ import (
 	"github.com/multigres/multigres/go/common/rpcclient"
 	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
+	commontypes "github.com/multigres/multigres/go/common/types"
 	"github.com/multigres/multigres/go/multiorch/config"
 	"github.com/multigres/multigres/go/pb/clustermetadata"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
@@ -721,7 +722,7 @@ func TestRefreshShardMetadata_Success(t *testing.T) {
 	)
 
 	// Refresh shard metadata
-	err = engine.refreshShardMetadata(ctx, "db1", "tg1", "0", nil)
+	err = engine.refreshShardMetadata(ctx, commontypes.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"}, nil)
 	require.NoError(t, err)
 
 	// Verify pooler was added
@@ -805,7 +806,7 @@ func TestForceHealthCheckShardPoolers_ForcesPolls(t *testing.T) {
 	engine.poolerStore.Set(poolerKey("cell1", "pooler3"), existingHealth)
 
 	// Force health check for shard 0
-	engine.forceHealthCheckShardPoolers(ctx, "db1", "tg1", "0", nil)
+	engine.forceHealthCheckShardPoolers(ctx, commontypes.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"}, nil)
 
 	// Verify all shard 0 poolers had their LastCheckAttempted updated
 	p1, ok := engine.poolerStore.Get(poolerKey("cell1", "pooler1"))
@@ -877,7 +878,7 @@ func TestForceHealthCheckShardPoolers_RespectsIgnoreList(t *testing.T) {
 
 	// Force health check, but ignore the dead primary
 	poolersToIgnore := []string{poolerKey("cell1", "dead-primary")}
-	engine.forceHealthCheckShardPoolers(ctx, "db1", "tg1", "0", poolersToIgnore)
+	engine.forceHealthCheckShardPoolers(ctx, commontypes.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"}, poolersToIgnore)
 
 	// Verify only the healthy replica was polled
 	pDead, ok := engine.poolerStore.Get(poolerKey("cell1", "dead-primary"))
