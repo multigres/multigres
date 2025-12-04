@@ -24,7 +24,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/multigres/multigres/go/cmd/pgctld/testutil"
-	"github.com/multigres/multigres/go/pgctld"
+	"github.com/multigres/multigres/go/services/pgctld"
 )
 
 func TestRunStart(t *testing.T) {
