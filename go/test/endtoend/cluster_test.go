@@ -865,14 +865,7 @@ func TestClusterLifecycle(t *testing.T) {
 
 		// Wait for multiorch to bootstrap both zones (create multigres schema and heartbeat table)
 		// PostgreSQL is initialized and started as part of the bootstrap process
-		t.Log("Waiting for multiorch to bootstrap zone1...")
 		multipoolerAddr := fmt.Sprintf("localhost:%d", testPorts.Zones[0].MultipoolerGRPCPort)
-		require.NoError(t, WaitForBootstrap(t, multipoolerAddr, 60*time.Second, tempDir, expectedDatabase),
-			"multiorch should bootstrap zone1 within timeout")
-		t.Log("Waiting for multiorch to bootstrap zone2...")
-		multipoolerAddr2 := fmt.Sprintf("localhost:%d", testPorts.Zones[1].MultipoolerGRPCPort)
-		require.NoError(t, WaitForBootstrap(t, multipoolerAddr2, 60*time.Second, tempDir, expectedDatabase),
-			"multiorch should bootstrap zone2 within timeout")
 
 		// Test PostgreSQL connectivity for both zones (after bootstrap)
 		t.Log("Testing PostgreSQL connectivity for both zones...")
@@ -1213,6 +1206,7 @@ type testClusterSetup struct {
 	TempDir    string
 	PortConfig *testPortConfig
 	ConfigFile string
+	Database   string
 	Cleanup    func()
 }
 
@@ -1291,12 +1285,26 @@ func setupTestCluster(t *testing.T) *testClusterSetup {
 		}
 	}
 
+	// Wait for multiorch to bootstrap both zones (create multigres schema and heartbeat table)
+	// PostgreSQL is initialized and started as part of the bootstrap process
+	database := "postgres" // Matches DefaultDbName in createTestConfigWithPorts
+	t.Log("Waiting for multiorch to bootstrap zone1...")
+	multipoolerAddr := fmt.Sprintf("localhost:%d", testPorts.Zones[0].MultipoolerGRPCPort)
+	require.NoError(t, WaitForBootstrap(t, multipoolerAddr, 60*time.Second, tempDir, database),
+		"multiorch should bootstrap zone1 within timeout")
+
+	t.Log("Waiting for multiorch to bootstrap zone2...")
+	multipoolerAddr2 := fmt.Sprintf("localhost:%d", testPorts.Zones[1].MultipoolerGRPCPort)
+	require.NoError(t, WaitForBootstrap(t, multipoolerAddr2, 60*time.Second, tempDir, database),
+		"multiorch should bootstrap zone2 within timeout")
+
 	t.Log("Test cluster setup completed successfully")
 
 	return &testClusterSetup{
 		TempDir:    tempDir,
 		PortConfig: testPorts,
 		ConfigFile: configFile,
+		Database:   database,
 		Cleanup:    cleanup,
 	}
 }

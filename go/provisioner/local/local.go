@@ -1402,6 +1402,11 @@ func (p *localProvisioner) Teardown(ctx context.Context, clean bool) error {
 		if err := p.cleanupSocketsDirectory(socketsDir); err != nil {
 			fmt.Printf("Warning: failed to clean up sockets directory: %v\n", err)
 		}
+
+		spoolDir := filepath.Join(p.config.RootWorkingDir, "spool")
+		if err := p.cleanupSpoolDirectory(spoolDir); err != nil {
+			fmt.Printf("Warning: failed to clean up spool directory: %v\n", err)
+		}
 	}
 
 	fmt.Println("Teardown completed successfully")
@@ -1467,6 +1472,20 @@ func (p *localProvisioner) cleanupSocketsDirectory(socketsDir string) error {
 	}
 
 	fmt.Printf("Cleaned up sockets directory: %s\n", socketsDir)
+	return nil
+}
+
+// cleanupSpoolDirectory removes the entire spool directory and all its contents
+func (p *localProvisioner) cleanupSpoolDirectory(spoolDir string) error {
+	if _, err := os.Stat(spoolDir); os.IsNotExist(err) {
+		return nil // Directory doesn't exist, nothing to clean up
+	}
+
+	if err := os.RemoveAll(spoolDir); err != nil {
+		return fmt.Errorf("failed to remove spool directory %s: %w", spoolDir, err)
+	}
+
+	fmt.Printf("Cleaned up spool directory: %s\n", spoolDir)
 	return nil
 }
 
