@@ -44,14 +44,12 @@ func (a *ShardNeedsBootstrapAnalyzer) Analyze(poolerAnalysis *store.ReplicationA
 	// A dead primary should be handled by PrimaryIsDead (detected by replicas), not by
 	// ShardNeedsBootstrap. When a primary's postgres dies, it appears as:
 	// - IsPrimary = true (it's the primary)
-	// - IsInitialized = false (postgres down)
+	// - IsInitialized = false (postgres down, can't get LSN)
 	// - PrimaryPoolerID = nil (it's the primary itself)
 	// This would incorrectly trigger ShardNeedsBootstrap if we don't skip it.
-	// Note: IsPrimary is based on MultiPooler.Type == PRIMARY from topology, which is set
-	// when the node is initialized as primary. New uninitialized nodes start with Type=STANDBY
-	// and are promoted to PRIMARY only after bootstrap initializes them.
-	if poolerAnalysis.IsPrimary && poolerAnalysis.IsInitialized {
-		// Only skip if it was actually initialized as primary (has health data)
+	// Always skip primary nodes regardless of initialization state - if a primary's postgres
+	// crashes, PrimaryIsDead will handle it (detected by replicas).
+	if poolerAnalysis.IsPrimary {
 		return nil
 	}
 

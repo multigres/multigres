@@ -283,15 +283,6 @@ func (s *managerService) GetBackups(ctx context.Context, req *multipoolermanager
 	}, nil
 }
 
-// InitializationStatus returns the initialization status of this pooler
-func (s *managerService) InitializationStatus(ctx context.Context, req *multipoolermanagerdatapb.InitializationStatusRequest) (*multipoolermanagerdatapb.InitializationStatusResponse, error) {
-	resp, err := s.manager.InitializationStatus(ctx, req)
-	if err != nil {
-		return nil, mterrors.ToGRPC(err)
-	}
-	return resp, nil
-}
-
 // InitializeEmptyPrimary initializes an empty PostgreSQL instance as a primary
 func (s *managerService) InitializeEmptyPrimary(ctx context.Context, req *multipoolermanagerdatapb.InitializeEmptyPrimaryRequest) (*multipoolermanagerdatapb.InitializeEmptyPrimaryResponse, error) {
 	resp, err := s.manager.InitializeEmptyPrimary(ctx, req)

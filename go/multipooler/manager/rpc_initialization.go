@@ -219,43 +219,6 @@ func (pm *MultiPoolerManager) InitializeAsStandby(ctx context.Context, req *mult
 	}, nil
 }
 
-// InitializationStatus returns the initialization status of this pooler
-// Used by multiorch coordinator to determine what initialization scenario to use
-func (pm *MultiPoolerManager) InitializationStatus(ctx context.Context, req *multipoolermanagerdatapb.InitializationStatusRequest) (*multipoolermanagerdatapb.InitializationStatusResponse, error) {
-	pm.logger.DebugContext(ctx, "InitializationStatus called", "shard", pm.getShardID())
-
-	// Acquire action lock to read consensus term consistently
-	var err error
-	ctx, err = pm.actionLock.Acquire(ctx, "InitializationStatus")
-	if err != nil {
-		return nil, mterrors.Wrap(err, "failed to acquire action lock")
-	}
-	defer pm.actionLock.Release(ctx)
-
-	// Get WAL position (ignore errors, just return empty string)
-	walPosition, _ := pm.getWALPosition(ctx)
-
-	resp := &multipoolermanagerdatapb.InitializationStatusResponse{
-		IsInitialized:    pm.isInitialized(),
-		HasDataDirectory: pm.hasDataDirectory(),
-		PostgresRunning:  pm.isPostgresRunning(ctx),
-		Role:             pm.getRole(ctx),
-		WalPosition:      walPosition,
-		ShardId:          pm.getShardID(),
-		PoolerType:       pm.getPoolerType(),
-	}
-
-	// Get consensus term if available
-	if pm.consensusState != nil {
-		term, err := pm.consensusState.GetCurrentTermNumber(ctx)
-		if err == nil {
-			resp.ConsensusTerm = term
-		}
-	}
-
-	return resp, nil
-}
-
 // Helper methods
 
 // isInitialized checks if the pooler has been initialized (has data directory and multigres schema)
@@ -288,7 +251,7 @@ func (pm *MultiPoolerManager) isInitialized() bool {
 		return false // No global directory
 	}
 
-	// For now, if PG_VERSION exists and global directory exists, consider it initialized.
+	// If PG_VERSION exists and global directory exists, consider it initialized.
 	// This is a reasonable heuristic since RestoreFromBackup copies a fully initialized database.
 	return true
 }

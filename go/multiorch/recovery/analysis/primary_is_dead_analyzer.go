@@ -23,7 +23,6 @@ import (
 )
 
 // PrimaryIsDeadAnalyzer detects when a primary exists in topology but is unhealthy/unreachable.
-// This differs from ShardHasNoPrimaryAnalyzer which detects when NO primary exists in topology.
 // This is a per-pooler analyzer that returns a shard-wide problem.
 // The recovery loop's filterAndPrioritize() will deduplicate multiple instances.
 type PrimaryIsDeadAnalyzer struct{}
@@ -52,7 +51,6 @@ func (a *PrimaryIsDeadAnalyzer) Analyze(poolerAnalysis *store.ReplicationAnalysi
 	// - This is an initialized replica
 	// - Either no primary exists (PrimaryPoolerID == nil) or primary is unreachable
 	// Only trigger if a primary exists but is unreachable.
-	// (ShardHasNoPrimary handles the case when PrimaryPoolerID == nil)
 	if poolerAnalysis.PrimaryPoolerID == nil {
 		return nil
 	}

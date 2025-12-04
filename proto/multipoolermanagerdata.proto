@@ -185,17 +185,42 @@ message PrimaryPositionResponse {
   string lsn_position = 1;
 }
 
-// Status provides unified status information that works for both PRIMARY and REPLICA poolers
-// The pooler returns information based on its actual state
+// Status provides unified status information that works for both PRIMARY and REPLICA poolers.
+// This RPC works even when the database connection is unavailable - fields that require
+// database access will be nil/empty in that case.
 message Status {
   // Pooler type from topology (PRIMARY or REPLICA)
   clustermetadata.PoolerType pooler_type = 1;
 
-  // Primary status information (only populated if pooler is acting as primary)
+  // Primary status information (only populated if pooler is acting as primary AND db is connected)
   PrimaryStatus primary_status = 2;
 
-  // Replication status information (only populated if pooler is acting as standby)
+  // Replication status information (only populated if pooler is acting as standby AND db is connected)
   StandbyReplicationStatus replication_status = 3;
+
+  // === Initialization status fields (always available, even without db connection) ===
+
+  // Whether this pooler has been initialized (has data directory and multigres schema)
+  bool is_initialized = 4;
+
+  // Whether data directory exists
+  bool has_data_directory = 5;
+
+  // Whether PostgreSQL is currently running
+  bool postgres_running = 6;
+
+  // Current postgres-level role from pg_is_in_recovery ("primary", "standby", or "unknown")
+  // This may differ from pooler_type during transitions or failures.
+  string postgres_role = 7;
+
+  // Current WAL position (empty if db not connected)
+  string wal_position = 8;
+
+  // Current consensus term
+  int64 consensus_term = 9;
+
+  // Shard ID that this pooler belongs to
+  string shard_id = 10;
 }
 
 // Status gets unified status that works for both PRIMARY and REPLICA poolers
@@ -559,38 +584,6 @@ message InitializeAsStandbyResponse {
 
   // Final LSN position after backup completed
   string final_lsn = 3;
-}
-
-// InitializationStatus returns the initialization status of this pooler
-// Used by multiorch coordinator to determine what initialization scenario to use
-message InitializationStatusRequest {
-}
-
-message InitializationStatusResponse {
-  // Whether this pooler has been initialized (has data directory and multigres schema)
-  bool is_initialized = 1;
-
-  // Whether data directory exists
-  bool has_data_directory = 2;
-
-  // Whether PostgreSQL is currently running
-  bool postgres_running = 3;
-
-  // Current role of this pooler ("primary", "standby", or "unknown")
-  string role = 4;
-
-  // Current WAL position (if available)
-  string wal_position = 5;
-
-  // Current consensus term
-  int64 consensus_term = 6;
-
-  // Shard ID that this pooler belongs to
-  string shard_id = 7;
-
-  // Pooler type from topology (UNKNOWN, PRIMARY, or REPLICA)
-  // This reflects the multipooler's registered type, not the postgres-level role.
-  clustermetadata.PoolerType pooler_type = 8;
 }
 
 // Backup operations

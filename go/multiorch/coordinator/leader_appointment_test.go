@@ -528,6 +528,7 @@ func TestSelectCandidate_PrefersInitializedNodes(t *testing.T) {
 		// - mp2: uninitialized node with higher LSN (0/2000000)
 		node1 := createMockNode(fakeClient, "mp1", 5, "0/1000000", true, "standby")
 		node1.IsLastCheckValid = true
+		node1.IsInitialized = true // Use IsInitialized field directly
 		node1.ReplicationStatus = &multipoolermanagerdatapb.StandbyReplicationStatus{
 			LastReplayLsn:  "0/1000000",
 			LastReceiveLsn: "0/1000000",
@@ -535,7 +536,7 @@ func TestSelectCandidate_PrefersInitializedNodes(t *testing.T) {
 
 		node2 := createMockNode(fakeClient, "mp2", 5, "0/2000000", true, "standby")
 		node2.IsLastCheckValid = true
-		// node2 has no ReplicationStatus, making it uninitialized
+		node2.IsInitialized = false // Explicitly uninitialized
 
 		cohort := []*multiorchdatapb.PoolerHealthState{node1, node2}
 
@@ -556,6 +557,7 @@ func TestSelectCandidate_PrefersInitializedNodes(t *testing.T) {
 		// Both nodes initialized, mp2 has higher LSN
 		node1 := createMockNode(fakeClient, "mp1", 5, "0/1000000", true, "standby")
 		node1.IsLastCheckValid = true
+		node1.IsInitialized = true
 		node1.ReplicationStatus = &multipoolermanagerdatapb.StandbyReplicationStatus{
 			LastReplayLsn:  "0/1000000",
 			LastReceiveLsn: "0/1000000",
@@ -563,6 +565,7 @@ func TestSelectCandidate_PrefersInitializedNodes(t *testing.T) {
 
 		node2 := createMockNode(fakeClient, "mp2", 5, "0/2000000", true, "standby")
 		node2.IsLastCheckValid = true
+		node2.IsInitialized = true
 		node2.ReplicationStatus = &multipoolermanagerdatapb.StandbyReplicationStatus{
 			LastReplayLsn:  "0/2000000",
 			LastReceiveLsn: "0/2000000",
@@ -587,11 +590,11 @@ func TestSelectCandidate_PrefersInitializedNodes(t *testing.T) {
 		// Both nodes uninitialized, mp2 has higher LSN
 		node1 := createMockNode(fakeClient, "mp1", 5, "0/1000000", true, "standby")
 		node1.IsLastCheckValid = true
-		// No ReplicationStatus, uninitialized
+		node1.IsInitialized = false
 
 		node2 := createMockNode(fakeClient, "mp2", 5, "0/2000000", true, "standby")
 		node2.IsLastCheckValid = true
-		// No ReplicationStatus, uninitialized
+		node2.IsInitialized = false
 
 		cohort := []*multiorchdatapb.PoolerHealthState{node1, node2}
 

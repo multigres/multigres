@@ -25,6 +25,8 @@ import (
 )
 
 func TestIsInitialized(t *testing.T) {
+	// IsInitialized() now uses the IsInitialized field from Status RPC directly,
+	// based on data directory state, not LSN values.
 	tests := []struct {
 		name     string
 		pooler   *multiorchdata.PoolerHealthState
@@ -35,6 +37,7 @@ func TestIsInitialized(t *testing.T) {
 			pooler: &multiorchdata.PoolerHealthState{
 				IsLastCheckValid: false,
 				MultiPooler:      &clustermetadatapb.MultiPooler{},
+				IsInitialized:    true, // even if field is true, unreachable means not initialized
 			},
 			expected: false,
 		},
@@ -43,45 +46,46 @@ func TestIsInitialized(t *testing.T) {
 			pooler: &multiorchdata.PoolerHealthState{
 				IsLastCheckValid: true,
 				MultiPooler:      nil,
+				IsInitialized:    true,
 			},
 			expected: false,
 		},
 		{
-			name: "primary with LSN is initialized",
+			name: "reachable node with IsInitialized=true is initialized",
+			pooler: &multiorchdata.PoolerHealthState{
+				IsLastCheckValid: true,
+				MultiPooler:      &clustermetadatapb.MultiPooler{},
+				IsInitialized:    true,
+			},
+			expected: true,
+		},
+		{
+			name: "reachable node with IsInitialized=false is not initialized",
+			pooler: &multiorchdata.PoolerHealthState{
+				IsLastCheckValid: true,
+				MultiPooler:      &clustermetadatapb.MultiPooler{},
+				IsInitialized:    false,
+			},
+			expected: false,
+		},
+		{
+			name: "reachable primary with IsInitialized=true is initialized",
 			pooler: &multiorchdata.PoolerHealthState{
 				IsLastCheckValid: true,
 				MultiPooler:      &clustermetadatapb.MultiPooler{},
 				PoolerType:       clustermetadatapb.PoolerType_PRIMARY,
+				IsInitialized:    true,
 				PrimaryStatus:    &multipoolermanagerdata.PrimaryStatus{Lsn: "0/1234"},
 			},
 			expected: true,
 		},
 		{
-			name: "primary without LSN is not initialized",
-			pooler: &multiorchdata.PoolerHealthState{
-				IsLastCheckValid: true,
-				MultiPooler:      &clustermetadatapb.MultiPooler{},
-				PoolerType:       clustermetadatapb.PoolerType_PRIMARY,
-				PrimaryStatus:    &multipoolermanagerdata.PrimaryStatus{Lsn: ""},
-			},
-			expected: false,
-		},
-		{
-			name: "primary with nil PrimaryStatus is not initialized",
-			pooler: &multiorchdata.PoolerHealthState{
-				IsLastCheckValid: true,
-				MultiPooler:      &clustermetadatapb.MultiPooler{},
-				PoolerType:       clustermetadatapb.PoolerType_PRIMARY,
-				PrimaryStatus:    nil,
-			},
-			expected: false,
-		},
-		{
-			name: "replica with LastReplayLsn is initialized",
+			name: "reachable replica with IsInitialized=true is initialized",
 			pooler: &multiorchdata.PoolerHealthState{
 				IsLastCheckValid: true,
 				MultiPooler:      &clustermetadatapb.MultiPooler{},
 				PoolerType:       clustermetadatapb.PoolerType_REPLICA,
+				IsInitialized:    true,
 				ReplicationStatus: &multipoolermanagerdata.StandbyReplicationStatus{
 					LastReplayLsn: "0/1234",
 				},
@@ -89,51 +93,17 @@ func TestIsInitialized(t *testing.T) {
 			expected: true,
 		},
 		{
-			name: "replica with LastReceiveLsn is initialized",
+			name: "reachable replica with IsInitialized=false is not initialized even with LSN",
 			pooler: &multiorchdata.PoolerHealthState{
 				IsLastCheckValid: true,
 				MultiPooler:      &clustermetadatapb.MultiPooler{},
 				PoolerType:       clustermetadatapb.PoolerType_REPLICA,
-				ReplicationStatus: &multipoolermanagerdata.StandbyReplicationStatus{
-					LastReceiveLsn: "0/5678",
-				},
-			},
-			expected: true,
-		},
-		{
-			name: "replica with empty LSNs is not initialized",
-			pooler: &multiorchdata.PoolerHealthState{
-				IsLastCheckValid: true,
-				MultiPooler:      &clustermetadatapb.MultiPooler{},
-				PoolerType:       clustermetadatapb.PoolerType_REPLICA,
-				ReplicationStatus: &multipoolermanagerdata.StandbyReplicationStatus{
-					LastReplayLsn:  "",
-					LastReceiveLsn: "",
-				},
-			},
-			expected: false,
-		},
-		{
-			name: "replica with nil ReplicationStatus is not initialized",
-			pooler: &multiorchdata.PoolerHealthState{
-				IsLastCheckValid:  true,
-				MultiPooler:       &clustermetadatapb.MultiPooler{},
-				PoolerType:        clustermetadatapb.PoolerType_REPLICA,
-				ReplicationStatus: nil,
-			},
-			expected: false,
-		},
-		{
-			name: "UNKNOWN type with ReplicationStatus is initialized (fallback to replica check)",
-			pooler: &multiorchdata.PoolerHealthState{
-				IsLastCheckValid: true,
-				MultiPooler:      &clustermetadatapb.MultiPooler{},
-				PoolerType:       clustermetadatapb.PoolerType_UNKNOWN,
+				IsInitialized:    false,
 				ReplicationStatus: &multipoolermanagerdata.StandbyReplicationStatus{
 					LastReplayLsn: "0/1234",
 				},
 			},
-			expected: true,
+			expected: false,
 		},
 	}
 

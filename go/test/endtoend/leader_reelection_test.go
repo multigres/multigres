@@ -80,8 +80,9 @@ func TestMultiOrchLeaderReelection(t *testing.T) {
 	require.NotNil(t, primaryNode)
 	t.Logf("Initial primary: %s", primaryNode.name)
 
-	// Wait for standbys to catch up
-	time.Sleep(5 * time.Second)
+	// Wait for standbys to complete initialization before killing primary
+	t.Logf("Waiting for standbys to complete initialization...")
+	waitForStandbysInitialized(t, nodes, primaryNode.name, len(nodes)-1, 60*time.Second)
 
 	// Kill postgres on the primary (multipooler stays running to report unhealthy status)
 	t.Logf("Killing postgres on primary node %s to simulate database crash", primaryNode.name)

@@ -240,8 +240,8 @@ func (a *BootstrapShardAction) Execute(ctx context.Context, problem types.Proble
 // Returns true if all reachable nodes are uninitialized, false if any node is initialized.
 func (a *BootstrapShardAction) verifyBootstrapNeeded(ctx context.Context, cohort []*multiorchdatapb.PoolerHealthState) (bool, error) {
 	for _, pooler := range cohort {
-		req := &multipoolermanagerdatapb.InitializationStatusRequest{}
-		resp, err := a.rpcClient.InitializationStatus(ctx, pooler.MultiPooler, req)
+		req := &multipoolermanagerdatapb.StatusRequest{}
+		resp, err := a.rpcClient.Status(ctx, pooler.MultiPooler, req)
 		if err != nil {
 			// Node unreachable - can't determine state, continue checking others
 			a.logger.WarnContext(ctx, "node unreachable during bootstrap recheck",
@@ -250,10 +250,10 @@ func (a *BootstrapShardAction) verifyBootstrapNeeded(ctx context.Context, cohort
 			continue
 		}
 
-		if resp.IsInitialized {
+		if resp.Status != nil && resp.Status.IsInitialized {
 			a.logger.InfoContext(ctx, "node is now initialized (fresh RPC check), skipping bootstrap",
 				"node", pooler.MultiPooler.Id.Name,
-				"role", resp.Role)
+				"postgres_role", resp.Status.PostgresRole)
 			return false, nil
 		}
 	}
@@ -265,8 +265,8 @@ func (a *BootstrapShardAction) verifyBootstrapNeeded(ctx context.Context, cohort
 // Assumes the analyzer correctly determined that all nodes are uninitialized.
 func (a *BootstrapShardAction) selectBootstrapCandidate(ctx context.Context, cohort []*multiorchdatapb.PoolerHealthState) (*multiorchdatapb.PoolerHealthState, error) {
 	for _, pooler := range cohort {
-		req := &multipoolermanagerdatapb.InitializationStatusRequest{}
-		_, err := a.rpcClient.InitializationStatus(ctx, pooler.MultiPooler, req)
+		req := &multipoolermanagerdatapb.StatusRequest{}
+		_, err := a.rpcClient.Status(ctx, pooler.MultiPooler, req)
 		if err != nil {
 			a.logger.WarnContext(ctx, "pooler unreachable during candidate selection",
 				"pooler", pooler.MultiPooler.Id.Name,
@@ -337,15 +337,6 @@ func (a *BootstrapShardAction) initializeStandbys(ctx context.Context, shardID s
 
 // initializeSingleStandby initializes a single node as a standby of the given primary.
 func (a *BootstrapShardAction) initializeSingleStandby(ctx context.Context, node *multiorchdatapb.PoolerHealthState, primary *multiorchdatapb.PoolerHealthState, backupID string) error {
-	// Set pooler type to REPLICA before initializing as standby
-	changeTypeReq := &multipoolermanagerdatapb.ChangeTypeRequest{
-		PoolerType: clustermetadatapb.PoolerType_REPLICA,
-	}
-	_, err := a.rpcClient.ChangeType(ctx, node.MultiPooler, changeTypeReq)
-	if err != nil {
-		return fmt.Errorf("failed to set pooler type: %w", err)
-	}
-
 	req := &multipoolermanagerdatapb.InitializeAsStandbyRequest{
 		PrimaryHost:   primary.MultiPooler.Hostname,
 		PrimaryPort:   primary.MultiPooler.PortMap["postgres"],
@@ -360,6 +351,15 @@ func (a *BootstrapShardAction) initializeSingleStandby(ctx context.Context, node
 
 	if !resp.Success {
 		return fmt.Errorf("initialization failed: %s", resp.ErrorMessage)
+	}
+
+	// Set pooler type to REPLICA after InitializeAsStandby
+	changeTypeReq := &multipoolermanagerdatapb.ChangeTypeRequest{
+		PoolerType: clustermetadatapb.PoolerType_REPLICA,
+	}
+	_, err = a.rpcClient.ChangeType(ctx, node.MultiPooler, changeTypeReq)
+	if err != nil {
+		return fmt.Errorf("failed to set pooler type: %w", err)
 	}
 
 	return nil

@@ -58,18 +58,18 @@ func (s InitializationScenario) String() string {
 	}
 }
 
-// GatherInitializationStatus queries all nodes for their initialization status.
+// GatherStatus queries all nodes for their status (which includes initialization info).
 // This is a helper function that multiorch can use to collect node status
 // before determining which initialization action to use.
-func GatherInitializationStatus(ctx context.Context, rpcClient rpcclient.MultiPoolerClient, cohort []*multiorchdatapb.PoolerHealthState, logger *slog.Logger) ([]*multipoolermanagerdatapb.InitializationStatusResponse, error) {
-	statuses := make([]*multipoolermanagerdatapb.InitializationStatusResponse, len(cohort))
+func GatherStatus(ctx context.Context, rpcClient rpcclient.MultiPoolerClient, cohort []*multiorchdatapb.PoolerHealthState, logger *slog.Logger) ([]*multipoolermanagerdatapb.Status, error) {
+	statuses := make([]*multipoolermanagerdatapb.Status, len(cohort))
 
 	for i, pooler := range cohort {
-		req := &multipoolermanagerdatapb.InitializationStatusRequest{}
-		status, err := rpcClient.InitializationStatus(ctx, pooler.MultiPooler, req)
+		req := &multipoolermanagerdatapb.StatusRequest{}
+		resp, err := rpcClient.Status(ctx, pooler.MultiPooler, req)
 		if err != nil {
 			if logger != nil {
-				logger.WarnContext(ctx, "Failed to get initialization status from node",
+				logger.WarnContext(ctx, "Failed to get status from node",
 					"node", pooler.MultiPooler.Id.Name,
 					"error", err)
 			}
@@ -77,16 +77,16 @@ func GatherInitializationStatus(ctx context.Context, rpcClient rpcclient.MultiPo
 			statuses[i] = nil
 			continue
 		}
-		statuses[i] = status
+		statuses[i] = resp.Status
 	}
 
 	return statuses, nil
 }
 
-// DetermineScenario analyzes initialization statuses to determine the appropriate scenario.
+// DetermineScenario analyzes statuses to determine the appropriate scenario.
 // This is a helper function that multiorch can use to decide which initialization
 // action to call (Bootstrap, Repair, or Reelect).
-func DetermineScenario(statuses []*multipoolermanagerdatapb.InitializationStatusResponse, logger *slog.Logger) InitializationScenario {
+func DetermineScenario(statuses []*multipoolermanagerdatapb.Status, logger *slog.Logger) InitializationScenario {
 	var initializedCount int
 	var emptyCount int
 	var unavailableCount int
@@ -105,7 +105,7 @@ func DetermineScenario(statuses []*multipoolermanagerdatapb.InitializationStatus
 	}
 
 	if logger != nil {
-		logger.Debug("Analyzing initialization statuses",
+		logger.Debug("Analyzing statuses",
 			"initialized", initializedCount,
 			"empty", emptyCount,
 			"unavailable", unavailableCount)

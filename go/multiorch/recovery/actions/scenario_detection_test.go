@@ -25,12 +25,12 @@ import (
 func TestDetermineScenario(t *testing.T) {
 	tests := []struct {
 		name     string
-		statuses []*multipoolermanagerdatapb.InitializationStatusResponse
+		statuses []*multipoolermanagerdatapb.Status
 		expected InitializationScenario
 	}{
 		{
 			name: "all empty - bootstrap",
-			statuses: []*multipoolermanagerdatapb.InitializationStatusResponse{
+			statuses: []*multipoolermanagerdatapb.Status{
 				{IsInitialized: false},
 				{IsInitialized: false},
 				{IsInitialized: false},
@@ -39,7 +39,7 @@ func TestDetermineScenario(t *testing.T) {
 		},
 		{
 			name: "all initialized - reelect",
-			statuses: []*multipoolermanagerdatapb.InitializationStatusResponse{
+			statuses: []*multipoolermanagerdatapb.Status{
 				{IsInitialized: true},
 				{IsInitialized: true},
 				{IsInitialized: true},
@@ -48,7 +48,7 @@ func TestDetermineScenario(t *testing.T) {
 		},
 		{
 			name: "mixed initialized and empty - repair",
-			statuses: []*multipoolermanagerdatapb.InitializationStatusResponse{
+			statuses: []*multipoolermanagerdatapb.Status{
 				{IsInitialized: true},
 				{IsInitialized: false},
 				{IsInitialized: true},
@@ -57,14 +57,14 @@ func TestDetermineScenario(t *testing.T) {
 		},
 		{
 			name: "one empty node - bootstrap",
-			statuses: []*multipoolermanagerdatapb.InitializationStatusResponse{
+			statuses: []*multipoolermanagerdatapb.Status{
 				{IsInitialized: false},
 			},
 			expected: ScenarioBootstrap,
 		},
 		{
 			name: "all unavailable - unknown",
-			statuses: []*multipoolermanagerdatapb.InitializationStatusResponse{
+			statuses: []*multipoolermanagerdatapb.Status{
 				nil,
 				nil,
 				nil,
@@ -73,7 +73,7 @@ func TestDetermineScenario(t *testing.T) {
 		},
 		{
 			name: "some unavailable with initialized - reelect",
-			statuses: []*multipoolermanagerdatapb.InitializationStatusResponse{
+			statuses: []*multipoolermanagerdatapb.Status{
 				{IsInitialized: true},
 				nil,
 				{IsInitialized: true},
@@ -82,7 +82,7 @@ func TestDetermineScenario(t *testing.T) {
 		},
 		{
 			name: "some unavailable with empty - bootstrap",
-			statuses: []*multipoolermanagerdatapb.InitializationStatusResponse{
+			statuses: []*multipoolermanagerdatapb.Status{
 				{IsInitialized: false},
 				nil,
 				{IsInitialized: false},

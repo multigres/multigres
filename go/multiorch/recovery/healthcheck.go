@@ -164,51 +164,38 @@ func (re *Engine) pollPooler(ctx context.Context, poolerID *clustermetadata.ID, 
 	pooler.IsUpToDate = true
 	pooler.IsLastCheckValid = true
 
-	if statusResp.UsingInitStatus {
-		// We're using InitializationStatus response (postgres not running)
-		// NOTE: We do NOT clear PrimaryStatus/ReplicationStatus - they may contain
-		// valid data from when postgres was running, which is needed to determine
-		// IsInitialized(). The IsPostgresRunning flag is used separately to track
-		// whether postgres is currently running.
-		pooler.IsPostgresRunning = false
-		re.logger.InfoContext(ctx, "pooler poll successful (using InitializationStatus)",
-			"pooler_id", poolerIDStr,
-			"topology_type", pooler.MultiPooler.Type,
-			"is_initialized", statusResp.InitializationStatusResp.IsInitialized,
-			"postgres_running", statusResp.InitializationStatusResp.PostgresRunning,
-			"latency", time.Since(totalStart),
-		)
-	} else {
-		// We're using Status response (normal case - postgres is running)
-		pooler.IsPostgresRunning = true
-		pooler.PoolerType = statusResp.StatusResponse.Status.PoolerType
-		pooler.PrimaryStatus = statusResp.StatusResponse.Status.PrimaryStatus
-		pooler.ReplicationStatus = statusResp.StatusResponse.Status.ReplicationStatus
+	// Status RPC now includes initialization fields and works without db connection
+	status := statusResp.Status
+	pooler.IsPostgresRunning = status.PostgresRunning
+	pooler.PoolerType = status.PoolerType
+	pooler.PrimaryStatus = status.PrimaryStatus
+	pooler.ReplicationStatus = status.ReplicationStatus
+	pooler.IsInitialized = status.IsInitialized
+	pooler.HasDataDirectory = status.HasDataDirectory
 
-		re.logger.DebugContext(ctx, "pooler poll successful",
-			"pooler_id", poolerIDStr,
-			"topology_type", pooler.MultiPooler.Type,
-			"reported_type", statusResp.StatusResponse.Status.PoolerType,
-			"latency", time.Since(totalStart),
-		)
-	}
+	re.logger.DebugContext(ctx, "pooler poll successful",
+		"pooler_id", poolerIDStr,
+		"topology_type", pooler.MultiPooler.Type,
+		"reported_type", status.PoolerType,
+		"is_initialized", status.IsInitialized,
+		"postgres_running", status.PostgresRunning,
+		"latency", time.Since(totalStart),
+	)
 
 	re.poolerStore.Set(poolerIDStr, pooler)
 }
 
-// poolerStatusResult wraps either a Status RPC response or an InitializationStatus RPC response.
-// This allows us to handle both types in a unified way.
+// poolerStatusResult wraps a Status RPC response.
+// The Status RPC now includes initialization fields and works without db connection.
 type poolerStatusResult struct {
-	StatusResponse           *multipoolermanagerdatapb.StatusResponse
-	InitializationStatusResp *multipoolermanagerdatapb.InitializationStatusResponse
-	UsingInitStatus          bool // true if using InitializationStatus (fallback)
+	Status *multipoolermanagerdatapb.Status
 }
 
 // pollPoolerStatus calls the Status RPC which works for both PRIMARY and REPLICA poolers.
 // The Status RPC returns unified status information that includes both primary and replication
 // status, populated based on what type the pooler believes itself to be.
-// If Status RPC fails (e.g., postgres not running), it falls back to InitializationStatus RPC.
-// Returns the status response for the caller to extract and store metrics.
+// The Status RPC also includes initialization fields and works even when the database is unavailable.
+// Returns the status for the caller to extract and store metrics.
 func (re *Engine) pollPoolerStatus(ctx context.Context, poolerID *clustermetadata.ID, pooler *multiorchdatapb.PoolerHealthState) (*poolerStatusResult, error) {
 	poolerIDStr := topo.MultiPoolerIDString(poolerID)
 
@@ -219,40 +206,10 @@ func (re *Engine) pollPoolerStatus(ctx context.Context, poolerID *clustermetadat
 		"type", pooler.MultiPooler.Type,
 	)
 
-	// Call Status RPC
+	// Call Status RPC (now works without db connection)
 	resp, err := re.rpcClient.Status(ctx, pooler.MultiPooler, &multipoolermanagerdatapb.StatusRequest{})
 	if err != nil {
-		// Status RPC failed (likely postgres not running) - fallback to InitializationStatus
-		re.logger.InfoContext(ctx, "Status RPC failed, falling back to InitializationStatus",
-			"pooler_id", poolerIDStr,
-			"error", err,
-		)
-
-		// Call InitializationStatus RPC as fallback
-		initResp, initErr := re.rpcClient.InitializationStatus(ctx, pooler.MultiPooler, &multipoolermanagerdatapb.InitializationStatusRequest{})
-		if initErr != nil {
-			return nil, fmt.Errorf("both Status and InitializationStatus RPCs failed - Status error: %w, InitStatus error: %v", err, initErr)
-		}
-
-		// Validate InitializationStatus response
-		if initResp == nil {
-			return nil, fmt.Errorf("received nil initialization status response")
-		}
-
-		// Log initialization status information for observability
-		re.logger.InfoContext(ctx, "pooler initialization status received (fallback)",
-			"pooler_id", poolerIDStr,
-			"is_initialized", initResp.IsInitialized,
-			"has_data_directory", initResp.HasDataDirectory,
-			"postgres_running", initResp.PostgresRunning,
-			"role", initResp.Role,
-			"consensus_term", initResp.ConsensusTerm,
-		)
-
-		return &poolerStatusResult{
-			InitializationStatusResp: initResp,
-			UsingInitStatus:          true,
-		}, nil
+		return nil, fmt.Errorf("Status RPC failed: %w", err)
 	}
 
 	// Validate response
@@ -264,13 +221,14 @@ func (re *Engine) pollPoolerStatus(ctx context.Context, poolerID *clustermetadat
 	re.logger.DebugContext(ctx, "pooler status received",
 		"pooler_id", poolerIDStr,
 		"pooler_type", resp.Status.PoolerType,
+		"is_initialized", resp.Status.IsInitialized,
+		"postgres_running", resp.Status.PostgresRunning,
 		"has_primary_status", resp.Status.PrimaryStatus != nil,
 		"has_replication_status", resp.Status.ReplicationStatus != nil,
 	)
 
 	return &poolerStatusResult{
-		StatusResponse:  resp,
-		UsingInitStatus: false,
+		Status: resp.Status,
 	}, nil
 }
 

@@ -309,7 +309,7 @@ func waitForMultipoolerReady(t *testing.T, grpcPort int, timeout time.Duration) 
 		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 		defer cancel()
 
-		_, err := client.InitializationStatus(ctx, pooler, &multipoolermanagerdatapb.InitializationStatusRequest{})
+		_, err := client.Status(ctx, pooler, &multipoolermanagerdatapb.StatusRequest{})
 		return err == nil
 	}, timeout, 200*time.Millisecond, "Multipooler at port %d did not become ready", grpcPort)
 }
@@ -361,8 +361,8 @@ func cleanupNode(t *testing.T, node *nodeInstance) {
 	}
 }
 
-// checkInitializationStatus checks the initialization status of a node
-func checkInitializationStatus(t *testing.T, node *nodeInstance) *multipoolermanagerdatapb.InitializationStatusResponse {
+// checkInitializationStatus checks the status of a node (which includes initialization info)
+func checkInitializationStatus(t *testing.T, node *nodeInstance) *multipoolermanagerdatapb.Status {
 	t.Helper()
 
 	client := rpcclient.NewMultiPoolerClient(10) // Small cache for test connections
@@ -373,10 +373,10 @@ func checkInitializationStatus(t *testing.T, node *nodeInstance) *multipoolerman
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	resp, err := client.InitializationStatus(ctx, pooler, &multipoolermanagerdatapb.InitializationStatusRequest{})
+	resp, err := client.Status(ctx, pooler, &multipoolermanagerdatapb.StatusRequest{})
 	require.NoError(t, err)
 
-	return resp
+	return resp.Status
 }
 
 // connectToPostgres establishes a connection to PostgreSQL using Unix socket
@@ -576,6 +576,36 @@ func waitForShardBootstrapped(t *testing.T, nodes []*nodeInstance, timeout time.
 
 	t.Fatalf("Timeout: shard did not bootstrap within %v", timeout)
 	return nil
+}
+
+// waitForStandbysInitialized polls multipooler nodes until all non-primary nodes are initialized as replicas.
+// This ensures multiorch has completed standby initialization before proceeding with verification.
+func waitForStandbysInitialized(t *testing.T, nodes []*nodeInstance, primaryName string, expectedCount int, timeout time.Duration) {
+	t.Helper()
+
+	deadline := time.Now().Add(timeout)
+	checkInterval := 2 * time.Second
+
+	for time.Now().Before(deadline) {
+		standbyCount := 0
+		for _, node := range nodes {
+			if node.name == primaryName {
+				continue // Skip the primary
+			}
+			status := checkInitializationStatus(t, node)
+			if status.IsInitialized && status.PoolerType == clustermetadatapb.PoolerType_REPLICA && status.PostgresRunning {
+				standbyCount++
+			}
+		}
+		if standbyCount >= expectedCount {
+			t.Logf("All %d standbys initialized successfully", standbyCount)
+			return
+		}
+		t.Logf("Waiting for standbys to initialize... (have %d/%d, sleeping %v)", standbyCount, expectedCount, checkInterval)
+		time.Sleep(checkInterval)
+	}
+
+	t.Fatalf("Timeout: standbys did not initialize within %v", timeout)
 }
 
 // getPostgresPid reads the postgres PID from postmaster.pid file

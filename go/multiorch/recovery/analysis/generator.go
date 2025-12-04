@@ -350,7 +350,7 @@ func (g *AnalysisGenerator) populatePrimaryInfo(
 			// 1. Health check was valid (IsLastCheckValid)
 			// 2. PostgreSQL is running (IsPostgresRunning is true)
 			// When postgres dies but multipooler is still up, IsLastCheckValid is true
-			// but IsPostgresRunning is false (set by healthcheck when using InitializationStatus)
+			// but IsPostgresRunning is false (set by healthcheck from Status RPC)
 			analysis.PrimaryReachable = pooler.IsLastCheckValid && pooler.IsPostgresRunning
 			if pooler.LastSeen != nil {
 				analysis.PrimaryTimestamp = pooler.LastSeen.AsTime()

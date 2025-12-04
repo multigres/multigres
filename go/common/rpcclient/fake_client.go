@@ -54,7 +54,6 @@ type FakeClient struct {
 	// Manager service responses - keyed by pooler ID
 	InitializeEmptyPrimaryResponses          map[string]*multipoolermanagerdatapb.InitializeEmptyPrimaryResponse
 	InitializeAsStandbyResponses             map[string]*multipoolermanagerdatapb.InitializeAsStandbyResponse
-	InitializationStatusResponses            map[string]*multipoolermanagerdatapb.InitializationStatusResponse
 	StateResponses                           map[string]*multipoolermanagerdatapb.StateResponse
 	WaitForLSNResponses                      map[string]*multipoolermanagerdatapb.WaitForLSNResponse
 	SetPrimaryConnInfoResponses              map[string]*multipoolermanagerdatapb.SetPrimaryConnInfoResponse
@@ -96,7 +95,6 @@ func NewFakeClient() *FakeClient {
 		CanReachPrimaryResponses:                 make(map[string]*consensusdatapb.CanReachPrimaryResponse),
 		InitializeEmptyPrimaryResponses:          make(map[string]*multipoolermanagerdatapb.InitializeEmptyPrimaryResponse),
 		InitializeAsStandbyResponses:             make(map[string]*multipoolermanagerdatapb.InitializeAsStandbyResponse),
-		InitializationStatusResponses:            make(map[string]*multipoolermanagerdatapb.InitializationStatusResponse),
 		StateResponses:                           make(map[string]*multipoolermanagerdatapb.StateResponse),
 		WaitForLSNResponses:                      make(map[string]*multipoolermanagerdatapb.WaitForLSNResponse),
 		SetPrimaryConnInfoResponses:              make(map[string]*multipoolermanagerdatapb.SetPrimaryConnInfoResponse),
@@ -252,22 +250,6 @@ func (f *FakeClient) InitializeAsStandby(ctx context.Context, pooler *clustermet
 		return resp, nil
 	}
 	return &multipoolermanagerdatapb.InitializeAsStandbyResponse{}, nil
-}
-
-func (f *FakeClient) InitializationStatus(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.InitializationStatusRequest) (*multipoolermanagerdatapb.InitializationStatusResponse, error) {
-	poolerID := f.getPoolerID(pooler)
-	f.logCall("InitializationStatus", poolerID)
-
-	if err := f.checkError(poolerID); err != nil {
-		return nil, err
-	}
-
-	f.mu.RLock()
-	defer f.mu.RUnlock()
-	if resp, ok := f.InitializationStatusResponses[poolerID]; ok {
-		return resp, nil
-	}
-	return &multipoolermanagerdatapb.InitializationStatusResponse{}, nil
 }
 
 //

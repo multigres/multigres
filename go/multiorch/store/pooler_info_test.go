@@ -25,29 +25,47 @@ import (
 )
 
 func TestPoolerHealthState_IsInitialized(t *testing.T) {
+	// IsInitialized() now uses the IsInitialized field from Status RPC directly,
+	// based on data directory state, not LSN values.
 	tests := []struct {
 		name     string
 		pooler   *multiorchdatapb.PoolerHealthState
 		expected bool
 	}{
 		{
-			name: "unreachable primary is uninitialized",
+			name: "unreachable node is uninitialized even with IsInitialized=true",
 			pooler: &multiorchdatapb.PoolerHealthState{
 				IsLastCheckValid: false,
 				MultiPooler:      &clustermetadatapb.MultiPooler{},
-				PoolerType:       clustermetadatapb.PoolerType_PRIMARY,
-				PrimaryStatus: &multipoolermanagerdatapb.PrimaryStatus{
-					Lsn: "0/123ABC",
-				},
+				IsInitialized:    true,
 			},
 			expected: false,
 		},
 		{
-			name: "reachable primary with LSN is initialized",
+			name: "reachable node with IsInitialized=true is initialized",
+			pooler: &multiorchdatapb.PoolerHealthState{
+				IsLastCheckValid: true,
+				MultiPooler:      &clustermetadatapb.MultiPooler{},
+				IsInitialized:    true,
+			},
+			expected: true,
+		},
+		{
+			name: "reachable node with IsInitialized=false is uninitialized",
+			pooler: &multiorchdatapb.PoolerHealthState{
+				IsLastCheckValid: true,
+				MultiPooler:      &clustermetadatapb.MultiPooler{},
+				IsInitialized:    false,
+			},
+			expected: false,
+		},
+		{
+			name: "reachable primary with IsInitialized=true is initialized",
 			pooler: &multiorchdatapb.PoolerHealthState{
 				IsLastCheckValid: true,
 				MultiPooler:      &clustermetadatapb.MultiPooler{},
 				PoolerType:       clustermetadatapb.PoolerType_PRIMARY,
+				IsInitialized:    true,
 				PrimaryStatus: &multipoolermanagerdatapb.PrimaryStatus{
 					Lsn: "0/123ABC",
 				},
@@ -55,23 +73,12 @@ func TestPoolerHealthState_IsInitialized(t *testing.T) {
 			expected: true,
 		},
 		{
-			name: "reachable primary without LSN is uninitialized",
-			pooler: &multiorchdatapb.PoolerHealthState{
-				IsLastCheckValid: true,
-				MultiPooler:      &clustermetadatapb.MultiPooler{},
-				PoolerType:       clustermetadatapb.PoolerType_PRIMARY,
-				PrimaryStatus: &multipoolermanagerdatapb.PrimaryStatus{
-					Lsn: "",
-				},
-			},
-			expected: false,
-		},
-		{
-			name: "reachable replica with replay LSN is initialized",
+			name: "reachable replica with IsInitialized=true is initialized",
 			pooler: &multiorchdatapb.PoolerHealthState{
 				IsLastCheckValid: true,
 				MultiPooler:      &clustermetadatapb.MultiPooler{},
 				PoolerType:       clustermetadatapb.PoolerType_REPLICA,
+				IsInitialized:    true,
 				ReplicationStatus: &multipoolermanagerdatapb.StandbyReplicationStatus{
 					LastReplayLsn: "0/123ABC",
 				},
@@ -79,33 +86,12 @@ func TestPoolerHealthState_IsInitialized(t *testing.T) {
 			expected: true,
 		},
 		{
-			name: "reachable replica with receive LSN is initialized",
+			name: "reachable replica with IsInitialized=false is uninitialized even with LSN",
 			pooler: &multiorchdatapb.PoolerHealthState{
 				IsLastCheckValid: true,
 				MultiPooler:      &clustermetadatapb.MultiPooler{},
 				PoolerType:       clustermetadatapb.PoolerType_REPLICA,
-				ReplicationStatus: &multipoolermanagerdatapb.StandbyReplicationStatus{
-					LastReceiveLsn: "0/123ABC",
-				},
-			},
-			expected: true,
-		},
-		{
-			name: "reachable replica without LSNs is uninitialized",
-			pooler: &multiorchdatapb.PoolerHealthState{
-				IsLastCheckValid:  true,
-				MultiPooler:       &clustermetadatapb.MultiPooler{},
-				PoolerType:        clustermetadatapb.PoolerType_REPLICA,
-				ReplicationStatus: &multipoolermanagerdatapb.StandbyReplicationStatus{},
-			},
-			expected: false,
-		},
-		{
-			name: "unreachable replica is uninitialized",
-			pooler: &multiorchdatapb.PoolerHealthState{
-				IsLastCheckValid: false,
-				MultiPooler:      &clustermetadatapb.MultiPooler{},
-				PoolerType:       clustermetadatapb.PoolerType_REPLICA,
+				IsInitialized:    false,
 				ReplicationStatus: &multipoolermanagerdatapb.StandbyReplicationStatus{
 					LastReplayLsn: "0/123ABC",
 				},

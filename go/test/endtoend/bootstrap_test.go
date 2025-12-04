@@ -209,8 +209,8 @@ func TestBootstrapInitialization(t *testing.T) {
 	// which will create the data directory, configure archive mode, and start postgres
 	for i, node := range nodes {
 		status := checkInitializationStatus(t, node)
-		t.Logf("Node %d (%s) InitializationStatus: IsInitialized=%v, HasDataDirectory=%v, PostgresRunning=%v, Role=%s, PoolerType=%s",
-			i, node.name, status.IsInitialized, status.HasDataDirectory, status.PostgresRunning, status.Role, status.PoolerType)
+		t.Logf("Node %d (%s) Status: IsInitialized=%v, HasDataDirectory=%v, PostgresRunning=%v, PostgresRole=%s, PoolerType=%s",
+			i, node.name, status.IsInitialized, status.HasDataDirectory, status.PostgresRunning, status.PostgresRole, status.PoolerType)
 		// Nodes should be completely uninitialized (no data directory at all)
 		require.False(t, status.IsInitialized, "Node %d should not be initialized yet", i)
 		require.False(t, status.HasDataDirectory, "Node %d should not have data directory yet", i)
@@ -253,6 +253,11 @@ func TestBootstrapInitialization(t *testing.T) {
 	t.Logf("Waiting for multiorch to detect and bootstrap the shard...")
 	primaryNode := waitForShardBootstrapped(t, nodes, 60*time.Second)
 	require.NotNil(t, primaryNode, "Expected multiorch to bootstrap shard automatically")
+
+	// Wait for all standbys to complete initialization before running verification
+	// This ensures multiorch isn't terminated while standby initialization is in progress
+	t.Logf("Waiting for standbys to complete initialization...")
+	waitForStandbysInitialized(t, nodes, primaryNode.name, len(nodes)-1, 60*time.Second)
 
 	// Verify bootstrap results
 	t.Run("verify primary initialized", func(t *testing.T) {

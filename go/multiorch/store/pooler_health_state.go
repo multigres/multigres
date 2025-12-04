@@ -15,36 +15,23 @@
 package store
 
 import (
-	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multiorchdata "github.com/multigres/multigres/go/pb/multiorchdata"
 )
 
 // IsInitialized returns true if the pooler has been initialized.
-// A pooler is considered initialized if:
-// - It's reachable (IsLastCheckValid)
-// - For PRIMARY: PrimaryStatus.Lsn is non-empty
-// - For REPLICA: ReplicationStatus has non-empty LastReplayLsn or LastReceiveLsn
-//
-// Note: Uses PoolerType from health check to determine type. Nodes are always
-// created with PoolerType UNKNOWN, and the health check sets it to PRIMARY or REPLICA.
+// A pooler is considered initialized based on the IsInitialized field from
+// the Status RPC, which is determined by the data directory state (not LSN).
+// The node must also be reachable for us to trust this information.
 func IsInitialized(p *multiorchdata.PoolerHealthState) bool {
 	if !p.IsLastCheckValid {
-		return false // unreachable nodes are uninitialized
+		return false // unreachable nodes are considered uninitialized
 	}
 
 	if p.MultiPooler == nil {
 		return false
 	}
 
-	// Use health check type (PoolerType) as the authoritative source
-	// Nodes are never created with topology type PRIMARY
-	if p.PoolerType == clustermetadatapb.PoolerType_PRIMARY {
-		return p.PrimaryStatus != nil && p.PrimaryStatus.Lsn != ""
-	}
-
-	// For replica (or UNKNOWN - check replica status as fallback)
-	if p.ReplicationStatus != nil {
-		return p.ReplicationStatus.LastReplayLsn != "" || p.ReplicationStatus.LastReceiveLsn != ""
-	}
-	return false
+	// Use the IsInitialized field from Status RPC directly.
+	// This is based on data directory state, not LSN.
+	return p.IsInitialized
 }
