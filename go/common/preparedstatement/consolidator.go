@@ -18,10 +18,10 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/multigres/multigres/go/common/protoutil"
 	"github.com/multigres/multigres/go/parser"
 	"github.com/multigres/multigres/go/parser/ast"
 	querypb "github.com/multigres/multigres/go/pb/query"
-	"github.com/multigres/multigres/go/protoutil"
 )
 
 // Consolidator is used to consolidate prepared statements that

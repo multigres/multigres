@@ -21,7 +21,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/multigres/multigres/go/common/preparedstatement"
-	"github.com/multigres/multigres/go/protoutil"
+	"github.com/multigres/multigres/go/common/protoutil"
 )
 
 func TestNewMultiGatewayConnectionState(t *testing.T) {

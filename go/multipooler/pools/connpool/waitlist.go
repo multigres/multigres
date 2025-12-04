@@ -18,8 +18,8 @@ import (
 	"context"
 	"sync"
 
-	"github.com/multigres/multigres/go/list"
 	"github.com/multigres/multigres/go/multipooler/connstate"
+	"github.com/multigres/multigres/go/tools/list"
 )
 
 // waiter represents a client waiting for a connection in the waitlist
