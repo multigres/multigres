@@ -287,7 +287,7 @@ func (g *AnalysisGenerator) aggregateReplicaStats(
 			// Also check via primary_conninfo if we didn't find it in connected followers
 			if !isPointingToPrimary && pooler.ReplicationStatus != nil && pooler.ReplicationStatus.PrimaryConnInfo != nil {
 				connInfo := pooler.ReplicationStatus.PrimaryConnInfo
-				primaryPort := primary.MultiPooler.PortMap["pg"]
+				primaryPort := primary.MultiPooler.PortMap["postgres"]
 				if connInfo.Host == primary.MultiPooler.Hostname && connInfo.Port == primaryPort {
 					isPointingToPrimary = true
 				}

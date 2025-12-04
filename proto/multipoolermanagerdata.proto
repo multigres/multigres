@@ -587,6 +587,10 @@ message InitializationStatusResponse {
 
   // Shard ID that this pooler belongs to
   string shard_id = 7;
+
+  // Pooler type from topology (UNKNOWN, PRIMARY, or REPLICA)
+  // This reflects the multipooler's registered type, not the postgres-level role.
+  clustermetadata.PoolerType pooler_type = 8;
 }
 
 // Backup operations

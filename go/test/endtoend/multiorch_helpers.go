@@ -552,7 +552,9 @@ func startMultiOrch(t *testing.T, baseDir, cell string, etcdAddr string, watchTa
 	return multiOrchCmd
 }
 
-// waitForShardBootstrapped polls multipooler nodes until at least one is initialized as primary
+// waitForShardBootstrapped polls multipooler nodes until at least one is initialized as primary.
+// Uses PoolerType from topology (set by ChangeType RPC) rather than postgres-level role from pg_is_in_recovery().
+// This ensures the test waits until multiorch has completed the full bootstrap sequence including ChangeType.
 func waitForShardBootstrapped(t *testing.T, nodes []*nodeInstance, timeout time.Duration) *nodeInstance {
 	t.Helper()
 
@@ -562,8 +564,9 @@ func waitForShardBootstrapped(t *testing.T, nodes []*nodeInstance, timeout time.
 	for time.Now().Before(deadline) {
 		for _, node := range nodes {
 			status := checkInitializationStatus(t, node)
-			if status.IsInitialized && status.Role == "primary" {
-				t.Logf("Shard bootstrapped: primary is %s", node.name)
+			// Check PoolerType (from topology) instead of Role (from pg_is_in_recovery)
+			if status.IsInitialized && status.PoolerType == clustermetadatapb.PoolerType_PRIMARY {
+				t.Logf("Shard bootstrapped: primary is %s (pooler_type=%s)", node.name, status.PoolerType)
 				return node
 			}
 		}
@@ -605,7 +608,8 @@ func killPostgres(t *testing.T, node *nodeInstance) {
 	t.Logf("Postgres killed on %s - multipooler should detect failure", node.name)
 }
 
-// waitForNewPrimaryElected polls nodes until a new primary (different from oldPrimaryName) is elected
+// waitForNewPrimaryElected polls nodes until a new primary (different from oldPrimaryName) is elected.
+// Uses PoolerType from topology (set by ChangeType RPC) rather than postgres-level role.
 func waitForNewPrimaryElected(t *testing.T, nodes []*nodeInstance, oldPrimaryName string, timeout time.Duration) *nodeInstance {
 	t.Helper()
 
@@ -618,8 +622,9 @@ func waitForNewPrimaryElected(t *testing.T, nodes []*nodeInstance, oldPrimaryNam
 				continue // Skip the old primary
 			}
 			status := checkInitializationStatus(t, node)
-			if status.IsInitialized && status.Role == "primary" {
-				t.Logf("New primary elected: %s", node.name)
+			// Check PoolerType (from topology) instead of Role (from pg_is_in_recovery)
+			if status.IsInitialized && status.PoolerType == clustermetadatapb.PoolerType_PRIMARY {
+				t.Logf("New primary elected: %s (pooler_type=%s)", node.name, status.PoolerType)
 				return node
 			}
 		}

@@ -76,10 +76,6 @@ func (t *trackingRecoveryAction) Metadata() types.RecoveryMetadata {
 	}
 }
 
-func (t *trackingRecoveryAction) RequiresLock() bool {
-	return false
-}
-
 func (t *trackingRecoveryAction) RequiresHealthyPrimary() bool {
 	return false
 }
@@ -93,7 +89,6 @@ type mockRecoveryAction struct {
 	name                   string
 	priority               types.Priority
 	timeout                time.Duration
-	requiresLock           bool
 	requiresHealthyPrimary bool
 	executed               bool
 	executeErr             error
@@ -116,10 +111,6 @@ func (m *mockRecoveryAction) Metadata() types.RecoveryMetadata {
 		Timeout:     m.timeout,
 		Retryable:   true,
 	}
-}
-
-func (m *mockRecoveryAction) RequiresLock() bool {
-	return m.requiresLock
 }
 
 func (m *mockRecoveryAction) RequiresHealthyPrimary() bool {

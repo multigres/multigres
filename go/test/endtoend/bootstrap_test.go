@@ -12,6 +12,19 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 // Package endtoend contains integration tests for multigres components.
 //
 // Bootstrap test:
@@ -43,6 +56,9 @@ import (
 )
 
 func TestBootstrapInitialization(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping end-to-end bootstrap test (short mode)")
+	}
 	if utils.ShouldSkipRealPostgres() {
 		t.Skip("Skipping end-to-end bootstrap test (short mode or no postgres binaries)")
 	}
@@ -193,8 +209,8 @@ func TestBootstrapInitialization(t *testing.T) {
 	// which will create the data directory, configure archive mode, and start postgres
 	for i, node := range nodes {
 		status := checkInitializationStatus(t, node)
-		t.Logf("Node %d (%s) InitializationStatus: IsInitialized=%v, HasDataDirectory=%v, PostgresRunning=%v, Role=%s",
-			i, node.name, status.IsInitialized, status.HasDataDirectory, status.PostgresRunning, status.Role)
+		t.Logf("Node %d (%s) InitializationStatus: IsInitialized=%v, HasDataDirectory=%v, PostgresRunning=%v, Role=%s, PoolerType=%s",
+			i, node.name, status.IsInitialized, status.HasDataDirectory, status.PostgresRunning, status.Role, status.PoolerType)
 		// Nodes should be completely uninitialized (no data directory at all)
 		require.False(t, status.IsInitialized, "Node %d should not be initialized yet", i)
 		require.False(t, status.HasDataDirectory, "Node %d should not have data directory yet", i)
@@ -215,7 +231,8 @@ func TestBootstrapInitialization(t *testing.T) {
 			},
 			Hostname: "localhost",
 			PortMap: map[string]int32{
-				"grpc": int32(node.grpcPort),
+				"grpc":     int32(node.grpcPort),
+				"postgres": int32(node.pgPort),
 			},
 			Shard:      shardID,
 			Database:   database,
@@ -303,13 +320,13 @@ func TestBootstrapInitialization(t *testing.T) {
 		t.Logf("  is_active: %t", isActive)
 	})
 	t.Run("verify standbys initialized", func(t *testing.T) {
-		// Count standbys
+		// Count standbys using PoolerType from topology
 		standbyCount := 0
 		for _, node := range nodes {
 			status := checkInitializationStatus(t, node)
-			if status.IsInitialized && status.Role == "standby" {
+			if status.IsInitialized && status.PoolerType == clustermetadatapb.PoolerType_REPLICA {
 				standbyCount++
-				t.Logf("Standby node: %s", node.name)
+				t.Logf("Standby node: %s (pooler_type=%s)", node.name, status.PoolerType)
 			}
 		}
 		// Should have at least 1 standby (might have issues with some)
@@ -322,7 +339,7 @@ func TestBootstrapInitialization(t *testing.T) {
 			status := checkInitializationStatus(t, node)
 			if status.IsInitialized {
 				verifyMultigresTablesExist(t, node)
-				t.Logf("Verified multigres tables exist on %s (%s)", node.name, status.Role)
+				t.Logf("Verified multigres tables exist on %s (pooler_type=%s)", node.name, status.PoolerType)
 			}
 		}
 	})

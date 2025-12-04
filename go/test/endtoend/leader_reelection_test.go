@@ -28,6 +28,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/test/utils"
 )
 
@@ -97,7 +98,7 @@ func TestMultiOrchLeaderReelection(t *testing.T) {
 	t.Run("verify new primary is functional", func(t *testing.T) {
 		status := checkInitializationStatus(t, newPrimaryNode)
 		require.True(t, status.IsInitialized, "New primary should be initialized")
-		require.Equal(t, "primary", status.Role, "New leader should have primary role")
+		require.Equal(t, clustermetadatapb.PoolerType_PRIMARY, status.PoolerType, "New leader should have PRIMARY pooler type")
 
 		// Verify we can connect and query
 		socketDir := filepath.Join(newPrimaryNode.dataDir, "pg_sockets")

@@ -242,6 +242,7 @@ func (pm *MultiPoolerManager) InitializationStatus(ctx context.Context, req *mul
 		Role:             pm.getRole(ctx),
 		WalPosition:      walPosition,
 		ShardId:          pm.getShardID(),
+		PoolerType:       pm.getPoolerType(),
 	}
 
 	// Get consensus term if available

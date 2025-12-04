@@ -43,33 +43,38 @@ func (a *PrimaryIsDeadAnalyzer) Analyze(poolerAnalysis *store.ReplicationAnalysi
 		return nil
 	}
 
-	// Only trigger if:
-	// 1. A primary exists in topology (PrimaryPoolerID is set)
-	// 2. BUT the primary is unreachable (PrimaryReachable is false)
-	//
-	// This is the key difference from ShardHasNoPrimary which checks PrimaryPoolerID == nil
-	if poolerAnalysis.PrimaryPoolerID != nil && !poolerAnalysis.PrimaryReachable {
-		factory := GetRecoveryActionFactory()
-		if factory == nil {
-			// Factory not initialized yet, skip recovery action
-			return nil
-		}
-
-		return []types.Problem{{
-			Code:       types.ProblemPrimaryIsDead,
-			CheckName:  "PrimaryIsDead",
-			PoolerID:   poolerAnalysis.PoolerID,
-			Database:   poolerAnalysis.Database,
-			TableGroup: poolerAnalysis.TableGroup,
-			Shard:      poolerAnalysis.Shard,
-			Description: fmt.Sprintf("Primary for shard %s/%s/%s is dead/unreachable",
-				poolerAnalysis.Database, poolerAnalysis.TableGroup, poolerAnalysis.Shard),
-			Priority:       types.PriorityEmergency,
-			Scope:          types.ScopeShard,
-			DetectedAt:     time.Now(),
-			RecoveryAction: factory.NewAppointLeaderAction(),
-		}}
+	// Early return if primary is reachable - no problem to report
+	if poolerAnalysis.PrimaryPoolerID != nil && poolerAnalysis.PrimaryReachable {
+		return nil
 	}
 
-	return nil
+	// At this point:
+	// - This is an initialized replica
+	// - Either no primary exists (PrimaryPoolerID == nil) or primary is unreachable
+	// Only trigger if a primary exists but is unreachable.
+	// (ShardHasNoPrimary handles the case when PrimaryPoolerID == nil)
+	if poolerAnalysis.PrimaryPoolerID == nil {
+		return nil
+	}
+
+	factory := GetRecoveryActionFactory()
+	if factory == nil {
+		// Factory not initialized yet, skip recovery action
+		return nil
+	}
+
+	return []types.Problem{{
+		Code:       types.ProblemPrimaryIsDead,
+		CheckName:  "PrimaryIsDead",
+		PoolerID:   poolerAnalysis.PoolerID,
+		Database:   poolerAnalysis.Database,
+		TableGroup: poolerAnalysis.TableGroup,
+		Shard:      poolerAnalysis.Shard,
+		Description: fmt.Sprintf("Primary for shard %s/%s/%s is dead/unreachable",
+			poolerAnalysis.Database, poolerAnalysis.TableGroup, poolerAnalysis.Shard),
+		Priority:       types.PriorityEmergency,
+		Scope:          types.ScopeShard,
+		DetectedAt:     time.Now(),
+		RecoveryAction: factory.NewAppointLeaderAction(),
+	}}
 }

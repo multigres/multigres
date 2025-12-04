@@ -3150,7 +3150,10 @@ type InitializationStatusResponse struct {
 	// Current consensus term
 	ConsensusTerm int64 `protobuf:"varint,6,opt,name=consensus_term,json=consensusTerm,proto3" json:"consensus_term,omitempty"`
 	// Shard ID that this pooler belongs to
-	ShardId       string `protobuf:"bytes,7,opt,name=shard_id,json=shardId,proto3" json:"shard_id,omitempty"`
+	ShardId string `protobuf:"bytes,7,opt,name=shard_id,json=shardId,proto3" json:"shard_id,omitempty"`
+	// Pooler type from topology (UNKNOWN, PRIMARY, or REPLICA)
+	// This reflects the multipooler's registered type, not the postgres-level role.
+	PoolerType    clustermetadata.PoolerType `protobuf:"varint,8,opt,name=pooler_type,json=poolerType,proto3,enum=clustermetadata.PoolerType" json:"pooler_type,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3232,6 +3235,13 @@ func (x *InitializationStatusResponse) GetShardId() string {
 		return x.ShardId
 	}
 	return ""
+}
+
+func (x *InitializationStatusResponse) GetPoolerType() clustermetadata.PoolerType {
+	if x != nil {
+		return x.PoolerType
+	}
+	return clustermetadata.PoolerType(0)
 }
 
 // BackupRequest requests a backup
@@ -3964,7 +3974,7 @@ const file_multipoolermanagerdata_proto_rawDesc = "" +
 	"\asuccess\x18\x01 \x01(\bR\asuccess\x12#\n" +
 	"\rerror_message\x18\x02 \x01(\tR\ferrorMessage\x12\x1b\n" +
 	"\tfinal_lsn\x18\x03 \x01(\tR\bfinalLsn\"\x1d\n" +
-	"\x1bInitializationStatusRequest\"\x97\x02\n" +
+	"\x1bInitializationStatusRequest\"\xd5\x02\n" +
 	"\x1cInitializationStatusResponse\x12%\n" +
 	"\x0eis_initialized\x18\x01 \x01(\bR\risInitialized\x12,\n" +
 	"\x12has_data_directory\x18\x02 \x01(\bR\x10hasDataDirectory\x12)\n" +
@@ -3972,7 +3982,9 @@ const file_multipoolermanagerdata_proto_rawDesc = "" +
 	"\x04role\x18\x04 \x01(\tR\x04role\x12!\n" +
 	"\fwal_position\x18\x05 \x01(\tR\vwalPosition\x12%\n" +
 	"\x0econsensus_term\x18\x06 \x01(\x03R\rconsensusTerm\x12\x19\n" +
-	"\bshard_id\x18\a \x01(\tR\ashardId\"H\n" +
+	"\bshard_id\x18\a \x01(\tR\ashardId\x12<\n" +
+	"\vpooler_type\x18\b \x01(\x0e2\x1b.clustermetadata.PoolerTypeR\n" +
+	"poolerType\"H\n" +
 	"\rBackupRequest\x12#\n" +
 	"\rforce_primary\x18\x01 \x01(\bR\fforcePrimary\x12\x12\n" +
 	"\x04type\x18\x02 \x01(\tR\x04type\"-\n" +
@@ -4159,15 +4171,16 @@ var file_multipoolermanagerdata_proto_depIdxs = []int32{
 	69, // 35: multipoolermanagerdata.ConsensusTerm.accepted_term_from_coordinator_id:type_name -> clustermetadata.ID
 	71, // 36: multipoolermanagerdata.ConsensusTerm.last_acceptance_time:type_name -> google.protobuf.Timestamp
 	69, // 37: multipoolermanagerdata.ConsensusTerm.leader_id:type_name -> clustermetadata.ID
-	63, // 38: multipoolermanagerdata.GetBackupsResponse.backups:type_name -> multipoolermanagerdata.BackupMetadata
-	4,  // 39: multipoolermanagerdata.BackupMetadata.status:type_name -> multipoolermanagerdata.BackupMetadata.Status
-	72, // 40: multipoolermanagerdata.GetDurabilityPolicyResponse.policy:type_name -> clustermetadata.DurabilityPolicy
-	73, // 41: multipoolermanagerdata.CreateDurabilityPolicyRequest.quorum_rule:type_name -> clustermetadata.QuorumRule
-	42, // [42:42] is the sub-list for method output_type
-	42, // [42:42] is the sub-list for method input_type
-	42, // [42:42] is the sub-list for extension type_name
-	42, // [42:42] is the sub-list for extension extendee
-	0,  // [0:42] is the sub-list for field type_name
+	70, // 38: multipoolermanagerdata.InitializationStatusResponse.pooler_type:type_name -> clustermetadata.PoolerType
+	63, // 39: multipoolermanagerdata.GetBackupsResponse.backups:type_name -> multipoolermanagerdata.BackupMetadata
+	4,  // 40: multipoolermanagerdata.BackupMetadata.status:type_name -> multipoolermanagerdata.BackupMetadata.Status
+	72, // 41: multipoolermanagerdata.GetDurabilityPolicyResponse.policy:type_name -> clustermetadata.DurabilityPolicy
+	73, // 42: multipoolermanagerdata.CreateDurabilityPolicyRequest.quorum_rule:type_name -> clustermetadata.QuorumRule
+	43, // [43:43] is the sub-list for method output_type
+	43, // [43:43] is the sub-list for method input_type
+	43, // [43:43] is the sub-list for extension type_name
+	43, // [43:43] is the sub-list for extension extendee
+	0,  // [0:43] is the sub-list for field type_name
 }
 
 func init() { file_multipoolermanagerdata_proto_init() }

@@ -48,8 +48,8 @@ func (a *ShardNeedsBootstrapAnalyzer) Analyze(poolerAnalysis *store.ReplicationA
 	// - PrimaryPoolerID = nil (it's the primary itself)
 	// This would incorrectly trigger ShardNeedsBootstrap if we don't skip it.
 	// Note: IsPrimary is based on MultiPooler.Type == PRIMARY from topology, which is set
-	// when the node is initialized as primary. New uninitialized nodes start with Type=PRIMARY
-	// but will have IsInitialized=false AND PrimaryPoolerID != nil won't match below.
+	// when the node is initialized as primary. New uninitialized nodes start with Type=STANDBY
+	// and are promoted to PRIMARY only after bootstrap initializes them.
 	if poolerAnalysis.IsPrimary && poolerAnalysis.IsInitialized {
 		// Only skip if it was actually initialized as primary (has health data)
 		return nil

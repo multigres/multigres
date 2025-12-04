@@ -155,15 +155,6 @@ func (a *BootstrapShardAction) Execute(ctx context.Context, problem types.Proble
 		"database", problem.Database,
 		"candidate", candidate.MultiPooler.Id.Name)
 
-	// Set pooler type to PRIMARY before initializing
-	changeTypeReq := &multipoolermanagerdatapb.ChangeTypeRequest{
-		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
-	}
-	_, err = a.rpcClient.ChangeType(ctx, candidate.MultiPooler, changeTypeReq)
-	if err != nil {
-		return mterrors.Wrap(err, "failed to set pooler type to PRIMARY")
-	}
-
 	// Initialize the candidate as an empty primary with term=1
 	req := &multipoolermanagerdatapb.InitializeEmptyPrimaryRequest{
 		ConsensusTerm: 1,
@@ -184,6 +175,16 @@ func (a *BootstrapShardAction) Execute(ctx context.Context, problem types.Proble
 		"database", problem.Database,
 		"primary", candidate.MultiPooler.Id.Name,
 		"backup_id", resp.BackupId)
+
+	// Set pooler type to PRIMARY after successful initialization
+	// This updates topology so other components (and tests) can observe the node as PRIMARY.
+	changeTypeReq := &multipoolermanagerdatapb.ChangeTypeRequest{
+		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
+	}
+	_, err = a.rpcClient.ChangeType(ctx, candidate.MultiPooler, changeTypeReq)
+	if err != nil {
+		return mterrors.Wrap(err, "failed to set pooler type to PRIMARY")
+	}
 
 	// Create durability policy in the primary's database
 	quorumRule, err := a.parsePolicy(policyName)
@@ -260,65 +261,26 @@ func (a *BootstrapShardAction) verifyBootstrapNeeded(ctx context.Context, cohort
 	return true, nil
 }
 
-// selectBootstrapCandidate selects a healthy node as the bootstrap candidate.
-// Prefers initialized nodes over uninitialized nodes to avoid data loss in mixed scenarios.
+// selectBootstrapCandidate selects the first reachable node as the bootstrap candidate.
+// Assumes the analyzer correctly determined that all nodes are uninitialized.
 func (a *BootstrapShardAction) selectBootstrapCandidate(ctx context.Context, cohort []*multiorchdatapb.PoolerHealthState) (*multiorchdatapb.PoolerHealthState, error) {
-	// For bootstrap in mixed initialization scenarios, prefer initialized nodes
-	// to avoid data loss. This handles cases where some nodes have data and others don't.
-	// Selection strategy:
-	// 1. First pass: look for initialized nodes
-	// 2. Second pass: if no initialized nodes, use first uninitialized node
-
-	type nodeInfo struct {
-		pooler      *multiorchdatapb.PoolerHealthState
-		initialized bool
-		reachable   bool
-	}
-
-	nodes := make([]nodeInfo, 0, len(cohort))
-
 	for _, pooler := range cohort {
 		req := &multipoolermanagerdatapb.InitializationStatusRequest{}
-		status, err := a.rpcClient.InitializationStatus(ctx, pooler.MultiPooler, req)
+		_, err := a.rpcClient.InitializationStatus(ctx, pooler.MultiPooler, req)
 		if err != nil {
-			a.logger.WarnContext(ctx, "node unreachable during candidate selection",
-				"node", pooler.MultiPooler.Id.Name,
+			a.logger.WarnContext(ctx, "pooler unreachable during candidate selection",
+				"pooler", pooler.MultiPooler.Id.Name,
 				"error", err)
-			nodes = append(nodes, nodeInfo{
-				pooler:      pooler,
-				initialized: false,
-				reachable:   false,
-			})
 			continue
 		}
 
-		nodes = append(nodes, nodeInfo{
-			pooler:      pooler,
-			initialized: status.IsInitialized,
-			reachable:   true,
-		})
-	}
-
-	// First pass: prefer initialized nodes
-	for _, node := range nodes {
-		if node.reachable && node.initialized {
-			a.logger.InfoContext(ctx, "selected initialized node as bootstrap candidate",
-				"node", node.pooler.MultiPooler.Id.Name)
-			return node.pooler, nil
-		}
-	}
-
-	// Second pass: use first uninitialized but reachable node
-	for _, node := range nodes {
-		if node.reachable && !node.initialized {
-			a.logger.InfoContext(ctx, "selected uninitialized node as bootstrap candidate",
-				"node", node.pooler.MultiPooler.Id.Name)
-			return node.pooler, nil
-		}
+		a.logger.InfoContext(ctx, "selected pooler as bootstrap candidate",
+			"pooler", pooler.MultiPooler.Id.Name)
+		return pooler, nil
 	}
 
 	return nil, mterrors.Errorf(mtrpcpb.Code_UNAVAILABLE,
-		"no suitable candidate found for bootstrap")
+		"no reachable candidate found for bootstrap")
 }
 
 // initializeStandbys initializes multiple nodes as standbys of the given primary
@@ -386,7 +348,7 @@ func (a *BootstrapShardAction) initializeSingleStandby(ctx context.Context, node
 
 	req := &multipoolermanagerdatapb.InitializeAsStandbyRequest{
 		PrimaryHost:   primary.MultiPooler.Hostname,
-		PrimaryPort:   primary.MultiPooler.PortMap["pg"],
+		PrimaryPort:   primary.MultiPooler.PortMap["postgres"],
 		ConsensusTerm: 1,
 		Force:         false,
 		BackupId:      backupID,
