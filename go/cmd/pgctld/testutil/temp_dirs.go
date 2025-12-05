@@ -23,7 +23,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/multigres/multigres/go/pgctld"
+	"github.com/multigres/multigres/go/services/pgctld"
 )
 
 // TempDir creates a temporary directory for testing and returns a cleanup function
