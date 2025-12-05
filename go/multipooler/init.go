@@ -223,8 +223,7 @@ func (mp *MultiPooler) Init(startCtx context.Context) error {
 	}
 
 	if mp.shard.Get() == "" {
-		logger.ErrorContext(startCtx, "shard is required")
-		os.Exit(1)
+		return fmt.Errorf("shard is required")
 	}
 
 	// Create MultiPooler instance for topo registration
@@ -252,8 +251,7 @@ func (mp *MultiPooler) Init(startCtx context.Context) error {
 		ConsensusEnabled:    mp.grpcServer.CheckServiceMap("consensus", mp.senv),
 	})
 	if err != nil {
-		logger.ErrorContext(startCtx, "Failed to create multipooler from config", "error", err)
-		os.Exit(1)
+		return fmt.Errorf("failed to create multipooler: %w", err)
 	}
 
 	// Start the MultiPoolerManager
