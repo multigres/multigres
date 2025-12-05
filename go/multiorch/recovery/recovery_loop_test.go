@@ -30,9 +30,10 @@ import (
 
 	"github.com/multigres/multigres/go/common/rpcclient"
 	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
-	"github.com/multigres/multigres/go/common/types"
+	commontypes "github.com/multigres/multigres/go/common/types"
 	"github.com/multigres/multigres/go/multiorch/config"
 	"github.com/multigres/multigres/go/multiorch/recovery/analysis"
+	"github.com/multigres/multigres/go/multiorch/recovery/types"
 	"github.com/multigres/multigres/go/multiorch/store"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
@@ -41,76 +42,71 @@ import (
 
 // customAnalyzer is a test analyzer that can use a custom analyze function.
 type customAnalyzer struct {
-	analyzeFn func(*store.ReplicationAnalysis) []analysis.Problem
+	analyzeFn func(*store.ReplicationAnalysis) []types.Problem
 	name      string
 }
 
-func (c *customAnalyzer) Name() analysis.CheckName {
-	return analysis.CheckName(c.name)
+func (c *customAnalyzer) Name() types.CheckName {
+	return types.CheckName(c.name)
 }
 
-func (c *customAnalyzer) Analyze(a *store.ReplicationAnalysis) []analysis.Problem {
-	return c.analyzeFn(a)
+func (c *customAnalyzer) Analyze(a *store.ReplicationAnalysis) ([]types.Problem, error) {
+	return c.analyzeFn(a), nil
 }
 
 // trackingRecoveryAction is a test recovery action that tracks execution order.
 type trackingRecoveryAction struct {
 	name             string
-	priority         analysis.Priority
+	priority         types.Priority
 	label            string
 	executionOrder   *[]string
 	executionOrderMu *sync.Mutex
 }
 
-func (t *trackingRecoveryAction) Execute(ctx context.Context, problem analysis.Problem) error {
+func (t *trackingRecoveryAction) Execute(ctx context.Context, problem types.Problem) error {
 	t.executionOrderMu.Lock()
 	*t.executionOrder = append(*t.executionOrder, t.label)
 	t.executionOrderMu.Unlock()
 	return nil
 }
 
-func (t *trackingRecoveryAction) Metadata() analysis.RecoveryMetadata {
-	return analysis.RecoveryMetadata{
+func (t *trackingRecoveryAction) Metadata() types.RecoveryMetadata {
+	return types.RecoveryMetadata{
 		Name:    t.name,
 		Timeout: 10 * time.Second,
 	}
-}
-
-func (t *trackingRecoveryAction) RequiresLock() bool {
-	return false
 }
 
 func (t *trackingRecoveryAction) RequiresHealthyPrimary() bool {
 	return false
 }
 
-func (t *trackingRecoveryAction) Priority() analysis.Priority {
+func (t *trackingRecoveryAction) Priority() types.Priority {
 	return t.priority
 }
 
 // mockRecoveryAction is a test implementation of RecoveryAction
 type mockRecoveryAction struct {
 	name                   string
-	priority               analysis.Priority
+	priority               types.Priority
 	timeout                time.Duration
-	requiresLock           bool
 	requiresHealthyPrimary bool
 	executed               bool
 	executeErr             error
-	metadata               analysis.RecoveryMetadata
+	metadata               types.RecoveryMetadata
 }
 
-func (m *mockRecoveryAction) Execute(ctx context.Context, problem analysis.Problem) error {
+func (m *mockRecoveryAction) Execute(ctx context.Context, problem types.Problem) error {
 	m.executed = true
 	return m.executeErr
 }
 
-func (m *mockRecoveryAction) Metadata() analysis.RecoveryMetadata {
+func (m *mockRecoveryAction) Metadata() types.RecoveryMetadata {
 	// If metadata is set, use it; otherwise build default
 	if m.metadata.Name != "" {
 		return m.metadata
 	}
-	return analysis.RecoveryMetadata{
+	return types.RecoveryMetadata{
 		Name:        m.name,
 		Description: "Mock recovery action",
 		Timeout:     m.timeout,
@@ -118,15 +114,11 @@ func (m *mockRecoveryAction) Metadata() analysis.RecoveryMetadata {
 	}
 }
 
-func (m *mockRecoveryAction) RequiresLock() bool {
-	return m.requiresLock
-}
-
 func (m *mockRecoveryAction) RequiresHealthyPrimary() bool {
 	return m.requiresHealthyPrimary
 }
 
-func (m *mockRecoveryAction) Priority() analysis.Priority {
+func (m *mockRecoveryAction) Priority() types.Priority {
 	return m.priority
 }
 
@@ -135,7 +127,7 @@ func TestGroupProblemsByShard(t *testing.T) {
 	ts, _ := memorytopo.NewServerAndFactory(ctx, "cell1")
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
 	cfg := config.NewTestConfig(config.WithCell("cell1"))
-	engine := NewEngine(ts, logger, cfg, []config.WatchTarget{}, &rpcclient.FakeClient{})
+	engine := NewEngine(ts, logger, cfg, []config.WatchTarget{}, &rpcclient.FakeClient{}, nil)
 
 	poolerID1 := &clustermetadatapb.ID{
 		Component: clustermetadatapb.ID_MULTIPOOLER,
@@ -155,27 +147,21 @@ func TestGroupProblemsByShard(t *testing.T) {
 		Name:      "pooler3",
 	}
 
-	problems := []analysis.Problem{
+	problems := []types.Problem{
 		{
-			Code:       analysis.ProblemPrimaryDead,
-			PoolerID:   poolerID1,
-			Database:   "db1",
-			TableGroup: "tg1",
-			Shard:      "0",
+			Code:     types.ProblemPrimaryIsDead,
+			PoolerID: poolerID1,
+			ShardKey: commontypes.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"},
 		},
 		{
-			Code:       analysis.ProblemReplicaNotReplicating,
-			PoolerID:   poolerID2,
-			Database:   "db1",
-			TableGroup: "tg1",
-			Shard:      "0",
+			Code:     types.ProblemReplicaNotReplicating,
+			PoolerID: poolerID2,
+			ShardKey: commontypes.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"},
 		},
 		{
-			Code:       analysis.ProblemPrimaryDead,
-			PoolerID:   poolerID3,
-			Database:   "db2",
-			TableGroup: "tg2",
-			Shard:      "0",
+			Code:     types.ProblemPrimaryIsDead,
+			PoolerID: poolerID3,
+			ShardKey: commontypes.ShardKey{Database: "db2", TableGroup: "tg2", Shard: "0"},
 		},
 	}
 
@@ -185,11 +171,11 @@ func TestGroupProblemsByShard(t *testing.T) {
 	assert.Len(t, grouped, 2, "should have 2 shards")
 
 	// Check first shard
-	key1 := types.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"}
+	key1 := commontypes.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"}
 	assert.Len(t, grouped[key1], 2, "db1/tg1/0 should have 2 problems")
 
 	// Check second shard
-	key2 := types.ShardKey{Database: "db2", TableGroup: "tg2", Shard: "0"}
+	key2 := commontypes.ShardKey{Database: "db2", TableGroup: "tg2", Shard: "0"}
 	assert.Len(t, grouped[key2], 1, "db2/tg2/0 should have 1 problem")
 }
 
@@ -212,30 +198,24 @@ func TestPrioritySorting(t *testing.T) {
 		Name:      "config-pooler",
 	}
 
-	problems := []analysis.Problem{
+	problems := []types.Problem{
 		{
-			Code:       analysis.ProblemReplicaNotReplicating,
-			PoolerID:   poolerID2,
-			Database:   "db1",
-			TableGroup: "tg1",
-			Shard:      "0",
-			Priority:   analysis.PriorityHigh,
+			Code:     types.ProblemReplicaNotReplicating,
+			PoolerID: poolerID2,
+			ShardKey: commontypes.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"},
+			Priority: types.PriorityHigh,
 		},
 		{
-			Code:       analysis.ProblemPrimaryDead,
-			PoolerID:   poolerID1,
-			Database:   "db1",
-			TableGroup: "tg1",
-			Shard:      "0",
-			Priority:   analysis.PriorityEmergency,
+			Code:     types.ProblemPrimaryIsDead,
+			PoolerID: poolerID1,
+			ShardKey: commontypes.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"},
+			Priority: types.PriorityEmergency,
 		},
 		{
-			Code:       "ConfigurationDrift",
-			PoolerID:   poolerID3,
-			Database:   "db1",
-			TableGroup: "tg1",
-			Shard:      "0",
-			Priority:   analysis.PriorityNormal,
+			Code:     "ConfigurationDrift",
+			PoolerID: poolerID3,
+			ShardKey: commontypes.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"},
+			Priority: types.PriorityNormal,
 		},
 	}
 
@@ -246,38 +226,26 @@ func TestPrioritySorting(t *testing.T) {
 
 	// Verify order: Emergency > High > Normal
 	require.Len(t, problems, 3)
-	assert.Equal(t, analysis.PriorityEmergency, problems[0].Priority)
-	assert.Equal(t, analysis.ProblemPrimaryDead, problems[0].Code)
+	assert.Equal(t, types.PriorityEmergency, problems[0].Priority)
+	assert.Equal(t, types.ProblemPrimaryIsDead, problems[0].Code)
 
-	assert.Equal(t, analysis.PriorityHigh, problems[1].Priority)
-	assert.Equal(t, analysis.ProblemReplicaNotReplicating, problems[1].Code)
+	assert.Equal(t, types.PriorityHigh, problems[1].Priority)
+	assert.Equal(t, types.ProblemReplicaNotReplicating, problems[1].Code)
 
-	assert.Equal(t, analysis.PriorityNormal, problems[2].Priority)
-	assert.Equal(t, analysis.ProblemCode("ConfigurationDrift"), problems[2].Code)
+	assert.Equal(t, types.PriorityNormal, problems[2].Priority)
+	assert.Equal(t, types.ProblemCode("ConfigurationDrift"), problems[2].Code)
 }
 
 func TestShardKey(t *testing.T) {
 	// Test that ShardKey works correctly as a map key
-	key1 := types.ShardKey{
-		Database:   "db1",
-		TableGroup: "tg1",
-		Shard:      "0",
-	}
+	key1 := commontypes.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"}
 
-	key2 := types.ShardKey{
-		Database:   "db1",
-		TableGroup: "tg1",
-		Shard:      "0",
-	}
+	key2 := commontypes.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"}
 
-	key3 := types.ShardKey{
-		Database:   "db1",
-		TableGroup: "tg2",
-		Shard:      "0",
-	}
+	key3 := commontypes.ShardKey{Database: "db1", TableGroup: "tg2", Shard: "0"}
 
 	// Test map usage
-	m := make(map[types.ShardKey]int)
+	m := make(map[commontypes.ShardKey]int)
 	m[key1] = 1
 	m[key2] = 2 // Should overwrite key1
 	m[key3] = 3
@@ -293,7 +261,7 @@ func TestGroupProblemsByShard_DifferentShards(t *testing.T) {
 	ts, _ := memorytopo.NewServerAndFactory(ctx, "cell1")
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
 	cfg := config.NewTestConfig(config.WithCell("cell1"))
-	engine := NewEngine(ts, logger, cfg, []config.WatchTarget{}, &rpcclient.FakeClient{})
+	engine := NewEngine(ts, logger, cfg, []config.WatchTarget{}, &rpcclient.FakeClient{}, nil)
 
 	poolerID1 := &clustermetadatapb.ID{
 		Component: clustermetadatapb.ID_MULTIPOOLER,
@@ -307,20 +275,16 @@ func TestGroupProblemsByShard_DifferentShards(t *testing.T) {
 		Name:      "pooler2",
 	}
 
-	problems := []analysis.Problem{
+	problems := []types.Problem{
 		{
-			Code:       analysis.ProblemPrimaryDead,
-			PoolerID:   poolerID1,
-			Database:   "db1",
-			TableGroup: "tg1",
-			Shard:      "0",
+			Code:     types.ProblemPrimaryIsDead,
+			PoolerID: poolerID1,
+			ShardKey: commontypes.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"},
 		},
 		{
-			Code:       analysis.ProblemPrimaryDead,
-			PoolerID:   poolerID2,
-			Database:   "db1",
-			TableGroup: "tg1",
-			Shard:      "1", // Different shard
+			Code:     types.ProblemPrimaryIsDead,
+			PoolerID: poolerID2,
+			ShardKey: commontypes.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "1"}, // Different shard
 		},
 	}
 
@@ -329,8 +293,8 @@ func TestGroupProblemsByShard_DifferentShards(t *testing.T) {
 	// Should have 2 separate groups (different shards)
 	assert.Len(t, grouped, 2, "should have 2 separate groups for different shards")
 
-	key1 := types.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"}
-	key2 := types.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "1"}
+	key1 := commontypes.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"}
+	key2 := commontypes.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "1"}
 
 	assert.Len(t, grouped[key1], 1, "shard 0 should have 1 problem")
 	assert.Len(t, grouped[key2], 1, "shard 1 should have 1 problem")
@@ -343,7 +307,7 @@ func TestRecheckProblem_PoolerNotFound(t *testing.T) {
 	ts, _ := memorytopo.NewServerAndFactory(ctx, "cell1")
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
 	cfg := config.NewTestConfig(config.WithCell("cell1"))
-	engine := NewEngine(ts, logger, cfg, []config.WatchTarget{}, &rpcclient.FakeClient{})
+	engine := NewEngine(ts, logger, cfg, []config.WatchTarget{}, &rpcclient.FakeClient{}, nil)
 
 	poolerID := &clustermetadatapb.ID{
 		Component: clustermetadatapb.ID_MULTIPOOLER,
@@ -352,14 +316,12 @@ func TestRecheckProblem_PoolerNotFound(t *testing.T) {
 	}
 
 	// Create problem
-	problem := analysis.Problem{
-		Code:       analysis.ProblemPrimaryDead,
-		CheckName:  "PrimaryDeadCheck",
-		PoolerID:   poolerID,
-		Database:   "db1",
-		TableGroup: "tg1",
-		Shard:      "0",
-		Priority:   analysis.PriorityEmergency,
+	problem := types.Problem{
+		Code:      types.ProblemPrimaryIsDead,
+		CheckName: "PrimaryDeadCheck",
+		PoolerID:  poolerID,
+		ShardKey:  commontypes.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"},
+		Priority:  types.PriorityEmergency,
 	}
 
 	stillExists, err := engine.recheckProblem(problem)
@@ -376,7 +338,7 @@ func TestFilterAndPrioritize_ShardWideOnly(t *testing.T) {
 	ts, _ := memorytopo.NewServerAndFactory(ctx, "cell1")
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
 	cfg := config.NewTestConfig(config.WithCell("cell1"))
-	engine := NewEngine(ts, logger, cfg, []config.WatchTarget{}, &rpcclient.FakeClient{})
+	engine := NewEngine(ts, logger, cfg, []config.WatchTarget{}, &rpcclient.FakeClient{}, nil)
 
 	poolerID1 := &clustermetadatapb.ID{
 		Component: clustermetadatapb.ID_MULTIPOOLER,
@@ -391,37 +353,37 @@ func TestFilterAndPrioritize_ShardWideOnly(t *testing.T) {
 	}
 
 	// Create problems with different scopes
-	problems := []analysis.Problem{
+	problems := []types.Problem{
 		{
-			Code:     analysis.ProblemReplicaNotReplicating,
+			Code:     types.ProblemReplicaNotReplicating,
 			PoolerID: poolerID2,
-			Priority: analysis.PriorityHigh,
-			Scope:    analysis.ScopePooler,
+			Priority: types.PriorityHigh,
+			Scope:    types.ScopePooler,
 			RecoveryAction: &mockRecoveryAction{
 				name:     "FixReplica",
-				priority: analysis.PriorityHigh,
+				priority: types.PriorityHigh,
 				timeout:  30 * time.Second,
 			},
 		},
 		{
-			Code:     analysis.ProblemPrimaryDead,
+			Code:     types.ProblemPrimaryIsDead,
 			PoolerID: poolerID1,
-			Priority: analysis.PriorityEmergency,
-			Scope:    analysis.ScopeShard,
+			Priority: types.PriorityEmergency,
+			Scope:    types.ScopeShard,
 			RecoveryAction: &mockRecoveryAction{
 				name:     "FailoverPrimary",
-				priority: analysis.PriorityEmergency,
+				priority: types.PriorityEmergency,
 				timeout:  60 * time.Second,
 			},
 		},
 		{
 			Code:     "ConfigDrift",
 			PoolerID: poolerID2,
-			Priority: analysis.PriorityNormal,
-			Scope:    analysis.ScopePooler,
+			Priority: types.PriorityNormal,
+			Scope:    types.ScopePooler,
 			RecoveryAction: &mockRecoveryAction{
 				name:     "FixConfig",
-				priority: analysis.PriorityNormal,
+				priority: types.PriorityNormal,
 				timeout:  10 * time.Second,
 			},
 		},
@@ -431,8 +393,8 @@ func TestFilterAndPrioritize_ShardWideOnly(t *testing.T) {
 
 	// Should return only the shard-wide problem (PrimaryDead)
 	require.Len(t, filtered, 1)
-	assert.Equal(t, analysis.ProblemPrimaryDead, filtered[0].Code)
-	assert.Equal(t, analysis.PriorityEmergency, filtered[0].Priority)
+	assert.Equal(t, types.ProblemPrimaryIsDead, filtered[0].Code)
+	assert.Equal(t, types.PriorityEmergency, filtered[0].Priority)
 }
 
 // TestFilterAndPrioritize_NoShardWide tests deduplication by pooler ID
@@ -442,7 +404,7 @@ func TestFilterAndPrioritize_NoShardWide(t *testing.T) {
 	ts, _ := memorytopo.NewServerAndFactory(ctx, "cell1")
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
 	cfg := config.NewTestConfig(config.WithCell("cell1"))
-	engine := NewEngine(ts, logger, cfg, []config.WatchTarget{}, &rpcclient.FakeClient{})
+	engine := NewEngine(ts, logger, cfg, []config.WatchTarget{}, &rpcclient.FakeClient{}, nil)
 
 	poolerID1 := &clustermetadatapb.ID{
 		Component: clustermetadatapb.ID_MULTIPOOLER,
@@ -457,37 +419,37 @@ func TestFilterAndPrioritize_NoShardWide(t *testing.T) {
 	}
 
 	// Create problems - two for pooler1, one for pooler2
-	problems := []analysis.Problem{
+	problems := []types.Problem{
 		{
-			Code:     analysis.ProblemReplicaNotReplicating,
+			Code:     types.ProblemReplicaNotReplicating,
 			PoolerID: poolerID1,
-			Priority: analysis.PriorityHigh,
-			Scope:    analysis.ScopePooler,
+			Priority: types.PriorityHigh,
+			Scope:    types.ScopePooler,
 			RecoveryAction: &mockRecoveryAction{
 				name:     "FixReplication",
-				priority: analysis.PriorityHigh,
+				priority: types.PriorityHigh,
 				timeout:  30 * time.Second,
 			},
 		},
 		{
-			Code:     analysis.ProblemPrimaryMisconfigured,
+			Code:     types.ProblemPrimaryMisconfigured,
 			PoolerID: poolerID1,
-			Priority: analysis.PriorityNormal,
-			Scope:    analysis.ScopePooler,
+			Priority: types.PriorityNormal,
+			Scope:    types.ScopePooler,
 			RecoveryAction: &mockRecoveryAction{
 				name:     "FixConfig",
-				priority: analysis.PriorityNormal,
+				priority: types.PriorityNormal,
 				timeout:  10 * time.Second,
 			},
 		},
 		{
-			Code:     analysis.ProblemReplicaLagging,
+			Code:     types.ProblemReplicaLagging,
 			PoolerID: poolerID2,
-			Priority: analysis.PriorityNormal,
-			Scope:    analysis.ScopePooler,
+			Priority: types.PriorityNormal,
+			Scope:    types.ScopePooler,
 			RecoveryAction: &mockRecoveryAction{
 				name:     "FixLag",
-				priority: analysis.PriorityNormal,
+				priority: types.PriorityNormal,
 				timeout:  20 * time.Second,
 			},
 		},
@@ -498,9 +460,9 @@ func TestFilterAndPrioritize_NoShardWide(t *testing.T) {
 
 	// Should keep only highest priority problem per pooler
 	require.Len(t, filtered, 3)
-	assert.Equal(t, analysis.ProblemReplicaNotReplicating, filtered[0].Code)
-	assert.Equal(t, analysis.ProblemPrimaryMisconfigured, filtered[1].Code)
-	assert.Equal(t, analysis.ProblemReplicaLagging, filtered[2].Code)
+	assert.Equal(t, types.ProblemReplicaNotReplicating, filtered[0].Code)
+	assert.Equal(t, types.ProblemPrimaryMisconfigured, filtered[1].Code)
+	assert.Equal(t, types.ProblemReplicaLagging, filtered[2].Code)
 }
 
 // TestFilterAndPrioritize_MultipleShardWide tests that when multiple shard-wide
@@ -510,7 +472,7 @@ func TestFilterAndPrioritize_MultipleShardWide(t *testing.T) {
 	ts, _ := memorytopo.NewServerAndFactory(ctx, "cell1")
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
 	cfg := config.NewTestConfig(config.WithCell("cell1"))
-	engine := NewEngine(ts, logger, cfg, []config.WatchTarget{}, &rpcclient.FakeClient{})
+	engine := NewEngine(ts, logger, cfg, []config.WatchTarget{}, &rpcclient.FakeClient{}, nil)
 
 	poolerID1 := &clustermetadatapb.ID{
 		Component: clustermetadatapb.ID_MULTIPOOLER,
@@ -525,26 +487,26 @@ func TestFilterAndPrioritize_MultipleShardWide(t *testing.T) {
 	}
 
 	// Create multiple shard-wide problems with different priorities
-	problems := []analysis.Problem{
+	problems := []types.Problem{
 		{
-			Code:     analysis.ProblemClusterHasNoPrimary,
+			Code:     types.ProblemShardNeedsBootstrap,
 			PoolerID: poolerID1,
-			Priority: analysis.PriorityShardBootstrap,
-			Scope:    analysis.ScopeShard,
+			Priority: types.PriorityShardBootstrap,
+			Scope:    types.ScopeShard,
 			RecoveryAction: &mockRecoveryAction{
 				name:     "ElectPrimary",
-				priority: analysis.PriorityShardBootstrap,
+				priority: types.PriorityShardBootstrap,
 				timeout:  60 * time.Second,
 			},
 		},
 		{
-			Code:     analysis.ProblemPrimaryDead,
+			Code:     types.ProblemPrimaryIsDead,
 			PoolerID: poolerID2,
-			Priority: analysis.PriorityEmergency,
-			Scope:    analysis.ScopeShard,
+			Priority: types.PriorityEmergency,
+			Scope:    types.ScopeShard,
 			RecoveryAction: &mockRecoveryAction{
 				name:     "FailoverPrimary",
-				priority: analysis.PriorityEmergency,
+				priority: types.PriorityEmergency,
 				timeout:  45 * time.Second,
 			},
 		},
@@ -553,71 +515,68 @@ func TestFilterAndPrioritize_MultipleShardWide(t *testing.T) {
 	filtered := engine.filterAndPrioritize(problems)
 
 	// Should return only the highest priority shard-wide problem
+	// PriorityShardBootstrap (10000) > PriorityEmergency (1000)
 	require.Len(t, filtered, 1)
-	assert.Equal(t, analysis.ProblemClusterHasNoPrimary, filtered[0].Code)
-	assert.Equal(t, analysis.PriorityShardBootstrap, filtered[0].Priority)
+	assert.Equal(t, types.ProblemShardNeedsBootstrap, filtered[0].Code)
+	assert.Equal(t, types.PriorityShardBootstrap, filtered[0].Priority)
 }
 
 // mockPrimaryDeadAnalyzer detects when a primary is unreachable
 type mockPrimaryDeadAnalyzer struct {
-	recoveryAction analysis.RecoveryAction
+	recoveryAction types.RecoveryAction
 }
 
-func (m *mockPrimaryDeadAnalyzer) Name() analysis.CheckName {
+func (m *mockPrimaryDeadAnalyzer) Name() types.CheckName {
 	return "MockPrimaryDeadCheck"
 }
 
-func (m *mockPrimaryDeadAnalyzer) Analyze(a *store.ReplicationAnalysis) []analysis.Problem {
+func (m *mockPrimaryDeadAnalyzer) Analyze(a *store.ReplicationAnalysis) ([]types.Problem, error) {
 	// Detect if this is a primary that is unreachable
 	if a.IsPrimary && a.IsUnreachable {
-		return []analysis.Problem{
+		return []types.Problem{
 			{
-				Code:           analysis.ProblemPrimaryDead,
+				Code:           types.ProblemPrimaryIsDead,
 				CheckName:      m.Name(),
 				PoolerID:       a.PoolerID,
-				Database:       a.Database,
-				TableGroup:     a.TableGroup,
-				Shard:          a.Shard,
-				Priority:       analysis.PriorityEmergency,
-				Scope:          analysis.ScopeShard,
+				ShardKey:       a.ShardKey,
+				Priority:       types.PriorityEmergency,
+				Scope:          types.ScopeShard,
 				RecoveryAction: m.recoveryAction,
 				DetectedAt:     time.Now(),
 				Description:    "Primary is unreachable",
 			},
-		}
+		}, nil
 	}
-	return nil
+	return nil, nil
 }
 
 // mockReplicaNotReplicatingAnalyzer detects when a replica has stopped replicating
 type mockReplicaNotReplicatingAnalyzer struct {
-	recoveryAction analysis.RecoveryAction
+	recoveryAction types.RecoveryAction
 }
 
-func (m *mockReplicaNotReplicatingAnalyzer) Name() analysis.CheckName {
+func (m *mockReplicaNotReplicatingAnalyzer) Name() types.CheckName {
 	return "MockReplicationStoppedCheck"
 }
 
-func (m *mockReplicaNotReplicatingAnalyzer) Analyze(a *store.ReplicationAnalysis) []analysis.Problem {
+func (m *mockReplicaNotReplicatingAnalyzer) Analyze(a *store.ReplicationAnalysis) ([]types.Problem, error) {
 	// Detect if this is a replica with replication stopped
 	if !a.IsPrimary && a.IsWalReplayPaused {
-		return []analysis.Problem{
+		return []types.Problem{
 			{
-				Code:           analysis.ProblemReplicaNotReplicating,
+				Code:           types.ProblemReplicaNotReplicating,
 				CheckName:      m.Name(),
 				PoolerID:       a.PoolerID,
-				Database:       a.Database,
-				TableGroup:     a.TableGroup,
-				Shard:          a.Shard,
-				Priority:       analysis.PriorityHigh,
-				Scope:          analysis.ScopePooler,
+				ShardKey:       a.ShardKey,
+				Priority:       types.PriorityHigh,
+				Scope:          types.ScopePooler,
 				RecoveryAction: m.recoveryAction,
 				DetectedAt:     time.Now(),
 				Description:    "Replica replication is paused",
 			},
-		}
+		}, nil
 	}
-	return nil
+	return nil, nil
 }
 
 // TestProcessShardProblems_DependencyEnforcement tests the full flow of
@@ -661,7 +620,7 @@ func TestProcessShardProblems_DependencyEnforcement(t *testing.T) {
 		},
 	}
 
-	engine := NewEngine(ts, logger, cfg, []config.WatchTarget{}, fakeClient)
+	engine := NewEngine(ts, logger, cfg, []config.WatchTarget{}, fakeClient, nil)
 
 	primaryID := &clustermetadatapb.ID{
 		Component: clustermetadatapb.ID_MULTIPOOLER,
@@ -678,10 +637,10 @@ func TestProcessShardProblems_DependencyEnforcement(t *testing.T) {
 	// Create recovery actions
 	primaryRecovery := &mockRecoveryAction{
 		name:                   "EmergencyFailover",
-		priority:               analysis.PriorityEmergency,
+		priority:               types.PriorityEmergency,
 		timeout:                30 * time.Second,
 		requiresHealthyPrimary: false,
-		metadata: analysis.RecoveryMetadata{
+		metadata: types.RecoveryMetadata{
 			Name:    "EmergencyFailover",
 			Timeout: 30 * time.Second,
 		},
@@ -689,10 +648,10 @@ func TestProcessShardProblems_DependencyEnforcement(t *testing.T) {
 
 	replicaRecovery := &mockRecoveryAction{
 		name:                   "FixReplication",
-		priority:               analysis.PriorityHigh,
+		priority:               types.PriorityHigh,
 		timeout:                10 * time.Second,
 		requiresHealthyPrimary: true, // Requires healthy primary!
-		metadata: analysis.RecoveryMetadata{
+		metadata: types.RecoveryMetadata{
 			Name:    "FixReplication",
 			Timeout: 10 * time.Second,
 		},
@@ -717,12 +676,10 @@ func TestProcessShardProblems_DependencyEnforcement(t *testing.T) {
 		// Set up store state: dead primary, replica with replication stopped
 		primaryPooler := &multiorchdatapb.PoolerHealthState{
 			MultiPooler: &clustermetadatapb.MultiPooler{
-				Id:         primaryID,
-				Database:   "db1",
-				TableGroup: "tg1",
-				Shard:      "0",
-				Type:       clustermetadatapb.PoolerType_PRIMARY,
-				Hostname:   "primary-host",
+				Id:       primaryID,
+				Database: "db1", TableGroup: "tg1", Shard: "0",
+				Type:     clustermetadatapb.PoolerType_PRIMARY,
+				Hostname: "primary-host",
 			},
 			IsLastCheckValid: false,
 			IsUpToDate:       true,
@@ -732,12 +689,10 @@ func TestProcessShardProblems_DependencyEnforcement(t *testing.T) {
 
 		replicaPooler := &multiorchdatapb.PoolerHealthState{
 			MultiPooler: &clustermetadatapb.MultiPooler{
-				Id:         replicaID,
-				Database:   "db1",
-				TableGroup: "tg1",
-				Shard:      "0",
-				Type:       clustermetadatapb.PoolerType_REPLICA,
-				Hostname:   "replica-host",
+				Id:       replicaID,
+				Database: "db1", TableGroup: "tg1", Shard: "0",
+				Type:     clustermetadatapb.PoolerType_REPLICA,
+				Hostname: "replica-host",
 			},
 			IsLastCheckValid: true,
 			IsUpToDate:       true,
@@ -753,11 +708,12 @@ func TestProcessShardProblems_DependencyEnforcement(t *testing.T) {
 		analyses := generator.GenerateAnalyses()
 
 		// Run analyzers to detect problems
-		var problems []analysis.Problem
+		var problems []types.Problem
 		analyzers := analysis.DefaultAnalyzers()
 		for _, poolerAnalysis := range analyses {
 			for _, analyzer := range analyzers {
-				detectedProblems := analyzer.Analyze(poolerAnalysis)
+				detectedProblems, err := analyzer.Analyze(poolerAnalysis)
+				require.NoError(t, err)
 				problems = append(problems, detectedProblems...)
 			}
 		}
@@ -765,7 +721,7 @@ func TestProcessShardProblems_DependencyEnforcement(t *testing.T) {
 		// Should detect both problems
 		require.Len(t, problems, 2, "should detect both primary dead and replica not replicating")
 
-		shardKey := types.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"}
+		shardKey := commontypes.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"}
 
 		// Call processShardProblems - this exercises the full recovery flow
 		engine.processShardProblems(shardKey, problems)
@@ -792,12 +748,10 @@ func TestProcessShardProblems_DependencyEnforcement(t *testing.T) {
 		// Set up store state: healthy primary, replica with replication stopped
 		primaryPooler := &multiorchdatapb.PoolerHealthState{
 			MultiPooler: &clustermetadatapb.MultiPooler{
-				Id:         primaryID,
-				Database:   "db1",
-				TableGroup: "tg1",
-				Shard:      "0",
-				Type:       clustermetadatapb.PoolerType_PRIMARY,
-				Hostname:   "primary-host",
+				Id:       primaryID,
+				Database: "db1", TableGroup: "tg1", Shard: "0",
+				Type:     clustermetadatapb.PoolerType_PRIMARY,
+				Hostname: "primary-host",
 			},
 			IsLastCheckValid: true, // Primary is healthy
 			IsUpToDate:       true,
@@ -807,12 +761,10 @@ func TestProcessShardProblems_DependencyEnforcement(t *testing.T) {
 
 		replicaPooler := &multiorchdatapb.PoolerHealthState{
 			MultiPooler: &clustermetadatapb.MultiPooler{
-				Id:         replicaID,
-				Database:   "db1",
-				TableGroup: "tg1",
-				Shard:      "0",
-				Type:       clustermetadatapb.PoolerType_REPLICA,
-				Hostname:   "replica-host",
+				Id:       replicaID,
+				Database: "db1", TableGroup: "tg1", Shard: "0",
+				Type:     clustermetadatapb.PoolerType_REPLICA,
+				Hostname: "replica-host",
 			},
 			IsLastCheckValid: true,
 			IsUpToDate:       true,
@@ -828,20 +780,21 @@ func TestProcessShardProblems_DependencyEnforcement(t *testing.T) {
 		analyses := generator.GenerateAnalyses()
 
 		// Run analyzers to detect problems
-		var problems []analysis.Problem
+		var problems []types.Problem
 		analyzers := analysis.DefaultAnalyzers()
 		for _, poolerAnalysis := range analyses {
 			for _, analyzer := range analyzers {
-				detectedProblems := analyzer.Analyze(poolerAnalysis)
+				detectedProblems, err := analyzer.Analyze(poolerAnalysis)
+				require.NoError(t, err)
 				problems = append(problems, detectedProblems...)
 			}
 		}
 
 		// Should detect only replica problem
 		require.Len(t, problems, 1, "should detect only replica not replicating")
-		assert.Equal(t, analysis.ProblemReplicaNotReplicating, problems[0].Code)
+		assert.Equal(t, types.ProblemReplicaNotReplicating, problems[0].Code)
 
-		shardKey := types.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"}
+		shardKey := commontypes.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"}
 
 		// Call processShardProblems
 		engine.processShardProblems(shardKey, problems)
@@ -885,7 +838,7 @@ func TestRecoveryLoop_ValidationPreventsStaleRecovery(t *testing.T) {
 		},
 	}
 
-	engine := NewEngine(ts, logger, cfg, []config.WatchTarget{}, fakeClient)
+	engine := NewEngine(ts, logger, cfg, []config.WatchTarget{}, fakeClient, nil)
 
 	replicaID := &clustermetadatapb.ID{
 		Component: clustermetadatapb.ID_MULTIPOOLER,
@@ -896,10 +849,10 @@ func TestRecoveryLoop_ValidationPreventsStaleRecovery(t *testing.T) {
 	// Create recovery action that should NOT be executed
 	replicaRecovery := &mockRecoveryAction{
 		name:                   "FixReplication",
-		priority:               analysis.PriorityHigh,
+		priority:               types.PriorityHigh,
 		timeout:                10 * time.Second,
 		requiresHealthyPrimary: false,
-		metadata: analysis.RecoveryMetadata{
+		metadata: types.RecoveryMetadata{
 			Name:    "FixReplication",
 			Timeout: 10 * time.Second,
 		},
@@ -915,12 +868,10 @@ func TestRecoveryLoop_ValidationPreventsStaleRecovery(t *testing.T) {
 	// Set up initial store state: replica with replication stopped
 	replicaPooler := &multiorchdatapb.PoolerHealthState{
 		MultiPooler: &clustermetadatapb.MultiPooler{
-			Id:         replicaID,
-			Database:   "db1",
-			TableGroup: "tg1",
-			Shard:      "0",
-			Type:       clustermetadatapb.PoolerType_REPLICA,
-			Hostname:   "replica-host",
+			Id:       replicaID,
+			Database: "db1", TableGroup: "tg1", Shard: "0",
+			Type:     clustermetadatapb.PoolerType_REPLICA,
+			Hostname: "replica-host",
 		},
 		IsLastCheckValid: true,
 		IsUpToDate:       true,
@@ -935,11 +886,12 @@ func TestRecoveryLoop_ValidationPreventsStaleRecovery(t *testing.T) {
 	generator := analysis.NewAnalysisGenerator(engine.poolerStore)
 	analyses := generator.GenerateAnalyses()
 
-	var problems []analysis.Problem
+	var problems []types.Problem
 	analyzers := analysis.DefaultAnalyzers()
 	for _, poolerAnalysis := range analyses {
 		for _, analyzer := range analyzers {
-			detectedProblems := analyzer.Analyze(poolerAnalysis)
+			detectedProblems, err := analyzer.Analyze(poolerAnalysis)
+			require.NoError(t, err)
 			problems = append(problems, detectedProblems...)
 		}
 	}
@@ -1031,7 +983,7 @@ func TestRecoveryLoop_PostRecoveryRefresh(t *testing.T) {
 		},
 	}
 
-	engine := NewEngine(ts, logger, cfg, []config.WatchTarget{}, fakeClient)
+	engine := NewEngine(ts, logger, cfg, []config.WatchTarget{}, fakeClient, nil)
 
 	primaryID := &clustermetadatapb.ID{
 		Component: clustermetadatapb.ID_MULTIPOOLER,
@@ -1054,11 +1006,11 @@ func TestRecoveryLoop_PostRecoveryRefresh(t *testing.T) {
 	// Create recovery action that simulates successful shard-wide recovery
 	primaryRecovery := &mockRecoveryAction{
 		name:                   "EmergencyFailover",
-		priority:               analysis.PriorityEmergency,
+		priority:               types.PriorityEmergency,
 		timeout:                30 * time.Second,
 		requiresHealthyPrimary: false,
 		executeErr:             nil, // Success!
-		metadata: analysis.RecoveryMetadata{
+		metadata: types.RecoveryMetadata{
 			Name:    "EmergencyFailover",
 			Timeout: 30 * time.Second,
 		},
@@ -1080,12 +1032,10 @@ func TestRecoveryLoop_PostRecoveryRefresh(t *testing.T) {
 
 	primaryPooler := &multiorchdatapb.PoolerHealthState{
 		MultiPooler: &clustermetadatapb.MultiPooler{
-			Id:         primaryID,
-			Database:   "db1",
-			TableGroup: "tg1",
-			Shard:      "0",
-			Type:       clustermetadatapb.PoolerType_PRIMARY,
-			Hostname:   "primary-host",
+			Id:       primaryID,
+			Database: "db1", TableGroup: "tg1", Shard: "0",
+			Type:     clustermetadatapb.PoolerType_PRIMARY,
+			Hostname: "primary-host",
 		},
 		IsLastCheckValid:   false, // Primary is dead
 		IsUpToDate:         true,
@@ -1096,12 +1046,10 @@ func TestRecoveryLoop_PostRecoveryRefresh(t *testing.T) {
 
 	replica1Pooler := &multiorchdatapb.PoolerHealthState{
 		MultiPooler: &clustermetadatapb.MultiPooler{
-			Id:         replica1ID,
-			Database:   "db1",
-			TableGroup: "tg1",
-			Shard:      "0",
-			Type:       clustermetadatapb.PoolerType_REPLICA,
-			Hostname:   "replica1-host",
+			Id:       replica1ID,
+			Database: "db1", TableGroup: "tg1", Shard: "0",
+			Type:     clustermetadatapb.PoolerType_REPLICA,
+			Hostname: "replica1-host",
 		},
 		IsLastCheckValid:   true,
 		IsUpToDate:         true,
@@ -1112,12 +1060,10 @@ func TestRecoveryLoop_PostRecoveryRefresh(t *testing.T) {
 
 	replica2Pooler := &multiorchdatapb.PoolerHealthState{
 		MultiPooler: &clustermetadatapb.MultiPooler{
-			Id:         replica2ID,
-			Database:   "db1",
-			TableGroup: "tg1",
-			Shard:      "0",
-			Type:       clustermetadatapb.PoolerType_REPLICA,
-			Hostname:   "replica2-host",
+			Id:       replica2ID,
+			Database: "db1", TableGroup: "tg1", Shard: "0",
+			Type:     clustermetadatapb.PoolerType_REPLICA,
+			Hostname: "replica2-host",
 		},
 		IsLastCheckValid:   true,
 		IsUpToDate:         true,
@@ -1130,17 +1076,18 @@ func TestRecoveryLoop_PostRecoveryRefresh(t *testing.T) {
 	generator := analysis.NewAnalysisGenerator(engine.poolerStore)
 	analyses := generator.GenerateAnalyses()
 
-	var problems []analysis.Problem
+	var problems []types.Problem
 	analyzers := analysis.DefaultAnalyzers()
 	for _, poolerAnalysis := range analyses {
 		for _, analyzer := range analyzers {
-			detectedProblems := analyzer.Analyze(poolerAnalysis)
+			detectedProblems, err := analyzer.Analyze(poolerAnalysis)
+			require.NoError(t, err)
 			problems = append(problems, detectedProblems...)
 		}
 	}
 
 	require.Len(t, problems, 1, "should detect primary dead problem")
-	assert.Equal(t, analysis.ScopeShard, problems[0].Scope)
+	assert.Equal(t, types.ScopeShard, problems[0].Scope)
 
 	// Now fix the primary in the fake client so validation will pass
 	fakeClient.StatusResponses["multipooler-cell1-primary-pooler"] = &multipoolermanagerdatapb.StatusResponse{
@@ -1227,7 +1174,7 @@ func TestRecoveryLoop_FullCycle(t *testing.T) {
 		},
 	}
 
-	engine := NewEngine(ts, logger, cfg, []config.WatchTarget{}, fakeClient)
+	engine := NewEngine(ts, logger, cfg, []config.WatchTarget{}, fakeClient, nil)
 
 	primaryID := &clustermetadatapb.ID{
 		Component: clustermetadatapb.ID_MULTIPOOLER,
@@ -1250,10 +1197,10 @@ func TestRecoveryLoop_FullCycle(t *testing.T) {
 	// Create recovery actions with different priorities
 	replica1Recovery := &mockRecoveryAction{
 		name:                   "FixReplica1",
-		priority:               analysis.PriorityHigh,
+		priority:               types.PriorityHigh,
 		timeout:                10 * time.Second,
 		requiresHealthyPrimary: false,
-		metadata: analysis.RecoveryMetadata{
+		metadata: types.RecoveryMetadata{
 			Name:    "FixReplica1",
 			Timeout: 10 * time.Second,
 		},
@@ -1261,10 +1208,10 @@ func TestRecoveryLoop_FullCycle(t *testing.T) {
 
 	replica2Recovery := &mockRecoveryAction{
 		name:                   "FixReplica2",
-		priority:               analysis.PriorityHigh,
+		priority:               types.PriorityHigh,
 		timeout:                10 * time.Second,
 		requiresHealthyPrimary: false,
-		metadata: analysis.RecoveryMetadata{
+		metadata: types.RecoveryMetadata{
 			Name:    "FixReplica2",
 			Timeout: 10 * time.Second,
 		},
@@ -1283,12 +1230,10 @@ func TestRecoveryLoop_FullCycle(t *testing.T) {
 	// Set up store state: healthy primary, two replicas with problems
 	primaryPooler := &multiorchdatapb.PoolerHealthState{
 		MultiPooler: &clustermetadatapb.MultiPooler{
-			Id:         primaryID,
-			Database:   "db1",
-			TableGroup: "tg1",
-			Shard:      "0",
-			Type:       clustermetadatapb.PoolerType_PRIMARY,
-			Hostname:   "primary-host",
+			Id:       primaryID,
+			Database: "db1", TableGroup: "tg1", Shard: "0",
+			Type:     clustermetadatapb.PoolerType_PRIMARY,
+			Hostname: "primary-host",
 		},
 		IsLastCheckValid: true,
 		IsUpToDate:       true,
@@ -1298,12 +1243,10 @@ func TestRecoveryLoop_FullCycle(t *testing.T) {
 
 	replica1Pooler := &multiorchdatapb.PoolerHealthState{
 		MultiPooler: &clustermetadatapb.MultiPooler{
-			Id:         replica1ID,
-			Database:   "db1",
-			TableGroup: "tg1",
-			Shard:      "0",
-			Type:       clustermetadatapb.PoolerType_REPLICA,
-			Hostname:   "replica1-host",
+			Id:       replica1ID,
+			Database: "db1", TableGroup: "tg1", Shard: "0",
+			Type:     clustermetadatapb.PoolerType_REPLICA,
+			Hostname: "replica1-host",
 		},
 		IsLastCheckValid: true,
 		IsUpToDate:       true,
@@ -1316,12 +1259,10 @@ func TestRecoveryLoop_FullCycle(t *testing.T) {
 
 	replica2Pooler := &multiorchdatapb.PoolerHealthState{
 		MultiPooler: &clustermetadatapb.MultiPooler{
-			Id:         replica2ID,
-			Database:   "db1",
-			TableGroup: "tg1",
-			Shard:      "0",
-			Type:       clustermetadatapb.PoolerType_REPLICA,
-			Hostname:   "replica2-host",
+			Id:       replica2ID,
+			Database: "db1", TableGroup: "tg1", Shard: "0",
+			Type:     clustermetadatapb.PoolerType_REPLICA,
+			Hostname: "replica2-host",
 		},
 		IsLastCheckValid: true,
 		IsUpToDate:       true,
@@ -1379,7 +1320,7 @@ func TestRecoveryLoop_PriorityOrdering(t *testing.T) {
 		},
 	}
 
-	engine := NewEngine(ts, logger, cfg, []config.WatchTarget{}, fakeClient)
+	engine := NewEngine(ts, logger, cfg, []config.WatchTarget{}, fakeClient, nil)
 
 	replicaID := &clustermetadatapb.ID{
 		Component: clustermetadatapb.ID_MULTIPOOLER,
@@ -1394,7 +1335,7 @@ func TestRecoveryLoop_PriorityOrdering(t *testing.T) {
 	// Create wrapper recovery actions that track execution order
 	emergencyRecovery := &trackingRecoveryAction{
 		name:             "EmergencyFix",
-		priority:         analysis.PriorityEmergency,
+		priority:         types.PriorityEmergency,
 		label:            "Emergency",
 		executionOrder:   &executionOrder,
 		executionOrderMu: &mu,
@@ -1402,7 +1343,7 @@ func TestRecoveryLoop_PriorityOrdering(t *testing.T) {
 
 	highRecovery := &trackingRecoveryAction{
 		name:             "HighPriorityFix",
-		priority:         analysis.PriorityHigh,
+		priority:         types.PriorityHigh,
 		label:            "High",
 		executionOrder:   &executionOrder,
 		executionOrderMu: &mu,
@@ -1410,52 +1351,46 @@ func TestRecoveryLoop_PriorityOrdering(t *testing.T) {
 
 	normalRecovery := &trackingRecoveryAction{
 		name:             "NormalFix",
-		priority:         analysis.PriorityNormal,
+		priority:         types.PriorityNormal,
 		label:            "Normal",
 		executionOrder:   &executionOrder,
 		executionOrderMu: &mu,
 	}
 
 	// Create custom analyzer that returns multiple problems with different priorities
-	analyzeFunc := func(a *store.ReplicationAnalysis) []analysis.Problem {
+	analyzeFunc := func(a *store.ReplicationAnalysis) []types.Problem {
 		if !a.IsPrimary && a.IsWalReplayPaused {
 			// Return three problems with different priorities
-			return []analysis.Problem{
+			return []types.Problem{
 				{
-					Code:           analysis.ProblemReplicaNotReplicating,
+					Code:           types.ProblemReplicaNotReplicating,
 					CheckName:      "MultiPriorityAnalyzer",
 					PoolerID:       a.PoolerID,
-					Database:       a.Database,
-					TableGroup:     a.TableGroup,
-					Shard:          a.Shard,
-					Priority:       analysis.PriorityNormal,
-					Scope:          analysis.ScopePooler,
+					ShardKey:       a.ShardKey,
+					Priority:       types.PriorityNormal,
+					Scope:          types.ScopePooler,
 					RecoveryAction: normalRecovery,
 					DetectedAt:     time.Now(),
 					Description:    "Normal priority problem",
 				},
 				{
-					Code:           analysis.ProblemReplicaNotReplicating,
+					Code:           types.ProblemReplicaNotReplicating,
 					CheckName:      "MultiPriorityAnalyzer",
 					PoolerID:       a.PoolerID,
-					Database:       a.Database,
-					TableGroup:     a.TableGroup,
-					Shard:          a.Shard,
-					Priority:       analysis.PriorityEmergency,
-					Scope:          analysis.ScopePooler,
+					ShardKey:       a.ShardKey,
+					Priority:       types.PriorityEmergency,
+					Scope:          types.ScopePooler,
 					RecoveryAction: emergencyRecovery,
 					DetectedAt:     time.Now(),
 					Description:    "Emergency priority problem",
 				},
 				{
-					Code:           analysis.ProblemReplicaNotReplicating,
+					Code:           types.ProblemReplicaNotReplicating,
 					CheckName:      "MultiPriorityAnalyzer",
 					PoolerID:       a.PoolerID,
-					Database:       a.Database,
-					TableGroup:     a.TableGroup,
-					Shard:          a.Shard,
-					Priority:       analysis.PriorityHigh,
-					Scope:          analysis.ScopePooler,
+					ShardKey:       a.ShardKey,
+					Priority:       types.PriorityHigh,
+					Scope:          types.ScopePooler,
 					RecoveryAction: highRecovery,
 					DetectedAt:     time.Now(),
 					Description:    "High priority problem",
@@ -1477,12 +1412,10 @@ func TestRecoveryLoop_PriorityOrdering(t *testing.T) {
 	// Set up store state: replica with problem
 	replicaPooler := &multiorchdatapb.PoolerHealthState{
 		MultiPooler: &clustermetadatapb.MultiPooler{
-			Id:         replicaID,
-			Database:   "db1",
-			TableGroup: "tg1",
-			Shard:      "0",
-			Type:       clustermetadatapb.PoolerType_REPLICA,
-			Hostname:   "replica-host",
+			Id:       replicaID,
+			Database: "db1", TableGroup: "tg1", Shard: "0",
+			Type:     clustermetadatapb.PoolerType_REPLICA,
+			Hostname: "replica-host",
 		},
 		IsLastCheckValid: true,
 		IsUpToDate:       true,
@@ -1497,11 +1430,12 @@ func TestRecoveryLoop_PriorityOrdering(t *testing.T) {
 	generator := analysis.NewAnalysisGenerator(engine.poolerStore)
 	analyses := generator.GenerateAnalyses()
 
-	var problems []analysis.Problem
+	var problems []types.Problem
 	analyzers := analysis.DefaultAnalyzers()
 	for _, poolerAnalysis := range analyses {
 		for _, analyzer := range analyzers {
-			detectedProblems := analyzer.Analyze(poolerAnalysis)
+			detectedProblems, err := analyzer.Analyze(poolerAnalysis)
+			require.NoError(t, err)
 			problems = append(problems, detectedProblems...)
 		}
 	}
@@ -1509,7 +1443,7 @@ func TestRecoveryLoop_PriorityOrdering(t *testing.T) {
 	// Should detect 3 problems with different priorities
 	require.Len(t, problems, 3, "should detect 3 problems with different priorities")
 
-	shardKey := types.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"}
+	shardKey := commontypes.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"}
 
 	// Process problems - they should be attempted in priority order
 	engine.processShardProblems(shardKey, problems)

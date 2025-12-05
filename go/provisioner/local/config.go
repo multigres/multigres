@@ -82,6 +82,7 @@ type MultipoolerConfig struct {
 	Path           string `yaml:"path"`
 	Database       string `yaml:"database"`
 	TableGroup     string `yaml:"table-group"`
+	Shard          string `yaml:"shard"`
 	ServiceID      string `yaml:"service-id"`
 	PoolerDir      string `yaml:"pooler-dir"`  // Directory path for PostgreSQL socket files
 	PgPort         int    `yaml:"pg-port"`     // PostgreSQL port number (same as pgctld)
@@ -182,6 +183,7 @@ func (p *localProvisioner) DefaultConfig(configPaths []string) map[string]any {
 	serviceIDZone1 := stringutil.RandomString(8)
 	serviceIDZone2 := stringutil.RandomString(8)
 	tableGroup := "default"
+	shard := "0-inf"
 	dbName := "postgres"
 
 	// Create typed configuration with defaults
@@ -227,6 +229,7 @@ func (p *localProvisioner) DefaultConfig(configPaths []string) map[string]any {
 					Path:           filepath.Join(binDir, "multipooler"),
 					Database:       dbName,
 					TableGroup:     tableGroup,
+					Shard:          shard,
 					ServiceID:      serviceIDZone1,
 					PoolerDir:      GeneratePoolerDir(baseDir, serviceIDZone1),
 					PgPort:         ports.DefaultPostgresPort, // Same as pgctld for this zone
@@ -267,6 +270,7 @@ func (p *localProvisioner) DefaultConfig(configPaths []string) map[string]any {
 					Path:           filepath.Join(binDir, "multipooler"),
 					Database:       dbName,
 					TableGroup:     tableGroup,
+					Shard:          shard,
 					ServiceID:      serviceIDZone2,
 					PoolerDir:      GeneratePoolerDir(baseDir, serviceIDZone2),
 					PgPort:         ports.DefaultPostgresPort + 1,
@@ -360,6 +364,7 @@ func (p *localProvisioner) getCellServiceConfig(cellName, service string) (map[s
 			"path":             cellServices.Multipooler.Path,
 			"database":         cellServices.Multipooler.Database,
 			"table_group":      cellServices.Multipooler.TableGroup,
+			"shard":            cellServices.Multipooler.Shard,
 			"service-id":       cellServices.Multipooler.ServiceID,
 			"http_port":        cellServices.Multipooler.HttpPort,
 			"grpc_port":        cellServices.Multipooler.GrpcPort,
@@ -417,6 +422,13 @@ func (p *localProvisioner) GeneratePgBackRestConfigs() error {
 		return fmt.Errorf("failed to create pgBackRest log directory %s: %w", pgBackRestLogPath, err)
 	}
 
+	// Create the pgBackRest spool directory if it doesn't exist
+	// This prevents pgbackrest from using system default /var/spool/pgbackrest which may not be writable
+	pgBackRestSpoolPath := filepath.Join(p.config.RootWorkingDir, "spool", "pgbackrest")
+	if err := os.MkdirAll(pgBackRestSpoolPath, 0o755); err != nil {
+		return fmt.Errorf("failed to create pgBackRest spool directory %s: %w", pgBackRestSpoolPath, err)
+	}
+
 	// Get sorted list of all cell names for consistent ordering
 	var allCells []string
 	for cellName := range p.config.Cells {
@@ -464,6 +476,7 @@ func (p *localProvisioner) GeneratePgBackRestConfigs() error {
 			PgDatabase:      "postgres",
 			AdditionalHosts: additionalHosts,
 			LogPath:         pgBackRestLogPath,
+			SpoolPath:       pgBackRestSpoolPath,
 			RetentionFull:   2, // Keep 2 full backups by default
 		}
 

@@ -57,7 +57,6 @@ const (
 	MultiPoolerManager_SetTerm_FullMethodName                         = "/multipoolermanager.MultiPoolerManager/SetTerm"
 	MultiPoolerManager_InitializeEmptyPrimary_FullMethodName          = "/multipoolermanager.MultiPoolerManager/InitializeEmptyPrimary"
 	MultiPoolerManager_InitializeAsStandby_FullMethodName             = "/multipoolermanager.MultiPoolerManager/InitializeAsStandby"
-	MultiPoolerManager_InitializationStatus_FullMethodName            = "/multipoolermanager.MultiPoolerManager/InitializationStatus"
 	MultiPoolerManager_Backup_FullMethodName                          = "/multipoolermanager.MultiPoolerManager/Backup"
 	MultiPoolerManager_RestoreFromBackup_FullMethodName               = "/multipoolermanager.MultiPoolerManager/RestoreFromBackup"
 	MultiPoolerManager_GetBackups_FullMethodName                      = "/multipoolermanager.MultiPoolerManager/GetBackups"
@@ -126,9 +125,6 @@ type MultiPoolerManagerClient interface {
 	// InitializeAsStandby initializes this pooler as a standby from a primary backup
 	// Used during bootstrap initialization of a new shard or when adding a new standby
 	InitializeAsStandby(ctx context.Context, in *multipoolermanagerdata.InitializeAsStandbyRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.InitializeAsStandbyResponse, error)
-	// InitializationStatus returns the initialization status of this pooler
-	// Used by multiorch coordinator to determine what initialization scenario to use
-	InitializationStatus(ctx context.Context, in *multipoolermanagerdata.InitializationStatusRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.InitializationStatusResponse, error)
 	// Backup performs a backup
 	Backup(ctx context.Context, in *multipoolermanagerdata.BackupRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.BackupResponse, error)
 	// RestoreFromBackup restores from a backup
@@ -375,16 +371,6 @@ func (c *multiPoolerManagerClient) InitializeAsStandby(ctx context.Context, in *
 	return out, nil
 }
 
-func (c *multiPoolerManagerClient) InitializationStatus(ctx context.Context, in *multipoolermanagerdata.InitializationStatusRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.InitializationStatusResponse, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(multipoolermanagerdata.InitializationStatusResponse)
-	err := c.cc.Invoke(ctx, MultiPoolerManager_InitializationStatus_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
 func (c *multiPoolerManagerClient) Backup(ctx context.Context, in *multipoolermanagerdata.BackupRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.BackupResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(multipoolermanagerdata.BackupResponse)
@@ -478,9 +464,6 @@ type MultiPoolerManagerServer interface {
 	// InitializeAsStandby initializes this pooler as a standby from a primary backup
 	// Used during bootstrap initialization of a new shard or when adding a new standby
 	InitializeAsStandby(context.Context, *multipoolermanagerdata.InitializeAsStandbyRequest) (*multipoolermanagerdata.InitializeAsStandbyResponse, error)
-	// InitializationStatus returns the initialization status of this pooler
-	// Used by multiorch coordinator to determine what initialization scenario to use
-	InitializationStatus(context.Context, *multipoolermanagerdata.InitializationStatusRequest) (*multipoolermanagerdata.InitializationStatusResponse, error)
 	// Backup performs a backup
 	Backup(context.Context, *multipoolermanagerdata.BackupRequest) (*multipoolermanagerdata.BackupResponse, error)
 	// RestoreFromBackup restores from a backup
@@ -565,9 +548,6 @@ func (UnimplementedMultiPoolerManagerServer) InitializeEmptyPrimary(context.Cont
 }
 func (UnimplementedMultiPoolerManagerServer) InitializeAsStandby(context.Context, *multipoolermanagerdata.InitializeAsStandbyRequest) (*multipoolermanagerdata.InitializeAsStandbyResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method InitializeAsStandby not implemented")
-}
-func (UnimplementedMultiPoolerManagerServer) InitializationStatus(context.Context, *multipoolermanagerdata.InitializationStatusRequest) (*multipoolermanagerdata.InitializationStatusResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method InitializationStatus not implemented")
 }
 func (UnimplementedMultiPoolerManagerServer) Backup(context.Context, *multipoolermanagerdata.BackupRequest) (*multipoolermanagerdata.BackupResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Backup not implemented")
@@ -1013,24 +993,6 @@ func _MultiPoolerManager_InitializeAsStandby_Handler(srv interface{}, ctx contex
 	return interceptor(ctx, in, info, handler)
 }
 
-func _MultiPoolerManager_InitializationStatus_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(multipoolermanagerdata.InitializationStatusRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(MultiPoolerManagerServer).InitializationStatus(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: MultiPoolerManager_InitializationStatus_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(MultiPoolerManagerServer).InitializationStatus(ctx, req.(*multipoolermanagerdata.InitializationStatusRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
 func _MultiPoolerManager_Backup_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(multipoolermanagerdata.BackupRequest)
 	if err := dec(in); err != nil {
@@ -1183,10 +1145,6 @@ var MultiPoolerManager_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "InitializeAsStandby",
 			Handler:    _MultiPoolerManager_InitializeAsStandby_Handler,
-		},
-		{
-			MethodName: "InitializationStatus",
-			Handler:    _MultiPoolerManager_InitializationStatus_Handler,
 		},
 		{
 			MethodName: "Backup",

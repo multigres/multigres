@@ -31,13 +31,16 @@ import (
 // TestMultiGateway_PostgreSQLConnection tests that we can connect to multigateway via PostgreSQL protocol
 // and execute queries. This is a true end-to-end test that uses the full cluster setup.
 func TestMultiGateway_PostgreSQLConnection(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping PostgreSQLConnection test in short mode")
+	}
 	if utils.ShouldSkipRealPostgres() {
 		t.Skip("PostgreSQL binaries not found, skipping cluster lifecycle tests")
 	}
 
-	// Setup full test cluster with all services
+	// Setup full test cluster with all services (includes waiting for bootstrap)
 	cluster := setupTestCluster(t)
-	defer cluster.Cleanup()
+	t.Cleanup(cluster.Cleanup)
 
 	// Connect to multigateway's PostgreSQL port using PostgreSQL driver
 	connStr := fmt.Sprintf("host=localhost port=%d user=postgres dbname=postgres sslmode=disable connect_timeout=5",

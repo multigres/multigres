@@ -31,12 +31,13 @@ import (
 	"syscall"
 	"time"
 
+	"golang.org/x/mod/semver"
+
 	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/provisioner"
 	"github.com/multigres/multigres/go/provisioner/local/ports"
 	"github.com/multigres/multigres/go/tools/pathutil"
 	"github.com/multigres/multigres/go/tools/retry"
-	"github.com/multigres/multigres/go/tools/semver"
 	"github.com/multigres/multigres/go/tools/stringutil"
 	"github.com/multigres/multigres/go/tools/telemetry"
 
@@ -719,6 +720,12 @@ func (p *localProvisioner) provisionMultipooler(ctx context.Context, req *provis
 		tableGroup = tgFromConfig
 	}
 
+	// Get shard from multipooler config, default to "0-inf" if not set
+	shard := "0-inf"
+	if shardFromConfig, ok := multipoolerConfig["shard"].(string); ok && shardFromConfig != "" {
+		shard = shardFromConfig
+	}
+
 	// Get log level
 	logLevel := "info"
 	if level, ok := multipoolerConfig["log_level"].(string); ok {
@@ -782,6 +789,7 @@ func (p *localProvisioner) provisionMultipooler(ctx context.Context, req *provis
 		"--cell", cell,
 		"--database", database,
 		"--table-group", tableGroup,
+		"--shard", shard,
 		"--service-id", serviceID,
 		"--pgctld-addr", pgctldResult.Address,
 		"--log-level", logLevel,
@@ -1395,6 +1403,11 @@ func (p *localProvisioner) Teardown(ctx context.Context, clean bool) error {
 		if err := p.cleanupSocketsDirectory(socketsDir); err != nil {
 			fmt.Printf("Warning: failed to clean up sockets directory: %v\n", err)
 		}
+
+		spoolDir := filepath.Join(p.config.RootWorkingDir, "spool")
+		if err := p.cleanupSpoolDirectory(spoolDir); err != nil {
+			fmt.Printf("Warning: failed to clean up spool directory: %v\n", err)
+		}
 	}
 
 	fmt.Println("Teardown completed successfully")
@@ -1460,6 +1473,20 @@ func (p *localProvisioner) cleanupSocketsDirectory(socketsDir string) error {
 	}
 
 	fmt.Printf("Cleaned up sockets directory: %s\n", socketsDir)
+	return nil
+}
+
+// cleanupSpoolDirectory removes the entire spool directory and all its contents
+func (p *localProvisioner) cleanupSpoolDirectory(spoolDir string) error {
+	if _, err := os.Stat(spoolDir); os.IsNotExist(err) {
+		return nil // Directory doesn't exist, nothing to clean up
+	}
+
+	if err := os.RemoveAll(spoolDir); err != nil {
+		return fmt.Errorf("failed to remove spool directory %s: %w", spoolDir, err)
+	}
+
+	fmt.Printf("Cleaned up spool directory: %s\n", spoolDir)
 	return nil
 }
 
@@ -1535,7 +1562,7 @@ func (p *localProvisioner) ProvisionDatabase(ctx context.Context, databaseName s
 		databaseConfig := &clustermetadatapb.Database{
 			Name:             databaseName,
 			BackupLocation:   p.config.BackupRepoPath,
-			DurabilityPolicy: "none",    // Default durability policy
+			DurabilityPolicy: "ANY_2",   // Default durability policy for bootstrap
 			Cells:            cellNames, // Register with all cells
 		}
 
@@ -1551,11 +1578,13 @@ func (p *localProvisioner) ProvisionDatabase(ctx context.Context, databaseName s
 
 	var results []*provisioner.ProvisionResult
 
-	// Provision services in each cell
-	for _, cellName := range cellNames {
-		fmt.Printf("=== Provisioning services in cell: %s ===\n", cellName)
+	// Provision services in phases across all cells to ensure dependencies are met.
+	// Multiorch needs all multipoolers running before bootstrap, so we start
+	// services in this order: multigateways -> multipoolers -> multiorchs
 
-		// Provision multigateway
+	// Phase 1: Provision all multigateways
+	fmt.Println("=== Phase 1: Starting Multigateways ===")
+	for _, cellName := range cellNames {
 		fmt.Printf("=== Starting Multigateway in %s ===\n", cellName)
 		multigatewayReq := &provisioner.ProvisionRequest{
 			Service:      "multigateway",
@@ -1576,9 +1605,13 @@ func (p *localProvisioner) ProvisionDatabase(ctx context.Context, databaseName s
 			fmt.Printf("🌐 - Available at: http://%s:%d\n", multigatewayResult.FQDN, httpPort)
 		}
 		results = append(results, multigatewayResult)
+	}
+	fmt.Println("")
 
-		// Provision multipooler
-		fmt.Printf("\n=== Starting Multipooler in %s ===\n", cellName)
+	// Phase 2: Provision all multipoolers (must be done before multiorchs start)
+	fmt.Println("=== Phase 2: Starting Multipoolers ===")
+	for _, cellName := range cellNames {
+		fmt.Printf("=== Starting Multipooler in %s ===\n", cellName)
 		multipoolerReq := &provisioner.ProvisionRequest{
 			Service:      "multipooler",
 			DatabaseName: databaseName,
@@ -1598,9 +1631,13 @@ func (p *localProvisioner) ProvisionDatabase(ctx context.Context, databaseName s
 			fmt.Printf("🌐 - Available at: %s:%d\n", multipoolerResult.FQDN, grpcPort)
 		}
 		results = append(results, multipoolerResult)
+	}
+	fmt.Println("")
 
-		// Provision multiorch
-		fmt.Printf("\n=== Starting MultiOrchestrator in %s ===\n", cellName)
+	// Phase 3: Provision all multiorchs (after all multipoolers are running)
+	fmt.Println("=== Phase 3: Starting MultiOrchestrators ===")
+	for _, cellName := range cellNames {
+		fmt.Printf("=== Starting MultiOrchestrator in %s ===\n", cellName)
 		multiorchReq := &provisioner.ProvisionRequest{
 			Service:      "multiorch",
 			DatabaseName: databaseName,
@@ -1620,9 +1657,10 @@ func (p *localProvisioner) ProvisionDatabase(ctx context.Context, databaseName s
 			fmt.Printf("🌐 - Available at: %s:%d\n", multiorchResult.FQDN, grpcPort)
 		}
 		results = append(results, multiorchResult)
-
-		fmt.Printf("\n✓ Cell %s provisioned successfully\n\n", cellName)
 	}
+	fmt.Println("")
+
+	fmt.Printf("✓ All cells provisioned successfully\n\n")
 
 	// Skip pgBackRest stanza initialization during bootstrap
 	// Stanzas should be created after replication is configured between cells

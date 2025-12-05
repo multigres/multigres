@@ -111,11 +111,6 @@ func (pm *MultiPoolerManager) setPrimaryConnInfoLocked(ctx context.Context, host
 		return err
 	}
 
-	// Guardrail: Check pooler type - only REPLICA poolers can set primary_conninfo
-	if err := pm.checkPoolerType(clustermetadatapb.PoolerType_REPLICA, "SetPrimaryConnInfo"); err != nil {
-		return err
-	}
-
 	// Guardrail: Check if the PostgreSQL instance is in recovery (standby mode)
 	isPrimary, err := pm.isPrimary(ctx)
 	if err != nil {
@@ -266,65 +261,76 @@ func (pm *MultiPoolerManager) StandbyReplicationStatus(ctx context.Context) (*mu
 	return status, nil
 }
 
-// Status gets unified status that works for both PRIMARY and REPLICA poolers
-// The multipooler returns information based on what type it believes itself to be
+// Status gets unified status that works for both PRIMARY and REPLICA poolers.
+// This RPC works even when the database connection is unavailable - fields that require
+// database access will be nil/empty in that case. This allows callers to always get
+// initialization status without needing a separate RPC.
 func (pm *MultiPoolerManager) Status(ctx context.Context) (*multipoolermanagerdatapb.Status, error) {
-	if err := pm.checkReady(); err != nil {
-		return nil, err
-	}
 	pm.logger.InfoContext(ctx, "Status called")
 
-	// Get pooler type from topology
-	pm.mu.Lock()
-	poolerType := pm.multipooler.MultiPooler.Type
-	pm.mu.Unlock()
+	// Build status with initialization fields (always available)
+	poolerStatus := &multipoolermanagerdatapb.Status{
+		PoolerType:       pm.getPoolerType(),
+		IsInitialized:    pm.isInitialized(ctx),
+		HasDataDirectory: pm.hasDataDirectory(),
+		PostgresRunning:  pm.isPostgresRunning(ctx),
+		PostgresRole:     pm.getRole(ctx),
+		ShardId:          pm.getShardID(),
+	}
 
-	// Check actual PostgreSQL role
+	// Get consensus term if available (use inconsistent read for monitoring)
+	if pm.consensusState != nil {
+		term, err := pm.consensusState.GetInconsistentCurrentTermNumber()
+		if err == nil {
+			poolerStatus.ConsensusTerm = term
+		}
+	}
+
+	// If database is not connected, return early with just initialization status
+	if pm.db == nil {
+		pm.logger.InfoContext(ctx, "Status completed (db not connected)",
+			"pooler_type", poolerStatus.PoolerType,
+			"is_initialized", poolerStatus.IsInitialized,
+			"postgres_running", poolerStatus.PostgresRunning)
+		return poolerStatus, nil
+	}
+
+	// Get WAL position (ignore errors, just return empty string)
+	walPosition, _ := pm.getWALPosition(ctx)
+	poolerStatus.WalPosition = walPosition
+
+	// Database is connected - try to get detailed status based on PostgreSQL role
 	isPrimary, err := pm.isPrimary(ctx)
 	if err != nil {
-		pm.logger.ErrorContext(ctx, "Failed to check PostgreSQL role", "error", err)
-		return nil, err
+		// Can't determine role - return what we have
+		pm.logger.WarnContext(ctx, "Failed to check PostgreSQL role, returning partial status", "error", err)
+		return poolerStatus, nil
 	}
 
-	// Verify consistency between topology and PostgreSQL state
-	expectedPrimary := (poolerType == clustermetadatapb.PoolerType_PRIMARY)
-	if expectedPrimary != isPrimary {
-		pm.logger.ErrorContext(ctx, "Mismatch between pooler type and PostgreSQL role",
-			"pooler_type", poolerType,
-			"is_primary_in_pg", isPrimary)
-		pgRole := "standby"
-		if isPrimary {
-			pgRole = "primary"
-		}
-		return nil, mterrors.MT13002(poolerType.String(), pgRole).Err
-	}
-
-	poolerStatus := &multipoolermanagerdatapb.Status{
-		PoolerType: poolerType,
-	}
-
-	// Based on actual PostgreSQL role, populate appropriate status
+	// Populate role-specific status
 	if isPrimary {
-		// Acting as primary - get primary status
-		primaryStatus, err := pm.PrimaryStatus(ctx)
+		// Acting as primary - get primary status (skip guardrails since we already checked isPrimary)
+		primaryStatus, err := pm.getPrimaryStatusInternal(ctx)
 		if err != nil {
-			pm.logger.ErrorContext(ctx, "Failed to get primary status", "error", err)
-			return nil, err
+			pm.logger.WarnContext(ctx, "Failed to get primary status", "error", err)
+			// Return partial status instead of error
+			return poolerStatus, nil
 		}
 		poolerStatus.PrimaryStatus = primaryStatus
-		pm.logger.InfoContext(ctx, "ReplicationStatus completed (acting as primary)",
-			"pooler_type", poolerType,
+		pm.logger.InfoContext(ctx, "Status completed (acting as primary)",
+			"pooler_type", poolerStatus.PoolerType,
 			"lsn", primaryStatus.Lsn)
 	} else {
-		// Acting as standby - get replication status
-		replStatus, err := pm.StandbyReplicationStatus(ctx)
+		// Acting as standby - get replication status (skip guardrails since we already checked isPrimary)
+		replStatus, err := pm.getStandbyStatusInternal(ctx)
 		if err != nil {
-			pm.logger.ErrorContext(ctx, "Failed to get standby replication status", "error", err)
-			return nil, err
+			pm.logger.WarnContext(ctx, "Failed to get standby replication status", "error", err)
+			// Return partial status instead of error
+			return poolerStatus, nil
 		}
 		poolerStatus.ReplicationStatus = replStatus
-		pm.logger.InfoContext(ctx, "ReplicationStatus completed (acting as standby)",
-			"pooler_type", poolerType,
+		pm.logger.InfoContext(ctx, "Status completed (acting as standby)",
+			"pooler_type", poolerStatus.PoolerType,
 			"last_replay_lsn", replStatus.LastReplayLsn)
 	}
 
@@ -539,30 +545,17 @@ func (pm *MultiPoolerManager) UpdateSynchronousStandbyList(ctx context.Context, 
 	return nil
 }
 
-// PrimaryStatus gets the status of the leader server
-func (pm *MultiPoolerManager) PrimaryStatus(ctx context.Context) (*multipoolermanagerdatapb.PrimaryStatus, error) {
-	if err := pm.checkReady(); err != nil {
-		return nil, err
-	}
-
-	pm.logger.InfoContext(ctx, "PrimaryStatus called")
-
-	// Check PRIMARY guardrails (pooler type and non-recovery mode)
-	if err := pm.checkPrimaryGuardrails(ctx); err != nil {
-		return nil, err
-	}
-
+// getPrimaryStatusInternal gets primary status without guardrail checks.
+// Called by Status() which has already verified the PostgreSQL role.
+func (pm *MultiPoolerManager) getPrimaryStatusInternal(ctx context.Context) (*multipoolermanagerdatapb.PrimaryStatus, error) {
 	status := &multipoolermanagerdatapb.PrimaryStatus{}
 
 	// Get current LSN
-	// Note: checkPrimaryGuardrails already validated this is a PRIMARY
 	lsn, err := pm.getPrimaryLSN(ctx)
 	if err != nil {
 		return nil, err
 	}
 	status.Lsn = lsn
-	// If we got to this point, checkPrimaryGuardrails passed, so this is a
-	// PRIMARY server from the PG perspective and should be ready to serve traffic.
 	status.Ready = true
 
 	// Get connected followers from pg_stat_replication
@@ -579,7 +572,34 @@ func (pm *MultiPoolerManager) PrimaryStatus(ctx context.Context) (*multipoolerma
 	}
 	status.SyncReplicationConfig = syncConfig
 
-	pm.logger.InfoContext(ctx, "PrimaryStatus completed", "lsn", lsn, "followers_count", len(followers))
+	return status, nil
+}
+
+// getStandbyStatusInternal gets standby replication status without guardrail checks.
+// Called by Status() which has already verified the PostgreSQL role.
+func (pm *MultiPoolerManager) getStandbyStatusInternal(ctx context.Context) (*multipoolermanagerdatapb.StandbyReplicationStatus, error) {
+	return pm.queryReplicationStatus(ctx)
+}
+
+// PrimaryStatus gets the status of the leader server
+func (pm *MultiPoolerManager) PrimaryStatus(ctx context.Context) (*multipoolermanagerdatapb.PrimaryStatus, error) {
+	if err := pm.checkReady(); err != nil {
+		return nil, err
+	}
+
+	pm.logger.InfoContext(ctx, "PrimaryStatus called")
+
+	// Check PRIMARY guardrails (pooler type and non-recovery mode)
+	if err := pm.checkPrimaryGuardrails(ctx); err != nil {
+		return nil, err
+	}
+
+	status, err := pm.getPrimaryStatusInternal(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	pm.logger.InfoContext(ctx, "PrimaryStatus completed", "lsn", status.Lsn, "followers_count", len(status.ConnectedFollowers))
 	return status, nil
 }
 
@@ -676,9 +696,21 @@ func (pm *MultiPoolerManager) ChangeType(ctx context.Context, poolerType string)
 	}
 
 	pm.mu.Lock()
-	defer pm.mu.Unlock()
 	pm.multipooler.MultiPooler = updatedMultipooler
 	pm.updateCachedMultipooler()
+	pm.mu.Unlock()
+
+	// Update heartbeat tracker based on new type
+	if pm.replTracker != nil {
+		if newType == clustermetadatapb.PoolerType_PRIMARY {
+			pm.logger.InfoContext(ctx, "Starting heartbeat writer for new primary")
+			pm.replTracker.MakePrimary()
+		} else {
+			pm.logger.InfoContext(ctx, "Stopping heartbeat writer for replica")
+			pm.replTracker.MakeNonPrimary()
+		}
+	}
+
 	pm.logger.InfoContext(ctx, "Pooler type updated successfully", "new_type", poolerType, "service_id", pm.serviceID.String())
 
 	return nil
@@ -1088,8 +1120,8 @@ func (pm *MultiPoolerManager) CreateDurabilityPolicy(ctx context.Context, req *m
 		}, nil
 	}
 
-	// Insert the policy into the durability_policy table using helper function
-	if err := InsertDurabilityPolicy(ctx, pm.db, req.PolicyName, quorumRuleJSON); err != nil {
+	// Insert the policy into the durability_policy table
+	if err := pm.insertDurabilityPolicy(ctx, req.PolicyName, quorumRuleJSON); err != nil {
 		pm.logger.ErrorContext(ctx, "Failed to insert durability policy", "error", err)
 		return &multipoolermanagerdatapb.CreateDurabilityPolicyResponse{
 			Success:      false,

@@ -68,8 +68,20 @@ type PoolerHealthState struct {
 	PrimaryStatus *multipoolermanagerdata.PrimaryStatus `protobuf:"bytes,8,opt,name=primary_status,json=primaryStatus,proto3" json:"primary_status,omitempty"`
 	// Replica-specific status (populated when pooler_type == REPLICA)
 	ReplicationStatus *multipoolermanagerdata.StandbyReplicationStatus `protobuf:"bytes,9,opt,name=replication_status,json=replicationStatus,proto3" json:"replication_status,omitempty"`
-	unknownFields     protoimpl.UnknownFields
-	sizeCache         protoimpl.SizeCache
+	// Whether PostgreSQL is currently running on this node.
+	// Determined from the Status RPC's postgres_running field.
+	// Used to determine PrimaryReachable in the analyzer - a primary with postgres down
+	// should trigger PrimaryIsDead recovery even if the previous PrimaryStatus data exists.
+	IsPostgresRunning bool `protobuf:"varint,10,opt,name=is_postgres_running,json=isPostgresRunning,proto3" json:"is_postgres_running,omitempty"`
+	// Whether the pooler considers itself initialized.
+	// Determined from the Status RPC's is_initialized field.
+	// This is based on the data directory state, not LSN.
+	IsInitialized bool `protobuf:"varint,11,opt,name=is_initialized,json=isInitialized,proto3" json:"is_initialized,omitempty"`
+	// Whether the PostgreSQL data directory exists.
+	// Determined from the Status RPC's has_data_directory field.
+	HasDataDirectory bool `protobuf:"varint,12,opt,name=has_data_directory,json=hasDataDirectory,proto3" json:"has_data_directory,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *PoolerHealthState) Reset() {
@@ -165,11 +177,32 @@ func (x *PoolerHealthState) GetReplicationStatus() *multipoolermanagerdata.Stand
 	return nil
 }
 
+func (x *PoolerHealthState) GetIsPostgresRunning() bool {
+	if x != nil {
+		return x.IsPostgresRunning
+	}
+	return false
+}
+
+func (x *PoolerHealthState) GetIsInitialized() bool {
+	if x != nil {
+		return x.IsInitialized
+	}
+	return false
+}
+
+func (x *PoolerHealthState) GetHasDataDirectory() bool {
+	if x != nil {
+		return x.HasDataDirectory
+	}
+	return false
+}
+
 var File_multiorchdata_proto protoreflect.FileDescriptor
 
 const file_multiorchdata_proto_rawDesc = "" +
 	"\n" +
-	"\x13multiorchdata.proto\x12\rmultiorchdata\x1a\x15clustermetadata.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1cmultipoolermanagerdata.proto\"\xea\x04\n" +
+	"\x13multiorchdata.proto\x12\rmultiorchdata\x1a\x15clustermetadata.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1cmultipoolermanagerdata.proto\"\xef\x05\n" +
 	"\x11PoolerHealthState\x12?\n" +
 	"\fmulti_pooler\x18\x01 \x01(\v2\x1c.clustermetadata.MultiPoolerR\vmultiPooler\x12!\n" +
 	"\ris_up_to_date\x18\x02 \x01(\bR\n" +
@@ -181,7 +214,11 @@ const file_multiorchdata_proto_rawDesc = "" +
 	"\vpooler_type\x18\a \x01(\x0e2\x1b.clustermetadata.PoolerTypeR\n" +
 	"poolerType\x12L\n" +
 	"\x0eprimary_status\x18\b \x01(\v2%.multipoolermanagerdata.PrimaryStatusR\rprimaryStatus\x12_\n" +
-	"\x12replication_status\x18\t \x01(\v20.multipoolermanagerdata.StandbyReplicationStatusR\x11replicationStatusB4Z2github.com/multigres/multigres/go/pb/multiorchdatab\x06proto3"
+	"\x12replication_status\x18\t \x01(\v20.multipoolermanagerdata.StandbyReplicationStatusR\x11replicationStatus\x12.\n" +
+	"\x13is_postgres_running\x18\n" +
+	" \x01(\bR\x11isPostgresRunning\x12%\n" +
+	"\x0eis_initialized\x18\v \x01(\bR\risInitialized\x12,\n" +
+	"\x12has_data_directory\x18\f \x01(\bR\x10hasDataDirectoryB4Z2github.com/multigres/multigres/go/pb/multiorchdatab\x06proto3"
 
 var (
 	file_multiorchdata_proto_rawDescOnce sync.Once

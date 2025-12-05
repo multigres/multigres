@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/multigres/multigres/go/common/topoclient"
+	commontypes "github.com/multigres/multigres/go/common/types"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 )
@@ -173,23 +174,19 @@ func (re *Engine) refreshPoolersForTarget(ctx context.Context, database, tablegr
 //
 // poolersToIgnore is a list of pooler IDs (e.g., "cell1/multipooler/pooler1") to skip.
 // This is useful when a pooler is known to be dead/unreachable.
-func (re *Engine) refreshShardMetadata(ctx context.Context, database, tablegroup, shard string, poolersToIgnore []string) error {
+func (re *Engine) refreshShardMetadata(ctx context.Context, shardKey commontypes.ShardKey, poolersToIgnore []string) error {
 	re.logger.DebugContext(ctx, "refreshing shard metadata",
-		"database", database,
-		"tablegroup", tablegroup,
-		"shard", shard,
+		"shard_key", shardKey.String(),
 		"ignore_count", len(poolersToIgnore),
 	)
 
-	count, err := re.refreshPoolersForTarget(ctx, database, tablegroup, shard, poolersToIgnore)
+	count, err := re.refreshPoolersForTarget(ctx, shardKey.Database, shardKey.TableGroup, shardKey.Shard, poolersToIgnore)
 	if err != nil {
 		return err
 	}
 
 	re.logger.DebugContext(ctx, "shard metadata refresh complete",
-		"database", database,
-		"tablegroup", tablegroup,
-		"shard", shard,
+		"shard_key", shardKey.String(),
 		"poolers_refreshed", count,
 	)
 
@@ -200,11 +197,9 @@ func (re *Engine) refreshShardMetadata(ctx context.Context, database, tablegroup
 // This is used after shard-wide recoveries to ensure all pooler state is up-to-date.
 //
 // poolersToIgnore is a list of pooler IDs to skip (e.g., a dead primary).
-func (re *Engine) forceHealthCheckShardPoolers(ctx context.Context, database, tablegroup, shard string, poolersToIgnore []string) {
+func (re *Engine) forceHealthCheckShardPoolers(ctx context.Context, shardKey commontypes.ShardKey, poolersToIgnore []string) {
 	re.logger.DebugContext(ctx, "force refreshing all poolers in shard",
-		"database", database,
-		"tablegroup", tablegroup,
-		"shard", shard,
+		"shard_key", shardKey.String(),
 		"ignore_count", len(poolersToIgnore),
 	)
 
@@ -227,9 +222,9 @@ func (re *Engine) forceHealthCheckShardPoolers(ctx context.Context, database, ta
 		}
 
 		// Check if this pooler is in the target shard
-		if poolerHealth.MultiPooler.Database != database ||
-			poolerHealth.MultiPooler.TableGroup != tablegroup ||
-			poolerHealth.MultiPooler.Shard != shard {
+		if poolerHealth.MultiPooler.Database != shardKey.Database ||
+			poolerHealth.MultiPooler.TableGroup != shardKey.TableGroup ||
+			poolerHealth.MultiPooler.Shard != shardKey.Shard {
 			return true // continue
 		}
 
@@ -256,9 +251,7 @@ func (re *Engine) forceHealthCheckShardPoolers(ctx context.Context, database, ta
 	}
 
 	re.logger.DebugContext(ctx, "shard pooler force refresh complete",
-		"database", database,
-		"tablegroup", tablegroup,
-		"shard", shard,
+		"shard_key", shardKey.String(),
 		"poolers_polled", polledCount,
 	)
 }

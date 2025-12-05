@@ -23,6 +23,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
@@ -68,7 +69,7 @@ func createTestPooler(name, cell, hostname, database, shard string, poolerType c
 		Database:   database,
 		Shard:      shard,
 		Type:       poolerType,
-		TableGroup: "default",
+		TableGroup: constants.DefaultTableGroup,
 		PortMap: map[string]int32{
 			"grpc": 5432,
 		},

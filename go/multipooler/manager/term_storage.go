@@ -79,7 +79,8 @@ func setConsensusTerm(poolerDir string, term *multipoolermanagerdatapb.Consensus
 	termPath := consensusTermPath(poolerDir)
 	consensusDir := filepath.Dir(termPath)
 
-	// Create consensus directory if it doesn't exist
+	// Ensure consensus directory exists (data directory should already exist since we checked above)
+	// Note: This will only create the consensus subdirectory, not the pg_data parent
 	if err := os.MkdirAll(consensusDir, 0o755); err != nil {
 		return fmt.Errorf("failed to create consensus directory: %w", err)
 	}

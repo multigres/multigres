@@ -34,6 +34,7 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 
 	"github.com/multigres/multigres/go/cmd/pgctld/testutil"
+	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/provisioner/local/pgbackrest"
 	"github.com/multigres/multigres/go/test/endtoend"
@@ -84,6 +85,11 @@ func TestMain(m *testing.M) {
 	// Run all tests
 	exitCode := m.Run()
 
+	// Dump service logs on failure to help debug CI issues
+	if exitCode != 0 {
+		dumpServiceLogs()
+	}
+
 	// Clean up shared multipooler test infrastructure
 	cleanupSharedTestSetup()
 
@@ -92,6 +98,43 @@ func TestMain(m *testing.M) {
 
 	// Exit with the test result code
 	os.Exit(exitCode)
+}
+
+// dumpServiceLogs prints service log files to help debug test failures.
+// Call this before cleanup so logs are available.
+func dumpServiceLogs() {
+	if sharedTestSetup == nil {
+		return
+	}
+
+	fmt.Println("\n" + "=" + "=== SERVICE LOGS (test failure) ===" + "=")
+
+	instances := []*ProcessInstance{
+		sharedTestSetup.PrimaryMultipooler,
+		sharedTestSetup.StandbyMultipooler,
+		sharedTestSetup.PrimaryPgctld,
+		sharedTestSetup.StandbyPgctld,
+	}
+
+	for _, inst := range instances {
+		if inst == nil || inst.LogFile == "" {
+			continue
+		}
+
+		fmt.Printf("\n--- %s (%s) ---\n", inst.Name, inst.LogFile)
+		content, err := os.ReadFile(inst.LogFile)
+		if err != nil {
+			fmt.Printf("  [error reading log: %v]\n", err)
+			continue
+		}
+		if len(content) == 0 {
+			fmt.Println("  [empty log file]")
+			continue
+		}
+		fmt.Println(string(content))
+	}
+
+	fmt.Println("\n" + "=" + "=== END SERVICE LOGS ===" + "=")
 }
 
 // cleanupSharedTestSetup cleans up the shared test infrastructure
@@ -213,7 +256,8 @@ func (p *ProcessInstance) startMultipooler(t *testing.T) error {
 	args := []string{
 		"--grpc-port", strconv.Itoa(p.GrpcPort),
 		"--database", "postgres", // Required parameter
-		"--table-group", "test", // Required parameter
+		"--table-group", "default", // Required parameter (MVP only supports "default")
+		"--shard", "0-inf", // Required parameter (MVP only supports "0-inf")
 		"--pgctld-addr", p.PgctldAddr,
 		"--pooler-dir", p.DataDir, // Use the same pooler dir as pgctld
 		"--pg-port", strconv.Itoa(p.PgPort),
@@ -341,6 +385,21 @@ func (p *ProcessInstance) Stop() {
 	_ = p.Process.Wait()
 }
 
+// IsRunning checks if the process is still running.
+// Returns false if the process has exited or was never started.
+func (p *ProcessInstance) IsRunning() bool {
+	if p == nil || p.Process == nil || p.Process.Process == nil {
+		return false
+	}
+	// ProcessState is set after Wait() returns, meaning process has exited
+	if p.Process.ProcessState != nil {
+		return false
+	}
+	// Signal 0 checks if process exists without actually sending a signal
+	err := p.Process.Process.Signal(syscall.Signal(0))
+	return err == nil
+}
+
 // stopPostgreSQL stops PostgreSQL via gRPC (best effort, no error handling)
 func (p *ProcessInstance) stopPostgreSQL() {
 	conn, err := grpc.NewClient(
@@ -424,10 +483,9 @@ func initializePrimary(t *testing.T, baseDir string, pgctld *ProcessInstance, mu
 
 	// Create pgbackrest configuration first (before starting PostgreSQL)
 	// Build backup repository path with database/tablegroup/shard structure
-	// TODO: Replace hardcoded shard "0" with actual shard value
 	database := "postgres"
-	tableGroup := "test"
-	shard := "0" // Default shard ID
+	tableGroup := "default"
+	shard := "0-inf"
 	repoPath := filepath.Join(baseDir, "backup-repo", database, tableGroup, shard)
 	if err := os.MkdirAll(repoPath, 0o755); err != nil {
 		return fmt.Errorf("failed to create backup repo: %w", err)
@@ -521,6 +579,30 @@ archive_command = 'pgbackrest --stanza=%s --config=%s --repo1-path=%s archive-pu
 	// Wait for manager to be ready
 	waitForManagerReady(t, nil, multipooler)
 
+	// Create multigres schema and heartbeat table (needed for GetLeadershipView tests)
+	// This is normally done during InitializeEmptyPrimary, but we're setting up manually
+	primaryPoolerClient, err := endtoend.NewMultiPoolerTestClient(fmt.Sprintf("localhost:%d", multipooler.GrpcPort))
+	if err != nil {
+		return fmt.Errorf("failed to connect to primary pooler: %w", err)
+	}
+	defer primaryPoolerClient.Close()
+
+	_, err = primaryPoolerClient.ExecuteQuery(context.Background(), "CREATE SCHEMA IF NOT EXISTS multigres", 0)
+	if err != nil {
+		return fmt.Errorf("failed to create multigres schema: %w", err)
+	}
+
+	_, err = primaryPoolerClient.ExecuteQuery(context.Background(), `
+		CREATE TABLE IF NOT EXISTS multigres.heartbeat (
+			shard_id BYTEA PRIMARY KEY,
+			leader_id TEXT NOT NULL,
+			ts BIGINT NOT NULL
+		)`, 0)
+	if err != nil {
+		return fmt.Errorf("failed to create heartbeat table: %w", err)
+	}
+	t.Log("Created multigres schema and heartbeat table")
+
 	// Connect to multipooler manager
 	conn, err := grpc.NewClient(
 		fmt.Sprintf("localhost:%d", multipooler.GrpcPort),
@@ -599,7 +681,6 @@ func initializeStandby(t *testing.T, baseDir string, primaryPgctld *ProcessInsta
 	// - pg2: other cluster (primary in this case)
 	// Each cluster treats itself as pg1 and lists others as pg2, pg3, etc.
 	// Build backup repository path with database/tablegroup/shard structure (same as primary)
-	// TODO: Replace hardcoded shard "0" with actual shard value
 	logPath := filepath.Join(baseDir, "logs", "pgbackrest")
 	spoolPath := filepath.Join(baseDir, "pgbackrest-spool")
 
@@ -767,7 +848,7 @@ func getSharedTestSetup(t *testing.T) *MultipoolerTestSetup {
 		// Create the database entry in topology with backup_location
 		// This is needed for getBackupLocation() calls in multipooler manager
 		database := "postgres"
-		backupLocation := filepath.Join(tempDir, "backup-repo", database, "test", "0")
+		backupLocation := filepath.Join(tempDir, "backup-repo", database, "default", "0-inf")
 		err = ts.CreateDatabase(context.Background(), database, &clustermetadatapb.Database{
 			Name:             database,
 			BackupLocation:   backupLocation,
@@ -884,10 +965,20 @@ func startEtcdForSharedSetup(t *testing.T, dataDir string) (string, *exec.Cmd, e
 		return "", nil, fmt.Errorf("failed to start etcd: %w", err)
 	}
 
-	// Wait for etcd to be ready
-	time.Sleep(500 * time.Millisecond)
+	// Wait for etcd to be ready by polling the client port
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		conn, err := net.DialTimeout("tcp", fmt.Sprintf("localhost:%d", clientPort), 100*time.Millisecond)
+		if err == nil {
+			conn.Close()
+			return clientAddr, cmd, nil
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
 
-	return clientAddr, cmd, nil
+	// If we get here, etcd didn't start in time - kill it and return error
+	_ = cmd.Process.Kill()
+	return "", nil, fmt.Errorf("etcd failed to become ready within 10 seconds")
 }
 
 // waitForManagerReady waits for the manager to be in ready state
@@ -943,10 +1034,8 @@ func setupStandbyReplication(t *testing.T, primaryPgctld *ProcessInstance, stand
 
 	// Get backup location (same structure as in initializePrimary)
 	database := "postgres"
-	tableGroup := "test"
-	shard := "0"
 	baseDir := filepath.Dir(filepath.Dir(primaryPgctld.DataDir)) // Go up from primary/data to get base
-	repoPath := filepath.Join(baseDir, "backup-repo", database, tableGroup, shard)
+	repoPath := filepath.Join(baseDir, "backup-repo", database, constants.DefaultTableGroup, constants.DefaultShard)
 
 	// Create a backup on the primary using pgbackrest
 	t.Logf("Creating pgBackRest backup on primary (stanza: %s, config: %s, repo: %s)...",
@@ -1242,6 +1331,39 @@ func validateCleanState(setup *MultipoolerTestSetup) error {
 	return nil
 }
 
+// checkSharedProcesses verifies all shared test processes are still running.
+// This catches crashes from previous tests early, before confusing timeout errors.
+func checkSharedProcesses(t *testing.T, setup *MultipoolerTestSetup) {
+	t.Helper()
+
+	if setup == nil {
+		return
+	}
+
+	type processCheck struct {
+		name     string
+		instance *ProcessInstance
+	}
+
+	checks := []processCheck{
+		{"primary-multipooler", setup.PrimaryMultipooler},
+		{"standby-multipooler", setup.StandbyMultipooler},
+		{"primary-pgctld", setup.PrimaryPgctld},
+		{"standby-pgctld", setup.StandbyPgctld},
+	}
+
+	var dead []string
+	for _, check := range checks {
+		if check.instance != nil && !check.instance.IsRunning() {
+			dead = append(dead, check.name)
+		}
+	}
+
+	if len(dead) > 0 {
+		t.Fatalf("Shared test process(es) died: %v. A previous test likely crashed them. Check service logs above.", dead)
+	}
+}
+
 // setupPoolerTest provides test isolation by validating clean state, optionally configuring
 // replication, and automatically restoring any state changes at test cleanup.
 //
@@ -1264,6 +1386,9 @@ func validateCleanState(setup *MultipoolerTestSetup) error {
 // Other options: WithResetGuc(), WithDropTables()
 func setupPoolerTest(t *testing.T, setup *MultipoolerTestSetup, opts ...cleanupOption) {
 	t.Helper()
+
+	// Fail fast if shared processes died (e.g., from a previous test crash)
+	checkSharedProcesses(t, setup)
 
 	// Build cleanup configuration from options
 	config := &cleanupConfig{}

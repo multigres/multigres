@@ -56,4 +56,19 @@ message PoolerHealthState {
 
   // Replica-specific status (populated when pooler_type == REPLICA)
   multipoolermanagerdata.StandbyReplicationStatus replication_status = 9;
+
+  // Whether PostgreSQL is currently running on this node.
+  // Determined from the Status RPC's postgres_running field.
+  // Used to determine PrimaryReachable in the analyzer - a primary with postgres down
+  // should trigger PrimaryIsDead recovery even if the previous PrimaryStatus data exists.
+  bool is_postgres_running = 10;
+
+  // Whether the pooler considers itself initialized.
+  // Determined from the Status RPC's is_initialized field.
+  // This is based on the data directory state, not LSN.
+  bool is_initialized = 11;
+
+  // Whether the PostgreSQL data directory exists.
+  // Determined from the Status RPC's has_data_directory field.
+  bool has_data_directory = 12;
 }

@@ -49,7 +49,7 @@ func (s *poolerService) StreamExecute(req *multipoolerpb.StreamExecuteRequest, s
 	// Get the executor from the pooler
 	executor, err := s.pooler.Executor()
 	if err != nil {
-		return fmt.Errorf("executor not initialized")
+		return err
 	}
 
 	// Execute the query and stream results
