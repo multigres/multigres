@@ -313,6 +313,14 @@ func (pm *MultiPoolerManager) Close() error {
 	// Always cancel context to stop async loaders (even if Open() was never called)
 	pm.cancel()
 
+	return pm.closeConnectionsLocked()
+}
+
+// closeConnectionsLocked closes the database connection and query service controller
+// without canceling the main context. Caller must hold pm.mu.
+// This is used by reopenConnections() during auto-restore to avoid canceling
+// the startup context that WaitUntilReady is waiting on.
+func (pm *MultiPoolerManager) closeConnectionsLocked() error {
 	if !pm.isOpen {
 		pm.logger.Info("MultiPoolerManager: already closed")
 		return nil
@@ -342,6 +350,21 @@ func (pm *MultiPoolerManager) Close() error {
 
 	pm.logger.Info("MultiPoolerManager: closed")
 	return nil
+}
+
+// reopenConnections closes and reopens database connections without canceling
+// the main context. This is used during auto-restore to restart connections
+// after PostgreSQL has been restored, without disrupting the startup flow.
+func (pm *MultiPoolerManager) reopenConnections(ctx context.Context) error {
+	pm.mu.Lock()
+	if err := pm.closeConnectionsLocked(); err != nil {
+		pm.mu.Unlock()
+		return err
+	}
+	pm.mu.Unlock()
+
+	// Now reopen (Open() acquires its own lock)
+	return pm.Open()
 }
 
 // GetState returns the current state of the manager
@@ -660,7 +683,13 @@ func (pm *MultiPoolerManager) loadMultiPoolerFromTopo() {
 		pm.topoLoaded = true
 		pm.mu.Unlock()
 
-		pm.logger.InfoContext(ctx, "Loaded multipooler record from topology", "service_id", pm.serviceID.String(), "database", mp.Database, "backup_location", db.BackupLocation)
+		pm.logger.InfoContext(pm.ctx, "Loaded multipooler record from topology", "service_id", pm.serviceID.String(), "database", mp.Database, "backup_location", db.BackupLocation)
+
+		// Try to auto-restore from backup if uninitialized
+		// This must happen after topo is loaded (for backupLocation) but before ready state
+		// Use pm.ctx instead of the canceled ctx from GetDatabase
+		pm.tryAutoRestoreFromBackup(pm.ctx)
+
 		pm.checkAndSetReady()
 		return
 	}

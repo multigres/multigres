@@ -264,11 +264,10 @@ func (pm *MultiPoolerManager) startPostgreSQLAfterRestore(ctx context.Context, b
 
 func (pm *MultiPoolerManager) reopenPoolerManager(ctx context.Context) error {
 	slog.InfoContext(ctx, "Reopening pooler manager after restore")
-	if err := pm.Close(); err != nil {
-		slog.ErrorContext(ctx, "Failed to close pooler manager after restore", "error", err)
-		return mterrors.Wrap(err, "failed to close pooler manager after restore")
-	}
-	if err := pm.Open(); err != nil {
+	// Use reopenConnections instead of Close/Open to avoid canceling pm.ctx.
+	// This is important during auto-restore at startup where the startup flow
+	// is waiting on contexts derived from pm.ctx.
+	if err := pm.reopenConnections(ctx); err != nil {
 		slog.ErrorContext(ctx, "Failed to reopen pooler manager after restore", "error", err)
 		return mterrors.Wrap(err, "failed to reopen pooler manager after restore")
 	}
@@ -300,6 +299,23 @@ func (pm *MultiPoolerManager) getBackupsLocked(ctx context.Context, limit uint32
 		return nil, err
 	}
 
+	backups, err := pm.listBackups(ctx, false)
+	if err != nil {
+		return nil, err
+	}
+
+	// Apply limit if specified
+	if limit > 0 && uint32(len(backups)) > limit {
+		backups = backups[:limit]
+	}
+
+	return backups, nil
+}
+
+// listBackups retrieves backup metadata from pgbackrest.
+// If filterByShard is true, only backups matching this pooler's shard are returned.
+// This is a defense-in-depth check since stanzas are already shard-scoped.
+func (pm *MultiPoolerManager) listBackups(ctx context.Context, filterByShard bool) ([]*multipoolermanagerdata.BackupMetadata, error) {
 	configPath := pm.getBackupConfigPath()
 	stanzaName := pm.getBackupStanza()
 
@@ -310,12 +326,15 @@ func (pm *MultiPoolerManager) getBackupsLocked(ctx context.Context, limit uint32
 	if stanzaName == "" {
 		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "stanza_name is required")
 	}
+	if pm.backupLocation == "" {
+		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "backup_location is required")
+	}
 
 	// Execute pgbackrest info command with JSON output
-	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	queryCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, "pgbackrest",
+	cmd := exec.CommandContext(queryCtx, "pgbackrest",
 		"--stanza="+stanzaName,
 		"--config="+configPath,
 		"--repo1-path="+pm.backupLocation,
@@ -323,7 +342,6 @@ func (pm *MultiPoolerManager) getBackupsLocked(ctx context.Context, limit uint32
 		"--log-level-console=off", // Override console logging to prevent contaminating JSON output
 		"info")
 
-	// Use streamOutput to avoid blocking on large output
 	output, err := safeCombinedOutput(cmd)
 	if err != nil {
 		// Handle case where stanza doesn't exist yet or config file is missing - return empty list
@@ -341,11 +359,22 @@ func (pm *MultiPoolerManager) getBackupsLocked(ctx context.Context, limit uint32
 			fmt.Sprintf("failed to parse pgbackrest info JSON: %v", err))
 	}
 
+	// Get current pooler's table_group and shard for optional filtering
+	currentTableGroup := pm.config.TableGroup
+	currentShard := pm.getShardID()
+
 	// Extract backups from the first stanza (should be the only one)
 	var backups []*multipoolermanagerdata.BackupMetadata
 	if len(infoData) > 0 && len(infoData[0].Backup) > 0 {
 		for _, pgBackup := range infoData[0].Backup {
-			// Determine backup status
+			// Determine backup status - skip incomplete backups when filtering by shard
+			// (auto-restore should only use complete backups)
+			if pgBackup.Error {
+				if filterByShard {
+					continue // Skip incomplete backups for auto-restore
+				}
+			}
+
 			status := multipoolermanagerdata.BackupMetadata_COMPLETE
 			if pgBackup.Error {
 				status = multipoolermanagerdata.BackupMetadata_INCOMPLETE
@@ -357,6 +386,26 @@ func (pm *MultiPoolerManager) getBackupsLocked(ctx context.Context, limit uint32
 			if pgBackup.Annotation != nil {
 				tableGroup = pgBackup.Annotation["table_group"]
 				shard = pgBackup.Annotation["shard"]
+			}
+
+			// Defense-in-depth: skip backups that don't match this pooler's shard.
+			// This check is not strictly necessary since stanzas are shard-scoped,
+			// but provides an extra layer of safety during auto-restore.
+			if filterByShard {
+				if tableGroup != "" && tableGroup != currentTableGroup {
+					pm.logger.ErrorContext(ctx, "Skipping backup with mismatched table_group",
+						"backup_id", pgBackup.Label,
+						"backup_table_group", tableGroup,
+						"current_table_group", currentTableGroup)
+					continue
+				}
+				if shard != "" && shard != currentShard {
+					pm.logger.ErrorContext(ctx, "Skipping backup with mismatched shard",
+						"backup_id", pgBackup.Label,
+						"backup_shard", shard,
+						"current_shard", currentShard)
+					continue
+				}
 			}
 
 			// Extract final LSN (stop LSN) from backup
@@ -373,11 +422,6 @@ func (pm *MultiPoolerManager) getBackupsLocked(ctx context.Context, limit uint32
 				FinalLsn:   finalLSN,
 			})
 		}
-	}
-
-	// Apply limit if specified
-	if limit > 0 && uint32(len(backups)) > limit {
-		backups = backups[:limit]
 	}
 
 	return backups, nil
@@ -580,4 +624,106 @@ func (pm *MultiPoolerManager) findBackupByAnnotations(
 	}
 
 	return matchedBackups[0], nil
+}
+
+// tryAutoRestoreFromBackup attempts to restore from backup if the pooler is uninitialized.
+// Returns true if restore was attempted and succeeded, false otherwise.
+// This is called during startup before the manager signals ready state.
+//
+// Auto-restore only applies to REPLICA poolers. PRIMARY poolers must be explicitly
+// initialized via InitializeEmptyPrimary RPC.
+//
+// If uninitialized and no backup is available, the pooler stays in uninitialized state
+// and waits for explicit initialization via RPC.
+func (pm *MultiPoolerManager) tryAutoRestoreFromBackup(ctx context.Context) bool {
+	// Acquire action lock to prevent races with initialization RPCs.
+	// This ensures InitializeEmptyPrimary/InitializeAsStandby can't run concurrently.
+	var err error
+	ctx, err = pm.actionLock.Acquire(ctx, "tryAutoRestoreFromBackup")
+	if err != nil {
+		pm.logger.ErrorContext(ctx, "Auto-restore: failed to acquire action lock", "error", err)
+		return false
+	}
+	defer pm.actionLock.Release(ctx)
+
+	// TODO: Handle partial initialization state (data dir exists but no marker).
+	// Currently we proceed as if uninitialized, which may cause issues if
+	// PostgreSQL is partially set up. Options for future:
+	// - Detect and cleanup automatically (with explicit flag)
+	// - Detect and block startup, require manual intervention
+
+	// Check if already initialized - skip if so
+	if pm.isInitialized(ctx) {
+		pm.logger.InfoContext(ctx, "Auto-restore skipped: pooler already initialized")
+		return false
+	}
+
+	// Only auto-restore REPLICA poolers - PRIMARY must be explicitly initialized
+	poolerType := pm.getPoolerType()
+	if poolerType == clustermetadatapb.PoolerType_PRIMARY {
+		pm.logger.InfoContext(ctx, "Auto-restore skipped: PRIMARY poolers must be explicitly initialized")
+		return false
+	}
+
+	pm.logger.InfoContext(ctx, "Auto-restore: pooler is uninitialized, checking for backups")
+
+	// Check for available backups using shared listing with shard filtering
+	backups, err := pm.listBackups(ctx, true)
+	if err != nil {
+		pm.logger.ErrorContext(ctx, "Auto-restore: failed to check for backups", "error", err)
+		return false
+	}
+
+	if len(backups) == 0 {
+		pm.logger.InfoContext(ctx, "Auto-restore: no backups available, staying in uninitialized state")
+		return false
+	}
+
+	// Use the latest backup (last in the list from pgbackrest)
+	latestBackup := backups[len(backups)-1]
+	pm.logger.InfoContext(ctx, "Auto-restore: found backup, attempting restore",
+		"backup_id", latestBackup.BackupId,
+		"total_backups", len(backups))
+
+	// Perform the restore
+	if err := pm.executeAutoRestore(ctx, latestBackup.BackupId); err != nil {
+		pm.logger.ErrorContext(ctx, "Auto-restore: restore failed, staying in uninitialized state",
+			"backup_id", latestBackup.BackupId,
+			"error", err)
+		return false
+	}
+
+	pm.logger.InfoContext(ctx, "Auto-restore: completed successfully", "backup_id", latestBackup.BackupId)
+	return true
+}
+
+// executeAutoRestore performs the actual restore from backup during startup.
+// This reuses the core restore logic from restoreFromBackupLocked without the
+// PRIMARY check (already done in tryAutoRestoreFromBackup).
+// Caller must hold the action lock.
+func (pm *MultiPoolerManager) executeAutoRestore(ctx context.Context, backupID string) error {
+	pm.logger.InfoContext(ctx, "Executing auto-restore from backup", "backup_id", backupID)
+
+	// Execute pgbackrest restore
+	if err := pm.executeBackrestRestore(ctx, backupID); err != nil {
+		return err
+	}
+
+	// Start PostgreSQL as standby after restore
+	if err := pm.startPostgreSQLAfterRestore(ctx, backupID); err != nil {
+		return err
+	}
+
+	// Reopen pooler manager connections
+	if err := pm.reopenPoolerManager(ctx); err != nil {
+		return err
+	}
+
+	// Write initialization marker to indicate full initialization completed.
+	// The marker is NOT included in backups (created after backup), so we create it here.
+	if err := pm.writeInitializationMarker(); err != nil {
+		return err
+	}
+
+	return nil
 }

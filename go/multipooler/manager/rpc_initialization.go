@@ -124,6 +124,12 @@ func (pm *MultiPoolerManager) InitializeEmptyPrimary(ctx context.Context, req *m
 	}
 	pm.logger.InfoContext(ctx, "Initial backup created", "backup_id", backupID)
 
+	// Write initialization marker to indicate full initialization completed.
+	// This marker is checked by isInitialized() when the database connection is not available.
+	if err := pm.writeInitializationMarker(); err != nil {
+		return nil, mterrors.Wrap(err, "failed to write initialization marker")
+	}
+
 	pm.logger.InfoContext(ctx, "Successfully initialized pooler as empty primary", "shard", pm.getShardID(), "term", req.ConsensusTerm)
 	return &multipoolermanagerdatapb.InitializeEmptyPrimaryResponse{
 		Success:  true,
@@ -217,6 +223,14 @@ func (pm *MultiPoolerManager) InitializeAsStandby(ctx context.Context, req *mult
 		}
 	}
 
+	// Write initialization marker to indicate full initialization completed.
+	// This marker is checked by isInitialized() when the database connection is not available.
+	// Note: The marker is NOT included in the backup because it's created after the backup.
+	// So standbys need to create it explicitly after initialization.
+	if err := pm.writeInitializationMarker(); err != nil {
+		return nil, mterrors.Wrap(err, "failed to write initialization marker")
+	}
+
 	pm.logger.InfoContext(ctx, "Successfully initialized pooler as standby", "shard", pm.getShardID(), "term", req.ConsensusTerm)
 	return &multipoolermanagerdatapb.InitializeAsStandbyResponse{
 		Success:  true,
@@ -225,6 +239,10 @@ func (pm *MultiPoolerManager) InitializeAsStandby(ctx context.Context, req *mult
 }
 
 // Helper methods
+
+// multigresInitMarker is the filename for the initialization marker.
+// This file is created after full initialization completes (schema created, backup done).
+const multigresInitMarker = "MULTIGRES_INITIALIZED"
 
 // isInitialized checks if the pooler has been initialized (has data directory and multigres schema)
 // This should return true even when postgres is not running, as long as the node was previously initialized.
@@ -239,26 +257,26 @@ func (pm *MultiPoolerManager) isInitialized(ctx context.Context) bool {
 		return err == nil && exists
 	}
 
-	// If database is not connected (e.g., postgres is down), check if postgres data directory
-	// has been properly initialized by looking for PG_VERSION file (created by initdb)
+	// If database is not connected (e.g., postgres is down), check for the initialization marker.
+	// This marker is created after full initialization completes (schema created, backup done).
+	// It's more reliable than checking for PG_VERSION/global because those exist after initdb
+	// but before the full initialization process completes.
 	dataDir := filepath.Join(pm.config.PoolerDir, "pg_data")
-	pgVersionFile := filepath.Join(dataDir, "PG_VERSION")
-	if _, err := os.Stat(pgVersionFile); err != nil {
-		return false // PG_VERSION doesn't exist, not initialized
+	markerFile := filepath.Join(dataDir, multigresInitMarker)
+	if _, err := os.Stat(markerFile); err != nil {
+		return false // Marker doesn't exist, not fully initialized
 	}
 
-	// Postgres data directory is initialized. Now check if multigres schema was created.
-	// We can't query the database, so check if the schema exists on disk.
-	// The multigres schema creates tables in the global directory.
-	// A simple heuristic: if global/pg_internal.init exists and is non-empty, assume initialized.
-	globalDir := filepath.Join(dataDir, "global")
-	if _, err := os.Stat(globalDir); err != nil {
-		return false // No global directory
-	}
-
-	// If PG_VERSION exists and global directory exists, consider it initialized.
-	// This is a reasonable heuristic since RestoreFromBackup copies a fully initialized database.
 	return true
+}
+
+// writeInitializationMarker creates the initialization marker file to indicate
+// that full initialization has completed. This is called at the end of
+// InitializeEmptyPrimary and InitializeAsStandby.
+func (pm *MultiPoolerManager) writeInitializationMarker() error {
+	dataDir := filepath.Join(pm.config.PoolerDir, "pg_data")
+	markerFile := filepath.Join(dataDir, multigresInitMarker)
+	return os.WriteFile(markerFile, []byte("initialized\n"), 0o644)
 }
 
 // hasDataDirectory checks if the PostgreSQL data directory exists
