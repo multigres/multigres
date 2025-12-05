@@ -148,7 +148,7 @@ func (pm *MultiPoolerManager) BeginTerm(ctx context.Context, req *consensusdatap
 			// Don't fail the BeginTerm - the term acceptance is the critical part
 			// The coordinator can call Demote explicitly if needed
 		} else {
-			response.DemoteLsn = demoteLSN
+			response.DemoteLsn = demoteLSN.LsnPosition
 			pm.logger.InfoContext(ctx, "Demotion completed successfully",
 				"demote_lsn", demoteLSN,
 				"term", req.Term)

@@ -806,22 +806,32 @@ func (pm *MultiPoolerManager) Demote(ctx context.Context, consensusTerm int64, d
 		return nil, err
 	}
 	defer pm.actionLock.Release(ctx)
-
-	pm.logger.InfoContext(ctx, "Demote called",
-		"consensus_term", consensusTerm,
-		"drain_timeout", drainTimeout,
-		"force", force)
-
-	// === Validation & State Check ===
-
 	// Demote is an operational cleanup, not a leadership change.
 	// Accept if term >= currentTerm to ensure the request isn't stale.
 	// Equal or higher terms are safe.
 	// Note: we still update the term, as this may arrive after a leader
 	// appointment that this (now old) primary missed due to a network partition.
-	if err = pm.validateAndUpdateTerm(ctx, consensusTerm, force); err != nil {
+	if err := pm.validateAndUpdateTerm(ctx, consensusTerm, force); err != nil {
 		return nil, err
 	}
+
+	return pm.demoteLocked(ctx, consensusTerm, drainTimeout)
+}
+
+// demoteLocked performs the core demotion logic.
+// REQUIRES: action lock must already be held by the caller.
+// This is used by BeginTerm and Demote to demote inline without re-acquiring the lock.
+func (pm *MultiPoolerManager) demoteLocked(ctx context.Context, consensusTerm int64, drainTimeout time.Duration) (*multipoolermanagerdatapb.DemoteResponse, error) {
+	// Verify action lock is held
+	if err := AssertActionLockHeld(ctx); err != nil {
+		return nil, err
+	}
+
+	pm.logger.InfoContext(ctx, "demoteLocked called",
+		"consensus_term", consensusTerm,
+		"drain_timeout", drainTimeout)
+
+	// === Validation & State Check ===
 
 	// Guard rail: Demote can only be called on a PRIMARY
 	if err := pm.checkPrimaryGuardrails(ctx); err != nil {
@@ -907,83 +917,6 @@ func (pm *MultiPoolerManager) Demote(ctx context.Context, consensusTerm int64, d
 		LsnPosition:           finalLSN,
 		ConnectionsTerminated: connectionsTerminated,
 	}, nil
-}
-
-// demoteLocked performs the core demotion logic.
-// REQUIRES: action lock must already be held by the caller.
-// This is used by BeginTerm to demote inline without re-acquiring the lock.
-func (pm *MultiPoolerManager) demoteLocked(ctx context.Context, consensusTerm int64, drainTimeout time.Duration) (string, error) {
-	// Verify action lock is held
-	if err := AssertActionLockHeld(ctx); err != nil {
-		return "", err
-	}
-
-	pm.logger.InfoContext(ctx, "demoteLocked called",
-		"consensus_term", consensusTerm,
-		"drain_timeout", drainTimeout)
-
-	// Guard rail: Demote can only be called on a PRIMARY
-	if err := pm.checkPrimaryGuardrails(ctx); err != nil {
-		return "", err
-	}
-
-	// Check current demotion state
-	state, err := pm.checkDemotionState(ctx)
-	if err != nil {
-		return "", err
-	}
-
-	// If everything is already complete, return the existing LSN (idempotent)
-	if state.isServingReadOnly && state.isReplicaInTopology && state.isReadOnly {
-		pm.logger.InfoContext(ctx, "Demotion already complete (idempotent)",
-			"lsn", state.finalLSN)
-		return state.finalLSN, nil
-	}
-
-	// Transition to Read-Only Serving
-	if err := pm.setServingReadOnly(ctx, state); err != nil {
-		return "", err
-	}
-
-	// Drain & Checkpoint (Parallel)
-	if err := pm.drainAndCheckpoint(ctx, drainTimeout); err != nil {
-		return "", err
-	}
-
-	// Terminate Remaining Write Connections
-	connectionsTerminated, err := pm.terminateWriteConnections(ctx)
-	if err != nil {
-		// Log but don't fail - connections will eventually timeout
-		pm.logger.WarnContext(ctx, "Failed to terminate write connections", "error", err)
-	}
-
-	// Capture State & Make PostgreSQL Read-Only
-	finalLSN, err := pm.getPrimaryLSN(ctx)
-	if err != nil {
-		pm.logger.ErrorContext(ctx, "Failed to capture final LSN", "error", err)
-		return "", err
-	}
-
-	if err := pm.restartPostgresAsStandby(ctx, state); err != nil {
-		return "", err
-	}
-
-	// Reset Synchronous Replication Configuration
-	if err := pm.resetSynchronousReplication(ctx); err != nil {
-		pm.logger.WarnContext(ctx, "Failed to reset synchronous replication configuration", "error", err)
-	}
-
-	// Update Topology
-	if err := pm.updateTopologyAfterDemotion(ctx, state); err != nil {
-		return "", err
-	}
-
-	pm.logger.InfoContext(ctx, "demoteLocked completed successfully",
-		"final_lsn", finalLSN,
-		"consensus_term", consensusTerm,
-		"connections_terminated", connectionsTerminated)
-
-	return finalLSN, nil
 }
 
 // UndoDemote undoes a demotion
