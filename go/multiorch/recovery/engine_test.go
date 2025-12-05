@@ -67,6 +67,7 @@ func TestRecoveryEngine_ConfigReload(t *testing.T) {
 		cfg,
 		initialTargets,
 		&rpcclient.FakeClient{},
+		nil,
 	)
 
 	// Verify initial config
@@ -129,6 +130,7 @@ func TestRecoveryEngine_ConfigReload_NoChange(t *testing.T) {
 		cfg,
 		initialTargets,
 		&rpcclient.FakeClient{},
+		nil,
 	)
 
 	// Set up config reloader that returns same targets
@@ -180,6 +182,7 @@ func TestRecoveryEngine_ConfigReload_EmptyTargets(t *testing.T) {
 		cfg,
 		initialTargets,
 		&rpcclient.FakeClient{},
+		nil,
 	)
 
 	// Set up config reloader that returns empty targets
@@ -219,6 +222,7 @@ func TestRecoveryEngine_StartStop(t *testing.T) {
 		cfg,
 		[]config.WatchTarget{{Database: "db1"}},
 		&rpcclient.FakeClient{},
+		nil,
 	)
 
 	// Start the engine
@@ -263,6 +267,7 @@ func TestRecoveryEngine_MaintenanceLoop(t *testing.T) {
 		cfg,
 		[]config.WatchTarget{{Database: "db1"}},
 		&rpcclient.FakeClient{},
+		nil,
 	)
 
 	// Track config reloads
@@ -277,30 +282,23 @@ func TestRecoveryEngine_MaintenanceLoop(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to start recovery engine: %v", err)
 	}
+	defer re.Stop()
 
-	// Let it run for a bit to trigger both loops
-	time.Sleep(500 * time.Millisecond)
+	// Wait for config reload to be called at least once
+	require.Eventually(t, func() bool {
+		return atomic.LoadInt32(&reloadCount) > 0
+	}, 2*time.Second, 50*time.Millisecond, "config reloader was never called during maintenance loop")
 
-	// Stop the engine
-	re.Stop()
-
-	// Verify config reload was called at least once
-	if atomic.LoadInt32(&reloadCount) == 0 {
-		t.Error("config reloader was never called during maintenance loop")
-	}
-
-	// Verify targets were updated
-	re.mu.Lock()
-	finalTargets := re.shardWatchTargets
-	re.mu.Unlock()
-
+	// Wait for targets to be updated
 	expectedTargets := []config.WatchTarget{
 		{Database: "db1"},
 		{Database: "db2"},
 	}
-	if !slices.Equal(finalTargets, expectedTargets) {
-		t.Errorf("targets not updated during maintenance: got %v, want %v", finalTargets, expectedTargets)
-	}
+	require.Eventually(t, func() bool {
+		re.mu.Lock()
+		defer re.mu.Unlock()
+		return slices.Equal(re.shardWatchTargets, expectedTargets)
+	}, 2*time.Second, 50*time.Millisecond, "targets not updated during maintenance")
 }
 
 func TestRecoveryEngine_ConfigReloadError(t *testing.T) {
@@ -326,6 +324,7 @@ func TestRecoveryEngine_ConfigReloadError(t *testing.T) {
 		cfg,
 		initialTargets,
 		&rpcclient.FakeClient{},
+		nil,
 	)
 
 	// Set up config reloader that returns invalid targets
@@ -427,6 +426,7 @@ func TestRecoveryEngine_ViperDynamicConfig(t *testing.T) {
 		cfg,
 		initialTargets,
 		&rpcclient.FakeClient{},
+		nil,
 	)
 
 	// Set up config reloader that reads from viperutil.Value
@@ -502,6 +502,7 @@ func TestRecoveryEngine_DiscoveryLoop_Integration(t *testing.T) {
 		cfg,
 		[]config.WatchTarget{{Database: "mydb"}},
 		&rpcclient.FakeClient{},
+		nil,
 	)
 
 	// Start the engine - it should discover existing poolers
@@ -550,6 +551,7 @@ func TestRecoveryEngine_BookkeepingLoop_Integration(t *testing.T) {
 		cfg,
 		[]config.WatchTarget{{Database: "mydb"}},
 		&rpcclient.FakeClient{},
+		nil,
 	)
 
 	// Add poolers to store BEFORE starting engine
@@ -642,6 +644,7 @@ func TestRecoveryEngine_FullIntegration(t *testing.T) {
 		cfg,
 		[]config.WatchTarget{{Database: "mydb"}},
 		&rpcclient.FakeClient{},
+		nil,
 	)
 
 	// Add pooler to topology BEFORE starting

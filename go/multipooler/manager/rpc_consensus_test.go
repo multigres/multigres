@@ -39,20 +39,13 @@ import (
 
 // Helper function to setup a manager with a mock database
 // expectPrimaryStartupQueries adds expectations for queries that happen during PRIMARY manager startup.
-// The manager is created as a PRIMARY, so:
-// 1. pg_is_in_recovery() check - returns false (primary)
-// 2. CREATE SCHEMA and CREATE TABLE queries for sidecar schema
+// The manager is created as a PRIMARY, so it checks pg_is_in_recovery() which returns false.
+// Note: Schema creation is now handled by multiorch during bootstrap initialization,
+// so we no longer expect CREATE SCHEMA or CREATE TABLE queries here.
 func expectPrimaryStartupQueries(mock sqlmock.Sqlmock) {
 	// Heartbeat startup: checks if DB is primary
 	mock.ExpectQuery("SELECT pg_is_in_recovery").
 		WillReturnRows(sqlmock.NewRows([]string{"pg_is_in_recovery"}).AddRow(false))
-	// createSidecarSchema creates the multigres schema and tables
-	mock.ExpectExec("CREATE SCHEMA IF NOT EXISTS multigres").
-		WillReturnResult(sqlmock.NewResult(0, 0))
-	mock.ExpectExec("CREATE TABLE IF NOT EXISTS multigres.heartbeat").
-		WillReturnResult(sqlmock.NewResult(0, 0))
-	mock.ExpectExec("CREATE TABLE IF NOT EXISTS multigres.durability_policy").
-		WillReturnResult(sqlmock.NewResult(0, 0))
 }
 
 func setupManagerWithMockDB(t *testing.T, mockDB *sql.DB) (*MultiPoolerManager, string) {

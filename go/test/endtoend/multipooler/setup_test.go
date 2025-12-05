@@ -85,6 +85,11 @@ func TestMain(m *testing.M) {
 	// Run all tests
 	exitCode := m.Run()
 
+	// Dump service logs on failure to help debug CI issues
+	if exitCode != 0 {
+		dumpServiceLogs()
+	}
+
 	// Clean up shared multipooler test infrastructure
 	cleanupSharedTestSetup()
 
@@ -93,6 +98,43 @@ func TestMain(m *testing.M) {
 
 	// Exit with the test result code
 	os.Exit(exitCode)
+}
+
+// dumpServiceLogs prints service log files to help debug test failures.
+// Call this before cleanup so logs are available.
+func dumpServiceLogs() {
+	if sharedTestSetup == nil {
+		return
+	}
+
+	fmt.Println("\n" + "=" + "=== SERVICE LOGS (test failure) ===" + "=")
+
+	instances := []*ProcessInstance{
+		sharedTestSetup.PrimaryMultipooler,
+		sharedTestSetup.StandbyMultipooler,
+		sharedTestSetup.PrimaryPgctld,
+		sharedTestSetup.StandbyPgctld,
+	}
+
+	for _, inst := range instances {
+		if inst == nil || inst.LogFile == "" {
+			continue
+		}
+
+		fmt.Printf("\n--- %s (%s) ---\n", inst.Name, inst.LogFile)
+		content, err := os.ReadFile(inst.LogFile)
+		if err != nil {
+			fmt.Printf("  [error reading log: %v]\n", err)
+			continue
+		}
+		if len(content) == 0 {
+			fmt.Println("  [empty log file]")
+			continue
+		}
+		fmt.Println(string(content))
+	}
+
+	fmt.Println("\n" + "=" + "=== END SERVICE LOGS ===" + "=")
 }
 
 // cleanupSharedTestSetup cleans up the shared test infrastructure
@@ -347,6 +389,21 @@ func (p *ProcessInstance) Stop() {
 	_ = p.Process.Wait()
 }
 
+// IsRunning checks if the process is still running.
+// Returns false if the process has exited or was never started.
+func (p *ProcessInstance) IsRunning() bool {
+	if p == nil || p.Process == nil || p.Process.Process == nil {
+		return false
+	}
+	// ProcessState is set after Wait() returns, meaning process has exited
+	if p.Process.ProcessState != nil {
+		return false
+	}
+	// Signal 0 checks if process exists without actually sending a signal
+	err := p.Process.Process.Signal(syscall.Signal(0))
+	return err == nil
+}
+
 // stopPostgreSQL stops PostgreSQL via gRPC (best effort, no error handling)
 func (p *ProcessInstance) stopPostgreSQL() {
 	conn, err := grpc.NewClient(
@@ -525,6 +582,30 @@ archive_command = 'pgbackrest --stanza=%s --config=%s --repo1-path=%s archive-pu
 
 	// Wait for manager to be ready
 	waitForManagerReady(t, nil, multipooler)
+
+	// Create multigres schema and heartbeat table (needed for GetLeadershipView tests)
+	// This is normally done during InitializeEmptyPrimary, but we're setting up manually
+	primaryPoolerClient, err := endtoend.NewMultiPoolerTestClient(fmt.Sprintf("localhost:%d", multipooler.GrpcPort))
+	if err != nil {
+		return fmt.Errorf("failed to connect to primary pooler: %w", err)
+	}
+	defer primaryPoolerClient.Close()
+
+	_, err = primaryPoolerClient.ExecuteQuery(context.Background(), "CREATE SCHEMA IF NOT EXISTS multigres", 0)
+	if err != nil {
+		return fmt.Errorf("failed to create multigres schema: %w", err)
+	}
+
+	_, err = primaryPoolerClient.ExecuteQuery(context.Background(), `
+		CREATE TABLE IF NOT EXISTS multigres.heartbeat (
+			shard_id BYTEA PRIMARY KEY,
+			leader_id TEXT NOT NULL,
+			ts BIGINT NOT NULL
+		)`, 0)
+	if err != nil {
+		return fmt.Errorf("failed to create heartbeat table: %w", err)
+	}
+	t.Log("Created multigres schema and heartbeat table")
 
 	// Connect to multipooler manager
 	conn, err := grpc.NewClient(
@@ -888,10 +969,21 @@ func startEtcdForSharedSetup(t *testing.T, dataDir string) (string, *exec.Cmd, e
 		return "", nil, fmt.Errorf("failed to start etcd: %w", err)
 	}
 
-	// Wait for etcd to be ready
-	time.Sleep(500 * time.Millisecond)
+	// Wait for etcd to be ready by polling the client port
+	deadline := time.Now().Add(10 * time.Second)
+	dialer := net.Dialer{Timeout: 100 * time.Millisecond}
+	for time.Now().Before(deadline) {
+		conn, err := dialer.DialContext(context.TODO(), "tcp", fmt.Sprintf("localhost:%d", clientPort))
+		if err == nil {
+			conn.Close()
+			return clientAddr, cmd, nil
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
 
-	return clientAddr, cmd, nil
+	// If we get here, etcd didn't start in time - kill it and return error
+	_ = cmd.Process.Kill()
+	return "", nil, fmt.Errorf("etcd failed to become ready within 10 seconds")
 }
 
 // waitForManagerReady waits for the manager to be in ready state
@@ -1244,6 +1336,39 @@ func validateCleanState(setup *MultipoolerTestSetup) error {
 	return nil
 }
 
+// checkSharedProcesses verifies all shared test processes are still running.
+// This catches crashes from previous tests early, before confusing timeout errors.
+func checkSharedProcesses(t *testing.T, setup *MultipoolerTestSetup) {
+	t.Helper()
+
+	if setup == nil {
+		return
+	}
+
+	type processCheck struct {
+		name     string
+		instance *ProcessInstance
+	}
+
+	checks := []processCheck{
+		{"primary-multipooler", setup.PrimaryMultipooler},
+		{"standby-multipooler", setup.StandbyMultipooler},
+		{"primary-pgctld", setup.PrimaryPgctld},
+		{"standby-pgctld", setup.StandbyPgctld},
+	}
+
+	var dead []string
+	for _, check := range checks {
+		if check.instance != nil && !check.instance.IsRunning() {
+			dead = append(dead, check.name)
+		}
+	}
+
+	if len(dead) > 0 {
+		t.Fatalf("Shared test process(es) died: %v. A previous test likely crashed them. Check service logs above.", dead)
+	}
+}
+
 // setupPoolerTest provides test isolation by validating clean state, optionally configuring
 // replication, and automatically restoring any state changes at test cleanup.
 //
@@ -1266,6 +1391,9 @@ func validateCleanState(setup *MultipoolerTestSetup) error {
 // Other options: WithResetGuc(), WithDropTables()
 func setupPoolerTest(t *testing.T, setup *MultipoolerTestSetup, opts ...cleanupOption) {
 	t.Helper()
+
+	// Fail fast if shared processes died (e.g., from a previous test crash)
+	checkSharedProcesses(t, setup)
 
 	// Build cleanup configuration from options
 	config := &cleanupConfig{}

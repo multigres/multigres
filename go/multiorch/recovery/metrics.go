@@ -47,6 +47,7 @@ type Metrics struct {
 	clusterMetadataRefreshDuration ClusterMetadataRefreshDuration
 	poolerPollDuration             PoolerPollDuration
 	healthCheckCycleDuration       HealthCheckCycleDuration
+	errorsTotal                    ErrorsTotal
 }
 
 // PoolerStoreSize wraps an Int64ObservableGauge for observing pooler store size.
@@ -134,6 +135,28 @@ func (m HealthCheckCycleDuration) Record(ctx context.Context, val float64, attrs
 	m.Float64Histogram.Record(ctx, val, metric.WithAttributes(attrs...))
 }
 
+// ErrorsTotal wraps an Int64Counter for counting errors in the recovery engine.
+// Use the Add method to increment the counter with source information.
+type ErrorsTotal struct {
+	metric.Int64Counter
+}
+
+// Add increments the error counter with the given source component.
+//
+// Parameters:
+//   - ctx: Context for the metric recording
+//   - source: The component that produced the error (e.g., "analyzer", "recovery_action")
+//   - attrs: Optional additional attributes to include in the metric
+func (m ErrorsTotal) Add(ctx context.Context, source string, attrs ...attribute.KeyValue) {
+	m.Int64Counter.Add(ctx, 1,
+		metric.WithAttributes(
+			append(
+				attrs,
+				attribute.String("source", source),
+			)...,
+		))
+}
+
 // NewMetrics initializes OpenTelemetry metrics for the recovery engine.
 // Individual metrics that fail to initialize will use noop implementations and be included
 // in the returned error. For the poolerStoreSize observable gauge, use
@@ -199,6 +222,19 @@ func NewMetrics() (*Metrics, error) {
 		m.healthCheckCycleDuration = HealthCheckCycleDuration{noop.Float64Histogram{}}
 	} else {
 		m.healthCheckCycleDuration = HealthCheckCycleDuration{healthCheckCycleDurationHistogram}
+	}
+
+	// Counter for errors
+	errorsTotalCounter, err := m.meter.Int64Counter(
+		"multiorch.recovery.errors.total",
+		metric.WithDescription("Total number of errors in the recovery engine"),
+		metric.WithUnit("{error}"),
+	)
+	if err != nil {
+		errs = append(errs, fmt.Errorf("multiorch.recovery.errors.total counter: %w", err))
+		m.errorsTotal = ErrorsTotal{noop.Int64Counter{}}
+	} else {
+		m.errorsTotal = ErrorsTotal{errorsTotalCounter}
 	}
 
 	if len(errs) > 0 {

@@ -18,6 +18,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/multigres/multigres/go/multigateway/handler"
 	"github.com/multigres/multigres/go/pb/query"
 	"github.com/multigres/multigres/go/pgprotocol/server"
 )
@@ -46,9 +47,10 @@ func (p *Plan) StreamExecute(
 	ctx context.Context,
 	exec IExecute,
 	conn *server.Conn,
+	state *handler.MultiGatewayConnectionState,
 	callback func(context.Context, *query.QueryResult) error,
 ) error {
-	return p.Primitive.StreamExecute(ctx, exec, conn, callback)
+	return p.Primitive.StreamExecute(ctx, exec, conn, state, callback)
 }
 
 // GetTableGroup returns the target tablegroup from the primitive.

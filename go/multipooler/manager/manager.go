@@ -148,23 +148,20 @@ func NewMultiPoolerManager(logger *slog.Logger, config *Config) (*MultiPoolerMan
 
 // NewMultiPoolerManagerWithTimeout creates a new MultiPoolerManager instance with a custom load timeout
 func NewMultiPoolerManagerWithTimeout(logger *slog.Logger, config *Config, loadTimeout time.Duration) (*MultiPoolerManager, error) {
-	ctx, cancel := context.WithCancel(context.TODO())
-
 	// Validate required config fields
 	if config.TableGroup == "" {
-		cancel()
 		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "TableGroup is required")
 	}
 	if config.Shard == "" {
-		cancel()
 		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "Shard is required")
 	}
 
 	// MVP validation: fail fast if tablegroup/shard are not the MVP defaults
 	if err := constants.ValidateMVPTableGroupAndShard(config.TableGroup, config.Shard); err != nil {
-		cancel()
 		return nil, mterrors.Wrap(err, "MVP validation failed")
 	}
+
+	ctx, cancel := context.WithCancel(context.TODO())
 
 	// Create pgctld gRPC client
 	var pgctldClient pgctldpb.PgCtldClient
@@ -258,20 +255,8 @@ func (pm *MultiPoolerManager) Open() error {
 		// Use the multipooler name from serviceID as the pooler ID
 		poolerID := pm.serviceID.Name
 
-		// Check if connected to a primary database
-		isPrimary, err := pm.isPrimary(ctx)
-		if err != nil {
-			pm.logger.ErrorContext(ctx, "Failed to check if database is primary", "error", err)
-			// Don't fail the connection if primary check fails
-		} else if isPrimary {
-			// Only create the sidecar schema on primary databases
-			pm.logger.InfoContext(ctx, "MultiPoolerManager: Creating sidecar schema on primary database")
-			if err := pm.createSidecarSchema(ctx); err != nil {
-				return fmt.Errorf("failed to create sidecar schema: %w", err)
-			}
-		} else {
-			pm.logger.InfoContext(ctx, "MultiPoolerManager: Skipping sidecar schema creation on replica")
-		}
+		// Schema creation is now handled by multiorch during bootstrap initialization
+		// Do not auto-create schema when connecting to postgres
 
 		if err := pm.startHeartbeat(ctx, shardID, poolerID); err != nil {
 			pm.logger.ErrorContext(ctx, "Failed to start heartbeat", "error", err)

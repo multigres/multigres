@@ -20,6 +20,7 @@ syntax = "proto3";
 
 package multipoolerservice;
 
+import "clustermetadata.proto";
 import "mtrpc.proto";
 import "query.proto";
 
@@ -34,6 +35,13 @@ service MultiPoolerService {
 
   // StreamExecute executes a SQL query and streams the results back
   rpc StreamExecute(StreamExecuteRequest) returns (stream StreamExecuteResponse);
+
+  // PortalStreamExecute executes a portal (bound prepared statement) and streams results
+  // Returns reserved connection information for session affinity
+  rpc PortalStreamExecute(PortalStreamExecuteRequest) returns (stream PortalStreamExecuteResponse);
+
+  // Describe returns metadata about a prepared statement or portal
+  rpc Describe(DescribeRequest) returns (DescribeResponse);
 }
 
 // ExecuteQueryRequest represents a request to execute a SQL query
@@ -48,6 +56,9 @@ message ExecuteQueryRequest {
   // caller_id identifies the caller. This is the effective caller ID,
   // set by the application to further identify the caller.
   mtrpc.CallerID caller_id = 4;
+
+  // options contains execution options including session state needed for query execution.
+  query.ExecuteOptions options = 5;
 }
 
 // ExecuteQueryResponse represents the response from executing a SQL query
@@ -66,10 +77,68 @@ message StreamExecuteRequest {
   // caller_id identifies the caller. This is the effective caller ID,
   // set by the application to further identify the caller.
   mtrpc.CallerID caller_id = 3;
+
+  // options contains execution options including session state needed for query execution.
+  query.ExecuteOptions options = 4;
 }
 
 // StreamExecuteResponse represents a single response in the stream of query results
 message StreamExecuteResponse {
   // result contains the query result data (rows, fields, etc.)
   query.QueryResult result = 1;
+}
+
+// PortalStreamExecuteRequest represents a request to execute a portal with streaming results
+message PortalStreamExecuteRequest {
+  // target specifies the routing destination (tablegroup, shard, pooler type)
+  query.Target target = 1;
+
+  // prepared_statement contains the prepared statement to execute
+  query.PreparedStatement prepared_statement = 2;
+
+  // portal contains the portal with bound parameters
+  query.Portal portal = 3;
+
+  // caller_id identifies the caller
+  mtrpc.CallerID caller_id = 4;
+
+  // options contains execution options including max rows and reserved connection ID
+  query.ExecuteOptions options = 5;
+}
+
+// PortalStreamExecuteResponse represents a response in the portal execution stream
+message PortalStreamExecuteResponse {
+  // result contains the query result data (rows, fields, etc.)
+  query.QueryResult result = 1;
+
+  // reserved_connection_id is the ID of the reserved connection
+  // This is returned in the first response and should be used for subsequent queries
+  uint64 reserved_connection_id = 2;
+
+  // pooler_id identifies which multipooler instance owns the reserved connection
+  clustermetadata.ID pooler_id = 3;
+}
+
+// DescribeRequest represents a request to describe a prepared statement or portal
+message DescribeRequest {
+  // target specifies the routing destination (tablegroup, shard, pooler type)
+  query.Target target = 1;
+
+  // prepared_statement is the prepared statement to describe (nil if describing a portal)
+  query.PreparedStatement prepared_statement = 2;
+
+  // portal is the portal to describe (nil if describing a prepared statement)
+  query.Portal portal = 3;
+
+  // caller_id identifies the caller
+  mtrpc.CallerID caller_id = 4;
+
+  // options contains execution options including reserved connection ID
+  query.ExecuteOptions options = 5;
+}
+
+// DescribeResponse represents the response from describing a statement or portal
+message DescribeResponse {
+  // description contains the statement metadata (fields, parameter types, etc.)
+  query.StatementDescription description = 1;
 }

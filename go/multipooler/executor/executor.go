@@ -100,7 +100,7 @@ func (e *Executor) Open() error {
 }
 
 // ExecuteQuery implements queryservice.QueryService.
-func (e *Executor) ExecuteQuery(ctx context.Context, target *query.Target, sql string, maxRows uint64) (*query.QueryResult, error) {
+func (e *Executor) ExecuteQuery(ctx context.Context, target *query.Target, sql string, options *query.ExecuteOptions) (*query.QueryResult, error) {
 	if target == nil {
 		target = &query.Target{}
 	}
@@ -109,6 +109,11 @@ func (e *Executor) ExecuteQuery(ctx context.Context, target *query.Target, sql s
 		"shard", target.Shard,
 		"pooler_type", target.PoolerType.String(),
 		"query", sql)
+
+	var maxRows uint64
+	if options != nil {
+		maxRows = options.MaxRows
+	}
 
 	// Execute the query and stream results
 	return e.executeQuery(ctx, sql, maxRows)
@@ -120,11 +125,12 @@ func (e *Executor) StreamExecute(
 	ctx context.Context,
 	target *query.Target,
 	sql string,
+	options *query.ExecuteOptions,
 	callback func(context.Context, *query.QueryResult) error,
 ) error {
 	// Execute the query and stream results
 	// TODO(GuptaManan100): Actually stream the results from postgres.
-	result, err := e.ExecuteQuery(ctx, target, sql, 0) // 0 = no max rows limit
+	result, err := e.ExecuteQuery(ctx, target, sql, options)
 	if err != nil {
 		e.logger.ErrorContext(ctx, "query execution failed", "error", err, "query", sql)
 		return fmt.Errorf("query execution failed: %w", err)
@@ -162,6 +168,31 @@ func (e *Executor) Close(ctx context.Context) error {
 
 	e.logger.InfoContext(ctx, "Executor: closed")
 	return nil
+}
+
+// PortalStreamExecute executes a portal and streams results back via callback.
+// TODO: Implement this method.
+func (e *Executor) PortalStreamExecute(
+	ctx context.Context,
+	target *query.Target,
+	preparedStatement *query.PreparedStatement,
+	portal *query.Portal,
+	options *query.ExecuteOptions,
+	callback func(context.Context, *query.QueryResult) error,
+) (queryservice.ReservedState, error) {
+	panic("PortalStreamExecute not implemented")
+}
+
+// Describe returns metadata about a prepared statement or portal.
+// TODO: Implement this method.
+func (e *Executor) Describe(
+	ctx context.Context,
+	target *query.Target,
+	preparedStatement *query.PreparedStatement,
+	portal *query.Portal,
+	options *query.ExecuteOptions,
+) (*query.StatementDescription, error) {
+	panic("Describe not implemented")
 }
 
 // IsHealthy checks if the executor is healthy and can serve queries.
