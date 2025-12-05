@@ -15,6 +15,7 @@
 package testutil
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -52,7 +53,7 @@ func (m *MockExecCommand) MockCommand(name string, args ...string) *exec.Cmd {
 	cmdLine := fmt.Sprintf("%s %s", name, strings.Join(args, " "))
 
 	// Create a fake command that will be handled by the test helper
-	cmd := exec.Command("echo", "mock")
+	cmd := exec.CommandContext(context.TODO(), "echo", "mock")
 
 	// Store the command line for verification
 	if cmd.Env == nil {

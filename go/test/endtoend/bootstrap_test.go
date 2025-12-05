@@ -33,6 +33,7 @@
 package endtoend
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -150,7 +151,7 @@ func TestBootstrapInitialization(t *testing.T) {
 
 		// 1. Start pgctld server
 		logFile := filepath.Join(node.dataDir, "pgctld.log")
-		pgctldCmd := exec.Command("pgctld", "server",
+		pgctldCmd := exec.CommandContext(context.TODO(), "pgctld", "server",
 			"--pooler-dir", node.dataDir,
 			"--grpc-port", fmt.Sprintf("%d", node.pgctldGrpcPort),
 			"--pg-port", fmt.Sprintf("%d", node.pgPort),
@@ -170,7 +171,7 @@ func TestBootstrapInitialization(t *testing.T) {
 
 		// 4. Start multipooler (without postgres running, it will wait for bootstrap)
 		serviceID := fmt.Sprintf("%s/%s", cellName, node.name)
-		multipoolerCmd := exec.Command("multipooler",
+		multipoolerCmd := exec.CommandContext(context.TODO(), "multipooler",
 			"--grpc-port", fmt.Sprintf("%d", node.grpcPort),
 			"--database", database,
 			"--table-group", constants.DefaultTableGroup,
@@ -272,13 +273,13 @@ func TestBootstrapInitialization(t *testing.T) {
 
 		// Verify multigres schema exists
 		var schemaExists bool
-		err := db.QueryRow("SELECT EXISTS(SELECT 1 FROM pg_namespace WHERE nspname = 'multigres')").Scan(&schemaExists)
+		err := db.QueryRowContext(t.Context(), "SELECT EXISTS(SELECT 1 FROM pg_namespace WHERE nspname = 'multigres')").Scan(&schemaExists)
 		require.NoError(t, err)
 		assert.True(t, schemaExists, "multigres schema should exist")
 
 		// Verify durability_policy table exists
 		var tableExists bool
-		err = db.QueryRow("SELECT EXISTS(SELECT 1 FROM pg_tables WHERE schemaname = 'multigres' AND tablename = 'durability_policy')").Scan(&tableExists)
+		err = db.QueryRowContext(t.Context(), "SELECT EXISTS(SELECT 1 FROM pg_tables WHERE schemaname = 'multigres' AND tablename = 'durability_policy')").Scan(&tableExists)
 		require.NoError(t, err)
 		assert.True(t, tableExists, "durability_policy table should exist")
 
@@ -287,7 +288,7 @@ func TestBootstrapInitialization(t *testing.T) {
 		var policyVersion int64
 		var quorumRuleJSON string
 		var isActive bool
-		err = db.QueryRow(`
+		err = db.QueryRowContext(t.Context(), `
 			SELECT policy_name, policy_version, quorum_rule::text, is_active
 			FROM multigres.durability_policy
 			WHERE policy_name = $1

@@ -216,7 +216,7 @@ func StartTestServer(t *testing.T, service pb.PgCtldServer) (pb.PgCtldClient, fu
 	t.Helper()
 
 	// Find an available port
-	listener, err := net.Listen("tcp", "localhost:0")
+	listener, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "localhost:0")
 	if err != nil {
 		t.Fatalf("Failed to listen: %v", err)
 	}
@@ -276,7 +276,7 @@ func StartMockPgctldServer(t *testing.T) (string, func()) {
 	t.Helper()
 
 	// Create a listener on a random port
-	lis, err := net.Listen("tcp", "localhost:0")
+	lis, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "localhost:0")
 	if err != nil {
 		t.Fatalf("Failed to listen: %v", err)
 	}

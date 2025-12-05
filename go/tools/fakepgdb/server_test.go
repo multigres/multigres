@@ -29,7 +29,7 @@ func TestBasicQuery(t *testing.T) {
 	defer sqlDB.Close()
 
 	var result int
-	err := sqlDB.QueryRow("SELECT 1").Scan(&result)
+	err := sqlDB.QueryRowContext(t.Context(), "SELECT 1").Scan(&result)
 	if err != nil {
 		t.Fatalf("query failed: %v", err)
 	}
@@ -56,7 +56,7 @@ func TestQueryPattern(t *testing.T) {
 
 	var id int
 	var name string
-	err := sqlDB.QueryRow("SELECT * FROM users WHERE id = 1").Scan(&id, &name)
+	err := sqlDB.QueryRowContext(t.Context(), "SELECT * FROM users WHERE id = 1").Scan(&id, &name)
 	if err != nil {
 		t.Fatalf("query failed: %v", err)
 	}
@@ -74,7 +74,7 @@ func TestRejectedQuery(t *testing.T) {
 	defer sqlDB.Close()
 
 	var result int
-	err := sqlDB.QueryRow("SELECT * FROM forbidden").Scan(&result)
+	err := sqlDB.QueryRowContext(t.Context(), "SELECT * FROM forbidden").Scan(&result)
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -117,7 +117,7 @@ func TestOrderedQueries(t *testing.T) {
 
 	// Execute queries in order
 	var result int
-	err := sqlDB.QueryRow("SELECT 1").Scan(&result)
+	err := sqlDB.QueryRowContext(t.Context(), "SELECT 1").Scan(&result)
 	if err != nil {
 		t.Fatalf("query 1 failed: %v", err)
 	}
@@ -125,7 +125,7 @@ func TestOrderedQueries(t *testing.T) {
 		t.Errorf("expected 1, got %d", result)
 	}
 
-	err = sqlDB.QueryRow("SELECT 2").Scan(&result)
+	err = sqlDB.QueryRowContext(t.Context(), "SELECT 2").Scan(&result)
 	if err != nil {
 		t.Fatalf("query 2 failed: %v", err)
 	}
@@ -133,7 +133,7 @@ func TestOrderedQueries(t *testing.T) {
 		t.Errorf("expected 2, got %d", result)
 	}
 
-	err = sqlDB.QueryRow("SELECT 3").Scan(&result)
+	err = sqlDB.QueryRowContext(t.Context(), "SELECT 3").Scan(&result)
 	if err != nil {
 		t.Fatalf("query 3 failed: %v", err)
 	}
@@ -158,7 +158,7 @@ func TestMultipleRows(t *testing.T) {
 	sqlDB := db.OpenDB()
 	defer sqlDB.Close()
 
-	rows, err := sqlDB.Query("SELECT * FROM users")
+	rows, err := sqlDB.QueryContext(t.Context(), "SELECT * FROM users")
 	if err != nil {
 		t.Fatalf("query failed: %v", err)
 	}

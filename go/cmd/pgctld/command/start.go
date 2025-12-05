@@ -15,6 +15,7 @@
 package command
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"os"
@@ -242,7 +243,7 @@ func startPostgreSQLWithConfig(logger *slog.Logger, config *pgctld.PostgresCtlCo
 
 	logger.Info("Starting PostgreSQL with configuration", "port", config.Port, "dataDir", config.PostgresDataDir, "configFile", config.PostgresConfigFile)
 
-	cmd := exec.Command("pg_ctl", args...)
+	cmd := exec.CommandContext(context.TODO(), "pg_ctl", args...)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 
@@ -254,7 +255,8 @@ func startPostgreSQLWithConfig(logger *slog.Logger, config *pgctld.PostgresCtlCo
 	// that will stop postgres if the test parent dies or testdata dir is deleted
 	if servenv.IsTestOrphanDetectionEnabled() {
 		logger.Info("Spawning watchdog process for orphan detection")
-		watchdogCmd := exec.Command(
+		// Use context.TODO() - watchdog intentionally outlives parent process
+		watchdogCmd := exec.CommandContext(context.TODO(),
 			"run_command_if_parent_dies.sh",
 			"pg_ctl", "stop",
 			"-D", config.PostgresDataDir,
@@ -277,7 +279,7 @@ func waitForPostgreSQLWithConfig(config *pgctld.PostgresCtlConfig) error {
 	// Try to connect using pg_isready
 	socketDir := pgctld.PostgresSocketDir(config.PoolerDir)
 	for i := 0; i < config.Timeout; i++ {
-		cmd := exec.Command("pg_isready",
+		cmd := exec.CommandContext(context.TODO(), "pg_isready",
 			"-h", socketDir,
 			"-p", fmt.Sprintf("%d", config.Port), // Need port even for socket connections
 			"-U", config.User,

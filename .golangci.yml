@@ -31,8 +31,7 @@ linters:
     - misspell
     - modernize
     - nilerr
-    # TODO: Enable noctx - requires fixing ~170 issues where context should be passed
-    # - noctx
+    - noctx
     - sloglint
     - staticcheck
     - unconvert

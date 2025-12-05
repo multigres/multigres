@@ -227,7 +227,9 @@ func (p *ProcessInstance) startPgctld(t *testing.T) error {
 	t.Logf("Data dir: %s, gRPC port: %d, PG port: %d", p.DataDir, p.GrpcPort, p.PgPort)
 
 	// Start the gRPC server
-	p.Process = exec.Command(p.Binary, "server",
+	// NOTE: Use context.TODO() instead of t.Context() so the process isn't
+	// killed when the test ends - we need it to survive until cleanup completes.
+	p.Process = exec.CommandContext(context.TODO(), p.Binary, "server",
 		"--pooler-dir", p.DataDir,
 		"--grpc-port", strconv.Itoa(p.GrpcPort),
 		"--pg-port", strconv.Itoa(p.PgPort),
@@ -276,7 +278,9 @@ func (p *ProcessInstance) startMultipooler(t *testing.T) error {
 	}
 
 	// Start the multipooler server
-	p.Process = exec.Command(p.Binary, args...)
+	// NOTE: Use context.TODO() instead of t.Context() so the process isn't
+	// killed when the test ends - we need it to survive until cleanup completes.
+	p.Process = exec.CommandContext(context.TODO(), p.Binary, args...)
 
 	// Set MULTIGRES_TESTDATA_DIR for directory-deletion triggered cleanup
 	p.Process.Env = append(p.Environment,
@@ -321,7 +325,7 @@ func (p *ProcessInstance) waitForStartup(t *testing.T, timeout time.Duration, lo
 
 		connectAttempts++
 		// Test gRPC connectivity
-		conn, err := net.DialTimeout("tcp", fmt.Sprintf("localhost:%d", p.GrpcPort), 100*time.Millisecond)
+		conn, err := (&net.Dialer{Timeout: 100 * time.Millisecond}).DialContext(t.Context(), "tcp", fmt.Sprintf("localhost:%d", p.GrpcPort))
 		if err == nil {
 			conn.Close()
 			if p.Binary == "pgctld" {
@@ -947,7 +951,7 @@ func startEtcdForSharedSetup(t *testing.T, dataDir string) (string, *exec.Cmd, e
 	initialCluster := fmt.Sprintf("%v=%v", name, peerAddr)
 
 	// Wrap etcd with run_in_test to ensure cleanup if test process dies
-	cmd := exec.Command("run_in_test.sh", "etcd",
+	cmd := exec.CommandContext(t.Context(), "run_in_test.sh", "etcd",
 		"-name", name,
 		"-advertise-client-urls", clientAddr,
 		"-initial-advertise-peer-urls", peerAddr,
@@ -967,8 +971,9 @@ func startEtcdForSharedSetup(t *testing.T, dataDir string) (string, *exec.Cmd, e
 
 	// Wait for etcd to be ready by polling the client port
 	deadline := time.Now().Add(10 * time.Second)
+	dialer := net.Dialer{Timeout: 100 * time.Millisecond}
 	for time.Now().Before(deadline) {
-		conn, err := net.DialTimeout("tcp", fmt.Sprintf("localhost:%d", clientPort), 100*time.Millisecond)
+		conn, err := dialer.DialContext(context.TODO(), "tcp", fmt.Sprintf("localhost:%d", clientPort))
 		if err == nil {
 			conn.Close()
 			return clientAddr, cmd, nil

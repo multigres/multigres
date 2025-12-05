@@ -15,6 +15,7 @@
 package manager
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"log/slog"
@@ -89,7 +90,7 @@ func CreateDBConnection(logger *slog.Logger, config *Config) (*sql.DB, error) {
 	}
 
 	// Test the connection
-	if err := db.Ping(); err != nil {
+	if err := db.PingContext(context.TODO()); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("failed to ping database: %w", err)
 	}

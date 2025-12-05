@@ -226,7 +226,7 @@ func createEmptyNode(t *testing.T, baseDir, cell, shard, database string, index 
 
 	// Start pgctld server
 	logFile := filepath.Join(dataDir, "pgctld.log")
-	pgctldCmd := exec.Command("pgctld", "server",
+	pgctldCmd := exec.CommandContext(context.TODO(), "pgctld", "server",
 		"--pooler-dir", dataDir,
 		"--grpc-port", fmt.Sprintf("%d", pgctldGrpcPort),
 		"--pg-port", fmt.Sprintf("%d", pgPort),
@@ -245,7 +245,7 @@ func createEmptyNode(t *testing.T, baseDir, cell, shard, database string, index 
 
 	// Start multipooler
 	serviceID := fmt.Sprintf("%s/%s", cell, name)
-	multipoolerCmd := exec.Command("multipooler",
+	multipoolerCmd := exec.CommandContext(context.TODO(), "multipooler",
 		"--grpc-port", fmt.Sprintf("%d", grpcPort),
 		"--database", database,
 		"--table-group", constants.DefaultTableGroup,
@@ -389,7 +389,7 @@ func connectToPostgres(t *testing.T, socketDir string, port int) *sql.DB {
 	db, err := sql.Open("postgres", connStr)
 	require.NoError(t, err, "Failed to open database connection")
 
-	err = db.Ping()
+	err = db.PingContext(context.TODO())
 	require.NoError(t, err, "Failed to ping database")
 
 	return db
@@ -405,7 +405,7 @@ func verifyMultigresTablesExist(t *testing.T, node *nodeInstance) {
 
 	// Check that heartbeat table exists
 	var heartbeatExists bool
-	err := db.QueryRow(`
+	err := db.QueryRowContext(context.TODO(), `
 		SELECT EXISTS (
 			SELECT FROM information_schema.tables
 			WHERE table_schema = 'multigres'
@@ -417,7 +417,7 @@ func verifyMultigresTablesExist(t *testing.T, node *nodeInstance) {
 
 	// Check that durability_policy table exists
 	var durabilityPolicyExists bool
-	err = db.QueryRow(`
+	err = db.QueryRowContext(context.TODO(), `
 		SELECT EXISTS (
 			SELECT FROM information_schema.tables
 			WHERE table_schema = 'multigres'
@@ -434,10 +434,11 @@ func waitForProcessReady(t *testing.T, name string, grpcPort int, timeout time.D
 
 	deadline := time.Now().Add(timeout)
 	connectAttempts := 0
+	dialer := net.Dialer{Timeout: 100 * time.Millisecond}
 	for time.Now().Before(deadline) {
 		connectAttempts++
 		// Test gRPC connectivity
-		conn, err := net.DialTimeout("tcp", fmt.Sprintf("localhost:%d", grpcPort), 100*time.Millisecond)
+		conn, err := dialer.DialContext(context.TODO(), "tcp", fmt.Sprintf("localhost:%d", grpcPort))
 		if err == nil {
 			conn.Close()
 			t.Logf("%s ready on gRPC port %d (after %d attempts)", name, grpcPort, connectAttempts)
@@ -534,7 +535,7 @@ func startMultiOrch(t *testing.T, baseDir, cell string, etcdAddr string, watchTa
 		"--cluster-metadata-refresh-interval", "2s",
 	}
 
-	multiOrchCmd := exec.Command("multiorch", args...)
+	multiOrchCmd := exec.CommandContext(context.TODO(), "multiorch", args...)
 	multiOrchCmd.Dir = orchDataDir
 
 	logFile := filepath.Join(orchDataDir, "multiorch.log")

@@ -416,7 +416,7 @@ func getServiceStates(configDir string) (map[string]local.LocalProvisionedServic
 func checkServiceConnectivity(service string, state local.LocalProvisionedService) error {
 	for portName, port := range state.Ports {
 		address := net.JoinHostPort(state.FQDN, fmt.Sprintf("%d", port))
-		conn, err := net.DialTimeout("tcp", address, 5*time.Second)
+		conn, err := (&net.Dialer{Timeout: 5 * time.Second}).DialContext(context.TODO(), "tcp", address)
 		if err != nil {
 			return fmt.Errorf("failed to connect to %s %s port at %s: %w", service, portName, address, err)
 		}
@@ -503,7 +503,7 @@ func TestMain(m *testing.M) {
 func executeInitCommand(t *testing.T, args []string) (string, error) {
 	// Prepare the full command: "multigres cluster init <args>"
 	cmdArgs := append([]string{"cluster", "init"}, args...)
-	cmd := exec.Command("multigres", cmdArgs...)
+	cmd := exec.CommandContext(t.Context(), "multigres", cmdArgs...)
 
 	output, err := cmd.CombinedOutput()
 	return string(output), err
@@ -708,7 +708,7 @@ func TestInitCommandConfigFileAlreadyExists(t *testing.T) {
 func executeStartCommand(t *testing.T, args []string, tempDir string) (string, error) {
 	// Prepare the full command: "multigres cluster start <args>"
 	cmdArgs := append([]string{"cluster", "start"}, args...)
-	cmd := exec.Command("multigres", cmdArgs...)
+	cmd := exec.CommandContext(t.Context(), "multigres", cmdArgs...)
 
 	// Set MULTIGRES_TESTDATA_DIR for directory-deletion triggered cleanup
 	cmd.Env = append(os.Environ(),
@@ -723,7 +723,7 @@ func executeStartCommand(t *testing.T, args []string, tempDir string) (string, e
 func executeStopCommand(t *testing.T, args []string) (string, error) {
 	// Prepare the full command: "multigres cluster down <args>"
 	cmdArgs := append([]string{"cluster", "stop"}, args...)
-	cmd := exec.Command("multigres", cmdArgs...)
+	cmd := exec.CommandContext(t.Context(), "multigres", cmdArgs...)
 
 	output, err := cmd.CombinedOutput()
 	return string(output), err
@@ -747,7 +747,7 @@ func testPostgreSQLConnection(t *testing.T, tempDir string, port int, zone strin
 	t.Logf("Using Unix socket in directory: %s", socketDir)
 
 	// Execute psql command to test connectivity via Unix socket (no password needed)
-	cmd := exec.Command("psql", "-h", socketDir, "-p", fmt.Sprintf("%d", port), "-U", "postgres", "-d", "postgres", "-c", fmt.Sprintf("SELECT 'Zone %s PostgreSQL is working!' as status, version();", zone))
+	cmd := exec.CommandContext(context.TODO(), "psql", "-h", socketDir, "-p", fmt.Sprintf("%d", port), "-U", "postgres", "-d", "postgres", "-c", fmt.Sprintf("SELECT 'Zone %s PostgreSQL is working!' as status, version();", zone))
 
 	output, err := cmd.CombinedOutput()
 	require.NoError(t, err, "PostgreSQL connection failed on port %d (Zone %s): %s", port, zone, string(output))
@@ -1004,7 +1004,7 @@ func TestClusterLifecycle(t *testing.T) {
 
 		// Try to run multipooler without --database flag (should fail)
 		t.Log("Testing multipooler without --database flag (should fail)...")
-		cmd := exec.Command("multipooler",
+		cmd := exec.CommandContext(t.Context(), "multipooler",
 			"--topo-global-server-addresses", "fake-address",
 			"--topo-global-root", "fake-root",
 			"--topo-implementation", "etcd2",
@@ -1019,7 +1019,7 @@ func TestClusterLifecycle(t *testing.T) {
 
 		// Try to run multipooler with --database flag (should succeed with setup)
 		t.Log("Testing multipooler with --database flag (should not show database error)...")
-		cmd = exec.Command("multipooler", "--cell", "testcell", "--database", "testdb", "--help")
+		cmd = exec.CommandContext(t.Context(), "multipooler", "--cell", "testcell", "--database", "testdb", "--help")
 		output, err = cmd.CombinedOutput()
 		require.NoError(t, err)
 
@@ -1049,7 +1049,7 @@ func TestClusterLifecycle(t *testing.T) {
 
 		// Intentionally occupy the multipooler gRPC port to create a conflict
 		conflictPort := testPorts.Zones[0].MultipoolerGRPCPort
-		ln, err := net.Listen("tcp", fmt.Sprintf("localhost:%d", conflictPort))
+		ln, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", fmt.Sprintf("localhost:%d", conflictPort))
 		require.NoError(t, err, "failed to bind conflict port %d", conflictPort)
 		defer ln.Close()
 

@@ -20,6 +20,7 @@
 package endtoend
 
 import (
+	"context"
 	"os/exec"
 	"path/filepath"
 	"testing"
@@ -110,7 +111,7 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 		defer db.Close()
 
 		var result int
-		err := db.QueryRow("SELECT 1").Scan(&result)
+		err := db.QueryRowContext(context.TODO(), "SELECT 1").Scan(&result)
 		require.NoError(t, err, "Should be able to query new primary")
 		assert.Equal(t, 1, result)
 	})
