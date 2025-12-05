@@ -54,12 +54,18 @@ spec:
         - name: pooler
           image: {{ include "multigres.image" . }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
-          {{- with .Values.pooler.command }}
-          command: {{ toJson . }}
-          {{- end }}
-          {{- with .Values.pooler.args }}
-          args: {{ toJson . }}
-          {{- end }}
+          command:
+            - /multigres/bin/multipooler
+          args:
+            - --topo-implementation
+            - {{ .Values.topology.implementation | quote }}
+            - --topo-global-root
+            - {{ .Values.topology.globalRoot | quote }}
+            - --topo-global-server-addresses
+            - {{ include "multigres.topoServerAddresses" . | quote }}
+            {{- range .Values.pooler.extraArgs }}
+            - {{ . | quote }}
+            {{- end }}
           ports:
             - name: postgres
               containerPort: 6432

@@ -5,6 +5,10 @@ A basic Multigres deployment has been created with:
   * MultiGateway + MultiPooler running in the same pod
   * Service: {{ include "multigres.fullname" . }} on port {{ .Values.service.port }}
 
+Optional:
+
+  * Etcd: statefulset and service {{ include "multigres.topoServerAddresses" }}
+
 Next steps:
 
 1. Ensure your Topo Servers (e.g., etcd endpoints) are reachable from the cluster.

@@ -54,12 +54,18 @@ spec:
         - name: gateway
           image: {{ include "multigres.image" . }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
-          {{- with .Values.gateway.command }}
-          command: {{ toJson . }}
-          {{- end }}
-          {{- with .Values.gateway.args }}
-          args: {{ toJson . }}
-          {{- end }}
+          command:
+            - /multigres/bin/multigateway
+          args:
+            - --topo-implementation
+            - {{ .Values.topology.implementation | quote }}
+            - --topo-global-root
+            - {{ .Values.topology.globalRoot | quote }}
+            - --topo-global-server-addresses
+            - {{ include "multigres.topoServerAddresses" . | quote }}
+            {{- range .Values.gateway.extraArgs }}
+            - {{ . | quote }}
+            {{- end }}
           ports:
             - name: postgres
               containerPort: 5432

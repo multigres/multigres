@@ -22,14 +22,17 @@ postgres:
   passwordSecretKey: "password"
   password: ""
 
+topology:
+  implementation: etcd2
+  globalRoot: /multigres/global
+  # If etcd.enabled is true, this is auto-configured to use the deployed etcd
+  # Otherwise, specify your external etcd address(es) here
+  serverAddresses: ""
+
 gateway:
   enabled: true
   replicas: 1
-  command: [ "/multigres/bin/multigateway" ]
-  args:
-  - "--topo-global-root"
-  - "/multigres/global"
-  - "--topo-global-server-addresses"
+  extraArgs: []
   extraEnv: []
   resources: {}
 
@@ -56,10 +59,7 @@ gateway:
 pooler:
   enabled: true
   replicas: 1
-  command: [ "/multigres/bin/multipooler" ]
-  args:
-  - "--topo-global-root"
-  - "/multigres/global"
+  extraArgs: []
   extraEnv: []
   resources: {}
 
@@ -82,6 +82,50 @@ pooler:
     port: 6432
     annotations: {}
     labels: {}
+
+etcd:
+  enabled: true
+  replicas: 1
+  image:
+    repository: quay.io/coreos/etcd
+    tag: v3.5.17
+    pullPolicy: IfNotPresent
+  clientPort: 2379
+  peerPort: 2380
+  extraArgs: []
+  extraEnv: []
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "256Mi"
+    limits:
+      cpu: "500m"
+      memory: "512Mi"
+
+  persistence:
+    enabled: true
+    storageClass: ""
+    accessMode: ReadWriteOnce
+    size: 2Gi
+
+  livenessProbe:
+    enabled: true
+    initialDelaySeconds: 10
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+
+  readinessProbe:
+    enabled: true
+    initialDelaySeconds: 5
+    periodSeconds: 5
+    timeoutSeconds: 3
+    failureThreshold: 3
+
+  service:
+    type: ClusterIP
+    port: 2379
+    annotations: {}
 
 serviceAccount:
   create: true

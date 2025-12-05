@@ -1,0 +1,150 @@
+---
+{{- if .Values.etcd.enabled }}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "multigres.fullname" . }}-etcd
+  labels:
+    {{- include "multigres.labels" . | nindent 4 }}
+    app.kubernetes.io/component: etcd
+spec:
+  serviceName: {{ include "multigres.fullname" . }}-etcd-headless
+  replicas: {{ .Values.etcd.replicas }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "multigres.name" . }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: etcd
+  template:
+    metadata:
+      annotations:
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        app.kubernetes.io/name: {{ include "multigres.name" . }}
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/component: etcd
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "multigres.serviceAccountName" . }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: etcd
+          image: "{{ .Values.etcd.image.repository }}:{{ .Values.etcd.image.tag }}"
+          imagePullPolicy: {{ .Values.etcd.image.pullPolicy }}
+          command:
+            - etcd
+          args:
+            - --name=$(POD_NAME)
+            - --data-dir=/var/lib/etcd
+            - --listen-client-urls=http://0.0.0.0:{{ .Values.etcd.clientPort }}
+            - --advertise-client-urls=http://$(POD_NAME).{{ include "multigres.fullname" . }}-etcd-headless.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.etcd.clientPort }}
+            - --listen-peer-urls=http://0.0.0.0:{{ .Values.etcd.peerPort }}
+            - --initial-advertise-peer-urls=http://$(POD_NAME).{{ include "multigres.fullname" . }}-etcd-headless.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.etcd.peerPort }}
+            - --initial-cluster-token={{ include "multigres.fullname" . }}-etcd
+            - --initial-cluster-state=new
+            {{- if eq (int .Values.etcd.replicas) 1 }}
+            - --initial-cluster=$(POD_NAME)=http://$(POD_NAME).{{ include "multigres.fullname" . }}-etcd-headless.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.etcd.peerPort }}
+            {{- else }}
+            - --initial-cluster={{ include "multigres.etcdInitialCluster" . }}
+            {{- end }}
+            {{- range .Values.etcd.extraArgs }}
+            - {{ . | quote }}
+            {{- end }}
+          ports:
+            - name: client
+              containerPort: {{ .Values.etcd.clientPort }}
+              protocol: TCP
+            - name: peer
+              containerPort: {{ .Values.etcd.peerPort }}
+              protocol: TCP
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            {{- range .Values.etcd.extraEnv }}
+            - name: {{ .name }}
+              value: {{ .value | quote }}
+            {{- end }}
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/etcd
+          {{- if .Values.etcd.livenessProbe.enabled }}
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: client
+            initialDelaySeconds: {{ .Values.etcd.livenessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.etcd.livenessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.etcd.livenessProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.etcd.livenessProbe.failureThreshold }}
+          {{- end }}
+          {{- if .Values.etcd.readinessProbe.enabled }}
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: client
+            initialDelaySeconds: {{ .Values.etcd.readinessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.etcd.readinessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.etcd.readinessProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.etcd.readinessProbe.failureThreshold }}
+          {{- end }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 65532
+            capabilities:
+              drop:
+                - ALL
+          resources:
+            {{- if .Values.etcd.resources }}
+            {{- toYaml .Values.etcd.resources | nindent 12 }}
+            {{- else }}
+            {{- toYaml .Values.resources | nindent 12 }}
+            {{- end }}
+  {{- if .Values.etcd.persistence.enabled }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes:
+          - {{ .Values.etcd.persistence.accessMode }}
+        {{- if .Values.etcd.persistence.storageClass }}
+        storageClassName: {{ .Values.etcd.persistence.storageClass }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.etcd.persistence.size }}
+  {{- else }}
+      volumes:
+        - name: data
+          emptyDir: {}
+  {{- end }}
+{{- end }}

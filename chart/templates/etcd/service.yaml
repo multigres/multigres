@@ -1,0 +1,52 @@
+{{- if .Values.etcd.enabled }}
+---
+# Headless service for StatefulSet DNS resolution
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "multigres.fullname" . }}-etcd-headless
+  labels:
+    {{- include "multigres.labels" . | nindent 4 }}
+    app.kubernetes.io/component: etcd
+spec:
+  type: ClusterIP
+  clusterIP: None
+  publishNotReadyAddresses: true
+  selector:
+    app.kubernetes.io/name: {{ include "multigres.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: etcd
+  ports:
+    - name: client
+      port: {{ .Values.etcd.clientPort }}
+      targetPort: client
+      protocol: TCP
+    - name: peer
+      port: {{ .Values.etcd.peerPort }}
+      targetPort: peer
+      protocol: TCP
+---
+# Client service for application access
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "multigres.fullname" . }}-etcd
+  labels:
+    {{- include "multigres.labels" . | nindent 4 }}
+    app.kubernetes.io/component: etcd
+  {{- with .Values.etcd.service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.etcd.service.type }}
+  selector:
+    app.kubernetes.io/name: {{ include "multigres.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: etcd
+  ports:
+    - name: client
+      port: {{ .Values.etcd.service.port }}
+      targetPort: client
+      protocol: TCP
+{{- end }}
