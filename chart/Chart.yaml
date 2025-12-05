@@ -4,3 +4,8 @@ name: multigres
 type: application
 version: 0.1.0
 appVersion: "0.1.0"
+dependencies:
+- name: cloudnative-pg
+  version: "0.26.1"
+  repository: "https://cloudnative-pg.github.io/charts"
+  condition: cloudnative-pg.enabled

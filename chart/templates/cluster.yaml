@@ -1,0 +1,30 @@
+{{- if and (index .Values "cloudnative-pg" "enabled") .Values.cluster.enabled }}
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: {{ .Values.cluster.name | default (printf "%s-pg" (include "multigres.fullname" .)) }}
+  labels:
+    {{- include "multigres.labels" . | nindent 4 }}
+spec:
+  instances: {{ .Values.cluster.instances | default 1 }}
+
+  storage:
+    size: {{ .Values.cluster.storage.size | default "5Gi" }}
+    {{- if .Values.cluster.storage.storageClass }}
+    storageClass: {{ .Values.cluster.storage.storageClass }}
+    {{- end }}
+
+  {{- if .Values.cluster.postgresql }}
+  postgresql:
+    {{- if .Values.cluster.postgresql.parameters }}
+    parameters:
+      {{- toYaml .Values.cluster.postgresql.parameters | nindent 6 }}
+    {{- end }}
+  {{- end }}
+
+  bootstrap:
+    initdb:
+      database: {{ .Values.cluster.bootstrap.initdb.database | default .Values.postgres.database }}
+      owner: {{ .Values.cluster.bootstrap.initdb.owner | default .Values.postgres.user }}
+{{- end }}

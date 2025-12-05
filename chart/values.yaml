@@ -25,6 +25,8 @@ postgres:
 topology:
   implementation: etcd2
   globalRoot: /multigres/global
+  # Cell name for this deployment (optional, used for multi-cell deployments)
+  cell: ""
   # If etcd.enabled is true, this is auto-configured to use the deployed etcd
   # Otherwise, specify your external etcd address(es) here
   serverAddresses: ""
@@ -161,3 +163,22 @@ autoscaling:
     minReplicas: 2
     maxReplicas: 10
     targetCPUUtilizationPercentage: 80
+
+# CloudNative-PG operator (deploys and manages PostgreSQL)
+cloudnative-pg:
+  enabled: true
+
+# PostgreSQL Cluster configuration (requires cloudnative-pg.enabled: true)
+cluster:
+  enabled: true
+  name: "multigres-pg"
+  instances: 1
+  storage:
+    size: 5Gi
+    storageClass: ""
+  postgresql:
+    parameters: {}
+  bootstrap:
+    initdb:
+      database: "appdb"
+      owner: "appuser"

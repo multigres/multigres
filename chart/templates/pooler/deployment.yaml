@@ -63,6 +63,12 @@ spec:
             - {{ .Values.topology.globalRoot | quote }}
             - --topo-global-server-addresses
             - {{ include "multigres.topoServerAddresses" . | quote }}
+            - --database
+            - {{ .Values.postgres.database | quote }}
+            {{- if .Values.topology.cell }}
+            - --cell
+            - {{ .Values.topology.cell | quote }}
+            {{- end }}
             {{- range .Values.pooler.extraArgs }}
             - {{ . | quote }}
             {{- end }}
