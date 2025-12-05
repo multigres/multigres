@@ -85,6 +85,11 @@ func TestMain(m *testing.M) {
 	// Run all tests
 	exitCode := m.Run()
 
+	// Dump service logs on failure to help debug CI issues
+	if exitCode != 0 {
+		dumpServiceLogs()
+	}
+
 	// Clean up shared multipooler test infrastructure
 	cleanupSharedTestSetup()
 
@@ -93,6 +98,43 @@ func TestMain(m *testing.M) {
 
 	// Exit with the test result code
 	os.Exit(exitCode)
+}
+
+// dumpServiceLogs prints service log files to help debug test failures.
+// Call this before cleanup so logs are available.
+func dumpServiceLogs() {
+	if sharedTestSetup == nil {
+		return
+	}
+
+	fmt.Println("\n" + "=" + "=== SERVICE LOGS (test failure) ===" + "=")
+
+	instances := []*ProcessInstance{
+		sharedTestSetup.PrimaryMultipooler,
+		sharedTestSetup.StandbyMultipooler,
+		sharedTestSetup.PrimaryPgctld,
+		sharedTestSetup.StandbyPgctld,
+	}
+
+	for _, inst := range instances {
+		if inst == nil || inst.LogFile == "" {
+			continue
+		}
+
+		fmt.Printf("\n--- %s (%s) ---\n", inst.Name, inst.LogFile)
+		content, err := os.ReadFile(inst.LogFile)
+		if err != nil {
+			fmt.Printf("  [error reading log: %v]\n", err)
+			continue
+		}
+		if len(content) == 0 {
+			fmt.Println("  [empty log file]")
+			continue
+		}
+		fmt.Println(string(content))
+	}
+
+	fmt.Println("\n" + "=" + "=== END SERVICE LOGS ===" + "=")
 }
 
 // cleanupSharedTestSetup cleans up the shared test infrastructure
@@ -341,6 +383,21 @@ func (p *ProcessInstance) Stop() {
 	// Then kill the process
 	_ = p.Process.Process.Kill()
 	_ = p.Process.Wait()
+}
+
+// IsRunning checks if the process is still running.
+// Returns false if the process has exited or was never started.
+func (p *ProcessInstance) IsRunning() bool {
+	if p == nil || p.Process == nil || p.Process.Process == nil {
+		return false
+	}
+	// ProcessState is set after Wait() returns, meaning process has exited
+	if p.Process.ProcessState != nil {
+		return false
+	}
+	// Signal 0 checks if process exists without actually sending a signal
+	err := p.Process.Process.Signal(syscall.Signal(0))
+	return err == nil
 }
 
 // stopPostgreSQL stops PostgreSQL via gRPC (best effort, no error handling)
@@ -1274,6 +1331,39 @@ func validateCleanState(setup *MultipoolerTestSetup) error {
 	return nil
 }
 
+// checkSharedProcesses verifies all shared test processes are still running.
+// This catches crashes from previous tests early, before confusing timeout errors.
+func checkSharedProcesses(t *testing.T, setup *MultipoolerTestSetup) {
+	t.Helper()
+
+	if setup == nil {
+		return
+	}
+
+	type processCheck struct {
+		name     string
+		instance *ProcessInstance
+	}
+
+	checks := []processCheck{
+		{"primary-multipooler", setup.PrimaryMultipooler},
+		{"standby-multipooler", setup.StandbyMultipooler},
+		{"primary-pgctld", setup.PrimaryPgctld},
+		{"standby-pgctld", setup.StandbyPgctld},
+	}
+
+	var dead []string
+	for _, check := range checks {
+		if check.instance != nil && !check.instance.IsRunning() {
+			dead = append(dead, check.name)
+		}
+	}
+
+	if len(dead) > 0 {
+		t.Fatalf("Shared test process(es) died: %v. A previous test likely crashed them. Check service logs above.", dead)
+	}
+}
+
 // setupPoolerTest provides test isolation by validating clean state, optionally configuring
 // replication, and automatically restoring any state changes at test cleanup.
 //
@@ -1296,6 +1386,9 @@ func validateCleanState(setup *MultipoolerTestSetup) error {
 // Other options: WithResetGuc(), WithDropTables()
 func setupPoolerTest(t *testing.T, setup *MultipoolerTestSetup, opts ...cleanupOption) {
 	t.Helper()
+
+	// Fail fast if shared processes died (e.g., from a previous test crash)
+	checkSharedProcesses(t, setup)
 
 	// Build cleanup configuration from options
 	config := &cleanupConfig{}
