@@ -63,9 +63,7 @@ import (
 	"fmt"
 	"io"
 	"log"
-	"log/slog"
 	"maps"
-	"os"
 	"slices"
 	"strings"
 	"sync"
@@ -441,20 +439,18 @@ func OpenServer(implementation, root string, serverAddrs []string, config *TopoC
 }
 
 // Open returns a topology store using the command-line parameter flags
-// for implementation, address, and root. It will log.Error and exit if
+// for implementation, address, and root. It returns an error if
 // required configuration is missing or if an error occurs.
-func (config *TopoConfig) Open() Store {
+func (config *TopoConfig) Open() (Store, error) {
 	addresses := config.globalServerAddresses.Get()
 	root := config.globalRoot.Get()
 	implementation := config.implementation.Get()
 
 	if len(addresses) == 0 {
-		slog.Error("topo-global-server-addresses must be configured")
-		os.Exit(1)
+		return nil, fmt.Errorf("topo-global-server-addresses must be configured")
 	}
 	if root == "" {
-		slog.Error("topo-global-root must be non-empty")
-		os.Exit(1)
+		return nil, fmt.Errorf("topo-global-root must be non-empty")
 	}
 
 	if implementation == "" {
@@ -465,19 +461,16 @@ func (config *TopoConfig) Open() Store {
 		}
 
 		if len(available) == 0 {
-			slog.Error("topo-implementation must be configured. Available: none (no implementations registered)")
-		} else {
-			slog.Error("topo-implementation must be configured. Available: " + strings.Join(available, ", "))
+			return nil, fmt.Errorf("topo-implementation must be configured. Available: none (no implementations registered)")
 		}
-		os.Exit(1)
+		return nil, fmt.Errorf("topo-implementation must be configured. Available: %s", strings.Join(available, ", "))
 	}
 
 	ts, err := OpenServer(implementation, root, addresses, config)
 	if err != nil {
-		slog.Error("Failed to open topo server", "error", err, "implementation", implementation, "addresses", addresses, "root", root)
-		os.Exit(1)
+		return nil, fmt.Errorf("failed to open topo server (implementation=%s, addresses=%v, root=%s): %w", implementation, addresses, root, err)
 	}
-	return ts
+	return ts, nil
 }
 
 // ConnForCell returns a connection object for the given cell.

@@ -18,10 +18,10 @@ package servenv
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"math"
 	"net"
-	"os"
 	"strconv"
 	"time"
 
@@ -298,17 +298,16 @@ func (g *GrpcServer) IsEnabled() bool {
 
 // Create creates the gRPC server instance.
 // It has to be called after flags are parsed, but before services register themselves.
-func (g *GrpcServer) Create() {
+func (g *GrpcServer) Create() error {
 	// skip if not enabled
 	if !g.IsEnabled() {
 		slog.Info("GRPC is not enabled (no grpc-port or socket-file set), skipping gRPC server creation")
-		return
+		return nil
 	}
 
 	var opts []grpc.ServerOption
 	if g.cert.Get() != "" && g.key.Get() != "" {
-		slog.Error("TLS is not implemented yet")
-		os.Exit(1)
+		return fmt.Errorf("TLS is not implemented yet")
 	}
 	// Override the default max message size for both send and receive
 	// (which is 4 MiB in gRPC 1.0.0).
@@ -350,22 +349,29 @@ func (g *GrpcServer) Create() {
 	// If no OTEL exporters are configured, noop exporters are used with minimal overhead
 	opts = append(opts, grpc.StatsHandler(otelgrpc.NewServerHandler()))
 
-	opts = append(opts, g.interceptors()...)
+	interceptorOpts, err := g.interceptors()
+	if err != nil {
+		return fmt.Errorf("grpc interceptors: %w", err)
+	}
+	opts = append(opts, interceptorOpts...)
 
 	g.Server = grpc.NewServer(opts...)
+	return nil
 }
 
 // interceptors builds the list of interceptors for the gRPC server
-func (g *GrpcServer) interceptors() []grpc.ServerOption {
+func (g *GrpcServer) interceptors() ([]grpc.ServerOption, error) {
 	interceptors := &serverInterceptorBuilder{}
 
 	if g.auth.Get() != "" {
 		slog.Info("enabling auth plugin", "plugin", g.auth.Get())
-		pluginInitializer := GetAuthenticator(g.auth.Get())
+		pluginInitializer, err := GetAuthenticator(g.auth.Get())
+		if err != nil {
+			return nil, fmt.Errorf("get auth plugin %q: %w", g.auth.Get(), err)
+		}
 		authPluginImpl, err := pluginInitializer()
 		if err != nil {
-			slog.Error("Failed to load auth plugin", "err", err)
-			os.Exit(1)
+			return nil, fmt.Errorf("initialize auth plugin %q: %w", g.auth.Get(), err)
 		}
 		g.authPlugin = authPluginImpl
 		interceptors.Add(
@@ -378,14 +384,14 @@ func (g *GrpcServer) interceptors() []grpc.ServerOption {
 		)
 	}
 
-	return interceptors.Build()
+	return interceptors.Build(), nil
 }
 
 // Serve starts the gRPC server and begins listening for requests
-func (g *GrpcServer) Serve(sv *ServEnv) {
+func (g *GrpcServer) Serve(sv *ServEnv) error {
 	// skip if not enabled
 	if g.port.Get() == 0 {
-		return
+		return nil
 	}
 
 	// register reflection to support list calls :)
@@ -403,8 +409,7 @@ func (g *GrpcServer) Serve(sv *ServEnv) {
 	slog.Info("Listening for gRPC calls on port", "grpcPort", g.port.Get())
 	listener, err := net.Listen("tcp", net.JoinHostPort(g.bindAddress.Get(), strconv.Itoa(g.port.Get())))
 	if err != nil {
-		slog.Error("Cannot listen on the provided grpc port", "err", err)
-		os.Exit(1)
+		return fmt.Errorf("cannot listen on grpc port %d: %w", g.port.Get(), err)
 	}
 
 	// and serve on it
@@ -414,10 +419,8 @@ func (g *GrpcServer) Serve(sv *ServEnv) {
 	//       If this was not the case, the binary would crash with
 	//       the error "grpc: Server.RegisterService after Server.Serve".
 	go func() {
-		err := g.Server.Serve(listener)
-		if err != nil {
-			slog.Error("Failed to start grpc server", "err", err)
-			os.Exit(1)
+		if err := g.Server.Serve(listener); err != nil {
+			slog.Error("gRPC server failed", "err", err)
 		}
 	}()
 
@@ -426,6 +429,7 @@ func (g *GrpcServer) Serve(sv *ServEnv) {
 		g.Server.GracefulStop()
 		slog.Info("gRPC server stopped")
 	})
+	return nil
 }
 
 // CheckServiceMap returns if we should register a gRPC service

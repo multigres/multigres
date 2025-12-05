@@ -24,6 +24,6 @@ import (
 func main() {
 	root := command.GetRootCommand()
 	if err := root.Execute(); err != nil {
-		os.Exit(1)
+		os.Exit(1) //nolint:forbidigo // main() is allowed to call os.Exit
 	}
 }

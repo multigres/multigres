@@ -143,14 +143,12 @@ func isProfileStarted() bool {
 	return atomic.LoadUint32(&profileStarted) == 1
 }
 
-func startCallback(start func()) func() {
-	return func() {
+func startCallback(start func() error) func() error {
+	return func() error {
 		if atomic.CompareAndSwapUint32(&profileStarted, 0, 1) {
-			start()
-		} else {
-			slog.Error("profile: Start() already called")
-			os.Exit(1)
+			return start()
 		}
+		return fmt.Errorf("profile: Start() already called")
 	}
 }
 
@@ -162,7 +160,7 @@ func stopCallback(stop func()) func() {
 	}
 }
 
-func (prof *profile) mkprofile() io.WriteCloser {
+func (prof *profile) mkprofile() (io.WriteCloser, error) {
 	var (
 		path string
 		err  error
@@ -176,7 +174,7 @@ func (prof *profile) mkprofile() io.WriteCloser {
 		path, err = os.MkdirTemp("", "profile")
 	}
 	if err != nil {
-		slog.Error("pprof: could not create initial output directory", "err", err)
+		return nil, fmt.Errorf("pprof: could not create output directory: %w", err)
 	}
 
 	if !prof.quiet {
@@ -186,29 +184,32 @@ func (prof *profile) mkprofile() io.WriteCloser {
 	fn := filepath.Join(path, prof.mode.filename())
 	f, err := os.Create(fn)
 	if err != nil {
-		slog.Error(fmt.Sprintf("pprof: could not create profile %q: %v", fn, err))
-		os.Exit(1)
+		return nil, fmt.Errorf("pprof: could not create profile %q: %w", fn, err)
 	}
 	logf("pprof: %s profiling enabled, %s", string(prof.mode), fn)
 
-	return f
+	return f, nil
 }
 
 // init returns a start function that begins the configured profiling process and
 // returns a cleanup function that must be executed before process termination to
 // flush the profile to disk.
 // Based on the profiling code in github.com/pkg/profile
-func (prof *profile) init() (start func(), stop func()) {
+func (prof *profile) init() (start func() error, stop func()) {
 	var pf io.WriteCloser
 
 	switch prof.mode {
 	case profileCPU:
-		start = startCallback(func() {
-			pf = prof.mkprofile()
-			if err := pprof.StartCPUProfile(pf); err != nil {
-				slog.Error("pprof: could not start CPU profile", "err", err)
-				os.Exit(1)
+		start = startCallback(func() error {
+			var err error
+			pf, err = prof.mkprofile()
+			if err != nil {
+				return err
 			}
+			if err := pprof.StartCPUProfile(pf); err != nil {
+				return fmt.Errorf("pprof: could not start CPU profile: %w", err)
+			}
+			return nil
 		})
 		stop = stopCallback(func() {
 			pprof.StopCPUProfile()
@@ -218,9 +219,14 @@ func (prof *profile) init() (start func(), stop func()) {
 
 	case profileMemHeap, profileMemAllocs:
 		old := runtime.MemProfileRate
-		start = startCallback(func() {
-			pf = prof.mkprofile()
+		start = startCallback(func() error {
+			var err error
+			pf, err = prof.mkprofile()
+			if err != nil {
+				return err
+			}
 			runtime.MemProfileRate = prof.rate
+			return nil
 		})
 		stop = stopCallback(func() {
 			tt := "heap"
@@ -236,9 +242,14 @@ func (prof *profile) init() (start func(), stop func()) {
 		return start, stop
 
 	case profileMutex:
-		start = startCallback(func() {
-			pf = prof.mkprofile()
+		start = startCallback(func() error {
+			var err error
+			pf, err = prof.mkprofile()
+			if err != nil {
+				return err
+			}
 			runtime.SetMutexProfileFraction(prof.rate)
+			return nil
 		})
 		stop = stopCallback(func() {
 			if mp := pprof.Lookup("mutex"); mp != nil {
@@ -252,9 +263,14 @@ func (prof *profile) init() (start func(), stop func()) {
 		return start, stop
 
 	case profileBlock:
-		start = startCallback(func() {
-			pf = prof.mkprofile()
+		start = startCallback(func() error {
+			var err error
+			pf, err = prof.mkprofile()
+			if err != nil {
+				return err
+			}
 			runtime.SetBlockProfileRate(prof.rate)
+			return nil
 		})
 		stop = stopCallback(func() {
 			if err := pprof.Lookup("block").WriteTo(pf, 0); err != nil {
@@ -266,8 +282,10 @@ func (prof *profile) init() (start func(), stop func()) {
 		return start, stop
 
 	case profileThreads:
-		start = startCallback(func() {
-			pf = prof.mkprofile()
+		start = startCallback(func() error {
+			var err error
+			pf, err = prof.mkprofile()
+			return err
 		})
 		stop = stopCallback(func() {
 			if mp := pprof.Lookup("threadcreate"); mp != nil {
@@ -280,12 +298,16 @@ func (prof *profile) init() (start func(), stop func()) {
 		return start, stop
 
 	case profileTrace:
-		start = startCallback(func() {
-			pf = prof.mkprofile()
-			if err := trace.Start(pf); err != nil {
-				slog.Error("pprof: could not start trace", "err", err)
-				os.Exit(1)
+		start = startCallback(func() error {
+			var err error
+			pf, err = prof.mkprofile()
+			if err != nil {
+				return err
 			}
+			if err := trace.Start(pf); err != nil {
+				return fmt.Errorf("pprof: could not start trace: %w", err)
+			}
+			return nil
 		})
 		stop = stopCallback(func() {
 			trace.Stop()
@@ -294,8 +316,10 @@ func (prof *profile) init() (start func(), stop func()) {
 		return start, stop
 
 	case profileGoroutine:
-		start = startCallback(func() {
-			pf = prof.mkprofile()
+		start = startCallback(func() error {
+			var err error
+			pf, err = prof.mkprofile()
+			return err
 		})
 		stop = stopCallback(func() {
 			if mp := pprof.Lookup("goroutine"); mp != nil {

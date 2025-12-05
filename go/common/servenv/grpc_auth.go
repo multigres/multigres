@@ -18,8 +18,7 @@ package servenv
 
 import (
 	"context"
-	"log/slog"
-	"os"
+	"fmt"
 
 	"github.com/spf13/pflag"
 	"google.golang.org/grpc"
@@ -58,22 +57,22 @@ type Authenticator interface {
 var authPlugins = make(map[string]func() (Authenticator, error))
 
 // RegisterAuthPlugin registers an implementation of AuthServer.
-func RegisterAuthPlugin(name string, authPlugin func() (Authenticator, error)) {
+// Returns an error if a plugin with the same name is already registered.
+func RegisterAuthPlugin(name string, authPlugin func() (Authenticator, error)) error {
 	if _, ok := authPlugins[name]; ok {
-		slog.Error("AuthPlugin named already exists", "name", name)
-		os.Exit(1)
+		return fmt.Errorf("AuthPlugin %q already registered", name)
 	}
 	authPlugins[name] = authPlugin
+	return nil
 }
 
-// GetAuthenticator returns an AuthPlugin by name, or log.Fatalf.
-func GetAuthenticator(name string) func() (Authenticator, error) {
+// GetAuthenticator returns an AuthPlugin by name.
+func GetAuthenticator(name string) (func() (Authenticator, error), error) {
 	authPlugin, ok := authPlugins[name]
 	if !ok {
-		slog.Error("no AuthPlugin name registered", "name", name)
-		os.Exit(1)
+		return nil, fmt.Errorf("no AuthPlugin %q registered", name)
 	}
-	return authPlugin
+	return authPlugin, nil
 }
 
 // FakeAuthStreamInterceptor fake interceptor to test plugin

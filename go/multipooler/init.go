@@ -17,7 +17,7 @@ package multipooler
 
 import (
 	"context"
-	"os"
+	"fmt"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
@@ -181,11 +181,13 @@ func (mp *MultiPooler) RegisterFlags(flags *pflag.FlagSet) {
 // Init initializes the multipooler. If any services fail to start,
 // or if some connections fail, it launches goroutines that retry
 // until successful.
-func (mp *MultiPooler) Init(startCtx context.Context) {
+func (mp *MultiPooler) Init(startCtx context.Context) error {
 	startCtx, span := telemetry.Tracer().Start(startCtx, "Init")
 	defer span.End()
 
-	mp.senv.Init("multipooler")
+	if err := mp.senv.Init("multipooler"); err != nil {
+		return fmt.Errorf("servenv init: %w", err)
+	}
 	// Get the configured logger
 	logger := mp.senv.GetLogger()
 
@@ -193,7 +195,11 @@ func (mp *MultiPooler) Init(startCtx context.Context) {
 	// defer that closes the topo runs after cancelling the context.
 	// This ensures that we've properly closed things like the watchers
 	// at that point.
-	mp.ts = mp.topoConfig.Open()
+	var err error
+	mp.ts, err = mp.topoConfig.Open()
+	if err != nil {
+		return fmt.Errorf("topo open: %w", err)
+	}
 
 	logger.InfoContext(startCtx, "multipooler starting up",
 		"pgctld_addr", mp.pgctldAddr.Get(),
@@ -209,18 +215,15 @@ func (mp *MultiPooler) Init(startCtx context.Context) {
 	)
 
 	if mp.database.Get() == "" {
-		logger.ErrorContext(startCtx, "database is required")
-		os.Exit(1)
+		return fmt.Errorf("database is required")
 	}
 
 	if mp.tableGroup.Get() == "" {
-		logger.ErrorContext(startCtx, "table group is required")
-		os.Exit(1)
+		return fmt.Errorf("table group is required")
 	}
 
 	if mp.shard.Get() == "" {
-		logger.ErrorContext(startCtx, "shard is required")
-		os.Exit(1)
+		return fmt.Errorf("shard is required")
 	}
 
 	// Create MultiPooler instance for topo registration
@@ -248,8 +251,7 @@ func (mp *MultiPooler) Init(startCtx context.Context) {
 		ConsensusEnabled:    mp.grpcServer.CheckServiceMap("consensus", mp.senv),
 	})
 	if err != nil {
-		logger.ErrorContext(startCtx, "Failed to create multipooler from config", "error", err)
-		os.Exit(1)
+		return fmt.Errorf("failed to create multipooler: %w", err)
 	}
 
 	// Start the MultiPoolerManager
@@ -292,10 +294,11 @@ func (mp *MultiPooler) Init(startCtx context.Context) {
 	mp.senv.OnClose(func() {
 		mp.Shutdown()
 	})
+	return nil
 }
 
-func (mp *MultiPooler) RunDefault() {
-	mp.senv.RunDefault(mp.grpcServer)
+func (mp *MultiPooler) RunDefault() error {
+	return mp.senv.RunDefault(mp.grpcServer)
 }
 
 func (mp *MultiPooler) Shutdown() {

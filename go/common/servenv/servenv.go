@@ -62,6 +62,7 @@ type ServEnv struct {
 	onTermHooks     event.Hooks
 	onTermSyncHooks event.Hooks
 	onRunHooks      event.Hooks
+	onRunEHooks     event.ErrorHooks
 
 	// State
 	mu           sync.Mutex
@@ -166,25 +167,14 @@ func (se *ServEnv) SetListeningURL(u url.URL) {
 	se.listeningURL = u
 }
 
-// PopulateListeningURL sets the listening URL based on hostname and port
+// PopulateListeningURL sets the listening URL based on the configured hostname and port.
+// The hostname should already be set by Init() before this is called.
 func (se *ServEnv) PopulateListeningURL(port int32) {
-	host, err := netutil.FullyQualifiedHostname()
-	if err != nil {
-		slog.Warn("Failed to get fully qualified hostname, falling back to simple hostname",
-			"error", err,
-			"note", "This may indicate DNS configuration issues but service will continue normally")
-		host, err = os.Hostname()
-		if err != nil {
-			slog.Error("os.Hostname() failed", "err", err)
-			os.Exit(1)
-		}
-		slog.Info("Using simple hostname for service URL", "hostname", host)
-	} else {
-		slog.Info("Using fully qualified hostname for service URL", "hostname", host)
-	}
+	hostname := se.hostname.Get()
+	slog.Info("Setting listening URL", "hostname", hostname, "port", port)
 	se.SetListeningURL(url.URL{
 		Scheme: "http",
-		Host:   netutil.JoinHostPort(se.hostname.Get(), port),
+		Host:   netutil.JoinHostPort(hostname, port),
 		Path:   "/",
 	})
 }
@@ -229,6 +219,12 @@ func (se *ServEnv) OnRun(f func()) {
 	se.onRunHooks.Add(f)
 }
 
+// OnRunE registers an error-returning function to be run right at the beginning of Run.
+// If the function returns an error, it will be collected and returned by FireRunHooks.
+func (se *ServEnv) OnRunE(f func() error) {
+	se.onRunEHooks.Add(f)
+}
+
 // OnClose registers f to be run at the end of the app lifecycle.
 // This happens after the lameduck period just before the program exits.
 // All hooks are run in parallel.
@@ -236,9 +232,11 @@ func (sv *ServEnv) OnClose(f func()) {
 	sv.onCloseHooks.Add(f)
 }
 
-// FireRunHooks fires the hooks registered by OnRun
-func (se *ServEnv) FireRunHooks() {
+// FireRunHooks fires the hooks registered by OnRun and OnRunE.
+// Returns an error if any OnRunE hooks fail (combined with errors.Join).
+func (se *ServEnv) FireRunHooks() error {
 	se.onRunHooks.Fire()
+	return se.onRunEHooks.Fire()
 }
 
 // fireOnTermSyncHooks returns true iff all the hooks finish before the timeout
@@ -278,8 +276,8 @@ func (se *ServEnv) fireHooksWithTimeout(timeout time.Duration, name string, hook
 }
 
 // RunDefault calls Run() with the parameters from the flags
-func (se *ServEnv) RunDefault(grpcServer *GrpcServer) {
-	se.Run(se.bindAddress.Get(), se.httpPort.Get(), grpcServer)
+func (se *ServEnv) RunDefault(grpcServer *GrpcServer) error {
+	return se.Run(se.bindAddress.Get(), se.httpPort.Get(), grpcServer)
 }
 
 var (

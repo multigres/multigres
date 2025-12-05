@@ -46,3 +46,51 @@ func (h *Hooks) Fire() {
 	}
 	wg.Wait()
 }
+
+// ErrorHooks holds a list of error-returning functions to call whenever the set
+// is triggered with Fire().
+type ErrorHooks struct {
+	funcs []func() error
+	mu    sync.Mutex
+}
+
+// Add appends the given function to the list to be triggered.
+func (h *ErrorHooks) Add(f func() error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.funcs = append(h.funcs, f)
+}
+
+// Fire calls all the functions in a given ErrorHooks list in parallel.
+// It returns immediately on the first error encountered (fail-fast).
+// Concurrent calls to Fire() are serialized.
+func (h *ErrorHooks) Fire() error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	if len(h.funcs) == 0 {
+		return nil
+	}
+
+	errCh := make(chan error, len(h.funcs))
+	var wg sync.WaitGroup
+
+	for _, f := range h.funcs {
+		wg.Add(1)
+		go func(fn func() error) {
+			defer wg.Done()
+			if err := fn(); err != nil {
+				errCh <- err
+			}
+		}(f)
+	}
+
+	// Close channel when all goroutines complete
+	go func() {
+		wg.Wait()
+		close(errCh)
+	}()
+
+	// Return first error or nil if channel closes without error
+	return <-errCh
+}

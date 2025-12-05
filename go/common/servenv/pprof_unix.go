@@ -21,24 +21,26 @@ Modifications Copyright 2025 Supabase, Inc.
 package servenv
 
 import (
+	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
 )
 
-func (sv *ServEnv) pprofInit() {
+func (sv *ServEnv) pprofInit() error {
 	prof, err := sv.parseProfileFlag(sv.pprofFlag.Get())
 	if err != nil {
-		slog.Error("error parsing pprof flags", "err", err)
-		os.Exit(1)
+		return fmt.Errorf("parsing pprof flags: %w", err)
 	}
 	if prof != nil {
 		start, stop := prof.init()
 
 		// Start profiling immediately if waitSig is false
 		if !prof.waitSig {
-			start()
+			if err := start(); err != nil {
+				return fmt.Errorf("starting profile: %w", err)
+			}
 		}
 
 		sigChan := make(chan os.Signal, 1)
@@ -50,11 +52,15 @@ func (sv *ServEnv) pprofInit() {
 				if isProfileStarted() {
 					stop()
 				} else {
-					start()
+					// Log error from signal handler - can't return error from goroutine
+					if err := start(); err != nil {
+						slog.Error("pprof: failed to start profiling via signal", "err", err)
+					}
 				}
 			}
 		}()
 
 		sv.OnTerm(stop)
 	}
+	return nil
 }

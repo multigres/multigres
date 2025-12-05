@@ -22,6 +22,7 @@ package servenv
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"log/slog"
 	"os"
@@ -35,7 +36,7 @@ import (
 )
 
 // Init is the first phase of the server startup.
-func (sv *ServEnv) Init(serviceName string) {
+func (sv *ServEnv) Init(serviceName string) error {
 	sv.mu.Lock()
 	sv.initStartTime = time.Now()
 	sv.mu.Unlock()
@@ -72,8 +73,7 @@ func (sv *ServEnv) Init(serviceName string) {
 	// Once you run as root, you pretty much destroy the chances of a
 	// non-privileged user starting the program correctly.
 	if uid := os.Getuid(); uid == 0 {
-		slog.Error("servenv.Init: running this as root makes no sense")
-		os.Exit(1)
+		return fmt.Errorf("running as root is not permitted")
 	}
 
 	// We used to set this limit directly, but you pretty much have to
@@ -91,23 +91,28 @@ func (sv *ServEnv) Init(serviceName string) {
 	// out of memory issues in favor of a stack overflow error.
 	debug.SetMaxStack(sv.maxStackSize)
 
-	// Get hostname upfront so we can crash early if it fails.
-	sv.populateHostname()
+	// Get hostname upfront so we can fail early if it fails.
+	if err := sv.populateHostname(); err != nil {
+		return fmt.Errorf("failed to determine hostname: %w", err)
+	}
 
 	sv.onInitHooks.Fire()
 	sv.registerPidFile()
 	sv.RegisterCommonHTTPEndpoints()
 	sv.HTTPRegisterPprofProfile()
-	sv.pprofInit()
+	if err := sv.pprofInit(); err != nil {
+		return fmt.Errorf("pprof init: %w", err)
+	}
 	sv.updateServiceMap()
 	sv.startOrphanDetection()
+	return nil
 }
 
-func (sv *ServEnv) populateHostname() {
+func (sv *ServEnv) populateHostname() error {
 	// If hostname was explicitly set via --hostname flag, use that
 	if sv.hostname.Get() != "" {
 		slog.Info("Using explicitly configured hostname for service URL", "hostname", sv.hostname.Get())
-		return
+		return nil
 	}
 
 	// Otherwise, auto-detect hostname
@@ -118,14 +123,14 @@ func (sv *ServEnv) populateHostname() {
 			"note", "This may indicate DNS configuration issues but service will continue normally")
 		host, err = os.Hostname()
 		if err != nil {
-			slog.Error("os.Hostname() failed", "err", err)
-			os.Exit(1)
+			return fmt.Errorf("os.Hostname() failed: %w", err)
 		}
 		slog.Info("Using simple hostname for service URL", "hostname", host)
 	} else {
 		slog.Info("Using fully qualified hostname for service URL", "hostname", host)
 	}
 	sv.hostname.Set(host)
+	return nil
 }
 
 // startOrphanDetection starts a goroutine that monitors for orphan conditions.
@@ -206,7 +211,7 @@ func (sv *ServEnv) startOrphanDetection() {
 						return
 					case <-time.After(10 * time.Second):
 						slog.Error("Graceful shutdown timed out after orphan detection, force killing")
-						os.Exit(1)
+						os.Exit(1) //nolint:forbidigo // Last resort: this is a test and graceful shutdown already timed out
 					}
 				}
 			case <-closeComplete:
