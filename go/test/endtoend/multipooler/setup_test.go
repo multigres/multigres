@@ -59,6 +59,62 @@ var (
 	setupError      error
 )
 
+// multipoolerClient wraps a gRPC connection to a multipooler and provides access to
+// manager, consensus, and pooler service clients over the same connection.
+type multipoolerClient struct {
+	conn      *grpc.ClientConn
+	Manager   multipoolermanagerpb.MultiPoolerManagerClient
+	Consensus consensuspb.MultiPoolerConsensusClient
+	Pooler    *endtoend.MultiPoolerTestClient
+}
+
+// newMultipoolerClient creates a new multipoolerClient connected to the given gRPC port.
+// It establishes a single gRPC connection and creates clients for all multipooler services.
+func newMultipoolerClient(grpcPort int) (*multipoolerClient, error) {
+	addr := fmt.Sprintf("localhost:%d", grpcPort)
+
+	conn, err := grpc.NewClient(
+		addr,
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect: %w", err)
+	}
+
+	// Create pooler test client (uses its own connection internally)
+	poolerClient, err := endtoend.NewMultiPoolerTestClient(addr)
+	if err != nil {
+		conn.Close()
+		return nil, fmt.Errorf("failed to create pooler client: %w", err)
+	}
+
+	return &multipoolerClient{
+		conn:      conn,
+		Manager:   multipoolermanagerpb.NewMultiPoolerManagerClient(conn),
+		Consensus: consensuspb.NewMultiPoolerConsensusClient(conn),
+		Pooler:    poolerClient,
+	}, nil
+}
+
+// Close closes all underlying connections.
+func (c *multipoolerClient) Close() error {
+	var errs []error
+	if c.Pooler != nil {
+		if err := c.Pooler.Close(); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	if c.conn != nil {
+		if err := c.conn.Close(); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	if len(errs) > 0 {
+		return errs[0]
+	}
+	return nil
+}
+
 // TestMain sets the path and cleans up after all tests
 func TestMain(m *testing.M) {
 	// Set the PATH so dependencies like etcd and run_in_test.sh can be found
@@ -635,7 +691,9 @@ archive_command = 'pgbackrest --stanza=%s --config=%s --repo1-path=%s archive-pu
 	t.Logf("Primary consensus term set to 1")
 
 	// Set pooler type to PRIMARY
-	if err := setPoolerType(multipooler.GrpcPort, clustermetadatapb.PoolerType_PRIMARY); err != nil {
+	ctx, cancel = context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := setPoolerType(ctx, client, clustermetadatapb.PoolerType_PRIMARY); err != nil {
 		return fmt.Errorf("failed to set primary pooler type: %w", err)
 	}
 
@@ -765,7 +823,9 @@ func initializeStandby(t *testing.T, baseDir string, primaryPgctld *ProcessInsta
 	}
 
 	// Set pooler type to REPLICA
-	if err := setPoolerType(standbyMultipooler.GrpcPort, clustermetadatapb.PoolerType_REPLICA); err != nil {
+	ctx, cancel = context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := setPoolerType(ctx, standbyClient, clustermetadatapb.PoolerType_REPLICA); err != nil {
 		return fmt.Errorf("failed to set standby pooler type: %w", err)
 	}
 
@@ -1265,16 +1325,19 @@ func validateCleanState(setup *MultipoolerTestSetup) error {
 		return nil
 	}
 
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
 	// Validate primary state
 	if setup.PrimaryMultipooler != nil {
-		primaryClient, err := endtoend.NewMultiPoolerTestClient(fmt.Sprintf("localhost:%d", setup.PrimaryMultipooler.GrpcPort))
+		primaryClient, err := newMultipoolerClient(setup.PrimaryMultipooler.GrpcPort)
 		if err != nil {
 			return fmt.Errorf("failed to connect to primary: %w", err)
 		}
 		defer primaryClient.Close()
 
 		// Verify primary is NOT in recovery mode (is actually a primary)
-		inRecovery, err := queryStringValue(context.Background(), primaryClient, "SELECT pg_is_in_recovery()")
+		inRecovery, err := queryStringValue(ctx, primaryClient.Pooler, "SELECT pg_is_in_recovery()")
 		if err != nil {
 			return fmt.Errorf("Primary failed to query pg_is_in_recovery: %w", err)
 		}
@@ -1282,34 +1345,34 @@ func validateCleanState(setup *MultipoolerTestSetup) error {
 			return fmt.Errorf("Primary pg_is_in_recovery=%s (expected false)", inRecovery)
 		}
 
-		if err := validateGUCValue(primaryClient, "primary_conninfo", "", "Primary"); err != nil {
+		if err := validateGUCValue(primaryClient.Pooler, "primary_conninfo", "", "Primary"); err != nil {
 			return err
 		}
-		if err := validateGUCValue(primaryClient, "synchronous_standby_names", "", "Primary"); err != nil {
+		if err := validateGUCValue(primaryClient.Pooler, "synchronous_standby_names", "", "Primary"); err != nil {
 			return err
 		}
 
 		// Validate primary pooler type in topology
-		if err := validatePoolerType(setup.PrimaryMultipooler.GrpcPort, clustermetadatapb.PoolerType_PRIMARY, "Primary"); err != nil {
+		if err := validatePoolerType(ctx, primaryClient.Manager, clustermetadatapb.PoolerType_PRIMARY, "Primary"); err != nil {
 			return err
 		}
 
 		// Validate primary term is 1
-		if err := validateTerm(setup.PrimaryMultipooler.GrpcPort, 1, "Primary"); err != nil {
+		if err := validateTerm(ctx, primaryClient.Consensus, 1, "Primary"); err != nil {
 			return err
 		}
 	}
 
 	// Validate standby state
 	if setup.StandbyMultipooler != nil {
-		standbyClient, err := endtoend.NewMultiPoolerTestClient(fmt.Sprintf("localhost:%d", setup.StandbyMultipooler.GrpcPort))
+		standbyClient, err := newMultipoolerClient(setup.StandbyMultipooler.GrpcPort)
 		if err != nil {
 			return fmt.Errorf("failed to connect to standby: %w", err)
 		}
 		defer standbyClient.Close()
 
 		// Verify standby is in recovery mode
-		inRecovery, err := queryStringValue(context.Background(), standbyClient, "SELECT pg_is_in_recovery()")
+		inRecovery, err := queryStringValue(ctx, standbyClient.Pooler, "SELECT pg_is_in_recovery()")
 		if err != nil {
 			return fmt.Errorf("Standby failed to query pg_is_in_recovery: %w", err)
 		}
@@ -1318,12 +1381,12 @@ func validateCleanState(setup *MultipoolerTestSetup) error {
 		}
 
 		// Verify replication not configured
-		if err := validateGUCValue(standbyClient, "primary_conninfo", "", "Standby"); err != nil {
+		if err := validateGUCValue(standbyClient.Pooler, "primary_conninfo", "", "Standby"); err != nil {
 			return err
 		}
 
 		// Verify WAL replay not paused
-		isPaused, err := queryStringValue(context.Background(), standbyClient, "SELECT pg_is_wal_replay_paused()")
+		isPaused, err := queryStringValue(ctx, standbyClient.Pooler, "SELECT pg_is_wal_replay_paused()")
 		if err != nil {
 			return fmt.Errorf("Standby failed to query pg_is_wal_replay_paused: %w", err)
 		}
@@ -1332,12 +1395,12 @@ func validateCleanState(setup *MultipoolerTestSetup) error {
 		}
 
 		// Validate standby pooler type in topology
-		if err := validatePoolerType(setup.StandbyMultipooler.GrpcPort, clustermetadatapb.PoolerType_REPLICA, "Standby"); err != nil {
+		if err := validatePoolerType(ctx, standbyClient.Manager, clustermetadatapb.PoolerType_REPLICA, "Standby"); err != nil {
 			return err
 		}
 
 		// Validate standby term is 1
-		if err := validateTerm(setup.StandbyMultipooler.GrpcPort, 1, "Standby"); err != nil {
+		if err := validateTerm(ctx, standbyClient.Consensus, 1, "Standby"); err != nil {
 			return err
 		}
 	}
@@ -1347,17 +1410,7 @@ func validateCleanState(setup *MultipoolerTestSetup) error {
 
 // resetTerm resets the consensus term to 1 with all fields cleared.
 // This is used during initialization and cleanup to ensure a clean state.
-func resetTerm(ctx context.Context, grpcPort int) error {
-	conn, err := grpc.NewClient(
-		fmt.Sprintf("localhost:%d", grpcPort),
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-	)
-	if err != nil {
-		return fmt.Errorf("failed to connect: %w", err)
-	}
-	defer conn.Close()
-
-	client := multipoolermanagerpb.NewMultiPoolerManagerClient(conn)
+func resetTerm(ctx context.Context, client multipoolermanagerpb.MultiPoolerManagerClient) error {
 	initialTerm := &multipoolermanagerdatapb.ConsensusTerm{
 		TermNumber:                    1,
 		AcceptedTermFromCoordinatorId: nil,
@@ -1365,29 +1418,16 @@ func resetTerm(ctx context.Context, grpcPort int) error {
 		LeaderId:                      nil,
 	}
 
-	_, err = client.SetTerm(ctx, &multipoolermanagerdatapb.SetTermRequest{Term: initialTerm})
+	_, err := client.SetTerm(ctx, &multipoolermanagerdatapb.SetTermRequest{Term: initialTerm})
 	if err != nil {
 		return fmt.Errorf("failed to set term: %w", err)
 	}
 	return nil
 }
 
-// setPoolerType sets the pooler type by creating a gRPC connection, calling ChangeType, and closing the connection.
-func setPoolerType(grpcPort int, poolerType clustermetadatapb.PoolerType) error {
-	conn, err := grpc.NewClient(
-		fmt.Sprintf("localhost:%d", grpcPort),
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-	)
-	if err != nil {
-		return fmt.Errorf("failed to connect: %w", err)
-	}
-	defer conn.Close()
-
-	managerClient := multipoolermanagerpb.NewMultiPoolerManagerClient(conn)
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	_, err = managerClient.ChangeType(ctx, &multipoolermanagerdatapb.ChangeTypeRequest{
+// setPoolerType sets the pooler type using the provided manager client.
+func setPoolerType(ctx context.Context, client multipoolermanagerpb.MultiPoolerManagerClient, poolerType clustermetadatapb.PoolerType) error {
+	_, err := client.ChangeType(ctx, &multipoolermanagerdatapb.ChangeTypeRequest{
 		PoolerType: poolerType,
 	})
 	if err != nil {
@@ -1397,20 +1437,7 @@ func setPoolerType(grpcPort int, poolerType clustermetadatapb.PoolerType) error 
 }
 
 // validatePoolerType checks that the pooler type in topology matches the expected value
-func validatePoolerType(grpcPort int, expectedType clustermetadatapb.PoolerType, nodeName string) error {
-	conn, err := grpc.NewClient(
-		fmt.Sprintf("localhost:%d", grpcPort),
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-	)
-	if err != nil {
-		return fmt.Errorf("%s failed to connect for pooler type check: %w", nodeName, err)
-	}
-	defer conn.Close()
-
-	client := multipoolermanagerpb.NewMultiPoolerManagerClient(conn)
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
+func validatePoolerType(ctx context.Context, client multipoolermanagerpb.MultiPoolerManagerClient, expectedType clustermetadatapb.PoolerType, nodeName string) error {
 	status, err := client.Status(ctx, &multipoolermanagerdatapb.StatusRequest{})
 	if err != nil {
 		return fmt.Errorf("%s failed to get status: %w", nodeName, err)
@@ -1428,20 +1455,7 @@ func validatePoolerType(grpcPort int, expectedType clustermetadatapb.PoolerType,
 }
 
 // validateTerm checks that the consensus term matches the expected value
-func validateTerm(grpcPort int, expectedTerm int64, nodeName string) error {
-	conn, err := grpc.NewClient(
-		fmt.Sprintf("localhost:%d", grpcPort),
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-	)
-	if err != nil {
-		return fmt.Errorf("%s failed to connect for term check: %w", nodeName, err)
-	}
-	defer conn.Close()
-
-	client := consensuspb.NewMultiPoolerConsensusClient(conn)
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
+func validateTerm(ctx context.Context, client consensuspb.MultiPoolerConsensusClient, expectedTerm int64, nodeName string) error {
 	status, err := client.Status(ctx, &consensusdatapb.StatusRequest{})
 	if err != nil {
 		return fmt.Errorf("%s failed to get consensus status: %w", nodeName, err)
@@ -1456,22 +1470,9 @@ func validateTerm(grpcPort int, expectedTerm int64, nodeName string) error {
 
 // restorePrimaryAfterDemotion restores the original primary to primary state after it was demoted.
 // Uses Force=true and resets term to 1 for simplicity in test cleanup.
-func restorePrimaryAfterDemotion(ctx context.Context, t *testing.T, setup *MultipoolerTestSetup) error {
-	t.Helper()
-
-	// Create manager client for primary
-	primaryConn, err := grpc.NewClient(
-		fmt.Sprintf("localhost:%d", setup.PrimaryMultipooler.GrpcPort),
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-	)
-	if err != nil {
-		return fmt.Errorf("failed to connect to primary: %w", err)
-	}
-	defer primaryConn.Close()
-	primaryManagerClient := multipoolermanagerpb.NewMultiPoolerManagerClient(primaryConn)
-
+func restorePrimaryAfterDemotion(ctx context.Context, client multipoolermanagerpb.MultiPoolerManagerClient) error {
 	// Set term back to 1
-	_, err = primaryManagerClient.SetTerm(ctx, &multipoolermanagerdatapb.SetTermRequest{
+	_, err := client.SetTerm(ctx, &multipoolermanagerdatapb.SetTermRequest{
 		Term: &multipoolermanagerdatapb.ConsensusTerm{TermNumber: 1},
 	})
 	if err != nil {
@@ -1479,19 +1480,19 @@ func restorePrimaryAfterDemotion(ctx context.Context, t *testing.T, setup *Multi
 	}
 
 	// Stop replication on primary
-	_, err = primaryManagerClient.StopReplication(ctx, &multipoolermanagerdatapb.StopReplicationRequest{})
+	_, err = client.StopReplication(ctx, &multipoolermanagerdatapb.StopReplicationRequest{})
 	if err != nil {
 		return fmt.Errorf("failed to stop replication on primary: %w", err)
 	}
 
 	// Get current LSN
-	statusResp, err := primaryManagerClient.StandbyReplicationStatus(ctx, &multipoolermanagerdatapb.StandbyReplicationStatusRequest{})
+	statusResp, err := client.StandbyReplicationStatus(ctx, &multipoolermanagerdatapb.StandbyReplicationStatusRequest{})
 	if err != nil {
 		return fmt.Errorf("failed to get primary replication status: %w", err)
 	}
 
 	// Force promote primary back
-	_, err = primaryManagerClient.Promote(ctx, &multipoolermanagerdatapb.PromoteRequest{
+	_, err = client.Promote(ctx, &multipoolermanagerdatapb.PromoteRequest{
 		ConsensusTerm: 1,
 		ExpectedLsn:   statusResp.Status.LastReplayLsn,
 		Force:         true,
@@ -1729,18 +1730,42 @@ func setupPoolerTest(t *testing.T, setup *MultipoolerTestSetup, opts ...cleanupO
 			return
 		}
 
+		// Create a shared context with timeout for all cleanup operations
+		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cleanupCancel()
+
+		// Create unified clients for cleanup operations (manager + consensus over same connection)
+		var primaryClient, standbyClient *multipoolerClient
+
+		if setup.PrimaryMultipooler != nil {
+			var err error
+			primaryClient, err = newMultipoolerClient(setup.PrimaryMultipooler.GrpcPort)
+			if err != nil {
+				t.Logf("Cleanup: Failed to connect to primary: %v", err)
+			} else {
+				defer primaryClient.Close()
+			}
+		}
+
+		if setup.StandbyMultipooler != nil {
+			var err error
+			standbyClient, err = newMultipoolerClient(setup.StandbyMultipooler.GrpcPort)
+			if err != nil {
+				t.Logf("Cleanup: Failed to connect to standby: %v", err)
+			} else {
+				defer standbyClient.Close()
+			}
+		}
+
 		// Check if primary was demoted (PostgreSQL in recovery mode) and restore if needed
 		// This must happen FIRST, before GUC restoration and replication setup
-		if primaryPoolerClient != nil {
-			cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer cleanupCancel()
-
+		if primaryPoolerClient != nil && primaryClient != nil {
 			inRecovery, err := queryStringValue(cleanupCtx, primaryPoolerClient, "SELECT pg_is_in_recovery()")
 			if err != nil {
 				t.Logf("Cleanup: Failed to check if primary is in recovery: %v", err)
 			} else if inRecovery == "true" {
 				t.Log("Cleanup: Primary was demoted, restoring to primary state...")
-				if err := restorePrimaryAfterDemotion(cleanupCtx, t, setup); err != nil {
+				if err := restorePrimaryAfterDemotion(cleanupCtx, primaryClient.Manager); err != nil {
 					t.Logf("Cleanup: Failed to restore primary after demotion: %v", err)
 				} else {
 					t.Log("Cleanup: Primary restored successfully")
@@ -1784,28 +1809,26 @@ func setupPoolerTest(t *testing.T, setup *MultipoolerTestSetup, opts ...cleanupO
 
 		// Restore pooler types to expected values (primary=PRIMARY, standby=REPLICA)
 		// These are the types set during initialization, so we can safely restore to them
-		if setup.PrimaryMultipooler != nil {
-			if err := setPoolerType(setup.PrimaryMultipooler.GrpcPort, clustermetadatapb.PoolerType_PRIMARY); err != nil {
+		if primaryClient != nil {
+			if err := setPoolerType(cleanupCtx, primaryClient.Manager, clustermetadatapb.PoolerType_PRIMARY); err != nil {
 				t.Logf("Cleanup: Failed to restore primary pooler type: %v", err)
 			}
 		}
-		if setup.StandbyMultipooler != nil {
-			if err := setPoolerType(setup.StandbyMultipooler.GrpcPort, clustermetadatapb.PoolerType_REPLICA); err != nil {
+		if standbyClient != nil {
+			if err := setPoolerType(cleanupCtx, standbyClient.Manager, clustermetadatapb.PoolerType_REPLICA); err != nil {
 				t.Logf("Cleanup: Failed to restore standby pooler type: %v", err)
 			}
 		}
 
 		// Reset consensus terms to 1 on both primary and standby
 		// This ensures clean state for the next test
-		resetCtx, resetCancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer resetCancel()
-		if setup.PrimaryMultipooler != nil {
-			if err := resetTerm(resetCtx, setup.PrimaryMultipooler.GrpcPort); err != nil {
+		if primaryClient != nil {
+			if err := resetTerm(cleanupCtx, primaryClient.Manager); err != nil {
 				t.Logf("Cleanup: Failed to reset primary term: %v", err)
 			}
 		}
-		if setup.StandbyMultipooler != nil {
-			if err := resetTerm(resetCtx, setup.StandbyMultipooler.GrpcPort); err != nil {
+		if standbyClient != nil {
+			if err := resetTerm(cleanupCtx, standbyClient.Manager); err != nil {
 				t.Logf("Cleanup: Failed to reset standby term: %v", err)
 			}
 		}
