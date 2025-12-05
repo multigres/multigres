@@ -481,6 +481,4 @@ func TestDemoteAndPromote(t *testing.T) {
 
 		t.Log("Confirmed: Demote correctly rejected on standby")
 	})
-
-	t.Log("=== All Demote/Promote tests passed, servers restored to original state ===")
 }
