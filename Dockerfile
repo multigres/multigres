@@ -6,7 +6,7 @@ FROM golang:1.25-alpine AS builder
 WORKDIR /src
 
 # Install build dependencies like git and make
-RUN apk add --no-cache git=2.49.1-r0 make=4.4.1-r3 bash=5.2.37-r0
+RUN apk add --no-cache git make bash
 
 # Cache dependencies
 COPY go.mod go.sum ./
