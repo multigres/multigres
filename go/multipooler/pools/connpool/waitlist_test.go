@@ -17,6 +17,7 @@ package connpool
 import (
 	"context"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -39,8 +40,8 @@ func TestWaitlistBasicOperations(t *testing.T) {
 	returned := wl.tryReturnConn(conn)
 	assert.False(t, returned)
 
-	// 3. expire on empty list returns 0
-	starving := wl.expire(false)
+	// 3. maybeStarvingCount on empty list returns 0
+	starving := wl.maybeStarvingCount()
 	assert.Equal(t, 0, starving)
 }
 
@@ -51,13 +52,14 @@ func TestWaitlistHandover(t *testing.T) {
 
 	ctx := context.Background()
 	conn := &Pooled[*mockConnection]{Conn: newMockConnection()}
+	closeChan := make(chan struct{})
 
 	// Start a waiter in a goroutine
 	var receivedConn *Pooled[*mockConnection]
 	var receivedErr error
 	var wg sync.WaitGroup
 	wg.Go(func() {
-		receivedConn, receivedErr = wl.waitForConn(ctx, nil)
+		receivedConn, receivedErr = wl.waitForConn(ctx, nil, closeChan)
 	})
 
 	// Give the waiter time to register
@@ -77,29 +79,29 @@ func TestWaitlistHandover(t *testing.T) {
 	assert.Equal(t, 0, wl.waiting())
 }
 
-// TestWaitlistExpire tests expiring waiters with cancelled contexts.
+// TestWaitlistExpire tests that waiters with cancelled contexts return immediately.
 func TestWaitlistExpire(t *testing.T) {
 	var wl waitlist[*mockConnection]
 	wl.init()
 
 	// Create a cancelled context
 	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
+	closeChan := make(chan struct{})
 
-	// Start a waiter with the cancelled context
+	// Start a waiter
 	var receivedConn *Pooled[*mockConnection]
 	var receivedErr error
 	var wg sync.WaitGroup
 	wg.Go(func() {
-		receivedConn, receivedErr = wl.waitForConn(ctx, nil)
+		receivedConn, receivedErr = wl.waitForConn(ctx, nil, closeChan)
 	})
 
 	// Give waiter time to register
 	time.Sleep(10 * time.Millisecond)
 	assert.Equal(t, 1, wl.waiting())
 
-	// Expire should remove the cancelled waiter
-	wl.expire(false)
+	// Cancel the context - the waiter should handle this via select
+	cancel()
 
 	wg.Wait()
 
@@ -109,20 +111,21 @@ func TestWaitlistExpire(t *testing.T) {
 	assert.Equal(t, 0, wl.waiting())
 }
 
-// TestWaitlistForceExpire tests force-expiring all waiters.
-func TestWaitlistForceExpire(t *testing.T) {
+// TestWaitlistPoolClose tests that closing the pool wakes all waiters.
+func TestWaitlistPoolClose(t *testing.T) {
 	var wl waitlist[*mockConnection]
 	wl.init()
 
 	ctx := context.Background()
+	closeChan := make(chan struct{})
 	var wg sync.WaitGroup
 
 	// Start multiple waiters
-	results := make(chan *Pooled[*mockConnection], 3)
+	errors := make(chan error, 3)
 	for range 3 {
 		wg.Go(func() {
-			conn, _ := wl.waitForConn(ctx, nil)
-			results <- conn
+			_, err := wl.waitForConn(ctx, nil, closeChan)
+			errors <- err
 		})
 	}
 
@@ -130,17 +133,61 @@ func TestWaitlistForceExpire(t *testing.T) {
 	time.Sleep(20 * time.Millisecond)
 	assert.Equal(t, 3, wl.waiting())
 
-	// Force expire all
-	wl.expire(true)
+	// Close the pool - all waiters should wake up
+	close(closeChan)
 
 	wg.Wait()
-	close(results)
+	close(errors)
 
-	// All should have received nil
-	for conn := range results {
-		assert.Nil(t, conn)
+	// All should have received ErrPoolClosed
+	for err := range errors {
+		assert.ErrorIs(t, err, ErrPoolClosed)
 	}
 	assert.Equal(t, 0, wl.waiting())
+}
+
+// TestWaitlistPoolCloseWithMultipleWaiters tests pool close behavior with multiple waiters.
+// This test is based on the Vitess race fix test.
+func TestWaitlistPoolCloseWithMultipleWaiters(t *testing.T) {
+	var wl waitlist[*mockConnection]
+	wl.init()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+	defer cancel()
+
+	closeChan := make(chan struct{})
+
+	waiterCount := 2
+	expireCount := atomic.Int32{}
+
+	for range waiterCount {
+		go func() {
+			_, err := wl.waitForConn(ctx, nil, closeChan)
+			if err != nil {
+				expireCount.Add(1)
+			}
+		}()
+	}
+
+	close(closeChan)
+
+	// Wait for the context to expire
+	<-ctx.Done()
+
+	// Wait for the notified goroutines to finish
+	timeout := time.After(1 * time.Second)
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
+	for expireCount.Load() != int32(waiterCount) {
+		select {
+		case <-timeout:
+			require.Failf(t, "Timed out waiting for all waiters to expire", "Wanted %d, got %d", waiterCount, expireCount.Load())
+		case <-ticker.C:
+			// try again
+		}
+	}
+
+	assert.Equal(t, int32(waiterCount), expireCount.Load())
 }
 
 // TestWaitlistSettingsMatching tests that connections are matched to waiters
@@ -150,6 +197,7 @@ func TestWaitlistSettingsMatching(t *testing.T) {
 	wl.init()
 
 	ctx := context.Background()
+	closeChan := make(chan struct{})
 	settings1 := connstate.NewSettings(map[string]string{"tz": "UTC"})
 	settings2 := connstate.NewSettings(map[string]string{"tz": "PST"})
 
@@ -160,11 +208,11 @@ func TestWaitlistSettingsMatching(t *testing.T) {
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
-		conn1Result, _ = wl.waitForConn(ctx, settings1) // wants UTC
+		conn1Result, _ = wl.waitForConn(ctx, settings1, closeChan) // wants UTC
 	}()
 	go func() {
 		defer wg.Done()
-		conn2Result, _ = wl.waitForConn(ctx, settings2) // wants PST
+		conn2Result, _ = wl.waitForConn(ctx, settings2, closeChan) // wants PST
 	}()
 
 	// Give waiters time to register

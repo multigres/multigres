@@ -64,7 +64,7 @@ func newTestPool(capacity int64) *Pool[*mockConnection] {
 		Capacity:     capacity,
 		MaxIdleCount: capacity,
 	})
-	pool.Open(func(ctx context.Context) (*mockConnection, error) {
+	pool.Open(context.Background(), func(ctx context.Context) (*mockConnection, error) {
 		return newMockConnection(), nil
 	}, nil)
 	return pool
