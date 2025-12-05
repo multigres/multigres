@@ -193,7 +193,11 @@ type BeginTermResponse struct {
 	// True if the term was accepted
 	Accepted bool `protobuf:"varint,2,opt,name=accepted,proto3" json:"accepted,omitempty"`
 	// ID of the responding pooler
-	PoolerId      string `protobuf:"bytes,3,opt,name=pooler_id,json=poolerId,proto3" json:"pooler_id,omitempty"`
+	PoolerId string `protobuf:"bytes,3,opt,name=pooler_id,json=poolerId,proto3" json:"pooler_id,omitempty"`
+	// If this node was a primary and demoted itself, this contains the final LSN
+	// before demotion. Standbys should replicate up to this point before switching
+	// to a new primary. Empty if node was not a primary or didn't demote.
+	DemoteLsn     string `protobuf:"bytes,4,opt,name=demote_lsn,json=demoteLsn,proto3" json:"demote_lsn,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -245,6 +249,13 @@ func (x *BeginTermResponse) GetAccepted() bool {
 func (x *BeginTermResponse) GetPoolerId() string {
 	if x != nil {
 		return x.PoolerId
+	}
+	return ""
+}
+
+func (x *BeginTermResponse) GetDemoteLsn() string {
+	if x != nil {
+		return x.DemoteLsn
 	}
 	return ""
 }
@@ -636,11 +647,13 @@ const file_consensusdata_proto_rawDesc = "" +
 	"\x04term\x18\x01 \x01(\x03R\x04term\x126\n" +
 	"\fcandidate_id\x18\x02 \x01(\v2\x13.clustermetadata.IDR\vcandidateId\x12\x19\n" +
 	"\bshard_id\x18\x03 \x01(\tR\ashardId\x12%\n" +
-	"\x0epolicy_version\x18\x04 \x01(\x03R\rpolicyVersion\"`\n" +
+	"\x0epolicy_version\x18\x04 \x01(\x03R\rpolicyVersion\"\x7f\n" +
 	"\x11BeginTermResponse\x12\x12\n" +
 	"\x04term\x18\x01 \x01(\x03R\x04term\x12\x1a\n" +
 	"\baccepted\x18\x02 \x01(\bR\baccepted\x12\x1b\n" +
-	"\tpooler_id\x18\x03 \x01(\tR\bpoolerId\">\n" +
+	"\tpooler_id\x18\x03 \x01(\tR\bpoolerId\x12\x1d\n" +
+	"\n" +
+	"demote_lsn\x18\x04 \x01(\tR\tdemoteLsn\">\n" +
 	"\rStatusRequest\x12\x12\n" +
 	"\x04term\x18\x01 \x01(\x03R\x04term\x12\x19\n" +
 	"\bshard_id\x18\x02 \x01(\tR\ashardId\"\xf7\x01\n" +
