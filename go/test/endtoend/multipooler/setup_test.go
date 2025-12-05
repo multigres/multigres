@@ -185,7 +185,9 @@ func (p *ProcessInstance) startPgctld(t *testing.T) error {
 	t.Logf("Data dir: %s, gRPC port: %d, PG port: %d", p.DataDir, p.GrpcPort, p.PgPort)
 
 	// Start the gRPC server
-	p.Process = exec.CommandContext(t.Context(), p.Binary, "server",
+	// NOTE: Use context.TODO() instead of t.Context() so the process isn't
+	// killed when the test ends - we need it to survive until cleanup completes.
+	p.Process = exec.CommandContext(context.TODO(), p.Binary, "server",
 		"--pooler-dir", p.DataDir,
 		"--grpc-port", strconv.Itoa(p.GrpcPort),
 		"--pg-port", strconv.Itoa(p.PgPort),
@@ -234,7 +236,9 @@ func (p *ProcessInstance) startMultipooler(t *testing.T) error {
 	}
 
 	// Start the multipooler server
-	p.Process = exec.CommandContext(t.Context(), p.Binary, args...)
+	// NOTE: Use context.TODO() instead of t.Context() so the process isn't
+	// killed when the test ends - we need it to survive until cleanup completes.
+	p.Process = exec.CommandContext(context.TODO(), p.Binary, args...)
 
 	// Set MULTIGRES_TESTDATA_DIR for directory-deletion triggered cleanup
 	p.Process.Env = append(p.Environment,
