@@ -27,9 +27,10 @@ import (
 
 	"github.com/lib/pq"
 
-	"github.com/multigres/multigres/go/clustermetadata/topo"
+	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/servenv"
+	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/multipooler/heartbeat"
 	"github.com/multigres/multigres/go/multipooler/poolerserver"
 	"github.com/multigres/multigres/go/tools/retry"
@@ -61,7 +62,7 @@ type MultiPoolerManager struct {
 	logger       *slog.Logger
 	config       *Config
 	db           *sql.DB
-	topoClient   topo.Store
+	topoClient   topoclient.Store
 	serviceID    *clustermetadatapb.ID
 	replTracker  *heartbeat.ReplTracker
 	pgctldClient pgctldpb.PgCtldClient
@@ -88,7 +89,7 @@ type MultiPoolerManager struct {
 	mu sync.Mutex
 
 	isOpen          bool
-	multipooler     *topo.MultiPoolerInfo
+	multipooler     *topoclient.MultiPoolerInfo
 	state           ManagerState
 	stateError      error
 	consensusState  *ConsensusState
@@ -137,17 +138,33 @@ type demotionState struct {
 // cachedMultiPoolerInfo holds a thread-safe cached copy of the multipooler info
 type cachedMultiPoolerInfo struct {
 	mu          sync.Mutex
-	multipooler *topo.MultiPoolerInfo
+	multipooler *topoclient.MultiPoolerInfo
 }
 
 // NewMultiPoolerManager creates a new MultiPoolerManager instance
-func NewMultiPoolerManager(logger *slog.Logger, config *Config) *MultiPoolerManager {
+func NewMultiPoolerManager(logger *slog.Logger, config *Config) (*MultiPoolerManager, error) {
 	return NewMultiPoolerManagerWithTimeout(logger, config, 5*time.Minute)
 }
 
 // NewMultiPoolerManagerWithTimeout creates a new MultiPoolerManager instance with a custom load timeout
-func NewMultiPoolerManagerWithTimeout(logger *slog.Logger, config *Config, loadTimeout time.Duration) *MultiPoolerManager {
+func NewMultiPoolerManagerWithTimeout(logger *slog.Logger, config *Config, loadTimeout time.Duration) (*MultiPoolerManager, error) {
 	ctx, cancel := context.WithCancel(context.TODO())
+
+	// Validate required config fields
+	if config.TableGroup == "" {
+		cancel()
+		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "TableGroup is required")
+	}
+	if config.Shard == "" {
+		cancel()
+		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "Shard is required")
+	}
+
+	// MVP validation: fail fast if tablegroup/shard are not the MVP defaults
+	if err := constants.ValidateMVPTableGroupAndShard(config.TableGroup, config.Shard); err != nil {
+		cancel()
+		return nil, mterrors.Wrap(err, "MVP validation failed")
+	}
 
 	// Create pgctld gRPC client
 	var pgctldClient pgctldpb.PgCtldClient
@@ -182,7 +199,7 @@ func NewMultiPoolerManagerWithTimeout(logger *slog.Logger, config *Config, loadT
 	pm.qsc = poolerserver.NewMultiPooler(logger)
 	logger.Info("Created query service controller")
 
-	return pm
+	return pm, nil
 }
 
 // connectDB establishes a connection to PostgreSQL (reuses the shared logic)
@@ -249,7 +266,7 @@ func (pm *MultiPoolerManager) Open() error {
 		} else if isPrimary {
 			// Only create the sidecar schema on primary databases
 			pm.logger.InfoContext(ctx, "MultiPoolerManager: Creating sidecar schema on primary database")
-			if err := CreateSidecarSchema(pm.db); err != nil {
+			if err := pm.createSidecarSchema(ctx); err != nil {
 				return fmt.Errorf("failed to create sidecar schema: %w", err)
 			}
 		} else {
@@ -357,7 +374,7 @@ func (pm *MultiPoolerManager) GetStateError() error {
 }
 
 // GetMultiPooler returns the current multipooler record and state
-func (pm *MultiPoolerManager) GetMultiPooler() (*topo.MultiPoolerInfo, ManagerState, error) {
+func (pm *MultiPoolerManager) GetMultiPooler() (*topoclient.MultiPoolerInfo, ManagerState, error) {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
 	return pm.multipooler, pm.state, pm.stateError
@@ -382,24 +399,14 @@ func (pm *MultiPoolerManager) getPgCtldClient() pgctldpb.PgCtldClient {
 	return pm.pgctldClient
 }
 
-// getTableGroup returns the table group from the multipooler record
+// getTableGroup returns the table group from the config (static, set at startup)
 func (pm *MultiPoolerManager) getTableGroup() string {
-	pm.cachedMultipooler.mu.Lock()
-	defer pm.cachedMultipooler.mu.Unlock()
-	if pm.cachedMultipooler.multipooler != nil && pm.cachedMultipooler.multipooler.MultiPooler != nil {
-		return pm.cachedMultipooler.multipooler.TableGroup
-	}
-	return ""
+	return pm.config.TableGroup
 }
 
-// getShard returns the shard from the multipooler record
+// getShard returns the shard from the config (static, set at startup)
 func (pm *MultiPoolerManager) getShard() string {
-	pm.cachedMultipooler.mu.Lock()
-	defer pm.cachedMultipooler.mu.Unlock()
-	if pm.cachedMultipooler.multipooler != nil && pm.cachedMultipooler.multipooler.MultiPooler != nil {
-		return pm.cachedMultipooler.multipooler.Shard
-	}
-	return ""
+	return pm.config.Shard
 }
 
 // getPoolerType returns the pooler type from the multipooler record
@@ -427,7 +434,7 @@ func (pm *MultiPoolerManager) getMultipoolerIDString() (string, error) {
 	pm.cachedMultipooler.mu.Lock()
 	defer pm.cachedMultipooler.mu.Unlock()
 	if pm.cachedMultipooler.multipooler != nil && pm.cachedMultipooler.multipooler.Id != nil {
-		return topo.MultiPoolerIDString(pm.cachedMultipooler.multipooler.Id), nil
+		return topoclient.MultiPoolerIDString(pm.cachedMultipooler.multipooler.Id), nil
 	}
 	return "", mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION, "multipooler ID not available")
 }
@@ -458,7 +465,7 @@ func (pm *MultiPoolerManager) updateCachedMultipooler() {
 	pm.cachedMultipooler.mu.Lock()
 	defer pm.cachedMultipooler.mu.Unlock()
 	clonedProto := proto.Clone(pm.multipooler.MultiPooler).(*clustermetadatapb.MultiPooler)
-	pm.cachedMultipooler.multipooler = topo.NewMultiPoolerInfo(clonedProto, pm.multipooler.Version())
+	pm.cachedMultipooler.multipooler = topoclient.NewMultiPoolerInfo(clonedProto, pm.multipooler.Version())
 }
 
 // checkReady returns an error if the manager is not in Ready state

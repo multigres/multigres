@@ -33,8 +33,9 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"gopkg.in/yaml.v3"
 
-	"github.com/multigres/multigres/go/clustermetadata/topo"
 	"github.com/multigres/multigres/go/cmd/multigres/command/cluster"
+	"github.com/multigres/multigres/go/common/constants"
+	"github.com/multigres/multigres/go/common/topoclient"
 	pb "github.com/multigres/multigres/go/pb/pgctldservice"
 	"github.com/multigres/multigres/go/provisioner/local"
 	"github.com/multigres/multigres/go/test/utils"
@@ -210,7 +211,8 @@ func createTestConfigWithPorts(tempDir string, portConfig *testPortConfig) (stri
 			Multipooler: local.MultipoolerConfig{
 				Path:           "multipooler",
 				Database:       "postgres",
-				TableGroup:     "default",
+				TableGroup:     constants.DefaultTableGroup,
+				Shard:          constants.DefaultShard,
 				ServiceID:      serviceID,
 				PoolerDir:      local.GeneratePoolerDir(tempDir, serviceID),
 				PgPort:         zonePort.PgctldPGPort, // Same as pgctld for this zone
@@ -275,7 +277,7 @@ func createTestConfigWithPorts(tempDir string, portConfig *testPortConfig) (stri
 // checkCellExistsInTopology checks if a cell exists in the topology server
 func checkCellExistsInTopology(etcdAddress, globalRootPath, cellName string) error {
 	// Create topology store connection
-	ts, err := topo.OpenServer("etcd2", globalRootPath, []string{etcdAddress}, topo.NewDefaultTopoConfig())
+	ts, err := topoclient.OpenServer("etcd2", globalRootPath, []string{etcdAddress}, topoclient.NewDefaultTopoConfig())
 	if err != nil {
 		return fmt.Errorf("failed to connect to topology server: %w", err)
 	}
@@ -304,10 +306,10 @@ func checkCellExistsInTopology(etcdAddress, globalRootPath, cellName string) err
 	return nil
 }
 
-// checkMultipoolerDatabaseInTopology checks if multipooler is registered with database field in topology
-func checkMultipoolerDatabaseInTopology(etcdAddress, globalRootPath, cellName, expectedDatabase string) error {
+// checkMultipoolerTopoRegistration checks if multipooler is registered with correct database, tablegroup, and shard in topology
+func checkMultipoolerTopoRegistration(etcdAddress, globalRootPath, cellName, expectedDatabase, expectedTableGroup, expectedShard string) error {
 	// Create topology store connection
-	ts, err := topo.OpenServer("etcd2", globalRootPath, []string{etcdAddress}, topo.NewDefaultTopoConfig())
+	ts, err := topoclient.OpenServer("etcd2", globalRootPath, []string{etcdAddress}, topoclient.NewDefaultTopoConfig())
 	if err != nil {
 		return fmt.Errorf("failed to connect to topology server: %w", err)
 	}
@@ -326,22 +328,25 @@ func checkMultipoolerDatabaseInTopology(etcdAddress, globalRootPath, cellName, e
 		return fmt.Errorf("no multipoolers found in cell '%s'", cellName)
 	}
 
-	// Check that at least one multipooler has the correct database field
+	// Check that at least one multipooler has the correct database, tablegroup, and shard
 	for _, info := range multipoolerInfos {
-		if info.Database == expectedDatabase {
-			// Found a multipooler with the expected database
+		if info.Database == expectedDatabase &&
+			info.TableGroup == expectedTableGroup &&
+			info.Shard == expectedShard {
+			// Found a multipooler with the expected registration
 			return nil
 		}
 	}
 
-	// If we get here, no multipooler had the expected database
-	var foundDatabases []string
+	// If we get here, no multipooler had the expected values
+	var found []string
 	for _, info := range multipoolerInfos {
-		foundDatabases = append(foundDatabases, fmt.Sprintf("'%s'", info.Database))
+		found = append(found, fmt.Sprintf("{database: '%s', tablegroup: '%s', shard: '%s'}",
+			info.Database, info.TableGroup, info.Shard))
 	}
 
-	return fmt.Errorf("expected to find multipooler with database '%s' but found databases: [%s]",
-		expectedDatabase, strings.Join(foundDatabases, ", "))
+	return fmt.Errorf("expected to find multipooler with database='%s', tablegroup='%s', shard='%s' but found: [%s]",
+		expectedDatabase, expectedTableGroup, expectedShard, strings.Join(found, ", "))
 }
 
 // getServiceStates reads all service state files from the state directory
@@ -870,10 +875,10 @@ func TestClusterLifecycle(t *testing.T) {
 		require.NoError(t, checkCellExistsInTopology(etcdAddress, globalRootPath, cellName),
 			"cell should exist in topology after cluster start command")
 
-		// Verify multipooler is registered with database field in topology
-		t.Log("Verifying multipooler has database field populated in topology...")
-		require.NoError(t, checkMultipoolerDatabaseInTopology(etcdAddress, globalRootPath, cellName, expectedDatabase),
-			"multipooler should be registered with database field in topology")
+		// Verify multipooler is registered with database, tablegroup, and shard in topology
+		t.Log("Verifying multipooler registration in topology...")
+		require.NoError(t, checkMultipoolerTopoRegistration(etcdAddress, globalRootPath, cellName, expectedDatabase, constants.DefaultTableGroup, constants.DefaultShard),
+			"multipooler should be registered with correct database, tablegroup, and shard in topology")
 
 		// Test PostgreSQL connectivity for both zones
 		t.Log("Testing PostgreSQL connectivity for both zones...")

@@ -22,9 +22,9 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 
-	"github.com/multigres/multigres/go/clustermetadata/topo"
-	"github.com/multigres/multigres/go/clustermetadata/toporeg"
 	"github.com/multigres/multigres/go/common/servenv"
+	"github.com/multigres/multigres/go/common/servenv/toporeg"
+	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/multipooler/grpcconsensusservice"
 	"github.com/multigres/multigres/go/multipooler/grpcmanagerservice"
 	"github.com/multigres/multigres/go/multipooler/grpcpoolerservice"
@@ -41,6 +41,7 @@ type MultiPooler struct {
 	cell                viperutil.Value[string]
 	database            viperutil.Value[string]
 	tableGroup          viperutil.Value[string]
+	shard               viperutil.Value[string]
 	serviceID           viperutil.Value[string]
 	socketFilePath      viperutil.Value[string]
 	poolerDir           viperutil.Value[string]
@@ -52,10 +53,10 @@ type MultiPooler struct {
 	// Senv is the serving environment
 	senv *servenv.ServEnv
 	// TopoConfig holds topology configuration
-	topoConfig *topo.TopoConfig
+	topoConfig *topoclient.TopoConfig
 	telemetry  *telemetry.Telemetry
 
-	ts           topo.Store
+	ts           topoclient.Store
 	tr           *toporeg.TopoReg
 	serverStatus Status
 }
@@ -87,6 +88,11 @@ func NewMultiPooler(telemetry *telemetry.Telemetry) *MultiPooler {
 		tableGroup: viperutil.Configure(reg, "table-group", viperutil.Options[string]{
 			Default:  "",
 			FlagName: "table-group",
+			Dynamic:  false,
+		}),
+		shard: viperutil.Configure(reg, "shard", viperutil.Options[string]{
+			Default:  "",
+			FlagName: "shard",
 			Dynamic:  false,
 		}),
 		serviceID: viperutil.Configure(reg, "service-id", viperutil.Options[string]{
@@ -123,7 +129,7 @@ func NewMultiPooler(telemetry *telemetry.Telemetry) *MultiPooler {
 		grpcServer: servenv.NewGrpcServer(reg),
 		senv:       servenv.NewServEnvWithConfig(reg, servenv.NewLogger(reg, telemetry), viperutil.NewViperConfig(reg), telemetry),
 		telemetry:  telemetry,
-		topoConfig: topo.NewTopoConfig(reg),
+		topoConfig: topoclient.NewTopoConfig(reg),
 		serverStatus: Status{
 			Title: "Multipooler",
 			Links: []Link{
@@ -145,6 +151,7 @@ func (mp *MultiPooler) RegisterFlags(flags *pflag.FlagSet) {
 	flags.String("cell", mp.cell.Default(), "cell to use")
 	flags.String("database", mp.database.Default(), "database name this multipooler serves (required)")
 	flags.String("table-group", mp.tableGroup.Default(), "table group this multipooler serves (required)")
+	flags.String("shard", mp.shard.Default(), "shard this multipooler serves (required)")
 	flags.String("service-id", mp.serviceID.Default(), "optional service ID (if empty, a random ID will be generated)")
 	flags.String("socket-file", mp.socketFilePath.Default(), "PostgreSQL Unix socket file path (if empty, TCP connection will be used)")
 	flags.String("pooler-dir", mp.poolerDir.Default(), "pooler directory path (if empty, socket-file path will be used as-is)")
@@ -157,6 +164,7 @@ func (mp *MultiPooler) RegisterFlags(flags *pflag.FlagSet) {
 		mp.cell,
 		mp.database,
 		mp.tableGroup,
+		mp.shard,
 		mp.serviceID,
 		mp.socketFilePath,
 		mp.poolerDir,
@@ -192,6 +200,7 @@ func (mp *MultiPooler) Init(startCtx context.Context) {
 		"cell", mp.cell.Get(),
 		"database", mp.database.Get(),
 		"table_group", mp.tableGroup.Get(),
+		"shard", mp.shard.Get(),
 		"socket_file_path", mp.socketFilePath.Get(),
 		"pooler_dir", mp.poolerDir.Get(),
 		"pg_port", mp.pgPort.Get(),
@@ -208,19 +217,28 @@ func (mp *MultiPooler) Init(startCtx context.Context) {
 		logger.ErrorContext(startCtx, "table group is required")
 		os.Exit(1)
 	}
+
+	if mp.shard.Get() == "" {
+		logger.ErrorContext(startCtx, "shard is required")
+		os.Exit(1)
+	}
+
 	// Create MultiPooler instance for topo registration
-	multipooler := topo.NewMultiPooler(mp.serviceID.Get(), mp.cell.Get(), mp.senv.GetHostname(), mp.tableGroup.Get())
+	multipooler := topoclient.NewMultiPooler(mp.serviceID.Get(), mp.cell.Get(), mp.senv.GetHostname(), mp.tableGroup.Get())
 	multipooler.PortMap["grpc"] = int32(mp.grpcServer.Port())
 	multipooler.PortMap["http"] = int32(mp.senv.GetHTTPPort())
 	multipooler.Database = mp.database.Get()
+	multipooler.Shard = mp.shard.Get()
 	multipooler.ServingStatus = clustermetadatapb.PoolerServingStatus_NOT_SERVING
 
 	logger.InfoContext(startCtx, "Initializing MultiPoolerManager")
-	poolerManager := manager.NewMultiPoolerManager(logger, &manager.Config{
+	poolerManager, err := manager.NewMultiPoolerManager(logger, &manager.Config{
 		SocketFilePath:      mp.socketFilePath.Get(),
 		PoolerDir:           mp.poolerDir.Get(),
 		PgPort:              mp.pgPort.Get(),
 		Database:            mp.database.Get(),
+		TableGroup:          mp.tableGroup.Get(),
+		Shard:               mp.shard.Get(),
 		TopoClient:          mp.ts,
 		ServiceID:           multipooler.Id,
 		HeartbeatIntervalMs: mp.heartbeatIntervalMs.Get(),
@@ -228,6 +246,10 @@ func (mp *MultiPooler) Init(startCtx context.Context) {
 		PgBackRestStanza:    mp.pgBackRestStanza.Get(),
 		ConsensusEnabled:    mp.grpcServer.CheckServiceMap("consensus", mp.senv),
 	})
+	if err != nil {
+		logger.ErrorContext(startCtx, "Failed to create multipooler from config", "error", err)
+		os.Exit(1)
+	}
 
 	// Start the MultiPoolerManager
 	poolerManager.Start(mp.senv)
