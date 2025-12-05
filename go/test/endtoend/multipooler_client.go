@@ -85,8 +85,10 @@ func NewMultiPoolerTestClient(addr string) (*MultiPoolerTestClient, error) {
 // ExecuteQuery executes a SQL query via the multipooler gRPC service
 func (c *MultiPoolerTestClient) ExecuteQuery(ctx context.Context, query string, maxRows uint64) (*querypb.QueryResult, error) {
 	req := &multipoolerpb.ExecuteQueryRequest{
-		Query:   query,
-		MaxRows: maxRows,
+		Query: query,
+		Options: &querypb.ExecuteOptions{
+			MaxRows: maxRows,
+		},
 		CallerId: &mtrpcpb.CallerID{
 			Principal:    "test-user",
 			Component:    "endtoend-test",

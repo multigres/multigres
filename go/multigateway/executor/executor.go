@@ -18,6 +18,7 @@ import (
 	"context"
 	"log/slog"
 
+	"github.com/multigres/multigres/go/common/preparedstatement"
 	"github.com/multigres/multigres/go/multigateway/engine"
 	"github.com/multigres/multigres/go/multigateway/handler"
 	"github.com/multigres/multigres/go/multigateway/planner"
@@ -63,21 +64,22 @@ func NewExecutor(exec engine.IExecute, logger *slog.Logger) *Executor {
 func (e *Executor) StreamExecute(
 	ctx context.Context,
 	conn *server.Conn,
-	sql string,
+	state *handler.MultiGatewayConnectionState,
+	queryStr string,
 	astStmt ast.Stmt,
 	callback func(ctx context.Context, res *query.QueryResult) error,
 ) error {
 	e.logger.DebugContext(ctx, "executing query",
-		"query", sql,
+		"query", queryStr,
 		"user", conn.User(),
 		"database", conn.Database(),
 		"connection_id", conn.ConnectionID())
 
 	// Step 1: Plan the query
-	plan, err := e.planner.Plan(sql, conn)
+	plan, err := e.planner.Plan(queryStr, conn)
 	if err != nil {
 		e.logger.ErrorContext(ctx, "query planning failed",
-			"query", sql,
+			"query", queryStr,
 			"error", err)
 		return err
 	}
@@ -88,20 +90,65 @@ func (e *Executor) StreamExecute(
 
 	// Step 2: Execute the plan
 	// Pass the IExecute implementation to the plan, which will pass it to the primitive
-	err = plan.StreamExecute(ctx, e.exec, conn, callback)
+	err = plan.StreamExecute(ctx, e.exec, conn, state, callback)
 	if err != nil {
 		e.logger.ErrorContext(ctx, "query execution failed",
-			"query", sql,
+			"query", queryStr,
 			"plan", plan.String(),
 			"error", err)
 		return err
 	}
 
 	e.logger.DebugContext(ctx, "query execution completed",
-		"query", sql,
+		"query", queryStr,
 		"tablegroup", plan.GetTableGroup())
 
 	return nil
+}
+
+// PortalStreamExecute executes a portal and streams results back via the callback function.
+func (e *Executor) PortalStreamExecute(
+	ctx context.Context,
+	conn *server.Conn,
+	state *handler.MultiGatewayConnectionState,
+	portalInfo *preparedstatement.PortalInfo,
+	maxRows int32,
+	callback func(ctx context.Context, res *query.QueryResult) error,
+) error {
+	e.logger.DebugContext(ctx, "executing portal",
+		"portal", portalInfo.Portal.Name,
+		"max_rows", maxRows,
+		"user", conn.User(),
+		"database", conn.Database(),
+		"connection_id", conn.ConnectionID())
+
+	// TODO: We will need to plan the query to find wether it can
+	// be served by a single shard or not. For now, since we only
+	// support unsharded, we don't have to do much.
+	// We just send the query to the default table group.
+
+	return e.exec.PortalStreamExecute(ctx, e.planner.GetDefaultTableGroup(), "", conn, state, portalInfo, maxRows, callback)
+}
+
+// Describe returns metadata about a prepared statement or portal.
+func (e *Executor) Describe(
+	ctx context.Context,
+	conn *server.Conn,
+	state *handler.MultiGatewayConnectionState,
+	portalInfo *preparedstatement.PortalInfo,
+	preparedStatementInfo *preparedstatement.PreparedStatementInfo,
+) (*query.StatementDescription, error) {
+	e.logger.DebugContext(ctx, "describe",
+		"user", conn.User(),
+		"database", conn.Database(),
+		"connection_id", conn.ConnectionID())
+
+	// TODO: We will need to plan the query to find wether it can
+	// be served by a single shard or not. For now, since we only
+	// support unsharded, we don't have to do much.
+	// We just send the query to the default table group.
+
+	return e.exec.Describe(ctx, e.planner.GetDefaultTableGroup(), "", conn, state, portalInfo, preparedStatementInfo)
 }
 
 // Ensure Executor implements handler.Executor interface.

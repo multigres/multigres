@@ -17,153 +17,107 @@ package handler
 import (
 	"sync"
 
-	"github.com/multigres/multigres/go/parser/ast"
+	"github.com/multigres/multigres/go/common/preparedstatement"
+	"github.com/multigres/multigres/go/common/protoutil"
+	"github.com/multigres/multigres/go/common/queryservice"
+	"github.com/multigres/multigres/go/pb/clustermetadata"
+	"github.com/multigres/multigres/go/pb/query"
 )
 
-// PreparedStatement represents a prepared statement in the extended query protocol.
-// Prepared statements are created by the Parse message and can be executed
-// multiple times with different parameter values.
-type PreparedStatement struct {
-	// Name is the client-provided name for the prepared statement.
-	// An empty name indicates the unnamed statement.
-	Name string
-
-	// Query is the SQL query string.
-	Query ast.Stmt
-
-	// ParamTypes contains the OIDs of the parameter types.
-	// This is sent by the client in the Parse message.
-	ParamTypes []uint32
-}
-
-// NewPreparedStatement creates a new PreparedStatement.
-func NewPreparedStatement(name string, query ast.Stmt, paramTypes []uint32) *PreparedStatement {
-	return &PreparedStatement{
-		Name:       name,
-		Query:      query,
-		ParamTypes: paramTypes,
-	}
-}
-
-// Portal represents a bound prepared statement with parameters.
-// Portals are created by the Bind message and can be executed via Execute.
-type Portal struct {
-	// Name is the client-provided name for the portal.
-	// An empty name indicates the unnamed portal.
-	Name string
-
-	// Statement is the prepared statement this portal is bound to.
-	Statement *PreparedStatement
-
-	// Params contains the parameter values sent by the client in the Bind message.
-	// Each parameter is a byte slice, with nil indicating NULL.
-	Params [][]byte
-
-	// ParamFormats specifies the format code for each parameter.
-	// 0 = text, 1 = binary.
-	// If empty, all parameters are text format.
-	// If a single element, that format applies to all parameters.
-	ParamFormats []int16
-
-	// ResultFormats specifies the format code for each result column.
-	// 0 = text, 1 = binary.
-	// If empty, all results are text format.
-	// If a single element, that format applies to all result columns.
-	ResultFormats []int16
-}
-
-// NewPortal creates a new Portal.
-func NewPortal(name string, statement *PreparedStatement, params [][]byte, paramFormats, resultFormats []int16) *Portal {
-	return &Portal{
-		Name:          name,
-		Statement:     statement,
-		Params:        params,
-		ParamFormats:  paramFormats,
-		ResultFormats: resultFormats,
-	}
-}
-
-// ConnectionState holds the state for the extended query protocol.
-// This includes prepared statements and portals.
-// All methods are thread-safe.
-type ConnectionState struct {
-	// mu protects all fields in this struct.
+// MultiGatewayConnectionState keeps track of the information specific
+// to each connection.
+type MultiGatewayConnectionState struct {
 	mu sync.Mutex
+	// NOTE: We are not storing the map of Prepared Statements even though
+	// that is also connection level information. We do not require storing
+	// it because we have prepared statement consolidation in MultiGateway
+	// and that has all the required information. We can choose to store the information
+	// here too but it would only lead to duplicate information storage and additional
+	// code burden to keep them in sync.
 
-	// preparedStatements stores prepared statements by name.
-	// The unnamed statement uses the empty string "" as the key.
-	preparedStatements map[string]*PreparedStatement
+	// Portals stores the list of portals created on this connection.
+	// Map is keyed by the name of the portal.
+	Portals map[string]*preparedstatement.PortalInfo
 
-	// portals stores portals (bound prepared statements) by name.
-	// The unnamed portal uses the empty string "" as the key.
-	portals map[string]*Portal
+	// ShardStates is the information per shard that needs to be maintained.
+	// It keeps track of any reserved connections on each Shard currently open.
+	ShardStates []*ShardState
 }
 
-// NewConnectionState creates a new ConnectionState with initialized maps.
-func NewConnectionState() *ConnectionState {
-	return &ConnectionState{
-		preparedStatements: make(map[string]*PreparedStatement),
-		portals:            make(map[string]*Portal),
+type ShardState struct {
+	// Target stores the information about the shard
+	Target *query.Target
+
+	// PoolerID is the pooler ID we are going to be running the queries against.
+	// This is particularly useful to ensure that we detect the case of a reparent when we are
+	// holding a reserved connection and the primary pooler changes.
+	PoolerID *clustermetadata.ID
+
+	// ReservedConnectionId is the connection ID of the reserved connection being held.
+	ReservedConnectionId int64
+}
+
+// NewMultiGatewayConnectionState creates a new MultiGatewayConnectionState.
+func NewMultiGatewayConnectionState() *MultiGatewayConnectionState {
+	return &MultiGatewayConnectionState{
+		mu:      sync.Mutex{},
+		Portals: make(map[string]*preparedstatement.PortalInfo),
 	}
 }
 
-// Close cleans up the connection state.
-func (cs *ConnectionState) Close() {
-	cs.mu.Lock()
-	defer cs.mu.Unlock()
-
-	cs.preparedStatements = nil
-	cs.portals = nil
+// StorePortalInfo stores the portal information.
+func (m *MultiGatewayConnectionState) StorePortalInfo(portal *query.Portal, psi *preparedstatement.PreparedStatementInfo) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.Portals[portal.Name] = preparedstatement.NewPortalInfo(psi, portal)
 }
 
-// StorePreparedStatement stores a prepared statement.
-// If a statement with the same name already exists, it is replaced.
-func (cs *ConnectionState) StorePreparedStatement(stmt *PreparedStatement) {
-	cs.mu.Lock()
-	defer cs.mu.Unlock()
-
-	cs.preparedStatements[stmt.Name] = stmt
+// GetPortalInfo gets the portal information for a previously stored portal.
+func (m *MultiGatewayConnectionState) GetPortalInfo(portalName string) *preparedstatement.PortalInfo {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.Portals[portalName]
 }
 
-// GetPreparedStatement retrieves a prepared statement by name.
-// Returns nil if the statement does not exist.
-func (cs *ConnectionState) GetPreparedStatement(name string) *PreparedStatement {
-	cs.mu.Lock()
-	defer cs.mu.Unlock()
-
-	return cs.preparedStatements[name]
+// DeletePortalInfo deletes the portal information
+func (m *MultiGatewayConnectionState) DeletePortalInfo(portalName string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	delete(m.Portals, portalName)
 }
 
-// StorePortal stores a portal.
-// If a portal with the same name already exists, it is replaced.
-func (cs *ConnectionState) StorePortal(portal *Portal) {
-	cs.mu.Lock()
-	defer cs.mu.Unlock()
-
-	cs.portals[portal.Name] = portal
+// NewShardState creates a new shard state.
+func NewShardState(target *query.Target) *ShardState {
+	return &ShardState{
+		Target: target,
+	}
 }
 
-// GetPortal retrieves a portal by name.
-// Returns nil if the portal does not exist.
-func (cs *ConnectionState) GetPortal(name string) *Portal {
-	cs.mu.Lock()
-	defer cs.mu.Unlock()
-
-	return cs.portals[name]
+// GetMatchingShardState gets the shardState (if any) that matches the target specified.
+func (m *MultiGatewayConnectionState) GetMatchingShardState(target *query.Target) *ShardState {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, ss := range m.ShardStates {
+		if protoutil.TargetEquals(ss.Target, target) {
+			return ss
+		}
+	}
+	return nil
 }
 
-// DeletePreparedStatement removes a prepared statement by name.
-// Does nothing if the statement doesn't exist (PostgreSQL-compliant behavior).
-func (cs *ConnectionState) DeletePreparedStatement(name string) {
-	cs.mu.Lock()
-	defer cs.mu.Unlock()
-	delete(cs.preparedStatements, name)
-}
-
-// DeletePortal removes a portal by name.
-// Does nothing if the portal doesn't exist (PostgreSQL-compliant behavior).
-func (cs *ConnectionState) DeletePortal(name string) {
-	cs.mu.Lock()
-	defer cs.mu.Unlock()
-	delete(cs.portals, name)
+// StoreReservedConnection stores a new reserved connection that has been created.
+func (m *MultiGatewayConnectionState) StoreReservedConnection(target *query.Target, rs queryservice.ReservedState) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, ss := range m.ShardStates {
+		if protoutil.TargetEquals(ss.Target, target) {
+			ss.PoolerID = rs.PoolerID
+			ss.ReservedConnectionId = int64(rs.ReservedConnectionId)
+			return
+		}
+	}
+	ss := NewShardState(target)
+	ss.PoolerID = rs.PoolerID
+	ss.ReservedConnectionId = int64(rs.ReservedConnectionId)
+	m.ShardStates = append(m.ShardStates, ss)
 }

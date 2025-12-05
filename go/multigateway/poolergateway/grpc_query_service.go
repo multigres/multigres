@@ -64,6 +64,7 @@ func (g *grpcQueryService) StreamExecute(
 	ctx context.Context,
 	target *query.Target,
 	sql string,
+	options *query.ExecuteOptions,
 	callback func(context.Context, *query.QueryResult) error,
 ) error {
 	g.logger.DebugContext(ctx, "streaming query execution",
@@ -75,8 +76,9 @@ func (g *grpcQueryService) StreamExecute(
 
 	// Create the request
 	req := &multipoolerservice.StreamExecuteRequest{
-		Query:  sql,
-		Target: target,
+		Query:   sql,
+		Target:  target,
+		Options: options,
 		// TODO: Add caller_id when we have authentication
 	}
 
@@ -118,26 +120,130 @@ func (g *grpcQueryService) StreamExecute(
 // ExecuteQuery implements queryservice.QueryService.
 // This should be used sparingly only when we know the result set is small,
 // otherwise StreamExecute should be used.
-func (g *grpcQueryService) ExecuteQuery(ctx context.Context, target *query.Target, sql string, maxRows uint64) (*query.QueryResult, error) {
+func (g *grpcQueryService) ExecuteQuery(ctx context.Context, target *query.Target, sql string, options *query.ExecuteOptions) (*query.QueryResult, error) {
 	g.logger.DebugContext(ctx, "Executing query",
 		"pooler_id", g.poolerID,
 		"tablegroup", target.TableGroup,
 		"shard", target.Shard,
 		"pooler_type", target.PoolerType.String(),
-		"max_rows", maxRows,
 		"query", sql)
 
 	// Create the request
 	req := &multipoolerservice.ExecuteQueryRequest{
 		Query:   sql,
 		Target:  target,
-		MaxRows: maxRows,
+		Options: options,
 		// TODO: Add caller_id when we have authentication
 	}
 
 	// Call the gRPC ExecuteQuery
 	res, err := g.client.ExecuteQuery(ctx, req)
 	return res.GetResult(), err
+}
+
+// PortalStreamExecute executes a portal (bound prepared statement) and streams results back via callback.
+// Returns ReservedState containing information about the reserved connection used for this execution.
+func (g *grpcQueryService) PortalStreamExecute(
+	ctx context.Context,
+	target *query.Target,
+	preparedStatement *query.PreparedStatement,
+	portal *query.Portal,
+	options *query.ExecuteOptions,
+	callback func(context.Context, *query.QueryResult) error,
+) (queryservice.ReservedState, error) {
+	g.logger.DebugContext(ctx, "portal stream execute",
+		"pooler_id", g.poolerID,
+		"tablegroup", target.TableGroup,
+		"shard", target.Shard,
+		"pooler_type", target.PoolerType.String(),
+		"portal", portal.Name)
+
+	// Create the request
+	req := &multipoolerservice.PortalStreamExecuteRequest{
+		Target:            target,
+		PreparedStatement: preparedStatement,
+		Portal:            portal,
+		Options:           options,
+		// TODO: Add caller_id when we have authentication
+	}
+
+	// Call the gRPC PortalStreamExecute
+	stream, err := g.client.PortalStreamExecute(ctx, req)
+	if err != nil {
+		return queryservice.ReservedState{}, fmt.Errorf("failed to start portal stream execute: %w", err)
+	}
+
+	var reservedState queryservice.ReservedState
+
+	// Stream results back via callback
+	for {
+		response, err := stream.Recv()
+		if errors.Is(err, io.EOF) {
+			// Stream completed successfully
+			g.logger.DebugContext(ctx, "portal stream completed", "pooler_id", g.poolerID)
+			return reservedState, nil
+		}
+		if err != nil {
+			return reservedState, fmt.Errorf("portal stream receive error: %w", err)
+		}
+
+		// Extract reserved state if present
+		if response.ReservedConnectionId != 0 {
+			reservedState.ReservedConnectionId = response.ReservedConnectionId
+			reservedState.PoolerID = response.PoolerId
+			g.logger.DebugContext(ctx, "received reserved connection",
+				"reserved_connection_id", response.ReservedConnectionId,
+				"pooler_id", response.PoolerId.String())
+		}
+
+		// Extract result from response
+		if response.Result == nil {
+			g.logger.WarnContext(ctx, "received response with nil result", "pooler_id", g.poolerID)
+			continue
+		}
+
+		// Call the callback with the result
+		if err := callback(ctx, response.Result); err != nil {
+			// Callback returned error, stop streaming
+			g.logger.DebugContext(ctx, "callback returned error, stopping stream",
+				"pooler_id", g.poolerID,
+				"error", err)
+			return reservedState, err
+		}
+	}
+}
+
+// Describe returns metadata about a prepared statement or portal.
+func (g *grpcQueryService) Describe(
+	ctx context.Context,
+	target *query.Target,
+	preparedStatement *query.PreparedStatement,
+	portal *query.Portal,
+	options *query.ExecuteOptions,
+) (*query.StatementDescription, error) {
+	g.logger.DebugContext(ctx, "describing statement/portal",
+		"pooler_id", g.poolerID,
+		"tablegroup", target.TableGroup,
+		"shard", target.Shard,
+		"pooler_type", target.PoolerType.String())
+
+	// Create the request
+	req := &multipoolerservice.DescribeRequest{
+		Target:            target,
+		PreparedStatement: preparedStatement,
+		Portal:            portal,
+		Options:           options,
+		// TODO: Add caller_id when we have authentication
+	}
+
+	// Call the gRPC Describe
+	response, err := g.client.Describe(ctx, req)
+	if err != nil {
+		return nil, fmt.Errorf("describe failed: %w", err)
+	}
+
+	g.logger.DebugContext(ctx, "describe completed successfully", "pooler_id", g.poolerID)
+	return response.Description, nil
 }
 
 // Close closes the gRPC connection.

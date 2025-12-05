@@ -24,8 +24,21 @@ package queryservice
 import (
 	"context"
 
+	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/pb/query"
 )
+
+// ReservedState contains information about a reserved connection.
+// This is returned by ReserveStreamExecute and should be stored in the shard state
+// to ensure subsequent queries in the same session use the same reserved connection.
+type ReservedState struct {
+	// ReservedConnectionId is the ID of the reserved connection on the multipooler.
+	ReservedConnectionId uint64
+
+	// PoolerID identifies which multipooler instance owns this reserved connection.
+	// This is needed to route subsequent queries to the correct pooler.
+	PoolerID *clustermetadatapb.ID
+}
 
 // QueryService is the interface for executing queries on a multipooler.
 // This interface abstracts the communication with multipooler instances
@@ -45,7 +58,7 @@ type QueryService interface {
 		ctx context.Context,
 		target *query.Target,
 		sql string,
-		maxRows uint64,
+		options *query.ExecuteOptions,
 	) (*query.QueryResult, error)
 
 	// StreamExecute executes a query and streams results back via callback.
@@ -57,8 +70,48 @@ type QueryService interface {
 		ctx context.Context,
 		target *query.Target,
 		sql string,
+		options *query.ExecuteOptions,
 		callback func(context.Context, *query.QueryResult) error,
 	) error
+
+	// PortalStreamExecute executes a portal (bound prepared statement) and streams results back via callback.
+	// Returns ReservedState containing information about the reserved connection used for this execution.
+	// The returned ReservedState should be stored in the connection's shard state to ensure
+	// subsequent queries in the same session use the same reserved connection.
+	//
+	// Parameters:
+	//   ctx: Context for cancellation and timeouts
+	//   target: Target specifying tablegroup, shard, and pooler type
+	//   preparedStatement: The prepared statement to execute
+	//   portal: The portal containing bound parameters
+	//   options: Execute options including max rows and reserved connection ID
+	//   callback: Function called for each result chunk
+	PortalStreamExecute(
+		ctx context.Context,
+		target *query.Target,
+		preparedStatement *query.PreparedStatement,
+		portal *query.Portal,
+		options *query.ExecuteOptions,
+		callback func(context.Context, *query.QueryResult) error,
+	) (ReservedState, error)
+
+	// Describe returns metadata about a prepared statement or portal.
+	// The target specifies which multipooler to query.
+	// Either preparedStatement or portal (or both) should be provided.
+	//
+	// Parameters:
+	//   ctx: Context for cancellation and timeouts
+	//   target: Target specifying tablegroup, shard, and pooler type
+	//   preparedStatement: The prepared statement to describe (nil if describing a portal)
+	//   portal: The portal to describe (nil if describing a prepared statement)
+	//   options: Execute options including reserved connection ID
+	Describe(
+		ctx context.Context,
+		target *query.Target,
+		preparedStatement *query.PreparedStatement,
+		portal *query.Portal,
+		options *query.ExecuteOptions,
+	) (*query.StatementDescription, error)
 
 	// Close closes the query service and releases resources.
 	// After Close is called, no other methods should be called.
