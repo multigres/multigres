@@ -31,12 +31,13 @@ import (
 	"syscall"
 	"time"
 
+	"golang.org/x/mod/semver"
+
 	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/provisioner"
 	"github.com/multigres/multigres/go/provisioner/local/ports"
 	"github.com/multigres/multigres/go/tools/pathutil"
 	"github.com/multigres/multigres/go/tools/retry"
-	"github.com/multigres/multigres/go/tools/semver"
 	"github.com/multigres/multigres/go/tools/stringutil"
 	"github.com/multigres/multigres/go/tools/telemetry"
 
@@ -719,6 +720,12 @@ func (p *localProvisioner) provisionMultipooler(ctx context.Context, req *provis
 		tableGroup = tgFromConfig
 	}
 
+	// Get shard from multipooler config, default to "0-inf" if not set
+	shard := "0-inf"
+	if shardFromConfig, ok := multipoolerConfig["shard"].(string); ok && shardFromConfig != "" {
+		shard = shardFromConfig
+	}
+
 	// Get log level
 	logLevel := "info"
 	if level, ok := multipoolerConfig["log_level"].(string); ok {
@@ -782,6 +789,7 @@ func (p *localProvisioner) provisionMultipooler(ctx context.Context, req *provis
 		"--cell", cell,
 		"--database", database,
 		"--table-group", tableGroup,
+		"--shard", shard,
 		"--service-id", serviceID,
 		"--pgctld-addr", pgctldResult.Address,
 		"--log-level", logLevel,
@@ -1395,6 +1403,11 @@ func (p *localProvisioner) Teardown(ctx context.Context, clean bool) error {
 		if err := p.cleanupSocketsDirectory(socketsDir); err != nil {
 			fmt.Printf("Warning: failed to clean up sockets directory: %v\n", err)
 		}
+
+		spoolDir := filepath.Join(p.config.RootWorkingDir, "spool")
+		if err := p.cleanupSpoolDirectory(spoolDir); err != nil {
+			fmt.Printf("Warning: failed to clean up spool directory: %v\n", err)
+		}
 	}
 
 	fmt.Println("Teardown completed successfully")
@@ -1460,6 +1473,20 @@ func (p *localProvisioner) cleanupSocketsDirectory(socketsDir string) error {
 	}
 
 	fmt.Printf("Cleaned up sockets directory: %s\n", socketsDir)
+	return nil
+}
+
+// cleanupSpoolDirectory removes the entire spool directory and all its contents
+func (p *localProvisioner) cleanupSpoolDirectory(spoolDir string) error {
+	if _, err := os.Stat(spoolDir); os.IsNotExist(err) {
+		return nil // Directory doesn't exist, nothing to clean up
+	}
+
+	if err := os.RemoveAll(spoolDir); err != nil {
+		return fmt.Errorf("failed to remove spool directory %s: %w", spoolDir, err)
+	}
+
+	fmt.Printf("Cleaned up spool directory: %s\n", spoolDir)
 	return nil
 }
 

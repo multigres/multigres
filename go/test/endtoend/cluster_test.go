@@ -34,6 +34,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/multigres/multigres/go/cmd/multigres/command/cluster"
+	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/topoclient"
 	pb "github.com/multigres/multigres/go/pb/pgctldservice"
 	"github.com/multigres/multigres/go/provisioner/local"
@@ -210,7 +211,8 @@ func createTestConfigWithPorts(tempDir string, portConfig *testPortConfig) (stri
 			Multipooler: local.MultipoolerConfig{
 				Path:           "multipooler",
 				Database:       "postgres",
-				TableGroup:     "default",
+				TableGroup:     constants.DefaultTableGroup,
+				Shard:          constants.DefaultShard,
 				ServiceID:      serviceID,
 				PoolerDir:      local.GeneratePoolerDir(tempDir, serviceID),
 				PgPort:         zonePort.PgctldPGPort, // Same as pgctld for this zone
@@ -304,8 +306,8 @@ func checkCellExistsInTopology(etcdAddress, globalRootPath, cellName string) err
 	return nil
 }
 
-// checkMultipoolerDatabaseInTopology checks if multipooler is registered with database field in topology
-func checkMultipoolerDatabaseInTopology(etcdAddress, globalRootPath, cellName, expectedDatabase string) error {
+// checkMultipoolerTopoRegistration checks if multipooler is registered with correct database, tablegroup, and shard in topology
+func checkMultipoolerTopoRegistration(etcdAddress, globalRootPath, cellName, expectedDatabase, expectedTableGroup, expectedShard string) error {
 	// Create topology store connection
 	ts, err := topoclient.OpenServer("etcd2", globalRootPath, []string{etcdAddress}, topoclient.NewDefaultTopoConfig())
 	if err != nil {
@@ -326,22 +328,25 @@ func checkMultipoolerDatabaseInTopology(etcdAddress, globalRootPath, cellName, e
 		return fmt.Errorf("no multipoolers found in cell '%s'", cellName)
 	}
 
-	// Check that at least one multipooler has the correct database field
+	// Check that at least one multipooler has the correct database, tablegroup, and shard
 	for _, info := range multipoolerInfos {
-		if info.Database == expectedDatabase {
-			// Found a multipooler with the expected database
+		if info.Database == expectedDatabase &&
+			info.TableGroup == expectedTableGroup &&
+			info.Shard == expectedShard {
+			// Found a multipooler with the expected registration
 			return nil
 		}
 	}
 
-	// If we get here, no multipooler had the expected database
-	var foundDatabases []string
+	// If we get here, no multipooler had the expected values
+	var found []string
 	for _, info := range multipoolerInfos {
-		foundDatabases = append(foundDatabases, fmt.Sprintf("'%s'", info.Database))
+		found = append(found, fmt.Sprintf("{database: '%s', tablegroup: '%s', shard: '%s'}",
+			info.Database, info.TableGroup, info.Shard))
 	}
 
-	return fmt.Errorf("expected to find multipooler with database '%s' but found databases: [%s]",
-		expectedDatabase, strings.Join(foundDatabases, ", "))
+	return fmt.Errorf("expected to find multipooler with database='%s', tablegroup='%s', shard='%s' but found: [%s]",
+		expectedDatabase, expectedTableGroup, expectedShard, strings.Join(found, ", "))
 }
 
 // getServiceStates reads all service state files from the state directory
@@ -765,54 +770,15 @@ func TestClusterLifecycle(t *testing.T) {
 
 	t.Run("cluster init and basic connectivity test", func(t *testing.T) {
 		// Setup test directory
-		tempDir, err := os.MkdirTemp("/tmp", "mlt")
-		require.NoError(t, err)
-
-		// Always cleanup processes, even if test fails
-		defer func() {
-			if cleanupErr := cleanupTestProcesses(tempDir); cleanupErr != nil {
-				t.Logf("Warning: cleanup failed: %v", cleanupErr)
-			}
-			if os.Getenv("KEEP_TEMP_DIRS") != "" {
-				t.Logf("Keeping test directory for debugging: %s", tempDir)
-			} else {
-				os.RemoveAll(tempDir)
-			}
-		}()
-
+		clusterSetup := setupTestCluster(t)
+		t.Cleanup(clusterSetup.Cleanup)
+		tempDir := clusterSetup.TempDir
+		configFile := clusterSetup.ConfigFile
+		testPorts := clusterSetup.PortConfig
 		t.Logf("Testing cluster lifecycle in directory: %s", tempDir)
-
-		// Setup test ports
-		t.Log("Setting up test ports...")
-		testPorts := getTestPortConfig(t, 2)
-
-		t.Logf("Using test ports - etcd-client:%d, etcd-peer:%d, multiadmin-http:%d, multiadmin-grpc:%d",
-			testPorts.EtcdClientPort, testPorts.EtcdPeerPort, testPorts.MultiadminHTTPPort, testPorts.MultiadminGRPCPort)
-		t.Logf("Zone 1 ports - multigateway-http:%d, multigateway-grpc:%d, multipooler-http:%d, multipooler-grpc:%d, multiorch-http:%d, multiorch-grpc:%d",
-			testPorts.Zones[0].MultigatewayHTTPPort, testPorts.Zones[0].MultigatewayGRPCPort,
-			testPorts.Zones[0].MultipoolerHTTPPort, testPorts.Zones[0].MultipoolerGRPCPort,
-			testPorts.Zones[0].MultiorchHTTPPort, testPorts.Zones[0].MultiorchGRPCPort)
-		t.Logf("Zone 2 ports - multigateway-http:%d, multigateway-grpc:%d, multipooler-http:%d, multipooler-grpc:%d, multiorch-http:%d, multiorch-grpc:%d",
-			testPorts.Zones[1].MultigatewayHTTPPort, testPorts.Zones[1].MultigatewayGRPCPort,
-			testPorts.Zones[1].MultipoolerHTTPPort, testPorts.Zones[1].MultipoolerGRPCPort,
-			testPorts.Zones[1].MultiorchHTTPPort, testPorts.Zones[1].MultiorchGRPCPort)
-
-		// Create cluster configuration with test ports
-		t.Log("Creating cluster configuration with test ports...")
-		configFile, err := createTestConfigWithPorts(tempDir, testPorts)
-		require.NoError(t, err, "Failed to create test configuration")
-		t.Logf("Created test configuration: %s", configFile)
 		// Print the actual config file contents
 		configContents, _ := os.ReadFile(configFile)
 		t.Logf("Config file contents:\n%s", string(configContents))
-
-		// Start cluster (up)
-		t.Log("Starting cluster...")
-		upOutput, err := executeStartCommand(t, []string{"--config-path", tempDir}, tempDir)
-		require.NoError(t, err, "Start command should succeed and start the cluster: %v", upOutput)
-
-		// Verify we got expected output
-		assert.Contains(t, upOutput, "Multigres — Distributed Postgres made easy")
 
 		// Verify all services connectivity using state files
 		t.Log("Verifying all services connectivity...")
@@ -892,21 +858,14 @@ func TestClusterLifecycle(t *testing.T) {
 		require.NoError(t, checkCellExistsInTopology(etcdAddress, globalRootPath, cellName),
 			"cell should exist in topology after cluster start command")
 
-		// Verify multipooler is registered with database field in topology
-		t.Log("Verifying multipooler has database field populated in topology...")
-		require.NoError(t, checkMultipoolerDatabaseInTopology(etcdAddress, globalRootPath, cellName, expectedDatabase),
-			"multipooler should be registered with database field in topology")
+		// Verify multipooler is registered with database, tablegroup, and shard in topology
+		t.Log("Verifying multipooler registration in topology...")
+		require.NoError(t, checkMultipoolerTopoRegistration(etcdAddress, globalRootPath, cellName, expectedDatabase, constants.DefaultTableGroup, constants.DefaultShard),
+			"multipooler should be registered with correct database, tablegroup, and shard in topology")
 
 		// Wait for multiorch to bootstrap both zones (create multigres schema and heartbeat table)
 		// PostgreSQL is initialized and started as part of the bootstrap process
-		t.Log("Waiting for multiorch to bootstrap zone1...")
 		multipoolerAddr := fmt.Sprintf("localhost:%d", testPorts.Zones[0].MultipoolerGRPCPort)
-		require.NoError(t, WaitForBootstrap(t, multipoolerAddr, 60*time.Second),
-			"multiorch should bootstrap zone1 within timeout")
-		t.Log("Waiting for multiorch to bootstrap zone2...")
-		multipoolerAddr2 := fmt.Sprintf("localhost:%d", testPorts.Zones[1].MultipoolerGRPCPort)
-		require.NoError(t, WaitForBootstrap(t, multipoolerAddr2, 60*time.Second),
-			"multiorch should bootstrap zone2 within timeout")
 
 		// Test PostgreSQL connectivity for both zones (after bootstrap)
 		t.Log("Testing PostgreSQL connectivity for both zones...")
@@ -954,7 +913,7 @@ func TestClusterLifecycle(t *testing.T) {
 
 		// Start cluster is idempotent
 		t.Log("Attempting to start running cluster...")
-		upOutput, err = executeStartCommand(t, []string{"--config-path", tempDir}, tempDir)
+		upOutput, err := executeStartCommand(t, []string{"--config-path", tempDir}, tempDir)
 		require.NoError(t, err, "Start command failed with output: %s", upOutput)
 		assert.Contains(t, upOutput, "Multigres — Distributed Postgres made easy")
 		assert.Contains(t, upOutput, "is already running")
@@ -1247,6 +1206,7 @@ type testClusterSetup struct {
 	TempDir    string
 	PortConfig *testPortConfig
 	ConfigFile string
+	Database   string
 	Cleanup    func()
 }
 
@@ -1325,12 +1285,26 @@ func setupTestCluster(t *testing.T) *testClusterSetup {
 		}
 	}
 
+	// Wait for multiorch to bootstrap both zones (create multigres schema and heartbeat table)
+	// PostgreSQL is initialized and started as part of the bootstrap process
+	database := "postgres" // Matches DefaultDbName in createTestConfigWithPorts
+	t.Log("Waiting for multiorch to bootstrap zone1...")
+	multipoolerAddr := fmt.Sprintf("localhost:%d", testPorts.Zones[0].MultipoolerGRPCPort)
+	require.NoError(t, WaitForBootstrap(t, multipoolerAddr, 60*time.Second, tempDir, database),
+		"multiorch should bootstrap zone1 within timeout")
+
+	t.Log("Waiting for multiorch to bootstrap zone2...")
+	multipoolerAddr2 := fmt.Sprintf("localhost:%d", testPorts.Zones[1].MultipoolerGRPCPort)
+	require.NoError(t, WaitForBootstrap(t, multipoolerAddr2, 60*time.Second, tempDir, database),
+		"multiorch should bootstrap zone2 within timeout")
+
 	t.Log("Test cluster setup completed successfully")
 
 	return &testClusterSetup{
 		TempDir:    tempDir,
 		PortConfig: testPorts,
 		ConfigFile: configFile,
+		Database:   database,
 		Cleanup:    cleanup,
 	}
 }

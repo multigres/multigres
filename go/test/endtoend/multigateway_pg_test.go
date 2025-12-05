@@ -38,18 +38,9 @@ func TestMultiGateway_PostgreSQLConnection(t *testing.T) {
 		t.Skip("PostgreSQL binaries not found, skipping cluster lifecycle tests")
 	}
 
-	// Setup full test cluster with all services
+	// Setup full test cluster with all services (includes waiting for bootstrap)
 	cluster := setupTestCluster(t)
-	defer cluster.Cleanup()
-
-	// Wait for multiorch to bootstrap the cluster before executing queries.
-	// The cluster setup starts all services, but postgres needs to be initialized
-	// by multiorch before queries can be executed.
-	multipoolerAddr := fmt.Sprintf("localhost:%d", cluster.PortConfig.Zones[0].MultipoolerGRPCPort)
-	t.Logf("Waiting for cluster bootstrap via multipooler at %s...", multipoolerAddr)
-	err := WaitForBootstrap(t, multipoolerAddr, 60*time.Second)
-	require.NoError(t, err, "cluster bootstrap did not complete in time")
-	t.Log("Cluster bootstrap completed")
+	t.Cleanup(cluster.Cleanup)
 
 	// Connect to multigateway's PostgreSQL port using PostgreSQL driver
 	connStr := fmt.Sprintf("host=localhost port=%d user=postgres dbname=postgres sslmode=disable connect_timeout=5",

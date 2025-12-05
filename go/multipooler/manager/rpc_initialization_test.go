@@ -24,6 +24,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
@@ -81,15 +82,18 @@ func TestInitializeEmptyPrimary(t *testing.T) {
 				Database:   "postgres",
 				TopoClient: store,
 				ServiceID:  serviceID,
+				TableGroup: constants.DefaultTableGroup,
+				Shard:      constants.DefaultShard,
 				// Note: pgctldClient is nil - operations that need it will fail gracefully
 			}
 
 			logger := slog.Default()
-			pm := NewMultiPoolerManager(logger, config)
+			pm, err := NewMultiPoolerManager(logger, config)
+			require.NoError(t, err)
 
 			// Initialize consensus state
 			pm.consensusState = NewConsensusState(poolerDir, serviceID)
-			_, err := pm.consensusState.Load()
+			_, err = pm.consensusState.Load()
 			require.NoError(t, err)
 
 			// Run setup function
@@ -187,14 +191,17 @@ func TestInitializeAsStandby(t *testing.T) {
 				Database:   "postgres",
 				TopoClient: store,
 				ServiceID:  serviceID,
+				TableGroup: constants.DefaultTableGroup,
+				Shard:      constants.DefaultShard,
 			}
 
 			logger := slog.Default()
-			pm := NewMultiPoolerManager(logger, config)
+			pm, err := NewMultiPoolerManager(logger, config)
+			require.NoError(t, err)
 
 			// Initialize consensus state
 			pm.consensusState = NewConsensusState(poolerDir, serviceID)
-			_, err := pm.consensusState.Load()
+			_, err = pm.consensusState.Load()
 			require.NoError(t, err)
 
 			// Run setup function

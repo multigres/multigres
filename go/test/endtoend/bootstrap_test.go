@@ -45,6 +45,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/common/topoclient/etcdtopo"
 	"github.com/multigres/multigres/go/test/utils"
@@ -172,7 +173,8 @@ func TestBootstrapInitialization(t *testing.T) {
 		multipoolerCmd := exec.Command("multipooler",
 			"--grpc-port", fmt.Sprintf("%d", node.grpcPort),
 			"--database", database,
-			"--table-group", "test",
+			"--table-group", constants.DefaultTableGroup,
+			"--shard", constants.DefaultShard,
 			"--pgctld-addr", fmt.Sprintf("localhost:%d", node.pgctldGrpcPort),
 			"--pooler-dir", node.dataDir,
 			"--pg-port", fmt.Sprintf("%d", node.pgPort),

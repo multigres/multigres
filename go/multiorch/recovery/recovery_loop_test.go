@@ -50,8 +50,8 @@ func (c *customAnalyzer) Name() types.CheckName {
 	return types.CheckName(c.name)
 }
 
-func (c *customAnalyzer) Analyze(a *store.ReplicationAnalysis) []types.Problem {
-	return c.analyzeFn(a)
+func (c *customAnalyzer) Analyze(a *store.ReplicationAnalysis) ([]types.Problem, error) {
+	return c.analyzeFn(a), nil
 }
 
 // trackingRecoveryAction is a test recovery action that tracks execution order.
@@ -530,7 +530,7 @@ func (m *mockPrimaryDeadAnalyzer) Name() types.CheckName {
 	return "MockPrimaryDeadCheck"
 }
 
-func (m *mockPrimaryDeadAnalyzer) Analyze(a *store.ReplicationAnalysis) []types.Problem {
+func (m *mockPrimaryDeadAnalyzer) Analyze(a *store.ReplicationAnalysis) ([]types.Problem, error) {
 	// Detect if this is a primary that is unreachable
 	if a.IsPrimary && a.IsUnreachable {
 		return []types.Problem{
@@ -545,9 +545,9 @@ func (m *mockPrimaryDeadAnalyzer) Analyze(a *store.ReplicationAnalysis) []types.
 				DetectedAt:     time.Now(),
 				Description:    "Primary is unreachable",
 			},
-		}
+		}, nil
 	}
-	return nil
+	return nil, nil
 }
 
 // mockReplicaNotReplicatingAnalyzer detects when a replica has stopped replicating
@@ -559,7 +559,7 @@ func (m *mockReplicaNotReplicatingAnalyzer) Name() types.CheckName {
 	return "MockReplicationStoppedCheck"
 }
 
-func (m *mockReplicaNotReplicatingAnalyzer) Analyze(a *store.ReplicationAnalysis) []types.Problem {
+func (m *mockReplicaNotReplicatingAnalyzer) Analyze(a *store.ReplicationAnalysis) ([]types.Problem, error) {
 	// Detect if this is a replica with replication stopped
 	if !a.IsPrimary && a.IsWalReplayPaused {
 		return []types.Problem{
@@ -574,9 +574,9 @@ func (m *mockReplicaNotReplicatingAnalyzer) Analyze(a *store.ReplicationAnalysis
 				DetectedAt:     time.Now(),
 				Description:    "Replica replication is paused",
 			},
-		}
+		}, nil
 	}
-	return nil
+	return nil, nil
 }
 
 // TestProcessShardProblems_DependencyEnforcement tests the full flow of
@@ -712,7 +712,8 @@ func TestProcessShardProblems_DependencyEnforcement(t *testing.T) {
 		analyzers := analysis.DefaultAnalyzers()
 		for _, poolerAnalysis := range analyses {
 			for _, analyzer := range analyzers {
-				detectedProblems := analyzer.Analyze(poolerAnalysis)
+				detectedProblems, err := analyzer.Analyze(poolerAnalysis)
+				require.NoError(t, err)
 				problems = append(problems, detectedProblems...)
 			}
 		}
@@ -783,7 +784,8 @@ func TestProcessShardProblems_DependencyEnforcement(t *testing.T) {
 		analyzers := analysis.DefaultAnalyzers()
 		for _, poolerAnalysis := range analyses {
 			for _, analyzer := range analyzers {
-				detectedProblems := analyzer.Analyze(poolerAnalysis)
+				detectedProblems, err := analyzer.Analyze(poolerAnalysis)
+				require.NoError(t, err)
 				problems = append(problems, detectedProblems...)
 			}
 		}
@@ -888,7 +890,8 @@ func TestRecoveryLoop_ValidationPreventsStaleRecovery(t *testing.T) {
 	analyzers := analysis.DefaultAnalyzers()
 	for _, poolerAnalysis := range analyses {
 		for _, analyzer := range analyzers {
-			detectedProblems := analyzer.Analyze(poolerAnalysis)
+			detectedProblems, err := analyzer.Analyze(poolerAnalysis)
+			require.NoError(t, err)
 			problems = append(problems, detectedProblems...)
 		}
 	}
@@ -1077,7 +1080,8 @@ func TestRecoveryLoop_PostRecoveryRefresh(t *testing.T) {
 	analyzers := analysis.DefaultAnalyzers()
 	for _, poolerAnalysis := range analyses {
 		for _, analyzer := range analyzers {
-			detectedProblems := analyzer.Analyze(poolerAnalysis)
+			detectedProblems, err := analyzer.Analyze(poolerAnalysis)
+			require.NoError(t, err)
 			problems = append(problems, detectedProblems...)
 		}
 	}
@@ -1430,7 +1434,8 @@ func TestRecoveryLoop_PriorityOrdering(t *testing.T) {
 	analyzers := analysis.DefaultAnalyzers()
 	for _, poolerAnalysis := range analyses {
 		for _, analyzer := range analyzers {
-			detectedProblems := analyzer.Analyze(poolerAnalysis)
+			detectedProblems, err := analyzer.Analyze(poolerAnalysis)
+			require.NoError(t, err)
 			problems = append(problems, detectedProblems...)
 		}
 	}
