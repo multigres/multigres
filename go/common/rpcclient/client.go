@@ -147,10 +147,6 @@ type MultiPoolerClient interface {
 	// InitializeAsStandby initializes the multipooler as a standby from a primary.
 	InitializeAsStandby(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.InitializeAsStandbyRequest) (*multipoolermanagerdatapb.InitializeAsStandbyResponse, error)
 
-	// InitializationStatus gets the initialization status of the multipooler.
-	// This is called frequently during discovery, so implementations cache connections.
-	InitializationStatus(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.InitializationStatusRequest) (*multipoolermanagerdatapb.InitializationStatusResponse, error)
-
 	//
 	// Manager Service Methods - Status and Monitoring
 	//

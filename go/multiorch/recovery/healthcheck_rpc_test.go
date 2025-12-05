@@ -74,6 +74,7 @@ func TestPollPooler_UpdatesStore_Primary(t *testing.T) {
 		cfg,
 		[]config.WatchTarget{{Database: "mydb"}},
 		fakeClient,
+		nil,
 	)
 
 	// Add a pooler to the store
@@ -166,6 +167,7 @@ func TestPollPooler_UpdatesStore_Replica(t *testing.T) {
 		cfg,
 		[]config.WatchTarget{{Database: "mydb"}},
 		fakeClient,
+		nil,
 	)
 
 	// Add a replica pooler to the store
@@ -248,6 +250,7 @@ func TestPollPooler_RPCFailure(t *testing.T) {
 		cfg,
 		[]config.WatchTarget{{Database: "mydb"}},
 		fakeClient,
+		nil,
 	)
 
 	// Add a pooler to the store
@@ -327,6 +330,7 @@ func TestPollPooler_TypeMismatch(t *testing.T) {
 		cfg,
 		[]config.WatchTarget{{Database: "mydb"}},
 		fakeClient,
+		nil,
 	)
 
 	// Add a pooler with REPLICA type in topology

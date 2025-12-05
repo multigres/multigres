@@ -12,7 +12,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package analysis
+// Package types contains shared types for the recovery system.
+// This package exists to avoid circular dependencies between the actions and analysis packages.
+package types
+
+import (
+	"context"
+	"time"
+
+	commontypes "github.com/multigres/multigres/go/common/types"
+	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+)
 
 // CheckName uniquely identifies a health check.
 type CheckName string
@@ -23,10 +33,12 @@ type CheckName string
 type ProblemCode string
 
 const (
+	// Shard bootstrap problems (highest priority - shard cannot function at all).
+	ProblemShardNeedsBootstrap ProblemCode = "ShardNeedsBootstrap"
+
 	// Primary problems (catastrophic - block everything else).
-	ProblemPrimaryDead         ProblemCode = "PrimaryDead"
-	ProblemPrimaryDiskStalled  ProblemCode = "PrimaryDiskStalled"
-	ProblemClusterHasNoPrimary ProblemCode = "ClusterHasNoPrimary"
+	ProblemPrimaryIsDead      ProblemCode = "PrimaryIsDead"
+	ProblemPrimaryDiskStalled ProblemCode = "PrimaryDiskStalled"
 
 	// Primary configuration problems (can fix while primary alive).
 	ProblemPrimaryNotAcceptingWrites ProblemCode = "PrimaryNotAcceptingWrites"
@@ -88,3 +100,55 @@ const (
 	// Recovery only requires refreshing the affected pooler and potentially the primary.
 	ScopePooler ProblemScope = "Pooler"
 )
+
+// Problem represents a detected issue.
+type Problem struct {
+	Code           ProblemCode           // Category of problem
+	CheckName      CheckName             // Which check detected it
+	PoolerID       *clustermetadatapb.ID // Affected pooler
+	ShardKey       commontypes.ShardKey  // Identifies the affected shard
+	Description    string                // Human-readable description
+	Priority       Priority              // Priority of this problem
+	Scope          ProblemScope          // Whether this affects the whole cluster or just one pooler
+	DetectedAt     time.Time             // When the problem was detected
+	RecoveryAction RecoveryAction        // What to do about it
+}
+
+// RecoveryAction is a function that fixes a problem.
+type RecoveryAction interface {
+	// Execute performs the recovery.
+	Execute(ctx context.Context, problem Problem) error
+
+	// Metadata returns info about this recovery.
+	Metadata() RecoveryMetadata
+
+	// RequiresHealthyPrimary indicates if this recovery requires a healthy primary.
+	// If true, the recovery will be skipped when the primary is unhealthy.
+	// This provides an extra guardrail to avoid accidental operations on replicas
+	// when the cluster is not healthy (e.g., can't fix replica replication if primary is dead).
+	RequiresHealthyPrimary() bool
+
+	// Priority returns the priority of this recovery action.
+	// Higher priority actions are attempted first.
+	Priority() Priority
+}
+
+// RecoveryMetadata describes the recovery action.
+type RecoveryMetadata struct {
+	Name        string
+	Description string
+	Timeout     time.Duration
+	// LockTimeout is the maximum time to wait for lock acquisition.
+	// Should be shorter than Timeout to leave time for the actual operation.
+	// Defaults to 15 seconds if zero.
+	LockTimeout time.Duration
+	Retryable   bool
+}
+
+// GetLockTimeout returns the lock timeout, defaulting to 15 seconds if not set.
+func (m RecoveryMetadata) GetLockTimeout() time.Duration {
+	if m.LockTimeout == 0 {
+		return 15 * time.Second
+	}
+	return m.LockTimeout
+}

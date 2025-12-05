@@ -522,6 +522,30 @@ archive_command = 'pgbackrest --stanza=%s --config=%s --repo1-path=%s archive-pu
 	// Wait for manager to be ready
 	waitForManagerReady(t, nil, multipooler)
 
+	// Create multigres schema and heartbeat table (needed for GetLeadershipView tests)
+	// This is normally done during InitializeEmptyPrimary, but we're setting up manually
+	primaryPoolerClient, err := endtoend.NewMultiPoolerTestClient(fmt.Sprintf("localhost:%d", multipooler.GrpcPort))
+	if err != nil {
+		return fmt.Errorf("failed to connect to primary pooler: %w", err)
+	}
+	defer primaryPoolerClient.Close()
+
+	_, err = primaryPoolerClient.ExecuteQuery(context.Background(), "CREATE SCHEMA IF NOT EXISTS multigres", 0)
+	if err != nil {
+		return fmt.Errorf("failed to create multigres schema: %w", err)
+	}
+
+	_, err = primaryPoolerClient.ExecuteQuery(context.Background(), `
+		CREATE TABLE IF NOT EXISTS multigres.heartbeat (
+			shard_id BYTEA PRIMARY KEY,
+			leader_id TEXT NOT NULL,
+			ts BIGINT NOT NULL
+		)`, 0)
+	if err != nil {
+		return fmt.Errorf("failed to create heartbeat table: %w", err)
+	}
+	t.Log("Created multigres schema and heartbeat table")
+
 	// Connect to multipooler manager
 	conn, err := grpc.NewClient(
 		fmt.Sprintf("localhost:%d", multipooler.GrpcPort),
@@ -884,10 +908,20 @@ func startEtcdForSharedSetup(t *testing.T, dataDir string) (string, *exec.Cmd, e
 		return "", nil, fmt.Errorf("failed to start etcd: %w", err)
 	}
 
-	// Wait for etcd to be ready
-	time.Sleep(500 * time.Millisecond)
+	// Wait for etcd to be ready by polling the client port
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		conn, err := net.DialTimeout("tcp", fmt.Sprintf("localhost:%d", clientPort), 100*time.Millisecond)
+		if err == nil {
+			conn.Close()
+			return clientAddr, cmd, nil
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
 
-	return clientAddr, cmd, nil
+	// If we get here, etcd didn't start in time - kill it and return error
+	_ = cmd.Process.Kill()
+	return "", nil, fmt.Errorf("etcd failed to become ready within 10 seconds")
 }
 
 // waitForManagerReady waits for the manager to be in ready state

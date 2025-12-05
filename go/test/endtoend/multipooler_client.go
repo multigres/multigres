@@ -17,6 +17,9 @@ package endtoend
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -24,7 +27,10 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 
+	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
+	multipoolermanagerpb "github.com/multigres/multigres/go/pb/multipoolermanager"
+	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
 	querypb "github.com/multigres/multigres/go/pb/query"
 	"github.com/multigres/multigres/go/tools/grpccommon"
@@ -108,6 +114,32 @@ func (c *MultiPoolerTestClient) Close() error {
 // Address returns the address this client is connected to
 func (c *MultiPoolerTestClient) Address() string {
 	return c.addr
+}
+
+// IsPrimary checks if the multipooler is the primary by calling the Status RPC.
+// Returns true if the pooler is PRIMARY, false otherwise.
+func IsPrimary(addr string) (bool, error) {
+	conn, err := grpc.NewClient(addr, grpccommon.LocalClientDialOptions()...)
+	if err != nil {
+		return false, fmt.Errorf("failed to create client: %w", err)
+	}
+	defer conn.Close()
+
+	client := multipoolermanagerpb.NewMultiPoolerManagerClient(conn)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	resp, err := client.Status(ctx, &multipoolermanagerdatapb.StatusRequest{})
+	if err != nil {
+		return false, fmt.Errorf("Status RPC failed: %w", err)
+	}
+
+	if resp == nil || resp.Status == nil {
+		return false, fmt.Errorf("received nil status response")
+	}
+
+	return resp.Status.PoolerType == clustermetadatapb.PoolerType_PRIMARY, nil
 }
 
 // Test helper functions
@@ -417,8 +449,117 @@ func TestPrimaryDetection(t *testing.T, client *MultiPoolerTestClient) {
 
 	inRecovery := string(result.Rows[0].Values[0])
 	t.Logf("pg_is_in_recovery() returned: %s", inRecovery)
+	// Note: inRecovery is "false" for primary, "true" for standby/replica
+}
 
-	// In test environments, we're typically connected to a primary
-	// so pg_is_in_recovery() should return false
-	assert.Equal(t, "false", inRecovery, "Test database should be primary (not in recovery)")
+// printServiceLogs prints the last N lines of a service's log file for debugging.
+// If lines is 0, prints all lines.
+// serviceName is the name of the service (e.g., "multiorch", "multipooler").
+// database is the database name (e.g., "postgres") or empty for global services.
+// serviceID is the service identifier used in the log filename (e.g., "zone1-multiorch").
+// If serviceID is empty, prints all log files for the service.
+func printServiceLogs(t *testing.T, configDir, serviceName, database, serviceID string, lines int) {
+	t.Helper()
+
+	var logDir string
+	if database != "" {
+		logDir = filepath.Join(configDir, "logs", "dbs", database, serviceName)
+	} else {
+		logDir = filepath.Join(configDir, "logs", serviceName)
+	}
+
+	// If serviceID is empty, print all log files in the directory
+	if serviceID == "" {
+		files, err := os.ReadDir(logDir)
+		if err != nil {
+			t.Logf("Could not read log directory %s: %v", logDir, err)
+			return
+		}
+		for _, file := range files {
+			if !file.IsDir() && filepath.Ext(file.Name()) == ".log" {
+				sid := strings.TrimSuffix(file.Name(), ".log")
+				printServiceLogs(t, configDir, serviceName, database, sid, lines)
+			}
+		}
+		return
+	}
+
+	logFile := filepath.Join(logDir, serviceID+".log")
+
+	data, err := os.ReadFile(logFile)
+	if err != nil {
+		t.Logf("Could not read log file %s: %v", logFile, err)
+		return
+	}
+
+	logLines := strings.Split(string(data), "\n")
+	startIdx := 0
+	if lines > 0 && len(logLines) > lines {
+		startIdx = len(logLines) - lines
+	}
+
+	if lines == 0 {
+		t.Logf("=== Full contents of %s ===", logFile)
+	} else {
+		t.Logf("=== Last %d lines of %s ===", lines, logFile)
+	}
+	for _, line := range logLines[startIdx:] {
+		if line != "" {
+			t.Log(line)
+		}
+	}
+	t.Logf("=== End of %s ===", logFile)
+}
+
+// WaitForBootstrap waits for multiorch to bootstrap the cluster by polling until
+// the multigres schema exists. Returns an error if bootstrap doesn't complete within timeout.
+// This function handles the case where PostgreSQL hasn't been initialized yet by retrying
+// until the database becomes available.
+// If configDir and database are provided, prints service logs on failure to help debug CI issues.
+func WaitForBootstrap(t *testing.T, addr string, timeout time.Duration, configDir, database string) error {
+	t.Helper()
+
+	// Create gRPC connection directly without testing query
+	// (PostgreSQL may not be initialized yet during bootstrap)
+	conn, err := grpc.NewClient(addr, grpccommon.LocalClientDialOptions()...)
+	if err != nil {
+		return fmt.Errorf("failed to create gRPC connection: %w", err)
+	}
+	defer conn.Close()
+
+	client := multipoolerpb.NewMultiPoolerServiceClient(conn)
+
+	deadline := time.Now().Add(timeout)
+	checkInterval := 500 * time.Millisecond
+	query := "SELECT nspname::text FROM pg_catalog.pg_namespace WHERE nspname = 'multigres'"
+
+	for time.Now().Before(deadline) {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		resp, err := client.ExecuteQuery(ctx, &multipoolerpb.ExecuteQueryRequest{
+			Query:   query,
+			MaxRows: 10,
+		})
+		cancel()
+
+		if err == nil && resp != nil && resp.Result != nil && len(resp.Result.Rows) > 0 {
+			t.Log("Bootstrap completed - multigres schema exists")
+			return nil
+		}
+
+		// Log progress with error details
+		if err != nil {
+			t.Logf("Waiting for bootstrap for: %v... (query error: %v)", addr, err)
+		} else {
+			t.Logf("Waiting for bootstrap for: %v... (multigres schema not yet created)", addr)
+		}
+		time.Sleep(checkInterval)
+	}
+
+	// Print logs to help debug CI failures
+	if configDir != "" && database != "" {
+		printServiceLogs(t, configDir, "multiorch", database, "", 0)
+		printServiceLogs(t, configDir, "multipooler", database, "", 100)
+	}
+
+	return fmt.Errorf("bootstrap did not complete within %v", timeout)
 }

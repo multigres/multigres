@@ -258,20 +258,8 @@ func (pm *MultiPoolerManager) Open() error {
 		// Use the multipooler name from serviceID as the pooler ID
 		poolerID := pm.serviceID.Name
 
-		// Check if connected to a primary database
-		isPrimary, err := pm.isPrimary(ctx)
-		if err != nil {
-			pm.logger.ErrorContext(ctx, "Failed to check if database is primary", "error", err)
-			// Don't fail the connection if primary check fails
-		} else if isPrimary {
-			// Only create the sidecar schema on primary databases
-			pm.logger.InfoContext(ctx, "MultiPoolerManager: Creating sidecar schema on primary database")
-			if err := pm.createSidecarSchema(ctx); err != nil {
-				return fmt.Errorf("failed to create sidecar schema: %w", err)
-			}
-		} else {
-			pm.logger.InfoContext(ctx, "MultiPoolerManager: Skipping sidecar schema creation on replica")
-		}
+		// Schema creation is now handled by multiorch during bootstrap initialization
+		// Do not auto-create schema when connecting to postgres
 
 		if err := pm.startHeartbeat(ctx, shardID, poolerID); err != nil {
 			pm.logger.ErrorContext(ctx, "Failed to start heartbeat", "error", err)
