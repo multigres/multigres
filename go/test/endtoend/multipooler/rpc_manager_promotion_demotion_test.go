@@ -278,7 +278,8 @@ func TestDemoteAndPromote(t *testing.T) {
 		setupPoolerTest(t, setup)
 
 		t.Log("Testing Promote idempotency...")
-		// Promote original primary back (it's currently demoted)
+
+		// First demote the primary so we can test promote idempotency
 		setTermReq := &multipoolermanagerdatapb.SetTermRequest{
 			Term: &multipoolermanagerdatapb.ConsensusTerm{
 				TermNumber: 6,
@@ -287,6 +288,27 @@ func TestDemoteAndPromote(t *testing.T) {
 		_, err := primaryManagerClient.SetTerm(utils.WithShortDeadline(t), setTermReq)
 		require.NoError(t, err)
 
+		demoteReq := &multipoolermanagerdatapb.DemoteRequest{
+			ConsensusTerm: 6,
+			DrainTimeout:  nil,
+			Force:         false,
+		}
+		_, err = primaryManagerClient.Demote(utils.WithTimeout(t, 10*time.Second), demoteReq)
+		require.NoError(t, err, "Demote should succeed")
+
+		// Configure demoted primary to replicate from standby
+		setPrimaryConnInfoReq := &multipoolermanagerdatapb.SetPrimaryConnInfoRequest{
+			Host:                  "localhost",
+			Port:                  int32(setup.StandbyMultipooler.PgPort),
+			StopReplicationBefore: false,
+			StartReplicationAfter: true,
+			CurrentTerm:           6,
+			Force:                 false,
+		}
+		_, err = primaryManagerClient.SetPrimaryConnInfo(utils.WithShortDeadline(t), setPrimaryConnInfoReq)
+		require.NoError(t, err)
+
+		// Now test promote idempotency
 		stopReq := &multipoolermanagerdatapb.StopReplicationRequest{}
 		_, err = primaryManagerClient.StopReplication(utils.WithShortDeadline(t), stopReq)
 		require.NoError(t, err)
@@ -353,7 +375,7 @@ func TestDemoteAndPromote(t *testing.T) {
 
 		t.Log("Testing Promote term validation...")
 
-		// Promote back to restore state
+		// First demote the primary so we can test promote term validation
 		setTermReq := &multipoolermanagerdatapb.SetTermRequest{
 			Term: &multipoolermanagerdatapb.ConsensusTerm{
 				TermNumber: 8,
@@ -362,6 +384,27 @@ func TestDemoteAndPromote(t *testing.T) {
 		_, err := primaryManagerClient.SetTerm(utils.WithShortDeadline(t), setTermReq)
 		require.NoError(t, err)
 
+		demoteReq := &multipoolermanagerdatapb.DemoteRequest{
+			ConsensusTerm: 8,
+			DrainTimeout:  nil,
+			Force:         false,
+		}
+		_, err = primaryManagerClient.Demote(utils.WithTimeout(t, 10*time.Second), demoteReq)
+		require.NoError(t, err, "Demote should succeed")
+
+		// Configure demoted primary to replicate from standby
+		setPrimaryConnInfoReq := &multipoolermanagerdatapb.SetPrimaryConnInfoRequest{
+			Host:                  "localhost",
+			Port:                  int32(setup.StandbyMultipooler.PgPort),
+			StopReplicationBefore: false,
+			StartReplicationAfter: true,
+			CurrentTerm:           8,
+			Force:                 false,
+		}
+		_, err = primaryManagerClient.SetPrimaryConnInfo(utils.WithShortDeadline(t), setPrimaryConnInfoReq)
+		require.NoError(t, err)
+
+		// Now test promote term validation
 		stopReq := &multipoolermanagerdatapb.StopReplicationRequest{}
 		_, err = primaryManagerClient.StopReplication(utils.WithShortDeadline(t), stopReq)
 		require.NoError(t, err)
