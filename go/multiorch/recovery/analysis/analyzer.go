@@ -15,16 +15,18 @@
 package analysis
 
 import (
+	"github.com/multigres/multigres/go/multiorch/recovery/types"
 	"github.com/multigres/multigres/go/multiorch/store"
 )
 
 // Analyzer analyzes ReplicationAnalysis and detects problems.
 type Analyzer interface {
 	// Name returns the unique name of this analyzer.
-	Name() CheckName
+	Name() types.CheckName
 
 	// Analyze examines the ReplicationAnalysis and returns any detected problems.
-	Analyze(analysis *store.ReplicationAnalysis) []Problem
+	// Returns an error if the analyzer cannot perform its analysis (e.g., missing dependencies).
+	Analyze(analysis *store.ReplicationAnalysis) ([]types.Problem, error)
 }
 
 // defaultAnalyzers holds the global list of analyzers.
@@ -34,8 +36,10 @@ var defaultAnalyzers []Analyzer
 // DefaultAnalyzers returns the current set of analyzers to run.
 func DefaultAnalyzers() []Analyzer {
 	if defaultAnalyzers == nil {
-		// TODO: Implement actual analyzers
-		return []Analyzer{}
+		return []Analyzer{
+			&ShardNeedsBootstrapAnalyzer{},
+			&PrimaryIsDeadAnalyzer{},
+		}
 	}
 	return defaultAnalyzers
 }
@@ -50,4 +54,20 @@ func SetTestAnalyzers(analyzers []Analyzer) {
 // This should be called in test cleanup.
 func ResetAnalyzers() {
 	defaultAnalyzers = nil
+}
+
+// globalFactory holds the global RecoveryActionFactory instance.
+// This is set during engine initialization and used by analyzers.
+var globalFactory *RecoveryActionFactory
+
+// SetRecoveryActionFactory sets the global recovery action factory.
+// This should be called during engine initialization.
+func SetRecoveryActionFactory(factory *RecoveryActionFactory) {
+	globalFactory = factory
+}
+
+// GetRecoveryActionFactory returns the global recovery action factory.
+// Analyzers use this to create recovery actions.
+func GetRecoveryActionFactory() *RecoveryActionFactory {
+	return globalFactory
 }

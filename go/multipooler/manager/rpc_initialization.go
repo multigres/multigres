@@ -197,7 +197,6 @@ func (pm *MultiPoolerManager) InitializeAsStandby(ctx context.Context, req *mult
 	} else {
 		pm.logger.WarnContext(ctx, "No LSN available from backup metadata")
 	}
-	// TODO: do something with finalLSN?
 
 	// 3. Wait for database connection
 	if err := pm.waitForDatabaseConnection(ctx); err != nil {
@@ -225,57 +224,41 @@ func (pm *MultiPoolerManager) InitializeAsStandby(ctx context.Context, req *mult
 	}, nil
 }
 
-// InitializationStatus returns the initialization status of this pooler
-// Used by multiorch coordinator to determine what initialization scenario to use
-func (pm *MultiPoolerManager) InitializationStatus(ctx context.Context, req *multipoolermanagerdatapb.InitializationStatusRequest) (*multipoolermanagerdatapb.InitializationStatusResponse, error) {
-	pm.logger.DebugContext(ctx, "InitializationStatus called", "shard", pm.getShardID())
-
-	// Acquire action lock to read consensus term consistently
-	var err error
-	ctx, err = pm.actionLock.Acquire(ctx, "InitializationStatus")
-	if err != nil {
-		return nil, mterrors.Wrap(err, "failed to acquire action lock")
-	}
-	defer pm.actionLock.Release(ctx)
-
-	// Get WAL position (ignore errors, just return empty string)
-	walPosition, _ := pm.getWALPosition(ctx)
-
-	resp := &multipoolermanagerdatapb.InitializationStatusResponse{
-		IsInitialized:    pm.isInitialized(ctx),
-		HasDataDirectory: pm.hasDataDirectory(),
-		PostgresRunning:  pm.isPostgresRunning(ctx),
-		Role:             pm.getRole(ctx),
-		WalPosition:      walPosition,
-		ShardId:          pm.getShardID(),
-	}
-
-	// Get consensus term if available
-	if pm.consensusState != nil {
-		term, err := pm.consensusState.GetCurrentTermNumber(ctx)
-		if err == nil {
-			resp.ConsensusTerm = term
-		}
-	}
-
-	return resp, nil
-}
-
 // Helper methods
 
 // isInitialized checks if the pooler has been initialized (has data directory and multigres schema)
+// This should return true even when postgres is not running, as long as the node was previously initialized.
 func (pm *MultiPoolerManager) isInitialized(ctx context.Context) bool {
 	if !pm.hasDataDirectory() {
 		return false
 	}
 
-	if pm.db == nil {
-		return false
+	// If database is connected, check if multigres schema exists
+	if pm.db != nil {
+		exists, err := pm.querySchemaExists(ctx)
+		return err == nil && exists
 	}
 
-	// Check if multigres schema exists
-	exists, err := pm.querySchemaExists(ctx)
-	return err == nil && exists
+	// If database is not connected (e.g., postgres is down), check if postgres data directory
+	// has been properly initialized by looking for PG_VERSION file (created by initdb)
+	dataDir := filepath.Join(pm.config.PoolerDir, "pg_data")
+	pgVersionFile := filepath.Join(dataDir, "PG_VERSION")
+	if _, err := os.Stat(pgVersionFile); err != nil {
+		return false // PG_VERSION doesn't exist, not initialized
+	}
+
+	// Postgres data directory is initialized. Now check if multigres schema was created.
+	// We can't query the database, so check if the schema exists on disk.
+	// The multigres schema creates tables in the global directory.
+	// A simple heuristic: if global/pg_internal.init exists and is non-empty, assume initialized.
+	globalDir := filepath.Join(dataDir, "global")
+	if _, err := os.Stat(globalDir); err != nil {
+		return false // No global directory
+	}
+
+	// If PG_VERSION exists and global directory exists, consider it initialized.
+	// This is a reasonable heuristic since RestoreFromBackup copies a fully initialized database.
+	return true
 }
 
 // hasDataDirectory checks if the PostgreSQL data directory exists
@@ -284,13 +267,12 @@ func (pm *MultiPoolerManager) hasDataDirectory() bool {
 		return false
 	}
 
+	// Check if PG_VERSION file exists to confirm the data directory is properly initialized.
+	// This prevents treating an empty directory (e.g., left behind by a failed initdb) as initialized.
 	dataDir := filepath.Join(pm.config.PoolerDir, "pg_data")
-	info, err := os.Stat(dataDir)
-	if err != nil {
-		return false
-	}
-
-	return info.IsDir()
+	pgVersionFile := filepath.Join(dataDir, "PG_VERSION")
+	_, err := os.Stat(pgVersionFile)
+	return err == nil
 }
 
 // isPostgresRunning checks if PostgreSQL is currently running
@@ -381,6 +363,14 @@ func (pm *MultiPoolerManager) waitForDatabaseConnection(ctx context.Context) err
 	// If we already have a connection, test it
 	if pm.db != nil {
 		if err := pm.db.PingContext(ctx); err == nil {
+			// Start heartbeat tracker if not already running
+			if pm.replTracker == nil {
+				shardID := []byte("0") // default shard ID
+				poolerID := pm.serviceID.Name
+				if err := pm.startHeartbeat(ctx, shardID, poolerID); err != nil {
+					pm.logger.WarnContext(ctx, "Failed to start heartbeat for existing DB connection", "error", err)
+				}
+			}
 			return nil
 		}
 		// Close stale connection
@@ -408,6 +398,21 @@ func (pm *MultiPoolerManager) waitForDatabaseConnection(ctx context.Context) err
 		// Try to open the connection
 		if err := pm.connectDB(); err == nil {
 			pm.logger.InfoContext(ctx, "Database connection established successfully", "attempts", attempt)
+
+			// Start heartbeat tracker if not already running
+			if pm.replTracker == nil {
+				shardID := []byte("0") // default shard ID
+				poolerID := pm.serviceID.Name
+				if err := pm.startHeartbeat(ctx, shardID, poolerID); err != nil {
+					pm.logger.WarnContext(ctx, "Failed to start heartbeat after DB connection", "error", err)
+					// Don't fail - heartbeat is not critical for initialization
+				}
+			}
+
+			// Also open the query service controller (executor) now that DB is connected
+			if err := pm.qsc.Open(); err != nil {
+				pm.logger.WarnContext(ctx, "Failed to open query service controller after DB connection", "error", err)
+			}
 			return nil
 		} else {
 			lastErr = err

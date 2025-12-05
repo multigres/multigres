@@ -21,9 +21,12 @@ import (
 	"sync"
 	"time"
 
+	"go.opentelemetry.io/otel/attribute"
+
 	"github.com/multigres/multigres/go/common/topoclient"
-	"github.com/multigres/multigres/go/common/types"
+	commontypes "github.com/multigres/multigres/go/common/types"
 	"github.com/multigres/multigres/go/multiorch/recovery/analysis"
+	"github.com/multigres/multigres/go/multiorch/recovery/types"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 )
@@ -54,12 +57,23 @@ func (re *Engine) performRecoveryCycle() {
 	analyses := generator.GenerateAnalyses()
 
 	// Run all analyzers to detect problems
-	var problems []analysis.Problem
+	var problems []types.Problem
 	analyzers := analysis.DefaultAnalyzers()
 
 	for _, poolerAnalysis := range analyses {
 		for _, analyzer := range analyzers {
-			detectedProblems := analyzer.Analyze(poolerAnalysis)
+			detectedProblems, err := analyzer.Analyze(poolerAnalysis)
+			if err != nil {
+				re.logger.ErrorContext(re.ctx, "analyzer error",
+					"analyzer", analyzer.Name(),
+					"pooler_id", topoclient.MultiPoolerIDString(poolerAnalysis.PoolerID),
+					"error", err,
+				)
+				re.metrics.errorsTotal.Add(re.ctx, "analyzer",
+					attribute.String("analyzer", string(analyzer.Name())),
+				)
+				continue
+			}
 			problems = append(problems, detectedProblems...)
 		}
 	}
@@ -77,7 +91,7 @@ func (re *Engine) performRecoveryCycle() {
 	var wg sync.WaitGroup
 	for shardKey, shardProblems := range problemsByShard {
 		wg.Add(1)
-		go func(key types.ShardKey, problems []analysis.Problem) {
+		go func(key commontypes.ShardKey, problems []types.Problem) {
 			defer wg.Done()
 			re.processShardProblems(key, problems)
 		}(shardKey, shardProblems)
@@ -86,23 +100,18 @@ func (re *Engine) performRecoveryCycle() {
 }
 
 // groupProblemsByShard groups problems by their shard.
-func (re *Engine) groupProblemsByShard(problems []analysis.Problem) map[types.ShardKey][]analysis.Problem {
-	grouped := make(map[types.ShardKey][]analysis.Problem)
+func (re *Engine) groupProblemsByShard(problems []types.Problem) map[commontypes.ShardKey][]types.Problem {
+	grouped := make(map[commontypes.ShardKey][]types.Problem)
 
 	for _, problem := range problems {
-		key := types.ShardKey{
-			Database:   problem.Database,
-			TableGroup: problem.TableGroup,
-			Shard:      problem.Shard,
-		}
-		grouped[key] = append(grouped[key], problem)
+		grouped[problem.ShardKey] = append(grouped[problem.ShardKey], problem)
 	}
 
 	return grouped
 }
 
 // processShardProblems handles all problems for a single shard.
-func (re *Engine) processShardProblems(shardKey types.ShardKey, problems []analysis.Problem) {
+func (re *Engine) processShardProblems(shardKey commontypes.ShardKey, problems []types.Problem) {
 	re.logger.DebugContext(re.ctx, "processing shard problems",
 		"database", shardKey.Database,
 		"tablegroup", shardKey.TableGroup,
@@ -133,9 +142,9 @@ func (re *Engine) processShardProblems(shardKey types.ShardKey, problems []analy
 
 // hasPrimaryProblem checks if any of the problems indicate an unhealthy primary.
 // Shard-wide problems (e.g., PrimaryDead) imply an unhealthy primary.
-func (re *Engine) hasPrimaryProblem(problems []analysis.Problem) bool {
+func (re *Engine) hasPrimaryProblem(problems []types.Problem) bool {
 	for _, problem := range problems {
-		if problem.Scope == analysis.ScopeShard {
+		if problem.Scope == types.ScopeShard {
 			return true
 		}
 	}
@@ -146,7 +155,7 @@ func (re *Engine) hasPrimaryProblem(problems []analysis.Problem) bool {
 // - Sorts by priority (highest first)
 // - If there's a shard-wide problem, return only the highest priority shard-wide problem
 // - Otherwise, return all problems sorted by priority
-func (re *Engine) filterAndPrioritize(problems []analysis.Problem) []analysis.Problem {
+func (re *Engine) filterAndPrioritize(problems []types.Problem) []types.Problem {
 	if len(problems) == 0 {
 		return problems
 	}
@@ -157,9 +166,9 @@ func (re *Engine) filterAndPrioritize(problems []analysis.Problem) []analysis.Pr
 	})
 
 	// Check if there are any shard-wide problems
-	var shardWideProblems []analysis.Problem
+	var shardWideProblems []types.Problem
 	for _, problem := range problems {
-		if problem.Scope == analysis.ScopeShard {
+		if problem.Scope == types.ScopeShard {
 			shardWideProblems = append(shardWideProblems, problem)
 		}
 	}
@@ -173,7 +182,7 @@ func (re *Engine) filterAndPrioritize(problems []analysis.Problem) []analysis.Pr
 			"total_shard_wide", len(shardWideProblems),
 			"total_problems", len(problems),
 		)
-		return []analysis.Problem{shardWideProblems[0]}
+		return []types.Problem{shardWideProblems[0]}
 	}
 
 	// No shard-wide problems, return all sorted by priority.
@@ -183,7 +192,7 @@ func (re *Engine) filterAndPrioritize(problems []analysis.Problem) []analysis.Pr
 // attemptRecovery attempts to recover from a single problem.
 // IMPORTANT: Before attempting recovery, force re-poll the affected pooler
 // to ensure the problem still exists.
-func (re *Engine) attemptRecovery(problem analysis.Problem) {
+func (re *Engine) attemptRecovery(problem types.Problem) {
 	poolerIDStr := topoclient.MultiPoolerIDString(problem.PoolerID)
 
 	re.logger.DebugContext(re.ctx, "attempting recovery",
@@ -211,12 +220,6 @@ func (re *Engine) attemptRecovery(problem analysis.Problem) {
 		return
 	}
 
-	// Acquire lock if needed
-	if problem.RecoveryAction.RequiresLock() {
-		// TODO: Implement shard locking
-		re.logger.DebugContext(re.ctx, "recovery action requires lock", "problem_code", problem.Code)
-	}
-
 	// Execute recovery action
 	ctx, cancel := context.WithTimeout(re.ctx, problem.RecoveryAction.Metadata().Timeout)
 	defer cancel()
@@ -239,15 +242,14 @@ func (re *Engine) attemptRecovery(problem analysis.Problem) {
 	// TODO: Record success in metrics
 
 	// Post-recovery refresh
-	// If we ran a shard-wide recovery, force refresh all poolers in the shard
-	// to ensure they have up-to-date state and prevent re-queueing the same problem.
-	if problem.Scope == analysis.ScopeShard {
+	// If we ran a shard-wide recovery, force health check all poolers in the shard
+	// to ensure they have up-to-date state. Health check returns PoolerType from
+	// pg_is_in_recovery which is authoritative (topology type is only a fallback).
+	if problem.Scope == types.ScopeShard {
 		re.logger.InfoContext(re.ctx, "forcing refresh of all poolers post recovery",
-			"database", problem.Database,
-			"tablegroup", problem.TableGroup,
-			"shard", problem.Shard,
+			"shard_key", problem.ShardKey.String(),
 		)
-		re.forceHealthCheckShardPoolers(context.TODO(), problem.Database, problem.TableGroup, problem.Shard, nil /* poolersToIgnore */)
+		re.forceHealthCheckShardPoolers(context.TODO(), problem.ShardKey, nil /* poolersToIgnore */)
 	}
 }
 
@@ -259,9 +261,9 @@ func (re *Engine) attemptRecovery(problem analysis.Problem) {
 // - SinglePooler: Only refresh the affected pooler + primary pooler
 //
 // Returns (stillExists bool, error).
-func (re *Engine) recheckProblem(problem analysis.Problem) (bool, error) {
+func (re *Engine) recheckProblem(problem types.Problem) (bool, error) {
 	poolerIDStr := topoclient.MultiPoolerIDString(problem.PoolerID)
-	isShardWide := problem.Scope == analysis.ScopeShard
+	isShardWide := problem.Scope == types.ScopeShard
 
 	re.logger.DebugContext(re.ctx, "validating problem still exists",
 		"pooler_id", poolerIDStr,
@@ -273,7 +275,7 @@ func (re *Engine) recheckProblem(problem analysis.Problem) (bool, error) {
 	defer cancel()
 
 	// Refresh metadata for the shard
-	if err := re.refreshShardMetadata(ctx, problem.Database, problem.TableGroup, problem.Shard, nil); err != nil {
+	if err := re.refreshShardMetadata(ctx, problem.ShardKey, nil); err != nil {
 		return false, fmt.Errorf("failed to refresh shard metadata: %w", err)
 	}
 
@@ -281,10 +283,10 @@ func (re *Engine) recheckProblem(problem analysis.Problem) (bool, error) {
 	if isShardWide {
 		// Shard-wide: refresh all poolers in shard except the dead one
 		var poolersToIgnore []string
-		if problem.Code == analysis.ProblemPrimaryDead {
+		if problem.Code == types.ProblemPrimaryIsDead {
 			poolersToIgnore = []string{poolerIDStr}
 		}
-		re.forceHealthCheckShardPoolers(ctx, problem.Database, problem.TableGroup, problem.Shard, poolersToIgnore)
+		re.forceHealthCheckShardPoolers(ctx, problem.ShardKey, poolersToIgnore)
 	} else {
 		// Single-pooler: only refresh this pooler + primary
 		re.logger.DebugContext(re.ctx, "refreshing single pooler and primary")
@@ -295,7 +297,7 @@ func (re *Engine) recheckProblem(problem analysis.Problem) (bool, error) {
 		}
 
 		// Find and refresh primary if different
-		primaryID, err := re.findPrimaryInShard(problem.Database, problem.TableGroup, problem.Shard)
+		primaryID, err := re.findPrimaryInShard(problem.ShardKey)
 		if err == nil && primaryID != poolerIDStr {
 			if ph, ok := re.poolerStore.Get(primaryID); ok {
 				re.pollPooler(ctx, ph.MultiPooler.Id, ph, true /* forceDiscovery */)
@@ -315,7 +317,13 @@ func (re *Engine) recheckProblem(problem analysis.Problem) (bool, error) {
 	analyzers := analysis.DefaultAnalyzers()
 	for _, analyzer := range analyzers {
 		if analyzer.Name() == problem.CheckName {
-			redetectedProblems := analyzer.Analyze(poolerAnalysis)
+			redetectedProblems, err := analyzer.Analyze(poolerAnalysis)
+			if err != nil {
+				re.metrics.errorsTotal.Add(re.ctx, "analyzer",
+					attribute.String("analyzer", string(analyzer.Name())),
+				)
+				return false, fmt.Errorf("analyzer %s failed during recheck: %w", analyzer.Name(), err)
+			}
 
 			// Check if the same problem code is still detected
 			for _, p := range redetectedProblems {
@@ -339,7 +347,7 @@ func (re *Engine) recheckProblem(problem analysis.Problem) (bool, error) {
 }
 
 // findPrimaryInShard finds the primary pooler ID for a given shard.
-func (re *Engine) findPrimaryInShard(database, tablegroup, shard string) (string, error) {
+func (re *Engine) findPrimaryInShard(shardKey commontypes.ShardKey) (string, error) {
 	var primaryID string
 	var found bool
 
@@ -348,9 +356,9 @@ func (re *Engine) findPrimaryInShard(database, tablegroup, shard string) (string
 			return true
 		}
 
-		if poolerHealth.MultiPooler.Database == database &&
-			poolerHealth.MultiPooler.TableGroup == tablegroup &&
-			poolerHealth.MultiPooler.Shard == shard &&
+		if poolerHealth.MultiPooler.Database == shardKey.Database &&
+			poolerHealth.MultiPooler.TableGroup == shardKey.TableGroup &&
+			poolerHealth.MultiPooler.Shard == shardKey.Shard &&
 			poolerHealth.MultiPooler.Type == clustermetadatapb.PoolerType_PRIMARY {
 			primaryID = poolerID
 			found = true
@@ -360,7 +368,7 @@ func (re *Engine) findPrimaryInShard(database, tablegroup, shard string) (string
 	})
 
 	if !found {
-		return "", fmt.Errorf("no primary found for shard %s/%s/%s", database, tablegroup, shard)
+		return "", fmt.Errorf("no primary found for shard %s", shardKey)
 	}
 
 	return primaryID, nil

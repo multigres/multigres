@@ -147,19 +147,6 @@ func (c *Client) InitializeAsStandby(ctx context.Context, pooler *clustermetadat
 	return conn.managerClient.InitializeAsStandby(ctx, request)
 }
 
-// InitializationStatus gets the initialization status of the multipooler.
-func (c *Client) InitializationStatus(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.InitializationStatusRequest) (*multipoolermanagerdatapb.InitializationStatusResponse, error) {
-	conn, closer, err := c.dialPersistent(ctx, pooler)
-	if err != nil {
-		return nil, err
-	}
-	defer func() {
-		_ = closer()
-	}()
-
-	return conn.managerClient.InitializationStatus(ctx, request)
-}
-
 //
 // Manager Service Methods - Status and Monitoring
 //

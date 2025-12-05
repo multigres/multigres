@@ -20,8 +20,6 @@ import (
 
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/mterrors"
-
-	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 )
 
 // ============================================================================
@@ -92,21 +90,12 @@ func (pm *MultiPoolerManager) initializeMultischemaData(ctx context.Context) err
 	shard := pm.getShard()
 
 	// MVP validation: only default tablegroup with shard 0-inf is supported
-	// This is an extra guardail. Multipoolers shouldn't start unless they
+	// This is an extra guardrail. Multipoolers shouldn't start unless they
 	// are in the default tablegroup. However, we shouldn't be calling this function
 	// by the time we support multiple tablegroups/shards.
 	// This will ensure we make sure to remove this code when we get to that point.
-	if tableGroup != constants.DefaultTableGroup {
-		pm.logger.ErrorContext(ctx, "Only default tablegroup is supported in MVP",
-			"tablegroup", tableGroup)
-		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
-			"only default tablegroup is supported, got: "+tableGroup)
-	}
-	if shard != constants.DefaultShard {
-		pm.logger.ErrorContext(ctx, "Only shard 0-inf is supported for default tablegroup in MVP",
-			"shard", shard)
-		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
-			"only shard 0-inf is supported for default tablegroup, got: "+shard)
+	if err := constants.ValidateMVPTableGroupAndShard(tableGroup, shard); err != nil {
+		return mterrors.Wrap(err, "MVP validation failed in initializeMultischemaData")
 	}
 
 	pm.logger.InfoContext(ctx, "Initializing multischema data",
@@ -131,7 +120,6 @@ func (pm *MultiPoolerManager) createSchema(ctx context.Context) error {
 
 	_, err := pm.db.ExecContext(execCtx, "CREATE SCHEMA IF NOT EXISTS multigres")
 	if err != nil {
-		pm.logger.ErrorContext(ctx, "Failed to create multigres schema", "error", err)
 		return mterrors.Wrap(err, "failed to create multigres schema")
 	}
 
@@ -155,7 +143,6 @@ func (pm *MultiPoolerManager) createHeartbeatTable(ctx context.Context) error {
 		)
 	`)
 	if err != nil {
-		pm.logger.ErrorContext(ctx, "Failed to create heartbeat table", "error", err)
 		return mterrors.Wrap(err, "failed to create heartbeat table")
 	}
 
@@ -183,7 +170,6 @@ func (pm *MultiPoolerManager) createDurabilityPolicyTable(ctx context.Context) e
 		)
 	`)
 	if err != nil {
-		pm.logger.ErrorContext(ctx, "Failed to create durability_policy table", "error", err)
 		return mterrors.Wrap(err, "failed to create durability_policy table")
 	}
 
@@ -197,7 +183,6 @@ func (pm *MultiPoolerManager) createDurabilityPolicyTable(ctx context.Context) e
 		WHERE is_active = true
 	`)
 	if err != nil {
-		pm.logger.ErrorContext(ctx, "Failed to create durability_policy index", "error", err)
 		return mterrors.Wrap(err, "failed to create durability_policy index")
 	}
 
@@ -221,7 +206,6 @@ func (pm *MultiPoolerManager) createTablegroup(ctx context.Context) error {
 		)
 	`)
 	if err != nil {
-		pm.logger.ErrorContext(ctx, "Failed to create tablegroup table", "error", err)
 		return mterrors.Wrap(err, "failed to create tablegroup table")
 	}
 
@@ -242,7 +226,6 @@ func (pm *MultiPoolerManager) createTablegroupTable(ctx context.Context) error {
 		)
 	`)
 	if err != nil {
-		pm.logger.ErrorContext(ctx, "Failed to create tablegroup_table table", "error", err)
 		return mterrors.Wrap(err, "failed to create tablegroup_table table")
 	}
 
@@ -265,7 +248,6 @@ func (pm *MultiPoolerManager) createShard(ctx context.Context) error {
 		)
 	`)
 	if err != nil {
-		pm.logger.ErrorContext(ctx, "Failed to create shard table", "error", err)
 		return mterrors.Wrap(err, "failed to create shard table")
 	}
 
@@ -291,7 +273,6 @@ func (pm *MultiPoolerManager) insertTablegroup(ctx context.Context, name string)
 		ON CONFLICT (name) DO NOTHING
 	`, name)
 	if err != nil {
-		pm.logger.ErrorContext(ctx, "Failed to insert tablegroup", "name", name, "error", err)
 		return mterrors.Wrap(err, "failed to insert tablegroup")
 	}
 
@@ -312,7 +293,6 @@ func (pm *MultiPoolerManager) insertShard(ctx context.Context, tablegroupName st
 	err := pm.db.QueryRowContext(queryCtx,
 		"SELECT oid FROM multigres.tablegroup WHERE name = $1", tablegroupName).Scan(&tablegroupOid)
 	if err != nil {
-		pm.logger.ErrorContext(ctx, "Failed to find tablegroup", "tablegroup", tablegroupName, "error", err)
 		return mterrors.Wrap(err, "failed to find tablegroup: "+tablegroupName)
 	}
 
@@ -326,7 +306,6 @@ func (pm *MultiPoolerManager) insertShard(ctx context.Context, tablegroupName st
 		ON CONFLICT (tablegroup_oid, shard_name) DO NOTHING
 	`, tablegroupOid, shardName)
 	if err != nil {
-		pm.logger.ErrorContext(ctx, "Failed to insert shard", "tablegroup", tablegroupName, "shard", shardName, "error", err)
 		return mterrors.Wrap(err, "failed to insert shard")
 	}
 
@@ -347,7 +326,6 @@ func (pm *MultiPoolerManager) insertDurabilityPolicy(ctx context.Context, policy
 		ON CONFLICT (policy_name, policy_version) DO NOTHING
 	`, policyName, quorumRuleJSON)
 	if err != nil {
-		pm.logger.ErrorContext(ctx, "Failed to insert durability policy", "policy_name", policyName, "error", err)
 		return mterrors.Wrap(err, "failed to insert durability policy")
 	}
 

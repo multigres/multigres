@@ -231,6 +231,7 @@ func (mp *MultiPooler) Init(startCtx context.Context) error {
 	multipooler := topoclient.NewMultiPooler(mp.serviceID.Get(), mp.cell.Get(), mp.senv.GetHostname(), mp.tableGroup.Get())
 	multipooler.PortMap["grpc"] = int32(mp.grpcServer.Port())
 	multipooler.PortMap["http"] = int32(mp.senv.GetHTTPPort())
+	multipooler.PortMap["postgres"] = int32(mp.pgPort.Get())
 	multipooler.Database = mp.database.Get()
 	multipooler.Shard = mp.shard.Get()
 	multipooler.ServingStatus = clustermetadatapb.PoolerServingStatus_NOT_SERVING

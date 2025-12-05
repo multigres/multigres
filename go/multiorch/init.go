@@ -27,6 +27,7 @@ import (
 	"github.com/multigres/multigres/go/common/servenv/toporeg"
 	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/multiorch/config"
+	"github.com/multigres/multigres/go/multiorch/coordinator"
 	"github.com/multigres/multigres/go/multiorch/recovery"
 	"github.com/multigres/multigres/go/tools/viperutil"
 )
@@ -147,6 +148,9 @@ func (mo *MultiOrch) Init() error {
 	// Create RPC client for recovery engine health checks
 	rpcClient := rpcclient.NewMultiPoolerClient(maxPoolerConnections)
 
+	// Create coordinator for consensus operations
+	coord := coordinator.NewCoordinator(multiorch.Id, mo.ts, rpcClient, logger)
+
 	// Create and start recovery engine
 	mo.recoveryEngine = recovery.NewEngine(
 		mo.ts,
@@ -154,6 +158,7 @@ func (mo *MultiOrch) Init() error {
 		mo.cfg,
 		targets,
 		rpcClient,
+		coord,
 	)
 
 	if err := mo.recoveryEngine.Start(); err != nil {

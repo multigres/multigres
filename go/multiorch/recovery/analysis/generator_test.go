@@ -73,9 +73,9 @@ func TestAnalysisGenerator_GenerateAnalyses_SinglePrimary(t *testing.T) {
 	require.Len(t, analyses, 1, "should generate one analysis")
 
 	analysis := analyses[0]
-	assert.Equal(t, "testdb", analysis.Database)
-	assert.Equal(t, "testtg", analysis.TableGroup)
-	assert.Equal(t, "0", analysis.Shard)
+	assert.Equal(t, "testdb", analysis.ShardKey.Database)
+	assert.Equal(t, "testtg", analysis.ShardKey.TableGroup)
+	assert.Equal(t, "0", analysis.ShardKey.Shard)
 	assert.True(t, analysis.IsPrimary)
 	assert.True(t, analysis.LastCheckValid)
 	assert.Equal(t, "0/1234567", analysis.PrimaryLSN)
@@ -210,10 +210,11 @@ func TestAnalysisGenerator_GenerateAnalyses_Replica(t *testing.T) {
 			Shard:      "0",
 			Type:       clustermetadatapb.PoolerType_PRIMARY,
 		},
-		IsLastCheckValid: true,
-		IsUpToDate:       true,
-		LastSeen:         timestamppb.Now(),
-		PoolerType:       clustermetadatapb.PoolerType_PRIMARY,
+		IsLastCheckValid:  true,
+		IsUpToDate:        true,
+		IsPostgresRunning: true,
+		LastSeen:          timestamppb.Now(),
+		PoolerType:        clustermetadatapb.PoolerType_PRIMARY,
 	}
 	poolerStore.Set("multipooler-cell1-primary-1", primary)
 
@@ -311,9 +312,183 @@ func TestAnalysisGenerator_GenerateAnalyses_MultipleTableGroups(t *testing.T) {
 	// Verify both table groups are present
 	tableGroups := make(map[string]bool)
 	for _, a := range analyses {
-		tableGroups[a.TableGroup] = true
+		tableGroups[a.ShardKey.TableGroup] = true
 	}
 
 	assert.True(t, tableGroups["tg1"])
 	assert.True(t, tableGroups["tg2"])
+}
+
+func TestAggregateReplicaStats_MatchesByHostAndPort(t *testing.T) {
+	// Create a store with primary and replica on same host but different ports
+	poolerStore := store.NewProtoStore[string, *multiorchdatapb.PoolerHealthState]()
+
+	primaryID := "multipooler-cell1-node1"
+	replicaID := "multipooler-cell1-node2"
+
+	// Primary on host1:5432
+	poolerStore.Set(primaryID, &multiorchdatapb.PoolerHealthState{
+		MultiPooler: &clustermetadatapb.MultiPooler{
+			Id: &clustermetadatapb.ID{
+				Component: clustermetadatapb.ID_MULTIPOOLER,
+				Cell:      "cell1",
+				Name:      "node1",
+			},
+			Database:   "db1",
+			TableGroup: "tg1",
+			Shard:      "shard1",
+			Hostname:   "host1",
+			PortMap:    map[string]int32{"postgres": 5432},
+		},
+		PoolerType:       clustermetadatapb.PoolerType_PRIMARY,
+		IsLastCheckValid: true,
+		PrimaryStatus:    &multipoolermanagerdatapb.PrimaryStatus{Lsn: "0/1234"},
+	})
+
+	// Replica pointing to host1:5433 (wrong port - different primary)
+	poolerStore.Set(replicaID, &multiorchdatapb.PoolerHealthState{
+		MultiPooler: &clustermetadatapb.MultiPooler{
+			Id: &clustermetadatapb.ID{
+				Component: clustermetadatapb.ID_MULTIPOOLER,
+				Cell:      "cell1",
+				Name:      "node2",
+			},
+			Database:   "db1",
+			TableGroup: "tg1",
+			Shard:      "shard1",
+			Hostname:   "host2",
+		},
+		PoolerType:       clustermetadatapb.PoolerType_REPLICA,
+		IsLastCheckValid: true,
+		ReplicationStatus: &multipoolermanagerdatapb.StandbyReplicationStatus{
+			LastReplayLsn: "0/1234",
+			PrimaryConnInfo: &multipoolermanagerdatapb.PrimaryConnInfo{
+				Host: "host1",
+				Port: 5433, // Different port!
+			},
+		},
+	})
+
+	gen := NewAnalysisGenerator(poolerStore)
+	analysis, err := gen.GenerateAnalysisForPooler(primaryID)
+	require.NoError(t, err)
+
+	// Should NOT count this replica since port doesn't match
+	assert.Equal(t, uint(0), analysis.CountReplicas, "replica with wrong port should not be counted")
+}
+
+// Task 6: Test for skipping nil entries
+func TestGenerateAnalyses_SkipsNilEntries(t *testing.T) {
+	poolerStore := store.NewProtoStore[string, *multiorchdatapb.PoolerHealthState]()
+
+	// Add a nil entry
+	poolerStore.Set("nil-pooler", nil)
+
+	// Add a valid pooler
+	poolerStore.Set("valid-pooler", &multiorchdatapb.PoolerHealthState{
+		MultiPooler: &clustermetadatapb.MultiPooler{
+			Id: &clustermetadatapb.ID{
+				Component: clustermetadatapb.ID_MULTIPOOLER,
+				Cell:      "cell1",
+				Name:      "valid",
+			},
+			Database:   "db1",
+			TableGroup: "tg1",
+			Shard:      "shard1",
+		},
+		PoolerType:       clustermetadatapb.PoolerType_REPLICA,
+		IsLastCheckValid: true,
+	})
+
+	gen := NewAnalysisGenerator(poolerStore)
+	analyses := gen.GenerateAnalyses()
+
+	// Should only generate one analysis for the valid pooler, skipping the nil entry
+	assert.Len(t, analyses, 1)
+	assert.Equal(t, "db1", analyses[0].ShardKey.Database)
+}
+
+// Task 7: Test for no primary in shard
+func TestPopulatePrimaryInfo_NoPrimaryInShard(t *testing.T) {
+	poolerStore := store.NewProtoStore[string, *multiorchdatapb.PoolerHealthState]()
+
+	replicaID := "multipooler-cell1-replica"
+	poolerStore.Set(replicaID, &multiorchdatapb.PoolerHealthState{
+		MultiPooler: &clustermetadatapb.MultiPooler{
+			Id: &clustermetadatapb.ID{
+				Component: clustermetadatapb.ID_MULTIPOOLER,
+				Cell:      "cell1",
+				Name:      "replica",
+			},
+			Database:   "db1",
+			TableGroup: "tg1",
+			Shard:      "shard1",
+		},
+		PoolerType:       clustermetadatapb.PoolerType_REPLICA,
+		IsLastCheckValid: true,
+		ReplicationStatus: &multipoolermanagerdatapb.StandbyReplicationStatus{
+			LastReplayLsn: "0/1234",
+		},
+	})
+
+	gen := NewAnalysisGenerator(poolerStore)
+	analysis, err := gen.GenerateAnalysisForPooler(replicaID)
+	require.NoError(t, err)
+
+	// When no primary exists in the shard, PrimaryPoolerID should be nil
+	assert.Nil(t, analysis.PrimaryPoolerID)
+	assert.False(t, analysis.PrimaryReachable)
+}
+
+// Task 7: Test for primary with postgres down
+func TestPopulatePrimaryInfo_PrimaryPostgresDown(t *testing.T) {
+	poolerStore := store.NewProtoStore[string, *multiorchdatapb.PoolerHealthState]()
+
+	primaryID := "multipooler-cell1-primary"
+	replicaID := "multipooler-cell1-replica"
+
+	// Primary with IsPostgresRunning: false (postgres is down)
+	poolerStore.Set(primaryID, &multiorchdatapb.PoolerHealthState{
+		MultiPooler: &clustermetadatapb.MultiPooler{
+			Id: &clustermetadatapb.ID{
+				Component: clustermetadatapb.ID_MULTIPOOLER,
+				Cell:      "cell1",
+				Name:      "primary",
+			},
+			Database:   "db1",
+			TableGroup: "tg1",
+			Shard:      "shard1",
+		},
+		PoolerType:        clustermetadatapb.PoolerType_PRIMARY,
+		IsLastCheckValid:  true,
+		IsPostgresRunning: false, // Postgres is down!
+		PrimaryStatus:     &multipoolermanagerdatapb.PrimaryStatus{Lsn: "0/1234"},
+	})
+
+	poolerStore.Set(replicaID, &multiorchdatapb.PoolerHealthState{
+		MultiPooler: &clustermetadatapb.MultiPooler{
+			Id: &clustermetadatapb.ID{
+				Component: clustermetadatapb.ID_MULTIPOOLER,
+				Cell:      "cell1",
+				Name:      "replica",
+			},
+			Database:   "db1",
+			TableGroup: "tg1",
+			Shard:      "shard1",
+		},
+		PoolerType:       clustermetadatapb.PoolerType_REPLICA,
+		IsLastCheckValid: true,
+		ReplicationStatus: &multipoolermanagerdatapb.StandbyReplicationStatus{
+			LastReplayLsn: "0/1234",
+		},
+	})
+
+	gen := NewAnalysisGenerator(poolerStore)
+	analysis, err := gen.GenerateAnalysisForPooler(replicaID)
+	require.NoError(t, err)
+
+	// PrimaryPoolerID should be set
+	assert.NotNil(t, analysis.PrimaryPoolerID)
+	// But PrimaryReachable should be false because postgres is down
+	assert.False(t, analysis.PrimaryReachable, "primary should NOT be reachable when postgres is down")
 }
