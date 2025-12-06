@@ -806,22 +806,32 @@ func (pm *MultiPoolerManager) Demote(ctx context.Context, consensusTerm int64, d
 		return nil, err
 	}
 	defer pm.actionLock.Release(ctx)
-
-	pm.logger.InfoContext(ctx, "Demote called",
-		"consensus_term", consensusTerm,
-		"drain_timeout", drainTimeout,
-		"force", force)
-
-	// === Validation & State Check ===
-
 	// Demote is an operational cleanup, not a leadership change.
 	// Accept if term >= currentTerm to ensure the request isn't stale.
 	// Equal or higher terms are safe.
 	// Note: we still update the term, as this may arrive after a leader
 	// appointment that this (now old) primary missed due to a network partition.
-	if err = pm.validateAndUpdateTerm(ctx, consensusTerm, force); err != nil {
+	if err := pm.validateAndUpdateTerm(ctx, consensusTerm, force); err != nil {
 		return nil, err
 	}
+
+	return pm.demoteLocked(ctx, consensusTerm, drainTimeout)
+}
+
+// demoteLocked performs the core demotion logic.
+// REQUIRES: action lock must already be held by the caller.
+// This is used by BeginTerm and Demote to demote inline without re-acquiring the lock.
+func (pm *MultiPoolerManager) demoteLocked(ctx context.Context, consensusTerm int64, drainTimeout time.Duration) (*multipoolermanagerdatapb.DemoteResponse, error) {
+	// Verify action lock is held
+	if err := AssertActionLockHeld(ctx); err != nil {
+		return nil, err
+	}
+
+	pm.logger.InfoContext(ctx, "demoteLocked called",
+		"consensus_term", consensusTerm,
+		"drain_timeout", drainTimeout)
+
+	// === Validation & State Check ===
 
 	// Guard rail: Demote can only be called on a PRIMARY
 	if err := pm.checkPrimaryGuardrails(ctx); err != nil {
