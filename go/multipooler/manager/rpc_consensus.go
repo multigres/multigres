@@ -26,13 +26,15 @@ import (
 )
 
 // BeginTerm handles coordinator requests during leader appointments.
-// Accepting a new term means this node will no longer accept requests from
+// Accepting a new term means this node will not accept any new requests from
 // the current term. This is the revocation step of consensus, which applies
 // to both primaries and standbys:
 //
 //   - If this node is a primary, it must demote itself as part of revocation.
 //   - If this node is a standby, it should break replication as part of
-//     revocation (TODO: not implemented yet).
+//     revocation. However, breaking replication on all standbys before the primary
+//     is demoted will have the effect of blocking writes to the primary,
+//     so this has to be done at the proper time (TODO: not implemented yet).
 func (pm *MultiPoolerManager) BeginTerm(ctx context.Context, req *consensusdatapb.BeginTermRequest) (*consensusdatapb.BeginTermResponse, error) {
 	// Acquire the action lock to ensure only one consensus operation runs at a time
 	// This prevents split-brain acceptance and ensures term updates are serialized
@@ -132,7 +134,7 @@ func (pm *MultiPoolerManager) BeginTerm(ctx context.Context, req *consensusdatap
 
 	response.Accepted = true
 
-	// CRITICAL: If we were a primary and accepted a higher term, demote immediately.
+	// If we were a primary and accepted a higher term, demote immediately.
 	// This prevents split-brain by ensuring the old primary stops accepting writes
 	// before any new primary is promoted.
 	if wasPrimary && req.Term > currentTerm {
@@ -147,11 +149,10 @@ func (pm *MultiPoolerManager) BeginTerm(ctx context.Context, req *consensusdatap
 		if demoteErr != nil {
 			// Log the error but still return accepted=true
 			// The term was accepted, demotion is a best-effort cleanup
+			// TODO: refactor so that we don't accept the new term if demotion fails
 			pm.logger.ErrorContext(ctx, "Demotion failed after accepting term",
 				"error", demoteErr,
 				"term", req.Term)
-			// Don't fail the BeginTerm - the term acceptance is the critical part
-			// The coordinator can call Demote explicitly if needed
 		} else {
 			response.DemoteLsn = demoteLSN.LsnPosition
 			pm.logger.InfoContext(ctx, "Demotion completed successfully",
