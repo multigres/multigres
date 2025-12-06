@@ -26,8 +26,13 @@ import (
 )
 
 // BeginTerm handles coordinator requests during leader appointments.
-// If this node is a primary and accepts a higher term, it will automatically
-// demote itself to prevent split-brain scenarios.
+// Accepting a new term means this node will no longer accept requests from
+// the current term. This is the revocation step of consensus, which applies
+// to both primaries and standbys:
+//
+//   - If this node is a primary, it must demote itself as part of revocation.
+//   - If this node is a standby, it should break replication as part of
+//     revocation (TODO: not implemented yet).
 func (pm *MultiPoolerManager) BeginTerm(ctx context.Context, req *consensusdatapb.BeginTermRequest) (*consensusdatapb.BeginTermResponse, error) {
 	// Acquire the action lock to ensure only one consensus operation runs at a time
 	// This prevents split-brain acceptance and ensures term updates are serialized
@@ -148,7 +153,7 @@ func (pm *MultiPoolerManager) BeginTerm(ctx context.Context, req *consensusdatap
 			// Don't fail the BeginTerm - the term acceptance is the critical part
 			// The coordinator can call Demote explicitly if needed
 		} else {
-			response.DemoteLsn = demoteLSN
+			response.DemoteLsn = demoteLSN.LsnPosition
 			pm.logger.InfoContext(ctx, "Demotion completed successfully",
 				"demote_lsn", demoteLSN,
 				"term", req.Term)
