@@ -755,7 +755,6 @@ func (pm *MultiPoolerManager) executeAutoRestore(ctx context.Context, backupID s
 	}
 
 	// Write initialization marker to indicate full initialization completed.
-	// The marker is NOT included in backups (created after backup), so we create it here.
 	if err := pm.writeInitializationMarker(); err != nil {
 		return err
 	}

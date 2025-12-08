@@ -271,8 +271,12 @@ func (pm *MultiPoolerManager) isInitialized(ctx context.Context) bool {
 }
 
 // writeInitializationMarker creates the initialization marker file to indicate
-// that full initialization has completed. This is called at the end of
-// InitializeEmptyPrimary and InitializeAsStandby.
+// that full initialization, including restore from backup (for standbys) has
+// completed. This is called at the end of primary and standby initialization.
+//
+// The marker file is needed to determine whether a replica pooler is
+// initialized, because replica initialization is not done until the restore
+// from backup completes. There is no other persistent way to determine this.
 func (pm *MultiPoolerManager) writeInitializationMarker() error {
 	dataDir := filepath.Join(pm.config.PoolerDir, "pg_data")
 	markerFile := filepath.Join(dataDir, multigresInitMarker)
