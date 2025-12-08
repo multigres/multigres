@@ -52,6 +52,12 @@ import (
 	_ "github.com/multigres/multigres/go/common/plugins/topo"
 )
 
+const (
+	// testPostgresPassword is the password used for the postgres user in tests.
+	// This is set via PGPASSWORD env var before pgctld initializes PostgreSQL.
+	testPostgresPassword = "test_password_123"
+)
+
 var (
 	// Shared test infrastructure
 	sharedTestSetup *MultipoolerTestSetup
@@ -130,6 +136,10 @@ func TestMain(m *testing.M) {
 	// the test crashes. Individual tests can additionally set
 	// MULTIGRES_TESTDATA_DIR for directory-deletion triggered cleanup.
 	os.Setenv("MULTIGRES_TEST_PARENT_PID", fmt.Sprintf("%d", os.Getpid()))
+
+	// Set PGPASSWORD to a known value so tests can authenticate.
+	// pgctld uses this when initializing PostgreSQL.
+	os.Setenv("PGPASSWORD", testPostgresPassword)
 
 	// Set up signal handler to ensure cleanup on interrupt
 	sigChan := make(chan os.Signal, 1)
