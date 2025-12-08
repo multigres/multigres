@@ -562,16 +562,16 @@ func TestBootstrapShardAction_FailsIfDatabaseAlreadyInitialized(t *testing.T) {
 	// Create fake RPC client - both poolers are reachable but uninitialized
 	// (simulating a partial failure where the flag was set but nodes weren't fully set up)
 	fakeClient := rpcclient.NewFakeClient()
-	fakeClient.StatusResponses["multipooler-cell1-pooler1"] = &multipoolermanagerdatapb.StatusResponse{
+	fakeClient.SetStatusResponse("multipooler-cell1-pooler1", &multipoolermanagerdatapb.StatusResponse{
 		Status: &multipoolermanagerdatapb.Status{
 			IsInitialized: false,
 		},
-	}
-	fakeClient.StatusResponses["multipooler-cell1-pooler2"] = &multipoolermanagerdatapb.StatusResponse{
+	})
+	fakeClient.SetStatusResponse("multipooler-cell1-pooler2", &multipoolermanagerdatapb.StatusResponse{
 		Status: &multipoolermanagerdatapb.Status{
 			IsInitialized: false,
 		},
-	}
+	})
 
 	// Add two poolers to the store
 	poolerID1 := &clustermetadatapb.ID{
