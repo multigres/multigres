@@ -187,7 +187,8 @@ func (env *testEnv) registerNodes() {
 			},
 			Hostname: "localhost",
 			PortMap: map[string]int32{
-				"grpc": int32(node.grpcPort),
+				"grpc":     int32(node.grpcPort),
+				"postgres": int32(node.pgPort),
 			},
 			Shard:      env.config.shardID,
 			Database:   env.config.database,
