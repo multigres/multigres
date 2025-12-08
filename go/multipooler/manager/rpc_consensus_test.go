@@ -238,6 +238,35 @@ func TestBeginTerm(t *testing.T) {
 			expectedAcceptedTermFromCoordinator: "",
 			description:                         "Primary should reject term when demotion fails",
 		},
+		{
+			name: "PrimaryAcceptsTermAfterSuccessfulDemotion",
+			initialTerm: &multipoolermanagerdatapb.ConsensusTerm{
+				TermNumber: 5,
+			},
+			requestTerm: 10,
+			requestCandidate: &clustermetadatapb.ID{
+				Component: clustermetadatapb.ID_MULTIPOOLER,
+				Cell:      "zone1",
+				Name:      "new-candidate",
+			},
+			setupMocks: func(mock sqlmock.Sqlmock) {
+				mock.ExpectPing()
+				// isPrimary check (line 59) - returns false (already in recovery/demoted)
+				// This tests the case where the primary was successfully demoted before BeginTerm
+				// In practice, this could happen if BeginTerm is called again after a previous
+				// successful demotion (idempotent retry).
+				mock.ExpectQuery("SELECT pg_is_in_recovery\\(\\)").
+					WillReturnRows(sqlmock.NewRows([]string{"pg_is_in_recovery"}).AddRow(true))
+				// Since not primary, check if caught up with replication
+				recentTime := time.Now().Add(-5 * time.Second)
+				mock.ExpectQuery("SELECT last_msg_receipt_time FROM pg_stat_wal_receiver").
+					WillReturnRows(sqlmock.NewRows([]string{"last_msg_receipt_time"}).AddRow(recentTime))
+			},
+			expectedAccepted:                    true,
+			expectedTerm:                        10,
+			expectedAcceptedTermFromCoordinator: "new-candidate",
+			description:                         "Primary should accept term after successful demotion (idempotent case - already demoted)",
+		},
 	}
 
 	// Add tests for save failure scenarios
