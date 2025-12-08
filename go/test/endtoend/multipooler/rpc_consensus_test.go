@@ -15,6 +15,7 @@
 package multipooler
 
 import (
+	"context"
 	"fmt"
 	"testing"
 	"time"
@@ -24,11 +25,14 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
+	"github.com/multigres/multigres/go/test/endtoend"
 	"github.com/multigres/multigres/go/test/utils"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	consensuspb "github.com/multigres/multigres/go/pb/consensus"
-	consensusdata "github.com/multigres/multigres/go/pb/consensusdata"
+	consensusdatapb "github.com/multigres/multigres/go/pb/consensusdata"
+	multipoolermanagerpb "github.com/multigres/multigres/go/pb/multipoolermanager"
+	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
 
 func TestConsensus_Status(t *testing.T) {
@@ -62,7 +66,7 @@ func TestConsensus_Status(t *testing.T) {
 	t.Run("Status_Primary", func(t *testing.T) {
 		t.Log("Testing Status on primary multipooler...")
 
-		req := &consensusdata.StatusRequest{
+		req := &consensusdatapb.StatusRequest{
 			ShardId: "test-shard",
 		}
 		resp, err := primaryConsensusClient.Status(utils.WithShortDeadline(t), req)
@@ -99,7 +103,7 @@ func TestConsensus_Status(t *testing.T) {
 	t.Run("Status_Standby", func(t *testing.T) {
 		t.Log("Testing Status on standby multipooler...")
 
-		req := &consensusdata.StatusRequest{
+		req := &consensusdatapb.StatusRequest{
 			ShardId: "test-shard",
 		}
 		resp, err := standbyConsensusClient.Status(utils.WithShortDeadline(t), req)
@@ -136,6 +140,9 @@ func TestConsensus_BeginTerm(t *testing.T) {
 	waitForManagerReady(t, setup, setup.PrimaryMultipooler)
 	waitForManagerReady(t, setup, setup.StandbyMultipooler)
 
+	// Setup test cleanup - this will restore term to 1 after all subtests complete
+	setupPoolerTest(t, setup, WithoutReplication())
+
 	// Create clients
 	primaryConn, err := grpc.NewClient(
 		fmt.Sprintf("localhost:%d", setup.PrimaryMultipooler.GrpcPort),
@@ -157,7 +164,7 @@ func TestConsensus_BeginTerm(t *testing.T) {
 		t.Log("Testing BeginTerm with old term (should be rejected)...")
 
 		// Attempt to begin term 0 (older than current term 1)
-		req := &consensusdata.BeginTermRequest{
+		req := &consensusdatapb.BeginTermRequest{
 			Term: 0,
 			CandidateId: &clustermetadatapb.ID{
 				Component: clustermetadatapb.ID_MULTIPOOLER,
@@ -183,7 +190,7 @@ func TestConsensus_BeginTerm(t *testing.T) {
 		t.Log("Testing BeginTerm with new term (should be accepted)...")
 
 		// Begin term 2 (newer than current term 1)
-		req := &consensusdata.BeginTermRequest{
+		req := &consensusdatapb.BeginTermRequest{
 			Term: 2,
 			CandidateId: &clustermetadatapb.ID{
 				Component: clustermetadatapb.ID_MULTIPOOLER,
@@ -211,7 +218,7 @@ func TestConsensus_BeginTerm(t *testing.T) {
 		t.Log("Testing BeginTerm for same term after already accepting (should be rejected)...")
 
 		// Begin term 2 again but different candidate
-		req := &consensusdata.BeginTermRequest{
+		req := &consensusdatapb.BeginTermRequest{
 			Term: 2,
 			CandidateId: &clustermetadatapb.ID{
 				Component: clustermetadatapb.ID_MULTIPOOLER,
@@ -267,7 +274,7 @@ func TestConsensus_GetLeadershipView(t *testing.T) {
 	t.Run("GetLeadershipView_FromPrimary", func(t *testing.T) {
 		t.Log("Testing GetLeadershipView from primary...")
 
-		req := &consensusdata.LeadershipViewRequest{
+		req := &consensusdatapb.LeadershipViewRequest{
 			ShardId: "test-shard",
 		}
 
@@ -301,7 +308,7 @@ func TestConsensus_GetLeadershipView(t *testing.T) {
 	t.Run("GetLeadershipView_FromStandby", func(t *testing.T) {
 		t.Log("Testing GetLeadershipView from standby...")
 
-		req := &consensusdata.LeadershipViewRequest{
+		req := &consensusdatapb.LeadershipViewRequest{
 			ShardId: "test-shard",
 		}
 
@@ -365,7 +372,7 @@ func TestConsensus_CanReachPrimary(t *testing.T) {
 	t.Run("Standby_CanReachPrimary", func(t *testing.T) {
 		t.Log("Testing CanReachPrimary from standby (should detect active WAL receiver)...")
 
-		req := &consensusdata.CanReachPrimaryRequest{
+		req := &consensusdatapb.CanReachPrimaryRequest{
 			PrimaryHost: "localhost",
 			PrimaryPort: int32(setup.PrimaryPgctld.PgPort),
 		}
@@ -390,7 +397,7 @@ func TestConsensus_CanReachPrimary(t *testing.T) {
 	t.Run("Primary_CannotReachPrimary", func(t *testing.T) {
 		t.Log("Testing CanReachPrimary from primary (should return false - no WAL receiver)...")
 
-		req := &consensusdata.CanReachPrimaryRequest{
+		req := &consensusdatapb.CanReachPrimaryRequest{
 			PrimaryHost: "localhost",
 			PrimaryPort: int32(setup.PrimaryPgctld.PgPort),
 		}
@@ -411,7 +418,7 @@ func TestConsensus_CanReachPrimary(t *testing.T) {
 	t.Run("InvalidHost_CannotReach", func(t *testing.T) {
 		t.Log("Testing CanReachPrimary with invalid host (should return false)...")
 
-		req := &consensusdata.CanReachPrimaryRequest{
+		req := &consensusdatapb.CanReachPrimaryRequest{
 			PrimaryHost: "invalid-host",
 			PrimaryPort: 12345,
 		}
@@ -425,5 +432,200 @@ func TestConsensus_CanReachPrimary(t *testing.T) {
 		// after setup, this test cannot verify the host/port mismatch detection.
 		// TODO: fix after implementing full cluster initialization
 		t.Logf("Response: reachable=%v, error=%s", resp.Reachable, resp.ErrorMessage)
+	})
+}
+
+// TestBeginTermDemotesPrimary verifies that when a primary accepts a BeginTerm
+// for a higher term, it automatically demotes itself to prevent split-brain.
+// The response includes the demote_lsn (final LSN before demotion).
+func TestBeginTermDemotesPrimary(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping end-to-end tests in short mode")
+	}
+
+	setup := getSharedTestSetup(t)
+
+	// Wait for both managers to be ready before running tests
+	waitForManagerReady(t, setup, setup.PrimaryMultipooler)
+	waitForManagerReady(t, setup, setup.StandbyMultipooler)
+
+	// Create shared clients
+	primaryConn, err := grpc.NewClient(
+		fmt.Sprintf("localhost:%d", setup.PrimaryMultipooler.GrpcPort),
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	)
+	require.NoError(t, err)
+	t.Cleanup(func() { primaryConn.Close() })
+	primaryConsensusClient := consensuspb.NewMultiPoolerConsensusClient(primaryConn)
+	primaryManagerClient := multipoolermanagerpb.NewMultiPoolerManagerClient(primaryConn)
+
+	standbyConn, err := grpc.NewClient(
+		fmt.Sprintf("localhost:%d", setup.StandbyMultipooler.GrpcPort),
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	)
+	require.NoError(t, err)
+	t.Cleanup(func() { standbyConn.Close() })
+	standbyManagerClient := multipoolermanagerpb.NewMultiPoolerManagerClient(standbyConn)
+
+	t.Run("BeginTerm_AutoDemotesPrimary", func(t *testing.T) {
+		setupPoolerTest(t, setup)
+
+		t.Log("=== Testing BeginTerm auto-demotion of primary ===")
+
+		// Get current term and verify primary is actually primary
+		statusReq := &consensusdatapb.StatusRequest{}
+		statusResp, err := primaryConsensusClient.Status(utils.WithShortDeadline(t), statusReq)
+		require.NoError(t, err)
+		require.Equal(t, "primary", statusResp.Role, "Node should be primary before test")
+		currentTerm := statusResp.CurrentTerm
+		t.Logf("Current term: %d, role: %s", currentTerm, statusResp.Role)
+
+		// Verify PostgreSQL is actually running as primary (not in recovery)
+		primaryPoolerClient, err := endtoend.NewMultiPoolerTestClient(fmt.Sprintf("localhost:%d", setup.PrimaryMultipooler.GrpcPort))
+		require.NoError(t, err)
+		defer primaryPoolerClient.Close()
+
+		resp, err := primaryPoolerClient.ExecuteQuery(context.Background(), "SELECT pg_is_in_recovery()", 1)
+		require.NoError(t, err)
+		require.Equal(t, "false", string(resp.Rows[0].Values[0]), "PostgreSQL should NOT be in recovery (should be primary)")
+		t.Log("Confirmed PostgreSQL is running as primary")
+
+		// Send BeginTerm with a higher term to the primary
+		newTerm := currentTerm + 100 // Use a high term to avoid conflicts with other tests
+		fakeCoordinatorID := &clustermetadatapb.ID{
+			Component: clustermetadatapb.ID_MULTIORCH,
+			Cell:      "test-cell",
+			Name:      "fake-coordinator-for-demote-test",
+		}
+
+		beginTermReq := &consensusdatapb.BeginTermRequest{
+			Term:        newTerm,
+			CandidateId: fakeCoordinatorID,
+		}
+
+		t.Logf("Sending BeginTerm with term %d to primary...", newTerm)
+		beginTermResp, err := primaryConsensusClient.BeginTerm(utils.WithTimeout(t, 30*time.Second), beginTermReq)
+		require.NoError(t, err, "BeginTerm RPC should succeed")
+
+		// Verify response
+		assert.True(t, beginTermResp.Accepted, "Primary should accept the higher term")
+		assert.Equal(t, newTerm, beginTermResp.Term, "Response term should be the new term")
+		assert.NotEmpty(t, beginTermResp.DemoteLsn, "Primary should include demote_lsn after auto-demotion")
+		t.Logf("BeginTerm response: accepted=%v, term=%d, demote_lsn=%s",
+			beginTermResp.Accepted, beginTermResp.Term, beginTermResp.DemoteLsn)
+
+		// Wait for PostgreSQL to restart as standby
+		time.Sleep(2 * time.Second)
+
+		// Verify PostgreSQL is now in recovery mode (demoted)
+		resp, err = primaryPoolerClient.ExecuteQuery(context.Background(), "SELECT pg_is_in_recovery()", 1)
+		require.NoError(t, err)
+		assert.Equal(t, "true", string(resp.Rows[0].Values[0]),
+			"PostgreSQL should be in recovery after auto-demotion")
+		t.Log("SUCCESS: PostgreSQL is now in recovery mode (demoted)")
+
+		// Verify writes are rejected
+		_, err = primaryPoolerClient.ExecuteQuery(context.Background(),
+			"CREATE TABLE IF NOT EXISTS beginterm_demote_test (id serial PRIMARY KEY)", 1)
+		require.Error(t, err, "Writes should be rejected after demotion")
+		assert.Contains(t, err.Error(), "read-only", "Error should indicate read-only mode")
+		t.Logf("SUCCESS: Writes correctly rejected: %v", err)
+
+		// === RESTORE STATE ===
+		// We need to restore the primary back to its original state for other tests
+		t.Log("Restoring original state...")
+
+		// Configure demoted primary to replicate from standby
+		setPrimaryConnInfoReq := &multipoolermanagerdatapb.SetPrimaryConnInfoRequest{
+			Host:                  "localhost",
+			Port:                  int32(setup.StandbyMultipooler.PgPort),
+			StopReplicationBefore: false,
+			StartReplicationAfter: true,
+			CurrentTerm:           newTerm,
+			Force:                 true,
+		}
+		_, err = primaryManagerClient.SetPrimaryConnInfo(utils.WithShortDeadline(t), setPrimaryConnInfoReq)
+		require.NoError(t, err, "SetPrimaryConnInfo should succeed after demotion")
+
+		// Set term on standby for promotion
+		promoteTerm := newTerm + 1
+		setTermReq := &multipoolermanagerdatapb.SetTermRequest{
+			Term: &multipoolermanagerdatapb.ConsensusTerm{
+				TermNumber: promoteTerm,
+			},
+		}
+		_, err = standbyManagerClient.SetTerm(utils.WithShortDeadline(t), setTermReq)
+		require.NoError(t, err, "SetTerm should succeed on standby")
+
+		// Stop replication on standby
+		_, err = standbyManagerClient.StopReplication(utils.WithShortDeadline(t), &multipoolermanagerdatapb.StopReplicationRequest{})
+		require.NoError(t, err, "StopReplication should succeed")
+
+		// Get current LSN
+		standbyStatusReq := &multipoolermanagerdatapb.StandbyReplicationStatusRequest{}
+		standbyStatusResp, err := standbyManagerClient.StandbyReplicationStatus(utils.WithShortDeadline(t), standbyStatusReq)
+		require.NoError(t, err)
+		standbyLSN := standbyStatusResp.Status.LastReplayLsn
+
+		// Promote standby to primary
+		promoteReq := &multipoolermanagerdatapb.PromoteRequest{
+			ConsensusTerm: promoteTerm,
+			ExpectedLsn:   standbyLSN,
+			Force:         false,
+		}
+		_, err = standbyManagerClient.Promote(utils.WithTimeout(t, 10*time.Second), promoteReq)
+		require.NoError(t, err, "Promote should succeed on standby")
+		t.Log("Standby promoted to primary")
+
+		// Now demote the new primary (standby) and promote original primary back
+		demoteTerm := promoteTerm + 1
+		setTermReq2 := &multipoolermanagerdatapb.SetTermRequest{
+			Term: &multipoolermanagerdatapb.ConsensusTerm{
+				TermNumber: demoteTerm,
+			},
+		}
+		_, err = standbyManagerClient.SetTerm(utils.WithShortDeadline(t), setTermReq2)
+		require.NoError(t, err)
+
+		demoteReq := &multipoolermanagerdatapb.DemoteRequest{
+			ConsensusTerm: demoteTerm,
+			Force:         false,
+		}
+		_, err = standbyManagerClient.Demote(utils.WithTimeout(t, 10*time.Second), demoteReq)
+		require.NoError(t, err, "Demote should succeed on new primary")
+		t.Log("New primary (original standby) demoted")
+
+		// Promote original primary back
+		restoreTerm := demoteTerm + 1
+		setTermReq3 := &multipoolermanagerdatapb.SetTermRequest{
+			Term: &multipoolermanagerdatapb.ConsensusTerm{
+				TermNumber: restoreTerm,
+			},
+		}
+		_, err = primaryManagerClient.SetTerm(utils.WithShortDeadline(t), setTermReq3)
+		require.NoError(t, err)
+
+		_, err = primaryManagerClient.StopReplication(utils.WithShortDeadline(t), &multipoolermanagerdatapb.StopReplicationRequest{})
+		require.NoError(t, err)
+
+		primaryStatusReq := &multipoolermanagerdatapb.StandbyReplicationStatusRequest{}
+		primaryStatusResp, err := primaryManagerClient.StandbyReplicationStatus(utils.WithShortDeadline(t), primaryStatusReq)
+		require.NoError(t, err)
+		primaryLSN := primaryStatusResp.Status.LastReplayLsn
+
+		promoteReq2 := &multipoolermanagerdatapb.PromoteRequest{
+			ConsensusTerm: restoreTerm,
+			ExpectedLsn:   primaryLSN,
+			Force:         false,
+		}
+		_, err = primaryManagerClient.Promote(utils.WithTimeout(t, 10*time.Second), promoteReq2)
+		require.NoError(t, err, "Promote should succeed on original primary")
+
+		// Verify original primary is primary again
+		resp, err = primaryPoolerClient.ExecuteQuery(context.Background(), "SELECT pg_is_in_recovery()", 1)
+		require.NoError(t, err)
+		require.Equal(t, "false", string(resp.Rows[0].Values[0]), "Original primary should be primary again")
+
+		t.Log("Original state restored - primary is primary, standby is standby")
 	})
 }

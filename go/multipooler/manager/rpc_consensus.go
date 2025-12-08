@@ -25,7 +25,16 @@ import (
 	consensusdatapb "github.com/multigres/multigres/go/pb/consensusdata"
 )
 
-// BeginTerm handles coordinator requests during leader appointments
+// BeginTerm handles coordinator requests during leader appointments.
+// Accepting a new term means this node will not accept any new requests from
+// the current term. This is the revocation step of consensus, which applies
+// to both primaries and standbys:
+//
+//   - If this node is a primary, it must demote itself as part of revocation.
+//   - If this node is a standby, it should break replication as part of
+//     revocation. However, breaking replication on all standbys before the primary
+//     is demoted will have the effect of blocking writes to the primary,
+//     so this has to be done at the proper time (TODO: not implemented yet).
 func (pm *MultiPoolerManager) BeginTerm(ctx context.Context, req *consensusdatapb.BeginTermRequest) (*consensusdatapb.BeginTermResponse, error) {
 	// Acquire the action lock to ensure only one consensus operation runs at a time
 	// This prevents split-brain acceptance and ensures term updates are serialized
@@ -44,6 +53,14 @@ func (pm *MultiPoolerManager) BeginTerm(ctx context.Context, req *consensusdatap
 	// Test database connectivity
 	if err = pm.db.PingContext(ctx); err != nil {
 		return nil, fmt.Errorf("postgres unhealthy, cannot accept new term: %w", err)
+	}
+
+	// Check if we're currently a primary (before any term changes)
+	wasPrimary, err := pm.isPrimary(ctx)
+	if err != nil {
+		// If we can't determine role, log warning but continue
+		pm.logger.WarnContext(ctx, "Failed to determine if primary", "error", err)
+		wasPrimary = false
 	}
 
 	// Get current consensus state
@@ -93,18 +110,20 @@ func (pm *MultiPoolerManager) BeginTerm(ctx context.Context, req *consensusdatap
 		response.Term = req.Term
 	}
 
-	// TODO: Use pooler serving state to decide whether to accept
 	// Check if we're caught up with replication (within 30 seconds)
-	var lastMsgReceiptTime *time.Time
-	err = pm.db.QueryRowContext(ctx, "SELECT last_msg_receipt_time FROM pg_stat_wal_receiver").Scan(&lastMsgReceiptTime)
-	if err != nil {
-		// No WAL receiver (could be primary or disconnected standby)
-		// Don't reject the acceptance - let it proceed
-	} else if lastMsgReceiptTime != nil {
-		timeSinceLastMessage := time.Since(*lastMsgReceiptTime)
-		if timeSinceLastMessage > 30*time.Second {
-			// We're too far behind in replication, don't accept
-			return response, nil
+	// Only relevant for standbys - primaries don't have WAL receivers
+	if !wasPrimary {
+		var lastMsgReceiptTime *time.Time
+		err = pm.db.QueryRowContext(ctx, "SELECT last_msg_receipt_time FROM pg_stat_wal_receiver").Scan(&lastMsgReceiptTime)
+		if err != nil {
+			// No WAL receiver (could be disconnected standby)
+			// Don't reject the acceptance - let it proceed
+		} else if lastMsgReceiptTime != nil {
+			timeSinceLastMessage := time.Since(*lastMsgReceiptTime)
+			if timeSinceLastMessage > 30*time.Second {
+				// We're too far behind in replication, don't accept
+				return response, nil
+			}
 		}
 	}
 
@@ -114,6 +133,34 @@ func (pm *MultiPoolerManager) BeginTerm(ctx context.Context, req *consensusdatap
 	}
 
 	response.Accepted = true
+
+	// If we were a primary and accepted a higher term, demote immediately.
+	// This prevents split-brain by ensuring the old primary stops accepting writes
+	// before any new primary is promoted.
+	if wasPrimary && req.Term > currentTerm {
+		pm.logger.InfoContext(ctx, "Primary accepting higher term, initiating demotion",
+			"old_term", currentTerm,
+			"new_term", req.Term,
+			"candidate_id", req.CandidateId.GetName())
+
+		// Use a reasonable drain timeout for demotion
+		drainTimeout := 5 * time.Second
+		demoteLSN, demoteErr := pm.demoteLocked(ctx, req.Term, drainTimeout)
+		if demoteErr != nil {
+			// Log the error but still return accepted=true
+			// The term was accepted, demotion is a best-effort cleanup
+			// TODO: refactor so that we don't accept the new term if demotion fails
+			pm.logger.ErrorContext(ctx, "Demotion failed after accepting term",
+				"error", demoteErr,
+				"term", req.Term)
+		} else {
+			response.DemoteLsn = demoteLSN.LsnPosition
+			pm.logger.InfoContext(ctx, "Demotion completed successfully",
+				"demote_lsn", demoteLSN,
+				"term", req.Term)
+		}
+	}
+
 	return response, nil
 }
 
