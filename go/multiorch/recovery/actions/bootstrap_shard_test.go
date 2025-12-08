@@ -18,6 +18,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"strings"
 	"testing"
 	"time"
 
@@ -385,15 +386,14 @@ func TestBootstrapShardAction_FullBootstrapFlow(t *testing.T) {
 		fakeClient.InitializeAsStandbyResponses[key] = &multipoolermanagerdatapb.InitializeAsStandbyResponse{
 			Success: true,
 		}
-	}
-
-	// First pooler will be selected as primary
-	fakeClient.InitializeEmptyPrimaryResponses["multipooler-cell1-pooler1"] = &multipoolermanagerdatapb.InitializeEmptyPrimaryResponse{
-		Success:  true,
-		BackupId: "backup-abc123",
-	}
-	fakeClient.CreateDurabilityPolicyResponses["multipooler-cell1-pooler1"] = &multipoolermanagerdatapb.CreateDurabilityPolicyResponse{
-		Success: true,
+		// Any pooler could be selected as primary (store iteration order is non-deterministic)
+		fakeClient.InitializeEmptyPrimaryResponses[key] = &multipoolermanagerdatapb.InitializeEmptyPrimaryResponse{
+			Success:  true,
+			BackupId: "backup-abc123",
+		}
+		fakeClient.CreateDurabilityPolicyResponses[key] = &multipoolermanagerdatapb.CreateDurabilityPolicyResponse{
+			Success: true,
+		}
 	}
 
 	// Add 3 poolers to the store
@@ -430,14 +430,27 @@ func TestBootstrapShardAction_FullBootstrapFlow(t *testing.T) {
 
 	assert.NoError(t, err)
 
-	// Verify primary was initialized
-	assert.Contains(t, fakeClient.CallLog, "InitializeEmptyPrimary(multipooler-cell1-pooler1)")
-	assert.Contains(t, fakeClient.CallLog, "ChangeType(multipooler-cell1-pooler1)")
-	assert.Contains(t, fakeClient.CallLog, "CreateDurabilityPolicy(multipooler-cell1-pooler1)")
+	// Count RPC calls by method name
+	// We expect: 1 InitializeEmptyPrimary, 1 CreateDurabilityPolicy, 2 InitializeAsStandby
+	callCounts := countCallsByMethod(fakeClient.CallLog)
 
-	// Verify standbys were initialized (pooler2 and pooler3)
-	assert.Contains(t, fakeClient.CallLog, "InitializeAsStandby(multipooler-cell1-pooler2)")
-	assert.Contains(t, fakeClient.CallLog, "InitializeAsStandby(multipooler-cell1-pooler3)")
+	assert.Equal(t, 1, callCounts["InitializeEmptyPrimary"], "exactly one primary should be initialized")
+	assert.Equal(t, 1, callCounts["CreateDurabilityPolicy"], "durability policy should be created once")
+	assert.Equal(t, 2, callCounts["InitializeAsStandby"], "two standbys should be initialized")
+}
+
+// countCallsByMethod counts RPC calls by method name from the FakeClient call log.
+// Call log entries are in format "MethodName(poolerID)".
+func countCallsByMethod(callLog []string) map[string]int {
+	counts := make(map[string]int)
+	for _, call := range callLog {
+		// Extract method name (everything before the first '(')
+		if idx := strings.Index(call, "("); idx > 0 {
+			method := call[:idx]
+			counts[method]++
+		}
+	}
+	return counts
 }
 
 // TestBootstrapShardAction_SkipsIfAlreadyInitialized tests that bootstrap is skipped
