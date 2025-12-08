@@ -211,6 +211,33 @@ func TestBeginTerm(t *testing.T) {
 			expectedAcceptedTermFromCoordinator: "candidate-A",
 			description:                         "Acceptance should succeed when already accepted same candidate in same term (idempotent)",
 		},
+		{
+			name: "PrimaryRejectTermWhenDemotionFails",
+			initialTerm: &multipoolermanagerdatapb.ConsensusTerm{
+				TermNumber: 5,
+			},
+			requestTerm: 10,
+			requestCandidate: &clustermetadatapb.ID{
+				Component: clustermetadatapb.ID_MULTIPOOLER,
+				Cell:      "zone1",
+				Name:      "new-candidate",
+			},
+			setupMocks: func(mock sqlmock.Sqlmock) {
+				mock.ExpectPing()
+				// isPrimary check - returns true (not in recovery = primary)
+				mock.ExpectQuery("SELECT pg_is_in_recovery\\(\\)").
+					WillReturnRows(sqlmock.NewRows([]string{"pg_is_in_recovery"}).AddRow(false))
+				// checkPrimaryGuardrails - verifies still primary
+				mock.ExpectQuery("SELECT pg_is_in_recovery\\(\\)").
+					WillReturnRows(sqlmock.NewRows([]string{"pg_is_in_recovery"}).AddRow(false))
+				// demoteLocked fails at checkDemotionState or another early step
+				// Simulate failure by not setting up expected queries for demotion steps
+			},
+			expectedAccepted:                    false,
+			expectedTerm:                        5, // Term should NOT be updated
+			expectedAcceptedTermFromCoordinator: "",
+			description:                         "Primary should reject term when demotion fails",
+		},
 	}
 
 	// Add tests for save failure scenarios
