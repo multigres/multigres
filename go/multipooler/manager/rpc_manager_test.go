@@ -54,16 +54,6 @@ func addDatabaseToTopo(t *testing.T, ts topoclient.Store, database string) {
 	require.NoError(t, err)
 }
 
-// setupInitializedState creates the pg_data directory with initialization markers
-// so that auto-restore is skipped. Use this in tests that don't need to test backup functionality.
-func setupInitializedState(t *testing.T, poolerDir string) {
-	t.Helper()
-	pgDataDir := filepath.Join(poolerDir, "pg_data")
-	require.NoError(t, os.MkdirAll(pgDataDir, 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(pgDataDir, "PG_VERSION"), []byte("16"), 0o644))
-	require.NoError(t, os.WriteFile(filepath.Join(pgDataDir, "MULTIGRES_INITIALIZED"), []byte("initialized\n"), 0o644))
-}
-
 func TestPrimaryPosition(t *testing.T) {
 	ctx := context.Background()
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
@@ -103,7 +93,6 @@ func TestPrimaryPosition(t *testing.T) {
 
 			// Create temp directory for pooler-dir
 			poolerDir := t.TempDir()
-			setupInitializedState(t, poolerDir) // Skip auto-restore (not testing backup functionality)
 
 			// Create the database in topology with backup location
 			database := "testdb"
@@ -131,6 +120,7 @@ func TestPrimaryPosition(t *testing.T) {
 			manager, err := NewMultiPoolerManager(logger, config)
 			require.NoError(t, err)
 			defer manager.Close()
+			manager.SkipAutoRestore = true
 
 			// Start and wait for ready
 			senv := servenv.NewServEnv(viperutil.NewRegistry())
@@ -363,14 +353,11 @@ func newMockDB(t *testing.T) (*sql.DB, sqlmock.Sqlmock) {
 // which causes the heartbeat reader to start (not writer).
 // Note: Schema creation is now handled by multiorch during bootstrap initialization,
 // so we no longer expect CREATE SCHEMA or CREATE TABLE queries here.
+// Also note: Since SkipAutoRestore=true in these tests, we don't expect the isInitialized check.
 func expectStartupQueries(mock sqlmock.Sqlmock) {
 	// Heartbeat startup: checks if DB is primary/replica
 	mock.ExpectQuery("SELECT pg_is_in_recovery").
 		WillReturnRows(sqlmock.NewRows([]string{"pg_is_in_recovery"}).AddRow(true))
-
-	// isInitialized check: queries schema existence (may be called during auto-restore check)
-	mock.ExpectQuery("SELECT EXISTS.*multigres").
-		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
 }
 
 // setupPromoteTestManager creates a manager configured as a REPLICA for promotion tests.
@@ -407,7 +394,12 @@ func setupPromoteTestManager(t *testing.T, mockDB *sql.DB) (*MultiPoolerManager,
 	require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
 
 	tmpDir := t.TempDir()
-	setupInitializedState(t, tmpDir) // Skip auto-restore (not testing backup functionality)
+
+	// Create pg_data directory with PG_VERSION for SetTerm (which checks isDataDirInitialized)
+	// We intentionally don't create MULTIGRES_INITIALIZED since we use SkipAutoRestore=true
+	pgDataDir := filepath.Join(tmpDir, "pg_data")
+	require.NoError(t, os.MkdirAll(pgDataDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(pgDataDir, "PG_VERSION"), []byte("16"), 0o644))
 
 	config := &Config{
 		TopoClient: ts,
@@ -420,6 +412,7 @@ func setupPromoteTestManager(t *testing.T, mockDB *sql.DB) (*MultiPoolerManager,
 	pm, err := NewMultiPoolerManager(logger, config)
 	require.NoError(t, err)
 	t.Cleanup(func() { pm.Close() })
+	pm.SkipAutoRestore = true
 
 	// Assign mock DB BEFORE starting the manager to avoid race conditions
 	pm.db = mockDB
@@ -956,7 +949,6 @@ func TestReplicationStatus(t *testing.T) {
 		require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
 
 		tmpDir := t.TempDir()
-		setupInitializedState(t, tmpDir) // Skip auto-restore (not testing backup functionality)
 
 		config := &Config{
 			TopoClient: ts,
@@ -969,6 +961,7 @@ func TestReplicationStatus(t *testing.T) {
 		pm, err := NewMultiPoolerManager(logger, config)
 		require.NoError(t, err)
 		t.Cleanup(func() { pm.Close() })
+		pm.SkipAutoRestore = true
 
 		senv := servenv.NewServEnv(viperutil.NewRegistry())
 		go pm.Start(senv)
@@ -1146,7 +1139,6 @@ func TestReplicationStatus(t *testing.T) {
 		require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
 
 		tmpDir := t.TempDir()
-		setupInitializedState(t, tmpDir) // Skip auto-restore (not testing backup functionality)
 
 		config := &Config{
 			TopoClient: ts,
@@ -1159,6 +1151,7 @@ func TestReplicationStatus(t *testing.T) {
 		pm, err := NewMultiPoolerManager(logger, config)
 		require.NoError(t, err)
 		t.Cleanup(func() { pm.Close() })
+		pm.SkipAutoRestore = true
 
 		senv := servenv.NewServEnv(viperutil.NewRegistry())
 		go pm.Start(senv)

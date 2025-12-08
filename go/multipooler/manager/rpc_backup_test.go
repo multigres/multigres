@@ -1020,3 +1020,18 @@ func TestLoadMultiPoolerFromTopo_CallsAutoRestore(t *testing.T) {
 	restored := pm.tryAutoRestoreFromBackup(ctx)
 	assert.False(t, restored, "Should not restore when no backups/stanza")
 }
+
+func TestTryAutoRestoreFromBackup_SkipsWhenFieldSet(t *testing.T) {
+	ctx := t.Context()
+	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+
+	// Create temp pooler dir WITHOUT initialization markers (would trigger auto-restore)
+	poolerDir := t.TempDir()
+
+	pm := createTestManagerForAutoRestore(logger, poolerDir, clustermetadatapb.PoolerType_REPLICA)
+	pm.SkipAutoRestore = true
+
+	// Should skip restore even though pooler is uninitialized REPLICA
+	restored := pm.tryAutoRestoreFromBackup(ctx)
+	assert.False(t, restored, "Should skip restore when SkipAutoRestore is set")
+}

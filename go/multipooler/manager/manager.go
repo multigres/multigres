@@ -116,6 +116,10 @@ type MultiPoolerManager struct {
 	// Defaults to 1 second. Can be set to a shorter duration for testing.
 	autoRestoreRetryInterval time.Duration
 
+	// SkipAutoRestore skips auto-restore from backup during startup.
+	// This is intended for tests that don't need backup functionality.
+	SkipAutoRestore bool
+
 	// TODO: Implement async query serving state management system
 	// This should include: target state, current state, convergence goroutine,
 	// and state-specific handlers (setServing, setServingReadOnly, setNotServing, setDrained)

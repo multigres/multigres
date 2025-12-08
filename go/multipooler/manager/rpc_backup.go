@@ -627,6 +627,12 @@ func (pm *MultiPoolerManager) findBackupByAnnotations(
 // If uninitialized and no backup is available, the pooler stays in uninitialized state
 // and waits for explicit initialization via RPC.
 func (pm *MultiPoolerManager) tryAutoRestoreFromBackup(ctx context.Context) bool {
+	// Allow tests to skip auto-restore without creating fake initialization markers
+	if pm.SkipAutoRestore {
+		pm.logger.InfoContext(ctx, "Auto-restore skipped: SkipAutoRestore is set")
+		return false
+	}
+
 	// TODO: Handle partial initialization state (data dir exists but no marker).
 	// Currently we proceed as if uninitialized, which may cause issues if
 	// PostgreSQL is partially set up. Options for future:
