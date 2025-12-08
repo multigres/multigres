@@ -152,6 +152,7 @@ type Config struct {
 	clusterMetadataRefreshTimeout  viperutil.Value[time.Duration]
 	poolerHealthCheckInterval      viperutil.Value[time.Duration]
 	healthCheckWorkers             viperutil.Value[int]
+	recoveryCycleInterval          viperutil.Value[time.Duration]
 }
 
 // Constants
@@ -205,6 +206,12 @@ func NewConfig(reg *viperutil.Registry) *Config {
 			Dynamic:  false,
 			EnvVars:  []string{"MT_HEALTH_CHECK_WORKERS"},
 		}),
+		recoveryCycleInterval: viperutil.Configure(reg, "recovery-cycle-interval", viperutil.Options[time.Duration]{
+			Default:  1 * time.Second,
+			FlagName: "recovery-cycle-interval",
+			Dynamic:  true,
+			EnvVars:  []string{"MT_RECOVERY_CYCLE_INTERVAL"},
+		}),
 	}
 }
 
@@ -238,6 +245,10 @@ func (c *Config) GetHealthCheckWorkers() int {
 	return c.healthCheckWorkers.Get()
 }
 
+func (c *Config) GetRecoveryCycleInterval() time.Duration {
+	return c.recoveryCycleInterval.Get()
+}
+
 // Defaults for flags (used in RegisterFlags)
 
 func (c *Config) DefaultCell() string {
@@ -268,6 +279,10 @@ func (c *Config) DefaultHealthCheckWorkers() int {
 	return c.healthCheckWorkers.Default()
 }
 
+func (c *Config) DefaultRecoveryCycleInterval() time.Duration {
+	return c.recoveryCycleInterval.Default()
+}
+
 // RegisterFlags registers the config flags with pflag.
 func (c *Config) RegisterFlags(fs *pflag.FlagSet) {
 	fs.String("cell", c.DefaultCell(), "cell to use")
@@ -277,6 +292,7 @@ func (c *Config) RegisterFlags(fs *pflag.FlagSet) {
 	fs.Duration("cluster-metadata-refresh-timeout", c.DefaultClusterMetadataRefreshTimeout(), "timeout for cluster metadata refresh operation")
 	fs.Duration("pooler-health-check-interval", c.DefaultPoolerHealthCheckInterval(), "interval between health checks for a single pooler")
 	fs.Int("health-check-workers", c.DefaultHealthCheckWorkers(), "number of concurrent workers polling pooler health")
+	fs.Duration("recovery-cycle-interval", c.DefaultRecoveryCycleInterval(), "interval between recovery cycles")
 	viperutil.BindFlags(fs,
 		c.cell,
 		c.shardWatchTargets,
@@ -284,7 +300,8 @@ func (c *Config) RegisterFlags(fs *pflag.FlagSet) {
 		c.clusterMetadataRefreshInterval,
 		c.clusterMetadataRefreshTimeout,
 		c.poolerHealthCheckInterval,
-		c.healthCheckWorkers)
+		c.healthCheckWorkers,
+		c.recoveryCycleInterval)
 }
 
 // Test helper functions
@@ -338,5 +355,12 @@ func WithPoolerHealthCheckInterval(d time.Duration) func(*Config) {
 func WithHealthCheckWorkers(n int) func(*Config) {
 	return func(cfg *Config) {
 		cfg.healthCheckWorkers.Set(n)
+	}
+}
+
+// WithRecoveryCycleInterval sets the recovery cycle interval for testing.
+func WithRecoveryCycleInterval(d time.Duration) func(*Config) {
+	return func(cfg *Config) {
+		cfg.recoveryCycleInterval.Set(d)
 	}
 }

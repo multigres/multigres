@@ -531,7 +531,9 @@ func startMultiOrch(t *testing.T, baseDir, cell string, etcdAddr string, watchTa
 		"--grpc-port", fmt.Sprintf("%d", grpcPort),
 		"--http-port", fmt.Sprintf("%d", httpPort),
 		"--bookkeeping-interval", "2s",
-		"--cluster-metadata-refresh-interval", "2s",
+		"--cluster-metadata-refresh-interval", "500ms",
+		"--pooler-health-check-interval", "500ms",
+		"--recovery-cycle-interval", "500ms",
 	}
 
 	multiOrchCmd := exec.Command("multiorch", args...)
