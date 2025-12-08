@@ -1576,90 +1576,104 @@ func (p *localProvisioner) ProvisionDatabase(ctx context.Context, databaseName s
 	}
 	fmt.Println("")
 
+	// Provision all services in parallel across all cells.
+	// Multiorch's bootstrap action has a quorum check that will wait for enough
+	// poolers to be available before attempting bootstrap, so strict ordering
+	// is not required.
+	fmt.Println("=== Starting all services in parallel ===")
+
+	type provisionResult struct {
+		result *provisioner.ProvisionResult
+		err    error
+	}
+
+	// Calculate total number of services to provision
+	numServices := len(cellNames) * 3 // multigateway + multipooler + multiorch per cell
+	resultsChan := make(chan provisionResult, numServices)
+
+	// Start all services in parallel
+	for _, cellName := range cellNames {
+		cell := cellName // capture for goroutine
+
+		// Start multigateway
+		go func() {
+			req := &provisioner.ProvisionRequest{
+				Service:      "multigateway",
+				DatabaseName: databaseName,
+				Params: map[string]any{
+					"etcd_address":     etcdAddress,
+					"topo_backend":     topoConfig.Backend,
+					"topo_global_root": topoConfig.GlobalRootPath,
+					"cell":             cell,
+				},
+			}
+			result, err := p.provisionMultigateway(ctx, req)
+			if err != nil {
+				resultsChan <- provisionResult{err: fmt.Errorf("failed to provision multigateway in cell %s: %w", cell, err)}
+				return
+			}
+			resultsChan <- provisionResult{result: result}
+		}()
+
+		// Start multipooler
+		go func() {
+			req := &provisioner.ProvisionRequest{
+				Service:      "multipooler",
+				DatabaseName: databaseName,
+				Params: map[string]any{
+					"etcd_address":     etcdAddress,
+					"topo_backend":     topoConfig.Backend,
+					"topo_global_root": topoConfig.GlobalRootPath,
+					"cell":             cell,
+				},
+			}
+			result, err := p.provisionMultipooler(ctx, req)
+			if err != nil {
+				resultsChan <- provisionResult{err: fmt.Errorf("failed to provision multipooler in cell %s: %w", cell, err)}
+				return
+			}
+			resultsChan <- provisionResult{result: result}
+		}()
+
+		// Start multiorch
+		go func() {
+			req := &provisioner.ProvisionRequest{
+				Service:      "multiorch",
+				DatabaseName: databaseName,
+				Params: map[string]any{
+					"etcd_address":     etcdAddress,
+					"topo_backend":     topoConfig.Backend,
+					"topo_global_root": topoConfig.GlobalRootPath,
+					"cell":             cell,
+				},
+			}
+			result, err := p.provisionMultiOrch(ctx, req)
+			if err != nil {
+				resultsChan <- provisionResult{err: fmt.Errorf("failed to provision multiorch in cell %s: %w", cell, err)}
+				return
+			}
+			resultsChan <- provisionResult{result: result}
+		}()
+	}
+
+	// Collect all results
 	var results []*provisioner.ProvisionResult
-
-	// Provision services in phases across all cells to ensure dependencies are met.
-	// Multiorch needs all multipoolers running before bootstrap, so we start
-	// services in this order: multigateways -> multipoolers -> multiorchs
-
-	// Phase 1: Provision all multigateways
-	fmt.Println("=== Phase 1: Starting Multigateways ===")
-	for _, cellName := range cellNames {
-		fmt.Printf("=== Starting Multigateway in %s ===\n", cellName)
-		multigatewayReq := &provisioner.ProvisionRequest{
-			Service:      "multigateway",
-			DatabaseName: databaseName,
-			Params: map[string]any{
-				"etcd_address":     etcdAddress,
-				"topo_backend":     topoConfig.Backend,
-				"topo_global_root": topoConfig.GlobalRootPath,
-				"cell":             cellName,
-			},
+	var provisionErrors []error
+	for range numServices {
+		res := <-resultsChan
+		if res.err != nil {
+			provisionErrors = append(provisionErrors, res.err)
+		} else {
+			results = append(results, res.result)
 		}
-
-		multigatewayResult, err := p.provisionMultigateway(ctx, multigatewayReq)
-		if err != nil {
-			return nil, fmt.Errorf("failed to provision multigateway for database %s in cell %s: %w", databaseName, cellName, err)
-		}
-		if httpPort, ok := multigatewayResult.Ports["http_port"]; ok {
-			fmt.Printf("🌐 - Available at: http://%s:%d\n", multigatewayResult.FQDN, httpPort)
-		}
-		results = append(results, multigatewayResult)
 	}
-	fmt.Println("")
 
-	// Phase 2: Provision all multipoolers (must be done before multiorchs start)
-	fmt.Println("=== Phase 2: Starting Multipoolers ===")
-	for _, cellName := range cellNames {
-		fmt.Printf("=== Starting Multipooler in %s ===\n", cellName)
-		multipoolerReq := &provisioner.ProvisionRequest{
-			Service:      "multipooler",
-			DatabaseName: databaseName,
-			Params: map[string]any{
-				"etcd_address":     etcdAddress,
-				"topo_backend":     topoConfig.Backend,
-				"topo_global_root": topoConfig.GlobalRootPath,
-				"cell":             cellName,
-			},
-		}
-
-		multipoolerResult, err := p.provisionMultipooler(ctx, multipoolerReq)
-		if err != nil {
-			return nil, fmt.Errorf("failed to provision multipooler for database %s in cell %s: %w", databaseName, cellName, err)
-		}
-		if grpcPort, ok := multipoolerResult.Ports["grpc_port"]; ok {
-			fmt.Printf("🌐 - Available at: %s:%d\n", multipoolerResult.FQDN, grpcPort)
-		}
-		results = append(results, multipoolerResult)
+	// Report any errors
+	if len(provisionErrors) > 0 {
+		return nil, fmt.Errorf("failed to provision services: %v", provisionErrors)
 	}
+
 	fmt.Println("")
-
-	// Phase 3: Provision all multiorchs (after all multipoolers are running)
-	fmt.Println("=== Phase 3: Starting MultiOrchestrators ===")
-	for _, cellName := range cellNames {
-		fmt.Printf("=== Starting MultiOrchestrator in %s ===\n", cellName)
-		multiorchReq := &provisioner.ProvisionRequest{
-			Service:      "multiorch",
-			DatabaseName: databaseName,
-			Params: map[string]any{
-				"etcd_address":     etcdAddress,
-				"topo_backend":     topoConfig.Backend,
-				"topo_global_root": topoConfig.GlobalRootPath,
-				"cell":             cellName,
-			},
-		}
-
-		multiorchResult, err := p.provisionMultiOrch(ctx, multiorchReq)
-		if err != nil {
-			return nil, fmt.Errorf("failed to provision multiorch for database %s in cell %s: %w", databaseName, cellName, err)
-		}
-		if grpcPort, ok := multiorchResult.Ports["grpc_port"]; ok {
-			fmt.Printf("🌐 - Available at: %s:%d\n", multiorchResult.FQDN, grpcPort)
-		}
-		results = append(results, multiorchResult)
-	}
-	fmt.Println("")
-
 	fmt.Printf("✓ All cells provisioned successfully\n\n")
 
 	// Skip pgBackRest stanza initialization during bootstrap
