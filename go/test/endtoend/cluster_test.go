@@ -1135,12 +1135,6 @@ func testMultipoolerGRPC(t *testing.T, addr string) {
 	// Test primary detection
 	TestPrimaryDetection(t, client)
 
-	// Test that the multigres schema exists
-	TestMultigresSchemaExists(t, client)
-
-	// Test that the heartbeat table exists with expected columns
-	TestHeartbeatTableExists(t, client)
-
 	t.Logf("Multipooler gRPC test completed successfully for %s", addr)
 }
 

@@ -17,10 +17,12 @@
 // Bootstrap test:
 //   - TestBootstrapInitialization: Verifies multiorch automatically detects and bootstraps
 //     uninitialized shards without manual intervention, including synchronous replication setup.
-package endtoend
+package multiorch
 
 import (
 	"encoding/json"
+	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -31,9 +33,34 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/multigres/multigres/go/test/utils"
+	"github.com/multigres/multigres/go/tools/pathutil"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 )
+
+// TestMain sets the path and cleans up after all tests
+func TestMain(m *testing.M) {
+	// Set the PATH so etcd and orphan detection scripts can be found
+	// Use automatic module root detection instead of hard-coded relative paths
+	if err := pathutil.PrependBinToPath(); err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to add directories to PATH: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Set orphan detection environment variable so postgres processes
+	// started by in-process services will have watchdogs that monitor
+	// the test process and kill postgres if the test crashes
+	os.Setenv("MULTIGRES_TEST_PARENT_PID", fmt.Sprintf("%d", os.Getpid()))
+
+	// Run all tests
+	exitCode := m.Run()
+
+	// Cleanup environment variable
+	os.Unsetenv("MULTIGRES_TEST_PARENT_PID")
+
+	// Exit with the test result code
+	os.Exit(exitCode)
+}
 
 func TestBootstrapInitialization(t *testing.T) {
 	if testing.Short() {
@@ -174,11 +201,9 @@ func TestBootstrapInitialization(t *testing.T) {
 
 	t.Run("verify multigres internal tables exist", func(t *testing.T) {
 		// Verify tables exist on all initialized nodes (both primary and standbys)
-		// Note: Some nodes may report IsInitialized but have PostgreSQL unavailable
-		// due to startup failures in resource-constrained test environments
 		for _, node := range nodes {
 			status := checkInitializationStatus(t, node)
-			if status.IsInitialized && status.PostgresRunning {
+			if status.IsInitialized {
 				verifyMultigresTablesExist(t, node)
 				t.Logf("Verified multigres tables exist on %s (pooler_type=%s)", node.name, status.PoolerType)
 			}
@@ -186,11 +211,10 @@ func TestBootstrapInitialization(t *testing.T) {
 	})
 
 	t.Run("verify consensus term", func(t *testing.T) {
-		// All fully initialized nodes should have consensus term = 1
-		// Skip nodes that failed to start PostgreSQL
+		// All initialized nodes should have consensus term = 1
 		for _, node := range nodes {
 			status := checkInitializationStatus(t, node)
-			if status.IsInitialized && status.PostgresRunning {
+			if status.IsInitialized {
 				assert.Equal(t, int64(1), status.ConsensusTerm, "Node %s should have consensus term 1", node.name)
 			}
 		}
