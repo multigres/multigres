@@ -57,15 +57,22 @@ func TestBootstrapConfiguresSyncReplication(t *testing.T) {
 	env.registerNodes()
 
 	// Start multiorch and wait for bootstrap
-	multiOrchCmd := env.startMultiOrch()
-	defer terminateProcess(t, multiOrchCmd, "multiorch", 5*time.Second)
+	// Note: env.startMultiOrch() registers cleanup automatically via t.Cleanup()
+	env.startMultiOrch()
 
 	primaryNode := waitForShardPrimary(t, nodes, 90*time.Second)
 	require.NotNil(t, primaryNode, "should have a primary after bootstrap")
 
-	// Wait for at least 1 standby to initialize (may have issues with all standbys in test environment)
-	// For sync replication, we need at least 1 standby to verify configuration
+	// Wait for at least 1 standby to initialize, which indicates bootstrap has progressed
+	// past primary initialization. The sync replication configuration happens after
+	// initializeStandbys (even if some fail), so we add a delay after detecting standbys.
 	waitForStandbysInitialized(t, nodes, primaryNode.name, 1, 90*time.Second)
+
+	// Give bootstrap time to complete sync replication configuration.
+	// This is needed because initializeStandbys may take up to 30s per failed node,
+	// and sync replication config happens after all standby attempts complete.
+	t.Log("Waiting for bootstrap to complete sync replication configuration...")
+	time.Sleep(35 * time.Second)
 
 	// Verify synchronous_standby_names is configured on primary
 	t.Run("verifies_sync_standby_names_configured", func(t *testing.T) {
