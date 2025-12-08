@@ -437,6 +437,11 @@ func TestBootstrapShardAction_FullBootstrapFlow(t *testing.T) {
 	assert.Equal(t, 1, callCounts["InitializeEmptyPrimary"], "exactly one primary should be initialized")
 	assert.Equal(t, 1, callCounts["CreateDurabilityPolicy"], "durability policy should be created once")
 	assert.Equal(t, 2, callCounts["InitializeAsStandby"], "two standbys should be initialized")
+
+	// Verify the database is marked as initialized after successful bootstrap
+	db, err := ts.GetDatabase(ctx, "testdb")
+	require.NoError(t, err)
+	assert.True(t, db.Initialized, "database should be marked as initialized after bootstrap")
 }
 
 // countCallsByMethod counts RPC calls by method name from the FakeClient call log.
@@ -532,6 +537,97 @@ func TestBootstrapShardAction_SkipsIfAlreadyInitialized(t *testing.T) {
 	// Verify InitializeEmptyPrimary was NOT called
 	for _, call := range fakeClient.CallLog {
 		assert.NotContains(t, call, "InitializeEmptyPrimary")
+	}
+}
+
+// TestBootstrapShardAction_FailsIfDatabaseAlreadyInitialized tests that bootstrap fails
+// with an error if the database is already marked as initialized in topology,
+// indicating a partial bootstrap failure that requires manual intervention.
+func TestBootstrapShardAction_FailsIfDatabaseAlreadyInitialized(t *testing.T) {
+	ctx := context.Background()
+	ts, _ := memorytopo.NewServerAndFactory(ctx, "cell1")
+	defer ts.Close()
+
+	logger := slog.Default()
+	poolerStore := store.NewProtoStore[string, *multiorchdatapb.PoolerHealthState]()
+
+	// Setup database with ANY_2 policy AND marked as initialized
+	err := ts.CreateDatabase(ctx, "testdb", &clustermetadatapb.Database{
+		Name:             "testdb",
+		DurabilityPolicy: "ANY_2",
+		Initialized:      true, // Already initialized!
+	})
+	require.NoError(t, err)
+
+	// Create fake RPC client - both poolers are reachable but uninitialized
+	// (simulating a partial failure where the flag was set but nodes weren't fully set up)
+	fakeClient := rpcclient.NewFakeClient()
+	fakeClient.StatusResponses["multipooler-cell1-pooler1"] = &multipoolermanagerdatapb.StatusResponse{
+		Status: &multipoolermanagerdatapb.Status{
+			IsInitialized: false,
+		},
+	}
+	fakeClient.StatusResponses["multipooler-cell1-pooler2"] = &multipoolermanagerdatapb.StatusResponse{
+		Status: &multipoolermanagerdatapb.Status{
+			IsInitialized: false,
+		},
+	}
+
+	// Add two poolers to the store
+	poolerID1 := &clustermetadatapb.ID{
+		Component: clustermetadatapb.ID_MULTIPOOLER,
+		Cell:      "cell1",
+		Name:      "pooler1",
+	}
+	poolerID2 := &clustermetadatapb.ID{
+		Component: clustermetadatapb.ID_MULTIPOOLER,
+		Cell:      "cell1",
+		Name:      "pooler2",
+	}
+
+	poolerStore.Set("multipooler-cell1-pooler1", &multiorchdatapb.PoolerHealthState{
+		MultiPooler: &clustermetadatapb.MultiPooler{
+			Id:         poolerID1,
+			Database:   "testdb",
+			TableGroup: "default",
+			Shard:      "0",
+			Hostname:   "host1",
+			PortMap:    map[string]int32{"postgres": 5432},
+		},
+	})
+	poolerStore.Set("multipooler-cell1-pooler2", &multiorchdatapb.PoolerHealthState{
+		MultiPooler: &clustermetadatapb.MultiPooler{
+			Id:         poolerID2,
+			Database:   "testdb",
+			TableGroup: "default",
+			Shard:      "0",
+			Hostname:   "host2",
+			PortMap:    map[string]int32{"postgres": 5432},
+		},
+	})
+
+	action := NewBootstrapShardAction(fakeClient, poolerStore, ts, logger)
+
+	problem := types.Problem{
+		Code: types.ProblemShardNeedsBootstrap,
+		ShardKey: commontypes.ShardKey{
+			Database:   "testdb",
+			TableGroup: "default",
+			Shard:      "0",
+		},
+	}
+
+	err = action.Execute(ctx, problem)
+
+	// Should fail because database is marked as initialized but shard still needs bootstrap
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "marked as initialized")
+	assert.Contains(t, err.Error(), "manual intervention")
+
+	// Verify no bootstrap RPCs were made
+	for _, call := range fakeClient.CallLog {
+		assert.NotContains(t, call, "InitializeEmptyPrimary")
+		assert.NotContains(t, call, "InitializeAsStandby")
 	}
 }
 

@@ -164,6 +164,31 @@ func (a *BootstrapShardAction) Execute(ctx context.Context, problem types.Proble
 		"shard_key", problem.ShardKey.String(),
 		"cohort_size", len(cohort))
 
+	// Check if the database is already marked as initialized.
+	// Since we've verified the shard still needs bootstrap, if initialized is true,
+	// this indicates a partial failure from a previous bootstrap attempt.
+	db, err := a.topoStore.GetDatabase(ctx, problem.ShardKey.Database)
+	if err != nil {
+		return mterrors.Wrap(err, "failed to get database from topology")
+	}
+	if db.Initialized {
+		return mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
+			"database %s is marked as initialized but shard still needs bootstrap; this indicates a partial bootstrap failure requiring manual intervention",
+			problem.ShardKey.Database)
+	}
+
+	// Mark the database as initialized before making any mutations.
+	// This ensures that if bootstrap fails partway through, we don't attempt
+	// to re-bootstrap automatically and corrupt data.
+	if err := a.topoStore.UpdateDatabaseFields(ctx, problem.ShardKey.Database, func(d *clustermetadatapb.Database) error {
+		d.Initialized = true
+		return nil
+	}); err != nil {
+		return mterrors.Wrap(err, "failed to mark database as initialized")
+	}
+
+	a.logger.InfoContext(ctx, "marked database as initialized", "database", problem.ShardKey.Database)
+
 	// Select a bootstrap candidate
 	candidate, err := a.selectBootstrapCandidate(ctx, cohort)
 	if err != nil {

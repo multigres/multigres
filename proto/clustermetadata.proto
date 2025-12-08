@@ -71,6 +71,9 @@ message Database {
 
   // List of cell identifiers where this database should be deployed
   repeated string cells = 4;
+
+  // initialized indicates this database has been initialized and is ready to be used.
+  bool initialized = 5;
 }
 
 // =============================================================================

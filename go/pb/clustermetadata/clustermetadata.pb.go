@@ -478,7 +478,9 @@ type Database struct {
 	// Durability policy used for consensus
 	DurabilityPolicy string `protobuf:"bytes,3,opt,name=durability_policy,json=durabilityPolicy,proto3" json:"durability_policy,omitempty"`
 	// List of cell identifiers where this database should be deployed
-	Cells         []string `protobuf:"bytes,4,rep,name=cells,proto3" json:"cells,omitempty"`
+	Cells []string `protobuf:"bytes,4,rep,name=cells,proto3" json:"cells,omitempty"`
+	// initialized indicates this database has been initialized and is ready to be used.
+	Initialized   bool `protobuf:"varint,5,opt,name=initialized,proto3" json:"initialized,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -539,6 +541,13 @@ func (x *Database) GetCells() []string {
 		return x.Cells
 	}
 	return nil
+}
+
+func (x *Database) GetInitialized() bool {
+	if x != nil {
+		return x.Initialized
+	}
+	return false
 }
 
 // MultiPooler represents metadata about a running multipooler component instance in the cluster.
@@ -1089,12 +1098,13 @@ const file_clustermetadata_proto_rawDesc = "" +
 	"\x04Cell\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12)\n" +
 	"\x10server_addresses\x18\x02 \x03(\tR\x0fserverAddresses\x12\x12\n" +
-	"\x04root\x18\x03 \x01(\tR\x04root\"\x8a\x01\n" +
+	"\x04root\x18\x03 \x01(\tR\x04root\"\xac\x01\n" +
 	"\bDatabase\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12'\n" +
 	"\x0fbackup_location\x18\x02 \x01(\tR\x0ebackupLocation\x12+\n" +
 	"\x11durability_policy\x18\x03 \x01(\tR\x10durabilityPolicy\x12\x14\n" +
-	"\x05cells\x18\x04 \x03(\tR\x05cells\"\xd9\x03\n" +
+	"\x05cells\x18\x04 \x03(\tR\x05cells\x12 \n" +
+	"\vinitialized\x18\x05 \x01(\bR\vinitialized\"\xd9\x03\n" +
 	"\vMultiPooler\x12#\n" +
 	"\x02id\x18\x01 \x01(\v2\x13.clustermetadata.IDR\x02id\x12\x1a\n" +
 	"\bdatabase\x18\x02 \x01(\tR\bdatabase\x12\x1f\n" +
