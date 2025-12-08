@@ -192,7 +192,7 @@ func (a *BootstrapShardAction) Execute(ctx context.Context, problem types.Proble
 		return mterrors.Wrap(err, "failed to set pooler type to PRIMARY")
 	}
 
-	// Create durability policy in the primary's database (quorumRule already parsed above)
+	// Create durability policy in the primary's database
 	createPolicyReq := &multipoolermanagerdatapb.CreateDurabilityPolicyRequest{
 		PolicyName: policyName,
 		QuorumRule: quorumRule,
