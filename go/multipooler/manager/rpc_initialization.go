@@ -225,8 +225,6 @@ func (pm *MultiPoolerManager) InitializeAsStandby(ctx context.Context, req *mult
 
 	// Write initialization marker to indicate full initialization completed.
 	// This marker is checked by isInitialized() when the database connection is not available.
-	// Note: The marker is NOT included in the backup because it's created after the backup.
-	// So standbys need to create it explicitly after initialization.
 	if err := pm.writeInitializationMarker(); err != nil {
 		return nil, mterrors.Wrap(err, "failed to write initialization marker")
 	}

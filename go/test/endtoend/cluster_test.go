@@ -22,6 +22,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"syscall"
 	"testing"
@@ -717,6 +718,15 @@ func executeStartCommand(t *testing.T, args []string, tempDir string) (string, e
 	cmd.Env = append(os.Environ(),
 		"MULTIGRES_TESTDATA_DIR="+tempDir,
 	)
+
+	// On macOS, PostgreSQL 17 requires proper locale settings to avoid
+	// "postmaster became multithreaded during startup" errors.
+	if runtime.GOOS == "darwin" {
+		cmd.Env = append(cmd.Env,
+			"LC_ALL=en_US.UTF-8",
+			"LANG=en_US.UTF-8",
+		)
+	}
 
 	output, err := cmd.CombinedOutput()
 	return string(output), err
