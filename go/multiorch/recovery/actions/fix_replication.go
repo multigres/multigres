@@ -78,7 +78,6 @@ func (a *FixReplicationAction) Execute(ctx context.Context, problem types.Proble
 		"pooler", problem.PoolerID.Name,
 		"problem_code", string(problem.Code))
 
-	// Acquire distributed lock for this shard
 	a.logger.InfoContext(ctx, "acquiring recovery lock", "shard_key", problem.ShardKey.String())
 
 	// Find the affected replica
@@ -103,8 +102,8 @@ func (a *FixReplicationAction) Execute(ctx context.Context, problem types.Proble
 		"primary", primary.MultiPooler.Id.Name,
 		"replica", replica.MultiPooler.Id.Name)
 
-	// Re-verify the problem still exists after acquiring lock
-	needsFix, currentStatus, err := a.verifyProblemExists(ctx, replica, primary)
+	// Re-verify the problem still exists
+	needsFix, _, err := a.verifyProblemExists(ctx, replica, primary)
 	if err != nil {
 		return mterrors.Wrap(err, "failed to verify replication status")
 	}
@@ -118,7 +117,7 @@ func (a *FixReplicationAction) Execute(ctx context.Context, problem types.Proble
 	// Dispatch to the appropriate fix based on the problem
 	switch problem.Code {
 	case types.ProblemReplicaNotReplicating:
-		return a.fixNotReplicating(ctx, replica, primary, currentStatus)
+		return a.fixNotReplicating(ctx, replica, primary)
 
 	// TODO: Future problem codes to handle
 	// case types.ProblemReplicaWrongPrimary:
@@ -140,7 +139,6 @@ func (a *FixReplicationAction) fixNotReplicating(
 	ctx context.Context,
 	replica *multiorchdatapb.PoolerHealthState,
 	primary *multiorchdatapb.PoolerHealthState,
-	currentStatus *multipoolermanagerdatapb.StandbyReplicationStatus,
 ) error {
 	a.logger.InfoContext(ctx, "fixing replication: not configured",
 		"replica", replica.MultiPooler.Id.Name,
@@ -154,11 +152,7 @@ func (a *FixReplicationAction) fixNotReplicating(
 	}
 
 	// Configure primary_conninfo on the replica
-	// SetPrimaryConnInfo will:
-	// 1. Stop replication if running (stop_replication_before=true)
-	// 2. Set primary_conninfo via ALTER SYSTEM
-	// 3. Reload config
-	// 4. Start replication if requested (start_replication_after=true)
+	// SetPrimaryConnInfo.
 	req := &multipoolermanagerdatapb.SetPrimaryConnInfoRequest{
 		Host:                  primary.MultiPooler.Hostname,
 		Port:                  primaryPort,

@@ -40,6 +40,7 @@ func DefaultAnalyzers(factory *RecoveryActionFactory) []Analyzer {
 		return []Analyzer{
 			&ShardNeedsBootstrapAnalyzer{factory: factory},
 			&PrimaryIsDeadAnalyzer{factory: factory},
+			&ReplicaNotReplicatingAnalyzer{factory: factory},
 		}
 	}
 	return defaultAnalyzers
