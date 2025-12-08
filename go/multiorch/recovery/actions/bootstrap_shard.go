@@ -116,6 +116,25 @@ func (a *BootstrapShardAction) Execute(ctx context.Context, problem types.Proble
 		"shard_key", problem.ShardKey.String(),
 		"policy_name", policyName)
 
+	// Parse policy to get required count for quorum check
+	quorumRule, err := a.parsePolicy(policyName)
+	if err != nil {
+		return mterrors.Wrap(err, "failed to parse policy")
+	}
+
+	// Check that enough poolers are reachable to satisfy quorum before attempting bootstrap
+	reachableCount := a.countReachablePoolers(ctx, cohort)
+	if reachableCount < int(quorumRule.RequiredCount) {
+		return mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
+			"insufficient reachable poolers for bootstrap: have %d, need %d for quorum",
+			reachableCount, quorumRule.RequiredCount)
+	}
+
+	a.logger.InfoContext(ctx, "quorum check passed",
+		"shard_key", problem.ShardKey.String(),
+		"reachable_poolers", reachableCount,
+		"required_count", quorumRule.RequiredCount)
+
 	// Revalidate that bootstrap is still needed after acquiring lock.
 	// Make fresh RPC calls to verify all nodes are still uninitialized.
 	// Don't rely on potentially stale store data.
@@ -173,12 +192,7 @@ func (a *BootstrapShardAction) Execute(ctx context.Context, problem types.Proble
 		return mterrors.Wrap(err, "failed to set pooler type to PRIMARY")
 	}
 
-	// Create durability policy in the primary's database
-	quorumRule, err := a.parsePolicy(policyName)
-	if err != nil {
-		return mterrors.Wrap(err, "failed to parse policy")
-	}
-
+	// Create durability policy in the primary's database (quorumRule already parsed above)
 	createPolicyReq := &multipoolermanagerdatapb.CreateDurabilityPolicyRequest{
 		PolicyName: policyName,
 		QuorumRule: quorumRule,
@@ -347,6 +361,19 @@ func (a *BootstrapShardAction) initializeSingleStandby(ctx context.Context, node
 	}
 
 	return nil
+}
+
+// countReachablePoolers counts how many poolers in the cohort are reachable via RPC.
+func (a *BootstrapShardAction) countReachablePoolers(ctx context.Context, cohort []*multiorchdatapb.PoolerHealthState) int {
+	count := 0
+	for _, pooler := range cohort {
+		req := &multipoolermanagerdatapb.StatusRequest{}
+		_, err := a.rpcClient.Status(ctx, pooler.MultiPooler, req)
+		if err == nil {
+			count++
+		}
+	}
+	return count
 }
 
 // getCohort fetches all poolers in the shard from the pooler store.
