@@ -36,6 +36,9 @@ import (
 // Compile-time assertion that BootstrapShardAction implements types.RecoveryAction.
 var _ types.RecoveryAction = (*BootstrapShardAction)(nil)
 
+// DefaultStatusRPCTimeout is the default timeout for individual Status RPC calls.
+const DefaultStatusRPCTimeout = 5 * time.Second
+
 // BootstrapShardAction handles bootstrap initialization of a new shard from scratch.
 // This action assumes all nodes in the cohort are empty (uninitialized).
 // It will:
@@ -46,13 +49,14 @@ var _ types.RecoveryAction = (*BootstrapShardAction)(nil)
 // 5. Create the durability policy in the database
 // 6. Initialize remaining nodes as standbys
 type BootstrapShardAction struct {
-	rpcClient   rpcclient.MultiPoolerClient
-	poolerStore *store.ProtoStore[string, *multiorchdatapb.PoolerHealthState]
-	topoStore   topoclient.Store
-	logger      *slog.Logger
+	rpcClient        rpcclient.MultiPoolerClient
+	poolerStore      *store.ProtoStore[string, *multiorchdatapb.PoolerHealthState]
+	topoStore        topoclient.Store
+	logger           *slog.Logger
+	statusRPCTimeout time.Duration
 }
 
-// NewBootstrapShardAction creates a new bootstrap action
+// NewBootstrapShardAction creates a new bootstrap action with default settings.
 func NewBootstrapShardAction(
 	rpcClient rpcclient.MultiPoolerClient,
 	poolerStore *store.ProtoStore[string, *multiorchdatapb.PoolerHealthState],
@@ -60,11 +64,19 @@ func NewBootstrapShardAction(
 	logger *slog.Logger,
 ) *BootstrapShardAction {
 	return &BootstrapShardAction{
-		rpcClient:   rpcClient,
-		poolerStore: poolerStore,
-		topoStore:   topoStore,
-		logger:      logger,
+		rpcClient:        rpcClient,
+		poolerStore:      poolerStore,
+		topoStore:        topoStore,
+		logger:           logger,
+		statusRPCTimeout: DefaultStatusRPCTimeout,
 	}
+}
+
+// WithStatusRPCTimeout sets the timeout for individual Status RPC calls.
+// This is useful for testing with shorter timeouts.
+func (a *BootstrapShardAction) WithStatusRPCTimeout(timeout time.Duration) *BootstrapShardAction {
+	a.statusRPCTimeout = timeout
+	return a
 }
 
 // Execute performs bootstrap initialization for a new shard
@@ -367,8 +379,12 @@ func (a *BootstrapShardAction) initializeSingleStandby(ctx context.Context, node
 func (a *BootstrapShardAction) countReachablePoolers(ctx context.Context, cohort []*multiorchdatapb.PoolerHealthState) int {
 	count := 0
 	for _, pooler := range cohort {
+		// Use a per-RPC timeout to prevent a single slow/unresponsive pooler from
+		// consuming the entire action timeout.
+		rpcCtx, cancel := context.WithTimeout(ctx, a.statusRPCTimeout)
 		req := &multipoolermanagerdatapb.StatusRequest{}
-		_, err := a.rpcClient.Status(ctx, pooler.MultiPooler, req)
+		_, err := a.rpcClient.Status(rpcCtx, pooler.MultiPooler, req)
+		cancel()
 		if err == nil {
 			count++
 		}

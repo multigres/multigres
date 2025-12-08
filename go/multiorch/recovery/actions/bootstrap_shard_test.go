@@ -205,11 +205,11 @@ func TestBootstrapShardAction_QuorumCheckFailsWithInsufficientPoolers(t *testing
 
 	// Create fake RPC client - only pooler1 is reachable
 	fakeClient := rpcclient.NewFakeClient()
-	fakeClient.StatusResponses["multipooler-cell1-pooler1"] = &multipoolermanagerdatapb.StatusResponse{
+	fakeClient.SetStatusResponse("multipooler-cell1-pooler1", &multipoolermanagerdatapb.StatusResponse{
 		Status: &multipoolermanagerdatapb.Status{
 			IsInitialized: false,
 		},
-	}
+	})
 	// pooler2 returns an error (unreachable)
 	fakeClient.Errors["multipooler-cell1-pooler2"] = errors.New("connection refused")
 
@@ -280,16 +280,16 @@ func TestBootstrapShardAction_QuorumCheckPassesWithEnoughPoolers(t *testing.T) {
 
 	// Create fake RPC client - both poolers are reachable
 	fakeClient := rpcclient.NewFakeClient()
-	fakeClient.StatusResponses["multipooler-cell1-pooler1"] = &multipoolermanagerdatapb.StatusResponse{
+	fakeClient.SetStatusResponse("multipooler-cell1-pooler1", &multipoolermanagerdatapb.StatusResponse{
 		Status: &multipoolermanagerdatapb.Status{
 			IsInitialized: false,
 		},
-	}
-	fakeClient.StatusResponses["multipooler-cell1-pooler2"] = &multipoolermanagerdatapb.StatusResponse{
+	})
+	fakeClient.SetStatusResponse("multipooler-cell1-pooler2", &multipoolermanagerdatapb.StatusResponse{
 		Status: &multipoolermanagerdatapb.Status{
 			IsInitialized: false,
 		},
-	}
+	})
 
 	// Setup responses for the bootstrap flow
 	fakeClient.InitializeEmptyPrimaryResponses["multipooler-cell1-pooler1"] = &multipoolermanagerdatapb.InitializeEmptyPrimaryResponse{
@@ -377,11 +377,11 @@ func TestBootstrapShardAction_FullBootstrapFlow(t *testing.T) {
 	fakeClient := rpcclient.NewFakeClient()
 	for _, name := range []string{"pooler1", "pooler2", "pooler3"} {
 		key := "multipooler-cell1-" + name
-		fakeClient.StatusResponses[key] = &multipoolermanagerdatapb.StatusResponse{
+		fakeClient.SetStatusResponse(key, &multipoolermanagerdatapb.StatusResponse{
 			Status: &multipoolermanagerdatapb.Status{
 				IsInitialized: false,
 			},
-		}
+		})
 		fakeClient.ChangeTypeResponses[key] = &multipoolermanagerdatapb.ChangeTypeResponse{}
 		fakeClient.InitializeAsStandbyResponses[key] = &multipoolermanagerdatapb.InitializeAsStandbyResponse{
 			Success: true,
@@ -468,17 +468,17 @@ func TestBootstrapShardAction_SkipsIfAlreadyInitialized(t *testing.T) {
 
 	// Create fake RPC client - pooler1 is already initialized
 	fakeClient := rpcclient.NewFakeClient()
-	fakeClient.StatusResponses["multipooler-cell1-pooler1"] = &multipoolermanagerdatapb.StatusResponse{
+	fakeClient.SetStatusResponse("multipooler-cell1-pooler1", &multipoolermanagerdatapb.StatusResponse{
 		Status: &multipoolermanagerdatapb.Status{
 			IsInitialized: true, // Already initialized!
 			PostgresRole:  "primary",
 		},
-	}
-	fakeClient.StatusResponses["multipooler-cell1-pooler2"] = &multipoolermanagerdatapb.StatusResponse{
+	})
+	fakeClient.SetStatusResponse("multipooler-cell1-pooler2", &multipoolermanagerdatapb.StatusResponse{
 		Status: &multipoolermanagerdatapb.Status{
 			IsInitialized: false,
 		},
-	}
+	})
 
 	// Add two poolers to the store
 	poolerID1 := &clustermetadatapb.ID{
@@ -543,13 +543,13 @@ func TestBootstrapShardAction_CountReachablePoolers(t *testing.T) {
 	fakeClient := rpcclient.NewFakeClient()
 
 	// pooler1 and pooler3 are reachable, pooler2 is not
-	fakeClient.StatusResponses["multipooler-cell1-pooler1"] = &multipoolermanagerdatapb.StatusResponse{
+	fakeClient.SetStatusResponse("multipooler-cell1-pooler1", &multipoolermanagerdatapb.StatusResponse{
 		Status: &multipoolermanagerdatapb.Status{IsInitialized: false},
-	}
+	})
 	fakeClient.Errors["multipooler-cell1-pooler2"] = errors.New("connection refused")
-	fakeClient.StatusResponses["multipooler-cell1-pooler3"] = &multipoolermanagerdatapb.StatusResponse{
+	fakeClient.SetStatusResponse("multipooler-cell1-pooler3", &multipoolermanagerdatapb.StatusResponse{
 		Status: &multipoolermanagerdatapb.Status{IsInitialized: false},
-	}
+	})
 
 	action := NewBootstrapShardAction(fakeClient, nil, nil, logger)
 
@@ -586,4 +586,55 @@ func TestBootstrapShardAction_CountReachablePoolers(t *testing.T) {
 	count := action.countReachablePoolers(ctx, cohort)
 
 	assert.Equal(t, 2, count)
+}
+
+// TestBootstrapShardAction_CountReachablePoolersTimeout tests that slow poolers
+// are treated as unreachable due to the per-RPC timeout.
+func TestBootstrapShardAction_CountReachablePoolersTimeout(t *testing.T) {
+	ctx := context.Background()
+	logger := slog.Default()
+
+	fakeClient := rpcclient.NewFakeClient()
+
+	// pooler1 responds immediately, pooler2 is slow (100ms delay > 10ms timeout)
+	fakeClient.SetStatusResponse("multipooler-cell1-pooler1", &multipoolermanagerdatapb.StatusResponse{
+		Status: &multipoolermanagerdatapb.Status{IsInitialized: false},
+	})
+	fakeClient.SetStatusResponseWithDelay("multipooler-cell1-pooler2", &multipoolermanagerdatapb.StatusResponse{
+		Status: &multipoolermanagerdatapb.Status{IsInitialized: false},
+	}, 100*time.Millisecond)
+
+	action := NewBootstrapShardAction(fakeClient, nil, nil, logger).
+		WithStatusRPCTimeout(10 * time.Millisecond)
+
+	cohort := []*multiorchdatapb.PoolerHealthState{
+		{
+			MultiPooler: &clustermetadatapb.MultiPooler{
+				Id: &clustermetadatapb.ID{
+					Component: clustermetadatapb.ID_MULTIPOOLER,
+					Cell:      "cell1",
+					Name:      "pooler1",
+				},
+			},
+		},
+		{
+			MultiPooler: &clustermetadatapb.MultiPooler{
+				Id: &clustermetadatapb.ID{
+					Component: clustermetadatapb.ID_MULTIPOOLER,
+					Cell:      "cell1",
+					Name:      "pooler2",
+				},
+			},
+		},
+	}
+
+	start := time.Now()
+	count := action.countReachablePoolers(ctx, cohort)
+	elapsed := time.Since(start)
+
+	// Only pooler1 should be counted as reachable (pooler2 timed out)
+	assert.Equal(t, 1, count)
+
+	// Should complete in ~10ms (the timeout), not 100ms (the full delay)
+	assert.Less(t, elapsed, 50*time.Millisecond, "should timeout quickly, not wait for full delay")
 }
