@@ -33,10 +33,11 @@ import (
 
 // runRecoveryLoop is the main recovery loop that detects and fixes problems.
 func (re *Engine) runRecoveryLoop() {
-	ticker := time.NewTicker(1 * time.Second)
+	interval := re.config.GetRecoveryCycleInterval()
+	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
-	re.logger.InfoContext(re.ctx, "recovery loop started")
+	re.logger.InfoContext(re.ctx, "recovery loop started", "interval", interval)
 
 	for {
 		select {
@@ -45,6 +46,13 @@ func (re *Engine) runRecoveryLoop() {
 			return
 
 		case <-ticker.C:
+			// Check if interval changed (dynamic config)
+			newInterval := re.config.GetRecoveryCycleInterval()
+			if newInterval != interval {
+				re.logger.InfoContext(re.ctx, "recovery cycle interval changed", "old", interval, "new", newInterval)
+				interval = newInterval
+				ticker.Reset(interval)
+			}
 			runIfNotRunning(re.logger, &re.recoveryLoopInProgress, "recovery_loop", re.performRecoveryCycle)
 		}
 	}
