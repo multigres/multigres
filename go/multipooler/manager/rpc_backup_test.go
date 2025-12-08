@@ -908,6 +908,7 @@ func TestRestoreFromBackup_ActionLockReleased(t *testing.T) {
 func createTestManagerForAutoRestore(logger *slog.Logger, poolerDir string, poolerType clustermetadatapb.PoolerType) *MultiPoolerManager {
 	pm := createTestManagerWithBackupLocation(poolerDir, "test-stanza", "default", "0", poolerType, "/tmp/backups")
 	pm.logger = logger
+	pm.autoRestoreRetryInterval = 10 * time.Millisecond // Short interval for tests
 	return pm
 }
 
@@ -927,8 +928,9 @@ func TestTryAutoRestoreFromBackup_SkipsWhenInitialized(t *testing.T) {
 		config: &Config{
 			PoolerDir: poolerDir,
 		},
-		backupLocation: "/tmp/backups",
-		actionLock:     NewActionLock(),
+		backupLocation:           "/tmp/backups",
+		actionLock:               NewActionLock(),
+		autoRestoreRetryInterval: 10 * time.Millisecond,
 	}
 
 	// Create the initialization marker file - this is what isInitialized() checks
@@ -953,6 +955,21 @@ func TestTryAutoRestoreFromBackup_SkipsForPrimary(t *testing.T) {
 	assert.False(t, restored, "Should not restore PRIMARY pooler")
 }
 
+func TestTryAutoRestoreFromBackup_SkipsForUnknownType(t *testing.T) {
+	ctx := t.Context()
+	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+
+	// Create temp pooler dir WITHOUT PG_VERSION (uninitialized)
+	poolerDir := t.TempDir()
+
+	// UNKNOWN type is what a fresh multipooler has before SetPoolerType is called
+	pm := createTestManagerForAutoRestore(logger, poolerDir, clustermetadatapb.PoolerType_UNKNOWN)
+
+	// Should not attempt restore for UNKNOWN type - only REPLICA should auto-restore
+	restored := pm.tryAutoRestoreFromBackup(ctx)
+	assert.False(t, restored, "Should not restore UNKNOWN pooler type")
+}
+
 func TestListBackups_ReturnsEmptyWhenNoBackups(t *testing.T) {
 	ctx := t.Context()
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
@@ -968,8 +985,10 @@ func TestListBackups_ReturnsEmptyWhenNoBackups(t *testing.T) {
 	assert.Empty(t, backups)
 }
 
-func TestTryAutoRestoreFromBackup_StaysUninitializedWhenNoBackups(t *testing.T) {
-	ctx := t.Context()
+func TestTryAutoRestoreFromBackup_RetriesUntilContextCancelled(t *testing.T) {
+	// Use a short timeout since the function now retries indefinitely
+	ctx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
+	defer cancel()
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 
 	// Create temp pooler dir WITHOUT PG_VERSION (uninitialized)
@@ -977,19 +996,21 @@ func TestTryAutoRestoreFromBackup_StaysUninitializedWhenNoBackups(t *testing.T) 
 
 	pm := createTestManagerForAutoRestore(logger, poolerDir, clustermetadatapb.PoolerType_REPLICA)
 
-	// Should return false (no restore performed) when no backups available
+	// Should return false when context is cancelled (no restore performed)
 	restored := pm.tryAutoRestoreFromBackup(ctx)
-	assert.False(t, restored, "Should not restore when no backups available")
+	assert.False(t, restored, "Should not restore when context is cancelled")
 
 	// Should still be uninitialized
-	assert.False(t, pm.isInitialized(ctx), "Should remain uninitialized")
+	assert.False(t, pm.isInitialized(t.Context()), "Should remain uninitialized")
 }
 
 func TestLoadMultiPoolerFromTopo_CallsAutoRestore(t *testing.T) {
 	// This is more of an integration test - we verify the method is called
 	// by checking logs or behavior. For unit testing, we verify the method
 	// exists and can be called.
-	ctx := t.Context()
+	// Use a short timeout since the function now retries indefinitely
+	ctx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
+	defer cancel()
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 
 	poolerDir := t.TempDir()

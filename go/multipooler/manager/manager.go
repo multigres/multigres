@@ -112,6 +112,10 @@ type MultiPoolerManager struct {
 	// This is loaded once during startup and cached for fast access.
 	backupLocation string
 
+	// autoRestoreRetryInterval is the interval between auto-restore retry attempts.
+	// Defaults to 1 second. Can be set to a shorter duration for testing.
+	autoRestoreRetryInterval time.Duration
+
 	// TODO: Implement async query serving state management system
 	// This should include: target state, current state, convergence goroutine,
 	// and state-specific handlers (setServing, setServingReadOnly, setNotServing, setDrained)
@@ -177,18 +181,19 @@ func NewMultiPoolerManagerWithTimeout(logger *slog.Logger, config *Config, loadT
 	}
 
 	pm := &MultiPoolerManager{
-		logger:            logger,
-		config:            config,
-		topoClient:        config.TopoClient,
-		serviceID:         config.ServiceID,
-		actionLock:        NewActionLock(),
-		state:             ManagerStateStarting,
-		ctx:               ctx,
-		cancel:            cancel,
-		loadTimeout:       loadTimeout,
-		queryServingState: clustermetadatapb.PoolerServingStatus_NOT_SERVING,
-		pgctldClient:      pgctldClient,
-		readyChan:         make(chan struct{}),
+		logger:                   logger,
+		config:                   config,
+		topoClient:               config.TopoClient,
+		serviceID:                config.ServiceID,
+		actionLock:               NewActionLock(),
+		state:                    ManagerStateStarting,
+		ctx:                      ctx,
+		cancel:                   cancel,
+		loadTimeout:              loadTimeout,
+		autoRestoreRetryInterval: 1 * time.Second,
+		queryServingState:        clustermetadatapb.PoolerServingStatus_NOT_SERVING,
+		pgctldClient:             pgctldClient,
+		readyChan:                make(chan struct{}),
 	}
 
 	// Create the query service controller (follows Vitess pattern)
@@ -683,7 +688,7 @@ func (pm *MultiPoolerManager) loadMultiPoolerFromTopo() {
 		pm.topoLoaded = true
 		pm.mu.Unlock()
 
-		pm.logger.InfoContext(pm.ctx, "Loaded multipooler record from topology", "service_id", pm.serviceID.String(), "database", mp.Database, "backup_location", db.BackupLocation)
+		pm.logger.InfoContext(pm.ctx, "Loaded multipooler record from topology", "service_id", pm.serviceID.String(), "database", mp.Database, "backup_location", db.BackupLocation, "pooler_type", mp.Type.String())
 
 		// Try to auto-restore from backup if uninitialized
 		// This must happen after topo is loaded (for backupLocation) but before ready state

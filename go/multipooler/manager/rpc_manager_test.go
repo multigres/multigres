@@ -19,6 +19,7 @@ import (
 	"database/sql"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"regexp"
 	"testing"
 	"time"
@@ -51,6 +52,16 @@ func addDatabaseToTopo(t *testing.T, ts topoclient.Store, database string) {
 		DurabilityPolicy: "ANY_2",
 	})
 	require.NoError(t, err)
+}
+
+// setupInitializedState creates the pg_data directory with initialization markers
+// so that auto-restore is skipped. Use this in tests that don't need to test backup functionality.
+func setupInitializedState(t *testing.T, poolerDir string) {
+	t.Helper()
+	pgDataDir := filepath.Join(poolerDir, "pg_data")
+	require.NoError(t, os.MkdirAll(pgDataDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(pgDataDir, "PG_VERSION"), []byte("16"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(pgDataDir, "MULTIGRES_INITIALIZED"), []byte("initialized\n"), 0o644))
 }
 
 func TestPrimaryPosition(t *testing.T) {
@@ -92,6 +103,7 @@ func TestPrimaryPosition(t *testing.T) {
 
 			// Create temp directory for pooler-dir
 			poolerDir := t.TempDir()
+			setupInitializedState(t, poolerDir) // Skip auto-restore (not testing backup functionality)
 
 			// Create the database in topology with backup location
 			database := "testdb"
@@ -355,6 +367,10 @@ func expectStartupQueries(mock sqlmock.Sqlmock) {
 	// Heartbeat startup: checks if DB is primary/replica
 	mock.ExpectQuery("SELECT pg_is_in_recovery").
 		WillReturnRows(sqlmock.NewRows([]string{"pg_is_in_recovery"}).AddRow(true))
+
+	// isInitialized check: queries schema existence (may be called during auto-restore check)
+	mock.ExpectQuery("SELECT EXISTS.*multigres").
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
 }
 
 // setupPromoteTestManager creates a manager configured as a REPLICA for promotion tests.
@@ -391,6 +407,8 @@ func setupPromoteTestManager(t *testing.T, mockDB *sql.DB) (*MultiPoolerManager,
 	require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
 
 	tmpDir := t.TempDir()
+	setupInitializedState(t, tmpDir) // Skip auto-restore (not testing backup functionality)
+
 	config := &Config{
 		TopoClient: ts,
 		ServiceID:  serviceID,
@@ -412,14 +430,6 @@ func setupPromoteTestManager(t *testing.T, mockDB *sql.DB) (*MultiPoolerManager,
 	require.Eventually(t, func() bool {
 		return pm.GetState() == ManagerStateReady
 	}, 5*time.Second, 100*time.Millisecond, "Manager should reach Ready state")
-
-	// Create the pg_data directory to simulate initialized data directory
-	pgDataDir := tmpDir + "/pg_data"
-	err = os.MkdirAll(pgDataDir, 0o755)
-	require.NoError(t, err)
-	// Create PG_VERSION file to mark it as initialized
-	err = os.WriteFile(pgDataDir+"/PG_VERSION", []byte("18\n"), 0o644)
-	require.NoError(t, err)
 
 	// Set consensus term to expected value (10) for testing using SetTerm
 	term := &multipoolermanagerdatapb.ConsensusTerm{TermNumber: 10}
@@ -946,6 +956,8 @@ func TestReplicationStatus(t *testing.T) {
 		require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
 
 		tmpDir := t.TempDir()
+		setupInitializedState(t, tmpDir) // Skip auto-restore (not testing backup functionality)
+
 		config := &Config{
 			TopoClient: ts,
 			ServiceID:  serviceID,
@@ -1134,6 +1146,8 @@ func TestReplicationStatus(t *testing.T) {
 		require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
 
 		tmpDir := t.TempDir()
+		setupInitializedState(t, tmpDir) // Skip auto-restore (not testing backup functionality)
+
 		config := &Config{
 			TopoClient: ts,
 			ServiceID:  serviceID,

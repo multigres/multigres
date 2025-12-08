@@ -29,6 +29,7 @@ import (
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multipoolermanagerdata "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	pgctldpb "github.com/multigres/multigres/go/pb/pgctldservice"
+	"github.com/multigres/multigres/go/tools/retry"
 )
 
 // Backup performs a backup
@@ -636,47 +637,81 @@ func (pm *MultiPoolerManager) findBackupByAnnotations(
 // If uninitialized and no backup is available, the pooler stays in uninitialized state
 // and waits for explicit initialization via RPC.
 func (pm *MultiPoolerManager) tryAutoRestoreFromBackup(ctx context.Context) bool {
-	// Acquire action lock to prevent races with initialization RPCs.
-	// This ensures InitializeEmptyPrimary/InitializeAsStandby can't run concurrently.
-	var err error
-	ctx, err = pm.actionLock.Acquire(ctx, "tryAutoRestoreFromBackup")
-	if err != nil {
-		pm.logger.ErrorContext(ctx, "Auto-restore: failed to acquire action lock", "error", err)
-		return false
-	}
-	defer pm.actionLock.Release(ctx)
-
 	// TODO: Handle partial initialization state (data dir exists but no marker).
 	// Currently we proceed as if uninitialized, which may cause issues if
 	// PostgreSQL is partially set up. Options for future:
 	// - Detect and cleanup automatically (with explicit flag)
 	// - Detect and block startup, require manual intervention
 
-	// Check if already initialized - skip if so
+	// Check if already initialized - skip if so (no retry needed)
 	if pm.isInitialized(ctx) {
 		pm.logger.InfoContext(ctx, "Auto-restore skipped: pooler already initialized")
 		return false
 	}
 
-	// Only auto-restore REPLICA poolers - PRIMARY must be explicitly initialized
+	// Only auto-restore REPLICA poolers - PRIMARY must be explicitly initialized.
+	// UNKNOWN type (before topo is loaded) also skips auto-restore to avoid blocking startup.
 	poolerType := pm.getPoolerType()
-	if poolerType == clustermetadatapb.PoolerType_PRIMARY {
-		pm.logger.InfoContext(ctx, "Auto-restore skipped: PRIMARY poolers must be explicitly initialized")
+	if poolerType != clustermetadatapb.PoolerType_REPLICA {
+		pm.logger.InfoContext(ctx, "Auto-restore skipped: only REPLICA poolers auto-restore", "pooler_type", poolerType.String())
 		return false
 	}
 
 	pm.logger.InfoContext(ctx, "Auto-restore: pooler is uninitialized, checking for backups")
 
-	// Check for available backups using shared listing with shard filtering
-	backups, err := pm.listBackups(ctx, true)
+	// Retry loop: keep trying until we succeed or context is cancelled
+	r := retry.New(pm.autoRestoreRetryInterval, pm.autoRestoreRetryInterval)
+	for attempt, err := range r.Attempts(ctx) {
+		if err != nil {
+			pm.logger.InfoContext(ctx, "Auto-restore: context cancelled", "attempts", attempt, "error", err)
+			return false
+		}
+
+		if attempt > 1 {
+			pm.logger.InfoContext(ctx, "Auto-restore: retrying", "attempt", attempt)
+		}
+
+		success, done := pm.tryAutoRestoreOnce(ctx)
+		if done {
+			return success
+		}
+		// continue to next iteration for retry
+	}
+
+	return false
+}
+
+// tryAutoRestoreOnce attempts a single auto-restore from backup.
+// Returns (success, done) where:
+//   - success=true, done=true: restore completed successfully
+//   - success=false, done=true: should not retry (e.g., already initialized)
+//   - success=false, done=false: should retry
+func (pm *MultiPoolerManager) tryAutoRestoreOnce(ctx context.Context) (success bool, done bool) {
+	// Acquire action lock to prevent races with initialization RPCs.
+	// This ensures InitializeEmptyPrimary/InitializeAsStandby can't run concurrently.
+	lockCtx, err := pm.actionLock.Acquire(ctx, "tryAutoRestoreFromBackup")
 	if err != nil {
-		pm.logger.ErrorContext(ctx, "Auto-restore: failed to check for backups", "error", err)
-		return false
+		pm.logger.ErrorContext(ctx, "Auto-restore: failed to acquire action lock, will retry", "error", err)
+		return false, false
+	}
+	defer pm.actionLock.Release(lockCtx)
+
+	// Check if we were initialized while waiting (by an RPC)
+	if pm.isInitialized(lockCtx) {
+		pm.logger.InfoContext(ctx, "Auto-restore skipped: pooler was initialized while waiting")
+		return false, true
+	}
+
+	// Check for available backups using shared listing with shard filtering
+	backups, err := pm.listBackups(lockCtx, true)
+	if err != nil {
+		pm.logger.ErrorContext(ctx, "Auto-restore: failed to check for backups, will retry", "error", err)
+		return false, false
 	}
 
 	if len(backups) == 0 {
-		pm.logger.InfoContext(ctx, "Auto-restore: no backups available, staying in uninitialized state")
-		return false
+		pm.logger.InfoContext(ctx, "Auto-restore: no backups available yet, will retry")
+		return false, false
 	}
 
 	// Use the latest backup (last in the list from pgbackrest)
@@ -686,15 +721,15 @@ func (pm *MultiPoolerManager) tryAutoRestoreFromBackup(ctx context.Context) bool
 		"total_backups", len(backups))
 
 	// Perform the restore
-	if err := pm.executeAutoRestore(ctx, latestBackup.BackupId); err != nil {
-		pm.logger.ErrorContext(ctx, "Auto-restore: restore failed, staying in uninitialized state",
+	if err := pm.executeAutoRestore(lockCtx, latestBackup.BackupId); err != nil {
+		pm.logger.ErrorContext(ctx, "Auto-restore: restore failed, will retry",
 			"backup_id", latestBackup.BackupId,
 			"error", err)
-		return false
+		return false, false
 	}
 
 	pm.logger.InfoContext(ctx, "Auto-restore: completed successfully", "backup_id", latestBackup.BackupId)
-	return true
+	return true, true
 }
 
 // executeAutoRestore performs the actual restore from backup during startup.
