@@ -30,7 +30,8 @@ import (
 // the current term. This is the revocation step of consensus, which applies
 // to both primaries and standbys:
 //
-//   - If this node is a primary, it must demote itself as part of revocation.
+//   - If this node is a primary and receives a higher term, it MUST demote
+//     itself before accepting. If demotion fails, the term is rejected.
 //   - If this node is a standby, it should break replication as part of
 //     revocation. However, breaking replication on all standbys before the primary
 //     is demoted will have the effect of blocking writes to the primary,
