@@ -24,6 +24,7 @@ import (
 	"github.com/multigres/multigres/go/common/rpcclient"
 	"github.com/multigres/multigres/go/common/topoclient"
 	commontypes "github.com/multigres/multigres/go/common/types"
+	"github.com/multigres/multigres/go/multiorch/coordinator"
 	"github.com/multigres/multigres/go/multiorch/recovery/types"
 	"github.com/multigres/multigres/go/multiorch/store"
 
@@ -212,6 +213,15 @@ func (a *BootstrapShardAction) Execute(ctx context.Context, problem types.Proble
 			"error", err)
 	}
 
+	// Configure synchronous replication on primary based on durability policy
+	// This must be done AFTER standbys are initialized so they can receive WAL
+	if err := a.configureSynchronousReplication(ctx, candidate, standbys, quorumRule); err != nil {
+		// Log but don't fail - standbys can catch up async, and next healthcheck will fix this
+		a.logger.WarnContext(ctx, "failed to configure synchronous replication",
+			"shard_key", problem.ShardKey.String(),
+			"error", err)
+	}
+
 	a.logger.InfoContext(ctx, "bootstrap shard action completed successfully",
 		"shard_key", problem.ShardKey.String(),
 		"primary", candidate.MultiPooler.Id.Name,
@@ -345,6 +355,41 @@ func (a *BootstrapShardAction) initializeSingleStandby(ctx context.Context, node
 	if err != nil {
 		return fmt.Errorf("failed to set pooler type: %w", err)
 	}
+
+	return nil
+}
+
+// configureSynchronousReplication configures synchronous replication on the primary
+// based on the durability policy and available standbys.
+func (a *BootstrapShardAction) configureSynchronousReplication(
+	ctx context.Context,
+	primary *multiorchdatapb.PoolerHealthState,
+	standbys []*multiorchdatapb.PoolerHealthState,
+	quorumRule *clustermetadatapb.QuorumRule,
+) error {
+	// Build sync replication config using shared function
+	syncConfig, err := coordinator.BuildSyncReplicationConfig(a.logger, quorumRule, standbys, primary)
+	if err != nil {
+		return mterrors.Wrap(err, "failed to build sync replication config")
+	}
+
+	// If syncConfig is nil, sync replication is not needed (e.g., required_count=1)
+	if syncConfig == nil {
+		a.logger.InfoContext(ctx, "Skipping synchronous replication configuration",
+			"reason", "not required by policy")
+		return nil
+	}
+
+	// Configure synchronous replication on the primary
+	_, err = a.rpcClient.ConfigureSynchronousReplication(ctx, primary.MultiPooler, syncConfig)
+	if err != nil {
+		return mterrors.Wrap(err, "failed to configure synchronous replication")
+	}
+
+	a.logger.InfoContext(ctx, "Configured synchronous replication",
+		"primary", primary.MultiPooler.Id.Name,
+		"num_sync", syncConfig.NumSync,
+		"standby_count", len(syncConfig.StandbyIds))
 
 	return nil
 }
