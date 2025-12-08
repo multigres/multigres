@@ -610,16 +610,58 @@ func TestPgProtocolClientStreaming(t *testing.T) {
 	t.Run("streaming_callback", func(t *testing.T) {
 		var callbackCount int
 		var totalRows int
+		var resultSetCount int
 
 		err := conn.QueryStreaming(ctx, "SELECT generate_series(1, 100); SELECT generate_series(1, 50)",
 			func(ctx context.Context, result *query.QueryResult) error {
 				callbackCount++
 				totalRows += len(result.Rows)
+				// CommandTag being set signals end of a result set
+				if result.CommandTag != "" {
+					resultSetCount++
+				}
 				return nil
 			})
 		require.NoError(t, err)
 
-		assert.Equal(t, 2, callbackCount) // Two result sets
-		assert.Equal(t, 150, totalRows)   // 100 + 50 rows total
+		// With optimized batched streaming:
+		// - Small result sets get Fields + Rows + CommandTag in a single callback
+		// - First query: 1 callback (100 rows + CommandTag)
+		// - Second query: 1 callback (50 rows + CommandTag)
+		// - Total: 2 callbacks
+		assert.Equal(t, 2, callbackCount)
+		assert.Equal(t, 2, resultSetCount) // Two result sets (signaled by CommandTag)
+		assert.Equal(t, 150, totalRows)    // 100 + 50 rows total
+	})
+
+	t.Run("large_result_multiple_batches", func(t *testing.T) {
+		// Generate enough data to exceed DefaultStreamingBatchSize (2MB) and trigger multiple batches.
+		// Each row is ~1KB (1000 chars), so 5000 rows = ~5MB = at least 2-3 batches.
+		var callbackCount int
+		var rowBatchCount int // callbacks that contain rows (not RowDescription or CommandComplete)
+		var totalRows int
+		var resultSetCount int
+
+		err := conn.QueryStreaming(ctx, "SELECT repeat('x', 1000) AS data FROM generate_series(1, 5000)",
+			func(ctx context.Context, result *query.QueryResult) error {
+				callbackCount++
+				if len(result.Rows) > 0 {
+					rowBatchCount++
+					totalRows += len(result.Rows)
+					t.Logf("Batch %d: %d rows", rowBatchCount, len(result.Rows))
+				}
+				if result.CommandTag != "" {
+					resultSetCount++
+				}
+				return nil
+			})
+		require.NoError(t, err)
+
+		// Verify we got multiple row batches (proving the 2MB threshold works)
+		assert.Equal(t, 5000, totalRows)
+		assert.Equal(t, 1, resultSetCount)
+		// With 5MB of data and 2MB batch size, we expect at least 2 row batches
+		assert.GreaterOrEqual(t, rowBatchCount, 2, "expected multiple row batches for large result set")
+		t.Logf("Total callbacks: %d, row batches: %d, rows: %d", callbackCount, rowBatchCount, totalRows)
 	})
 }

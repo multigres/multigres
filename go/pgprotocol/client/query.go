@@ -22,13 +22,38 @@ import (
 	"github.com/multigres/multigres/go/pgprotocol/protocol"
 )
 
+// DefaultStreamingBatchSize is the default size threshold (in bytes) for batching
+// rows during streaming. When accumulated row data exceeds this size, the batch
+// is flushed via callback. This balances memory efficiency with callback overhead.
+const DefaultStreamingBatchSize = 2 * 1024 * 1024 // 2MB
+
 // Query executes a simple query and returns all results.
 // For large result sets, consider using QueryStreaming instead.
 func (c *Conn) Query(ctx context.Context, queryStr string) ([]*query.QueryResult, error) {
 	var results []*query.QueryResult
+	var currentResult *query.QueryResult
 
 	err := c.QueryStreaming(ctx, queryStr, func(ctx context.Context, result *query.QueryResult) error {
-		results = append(results, result)
+		// Accumulate rows into the current result.
+		if currentResult == nil {
+			currentResult = result
+		} else {
+			currentResult.Rows = append(currentResult.Rows, result.Rows...)
+		}
+
+		// CommandTag being set signals the end of a result set.
+		if result.CommandTag != "" {
+			if currentResult == nil {
+				currentResult = &query.QueryResult{}
+			}
+			currentResult.CommandTag = result.CommandTag
+			currentResult.RowsAffected = result.RowsAffected
+			if currentResult.Fields == nil {
+				currentResult.Fields = result.Fields
+			}
+			results = append(results, currentResult)
+			currentResult = nil
+		}
 		return nil
 	})
 	if err != nil {
@@ -39,7 +64,12 @@ func (c *Conn) Query(ctx context.Context, queryStr string) ([]*query.QueryResult
 }
 
 // QueryStreaming executes a simple query and streams results via callback.
-// The callback is called for each result set (there can be multiple for multi-statement queries).
+// The callback is invoked in a streaming fashion with batched rows:
+// - Rows are accumulated until DefaultStreamingBatchSize is exceeded, then flushed with Fields
+// - On CommandComplete: remaining rows + CommandTag sent together (signals end of result set)
+// For small result sets, this means a single callback with Fields, Rows, and CommandTag.
+// For large result sets, multiple callbacks with rows, final one includes CommandTag.
+// For multi-statement queries, this pattern repeats for each statement.
 func (c *Conn) QueryStreaming(ctx context.Context, queryStr string, callback func(ctx context.Context, result *query.QueryResult) error) error {
 	c.bufmu.Lock()
 	defer c.bufmu.Unlock()
@@ -50,7 +80,8 @@ func (c *Conn) QueryStreaming(ctx context.Context, queryStr string, callback fun
 	}
 
 	// Process responses.
-	return c.processQueryResponses(ctx, callback)
+	err := c.processQueryResponses(ctx, callback)
+	return err
 }
 
 // writeQueryMessage writes a 'Q' (Query) message.
@@ -61,8 +92,34 @@ func (c *Conn) writeQueryMessage(queryStr string) error {
 }
 
 // processQueryResponses processes all responses to a query until ReadyForQuery.
+// The callback is invoked in a streaming fashion with batched rows:
+// - Rows are accumulated until DefaultStreamingBatchSize is exceeded, then flushed with Fields
+// - On CommandComplete: remaining rows + CommandTag sent together (signals end of result set)
+// For small result sets, this means a single callback with Fields, Rows, and CommandTag.
+// For large result sets, multiple callbacks with rows, final one includes CommandTag.
 func (c *Conn) processQueryResponses(ctx context.Context, callback func(ctx context.Context, result *query.QueryResult) error) error {
-	var currentResult *query.QueryResult
+	// Track state for current result set.
+	var currentFields []*query.Field
+	var batchedRows []*query.Row
+	var batchedSize int
+
+	// flushBatch sends accumulated rows via callback and resets the batch.
+	// Does not reset currentFields as they may be needed for subsequent batches.
+	flushBatch := func() error {
+		if len(batchedRows) == 0 || callback == nil {
+			return nil
+		}
+		result := &query.QueryResult{
+			Fields: currentFields,
+			Rows:   batchedRows,
+		}
+		if err := callback(ctx, result); err != nil {
+			return err
+		}
+		batchedRows = nil
+		batchedSize = 0
+		return nil
+	}
 
 	for {
 		// Check context.
@@ -80,40 +137,55 @@ func (c *Conn) processQueryResponses(ctx context.Context, callback func(ctx cont
 
 		switch msgType {
 		case protocol.MsgRowDescription:
-			// Start of a new result set.
-			currentResult = &query.QueryResult{}
-			if err := c.parseRowDescription(body, currentResult); err != nil {
+			// Start of a new result set - parse and store fields.
+			// Fields will be included in the first batch callback.
+			result := &query.QueryResult{}
+			if err := c.parseRowDescription(body, result); err != nil {
 				return err
 			}
+			currentFields = result.Fields
 
 		case protocol.MsgDataRow:
-			if currentResult == nil {
-				currentResult = &query.QueryResult{}
-			}
 			row, err := c.parseDataRow(body)
 			if err != nil {
 				return err
 			}
-			currentResult.Rows = append(currentResult.Rows, row)
+
+			// Add row to batch and track size.
+			batchedRows = append(batchedRows, row)
+			batchedSize += len(body)
+
+			// Flush batch if size threshold exceeded.
+			if batchedSize >= DefaultStreamingBatchSize {
+				if err := flushBatch(); err != nil {
+					return err
+				}
+			}
 
 		case protocol.MsgCommandComplete:
-			if currentResult == nil {
-				currentResult = &query.QueryResult{}
-			}
 			tag, err := c.parseCommandComplete(body)
 			if err != nil {
 				return err
 			}
-			currentResult.CommandTag = tag
-			currentResult.RowsAffected = parseRowsAffected(tag)
 
-			// Call the callback with the completed result.
+			// Send final batch with CommandTag (signals end of result set).
+			// This combines any remaining rows with the command completion.
 			if callback != nil {
-				if err := callback(ctx, currentResult); err != nil {
+				result := &query.QueryResult{
+					Fields:       currentFields,
+					Rows:         batchedRows,
+					CommandTag:   tag,
+					RowsAffected: parseRowsAffected(tag),
+				}
+				if err := callback(ctx, result); err != nil {
 					return err
 				}
 			}
-			currentResult = nil
+
+			// Reset for next result set.
+			currentFields = nil
+			batchedRows = nil
+			batchedSize = 0
 
 		case protocol.MsgEmptyQueryResponse:
 			// Empty query, call callback with empty result.
@@ -129,7 +201,7 @@ func (c *Conn) processQueryResponses(ctx context.Context, callback func(ctx cont
 			return nil
 
 		case protocol.MsgErrorResponse:
-			return c.parseError(body)
+			return c.handleErrorAndWaitForReady(body)
 
 		case protocol.MsgNoticeResponse:
 			// Ignore notices for now.
@@ -277,6 +349,24 @@ func parseRowsAffected(tag string) uint64 {
 		return count
 	}
 	return 0
+}
+
+// handleErrorAndWaitForReady parses an error and waits for ReadyForQuery.
+// This ensures the connection remains in a consistent state after an error.
+func (c *Conn) handleErrorAndWaitForReady(body []byte) error {
+	pgErr := c.parseError(body)
+	// Wait for ReadyForQuery before returning the error.
+	for {
+		msgType, body, err := c.readMessage()
+		if err != nil {
+			return fmt.Errorf("failed to read message after error: %w", err)
+		}
+		if msgType == protocol.MsgReadyForQuery {
+			c.txnStatus = body[0]
+			return pgErr
+		}
+		// Ignore other messages (e.g., additional errors, notices).
+	}
 }
 
 // parseError parses an ErrorResponse message into an error.
