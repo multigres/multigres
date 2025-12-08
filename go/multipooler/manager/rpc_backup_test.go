@@ -979,8 +979,7 @@ func TestListBackups_ReturnsEmptyWhenNoBackups(t *testing.T) {
 	pm := createTestManagerForAutoRestore(logger, poolerDir, clustermetadatapb.PoolerType_REPLICA)
 
 	// Should return empty list without error when no backups exist
-	// Note: listBackups with filterByShard=true is what auto-restore uses
-	backups, err := pm.listBackups(ctx, true)
+	backups, err := pm.listBackups(ctx)
 	assert.NoError(t, err)
 	assert.Empty(t, backups)
 }

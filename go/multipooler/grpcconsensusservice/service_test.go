@@ -18,6 +18,7 @@ import (
 	"context"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -45,6 +46,16 @@ func addDatabaseToTopo(t *testing.T, ts topoclient.Store, database string) {
 		DurabilityPolicy: "ANY_2",
 	})
 	require.NoError(t, err)
+}
+
+// setupInitializedState creates the pg_data directory with initialization markers
+// so that auto-restore is skipped. Use this in tests that don't need to test backup functionality.
+func setupInitializedState(t *testing.T, poolerDir string) {
+	t.Helper()
+	pgDataDir := filepath.Join(poolerDir, "pg_data")
+	require.NoError(t, os.MkdirAll(pgDataDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(pgDataDir, "PG_VERSION"), []byte("16"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(pgDataDir, "MULTIGRES_INITIALIZED"), []byte("initialized\n"), 0o644))
 }
 
 func TestConsensusService_BeginTerm(t *testing.T) {
@@ -80,6 +91,7 @@ func TestConsensusService_BeginTerm(t *testing.T) {
 
 	// Create temporary directory for pooler
 	tmpDir := t.TempDir()
+	setupInitializedState(t, tmpDir) // Skip auto-restore (not testing backup functionality)
 
 	config := &manager.Config{
 		TopoClient:       ts,
@@ -160,6 +172,7 @@ func TestConsensusService_Status(t *testing.T) {
 
 	// Create temporary directory for pooler
 	tmpDir := t.TempDir()
+	setupInitializedState(t, tmpDir) // Skip auto-restore (not testing backup functionality)
 
 	config := &manager.Config{
 		TopoClient:       ts,
@@ -239,6 +252,7 @@ func TestConsensusService_GetLeadershipView(t *testing.T) {
 
 	// Create temporary directory for pooler
 	tmpDir := t.TempDir()
+	setupInitializedState(t, tmpDir) // Skip auto-restore (not testing backup functionality)
 
 	config := &manager.Config{
 		TopoClient:       ts,
@@ -313,6 +327,7 @@ func TestConsensusService_CanReachPrimary(t *testing.T) {
 
 	// Create temporary directory for pooler
 	tmpDir := t.TempDir()
+	setupInitializedState(t, tmpDir) // Skip auto-restore (not testing backup functionality)
 
 	config := &manager.Config{
 		TopoClient:       ts,
@@ -389,6 +404,7 @@ func TestConsensusService_AllMethods(t *testing.T) {
 
 	// Create temporary directory for pooler
 	tmpDir := t.TempDir()
+	setupInitializedState(t, tmpDir) // Skip auto-restore (not testing backup functionality)
 
 	config := &manager.Config{
 		TopoClient:       ts,

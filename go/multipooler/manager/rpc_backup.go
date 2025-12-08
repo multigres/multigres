@@ -300,7 +300,7 @@ func (pm *MultiPoolerManager) getBackupsLocked(ctx context.Context, limit uint32
 		return nil, err
 	}
 
-	backups, err := pm.listBackups(ctx, false)
+	backups, err := pm.listBackups(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -314,9 +314,7 @@ func (pm *MultiPoolerManager) getBackupsLocked(ctx context.Context, limit uint32
 }
 
 // listBackups retrieves backup metadata from pgbackrest.
-// If filterByShard is true, only backups matching this pooler's shard are returned.
-// This is a defense-in-depth check since stanzas are already shard-scoped.
-func (pm *MultiPoolerManager) listBackups(ctx context.Context, filterByShard bool) ([]*multipoolermanagerdata.BackupMetadata, error) {
+func (pm *MultiPoolerManager) listBackups(ctx context.Context) ([]*multipoolermanagerdata.BackupMetadata, error) {
 	configPath := pm.getBackupConfigPath()
 	stanzaName := pm.getBackupStanza()
 
@@ -360,69 +358,61 @@ func (pm *MultiPoolerManager) listBackups(ctx context.Context, filterByShard boo
 			fmt.Sprintf("failed to parse pgbackrest info JSON: %v", err))
 	}
 
-	// Get current pooler's table_group and shard for optional filtering
+	if len(infoData) == 0 || len(infoData[0].Backup) == 0 {
+		return nil, nil
+	}
+
+	// Get current pooler's table_group and shard for filtering
 	currentTableGroup := pm.config.TableGroup
 	currentShard := pm.getShardID()
 
 	// Extract backups from the first stanza (should be the only one)
 	var backups []*multipoolermanagerdata.BackupMetadata
-	if len(infoData) > 0 && len(infoData[0].Backup) > 0 {
-		for _, pgBackup := range infoData[0].Backup {
-			// Determine backup status - skip incomplete backups when filtering by shard
-			// (auto-restore should only use complete backups)
-			if pgBackup.Error {
-				if filterByShard {
-					continue // Skip incomplete backups for auto-restore
-				}
-			}
-
-			status := multipoolermanagerdata.BackupMetadata_COMPLETE
-			if pgBackup.Error {
-				status = multipoolermanagerdata.BackupMetadata_INCOMPLETE
-			}
-
-			// Extract table_group and shard from annotations
-			tableGroup := ""
-			shard := ""
-			if pgBackup.Annotation != nil {
-				tableGroup = pgBackup.Annotation["table_group"]
-				shard = pgBackup.Annotation["shard"]
-			}
-
-			// Defense-in-depth: skip backups that don't match this pooler's shard.
-			// This check is not strictly necessary since stanzas are shard-scoped,
-			// but provides an extra layer of safety during auto-restore.
-			if filterByShard {
-				if tableGroup != "" && tableGroup != currentTableGroup {
-					pm.logger.ErrorContext(ctx, "Skipping backup with mismatched table_group",
-						"backup_id", pgBackup.Label,
-						"backup_table_group", tableGroup,
-						"current_table_group", currentTableGroup)
-					continue
-				}
-				if shard != "" && shard != currentShard {
-					pm.logger.ErrorContext(ctx, "Skipping backup with mismatched shard",
-						"backup_id", pgBackup.Label,
-						"backup_shard", shard,
-						"current_shard", currentShard)
-					continue
-				}
-			}
-
-			// Extract final LSN (stop LSN) from backup
-			finalLSN := ""
-			if pgBackup.LSN != nil && pgBackup.LSN.Stop != "" {
-				finalLSN = pgBackup.LSN.Stop
-			}
-
-			backups = append(backups, &multipoolermanagerdata.BackupMetadata{
-				BackupId:   pgBackup.Label,
-				Status:     status,
-				TableGroup: tableGroup,
-				Shard:      shard,
-				FinalLsn:   finalLSN,
-			})
+	for _, pgBackup := range infoData[0].Backup {
+		status := multipoolermanagerdata.BackupMetadata_COMPLETE
+		if pgBackup.Error {
+			status = multipoolermanagerdata.BackupMetadata_INCOMPLETE
 		}
+
+		// Extract table_group and shard from annotations
+		tableGroup := ""
+		shard := ""
+		if pgBackup.Annotation != nil {
+			tableGroup = pgBackup.Annotation["table_group"]
+			shard = pgBackup.Annotation["shard"]
+		}
+
+		// Defense-in-depth: skip backups that don't match this pooler's shard.
+		// This check is not strictly necessary since stanzas are shard-scoped,
+		// but provides an extra layer of safety.
+		if tableGroup != "" && tableGroup != currentTableGroup {
+			pm.logger.ErrorContext(ctx, "Skipping backup with mismatched table_group",
+				"backup_id", pgBackup.Label,
+				"backup_table_group", tableGroup,
+				"current_table_group", currentTableGroup)
+			continue
+		}
+		if shard != "" && shard != currentShard {
+			pm.logger.ErrorContext(ctx, "Skipping backup with mismatched shard",
+				"backup_id", pgBackup.Label,
+				"backup_shard", shard,
+				"current_shard", currentShard)
+			continue
+		}
+
+		// Extract final LSN (stop LSN) from backup
+		finalLSN := ""
+		if pgBackup.LSN != nil && pgBackup.LSN.Stop != "" {
+			finalLSN = pgBackup.LSN.Stop
+		}
+
+		backups = append(backups, &multipoolermanagerdata.BackupMetadata{
+			BackupId:   pgBackup.Label,
+			Status:     status,
+			TableGroup: tableGroup,
+			Shard:      shard,
+			FinalLsn:   finalLSN,
+		})
 	}
 
 	return backups, nil
@@ -702,20 +692,30 @@ func (pm *MultiPoolerManager) tryAutoRestoreOnce(ctx context.Context) (success b
 		return false, true
 	}
 
-	// Check for available backups using shared listing with shard filtering
-	backups, err := pm.listBackups(lockCtx, true)
+	// Check for available backups
+	backups, err := pm.listBackups(lockCtx)
 	if err != nil {
 		pm.logger.ErrorContext(ctx, "Auto-restore: failed to check for backups, will retry", "error", err)
 		return false, false
 	}
 
-	if len(backups) == 0 {
-		pm.logger.InfoContext(ctx, "Auto-restore: no backups available yet, will retry")
+	// Filter to only complete backups for auto-restore
+	var completeBackups []*multipoolermanagerdata.BackupMetadata
+	for _, b := range backups {
+		if b.Status == multipoolermanagerdata.BackupMetadata_COMPLETE {
+			completeBackups = append(completeBackups, b)
+		}
+	}
+
+	if len(completeBackups) == 0 {
+		pm.logger.InfoContext(ctx, "Auto-restore: no complete backups available yet, will retry",
+			"total_backups", len(backups))
 		return false, false
 	}
 
-	// Use the latest backup (last in the list from pgbackrest)
-	latestBackup := backups[len(backups)-1]
+	// Use the latest complete backup (last in the list from pgbackrest, according to
+	// pgbackrest docs)
+	latestBackup := completeBackups[len(completeBackups)-1]
 	pm.logger.InfoContext(ctx, "Auto-restore: found backup, attempting restore",
 		"backup_id", latestBackup.BackupId,
 		"total_backups", len(backups))
