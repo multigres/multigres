@@ -17,6 +17,7 @@ package coordinator
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"sync"
 
 	"github.com/jackc/pglogrepl"
@@ -313,10 +314,10 @@ func (c *Coordinator) recruitNodes(ctx context.Context, cohort []*multiorchdatap
 	return recruited, nil
 }
 
-// buildSyncReplicationConfig creates synchronous replication configuration based on the quorum policy.
+// BuildSyncReplicationConfig creates synchronous replication configuration based on the quorum policy.
 // Returns nil if synchronous replication should not be configured (required_count=1 or no standbys).
 // For MULTI_CELL_ANY_N policies, excludes standbys in the same cell as the candidate (primary).
-func (c *Coordinator) buildSyncReplicationConfig(quorumRule *clustermetadatapb.QuorumRule, standbys []*multiorchdatapb.PoolerHealthState, candidate *multiorchdatapb.PoolerHealthState) (*multipoolermanagerdatapb.ConfigureSynchronousReplicationRequest, error) {
+func BuildSyncReplicationConfig(logger *slog.Logger, quorumRule *clustermetadatapb.QuorumRule, standbys []*multiorchdatapb.PoolerHealthState, candidate *multiorchdatapb.PoolerHealthState) (*multipoolermanagerdatapb.ConfigureSynchronousReplicationRequest, error) {
 	requiredCount := int(quorumRule.RequiredCount)
 
 	// Determine async fallback mode (default to REJECT if unset)
@@ -328,7 +329,7 @@ func (c *Coordinator) buildSyncReplicationConfig(quorumRule *clustermetadatapb.Q
 	// If required_count is 1, don't configure synchronous replication
 	// With required_count=1, only the primary itself is needed for quorum, so async replication is sufficient
 	if requiredCount == 1 {
-		c.logger.Info("Skipping synchronous replication configuration",
+		logger.Info("Skipping synchronous replication configuration",
 			"required_count", requiredCount,
 			"standbys_count", len(standbys),
 			"reason", "async replication sufficient for quorum")
@@ -342,7 +343,7 @@ func (c *Coordinator) buildSyncReplicationConfig(quorumRule *clustermetadatapb.Q
 				fmt.Sprintf("cannot establish synchronous replication: no standbys available (required %d standbys, async_fallback=REJECT)",
 					requiredCount-1))
 		}
-		c.logger.Info("Skipping synchronous replication configuration",
+		logger.Info("Skipping synchronous replication configuration",
 			"required_count", requiredCount,
 			"standbys_count", 0,
 			"reason", "async replication sufficient for quorum")
@@ -353,9 +354,16 @@ func (c *Coordinator) buildSyncReplicationConfig(quorumRule *clustermetadatapb.Q
 	// This ensures that synchronous replication requires acknowledgment from different cells
 	eligibleStandbys := standbys
 	if quorumRule.QuorumType == clustermetadatapb.QuorumType_QUORUM_TYPE_MULTI_CELL_ANY_N {
-		eligibleStandbys = c.filterStandbysByCell(candidate, standbys)
+		candidateCell := candidate.MultiPooler.Id.Cell
+		filtered := make([]*multiorchdatapb.PoolerHealthState, 0, len(standbys))
+		for _, standby := range standbys {
+			if standby.MultiPooler.Id.Cell != candidateCell {
+				filtered = append(filtered, standby)
+			}
+		}
+		eligibleStandbys = filtered
 
-		c.logger.Info("Filtered standbys for MULTI_CELL_ANY_N",
+		logger.Info("Filtered standbys for MULTI_CELL_ANY_N",
 			"candidate_cell", candidate.MultiPooler.Id.Cell,
 			"total_standbys", len(standbys),
 			"eligible_standbys", len(eligibleStandbys),
@@ -368,7 +376,7 @@ func (c *Coordinator) buildSyncReplicationConfig(quorumRule *clustermetadatapb.Q
 					fmt.Sprintf("cannot establish synchronous replication: no eligible standbys in different cells (candidate_cell=%s, async_fallback=REJECT)",
 						candidate.MultiPooler.Id.Cell))
 			}
-			c.logger.Warn("No eligible standbys in different cells, using async replication",
+			logger.Warn("No eligible standbys in different cells, using async replication",
 				"candidate_cell", candidate.MultiPooler.Id.Cell,
 				"total_standbys", len(standbys))
 			return nil, nil
@@ -386,7 +394,7 @@ func (c *Coordinator) buildSyncReplicationConfig(quorumRule *clustermetadatapb.Q
 				fmt.Sprintf("cannot establish synchronous replication: insufficient standbys (required %d standbys, available %d, async_fallback=REJECT)",
 					requiredNumSync, len(eligibleStandbys)))
 		}
-		c.logger.Warn("Not enough standbys for required sync count, using all available",
+		logger.Warn("Not enough standbys for required sync count, using all available",
 			"required_num_sync", requiredNumSync,
 			"available_standbys", len(eligibleStandbys))
 	}
@@ -403,7 +411,7 @@ func (c *Coordinator) buildSyncReplicationConfig(quorumRule *clustermetadatapb.Q
 		standbyIDs[i] = standby.MultiPooler.Id
 	}
 
-	c.logger.Info("Configuring synchronous replication",
+	logger.Info("Configuring synchronous replication",
 		"quorum_type", quorumRule.QuorumType,
 		"required_count", requiredCount,
 		"num_sync", numSync,
@@ -418,28 +426,13 @@ func (c *Coordinator) buildSyncReplicationConfig(quorumRule *clustermetadatapb.Q
 	}, nil
 }
 
-// filterStandbysByCell returns standbys that are NOT in the same cell as the candidate.
-// Used for MULTI_CELL_ANY_N to ensure synchronous replication spans multiple cells.
-func (c *Coordinator) filterStandbysByCell(candidate *multiorchdatapb.PoolerHealthState, standbys []*multiorchdatapb.PoolerHealthState) []*multiorchdatapb.PoolerHealthState {
-	candidateCell := candidate.MultiPooler.Id.Cell
-	filtered := make([]*multiorchdatapb.PoolerHealthState, 0, len(standbys))
-
-	for _, standby := range standbys {
-		if standby.MultiPooler.Id.Cell != candidateCell {
-			filtered = append(filtered, standby)
-		}
-	}
-
-	return filtered
-}
-
 // Propagate implements stage 5 of the consensus protocol:
 // - Promote the candidate to primary
 // - Configure standbys to replicate from the new primary
 // - Configure synchronous replication based on quorum policy
 func (c *Coordinator) Propagate(ctx context.Context, candidate *multiorchdatapb.PoolerHealthState, standbys []*multiorchdatapb.PoolerHealthState, term int64, quorumRule *clustermetadatapb.QuorumRule) error {
 	// Build synchronous replication configuration based on quorum policy
-	syncConfig, err := c.buildSyncReplicationConfig(quorumRule, standbys, candidate)
+	syncConfig, err := BuildSyncReplicationConfig(c.logger, quorumRule, standbys, candidate)
 	if err != nil {
 		return mterrors.Wrap(err, "failed to build synchronous replication config")
 	}
