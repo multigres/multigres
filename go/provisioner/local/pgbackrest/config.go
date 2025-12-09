@@ -27,6 +27,16 @@ import (
 	"github.com/multigres/multigres/go/tools/retry"
 )
 
+// CommandRunner executes a command and returns its combined output.
+// This abstraction allows tests to inject mock command execution.
+type CommandRunner func(ctx context.Context, name string, args ...string) ([]byte, error)
+
+// defaultCommandRunner executes commands using exec.CommandContext.
+func defaultCommandRunner(ctx context.Context, name string, args ...string) ([]byte, error) {
+	cmd := exec.CommandContext(ctx, name, args...)
+	return cmd.CombinedOutput()
+}
+
 // PgHost represents a PostgreSQL host configuration for pgBackRest
 type PgHost struct {
 	DataPath  string // Path to PostgreSQL data directory
@@ -165,6 +175,12 @@ func WriteConfigFile(configPath string, cfg Config) error {
 // Normally, post-bootstrap pgbackrest operations don't need this specific retry logic,
 // because they execute while holding the ActionLock.
 func StanzaCreate(ctx context.Context, stanzaName, configPath, repoPath string) error {
+	return StanzaCreateWithRunner(ctx, stanzaName, configPath, repoPath, defaultCommandRunner)
+}
+
+// StanzaCreateWithRunner is like StanzaCreate but accepts a custom command runner.
+// This is primarily for testing; production code should use StanzaCreate.
+func StanzaCreateWithRunner(ctx context.Context, stanzaName, configPath, repoPath string, runner CommandRunner) error {
 	const maxAttempts = 5
 
 	var lastErr error
@@ -183,16 +199,17 @@ func StanzaCreate(ctx context.Context, stanzaName, configPath, repoPath string) 
 		// Create context with timeout for this attempt
 		attemptCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 
-		// Build pgbackrest command
-		cmd := exec.CommandContext(attemptCtx, "pgbackrest",
-			"--stanza="+stanzaName,
-			"--config="+configPath,
-			"--repo1-path="+repoPath,
-			"stanza-create")
-		fmt.Printf("Executing command (attempt %d/%d): %s\n", attempt, maxAttempts, cmd.String())
+		// Build pgbackrest command args
+		args := []string{
+			"--stanza=" + stanzaName,
+			"--config=" + configPath,
+			"--repo1-path=" + repoPath,
+			"stanza-create",
+		}
+		fmt.Printf("Executing command (attempt %d/%d): pgbackrest %v\n", attempt, maxAttempts, args)
 
-		// Capture output for logging
-		output, err := cmd.CombinedOutput()
+		// Execute command using the provided runner
+		output, err := runner(attemptCtx, "pgbackrest", args...)
 		cancel()
 
 		if err == nil {
@@ -203,9 +220,7 @@ func StanzaCreate(ctx context.Context, stanzaName, configPath, repoPath string) 
 		lastOutput = string(output)
 
 		// Check if this is a lock error (error code 050)
-		// pgbackrest outputs: "ERROR: [050]: unable to acquire lock on file..."
 		if !isLockError(lastOutput) {
-			// Not a lock error, don't retry
 			return fmt.Errorf("failed to create stanza %s: %w\nOutput: %s",
 				stanzaName, err, lastOutput)
 		}
@@ -213,7 +228,6 @@ func StanzaCreate(ctx context.Context, stanzaName, configPath, repoPath string) 
 		fmt.Printf("Lock contention detected on attempt %d, will retry...\n", attempt)
 	}
 
-	// Should not reach here, but just in case
 	return fmt.Errorf("failed to create stanza %s: %w\nOutput: %s",
 		stanzaName, lastErr, lastOutput)
 }
