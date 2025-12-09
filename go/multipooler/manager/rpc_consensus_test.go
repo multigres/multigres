@@ -292,6 +292,37 @@ func TestBeginTerm(t *testing.T) {
 			expectedAcceptedTermFromCoordinator: "",
 			description:                         "Standby should reject term when no WAL receiver (disconnected)",
 		},
+		{
+			name: "StandbyPausesReplicationWhenAcceptingNewTerm",
+			initialTerm: &multipoolermanagerdatapb.ConsensusTerm{
+				TermNumber: 5,
+			},
+			requestTerm: 10,
+			requestCandidate: &clustermetadatapb.ID{
+				Component: clustermetadatapb.ID_MULTIPOOLER,
+				Cell:      "zone1",
+				Name:      "new-candidate",
+			},
+			setupMocks: func(mock sqlmock.Sqlmock) {
+				mock.ExpectPing()
+				// isPrimary check - standby
+				mock.ExpectQuery("SELECT pg_is_in_recovery\\(\\)").
+					WillReturnRows(sqlmock.NewRows([]string{"pg_is_in_recovery"}).AddRow(true))
+				// WAL receiver check - connected and caught up
+				mock.ExpectQuery("SELECT last_msg_receipt_time FROM pg_stat_wal_receiver").
+					WillReturnRows(sqlmock.NewRows([]string{"last_msg_receipt_time"}).AddRow(time.Now().Add(-5 * time.Second)))
+				// pauseReplication - ALTER SYSTEM RESET primary_conninfo
+				mock.ExpectExec("ALTER SYSTEM RESET primary_conninfo").
+					WillReturnResult(sqlmock.NewResult(0, 0))
+				// pauseReplication - pg_reload_conf
+				mock.ExpectExec("SELECT pg_reload_conf\\(\\)").
+					WillReturnResult(sqlmock.NewResult(0, 0))
+			},
+			expectedAccepted:                    true,
+			expectedTerm:                        10,
+			expectedAcceptedTermFromCoordinator: "new-candidate",
+			description:                         "Standby should pause replication when accepting new term",
+		},
 	}
 
 	// Add tests for save failure scenarios

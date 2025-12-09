@@ -23,6 +23,7 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	consensusdatapb "github.com/multigres/multigres/go/pb/consensusdata"
+	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
 
 // BeginTerm handles coordinator requests during leader appointments.
@@ -32,10 +33,9 @@ import (
 //
 //   - If this node is a primary and receives a higher term, it MUST demote
 //     itself before accepting. If demotion fails, the term is rejected.
-//   - If this node is a standby, it should break replication as part of
-//     revocation. However, breaking replication on all standbys before the primary
-//     is demoted will have the effect of blocking writes to the primary,
-//     so this has to be done at the proper time (TODO: not implemented yet).
+//   - If this node is a standby and receives a higher term, it pauses
+//     replication to break the connection with the old primary. The new
+//     primary will reconfigure replication via SetPrimaryConnInfo.
 func (pm *MultiPoolerManager) BeginTerm(ctx context.Context, req *consensusdatapb.BeginTermRequest) (*consensusdatapb.BeginTermResponse, error) {
 	// Acquire the action lock to ensure only one consensus operation runs at a time
 	// This prevents split-brain acceptance and ensures term updates are serialized
@@ -179,6 +179,22 @@ func (pm *MultiPoolerManager) BeginTerm(ctx context.Context, req *consensusdatap
 		// Update response term if higher (actual update happens atomically below)
 		if req.Term > currentTerm {
 			response.Term = req.Term
+		}
+
+		// Standby accepting new term: pause replication to break connection with old primary
+		// This ensures we don't continue replicating from a demoted primary
+		if !wasPrimary && req.Term > currentTerm {
+			pm.logger.InfoContext(ctx, "Standby accepting new term, pausing replication",
+				"term", req.Term,
+				"current_term", currentTerm)
+
+			// Pause replication - this will stop the WAL receiver
+			_, pauseErr := pm.pauseReplication(ctx, multipoolermanagerdatapb.ReplicationPauseMode_REPLICATION_PAUSE_MODE_RECEIVER_ONLY, false)
+			if pauseErr != nil {
+				// Log but don't fail - the new primary will reconnect us
+				pm.logger.WarnContext(ctx, "Failed to pause replication during term acceptance",
+					"error", pauseErr)
+			}
 		}
 	}
 
