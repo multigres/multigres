@@ -118,7 +118,7 @@ func (a *FixReplicationAction) Execute(ctx context.Context, problem types.Proble
 
 	// Dispatch to the appropriate fix based on the problem
 	switch problem.Code {
-	case types.ProblemReplicaNotReplicating:
+	case types.ProblemReplicaNotReplicating, types.ProblemReplicaNotInStandbyList:
 		return a.fixNotReplicating(ctx, replica, primary)
 
 	// TODO: Future problem codes to handle
