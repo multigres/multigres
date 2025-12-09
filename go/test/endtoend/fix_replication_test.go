@@ -23,6 +23,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 
+	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multipoolermanagerpb "github.com/multigres/multigres/go/pb/multipoolermanager"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	"github.com/multigres/multigres/go/test/utils"
@@ -184,6 +185,34 @@ func TestFixReplication(t *testing.T) {
 		return isReplicaInStandbyList(t, primaryAddr, replicaZoneName)
 	}, 10*time.Second, 1*time.Second, "replica should be in primary's synchronous standby list after second fix")
 
+	// Test case: Replica not in standby list (but replication is working)
+	// This tests the ReplicaNotInStandbyListAnalyzer
+	t.Log("Testing fix for replica not in standby list...")
+
+	// Remove replica from standby list (without breaking replication)
+	t.Logf("Removing replica %s from primary's standby list...", replicaZoneName)
+	removeReplicaFromStandbyList(t, primaryAddr, replicaZoneName)
+
+	// Verify replica is no longer in standby list
+	t.Log("Verifying replica is NOT in standby list after removal...")
+	require.Eventually(t, func() bool {
+		return !isReplicaInStandbyList(t, primaryAddr, replicaZoneName)
+	}, 10*time.Second, 500*time.Millisecond, "replica should not be in standby list after removal")
+
+	// Verify replication is still working (primary_conninfo should still be configured)
+	t.Log("Verifying replication is still working after standby list removal...")
+	verifyReplicationStreaming(t, replicaAddr)
+
+	// Wait for multiorch to detect and fix the standby list
+	t.Log("Waiting for multiorch to detect and add replica back to standby list...")
+	require.Eventually(t, func() bool {
+		return isReplicaInStandbyList(t, primaryAddr, replicaZoneName)
+	}, 60*time.Second, 2*time.Second, "multiorch should add replica back to primary's synchronous standby list")
+
+	// Verify replication is still working after fix
+	t.Log("Verifying replication is still working after standby list fix...")
+	verifyReplicationStreaming(t, replicaAddr)
+
 	t.Log("TestFixReplication completed successfully")
 }
 
@@ -315,6 +344,34 @@ func isReplicaInStandbyList(t *testing.T, primaryAddr string, replicaZoneName st
 	t.Logf("Replica %s not yet in standby list, current standbys: %v",
 		replicaZoneName, resp.Status.SyncReplicationConfig.StandbyIds)
 	return false
+}
+
+// removeReplicaFromStandbyList removes the replica from the primary's synchronous standby list
+func removeReplicaFromStandbyList(t *testing.T, primaryAddr string, replicaZoneName string) {
+	t.Helper()
+
+	conn, err := grpc.NewClient(primaryAddr, grpccommon.LocalClientDialOptions()...)
+	require.NoError(t, err, "Failed to create gRPC client")
+	defer conn.Close()
+
+	managerClient := multipoolermanagerpb.NewMultiPoolerManagerClient(conn)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	// Use UpdateSynchronousStandbyList to remove the replica
+	_, err = managerClient.UpdateSynchronousStandbyList(ctx, &multipoolermanagerdatapb.UpdateSynchronousStandbyListRequest{
+		Operation: multipoolermanagerdatapb.StandbyUpdateOperation_STANDBY_UPDATE_OPERATION_REMOVE,
+		StandbyIds: []*clustermetadatapb.ID{{
+			Component: clustermetadatapb.ID_MULTIPOOLER,
+			Cell:      replicaZoneName,
+			Name:      "multipooler",
+		}},
+		ReloadConfig: true,
+		Force:        true, // Force to bypass term check
+	})
+	require.NoError(t, err, "UpdateSynchronousStandbyList (remove) should succeed")
+	t.Logf("Removed replica %s from standby list via RPC", replicaZoneName)
 }
 
 // waitForReplicationFixed polls until multiorch fixes the replication
