@@ -21,8 +21,6 @@ package multiorch
 
 import (
 	"encoding/json"
-	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -33,34 +31,9 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/multigres/multigres/go/test/utils"
-	"github.com/multigres/multigres/go/tools/pathutil"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 )
-
-// TestMain sets the path and cleans up after all tests
-func TestMain(m *testing.M) {
-	// Set the PATH so etcd and orphan detection scripts can be found
-	// Use automatic module root detection instead of hard-coded relative paths
-	if err := pathutil.PrependBinToPath(); err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to add directories to PATH: %v\n", err)
-		os.Exit(1)
-	}
-
-	// Set orphan detection environment variable so postgres processes
-	// started by in-process services will have watchdogs that monitor
-	// the test process and kill postgres if the test crashes
-	os.Setenv("MULTIGRES_TEST_PARENT_PID", fmt.Sprintf("%d", os.Getpid()))
-
-	// Run all tests
-	exitCode := m.Run()
-
-	// Cleanup environment variable
-	os.Unsetenv("MULTIGRES_TEST_PARENT_PID")
-
-	// Exit with the test result code
-	os.Exit(exitCode)
-}
 
 func TestBootstrapInitialization(t *testing.T) {
 	if testing.Short() {

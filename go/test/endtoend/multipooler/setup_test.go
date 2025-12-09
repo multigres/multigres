@@ -20,7 +20,6 @@ import (
 	"net"
 	"os"
 	"os/exec"
-	"os/signal"
 	"path"
 	"path/filepath"
 	"strconv"
@@ -113,49 +112,6 @@ func (c *multipoolerClient) Close() error {
 		return errs[0]
 	}
 	return nil
-}
-
-// TestMain sets the path and cleans up after all tests
-func TestMain(m *testing.M) {
-	// Set the PATH so dependencies like etcd and run_in_test.sh can be found
-	// Use automatic module root detection instead of hard-coded relative paths
-	if err := pathutil.PrependBinToPath(); err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to add bin to PATH: %v\n", err)
-		os.Exit(1)
-	}
-
-	// Set orphan detection environment variable as baseline protection.
-	// This ensures postgres processes started by in-process services will
-	// have watchdogs that monitor the test process and kill postgres if
-	// the test crashes. Individual tests can additionally set
-	// MULTIGRES_TESTDATA_DIR for directory-deletion triggered cleanup.
-	os.Setenv("MULTIGRES_TEST_PARENT_PID", fmt.Sprintf("%d", os.Getpid()))
-
-	// Set up signal handler to ensure cleanup on interrupt
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
-	go func() {
-		<-sigChan
-		cleanupSharedTestSetup()
-		os.Exit(1)
-	}()
-
-	// Run all tests
-	exitCode := m.Run()
-
-	// Dump service logs on failure to help debug CI issues
-	if exitCode != 0 {
-		dumpServiceLogs()
-	}
-
-	// Clean up shared multipooler test infrastructure
-	cleanupSharedTestSetup()
-
-	// Cleanup environment variable
-	os.Unsetenv("MULTIGRES_TEST_PARENT_PID")
-
-	// Exit with the test result code
-	os.Exit(exitCode)
 }
 
 // dumpServiceLogs prints service log files to help debug test failures.
