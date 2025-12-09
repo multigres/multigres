@@ -300,7 +300,11 @@ func TestBootstrapShardAction_ConfiguresSyncReplication(t *testing.T) {
 	mockClient.ChangeTypeResponses[standby1ID] = &multipoolermanagerdatapb.ChangeTypeResponse{}
 	mockClient.ChangeTypeResponses[standby2ID] = &multipoolermanagerdatapb.ChangeTypeResponse{}
 
-	// InitializeAsStandby responses
+	// InitializeAsStandby responses - set for all poolers since any can become a standby
+	// (primary selection order is non-deterministic due to map iteration)
+	mockClient.InitializeAsStandbyResponses[poolerID] = &multipoolermanagerdatapb.InitializeAsStandbyResponse{
+		Success: true,
+	}
 	mockClient.InitializeAsStandbyResponses[standby1ID] = &multipoolermanagerdatapb.InitializeAsStandbyResponse{
 		Success: true,
 	}

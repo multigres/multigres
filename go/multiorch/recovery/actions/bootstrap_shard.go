@@ -207,23 +207,26 @@ func (a *BootstrapShardAction) Execute(ctx context.Context, problem types.Proble
 		}
 	}
 
-	if err := a.initializeStandbys(ctx, problem.ShardKey, candidate, standbys, resp.BackupId); err != nil {
+	successfulStandbys, initErr := a.initializeStandbys(ctx, problem.ShardKey, candidate, standbys, resp.BackupId)
+	if initErr != nil {
 		// Log but don't fail - we have a primary at least
 		a.logger.WarnContext(ctx, "failed to initialize some standbys",
 			"shard_key", problem.ShardKey.String(),
-			"error", err)
+			"error", initErr)
 	}
 
-	// Configure synchronous replication on primary based on durability policy
-	// This must be done AFTER standbys are initialized so they can receive WAL
-	if err := a.configureSynchronousReplication(ctx, candidate, standbys, quorumRule); err != nil {
+	// Configure synchronous replication on primary based on durability policy.
+	// This must be done AFTER standbys are initialized so they can receive WAL.
+	// Only include successfully initialized standbys in the sync replication config.
+	if err := a.configureSynchronousReplication(ctx, candidate, successfulStandbys, quorumRule); err != nil {
 		return mterrors.Wrap(err, "failed to configure synchronous replication")
 	}
 
 	a.logger.InfoContext(ctx, "bootstrap shard action completed successfully",
 		"shard_key", problem.ShardKey.String(),
 		"primary", candidate.MultiPooler.Id.Name,
-		"standbys", len(standbys))
+		"successful_standbys", len(successfulStandbys),
+		"total_standbys", len(standbys))
 
 	return nil
 }
@@ -275,10 +278,12 @@ func (a *BootstrapShardAction) selectBootstrapCandidate(ctx context.Context, coh
 		"no reachable candidate found for bootstrap")
 }
 
-// initializeStandbys initializes multiple nodes as standbys of the given primary
-func (a *BootstrapShardAction) initializeStandbys(ctx context.Context, shardKey commontypes.ShardKey, primary *multiorchdatapb.PoolerHealthState, standbys []*multiorchdatapb.PoolerHealthState, backupID string) error {
+// initializeStandbys initializes multiple nodes as standbys of the given primary.
+// Returns the list of successfully initialized standbys and an error if any standbys failed.
+// The returned list contains only standbys that were successfully initialized.
+func (a *BootstrapShardAction) initializeStandbys(ctx context.Context, shardKey commontypes.ShardKey, primary *multiorchdatapb.PoolerHealthState, standbys []*multiorchdatapb.PoolerHealthState, backupID string) ([]*multiorchdatapb.PoolerHealthState, error) {
 	if len(standbys) == 0 {
-		return nil
+		return nil, nil
 	}
 
 	a.logger.InfoContext(ctx, "initializing standbys",
@@ -304,6 +309,7 @@ func (a *BootstrapShardAction) initializeStandbys(ctx context.Context, shardKey 
 
 	// Collect results
 	var failedNodes []string
+	var successfulStandbys []*multiorchdatapb.PoolerHealthState
 	for range standbys {
 		res := <-results
 		if res.err != nil {
@@ -316,15 +322,16 @@ func (a *BootstrapShardAction) initializeStandbys(ctx context.Context, shardKey 
 			a.logger.InfoContext(ctx, "successfully initialized standby",
 				"shard_key", shardKey.String(),
 				"node", res.node.MultiPooler.Id.Name)
+			successfulStandbys = append(successfulStandbys, res.node)
 		}
 	}
 
 	if len(failedNodes) > 0 {
-		return mterrors.Errorf(mtrpcpb.Code_INTERNAL,
+		return successfulStandbys, mterrors.Errorf(mtrpcpb.Code_INTERNAL,
 			"failed to initialize %d standbys: %v", len(failedNodes), failedNodes)
 	}
 
-	return nil
+	return successfulStandbys, nil
 }
 
 // initializeSingleStandby initializes a single node as a standby of the given primary.
