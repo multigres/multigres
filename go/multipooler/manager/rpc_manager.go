@@ -1131,18 +1131,13 @@ func (pm *MultiPoolerManager) createDurabilityPolicyLocked(ctx context.Context, 
 		return mterrors.Wrapf(err, "failed to marshal quorum rule")
 	}
 
-	// Insert or update the policy in the database
-	query := `
-		INSERT INTO multigres.durability_policy (policy_name, quorum_rule)
-		VALUES ($1, $2)
-		ON CONFLICT (policy_name) DO UPDATE SET quorum_rule = EXCLUDED.quorum_rule
-	`
-	_, err = pm.db.ExecContext(ctx, query, policyName, string(quorumRuleJSON))
-	if err != nil {
-		return mterrors.Wrapf(err, "failed to insert durability policy")
+	// Reuse the existing insertDurabilityPolicy function which has the correct
+	// table schema and ON CONFLICT clause.
+	if err := pm.insertDurabilityPolicy(ctx, policyName, quorumRuleJSON); err != nil {
+		return err
 	}
 
-	pm.logger.InfoContext(ctx, "Durability policy created/updated successfully", "policy_name", policyName)
+	pm.logger.InfoContext(ctx, "Durability policy created successfully", "policy_name", policyName)
 	return nil
 }
 
