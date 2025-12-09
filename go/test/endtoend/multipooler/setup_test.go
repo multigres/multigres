@@ -51,6 +51,12 @@ import (
 	_ "github.com/multigres/multigres/go/common/plugins/topo"
 )
 
+const (
+	// testPostgresPassword is the password used for the postgres user in tests.
+	// This is set via PGPASSWORD env var before pgctld initializes PostgreSQL.
+	testPostgresPassword = "test_password_123"
+)
+
 var (
 	// Shared test infrastructure
 	sharedTestSetup *MultipoolerTestSetup

@@ -22,7 +22,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/multigres/multigres/go/pgctld"
+	"github.com/multigres/multigres/go/services/pgctld"
 
 	"github.com/spf13/cobra"
 )

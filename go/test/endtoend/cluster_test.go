@@ -221,10 +221,13 @@ func createTestConfigWithPorts(tempDir string, portConfig *testPortConfig) (stri
 				LogLevel:       "info",
 			},
 			Multiorch: local.MultiorchConfig{
-				Path:     "multiorch",
-				HttpPort: zonePort.MultiorchHTTPPort,
-				GrpcPort: zonePort.MultiorchGRPCPort,
-				LogLevel: "info",
+				Path:                           "multiorch",
+				HttpPort:                       zonePort.MultiorchHTTPPort,
+				GrpcPort:                       zonePort.MultiorchGRPCPort,
+				LogLevel:                       "info",
+				ClusterMetadataRefreshInterval: "500ms",
+				PoolerHealthCheckInterval:      "500ms",
+				RecoveryCycleInterval:          "500ms",
 			},
 			Pgctld: local.PgctldConfig{
 				Path:           "pgctld",

@@ -37,6 +37,9 @@ import (
 // Compile-time assertion that BootstrapShardAction implements types.RecoveryAction.
 var _ types.RecoveryAction = (*BootstrapShardAction)(nil)
 
+// DefaultStatusRPCTimeout is the default timeout for individual Status RPC calls.
+const DefaultStatusRPCTimeout = 5 * time.Second
+
 // BootstrapShardAction handles bootstrap initialization of a new shard from scratch.
 // This action assumes all nodes in the cohort are empty (uninitialized).
 // It will:
@@ -47,13 +50,14 @@ var _ types.RecoveryAction = (*BootstrapShardAction)(nil)
 // 5. Create the durability policy in the database
 // 6. Initialize remaining nodes as standbys
 type BootstrapShardAction struct {
-	rpcClient   rpcclient.MultiPoolerClient
-	poolerStore *store.ProtoStore[string, *multiorchdatapb.PoolerHealthState]
-	topoStore   topoclient.Store
-	logger      *slog.Logger
+	rpcClient        rpcclient.MultiPoolerClient
+	poolerStore      *store.ProtoStore[string, *multiorchdatapb.PoolerHealthState]
+	topoStore        topoclient.Store
+	logger           *slog.Logger
+	statusRPCTimeout time.Duration
 }
 
-// NewBootstrapShardAction creates a new bootstrap action
+// NewBootstrapShardAction creates a new bootstrap action with default settings.
 func NewBootstrapShardAction(
 	rpcClient rpcclient.MultiPoolerClient,
 	poolerStore *store.ProtoStore[string, *multiorchdatapb.PoolerHealthState],
@@ -61,11 +65,19 @@ func NewBootstrapShardAction(
 	logger *slog.Logger,
 ) *BootstrapShardAction {
 	return &BootstrapShardAction{
-		rpcClient:   rpcClient,
-		poolerStore: poolerStore,
-		topoStore:   topoStore,
-		logger:      logger,
+		rpcClient:        rpcClient,
+		poolerStore:      poolerStore,
+		topoStore:        topoStore,
+		logger:           logger,
+		statusRPCTimeout: DefaultStatusRPCTimeout,
 	}
+}
+
+// WithStatusRPCTimeout sets the timeout for individual Status RPC calls.
+// This is useful for testing with shorter timeouts.
+func (a *BootstrapShardAction) WithStatusRPCTimeout(timeout time.Duration) *BootstrapShardAction {
+	a.statusRPCTimeout = timeout
+	return a
 }
 
 // Execute performs bootstrap initialization for a new shard
@@ -117,6 +129,25 @@ func (a *BootstrapShardAction) Execute(ctx context.Context, problem types.Proble
 		"shard_key", problem.ShardKey.String(),
 		"policy_name", policyName)
 
+	// Parse policy to get required count for quorum check
+	quorumRule, err := a.parsePolicy(policyName)
+	if err != nil {
+		return mterrors.Wrap(err, "failed to parse policy")
+	}
+
+	// Check that enough poolers are reachable to satisfy quorum before attempting bootstrap
+	reachableCount := a.countReachablePoolers(ctx, cohort)
+	if reachableCount < int(quorumRule.RequiredCount) {
+		return mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
+			"insufficient reachable poolers for bootstrap: have %d, need %d for quorum",
+			reachableCount, quorumRule.RequiredCount)
+	}
+
+	a.logger.InfoContext(ctx, "quorum check passed",
+		"shard_key", problem.ShardKey.String(),
+		"reachable_poolers", reachableCount,
+		"required_count", quorumRule.RequiredCount)
+
 	// Revalidate that bootstrap is still needed after acquiring lock.
 	// Make fresh RPC calls to verify all nodes are still uninitialized.
 	// Don't rely on potentially stale store data.
@@ -143,12 +174,6 @@ func (a *BootstrapShardAction) Execute(ctx context.Context, problem types.Proble
 	a.logger.InfoContext(ctx, "selected bootstrap candidate",
 		"shard_key", problem.ShardKey.String(),
 		"candidate", candidate.MultiPooler.Id.Name)
-
-	// Parse durability policy before initializing
-	quorumRule, err := a.parsePolicy(policyName)
-	if err != nil {
-		return mterrors.Wrap(err, "failed to parse policy")
-	}
 
 	// Initialize the candidate as an empty primary with term=1
 	// This now also sets the pooler type to PRIMARY and creates the durability policy
@@ -365,6 +390,23 @@ func (a *BootstrapShardAction) configureSynchronousReplication(
 		"standby_count", len(syncConfig.StandbyIds))
 
 	return nil
+}
+
+// countReachablePoolers counts how many poolers in the cohort are reachable via RPC.
+func (a *BootstrapShardAction) countReachablePoolers(ctx context.Context, cohort []*multiorchdatapb.PoolerHealthState) int {
+	count := 0
+	for _, pooler := range cohort {
+		// Use a per-RPC timeout to prevent a single slow/unresponsive pooler from
+		// consuming the entire action timeout.
+		rpcCtx, cancel := context.WithTimeout(ctx, a.statusRPCTimeout)
+		req := &multipoolermanagerdatapb.StatusRequest{}
+		_, err := a.rpcClient.Status(rpcCtx, pooler.MultiPooler, req)
+		cancel()
+		if err == nil {
+			count++
+		}
+	}
+	return count
 }
 
 // getCohort fetches all poolers in the shard from the pooler store.
