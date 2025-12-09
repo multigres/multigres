@@ -66,7 +66,7 @@ func (re *Engine) performRecoveryCycle() {
 
 	// Run all analyzers to detect problems
 	var problems []types.Problem
-	analyzers := analysis.DefaultAnalyzers()
+	analyzers := analysis.DefaultAnalyzers(re.actionFactory)
 
 	for _, poolerAnalysis := range analyses {
 		for _, analyzer := range analyzers {
@@ -322,7 +322,7 @@ func (re *Engine) recheckProblem(problem types.Problem) (bool, error) {
 	}
 
 	// Re-run the analyzer that originally detected this problem
-	analyzers := analysis.DefaultAnalyzers()
+	analyzers := analysis.DefaultAnalyzers(re.actionFactory)
 	for _, analyzer := range analyzers {
 		if analyzer.Name() == problem.CheckName {
 			redetectedProblems, err := analyzer.Analyze(poolerAnalysis)

@@ -466,16 +466,23 @@ func TestBootstrapShardAction_QuorumCheckPassesWithEnoughPoolers(t *testing.T) {
 		},
 	})
 
-	// Setup responses for the bootstrap flow
+	// Setup responses for the bootstrap flow (either pooler could be selected as primary)
 	fakeClient.InitializeEmptyPrimaryResponses["multipooler-cell1-pooler1"] = &multipoolermanagerdatapb.InitializeEmptyPrimaryResponse{
 		Success:  true,
 		BackupId: "backup-123",
 	}
+	fakeClient.InitializeEmptyPrimaryResponses["multipooler-cell1-pooler2"] = &multipoolermanagerdatapb.InitializeEmptyPrimaryResponse{
+		Success:  true,
+		BackupId: "backup-123",
+	}
 	fakeClient.ChangeTypeResponses["multipooler-cell1-pooler1"] = &multipoolermanagerdatapb.ChangeTypeResponse{}
+	fakeClient.ChangeTypeResponses["multipooler-cell1-pooler2"] = &multipoolermanagerdatapb.ChangeTypeResponse{}
+	fakeClient.InitializeAsStandbyResponses["multipooler-cell1-pooler1"] = &multipoolermanagerdatapb.InitializeAsStandbyResponse{
+		Success: true,
+	}
 	fakeClient.InitializeAsStandbyResponses["multipooler-cell1-pooler2"] = &multipoolermanagerdatapb.InitializeAsStandbyResponse{
 		Success: true,
 	}
-	fakeClient.ChangeTypeResponses["multipooler-cell1-pooler2"] = &multipoolermanagerdatapb.ChangeTypeResponse{}
 	// Add ConfigureSynchronousReplication responses for both (since selection order is non-deterministic)
 	fakeClient.ConfigureSynchronousReplicationResponses["multipooler-cell1-pooler1"] = &multipoolermanagerdatapb.ConfigureSynchronousReplicationResponse{}
 	fakeClient.ConfigureSynchronousReplicationResponses["multipooler-cell1-pooler2"] = &multipoolermanagerdatapb.ConfigureSynchronousReplicationResponse{}
@@ -529,9 +536,11 @@ func TestBootstrapShardAction_QuorumCheckPassesWithEnoughPoolers(t *testing.T) {
 	// Should succeed - we have 2 reachable poolers and ANY_2 requires 2
 	assert.NoError(t, err)
 
-	// Verify the expected RPC calls were made
-	assert.Contains(t, fakeClient.CallLog, "InitializeEmptyPrimary(multipooler-cell1-pooler1)")
-	assert.Contains(t, fakeClient.CallLog, "InitializeAsStandby(multipooler-cell1-pooler2)")
+	// Verify that exactly one primary and one standby were initialized
+	// (order is non-deterministic due to map iteration)
+	callCounts := countCallsByMethod(fakeClient.CallLog)
+	assert.Equal(t, 1, callCounts["InitializeEmptyPrimary"], "exactly one primary should be initialized")
+	assert.Equal(t, 1, callCounts["InitializeAsStandby"], "exactly one standby should be initialized")
 }
 
 // TestBootstrapShardAction_FullBootstrapFlow tests the complete bootstrap flow

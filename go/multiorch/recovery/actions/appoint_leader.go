@@ -41,7 +41,7 @@ var _ types.RecoveryAction = (*AppointLeaderAction)(nil)
 // the full consensus protocol to establish a new primary.
 type AppointLeaderAction struct {
 	coordinator *coordinator.Coordinator
-	poolerStore *store.ProtoStore[string, *multiorchdatapb.PoolerHealthState]
+	poolerStore *store.PoolerHealthStore
 	topoStore   topoclient.Store
 	logger      *slog.Logger
 }
@@ -49,7 +49,7 @@ type AppointLeaderAction struct {
 // NewAppointLeaderAction creates a new leader appointment action
 func NewAppointLeaderAction(
 	coordinator *coordinator.Coordinator,
-	poolerStore *store.ProtoStore[string, *multiorchdatapb.PoolerHealthState],
+	poolerStore *store.PoolerHealthStore,
 	topoStore topoclient.Store,
 	logger *slog.Logger,
 ) *AppointLeaderAction {

@@ -706,7 +706,7 @@ func TestProcessShardProblems_DependencyEnforcement(t *testing.T) {
 
 		// Run analyzers to detect problems
 		var problems []types.Problem
-		analyzers := analysis.DefaultAnalyzers()
+		analyzers := analysis.DefaultAnalyzers(engine.actionFactory)
 		for _, poolerAnalysis := range analyses {
 			for _, analyzer := range analyzers {
 				detectedProblems, err := analyzer.Analyze(poolerAnalysis)
@@ -778,7 +778,7 @@ func TestProcessShardProblems_DependencyEnforcement(t *testing.T) {
 
 		// Run analyzers to detect problems
 		var problems []types.Problem
-		analyzers := analysis.DefaultAnalyzers()
+		analyzers := analysis.DefaultAnalyzers(engine.actionFactory)
 		for _, poolerAnalysis := range analyses {
 			for _, analyzer := range analyzers {
 				detectedProblems, err := analyzer.Analyze(poolerAnalysis)
@@ -881,7 +881,7 @@ func TestRecoveryLoop_ValidationPreventsStaleRecovery(t *testing.T) {
 	analyses := generator.GenerateAnalyses()
 
 	var problems []types.Problem
-	analyzers := analysis.DefaultAnalyzers()
+	analyzers := analysis.DefaultAnalyzers(engine.actionFactory)
 	for _, poolerAnalysis := range analyses {
 		for _, analyzer := range analyzers {
 			detectedProblems, err := analyzer.Analyze(poolerAnalysis)
@@ -1068,7 +1068,7 @@ func TestRecoveryLoop_PostRecoveryRefresh(t *testing.T) {
 	analyses := generator.GenerateAnalyses()
 
 	var problems []types.Problem
-	analyzers := analysis.DefaultAnalyzers()
+	analyzers := analysis.DefaultAnalyzers(engine.actionFactory)
 	for _, poolerAnalysis := range analyses {
 		for _, analyzer := range analyzers {
 			detectedProblems, err := analyzer.Analyze(poolerAnalysis)
@@ -1416,7 +1416,7 @@ func TestRecoveryLoop_PriorityOrdering(t *testing.T) {
 	analyses := generator.GenerateAnalyses()
 
 	var problems []types.Problem
-	analyzers := analysis.DefaultAnalyzers()
+	analyzers := analysis.DefaultAnalyzers(engine.actionFactory)
 	for _, poolerAnalysis := range analyses {
 		for _, analyzer := range analyzers {
 			detectedProblems, err := analyzer.Analyze(poolerAnalysis)

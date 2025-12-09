@@ -51,7 +51,7 @@ const DefaultStatusRPCTimeout = 5 * time.Second
 // 6. Initialize remaining nodes as standbys
 type BootstrapShardAction struct {
 	rpcClient        rpcclient.MultiPoolerClient
-	poolerStore      *store.ProtoStore[string, *multiorchdatapb.PoolerHealthState]
+	poolerStore      *store.PoolerHealthStore
 	topoStore        topoclient.Store
 	logger           *slog.Logger
 	statusRPCTimeout time.Duration
@@ -60,7 +60,7 @@ type BootstrapShardAction struct {
 // NewBootstrapShardAction creates a new bootstrap action with default settings.
 func NewBootstrapShardAction(
 	rpcClient rpcclient.MultiPoolerClient,
-	poolerStore *store.ProtoStore[string, *multiorchdatapb.PoolerHealthState],
+	poolerStore *store.PoolerHealthStore,
 	topoStore topoclient.Store,
 	logger *slog.Logger,
 ) *BootstrapShardAction {
