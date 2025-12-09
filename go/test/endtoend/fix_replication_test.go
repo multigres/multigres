@@ -94,7 +94,9 @@ func TestFixReplication(t *testing.T) {
 
 	// Verify replication is broken
 	t.Log("Verifying replication is broken...")
-	verifyReplicationBroken(t, replicaAddr)
+	require.Eventually(t, func() bool {
+		return isReplicationBroken(t, replicaAddr)
+	}, 10*time.Second, 500*time.Millisecond, "replication should be broken after clearing primary_conninfo")
 
 	// Insert data on primary while replication is broken
 	t.Log("Inserting data on primary while replication is broken...")
@@ -141,7 +143,9 @@ func TestFixReplication(t *testing.T) {
 
 	// Verify replication is broken again
 	t.Log("Verifying replication is broken (second time)...")
-	verifyReplicationBroken(t, replicaAddr)
+	require.Eventually(t, func() bool {
+		return isReplicationBroken(t, replicaAddr)
+	}, 10*time.Second, 500*time.Millisecond, "replication should be broken after clearing primary_conninfo (second time)")
 
 	// Insert more data on primary while replication is broken again
 	t.Log("Inserting more data on primary while replication is broken (second time)...")
@@ -237,12 +241,15 @@ func breakReplicationViaRPC(t *testing.T, multipoolerAddr string) {
 	t.Log("Cleared primary_conninfo via RPC")
 }
 
-// verifyReplicationBroken confirms that replication is no longer configured/streaming
-func verifyReplicationBroken(t *testing.T, multipoolerAddr string) {
+// isReplicationBroken checks if replication is no longer configured/streaming
+func isReplicationBroken(t *testing.T, multipoolerAddr string) bool {
 	t.Helper()
 
 	conn, err := grpc.NewClient(multipoolerAddr, grpccommon.LocalClientDialOptions()...)
-	require.NoError(t, err, "Failed to create gRPC client")
+	if err != nil {
+		t.Logf("Failed to create gRPC client: %v", err)
+		return false
+	}
 	defer conn.Close()
 
 	managerClient := multipoolermanagerpb.NewMultiPoolerManagerClient(conn)
@@ -251,16 +258,23 @@ func verifyReplicationBroken(t *testing.T, multipoolerAddr string) {
 	defer cancel()
 
 	resp, err := managerClient.StandbyReplicationStatus(ctx, &multipoolermanagerdatapb.StandbyReplicationStatusRequest{})
-	require.NoError(t, err, "StandbyReplicationStatus should succeed")
-	require.NotNil(t, resp.Status, "Status should not be nil")
+	if err != nil {
+		t.Logf("StandbyReplicationStatus failed: %v", err)
+		return false
+	}
+	if resp.Status == nil {
+		t.Log("Waiting for replication status...")
+		return false
+	}
 
 	// Verify primary_conninfo is cleared (host should be empty)
-	if resp.Status.PrimaryConnInfo != nil {
-		require.Empty(t, resp.Status.PrimaryConnInfo.Host,
-			"PrimaryConnInfo.Host should be empty after breaking replication")
+	if resp.Status.PrimaryConnInfo != nil && resp.Status.PrimaryConnInfo.Host != "" {
+		t.Logf("Waiting for primary_conninfo to be cleared, current host: %s", resp.Status.PrimaryConnInfo.Host)
+		return false
 	}
 
 	t.Log("Confirmed replication is broken (primary_conninfo cleared)")
+	return true
 }
 
 // isReplicaInStandbyList checks if the replica is in the primary's synchronous standby list

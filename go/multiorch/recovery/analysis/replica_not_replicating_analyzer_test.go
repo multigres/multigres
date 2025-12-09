@@ -45,10 +45,8 @@ func TestReplicaNotReplicatingAnalyzer_Analyze(t *testing.T) {
 	}
 	coord := coordinator.NewCoordinator(coordID, ts, rpcClient, slog.Default())
 	factory := NewRecoveryActionFactory(poolerStore, rpcClient, ts, coord, slog.Default())
-	SetRecoveryActionFactory(factory)
-	defer SetRecoveryActionFactory(nil)
 
-	analyzer := &ReplicaNotReplicatingAnalyzer{}
+	analyzer := &ReplicaNotReplicatingAnalyzer{factory: factory}
 
 	t.Run("detects replica with no primary_conninfo", func(t *testing.T) {
 		analysis := &store.ReplicationAnalysis{
