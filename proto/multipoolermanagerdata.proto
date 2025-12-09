@@ -541,6 +541,13 @@ message ConsensusTerm {
 message InitializeEmptyPrimaryRequest {
   // Consensus term to set for this primary
   int64 consensus_term = 1;
+
+  // Optional: Set pooler type after initialization (defaults to PRIMARY if not specified)
+  clustermetadata.PoolerType pooler_type = 2;
+
+  // Optional: Create durability policy after initialization
+  string durability_policy_name = 3;
+  clustermetadata.QuorumRule durability_quorum_rule = 4;
 }
 
 message InitializeEmptyPrimaryResponse {

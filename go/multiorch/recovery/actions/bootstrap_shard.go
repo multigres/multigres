@@ -144,9 +144,19 @@ func (a *BootstrapShardAction) Execute(ctx context.Context, problem types.Proble
 		"shard_key", problem.ShardKey.String(),
 		"candidate", candidate.MultiPooler.Id.Name)
 
+	// Parse durability policy before initializing
+	quorumRule, err := a.parsePolicy(policyName)
+	if err != nil {
+		return mterrors.Wrap(err, "failed to parse policy")
+	}
+
 	// Initialize the candidate as an empty primary with term=1
+	// This now also sets the pooler type and creates the durability policy
 	req := &multipoolermanagerdatapb.InitializeEmptyPrimaryRequest{
-		ConsensusTerm: 1,
+		ConsensusTerm:        1,
+		PoolerType:           clustermetadatapb.PoolerType_PRIMARY,
+		DurabilityPolicyName: policyName,
+		DurabilityQuorumRule: quorumRule,
 	}
 	resp, err := a.rpcClient.InitializeEmptyPrimary(ctx, candidate.MultiPooler, req)
 	if err != nil {
@@ -159,43 +169,10 @@ func (a *BootstrapShardAction) Execute(ctx context.Context, problem types.Proble
 			candidate.MultiPooler.Id.Name, resp.ErrorMessage)
 	}
 
-	a.logger.InfoContext(ctx, "successfully initialized primary",
+	a.logger.InfoContext(ctx, "successfully initialized primary with durability policy",
 		"shard_key", problem.ShardKey.String(),
 		"primary", candidate.MultiPooler.Id.Name,
-		"backup_id", resp.BackupId)
-
-	// Set pooler type to PRIMARY after successful initialization
-	// This updates topology so other components (and tests) can observe the node as PRIMARY.
-	changeTypeReq := &multipoolermanagerdatapb.ChangeTypeRequest{
-		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
-	}
-	_, err = a.rpcClient.ChangeType(ctx, candidate.MultiPooler, changeTypeReq)
-	if err != nil {
-		return mterrors.Wrap(err, "failed to set pooler type to PRIMARY")
-	}
-
-	// Create durability policy in the primary's database
-	quorumRule, err := a.parsePolicy(policyName)
-	if err != nil {
-		return mterrors.Wrap(err, "failed to parse policy")
-	}
-
-	createPolicyReq := &multipoolermanagerdatapb.CreateDurabilityPolicyRequest{
-		PolicyName: policyName,
-		QuorumRule: quorumRule,
-	}
-	createPolicyResp, err := a.rpcClient.CreateDurabilityPolicy(ctx, candidate.MultiPooler, createPolicyReq)
-	if err != nil {
-		return mterrors.Wrap(err, "failed to create durability policy")
-	}
-
-	if !createPolicyResp.Success {
-		return mterrors.Errorf(mtrpcpb.Code_INTERNAL,
-			"failed to create durability policy: %s", createPolicyResp.ErrorMessage)
-	}
-
-	a.logger.InfoContext(ctx, "successfully created durability policy",
-		"shard_key", problem.ShardKey.String(),
+		"backup_id", resp.BackupId,
 		"policy_name", policyName)
 
 	// Initialize remaining nodes as standbys

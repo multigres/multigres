@@ -655,6 +655,45 @@ func (pm *MultiPoolerManager) StopReplicationAndGetStatus(ctx context.Context, m
 	return status, nil
 }
 
+// changeTypeLocked updates the pooler type without acquiring the action lock.
+// The caller MUST already hold the action lock.
+func (pm *MultiPoolerManager) changeTypeLocked(ctx context.Context, poolerType clustermetadatapb.PoolerType) error {
+	if err := AssertActionLockHeld(ctx); err != nil {
+		return err
+	}
+
+	pm.logger.InfoContext(ctx, "changeTypeLocked called", "pooler_type", poolerType.String(), "service_id", pm.serviceID.String())
+
+	// Update the multipooler record in topology
+	updatedMultipooler, err := pm.topoClient.UpdateMultiPoolerFields(ctx, pm.serviceID, func(mp *clustermetadatapb.MultiPooler) error {
+		mp.Type = poolerType
+		return nil
+	})
+	if err != nil {
+		pm.logger.ErrorContext(ctx, "Failed to update pooler type in topology", "error", err, "service_id", pm.serviceID.String())
+		return mterrors.Wrap(err, "failed to update pooler type in topology")
+	}
+
+	pm.mu.Lock()
+	pm.multipooler.MultiPooler = updatedMultipooler
+	pm.updateCachedMultipooler()
+	pm.mu.Unlock()
+
+	// Update heartbeat tracker based on new type
+	if pm.replTracker != nil {
+		if poolerType == clustermetadatapb.PoolerType_PRIMARY {
+			pm.logger.InfoContext(ctx, "Starting heartbeat writer for new primary")
+			pm.replTracker.MakePrimary()
+		} else {
+			pm.logger.InfoContext(ctx, "Stopping heartbeat writer for replica")
+			pm.replTracker.MakeNonPrimary()
+		}
+	}
+
+	pm.logger.InfoContext(ctx, "Pooler type updated successfully", "new_type", poolerType.String(), "service_id", pm.serviceID.String())
+	return nil
+}
+
 // ChangeType changes the pooler type (PRIMARY/REPLICA)
 func (pm *MultiPoolerManager) ChangeType(ctx context.Context, poolerType string) error {
 	if err := pm.checkReady(); err != nil {
@@ -685,35 +724,9 @@ func (pm *MultiPoolerManager) ChangeType(ctx context.Context, poolerType string)
 	}
 
 	pm.logger.InfoContext(ctx, "ChangeType called", "pooler_type", poolerType, "service_id", pm.serviceID.String())
-	// Update the multipooler record in topology
-	updatedMultipooler, err := pm.topoClient.UpdateMultiPoolerFields(ctx, pm.serviceID, func(mp *clustermetadatapb.MultiPooler) error {
-		mp.Type = newType
-		return nil
-	})
-	if err != nil {
-		pm.logger.ErrorContext(ctx, "Failed to update pooler type in topology", "error", err, "service_id", pm.serviceID.String())
-		return mterrors.Wrap(err, "failed to update pooler type in topology")
-	}
 
-	pm.mu.Lock()
-	pm.multipooler.MultiPooler = updatedMultipooler
-	pm.updateCachedMultipooler()
-	pm.mu.Unlock()
-
-	// Update heartbeat tracker based on new type
-	if pm.replTracker != nil {
-		if newType == clustermetadatapb.PoolerType_PRIMARY {
-			pm.logger.InfoContext(ctx, "Starting heartbeat writer for new primary")
-			pm.replTracker.MakePrimary()
-		} else {
-			pm.logger.InfoContext(ctx, "Stopping heartbeat writer for replica")
-			pm.replTracker.MakeNonPrimary()
-		}
-	}
-
-	pm.logger.InfoContext(ctx, "Pooler type updated successfully", "new_type", poolerType, "service_id", pm.serviceID.String())
-
-	return nil
+	// Call the locked version
+	return pm.changeTypeLocked(ctx, newType)
 }
 
 // State returns the current manager status and error information
@@ -1083,6 +1096,53 @@ func (pm *MultiPoolerManager) SetTerm(ctx context.Context, term *multipoolermana
 	}
 
 	pm.logger.InfoContext(ctx, "SetTerm completed successfully", "current_term", term.GetTermNumber())
+	return nil
+}
+
+// createDurabilityPolicyLocked creates a durability policy without acquiring the action lock.
+// The caller MUST already hold the action lock.
+func (pm *MultiPoolerManager) createDurabilityPolicyLocked(ctx context.Context, policyName string, quorumRule *clustermetadatapb.QuorumRule) error {
+	if err := AssertActionLockHeld(ctx); err != nil {
+		return err
+	}
+
+	pm.logger.InfoContext(ctx, "createDurabilityPolicyLocked called", "policy_name", policyName)
+
+	// Validate inputs
+	if policyName == "" {
+		return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "policy_name is required")
+	}
+
+	if quorumRule == nil {
+		return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "quorum_rule is required")
+	}
+
+	// Check that we have a database connection
+	if pm.db == nil {
+		return mterrors.New(mtrpcpb.Code_UNAVAILABLE, "database connection not available")
+	}
+
+	// Marshal the quorum rule to JSON using protojson
+	marshaler := protojson.MarshalOptions{
+		UseEnumNumbers: true,
+	}
+	quorumRuleJSON, err := marshaler.Marshal(quorumRule)
+	if err != nil {
+		return mterrors.Wrapf(err, "failed to marshal quorum rule")
+	}
+
+	// Insert or update the policy in the database
+	query := `
+		INSERT INTO multigres.durability_policy (policy_name, quorum_rule)
+		VALUES ($1, $2)
+		ON CONFLICT (policy_name) DO UPDATE SET quorum_rule = EXCLUDED.quorum_rule
+	`
+	_, err = pm.db.ExecContext(ctx, query, policyName, string(quorumRuleJSON))
+	if err != nil {
+		return mterrors.Wrapf(err, "failed to insert durability policy")
+	}
+
+	pm.logger.InfoContext(ctx, "Durability policy created/updated successfully", "policy_name", policyName)
 	return nil
 }
 

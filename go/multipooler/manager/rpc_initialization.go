@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/multigres/multigres/go/common/mterrors"
+	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	pgctldpb "github.com/multigres/multigres/go/pb/pgctldservice"
@@ -123,6 +124,23 @@ func (pm *MultiPoolerManager) InitializeEmptyPrimary(ctx context.Context, req *m
 		return nil, mterrors.Wrap(err, "failed to create initial backup")
 	}
 	pm.logger.InfoContext(ctx, "Initial backup created", "backup_id", backupID)
+
+	// Set pooler type if requested (defaults to PRIMARY)
+	poolerType := req.PoolerType
+	if poolerType == clustermetadatapb.PoolerType_UNKNOWN {
+		poolerType = clustermetadatapb.PoolerType_PRIMARY
+	}
+	if err := pm.changeTypeLocked(ctx, poolerType); err != nil {
+		return nil, mterrors.Wrap(err, "failed to set pooler type")
+	}
+
+	// Create durability policy if requested
+	if req.DurabilityPolicyName != "" && req.DurabilityQuorumRule != nil {
+		if err := pm.createDurabilityPolicyLocked(ctx, req.DurabilityPolicyName, req.DurabilityQuorumRule); err != nil {
+			return nil, mterrors.Wrap(err, "failed to create durability policy")
+		}
+		pm.logger.InfoContext(ctx, "Created durability policy", "policy_name", req.DurabilityPolicyName)
+	}
 
 	pm.logger.InfoContext(ctx, "Successfully initialized pooler as empty primary", "shard", pm.getShardID(), "term", req.ConsensusTerm)
 	return &multipoolermanagerdatapb.InitializeEmptyPrimaryResponse{

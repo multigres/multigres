@@ -2910,8 +2910,13 @@ type InitializeEmptyPrimaryRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Consensus term to set for this primary
 	ConsensusTerm int64 `protobuf:"varint,1,opt,name=consensus_term,json=consensusTerm,proto3" json:"consensus_term,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	// Optional: Set pooler type after initialization (defaults to PRIMARY if not specified)
+	PoolerType clustermetadata.PoolerType `protobuf:"varint,2,opt,name=pooler_type,json=poolerType,proto3,enum=clustermetadata.PoolerType" json:"pooler_type,omitempty"`
+	// Optional: Create durability policy after initialization
+	DurabilityPolicyName string                      `protobuf:"bytes,3,opt,name=durability_policy_name,json=durabilityPolicyName,proto3" json:"durability_policy_name,omitempty"`
+	DurabilityQuorumRule *clustermetadata.QuorumRule `protobuf:"bytes,4,opt,name=durability_quorum_rule,json=durabilityQuorumRule,proto3" json:"durability_quorum_rule,omitempty"`
+	unknownFields        protoimpl.UnknownFields
+	sizeCache            protoimpl.SizeCache
 }
 
 func (x *InitializeEmptyPrimaryRequest) Reset() {
@@ -2949,6 +2954,27 @@ func (x *InitializeEmptyPrimaryRequest) GetConsensusTerm() int64 {
 		return x.ConsensusTerm
 	}
 	return 0
+}
+
+func (x *InitializeEmptyPrimaryRequest) GetPoolerType() clustermetadata.PoolerType {
+	if x != nil {
+		return x.PoolerType
+	}
+	return clustermetadata.PoolerType(0)
+}
+
+func (x *InitializeEmptyPrimaryRequest) GetDurabilityPolicyName() string {
+	if x != nil {
+		return x.DurabilityPolicyName
+	}
+	return ""
+}
+
+func (x *InitializeEmptyPrimaryRequest) GetDurabilityQuorumRule() *clustermetadata.QuorumRule {
+	if x != nil {
+		return x.DurabilityQuorumRule
+	}
+	return nil
 }
 
 type InitializeEmptyPrimaryResponse struct {
@@ -3883,9 +3909,13 @@ const file_multipoolermanagerdata_proto_rawDesc = "" +
 	"termNumber\x12]\n" +
 	"!accepted_term_from_coordinator_id\x18\x02 \x01(\v2\x13.clustermetadata.IDR\x1dacceptedTermFromCoordinatorId\x12L\n" +
 	"\x14last_acceptance_time\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\x12lastAcceptanceTime\x120\n" +
-	"\tleader_id\x18\x04 \x01(\v2\x13.clustermetadata.IDR\bleaderId\"F\n" +
+	"\tleader_id\x18\x04 \x01(\v2\x13.clustermetadata.IDR\bleaderId\"\x8d\x02\n" +
 	"\x1dInitializeEmptyPrimaryRequest\x12%\n" +
-	"\x0econsensus_term\x18\x01 \x01(\x03R\rconsensusTerm\"|\n" +
+	"\x0econsensus_term\x18\x01 \x01(\x03R\rconsensusTerm\x12<\n" +
+	"\vpooler_type\x18\x02 \x01(\x0e2\x1b.clustermetadata.PoolerTypeR\n" +
+	"poolerType\x124\n" +
+	"\x16durability_policy_name\x18\x03 \x01(\tR\x14durabilityPolicyName\x12Q\n" +
+	"\x16durability_quorum_rule\x18\x04 \x01(\v2\x1b.clustermetadata.QuorumRuleR\x14durabilityQuorumRule\"|\n" +
 	"\x1eInitializeEmptyPrimaryResponse\x12\x18\n" +
 	"\asuccess\x18\x01 \x01(\bR\asuccess\x12#\n" +
 	"\rerror_message\x18\x02 \x01(\tR\ferrorMessage\x12\x1b\n" +
@@ -4042,8 +4072,8 @@ var file_multipoolermanagerdata_proto_goTypes = []any{
 	(*clustermetadata.ID)(nil),                      // 67: clustermetadata.ID
 	(clustermetadata.PoolerType)(0),                 // 68: clustermetadata.PoolerType
 	(*timestamppb.Timestamp)(nil),                   // 69: google.protobuf.Timestamp
-	(*clustermetadata.DurabilityPolicy)(nil),        // 70: clustermetadata.DurabilityPolicy
-	(*clustermetadata.QuorumRule)(nil),              // 71: clustermetadata.QuorumRule
+	(*clustermetadata.QuorumRule)(nil),              // 70: clustermetadata.QuorumRule
+	(*clustermetadata.DurabilityPolicy)(nil),        // 71: clustermetadata.DurabilityPolicy
 }
 var file_multipoolermanagerdata_proto_depIdxs = []int32{
 	66, // 0: multipoolermanagerdata.StandbyReplicationStatus.lag:type_name -> google.protobuf.Duration
@@ -4084,15 +4114,17 @@ var file_multipoolermanagerdata_proto_depIdxs = []int32{
 	67, // 35: multipoolermanagerdata.ConsensusTerm.accepted_term_from_coordinator_id:type_name -> clustermetadata.ID
 	69, // 36: multipoolermanagerdata.ConsensusTerm.last_acceptance_time:type_name -> google.protobuf.Timestamp
 	67, // 37: multipoolermanagerdata.ConsensusTerm.leader_id:type_name -> clustermetadata.ID
-	61, // 38: multipoolermanagerdata.GetBackupsResponse.backups:type_name -> multipoolermanagerdata.BackupMetadata
-	4,  // 39: multipoolermanagerdata.BackupMetadata.status:type_name -> multipoolermanagerdata.BackupMetadata.Status
-	70, // 40: multipoolermanagerdata.GetDurabilityPolicyResponse.policy:type_name -> clustermetadata.DurabilityPolicy
-	71, // 41: multipoolermanagerdata.CreateDurabilityPolicyRequest.quorum_rule:type_name -> clustermetadata.QuorumRule
-	42, // [42:42] is the sub-list for method output_type
-	42, // [42:42] is the sub-list for method input_type
-	42, // [42:42] is the sub-list for extension type_name
-	42, // [42:42] is the sub-list for extension extendee
-	0,  // [0:42] is the sub-list for field type_name
+	68, // 38: multipoolermanagerdata.InitializeEmptyPrimaryRequest.pooler_type:type_name -> clustermetadata.PoolerType
+	70, // 39: multipoolermanagerdata.InitializeEmptyPrimaryRequest.durability_quorum_rule:type_name -> clustermetadata.QuorumRule
+	61, // 40: multipoolermanagerdata.GetBackupsResponse.backups:type_name -> multipoolermanagerdata.BackupMetadata
+	4,  // 41: multipoolermanagerdata.BackupMetadata.status:type_name -> multipoolermanagerdata.BackupMetadata.Status
+	71, // 42: multipoolermanagerdata.GetDurabilityPolicyResponse.policy:type_name -> clustermetadata.DurabilityPolicy
+	70, // 43: multipoolermanagerdata.CreateDurabilityPolicyRequest.quorum_rule:type_name -> clustermetadata.QuorumRule
+	44, // [44:44] is the sub-list for method output_type
+	44, // [44:44] is the sub-list for method input_type
+	44, // [44:44] is the sub-list for extension type_name
+	44, // [44:44] is the sub-list for extension extendee
+	0,  // [0:44] is the sub-list for field type_name
 }
 
 func init() { file_multipoolermanagerdata_proto_init() }
