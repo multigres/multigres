@@ -17,10 +17,8 @@ package analysis
 import (
 	"errors"
 	"fmt"
-	"log/slog"
 	"time"
 
-	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/multiorch/recovery/types"
 	"github.com/multigres/multigres/go/multiorch/store"
 )
@@ -36,7 +34,9 @@ func (a *ReplicaNotReplicatingAnalyzer) Name() types.CheckName {
 }
 
 func (a *ReplicaNotReplicatingAnalyzer) Analyze(poolerAnalysis *store.ReplicationAnalysis) ([]types.Problem, error) {
-	poolerIDStr := topoclient.MultiPoolerIDString(poolerAnalysis.PoolerID)
+	if a.factory == nil {
+		return nil, errors.New("recovery action factory not initialized")
+	}
 
 	// Only analyze replicas
 	if poolerAnalysis.IsPrimary {
@@ -56,12 +56,6 @@ func (a *ReplicaNotReplicatingAnalyzer) Analyze(poolerAnalysis *store.Replicatio
 	// Check if replication is not configured or stopped
 	if !a.needsReplicationFix(poolerAnalysis) {
 		return nil, nil
-	}
-
-	if a.factory == nil {
-		slog.Error("ReplicaNotReplicatingAnalyzer: factory not initialized",
-			"pooler_id", poolerIDStr)
-		return nil, errors.New("recovery action factory not initialized")
 	}
 
 	return []types.Problem{{

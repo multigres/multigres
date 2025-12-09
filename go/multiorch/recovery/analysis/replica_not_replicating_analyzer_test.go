@@ -151,4 +151,22 @@ func TestReplicaNotReplicatingAnalyzer_Analyze(t *testing.T) {
 	t.Run("analyzer name is correct", func(t *testing.T) {
 		require.Equal(t, types.CheckName("ReplicaNotReplicating"), analyzer.Name())
 	})
+
+	t.Run("returns error when factory is nil", func(t *testing.T) {
+		nilFactoryAnalyzer := &ReplicaNotReplicatingAnalyzer{factory: nil}
+		analysis := &store.ReplicationAnalysis{
+			PoolerID:            &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "replica1"},
+			ShardKey:            commontypes.ShardKey{Database: "db", TableGroup: "tg", Shard: "0"},
+			IsPrimary:           false,
+			IsInitialized:       true,
+			PrimaryPoolerID:     &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "primary1"},
+			PrimaryReachable:    true,
+			PrimaryConnInfoHost: "",
+		}
+
+		problems, err := nilFactoryAnalyzer.Analyze(analysis)
+		require.Error(t, err)
+		require.Nil(t, problems)
+		require.Contains(t, err.Error(), "factory not initialized")
+	})
 }

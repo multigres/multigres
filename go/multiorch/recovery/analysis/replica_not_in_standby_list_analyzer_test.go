@@ -177,4 +177,24 @@ func TestReplicaNotInStandbyListAnalyzer_Analyze(t *testing.T) {
 			}
 		})
 	}
+
+	t.Run("returns error when factory is nil", func(t *testing.T) {
+		nilFactoryAnalyzer := &ReplicaNotInStandbyListAnalyzer{factory: nil}
+		analysis := &store.ReplicationAnalysis{
+			PoolerID:               &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "replica1"},
+			ShardKey:               commontypes.ShardKey{Database: "db", TableGroup: "tg", Shard: "0"},
+			PoolerType:             clustermetadatapb.PoolerType_REPLICA,
+			IsPrimary:              false,
+			IsInitialized:          true,
+			PrimaryPoolerID:        &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "primary1"},
+			PrimaryReachable:       true,
+			PrimaryConnInfoHost:    "primary.example.com",
+			IsInPrimaryStandbyList: false,
+		}
+
+		problems, err := nilFactoryAnalyzer.Analyze(analysis)
+		require.Error(t, err)
+		require.Nil(t, problems)
+		require.Contains(t, err.Error(), "factory not initialized")
+	})
 }

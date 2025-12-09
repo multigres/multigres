@@ -15,6 +15,7 @@
 package analysis
 
 import (
+	"errors"
 	"fmt"
 	"time"
 
@@ -37,6 +38,10 @@ func (a *ReplicaNotInStandbyListAnalyzer) Name() types.CheckName {
 }
 
 func (a *ReplicaNotInStandbyListAnalyzer) Analyze(poolerAnalysis *store.ReplicationAnalysis) ([]types.Problem, error) {
+	if a.factory == nil {
+		return nil, errors.New("recovery action factory not initialized")
+	}
+
 	// Only analyze replicas
 	if poolerAnalysis.IsPrimary {
 		return nil, nil

@@ -25,6 +25,9 @@ import (
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 )
 
+// DefaultReplicaLagThreshold is the threshold above which a replica is considered lagging.
+const DefaultReplicaLagThreshold = 10 * time.Second
+
 // PoolersByShard is a structured map for efficient lookups.
 // Structure: [database][tablegroup][shard][pooler_id] -> PoolerHealthState
 type PoolersByShard map[string]map[string]map[string]map[string]*multiorchdatapb.PoolerHealthState
@@ -202,7 +205,7 @@ func (g *AnalysisGenerator) generateAnalysisForPooler(
 		if pooler.ReplicationStatus != nil {
 			rs := pooler.ReplicationStatus
 			analysis.ReplicationStopped = rs.IsWalReplayPaused
-			analysis.IsLagging = rs.Lag != nil && rs.Lag.AsDuration().Milliseconds() > 10000 // 10 seconds threshold
+			analysis.IsLagging = rs.Lag != nil && rs.Lag.AsDuration() > DefaultReplicaLagThreshold
 			if rs.Lag != nil {
 				analysis.ReplicaLagMillis = rs.Lag.AsDuration().Milliseconds()
 			}
@@ -300,9 +303,9 @@ func (g *AnalysisGenerator) aggregateReplicaStats(
 				countReplicating++
 			}
 
-			// Check if lagging (> 10 seconds)
+			// Check if lagging
 			if pooler.ReplicationStatus != nil && pooler.ReplicationStatus.Lag != nil {
-				if pooler.ReplicationStatus.Lag.AsDuration().Milliseconds() > 10000 {
+				if pooler.ReplicationStatus.Lag.AsDuration() > DefaultReplicaLagThreshold {
 					countLagging++
 				}
 			}
