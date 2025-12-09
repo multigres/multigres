@@ -40,32 +40,21 @@ func (a *ReplicaNotReplicatingAnalyzer) Analyze(poolerAnalysis *store.Replicatio
 
 	// Only analyze replicas
 	if poolerAnalysis.IsPrimary {
-		slog.Info("ReplicaNotReplicatingAnalyzer: skipping primary",
-			"pooler_id", poolerIDStr)
 		return nil, nil
 	}
 
 	// Skip if replica is not initialized (ShardNeedsBootstrap handles that)
 	if !poolerAnalysis.IsInitialized {
-		slog.Info("ReplicaNotReplicatingAnalyzer: skipping uninitialized replica",
-			"pooler_id", poolerIDStr)
 		return nil, nil
 	}
 
 	// Skip if primary is unreachable (PrimaryIsDead handles that)
 	if poolerAnalysis.PrimaryPoolerID != nil && !poolerAnalysis.PrimaryReachable {
-		slog.Info("ReplicaNotReplicatingAnalyzer: skipping - primary unreachable",
-			"pooler_id", poolerIDStr,
-			"primary_pooler_id", topoclient.MultiPoolerIDString(poolerAnalysis.PrimaryPoolerID))
 		return nil, nil
 	}
 
 	// Check if replication is not configured or stopped
 	if !a.needsReplicationFix(poolerAnalysis) {
-		slog.Info("ReplicaNotReplicatingAnalyzer: replication is healthy",
-			"pooler_id", poolerIDStr,
-			"primary_conninfo_host", poolerAnalysis.PrimaryConnInfoHost,
-			"replication_stopped", poolerAnalysis.ReplicationStopped)
 		return nil, nil
 	}
 
@@ -74,11 +63,6 @@ func (a *ReplicaNotReplicatingAnalyzer) Analyze(poolerAnalysis *store.Replicatio
 			"pooler_id", poolerIDStr)
 		return nil, errors.New("recovery action factory not initialized")
 	}
-
-	slog.Info("ReplicaNotReplicatingAnalyzer: detected problem",
-		"pooler_id", poolerIDStr,
-		"primary_conninfo_host", poolerAnalysis.PrimaryConnInfoHost,
-		"replication_stopped", poolerAnalysis.ReplicationStopped)
 
 	return []types.Problem{{
 		Code:           types.ProblemReplicaNotReplicating,

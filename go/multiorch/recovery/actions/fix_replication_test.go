@@ -239,6 +239,9 @@ func TestFixReplicationAction_ExecuteSuccessNotReplicating(t *testing.T) {
 		SetPrimaryConnInfoResponses: map[string]*multipoolermanagerdatapb.SetPrimaryConnInfoResponse{
 			"multipooler-cell1-replica1": {},
 		},
+		UpdateSynchronousStandbyListResponses: map[string]*multipoolermanagerdatapb.UpdateSynchronousStandbyListResponse{
+			"multipooler-cell1-primary": {},
+		},
 	}
 	poolerStore := store.NewPoolerStore(protoStore, fakeClient, slog.Default())
 
@@ -289,8 +292,11 @@ func TestFixReplicationAction_ExecuteSuccessNotReplicating(t *testing.T) {
 
 	require.NoError(t, err)
 
-	// Verify SetPrimaryConnInfo was called
+	// Verify SetPrimaryConnInfo was called on the replica
 	assert.Contains(t, fakeClient.CallLog, "SetPrimaryConnInfo(multipooler-cell1-replica1)")
+
+	// Verify UpdateSynchronousStandbyList was called on the primary to add the replica
+	assert.Contains(t, fakeClient.CallLog, "UpdateSynchronousStandbyList(multipooler-cell1-primary)")
 }
 
 func TestFixReplicationAction_ExecuteAlreadyConfigured(t *testing.T) {

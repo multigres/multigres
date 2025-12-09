@@ -26,6 +26,7 @@ import (
 	"github.com/multigres/multigres/go/multiorch/recovery/types"
 	"github.com/multigres/multigres/go/multiorch/store"
 
+	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	consensusdatapb "github.com/multigres/multigres/go/pb/consensusdata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
@@ -187,6 +188,29 @@ func (a *FixReplicationAction) fixNotReplicating(
 
 	a.logger.InfoContext(ctx, "successfully configured primary connection info",
 		"replica", replica.MultiPooler.Id.Name)
+
+	// Add replica to the primary's synchronous standby list if it's a REPLICA type
+	if replica.MultiPooler.Type == clustermetadatapb.PoolerType_REPLICA {
+		a.logger.InfoContext(ctx, "adding replica to primary's synchronous standby list",
+			"replica", replica.MultiPooler.Id.Name,
+			"primary", primary.MultiPooler.Id.Name)
+
+		updateReq := &multipoolermanagerdatapb.UpdateSynchronousStandbyListRequest{
+			Operation:     multipoolermanagerdatapb.StandbyUpdateOperation_STANDBY_UPDATE_OPERATION_ADD,
+			StandbyIds:    []*clustermetadatapb.ID{replica.MultiPooler.Id},
+			ReloadConfig:  true,
+			ConsensusTerm: consensusTerm,
+			Force:         false,
+		}
+
+		_, err = a.rpcClient.UpdateSynchronousStandbyList(ctx, primary.MultiPooler, updateReq)
+		if err != nil {
+			return mterrors.Wrap(err, "failed to add replica to synchronous standby list")
+		}
+
+		a.logger.InfoContext(ctx, "successfully added replica to synchronous standby list",
+			"replica", replica.MultiPooler.Id.Name)
+	}
 
 	// Verify replication is now working
 	if err := a.verifyReplicationStarted(ctx, replica); err != nil {

@@ -127,6 +127,12 @@ func TestFixReplication(t *testing.T) {
 		return true
 	}, 5*time.Second, 500*time.Millisecond, "data should replicate to replica after fix")
 
+	// Verify replica was added to primary's synchronous standby list
+	t.Log("Verifying replica is in primary's synchronous standby list...")
+	require.Eventually(t, func() bool {
+		return isReplicaInStandbyList(t, primaryAddr, replicaZoneName)
+	}, 10*time.Second, 1*time.Second, "replica should be added to primary's synchronous standby list")
+
 	t.Log("First fix completed successfully, breaking replication again...")
 
 	// Break replication a second time to verify multiorch can fix it repeatedly
@@ -167,6 +173,12 @@ func TestFixReplication(t *testing.T) {
 		}
 		return true
 	}, 5*time.Second, 500*time.Millisecond, "new data should replicate to replica after second fix")
+
+	// Verify replica is still in primary's synchronous standby list after second fix
+	t.Log("Verifying replica is in primary's synchronous standby list (after second fix)...")
+	require.Eventually(t, func() bool {
+		return isReplicaInStandbyList(t, primaryAddr, replicaZoneName)
+	}, 10*time.Second, 1*time.Second, "replica should be in primary's synchronous standby list after second fix")
 
 	t.Log("TestFixReplication completed successfully")
 }
@@ -249,6 +261,46 @@ func verifyReplicationBroken(t *testing.T, multipoolerAddr string) {
 	}
 
 	t.Log("Confirmed replication is broken (primary_conninfo cleared)")
+}
+
+// isReplicaInStandbyList checks if the replica is in the primary's synchronous standby list
+func isReplicaInStandbyList(t *testing.T, primaryAddr string, replicaZoneName string) bool {
+	t.Helper()
+
+	conn, err := grpc.NewClient(primaryAddr, grpccommon.LocalClientDialOptions()...)
+	if err != nil {
+		t.Logf("Failed to create gRPC client: %v", err)
+		return false
+	}
+	defer conn.Close()
+
+	managerClient := multipoolermanagerpb.NewMultiPoolerManagerClient(conn)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	resp, err := managerClient.PrimaryStatus(ctx, &multipoolermanagerdatapb.PrimaryStatusRequest{})
+	if err != nil {
+		t.Logf("PrimaryStatus failed: %v", err)
+		return false
+	}
+
+	if resp.Status == nil || resp.Status.SyncReplicationConfig == nil {
+		t.Log("Waiting for sync replication config...")
+		return false
+	}
+
+	// Look for the replica in the standby list
+	for _, standbyID := range resp.Status.SyncReplicationConfig.StandbyIds {
+		if standbyID.Cell == replicaZoneName {
+			t.Logf("Found replica %s in standby list", replicaZoneName)
+			return true
+		}
+	}
+
+	t.Logf("Replica %s not yet in standby list, current standbys: %v",
+		replicaZoneName, resp.Status.SyncReplicationConfig.StandbyIds)
+	return false
 }
 
 // waitForReplicationFixed polls until multiorch fixes the replication
