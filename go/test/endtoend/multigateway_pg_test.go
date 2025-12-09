@@ -49,7 +49,9 @@ func TestMultiGateway_PostgreSQLConnection(t *testing.T) {
 		cluster.PortConfig.Zones[0].MultigatewayPGPort,
 		cluster.PortConfig.Zones[1].MultigatewayPGPort,
 	}
-	readyPort, err := findReadyMultigateway(t, pgPorts, 30*time.Second)
+	findCtx, findCancel := context.WithTimeout(t.Context(), 30*time.Second)
+	defer findCancel()
+	readyPort, err := findReadyMultigateway(t, findCtx, pgPorts)
 	require.NoError(t, err, "should find a ready multigateway")
 
 	// Connect to the multigateway that has the PRIMARY pooler

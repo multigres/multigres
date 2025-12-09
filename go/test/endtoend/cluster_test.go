@@ -41,6 +41,7 @@ import (
 	pb "github.com/multigres/multigres/go/pb/pgctldservice"
 	"github.com/multigres/multigres/go/provisioner/local"
 	"github.com/multigres/multigres/go/test/utils"
+	"github.com/multigres/multigres/go/tools/retry"
 	"github.com/multigres/multigres/go/tools/stringutil"
 
 	_ "github.com/multigres/multigres/go/common/plugins/topo"
@@ -448,12 +449,15 @@ func checkHeartbeatsWritten(multipoolerAddr string) (bool, error) {
 //  2. lib/pq Ping uses an empty query (";") that bypasses pooler discovery
 //  3. Each multigateway only discovers poolers in its own zone, and the PRIMARY
 //     may be in any zone after bootstrap
-func findReadyMultigateway(t *testing.T, pgPorts []int, timeout time.Duration) (int, error) {
+func findReadyMultigateway(t *testing.T, ctx context.Context, pgPorts []int) (int, error) {
 	t.Helper()
 
-	deadline := time.Now().Add(timeout)
+	r := retry.New(1*time.Millisecond, 500*time.Millisecond)
+	for attempt, err := range r.Attempts(ctx) {
+		if err != nil {
+			return 0, fmt.Errorf("timeout waiting for any multigateway to be ready after %d attempts: %w", attempt, err)
+		}
 
-	for time.Now().Before(deadline) {
 		for _, port := range pgPorts {
 			connStr := fmt.Sprintf("host=localhost port=%d user=postgres dbname=postgres sslmode=disable connect_timeout=2", port)
 			db, err := sql.Open("postgres", connStr)
@@ -461,8 +465,8 @@ func findReadyMultigateway(t *testing.T, pgPorts []int, timeout time.Duration) (
 				continue
 			}
 
-			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-			_, err = db.ExecContext(ctx, "SELECT 1")
+			queryCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+			_, err = db.ExecContext(queryCtx, "SELECT 1")
 			cancel()
 			db.Close()
 
@@ -472,8 +476,9 @@ func findReadyMultigateway(t *testing.T, pgPorts []int, timeout time.Duration) (
 			}
 		}
 
-		t.Logf("Waiting for a multigateway to be ready...")
-		time.Sleep(500 * time.Millisecond)
+		if attempt == 1 || attempt%10 == 0 {
+			t.Logf("Waiting for a multigateway to be ready (attempt %d)...", attempt)
+		}
 	}
 
 	return 0, fmt.Errorf("timeout waiting for any multigateway to be ready")
