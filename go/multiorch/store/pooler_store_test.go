@@ -138,10 +138,12 @@ func TestPoolerStore_FindHealthyPrimary(t *testing.T) {
 
 	t.Run("finds healthy primary", func(t *testing.T) {
 		fakeClient := &rpcclient.FakeClient{
-			StatusResponses: map[string]*multipoolermanagerdatapb.StatusResponse{
+			StatusResponses: map[string]*rpcclient.ResponseWithDelay[*multipoolermanagerdatapb.StatusResponse]{
 				"multipooler-cell1-primary": {
-					Status: &multipoolermanagerdatapb.Status{
-						IsInitialized: true,
+					Response: &multipoolermanagerdatapb.StatusResponse{
+						Status: &multipoolermanagerdatapb.Status{
+							IsInitialized: true,
+						},
 					},
 				},
 			},
@@ -197,10 +199,12 @@ func TestPoolerStore_FindHealthyPrimary(t *testing.T) {
 
 	t.Run("skips uninitialized primary", func(t *testing.T) {
 		fakeClient := &rpcclient.FakeClient{
-			StatusResponses: map[string]*multipoolermanagerdatapb.StatusResponse{
+			StatusResponses: map[string]*rpcclient.ResponseWithDelay[*multipoolermanagerdatapb.StatusResponse]{
 				"multipooler-cell1-primary": {
-					Status: &multipoolermanagerdatapb.Status{
-						IsInitialized: false, // not initialized
+					Response: &multipoolermanagerdatapb.StatusResponse{
+						Status: &multipoolermanagerdatapb.Status{
+							IsInitialized: false, // not initialized
+						},
 					},
 				},
 			},
@@ -225,10 +229,12 @@ func TestPoolerStore_FindHealthyPrimary(t *testing.T) {
 	t.Run("skips unreachable primary and finds next", func(t *testing.T) {
 		fakeClient := &rpcclient.FakeClient{
 			// primary1 has no response configured (will error)
-			StatusResponses: map[string]*multipoolermanagerdatapb.StatusResponse{
+			StatusResponses: map[string]*rpcclient.ResponseWithDelay[*multipoolermanagerdatapb.StatusResponse]{
 				"multipooler-cell2-primary2": {
-					Status: &multipoolermanagerdatapb.Status{
-						IsInitialized: true,
+					Response: &multipoolermanagerdatapb.StatusResponse{
+						Status: &multipoolermanagerdatapb.Status{
+							IsInitialized: true,
+						},
 					},
 				},
 			},
@@ -258,15 +264,19 @@ func TestPoolerStore_FindHealthyPrimary(t *testing.T) {
 
 	t.Run("returns error when multiple healthy primaries found", func(t *testing.T) {
 		fakeClient := &rpcclient.FakeClient{
-			StatusResponses: map[string]*multipoolermanagerdatapb.StatusResponse{
+			StatusResponses: map[string]*rpcclient.ResponseWithDelay[*multipoolermanagerdatapb.StatusResponse]{
 				"multipooler-cell1-primary1": {
-					Status: &multipoolermanagerdatapb.Status{
-						IsInitialized: true,
+					Response: &multipoolermanagerdatapb.StatusResponse{
+						Status: &multipoolermanagerdatapb.Status{
+							IsInitialized: true,
+						},
 					},
 				},
 				"multipooler-cell2-primary2": {
-					Status: &multipoolermanagerdatapb.Status{
-						IsInitialized: true,
+					Response: &multipoolermanagerdatapb.StatusResponse{
+						Status: &multipoolermanagerdatapb.Status{
+							IsInitialized: true,
+						},
 					},
 				},
 			},

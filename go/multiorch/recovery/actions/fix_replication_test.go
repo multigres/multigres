@@ -140,9 +140,11 @@ func TestFixReplicationAction_ExecuteUnsupportedProblemCode(t *testing.T) {
 
 	protoStore := store.NewProtoStore[string, *multiorchdatapb.PoolerHealthState]()
 	fakeClient := &rpcclient.FakeClient{
-		StatusResponses: map[string]*multipoolermanagerdatapb.StatusResponse{
+		StatusResponses: map[string]*rpcclient.ResponseWithDelay[*multipoolermanagerdatapb.StatusResponse]{
 			"multipooler-cell1-primary": {
-				Status: &multipoolermanagerdatapb.Status{IsInitialized: true},
+				Response: &multipoolermanagerdatapb.StatusResponse{
+					Status: &multipoolermanagerdatapb.Status{IsInitialized: true},
+				},
 			},
 		},
 		ConsensusStatusResponses: map[string]*consensusdatapb.StatusResponse{
@@ -214,9 +216,11 @@ func TestFixReplicationAction_ExecuteSuccessNotReplicating(t *testing.T) {
 
 	protoStore := store.NewProtoStore[string, *multiorchdatapb.PoolerHealthState]()
 	fakeClient := &rpcclient.FakeClient{
-		StatusResponses: map[string]*multipoolermanagerdatapb.StatusResponse{
+		StatusResponses: map[string]*rpcclient.ResponseWithDelay[*multipoolermanagerdatapb.StatusResponse]{
 			"multipooler-cell1-primary": {
-				Status: &multipoolermanagerdatapb.Status{IsInitialized: true},
+				Response: &multipoolermanagerdatapb.StatusResponse{
+					Status: &multipoolermanagerdatapb.Status{IsInitialized: true},
+				},
 			},
 		},
 		ConsensusStatusResponses: map[string]*consensusdatapb.StatusResponse{
@@ -296,9 +300,11 @@ func TestFixReplicationAction_ExecuteAlreadyConfigured(t *testing.T) {
 
 	protoStore := store.NewProtoStore[string, *multiorchdatapb.PoolerHealthState]()
 	fakeClient := &rpcclient.FakeClient{
-		StatusResponses: map[string]*multipoolermanagerdatapb.StatusResponse{
+		StatusResponses: map[string]*rpcclient.ResponseWithDelay[*multipoolermanagerdatapb.StatusResponse]{
 			"multipooler-cell1-primary": {
-				Status: &multipoolermanagerdatapb.Status{IsInitialized: true},
+				Response: &multipoolermanagerdatapb.StatusResponse{
+					Status: &multipoolermanagerdatapb.Status{IsInitialized: true},
+				},
 			},
 		},
 		StandbyReplicationStatusResponses: map[string]*multipoolermanagerdatapb.StandbyReplicationStatusResponse{
