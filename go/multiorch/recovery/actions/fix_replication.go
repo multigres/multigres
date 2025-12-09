@@ -26,6 +26,7 @@ import (
 	"github.com/multigres/multigres/go/multiorch/recovery/types"
 	"github.com/multigres/multigres/go/multiorch/store"
 
+	consensusdatapb "github.com/multigres/multigres/go/pb/consensusdata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
@@ -151,22 +152,35 @@ func (a *FixReplicationAction) fixNotReplicating(
 			"primary %s has no postgres port configured", primary.MultiPooler.Id.Name)
 	}
 
+	// Get the current consensus term from the primary
+	consensusResp, err := a.rpcClient.ConsensusStatus(ctx, primary.MultiPooler, &consensusdatapb.StatusRequest{})
+	if err != nil {
+		return mterrors.Wrap(err, "failed to get consensus status from primary")
+	}
+
+	consensusTerm := consensusResp.CurrentTerm
+
+	a.logger.InfoContext(ctx, "got consensus term from primary",
+		"primary", primary.MultiPooler.Id.Name,
+		"consensus_term", consensusTerm)
+
 	// Configure primary_conninfo on the replica
-	// SetPrimaryConnInfo.
 	req := &multipoolermanagerdatapb.SetPrimaryConnInfoRequest{
 		Host:                  primary.MultiPooler.Hostname,
 		Port:                  primaryPort,
 		StopReplicationBefore: true,
 		StartReplicationAfter: true,
+		CurrentTerm:           consensusTerm,
 		Force:                 false, // Don't force, respect consensus term
 	}
 
 	a.logger.InfoContext(ctx, "setting primary connection info",
 		"replica", replica.MultiPooler.Id.Name,
 		"primary_host", req.Host,
-		"primary_port", req.Port)
+		"primary_port", req.Port,
+		"consensus_term", consensusTerm)
 
-	_, err := a.rpcClient.SetPrimaryConnInfo(ctx, replica.MultiPooler, req)
+	_, err = a.rpcClient.SetPrimaryConnInfo(ctx, replica.MultiPooler, req)
 	if err != nil {
 		return mterrors.Wrap(err, "failed to set primary connection info")
 	}

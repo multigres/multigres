@@ -30,6 +30,7 @@ import (
 	"github.com/multigres/multigres/go/multiorch/store"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	consensusdatapb "github.com/multigres/multigres/go/pb/consensusdata"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
@@ -144,6 +145,11 @@ func TestFixReplicationAction_ExecuteUnsupportedProblemCode(t *testing.T) {
 				Status: &multipoolermanagerdatapb.Status{IsInitialized: true},
 			},
 		},
+		ConsensusStatusResponses: map[string]*consensusdatapb.StatusResponse{
+			"multipooler-cell1-primary": {
+				CurrentTerm: 1,
+			},
+		},
 		StandbyReplicationStatusResponses: map[string]*multipoolermanagerdatapb.StandbyReplicationStatusResponse{
 			"multipooler-cell1-replica1": {
 				Status: &multipoolermanagerdatapb.StandbyReplicationStatus{},
@@ -211,6 +217,11 @@ func TestFixReplicationAction_ExecuteSuccessNotReplicating(t *testing.T) {
 		StatusResponses: map[string]*multipoolermanagerdatapb.StatusResponse{
 			"multipooler-cell1-primary": {
 				Status: &multipoolermanagerdatapb.Status{IsInitialized: true},
+			},
+		},
+		ConsensusStatusResponses: map[string]*consensusdatapb.StatusResponse{
+			"multipooler-cell1-primary": {
+				CurrentTerm: 1,
 			},
 		},
 		StandbyReplicationStatusResponses: map[string]*multipoolermanagerdatapb.StandbyReplicationStatusResponse{
