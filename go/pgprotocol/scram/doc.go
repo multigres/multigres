@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package auth implements SCRAM-SHA-256 authentication for PostgreSQL protocol connections.
+// Package scram implements SCRAM-SHA-256 authentication for PostgreSQL protocol connections.
 //
 // # Overview
 //
@@ -66,7 +66,7 @@
 //
 //	// Server-side authentication
 //	provider := NewMyPasswordProvider()
-//	auth := auth.NewScramAuthenticator(provider, "mydb")
+//	auth := scram.NewScramAuthenticator(provider, "mydb")
 //
 //	// Start SASL negotiation
 //	mechanisms := auth.StartAuthentication()
@@ -171,4 +171,4 @@
 //   - PostgreSQL SASL: https://www.postgresql.org/docs/current/sasl-authentication.html
 //   - PgBouncer auth: https://www.pgbouncer.org/config.html#authentication-settings
 //   - Supavisor: https://github.com/supabase/supavisor
-package auth
+package scram

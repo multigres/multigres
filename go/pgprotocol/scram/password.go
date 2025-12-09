@@ -12,8 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package auth implements PostgreSQL authentication protocols including SCRAM-SHA-256.
-package auth
+package scram
 
 import (
 	"encoding/base64"
