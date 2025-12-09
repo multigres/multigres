@@ -33,6 +33,11 @@ type ConnectionState struct {
 	// mu protects all mutable fields in this struct.
 	mu sync.Mutex
 
+	// User is the current role set via SET ROLE.
+	// This is NOT used for pool bucket routing - only for RLS enforcement.
+	// Empty string means no role has been set (using connection's default role).
+	User string
+
 	// Settings contains session variables (SET commands).
 	// This is the key for connection pool bucket assignment.
 	Settings *Settings
@@ -95,6 +100,7 @@ func (s *ConnectionState) Clone() *ConnectionState {
 	defer s.mu.Unlock()
 
 	clone := &ConnectionState{
+		User:               s.User,
 		PreparedStatements: make(map[string]*query.PreparedStatement, len(s.PreparedStatements)),
 		Portals:            make(map[string]*query.Portal, len(s.Portals)),
 	}
@@ -118,6 +124,7 @@ func (s *ConnectionState) Close() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	s.User = ""
 	s.Settings = nil
 	s.PreparedStatements = nil
 	s.Portals = nil
@@ -141,6 +148,46 @@ func (s *ConnectionState) SetSettings(settings *Settings) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.Settings = settings
+}
+
+// --- User/Role Methods ---
+
+// GetUser returns the current user role set via SET ROLE.
+// Returns empty string if no role has been set.
+func (s *ConnectionState) GetUser() string {
+	if s == nil {
+		return ""
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.User
+}
+
+// SetUser sets the current user role.
+// This should be called after executing SET ROLE on the connection.
+func (s *ConnectionState) SetUser(user string) {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.User = user
+}
+
+// ClearUser clears the current user role.
+// This should be called after executing RESET ROLE on the connection.
+func (s *ConnectionState) ClearUser() {
+	s.SetUser("")
+}
+
+// HasUser returns true if a user role has been set.
+func (s *ConnectionState) HasUser() bool {
+	if s == nil {
+		return false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.User != ""
 }
 
 // --- Prepared Statement Methods ---
@@ -223,7 +270,7 @@ func (s *ConnectionState) DeletePortal(name string) {
 
 // GenerateResetSQL generates SQL statements to reset a connection to clean state.
 func (s *ConnectionState) GenerateResetSQL() []string {
-	if s == nil || s.IsClean() {
+	if s == nil {
 		return nil
 	}
 
@@ -231,6 +278,11 @@ func (s *ConnectionState) GenerateResetSQL() []string {
 	defer s.mu.Unlock()
 
 	var statements []string
+
+	// Reset user role first (most important for security)
+	if s.User != "" {
+		statements = append(statements, "RESET ROLE")
+	}
 
 	// Reset settings
 	if s.Settings != nil && !s.Settings.IsEmpty() {
