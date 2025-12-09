@@ -125,12 +125,8 @@ func (pm *MultiPoolerManager) InitializeEmptyPrimary(ctx context.Context, req *m
 	}
 	pm.logger.InfoContext(ctx, "Initial backup created", "backup_id", backupID)
 
-	// Set pooler type if requested (defaults to PRIMARY)
-	poolerType := req.PoolerType
-	if poolerType == clustermetadatapb.PoolerType_UNKNOWN {
-		poolerType = clustermetadatapb.PoolerType_PRIMARY
-	}
-	if err := pm.changeTypeLocked(ctx, poolerType); err != nil {
+	// Set pooler type to PRIMARY
+	if err := pm.changeTypeLocked(ctx, clustermetadatapb.PoolerType_PRIMARY); err != nil {
 		return nil, mterrors.Wrap(err, "failed to set pooler type")
 	}
 

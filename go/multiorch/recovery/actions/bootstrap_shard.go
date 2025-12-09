@@ -151,10 +151,9 @@ func (a *BootstrapShardAction) Execute(ctx context.Context, problem types.Proble
 	}
 
 	// Initialize the candidate as an empty primary with term=1
-	// This now also sets the pooler type and creates the durability policy
+	// This now also sets the pooler type to PRIMARY and creates the durability policy
 	req := &multipoolermanagerdatapb.InitializeEmptyPrimaryRequest{
 		ConsensusTerm:        1,
-		PoolerType:           clustermetadatapb.PoolerType_PRIMARY,
 		DurabilityPolicyName: policyName,
 		DurabilityQuorumRule: quorumRule,
 	}
@@ -193,10 +192,7 @@ func (a *BootstrapShardAction) Execute(ctx context.Context, problem types.Proble
 	// Configure synchronous replication on primary based on durability policy
 	// This must be done AFTER standbys are initialized so they can receive WAL
 	if err := a.configureSynchronousReplication(ctx, candidate, standbys, quorumRule); err != nil {
-		// Log but don't fail - standbys can catch up async, and next healthcheck will fix this
-		a.logger.WarnContext(ctx, "failed to configure synchronous replication",
-			"shard_key", problem.ShardKey.String(),
-			"error", err)
+		return mterrors.Wrap(err, "failed to configure synchronous replication")
 	}
 
 	a.logger.InfoContext(ctx, "bootstrap shard action completed successfully",
