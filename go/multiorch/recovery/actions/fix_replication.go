@@ -262,10 +262,7 @@ func (a *FixReplicationAction) verifyProblemExists(
 	expectedHost := primary.MultiPooler.Hostname
 	expectedPort := primary.MultiPooler.PortMap["postgres"]
 
-	// TODO: Add timeline verification here. After a failover, a replica might have the
-	// correct host/port but be on the wrong timeline, which could cause silent data
-	// divergence. We should verify timeline_id matches the primary's timeline.
-
+	// TODO: Do we need to verify timeline_id matches the primary's timeline?
 	if status.PrimaryConnInfo.Host != expectedHost ||
 		status.PrimaryConnInfo.Port != expectedPort {
 		// Wrong primary - this would be ProblemReplicaWrongPrimary
