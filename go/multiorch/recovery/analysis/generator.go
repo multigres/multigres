@@ -103,6 +103,7 @@ func (g *AnalysisGenerator) buildPoolersByShard() PoolersByShard {
 }
 
 // GetPoolersInShard returns all pooler IDs in the same shard as the given pooler.
+// Uses the cached poolersByShard for efficient lookup.
 func (g *AnalysisGenerator) GetPoolersInShard(poolerIDStr string) ([]string, error) {
 	// Get pooler from store to determine its shard
 	pooler, ok := g.poolerStore.Get(poolerIDStr)
@@ -118,23 +119,16 @@ func (g *AnalysisGenerator) GetPoolersInShard(poolerIDStr string) ([]string, err
 	tableGroup := pooler.MultiPooler.TableGroup
 	shard := pooler.MultiPooler.Shard
 
-	var poolerIDs []string
+	// Use cached poolersByShard for efficient lookup
+	poolers, ok := g.poolersByShard[database][tableGroup][shard]
+	if !ok {
+		return nil, nil
+	}
 
-	// Iterate the store to find all poolers in the same shard
-	// Note: We can't use the cached poolersByShard here because the store may have been updated
-	g.poolerStore.Range(func(id string, p *multiorchdatapb.PoolerHealthState) bool {
-		if p == nil || p.MultiPooler == nil || p.MultiPooler.Id == nil {
-			return true
-		}
-
-		if p.MultiPooler.Database == database &&
-			p.MultiPooler.TableGroup == tableGroup &&
-			p.MultiPooler.Shard == shard {
-			poolerIDs = append(poolerIDs, id)
-		}
-
-		return true
-	})
+	poolerIDs := make([]string, 0, len(poolers))
+	for id := range poolers {
+		poolerIDs = append(poolerIDs, id)
+	}
 
 	return poolerIDs, nil
 }

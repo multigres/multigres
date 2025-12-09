@@ -40,17 +40,25 @@ var _ types.RecoveryAction = (*FixReplicationAction)(nil)
 //
 // This action addresses the following problem codes:
 //   - ProblemReplicaNotReplicating: Replication is not configured at all
+//   - ProblemReplicaNotInStandbyList: Replica is replicating but not in standby list
 //
 // Future problem codes (TODO):
 //   - ProblemReplicaWrongPrimary: Replica is pointing to a stale/wrong primary
 //   - ProblemReplicaLagging: Replication is configured but lag is excessive
 //
 // The action:
-// Re-verifies the problem still exists (fresh RPC calls)
-// Identifies the current primary from topology
-// Configures the replica's primary_conninfo to point to the primary
-// Starts WAL replay if paused
-// Verifies replication is streaming
+//   - Re-verifies the problem still exists (fresh RPC calls)
+//   - Identifies the current primary from topology
+//   - Configures the replica's primary_conninfo to point to the primary
+//   - Adds the replica to the primary's synchronous standby list
+//   - Verifies replication is streaming
+//
+// Idempotency:
+// This action is fully idempotent. If multiple multiorch instances race to fix
+// the same problem, the end result will be identical. The underlying RPC operations
+// (SetPrimaryConnInfo, UpdateSynchronousStandbyList) are implemented as idempotent
+// operations at the pooler level and serialized by action locks on the poolers,
+// so concurrent calls are safe and produce the same final state.
 type FixReplicationAction struct {
 	rpcClient   rpcclient.MultiPoolerClient
 	poolerStore *store.PoolerStore
@@ -79,8 +87,6 @@ func (a *FixReplicationAction) Execute(ctx context.Context, problem types.Proble
 		"shard_key", problem.ShardKey.String(),
 		"pooler", problem.PoolerID.Name,
 		"problem_code", string(problem.Code))
-
-	a.logger.InfoContext(ctx, "acquiring recovery lock", "shard_key", problem.ShardKey.String())
 
 	// Find the affected replica
 	replica, err := a.poolerStore.FindPoolerByID(problem.PoolerID)
@@ -288,33 +294,51 @@ func (a *FixReplicationAction) verifyProblemExists(
 }
 
 // verifyReplicationStarted checks that replication is actively streaming.
+// It polls a few times to allow the WAL receiver to connect.
 func (a *FixReplicationAction) verifyReplicationStarted(ctx context.Context, replica *multiorchdatapb.PoolerHealthState) error {
-	// Brief delay to allow WAL receiver to connect
-	time.Sleep(500 * time.Millisecond)
+	const maxAttempts = 5
+	const pollInterval = 500 * time.Millisecond
 
-	statusResp, err := a.rpcClient.StandbyReplicationStatus(ctx, replica.MultiPooler,
-		&multipoolermanagerdatapb.StandbyReplicationStatusRequest{})
-	if err != nil {
-		return mterrors.Wrap(err, "failed to get replication status after fix")
+	ticker := time.NewTicker(pollInterval)
+	defer ticker.Stop()
+
+	var lastErr error
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		select {
+		case <-ctx.Done():
+			return mterrors.Wrap(ctx.Err(), "context cancelled while verifying replication")
+		case <-ticker.C:
+		}
+
+		statusResp, err := a.rpcClient.StandbyReplicationStatus(ctx, replica.MultiPooler,
+			&multipoolermanagerdatapb.StandbyReplicationStatusRequest{})
+		if err != nil {
+			lastErr = mterrors.Wrap(err, "failed to get replication status after fix")
+			continue
+		}
+
+		status := statusResp.Status
+		if status == nil {
+			lastErr = mterrors.Errorf(mtrpcpb.Code_INTERNAL, "no replication status returned")
+			continue
+		}
+
+		// Check that we have a receive LSN (indicates WAL receiver is connected)
+		if status.LastReceiveLsn == "" {
+			lastErr = mterrors.Errorf(mtrpcpb.Code_INTERNAL,
+				"WAL receiver not streaming (no receive LSN)")
+			continue
+		}
+
+		a.logger.InfoContext(ctx, "verified replication is streaming",
+			"replica", replica.MultiPooler.Id.Name,
+			"last_receive_lsn", status.LastReceiveLsn,
+			"last_replay_lsn", status.LastReplayLsn)
+
+		return nil
 	}
 
-	status := statusResp.Status
-	if status == nil {
-		return mterrors.Errorf(mtrpcpb.Code_INTERNAL, "no replication status returned")
-	}
-
-	// Check that we have a receive LSN (indicates WAL receiver is connected)
-	if status.LastReceiveLsn == "" {
-		return mterrors.Errorf(mtrpcpb.Code_INTERNAL,
-			"WAL receiver not streaming (no receive LSN)")
-	}
-
-	a.logger.InfoContext(ctx, "verified replication is streaming",
-		"replica", replica.MultiPooler.Id.Name,
-		"last_receive_lsn", status.LastReceiveLsn,
-		"last_replay_lsn", status.LastReplayLsn)
-
-	return nil
+	return mterrors.Wrap(lastErr, "replication did not start after polling")
 }
 
 // RecoveryAction interface implementation
