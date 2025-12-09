@@ -121,6 +121,8 @@ func (pm *MultiPoolerManager) BeginTerm(ctx context.Context, req *consensusdatap
 			pm.logger.ErrorContext(ctx, "Demotion failed, rejecting term acceptance",
 				"error", demoteErr,
 				"term", req.Term)
+			// TODO: we should attempt to undo the demote.
+			// UndoDemote has not been implemented yet
 			return response, nil
 		}
 
@@ -151,12 +153,20 @@ func (pm *MultiPoolerManager) BeginTerm(ctx context.Context, req *consensusdatap
 			var lastMsgReceiptTime *time.Time
 			err = pm.db.QueryRowContext(ctx, "SELECT last_msg_receipt_time FROM pg_stat_wal_receiver").Scan(&lastMsgReceiptTime)
 			if err != nil {
-				// No WAL receiver (could be disconnected standby)
-				// Don't reject the acceptance - let it proceed
-			} else if lastMsgReceiptTime != nil {
+				// No WAL receiver (disconnected standby) - reject the term
+				pm.logger.WarnContext(ctx, "Rejecting term acceptance: standby has no WAL receiver",
+					"term", req.Term,
+					"error", err)
+				return response, nil
+			}
+			if lastMsgReceiptTime != nil {
 				timeSinceLastMessage := time.Since(*lastMsgReceiptTime)
 				if timeSinceLastMessage > 30*time.Second {
 					// We're too far behind in replication, don't accept
+					pm.logger.WarnContext(ctx, "Rejecting term acceptance: standby too far behind",
+						"term", req.Term,
+						"last_msg_receipt_time", lastMsgReceiptTime,
+						"time_since_last_message", timeSinceLastMessage)
 					return response, nil
 				}
 			}

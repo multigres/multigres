@@ -267,6 +267,31 @@ func TestBeginTerm(t *testing.T) {
 			expectedAcceptedTermFromCoordinator: "new-candidate",
 			description:                         "Primary should accept term after successful demotion (idempotent case - already demoted)",
 		},
+		{
+			name: "StandbyRejectsTermWhenNoWALReceiver",
+			initialTerm: &multipoolermanagerdatapb.ConsensusTerm{
+				TermNumber: 5,
+			},
+			requestTerm: 10,
+			requestCandidate: &clustermetadatapb.ID{
+				Component: clustermetadatapb.ID_MULTIPOOLER,
+				Cell:      "zone1",
+				Name:      "new-candidate",
+			},
+			setupMocks: func(mock sqlmock.Sqlmock) {
+				mock.ExpectPing()
+				// isPrimary check - returns true (in recovery = standby)
+				mock.ExpectQuery("SELECT pg_is_in_recovery\\(\\)").
+					WillReturnRows(sqlmock.NewRows([]string{"pg_is_in_recovery"}).AddRow(true))
+				// WAL receiver query returns no rows (disconnected standby)
+				mock.ExpectQuery("SELECT last_msg_receipt_time FROM pg_stat_wal_receiver").
+					WillReturnError(sql.ErrNoRows)
+			},
+			expectedAccepted:                    false,
+			expectedTerm:                        10, // Term is updated
+			expectedAcceptedTermFromCoordinator: "",
+			description:                         "Standby should reject term when no WAL receiver (disconnected)",
+		},
 	}
 
 	// Add tests for save failure scenarios
