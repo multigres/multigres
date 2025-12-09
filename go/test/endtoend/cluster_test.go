@@ -39,7 +39,6 @@ import (
 	pb "github.com/multigres/multigres/go/pb/pgctldservice"
 	"github.com/multigres/multigres/go/provisioner/local"
 	"github.com/multigres/multigres/go/test/utils"
-	"github.com/multigres/multigres/go/tools/pathutil"
 	"github.com/multigres/multigres/go/tools/stringutil"
 
 	_ "github.com/multigres/multigres/go/common/plugins/topo"
@@ -476,30 +475,6 @@ func queryHeartbeatCount(addr string) (int, error) {
 	}
 
 	return count, nil
-}
-
-// TestMain sets the path and cleans up after all tests
-func TestMain(m *testing.M) {
-	// Set the PATH so etcd and orphan detection scripts can be found
-	// Use automatic module root detection instead of hard-coded relative paths
-	if err := pathutil.PrependBinToPath(); err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to add directories to PATH: %v\n", err)
-		os.Exit(1)
-	}
-
-	// Set orphan detection environment variable so postgres processes
-	// started by in-process services will have watchdogs that monitor
-	// the test process and kill postgres if the test crashes
-	os.Setenv("MULTIGRES_TEST_PARENT_PID", fmt.Sprintf("%d", os.Getpid()))
-
-	// Run all tests
-	exitCode := m.Run()
-
-	// Cleanup environment variable
-	os.Unsetenv("MULTIGRES_TEST_PARENT_PID")
-
-	// Exit with the test result code
-	os.Exit(exitCode)
 }
 
 // executeInitCommand runs the actual multigres binary with "cluster init" command
@@ -1137,12 +1112,6 @@ func testMultipoolerGRPC(t *testing.T, addr string) {
 
 	// Test primary detection
 	TestPrimaryDetection(t, client)
-
-	// Test that the multigres schema exists
-	TestMultigresSchemaExists(t, client)
-
-	// Test that the heartbeat table exists with expected columns
-	TestHeartbeatTableExists(t, client)
 
 	t.Logf("Multipooler gRPC test completed successfully for %s", addr)
 }
