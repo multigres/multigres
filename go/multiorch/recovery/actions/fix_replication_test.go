@@ -379,3 +379,109 @@ func TestFixReplicationAction_ExecuteAlreadyConfigured(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotContains(t, fakeClient.CallLog, "SetPrimaryConnInfo(multipooler-cell1-replica1)")
 }
+
+// replicationStatusClient wraps FakeClient to return different StandbyReplicationStatus responses
+// based on call count, simulating the progression from "not configured" to "configured but not streaming".
+type replicationStatusClient struct {
+	*rpcclient.FakeClient
+	callCount int
+}
+
+func (c *replicationStatusClient) StandbyReplicationStatus(
+	ctx context.Context,
+	pooler *clustermetadatapb.MultiPooler,
+	request *multipoolermanagerdatapb.StandbyReplicationStatusRequest,
+) (*multipoolermanagerdatapb.StandbyReplicationStatusResponse, error) {
+	c.callCount++
+	// First call is verifyProblemExists (no primary_conninfo - triggers the fix)
+	// Subsequent calls are verifyReplicationStarted polling (never returns LSN)
+	if c.callCount == 1 {
+		return &multipoolermanagerdatapb.StandbyReplicationStatusResponse{
+			Status: &multipoolermanagerdatapb.StandbyReplicationStatus{
+				// No PrimaryConnInfo - triggers the fix
+			},
+		}, nil
+	}
+	return &multipoolermanagerdatapb.StandbyReplicationStatusResponse{
+		Status: &multipoolermanagerdatapb.StandbyReplicationStatus{
+			LastReceiveLsn: "", // Still not streaming
+		},
+	}, nil
+}
+
+func TestFixReplicationAction_FailsWhenReplicationDoesNotStart(t *testing.T) {
+	ctx := context.Background()
+	ts, _ := memorytopo.NewServerAndFactory(ctx, "cell1")
+	defer ts.Close()
+
+	protoStore := store.NewProtoStore[string, *multiorchdatapb.PoolerHealthState]()
+
+	baseFakeClient := rpcclient.NewFakeClient()
+	baseFakeClient.SetStatusResponse("multipooler-cell1-primary", &multipoolermanagerdatapb.StatusResponse{
+		Status: &multipoolermanagerdatapb.Status{IsInitialized: true},
+	})
+	baseFakeClient.ConsensusStatusResponses = map[string]*consensusdatapb.StatusResponse{
+		"multipooler-cell1-primary": {CurrentTerm: 1},
+	}
+	baseFakeClient.SetPrimaryConnInfoResponses = map[string]*multipoolermanagerdatapb.SetPrimaryConnInfoResponse{
+		"multipooler-cell1-replica1": {},
+	}
+	baseFakeClient.UpdateSynchronousStandbyListResponses = map[string]*multipoolermanagerdatapb.UpdateSynchronousStandbyListResponse{
+		"multipooler-cell1-primary": {},
+	}
+
+	fakeClient := &replicationStatusClient{FakeClient: baseFakeClient}
+	poolerStore := store.NewPoolerStore(protoStore, fakeClient, slog.Default())
+
+	// Add replica and primary
+	replicaID := &clustermetadatapb.ID{
+		Component: clustermetadatapb.ID_MULTIPOOLER,
+		Cell:      "cell1",
+		Name:      "replica1",
+	}
+	protoStore.Set("multipooler-cell1-replica1", &multiorchdatapb.PoolerHealthState{
+		MultiPooler: &clustermetadatapb.MultiPooler{
+			Id:         replicaID,
+			Database:   "testdb",
+			TableGroup: "default",
+			Shard:      "0",
+			Type:       clustermetadatapb.PoolerType_REPLICA,
+		},
+	})
+	protoStore.Set("multipooler-cell1-primary", &multiorchdatapb.PoolerHealthState{
+		MultiPooler: &clustermetadatapb.MultiPooler{
+			Id: &clustermetadatapb.ID{
+				Component: clustermetadatapb.ID_MULTIPOOLER,
+				Cell:      "cell1",
+				Name:      "primary",
+			},
+			Database:   "testdb",
+			TableGroup: "default",
+			Shard:      "0",
+			Type:       clustermetadatapb.PoolerType_PRIMARY,
+			Hostname:   "primary.example.com",
+			PortMap:    map[string]int32{"postgres": 5432},
+		},
+	})
+
+	action := NewFixReplicationAction(fakeClient, poolerStore, ts, slog.Default())
+
+	problem := types.Problem{
+		Code: types.ProblemReplicaNotReplicating,
+		ShardKey: commontypes.ShardKey{
+			Database:   "testdb",
+			TableGroup: "default",
+			Shard:      "0",
+		},
+		PoolerID: replicaID,
+	}
+
+	err := action.Execute(ctx, problem)
+
+	// Should fail because replication never started streaming
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "replication configured but failed to verify streaming")
+
+	// Verify SetPrimaryConnInfo was still called (configuration was attempted)
+	assert.Contains(t, fakeClient.CallLog, "SetPrimaryConnInfo(multipooler-cell1-replica1)")
+}

@@ -122,7 +122,7 @@ func (g *AnalysisGenerator) GetPoolersInShard(poolerIDStr string) ([]string, err
 	// Use cached poolersByShard for efficient lookup
 	poolers, ok := g.poolersByShard[database][tableGroup][shard]
 	if !ok {
-		return nil, nil
+		return []string{}, nil
 	}
 
 	poolerIDs := make([]string, 0, len(poolers))

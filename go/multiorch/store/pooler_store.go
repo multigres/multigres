@@ -127,7 +127,13 @@ func (s *PoolerStore) FindHealthyPrimary(
 			continue
 		}
 
-		if statusResp.Status != nil && statusResp.Status.IsInitialized {
+		if statusResp == nil || statusResp.Status == nil {
+			s.logger.WarnContext(ctx, "primary returned nil status",
+				"pooler", pooler.MultiPooler.Id.Name)
+			continue
+		}
+
+		if statusResp.Status.IsInitialized {
 			if healthyPrimary != nil {
 				return nil, mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
 					"multiple primaries found: %s and %s (stale primary needs demotion)",

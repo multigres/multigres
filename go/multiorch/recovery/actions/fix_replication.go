@@ -220,10 +220,7 @@ func (a *FixReplicationAction) fixNotReplicating(
 
 	// Verify replication is now working
 	if err := a.verifyReplicationStarted(ctx, replica); err != nil {
-		// Log but don't fail - the configuration is set, streaming may take a moment
-		a.logger.WarnContext(ctx, "replication configured but streaming not yet verified",
-			"replica", replica.MultiPooler.Id.Name,
-			"error", err)
+		return mterrors.Wrap(err, "replication configured but failed to verify streaming")
 	}
 
 	a.logger.InfoContext(ctx, "fix replication action completed successfully",
@@ -264,6 +261,10 @@ func (a *FixReplicationAction) verifyProblemExists(
 	// Check if pointing to the right primary
 	expectedHost := primary.MultiPooler.Hostname
 	expectedPort := primary.MultiPooler.PortMap["postgres"]
+
+	// TODO: Add timeline verification here. After a failover, a replica might have the
+	// correct host/port but be on the wrong timeline, which could cause silent data
+	// divergence. We should verify timeline_id matches the primary's timeline.
 
 	if status.PrimaryConnInfo.Host != expectedHost ||
 		status.PrimaryConnInfo.Port != expectedPort {
