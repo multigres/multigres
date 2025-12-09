@@ -18,6 +18,7 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"crypto/subtle"
+	"fmt"
 
 	"golang.org/x/crypto/pbkdf2"
 )
@@ -65,7 +66,7 @@ func ComputeClientSignature(storedKey []byte, authMessage string) []byte {
 }
 
 // ComputeClientProof computes ClientProof = ClientKey XOR ClientSignature.
-func ComputeClientProof(clientKey, clientSignature []byte) []byte {
+func ComputeClientProof(clientKey, clientSignature []byte) ([]byte, error) {
 	return xorBytes(clientKey, clientSignature)
 }
 
@@ -81,10 +82,13 @@ func ComputeServerSignature(serverKey []byte, authMessage string) []byte {
 // 3. Compute RecoveredStoredKey = H(ClientKey)
 // 4. Verify RecoveredStoredKey == StoredKey
 //
-// This uses constant-time comparison to prevent timing attacks.
-func VerifyClientProof(storedKey []byte, authMessage string, clientProof []byte) bool {
-	_, ok := ExtractAndVerifyClientProof(storedKey, authMessage, clientProof)
-	return ok
+// Returns nil on successful verification.
+// Returns ErrAuthenticationFailed if the proof is invalid (wrong password).
+// Returns other errors for unexpected conditions.
+// Uses constant-time comparison to prevent timing attacks.
+func VerifyClientProof(storedKey []byte, authMessage string, clientProof []byte) error {
+	_, err := ExtractAndVerifyClientProof(storedKey, authMessage, clientProof)
+	return err
 }
 
 // ExtractAndVerifyClientProof verifies the client's proof and extracts the ClientKey.
@@ -97,28 +101,36 @@ func VerifyClientProof(storedKey []byte, authMessage string, clientProof []byte)
 // 3. Compute RecoveredStoredKey = H(ClientKey)
 // 4. Verify RecoveredStoredKey == StoredKey
 //
-// Returns (clientKey, true) on success, (nil, false) on failure.
+// Returns the extracted ClientKey on successful verification (error == nil).
+// Returns ErrAuthenticationFailed if the proof is invalid (wrong password).
+// Returns other errors for unexpected conditions (malformed proof, length mismatches).
 // Uses constant-time comparison to prevent timing attacks.
-func ExtractAndVerifyClientProof(storedKey []byte, authMessage string, clientProof []byte) ([]byte, bool) {
+func ExtractAndVerifyClientProof(storedKey []byte, authMessage string, clientProof []byte) ([]byte, error) {
 	if len(clientProof) != sha256Size {
-		return nil, false
+		return nil, fmt.Errorf("invalid proof length: expected %d, got %d", sha256Size, len(clientProof))
 	}
 
 	// Compute ClientSignature
 	clientSignature := ComputeClientSignature(storedKey, authMessage)
 
 	// Recover ClientKey = ClientProof XOR ClientSignature
-	recoveredClientKey := xorBytes(clientProof, clientSignature)
+	recoveredClientKey, err := xorBytes(clientProof, clientSignature)
+	if err != nil {
+		// This should never happen - we validated proof length above and clientSignature
+		// is always sha256Size bytes. This indicates a programming error.
+		return nil, fmt.Errorf("failed to recover client key: %w", err)
+	}
 
 	// Compute H(recoveredClientKey)
 	recoveredStoredKey := ComputeStoredKey(recoveredClientKey)
 
 	// Constant-time comparison to prevent timing attacks
 	if subtle.ConstantTimeCompare(storedKey, recoveredStoredKey) != 1 {
-		return nil, false
+		// This is the expected failure case: client provided wrong password
+		return nil, ErrAuthenticationFailed
 	}
 
-	return recoveredClientKey, true
+	return recoveredClientKey, nil
 }
 
 // buildAuthMessage constructs the AuthMessage for SCRAM.
@@ -147,21 +159,15 @@ func hmacSHA256(key, message []byte) []byte {
 }
 
 // xorBytes returns a XOR b.
-// Panics if a and b have different lengths.
-func xorBytes(a, b []byte) []byte {
+// Returns an error if a and b have different lengths.
+func xorBytes(a, b []byte) ([]byte, error) {
 	if len(a) != len(b) {
-		// Handle mismatched lengths by using the shorter length
-		minLen := min(len(a), len(b))
-		result := make([]byte, minLen)
-		for i := range minLen {
-			result[i] = a[i] ^ b[i]
-		}
-		return result
+		return nil, fmt.Errorf("xorBytes: length mismatch (a=%d, b=%d)", len(a), len(b))
 	}
 
 	result := make([]byte, len(a))
 	for i := range a {
 		result[i] = a[i] ^ b[i]
 	}
-	return result
+	return result, nil
 }

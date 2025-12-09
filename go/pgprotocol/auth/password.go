@@ -25,6 +25,13 @@ import (
 const (
 	// ScramSHA256Prefix is the prefix for SCRAM-SHA-256 password hashes in PostgreSQL.
 	ScramSHA256Prefix = "SCRAM-SHA-256"
+
+	// MinIterationCount is the minimum PBKDF2 iteration count accepted for security.
+	// RFC 5802 recommends a minimum of 4096 iterations to make brute-force attacks harder.
+	MinIterationCount = 4096
+
+	// MinSaltLength is the minimum salt length in bytes accepted for security.
+	MinSaltLength = 8
 )
 
 // ScramHash contains the parsed components of a PostgreSQL SCRAM-SHA-256 password hash.
@@ -85,10 +92,16 @@ func ParseScramSHA256Hash(hash string) (*ScramHash, error) {
 	if iterations <= 0 {
 		return nil, fmt.Errorf("iterations must be positive, got %d", iterations)
 	}
+	if iterations < MinIterationCount {
+		return nil, fmt.Errorf("iteration count %d below minimum %d (insecure)", iterations, MinIterationCount)
+	}
 
 	salt, err := base64.StdEncoding.DecodeString(iterSaltParts[1])
 	if err != nil {
 		return nil, fmt.Errorf("invalid salt (base64 decode failed): %w", err)
+	}
+	if len(salt) < MinSaltLength {
+		return nil, fmt.Errorf("salt length %d below minimum %d bytes (insecure)", len(salt), MinSaltLength)
 	}
 
 	// Parse StoredKey and ServerKey.

@@ -35,6 +35,24 @@
 //  3. Client → Server: client-final-message (proof)
 //  4. Server → Client: server-final-message (server signature for mutual auth)
 //
+// # Why Not Use an Existing Library?
+//
+// Several Go SCRAM libraries exist (xdg-go/scram, lib/pq, jackc/pgx), but none support
+// our critical requirement: ClientKey extraction for passthrough authentication.
+//
+// Existing libraries:
+//   - xdg-go/scram: Most comprehensive, but lacks ClientKey extraction and context.Context support
+//   - lib/pq: Maintenance mode, client-side only
+//   - jackc/pgx: Client library, no server-side SCRAM
+//
+// Our implementation adds:
+//   - ExtractAndVerifyClientProof: Recovers ClientKey from client's proof for passthrough auth
+//   - context.Context support: Allows timeout/cancellation during credential lookup
+//   - Minimum security thresholds: Enforces 4096+ iterations and 8+ byte salts
+//
+// These features enable Multigres to verify clients and reuse extracted keys to
+// authenticate to backend PostgreSQL servers without storing plaintext passwords.
+//
 // # Architecture
 //
 // The package is organized into several components:

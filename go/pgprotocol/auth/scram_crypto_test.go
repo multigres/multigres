@@ -159,7 +159,8 @@ func TestComputeClientProof(t *testing.T) {
 			clientSignature[i] = byte(i + 1)
 		}
 
-		proof := ComputeClientProof(clientKey, clientSignature)
+		proof, err := ComputeClientProof(clientKey, clientSignature)
+		require.NoError(t, err)
 
 		// Should be 32 bytes (XOR of two 32-byte values)
 		assert.Len(t, proof, 32)
@@ -170,13 +171,25 @@ func TestComputeClientProof(t *testing.T) {
 		clientKey := []byte{0x01, 0x02, 0x03, 0x04}
 		clientSignature := []byte{0x10, 0x20, 0x30, 0x40}
 
-		proof := ComputeClientProof(clientKey, clientSignature)
+		proof, err := ComputeClientProof(clientKey, clientSignature)
+		require.NoError(t, err)
 		// proof = clientKey XOR clientSignature
 
 		// To recover clientKey: proof XOR clientSignature
-		recovered := ComputeClientProof(proof, clientSignature)
+		recovered, err := ComputeClientProof(proof, clientSignature)
+		require.NoError(t, err)
 
 		assert.Equal(t, clientKey, recovered)
+	})
+
+	t.Run("returns error for mismatched lengths", func(t *testing.T) {
+		// This should return an error, not silently truncate
+		clientKey := []byte{0x01, 0x02, 0x03, 0x04}
+		clientSignature := []byte{0x10, 0x20} // Too short
+
+		_, err := ComputeClientProof(clientKey, clientSignature)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "length mismatch")
 	})
 }
 
@@ -208,11 +221,12 @@ func TestVerifyClientProof(t *testing.T) {
 
 		// Client side: compute proof
 		clientSignature := ComputeClientSignature(storedKey, authMessage)
-		clientProof := ComputeClientProof(clientKey, clientSignature)
+		clientProof, err := ComputeClientProof(clientKey, clientSignature)
+		require.NoError(t, err)
 
 		// Server side: verify proof
-		valid := VerifyClientProof(storedKey, authMessage, clientProof)
-		assert.True(t, valid)
+		err = VerifyClientProof(storedKey, authMessage, clientProof)
+		assert.NoError(t, err)
 
 		// Also compute server signature for mutual auth
 		serverSignature := ComputeServerSignature(serverKey, authMessage)
@@ -224,8 +238,8 @@ func TestVerifyClientProof(t *testing.T) {
 		authMessage := "auth message"
 		invalidProof := []byte("this is not a valid proof!!!!!")
 
-		valid := VerifyClientProof(storedKey, authMessage, invalidProof)
-		assert.False(t, valid)
+		err := VerifyClientProof(storedKey, authMessage, invalidProof)
+		assert.Error(t, err)
 	})
 
 	t.Run("proof with wrong password is rejected", func(t *testing.T) {
@@ -242,10 +256,11 @@ func TestVerifyClientProof(t *testing.T) {
 		wrongSP := ComputeSaltedPassword("wrong", salt, iterations)
 		wrongCK := ComputeClientKey(wrongSP)
 		wrongSig := ComputeClientSignature(ComputeStoredKey(wrongCK), authMessage)
-		wrongProof := ComputeClientProof(wrongCK, wrongSig)
+		wrongProof, err := ComputeClientProof(wrongCK, wrongSig)
+		require.NoError(t, err)
 
-		valid := VerifyClientProof(storedKey, authMessage, wrongProof)
-		assert.False(t, valid)
+		err = VerifyClientProof(storedKey, authMessage, wrongProof)
+		assert.ErrorIs(t, err, ErrAuthenticationFailed)
 	})
 }
 
@@ -264,12 +279,13 @@ func TestExtractAndVerifyClientProof(t *testing.T) {
 
 		// Client side: compute proof
 		clientSignature := ComputeClientSignature(storedKey, authMessage)
-		clientProof := ComputeClientProof(originalClientKey, clientSignature)
+		clientProof, err := ComputeClientProof(originalClientKey, clientSignature)
+		require.NoError(t, err)
 
 		// Server side: extract ClientKey from proof
-		extractedClientKey, ok := ExtractAndVerifyClientProof(storedKey, authMessage, clientProof)
+		extractedClientKey, err := ExtractAndVerifyClientProof(storedKey, authMessage, clientProof)
 
-		assert.True(t, ok, "proof should be valid")
+		assert.NoError(t, err, "proof should be valid")
 		assert.Equal(t, originalClientKey, extractedClientKey, "extracted ClientKey should match original")
 	})
 
@@ -299,11 +315,12 @@ func TestExtractAndVerifyClientProof(t *testing.T) {
 		authMessage1 := clientFirstBare + "," + serverFirst + "," + clientFinalWithoutProof
 
 		clientSignature1 := ComputeClientSignature(storedKey, authMessage1)
-		clientProof1 := ComputeClientProof(clientKey, clientSignature1)
+		clientProof1, err := ComputeClientProof(clientKey, clientSignature1)
+		require.NoError(t, err)
 
 		// Server (multigateway) verifies and extracts ClientKey
-		extractedClientKey, ok := ExtractAndVerifyClientProof(storedKey, authMessage1, clientProof1)
-		require.True(t, ok, "first auth should succeed")
+		extractedClientKey, err := ExtractAndVerifyClientProof(storedKey, authMessage1, clientProof1)
+		require.NoError(t, err, "first auth should succeed")
 
 		// === Phase 2: Use extracted keys for second SCRAM auth (to PostgreSQL) ===
 		// This simulates multipooler authenticating to PostgreSQL using extracted keys
@@ -321,11 +338,12 @@ func TestExtractAndVerifyClientProof(t *testing.T) {
 		// Note: StoredKey = H(ClientKey), so we compute it from the extracted key
 		extractedStoredKey := ComputeStoredKey(extractedClientKey)
 		clientSignature2 := ComputeClientSignature(extractedStoredKey, authMessage2)
-		clientProof2 := ComputeClientProof(extractedClientKey, clientSignature2)
+		clientProof2, err := ComputeClientProof(extractedClientKey, clientSignature2)
+		require.NoError(t, err)
 
 		// PostgreSQL verifies using its stored key (which should equal extractedStoredKey)
-		valid := VerifyClientProof(storedKey, authMessage2, clientProof2)
-		assert.True(t, valid, "second auth using extracted ClientKey should succeed")
+		err = VerifyClientProof(storedKey, authMessage2, clientProof2)
+		assert.NoError(t, err, "second auth using extracted ClientKey should succeed")
 
 		// Also verify we can compute correct ServerSignature using passed ServerKey
 		expectedServerSig := ComputeServerSignature(serverKey, authMessage2)
@@ -337,8 +355,8 @@ func TestExtractAndVerifyClientProof(t *testing.T) {
 		authMessage := "auth message"
 		invalidProof := []byte("this is not a valid proof!!!!!")
 
-		extractedKey, ok := ExtractAndVerifyClientProof(storedKey, authMessage, invalidProof)
-		assert.False(t, ok)
+		extractedKey, err := ExtractAndVerifyClientProof(storedKey, authMessage, invalidProof)
+		assert.Error(t, err)
 		assert.Nil(t, extractedKey)
 	})
 
@@ -347,8 +365,8 @@ func TestExtractAndVerifyClientProof(t *testing.T) {
 		authMessage := "auth message"
 		shortProof := []byte("short")
 
-		extractedKey, ok := ExtractAndVerifyClientProof(storedKey, authMessage, shortProof)
-		assert.False(t, ok)
+		extractedKey, err := ExtractAndVerifyClientProof(storedKey, authMessage, shortProof)
+		assert.Error(t, err)
 		assert.Nil(t, extractedKey)
 	})
 }
@@ -385,11 +403,12 @@ func TestFullScramExchange(t *testing.T) {
 		clientKey := ComputeClientKey(clientSaltedPassword)
 		clientStoredKey := ComputeStoredKey(clientKey)
 		clientSignature := ComputeClientSignature(clientStoredKey, authMessage)
-		clientProof := ComputeClientProof(clientKey, clientSignature)
+		clientProof, err := ComputeClientProof(clientKey, clientSignature)
+		require.NoError(t, err)
 
 		// === Server verifies proof ===
-		valid := VerifyClientProof(storedKey, authMessage, clientProof)
-		assert.True(t, valid, "Client proof should be valid")
+		err = VerifyClientProof(storedKey, authMessage, clientProof)
+		assert.NoError(t, err, "Client proof should be valid")
 
 		// === Server computes server signature for mutual auth ===
 		serverSignature := ComputeServerSignature(serverKey, authMessage)

@@ -18,6 +18,7 @@ import (
 	"context"
 	"encoding/base64"
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -88,7 +89,10 @@ func simulateClientFinalMessage(password string, serverFirstMessage string, clie
 
 	// Compute proof.
 	clientSignature := ComputeClientSignature(storedKey, authMessage)
-	clientProof := ComputeClientProof(clientKey, clientSignature)
+	clientProof, err := ComputeClientProof(clientKey, clientSignature)
+	if err != nil {
+		return "", fmt.Errorf("failed to compute client proof: %w", err)
+	}
 	proofB64 := base64.StdEncoding.EncodeToString(clientProof)
 
 	// Build complete client-final-message.

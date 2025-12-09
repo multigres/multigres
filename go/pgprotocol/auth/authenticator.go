@@ -62,6 +62,12 @@ const (
 //
 // The authenticator maintains state between calls and enforces valid
 // state transitions to prevent protocol errors.
+//
+// Thread Safety: ScramAuthenticator is NOT thread-safe. Each connection must
+// use its own authenticator instance. Do not share authenticators across
+// goroutines or reuse them for multiple concurrent authentication attempts.
+// The Reset() method allows reusing an authenticator sequentially, but only
+// after the previous authentication has completed.
 type ScramAuthenticator struct {
 	provider PasswordHashProvider
 
@@ -211,10 +217,11 @@ func (a *ScramAuthenticator) HandleClientFinal(clientFinalMessage string) (strin
 	)
 
 	// Verify the client proof and extract the ClientKey for passthrough authentication.
-	extractedClientKey, valid := ExtractAndVerifyClientProof(a.hash.StoredKey, authMessage, parsed.Proof)
-	if !valid {
+	extractedClientKey, err := ExtractAndVerifyClientProof(a.hash.StoredKey, authMessage, parsed.Proof)
+	if err != nil {
 		a.state = stateFailed
-		return "", ErrAuthenticationFailed
+		// Return the specific error (ErrAuthenticationFailed for wrong password, or other errors)
+		return "", err
 	}
 	a.extractedClientKey = extractedClientKey
 

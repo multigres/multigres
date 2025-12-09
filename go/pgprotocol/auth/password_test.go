@@ -54,14 +54,14 @@ func TestParseScramSHA256Hash(t *testing.T) {
 	})
 
 	t.Run("valid hash with different iterations", func(t *testing.T) {
-		// Hash with 8192 iterations (non-default)
-		hash := "SCRAM-SHA-256$8192:c2FsdA==$c3RvcmVka2V5:c2VydmVya2V5"
+		// Hash with 8192 iterations (non-default) and 8-byte salt
+		hash := "SCRAM-SHA-256$8192:bG9uZ3NhbHQ=$c3RvcmVka2V5:c2VydmVya2V5"
 
 		parsed, err := ParseScramSHA256Hash(hash)
 		require.NoError(t, err)
 
 		assert.Equal(t, 8192, parsed.Iterations)
-		assert.Equal(t, []byte("salt"), parsed.Salt)
+		assert.Equal(t, []byte("longsalt"), parsed.Salt) // 8 bytes
 		assert.Equal(t, []byte("storedkey"), parsed.StoredKey)
 		assert.Equal(t, []byte("serverkey"), parsed.ServerKey)
 	})
@@ -107,14 +107,14 @@ func TestParseScramSHA256Hash(t *testing.T) {
 	})
 
 	t.Run("invalid StoredKey - not base64", func(t *testing.T) {
-		hash := "SCRAM-SHA-256$4096:c2FsdA==$not-valid-base64!!!:c2VydmVya2V5"
+		hash := "SCRAM-SHA-256$4096:bG9uZ3NhbHQ=$not-valid-base64!!!:c2VydmVya2V5"
 		_, err := ParseScramSHA256Hash(hash)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "StoredKey")
 	})
 
 	t.Run("invalid ServerKey - not base64", func(t *testing.T) {
-		hash := "SCRAM-SHA-256$4096:c2FsdA==$c3RvcmVka2V5:not-valid-base64!!!"
+		hash := "SCRAM-SHA-256$4096:bG9uZ3NhbHQ=$c3RvcmVka2V5:not-valid-base64!!!"
 		_, err := ParseScramSHA256Hash(hash)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "ServerKey")
@@ -135,6 +135,43 @@ func TestParseScramSHA256Hash(t *testing.T) {
 		hash := "SCRAM-SHA-256$4096:c2FsdA==$c3RvcmVka2V5"
 		_, err := ParseScramSHA256Hash(hash)
 		assert.Error(t, err)
+	})
+
+	// New security validations added in Phase 1
+	t.Run("iteration count below minimum (insecure)", func(t *testing.T) {
+		// 2048 iterations is below the minimum of 4096
+		hash := "SCRAM-SHA-256$2048:bG9uZ3NhbHQ=$c3RvcmVka2V5:c2VydmVya2V5"
+		_, err := ParseScramSHA256Hash(hash)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "iteration count")
+		assert.Contains(t, err.Error(), "below minimum")
+		assert.Contains(t, err.Error(), "4096")
+	})
+
+	t.Run("salt too short (insecure)", func(t *testing.T) {
+		// "c2hvcnQ=" is base64("short") = 5 bytes, below minimum of 8
+		hash := "SCRAM-SHA-256$4096:c2hvcnQ=$c3RvcmVka2V5:c2VydmVya2V5"
+		_, err := ParseScramSHA256Hash(hash)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "salt length")
+		assert.Contains(t, err.Error(), "below minimum")
+		assert.Contains(t, err.Error(), "8 bytes")
+	})
+
+	t.Run("minimum valid iteration count", func(t *testing.T) {
+		// Exactly 4096 iterations should be accepted
+		hash := "SCRAM-SHA-256$4096:bG9uZ3NhbHQ=$c3RvcmVka2V5:c2VydmVya2V5"
+		parsed, err := ParseScramSHA256Hash(hash)
+		require.NoError(t, err)
+		assert.Equal(t, 4096, parsed.Iterations)
+	})
+
+	t.Run("minimum valid salt length", func(t *testing.T) {
+		// "ZWlnaHRieXQ=" is base64("eightbyt") = exactly 8 bytes
+		hash := "SCRAM-SHA-256$4096:ZWlnaHRieXQ=$c3RvcmVka2V5:c2VydmVya2V5"
+		parsed, err := ParseScramSHA256Hash(hash)
+		require.NoError(t, err)
+		assert.Len(t, parsed.Salt, 8)
 	})
 }
 
