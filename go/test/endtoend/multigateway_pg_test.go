@@ -42,9 +42,19 @@ func TestMultiGateway_PostgreSQLConnection(t *testing.T) {
 	cluster := setupTestCluster(t)
 	t.Cleanup(cluster.Cleanup)
 
-	// Connect to multigateway's PostgreSQL port using PostgreSQL driver
+	// Find a multigateway that has access to the PRIMARY pooler.
+	// Each multigateway only discovers poolers in its own zone, and the PRIMARY
+	// may be in any zone after bootstrap. Try all zones to find one that works.
+	pgPorts := []int{
+		cluster.PortConfig.Zones[0].MultigatewayPGPort,
+		cluster.PortConfig.Zones[1].MultigatewayPGPort,
+	}
+	readyPort, err := findReadyMultigateway(t, pgPorts, 30*time.Second)
+	require.NoError(t, err, "should find a ready multigateway")
+
+	// Connect to the multigateway that has the PRIMARY pooler
 	connStr := fmt.Sprintf("host=localhost port=%d user=postgres dbname=postgres sslmode=disable connect_timeout=5",
-		cluster.PortConfig.Zones[0].MultigatewayPGPort)
+		readyPort)
 	db, err := sql.Open("postgres", connStr)
 	require.NoError(t, err, "failed to open database connection")
 	defer db.Close()

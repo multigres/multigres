@@ -16,6 +16,7 @@ package endtoend
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -27,6 +28,7 @@ import (
 	"testing"
 	"time"
 
+	_ "github.com/lib/pq" // PostgreSQL driver
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
@@ -437,6 +439,44 @@ func checkHeartbeatsWritten(multipoolerAddr string) (bool, error) {
 	}
 
 	return count > 0, nil
+}
+
+// findReadyMultigateway finds a multigateway that is ready to execute queries.
+// It tries each provided port and returns the first one that can successfully execute
+// a query. This is necessary because:
+//  1. PoolerDiscovery is async and may not have discovered poolers yet
+//  2. lib/pq Ping uses an empty query (";") that bypasses pooler discovery
+//  3. Each multigateway only discovers poolers in its own zone, and the PRIMARY
+//     may be in any zone after bootstrap
+func findReadyMultigateway(t *testing.T, pgPorts []int, timeout time.Duration) (int, error) {
+	t.Helper()
+
+	deadline := time.Now().Add(timeout)
+
+	for time.Now().Before(deadline) {
+		for _, port := range pgPorts {
+			connStr := fmt.Sprintf("host=localhost port=%d user=postgres dbname=postgres sslmode=disable connect_timeout=2", port)
+			db, err := sql.Open("postgres", connStr)
+			if err != nil {
+				continue
+			}
+
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			_, err = db.ExecContext(ctx, "SELECT 1")
+			cancel()
+			db.Close()
+
+			if err == nil {
+				t.Logf("Multigateway on port %d is ready to execute queries", port)
+				return port, nil
+			}
+		}
+
+		t.Logf("Waiting for a multigateway to be ready...")
+		time.Sleep(500 * time.Millisecond)
+	}
+
+	return 0, fmt.Errorf("timeout waiting for any multigateway to be ready")
 }
 
 // queryHeartbeatCount queries the number of heartbeats in the heartbeat table via
