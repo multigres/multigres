@@ -350,7 +350,28 @@ func (g *AnalysisGenerator) populatePrimaryInfo(
 			if pooler.LastSeen != nil {
 				analysis.PrimaryTimestamp = pooler.LastSeen.AsTime()
 			}
+
+			// Check if this replica is in the primary's synchronous standby list
+			analysis.IsInPrimaryStandbyList = g.isInStandbyList(analysis.PoolerID, pooler)
 			return // found it
 		}
 	}
+}
+
+// isInStandbyList checks if the given pooler ID is in the primary's synchronous standby list.
+func (g *AnalysisGenerator) isInStandbyList(
+	replicaID *clustermetadatapb.ID,
+	primary *multiorchdatapb.PoolerHealthState,
+) bool {
+	if primary.PrimaryStatus == nil || primary.PrimaryStatus.SyncReplicationConfig == nil {
+		return false
+	}
+
+	for _, standbyID := range primary.PrimaryStatus.SyncReplicationConfig.StandbyIds {
+		if standbyID.Cell == replicaID.Cell && standbyID.Name == replicaID.Name {
+			return true
+		}
+	}
+
+	return false
 }
