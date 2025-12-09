@@ -455,6 +455,163 @@ func TestBeginTerm(t *testing.T) {
 }
 
 // ============================================================================
+// UpdateTermAndAcceptCandidate Tests
+// ============================================================================
+
+// setActionLockHeld is a test helper that creates a context with action lock held
+func setActionLockHeld(ctx context.Context) context.Context {
+	lock := NewActionLock()
+	newCtx, err := lock.Acquire(ctx, "test-operation")
+	if err != nil {
+		panic(err)
+	}
+	return newCtx
+}
+
+func TestUpdateTermAndAcceptCandidate(t *testing.T) {
+	tests := []struct {
+		name           string
+		initialTerm    int64
+		initialAccept  *clustermetadatapb.ID
+		newTerm        int64
+		candidateID    *clustermetadatapb.ID
+		expectError    bool
+		expectedTerm   int64
+		expectedAccept string
+	}{
+		{
+			name:        "higher term updates and accepts atomically",
+			initialTerm: 5,
+			newTerm:     10,
+			candidateID: &clustermetadatapb.ID{
+				Component: clustermetadatapb.ID_MULTIPOOLER,
+				Cell:      "zone1",
+				Name:      "candidate-a",
+			},
+			expectError:    false,
+			expectedTerm:   10,
+			expectedAccept: "candidate-a",
+		},
+		{
+			name:        "same term accepts candidate",
+			initialTerm: 5,
+			newTerm:     5,
+			candidateID: &clustermetadatapb.ID{
+				Component: clustermetadatapb.ID_MULTIPOOLER,
+				Cell:      "zone1",
+				Name:      "candidate-b",
+			},
+			expectError:    false,
+			expectedTerm:   5,
+			expectedAccept: "candidate-b",
+		},
+		{
+			name:        "lower term rejected",
+			initialTerm: 10,
+			newTerm:     5,
+			candidateID: &clustermetadatapb.ID{
+				Component: clustermetadatapb.ID_MULTIPOOLER,
+				Cell:      "zone1",
+				Name:      "candidate-c",
+			},
+			expectError: true,
+		},
+		{
+			name:        "nil candidate ID rejected",
+			initialTerm: 5,
+			newTerm:     10,
+			candidateID: nil,
+			expectError: true,
+		},
+		{
+			name:        "same term same candidate is idempotent",
+			initialTerm: 5,
+			initialAccept: &clustermetadatapb.ID{
+				Component: clustermetadatapb.ID_MULTIPOOLER,
+				Cell:      "zone1",
+				Name:      "candidate-b",
+			},
+			newTerm: 5,
+			candidateID: &clustermetadatapb.ID{
+				Component: clustermetadatapb.ID_MULTIPOOLER,
+				Cell:      "zone1",
+				Name:      "candidate-b",
+			},
+			expectError:    false,
+			expectedTerm:   5,
+			expectedAccept: "candidate-b",
+		},
+		{
+			name:        "same term different candidate rejected",
+			initialTerm: 5,
+			initialAccept: &clustermetadatapb.ID{
+				Component: clustermetadatapb.ID_MULTIPOOLER,
+				Cell:      "zone1",
+				Name:      "candidate-a",
+			},
+			newTerm: 5,
+			candidateID: &clustermetadatapb.ID{
+				Component: clustermetadatapb.ID_MULTIPOOLER,
+				Cell:      "zone1",
+				Name:      "candidate-b",
+			},
+			expectError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			poolerDir := t.TempDir()
+			serviceID := &clustermetadatapb.ID{
+				Component: clustermetadatapb.ID_MULTIPOOLER,
+				Cell:      "test-cell",
+				Name:      "test-pooler",
+			}
+
+			// Create the pg_data directory to simulate initialized data directory
+			pgDataDir := poolerDir + "/pg_data"
+			err := os.MkdirAll(pgDataDir, 0o755)
+			require.NoError(t, err)
+			// Create PG_VERSION file to mark it as initialized
+			err = os.WriteFile(pgDataDir+"/PG_VERSION", []byte("18\n"), 0o644)
+			require.NoError(t, err)
+
+			cs := NewConsensusState(poolerDir, serviceID)
+			_, err = cs.Load()
+			require.NoError(t, err)
+
+			// Set initial term
+			ctx := context.Background()
+			ctx = setActionLockHeld(ctx)
+			if tt.initialTerm > 0 {
+				err = cs.UpdateTermAndSave(ctx, tt.initialTerm)
+				require.NoError(t, err)
+
+				// If we have an initial accepted candidate, set it
+				if tt.initialAccept != nil {
+					err = cs.AcceptCandidateAndSave(ctx, tt.initialAccept)
+					require.NoError(t, err)
+				}
+			}
+
+			// Call UpdateTermAndAcceptCandidate
+			err = cs.UpdateTermAndAcceptCandidate(ctx, tt.newTerm, tt.candidateID)
+
+			if tt.expectError {
+				require.Error(t, err)
+				return
+			}
+
+			require.NoError(t, err)
+			term, err := cs.GetTerm(ctx)
+			require.NoError(t, err)
+			assert.Equal(t, tt.expectedTerm, term.TermNumber)
+			assert.Equal(t, tt.expectedAccept, term.AcceptedTermFromCoordinatorId.GetName())
+		})
+	}
+}
+
+// ============================================================================
 // CanReachPrimary Tests
 // ============================================================================
 

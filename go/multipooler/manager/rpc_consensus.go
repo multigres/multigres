@@ -126,10 +126,7 @@ func (pm *MultiPoolerManager) BeginTerm(ctx context.Context, req *consensusdatap
 			return response, nil
 		}
 
-		// Demotion succeeded - now update term and accept
-		if err := pm.validateAndUpdateTerm(ctx, req.Term, false); err != nil {
-			return nil, fmt.Errorf("failed to update term after demotion: %w", err)
-		}
+		// Demotion succeeded - update term atomically with acceptance below
 		response.Term = req.Term
 		response.DemoteLsn = demoteLSN.LsnPosition
 
@@ -139,43 +136,56 @@ func (pm *MultiPoolerManager) BeginTerm(ctx context.Context, req *consensusdatap
 	} else {
 		// Not a primary or same/lower term - handle normally
 
-		// Update term if needed (only if req.Term > currentTerm)
-		if req.Term > currentTerm {
-			if err := pm.validateAndUpdateTerm(ctx, req.Term, false); err != nil {
-				return nil, fmt.Errorf("failed to update term: %w", err)
-			}
-			response.Term = req.Term
-		}
-
 		// Check if we're caught up with replication (within 30 seconds)
 		// Only relevant for standbys - primaries don't have WAL receivers
+		// Do this check BEFORE updating term so we can reject early
 		if !wasPrimary {
 			var lastMsgReceiptTime *time.Time
 			err = pm.db.QueryRowContext(ctx, "SELECT last_msg_receipt_time FROM pg_stat_wal_receiver").Scan(&lastMsgReceiptTime)
 			if err != nil {
-				// No WAL receiver (disconnected standby) - reject the term
+				// No WAL receiver (disconnected standby) - update term but reject acceptance
 				pm.logger.WarnContext(ctx, "Rejecting term acceptance: standby has no WAL receiver",
 					"term", req.Term,
 					"error", err)
+				// Still update term if higher, but don't accept
+				if req.Term > currentTerm {
+					if err := pm.validateAndUpdateTerm(ctx, req.Term, false); err != nil {
+						return nil, fmt.Errorf("failed to update term: %w", err)
+					}
+					response.Term = req.Term
+				}
 				return response, nil
 			}
 			if lastMsgReceiptTime != nil {
 				timeSinceLastMessage := time.Since(*lastMsgReceiptTime)
 				if timeSinceLastMessage > 30*time.Second {
-					// We're too far behind in replication, don't accept
+					// We're too far behind in replication, update term but don't accept
 					pm.logger.WarnContext(ctx, "Rejecting term acceptance: standby too far behind",
 						"term", req.Term,
 						"last_msg_receipt_time", lastMsgReceiptTime,
 						"time_since_last_message", timeSinceLastMessage)
+					// Still update term if higher, but don't accept
+					if req.Term > currentTerm {
+						if err := pm.validateAndUpdateTerm(ctx, req.Term, false); err != nil {
+							return nil, fmt.Errorf("failed to update term: %w", err)
+						}
+						response.Term = req.Term
+					}
 					return response, nil
 				}
 			}
 		}
+
+		// Update response term if higher (actual update happens atomically below)
+		if req.Term > currentTerm {
+			response.Term = req.Term
+		}
 	}
 
-	// Accept term from coordinator atomically (checks, saves to disk, updates memory)
-	if err := cs.AcceptCandidateAndSave(ctx, req.CandidateId); err != nil {
-		return nil, fmt.Errorf("failed to accept term from coordinator: %w", err)
+	// Atomically update term AND accept candidate in single file write
+	// This combines what used to be two separate file writes
+	if err := cs.UpdateTermAndAcceptCandidate(ctx, req.Term, req.CandidateId); err != nil {
+		return nil, fmt.Errorf("failed to update term and accept candidate: %w", err)
 	}
 
 	response.Accepted = true
