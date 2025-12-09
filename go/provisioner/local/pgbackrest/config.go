@@ -23,6 +23,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/multigres/multigres/go/tools/retry"
 )
 
 // PgHost represents a PostgreSQL host configuration for pgBackRest
@@ -156,25 +158,68 @@ func WriteConfigFile(configPath string, cfg Config) error {
 	return nil
 }
 
-// StanzaCreate executes pgbackrest stanza-create command to initialize a backup stanza
+// StanzaCreate executes pgbackrest stanza-create command to initialize a backup stanza.
+// It retries on lock errors (error code 050) since multiple processes may contend for
+// the shared backup repository lock during cluster bootstrap.
+//
+// Normally, post-bootstrap pgbackrest operations don't need this specific retry logic,
+// because they execute while holding the ActionLock.
 func StanzaCreate(ctx context.Context, stanzaName, configPath, repoPath string) error {
-	// Create context with timeout
-	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
+	const maxAttempts = 5
 
-	// Build pgbackrest command
-	cmd := exec.CommandContext(ctx, "pgbackrest",
-		"--stanza="+stanzaName,
-		"--config="+configPath,
-		"--repo1-path="+repoPath,
-		"stanza-create")
-	fmt.Println("Executing command:", cmd.String())
-	// Capture output for logging
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("failed to create stanza %s: %w\nOutput: %s",
-			stanzaName, err, string(output))
+	var lastErr error
+	var lastOutput string
+
+	r := retry.New(500*time.Millisecond, 5*time.Second)
+	for attempt, err := range r.Attempts(ctx) {
+		if err != nil {
+			return fmt.Errorf("context cancelled while retrying stanza-create: %w", err)
+		}
+		if attempt > maxAttempts {
+			return fmt.Errorf("failed to create stanza %s after %d attempts (lock contention): %w\nOutput: %s",
+				stanzaName, maxAttempts, lastErr, lastOutput)
+		}
+
+		// Create context with timeout for this attempt
+		attemptCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+
+		// Build pgbackrest command
+		cmd := exec.CommandContext(attemptCtx, "pgbackrest",
+			"--stanza="+stanzaName,
+			"--config="+configPath,
+			"--repo1-path="+repoPath,
+			"stanza-create")
+		fmt.Printf("Executing command (attempt %d/%d): %s\n", attempt, maxAttempts, cmd.String())
+
+		// Capture output for logging
+		output, err := cmd.CombinedOutput()
+		cancel()
+
+		if err == nil {
+			return nil
+		}
+
+		lastErr = err
+		lastOutput = string(output)
+
+		// Check if this is a lock error (error code 050)
+		// pgbackrest outputs: "ERROR: [050]: unable to acquire lock on file..."
+		if !isLockError(lastOutput) {
+			// Not a lock error, don't retry
+			return fmt.Errorf("failed to create stanza %s: %w\nOutput: %s",
+				stanzaName, err, lastOutput)
+		}
+
+		fmt.Printf("Lock contention detected on attempt %d, will retry...\n", attempt)
 	}
 
-	return nil
+	// Should not reach here, but just in case
+	return fmt.Errorf("failed to create stanza %s: %w\nOutput: %s",
+		stanzaName, lastErr, lastOutput)
+}
+
+// isLockError checks if the pgbackrest output indicates a lock error (error code 050).
+func isLockError(output string) bool {
+	// pgbackrest error code 050 is "unable to acquire lock"
+	return strings.Contains(output, "[050]") || strings.Contains(output, "unable to acquire lock")
 }
