@@ -141,20 +141,12 @@ func (pm *MultiPoolerManager) BeginTerm(ctx context.Context, req *consensusdatap
 			var lastMsgReceiptTime *time.Time
 			err = pm.db.QueryRowContext(ctx, "SELECT last_msg_receipt_time FROM pg_stat_wal_receiver").Scan(&lastMsgReceiptTime)
 			if err != nil {
-				// No WAL receiver (disconnected standby) - update term but reject acceptance
-				pm.logger.WarnContext(ctx, "Rejecting term acceptance: standby has no WAL receiver",
-					"term", req.Term,
-					"error", err)
-				// Still update term if higher, but don't accept
-				if req.Term > currentTerm {
-					if err := pm.validateAndUpdateTerm(ctx, req.Term, false); err != nil {
-						return nil, fmt.Errorf("failed to update term: %w", err)
-					}
-					response.Term = req.Term
-				}
-				return response, nil
-			}
-			if lastMsgReceiptTime != nil {
+				// No WAL receiver (disconnected standby) - this is EXPECTED during failover
+				// when the primary just died. Don't reject - proceed with acceptance.
+				// The standby's data may still be recent even without an active WAL receiver.
+				pm.logger.InfoContext(ctx, "Standby has no WAL receiver, proceeding with term acceptance",
+					"term", req.Term)
+			} else if lastMsgReceiptTime != nil {
 				timeSinceLastMessage := time.Since(*lastMsgReceiptTime)
 				if timeSinceLastMessage > 30*time.Second {
 					// We're too far behind in replication, update term but don't accept

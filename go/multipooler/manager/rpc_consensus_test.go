@@ -268,7 +268,7 @@ func TestBeginTerm(t *testing.T) {
 			description:                         "Primary should accept term after successful demotion (idempotent case - already demoted)",
 		},
 		{
-			name: "StandbyRejectsTermWhenNoWALReceiver",
+			name: "StandbyAcceptsTermWhenNoWALReceiver",
 			initialTerm: &multipoolermanagerdatapb.ConsensusTerm{
 				TermNumber: 5,
 			},
@@ -284,13 +284,20 @@ func TestBeginTerm(t *testing.T) {
 				mock.ExpectQuery("SELECT pg_is_in_recovery\\(\\)").
 					WillReturnRows(sqlmock.NewRows([]string{"pg_is_in_recovery"}).AddRow(true))
 				// WAL receiver query returns no rows (disconnected standby)
+				// This is EXPECTED during failover when the primary just died
 				mock.ExpectQuery("SELECT last_msg_receipt_time FROM pg_stat_wal_receiver").
 					WillReturnError(sql.ErrNoRows)
+				// pauseReplication - ALTER SYSTEM RESET primary_conninfo
+				mock.ExpectExec("ALTER SYSTEM RESET primary_conninfo").
+					WillReturnResult(sqlmock.NewResult(0, 0))
+				// pauseReplication - pg_reload_conf
+				mock.ExpectExec("SELECT pg_reload_conf\\(\\)").
+					WillReturnResult(sqlmock.NewResult(0, 0))
 			},
-			expectedAccepted:                    false,
-			expectedTerm:                        10, // Term is updated
-			expectedAcceptedTermFromCoordinator: "",
-			description:                         "Standby should reject term when no WAL receiver (disconnected)",
+			expectedAccepted:                    true,
+			expectedTerm:                        10,
+			expectedAcceptedTermFromCoordinator: "new-candidate",
+			description:                         "Standby should accept term when no WAL receiver (expected during failover)",
 		},
 		{
 			name: "StandbyPausesReplicationWhenAcceptingNewTerm",
