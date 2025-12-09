@@ -134,8 +134,6 @@ func (pm *MultiPoolerManager) BeginTerm(ctx context.Context, req *consensusdatap
 			"demote_lsn", demoteLSN.LsnPosition,
 			"term", req.Term)
 	} else {
-		// Not a primary or same/lower term - handle normally
-
 		// Check if we're caught up with replication (within 30 seconds)
 		// Only relevant for standbys - primaries don't have WAL receivers
 		// Do this check BEFORE updating term so we can reject early
@@ -181,18 +179,19 @@ func (pm *MultiPoolerManager) BeginTerm(ctx context.Context, req *consensusdatap
 			response.Term = req.Term
 		}
 
-		// Standby accepting new term: pause replication to break connection with old primary
+		// Standby accepting new term: reset primary_conninfo to break connection with old primary
 		// This ensures we don't continue replicating from a demoted primary
 		if !wasPrimary && req.Term > currentTerm {
-			pm.logger.InfoContext(ctx, "Standby accepting new term, pausing replication",
+			pm.logger.InfoContext(ctx, "Standby accepting new term, resetting primary_conninfo",
 				"term", req.Term,
 				"current_term", currentTerm)
 
-			// Pause replication - this will stop the WAL receiver
+			// Reset primary_conninfo - this will stop the WAL receiver
 			_, pauseErr := pm.pauseReplication(ctx, multipoolermanagerdatapb.ReplicationPauseMode_REPLICATION_PAUSE_MODE_RECEIVER_ONLY, false)
 			if pauseErr != nil {
-				// Log but don't fail - the new primary will reconnect us
-				pm.logger.WarnContext(ctx, "Failed to pause replication during term acceptance",
+				// TODO: is it actually safe to ignore this error? We need to look into what can cause this to fail
+				// If a dead primary can cause this to fail, we have to ignore errors, otherwise we should reject the new term on error
+				pm.logger.WarnContext(ctx, "Failed to reset primary_conninfo during term acceptance",
 					"error", pauseErr)
 			}
 		}
