@@ -68,7 +68,7 @@ linters:
               desc: "provisioners should not depend on multigres logic aside from the topo"
           allow:
             - $gostd
-            - github.com/multigres/multigres/go/clustermetadata/topo
+            - github.com/multigres/multigres/go/common/topoclient
             - github.com/multigres/multigres/go/tools
             - github.com/multigres/multigres/go/pb
             - github.com/multigres/multigres/go/provisioner
@@ -83,6 +83,17 @@ linters:
           deny:
             - pkg: "github.com/multigres/multigres/go/services/multiadmin"
               desc: "multiadmin can only be imported by its own package and cmd"
+        pgctld-isolation:
+          files:
+            - "!**/go/services/pgctld/*.go"
+            - "!**/go/services/pgctld/**/*.go"
+            - "!**/go/cmd/pgctld/*.go"
+            - "!**/go/cmd/pgctld/**/*.go"
+            - "**/*.go"
+          list-mode: lax
+          deny:
+            - pkg: "github.com/multigres/multigres/go/services/pgctld"
+              desc: "pgctld can only be imported by its own package and cmd"
         use_modern_packages:
           list-mode: lax
           deny:

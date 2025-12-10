@@ -138,11 +138,6 @@ service MultiPoolerManager {
   rpc InitializeAsStandby(multipoolermanagerdata.InitializeAsStandbyRequest)
     returns (multipoolermanagerdata.InitializeAsStandbyResponse);
 
-  // InitializationStatus returns the initialization status of this pooler
-  // Used by multiorch coordinator to determine what initialization scenario to use
-  rpc InitializationStatus(multipoolermanagerdata.InitializationStatusRequest)
-    returns (multipoolermanagerdata.InitializationStatusResponse);
-
   //
   // Backup and Restore
   // All of these RPCs perform backups and restores in the context

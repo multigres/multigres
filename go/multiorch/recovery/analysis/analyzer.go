@@ -15,16 +15,18 @@
 package analysis
 
 import (
+	"github.com/multigres/multigres/go/multiorch/recovery/types"
 	"github.com/multigres/multigres/go/multiorch/store"
 )
 
 // Analyzer analyzes ReplicationAnalysis and detects problems.
 type Analyzer interface {
 	// Name returns the unique name of this analyzer.
-	Name() CheckName
+	Name() types.CheckName
 
 	// Analyze examines the ReplicationAnalysis and returns any detected problems.
-	Analyze(analysis *store.ReplicationAnalysis) []Problem
+	// Returns an error if the analyzer cannot perform its analysis (e.g., missing dependencies).
+	Analyze(analysis *store.ReplicationAnalysis) ([]types.Problem, error)
 }
 
 // defaultAnalyzers holds the global list of analyzers.
@@ -32,10 +34,13 @@ type Analyzer interface {
 var defaultAnalyzers []Analyzer
 
 // DefaultAnalyzers returns the current set of analyzers to run.
-func DefaultAnalyzers() []Analyzer {
+// The factory is injected into each analyzer for creating recovery actions.
+func DefaultAnalyzers(factory *RecoveryActionFactory) []Analyzer {
 	if defaultAnalyzers == nil {
-		// TODO: Implement actual analyzers
-		return []Analyzer{}
+		return []Analyzer{
+			&ShardNeedsBootstrapAnalyzer{factory: factory},
+			&PrimaryIsDeadAnalyzer{factory: factory},
+		}
 	}
 	return defaultAnalyzers
 }

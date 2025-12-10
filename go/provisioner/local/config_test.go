@@ -19,6 +19,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/multigres/multigres/go/common/constants"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -37,7 +39,7 @@ func TestGeneratePgBackRestConfigs(t *testing.T) {
 						Multipooler: MultipoolerConfig{
 							ServiceID:  "test-service-1",
 							Database:   "postgres",
-							TableGroup: "default",
+							TableGroup: constants.DefaultTableGroup,
 							PoolerDir:  filepath.Join(tmpDir, "pooler1"),
 							PgPort:     5432,
 							BackupConf: filepath.Join(tmpDir, "pooler1", "pgbackrest.conf"),
@@ -47,7 +49,7 @@ func TestGeneratePgBackRestConfigs(t *testing.T) {
 						Multipooler: MultipoolerConfig{
 							ServiceID:  "test-service-2",
 							Database:   "postgres",
-							TableGroup: "default",
+							TableGroup: constants.DefaultTableGroup,
 							PoolerDir:  filepath.Join(tmpDir, "pooler2"),
 							PgPort:     5433,
 							BackupConf: filepath.Join(tmpDir, "pooler2", "pgbackrest.conf"),
@@ -71,6 +73,12 @@ func TestGeneratePgBackRestConfigs(t *testing.T) {
 		require.NoError(t, err)
 		assert.True(t, stat.IsDir())
 
+		// Verify spool directory was created
+		spoolDir := filepath.Join(tmpDir, "spool", "pgbackrest")
+		stat, err = os.Stat(spoolDir)
+		require.NoError(t, err)
+		assert.True(t, stat.IsDir())
+
 		// Verify config files were created for both zones
 		config1 := filepath.Join(tmpDir, "pooler1", "pgbackrest.conf")
 		content1, err := os.ReadFile(config1)
@@ -80,6 +88,7 @@ func TestGeneratePgBackRestConfigs(t *testing.T) {
 		assert.NotContains(t, string(content1), "repo1-path=")   // repo1-path should not be in config
 		assert.Contains(t, string(content1), "pg1-socket-path=") // Using socket connections
 		assert.Contains(t, string(content1), "pg2-path=")        // Has zone2 as pg2
+		assert.Contains(t, string(content1), "spool-path="+spoolDir)
 
 		config2 := filepath.Join(tmpDir, "pooler2", "pgbackrest.conf")
 		content2, err := os.ReadFile(config2)
@@ -89,6 +98,7 @@ func TestGeneratePgBackRestConfigs(t *testing.T) {
 		assert.NotContains(t, string(content2), "repo1-path=")   // repo1-path should not be in config
 		assert.Contains(t, string(content2), "pg1-socket-path=") // Using socket connections
 		assert.Contains(t, string(content2), "pg2-path=")        // Has zone1 as pg2
+		assert.Contains(t, string(content2), "spool-path="+spoolDir)
 	})
 
 	t.Run("uses default paths when BackupConf is empty", func(t *testing.T) {
@@ -104,7 +114,7 @@ func TestGeneratePgBackRestConfigs(t *testing.T) {
 						Multipooler: MultipoolerConfig{
 							ServiceID:  "test-service",
 							Database:   "postgres",
-							TableGroup: "default",
+							TableGroup: constants.DefaultTableGroup,
 							PoolerDir:  filepath.Join(tmpDir, "pooler1"),
 							PgPort:     5432,
 							BackupConf: "", // Empty - should use default
@@ -130,6 +140,12 @@ func TestGeneratePgBackRestConfigs(t *testing.T) {
 		// Verify BackupRepoPath was set to default
 		assert.Equal(t, defaultBackupDir, p.config.BackupRepoPath)
 
+		// Verify spool directory was created
+		defaultSpoolDir := filepath.Join(tmpDir, "spool", "pgbackrest")
+		stat, err = os.Stat(defaultSpoolDir)
+		require.NoError(t, err)
+		assert.True(t, stat.IsDir())
+
 		// Verify config file was created at default location
 		defaultConfigPath := filepath.Join(tmpDir, "pooler1", "pgbackrest.conf")
 		content, err := os.ReadFile(defaultConfigPath)
@@ -137,6 +153,7 @@ func TestGeneratePgBackRestConfigs(t *testing.T) {
 		assert.Contains(t, string(content), "[global]")
 		assert.Contains(t, string(content), "[multigres]")    // Shared stanza for HA
 		assert.NotContains(t, string(content), "repo1-path=") // repo1-path should not be in config
+		assert.Contains(t, string(content), "spool-path="+defaultSpoolDir)
 	})
 
 	t.Run("handles multiple cells correctly", func(t *testing.T) {
@@ -150,7 +167,7 @@ func TestGeneratePgBackRestConfigs(t *testing.T) {
 				Multipooler: MultipoolerConfig{
 					ServiceID:  "service-" + string(rune('0'+i)),
 					Database:   "postgres",
-					TableGroup: "default",
+					TableGroup: constants.DefaultTableGroup,
 					PoolerDir:  filepath.Join(tmpDir, "pooler"+string(rune('0'+i))),
 					PgPort:     5432 + i - 1,
 					BackupConf: filepath.Join(tmpDir, "pooler"+string(rune('0'+i)), "pgbackrest.conf"),
@@ -203,7 +220,7 @@ func TestGeneratePgBackRestConfigs(t *testing.T) {
 						Multipooler: MultipoolerConfig{
 							ServiceID:  "test",
 							Database:   "postgres",
-							TableGroup: "default",
+							TableGroup: constants.DefaultTableGroup,
 							PoolerDir:  filepath.Join(tmpDir, "pooler"),
 							PgPort:     5432,
 							BackupConf: filepath.Join(tmpDir, "pooler", "pgbackrest.conf"),
@@ -239,7 +256,7 @@ func TestGeneratePgBackRestConfigs(t *testing.T) {
 						Multipooler: MultipoolerConfig{
 							ServiceID:  "service-a",
 							Database:   "postgres",
-							TableGroup: "default",
+							TableGroup: constants.DefaultTableGroup,
 							PoolerDir:  filepath.Join(tmpDir, "pooler-a"),
 							PgPort:     5432,
 							BackupConf: filepath.Join(tmpDir, "pooler-a", "pgbackrest.conf"),
@@ -249,7 +266,7 @@ func TestGeneratePgBackRestConfigs(t *testing.T) {
 						Multipooler: MultipoolerConfig{
 							ServiceID:  "service-b",
 							Database:   "postgres",
-							TableGroup: "default",
+							TableGroup: constants.DefaultTableGroup,
 							PoolerDir:  filepath.Join(tmpDir, "pooler-b"),
 							PgPort:     5433,
 							BackupConf: filepath.Join(tmpDir, "pooler-b", "pgbackrest.conf"),
@@ -259,7 +276,7 @@ func TestGeneratePgBackRestConfigs(t *testing.T) {
 						Multipooler: MultipoolerConfig{
 							ServiceID:  "service-c",
 							Database:   "postgres",
-							TableGroup: "default",
+							TableGroup: constants.DefaultTableGroup,
 							PoolerDir:  filepath.Join(tmpDir, "pooler-c"),
 							PgPort:     5434,
 							BackupConf: filepath.Join(tmpDir, "pooler-c", "pgbackrest.conf"),

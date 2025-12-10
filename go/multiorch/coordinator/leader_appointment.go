@@ -16,12 +16,12 @@ package coordinator
 
 import (
 	"context"
-	"fmt"
 	"sync"
 
 	"github.com/jackc/pglogrepl"
 
 	"github.com/multigres/multigres/go/common/mterrors"
+	"github.com/multigres/multigres/go/multiorch/store"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	consensusdatapb "github.com/multigres/multigres/go/pb/consensusdata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
@@ -149,6 +149,7 @@ func (c *Coordinator) selectCandidate(ctx context.Context, cohort []*multiorchda
 		node        *multiorchdatapb.PoolerHealthState
 		walPosition string
 		healthy     bool
+		initialized bool
 	}
 
 	statuses := make([]nodeStatus, 0, len(cohort))
@@ -165,8 +166,9 @@ func (c *Coordinator) selectCandidate(ctx context.Context, cohort []*multiorchda
 		}
 
 		status := nodeStatus{
-			node:    pooler,
-			healthy: resp.IsHealthy,
+			node:        pooler,
+			healthy:     resp.IsHealthy,
+			initialized: store.IsInitialized(pooler),
 		}
 
 		// Extract WAL position based on role
@@ -187,12 +189,21 @@ func (c *Coordinator) selectCandidate(ctx context.Context, cohort []*multiorchda
 			"no healthy nodes available for candidate selection")
 	}
 
-	// Select node with most advanced WAL position
+	// Prefer initialized nodes over uninitialized nodes
+	// Within each group (initialized vs uninitialized), select by WAL position
 	var bestCandidate *multiorchdatapb.PoolerHealthState
 	var bestLSN pglogrepl.LSN
+	var bestIsInitialized bool
 
 	for _, status := range statuses {
 		if !status.healthy {
+			continue
+		}
+
+		// Skip nodes with empty WAL position (e.g., postgres is down but multipooler is still responding)
+		if status.walPosition == "" {
+			c.logger.InfoContext(ctx, "Skipping node with empty WAL position",
+				"node", status.node.MultiPooler.Id.Name)
 			continue
 		}
 
@@ -204,10 +215,27 @@ func (c *Coordinator) selectCandidate(ctx context.Context, cohort []*multiorchda
 				status.node.MultiPooler.Id.Name, status.walPosition, err)
 		}
 
-		// Select node with highest LSN
-		if bestCandidate == nil || lsn > bestLSN {
+		// Selection criteria:
+		// 1. Prefer initialized nodes over uninitialized nodes
+		// 2. Within same initialization status, prefer highest LSN
+		shouldSelect := false
+		if bestCandidate == nil {
+			shouldSelect = true
+		} else if status.initialized && !bestIsInitialized {
+			// Prefer initialized over uninitialized
+			shouldSelect = true
+			c.logger.InfoContext(ctx, "Preferring initialized node over uninitialized",
+				"initialized_node", status.node.MultiPooler.Id.Name,
+				"uninitialized_node", bestCandidate.MultiPooler.Id.Name)
+		} else if status.initialized == bestIsInitialized && lsn > bestLSN {
+			// Same initialization status, prefer higher LSN
+			shouldSelect = true
+		}
+
+		if shouldSelect {
 			bestCandidate = status.node
 			bestLSN = lsn
+			bestIsInitialized = status.initialized
 		}
 	}
 
@@ -217,6 +245,11 @@ func (c *Coordinator) selectCandidate(ctx context.Context, cohort []*multiorchda
 		c.logger.WarnContext(ctx, "No healthy nodes, using first available",
 			"node", bestCandidate.MultiPooler.Id.Name)
 	}
+
+	c.logger.InfoContext(ctx, "Selected candidate",
+		"node", bestCandidate.MultiPooler.Id.Name,
+		"initialized", bestIsInitialized,
+		"lsn", bestLSN)
 
 	return bestCandidate, nil
 }
@@ -279,133 +312,13 @@ func (c *Coordinator) recruitNodes(ctx context.Context, cohort []*multiorchdatap
 	return recruited, nil
 }
 
-// buildSyncReplicationConfig creates synchronous replication configuration based on the quorum policy.
-// Returns nil if synchronous replication should not be configured (required_count=1 or no standbys).
-// For MULTI_CELL_ANY_N policies, excludes standbys in the same cell as the candidate (primary).
-func (c *Coordinator) buildSyncReplicationConfig(quorumRule *clustermetadatapb.QuorumRule, standbys []*multiorchdatapb.PoolerHealthState, candidate *multiorchdatapb.PoolerHealthState) (*multipoolermanagerdatapb.ConfigureSynchronousReplicationRequest, error) {
-	requiredCount := int(quorumRule.RequiredCount)
-
-	// Determine async fallback mode (default to REJECT if unset)
-	asyncFallback := quorumRule.AsyncFallback
-	if asyncFallback == clustermetadatapb.AsyncReplicationFallbackMode_ASYNC_REPLICATION_FALLBACK_MODE_UNKNOWN {
-		asyncFallback = clustermetadatapb.AsyncReplicationFallbackMode_ASYNC_REPLICATION_FALLBACK_MODE_REJECT
-	}
-
-	// If required_count is 1, don't configure synchronous replication
-	// With required_count=1, only the primary itself is needed for quorum, so async replication is sufficient
-	if requiredCount == 1 {
-		c.logger.Info("Skipping synchronous replication configuration",
-			"required_count", requiredCount,
-			"standbys_count", len(standbys),
-			"reason", "async replication sufficient for quorum")
-		return nil, nil
-	}
-
-	// If there are no standbys, check async fallback mode
-	if len(standbys) == 0 {
-		if asyncFallback == clustermetadatapb.AsyncReplicationFallbackMode_ASYNC_REPLICATION_FALLBACK_MODE_REJECT {
-			return nil, mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
-				fmt.Sprintf("cannot establish synchronous replication: no standbys available (required %d standbys, async_fallback=REJECT)",
-					requiredCount-1))
-		}
-		c.logger.Info("Skipping synchronous replication configuration",
-			"required_count", requiredCount,
-			"standbys_count", 0,
-			"reason", "async replication sufficient for quorum")
-		return nil, nil
-	}
-
-	// For MULTI_CELL_ANY_N, filter out standbys in the same cell as the primary
-	// This ensures that synchronous replication requires acknowledgment from different cells
-	eligibleStandbys := standbys
-	if quorumRule.QuorumType == clustermetadatapb.QuorumType_QUORUM_TYPE_MULTI_CELL_ANY_N {
-		eligibleStandbys = c.filterStandbysByCell(candidate, standbys)
-
-		c.logger.Info("Filtered standbys for MULTI_CELL_ANY_N",
-			"candidate_cell", candidate.MultiPooler.Id.Cell,
-			"total_standbys", len(standbys),
-			"eligible_standbys", len(eligibleStandbys),
-			"excluded_same_cell", len(standbys)-len(eligibleStandbys))
-
-		// If no eligible standbys remain after filtering, check async fallback mode
-		if len(eligibleStandbys) == 0 {
-			if asyncFallback == clustermetadatapb.AsyncReplicationFallbackMode_ASYNC_REPLICATION_FALLBACK_MODE_REJECT {
-				return nil, mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
-					fmt.Sprintf("cannot establish synchronous replication: no eligible standbys in different cells (candidate_cell=%s, async_fallback=REJECT)",
-						candidate.MultiPooler.Id.Cell))
-			}
-			c.logger.Warn("No eligible standbys in different cells, using async replication",
-				"candidate_cell", candidate.MultiPooler.Id.Cell,
-				"total_standbys", len(standbys))
-			return nil, nil
-		}
-	}
-
-	// Calculate num_sync: required_count - 1 (since primary counts as 1)
-	// This ensures that primary + num_sync standbys = required_count total nodes/cells
-	requiredNumSync := requiredCount - 1
-
-	// Check if we have enough standbys to meet the requirement
-	if requiredNumSync > len(eligibleStandbys) {
-		if asyncFallback == clustermetadatapb.AsyncReplicationFallbackMode_ASYNC_REPLICATION_FALLBACK_MODE_REJECT {
-			return nil, mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
-				fmt.Sprintf("cannot establish synchronous replication: insufficient standbys (required %d standbys, available %d, async_fallback=REJECT)",
-					requiredNumSync, len(eligibleStandbys)))
-		}
-		c.logger.Warn("Not enough standbys for required sync count, using all available",
-			"required_num_sync", requiredNumSync,
-			"available_standbys", len(eligibleStandbys))
-	}
-
-	// Cap num_sync at the number of available eligible standbys
-	numSync := int32(requiredNumSync)
-	if int(numSync) > len(eligibleStandbys) {
-		numSync = int32(len(eligibleStandbys))
-	}
-
-	// Convert standby nodes to IDs
-	standbyIDs := make([]*clustermetadatapb.ID, len(eligibleStandbys))
-	for i, standby := range eligibleStandbys {
-		standbyIDs[i] = standby.MultiPooler.Id
-	}
-
-	c.logger.Info("Configuring synchronous replication",
-		"quorum_type", quorumRule.QuorumType,
-		"required_count", requiredCount,
-		"num_sync", numSync,
-		"total_standbys", len(eligibleStandbys))
-
-	return &multipoolermanagerdatapb.ConfigureSynchronousReplicationRequest{
-		SynchronousCommit: multipoolermanagerdatapb.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_REMOTE_WRITE,
-		SynchronousMethod: multipoolermanagerdatapb.SynchronousMethod_SYNCHRONOUS_METHOD_ANY,
-		NumSync:           numSync,
-		StandbyIds:        standbyIDs,
-		ReloadConfig:      true,
-	}, nil
-}
-
-// filterStandbysByCell returns standbys that are NOT in the same cell as the candidate.
-// Used for MULTI_CELL_ANY_N to ensure synchronous replication spans multiple cells.
-func (c *Coordinator) filterStandbysByCell(candidate *multiorchdatapb.PoolerHealthState, standbys []*multiorchdatapb.PoolerHealthState) []*multiorchdatapb.PoolerHealthState {
-	candidateCell := candidate.MultiPooler.Id.Cell
-	filtered := make([]*multiorchdatapb.PoolerHealthState, 0, len(standbys))
-
-	for _, standby := range standbys {
-		if standby.MultiPooler.Id.Cell != candidateCell {
-			filtered = append(filtered, standby)
-		}
-	}
-
-	return filtered
-}
-
 // Propagate implements stage 5 of the consensus protocol:
 // - Promote the candidate to primary
 // - Configure standbys to replicate from the new primary
 // - Configure synchronous replication based on quorum policy
 func (c *Coordinator) Propagate(ctx context.Context, candidate *multiorchdatapb.PoolerHealthState, standbys []*multiorchdatapb.PoolerHealthState, term int64, quorumRule *clustermetadatapb.QuorumRule) error {
 	// Build synchronous replication configuration based on quorum policy
-	syncConfig, err := c.buildSyncReplicationConfig(quorumRule, standbys, candidate)
+	syncConfig, err := BuildSyncReplicationConfig(c.logger, quorumRule, standbys, candidate)
 	if err != nil {
 		return mterrors.Wrap(err, "failed to build synchronous replication config")
 	}
@@ -474,7 +387,7 @@ func (c *Coordinator) Propagate(ctx context.Context, candidate *multiorchdatapb.
 
 			setPrimaryReq := &multipoolermanagerdatapb.SetPrimaryConnInfoRequest{
 				Host:                  candidate.MultiPooler.Hostname,
-				Port:                  candidate.MultiPooler.PortMap["grpc"],
+				Port:                  candidate.MultiPooler.PortMap["postgres"],
 				CurrentTerm:           term,
 				StopReplicationBefore: false,
 				StartReplicationAfter: false,

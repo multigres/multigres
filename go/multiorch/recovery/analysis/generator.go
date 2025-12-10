@@ -18,18 +18,12 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/multigres/multigres/go/clustermetadata/topo"
+	"github.com/multigres/multigres/go/common/topoclient"
+	commontypes "github.com/multigres/multigres/go/common/types"
 	"github.com/multigres/multigres/go/multiorch/store"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 )
-
-// ShardKey uniquely identifies a shard.
-type ShardKey struct {
-	Database   string
-	TableGroup string
-	Shard      string
-}
 
 // PoolersByShard is a structured map for efficient lookups.
 // Structure: [database][tablegroup][shard][pooler_id] -> PoolerHealthState
@@ -37,13 +31,13 @@ type PoolersByShard map[string]map[string]map[string]map[string]*multiorchdatapb
 
 // AnalysisGenerator creates ReplicationAnalysis from the pooler store.
 type AnalysisGenerator struct {
-	poolerStore    *store.ProtoStore[string, *multiorchdatapb.PoolerHealthState]
+	poolerStore    *store.PoolerHealthStore
 	poolersByShard PoolersByShard
 }
 
 // NewAnalysisGenerator creates a new analysis generator.
 // It eagerly builds the poolersByShard map from the current store state.
-func NewAnalysisGenerator(poolerStore *store.ProtoStore[string, *multiorchdatapb.PoolerHealthState]) *AnalysisGenerator {
+func NewAnalysisGenerator(poolerStore *store.PoolerHealthStore) *AnalysisGenerator {
 	g := &AnalysisGenerator{
 		poolerStore: poolerStore,
 	}
@@ -59,8 +53,13 @@ func (g *AnalysisGenerator) GenerateAnalyses() []*store.ReplicationAnalysis {
 	for database, tableGroups := range g.poolersByShard {
 		for tableGroup, shards := range tableGroups {
 			for shard, poolers := range shards {
+				shardKey := commontypes.ShardKey{
+					Database:   database,
+					TableGroup: tableGroup,
+					Shard:      shard,
+				}
 				for _, pooler := range poolers {
-					analysis := g.generateAnalysisForPooler(pooler, database, tableGroup, shard)
+					analysis := g.generateAnalysisForPooler(pooler, shardKey)
 					analyses = append(analyses, analysis)
 				}
 			}
@@ -155,7 +154,12 @@ func (g *AnalysisGenerator) GenerateAnalysisForPooler(poolerIDStr string) (*stor
 
 	// Generate analysis for this specific pooler using the cached poolersByShard.
 	// Note: If fresh data is needed (e.g., after re-polling), create a new AnalysisGenerator.
-	analysis := g.generateAnalysisForPooler(pooler, pooler.MultiPooler.Database, pooler.MultiPooler.TableGroup, pooler.MultiPooler.Shard)
+	shardKey := commontypes.ShardKey{
+		Database:   pooler.MultiPooler.Database,
+		TableGroup: pooler.MultiPooler.TableGroup,
+		Shard:      pooler.MultiPooler.Shard,
+	}
+	analysis := g.generateAnalysisForPooler(pooler, shardKey)
 
 	return analysis, nil
 }
@@ -163,19 +167,24 @@ func (g *AnalysisGenerator) GenerateAnalysisForPooler(poolerIDStr string) (*stor
 // generateAnalysisForPooler creates a ReplicationAnalysis for a single pooler.
 func (g *AnalysisGenerator) generateAnalysisForPooler(
 	pooler *multiorchdatapb.PoolerHealthState,
-	database string,
-	tableGroup string,
-	shard string,
+	shardKey commontypes.ShardKey,
 ) *store.ReplicationAnalysis {
+	// Determine pooler type from health check (PoolerType).
+	// Nodes are never created with topology type PRIMARY, so health check is authoritative.
+	// Fall back to topology type only if health check type is UNKNOWN.
+	poolerType := pooler.PoolerType
+	if poolerType == clustermetadatapb.PoolerType_UNKNOWN {
+		poolerType = pooler.MultiPooler.Type
+	}
+
 	analysis := &store.ReplicationAnalysis{
 		PoolerID:             pooler.MultiPooler.Id,
-		Database:             pooler.MultiPooler.Database,
-		TableGroup:           pooler.MultiPooler.TableGroup,
-		Shard:                pooler.MultiPooler.Shard,
-		PoolerType:           pooler.MultiPooler.Type,
+		ShardKey:             shardKey,
+		PoolerType:           poolerType,
 		CurrentServingStatus: pooler.MultiPooler.ServingStatus,
-		IsPrimary:            pooler.MultiPooler.Type == clustermetadatapb.PoolerType_PRIMARY,
+		IsPrimary:            poolerType == clustermetadatapb.PoolerType_PRIMARY,
 		LastCheckValid:       pooler.IsLastCheckValid,
+		IsInitialized:        store.IsInitialized(pooler),
 		AnalyzedAt:           time.Now(),
 	}
 
@@ -191,7 +200,7 @@ func (g *AnalysisGenerator) generateAnalysisForPooler(
 		}
 
 		// Aggregate replica stats
-		g.aggregateReplicaStats(pooler, analysis, database, tableGroup, shard)
+		g.aggregateReplicaStats(pooler, analysis, shardKey)
 	}
 
 	// If this is a REPLICA, populate replica-specific fields
@@ -216,7 +225,7 @@ func (g *AnalysisGenerator) generateAnalysisForPooler(
 		}
 
 		// Lookup primary info
-		g.populatePrimaryInfo(pooler, analysis, database, tableGroup, shard)
+		g.populatePrimaryInfo(analysis, shardKey)
 	}
 
 	return analysis
@@ -226,16 +235,14 @@ func (g *AnalysisGenerator) generateAnalysisForPooler(
 func (g *AnalysisGenerator) aggregateReplicaStats(
 	primary *multiorchdatapb.PoolerHealthState,
 	analysis *store.ReplicationAnalysis,
-	database string,
-	tableGroup string,
-	shard string,
+	shardKey commontypes.ShardKey,
 ) {
 	var countReplicas uint
 	var countReachable uint
 	var countReplicating uint
 	var countLagging uint
 
-	primaryIDStr := topo.MultiPoolerIDString(primary.MultiPooler.Id)
+	primaryIDStr := topoclient.MultiPoolerIDString(primary.MultiPooler.Id)
 
 	// Get connected followers from primary status
 	var connectedFollowers []*clustermetadatapb.ID
@@ -244,7 +251,7 @@ func (g *AnalysisGenerator) aggregateReplicaStats(
 	}
 
 	// Iterate only over poolers in the same shard (efficient lookup)
-	if poolers, ok := g.poolersByShard[database][tableGroup][shard]; ok {
+	if poolers, ok := g.poolersByShard[shardKey.Database][shardKey.TableGroup][shardKey.Shard]; ok {
 		for poolerID, pooler := range poolers {
 			if pooler == nil || pooler.MultiPooler == nil || pooler.MultiPooler.Id == nil {
 				continue
@@ -255,8 +262,12 @@ func (g *AnalysisGenerator) aggregateReplicaStats(
 				continue
 			}
 
-			// Skip if not a replica
-			if pooler.MultiPooler.Type != clustermetadatapb.PoolerType_REPLICA {
+			// Skip if not a replica - check health check type, fall back to topology
+			replicaType := pooler.PoolerType
+			if replicaType == clustermetadatapb.PoolerType_UNKNOWN {
+				replicaType = pooler.MultiPooler.Type
+			}
+			if replicaType != clustermetadatapb.PoolerType_REPLICA {
 				continue
 			}
 
@@ -265,7 +276,7 @@ func (g *AnalysisGenerator) aggregateReplicaStats(
 			// OR by checking primary_conninfo host/port match
 			isPointingToPrimary := false
 			for _, followerID := range connectedFollowers {
-				if topo.MultiPoolerIDString(followerID) == poolerID {
+				if topoclient.MultiPoolerIDString(followerID) == poolerID {
 					isPointingToPrimary = true
 					break
 				}
@@ -273,8 +284,9 @@ func (g *AnalysisGenerator) aggregateReplicaStats(
 
 			// Also check via primary_conninfo if we didn't find it in connected followers
 			if !isPointingToPrimary && pooler.ReplicationStatus != nil && pooler.ReplicationStatus.PrimaryConnInfo != nil {
-				if pooler.ReplicationStatus.PrimaryConnInfo.Host == primary.MultiPooler.Hostname {
-					// TODO: More robust check would compare port as well
+				connInfo := pooler.ReplicationStatus.PrimaryConnInfo
+				primaryPort := primary.MultiPooler.PortMap["postgres"]
+				if connInfo.Host == primary.MultiPooler.Hostname && connInfo.Port == primaryPort {
 					isPointingToPrimary = true
 				}
 			}
@@ -311,27 +323,30 @@ func (g *AnalysisGenerator) aggregateReplicaStats(
 
 // populatePrimaryInfo looks up the primary this replica is replicating from.
 func (g *AnalysisGenerator) populatePrimaryInfo(
-	replica *multiorchdatapb.PoolerHealthState,
 	analysis *store.ReplicationAnalysis,
-	database string,
-	tableGroup string,
-	shard string,
+	shardKey commontypes.ShardKey,
 ) {
 	// Find the primary in the same tablegroup (efficient lookup)
-	if poolers, ok := g.poolersByShard[database][tableGroup][shard]; ok {
+	if poolers, ok := g.poolersByShard[shardKey.Database][shardKey.TableGroup][shardKey.Shard]; ok {
 		for _, pooler := range poolers {
 			if pooler == nil || pooler.MultiPooler == nil || pooler.MultiPooler.Id == nil {
 				continue
 			}
 
-			// Look for primary in same tablegroup
-			if pooler.MultiPooler.Type != clustermetadatapb.PoolerType_PRIMARY {
+			// Look for primary in same shard - check health check type
+			// Nodes are never created with topology type PRIMARY
+			if pooler.PoolerType != clustermetadatapb.PoolerType_PRIMARY {
 				continue
 			}
 
 			// Found the primary
 			analysis.PrimaryPoolerID = pooler.MultiPooler.Id
-			analysis.PrimaryReachable = pooler.IsLastCheckValid
+			// Primary is reachable only if:
+			// 1. Health check was valid (IsLastCheckValid)
+			// 2. PostgreSQL is running (IsPostgresRunning is true)
+			// When postgres dies but multipooler is still up, IsLastCheckValid is true
+			// but IsPostgresRunning is false (set by healthcheck from Status RPC)
+			analysis.PrimaryReachable = pooler.IsLastCheckValid && pooler.IsPostgresRunning
 			if pooler.LastSeen != nil {
 				analysis.PrimaryTimestamp = pooler.LastSeen.AsTime()
 			}

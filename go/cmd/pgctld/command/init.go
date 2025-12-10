@@ -21,7 +21,7 @@ import (
 	"os/exec"
 	"strings"
 
-	"github.com/multigres/multigres/go/pgctld"
+	"github.com/multigres/multigres/go/services/pgctld"
 	"github.com/multigres/multigres/go/tools/viperutil"
 
 	"github.com/spf13/cobra"
@@ -133,10 +133,8 @@ func (i *PgCtldInitCmd) runInit(cmd *cobra.Command, args []string) error {
 }
 
 func initializeDataDir(logger *slog.Logger, dataDir string, pgUser string, pgPwfile string) error {
-	// Create data directory if it doesn't exist
-	if err := os.MkdirAll(dataDir, 0o700); err != nil {
-		return fmt.Errorf("failed to create data directory: %w", err)
-	}
+	// Note: initdb will create the data directory itself if it doesn't exist.
+	// We don't create it beforehand to avoid leaving empty directories if initdb fails.
 
 	// Run initdb
 	//
@@ -145,12 +143,13 @@ func initializeDataDir(logger *slog.Logger, dataDir string, pgUser string, pgPwf
 	// However, pgBackRest merely logs checksum validation errors but does not fail
 	// the backup.
 	cmd := exec.Command("initdb", "-D", dataDir, "--data-checksums", "--auth-local=trust", "--auth-host=md5", "-U", pgUser)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
 
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("initdb failed: %w", err)
+	// Capture both stdout and stderr to include in error messages
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("initdb failed: %w\nOutput: %s", err, string(output))
 	}
+	logger.Info("initdb completed", "output", string(output))
 
 	// Get the effective password and validate it
 	effectivePassword, err := resolvePassword(pgPwfile)

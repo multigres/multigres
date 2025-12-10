@@ -22,9 +22,11 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/multigres/multigres/go/clustermetadata/topo"
 	"github.com/multigres/multigres/go/common/rpcclient"
+	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/multiorch/config"
+	"github.com/multigres/multigres/go/multiorch/coordinator"
+	"github.com/multigres/multigres/go/multiorch/recovery/analysis"
 	"github.com/multigres/multigres/go/multiorch/store"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 )
@@ -223,13 +225,13 @@ func runIfNotRunning(logger *slog.Logger, inProgress *atomic.Bool, taskName stri
 //	)
 //	engine.Start()
 type Engine struct {
-	ts        topo.Store
+	ts        topoclient.Store
 	logger    *slog.Logger
 	config    *config.Config
 	rpcClient rpcclient.MultiPoolerClient
 
 	// In-memory state store
-	poolerStore *store.ProtoStore[string, *multiorchdatapb.PoolerHealthState]
+	poolerStore *store.PoolerHealthStore
 
 	// Health check queue for concurrent pooler polling
 	healthCheckQueue *Queue
@@ -254,6 +256,9 @@ type Engine struct {
 	// Metrics
 	metrics *Metrics
 
+	// Action factory for creating recovery actions
+	actionFactory *analysis.RecoveryActionFactory
+
 	// Context for shutting down loops
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -264,11 +269,12 @@ type Engine struct {
 
 // NewEngine creates a new RecoveryEngine instance.
 func NewEngine(
-	ts topo.Store,
+	ts topoclient.Store,
 	logger *slog.Logger,
 	config *config.Config,
 	shardWatchTargets []config.WatchTarget,
 	rpcClient rpcclient.MultiPoolerClient,
+	coordinator *coordinator.Coordinator,
 ) *Engine {
 	ctx, cancel := context.WithCancel(context.TODO())
 
@@ -301,6 +307,15 @@ func NewEngine(
 	if err != nil {
 		logger.Error("failed to monitor pooler store size", "error", err)
 	}
+
+	// Create action factory for recovery actions
+	engine.actionFactory = analysis.NewRecoveryActionFactory(
+		poolerStore,
+		rpcClient,
+		ts,
+		coordinator,
+		logger,
+	)
 
 	return engine
 }

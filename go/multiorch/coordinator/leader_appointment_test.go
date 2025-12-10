@@ -22,8 +22,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/multigres/multigres/go/clustermetadata/topo"
 	"github.com/multigres/multigres/go/common/rpcclient"
+	"github.com/multigres/multigres/go/common/topoclient"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	consensusdatapb "github.com/multigres/multigres/go/pb/consensusdata"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
@@ -47,7 +47,7 @@ func createMockNode(fakeClient *rpcclient.FakeClient, name string, term int64, w
 	}
 
 	// Use topo helper to generate consistent key format
-	poolerKey := topo.MultiPoolerIDString(poolerID)
+	poolerKey := topoclient.MultiPoolerIDString(poolerID)
 
 	// Configure FakeClient responses for this pooler
 	fakeClient.ConsensusStatusResponses[poolerKey] = &consensusdatapb.StatusResponse{
@@ -140,7 +140,7 @@ func TestDiscoverMaxTerm(t *testing.T) {
 			Hostname: "localhost",
 			PortMap:  map[string]int32{"grpc": 9000},
 		}
-		fakeClient.Errors[topo.MultiPoolerIDString(pooler2ID)] = context.DeadlineExceeded
+		fakeClient.Errors[topoclient.MultiPoolerIDString(pooler2ID)] = context.DeadlineExceeded
 
 		cohort := []*multiorchdatapb.PoolerHealthState{
 			createMockNode(fakeClient, "mp1", 5, "0/1000000", true, "standby"),
@@ -230,7 +230,7 @@ func TestSelectCandidate(t *testing.T) {
 			Cell:      "zone1",
 			Name:      "mp1",
 		}
-		fakeClient.Errors[topo.MultiPoolerIDString(poolerID)] = context.DeadlineExceeded
+		fakeClient.Errors[topoclient.MultiPoolerIDString(poolerID)] = context.DeadlineExceeded
 
 		pooler := &clustermetadatapb.MultiPooler{
 			Id:       poolerID,
@@ -298,7 +298,7 @@ func TestRecruitNodes(t *testing.T) {
 			Cell:      "zone1",
 			Name:      "mp3",
 		}
-		fakeClient.BeginTermResponses[topo.MultiPoolerIDString(mp3ID)] = &consensusdatapb.BeginTermResponse{Accepted: false}
+		fakeClient.BeginTermResponses[topoclient.MultiPoolerIDString(mp3ID)] = &consensusdatapb.BeginTermResponse{Accepted: false}
 
 		recruited, err := c.recruitNodes(ctx, cohort, 6, candidate)
 		require.NoError(t, err)
@@ -366,7 +366,7 @@ func TestBeginTerm(t *testing.T) {
 			Cell:      "zone1",
 			Name:      "mp2",
 		}
-		fakeClient.BeginTermResponses[topo.MultiPoolerIDString(mp2ID)] = &consensusdatapb.BeginTermResponse{Accepted: false}
+		fakeClient.BeginTermResponses[topoclient.MultiPoolerIDString(mp2ID)] = &consensusdatapb.BeginTermResponse{Accepted: false}
 
 		// mp3 returns an error
 		mp3ID := &clustermetadatapb.ID{
@@ -374,7 +374,7 @@ func TestBeginTerm(t *testing.T) {
 			Cell:      "zone1",
 			Name:      "mp3",
 		}
-		fakeClient.Errors[topo.MultiPoolerIDString(mp3ID)] = context.DeadlineExceeded
+		fakeClient.Errors[topoclient.MultiPoolerIDString(mp3ID)] = context.DeadlineExceeded
 
 		// Create ANY_N quorum rule requiring 2 nodes
 		quorumRule := &clustermetadatapb.QuorumRule{
@@ -439,8 +439,8 @@ func TestPropagate(t *testing.T) {
 			Cell:      "zone1",
 			Name:      "mp3",
 		}
-		fakeClient.SetPrimaryConnInfoResponses[topo.MultiPoolerIDString(mp3ID)] = nil
-		fakeClient.Errors[topo.MultiPoolerIDString(mp3ID)] = context.DeadlineExceeded
+		fakeClient.SetPrimaryConnInfoResponses[topoclient.MultiPoolerIDString(mp3ID)] = nil
+		fakeClient.Errors[topoclient.MultiPoolerIDString(mp3ID)] = context.DeadlineExceeded
 
 		standbys := []*multiorchdatapb.PoolerHealthState{
 			createMockNode(fakeClient, "mp2", 5, "0/2000000", true, "standby"),
@@ -496,13 +496,112 @@ func TestEstablishLeader(t *testing.T) {
 			Cell:      "zone1",
 			Name:      "mp1",
 		}
-		fakeClient.StateResponses[topo.MultiPoolerIDString(mp1ID)] = &multipoolermanagerdatapb.StateResponse{
+		fakeClient.StateResponses[topoclient.MultiPoolerIDString(mp1ID)] = &multipoolermanagerdatapb.StateResponse{
 			State: "initializing",
 		}
 
 		err := c.EstablishLeader(ctx, candidate, 6)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "not in ready state")
+	})
+}
+
+func TestSelectCandidate_PrefersInitializedNodes(t *testing.T) {
+	ctx := context.Background()
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelWarn}))
+	coordID := &clustermetadatapb.ID{
+		Component: clustermetadatapb.ID_MULTIORCH,
+		Cell:      "test-cell",
+		Name:      "test-coordinator",
+	}
+
+	t.Run("prefers initialized node over uninitialized with higher LSN", func(t *testing.T) {
+		fakeClient := rpcclient.NewFakeClient()
+		c := &Coordinator{
+			coordinatorID: coordID,
+			logger:        logger,
+			rpcClient:     fakeClient,
+		}
+
+		// Create cohort with mixed initialization:
+		// - mp1: initialized replica with lower LSN (0/1000000)
+		// - mp2: uninitialized node with higher LSN (0/2000000)
+		node1 := createMockNode(fakeClient, "mp1", 5, "0/1000000", true, "standby")
+		node1.IsLastCheckValid = true
+		node1.IsInitialized = true // Use IsInitialized field directly
+		node1.ReplicationStatus = &multipoolermanagerdatapb.StandbyReplicationStatus{
+			LastReplayLsn:  "0/1000000",
+			LastReceiveLsn: "0/1000000",
+		}
+
+		node2 := createMockNode(fakeClient, "mp2", 5, "0/2000000", true, "standby")
+		node2.IsLastCheckValid = true
+		node2.IsInitialized = false // Explicitly uninitialized
+
+		cohort := []*multiorchdatapb.PoolerHealthState{node1, node2}
+
+		candidate, err := c.selectCandidate(ctx, cohort)
+		require.NoError(t, err)
+		require.Equal(t, "mp1", candidate.MultiPooler.Id.Name,
+			"should prefer initialized node mp1 over uninitialized node mp2 despite lower LSN")
+	})
+
+	t.Run("prefers higher LSN among initialized nodes", func(t *testing.T) {
+		fakeClient := rpcclient.NewFakeClient()
+		c := &Coordinator{
+			coordinatorID: coordID,
+			logger:        logger,
+			rpcClient:     fakeClient,
+		}
+
+		// Both nodes initialized, mp2 has higher LSN
+		node1 := createMockNode(fakeClient, "mp1", 5, "0/1000000", true, "standby")
+		node1.IsLastCheckValid = true
+		node1.IsInitialized = true
+		node1.ReplicationStatus = &multipoolermanagerdatapb.StandbyReplicationStatus{
+			LastReplayLsn:  "0/1000000",
+			LastReceiveLsn: "0/1000000",
+		}
+
+		node2 := createMockNode(fakeClient, "mp2", 5, "0/2000000", true, "standby")
+		node2.IsLastCheckValid = true
+		node2.IsInitialized = true
+		node2.ReplicationStatus = &multipoolermanagerdatapb.StandbyReplicationStatus{
+			LastReplayLsn:  "0/2000000",
+			LastReceiveLsn: "0/2000000",
+		}
+
+		cohort := []*multiorchdatapb.PoolerHealthState{node1, node2}
+
+		candidate, err := c.selectCandidate(ctx, cohort)
+		require.NoError(t, err)
+		require.Equal(t, "mp2", candidate.MultiPooler.Id.Name,
+			"should prefer higher LSN among initialized nodes")
+	})
+
+	t.Run("prefers higher LSN among uninitialized nodes", func(t *testing.T) {
+		fakeClient := rpcclient.NewFakeClient()
+		c := &Coordinator{
+			coordinatorID: coordID,
+			logger:        logger,
+			rpcClient:     fakeClient,
+		}
+
+		// Both nodes uninitialized, mp2 has higher LSN
+		node1 := createMockNode(fakeClient, "mp1", 5, "0/1000000", true, "standby")
+		node1.IsLastCheckValid = true
+		node1.IsInitialized = false
+
+		node2 := createMockNode(fakeClient, "mp2", 5, "0/2000000", true, "standby")
+		node2.IsLastCheckValid = true
+		node2.IsInitialized = false
+
+		cohort := []*multiorchdatapb.PoolerHealthState{node1, node2}
+
+		candidate, err := c.selectCandidate(ctx, cohort)
+		require.NoError(t, err)
+		require.Equal(t, "mp2", candidate.MultiPooler.Id.Name,
+			"should prefer higher LSN among uninitialized nodes")
 	})
 }
 

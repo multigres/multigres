@@ -24,7 +24,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/multigres/multigres/go/cmd/pgctld/testutil"
-	"github.com/multigres/multigres/go/pgctld"
+	"github.com/multigres/multigres/go/services/pgctld"
 )
 
 func TestRunStart(t *testing.T) {
@@ -225,7 +225,7 @@ func TestInitializeDataDir(t *testing.T) {
 		logger := slog.New(slog.DiscardHandler)
 		err := initializeDataDir(logger, dataDir, "postgres", "")
 		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "failed to create data directory")
+		assert.Contains(t, err.Error(), "initdb failed")
 	})
 }
 

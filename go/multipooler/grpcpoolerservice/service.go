@@ -49,11 +49,11 @@ func (s *poolerService) StreamExecute(req *multipoolerpb.StreamExecuteRequest, s
 	// Get the executor from the pooler
 	executor, err := s.pooler.Executor()
 	if err != nil {
-		return fmt.Errorf("executor not initialized")
+		return err
 	}
 
 	// Execute the query and stream results
-	err = executor.StreamExecute(stream.Context(), req.Target, req.Query, func(ctx context.Context, result *querypb.QueryResult) error {
+	err = executor.StreamExecute(stream.Context(), req.Target, req.Query, nil, func(ctx context.Context, result *querypb.QueryResult) error {
 		// Send the result back to the client
 		response := &multipoolerpb.StreamExecuteResponse{
 			Result: result,
@@ -75,7 +75,8 @@ func (s *poolerService) ExecuteQuery(ctx context.Context, req *multipoolerpb.Exe
 	}
 
 	// Execute the query and stream results
-	res, err := executor.ExecuteQuery(ctx, req.Target, req.Query, req.MaxRows)
+	options := &querypb.ExecuteOptions{MaxRows: req.MaxRows}
+	res, err := executor.ExecuteQuery(ctx, req.Target, req.Query, options)
 	if err != nil {
 		return nil, err
 	}

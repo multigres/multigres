@@ -25,9 +25,9 @@ import (
 	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	"github.com/multigres/multigres/go/clustermetadata/topo"
-	"github.com/multigres/multigres/go/clustermetadata/topo/memorytopo"
 	"github.com/multigres/multigres/go/common/rpcclient"
+	"github.com/multigres/multigres/go/common/topoclient"
+	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
 	"github.com/multigres/multigres/go/multiorch/config"
 	"github.com/multigres/multigres/go/pb/clustermetadata"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
@@ -50,23 +50,20 @@ func TestPollPooler_UpdatesStore_Primary(t *testing.T) {
 	)
 
 	// Create fake RPC client with mock response for PRIMARY
-	fakeClient := &rpcclient.FakeClient{
-		StatusResponses: map[string]*multipoolermanagerdatapb.StatusResponse{
-			"multipooler-zone1-pooler1": {
-				Status: &multipoolermanagerdatapb.Status{
-					PoolerType: clustermetadata.PoolerType_PRIMARY,
-					PrimaryStatus: &multipoolermanagerdatapb.PrimaryStatus{
-						Lsn:   "0/123ABC",
-						Ready: true,
-						ConnectedFollowers: []*clustermetadata.ID{
-							{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "replica1"},
-							{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "replica2"},
-						},
-					},
+	fakeClient := rpcclient.NewFakeClient()
+	fakeClient.SetStatusResponse("multipooler-zone1-pooler1", &multipoolermanagerdatapb.StatusResponse{
+		Status: &multipoolermanagerdatapb.Status{
+			PoolerType: clustermetadata.PoolerType_PRIMARY,
+			PrimaryStatus: &multipoolermanagerdatapb.PrimaryStatus{
+				Lsn:   "0/123ABC",
+				Ready: true,
+				ConnectedFollowers: []*clustermetadata.ID{
+					{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "replica1"},
+					{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "replica2"},
 				},
 			},
 		},
-	}
+	})
 
 	re := NewEngine(
 		ts,
@@ -74,6 +71,7 @@ func TestPollPooler_UpdatesStore_Primary(t *testing.T) {
 		cfg,
 		[]config.WatchTarget{{Database: "mydb"}},
 		fakeClient,
+		nil,
 	)
 
 	// Add a pooler to the store
@@ -95,7 +93,7 @@ func TestPollPooler_UpdatesStore_Primary(t *testing.T) {
 		IsUpToDate:       false,
 		IsLastCheckValid: false,
 	}
-	poolerKey := topo.MultiPoolerIDString(poolerID)
+	poolerKey := topoclient.MultiPoolerIDString(poolerID)
 	re.poolerStore.Set(poolerKey, pooler)
 
 	// Poll the pooler
@@ -138,27 +136,24 @@ func TestPollPooler_UpdatesStore_Replica(t *testing.T) {
 	)
 
 	// Create fake RPC client with mock response for REPLICA
-	fakeClient := &rpcclient.FakeClient{
-		StatusResponses: map[string]*multipoolermanagerdatapb.StatusResponse{
-			"multipooler-zone1-replica1": {
-				Status: &multipoolermanagerdatapb.Status{
-					PoolerType: clustermetadata.PoolerType_REPLICA,
-					ReplicationStatus: &multipoolermanagerdatapb.StandbyReplicationStatus{
-						LastReplayLsn:           "0/123ABC",
-						LastReceiveLsn:          "0/123DEF",
-						IsWalReplayPaused:       false,
-						WalReplayPauseState:     "not paused",
-						Lag:                     durationpb.New(500 * time.Millisecond),
-						LastXactReplayTimestamp: "2025-01-19 20:00:00.000000+00",
-						PrimaryConnInfo: &multipoolermanagerdatapb.PrimaryConnInfo{
-							Host: "primary-host",
-							Port: 5432,
-						},
-					},
+	fakeClient := rpcclient.NewFakeClient()
+	fakeClient.SetStatusResponse("multipooler-zone1-replica1", &multipoolermanagerdatapb.StatusResponse{
+		Status: &multipoolermanagerdatapb.Status{
+			PoolerType: clustermetadata.PoolerType_REPLICA,
+			ReplicationStatus: &multipoolermanagerdatapb.StandbyReplicationStatus{
+				LastReplayLsn:           "0/123ABC",
+				LastReceiveLsn:          "0/123DEF",
+				IsWalReplayPaused:       false,
+				WalReplayPauseState:     "not paused",
+				Lag:                     durationpb.New(500 * time.Millisecond),
+				LastXactReplayTimestamp: "2025-01-19 20:00:00.000000+00",
+				PrimaryConnInfo: &multipoolermanagerdatapb.PrimaryConnInfo{
+					Host: "primary-host",
+					Port: 5432,
 				},
 			},
 		},
-	}
+	})
 
 	re := NewEngine(
 		ts,
@@ -166,6 +161,7 @@ func TestPollPooler_UpdatesStore_Replica(t *testing.T) {
 		cfg,
 		[]config.WatchTarget{{Database: "mydb"}},
 		fakeClient,
+		nil,
 	)
 
 	// Add a replica pooler to the store
@@ -188,7 +184,7 @@ func TestPollPooler_UpdatesStore_Replica(t *testing.T) {
 		IsLastCheckValid: false,
 	}
 
-	poolerKey := topo.MultiPoolerIDString(poolerID)
+	poolerKey := topoclient.MultiPoolerIDString(poolerID)
 	re.poolerStore.Set(poolerKey, pooler)
 
 	// Poll the pooler
@@ -248,6 +244,7 @@ func TestPollPooler_RPCFailure(t *testing.T) {
 		cfg,
 		[]config.WatchTarget{{Database: "mydb"}},
 		fakeClient,
+		nil,
 	)
 
 	// Add a pooler to the store
@@ -272,7 +269,7 @@ func TestPollPooler_RPCFailure(t *testing.T) {
 		IsLastCheckValid: true,
 		LastSeen:         timestamppb.New(lastSeenTime),
 	}
-	poolerKey := topo.MultiPoolerIDString(poolerID)
+	poolerKey := topoclient.MultiPoolerIDString(poolerID)
 	re.poolerStore.Set(poolerKey, pooler)
 
 	// Poll the pooler (should fail)
@@ -307,19 +304,16 @@ func TestPollPooler_TypeMismatch(t *testing.T) {
 	)
 
 	// Create fake RPC client where pooler reports PRIMARY but topology says REPLICA
-	fakeClient := &rpcclient.FakeClient{
-		StatusResponses: map[string]*multipoolermanagerdatapb.StatusResponse{
-			"multipooler-zone1-confused-pooler": {
-				Status: &multipoolermanagerdatapb.Status{
-					PoolerType: clustermetadata.PoolerType_PRIMARY, // Reports PRIMARY
-					PrimaryStatus: &multipoolermanagerdatapb.PrimaryStatus{
-						Lsn:   "0/FFFFFF",
-						Ready: true,
-					},
-				},
+	fakeClient := rpcclient.NewFakeClient()
+	fakeClient.SetStatusResponse("multipooler-zone1-confused-pooler", &multipoolermanagerdatapb.StatusResponse{
+		Status: &multipoolermanagerdatapb.Status{
+			PoolerType: clustermetadata.PoolerType_PRIMARY, // Reports PRIMARY
+			PrimaryStatus: &multipoolermanagerdatapb.PrimaryStatus{
+				Lsn:   "0/FFFFFF",
+				Ready: true,
 			},
 		},
-	}
+	})
 
 	re := NewEngine(
 		ts,
@@ -327,6 +321,7 @@ func TestPollPooler_TypeMismatch(t *testing.T) {
 		cfg,
 		[]config.WatchTarget{{Database: "mydb"}},
 		fakeClient,
+		nil,
 	)
 
 	// Add a pooler with REPLICA type in topology
@@ -349,7 +344,7 @@ func TestPollPooler_TypeMismatch(t *testing.T) {
 		IsUpToDate:       false,
 		IsLastCheckValid: false,
 	}
-	poolerKey := topo.MultiPoolerIDString(poolerID)
+	poolerKey := topoclient.MultiPoolerIDString(poolerID)
 	re.poolerStore.Set(poolerKey, pooler)
 
 	// Poll the pooler

@@ -25,9 +25,10 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	"github.com/multigres/multigres/go/clustermetadata/topo"
-	"github.com/multigres/multigres/go/clustermetadata/topo/memorytopo"
 	"github.com/multigres/multigres/go/common/rpcclient"
+	"github.com/multigres/multigres/go/common/topoclient"
+	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
+	commontypes "github.com/multigres/multigres/go/common/types"
 	"github.com/multigres/multigres/go/multiorch/config"
 	"github.com/multigres/multigres/go/pb/clustermetadata"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
@@ -35,7 +36,7 @@ import (
 
 // poolerKey creates the store key for a pooler
 func poolerKey(cell, name string) string {
-	return topo.MultiPoolerIDString(&clustermetadata.ID{
+	return topoclient.MultiPoolerIDString(&clustermetadata.ID{
 		Component: clustermetadata.ID_MULTIPOOLER,
 		Cell:      cell,
 		Name:      name,
@@ -58,6 +59,7 @@ func TestDiscovery_DatabaseLevelWatch(t *testing.T) {
 		cfg,
 		[]config.WatchTarget{{Database: "mydb"}},
 		&rpcclient.FakeClient{},
+		nil,
 	)
 
 	// Initial state: 2 poolers in different tablegroups
@@ -131,6 +133,7 @@ func TestDiscovery_TablegroupLevelWatch(t *testing.T) {
 		cfg,
 		[]config.WatchTarget{{Database: "mydb", TableGroup: "tg1"}},
 		&rpcclient.FakeClient{},
+		nil,
 	)
 
 	// Initial state: poolers in tg1 and tg2
@@ -195,6 +198,7 @@ func TestDiscovery_ShardLevelWatch(t *testing.T) {
 		cfg,
 		[]config.WatchTarget{{Database: "mydb", TableGroup: "tg1", Shard: "0"}},
 		&rpcclient.FakeClient{},
+		nil,
 	)
 
 	// Initial state: poolers in different shards and tablegroups
@@ -278,6 +282,7 @@ func TestDiscovery_PreservesTimestamps(t *testing.T) {
 		cfg,
 		[]config.WatchTarget{{Database: "mydb"}},
 		&rpcclient.FakeClient{},
+		nil,
 	)
 
 	// Add initial pooler
@@ -352,6 +357,7 @@ func TestDiscovery_MultipleWatchTargets(t *testing.T) {
 			{Database: "db3", TableGroup: "tg1", Shard: "0"}, // Watch specific shard
 		},
 		&rpcclient.FakeClient{},
+		nil,
 	)
 
 	// Add poolers for different watch targets
@@ -415,6 +421,7 @@ func TestDiscovery_EmptyTopology(t *testing.T) {
 		cfg,
 		[]config.WatchTarget{{Database: "mydb"}},
 		&rpcclient.FakeClient{},
+		nil,
 	)
 
 	// Refresh with empty topology
@@ -462,6 +469,7 @@ func TestRefreshPoolersForTarget_BasicRefresh(t *testing.T) {
 		cfg,
 		[]config.WatchTarget{{Database: "db1", TableGroup: "tg1", Shard: "0"}},
 		&rpcclient.FakeClient{},
+		nil,
 	)
 
 	// Refresh poolers for the target
@@ -514,6 +522,7 @@ func TestRefreshPoolersForTarget_PreservesHealthCheckData(t *testing.T) {
 		cfg,
 		[]config.WatchTarget{{Database: "db1", TableGroup: "tg1", Shard: "0"}},
 		&rpcclient.FakeClient{},
+		nil,
 	)
 
 	// Pre-populate store with existing health check data
@@ -597,6 +606,7 @@ func TestRefreshPoolersForTarget_IgnoresPoolers(t *testing.T) {
 		cfg,
 		[]config.WatchTarget{{Database: "db1", TableGroup: "tg1", Shard: "0"}},
 		&rpcclient.FakeClient{},
+		nil,
 	)
 
 	// Refresh poolers, ignoring pooler1
@@ -661,6 +671,7 @@ func TestRefreshPoolersForTarget_FiltersToShard(t *testing.T) {
 		cfg,
 		[]config.WatchTarget{{Database: "db1", TableGroup: "tg1", Shard: "0"}},
 		&rpcclient.FakeClient{},
+		nil,
 	)
 
 	// Refresh only shard 0
@@ -707,10 +718,11 @@ func TestRefreshShardMetadata_Success(t *testing.T) {
 		cfg,
 		[]config.WatchTarget{{Database: "db1", TableGroup: "tg1", Shard: "0"}},
 		&rpcclient.FakeClient{},
+		nil,
 	)
 
 	// Refresh shard metadata
-	err = engine.refreshShardMetadata(ctx, "db1", "tg1", "0", nil)
+	err = engine.refreshShardMetadata(ctx, commontypes.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"}, nil)
 	require.NoError(t, err)
 
 	// Verify pooler was added
@@ -734,6 +746,7 @@ func TestForceHealthCheckShardPoolers_ForcesPolls(t *testing.T) {
 		cfg,
 		[]config.WatchTarget{{Database: "db1", TableGroup: "tg1"}},
 		&rpcclient.FakeClient{},
+		nil,
 	)
 
 	// Add poolers to the store (simulating already discovered poolers)
@@ -793,7 +806,7 @@ func TestForceHealthCheckShardPoolers_ForcesPolls(t *testing.T) {
 	engine.poolerStore.Set(poolerKey("cell1", "pooler3"), existingHealth)
 
 	// Force health check for shard 0
-	engine.forceHealthCheckShardPoolers(ctx, "db1", "tg1", "0", nil)
+	engine.forceHealthCheckShardPoolers(ctx, commontypes.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"}, nil)
 
 	// Verify all shard 0 poolers had their LastCheckAttempted updated
 	p1, ok := engine.poolerStore.Get(poolerKey("cell1", "pooler1"))
@@ -825,6 +838,7 @@ func TestForceHealthCheckShardPoolers_RespectsIgnoreList(t *testing.T) {
 		cfg,
 		[]config.WatchTarget{{Database: "db1", TableGroup: "tg1"}},
 		&rpcclient.FakeClient{},
+		nil,
 	)
 
 	// Add poolers to the store
@@ -864,7 +878,7 @@ func TestForceHealthCheckShardPoolers_RespectsIgnoreList(t *testing.T) {
 
 	// Force health check, but ignore the dead primary
 	poolersToIgnore := []string{poolerKey("cell1", "dead-primary")}
-	engine.forceHealthCheckShardPoolers(ctx, "db1", "tg1", "0", poolersToIgnore)
+	engine.forceHealthCheckShardPoolers(ctx, commontypes.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"}, poolersToIgnore)
 
 	// Verify only the healthy replica was polled
 	pDead, ok := engine.poolerStore.Get(poolerKey("cell1", "dead-primary"))

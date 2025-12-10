@@ -30,7 +30,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/multigres/multigres/go/cmd/pgctld/testutil"
-	"github.com/multigres/multigres/go/pgctld"
 	"github.com/multigres/multigres/go/test/utils"
 )
 
@@ -430,7 +429,7 @@ timeout: 30
 	assert.Contains(t, string(output), "restarted as standby successfully")
 
 	// Verify standby.signal was created
-	standbySignalPath := filepath.Join(pgctld.PostgresDataDir(dataDir), "standby.signal")
+	standbySignalPath := filepath.Join(dataDir, "pg_data", "standby.signal")
 	_, err = os.Stat(standbySignalPath)
 	assert.NoError(t, err, "standby.signal file should exist after restart --as-standby")
 
@@ -443,7 +442,7 @@ timeout: 30
 
 	// Verify PostgreSQL is in recovery mode (standby mode) by querying pg_is_in_recovery()
 	t.Logf("Verifying PostgreSQL is in recovery mode")
-	socketDir := pgctld.PostgresSocketDir(dataDir)
+	socketDir := filepath.Join(dataDir, "pg_sockets")
 	recoveryCheckCmd := exec.Command("psql",
 		"-h", socketDir,
 		"-p", strconv.Itoa(testPort),
@@ -520,7 +519,7 @@ func TestPostgreSQLAuthentication(t *testing.T) {
 
 		// Test socket connection (should work without password)
 		t.Logf("Testing Unix socket connection (no password required)")
-		socketDir := pgctld.PostgresSocketDir(baseDir)
+		socketDir := filepath.Join(baseDir, "pg_sockets")
 		t.Logf("Socket directory path: %s", socketDir)
 		t.Logf("Socket directory absolute path: %s", filepath.Join(socketDir))
 
@@ -1124,7 +1123,7 @@ func TestOrphanDetectionWithRealPostgreSQL(t *testing.T) {
 	// Wait for postgres PID
 	var pgPID int
 	require.Eventually(t, func() bool {
-		pid, err := readPostmasterPID(pgctld.PostgresDataDir(dataDir))
+		pid, err := readPostmasterPID(filepath.Join(dataDir, "pg_data"))
 		if err == nil {
 			pgPID = pid
 			return true

@@ -20,6 +20,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
+	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/pb/clustermetadata"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 )
@@ -37,7 +38,7 @@ func TestProtoStore_BasicOperations(t *testing.T) {
 				Name:      "multipooler-1",
 			},
 			Database:   "postgres",
-			TableGroup: "default",
+			TableGroup: constants.DefaultTableGroup,
 			Shard:      "-",
 			Type:       clustermetadata.PoolerType_PRIMARY,
 		},

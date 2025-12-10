@@ -28,7 +28,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/multigres/multigres/go/common/servenv"
-	"github.com/multigres/multigres/go/pgctld"
+	"github.com/multigres/multigres/go/services/pgctld"
 )
 
 // StartResult contains the result of starting PostgreSQL
@@ -321,7 +321,8 @@ func isProcessRunning(pid int) bool {
 		return false
 	}
 
-	// On Unix, sending signal 0 checks if process exists
+	// On Unix, sending signal 0 checks if process exists without actually sending a signal.
+	// This is the standard way to check if a process is running.
 	err = process.Signal(syscall.Signal(0))
 	return err == nil
 }

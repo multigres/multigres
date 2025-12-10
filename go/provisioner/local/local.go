@@ -31,12 +31,13 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/multigres/multigres/go/clustermetadata/topo"
+	"golang.org/x/mod/semver"
+
+	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/provisioner"
 	"github.com/multigres/multigres/go/provisioner/local/ports"
 	"github.com/multigres/multigres/go/tools/pathutil"
 	"github.com/multigres/multigres/go/tools/retry"
-	"github.com/multigres/multigres/go/tools/semver"
 	"github.com/multigres/multigres/go/tools/stringutil"
 	"github.com/multigres/multigres/go/tools/telemetry"
 
@@ -719,6 +720,12 @@ func (p *localProvisioner) provisionMultipooler(ctx context.Context, req *provis
 		tableGroup = tgFromConfig
 	}
 
+	// Get shard from multipooler config, default to "0-inf" if not set
+	shard := "0-inf"
+	if shardFromConfig, ok := multipoolerConfig["shard"].(string); ok && shardFromConfig != "" {
+		shard = shardFromConfig
+	}
+
 	// Get log level
 	logLevel := "info"
 	if level, ok := multipoolerConfig["log_level"].(string); ok {
@@ -782,6 +789,7 @@ func (p *localProvisioner) provisionMultipooler(ctx context.Context, req *provis
 		"--cell", cell,
 		"--database", database,
 		"--table-group", tableGroup,
+		"--shard", shard,
 		"--service-id", serviceID,
 		"--pgctld-addr", pgctldResult.Address,
 		"--log-level", logLevel,
@@ -946,6 +954,17 @@ func (p *localProvisioner) provisionMultiOrch(ctx context.Context, req *provisio
 		"--log-level", logLevel,
 		"--log-output", logFile,
 		"--hostname", "localhost",
+	}
+
+	// Add optional interval configs if specified
+	if interval, ok := multiorchConfig["cluster_metadata_refresh_interval"].(string); ok && interval != "" {
+		args = append(args, "--cluster-metadata-refresh-interval", interval)
+	}
+	if interval, ok := multiorchConfig["pooler_health_check_interval"].(string); ok && interval != "" {
+		args = append(args, "--pooler-health-check-interval", interval)
+	}
+	if interval, ok := multiorchConfig["recovery_cycle_interval"].(string); ok && interval != "" {
+		args = append(args, "--recovery-cycle-interval", interval)
 	}
 
 	// Start multiorch process
@@ -1395,6 +1414,11 @@ func (p *localProvisioner) Teardown(ctx context.Context, clean bool) error {
 		if err := p.cleanupSocketsDirectory(socketsDir); err != nil {
 			fmt.Printf("Warning: failed to clean up sockets directory: %v\n", err)
 		}
+
+		spoolDir := filepath.Join(p.config.RootWorkingDir, "spool")
+		if err := p.cleanupSpoolDirectory(spoolDir); err != nil {
+			fmt.Printf("Warning: failed to clean up spool directory: %v\n", err)
+		}
 	}
 
 	fmt.Println("Teardown completed successfully")
@@ -1463,6 +1487,20 @@ func (p *localProvisioner) cleanupSocketsDirectory(socketsDir string) error {
 	return nil
 }
 
+// cleanupSpoolDirectory removes the entire spool directory and all its contents
+func (p *localProvisioner) cleanupSpoolDirectory(spoolDir string) error {
+	if _, err := os.Stat(spoolDir); os.IsNotExist(err) {
+		return nil // Directory doesn't exist, nothing to clean up
+	}
+
+	if err := os.RemoveAll(spoolDir); err != nil {
+		return fmt.Errorf("failed to remove spool directory %s: %w", spoolDir, err)
+	}
+
+	fmt.Printf("Cleaned up spool directory: %s\n", spoolDir)
+	return nil
+}
+
 // getGRPCSocketFile extracts and prepares the gRPC socket file path from a service config.
 // It returns the absolute path to the socket file and ensures the socket directory exists.
 // Returns empty string if no socket file is configured.
@@ -1518,7 +1556,7 @@ func (p *localProvisioner) ProvisionDatabase(ctx context.Context, databaseName s
 	fmt.Println("=== Registering database in topology ===")
 	fmt.Printf("⚙️  - Registering database: %s\n", databaseName)
 
-	ts, err := topo.OpenServer(topoConfig.Backend, topoConfig.GlobalRootPath, []string{etcdAddress})
+	ts, err := topoclient.OpenServer(topoConfig.Backend, topoConfig.GlobalRootPath, []string{etcdAddress}, topoclient.NewDefaultTopoConfig())
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to topology server: %w", err)
 	}
@@ -1528,14 +1566,14 @@ func (p *localProvisioner) ProvisionDatabase(ctx context.Context, databaseName s
 	_, err = ts.GetDatabase(ctx, databaseName)
 	if err == nil {
 		fmt.Printf("⚙️  - Database \"%s\" detected — reusing existing database ✓\n", databaseName)
-	} else if errors.Is(err, &topo.TopoError{Code: topo.NoNode}) {
+	} else if errors.Is(err, &topoclient.TopoError{Code: topoclient.NoNode}) {
 		// Create the database if it doesn't exist
 		fmt.Printf("⚙️  - Creating database \"%s\" with cells: [%s]...\n", databaseName, strings.Join(cellNames, ", "))
 
 		databaseConfig := &clustermetadatapb.Database{
 			Name:             databaseName,
 			BackupLocation:   p.config.BackupRepoPath,
-			DurabilityPolicy: "none",    // Default durability policy
+			DurabilityPolicy: "ANY_2",   // Default durability policy for bootstrap
 			Cells:            cellNames, // Register with all cells
 		}
 
@@ -1549,80 +1587,105 @@ func (p *localProvisioner) ProvisionDatabase(ctx context.Context, databaseName s
 	}
 	fmt.Println("")
 
-	var results []*provisioner.ProvisionResult
+	// Provision all services in parallel across all cells.
+	// Multiorch's bootstrap action has a quorum check that will wait for enough
+	// poolers to be available before attempting bootstrap, so strict ordering
+	// is not required.
+	fmt.Println("=== Starting all services in parallel ===")
 
-	// Provision services in each cell
-	for _, cellName := range cellNames {
-		fmt.Printf("=== Provisioning services in cell: %s ===\n", cellName)
-
-		// Provision multigateway
-		fmt.Printf("=== Starting Multigateway in %s ===\n", cellName)
-		multigatewayReq := &provisioner.ProvisionRequest{
-			Service:      "multigateway",
-			DatabaseName: databaseName,
-			Params: map[string]any{
-				"etcd_address":     etcdAddress,
-				"topo_backend":     topoConfig.Backend,
-				"topo_global_root": topoConfig.GlobalRootPath,
-				"cell":             cellName,
-			},
-		}
-
-		multigatewayResult, err := p.provisionMultigateway(ctx, multigatewayReq)
-		if err != nil {
-			return nil, fmt.Errorf("failed to provision multigateway for database %s in cell %s: %w", databaseName, cellName, err)
-		}
-		if httpPort, ok := multigatewayResult.Ports["http_port"]; ok {
-			fmt.Printf("🌐 - Available at: http://%s:%d\n", multigatewayResult.FQDN, httpPort)
-		}
-		results = append(results, multigatewayResult)
-
-		// Provision multipooler
-		fmt.Printf("\n=== Starting Multipooler in %s ===\n", cellName)
-		multipoolerReq := &provisioner.ProvisionRequest{
-			Service:      "multipooler",
-			DatabaseName: databaseName,
-			Params: map[string]any{
-				"etcd_address":     etcdAddress,
-				"topo_backend":     topoConfig.Backend,
-				"topo_global_root": topoConfig.GlobalRootPath,
-				"cell":             cellName,
-			},
-		}
-
-		multipoolerResult, err := p.provisionMultipooler(ctx, multipoolerReq)
-		if err != nil {
-			return nil, fmt.Errorf("failed to provision multipooler for database %s in cell %s: %w", databaseName, cellName, err)
-		}
-		if grpcPort, ok := multipoolerResult.Ports["grpc_port"]; ok {
-			fmt.Printf("🌐 - Available at: %s:%d\n", multipoolerResult.FQDN, grpcPort)
-		}
-		results = append(results, multipoolerResult)
-
-		// Provision multiorch
-		fmt.Printf("\n=== Starting MultiOrchestrator in %s ===\n", cellName)
-		multiorchReq := &provisioner.ProvisionRequest{
-			Service:      "multiorch",
-			DatabaseName: databaseName,
-			Params: map[string]any{
-				"etcd_address":     etcdAddress,
-				"topo_backend":     topoConfig.Backend,
-				"topo_global_root": topoConfig.GlobalRootPath,
-				"cell":             cellName,
-			},
-		}
-
-		multiorchResult, err := p.provisionMultiOrch(ctx, multiorchReq)
-		if err != nil {
-			return nil, fmt.Errorf("failed to provision multiorch for database %s in cell %s: %w", databaseName, cellName, err)
-		}
-		if grpcPort, ok := multiorchResult.Ports["grpc_port"]; ok {
-			fmt.Printf("🌐 - Available at: %s:%d\n", multiorchResult.FQDN, grpcPort)
-		}
-		results = append(results, multiorchResult)
-
-		fmt.Printf("\n✓ Cell %s provisioned successfully\n\n", cellName)
+	type provisionResult struct {
+		result *provisioner.ProvisionResult
+		err    error
 	}
+
+	// Calculate total number of services to provision
+	numServices := len(cellNames) * 3 // multigateway + multipooler + multiorch per cell
+	resultsChan := make(chan provisionResult, numServices)
+
+	// Start all services in parallel
+	for _, cellName := range cellNames {
+		cell := cellName // capture for goroutine
+
+		// Start multigateway
+		go func() {
+			req := &provisioner.ProvisionRequest{
+				Service:      "multigateway",
+				DatabaseName: databaseName,
+				Params: map[string]any{
+					"etcd_address":     etcdAddress,
+					"topo_backend":     topoConfig.Backend,
+					"topo_global_root": topoConfig.GlobalRootPath,
+					"cell":             cell,
+				},
+			}
+			result, err := p.provisionMultigateway(ctx, req)
+			if err != nil {
+				resultsChan <- provisionResult{err: fmt.Errorf("failed to provision multigateway in cell %s: %w", cell, err)}
+				return
+			}
+			resultsChan <- provisionResult{result: result}
+		}()
+
+		// Start multipooler
+		go func() {
+			req := &provisioner.ProvisionRequest{
+				Service:      "multipooler",
+				DatabaseName: databaseName,
+				Params: map[string]any{
+					"etcd_address":     etcdAddress,
+					"topo_backend":     topoConfig.Backend,
+					"topo_global_root": topoConfig.GlobalRootPath,
+					"cell":             cell,
+				},
+			}
+			result, err := p.provisionMultipooler(ctx, req)
+			if err != nil {
+				resultsChan <- provisionResult{err: fmt.Errorf("failed to provision multipooler in cell %s: %w", cell, err)}
+				return
+			}
+			resultsChan <- provisionResult{result: result}
+		}()
+
+		// Start multiorch
+		go func() {
+			req := &provisioner.ProvisionRequest{
+				Service:      "multiorch",
+				DatabaseName: databaseName,
+				Params: map[string]any{
+					"etcd_address":     etcdAddress,
+					"topo_backend":     topoConfig.Backend,
+					"topo_global_root": topoConfig.GlobalRootPath,
+					"cell":             cell,
+				},
+			}
+			result, err := p.provisionMultiOrch(ctx, req)
+			if err != nil {
+				resultsChan <- provisionResult{err: fmt.Errorf("failed to provision multiorch in cell %s: %w", cell, err)}
+				return
+			}
+			resultsChan <- provisionResult{result: result}
+		}()
+	}
+
+	// Collect all results
+	var results []*provisioner.ProvisionResult
+	var provisionErrors []error
+	for range numServices {
+		res := <-resultsChan
+		if res.err != nil {
+			provisionErrors = append(provisionErrors, res.err)
+		} else {
+			results = append(results, res.result)
+		}
+	}
+
+	// Report any errors
+	if len(provisionErrors) > 0 {
+		return nil, fmt.Errorf("failed to provision services: %v", provisionErrors)
+	}
+
+	fmt.Println("")
+	fmt.Printf("✓ All cells provisioned successfully\n\n")
 
 	// Skip pgBackRest stanza initialization during bootstrap
 	// Stanzas should be created after replication is configured between cells
@@ -1645,7 +1708,7 @@ func (p *localProvisioner) setupDefaultCell(ctx context.Context, cellName, etcdA
 	topoConfig := p.config.Topology
 
 	// Create topology store using configured backend
-	ts, err := topo.OpenServer(topoConfig.Backend, topoConfig.GlobalRootPath, []string{etcdAddress})
+	ts, err := topoclient.OpenServer(topoConfig.Backend, topoConfig.GlobalRootPath, []string{etcdAddress}, topoclient.NewDefaultTopoConfig())
 	if err != nil {
 		return fmt.Errorf("failed to connect to topology server: %w", err)
 	}
@@ -1659,7 +1722,7 @@ func (p *localProvisioner) setupDefaultCell(ctx context.Context, cellName, etcdA
 	}
 
 	// Create the cell if it doesn't exist
-	if errors.Is(err, &topo.TopoError{Code: topo.NoNode}) {
+	if errors.Is(err, &topoclient.TopoError{Code: topoclient.NoNode}) {
 		fmt.Printf("⚙️  - Creating cell \"%s\"...\n", cellName)
 
 		// Get the specific cell config for this cell name
@@ -1795,7 +1858,7 @@ func (p *localProvisioner) ValidateConfig(config map[string]any) error {
 	}
 
 	// Validate topology backend
-	availableBackends := topo.GetAvailableImplementations()
+	availableBackends := topoclient.GetAvailableImplementations()
 	validBackend := slices.Contains(availableBackends, typedConfig.Topology.Backend)
 	if !validBackend {
 		return fmt.Errorf("invalid topo backend: %s (available: %v)", typedConfig.Topology.Backend, availableBackends)

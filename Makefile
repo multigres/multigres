@@ -25,19 +25,23 @@ ETCD_VER = v3.6.4
 export ETCD_VER
 
 # List of all commands to build
-COMMANDS = multigateway multipooler pgctld multiorch multigres multiadmin
+CMDS = multigateway multipooler pgctld multiorch multigres multiadmin
+BIN_DIR = bin
 
-.PHONY: all build build-all clean install test proto tools parser
+.PHONY: all build build-all clean install test proto tools parser help
+
+##@ General
 
 # Default target
-all: build
+all: build ## Build all binaries (default).
 
-# Proto source files
-PROTO_SRCS = $(shell find proto -name '*.proto')
-PROTO_GO_OUTS = pb
+help: ## Display this help.
+	@awk 'BEGIN {FS = ":.*##"; printf "\nUsage:\n  make \033[36m<target>\033[0m\n"} /^[a-zA-Z_0-9-]+:.*?##/ { printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2 } /^##@/ { printf "\n\033[1m%s\033[0m\n", substr($$0, 5) } ' $(MAKEFILE_LIST)
+
+##@ Development
 
 # Install protobuf tools
-tools:
+tools: ## Install protobuf and build tools.
 	echo $$(date): Installing build tools
 	mkdir -p .git/hooks
 	ln -sf "$(MTROOT)/misc/git/pre-commit" .git/hooks/pre-commit
@@ -45,8 +49,12 @@ tools:
 	./tools/setup_build_tools.sh
 	go install golang.org/x/tools/cmd/goyacc@latest
 
+# Proto source files
+PROTO_SRCS = $(shell find proto -name '*.proto')
+PROTO_GO_OUTS = pb
+
 # Generate protobuf files
-proto: tools $(PROTO_GO_OUTS)
+proto: tools $(PROTO_GO_OUTS) ## Generate protobuf files.
 
 pb: $(PROTO_SRCS)
 	$(MTROOT)/dist/protoc-$(PROTOC_VER)/bin/protoc \
@@ -58,63 +66,79 @@ pb: $(PROTO_SRCS)
 	rm -rf github.com/
 
 # Generate parser from grammar files
-# Ported from vitess/Makefile:174-175 sqlparser generation
-parser:
+parser: ## Generate PostgreSQL parser from grammar.
 	@echo "$$(date): Generating PostgreSQL parser from grammar and AST helpers"
 	go generate ./go/parser/...
 	@echo "Parser and ast helpers generation completed"
 
-generate: parser
+generate: parser ## Alias for parser.
 
-# Build Go binaries only
-build:
-	mkdir -p bin/
+##@ Build
+
+# Build Go binaries only (debug, with symbols)
+build: ## Build Go binaries (debug, with symbols).
+	mkdir -p $(BIN_DIR)
 	cp external/pico/pico.* go/common/web/templates/css/
-	for cmd in $(COMMANDS); do \
-		go build -o bin/$$cmd ./go/cmd/$$cmd; \
+	@for cmd in $(CMDS); do \
+		echo "Building $$cmd (debug)"; \
+		go build -o $(BIN_DIR)/$$cmd ./go/cmd/$$cmd; \
 	done
 
 # Build Go binaries with coverage
 build-coverage:
 	mkdir -p bin/cov/
 	cp external/pico/pico.* go/common/web/templates/css/
-	for cmd in $(COMMANDS); do \
-		go build -cover -covermode=atomic -coverpkg=./... -o bin/cov/$$cmd ./go/cmd/$$cmd; \
+	@for cmd in $(CMDS); do \
+		echo "Building $$cmd (debug)"; \
+		go build -cover -covermode=atomic -coverpkg=./... -o $(BIN_DIR)/cov/$$cmd ./go/cmd/$$cmd; \
+	done
+
+# Build Go binaries only (release, static, stripped)
+build-release: ## Build Go binaries (release, static, stripped).
+	mkdir -p $(BIN_DIR)
+	cp external/pico/pico.* go/common/web/templates/css/
+	@for cmd in $(CMDS); do \
+		echo "Building $$cmd (release)"; \
+		CGO_ENABLED=0 go build -ldflags="-w -s" -o $(BIN_DIR)/$$cmd ./go/cmd/$$cmd; \
 	done
 
 # Build everything (proto + parser + binaries)
-build-all: proto parser build
-
-# Clean build artifacts
-clean:
-	rm -f go/common/web/templates/css/pico.*
-	go clean -i ./go/...
-	rm -rf bin/*
-	rm -rf coverage/
+build-all: proto parser build ## Build everything (proto + parser + binaries).
 
 # Install binaries to GOPATH/bin
-install:
-	for cmd in $(COMMANDS); do \
+install: ## Install binaries to GOPATH/bin.
+	@for cmd in $(CMDS); do \
+		echo "Installing $$cmd"; \
 		go install ./go/cmd/$$cmd; \
 	done
 
+##@ Testing
+
 # Run tests
-test: pb build
+test: pb build ## Run all tests.
 	go test ./...
 
-test-short:
+test-short: ## Run short tests.
 	go test -short -v ./...
 
-test-race:
+test-race: ## Run tests with race detection.
 	go test -short -v -race ./...
 
+##@ Maintenance
+
+# Clean build artifacts
+clean: ## Remove build artifacts and temp files.
+	rm -f go/common/web/templates/css/pico.*
+	go clean -i ./go/...
+	rm -f $(BIN_DIR)/*
+
 # Clean build and dependencies
-clean-all: clean
+clean-all: clean ## Remove build dependencies and distribution files.
 	echo "Removing build dependencies..."
 	rm -rf $(MTROOT)/dist $(MTROOT)/bin
 	echo "Build dependencies removed. Run 'make tools' to reinstall."
 
-validate-generated-files: clean build-all
+validate-generated-files: clean build-all ## Validate that generated files match source.
 	echo ""
 	echo "Checking files modified during build..."
 	MODIFIED_FILES=$$(git status --porcelain | grep "^ M" | awk '{print $$2}') ; \
