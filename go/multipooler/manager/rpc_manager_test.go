@@ -286,7 +286,8 @@ func TestActionLock_MutationMethodsTimeout(t *testing.T) {
 			name:       "UndoDemote times out when lock is held",
 			poolerType: clustermetadatapb.PoolerType_PRIMARY,
 			callMethod: func(ctx context.Context) error {
-				return manager.UndoDemote(ctx)
+				_, err := manager.UndoDemote(ctx, 0)
+				return err
 			},
 		},
 		{
@@ -1227,4 +1228,183 @@ func TestReplicationStatus(t *testing.T) {
 
 		require.NoError(t, mock.ExpectationsWereMet())
 	})
+}
+
+// =============================================================================
+// UndoDemote Tests
+// =============================================================================
+
+// setupUndoDemoteTestManager creates a manager configured as a demoted primary
+// (topology shows REPLICA) for undo demotion tests.
+// Returns the manager and the mock pgctld service for configuring restart behavior.
+func setupUndoDemoteTestManager(t *testing.T, mockDB *sql.DB) (*MultiPoolerManager, *testutil.MockPgCtldService) {
+	ctx := context.Background()
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
+	t.Cleanup(func() { ts.Close() })
+
+	// Create mock pgctld service that we can configure
+	mockPgctld := &testutil.MockPgCtldService{}
+	pgctldClient, cleanupPgctld := testutil.StartTestServer(t, mockPgctld)
+	t.Cleanup(cleanupPgctld)
+
+	database := "testdb"
+	addDatabaseToTopo(t, ts, database)
+
+	serviceID := &clustermetadatapb.ID{
+		Component: clustermetadatapb.ID_MULTIPOOLER,
+		Cell:      "zone1",
+		Name:      "test-demoted-primary",
+	}
+
+	// Create as REPLICA (simulating a demoted primary)
+	multipooler := &clustermetadatapb.MultiPooler{
+		Id:            serviceID,
+		Database:      database,
+		Hostname:      "localhost",
+		PortMap:       map[string]int32{"grpc": 8080},
+		Type:          clustermetadatapb.PoolerType_REPLICA,
+		ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING_RDONLY,
+		TableGroup:    constants.DefaultTableGroup,
+		Shard:         constants.DefaultShard,
+	}
+	require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
+
+	tmpDir := t.TempDir()
+	config := &Config{
+		TopoClient: ts,
+		ServiceID:  serviceID,
+		PoolerDir:  tmpDir,
+		TableGroup: constants.DefaultTableGroup,
+		Shard:      constants.DefaultShard,
+	}
+	pm, err := NewMultiPoolerManager(logger, config)
+	require.NoError(t, err)
+	t.Cleanup(func() { pm.Close() })
+
+	// Inject the pgctld client directly
+	pm.pgctldClient = pgctldClient
+
+	// Assign mock DB BEFORE starting the manager
+	pm.db = mockDB
+
+	senv := servenv.NewServEnv(viperutil.NewRegistry())
+	go pm.Start(senv)
+
+	require.Eventually(t, func() bool {
+		return pm.GetState() == ManagerStateReady
+	}, 5*time.Second, 100*time.Millisecond, "Manager should reach Ready state")
+
+	// Create pg_data directory
+	pgDataDir := tmpDir + "/pg_data"
+	err = os.MkdirAll(pgDataDir, 0o755)
+	require.NoError(t, err)
+	err = os.WriteFile(pgDataDir+"/PG_VERSION", []byte("18\n"), 0o644)
+	require.NoError(t, err)
+
+	return pm, mockPgctld
+}
+
+// TestUndoDemote_AlreadyPrimary tests that UndoDemote returns success with WasAlreadyPrimary=true
+// when PostgreSQL is already running as a primary (idempotent behavior).
+func TestUndoDemote_AlreadyPrimary(t *testing.T) {
+	ctx := context.Background()
+
+	mockDB, mock := newMockDB(t)
+	expectStartupQueries(mock)
+
+	// queryUndoDemoteState: single query returns all state
+	// PostgreSQL is NOT in recovery (already primary)
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT\n\t\tpg_is_in_recovery(),\n\t\t(SELECT timeline_id FROM pg_control_checkpoint()),\n\t\tCOALESCE(pg_current_wal_lsn()::text, pg_last_wal_replay_lsn()::text, '')")).
+		WillReturnRows(sqlmock.NewRows([]string{"pg_is_in_recovery", "timeline_id", "lsn"}).
+			AddRow(false, 1, "0/ABCDEF0"))
+
+	pm, _ := setupUndoDemoteTestManager(t, mockDB)
+
+	// Call UndoDemote - should detect already primary and return idempotent success
+	resp, err := pm.UndoDemote(ctx, 1)
+	require.NoError(t, err, "Should succeed - already primary (idempotent)")
+	require.NotNil(t, resp)
+
+	assert.True(t, resp.WasAlreadyPrimary, "Should report as already primary")
+	assert.Equal(t, "0/ABCDEF0", resp.LsnPosition)
+	assert.Equal(t, int32(1), resp.TimelineId)
+
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestUndoDemote_TimelineMismatch tests that UndoDemote returns an error when the timeline
+// has changed, indicating another node may have been promoted.
+func TestUndoDemote_TimelineMismatch(t *testing.T) {
+	ctx := context.Background()
+
+	mockDB, mock := newMockDB(t)
+	expectStartupQueries(mock)
+
+	// queryUndoDemoteState: PostgreSQL is in recovery (standby)
+	// Timeline is 2, but we expect 1
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT\n\t\tpg_is_in_recovery(),\n\t\t(SELECT timeline_id FROM pg_control_checkpoint()),\n\t\tCOALESCE(pg_current_wal_lsn()::text, pg_last_wal_replay_lsn()::text, '')")).
+		WillReturnRows(sqlmock.NewRows([]string{"pg_is_in_recovery", "timeline_id", "lsn"}).
+			AddRow(true, 2, "0/FEDCBA0"))
+
+	pm, _ := setupUndoDemoteTestManager(t, mockDB)
+
+	// Call UndoDemote with expected timeline 1, but actual is 2
+	resp, err := pm.UndoDemote(ctx, 1)
+	require.Error(t, err, "Should fail due to timeline mismatch")
+	require.Nil(t, resp)
+
+	// Verify error code and message
+	assert.Equal(t, mtrpcpb.Code_FAILED_PRECONDITION, mterrors.Code(err))
+	assert.Contains(t, err.Error(), "timeline mismatch")
+	assert.Contains(t, err.Error(), "expected 1")
+	assert.Contains(t, err.Error(), "current 2")
+
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestUndoDemote_DatabaseConnectionFailed tests error handling when database connection fails.
+func TestUndoDemote_DatabaseConnectionFailed(t *testing.T) {
+	ctx := context.Background()
+
+	mockDB, mock := newMockDB(t)
+	expectStartupQueries(mock)
+
+	// queryUndoDemoteState: Database query fails
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT\n\t\tpg_is_in_recovery(),\n\t\t(SELECT timeline_id FROM pg_control_checkpoint()),\n\t\tCOALESCE(pg_current_wal_lsn()::text, pg_last_wal_replay_lsn()::text, '')")).
+		WillReturnError(sql.ErrConnDone)
+
+	pm, _ := setupUndoDemoteTestManager(t, mockDB)
+
+	resp, err := pm.UndoDemote(ctx, 1)
+	require.Error(t, err)
+	require.Nil(t, resp)
+	assert.Contains(t, err.Error(), "failed to query undo demote state")
+
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestUndoDemote_RestartFailed tests error handling when pgctld restart fails.
+func TestUndoDemote_RestartFailed(t *testing.T) {
+	ctx := context.Background()
+
+	mockDB, mock := newMockDB(t)
+	expectStartupQueries(mock)
+
+	// Initial state: PostgreSQL is in recovery
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT\n\t\tpg_is_in_recovery(),\n\t\t(SELECT timeline_id FROM pg_control_checkpoint()),\n\t\tCOALESCE(pg_current_wal_lsn()::text, pg_last_wal_replay_lsn()::text, '')")).
+		WillReturnRows(sqlmock.NewRows([]string{"pg_is_in_recovery", "timeline_id", "lsn"}).
+			AddRow(true, 1, "0/1234567"))
+
+	pm, mockPgctld := setupUndoDemoteTestManager(t, mockDB)
+
+	// Configure pgctld to fail on restart
+	mockPgctld.RestartError = mterrors.New(mtrpcpb.Code_INTERNAL, "mock restart failed")
+
+	resp, err := pm.UndoDemote(ctx, 1)
+	require.Error(t, err)
+	require.Nil(t, resp)
+	assert.Contains(t, err.Error(), "failed to restart as primary")
+
+	require.NoError(t, mock.ExpectationsWereMet())
 }

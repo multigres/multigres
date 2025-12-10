@@ -1032,6 +1032,63 @@ func (pm *MultiPoolerManager) restartPostgresAsStandby(ctx context.Context, stat
 	return nil
 }
 
+// restartPostgresAsPrimary restarts PostgreSQL as a primary server
+// This removes standby.signal and restarts PostgreSQL via pgctld
+func (pm *MultiPoolerManager) restartPostgresAsPrimary(ctx context.Context) error {
+	if pm.pgctldClient == nil {
+		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION, "pgctld client not initialized")
+	}
+
+	pm.logger.InfoContext(ctx, "Restarting PostgreSQL as primary")
+
+	// Call pgctld to restart as primary (removes standby.signal)
+	req := &pgctldpb.RestartRequest{
+		Mode:      "fast",
+		Timeout:   nil, // Use default timeout
+		Port:      0,   // Use default port
+		ExtraArgs: nil,
+		AsStandby: false, // Remove standby.signal before restart
+	}
+
+	// Close the query service controller to release its stale database connection
+	if err := pm.Close(); err != nil {
+		pm.logger.WarnContext(ctx, "Failed to close query service controller after restart", "error", err)
+		// Continue - we'll try to reconnect anyway
+	}
+
+	resp, err := pm.pgctldClient.Restart(ctx, req)
+	if err != nil {
+		pm.logger.ErrorContext(ctx, "Failed to restart PostgreSQL as primary", "error", err)
+		return mterrors.Wrap(err, "failed to restart as primary")
+	}
+
+	pm.logger.InfoContext(ctx, "PostgreSQL restarted as primary",
+		"pid", resp.Pid,
+		"message", resp.Message)
+
+	// Reopen the manager
+	if err := pm.Open(); err != nil {
+		pm.logger.ErrorContext(ctx, "Failed to reopen query service controller after restart", "error", err)
+		return mterrors.Wrap(err, "failed to reopen query service controller")
+	}
+
+	// Verify server is NOT in recovery mode (primary)
+	var inRecovery bool
+	err = pm.db.QueryRowContext(ctx, "SELECT pg_is_in_recovery()").Scan(&inRecovery)
+	if err != nil {
+		pm.logger.ErrorContext(ctx, "Failed to verify recovery status", "error", err)
+		return mterrors.Wrap(err, "failed to verify primary status")
+	}
+
+	if inRecovery {
+		pm.logger.ErrorContext(ctx, "PostgreSQL still in recovery mode after restart")
+		return mterrors.New(mtrpcpb.Code_INTERNAL, "server still in recovery mode after restart as primary")
+	}
+
+	pm.logger.InfoContext(ctx, "PostgreSQL is now running as a primary")
+	return nil
+}
+
 // updateTopologyAfterDemotion updates the pooler type in topology from PRIMARY to REPLICA
 func (pm *MultiPoolerManager) updateTopologyAfterDemotion(ctx context.Context, state *demotionState) error {
 	if state.isReplicaInTopology {

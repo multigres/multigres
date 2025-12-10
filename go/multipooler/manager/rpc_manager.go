@@ -866,21 +866,140 @@ func (pm *MultiPoolerManager) demoteLocked(ctx context.Context, consensusTerm in
 	}, nil
 }
 
-// UndoDemote undoes a demotion
-func (pm *MultiPoolerManager) UndoDemote(ctx context.Context) error {
+// UndoDemote undoes a demotion by restarting PostgreSQL as a primary.
+// This is only safe when no other node has been promoted (timeline unchanged).
+//
+// Invariants for safe undo (no data loss):
+//  1. No other node has been promoted (all standbys in recovery mode)
+//  2. No other node accepted writes (follows from #1)
+//  3. The old primary's data directory hasn't been modified as a standby
+//
+// The timeline ID validation ensures these invariants hold:
+// - If the timeline changed, a standby was promoted, creating divergent history
+// - We abort if the timeline doesn't match the expected value
+func (pm *MultiPoolerManager) UndoDemote(ctx context.Context, expectedTimelineID int32) (*multipoolermanagerdatapb.UndoDemoteResponse, error) {
 	if err := pm.checkReady(); err != nil {
-		return err
+		return nil, err
 	}
 
 	// Acquire the action lock to ensure only one mutation runs at a time
 	ctx, err := pm.actionLock.Acquire(ctx, "UndoDemote")
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer pm.actionLock.Release(ctx)
 
-	pm.logger.InfoContext(ctx, "UndoDemote called")
-	return mterrors.New(mtrpcpb.Code_UNIMPLEMENTED, "method UndoDemote not implemented")
+	pm.logger.InfoContext(ctx, "UndoDemote called", "expected_timeline_id", expectedTimelineID)
+
+	return pm.undoDemoteLocked(ctx, expectedTimelineID)
+}
+
+// undoDemoteLocked performs the core undo demotion logic.
+// REQUIRES: action lock must already be held by the caller.
+func (pm *MultiPoolerManager) undoDemoteLocked(ctx context.Context, expectedTimelineID int32) (*multipoolermanagerdatapb.UndoDemoteResponse, error) {
+	// Verify action lock is held
+	if err := AssertActionLockHeld(ctx); err != nil {
+		return nil, err
+	}
+
+	pm.logger.InfoContext(ctx, "undoDemoteLocked called", "expected_timeline_id", expectedTimelineID)
+
+	// === Query current state in single round trip ===
+
+	// Ensure database connection
+	if err := pm.connectDB(); err != nil {
+		pm.logger.ErrorContext(ctx, "Failed to connect to database", "error", err)
+		return nil, mterrors.Wrap(err, "database connection failed")
+	}
+
+	state, err := pm.queryUndoDemoteState(ctx)
+	if err != nil {
+		pm.logger.ErrorContext(ctx, "Failed to query undo demote state", "error", err)
+		return nil, err
+	}
+
+	pm.logger.InfoContext(ctx, "Current state",
+		"is_in_recovery", state.isInRecovery,
+		"timeline_id", state.timelineID,
+		"current_lsn", state.currentLSN)
+
+	// === Check if already primary (idempotent) ===
+
+	if !state.isInRecovery {
+		pm.logger.InfoContext(ctx, "Already running as primary, undo demotion not needed (idempotent)")
+		return &multipoolermanagerdatapb.UndoDemoteResponse{
+			WasAlreadyPrimary: true,
+			LsnPosition:       state.currentLSN,
+			TimelineId:        state.timelineID,
+		}, nil
+	}
+
+	// === Timeline validation ===
+	// This is a safety check. If the timeline has changed,
+	// it means this pooler was promoted and we have divergent WAL history.
+	// In that case, we shouldn't undo the demotion. If there are failures,
+	// we should let a new election take place.
+
+	if expectedTimelineID != 0 && state.timelineID != expectedTimelineID {
+		return nil, mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
+			"timeline mismatch: expected %d, current %d. "+
+				"This indicates another node may have been promoted. "+
+				"Undo demotion failed.",
+			expectedTimelineID, state.timelineID)
+	}
+
+	pm.logger.InfoContext(ctx, "Timeline validation passed", "timeline_id", state.timelineID)
+
+	// === Restart PostgreSQL as primary ===
+	// restartPostgresAsPrimary handles Close/Open internally to re-establish database connections
+
+	pm.logger.InfoContext(ctx, "Restarting PostgreSQL as primary to undo demotion")
+
+	if err := pm.restartPostgresAsPrimary(ctx); err != nil {
+		pm.logger.ErrorContext(ctx, "Failed to restart as primary", "error", err)
+		return nil, err
+	}
+
+	// === Update topology and heartbeat (consistent with updateTopologyAfterPromotion) ===
+
+	pm.logger.InfoContext(ctx, "Updating topology to PRIMARY")
+	updatedMultipooler, err := pm.topoClient.UpdateMultiPoolerFields(ctx, pm.serviceID, func(mp *clustermetadatapb.MultiPooler) error {
+		mp.Type = clustermetadatapb.PoolerType_PRIMARY
+		return nil
+	})
+	if err != nil {
+		pm.logger.ErrorContext(ctx, "Failed to update topology to PRIMARY", "error", err)
+		return nil, mterrors.Wrap(err, "failed to update topology after undo demotion")
+	}
+
+	pm.mu.Lock()
+	pm.multipooler.MultiPooler = updatedMultipooler
+	pm.updateCachedMultipooler()
+	pm.mu.Unlock()
+
+	// Update heartbeat tracker to primary mode (consistent with updateTopologyAfterPromotion)
+	if pm.replTracker != nil {
+		pm.logger.InfoContext(ctx, "Updating heartbeat tracker to primary mode")
+		pm.replTracker.MakePrimary()
+	}
+
+	// === Get final state ===
+
+	finalState, err := pm.queryUndoDemoteState(ctx)
+	if err != nil {
+		pm.logger.ErrorContext(ctx, "Failed to query final state", "error", err)
+		return nil, err
+	}
+
+	pm.logger.InfoContext(ctx, "UndoDemote completed successfully",
+		"lsn_position", finalState.currentLSN,
+		"timeline_id", finalState.timelineID)
+
+	return &multipoolermanagerdatapb.UndoDemoteResponse{
+		WasAlreadyPrimary: false,
+		LsnPosition:       finalState.currentLSN,
+		TimelineId:        finalState.timelineID,
+	}, nil
 }
 
 // Promote promotes a standby to primary

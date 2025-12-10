@@ -1934,11 +1934,19 @@ func (x *DemoteResponse) GetConnectionsTerminated() int32 {
 	return 0
 }
 
-// UndoDemote undoes a demotion
+// UndoDemote undoes a demotion by restarting PostgreSQL as a primary.
+// This is only safe when:
+// 1. No other node has been promoted (all standbys are in recovery mode)
+// 2. The timeline hasn't changed (no WAL divergence)
+// 3. The data directory hasn't been modified as a standby
 type UndoDemoteRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Expected timeline ID to validate before undoing demotion.
+	// If the current timeline differs, it means a standby was promoted and
+	// UndoDemote is no longer safe.
+	ExpectedTimelineId int32 `protobuf:"varint,1,opt,name=expected_timeline_id,json=expectedTimelineId,proto3" json:"expected_timeline_id,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
 }
 
 func (x *UndoDemoteRequest) Reset() {
@@ -1971,8 +1979,21 @@ func (*UndoDemoteRequest) Descriptor() ([]byte, []int) {
 	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{27}
 }
 
+func (x *UndoDemoteRequest) GetExpectedTimelineId() int32 {
+	if x != nil {
+		return x.ExpectedTimelineId
+	}
+	return 0
+}
+
 type UndoDemoteResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Whether the pooler was already a primary (idempotent check)
+	WasAlreadyPrimary bool `protobuf:"varint,1,opt,name=was_already_primary,json=wasAlreadyPrimary,proto3" json:"was_already_primary,omitempty"`
+	// LSN position after undo demotion
+	LsnPosition string `protobuf:"bytes,2,opt,name=lsn_position,json=lsnPosition,proto3" json:"lsn_position,omitempty"`
+	// Timeline ID after undo demotion
+	TimelineId    int32 `protobuf:"varint,3,opt,name=timeline_id,json=timelineId,proto3" json:"timeline_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2005,6 +2026,27 @@ func (x *UndoDemoteResponse) ProtoReflect() protoreflect.Message {
 // Deprecated: Use UndoDemoteResponse.ProtoReflect.Descriptor instead.
 func (*UndoDemoteResponse) Descriptor() ([]byte, []int) {
 	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{28}
+}
+
+func (x *UndoDemoteResponse) GetWasAlreadyPrimary() bool {
+	if x != nil {
+		return x.WasAlreadyPrimary
+	}
+	return false
+}
+
+func (x *UndoDemoteResponse) GetLsnPosition() string {
+	if x != nil {
+		return x.LsnPosition
+	}
+	return ""
+}
+
+func (x *UndoDemoteResponse) GetTimelineId() int32 {
+	if x != nil {
+		return x.TimelineId
+	}
+	return 0
 }
 
 // StopReplicationAndGetStatus stops PostgreSQL replication (replay and/or receiver based on mode)
@@ -3971,9 +4013,14 @@ const file_multipoolermanagerdata_proto_rawDesc = "" +
 	"\x13was_already_demoted\x18\x01 \x01(\bR\x11wasAlreadyDemoted\x12%\n" +
 	"\x0econsensus_term\x18\x02 \x01(\x03R\rconsensusTerm\x12!\n" +
 	"\flsn_position\x18\x03 \x01(\tR\vlsnPosition\x125\n" +
-	"\x16connections_terminated\x18\x04 \x01(\x05R\x15connectionsTerminated\"\x13\n" +
-	"\x11UndoDemoteRequest\"\x14\n" +
-	"\x12UndoDemoteResponse\"z\n" +
+	"\x16connections_terminated\x18\x04 \x01(\x05R\x15connectionsTerminated\"E\n" +
+	"\x11UndoDemoteRequest\x120\n" +
+	"\x14expected_timeline_id\x18\x01 \x01(\x05R\x12expectedTimelineId\"\x88\x01\n" +
+	"\x12UndoDemoteResponse\x12.\n" +
+	"\x13was_already_primary\x18\x01 \x01(\bR\x11wasAlreadyPrimary\x12!\n" +
+	"\flsn_position\x18\x02 \x01(\tR\vlsnPosition\x12\x1f\n" +
+	"\vtimeline_id\x18\x03 \x01(\x05R\n" +
+	"timelineId\"z\n" +
 	"\"StopReplicationAndGetStatusRequest\x12@\n" +
 	"\x04mode\x18\x01 \x01(\x0e2,.multipoolermanagerdata.ReplicationPauseModeR\x04mode\x12\x12\n" +
 	"\x04wait\x18\x02 \x01(\bR\x04wait\"o\n" +

@@ -16,21 +16,14 @@ package grpcmanagerservice
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
 	"os"
-	"strings"
 	"testing"
-	"time"
 
-	"github.com/multigres/multigres/go/cmd/pgctld/testutil"
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/mterrors"
-	"github.com/multigres/multigres/go/common/servenv"
-	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
 	"github.com/multigres/multigres/go/multipooler/manager"
-	"github.com/multigres/multigres/go/tools/viperutil"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -39,106 +32,6 @@ import (
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multipoolermanagerdata "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
-
-func addDatabaseToTopo(t *testing.T, ts topoclient.Store, database string) {
-	t.Helper()
-	ctx := context.Background()
-	err := ts.CreateDatabase(ctx, database, &clustermetadata.Database{
-		Name:             database,
-		BackupLocation:   "/var/backups/pgbackrest",
-		DurabilityPolicy: "ANY_2",
-	})
-	require.NoError(t, err)
-}
-
-func TestManagerServiceMethods_NotImplemented(t *testing.T) {
-	ctx := context.Background()
-	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
-	defer ts.Close()
-
-	// Start mock pgctld server
-	pgctldAddr, cleanupPgctld := testutil.StartMockPgctldServer(t)
-	defer cleanupPgctld()
-
-	// Create database in topology
-	addDatabaseToTopo(t, ts, "testdb")
-
-	// Create the multipooler in topology so manager can reach ready state
-	serviceID := &clustermetadata.ID{
-		Component: clustermetadata.ID_MULTIPOOLER,
-		Cell:      "zone1",
-		Name:      "test-service",
-	}
-	multipooler := &clustermetadata.MultiPooler{
-		Id:            serviceID,
-		Database:      "testdb",
-		Hostname:      "localhost",
-		PortMap:       map[string]int32{"grpc": 8080},
-		Type:          clustermetadata.PoolerType_PRIMARY,
-		ServingStatus: clustermetadata.PoolerServingStatus_SERVING,
-		TableGroup:    constants.DefaultTableGroup,
-		Shard:         constants.DefaultShard,
-	}
-	require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
-
-	config := &manager.Config{
-		TopoClient: ts,
-		ServiceID:  serviceID,
-		PgctldAddr: pgctldAddr,
-		TableGroup: constants.DefaultTableGroup,
-		Shard:      constants.DefaultShard,
-	}
-	pm, err := manager.NewMultiPoolerManager(logger, config)
-	require.NoError(t, err)
-	defer pm.Close()
-
-	// Start the async loader
-	senv := servenv.NewServEnv(viperutil.NewRegistry())
-	go pm.Start(senv)
-
-	// Wait for the manager to become ready
-	require.Eventually(t, func() bool {
-		return pm.GetState() == manager.ManagerStateReady
-	}, 5*time.Second, 100*time.Millisecond, "Manager should reach Ready state")
-
-	svc := &managerService{
-		manager: pm,
-	}
-
-	tests := []struct {
-		name           string
-		method         func() error
-		expectedMethod string
-	}{
-		{
-			name: "UndoDemote",
-			method: func() error {
-				req := &multipoolermanagerdata.UndoDemoteRequest{}
-				_, err := svc.UndoDemote(ctx, req)
-				return err
-			},
-			expectedMethod: "UndoDemote",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			err := tt.method()
-
-			// Assert that all methods return an error
-			assert.Error(t, err, "Method %s should return an error", tt.name)
-
-			// Convert gRPC error back to mterrors to check the code
-			mterr := mterrors.FromGRPC(err)
-			code := mterrors.Code(mterr)
-			assert.Equal(t, mtrpcpb.Code_UNIMPLEMENTED, code, "Should return Unimplemented code")
-			if !strings.Contains(err.Error(), fmt.Sprintf("method %s not implemented", tt.expectedMethod)) {
-				t.Errorf("Error message should include: method %s not implemented, got: %s", tt.expectedMethod, err.Error())
-			}
-		})
-	}
-}
 
 func TestManagerServiceMethods_ManagerNotReady(t *testing.T) {
 	ctx := context.Background()
