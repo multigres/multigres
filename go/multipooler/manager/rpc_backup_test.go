@@ -909,6 +909,9 @@ func createTestManagerForAutoRestore(logger *slog.Logger, poolerDir string, pool
 	pm := createTestManagerWithBackupLocation(poolerDir, "test-stanza", "default", "0", poolerType, "/tmp/backups")
 	pm.logger = logger
 	pm.autoRestoreRetryInterval = 10 * time.Millisecond // Short interval for tests
+	// Close readyChan to simulate ready state (skip waiting in tests)
+	pm.readyChan = make(chan struct{})
+	close(pm.readyChan)
 	return pm
 }
 
@@ -923,6 +926,8 @@ func TestTryAutoRestoreFromBackup_SkipsWhenInitialized(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(pgDataDir, "PG_VERSION"), []byte("16"), 0o644))
 	require.NoError(t, os.MkdirAll(filepath.Join(pgDataDir, "global"), 0o755))
 
+	readyChan := make(chan struct{})
+	close(readyChan) // Simulate ready state
 	pm := &MultiPoolerManager{
 		logger: logger,
 		config: &Config{
@@ -931,14 +936,14 @@ func TestTryAutoRestoreFromBackup_SkipsWhenInitialized(t *testing.T) {
 		backupLocation:           "/tmp/backups",
 		actionLock:               NewActionLock(),
 		autoRestoreRetryInterval: 10 * time.Millisecond,
+		readyChan:                readyChan,
 	}
 
 	// Create the initialization marker file - this is what isInitialized() checks
 	require.NoError(t, pm.writeInitializationMarker())
 
 	// Should not attempt restore when already initialized
-	restored := pm.tryAutoRestoreFromBackup(ctx)
-	assert.False(t, restored, "Should not restore when already initialized")
+	pm.tryAutoRestoreFromBackup(ctx)
 }
 
 func TestTryAutoRestoreFromBackup_SkipsForPrimary(t *testing.T) {
@@ -951,8 +956,11 @@ func TestTryAutoRestoreFromBackup_SkipsForPrimary(t *testing.T) {
 	pm := createTestManagerForAutoRestore(logger, poolerDir, clustermetadatapb.PoolerType_PRIMARY)
 
 	// Should not attempt restore for PRIMARY even when uninitialized
-	restored := pm.tryAutoRestoreFromBackup(ctx)
-	assert.False(t, restored, "Should not restore PRIMARY pooler")
+	// Function returns immediately without attempting restore
+	pm.tryAutoRestoreFromBackup(ctx)
+
+	// Verify still uninitialized (restore was skipped)
+	assert.False(t, pm.isInitialized(ctx), "Should remain uninitialized for PRIMARY")
 }
 
 func TestTryAutoRestoreFromBackup_SkipsForUnknownType(t *testing.T) {
@@ -966,8 +974,11 @@ func TestTryAutoRestoreFromBackup_SkipsForUnknownType(t *testing.T) {
 	pm := createTestManagerForAutoRestore(logger, poolerDir, clustermetadatapb.PoolerType_UNKNOWN)
 
 	// Should not attempt restore for UNKNOWN type - only REPLICA should auto-restore
-	restored := pm.tryAutoRestoreFromBackup(ctx)
-	assert.False(t, restored, "Should not restore UNKNOWN pooler type")
+	// Function returns immediately without attempting restore
+	pm.tryAutoRestoreFromBackup(ctx)
+
+	// Verify still uninitialized (restore was skipped)
+	assert.False(t, pm.isInitialized(ctx), "Should remain uninitialized for UNKNOWN type")
 }
 
 func TestListBackups_ReturnsEmptyWhenNoBackups(t *testing.T) {
@@ -995,9 +1006,8 @@ func TestTryAutoRestoreFromBackup_RetriesUntilContextCancelled(t *testing.T) {
 
 	pm := createTestManagerForAutoRestore(logger, poolerDir, clustermetadatapb.PoolerType_REPLICA)
 
-	// Should return false when context is cancelled (no restore performed)
-	restored := pm.tryAutoRestoreFromBackup(ctx)
-	assert.False(t, restored, "Should not restore when context is cancelled")
+	// Function should return when context is cancelled (no restore performed)
+	pm.tryAutoRestoreFromBackup(ctx)
 
 	// Should still be uninitialized
 	assert.False(t, pm.isInitialized(t.Context()), "Should remain uninitialized")
@@ -1017,21 +1027,6 @@ func TestLoadMultiPoolerFromTopo_CallsAutoRestore(t *testing.T) {
 	pm := createTestManagerForAutoRestore(logger, poolerDir, clustermetadatapb.PoolerType_REPLICA)
 
 	// Verify tryAutoRestoreFromBackup can be called and returns without panic
-	restored := pm.tryAutoRestoreFromBackup(ctx)
-	assert.False(t, restored, "Should not restore when no backups/stanza")
-}
-
-func TestTryAutoRestoreFromBackup_SkipsWhenFieldSet(t *testing.T) {
-	ctx := t.Context()
-	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
-
-	// Create temp pooler dir WITHOUT initialization markers (would trigger auto-restore)
-	poolerDir := t.TempDir()
-
-	pm := createTestManagerForAutoRestore(logger, poolerDir, clustermetadatapb.PoolerType_REPLICA)
-	pm.SkipAutoRestore = true
-
-	// Should skip restore even though pooler is uninitialized REPLICA
-	restored := pm.tryAutoRestoreFromBackup(ctx)
-	assert.False(t, restored, "Should skip restore when SkipAutoRestore is set")
+	pm.tryAutoRestoreFromBackup(ctx)
+	// No assertion needed - function should return without panic
 }

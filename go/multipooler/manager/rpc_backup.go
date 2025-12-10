@@ -142,13 +142,11 @@ func (pm *MultiPoolerManager) backupLocked(ctx context.Context, forcePrimary boo
 	return backupID, nil
 }
 
-// RestoreFromBackup restores from a backup to an uninitialized standby.
+// RestoreFromBackup restores from a backup to a standby without a data directory.
 //
 // Requirements:
 // - The pooler must be a standby (not a primary)
-// - The database must not be initialized (pm.isInitialized() must be false)
-// - PostgreSQL must not be running (caller's responsibility to stop it)
-// - PGDATA must be removed if it exists (caller's responsibility)
+// - PGDATA must not exist (caller's responsibility to stop PostgreSQL and remove it)
 //
 // This function will:
 // 1. Execute pgbackrest restore to recreate PGDATA
@@ -186,23 +184,28 @@ func (pm *MultiPoolerManager) restoreFromBackupLocked(ctx context.Context, backu
 			"cannot restore to a primary pooler; restore is only supported for standby poolers")
 	}
 
-	// Check that database is not initialized
-	if pm.isInitialized(ctx) {
+	// Check that PGDATA doesn't exist (caller must remove it before restore)
+	if pm.hasDataDirectory() {
 		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
-			"cannot restore onto already-initialized database; caller must stop PostgreSQL and remove PGDATA first")
+			"cannot restore: PGDATA already exists; caller must stop PostgreSQL and remove PGDATA first")
 	}
 
 	// Restore the backup
-	if err := pm.executeBackrestRestore(ctx, backupID); err != nil {
+	if err := pm.executePgBackrestRestore(ctx, backupID); err != nil {
 		return err
 	}
 	if err := pm.startPostgreSQLAfterRestore(ctx, backupID); err != nil {
 		return err
 	}
-	return pm.reopenPoolerManager(ctx)
+	if err := pm.reopenPoolerManager(ctx); err != nil {
+		return err
+	}
+
+	// Mark as initialized after successful restore
+	return pm.setInitialized()
 }
 
-func (pm *MultiPoolerManager) executeBackrestRestore(ctx context.Context, backupID string) error {
+func (pm *MultiPoolerManager) executePgBackrestRestore(ctx context.Context, backupID string) error {
 	stanzaName := pm.getBackupStanza()
 	configPath := pm.getBackupConfigPath()
 
@@ -314,6 +317,10 @@ func (pm *MultiPoolerManager) getBackupsLocked(ctx context.Context, limit uint32
 }
 
 // listBackups retrieves backup metadata from pgbackrest.
+// Caller must hold the action lock.
+// pm.mu is NOT required because this function only reads config fields
+// (which are immutable after construction) and backupLocation (which is
+// set once during startup and never modified).
 func (pm *MultiPoolerManager) listBackups(ctx context.Context) ([]*multipoolermanagerdata.BackupMetadata, error) {
 	configPath := pm.getBackupConfigPath()
 	stanzaName := pm.getBackupStanza()
@@ -359,7 +366,7 @@ func (pm *MultiPoolerManager) listBackups(ctx context.Context) ([]*multipoolerma
 	}
 
 	if len(infoData) == 0 || len(infoData[0].Backup) == 0 {
-		return nil, nil
+		return []*multipoolermanagerdata.BackupMetadata{}, nil
 	}
 
 	// Get current pooler's table_group and shard for filtering
@@ -385,14 +392,14 @@ func (pm *MultiPoolerManager) listBackups(ctx context.Context) ([]*multipoolerma
 		// Defense-in-depth: skip backups that don't match this pooler's shard.
 		// This check is not strictly necessary since stanzas are shard-scoped,
 		// but provides an extra layer of safety.
-		if tableGroup != "" && tableGroup != currentTableGroup {
+		if tableGroup != currentTableGroup {
 			pm.logger.ErrorContext(ctx, "Skipping backup with mismatched table_group",
 				"backup_id", pgBackup.Label,
 				"backup_table_group", tableGroup,
 				"current_table_group", currentTableGroup)
 			continue
 		}
-		if shard != "" && shard != currentShard {
+		if shard != currentShard {
 			pm.logger.ErrorContext(ctx, "Skipping backup with mismatched shard",
 				"backup_id", pgBackup.Label,
 				"backup_shard", shard,
@@ -626,11 +633,23 @@ func (pm *MultiPoolerManager) findBackupByAnnotations(
 //
 // If uninitialized and no backup is available, the pooler stays in uninitialized state
 // and waits for explicit initialization via RPC.
-func (pm *MultiPoolerManager) tryAutoRestoreFromBackup(ctx context.Context) bool {
-	// Allow tests to skip auto-restore without creating fake initialization markers
-	if pm.SkipAutoRestore {
-		pm.logger.InfoContext(ctx, "Auto-restore skipped: SkipAutoRestore is set")
-		return false
+// tryAutoRestoreFromBackup attempts to restore from backup if the pooler is uninitialized.
+// This runs as an independent goroutine started by Start().
+// It waits for topo to be loaded, then retries until:
+// - A backup is found and restore succeeds
+// - The pooler becomes initialized (by an RPC)
+// - The context is cancelled
+//
+// Auto-restore only applies to REPLICA poolers. PRIMARY poolers must be explicitly
+// initialized via InitializeEmptyPrimary RPC.
+func (pm *MultiPoolerManager) tryAutoRestoreFromBackup(ctx context.Context) {
+	// Wait for manager to be ready (topo loaded) before checking initialization state
+	pm.waitForReady(ctx)
+
+	// Check context after waiting
+	if ctx.Err() != nil {
+		pm.logger.InfoContext(ctx, "Auto-restore: context cancelled while waiting for topo")
+		return
 	}
 
 	// TODO: Handle partial initialization state (data dir exists but no marker).
@@ -642,15 +661,14 @@ func (pm *MultiPoolerManager) tryAutoRestoreFromBackup(ctx context.Context) bool
 	// Check if already initialized - skip if so (no retry needed)
 	if pm.isInitialized(ctx) {
 		pm.logger.InfoContext(ctx, "Auto-restore skipped: pooler already initialized")
-		return false
+		return
 	}
 
 	// Only auto-restore REPLICA poolers - PRIMARY must be explicitly initialized.
-	// UNKNOWN type (before topo is loaded) also skips auto-restore to avoid blocking startup.
 	poolerType := pm.getPoolerType()
 	if poolerType != clustermetadatapb.PoolerType_REPLICA {
 		pm.logger.InfoContext(ctx, "Auto-restore skipped: only REPLICA poolers auto-restore", "pooler_type", poolerType.String())
-		return false
+		return
 	}
 
 	pm.logger.InfoContext(ctx, "Auto-restore: pooler is uninitialized, checking for backups")
@@ -660,21 +678,20 @@ func (pm *MultiPoolerManager) tryAutoRestoreFromBackup(ctx context.Context) bool
 	for attempt, err := range r.Attempts(ctx) {
 		if err != nil {
 			pm.logger.InfoContext(ctx, "Auto-restore: context cancelled", "attempts", attempt, "error", err)
-			return false
+			return
 		}
 
 		if attempt > 1 {
 			pm.logger.InfoContext(ctx, "Auto-restore: retrying", "attempt", attempt)
 		}
 
-		success, done := pm.tryAutoRestoreOnce(ctx)
+		_, done := pm.tryAutoRestoreOnce(ctx)
 		if done {
-			return success
+			// Either succeeded or determined should not retry
+			return
 		}
 		// continue to next iteration for retry
 	}
-
-	return false
 }
 
 // tryAutoRestoreOnce attempts a single auto-restore from backup.
@@ -726,8 +743,10 @@ func (pm *MultiPoolerManager) tryAutoRestoreOnce(ctx context.Context) (success b
 		"backup_id", latestBackup.BackupId,
 		"total_backups", len(backups))
 
-	// Perform the restore
-	if err := pm.executeAutoRestore(lockCtx, latestBackup.BackupId); err != nil {
+	// Perform the restore using restoreFromBackupLocked
+	// This ensures consistent behavior between auto-restore and explicit RestoreFromBackup RPC
+	pm.logger.InfoContext(ctx, "Executing auto-restore from backup", "backup_id", latestBackup.BackupId)
+	if err := pm.restoreFromBackupLocked(lockCtx, latestBackup.BackupId); err != nil {
 		pm.logger.ErrorContext(ctx, "Auto-restore: restore failed, will retry",
 			"backup_id", latestBackup.BackupId,
 			"error", err)
@@ -736,34 +755,4 @@ func (pm *MultiPoolerManager) tryAutoRestoreOnce(ctx context.Context) (success b
 
 	pm.logger.InfoContext(ctx, "Auto-restore: completed successfully", "backup_id", latestBackup.BackupId)
 	return true, true
-}
-
-// executeAutoRestore performs the actual restore from backup during startup.
-// This reuses the core restore logic from restoreFromBackupLocked without the
-// PRIMARY check (already done in tryAutoRestoreFromBackup).
-// Caller must hold the action lock.
-func (pm *MultiPoolerManager) executeAutoRestore(ctx context.Context, backupID string) error {
-	pm.logger.InfoContext(ctx, "Executing auto-restore from backup", "backup_id", backupID)
-
-	// Execute pgbackrest restore
-	if err := pm.executeBackrestRestore(ctx, backupID); err != nil {
-		return err
-	}
-
-	// Start PostgreSQL as standby after restore
-	if err := pm.startPostgreSQLAfterRestore(ctx, backupID); err != nil {
-		return err
-	}
-
-	// Reopen pooler manager connections
-	if err := pm.reopenPoolerManager(ctx); err != nil {
-		return err
-	}
-
-	// Write initialization marker to indicate full initialization completed.
-	if err := pm.writeInitializationMarker(); err != nil {
-		return err
-	}
-
-	return nil
 }

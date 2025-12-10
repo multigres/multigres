@@ -40,6 +40,7 @@ import (
 	"github.com/multigres/multigres/go/test/utils"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	"github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	"github.com/multigres/multigres/go/pb/pgctldservice"
 )
 
@@ -292,11 +293,16 @@ func TestBootstrapInitialization(t *testing.T) {
 		standbyNode.multipoolerCmd = multipoolerCmd
 		t.Logf("Restarted multipooler for %s (should auto-restore)", standbyNode.name)
 
-		// Wait for multipooler to be ready (auto-restore happens during startup)
+		// Wait for multipooler gRPC to be ready first
 		waitForMultipoolerReady(t, standbyNode.grpcPort, 90*time.Second)
 
-		// Step 4: Verify auto-restore succeeded
-		status := checkInitializationStatus(t, standbyNode)
+		// Step 4: Wait for auto-restore to complete (runs as background goroutine)
+		// Poll until initialization completes or timeout
+		var status *multipoolermanagerdata.Status
+		require.Eventually(t, func() bool {
+			status = checkInitializationStatus(t, standbyNode)
+			return status.IsInitialized && status.PostgresRunning
+		}, 90*time.Second, 1*time.Second, "Auto-restore should complete within timeout")
 		assert.True(t, status.IsInitialized, "Standby should be initialized after auto-restore")
 		assert.True(t, status.HasDataDirectory, "Standby should have data directory after auto-restore")
 		assert.True(t, status.PostgresRunning, "PostgreSQL should be running after auto-restore")

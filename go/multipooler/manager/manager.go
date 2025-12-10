@@ -116,9 +116,9 @@ type MultiPoolerManager struct {
 	// Defaults to 1 second. Can be set to a shorter duration for testing.
 	autoRestoreRetryInterval time.Duration
 
-	// SkipAutoRestore skips auto-restore from backup during startup.
-	// This is intended for tests that don't need backup functionality.
-	SkipAutoRestore bool
+	// initialized tracks whether this pooler has been fully initialized.
+	// Once true, stays true for the lifetime of the manager.
+	initialized bool
 
 	// TODO: Implement async query serving state management system
 	// This should include: target state, current state, convergence goroutine,
@@ -365,12 +365,13 @@ func (pm *MultiPoolerManager) closeConnectionsLocked() error {
 // the main context. This is used during auto-restore to restart connections
 // after PostgreSQL has been restored, without disrupting the startup flow.
 func (pm *MultiPoolerManager) reopenConnections(ctx context.Context) error {
-	pm.mu.Lock()
-	if err := pm.closeConnectionsLocked(); err != nil {
-		pm.mu.Unlock()
+	if err := func() error {
+		pm.mu.Lock()
+		defer pm.mu.Unlock()
+		return pm.closeConnectionsLocked()
+	}(); err != nil {
 		return err
 	}
-	pm.mu.Unlock()
 
 	// Now reopen (Open() acquires its own lock)
 	return pm.Open()
@@ -633,6 +634,14 @@ func (pm *MultiPoolerManager) checkAndSetReady() {
 	}
 }
 
+// waitForReady blocks until the manager is ready (topo loaded) or context is cancelled
+func (pm *MultiPoolerManager) waitForReady(ctx context.Context) {
+	select {
+	case <-ctx.Done():
+	case <-pm.readyChan:
+	}
+}
+
 // loadMultiPoolerFromTopo loads the multipooler record from topology asynchronously
 func (pm *MultiPoolerManager) loadMultiPoolerFromTopo() {
 	// Validate ServiceID is not nil
@@ -694,10 +703,7 @@ func (pm *MultiPoolerManager) loadMultiPoolerFromTopo() {
 
 		pm.logger.InfoContext(pm.ctx, "Loaded multipooler record from topology", "service_id", pm.serviceID.String(), "database", mp.Database, "backup_location", db.BackupLocation, "pooler_type", mp.Type.String())
 
-		// Try to auto-restore from backup if uninitialized
-		// This must happen after topo is loaded (for backupLocation) but before ready state
-		// Use pm.ctx instead of the canceled ctx from GetDatabase
-		pm.tryAutoRestoreFromBackup(pm.ctx)
+		// Note: restoring from backup (for replicas) happens in a separate goroutine
 
 		pm.checkAndSetReady()
 		return
@@ -1349,6 +1355,8 @@ func (pm *MultiPoolerManager) Start(senv *servenv.ServEnv) {
 	if pm.config.ConsensusEnabled {
 		go pm.loadConsensusTermFromDisk()
 	}
+	// Start background restore from backup, for replica poolers
+	go pm.tryAutoRestoreFromBackup(pm.ctx)
 
 	// Initialize query service controller with DB config
 	dbConfig := &poolerserver.DBConfig{

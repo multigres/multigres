@@ -138,10 +138,10 @@ func (pm *MultiPoolerManager) InitializeEmptyPrimary(ctx context.Context, req *m
 		pm.logger.InfoContext(ctx, "Created durability policy", "policy_name", req.DurabilityPolicyName)
 	}
 
-	// Write initialization marker to indicate full initialization completed.
-	// This marker is checked by isInitialized() when the database connection is not available.
-	if err := pm.writeInitializationMarker(); err != nil {
-		return nil, mterrors.Wrap(err, "failed to write initialization marker")
+	// Mark as initialized after successful primary initialization.
+	// This sets the cached boolean and writes the marker file.
+	if err := pm.setInitialized(); err != nil {
+		return nil, mterrors.Wrap(err, "failed to mark pooler as initialized")
 	}
 
 	pm.logger.InfoContext(ctx, "Successfully initialized pooler as empty primary", "shard", pm.getShardID(), "term", req.ConsensusTerm)
@@ -237,10 +237,10 @@ func (pm *MultiPoolerManager) InitializeAsStandby(ctx context.Context, req *mult
 		}
 	}
 
-	// Write initialization marker to indicate full initialization completed.
-	// This marker is checked by isInitialized() when the database connection is not available.
-	if err := pm.writeInitializationMarker(); err != nil {
-		return nil, mterrors.Wrap(err, "failed to write initialization marker")
+	// Mark as initialized after successful standby initialization.
+	// This sets the cached boolean and writes the marker file.
+	if err := pm.setInitialized(); err != nil {
+		return nil, mterrors.Wrap(err, "failed to mark pooler as initialized")
 	}
 
 	pm.logger.InfoContext(ctx, "Successfully initialized pooler as standby", "shard", pm.getShardID(), "term", req.ConsensusTerm)
@@ -259,27 +259,54 @@ const multigresInitMarker = "MULTIGRES_INITIALIZED"
 // isInitialized checks if the pooler has been initialized (has data directory and multigres schema)
 // This should return true even when postgres is not running, as long as the node was previously initialized.
 func (pm *MultiPoolerManager) isInitialized(ctx context.Context) bool {
+	// Fast path: check cached state first
+	pm.mu.Lock()
+	if pm.initialized {
+		pm.mu.Unlock()
+		return true
+	}
+	pm.mu.Unlock()
+
 	if !pm.hasDataDirectory() {
 		return false
 	}
 
+	var initialized bool
+
 	// If database is connected, check if multigres schema exists
 	if pm.db != nil {
 		exists, err := pm.querySchemaExists(ctx)
-		return err == nil && exists
+		initialized = err == nil && exists
+	} else {
+		// If database is not connected (e.g., postgres is down), check for the initialization marker.
+		// This marker is created after full initialization completes (schema created, backup done).
+		// It's more reliable than checking for PG_VERSION/global because those exist after initdb
+		// but before the full initialization process completes.
+		dataDir := filepath.Join(pm.config.PoolerDir, "pg_data")
+		markerFile := filepath.Join(dataDir, multigresInitMarker)
+		_, err := os.Stat(markerFile)
+		initialized = err == nil
 	}
 
-	// If database is not connected (e.g., postgres is down), check for the initialization marker.
-	// This marker is created after full initialization completes (schema created, backup done).
-	// It's more reliable than checking for PG_VERSION/global because those exist after initdb
-	// but before the full initialization process completes.
-	dataDir := filepath.Join(pm.config.PoolerDir, "pg_data")
-	markerFile := filepath.Join(dataDir, multigresInitMarker)
-	if _, err := os.Stat(markerFile); err != nil {
-		return false // Marker doesn't exist, not fully initialized
+	// Update cached state if we discovered initialization
+	if initialized {
+		pm.mu.Lock()
+		pm.initialized = true
+		pm.mu.Unlock()
 	}
 
-	return true
+	return initialized
+}
+
+// setInitialized marks the pooler as initialized and writes the marker file.
+// This should be called after successful initialization (primary init, standby init, or restore).
+// Once set, the pooler will skip auto-restore attempts.
+func (pm *MultiPoolerManager) setInitialized() error {
+	pm.mu.Lock()
+	pm.initialized = true
+	pm.mu.Unlock()
+
+	return pm.writeInitializationMarker()
 }
 
 // writeInitializationMarker creates the initialization marker file to indicate
