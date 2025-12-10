@@ -20,7 +20,11 @@
 package multiorch
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
+	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -29,10 +33,14 @@ import (
 	_ "github.com/lib/pq"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 
+	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/test/utils"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	"github.com/multigres/multigres/go/pb/pgctldservice"
 )
 
 func TestBootstrapInitialization(t *testing.T) {
@@ -210,5 +218,91 @@ func TestBootstrapInitialization(t *testing.T) {
 		// Verify it contains ANY keyword (for ANY_2 policy)
 		assert.Contains(t, strings.ToUpper(syncStandbyNames), "ANY",
 			"should use ANY method for ANY_2 policy")
+	})
+
+	t.Run("verify auto-restore on startup", func(t *testing.T) {
+		// This tests that an uninitialized REPLICA can auto-restore from backup.
+		// We simulate data loss on a standby and verify it auto-restores on restart.
+		// Bootstrap already created a backup on the primary, so we can skip that step.
+
+		// Step 1: Find an initialized standby
+		var standbyNode *nodeInstance
+		for _, node := range nodes {
+			if node.name == primaryNode.name {
+				continue
+			}
+			status := checkInitializationStatus(t, node)
+			if status.IsInitialized && status.PoolerType == clustermetadatapb.PoolerType_REPLICA {
+				standbyNode = node
+				break
+			}
+		}
+		require.NotNil(t, standbyNode, "Should have at least one initialized standby")
+		t.Logf("Selected standby for auto-restore test: %s", standbyNode.name)
+
+		// Step 2: Stop postgres and remove data directory to simulate data loss
+		// First terminate the multipooler
+		terminateProcess(t, standbyNode.multipoolerCmd, "standby-multipooler", 5*time.Second)
+		standbyNode.multipoolerCmd = nil
+
+		// Stop postgres via pgctld if running
+		pgctldConn, err := grpc.NewClient(
+			fmt.Sprintf("localhost:%d", standbyNode.pgctldGrpcPort),
+			grpc.WithTransportCredentials(insecure.NewCredentials()),
+		)
+		require.NoError(t, err)
+		defer pgctldConn.Close()
+
+		pgctldClient := pgctldservice.NewPgCtldClient(pgctldConn)
+		stopCtx, stopCancel := context.WithTimeout(t.Context(), 30*time.Second)
+		defer stopCancel()
+		_, _ = pgctldClient.Stop(stopCtx, &pgctldservice.StopRequest{})
+
+		// Remove pg_data directory to simulate complete data loss
+		pgDataDir := filepath.Join(standbyNode.dataDir, "pg_data")
+		err = os.RemoveAll(pgDataDir)
+		require.NoError(t, err, "Should remove pg_data directory")
+		t.Logf("Removed pg_data directory: %s", pgDataDir)
+
+		// Step 3: Restart multipooler (should auto-restore from backup)
+		serviceID := fmt.Sprintf("%s/%s", env.config.cellName, standbyNode.name)
+		multipoolerCmd := exec.Command("multipooler",
+			"--grpc-port", fmt.Sprintf("%d", standbyNode.grpcPort),
+			"--database", env.config.database,
+			"--table-group", constants.DefaultTableGroup,
+			"--shard", constants.DefaultShard,
+			"--pgctld-addr", fmt.Sprintf("localhost:%d", standbyNode.pgctldGrpcPort),
+			"--pooler-dir", standbyNode.dataDir,
+			"--pg-port", fmt.Sprintf("%d", standbyNode.pgPort),
+			"--service-map", "grpc-pooler,grpc-poolermanager,grpc-consensus,grpc-backup",
+			"--topo-global-server-addresses", env.etcdClientAddr,
+			"--topo-global-root", "/multigres/global",
+			"--topo-implementation", "etcd2",
+			"--cell", env.config.cellName,
+			"--service-id", serviceID,
+			"--pgbackrest-stanza", env.config.stanzaName,
+		)
+		multipoolerCmd.Dir = standbyNode.dataDir
+		mpLogFile := filepath.Join(standbyNode.dataDir, "multipooler-autorestore.log")
+		mpLogF, err := os.Create(mpLogFile)
+		require.NoError(t, err)
+		multipoolerCmd.Stdout = mpLogF
+		multipoolerCmd.Stderr = mpLogF
+		require.NoError(t, multipoolerCmd.Start())
+		standbyNode.multipoolerCmd = multipoolerCmd
+		t.Logf("Restarted multipooler for %s (should auto-restore)", standbyNode.name)
+
+		// Wait for multipooler to be ready (auto-restore happens during startup)
+		waitForMultipoolerReady(t, standbyNode.grpcPort, 90*time.Second)
+
+		// Step 4: Verify auto-restore succeeded
+		status := checkInitializationStatus(t, standbyNode)
+		assert.True(t, status.IsInitialized, "Standby should be initialized after auto-restore")
+		assert.True(t, status.HasDataDirectory, "Standby should have data directory after auto-restore")
+		assert.True(t, status.PostgresRunning, "PostgreSQL should be running after auto-restore")
+		assert.Equal(t, "standby", status.PostgresRole, "Should be in standby role after auto-restore")
+
+		t.Logf("Auto-restore succeeded: IsInitialized=%v, HasDataDirectory=%v, PostgresRunning=%v, Role=%s",
+			status.IsInitialized, status.HasDataDirectory, status.PostgresRunning, status.PostgresRole)
 	})
 }
