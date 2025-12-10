@@ -24,6 +24,9 @@ import (
 	"github.com/multigres/multigres/go/pgprotocol/client"
 )
 
+// PooledConn is an alias for a pooled regular connection.
+type PooledConn = *connpool.Pooled[*Conn]
+
 // PoolConfig holds configuration for the regular pool.
 type PoolConfig struct {
 	// ClientConfig is the PostgreSQL connection configuration.
@@ -69,12 +72,12 @@ func (p *Pool) Open(ctx context.Context) {
 }
 
 // Get returns a connection from the pool with no settings applied.
-func (p *Pool) Get(ctx context.Context) (*connpool.Pooled[*Conn], error) {
+func (p *Pool) Get(ctx context.Context) (PooledConn, error) {
 	return p.pool.Get(ctx)
 }
 
 // GetWithSettings returns a connection from the pool with the given settings applied.
-func (p *Pool) GetWithSettings(ctx context.Context, settings *connstate.Settings) (*connpool.Pooled[*Conn], error) {
+func (p *Pool) GetWithSettings(ctx context.Context, settings *connstate.Settings) (PooledConn, error) {
 	return p.pool.GetWithSettings(ctx, settings)
 }
 

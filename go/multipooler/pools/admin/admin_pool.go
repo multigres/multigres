@@ -31,6 +31,9 @@ type PoolConfig struct {
 	ConnPoolConfig *connpool.Config
 }
 
+// PooledConn is an alias for a pooled admin connection.
+type PooledConn = *connpool.Pooled[*Conn]
+
 // Pool manages a pool of administrative connections using connpool.Pool.
 // These connections are used for terminating/canceling other backend connections
 // via pg_terminate_backend() and pg_cancel_backend().
@@ -68,8 +71,8 @@ func (p *Pool) Open(ctx context.Context) {
 }
 
 // Get acquires an admin connection from the pool.
-// The caller must call Recycle() on the returned Pooled to return the connection.
-func (p *Pool) Get(ctx context.Context) (*connpool.Pooled[*Conn], error) {
+// The caller must call Recycle() on the returned PooledConn to return the connection.
+func (p *Pool) Get(ctx context.Context) (PooledConn, error) {
 	return p.pool.Get(ctx)
 }
 
