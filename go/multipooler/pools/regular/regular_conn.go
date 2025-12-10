@@ -1,0 +1,263 @@
+// Copyright 2025 Supabase, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+// Package regular provides regular connection management with session state.
+package regular
+
+import (
+	"context"
+	"fmt"
+
+	"github.com/multigres/multigres/go/multipooler/connstate"
+	"github.com/multigres/multigres/go/multipooler/pools/admin"
+	"github.com/multigres/multigres/go/parser/ast"
+	"github.com/multigres/multigres/go/pb/query"
+	"github.com/multigres/multigres/go/pgprotocol/client"
+	"github.com/multigres/multigres/go/pgprotocol/protocol"
+)
+
+// Conn wraps a client.Conn with session state management.
+// It implements the connpool.Connection interface for settings-based pool routing.
+//
+// Key features:
+//   - Manages ConnectionState (User, Settings, PreparedStatements, Portals)
+//   - Provides SET ROLE / RESET ROLE for RLS enforcement
+//   - Holds reference to AdminPool for self-kill capability
+//   - Delegates query execution to the underlying client.Conn
+type Conn struct {
+	// conn is the underlying PostgreSQL connection.
+	conn *client.Conn
+
+	// adminPool is used for kill operations.
+	// This allows the connection to terminate itself if needed.
+	adminPool *admin.Pool
+}
+
+// NewConn creates a new regular connection wrapping the given client connection.
+// The connection's state is stored in conn.state as *connstate.ConnectionState.
+func NewConn(conn *client.Conn, adminPool *admin.Pool) *Conn {
+	// Initialize connection state if not already set.
+	if conn.GetConnectionState() == nil {
+		conn.SetConnectionState(connstate.NewConnectionState())
+	}
+
+	return &Conn{
+		conn:      conn,
+		adminPool: adminPool,
+	}
+}
+
+// --- connpool.Connection interface ---
+
+// Settings returns the current settings applied to this connection.
+// Returns nil if the connection has no settings applied (clean connection).
+func (c *Conn) Settings() *connstate.Settings {
+	state := c.State()
+	if state == nil {
+		return nil
+	}
+	return state.GetSettings()
+}
+
+// IsClosed returns true if the connection has been closed.
+func (c *Conn) IsClosed() bool {
+	return c.conn.IsClosed()
+}
+
+// Close closes the underlying connection.
+func (c *Conn) Close() error {
+	// Clean up state.
+	if state := c.State(); state != nil {
+		state.Close()
+	}
+
+	return c.conn.Close()
+}
+
+// ApplySettings applies the given settings to the connection.
+// This executes SET commands for each variable in the settings.
+func (c *Conn) ApplySettings(ctx context.Context, settings *connstate.Settings) error {
+	if settings == nil || settings.IsEmpty() {
+		return nil
+	}
+
+	// Generate and execute the SET commands.
+	sql := settings.ApplyQuery()
+	if sql == "" {
+		return nil
+	}
+
+	_, err := c.conn.Query(ctx, sql)
+	if err != nil {
+		return fmt.Errorf("failed to apply settings: %w", err)
+	}
+
+	// Update state.
+	c.State().SetSettings(settings)
+	return nil
+}
+
+// ResetSettings resets the connection to a clean state.
+// This executes RESET ALL to clear all session variables.
+func (c *Conn) ResetSettings(ctx context.Context) error {
+	state := c.State()
+	if state == nil {
+		return nil
+	}
+
+	settings := state.GetSettings()
+	if settings == nil || settings.IsEmpty() {
+		return nil
+	}
+
+	// Execute RESET ALL.
+	_, err := c.conn.Query(ctx, "RESET ALL")
+	if err != nil {
+		return fmt.Errorf("failed to reset settings: %w", err)
+	}
+
+	// Update state.
+	state.SetSettings(nil)
+	return nil
+}
+
+// --- State management ---
+
+// State returns the connection's state.
+// This is stored in the underlying client.Conn.state field.
+func (c *Conn) State() *connstate.ConnectionState {
+	state := c.conn.GetConnectionState()
+	if state == nil {
+		return nil
+	}
+	return state.(*connstate.ConnectionState)
+}
+
+// --- User/Role management for RLS ---
+
+// SetRole executes SET ROLE to switch to the given user.
+// This is used for Row Level Security (RLS) enforcement.
+func (c *Conn) SetRole(ctx context.Context, user string) error {
+	if user == "" {
+		return nil
+	}
+
+	// Execute SET ROLE.
+	// Note: We use SET ROLE, not SET SESSION AUTHORIZATION, because:
+	// - SET ROLE can be reset without superuser privileges
+	// - SET ROLE maintains the login user for RESET ROLE
+	sql := fmt.Sprintf("SET ROLE %s", ast.QuoteIdentifier(user))
+	_, err := c.conn.Query(ctx, sql)
+	if err != nil {
+		return fmt.Errorf("failed to set role to %s: %w", user, err)
+	}
+
+	// Update state.
+	c.State().SetUser(user)
+	return nil
+}
+
+// ResetRole resets the role to the connection's original user.
+// Returns an error if the reset fails - the caller should close the connection.
+func (c *Conn) ResetRole(ctx context.Context) error {
+	state := c.State()
+	if state == nil || !state.HasUser() {
+		return nil
+	}
+
+	// Execute RESET ROLE.
+	_, err := c.conn.Query(ctx, "RESET ROLE")
+	if err != nil {
+		// Critical security issue - connection may still have elevated privileges.
+		// The caller MUST close this connection.
+		return fmt.Errorf("failed to reset role (connection should be closed): %w", err)
+	}
+
+	// Update state.
+	state.ClearUser()
+	return nil
+}
+
+// CurrentUser returns the current user role set via SET ROLE.
+// Returns empty string if no role has been set.
+func (c *Conn) CurrentUser() string {
+	state := c.State()
+	if state == nil {
+		return ""
+	}
+	return state.GetUser()
+}
+
+// --- Query execution ---
+
+// Query executes a simple query and returns all results.
+func (c *Conn) Query(ctx context.Context, sql string) ([]*query.QueryResult, error) {
+	return c.conn.Query(ctx, sql)
+}
+
+// QueryStreaming executes a query with streaming results via callback.
+func (c *Conn) QueryStreaming(ctx context.Context, sql string, callback func(context.Context, *query.QueryResult) error) error {
+	return c.conn.QueryStreaming(ctx, sql, callback)
+}
+
+// --- Transaction status ---
+
+// TxnStatus returns the current transaction status.
+// Returns one of: 'I' (idle), 'T' (in transaction), 'E' (error).
+func (c *Conn) TxnStatus() byte {
+	return c.conn.TxnStatus()
+}
+
+// IsIdle returns true if the connection is idle (not in a transaction).
+func (c *Conn) IsIdle() bool {
+	return c.conn.TxnStatus() == protocol.TxnStatusIdle
+}
+
+// IsInTransaction returns true if the connection is in a transaction.
+func (c *Conn) IsInTransaction() bool {
+	status := c.conn.TxnStatus()
+	return status == protocol.TxnStatusInBlock || status == protocol.TxnStatusFailed
+}
+
+// --- Backend info ---
+
+// ProcessID returns the backend process ID.
+func (c *Conn) ProcessID() uint32 {
+	return c.conn.ProcessID()
+}
+
+// SecretKey returns the backend secret key for query cancellation.
+func (c *Conn) SecretKey() uint32 {
+	return c.conn.SecretKey()
+}
+
+// --- Kill capability ---
+
+// Kill terminates this connection's backend process using pg_terminate_backend().
+// Requires adminPool to be set; returns error if adminPool is nil.
+func (c *Conn) Kill(ctx context.Context) error {
+	if c.adminPool == nil {
+		return fmt.Errorf("cannot kill connection: admin pool not configured")
+	}
+	_, err := c.adminPool.TerminateBackend(ctx, c.ProcessID())
+	return err
+}
+
+// --- Underlying connection access ---
+
+// RawConn returns the underlying client.Conn.
+// Use with caution - prefer the wrapped methods.
+func (c *Conn) RawConn() *client.Conn {
+	return c.conn
+}
