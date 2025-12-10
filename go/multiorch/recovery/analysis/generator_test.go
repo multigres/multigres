@@ -492,3 +492,222 @@ func TestPopulatePrimaryInfo_PrimaryPostgresDown(t *testing.T) {
 	// But PrimaryReachable should be false because postgres is down
 	assert.False(t, analysis.PrimaryReachable, "primary should NOT be reachable when postgres is down")
 }
+
+func TestIsInStandbyList(t *testing.T) {
+	poolerStore := store.NewProtoStore[string, *multiorchdatapb.PoolerHealthState]()
+
+	primaryID := &clustermetadatapb.ID{
+		Component: clustermetadatapb.ID_MULTIPOOLER,
+		Cell:      "cell1",
+		Name:      "primary-1",
+	}
+
+	replica1ID := &clustermetadatapb.ID{
+		Component: clustermetadatapb.ID_MULTIPOOLER,
+		Cell:      "cell1",
+		Name:      "replica-1",
+	}
+
+	replica2ID := &clustermetadatapb.ID{
+		Component: clustermetadatapb.ID_MULTIPOOLER,
+		Cell:      "cell2",
+		Name:      "replica-2",
+	}
+
+	tests := []struct {
+		name          string
+		replicaID     *clustermetadatapb.ID
+		primaryStatus *multipoolermanagerdatapb.PrimaryStatus
+		expected      bool
+	}{
+		{
+			name:      "replica in standby list",
+			replicaID: replica1ID,
+			primaryStatus: &multipoolermanagerdatapb.PrimaryStatus{
+				Lsn:   "0/1234567",
+				Ready: true,
+				SyncReplicationConfig: &multipoolermanagerdatapb.SynchronousReplicationConfiguration{
+					StandbyIds: []*clustermetadatapb.ID{replica1ID},
+				},
+			},
+			expected: true,
+		},
+		{
+			name:      "replica not in standby list",
+			replicaID: replica2ID,
+			primaryStatus: &multipoolermanagerdatapb.PrimaryStatus{
+				Lsn:   "0/1234567",
+				Ready: true,
+				SyncReplicationConfig: &multipoolermanagerdatapb.SynchronousReplicationConfiguration{
+					StandbyIds: []*clustermetadatapb.ID{replica1ID},
+				},
+			},
+			expected: false,
+		},
+		{
+			name:      "empty standby list",
+			replicaID: replica1ID,
+			primaryStatus: &multipoolermanagerdatapb.PrimaryStatus{
+				Lsn:   "0/1234567",
+				Ready: true,
+				SyncReplicationConfig: &multipoolermanagerdatapb.SynchronousReplicationConfiguration{
+					StandbyIds: []*clustermetadatapb.ID{},
+				},
+			},
+			expected: false,
+		},
+		{
+			name:      "nil sync replication config",
+			replicaID: replica1ID,
+			primaryStatus: &multipoolermanagerdatapb.PrimaryStatus{
+				Lsn:                   "0/1234567",
+				Ready:                 true,
+				SyncReplicationConfig: nil,
+			},
+			expected: false,
+		},
+		{
+			name:          "nil primary status",
+			replicaID:     replica1ID,
+			primaryStatus: nil,
+			expected:      false,
+		},
+		{
+			name:      "multiple standbys - replica present",
+			replicaID: replica2ID,
+			primaryStatus: &multipoolermanagerdatapb.PrimaryStatus{
+				Lsn:   "0/1234567",
+				Ready: true,
+				SyncReplicationConfig: &multipoolermanagerdatapb.SynchronousReplicationConfiguration{
+					StandbyIds: []*clustermetadatapb.ID{replica1ID, replica2ID},
+				},
+			},
+			expected: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Set up pooler store with primary
+			poolerStore.Set("multipooler-cell1-primary-1", &multiorchdatapb.PoolerHealthState{
+				MultiPooler: &clustermetadatapb.MultiPooler{
+					Id:         primaryID,
+					Database:   "testdb",
+					TableGroup: "testtg",
+					Shard:      "0",
+					Type:       clustermetadatapb.PoolerType_PRIMARY,
+				},
+				IsLastCheckValid:  true,
+				IsUpToDate:        true,
+				IsPostgresRunning: true,
+				LastSeen:          timestamppb.Now(),
+				PoolerType:        clustermetadatapb.PoolerType_PRIMARY,
+				PrimaryStatus:     tt.primaryStatus,
+			})
+
+			generator := NewAnalysisGenerator(poolerStore)
+
+			primary, _ := poolerStore.Get("multipooler-cell1-primary-1")
+			result := generator.isInStandbyList(tt.replicaID, primary)
+
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestPopulatePrimaryInfo_IsInPrimaryStandbyList(t *testing.T) {
+	poolerStore := store.NewProtoStore[string, *multiorchdatapb.PoolerHealthState]()
+
+	primaryID := &clustermetadatapb.ID{
+		Component: clustermetadatapb.ID_MULTIPOOLER,
+		Cell:      "cell1",
+		Name:      "primary-1",
+	}
+
+	replica1ID := &clustermetadatapb.ID{
+		Component: clustermetadatapb.ID_MULTIPOOLER,
+		Cell:      "cell1",
+		Name:      "replica-1",
+	}
+
+	replica2ID := &clustermetadatapb.ID{
+		Component: clustermetadatapb.ID_MULTIPOOLER,
+		Cell:      "cell2",
+		Name:      "replica-2",
+	}
+
+	// Add primary with replica1 in standby list
+	poolerStore.Set("multipooler-cell1-primary-1", &multiorchdatapb.PoolerHealthState{
+		MultiPooler: &clustermetadatapb.MultiPooler{
+			Id:         primaryID,
+			Database:   "testdb",
+			TableGroup: "testtg",
+			Shard:      "0",
+			Type:       clustermetadatapb.PoolerType_PRIMARY,
+		},
+		IsLastCheckValid:  true,
+		IsUpToDate:        true,
+		IsPostgresRunning: true,
+		LastSeen:          timestamppb.Now(),
+		PoolerType:        clustermetadatapb.PoolerType_PRIMARY,
+		PrimaryStatus: &multipoolermanagerdatapb.PrimaryStatus{
+			Lsn:   "0/1234567",
+			Ready: true,
+			SyncReplicationConfig: &multipoolermanagerdatapb.SynchronousReplicationConfiguration{
+				StandbyIds: []*clustermetadatapb.ID{replica1ID},
+			},
+		},
+	})
+
+	// Add replica1 (in standby list)
+	poolerStore.Set("multipooler-cell1-replica-1", &multiorchdatapb.PoolerHealthState{
+		MultiPooler: &clustermetadatapb.MultiPooler{
+			Id:         replica1ID,
+			Database:   "testdb",
+			TableGroup: "testtg",
+			Shard:      "0",
+			Type:       clustermetadatapb.PoolerType_REPLICA,
+		},
+		IsLastCheckValid: true,
+		IsUpToDate:       true,
+		LastSeen:         timestamppb.Now(),
+		PoolerType:       clustermetadatapb.PoolerType_REPLICA,
+		ReplicationStatus: &multipoolermanagerdatapb.StandbyReplicationStatus{
+			IsWalReplayPaused: false,
+			Lag:               durationpb.New(100 * time.Millisecond),
+		},
+	})
+
+	// Add replica2 (not in standby list)
+	poolerStore.Set("multipooler-cell2-replica-2", &multiorchdatapb.PoolerHealthState{
+		MultiPooler: &clustermetadatapb.MultiPooler{
+			Id:         replica2ID,
+			Database:   "testdb",
+			TableGroup: "testtg",
+			Shard:      "0",
+			Type:       clustermetadatapb.PoolerType_REPLICA,
+		},
+		IsLastCheckValid: true,
+		IsUpToDate:       true,
+		LastSeen:         timestamppb.Now(),
+		PoolerType:       clustermetadatapb.PoolerType_REPLICA,
+		ReplicationStatus: &multipoolermanagerdatapb.StandbyReplicationStatus{
+			IsWalReplayPaused: false,
+			Lag:               durationpb.New(100 * time.Millisecond),
+		},
+	})
+
+	generator := NewAnalysisGenerator(poolerStore)
+
+	t.Run("replica in standby list", func(t *testing.T) {
+		analysis, err := generator.GenerateAnalysisForPooler("multipooler-cell1-replica-1")
+		require.NoError(t, err)
+		assert.True(t, analysis.IsInPrimaryStandbyList, "replica1 should be in standby list")
+	})
+
+	t.Run("replica not in standby list", func(t *testing.T) {
+		analysis, err := generator.GenerateAnalysisForPooler("multipooler-cell2-replica-2")
+		require.NoError(t, err)
+		assert.False(t, analysis.IsInPrimaryStandbyList, "replica2 should not be in standby list")
+	})
+}

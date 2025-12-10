@@ -16,6 +16,7 @@ package pgbackrest
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -411,4 +412,125 @@ func TestGenerateConfigWithoutRepoPath(t *testing.T) {
 
 	// Verify repo1-path is NOT in the config
 	assert.NotContains(t, config, "repo1-path=")
+}
+
+func TestIsLockError(t *testing.T) {
+	t.Run("detects error code 050", func(t *testing.T) {
+		output := "ERROR: [050]: unable to acquire lock on file '/tmp/pgbackrest/test-stanza-archive.lock'"
+		assert.True(t, isLockError(output))
+	})
+
+	t.Run("detects 'unable to acquire lock' text", func(t *testing.T) {
+		output := "some error: unable to acquire lock on something"
+		assert.True(t, isLockError(output))
+	})
+
+	t.Run("returns false for other errors", func(t *testing.T) {
+		output := "ERROR: [028]: path '/data' does not exist"
+		assert.False(t, isLockError(output))
+	})
+
+	t.Run("returns false for empty output", func(t *testing.T) {
+		assert.False(t, isLockError(""))
+	})
+
+	t.Run("returns false for success output", func(t *testing.T) {
+		output := "stanza-create command completed successfully"
+		assert.False(t, isLockError(output))
+	})
+}
+
+func TestStanzaCreateWithRunner(t *testing.T) {
+	t.Run("succeeds on first attempt", func(t *testing.T) {
+		callCount := 0
+		runner := func(ctx context.Context, name string, args ...string) ([]byte, error) {
+			callCount++
+			return []byte("success"), nil
+		}
+
+		err := StanzaCreateWithRunner(t.Context(), "test-stanza", "/config", "/repo", runner)
+
+		require.NoError(t, err)
+		assert.Equal(t, 1, callCount, "should only call command once on success")
+	})
+
+	t.Run("retries on lock error then succeeds", func(t *testing.T) {
+		callCount := 0
+		runner := func(ctx context.Context, name string, args ...string) ([]byte, error) {
+			callCount++
+			if callCount < 3 {
+				return []byte("ERROR: [050]: unable to acquire lock on file"), fmt.Errorf("exit status 1")
+			}
+			return []byte("success"), nil
+		}
+
+		err := StanzaCreateWithRunner(t.Context(), "test-stanza", "/config", "/repo", runner)
+
+		require.NoError(t, err)
+		assert.Equal(t, 3, callCount, "should retry until success")
+	})
+
+	t.Run("gives up after max attempts on lock errors", func(t *testing.T) {
+		callCount := 0
+		runner := func(ctx context.Context, name string, args ...string) ([]byte, error) {
+			callCount++
+			return []byte("ERROR: [050]: unable to acquire lock on file"), fmt.Errorf("exit status 1")
+		}
+
+		err := StanzaCreateWithRunner(t.Context(), "test-stanza", "/config", "/repo", runner)
+
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "after 5 attempts")
+		assert.Contains(t, err.Error(), "lock contention")
+		assert.Equal(t, 5, callCount, "should try exactly maxAttempts times")
+	})
+
+	t.Run("does not retry on non-lock errors", func(t *testing.T) {
+		callCount := 0
+		runner := func(ctx context.Context, name string, args ...string) ([]byte, error) {
+			callCount++
+			return []byte("ERROR: [028]: path '/data' does not exist"), fmt.Errorf("exit status 1")
+		}
+
+		err := StanzaCreateWithRunner(t.Context(), "test-stanza", "/config", "/repo", runner)
+
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "failed to create stanza")
+		assert.NotContains(t, err.Error(), "lock contention")
+		assert.Equal(t, 1, callCount, "should not retry on non-lock errors")
+	})
+
+	t.Run("respects context cancellation", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(t.Context())
+		cancel() // Cancel immediately
+
+		runner := func(ctx context.Context, name string, args ...string) ([]byte, error) {
+			t.Fatal("runner should not be called when context is cancelled")
+			return nil, nil
+		}
+
+		err := StanzaCreateWithRunner(ctx, "test-stanza", "/config", "/repo", runner)
+
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "context cancelled")
+	})
+
+	t.Run("passes correct arguments to runner", func(t *testing.T) {
+		var capturedName string
+		var capturedArgs []string
+		runner := func(ctx context.Context, name string, args ...string) ([]byte, error) {
+			capturedName = name
+			capturedArgs = args
+			return []byte("success"), nil
+		}
+
+		err := StanzaCreateWithRunner(t.Context(), "my-stanza", "/path/to/config", "/path/to/repo", runner)
+
+		require.NoError(t, err)
+		assert.Equal(t, "pgbackrest", capturedName)
+		assert.Contains(t, capturedArgs, "--stanza=my-stanza")
+		assert.Contains(t, capturedArgs, "--config=/path/to/config")
+		assert.Contains(t, capturedArgs, "--repo1-path=/path/to/repo")
+		assert.Contains(t, capturedArgs, "stanza-create")
+	})
 }
