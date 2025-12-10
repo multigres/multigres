@@ -47,6 +47,7 @@ type Metrics struct {
 	clusterMetadataRefreshDuration ClusterMetadataRefreshDuration
 	poolerPollDuration             PoolerPollDuration
 	healthCheckCycleDuration       HealthCheckCycleDuration
+	recoveryActionDuration         RecoveryActionDuration
 	errorsTotal                    ErrorsTotal
 }
 
@@ -133,6 +134,42 @@ func (m HealthCheckCycleDuration) Record(ctx context.Context, val float64, attrs
 		return
 	}
 	m.Float64Histogram.Record(ctx, val, metric.WithAttributes(attrs...))
+}
+
+// RecoveryActionStatus represents the possible status values for a recovery action.
+type RecoveryActionStatus string
+
+const (
+	RecoveryActionStatusSuccess RecoveryActionStatus = "success"
+	RecoveryActionStatusFailure RecoveryActionStatus = "failure"
+)
+
+// RecoveryActionDuration wraps a Float64Histogram for recording recovery action durations.
+type RecoveryActionDuration struct {
+	metric.Float64Histogram
+}
+
+// Record records a recovery action duration with proper OTel attributes.
+//
+// Parameters:
+//   - ctx: Context for the metric recording
+//   - val: How long the action took (in milliseconds)
+//   - actionName: The name of the recovery action (e.g., "FixReplication", "BootstrapShard")
+//   - problemCode: The problem code being addressed
+//   - status: The action status (success or failure)
+func (m RecoveryActionDuration) Record(
+	ctx context.Context,
+	val float64,
+	actionName string,
+	problemCode string,
+	status RecoveryActionStatus,
+) {
+	m.Float64Histogram.Record(ctx, val,
+		metric.WithAttributes(
+			attribute.String("action", actionName),
+			attribute.String("problem_code", problemCode),
+			attribute.String("status", string(status)),
+		))
 }
 
 // ErrorsTotal wraps an Int64Counter for counting errors in the recovery engine.
@@ -222,6 +259,19 @@ func NewMetrics() (*Metrics, error) {
 		m.healthCheckCycleDuration = HealthCheckCycleDuration{noop.Float64Histogram{}}
 	} else {
 		m.healthCheckCycleDuration = HealthCheckCycleDuration{healthCheckCycleDurationHistogram}
+	}
+
+	// Histogram for recovery action duration
+	recoveryActionDurationHistogram, err := m.meter.Float64Histogram(
+		"multiorch.recovery.action.duration",
+		metric.WithDescription("Duration of recovery action executions"),
+		metric.WithUnit("ms"),
+	)
+	if err != nil {
+		errs = append(errs, fmt.Errorf("multiorch.recovery.action.duration histogram: %w", err))
+		m.recoveryActionDuration = RecoveryActionDuration{noop.Float64Histogram{}}
+	} else {
+		m.recoveryActionDuration = RecoveryActionDuration{recoveryActionDurationHistogram}
 	}
 
 	// Counter for errors

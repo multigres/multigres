@@ -232,14 +232,19 @@ func (re *Engine) attemptRecovery(problem types.Problem) {
 	ctx, cancel := context.WithTimeout(re.ctx, problem.RecoveryAction.Metadata().Timeout)
 	defer cancel()
 
+	actionName := problem.RecoveryAction.Metadata().Name
+	startTime := time.Now()
+
 	err = problem.RecoveryAction.Execute(ctx, problem)
+	durationMs := float64(time.Since(startTime).Milliseconds())
+
 	if err != nil {
 		re.logger.ErrorContext(re.ctx, "recovery action failed",
 			"problem_code", problem.Code,
 			"pooler_id", poolerIDStr,
 			"error", err,
 		)
-		// TODO: Record failure in metrics
+		re.metrics.recoveryActionDuration.Record(re.ctx, durationMs, actionName, string(problem.Code), RecoveryActionStatusFailure)
 		return
 	}
 
@@ -247,7 +252,7 @@ func (re *Engine) attemptRecovery(problem types.Problem) {
 		"problem_code", problem.Code,
 		"pooler_id", poolerIDStr,
 	)
-	// TODO: Record success in metrics
+	re.metrics.recoveryActionDuration.Record(re.ctx, durationMs, actionName, string(problem.Code), RecoveryActionStatusSuccess)
 
 	// Post-recovery refresh
 	// If we ran a shard-wide recovery, force health check all poolers in the shard
