@@ -904,6 +904,40 @@ func (pm *MultiPoolerManager) getConnectedFollowerIDs(ctx context.Context) ([]*c
 	return followers, nil
 }
 
+// undoDemoteState holds the state needed to validate and execute UndoDemote
+type undoDemoteState struct {
+	isInRecovery bool   // true if standby (demoted), false if primary
+	timelineID   int32  // current timeline from pg_control_checkpoint()
+	currentLSN   string // current WAL position (works for both primary and standby)
+}
+
+// queryUndoDemoteState queries all state needed for UndoDemote in a single query.
+// This reduces round trips and ensures we get a consistent snapshot.
+func (pm *MultiPoolerManager) queryUndoDemoteState(ctx context.Context) (*undoDemoteState, error) {
+	queryCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
+	defer cancel()
+
+	// Query recovery status, timeline, and current LSN in one round trip.
+	// Use COALESCE to handle NULL values when not in recovery.
+	// pg_current_wal_lsn() returns NULL on standby, pg_last_wal_replay_lsn() returns NULL on primary.
+	query := `SELECT
+		pg_is_in_recovery(),
+		(SELECT timeline_id FROM pg_control_checkpoint()),
+		COALESCE(pg_current_wal_lsn()::text, pg_last_wal_replay_lsn()::text, '')`
+
+	state := &undoDemoteState{}
+	err := pm.db.QueryRowContext(queryCtx, query).Scan(
+		&state.isInRecovery,
+		&state.timelineID,
+		&state.currentLSN,
+	)
+	if err != nil {
+		return nil, mterrors.Wrap(err, "failed to query undo demote state")
+	}
+
+	return state, nil
+}
+
 // queryFollowerReplicationStats queries pg_stat_replication for detailed replication statistics
 // Returns a map of application_name -> ReplicationStats
 func (pm *MultiPoolerManager) queryFollowerReplicationStats(ctx context.Context) (map[string]*multipoolermanagerdatapb.ReplicationStats, error) {
