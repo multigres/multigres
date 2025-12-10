@@ -216,7 +216,7 @@ func (s *managerService) Demote(ctx context.Context, req *multipoolermanagerdata
 
 // UndoDemote undoes a demotion by restarting PostgreSQL as a primary
 func (s *managerService) UndoDemote(ctx context.Context, req *multipoolermanagerdatapb.UndoDemoteRequest) (*multipoolermanagerdatapb.UndoDemoteResponse, error) {
-	resp, err := s.manager.UndoDemote(ctx, req.ExpectedTimelineId)
+	resp, err := s.manager.UndoDemote(ctx)
 	if err != nil {
 		return nil, mterrors.ToGRPC(err)
 	}

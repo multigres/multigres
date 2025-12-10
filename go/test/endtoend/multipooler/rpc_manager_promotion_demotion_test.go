@@ -524,4 +524,64 @@ func TestDemoteAndPromote(t *testing.T) {
 
 		t.Log("Confirmed: Demote correctly rejected on standby")
 	})
+
+	t.Run("UndoDemote_SuccessfulUndo", func(t *testing.T) {
+		setupPoolerTest(t, setup)
+
+		t.Log("=== Testing UndoDemote - reverting a demotion before any standby is promoted ===")
+
+		// Set term on primary
+		setTermReq := &multipoolermanagerdatapb.SetTermRequest{
+			Term: &multipoolermanagerdatapb.ConsensusTerm{
+				TermNumber: 1,
+			},
+		}
+		_, err := primaryManagerClient.SetTerm(utils.WithShortDeadline(t), setTermReq)
+		require.NoError(t, err, "SetTerm should succeed on primary")
+
+		// Test idempotency first - UndoDemote on an already-primary should succeed
+		t.Log("Testing UndoDemote idempotency on already-primary...")
+		undoDemoteReq := &multipoolermanagerdatapb.UndoDemoteRequest{}
+		undoDemoteResp, err := primaryManagerClient.UndoDemote(utils.WithTimeout(t, 10*time.Second), undoDemoteReq)
+		require.NoError(t, err, "UndoDemote should succeed on primary (idempotent)")
+		require.NotNil(t, undoDemoteResp)
+		assert.True(t, undoDemoteResp.WasAlreadyPrimary, "Should report as already primary")
+		t.Log("UndoDemote idempotency verified")
+
+		// Demote the primary
+		t.Log("Demoting primary...")
+		demoteReq := &multipoolermanagerdatapb.DemoteRequest{
+			ConsensusTerm: 1,
+			DrainTimeout:  nil,
+			Force:         false,
+		}
+		demoteResp, err := primaryManagerClient.Demote(utils.WithTimeout(t, 10*time.Second), demoteReq)
+		require.NoError(t, err, "Demote should succeed")
+		require.NotNil(t, demoteResp)
+		assert.False(t, demoteResp.WasAlreadyDemoted)
+		t.Logf("Demotion complete. LSN: %s", demoteResp.LsnPosition)
+
+		// Verify primary operations no longer work (we're now a standby)
+		posReq := &multipoolermanagerdatapb.PrimaryPositionRequest{}
+		_, err = primaryManagerClient.PrimaryPosition(utils.WithShortDeadline(t), posReq)
+		require.Error(t, err, "PrimaryPosition should fail after demotion")
+
+		// Now undo the demotion
+		t.Log("Undoing demotion...")
+		undoDemoteReq = &multipoolermanagerdatapb.UndoDemoteRequest{}
+		undoDemoteResp, err = primaryManagerClient.UndoDemote(utils.WithTimeout(t, 10*time.Second), undoDemoteReq)
+		require.NoError(t, err, "UndoDemote should succeed")
+		require.NotNil(t, undoDemoteResp)
+
+		assert.False(t, undoDemoteResp.WasAlreadyPrimary, "Should not report as already primary")
+		assert.NotEmpty(t, undoDemoteResp.LsnPosition)
+		t.Logf("UndoDemote complete. LSN: %s", undoDemoteResp.LsnPosition)
+
+		// Verify primary operations work again
+		posResp, err := primaryManagerClient.PrimaryPosition(utils.WithShortDeadline(t), posReq)
+		require.NoError(t, err, "PrimaryPosition should work after UndoDemote")
+		assert.NotEmpty(t, posResp.LsnPosition)
+
+		t.Log("UndoDemote successful - primary is back to normal operation")
+	})
 }
