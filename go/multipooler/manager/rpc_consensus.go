@@ -23,6 +23,7 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	consensusdatapb "github.com/multigres/multigres/go/pb/consensusdata"
+	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
 
 // BeginTerm handles coordinator requests during leader appointments.
@@ -30,11 +31,11 @@ import (
 // the current term. This is the revocation step of consensus, which applies
 // to both primaries and standbys:
 //
-//   - If this node is a primary, it must demote itself as part of revocation.
-//   - If this node is a standby, it should break replication as part of
-//     revocation. However, breaking replication on all standbys before the primary
-//     is demoted will have the effect of blocking writes to the primary,
-//     so this has to be done at the proper time (TODO: not implemented yet).
+//   - If this node is a primary and receives a higher term, it MUST demote
+//     itself before accepting. If demotion fails, the term is rejected.
+//   - If this node is a standby and receives a higher term, it pauses
+//     replication to break the connection with the old primary. The new
+//     primary will reconfigure replication via SetPrimaryConnInfo.
 func (pm *MultiPoolerManager) BeginTerm(ctx context.Context, req *consensusdatapb.BeginTermRequest) (*consensusdatapb.BeginTermResponse, error) {
 	// Acquire the action lock to ensure only one consensus operation runs at a time
 	// This prevents split-brain acceptance and ensures term updates are serialized
@@ -101,45 +102,13 @@ func (pm *MultiPoolerManager) BeginTerm(ctx context.Context, req *consensusdatap
 		}
 	}
 
-	// Update term if needed (only if req.Term > currentTerm)
-	// This will reset AcceptedTermFromCoordinatorId to nil
-	if req.Term > currentTerm {
-		if err := pm.validateAndUpdateTerm(ctx, req.Term, false); err != nil {
-			return nil, fmt.Errorf("failed to update term: %w", err)
-		}
-		response.Term = req.Term
-	}
-
-	// Check if we're caught up with replication (within 30 seconds)
-	// Only relevant for standbys - primaries don't have WAL receivers
-	if !wasPrimary {
-		var lastMsgReceiptTime *time.Time
-		err = pm.db.QueryRowContext(ctx, "SELECT last_msg_receipt_time FROM pg_stat_wal_receiver").Scan(&lastMsgReceiptTime)
-		if err != nil {
-			// No WAL receiver (could be disconnected standby)
-			// Don't reject the acceptance - let it proceed
-		} else if lastMsgReceiptTime != nil {
-			timeSinceLastMessage := time.Since(*lastMsgReceiptTime)
-			if timeSinceLastMessage > 30*time.Second {
-				// We're too far behind in replication, don't accept
-				return response, nil
-			}
-		}
-	}
-
-	// Accept term from coordinator atomically (checks, saves to disk, updates memory)
-	if err := cs.AcceptCandidateAndSave(ctx, req.CandidateId); err != nil {
-		return nil, fmt.Errorf("failed to accept term from coordinator: %w", err)
-	}
-
-	response.Accepted = true
-
-	// If we were a primary and accepted a higher term, demote immediately.
-	// This prevents split-brain by ensuring the old primary stops accepting writes
-	// before any new primary is promoted.
+	// If we're a primary accepting a higher term, we must demote FIRST.
+	// Only accept the term if demotion succeeds. This prevents split-brain
+	// by ensuring the old primary stops accepting writes before acknowledging
+	// the new term.
 	if wasPrimary && req.Term > currentTerm {
-		pm.logger.InfoContext(ctx, "Primary accepting higher term, initiating demotion",
-			"old_term", currentTerm,
+		pm.logger.InfoContext(ctx, "Primary receiving higher term, attempting demotion before acceptance",
+			"current_term", currentTerm,
 			"new_term", req.Term,
 			"candidate_id", req.CandidateId.GetName())
 
@@ -147,19 +116,86 @@ func (pm *MultiPoolerManager) BeginTerm(ctx context.Context, req *consensusdatap
 		drainTimeout := 5 * time.Second
 		demoteLSN, demoteErr := pm.demoteLocked(ctx, req.Term, drainTimeout)
 		if demoteErr != nil {
-			// Log the error but still return accepted=true
-			// The term was accepted, demotion is a best-effort cleanup
-			// TODO: refactor so that we don't accept the new term if demotion fails
-			pm.logger.ErrorContext(ctx, "Demotion failed after accepting term",
+			// Demotion failed - do NOT accept the term
+			// Return accepted=false so coordinator knows this node couldn't safely step down
+			pm.logger.ErrorContext(ctx, "Demotion failed, rejecting term acceptance",
 				"error", demoteErr,
 				"term", req.Term)
-		} else {
-			response.DemoteLsn = demoteLSN.LsnPosition
-			pm.logger.InfoContext(ctx, "Demotion completed successfully",
-				"demote_lsn", demoteLSN,
-				"term", req.Term)
+			// TODO: we should attempt to undo the demote.
+			// UndoDemote has not been implemented yet
+			return response, nil
+		}
+
+		// Demotion succeeded - update term atomically with acceptance below
+		response.Term = req.Term
+		response.DemoteLsn = demoteLSN.LsnPosition
+
+		pm.logger.InfoContext(ctx, "Demotion completed, accepting term",
+			"demote_lsn", demoteLSN.LsnPosition,
+			"term", req.Term)
+	} else {
+		// Check if we're caught up with replication (within 30 seconds)
+		// Only relevant for standbys - primaries don't have WAL receivers
+		// Do this check BEFORE updating term so we can reject early
+		if !wasPrimary {
+			var lastMsgReceiptTime *time.Time
+			err = pm.db.QueryRowContext(ctx, "SELECT last_msg_receipt_time FROM pg_stat_wal_receiver").Scan(&lastMsgReceiptTime)
+			if err != nil {
+				// No WAL receiver (disconnected standby) - this is EXPECTED during failover
+				// when the primary just died. Don't reject - proceed with acceptance.
+				// The standby's data may still be recent even without an active WAL receiver.
+				pm.logger.InfoContext(ctx, "Standby has no WAL receiver, proceeding with term acceptance",
+					"term", req.Term)
+			} else if lastMsgReceiptTime != nil {
+				timeSinceLastMessage := time.Since(*lastMsgReceiptTime)
+				if timeSinceLastMessage > 30*time.Second {
+					// We're too far behind in replication, update term but don't accept
+					pm.logger.WarnContext(ctx, "Rejecting term acceptance: standby too far behind",
+						"term", req.Term,
+						"last_msg_receipt_time", lastMsgReceiptTime,
+						"time_since_last_message", timeSinceLastMessage)
+					// Still update term if higher, but don't accept
+					if req.Term > currentTerm {
+						if err := pm.validateAndUpdateTerm(ctx, req.Term, false); err != nil {
+							return nil, fmt.Errorf("failed to update term: %w", err)
+						}
+						response.Term = req.Term
+					}
+					return response, nil
+				}
+			}
+		}
+
+		// Update response term if higher (actual update happens atomically below)
+		if req.Term > currentTerm {
+			response.Term = req.Term
+		}
+
+		// Standby accepting new term: reset primary_conninfo to break connection with old primary
+		// This ensures we don't continue replicating from a demoted primary
+		if !wasPrimary && req.Term > currentTerm {
+			pm.logger.InfoContext(ctx, "Standby accepting new term, resetting primary_conninfo",
+				"term", req.Term,
+				"current_term", currentTerm)
+
+			// Reset primary_conninfo - this will stop the WAL receiver
+			_, pauseErr := pm.pauseReplication(ctx, multipoolermanagerdatapb.ReplicationPauseMode_REPLICATION_PAUSE_MODE_RECEIVER_ONLY, false)
+			if pauseErr != nil {
+				// TODO: is it actually safe to ignore this error? We need to look into what can cause this to fail
+				// If a dead primary can cause this to fail, we have to ignore errors, otherwise we should reject the new term on error
+				pm.logger.WarnContext(ctx, "Failed to reset primary_conninfo during term acceptance",
+					"error", pauseErr)
+			}
 		}
 	}
+
+	// Atomically update term AND accept candidate in single file write
+	// This combines what used to be two separate file writes
+	if err := cs.UpdateTermAndAcceptCandidate(ctx, req.Term, req.CandidateId); err != nil {
+		return nil, fmt.Errorf("failed to update term and accept candidate: %w", err)
+	}
+
+	response.Accepted = true
 
 	return response, nil
 }

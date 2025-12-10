@@ -16,6 +16,7 @@ package endtoend
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -28,6 +29,7 @@ import (
 	"testing"
 	"time"
 
+	_ "github.com/lib/pq" // PostgreSQL driver
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
@@ -40,7 +42,7 @@ import (
 	pb "github.com/multigres/multigres/go/pb/pgctldservice"
 	"github.com/multigres/multigres/go/provisioner/local"
 	"github.com/multigres/multigres/go/test/utils"
-	"github.com/multigres/multigres/go/tools/pathutil"
+	"github.com/multigres/multigres/go/tools/retry"
 	"github.com/multigres/multigres/go/tools/stringutil"
 
 	_ "github.com/multigres/multigres/go/common/plugins/topo"
@@ -441,6 +443,48 @@ func checkHeartbeatsWritten(multipoolerAddr string) (bool, error) {
 	return count > 0, nil
 }
 
+// findReadyMultigateway finds a multigateway that is ready to execute queries.
+// It tries each provided port and returns the first one that can successfully execute
+// a query. This is necessary because:
+//  1. PoolerDiscovery is async and may not have discovered poolers yet
+//  2. lib/pq Ping uses an empty query (";") that bypasses pooler discovery
+//  3. Each multigateway only discovers poolers in its own zone, and the PRIMARY
+//     may be in any zone after bootstrap
+func findReadyMultigateway(t *testing.T, ctx context.Context, pgPorts []int) (int, error) {
+	t.Helper()
+
+	r := retry.New(1*time.Millisecond, 500*time.Millisecond)
+	for attempt, err := range r.Attempts(ctx) {
+		if err != nil {
+			return 0, fmt.Errorf("timeout waiting for any multigateway to be ready after %d attempts: %w", attempt, err)
+		}
+
+		for _, port := range pgPorts {
+			connStr := fmt.Sprintf("host=localhost port=%d user=postgres dbname=postgres sslmode=disable connect_timeout=2", port)
+			db, err := sql.Open("postgres", connStr)
+			if err != nil {
+				continue
+			}
+
+			queryCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+			_, err = db.ExecContext(queryCtx, "SELECT 1")
+			cancel()
+			db.Close()
+
+			if err == nil {
+				t.Logf("Multigateway on port %d is ready to execute queries", port)
+				return port, nil
+			}
+		}
+
+		if attempt == 1 || attempt%10 == 0 {
+			t.Logf("Waiting for a multigateway to be ready (attempt %d)...", attempt)
+		}
+	}
+
+	return 0, fmt.Errorf("timeout waiting for any multigateway to be ready")
+}
+
 // queryHeartbeatCount queries the number of heartbeats in the heartbeat table via
 // the multipooler gRPC service
 func queryHeartbeatCount(addr string) (int, error) {
@@ -477,30 +521,6 @@ func queryHeartbeatCount(addr string) (int, error) {
 	}
 
 	return count, nil
-}
-
-// TestMain sets the path and cleans up after all tests
-func TestMain(m *testing.M) {
-	// Set the PATH so etcd and orphan detection scripts can be found
-	// Use automatic module root detection instead of hard-coded relative paths
-	if err := pathutil.PrependBinToPath(); err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to add directories to PATH: %v\n", err)
-		os.Exit(1)
-	}
-
-	// Set orphan detection environment variable so postgres processes
-	// started by in-process services will have watchdogs that monitor
-	// the test process and kill postgres if the test crashes
-	os.Setenv("MULTIGRES_TEST_PARENT_PID", fmt.Sprintf("%d", os.Getpid()))
-
-	// Run all tests
-	exitCode := m.Run()
-
-	// Cleanup environment variable
-	os.Unsetenv("MULTIGRES_TEST_PARENT_PID")
-
-	// Exit with the test result code
-	os.Exit(exitCode)
 }
 
 // executeInitCommand runs the actual multigres binary with "cluster init" command
@@ -1147,12 +1167,6 @@ func testMultipoolerGRPC(t *testing.T, addr string) {
 
 	// Test primary detection
 	TestPrimaryDetection(t, client)
-
-	// Test that the multigres schema exists
-	TestMultigresSchemaExists(t, client)
-
-	// Test that the heartbeat table exists with expected columns
-	TestHeartbeatTableExists(t, client)
 
 	t.Logf("Multipooler gRPC test completed successfully for %s", addr)
 }

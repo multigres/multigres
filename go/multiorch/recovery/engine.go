@@ -231,7 +231,7 @@ type Engine struct {
 	rpcClient rpcclient.MultiPoolerClient
 
 	// In-memory state store
-	poolerStore *store.ProtoStore[string, *multiorchdatapb.PoolerHealthState]
+	poolerStore *store.PoolerHealthStore
 
 	// Health check queue for concurrent pooler polling
 	healthCheckQueue *Queue
@@ -255,6 +255,9 @@ type Engine struct {
 
 	// Metrics
 	metrics *Metrics
+
+	// Action factory for creating recovery actions
+	actionFactory *analysis.RecoveryActionFactory
 
 	// Context for shutting down loops
 	ctx    context.Context
@@ -305,15 +308,14 @@ func NewEngine(
 		logger.Error("failed to monitor pooler store size", "error", err)
 	}
 
-	// Create and set global action factory
-	actionFactory := analysis.NewRecoveryActionFactory(
+	// Create action factory for recovery actions
+	engine.actionFactory = analysis.NewRecoveryActionFactory(
 		poolerStore,
 		rpcClient,
 		ts,
 		coordinator,
 		logger,
 	)
-	analysis.SetRecoveryActionFactory(actionFactory)
 
 	return engine
 }

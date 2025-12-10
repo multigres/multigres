@@ -37,6 +37,24 @@ import (
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
 
+// testRPCClient wraps FakeClient to capture ConfigureSynchronousReplication calls
+type testRPCClient struct {
+	*rpcclient.FakeClient
+	syncReplicationCalled  bool
+	syncReplicationRequest *multipoolermanagerdatapb.ConfigureSynchronousReplicationRequest
+}
+
+func (t *testRPCClient) ConfigureSynchronousReplication(
+	ctx context.Context,
+	pooler *clustermetadatapb.MultiPooler,
+	request *multipoolermanagerdatapb.ConfigureSynchronousReplicationRequest,
+) (*multipoolermanagerdatapb.ConfigureSynchronousReplicationResponse, error) {
+	t.syncReplicationCalled = true
+	t.syncReplicationRequest = request
+	// Call the underlying FakeClient method
+	return t.FakeClient.ConfigureSynchronousReplication(ctx, pooler, request)
+}
+
 func TestBootstrapShardAction_ExecuteNoCohort(t *testing.T) {
 	ctx := context.Background()
 	ts, _ := memorytopo.NewServerAndFactory(ctx, "cell1")
@@ -180,6 +198,167 @@ func TestBootstrapShardAction_Priority(t *testing.T) {
 	assert.Equal(t, types.PriorityShardBootstrap, action.Priority())
 }
 
+func TestBootstrapShardAction_ConfiguresSyncReplication(t *testing.T) {
+	ctx := context.Background()
+	ts, _ := memorytopo.NewServerAndFactory(ctx, "cell1")
+	defer ts.Close()
+
+	logger := slog.Default()
+	poolerStore := store.NewProtoStore[string, *multiorchdatapb.PoolerHealthState]()
+
+	// Create mock RPC client with custom callback to track ConfigureSynchronousReplication calls
+	mockClient := &testRPCClient{
+		FakeClient: rpcclient.NewFakeClient(),
+	}
+
+	// Setup 3 poolers in the shard (1 primary + 2 standbys for ANY_2)
+	primary := &multiorchdatapb.PoolerHealthState{
+		MultiPooler: &clustermetadatapb.MultiPooler{
+			Id: &clustermetadatapb.ID{
+				Component: clustermetadatapb.ID_MULTIPOOLER,
+				Cell:      "cell1",
+				Name:      "pooler1",
+			},
+			Database:   "testdb",
+			TableGroup: "default",
+			Shard:      "0",
+			Hostname:   "host1",
+			PortMap:    map[string]int32{"postgres": 5432},
+		},
+	}
+	standby1 := &multiorchdatapb.PoolerHealthState{
+		MultiPooler: &clustermetadatapb.MultiPooler{
+			Id: &clustermetadatapb.ID{
+				Component: clustermetadatapb.ID_MULTIPOOLER,
+				Cell:      "cell1",
+				Name:      "pooler2",
+			},
+			Database:   "testdb",
+			TableGroup: "default",
+			Shard:      "0",
+			Hostname:   "host2",
+			PortMap:    map[string]int32{"postgres": 5432},
+		},
+	}
+	standby2 := &multiorchdatapb.PoolerHealthState{
+		MultiPooler: &clustermetadatapb.MultiPooler{
+			Id: &clustermetadatapb.ID{
+				Component: clustermetadatapb.ID_MULTIPOOLER,
+				Cell:      "cell1",
+				Name:      "pooler3",
+			},
+			Database:   "testdb",
+			TableGroup: "default",
+			Shard:      "0",
+			Hostname:   "host3",
+			PortMap:    map[string]int32{"postgres": 5432},
+		},
+	}
+
+	poolerStore.Set("multipooler-cell1-pooler1", primary)
+	poolerStore.Set("multipooler-cell1-pooler2", standby1)
+	poolerStore.Set("multipooler-cell1-pooler3", standby2)
+
+	// Configure mock responses for all RPCs that bootstrap needs
+	poolerID := "multipooler-cell1-pooler1"
+	standby1ID := "multipooler-cell1-pooler2"
+	standby2ID := "multipooler-cell1-pooler3"
+
+	// Status responses: all nodes uninitialized
+	mockClient.SetStatusResponse(poolerID, &multipoolermanagerdatapb.StatusResponse{
+		Status: &multipoolermanagerdatapb.Status{
+			IsInitialized: false,
+		},
+	})
+	mockClient.SetStatusResponse(standby1ID, &multipoolermanagerdatapb.StatusResponse{
+		Status: &multipoolermanagerdatapb.Status{
+			IsInitialized: false,
+		},
+	})
+	mockClient.SetStatusResponse(standby2ID, &multipoolermanagerdatapb.StatusResponse{
+		Status: &multipoolermanagerdatapb.Status{
+			IsInitialized: false,
+		},
+	})
+
+	// InitializeEmptyPrimary response - set for all poolers since selection order is non-deterministic
+	mockClient.InitializeEmptyPrimaryResponses[poolerID] = &multipoolermanagerdatapb.InitializeEmptyPrimaryResponse{
+		Success:  true,
+		BackupId: "backup-123",
+	}
+	mockClient.InitializeEmptyPrimaryResponses[standby1ID] = &multipoolermanagerdatapb.InitializeEmptyPrimaryResponse{
+		Success:  true,
+		BackupId: "backup-123",
+	}
+	mockClient.InitializeEmptyPrimaryResponses[standby2ID] = &multipoolermanagerdatapb.InitializeEmptyPrimaryResponse{
+		Success:  true,
+		BackupId: "backup-123",
+	}
+
+	// ChangeType responses
+	mockClient.ChangeTypeResponses[poolerID] = &multipoolermanagerdatapb.ChangeTypeResponse{}
+	mockClient.ChangeTypeResponses[standby1ID] = &multipoolermanagerdatapb.ChangeTypeResponse{}
+	mockClient.ChangeTypeResponses[standby2ID] = &multipoolermanagerdatapb.ChangeTypeResponse{}
+
+	// InitializeAsStandby responses - set for all poolers since any can become a standby
+	// (primary selection order is non-deterministic due to map iteration)
+	mockClient.InitializeAsStandbyResponses[poolerID] = &multipoolermanagerdatapb.InitializeAsStandbyResponse{
+		Success: true,
+	}
+	mockClient.InitializeAsStandbyResponses[standby1ID] = &multipoolermanagerdatapb.InitializeAsStandbyResponse{
+		Success: true,
+	}
+	mockClient.InitializeAsStandbyResponses[standby2ID] = &multipoolermanagerdatapb.InitializeAsStandbyResponse{
+		Success: true,
+	}
+
+	// ConfigureSynchronousReplication response - set for all poolers since selection order is non-deterministic
+	mockClient.ConfigureSynchronousReplicationResponses[poolerID] = &multipoolermanagerdatapb.ConfigureSynchronousReplicationResponse{}
+	mockClient.ConfigureSynchronousReplicationResponses[standby1ID] = &multipoolermanagerdatapb.ConfigureSynchronousReplicationResponse{}
+	mockClient.ConfigureSynchronousReplicationResponses[standby2ID] = &multipoolermanagerdatapb.ConfigureSynchronousReplicationResponse{}
+
+	// Create database in topology with ANY_2 policy
+	err := ts.CreateDatabase(ctx, "testdb", &clustermetadatapb.Database{
+		Name:             "testdb",
+		DurabilityPolicy: "ANY_2",
+	})
+	require.NoError(t, err)
+
+	// Execute bootstrap action
+	action := NewBootstrapShardAction(mockClient, poolerStore, ts, logger)
+	problem := types.Problem{
+		Code: types.ProblemShardNeedsBootstrap,
+		ShardKey: commontypes.ShardKey{
+			Database:   "testdb",
+			TableGroup: "default",
+			Shard:      "0",
+		},
+	}
+
+	err = action.Execute(ctx, problem)
+	require.NoError(t, err)
+
+	// Verify ConfigureSynchronousReplication was called
+	assert.True(t, mockClient.syncReplicationCalled, "ConfigureSynchronousReplication should be called during bootstrap")
+	assert.NotNil(t, mockClient.syncReplicationRequest, "ConfigureSynchronousReplication request should be captured")
+
+	// Verify the request has correct num_sync for ANY_2 policy (requires 2 nodes, so 1 sync standby)
+	assert.Equal(t, int32(1), mockClient.syncReplicationRequest.NumSync,
+		"ANY_2 policy with RequiredCount=2 should set NumSync=1")
+
+	// Verify the request has standby IDs
+	assert.Len(t, mockClient.syncReplicationRequest.StandbyIds, 2,
+		"Should configure both standbys in the sync replication list")
+
+	// Verify the standby IDs are correct (order doesn't matter)
+	standbyNames := make(map[string]bool)
+	for _, standbyID := range mockClient.syncReplicationRequest.StandbyIds {
+		standbyNames[standbyID.Name] = true
+	}
+	assert.True(t, standbyNames["pooler2"], "Should include pooler2 in standby list")
+	assert.True(t, standbyNames["pooler3"], "Should include pooler3 in standby list")
+}
+
 // setupTestDatabase creates the database in topology with the given durability policy
 func setupTestDatabase(ctx context.Context, t *testing.T, ts topoclient.Store, dbName, durabilityPolicy string) {
 	t.Helper()
@@ -291,19 +470,26 @@ func TestBootstrapShardAction_QuorumCheckPassesWithEnoughPoolers(t *testing.T) {
 		},
 	})
 
-	// Setup responses for the bootstrap flow
+	// Setup responses for the bootstrap flow (either pooler could be selected as primary)
 	fakeClient.InitializeEmptyPrimaryResponses["multipooler-cell1-pooler1"] = &multipoolermanagerdatapb.InitializeEmptyPrimaryResponse{
 		Success:  true,
 		BackupId: "backup-123",
 	}
+	fakeClient.InitializeEmptyPrimaryResponses["multipooler-cell1-pooler2"] = &multipoolermanagerdatapb.InitializeEmptyPrimaryResponse{
+		Success:  true,
+		BackupId: "backup-123",
+	}
 	fakeClient.ChangeTypeResponses["multipooler-cell1-pooler1"] = &multipoolermanagerdatapb.ChangeTypeResponse{}
-	fakeClient.CreateDurabilityPolicyResponses["multipooler-cell1-pooler1"] = &multipoolermanagerdatapb.CreateDurabilityPolicyResponse{
+	fakeClient.ChangeTypeResponses["multipooler-cell1-pooler2"] = &multipoolermanagerdatapb.ChangeTypeResponse{}
+	fakeClient.InitializeAsStandbyResponses["multipooler-cell1-pooler1"] = &multipoolermanagerdatapb.InitializeAsStandbyResponse{
 		Success: true,
 	}
 	fakeClient.InitializeAsStandbyResponses["multipooler-cell1-pooler2"] = &multipoolermanagerdatapb.InitializeAsStandbyResponse{
 		Success: true,
 	}
-	fakeClient.ChangeTypeResponses["multipooler-cell1-pooler2"] = &multipoolermanagerdatapb.ChangeTypeResponse{}
+	// Add ConfigureSynchronousReplication responses for both (since selection order is non-deterministic)
+	fakeClient.ConfigureSynchronousReplicationResponses["multipooler-cell1-pooler1"] = &multipoolermanagerdatapb.ConfigureSynchronousReplicationResponse{}
+	fakeClient.ConfigureSynchronousReplicationResponses["multipooler-cell1-pooler2"] = &multipoolermanagerdatapb.ConfigureSynchronousReplicationResponse{}
 
 	// Add two poolers to the store
 	poolerID1 := &clustermetadatapb.ID{
@@ -354,10 +540,11 @@ func TestBootstrapShardAction_QuorumCheckPassesWithEnoughPoolers(t *testing.T) {
 	// Should succeed - we have 2 reachable poolers and ANY_2 requires 2
 	assert.NoError(t, err)
 
-	// Verify the expected RPC calls were made
-	assert.Contains(t, fakeClient.CallLog, "InitializeEmptyPrimary(multipooler-cell1-pooler1)")
-	assert.Contains(t, fakeClient.CallLog, "CreateDurabilityPolicy(multipooler-cell1-pooler1)")
-	assert.Contains(t, fakeClient.CallLog, "InitializeAsStandby(multipooler-cell1-pooler2)")
+	// Verify that exactly one primary and one standby were initialized
+	// (order is non-deterministic due to map iteration)
+	callCounts := countCallsByMethod(fakeClient.CallLog)
+	assert.Equal(t, 1, callCounts["InitializeEmptyPrimary"], "exactly one primary should be initialized")
+	assert.Equal(t, 1, callCounts["InitializeAsStandby"], "exactly one standby should be initialized")
 }
 
 // TestBootstrapShardAction_FullBootstrapFlow tests the complete bootstrap flow
@@ -391,9 +578,7 @@ func TestBootstrapShardAction_FullBootstrapFlow(t *testing.T) {
 			Success:  true,
 			BackupId: "backup-abc123",
 		}
-		fakeClient.CreateDurabilityPolicyResponses[key] = &multipoolermanagerdatapb.CreateDurabilityPolicyResponse{
-			Success: true,
-		}
+		fakeClient.ConfigureSynchronousReplicationResponses[key] = &multipoolermanagerdatapb.ConfigureSynchronousReplicationResponse{}
 	}
 
 	// Add 3 poolers to the store
@@ -431,11 +616,10 @@ func TestBootstrapShardAction_FullBootstrapFlow(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Count RPC calls by method name
-	// We expect: 1 InitializeEmptyPrimary, 1 CreateDurabilityPolicy, 2 InitializeAsStandby
+	// We expect: 1 InitializeEmptyPrimary, 2 InitializeAsStandby
 	callCounts := countCallsByMethod(fakeClient.CallLog)
 
 	assert.Equal(t, 1, callCounts["InitializeEmptyPrimary"], "exactly one primary should be initialized")
-	assert.Equal(t, 1, callCounts["CreateDurabilityPolicy"], "durability policy should be created once")
 	assert.Equal(t, 2, callCounts["InitializeAsStandby"], "two standbys should be initialized")
 }
 

@@ -45,7 +45,7 @@ func TestBuildSyncReplicationConfig(t *testing.T) {
 			createTestPoolerHealth("mp2", "cell1"),
 		}
 
-		config, err := c.buildSyncReplicationConfig(rule, standbys, candidate)
+		config, err := BuildSyncReplicationConfig(c.logger, rule, standbys, candidate)
 		require.NoError(t, err)
 		require.Nil(t, config, "Should return nil for required_count=1")
 	})
@@ -60,7 +60,7 @@ func TestBuildSyncReplicationConfig(t *testing.T) {
 
 		standbys := []*multiorchdatapb.PoolerHealthState{}
 
-		config, err := c.buildSyncReplicationConfig(rule, standbys, candidate)
+		config, err := BuildSyncReplicationConfig(c.logger, rule, standbys, candidate)
 		require.NoError(t, err)
 		require.Nil(t, config, "Should return nil when no standbys")
 	})
@@ -76,7 +76,7 @@ func TestBuildSyncReplicationConfig(t *testing.T) {
 			createTestPoolerHealth("mp1", "cell1"),
 		}
 
-		config, err := c.buildSyncReplicationConfig(rule, standbys, candidate)
+		config, err := BuildSyncReplicationConfig(c.logger, rule, standbys, candidate)
 		require.NoError(t, err)
 		require.NotNil(t, config)
 		require.Equal(t, multipoolermanagerdatapb.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_REMOTE_WRITE, config.SynchronousCommit)
@@ -99,7 +99,7 @@ func TestBuildSyncReplicationConfig(t *testing.T) {
 			createTestPoolerHealth("mp2", "cell1"),
 		}
 
-		config, err := c.buildSyncReplicationConfig(rule, standbys, candidate)
+		config, err := BuildSyncReplicationConfig(c.logger, rule, standbys, candidate)
 		require.NoError(t, err)
 		require.NotNil(t, config)
 		require.Equal(t, int32(2), config.NumSync, "num_sync should be required_count - 1")
@@ -121,7 +121,7 @@ func TestBuildSyncReplicationConfig(t *testing.T) {
 			createTestPoolerHealth("mp5", "cell1"),
 		}
 
-		config, err := c.buildSyncReplicationConfig(rule, standbys, candidate)
+		config, err := BuildSyncReplicationConfig(c.logger, rule, standbys, candidate)
 		require.NoError(t, err)
 		require.NotNil(t, config)
 		require.Equal(t, int32(2), config.NumSync, "num_sync should be required_count - 1, not capped by standbys")
@@ -141,7 +141,7 @@ func TestBuildSyncReplicationConfig(t *testing.T) {
 			createTestPoolerHealth("mp2", "cell1"),
 		}
 
-		config, err := c.buildSyncReplicationConfig(rule, standbys, candidate)
+		config, err := BuildSyncReplicationConfig(c.logger, rule, standbys, candidate)
 		require.NoError(t, err)
 		require.NotNil(t, config)
 		require.Equal(t, int32(2), config.NumSync, "num_sync should be capped at number of standbys")
@@ -161,7 +161,7 @@ func TestBuildSyncReplicationConfig(t *testing.T) {
 			createTestPoolerHealth("mp3", "us-west-1c"),
 		}
 
-		config, err := c.buildSyncReplicationConfig(rule, standbys, candidate)
+		config, err := BuildSyncReplicationConfig(c.logger, rule, standbys, candidate)
 		require.NoError(t, err)
 		require.NotNil(t, config)
 		require.Equal(t, int32(1), config.NumSync, "num_sync should be required_count - 1")
@@ -182,7 +182,7 @@ func TestBuildSyncReplicationConfig(t *testing.T) {
 			createTestPoolerHealth("mp-gamma", "cell-c"),
 		}
 
-		config, err := c.buildSyncReplicationConfig(rule, standbys, candidate)
+		config, err := BuildSyncReplicationConfig(c.logger, rule, standbys, candidate)
 		require.NoError(t, err)
 		require.NotNil(t, config)
 		require.Len(t, config.StandbyIds, 3)
@@ -205,7 +205,7 @@ func TestBuildSyncReplicationConfig(t *testing.T) {
 
 		standbys := []*multiorchdatapb.PoolerHealthState{createTestPoolerHealth("mp1", "cell1")}
 
-		config, err := c.buildSyncReplicationConfig(rule, standbys, candidate)
+		config, err := BuildSyncReplicationConfig(c.logger, rule, standbys, candidate)
 		require.NoError(t, err)
 		require.NotNil(t, config)
 		require.Equal(t, multipoolermanagerdatapb.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_REMOTE_WRITE, config.SynchronousCommit)
@@ -222,7 +222,7 @@ func TestBuildSyncReplicationConfig(t *testing.T) {
 			createTestPoolerHealth("mp2", "cell1"),
 		}
 
-		config, err := c.buildSyncReplicationConfig(rule, standbys, candidate)
+		config, err := BuildSyncReplicationConfig(c.logger, rule, standbys, candidate)
 		require.NoError(t, err)
 		require.NotNil(t, config)
 		require.Equal(t, multipoolermanagerdatapb.SynchronousMethod_SYNCHRONOUS_METHOD_ANY, config.SynchronousMethod)
@@ -236,7 +236,7 @@ func TestBuildSyncReplicationConfig(t *testing.T) {
 
 		standbys := []*multiorchdatapb.PoolerHealthState{createTestPoolerHealth("mp1", "cell1")}
 
-		config, err := c.buildSyncReplicationConfig(rule, standbys, candidate)
+		config, err := BuildSyncReplicationConfig(c.logger, rule, standbys, candidate)
 		require.NoError(t, err)
 		require.NotNil(t, config)
 		require.True(t, config.ReloadConfig)
@@ -258,7 +258,7 @@ func TestBuildSyncReplicationConfig(t *testing.T) {
 			createTestPoolerHealth("mp3", "us-west-1c"), // Different cell - should be included
 		}
 
-		config, err := c.buildSyncReplicationConfig(rule, standbys, candidate)
+		config, err := BuildSyncReplicationConfig(c.logger, rule, standbys, candidate)
 		require.NoError(t, err)
 		require.NotNil(t, config)
 		require.Equal(t, int32(1), config.NumSync, "num_sync should be required_count - 1")
@@ -293,7 +293,7 @@ func TestBuildSyncReplicationConfig(t *testing.T) {
 			createTestPoolerHealth("mp3", "us-west-1a"), // Same cell as primary
 		}
 
-		config, err := c.buildSyncReplicationConfig(rule, standbys, candidate)
+		config, err := BuildSyncReplicationConfig(c.logger, rule, standbys, candidate)
 		require.NoError(t, err)
 		require.Nil(t, config, "Should return nil when all standbys are in same cell as primary with ALLOW mode")
 	})
@@ -314,7 +314,7 @@ func TestBuildSyncReplicationConfig(t *testing.T) {
 			createTestPoolerHealth("mp5", "cell-d"), // Different cell - included
 		}
 
-		config, err := c.buildSyncReplicationConfig(rule, standbys, candidate)
+		config, err := BuildSyncReplicationConfig(c.logger, rule, standbys, candidate)
 		require.NoError(t, err)
 		require.NotNil(t, config)
 		require.Equal(t, int32(2), config.NumSync, "num_sync should be required_count - 1")
@@ -341,7 +341,7 @@ func TestBuildSyncReplicationConfig(t *testing.T) {
 			createTestPoolerHealth("mp3", "cell-c"), // Different cell - included
 		}
 
-		config, err := c.buildSyncReplicationConfig(rule, standbys, candidate)
+		config, err := BuildSyncReplicationConfig(c.logger, rule, standbys, candidate)
 		require.NoError(t, err)
 		require.NotNil(t, config)
 		require.Equal(t, int32(2), config.NumSync, "num_sync should be capped at available different-cell standbys")
@@ -361,7 +361,7 @@ func TestBuildSyncReplicationConfig(t *testing.T) {
 			createTestPoolerHealth("mp2", "us-west-1b"),
 		}
 
-		config, err := c.buildSyncReplicationConfig(rule, standbys, candidate)
+		config, err := BuildSyncReplicationConfig(c.logger, rule, standbys, candidate)
 		require.NoError(t, err)
 		require.NotNil(t, config)
 		require.Len(t, config.StandbyIds, 2, "ANY_N should include all standbys regardless of cell")
@@ -391,7 +391,7 @@ func TestBuildSyncReplicationConfig(t *testing.T) {
 			createTestPoolerHealth("mp3", "us-west-1a"),
 		}
 
-		config, err := c.buildSyncReplicationConfig(rule, standbys, candidate)
+		config, err := BuildSyncReplicationConfig(c.logger, rule, standbys, candidate)
 		require.Error(t, err)
 		require.Nil(t, config)
 		require.Contains(t, err.Error(), "cannot establish synchronous replication")
@@ -414,7 +414,7 @@ func TestBuildSyncReplicationConfig(t *testing.T) {
 			createTestPoolerHealth("mp3", "us-west-1a"),
 		}
 
-		config, err := c.buildSyncReplicationConfig(rule, standbys, candidate)
+		config, err := BuildSyncReplicationConfig(c.logger, rule, standbys, candidate)
 		require.NoError(t, err)
 		require.Nil(t, config, "Should return nil and allow async replication")
 	})
@@ -435,7 +435,7 @@ func TestBuildSyncReplicationConfig(t *testing.T) {
 			createTestPoolerHealth("mp3", "us-west-1a"),
 		}
 
-		config, err := c.buildSyncReplicationConfig(rule, standbys, candidate)
+		config, err := BuildSyncReplicationConfig(c.logger, rule, standbys, candidate)
 		require.Error(t, err, "UNKNOWN should default to REJECT behavior")
 		require.Nil(t, config)
 		require.Contains(t, err.Error(), "async_fallback=REJECT")
@@ -455,7 +455,7 @@ func TestBuildSyncReplicationConfig(t *testing.T) {
 		// No standbys available
 		standbys := []*multiorchdatapb.PoolerHealthState{}
 
-		config, err := c.buildSyncReplicationConfig(rule, standbys, candidate)
+		config, err := BuildSyncReplicationConfig(c.logger, rule, standbys, candidate)
 		require.Error(t, err)
 		require.Nil(t, config)
 		require.Contains(t, err.Error(), "cannot establish synchronous replication")
@@ -477,7 +477,7 @@ func TestBuildSyncReplicationConfig(t *testing.T) {
 			createTestPoolerHealth("mp2", "us-west-1b"),
 		}
 
-		config, err := c.buildSyncReplicationConfig(rule, standbys, candidate)
+		config, err := BuildSyncReplicationConfig(c.logger, rule, standbys, candidate)
 		require.Error(t, err)
 		require.Nil(t, config)
 		require.Contains(t, err.Error(), "cannot establish synchronous replication")
@@ -501,7 +501,7 @@ func TestBuildSyncReplicationConfig(t *testing.T) {
 			createTestPoolerHealth("mp3", "cell-b"), // Different cell - included
 		}
 
-		config, err := c.buildSyncReplicationConfig(rule, standbys, candidate)
+		config, err := BuildSyncReplicationConfig(c.logger, rule, standbys, candidate)
 		require.Error(t, err)
 		require.Nil(t, config)
 		require.Contains(t, err.Error(), "cannot establish synchronous replication")

@@ -45,10 +45,8 @@ func TestPrimaryIsDeadAnalyzer_Analyze(t *testing.T) {
 	}
 	coord := coordinator.NewCoordinator(coordID, ts, rpcClient, slog.Default())
 	factory := NewRecoveryActionFactory(poolerStore, rpcClient, ts, coord, slog.Default())
-	SetRecoveryActionFactory(factory)
-	defer SetRecoveryActionFactory(nil) // Clean up after test
 
-	analyzer := &PrimaryIsDeadAnalyzer{}
+	analyzer := &PrimaryIsDeadAnalyzer{factory: factory}
 
 	t.Run("detects dead primary (primary exists in topology but unreachable)", func(t *testing.T) {
 		primaryID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "primary1"}
