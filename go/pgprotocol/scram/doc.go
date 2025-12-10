@@ -16,10 +16,10 @@
 //
 // # Overview
 //
-// This package provides server-side SCRAM-SHA-256 authentication that enables Multigres
-// to verify client credentials and extract SCRAM keys for passthrough authentication to
-// backend PostgreSQL servers. This eliminates the need to store plaintext passwords while
-// maintaining compatibility with PostgreSQL's native authentication.
+// This package provides SCRAM-SHA-256 authentication for both server and client roles,
+// enabling Multigres to verify client credentials and extract SCRAM keys for passthrough
+// authentication to backend PostgreSQL servers. This eliminates the need to store plaintext
+// passwords while maintaining compatibility with PostgreSQL's native authentication.
 //
 // # SCRAM-SHA-256 Protocol
 //
@@ -58,6 +58,7 @@
 // The package is organized into several components:
 //
 //   - ScramAuthenticator: Stateful server-side authenticator handling the protocol exchange
+//   - SCRAMClient: Client-side authenticator supporting password and passthrough modes
 //   - PasswordHashProvider: Interface for retrieving SCRAM password hashes from storage
 //   - Cryptographic functions: RFC 5802 compliant key derivation and verification
 //   - Protocol parsers/generators: Message construction and parsing (unexported)
@@ -122,15 +123,16 @@
 //
 // # Future Directions
 //
-// Current implementation (Phase 1):
+// Current implementation:
 //   - Core SCRAM protocol and cryptography
-//   - Server-side authentication only
+//   - Server-side authentication (ScramAuthenticator)
+//   - Client-side authentication with passthrough support (SCRAMClient)
 //   - No credential caching
 //   - No integration with multigateway/multipooler
 //
 // Planned enhancements:
 //   - Caching password hashes in multigateway to save a round-trip to multipooler on connect
-//   - Client-side SCRAM for passthrough to PostgreSQL (scram_client.go)
+//   - Integration with multigateway/multipooler for end-to-end passthrough
 //
 // # Credential Cache Design Considerations
 //
