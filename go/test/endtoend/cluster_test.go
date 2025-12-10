@@ -48,6 +48,10 @@ import (
 	_ "github.com/multigres/multigres/go/common/plugins/topo"
 )
 
+// lastTestClusterTempDir tracks the temp directory of the last test cluster setup.
+// Used by TestMain to dump service logs on test failure.
+var lastTestClusterTempDir string
+
 // getProjectRoot finds the project root directory by traversing up from the current file.
 func getProjectRoot() (string, error) {
 	wd, err := os.Getwd()
@@ -1247,6 +1251,9 @@ func setupTestCluster(t *testing.T) *testClusterSetup {
 	// Setup test directory
 	tempDir, err := os.MkdirTemp("/tmp", "mlt")
 	require.NoError(t, err)
+
+	// Track for log dumping on test failure
+	lastTestClusterTempDir = tempDir
 
 	// Create cleanup function
 	cleanup := func() {

@@ -60,3 +60,9 @@ func (f *RecoveryActionFactory) NewBootstrapShardAction() types.RecoveryAction {
 func (f *RecoveryActionFactory) NewAppointLeaderAction() types.RecoveryAction {
 	return actions.NewAppointLeaderAction(f.coordinator, f.poolerStore, f.topoStore, f.logger)
 }
+
+// NewFixReplicationAction creates a fix replication action.
+func (f *RecoveryActionFactory) NewFixReplicationAction() types.RecoveryAction {
+	poolerStore := store.NewPoolerStore(f.poolerStore, f.rpcClient, f.logger)
+	return actions.NewFixReplicationAction(f.rpcClient, poolerStore, f.topoStore, f.logger)
+}

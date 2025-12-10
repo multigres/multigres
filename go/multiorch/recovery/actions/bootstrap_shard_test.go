@@ -350,13 +350,14 @@ func TestBootstrapShardAction_ConfiguresSyncReplication(t *testing.T) {
 	assert.Len(t, mockClient.syncReplicationRequest.StandbyIds, 2,
 		"Should configure both standbys in the sync replication list")
 
-	// Verify the standby IDs are correct (order doesn't matter)
+	// Verify the standby IDs are valid pooler names (primary selection is non-deterministic)
+	allPoolers := map[string]bool{"pooler1": true, "pooler2": true, "pooler3": true}
 	standbyNames := make(map[string]bool)
 	for _, standbyID := range mockClient.syncReplicationRequest.StandbyIds {
+		assert.True(t, allPoolers[standbyID.Name], "Standby %s should be a valid pooler", standbyID.Name)
 		standbyNames[standbyID.Name] = true
 	}
-	assert.True(t, standbyNames["pooler2"], "Should include pooler2 in standby list")
-	assert.True(t, standbyNames["pooler3"], "Should include pooler3 in standby list")
+	assert.Len(t, standbyNames, 2, "Should have 2 unique standbys")
 }
 
 // setupTestDatabase creates the database in topology with the given durability policy
