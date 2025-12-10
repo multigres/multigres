@@ -4,11 +4,11 @@ Our goal is to build a thriving community around Multigres. So, we welcome parti
 
 ## Discussions
 
-If you have questions or would like to start a discussion about a topic, you can start one [here](https://github.com/multigres/multigres/discussions). We look forward to your participation.
+If you have questions or would like to start a discussion about a topic, you can [start a discussion on GitHub](https://github.com/multigres/multigres/discussions). We look forward to your participation.
 
 ## Issues
 
-If you see something broken, you can file an issue [here](https://github.com/multigres/multigres/issues).
+If you see something broken, you can [file an issue on GitHub](https://github.com/multigres/multigres/issues).
 
 ## Proposals
 

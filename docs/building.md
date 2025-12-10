@@ -7,7 +7,7 @@ This document provides instructions for building and testing the Multigres proje
 Multigres is organized as a monorepo with all the core application code located in the `go/` directory. The repository contains multiple components including:
 
 - **multigateway** - Gateway service for routing and load balancing
-- **multiorch** - Orchestration service for cluster management  
+- **multiorch** - Orchestration service for cluster management
 - **multipooler** - Connection pooling service
 - **pgctld** - PostgreSQL control daemon
 - **multigres** - Main CLI tool
@@ -17,6 +17,7 @@ Each component has its own main entry point under `go/cmd/` and shared libraries
 ## Prerequisites
 
 You need to install:
+
 - Go (version 1.25 or later)
 - PostgreSQL (we have been working with version 17.6)
 
@@ -77,7 +78,6 @@ make clean
 ```
 
 This does not remove the generated protobuf files. As per go standards, these generated files are checked into the repository.
-
 
 ## Protocol Buffers
 

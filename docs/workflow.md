@@ -14,7 +14,7 @@ Eventually, we will merge your pull request back into the _upstream_ repository.
 
 Since you should have cloned the repository from your fork, the `origin` remote should look like this:
 
-```
+```bash
 $ git remote -v
 origin  git@github.com:<yourname>/multigres.git (fetch)
 origin  git@github.com:<yourname>/multigres.git (push)
@@ -22,7 +22,7 @@ origin  git@github.com:<yourname>/multigres.git (push)
 
 To help you keep your fork in sync with the main repo, add an `upstream` remote:
 
-```
+```bash
 $ git remote add upstream git@github.com:multigres/multigres.git
 $ git remote -v
 origin  git@github.com:<yourname>/multigres.git (fetch)
@@ -33,7 +33,7 @@ upstream        git@github.com:multigres/multigres.git (push)
 
 Now to sync your local `main` branch, do this:
 
-```
+```bash
 $ git checkout main
 (main) $ git pull upstream main
 ```
@@ -42,13 +42,13 @@ Note: In the example output above we prefixed the prompt with `(main)` to stress
 
 You can omit the `upstream main` from the `git pull` command when you let your `main` branch always track the main `multigres/multigres` repository. To achieve this, run this command once:
 
-```
+```bash
 (main) $ git branch --set-upstream-to=upstream/main
 ```
 
 Now the following command syncs your local `main` branch as well:
 
-```
+```bash
 (main) $ git pull
 ```
 
@@ -56,7 +56,7 @@ Now the following command syncs your local `main` branch as well:
 
 Before you start working on changes, create a topic branch:
 
-```
+```bash
 $ git checkout main
 (main) $ git pull
 (main) $ git checkout -b new-feature
@@ -78,15 +78,15 @@ This is needed for [the Developer Certificate of Origin](https://github.com/apps
 
 Push your branch to the repository (and set it to track with `-u`):
 
-```
+```bash
 (new-feature) $ git push -u origin new-feature
 ```
 
 You can omit `origin` and `-u new-feature` parameters from the `git push` command with the following two Git configuration changes:
 
-```
-$ git config remote.pushdefault origin
-$ git config push.default current
+```bash
+git config remote.pushdefault origin
+git config push.default current
 ```
 
 The first setting saves you from typing `origin` every time. And with the second
@@ -95,7 +95,7 @@ same name as your local branch.
 
 After this change, you can run `git push` without arguments:
 
-```
+```bash
 (new-feature) $ git push
 ```
 
@@ -108,7 +108,7 @@ You can also [choose a branch manually](https://github.com/multigres/multigres/c
 If you need to make changes in response to the reviewer's comments, just make
 another commit on your branch and then push it again:
 
-```
+```bash
 $ git checkout new-feature
 (new-feature) $ git commit
 (new-feature) $ git push
