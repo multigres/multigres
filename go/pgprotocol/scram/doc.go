@@ -139,8 +139,16 @@
 // When implementing credential caching:
 //
 //   - TTL: Balance security (shorter) vs performance (longer)
-//     PgBouncer: No cache, queries every connection
-//     Supavisor: 30-second cache with background refresh
+//
+//     PgBouncer: No cache, runs auth_query on every connection
+//     See src/client.c start_auth_query()
+//     https://github.com/pgbouncer/pgbouncer/tree/master/src
+//
+//     Supavisor: 24-hour cache with 15-second background refresh + refresh on auth failure
+//     See lib/supavisor/secret_cache.ex @default_secrets_ttl, fetch_validation_secrets/3
+//     See lib/supavisor/secret_checker.ex @interval, check_secrets/2 (background polling)
+//     See lib/supavisor/client_handler/auth.ex check_and_update_secrets/7 (refresh on auth failure)
+//     https://github.com/supabase/supavisor/tree/main/lib/supavisor
 //
 //   - Invalidation: Consider cache busting on password changes
 //     Option 1: PostgreSQL triggers + notification channel
