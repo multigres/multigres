@@ -260,12 +260,13 @@ const multigresInitMarker = "MULTIGRES_INITIALIZED"
 // This should return true even when postgres is not running, as long as the node was previously initialized.
 func (pm *MultiPoolerManager) isInitialized(ctx context.Context) bool {
 	// Fast path: check cached state first
-	pm.mu.Lock()
-	if pm.initialized {
-		pm.mu.Unlock()
+	if func() bool {
+		pm.mu.Lock()
+		defer pm.mu.Unlock()
+		return pm.initialized
+	}() {
 		return true
 	}
-	pm.mu.Unlock()
 
 	if !pm.hasDataDirectory() {
 		return false
