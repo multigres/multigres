@@ -326,15 +326,7 @@ message DemoteResponse {
 }
 
 // UndoDemote undoes a demotion by restarting PostgreSQL as a primary.
-// This is only safe when:
-// 1. No other node has been promoted (all standbys are in recovery mode)
-// 2. The timeline hasn't changed (no WAL divergence)
-// 3. The data directory hasn't been modified as a standby
 message UndoDemoteRequest {
-  // Expected timeline ID to validate before undoing demotion.
-  // If the current timeline differs, it means a standby was promoted and
-  // UndoDemote is no longer safe.
-  int32 expected_timeline_id = 1;
 }
 
 message UndoDemoteResponse {
@@ -343,9 +335,6 @@ message UndoDemoteResponse {
 
   // LSN position after undo demotion
   string lsn_position = 2;
-
-  // Timeline ID after undo demotion
-  int32 timeline_id = 3;
 }
 
 // StopReplicationAndGetStatus stops PostgreSQL replication (replay and/or receiver based on mode)

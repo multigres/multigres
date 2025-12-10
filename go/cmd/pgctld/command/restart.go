@@ -119,14 +119,21 @@ func RestartPostgreSQLWithResult(logger *slog.Logger, config *pgctld.PostgresCtl
 		result.StoppedFirst = false
 	}
 
-	// Create standby.signal if restarting as standby
+	// Manage standby.signal based on asStandby flag
+	standbySignalPath := filepath.Join(config.PostgresDataDir, "standby.signal")
 	if asStandby {
-		standbySignalPath := filepath.Join(config.PostgresDataDir, "standby.signal")
 		logger.Info("Creating standby.signal file", "path", standbySignalPath)
 		if err := os.WriteFile(standbySignalPath, []byte(""), 0o644); err != nil {
 			return nil, fmt.Errorf("failed to create standby.signal: %w", err)
 		}
 		logger.Info("standby.signal created successfully", "path", standbySignalPath)
+	} else {
+		// Remove standby.signal if it exists (to start as primary)
+		if err := os.Remove(standbySignalPath); err != nil && !os.IsNotExist(err) {
+			return nil, fmt.Errorf("failed to remove standby.signal: %w", err)
+		} else if err == nil {
+			logger.Info("Removed standby.signal file", "path", standbySignalPath)
+		}
 	}
 
 	// Start the server

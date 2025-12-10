@@ -286,7 +286,7 @@ func TestActionLock_MutationMethodsTimeout(t *testing.T) {
 			name:       "UndoDemote times out when lock is held",
 			poolerType: clustermetadatapb.PoolerType_PRIMARY,
 			callMethod: func(ctx context.Context) error {
-				_, err := manager.UndoDemote(ctx, 0)
+				_, err := manager.UndoDemote(ctx)
 				return err
 			},
 		},
@@ -895,39 +895,39 @@ func TestReplicationStatus(t *testing.T) {
 			return pm.GetState() == ManagerStateReady
 		}, 5*time.Second, 100*time.Millisecond, "Manager should reach Ready state")
 
-		// Create mock database and inject it
+		// Create mock database and inject it (uses default regex matcher)
 		db, mock, err := sqlmock.New()
 		require.NoError(t, err)
 		t.Cleanup(func() { db.Close() })
 		pm.db = db
 
-		// Status() calls isPrimary() multiple times via different code paths:
-		// 1. getRole() -> isPrimary() -> pg_is_in_recovery
+		// Status() query flow:
+		// getRole() -> isPrimary()
 		mock.ExpectQuery(regexp.QuoteMeta("SELECT pg_is_in_recovery()")).
 			WillReturnRows(sqlmock.NewRows([]string{"pg_is_in_recovery"}).AddRow(false))
-		// 2. getWALPosition() -> isPrimary() -> pg_is_in_recovery
+		// getWALPosition() -> isPrimary()
 		mock.ExpectQuery(regexp.QuoteMeta("SELECT pg_is_in_recovery()")).
 			WillReturnRows(sqlmock.NewRows([]string{"pg_is_in_recovery"}).AddRow(false))
-		// 3. getWALPosition() -> getPrimaryLSN() (since isPrimary=true)
+		// getWALPosition() -> getPrimaryLSN()
 		mock.ExpectQuery(regexp.QuoteMeta("SELECT pg_current_wal_lsn()")).
 			WillReturnRows(sqlmock.NewRows([]string{"pg_current_wal_lsn"}).AddRow("0/12345678"))
-		// 4. Direct isPrimary() call in Status() -> pg_is_in_recovery
+		// isPrimary() for role check
 		mock.ExpectQuery(regexp.QuoteMeta("SELECT pg_is_in_recovery()")).
 			WillReturnRows(sqlmock.NewRows([]string{"pg_is_in_recovery"}).AddRow(false))
-		// 5. getPrimaryStatusInternal() -> getPrimaryLSN()
+		// getPrimaryStatusInternal() -> getPrimaryLSN()
 		mock.ExpectQuery(regexp.QuoteMeta("SELECT pg_current_wal_lsn()")).
 			WillReturnRows(sqlmock.NewRows([]string{"pg_current_wal_lsn"}).AddRow("0/12345678"))
-		// 6. getPrimaryStatusInternal() -> getConnectedFollowerIDs()
+		// getPrimaryStatusInternal() -> getConnectedFollowerIDs()
 		mock.ExpectQuery(regexp.QuoteMeta("SELECT application_name")).
 			WillReturnRows(sqlmock.NewRows([]string{"application_name"}))
-		// 7. getPrimaryStatusInternal() -> getSynchronousReplicationConfig()
+		// getPrimaryStatusInternal() -> getSynchronousReplicationConfig()
 		mock.ExpectQuery(regexp.QuoteMeta("SHOW synchronous_standby_names")).
 			WillReturnRows(sqlmock.NewRows([]string{"synchronous_standby_names"}).AddRow(""))
-		// 8. getSynchronousReplicationConfig() -> SHOW synchronous_commit
+		// getSynchronousReplicationConfig() -> SHOW synchronous_commit
 		mock.ExpectQuery(regexp.QuoteMeta("SHOW synchronous_commit")).
 			WillReturnRows(sqlmock.NewRows([]string{"synchronous_commit"}).AddRow("on"))
 
-		// Call ReplicationStatus
+		// Call Status
 		status, err := pm.Status(ctx)
 		require.NoError(t, err)
 		require.NotNil(t, status)
@@ -990,33 +990,27 @@ func TestReplicationStatus(t *testing.T) {
 			return pm.GetState() == ManagerStateReady
 		}, 5*time.Second, 100*time.Millisecond, "Manager should reach Ready state")
 
-		// Create mock database and inject it
+		// Create mock database and inject it (uses default regex matcher)
 		db, mock, err := sqlmock.New()
 		require.NoError(t, err)
 		t.Cleanup(func() { db.Close() })
 		pm.db = db
 
-		// Status() calls isPrimary() multiple times via different code paths:
-		// 1. getRole() -> isPrimary() -> pg_is_in_recovery
+		// Status() query flow:
+		// getRole() -> isPrimary()
 		mock.ExpectQuery(regexp.QuoteMeta("SELECT pg_is_in_recovery()")).
 			WillReturnRows(sqlmock.NewRows([]string{"pg_is_in_recovery"}).AddRow(true))
-		// 2. getWALPosition() -> isPrimary() -> pg_is_in_recovery
+		// getWALPosition() -> isPrimary()
 		mock.ExpectQuery(regexp.QuoteMeta("SELECT pg_is_in_recovery()")).
 			WillReturnRows(sqlmock.NewRows([]string{"pg_is_in_recovery"}).AddRow(true))
-		// 3. getWALPosition() -> getStandbyReplayLSN() (since isPrimary=false)
+		// getWALPosition() -> getStandbyReplayLSN()
 		mock.ExpectQuery(regexp.QuoteMeta("SELECT pg_last_wal_replay_lsn()")).
 			WillReturnRows(sqlmock.NewRows([]string{"pg_last_wal_replay_lsn"}).AddRow("0/12345600"))
-		// 4. Direct isPrimary() call in Status() -> pg_is_in_recovery
+		// isPrimary() for role check
 		mock.ExpectQuery(regexp.QuoteMeta("SELECT pg_is_in_recovery()")).
 			WillReturnRows(sqlmock.NewRows([]string{"pg_is_in_recovery"}).AddRow(true))
-		// 5. getStandbyStatusInternal() -> queryReplicationStatus()
-		mock.ExpectQuery(regexp.QuoteMeta(`SELECT
-		pg_last_wal_replay_lsn(),
-		pg_last_wal_receive_lsn(),
-		pg_is_wal_replay_paused(),
-		pg_get_wal_replay_pause_state(),
-		pg_last_xact_replay_timestamp(),
-		current_setting('primary_conninfo')`)).
+		// getStandbyStatusInternal() -> queryReplicationStatus()
+		mock.ExpectQuery(regexp.QuoteMeta("SELECT\n\t\tpg_last_wal_replay_lsn(),\n\t\tpg_last_wal_receive_lsn(),\n\t\tpg_is_wal_replay_paused(),\n\t\tpg_get_wal_replay_pause_state(),\n\t\tpg_last_xact_replay_timestamp(),\n\t\tcurrent_setting('primary_conninfo')")).
 			WillReturnRows(sqlmock.NewRows([]string{
 				"pg_last_wal_replay_lsn",
 				"pg_last_wal_receive_lsn",
@@ -1026,7 +1020,7 @@ func TestReplicationStatus(t *testing.T) {
 				"primary_conninfo",
 			}).AddRow("0/12345600", "0/12345678", false, "not paused", "2025-01-01 00:00:00", "host=primary port=5432 user=repl application_name=test"))
 
-		// Call ReplicationStatus
+		// Call Status
 		status, err := pm.Status(ctx)
 		require.NoError(t, err)
 		require.NotNil(t, status)
@@ -1084,34 +1078,28 @@ func TestReplicationStatus(t *testing.T) {
 			return pm.GetState() == ManagerStateReady
 		}, 5*time.Second, 100*time.Millisecond, "Manager should reach Ready state")
 
-		// Create mock database and inject it
+		// Create mock database and inject it (uses default regex matcher)
 		db, mock, err := sqlmock.New()
 		require.NoError(t, err)
 		t.Cleanup(func() { db.Close() })
 		pm.db = db
 
-		// Status() calls isPrimary() multiple times via different code paths:
+		// Status() query flow:
 		// PostgreSQL is actually a standby (pg_is_in_recovery = true)
-		// 1. getRole() -> isPrimary() -> pg_is_in_recovery
+		// getRole() -> isPrimary()
 		mock.ExpectQuery(regexp.QuoteMeta("SELECT pg_is_in_recovery()")).
 			WillReturnRows(sqlmock.NewRows([]string{"pg_is_in_recovery"}).AddRow(true))
-		// 2. getWALPosition() -> isPrimary() -> pg_is_in_recovery
+		// getWALPosition() -> isPrimary()
 		mock.ExpectQuery(regexp.QuoteMeta("SELECT pg_is_in_recovery()")).
 			WillReturnRows(sqlmock.NewRows([]string{"pg_is_in_recovery"}).AddRow(true))
-		// 3. getWALPosition() -> getStandbyReplayLSN() (since isPrimary=false)
+		// getWALPosition() -> getStandbyReplayLSN()
 		mock.ExpectQuery(regexp.QuoteMeta("SELECT pg_last_wal_replay_lsn()")).
 			WillReturnRows(sqlmock.NewRows([]string{"pg_last_wal_replay_lsn"}).AddRow("0/12345600"))
-		// 4. Direct isPrimary() call in Status() -> pg_is_in_recovery
+		// isPrimary() for role check
 		mock.ExpectQuery(regexp.QuoteMeta("SELECT pg_is_in_recovery()")).
 			WillReturnRows(sqlmock.NewRows([]string{"pg_is_in_recovery"}).AddRow(true))
-		// 5. getStandbyStatusInternal() -> queryReplicationStatus()
-		mock.ExpectQuery(regexp.QuoteMeta(`SELECT
-		pg_last_wal_replay_lsn(),
-		pg_last_wal_receive_lsn(),
-		pg_is_wal_replay_paused(),
-		pg_get_wal_replay_pause_state(),
-		pg_last_xact_replay_timestamp(),
-		current_setting('primary_conninfo')`)).
+		// getStandbyStatusInternal() -> queryReplicationStatus()
+		mock.ExpectQuery(regexp.QuoteMeta("SELECT\n\t\tpg_last_wal_replay_lsn(),\n\t\tpg_last_wal_receive_lsn(),\n\t\tpg_is_wal_replay_paused(),\n\t\tpg_get_wal_replay_pause_state(),\n\t\tpg_last_xact_replay_timestamp(),\n\t\tcurrent_setting('primary_conninfo')")).
 			WillReturnRows(sqlmock.NewRows([]string{
 				"pg_last_wal_replay_lsn",
 				"pg_last_wal_receive_lsn",
@@ -1183,36 +1171,36 @@ func TestReplicationStatus(t *testing.T) {
 			return pm.GetState() == ManagerStateReady
 		}, 5*time.Second, 100*time.Millisecond, "Manager should reach Ready state")
 
-		// Create mock database and inject it
+		// Create mock database and inject it (uses default regex matcher)
 		db, mock, err := sqlmock.New()
 		require.NoError(t, err)
 		t.Cleanup(func() { db.Close() })
 		pm.db = db
 
-		// Status() calls isPrimary() multiple times via different code paths:
+		// Status() query flow:
 		// PostgreSQL is actually a primary (pg_is_in_recovery = false)
-		// 1. getRole() -> isPrimary() -> pg_is_in_recovery
+		// getRole() -> isPrimary()
 		mock.ExpectQuery(regexp.QuoteMeta("SELECT pg_is_in_recovery()")).
 			WillReturnRows(sqlmock.NewRows([]string{"pg_is_in_recovery"}).AddRow(false))
-		// 2. getWALPosition() -> isPrimary() -> pg_is_in_recovery
+		// getWALPosition() -> isPrimary()
 		mock.ExpectQuery(regexp.QuoteMeta("SELECT pg_is_in_recovery()")).
 			WillReturnRows(sqlmock.NewRows([]string{"pg_is_in_recovery"}).AddRow(false))
-		// 3. getWALPosition() -> getPrimaryLSN() (since isPrimary=true)
+		// getWALPosition() -> getPrimaryLSN()
 		mock.ExpectQuery(regexp.QuoteMeta("SELECT pg_current_wal_lsn()")).
 			WillReturnRows(sqlmock.NewRows([]string{"pg_current_wal_lsn"}).AddRow("0/12345678"))
-		// 4. Direct isPrimary() call in Status() -> pg_is_in_recovery
+		// isPrimary() for role check
 		mock.ExpectQuery(regexp.QuoteMeta("SELECT pg_is_in_recovery()")).
 			WillReturnRows(sqlmock.NewRows([]string{"pg_is_in_recovery"}).AddRow(false))
-		// 5. getPrimaryStatusInternal() -> getPrimaryLSN()
+		// getPrimaryStatusInternal() -> getPrimaryLSN()
 		mock.ExpectQuery(regexp.QuoteMeta("SELECT pg_current_wal_lsn()")).
 			WillReturnRows(sqlmock.NewRows([]string{"pg_current_wal_lsn"}).AddRow("0/12345678"))
-		// 6. getPrimaryStatusInternal() -> getConnectedFollowerIDs()
+		// getPrimaryStatusInternal() -> getConnectedFollowerIDs()
 		mock.ExpectQuery(regexp.QuoteMeta("SELECT application_name")).
 			WillReturnRows(sqlmock.NewRows([]string{"application_name"}))
-		// 7. getPrimaryStatusInternal() -> getSynchronousReplicationConfig()
+		// getPrimaryStatusInternal() -> getSynchronousReplicationConfig()
 		mock.ExpectQuery(regexp.QuoteMeta("SHOW synchronous_standby_names")).
 			WillReturnRows(sqlmock.NewRows([]string{"synchronous_standby_names"}).AddRow(""))
-		// 8. getSynchronousReplicationConfig() -> SHOW synchronous_commit
+		// getSynchronousReplicationConfig() -> SHOW synchronous_commit
 		mock.ExpectQuery(regexp.QuoteMeta("SHOW synchronous_commit")).
 			WillReturnRows(sqlmock.NewRows([]string{"synchronous_commit"}).AddRow("on"))
 
@@ -1313,52 +1301,22 @@ func TestUndoDemote_AlreadyPrimary(t *testing.T) {
 	mockDB, mock := newMockDB(t)
 	expectStartupQueries(mock)
 
-	// queryUndoDemoteState: single query returns all state
-	// PostgreSQL is NOT in recovery (already primary)
-	mock.ExpectQuery(regexp.QuoteMeta("SELECT\n\t\tpg_is_in_recovery(),\n\t\t(SELECT timeline_id FROM pg_control_checkpoint()),\n\t\tCOALESCE(pg_current_wal_lsn()::text, pg_last_wal_replay_lsn()::text, '')")).
-		WillReturnRows(sqlmock.NewRows([]string{"pg_is_in_recovery", "timeline_id", "lsn"}).
-			AddRow(false, 1, "0/ABCDEF0"))
+	// isPrimary() - check recovery status
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT pg_is_in_recovery()")).
+		WillReturnRows(sqlmock.NewRows([]string{"pg_is_in_recovery"}).AddRow(false))
+	// getPrimaryLSN() - get current LSN for response
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT pg_current_wal_lsn()")).
+		WillReturnRows(sqlmock.NewRows([]string{"pg_current_wal_lsn"}).AddRow("0/ABCDEF0"))
 
 	pm, _ := setupUndoDemoteTestManager(t, mockDB)
 
 	// Call UndoDemote - should detect already primary and return idempotent success
-	resp, err := pm.UndoDemote(ctx, 1)
+	resp, err := pm.UndoDemote(ctx)
 	require.NoError(t, err, "Should succeed - already primary (idempotent)")
 	require.NotNil(t, resp)
 
 	assert.True(t, resp.WasAlreadyPrimary, "Should report as already primary")
 	assert.Equal(t, "0/ABCDEF0", resp.LsnPosition)
-	assert.Equal(t, int32(1), resp.TimelineId)
-
-	require.NoError(t, mock.ExpectationsWereMet())
-}
-
-// TestUndoDemote_TimelineMismatch tests that UndoDemote returns an error when the timeline
-// has changed, indicating another node may have been promoted.
-func TestUndoDemote_TimelineMismatch(t *testing.T) {
-	ctx := context.Background()
-
-	mockDB, mock := newMockDB(t)
-	expectStartupQueries(mock)
-
-	// queryUndoDemoteState: PostgreSQL is in recovery (standby)
-	// Timeline is 2, but we expect 1
-	mock.ExpectQuery(regexp.QuoteMeta("SELECT\n\t\tpg_is_in_recovery(),\n\t\t(SELECT timeline_id FROM pg_control_checkpoint()),\n\t\tCOALESCE(pg_current_wal_lsn()::text, pg_last_wal_replay_lsn()::text, '')")).
-		WillReturnRows(sqlmock.NewRows([]string{"pg_is_in_recovery", "timeline_id", "lsn"}).
-			AddRow(true, 2, "0/FEDCBA0"))
-
-	pm, _ := setupUndoDemoteTestManager(t, mockDB)
-
-	// Call UndoDemote with expected timeline 1, but actual is 2
-	resp, err := pm.UndoDemote(ctx, 1)
-	require.Error(t, err, "Should fail due to timeline mismatch")
-	require.Nil(t, resp)
-
-	// Verify error code and message
-	assert.Equal(t, mtrpcpb.Code_FAILED_PRECONDITION, mterrors.Code(err))
-	assert.Contains(t, err.Error(), "timeline mismatch")
-	assert.Contains(t, err.Error(), "expected 1")
-	assert.Contains(t, err.Error(), "current 2")
 
 	require.NoError(t, mock.ExpectationsWereMet())
 }
@@ -1370,16 +1328,16 @@ func TestUndoDemote_DatabaseConnectionFailed(t *testing.T) {
 	mockDB, mock := newMockDB(t)
 	expectStartupQueries(mock)
 
-	// queryUndoDemoteState: Database query fails
-	mock.ExpectQuery(regexp.QuoteMeta("SELECT\n\t\tpg_is_in_recovery(),\n\t\t(SELECT timeline_id FROM pg_control_checkpoint()),\n\t\tCOALESCE(pg_current_wal_lsn()::text, pg_last_wal_replay_lsn()::text, '')")).
+	// isPrimary() - Database query fails
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT pg_is_in_recovery()")).
 		WillReturnError(sql.ErrConnDone)
 
 	pm, _ := setupUndoDemoteTestManager(t, mockDB)
 
-	resp, err := pm.UndoDemote(ctx, 1)
+	resp, err := pm.UndoDemote(ctx)
 	require.Error(t, err)
 	require.Nil(t, resp)
-	assert.Contains(t, err.Error(), "failed to query undo demote state")
+	assert.Contains(t, err.Error(), "failed to check if primary")
 
 	require.NoError(t, mock.ExpectationsWereMet())
 }
@@ -1391,17 +1349,16 @@ func TestUndoDemote_RestartFailed(t *testing.T) {
 	mockDB, mock := newMockDB(t)
 	expectStartupQueries(mock)
 
-	// Initial state: PostgreSQL is in recovery
-	mock.ExpectQuery(regexp.QuoteMeta("SELECT\n\t\tpg_is_in_recovery(),\n\t\t(SELECT timeline_id FROM pg_control_checkpoint()),\n\t\tCOALESCE(pg_current_wal_lsn()::text, pg_last_wal_replay_lsn()::text, '')")).
-		WillReturnRows(sqlmock.NewRows([]string{"pg_is_in_recovery", "timeline_id", "lsn"}).
-			AddRow(true, 1, "0/1234567"))
+	// isPrimary() - PostgreSQL is in recovery (standby)
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT pg_is_in_recovery()")).
+		WillReturnRows(sqlmock.NewRows([]string{"pg_is_in_recovery"}).AddRow(true))
 
 	pm, mockPgctld := setupUndoDemoteTestManager(t, mockDB)
 
 	// Configure pgctld to fail on restart
 	mockPgctld.RestartError = mterrors.New(mtrpcpb.Code_INTERNAL, "mock restart failed")
 
-	resp, err := pm.UndoDemote(ctx, 1)
+	resp, err := pm.UndoDemote(ctx)
 	require.Error(t, err)
 	require.Nil(t, resp)
 	assert.Contains(t, err.Error(), "failed to restart as primary")
