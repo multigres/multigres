@@ -64,8 +64,12 @@ type Pool struct {
 	// closed indicates whether the pool has been closed.
 	closed bool
 
-	// done is closed to signal the background killer to stop.
-	done chan struct{}
+	// ctx is the pool's context, derived from the context passed to NewPool.
+	// It is canceled when the pool is closed.
+	ctx context.Context
+
+	// cancel cancels the pool's context, signaling the background killer to stop.
+	cancel context.CancelFunc
 
 	// Metrics
 	reserveCount    atomic.Int64
@@ -79,7 +83,8 @@ type Pool struct {
 // NewPool creates a new reserved connection pool.
 // The connPool provides the underlying regular connections.
 // Starts a background goroutine to kill idle connections.
-func NewPool(config *PoolConfig, connPool *regular.Pool) *Pool {
+// The provided context is used to derive the pool's lifecycle context.
+func NewPool(ctx context.Context, config *PoolConfig, connPool *regular.Pool) *Pool {
 	if config.IdleTimeout <= 0 {
 		config.IdleTimeout = 30 * time.Second
 	}
@@ -89,12 +94,15 @@ func NewPool(config *PoolConfig, connPool *regular.Pool) *Pool {
 		logger = slog.Default()
 	}
 
+	poolCtx, cancel := context.WithCancel(ctx)
+
 	p := &Pool{
 		config: config,
 		logger: logger,
 		conns:  connPool,
 		active: make(map[int64]*Conn),
-		done:   make(chan struct{}),
+		ctx:    poolCtx,
+		cancel: cancel,
 	}
 
 	// Start background killer goroutine.
@@ -112,11 +120,10 @@ func (p *Pool) idleKiller(interval time.Duration) {
 
 	for {
 		select {
-		case <-p.done:
+		case <-p.ctx.Done():
 			return
 		case <-ticker.C:
-			//nolint:gocritic // Background goroutine has no parent context
-			p.KillTimedOut(context.Background())
+			p.KillTimedOut(p.ctx)
 		}
 	}
 }
@@ -254,8 +261,8 @@ func (p *Pool) Close() {
 	}
 	p.closed = true
 
-	// Stop the background killer.
-	close(p.done)
+	// Cancel the pool's context to stop the background killer.
+	p.cancel()
 
 	// Collect all connections to taint.
 	conns := make([]*Conn, 0, len(p.active))
