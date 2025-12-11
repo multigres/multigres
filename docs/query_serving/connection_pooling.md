@@ -10,20 +10,24 @@ balances connection reuse, session state isolation, and Row-Level Security
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────────┐
-│                     ConnectionPoolManager                           │
-│                                                                     │
-│  ┌──────────────┐   ┌──────────────────┐   ┌────────────────────┐   │
-│  │  AdminPool   │   │   RegularPool    │   │   ReservedPool     │   │
-│  │              │   │                  │   │                    │   │
-│  │ AdminConn    │   │ RegularConn      │   │ ReservedConn       │   │
-│  │ AdminConn    │   │ RegularConn      │   │   └─ PooledConn    │   │
-│  │              │   │   └─ ConnState   │   │   └─ ConnID        │   │
-│  │              │   │      └─ User     │   │   └─ reservedProps │   │
-│  │              │   │      └─ Settings │   │                    │   │
-│  │              │   │      └─ Stmts    │   │ active: map[ID]    │   │
-│  └──────────────┘   └──────────────────┘   └────────────────────┘   │
-└─────────────────────────────────────────────────────────────────────┘
+┌───────────────────────────────────────────────────────────────────────────┐
+│                         ConnectionPoolManager                             │
+│                                                                           │
+│  ┌──────────────┐   ┌──────────────────┐   ┌──────────────────────────┐   │
+│  │  AdminPool   │   │   RegularPool    │   │      ReservedPool        │   │
+│  │              │   │                  │   │                          │   │
+│  │ AdminConn    │   │ RegularConn      │   │ ┌────────────────────┐   │   │
+│  │ AdminConn    │   │ RegularConn      │   │ │ internal RegularPool│  │   │
+│  │              │   │   └─ ConnState   │   │ │ (isolated for txns) │  │   │
+│  │              │   │      └─ User     │   │ └────────────────────┘   │   │
+│  │              │   │      └─ Settings │   │                          │   │
+│  │              │   │      └─ Stmts    │   │ ReservedConn             │   │
+│  │              │   │                  │   │   └─ ConnID              │   │
+│  │              │   │                  │   │   └─ reservedProps       │   │
+│  │              │   │                  │   │                          │   │
+│  │              │   │                  │   │ active: map[ID]*Conn     │   │
+│  └──────────────┘   └──────────────────┘   └──────────────────────────┘   │
+└───────────────────────────────────────────────────────────────────────────┘
 ```
 
 ## Connection Pool Types
@@ -61,7 +65,9 @@ balances connection reuse, session state isolation, and Row-Level Security
 **Purpose:** Long-lived connections for transactions and portal operations.
 
 **Characteristics:**
-- Wraps connections from RegularPool with reservation tracking
+- Fully encapsulates its own underlying RegularPool (completely separate from the main RegularPool)
+- The internal pool is created, managed, and closed by the ReservedPool itself
+- This isolation ensures transaction traffic doesn't compete with simple query traffic
 - Assigns unique connection IDs via atomic counter (`lastID`) for client-side reference
 - Maintains an `active map[int64]*Conn` for ID-based lookup
 - Tracks reservation state via `reservedProps` (transaction or portal reservation)
@@ -76,9 +82,9 @@ balances connection reuse, session state isolation, and Row-Level Security
 **Timeout Handling:**
 
 Reserved connections have an idle timeout (default 30s). A background goroutine
-runs at 1/10th of the idle timeout interval to
-scan and kill connections that have exceeded their timeout. Each time a
-connection is accessed via `Get()`, its expiry time is reset.
+runs at 1/10th of the idle timeout interval to scan and kill connections that
+have exceeded their timeout. Each time a connection is accessed via `Get()`,
+its expiry time is reset.
 
 ## Settings Management
 
@@ -216,9 +222,14 @@ types, providing:
 ```go
 import "github.com/multigres/multigres/go/multipooler/connpoolmanager"
 
-// Create and open the manager
-mgr := connpoolmanager.NewManager(config)
-mgr.Open(ctx)
+// Create the manager with viper registry
+mgr := connpoolmanager.NewManager(reg, logger)
+
+// Register flags before parsing
+mgr.RegisterFlags(cmd.Flags())
+
+// After flag parsing, open the pools with client config
+mgr.Open(ctx, clientConfig)
 defer mgr.Close()
 
 // Get connections as needed
@@ -237,7 +248,7 @@ The `PoolManager` interface allows components to mock the manager in tests:
 
 ```go
 type PoolManager interface {
-    Open(ctx context.Context)
+    Open(ctx context.Context, clientConfig *client.Config)
     Close()
 
     // Admin pool operations
@@ -252,6 +263,61 @@ type PoolManager interface {
     GetReservedConn(connID int64) (*reserved.Conn, bool)
 
     Stats() ManagerStats
+}
+```
+
+## Configuration
+
+The connection pool manager is configured via command-line flags (backed by viper).
+Create the manager with `NewManager(reg, logger)`, then call `RegisterFlags` to bind flags.
+
+### Available Flags
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--connpool-admin-capacity` | 5 | Maximum admin connections for control operations |
+| `--connpool-regular-capacity` | 100 | Maximum regular connections for simple queries |
+| `--connpool-regular-max-idle` | 10 | Maximum idle regular connections to keep |
+| `--connpool-regular-idle-timeout` | 5m | Idle timeout before closing regular connections |
+| `--connpool-regular-max-lifetime` | 1h | Maximum lifetime before recycling regular connections |
+| `--connpool-reserved-capacity` | 50 | Maximum connections for transactions (separate pool) |
+| `--connpool-reserved-max-idle` | 5 | Maximum idle transaction connections to keep |
+| `--connpool-reserved-idle-timeout` | 30s | Idle timeout before killing reserved connections |
+| `--connpool-reserved-max-lifetime` | 1h | Maximum lifetime before recycling transaction connections |
+
+**Note:** The regular and reserved pools are completely separate. Transactions go to the
+reserved pool while simple queries go to the regular pool. This ensures transaction traffic
+doesn't compete with read traffic for connections.
+
+### Example Usage
+
+```go
+import "github.com/multigres/multigres/go/multipooler/connpoolmanager"
+
+// In your service initialization
+reg := viperutil.NewRegistry()
+
+// Create manager and register flags (before flag parsing)
+mgr := connpoolmanager.NewManager(reg, logger)
+mgr.RegisterFlags(cmd.Flags())
+
+// After flag parsing, open the pools with client config
+mgr.Open(ctx, clientConfig)
+defer mgr.Close()
+```
+
+## Statistics
+
+The connection pool manager exposes statistics for monitoring via `Stats()`:
+
+```go
+stats := mgr.Stats()
+
+// ManagerStats structure:
+type ManagerStats struct {
+    Admin    connpool.PoolStats // Admin pool stats
+    Regular  connpool.PoolStats // Regular pool stats
+    Reserved reserved.PoolStats // Reserved pool stats (includes internal regular pool)
 }
 ```
 

@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/multigres/multigres/go/multipooler/connstate"
+	"github.com/multigres/multigres/go/multipooler/pools/connpool"
 	"github.com/multigres/multigres/go/multipooler/pools/regular"
 )
 
@@ -36,6 +37,10 @@ type PoolConfig struct {
 
 	// Logger for pool operations.
 	Logger *slog.Logger
+
+	// RegularPoolConfig is the configuration for the underlying regular pool.
+	// The reserved pool creates and manages this pool internally.
+	RegularPoolConfig *regular.PoolConfig
 }
 
 // Pool manages reserved connections with ID-based tracking.
@@ -81,10 +86,10 @@ type Pool struct {
 }
 
 // NewPool creates a new reserved connection pool.
-// The connPool provides the underlying regular connections.
+// The pool creates and manages its own underlying regular connection pool.
 // Starts a background goroutine to kill idle connections.
 // The provided context is used to derive the pool's lifecycle context.
-func NewPool(ctx context.Context, config *PoolConfig, connPool *regular.Pool) *Pool {
+func NewPool(ctx context.Context, config *PoolConfig) *Pool {
 	if config.IdleTimeout <= 0 {
 		config.IdleTimeout = 30 * time.Second
 	}
@@ -96,10 +101,14 @@ func NewPool(ctx context.Context, config *PoolConfig, connPool *regular.Pool) *P
 
 	poolCtx, cancel := context.WithCancel(ctx)
 
+	// Create the underlying regular pool.
+	regularPool := regular.NewPool(config.RegularPoolConfig)
+	regularPool.Open(ctx)
+
 	p := &Pool{
 		config: config,
 		logger: logger,
-		conns:  connPool,
+		conns:  regularPool,
 		active: make(map[int64]*Conn),
 		ctx:    poolCtx,
 		cancel: cancel,
@@ -252,7 +261,7 @@ func (p *Pool) release(rc *Conn, reason ReleaseReason) {
 		"reason", reason.String())
 }
 
-// Close closes all reserved connections and the pool.
+// Close closes all reserved connections, the underlying regular pool, and the pool itself.
 func (p *Pool) Close() {
 	p.mu.Lock()
 	if p.closed {
@@ -278,6 +287,9 @@ func (p *Pool) Close() {
 		rc.pooled.Close()
 	}
 
+	// Close the underlying regular pool.
+	p.conns.Close()
+
 	p.logger.Info("reserved pool closed")
 }
 
@@ -295,6 +307,7 @@ func (p *Pool) Stats() PoolStats {
 		TimeoutCount:    p.timeoutCount.Load(),
 		TxCommitCount:   p.txCommitCount.Load(),
 		TxRollbackCount: p.txRollbackCount.Load(),
+		RegularPool:     p.conns.Stats(),
 	}
 }
 
@@ -320,6 +333,9 @@ type PoolStats struct {
 
 	// TxRollbackCount is the total number of rolled back transactions.
 	TxRollbackCount int64
+
+	// RegularPool contains statistics for the underlying regular connection pool.
+	RegularPool connpool.PoolStats
 }
 
 // ForEachActive calls fn for each active reserved connection.

@@ -19,26 +19,35 @@ import (
 	"context"
 	"log/slog"
 
+	"github.com/spf13/pflag"
+
 	"github.com/multigres/multigres/go/multipooler/connstate"
 	"github.com/multigres/multigres/go/multipooler/pools/admin"
 	"github.com/multigres/multigres/go/multipooler/pools/connpool"
 	"github.com/multigres/multigres/go/multipooler/pools/regular"
 	"github.com/multigres/multigres/go/multipooler/pools/reserved"
 	"github.com/multigres/multigres/go/pgprotocol/client"
+	"github.com/multigres/multigres/go/tools/viperutil"
 )
 
 // Manager orchestrates all connection pool types (admin, regular, reserved).
 // It provides a unified interface for connection acquisition and lifecycle management.
 //
+// The regular and reserved pools are completely separate - transactions go to the
+// reserved pool while simple queries go to the regular pool. This ensures transaction
+// traffic doesn't compete with read traffic for connections.
+//
 // Usage:
 //
-//	mgr := connpoolmanager.NewManager(config)
-//	mgr.Open(ctx)
+//	mgr := connpoolmanager.NewManager(reg, logger)
+//	mgr.RegisterFlags(cmd.Flags())
+//	// ... parse flags ...
+//	mgr.Open(ctx, clientConfig)
 //	defer mgr.Close()
 //
 //	// Get connections as needed
 //	adminConn, _ := mgr.GetAdminConn(ctx)
-//	regularConn, _ := mgr.GetRegularConn(ctx, settings, user)
+//	regularConn, _ := mgr.GetRegularConn(ctx, user)
 //	reservedConn, _ := mgr.NewReservedConn(ctx, settings, user)
 type Manager struct {
 	config *Config
@@ -46,64 +55,98 @@ type Manager struct {
 
 	adminPool    *admin.Pool
 	regularPool  *regular.Pool
-	reservedPool *reserved.Pool
-}
-
-// Config holds configuration for all connection pools managed by the Manager.
-type Config struct {
-	// ClientConfig is the PostgreSQL connection configuration.
-	// Used by all pools to connect to the database.
-	ClientConfig *client.Config
-
-	// AdminPoolConfig configures the admin connection pool.
-	AdminPoolConfig *connpool.Config
-
-	// RegularPoolConfig configures the regular connection pool.
-	RegularPoolConfig *connpool.Config
-
-	// ReservedPoolConfig configures the reserved connection pool.
-	ReservedPoolConfig *reserved.PoolConfig
-
-	// Logger for pool operations.
-	Logger *slog.Logger
+	reservedPool *reserved.Pool // Manages its own underlying regular pool
 }
 
 // NewManager creates a new connection pool manager.
-// Call Open() to initialize the pools before use.
-func NewManager(config *Config) *Manager {
-	logger := config.Logger
+// Call RegisterFlags() to bind configuration flags, then Open() to initialize the pools.
+//
+// Parameters:
+//   - reg: Viper registry for configuration binding
+//   - logger: Logger for pool operations (uses slog.Default() if nil)
+func NewManager(reg *viperutil.Registry, logger *slog.Logger) *Manager {
 	if logger == nil {
 		logger = slog.Default()
 	}
 
 	return &Manager{
-		config: config,
+		config: newConfig(reg),
 		logger: logger,
 	}
 }
 
+// RegisterFlags registers all connection pool flags with the given FlagSet.
+// Must be called before parsing flags and before Open().
+func (m *Manager) RegisterFlags(fs *pflag.FlagSet) {
+	m.config.registerFlags(fs)
+}
+
 // Open initializes all connection pools and starts background workers.
-// Must be called before using the manager.
-func (m *Manager) Open(ctx context.Context) {
-	// Create admin pool first (regular pool depends on it for kill operations).
+// Must be called after RegisterFlags() and flag parsing.
+//
+// Parameters:
+//   - ctx: Context for pool operations
+//   - clientConfig: PostgreSQL connection configuration used by all pools
+func (m *Manager) Open(ctx context.Context, clientConfig *client.Config) {
+	// Build pool configs from viper values.
+	adminPoolConfig := &connpool.Config{
+		Capacity: m.config.AdminCapacity(),
+		Logger:   m.logger,
+	}
+	regularPoolConfig := &connpool.Config{
+		Capacity:     m.config.RegularCapacity(),
+		MaxIdleCount: m.config.RegularMaxIdle(),
+		IdleTimeout:  m.config.RegularIdleTimeout(),
+		MaxLifetime:  m.config.RegularMaxLifetime(),
+		Logger:       m.logger,
+	}
+	// Reserved pool manages its own underlying regular pool (separate from the main regular pool)
+	// to keep transaction traffic isolated from simple query traffic.
+	reservedRegularPoolConfig := &connpool.Config{
+		Capacity:     m.config.ReservedCapacity(),
+		MaxIdleCount: m.config.ReservedMaxIdle(),
+		IdleTimeout:  m.config.ReservedIdleTimeout(),
+		MaxLifetime:  m.config.ReservedMaxLifetime(),
+		Logger:       m.logger,
+	}
+
+	// Create admin pool first (regular pools depend on it for kill operations).
 	m.adminPool = admin.NewPool(&admin.PoolConfig{
-		ClientConfig:   m.config.ClientConfig,
-		ConnPoolConfig: m.config.AdminPoolConfig,
+		ClientConfig:   clientConfig,
+		ConnPoolConfig: adminPoolConfig,
 	})
 	m.adminPool.Open(ctx)
 
-	// Create regular pool with reference to admin pool.
+	// Create regular pool for simple queries.
 	m.regularPool = regular.NewPool(&regular.PoolConfig{
-		ClientConfig:   m.config.ClientConfig,
-		ConnPoolConfig: m.config.RegularPoolConfig,
+		ClientConfig:   clientConfig,
+		ConnPoolConfig: regularPoolConfig,
 		AdminPool:      m.adminPool,
 	})
 	m.regularPool.Open(ctx)
 
-	// Create reserved pool wrapping the regular pool.
-	m.reservedPool = reserved.NewPool(ctx, m.config.ReservedPoolConfig, m.regularPool)
+	// Create reserved pool (it manages its own underlying regular pool internally).
+	m.reservedPool = reserved.NewPool(ctx, &reserved.PoolConfig{
+		IdleTimeout: m.config.ReservedIdleTimeout(),
+		Logger:      m.logger,
+		RegularPoolConfig: &regular.PoolConfig{
+			ClientConfig:   clientConfig,
+			ConnPoolConfig: reservedRegularPoolConfig,
+			AdminPool:      m.adminPool,
+		},
+	})
 
-	m.logger.InfoContext(ctx, "connection pool manager opened")
+	m.logger.InfoContext(ctx, "connection pool manager opened",
+		"admin_capacity", adminPoolConfig.Capacity,
+		"regular_capacity", regularPoolConfig.Capacity,
+		"regular_max_idle", regularPoolConfig.MaxIdleCount,
+		"regular_idle_timeout", regularPoolConfig.IdleTimeout,
+		"regular_max_lifetime", regularPoolConfig.MaxLifetime,
+		"reserved_capacity", reservedRegularPoolConfig.Capacity,
+		"reserved_max_idle", reservedRegularPoolConfig.MaxIdleCount,
+		"reserved_idle_timeout", m.config.ReservedIdleTimeout(),
+		"reserved_max_lifetime", reservedRegularPoolConfig.MaxLifetime,
+	)
 }
 
 // Close shuts down all connection pools.
@@ -173,7 +216,7 @@ func (m *Manager) Stats() ManagerStats {
 
 // ManagerStats holds statistics for all managed pools.
 type ManagerStats struct {
-	Admin    connpool.PoolStats
-	Regular  connpool.PoolStats
-	Reserved reserved.PoolStats
+	Admin    connpool.PoolStats // Admin pool for control operations
+	Regular  connpool.PoolStats // Regular pool for simple queries
+	Reserved reserved.PoolStats // Reserved pool stats (includes underlying regular pool stats)
 }

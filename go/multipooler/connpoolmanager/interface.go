@@ -21,6 +21,7 @@ import (
 	"github.com/multigres/multigres/go/multipooler/pools/admin"
 	"github.com/multigres/multigres/go/multipooler/pools/regular"
 	"github.com/multigres/multigres/go/multipooler/pools/reserved"
+	"github.com/multigres/multigres/go/pgprotocol/client"
 )
 
 // PoolManager defines the interface for connection pool management.
@@ -34,8 +35,8 @@ import (
 //	    // override specific methods as needed
 //	}
 type PoolManager interface {
-	// Open initializes all connection pools.
-	Open(ctx context.Context)
+	// Open initializes all connection pools with the given client configuration.
+	Open(ctx context.Context, clientConfig *client.Config)
 
 	// Close shuts down all connection pools.
 	Close()
