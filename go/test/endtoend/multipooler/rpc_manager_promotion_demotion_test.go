@@ -25,6 +25,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
+	"github.com/multigres/multigres/go/test/endtoend"
 	"github.com/multigres/multigres/go/test/utils"
 
 	multipoolermanagerpb "github.com/multigres/multigres/go/pb/multipoolermanager"
@@ -526,9 +527,18 @@ func TestDemoteAndPromote(t *testing.T) {
 	})
 
 	t.Run("UndoDemote_SuccessfulUndo", func(t *testing.T) {
-		setupPoolerTest(t, setup)
+		setupPoolerTest(t, setup, WithDropTables("test_undo_demote"))
 
 		t.Log("=== Testing UndoDemote - reverting a demotion before any standby is promoted ===")
+
+		// Create pooler clients for data operations
+		primaryPoolerClient, err := endtoend.NewMultiPoolerTestClient(fmt.Sprintf("localhost:%d", setup.PrimaryMultipooler.GrpcPort))
+		require.NoError(t, err)
+		defer primaryPoolerClient.Close()
+
+		standbyPoolerClient, err := endtoend.NewMultiPoolerTestClient(fmt.Sprintf("localhost:%d", setup.StandbyMultipooler.GrpcPort))
+		require.NoError(t, err)
+		defer standbyPoolerClient.Close()
 
 		// Set term on primary
 		setTermReq := &multipoolermanagerdatapb.SetTermRequest{
@@ -536,7 +546,7 @@ func TestDemoteAndPromote(t *testing.T) {
 				TermNumber: 1,
 			},
 		}
-		_, err := primaryManagerClient.SetTerm(utils.WithShortDeadline(t), setTermReq)
+		_, err = primaryManagerClient.SetTerm(utils.WithShortDeadline(t), setTermReq)
 		require.NoError(t, err, "SetTerm should succeed on primary")
 
 		// Test idempotency first - UndoDemote on an already-primary should succeed
@@ -583,5 +593,46 @@ func TestDemoteAndPromote(t *testing.T) {
 		assert.NotEmpty(t, posResp.LsnPosition)
 
 		t.Log("UndoDemote successful - primary is back to normal operation")
+
+		// === Verify replication works after UndoDemote ===
+		t.Log("Verifying replication works after UndoDemote...")
+
+		// Create a test table and insert data on the primary
+		_, err = primaryPoolerClient.ExecuteQuery(context.Background(), "CREATE TABLE IF NOT EXISTS test_undo_demote (id SERIAL PRIMARY KEY, data TEXT)", 0)
+		require.NoError(t, err, "Should be able to create table on primary after UndoDemote")
+
+		_, err = primaryPoolerClient.ExecuteQuery(context.Background(), "INSERT INTO test_undo_demote (data) VALUES ('row1_after_undo'), ('row2_after_undo'), ('row3_after_undo')", 0)
+		require.NoError(t, err, "Should be able to insert data on primary after UndoDemote")
+
+		// Get the current LSN from primary
+		primaryPosResp, err := primaryManagerClient.PrimaryPosition(utils.WithShortDeadline(t), &multipoolermanagerdatapb.PrimaryPositionRequest{})
+		require.NoError(t, err)
+		primaryLSN := primaryPosResp.LsnPosition
+		t.Logf("Primary LSN after insert: %s", primaryLSN)
+
+		// Wait for standby to catch up using WaitForLSN
+		t.Logf("Waiting for standby to catch up to primary LSN: %s", primaryLSN)
+		waitReq := &multipoolermanagerdatapb.WaitForLSNRequest{
+			TargetLsn: primaryLSN,
+		}
+		_, err = standbyManagerClient.WaitForLSN(utils.WithTimeout(t, 10*time.Second), waitReq)
+		require.NoError(t, err, "Standby should catch up to primary LSN after UndoDemote")
+
+		// Verify the data replicated to standby
+		dataResp, err := standbyPoolerClient.ExecuteQuery(context.Background(), "SELECT COUNT(*) FROM test_undo_demote", 1)
+		require.NoError(t, err, "Should be able to query standby after replication")
+		require.Len(t, dataResp.Rows, 1)
+		rowCount := string(dataResp.Rows[0].Values[0])
+		assert.Equal(t, "3", rowCount, "Should have 3 rows replicated to standby")
+
+		// Also verify the actual data content
+		dataResp, err = standbyPoolerClient.ExecuteQuery(context.Background(), "SELECT data FROM test_undo_demote ORDER BY id", 3)
+		require.NoError(t, err)
+		require.Len(t, dataResp.Rows, 3)
+		assert.Equal(t, "row1_after_undo", string(dataResp.Rows[0].Values[0]))
+		assert.Equal(t, "row2_after_undo", string(dataResp.Rows[1].Values[0]))
+		assert.Equal(t, "row3_after_undo", string(dataResp.Rows[2].Values[0]))
+
+		t.Log("Replication verified - data successfully replicated from primary to standby after UndoDemote")
 	})
 }

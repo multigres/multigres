@@ -874,9 +874,7 @@ func (pm *MultiPoolerManager) demoteLocked(ctx context.Context, consensusTerm in
 //  2. No other node accepted writes (follows from #1)
 //  3. The old primary's data directory hasn't been modified as a standby
 //
-// The timeline ID validation ensures these invariants hold:
-// - If the timeline changed, a standby was promoted, creating divergent history
-// - We abort if the timeline doesn't match the expected value
+// It is expected from the caller that these invariants will be respected.
 func (pm *MultiPoolerManager) UndoDemote(ctx context.Context) (*multipoolermanagerdatapb.UndoDemoteResponse, error) {
 	if err := pm.checkReady(); err != nil {
 		return nil, err
@@ -929,10 +927,8 @@ func (pm *MultiPoolerManager) undoDemoteLocked(ctx context.Context) (*multipoole
 		}, nil
 	}
 
-	// TODO: Evaluate adding timeline validation as a safety check.
-	// Currently skipped because querying timeline on a demoted primary (standby not connected
-	// to any upstream) requires reading from pg_controldata via pgctld, which is not yet implemented.
-	// Timeline validation would prevent undo if another node was promoted (timeline incremented).
+	// TODO: What could be safety guardrails we add here? Should we check the timeline
+	// to ensure that the timeline hasn't changed since the node was demoted?
 
 	// === Restart PostgreSQL as primary ===
 	// restartPostgresAsPrimary handles Close/Open internally to re-establish database connections

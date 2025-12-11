@@ -122,7 +122,6 @@ func (pm *MultiPoolerManager) BeginTerm(ctx context.Context, req *consensusdatap
 				"error", demoteErr,
 				"term", req.Term)
 			// TODO: we should attempt to undo the demote with UndoDemote.
-			// This would require capturing the timeline ID before demotion.
 			return response, nil
 		}
 
