@@ -195,7 +195,8 @@ func TestInitializeDataDir(t *testing.T) {
 		baseDir, cleanup := testutil.TempDir(t, "pgctld_initdb_test")
 		defer cleanup()
 
-		dataDir := filepath.Join(baseDir, "data")
+		// baseDir serves as poolerDir; dataDir will be poolerDir/pg_data
+		poolerDir := baseDir
 
 		// Setup mock initdb binary
 		binDir := filepath.Join(baseDir, "bin")
@@ -208,10 +209,11 @@ func TestInitializeDataDir(t *testing.T) {
 		defer os.Setenv("PATH", originalPath)
 
 		logger := slog.New(slog.DiscardHandler)
-		err := initializeDataDir(logger, dataDir, "postgres", "")
+		err := initializeDataDir(logger, poolerDir, "postgres")
 		require.NoError(t, err)
 
-		// Verify directory was created
+		// Verify directory was created (dataDir is poolerDir/pg_data)
+		dataDir := filepath.Join(poolerDir, "pg_data")
 		assert.DirExists(t, dataDir)
 
 		// Verify PG_VERSION file exists (created by mock)
@@ -220,10 +222,10 @@ func TestInitializeDataDir(t *testing.T) {
 
 	t.Run("fails with invalid directory permissions", func(t *testing.T) {
 		// Try to create data dir in a read-only location
-		dataDir := "/root/impossible_dir"
+		poolerDir := "/root/impossible_dir"
 
 		logger := slog.New(slog.DiscardHandler)
-		err := initializeDataDir(logger, dataDir, "postgres", "")
+		err := initializeDataDir(logger, poolerDir, "postgres")
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "initdb failed")
 	})
