@@ -19,8 +19,8 @@ import (
 )
 
 // JobIDTimestampFormat is the time format used in job IDs.
-// Format: YYYYMMDD-HHMMSS.microseconds (same as TrackingIDFormat for consistency)
-const JobIDTimestampFormat = TrackingIDFormat
+// Format: YYYYMMDD-HHMMSS.microseconds
+const JobIDTimestampFormat = "20060102-150405.000000"
 
 // JobIDSeparator separates the timestamp from the multipooler ID in job IDs.
 const JobIDSeparator = "_"

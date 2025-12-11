@@ -74,7 +74,7 @@ func (pm *MultiPoolerManager) backupLocked(ctx context.Context, forcePrimary boo
 	// Use provided job_id or generate one (same format as multiadmin)
 	effectiveJobID := jobID
 	if effectiveJobID == "" {
-		effectiveJobID = backup.GenerateTrackingID()
+		effectiveJobID = backup.GenerateJobID(multipoolerID)
 	}
 
 	// Validate parameters and get pgbackrest type

@@ -20,8 +20,6 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/multigres/multigres/go/common/constants"
 )
 
 // getListBackupsCommand creates a cluster command and adds list-backups to it for testing
@@ -40,15 +38,6 @@ func TestListBackupsCommandFlags(t *testing.T) {
 		databaseFlag := cmd.Flag("database")
 		assert.NotNil(t, databaseFlag)
 		assert.Equal(t, "postgres", databaseFlag.DefValue, "database should default to postgres")
-	})
-
-	t.Run("tablegroup flag exists with default", func(t *testing.T) {
-		cmd := getListBackupsCommand()
-		require.NotNil(t, cmd)
-
-		tablegroupFlag := cmd.Flag("tablegroup")
-		assert.NotNil(t, tablegroupFlag)
-		assert.Equal(t, constants.DefaultTableGroup, tablegroupFlag.DefValue, "tablegroup should default to DefaultTableGroup")
 	})
 
 	t.Run("limit flag exists with default", func(t *testing.T) {

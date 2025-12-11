@@ -39,14 +39,6 @@ func TestBackupCommandFlags(t *testing.T) {
 		assert.NotNil(t, databaseFlag)
 		assert.Equal(t, "postgres", databaseFlag.DefValue)
 	})
-
-	t.Run("tablegroup flag exists with default", func(t *testing.T) {
-		cmd := getBackupCommand()
-		require.NotNil(t, cmd)
-
-		tablegroupFlag := cmd.Flag("tablegroup")
-		assert.NotNil(t, tablegroupFlag)
-	})
 }
 
 func TestBackupCommandFlags_Primary(t *testing.T) {
