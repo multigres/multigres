@@ -16,9 +16,8 @@ package scram
 
 import (
 	"context"
-	"encoding/base64"
 	"errors"
-	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -57,46 +56,17 @@ func createTestHash(password string, salt []byte, iterations int) *ScramHash {
 	}
 }
 
-// simulateClientFirstMessage creates a client-first-message as a client would send it.
-func simulateClientFirstMessage(username, clientNonce string) string {
-	return "n,,n=" + encodeSaslName(username) + ",r=" + clientNonce
-}
-
-// simulateClientFinalMessage creates a client-final-message given the server's response.
-func simulateClientFinalMessage(password string, serverFirstMessage string, clientFirstMessageBare string, clientNonce string) (string, error) {
-	// Parse server-first-message to get combined nonce, salt, iterations.
-	combinedNonce, salt, iterations, err := parseServerFirstMessage(serverFirstMessage)
-	if err != nil {
-		return "", err
+// extractClientNonce extracts the client nonce from a client-first-message.
+// The message format is: n,,n=<username>,r=<nonce>
+func extractClientNonce(clientFirstMessage string) string {
+	// Skip GS2 header "n,,"
+	bare := strings.TrimPrefix(clientFirstMessage, "n,,")
+	for part := range strings.SplitSeq(bare, ",") {
+		if strings.HasPrefix(part, "r=") {
+			return part[2:]
+		}
 	}
-
-	// Verify that combined nonce starts with our client nonce.
-	if len(combinedNonce) < len(clientNonce) || combinedNonce[:len(clientNonce)] != clientNonce {
-		return "", errors.New("server nonce does not start with client nonce")
-	}
-
-	// Compute the client proof.
-	saltedPassword := ComputeSaltedPassword(password, salt, iterations)
-	clientKey := ComputeClientKey(saltedPassword)
-	storedKey := ComputeStoredKey(clientKey)
-
-	// Build client-final-message-without-proof.
-	channelBinding := base64.StdEncoding.EncodeToString([]byte("n,,"))
-	clientFinalMessageWithoutProof := "c=" + channelBinding + ",r=" + combinedNonce
-
-	// Build AuthMessage.
-	authMessage := buildAuthMessage(clientFirstMessageBare, serverFirstMessage, clientFinalMessageWithoutProof)
-
-	// Compute proof.
-	clientSignature := ComputeClientSignature(storedKey, authMessage)
-	clientProof, err := ComputeClientProof(clientKey, clientSignature)
-	if err != nil {
-		return "", fmt.Errorf("failed to compute client proof: %w", err)
-	}
-	proofB64 := base64.StdEncoding.EncodeToString(clientProof)
-
-	// Build complete client-final-message.
-	return clientFinalMessageWithoutProof + ",p=" + proofB64, nil
+	return ""
 }
 
 func TestNewScramAuthenticator(t *testing.T) {
@@ -138,8 +108,10 @@ func TestScramAuthenticator_HandleClientFirst(t *testing.T) {
 		auth := NewScramAuthenticator(provider, "testdb")
 		auth.StartAuthentication()
 
-		clientNonce := "rOprNGfwEbeRWgbNEkqO"
-		clientFirstMessage := simulateClientFirstMessage("testuser", clientNonce)
+		client := NewSCRAMClientWithPassword("testuser", testPassword)
+		clientFirstMessage, err := client.ClientFirstMessage()
+		require.NoError(t, err)
+		clientNonce := extractClientNonce(clientFirstMessage)
 
 		serverFirstMessage, err := auth.HandleClientFirst(context.Background(), clientFirstMessage)
 		require.NoError(t, err)
@@ -157,9 +129,11 @@ func TestScramAuthenticator_HandleClientFirst(t *testing.T) {
 		auth := NewScramAuthenticator(provider, "testdb")
 		auth.StartAuthentication()
 
-		clientFirstMessage := simulateClientFirstMessage("unknownuser", "clientnonce")
+		client := NewSCRAMClientWithPassword("unknownuser", "anypassword")
+		clientFirstMessage, err := client.ClientFirstMessage()
+		require.NoError(t, err)
 
-		_, err := auth.HandleClientFirst(context.Background(), clientFirstMessage)
+		_, err = auth.HandleClientFirst(context.Background(), clientFirstMessage)
 		require.Error(t, err)
 		assert.True(t, errors.Is(err, ErrUserNotFound))
 	})
@@ -207,9 +181,11 @@ func TestScramAuthenticator_HandleClientFirst(t *testing.T) {
 		auth := NewScramAuthenticator(provider, "testdb")
 		auth.StartAuthentication()
 
-		clientFirstMessage := simulateClientFirstMessage("testuser", "clientnonce")
+		client := NewSCRAMClientWithPassword("testuser", "anypassword")
+		clientFirstMessage, err := client.ClientFirstMessage()
+		require.NoError(t, err)
 
-		_, err := auth.HandleClientFirst(context.Background(), clientFirstMessage)
+		_, err = auth.HandleClientFirst(context.Background(), clientFirstMessage)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "database connection failed")
 	})
@@ -219,7 +195,6 @@ func TestScramAuthenticator_HandleClientFinal(t *testing.T) {
 	testSalt := []byte("testsalt12345678")
 	testIterations := 4096
 	testPassword := "correctpassword"
-	clientNonce := "rOprNGfwEbeRWgbNEkqO"
 
 	t.Run("valid proof - authentication succeeds", func(t *testing.T) {
 		provider := &mockHashProvider{
@@ -230,14 +205,17 @@ func TestScramAuthenticator_HandleClientFinal(t *testing.T) {
 		auth := NewScramAuthenticator(provider, "testdb")
 		auth.StartAuthentication()
 
+		// Use SCRAMClient for the full exchange.
+		client := NewSCRAMClientWithPassword("testuser", testPassword)
+
 		// Step 1: Client first message.
-		clientFirstMessage := simulateClientFirstMessage("testuser", clientNonce)
+		clientFirstMessage, err := client.ClientFirstMessage()
+		require.NoError(t, err)
 		serverFirstMessage, err := auth.HandleClientFirst(context.Background(), clientFirstMessage)
 		require.NoError(t, err)
 
 		// Step 2: Client final message with correct password.
-		clientFirstMessageBare := "n=testuser,r=" + clientNonce
-		clientFinalMessage, err := simulateClientFinalMessage(testPassword, serverFirstMessage, clientFirstMessageBare, clientNonce)
+		clientFinalMessage, err := client.ProcessServerFirst(serverFirstMessage)
 		require.NoError(t, err)
 
 		// Step 3: Server verifies and returns server signature.
@@ -251,6 +229,10 @@ func TestScramAuthenticator_HandleClientFinal(t *testing.T) {
 		// Authenticator should report success.
 		assert.True(t, auth.IsAuthenticated())
 		assert.Equal(t, "testuser", auth.AuthenticatedUser())
+
+		// Client should be able to verify server signature.
+		err = client.VerifyServerFinal(serverFinalMessage)
+		require.NoError(t, err)
 	})
 
 	t.Run("invalid proof - wrong password", func(t *testing.T) {
@@ -262,14 +244,17 @@ func TestScramAuthenticator_HandleClientFinal(t *testing.T) {
 		auth := NewScramAuthenticator(provider, "testdb")
 		auth.StartAuthentication()
 
+		// Client uses wrong password.
+		client := NewSCRAMClientWithPassword("testuser", "wrongpassword")
+
 		// Step 1: Client first message.
-		clientFirstMessage := simulateClientFirstMessage("testuser", clientNonce)
+		clientFirstMessage, err := client.ClientFirstMessage()
+		require.NoError(t, err)
 		serverFirstMessage, err := auth.HandleClientFirst(context.Background(), clientFirstMessage)
 		require.NoError(t, err)
 
 		// Step 2: Client final message with WRONG password.
-		clientFirstMessageBare := "n=testuser,r=" + clientNonce
-		clientFinalMessage, err := simulateClientFinalMessage("wrongpassword", serverFirstMessage, clientFirstMessageBare, clientNonce)
+		clientFinalMessage, err := client.ProcessServerFirst(serverFirstMessage)
 		require.NoError(t, err)
 
 		// Step 3: Server should reject.
@@ -290,8 +275,10 @@ func TestScramAuthenticator_HandleClientFinal(t *testing.T) {
 		auth := NewScramAuthenticator(provider, "testdb")
 		auth.StartAuthentication()
 
-		clientFirstMessage := simulateClientFirstMessage("testuser", clientNonce)
-		_, err := auth.HandleClientFirst(context.Background(), clientFirstMessage)
+		client := NewSCRAMClientWithPassword("testuser", testPassword)
+		clientFirstMessage, err := client.ClientFirstMessage()
+		require.NoError(t, err)
+		_, err = auth.HandleClientFirst(context.Background(), clientFirstMessage)
 		require.NoError(t, err)
 
 		_, err = auth.HandleClientFinal("")
@@ -307,8 +294,10 @@ func TestScramAuthenticator_HandleClientFinal(t *testing.T) {
 		auth := NewScramAuthenticator(provider, "testdb")
 		auth.StartAuthentication()
 
-		clientFirstMessage := simulateClientFirstMessage("testuser", clientNonce)
-		_, err := auth.HandleClientFirst(context.Background(), clientFirstMessage)
+		client := NewSCRAMClientWithPassword("testuser", testPassword)
+		clientFirstMessage, err := client.ClientFirstMessage()
+		require.NoError(t, err)
+		_, err = auth.HandleClientFirst(context.Background(), clientFirstMessage)
 		require.NoError(t, err)
 
 		// Send a client-final-message with a different nonce (attacker trying to replay).
@@ -330,14 +319,12 @@ func TestScramAuthenticator_HandleClientFinal(t *testing.T) {
 }
 
 func TestScramAuthenticator_FullExchange(t *testing.T) {
-	// This test simulates a complete SCRAM exchange as would happen
-	// between a PostgreSQL client and our proxy.
+	// This test validates complete SCRAM exchange between SCRAMClient and ScramAuthenticator.
 
 	t.Run("complete successful authentication", func(t *testing.T) {
 		testSalt := []byte("randomsalt123456")
 		testIterations := 4096
 		testPassword := "pencil"
-		clientNonce := "fyko+d2lbbFgONRv9qkxdawL"
 
 		provider := &mockHashProvider{
 			hashes: map[string]*ScramHash{
@@ -351,7 +338,11 @@ func TestScramAuthenticator_FullExchange(t *testing.T) {
 		assert.Contains(t, mechanisms, "SCRAM-SHA-256")
 
 		// 2. Client sends SASLInitialResponse with client-first-message.
-		clientFirstMessage := simulateClientFirstMessage("user", clientNonce)
+		client := NewSCRAMClientWithPassword("user", testPassword)
+		clientFirstMessage, err := client.ClientFirstMessage()
+		require.NoError(t, err)
+		clientNonce := extractClientNonce(clientFirstMessage)
+
 		serverFirstMessage, err := auth.HandleClientFirst(context.Background(), clientFirstMessage)
 		require.NoError(t, err)
 
@@ -364,17 +355,16 @@ func TestScramAuthenticator_FullExchange(t *testing.T) {
 		assert.Equal(t, testIterations, parsedIterations)
 
 		// 4. Client computes and sends client-final-message.
-		clientFirstMessageBare := "n=user,r=" + clientNonce
-		clientFinalMessage, err := simulateClientFinalMessage(testPassword, serverFirstMessage, clientFirstMessageBare, clientNonce)
+		clientFinalMessage, err := client.ProcessServerFirst(serverFirstMessage)
 		require.NoError(t, err)
 
 		// 5. Server verifies and sends server-final-message.
 		serverFinalMessage, err := auth.HandleClientFinal(clientFinalMessage)
 		require.NoError(t, err)
 
-		// 6. Verify server signature (client would verify this for mutual auth).
-		assert.True(t, len(serverFinalMessage) > 2)
-		assert.Equal(t, "v=", serverFinalMessage[:2])
+		// 6. Client verifies server signature (mutual authentication).
+		err = client.VerifyServerFinal(serverFinalMessage)
+		require.NoError(t, err)
 
 		// 7. Check final state.
 		assert.True(t, auth.IsAuthenticated())
@@ -385,7 +375,6 @@ func TestScramAuthenticator_FullExchange(t *testing.T) {
 		testSalt := []byte("salt1234567890ab")
 		testIterations := 4096
 		testPassword := "password123"
-		clientNonce := "abcdefghijk"
 
 		// Username with special characters that need SASL encoding.
 		username := "user=with,special"
@@ -398,18 +387,21 @@ func TestScramAuthenticator_FullExchange(t *testing.T) {
 		auth := NewScramAuthenticator(provider, "testdb")
 		auth.StartAuthentication()
 
-		// Client-first-message with encoded username.
-		clientFirstMessage := simulateClientFirstMessage(username, clientNonce)
+		// SCRAMClient handles username encoding automatically.
+		client := NewSCRAMClientWithPassword(username, testPassword)
+		clientFirstMessage, err := client.ClientFirstMessage()
+		require.NoError(t, err)
+
 		serverFirstMessage, err := auth.HandleClientFirst(context.Background(), clientFirstMessage)
 		require.NoError(t, err)
 
-		// Continue with the exchange.
-		encodedUsername := encodeSaslName(username)
-		clientFirstMessageBare := "n=" + encodedUsername + ",r=" + clientNonce
-		clientFinalMessage, err := simulateClientFinalMessage(testPassword, serverFirstMessage, clientFirstMessageBare, clientNonce)
+		clientFinalMessage, err := client.ProcessServerFirst(serverFirstMessage)
 		require.NoError(t, err)
 
-		_, err = auth.HandleClientFinal(clientFinalMessage)
+		serverFinalMessage, err := auth.HandleClientFinal(clientFinalMessage)
+		require.NoError(t, err)
+
+		err = client.VerifyServerFinal(serverFinalMessage)
 		require.NoError(t, err)
 
 		assert.True(t, auth.IsAuthenticated())
@@ -422,7 +414,6 @@ func TestScramAuthenticator_Reset(t *testing.T) {
 		testSalt := []byte("testsalt12345678")
 		testIterations := 4096
 		testPassword := "password"
-		clientNonce := "clientnonce"
 
 		provider := &mockHashProvider{
 			hashes: map[string]*ScramHash{
@@ -433,10 +424,10 @@ func TestScramAuthenticator_Reset(t *testing.T) {
 
 		// Complete a successful authentication.
 		auth.StartAuthentication()
-		clientFirstMessage := simulateClientFirstMessage("testuser", clientNonce)
+		client := NewSCRAMClientWithPassword("testuser", testPassword)
+		clientFirstMessage, _ := client.ClientFirstMessage()
 		serverFirstMessage, _ := auth.HandleClientFirst(context.Background(), clientFirstMessage)
-		clientFirstMessageBare := "n=testuser,r=" + clientNonce
-		clientFinalMessage, _ := simulateClientFinalMessage(testPassword, serverFirstMessage, clientFirstMessageBare, clientNonce)
+		clientFinalMessage, _ := client.ProcessServerFirst(serverFirstMessage)
 		_, _ = auth.HandleClientFinal(clientFinalMessage)
 
 		assert.True(t, auth.IsAuthenticated())
@@ -448,13 +439,16 @@ func TestScramAuthenticator_Reset(t *testing.T) {
 		assert.False(t, auth.IsAuthenticated())
 		assert.Equal(t, "", auth.AuthenticatedUser())
 
-		// Should be able to authenticate again.
+		// Should be able to authenticate again with a new client.
 		auth.StartAuthentication()
-		newClientNonce := "newclientnonce"
-		clientFirstMessage2 := simulateClientFirstMessage("testuser", newClientNonce)
+		client2 := NewSCRAMClientWithPassword("testuser", testPassword)
+		clientFirstMessage2, err := client2.ClientFirstMessage()
+		require.NoError(t, err)
+		clientNonce2 := extractClientNonce(clientFirstMessage2)
+
 		serverFirstMessage2, err := auth.HandleClientFirst(context.Background(), clientFirstMessage2)
 		require.NoError(t, err)
-		assert.Contains(t, serverFirstMessage2, "r="+newClientNonce)
+		assert.Contains(t, serverFirstMessage2, "r="+clientNonce2)
 	})
 }
 
@@ -490,5 +484,3 @@ func TestScramAuthenticatorState(t *testing.T) {
 		assert.Contains(t, err.Error(), "state")
 	})
 }
-
-// Note: encodeSaslName is defined in scram.go and used in tests via package access.
