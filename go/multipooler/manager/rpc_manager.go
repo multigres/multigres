@@ -1152,25 +1152,16 @@ func (pm *MultiPoolerManager) CreateDurabilityPolicy(ctx context.Context, req *m
 
 	// Validate inputs
 	if req.PolicyName == "" {
-		return &multipoolermanagerdatapb.CreateDurabilityPolicyResponse{
-			Success:      false,
-			ErrorMessage: "policy_name is required",
-		}, nil
+		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "policy_name is required")
 	}
 
 	if req.QuorumRule == nil {
-		return &multipoolermanagerdatapb.CreateDurabilityPolicyResponse{
-			Success:      false,
-			ErrorMessage: "quorum_rule is required",
-		}, nil
+		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "quorum_rule is required")
 	}
 
 	// Check that we have a database connection
 	if pm.db == nil {
-		return &multipoolermanagerdatapb.CreateDurabilityPolicyResponse{
-			Success:      false,
-			ErrorMessage: "database connection not available",
-		}, nil
+		return nil, mterrors.New(mtrpcpb.Code_UNAVAILABLE, "database connection not available")
 	}
 
 	// Marshal the quorum rule to JSON using protojson
@@ -1179,19 +1170,13 @@ func (pm *MultiPoolerManager) CreateDurabilityPolicy(ctx context.Context, req *m
 	}
 	quorumRuleJSON, err := marshaler.Marshal(req.QuorumRule)
 	if err != nil {
-		return &multipoolermanagerdatapb.CreateDurabilityPolicyResponse{
-			Success:      false,
-			ErrorMessage: fmt.Sprintf("failed to marshal quorum rule: %v", err),
-		}, nil
+		return nil, mterrors.Wrapf(err, "failed to marshal quorum rule")
 	}
 
 	// Insert the policy into the durability_policy table
 	if err := pm.insertDurabilityPolicy(ctx, req.PolicyName, quorumRuleJSON); err != nil {
 		pm.logger.ErrorContext(ctx, "Failed to insert durability policy", "error", err)
-		return &multipoolermanagerdatapb.CreateDurabilityPolicyResponse{
-			Success:      false,
-			ErrorMessage: err.Error(),
-		}, nil
+		return nil, err
 	}
 
 	pm.logger.InfoContext(ctx, "Successfully created durability policy",
@@ -1199,7 +1184,5 @@ func (pm *MultiPoolerManager) CreateDurabilityPolicy(ctx context.Context, req *m
 		"quorum_type", req.QuorumRule.QuorumType,
 		"required_count", req.QuorumRule.RequiredCount)
 
-	return &multipoolermanagerdatapb.CreateDurabilityPolicyResponse{
-		Success: true,
-	}, nil
+	return &multipoolermanagerdatapb.CreateDurabilityPolicyResponse{}, nil
 }
