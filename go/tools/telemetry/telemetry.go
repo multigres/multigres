@@ -293,7 +293,7 @@ func (t *Telemetry) ShutdownTelemetry(ctx context.Context) error {
 		return nil
 	}
 
-	slog.InfoContext(ctx, "Shutting down OpenTelemetry")
+	slog.DebugContext(ctx, "Shutting down OpenTelemetry")
 
 	var errs []error
 
