@@ -63,6 +63,11 @@ message BeginTermResponse {
 
   // ID of the responding pooler
   string pooler_id = 3;
+
+  // If this node was a primary and demoted itself, this contains the final LSN
+  // before demotion. Standbys should replicate up to this point before switching
+  // to a new primary. Empty if node was not a primary or didn't demote.
+  string demote_lsn = 4;
 }
 
 // Status returns the current status of a node

@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package endtoend
+package multiorch
 
 import (
 	"context"
@@ -22,6 +22,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
@@ -187,7 +188,8 @@ func (env *testEnv) registerNodes() {
 			},
 			Hostname: "localhost",
 			PortMap: map[string]int32{
-				"grpc": int32(node.grpcPort),
+				"grpc":     int32(node.grpcPort),
+				"postgres": int32(node.pgPort),
 			},
 			Shard:      env.config.shardID,
 			Database:   env.config.database,
@@ -236,6 +238,11 @@ func createEmptyNode(t *testing.T, baseDir, cell, shard, database string, index 
 	pgctldCmd.Env = append(os.Environ(),
 		"MULTIGRES_TESTDATA_DIR="+baseDir,
 	)
+	if runtime.GOOS == "darwin" {
+		// On macOS, PostgreSQL 17 requires proper locale settings to avoid
+		// "postmaster became multithreaded during startup" error
+		pgctldCmd.Env = append(pgctldCmd.Env, "LC_ALL=en_US.UTF-8", "LANG=en_US.UTF-8")
+	}
 
 	require.NoError(t, pgctldCmd.Start())
 	t.Logf("Started pgctld for %s (pid: %d, grpc: %d, pg: %d)", name, pgctldCmd.Process.Pid, pgctldGrpcPort, pgPort)
@@ -531,7 +538,9 @@ func startMultiOrch(t *testing.T, baseDir, cell string, etcdAddr string, watchTa
 		"--grpc-port", fmt.Sprintf("%d", grpcPort),
 		"--http-port", fmt.Sprintf("%d", httpPort),
 		"--bookkeeping-interval", "2s",
-		"--cluster-metadata-refresh-interval", "2s",
+		"--cluster-metadata-refresh-interval", "500ms",
+		"--pooler-health-check-interval", "500ms",
+		"--recovery-cycle-interval", "500ms",
 	}
 
 	multiOrchCmd := exec.Command("multiorch", args...)

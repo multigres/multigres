@@ -17,7 +17,7 @@
 // Leader reelection tests:
 //   - TestMultiOrchLeaderReelection: Verifies multiorch detects primary failure and
 //     automatically elects a new leader from remaining standbys.
-package endtoend
+package multiorch
 
 import (
 	"os/exec"

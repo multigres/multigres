@@ -211,6 +211,125 @@ func TestBeginTerm(t *testing.T) {
 			expectedAcceptedTermFromCoordinator: "candidate-A",
 			description:                         "Acceptance should succeed when already accepted same candidate in same term (idempotent)",
 		},
+		{
+			name: "PrimaryRejectTermWhenDemotionFails",
+			initialTerm: &multipoolermanagerdatapb.ConsensusTerm{
+				TermNumber: 5,
+			},
+			requestTerm: 10,
+			requestCandidate: &clustermetadatapb.ID{
+				Component: clustermetadatapb.ID_MULTIPOOLER,
+				Cell:      "zone1",
+				Name:      "new-candidate",
+			},
+			setupMocks: func(mock sqlmock.Sqlmock) {
+				mock.ExpectPing()
+				// isPrimary check - returns true (not in recovery = primary)
+				mock.ExpectQuery("SELECT pg_is_in_recovery\\(\\)").
+					WillReturnRows(sqlmock.NewRows([]string{"pg_is_in_recovery"}).AddRow(false))
+				// checkPrimaryGuardrails - verifies still primary
+				mock.ExpectQuery("SELECT pg_is_in_recovery\\(\\)").
+					WillReturnRows(sqlmock.NewRows([]string{"pg_is_in_recovery"}).AddRow(false))
+				// demoteLocked fails at checkDemotionState or another early step
+				// Simulate failure by not setting up expected queries for demotion steps
+			},
+			expectedAccepted:                    false,
+			expectedTerm:                        5, // Term should NOT be updated
+			expectedAcceptedTermFromCoordinator: "",
+			description:                         "Primary should reject term when demotion fails",
+		},
+		{
+			name: "PrimaryAcceptsTermAfterSuccessfulDemotion",
+			initialTerm: &multipoolermanagerdatapb.ConsensusTerm{
+				TermNumber: 5,
+			},
+			requestTerm: 10,
+			requestCandidate: &clustermetadatapb.ID{
+				Component: clustermetadatapb.ID_MULTIPOOLER,
+				Cell:      "zone1",
+				Name:      "new-candidate",
+			},
+			setupMocks: func(mock sqlmock.Sqlmock) {
+				mock.ExpectPing()
+				// isPrimary check (line 59) - returns false (already in recovery/demoted)
+				// This tests the case where the primary was successfully demoted before BeginTerm
+				// In practice, this could happen if BeginTerm is called again after a previous
+				// successful demotion (idempotent retry).
+				mock.ExpectQuery("SELECT pg_is_in_recovery\\(\\)").
+					WillReturnRows(sqlmock.NewRows([]string{"pg_is_in_recovery"}).AddRow(true))
+				// Since not primary, check if caught up with replication
+				recentTime := time.Now().Add(-5 * time.Second)
+				mock.ExpectQuery("SELECT last_msg_receipt_time FROM pg_stat_wal_receiver").
+					WillReturnRows(sqlmock.NewRows([]string{"last_msg_receipt_time"}).AddRow(recentTime))
+			},
+			expectedAccepted:                    true,
+			expectedTerm:                        10,
+			expectedAcceptedTermFromCoordinator: "new-candidate",
+			description:                         "Primary should accept term after successful demotion (idempotent case - already demoted)",
+		},
+		{
+			name: "StandbyAcceptsTermWhenNoWALReceiver",
+			initialTerm: &multipoolermanagerdatapb.ConsensusTerm{
+				TermNumber: 5,
+			},
+			requestTerm: 10,
+			requestCandidate: &clustermetadatapb.ID{
+				Component: clustermetadatapb.ID_MULTIPOOLER,
+				Cell:      "zone1",
+				Name:      "new-candidate",
+			},
+			setupMocks: func(mock sqlmock.Sqlmock) {
+				mock.ExpectPing()
+				// isPrimary check - returns true (in recovery = standby)
+				mock.ExpectQuery("SELECT pg_is_in_recovery\\(\\)").
+					WillReturnRows(sqlmock.NewRows([]string{"pg_is_in_recovery"}).AddRow(true))
+				// WAL receiver query returns no rows (disconnected standby)
+				// This is EXPECTED during failover when the primary just died
+				mock.ExpectQuery("SELECT last_msg_receipt_time FROM pg_stat_wal_receiver").
+					WillReturnError(sql.ErrNoRows)
+				// pauseReplication - ALTER SYSTEM RESET primary_conninfo
+				mock.ExpectExec("ALTER SYSTEM RESET primary_conninfo").
+					WillReturnResult(sqlmock.NewResult(0, 0))
+				// pauseReplication - pg_reload_conf
+				mock.ExpectExec("SELECT pg_reload_conf\\(\\)").
+					WillReturnResult(sqlmock.NewResult(0, 0))
+			},
+			expectedAccepted:                    true,
+			expectedTerm:                        10,
+			expectedAcceptedTermFromCoordinator: "new-candidate",
+			description:                         "Standby should accept term when no WAL receiver (expected during failover)",
+		},
+		{
+			name: "StandbyPausesReplicationWhenAcceptingNewTerm",
+			initialTerm: &multipoolermanagerdatapb.ConsensusTerm{
+				TermNumber: 5,
+			},
+			requestTerm: 10,
+			requestCandidate: &clustermetadatapb.ID{
+				Component: clustermetadatapb.ID_MULTIPOOLER,
+				Cell:      "zone1",
+				Name:      "new-candidate",
+			},
+			setupMocks: func(mock sqlmock.Sqlmock) {
+				mock.ExpectPing()
+				// isPrimary check - standby
+				mock.ExpectQuery("SELECT pg_is_in_recovery\\(\\)").
+					WillReturnRows(sqlmock.NewRows([]string{"pg_is_in_recovery"}).AddRow(true))
+				// WAL receiver check - connected and caught up
+				mock.ExpectQuery("SELECT last_msg_receipt_time FROM pg_stat_wal_receiver").
+					WillReturnRows(sqlmock.NewRows([]string{"last_msg_receipt_time"}).AddRow(time.Now().Add(-5 * time.Second)))
+				// pauseReplication - ALTER SYSTEM RESET primary_conninfo
+				mock.ExpectExec("ALTER SYSTEM RESET primary_conninfo").
+					WillReturnResult(sqlmock.NewResult(0, 0))
+				// pauseReplication - pg_reload_conf
+				mock.ExpectExec("SELECT pg_reload_conf\\(\\)").
+					WillReturnResult(sqlmock.NewResult(0, 0))
+			},
+			expectedAccepted:                    true,
+			expectedTerm:                        10,
+			expectedAcceptedTermFromCoordinator: "new-candidate",
+			description:                         "Standby should pause replication when accepting new term",
+		},
 	}
 
 	// Add tests for save failure scenarios
@@ -369,6 +488,163 @@ func TestBeginTerm(t *testing.T) {
 			}
 
 			assert.NoError(t, mock.ExpectationsWereMet())
+		})
+	}
+}
+
+// ============================================================================
+// UpdateTermAndAcceptCandidate Tests
+// ============================================================================
+
+// setActionLockHeld is a test helper that creates a context with action lock held
+func setActionLockHeld(ctx context.Context) context.Context {
+	lock := NewActionLock()
+	newCtx, err := lock.Acquire(ctx, "test-operation")
+	if err != nil {
+		panic(err)
+	}
+	return newCtx
+}
+
+func TestUpdateTermAndAcceptCandidate(t *testing.T) {
+	tests := []struct {
+		name           string
+		initialTerm    int64
+		initialAccept  *clustermetadatapb.ID
+		newTerm        int64
+		candidateID    *clustermetadatapb.ID
+		expectError    bool
+		expectedTerm   int64
+		expectedAccept string
+	}{
+		{
+			name:        "higher term updates and accepts atomically",
+			initialTerm: 5,
+			newTerm:     10,
+			candidateID: &clustermetadatapb.ID{
+				Component: clustermetadatapb.ID_MULTIPOOLER,
+				Cell:      "zone1",
+				Name:      "candidate-a",
+			},
+			expectError:    false,
+			expectedTerm:   10,
+			expectedAccept: "candidate-a",
+		},
+		{
+			name:        "same term accepts candidate",
+			initialTerm: 5,
+			newTerm:     5,
+			candidateID: &clustermetadatapb.ID{
+				Component: clustermetadatapb.ID_MULTIPOOLER,
+				Cell:      "zone1",
+				Name:      "candidate-b",
+			},
+			expectError:    false,
+			expectedTerm:   5,
+			expectedAccept: "candidate-b",
+		},
+		{
+			name:        "lower term rejected",
+			initialTerm: 10,
+			newTerm:     5,
+			candidateID: &clustermetadatapb.ID{
+				Component: clustermetadatapb.ID_MULTIPOOLER,
+				Cell:      "zone1",
+				Name:      "candidate-c",
+			},
+			expectError: true,
+		},
+		{
+			name:        "nil candidate ID rejected",
+			initialTerm: 5,
+			newTerm:     10,
+			candidateID: nil,
+			expectError: true,
+		},
+		{
+			name:        "same term same candidate is idempotent",
+			initialTerm: 5,
+			initialAccept: &clustermetadatapb.ID{
+				Component: clustermetadatapb.ID_MULTIPOOLER,
+				Cell:      "zone1",
+				Name:      "candidate-b",
+			},
+			newTerm: 5,
+			candidateID: &clustermetadatapb.ID{
+				Component: clustermetadatapb.ID_MULTIPOOLER,
+				Cell:      "zone1",
+				Name:      "candidate-b",
+			},
+			expectError:    false,
+			expectedTerm:   5,
+			expectedAccept: "candidate-b",
+		},
+		{
+			name:        "same term different candidate rejected",
+			initialTerm: 5,
+			initialAccept: &clustermetadatapb.ID{
+				Component: clustermetadatapb.ID_MULTIPOOLER,
+				Cell:      "zone1",
+				Name:      "candidate-a",
+			},
+			newTerm: 5,
+			candidateID: &clustermetadatapb.ID{
+				Component: clustermetadatapb.ID_MULTIPOOLER,
+				Cell:      "zone1",
+				Name:      "candidate-b",
+			},
+			expectError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			poolerDir := t.TempDir()
+			serviceID := &clustermetadatapb.ID{
+				Component: clustermetadatapb.ID_MULTIPOOLER,
+				Cell:      "test-cell",
+				Name:      "test-pooler",
+			}
+
+			// Create the pg_data directory to simulate initialized data directory
+			pgDataDir := poolerDir + "/pg_data"
+			err := os.MkdirAll(pgDataDir, 0o755)
+			require.NoError(t, err)
+			// Create PG_VERSION file to mark it as initialized
+			err = os.WriteFile(pgDataDir+"/PG_VERSION", []byte("18\n"), 0o644)
+			require.NoError(t, err)
+
+			cs := NewConsensusState(poolerDir, serviceID)
+			_, err = cs.Load()
+			require.NoError(t, err)
+
+			// Set initial term
+			ctx := context.Background()
+			ctx = setActionLockHeld(ctx)
+			if tt.initialTerm > 0 {
+				err = cs.UpdateTermAndSave(ctx, tt.initialTerm)
+				require.NoError(t, err)
+
+				// If we have an initial accepted candidate, set it
+				if tt.initialAccept != nil {
+					err = cs.AcceptCandidateAndSave(ctx, tt.initialAccept)
+					require.NoError(t, err)
+				}
+			}
+
+			// Call UpdateTermAndAcceptCandidate
+			err = cs.UpdateTermAndAcceptCandidate(ctx, tt.newTerm, tt.candidateID)
+
+			if tt.expectError {
+				require.Error(t, err)
+				return
+			}
+
+			require.NoError(t, err)
+			term, err := cs.GetTerm(ctx)
+			require.NoError(t, err)
+			assert.Equal(t, tt.expectedTerm, term.TermNumber)
+			assert.Equal(t, tt.expectedAccept, term.AcceptedTermFromCoordinatorId.GetName())
 		})
 	}
 }

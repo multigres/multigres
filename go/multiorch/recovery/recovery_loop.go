@@ -33,10 +33,11 @@ import (
 
 // runRecoveryLoop is the main recovery loop that detects and fixes problems.
 func (re *Engine) runRecoveryLoop() {
-	ticker := time.NewTicker(1 * time.Second)
+	interval := re.config.GetRecoveryCycleInterval()
+	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
-	re.logger.InfoContext(re.ctx, "recovery loop started")
+	re.logger.InfoContext(re.ctx, "recovery loop started", "interval", interval)
 
 	for {
 		select {
@@ -45,6 +46,13 @@ func (re *Engine) runRecoveryLoop() {
 			return
 
 		case <-ticker.C:
+			// Check if interval changed (dynamic config)
+			newInterval := re.config.GetRecoveryCycleInterval()
+			if newInterval != interval {
+				re.logger.InfoContext(re.ctx, "recovery cycle interval changed", "old", interval, "new", newInterval)
+				interval = newInterval
+				ticker.Reset(interval)
+			}
 			runIfNotRunning(re.logger, &re.recoveryLoopInProgress, "recovery_loop", re.performRecoveryCycle)
 		}
 	}
@@ -58,7 +66,7 @@ func (re *Engine) performRecoveryCycle() {
 
 	// Run all analyzers to detect problems
 	var problems []types.Problem
-	analyzers := analysis.DefaultAnalyzers()
+	analyzers := analysis.DefaultAnalyzers(re.actionFactory)
 
 	for _, poolerAnalysis := range analyses {
 		for _, analyzer := range analyzers {
@@ -224,14 +232,19 @@ func (re *Engine) attemptRecovery(problem types.Problem) {
 	ctx, cancel := context.WithTimeout(re.ctx, problem.RecoveryAction.Metadata().Timeout)
 	defer cancel()
 
+	actionName := problem.RecoveryAction.Metadata().Name
+	startTime := time.Now()
+
 	err = problem.RecoveryAction.Execute(ctx, problem)
+	durationMs := float64(time.Since(startTime).Milliseconds())
+
 	if err != nil {
 		re.logger.ErrorContext(re.ctx, "recovery action failed",
 			"problem_code", problem.Code,
 			"pooler_id", poolerIDStr,
 			"error", err,
 		)
-		// TODO: Record failure in metrics
+		re.metrics.recoveryActionDuration.Record(re.ctx, durationMs, actionName, string(problem.Code), RecoveryActionStatusFailure)
 		return
 	}
 
@@ -239,7 +252,7 @@ func (re *Engine) attemptRecovery(problem types.Problem) {
 		"problem_code", problem.Code,
 		"pooler_id", poolerIDStr,
 	)
-	// TODO: Record success in metrics
+	re.metrics.recoveryActionDuration.Record(re.ctx, durationMs, actionName, string(problem.Code), RecoveryActionStatusSuccess)
 
 	// Post-recovery refresh
 	// If we ran a shard-wide recovery, force health check all poolers in the shard
@@ -314,7 +327,7 @@ func (re *Engine) recheckProblem(problem types.Problem) (bool, error) {
 	}
 
 	// Re-run the analyzer that originally detected this problem
-	analyzers := analysis.DefaultAnalyzers()
+	analyzers := analysis.DefaultAnalyzers(re.actionFactory)
 	for _, analyzer := range analyzers {
 		if analyzer.Name() == problem.CheckName {
 			redetectedProblems, err := analyzer.Analyze(poolerAnalysis)

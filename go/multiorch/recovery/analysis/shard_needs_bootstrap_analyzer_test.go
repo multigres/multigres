@@ -45,10 +45,8 @@ func TestShardNeedsBootstrapAnalyzer_Analyze(t *testing.T) {
 	}
 	coord := coordinator.NewCoordinator(coordID, ts, rpcClient, slog.Default())
 	factory := NewRecoveryActionFactory(poolerStore, rpcClient, ts, coord, slog.Default())
-	SetRecoveryActionFactory(factory)
-	defer SetRecoveryActionFactory(nil) // Clean up after test
 
-	analyzer := &ShardNeedsBootstrapAnalyzer{}
+	analyzer := &ShardNeedsBootstrapAnalyzer{factory: factory}
 
 	t.Run("detects uninitialized shard", func(t *testing.T) {
 		analysis := &store.ReplicationAnalysis{

@@ -46,11 +46,12 @@ const (
 	ProblemPrimaryIsReadOnly         ProblemCode = "PrimaryIsReadOnly"
 
 	// Replica problems (require healthy primary).
-	ProblemReplicaNotReplicating ProblemCode = "ReplicaNotReplicating"
-	ProblemReplicaWrongPrimary   ProblemCode = "ReplicaWrongPrimary"
-	ProblemReplicaLagging        ProblemCode = "ReplicaLagging"
-	ProblemReplicaMisconfigured  ProblemCode = "ReplicaMisconfigured"
-	ProblemReplicaIsWritable     ProblemCode = "ReplicaIsWritable"
+	ProblemReplicaNotReplicating   ProblemCode = "ReplicaNotReplicating"
+	ProblemReplicaNotInStandbyList ProblemCode = "ReplicaNotInStandbyList"
+	ProblemReplicaWrongPrimary     ProblemCode = "ReplicaWrongPrimary"
+	ProblemReplicaLagging          ProblemCode = "ReplicaLagging"
+	ProblemReplicaMisconfigured    ProblemCode = "ReplicaMisconfigured"
+	ProblemReplicaIsWritable       ProblemCode = "ReplicaIsWritable"
 
 	// Non-actionable: if all hosts are down, there is no way we can failover.
 	ProblemPrimaryAndReplicasDead ProblemCode = "PrimaryAndReplicasDead"

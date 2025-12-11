@@ -26,7 +26,9 @@ import (
 // PrimaryIsDeadAnalyzer detects when a primary exists in topology but is unhealthy/unreachable.
 // This is a per-pooler analyzer that returns a shard-wide problem.
 // The recovery loop's filterAndPrioritize() will deduplicate multiple instances.
-type PrimaryIsDeadAnalyzer struct{}
+type PrimaryIsDeadAnalyzer struct {
+	factory *RecoveryActionFactory
+}
 
 func (a *PrimaryIsDeadAnalyzer) Name() types.CheckName {
 	return "PrimaryIsDead"
@@ -56,8 +58,7 @@ func (a *PrimaryIsDeadAnalyzer) Analyze(poolerAnalysis *store.ReplicationAnalysi
 		return nil, nil
 	}
 
-	factory := GetRecoveryActionFactory()
-	if factory == nil {
+	if a.factory == nil {
 		return nil, errors.New("recovery action factory not initialized")
 	}
 
@@ -70,6 +71,6 @@ func (a *PrimaryIsDeadAnalyzer) Analyze(poolerAnalysis *store.ReplicationAnalysi
 		Priority:       types.PriorityEmergency,
 		Scope:          types.ScopeShard,
 		DetectedAt:     time.Now(),
-		RecoveryAction: factory.NewAppointLeaderAction(),
+		RecoveryAction: a.factory.NewAppointLeaderAction(),
 	}}, nil
 }
