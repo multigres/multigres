@@ -19,7 +19,6 @@ import (
 	"sort"
 	"strings"
 	"sync"
-	"sync/atomic"
 
 	"github.com/multigres/multigres/go/pb/query"
 )
@@ -222,10 +221,6 @@ func (s *ConnectionState) DeletePreparedStatement(name string) {
 // Settings - Session variables with Vitess-style bucket management
 // =============================================================================
 
-// globalSettingsCounter is used to assign unique bucket numbers to Settings.
-// This follows the Vitess pattern for distributing connections across pool stacks.
-var globalSettingsCounter atomic.Uint32
-
 // Settings contains session variables (SET commands) and a bucket number
 // for connection pool distribution.
 //
@@ -240,20 +235,18 @@ type Settings struct {
 	// Vars maps variable names to their values.
 	Vars map[string]string
 
-	// bucket is assigned from globalSettingsCounter when Settings is created.
-	// Used by connection pool for stack distribution.
+	// bucket is used by connection pool for stack distribution.
 	bucket uint32
 }
 
-// NewSettings creates a new Settings with the given variables.
-// A unique bucket number is assigned from the global counter.
+// NewSettings creates a new Settings with the given variables and bucket number.
 //
 // NOTE: For connection pooling, prefer using SettingsCache.GetOrCreate() instead
 // to ensure settings are properly interned (same settings = same pointer).
-func NewSettings(vars map[string]string) *Settings {
+func NewSettings(vars map[string]string, bucket uint32) *Settings {
 	return &Settings{
 		Vars:   vars,
-		bucket: globalSettingsCounter.Add(1),
+		bucket: bucket,
 	}
 }
 
