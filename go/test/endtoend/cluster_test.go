@@ -790,6 +790,28 @@ func testPostgreSQLConnection(t *testing.T, tempDir string, port int, zone strin
 	require.NoError(t, err, "PostgreSQL connection failed on port %d (Zone %s): %s", port, zone, string(output))
 
 	t.Logf("Zone %s PostgreSQL (port %d) is responding correctly", zone, port)
+
+	// Also test TCP connection with password to validate password was set correctly
+	// The default password is "postgres" (set by the local provisioner at pgpassword.txt)
+	testPostgreSQLTCPConnection(t, port, zone)
+}
+
+// testPostgreSQLTCPConnection tests TCP connection with password authentication.
+// This validates that the password file convention is working correctly.
+func testPostgreSQLTCPConnection(t *testing.T, port int, zone string) {
+	t.Helper()
+
+	t.Logf("Testing PostgreSQL TCP connection with password on port %d (Zone %s)...", port, zone)
+
+	// Connect via TCP using the default password "postgres" (from pgpassword.txt)
+	cmd := exec.Command("psql", "-h", "127.0.0.1", "-p", fmt.Sprintf("%d", port), "-U", "postgres", "-d", "postgres", "-c", fmt.Sprintf("SELECT 'Zone %s TCP auth works!' as status;", zone))
+	cmd.Env = append(os.Environ(), "PGPASSWORD=postgres")
+
+	output, err := cmd.CombinedOutput()
+	require.NoError(t, err, "PostgreSQL TCP connection with password failed on port %d (Zone %s): %s", port, zone, string(output))
+	assert.Contains(t, string(output), "TCP auth works!", "Should see successful TCP connection message")
+
+	t.Logf("Zone %s PostgreSQL TCP auth (port %d) is working correctly", zone, port)
 }
 
 func TestClusterLifecycle(t *testing.T) {
