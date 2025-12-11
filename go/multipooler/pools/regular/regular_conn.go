@@ -211,6 +211,48 @@ func (c *Conn) QueryStreaming(ctx context.Context, sql string, callback func(con
 	return c.conn.QueryStreaming(ctx, sql, callback)
 }
 
+// --- Extended query protocol ---
+
+// Parse sends a Parse message to prepare a statement.
+func (c *Conn) Parse(ctx context.Context, name, queryStr string, paramTypes []uint32) error {
+	return c.conn.Parse(ctx, name, queryStr, paramTypes)
+}
+
+// BindAndExecute binds parameters and executes atomically.
+func (c *Conn) BindAndExecute(ctx context.Context, stmtName string, params [][]byte, paramFormats, resultFormats []int16, maxRows int32, callback func(ctx context.Context, result *query.QueryResult) error) error {
+	return c.conn.BindAndExecute(ctx, stmtName, params, paramFormats, resultFormats, maxRows, callback)
+}
+
+// BindAndDescribe binds parameters and describes the resulting portal.
+func (c *Conn) BindAndDescribe(ctx context.Context, stmtName string, params [][]byte, paramFormats, resultFormats []int16) (*query.StatementDescription, error) {
+	return c.conn.BindAndDescribe(ctx, stmtName, params, paramFormats, resultFormats)
+}
+
+// DescribePrepared describes a prepared statement.
+func (c *Conn) DescribePrepared(ctx context.Context, name string) (*query.StatementDescription, error) {
+	return c.conn.DescribePrepared(ctx, name)
+}
+
+// CloseStatement closes a prepared statement.
+func (c *Conn) CloseStatement(ctx context.Context, name string) error {
+	return c.conn.CloseStatement(ctx, name)
+}
+
+// ClosePortal closes a portal.
+func (c *Conn) ClosePortal(ctx context.Context, name string) error {
+	return c.conn.ClosePortal(ctx, name)
+}
+
+// Sync sends a Sync message to synchronize the extended query protocol.
+func (c *Conn) Sync(ctx context.Context) error {
+	return c.conn.Sync(ctx)
+}
+
+// PrepareAndExecute is a convenience method that prepares and executes in one round trip.
+func (c *Conn) PrepareAndExecute(ctx context.Context, queryStr string, params [][]byte, callback func(ctx context.Context, result *query.QueryResult) error) error {
+	return c.conn.PrepareAndExecute(ctx, queryStr, params, callback)
+}
+
 // --- Transaction status ---
 
 // TxnStatus returns the current transaction status.

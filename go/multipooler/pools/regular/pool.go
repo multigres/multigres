@@ -71,14 +71,49 @@ func (p *Pool) Open(ctx context.Context) {
 	p.pool.Open(ctx, connector, nil)
 }
 
-// Get returns a connection from the pool with no settings applied.
-func (p *Pool) Get(ctx context.Context) (PooledConn, error) {
-	return p.pool.Get(ctx)
+// Get returns a connection from the pool with the specified user role.
+// If user is non-empty and doesn't match the connection's current role, SET ROLE is executed.
+func (p *Pool) Get(ctx context.Context, user string) (PooledConn, error) {
+	pooled, err := p.pool.Get(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := p.ensureRole(ctx, pooled, user); err != nil {
+		pooled.Taint()
+		return nil, err
+	}
+
+	return pooled, nil
 }
 
-// GetWithSettings returns a connection from the pool with the given settings applied.
-func (p *Pool) GetWithSettings(ctx context.Context, settings *connstate.Settings) (PooledConn, error) {
-	return p.pool.GetWithSettings(ctx, settings)
+// GetWithSettings returns a connection from the pool with the given settings and user role applied.
+// If user is non-empty and doesn't match the connection's current role, SET ROLE is executed.
+func (p *Pool) GetWithSettings(ctx context.Context, settings *connstate.Settings, user string) (PooledConn, error) {
+	pooled, err := p.pool.GetWithSettings(ctx, settings)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := p.ensureRole(ctx, pooled, user); err != nil {
+		pooled.Taint()
+		return nil, err
+	}
+
+	return pooled, nil
+}
+
+// ensureRole ensures the connection has the correct role set.
+func (p *Pool) ensureRole(ctx context.Context, pooled PooledConn, user string) error {
+	if user == "" {
+		return nil
+	}
+
+	if pooled.Conn.CurrentUser() == user {
+		return nil
+	}
+
+	return pooled.Conn.SetRole(ctx, user)
 }
 
 // Close closes all connections in the pool.
