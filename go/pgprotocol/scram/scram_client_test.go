@@ -117,7 +117,7 @@ func TestSCRAMClient_PassthroughMode(t *testing.T) {
 		salt := []byte("randomsalt123456")
 		iterations := 4096
 
-		// === Phase 1: Original client authenticates to proxy ===
+		// Original client authenticates to proxy
 		saltedPassword := ComputeSaltedPassword(password, salt, iterations)
 		clientKey := ComputeClientKey(saltedPassword)
 		storedKey := ComputeStoredKey(clientKey)

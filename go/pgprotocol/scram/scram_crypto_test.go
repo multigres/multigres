@@ -298,7 +298,7 @@ func TestExtractAndVerifyClientProof(t *testing.T) {
 		salt := []byte("randomsalt123456")
 		iterations := 4096
 
-		// === Phase 1: Client authenticates to multigateway ===
+		// Client authenticates to multigateway
 		// Compute keys from password (what PostgreSQL stores)
 		saltedPassword := ComputeSaltedPassword(password, salt, iterations)
 		clientKey := ComputeClientKey(saltedPassword)

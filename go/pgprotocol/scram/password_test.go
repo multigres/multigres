@@ -77,6 +77,7 @@ func TestParseScramSHA256Hash(t *testing.T) {
 		hash := "SCRAM-SHA-256$4096:c2FsdA=="
 		_, err := ParseScramSHA256Hash(hash)
 		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "expected 2 parts")
 	})
 
 	t.Run("invalid iterations - not a number", func(t *testing.T) {
@@ -90,6 +91,7 @@ func TestParseScramSHA256Hash(t *testing.T) {
 		hash := "SCRAM-SHA-256$-1:c2FsdA==$c3RvcmVka2V5:c2VydmVya2V5"
 		_, err := ParseScramSHA256Hash(hash)
 		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "iterations must be positive")
 	})
 
 	t.Run("invalid iterations - zero", func(t *testing.T) {
@@ -123,21 +125,24 @@ func TestParseScramSHA256Hash(t *testing.T) {
 	t.Run("empty hash", func(t *testing.T) {
 		_, err := ParseScramSHA256Hash("")
 		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "empty hash")
 	})
 
 	t.Run("missing keys section", func(t *testing.T) {
 		hash := "SCRAM-SHA-256$4096:c2FsdA=="
 		_, err := ParseScramSHA256Hash(hash)
 		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "expected 2 parts")
 	})
 
 	t.Run("missing ServerKey", func(t *testing.T) {
-		hash := "SCRAM-SHA-256$4096:c2FsdA==$c3RvcmVka2V5"
+		// "bG9uZ3NhbHQ=" is base64("longsalt") = 8 bytes, meeting minimum
+		hash := "SCRAM-SHA-256$4096:bG9uZ3NhbHQ=$c3RvcmVka2V5"
 		_, err := ParseScramSHA256Hash(hash)
 		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "expected StoredKey:ServerKey")
 	})
 
-	// New security validations added in Phase 1
 	t.Run("iteration count below minimum (insecure)", func(t *testing.T) {
 		// 2048 iterations is below the minimum of 4096
 		hash := "SCRAM-SHA-256$2048:bG9uZ3NhbHQ=$c3RvcmVka2V5:c2VydmVya2V5"
