@@ -20,7 +20,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"os"
 	"path/filepath"
 	"sync"
 	"time"
@@ -1379,7 +1378,7 @@ func (pm *MultiPoolerManager) Start(senv *servenv.ServEnv) {
 		// Don't fail startup if Open fails - will retry on demand
 	}
 
-	senv.OnRun(func() {
+	senv.OnRunE(func() error {
 		// Block until manager is ready or error before registering gRPC services
 		// Use load timeout from manager configuration
 		waitCtx, cancel := context.WithTimeout(pm.ctx, pm.loadTimeout)
@@ -1388,8 +1387,7 @@ func (pm *MultiPoolerManager) Start(senv *servenv.ServEnv) {
 		pm.logger.Info("Waiting for manager to reach ready state before registering gRPC services")
 		if err := pm.WaitUntilReady(waitCtx); err != nil {
 			pm.logger.Error("Manager failed to reach ready state during startup", "error", err)
-			// Exit immediately - no point in starting gRPC if we're not ready
-			os.Exit(1)
+			return fmt.Errorf("manager failed to reach ready state: %w", err)
 		}
 		pm.logger.Info("Manager reached ready state, will register gRPC services")
 
@@ -1400,6 +1398,7 @@ func (pm *MultiPoolerManager) Start(senv *servenv.ServEnv) {
 		// Register manager gRPC services
 		pm.registerGRPCServices()
 		pm.logger.Info("MultiPoolerManager gRPC services registered")
+		return nil
 	})
 }
 

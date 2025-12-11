@@ -16,6 +16,8 @@
 package multiadmin
 
 import (
+	"fmt"
+
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 
@@ -40,8 +42,8 @@ type MultiAdmin struct {
 	serverStatus Status
 }
 
-func (ma *MultiAdmin) RunDefault() {
-	ma.senv.RunDefault(ma.grpcServer)
+func (ma *MultiAdmin) RunDefault() error {
+	return ma.senv.RunDefault(ma.grpcServer)
 }
 
 func (ma *MultiAdmin) CobraPreRunE(cmd *cobra.Command) error {
@@ -76,11 +78,18 @@ func (ma *MultiAdmin) RegisterFlags(fs *pflag.FlagSet) {
 // Init initializes the multiadmin. If any services fail to start,
 // or if some connections fail, it launches goroutines that retry
 // until successful.
-func (ma *MultiAdmin) Init() {
-	ma.senv.Init("multiadmin")
+func (ma *MultiAdmin) Init() error {
+	if err := ma.senv.Init("multiadmin"); err != nil {
+		return fmt.Errorf("servenv init: %w", err)
+	}
 	// Get the configured logger
 	logger := ma.senv.GetLogger()
-	ma.ts = ma.topoConfig.Open()
+
+	var err error
+	ma.ts, err = ma.topoConfig.Open()
+	if err != nil {
+		return fmt.Errorf("topo open: %w", err)
+	}
 
 	logger.Info("multiadmin starting up",
 		"http_port", ma.senv.GetHTTPPort(),
@@ -104,6 +113,7 @@ func (ma *MultiAdmin) Init() {
 	ma.senv.OnClose(func() {
 		ma.Shutdown()
 	})
+	return nil
 }
 
 func (ma *MultiAdmin) Shutdown() {
