@@ -25,8 +25,7 @@ import (
 )
 
 // ConnectionState represents the cumulative state of a connection.
-// This includes all state modifiers like session settings, prepared statements,
-// and portals.
+// This includes all state modifiers like session settings and prepared statements.
 //
 // All methods are thread-safe.
 type ConnectionState struct {
@@ -45,17 +44,12 @@ type ConnectionState struct {
 	// PreparedStatements stores prepared statements by name.
 	// The unnamed statement uses the empty string "" as the key.
 	PreparedStatements map[string]*query.PreparedStatement
-
-	// Portals stores portals (bound prepared statements) by name.
-	// The unnamed portal uses the empty string "" as the key.
-	Portals map[string]*query.Portal
 }
 
 // NewConnectionState creates a new empty ConnectionState with initialized maps.
 func NewConnectionState() *ConnectionState {
 	return &ConnectionState{
 		PreparedStatements: make(map[string]*query.PreparedStatement),
-		Portals:            make(map[string]*query.Portal),
 	}
 }
 
@@ -64,7 +58,6 @@ func NewConnectionStateWithSettings(settings *Settings) *ConnectionState {
 	return &ConnectionState{
 		Settings:           settings,
 		PreparedStatements: make(map[string]*query.PreparedStatement),
-		Portals:            make(map[string]*query.Portal),
 	}
 }
 
@@ -102,7 +95,6 @@ func (s *ConnectionState) Clone() *ConnectionState {
 	clone := &ConnectionState{
 		User:               s.User,
 		PreparedStatements: make(map[string]*query.PreparedStatement, len(s.PreparedStatements)),
-		Portals:            make(map[string]*query.Portal, len(s.Portals)),
 	}
 
 	if s.Settings != nil {
@@ -110,7 +102,6 @@ func (s *ConnectionState) Clone() *ConnectionState {
 	}
 
 	maps.Copy(clone.PreparedStatements, s.PreparedStatements)
-	maps.Copy(clone.Portals, s.Portals)
 
 	return clone
 }
@@ -127,7 +118,6 @@ func (s *ConnectionState) Close() {
 	s.User = ""
 	s.Settings = nil
 	s.PreparedStatements = nil
-	s.Portals = nil
 }
 
 // GetSettings returns the current settings. Returns nil if no settings.
@@ -226,80 +216,6 @@ func (s *ConnectionState) DeletePreparedStatement(name string) {
 	defer s.mu.Unlock()
 
 	delete(s.PreparedStatements, name)
-}
-
-// --- Portal Methods ---
-
-// StorePortal stores a portal.
-func (s *ConnectionState) StorePortal(portal *query.Portal) {
-	if s == nil {
-		return
-	}
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	s.Portals[portal.Name] = portal
-}
-
-// GetPortal retrieves a portal by name.
-func (s *ConnectionState) GetPortal(name string) *query.Portal {
-	if s == nil {
-		return nil
-	}
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	return s.Portals[name]
-}
-
-// DeletePortal removes a portal by name.
-func (s *ConnectionState) DeletePortal(name string) {
-	if s == nil {
-		return
-	}
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	delete(s.Portals, name)
-}
-
-// --- SQL Generation Methods ---
-
-// GenerateResetSQL generates SQL statements to reset a connection to clean state.
-func (s *ConnectionState) GenerateResetSQL() []string {
-	if s == nil {
-		return nil
-	}
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	var statements []string
-
-	// Reset user role first (most important for security)
-	if s.User != "" {
-		statements = append(statements, "RESET ROLE")
-	}
-
-	// Reset settings
-	if s.Settings != nil && !s.Settings.IsEmpty() {
-		statements = append(statements, "RESET ALL")
-	}
-
-	// Deallocate prepared statements
-	if len(s.PreparedStatements) > 0 {
-		statements = append(statements, "DEALLOCATE ALL")
-	}
-
-	// Close portals
-	if len(s.Portals) > 0 {
-		statements = append(statements, "CLOSE ALL")
-	}
-
-	return statements
 }
 
 // =============================================================================
