@@ -29,7 +29,7 @@ import (
 // runGetPoolers handles the getpoolers command
 func runGetPoolers(cmd *cobra.Command, args []string) error {
 	// Get admin server address
-	adminServer, err := getAdminServerAddress(cmd)
+	adminServer, err := GetAdminServerAddress(cmd)
 	if err != nil {
 		return err
 	}

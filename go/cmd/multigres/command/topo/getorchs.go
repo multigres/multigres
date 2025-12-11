@@ -29,7 +29,7 @@ import (
 // runGetOrchs handles the getorchs command
 func runGetOrchs(cmd *cobra.Command, args []string) error {
 	// Get admin server address
-	adminServer, err := getAdminServerAddress(cmd)
+	adminServer, err := GetAdminServerAddress(cmd)
 	if err != nil {
 		return err
 	}

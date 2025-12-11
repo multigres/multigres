@@ -108,7 +108,7 @@ provisioner-config:
 		require.NoError(t, cmd.Flags().Set("admin-server", "custom:9999"))
 		require.NoError(t, cmd.Flags().Set("config-path", tempDir))
 
-		address, err := getAdminServerAddress(cmd)
+		address, err := GetAdminServerAddress(cmd)
 		require.NoError(t, err)
 		assert.Equal(t, "custom:9999", address)
 	})
@@ -122,7 +122,7 @@ provisioner-config:
 		// Set only config-path
 		require.NoError(t, cmd.Flags().Set("config-path", tempDir))
 
-		address, err := getAdminServerAddress(cmd)
+		address, err := GetAdminServerAddress(cmd)
 		require.NoError(t, err)
 		assert.Equal(t, "localhost:12345", address)
 	})
@@ -133,37 +133,8 @@ provisioner-config:
 		cmd.Flags().String("admin-server", "", "")
 		cmd.Flags().StringSlice("config-path", []string{}, "")
 
-		_, err := getAdminServerAddress(cmd)
+		_, err := GetAdminServerAddress(cmd)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "either --admin-server flag or --config-path must be provided")
-	})
-}
-
-func TestGetCellCommandFlags(t *testing.T) {
-	t.Run("name flag is required", func(t *testing.T) {
-		// Create the command
-		cmd := AddGetCellCommand()
-
-		// Check that the name flag is marked as required
-		nameFlag := cmd.Flag("name")
-		assert.NotNil(t, nameFlag)
-
-		// Check if the flag is in the required flags list
-		annotations := nameFlag.Annotations
-		required := false
-		if reqAnnotations, exists := annotations[cobra.BashCompOneRequiredFlag]; exists {
-			required = len(reqAnnotations) > 0 && reqAnnotations[0] == "true"
-		}
-		assert.True(t, required, "name flag should be marked as required")
-	})
-
-	t.Run("admin-server flag is optional", func(t *testing.T) {
-		// Create the command
-		cmd := AddGetCellCommand()
-
-		// Check that the admin-server flag exists but is not required
-		adminServerFlag := cmd.Flag("admin-server")
-		assert.NotNil(t, adminServerFlag)
-		assert.Equal(t, "", adminServerFlag.DefValue)
 	})
 }

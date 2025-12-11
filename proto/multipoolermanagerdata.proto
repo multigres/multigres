@@ -603,6 +603,17 @@ message BackupRequest {
   // type indicates the type of backup that should be done. "full", "differential",
   // and "incremental" are examples that are appropriate for pgBackRest.
   string type = 2;
+
+  // backup_timestamp is an optional tracking ID for this backup operation.
+  // If provided, this ID will be used as the backup_timestamp annotation
+  // to pgBackRest, enabling end-to-end traceability.
+  // If empty, a tracking ID will be generated automatically.
+  string backup_timestamp = 3;
+
+  // job_id is an optional job ID from MultiAdmin for tracking backup status.
+  // If provided, stored as annotation on the backup for cross-process
+  // status queries. Format: YYYYMMDD-HHMMSS.microseconds_<multipooler_id>
+  string job_id = 4;
 }
 
 // BackupResponse contains the result of a backup operation
@@ -617,10 +628,6 @@ message RestoreFromBackupRequest {
   // Backup to restore from. If this is empty, we restore from the latest
   // backup.
   string backup_id = 1;
-
-  // Whether to restore as standby. When false, auto-detect from current state.
-  // Set to true when initializing a new standby from scratch.
-  bool as_standby = 2;
 }
 
 // RestoreFromBackupResponse contains the result of a restore operation
@@ -637,6 +644,19 @@ message GetBackupsResponse {
   repeated BackupMetadata backups = 1;
 }
 
+// GetBackupByJobIdRequest queries a backup by the job_id annotation.
+message GetBackupByJobIdRequest {
+  // The job_id to search for in backup annotations.
+  string job_id = 1;
+}
+
+// GetBackupByJobIdResponse returns the backup matching the job_id.
+// If no backup is found, backup will be nil.
+message GetBackupByJobIdResponse {
+  // The backup metadata if found, nil if not found.
+  BackupMetadata backup = 1;
+}
+
 // BackupMetadata contains metadata about a backup
 message BackupMetadata {
   string table_group = 1;
@@ -644,6 +664,15 @@ message BackupMetadata {
   Status status = 3;
   string backup_id = 4;
   string final_lsn = 5;  // Final checkpoint LSN (stop LSN) for this backup
+
+  // Job ID annotation if present (for cross-process tracking)
+  string job_id = 6;
+
+  // Size of the backup in bytes (original database size before compression)
+  uint64 backup_size_bytes = 7;
+
+  // Type of backup: "full", "diff", or "incr" (as reported by pgbackrest)
+  string type = 8;
 
   // Status represents the state of a backup
   enum Status {

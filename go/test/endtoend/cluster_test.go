@@ -745,8 +745,10 @@ func executeStartCommand(t *testing.T, args []string, tempDir string) (string, e
 	cmd := exec.Command("multigres", cmdArgs...)
 
 	// Set MULTIGRES_TESTDATA_DIR for directory-deletion triggered cleanup
+	// LC_ALL is required to avoid "postmaster became multithreaded during startup" on macOS
 	cmd.Env = append(os.Environ(),
 		"MULTIGRES_TESTDATA_DIR="+tempDir,
+		"LC_ALL=en_US.UTF-8",
 	)
 
 	// On macOS, PostgreSQL 17 requires proper locale settings to avoid

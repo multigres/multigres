@@ -149,7 +149,8 @@ message BackupRequest {
   string shard = 3;
   // type of backup: "full", "differential", or "incremental" (required)
   string type = 4;
-  // force_primary indicates whether to backup from primary (optional, default false)
+  // force_primary forces the backup to run on the primary instead of a replica.
+  // This should typically be false because backups on replicas reduce load on the primary.
   bool force_primary = 5;
 }
 
@@ -171,6 +172,10 @@ message RestoreFromBackupRequest {
   string shard = 3;
   // backup_id to restore from (optional, empty means "latest backup")
   string backup_id = 4;
+  // pooler_id identifies which multipooler to restore to (required).
+  // This is needed because a cell can have multiple poolers for the same
+  // database/table_group/shard combination. Restores are only allowed to standbys.
+  clustermetadata.ID pooler_id = 5;
 }
 
 // RestoreFromBackupResponse contains the job ID for tracking the async restore
@@ -185,6 +190,12 @@ message RestoreFromBackupResponse {
 message GetBackupJobStatusRequest {
   // job_id to query (required)
   string job_id = 1;
+
+  // Shard context for fallback lookup via MultiPooler when job is not in memory.
+  // Required when job may have been lost due to process restart.
+  string database = 2;
+  string table_group = 3;
+  string shard = 4;
 }
 
 // GetBackupJobStatusResponse contains the current status of a backup or restore job
@@ -205,7 +216,6 @@ message GetBackupJobStatusResponse {
 
   // For backup jobs
   string backup_type = 8;         // "full", "differential", "incremental"
-  bool force_primary = 9;
 
   // For restore jobs
   string requested_backup_id = 10; // What was requested (may be empty for "latest")

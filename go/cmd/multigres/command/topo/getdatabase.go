@@ -52,7 +52,7 @@ func runGetDatabase(cmd *cobra.Command, args []string) error {
 	databaseName, _ := cmd.Flags().GetString("name")
 
 	// Resolve admin server address (reuse the same logic as getcell)
-	adminServer, err := getAdminServerAddress(cmd)
+	adminServer, err := GetAdminServerAddress(cmd)
 	if err != nil {
 		return err
 	}

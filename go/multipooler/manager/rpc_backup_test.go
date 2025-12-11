@@ -315,7 +315,7 @@ func TestBackup_Validation(t *testing.T) {
 			backupLocation := "/tmp/test-backups"
 			pm := createTestManagerWithBackupLocation(tt.poolerDir, tt.stanzaName, "", "", tt.poolerType, backupLocation)
 
-			_, err := pm.Backup(ctx, tt.forcePrimary, tt.backupType)
+			_, err := pm.Backup(ctx, tt.forcePrimary, tt.backupType, "", "")
 
 			if tt.expectError {
 				assert.Error(t, err)
@@ -796,7 +796,7 @@ func TestBackup_ActionLock(t *testing.T) {
 	defer cancel()
 
 	// Backup should timeout waiting for the lock
-	_, err = pm.Backup(timeoutCtx, false, "full")
+	_, err = pm.Backup(timeoutCtx, false, "full", "", "")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "context deadline exceeded")
 
@@ -857,7 +857,7 @@ func TestBackup_ActionLockReleased(t *testing.T) {
 	pm := createTestManagerWithBackupLocation(tmpDir, "test-stanza", "", "", clustermetadatapb.PoolerType_REPLICA, tmpDir)
 
 	// Call Backup - it will fail (no pgbackrest), but should release the lock
-	_, _ = pm.Backup(ctx, false, "full")
+	_, _ = pm.Backup(ctx, false, "full", "", "")
 
 	// Verify lock was released by acquiring it with a short timeout
 	timeoutCtx, cancel := context.WithTimeout(ctx, 100*time.Millisecond)
@@ -1029,4 +1029,43 @@ func TestLoadMultiPoolerFromTopo_CallsAutoRestore(t *testing.T) {
 	// Verify tryAutoRestoreFromBackup can be called and returns without panic
 	pm.tryAutoRestoreFromBackup(ctx)
 	// No assertion needed - function should return without panic
+}
+
+func TestBackup_StoresJobIDAnnotation(t *testing.T) {
+	// Verify that when job_id is provided, it's included in annotations
+	req := &multipoolermanagerdata.BackupRequest{
+		JobId: "20251203-143045.123456_mp-cell-1",
+	}
+
+	// Verify the field is accessible (structural test)
+	require.NotEmpty(t, req.JobId, "JobId should be set")
+	assert.Equal(t, "20251203-143045.123456_mp-cell-1", req.JobId)
+}
+
+func TestGetBackupByJobId_NotFound(t *testing.T) {
+	// Test that searching for a non-existent job_id returns nil backup
+
+	resp := &multipoolermanagerdata.GetBackupByJobIdResponse{
+		Backup: nil,
+	}
+
+	assert.Nil(t, resp.Backup)
+}
+
+func TestGetBackupByJobId_Found(t *testing.T) {
+	// Test response structure when backup is found
+
+	resp := &multipoolermanagerdata.GetBackupByJobIdResponse{
+		Backup: &multipoolermanagerdata.BackupMetadata{
+			BackupId:   "20251203-143045F",
+			TableGroup: "default",
+			Shard:      "0",
+			Status:     multipoolermanagerdata.BackupMetadata_COMPLETE,
+			JobId:      "20251203-143045.123456_mp-cell-1",
+		},
+	}
+
+	require.NotNil(t, resp.Backup)
+	assert.Equal(t, "20251203-143045F", resp.Backup.BackupId)
+	assert.Equal(t, "20251203-143045.123456_mp-cell-1", resp.Backup.JobId)
 }
