@@ -985,10 +985,50 @@ func TestClusterLifecycle(t *testing.T) {
 		// Verify state directory is empty (no state files)
 		assert.Empty(t, assertDirectoryTreeEmpty(filepath.Join(tempDir, "state")), "state directory should be empty after normal stop")
 
-		// Start and stop with --clean flag
-		t.Log("Testing clean stop behavior...")
+		// Start cluster again and verify state is preserved after restart
+		t.Log("Starting cluster again to verify state is preserved after restart...")
 		_, err = executeStartCommand(t, []string{"--config-path", tempDir}, tempDir)
 		require.NoError(t, err, "Second start should succeed")
+
+		// Wait for both zones to be ready after restart (same as initial bootstrap)
+		t.Log("Waiting for zone1 to be ready after restart...")
+		require.NoError(t, WaitForBootstrap(t, multipoolerAddr, 60*time.Second, tempDir, expectedDatabase),
+			"zone1 should be ready after restart")
+		t.Log("Waiting for zone2 to be ready after restart...")
+		multipoolerAddr2 := fmt.Sprintf("localhost:%d", testPorts.Zones[1].MultipoolerGRPCPort)
+		require.NoError(t, WaitForBootstrap(t, multipoolerAddr2, 60*time.Second, tempDir, expectedDatabase),
+			"zone2 should be ready after restart")
+
+		// Verify PostgreSQL connectivity for both zones after restart
+		t.Log("Testing PostgreSQL connectivity for both zones after restart...")
+		testPostgreSQLConnection(t, tempDir, testPorts.Zones[0].PgctldPGPort, "1")
+		testPostgreSQLConnection(t, tempDir, testPorts.Zones[1].PgctldPGPort, "2")
+		t.Log("Both PostgreSQL instances are working correctly after restart!")
+
+		// Verify primary/replica roles are preserved after restart
+		t.Log("Verifying primary/replica roles are preserved after restart...")
+		zone1IsPrimaryAfterRestart, err := IsPrimary(zone1Addr)
+		require.NoError(t, err, "should be able to check zone1 primary status after restart")
+		require.Equal(t, zone1IsPrimary, zone1IsPrimaryAfterRestart,
+			"primary/replica roles must be preserved after restart")
+		t.Logf("Zone1 is primary after restart: %v (preserved from before)", zone1IsPrimaryAfterRestart)
+
+		// Verify multipooler registration is preserved after restart
+		// This tests that immutable fields (database, tablegroup, shard) are not overwritten
+		t.Log("Verifying multipooler registration is preserved after restart...")
+		require.NoError(t, checkMultipoolerTopoRegistration(etcdAddress, globalRootPath, cellName, expectedDatabase, constants.DefaultTableGroup, constants.DefaultShard),
+			"multipooler registration (database, tablegroup, shard) should be preserved after restart")
+
+		// Test write/read operations work correctly after restart
+		t.Log("Testing write/read operations after restart...")
+		if zone1IsPrimary {
+			testMultipoolerGRPC(t, zone1Addr)
+			testMultipoolerGRPCReadOnly(t, zone2Addr)
+		} else {
+			testMultipoolerGRPC(t, zone2Addr)
+			testMultipoolerGRPCReadOnly(t, zone1Addr)
+		}
+		t.Log("Write/read operations work correctly after restart!")
 
 		// Stop with --clean flag
 		downCleanOutput, err := executeStopCommand(t, []string{"--config-path", tempDir, "--clean"})

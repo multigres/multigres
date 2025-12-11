@@ -17,6 +17,7 @@ package multipooler
 
 import (
 	"context"
+	"errors"
 	"os"
 
 	"github.com/spf13/cobra"
@@ -261,10 +262,47 @@ func (mp *MultiPooler) Init(startCtx context.Context) {
 	mp.senv.HTTPHandleFunc("/", mp.handleIndex)
 	mp.senv.HTTPHandleFunc("/ready", mp.handleReady)
 
+	// Validate immutable fields if MultiPooler already exists in topology
+	existingMP, err := mp.ts.GetMultiPooler(startCtx, multipooler.Id)
+	if err != nil && !errors.Is(err, &topoclient.TopoError{Code: topoclient.NoNode}) {
+		logger.ErrorContext(startCtx, "Failed to check existing multipooler", "error", err)
+		os.Exit(1)
+	}
+	if existingMP != nil {
+		if existingMP.Database != "" && existingMP.Database != multipooler.Database {
+			logger.ErrorContext(startCtx, "database mismatch: existing value does not match new value (database is immutable after creation)",
+				"existing_database", existingMP.Database,
+				"new_database", multipooler.Database)
+			os.Exit(1)
+		}
+		if existingMP.TableGroup != "" && existingMP.TableGroup != multipooler.TableGroup {
+			logger.ErrorContext(startCtx, "table group mismatch: existing value does not match new value (table group is immutable after creation)",
+				"existing_table_group", existingMP.TableGroup,
+				"new_table_group", multipooler.TableGroup)
+			os.Exit(1)
+		}
+		if existingMP.Shard != "" && existingMP.Shard != multipooler.Shard {
+			logger.ErrorContext(startCtx, "shard mismatch: existing value does not match new value (shard is immutable after creation)",
+				"existing_shard", existingMP.Shard,
+				"new_shard", multipooler.Shard)
+			os.Exit(1)
+		}
+	}
+
 	mp.senv.OnRun(
 		func() {
 			registerFunc := func(ctx context.Context) error {
-				return mp.ts.RegisterMultiPooler(ctx, multipooler, true /* allowUpdate */)
+				_, err := mp.ts.UpdateMultiPoolerFields(ctx, multipooler.Id,
+					func(mp *clustermetadatapb.MultiPooler) error {
+						mp.PortMap = multipooler.PortMap
+						mp.Hostname = multipooler.Hostname
+						mp.ServingStatus = multipooler.ServingStatus
+						// Note: we are explicitly not updating the Database, TableGroup, or Shard fields
+						// because they are immutable after creation.
+						// If a component is initialized with incorrect values, it should be deleted and recreated.
+						return nil
+					})
+				return err
 			}
 			// For poolers, we don't un-register them on shutdown (they are persistent component)
 			// If they are actually deleted, they need to be cleaned up outside the lifecycle of starting / stopping.
