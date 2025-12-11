@@ -680,4 +680,5 @@ message CreateDurabilityPolicyRequest {
 
 // CreateDurabilityPolicyResponse confirms policy creation
 // Errors are returned via gRPC status codes, not in the response body
-message CreateDurabilityPolicyResponse {}
+message CreateDurabilityPolicyResponse {
+}
