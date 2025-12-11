@@ -102,7 +102,7 @@ func TestSCRAMClient_PasswordMode(t *testing.T) {
 		clientFirstBare := clientFirst[3:]
 		authMessage := buildAuthMessage(clientFirstBare, serverFirst, clientFinalParsed.clientFinalMessageWithoutProof)
 		_, err = ExtractAndVerifyClientProof(storedKey, authMessage, clientFinalParsed.proof)
-		assert.Error(t, err, "server should reject wrong password")
+		assert.ErrorIs(t, err, ErrAuthenticationFailed, "server should reject wrong password")
 	})
 }
 
@@ -267,12 +267,61 @@ func TestSCRAMClient_EdgeCases(t *testing.T) {
 
 		err = client.VerifyServerFinal(wrongServerFinal)
 		assert.Error(t, err, "should reject wrong server signature")
+		assert.Contains(t, err.Error(), "signature")
 
 		// Correct server signature should work.
 		correctSig := ComputeServerSignature(serverKey, authMessage)
 		correctServerFinal := generateServerFinalMessage(correctSig)
 		err = client.VerifyServerFinal(correctServerFinal)
 		assert.NoError(t, err)
+	})
+
+	t.Run("rejects malformed server final - missing v= prefix", func(t *testing.T) {
+		client := NewSCRAMClientWithPassword("user", "pass")
+		_, err := client.ClientFirstMessage()
+		require.NoError(t, err)
+
+		salt := []byte("salt12345678")
+		serverFirst := "r=" + client.clientNonce + "servernonce,s=" + base64.StdEncoding.EncodeToString(salt) + ",i=4096"
+		_, err = client.ProcessServerFirst(serverFirst)
+		require.NoError(t, err)
+
+		// Missing "v=" prefix.
+		err = client.VerifyServerFinal("invalid-no-prefix")
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "v=")
+	})
+
+	t.Run("rejects malformed server final - invalid base64", func(t *testing.T) {
+		client := NewSCRAMClientWithPassword("user", "pass")
+		_, err := client.ClientFirstMessage()
+		require.NoError(t, err)
+
+		salt := []byte("salt12345678")
+		serverFirst := "r=" + client.clientNonce + "servernonce,s=" + base64.StdEncoding.EncodeToString(salt) + ",i=4096"
+		_, err = client.ProcessServerFirst(serverFirst)
+		require.NoError(t, err)
+
+		// Invalid base64 after "v=".
+		err = client.VerifyServerFinal("v=not-valid-base64!!!")
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "base64")
+	})
+
+	t.Run("rejects malformed server final - empty message", func(t *testing.T) {
+		client := NewSCRAMClientWithPassword("user", "pass")
+		_, err := client.ClientFirstMessage()
+		require.NoError(t, err)
+
+		salt := []byte("salt12345678")
+		serverFirst := "r=" + client.clientNonce + "servernonce,s=" + base64.StdEncoding.EncodeToString(salt) + ",i=4096"
+		_, err = client.ProcessServerFirst(serverFirst)
+		require.NoError(t, err)
+
+		// Empty message.
+		err = client.VerifyServerFinal("")
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "v=")
 	})
 
 	t.Run("handles special characters in username", func(t *testing.T) {
