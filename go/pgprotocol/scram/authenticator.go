@@ -143,9 +143,9 @@ func (a *ScramAuthenticator) HandleClientFirst(ctx context.Context, clientFirstM
 	}
 
 	// Store values for later verification.
-	a.username = parsed.Username
-	a.clientNonce = parsed.ClientNonce
-	a.clientFirstMessageBare = parsed.ClientFirstMessageBare
+	a.username = parsed.username
+	a.clientNonce = parsed.clientNonce
+	a.clientFirstMessageBare = parsed.clientFirstMessageBare
 
 	// Look up the password hash for this user.
 	hash, err := a.provider.GetPasswordHash(ctx, a.username, a.database)
@@ -198,13 +198,13 @@ func (a *ScramAuthenticator) HandleClientFinal(clientFinalMessage string) (strin
 	}
 
 	// Verify the nonce matches.
-	if parsed.Nonce != a.combinedNonce {
+	if parsed.nonce != a.combinedNonce {
 		a.state = stateFailed
 		return "", fmt.Errorf("auth: nonce mismatch (possible replay attack)")
 	}
 
 	// Verify the nonce starts with our client nonce (extra safety check).
-	if !strings.HasPrefix(parsed.Nonce, a.clientNonce) {
+	if !strings.HasPrefix(parsed.nonce, a.clientNonce) {
 		a.state = stateFailed
 		return "", fmt.Errorf("auth: combined nonce does not start with client nonce")
 	}
@@ -213,11 +213,11 @@ func (a *ScramAuthenticator) HandleClientFinal(clientFinalMessage string) (strin
 	authMessage := buildAuthMessage(
 		a.clientFirstMessageBare,
 		a.serverFirstMessage,
-		parsed.ClientFinalMessageWithoutProof,
+		parsed.clientFinalMessageWithoutProof,
 	)
 
 	// Verify the client proof and extract the ClientKey for passthrough authentication.
-	extractedClientKey, err := ExtractAndVerifyClientProof(a.hash.StoredKey, authMessage, parsed.Proof)
+	extractedClientKey, err := ExtractAndVerifyClientProof(a.hash.StoredKey, authMessage, parsed.proof)
 	if err != nil {
 		a.state = stateFailed
 		// Return the specific error (ErrAuthenticationFailed for wrong password, or other errors)

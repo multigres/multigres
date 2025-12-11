@@ -29,11 +29,11 @@ func TestParseClientFirstMessage(t *testing.T) {
 		parsed, err := parseClientFirstMessage(msg)
 		require.NoError(t, err)
 
-		assert.Equal(t, "user", parsed.Username)
-		assert.Equal(t, "fyko+d2lbbFgONRv9qkxdawL", parsed.ClientNonce)
-		assert.Equal(t, "n=user,r=fyko+d2lbbFgONRv9qkxdawL", parsed.ClientFirstMessageBare)
-		assert.Equal(t, "n", parsed.GS2CbindFlag)
-		assert.Equal(t, "", parsed.Authzid)
+		assert.Equal(t, "user", parsed.username)
+		assert.Equal(t, "fyko+d2lbbFgONRv9qkxdawL", parsed.clientNonce)
+		assert.Equal(t, "n=user,r=fyko+d2lbbFgONRv9qkxdawL", parsed.clientFirstMessageBare)
+		assert.Equal(t, "n", parsed.gs2CbindFlag)
+		assert.Equal(t, "", parsed.authzid)
 	})
 
 	t.Run("valid client-first-message with authzid", func(t *testing.T) {
@@ -43,9 +43,9 @@ func TestParseClientFirstMessage(t *testing.T) {
 		parsed, err := parseClientFirstMessage(msg)
 		require.NoError(t, err)
 
-		assert.Equal(t, "user", parsed.Username)
-		assert.Equal(t, "rOprNGfwEbeRWgbNEkqO", parsed.ClientNonce)
-		assert.Equal(t, "admin", parsed.Authzid)
+		assert.Equal(t, "user", parsed.username)
+		assert.Equal(t, "rOprNGfwEbeRWgbNEkqO", parsed.clientNonce)
+		assert.Equal(t, "admin", parsed.authzid)
 	})
 
 	t.Run("username with escaped comma", func(t *testing.T) {
@@ -55,7 +55,7 @@ func TestParseClientFirstMessage(t *testing.T) {
 		parsed, err := parseClientFirstMessage(msg)
 		require.NoError(t, err)
 
-		assert.Equal(t, "user,name", parsed.Username)
+		assert.Equal(t, "user,name", parsed.username)
 	})
 
 	t.Run("username with escaped equals", func(t *testing.T) {
@@ -65,7 +65,7 @@ func TestParseClientFirstMessage(t *testing.T) {
 		parsed, err := parseClientFirstMessage(msg)
 		require.NoError(t, err)
 
-		assert.Equal(t, "user=name", parsed.Username)
+		assert.Equal(t, "user=name", parsed.username)
 	})
 
 	t.Run("missing GS2 header", func(t *testing.T) {
@@ -132,10 +132,10 @@ func TestParseClientFinalMessage(t *testing.T) {
 		parsed, err := parseClientFinalMessage(msg)
 		require.NoError(t, err)
 
-		assert.Equal(t, "biws", parsed.ChannelBinding)
-		assert.Equal(t, "fyko+d2lbbFgONRv9qkxdawL3rfcNHYJY1ZVvWVs7j", parsed.Nonce)
-		assert.NotEmpty(t, parsed.Proof)
-		assert.Equal(t, "c=biws,r=fyko+d2lbbFgONRv9qkxdawL3rfcNHYJY1ZVvWVs7j", parsed.ClientFinalMessageWithoutProof)
+		assert.Equal(t, "biws", parsed.channelBinding)
+		assert.Equal(t, "fyko+d2lbbFgONRv9qkxdawL3rfcNHYJY1ZVvWVs7j", parsed.nonce)
+		assert.NotEmpty(t, parsed.proof)
+		assert.Equal(t, "c=biws,r=fyko+d2lbbFgONRv9qkxdawL3rfcNHYJY1ZVvWVs7j", parsed.clientFinalMessageWithoutProof)
 	})
 
 	t.Run("missing channel binding", func(t *testing.T) {
@@ -243,33 +243,33 @@ func TestGenerateServerFinalMessage(t *testing.T) {
 func TestClientFirstMessageStruct(t *testing.T) {
 	t.Run("struct fields", func(t *testing.T) {
 		msg := clientFirstMessage{
-			GS2CbindFlag:           "n",
-			Authzid:                "",
-			Username:               "user",
-			ClientNonce:            "nonce",
-			ClientFirstMessageBare: "n=user,r=nonce",
+			gs2CbindFlag:           "n",
+			authzid:                "",
+			username:               "user",
+			clientNonce:            "nonce",
+			clientFirstMessageBare: "n=user,r=nonce",
 		}
 
-		assert.Equal(t, "n", msg.GS2CbindFlag)
-		assert.Equal(t, "", msg.Authzid)
-		assert.Equal(t, "user", msg.Username)
-		assert.Equal(t, "nonce", msg.ClientNonce)
-		assert.Equal(t, "n=user,r=nonce", msg.ClientFirstMessageBare)
+		assert.Equal(t, "n", msg.gs2CbindFlag)
+		assert.Equal(t, "", msg.authzid)
+		assert.Equal(t, "user", msg.username)
+		assert.Equal(t, "nonce", msg.clientNonce)
+		assert.Equal(t, "n=user,r=nonce", msg.clientFirstMessageBare)
 	})
 }
 
 func TestClientFinalMessageStruct(t *testing.T) {
 	t.Run("struct fields", func(t *testing.T) {
 		msg := clientFinalMessage{
-			ChannelBinding:                 "biws",
-			Nonce:                          "combinednonce",
-			Proof:                          []byte("proof"),
-			ClientFinalMessageWithoutProof: "c=biws,r=combinednonce",
+			channelBinding:                 "biws",
+			nonce:                          "combinednonce",
+			proof:                          []byte("proof"),
+			clientFinalMessageWithoutProof: "c=biws,r=combinednonce",
 		}
 
-		assert.Equal(t, "biws", msg.ChannelBinding)
-		assert.Equal(t, "combinednonce", msg.Nonce)
-		assert.Equal(t, []byte("proof"), msg.Proof)
-		assert.Equal(t, "c=biws,r=combinednonce", msg.ClientFinalMessageWithoutProof)
+		assert.Equal(t, "biws", msg.channelBinding)
+		assert.Equal(t, "combinednonce", msg.nonce)
+		assert.Equal(t, []byte("proof"), msg.proof)
+		assert.Equal(t, "c=biws,r=combinednonce", msg.clientFinalMessageWithoutProof)
 	})
 }

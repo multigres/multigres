@@ -65,30 +65,14 @@ func ComputeClientSignature(storedKey []byte, authMessage string) []byte {
 	return hmacSHA256(storedKey, []byte(authMessage))
 }
 
-// ComputeClientProof computes ClientProof = ClientKey XOR ClientSignature.
-func ComputeClientProof(clientKey, clientSignature []byte) ([]byte, error) {
+// computeClientProof computes ClientProof = ClientKey XOR ClientSignature.
+func computeClientProof(clientKey, clientSignature []byte) ([]byte, error) {
 	return xorBytes(clientKey, clientSignature)
 }
 
 // ComputeServerSignature computes ServerSignature = HMAC(ServerKey, AuthMessage).
 func ComputeServerSignature(serverKey []byte, authMessage string) []byte {
 	return hmacSHA256(serverKey, []byte(authMessage))
-}
-
-// VerifyClientProof verifies the client's proof against the stored key.
-// The verification process:
-// 1. Compute ClientSignature = HMAC(StoredKey, AuthMessage)
-// 2. Recover ClientKey = ClientProof XOR ClientSignature
-// 3. Compute RecoveredStoredKey = H(ClientKey)
-// 4. Verify RecoveredStoredKey == StoredKey
-//
-// Returns nil on successful verification.
-// Returns ErrAuthenticationFailed if the proof is invalid (wrong password).
-// Returns other errors for unexpected conditions.
-// Uses constant-time comparison to prevent timing attacks.
-func VerifyClientProof(storedKey []byte, authMessage string, clientProof []byte) error {
-	_, err := ExtractAndVerifyClientProof(storedKey, authMessage, clientProof)
-	return err
 }
 
 // ExtractAndVerifyClientProof verifies the client's proof and extracts the ClientKey.
@@ -139,9 +123,9 @@ func buildAuthMessage(clientFirstMessageBare, serverFirstMessage, clientFinalMes
 	return clientFirstMessageBare + "," + serverFirstMessage + "," + clientFinalMessageWithoutProof
 }
 
-// ComputeChannelBindingData computes the channel binding data for SCRAM.
+// computeChannelBindingData computes the channel binding data for SCRAM.
 // For no channel binding (gs2-header = "n,,"), this returns the bytes of "n,,".
-func ComputeChannelBindingData(channelBindingType string) []byte {
+func computeChannelBindingData(channelBindingType string) []byte {
 	// For no channel binding, the GS2 header is "n,,"
 	// This is what gets base64-encoded to "biws" in the client-final-message.
 	if channelBindingType == "" {

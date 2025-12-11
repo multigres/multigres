@@ -35,42 +35,42 @@ const (
 // Where gs2-header = gs2-cbind-flag "," [authzid] ","
 // And client-first-message-bare = username "," nonce ["," extensions]
 type clientFirstMessage struct {
-	// GS2CbindFlag is the channel binding flag ('n', 'y', or 'p').
+	// gs2CbindFlag is the channel binding flag ('n', 'y', or 'p').
 	// 'n' = client doesn't support channel binding
 	// 'y' = client supports but server doesn't advertise
 	// 'p' = client requires channel binding
-	GS2CbindFlag string
+	gs2CbindFlag string
 
-	// Authzid is the optional authorization identity.
-	Authzid string
+	// authzid is the optional authorization identity.
+	authzid string
 
-	// Username is the authentication identity (saslprep normalized).
-	Username string
+	// username is the authentication identity (saslprep normalized).
+	username string
 
-	// ClientNonce is the client-generated random nonce.
-	ClientNonce string
+	// clientNonce is the client-generated random nonce.
+	clientNonce string
 
-	// ClientFirstMessageBare is the message without the GS2 header.
+	// clientFirstMessageBare is the message without the GS2 header.
 	// This is needed for computing the AuthMessage.
-	ClientFirstMessageBare string
+	clientFirstMessageBare string
 }
 
 // clientFinalMessage represents a parsed SCRAM client-final-message.
 // Format: channel-binding "," nonce "," proof
 type clientFinalMessage struct {
-	// ChannelBinding is the base64-encoded channel binding data.
+	// channelBinding is the base64-encoded channel binding data.
 	// For no channel binding, this is "biws" (base64 of "n,,").
-	ChannelBinding string
+	channelBinding string
 
-	// Nonce is the combined client+server nonce.
-	Nonce string
+	// nonce is the combined client+server nonce.
+	nonce string
 
-	// Proof is the decoded client proof.
-	Proof []byte
+	// proof is the decoded client proof.
+	proof []byte
 
-	// ClientFinalMessageWithoutProof is the message without the proof.
+	// clientFinalMessageWithoutProof is the message without the proof.
 	// This is needed for computing the AuthMessage.
-	ClientFinalMessageWithoutProof string
+	clientFinalMessageWithoutProof string
 }
 
 // parseClientFirstMessage parses a SCRAM client-first-message.
@@ -133,11 +133,11 @@ func parseClientFirstMessage(msg string) (*clientFirstMessage, error) {
 	}
 
 	return &clientFirstMessage{
-		GS2CbindFlag:           gs2CbindFlag,
-		Authzid:                authzid,
-		Username:               username,
-		ClientNonce:            clientNonce,
-		ClientFirstMessageBare: clientFirstMessageBare,
+		gs2CbindFlag:           gs2CbindFlag,
+		authzid:                authzid,
+		username:               username,
+		clientNonce:            clientNonce,
+		clientFirstMessageBare: clientFirstMessageBare,
 	}, nil
 }
 
@@ -187,10 +187,10 @@ func parseClientFinalMessage(msg string) (*clientFinalMessage, error) {
 	clientFinalMessageWithoutProof := msg[:proofIdx]
 
 	return &clientFinalMessage{
-		ChannelBinding:                 channelBinding,
-		Nonce:                          nonce,
-		Proof:                          proof,
-		ClientFinalMessageWithoutProof: clientFinalMessageWithoutProof,
+		channelBinding:                 channelBinding,
+		nonce:                          nonce,
+		proof:                          proof,
+		clientFinalMessageWithoutProof: clientFinalMessageWithoutProof,
 	}, nil
 }
 

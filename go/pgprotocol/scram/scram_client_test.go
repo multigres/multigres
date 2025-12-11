@@ -46,7 +46,7 @@ func TestSCRAMClient_PasswordMode(t *testing.T) {
 		require.NoError(t, err)
 
 		// Server generates server-first-message.
-		serverFirst, combinedNonce, err := generateServerFirstMessage(parsed.ClientNonce, salt, iterations)
+		serverFirst, combinedNonce, err := generateServerFirstMessage(parsed.clientNonce, salt, iterations)
 		require.NoError(t, err)
 
 		// Client processes server-first and generates client-final.
@@ -60,8 +60,8 @@ func TestSCRAMClient_PasswordMode(t *testing.T) {
 		clientFinalParsed, err := parseClientFinalMessage(clientFinal)
 		require.NoError(t, err)
 
-		authMessage := buildAuthMessage(clientFirstBare, serverFirst, clientFinalParsed.ClientFinalMessageWithoutProof)
-		err = VerifyClientProof(storedKey, authMessage, clientFinalParsed.Proof)
+		authMessage := buildAuthMessage(clientFirstBare, serverFirst, clientFinalParsed.clientFinalMessageWithoutProof)
+		_, err = ExtractAndVerifyClientProof(storedKey, authMessage, clientFinalParsed.proof)
 		assert.NoError(t, err, "server should verify client proof")
 
 		// Server generates server-final-message.
@@ -89,7 +89,7 @@ func TestSCRAMClient_PasswordMode(t *testing.T) {
 		parsed, err := parseClientFirstMessage(clientFirst)
 		require.NoError(t, err)
 
-		serverFirst, _, err := generateServerFirstMessage(parsed.ClientNonce, salt, iterations)
+		serverFirst, _, err := generateServerFirstMessage(parsed.clientNonce, salt, iterations)
 		require.NoError(t, err)
 
 		clientFinal, err := client.ProcessServerFirst(serverFirst)
@@ -100,8 +100,8 @@ func TestSCRAMClient_PasswordMode(t *testing.T) {
 		require.NoError(t, err)
 
 		clientFirstBare := clientFirst[3:]
-		authMessage := buildAuthMessage(clientFirstBare, serverFirst, clientFinalParsed.ClientFinalMessageWithoutProof)
-		err = VerifyClientProof(storedKey, authMessage, clientFinalParsed.Proof)
+		authMessage := buildAuthMessage(clientFirstBare, serverFirst, clientFinalParsed.clientFinalMessageWithoutProof)
+		_, err = ExtractAndVerifyClientProof(storedKey, authMessage, clientFinalParsed.proof)
 		assert.Error(t, err, "server should reject wrong password")
 	})
 }
@@ -131,7 +131,7 @@ func TestSCRAMClient_PassthroughMode(t *testing.T) {
 		parsed1, err := parseClientFirstMessage(clientFirst1)
 		require.NoError(t, err)
 
-		serverFirst1, _, err := generateServerFirstMessage(parsed1.ClientNonce, salt, iterations)
+		serverFirst1, _, err := generateServerFirstMessage(parsed1.clientNonce, salt, iterations)
 		require.NoError(t, err)
 
 		clientFinal1, err := originalClient.ProcessServerFirst(serverFirst1)
@@ -142,8 +142,8 @@ func TestSCRAMClient_PassthroughMode(t *testing.T) {
 		require.NoError(t, err)
 
 		clientFirstBare1 := clientFirst1[3:]
-		authMessage1 := buildAuthMessage(clientFirstBare1, serverFirst1, clientFinalParsed1.ClientFinalMessageWithoutProof)
-		extractedClientKey, err := ExtractAndVerifyClientProof(storedKey, authMessage1, clientFinalParsed1.Proof)
+		authMessage1 := buildAuthMessage(clientFirstBare1, serverFirst1, clientFinalParsed1.clientFinalMessageWithoutProof)
+		extractedClientKey, err := ExtractAndVerifyClientProof(storedKey, authMessage1, clientFinalParsed1.proof)
 		require.NoError(t, err, "proxy should verify original client")
 
 		// Verify extracted key matches original.
@@ -160,7 +160,7 @@ func TestSCRAMClient_PassthroughMode(t *testing.T) {
 		require.NoError(t, err)
 
 		// PostgreSQL sends its own challenge (with same salt/iterations).
-		serverFirst2, _, err := generateServerFirstMessage(parsed2.ClientNonce, salt, iterations)
+		serverFirst2, _, err := generateServerFirstMessage(parsed2.clientNonce, salt, iterations)
 		require.NoError(t, err)
 
 		clientFinal2, err := passthroughClient.ProcessServerFirst(serverFirst2)
@@ -171,8 +171,8 @@ func TestSCRAMClient_PassthroughMode(t *testing.T) {
 		require.NoError(t, err)
 
 		clientFirstBare2 := clientFirst2[3:]
-		authMessage2 := buildAuthMessage(clientFirstBare2, serverFirst2, clientFinalParsed2.ClientFinalMessageWithoutProof)
-		err = VerifyClientProof(storedKey, authMessage2, clientFinalParsed2.Proof)
+		authMessage2 := buildAuthMessage(clientFirstBare2, serverFirst2, clientFinalParsed2.clientFinalMessageWithoutProof)
+		_, err = ExtractAndVerifyClientProof(storedKey, authMessage2, clientFinalParsed2.proof)
 		assert.NoError(t, err, "PostgreSQL should verify passthrough client")
 
 		// PostgreSQL sends server signature.
@@ -208,7 +208,7 @@ func TestSCRAMClient_PassthroughMode(t *testing.T) {
 			parsed, err := parseClientFirstMessage(clientFirst)
 			require.NoError(t, err)
 
-			serverFirst, _, err := generateServerFirstMessage(parsed.ClientNonce, salt, iterations)
+			serverFirst, _, err := generateServerFirstMessage(parsed.clientNonce, salt, iterations)
 			require.NoError(t, err)
 
 			clientFinal, err := client.ProcessServerFirst(serverFirst)
@@ -218,8 +218,8 @@ func TestSCRAMClient_PassthroughMode(t *testing.T) {
 			require.NoError(t, err)
 
 			clientFirstBare := clientFirst[3:]
-			authMessage := buildAuthMessage(clientFirstBare, serverFirst, clientFinalParsed.ClientFinalMessageWithoutProof)
-			err = VerifyClientProof(storedKey, authMessage, clientFinalParsed.Proof)
+			authMessage := buildAuthMessage(clientFirstBare, serverFirst, clientFinalParsed.clientFinalMessageWithoutProof)
+			_, err = ExtractAndVerifyClientProof(storedKey, authMessage, clientFinalParsed.proof)
 			assert.NoError(t, err, "attempt %d should succeed", i+1)
 		}
 	})
@@ -253,7 +253,7 @@ func TestSCRAMClient_EdgeCases(t *testing.T) {
 		parsed, err := parseClientFirstMessage(clientFirst)
 		require.NoError(t, err)
 
-		serverFirst, _, err := generateServerFirstMessage(parsed.ClientNonce, salt, iterations)
+		serverFirst, _, err := generateServerFirstMessage(parsed.clientNonce, salt, iterations)
 		require.NoError(t, err)
 
 		_, err = client.ProcessServerFirst(serverFirst)

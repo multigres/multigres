@@ -159,7 +159,7 @@ func TestComputeClientProof(t *testing.T) {
 			clientSignature[i] = byte(i + 1)
 		}
 
-		proof, err := ComputeClientProof(clientKey, clientSignature)
+		proof, err := computeClientProof(clientKey, clientSignature)
 		require.NoError(t, err)
 
 		// Should be 32 bytes (XOR of two 32-byte values)
@@ -171,12 +171,12 @@ func TestComputeClientProof(t *testing.T) {
 		clientKey := []byte{0x01, 0x02, 0x03, 0x04}
 		clientSignature := []byte{0x10, 0x20, 0x30, 0x40}
 
-		proof, err := ComputeClientProof(clientKey, clientSignature)
+		proof, err := computeClientProof(clientKey, clientSignature)
 		require.NoError(t, err)
 		// proof = clientKey XOR clientSignature
 
 		// To recover clientKey: proof XOR clientSignature
-		recovered, err := ComputeClientProof(proof, clientSignature)
+		recovered, err := computeClientProof(proof, clientSignature)
 		require.NoError(t, err)
 
 		assert.Equal(t, clientKey, recovered)
@@ -187,7 +187,7 @@ func TestComputeClientProof(t *testing.T) {
 		clientKey := []byte{0x01, 0x02, 0x03, 0x04}
 		clientSignature := []byte{0x10, 0x20} // Too short
 
-		_, err := ComputeClientProof(clientKey, clientSignature)
+		_, err := computeClientProof(clientKey, clientSignature)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "length mismatch")
 	})
@@ -221,11 +221,11 @@ func TestVerifyClientProof(t *testing.T) {
 
 		// Client side: compute proof
 		clientSignature := ComputeClientSignature(storedKey, authMessage)
-		clientProof, err := ComputeClientProof(clientKey, clientSignature)
+		clientProof, err := computeClientProof(clientKey, clientSignature)
 		require.NoError(t, err)
 
 		// Server side: verify proof
-		err = VerifyClientProof(storedKey, authMessage, clientProof)
+		_, err = ExtractAndVerifyClientProof(storedKey, authMessage, clientProof)
 		assert.NoError(t, err)
 
 		// Also compute server signature for mutual auth
@@ -238,7 +238,7 @@ func TestVerifyClientProof(t *testing.T) {
 		authMessage := "auth message"
 		invalidProof := []byte("this is not a valid proof!!!!!")
 
-		err := VerifyClientProof(storedKey, authMessage, invalidProof)
+		_, err := ExtractAndVerifyClientProof(storedKey, authMessage, invalidProof)
 		assert.Error(t, err)
 	})
 
@@ -256,10 +256,10 @@ func TestVerifyClientProof(t *testing.T) {
 		wrongSP := ComputeSaltedPassword("wrong", salt, iterations)
 		wrongCK := ComputeClientKey(wrongSP)
 		wrongSig := ComputeClientSignature(ComputeStoredKey(wrongCK), authMessage)
-		wrongProof, err := ComputeClientProof(wrongCK, wrongSig)
+		wrongProof, err := computeClientProof(wrongCK, wrongSig)
 		require.NoError(t, err)
 
-		err = VerifyClientProof(storedKey, authMessage, wrongProof)
+		_, err = ExtractAndVerifyClientProof(storedKey, authMessage, wrongProof)
 		assert.ErrorIs(t, err, ErrAuthenticationFailed)
 	})
 }
@@ -279,7 +279,7 @@ func TestExtractAndVerifyClientProof(t *testing.T) {
 
 		// Client side: compute proof
 		clientSignature := ComputeClientSignature(storedKey, authMessage)
-		clientProof, err := ComputeClientProof(originalClientKey, clientSignature)
+		clientProof, err := computeClientProof(originalClientKey, clientSignature)
 		require.NoError(t, err)
 
 		// Server side: extract ClientKey from proof
@@ -315,7 +315,7 @@ func TestExtractAndVerifyClientProof(t *testing.T) {
 		authMessage1 := clientFirstBare + "," + serverFirst + "," + clientFinalWithoutProof
 
 		clientSignature1 := ComputeClientSignature(storedKey, authMessage1)
-		clientProof1, err := ComputeClientProof(clientKey, clientSignature1)
+		clientProof1, err := computeClientProof(clientKey, clientSignature1)
 		require.NoError(t, err)
 
 		// Server (multigateway) verifies and extracts ClientKey
@@ -338,11 +338,11 @@ func TestExtractAndVerifyClientProof(t *testing.T) {
 		// Note: StoredKey = H(ClientKey), so we compute it from the extracted key
 		extractedStoredKey := ComputeStoredKey(extractedClientKey)
 		clientSignature2 := ComputeClientSignature(extractedStoredKey, authMessage2)
-		clientProof2, err := ComputeClientProof(extractedClientKey, clientSignature2)
+		clientProof2, err := computeClientProof(extractedClientKey, clientSignature2)
 		require.NoError(t, err)
 
 		// PostgreSQL verifies using its stored key (which should equal extractedStoredKey)
-		err = VerifyClientProof(storedKey, authMessage2, clientProof2)
+		_, err = ExtractAndVerifyClientProof(storedKey, authMessage2, clientProof2)
 		assert.NoError(t, err, "second auth using extracted ClientKey should succeed")
 
 		// Also verify we can compute correct ServerSignature using passed ServerKey
@@ -403,11 +403,11 @@ func TestFullScramExchange(t *testing.T) {
 		clientKey := ComputeClientKey(clientSaltedPassword)
 		clientStoredKey := ComputeStoredKey(clientKey)
 		clientSignature := ComputeClientSignature(clientStoredKey, authMessage)
-		clientProof, err := ComputeClientProof(clientKey, clientSignature)
+		clientProof, err := computeClientProof(clientKey, clientSignature)
 		require.NoError(t, err)
 
 		// === Server verifies proof ===
-		err = VerifyClientProof(storedKey, authMessage, clientProof)
+		_, err = ExtractAndVerifyClientProof(storedKey, authMessage, clientProof)
 		assert.NoError(t, err, "Client proof should be valid")
 
 		// === Server computes server signature for mutual auth ===
@@ -518,7 +518,7 @@ func TestBuildAuthMessage(t *testing.T) {
 func TestChannelBindingData(t *testing.T) {
 	t.Run("no channel binding produces biws", func(t *testing.T) {
 		// "biws" is base64("n,,") - no channel binding
-		data := ComputeChannelBindingData("")
+		data := computeChannelBindingData("")
 		assert.Equal(t, "biws", base64.StdEncoding.EncodeToString(data))
 	})
 }

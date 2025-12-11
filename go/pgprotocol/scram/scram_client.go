@@ -130,7 +130,7 @@ func (c *SCRAMClient) ProcessServerFirst(serverFirst string) (string, error) {
 
 	storedKey := ComputeStoredKey(clientKey)
 	clientSignature := ComputeClientSignature(storedKey, c.authMessage)
-	clientProof, err := ComputeClientProof(clientKey, clientSignature)
+	clientProof, err := computeClientProof(clientKey, clientSignature)
 	if err != nil {
 		return "", fmt.Errorf("failed to compute client proof: %w", err)
 	}
