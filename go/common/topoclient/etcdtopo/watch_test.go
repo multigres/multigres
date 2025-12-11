@@ -39,7 +39,7 @@ func TestMain(m *testing.M) {
 	// Use automatic module root detection instead of hard-coded relative paths
 	if err := pathutil.PrependBinToPath(); err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to add directories to PATH: %v\n", err)
-		os.Exit(1)
+		os.Exit(1) //nolint:forbidigo // TestMain() is allowed to call os.Exit
 	}
 
 	// Set orphan detection environment variable as baseline protection
@@ -50,7 +50,7 @@ func TestMain(m *testing.M) {
 	// Cleanup environment variable
 	os.Unsetenv("MULTIGRES_TEST_PARENT_PID")
 
-	os.Exit(exitCode)
+	os.Exit(exitCode) //nolint:forbidigo // TestMain() is allowed to call os.Exit
 }
 
 // TestWatchTopoVersion tests how the topoclient.Version values work within the etcd2topo
