@@ -148,7 +148,7 @@ func (t *Telemetry) InitTelemetry(ctx context.Context, defaultServiceName string
 
 	t.initialized = true
 
-	slog.InfoContext(ctx, "OpenTelemetry initialized", "service", serviceName)
+	slog.DebugContext(ctx, "OpenTelemetry initialized", "service", serviceName)
 
 	return nil
 }
@@ -315,7 +315,7 @@ func (t *Telemetry) ShutdownTelemetry(ctx context.Context) error {
 		return fmt.Errorf("errors during telemetry shutdown: %v", errs)
 	}
 
-	slog.InfoContext(ctx, "OpenTelemetry shutdown complete")
+	slog.DebugContext(ctx, "OpenTelemetry shutdown complete")
 	return nil
 }
 
