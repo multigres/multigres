@@ -203,60 +203,56 @@ Session variables set via `SET` commands affect connection routing:
 
 ## ConnectionPoolManager
 
-The `ConnectionPoolManager` (to be implemented in `go/multipooler/`) will
-orchestrate all three pool types, providing:
+The `Manager` in `go/multipooler/connpoolmanager/` orchestrates all three pool
+types, providing:
 
 1. **Unified Interface** - Single entry point for connection acquisition
 2. **Pool Selection** - Routes requests to appropriate pool based on operation
 3. **Lifecycle Management** - Handles connection creation, validation, and cleanup
 4. **Metrics** - Exposes pool statistics for monitoring
 
-### Planned Interface
+### Usage
 
 ```go
-type ConnectionPoolManager interface {
-    // GetAdminConn gets a connection for control operations
-    GetAdminConn(ctx context.Context) (*admin.Conn, error)
+import "github.com/multigres/multigres/go/multipooler/connpoolmanager"
 
-    // GetRegularConn gets a connection for simple queries
-    GetRegularConn(ctx context.Context, settings *Settings, user string) (regular.PooledConn, error)
+// Create and open the manager
+mgr := connpoolmanager.NewManager(config)
+mgr.Open(ctx)
+defer mgr.Close()
 
-    // NewReservedConn creates a new reserved connection for transactions/portals
-    NewReservedConn(ctx context.Context, settings *Settings, user string) (*reserved.Conn, error)
+// Get connections as needed
+adminConn, _ := mgr.GetAdminConn(ctx)
+regularConn, _ := mgr.GetRegularConn(ctx, user)
+regularConnWithSettings, _ := mgr.GetRegularConnWithSettings(ctx, settings, user)
+reservedConn, _ := mgr.NewReservedConn(ctx, settings, user)
 
-    // GetReservedConn retrieves an existing reserved connection by ID
-    GetReservedConn(connID int64) (*reserved.Conn, bool)
-
-    // KillReservedConn kills a reserved connection by ID
-    KillReservedConn(ctx context.Context, connID int64) error
-
-    // Close shuts down all pools
-    Close() error
-}
+// Resume a reserved connection by ID
+conn, ok := mgr.GetReservedConn(connID)
 ```
 
-## Configuration
+### Interface for Testing
 
-```yaml
-pool:
-  # Admin pool (for kill operations)
-  admin_capacity: 5
+The `PoolManager` interface allows components to mock the manager in tests:
 
-  # Regular pool (simple queries)
-  regular_capacity: 30
-  regular_max_idle: 10
+```go
+type PoolManager interface {
+    Open(ctx context.Context)
+    Close()
 
-  # Reserved pool (transactions, portals)
-  reserved_capacity: 20
-  reserved_max_idle: 5
-  tx_timeout: 30s
-  reserve_timeout: 5m
+    // Admin pool operations
+    GetAdminConn(ctx context.Context) (admin.PooledConn, error)
 
-  # Common settings
-  idle_timeout: 5m
-  max_lifetime: 1h
-  service_account: "pooler"
-  connect_timeout: 10s
+    // Regular pool operations
+    GetRegularConn(ctx context.Context, user string) (regular.PooledConn, error)
+    GetRegularConnWithSettings(ctx context.Context, settings *connstate.Settings, user string) (regular.PooledConn, error)
+
+    // Reserved pool operations
+    NewReservedConn(ctx context.Context, settings *connstate.Settings, user string) (*reserved.Conn, error)
+    GetReservedConn(connID int64) (*reserved.Conn, bool)
+
+    Stats() ManagerStats
+}
 ```
 
 ## Related Documentation
