@@ -41,6 +41,9 @@ type SettingsCache struct {
 	lru     *list.List
 	maxSize int
 
+	// bucketCounter assigns unique bucket numbers to new Settings.
+	bucketCounter uint32
+
 	// Metrics
 	hits   int64
 	misses int64
@@ -91,9 +94,10 @@ func (c *SettingsCache) GetOrCreate(vars map[string]string) *Settings {
 		return elem.Value.(*cacheEntry).settings
 	}
 
-	// Create new Settings
+	// Create new Settings with a unique bucket number
 	c.misses++
-	s := NewSettings(vars)
+	c.bucketCounter++
+	s := NewSettings(vars, c.bucketCounter)
 
 	// Add to cache
 	entry := &cacheEntry{key: key, settings: s}

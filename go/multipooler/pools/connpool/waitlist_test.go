@@ -198,8 +198,8 @@ func TestWaitlistSettingsMatching(t *testing.T) {
 
 	ctx := context.Background()
 	closeChan := make(chan struct{})
-	settings1 := connstate.NewSettings(map[string]string{"tz": "UTC"})
-	settings2 := connstate.NewSettings(map[string]string{"tz": "PST"})
+	settings1 := connstate.NewSettings(map[string]string{"tz": "UTC"}, 1)
+	settings2 := connstate.NewSettings(map[string]string{"tz": "PST"}, 2)
 
 	// Start two waiters with different settings
 	var wg sync.WaitGroup

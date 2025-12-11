@@ -108,7 +108,7 @@ func TestPoolGetWithSettings(t *testing.T) {
 	// Create settings
 	settings1 := connstate.NewSettings(map[string]string{
 		"timezone": "UTC",
-	})
+	}, 1)
 
 	// Get connection with settings
 	conn1, err := pool.GetWithSettings(ctx, settings1)
@@ -131,7 +131,7 @@ func TestPoolGetWithSettings(t *testing.T) {
 	// Get with different settings - should work
 	settings2 := connstate.NewSettings(map[string]string{
 		"timezone": "America/New_York",
-	})
+	}, 2)
 	conn3, err := pool.GetWithSettings(ctx, settings2)
 	require.NoError(t, err)
 	conn3.Recycle()
@@ -234,8 +234,8 @@ func TestPoolStateSegregation(t *testing.T) {
 	ctx := context.Background()
 
 	// Create multiple connections with different settings
-	settings1 := connstate.NewSettings(map[string]string{"timezone": "UTC"})
-	settings2 := connstate.NewSettings(map[string]string{"timezone": "PST"})
+	settings1 := connstate.NewSettings(map[string]string{"timezone": "UTC"}, 1)
+	settings2 := connstate.NewSettings(map[string]string{"timezone": "PST"}, 2)
 
 	conn1, _ := pool.GetWithSettings(ctx, settings1)
 	_ = conn1.Conn.ApplySettings(ctx, settings1)
@@ -307,7 +307,7 @@ func TestPoolMetrics(t *testing.T) {
 	conn2.Recycle()
 
 	// Get with settings
-	settings := connstate.NewSettings(map[string]string{"foo": "bar"})
+	settings := connstate.NewSettings(map[string]string{"foo": "bar"}, 1)
 	conn3, _ := pool.GetWithSettings(ctx, settings)
 	conn3.Recycle()
 
