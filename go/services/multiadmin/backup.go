@@ -69,11 +69,8 @@ func (s *MultiAdminServer) Backup(ctx context.Context, req *multiadminpb.BackupR
 func (s *MultiAdminServer) executeBackup(ctx context.Context, jobID string, pooler *clustermetadatapb.MultiPooler, req *multiadminpb.BackupRequest) error {
 	s.backupJobTracker.UpdateJobStatus(jobID, multiadminpb.JobStatus_JOB_STATUS_RUNNING)
 
-	// Generate a tracking ID for this backup
-	trackingID := backup.GenerateTrackingID()
 	s.logger.InfoContext(ctx, "Starting backup",
 		"job_id", jobID,
-		"tracking_id", trackingID,
 		"database", req.Database,
 		"table_group", req.TableGroup,
 		"shard", req.Shard,
@@ -82,10 +79,9 @@ func (s *MultiAdminServer) executeBackup(ctx context.Context, jobID string, pool
 	// Call backup on the pooler using the shared rpcClient
 	// The jobID was generated in Backup() and is passed to pgbackrest as an annotation
 	backupReq := &multipoolermanagerdata.BackupRequest{
-		Type:            req.Type,
-		ForcePrimary:    req.ForcePrimary,
-		BackupTimestamp: trackingID,
-		JobId:           jobID,
+		Type:         req.Type,
+		ForcePrimary: req.ForcePrimary,
+		JobId:        jobID,
 	}
 
 	resp, err := s.rpcClient.Backup(ctx, pooler, backupReq)
@@ -97,7 +93,6 @@ func (s *MultiAdminServer) executeBackup(ctx context.Context, jobID string, pool
 	s.backupJobTracker.CompleteJob(jobID, resp.BackupId)
 	s.logger.InfoContext(ctx, "Backup completed",
 		"job_id", jobID,
-		"tracking_id", trackingID,
 		"backup_id", resp.BackupId)
 
 	return nil
