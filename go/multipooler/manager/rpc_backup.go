@@ -71,10 +71,10 @@ func (pm *MultiPoolerManager) backupLocked(ctx context.Context, forcePrimary boo
 		return "", err
 	}
 
-	// Use provided backup_id or generate one
-	backupTimestamp := backupID
-	if backupTimestamp == "" {
-		backupTimestamp = backup.GenerateTrackingID()
+	// Use provided job_id or generate one (same format as multiadmin)
+	effectiveJobID := jobID
+	if effectiveJobID == "" {
+		effectiveJobID = backup.GenerateTrackingID()
 	}
 
 	// Validate parameters and get pgbackrest type
@@ -103,12 +103,9 @@ func (pm *MultiPoolerManager) backupLocked(ctx context.Context, forcePrimary boo
 		args = append(args, "--annotation=shard="+shard)
 	}
 
-	// Add multipooler_id and backup_timestamp annotations for unique identification
+	// Add multipooler_id and job_id annotations for unique identification
 	args = append(args, "--annotation=multipooler_id="+multipoolerID)
-	args = append(args, "--annotation=backup_timestamp="+backupTimestamp)
-	if jobID != "" {
-		args = append(args, "--annotation=job_id="+jobID)
-	}
+	args = append(args, "--annotation=job_id="+effectiveJobID)
 
 	args = append(args, "backup")
 
@@ -122,7 +119,7 @@ func (pm *MultiPoolerManager) backupLocked(ctx context.Context, forcePrimary boo
 	}
 
 	// Find the backup ID by querying pgbackrest info with our unique annotations
-	foundBackupID, err := pm.findBackupByAnnotations(ctx, multipoolerID, backupTimestamp)
+	foundBackupID, err := pm.findBackupByJobID(ctx, effectiveJobID)
 	if err != nil {
 		return "", mterrors.New(mtrpcpb.Code_INTERNAL,
 			fmt.Sprintf("failed to find backup by annotations: %v\nBackup output: %s", err, string(output)))
@@ -581,15 +578,14 @@ func safeCombinedOutput(cmd *exec.Cmd) (string, error) {
 	return combinedBuf.String(), cmd.Wait()
 }
 
-// findBackupByAnnotations finds a backup by matching multipooler_id and backup_timestamp annotations
+// findBackupByJobID finds a backup by matching the job_id annotation
 //
 // This function has to scan the entire backup history to find the backup, but the worst case
 // should be manageable, because production deployments should have retention policies that
 // trigger pgBackRest to delete older backups.
-func (pm *MultiPoolerManager) findBackupByAnnotations(
+func (pm *MultiPoolerManager) findBackupByJobID(
 	ctx context.Context,
-	multipoolerID string,
-	backupTimestamp string,
+	jobID string,
 ) (string, error) {
 	stanzaName := pm.getBackupStanza()
 	configPath := pm.getBackupConfigPath()
@@ -634,8 +630,7 @@ func (pm *MultiPoolerManager) findBackupByAnnotations(
 	var matchedBackups []string
 	for _, pgBackup := range infoData[0].Backup {
 		if pgBackup.Annotation != nil {
-			if pgBackup.Annotation["multipooler_id"] == multipoolerID &&
-				pgBackup.Annotation["backup_timestamp"] == backupTimestamp {
+			if pgBackup.Annotation["job_id"] == jobID {
 				matchedBackups = append(matchedBackups, pgBackup.Label)
 			}
 		}
@@ -643,14 +638,13 @@ func (pm *MultiPoolerManager) findBackupByAnnotations(
 
 	if len(matchedBackups) == 0 {
 		return "", mterrors.New(mtrpcpb.Code_NOT_FOUND,
-			fmt.Sprintf("no backup found with multipooler_id=%s and backup_timestamp=%s",
-				multipoolerID, backupTimestamp))
+			fmt.Sprintf("no backup found with job_id=%s", jobID))
 	}
 
 	if len(matchedBackups) > 1 {
 		return "", mterrors.New(mtrpcpb.Code_INTERNAL,
-			fmt.Sprintf("found %d backups with multipooler_id=%s and backup_timestamp=%s, expected 1",
-				len(matchedBackups), multipoolerID, backupTimestamp))
+			fmt.Sprintf("found %d backups with job_id=%s, expected 1",
+				len(matchedBackups), jobID))
 	}
 
 	return matchedBackups[0], nil

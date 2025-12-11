@@ -96,26 +96,24 @@ func createTestManagerWithBackupLocation(poolerDir, stanzaName, tableGroup, shar
 	return pm
 }
 
-func TestFindBackupByAnnotations(t *testing.T) {
+func TestFindBackupByJobID(t *testing.T) {
 	tests := []struct {
-		name            string
-		multipoolerID   string
-		backupTimestamp string
-		jsonOutput      string
-		wantBackupID    string
-		wantError       bool
-		errorContains   string
+		name          string
+		jobID         string
+		jsonOutput    string
+		wantBackupID  string
+		wantError     bool
+		errorContains string
 	}{
 		{
-			name:            "Single matching backup",
-			multipoolerID:   "zone1-multipooler1",
-			backupTimestamp: "20250104-100000.000000",
+			name:  "Single matching backup",
+			jobID: "20250104-100000.000000_mp-zone1",
 			jsonOutput: `[{
 				"backup": [{
 					"label": "20250104-100000F",
 					"annotation": {
 						"multipooler_id": "zone1-multipooler1",
-						"backup_timestamp": "20250104-100000.000000"
+						"job_id": "20250104-100000.000000_mp-zone1"
 					}
 				}]
 			}]`,
@@ -123,21 +121,20 @@ func TestFindBackupByAnnotations(t *testing.T) {
 			wantError:    false,
 		},
 		{
-			name:            "Multiple backups, one match",
-			multipoolerID:   "zone1-multipooler1",
-			backupTimestamp: "20250104-120000.000000",
+			name:  "Multiple backups, one match",
+			jobID: "20250104-120000.000000_mp-zone1",
 			jsonOutput: `[{
 				"backup": [{
 					"label": "20250104-100000F",
 					"annotation": {
 						"multipooler_id": "zone1-multipooler1",
-						"backup_timestamp": "20250104-100000.000000"
+						"job_id": "20250104-100000.000000_mp-zone1"
 					}
 				}, {
 					"label": "20250104-120000F",
 					"annotation": {
 						"multipooler_id": "zone1-multipooler1",
-						"backup_timestamp": "20250104-120000.000000"
+						"job_id": "20250104-120000.000000_mp-zone1"
 					}
 				}]
 			}]`,
@@ -145,15 +142,14 @@ func TestFindBackupByAnnotations(t *testing.T) {
 			wantError:    false,
 		},
 		{
-			name:            "No matching backup",
-			multipoolerID:   "zone1-multipooler1",
-			backupTimestamp: "20250104-180000.000000",
+			name:  "No matching backup",
+			jobID: "20250104-180000.000000_mp-zone1",
 			jsonOutput: `[{
 				"backup": [{
 					"label": "20250104-100000F",
 					"annotation": {
 						"multipooler_id": "zone1-multipooler1",
-						"backup_timestamp": "20250104-100000.000000"
+						"job_id": "20250104-100000.000000_mp-zone1"
 					}
 				}]
 			}]`,
@@ -161,29 +157,27 @@ func TestFindBackupByAnnotations(t *testing.T) {
 			errorContains: "no backup found",
 		},
 		{
-			name:            "No backups at all",
-			multipoolerID:   "zone1-multipooler1",
-			backupTimestamp: "20250104-100000.000000",
-			jsonOutput:      `[{"backup": []}]`,
-			wantError:       true,
-			errorContains:   "no backups found",
+			name:          "No backups at all",
+			jobID:         "20250104-100000.000000_mp-zone1",
+			jsonOutput:    `[{"backup": []}]`,
+			wantError:     true,
+			errorContains: "no backups found",
 		},
 		{
-			name:            "Duplicate matching backups",
-			multipoolerID:   "zone1-multipooler1",
-			backupTimestamp: "20250104-100000.000000",
+			name:  "Duplicate matching backups",
+			jobID: "20250104-100000.000000_mp-zone1",
 			jsonOutput: `[{
 				"backup": [{
 					"label": "20250104-100000F",
 					"annotation": {
 						"multipooler_id": "zone1-multipooler1",
-						"backup_timestamp": "20250104-100000.000000"
+						"job_id": "20250104-100000.000000_mp-zone1"
 					}
 				}, {
 					"label": "20250104-100000F_20250104-110000I",
 					"annotation": {
 						"multipooler_id": "zone1-multipooler1",
-						"backup_timestamp": "20250104-100000.000000"
+						"job_id": "20250104-100000.000000_mp-zone1"
 					}
 				}]
 			}]`,
@@ -191,9 +185,8 @@ func TestFindBackupByAnnotations(t *testing.T) {
 			errorContains: "found 2 backups",
 		},
 		{
-			name:            "Backup without annotations",
-			multipoolerID:   "zone1-multipooler1",
-			backupTimestamp: "20250104-100000.000000",
+			name:  "Backup without annotations",
+			jobID: "20250104-100000.000000_mp-zone1",
 			jsonOutput: `[{
 				"backup": [{
 					"label": "20250104-100000F"
@@ -231,7 +224,7 @@ exit 1
 			pm := createTestManagerWithBackupLocation(tmpDir, "test-stanza", "test-tg", "0", clustermetadatapb.PoolerType_REPLICA, tmpDir)
 
 			ctx := context.Background()
-			backupID, err := pm.findBackupByAnnotations(ctx, tt.multipoolerID, tt.backupTimestamp)
+			backupID, err := pm.findBackupByJobID(ctx, tt.jobID)
 
 			if tt.wantError {
 				require.Error(t, err)
