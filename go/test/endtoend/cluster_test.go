@@ -1030,6 +1030,41 @@ func TestClusterLifecycle(t *testing.T) {
 		}
 		t.Log("Write/read operations work correctly after restart!")
 
+		// Stop cluster to test immutable field validation
+		t.Log("Stopping cluster to test immutable field validation...")
+		downOutput, err = executeStopCommand(t, []string{"--config-path", tempDir})
+		require.NoError(t, err, "Stop command failed: %s", downOutput)
+
+		// Read the original config for restoration
+		originalConfig, err := os.ReadFile(configFile)
+		require.NoError(t, err)
+
+		// Test 1: Changing database should fail
+		t.Log("Testing that changing database fails...")
+		modifiedConfig := strings.ReplaceAll(string(originalConfig), "database: postgres", "database: different_db")
+		require.NotEqual(t, string(originalConfig), modifiedConfig, "config should have been modified for database test")
+		err = os.WriteFile(configFile, []byte(modifiedConfig), 0o644)
+		require.NoError(t, err)
+
+		upOutput, err = executeStartCommand(t, []string{"--config-path", tempDir}, tempDir)
+		require.Error(t, err, "Start should fail when multipooler database is changed. Output: %s", upOutput)
+		combined := strings.ToLower(err.Error() + "\n" + upOutput)
+		assert.Contains(t, combined, "database mismatch", "error should mention database mismatch")
+		assert.Contains(t, combined, "immutable", "error should mention immutability")
+		t.Log("Correctly rejected start with changed database")
+
+		// Restore original config for clean stop
+		// Note: We only test database changes here. Tablegroup and shard changes
+		// are blocked by MVP validation before the immutable field check runs.
+		// The immutable field validation for those fields is still in place.
+		err = os.WriteFile(configFile, originalConfig, 0o644)
+		require.NoError(t, err)
+
+		// Start cluster again for clean stop test
+		t.Log("Starting cluster again for clean stop test...")
+		_, err = executeStartCommand(t, []string{"--config-path", tempDir}, tempDir)
+		require.NoError(t, err, "Start should succeed with original config")
+
 		// Stop with --clean flag
 		downCleanOutput, err := executeStopCommand(t, []string{"--config-path", tempDir, "--clean"})
 		require.NoError(t, err, "Clean stop should succeed")

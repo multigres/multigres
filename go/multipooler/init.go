@@ -292,14 +292,16 @@ func (mp *MultiPooler) Init(startCtx context.Context) {
 	mp.senv.OnRun(
 		func() {
 			registerFunc := func(ctx context.Context) error {
+				if existingMP == nil {
+					// First time registration - create the multipooler with all fields
+					return mp.ts.RegisterMultiPooler(ctx, multipooler, false /* allowUpdate */)
+				}
+				// Subsequent starts - only update mutable fields (immutable fields already validated above)
 				_, err := mp.ts.UpdateMultiPoolerFields(ctx, multipooler.Id,
 					func(mp *clustermetadatapb.MultiPooler) error {
 						mp.PortMap = multipooler.PortMap
 						mp.Hostname = multipooler.Hostname
 						mp.ServingStatus = multipooler.ServingStatus
-						// Note: we are explicitly not updating the Database, TableGroup, or Shard fields
-						// because they are immutable after creation.
-						// If a component is initialized with incorrect values, it should be deleted and recreated.
 						return nil
 					})
 				return err
