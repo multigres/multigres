@@ -205,65 +205,6 @@ func TestComputeServerSignature(t *testing.T) {
 	})
 }
 
-func TestVerifyClientProof(t *testing.T) {
-	t.Run("valid proof is verified", func(t *testing.T) {
-		// Simulate a full SCRAM exchange
-		password := "pencil"
-		salt := []byte("testsalt")
-		iterations := 4096
-		authMessage := "n=user,r=clientnonce,r=clientnonce+servernonce,s=dGVzdHNhbHQ=,i=4096,c=biws,r=clientnonce+servernonce"
-
-		// Server side: compute stored values from password
-		saltedPassword := ComputeSaltedPassword(password, salt, iterations)
-		clientKey := ComputeClientKey(saltedPassword)
-		storedKey := ComputeStoredKey(clientKey)
-		serverKey := ComputeServerKey(saltedPassword)
-
-		// Client side: compute proof
-		clientSignature := ComputeClientSignature(storedKey, authMessage)
-		clientProof, err := computeClientProof(clientKey, clientSignature)
-		require.NoError(t, err)
-
-		// Server side: verify proof
-		_, err = ExtractAndVerifyClientProof(storedKey, authMessage, clientProof)
-		assert.NoError(t, err)
-
-		// Also compute server signature for mutual auth
-		serverSignature := ComputeServerSignature(serverKey, authMessage)
-		assert.Len(t, serverSignature, 32)
-	})
-
-	t.Run("invalid proof is rejected", func(t *testing.T) {
-		storedKey := make([]byte, 32)
-		authMessage := "auth message"
-		invalidProof := []byte("this is not a valid proof!!!!!")
-
-		_, err := ExtractAndVerifyClientProof(storedKey, authMessage, invalidProof)
-		assert.Error(t, err)
-	})
-
-	t.Run("proof with wrong password is rejected", func(t *testing.T) {
-		salt := []byte("salt")
-		iterations := 4096
-		authMessage := "auth message"
-
-		// Server has stored key from correct password
-		correctSP := ComputeSaltedPassword("correct", salt, iterations)
-		correctCK := ComputeClientKey(correctSP)
-		storedKey := ComputeStoredKey(correctCK)
-
-		// Client tries with wrong password
-		wrongSP := ComputeSaltedPassword("wrong", salt, iterations)
-		wrongCK := ComputeClientKey(wrongSP)
-		wrongSig := ComputeClientSignature(ComputeStoredKey(wrongCK), authMessage)
-		wrongProof, err := computeClientProof(wrongCK, wrongSig)
-		require.NoError(t, err)
-
-		_, err = ExtractAndVerifyClientProof(storedKey, authMessage, wrongProof)
-		assert.ErrorIs(t, err, ErrAuthenticationFailed)
-	})
-}
-
 func TestExtractAndVerifyClientProof(t *testing.T) {
 	t.Run("extracts correct ClientKey from valid proof", func(t *testing.T) {
 		// Simulate a full SCRAM exchange
@@ -353,21 +294,44 @@ func TestExtractAndVerifyClientProof(t *testing.T) {
 	t.Run("returns nil for invalid proof", func(t *testing.T) {
 		storedKey := make([]byte, 32)
 		authMessage := "auth message"
-		invalidProof := []byte("this is not a valid proof!!!!!")
+		invalidProof := []byte("this is not a valid proof!!!!!") // 31 bytes, not 32
 
 		extractedKey, err := ExtractAndVerifyClientProof(storedKey, authMessage, invalidProof)
 		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "invalid proof length")
 		assert.Nil(t, extractedKey)
 	})
 
 	t.Run("returns nil for wrong-length proof", func(t *testing.T) {
 		storedKey := make([]byte, 32)
 		authMessage := "auth message"
-		shortProof := []byte("short")
+		shortProof := []byte("short") // 5 bytes, not 32
 
 		extractedKey, err := ExtractAndVerifyClientProof(storedKey, authMessage, shortProof)
 		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "invalid proof length")
 		assert.Nil(t, extractedKey)
+	})
+
+	t.Run("wrong password returns ErrAuthenticationFailed", func(t *testing.T) {
+		salt := []byte("salt")
+		iterations := 4096
+		authMessage := "auth message"
+
+		// Server has stored key from correct password.
+		correctSP := ComputeSaltedPassword("correct", salt, iterations)
+		correctCK := ComputeClientKey(correctSP)
+		storedKey := ComputeStoredKey(correctCK)
+
+		// Client tries with wrong password.
+		wrongSP := ComputeSaltedPassword("wrong", salt, iterations)
+		wrongCK := ComputeClientKey(wrongSP)
+		wrongSig := ComputeClientSignature(ComputeStoredKey(wrongCK), authMessage)
+		wrongProof, err := computeClientProof(wrongCK, wrongSig)
+		require.NoError(t, err)
+
+		_, err = ExtractAndVerifyClientProof(storedKey, authMessage, wrongProof)
+		assert.ErrorIs(t, err, ErrAuthenticationFailed)
 	})
 }
 
