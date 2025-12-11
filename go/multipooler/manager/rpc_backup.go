@@ -34,7 +34,7 @@ import (
 )
 
 // Backup performs a backup
-func (pm *MultiPoolerManager) Backup(ctx context.Context, forcePrimary bool, backupType string, backupID string, jobID string) (string, error) {
+func (pm *MultiPoolerManager) Backup(ctx context.Context, forcePrimary bool, backupType string, jobID string) (string, error) {
 	// We can't proceed without the topo, which is loaded asynchronously at startup
 	if err := pm.checkReady(); err != nil {
 		return "", err
@@ -48,11 +48,11 @@ func (pm *MultiPoolerManager) Backup(ctx context.Context, forcePrimary bool, bac
 	}
 	defer pm.actionLock.Release(ctx)
 
-	return pm.backupLocked(ctx, forcePrimary, backupType, backupID, jobID)
+	return pm.backupLocked(ctx, forcePrimary, backupType, jobID)
 }
 
 // backupLocked performs a backup. Caller must hold the action lock.
-func (pm *MultiPoolerManager) backupLocked(ctx context.Context, forcePrimary bool, backupType string, backupID string, jobID string) (string, error) {
+func (pm *MultiPoolerManager) backupLocked(ctx context.Context, forcePrimary bool, backupType string, jobID string) (string, error) {
 	if err := AssertActionLockHeld(ctx); err != nil {
 		return "", err
 	}

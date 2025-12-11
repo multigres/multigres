@@ -3188,15 +3188,11 @@ type BackupRequest struct {
 	// type indicates the type of backup that should be done. "full", "differential",
 	// and "incremental" are examples that are appropriate for pgBackRest.
 	Type string `protobuf:"bytes,2,opt,name=type,proto3" json:"type,omitempty"`
-	// backup_timestamp is an optional tracking ID for this backup operation.
-	// If provided, this ID will be used as the backup_timestamp annotation
-	// to pgBackRest, enabling end-to-end traceability.
-	// If empty, a tracking ID will be generated automatically.
-	BackupTimestamp string `protobuf:"bytes,3,opt,name=backup_timestamp,json=backupTimestamp,proto3" json:"backup_timestamp,omitempty"`
-	// job_id is an optional job ID from MultiAdmin for tracking backup status.
-	// If provided, stored as annotation on the backup for cross-process
-	// status queries. Format: YYYYMMDD-HHMMSS.microseconds_<multipooler_id>
-	JobId         string `protobuf:"bytes,4,opt,name=job_id,json=jobId,proto3" json:"job_id,omitempty"`
+	// job_id is an optional tracking ID from MultiAdmin for backup identification.
+	// If provided, stored as annotation on the backup for status queries.
+	// If empty, multipooler generates one using the same format.
+	// Format: YYYYMMDD-HHMMSS.microseconds[_suffix]
+	JobId         string `protobuf:"bytes,3,opt,name=job_id,json=jobId,proto3" json:"job_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3241,13 +3237,6 @@ func (x *BackupRequest) GetForcePrimary() bool {
 func (x *BackupRequest) GetType() string {
 	if x != nil {
 		return x.Type
-	}
-	return ""
-}
-
-func (x *BackupRequest) GetBackupTimestamp() string {
-	if x != nil {
-		return x.BackupTimestamp
 	}
 	return ""
 }
@@ -4034,12 +4023,11 @@ const file_multipoolermanagerdata_proto_rawDesc = "" +
 	"\x1bInitializeAsStandbyResponse\x12\x18\n" +
 	"\asuccess\x18\x01 \x01(\bR\asuccess\x12#\n" +
 	"\rerror_message\x18\x02 \x01(\tR\ferrorMessage\x12\x1b\n" +
-	"\tfinal_lsn\x18\x03 \x01(\tR\bfinalLsn\"\x8a\x01\n" +
+	"\tfinal_lsn\x18\x03 \x01(\tR\bfinalLsn\"_\n" +
 	"\rBackupRequest\x12#\n" +
 	"\rforce_primary\x18\x01 \x01(\bR\fforcePrimary\x12\x12\n" +
-	"\x04type\x18\x02 \x01(\tR\x04type\x12)\n" +
-	"\x10backup_timestamp\x18\x03 \x01(\tR\x0fbackupTimestamp\x12\x15\n" +
-	"\x06job_id\x18\x04 \x01(\tR\x05jobId\"-\n" +
+	"\x04type\x18\x02 \x01(\tR\x04type\x12\x15\n" +
+	"\x06job_id\x18\x03 \x01(\tR\x05jobId\"-\n" +
 	"\x0eBackupResponse\x12\x1b\n" +
 	"\tbackup_id\x18\x01 \x01(\tR\bbackupId\"7\n" +
 	"\x18RestoreFromBackupRequest\x12\x1b\n" +

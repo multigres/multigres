@@ -251,7 +251,7 @@ func (s *managerService) SetTerm(ctx context.Context, req *multipoolermanagerdat
 
 // Backup performs a backup
 func (s *managerService) Backup(ctx context.Context, req *multipoolermanagerdatapb.BackupRequest) (*multipoolermanagerdatapb.BackupResponse, error) {
-	backupID, err := s.manager.Backup(ctx, req.ForcePrimary, req.Type, req.BackupTimestamp, req.JobId)
+	backupID, err := s.manager.Backup(ctx, req.ForcePrimary, req.Type, req.JobId)
 	if err != nil {
 		return nil, mterrors.ToGRPC(err)
 	}

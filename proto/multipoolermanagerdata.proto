@@ -604,16 +604,11 @@ message BackupRequest {
   // and "incremental" are examples that are appropriate for pgBackRest.
   string type = 2;
 
-  // backup_timestamp is an optional tracking ID for this backup operation.
-  // If provided, this ID will be used as the backup_timestamp annotation
-  // to pgBackRest, enabling end-to-end traceability.
-  // If empty, a tracking ID will be generated automatically.
-  string backup_timestamp = 3;
-
-  // job_id is an optional job ID from MultiAdmin for tracking backup status.
-  // If provided, stored as annotation on the backup for cross-process
-  // status queries. Format: YYYYMMDD-HHMMSS.microseconds_<multipooler_id>
-  string job_id = 4;
+  // job_id is an optional tracking ID from MultiAdmin for backup identification.
+  // If provided, stored as annotation on the backup for status queries.
+  // If empty, multipooler generates one using the same format.
+  // Format: YYYYMMDD-HHMMSS.microseconds[_suffix]
+  string job_id = 3;
 }
 
 // BackupResponse contains the result of a backup operation

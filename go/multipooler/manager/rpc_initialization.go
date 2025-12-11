@@ -119,7 +119,7 @@ func (pm *MultiPoolerManager) InitializeEmptyPrimary(ctx context.Context, req *m
 
 	// Create initial backup for standby initialization
 	pm.logger.InfoContext(ctx, "Creating initial backup for standby initialization", "shard", pm.getShardID())
-	backupID, err := pm.backupLocked(ctx, true, "full", "", "")
+	backupID, err := pm.backupLocked(ctx, true, "full", "")
 	if err != nil {
 		return nil, mterrors.Wrap(err, "failed to create initial backup")
 	}
