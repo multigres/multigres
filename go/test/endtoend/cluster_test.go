@@ -16,17 +16,20 @@ package endtoend
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"syscall"
 	"testing"
 	"time"
 
+	_ "github.com/lib/pq" // PostgreSQL driver
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
@@ -39,10 +42,15 @@ import (
 	pb "github.com/multigres/multigres/go/pb/pgctldservice"
 	"github.com/multigres/multigres/go/provisioner/local"
 	"github.com/multigres/multigres/go/test/utils"
+	"github.com/multigres/multigres/go/tools/retry"
 	"github.com/multigres/multigres/go/tools/stringutil"
 
 	_ "github.com/multigres/multigres/go/common/plugins/topo"
 )
+
+// lastTestClusterTempDir tracks the temp directory of the last test cluster setup.
+// Used by TestMain to dump service logs on test failure.
+var lastTestClusterTempDir string
 
 // getProjectRoot finds the project root directory by traversing up from the current file.
 func getProjectRoot() (string, error) {
@@ -439,6 +447,48 @@ func checkHeartbeatsWritten(multipoolerAddr string) (bool, error) {
 	return count > 0, nil
 }
 
+// findReadyMultigateway finds a multigateway that is ready to execute queries.
+// It tries each provided port and returns the first one that can successfully execute
+// a query. This is necessary because:
+//  1. PoolerDiscovery is async and may not have discovered poolers yet
+//  2. lib/pq Ping uses an empty query (";") that bypasses pooler discovery
+//  3. Each multigateway only discovers poolers in its own zone, and the PRIMARY
+//     may be in any zone after bootstrap
+func findReadyMultigateway(t *testing.T, ctx context.Context, pgPorts []int) (int, error) {
+	t.Helper()
+
+	r := retry.New(1*time.Millisecond, 500*time.Millisecond)
+	for attempt, err := range r.Attempts(ctx) {
+		if err != nil {
+			return 0, fmt.Errorf("timeout waiting for any multigateway to be ready after %d attempts: %w", attempt, err)
+		}
+
+		for _, port := range pgPorts {
+			connStr := fmt.Sprintf("host=localhost port=%d user=postgres dbname=postgres sslmode=disable connect_timeout=2", port)
+			db, err := sql.Open("postgres", connStr)
+			if err != nil {
+				continue
+			}
+
+			queryCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+			_, err = db.ExecContext(queryCtx, "SELECT 1")
+			cancel()
+			db.Close()
+
+			if err == nil {
+				t.Logf("Multigateway on port %d is ready to execute queries", port)
+				return port, nil
+			}
+		}
+
+		if attempt == 1 || attempt%10 == 0 {
+			t.Logf("Waiting for a multigateway to be ready (attempt %d)...", attempt)
+		}
+	}
+
+	return 0, fmt.Errorf("timeout waiting for any multigateway to be ready")
+}
+
 // queryHeartbeatCount queries the number of heartbeats in the heartbeat table via
 // the multipooler gRPC service
 func queryHeartbeatCount(addr string) (int, error) {
@@ -693,6 +743,15 @@ func executeStartCommand(t *testing.T, args []string, tempDir string) (string, e
 		"MULTIGRES_TESTDATA_DIR="+tempDir,
 	)
 
+	// On macOS, PostgreSQL 17 requires proper locale settings to avoid
+	// "postmaster became multithreaded during startup" errors.
+	if runtime.GOOS == "darwin" {
+		cmd.Env = append(cmd.Env,
+			"LC_ALL=en_US.UTF-8",
+			"LANG=en_US.UTF-8",
+		)
+	}
+
 	output, err := cmd.CombinedOutput()
 	return string(output), err
 }
@@ -926,10 +985,85 @@ func TestClusterLifecycle(t *testing.T) {
 		// Verify state directory is empty (no state files)
 		assert.Empty(t, assertDirectoryTreeEmpty(filepath.Join(tempDir, "state")), "state directory should be empty after normal stop")
 
-		// Start and stop with --clean flag
-		t.Log("Testing clean stop behavior...")
+		// Start cluster again and verify state is preserved after restart
+		t.Log("Starting cluster again to verify state is preserved after restart...")
 		_, err = executeStartCommand(t, []string{"--config-path", tempDir}, tempDir)
 		require.NoError(t, err, "Second start should succeed")
+
+		// Wait for both zones to be ready after restart (same as initial bootstrap)
+		t.Log("Waiting for zone1 to be ready after restart...")
+		require.NoError(t, WaitForBootstrap(t, multipoolerAddr, 60*time.Second, tempDir, expectedDatabase),
+			"zone1 should be ready after restart")
+		t.Log("Waiting for zone2 to be ready after restart...")
+		multipoolerAddr2 := fmt.Sprintf("localhost:%d", testPorts.Zones[1].MultipoolerGRPCPort)
+		require.NoError(t, WaitForBootstrap(t, multipoolerAddr2, 60*time.Second, tempDir, expectedDatabase),
+			"zone2 should be ready after restart")
+
+		// Verify PostgreSQL connectivity for both zones after restart
+		t.Log("Testing PostgreSQL connectivity for both zones after restart...")
+		testPostgreSQLConnection(t, tempDir, testPorts.Zones[0].PgctldPGPort, "1")
+		testPostgreSQLConnection(t, tempDir, testPorts.Zones[1].PgctldPGPort, "2")
+		t.Log("Both PostgreSQL instances are working correctly after restart!")
+
+		// Verify primary/replica roles are preserved after restart
+		t.Log("Verifying primary/replica roles are preserved after restart...")
+		zone1IsPrimaryAfterRestart, err := IsPrimary(zone1Addr)
+		require.NoError(t, err, "should be able to check zone1 primary status after restart")
+		require.Equal(t, zone1IsPrimary, zone1IsPrimaryAfterRestart,
+			"primary/replica roles must be preserved after restart")
+		t.Logf("Zone1 is primary after restart: %v (preserved from before)", zone1IsPrimaryAfterRestart)
+
+		// Verify multipooler registration is preserved after restart
+		// This tests that immutable fields (database, tablegroup, shard) are not overwritten
+		t.Log("Verifying multipooler registration is preserved after restart...")
+		require.NoError(t, checkMultipoolerTopoRegistration(etcdAddress, globalRootPath, cellName, expectedDatabase, constants.DefaultTableGroup, constants.DefaultShard),
+			"multipooler registration (database, tablegroup, shard) should be preserved after restart")
+
+		// Test write/read operations work correctly after restart
+		t.Log("Testing write/read operations after restart...")
+		if zone1IsPrimary {
+			testMultipoolerGRPC(t, zone1Addr)
+			testMultipoolerGRPCReadOnly(t, zone2Addr)
+		} else {
+			testMultipoolerGRPC(t, zone2Addr)
+			testMultipoolerGRPCReadOnly(t, zone1Addr)
+		}
+		t.Log("Write/read operations work correctly after restart!")
+
+		// Stop cluster to test immutable field validation
+		t.Log("Stopping cluster to test immutable field validation...")
+		downOutput, err = executeStopCommand(t, []string{"--config-path", tempDir})
+		require.NoError(t, err, "Stop command failed: %s", downOutput)
+
+		// Read the original config for restoration
+		originalConfig, err := os.ReadFile(configFile)
+		require.NoError(t, err)
+
+		// Test 1: Changing database should fail
+		t.Log("Testing that changing database fails...")
+		modifiedConfig := strings.ReplaceAll(string(originalConfig), "database: postgres", "database: different_db")
+		require.NotEqual(t, string(originalConfig), modifiedConfig, "config should have been modified for database test")
+		err = os.WriteFile(configFile, []byte(modifiedConfig), 0o644)
+		require.NoError(t, err)
+
+		upOutput, err = executeStartCommand(t, []string{"--config-path", tempDir}, tempDir)
+		require.Error(t, err, "Start should fail when multipooler database is changed. Output: %s", upOutput)
+		combined := strings.ToLower(err.Error() + "\n" + upOutput)
+		assert.Contains(t, combined, "database mismatch", "error should mention database mismatch")
+		assert.Contains(t, combined, "immutable", "error should mention immutability")
+		t.Log("Correctly rejected start with changed database")
+
+		// Restore original config for clean stop
+		// Note: We only test database changes here. Tablegroup and shard changes
+		// are blocked by MVP validation before the immutable field check runs.
+		// The immutable field validation for those fields is still in place.
+		err = os.WriteFile(configFile, originalConfig, 0o644)
+		require.NoError(t, err)
+
+		// Start cluster again for clean stop test
+		t.Log("Starting cluster again for clean stop test...")
+		_, err = executeStartCommand(t, []string{"--config-path", tempDir}, tempDir)
+		require.NoError(t, err, "Start should succeed with original config")
 
 		// Stop with --clean flag
 		downCleanOutput, err := executeStopCommand(t, []string{"--config-path", tempDir, "--clean"})
@@ -1192,6 +1326,9 @@ func setupTestCluster(t *testing.T) *testClusterSetup {
 	// Setup test directory
 	tempDir, err := os.MkdirTemp("/tmp", "mlt")
 	require.NoError(t, err)
+
+	// Track for log dumping on test failure
+	lastTestClusterTempDir = tempDir
 
 	// Create cleanup function
 	cleanup := func() {

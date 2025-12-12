@@ -20,7 +20,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"os"
 	"path/filepath"
 	"sync"
 	"time"
@@ -112,6 +111,14 @@ type MultiPoolerManager struct {
 	// This is loaded once during startup and cached for fast access.
 	backupLocation string
 
+	// autoRestoreRetryInterval is the interval between auto-restore retry attempts.
+	// Defaults to 1 second. Can be set to a shorter duration for testing.
+	autoRestoreRetryInterval time.Duration
+
+	// initialized tracks whether this pooler has been fully initialized.
+	// Once true, stays true for the lifetime of the manager.
+	initialized bool
+
 	// TODO: Implement async query serving state management system
 	// This should include: target state, current state, convergence goroutine,
 	// and state-specific handlers (setServing, setServingReadOnly, setNotServing, setDrained)
@@ -177,18 +184,19 @@ func NewMultiPoolerManagerWithTimeout(logger *slog.Logger, config *Config, loadT
 	}
 
 	pm := &MultiPoolerManager{
-		logger:            logger,
-		config:            config,
-		topoClient:        config.TopoClient,
-		serviceID:         config.ServiceID,
-		actionLock:        NewActionLock(),
-		state:             ManagerStateStarting,
-		ctx:               ctx,
-		cancel:            cancel,
-		loadTimeout:       loadTimeout,
-		queryServingState: clustermetadatapb.PoolerServingStatus_NOT_SERVING,
-		pgctldClient:      pgctldClient,
-		readyChan:         make(chan struct{}),
+		logger:                   logger,
+		config:                   config,
+		topoClient:               config.TopoClient,
+		serviceID:                config.ServiceID,
+		actionLock:               NewActionLock(),
+		state:                    ManagerStateStarting,
+		ctx:                      ctx,
+		cancel:                   cancel,
+		loadTimeout:              loadTimeout,
+		autoRestoreRetryInterval: 1 * time.Second,
+		queryServingState:        clustermetadatapb.PoolerServingStatus_NOT_SERVING,
+		pgctldClient:             pgctldClient,
+		readyChan:                make(chan struct{}),
 	}
 
 	// Create the query service controller (follows Vitess pattern)
@@ -313,6 +321,14 @@ func (pm *MultiPoolerManager) Close() error {
 	// Always cancel context to stop async loaders (even if Open() was never called)
 	pm.cancel()
 
+	return pm.closeConnectionsLocked()
+}
+
+// closeConnectionsLocked closes the database connection and query service controller
+// without canceling the main context. Caller must hold pm.mu.
+// This is used by reopenConnections() during auto-restore to avoid canceling
+// the startup context that WaitUntilReady is waiting on.
+func (pm *MultiPoolerManager) closeConnectionsLocked() error {
 	if !pm.isOpen {
 		pm.logger.Info("MultiPoolerManager: already closed")
 		return nil
@@ -342,6 +358,22 @@ func (pm *MultiPoolerManager) Close() error {
 
 	pm.logger.Info("MultiPoolerManager: closed")
 	return nil
+}
+
+// reopenConnections closes and reopens database connections without canceling
+// the main context. This is used during auto-restore to restart connections
+// after PostgreSQL has been restored, without disrupting the startup flow.
+func (pm *MultiPoolerManager) reopenConnections(ctx context.Context) error {
+	if err := func() error {
+		pm.mu.Lock()
+		defer pm.mu.Unlock()
+		return pm.closeConnectionsLocked()
+	}(); err != nil {
+		return err
+	}
+
+	// Now reopen (Open() acquires its own lock)
+	return pm.Open()
 }
 
 // GetState returns the current state of the manager
@@ -601,6 +633,14 @@ func (pm *MultiPoolerManager) checkAndSetReady() {
 	}
 }
 
+// waitForReady blocks until the manager is ready (topo loaded) or context is cancelled
+func (pm *MultiPoolerManager) waitForReady(ctx context.Context) {
+	select {
+	case <-ctx.Done():
+	case <-pm.readyChan:
+	}
+}
+
 // loadMultiPoolerFromTopo loads the multipooler record from topology asynchronously
 func (pm *MultiPoolerManager) loadMultiPoolerFromTopo() {
 	// Validate ServiceID is not nil
@@ -660,7 +700,10 @@ func (pm *MultiPoolerManager) loadMultiPoolerFromTopo() {
 		pm.topoLoaded = true
 		pm.mu.Unlock()
 
-		pm.logger.InfoContext(ctx, "Loaded multipooler record from topology", "service_id", pm.serviceID.String(), "database", mp.Database, "backup_location", db.BackupLocation)
+		pm.logger.InfoContext(pm.ctx, "Loaded multipooler record from topology", "service_id", pm.serviceID.String(), "database", mp.Database, "backup_location", db.BackupLocation, "pooler_type", mp.Type.String())
+
+		// Note: restoring from backup (for replicas) happens in a separate goroutine
+
 		pm.checkAndSetReady()
 		return
 	}
@@ -1311,6 +1354,8 @@ func (pm *MultiPoolerManager) Start(senv *servenv.ServEnv) {
 	if pm.config.ConsensusEnabled {
 		go pm.loadConsensusTermFromDisk()
 	}
+	// Start background restore from backup, for replica poolers
+	go pm.tryAutoRestoreFromBackup(pm.ctx)
 
 	// Initialize query service controller with DB config
 	dbConfig := &poolerserver.DBConfig{
@@ -1333,7 +1378,7 @@ func (pm *MultiPoolerManager) Start(senv *servenv.ServEnv) {
 		// Don't fail startup if Open fails - will retry on demand
 	}
 
-	senv.OnRun(func() {
+	senv.OnRunE(func() error {
 		// Block until manager is ready or error before registering gRPC services
 		// Use load timeout from manager configuration
 		waitCtx, cancel := context.WithTimeout(pm.ctx, pm.loadTimeout)
@@ -1342,8 +1387,7 @@ func (pm *MultiPoolerManager) Start(senv *servenv.ServEnv) {
 		pm.logger.Info("Waiting for manager to reach ready state before registering gRPC services")
 		if err := pm.WaitUntilReady(waitCtx); err != nil {
 			pm.logger.Error("Manager failed to reach ready state during startup", "error", err)
-			// Exit immediately - no point in starting gRPC if we're not ready
-			os.Exit(1)
+			return fmt.Errorf("manager failed to reach ready state: %w", err)
 		}
 		pm.logger.Info("Manager reached ready state, will register gRPC services")
 
@@ -1354,6 +1398,7 @@ func (pm *MultiPoolerManager) Start(senv *servenv.ServEnv) {
 		// Register manager gRPC services
 		pm.registerGRPCServices()
 		pm.logger.Info("MultiPoolerManager gRPC services registered")
+		return nil
 	})
 }
 

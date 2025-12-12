@@ -25,6 +25,9 @@ import (
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 )
 
+// DefaultReplicaLagThreshold is the threshold above which a replica is considered lagging.
+const DefaultReplicaLagThreshold = 10 * time.Second
+
 // PoolersByShard is a structured map for efficient lookups.
 // Structure: [database][tablegroup][shard][pooler_id] -> PoolerHealthState
 type PoolersByShard map[string]map[string]map[string]map[string]*multiorchdatapb.PoolerHealthState
@@ -103,6 +106,7 @@ func (g *AnalysisGenerator) buildPoolersByShard() PoolersByShard {
 }
 
 // GetPoolersInShard returns all pooler IDs in the same shard as the given pooler.
+// Uses the cached poolersByShard for efficient lookup.
 func (g *AnalysisGenerator) GetPoolersInShard(poolerIDStr string) ([]string, error) {
 	// Get pooler from store to determine its shard
 	pooler, ok := g.poolerStore.Get(poolerIDStr)
@@ -118,23 +122,16 @@ func (g *AnalysisGenerator) GetPoolersInShard(poolerIDStr string) ([]string, err
 	tableGroup := pooler.MultiPooler.TableGroup
 	shard := pooler.MultiPooler.Shard
 
-	var poolerIDs []string
+	// Use cached poolersByShard for efficient lookup
+	poolers, ok := g.poolersByShard[database][tableGroup][shard]
+	if !ok {
+		return []string{}, nil
+	}
 
-	// Iterate the store to find all poolers in the same shard
-	// Note: We can't use the cached poolersByShard here because the store may have been updated
-	g.poolerStore.Range(func(id string, p *multiorchdatapb.PoolerHealthState) bool {
-		if p == nil || p.MultiPooler == nil || p.MultiPooler.Id == nil {
-			return true
-		}
-
-		if p.MultiPooler.Database == database &&
-			p.MultiPooler.TableGroup == tableGroup &&
-			p.MultiPooler.Shard == shard {
-			poolerIDs = append(poolerIDs, id)
-		}
-
-		return true
-	})
+	poolerIDs := make([]string, 0, len(poolers))
+	for id := range poolers {
+		poolerIDs = append(poolerIDs, id)
+	}
 
 	return poolerIDs, nil
 }
@@ -208,7 +205,7 @@ func (g *AnalysisGenerator) generateAnalysisForPooler(
 		if pooler.ReplicationStatus != nil {
 			rs := pooler.ReplicationStatus
 			analysis.ReplicationStopped = rs.IsWalReplayPaused
-			analysis.IsLagging = rs.Lag != nil && rs.Lag.AsDuration().Milliseconds() > 10000 // 10 seconds threshold
+			analysis.IsLagging = rs.Lag != nil && rs.Lag.AsDuration() > DefaultReplicaLagThreshold
 			if rs.Lag != nil {
 				analysis.ReplicaLagMillis = rs.Lag.AsDuration().Milliseconds()
 			}
@@ -306,9 +303,9 @@ func (g *AnalysisGenerator) aggregateReplicaStats(
 				countReplicating++
 			}
 
-			// Check if lagging (> 10 seconds)
+			// Check if lagging
 			if pooler.ReplicationStatus != nil && pooler.ReplicationStatus.Lag != nil {
-				if pooler.ReplicationStatus.Lag.AsDuration().Milliseconds() > 10000 {
+				if pooler.ReplicationStatus.Lag.AsDuration() > DefaultReplicaLagThreshold {
 					countLagging++
 				}
 			}
@@ -350,7 +347,28 @@ func (g *AnalysisGenerator) populatePrimaryInfo(
 			if pooler.LastSeen != nil {
 				analysis.PrimaryTimestamp = pooler.LastSeen.AsTime()
 			}
+
+			// Check if this replica is in the primary's synchronous standby list
+			analysis.IsInPrimaryStandbyList = g.isInStandbyList(analysis.PoolerID, pooler)
 			return // found it
 		}
 	}
+}
+
+// isInStandbyList checks if the given pooler ID is in the primary's synchronous standby list.
+func (g *AnalysisGenerator) isInStandbyList(
+	replicaID *clustermetadatapb.ID,
+	primary *multiorchdatapb.PoolerHealthState,
+) bool {
+	if primary.PrimaryStatus == nil || primary.PrimaryStatus.SyncReplicationConfig == nil {
+		return false
+	}
+
+	for _, standbyID := range primary.PrimaryStatus.SyncReplicationConfig.StandbyIds {
+		if standbyID.Cell == replicaID.Cell && standbyID.Name == replicaID.Name {
+			return true
+		}
+	}
+
+	return false
 }

@@ -29,6 +29,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+	clientv3 "go.etcd.io/etcd/client/v3"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
@@ -966,20 +967,41 @@ func startEtcdForSharedSetup(t *testing.T, dataDir string) (string, *exec.Cmd, e
 		return "", nil, fmt.Errorf("failed to start etcd: %w", err)
 	}
 
-	// Wait for etcd to be ready by polling the client port
-	deadline := time.Now().Add(10 * time.Second)
-	for time.Now().Before(deadline) {
-		conn, err := net.DialTimeout("tcp", fmt.Sprintf("localhost:%d", clientPort), 100*time.Millisecond)
-		if err == nil {
-			conn.Close()
-			return clientAddr, cmd, nil
-		}
-		time.Sleep(50 * time.Millisecond)
+	if err := waitForEtcdReady(t, clientAddr, 10*time.Second); err != nil {
+		_ = cmd.Process.Kill()
+		return "", nil, err
 	}
 
-	// If we get here, etcd didn't start in time - kill it and return error
-	_ = cmd.Process.Kill()
-	return "", nil, fmt.Errorf("etcd failed to become ready within 10 seconds")
+	return clientAddr, cmd, nil
+}
+
+// waitForEtcdReady waits for etcd to be ready by verifying the gRPC server
+// can accept requests. A TCP port being open doesn't mean the gRPC server
+// is fully initialized.
+func waitForEtcdReady(t *testing.T, clientAddr string, timeout time.Duration) error {
+	t.Helper()
+
+	cli, err := clientv3.New(clientv3.Config{
+		Endpoints:   []string{clientAddr},
+		DialTimeout: 5 * time.Second,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to create etcd client: %w", err)
+	}
+	defer cli.Close()
+
+	ctx, cancel := context.WithTimeout(t.Context(), timeout)
+	defer cancel()
+	start := time.Now()
+	for {
+		if _, err := cli.Get(ctx, "/"); err == nil {
+			return nil
+		}
+		if time.Since(start) > timeout {
+			return fmt.Errorf("etcd failed to become ready within %v", timeout)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 }
 
 // waitForManagerReady waits for the manager to be in ready state

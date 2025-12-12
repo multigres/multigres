@@ -651,7 +651,7 @@ func (f *FakeClient) CreateDurabilityPolicy(ctx context.Context, pooler *cluster
 	if resp, ok := f.CreateDurabilityPolicyResponses[poolerID]; ok {
 		return resp, nil
 	}
-	return &multipoolermanagerdatapb.CreateDurabilityPolicyResponse{Success: true}, nil
+	return &multipoolermanagerdatapb.CreateDurabilityPolicyResponse{}, nil
 }
 
 //

@@ -36,7 +36,7 @@ func TestMain(m *testing.M) {
 	// Use automatic module root detection instead of hard-coded relative paths
 	if err := pathutil.PrependBinToPath(); err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to add bin to PATH: %v\n", err)
-		os.Exit(1)
+		os.Exit(1) //nolint:forbidigo // TestMain() is allowed to call os.Exit
 	}
 
 	// Set orphan detection environment variable as baseline protection.
@@ -50,19 +50,27 @@ func TestMain(m *testing.M) {
 	// pgctld uses this when initializing PostgreSQL.
 	os.Setenv("PGPASSWORD", testPostgresPassword)
 
-	// Set up signal handler to ensure cleanup on interrupt
+	// Set up signal handler for cleanup on interrupt
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+
+	// Run tests in goroutine so we can select on completion or signal
+	exitCodeChan := make(chan int, 1)
 	go func() {
-		<-sigChan
-		cleanupSharedTestSetup()
-		os.Exit(1)
+		exitCodeChan <- m.Run()
 	}()
 
-	// Run all tests
-	exitCode := m.Run()
+	// Wait for tests to complete OR signal
+	var exitCode int
+	select {
+	case exitCode = <-exitCodeChan:
+		// Tests finished normally
+	case <-sigChan:
+		// Interrupted - treat as failure
+		exitCode = 1
+	}
 
-	// Dump service logs on failure to help debug CI issues
+	// Single cleanup path for both normal completion and interrupt
 	if exitCode != 0 {
 		dumpServiceLogs()
 	}
@@ -74,5 +82,5 @@ func TestMain(m *testing.M) {
 	os.Unsetenv("MULTIGRES_TEST_PARENT_PID")
 
 	// Exit with the test result code
-	os.Exit(exitCode)
+	os.Exit(exitCode) //nolint:forbidigo // TestMain() is allowed to call os.Exit
 }
