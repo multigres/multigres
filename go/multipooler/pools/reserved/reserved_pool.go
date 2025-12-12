@@ -29,11 +29,10 @@ import (
 
 // PoolConfig holds configuration for the reserved pool.
 type PoolConfig struct {
-	// IdleTimeout is the maximum idle duration before a connection expires.
-	// Connections not accessed within this duration are killed.
-	// A value of 0 means no timeout.
+	// InactivityTimeout is the maximum duration a reserved connection can be inactive
+	// (no client activity) before being killed. A value of 0 means no timeout.
 	// Default: 30s
-	IdleTimeout time.Duration
+	InactivityTimeout time.Duration
 
 	// Logger for pool operations.
 	Logger *slog.Logger
@@ -90,8 +89,8 @@ type Pool struct {
 // Starts a background goroutine to kill idle connections.
 // The provided context is used to derive the pool's lifecycle context.
 func NewPool(ctx context.Context, config *PoolConfig) *Pool {
-	if config.IdleTimeout <= 0 {
-		config.IdleTimeout = 30 * time.Second
+	if config.InactivityTimeout <= 0 {
+		config.InactivityTimeout = 30 * time.Second
 	}
 
 	logger := config.Logger
@@ -116,7 +115,7 @@ func NewPool(ctx context.Context, config *PoolConfig) *Pool {
 
 	// Start background killer goroutine.
 	// Ticker interval is 1/10th the idle timeout (like Vitess).
-	interval := p.config.IdleTimeout / 10
+	interval := p.config.InactivityTimeout / 10
 	go p.idleKiller(interval)
 
 	return p
@@ -139,8 +138,8 @@ func (p *Pool) idleKiller(interval time.Duration) {
 
 // NewConn acquires a new reserved connection.
 // The connection is assigned a unique ID for client-side tracking.
-// If user is non-empty, SET ROLE is executed to switch to that user.
-func (p *Pool) NewConn(ctx context.Context, settings *connstate.Settings, user string) (*Conn, error) {
+// The connection is already authenticated as the pool's configured user.
+func (p *Pool) NewConn(ctx context.Context, settings *connstate.Settings) (*Conn, error) {
 	p.mu.Lock()
 	if p.closed {
 		p.mu.Unlock()
@@ -149,7 +148,7 @@ func (p *Pool) NewConn(ctx context.Context, settings *connstate.Settings, user s
 	p.mu.Unlock()
 
 	// Get a regular connection from the pool.
-	pooled, err := p.conns.GetWithSettings(ctx, settings, user)
+	pooled, err := p.conns.GetWithSettings(ctx, settings)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get connection: %w", err)
 	}
@@ -159,7 +158,7 @@ func (p *Pool) NewConn(ctx context.Context, settings *connstate.Settings, user s
 
 	// Create reserved connection.
 	rc := newConn(pooled, connID, p)
-	rc.SetIdleTimeout(p.config.IdleTimeout)
+	rc.SetInactivityTimeout(p.config.InactivityTimeout)
 
 	// Register in active map.
 	p.mu.Lock()

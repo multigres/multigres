@@ -25,6 +25,10 @@ import (
 )
 
 // PoolManager defines the interface for connection pool management.
+// Each user gets their own RegularPool and ReservedPool that connect
+// directly as that user (using trust/peer auth), eliminating the need
+// for SET ROLE.
+//
 // This interface is useful for testing components that depend on the manager,
 // allowing them to use mock implementations.
 //
@@ -50,19 +54,19 @@ type PoolManager interface {
 
 	// --- Regular Pool Operations ---
 
-	// GetRegularConn acquires a regular connection with the specified user role.
+	// GetRegularConn acquires a regular connection for the specified user.
 	GetRegularConn(ctx context.Context, user string) (regular.PooledConn, error)
 
-	// GetRegularConnWithSettings acquires a regular connection with settings and user role.
+	// GetRegularConnWithSettings acquires a regular connection with specific settings for the user.
 	GetRegularConnWithSettings(ctx context.Context, settings *connstate.Settings, user string) (regular.PooledConn, error)
 
 	// --- Reserved Pool Operations ---
 
-	// NewReservedConn creates a new reserved connection.
+	// NewReservedConn creates a new reserved connection for the specified user.
 	NewReservedConn(ctx context.Context, settings *connstate.Settings, user string) (*reserved.Conn, error)
 
-	// GetReservedConn retrieves an existing reserved connection by ID.
-	GetReservedConn(connID int64) (*reserved.Conn, bool)
+	// GetReservedConn retrieves an existing reserved connection by ID for the specified user.
+	GetReservedConn(connID int64, user string) (*reserved.Conn, bool)
 
 	// --- Stats ---
 

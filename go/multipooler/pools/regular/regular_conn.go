@@ -21,7 +21,6 @@ import (
 
 	"github.com/multigres/multigres/go/multipooler/connstate"
 	"github.com/multigres/multigres/go/multipooler/pools/admin"
-	"github.com/multigres/multigres/go/parser/ast"
 	"github.com/multigres/multigres/go/pb/query"
 	"github.com/multigres/multigres/go/pgprotocol/client"
 	"github.com/multigres/multigres/go/pgprotocol/protocol"
@@ -31,8 +30,7 @@ import (
 // It implements the connpool.Connection interface for settings-based pool routing.
 //
 // Key features:
-//   - Manages ConnectionState (User, Settings, PreparedStatements, Portals)
-//   - Provides SET ROLE / RESET ROLE for RLS enforcement
+//   - Manages ConnectionState (Settings, PreparedStatements, Portals)
 //   - Holds reference to AdminPool for self-kill capability
 //   - Delegates query execution to the underlying client.Conn
 type Conn struct {
@@ -142,61 +140,6 @@ func (c *Conn) State() *connstate.ConnectionState {
 		return nil
 	}
 	return state.(*connstate.ConnectionState)
-}
-
-// --- User/Role management for RLS ---
-
-// SetRole executes SET ROLE to switch to the given user.
-// This is used for Row Level Security (RLS) enforcement.
-func (c *Conn) SetRole(ctx context.Context, user string) error {
-	if user == "" {
-		return nil
-	}
-
-	// Execute SET ROLE.
-	// Note: We use SET ROLE, not SET SESSION AUTHORIZATION, because:
-	// - SET ROLE can be reset without superuser privileges
-	// - SET ROLE maintains the login user for RESET ROLE
-	sql := fmt.Sprintf("SET ROLE %s", ast.QuoteIdentifier(user))
-	_, err := c.conn.Query(ctx, sql)
-	if err != nil {
-		return fmt.Errorf("failed to set role to %s: %w", user, err)
-	}
-
-	// Update state.
-	c.State().SetUser(user)
-	return nil
-}
-
-// ResetRole resets the role to the connection's original user.
-// Returns an error if the reset fails - the caller should close the connection.
-func (c *Conn) ResetRole(ctx context.Context) error {
-	state := c.State()
-	if state == nil || !state.HasUser() {
-		return nil
-	}
-
-	// Execute RESET ROLE.
-	_, err := c.conn.Query(ctx, "RESET ROLE")
-	if err != nil {
-		// Critical security issue - connection may still have elevated privileges.
-		// The caller MUST close this connection.
-		return fmt.Errorf("failed to reset role (connection should be closed): %w", err)
-	}
-
-	// Update state.
-	state.ClearUser()
-	return nil
-}
-
-// CurrentUser returns the current user role set via SET ROLE.
-// Returns empty string if no role has been set.
-func (c *Conn) CurrentUser() string {
-	state := c.State()
-	if state == nil {
-		return ""
-	}
-	return state.GetUser()
 }
 
 // --- Query execution ---

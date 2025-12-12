@@ -48,9 +48,9 @@ type Conn struct {
 	// reservedProps tracks why the connection is reserved.
 	reservedProps *ReservationProperties
 
-	// idleTimeout is the maximum idle duration before the connection expires.
-	// A value of 0 means no timeout.
-	idleTimeout time.Duration
+	// inactivityTimeout is the maximum duration the connection can be inactive
+	// (no client activity) before expiring. A value of 0 means no timeout.
+	inactivityTimeout time.Duration
 
 	// expiryTime is when this connection will expire if not accessed.
 	expiryTime time.Time
@@ -159,31 +159,31 @@ func (c *Conn) ReservedProps() *ReservationProperties {
 
 // --- Timeout ---
 
-// SetIdleTimeout sets the idle timeout and resets the expiry time.
-func (c *Conn) SetIdleTimeout(timeout time.Duration) {
-	c.idleTimeout = timeout
+// SetInactivityTimeout sets the inactivity timeout and resets the expiry time.
+func (c *Conn) SetInactivityTimeout(timeout time.Duration) {
+	c.inactivityTimeout = timeout
 	c.ResetExpiryTime()
 }
 
-// ResetExpiryTime resets the expiry time based on the idle timeout.
+// ResetExpiryTime resets the expiry time based on the inactivity timeout.
 // Called when the connection is accessed to extend its lifetime.
 func (c *Conn) ResetExpiryTime() {
-	if c.idleTimeout > 0 {
-		c.expiryTime = time.Now().Add(c.idleTimeout)
+	if c.inactivityTimeout > 0 {
+		c.expiryTime = time.Now().Add(c.inactivityTimeout)
 	}
 }
 
-// IsTimedOut returns true if the connection has exceeded its idle timeout.
+// IsTimedOut returns true if the connection has exceeded its inactivity timeout.
 func (c *Conn) IsTimedOut() bool {
-	if c.idleTimeout <= 0 {
+	if c.inactivityTimeout <= 0 {
 		return false
 	}
 	return time.Now().After(c.expiryTime)
 }
 
-// IdleTimeout returns the idle timeout duration.
-func (c *Conn) IdleTimeout() time.Duration {
-	return c.idleTimeout
+// InactivityTimeout returns the inactivity timeout duration.
+func (c *Conn) InactivityTimeout() time.Duration {
+	return c.inactivityTimeout
 }
 
 // --- Lifecycle ---
@@ -236,23 +236,6 @@ func (c *Conn) ProcessID() uint32 {
 // SecretKey returns the backend secret key.
 func (c *Conn) SecretKey() uint32 {
 	return c.pooled.Conn.SecretKey()
-}
-
-// --- User/Role ---
-
-// SetRole sets the role for RLS.
-func (c *Conn) SetRole(ctx context.Context, user string) error {
-	return c.pooled.Conn.SetRole(ctx, user)
-}
-
-// ResetRole resets the role.
-func (c *Conn) ResetRole(ctx context.Context) error {
-	return c.pooled.Conn.ResetRole(ctx)
-}
-
-// CurrentUser returns the current role.
-func (c *Conn) CurrentUser() string {
-	return c.pooled.Conn.CurrentUser()
 }
 
 // --- Query execution ---

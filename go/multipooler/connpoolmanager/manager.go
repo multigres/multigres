@@ -17,7 +17,9 @@ package connpoolmanager
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
+	"sync"
 
 	"github.com/multigres/multigres/go/multipooler/connstate"
 	"github.com/multigres/multigres/go/multipooler/pools/admin"
@@ -27,12 +29,9 @@ import (
 	"github.com/multigres/multigres/go/pgprotocol/client"
 )
 
-// Manager orchestrates all connection pool types (admin, regular, reserved).
-// It provides a unified interface for connection acquisition and lifecycle management.
-//
-// The regular and reserved pools are completely separate - transactions go to the
-// reserved pool while simple queries go to the regular pool. This ensures transaction
-// traffic doesn't compete with read traffic for connections.
+// Manager orchestrates per-user connection pools with a shared admin pool.
+// Each user gets their own RegularPool and ReservedPool that connect directly
+// as that user via trust/peer authentication.
 //
 // Usage:
 //
@@ -48,16 +47,19 @@ import (
 //	regularConn, _ := mgr.GetRegularConn(ctx, user)
 //	reservedConn, _ := mgr.NewReservedConn(ctx, settings, user)
 type Manager struct {
-	config *Config
-	logger *slog.Logger // Set by Open()
+	config     *Config
+	logger     *slog.Logger      // Set by Open()
+	connConfig *ConnectionConfig // Stored for lazy pool creation
 
-	adminPool    *admin.Pool
-	regularPool  *regular.Pool
-	reservedPool *reserved.Pool // Manages its own underlying regular pool
+	adminPool *admin.Pool // Shared admin pool for kill operations
+
+	mu        sync.Mutex
+	userPools map[string]*UserPool // Per-user connection pools
+	closed    bool
 }
 
-// Open initializes all connection pools and starts background workers.
-// Must be called after RegisterFlags() and flag parsing.
+// Open initializes the manager and creates the shared admin pool.
+// User pools are created lazily on first connection request.
 //
 // Parameters:
 //   - ctx: Context for pool operations
@@ -68,96 +70,116 @@ func (m *Manager) Open(ctx context.Context, logger *slog.Logger, connConfig *Con
 		logger = slog.Default()
 	}
 	m.logger = logger
+	m.connConfig = connConfig
+	m.userPools = make(map[string]*UserPool)
 
-	// Build client configs using credentials from viper config and connection settings from connConfig.
-	adminClientConfig := m.buildClientConfig(connConfig, m.config.AdminUser(), m.config.AdminPassword())
-	appClientConfig := m.buildClientConfig(connConfig, m.config.AppUser(), m.config.AppPassword())
+	// Build admin client config
+	adminClientConfig := m.buildClientConfig(m.config.AdminUser(), m.config.AdminPassword())
 
-	// Build pool configs from viper values.
+	// Build admin pool config
 	adminPoolConfig := &connpool.Config{
 		Capacity: m.config.AdminCapacity(),
 		Logger:   m.logger,
 	}
-	regularPoolConfig := &connpool.Config{
-		Capacity:     m.config.RegularCapacity(),
-		MaxIdleCount: m.config.RegularMaxIdle(),
-		IdleTimeout:  m.config.RegularIdleTimeout(),
-		MaxLifetime:  m.config.RegularMaxLifetime(),
-		Logger:       m.logger,
-	}
-	// Reserved pool manages its own underlying regular pool (separate from the main regular pool)
-	// to keep transaction traffic isolated from simple query traffic.
-	reservedRegularPoolConfig := &connpool.Config{
-		Capacity:     m.config.ReservedCapacity(),
-		MaxIdleCount: m.config.ReservedMaxIdle(),
-		IdleTimeout:  m.config.ReservedIdleTimeout(),
-		MaxLifetime:  m.config.ReservedMaxLifetime(),
-		Logger:       m.logger,
-	}
 
-	// Create admin pool first (regular pools depend on it for kill operations).
+	// Create shared admin pool (used by all user pools for kill operations)
 	m.adminPool = admin.NewPool(&admin.PoolConfig{
 		ClientConfig:   adminClientConfig,
 		ConnPoolConfig: adminPoolConfig,
 	})
 	m.adminPool.Open(ctx)
 
-	// Create regular pool for simple queries using app credentials.
-	m.regularPool = regular.NewPool(&regular.PoolConfig{
-		ClientConfig:   appClientConfig,
-		ConnPoolConfig: regularPoolConfig,
-		AdminPool:      m.adminPool,
-	})
-	m.regularPool.Open(ctx)
-
-	// Create reserved pool (it manages its own underlying regular pool internally) using app credentials.
-	m.reservedPool = reserved.NewPool(ctx, &reserved.PoolConfig{
-		IdleTimeout: m.config.ReservedIdleTimeout(),
-		Logger:      m.logger,
-		RegularPoolConfig: &regular.PoolConfig{
-			ClientConfig:   appClientConfig,
-			ConnPoolConfig: reservedRegularPoolConfig,
-			AdminPool:      m.adminPool,
-		},
-	})
-
 	m.logger.InfoContext(ctx, "connection pool manager opened",
 		"admin_user", m.config.AdminUser(),
-		"app_user", m.config.AppUser(),
 		"admin_capacity", adminPoolConfig.Capacity,
-		"regular_capacity", regularPoolConfig.Capacity,
-		"regular_max_idle", regularPoolConfig.MaxIdleCount,
-		"regular_idle_timeout", regularPoolConfig.IdleTimeout,
-		"regular_max_lifetime", regularPoolConfig.MaxLifetime,
-		"reserved_capacity", reservedRegularPoolConfig.Capacity,
-		"reserved_max_idle", reservedRegularPoolConfig.MaxIdleCount,
-		"reserved_idle_timeout", m.config.ReservedIdleTimeout(),
-		"reserved_max_lifetime", reservedRegularPoolConfig.MaxLifetime,
+		"user_regular_capacity", m.config.UserRegularCapacity(),
+		"user_reserved_capacity", m.config.UserReservedCapacity(),
+		"max_users", m.config.MaxUsers(),
 	)
 }
 
-// buildClientConfig creates a client.Config with the specified user and password,
-// using connection settings from the provided ConnectionConfig.
-func (m *Manager) buildClientConfig(connConfig *ConnectionConfig, user, password string) *client.Config {
+// buildClientConfig creates a client.Config with the specified user and password.
+func (m *Manager) buildClientConfig(user, password string) *client.Config {
 	return &client.Config{
-		SocketFile: connConfig.SocketFile,
-		Host:       connConfig.Host,
-		Port:       connConfig.Port,
-		Database:   connConfig.Database,
+		SocketFile: m.connConfig.SocketFile,
+		Host:       m.connConfig.Host,
+		Port:       m.connConfig.Port,
+		Database:   m.connConfig.Database,
 		User:       user,
 		Password:   password,
 	}
 }
 
+// getOrCreateUserPool returns the pool for the given user, creating it if needed.
+func (m *Manager) getOrCreateUserPool(ctx context.Context, user string) (*UserPool, error) {
+	if user == "" {
+		return nil, fmt.Errorf("user cannot be empty")
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	// Check if pool already exists
+	if pool, ok := m.userPools[user]; ok {
+		return pool, nil
+	}
+
+	// Check if closed
+	if m.closed {
+		return nil, fmt.Errorf("manager is closed")
+	}
+
+	// Check max users limit
+	if maxUsers := m.config.MaxUsers(); maxUsers > 0 && int64(len(m.userPools)) >= maxUsers {
+		return nil, fmt.Errorf("maximum number of user pools (%d) reached", maxUsers)
+	}
+
+	// Create new user pool
+	pool := NewUserPool(ctx, &UserPoolConfig{
+		ClientConfig: m.buildClientConfig(user, ""), // Trust auth - no password
+		AdminPool:    m.adminPool,
+		RegularPoolConfig: &connpool.Config{
+			Capacity:     m.config.UserRegularCapacity(),
+			MaxIdleCount: m.config.UserRegularMaxIdle(),
+			IdleTimeout:  m.config.UserRegularIdleTimeout(),
+			MaxLifetime:  m.config.UserRegularMaxLifetime(),
+			Logger:       m.logger,
+		},
+		ReservedPoolConfig: &connpool.Config{
+			Capacity:     m.config.UserReservedCapacity(),
+			MaxIdleCount: m.config.UserReservedMaxIdle(),
+			IdleTimeout:  m.config.UserReservedIdleTimeout(),
+			MaxLifetime:  m.config.UserReservedMaxLifetime(),
+			Logger:       m.logger,
+		},
+		ReservedInactivityTimeout: m.config.UserReservedInactivityTimeout(),
+		Logger:                    m.logger,
+	})
+
+	m.userPools[user] = pool
+	m.logger.InfoContext(ctx, "created user pool", "user", user, "total_users", len(m.userPools))
+
+	return pool, nil
+}
+
 // Close shuts down all connection pools.
-// Closes pools in reverse order of creation: reserved -> regular -> admin.
 func (m *Manager) Close() {
-	if m.reservedPool != nil {
-		m.reservedPool.Close()
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.closed {
+		return
 	}
-	if m.regularPool != nil {
-		m.regularPool.Close()
+	m.closed = true
+
+	// Close all user pools first
+	for user, pool := range m.userPools {
+		pool.Close()
+		m.logger.Debug("closed user pool", "user", user)
 	}
+	m.userPools = nil
+
+	// Close shared admin pool last
 	if m.adminPool != nil {
 		m.adminPool.Close()
 	}
@@ -167,7 +189,7 @@ func (m *Manager) Close() {
 
 // --- Admin Pool Operations ---
 
-// GetAdminConn acquires an admin connection from the pool.
+// GetAdminConn acquires an admin connection from the shared pool.
 // Admin connections are used for control plane operations like killing queries.
 // The caller must call Recycle() on the returned connection to return it to the pool.
 func (m *Manager) GetAdminConn(ctx context.Context) (admin.PooledConn, error) {
@@ -176,47 +198,74 @@ func (m *Manager) GetAdminConn(ctx context.Context) (admin.PooledConn, error) {
 
 // --- Regular Pool Operations ---
 
-// GetRegularConn acquires a regular connection from the pool with the specified user role.
+// GetRegularConn acquires a regular connection for the specified user.
 // The caller must call Recycle() on the returned connection to return it to the pool.
 func (m *Manager) GetRegularConn(ctx context.Context, user string) (regular.PooledConn, error) {
-	return m.regularPool.Get(ctx, user)
+	pool, err := m.getOrCreateUserPool(ctx, user)
+	if err != nil {
+		return nil, err
+	}
+	return pool.GetRegularConn(ctx)
 }
 
-// GetRegularConnWithSettings acquires a regular connection with specific settings and user role.
+// GetRegularConnWithSettings acquires a regular connection with specific settings for the user.
 // The caller must call Recycle() on the returned connection to return it to the pool.
 func (m *Manager) GetRegularConnWithSettings(ctx context.Context, settings *connstate.Settings, user string) (regular.PooledConn, error) {
-	return m.regularPool.GetWithSettings(ctx, settings, user)
+	pool, err := m.getOrCreateUserPool(ctx, user)
+	if err != nil {
+		return nil, err
+	}
+	return pool.GetRegularConnWithSettings(ctx, settings)
 }
 
 // --- Reserved Pool Operations ---
 
-// NewReservedConn creates a new reserved connection for transactions or portal operations.
+// NewReservedConn creates a new reserved connection for the specified user.
 // The connection is assigned a unique ID for client-side tracking.
 // The caller must call Release() when done with the connection.
 func (m *Manager) NewReservedConn(ctx context.Context, settings *connstate.Settings, user string) (*reserved.Conn, error) {
-	return m.reservedPool.NewConn(ctx, settings, user)
+	pool, err := m.getOrCreateUserPool(ctx, user)
+	if err != nil {
+		return nil, err
+	}
+	return pool.NewReservedConn(ctx, settings)
 }
 
-// GetReservedConn retrieves an existing reserved connection by ID.
-// Returns nil, false if the connection is not found or has timed out.
-func (m *Manager) GetReservedConn(connID int64) (*reserved.Conn, bool) {
-	return m.reservedPool.Get(connID)
+// GetReservedConn retrieves an existing reserved connection by ID for the specified user.
+// Returns nil, false if the user pool doesn't exist, the connection is not found, or has timed out.
+func (m *Manager) GetReservedConn(connID int64, user string) (*reserved.Conn, bool) {
+	m.mu.Lock()
+	pool, ok := m.userPools[user]
+	m.mu.Unlock()
+
+	if !ok {
+		return nil, false
+	}
+
+	return pool.GetReservedConn(connID)
 }
 
 // --- Stats ---
 
 // Stats returns statistics for all pools.
 func (m *Manager) Stats() ManagerStats {
-	return ManagerStats{
-		Admin:    m.adminPool.Stats(),
-		Regular:  m.regularPool.Stats(),
-		Reserved: m.reservedPool.Stats(),
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	stats := ManagerStats{
+		Admin:     m.adminPool.Stats(),
+		UserPools: make(map[string]UserPoolStats, len(m.userPools)),
 	}
+
+	for user, pool := range m.userPools {
+		stats.UserPools[user] = pool.Stats()
+	}
+
+	return stats
 }
 
 // ManagerStats holds statistics for all managed pools.
 type ManagerStats struct {
-	Admin    connpool.PoolStats // Admin pool for control operations
-	Regular  connpool.PoolStats // Regular pool for simple queries
-	Reserved reserved.PoolStats // Reserved pool stats (includes underlying regular pool stats)
+	Admin     connpool.PoolStats       // Shared admin pool stats
+	UserPools map[string]UserPoolStats // Per-user pool stats
 }
