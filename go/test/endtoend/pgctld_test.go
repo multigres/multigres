@@ -630,14 +630,14 @@ func TestPostgreSQLAuthentication(t *testing.T) {
 		// Test password
 		testPassword := "file_password_secure_456"
 
-		// Create password file
-		pwfile := filepath.Join(baseDir, "password.txt")
+		// Create password file at conventional location (poolerDir/pgpassword.txt)
+		pwfile := filepath.Join(baseDir, "pgpassword.txt")
 		err := os.WriteFile(pwfile, []byte(testPassword), 0o600)
 		require.NoError(t, err, "Should create password file")
 
-		// Initialize with password file
-		t.Logf("Initializing PostgreSQL with password file")
-		initCmd := exec.Command("pgctld", "init", "--pooler-dir", baseDir, "--pg-pwfile", pwfile, "--pg-port", strconv.Itoa(port))
+		// Initialize - pgctld will find password file at conventional location
+		t.Logf("Initializing PostgreSQL with password file at conventional location")
+		initCmd := exec.Command("pgctld", "init", "--pooler-dir", baseDir, "--pg-port", strconv.Itoa(port))
 		initCmd.Env = append(os.Environ(), "PGCONNECT_TIMEOUT=5")
 		output, err := initCmd.CombinedOutput()
 		require.NoError(t, err, "pgctld init should succeed, output: %s", string(output))
@@ -682,21 +682,21 @@ func TestPostgreSQLAuthentication(t *testing.T) {
 
 		// Use cached pgctld binary for testing
 
-		// Create password file
-		pwfile := filepath.Join(baseDir, "password.txt")
+		// Create password file at conventional location
+		pwfile := filepath.Join(baseDir, "pgpassword.txt")
 		err := os.WriteFile(pwfile, []byte("file_password"), 0o600)
 		require.NoError(t, err, "Should create password file")
 
-		// Try to initialize with both PGPASSWORD and password file (should fail)
+		// Try to initialize with both PGPASSWORD and password file at conventional location (should fail)
 		t.Logf("Testing conflict between PGPASSWORD and password file")
-		initCmd := exec.Command("pgctld", "init", "--pooler-dir", baseDir, "--pg-pwfile", pwfile)
+		initCmd := exec.Command("pgctld", "init", "--pooler-dir", baseDir)
 		initCmd.Env = append(os.Environ(),
 			"PGCONNECT_TIMEOUT=5",
 			"PGPASSWORD=env_password",
 		)
 		output, err := initCmd.CombinedOutput()
 		assert.Error(t, err, "pgctld init should fail with both password sources")
-		assert.Contains(t, string(output), "both --pg-pwfile flag and PGPASSWORD environment variable are set", "Should show conflict error")
+		assert.Contains(t, string(output), "both password file", "Should show conflict error")
 	})
 }
 

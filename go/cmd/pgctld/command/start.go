@@ -54,29 +54,30 @@ func NewPostgresCtlConfigFromDefaults(poolerDir string, pgPort int, pgListenAddr
 	return config, nil
 }
 
-// ResolvePassword handles password resolution from file or environment variable
-// Returns error if both are set or if password file cannot be read
-func resolvePassword(pgPwfile string) (string, error) {
+// resolvePassword handles password resolution from file or environment variable.
+// It checks for a password file at the conventional location (poolerDir/pgpassword.txt).
+// If the file exists, it reads the password from it. Otherwise, it falls back to PGPASSWORD env var.
+// Returns error if both password file and PGPASSWORD are set.
+func resolvePassword(poolerDir string) (string, error) {
 	envPassword := os.Getenv("PGPASSWORD")
 	var filePassword string
+	var fileExists bool
 
-	// Read password from file if specified
-	if pgPwfile != "" {
-		filePasswordBytes, readErr := os.ReadFile(pgPwfile)
-		if readErr != nil {
-			return "", fmt.Errorf("failed to read password file %s: %w", pgPwfile, readErr)
-		}
+	// Check for password file at conventional location
+	pwfile := filepath.Join(poolerDir, "pgpassword.txt")
+	if filePasswordBytes, readErr := os.ReadFile(pwfile); readErr == nil {
 		// Remove trailing newline if present
 		filePassword = strings.TrimRight(string(filePasswordBytes), "\n\r")
+		fileExists = true
 	}
 
 	// Check if both file and environment variable are set
-	if pgPwfile != "" && envPassword != "" {
-		return "", fmt.Errorf("both --pg-pwfile flag and PGPASSWORD environment variable are set, please use only one")
+	if fileExists && envPassword != "" {
+		return "", fmt.Errorf("both password file (%s) and PGPASSWORD environment variable are set, please use only one", pwfile)
 	}
 
 	// Use file password if set, otherwise use environment variable
-	if pgPwfile != "" {
+	if fileExists {
 		return filePassword, nil
 	}
 
