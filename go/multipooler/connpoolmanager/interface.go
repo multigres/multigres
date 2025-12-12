@@ -16,6 +16,7 @@ package connpoolmanager
 
 import (
 	"context"
+	"log/slog"
 
 	"github.com/multigres/multigres/go/multipooler/connstate"
 	"github.com/multigres/multigres/go/multipooler/pools/admin"
@@ -37,7 +38,7 @@ type PoolManager interface {
 	// Open initializes all connection pools with the given connection configuration.
 	// Connection settings (socket file, host, port, database) come from connConfig,
 	// while credentials are managed internally via viper flags.
-	Open(ctx context.Context, connConfig *ConnectionConfig)
+	Open(ctx context.Context, logger *slog.Logger, connConfig *ConnectionConfig)
 
 	// Close shuts down all connection pools.
 	Close()

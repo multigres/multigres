@@ -19,15 +19,12 @@ import (
 	"context"
 	"log/slog"
 
-	"github.com/spf13/pflag"
-
 	"github.com/multigres/multigres/go/multipooler/connstate"
 	"github.com/multigres/multigres/go/multipooler/pools/admin"
 	"github.com/multigres/multigres/go/multipooler/pools/connpool"
 	"github.com/multigres/multigres/go/multipooler/pools/regular"
 	"github.com/multigres/multigres/go/multipooler/pools/reserved"
 	"github.com/multigres/multigres/go/pgprotocol/client"
-	"github.com/multigres/multigres/go/tools/viperutil"
 )
 
 // Manager orchestrates all connection pool types (admin, regular, reserved).
@@ -39,10 +36,11 @@ import (
 //
 // Usage:
 //
-//	mgr := connpoolmanager.NewManager(reg, logger)
-//	mgr.RegisterFlags(cmd.Flags())
+//	cfg := connpoolmanager.NewConfig(reg)
+//	cfg.RegisterFlags(cmd.Flags())
 //	// ... parse flags ...
-//	mgr.Open(ctx, connConfig)
+//	mgr := cfg.NewManager()
+//	mgr.Open(ctx, logger, connConfig)
 //	defer mgr.Close()
 //
 //	// Get connections as needed
@@ -51,34 +49,11 @@ import (
 //	reservedConn, _ := mgr.NewReservedConn(ctx, settings, user)
 type Manager struct {
 	config *Config
-	logger *slog.Logger
+	logger *slog.Logger // Set by Open()
 
 	adminPool    *admin.Pool
 	regularPool  *regular.Pool
 	reservedPool *reserved.Pool // Manages its own underlying regular pool
-}
-
-// NewManager creates a new connection pool manager.
-// Call RegisterFlags() to bind configuration flags, then Open() to initialize the pools.
-//
-// Parameters:
-//   - reg: Viper registry for configuration binding
-//   - logger: Logger for pool operations (uses slog.Default() if nil)
-func NewManager(reg *viperutil.Registry, logger *slog.Logger) *Manager {
-	if logger == nil {
-		logger = slog.Default()
-	}
-
-	return &Manager{
-		config: newConfig(reg),
-		logger: logger,
-	}
-}
-
-// RegisterFlags registers all connection pool flags with the given FlagSet.
-// Must be called before parsing flags and before Open().
-func (m *Manager) RegisterFlags(fs *pflag.FlagSet) {
-	m.config.registerFlags(fs)
 }
 
 // Open initializes all connection pools and starts background workers.
@@ -86,8 +61,14 @@ func (m *Manager) RegisterFlags(fs *pflag.FlagSet) {
 //
 // Parameters:
 //   - ctx: Context for pool operations
+//   - logger: Logger for pool operations (uses slog.Default() if nil)
 //   - connConfig: Connection settings (socket file, host, port, database)
-func (m *Manager) Open(ctx context.Context, connConfig *ConnectionConfig) {
+func (m *Manager) Open(ctx context.Context, logger *slog.Logger, connConfig *ConnectionConfig) {
+	if logger == nil {
+		logger = slog.Default()
+	}
+	m.logger = logger
+
 	// Build client configs using credentials from viper config and connection settings from connConfig.
 	adminClientConfig := m.buildClientConfig(connConfig, m.config.AdminUser(), m.config.AdminPassword())
 	appClientConfig := m.buildClientConfig(connConfig, m.config.AppUser(), m.config.AppPassword())

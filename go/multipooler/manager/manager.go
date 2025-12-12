@@ -31,6 +31,7 @@ import (
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/servenv"
 	"github.com/multigres/multigres/go/common/topoclient"
+	"github.com/multigres/multigres/go/multipooler/connpoolmanager"
 	"github.com/multigres/multigres/go/multipooler/heartbeat"
 	"github.com/multigres/multigres/go/multipooler/poolerserver"
 	"github.com/multigres/multigres/go/tools/retry"
@@ -66,6 +67,9 @@ type MultiPoolerManager struct {
 	serviceID    *clustermetadatapb.ID
 	replTracker  *heartbeat.ReplTracker
 	pgctldClient pgctldpb.PgCtldClient
+
+	// connPoolMgr manages all connection pools (admin, regular, reserved)
+	connPoolMgr connpoolmanager.PoolManager
 
 	// qsc is the query service controller
 	// This controller handles query serving while the manager orchestrates lifecycle,
@@ -176,6 +180,12 @@ func NewMultiPoolerManagerWithTimeout(logger *slog.Logger, config *Config, loadT
 		}
 	}
 
+	// Create connection pool manager from config
+	var connPoolMgr connpoolmanager.PoolManager
+	if config.ConnPoolConfig != nil {
+		connPoolMgr = config.ConnPoolConfig.NewManager()
+	}
+
 	pm := &MultiPoolerManager{
 		logger:            logger,
 		config:            config,
@@ -188,6 +198,7 @@ func NewMultiPoolerManagerWithTimeout(logger *slog.Logger, config *Config, loadT
 		loadTimeout:       loadTimeout,
 		queryServingState: clustermetadatapb.PoolerServingStatus_NOT_SERVING,
 		pgctldClient:      pgctldClient,
+		connPoolMgr:       connPoolMgr,
 		readyChan:         make(chan struct{}),
 	}
 
@@ -338,6 +349,11 @@ func (pm *MultiPoolerManager) Close() error {
 		if err := pm.qsc.Close(); err != nil {
 			return err
 		}
+	}
+
+	// Close connection pool manager
+	if pm.connPoolMgr != nil {
+		pm.connPoolMgr.Close()
 	}
 
 	pm.logger.Info("MultiPoolerManager: closed")
@@ -1323,6 +1339,17 @@ func (pm *MultiPoolerManager) Start(senv *servenv.ServEnv) {
 		pm.logger.Error("Failed to initialize query service controller", "error", err)
 	} else {
 		pm.logger.Info("Initialized query service controller with database config")
+	}
+
+	// Open connection pool manager with connection settings from config
+	if pm.connPoolMgr != nil {
+		connConfig := &connpoolmanager.ConnectionConfig{
+			SocketFile: pm.config.SocketFilePath,
+			Port:       pm.config.PgPort,
+			Database:   pm.config.Database,
+		}
+		pm.connPoolMgr.Open(pm.ctx, pm.logger, connConfig)
+		pm.logger.Info("Connection pool manager opened")
 	}
 
 	// Open the database connections and start background operations

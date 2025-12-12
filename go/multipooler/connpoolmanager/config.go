@@ -43,7 +43,8 @@ type ConnectionConfig struct {
 }
 
 // Config holds viper-backed configuration values for the connection pool manager.
-// It is created internally by NewManager and configured via RegisterFlags.
+// Create with NewConfig(), register flags with RegisterFlags(), then create the
+// manager with NewManager() when ready.
 type Config struct {
 	// --- Credential settings ---
 	// Admin credentials (postgres superuser) - used by AdminPool
@@ -74,9 +75,9 @@ type Config struct {
 	reservedMaxLifetime viperutil.Value[time.Duration]
 }
 
-// newConfig creates a new Config with all connection pool settings
+// NewConfig creates a new Config with all connection pool settings
 // registered to the provided registry.
-func newConfig(reg *viperutil.Registry) *Config {
+func NewConfig(reg *viperutil.Registry) *Config {
 	// Default values for pool configuration.
 	var (
 		adminCapacity int64 = 5
@@ -161,8 +162,8 @@ func newConfig(reg *viperutil.Registry) *Config {
 	}
 }
 
-// registerFlags registers all connection pool flags with the given FlagSet.
-func (c *Config) registerFlags(fs *pflag.FlagSet) {
+// RegisterFlags registers all connection pool flags with the given FlagSet.
+func (c *Config) RegisterFlags(fs *pflag.FlagSet) {
 	// Credential flags
 	fs.String("connpool-admin-user", c.adminUser.Default(), "Admin pool user (PostgreSQL superuser for control operations)")
 	fs.String("connpool-admin-password", c.adminPassword.Default(), "Admin pool password (can also be set via CONNPOOL_ADMIN_PASSWORD env var)")
@@ -266,4 +267,12 @@ func (c *Config) ReservedIdleTimeout() time.Duration {
 // ReservedMaxLifetime returns the configured reserved pool max lifetime.
 func (c *Config) ReservedMaxLifetime() time.Duration {
 	return c.reservedMaxLifetime.Get()
+}
+
+// NewManager creates a new connection pool manager from this config.
+// Call this after flags have been parsed and when you're ready to create the manager.
+func (c *Config) NewManager() *Manager {
+	return &Manager{
+		config: c,
+	}
 }
