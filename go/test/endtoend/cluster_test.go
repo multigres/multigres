@@ -667,7 +667,7 @@ func TestInitCommandConfigFileCreation(t *testing.T) {
 
 	cells, ok := cellsRaw.([]any)
 	require.True(t, ok, "cells config should be a slice")
-	require.Len(t, cells, 2, "should have exactly 2 cells")
+	require.Len(t, cells, 3, "should have exactly 3 cells")
 
 	// Check first cell (zone1)
 	cell1, ok := cells[0].(map[string]any)
@@ -680,6 +680,12 @@ func TestInitCommandConfigFileCreation(t *testing.T) {
 	require.True(t, ok, "second cell config should be a map")
 	assert.Equal(t, "zone2", cell2["name"])
 	assert.Equal(t, "/multigres/zone2", cell2["root-path"])
+
+	// Check third cell (zone3)
+	cell3, ok := cells[2].(map[string]any)
+	require.True(t, ok, "third cell config should be a map")
+	assert.Equal(t, "zone3", cell3["name"])
+	assert.Equal(t, "/multigres/zone3", cell3["root-path"])
 
 	// Check that cell services are configured
 	cellServices, ok := config.ProvisionerConfig["cells"].(map[string]any)
@@ -868,7 +874,7 @@ func TestClusterLifecycle(t *testing.T) {
 
 		cells, ok := cellsRaw.([]any)
 		require.True(t, ok, "cells config should be a slice")
-		require.Len(t, cells, 2, "should have exactly 2 cells")
+		require.Len(t, cells, 3, "should have exactly 3 cells")
 
 		// Get the first cell (for backward compatibility)
 		cell1, ok := cells[0].(map[string]any)
