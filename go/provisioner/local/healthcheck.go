@@ -25,6 +25,7 @@ import (
 
 	"google.golang.org/grpc"
 
+	"github.com/multigres/multigres/go/common/topoclient/etcdtopo"
 	pb "github.com/multigres/multigres/go/pb/pgctldservice"
 	"github.com/multigres/multigres/go/tools/grpccommon"
 	"github.com/multigres/multigres/go/tools/retry"
@@ -112,27 +113,13 @@ func (p *localProvisioner) checkMultigresServiceHealth(ctx context.Context, serv
 	return nil
 }
 
-// checkEtcdHealth checks if etcd is ready by querying its health endpoint
+// checkEtcdHealth checks if etcd is ready by verifying the gRPC server can
+// accept requests. A TCP port being open doesn't mean the gRPC server is fully
+// initialized, so we perform an actual etcd client operation to verify readiness.
 func (p *localProvisioner) checkEtcdHealth(ctx context.Context, address string) error {
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
-
-	url := fmt.Sprintf("http://%s/health", address)
-	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
-	if err != nil {
-		return fmt.Errorf("failed to create request: %w", err)
-	}
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("failed to reach etcd health endpoint: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("etcd health endpoint returned status %d", resp.StatusCode)
-	}
-	return nil
+	// etcdtopo.WaitForReady expects a full URL with scheme
+	clientAddr := fmt.Sprintf("http://%s", address)
+	return etcdtopo.WaitForReady(ctx, clientAddr, 5*time.Second)
 }
 
 // checkDebugConfigEndpoint checks if the debug/config endpoint returns 200 OK
