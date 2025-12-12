@@ -29,13 +29,13 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
-	clientv3 "go.etcd.io/etcd/client/v3"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
 	"github.com/multigres/multigres/go/cmd/pgctld/testutil"
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/topoclient"
+	"github.com/multigres/multigres/go/common/topoclient/etcdtopo"
 	"github.com/multigres/multigres/go/provisioner/local/pgbackrest"
 	"github.com/multigres/multigres/go/test/endtoend"
 	"github.com/multigres/multigres/go/test/utils"
@@ -967,41 +967,12 @@ func startEtcdForSharedSetup(t *testing.T, dataDir string) (string, *exec.Cmd, e
 		return "", nil, fmt.Errorf("failed to start etcd: %w", err)
 	}
 
-	if err := waitForEtcdReady(t, clientAddr, 10*time.Second); err != nil {
+	if err := etcdtopo.WaitForReady(t.Context(), clientAddr, 10*time.Second); err != nil {
 		_ = cmd.Process.Kill()
 		return "", nil, err
 	}
 
 	return clientAddr, cmd, nil
-}
-
-// waitForEtcdReady waits for etcd to be ready by verifying the gRPC server
-// can accept requests. A TCP port being open doesn't mean the gRPC server
-// is fully initialized.
-func waitForEtcdReady(t *testing.T, clientAddr string, timeout time.Duration) error {
-	t.Helper()
-
-	cli, err := clientv3.New(clientv3.Config{
-		Endpoints:   []string{clientAddr},
-		DialTimeout: 5 * time.Second,
-	})
-	if err != nil {
-		return fmt.Errorf("failed to create etcd client: %w", err)
-	}
-	defer cli.Close()
-
-	ctx, cancel := context.WithTimeout(t.Context(), timeout)
-	defer cancel()
-	start := time.Now()
-	for {
-		if _, err := cli.Get(ctx, "/"); err == nil {
-			return nil
-		}
-		if time.Since(start) > timeout {
-			return fmt.Errorf("etcd failed to become ready within %v", timeout)
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
 }
 
 // waitForManagerReady waits for the manager to be in ready state

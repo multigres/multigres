@@ -15,7 +15,6 @@
 package etcdtopo
 
 import (
-	"context"
 	"fmt"
 	"log/slog"
 	"net"
@@ -26,7 +25,6 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
-	clientv3 "go.etcd.io/etcd/client/v3"
 
 	"github.com/multigres/multigres/go/test/utils"
 )
@@ -116,27 +114,9 @@ func StartEtcdWithOptions(t *testing.T, opts EtcdOptions) (string, *exec.Cmd) {
 	err = cmd.Start()
 	require.NoError(t, err, "failed to start etcd")
 
-	// Create a client to connect to the created etcd.
-	cli, err := clientv3.New(clientv3.Config{
-		Endpoints:   []string{clientAddr},
-		DialTimeout: 5 * time.Second,
-	})
-	require.NoError(t, err, "newCellClient(%v) failed", clientAddr)
-	defer cli.Close()
-
-	// Wait until we can list "/", or timeout.
-	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
-	defer cancel()
-	start := time.Now()
-	for {
-		if _, err := cli.Get(ctx, "/"); err == nil {
-			break
-		}
-		if time.Since(start) > 10*time.Second {
-			t.Fatalf("Failed to start etcd daemon in time")
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
+	// Wait for etcd to be ready
+	err = WaitForReady(t.Context(), clientAddr, 10*time.Second)
+	require.NoError(t, err, "etcd failed to become ready")
 
 	t.Cleanup(func() {
 		// Ensure the process is killed and cleaned up
