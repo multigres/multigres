@@ -75,6 +75,9 @@ type Config struct {
 
 	// Maximum number of user pools (0 = unlimited)
 	maxUsers viperutil.Value[int64]
+
+	// Settings cache size (0 = use default)
+	settingsCacheSize viperutil.Value[int64]
 }
 
 // NewConfig creates a new Config with all connection pool settings
@@ -99,6 +102,9 @@ func NewConfig(reg *viperutil.Registry) *Config {
 
 		// Maximum number of user pools (0 = unlimited)
 		maxUsers int64 = 0
+
+		// Settings cache size
+		settingsCacheSize int64 = 1024
 	)
 
 	return &Config{
@@ -165,6 +171,12 @@ func NewConfig(reg *viperutil.Registry) *Config {
 			Default:  maxUsers,
 			FlagName: "connpool-max-users",
 		}),
+
+		// Settings cache size
+		settingsCacheSize: viperutil.Configure(reg, "connpool.settings-cache-size", viperutil.Options[int64]{
+			Default:  settingsCacheSize,
+			FlagName: "connpool-settings-cache-size",
+		}),
 	}
 }
 
@@ -193,6 +205,9 @@ func (c *Config) RegisterFlags(fs *pflag.FlagSet) {
 	// Max users flag
 	fs.Int64("connpool-max-users", c.maxUsers.Default(), "Maximum number of user pools (0 = unlimited)")
 
+	// Settings cache size flag
+	fs.Int64("connpool-settings-cache-size", c.settingsCacheSize.Default(), "Maximum number of unique settings combinations to cache (0 = use default)")
+
 	viperutil.BindFlags(fs,
 		c.adminUser,
 		c.adminPassword,
@@ -207,6 +222,7 @@ func (c *Config) RegisterFlags(fs *pflag.FlagSet) {
 		c.userReservedIdleTimeout,
 		c.userReservedMaxLifetime,
 		c.maxUsers,
+		c.settingsCacheSize,
 	)
 }
 
@@ -276,6 +292,11 @@ func (c *Config) UserReservedMaxLifetime() time.Duration {
 // MaxUsers returns the maximum number of user pools (0 = unlimited).
 func (c *Config) MaxUsers() int64 {
 	return c.maxUsers.Get()
+}
+
+// SettingsCacheSize returns the settings cache size.
+func (c *Config) SettingsCacheSize() int {
+	return int(c.settingsCacheSize.Get())
 }
 
 // NewManager creates a new connection pool manager from this config.

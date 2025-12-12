@@ -18,7 +18,6 @@ import (
 	"context"
 	"log/slog"
 
-	"github.com/multigres/multigres/go/multipooler/connstate"
 	"github.com/multigres/multigres/go/multipooler/pools/admin"
 	"github.com/multigres/multigres/go/multipooler/pools/regular"
 	"github.com/multigres/multigres/go/multipooler/pools/reserved"
@@ -58,12 +57,14 @@ type PoolManager interface {
 	GetRegularConn(ctx context.Context, user string) (regular.PooledConn, error)
 
 	// GetRegularConnWithSettings acquires a regular connection with specific settings for the user.
-	GetRegularConnWithSettings(ctx context.Context, settings *connstate.Settings, user string) (regular.PooledConn, error)
+	// Settings are provided as a map and internally converted via the shared SettingsCache.
+	GetRegularConnWithSettings(ctx context.Context, settings map[string]string, user string) (regular.PooledConn, error)
 
 	// --- Reserved Pool Operations ---
 
 	// NewReservedConn creates a new reserved connection for the specified user.
-	NewReservedConn(ctx context.Context, settings *connstate.Settings, user string) (*reserved.Conn, error)
+	// Settings are provided as a map and internally converted via the shared SettingsCache.
+	NewReservedConn(ctx context.Context, settings map[string]string, user string) (*reserved.Conn, error)
 
 	// GetReservedConn retrieves an existing reserved connection by ID for the specified user.
 	GetReservedConn(connID int64, user string) (*reserved.Conn, bool)

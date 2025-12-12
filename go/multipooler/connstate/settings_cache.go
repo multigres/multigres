@@ -21,9 +21,6 @@ import (
 	"sync"
 )
 
-// DefaultSettingsCacheSize is the default maximum number of settings to cache.
-const DefaultSettingsCacheSize = 1024
-
 // SettingsCacheKey is the type used for cache keys.
 type SettingsCacheKey string
 
@@ -55,16 +52,9 @@ type cacheEntry struct {
 	settings *Settings
 }
 
-// NewSettingsCache creates a new SettingsCache with the default max size.
-func NewSettingsCache() *SettingsCache {
-	return NewSettingsCacheWithSize(DefaultSettingsCacheSize)
-}
-
-// NewSettingsCacheWithSize creates a new SettingsCache with the specified max size.
-func NewSettingsCacheWithSize(maxSize int) *SettingsCache {
-	if maxSize <= 0 {
-		maxSize = DefaultSettingsCacheSize
-	}
+// NewSettingsCache creates a new SettingsCache with the specified max size.
+// The maxSize must be > 0; the caller is responsible for providing a valid size.
+func NewSettingsCache(maxSize int) *SettingsCache {
 	return &SettingsCache{
 		cache:   make(map[SettingsCacheKey]*list.Element),
 		lru:     list.New(),

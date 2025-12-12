@@ -51,7 +51,8 @@ type Manager struct {
 	logger     *slog.Logger      // Set by Open()
 	connConfig *ConnectionConfig // Stored for lazy pool creation
 
-	adminPool *admin.Pool // Shared admin pool for kill operations
+	adminPool     *admin.Pool              // Shared admin pool for kill operations
+	settingsCache *connstate.SettingsCache // Shared settings cache for all users
 
 	mu        sync.Mutex
 	userPools map[string]*UserPool // Per-user connection pools
@@ -72,6 +73,7 @@ func (m *Manager) Open(ctx context.Context, logger *slog.Logger, connConfig *Con
 	m.logger = logger
 	m.connConfig = connConfig
 	m.userPools = make(map[string]*UserPool)
+	m.settingsCache = connstate.NewSettingsCache(m.config.SettingsCacheSize())
 
 	// Build admin client config
 	adminClientConfig := m.buildClientConfig(m.config.AdminUser(), m.config.AdminPassword())
@@ -95,6 +97,7 @@ func (m *Manager) Open(ctx context.Context, logger *slog.Logger, connConfig *Con
 		"user_regular_capacity", m.config.UserRegularCapacity(),
 		"user_reserved_capacity", m.config.UserReservedCapacity(),
 		"max_users", m.config.MaxUsers(),
+		"settings_cache_size", m.config.SettingsCacheSize(),
 	)
 }
 
@@ -209,26 +212,32 @@ func (m *Manager) GetRegularConn(ctx context.Context, user string) (regular.Pool
 }
 
 // GetRegularConnWithSettings acquires a regular connection with specific settings for the user.
+// Settings are converted via the shared SettingsCache for consistent bucket assignment.
 // The caller must call Recycle() on the returned connection to return it to the pool.
-func (m *Manager) GetRegularConnWithSettings(ctx context.Context, settings *connstate.Settings, user string) (regular.PooledConn, error) {
+func (m *Manager) GetRegularConnWithSettings(ctx context.Context, settings map[string]string, user string) (regular.PooledConn, error) {
 	pool, err := m.getOrCreateUserPool(ctx, user)
 	if err != nil {
 		return nil, err
 	}
-	return pool.GetRegularConnWithSettings(ctx, settings)
+	// Convert map to *Settings via the shared cache
+	s := m.settingsCache.GetOrCreate(settings)
+	return pool.GetRegularConnWithSettings(ctx, s)
 }
 
 // --- Reserved Pool Operations ---
 
 // NewReservedConn creates a new reserved connection for the specified user.
+// Settings are converted via the shared SettingsCache for consistent bucket assignment.
 // The connection is assigned a unique ID for client-side tracking.
 // The caller must call Release() when done with the connection.
-func (m *Manager) NewReservedConn(ctx context.Context, settings *connstate.Settings, user string) (*reserved.Conn, error) {
+func (m *Manager) NewReservedConn(ctx context.Context, settings map[string]string, user string) (*reserved.Conn, error) {
 	pool, err := m.getOrCreateUserPool(ctx, user)
 	if err != nil {
 		return nil, err
 	}
-	return pool.NewReservedConn(ctx, settings)
+	// Convert map to *Settings via the shared cache
+	s := m.settingsCache.GetOrCreate(settings)
+	return pool.NewReservedConn(ctx, s)
 }
 
 // GetReservedConn retrieves an existing reserved connection by ID for the specified user.
