@@ -874,7 +874,7 @@ func TestClusterLifecycle(t *testing.T) {
 
 		cells, ok := cellsRaw.([]any)
 		require.True(t, ok, "cells config should be a slice")
-		require.Len(t, cells, 3, "should have exactly 3 cells")
+		require.Len(t, cells, 2, "should have exactly 2 cells")
 
 		// Get the first cell (for backward compatibility)
 		cell1, ok := cells[0].(map[string]any)
