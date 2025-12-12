@@ -24,6 +24,7 @@ import (
 
 	"github.com/multigres/multigres/go/cmd/multigres/command/admin"
 	"github.com/multigres/multigres/go/common/constants"
+	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multiadminpb "github.com/multigres/multigres/go/pb/multiadmin"
 )
 
@@ -80,12 +81,16 @@ func runListBackups(cmd *cobra.Command, args []string) error {
 		backupType int
 		status     int
 		size       int
+		poolerID   int
+		poolerType int
 	}{
 		backupID:   len("BACKUP ID"),
 		database:   len("DATABASE"),
 		backupType: len("TYPE"),
 		status:     len("STATUS"),
 		size:       len("SIZE"),
+		poolerID:   len("POOLER ID"),
+		poolerType: len("POOLER TYPE"),
 	}
 
 	// Scan data to find max widths
@@ -95,25 +100,30 @@ func runListBackups(cmd *cobra.Command, args []string) error {
 		colWidths.backupType = max(colWidths.backupType, len(b.Type))
 		colWidths.status = max(colWidths.status, len(backupStatusToString(b.Status)))
 		colWidths.size = max(colWidths.size, len(formatBytes(b.BackupSizeBytes)))
+		colWidths.poolerID = max(colWidths.poolerID, len(b.MultipoolerServiceId))
+		colWidths.poolerType = max(colWidths.poolerType, len(poolerTypeToString(b.PoolerType)))
 	}
 
 	// Build format string
-	format := fmt.Sprintf("%%-%ds  %%-%ds  %%-%ds  %%-%ds  %%s\n",
-		colWidths.backupID, colWidths.database, colWidths.backupType, colWidths.status)
+	format := fmt.Sprintf("%%-%ds  %%-%ds  %%-%ds  %%-%ds  %%-%ds  %%-%ds  %%s\n",
+		colWidths.backupID, colWidths.database, colWidths.backupType, colWidths.status,
+		colWidths.poolerID, colWidths.poolerType)
 
 	// Calculate total width for separator
 	totalWidth := colWidths.backupID + colWidths.database +
-		colWidths.backupType + colWidths.status + colWidths.size + 8 // 8 for spacing (4 gaps × 2 spaces)
+		colWidths.backupType + colWidths.status + colWidths.size +
+		colWidths.poolerID + colWidths.poolerType + 12 // 12 for spacing (6 gaps × 2 spaces)
 
 	// Print header
-	cmd.Printf(format, "BACKUP ID", "DATABASE", "TYPE", "STATUS", "SIZE")
+	cmd.Printf(format, "BACKUP ID", "DATABASE", "TYPE", "STATUS", "POOLER ID", "POOLER TYPE", "SIZE")
 	cmd.Println(strings.Repeat("-", totalWidth))
 
 	// Print each backup
 	for _, b := range resp.Backups {
 		status := backupStatusToString(b.Status)
 		size := formatBytes(b.BackupSizeBytes)
-		cmd.Printf(format, b.BackupId, b.Database, b.Type, status, size)
+		poolerType := poolerTypeToString(b.PoolerType)
+		cmd.Printf(format, b.BackupId, b.Database, b.Type, status, b.MultipoolerServiceId, poolerType, size)
 	}
 
 	return nil
@@ -127,6 +137,17 @@ func backupStatusToString(status multiadminpb.BackupStatus) string {
 		return "incomplete"
 	case multiadminpb.BackupStatus_BACKUP_STATUS_FAILED:
 		return "failed"
+	default:
+		return "unknown"
+	}
+}
+
+func poolerTypeToString(pt clustermetadatapb.PoolerType) string {
+	switch pt {
+	case clustermetadatapb.PoolerType_PRIMARY:
+		return "primary"
+	case clustermetadatapb.PoolerType_REPLICA:
+		return "replica"
 	default:
 		return "unknown"
 	}

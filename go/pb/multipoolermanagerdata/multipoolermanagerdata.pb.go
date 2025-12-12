@@ -3575,7 +3575,11 @@ type BackupMetadata struct {
 	// Size of the backup in bytes (original database size before compression)
 	BackupSizeBytes uint64 `protobuf:"varint,7,opt,name=backup_size_bytes,json=backupSizeBytes,proto3" json:"backup_size_bytes,omitempty"`
 	// Type of backup: "full", "diff", or "incr" (as reported by pgbackrest)
-	Type          string `protobuf:"bytes,8,opt,name=type,proto3" json:"type,omitempty"`
+	Type string `protobuf:"bytes,8,opt,name=type,proto3" json:"type,omitempty"`
+	// Multipooler ID that created this backup (from pgbackrest annotation)
+	MultipoolerId string `protobuf:"bytes,9,opt,name=multipooler_id,json=multipoolerId,proto3" json:"multipooler_id,omitempty"`
+	// Pooler type that created this backup (from pgbackrest annotation)
+	PoolerType    clustermetadata.PoolerType `protobuf:"varint,10,opt,name=pooler_type,json=poolerType,proto3,enum=clustermetadata.PoolerType" json:"pooler_type,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3664,6 +3668,20 @@ func (x *BackupMetadata) GetType() string {
 		return x.Type
 	}
 	return ""
+}
+
+func (x *BackupMetadata) GetMultipoolerId() string {
+	if x != nil {
+		return x.MultipoolerId
+	}
+	return ""
+}
+
+func (x *BackupMetadata) GetPoolerType() clustermetadata.PoolerType {
+	if x != nil {
+		return x.PoolerType
+	}
+	return clustermetadata.PoolerType(0)
 }
 
 // GetDurabilityPolicyRequest requests the active durability policy
@@ -4040,7 +4058,7 @@ const file_multipoolermanagerdata_proto_rawDesc = "" +
 	"\x17GetBackupByJobIdRequest\x12\x15\n" +
 	"\x06job_id\x18\x01 \x01(\tR\x05jobId\"Z\n" +
 	"\x18GetBackupByJobIdResponse\x12>\n" +
-	"\x06backup\x18\x01 \x01(\v2&.multipoolermanagerdata.BackupMetadataR\x06backup\"\xd4\x02\n" +
+	"\x06backup\x18\x01 \x01(\v2&.multipoolermanagerdata.BackupMetadataR\x06backup\"\xb9\x03\n" +
 	"\x0eBackupMetadata\x12\x1f\n" +
 	"\vtable_group\x18\x01 \x01(\tR\n" +
 	"tableGroup\x12\x14\n" +
@@ -4050,7 +4068,11 @@ const file_multipoolermanagerdata_proto_rawDesc = "" +
 	"\tfinal_lsn\x18\x05 \x01(\tR\bfinalLsn\x12\x15\n" +
 	"\x06job_id\x18\x06 \x01(\tR\x05jobId\x12*\n" +
 	"\x11backup_size_bytes\x18\a \x01(\x04R\x0fbackupSizeBytes\x12\x12\n" +
-	"\x04type\x18\b \x01(\tR\x04type\"3\n" +
+	"\x04type\x18\b \x01(\tR\x04type\x12%\n" +
+	"\x0emultipooler_id\x18\t \x01(\tR\rmultipoolerId\x12<\n" +
+	"\vpooler_type\x18\n" +
+	" \x01(\x0e2\x1b.clustermetadata.PoolerTypeR\n" +
+	"poolerType\"3\n" +
 	"\x06Status\x12\v\n" +
 	"\aUNKNOWN\x10\x00\x12\x0e\n" +
 	"\n" +
@@ -4218,13 +4240,14 @@ var file_multipoolermanagerdata_proto_depIdxs = []int32{
 	63, // 39: multipoolermanagerdata.GetBackupsResponse.backups:type_name -> multipoolermanagerdata.BackupMetadata
 	63, // 40: multipoolermanagerdata.GetBackupByJobIdResponse.backup:type_name -> multipoolermanagerdata.BackupMetadata
 	4,  // 41: multipoolermanagerdata.BackupMetadata.status:type_name -> multipoolermanagerdata.BackupMetadata.Status
-	73, // 42: multipoolermanagerdata.GetDurabilityPolicyResponse.policy:type_name -> clustermetadata.DurabilityPolicy
-	72, // 43: multipoolermanagerdata.CreateDurabilityPolicyRequest.quorum_rule:type_name -> clustermetadata.QuorumRule
-	44, // [44:44] is the sub-list for method output_type
-	44, // [44:44] is the sub-list for method input_type
-	44, // [44:44] is the sub-list for extension type_name
-	44, // [44:44] is the sub-list for extension extendee
-	0,  // [0:44] is the sub-list for field type_name
+	70, // 42: multipoolermanagerdata.BackupMetadata.pooler_type:type_name -> clustermetadata.PoolerType
+	73, // 43: multipoolermanagerdata.GetDurabilityPolicyResponse.policy:type_name -> clustermetadata.DurabilityPolicy
+	72, // 44: multipoolermanagerdata.CreateDurabilityPolicyRequest.quorum_rule:type_name -> clustermetadata.QuorumRule
+	45, // [45:45] is the sub-list for method output_type
+	45, // [45:45] is the sub-list for method input_type
+	45, // [45:45] is the sub-list for extension type_name
+	45, // [45:45] is the sub-list for extension extendee
+	0,  // [0:45] is the sub-list for field type_name
 }
 
 func init() { file_multipoolermanagerdata_proto_init() }

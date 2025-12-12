@@ -280,6 +280,10 @@ message BackupInfo {
   google.protobuf.Timestamp backup_time = 7;
   // backup_size_bytes is the size of the backup in bytes
   uint64 backup_size_bytes = 8;
+  // multipooler_service_id is the ID of the multipooler that reported the backup
+  string multipooler_service_id = 9;
+  // pooler_type is the type of the multipooler (PRIMARY or REPLICA)
+  clustermetadata.PoolerType pooler_type = 10;
 }
 
 // BackupStatus indicates the state of a backup artifact

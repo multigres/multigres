@@ -669,6 +669,12 @@ message BackupMetadata {
   // Type of backup: "full", "diff", or "incr" (as reported by pgbackrest)
   string type = 8;
 
+  // Multipooler ID that created this backup (from pgbackrest annotation)
+  string multipooler_id = 9;
+
+  // Pooler type that created this backup (from pgbackrest annotation)
+  clustermetadata.PoolerType pooler_type = 10;
+
   // Status represents the state of a backup
   enum Status {
     UNKNOWN = 0;

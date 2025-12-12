@@ -345,13 +345,15 @@ func (s *MultiAdminServer) GetBackups(ctx context.Context, req *multiadminpb.Get
 		}
 
 		backups[i] = &multiadminpb.BackupInfo{
-			BackupId:        b.BackupId,
-			Database:        req.Database,
-			TableGroup:      b.TableGroup,
-			Shard:           b.Shard,
-			Type:            b.Type,
-			Status:          backupStatus,
-			BackupSizeBytes: b.BackupSizeBytes,
+			BackupId:             b.BackupId,
+			Database:             req.Database,
+			TableGroup:           b.TableGroup,
+			Shard:                b.Shard,
+			Type:                 b.Type,
+			Status:               backupStatus,
+			BackupSizeBytes:      b.BackupSizeBytes,
+			MultipoolerServiceId: b.MultipoolerId,
+			PoolerType:           b.PoolerType,
 		}
 	}
 

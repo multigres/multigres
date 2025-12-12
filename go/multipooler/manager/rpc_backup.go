@@ -70,6 +70,10 @@ func (pm *MultiPoolerManager) backupLocked(ctx context.Context, forcePrimary boo
 	if err != nil {
 		return "", err
 	}
+	multipoolerName, err := pm.getMultipoolerName()
+	if err != nil {
+		return "", err
+	}
 
 	// Use provided job_id or generate one (same format as multiadmin)
 	effectiveJobID := jobID
@@ -103,8 +107,10 @@ func (pm *MultiPoolerManager) backupLocked(ctx context.Context, forcePrimary boo
 		args = append(args, "--annotation=shard="+shard)
 	}
 
-	// Add multipooler_id and job_id annotations for unique identification
-	args = append(args, "--annotation=multipooler_id="+multipoolerID)
+	// Add multipooler_id, pooler_type, and job_id annotations for unique identification
+	args = append(args, "--annotation=multipooler_id="+multipoolerName)
+	poolerType := pm.getPoolerType()
+	args = append(args, "--annotation=pooler_type="+poolerType.String())
 	args = append(args, "--annotation=job_id="+effectiveJobID)
 
 	args = append(args, "backup")
@@ -387,14 +393,20 @@ func (pm *MultiPoolerManager) listBackups(ctx context.Context) ([]*multipoolerma
 			status = multipoolermanagerdata.BackupMetadata_INCOMPLETE
 		}
 
-		// Extract table_group, shard, and job_id from annotations
+		// Extract table_group, shard, job_id, multipooler_id, and pooler_type from annotations
 		tableGroup := ""
 		shard := ""
 		jobID := ""
+		multipoolerID := ""
+		poolerType := clustermetadatapb.PoolerType_UNKNOWN
 		if pgBackup.Annotation != nil {
 			tableGroup = pgBackup.Annotation["table_group"]
 			shard = pgBackup.Annotation["shard"]
 			jobID = pgBackup.Annotation["job_id"]
+			multipoolerID = pgBackup.Annotation["multipooler_id"]
+			if pt, ok := clustermetadatapb.PoolerType_value[pgBackup.Annotation["pooler_type"]]; ok {
+				poolerType = clustermetadatapb.PoolerType(pt)
+			}
 		}
 
 		// Defense-in-depth: skip backups that don't match this pooler's shard.
@@ -436,6 +448,8 @@ func (pm *MultiPoolerManager) listBackups(ctx context.Context) ([]*multipoolerma
 			JobId:           jobID,
 			BackupSizeBytes: backupSizeBytes,
 			Type:            pgBackup.Type,
+			MultipoolerId:   multipoolerID,
+			PoolerType:      poolerType,
 		})
 	}
 

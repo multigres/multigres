@@ -469,6 +469,16 @@ func (pm *MultiPoolerManager) getMultipoolerIDString() (string, error) {
 	return "", mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION, "multipooler ID not available")
 }
 
+// getMultipoolerName returns just the name part of the multipooler ID (e.g., "4zrhr2mw").
+func (pm *MultiPoolerManager) getMultipoolerName() (string, error) {
+	pm.cachedMultipooler.mu.Lock()
+	defer pm.cachedMultipooler.mu.Unlock()
+	if pm.cachedMultipooler.multipooler != nil && pm.cachedMultipooler.multipooler.Id != nil {
+		return pm.cachedMultipooler.multipooler.Id.Name, nil
+	}
+	return "", mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION, "multipooler ID not available")
+}
+
 // getBackupLocation returns the backup location from the database topology
 func (pm *MultiPoolerManager) getBackupLocation(ctx context.Context) (string, error) {
 	database := pm.getDatabase()
