@@ -185,6 +185,7 @@ func (p *localProvisioner) DefaultConfig(configPaths []string) map[string]any {
 	// Generate service IDs for each cell using the same method as topo components
 	serviceIDZone1 := stringutil.RandomString(8)
 	serviceIDZone2 := stringutil.RandomString(8)
+	serviceIDZone3 := stringutil.RandomString(8)
 	tableGroup := "default"
 	shard := "0-inf"
 	dbName := "postgres"
@@ -210,6 +211,10 @@ func (p *localProvisioner) DefaultConfig(configPaths []string) map[string]any {
 				{
 					Name:     "zone2",
 					RootPath: "/multigres/zone2",
+				},
+				{
+					Name:     "zone3",
+					RootPath: "/multigres/zone3",
 				},
 			},
 		},
@@ -304,6 +309,50 @@ func (p *localProvisioner) DefaultConfig(configPaths []string) map[string]any {
 					PgDatabase:     dbName,
 					PgUser:         "postgres",
 					PgPwfile:       filepath.Join(GeneratePoolerDir(baseDir, serviceIDZone2), "pgpassword.txt"),
+					Timeout:        30,
+					LogLevel:       "info",
+				},
+			},
+			"zone3": {
+				Multigateway: MultigatewayConfig{
+					Path:     filepath.Join(binDir, "multigateway"),
+					HttpPort: ports.DefaultMultigatewayHTTP + 2,
+					GrpcPort: ports.DefaultMultigatewayGRPC + 2,
+					PgPort:   ports.DefaultPostgresPort + 2,
+					LogLevel: "info",
+				},
+				Multipooler: MultipoolerConfig{
+					Path:           filepath.Join(binDir, "multipooler"),
+					Database:       dbName,
+					TableGroup:     tableGroup,
+					Shard:          shard,
+					ServiceID:      serviceIDZone3,
+					PoolerDir:      GeneratePoolerDir(baseDir, serviceIDZone3),
+					PgPort:         ports.DefaultPostgresPort + 2,
+					BackupConf:     filepath.Join(GeneratePoolerDir(baseDir, serviceIDZone3), "pgbackrest.conf"),
+					HttpPort:       ports.DefaultMultipoolerHTTP + 2,
+					GrpcPort:       ports.DefaultMultipoolerGRPC + 2,
+					GRPCSocketFile: filepath.Join(baseDir, "sockets", "multipooler-zone3.sock"),
+					LogLevel:       "info",
+				},
+				Multiorch: MultiorchConfig{
+					Path:                           filepath.Join(binDir, "multiorch"),
+					HttpPort:                       ports.DefaultMultiorchHTTP + 2,
+					GrpcPort:                       ports.DefaultMultiorchGRPC + 2,
+					LogLevel:                       "info",
+					ClusterMetadataRefreshInterval: "500ms",
+					PoolerHealthCheckInterval:      "500ms",
+					RecoveryCycleInterval:          "500ms",
+				},
+				Pgctld: PgctldConfig{
+					Path:           filepath.Join(binDir, "pgctld"),
+					PoolerDir:      GeneratePoolerDir(baseDir, serviceIDZone3),
+					GrpcPort:       ports.DefaultPgctldGRPC + 2,
+					GRPCSocketFile: filepath.Join(baseDir, "sockets", "pgctld-zone3.sock"),
+					PgPort:         ports.DefaultPostgresPort + 2,
+					PgDatabase:     dbName,
+					PgUser:         "postgres",
+					PgPwfile:       filepath.Join(GeneratePoolerDir(baseDir, serviceIDZone3), "pgpassword.txt"),
 					Timeout:        30,
 					LogLevel:       "info",
 				},
