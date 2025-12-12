@@ -121,8 +121,7 @@ func (pm *MultiPoolerManager) BeginTerm(ctx context.Context, req *consensusdatap
 			pm.logger.ErrorContext(ctx, "Demotion failed, rejecting term acceptance",
 				"error", demoteErr,
 				"term", req.Term)
-			// TODO: we should attempt to undo the demote.
-			// UndoDemote has not been implemented yet
+			// TODO: we should attempt to undo the demote with UndoDemote.
 			return response, nil
 		}
 

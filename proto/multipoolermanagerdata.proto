@@ -325,11 +325,16 @@ message DemoteResponse {
   int32 connections_terminated = 4;
 }
 
-// UndoDemote undoes a demotion
+// UndoDemote undoes a demotion by restarting PostgreSQL as a primary.
 message UndoDemoteRequest {
 }
 
 message UndoDemoteResponse {
+  // Whether the pooler was already a primary (idempotent check)
+  bool was_already_primary = 1;
+
+  // LSN position after undo demotion
+  string lsn_position = 2;
 }
 
 // StopReplicationAndGetStatus stops PostgreSQL replication (replay and/or receiver based on mode)
