@@ -24,6 +24,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
+	"github.com/multigres/multigres/go/cmd/multigres/command/admin"
 	multiadminpb "github.com/multigres/multigres/go/pb/multiadmin"
 )
 
@@ -51,8 +52,8 @@ func runGetDatabase(cmd *cobra.Command, args []string) error {
 	// Get the database name
 	databaseName, _ := cmd.Flags().GetString("name")
 
-	// Resolve admin server address (reuse the same logic as getcell)
-	adminServer, err := GetAdminServerAddress(cmd)
+	// Resolve admin server address
+	adminServer, err := admin.GetServerAddress(cmd)
 	if err != nil {
 		return err
 	}

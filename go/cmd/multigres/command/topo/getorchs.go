@@ -23,13 +23,14 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
+	"github.com/multigres/multigres/go/cmd/multigres/command/admin"
 	multiadminpb "github.com/multigres/multigres/go/pb/multiadmin"
 )
 
 // runGetOrchs handles the getorchs command
 func runGetOrchs(cmd *cobra.Command, args []string) error {
 	// Get admin server address
-	adminServer, err := GetAdminServerAddress(cmd)
+	adminServer, err := admin.GetServerAddress(cmd)
 	if err != nil {
 		return err
 	}

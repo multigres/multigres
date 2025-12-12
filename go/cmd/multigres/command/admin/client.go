@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package topo
+package admin
 
 import (
 	"fmt"
@@ -20,13 +20,43 @@ import (
 	"path/filepath"
 
 	"github.com/spf13/cobra"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 	"gopkg.in/yaml.v3"
 
+	multiadminpb "github.com/multigres/multigres/go/pb/multiadmin"
 	"github.com/multigres/multigres/go/provisioner/local"
 )
 
-// GetAdminServerAddress resolves the admin server address from flags or config
-func GetAdminServerAddress(cmd *cobra.Command) (string, error) {
+// Conn wraps a gRPC connection to the multiadmin server.
+type Conn struct {
+	multiadminpb.MultiAdminServiceClient
+	conn *grpc.ClientConn
+}
+
+// Close closes the underlying gRPC connection.
+func (c *Conn) Close() error {
+	return c.conn.Close()
+}
+
+// NewClient creates a connection to the multiadmin server.
+func NewClient(cmd *cobra.Command) (*Conn, error) {
+	addr, err := GetServerAddress(cmd)
+	if err != nil {
+		return nil, err
+	}
+	conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to admin server at %s: %w", addr, err)
+	}
+	return &Conn{
+		MultiAdminServiceClient: multiadminpb.NewMultiAdminServiceClient(conn),
+		conn:                    conn,
+	}, nil
+}
+
+// GetServerAddress resolves the admin server address from flags or config
+func GetServerAddress(cmd *cobra.Command) (string, error) {
 	// Check if admin-server flag is provided
 	adminServer, _ := cmd.Flags().GetString("admin-server")
 	if adminServer != "" {
@@ -44,7 +74,7 @@ func GetAdminServerAddress(cmd *cobra.Command) (string, error) {
 	}
 
 	// Load config and extract multiadmin address
-	adminServerFromConfig, err := getAdminServerFromConfig(configPaths)
+	adminServerFromConfig, err := getServerFromConfig(configPaths)
 	if err != nil {
 		return "", fmt.Errorf("failed to get admin server from config: %w", err)
 	}
@@ -56,8 +86,8 @@ func GetAdminServerAddress(cmd *cobra.Command) (string, error) {
 	return adminServerFromConfig, nil
 }
 
-// getAdminServerFromConfig extracts the multiadmin server address from config
-func getAdminServerFromConfig(configPaths []string) (string, error) {
+// getServerFromConfig extracts the multiadmin server address from config
+func getServerFromConfig(configPaths []string) (string, error) {
 	// Find the config file
 	var configFile string
 	for _, path := range configPaths {

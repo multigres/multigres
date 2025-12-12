@@ -20,10 +20,8 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 
-	"github.com/multigres/multigres/go/cmd/multigres/command/topo"
+	"github.com/multigres/multigres/go/cmd/multigres/command/admin"
 	"github.com/multigres/multigres/go/common/constants"
 	multiadminpb "github.com/multigres/multigres/go/pb/multiadmin"
 )
@@ -54,20 +52,12 @@ func runBackup(cmd *cobra.Command, args []string) error {
 	backupType, _ := cmd.Flags().GetString("type")
 	primary, _ := cmd.Flags().GetBool("primary")
 
-	// Resolve admin server address from config
-	adminServer, err := topo.GetAdminServerAddress(cmd)
+	// Create admin client
+	client, err := admin.NewClient(cmd)
 	if err != nil {
 		return err
 	}
-
-	// Create gRPC connection
-	conn, err := grpc.NewClient(adminServer, grpc.WithTransportCredentials(insecure.NewCredentials()))
-	if err != nil {
-		return fmt.Errorf("failed to connect to admin server at %s: %w", adminServer, err)
-	}
-	defer conn.Close()
-
-	client := multiadminpb.NewMultiAdminServiceClient(conn)
+	defer client.Close()
 
 	// Start backup
 	if primary {
