@@ -22,6 +22,8 @@ import (
 	"crypto/tls"
 	"fmt"
 	"net"
+	"path"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -104,14 +106,24 @@ type Conn struct {
 
 // Connect establishes a new connection to a PostgreSQL server.
 func Connect(ctx context.Context, config *Config) (*Conn, error) {
+	// Determine network type and address.
+	// If host starts with "/", use Unix socket; otherwise use TCP.
+	var network, address string
+	if strings.HasPrefix(config.Host, "/") {
+		network = "unix"
+		address = path.Join(config.Host, fmt.Sprintf(".s.PGSQL.%d", config.Port))
+	} else {
+		network = "tcp"
+		address = fmt.Sprintf("%s:%d", config.Host, config.Port)
+	}
+
 	// Connect to the server.
 	dialer := &net.Dialer{
 		Timeout: config.DialTimeout,
 	}
-	address := fmt.Sprintf("%s:%d", config.Host, config.Port)
-	netConn, err := dialer.DialContext(ctx, "tcp", address)
+	netConn, err := dialer.DialContext(ctx, network, address)
 	if err != nil {
-		return nil, fmt.Errorf("failed to connect to %s: %w", address, err)
+		return nil, fmt.Errorf("failed to connect to %s (%s): %w", address, network, err)
 	}
 
 	// Create the connection object.
