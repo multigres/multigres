@@ -679,10 +679,6 @@ message CreateDurabilityPolicyRequest {
 }
 
 // CreateDurabilityPolicyResponse confirms policy creation
+// Errors are returned via gRPC status codes, not in the response body
 message CreateDurabilityPolicyResponse {
-  // Whether the policy was created successfully
-  bool success = 1;
-
-  // Error message if creation failed
-  string error_message = 2;
 }
