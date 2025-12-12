@@ -40,6 +40,7 @@ const (
 	MultiPoolerService_StreamExecute_FullMethodName       = "/multipoolerservice.MultiPoolerService/StreamExecute"
 	MultiPoolerService_PortalStreamExecute_FullMethodName = "/multipoolerservice.MultiPoolerService/PortalStreamExecute"
 	MultiPoolerService_Describe_FullMethodName            = "/multipoolerservice.MultiPoolerService/Describe"
+	MultiPoolerService_GetAuthCredentials_FullMethodName  = "/multipoolerservice.MultiPoolerService/GetAuthCredentials"
 )
 
 // MultiPoolerServiceClient is the client API for MultiPoolerService service.
@@ -59,6 +60,9 @@ type MultiPoolerServiceClient interface {
 	PortalStreamExecute(ctx context.Context, in *PortalStreamExecuteRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[PortalStreamExecuteResponse], error)
 	// Describe returns metadata about a prepared statement or portal
 	Describe(ctx context.Context, in *DescribeRequest, opts ...grpc.CallOption) (*DescribeResponse, error)
+	// GetAuthCredentials retrieves authentication credentials for a user.
+	// Used by multigateway to get SCRAM password hashes for client authentication.
+	GetAuthCredentials(ctx context.Context, in *GetAuthCredentialsRequest, opts ...grpc.CallOption) (*GetAuthCredentialsResponse, error)
 }
 
 type multiPoolerServiceClient struct {
@@ -127,6 +131,16 @@ func (c *multiPoolerServiceClient) Describe(ctx context.Context, in *DescribeReq
 	return out, nil
 }
 
+func (c *multiPoolerServiceClient) GetAuthCredentials(ctx context.Context, in *GetAuthCredentialsRequest, opts ...grpc.CallOption) (*GetAuthCredentialsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetAuthCredentialsResponse)
+	err := c.cc.Invoke(ctx, MultiPoolerService_GetAuthCredentials_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // MultiPoolerServiceServer is the server API for MultiPoolerService service.
 // All implementations must embed UnimplementedMultiPoolerServiceServer
 // for forward compatibility.
@@ -144,6 +158,9 @@ type MultiPoolerServiceServer interface {
 	PortalStreamExecute(*PortalStreamExecuteRequest, grpc.ServerStreamingServer[PortalStreamExecuteResponse]) error
 	// Describe returns metadata about a prepared statement or portal
 	Describe(context.Context, *DescribeRequest) (*DescribeResponse, error)
+	// GetAuthCredentials retrieves authentication credentials for a user.
+	// Used by multigateway to get SCRAM password hashes for client authentication.
+	GetAuthCredentials(context.Context, *GetAuthCredentialsRequest) (*GetAuthCredentialsResponse, error)
 	mustEmbedUnimplementedMultiPoolerServiceServer()
 }
 
@@ -165,6 +182,9 @@ func (UnimplementedMultiPoolerServiceServer) PortalStreamExecute(*PortalStreamEx
 }
 func (UnimplementedMultiPoolerServiceServer) Describe(context.Context, *DescribeRequest) (*DescribeResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Describe not implemented")
+}
+func (UnimplementedMultiPoolerServiceServer) GetAuthCredentials(context.Context, *GetAuthCredentialsRequest) (*GetAuthCredentialsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetAuthCredentials not implemented")
 }
 func (UnimplementedMultiPoolerServiceServer) mustEmbedUnimplementedMultiPoolerServiceServer() {}
 func (UnimplementedMultiPoolerServiceServer) testEmbeddedByValue()                            {}
@@ -245,6 +265,24 @@ func _MultiPoolerService_Describe_Handler(srv interface{}, ctx context.Context, 
 	return interceptor(ctx, in, info, handler)
 }
 
+func _MultiPoolerService_GetAuthCredentials_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetAuthCredentialsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MultiPoolerServiceServer).GetAuthCredentials(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MultiPoolerService_GetAuthCredentials_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MultiPoolerServiceServer).GetAuthCredentials(ctx, req.(*GetAuthCredentialsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // MultiPoolerService_ServiceDesc is the grpc.ServiceDesc for MultiPoolerService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -259,6 +297,10 @@ var MultiPoolerService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Describe",
 			Handler:    _MultiPoolerService_Describe_Handler,
+		},
+		{
+			MethodName: "GetAuthCredentials",
+			Handler:    _MultiPoolerService_GetAuthCredentials_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{
