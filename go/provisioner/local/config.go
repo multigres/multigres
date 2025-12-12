@@ -483,13 +483,6 @@ func (p *localProvisioner) GeneratePgBackRestConfigs() error {
 		return fmt.Errorf("failed to create pgBackRest log directory %s: %w", pgBackRestLogPath, err)
 	}
 
-	// Create the pgBackRest spool directory if it doesn't exist
-	// This prevents pgbackrest from using system default /var/spool/pgbackrest which may not be writable
-	pgBackRestSpoolPath := filepath.Join(p.config.RootWorkingDir, "spool", "pgbackrest")
-	if err := os.MkdirAll(pgBackRestSpoolPath, 0o755); err != nil {
-		return fmt.Errorf("failed to create pgBackRest spool directory %s: %w", pgBackRestSpoolPath, err)
-	}
-
 	// Get sorted list of all cell names for consistent ordering
 	var allCells []string
 	for cellName := range p.config.Cells {
@@ -525,6 +518,19 @@ func (p *localProvisioner) GeneratePgBackRestConfigs() error {
 			})
 		}
 
+		// Create per-pooler spool and lock directories inside backup repo
+		// This prevents conflicts when multiple poolers run pgbackrest operations simultaneously
+		poolerID := cellServices.Multipooler.ServiceID
+		pgBackRestSpoolPath := filepath.Join(p.config.BackupRepoPath, "spool", "pooler_"+poolerID)
+		if err := os.MkdirAll(pgBackRestSpoolPath, 0o755); err != nil {
+			return fmt.Errorf("failed to create pgBackRest spool directory %s: %w", pgBackRestSpoolPath, err)
+		}
+
+		pgBackRestLockPath := filepath.Join(p.config.BackupRepoPath, "lock", "pooler_"+poolerID)
+		if err := os.MkdirAll(pgBackRestLockPath, 0o755); err != nil {
+			return fmt.Errorf("failed to create pgBackRest lock directory %s: %w", pgBackRestLockPath, err)
+		}
+
 		// Generate pgBackRest config for this pooler
 		// Use a shared stanza name for all clusters in the HA setup
 		backupCfg := pgbackrest.Config{
@@ -538,6 +544,7 @@ func (p *localProvisioner) GeneratePgBackRestConfigs() error {
 			AdditionalHosts: additionalHosts,
 			LogPath:         pgBackRestLogPath,
 			SpoolPath:       pgBackRestSpoolPath,
+			LockPath:        pgBackRestLockPath,
 			RetentionFull:   2, // Keep 2 full backups by default
 		}
 
