@@ -29,6 +29,7 @@ import (
 	"time"
 
 	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
+	"github.com/multigres/multigres/go/common/pgprotocol/scram"
 	"github.com/multigres/multigres/go/common/sqltypes"
 )
 
@@ -60,6 +61,9 @@ type Conn struct {
 
 	// handler processes queries for this connection.
 	handler Handler
+
+	// hashProvider provides password hashes for SCRAM authentication.
+	hashProvider scram.PasswordHashProvider
 
 	// logger for connection-specific logging.
 	logger *slog.Logger

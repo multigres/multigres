@@ -26,6 +26,7 @@ import (
 	"sync/atomic"
 
 	"github.com/multigres/multigres/go/common/pgprotocol/bufpool"
+	"github.com/multigres/multigres/go/common/pgprotocol/scram"
 )
 
 // Listener listens for incoming PostgreSQL client connections.
@@ -35,6 +36,9 @@ type Listener struct {
 
 	// handler processes queries for connections.
 	handler Handler
+
+	// hashProvider provides password hashes for SCRAM authentication.
+	hashProvider scram.PasswordHashProvider
 
 	// logger for logging.
 	logger *slog.Logger
@@ -67,6 +71,9 @@ type ListenerConfig struct {
 	// Handler processes queries.
 	Handler Handler
 
+	// HashProvider provides password hashes for SCRAM authentication (required).
+	HashProvider scram.PasswordHashProvider
+
 	// Logger for logging (optional, defaults to slog.Default()).
 	Logger *slog.Logger
 }
@@ -75,6 +82,9 @@ type ListenerConfig struct {
 func NewListener(config ListenerConfig) (*Listener, error) {
 	if config.Handler == nil {
 		return nil, errors.New("handler is required")
+	}
+	if config.HashProvider == nil {
+		return nil, fmt.Errorf("hash provider is required")
 	}
 
 	netListener, err := net.Listen("tcp", config.Address)
@@ -90,11 +100,12 @@ func NewListener(config ListenerConfig) (*Listener, error) {
 	ctx, cancel := context.WithCancel(context.TODO())
 
 	l := &Listener{
-		listener: netListener,
-		handler:  config.Handler,
-		logger:   logger,
-		ctx:      ctx,
-		cancel:   cancel,
+		listener:     netListener,
+		handler:      config.Handler,
+		hashProvider: config.HashProvider,
+		logger:       logger,
+		ctx:          ctx,
+		cancel:       cancel,
 	}
 
 	// Initialize buffer pools.
@@ -135,6 +146,7 @@ func (l *Listener) Serve() error {
 		connID := l.nextConnectionID.Add(1)
 		conn := newConn(netConn, l, connID)
 		conn.handler = l.handler
+		conn.hashProvider = l.hashProvider
 
 		// Handle connection in a new goroutine.
 		l.wg.Go(func() {

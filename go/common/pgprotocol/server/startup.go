@@ -15,9 +15,11 @@
 package server
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
+	"github.com/multigres/multigres/go/common/pgprotocol/scram"
 )
 
 // StartupMessage represents a parsed startup message from the client.
@@ -211,12 +213,68 @@ func (c *Conn) handleStartupMessage(protocolVersion uint32, reader *MessageReade
 	return c.authenticate()
 }
 
-// authenticate performs the authentication handshake with the client.
-// For now, we only implement "trust" authentication (no password required).
+// authenticate performs SCRAM-SHA-256 authentication with the client.
 func (c *Conn) authenticate() error {
-	c.logger.Debug("authenticating client", "method", "trust")
+	c.logger.Debug("authenticating client", "method", "scram-sha-256")
 
-	// Send AuthenticationOk (trust authentication).
+	// Create the SCRAM authenticator.
+	auth := scram.NewScramAuthenticator(c.hashProvider, c.database)
+
+	// Send AuthenticationSASL with supported mechanisms.
+	mechanisms := auth.StartAuthentication()
+	if err := c.sendAuthenticationSASL(mechanisms); err != nil {
+		return fmt.Errorf("failed to send AuthenticationSASL: %w", err)
+	}
+	if err := c.flush(); err != nil {
+		return fmt.Errorf("failed to flush AuthenticationSASL: %w", err)
+	}
+
+	// Read SASLInitialResponse (contains client-first-message).
+	clientFirstMessage, err := c.readSASLInitialResponse()
+	if err != nil {
+		return fmt.Errorf("failed to read SASLInitialResponse: %w", err)
+	}
+
+	// Process client-first-message and generate server-first-message.
+	serverFirstMessage, err := auth.HandleClientFirst(c.ctx, clientFirstMessage)
+	if err != nil {
+		if errors.Is(err, scram.ErrUserNotFound) {
+			c.logger.Warn("authentication failed: user not found", "user", c.user)
+			return c.sendAuthError("password authentication failed for user \"" + c.user + "\"")
+		}
+		return fmt.Errorf("failed to handle client-first-message: %w", err)
+	}
+
+	// Send AuthenticationSASLContinue with server-first-message.
+	if err := c.sendAuthenticationSASLContinue(serverFirstMessage); err != nil {
+		return fmt.Errorf("failed to send AuthenticationSASLContinue: %w", err)
+	}
+	if err := c.flush(); err != nil {
+		return fmt.Errorf("failed to flush AuthenticationSASLContinue: %w", err)
+	}
+
+	// Read SASLResponse (contains client-final-message).
+	clientFinalMessage, err := c.readSASLResponse()
+	if err != nil {
+		return fmt.Errorf("failed to read SASLResponse: %w", err)
+	}
+
+	// Verify client proof and generate server signature.
+	serverFinalMessage, err := auth.HandleClientFinal(clientFinalMessage)
+	if err != nil {
+		if errors.Is(err, scram.ErrAuthenticationFailed) {
+			c.logger.Warn("authentication failed: invalid password", "user", c.user)
+			return c.sendAuthError("password authentication failed for user \"" + c.user + "\"")
+		}
+		return fmt.Errorf("failed to handle client-final-message: %w", err)
+	}
+
+	// Send AuthenticationSASLFinal with server signature.
+	if err := c.sendAuthenticationSASLFinal(serverFinalMessage); err != nil {
+		return fmt.Errorf("failed to send AuthenticationSASLFinal: %w", err)
+	}
+
+	// Send AuthenticationOk.
 	if err := c.sendAuthenticationOk(); err != nil {
 		return fmt.Errorf("failed to send AuthenticationOk: %w", err)
 	}
@@ -236,8 +294,115 @@ func (c *Conn) authenticate() error {
 		return fmt.Errorf("failed to send ReadyForQuery: %w", err)
 	}
 
-	c.logger.Info("authentication complete")
+	c.logger.Info("authentication complete", "user", c.user, "method", "scram-sha-256")
 	return nil
+}
+
+// sendAuthenticationSASL sends AuthenticationSASL message with supported mechanisms.
+func (c *Conn) sendAuthenticationSASL(mechanisms []string) error {
+	w := NewMessageWriter()
+	w.WriteInt32(protocol.AuthSASL)
+	for _, mech := range mechanisms {
+		w.WriteString(mech)
+	}
+	w.WriteByte(0) // Terminator
+	return c.writeMessage(protocol.MsgAuthenticationRequest, w.Bytes())
+}
+
+// sendAuthenticationSASLContinue sends AuthenticationSASLContinue with server data.
+func (c *Conn) sendAuthenticationSASLContinue(data string) error {
+	w := NewMessageWriter()
+	w.WriteInt32(protocol.AuthSASLContinue)
+	w.WriteBytes([]byte(data))
+	return c.writeMessage(protocol.MsgAuthenticationRequest, w.Bytes())
+}
+
+// sendAuthenticationSASLFinal sends AuthenticationSASLFinal with server signature.
+func (c *Conn) sendAuthenticationSASLFinal(data string) error {
+	w := NewMessageWriter()
+	w.WriteInt32(protocol.AuthSASLFinal)
+	w.WriteBytes([]byte(data))
+	return c.writeMessage(protocol.MsgAuthenticationRequest, w.Bytes())
+}
+
+// readSASLInitialResponse reads SASLInitialResponse from the client.
+// Returns the SASL data (client-first-message for SCRAM).
+func (c *Conn) readSASLInitialResponse() (string, error) {
+	msgType, err := c.readMessageType()
+	if err != nil {
+		return "", fmt.Errorf("failed to read message type: %w", err)
+	}
+	if msgType != protocol.MsgPasswordMsg {
+		return "", fmt.Errorf("expected SASLInitialResponse ('p'), got '%c'", msgType)
+	}
+
+	length, err := c.readMessageLength()
+	if err != nil {
+		return "", fmt.Errorf("failed to read message length: %w", err)
+	}
+
+	body, err := c.readMessageBody(length)
+	if err != nil {
+		return "", fmt.Errorf("failed to read message body: %w", err)
+	}
+
+	reader := NewMessageReader(body)
+
+	// Read mechanism name.
+	mechanism, err := reader.ReadString()
+	if err != nil {
+		return "", fmt.Errorf("failed to read mechanism: %w", err)
+	}
+	if mechanism != scram.ScramSHA256Mechanism {
+		return "", fmt.Errorf("unsupported SASL mechanism: %s", mechanism)
+	}
+
+	// Read data length.
+	dataLen, err := reader.ReadInt32()
+	if err != nil {
+		return "", fmt.Errorf("failed to read data length: %w", err)
+	}
+
+	// Read SASL data.
+	data, err := reader.ReadBytes(int(dataLen))
+	if err != nil {
+		return "", fmt.Errorf("failed to read SASL data: %w", err)
+	}
+
+	return string(data), nil
+}
+
+// readSASLResponse reads SASLResponse from the client.
+// Returns the SASL data (client-final-message for SCRAM).
+func (c *Conn) readSASLResponse() (string, error) {
+	msgType, err := c.readMessageType()
+	if err != nil {
+		return "", fmt.Errorf("failed to read message type: %w", err)
+	}
+	if msgType != protocol.MsgPasswordMsg {
+		return "", fmt.Errorf("expected SASLResponse ('p'), got '%c'", msgType)
+	}
+
+	length, err := c.readMessageLength()
+	if err != nil {
+		return "", fmt.Errorf("failed to read message length: %w", err)
+	}
+
+	body, err := c.readMessageBody(length)
+	if err != nil {
+		return "", fmt.Errorf("failed to read message body: %w", err)
+	}
+
+	// The entire body is the SASL data.
+	return string(body), nil
+}
+
+// sendAuthError sends an authentication error to the client.
+func (c *Conn) sendAuthError(message string) error {
+	if err := c.writeErrorResponse("FATAL", "28P01", message, "", ""); err != nil {
+		return err
+	}
+	return c.flush()
 }
 
 // sendAuthenticationOk sends an AuthenticationOk message to the client.
