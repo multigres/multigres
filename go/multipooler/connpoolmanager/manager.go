@@ -42,7 +42,7 @@ import (
 //	mgr := connpoolmanager.NewManager(reg, logger)
 //	mgr.RegisterFlags(cmd.Flags())
 //	// ... parse flags ...
-//	mgr.Open(ctx, clientConfig)
+//	mgr.Open(ctx, connConfig)
 //	defer mgr.Close()
 //
 //	// Get connections as needed
@@ -86,8 +86,12 @@ func (m *Manager) RegisterFlags(fs *pflag.FlagSet) {
 //
 // Parameters:
 //   - ctx: Context for pool operations
-//   - clientConfig: PostgreSQL connection configuration used by all pools
-func (m *Manager) Open(ctx context.Context, clientConfig *client.Config) {
+//   - connConfig: Connection settings (socket file, host, port, database)
+func (m *Manager) Open(ctx context.Context, connConfig *ConnectionConfig) {
+	// Build client configs using credentials from viper config and connection settings from connConfig.
+	adminClientConfig := m.buildClientConfig(connConfig, m.config.AdminUser(), m.config.AdminPassword())
+	appClientConfig := m.buildClientConfig(connConfig, m.config.AppUser(), m.config.AppPassword())
+
 	// Build pool configs from viper values.
 	adminPoolConfig := &connpool.Config{
 		Capacity: m.config.AdminCapacity(),
@@ -112,31 +116,33 @@ func (m *Manager) Open(ctx context.Context, clientConfig *client.Config) {
 
 	// Create admin pool first (regular pools depend on it for kill operations).
 	m.adminPool = admin.NewPool(&admin.PoolConfig{
-		ClientConfig:   clientConfig,
+		ClientConfig:   adminClientConfig,
 		ConnPoolConfig: adminPoolConfig,
 	})
 	m.adminPool.Open(ctx)
 
-	// Create regular pool for simple queries.
+	// Create regular pool for simple queries using app credentials.
 	m.regularPool = regular.NewPool(&regular.PoolConfig{
-		ClientConfig:   clientConfig,
+		ClientConfig:   appClientConfig,
 		ConnPoolConfig: regularPoolConfig,
 		AdminPool:      m.adminPool,
 	})
 	m.regularPool.Open(ctx)
 
-	// Create reserved pool (it manages its own underlying regular pool internally).
+	// Create reserved pool (it manages its own underlying regular pool internally) using app credentials.
 	m.reservedPool = reserved.NewPool(ctx, &reserved.PoolConfig{
 		IdleTimeout: m.config.ReservedIdleTimeout(),
 		Logger:      m.logger,
 		RegularPoolConfig: &regular.PoolConfig{
-			ClientConfig:   clientConfig,
+			ClientConfig:   appClientConfig,
 			ConnPoolConfig: reservedRegularPoolConfig,
 			AdminPool:      m.adminPool,
 		},
 	})
 
 	m.logger.InfoContext(ctx, "connection pool manager opened",
+		"admin_user", m.config.AdminUser(),
+		"app_user", m.config.AppUser(),
 		"admin_capacity", adminPoolConfig.Capacity,
 		"regular_capacity", regularPoolConfig.Capacity,
 		"regular_max_idle", regularPoolConfig.MaxIdleCount,
@@ -147,6 +153,19 @@ func (m *Manager) Open(ctx context.Context, clientConfig *client.Config) {
 		"reserved_idle_timeout", m.config.ReservedIdleTimeout(),
 		"reserved_max_lifetime", reservedRegularPoolConfig.MaxLifetime,
 	)
+}
+
+// buildClientConfig creates a client.Config with the specified user and password,
+// using connection settings from the provided ConnectionConfig.
+func (m *Manager) buildClientConfig(connConfig *ConnectionConfig, user, password string) *client.Config {
+	return &client.Config{
+		SocketFile: connConfig.SocketFile,
+		Host:       connConfig.Host,
+		Port:       connConfig.Port,
+		Database:   connConfig.Database,
+		User:       user,
+		Password:   password,
+	}
 }
 
 // Close shuts down all connection pools.

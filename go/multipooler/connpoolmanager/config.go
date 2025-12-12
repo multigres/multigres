@@ -22,9 +22,41 @@ import (
 	"github.com/multigres/multigres/go/tools/viperutil"
 )
 
+// ConnectionConfig holds connection settings passed from the parent multipooler.
+// These are not viper-backed since the flags already exist in the multipooler init.
+type ConnectionConfig struct {
+	// SocketFile is the full path to the PostgreSQL Unix socket file.
+	// If set, Unix socket connection is used instead of TCP.
+	// Example: /var/run/postgresql/.s.PGSQL.5432
+	SocketFile string
+
+	// Host is the PostgreSQL host (for TCP connections).
+	// Ignored if SocketFile is set.
+	Host string
+
+	// Port is the PostgreSQL port (for TCP connections).
+	// Ignored if SocketFile is set.
+	Port int
+
+	// Database is the database name to connect to.
+	Database string
+}
+
 // Config holds viper-backed configuration values for the connection pool manager.
 // It is created internally by NewManager and configured via RegisterFlags.
 type Config struct {
+	// --- Credential settings ---
+	// Admin credentials (postgres superuser) - used by AdminPool
+	adminUser     viperutil.Value[string]
+	adminPassword viperutil.Value[string]
+
+	// App credentials - used by RegularPool and ReservedPool
+	// The app user should have membership in all application roles for SET ROLE to work
+	appUser     viperutil.Value[string]
+	appPassword viperutil.Value[string]
+
+	// --- Pool sizing configuration ---
+
 	// Admin pool configuration
 	adminCapacity viperutil.Value[int64]
 
@@ -63,6 +95,28 @@ func newConfig(reg *viperutil.Registry) *Config {
 	)
 
 	return &Config{
+		// Credential settings
+		adminUser: viperutil.Configure(reg, "connpool.admin.user", viperutil.Options[string]{
+			Default:  "postgres",
+			FlagName: "connpool-admin-user",
+			EnvVars:  []string{"CONNPOOL_ADMIN_USER"},
+		}),
+		adminPassword: viperutil.Configure(reg, "connpool.admin.password", viperutil.Options[string]{
+			Default:  "",
+			FlagName: "connpool-admin-password",
+			EnvVars:  []string{"CONNPOOL_ADMIN_PASSWORD"},
+		}),
+		appUser: viperutil.Configure(reg, "connpool.app.user", viperutil.Options[string]{
+			Default:  "appuser",
+			FlagName: "connpool-app-user",
+			EnvVars:  []string{"CONNPOOL_APP_USER"},
+		}),
+		appPassword: viperutil.Configure(reg, "connpool.app.password", viperutil.Options[string]{
+			Default:  "",
+			FlagName: "connpool-app-password",
+			EnvVars:  []string{"CONNPOOL_APP_PASSWORD"},
+		}),
+
 		// Admin pool
 		adminCapacity: viperutil.Configure(reg, "connpool.admin.capacity", viperutil.Options[int64]{
 			Default:  adminCapacity,
@@ -109,6 +163,12 @@ func newConfig(reg *viperutil.Registry) *Config {
 
 // registerFlags registers all connection pool flags with the given FlagSet.
 func (c *Config) registerFlags(fs *pflag.FlagSet) {
+	// Credential flags
+	fs.String("connpool-admin-user", c.adminUser.Default(), "Admin pool user (PostgreSQL superuser for control operations)")
+	fs.String("connpool-admin-password", c.adminPassword.Default(), "Admin pool password (can also be set via CONNPOOL_ADMIN_PASSWORD env var)")
+	fs.String("connpool-app-user", c.appUser.Default(), "App pool user (for regular/reserved pools, should have membership in all application roles)")
+	fs.String("connpool-app-password", c.appPassword.Default(), "App pool password (can also be set via CONNPOOL_APP_PASSWORD env var)")
+
 	// Admin pool flags
 	fs.Int64("connpool-admin-capacity", c.adminCapacity.Default(), "Maximum number of admin connections for control operations")
 
@@ -125,6 +185,10 @@ func (c *Config) registerFlags(fs *pflag.FlagSet) {
 	fs.Duration("connpool-reserved-max-lifetime", c.reservedMaxLifetime.Default(), "Maximum lifetime of a reserved connection before recycling")
 
 	viperutil.BindFlags(fs,
+		c.adminUser,
+		c.adminPassword,
+		c.appUser,
+		c.appPassword,
 		c.adminCapacity,
 		c.regularCapacity,
 		c.regularMaxIdle,
@@ -138,6 +202,26 @@ func (c *Config) registerFlags(fs *pflag.FlagSet) {
 }
 
 // --- Getters for individual values ---
+
+// AdminUser returns the configured admin pool user.
+func (c *Config) AdminUser() string {
+	return c.adminUser.Get()
+}
+
+// AdminPassword returns the configured admin pool password.
+func (c *Config) AdminPassword() string {
+	return c.adminPassword.Get()
+}
+
+// AppUser returns the configured app pool user.
+func (c *Config) AppUser() string {
+	return c.appUser.Get()
+}
+
+// AppPassword returns the configured app pool password.
+func (c *Config) AppPassword() string {
+	return c.appPassword.Get()
+}
 
 // AdminCapacity returns the configured admin pool capacity.
 func (c *Config) AdminCapacity() int64 {
