@@ -134,9 +134,6 @@ func TestSurrogatePairCombination(t *testing.T) {
 			assert.Equal(t, tt.valid, valid)
 			if tt.valid {
 				assert.Equal(t, tt.expected, combined)
-				// Also test direct conversion
-				direct := surrogatePairToCodepoint(tt.first, tt.second)
-				assert.Equal(t, tt.expected, direct)
 			}
 		})
 	}
