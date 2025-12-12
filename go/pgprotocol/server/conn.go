@@ -30,6 +30,7 @@ import (
 
 	"github.com/multigres/multigres/go/pb/query"
 	"github.com/multigres/multigres/go/pgprotocol/protocol"
+	"github.com/multigres/multigres/go/pgprotocol/scram"
 )
 
 const (
@@ -60,6 +61,9 @@ type Conn struct {
 
 	// handler processes queries for this connection.
 	handler Handler
+
+	// hashProvider provides password hashes for SCRAM authentication.
+	hashProvider scram.PasswordHashProvider
 
 	// logger for connection-specific logging.
 	logger *slog.Logger
