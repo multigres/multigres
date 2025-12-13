@@ -24,6 +24,7 @@ export ADDLICENSE_VER
 ETCD_VER = v3.6.4
 export ETCD_VER
 
+# List of all commands to build
 CMDS = multigateway multipooler pgctld multiorch multigres multiadmin
 BIN_DIR = bin
 
@@ -81,6 +82,15 @@ build: ## Build Go binaries (debug, with symbols).
 	@for cmd in $(CMDS); do \
 		echo "Building $$cmd (debug)"; \
 		go build -o $(BIN_DIR)/$$cmd ./go/cmd/$$cmd; \
+	done
+
+# Build Go binaries with coverage
+build-coverage:
+	mkdir -p bin/cov/
+	cp external/pico/pico.* go/common/web/templates/css/
+	@for cmd in $(CMDS); do \
+		echo "Building $$cmd (debug)"; \
+		go build -cover -covermode=atomic -coverpkg=./... -o $(BIN_DIR)/cov/$$cmd ./go/cmd/$$cmd; \
 	done
 
 # Build Go binaries only (release, static, stripped)
