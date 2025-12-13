@@ -137,7 +137,8 @@ func (c *Conn) ResetSettings(ctx context.Context) error {
 func (c *Conn) State() *connstate.ConnectionState {
 	state := c.conn.GetConnectionState()
 	if state == nil {
-		return nil
+		c.conn.SetConnectionState(connstate.NewConnectionState())
+		state = c.conn.GetConnectionState()
 	}
 	return state.(*connstate.ConnectionState)
 }

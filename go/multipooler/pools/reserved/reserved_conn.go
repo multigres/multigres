@@ -135,21 +135,46 @@ func (c *Conn) IsInTransaction() bool {
 
 // ReserveForPortal marks the connection as reserved for a portal.
 // This is used when Execute returns suspended (portal not fully consumed).
+// Multiple portals can be reserved on the same connection.
 func (c *Conn) ReserveForPortal(portalName string) {
-	c.reservedProps = NewReservationProperties(ReservationPortal)
-	c.reservedProps.PortalName = portalName
+	if c.reservedProps == nil || !c.reservedProps.IsForPortal() {
+		c.reservedProps = NewReservationProperties(ReservationPortal)
+	}
+	c.reservedProps.AddPortal(portalName)
 }
 
-// ReleasePortalReservation clears the portal reservation.
-func (c *Conn) ReleasePortalReservation() {
+// ReleasePortal removes a specific portal from the reservation.
+// If no portals remain and the connection was reserved only for portals,
+// the reservation is cleared entirely.
+// Returns true if the connection should be released (no more reservations).
+func (c *Conn) ReleasePortal(portalName string) bool {
+	if c.reservedProps == nil || !c.reservedProps.IsForPortal() {
+		return false
+	}
+	c.reservedProps.RemovePortal(portalName)
+	if !c.reservedProps.HasPortals() {
+		c.reservedProps = nil
+		return true
+	}
+	return false
+}
+
+// ReleaseAllPortals clears all portal reservations.
+// Does not affect transaction reservations.
+func (c *Conn) ReleaseAllPortals() {
 	if c.reservedProps != nil && c.reservedProps.IsForPortal() {
 		c.reservedProps = nil
 	}
 }
 
-// IsReservedForPortal returns true if reserved for a portal.
+// IsReservedForPortal returns true if reserved for any portal.
 func (c *Conn) IsReservedForPortal() bool {
 	return c.reservedProps != nil && c.reservedProps.IsForPortal()
+}
+
+// HasPortal returns true if the specified portal is reserved on this connection.
+func (c *Conn) HasPortal(portalName string) bool {
+	return c.reservedProps != nil && c.reservedProps.HasPortal(portalName)
 }
 
 // ReservedProps returns the reservation properties.

@@ -202,10 +202,8 @@ func NewMultiPoolerManagerWithTimeout(logger *slog.Logger, config *Config, loadT
 		readyChan:         make(chan struct{}),
 	}
 
-	// Create the query service controller (follows Vitess pattern)
-	// Following the pattern: New->InitDBConfig->SetServingType
-	pm.qsc = poolerserver.NewMultiPooler(logger)
-	logger.Info("Created query service controller")
+	// Create the query service controller with the pool manager
+	pm.qsc = poolerserver.NewQueryPoolerServer(logger, connPoolMgr)
 
 	return pm, nil
 }
@@ -275,12 +273,6 @@ func (pm *MultiPoolerManager) Open() error {
 		}
 	}
 
-	// Now open the query service controller
-	if err := pm.qsc.Open(); err != nil {
-		pm.logger.Error("Failed to open query service controller", "error", err)
-		return fmt.Errorf("failed to open controller: %w", err)
-	}
-
 	pm.isOpen = true
 	pm.logger.Info("MultiPoolerManager opened database connection")
 
@@ -343,12 +335,6 @@ func (pm *MultiPoolerManager) Close() error {
 			return err
 		}
 		pm.db = nil
-	}
-
-	if pm.qsc != nil {
-		if err := pm.qsc.Close(); err != nil {
-			return err
-		}
 	}
 
 	// Close connection pool manager
@@ -1328,19 +1314,6 @@ func (pm *MultiPoolerManager) Start(senv *servenv.ServEnv) {
 		go pm.loadConsensusTermFromDisk()
 	}
 
-	// Initialize query service controller with DB config
-	dbConfig := &poolerserver.DBConfig{
-		SocketFilePath: pm.config.SocketFilePath,
-		PoolerDir:      pm.config.PoolerDir,
-		Database:       pm.config.Database,
-		PgPort:         pm.config.PgPort,
-	}
-	if err := pm.qsc.InitDBConfig(dbConfig); err != nil {
-		pm.logger.Error("Failed to initialize query service controller", "error", err)
-	} else {
-		pm.logger.Info("Initialized query service controller with database config")
-	}
-
 	// Open connection pool manager with connection settings from config
 	if pm.connPoolMgr != nil {
 		connConfig := &connpoolmanager.ConnectionConfig{
@@ -1353,7 +1326,7 @@ func (pm *MultiPoolerManager) Start(senv *servenv.ServEnv) {
 	}
 
 	// Open the database connections and start background operations
-	// This calls connectDB() internally and opens the query service controller
+	// This calls connectDB() internally
 	// TODO: This should be managed by a proper state manager (like tm_state.go)
 	if err := pm.Open(); err != nil {
 		pm.logger.Error("Failed to open manager during startup", "error", err)

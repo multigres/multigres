@@ -14,113 +14,105 @@
 
 // Package executor implements query execution for multipooler.
 // It provides the QueryService interface implementation that executes queries
-// against PostgreSQL and streams results back to clients.
+// against PostgreSQL using per-user connection pools.
 package executor
 
 import (
 	"context"
-	"database/sql"
-	"errors"
 	"fmt"
 	"log/slog"
-	"path/filepath"
-	"strings"
-	"sync/atomic"
-	"syscall"
 
+	"github.com/multigres/multigres/go/common/preparedstatement"
 	"github.com/multigres/multigres/go/common/queryservice"
+	"github.com/multigres/multigres/go/multipooler/connpoolmanager"
+	"github.com/multigres/multigres/go/multipooler/pools/regular"
+	"github.com/multigres/multigres/go/multipooler/pools/reserved"
 	"github.com/multigres/multigres/go/pb/query"
 )
 
-// DBConfig contains database connection parameters.
-type DBConfig struct {
-	SocketFilePath string
-	PoolerDir      string
-	Database       string
-	PgPort         int
-}
-
 // Executor implements the QueryService interface for executing queries against PostgreSQL.
+// It uses the connpoolmanager for per-user connection pool management and consolidates
+// prepared statements across connections to avoid redundant parsing.
 type Executor struct {
-	logger   *slog.Logger
-	dbConfig *DBConfig
-	db       *sql.DB
-	isOpen   atomic.Bool
+	logger       *slog.Logger
+	poolManager  connpoolmanager.PoolManager
+	consolidator *preparedstatement.Consolidator
 }
 
 // NewExecutor creates a new Executor instance.
-func NewExecutor(logger *slog.Logger, dbConfig *DBConfig) *Executor {
+func NewExecutor(logger *slog.Logger, poolManager connpoolmanager.PoolManager) *Executor {
 	return &Executor{
-		logger:   logger,
-		dbConfig: dbConfig,
+		logger:       logger,
+		poolManager:  poolManager,
+		consolidator: preparedstatement.NewConsolidator(),
 	}
-}
-
-// Open creates the database connection.
-func (e *Executor) Open() error {
-	if e.isOpen.Load() {
-		return nil
-	}
-
-	e.logger.Info("Executor: opening")
-
-	if e.dbConfig == nil {
-		return fmt.Errorf("database config not set")
-	}
-
-	// Create connection string using socket connection
-	// PostgreSQL creates socket files as: {poolerDir}/pg_sockets/.s.PGSQL.{port}
-	socketDir := filepath.Join(e.dbConfig.PoolerDir, "pg_sockets")
-	port := fmt.Sprintf("%d", e.dbConfig.PgPort)
-
-	dsn := fmt.Sprintf("user=postgres dbname=%s host=%s port=%s sslmode=disable",
-		e.dbConfig.Database, socketDir, port)
-
-	e.logger.Info("Executor: Unix socket connection",
-		"pooler_dir", e.dbConfig.PoolerDir,
-		"socket_dir", socketDir,
-		"pg_port", e.dbConfig.PgPort)
-
-	db, err := sql.Open("postgres", dsn)
-	if err != nil {
-		return fmt.Errorf("failed to open database: %w", err)
-	}
-
-	// Test the connection
-	if err := db.Ping(); err != nil {
-		db.Close()
-		return fmt.Errorf("failed to ping database: %w", err)
-	}
-
-	e.db = db
-	e.isOpen.Store(true)
-	e.logger.Info("Executor opened database connection")
-
-	return nil
 }
 
 // ExecuteQuery implements queryservice.QueryService.
+// It executes a query using a pooled connection for the specified user.
+// If ReservedConnectionId is set in options, uses that reserved connection instead.
 func (e *Executor) ExecuteQuery(ctx context.Context, target *query.Target, sql string, options *query.ExecuteOptions) (*query.QueryResult, error) {
 	if target == nil {
 		target = &query.Target{}
 	}
+
+	user := e.getUserFromOptions(options)
 	e.logger.DebugContext(ctx, "executing query",
 		"tablegroup", target.TableGroup,
 		"shard", target.Shard,
 		"pooler_type", target.PoolerType.String(),
+		"user", user,
 		"query", sql)
 
-	var maxRows uint64
-	if options != nil {
-		maxRows = options.MaxRows
+	// Check if we should use an existing reserved connection
+	if options != nil && options.ReservedConnectionId > 0 {
+		reservedConn, _ := e.poolManager.GetReservedConn(int64(options.ReservedConnectionId), user)
+		if reservedConn == nil {
+			return nil, fmt.Errorf("reserved connection %d not found for user %s", options.ReservedConnectionId, user)
+		}
+
+		results, err := reservedConn.Query(ctx, sql)
+		if err != nil {
+			return nil, fmt.Errorf("failed to execute query: %w", err)
+		}
+
+		if len(results) == 0 {
+			return &query.QueryResult{}, nil
+		}
+		return results[0], nil
 	}
 
-	// Execute the query and stream results
-	return e.executeQuery(ctx, sql, maxRows)
+	// Get session settings from options
+	var settings map[string]string
+	if options != nil {
+		settings = options.SessionSettings
+	}
+
+	// Get a connection from the pool for this user
+	conn, err := e.poolManager.GetRegularConnWithSettings(ctx, settings, user)
+	if err != nil {
+		e.logger.ErrorContext(ctx, "failed to get connection", "error", err, "user", user)
+		return nil, fmt.Errorf("failed to get connection for user %s: %w", user, err)
+	}
+	defer conn.Recycle()
+
+	// Execute the query - the regular.Conn.Query returns []*query.QueryResult
+	// with proper field info, rows, and command tags already populated
+	results, err := conn.Conn.Query(ctx, sql)
+	if err != nil {
+		return nil, fmt.Errorf("failed to execute query: %w", err)
+	}
+
+	// Return first result (simple query returns single result)
+	if len(results) == 0 {
+		return &query.QueryResult{}, nil
+	}
+	return results[0], nil
 }
 
 // StreamExecute executes a query and streams results back via callback.
 // This implements the queryservice.QueryService interface.
+// If ReservedConnectionId is set in options, uses that reserved connection instead.
 func (e *Executor) StreamExecute(
 	ctx context.Context,
 	target *query.Target,
@@ -128,50 +120,64 @@ func (e *Executor) StreamExecute(
 	options *query.ExecuteOptions,
 	callback func(context.Context, *query.QueryResult) error,
 ) error {
-	// Execute the query and stream results
-	// TODO(GuptaManan100): Actually stream the results from postgres.
-	result, err := e.ExecuteQuery(ctx, target, sql, options)
-	if err != nil {
-		e.logger.ErrorContext(ctx, "query execution failed", "error", err, "query", sql)
-		return fmt.Errorf("query execution failed: %w", err)
+	if target == nil {
+		target = &query.Target{}
 	}
 
-	// Stream the result via callback
-	if err := callback(ctx, result); err != nil {
-		return err
+	user := e.getUserFromOptions(options)
+	e.logger.DebugContext(ctx, "stream executing query",
+		"tablegroup", target.TableGroup,
+		"shard", target.Shard,
+		"pooler_type", target.PoolerType.String(),
+		"user", user,
+		"query", sql)
+
+	// Check if we should use an existing reserved connection
+	if options != nil && options.ReservedConnectionId > 0 {
+		reservedConn, _ := e.poolManager.GetReservedConn(int64(options.ReservedConnectionId), user)
+		if reservedConn == nil {
+			return fmt.Errorf("reserved connection %d not found for user %s", options.ReservedConnectionId, user)
+		}
+
+		if err := reservedConn.QueryStreaming(ctx, sql, callback); err != nil {
+			e.logger.ErrorContext(ctx, "query execution failed", "error", err, "query", sql)
+			return fmt.Errorf("query execution failed: %w", err)
+		}
+		return nil
+	}
+
+	// Get session settings from options
+	var settings map[string]string
+	if options != nil {
+		settings = options.SessionSettings
+	}
+
+	// Get a connection from the pool for this user
+	conn, err := e.poolManager.GetRegularConnWithSettings(ctx, settings, user)
+	if err != nil {
+		e.logger.ErrorContext(ctx, "failed to get connection", "error", err, "user", user)
+		return fmt.Errorf("failed to get connection for user %s: %w", user, err)
+	}
+	defer conn.Recycle()
+
+	// Use streaming query execution
+	if err := conn.Conn.QueryStreaming(ctx, sql, callback); err != nil {
+		e.logger.ErrorContext(ctx, "query execution failed", "error", err, "query", sql)
+		return fmt.Errorf("query execution failed: %w", err)
 	}
 
 	return nil
 }
 
 // Close closes the executor and releases resources.
-func (e *Executor) Close(ctx context.Context) error {
-	if !e.isOpen.Swap(false) {
-		return nil
-	}
-
-	if e.db != nil {
-		if err := e.db.Close(); err != nil {
-			// db.Close() can return "write: broken pipe" if the connection is broken,
-			// because lib/pq tries to send a Postgres termination message during Close():
-			// https://github.com/lib/pq/blob/b7ffbd3b47da4290a4af2ccd253c74c2c22bfabf/conn.go#L885
-			//
-			// This is safe to ignore.
-			if errors.Is(err, syscall.EPIPE) {
-				e.logger.WarnContext(ctx, "Executor: broken pipe error when closing database", "error", err)
-				return nil
-			}
-			return fmt.Errorf("failed to close database: %w", err)
-		}
-		e.db = nil
-	}
-
-	e.logger.InfoContext(ctx, "Executor: closed")
+// Note: The poolManager is managed by the caller (QueryPoolerServer), not closed here.
+func (e *Executor) Close(_ context.Context) error {
 	return nil
 }
 
-// PortalStreamExecute executes a portal and streams results back via callback.
-// TODO: Implement this method.
+// PortalStreamExecute executes a portal (bound prepared statement) and streams results back via callback.
+// If MaxRows > 0, a reserved connection is used since the portal may be suspended and need resumption.
+// Otherwise, a regular connection is used for better pool efficiency.
 func (e *Executor) PortalStreamExecute(
 	ctx context.Context,
 	target *query.Target,
@@ -180,11 +186,143 @@ func (e *Executor) PortalStreamExecute(
 	options *query.ExecuteOptions,
 	callback func(context.Context, *query.QueryResult) error,
 ) (queryservice.ReservedState, error) {
-	panic("PortalStreamExecute not implemented")
+	if target == nil {
+		target = &query.Target{}
+	}
+	if preparedStatement == nil {
+		return queryservice.ReservedState{}, fmt.Errorf("prepared statement is required")
+	}
+	if portal == nil {
+		return queryservice.ReservedState{}, fmt.Errorf("portal is required")
+	}
+
+	user := e.getUserFromOptions(options)
+	var settings map[string]string
+	if options != nil {
+		settings = options.SessionSettings
+	}
+
+	maxRows := int32(0)
+	if options != nil && options.MaxRows > 0 {
+		maxRows = int32(options.MaxRows)
+	}
+
+	e.logger.DebugContext(ctx, "portal stream execute",
+		"tablegroup", target.TableGroup,
+		"shard", target.Shard,
+		"user", user,
+		"statement", preparedStatement.Name,
+		"portal", portal.Name,
+		"max_rows", maxRows)
+
+	// Convert formats from int32 to int16
+	paramFormats := int32ToInt16Slice(portal.ParamFormats)
+	resultFormats := int32ToInt16Slice(portal.ResultFormats)
+
+	// Use reserved connection if:
+	// 1. ReservedConnectionId is already set (e.g., from transaction or previous portal)
+	// 2. MaxRows > 0 (portal may be suspended and need resumption)
+	if (options != nil && options.ReservedConnectionId > 0) || maxRows > 0 {
+		return e.portalExecuteWithReserved(ctx, preparedStatement, portal, options, settings, user, maxRows, paramFormats, resultFormats, callback)
+	}
+
+	// Use regular connection for non-suspended execution with no existing reservation
+	return e.portalExecuteWithRegular(ctx, preparedStatement, portal, settings, user, paramFormats, resultFormats, callback)
+}
+
+// portalExecuteWithReserved executes a portal using a reserved connection.
+func (e *Executor) portalExecuteWithReserved(
+	ctx context.Context,
+	preparedStatement *query.PreparedStatement,
+	portal *query.Portal,
+	options *query.ExecuteOptions,
+	settings map[string]string,
+	user string,
+	maxRows int32,
+	paramFormats, resultFormats []int16,
+	callback func(context.Context, *query.QueryResult) error,
+) (queryservice.ReservedState, error) {
+	var reservedConn *reserved.Conn
+	var err error
+
+	// Check if we should use an existing reserved connection
+	if options != nil && options.ReservedConnectionId > 0 {
+		reservedConn, _ = e.poolManager.GetReservedConn(int64(options.ReservedConnectionId), user)
+		if reservedConn == nil {
+			return queryservice.ReservedState{}, fmt.Errorf("reserved connection %d not found for user %s", options.ReservedConnectionId, user)
+		}
+	} else {
+		// Create a new reserved connection
+		reservedConn, err = e.poolManager.NewReservedConn(ctx, settings, user)
+		if err != nil {
+			return queryservice.ReservedState{}, fmt.Errorf("failed to create reserved connection for user %s: %w", user, err)
+		}
+	}
+
+	// Ensure the statement is prepared on this connection (with consolidation)
+	canonicalName, err := e.ensurePrepared(ctx, reservedConn.Conn(), preparedStatement)
+	if err != nil {
+		reservedConn.Release(reserved.ReleaseError)
+		return queryservice.ReservedState{}, err
+	}
+
+	// Bind and execute using the canonical statement name
+	completed, err := reservedConn.BindAndExecute(ctx, canonicalName, portal.Params, paramFormats, resultFormats, maxRows, callback)
+	if err != nil {
+		reservedConn.Release(reserved.ReleaseError)
+		return queryservice.ReservedState{}, fmt.Errorf("failed to execute portal: %w", err)
+	}
+
+	// If portal is suspended (not completed), keep the reserved connection for continuation
+	if !completed {
+		reservedConn.ReserveForPortal(portal.Name)
+	} else {
+		// Portal completed, release this portal's reservation
+		shouldRelease := reservedConn.ReleasePortal(portal.Name)
+		// If no more portal reservations and not in a transaction, release the connection
+		if shouldRelease && !reservedConn.IsInTransaction() {
+			reservedConn.Release(reserved.ReleasePortalComplete)
+		}
+	}
+
+	return queryservice.ReservedState{
+		ReservedConnectionId: uint64(reservedConn.ConnID),
+	}, nil
+}
+
+// portalExecuteWithRegular executes a portal using a regular pooled connection.
+func (e *Executor) portalExecuteWithRegular(
+	ctx context.Context,
+	preparedStatement *query.PreparedStatement,
+	portal *query.Portal,
+	settings map[string]string,
+	user string,
+	paramFormats, resultFormats []int16,
+	callback func(context.Context, *query.QueryResult) error,
+) (queryservice.ReservedState, error) {
+	conn, err := e.poolManager.GetRegularConnWithSettings(ctx, settings, user)
+	if err != nil {
+		return queryservice.ReservedState{}, fmt.Errorf("failed to get connection for user %s: %w", user, err)
+	}
+	defer conn.Recycle()
+
+	// Ensure the statement is prepared on this connection (with consolidation)
+	canonicalName, err := e.ensurePrepared(ctx, conn.Conn, preparedStatement)
+	if err != nil {
+		return queryservice.ReservedState{}, err
+	}
+
+	// Bind and execute with maxRows=0 (fetch all) using the canonical statement name
+	_, err = conn.Conn.BindAndExecute(ctx, canonicalName, portal.Params, paramFormats, resultFormats, 0, callback)
+	if err != nil {
+		return queryservice.ReservedState{}, fmt.Errorf("failed to execute portal: %w", err)
+	}
+
+	// No reserved connection for regular execution
+	return queryservice.ReservedState{}, nil
 }
 
 // Describe returns metadata about a prepared statement or portal.
-// TODO: Implement this method.
 func (e *Executor) Describe(
 	ctx context.Context,
 	target *query.Target,
@@ -192,157 +330,121 @@ func (e *Executor) Describe(
 	portal *query.Portal,
 	options *query.ExecuteOptions,
 ) (*query.StatementDescription, error) {
-	panic("Describe not implemented")
-}
-
-// IsHealthy checks if the executor is healthy and can serve queries.
-func (e *Executor) IsHealthy() error {
-	if e.db == nil {
-		return fmt.Errorf("database connection not initialized")
+	if target == nil {
+		target = &query.Target{}
 	}
-	if err := e.db.Ping(); err != nil {
-		return fmt.Errorf("database ping failed: %w", err)
+
+	if preparedStatement == nil {
+		return nil, fmt.Errorf("no prepared statement provided")
 	}
-	return nil
-}
 
-// executeQuery executes a SQL query and returns the result.
-// This is the internal method that handles both SELECT and modification queries.
-func (e *Executor) executeQuery(ctx context.Context, queryStr string, maxRows uint64) (*query.QueryResult, error) {
-	// Determine if this is a SELECT query or a modification query
-	trimmedQuery := strings.TrimSpace(strings.ToUpper(queryStr))
-	isSelect := strings.HasPrefix(trimmedQuery, "SELECT") ||
-		strings.HasPrefix(trimmedQuery, "WITH") ||
-		strings.HasPrefix(trimmedQuery, "SHOW") ||
-		strings.HasPrefix(trimmedQuery, "EXPLAIN")
-
-	if isSelect {
-		return e.executeSelectQuery(ctx, queryStr, maxRows)
+	user := e.getUserFromOptions(options)
+	var settings map[string]string
+	if options != nil {
+		settings = options.SessionSettings
 	}
-	return e.executeModifyQuery(ctx, queryStr)
-}
 
-// executeSelectQuery executes a SELECT query and returns rows.
-func (e *Executor) executeSelectQuery(ctx context.Context, queryStr string, maxRows uint64) (*query.QueryResult, error) {
-	rows, err := e.db.QueryContext(ctx, queryStr)
+	e.logger.DebugContext(ctx, "describe",
+		"tablegroup", target.TableGroup,
+		"shard", target.Shard,
+		"user", user,
+		"has_statement", preparedStatement != nil,
+		"has_portal", portal != nil)
+
+	// Get a connection from the pool
+	conn, err := e.poolManager.GetRegularConnWithSettings(ctx, settings, user)
 	if err != nil {
-		return nil, fmt.Errorf("failed to execute query: %w", err)
+		return nil, fmt.Errorf("failed to get connection for user %s: %w", user, err)
 	}
-	defer rows.Close()
+	defer conn.Recycle()
 
-	// Get column information
-	columns, err := rows.Columns()
+	// Describe prepared statement
+	// Ensure the statement is prepared on this connection
+	canonicalName, err := e.ensurePrepared(ctx, conn.Conn, preparedStatement)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get columns: %w", err)
+		return nil, err
 	}
 
-	columnTypes, err := rows.ColumnTypes()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get column types: %w", err)
-	}
-
-	// Build field information
-	fields := make([]*query.Field, len(columns))
-	for i, col := range columns {
-		fields[i] = &query.Field{
-			Name: col,
-			Type: columnTypes[i].DatabaseTypeName(),
+	// If portal is provided, we need to bind first, then describe
+	if portal != nil {
+		// Bind and describe using canonical name
+		paramFormats := int32ToInt16Slice(portal.ParamFormats)
+		resultFormats := int32ToInt16Slice(portal.ResultFormats)
+		desc, err := conn.Conn.BindAndDescribe(ctx, canonicalName, portal.Params, paramFormats, resultFormats)
+		if err != nil {
+			return nil, fmt.Errorf("failed to describe portal: %w", err)
 		}
+		return desc, nil
 	}
 
-	// Read rows
-	var resultRows []*query.Row
-	scanValues := make([]any, len(columns))
-	scanPointers := make([]any, len(columns))
-
-	for i := range scanValues {
-		scanPointers[i] = &scanValues[i]
+	// Describe prepared using canonical name
+	desc, err := conn.Conn.DescribePrepared(ctx, canonicalName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to describe prepared statement: %w", err)
 	}
-
-	rowCount := uint64(0)
-	for rows.Next() && (maxRows == 0 || rowCount < maxRows) {
-		if err := rows.Scan(scanPointers...); err != nil {
-			return nil, fmt.Errorf("failed to scan row: %w", err)
-		}
-
-		// Convert values to bytes
-		values := make([][]byte, len(columns))
-		for i, val := range scanValues {
-			if val == nil {
-				values[i] = nil
-			} else {
-				values[i] = fmt.Appendf(nil, "%v", val)
-			}
-		}
-
-		resultRows = append(resultRows, &query.Row{Values: values})
-		rowCount++
-	}
-
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("error reading rows: %w", err)
-	}
-
-	// Generate command tag for SELECT
-	commandTag := fmt.Sprintf("SELECT %d", rowCount)
-
-	return &query.QueryResult{
-		Fields:       fields,
-		RowsAffected: 0, // SELECT queries don't affect rows
-		Rows:         resultRows,
-		CommandTag:   commandTag,
-	}, nil
+	return desc, nil
 }
 
-// executeModifyQuery executes an INSERT, UPDATE, DELETE, or other modification query.
-func (e *Executor) executeModifyQuery(ctx context.Context, queryStr string) (*query.QueryResult, error) {
-	result, err := e.db.ExecContext(ctx, queryStr)
-	if err != nil {
-		return nil, fmt.Errorf("failed to execute query: %w", err)
+// ensurePrepared ensures the prepared statement is available on the connection.
+// It uses the consolidator to get a canonical statement name and checks the connection state
+// to avoid redundant parsing. Returns the canonical statement name to use.
+func (e *Executor) ensurePrepared(ctx context.Context, conn *regular.Conn, stmt *query.PreparedStatement) (string, error) {
+	// We use connId 0 since we just need the canonical name mapping
+	// Get the canonical prepared statement info
+	psi := e.consolidator.GetPreparedStatementInfo(0, stmt.Name)
+	if psi == nil {
+		// Add to consolidator to get/create canonical name
+		if err := e.consolidator.AddPreparedStatement(0, stmt.Name, stmt.Query, stmt.ParamTypes); err != nil {
+			return "", fmt.Errorf("failed to consolidate prepared statement: %w", err)
+		}
+		// This will be not-nil because we just added it.
+		psi = e.consolidator.GetPreparedStatementInfo(0, stmt.Name)
+	}
+	canonicalName := psi.Name
+
+	// Check if this connection already has the statement prepared
+	connState := conn.State()
+	existing := connState.GetPreparedStatement(canonicalName)
+	if existing != nil && existing.Query == stmt.Query {
+		// Statement already prepared on this connection, reuse it
+		return canonicalName, nil
 	}
 
-	rowsAffected, err := result.RowsAffected()
-	if err != nil {
-		// Some queries don't support RowsAffected, that's okay
-		rowsAffected = 0
+	// Parse the statement on this connection
+	if err := conn.Parse(ctx, canonicalName, stmt.Query, stmt.ParamTypes); err != nil {
+		return "", fmt.Errorf("failed to parse statement: %w", err)
 	}
 
-	// Generate command tag based on query type
-	commandTag := e.generateCommandTag(queryStr, uint64(rowsAffected))
+	// Store in connection state for future reuse
+	connState.StorePreparedStatement(&query.PreparedStatement{
+		Name:       canonicalName,
+		Query:      stmt.Query,
+		ParamTypes: stmt.ParamTypes,
+	})
 
-	return &query.QueryResult{
-		Fields:       []*query.Field{}, // No fields for modification queries
-		RowsAffected: uint64(rowsAffected),
-		Rows:         []*query.Row{}, // No rows for modification queries
-		CommandTag:   commandTag,
-	}, nil
+	return canonicalName, nil
 }
 
-// generateCommandTag generates a PostgreSQL command tag for the result.
-func (e *Executor) generateCommandTag(queryStr string, rowsAffected uint64) string {
-	trimmedQuery := strings.TrimSpace(strings.ToUpper(queryStr))
-
-	switch {
-	case strings.HasPrefix(trimmedQuery, "INSERT"):
-		return fmt.Sprintf("INSERT 0 %d", rowsAffected)
-	case strings.HasPrefix(trimmedQuery, "UPDATE"):
-		return fmt.Sprintf("UPDATE %d", rowsAffected)
-	case strings.HasPrefix(trimmedQuery, "DELETE"):
-		return fmt.Sprintf("DELETE %d", rowsAffected)
-	case strings.HasPrefix(trimmedQuery, "CREATE TABLE"):
-		return "CREATE TABLE"
-	case strings.HasPrefix(trimmedQuery, "DROP TABLE"):
-		return "DROP TABLE"
-	case strings.HasPrefix(trimmedQuery, "ALTER TABLE"):
-		return "ALTER TABLE"
-	case strings.HasPrefix(trimmedQuery, "CREATE INDEX"):
-		return "CREATE INDEX"
-	case strings.HasPrefix(trimmedQuery, "DROP INDEX"):
-		return "DROP INDEX"
-	default:
-		// Generic command complete
-		return "COMMAND"
+// getUserFromOptions extracts the user from ExecuteOptions.
+// Returns "postgres" as default if no user is specified.
+func (e *Executor) getUserFromOptions(options *query.ExecuteOptions) string {
+	if options != nil && options.User != "" {
+		return options.User
 	}
+	// Default to postgres superuser if no user specified
+	return "postgres"
+}
+
+// int32ToInt16Slice converts a slice of int32 to int16.
+func int32ToInt16Slice(in []int32) []int16 {
+	if in == nil {
+		return nil
+	}
+	out := make([]int16, len(in))
+	for i, v := range in {
+		out[i] = int16(v)
+	}
+	return out
 }
 
 // Ensure Executor implements queryservice.QueryService

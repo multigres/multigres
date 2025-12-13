@@ -47,8 +47,9 @@ type ReservationProperties struct {
 	// Reason is why the connection is reserved.
 	Reason ReservationReason
 
-	// PortalName is set when reserved for a portal.
-	PortalName string
+	// Portals tracks suspended portal names when reserved for portals.
+	// Multiple portals can be open on the same connection.
+	Portals map[string]struct{}
 }
 
 // NewReservationProperties creates new reservation properties.
@@ -72,6 +73,41 @@ func (p *ReservationProperties) IsForPortal() bool {
 // IsForTransaction returns true if the reservation is for a transaction.
 func (p *ReservationProperties) IsForTransaction() bool {
 	return p.Reason == ReservationTransaction
+}
+
+// AddPortal adds a portal to the reservation.
+func (p *ReservationProperties) AddPortal(name string) {
+	if p.Portals == nil {
+		p.Portals = make(map[string]struct{})
+	}
+	p.Portals[name] = struct{}{}
+}
+
+// RemovePortal removes a portal from the reservation.
+// Returns true if the portal was present and removed.
+func (p *ReservationProperties) RemovePortal(name string) bool {
+	if p.Portals == nil {
+		return false
+	}
+	_, ok := p.Portals[name]
+	if ok {
+		delete(p.Portals, name)
+	}
+	return ok
+}
+
+// HasPortals returns true if there are any portals in the reservation.
+func (p *ReservationProperties) HasPortals() bool {
+	return len(p.Portals) > 0
+}
+
+// HasPortal returns true if the specified portal is in the reservation.
+func (p *ReservationProperties) HasPortal(name string) bool {
+	if p.Portals == nil {
+		return false
+	}
+	_, ok := p.Portals[name]
+	return ok
 }
 
 // ReleaseReason indicates why a reserved connection is being released.
