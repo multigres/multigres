@@ -162,7 +162,8 @@ func (c *Conn) Parse(ctx context.Context, name, queryStr string, paramTypes []ui
 }
 
 // BindAndExecute binds parameters and executes atomically.
-func (c *Conn) BindAndExecute(ctx context.Context, stmtName string, params [][]byte, paramFormats, resultFormats []int16, maxRows int32, callback func(ctx context.Context, result *query.QueryResult) error) error {
+// Returns true if the execution completed (CommandComplete), false if suspended (PortalSuspended).
+func (c *Conn) BindAndExecute(ctx context.Context, stmtName string, params [][]byte, paramFormats, resultFormats []int16, maxRows int32, callback func(ctx context.Context, result *query.QueryResult) error) (completed bool, err error) {
 	return c.conn.BindAndExecute(ctx, stmtName, params, paramFormats, resultFormats, maxRows, callback)
 }
 
@@ -192,8 +193,24 @@ func (c *Conn) Sync(ctx context.Context) error {
 }
 
 // PrepareAndExecute is a convenience method that prepares and executes in one round trip.
-func (c *Conn) PrepareAndExecute(ctx context.Context, queryStr string, params [][]byte, callback func(ctx context.Context, result *query.QueryResult) error) error {
-	return c.conn.PrepareAndExecute(ctx, queryStr, params, callback)
+// name is the statement/portal name (use "" for unnamed, which is cleared after Sync).
+func (c *Conn) PrepareAndExecute(ctx context.Context, name, queryStr string, params [][]byte, callback func(ctx context.Context, result *query.QueryResult) error) error {
+	return c.conn.PrepareAndExecute(ctx, name, queryStr, params, callback)
+}
+
+// QueryArgs executes a parameterized query using the extended query protocol.
+// This is a convenience method that accepts Go values as arguments and converts
+// them to the appropriate text format for PostgreSQL.
+func (c *Conn) QueryArgs(ctx context.Context, queryStr string, args ...any) ([]*query.QueryResult, error) {
+	return c.conn.QueryArgs(ctx, queryStr, args...)
+}
+
+// Execute continues execution of a previously bound portal.
+// This is used to fetch more rows from a portal that was executed with maxRows > 0
+// and returned PortalSuspended.
+// Returns true if the portal completed (CommandComplete), false if suspended (PortalSuspended).
+func (c *Conn) Execute(ctx context.Context, portalName string, maxRows int32, callback func(ctx context.Context, result *query.QueryResult) error) (completed bool, err error) {
+	return c.conn.Execute(ctx, portalName, maxRows, callback)
 }
 
 // --- Transaction status ---

@@ -235,12 +235,13 @@ func TestPgProtocolClientExtendedQuery(t *testing.T) {
 
 		// BindAndExecute - binds parameters and executes atomically
 		var results []*query.QueryResult
-		err = conn.BindAndExecute(ctx, "test_stmt", [][]byte{[]byte("10"), []byte("20")}, nil, nil, 0,
+		completed, err := conn.BindAndExecute(ctx, "test_stmt", [][]byte{[]byte("10"), []byte("20")}, nil, nil, 0,
 			func(ctx context.Context, result *query.QueryResult) error {
 				results = append(results, result)
 				return nil
 			})
 		require.NoError(t, err)
+		assert.True(t, completed, "expected execution to complete")
 		require.Len(t, results, 1)
 
 		result := results[0]
@@ -294,7 +295,8 @@ func TestPgProtocolClientExtendedQuery(t *testing.T) {
 
 	t.Run("prepare_and_execute_combined", func(t *testing.T) {
 		var results []*query.QueryResult
-		err := conn.PrepareAndExecute(ctx, "SELECT $1::text || ' ' || $2::text AS greeting",
+		// Use unnamed statement ("") for one-shot execution
+		err := conn.PrepareAndExecute(ctx, "", "SELECT $1::text || ' ' || $2::text AS greeting",
 			[][]byte{[]byte("Hello"), []byte("World")},
 			func(ctx context.Context, result *query.QueryResult) error {
 				results = append(results, result)
@@ -310,7 +312,8 @@ func TestPgProtocolClientExtendedQuery(t *testing.T) {
 
 	t.Run("null_parameters", func(t *testing.T) {
 		var results []*query.QueryResult
-		err := conn.PrepareAndExecute(ctx, "SELECT $1::text AS val",
+		// Use unnamed statement ("") for one-shot execution
+		err := conn.PrepareAndExecute(ctx, "", "SELECT $1::text AS val",
 			[][]byte{nil}, // NULL parameter
 			func(ctx context.Context, result *query.QueryResult) error {
 				results = append(results, result)
