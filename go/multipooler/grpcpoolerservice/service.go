@@ -84,3 +84,61 @@ func (s *poolerService) ExecuteQuery(ctx context.Context, req *multipoolerpb.Exe
 		Result: res,
 	}, nil
 }
+
+// Describe returns metadata about a prepared statement or portal.
+// Used by multigateway for the Extended Query Protocol.
+func (s *poolerService) Describe(ctx context.Context, req *multipoolerpb.DescribeRequest) (*multipoolerpb.DescribeResponse, error) {
+	// Get the executor from the pooler
+	executor, err := s.pooler.Executor()
+	if err != nil {
+		return nil, fmt.Errorf("executor not initialized")
+	}
+
+	// Call the executor's Describe method
+	desc, err := executor.Describe(ctx, req.Target, req.PreparedStatement, req.Portal, req.Options)
+	if err != nil {
+		return nil, err
+	}
+
+	return &multipoolerpb.DescribeResponse{
+		Description: desc,
+	}, nil
+}
+
+// PortalStreamExecute executes a portal (bound prepared statement) and streams results.
+// Used by multigateway for the Extended Query Protocol.
+func (s *poolerService) PortalStreamExecute(req *multipoolerpb.PortalStreamExecuteRequest, stream multipoolerpb.MultiPoolerService_PortalStreamExecuteServer) error {
+	// Get the executor from the pooler
+	executor, err := s.pooler.Executor()
+	if err != nil {
+		return err
+	}
+
+	// Execute the portal and stream results
+	reservedState, err := executor.PortalStreamExecute(
+		stream.Context(),
+		req.Target,
+		req.PreparedStatement,
+		req.Portal,
+		req.Options,
+		func(ctx context.Context, result *querypb.QueryResult) error {
+			// Send the result back to the client
+			response := &multipoolerpb.PortalStreamExecuteResponse{
+				Result: result,
+			}
+			return stream.Send(response)
+		},
+	)
+	if err != nil {
+		return err
+	}
+
+	// Send final response with reserved connection ID if one was created
+	if reservedState.ReservedConnectionId > 0 {
+		return stream.Send(&multipoolerpb.PortalStreamExecuteResponse{
+			ReservedConnectionId: reservedState.ReservedConnectionId,
+		})
+	}
+
+	return nil
+}

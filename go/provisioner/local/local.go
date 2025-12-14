@@ -779,6 +779,9 @@ func (p *localProvisioner) provisionMultipooler(ctx context.Context, req *provis
 		return nil, fmt.Errorf("failed to provision pgctld for multipooler: %w", err)
 	}
 
+	// Construct the PostgreSQL socket file path: <poolerDir>/pg_sockets/.s.PGSQL.<port>
+	pgSocketFile := filepath.Join(poolerDir, "pg_sockets", fmt.Sprintf(".s.PGSQL.%d", pgPort))
+
 	// Build command arguments with pgctld-addr
 	args := []string{
 		"--http-port", fmt.Sprintf("%d", httpPort),
@@ -798,6 +801,8 @@ func (p *localProvisioner) provisionMultipooler(ctx context.Context, req *provis
 		"--pg-port", fmt.Sprintf("%d", pgPort),
 		"--hostname", "localhost",
 		"--pgbackrest-stanza", "multigres",
+		"--connpool-admin-password", "postgres", // Password created in initializePgctldDirectories
+		"--socket-file", pgSocketFile, // PostgreSQL Unix socket for trust auth
 	}
 
 	// Add socket file if configured
