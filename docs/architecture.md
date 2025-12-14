@@ -36,10 +36,10 @@ This usually means that these components will take on secondary responsibilities
 
 MultiGateway's primary responsibility is to provide a PostgreSQL-compatible interface to the user.
 
-* It will discover and keep track of all MultiPoolers within the current cell.
-* It will discover and keep track of the current primary for each shard.
-* It will analyze incoming queries, break them up into smaller parts to outsource them to various shards, and return the consolidated result to the user.
-* It will smoothly redirect traffic to the new primary if there is a failover.
+- It will discover and keep track of all MultiPoolers within the current cell.
+- It will discover and keep track of the current primary for each shard.
+- It will analyze incoming queries, break them up into smaller parts to outsource them to various shards, and return the consolidated result to the user.
+- It will smoothly redirect traffic to the new primary if there is a failover.
 
 In its full form, MultiGateway will emulate a large part of Postgres, especially for post-processing of results that span across multiple shards.
 
@@ -86,7 +86,7 @@ This architecture minimizes cross-cell dependency: It allows each cell to contin
 
 ### MultiSchema
 
-Sharding  elated data is stored in Postgres itself. It can be viewed as a logical extension of the Postgres schema that is Multigres  pecific.
+Sharding related data is stored in Postgres itself. It can be viewed as a logical extension of the Postgres schema that is Multigres specific.
 
 ## Foundational Dependencies
 
