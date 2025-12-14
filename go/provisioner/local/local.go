@@ -739,7 +739,7 @@ func (p *localProvisioner) provisionMultipooler(ctx context.Context, req *provis
 	}
 
 	// Get PostgreSQL port from config or use default
-	pgPort := ports.DefaultPostgresPort
+	pgPort := ports.DefaultLocalPostgresPort
 	if port, ok := multipoolerConfig["pg_port"].(int); ok && port > 0 {
 		pgPort = port
 	}
