@@ -67,6 +67,9 @@ type Manager struct {
 //   - logger: Logger for pool operations (uses slog.Default() if nil)
 //   - connConfig: Connection settings (socket file, host, port, database)
 func (m *Manager) Open(ctx context.Context, logger *slog.Logger, connConfig *ConnectionConfig) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
 	if logger == nil {
 		logger = slog.Default()
 	}
@@ -74,6 +77,7 @@ func (m *Manager) Open(ctx context.Context, logger *slog.Logger, connConfig *Con
 	m.connConfig = connConfig
 	m.userPools = make(map[string]*UserPool)
 	m.settingsCache = connstate.NewSettingsCache(m.config.SettingsCacheSize())
+	m.closed = false
 
 	// Build admin client config
 	adminClientConfig := m.buildClientConfig(m.config.AdminUser(), m.config.AdminPassword())
@@ -185,6 +189,7 @@ func (m *Manager) Close() {
 	// Close shared admin pool last
 	if m.adminPool != nil {
 		m.adminPool.Close()
+		m.adminPool = nil
 	}
 
 	m.logger.Info("connection pool manager closed")

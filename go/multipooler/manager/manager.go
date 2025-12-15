@@ -281,6 +281,17 @@ func (pm *MultiPoolerManager) Open() error {
 		}
 	}
 
+	// Open connection pool manager
+	if pm.connPoolMgr != nil {
+		connConfig := &connpoolmanager.ConnectionConfig{
+			SocketFile: pm.config.SocketFilePath,
+			Port:       pm.config.PgPort,
+			Database:   pm.config.Database,
+		}
+		pm.connPoolMgr.Open(pm.ctx, pm.logger, connConfig)
+		pm.logger.Info("Connection pool manager opened")
+	}
+
 	pm.isOpen = true
 	pm.logger.Info("MultiPoolerManager opened database connection")
 
@@ -1359,19 +1370,7 @@ func (pm *MultiPoolerManager) Start(senv *servenv.ServEnv) {
 	// Start background restore from backup, for replica poolers
 	go pm.tryAutoRestoreFromBackup(pm.ctx)
 
-	// Open connection pool manager with connection settings from config
-	if pm.connPoolMgr != nil {
-		connConfig := &connpoolmanager.ConnectionConfig{
-			SocketFile: pm.config.SocketFilePath,
-			Port:       pm.config.PgPort,
-			Database:   pm.config.Database,
-		}
-		pm.connPoolMgr.Open(pm.ctx, pm.logger, connConfig)
-		pm.logger.Info("Connection pool manager opened")
-	}
-
-	// Open the database connections and start background operations
-	// This calls connectDB() internally
+	// Open the database connections, connection pool manager, and start background operations
 	// TODO: This should be managed by a proper state manager (like tm_state.go)
 	if err := pm.Open(); err != nil {
 		pm.logger.Error("Failed to open manager during startup", "error", err)
