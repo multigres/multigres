@@ -254,6 +254,7 @@ func (c *Conn) parseRowDescription(body []byte, result *query.QueryResult) error
 			return fmt.Errorf("failed to read data type OID: %w", err)
 		}
 		field.DataTypeOid = dataTypeOID
+		field.Type = protocol.TypeNameFromOID(dataTypeOID)
 
 		dataTypeSize, err := reader.ReadInt16()
 		if err != nil {
@@ -314,12 +315,18 @@ func (c *Conn) parseCommandComplete(body []byte) (string, error) {
 }
 
 // parseRowsAffected extracts the row count from a command tag.
+// Returns 0 for SELECT statements since they don't "affect" rows (they only read).
 func parseRowsAffected(tag string) uint64 {
 	// Command tags have formats like:
-	// - "SELECT 5" (5 rows)
+	// - "SELECT 5" (5 rows returned, but not "affected" since SELECT is read-only)
 	// - "INSERT 0 1" (1 row inserted)
 	// - "UPDATE 10" (10 rows updated)
 	// - "DELETE 3" (3 rows deleted)
+
+	// SELECT doesn't affect rows, only reads them
+	if len(tag) >= 6 && tag[:6] == "SELECT" {
+		return 0
+	}
 
 	// Find the last space-separated number.
 	var count uint64
