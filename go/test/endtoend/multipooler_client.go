@@ -451,7 +451,8 @@ func TestPrimaryDetection(t *testing.T, client *MultiPoolerTestClient) {
 
 	inRecovery := string(result.Rows[0].Values[0])
 	t.Logf("pg_is_in_recovery() returned: %s", inRecovery)
-	// Note: inRecovery is "false" for primary, "true" for standby/replica
+	// Note: PostgreSQL wire protocol returns boolean as 't' or 'f' in text format
+	// inRecovery is "f" for primary, "t" for standby/replica
 }
 
 // printServiceLogs prints the last N lines of a service's log file for debugging.
