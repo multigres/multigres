@@ -1683,8 +1683,6 @@ func TestConfigureSynchronousReplication(t *testing.T) {
 				len(config.StandbyIds) == 1
 		}, "Synchronous replication configuration should converge")
 
-		// Ensure standby is connected and replicating
-
 		_, err = standbyManagerClient.SetTerm(utils.WithShortDeadline(t), &multipoolermanagerdatapb.SetTermRequest{
 			Term: &multipoolermanagerdatapb.ConsensusTerm{
 				TermNumber: 1,
