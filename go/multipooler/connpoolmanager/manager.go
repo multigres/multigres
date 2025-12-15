@@ -126,14 +126,14 @@ func (m *Manager) getOrCreateUserPool(ctx context.Context, user string) (*UserPo
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	// Check if pool already exists
-	if pool, ok := m.userPools[user]; ok {
-		return pool, nil
-	}
-
 	// Check if closed
 	if m.closed {
 		return nil, fmt.Errorf("manager is closed")
+	}
+
+	// Check if pool already exists
+	if pool, ok := m.userPools[user]; ok {
+		return pool, nil
 	}
 
 	// Check max users limit

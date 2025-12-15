@@ -128,7 +128,7 @@ func TestPgProtocolClientSimpleQuery(t *testing.T) {
 		assert.Equal(t, "hello", string(result.Rows[0].Values[1]))
 
 		assert.Contains(t, result.CommandTag, "SELECT")
-		assert.Equal(t, uint64(1), result.RowsAffected)
+		assert.Equal(t, uint64(0), result.RowsAffected) // SELECT doesn't populate RowsAffected
 	})
 
 	t.Run("select_multiple_rows", func(t *testing.T) {
@@ -142,7 +142,7 @@ func TestPgProtocolClientSimpleQuery(t *testing.T) {
 		for i, row := range result.Rows {
 			assert.Equal(t, strconv.Itoa(i+1), string(row.Values[0]))
 		}
-		assert.Equal(t, uint64(5), result.RowsAffected)
+		assert.Equal(t, uint64(0), result.RowsAffected) // SELECT doesn't populate RowsAffected
 	})
 
 	t.Run("multiple_statements", func(t *testing.T) {

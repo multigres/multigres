@@ -257,6 +257,17 @@ func (pm *MultiPoolerManager) Open() error {
 
 	pm.logger.Info("MultiPoolerManager: opening")
 
+	// Open connection pool manager
+	if pm.connPoolMgr != nil {
+		connConfig := &connpoolmanager.ConnectionConfig{
+			SocketFile: pm.config.SocketFilePath,
+			Port:       pm.config.PgPort,
+			Database:   pm.config.Database,
+		}
+		pm.connPoolMgr.Open(pm.ctx, pm.logger, connConfig)
+		pm.logger.Info("Connection pool manager opened")
+	}
+
 	if err := pm.connectDB(); err != nil {
 		return fmt.Errorf("failed to connect to database: %w", err)
 	}
@@ -279,17 +290,6 @@ func (pm *MultiPoolerManager) Open() error {
 			pm.logger.ErrorContext(ctx, "Failed to start heartbeat", "error", err)
 			// Don't fail the connection if heartbeat fails
 		}
-	}
-
-	// Open connection pool manager
-	if pm.connPoolMgr != nil {
-		connConfig := &connpoolmanager.ConnectionConfig{
-			SocketFile: pm.config.SocketFilePath,
-			Port:       pm.config.PgPort,
-			Database:   pm.config.Database,
-		}
-		pm.connPoolMgr.Open(pm.ctx, pm.logger, connConfig)
-		pm.logger.Info("Connection pool manager opened")
 	}
 
 	pm.isOpen = true
