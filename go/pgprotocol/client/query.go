@@ -18,6 +18,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/multigres/multigres/go/parser/ast"
 	"github.com/multigres/multigres/go/pb/query"
 	"github.com/multigres/multigres/go/pgprotocol/protocol"
 )
@@ -254,7 +255,7 @@ func (c *Conn) parseRowDescription(body []byte, result *query.QueryResult) error
 			return fmt.Errorf("failed to read data type OID: %w", err)
 		}
 		field.DataTypeOid = dataTypeOID
-		field.Type = protocol.TypeNameFromOID(dataTypeOID)
+		field.Type = ast.Oid(dataTypeOID).String()
 
 		dataTypeSize, err := reader.ReadInt16()
 		if err != nil {
