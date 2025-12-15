@@ -1674,6 +1674,15 @@ func TestConfigureSynchronousReplication(t *testing.T) {
 		_, err := primaryManagerClient.ConfigureSynchronousReplication(utils.WithShortDeadline(t), configReq)
 		require.NoError(t, err, "ConfigureSynchronousReplication should succeed on primary")
 
+		// Wait for synchronous replication configuration to take effect
+		waitForSyncConfigConvergenceWithClient(t, primaryManagerClient, func(config *multipoolermanagerdatapb.SynchronousReplicationConfiguration) bool {
+			return config != nil &&
+				config.SynchronousCommit == multipoolermanagerdatapb.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_REMOTE_APPLY &&
+				config.SynchronousMethod == multipoolermanagerdatapb.SynchronousMethod_SYNCHRONOUS_METHOD_FIRST &&
+				config.NumSync == 1 &&
+				len(config.StandbyIds) == 1
+		}, "Synchronous replication configuration should converge")
+
 		// Ensure standby is connected and replicating
 
 		_, err = standbyManagerClient.SetTerm(utils.WithShortDeadline(t), &multipoolermanagerdatapb.SetTermRequest{
@@ -1725,13 +1734,6 @@ func TestConfigureSynchronousReplication(t *testing.T) {
 
 		// Test write with synchronous replication enabled
 		t.Log("Testing write with synchronous replication enabled...")
-
-		// Reconnect to pick up the new synchronous_standby_names configuration
-		err = primaryPoolerClient.Close()
-		require.NoError(t, err)
-		primaryPoolerClient, err = endtoend.NewMultiPoolerTestClient(fmt.Sprintf("localhost:%d", setup.PrimaryMultipooler.GrpcPort))
-		require.NoError(t, err)
-		t.Cleanup(func() { primaryPoolerClient.Close() })
 
 		// Create a test table and insert data - this should succeed because standby is available
 		_, err = primaryPoolerClient.ExecuteQuery(context.Background(), "CREATE TABLE IF NOT EXISTS test_sync_repl (id SERIAL PRIMARY KEY, data TEXT)", 0)
