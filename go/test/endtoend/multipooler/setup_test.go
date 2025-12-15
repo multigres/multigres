@@ -967,7 +967,9 @@ func startEtcdForSharedSetup(t *testing.T, dataDir string) (string, *exec.Cmd, e
 		return "", nil, fmt.Errorf("failed to start etcd: %w", err)
 	}
 
-	if err := etcdtopo.WaitForReady(t.Context(), clientAddr, 10*time.Second); err != nil {
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+	if err := etcdtopo.WaitForReady(ctx, clientAddr); err != nil {
 		_ = cmd.Process.Kill()
 		return "", nil, err
 	}

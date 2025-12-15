@@ -15,9 +15,11 @@
 package etcdtopo
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"net"
+	"net/http"
 	"os"
 	"os/exec"
 	"strings"
@@ -27,6 +29,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/multigres/multigres/go/test/utils"
+	"github.com/multigres/multigres/go/tools/retry"
 )
 
 // checkPortAvailable checks if a port is available for binding
@@ -37,6 +40,46 @@ func checkPortAvailable(port int) error {
 	}
 	ln.Close()
 	return nil
+}
+
+// WaitForReady waits for etcd to be ready by querying its /readyz endpoint in a loop.
+// The loop will retry until the endpoint returns 200 OK or the context is cancelled.
+// Callers should pass a context with an appropriate timeout.
+func WaitForReady(ctx context.Context, clientAddr string) error {
+	var lastErr error
+	var lastStatusCode int
+
+	for _, err := range retry.New(10*time.Millisecond, time.Second).Attempts(ctx) {
+		if err != nil {
+			if lastErr != nil {
+				return fmt.Errorf("etcd failed to become ready (last error: %w): %w", lastErr, err)
+			}
+			if lastStatusCode != 0 {
+				return fmt.Errorf("etcd failed to become ready (last status: %d): %w", lastStatusCode, err)
+			}
+			return fmt.Errorf("etcd failed to become ready: %w", err)
+		}
+
+		url := fmt.Sprintf("%s/readyz", clientAddr)
+		req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+		if err != nil {
+			return fmt.Errorf("failed to create request: %w", err)
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			lastErr = err
+			lastStatusCode = 0
+			continue
+		}
+		resp.Body.Close()
+
+		if resp.StatusCode == http.StatusOK {
+			return nil
+		}
+		lastErr = nil
+		lastStatusCode = resp.StatusCode
+	}
+	return fmt.Errorf("etcd failed to become ready")
 }
 
 // EtcdOptions contains optional configuration for starting etcd.
@@ -115,7 +158,9 @@ func StartEtcdWithOptions(t *testing.T, opts EtcdOptions) (string, *exec.Cmd) {
 	require.NoError(t, err, "failed to start etcd")
 
 	// Wait for etcd to be ready
-	err = WaitForReady(t.Context(), clientAddr, 10*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+	err = WaitForReady(ctx, clientAddr)
 	require.NoError(t, err, "etcd failed to become ready")
 
 	t.Cleanup(func() {
