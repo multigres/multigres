@@ -70,14 +70,19 @@ echo ""
 
 if go test -cover -covermode=atomic -coverprofile="$DIRECT_COV" -coverpkg=./... "$@"; then
   DIRECT_RESULT="✓ PASS"
+else
+  DIRECT_RESULT="✗ FAIL"
+  echo ""
+  echo "⚠️  Direct test run failed, but continuing with subprocess coverage..."
+fi
+
+# Extract coverage percentage even if tests failed (partial coverage is still useful)
+if [ -f "$DIRECT_COV" ] && [ -s "$DIRECT_COV" ]; then
   DIRECT_PCT=$(go tool cover -func="$DIRECT_COV" 2>&1 | tail -1 | grep -oE '[0-9]+\.[0-9]+%' || echo "N/A")
   echo ""
   echo "Direct coverage: $DIRECT_PCT"
 else
-  DIRECT_RESULT="✗ FAIL"
   DIRECT_PCT="N/A"
-  echo ""
-  echo "⚠️  Direct test run failed, but continuing with subprocess coverage..."
 fi
 
 echo ""
@@ -92,27 +97,26 @@ export GOCOVERDIR="$SUBPROCESS_RAWDIR"
 
 if go test "$@"; then
   SUBPROCESS_RESULT="✓ PASS"
-
-  # Check if coverage was actually collected
-  if [ -z "$(ls -A "$SUBPROCESS_RAWDIR")" ]; then
-    echo "⚠️  Warning: No subprocess coverage files generated!"
-    echo "    This may indicate:"
-    echo "    - Tests don't spawn subprocess binaries"
-    echo "    - PrependBinToPath() not using coverage binaries"
-    SUBPROCESS_PCT="0%"
-  else
-    # Convert binary coverage to text format
-    echo ""
-    echo "Converting subprocess coverage to text format..."
-    go tool covdata textfmt -i="$SUBPROCESS_RAWDIR" -o="$SUBPROCESS_COV"
-    SUBPROCESS_PCT=$(go tool cover -func="$SUBPROCESS_COV" 2>&1 | tail -1 | grep -oE '[0-9]+\.[0-9]+%' || echo "N/A")
-    echo "Subprocess coverage: $SUBPROCESS_PCT"
-  fi
 else
   SUBPROCESS_RESULT="✗ FAIL"
-  SUBPROCESS_PCT="N/A"
   echo ""
-  echo "⚠️  Subprocess test run failed"
+  echo "⚠️  Subprocess test run failed, but continuing to collect coverage..."
+fi
+
+# Extract subprocess coverage even if tests failed (partial coverage is still useful)
+if [ -z "$(ls -A "$SUBPROCESS_RAWDIR" 2>/dev/null)" ]; then
+  echo "⚠️  Warning: No subprocess coverage files generated!"
+  echo "    This may indicate:"
+  echo "    - Tests don't spawn subprocess binaries"
+  echo "    - PrependBinToPath() not using coverage binaries"
+  SUBPROCESS_PCT="0%"
+else
+  # Convert binary coverage to text format
+  echo ""
+  echo "Converting subprocess coverage to text format..."
+  go tool covdata textfmt -i="$SUBPROCESS_RAWDIR" -o="$SUBPROCESS_COV"
+  SUBPROCESS_PCT=$(go tool cover -func="$SUBPROCESS_COV" 2>&1 | tail -1 | grep -oE '[0-9]+\.[0-9]+%' || echo "N/A")
+  echo "Subprocess coverage: $SUBPROCESS_PCT"
 fi
 
 # Unset GOCOVERDIR
