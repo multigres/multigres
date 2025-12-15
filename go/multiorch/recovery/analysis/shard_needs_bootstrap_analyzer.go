@@ -27,7 +27,9 @@ import (
 // ShardNeedsBootstrapAnalyzer detects when all nodes in a shard are uninitialized.
 // This is a per-pooler analyzer that returns a shard-wide problem.
 // The recovery loop's filterAndPrioritize() will deduplicate multiple instances.
-type ShardNeedsBootstrapAnalyzer struct{}
+type ShardNeedsBootstrapAnalyzer struct {
+	factory *RecoveryActionFactory
+}
 
 func (a *ShardNeedsBootstrapAnalyzer) Name() types.CheckName {
 	return "ShardNeedsBootstrap"
@@ -69,8 +71,7 @@ func (a *ShardNeedsBootstrapAnalyzer) Analyze(poolerAnalysis *store.ReplicationA
 	// If this pooler is uninitialized AND there's no primary in the shard,
 	// then the whole shard likely needs bootstrap
 	if poolerAnalysis.PrimaryPoolerID == nil {
-		factory := GetRecoveryActionFactory()
-		if factory == nil {
+		if a.factory == nil {
 			return nil, errors.New("recovery action factory not initialized")
 		}
 
@@ -83,7 +84,7 @@ func (a *ShardNeedsBootstrapAnalyzer) Analyze(poolerAnalysis *store.ReplicationA
 			Priority:       types.PriorityShardBootstrap,
 			Scope:          types.ScopeShard,
 			DetectedAt:     time.Now(),
-			RecoveryAction: factory.NewBootstrapShardAction(),
+			RecoveryAction: a.factory.NewBootstrapShardAction(),
 		}}, nil
 	}
 

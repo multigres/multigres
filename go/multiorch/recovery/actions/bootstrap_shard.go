@@ -24,6 +24,7 @@ import (
 	"github.com/multigres/multigres/go/common/rpcclient"
 	"github.com/multigres/multigres/go/common/topoclient"
 	commontypes "github.com/multigres/multigres/go/common/types"
+	"github.com/multigres/multigres/go/multiorch/coordinator"
 	"github.com/multigres/multigres/go/multiorch/recovery/types"
 	"github.com/multigres/multigres/go/multiorch/store"
 
@@ -50,7 +51,7 @@ const DefaultStatusRPCTimeout = 5 * time.Second
 // 6. Initialize remaining nodes as standbys
 type BootstrapShardAction struct {
 	rpcClient        rpcclient.MultiPoolerClient
-	poolerStore      *store.ProtoStore[string, *multiorchdatapb.PoolerHealthState]
+	poolerStore      *store.PoolerHealthStore
 	topoStore        topoclient.Store
 	logger           *slog.Logger
 	statusRPCTimeout time.Duration
@@ -59,7 +60,7 @@ type BootstrapShardAction struct {
 // NewBootstrapShardAction creates a new bootstrap action with default settings.
 func NewBootstrapShardAction(
 	rpcClient rpcclient.MultiPoolerClient,
-	poolerStore *store.ProtoStore[string, *multiorchdatapb.PoolerHealthState],
+	poolerStore *store.PoolerHealthStore,
 	topoStore topoclient.Store,
 	logger *slog.Logger,
 ) *BootstrapShardAction {
@@ -175,8 +176,11 @@ func (a *BootstrapShardAction) Execute(ctx context.Context, problem types.Proble
 		"candidate", candidate.MultiPooler.Id.Name)
 
 	// Initialize the candidate as an empty primary with term=1
+	// This now also sets the pooler type to PRIMARY and creates the durability policy
 	req := &multipoolermanagerdatapb.InitializeEmptyPrimaryRequest{
-		ConsensusTerm: 1,
+		ConsensusTerm:        1,
+		DurabilityPolicyName: policyName,
+		DurabilityQuorumRule: quorumRule,
 	}
 	resp, err := a.rpcClient.InitializeEmptyPrimary(ctx, candidate.MultiPooler, req)
 	if err != nil {
@@ -189,38 +193,10 @@ func (a *BootstrapShardAction) Execute(ctx context.Context, problem types.Proble
 			candidate.MultiPooler.Id.Name, resp.ErrorMessage)
 	}
 
-	a.logger.InfoContext(ctx, "successfully initialized primary",
+	a.logger.InfoContext(ctx, "successfully initialized primary with durability policy",
 		"shard_key", problem.ShardKey.String(),
 		"primary", candidate.MultiPooler.Id.Name,
-		"backup_id", resp.BackupId)
-
-	// Set pooler type to PRIMARY after successful initialization
-	// This updates topology so other components (and tests) can observe the node as PRIMARY.
-	changeTypeReq := &multipoolermanagerdatapb.ChangeTypeRequest{
-		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
-	}
-	_, err = a.rpcClient.ChangeType(ctx, candidate.MultiPooler, changeTypeReq)
-	if err != nil {
-		return mterrors.Wrap(err, "failed to set pooler type to PRIMARY")
-	}
-
-	// Create durability policy in the primary's database
-	createPolicyReq := &multipoolermanagerdatapb.CreateDurabilityPolicyRequest{
-		PolicyName: policyName,
-		QuorumRule: quorumRule,
-	}
-	createPolicyResp, err := a.rpcClient.CreateDurabilityPolicy(ctx, candidate.MultiPooler, createPolicyReq)
-	if err != nil {
-		return mterrors.Wrap(err, "failed to create durability policy")
-	}
-
-	if !createPolicyResp.Success {
-		return mterrors.Errorf(mtrpcpb.Code_INTERNAL,
-			"failed to create durability policy: %s", createPolicyResp.ErrorMessage)
-	}
-
-	a.logger.InfoContext(ctx, "successfully created durability policy",
-		"shard_key", problem.ShardKey.String(),
+		"backup_id", resp.BackupId,
 		"policy_name", policyName)
 
 	// Initialize remaining nodes as standbys
@@ -231,17 +207,26 @@ func (a *BootstrapShardAction) Execute(ctx context.Context, problem types.Proble
 		}
 	}
 
-	if err := a.initializeStandbys(ctx, problem.ShardKey, candidate, standbys, resp.BackupId); err != nil {
+	successfulStandbys, initErr := a.initializeStandbys(ctx, problem.ShardKey, candidate, standbys, resp.BackupId)
+	if initErr != nil {
 		// Log but don't fail - we have a primary at least
 		a.logger.WarnContext(ctx, "failed to initialize some standbys",
 			"shard_key", problem.ShardKey.String(),
-			"error", err)
+			"error", initErr)
+	}
+
+	// Configure synchronous replication on primary based on durability policy.
+	// This must be done AFTER standbys are initialized so they can receive WAL.
+	// Only include successfully initialized standbys in the sync replication config.
+	if err := a.configureSynchronousReplication(ctx, candidate, successfulStandbys, quorumRule); err != nil {
+		return mterrors.Wrap(err, "failed to configure synchronous replication")
 	}
 
 	a.logger.InfoContext(ctx, "bootstrap shard action completed successfully",
 		"shard_key", problem.ShardKey.String(),
 		"primary", candidate.MultiPooler.Id.Name,
-		"standbys", len(standbys))
+		"successful_standbys", len(successfulStandbys),
+		"total_standbys", len(standbys))
 
 	return nil
 }
@@ -293,10 +278,12 @@ func (a *BootstrapShardAction) selectBootstrapCandidate(ctx context.Context, coh
 		"no reachable candidate found for bootstrap")
 }
 
-// initializeStandbys initializes multiple nodes as standbys of the given primary
-func (a *BootstrapShardAction) initializeStandbys(ctx context.Context, shardKey commontypes.ShardKey, primary *multiorchdatapb.PoolerHealthState, standbys []*multiorchdatapb.PoolerHealthState, backupID string) error {
+// initializeStandbys initializes multiple nodes as standbys of the given primary.
+// Returns the list of successfully initialized standbys and an error if any standbys failed.
+// The returned list contains only standbys that were successfully initialized.
+func (a *BootstrapShardAction) initializeStandbys(ctx context.Context, shardKey commontypes.ShardKey, primary *multiorchdatapb.PoolerHealthState, standbys []*multiorchdatapb.PoolerHealthState, backupID string) ([]*multiorchdatapb.PoolerHealthState, error) {
 	if len(standbys) == 0 {
-		return nil
+		return nil, nil
 	}
 
 	a.logger.InfoContext(ctx, "initializing standbys",
@@ -322,6 +309,7 @@ func (a *BootstrapShardAction) initializeStandbys(ctx context.Context, shardKey 
 
 	// Collect results
 	var failedNodes []string
+	var successfulStandbys []*multiorchdatapb.PoolerHealthState
 	for range standbys {
 		res := <-results
 		if res.err != nil {
@@ -334,15 +322,16 @@ func (a *BootstrapShardAction) initializeStandbys(ctx context.Context, shardKey 
 			a.logger.InfoContext(ctx, "successfully initialized standby",
 				"shard_key", shardKey.String(),
 				"node", res.node.MultiPooler.Id.Name)
+			successfulStandbys = append(successfulStandbys, res.node)
 		}
 	}
 
 	if len(failedNodes) > 0 {
-		return mterrors.Errorf(mtrpcpb.Code_INTERNAL,
+		return successfulStandbys, mterrors.Errorf(mtrpcpb.Code_INTERNAL,
 			"failed to initialize %d standbys: %v", len(failedNodes), failedNodes)
 	}
 
-	return nil
+	return successfulStandbys, nil
 }
 
 // initializeSingleStandby initializes a single node as a standby of the given primary.
@@ -371,6 +360,41 @@ func (a *BootstrapShardAction) initializeSingleStandby(ctx context.Context, node
 	if err != nil {
 		return fmt.Errorf("failed to set pooler type: %w", err)
 	}
+
+	return nil
+}
+
+// configureSynchronousReplication configures synchronous replication on the primary
+// based on the durability policy and available standbys.
+func (a *BootstrapShardAction) configureSynchronousReplication(
+	ctx context.Context,
+	primary *multiorchdatapb.PoolerHealthState,
+	standbys []*multiorchdatapb.PoolerHealthState,
+	quorumRule *clustermetadatapb.QuorumRule,
+) error {
+	// Build sync replication config using shared function
+	syncConfig, err := coordinator.BuildSyncReplicationConfig(a.logger, quorumRule, standbys, primary)
+	if err != nil {
+		return mterrors.Wrap(err, "failed to build sync replication config")
+	}
+
+	// If syncConfig is nil, sync replication is not needed (e.g., required_count=1)
+	if syncConfig == nil {
+		a.logger.InfoContext(ctx, "Skipping synchronous replication configuration",
+			"reason", "not required by policy")
+		return nil
+	}
+
+	// Configure synchronous replication on the primary
+	_, err = a.rpcClient.ConfigureSynchronousReplication(ctx, primary.MultiPooler, syncConfig)
+	if err != nil {
+		return mterrors.Wrap(err, "failed to configure synchronous replication")
+	}
+
+	a.logger.InfoContext(ctx, "Configured synchronous replication",
+		"primary", primary.MultiPooler.Id.Name,
+		"num_sync", syncConfig.NumSync,
+		"standby_count", len(syncConfig.StandbyIds))
 
 	return nil
 }

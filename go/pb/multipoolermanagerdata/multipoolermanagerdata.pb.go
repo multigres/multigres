@@ -2910,8 +2910,11 @@ type InitializeEmptyPrimaryRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Consensus term to set for this primary
 	ConsensusTerm int64 `protobuf:"varint,1,opt,name=consensus_term,json=consensusTerm,proto3" json:"consensus_term,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	// Optional: Create durability policy after initialization
+	DurabilityPolicyName string                      `protobuf:"bytes,2,opt,name=durability_policy_name,json=durabilityPolicyName,proto3" json:"durability_policy_name,omitempty"`
+	DurabilityQuorumRule *clustermetadata.QuorumRule `protobuf:"bytes,3,opt,name=durability_quorum_rule,json=durabilityQuorumRule,proto3" json:"durability_quorum_rule,omitempty"`
+	unknownFields        protoimpl.UnknownFields
+	sizeCache            protoimpl.SizeCache
 }
 
 func (x *InitializeEmptyPrimaryRequest) Reset() {
@@ -2949,6 +2952,20 @@ func (x *InitializeEmptyPrimaryRequest) GetConsensusTerm() int64 {
 		return x.ConsensusTerm
 	}
 	return 0
+}
+
+func (x *InitializeEmptyPrimaryRequest) GetDurabilityPolicyName() string {
+	if x != nil {
+		return x.DurabilityPolicyName
+	}
+	return ""
+}
+
+func (x *InitializeEmptyPrimaryRequest) GetDurabilityQuorumRule() *clustermetadata.QuorumRule {
+	if x != nil {
+		return x.DurabilityQuorumRule
+	}
+	return nil
 }
 
 type InitializeEmptyPrimaryResponse struct {
@@ -3666,12 +3683,9 @@ func (x *CreateDurabilityPolicyRequest) GetQuorumRule() *clustermetadata.QuorumR
 }
 
 // CreateDurabilityPolicyResponse confirms policy creation
+// Errors are returned via gRPC status codes, not in the response body
 type CreateDurabilityPolicyResponse struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
-	// Whether the policy was created successfully
-	Success bool `protobuf:"varint,1,opt,name=success,proto3" json:"success,omitempty"`
-	// Error message if creation failed
-	ErrorMessage  string `protobuf:"bytes,2,opt,name=error_message,json=errorMessage,proto3" json:"error_message,omitempty"`
+	state         protoimpl.MessageState `protogen:"open.v1"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3704,20 +3718,6 @@ func (x *CreateDurabilityPolicyResponse) ProtoReflect() protoreflect.Message {
 // Deprecated: Use CreateDurabilityPolicyResponse.ProtoReflect.Descriptor instead.
 func (*CreateDurabilityPolicyResponse) Descriptor() ([]byte, []int) {
 	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{60}
-}
-
-func (x *CreateDurabilityPolicyResponse) GetSuccess() bool {
-	if x != nil {
-		return x.Success
-	}
-	return false
-}
-
-func (x *CreateDurabilityPolicyResponse) GetErrorMessage() string {
-	if x != nil {
-		return x.ErrorMessage
-	}
-	return ""
 }
 
 var File_multipoolermanagerdata_proto protoreflect.FileDescriptor
@@ -3883,9 +3883,11 @@ const file_multipoolermanagerdata_proto_rawDesc = "" +
 	"termNumber\x12]\n" +
 	"!accepted_term_from_coordinator_id\x18\x02 \x01(\v2\x13.clustermetadata.IDR\x1dacceptedTermFromCoordinatorId\x12L\n" +
 	"\x14last_acceptance_time\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\x12lastAcceptanceTime\x120\n" +
-	"\tleader_id\x18\x04 \x01(\v2\x13.clustermetadata.IDR\bleaderId\"F\n" +
+	"\tleader_id\x18\x04 \x01(\v2\x13.clustermetadata.IDR\bleaderId\"\xcf\x01\n" +
 	"\x1dInitializeEmptyPrimaryRequest\x12%\n" +
-	"\x0econsensus_term\x18\x01 \x01(\x03R\rconsensusTerm\"|\n" +
+	"\x0econsensus_term\x18\x01 \x01(\x03R\rconsensusTerm\x124\n" +
+	"\x16durability_policy_name\x18\x02 \x01(\tR\x14durabilityPolicyName\x12Q\n" +
+	"\x16durability_quorum_rule\x18\x03 \x01(\v2\x1b.clustermetadata.QuorumRuleR\x14durabilityQuorumRule\"|\n" +
 	"\x1eInitializeEmptyPrimaryResponse\x12\x18\n" +
 	"\asuccess\x18\x01 \x01(\bR\asuccess\x12#\n" +
 	"\rerror_message\x18\x02 \x01(\tR\ferrorMessage\x12\x1b\n" +
@@ -3933,10 +3935,8 @@ const file_multipoolermanagerdata_proto_rawDesc = "" +
 	"\vpolicy_name\x18\x01 \x01(\tR\n" +
 	"policyName\x12<\n" +
 	"\vquorum_rule\x18\x02 \x01(\v2\x1b.clustermetadata.QuorumRuleR\n" +
-	"quorumRule\"_\n" +
-	"\x1eCreateDurabilityPolicyResponse\x12\x18\n" +
-	"\asuccess\x18\x01 \x01(\bR\asuccess\x12#\n" +
-	"\rerror_message\x18\x02 \x01(\tR\ferrorMessage*\x98\x01\n" +
+	"quorumRule\" \n" +
+	"\x1eCreateDurabilityPolicyResponse*\x98\x01\n" +
 	"\x14ReplicationPauseMode\x12&\n" +
 	"\"REPLICATION_PAUSE_MODE_REPLAY_ONLY\x10\x00\x12(\n" +
 	"$REPLICATION_PAUSE_MODE_RECEIVER_ONLY\x10\x01\x12.\n" +
@@ -4042,8 +4042,8 @@ var file_multipoolermanagerdata_proto_goTypes = []any{
 	(*clustermetadata.ID)(nil),                      // 67: clustermetadata.ID
 	(clustermetadata.PoolerType)(0),                 // 68: clustermetadata.PoolerType
 	(*timestamppb.Timestamp)(nil),                   // 69: google.protobuf.Timestamp
-	(*clustermetadata.DurabilityPolicy)(nil),        // 70: clustermetadata.DurabilityPolicy
-	(*clustermetadata.QuorumRule)(nil),              // 71: clustermetadata.QuorumRule
+	(*clustermetadata.QuorumRule)(nil),              // 70: clustermetadata.QuorumRule
+	(*clustermetadata.DurabilityPolicy)(nil),        // 71: clustermetadata.DurabilityPolicy
 }
 var file_multipoolermanagerdata_proto_depIdxs = []int32{
 	66, // 0: multipoolermanagerdata.StandbyReplicationStatus.lag:type_name -> google.protobuf.Duration
@@ -4084,15 +4084,16 @@ var file_multipoolermanagerdata_proto_depIdxs = []int32{
 	67, // 35: multipoolermanagerdata.ConsensusTerm.accepted_term_from_coordinator_id:type_name -> clustermetadata.ID
 	69, // 36: multipoolermanagerdata.ConsensusTerm.last_acceptance_time:type_name -> google.protobuf.Timestamp
 	67, // 37: multipoolermanagerdata.ConsensusTerm.leader_id:type_name -> clustermetadata.ID
-	61, // 38: multipoolermanagerdata.GetBackupsResponse.backups:type_name -> multipoolermanagerdata.BackupMetadata
-	4,  // 39: multipoolermanagerdata.BackupMetadata.status:type_name -> multipoolermanagerdata.BackupMetadata.Status
-	70, // 40: multipoolermanagerdata.GetDurabilityPolicyResponse.policy:type_name -> clustermetadata.DurabilityPolicy
-	71, // 41: multipoolermanagerdata.CreateDurabilityPolicyRequest.quorum_rule:type_name -> clustermetadata.QuorumRule
-	42, // [42:42] is the sub-list for method output_type
-	42, // [42:42] is the sub-list for method input_type
-	42, // [42:42] is the sub-list for extension type_name
-	42, // [42:42] is the sub-list for extension extendee
-	0,  // [0:42] is the sub-list for field type_name
+	70, // 38: multipoolermanagerdata.InitializeEmptyPrimaryRequest.durability_quorum_rule:type_name -> clustermetadata.QuorumRule
+	61, // 39: multipoolermanagerdata.GetBackupsResponse.backups:type_name -> multipoolermanagerdata.BackupMetadata
+	4,  // 40: multipoolermanagerdata.BackupMetadata.status:type_name -> multipoolermanagerdata.BackupMetadata.Status
+	71, // 41: multipoolermanagerdata.GetDurabilityPolicyResponse.policy:type_name -> clustermetadata.DurabilityPolicy
+	70, // 42: multipoolermanagerdata.CreateDurabilityPolicyRequest.quorum_rule:type_name -> clustermetadata.QuorumRule
+	43, // [43:43] is the sub-list for method output_type
+	43, // [43:43] is the sub-list for method input_type
+	43, // [43:43] is the sub-list for extension type_name
+	43, // [43:43] is the sub-list for extension extendee
+	0,  // [0:43] is the sub-list for field type_name
 }
 
 func init() { file_multipoolermanagerdata_proto_init() }

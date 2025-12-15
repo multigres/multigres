@@ -446,7 +446,8 @@ func TestOpen_ValidConfiguration(t *testing.T) {
 	cfg.globalRoot.Set("/test")
 
 	// Call Open - should succeed
-	ts := cfg.Open()
+	ts, err := cfg.Open()
+	require.NoError(t, err, "Open should succeed")
 	require.NotNil(t, ts, "Store should not be nil")
 
 	// Verify factory was called
@@ -456,14 +457,41 @@ func TestOpen_ValidConfiguration(t *testing.T) {
 	ts.Close()
 }
 
-// Note: We cannot easily test the error cases of Open() because they call os.Exit(1)
-// Those cases are:
-// - len(topoGlobalServerAddresses) == 0
-// - topoGlobalRoot == ""
-// - topoImplementation == ""
-// - OpenServer returns an error
-// These would require mocking os.Exit or running in a subprocess, which is beyond
-// the scope of unit tests. The logic is tested indirectly through OpenServer tests.
+func TestTopoConfigOpen_MissingAddresses(t *testing.T) {
+	reg := viperutil.NewRegistry()
+	cfg := NewTopoConfig(reg)
+	cfg.implementation.Set("test-impl")
+	cfg.globalRoot.Set("/test")
+	// Don't set globalServerAddresses
+
+	_, err := cfg.Open()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "topo-global-server-addresses must be configured")
+}
+
+func TestTopoConfigOpen_MissingRoot(t *testing.T) {
+	reg := viperutil.NewRegistry()
+	cfg := NewTopoConfig(reg)
+	cfg.implementation.Set("test-impl")
+	cfg.globalServerAddresses.Set([]string{"localhost:2181"})
+	// Don't set globalRoot
+
+	_, err := cfg.Open()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "topo-global-root must be non-empty")
+}
+
+func TestTopoConfigOpen_MissingImplementation(t *testing.T) {
+	reg := viperutil.NewRegistry()
+	cfg := NewTopoConfig(reg)
+	cfg.globalServerAddresses.Set([]string{"localhost:2181"})
+	cfg.globalRoot.Set("/test")
+	// Don't set implementation
+
+	_, err := cfg.Open()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "topo-implementation must be configured")
+}
 
 func TestStatus_InitiallyEmpty(t *testing.T) {
 	factory := newMockFactory()

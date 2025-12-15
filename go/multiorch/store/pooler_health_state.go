@@ -18,6 +18,16 @@ import (
 	multiorchdata "github.com/multigres/multigres/go/pb/multiorchdata"
 )
 
+// PoolerHealthStore is a type alias for the store that holds pooler health state.
+// This provides a shorter, more readable type name for the commonly used
+// ProtoStore[string, *multiorchdata.PoolerHealthState].
+type PoolerHealthStore = ProtoStore[string, *multiorchdata.PoolerHealthState]
+
+// NewPoolerHealthStore creates a new store for pooler health state.
+func NewPoolerHealthStore() *PoolerHealthStore {
+	return NewProtoStore[string, *multiorchdata.PoolerHealthState]()
+}
+
 // IsInitialized returns true if the pooler has been initialized.
 // A pooler is considered initialized based on the IsInitialized field from
 // the Status RPC, which is determined by the data directory state (not LSN).

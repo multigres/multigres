@@ -34,11 +34,14 @@ type Analyzer interface {
 var defaultAnalyzers []Analyzer
 
 // DefaultAnalyzers returns the current set of analyzers to run.
-func DefaultAnalyzers() []Analyzer {
+// The factory is injected into each analyzer for creating recovery actions.
+func DefaultAnalyzers(factory *RecoveryActionFactory) []Analyzer {
 	if defaultAnalyzers == nil {
 		return []Analyzer{
-			&ShardNeedsBootstrapAnalyzer{},
-			&PrimaryIsDeadAnalyzer{},
+			&ShardNeedsBootstrapAnalyzer{factory: factory},
+			&PrimaryIsDeadAnalyzer{factory: factory},
+			&ReplicaNotReplicatingAnalyzer{factory: factory},
+			&ReplicaNotInStandbyListAnalyzer{factory: factory},
 		}
 	}
 	return defaultAnalyzers
@@ -54,20 +57,4 @@ func SetTestAnalyzers(analyzers []Analyzer) {
 // This should be called in test cleanup.
 func ResetAnalyzers() {
 	defaultAnalyzers = nil
-}
-
-// globalFactory holds the global RecoveryActionFactory instance.
-// This is set during engine initialization and used by analyzers.
-var globalFactory *RecoveryActionFactory
-
-// SetRecoveryActionFactory sets the global recovery action factory.
-// This should be called during engine initialization.
-func SetRecoveryActionFactory(factory *RecoveryActionFactory) {
-	globalFactory = factory
-}
-
-// GetRecoveryActionFactory returns the global recovery action factory.
-// Analyzers use this to create recovery actions.
-func GetRecoveryActionFactory() *RecoveryActionFactory {
-	return globalFactory
 }

@@ -164,6 +164,68 @@ func (cs *ConsensusState) AcceptCandidateAndSave(ctx context.Context, candidateI
 	return cs.saveAndUpdateLocked(newTerm)
 }
 
+// UpdateTermAndAcceptCandidate atomically updates the term and accepts a candidate in one file write.
+// This is used by BeginTerm to avoid two separate file writes.
+// If newTerm > currentTerm, updates term and resets acceptance, then sets the candidate.
+// If newTerm == currentTerm, just accepts the candidate (same as AcceptCandidateAndSave).
+// Returns error if newTerm < currentTerm.
+func (cs *ConsensusState) UpdateTermAndAcceptCandidate(ctx context.Context, newTerm int64, candidateID *clustermetadatapb.ID) error {
+	if err := AssertActionLockHeld(ctx); err != nil {
+		return err
+	}
+	cs.mu.Lock()
+	defer cs.mu.Unlock()
+
+	if candidateID == nil {
+		return fmt.Errorf("candidate ID cannot be nil")
+	}
+
+	currentTerm := int64(0)
+	if cs.term != nil {
+		currentTerm = cs.term.GetTermNumber()
+	}
+
+	if newTerm < currentTerm {
+		return fmt.Errorf("cannot update to older term: current=%d, new=%d", currentTerm, newTerm)
+	}
+
+	var newTermProto *multipoolermanagerdatapb.ConsensusTerm
+
+	if newTerm > currentTerm {
+		// Higher term: create new term with the candidate already set
+		newTermProto = &multipoolermanagerdatapb.ConsensusTerm{
+			TermNumber:                    newTerm,
+			AcceptedTermFromCoordinatorId: proto.Clone(candidateID).(*clustermetadatapb.ID),
+			LastAcceptanceTime:            timestamppb.New(time.Now()),
+			LeaderId:                      nil,
+		}
+	} else {
+		// Same term: just update acceptance (idempotent check first)
+		if cs.term == nil {
+			return fmt.Errorf("consensus term not initialized")
+		}
+
+		// If already accepted from this coordinator, idempotent success
+		if cs.term.AcceptedTermFromCoordinatorId != nil && proto.Equal(cs.term.AcceptedTermFromCoordinatorId, candidateID) {
+			return nil
+		}
+
+		// Check if already accepted from someone else in this term
+		if cs.term.AcceptedTermFromCoordinatorId != nil {
+			return fmt.Errorf("already accepted term from %s in term %d",
+				cs.term.AcceptedTermFromCoordinatorId.GetName(), cs.term.TermNumber)
+		}
+
+		// Prepare acceptance
+		newTermProto = cloneTerm(cs.term)
+		newTermProto.AcceptedTermFromCoordinatorId = proto.Clone(candidateID).(*clustermetadatapb.ID)
+		newTermProto.LastAcceptanceTime = timestamppb.New(time.Now())
+	}
+
+	// Single file write
+	return cs.saveAndUpdateLocked(newTermProto)
+}
+
 // UpdateTermAndSave atomically updates the term number, resetting accepted coordinator.
 // This is called when discovering a newer term from another node.
 // Returns error if newTerm < currentTerm.

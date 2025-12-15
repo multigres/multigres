@@ -541,6 +541,10 @@ message ConsensusTerm {
 message InitializeEmptyPrimaryRequest {
   // Consensus term to set for this primary
   int64 consensus_term = 1;
+
+  // Optional: Create durability policy after initialization
+  string durability_policy_name = 2;
+  clustermetadata.QuorumRule durability_quorum_rule = 3;
 }
 
 message InitializeEmptyPrimaryResponse {
@@ -675,10 +679,6 @@ message CreateDurabilityPolicyRequest {
 }
 
 // CreateDurabilityPolicyResponse confirms policy creation
+// Errors are returned via gRPC status codes, not in the response body
 message CreateDurabilityPolicyResponse {
-  // Whether the policy was created successfully
-  bool success = 1;
-
-  // Error message if creation failed
-  string error_message = 2;
 }
