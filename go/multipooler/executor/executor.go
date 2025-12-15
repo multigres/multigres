@@ -271,7 +271,17 @@ func (e *Executor) executeSelectQuery(ctx context.Context, queryStr string, maxR
 			if val == nil {
 				values[i] = nil
 			} else {
-				values[i] = fmt.Appendf(nil, "%v", val)
+				// Handle []byte specially - use directly without formatting.
+				// This is important because PostgreSQL returns TEXT/NAME/VARCHAR as []byte
+				// and fmt's %v would format it as [byte values...] instead of the string.
+				switch v := val.(type) {
+				case []byte:
+					values[i] = v
+				case string:
+					values[i] = []byte(v)
+				default:
+					values[i] = fmt.Appendf(nil, "%v", val)
+				}
 			}
 		}
 

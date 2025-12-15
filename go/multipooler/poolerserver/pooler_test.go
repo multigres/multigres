@@ -152,6 +152,7 @@ func TestResultTranslation_NullValues(t *testing.T) {
 		{"Integer value", 42, []byte("42")},
 		{"Boolean true", true, []byte("true")},
 		{"Boolean false", false, []byte("false")},
+		{"Byte slice value", []byte("public"), []byte("public")},
 	}
 
 	for _, tt := range tests {
@@ -161,7 +162,15 @@ func TestResultTranslation_NullValues(t *testing.T) {
 			if tt.input == nil {
 				result = nil
 			} else {
-				result = fmt.Appendf(nil, "%v", tt.input)
+				// Match the new type switch logic in executor.go
+				switch v := tt.input.(type) {
+				case []byte:
+					result = v
+				case string:
+					result = []byte(v)
+				default:
+					result = fmt.Appendf(nil, "%v", tt.input)
+				}
 			}
 
 			if tt.expected == nil {
