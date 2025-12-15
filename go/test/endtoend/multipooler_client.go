@@ -144,6 +144,50 @@ func IsPrimary(addr string) (bool, error) {
 	return resp.Status.PoolerType == clustermetadatapb.PoolerType_PRIMARY, nil
 }
 
+// WaitForPoolerTypeAssigned waits for the pooler type to be assigned (either PRIMARY or REPLICA, not UNKNOWN).
+// This is useful when the test needs to call RPCs that require the pooler type to be known.
+func WaitForPoolerTypeAssigned(t *testing.T, addr string, timeout time.Duration) (clustermetadatapb.PoolerType, error) {
+	t.Helper()
+
+	conn, err := grpc.NewClient(addr, grpccommon.LocalClientDialOptions()...)
+	if err != nil {
+		return clustermetadatapb.PoolerType_UNKNOWN, fmt.Errorf("failed to create client: %w", err)
+	}
+	defer conn.Close()
+
+	client := multipoolermanagerpb.NewMultiPoolerManagerClient(conn)
+	deadline := time.Now().Add(timeout)
+
+	for time.Now().Before(deadline) {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		resp, err := client.Status(ctx, &multipoolermanagerdatapb.StatusRequest{})
+		cancel()
+
+		if err != nil {
+			t.Logf("Waiting for pooler type at %s... (Status RPC error: %v)", addr, err)
+			time.Sleep(500 * time.Millisecond)
+			continue
+		}
+
+		if resp == nil || resp.Status == nil {
+			t.Logf("Waiting for pooler type at %s... (nil status response)", addr)
+			time.Sleep(500 * time.Millisecond)
+			continue
+		}
+
+		poolerType := resp.Status.PoolerType
+		if poolerType != clustermetadatapb.PoolerType_UNKNOWN {
+			t.Logf("Pooler type at %s is now %s", addr, poolerType.String())
+			return poolerType, nil
+		}
+
+		t.Logf("Waiting for pooler type at %s... (currently UNKNOWN)", addr)
+		time.Sleep(500 * time.Millisecond)
+	}
+
+	return clustermetadatapb.PoolerType_UNKNOWN, fmt.Errorf("pooler type was not assigned within %v", timeout)
+}
+
 // Test helper functions
 
 // TestBasicSelect tests a basic SELECT query
