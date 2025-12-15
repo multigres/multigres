@@ -10,7 +10,9 @@ isolation while supporting Row-Level Security (RLS) policies.
 
 ## Architecture
 
-```
+<!-- markdownlint-disable MD013 -->
+
+```text
 ┌──────────────────────────────────────────────────────────────────────────────────┐
 │                           ConnectionPoolManager                                  │
 │                                                                                  │
@@ -44,6 +46,8 @@ isolation while supporting Row-Level Security (RLS) policies.
 └──────────────────────────────────────────────────────────────────────────────────┘
 ```
 
+<!-- markdownlint-enable MD013 -->
+
 ## Connection Pool Types
 
 ### 1. AdminPool (Shared)
@@ -51,12 +55,14 @@ isolation while supporting Row-Level Security (RLS) policies.
 **Purpose:** Control plane operations for connection management.
 
 **Characteristics:**
+
 - Small pool size (default: 5 connections)
 - Connects as PostgreSQL superuser (default: `postgres`)
 - Shared across all users
 - Used exclusively for `pg_terminate_backend()` operations
 
 **Use Cases:**
+
 - Canceling long-running queries
 - Terminating connections when clients disconnect unexpectedly
 - Killing timed-out reserved connections
@@ -71,12 +77,14 @@ Pools are created **lazily** on first connection request for that user.
 **Purpose:** Data plane connections for query execution with session state.
 
 **Characteristics:**
+
 - Authenticates directly as the user (trust/peer auth)
 - Supports the Extended Query Protocol (Parse/Bind/Execute)
 - Tracks connection state including settings and prepared statements
 - Uses settings-based bucket routing for connection reuse
 
 **Use Cases:**
+
 - Simple queries without transactions
 - Queries that can be executed on any available connection with matching settings
 
@@ -85,7 +93,9 @@ Pools are created **lazily** on first connection request for that user.
 **Purpose:** Long-lived connections for transactions and portal operations.
 
 **Characteristics:**
-- Fully encapsulates its own underlying RegularPool (completely separate from the main RegularPool)
+
+- Fully encapsulates its own underlying RegularPool (completely separate from
+  the main RegularPool)
 - Authenticates directly as the user (trust/peer auth)
 - Assigns unique connection IDs via atomic counter for client-side reference
 - Maintains an `active map[int64]*Conn` for ID-based lookup
@@ -93,6 +103,7 @@ Pools are created **lazily** on first connection request for that user.
 - Includes background `idleKiller` goroutine for timed-out connections
 
 **Use Cases:**
+
 - Explicit transactions (`BEGIN`/`COMMIT`/`ROLLBACK`)
 - Cursor operations requiring persistent portal state
 - Any operation requiring connection affinity
@@ -101,10 +112,10 @@ Pools are created **lazily** on first connection request for that user.
 
 Reserved connections have two timeout configurations:
 
-| Timeout | Default | Purpose |
-|---------|---------|---------|
-| Inactivity Timeout | 30s | Kills reserved connections when client is inactive (aggressive) |
-| Idle Timeout | 5min | Reduces pool size when connections sit idle in pool |
+| Timeout            | Default | Purpose                                                         |
+| ------------------ | ------- | --------------------------------------------------------------- |
+| Inactivity Timeout | 30s     | Kills reserved connections when client is inactive (aggressive) |
+| Idle Timeout       | 5min    | Reduces pool size when connections sit idle in pool             |
 
 A background goroutine runs at 1/10th of the inactivity timeout interval to scan
 and kill connections that have exceeded their timeout. Each time a connection is
@@ -119,6 +130,7 @@ combination of session settings maps to a dedicated bucket of connections. This
 enables efficient connection reuse when clients have matching settings.
 
 **Key Properties:**
+
 - Settings are defined by session variables set via `SET` commands
 - Each unique settings combination gets a unique bucket number
 - Connections are routed to stacks based on their bucket number
@@ -164,7 +176,7 @@ This design provides:
 
 **Simple Query (RegularPool):**
 
-```
+```text
 1. Client request arrives for user "alice" with settings
 2. Manager.GetRegularConn(ctx, "alice")
    └─ getOrCreateUserPool("alice") → creates pool if needed
@@ -175,7 +187,7 @@ This design provides:
 
 **Transaction (ReservedPool):**
 
-```
+```text
 1. Client request arrives for user "alice", BEGIN transaction
 2. Manager.NewReservedConn(ctx, settings, "alice")
    └─ getOrCreateUserPool("alice")
@@ -208,11 +220,13 @@ session would pollute that connection:
 4. The connection state becomes inconsistent with the pool's expectations
 
 **What We Cannot Prevent:**
+
 - `SET ROLE` inside stored procedures or functions (PL/pgSQL)
 - `SET ROLE` via dynamic SQL in procedural languages (PL/Python, PL/Perl, etc.)
 - Any server-side code that modifies the session role
 
 **What We Plan to Prevent (Future Work):**
+
 - Direct `SET ROLE` commands in simple queries (detected and rejected)
 - `SET SESSION AUTHORIZATION` commands
 
@@ -220,6 +234,7 @@ session would pollute that connection:
 
 Until query-level detection is implemented, it is the client's responsibility
 to ensure that:
+
 - Application code does not execute `SET ROLE` statements
 - Stored procedures and functions do not change session roles
 - If role changes are required within procedures, they must `RESET ROLE` before returning
@@ -308,42 +323,42 @@ The connection pool manager is configured via command-line flags (backed by vipe
 
 **Admin Pool Flags:**
 
-| Flag | Default | Env Var | Description |
-|------|---------|---------|-------------|
-| `--connpool-admin-user` | `postgres` | `CONNPOOL_ADMIN_USER` | Admin pool user (PostgreSQL superuser) |
-| `--connpool-admin-password` | - | `CONNPOOL_ADMIN_PASSWORD` | Admin pool password |
-| `--connpool-admin-capacity` | 5 | - | Maximum admin connections |
+| Flag                        | Default    | Env Var                   | Description                            |
+| --------------------------- | ---------- | ------------------------- | -------------------------------------- |
+| `--connpool-admin-user`     | `postgres` | `CONNPOOL_ADMIN_USER`     | Admin pool user (PostgreSQL superuser) |
+| `--connpool-admin-password` | -          | `CONNPOOL_ADMIN_PASSWORD` | Admin pool password                    |
+| `--connpool-admin-capacity` | 5          | -                         | Maximum admin connections              |
 
 **Per-User Regular Pool Flags:**
 
-| Flag | Default | Description |
-|------|---------|-------------|
-| `--connpool-user-regular-capacity` | 10 | Maximum regular connections per user |
-| `--connpool-user-regular-max-idle` | 5 | Maximum idle regular connections per user |
-| `--connpool-user-regular-idle-timeout` | 5m | Idle timeout before closing regular connections |
-| `--connpool-user-regular-max-lifetime` | 1h | Maximum lifetime before recycling |
+| Flag                                   | Default | Description                                     |
+| -------------------------------------- | ------- | ----------------------------------------------- |
+| `--connpool-user-regular-capacity`     | 10      | Maximum regular connections per user            |
+| `--connpool-user-regular-max-idle`     | 5       | Maximum idle regular connections per user       |
+| `--connpool-user-regular-idle-timeout` | 5m      | Idle timeout before closing regular connections |
+| `--connpool-user-regular-max-lifetime` | 1h      | Maximum lifetime before recycling               |
 
 **Per-User Reserved Pool Flags:**
 
-| Flag | Default | Description |
-|------|---------|-------------|
-| `--connpool-user-reserved-capacity` | 5 | Maximum reserved connections per user |
-| `--connpool-user-reserved-max-idle` | 2 | Maximum idle reserved connections per user |
-| `--connpool-user-reserved-inactivity-timeout` | 30s | Inactivity timeout for reserved connections |
-| `--connpool-user-reserved-idle-timeout` | 5m | Idle timeout for underlying pool |
-| `--connpool-user-reserved-max-lifetime` | 1h | Maximum lifetime before recycling |
+| Flag                                          | Default | Description                                 |
+| --------------------------------------------- | ------- | ------------------------------------------- |
+| `--connpool-user-reserved-capacity`           | 5       | Maximum reserved connections per user       |
+| `--connpool-user-reserved-max-idle`           | 2       | Maximum idle reserved connections per user  |
+| `--connpool-user-reserved-inactivity-timeout` | 30s     | Inactivity timeout for reserved connections |
+| `--connpool-user-reserved-idle-timeout`       | 5m      | Idle timeout for underlying pool            |
+| `--connpool-user-reserved-max-lifetime`       | 1h      | Maximum lifetime before recycling           |
 
 **User Pool Limits:**
 
-| Flag | Default | Description |
-|------|---------|-------------|
-| `--connpool-max-users` | 0 | Maximum number of user pools (0 = unlimited) |
+| Flag                   | Default | Description                                  |
+| ---------------------- | ------- | -------------------------------------------- |
+| `--connpool-max-users` | 0       | Maximum number of user pools (0 = unlimited) |
 
 **Settings Cache:**
 
-| Flag | Default | Description |
-|------|---------|-------------|
-| `--connpool-settings-cache-size` | 1024 | Maximum number of unique settings combinations to cache |
+| Flag                             | Default | Description                                             |
+| -------------------------------- | ------- | ------------------------------------------------------- |
+| `--connpool-settings-cache-size` | 1024    | Maximum number of unique settings combinations to cache |
 
 **Note:** Connection settings (socket file, port, database) use the existing multipooler flags
 (`--socket-file`, `--pg-port`, `--database`) and are passed to the connection pool manager
