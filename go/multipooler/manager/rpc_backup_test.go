@@ -28,6 +28,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
 
+	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
@@ -39,9 +40,18 @@ func createTestManager(poolerDir, stanzaName, tableGroup, shard string, poolerTy
 	return createTestManagerWithBackupLocation(poolerDir, stanzaName, tableGroup, shard, poolerType, "/tmp/backups")
 }
 
-// createTestManagerWithBackupLocation creates a minimal MultiPoolerManager for testing with backup_location
+// createTestManagerWithBackupLocation creates a minimal MultiPoolerManager for testing with backup_location.
+// backupLocation is the base path; the full path (with database/tablegroup/shard) is computed internally.
 func createTestManagerWithBackupLocation(poolerDir, stanzaName, tableGroup, shard string, poolerType clustermetadatapb.PoolerType, backupLocation string) *MultiPoolerManager {
 	database := "test-database"
+
+	// Use defaults if not provided
+	if tableGroup == "" {
+		tableGroup = constants.DefaultTableGroup
+	}
+	if shard == "" {
+		shard = constants.DefaultShard
+	}
 
 	multipoolerID := &clustermetadatapb.ID{
 		Component: clustermetadatapb.ID_MULTIPOOLER,
@@ -59,14 +69,14 @@ func createTestManagerWithBackupLocation(poolerDir, stanzaName, tableGroup, shar
 		},
 	}
 
-	// Create a topology store with backup location if provided
+	// Create a topology store with backup location (base path) if provided
 	var topoClient topoclient.Store
 	if backupLocation != "" {
 		ctx := context.Background()
 		ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
 		err := ts.CreateDatabase(ctx, database, &clustermetadatapb.Database{
 			Name:             database,
-			BackupLocation:   backupLocation,
+			BackupLocation:   backupLocation, // Base path in topology
 			DurabilityPolicy: "ANY_2",
 		})
 		if err == nil {
@@ -74,17 +84,25 @@ func createTestManagerWithBackupLocation(poolerDir, stanzaName, tableGroup, shar
 		}
 	}
 
+	// Compute full backup location: base path + database/tablegroup/shard
+	fullBackupLocation := ""
+	if backupLocation != "" {
+		fullBackupLocation = filepath.Join(backupLocation, database, tableGroup, shard)
+	}
+
 	pm := &MultiPoolerManager{
 		config: &Config{
 			PoolerDir:        poolerDir,
 			PgBackRestStanza: stanzaName,
 			ServiceID:        &clustermetadatapb.ID{Name: "test-service"},
+			TableGroup:       tableGroup,
+			Shard:            shard,
 		},
 		serviceID:      &clustermetadatapb.ID{Name: "test-service"},
 		topoClient:     topoClient,
 		multipooler:    multipoolerInfo,
 		state:          ManagerStateReady,
-		backupLocation: backupLocation,
+		backupLocation: fullBackupLocation,
 		actionLock:     NewActionLock(),
 		cachedMultipooler: cachedMultiPoolerInfo{
 			multipooler: topoclient.NewMultiPoolerInfo(

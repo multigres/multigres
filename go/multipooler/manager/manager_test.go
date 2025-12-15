@@ -496,10 +496,12 @@ func TestGetBackupLocation(t *testing.T) {
 		proto.Clone(multipoolerInfo.MultiPooler).(*clustermetadatapb.MultiPooler),
 		multipoolerInfo.Version(),
 	)
-	manager.backupLocation = "/var/backups/pgbackrest"
+	// backupLocation is now the full path: base + database/tablegroup/shard
+	expectedShardBackupLocation := filepath.Join("/var/backups/pgbackrest", database, constants.DefaultTableGroup, constants.DefaultShard)
+	manager.backupLocation = expectedShardBackupLocation
 
 	// Test accessing backup location field
-	assert.Equal(t, "/var/backups/pgbackrest", manager.backupLocation)
+	assert.Equal(t, expectedShardBackupLocation, manager.backupLocation)
 }
 
 // TestWaitUntilReady_Success verifies that WaitUntilReady returns immediately

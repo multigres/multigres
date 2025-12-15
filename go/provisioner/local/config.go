@@ -545,7 +545,7 @@ func (p *localProvisioner) GeneratePgBackRestConfigs() error {
 			LogPath:         pgBackRestLogPath,
 			SpoolPath:       pgBackRestSpoolPath,
 			LockPath:        pgBackRestLockPath,
-			RetentionFull:   2, // Keep 2 full backups by default
+			RetentionFull:   7, // Number of days' worth of full backups to retain
 		}
 
 		// Write the pgBackRest config file
