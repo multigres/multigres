@@ -47,8 +47,8 @@ func TestFixReplication(t *testing.T) {
 	}
 
 	// Setup test cluster (2 zones: primary + replica)
-	clusterSetup := setupTestCluster(t)
-	t.Cleanup(clusterSetup.Cleanup)
+	clusterSetup, cleanup := setupTestCluster(t)
+	t.Cleanup(cleanup)
 	t.Logf("Test cluster ready in directory: %s", clusterSetup.TempDir)
 
 	// Identify primary and replica zones
